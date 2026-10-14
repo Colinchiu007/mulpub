@@ -115,8 +115,10 @@ describe('Story2VideoComposeEngine — _cleanupOldSessions (P2-7)', () => {
     const oldTime = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000) // 2 天前
     fs.utimesSync(oldSession, oldTime, oldTime)
 
-    // 创建一个新 sessionDir（当前时间，不应被清理）
+    // 创建一个新 sessionDir（当前时间，不应被清理）——同样要按被测方的钟盖章，理由见上
     const newSession = createMockSessionDir(outputDir, 's2v_new_session')
+    const newTime = new Date()
+    fs.utimesSync(newSession, newTime, newTime)
 
     const cleaned = engine._cleanupOldSessions(24 * 60 * 60 * 1000) // 24h
     expect(cleaned).toBe(1)

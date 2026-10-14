@@ -1,0 +1,79 @@
+name: 时钟位移引信巡检
+
+# 类级欠账「aging fixture」的常驻控制：绝对时间戳夹具 + 相对窗口 + 真实时钟路径这类用例
+# 在写下那天必绿，N 天后自己变红（引信），而静态形状判据已被实测否证——本仓 6 条静态规则
+# 6 条全是假阳，同时漏掉真正被抓到的那条（跨时钟域比较）。判据一律走行为：把 Date 整体推到
+# 未来再跑一遍，与基线趟做逐文件对照，**只有位移趟红**的文件即引信。
+#
+# 为什么只挂 schedule 不挂 pull_request：完整判定要跑两趟 apps/desktop 全量 vitest
+# （基线趟 + 位移趟，本机实测约 20 分钟/趟），挂在每个 PR 上会把 Gate 4 那面 30 分钟预算墙
+# 重新立起来。结构性后果是"引信在 PR 里不被拦，只在周巡检里出声"，所以：
+#   - 每次 PR 仍跑 `check-clock-shift-oracle.test.js`（8 条锁）+ `--dry-run` 自检
+#     （见 quality-gate.yml Gate 2b）——保证判据本体与接缝不被拆掉；
+#   - 本 workflow 负责"真的跑一次完整两趟"，每周把全量域过一遍。
+# 未接进 required checks：这条是巡检而非合入门禁，红了指向"有人去修引信"，不指向"这个 PR 不许合"。
+on:
+  schedule:
+    # 每周三 18:00 UTC（避开周一 dep-audit 与周五发布节拍）
+    - cron: '0 18 * * 3'
+  workflow_dispatch:
+    inputs:
+      shift_days:
+        description: '把时钟往前推多少天（默认 45，覆盖既有引信的窗口）'
+        required: false
+        default: '45'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  clock-shift-oracle:
+    name: 时钟位移引信巡检
+    runs-on: windows-latest
+    # 两趟全量对照：本机实测 168 个候选文件两趟共 11 分 24 秒（2026-10-13 22:18:17→22:29:41，
+    # 基线趟 rc=0 collected=168、位移趟 rc=0 collected=168）。runner 冷启动按 3 倍留余量。
+    # 到点即红（不是"跳过"）——巡检挂死与巡检通过必须可区分。
+    timeout-minutes: 45
+    env:
+      MP_CLOCK_ORACLE_SHIFT_DAYS: ${{ github.event.inputs.shift_days || '45' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.13.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+
+      # electron@43 无 postinstall：不先备好二进制，require('electron') 会在用例内现场下载，
+      # 下载耗时被记到"当时正在跑的那条用例"头上（#2783 实测撞 testTimeout）。
+      - name: Ensure Electron binary
+        run: node scripts/ensure-electron.js
+
+      - name: 接缝自检（不起 vitest，秒级；判据本体坏掉必须当场出声）
+        shell: bash
+        run: node scripts/check-clock-shift-oracle.js --dry-run
+
+      - name: 完整两趟位移对照（基线趟 + 位移趟，逐文件差分）
+        shell: bash
+        env:
+          MP_TEST_EGRESS_LEDGER: ${{ runner.temp }}\egress-ledger-clock-oracle.jsonl
+          MP_TEST_EGRESS_SUITE: clock-shift-oracle
+        # 位移天数必须显式作为参数交给判据本体，不能只声明 env 就当作已生效：
+        # 传空串时 Number('')=0，位移趟与基线趟同形，会被脚本自身的 patch_active 判据
+        # 拦成 FAIL（"没有新增红"在这种跑法下是假绿），所以这里不做兜底美化。
+        run: node scripts/check-clock-shift-oracle.js --shift-days="$MP_CLOCK_ORACLE_SHIFT_DAYS"

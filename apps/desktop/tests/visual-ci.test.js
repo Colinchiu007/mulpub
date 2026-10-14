@@ -410,6 +410,77 @@ describe('visual-ci 像素门禁', () => {
     }
   })
 
+  it('Agent 报告的 generatedAt 早于本轮开始时必须判过期（新鲜度看内容时间戳，不看文件系统 mtime）', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'visual-ci-agent-stale-'))
+    const outputJsonPath = path.join(tempDir, 'agent-judge-results.json')
+    const outputMarkdownPath = path.join(tempDir, 'judge-report.md')
+    const pixelResult = {
+      total: 1,
+      passed: 1,
+      failed: 0,
+      details: [{ name: 'approved', route: '/accounts', status: 'PASSED' }],
+    }
+
+    try {
+      const result = runAgentJudge({
+        pixelResult,
+        outputJsonPath,
+        outputMarkdownPath,
+        runNodeScript: () => {
+          // 上一轮遗留的报告：结构完全合规、mtime 是本轮刚写的，只有内容时间戳是旧的。
+          fs.writeFileSync(outputJsonPath, JSON.stringify({
+            generatedAt: new Date(Date.now() - 3600 * 1000).toISOString(),
+            summary: { total: 1, pixelFailed: 0, pixelPassed: 1 },
+            tests: [{ testName: 'approved', route: '/accounts', needsAgentReview: false }],
+          }))
+          fs.writeFileSync(outputMarkdownPath, '# Agent Visual Judge Report\n\n## Summary\n')
+          return 'report generated'
+        },
+      })
+
+      expect(result).toBe('failed')
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('Agent 报告缺少或非法定位 generatedAt 时必须失败关闭（无判据即视为过期）', () => {
+    for (const generatedAt of [undefined, 'not-a-timestamp', 1700000000000]) {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'visual-ci-agent-nots-'))
+      const outputJsonPath = path.join(tempDir, 'agent-judge-results.json')
+      const outputMarkdownPath = path.join(tempDir, 'judge-report.md')
+      const pixelResult = {
+        total: 1,
+        passed: 1,
+        failed: 0,
+        details: [{ name: 'approved', route: '/accounts', status: 'PASSED' }],
+      }
+
+      try {
+        const payload = {
+          summary: { total: 1, pixelFailed: 0, pixelPassed: 1 },
+          tests: [{ testName: 'approved', route: '/accounts', needsAgentReview: false }],
+        }
+        if (generatedAt !== undefined) payload.generatedAt = generatedAt
+
+        const result = runAgentJudge({
+          pixelResult,
+          outputJsonPath,
+          outputMarkdownPath,
+          runNodeScript: () => {
+            fs.writeFileSync(outputJsonPath, JSON.stringify(payload))
+            fs.writeFileSync(outputMarkdownPath, '# Agent Visual Judge Report\n\n## Summary\n')
+            return 'report generated'
+          },
+        })
+
+        expect(result).toBe('failed')
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true })
+      }
+    }
+  })
+
   it('Agent 报告为空或结构不完整时必须失败关闭', () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'visual-ci-agent-invalid-'))
     const outputJsonPath = path.join(tempDir, 'agent-judge-results.json')

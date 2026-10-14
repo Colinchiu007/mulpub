@@ -185,6 +185,10 @@ describe('Story2Video 输入路径边界', () => {
     fs.writeFileSync(freshFile, 'y')
     const oldTime = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000)
     fs.utimesSync(oldFile, oldTime, oldTime)
+    // 新鲜档必须显式按**被测方读的那把钟**盖章：gc 比较的是 Date.now() 与内核 mtime，两者不同域。
+    // 只靠"刚写完所以新"在该域错开时（时钟位移、NTP 步进）会把刚导入的文件判成过期。
+    const freshTime = new Date()
+    fs.utimesSync(freshFile, freshTime, freshTime)
     fs.mkdirSync(path.join(importRoot, 'sub'), { recursive: true })
     fs.writeFileSync(path.join(importRoot, 'sub', 'nested.mp3'), 'z')
 

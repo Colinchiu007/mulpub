@@ -129,11 +129,17 @@ function validateAgentJudgeReport({ pixelResult, outputJsonPath, outputMarkdownP
     if (!fs.existsSync(outputJsonPath) || !fs.existsSync(outputMarkdownPath)) return false;
     const outputStat = fs.statSync(outputJsonPath);
     const markdownStat = fs.statSync(outputMarkdownPath);
-    if (outputStat.size < 2 || markdownStat.size < 2 || outputStat.mtimeMs < startedAt - 1000 || markdownStat.mtimeMs < startedAt - 1000) {
+    if (outputStat.size < 2 || markdownStat.size < 2) {
       return false;
     }
     const report = JSON.parse(fs.readFileSync(outputJsonPath, "utf8"));
     if (!report || !report.summary || !Array.isArray(report.tests)) return false;
+    // 新鲜度只能取内容时间戳：mtime 属内核时钟域，与 Date.now() 不同源，
+    // 系统时间往回跳一步就会把本轮报告误判成过期。
+    // markdown 无时间戳但不单独判：真判据是同一份对象在 agent-visual-judge.js 里
+    // 由一对相邻 writeFileSync 同时落盘（json 新则 md 必新）。
+    const generatedAtMs = Date.parse(report.generatedAt);
+    if (!Number.isFinite(generatedAtMs) || generatedAtMs < startedAt - 1000) return false;
     if (!Number.isInteger(report.summary.total) || report.summary.total < 1 || report.tests.length !== report.summary.total) {
       return false;
     }
