@@ -577,3 +577,101 @@ test('frontmatter 的 task: 行「…的远程同步行并销账（…）」不�
   assert.strictEqual(r.statusContradictions.length, 0, JSON.stringify(r.statusContradictions))
   assert.strictEqual(r.statusMismatchVisible.length, 0, 'task: 行也不得进可见项：' + JSON.stringify(r.statusMismatchVisible))
 })
+// ── 跨源一致性（2026-10-14）：记录文件已 PASS 而旧载体同一条仍未收口 ⇒ 拦。
+//    既有判据只管单源自洽，实测放过了「并发整取把已收口的回填倒退回 PENDING」两次。
+function xsrcFixture (blocks, records) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-xsrc-'))
+  const lines = []
+  for (const b of blocks) {
+    lines.push('## ' + b.head)
+    lines.push('')
+    lines.push('| 门禁 | 状态 | 证据 |')
+    lines.push('|------|------|------|')
+    if (b.row !== false) lines.push('| 远程同步 | ' + b.status + ' | x |')
+    lines.push('')
+  }
+  fs.writeFileSync(path.join(dir, '.quality-gates.md'), lines.join('\n'), 'utf8')
+  const rd = path.join(dir, 'openspec', 'records')
+  fs.mkdirSync(rd, { recursive: true })
+  for (const r of records) {
+    const t = [
+      '---',
+      'record: ' + r.slug,
+      'sync_status: PENDING',
+      'sync_reason: 尚未合并',
+      'sync_backfill_owner: 下一个会话',
+      '---',
+      '',
+      '## 记录 ' + r.slug,
+      '',
+      '| 远程同步 | ' + r.status + ' | 证据 |',
+      '',
+    ].join('\n')
+    fs.writeFileSync(path.join(rd, r.slug + '.md'), t, 'utf8')
+  }
+  return dir
+}
+
+test('跨源：记录 PASS 而旧载体同 slug 未收口 ⇒ 违例并阻断', () => {
+  const dir = xsrcFixture(
+    [{ head: '某功能实现（xsrc-demo，2026-10-14）', status: 'PENDING' }],
+    [{ slug: 'xsrc-demo', status: 'PASS' }],
+  )
+  const r = checker.collect({ root: dir, ledger: {} })
+  assert.strictEqual(r.crossSrcPairs, 1, JSON.stringify(r.crossSrcPairs))
+  assert.strictEqual(r.crossSrcViolations.length, 1, JSON.stringify(r.crossSrcViolations))
+  assert.strictEqual(r.crossSrcViolations[0].slug, 'xsrc-demo')
+  assert.strictEqual(checker.hasBlocking(r), true, '跨源违例必须进 hasBlocking，否则这道锁是装饰性的')
+  assert.match(checker.format(r), /跨源矛盾 1 处/)
+})
+
+test('跨源：载体块整块没有 远程同步 行 ⇒ 不并进拦截面（缺行属历史 213 篇那一类）', () => {
+  const dir = xsrcFixture(
+    [
+      { head: '某功能实现（xsrc-norow，2026-10-14）', row: false },
+      { head: '陪跑记录（xsrc-decoy，2026-10-14）', status: 'PASS' },
+    ],
+    [{ slug: 'xsrc-norow', status: 'PASS' }],
+  )
+  const r = checker.collect({ root: dir, ledger: {} })
+  assert.strictEqual(r.crossSrcViolations.length, 0, JSON.stringify(r.crossSrcViolations))
+})
+
+test('跨源：回填型块的未收口行说的是它自己那笔回填 ⇒ 排除但必须出声', () => {
+  const dir = xsrcFixture(
+    [{ head: '回填 xsrc-bf 远程同步 PASS 并销账（xsrc-bf，2026-10-14）', status: 'PENDING' }],
+    [{ slug: 'xsrc-bf', status: 'PASS' }],
+  )
+  const r = checker.collect({ root: dir, ledger: {} })
+  assert.strictEqual(r.crossSrcViolations.length, 0, '回填型块不得判违例')
+  assert.strictEqual(r.crossSrcBackfillVisible.length, 1, '但必须可见，不许静默放过')
+  assert.match(checker.format(r), /回填型载体块 1 处/)
+})
+
+test('跨源：承认清单只能缩小——已不再构成矛盾的项必须报错', () => {
+  const dir = xsrcFixture(
+    [{ head: '某功能实现（xsrc-ack，2026-10-14）', status: 'PASS' }],
+    [{ slug: 'xsrc-ack', status: 'PASS' }],
+  )
+  const r = checker.collect({ root: dir, ledger: {}, crossSrcAllowed: new Set(['xsrc-ack']) })
+  assert.ok(r.crossSrcStaleAck.indexOf('xsrc-ack') >= 0, '已收口却仍挂承认，必须变陈旧红')
+  assert.strictEqual(checker.hasBlocking(r), true)
+  assert.match(checker.format(r), /跨源承认清单已陈旧/)
+})
+
+test('跨源：身份规则退化时配对数必须显式归 0（基线写在断言里，不在生产脚本里抛）', () => {
+  const dir = xsrcFixture(
+    [{ head: '标题里根本没有括号形态的块', status: 'PASS' }],
+    [{ slug: 'xsrc-loose', status: 'PASS' }],
+  )
+  const r = checker.collect({ root: dir, ledger: {} })
+  assert.strictEqual(r.crossSrcPairs, 0, "括号定界失效时配对必须暴露成 0，而不是被当成通过")
+  assert.strictEqual(r.crossSrcViolations.length, 0)
+})
+
+test('跨源：真仓现场报得出配对数，且当前零未承认违例（防判据整体失效）', () => {
+  const r = checker.collect({ root: path.join(__dirname, '..') })
+  assert.ok(r.crossSrcPairs > 50, '配对数退化成 ' + r.crossSrcPairs + ' —— 身份规则或载体块解析已失效')
+  assert.strictEqual(r.crossSrcViolations.length, 0, '新违例必须由作者回填或显式承认，不许带着红合并')
+  assert.strictEqual(r.crossSrcStaleAck.length, 0, JSON.stringify(r.crossSrcStaleAck))
+})

@@ -1,0 +1,49 @@
+---
+record: gate-record-cross-src
+task: 执行记录跨源一致性门禁（记录已 PASS 而旧载体仍 PENDING 即拦）
+date: 2026-10-14
+# ↓ 三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
+sync_status: PENDING
+sync_reason: 本 PR 尚未合并，merge SHA 还不存在，无法取证收口
+sync_backfill_owner: 下一个会话（三形态同改：表格行 + bullet + 删本段三字段 + 删 ledger 登记项，同一次提交）
+---
+
+## 本次执行记录：门禁硬化——跨源一致性（gate-record-cross-src，2026-10-14）
+
+- 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD` → **docs-only=false**（改 `scripts/` 工具脚本自身 ⇒ 混合 PR，按 AGENTS.md 不得走精简通道）。
+- 隔离：worktree `D:/Data/projects/mp-worktrees/mp-gate-record-cross-src`，分支 `gate-record-cross-src`，基线 `9416d05bd`。
+
+### 加判据的动因（实测，不是假想）
+
+`scripts/check-gate-record-debt.js` 此前只管**单源自洽**：某一行是否收口、这篇记录内部两形态是否矛盾。它看不见的是跨源矛盾——同一笔变更在 `openspec/records/X.md` 已回填 PASS，而 `.quality-gates.md` 里那条 X 的块还写着 PENDING。
+
+本周期实测到两次：#3495 的收口被并发会话整取重放**倒退回 PENDING**（记录本体当时已是 PASS），而当时债务门禁 rc 恒 0，全靠人肉发现。「已合并却被读成没干完」正是重复开工的入口。
+
+### 三条口径（每条都有用例，且都有变异）
+
+| 口径 | 为什么必须有 | 反证 |
+| --- | --- | --- |
+| 只比「两边都有状态行」 | 缺行属历史缺口，实测 213 篇。并进拦截面 = 之后每个 PR 当场红，门禁因此不可用 | **N4** 把缺行也当未收口 ⇒ 2 条指名红（含真仓那条） |
+| 回填型块排除但必须打印 | 它的 PENDING 说的是**它自己那笔回填 PR**，不是被回填的那条变更；静默排除等于把放过做成没人知道的 | **N2** 取消排除 ⇒ 指名红 |
+| 反失明的规模下界 | 解析退化会让「零违例」读起来完全像通过 | 真仓用例断言 `crossSrcPairs > 50`（现场 **102**） |
+
+### 现场数字（origin/main）
+
+旧载体块可解析出 slug 的 402+ 个；记录文件 297 篇；**跨源配对 102 组 / 违例 0 / 承认 1 / 回填型排除 0**。承认清单当前唯一一项是 `ops-ingress-only`：其运行时代码 PR 的载体块仍写 PENDING 而记录文件已 PASS，属他人会话的记录块，本仓纪律是**不代他人改写执行记录**，故只登记并等其作者回填；回填后不清空清单即报「陈旧承认」（该判据有专测）。
+
+### 两条我踩到并当场改回的判据越权
+
+1. 最初把「配对数为 0 ⇒ 当场抛」写进 `collect()`。后果是 15 条合法夹具一起红——夹具里记录与载体本就不同源，配对天然是 0。正解是把规模下界写在**读真仓**的那条测试里（先例：`podcast-error-codes.test.js` 的「扫描域非空」写在测试而非生产脚本）。
+2. 承认清单硬编码在模块常量里，任何不含 `ops-ingress-only` 的夹具仓库都会被判「陈旧承认」，`hasBlocking` 恒真、8 条既有测试集体红。正解是把它做成 `collect({ crossSrcAllowed })` 注入参数，与既有 `duplicatesAllowed` 同形态。
+
+### 不为它建锁的那一条（如实记）
+
+**N3**：把身份规则从 `（[a-z0-9][a-z0-9-]*，` 放松成 `（[^，）]+，`，49 条测试**全绿**。也就是这两者在当前判据面上没有行为差异，所以我不为「定界严格性」建锁——给不可观测的东西建锁就是恒真伪锁。定界严格是我早期一次性测量脚本用「标题包含 slug」造出 2/2 假阳之后留下的实现选择，那次的正确结论是「松判据在我的临时脚本里不可靠」，而不是「本判据能被这条测试守住」。
+
+### 测试
+
+`node --test scripts/check-gate-record-debt.test.js` = **49 passed / 0 failed**（原 43 + 跨源新增 6）。
+
+## 远程同步
+
+| 远程同步 | PENDING | 待本 PR 合并后由后续回填 PR 改写 PASS + merge SHA，并在同一次提交删除 ledger 登记项与本段三字段 |
