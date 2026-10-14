@@ -1,3 +1,28 @@
+## 两份白名单互不认账，与 PowerShell 按 GBK 解 git 输出吞掉换行（ignore-qoder-artifacts，2026-10-14）
+
+1. **共享根写保护的放行入口只有 `.gitignore` 一个真源，别给它另建一份名单。**
+   `guard-shared-root-writes.ps1:167` 写的是 `if (-not $tracked -and (Test-GitIgnored $relative)) { return }`，而 `Test-GitIgnored`(:112) 就是 `git check-ignore -q`。
+   所以「加进 .gitignore」一条动作同时办四件事：不再被搬进隔离区、不再写 violations.jsonl、不再触发 `.agent_context/write-guard-alert.json`、`git status` 变干净。
+   反面：`$allowedTop`(:68) 看着也是白名单，但它的语义是「**已入库**的文档目录允许在共享根就地编辑等 commit」。把未入库的工具产物目录塞进 `$allowedTop` 会得到最坏组合——守卫放行了，`git status` 照样脏，还多出第二份必须同步维护的清单。判据：动手前先问「这两个名单各自回答的是什么问题」，同名不同义就是两份真源。
+
+2. **「承诺可就地编辑」的名单和「实际允许写」的名单是两个文件，没人对账，于是漂移长期隐身。**
+   `classify-docs-only.js` 的 `CI_IGNORED_PATHS` 含 `.gitignore`/`.editorconfig`/`LICENSE`，AGENTS.md 据此说这类变更可就地编辑；`guard-shared-root-writes.ps1:69` 的 `$allowedRootFiles` 却不含它们。
+   实测后果不是报错而是**静默撤销**：我在共享根写完 `.gitignore` 一秒后，`violations.jsonl` 落 `{"path":".gitignore","size":14626,"action":"quarantined-tracked"}`，文件被从 HEAD 精确恢复，补丁只存在于隔离区里——看起来「改了没生效」。
+   同族第二次发生（第一次是 #3272 为 `.adversarial` 补的洞）。**修一次不算修完**：只要两份清单仍是各自手写的常量，下一次新增路径还会重演。缺的东西是一条逐项对账锁（`CI_IGNORED_PATHS` 中每个根级字面量必须出现在 `$allowedTop` 或 `$allowedRootFiles`）。
+
+3. **PowerShell 5.1 读 git 输出会因 GBK 解码吞掉换行，行计数直接错。**
+   本机 `[Console]::OutputEncoding` 实测是 `gb2312`，`git stash list` 的 UTF-8 中文消息按双字节解码时，末字节的尾随配对了紧随的 `\n`，于是两条记录在 PowerShell 里变成一行：实测 `count=2`，而 `git` 自己数 `count=3`。
+   三个可操作口径：① 任何「对 git 输出数行」的判据必须先 `[Console]::OutputEncoding = UTF8`，或改取**纯 ASCII 投影**（`--format='%gd'`、`--numstat`）；② `-c core.quotepath=false` 看着无害，实际把非 ASCII 路径从「八进制转义（全 ASCII）」变成「裸 UTF-8」，正好把这个坑从被保护状态打开；③ 归因时先分辨「数据变了」还是「我的探针瞎了」——本次 `stash@{1}` 的 SHA 逐字未变，一条断言就差点让三个会话去追一个不存在的并发删除。
+
+4. **`git reset --keep` 不是「安全的 reset」，在「工作树落后于 HEAD」这种形态下它恰好保住你要清掉的东西。**
+   `--keep` 的文档定义是「更新 HEAD 与工作树差异的文件，但**保留 index 与工作树之间的差异**（即未 add 的改动）」。而 mixed reset 造的幽灵 D/M 全部是「index 与工作树有差异」这一类 ⇒ `--keep` 会把陈旧内容原样留着，或者直接中止。
+   正解按两份精确清单分批恢复：`git diff --diff-filter=D --name-only HEAD` 与 `--diff-filter=M`，各自 `git restore --source=HEAD --worktree -- <精确路径>`，禁 `checkout -- .`/宽目录（R2）；之后 `git merge --ff-only origin/main`。
+   动手前先证「工作树无独有内容」：`git diff --stat <工作树所站的那个 commit>` 输出为空即可。这一步不是为了好看——它是「恢复」与「销毁他人工作」之间唯一的分界线。
+
+5. **「隔离区有计数」不等于「隔离区有人看」：只报数、不参与判定的指标会被噪声填满而无人知。**
+   `mp-worktree-health.ps1:106-107` 把 `quarantineCount` 与 `violations` 写进报告，但 `ok` 判定里一个都不看（实测 `quarantineCount:349` 与 `ok:true` 并存）。于是同一族产物把隔离区填到 60%，真正该看的运行时误写被稀释在里面，且没有任何东西会因此变红。
+   与本条相关的一个正例：守卫恢复 tracked 文件后走 `Test-MatchesIndex`，所以本轮 restore + ff 写下的 36 个文件**零隔离**（隔离区 349→349）——判据取「内容等于 index 就放行」而不是「有写入就隔离」，这条设计让自我修复不会引发风暴，值得在同类守卫里照抄。
+
 ## 「落了一半」比「删错了」更难查：跨模块引用锁必须按调用方与按被调方各来一把（xhs-draft-box-restore，2026-10-13）
 
 1. **「三个 ref 都读不到」不等于「被删了」——只有 `git log --all -S` 能区分这两件事。**
