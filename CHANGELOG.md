@@ -7,6 +7,17 @@
 - 判据自身不可判定的一支显式出声：`changes` job 跑在 ubuntu-latest、那里无本机盘符 ⇒ 逐文件计数比较无法执行，现打印 `本机无盘符 ⇒ 逐文件计数比较未执行（仅核对陈旧登记）`而不是静默 PASS；该支由一把**无盘符环境的纯函数锁**（`judgeBaseline` 已导出）覆盖，不在 CI 上赌它。账本缺席按"空基线"从严（删掉账本不能让门禁闭眼），`--write-baseline` 必须搭配 `--all`（窄域跑一次会把整张账本按那一两个文件重写掉）。
 - 性能数字按实测更正（原写"净增约 0.2 s"是没量过的估计）：同一条 changeset 命令无账本下限 418 ms（含 node 启动 301 ms）、429 文件并入后 1812 ms，`--all` 2.8–3.2 s。既有那条「全量审计必须 FAIL」的锁前提已消失（全量新增现为 0），换成更强的等式锁：**全量逐文件计数必须与基线逐文件相等**，同时挡住"悄悄恒 0"与"悄悄漏扫"。
 - 文档同步：PRD 切片 `01-docs/PRD-GATE12C-PLACEHOLDER-SCOPE-2026-10-14.md`（含 §4.4 装饰性锁的成因与四条可复用判据）；`01-docs/learnings.md` 新增一条「断言匹配到了消息里的词，却没匹配到成因」；Gate 12c 在 `quality-gate.yml` `changes` job 的接线不变，未动 `CI_IGNORED_PATHS` 与分支保护。
+# [未发布] GUI Tests 的检查在 required 语义下会整体缺席——路径判定从触发层下沉到作业层（gui-test-required-shape）
+
+- 根因不是"某个 PR 忘了配"：`on.pull_request.paths` 白名单不匹配时整条 workflow 不启动，GitHub 连 check run 都不产生，于是 required 清单里这条是「永远不到来」而不是「跳过」。现场对照（同一 PR 两种形态并存）：#3499 只改 `openspec/records/`，`build` / `electron-tests` / `债务熔断检查` 都以 `skipping` 出现并满足 required，`GUI Tests` 计数 0——差别只在三者把路径判定放在作业层 `changes` 作业，而 `gui-test.yml` 放在触发层。
+- 新增判据 `scripts/ci-gui-relevance.js`：导出 `GUI_PATHS`（原 5 项逐字搬入，搬家不改需求）与 `isGuiRelevant(files)`；diff/glob 复用 `classify-docs-only.js` 的 `changedFileStatuses`/`matchesPattern` 不写第二份，base/head 走 `ci-pr-changeset.js`（防 PR 打开后 main 前进时把他人提交算进本 PR）。取证失败一律 `exit 1` 且**不写 `GITHUB_OUTPUT`**——把"读不到"写成 `gui-relevant=false` 就是静默跳门。
+- workflow 形状：PR 触发去掉 `paths`；新增 `GUI Changes` 作业（非 PR 事件恒判相关，main push / tag / dispatch 照旧全量）；`gui-test` 作业 `needs: [changes]` + `if: github.event_name != 'pull_request' || needs.changes.outputs.gui-relevant == 'true'`。`push` 触发的过滤保持不变，本笔只修 PR 侧检查缺席。
+- 另加 `GUI Gate Result` 聚合作业（`if: always()`，`needs: [changes, gui-test]`）。它的必要性来自一次**结论反转的取证**，不是凭 yaml 推理：外部评审报 Critical 说「`changes` 失败 ⇒ 下游不产生 check run ⇒ 进 required 后 PR 会卡在检查从未到来」，但仓库历史给出的答案相反——`QG Changes` 红过的 4 个真实 run（38505963415 / 38504686076 / 38503759202 / 38502341883）里，下游 required 作业的 check run **全部存在且 conclusion=skipped**。skipped 满足 required ⇒ 真实危险是反方向：**判据作业坏了会让这条 gate 静默假通过**（quality-gate 今天没中招，只因为有 `if: always()` 的 `Gate Result` 把 `needs.changes.result` 兜成红）。聚合作业的裁决表：changes 非 success ⇒ 红；gui-test 非 success/skipped ⇒ 红；gui-test=skipped ⇒ 仅当 PR 事件且判据明确产出 `gui-relevant=false` 才算合法跳过。
+- 回归锁 8 条（改写 1 条把旧形状钉成契约的用例 + 新增 7 条）：PR 触发不得带 paths / 清单不缩水 / 相关性按行为判定 / needs+if 接线 / push 不变 / 聚合作业必须存在且 `if: always()` / 聚合作业的 **step.env 注入面**逐个断言映射到哪个 `needs.*` 表达式 / 进 required 的显示名是 `GUI Gate Result`，外加一条 CLI 端到端（临时真 git 仓库：文档判否、桌面判是、取证失败 rc=1 且不写产出、正常路径必须真的追加 GITHUB_OUTPUT）。TDD 先红 4 条后 39/39；反证 13 条逐条 CAUGHT（`MISSED=0 WRONG_CAUSE=0 RESTORED_BYTES_EQUAL=true`），其中两次 MISSED 都查实为**驱动自身**失效——多行锚点按 LF 拼在 CRLF 工作副本上 0 命中，以及 `return false || files.some(…)` 等价于原实现（恒假从未注入）。
+- 决策来源的度量全部当场重取：最近 1000 次 PR 完成运行 = `success 915 / cancelled 76 / failure 9`；9 条读日志原文分档为 **7 真缺陷 / 2 环境**（推翻本轮早前先报的"3 真 / 5 环境"）；`cancelled` 由 `cancel-in-progress` 解释为被同 PR 下次推送顶掉的旧 sha，按 PR 取末次运行后 **266/266 全 success**。成功时长 p50=188s / p90=304s / p99=592s。
+- 同 PR 纠正 `.github/scripts/workflow-contract.test.js` 里的豁免句：原写「正向 paths 白名单仍允许，不影响 required 语义」，与上述实测冲突——它只在该检查不进 required 时成立。该文件 2026-09-21 禁 `paths-ignore` 的理由（纯文档 PR 永不产生该检查 ⇒ mergeStateStatus 永久 BLOCKED）本就适用于正向白名单，只是当时没有 required 检查挂在白名单 workflow 上。
+- 边界：本笔只让 GUI Tests **有资格**进 required；把它真正写进 classic 保护（4 条）或 ruleset `main-ci-gate`（6 条）的并集属「改谁来守门」，未随本笔执行。**要收进 required 的名字是 `GUI Gate Result`（聚合作业的显示名），不是 `gui-test`** —— 只收 `gui-test` 就会留下上面那条"判据坏了→skipped→假通过"的洞。check 名仍须在真实 PR 的检查清单里现场读取确认，不得按 YAML 键猜。
+
 # [未发布] feat(gates): 时钟位移 oracle 取代已被否证的静态形状判据，并修掉它当场抓到的 4 条引信（clock-shift-oracle）
 - **换判据而不是再补一条 lint**：`scripts/check-clock-shift-oracle.js` 把同一批候选用例跑两趟，第二趟经 `apps/desktop/test-setup-clock-shift.js` 按 `MP_TEST_NOW_SHIFT_MS` 把 `Date.now()` 与零参 `new Date()` 整体推到未来（默认 45 天），差集 `位移趟红 ∖ 基线趟红` 即"随墙上时钟老化的引信"。静态形状判据在当场测量中被否证：apps/desktop 全域 936 个测试文件，静态形状候选（含时间字面量 + 相对窗口 + 未注入时钟）js/ts 有 66 个需逐个人工判读，而行为判据真找到的引信（本类共 4 条）**一条都不在这 66 个里**。
 - 两条反失明判据：位移趟必须自己打印 `[CLOCK-SHIFT] active`（否则第二趟只是重跑基线、"零新增红"是假绿，配 `clock-shift-oracle-control.test.js` 正控要求 `Date.now() - baseNow >= shift`）；候选集为空一律 FAIL，且 `--dry-run` 出声 `domain=… candidates=… forms=…`（本轮三次重取 936/168 → 941/171 → 941/173，是随仓库增长的活数），覆盖面数字可在仓库里一句话重取。
@@ -21,6 +32,17 @@
 - 合同里「`compliance.reasons` 是 `PODCAST_*` 一族」与「码表取 `podcast-error-codes.test.js` 那份清单」两条**互相不可满足**：该测试的正向 harvest 只认 `PODCAST_` 前缀、`PRODUCERS` 12 项全在 `apps/desktop/`，而 `validateEpisode`（`packages/shared-utils/src/podcast-rss.js:136`）产出的是 `EPISODE_*` 族。照旧实现要么把锁退化成「字符串非空」（对有码无文案失明），要么给 RSS 层的码统一改名（牵动 98 个 locale 键与 §6.3 已合并的 `PODCAST_FEED_INVALID` 透传合同）。
 - 现按实测改写：`reasons` 字面值 = `validateEpisode` 原样透出的 **19** 条 `EPISODE_*`（另 3 条经 `resolveEnclosure` 转推，已逐行核对）；码表真源 = `apps/desktop/src/locales/podcast/{zh,en}.js` 的 `errors` 键集（zh 98 / en 98，实测**缺文案 0 条**）；文案渲染唯一实现 `issueText()`，展示层不得再写第二份映射。新增 PRD §8.2.8 记录取值面与重跑口径，并要求实现片同 PR 把 `podcast-rss.js` 加进清点式门禁扫描域。
 - 本节仍只是合同，不含实现（实现在下一片 tasks 4.4b②）。
+
+# [未发布] fix(publish-history): 发布记录缩略图改竖屏 3:4（publish-history-thumb-portrait）
+
+- 用户报「发布记录列表的缩略图目前是横版尺寸，改成竖屏的尺寸显示（3:4比例）」。改动只在 `PublishHistory.vue` 的 scoped CSS，四处断面一次改齐：列表视图 200×112 → **150×200**、网格视图 108×82 → **84×112**、720px 窄屏 78×66 → **63×84**、460px 窄屏 68×60 → **54×72**。
+- **宽度一律由高度推导**（`height × 3/4`）而不是各写一个近似值：近似值会在某次调高度时悄悄漂成非 3:4，而这种漂移在视觉上几乎看不出来；推导关系写进注释。
+- **显式写 `flex-basis`**（列表视图原先是 `flex: 0 0 150px` 简写）：窄容器下 flex 收缩会把实际比例漂回横版，而简写形态下「basis 与 width 是否一致」无法被机械断言。
+- 封面 `<img>` 仍是 `object-fit: cover` 满幅裁切（不改裁切语义，只改容器比例）；内容类型角标保持右下角未位移。
+- 回归锁 5 条（`PublishHistory.test.js`「缩略图竖屏 3:4 比例」）：逐断面断言宽高比 === 0.75、`flex-basis === width`，另加一条**补集**断言「四处一律不得出现 `width > height` 的规则」——只断言四处是 3:4 挡不住有人在响应式块里另起一条 `.record-preview` 覆盖（那会让正向断言全绿而实际仍是横版）。判据读 scoped CSS 原文而非渲染结果：jsdom 不布局，`width`/`height` 计算值恒为 0。
+- TDD：5 条锁先跑 **5 failed**（逐条精确报出现状横版尺寸 200x112 / 108x82 / 78x66 / 68x60），实现后 **83 passed**；变异反证把四处尺寸同时退回横版 ⇒ **5/5 全红**，还原后复绿。
+- 视觉基线按流程刷新（**不是"红了就刷"**）：先 `git stash` 取干净基线对照证明该视图在 main 上不是既有红 → 人工看明暗差异图确认差异**只在缩略图矩形区** → 人工看新渲染确认确为竖版，三步都过才更新 `base-screenshots/publish-history.png` 与 `publish-history-dark.png`；复跑明暗双通道均 100% 通过。并用 `git check-ignore` 验证两份 PNG 未被 `.gitignore` 静默吞掉。
+- **基线的来源必须是 CI 自己的渲染，不能是本机**：本刀首轮基线取自本机 dev server（5199），推 PR 后 `QG Visual` 的 Gate 7b 判红——**像素门禁明暗双通道 20/20 全 PASSED**（证明缩略图改动本身完全正确），红的是**基线新鲜度**：CI 渲染与本机渲染有 104~107 px 亚像素级差异（0.005%），而 Gate 7b 判据是「基线 == 本次渲染，**0 px**」零容差。AGENTS.md QM-4 第 7 条早已写明「禁止拿本地图当基线」，本会话读到了仍用了本地图——**纪律失守，不是知识缺口**。修正：从本 PR 的 CI artifact（`quality-gate-visual-reports`）取 `screenshots-round1/` 权威渲染，人工审核确认竖版无误后替换，新基线 SHA 与 CI 渲染逐字节一致。
 
 # [未发布] 让「运营」退出应用用户面 + 验签信任锚下沉部署层（ops-ingress-only）
 

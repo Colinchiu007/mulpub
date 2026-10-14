@@ -1257,21 +1257,29 @@ onMounted(loadRecords)
 .record-selector { flex: 0 0 18px; }
 .record-selector input { width: 16px; height: 16px; accent-color: var(--primary, #5048e5); }
 
+/* 缩略图画幅统一为**竖屏 3:4**（2026-10-14 用户要求）。
+   四处断面的 width 一律以 height 为基准推导（height × 3/4），不各写一个近似值 ——
+   近似值会在某次调高度时悄悄漂成非 3:4，而那种漂移在视觉上几乎看不出来。
+   回归锁：PublishHistory.test.js「缩略图竖屏 3:4 比例」逐断面断言宽/高比 === 0.75
+   且 flex-basis === width（窄容器下 flex 收缩会把比例漂回横版）。 */
 .record-preview {
   position: relative;
-  width: 200px;
-  height: 112px;
+  width: 150px;   /* 3:4 ⇒ 200 × 3/4 */
+  height: 200px;
   display: grid;
   place-items: center;
   overflow: hidden;
-  flex: 0 0 200px;
+  flex: 0 0 150px;
+  flex-basis: 150px;
   border: 1px solid #e5e7eb;
   border-radius: 6px;
   background: var(--color-bg-inset);
   color: var(--primary, #5048e5);
   font-size: var(--font-size-xl);
 }
+/* 竖版下封面按「cover」裁切，宽高由容器决定；此处只保留裁切与满幅，不重复写尺寸。 */
 .record-preview img { width: 100%; height: 100%; object-fit: cover; }
+/* 内容类型角标：竖版容器更高，右下角仍是最不挡主体的位置，保持原位。 */
 .record-preview small { position: absolute; right: 5px; bottom: 5px; border-radius: 4px; padding: 2px 5px; background: rgba(26, 27, 34, 0.78); color: #fff; font-size: var(--font-size-xs); }
 .draft-preview { background: #f1f5f9; color: #64748b; font-size: var(--font-size-md); font-weight: 700; }
 
@@ -1306,7 +1314,7 @@ onMounted(loadRecords)
 
 .record-list.grid-view { display: grid; grid-template-columns: repeat(auto-fill, minmax(390px, 1fr)); align-items: start; }
 .grid-view .record-card { align-items: flex-start; flex-wrap: wrap; }
-.grid-view .record-preview { width: 108px; height: 82px; flex-basis: 108px; }
+.grid-view .record-preview { width: 84px; height: 112px; flex-basis: 84px; }
 .grid-view .record-stats { width: 100%; min-width: 0; border-top: 1px solid var(--border-light, #efeff2); border-left: 0; padding-top: 12px; padding-left: 0; }
 .drafts-panel { padding-top: 8px; }
 
@@ -1338,7 +1346,7 @@ onMounted(loadRecords)
   .selection-toolbar { justify-content: flex-start; }
   .record-card { align-items: flex-start; flex-wrap: wrap; padding: 12px; }
   .record-selector { padding-top: 5px; }
-  .record-preview { width: 78px; height: 66px; flex-basis: 78px; }
+  .record-preview { width: 63px; height: 84px; flex-basis: 63px; }
   .record-main { width: auto; flex: 1 1 0; }
   .record-title-row h2 { white-space: normal; }
   .record-stats { grid-template-columns: repeat(4, 1fr); gap: 12px 0; }
@@ -1350,7 +1358,7 @@ onMounted(loadRecords)
   .history-filters { grid-template-columns: 1fr; }
   .history-command-bar > .secondary-action,
   .history-command-bar > .primary-action { flex: 1 1 auto; }
-  .record-preview { width: 68px; height: 60px; flex-basis: 68px; }
+  .record-preview { width: 54px; height: 72px; flex-basis: 54px; }
   .record-meta { gap: 6px 10px; }
 }
 </style>

@@ -1,4 +1,9 @@
 {
+  "本次执行记录：发布记录缩略图竖屏 3:4（publish-history-thumb-portrait，2026-10-14）【混合 PR】": {
+    "reason": "本 PR 合并后需回填 merge SHA 到 openspec/records/publish-history-thumb-portrait.md 与 .quality-gates.md 的远程同步行（表格行 + bullet 两形态同改），并同次删除本登记项",
+    "status": "PENDING",
+    "line": 0
+  },
   "本次执行记录：Story2Video 历史失败提示脱敏与模型账号细化（error-message-fix，2026-08-19）": {
     "reason": "error-message-fix 分支的 L4479 远程同步行状态写的是「执行中」而非闭合词表——属于该记录作者的登记欠账；本人无法代为取证其 PR 合并 SHA，按「不代其他会话改写其执行记录」惯例在此登记并说明",
     "status": "PENDING",
