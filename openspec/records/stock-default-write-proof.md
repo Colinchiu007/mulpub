@@ -68,15 +68,14 @@ sync_backfill_owner: 本会话（本片作者）
 
 两条 Warning 与四条 Info 落地后，九条变异（含新增 D5/D6）重跑全部指名红；`audio/mp3` 的同义词归一行为仍由原用例覆盖（12 passed / 0 failed）。
 
-## QM-1 打包验证：**第②层 NEEDS_REVIEW，不自判通过**
+## QM-1 打包验证：**重放后第③层成立（stderr 为空）**
 
-- `node scripts/verify-worktree-deps.js` OK（11 项消费方解析到本 worktree）；`pnpm run build:vue` ✓ 2m30s；`pnpm exec electron-builder --win --dir --publish never` **rc=0**，asar `151,591,278` 字节。
-- 产物归属（`pnpm exec asar list`，14,990 条目）：`podcast-episode-stock-mime.js`=1、`podcast-stock-freeze-host.js`=1、`podcast-episode-compliance.js`=1、**其测试文件=0**（测试不进包，符合预期）。本 worktree 起手 `dist-electron` 不存在，故命中只能来自本分支。
-- 启动存活：`Multi-Publish.exe --user-data-dir=<临时目录>` 9 秒 `alive=yes`；进程计数 `before=0 → after=3 → end=0`（只按自己启动的 PID 收口，未按名字批量 kill）。
-- **stderr 全文只有 2 行 / 163 字节**：`(node:…) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.` 加一行 Node 自带的 trace 提示。四类红线（`Failed to load platform config` / `PluginLoader…mkdir failed` / `ENOTDIR…app.asar` / `Cannot find module`）命中 0，`app.asar` 内部路径命中 0。
-- 按 AGENTS.md 现行三层判据，stderr 非空且未命中红线 ⇒ **第②层 NEEDS_REVIEW，不得判通过**。这条告警来自 Node 内核而非本仓代码路径，但它是否可接受属人工裁决，**本片不自判**，已在 PR 里点名为待人工裁决项，CI 全绿也不合。
-- 顺带抓到一条**测量方法自身的坑**（值得记进记忆）：先前用 PowerShell `Start-Process -RedirectStandardError` 抓 stderr，`[IO.File]::ReadAllText` 在子进程仍持有句柄时抛「另一进程正在使用」，而脚本里 `$ErrorActionPreference='Continue'` 把异常吞成空串 ⇒ `stderr_bytes=0` ⇒ **三层判据的第③层被虚假满足**。正解是像本次这样用 `>out 2>err` 让子进程自己写、退出后再读；且必须双流分开——本应用的日志走 **stdout**（252 行），只重定向 stderr 时 stdout 会继承控制台句柄，把「日志都在 stdout」误读成「stderr 里有几百行」。
-
+- 这一节是**改写**而不是追加：本片第一次跑 QM-1 时读到的是 `stderr 163 字节 / 2 行` 的 `DEP0180 fs.Stats` 弃用告警，按三层判据落第②层 NEEDS_REVIEW，我当时**没有自判通过**，把它作为待人工裁决项报出。裁决是"先查源头"，源头修复另开 PR **#3605**（merge `ac9c60e21`）：根因是运营中心 L3 种子的探测用了 `fs.statSync` 打 `app.asar` 内的文件，Electron 的 `asarStatsToFsStats` 用废弃构造造 Stats ⇒ 每次启动一行告警。
+- 本片随后重放到含该修复的主干（分支基点从 `6b0e083ad` 一路 rebase 到 origin/main 的 `5b4adbcf2`，该主干已包含 #3605 的合并 `ac9c60e21`），**在同一份分支代码上重新打包、重新量**：
+  `verify-worktree-deps.js` OK；`pnpm run build:vue` + `electron-builder --win --dir --publish never` **rc=0**；asar `151,629,108` 字节 / **14,992** 条目；归属自证 `podcast-episode-stock-mime.js`=1、`podcast-episode-compliance.js`=1、`podcast-stock-freeze-host.js`=1、本片改动的**测试文件不进包**。
+- **取法用的是 #3605 那轮定下的 LIVE/POST 两段协议**（判据只认存活期那份）：`proc_count_before=0`、启动 12 秒 `alive=yes`、**LIVE stderr 0 字节 / 0 行**、`DEP0180` 命中 0、四类红线命中 0、`app.asar` 内部路径命中 0；stdout 22,543 字节（业务日志走 stdout，与 stderr 分道）；POST 增量 270 字节 = 我 kill 之后 Chromium 的收尾话（`exit_code=143` 即 128+SIGTERM），**不计入判据、只留痕**。
+- ⇒ 三层判据落到**第③层（stderr 为空）= 通过**。这一格成立的方式是"修掉源头后重取"，不是"把告警加进白名单"、也不是"把待人工裁决那句话改软"——原判据在第②层拦住我时给的信号是对的。
+- 两条测量自身的坑一并记在这里，因为它们都曾造出过**看起来更干净**的错读数：① PowerShell `Start-Process -RedirectStandardError` + `[IO.File]::ReadAllText` 在子进程仍持句柄时抛「文件正由另一进程使用」，被 `$ErrorActionPreference='Continue'` 吞成空串 ⇒ **假第③层**；② 只在收进程之后读会把 SIGTERM 收尾话算进来，造成 0 与 270 字节来回飘。另有一条"探针自身"的：`asar list` 在 Windows 输出**反斜杠**，用带斜杠的模式去 grep 会得到 0 命中，读起来像"产物缺文件"（本仓真实差点误判一次，见 #3605 记录）。
 ## 与合同的差集（不虚报）
 
 - §7.9.5 第 1/2/3/5/6/7 条现已同时具备**行为 + 变异**两类证据；第 4 条（`compliance` 的 `stock` 档）随 #3589（merge `95b18160a`）落地。
