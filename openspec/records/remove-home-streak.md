@@ -2,9 +2,6 @@
 record: remove-home-streak
 task: 移除首页主任务卡「已连续发布」streak 区块（占位破折号被 32px 粗体样式放大成粗横杠，被用户误判为显示错误）
 date: 2026-10-14
-sync_status: PENDING
-sync_reason: 本 PR #3503 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话
 ---
 
 ## 本次执行记录：移除首页主任务卡「已连续发布」streak 区块（remove-home-streak，2026-10-14）
@@ -20,7 +17,7 @@ sync_backfill_owner: 下一个会话
 | 接线棘轮 | ✅ | 未新增 `*.test.js` 文件（改造既有 `Home.test.js` 的既有用例），该文件已被 `quality-gate.yml` 的 QG Unit Tests / QG Desktop Shards 显式点名；CI 实测 `QG Unit Tests pass` |
 | QM-1 打包 / QM-4 视觉 | ✅ / ✅ | QM-1：N/A —— 本次纯 renderer 删除，未触碰 `apps/desktop/electron/` 与 `packages/rpa-engine/`。QM-4：CI `QG Visual pass`；`home-default` 视图在 views 套件 37/37 通过、`home-baseline` 像素 light 20/20 + dark 20/20 全通过。**视觉基线更新取证**：像素级比对 CI 渲染与 git 旧基线，全部差异 530 px 集中在 `x[1392..1490] y[327..338]` 这一个 98×12 矩形内（hero 卡右侧 streak 原位置），全图其余 0 差异 ⇒ 漂移仅由本次删除造成，据此更新两张基线 |
 | QM-6 CCG 双模型外部评审 | 未执行 | 本机无 `codeagent-wrapper`；以 CI 的 `QG Autonomous` + `agent-judge` 两项 pass 替代（如实记录，不以自审冒充通过） |
-| 远程同步 | PENDING | 待合并后回填 |
+| 远程同步 | PASS | 已合并：PR #3503 → merge SHA `d706b8a09ab2d4dd5d864d58d7947f9ec4bc691d`（2026-10-14T11:25:20+08:00，`git log origin/main --grep='(#3503)$' --format=%H\|%cI` 恰好 1 行）；`git ls-remote --heads origin remove-home-streak` 返回 0 行证远端分支已删 |
 
 ### 遗留（不假装已闭合）
 
