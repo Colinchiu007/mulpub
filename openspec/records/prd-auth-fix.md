@@ -2,9 +2,6 @@
 record: prd-auth-fix
 task: 更正 PRD 运营端点鉴权描述 + 补 catalog-synced origin 接线锁
 date: 2026-10-14
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话
 ---
 
 ## 本次执行记录：更正 PRD 中运营端点鉴权描述（只认 X-Catalog-Key → Bearer 优先）+ 补 origin 接线锁（prd-auth-fix，2026-10-14）【混合 PR】
@@ -21,9 +18,8 @@ sync_backfill_owner: 下一个会话
 | QM-1 本地打包 | N/A | 本笔只改**测试文件**（`electron/services/*.test.js`），未改 `electron/` 下生产代码 ⇒ 产物不受影响，如实登记为 N/A 而非虚构打包证据 |
 | QM-4 视觉回归 | N/A | 无 UI 文件变更 |
 | QM-6 双模型外部评审 | 未执行 | 本机无 `codeagent-wrapper`，如实登记 |
-| 远程同步 | PENDING | 待本 PR 合并后回填 merge SHA 并销账（回填与销账同次提交） |
-
-- 保留门禁：行尾对账 ✅ | 品牌残留 PASS（8986 文件）| locale 成对 PASS | CJK 基线 PASS（1374→1224）| 键存在性 PASS（2004）| 测试接线 PASS | 债务熔断 PASS | 远程同步 PENDING
+| 远程同步 | PASS | merge `8e81b4766aa6cdb3e65c947dd3abcce0ce759282`（2026-10-14 15:53:31 +08:00）；PR 已 MERGED，远端分支 `ls-remote` 0 行 |
+- 保留门禁：行尾对账 ✅ | 品牌残留 PASS（8986 文件）| locale 成对 PASS | CJK 基线 PASS（1374→1224）| 键存在性 PASS（2004）| 测试接线 PASS | 债务熔断 PASS | 远程同步 PASS（merge 8e81b4766，远端分支 0 行）
 
 ### 备注：为什么把 usage / publish / catalog 也一并改
 

@@ -54,5 +54,5 @@
   "本次执行记录：更正「bootstrap 只认 X-Catalog-Key」错误结论 + 本轮 4 条教训（ops-ingress-correct，2026-10-14）【docs-only】": "本 PR（ops-ingress-correct）的远程同步待合并后由后续 docs PR 回填并删除本条登记项",
   "本次执行记录：让「运营」退出应用用户面 + 信任锚下沉部署层（ops-ingress-only，2026-10-14）【混合 PR】": "本 PR（ops-ingress-only）的远程同步待合并后由后续 docs PR 回填并删除本条登记项",
   "本次执行记录：回填 #3543 远程同步 PASS + merge SHA，并销账（ops-ingress-only）【docs-only】": "本回填 PR（bf-ops-ingress）的远程同步待合并后由后续 docs PR 回填并删除本条登记项",
-  "本次执行记录：更正 PRD 中运营端点鉴权描述（只认 X-Catalog-Key → Bearer 优先）+ 补 origin 接线锁（prd-auth-fix，2026-10-14）【混合 PR】": "本 PR（prd-auth-fix）的远程同步待合并后由后续 docs PR 回填并删除本条登记项"
+  "本次执行记录：回填 #3572 远程同步 PASS + merge SHA，并销账（prd-auth-fix）【docs-only】": "本回填 PR（bf-prd-auth）的远程同步待合并后由后续 docs PR 回填并删除本条登记项"
 }
