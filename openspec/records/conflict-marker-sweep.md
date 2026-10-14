@@ -2,9 +2,6 @@
 record: conflict-marker-sweep
 task: 主干上 6 个文件把 git 冲突标记提交了进去且无任何判据在看这件事——补全仓棘轮锁（三档退出码 + 只能缩小的承认清单 + 接线锁盯住测试口子），并机械修掉其中可无损修的 2 个
 date: 2026-10-14
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；远程同步这一行的证据只能在合并后取
-sync_backfill_owner: 下一个会话（按 AGENTS.md「合并后收尾清单」回填并删除本段三个字段）
 ---
 
 ## 本次执行记录：主干冲突标记清扫与棘轮锁（conflict-marker-sweep，2026-10-14）【混合 PR】
@@ -20,7 +17,7 @@ sync_backfill_owner: 下一个会话（按 AGENTS.md「合并后收尾清单」�
 | 接线棘轮 | PASS | `node scripts/check-unwired-tests.js` ⇒ **检查域内测试文件 86 个 / 全部已接线或按欠账登记**，rc=0。新锁被 workflow **显式点名**（本仓无自动收集，不点名等于没写）；接线锁另断言 CI 调用行**不得出现 `--ack-file`** —— 那是为测试夹具开承认清单注入口子，落到 CI 就是允许把棘轮关掉的后门。反证 M14/M15 直接改 workflow 正文（把两行挪到早退之后 / 调换两行顺序），各只红**一条**且红在指名的断言上 |
 | QM-1 打包 / QM-4 视觉 | N/A | 变更集 10 个文件全部落在 `.github/workflows/`、`scripts/`、`openspec/`、`01-docs/`、`CHANGELOG.md`、`.quality-gates.md`、`.gitignore`；**未触** `apps/desktop/electron/` 与 `packages/rpa-engine/`，且不含任何 `.vue/.css/.less/.scss` 或基线 PNG ⇒ 打包验证与像素回归对本次运行面无对象可跑。`classify-docs-only` 必须在**提交后**取证（提交前 `HEAD==base` ⇒ 空 diff ⇒ 假 `docs-only=false files=0`，那是取证顺序问题不是判定失灵）；本 PR 含 workflow + scripts ⇒ 预期恒为 `docs-only=false`（混合 PR），重型 job 不短路 |
 | QM-6 CCG 双模型外部评审 | PASS（替代通道） | 本机 CC Switch 网关实测不通：`Test-NetConnection 127.0.0.1 -Port 15721 -InformationLevel Quiet` = **False**，而 `~/.claude/.ccg/config.toml` 的 `[routing.frontend].primary = claude` / `[routing.backend].primary = codex` 两路都经该网关 ⇒ 按既有降级口径走 `opencode run --agent plan`（只读档）双轴实回：**后端 `opencode/nemotron-3-ultra-free`** 0 Critical / 0 Warning / 5 Info + 3 建议；**前端 `opencode/big-pickle`** 1 Critical + 3 Warning + 4 Info，共 8 条。两路各带一次**工作树完整性前后对账**（子进程返回前后 `git status --porcelain` 全量哈希相同）⇒ **在该运行自身窗口内**评审没有写盘（适用范围见「本轮我自己制造并当场抓到的七个问题」第 7 条：另一次被超时杀掉的实际运行在 CLI 退出后仍落了 3 个 0 字节文件——`opencode run` 连的是共享后台服务，不受 CLI 生命周期约束）。逐条处置见下节 |
-| 远程同步 | PENDING | 合并后按 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 取 merge SHA 与时间、`git ls-remote --heads origin conflict-marker-sweep` 取 0 行证远端分支已删，回填本行 **并同一次提交内**删除 `scripts/gate-record-debt-ledger.json` 里标题为「本次执行记录：主干冲突标记清扫与棘轮锁（conflict-marker-sweep，2026-10-14）【混合 PR】」的登记项与本文件 frontmatter 的 `sync_status` / `sync_reason` / `sync_backfill_owner` 三字段 |
+| 远程同步 | PASS | 已 squash 合入 main：`git log origin/main --grep='(#3597)$' --format=%H|%cI` ⇒ `3908679a1d4913ceec0d9e176f3dc3d3ec797049` / `2026-10-14T23:43:09+08:00`；`git ls-remote --heads origin conflict-marker-sweep` 返回 0 行证远端分支已删。回填与销账发生在**同一次提交**内：删除 `scripts/gate-record-debt-ledger.json` 本条登记项与本记录 frontmatter 三个 `sync_*` 字段 |
 
 ### QM-6 发现处置（8 条，逐条先重放再决定）
 
@@ -107,7 +104,7 @@ sync_backfill_owner: 下一个会话（按 AGENTS.md「合并后收尾清单」�
   `main-ci-gate` 加了旁路主体，或有人恢复 classic protection 的 admin bypass，push 侧的 `paths-ignore` 会让这条判据
   对纯文档提交整个不触发 ⇒ 届时要补 `schedule:` 档，或把这两个判据单挂一条不带 paths 过滤的 workflow。
 - 同一句过度措辞在**他人会话的记录里也存在**（`.quality-gates.md` 的账本门禁一节、`CHANGELOG.md` 的 #2718 那条）。
-  按「不代其他会话改写其记录」的纪律我没有改它们，只改本 PR 自己的三处；如需收敛，应由那条记录的属主或一次专门的清扫。
+  按「不代其他会话改写其记录」的纪律我没有改它们，只改本 PR 自己的三处；如需收敛，应由那条记录的属主或一次专门的清扫。**同一形态还有第三个落点就在本判据上方 6 行**：`quality-gate.yml:64` 那句「放在非 PR 早退之前，所以 main push 那一档同样覆盖」是 #2718 落地时写的账本门禁注释，与我在 `:70-73` 写的带前提表述**在同一步骤体内相邻并存**——读那段 run 的人会先看到旧的绝对句。本 PR 未动它（不属本次改写面，且改动 workflow 正文会把回填拖进重型 CI），在此登记以免被读成"两处矛盾里有一处是新的"
 - 判据只认**行首**。若哪天有人把标记缩进两格（编辑器自动缩进的常见后果），它会漏 —— 我没有把它写宽，因为
   「行首 + 后接空白/行尾」是唯一不会命中合法 Markdown 的形态；扩宽需要先构造新的负控。
 - `^={7}$` 完全不管，是**刻意的**：本仓有正当用法（实测同一份 PRD-XHS 里 5 处是章节分隔）。代价是"孤立的 `=======` 残骸"
