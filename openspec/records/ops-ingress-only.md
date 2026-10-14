@@ -2,9 +2,6 @@
 record: ops-ingress-only
 task: 让「运营」退出应用用户面 + 验签信任锚下沉部署层
 date: 2026-10-14
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话
 ---
 
 ## 本次执行记录：让「运营」退出应用用户面 + 信任锚下沉部署层（ops-ingress-only，2026-10-14）【混合 PR】
@@ -24,9 +21,8 @@ sync_backfill_owner: 下一个会话
 | QM-1 本地打包 | PASS | `cd apps/desktop && pnpm run build:dir`（= `build:vue` + `electron-builder --dir`）**rc=0**；`dist-electron/win-unpacked/Multi-Publish.exe` 与 `resources/app.asar` 均存在；asar 清单含新模块 `electron/services/ops-center-sync-autosync-guard.js`、`electron/services/runtime-trust-anchor.js`，且**不含** `useOpsCenterSync`（这是「运营面已移除」的**产物级**证据）。两条 `file source doesn't exist`（`dist/fonts`、`.playwright-browsers`）为本机既存告警，与本笔无关，如实登记 |
 | QM-4 视觉回归 | N/A | 本笔在用户面只做**删除**（提示与只读门控），不新增界面元素与样式 |
 | QM-6 双模型外部评审 | 未执行 | 本机无 `codeagent-wrapper`，如实登记 |
-| 远程同步 | PENDING | 待本 PR 合并后回填 merge SHA 并销账（回填与销账同次提交） |
-
-- 保留门禁：行尾对账 ✅ | 品牌残留 PASS（扫描 8915 个 tracked 文件）| locale 成对 PASS | CJK 基线 PASS（1374 → 1224，无新增硬编码）| locale 键存在性 PASS（2007 个在用键全部存在）| 测试接线 PASS（82 个域内文件）| 债务熔断 PASS | 远程同步 PENDING
+| 远程同步 | PASS | merge `eda75e6fcd197d87bc3686e9328b06602c566fc4`（2026-10-14 12:19:45 +08:00）；PR 已 MERGED，远端分支 `ls-remote` 0 行 |
+- 保留门禁：行尾对账 ✅ | 品牌残留 PASS（扫描 8915 个 tracked 文件）| locale 成对 PASS | CJK 基线 PASS（1374 → 1224，无新增硬编码）| locale 键存在性 PASS（2007 个在用键全部存在）| 测试接线 PASS（82 个域内文件）| 债务熔断 PASS | 远程同步 PASS（merge eda75e6fc，远端分支 0 行）
 
 ### 如实记录：本笔纠正了上一轮我自己的错误结论
 

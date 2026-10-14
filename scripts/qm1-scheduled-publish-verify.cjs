@@ -122,6 +122,16 @@ if (!fs.existsSync(EXE)) {
       ok(`进程在 ${LAUNCH_WINDOW_MS / 1000} 秒后仍存活（未崩溃）`)
     }
 
+    // ★ 判据形态修正（2026-10-14）：原实现是「黑名单全不中 ⇒ 报 PASS」，
+    //   那对**未知故障恒返回绿** —— 实测现场：stderr 里躺着
+    //   `bad option: --user-data-dir=...`（隔离实例参数被应用拒绝），
+    //   但它不在黑名单里，于是判据打印「未命中红线」⇒ 假绿。
+    //
+    //   **黑名单式判据只能检出「已知」故障。** 正确形态是分层：
+    //     ① 命中黑名单 ⇒ 必然 FAIL（已知必败，加速通道）
+    //     ② stderr **非空但未命中黑名单** ⇒ **不得判 PASS**，判 NEEDS_REVIEW
+    //        （打印全文，把判断权交给人 —— 宁可乐红也不假绿）
+    //     ③ stderr 为空 ⇒ 才可判 PASS
     const combined = stderr + '\n' + stdout
     const forbidden = [
       /Failed to load platform config/i,
@@ -129,16 +139,20 @@ if (!fs.existsSync(EXE)) {
       /ENOTDIR.*app\.asar/i,
       /Cannot find module/i,
     ]
-    let clean = true
-    for (const re of forbidden) {
-      if (re.test(combined)) { bad(`启动 stderr 命中红线：${re}`); clean = false }
+    const hits = forbidden.filter(re => re.test(combined))
+    if (hits.length > 0) {
+      for (const re of hits) bad(`启动 stderr 命中红线：${re}`)
+    } else if (stderr.trim()) {
+      // ② 未知内容：不判 PASS，也不判 FAIL —— 判「需人工判断」
+      console.log('  NEEDS_REVIEW 启动 stderr 非空但未命中已知红线 —— 需人工判断（不得据此判 PASS）')
+      console.log('  --- stderr 全文 ---')
+      console.log(stderr.trim())
+      console.log('  --- stderr 全文结束 ---')
+      // 不置 exitCode：本脚本无法替人判断未知内容。但**绝不报 PASS**。
+    } else {
+      ok('启动 stderr 为空（配置加载/插件路径/ASAR 内部访问均无输出）')
     }
-    if (clean) ok('启动 stderr 未命中红线（配置加载/插件路径/ASAR 内部访问）')
     console.log(`  stderr 长度=${stderr.length} stdout 长度=${stdout.length}`)
-    if (stderr.trim()) {
-      console.log('  --- stderr 前 800 字 ---')
-      console.log(stderr.trim().slice(0, 800))
-    }
 
     try { child.kill() } catch { /* ignore */ }
     fs.rmSync(extractDir, { recursive: true, force: true })

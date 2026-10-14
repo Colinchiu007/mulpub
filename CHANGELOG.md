@@ -1,3 +1,9 @@
+# [未发布] docs(podcast): §8.2 compliance 合同措辞写回实测取值面（podcast-prd-compliance-wording）
+
+- 合同里「`compliance.reasons` 是 `PODCAST_*` 一族」与「码表取 `podcast-error-codes.test.js` 那份清单」两条**互相不可满足**：该测试的正向 harvest 只认 `PODCAST_` 前缀、`PRODUCERS` 12 项全在 `apps/desktop/`，而 `validateEpisode`（`packages/shared-utils/src/podcast-rss.js:136`）产出的是 `EPISODE_*` 族。照旧实现要么把锁退化成「字符串非空」（对有码无文案失明），要么给 RSS 层的码统一改名（牵动 98 个 locale 键与 §6.3 已合并的 `PODCAST_FEED_INVALID` 透传合同）。
+- 现按实测改写：`reasons` 字面值 = `validateEpisode` 原样透出的 **19** 条 `EPISODE_*`（另 3 条经 `resolveEnclosure` 转推，已逐行核对）；码表真源 = `apps/desktop/src/locales/podcast/{zh,en}.js` 的 `errors` 键集（zh 98 / en 98，实测**缺文案 0 条**）；文案渲染唯一实现 `issueText()`，展示层不得再写第二份映射。新增 PRD §8.2.8 记录取值面与重跑口径，并要求实现片同 PR 把 `podcast-rss.js` 加进清点式门禁扫描域。
+- 本节仍只是合同，不含实现（实现在下一片 tasks 4.4b②）。
+
 # [未发布] 让「运营」退出应用用户面 + 验签信任锚下沉部署层（ops-ingress-only）
 
 - **用户判断成立，且比表面更严重**：「不应该让应用中存在运营方面的设置」——核实后用户面上残留的运营信息里有一句**可能为假的话**：

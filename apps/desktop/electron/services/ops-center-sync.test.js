@@ -343,6 +343,25 @@ describe('OpsCenterSync syncNow', () => {
     expect(svc.getConfig().lastSyncedAt).toBeTruthy()
   })
 
+  // 2026-10-14 接线锁：origin 字段必须真的落到成功日志里。
+  // 此前只有 safeOrigin 的单元锁（测的是"怎么抠 origin"），
+  // 没有任何断言保证 `catalog-synced` 事件确实带上了它 —— 纯函数锁 ≠ 接线锁。
+  // 用户本轮困惑恰是「我改的是本地运营中心，应用连的是不是别处」，
+  // 而旧日志只有 {updated, at}，不含地址，无从分辨。
+  it('接线锁：catalog-synced 成功日志必须带 origin（且只带 origin，不带 URL 原文）', async () => {
+    const store = makeStore()
+    const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
+    svc.saveConfig({ url: 'https://ops.example.com', apiKey: 'k' })
+    global.fetch = vi.fn(async () => jsonResp({ body: { items: [{ id: 'openai', name: 'OpenAI' }] } }))
+    expect((await svc.syncNow()).code).toBe(0)
+    const call = LOG.notify.mock.calls.find((c) => c[1] === 'catalog-synced')
+    expect(call, '未找到 catalog-synced 事件').toBeTruthy()
+    const params = call[2].params
+    expect(params.origin).toBe('https://ops.example.com')
+    // 反向：不得把整条 URL（可能带 userinfo/查询串里的令牌）原文入日志
+    expect(JSON.stringify(params)).not.toContain('/api/v1/model-presets/catalog')
+  })
+
   it('连接失败 → 明确错误', async () => {
     const store = makeStore()
     const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
