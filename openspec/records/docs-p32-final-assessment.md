@@ -2,10 +2,6 @@
 record: docs-p32-final-assessment
 task: P3-2 评估最终定稿（三次修正后）—— 判据①②③④ 全部需真机取证
 date: 2026-10-14
-# ↓ 三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在，无法取证收口
-sync_backfill_owner: 下一个会话（按三形态同改纪律：表格行 + bullet + 删除本段三字段，同一次提交）
 ---
 
 ## 本次执行记录：P3-2 评估最终定稿（docs-p32-final-assessment，2026-10-14）
@@ -57,9 +53,9 @@ sync_backfill_owner: 下一个会话（按三形态同改纪律：表格行 + bu
 | 品牌残留 | PASS | `check-no-brand-residue.js` exit=0 |
 | 文档同步 | PASS | `classify-docs-only.js` → `docs-only=true` |
 | 执行记录 | PASS | 本文件即按出路①新增 |
-| 远程同步 | PENDING | 本 PR 未合并，merge SHA 尚不存在 |
+| 远程同步 | PASS | #3563 merge `9fd47b332` |
 
-- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PENDING
+- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PASS（#3563 @ 9fd47b332）
 
 ## 备注
 
