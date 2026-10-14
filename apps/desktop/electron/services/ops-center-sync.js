@@ -11,9 +11,8 @@
  *   - 目录/运行时结构校验失败 fail-closed（不写本地）
  *
  * 断连韧性（2026-10-07，ops-center-resilience）：本文件只做接线，逻辑在两个新模块里
- *   - ops-runtime-snapshot.js：L2 快照（完整原始 payload）/ L3 种子 / canonicalJson 与 config_hash
- *   - ops-resilience-reporter.js：降级事件本地队列 + 配置生效 ACK
- *   （拆分的理由：本文件已在 max-lines 债务清单上，新逻辑继续塞进来会顶破门禁）
+ *   - ops-runtime-snapshot.js：L2 快照 / L3 种子 / canonicalJson 与 config_hash
+ *   - ops-resilience-reporter.js：降级事件本地队列 + 配置生效 ACK（拆分理由：本文件在 max-lines 债务清单上）
  */
 'use strict'
 
@@ -22,6 +21,8 @@ const nodeCrypto = require('crypto') // 内建密码学：Ed25519 验签（与�
 // 应用菜单配置净化（2026-09-15）：拆出独立模块以控制本文件体量（债务熔断 < 500 行）
 const { normalizeAppMenu } = require('./app-menu-config')
 const { resolveAutoSyncGuard, emitAutoSyncOutcome, safeOrigin } = require('./ops-center-sync-autosync-guard')
+// 同步地址三口径（手填/自动/生效）：把「手动态」从混装的 url 字段里拆出来（纯函数，独立模块控体量）
+const { resolveSyncUrls, shouldRefusePin } = require('./ops-center-sync-url')
 // P0-1 信任锚：内置 DEV 公钥只对未打包态生效（判据拆独立模块，兼控本文件体量）
 const { resolveTrustAnchor, resolveRuntimePublicKey, isPackagedApp } = require('./runtime-trust-anchor')
 // 统一内容类别（2026-10-03）：热门选题 / 采集库 / 账号标签 共用的单一真源
@@ -36,11 +37,8 @@ const MAX_CATALOG_BYTES = 1024 * 1024
 const SYNC_TIMEOUT_MS = 10 * 1000
 const MAX_FEATURE_FLAGS = 100
 
-/**
- * 内置默认 Ed25519 公钥（DEV KEY，2026-09-02 生成）。
- * 与 ops-center/backend/.env.example 中标注的「DEV-ONLY 默认私钥」配对，仅用于开发/演示自验环。
- * 生产部署必须自建密钥对，并在**部署层**（identity-public.json 的 runtimePublicKey / env RUNTIME_PUBLIC_KEY）指定信任锚，默认公钥不作生产信任锚。
- */
+/** 内置默认 Ed25519 公钥（DEV KEY，2026-09-02）。与 .env.example 的 DEV 私钥配对，仅开发/演示自验环用。
+ * 生产部署必须自建密钥对，并在部署层（identity-public.json 的 runtimePublicKey / env RUNTIME_PUBLIC_KEY）指定信任锚。 */
 const DEFAULT_RUNTIME_PUBLIC_KEY = [
   '-----BEGIN PUBLIC KEY-----',
   'MCowBQYDK2VwAyEAr6a4g942N23o31XNIcwFGX9VhSu2jlGA9dT1bfJIDpg=',
@@ -124,10 +122,9 @@ class OpsCenterSync {
     // 方案C 零配置：运营中心自动发现 URL（由 bootstrap 经 setOpsCenterUrl 注入，优先于全局 env，避免污染其他读取者）
     this._autoOpsCenterUrl = ''
     // 断连韧性（2026-10-07）：L2/L3 数据源与上报侧独立成模块，本类只留接线
-    this._snapshots = new OpsRuntimeSnapshot({ store, log: this._log })
-    // fetcher 必须显式注入：不注入时 reporter._fetcher 为 null，_postJson 一律返回
-    // {code:0, skipped:true}，而调用方按 code 0 判定成功 ⇒ 降级事件被出队丢弃、ACK 被记为
-    // 「已发」并空烧 24h 心跳窗口。测试因为注入了 fetcher 而全绿，生产却整条静默。
+    this._snapshots = new OpsRuntimeSnapshot({ store, log: this._log, resourcesPath: this._resolveResourcesPath() })
+    // fetcher 必须显式注入：不注入时 reporter._fetcher 为 null，_postJson 一律返回 {code:0, skipped:true}，
+    // 而调用方按 code 0 判成功 ⇒ 降级事件被丢弃、ACK 记为「已发」并空烧 24h 心跳窗口（测试注入了故全绿）。
     this._resilience = new OpsResilienceReporter({
       store,
       log: this._log,
@@ -141,6 +138,10 @@ class OpsCenterSync {
     this._replayPayload = null
   }
 
+  /** 打包态的资源目录（开发态为空，只走 asar 内候选路径） */
+  _resolveResourcesPath() {
+    try { return process.resourcesPath ? String(process.resourcesPath) : '' } catch (_) { return '' }
+  }
 
   /** 上报鉴权（catalog key 优先，其次零配置自动发现的 bearer；判据见 reporter 模块注释） */
   _resilienceAuth() {
@@ -158,9 +159,8 @@ class OpsCenterSync {
   }
 
   /**
-   * 启动时从 L2/L3 水合运行时策略（design §4.1）。
-   * 为什么是重放原始 payload 而不是各管理器各自的持久化：6 个注入管理器的入参就是
-   * bootstrap 原始块，原样重喂一次即重放全部内存态（这正是「重启丢 6 类数据」的修复点）。
+   * 启动时从 L2/L3 水合运行时策略（design §4.1）。为什么重放原始 payload 而不是各管理器各自的持久化：
+   * 6 个注入管理器的入参就是 bootstrap 原始块，原样重喂即重放全部内存态（这正是「重启丢 6 类数据」的修复点）。
    * 幂等：只跑一次；重放不改写 L2（L3 只读不落盘），syncedAt 停在快照里的服务端时间。
    */
   restoreRuntimeFromDisk() {
@@ -215,15 +215,18 @@ class OpsCenterSync {
   getConfig() {
     const cfg = this._readStoredObject(SETTING_KEY)
     const auto = this._getAutoContext()
+    const u = resolveSyncUrls({ storedUrl: cfg.url, autoUrl: auto ? auto.url : '', autoAvailable: !!auto })
     return {
-      url: cfg.url || (auto ? auto.url : ''),
+      // 三口径显式分开：manualUrl 是判「手动态」的唯一依据；url 是同值历史别名（@deprecated）
+      manualUrl: u.manualUrl,
+      effectiveUrl: u.effectiveUrl,
+      url: u.effectiveUrl,
       apiKeyConfigured: !!(cfg.apiKeyEnc),
       autoSync: cfg.autoSync !== false,
       lastSyncedAt: cfg.lastSyncedAt || '',
       runtimePublicKey: cfg.runtimePublicKey || '',
-      // 方案C 零配置化：登录会话自动连接标识（无手动URL + 有自动URL + 有token回调）
-      autoConnected: !cfg.url && !!auto,
-      autoUrl: auto ? auto.url : '',
+      autoConnected: u.autoConnected,
+      autoUrl: u.autoUrl,
     }
   }
 
@@ -233,6 +236,11 @@ class OpsCenterSync {
     const cleanUrl = normalizeUrl(url)
     if (url && !cleanUrl) {
       return { code: -1, message: 'Ops Center 地址必须是 http(s) URL（非本机地址强制 https）' }
+    }
+    // 固化护栏：零配置态下把自动地址原样写回手填不可逆（判据见 ops-center-sync-url.js::shouldRefusePin）
+    const auto = this._getAutoContext()
+    if (shouldRefusePin({ storedUrl: current.manualUrl, autoUrl: auto ? auto.url : '', candidate: cleanUrl })) {
+      return { code: -1, message: '当前是自动发现的运营中心地址（未手填），无需保存；留空即跟随部署层' }
     }
     // apiKey 为空时透传已有密文（绝不解密后回写，避免明文落盘/解密失败抹 Key）
     let apiKeyEnc = this._getStoredKeyEnc()
@@ -289,9 +297,9 @@ class OpsCenterSync {
 
   async _syncNowInner() {
     const cfg = this.getConfig()
-    // 方案C：优先使用自动发现的 context（identity-public.json + Logto JWT）。
-    // 注意：getConfig().url 会把自动发现地址并入（便于设置页展示），不能用它判断手动态；
-    // 否则零配置态下 !cfg.url 恒 false -> useBearer 恒 false -> 误报未配置 API Key，同步永不发起。
+    // 方案C：优先使用自动发现的 context（identity-public.json + Logto JWT）。**不能用 getConfig().url
+    // 判断手动态**（它把自动地址并入便于设置页展示）；否则零配置态下 !cfg.url 恒 false ⇒ useBearer 恒
+    // false ⇒ 误报「未配置 API Key」、同步永不发起。此判据现已收敛到 getConfig().manualUrl。
     const auto = this._getAutoContext()
     const manualUrl = this._getManualUrl()
     const effectiveUrl = manualUrl || (auto ? auto.url : '')
@@ -308,9 +316,8 @@ class OpsCenterSync {
       return { code: -1, message: '模型服务未就绪', ...await this._syncRuntimeBestEffort(effectiveUrl, makeAuth) }
     }
 
-    // 两条通道彼此独立且并行：目录（模型服务商配置）与运行时策略（公告/版本发布/应用菜单/功能开关）。
-    // 串行会让任一条异常时另一条也拿不到（2026-09-25 复盘：目录失败导致运营菜单永远拉不到），
-    // 并行同时保证整体超时预算仍是单请求的 10s，而不是两条相加。
+    // 两条通道彼此独立且并行：目录（模型服务商配置）与运行时策略（公告/版本/菜单/开关）。串行会让任一条
+    // 异常时另一条也拿不到（2026-09-25 复盘：目录失败导致运营菜单永远拉不到）；并行还保证总预算仍是单请求 10s。
     const [catalogSettled, runtimeSettled] = await Promise.allSettled([
       this._fetchCatalog(effectiveUrl, makeAuth()),
       this._fetchRuntime(effectiveUrl, makeAuth()),
@@ -538,7 +545,6 @@ class OpsCenterSync {
 
   /**
    * 应用运行时策略：公告缓存 + 敏感词重建 + 更新策略推送 + 6 个注入管理器重放。
-   *
    * @param {object} payload bootstrap 原始 payload（重放时用 L2/L3 的原文）
    * @param {{replay?: boolean, persistSnapshot?: boolean}} [options]
    *   replay=true           —— 来自 L2/L3 的重放：不推进 syncedAt（停在快照里的服务端时间）
@@ -668,10 +674,7 @@ class OpsCenterSync {
   // ─── 拉取 ───────────────────────────────────────────────
 
 
-  /**
-   * 方案C 零配置化：从 identity 配置自动发现运营中心 URL，用 Logto JWT 鉴权。
-   * 返回 {url, getAccessToken} 或 null（未配置/身份不可用时）。
-   */
+  /** 方案C 零配置化：从 identity 配置自动发现运营中心 URL，用 Logto JWT 鉴权；返回 {url, getAccessToken} 或 null。 */
   _getAutoContext() {
     const autoUrl = normalizeUrl(this._autoOpsCenterUrl || process.env.OPS_CENTER_URL || '')
     if (!autoUrl) return null
@@ -680,16 +683,15 @@ class OpsCenterSync {
   }
 
   async _fetchCatalog(baseUrl, auth) {
-    const data = await this._fetchJson('/api/v1/model-presets/catalog', auth)
+    const data = await this._fetchJson('/api/v1/model-presets/catalog', auth, baseUrl)
     if (!data || !Array.isArray(data.items)) throw new Error('目录响应结构错误（缺少 items 数组）')
     return data.items
   }
 
   async _fetchRuntime(baseUrl, auth) {
-    // 统一在出口打 failureKind：调用方（_applyRuntimeSettled）据此写降级事件，
-    // 判据集中在 reporter 模块，避免散落在各处 throw 的文案匹配。
+    // 统一在出口打 failureKind：调用方（_applyRuntimeSettled）据此写降级事件，判据集中避免散落文案匹配。
     try {
-      const data = await this._fetchJson('/api/v1/runtime/bootstrap', auth)
+      const data = await this._fetchJson('/api/v1/runtime/bootstrap', auth, baseUrl)
       // Stage -1.6：运行时策略（公告/版本/敏感词/featureFlags/pipelineOptions）Ed25519 验签。
       // 验签不通过 → 抛错，调用方整体拒绝应用任何运行时策略（fail-closed，pipelineOptions 永不经未验签路径合入）。
       const signed = verifyRuntimeSignature(data, this._getRuntimePublicKey())
@@ -703,10 +705,10 @@ class OpsCenterSync {
     } catch (e) { throw tagOpsError(e) }
   }
 
-  async _fetchJson(path, auth) {
+  async _fetchJson(path, auth, base) {
     // auth: { type: 'catalog-key', value } | { type: 'bearer', getAccessToken }
-    const base = String(this.getConfig().url || process.env.OPS_CENTER_URL || '').replace(/\/+$/, '')
-    const url = base + path
+    // base 由调用方显式传入（此前内部重读混装的 getConfig().url，是唯一误用点）
+    const url = String(base || process.env.OPS_CENTER_URL || '').replace(/\/+$/, '') + path
     const controller = typeof AbortController === 'function' ? new AbortController() : null
     const timer = controller ? setTimeout(() => controller.abort(), SYNC_TIMEOUT_MS) : null
     let headers = { Accept: 'application/json' }
