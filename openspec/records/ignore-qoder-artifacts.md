@@ -2,10 +2,6 @@
 record: ignore-qoder-artifacts
 task: 把 Qoder 工作区产物 /.qoder/ 登记进 .gitignore，使其不再被共享根写保护整份搬进隔离区；并登记 guard/classify 两份白名单漂移这一未闭合缺陷
 date: 2026-10-14
-# ↓ 下面三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在，无法取证收口；合并后由后续回填 PR 在同一次提交内改写 PASS 并删除本三字段与 ledger 登记项
-sync_backfill_owner: 下一个会话（按 AGENTS.md「合并后收尾清单」执行）
 ---
 
 ## 本次执行记录：共享根 Qoder 产物归类（ignore-qoder-artifacts，2026-10-14）【docs-only】
@@ -21,7 +17,7 @@ sync_backfill_owner: 下一个会话（按 AGENTS.md「合并后收尾清单」�
 | 接线棘轮 | PASS | 本 PR **未新增任何 `*.test.js` / `.test.mjs` / `.test.sh` / `.test.ps1`**，也无新增被 require 的脚本本体（`.agent_context/` 下两个文件是 gitignored 的一次性补丁工具，不进扫描域、不入库）⇒ 不存在「写了没人跑」的新死锁。判据本体未改动：`check-gate-record-debt.js` / `classify-docs-only.js` / `guard-shared-root-writes.ps1` 三个只读引用，本笔只动数据文件 `.gitignore` 与载体文件 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/`、`packages/rpa-engine/`、renderer 源码或任何 UI 文件 ⇒ 打包与视觉回归与本变更无交集。不写「已跑」，如实写 N/A |
 | QM-6 CCG 双模型外部评审 | 未执行（按 docs-only 通道豁免） | AGENTS.md docs-only 快速通道明列跳过 QM-6；本笔变更集为 `.gitignore` 一行 + 记录/台账/CHANGELOG/learnings，无运行面。如实记「未执行」，不以本地自审冒充双模型外部评审 |
-| 远程同步 | PENDING | 本 PR 尚未合并，merge SHA 不存在，无法取证收口。合并后由后续回填 PR 改写：`git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 取 merge SHA 与时间、`git ls-remote --heads origin ignore-qoder-artifacts` 返回 0 行证远端分支已删，并**在同一次提交内**删除上方三个 `sync_*` 字段 + `.quality-gates.md` 两形态（bullet 与表格行）同改 + 删除 `scripts/gate-record-debt-ledger.json` 登记项 |
+| 远程同步 | PASS | PR #3586 已 squash 合入：**双源同 SHA**——`gh pr view 3586 --json state,mergedAt,mergeCommit` 与 `git log origin/main --grep='(#3586)$' --format=%H\|%cI` 给出同一个 `9d7ad804c97fa9012d538096c384bcc32f655d7c`（2026-10-14T19:46:09+08:00）；`git ls-remote --heads origin ignore-qoder-artifacts` ⇒ **0 行**证远端分支已删。上方三个 `sync_*` 登记字段与 ledger 登记项已在**同一次提交**删除 |
 
 ### 遗留（不假装已闭合）
 
