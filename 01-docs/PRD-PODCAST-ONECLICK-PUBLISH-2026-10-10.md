@@ -975,7 +975,7 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 | 字段 | 类型 | 闭集/约束 | 语义 |
 | --- | --- | --- | --- |
 | `compliance.state` | string | 恰好 `ok / invalid / stock` 三值，枚举外即抛 | ok 通过；invalid 本次校验不通过；stock 存量沿用未再校验 |
-| `compliance.reasons` | string[] | `ok` 与 `stock` 时**必须为空数组**；`invalid` 时 ≥1 | 每项是领域码（`PODCAST_*` 一族），**不是句子** |
+| `compliance.reasons` | string[] | `ok` 与 `stock` 时**必须为空数组**；`invalid` 时 ≥1 | 每项是 `validateEpisode` 原样透出的校验码字面值（`EPISODE_*` 一族，全集见 §8.2.8），**不是句子**；渲染只走 `issueText()` 这一份实现 |
 | `compliance.checkedAt` | string | ISO8601；`stock` 档必须为空串 | 本次重跑的时刻；`stock` 没有"重跑"这件事，填时刻等于谎称校验过 |
 
 - `stock` 只看两件事：该期 `mimeSource === "stock"` 且 `index.json` 的 `stockStamp` 在位。
@@ -1020,10 +1020,10 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 
 1. **闭集**：`state` 取枚举外值时组装必须抛；出现第四态即红（新增一档要同 PR 改本节）。
 2. **三态正例 + 负控**：`ok` 的 `reasons` 必须是空数组；`stock` 的 `checkedAt` 必须是空串；
-   `invalid` 的 `reasons` 必须非空且全是已知领域码（码表取 `podcast-error-codes.test.js` 那份清单，不新写一份）。
+   `invalid` 的 `reasons` 必须非空且每条都能在 `apps/desktop/src/locales/podcast/{zh,en}.js` 的 `errors` 块取到文案（**码表真源是这两份 locale 的键集**，实测 `zh` 98 / `en` 98 成对、`EPISODE_*` 20 条在位）。
 3. **旁路降级**：注入组装期抛错 ⇒ 返回不含 `compliance` 键且 `episodes` 数量不变（不得整期消失）。
 4. **不猜存量**：`mimeSource` 缺席但时间戳很旧 ⇒ 判 `invalid/ok` 不得判 `stock`；配"填了时刻就谎称校验过"的反例变异。
-5. **判据同源**：`reasons` 必须来自 `validateEpisode` 的 `issues[].code`；"在展示层重写一份判据"必须被结构锁拦红。
+5. **判据同源**：`reasons` 必须来自 `validateEpisode` 的 `issues[].code`（字面值全集见 §8.2.8）；"在展示层重写一份判据"必须被结构锁拦红。同 PR 必须把 `packages/shared-utils/src/podcast-rss.js` 加进 `podcast-error-codes.test.js` 的 `PRODUCERS` 并把 harvest 正则放宽到该族——实测新增 53 条命中、**缺文案 0 条**，不扩域则「reasons 里有码没人管文案」只靠人记。
 6. **追加式契约**：`episode:list` 既有键与顺序不变；对 `ipc-handlers/podcast.test.js` 既有断言零修改即为证据，改了任何一条都要在 PR 里点名理由。
 7. **locale 成对 + 清点式守卫同 PR 喂**：四个 `compliance.*` 键必须 zh/en 成对；领域码若首次面向用户，
    `podcast-error-codes.test.js` 的 PRODUCERS 与渲染层清单必须同步扩域（否则本机全绿、CI 的清点式死锁变红）。
@@ -1033,6 +1033,16 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 - 不做批量重校验的后台任务（会把只读标记变成写路径）。
 - 不引入 `compliance` 的持久化字段——它是每次读取算出来的视图量，落盘即过期。
 - 不在本节合并 §7.9 的 `stockStamp` 摘要 UI（那是 4.4b③）。
+
+#### 8.2.8 `reasons` 的取值面（2026-10-14 实测；改校验器必须重新生成，不得手工维护）
+
+- **取证口径**：读 `packages/shared-utils/src/podcast-rss.js` 的字符串字面量，与 `apps/desktop/src/locales/podcast/{zh,en}.js` 的 `errors` 键集求差集。重跑命令见 `.quality-gates.md` 同名记录块。
+- **`validateEpisode` 逐期重跑实际能产出 19 条**：16 条在函数体内直接 `issue(...)`，另 3 条经 `resolveEnclosure`（`:124-133`）由 `:152` 转推 ——
+  `EPISODE_MISSING`、`EPISODE_TITLE_REQUIRED`、`EPISODE_TITLE_TOO_LONG`、`EPISODE_DESC_TOO_LONG`、`EPISODE_SUBTITLE_TOO_LONG`、`EPISODE_AUDIO_REQUIRED`、`EPISODE_AUDIO_NOT_HTTPS`、`EPISODE_HOSTING_NOT_CONFIGURED`、`EPISODE_DURATION_INVALID`、`EPISODE_SIZE_INVALID`、`EPISODE_SIZE_REQUIRED`、`EPISODE_EXPLICIT_INVALID`、`EPISODE_TYPE_INVALID`、`EPISODE_PUBDATE_INVALID`、`EPISODE_COVER_NOT_HTTPS`、`EPISODE_MIME_INVALID`、`EPISODE_GUID_TOO_LONG`、`EPISODE_NUMBER_INVALID`、`EPISODE_SEASON_INVALID`
+- **不在逐期取值面**（属列表级/频道级/出站级，`validateEpisode` 产不出）：`EPISODE_DUPLICATE`（`validateEpisodeList`）、`EPISODES_EMPTY`、`EPISODES_TOO_MANY`、`CHANNEL_*`（21 条）、`FEED_*`（3 条）、`ENCLOSURE_*`（5 条）、`DURATION_MISSING`。
+- **文件级合计**：`podcast-rss.js` 共 **53** 个码字面量；locale `errors` 键 **zh 98 / en 98 成对**，**缺文案 0 条**。这一条是本节敢把「每条 `reason` 必须取得到文案」写成硬锁的前提，不是顺带观察。
+- **渲染口径**：`reasons` 逐条走 `issueText({ code })`（唯一实现 `apps/desktop/src/composables/usePodcastChannel.js:111`；未知码落 `podcast.errors.fallback` 并把码带进文案，不静默吞）。展示层**不得**再写第二份码→文案映射。
+- **为什么码表真源不能是 `podcast-error-codes.test.js`**：该文件的正向 harvest 是 `/'"(PODCAST_[A-Z0-9_]+)'"/g`，且 `PRODUCERS` 12 项全在 `apps/desktop/` 下，对 `packages/shared-utils` 的 `EPISODE_*` 族**双重失明**。照旧措辞实现只有两条退路，都不可接受：把锁2 弱化成「reasons 非空字符串」（对「有码无文案」完全失明），或给 RSS 层的 53 个码统一加 `PODCAST_` 前缀（连带改 98 个 locale 键与 §6.3 已合并的 `PODCAST_FEED_INVALID` 透传合同）。
 
 ## 9. 数据校验（三层）
 
