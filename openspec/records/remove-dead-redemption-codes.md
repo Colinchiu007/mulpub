@@ -2,9 +2,6 @@
 record: remove-dead-redemption-codes
 task: 删除 desktop 端已死的兑换码孤儿模块（redemption-codes.js + 其专属测试），用同机同命令 A/B 实测证明 QG Coverage 门禁不红，且不为凑比率写测试
 date: 2026-10-14
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 不存在；合并后由后续 docs PR 回填 PASS + merge SHA 并删除本区三字段
-sync_backfill_owner: 下一个会话（回填时删本 frontmatter 三字段 + 远程同步行改 PASS）
 ---
 
 ## 本次执行记录：删除已失效的兑换码孤儿模块（remove-dead-redemption-codes，2026-10-14）
@@ -133,5 +130,5 @@ A1 记录（2026-10-13）的归因是「删除一个有专属测试、覆盖率�
   该脚本自引入起就跑不起来（本次实测 `Cannot find module`）。AGENTS.md 三层判据的「脚本侧同源
   实现」因此实际不存在；本次 QM-1 按 AGENTS.md 判据手工执行（探针在仓库外）。修它属其他 PR。
 
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin <branch>` 返回 0 行证远端分支已删；回填后删除 frontmatter 三字段 |
+| 远程同步 | PASS —— PR #3565 squash 合并，merge SHA `0c1bf541e36ee3bb9736dcea2c64036bd0890615`（2026-10-14T15:01:29+08:00）；CI 20/20 全绿（含 `QG Coverage` 36m14s 与 Desktop Shards 两份全量；`release` 按 PR 设计 skipping）；远端分支已删除 |
 |---|---|
