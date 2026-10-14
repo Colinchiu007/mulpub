@@ -2,16 +2,12 @@
 record: docs-learnings-r40-45
 task: 沉淀第 40–45 轮三条教训（单测≠门禁 / 判据同值不可区分第 6–8 例 / .ccg 评审凭证冲突）
 date: 2026-10-14
-# ↓ 三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在，无法取证收口
-sync_backfill_owner: 下一个会话（按三形态同改纪律：表格行 + bullet + 删除本段三字段，同一次提交）
 ---
 
 ## 本次执行记录：Learnings 第 40–45 轮沉淀（docs-learnings-r40-45，2026-10-14）【docs-only】
 
 - 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD` → **`docs-only=true`**
-- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PENDING
+- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PASS（#3538 @ bde0feff3）
 - 备注：仅改 `01-docs/learnings.md`（+168 行）+ `.ccg/reviews/*.json`（A）。
 
 | 门禁 | 状态 | Fresh 证据 |
@@ -20,11 +16,11 @@ sync_backfill_owner: 下一个会话（按三形态同改纪律：表格行 + bu
 | 行尾对账 | ✅ | `--numstat` 与 `--ignore-cr-at-eol --numstat` 两口径一致（`168 0`）|
 | 品牌残留 | ✅ | 全文写「参考产品」，无竞品品牌名 |
 | 文档同步 | ✅ | 追加到 `learnings.md` 末尾，不破坏既有章节 |
-| 远程同步 | PENDING | 本 PR 未合并 |
+| 远程同步 | PASS | #3538 merge `bde0feff306bc3785ee2c3263eccc64003957942`（2026-10-13T23:24:03Z，已取证）|
 
 | 项 | 值 |
 | --- | --- |
-| 远程同步 | PENDING |
+| 远程同步 | PASS | #3538 merge `bde0feff306bc3785ee2c3263eccc64003957942`（已取证）|
 
 ## 沉淀了哪三条
 
