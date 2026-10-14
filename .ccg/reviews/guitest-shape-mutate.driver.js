@@ -52,6 +52,8 @@ const MUTATIONS = [
   { id: 'N12', file: CR, from: '    lines.unshift(\'NOTE: EMPTY_CHANGESET',
     to: '    if (false) lines.unshift(\'NOTE: EMPTY_CHANGESET',
     expect: 'CLI 端到端：真 git 仓库里文档改动判否、桌面改动判是' },
+  { id: 'N13', file: WF, from: "      - 'package.json'\n", to: '',
+    expect: 'push.paths 与 GUI_PATHS 是同一份清单' },
 ]
 
 const backups = new Map()

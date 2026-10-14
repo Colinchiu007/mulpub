@@ -1,3 +1,8 @@
+// 覆盖域提醒（轴 2 外部评审的 Info，已采纳）：本文件除 GUI workflow 的结构锁外，
+// 还锁着 scripts/ci-gui-relevance.js 的**进程入口**（CLI 端到端那条用例：临时真 git 仓库 +
+// 真 GITHUB_OUTPUT）。它刻意不拆到 scripts/*.test.js —— 那里既会被 .gitignore 的 scripts/*.js
+// 吞掉，又要在 quality-gate.yml 里另点名一次，否则对 check-unwired-tests 棘轮不可见。
+// 要找"判据 CLI 的锁"，就在本文件里，不在 scripts/ 下。
 const fs = require('fs');
 const path = require('path');
 const yaml = require('js-yaml');
@@ -319,14 +324,17 @@ describe('GUI/CI 工作流门禁契约', () => {
     expect(names).not.toContain('Gate Result');
   });
 
-  it('push 触发保持原样（本次只修 PR 侧检查缺席，不得顺手扩大 main push 的跑量）', () => {
+  it('push 触发保持原样，且 push.paths 与 GUI_PATHS 是同一份清单（防两侧相关性静默漂移）', () => {
     const { workflow } = readWorkflow('gui-test.yml');
+    const { GUI_PATHS } = require(path.join(PROJECT_ROOT, 'scripts', 'ci-gui-relevance.js'));
+    const pushPaths = (workflow.on.push.paths || []).slice().sort();
+    const gui = GUI_PATHS.slice().sort();
 
-    expect(workflow.on.push.paths).toEqual(expect.arrayContaining([
-      'apps/desktop/**',
-      'packages/**',
-      '.github/workflows/gui-test.yml',
-    ]));
+    // 全集相等，而不是 arrayContaining 抽查：判据（PR 侧）与 push 触发用的是同一份相关性清单，
+    // 有人只改一边就会在这里红 —— 轴 2 外部评审指出的漂移面（Warning，已采纳）。
+    expect(pushPaths).toEqual(gui);
+    expect(pushPaths.length).toBeGreaterThanOrEqual(5);
+    // 注：不另钉"字面五项清单"——那会与「清单允许合法变长、只禁缩水」的设计意图对打（轴 2 的 Q1-b 因此不采纳）。
   });
 
   it('质量门禁执行真实 E2E 和视觉测试，并且只清理自己启动的服务', () => {

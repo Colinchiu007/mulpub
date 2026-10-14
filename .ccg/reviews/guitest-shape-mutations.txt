@@ -2,7 +2,7 @@ PREFLIGHT_BAD=0
 N1 CAUGHT (1 红) 由「gui-test 作业必须由 changes 判定作业门控」抓住
 N2 CAUGHT (1 红) 由「gui-test 作业必须由 changes 判定作业门控」抓住
 N3 CAUGHT (1 红) 由「GUI 工作流的 PR 触发不得再带 paths 白名单」抓住
-N4 CAUGHT (3 红) 由「GUI 相关性清单搬进判据脚本后内容不得缩水」抓住
+N4 CAUGHT (4 红) 由「GUI 相关性清单搬进判据脚本后内容不得缩水」抓住
 N5 CAUGHT (2 红) 由「相关性判定按行为而非字面串」抓住
 N6 CAUGHT (2 红) 由「CLI 端到端：真 git 仓库里文档改动判否、桌面改动判是」抓住
 N7 CAUGHT (1 红) 由「CLI 端到端：真 git 仓库里文档改动判否、桌面改动判是」抓住
@@ -11,5 +11,6 @@ N9 CAUGHT (1 红) 由「必须有 GUI Gate Result 聚合作业」抓住
 N10 CAUGHT (1 红) 由「必须有 GUI Gate Result 聚合作业」抓住
 N11 CAUGHT (1 红) 由「必须有 GUI Gate Result 聚合作业」抓住
 N12 CAUGHT (1 红) 由「CLI 端到端：真 git 仓库里文档改动判否、桌面改动判是」抓住
-MUTATIONS=12 MISSED=0 WRONG_CAUSE=0 RESTORED_BYTES_EQUAL=true
+N13 CAUGHT (1 红) 由「push.paths 与 GUI_PATHS 是同一份清单」抓住
+MUTATIONS=13 MISSED=0 WRONG_CAUSE=0 RESTORED_BYTES_EQUAL=true
 driver rc=0
