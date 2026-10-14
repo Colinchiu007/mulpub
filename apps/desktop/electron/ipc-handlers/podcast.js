@@ -190,7 +190,24 @@ function registerHandlers (ipcMain, deps) {
   ipcMain.handle('podcast:episode:list', guarded('episode:list', (payload) => {
     const svc = getService(channelOf(payload))
     const episodes = svc.listEpisodes()
-    return { episodes, cap: svc.episodeCap(), count: episodes.length }
+    // PRD §8.2：每期**追加**一个 compliance（闭集 ok|invalid|stock）。判据不在这里重写——
+    // 只读重跑引擎 validateEpisode；stock 档另需 index 的 stockStamp 作凭据（缺凭据即不猜来源）。
+    // 不对称口径：episodes 是主路、compliance 是旁路，旁路炸了只回落成「没有这个键」，
+    // 不得丢期、不得让整个列表报错（§8.2.3 行 4）。
+    let annotated = episodes
+    try {
+      const mod = (deps && deps.podcastEpisodeCompliance) || require('../services/podcast-episode-compliance')
+      annotated = mod.annotateEpisodes({
+        episodes,
+        // 只取「已被解析过」的 registry：读 index 属旁路，不得在列表路径上第一次去碰 userData
+        stockStamp: mod.readStockStamp({ registry, logger: log, fsImpl: deps && deps.podcastFs }),
+        channelId: channelOf(payload),
+        logger: log,
+      })
+    } catch (e) {
+      log.warn('[podcast-compliance] 标记失败，本次列表不带 compliance：' + e.message)
+    }
+    return { episodes: annotated, cap: svc.episodeCap(), count: episodes.length }
   }))
 
   ipcMain.handle('podcast:episode:save', guarded('episode:save', (payload) => {
