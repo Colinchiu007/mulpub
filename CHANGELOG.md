@@ -1,3 +1,12 @@
+# [未发布] chore(gates): GUI Gate Result 进 required 清单——把「检查整体不存在」从静默放行改成拦得住（gui-gate-required-record）
+
+- 前置是 #3578 而不是本笔：`gui-test.yml` 原先把路径白名单写在 PR 触发层，不匹配时整条 workflow 不启动、GitHub 连 check run 都不产生，那种形状进 required 只会得到「永远不到来」的死锁；判定下沉到作业层并补 `if: always()` 的 `GUI Gate Result` 聚合之后，「缺席=红」才取代「缺席=静默」。**收的是聚合作业名**，收 `gui-test` 会留下「判据作业 `changes` 坏了 ⇒ 下游 skipped ⇒ required 照样满足」的洞（该 skipped 语义由 #3578 用 4 个真实红 run 实测）。
+- 阻塞成本实测为 0，这是它值得现在做的理由：9 天窗口 449 条终结态 PR 侧 GUI 运行（413 success / 29 cancelled / 7 failure），逐条回溯到「已合并 PR 的最终 head」的交集是 **failure 0/7、cancelled 0/29**——7 条红全在中间提交，后续 push 自行修好（#3513 红在 `8f80d539`、最终 head `a3298072` 报 success 后合并）。同窗口**已 required** 的 quality-gate 是 60 cancelled(18.7%) / 53 failure(16.5%)，所以新增摩擦严格小于既有面。
+- 一条反直觉但必须记的核对：加 required 会不会把「分支里还没有该作业定义」的陈旧 open PR 永久冻住？用 #3578 落地后的 11 条 PR 侧运行做自然实验，得 7 agree + **2 反例**（`59379f439d` / `09039bc1c1` 的 head 树内 `gui-test.yml` 没有 `GUI Gate Result` 字样，却在同一 sha 上产出了该检查）⇒ PR 侧解析的是**合并提交**（含 base 的新文件），re-sync 即可交付。**判据不是"我以为 GitHub 怎么做"，是找一批天然反例去量。**
+- 写入方式与可回滚性：载荷由备份 `D:/Data/projects/.tools/rulesets/main-ci-gate-before-20261014-194631.json` 程序化派生（只剥读只字段、只追加一条 context），PUT 后逐字段对账 `only_added=[GUI Gate Result] / only_removed=[] / strict·conditions·enforcement·target·name·bypass_actors 全同`。**PUT 会静默清空未提交的字段**，所以净变化对账不是形式，是本笔唯一的回归锁。
+- 同次更正两处旧陈述：`AGENTS.md` 里「`GUI Tests` 不在 ruleset(6) ∪ classic protection(4) 的任一 required 清单里」（现 ruleset 为 7 条且已含）、`openspec/records/gui-test-required-shape.md` 里「required 清单未动」（保留原文 + 追加更正，不把改过判断抹平成一开始就对）。
+- 未闭合（如实报，不自修）：①同类「触发层正向 paths ⇒ 检查可整体缺席」的形状在**其他** workflow 上仍未被机器拦，因为「哪些检查有资格进 required」本身是人工裁决；②「等授权」这类无限期决策欠账没有机械追踪面——远程同步 ledger 只管状态行，要做需仓内维护一份 required 清单镜像，与既有「required 只存在 GitHub 侧」的结论正面冲突，本笔不顺手实现。
+
 # [未发布] feat(podcast): 单集 compliance 三态标记主进程层——只读重跑引擎、stock 只认双凭据（podcast-episode-compliance-impl）
 
 - 单集列表读路径新增 `compliance`（闭集 `ok|invalid|stock`，第四态在出口抛）：判据**只读重跑** shared-utils 的 `validateEpisode`，本层不写第二份字段规则；`reasons` 字面值就是引擎 `issues[].code`（19 条 `EPISODE_*`），文案真源是 `locales/podcast/{zh,en}.js` 的 `errors` 键集（实测 zh 98 / en 98、缺文案 0）。
