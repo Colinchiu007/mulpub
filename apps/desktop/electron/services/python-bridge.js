@@ -275,7 +275,26 @@ function waitForHealthy (proc) {
       if (settled || checking) return
       checking = true
       try {
-        if (await _healthCheck()) finish()
+        const detail = await _healthCheckDetail()
+        if (!detail.ok) return
+        // 端口归属校验（2026-10-14 事故收口）：端口「有响应」不等于「响应者是本次 spawn 的子进程」。
+        // 端口被孤儿后端／其他实例占用时，它同样回 {status:'ok'}；仅凭存活判据会把别人的服务
+        // 认作本次启动成功 ⇒ restartCount 被清零 ⇒ MAX_RESTARTS 熔断失效 ⇒ 无限重启。
+        // 实测现场：16.5 小时 2645 次 spawn，用户侧表现为左下角「主服务已停止」。
+        if (detail.pid !== null && proc && proc.pid && detail.pid !== proc.pid) {
+          finish(new Error(
+            `Python backend 端口 ${currentPort} 被其他进程占用：占用者 pid=${detail.pid}，` +
+            `本次启动的子进程 pid=${proc.pid}。请先结束占用进程再重试：` +
+            `Get-NetTCPConnection -LocalPort ${currentPort} -State Listen`
+          ))
+          return
+        }
+        // 子进程已退出时不得判就绪（此时探活若通，必是外部实例在应答）
+        if (proc && hasProcessExited(proc)) {
+          finish(new Error('Python backend process exited before becoming healthy'))
+          return
+        }
+        finish()
       } finally {
         checking = false
       }
@@ -389,28 +408,50 @@ function scheduleRestart () {
 }
 
 /**
- * 健康检查 — 调用 GET /api/health
- * @returns {Promise<boolean>}
+ * 健康检查（含应答者身份）— 调用 GET /api/health
+ *
+ * 与 _healthCheck() 探测同一端点，额外回传应答进程自报的 pid，供**端口归属校验**：
+ * 端口「有响应」只说明有东西在监听，不说明「应答者是本次 spawn 的子进程」。
+ * 2026-10-14 事故：孤儿后端占用端口并正常应答，本实例据此误判就绪、
+ * restartCount 被清零、MAX_RESTARTS 熔断失效，最终 16.5 小时 2645 次无效重启。
+ *
+ * @returns {Promise<{ ok: boolean, pid: number|null }>}
+ *   pid 为 null 表示后端未上报该字段（旧后端）——调用方须降级为「不校验归属」，
+ *   否则前后端版本不一致时会把能用的后端判成不可用。
  */
-function _healthCheck () {
-  /** @type {Promise<boolean>} */
+function _healthCheckDetail () {
+  /** @type {Promise<{ ok: boolean, pid: number|null }>} */
   const p = new Promise((resolve) => {
+    // Promise 的 resolve 幂等：error 与 timeout 可能先后触发，先到者胜出
+    const settle = (ok, pid) => resolve({ ok, pid: Number.isInteger(pid) ? pid : null })
     const req = http.get(`http://${BACKEND_HOST}:${currentPort}/api/health`, { timeout: 2000 }, (res) => {
       let data = ''
       res.on('data', chunk => { data += chunk })
       res.on('end', () => {
         try {
           const parsed = JSON.parse(data)
-          resolve(parsed.status === 'ok')
+          settle(parsed.status === 'ok', parsed.pid)
         } catch {
-          resolve(false)
+          settle(false, null)
         }
       })
     })
-    req.on('error', () => resolve(false))
-    req.on('timeout', () => { req.destroy(); resolve(false) })
+    req.on('error', () => settle(false, null))
+    req.on('timeout', () => { req.destroy(); settle(false, null) })
   })
   return p
+}
+
+/**
+ * 健康检查 — 调用 GET /api/health
+ *
+ * 纯存活判据（不含端口归属）：watchdog 用它判断「后端是否仍在服务」。
+ * 启动就绪判据必须用 _healthCheckDetail()，它额外校验应答者身份。
+ *
+ * @returns {Promise<boolean>}
+ */
+function _healthCheck () {
+  return _healthCheckDetail().then((detail) => detail.ok)
 }
 
 /**

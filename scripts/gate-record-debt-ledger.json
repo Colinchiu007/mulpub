@@ -54,5 +54,10 @@
   "本次执行记录：更正「bootstrap 只认 X-Catalog-Key」错误结论 + 本轮 4 条教训（ops-ingress-correct，2026-10-14）【docs-only】": "本 PR（ops-ingress-correct）的远程同步待合并后由后续 docs PR 回填并删除本条登记项",
   "本次执行记录：让「运营」退出应用用户面 + 信任锚下沉部署层（ops-ingress-only，2026-10-14）【混合 PR】": "本 PR（ops-ingress-only）的远程同步待合并后由后续 docs PR 回填并删除本条登记项",
   "本次执行记录：回填 #3543 远程同步 PASS + merge SHA，并销账（ops-ingress-only）【docs-only】": "本回填 PR（bf-ops-ingress）的远程同步待合并后由后续 docs PR 回填并删除本条登记项",
-  "本次执行记录：回填 #3572 远程同步 PASS + merge SHA，并销账（prd-auth-fix）【docs-only】": "本回填 PR（bf-prd-auth）的远程同步待合并后由后续 docs PR 回填并删除本条登记项"
+  "本次执行记录：回填 #3572 远程同步 PASS + merge SHA，并销账（prd-auth-fix）【docs-only】": "本回填 PR（bf-prd-auth）的远程同步待合并后由后续 docs PR 回填并删除本条登记项",
+  "本次执行记录：主服务无限重启循环——就绪判据补端口归属校验（fix-bridge-restart-loop，2026-10-14）【混合 PR】": {
+    "reason": "本 PR（fix-bridge-restart-loop）的远程同步待合并后由后续回填 PR 同一次提交内改写 PASS + merge SHA 并删除本条登记项",
+    "status": "PENDING",
+    "line": 11363
+  }
 }
