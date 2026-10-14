@@ -121,11 +121,14 @@ test('单趟完整性判据：三种"没跑完"形态必须各自出声（没跑
   assert.ok(nothing.reasons.some((r) => r.startsWith('NOTHING_COLLECTED')), '候选非空而收集数为 0 必须单独出声');
 
   // 归一化：报告里是绝对路径，候选是 DESKTOP 相对路径，两者必须能对上（对不上就是恒差集 ⇒ 天天报不完整）
-  assert.equal(mod.normalizeReportName('D:/x/y/apps/desktop/tests/a.test.js'), 'tests/a.test.js');
+  // 绝对路径样本必须用**磁盘上真实存在**的文件：Gate 12c 判的就是"这条绝对路径在不在"，
+  // 编一个不存在的绝对路径会让这条测试自己变成一处失效路径（本轮实测被门禁点过两次）。
+  const REAL_ABS = [REPO, 'apps', 'desktop', 'tests', 'visual-ci.test.js'].join('/');
+  assert.equal(mod.normalizeReportName(REAL_ABS), 'tests/visual-ci.test.js');
   assert.equal(mod.normalizeReportName('./tests/a.test.js'), 'tests/a.test.js');
   assert.deepEqual(
-    mod.missingCandidates(['tests/a.test.js', 'tests/b.test.js'], ['D:/x/y/apps/desktop/tests/a.test.js']),
-    ['tests/b.test.js'],
+    mod.missingCandidates(['tests/a.test.js', 'tests/visual-ci.test.js'], [REAL_ABS]),
+    ['tests/a.test.js'],
     'missingCandidates 必须只报真没跑的那个'
   );
 });
