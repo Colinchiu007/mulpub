@@ -2,9 +2,6 @@
 slug: prd-copy-table-generator
 branch: prd-copy-table-generator
 date: 2026-10-13
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由回填 PR 改写 PASS + merge SHA 并整段删除本三个 sync_ 字段
-sync_backfill_owner: 后续 docs PR（回填链）
-sync_pr: pending
 ---
 
 # PRD 逐字表生成器与漂移门禁（prd-copy-table-generator）
@@ -29,7 +26,7 @@ sync_pr: pending
 
 ## 门禁
 
-| 远程同步 | PENDING | 本 PR（prd-copy-table-generator）合并后由后续 docs PR 回填 PASS + merge SHA，并在同一次提交删除 ledger 本条登记项 |
+| 远程同步 | PASS | merge SHA 8303a3713 · 2026-10-14T02:38:08Z · 远端分支已删（ls-remote 0 行）· 同次提交删除 ledger 登记项 |
 
 - QM-1：不适用（不改 `apps/desktop/electron/`，产物不受影响）。QM-4：不适用（无 UI 文件变更）。
 - QM-6：判据脚本 + CI 步骤属 M 级单文件面；且本会话后端评审 4 次未落地（形态见 [[podcast-episode-tts-entry]] 记录），如实记为未执行，不自扮演豁免。
