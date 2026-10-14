@@ -87,6 +87,16 @@ jobs:
           fi
           node scripts/classify-docs-only.js --base="$BASE" --head="$HEAD_SHA" --repo="$PWD"
 
+      # tasks 5.2：PRD 的「提示文字逐字表」必须等于 locale。生成器住在 scripts/、输入是 01-docs/**
+      # （docs-only 白名单内），所以这条判据必须住在本 changes job（无条件执行）——住 static-gates
+      # 就会被 `docs-only != 'true'` 门控，而**纯文档 PR 恰是最容易让表旧的那一类**（#2718/#2745 同形教训）。
+      # 两条命令同块 ⇒ 必须 shell: bash（PowerShell 不在中间命令非零时中止，见 AGENTS 该条）。
+      - name: "Gate 2c-copy - PRD copy table equals locales (changes job, tasks 5.2)"
+        shell: bash
+        run: |
+          node --test scripts/gen-prd-copy-table.test.js
+          node scripts/gen-prd-copy-table.js --check
+
       # --- Gate 2c2（#2745 从 static-gates 搬入本 job）: 执行记录存在性判据 ---
       # 它校验的输入 openspec/records/** 命中 docs-only 白名单（`openspec/**`），而 static-gates
       # 整个 job 被 `if: needs.changes.outputs.docs-only != 'true'` 门控 ⇒ 「整篇没写执行记录」
