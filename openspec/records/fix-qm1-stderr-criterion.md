@@ -2,10 +2,6 @@
 record: fix-qm1-stderr-criterion
 task: QM-1 stderr 判据从黑名单改为分层（非空即需判断）
 date: 2026-10-14
-# ↓ 三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在，无法取证收口
-sync_backfill_owner: 下一个会话（按三形态同改纪律：表格行 + bullet + 删除本段三字段，同一次提交）
 ---
 
 ## 本次执行记录：QM-1 stderr 判据修正（fix-qm1-stderr-criterion，2026-10-14）
@@ -47,9 +43,9 @@ QM-1 启动判据跑出：
 | 文档同步 | N/A | 混合 PR，不走 docs-only 通道 |
 | 未接线测试 | PASS | `check-unwired-tests.js` exit=0 |
 | Gate 11 ESLint | PASS | `cd apps/desktop && pnpm exec eslint electron/ src/ --quiet` exit=0 |
-| 远程同步 | PENDING | 本 PR 未合并，merge SHA 尚不存在 |
+| 远程同步 | PASS | #3558 merge `a322554e1` |
 
-- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 未接线测试 ✅ | Gate 11 ✅ | 远程同步 PENDING
+- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 未接线测试 ✅ | Gate 11 ✅ | 远程同步 PASS（#3558 @ a322554e1）
 
 ## 备注
 
