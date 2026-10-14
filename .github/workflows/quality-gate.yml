@@ -216,7 +216,7 @@ jobs:
             exit 1
           fi
           # 判据①：已有平台必须全 PASS
-          node scripts/verify-platform-onboarding.js baijiahao
+          node scripts/verify-platform-onboarding.js kuaishou
 
       # --- Gate 12d：主规格 Purpose 去 TBD 门禁 ---
       # 动因（2026-10-07 实测）：openspec 归档器会在 specs 文件里留下
