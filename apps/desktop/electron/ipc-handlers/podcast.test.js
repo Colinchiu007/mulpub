@@ -103,7 +103,18 @@ describe('podcast handler · 成功信封', () => {
     const { ipcMain, service } = setup()
     // 合同多一个键就必须在这条逐字对账上现形：feedSync 是「公网 feed 未同步」横幅的唯一数据源
     expect(await invoke(ipcMain, 'podcast:channel:get')).toEqual({ code: 0, data: { channel: { title: '午间电台' }, feedSync: null } })
-    expect(await invoke(ipcMain, 'podcast:episode:list')).toEqual({ code: 0, data: { episodes: [{ id: 'ep-1' }], cap: 1000, count: 1 } })
+    expect(await invoke(ipcMain, 'podcast:episode:list')).toEqual({
+      code: 0,
+      data: {
+        // ⚠️ 本行是 §8.2.6 锁6 要求「必须在 PR 里点名」的那一处改动：原断言是
+        // toEqual({ episodes: [{ id: 'ep-1' }], cap: 1000, count: 1 }) 的整对象逐字对账，
+        // 而本 feature 的合同就是「每期**追加** compliance 键」，不改这条就等于让新键无处可现形。
+        // 只加键、不改顺序、不动 cap/count —— 断言强度没有放宽（仍是逐字对账）。
+        episodes: [{ id: 'ep-1', compliance: { state: 'invalid', reasons: expect.arrayContaining(['EPISODE_TITLE_REQUIRED']), checkedAt: expect.any(String) } }],
+        cap: 1000,
+        count: 1,
+      },
+    })
     // 评审 i2：分发端目录不再经「按频道构造」的 service，所以注入的假 service 一次都不该被调用
     const epRes = await invoke(ipcMain, 'podcast:endpoints:list')
     expect(Object.keys(epRes)).toEqual(['code', 'data'])
@@ -371,5 +382,88 @@ describe('podcast handler · channel:get 的 feedSync 读侧（刀 3 前置片�
     const { ipcMain } = setup({ readFeedSync: vi.fn(() => null) })
     const res = await invoke(ipcMain, 'podcast:channel:get', { channelId: 'ch_x' })
     expect(res.data.feedSync).toBe(null)
+  })
+})
+
+/**
+ * PRD §8.2 的接线锁。三条各测一件事，缺一条就有一个落点没人管：
+ * 默认走真模块（判据同源）、stock 档的凭据确实来自 index、旁路炸了不毁主路。
+ */
+describe('podcast handler · 单集 compliance 接线', () => {
+  function setupCompliance (opts) {
+    const ipcMain = makeIpcMain()
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+    const deps = { podcastChannelService: (opts && opts.service) || makeService(), log }
+    if (opts && opts.registry !== undefined) deps.podcastRegistry = opts.registry
+    if (opts && opts.fsImpl !== undefined) deps.podcastFs = opts.fsImpl
+    if (opts && opts.complianceMod !== undefined) deps.podcastEpisodeCompliance = opts.complianceMod
+    registerHandlers(ipcMain, deps)
+    return { ipcMain, log }
+  }
+
+  it('默认用真模块：reasons 与引擎逐字同形，本层不另判一次', async () => {
+    const { ipcMain } = setupCompliance({})
+    const res = await invoke(ipcMain, 'podcast:episode:list', { channelId: 'ch-1' })
+    const ep = res.data.episodes[0]
+    const { validateEpisode } = require('@multi-publish/shared-utils/src/podcast-rss')
+    expect(ep.compliance.state).toBe('invalid')
+    expect(ep.compliance.reasons).toEqual(validateEpisode({ id: 'ep-1' }, 0).issues.map((i) => i.code))
+    expect(ep.compliance.checkedAt).toEqual(expect.any(String))
+    // 既有键一个都没动（追加式契约的另一半：cap/count 与期数照旧）
+    expect(Object.keys(res.data)).toEqual(['episodes', 'cap', 'count'])
+    expect(res.data.cap).toBe(1000)
+    expect(res.data.count).toBe(1)
+  })
+
+  it('stock 档的凭据来自 registry 的 index.json，而不是列表路径自己造', async () => {
+    const service = makeService({ listEpisodes: vi.fn(() => [{ id: 'e1', mimeSource: 'stock' }]) })
+    const files = {}
+    files[nodePath.join('/podcast', 'index.json')] = JSON.stringify({ stockStamp: { at: '2026-10-12T00:00:00.000Z' } })
+    const { ipcMain } = setupCompliance({
+      service,
+      registry: { resolveRoot: () => '/podcast', channelDir: () => '/podcast/ch-1' },
+      fsImpl: { existsSync: (f) => f in files, readFileSync: (f) => files[f] },
+    })
+    const res = await invoke(ipcMain, 'podcast:episode:list', { channelId: 'ch-1' })
+    expect(res.data.episodes[0].compliance).toEqual({ state: 'stock', reasons: [], checkedAt: '' })
+  })
+
+  it('registry 未解析时列表仍成功：compliance 由引擎判、stock 档自然判不出（本条只证「不因缺 registry 而报错」）', async () => {
+    // 如实命名：这里没有断言「没去建真 registry」——那需要模块图级 spy，成本与本用例目的不符。
+    // 它真正守住的是：注入服务路径下 registry 为 null 时，旁路照旧走完、列表照旧 code 0。
+    // getRegistry() 会 new PodcastChannelRegistry（首次触碰 userData）。旁路不得成为那次触碰的原因，
+    // 所以这里断言的是「没有 compliance 之外的副作用」：状态照旧是 invalid（引擎判），而不是整条列表报错。
+    const { ipcMain } = setupCompliance({})
+    const res = await invoke(ipcMain, 'podcast:episode:list', { channelId: 'ch-1' })
+    expect(res.code).toBe(0)
+    expect(res.data.episodes[0].compliance.checkedAt).toEqual(expect.any(String))
+  })
+
+  it('旁路降级：组装抛错 ⇒ 返回不带 compliance、期数不变、只 warn 一次', async () => {
+    const boom = {
+      readStockStamp: () => null,
+      annotateEpisodes: () => { throw new Error('装配炸了') },
+    }
+    const { ipcMain, log } = setupCompliance({ complianceMod: boom })
+    const res = await invoke(ipcMain, 'podcast:episode:list', { channelId: 'ch-1' })
+    expect(res.code).toBe(0)
+    expect(res.data.episodes).toEqual([{ id: 'ep-1' }])
+    expect('compliance' in res.data.episodes[0]).toBe(false)
+    expect(log.warn).toHaveBeenCalledTimes(1)
+    expect(log.warn.mock.calls[0][0]).toContain('compliance')
+  })
+
+  it('校验器内部抛错也不外冒：整条列表仍是 code 0', async () => {
+    const service = makeService({ listEpisodes: vi.fn(() => [{ id: 'e1' }, { id: 'e2' }]) })
+    const { ipcMain } = setupCompliance({
+      service,
+      complianceMod: {
+        readStockStamp: () => null,
+        annotateEpisodes: require('../services/podcast-episode-compliance').annotateEpisodes,
+      },
+    })
+    const res = await invoke(ipcMain, 'podcast:episode:list', { channelId: 'ch-1' })
+    expect(res.code).toBe(0)
+    expect(res.data.episodes.map((e) => e.compliance.state)).toEqual(['invalid', 'invalid'])
   })
 })

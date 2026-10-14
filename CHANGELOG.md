@@ -1,3 +1,10 @@
+# [未发布] feat(podcast): 单集 compliance 三态标记主进程层——只读重跑引擎、stock 只认双凭据（podcast-episode-compliance-impl）
+
+- 单集列表读路径新增 `compliance`（闭集 `ok|invalid|stock`，第四态在出口抛）：判据**只读重跑** shared-utils 的 `validateEpisode`，本层不写第二份字段规则；`reasons` 字面值就是引擎 `issues[].code`（19 条 `EPISODE_*`），文案真源是 `locales/podcast/{zh,en}.js` 的 `errors` 键集（实测 zh 98 / en 98、缺文案 0）。
+- `stock` 档只认**两个凭据**：`mimeSource === "stock"` 且 `index.json` 的 `stockStamp.at` 在位；缺凭据即不判存量、改按内容判。`checkedAt` 在 stock 档留空串——填时刻等于谎称重跑过。旁路语义：组装失败只回落成「没有 compliance 键」，绝不丢期、绝不让列表报错；非对象元素原样透传，不伪造渲染行。
+- 清点式门禁（`podcast-error-codes.test.js`）按 §8.2.6 锁7 扩域：`PRODUCERS` 纳入 `packages/shared-utils/src/podcast-rss.js`，harvest 前缀从只认 `PODCAST_` 放宽到引擎那族。实测新增 53 条命中、**缺文案 0 条**；并补两条自证：harvest 规模与来源（`EPISODE_*` 20 条确实来自该文件）、摘掉一个 `EPISODE_*` 文案键 ⇒ **指名红**，md5 还原后全绿。
+- 测试 40 全绿；变异 10 条逐条指名红（含评审命中后新增的「伪造非对象元素」「由 reasons 反推合格」两条）。QM-1 按新三层 stderr 判据：本机实跑 stderr **为空** ⇒ PASS。
+
 # [未发布] chore(gitignore): 共享根 Qoder 产物归类——/.qoder/ 进忽略清单，隔离区 60% 噪声止血（ignore-qoder-artifacts）
 
 - 隔离区实测 350 个文件里 210 条（60%）是同一族：`.qoder/` 189 + `kc-persist-test` 17 + `kc-staging` 4。守卫 `guard-shared-root-writes.ps1:167` 的放行判据就是 `git check-ignore`，而这三条路径处于「既不追踪也不忽略」的第三态 ⇒ 每次生成 repowiki/知识卡都被整份搬出仓库，还会写 `.agent_context/write-guard-alert.json` 让下一个会话以为「共享根有违规、该改用 worktree」——**假告警把真告警的解释力吃掉了**。
