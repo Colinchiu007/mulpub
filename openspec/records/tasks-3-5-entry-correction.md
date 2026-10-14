@@ -2,9 +2,6 @@
 record: tasks-3-5-entry-correction
 task: 纠正 #3519 写进主干的假账——3.5 两枚入口其实都已交付（ResultView 走 PodcastEpisodeEntry）
 date: 2026-10-14
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由回填 PR 改写 PASS + merge SHA 并整段删除本三个 sync_ 字段
-sync_backfill_owner: 下一个会话（收尾链：合并 → 回填 → 销账）
 ---
 
 # 3.5 入口账目更正（tasks-3-5-entry-correction，2026-10-14）
@@ -30,4 +27,4 @@ sync_backfill_owner: 下一个会话（收尾链：合并 → 回填 → 销账�
 
 ## 远程同步
 
-| 远程同步 | PENDING | 本 PR（tasks-3-5-entry-correction）的远程同步待合并后由后续 docs PR 回填 PASS + merge SHA，并在同一次提交删除 ledger 本条登记项 |
+| 远程同步 | PASS | merge SHA e7840a0c2 · 2026-10-14T01:50:56Z · 远端分支已删（ls-remote 0 行）· 同次提交删除 ledger 登记项 |
