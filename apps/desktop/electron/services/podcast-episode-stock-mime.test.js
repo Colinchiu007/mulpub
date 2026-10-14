@@ -98,12 +98,22 @@ describe('§7.9.5-3/4/5 只补不改、不得整体判死、不猜', () => {
 
   it('派生不出 ⇒ 保持原状并计入 unresolved，绝不填默认值', async () => {
     const { freezeStockMimeInArray } = await load()
-    const odd = { id: 'z', mime: 'audio/mp3', url: 'https://x/z.bin' }
-    const r = freezeStockMimeInArray([odd])
+    // §7.9.5 第 5 条（不猜）要守的是三种"派生不出"：mime 非法但已有值 / mime 空串 / mime 键完全缺失。
+    // 只测第一种时，实现改成「仅当 mime 为空或缺失才兜一个默认值」就没人拦得住（两条外部评审 Warning 各命中一次）。
+    const odd = { id: 'z', mime: 'application/octet-stream', url: 'https://x/z.bin' }
+    const empty = { id: 'e', mime: '', url: 'https://x/e.bin' }
+    const absent = { id: 'a', url: 'https://x/a.bin' }
+    const list = [odd, empty, absent]
+    const before = list.map((ep) => Object.assign({}, ep))
+    const r = freezeStockMimeInArray(list)
     expect(r.filled).toBe(0)
-    expect(r.unresolved).toBe(1)
+    expect(r.unresolved).toBe(3)
     expect(r.changed).toBe(false)
-    expect(r.episodes[0]).toBe(odd)
+    // toBe 只证「返回的仍是同一个对象」；就地改字段、就地加键对它完全免疫，必须再拿调用前的快照按值对账
+    list.forEach((ep, i) => {
+      expect(r.episodes[i]).toBe(ep)
+      expect(r.episodes[i]).toEqual(before[i])
+    })
   })
 
   it('非法但可扩展名派生（空串 / audio/mp3 / 大小写 / 带参数）⇒ 全部按事实改写', async () => {

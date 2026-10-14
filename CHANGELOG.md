@@ -1,3 +1,11 @@
+# [未发布] test(podcast): 存量 mime 固化「不猜」的变异反证落进文件，并补上它暴露的按值快照（stock-default-write-proof）
+
+- tasks 4.4b④ 收口：PRD §7.9.7 记着两次尝试「均未把变异真正落进文件」，于是 §7.9.5 第 5 条此前只有行为证据。这次九条变异（D1–D6 打不猜的四个猜点 + W1–W3 打落盘与幂等）每条都先自证锚点命中=1、写回后能从磁盘读回，跑完逐条还原并断言整文件 md5 一致，基线 12 passed / 0 failed、**九条全部指名红**。
+- 真正的发现是 **D2：就地给同一个对象补默认 mime，12 条锁全绿**。那条用例的 `toBe(odd)` 比引用，对就地改字段完全免疫——锁此前只证「返回同一个对象」，没证「内容没被动过」。夹具随之扩到三种「派生不出」（非法已有值 / 空串 / 键完全缺失，后两种才是「缺失即填默认值」的字面对象），断言改为调用前快照 `toEqual` 对账；补后 D2 与 D5/D6 一并指名红。
+- QM-6 两轴各命中一次同一个真缺口（空串/缺键路径从未被任何 unresolved 用例覆盖），另有一条建议被**取证后拒绝**：`expect(r.episodes[0]).toEqual(odd)` 里两个操作数是同一个对象，自比恒真，写进去等于把漏掉的变异换成一条看起来更严格的假锁。
+- QM-1 首跑落**第②层 NEEDS_REVIEW**（打包 rc=0、asar 归属自证通过、9 秒存活，但 stderr 163 字节 = Node `DEP0180 fs.Stats` 弃用告警，不在四类红线内）——**没有自判通过，列为待人工裁决**。裁决是"查源头"，源头修复另成 #3605（merge `ac9c60e21`：运营中心 L3 种子探测从 `fs.statSync` 改为 `openSync+fstatSync`，告警来自 Electron 的 `asarStatsToFsStats` 用废弃构造造 Stats）。本片重放到该修复之上后重新打包、按 #3605 定下的 **LIVE/POST 两段协议**复测：`proc_count_before=0`、12 秒存活、**LIVE stderr 0 字节 / DEP0180 命中 0 / 四类红线 0**，POST 增量 270 字节是我自己 kill 的收尾话（`exit_code=143`＝128+SIGTERM）只留痕不判定 ⇒ **第③层成立**。收口方式是修掉源头后重取，不是把告警加进白名单、也不是把判据改宽。
+
+
 # [未发布] fix(desktop): L3 种子探测改按文件描述符，消除打包版每次启动的 Node DEP0180（ops-seed-asar-stat）
 
 - 症状只有 163 字节，但代价很大：打包版 `Multi-Publish.exe` 每次启动都往 stderr 写一行 `DEP0180 fs.Stats constructor is deprecated`。QM-1 的三层判据今天起把「stderr 非空且未命中红线」判成 NEEDS_REVIEW，于是**每一个改主进程的 PR 都会停在同一次人工裁决**——这不是理论代价，#3595 就停在那儿。
