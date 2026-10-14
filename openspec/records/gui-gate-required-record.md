@@ -29,11 +29,12 @@ sync_backfill_owner: 下一个会话（按 AGENTS.md「合并后收尾清单」�
 - **收益不是「拦下 7 次合并」**（那 7 次本来也没漏进主干），而是把「检查整体不存在」变成拦得住：`gui-test.yml` 曾因 `defaults:` 下空值 `run:` 节点被 GitHub 编译器整份拒绝，main 连续 530 次 push 零 job、同期 124 个 PR 合入而无人察觉。今天再坏一次，唯一会出声的就是 required 语义本身。
 - **没被我说成实测过的东西**：「红/缺即拦」是 GitHub required 语义的定义，我没有为了证明它去制造一次红；本笔现场只观察到 `#3577` 交付 `GUI Gate Result=pass`、`#3585` 该作业 pending、`#3376` GUI 家族完全缺席（但其 `mergeable=CONFLICTING`，合并早被冲突挡住，与本变更无关）。
 
-### 我自己在这轮里犯的、必须留痕的三个错
+### 我自己在这轮里犯的、必须留痕的四个错
 
 1. **把 #3578 的 merge SHA 写成 `f1c92cbe32813d58460769568a3d252dc444c40c9`**——前 9 位正确，后 31 位是从隔壁 #3580 的 SHA 拼来的。它形状合法（40 位十六进制），只有 `git cat-file`/`git diff` 会拒绝，而它已经驱动过一次判据。真值 `f1c92cbe3495fac4419372bd353ca390290fc3ad` 由 `git log origin/main --grep='(#3578)$'` 当场取回。
 2. **第一次 PUT 打到空 owner**：`gh api -X PUT "repos/$owner/..."` 里的 `owner` 定义在上一条 Bash 调用里，而 shell 状态不跨调用 ⇒ URL 变成 `repos//rulesets/...` 返回 404。当场用「`updated_at` 仍是 2026-09-21 + 清单仍 6 条」证明**什么都没改**，不是半途写入。
-3. **`OUT=<path> node -e ...` 把环境变量写在命令之后**（同一会话第三次踩同一条），以及**门禁报告的归属用 `grep -qF` 在正文里找**——后者造成一条伪命中（把别处一段含 "CHANGELOG.md" 的乱码路径读成「CHANGELOG.md 在失效清单里」），改为只提取报告的文件头行整行匹配，并加「清单非空」断言。
+3. **`OUT=<path> node -e ...` 把环境变量写在命令之后**（同一会话第三次踩同一条），以及**门禁报告的归属用 `grep -qF` 在正文里找**
+4. **字节级「末行插一条」把文件的 EOF 换行吃掉了**：`ledger-insert.js` 里 `raw.slice(0, closeIdx).replace(/\s+$/, '')` 之后再 `raw.slice(closeIdx + 1).replace(/^\s+/, '')`，第二个 replace 正好删掉了 `}` 后面那唯一的 `\n`。提交后逐文件对账 `HEAD~1` vs `HEAD` 的 `ends_nl` 才发现（其余 5 个文件 same，只有它 `true → false`）。**教训**：行尾对账不能只跑 `git diff --numstat` 两口径——它抓的是 CR，抓不到「尾换行被吃掉」；改完文件必须逐文件断言 `ends_nl` 前后相同，或干脆用 `split/join` 而不是 `slice+trim` 拼装。——后者造成一条伪命中（把别处一段含 "CHANGELOG.md" 的乱码路径读成「CHANGELOG.md 在失效清单里」），改为只提取报告的文件头行整行匹配，并加「清单非空」断言。
 
 ### 遗留（不假装已闭合）
 
