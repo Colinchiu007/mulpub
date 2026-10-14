@@ -12,7 +12,8 @@
 - 封面 `<img>` 仍是 `object-fit: cover` 满幅裁切（不改裁切语义，只改容器比例）；内容类型角标保持右下角未位移。
 - 回归锁 5 条（`PublishHistory.test.js`「缩略图竖屏 3:4 比例」）：逐断面断言宽高比 === 0.75、`flex-basis === width`，另加一条**补集**断言「四处一律不得出现 `width > height` 的规则」——只断言四处是 3:4 挡不住有人在响应式块里另起一条 `.record-preview` 覆盖（那会让正向断言全绿而实际仍是横版）。判据读 scoped CSS 原文而非渲染结果：jsdom 不布局，`width`/`height` 计算值恒为 0。
 - TDD：5 条锁先跑 **5 failed**（逐条精确报出现状横版尺寸 200x112 / 108x82 / 78x66 / 68x60），实现后 **83 passed**；变异反证把四处尺寸同时退回横版 ⇒ **5/5 全红**，还原后复绿。
-- 视觉基线按流程刷新（**不是"红了就刷"**）：先 `git stash` 取干净基线对照证明该视图在 main 上不是既有红 → 人工看明暗差异图确认差异**只在缩略图矩形区** → 人工看新渲染确认确为竖版，三步都过才更新 `base-screenshots/publish-history.png` 与 `publish-history-dark.png`；复跑明暗双通道均 100% 通过。基线取自**本 worktree 自己的** dev server（5199 独占端口），并用 `git check-ignore` 验证两份 PNG 未被 `.gitignore` 静默吞掉。
+- 视觉基线按流程刷新（**不是"红了就刷"**）：先 `git stash` 取干净基线对照证明该视图在 main 上不是既有红 → 人工看明暗差异图确认差异**只在缩略图矩形区** → 人工看新渲染确认确为竖版，三步都过才更新 `base-screenshots/publish-history.png` 与 `publish-history-dark.png`；复跑明暗双通道均 100% 通过。并用 `git check-ignore` 验证两份 PNG 未被 `.gitignore` 静默吞掉。
+- **基线的来源必须是 CI 自己的渲染，不能是本机**：本刀首轮基线取自本机 dev server（5199），推 PR 后 `QG Visual` 的 Gate 7b 判红——**像素门禁明暗双通道 20/20 全 PASSED**（证明缩略图改动本身完全正确），红的是**基线新鲜度**：CI 渲染与本机渲染有 104~107 px 亚像素级差异（0.005%），而 Gate 7b 判据是「基线 == 本次渲染，**0 px**」零容差。AGENTS.md QM-4 第 7 条早已写明「禁止拿本地图当基线」，本会话读到了仍用了本地图——**纪律失守，不是知识缺口**。修正：从本 PR 的 CI artifact（`quality-gate-visual-reports`）取 `screenshots-round1/` 权威渲染，人工审核确认竖版无误后替换，新基线 SHA 与 CI 渲染逐字节一致。
 
 # [未发布] 让「运营」退出应用用户面 + 验签信任锚下沉部署层（ops-ingress-only）
 

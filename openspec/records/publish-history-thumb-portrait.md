@@ -42,7 +42,13 @@ sync_backfill_owner: 下一个会话（回填与销账必须同一次提交）
 
 **基线入库核验**（AGENTS.md 记录的 `.gitignore` 静默陷阱）：`git check-ignore -v` 对两份 PNG 返回 **rc=1（无命中）**，且二者都以 `M` 出现在 `git status` ⇒ 被 git 正常跟踪，没有"基线永远缺"。
 
-**基线取自本 worktree 自己的 dev server**（5199，`--strictPort` 独占，未借用他人 5174）：`run-pixel-tests.js` 的 `preflightVisualTarget` 明确要求 `TEST_URL` 指向本 worktree 构建，否则会"拿别人的界面当自己的证据"。
+**⚠️ 首轮基线的来源是错的，已由 CI 产物修正（本记录最贵的一课）**
+
+推 PR 后 `QG Visual` 的 Gate 7b 判红——**不是像素门禁红**（明暗双通道 20/20 全 PASSED，证明缩略图改动本身完全正确），而是**基线新鲜度**判红：`publish-history.png 104 px (0.005%)`、`publish-history-dark.png 107 px (0.005%)`，两轮都红 ⇒ 判定为确定性漂移。
+
+- **根因**：首轮基线取的是**本机 dev server 渲染**（5199）。CI 的渲染环境与本机存在 104~107 px 的亚像素级差异（0.005%），而 Gate 7b 的判据是「**基线 == 本次渲染，0 px**」——**零容差**。
+- **这不是知识缺口，是纪律失守**：AGENTS.md QM-4 第 7 条早已写明「**禁止拿本地图当基线**，基线应取自 CI 自己的渲染」。本会话读到了这条，仍然用了本地图。
+- **修正**：从本 PR 的 CI artifact（`quality-gate-visual-reports`）取 `screenshots-round1/` 下的权威渲染，人工审核确认竖版无误后替换基线；新基线 SHA 与 CI 渲染**逐字节一致**（`44AEED0B…` / `7D2839A9…`）。
 
 ### 实现口径：四处断面、一个比例
 
@@ -68,6 +74,7 @@ jsdom **不布局**：`width`/`height` 的计算值在测试环境里恒为 0，
 - **`flex-basis` 首轮漏了显式声明**：实现后 4/5 绿、列表视图 1 红，报 `flex-basis 缺失或非 px`。这不是测试写错，是实现只写了 `flex: 0 0 150px` 简写 —— 补显式声明后转绿。该红位证明了这条断言真在校验。
 - **两次跑错视觉入口**：`pnpm exec vitest ... --single` 报 `Unknown option`（`--single` 是 `all-views.visual.test.js` 自身的参数，须 `node` 直跑）；随后 `TEST_URL` 一开始写成了 `VISUAL_BASE_URL`，被静默忽略后仍连 5174 ⇒ `ERR_CONNECTION_REFUSED`。环境变量名最终以源码为准（`process.env.TEST_URL`）。
 - **门禁副产物已还原**：`contrast-audit.js` 跑完会写 `contrast-audit-diag.txt` / `contrast-audit-report.json`，二者是审计过程产物、非本任务改动，已 `git checkout --` 精确还原，未混入提交。
+- **首轮基线用了本地渲染 ⇒ Gate 7b 判红（见上方专节）**：这是本记录最贵的一条。像素门禁全绿仍被判红，因为 Gate 7b 判的是「基线 == 本次渲染，0 px」的**零容差**新鲜度，而本地渲染与 CI 渲染有 104~107 px 亚像素差。已改为从 CI artifact 取权威渲染，人工审核后替换，新基线与 CI 渲染逐字节一致。
 
 ### 遗留（不假装已闭合）
 
