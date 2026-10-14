@@ -44,6 +44,7 @@ const ACCESS_CONTROL = path.join(ELECTRON_DIR, 'preload', 'access-control.js')
 // ---------------------------------------------------------------------------
 const SCAN_DOMAIN = [
   'automation.js',
+  'cards.js',
   'cloud-publisher.js',
   'hot-topics.js',
   'identity.js',

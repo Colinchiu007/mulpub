@@ -8,6 +8,31 @@ sync_reason: 本 PR 尚未合并，merge SHA 还不存在，无法取证收口
 sync_backfill_owner: 下一个会话（按三形态同改纪律：表格行 + bullet + 删除本段三字段，同一次提交）
 ---
 
+## 追加：第三个根因 —— 同一个「遍历式判据被新文件激活」模式（2026-10-14）
+
+上一提交修好边界门禁与 structure-lock 后，CI 仍有**一个**红：
+
+```
+FAIL electron/tests/ipc-exposure-contract.test.js > 扫描域棘轮（D6）
+AssertionError: expected '未登记却含调用的文件（1）：cards.js；…' to be '…（0）：…'
+```
+
+**⇒ 我新增的 `src/api/cards.js` 触碰了 IPC，但没登记进 `SCAN_DOMAIN`。**
+
+**⇒ 这是本 PR 里「新增文件激活遍历式判据」的第三次**（前两次：
+`check-renderer-cjs-boundary` 扫渲染层文件、`structure-lock` 扫 locales 域目录）。
+
+**修法**：按字母序把 `'cards.js'` 加进 `SCAN_DOMAIN`（`automation.js` 与
+`cloud-publisher.js` 之间）。加了之后该测试 **20 passed** ——
+说明 `cardsRender` 与 preload 暴露面本来自洽，缺的只是**登记**。
+
+**★ 三次同型 ⇒ 这条已从「教训」升级为「可预期的规律」**：
+本仓有大量**遍历式**判据（`readdirSync` 域目录 / 扫 `apps/desktop/src` /
+扫 `src/api`）。**新增一个被遍历到的对象，等于把该判据第一次真正打开。**
+新增文件时应当**主动搜一遍「哪些判据会遍历到我」**，而不是等 CI 逐个告诉你。
+
+---
+
 ## 本次执行记录：修 Gate 假绿（p25-cards-entry，2026-10-14）
 
 - 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD` → 见 CI
