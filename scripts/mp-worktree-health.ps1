@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     检查 Multi-Publish 共享主目录是否满足隔离合同。
 .DESCRIPTION

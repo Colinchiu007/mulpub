@@ -44,7 +44,7 @@
 
     入口脚本在登记/清理时顺手剔除死项，并把动作写入审计日志 %LOCALAPPDATA%\Mulpub\session-isolation\allowed-worktrees-audit.log（与 safe-delete 同目录）。匹配规则与健康检查完全一致：整路径归一化（斜杠统一、去尾斜杠、小写）后精确匹配，不做前缀通配。
 
-    ⚠️ **该脚本刻意保持 ASCII-only**：Windows PowerShell 5.1 读无 BOM 的 UTF-8 文件时按 GBK 解码，注释里的一个中文字符就能解出虚假的引号/括号并让解析器报 ParserError（首版实测踩中：5.1 在只差一条中文注释的行上报 Unexpected token）。因此脚本正文与全部用户可见输出均为 ASCII，断言也匹配 ASCII。
+    ⚠️ **⚠️ **编码约束：Windows PowerShell 5.1 读无 BOM 的 .ps1 时按 ANSI 码页解码，注释里的一个中文字符就能解出虚假的引号/括号并让解析器报 ParserError（首版实测踩中：5.1 在只差一条中文注释的行上报 Unexpected token，而同一文件在 PowerShell 7 下完全正常）。仓库对此有机械门禁 .github/scripts/check-ps1-bom.js（Gate 2b）：所有含非 ASCII 的 tracked .ps1 必须恰好带一个 UTF-8 BOM。**ASCII-only 不能替代 BOM** —— 本次两个被改的 .ps1 曾因整文件重写丢掉 BOM 而被该门禁当场拦下（missing-bom nonASCII=2247）。入口脚本同时保持 ASCII 正文与 BOM，是双保险而非二选一。
 
 回归锁：scripts/mp-worktree-health.test.ps1 的 case 11-17（默认出声 / STRICT 判红 / 活项不算 stale / 入口四动作 + 幂等 + Verify 只读）。
 

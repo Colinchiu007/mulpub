@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Single recommended entry point for the managed foreign-worktree registry
     (register / purge dead entries / self-check).
@@ -28,11 +28,15 @@
     mp-worktree-health.ps1: exact match after normalisation (slash unification, trailing
     slash removal, lower-casing).
 
-    NOTE ON ENCODING: this file is deliberately ASCII-only. Windows PowerShell 5.1 reads a
-    BOM-less UTF-8 file as GBK, so any non-ASCII byte (even inside a comment) can decode into
-    a stray quote/paren and break the parser. Observed while writing the first draft of this
-    script: 5.1 reported ParserError at lines that only differed by a Chinese comment.
-    Keep it ASCII, or add a BOM and re-verify under 5.1.
+    NOTE ON ENCODING: this file is ASCII-only, and it carries a UTF-8 BOM. Windows PowerShell
+    5.1 decodes a BOM-less .ps1 by ANSI code page, so a non-ASCII byte (even inside a comment)
+    can decode into a stray quote/paren and break the parser. Observed while writing the first
+    draft of this script: 5.1 reported ParserError at lines that only differed by a Chinese
+    comment, while the same file ran fine under PowerShell 7.
+    The repo enforces this mechanically via .github/scripts/check-ps1-bom.js (Gate 2b):
+    every tracked .ps1 with non-ASCII bytes must carry exactly one UTF-8 BOM. Two files lost
+    their BOM during this change (a full-file rewrite via [IO.File]::WriteAllText drops it) and
+    the gate caught it. ASCII-only here is a belt-and-braces choice, NOT a substitute for the BOM.
 
 .EXAMPLE
     pwsh -File scripts/register-allowed-worktree.ps1 -Register D:\Temp\egress-base

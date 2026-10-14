@@ -1,4 +1,4 @@
-# Regression test for the hook-comparison semantics in mp-worktree-health.ps1.
+﻿# Regression test for the hook-comparison semantics in mp-worktree-health.ps1.
 #
 # Locks both directions:
 #   positive - an installed hook may carry a trailing third-party block
