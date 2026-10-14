@@ -60,7 +60,6 @@ const DEBT = {
   'CI-FIX-FINAL-SUCCESS-REPORT-20260920.md': '2026-09-20 的一次性 CI 报告',
   'CI-FIX-PLAN-UPDATED-20260920.md': '2026-09-20 的一次性 CI 计划',
   'CI-ZERO-FAILURE-REPORT-20260920.md': '2026-09-20 的一次性 CI 报告',
-  'CONTEXT.md': '领域模型活文档（domain-modeling 维护），去留待定：要么 allowlist、要么迁 01-docs/，不在此默认放宽',
   'HEALTH-REPORT.md': '一次性体检报告产物',
   'PR-2066-CI-INVESTIGATION.md': 'PR #2066 的一次性调查记录',
   'PR-2066-CI-MONITORING.md': 'PR #2066 的一次性监控记录',
@@ -98,13 +97,26 @@ function loadClassify(root) {
 }
 
 function extractGuardArray(source, name) {
-  // Match the assignment line only, and never a commented-out one. Anchoring on the
-  // literal `$name = @(` is what keeps an example array inside a comment from being
-  // read as the live list (this repo has been bitten by comment-as-anchor before).
-  const re = new RegExp('^\\$' + name + ' = @\\(([^)\\r\\n]*)\\)', 'm')
-  const m = source.match(re)
+  // Anchor on the line start so an array that only appears inside a comment is never read
+  // as the live list. The list body is then taken across lines until a line ends with the
+  // closing paren, and items come out of quote pairs. The first version demanded one line
+  // and no ')' inside an item, so reformatting $allowedTop one-item-per-line - or adding a
+  // path containing a paren - turned this lock into an exit-2 self-failure that gates every
+  // PR. Fail-closed stays, but only for a genuinely missing or degraded list.
+  const openRe = new RegExp('^\\$' + name + ' = @\\(', 'm')
+  const m = source.match(openRe)
   if (!m) throw new SelfFailure('could not locate the live $' + name + ' assignment in ' + GUARD_REL)
-  const items = [...m[1].matchAll(/'([^']*)'/g)].map((x) => x[1])
+  const after = source.slice((m.index || 0) + m[0].length).split('\n')
+  const collected = []
+  let closed = false
+  for (const rawLine of after) {
+    const line = rawLine.replace(/\r$/, '')
+    collected.push(line)
+    if (/\)\s*$/.test(line)) { closed = true; break }
+  }
+  if (!closed) throw new SelfFailure('$' + name + ' has no line ending with the closing paren in ' + GUARD_REL)
+  const body = collected.join('\n').replace(/\)\s*$/, '')
+  const items = [...body.matchAll(/'([^']*)'/g)].map((x) => x[1])
   if (items.length === 0) throw new SelfFailure('$' + name + ' parsed to an empty list (degraded parse)')
   return items
 }

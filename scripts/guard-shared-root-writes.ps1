@@ -71,9 +71,9 @@ function Test-ExcludedSegment([string]$Path) {
 # （violations.jsonl 现场：quarantined-tracked @ .gitignore，2026-10-14T11:07:20Z）。
 # 同形第二次（第一次是 #3272 放行 .adversarial），所以由 scripts/check-guard-classify-alignment.js
 # 逐项对账钉住，且其债务清单只能缩小。LICENSE/.editorconfig 虽在 classify 名单内但实测未被追踪，
-# 不为它们建死条目；根级其余 22 个 .md 属历史残留，进对账锁的缩小清单而非本名单（不固化垃圾）。
+# 不为它们建死条目；根级其余 21 个 .md 属历史残留，进对账锁的缩小清单而非本名单（不固化垃圾）。
 $allowedTop = @('docs','01-docs','scripts','openspec','.ccg','.agent_context','.hermes','.adversarial','.quality-rhythm','.claude','.agents')
-$allowedRootFiles = @('AGENTS.md','README.md','CHANGELOG.md','.quality-gates.md','.gitignore')
+$allowedRootFiles = @('AGENTS.md','README.md','CHANGELOG.md','.quality-gates.md','.gitignore','CONTEXT.md')
 $script:ignoreUntil = @{}
 
 function Get-RelativePath([string]$Path) {

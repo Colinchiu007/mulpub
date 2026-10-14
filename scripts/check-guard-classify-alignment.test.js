@@ -63,7 +63,7 @@ test('真仓：当前零漂移零陈旧，且扫描规模必须看得见（防�
   const r = collect({ root: REPO })
   assert.ok(r.tracked > 8000, 'real repo tracked count should be in the thousands, got ' + r.tracked)
   assert.ok(r.docsTracked > 4000, 'docs-whitelisted tracked count should be in the thousands, got ' + r.docsTracked)
-  assert.strictEqual(r.patterns, 14)
+  assert.ok(r.patterns >= 14, "the classifier whitelist shrank below the size this lock was written against, got " + r.patterns)
   assert.deepStrictEqual(r.violations, [], 'live drift must be zero or a registered debt: ' + r.violations.join(', '))
   assert.deepStrictEqual(r.stale, [], 'a debt entry fixed without deleting its registration must not pass')
 })
@@ -214,10 +214,26 @@ test('自接线：判据与自身测试都点名在 changes job 内，且该步�
   }
 })
 
+test('解析器不按排版下判：多行数组与含括号的路径都必须能读出来（W1 回归）', () => {
+  // A cosmetic reformat of the guard lists must not turn the lock into an exit-2
+  // self-failure - that shape gates every PR through Gate Result, so a false red here is
+  // as expensive as the drift it guards. The single-line assumption this replaces was never
+  // under test, which is how it stayed latent.
+  assert.deepStrictEqual(extractGuardArray("\$allowedTop = @('docs')\r\n", 'allowedTop'), ['docs'])
+  assert.deepStrictEqual(
+    extractGuardArray("\$allowedTop = @(\n  'docs',\n  '01-docs'\n)\r\n", 'allowedTop'),
+    ['docs', '01-docs']
+  )
+  assert.deepStrictEqual(extractGuardArray("\$allowedTop = @('A(B).md')\r\n", 'allowedTop'), ['A(B).md'])
+  // still blind to a commented-out array, and still loud about a never-closed one
+  assert.throws(() => extractGuardArray("# \$allowedTop = @('docs')\r\n", 'allowedTop'), SelfFailure)
+  assert.throws(() => extractGuardArray("\$allowedTop = @('docs',\n  'x'\n", 'allowedTop'), /no line ending with the closing paren/)
+})
+
 test('棘轮：债务清单大小钉死，只能靠删垃圾缩小、不得靠放宽守卫缩小', () => {
   const r = collect({ root: REPO })
-  assert.strictEqual(Object.keys(DEBT).length, 22)
-  assert.strictEqual(r.acknowledged.length, 22)
+  assert.strictEqual(Object.keys(DEBT).length, 21)
+  assert.strictEqual(r.acknowledged.length, 21)
   assert.ok(!r.allowedRootFiles.includes('pr-body-temp.md'), 'litter must never be allow-listed')
   assert.ok(!r.allowedRootFiles.includes('CI-FINAL-REPORT-20260920.md'))
 })

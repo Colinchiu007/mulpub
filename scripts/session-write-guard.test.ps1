@@ -216,9 +216,6 @@ try {
     # 2026-10-14 新增 7 条名单对账断言），外加循环外 2 条常驻模式结构锁，共 64 条。
     # 少跑一格（EOL 档位被删掉、或某条 Assert 被摘）都必须在这里变红，否则"第二格其实没在跑"
     # 这种退化在日志里完全看不出来。数字以**实测**为准：本行曾写 17 而实际是 18。
-    # 外加循环外 2 条常驻模式结构锁，共 50 条。少跑一格（EOL 档位被删掉、或某条 Assert
-    # 被摘）都必须在这里变红，否则"第二格其实没在跑"这种退化在日志里完全看不出来。
-    # 数字以**实测**为准：本行曾写 17 而实际是 18，注释与判据不一致时只有真跑一次才知道该信谁。
     Assert ($passed -eq 64) "both EOL cells plus the structural locks ran to completion (expect 64 checks, got $passed)"
     Write-Host "PASS: $passed session write guard checks" -ForegroundColor Green
 } finally {

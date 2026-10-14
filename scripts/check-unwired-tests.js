@@ -73,6 +73,14 @@ const MUST_LIVE_IN_UNGATED_JOB = {
     resolveWhen:
       "该锁的输入不再命中 CI_IGNORED_PATHS，或它本身被删（那会同时触发本清单的 stale 红）",
   },
+  "scripts/check-guard-classify-alignment.test.js": {
+    reason:
+      "它守的是两份白名单的一致性，输入 .gitignore 与根级 *.md 全部命中 CI_IGNORED_PATHS ⇒ 只要它住在"+
+      "被 docs-only 短路的 job，纯文档 PR 就能改真源而这条锁一次都不跑（#3114 同形：全绿合入、main push 才红）。"+
+      "现落在 quality-gate.yml 的 changes 作业（无 job 级 if:），本登记把该前提变成机器判据。",
+    resolveWhen:
+      "changes 作业被加上 job 级 if:（届时必须另找不被短路的落点），或本锁与其输入一同删除",
+  },
 }
 
 // 嵌套 workflow 承认清单：path -> 为什么允许它存在但永不执行。只能缩小，新增即红。
