@@ -34,7 +34,8 @@
  * **不判红**的情况（各有回归测试锁住）：
  *   - 纯产品品牌名 / npm scope —— 品牌不是路径
  *   - Linux 部署路径 `/opt/...` `/srv/...`、云沙箱 `/sessions/...` —— 非本机
- *   - 占位符路径（`<cdpPort>`、`${VAR}`、`*`、`...`）
+ *   - 占位符路径（`<cdpPort>`、`${VAR}`、`*`、`...`）——判据只看**路径串自身**含不含这些记号；
+ *     整行里别处出现（例如 Markdown 加粗的那个 `*`）**不构成豁免**
  *   - 归档快照目录（记录的是当时事实）
  *
  * ## 三个实测踩坑（改这块代码前必读）
@@ -67,6 +68,7 @@ let root = path.join(__dirname, '..');
 let base = null;
 let head = 'HEAD';
 let all = false;
+let writeBaseline = false;
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
   const next = () => {
@@ -85,9 +87,11 @@ for (let i = 0; i < argv.length; i++) {
   else if (a.startsWith('--head=')) head = a.slice('--head='.length);
   else if (a === '--head') head = next();
   else if (a === '--all') all = true;
+  else if (a === '--write-baseline') writeBaseline = true;
   else if (a === '--help' || a === '-h') {
     process.stdout.write(
-      '用法: node scripts/check-doc-abs-paths.js [--base=<ref> --head=<ref>] [--all] [--root=<dir>]\n'
+      '用法: node scripts/check-doc-abs-paths.js [--base=<ref> --head=<ref>] [--all] [--root=<dir>] [--write-baseline]\n' +
+      '退出码: 0=合规 / 1=发现失效路径或基线被走差 / 2=自身故障（参数缺值、基线读不到或非法）\n'
     );
     process.exit(0);
   }
@@ -131,7 +135,9 @@ const WIN_ABS_RE = new RegExp(
   'g'
 );
 
-// 占位符 / 变量 / 通配符：静态无法判定，一律跳过
+// 占位符 / 变量 / 通配符：静态无法判定，一律跳过。
+// ⛔ 只能对**提取出来的路径串**用这个判据，绝不能对整行用（2026-10-14 实测的洞：
+// 词表里的裸星号会把"加了粗的那一行"整行豁免掉）。
 const PLACEHOLDER_RE = /<[^>]*>|\$\{[^}]*\}|\$[A-Za-z_]\w*|\*|\.\.\./;
 
 // 非本机路径：CI runner 账号 / 云沙箱。这些写在文档里是**记录别的机器的环境**，
@@ -242,6 +248,96 @@ function collectChanged (baseRef, headRef) {
   return out.split(/\r?\n/).filter(Boolean).filter(isManagedDoc);
 }
 
+// ---- 存量基线（按文件计数，只能缩小）--------------------------------------------
+// 为什么要有它：豁免判据从"整行"收到"路径词元"之后，全量报错项 539 → 861（净新增 276，
+// 散在 168 个文件，`01-docs/learnings.md` 一家独占 26）。这些绝大多数是**别人写下的历史留痕**
+// （已删除的临时 worktree、当时的竞品目录……），而日常阻断口径是"改动集里的整份文件"——
+// 只收紧不管存量，等于让每个碰 learnings 的会话都被 26 条历史行判红。
+// 三条同时成立的口径：① 变多即红；② 变少也必须红（否则基线变成永久豁免，"只能缩小"就没人守）；
+// ③ 基线里的文件不在扫描域 ⇒ 陈旧登记红。读不到/非法 ⇒ 退出码 2，既不判 0 也不判 1。
+const BASELINE_REL = 'scripts/doc-abs-paths-baseline.json';
+const BASELINE_NOTE = 'Gate 12c 的存量基线：按文件记录「本机绝对路径失效」的处数。只能缩小，不得为容忍新增而调大。';
+const BASELINE_REASON_INITIAL = 'PLACEHOLDER_RE 由整行收紧到路径词元后新暴露的存量（2026-10-14 实测 539→861）';
+
+function baselinePath () {
+  return path.join(root, BASELINE_REL);
+}
+
+/** 返回 { map, absent, error }。absent=账本还没建（按"空基线"从严），error=自身故障。 */function loadBaseline () {
+  const p = baselinePath();
+  if (!fs.existsSync(p)) return { map: new Map(), absent: true, error: null };
+  let raw;
+  try {
+    raw = fs.readFileSync(p, 'utf8');
+  } catch (e) {
+    return { map: null, absent: false, error: '读不到基线文件：' + e.message };
+  }
+  let j;
+  try {
+    j = JSON.parse(raw);
+  } catch (e) {
+    return { map: null, absent: false, error: '基线 JSON 非法：' + e.message };
+  }
+  if (!j || typeof j !== 'object' || !j.files || typeof j.files !== 'object') {
+    return { map: null, absent: false, error: '基线结构不符（需 { files: { "<路径>": <非负整数> } }）' };
+  }
+  const map = new Map();
+  for (const [f, c] of Object.entries(j.files)) {
+    if (!f || typeof c !== 'number' || !Number.isInteger(c) || c < 0) {
+      return { map: null, absent: false, error: `基线条目非法：${JSON.stringify(f)} = ${JSON.stringify(c)}` };
+    }
+    map.set(f.split(path.sep).join('/'), c);
+  }
+  return { map, absent: false, error: null };
+}
+
+/**
+ * 纯函数：把"现场计数"与"基线"对账，给出三类违规。
+ * 抽出来的理由：`canJudge=false` 那一支（无本机盘符的 runner）在本机永远走不到，
+ * 留在 main 里就等于一条**没人跑过**的分支——而它恰恰决定 CI 上是恒红还是恒绿。
+ * 现在它可以直接喂参数单测（见 check-doc-abs-paths.test.js 的"基线对账纯函数"三条）。
+ *
+ * - canJudge=false：**不做**逐文件计数比较（无盘符时现场计数恒 0，比较会把整张账本报成"待收紧"
+ *   ⇒ 门禁在 runner 上永久红，比它挡的问题更糟），但仍然核对陈旧登记（文件在不在是跨平台事实）。
+ * - over：变多 ⇒ 新增失效路径。
+ * - shrink：变少 ⇒ 基线须收紧（"只能缩小"必须有人守，否则豁免永久化）。
+ * - stale：账本里的文件已不在扫描域（删除 / 移出受管范围）。
+ */
+function judgeBaseline ({ counts, baseline, domain, canJudge }) {
+  const over = [];
+  const shrink = [];
+  const stale = [];
+  if (canJudge) {
+    for (const f of domain) {
+      const n = counts.has(f) ? counts.get(f).length : 0;
+      const b = baseline.get(f) || 0;
+      if (n > b) over.push({ file: f, n, b, list: counts.get(f) || [] });
+      else if (n < b) shrink.push({ file: f, n, b });
+    }
+  }
+  for (const f of baseline.keys()) {
+    if (!domain.has(f)) stale.push({ file: f });
+  }
+  return { over, shrink, stale, judged: canJudge };
+}
+
+/**
+ * 把「文件 → 该文件的失效路径明细」写成账本。
+ * ⛔ 存的必须是**条数**而不是明细本身：行号会随别人插行漂移，键漂移就等于账本对不上现场。
+ */
+function serializeBaseline (found, prev) {
+  const files = {};
+  for (const f of [...found.keys()].sort()) files[f] = found.get(f).length;
+  return JSON.stringify({
+    note: BASELINE_NOTE,
+    // 首次生成写当天；之后再写**保留原值**——否则每天跑一次账本就多一处无意义 diff，
+    // "重写必须幂等"这条锁也就永远立不住。
+    generated: (prev && prev.generated) || new Date().toISOString().slice(0, 10),
+    reason: (prev && prev.reason) || BASELINE_REASON_INITIAL,
+    files,
+  }, null, 2) + '\n';
+}
+
 function scanFile (relPath, driveRoots) {
   let text;
   try {
@@ -253,12 +349,27 @@ function scanFile (relPath, driveRoots) {
   const lines = text.split(/\r?\n/);
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    if (PLACEHOLDER_RE.test(line)) continue;
     WIN_ABS_RE.lastIndex = 0;
     let m;
     while ((m = WIN_ABS_RE.exec(line)) !== null) {
       const frag = m[2];
       if (!looksLikeRealPath(frag)) continue;
+      // 豁免只看**这条路径自己的词元**，不看整行。
+      // 词元 = 从片段起点延伸到下一个空白为止的那一串（含包裹它的反引号、后面的全角标点等）。
+      // 为什么不直接用 frag：`*`、`<...>`、`${}` 这些记号**根本不在 SEG 字符集里**，
+      // 提取器会在它们之前截断，于是"路径自身含占位符"这个判断对 frag 恒为假——
+      // 只看 frag 会把 `D:\...\mp-*\apps` 这类通配路径判成失效（实测：两条既有豁免用例当场红）。
+      // 为什么不能退回 `test(line)`：词表里有一条**裸星号**，而 Markdown 加粗就是星号，
+      // 于是"这行加了粗"＝整行绝对路径全部免判（2026-10-14 实测：全域含 Windows 绝对路径的
+      // 行 961，命中星号 281，其中仅因星号被豁免且路径确实不存在的有 179 行；
+      // 本仓自己的执行记录就靠这个洞躲过一次判定）。
+      const tokenEnd = (() => {
+        let e = m.index + m[1].length;
+        while (e < line.length && !/\s/.test(line[e])) e += 1;
+        return e;
+      })();
+      const token = line.slice(m.index + m[1].length, tokenEnd);
+      if (PLACEHOLDER_RE.test(token)) continue;
       const missing = firstMissingSegment(frag, driveRoots);
       if (missing) {
         findings.push({
@@ -273,46 +384,143 @@ function scanFile (relPath, driveRoots) {
   return findings;
 }
 
+/** 扫描一批文件，返回 `文件 -> 该文件的失效路径明细[]`（只含有命中的文件）。 */
+function findingsByFile (files, driveRoots) {
+  const map = new Map();
+  for (const rel of files) {
+    const list = scanFile(rel, driveRoots);
+    if (list.length) map.set(rel.split(path.sep).join('/'), list);
+  }
+  return map;
+}
+
 function main () {
-  // 未给 --base 时不做改动集口径（全量审计），避免"看起来在查其实没查"
-  const scopeAll = all || !base;
-  const files = scopeAll ? collectAllManaged() : collectChanged(base, head);
-  const driveRoots = existingDriveRoots();
-  const findings = [];
-  for (const rel of files) findings.push(...scanFile(rel, driveRoots));
-
-  const scopeDesc = scopeAll
-    ? `全量审计（${files.length} 个受管文件）`
-    : `改动集 ${base}..${head}（${files.length} 个受管文件）`;
-
-  if (findings.length === 0) {
+  // 基线读不到 ⇒ 自身故障（退出码 2）。**既不得判 0（"没问题"）也不得判 1（"发现失效路径"）**——
+  // 把"门禁瞎了"读成任何一种结论，都是给自己造假证据。
+  const bl = loadBaseline();
+  if (bl.error) {
     process.stderr.write(
-      `[check-doc-abs-paths] PASS（${scopeDesc}，无失效的本机绝对路径；已豁免归档快照、占位符与非本机路径）\n`
+      `[check-doc-abs-paths] 自身故障：${bl.error} ⇒ 既不判 PASS 也不判 FAIL（退出码 2，与"发现失效路径"的 1 分开）\n`
+    );
+    return 2;
+  }
+  const baseline = bl.map;
+  const scopeAll = all || !base;
+  const driveRoots = existingDriveRoots();
+
+  // ---- 账本重写（唯一合法的生成入口）----
+  if (writeBaseline) {
+    if (!all) {
+      process.stderr.write(
+        '[check-doc-abs-paths] 自身故障：--write-baseline 必须搭配 --all —— ' +
+        '窄域（改动集）跑一次会把整张账本按那一两个文件重写掉（先例：某门禁的 --update 抹掉了别的域）\n'
+      );
+      return 2;
+    }
+    const allFiles = collectAllManaged();
+    const found = findingsByFile(allFiles, driveRoots);
+    let prev = null;
+    try {
+      const j = JSON.parse(fs.readFileSync(baselinePath(), 'utf8'));
+      prev = { generated: j.generated, reason: j.reason };
+    } catch { /* 首次生成或被人工删过：用默认值 */ }
+    const total = [...found.values()].reduce((s, l) => s + l.length, 0);
+    const added = [...found.keys()].filter((f) => !baseline.has(f));
+    const gone = [...baseline.keys()].filter((f) => !found.has(f));
+    const moved = [...found.keys()].filter((f) => baseline.has(f) && baseline.get(f) !== found.get(f).length);
+    fs.writeFileSync(baselinePath(), serializeBaseline(found, prev));
+    process.stderr.write(
+      `[check-doc-abs-paths] 基线已重写：扫描域 ${allFiles.length} 个受管文件 / ` +
+      `有失效路径的文件 ${found.size} 个 / 总处数 ${total}；` +
+      `新增 ${added.length}、消失 ${gone.length}、计数变化 ${moved.length}\n`
     );
     return 0;
   }
 
-  process.stderr.write(
-    `[check-doc-abs-paths] FAIL：${scopeDesc}中检出 ${findings.length} 处失效的本机绝对路径\n\n`
-  );
-  const byFile = new Map();
-  for (const f of findings) {
-    if (!byFile.has(f.file)) byFile.set(f.file, []);
-    byFile.get(f.file).push(f);
+  // ---- 判定 ----
+  // 未给 --base 时不做改动集口径（全量审计），避免"看起来在查其实没查"
+  const changedFiles = (scopeAll ? collectAllManaged() : collectChanged(base, head))
+    .map((f) => f.split(path.sep).join('/'));
+  // 扫描域 = 改动集 ∪（**磁盘上还存在的**基线受管文件）。并入基线文件是**让"变少也要收紧"和
+  // "陈旧登记"在每个 PR 上都真实生效**——否则这两条只有跑 --all 时才看得见，而 CI 里没有 --all，等于没锁。
+  // 并入时必须加 existsSync：账本里的文件已被删除，它就**不该**进计数比较——否则计数恒 0，
+  // 会被报成"0 处 < 基线 N ⇒ 改少了把账本改小"，而真实原因是"这条登记的对象已经不存在"。
+  // 两类修法不同（收紧账本 vs 删掉登记条目），诊断不能合并；且没有这条判据时
+  // `stale` 那一类对"被删掉的文件"永远走不到（2026-10-14 变异反证实测：摘掉陈旧检测后
+  // 行为锁照绿，因为红是由 shrink 提供的，而断言的 `陈旧`/`deleted\.md` 两个词都被固定
+  // 修法文案命中 —— 一条装饰性锁）。
+  // 实测代价可忽略：全量 3077 个文件 1.16 秒，基线侧 168 个文件约 7.3 MB。
+  const domain = new Set(changedFiles);
+  for (const f of baseline.keys()) {
+    if (isManagedDoc(f) && fs.existsSync(path.join(root, f))) domain.add(f);
   }
-  for (const [file, list] of byFile) {
-    process.stderr.write(`  ${file}\n`);
-    for (const f of list) {
+  const found = findingsByFile([...domain], driveRoots);
+
+  const scopeDesc = scopeAll
+    ? `全量审计（${domain.size} 个受管文件）`
+    : `改动集 ${base}..${head}（改动 ${changedFiles.length} 个 + 基线并入，扫描 ${domain.size} 个文件）`;
+
+  // 能不能做逐文件计数比较，取决于本机有没有盘符。CI 的 `changes` job 跑在 **ubuntu-latest**，
+  // 那里 `C:`…`Z:` 都不存在 ⇒ firstMissingSegment 对每条路径都返回 null ⇒ 现场计数恒 0。
+  // 此时若照常比较，会把整张账本（168 个文件）全报成"待收紧"——门禁在 runner 上永久红，
+  // 比它本该挡的问题更糟。所以这一支显式跳过计数比较，并且**出声说明跳过了什么**：
+  // 静默 PASS 与静默恒红是同一种错，两者都让下一个人读不出"这次到底判没判"。
+  const canJudge = driveRoots.size > 0;
+  const verdict = judgeBaseline({ counts: found, baseline, domain, canJudge });
+  for (const v of verdict.stale) {
+    v.why = fs.existsSync(path.join(root, v.file))
+      ? '不再受管（移入归档 / 改了扩展名）'
+      : '已不存在';
+  }
+  const over = verdict.over;
+  const shrink = verdict.shrink;
+  const stale = verdict.stale;
+  const skipNote = canJudge ? '' : '；本机无盘符 ⇒ 逐文件计数比较未执行（仅核对陈旧登记）';
+
+  if (!over.length && !shrink.length && !stale.length) {
+    const totalBase = [...found.values()].reduce((s, l) => s + l.length, 0);
+    process.stderr.write(
+      `[check-doc-abs-paths] PASS（${scopeDesc}，无新增失效路径；` +
+      `基线内 ${baseline.size} 个文件 / 现场存量 ${totalBase} 处已按文件对齐；` +
+      '已豁免归档快照、路径词元自身含占位符者与非本机路径' + skipNote + '）\n'
+    );
+    return 0;
+  }
+
+  const bits = [];
+  if (over.length) bits.push(`超出存量基线 ${over.length} 个文件`);
+  if (shrink.length) bits.push(`低于基线待收紧 ${shrink.length} 个`);
+  if (stale.length) bits.push(`陈旧登记 ${stale.length} 个`);
+  process.stderr.write(`[check-doc-abs-paths] FAIL：${scopeDesc} —— ${bits.join('；')}\n\n`);
+
+  for (const v of over) {
+    process.stderr.write(`  ${v.file}：${v.n} 处 > 基线 ${v.b}（超出存量基线）\n`);
+    for (const f of v.list.slice(0, v.n - v.b + 2)) {
       process.stderr.write(`    L${f.line}: ${f.path}\n`);
       process.stderr.write(`           └─ 磁盘上不存在：${f.missing}\n`);
     }
   }
+  for (const v of shrink) {
+    process.stderr.write(`  ${v.file}：${v.n} 处 < 基线 ${v.b} ⇒ 基线须收紧（改少了就把账本改小）\n`);
+  }
+  for (const v of stale) {
+    process.stderr.write(`  ${v.file}：基线里有这一条，但文件${v.why} ⇒ 陈旧登记，必须删掉该条目\n`);
+  }
   process.stderr.write(
-    '\n  修法：把路径改指现存的目录。\n' +
-    '  若这条路径记录的是"当时"的事实（已删除的临时 worktree、CI runner 路径等），\n' +
-    '  它不该出现在本次改动里——考虑撤掉这次文档改动，或把该文件移入归档豁免目录。\n'
+    '\n  修法：\n' +
+    '  - 超出存量基线：把新增的失效路径改指现存目录，或改写成占位符形态（`<...>` / `$VAR` / 通配）。\n' +
+    '    若这条路径记录的是"当时"的事实（已删除的临时 worktree、CI runner 路径等），\n' +
+    '    它不该出现在本次改动里——考虑撤掉这次文档改动，或把该文件移入归档豁免目录。\n' +
+    '  - 变少了 / 陈旧登记：账本只能缩小。跑 `node scripts/check-doc-abs-paths.js --all --write-baseline` 重新生成，\n' +
+    '    并把这次收紧写进 PR 说明（**不得**为了容忍新增而把某个数调大）。\n'
   );
   return 1;
 }
 
-process.exit(main());
+// 被 require 时不退出进程（纯函数判据要能喂参数单测：无盘符 runner 那一支在本机永远走不到，
+// 留在 main 里就等于一条没人跑过的分支）。
+if (require.main === module) {
+  process.exit(main());
+}
+
+module.exports = { judgeBaseline, serializeBaseline, loadBaseline, isManagedDoc, WIN_ABS_RE, PLACEHOLDER_RE, BASELINE_REL };

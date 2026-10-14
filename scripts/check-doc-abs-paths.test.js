@@ -278,28 +278,37 @@ test('改动集口径：未改动的文档里的陈旧路径不应报红', (t) =
   assert.match(r2.stderr, /HISTORY/);
 });
 
-test('当前仓库全量审计：报错项必须全部可归因（不许有说不懂的）', (t) => {
-  if (!DRIVE) {
-    // Linux runner 上没有 Windows 盘符 ⇒ 门禁按设计跳过全部判定 ⇒ 必然 PASS。
-    // 这不是缺陷：无法判定 ≠ 失效。锁的是"runner 平台与判定口径自洽"。
-    const repoRoot = path.join(__dirname, '..');
-    const r = spawnSync(
-      process.execPath,
-      [SCRIPT, '--root', repoRoot, '--all'],
-      { encoding: 'utf8' }
-    );
-    assert.equal(r.status, 0, '无本机盘符时应全量放行: ' + r.stderr);
-    return;
-  }
-  const repoRoot = path.join(__dirname, '..');
-  const r = spawnSync(
-    process.execPath,
-    [SCRIPT, '--root', repoRoot, '--all'],
-    { encoding: 'utf8' }
-  );
-  // 全量审计预期 FAIL（仓库确有 100+ 处历史引用）；这里锁的是"它必须 FAIL"这一事实，
-  // 防止有人悄悄把判定改成永远 0 命中。
-  assert.equal(r.status, 1, '全量审计预期 FAIL（历史引用仍在）: ' + r.stderr);
+test('基线对账纯函数：无本机盘符的 runner 不得把整张账本报成"待收紧"（也不得静默当已判定）', () => {
+  // 这条锁的分支在 Windows 本机永远走不到（CI 的 changes job 是 ubuntu-latest，那里没有盘符
+  // ⇒ 现场计数恒 0）。留在 main 里就是一条没人跑过的分支，而它决定门禁在 CI 上是恒红还是恒绿，
+  // 所以把判据抽成纯函数直接喂参数测。
+  const mod = require(SCRIPT);
+  const baseline = new Map([['a.md', 2], ['b.md', 1], ['gone.md', 4]]);
+  const domain = new Set(['a.md', 'b.md']);
+  const counts = new Map([['a.md', [{}, {}, {}]]]);
+
+  const noDrive = mod.judgeBaseline({ counts, baseline, domain, canJudge: false });
+  assert.equal(noDrive.judged, false);
+  assert.equal(noDrive.over.length, 0, '无盘符时不得凭恒 0 的现场计数判"超出基线"');
+  assert.equal(noDrive.shrink.length, 0, '无盘符时若仍比计数，整张账本会变成永久红——比它挡的问题更糟');
+  assert.deepEqual(noDrive.stale.map((s) => s.file), ['gone.md'], '陈旧登记是跨平台事实，必须照样判');
+
+  const withDrive = mod.judgeBaseline({ counts, baseline, domain, canJudge: true });
+  assert.deepEqual(withDrive.over.map((o) => o.file), ['a.md'], 'a.md 3 处 > 基线 2 必须报');
+  assert.deepEqual(withDrive.shrink.map((o) => o.file), ['b.md'], 'b.md 0 处 < 基线 1 必须要求收紧');
+  assert.deepEqual(withDrive.stale.map((s) => s.file), ['gone.md']);
+});
+
+test('账本内容必须是"条数"而不是明细（第一版真把 finding 对象写了出去）', () => {
+  const mod = require(SCRIPT);
+  const found = new Map([['b.md', [{}, {}]], ['a.md', [{}]]]);
+  const text = mod.serializeBaseline(found, { generated: '2026-01-01', reason: 'keep me' });
+  const j = JSON.parse(text);
+  assert.deepEqual(Object.keys(j.files), ['a.md', 'b.md'], '键必须排序稳定，否则重写会产生无意义 diff');
+  assert.equal(j.files['a.md'], 1);
+  assert.equal(j.files['b.md'], 2);
+  assert.equal(j.generated, '2026-01-01', '重写必须保留原 generated（否则幂等锁立不住）');
+  assert.equal(j.reason, 'keep me');
 });
 
 test('门禁脚本不得硬编码旧目录名（改名后不能自己失效）', () => {
@@ -344,4 +353,198 @@ test('--root 必须同时支持 --root=X 与 --root X（变异反证：等号形
     /gone\.md/.test(eq.stderr) && /gone\.md/.test(sp.stderr),
     '两种形式都应命中 fixture 内的文件'
   );
+});
+
+// ---- 2026-10-14：行级占位符豁免的洞（登记欠账 #72）------------------------------
+// 动因（当场实测）：PLACEHOLDER_RE 里有一条**裸星号**，而豁免写在 scanFile 的行循环开头
+// （`if (PLACEHOLDER_RE.test(line)) continue;`）⇒ 一行只要用了 Markdown 加粗，
+// **整行的绝对路径都不再判定**。全域量到的规模：含 Windows 绝对路径的行 961 /
+// 命中星号记号 281 / 其中「仅因星号被豁免且行内路径确实不存在」179。
+// 我自己的证据链：同一轮里记录文件两处裸失效路径所在的行都带加粗 ⇒ 门禁对我报 PASS，
+// 而它 PASS 的原因不是"路径没问题"。
+// 这两条用例成对写，缺一不可：只测「加粗 + 失效路径必须红」会诱导把豁免整条删掉，
+// 于是「加粗 + 路径自身含占位符」这条真实形态（文档里大量存在）立刻假红。
+
+test('加粗行里的失效绝对路径必须照报（豁免不得按整行生效）', (t) => {
+  if (!DRIVE) {
+    t.skip('本机无 Windows 盘符（Linux runner），门禁按设计跳过判定');
+    return;
+  }
+  const missing = missingPathUnderLocalDrive();
+  const { root } = makeFixture({
+    '01-docs/bold.md': '**重要**：产物在 ' + missing + ' 下，请核对。\n',
+  });
+  const r = runGate(root);
+  assert.equal(r.status, 1, '加粗不该让整行免判，stderr: ' + r.stderr);
+  assert.match(r.stderr, /definitely-not-here-xyz/, '必须点名那条失效路径');
+});
+
+test('豁免必须落在路径片段上：同一行既有加粗、路径自身又含通配符时必须放行', (t) => {
+  if (!DRIVE) {
+    t.skip('本机无 Windows 盘符（Linux runner），门禁按设计跳过判定');
+    return;
+  }
+  const { root } = makeFixture({
+    '01-docs/mixed.md': [
+      // 加粗 + 通配符路径（静态无法判定 ⇒ 仍须豁免，否则文档里大量写法假红）
+      '**通配**：日志在 ' + DRIVE + '\\Data\\projects\\mp-*\\apps\\logs 下',
+      // 加粗 + 变量路径
+      '**变量**：见 ' + DRIVE + '\\Data\\projects\\${PROJECT}\\apps',
+      // 加粗 + 尖括号占位符
+      '**模板**：输出到 ' + DRIVE + '\\out\\<buildTag>\\app.asar',
+    ].join('\n') + '\n',
+  });
+  const r = runGate(root);
+  assert.equal(r.status, 0, '路径自身含占位符必须放行，stderr: ' + r.stderr);
+});
+
+// ---- 存量基线：收紧豁免之后，"不挡别人"与"不放水"必须同时成立 ---------------------
+// 动因：豁免从整行收到路径词元后，全量报错项 539 → 861（净新增 276，散在 168 个文件，
+// 其中 01-docs/learnings.md 独占 26）。这些是**别人写下的历史留痕**（已删除的临时 worktree 等），
+// 而日常阻断口径是"改动集里的整份文件"⇒ 只收紧不管存量，等于让每个碰 learnings 的会话
+// 都被 26 条历史行判红。基线按文件计数、只能缩小，同时把三种走漏洞路全堵上。
+
+function writeBaseline (root, files) {
+  const p = path.join(root, 'scripts');
+  fs.mkdirSync(p, { recursive: true });
+  const json = { note: 'fixture', generated: '2026-10-14', reason: 'fixture', files };
+  fs.writeFileSync(path.join(p, 'doc-abs-paths-baseline.json'), JSON.stringify(json, null, 2) + '\n', 'utf8');
+}
+
+/** 造 n 条互不相同的失效路径（同盘符下不同子目录名，确保逐条被数到） */
+function deadPaths (n) {
+  return Array.from({ length: n }, (_, i) =>
+    DRIVE + '\\Data\\projects\\dead-baseline-' + i + '-xyz\\apps\\desktop');
+}
+function docWith (paths) {
+  return paths.map((p, i) => 'run' + i + ' ' + p).join('\n') + '\n';
+}
+
+test('基线内的存量必须放行（不挡别人写下的历史行）', (t) => {
+  if (!DRIVE) { t.skip('Linux runner 无本机盘符'); return; }
+  const { root } = makeFixture({ '01-docs/a.md': docWith(deadPaths(2)) });
+  writeBaseline(root, { '01-docs/a.md': 2 });
+  const r = runGate(root);
+  assert.equal(r.status, 0, '与基线相等不该红，stderr: ' + r.stderr);
+});
+
+test('超出基线必须红，并点名"超出存量基线"', (t) => {
+  if (!DRIVE) { t.skip('Linux runner 无本机盘符'); return; }
+  const { root } = makeFixture({ '01-docs/a.md': docWith(deadPaths(2)) });
+  writeBaseline(root, { '01-docs/a.md': 1 });
+  const r = runGate(root);
+  assert.equal(r.status, 1, 'stderr: ' + r.stderr);
+  assert.match(r.stderr, /超出存量基线/);
+});
+
+test('低于基线也必须红（基线只能缩小，不许变成永久豁免）', (t) => {
+  if (!DRIVE) { t.skip('Linux runner 无本机盘符'); return; }
+  const { root } = makeFixture({ '01-docs/a.md': docWith(deadPaths(1)) });
+  writeBaseline(root, { '01-docs/a.md': 3 });
+  const r = runGate(root);
+  assert.equal(r.status, 1, '改少了却不收基线必须红，stderr: ' + r.stderr);
+  assert.match(r.stderr, /收紧/);
+});
+
+test('基线里的文件已不在扫描域 ⇒ 陈旧登记必须红', (t) => {
+  if (!DRIVE) { t.skip('Linux runner 无本机盘符'); return; }
+  const { root } = makeFixture({ '01-docs/a.md': docWith(deadPaths(1)) });
+  writeBaseline(root, { '01-docs/a.md': 1, '01-docs/deleted.md': 4 });
+  const r = runGate(root);
+  assert.equal(r.status, 1, 'stderr: ' + r.stderr);
+  // ⚠️ 这一组断言是**改写过的**。原写法只有 `assert.match(/陈旧/)` 与 `/deleted\.md/` 两行，
+  // 而这两个词在**固定修法文案**里本来就出现（"变少了 / 陈旧登记：账本只能缩小"），且红是
+  // 由 shrink（deleted.md 被并进了扫描域、计数恒 0）提供的 —— 2026-10-14 变异反证实测：
+  // 把陈旧检测整条摘掉，本用例照绿。那是一条装饰性锁，把"匹配消息里的词"当成了"匹配成因"。
+  // 现按**成因**断言：FAIL 头的分类计数 + 明细行的专属句式 + 两条"不得由别的成因顶替"的负断言。
+  assert.match(r.stderr, /—— [^\n]*陈旧登记 1 个/, 'FAIL 头必须单独点名这一类，stderr: ' + r.stderr);
+  assert.match(
+    r.stderr,
+    /01-docs\/deleted\.md：基线里有这一条，但文件已不存在 ⇒ 陈旧登记/,
+    '明细必须说明成因是"文件已不存在"，stderr: ' + r.stderr
+  );
+  assert.doesNotMatch(r.stderr, /低于基线待收紧/, '被删掉的文件不得被误诊成"改少了把账本改小"');
+  assert.doesNotMatch(r.stderr, /deleted\.md：0 处/, '它不在扫描域里，不该进计数比较');
+});
+
+test('基线里的文件还在、但已移出受管范围 ⇒ 陈旧登记必须说明"不再受管"', (t) => {
+  if (!DRIVE) { t.skip('Linux runner 无本机盘符'); return; }
+  // 归档豁免目录里的文件**磁盘上存在**，只是不再受管（`isManagedDoc` 判假）。
+  // 这一支与上一支的区分全靠 `v.why`：文件在不在磁盘上。没有这条用例时，
+  // 把 existsSync 的两个分支写反（归档件报成"已不存在"）不会有任何锁变红。
+  const { root } = makeFixture({
+    '01-docs/a.md': docWith(deadPaths(1)),
+    '01-docs/archive/old.md': '# 归档快照\n\n这里是历史事实，不判定。\n'
+  });
+  writeBaseline(root, { '01-docs/a.md': 1, '01-docs/archive/old.md': 2 });
+  const r = runGate(root);
+  assert.equal(r.status, 1, 'stderr: ' + r.stderr);
+  assert.match(
+    r.stderr,
+    /01-docs\/archive\/old\.md：基线里有这一条，但文件不再受管（移入归档 \/ 改了扩展名） ⇒ 陈旧登记/,
+    '归档件必须报"不再受管"而不是"已不存在"，stderr: ' + r.stderr
+  );
+  assert.doesNotMatch(r.stderr, /old\.md：0 处/, '归档件不参与计数比较');
+});
+
+test('逐文件比较不得退化成全局总数（A 变差 + B 变好、总数相等也必须红）', (t) => {
+  if (!DRIVE) { t.skip('Linux runner 无本机盘符'); return; }
+  const { root } = makeFixture({
+    '01-docs/worse.md': docWith(deadPaths(2)),   // 基线 1 → 实际 2（变差）
+    '01-docs/better.md': docWith(deadPaths(1)),  // 基线 2 → 实际 1（变好）
+  });
+  writeBaseline(root, { '01-docs/worse.md': 1, '01-docs/better.md': 2 });
+  const r = runGate(root);
+  assert.equal(r.status, 1, '总数 3 == 基线 3 不能抵消逐文件走差，stderr: ' + r.stderr);
+  assert.match(r.stderr, /worse\.md/);
+});
+
+test('基线 JSON 损坏必须走"自身故障"档（退出码 2），既不是 0 也不是 1', (t) => {
+  if (!DRIVE) { t.skip('Linux runner 无本机盘符'); return; }
+  const { root } = makeFixture({ '01-docs/a.md': docWith(deadPaths(1)) });
+  fs.mkdirSync(path.join(root, 'scripts'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'scripts', 'doc-abs-paths-baseline.json'), '{ 这不是 JSON', 'utf8');
+  const r = runGate(root);
+  assert.equal(r.status, 2, '读不到基线≠没有问题，也不能读成发现引信，stderr: ' + r.stderr);
+  assert.match(r.stderr, /自身故障|读不到|非法/);
+});
+
+test('基线文件缺席按"空基线"从严处理（删掉账本不能让门禁闭眼）', (t) => {
+  if (!DRIVE) { t.skip('Linux runner 无本机盘符'); return; }
+  const { root } = makeFixture({ '01-docs/a.md': docWith(deadPaths(1)) });
+  const r = runGate(root);
+  assert.equal(r.status, 1, '没有基线时每条失效路径都要报，stderr: ' + r.stderr);
+});
+
+test('--write-baseline 必须搭配 --all（防止窄域跑一次就把整张账本抹掉）', (t) => {
+  if (!DRIVE) { t.skip('Linux runner 无本机盘符'); return; }
+  const { root } = makeFixture({ '01-docs/a.md': docWith(deadPaths(1)) });
+  writeBaseline(root, { '01-docs/a.md': 1, '01-docs/elsewhere.md': 9 });
+  // 不带 --all：拒绝重写
+  const denied = spawnSync(process.execPath, [SCRIPT, '--root', root, '--write-baseline'], { encoding: 'utf8' });
+  assert.equal(denied.status, 2, '窄域写基线必须拒，stderr: ' + denied.stderr);
+  const still = fs.readFileSync(path.join(root, 'scripts', 'doc-abs-paths-baseline.json'), 'utf8');
+  assert.match(still, /elsewhere\.md/, '被拒之后账本必须一个字节没少（实测踩过 --update 抹掉别的域）');
+  // 带 --all：允许，且第二次写出的字节必须与第一次相同（幂等）
+  const ok1 = spawnSync(process.execPath, [SCRIPT, '--root', root, '--all', '--write-baseline'], { encoding: 'utf8' });
+  assert.equal(ok1.status, 0, 'stderr: ' + ok1.stderr);
+  const b1 = fs.readFileSync(path.join(root, 'scripts', 'doc-abs-paths-baseline.json'), 'utf8');
+  const ok2 = spawnSync(process.execPath, [SCRIPT, '--root', root, '--all', '--write-baseline'], { encoding: 'utf8' });
+  const b2 = fs.readFileSync(path.join(root, 'scripts', 'doc-abs-paths-baseline.json'), 'utf8');
+  assert.equal(ok2.status, 0, 'stderr: ' + ok2.stderr);
+  assert.equal(b2, b1, '重写基线必须幂等（否则每次跑都在漂移）');
+  assert.match(b1, /"01-docs\/a\.md": 1/, '生成的基线要如实记下现场计数');
+});
+
+test('本仓基线必须与现场逐文件相等（既不多也不少，防止悄悄恒 0 或悄悄漏扫）', (t) => {
+  if (!DRIVE) {
+    // Linux runner 上没有本机 Windows 盘符 ⇒ 门禁按设计全部跳过 ⇒ 现场计数恒 0，
+    // 与真实基线（非 0）必然不等。这里不是缺陷，但也不能因此跳过整条锁：
+    // 改成"平台不自洽时红"，逼后来人在 Windows 上取基线。
+    t.skip('本机无 Windows 盘符：基线是在 Windows 上生成的，跨平台无法逐文件对账');
+    return;
+  }
+  const repoRoot = path.join(__dirname, '..');
+  const r = spawnSync(process.execPath, [SCRIPT, '--root', repoRoot, '--all'], { encoding: 'utf8', maxBuffer: 1 << 26 });
+  assert.equal(r.status, 0, '全量审计必须与基线逐文件相等，stderr: ' + r.stderr.slice(0, 1500));
 });
