@@ -1,4 +1,4 @@
-﻿# Regression test for the hook-comparison semantics in mp-worktree-health.ps1.
+# Regression test for the hook-comparison semantics in mp-worktree-health.ps1.
 #
 # Locks both directions:
 #   positive - an installed hook may carry a trailing third-party block
@@ -150,6 +150,88 @@ try {
     [IO.File]::WriteAllText($registryPath, ('["' + (NormKey $outsideWt) + '-sibling"]'), [Text.Encoding]::UTF8)
     $r = Invoke-Health $health 'case10'
     Assert ($r.rc -ne 0) 'registry entry for a different path does not exempt the outside worktree'
+    Remove-Item Env:MP_ALLOWED_WORKTREES_FILE -ErrorAction SilentlyContinue
+
+    # ---- 登记表生命周期（2026-10-14）：陈旧登记项检测 + 登记入口 ----
+    # 动机：实测现场 wt-mp-ccgrecord 消失约 7 天后登记项仍留在表里，报表无任何异常信号；
+    # 且 harness 级 agent 工具建的外来 worktree 不会自动登记 ⇒ outside 判据必然判红。
+    # 下面 5 例同时锁「出声的形状」与「STRICT 档的形状」，并锁登记入口脚本的四个动作。
+
+    # case 11: 登记项指向一个已不存在的 worktree ⇒ 报告 staleAllowedEntries，默认仍放行（rc=0）
+    # 夹具注意：此时表里必须**同时**登记活的 outsideWt，否则未登记的外来 worktree 会让 outside
+    # 判据先红，rc 就不为 0 —— 那样测的是「未登记红」而不是「陈旧登记项不红」。
+    $staleKey = NormKey (Join-Path $tmp 'gone-worktree')
+    $env:MP_ALLOWED_WORKTREES_FILE = $registryPath
+    [IO.File]::WriteAllText($registryPath, ('["' + (NormKey $outsideWt) + '","' + $staleKey + '"]'), [Text.Encoding]::UTF8)
+    $r = Invoke-Health $health 'case11'
+    Assert ($r.rc -eq 0) 'stale registry entry does not fail the gate by default (voice-only)'
+    Assert ((@($r.report.staleAllowedEntries) | ForEach-Object { NormKey $_ }) -contains $staleKey) 'stale entry is reported in staleAllowedEntries'
+    Assert ($r.report.staleAllowedStrict -eq $false) 'default mode reports staleAllowedStrict=false'
+
+    # case 12: MP_ALLOWED_WORKTREES_STRICT=1 ⇒ 陈旧登记项判红（fail-closed）
+    $env:MP_ALLOWED_WORKTREES_STRICT = '1'
+    $r = Invoke-Health $health 'case12'
+    Assert ($r.rc -ne 0) 'stale registry entry fails the gate under MP_ALLOWED_WORKTREES_STRICT=1'
+    Assert ($r.report.staleAllowedStrict -eq $true) 'strict mode reports staleAllowedStrict=true'
+    Remove-Item Env:MP_ALLOWED_WORKTREES_STRICT -ErrorAction SilentlyContinue
+
+    # case 13: 登记项仍对应真实 linked worktree ⇒ 不是 stale（放进 exempted，不进 stale）
+    [IO.File]::WriteAllText($registryPath, ('["' + (NormKey $outsideWt) + '"]'), [Text.Encoding]::UTF8)
+    $r = Invoke-Health $health 'case13'
+    Assert ($r.rc -eq 0) 'live registered worktree satisfies the gate'
+    Assert (@($r.report.staleAllowedEntries).Count -eq 0) 'live registered worktree is not reported as stale'
+    Assert ((@($r.report.exemptedWorktrees) | ForEach-Object { NormKey $_ }) -contains (NormKey $outsideWt)) 'live registered worktree stays in exemptedWorktrees'
+
+    # ---- 登记入口脚本 scripts/register-allowed-worktree.ps1 ----
+    $regScript = Join-Path $root 'scripts/register-allowed-worktree.ps1'
+    if (-not (Test-Path -LiteralPath $regScript)) { throw "register script missing: $regScript" }
+    function Invoke-Register([string[]]$regArgs) {
+        $out = & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $regScript -RegistryPath $registryPath @regArgs 2>&1
+        return @{ rc = $LASTEXITCODE; text = ($out -join "`n") }
+    }
+
+    # case 14: 登记一个外来 worktree ⇒ 表里出现归一化键，健康检查随之放行
+    # 断言用 ASCII：脚本面向 PowerShell 5.1 调用（测试里经 powershell.exe -File 起子进程），
+    # 5.1 读无 BOM UTF-8 的中文会按 GBK 解读成乱码（实测 Write-Host 中文输出变 `宸茬櫥璁`），
+    # 因此入口脚本的所有用户可见输出一律 ASCII，断言随之匹配 ASCII。
+    $rr = Invoke-Register @('-Register', $outsideWt)
+    Assert ($rr.rc -eq 0) 'register entry point exits 0'
+    Assert ($rr.text -match 'registered' -or $rr.text -match 'already registered') 'register entry point reports success'
+    $regKeys = @((Get-Content -LiteralPath $registryPath -Raw | ConvertFrom-Json) | ForEach-Object { NormKey $_ })
+    Assert ($regKeys -contains (NormKey $outsideWt)) 'registered key (normalised) is present in the registry file'
+    $r = Invoke-Health $health 'case14'
+    Assert ($r.rc -eq 0) 'registered outside worktree satisfies the gate via the entry point'
+
+    # case 15: 重复登记幂等（不得写重复键，否则 diff 噪声会掩盖真实变更）
+    $rr = Invoke-Register @('-Register', $outsideWt)
+    Assert ($rr.rc -eq 0) 're-registering the same path exits 0'
+    $regKeys2 = @((Get-Content -LiteralPath $registryPath -Raw | ConvertFrom-Json) | ForEach-Object { NormKey $_ })
+    Assert ($regKeys2.Count -eq 1) 're-registering does not duplicate the key'
+    Assert ($rr.text -match 'already registered') 're-register reports idempotent no-op'
+
+    # case 16: -Clean 剔除失效项、保留活项；清理后 STRICT 档也放行
+    [IO.File]::WriteAllText($registryPath, ('["' + (NormKey $outsideWt) + '","' + $staleKey + '"]'), [Text.Encoding]::UTF8)
+    $rr = Invoke-Register @('-Clean')
+    Assert ($rr.rc -eq 0) 'clean exits 0'
+    $regKeys3 = @((Get-Content -LiteralPath $registryPath -Raw | ConvertFrom-Json) | ForEach-Object { NormKey $_ })
+    Assert ($regKeys3 -contains (NormKey $outsideWt)) 'clean keeps the live entry'
+    Assert ($regKeys3 -notcontains $staleKey) 'clean removes the stale entry'
+    $env:MP_ALLOWED_WORKTREES_STRICT = '1'
+    $r = Invoke-Health $health 'case16'
+    Assert ($r.rc -eq 0) 'after clean, strict mode also passes (no stale entries left)'
+    Remove-Item Env:MP_ALLOWED_WORKTREES_STRICT -ErrorAction SilentlyContinue
+
+    # case 17: -Verify 只读（不改文件），并把 STALE 项点出来
+    # 夹具顺序：先写入目标内容，再取 mtime 基线。反序会让基线取在写入之前，
+    # 于是"我自己刚写的那次"被算成 Verify 的修改，断言恒红。
+    [IO.File]::WriteAllText($registryPath, ('["' + $staleKey + '"]'), [Text.Encoding]::UTF8)
+    Start-Sleep -Milliseconds 20
+    $before = (Get-Item -LiteralPath $registryPath).LastWriteTimeUtc
+    $rr = Invoke-Register @('-Verify')
+    Assert ($rr.rc -eq 0) 'verify exits 0'
+    Assert ($rr.text -match 'STALE') 'verify names the stale entry'
+    Assert ((Get-Item -LiteralPath $registryPath).LastWriteTimeUtc -eq $before) 'verify does not modify the registry file'
+
     Remove-Item Env:MP_ALLOWED_WORKTREES_FILE -ErrorAction SilentlyContinue
 
     Write-Host ''

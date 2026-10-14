@@ -32,6 +32,22 @@
 
 **受管外来 worktree 登记制（2026-10-01）**：harness 级工具（如 WorkBuddy 的项目工作区）会向共享仓库注册隔离目录之外的 linked worktree，健康门禁原本一律判红，导致所有新会话的 `start-mp-task.ps1` 被挡死。现在允许把这类 worktree 登记进机器本地注册表 `%LOCALAPPDATA%\Mulpub\session-isolationallowed-worktrees.json`（JSON 字符串数组，整路径精确匹配，不做前缀通配）；也可用环境变量 `MP_ALLOWED_WORKTREES`（分号分隔）临时追加。已登记的路径在报告 `exemptedWorktrees` 留痕；注册表 JSON 损坏时按空表处理（fail-closed），报告置 `allowedRegistry.valid=false`。未登记的外来 worktree 仍然一律红。传入 -RequireWriteGuard 时，还会要求实时写保护任务已注册且 watcher 正在运行。
 
+**登记表的生命周期与登记入口（2026-10-14）**：登记制落地后暴露两个机制缺口，本次一起补上。
+
+1. **陈旧登记项永久残留**：登记表无生命周期管理，条目对应的 worktree 被删后无人知晓。实测现场：wt-mp-ccgrecord 于 2026-10-07 前后消失（既不在 git worktree list、路径也不存在），登记项却一直留到 2026-10-14 才在排查 ok=false 时被发现。现在健康检查报告新增 staleAllowedEntries（判据：条目既不是本仓库已注册 linked worktree、对应路径也不存在），非 -Quiet 时打一行 WARN；**默认仅出声不拦**，因为登记表是机器本地文件，别的会话可能正在登记一个「即将建好」的 worktree，此刻判红会造成无谓阻塞。要把它变成硬闸：设 MP_ALLOWED_WORKTREES_STRICT=1（报告同步置 staleAllowedStrict=true，ok 随之为 false）。
+2. **登记只能手改 JSON**：harness 级 agent 工具（auto-exec 类）建外来 worktree 时不会登记，于是 outside 判据必然判红、start-mp-task.ps1 必然跑不完——这是机制性必然而非偶发。现在统一走入口脚本：
+
+        pwsh -File scripts/register-allowed-worktree.ps1 -Register <path>   # 登记
+        pwsh -File scripts/register-allowed-worktree.ps1 -Remove <path>      # 注销
+        pwsh -File scripts/register-allowed-worktree.ps1 -Clean              # 剔除所有失效项
+        pwsh -File scripts/register-allowed-worktree.ps1 -Verify             # 只读自检（逐条报 live/STALE）
+
+    入口脚本在登记/清理时顺手剔除死项，并把动作写入审计日志 %LOCALAPPDATA%\Mulpub\session-isolation\allowed-worktrees-audit.log（与 safe-delete 同目录）。匹配规则与健康检查完全一致：整路径归一化（斜杠统一、去尾斜杠、小写）后精确匹配，不做前缀通配。
+
+    ⚠️ **该脚本刻意保持 ASCII-only**：Windows PowerShell 5.1 读无 BOM 的 UTF-8 文件时按 GBK 解码，注释里的一个中文字符就能解出虚假的引号/括号并让解析器报 ParserError（首版实测踩中：5.1 在只差一条中文注释的行上报 Unexpected token）。因此脚本正文与全部用户可见输出均为 ASCII，断言也匹配 ASCII。
+
+回归锁：scripts/mp-worktree-health.test.ps1 的 case 11-17（默认出声 / STRICT 判红 / 活项不算 stale / 入口四动作 + 幂等 + Verify 只读）。
+
 ## 实时写保护
 
 写保护由 scripts/guard-shared-root-writes.ps1 执行，随当前用户登录自动启动。它监听共享主目录，把 apps/、packages/、ops-center/、config/、.github/ 等运行时路径下非 gitignored 的新建/修改/删除文件移入：
