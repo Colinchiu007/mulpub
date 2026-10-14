@@ -30,6 +30,9 @@ const PRODUCERS = [
   'electron/services/podcast-episode-extract.js',
   'electron/services/podcast-episode-cancel.js',
   'electron/services/podcast-episode-source.js',
+  // 校验器在 shared-utils：`validateEpisode` 产出的 EPISODE_* 是 compliance.reasons 的唯一来源
+  // （PRD §8.2.6 锁5）。不列进来，「有码无文案」就只靠人记——§8.2 的整条硬锁会变成装饰性门禁。
+  '../../packages/shared-utils/src/podcast-rss.js',
   // 刻意**不**把 podcast-tts-compose.js 列入扫描域：它产出的 4 个码（PODCAST_TTS_COPY_TOO_SHORT /
   // TITLE_INVALID / CHUNK_UNSAFE / VOICE_UNRESOLVED）目前没有任何用户可达路径——刀 4 第 2 片只是纯函数层，
   // 入参校验失败要到第 3 片接进出期浮层才会显示。此刻加进来只能逼出 4 条无人消费的文案（AGENTS：
@@ -65,7 +68,9 @@ function producedCodes () {
     const p = path.join(ROOT, rel)
     if (!fs.existsSync(p)) throw new Error('生产者文件不存在，判据的扫描域已失效：' + rel)
     const s = fs.readFileSync(p, 'utf8')
-    for (const m of s.matchAll(/['"](PODCAST_[A-Z0-9_]+)['"]/g)) {
+    // PODCAST_ 之外还必须认引擎那侧的族前缀：校验码在 shared-utils 生成，没有 PODCAST_ 前缀。
+    // 只按 PODCAST_ harvest 会让 EPISODE_* 这一整族对「有码无文案」完全失明（实测 53 条码、缺文案 0）。
+    for (const m of s.matchAll(/['"]((?:PODCAST|EPISODE|EPISODES|CHANNEL|ENCLOSURE|FEED|DURATION)[A-Z0-9_]+)['"]/g)) {
       if (!found.has(m[1])) found.set(m[1], rel)
     }
   }

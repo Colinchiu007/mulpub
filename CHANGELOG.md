@@ -16,6 +16,13 @@
   - **F2（跳过说明只拼在 PASS 分支，FAIL 分支读不出"这轮没逐文件比较"）** ⇒ 抽成 `formatSkipNote`，PASS/FAIL 两个分支都拼（配结构锁防只拼一侧）。
 - 同时落地**账本"只能缩小"的机械守卫**（评审标 Critical，理由成立）：`judgeLedgerDrift` 比较 base 处账本与当前账本，**某键计数上涨时该文档必须不在本 PR 改动集内**（blob 没变就不可能由作者制造上涨），否则判「账本被放宽」exit 1。这条不需要盘符 ⇒ 是 12c 第一条在 ubuntu CI 上真实生效的写侧判据。它也当场咬了作者一口：我写在测试与注释里的路径字面量被自己的门禁数成新增，而"记进账本"正会触发这条新守卫——正解是运行时拼接 + 注释用占位符形态，不是把数调大。
 - 反证电池 8 → **16 条**（新增 N9 摘掉放宽判据 / N10 改动集判据退化成"一律算放宽" / N11 把收紧当违规 / N12 无条件剥加粗 / N13 成对判据写反 / N14 写账本不看盘符 / N15 改动集并域不看存在性 / N16 首次引入被读成自身故障），全部实跑、红集互不相同、`RESTORED_BYTE_EXACT=true`；自测 26 → **41 条全绿**。反证驱动自身也被修了一处：多行锚点里的 `\n` 没按 CRLF 拼 ⇒ 报成 `ANCHOR_MISS`——**驱动缺陷会被读成"这条变异没生效"，两者必须分开**。
+# [未发布] feat(podcast): 单集 compliance 三态标记主进程层——只读重跑引擎、stock 只认双凭据（podcast-episode-compliance-impl）
+
+- 单集列表读路径新增 `compliance`（闭集 `ok|invalid|stock`，第四态在出口抛）：判据**只读重跑** shared-utils 的 `validateEpisode`，本层不写第二份字段规则；`reasons` 字面值就是引擎 `issues[].code`（19 条 `EPISODE_*`），文案真源是 `locales/podcast/{zh,en}.js` 的 `errors` 键集（实测 zh 98 / en 98、缺文案 0）。
+- `stock` 档只认**两个凭据**：`mimeSource === "stock"` 且 `index.json` 的 `stockStamp.at` 在位；缺凭据即不判存量、改按内容判。`checkedAt` 在 stock 档留空串——填时刻等于谎称重跑过。旁路语义：组装失败只回落成「没有 compliance 键」，绝不丢期、绝不让列表报错；非对象元素原样透传，不伪造渲染行。
+- 清点式门禁（`podcast-error-codes.test.js`）按 §8.2.6 锁7 扩域：`PRODUCERS` 纳入 `packages/shared-utils/src/podcast-rss.js`，harvest 前缀从只认 `PODCAST_` 放宽到引擎那族。实测新增 53 条命中、**缺文案 0 条**；并补两条自证：harvest 规模与来源（`EPISODE_*` 20 条确实来自该文件）、摘掉一个 `EPISODE_*` 文案键 ⇒ **指名红**，md5 还原后全绿。
+- 测试 40 全绿；变异 10 条逐条指名红（含评审命中后新增的「伪造非对象元素」「由 reasons 反推合格」两条）。QM-1 按新三层 stderr 判据：本机实跑 stderr **为空** ⇒ PASS。
+
 # [未发布] chore(gitignore): 共享根 Qoder 产物归类——/.qoder/ 进忽略清单，隔离区 60% 噪声止血（ignore-qoder-artifacts）
 
 - 隔离区实测 350 个文件里 210 条（60%）是同一族：`.qoder/` 189 + `kc-persist-test` 17 + `kc-staging` 4。守卫 `guard-shared-root-writes.ps1:167` 的放行判据就是 `git check-ignore`，而这三条路径处于「既不追踪也不忽略」的第三态 ⇒ 每次生成 repowiki/知识卡都被整份搬出仓库，还会写 `.agent_context/write-guard-alert.json` 让下一个会话以为「共享根有违规、该改用 worktree」——**假告警把真告警的解释力吃掉了**。
