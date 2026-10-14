@@ -100,3 +100,41 @@ const hasApi = /^[ \t]{4}has_api:[ \t]*true/.test(block)   // ← 缺 m 标志
   必须在测试里用**真实数据**覆盖「条件为真但不在首行」的输入 ——
   本条的 `facebook` 恰好就是这种输入（`has_api: true` 不在首行 + 无链 ⇒ 应 FAIL），
   把它钉成回归锁即可：**去掉 `m` 就当场变红。**
+
+## 保留门禁
+
+| 项 | 状态 | 说明 |
+| --- | --- | --- |
+| `node --test scripts/verify-platform-onboarding.test.js` | PASS | **18/18** |
+| 真变异反证 | PASS | 去掉 `m` ⇒ 恰为新加的两条锁变红（tests 18 / pass 16 / fail 2）；还原 ⇒ 18/18 |
+| 判据 ⑨ 失败集合 | 如实报到 | `youtube` / `twitter` / `facebook`（B 类，待 owner 裁定）|
+| 全 PASS 平台数 | 与主干一致 | 5 / 15（**无回归**）|
+| `node --check` 脚本 | PASS | 语法通过 |
+| `check-pr-exec-record` | PASS | OK |
+| `check-gate-record-debt` | PASS | 本记录已补 `远程同步` 表格行（见下）|
+| `check-unwired-tests` | PASS | exit=0 |
+| `check-no-brand-residue` | PASS | 扫描全仓 tracked 文件无残留 |
+| 行尾/编码对账 | PASS | 两口径一致 |
+| **QM-1 打包** | **不适用** | 分层判据只要求 `apps/desktop/electron/` 或 `packages/rpa-engine/`；本 PR 只改 `scripts/` + `01-docs/`，不碰运行时代码 |
+| 远程同步 | PENDING | 本 PR 未合并 |
+
+- 保留门禁：脚本自测 18/18 ✅ | 变异反证 ✅ | 判据⑨ 如实报到 ✅ | unwired ✅ | 品牌 ✅ | 行尾 ✅ | 远程同步 PENDING
+
+## ★ 本记录自身的一次事故：漏写「远程同步」两形态
+
+首次推 PR 时 CI `QG Changes` 判红：
+
+```
+❌ 记录文件整块缺 远程同步 行 1 篇（每篇都必须独立可查，不再只查最顶部一篇）：
+  p3-1-criterion9-anchor.md —— 整块缺 远程同步 行
+```
+
+**根因：我只写了 frontmatter 的 `sync_*` 三字段，**漏了表格行与 bullet**。**
+（`check-gate-record-debt.js` 的 Gate 2c 只认**表格行** `^\|\s*远程同步\s*\|`。）
+
+**而我在本地**没有发现**这个红** —— 因为我把 `node scripts/check-gate-record-debt.js` 的输出
+用 `Select-Object -Last 1` 截断成了最后一行，而那行恰好是「（可见项，不拦截：…）」，
+**真正的 `❌` 行在它上面**。
+
+**⇒ 教训：判据的输出不能只看最后一行；要么看 exit code，要么把 `❌` 行全打出来。**
+（同型：`gh pr merge` 的 rc 不可作判据、`cmd | tail` 会吃掉真 rc —— 都是「只看管道末段」的错。）
