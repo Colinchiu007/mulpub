@@ -7,9 +7,15 @@
  *
  * 本测试用临时目录做 fixture，验证门禁的**检出能力**（而不只是"当前仓库干净"）：
  * - 失效的本机绝对路径必须命中
- * - 存在的路径必须放行
+ * - 存在的路径不报「失效」，但**必须计入账本**（口径换代：判据不再以文件系统为输入）
  * - 产品品牌名 / Linux 部署路径 / 云沙箱路径 / CI runner 路径必须**不**命中
  * - 归档快照目录按契约豁免
+ *
+ * 2026-10-14 口径换代（gate-12c-abs-path-ban）：判据的输入由「这条路径在不在盘上」改成
+ * 「文档里出现了多少条绝对路径」。动因是拉 CI 现场日志读到的读数——ubuntu runner 上没有盘符，
+ * firstMissingSegment 对每条路径一律返回 null ⇒ 现场计数恒 0 ⇒ 与账本比较两个方向都不可能红，
+ * 那一步打印的是「无从判定 1094 条」紧跟 PASS。计数与盘符无关之后，本文件里原先
+ * 「本机无 Windows 盘符 ⇒ t.skip」的用例**全部变成 CI 上真跑**，这既是修法也是修好的证据。
  *
  * 特别注意最后两条"误伤回归"：本门禁最容易踩的坑不是漏报，而是**误伤历史文档**
  * （2026-10-07 实测：全量扫描误报 260 处，收紧后仍有 101 处历史引用，
@@ -408,10 +414,15 @@ test('豁免必须落在路径片段上：同一行既有加粗、路径自身�
 // 而日常阻断口径是"改动集里的整份文件"⇒ 只收紧不管存量，等于让每个碰 learnings 的会话
 // 都被 26 条历史行判红。基线按文件计数、只能缩小，同时把三种走漏洞路全堵上。
 
-function writeBaseline (root, files) {
+function writeBaseline (root, files, extra) {
   const p = path.join(root, 'scripts');
   fs.mkdirSync(p, { recursive: true });
-  const json = { note: 'fixture', generated: '2026-10-14', reason: 'fixture', files };
+  // 计数口径之后账本必须带 metric；夹具默认写当代版本，只有专门测「版本不匹配」的用例才改坏它。
+  const json = Object.assign(
+    { note: 'fixture', generated: '2026-10-14', reason: 'fixture', metric: require(SCRIPT).METRIC_VERSION },
+    extra || {},
+    { files }
+  );
   fs.writeFileSync(path.join(p, 'doc-abs-paths-baseline.json'), JSON.stringify(json, null, 2) + '\n', 'utf8');
 }
 
@@ -814,4 +825,128 @@ test('账本 JSON 不得进 docs-only 白名单（否则"改账本"可以走精�
     '账本进了白名单就意味着"只改账本的 PR"可以走 docs-only，而 docs-only 会跳过 static-gates');
   // 正向对偶（禁令必须配对偶，否则"删掉白名单里的它"和"根本没写过它"同形）：
   assert.match(src, /gate-record-debt-ledger\.json/, '同一份白名单必须真的被读到（探针通路自证）');
+});
+// ==================== 口径换代：判据输入由文件系统改成纯文本计数（#75 / gate-12c-abs-path-ban）====================
+//
+// 这一整块的立意来自一条 CI 现场读数（run 38572799318 / job 115882369237 / step
+// "Gate 12c - Doc abs-path validity (changes job)"）：ubuntu runner 上那一步打印
+// 「无从判定 1094 条 Windows 绝对路径」紧跟 PASS。原因不是配置，是判据把"这条路径在不在盘上"
+// 当成了输入，而 Linux 上没有盘符 ⇒ firstMissingSegment 一律返回 null ⇒ 现场计数恒 0 ⇒
+// 与账本比较两个方向都不可能红。下面的锁逐条钉"换掉输入之后，判据必须与机器无关"。
+
+/**
+ * 造一条**与本机有没有盘符无关**的绝对路径。计数口径下判据不得再问"这台机器有没有 Q 盘"，
+ * 所以夹具也不得问。源码里之所以拆成 'Q' + ':' 而不是写全：这个文件本身在门禁的扫描域内，
+ * 写全等于给自己记一笔账（#3583 收尾时已被自己的守卫拦过一次）。
+ */
+function anyAbsPath (tail) {
+  return 'Q' + ':' + '\\Data\\projects\\nope-' + FX + '-' + (tail || 'x');
+}
+
+test('核心锁：无盘符环境也必须能报「超出存量基线」（这就是 #75 那个洞的锁）', (t) => {
+  const { root } = makeFixture({ '01-docs/a.md': docWith([anyAbsPath('one'), anyAbsPath('two')]) });
+  writeBaseline(root, { '01-docs/a.md': 1 });
+  // --simulate-no-drives 强制 existingDriveRoots() 返回空集，等价于 ubuntu runner。
+  // 旧实现在这一支把现场计数做成恒 0 ⇒ 与账本 1 比较只会报"改少了"或 PASS，绝不报超出。
+  const r = runGate(root, ['--simulate-no-drives']);
+  assert.equal(r.status, 1, '无盘符也必须红，stdout: ' + r.stdout + ' stderr: ' + r.stderr);
+  assert.match(r.stderr, /超出存量基线/);
+  assert.match(r.stderr, /01-docs\/a\.md/);
+});
+
+test('计数不得依赖盘符存在：同一份夹具在两种档位下命中数必须相同', (t) => {
+  const { root } = makeFixture({ '01-docs/a.md': docWith([anyAbsPath('p1'), anyAbsPath('p2'), anyAbsPath('p3')]) });
+  writeBaseline(root, { '01-docs/a.md': 9 });
+  const withDrive = runGate(root, ['--counts-only']);
+  const noDrive = runGate(root, ['--simulate-no-drives', '--counts-only']);
+  const take = (x) => {
+    const m = /counts=(\d+)/.exec(x.stdout + x.stderr);
+    assert.ok(m, '必须打印可机读的 counts= 读数（两份都要），with=' + x.stdout + x.stderr);
+    return Number(m[1]);
+  };
+  assert.equal(take(withDrive), 3, withDrive.stdout + withDrive.stderr);
+  assert.equal(take(noDrive), 3, noDrive.stdout + noDrive.stderr);
+});
+
+test('纯函数锁：canJudge=false 时 judgeBaseline 仍必须给出 over 与 shrink', () => {
+  const mod = require(SCRIPT);
+  const counts = new Map([['01-docs/a.md', [{ file: '01-docs/a.md', line: 1, path: 'Q:\\x' }]]]);
+  const baseline = new Map([['01-docs/a.md', 2]]);
+  const domain = new Set(['01-docs/a.md']);
+  const up = mod.judgeBaseline({ counts, baseline, domain, canJudge: false });
+  assert.equal(up.over.length, 1, '无盘符也必须给出 over：' + JSON.stringify(up));
+  assert.equal(up.shrink.length, 0);
+  const down = mod.judgeBaseline({ counts: new Map([['01-docs/a.md', []]]), baseline, domain, canJudge: false });
+  assert.equal(down.shrink.length, 1, '变少也必须报收紧，哪怕没有盘符：' + JSON.stringify(down));
+});
+
+test('存在性明细：无盘符时不得声称「磁盘上不存在」，但必须说自己没核对', (t) => {
+  const { root } = makeFixture({ '01-docs/a.md': docWith([anyAbsPath('gone')]) });
+  writeBaseline(root, { '01-docs/a.md': 0 });
+  const r = runGate(root, ['--simulate-no-drives']);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.doesNotMatch(r.stderr, /磁盘上不存在/, '没核对过就不能这么写：' + r.stderr);
+  assert.match(r.stderr, /存在性核对未执行|未核对存在性/);
+});
+
+test('账本必须带口径版本；版本与本判据不符走「自身故障」档（既不 0 也不 1）', (t) => {
+  const { root } = makeFixture({ '01-docs/a.md': docWith([anyAbsPath('z')]) });
+  writeBaseline(root, { '01-docs/a.md': 1 });
+  const bPath = path.join(root, 'scripts', 'doc-abs-paths-baseline.json');
+  const j = JSON.parse(fs.readFileSync(bPath, 'utf8'));
+  j.metric = 'some_other_generation';
+  fs.writeFileSync(bPath, JSON.stringify(j, null, 2) + '\n');
+  const r = runGate(root, []);
+  assert.equal(r.status, 2, '口径版本不匹配必须是自身故障档，不能读成任何一种结论，stderr: ' + r.stderr + r.stdout);
+  assert.match(r.stderr, /口径|metric/);
+});
+
+test('换代守卫纯函数：prev.metric 与 next.metric 不同 ⇒ 不判放宽，但缩小照报', () => {
+  const mod = require(SCRIPT);
+  const prev = new Map([['a.md', 1], ['b.md', 5]]);
+  const next = new Map([['a.md', 7], ['b.md', 2]]);
+  const changedDocs = new Set(['a.md']);
+  const same = mod.judgeLedgerDrift({ prev, next, changedDocs, prevMetric: 'x', nextMetric: 'x' });
+  assert.equal(same.widened.length, 1, '同代内上涨必须判放宽：' + JSON.stringify(same));
+  const gen = mod.judgeLedgerDrift({ prev, next, changedDocs, prevMetric: 'v1', nextMetric: 'v2' });
+  assert.equal(gen.widened.length, 0, '换代那一次逐文件计数不可比，不得判放宽：' + JSON.stringify(gen));
+  assert.equal(gen.tightened.length, 1, '缩小仍要照报（换代不是把整条守卫关掉）：' + JSON.stringify(gen));
+  assert.equal(gen.generationChange.length, 1, JSON.stringify(gen));
+});
+
+test('行为锁：账本换代 + 计数上涨 ⇒ 放行但必须出声', (t) => {
+  const { root } = makeFixture({ '01-docs/a.md': docWith([anyAbsPath('m1'), anyAbsPath('m2')]) });
+  writeBaseline(root, { '01-docs/a.md': 1 }, { metric: 'dead_abs_paths_v1' });
+  const bPath = path.join(root, 'scripts', 'doc-abs-paths-baseline.json');
+  const j = JSON.parse(fs.readFileSync(bPath, 'utf8'));
+  j.files['01-docs/a.md'] = 2;
+  j.metric = require(SCRIPT).METRIC_VERSION;
+  fs.writeFileSync(bPath, JSON.stringify(j, null, 2) + '\n');
+  const r = runGate(root, ['--base=HEAD', '--head=HEAD']);
+  const all = r.stdout + r.stderr;
+  assert.equal(r.status, 0, all);
+  assert.match(all, /口径换代|generation/, '放行也必须出声：' + all);
+});
+
+test('--write-baseline 不再要求盘符（口径与机器无关后，原拒绝的前提消失），但窄域仍拒', (t) => {
+  const { root } = makeFixture({ '01-docs/a.md': docWith([anyAbsPath('w1'), anyAbsPath('w2')]) });
+  const denied = spawnSync(process.execPath, [SCRIPT, '--root', root, '--write-baseline', '--simulate-no-drives'], { encoding: 'utf8' });
+  assert.equal(denied.status, 2, '不带 --all 仍然必须拒：' + denied.stderr);
+  const ok = spawnSync(process.execPath, [SCRIPT, '--root', root, '--all', '--write-baseline', '--simulate-no-drives'], { encoding: 'utf8' });
+  assert.equal(ok.status, 0, '无盘符也应能写基线（计数不依赖文件系统）：' + ok.stderr + ok.stdout);
+  const b = JSON.parse(fs.readFileSync(path.join(root, 'scripts', 'doc-abs-paths-baseline.json'), 'utf8'));
+  assert.equal(b.files['01-docs/a.md'], 2, '写出的账本必须非空且如实计数：' + JSON.stringify(b));
+  assert.equal(b.metric, require(SCRIPT).METRIC_VERSION);
+});
+
+test('结构锁：over/shrink 的循环不得再被 canJudge 包住（行为锁的反证靶子）', () => {
+  const src = fs.readFileSync(SCRIPT, 'utf8');
+  const start = src.indexOf('function judgeBaseline');
+  assert.ok(start >= 0, 'judgeBaseline 必须存在，否则本锁在测一个不存在的函数');
+  const body = src.slice(start);
+  const closedAt = body.search(/\r?\n\}\r?\n/);
+  assert.ok(closedAt > 0, '锚点必须能取到函数闭合');
+  const fn = body.slice(0, closedAt);
+  assert.ok(/over\.push/.test(fn) && /shrink\.push/.test(fn), '函数体应包含两支的 push：' + fn.slice(0, 200));
+  assert.equal(fn.search(/if\s*\(\s*canJudge\s*\)/), -1, 'canJudge 门控回来了 ⇒ 计数又被文件系统绑架：' + fn.slice(0, 400));
 });
