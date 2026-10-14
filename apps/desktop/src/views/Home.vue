@@ -24,7 +24,7 @@
       </div>
     </section>
 
-    <!-- 主任务卡：开始发布 + 连续发布天数（streak 由 dashboard:stats.daily 前端推导，零新增 IPC） -->
+    <!-- 主任务卡：开始发布 -->
     <section
       class="mp-home-hero"
       data-testid="home-publish-hero"
@@ -39,11 +39,6 @@
       <div class="hero-info">
         <h3 class="hero-title">{{ t('home.hero.title') }}</h3>
         <p class="hero-desc">{{ t('home.hero.desc') }}</p>
-      </div>
-      <div class="hero-streak">
-        <span class="streak-num">{{ streakText }}</span>
-        <span v-if="streakDays !== null" class="streak-label">{{ t('home.hero.streakUnit') }}<br>{{ t('home.hero.streakLabel') }}</span>
-        <span v-else class="streak-label">{{ t('home.hero.streakLabel') }}</span>
       </div>
     </section>
 
@@ -228,37 +223,6 @@ const todoItems = computed(() => {
 
 const isAllZero = computed(() => stats.value.total === 0 && accountCount.value === 0)
 
-/**
- * 连续发布天数（hero 指标）：从 dashboard:stats.daily（近 30 天逐日聚合）推导。
- * 判据：从今天（或昨天，容许今日未发布）往前数连续 total > 0 的天数；
- * 30 天窗口内无任何发布 → null（显示占位「—」，不假报 0 天）。
- * 数据源单一：不新增 IPC、不读 SQLite（与 PRD §3.2 与单源纪律一致）。
- */
-const streakDays = computed(() => {
-  const daily = Array.isArray(stats.value.daily) ? stats.value.daily : []
-  if (daily.length === 0) return null
-  const byDate = new Map(daily.map(d => [d.date, d.total || 0]))
-  const dayKey = (d) => {
-    const y = d.getFullYear()
-    const m = String(d.getMonth() + 1).padStart(2, '0')
-    const day = String(d.getDate()).padStart(2, '0')
-    return `${y}-${m}-${day}`
-  }
-  const cursor = new Date()
-  if (!(byDate.get(dayKey(cursor)) > 0)) {
-    cursor.setDate(cursor.getDate() - 1)
-    // 今天没发且昨天也没发 → 无 streak（但 30 天内有历史则仍算有数据，不假报）
-    if (!(byDate.get(dayKey(cursor)) > 0)) return null
-  }
-  let streak = 0
-  while (byDate.get(dayKey(cursor)) > 0) {
-    streak += 1
-    cursor.setDate(cursor.getDate() - 1)
-  }
-  return streak
-})
-
-const streakText = computed(() => (streakDays.value === null ? t('home.hero.streakEmpty') : String(streakDays.value)))
 const {
   expiredAccounts, expiredAccountCount, showExpiredBanner,
   refresh: refreshExpiredAccounts, subscribeAutoRefresh, dispose: disposeExpiredBanner,
@@ -591,29 +555,6 @@ onUnmounted(() => {
   margin: 0;
   color: var(--color-text-secondary);
   font-size: var(--font-size-sm);
-}
-
-.hero-streak {
-  display: flex;
-  align-items: baseline;
-  gap: 4px;
-  text-align: right;
-  flex: 0 0 auto;
-  position: relative;
-}
-
-.streak-num {
-  color: var(--color-primary);
-  font-size: var(--font-size-xxl);
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
-}
-
-.streak-label {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
-  line-height: 1.4;
 }
 
 /* 数据概览：紧凑 KPI 条（PRD §5.1，卡片高度 ≤96px） */
