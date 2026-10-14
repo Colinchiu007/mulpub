@@ -1,3 +1,9 @@
+# [未发布] feat(scripts): PRD 提示文字逐字表改由脚本生成并接 CI 漂移门禁（prd-copy-table-generator）
+
+- 新增 `scripts/gen-prd-copy-table.js`：从 `apps/desktop/src/locales/podcast/{zh,en}.js` 实读生成 PRD 两节逐字表，`--check` 不一致即 rc=1；接线在 quality-gate 的 changes job（不受 docs-only 短路影响）。
+- 两份 PRD 的表已按当前 locale 重新生成（RSS 232 行、一键发布 135 行），修掉「第八刀之后表再次过期」的既有状态；此后改文案只需重跑 `--apply`，不再手工维护。
+- 回归锁 10 条，其中三条专防装饰性判据：空表冒充、locale 形状不认识时猜键、apply 不幂等。
+
 # [未发布] 运营中心「应用菜单」改完不生效——应用侧早退静默（ops-menu-diag）
 
 - 新增 apps/desktop/electron/services/ops-center-sync-autosync-guard.js：`resolveAutoSyncGuard(cfg, hasAutoContext, autoUrlRaw, hasAccessToken)` 是纯函数——把「启动自动同步该不该发起/为何不发起」的判据从 `ops-center-sync.js` 移出（该文件登记 570 行 + 容差 200 = 770，改前已 768，任何新增都会判 LEDGER_GREW）。

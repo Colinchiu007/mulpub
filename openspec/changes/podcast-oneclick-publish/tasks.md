@@ -68,7 +68,7 @@
 
 - [x] 5.1 入口判据落文档（已落 PRD §15：三条判据 + 放/不放全量两张表 + 「新增页面必须追加一行」验收条款）。理由不写成「不合适」：`PublishHistory` 的不放理由 = 同 guid 重发覆盖已上线一期
 - [ ] 5.1b 若新增产出文案/成片的页面，必须回 PRD §15.2/§15.3 追加一行（放或不放 + 命中哪条判据），4.3② 落地时同 PR 把 §15.2 状态列改「已落」
-- [ ] 5.2 PRD 提示文字逐字表由脚本从 locales 生成（禁止手工维护）
+- [x] 5.2 PRD 提示文字逐字表由脚本从 locales 生成（`scripts/gen-prd-copy-table.js` + `--check` 已接 quality-gate changes job「Gate 2c-copy」；两份 PRD 的表已按当前 locale 重生成，改文案必须重跑 `--apply`，禁止手工维护本节）
 - [x] 5.3 三处记忆同步 + `01-docs/i18n-glossary.md` 术语收口
   - 证据（2026-10-14）：**三处记忆已同步**——内置记忆 4 条新写/改写（叠片旧副本、5.3 现成判据、4.4 闭合现场指针、回填通用驱动口径）且已进 `MEMORY.md` 索引；EverOS 侧 `cascade status` 实测 `pending=0 / lag=0 / done 162→166`（判据取三个产物，不看 rc）；仓库文档 = PRD §7.9.7 更正（#3514）+ 两片执行记录。**术语收口**：`01-docs/i18n-glossary.md` 补 `出期 → Publish as podcast episode`（`podcast.episode.entry`）与 `一键发布 → One-click podcast episode`（`podcast.episode.title`），两条 en 列都取 en.js 里**真实出现的逐字**（L3 判据是「locale 值包含该字面量」，上一轮把 en 写成想象中的标准译法因此当场红）；方向按 AGENTS.md「让 UI 采用 canonical 术语，而不是把词典削到已有裸词」，本片未改任何已上线文案。
 
