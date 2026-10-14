@@ -2,9 +2,6 @@
 record: stock-default-write-proof
 task: 给 PRD §7.9.5 第 5 条「不猜」补一条真的落进实现文件的变异反证，并收口它当场暴露的按值失明
 date: 2026-10-14
-sync_status: PENDING
-sync_reason: 本 PR 合并后由后续 docs PR 按既有 PASS 口径回填 merge SHA 与时间，并在同一次提交删除 frontmatter 三字段与本记录对应的 ledger 登记项
-sync_backfill_owner: 本会话（本片作者）
 ---
 
 # 存量 mime 固化「不猜」的变异反证与按值快照（stock-default-write-proof，2026-10-14）
@@ -84,4 +81,4 @@ sync_backfill_owner: 本会话（本片作者）
 
 ## 远程同步
 
-| 远程同步 | PENDING | 本 PR 未合并，merge SHA 尚不存在 |
+| 远程同步 | PASS | merge SHA 367e1af4a · 2026-10-14T19:42:31Z · 远端分支已删（ls-remote 0 行）· 同次提交删除 ledger 登记项 |
