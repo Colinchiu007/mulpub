@@ -284,6 +284,9 @@ apps/desktop/tests/visual-testing/reports/agent-judge-summary-*.json
 /.agents/
 /skills-lock.json
 /.claude/settings.local.json
+# Qoder 工作区产物（repowiki / 知识卡）。这里还有一条不显然的耦合：
+# scripts/guard-shared-root-writes.ps1 对 gitignored 路径直接放行，不列这一行则每次生成都被整份移进隔离区。
+/.qoder/
 /.tmp/
 /.tmp-logto-qm1-*/
 apps/desktop/.media-tools/

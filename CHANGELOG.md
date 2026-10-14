@@ -1,3 +1,11 @@
+# [未发布] chore(gitignore): 共享根 Qoder 产物归类——/.qoder/ 进忽略清单，隔离区 60% 噪声止血（ignore-qoder-artifacts）
+
+- 隔离区实测 350 个文件里 210 条（60%）是同一族：`.qoder/` 189 + `kc-persist-test` 17 + `kc-staging` 4。守卫 `guard-shared-root-writes.ps1:167` 的放行判据就是 `git check-ignore`，而这三条路径处于「既不追踪也不忽略」的第三态 ⇒ 每次生成 repowiki/知识卡都被整份搬出仓库，还会写 `.agent_context/write-guard-alert.json` 让下一个会话以为「共享根有违规、该改用 worktree」——**假告警把真告警的解释力吃掉了**。
+- 只加一行 `/.qoder/`，落在既有簇「本机 Agent 技能与工作区状态」内（与 `/.agents/`、`/.claude/settings.local.json` 同族），**不新建第二份白名单**：`$allowedTop` 承载的是「已入库文档目录允许在共享根就地编辑」这一另一语义，往里塞「/.qoder/」会让 `git status` 照样脏，等于造两个真源。回归保护不新建——机制已被 `scripts/session-write-guard.test.ps1:124`「gitignored artifact is allowed」锁住，再加锁是恒真装饰。
+- 刻意不放过 `kc-staging/`、`kc-persist-test/`：副本内容实测与知识卡同形（`# Electron 主进程入口与四层架构` / `- **类型**: module-entry`），但「内容像产物」不等于「工具以后还会在仓库根写这个名字」，那两批（2026-10-09 00:16 / 00:29）正落在知识卡持久化探查的时间窗内。预先 ignore 等于给随机目录名发通行证；现场判据已备好——重新生成后 `violations.jsonl` 若再冒 `kc-*` 即归属明确。负控实测 `git check-ignore -v kc-staging/a.md` ⇒ rc=1。
+- 附带暴露的守门盲区（**本笔未修，交人裁决**）：`classify-docs-only.js` 的 `CI_IGNORED_PATHS` 含 `.gitignore`/`.editorconfig`/`LICENSE`，而 `guard-shared-root-writes.ps1:69` 的 `$allowedRootFiles` 不含 ⇒ docs-only 通道承诺「可就地编辑」的这三类根级文件，实际一写就被守卫隔离并从 HEAD 回滚（本笔第一次尝试即撞上，遂改走 worktree）。这是 #3272 放行 `.adversarial` 的同形第二次复发——上次修完没建「两份名单逐项对账」的锁，所以洞一直躺着。
+- 同场修复共享根的 desync 现场（不改文件内容，故不进 diff）：一次裸 `git reset origin/main`（**mixed**）把工作树留在 `7c60fe42b` 而 HEAD/index 已到 `c40580807`，表现为 29 条幽灵 D/M（17 D + 12 M）。识别手法可复用：`git diff --stat <可疑祖先>` 输出为空 ⇒ 工作树零独有内容，可与「他人未提交工作」区分。修复走 `--diff-filter=D`/`=M` 两份精确清单 `git restore --source=HEAD --worktree` + `git merge --ff-only origin/main`。**注意 `git reset --keep` 在这个形态下语义不成立**：`--keep` 的定义就是保留 index 与工作树之间的差异，恰好把要清掉的陈旧内容当未提交改动留下，它只适用于干净树收尾。
+- 一条新的工具级陷阱：PowerShell 5.1 读原生子进程 stdout 走 `[Console]::OutputEncoding`（本机 gb2312），git 输出的 UTF-8 中文消息会**被双字节解码吞掉紧随的换行**，两行粘成一行——实测 `git stash list` 报 2 条而真值 3 条；`-c core.quotepath=false` 会让这个坑从「被转义保护」变成「裸字节」。凡对 git 输出做行计数的判据必须先设 UTF8，或改取 ASCII-only 投影（`--format='%gd'`）。
 # [未发布] feat(gates): 执行记录跨源一致性门禁——记录已 PASS 而旧载体仍 PENDING 当场拦（gate-record-cross-src）
 
 - 债务门禁此前只判**单源自洽**：`openspec/records/X.md` 已回填 PASS，而 `.quality-gates.md` 里同一条 X 的块仍写着 PENDING 时，它照样 RC=0。实测两次的「并发整取把已收口的回填倒退回 PENDING」就是这么漏过去的——已合并的事被下一个会话读成「还没干完」，正是重复开工的入口。
