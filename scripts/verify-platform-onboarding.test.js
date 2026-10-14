@@ -232,3 +232,73 @@ test('步骤 4 确实在查 enabled（不是恒过的空判据）', () => {
   //   上面的棘轮测试与断言 ① 当即变红，见 PR 描述）。把它写成
   //   「拿字面量测正则」的形式是同义反复，属假反证，故**刻意不写**。
 })
+
+// ───────────────────────────────────────────────────────────────────────────
+// 判据 9 的锚定独立性（2026-10-15 假绿事故的回归锁）
+//
+// 事故：`/^[ \t]{4}has_api:[ \t]*true/.test(block)` **缺 m 标志** ⇒ `^` 只锚字符串
+// 开头 ⇒ 该判据**只在「块的第一行恰好是 has_api」时才执行**，其余一律走
+// `if (!hasApi) return { ok: true, detail: 'has_api 非 true ⇒ 无需发布链' }` ⇒ 判通过。
+// 实测 15 个平台里 **6 个是假绿**（douyin / tencent_video / kuaishou / bilibili /
+// baijiahao / facebook），其中 tencent_video 与 facebook 是 has_api:true 却 0 个链文件
+// —— 真缺口被这条假绿藏住了。只有恰好把 has_api 写在块首行的 youtube / twitter 被抓到。
+//
+// ★ 反证用**真实数据**，不造夹具：`facebook` 的 has_api 不在块首行且无链 ⇒ 期望 FAIL。
+//   若有人去掉 m，它会误判 PASS ⇒ 本测试当场变红。
+// ───────────────────────────────────────────────────────────────────────────
+test('判据 9 不依赖 has_api 在块中的位置（缺 m 标志的假绿回归锁）', () => {
+  // 负例：has_api:true **不在**块首行、且无链 ⇒ 必须 FAIL（证明判据确实执行了）
+  const fb = buildChecks('facebook').find((c) => c.id === 9).fn()
+  assert.equal(fb.ok, false, `facebook(has_api:true 不在首行 + 无链) 步骤 9 应 FAIL，实际: ${fb.ok} / ${fb.detail}`)
+  assert.ok(/无 publish\/platforms\//.test(fb.detail), `详情应点名缺链，实际: ${fb.detail}`)
+
+  // 正控：has_api 同样不在块首行、但**有链**的平台应 PASS
+  //（证明上一条不是「恒 FAIL」）
+  for (const slug of ['douyin', 'kuaishou', 'bilibili', 'baijiahao']) {
+    const r = buildChecks(slug).find((c) => c.id === 9).fn()
+    assert.equal(r.ok, true, `${slug} 步骤 9 应 PASS，实际: ${r.ok} / ${r.detail}`)
+  }
+
+  // 别名：tencent_video 的链叫 shipinhao-*，不得因命名差异误报
+  const tv = buildChecks('tencent_video').find((c) => c.id === 9).fn()
+  assert.equal(tv.ok, true, `tencent_video 步骤 9 应 PASS（链名 shipinhao-*），实际: ${tv.ok} / ${tv.detail}`)
+})
+
+/**
+ * `has_api: true` 却无发布链的平台集合 —— **待平台 owner 裁定**。
+ *
+ * 这三个的共同点：「声明有 API 能力」+「`publishMode: dom-only`」+「无链实现」
+ * 三者不可能同时为真。两种可能的裁定：
+ *   · 若「有 API 能力但总闸设 dom-only」是合法状态 ⇒ 判据 9 应放宽为
+ *     「has_api:true **且** publishMode != 'dom-only' 时才要求链」
+ *   · 若「has_api:true 必须有实现」⇒ 应补链，或把 has_api 改成 false
+ *
+ * ★ 本列表是**棘轮**：修好后请同步更新（并说明裁定结果），不得直接删条目了事。
+ */
+const STEP9_CHAIN_GAPS = ['youtube', 'twitter', 'facebook']
+
+test('棘轮：has_api:true 但无发布链的平台集合（待 owner 裁定）', () => {
+  const fs = require('node:fs')
+  const y = fs.readFileSync(path.join(ROOT, 'config/platforms.yaml'), 'utf8')
+  // 与实现同源：按行扫描块
+  const lines = y.split(/\r?\n/)
+  const blocks = []
+  let cur = null
+  for (const l of lines) {
+    const m = l.match(/^[ \t]{2}([a-z][a-z0-9_]*):[ \t]*$/)
+    if (m) { cur = { slug: m[1], lines: [] }; blocks.push(cur); continue }
+    if (cur) cur.lines.push(l)
+  }
+  // 规模下界：防解析退化成空集合后「空 == 空」假绿
+  assert.ok(blocks.length >= 15, `平台块解析数异常（${blocks.length}），判据可能空转`)
+
+  const gaps = blocks
+    .filter((b) => /^[ \t]{4}has_api:[ \t]*true/m.test(b.lines.join('\n')))
+    .map((b) => b.slug)
+    .filter((slug) => {
+      const r = buildChecks(slug).find((c) => c.id === 9).fn()
+      return !r.ok
+    })
+  assert.deepEqual(gaps, STEP9_CHAIN_GAPS,
+    'has_api:true 却无链的平台集合变了 —— 若是有意修好了，请更新本棘轮并写明裁定结果；若是退化，请查因')
+})
