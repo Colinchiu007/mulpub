@@ -100,8 +100,12 @@ PR #3477 的记录在多次改写中把「防止再次发生（QM-5 ⑤）」的
 
 - TDD 先红后绿：改测试后 2 红 → 改实现后 28 passed。
 - 变异反证：把 streak 区块加回 `Home.vue` ⇒ 2 红，证明新锁在跑；随后还原并确认源码 0 处残留。
-- Home 家族全量 33 passed；`check-locale-sync.js --keys` PASS；`pnpm run build:vue` rc=0，
+- Home 家族全量 33 passed；`check-locale-sync.js --keys` PASS（2010 个在用 key 齐备）；`pnpm run build:vue` rc=0，
   产物 `Home-*.js` / `index-*.js` 中「已连续发布」0 命中、`home-publish-hero` 仍在。
+- **视觉基线更新取证**（CI Visual Tests 首跑判 `home-baseline` 过期）：像素级比对 CI 渲染与 git 旧基线，
+  全部差异 530 px 集中在 `x[1392..1490] y[327..338]` 这一个 98×12 矩形内——正是 hero 卡右侧
+  streak 区块原位置，全图其余 0 差异 ⇒ 漂移仅由本次删除造成，无意外回归。据此用 CI 渲染
+  更新 `home-baseline.png` / `home-baseline-dark.png` 两张基线；更新后本地重跑 `home-baseline` PASSED。
 
 # [未发布] fix(ci): 步骤 fail-fast 棘轮改为逐条配对，Gate 9 verdict 探针收回门禁单一实现（gate3-failfast）
 
