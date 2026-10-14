@@ -156,3 +156,39 @@ const PLACEHOLDER_RE = /<[^>]*>|\$\{[^}]*\}|\$[A-Za-z_]\w*|\*|\.\.\./;
 - 陈旧登记的两类成因（已删除 / 不再受管）靠 `existsSync` 分流；如果以后有人把判据改成"账本键无条件并入域"，
   "已删除"那一类会退化并被 shrink 顶替——N8 就是这条的反证，红集恰好只有那一条陈旧锁，说明它现在由成因钉住。
 - 本 PR 不新增豁免通道；判据只可能变严，不会变松。
+
+
+## 8. QM-6 外部评审的处置（2026-10-14，两轴替代通道）
+
+标准通道不可用（`~/.claude/.ccg/config.toml` 两个 primary 都经 CC Switch `:15721`，实测未监听），
+改走 `opencode run --model …-free` 两轴，任务书与 stdout 落 `.tools/tmp/qm6-3583/`。
+**axis1 第一版被 900s timeout 杀掉（rc=124，stdout 只有过程叙述、零结论）**——它一直在跑工具循环；
+第二版改成"禁止执行命令、只依据附件 diff 静态推理"才拿到 12 条结论。教训：**给外部模型的长任务
+必须显式禁止工具循环并压输出上限，否则"没结论"与"没跑成"在现场不可区分**。
+
+| 编号 | 评审主张 | 当场核实 | 处置 |
+| --- | --- | --- | --- |
+| F1 | 无盘符时 `--all --write-baseline` 把账本写成 `{}` 且 exit 0 | 读代码 + `judgeWriteBaseline` 四格单测（`canJudge=false ⇒ refuse`） | 已修：退出码 2 |
+| F3c | `**路径**` 的闭合星号紧贴路径 ⇒ 仍豁免（原洞孪生） | **夹具复现**（五文件同批：裸路径照报、加粗包裹豁免）+ **真仓库暴露面** `3058` 个受管文件中成对包裹 `0` 处、前导不紧邻的孤立尾星 `1` 处 | 已修：`stripPairedEmphasis` 只剥紧邻前导的同一段记号；配套两条成对锁 |
+| F5 | 改动集里的删除被并域搭车 ⇒ Windows 误诊 shrink / ubuntu 静默 | git 行为核实（`git diff --name-only` 含删除） | 已修：改动集这一侧同样 `existsSync` |
+| F7 | 无盘符 ⇒ `over/shrink` 在 CI 上从不执行，PASS 不可解释 | 读 workflow：`changes` = ubuntu-latest（L47），`static-gates` 有 `if: docs-only != 'true'` | 部分修：新增「无从判定 N 条」成数出声；**把 12c 搬去 static-gates 被驳回**（那等于对改文档的 PR 关掉检查），彻底闭合需换 runner，属"改谁来守门"，登记不混进本 PR |
+| F9 | 账本键用 `path.sep` 归一 ⇒ Linux 上反斜杠键永不匹配 | 读代码 | 已修：`normalizeBaselineKey` |
+| F2 | 跳过说明只拼 PASS 分支 | 读代码 | 已修：`formatSkipNote` + 两分支都拼（结构锁防只拼一侧） |
+| axis2#7 | `--write-baseline` 可被用来抹掉自己的红（账本投毒） | 本轮我自己就重写过一次，只是手工证明了差量来自 main | 已修：`judgeLedgerDrift` 机械守卫（计数上涨的文档必须不在改动集内），见 §4.5 |
+| F4 / F10 / F12 | 占位符与路径被空白/全角空格/ZWSP 隔开时不豁免；表格无空格单元格豁免 | 实测一致（见 `probe-f3.cjs`） | 不修，登记 §9（判据口径：占位符必须紧贴路径） |
+| F6 | 文件不可读与"无失效路径"同形 ⇒ shrink 误诊 | 未复现（需要 EACCES/目录同名夹具） | 登记 §9 待办 |
+| F8 | 账本损坏时 `--write-baseline` 进不去（先返回 2） | 读代码成立 | 登记 §9 待办 |
+| F11 | 夹具路径名写死 ⇒ 撞上真目录会假红 | 成立 | 已修：`FX = pid + 随机段` |
+
+## 9. 评审留下但未在本 PR 修的（如实登记）
+
+- F4/F10/F12：占位符与路径之间隔空白时不豁免（含全角空格与零宽空格，两者判定还相反）。
+  口径是"占位符必须紧贴路径"；改成"以字符集边界定词元终点"会牵动既有豁免用例，单独立项。
+- F6：`scanFile` 读失败与"读到但无失效"同形（都是 `[]`），Windows 上会被记成 0 处判 shrink。
+  正解是返回 `{findings, unreadable}` 并给 unreadable 单独成类。
+- F8：账本 JSON 损坏时 `main()` 在读账本处就返回 2，`--write-baseline` 自愈路径进不去，
+  必须人工删文件重建；且 write 分支里那个 `catch {}` 对 JSON 解析失败是不可达代码。
+- F7 的终局：`over/shrink` 与"逐文件相等"活体锁在 `changes`(ubuntu) 上永不执行。
+  要闭合只有两条路（换 windows runner，或加一条每周 windows schedule 跑 `--all`），
+  两者都在改"谁来守门"，须人工点头。
+
