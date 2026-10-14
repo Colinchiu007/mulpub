@@ -1,3 +1,27 @@
+## 混合 PR 的结构性活锁，与「rebase 的 ours/theirs 与 merge 相反」（preset-readonly-guard，2026-10-14）
+
+1. **`git rebase` 语境下 `--ours`/`--theirs` 的语义与 `git merge` 相反，用错方向会静默撤销上游。**
+   rebase 时 `--ours` = 新的 base（上游），`--theirs` = 正在被重放的提交（我的旧 base）。我写自愈重放脚本时按 merge 的直觉，对"非 ccg 的冲突文件"一律 `git checkout --theirs`（以为在取"我的侧"），实际是**用我的旧版本覆盖上游**。实测后果：上游 `AGENTS.md` / `CHANGELOG.md` / 整篇 `openspec/records/gui-gate-required-record.md`（−43 行整文件删除）被撤销，`.quality-gates.md` 与 ledger 里上游**已收口**的 `PASS` 被回退成 `PENDING`。
+   **判据**：任何"冲突时取某一侧"的自动脚本，必须先用一次真实冲突验证 ours/theirs 各指谁，并把方向写成注释；**非白名单冲突一律取上游侧**（安全方向 —— 我的误改被丢掉，而不是撤销上游），再靠"最终 diff 必须恰好等于意图文件集"的断言兜底。
+
+2. **混合 PR 在本仓会陷入结构性活锁，正解是「把冲突热点交给 docs-only 回填 PR」。**
+   实测：PR #3585（渲染端 SFC + locale + 新增 util/测试）的 CI 需 **~40 分钟**，而主干活跃时段**每 ~13 分钟**前进一笔（多为 CI 秒级的 docs-only 回填 PR）⇒ 我的 PR 几乎必然在 CI 完成前变 `CONFLICTING`，auto-merge 不会自动 rebase；连续 4 次「重放 → 等 CI → 又被超过」全部失败（其中一次 `pending=1` 卡 15 分钟后被超过）。
+   冲突**只集中在 `.quality-gates.md` 与 `scripts/gate-record-debt-ledger.json`**（全体会话的共同追加热点）。
+   **实测解法**：让代码 PR **刻意不带**这两个载体。去掉后门禁仍全绿（`check-gate-record-debt.test.js` **49/0**、`check-pr-exec-record` rc=0、`check-record-qm5-rows` OK）—— 判据只要求 `.quality-gates.md` 的**顶部记录**带行，而我的记录住在自己的**新文件** `openspec/records/<slug>.md`（永不冲突）。PR 的 diff 因此只剩 6 个文件（3 个新增）⇒ **一次 CI 跑完即自动合并**（实测 #3585 一次通过）。载体的写入（QG 块直接写成最终 PASS 形态、records 两形态）由随后的 **docs-only 回填 PR** 完成，该 PR CI 秒级、不受活锁影响。
+
+3. **Gate 9（`QG Autonomous`）的跑法由 PR 标题前缀决定，不由代码内容决定。**
+   `scripts/gate9-classify.js` 里 `MAINTENANCE_TITLE_RE.test(title)` 命中 `fix:`/`chore:`/`docs:` ⇒ `mode=report-only`（**跳过全量覆盖审计**）；`feat:` ⇒ `mode=full` ⇒ 「全量桌面端覆盖审计」，要求 PRD 覆盖率 ≥ `--threshold=0.5`。
+   **后果**：**修 bug 的 PR 若用 `feat:` 前缀且改了 `apps/desktop/src`，会因「没有对应的新 PRD 条目」而覆盖率不达标 ⇒ Gate 9 红 ⇒ 阻塞合并**（实测 #3585 其余 8 个 check 全绿，只有 `QG Autonomous` fail 6m3s）。改 PR 标题为 `fix:` 后 Gate 9 转 `report-only` 并通过。
+   **副产物**：本仓 squash **取首个 commit message 作为主干标题**，所以改 PR 标题能过 CI，但主干 commit 前缀仍是 `feat:`（语义不准，且主干历史禁止 force push，只能如实登记）。
+
+4. **回填/修补脚本的 `ROOT` 常量必须与实际 checkout 位置一致，否则产出空提交；多轮回填链要做「不产生新 PENDING」的收敛设计。**
+   本轮回填脚本把 `ROOT` 写死为共享根，而我当时在隔离 worktree 里运行它 ⇒ 改动落在共享根工作区，worktree 的 `git add -A` 什么也没加，`git diff --stat origin/main HEAD` 为空 —— 那个**空提交被 auto-merge 合入主干**（浪费一整轮）。**判据**：push 前断言 `git diff --name-only origin/main HEAD` 非空且等于意图文件集。
+   收敛设计：回填 PR 天然会给**自己**留下一条新的 `| 远程同步 | PENDING |` 行 ⇒ 理论上是无限递归。做法是让回填 PR **复用「它正在改写的那份记录」**作为自己的执行记录（`check-pr-exec-record` 只要求 PR 携带执行记录，不要求新建文件），而那份记录的远程同步行在本笔内已改成 PASS ⇒ 本笔不产生任何未收口行 ⇒ 链条终止（实测链条 `#3585 → #3600 → #3606`，#3606 合并后主干 preset 相关 PENDING = 0）。
+
+5. **用 `git diff --stat <branch-tip> <merge-SHA>` 判「内容是否已进主干」在主干前进后会假阳。**
+   squash 后 merge SHA 含**当时主干的全部内容**，而分支 tip 停在旧 base ⇒ diff 会把"主干新增的别人的东西"显示成一大片删除，看起来像"我的改动没进主干"。本轮两个分支因此被误判为"树非空、不该删"。
+   **正解**：改用**直接证据** —— 逐个 `git show origin/main:<我的每个文件>` 并断言其特征串（函数名 / 接线名 / locale 键 / `| 远程同步 | PASS |`）存在，全绿后再删分支。
+
 ## 两份白名单互不认账，与 PowerShell 按 GBK 解 git 输出吞掉换行（ignore-qoder-artifacts，2026-10-14）
 
 1. **共享根写保护的放行入口只有 `.gitignore` 一个真源，别给它另建一份名单。**
