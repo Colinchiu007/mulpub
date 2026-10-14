@@ -2,17 +2,13 @@
 record: p3-1-verify-onboarding
 task: P3-1 扩平台标准动作自检脚本（11 步 + 2 条额外判据，一条命令跑完，不存在的 slug 非零退出）
 date: 2026-10-14
-# ↓ 三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在，无法取证收口
-sync_backfill_owner: 下一个会话（按三形态同改纪律：表格行 + bullet + 删除本段三字段，同一次提交）
 ---
 
 ## 本次执行记录：P3-1 扩平台标准动作自检脚本（p3-1-verify-onboarding，2026-10-14）
 
 - 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD` → **`docs-only=false`（files=8）**
   —— 含 `scripts/` ⇒ 按**混合 PR** 走完整质量节拍。
-- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PENDING
+- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PASS（#3539 @ eeb0ca645）
 - **QM-1 不触发**：变更路径只有 `scripts/verify-platform-onboarding.js`、
   `scripts/verify-platform-onboarding.test.js`、`.gitignore` ——
   **不碰 `apps/desktop/electron/` 或 `packages/rpa-engine/`**，无运行时代码改动，故无需本地打包。
@@ -26,11 +22,11 @@ sync_backfill_owner: 下一个会话（按三形态同改纪律：表格行 + bu
 | 行尾对账 | ✅ | 三文件 `--numstat` 与 `--ignore-cr-at-eol --numstat` 两口径一致 |
 | 品牌残留 | ✅ | 全文写「参考产品」，无竞品品牌名 |
 | 文档同步 | ✅ | 本记录 + PR 描述 |
-| 远程同步 | PENDING | 本 PR 未合并 |
+| 远程同步 | PASS | #3539 merge `eeb0ca6453d7315653bd7645bda5428e9a046295` |
 
 | 项 | 值 |
 | --- | --- |
-| 远程同步 | PENDING |
+| 远程同步 | PASS | #3539 merge `eeb0ca6453d7315653bd7645bda5428e9a046295` |
 
 ## 做了什么
 

@@ -15,9 +15,6 @@ export default {
     hero: {
       title: 'Start Publishing',
       desc: 'Publish videos and posts to all platforms with one click',
-      streakLabel: 'Publishing streak',
-      streakUnit: ' days',
-      streakEmpty: '—',
     },
     overview: {
       accounts: 'Connected accounts',

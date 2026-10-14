@@ -228,61 +228,147 @@ partial 含「这一期已登记到本地频道」+ 一个只重试 feed 的出�
 - **宿主侧行数**：结果页只留 1 行装配 + 1 行 import（原本抄两份状态会 +8），`max-lines-baseline.json` 的点名目标随之内调 1888 → 1890，
   理由与本次接线一并在此记录，属「接受漂移」而非「清理」。
 
-#### 6.4.3 第 4 片提示文字逐字对照（**由脚本从 locales/podcast/{zh,en}.js 生成，改文案必须重新生成，禁止手工维护本节**）
+#### 6.4.3 第 4 片提示文字逐字对照（**由 `scripts/gen-prd-copy-table.js` 从 `apps/desktop/src/locales/podcast/{zh,en}.js` 生成，改文案必须重新生成，禁止手工维护本节**）
 
-- 生成口径：解析两个 locale 文件的 `export default` 对象后按 `podcast.` 前缀扁平化，只收录 `episode.*` 与本片新增的 `podcast.errors.*`；本节列出的每一条都是**渲染层实际取用的键**，与 `check-locale-sync.js --pair-base` 的成对判据同源。
-- 「没这条文案会怎样」写在 §6.4 的映射表里；本节只回答**逐字长什么样**，两处不一致时以本节（即代码）为准并回改 §6.4。
+- 生成口径：解析两份 locale 的 `export default` 字面量 → 扁平化键名 → 按本节的收录前缀取键并**按字典序**排列。
+- `--check` 已接进 `.github/workflows/quality-gate.yml`（Gate 2c）：本节与 locale 不一致即红，所以「文档比代码旧」不再是可能状态。
+- 两处不一致时的裁决方向：以本节（即代码）为准，回改规划态小节，而不是反过来改文案去迁就文档。
 
-| 键 | zh（逐字） | en（逐字） |
+| 键路径 | zh（用户可见，逐字） | en（用户可见，逐字） |
 | --- | --- | --- |
-| `podcast.episode.entry` | 发布为播客单集 | Publish as podcast episode |
-| `podcast.episode.title` | 一键发布播客单集 | One-click podcast episode |
-| `podcast.episode.running` | 发布进行中… | Publishing… |
-| `podcast.episode.progressUnavailable` | 本次发布未提供逐相位实时进度，进度条只在本次结束后按轨迹回看；这不表示卡住。 | No per-phase live progress is provided for this publish; the bar is only a trail you can read after it finishes. That does not mean it is stuck. |
-| `podcast.episode.closeNotCancel` | 关闭本浮层不会取消本次发布；要停止请点「取消出期」。 | Closing this dialog does not cancel the publish; press "Cancel this episode" to stop it. |
-| `podcast.episode.cancel` | 取消出期 | Cancel this episode |
-| `podcast.episode.cancelDisabled` | 本次发布未回传「是否还可取消」，取消按钮暂不可用（关闭本浮层同样不会停止发布）。 | This publish did not report whether it can still be cancelled, so the cancel button is unavailable (closing this dialog does not stop the publish either). |
-| `podcast.episode.cancelAccepted` | 取消请求已登记，链会在下一个采样点停下；最终状态以下方结果为准。 | Cancel request recorded. The chain stops at the next sampling point; the result below is the authoritative state. |
-| `podcast.episode.cancelUnknown` | 取消未生效：这次发布已结束或未曾登记，不要读成「已取消」。 | The cancel did not take effect: this publish already finished or was never registered. Do not read it as cancelled. |
-| `podcast.episode.success` | 已出期：公网 RSS 订阅源已更新（{feedUrl}），聚合端下次抓取后生效（通常数小时至数天）。 | Episode published: the public RSS feed is updated ({feedUrl}). Aggregators pick it up on the next crawl (usually hours to days). |
-| `podcast.episode.partial` | 这一期已登记到本地播客频道，公网 feed 尚未更新。 | This episode is registered on the local podcast channel; the public feed is not updated yet. |
-| `podcast.episode.cancelled` | 已在上传前取消，临时文件已回滚。 | Cancelled before upload; the temporary file has been rolled back. |
-| `podcast.episode.measured` | 实测：时长 {duration} 秒 · 字节 {bytes} · 类型 {mime} | Measured: {duration}s duration · {bytes} bytes · {mime} |
-| `podcast.episode.detail` | 详情：{detail} | Details: {detail} |
 | `podcast.episode.audioDegraded` | 检测到静音占位旁白，已阻止上传——这不是生成失败，是素材本身不可用。 | Silent placeholder narration detected, so the upload was blocked. This is unusable source material, not a generation failure. |
-| `podcast.episode.videoMissing` | 找不到成片文件，请回结果页重新生成或重选路径。 | The final video file cannot be found. Regenerate it on the result page or pick the file again. |
-| `podcast.episode.extractFailed` | 从成片抽取音轨失败，已停止出期。 | Extracting the audio track from the final video failed, so the episode publish stopped. |
+| `podcast.episode.cancel` | 取消出期 | Cancel this episode |
+| `podcast.episode.cancelAccepted` | 取消请求已登记，链会在下一个采样点停下；最终状态以下方结果为准。 | Cancel request recorded. The chain stops at the next sampling point; the result below is the authoritative state. |
+| `podcast.episode.cancelDisabled` | 本次发布未回传「是否还可取消」，取消按钮暂不可用（关闭本浮层同样不会停止发布）。 | This publish did not report whether it can still be cancelled, so the cancel button is unavailable (closing this dialog does not stop the publish either). |
+| `podcast.episode.cancelTooLate` | 已进入上传阶段，现在取消会留下「音频已传、feed 未更新」的半态，因此不能取消；请等本次发布跑完。 | The upload has started, so cancelling now would leave the half state "audio uploaded, feed not updated". This publish cannot be cancelled; let it finish. |
+| `podcast.episode.cancelUnknown` | 取消未生效：这次发布已结束或未曾登记，不要读成「已取消」。 | The cancel did not take effect: this publish already finished or was never registered. Do not read it as cancelled. |
+| `podcast.episode.cancelled` | 已在上传前取消，临时文件已回滚。 | Cancelled before upload; the temporary file has been rolled back. |
+| `podcast.episode.capFull` | 该播客频道单集数已达上限，请先删除不再需要的旧期再出这一期。 | This podcast channel already reached its episode limit. Remove an older episode before publishing this one. |
+| `podcast.episode.closeNotCancel` | 关闭本浮层不会取消本次发布；要停止请点「取消出期」。 | Closing this dialog does not cancel the publish; press "Cancel this episode" to stop it. |
+| `podcast.episode.detail` | 详情：{detail} | Details: {detail} |
 | `podcast.episode.encoderBroken` | 打包的 ffmpeg 无法执行（疑似交付产物缺依赖或架构不符），已停止出期。 | The bundled ffmpeg could not be executed (missing dependency or wrong architecture), so the episode publish stopped. |
 | `podcast.episode.encoderMissing` | 打包的 ffmpeg 不含 mp3/aac 编码器，已停止出期。 | The bundled ffmpeg has no mp3/aac encoder, so the episode publish stopped. |
-| `podcast.episode.measureFailed` | 无法实测音频的时长或字节，已停止出期（不得用申报值代替）。 | The audio duration or size could not be measured, so the episode publish stopped (declared values are not accepted instead). |
-| `podcast.episode.sizeMismatch` | 上传回来的字节与本地实测不一致，这一期没有挂上。 | The bytes returned by the upload do not match the local measurement, so this episode was not attached. |
-| `podcast.episode.capFull` | 该播客频道单集数已达上限，请先删除不再需要的旧期再出这一期。 | This podcast channel already reached its episode limit. Remove an older episode before publishing this one. |
-| `podcast.episode.invalid` | 单集字段不合格，已停止出期，请按下方逐条修正。 | The episode fields are not valid, so the publish stopped. Fix each issue listed below. |
+| `podcast.episode.entry` | 发布为播客单集 | Publish as podcast episode |
+| `podcast.episode.extractFailed` | 从成片抽取音轨失败，已停止出期。 | Extracting the audio track from the final video failed, so the episode publish stopped. |
 | `podcast.episode.feedBuildFailed` | 这一期已登记到本地播客频道，公网 feed 尚未更新（本地数据没有坏）。 | This episode is registered on the local podcast channel, but the public feed was not rebuilt (the local data is not broken). |
-| `podcast.episode.cancelTooLate` | 已进入上传阶段，现在取消会留下「音频已传、feed 未更新」的半态，因此不能取消；请等本次发布跑完。 | The upload has started, so cancelling now would leave the half state "audio uploaded, feed not updated". This publish cannot be cancelled; let it finish. |
-| `podcast.episode.phase.pickChannel` | 选择频道 | Pick channel |
-| `podcast.episode.phase.extractMix` | 抽取完整音轨 | Extract full audio track |
-| `podcast.episode.phase.probe` | 实测时长与字节 | Measure duration and size |
-| `podcast.episode.phase.uploadAudio` | 上传音频 | Upload audio |
+| `podcast.episode.invalid` | 单集字段不合格，已停止出期，请按下方逐条修正。 | The episode fields are not valid, so the publish stopped. Fix each issue listed below. |
+| `podcast.episode.measureFailed` | 无法实测音频的时长或字节，已停止出期（不得用申报值代替）。 | The audio duration or size could not be measured, so the episode publish stopped (declared values are not accepted instead). |
+| `podcast.episode.measured` | 实测：时长 {duration} 秒 · 字节 {bytes} · 类型 {mime} | Measured: {duration}s duration · {bytes} bytes · {mime} |
+| `podcast.episode.partial` | 这一期已登记到本地播客频道，公网 feed 尚未更新。 | This episode is registered on the local podcast channel; the public feed is not updated yet. |
 | `podcast.episode.phase.attach` | 登记单集 | Attach episode |
 | `podcast.episode.phase.buildFeed` | 重建 feed | Rebuild feed |
-| `podcast.episode.phase.uploadFeed` | 上传 feed | Upload feed |
 | `podcast.episode.phase.cancelled` | 已取消 | Cancelled |
-| `podcast.errors.PODCAST_VIDEO_NOT_FOUND` | 找不到成片文件，请回结果页重新生成或重选路径 | The final video file cannot be found; regenerate it on the result page or pick the file again |
-| `podcast.errors.PODCAST_PUBLISH_CANCELLED` | 本次播客出期已在上传前取消，临时文件已回滚 | This podcast episode publish was cancelled before upload and the temporary file was rolled back |
-| `podcast.errors.PODCAST_CANCEL_TOO_LATE` | 已进入上传阶段，现在取消会留下半态，因此不能取消；请等本次发布跑完 | The upload has started, so cancelling now would leave a half-published state; please let this publish finish |
-| `podcast.errors.PODCAST_FEED_BUILD_FAILED` | 这一期已登记到本地频道，公网 feed 尚未更新 | This episode is registered on the local channel, but the public feed is not updated yet |
-| `podcast.errors.PODCAST_AUDIO_EXTRACT_FAILED` | 从成片抽取音轨失败，已停止出期 | Failed to extract the audio track from the final video; the episode publish stopped |
+| `podcast.episode.phase.extractMix` | 抽取完整音轨 | Extract full audio track |
+| `podcast.episode.phase.pickChannel` | 选择频道 | Pick channel |
+| `podcast.episode.phase.probe` | 实测时长与字节 | Measure duration and size |
+| `podcast.episode.phase.uploadAudio` | 上传音频 | Upload audio |
+| `podcast.episode.phase.uploadFeed` | 上传 feed | Upload feed |
+| `podcast.episode.progressUnavailable` | 本次发布未提供逐相位实时进度，进度条只在本次结束后按轨迹回看；这不表示卡住。 | No per-phase live progress is provided for this publish; the bar is only a trail you can read after it finishes. That does not mean it is stuck. |
+| `podcast.episode.running` | 发布进行中… | Publishing… |
+| `podcast.episode.sizeMismatch` | 上传回来的字节与本地实测不一致，这一期没有挂上。 | The bytes returned by the upload do not match the local measurement, so this episode was not attached. |
+| `podcast.episode.success` | 已出期：公网 RSS 订阅源已更新（{feedUrl}），聚合端下次抓取后生效（通常数小时至数天）。 | Episode published: the public RSS feed is updated ({feedUrl}). Aggregators pick it up on the next crawl (usually hours to days). |
+| `podcast.episode.title` | 一键发布播客单集 | One-click podcast episode |
+| `podcast.episode.videoMissing` | 找不到成片文件，请回结果页重新生成或重选路径。 | The final video file cannot be found. Regenerate it on the result page or pick the file again. |
+| `podcast.errors.CHANNEL_AUTHOR_REQUIRED` | 作者/主播名不能为空 | Author / host name is required |
+| `podcast.errors.CHANNEL_CATEGORY_REQUIRED` | 必须选择顶级分类 | A top-level category is required |
+| `podcast.errors.CHANNEL_CATEGORY_TOO_DEEP` | 分类最多两级 | Category supports at most two levels |
+| `podcast.errors.CHANNEL_CATEGORY_UNKNOWN` | 未知顶级分类 | Unknown top-level category |
+| `podcast.errors.CHANNEL_COVER_NOT_HTTPS` | 封面必须使用 https 绝对地址 | Cover must be an absolute https URL |
+| `podcast.errors.CHANNEL_COVER_NOT_SQUARE` | 封面必须为正方形 | Cover must be square |
+| `podcast.errors.CHANNEL_COVER_REQUIRED` | 封面地址不能为空 | Cover URL is required |
+| `podcast.errors.CHANNEL_COVER_SIZE_OUT_OF_RANGE` | 封面边长超出允许范围（1400~3000） | Cover side length is out of the allowed range (1400–3000) |
+| `podcast.errors.CHANNEL_COVER_SIZE_UNKNOWN` | 需填写封面尺寸（形如 3000x3000）以便校验 | Cover size (e.g. 3000x3000) is required for validation |
+| `podcast.errors.CHANNEL_DESC_REQUIRED` | 频道简介不能为空 | Channel description is required |
+| `podcast.errors.CHANNEL_DESC_TOO_LONG` | 频道简介超出长度上限 | Channel description exceeds the length limit |
+| `podcast.errors.CHANNEL_EXPLICIT_INVALID` | 频道分级取值不合法（yes/no/clean） | Channel rating must be yes / no / clean |
+| `podcast.errors.CHANNEL_FEED_TYPE_INVALID` | feed 类型取值不合法（episodic/serial） | Feed type must be episodic / serial |
+| `podcast.errors.CHANNEL_LANGUAGE_INVALID` | 语言需形如 zh-CN / en-US | Language must look like zh-CN / en-US |
+| `podcast.errors.CHANNEL_LINK_NOT_HTTPS` | 站点地址必须使用 https 绝对地址 | Site URL must be an absolute https URL |
+| `podcast.errors.CHANNEL_MISSING` | 缺少频道配置 | Channel configuration is missing |
+| `podcast.errors.CHANNEL_OWNER_EMAIL_INVALID` | 所有者邮箱格式不正确 | Owner email format is invalid |
+| `podcast.errors.CHANNEL_SUBCATEGORY_UNKNOWN` | 未知子分类 | Unknown subcategory |
+| `podcast.errors.CHANNEL_SUBTITLE_TOO_LONG` | 频道副标题超出长度上限 | Channel subtitle exceeds the length limit |
+| `podcast.errors.CHANNEL_TITLE_REQUIRED` | 频道标题不能为空 | Channel title is required |
+| `podcast.errors.CHANNEL_TITLE_TOO_LONG` | 频道标题超出长度上限 | Channel title exceeds the length limit |
+| `podcast.errors.DURATION_MISSING` | 有单集缺少时长 | An episode is missing its duration |
+| `podcast.errors.ENCLOSURE_LENGTH_MISMATCH` | 声明的字节数与实际大小不一致 | Declared byte size does not match the actual length |
+| `podcast.errors.ENCLOSURE_MISSING` | 存在缺少 enclosure 的单集 | An episode has no enclosure |
+| `podcast.errors.ENCLOSURE_NOT_HTTPS` | 存在非 https 的 enclosure | An enclosure is not an https URL |
+| `podcast.errors.ENCLOSURE_TYPE_MISMATCH` | enclosure 指向的资源不是音频 | The enclosure does not point to an audio resource |
+| `podcast.errors.ENCLOSURE_UNREACHABLE` | 音频地址不可达，请检查托管或直链是否过期 | Audio URL is unreachable; check the hosting or whether the link expired |
+| `podcast.errors.EPISODES_EMPTY` | 还没有单集：feed 至少需要一个单集 | No episodes yet: the feed requires at least one episode |
+| `podcast.errors.EPISODES_TOO_MANY` | 单集数量超过上限 | Episode count exceeds the limit |
+| `podcast.errors.EPISODE_AUDIO_NOT_HTTPS` | 音频必须使用 https 绝对地址 | Audio must be an absolute https URL |
+| `podcast.errors.EPISODE_AUDIO_REQUIRED` | 缺少音频地址：请填写 https 直链，或先配置托管直传 | Audio is missing: provide an https URL or configure hosting |
+| `podcast.errors.EPISODE_COVER_NOT_HTTPS` | 单集封面必须使用 https 绝对地址 | Episode cover must be an absolute https URL |
+| `podcast.errors.EPISODE_DESC_TOO_LONG` | 单集简介超出长度上限 | Episode description exceeds the length limit |
+| `podcast.errors.EPISODE_DUPLICATE` | 存在重复的 guid 或音频地址 | Duplicate guid or audio URL exists |
+| `podcast.errors.EPISODE_DURATION_INVALID` | 时长须为规定范围内的整数秒 | Duration must be an integer number of seconds within the allowed range |
+| `podcast.errors.EPISODE_EXPLICIT_INVALID` | 单集分级取值不合法（yes/no/clean） | Episode rating must be yes / no / clean |
+| `podcast.errors.EPISODE_GUID_TOO_LONG` | GUID 过长 | GUID is too long |
+| `podcast.errors.EPISODE_HOSTING_NOT_CONFIGURED` | 仅有本地文件，尚未配置托管直传，无法生成公开音频地址 | Only a local file exists; managed upload is not configured, so no public audio URL can be produced |
+| `podcast.errors.EPISODE_MIME_INVALID` | 音频 MIME 类型不受支持 | Audio MIME type is not supported |
+| `podcast.errors.EPISODE_MISSING` | 缺少单集数据 | Episode data is missing |
+| `podcast.errors.EPISODE_NUMBER_INVALID` | 期号须为正整数 | Episode number must be a positive integer |
+| `podcast.errors.EPISODE_PUBDATE_INVALID` | 发布时间无法解析 | Publish date could not be parsed |
+| `podcast.errors.EPISODE_SEASON_INVALID` | 季号须为正整数 | Season number must be a positive integer |
+| `podcast.errors.EPISODE_SIZE_INVALID` | 字节数须为正整数 | Size in bytes must be a positive integer |
+| `podcast.errors.EPISODE_SIZE_REQUIRED` | 必须填写音频字节数（enclosure length） | Audio size in bytes (enclosure length) is required |
+| `podcast.errors.EPISODE_SUBTITLE_TOO_LONG` | 单集副标题超出长度上限 | Episode subtitle exceeds the length limit |
+| `podcast.errors.EPISODE_TITLE_REQUIRED` | 单集标题不能为空 | Episode title is required |
+| `podcast.errors.EPISODE_TITLE_TOO_LONG` | 单集标题超出长度上限 | Episode title exceeds the length limit |
+| `podcast.errors.EPISODE_TYPE_INVALID` | 单集类型取值不合法（full/trailer/bonus） | Episode type must be full / trailer / bonus |
+| `podcast.errors.FEED_MISSING_ITUNES_NS` | Feed 缺少 itunes 命名空间 | The feed is missing the itunes namespace |
+| `podcast.errors.FEED_MISSING_XML_DECL` | Feed 缺少 XML 声明 | The feed is missing the XML declaration |
+| `podcast.errors.FEED_NO_ITEMS` | Feed 中没有任何单集 | The feed contains no episodes |
+| `podcast.errors.PODCAST_AUDIO_DEGRADED_SOURCE` | 检测到静音占位旁白，已阻止上传（是素材本身不可用，不是生成失败） | Silent placeholder narration detected; the upload was blocked (the source material is unusable, generation did not fail) |
 | `podcast.errors.PODCAST_AUDIO_ENCODER_UNAVAILABLE` | 打包的 ffmpeg 不含 mp3/aac 编码器，已停止出期 | The bundled ffmpeg has no mp3/aac encoder; the episode publish stopped |
+| `podcast.errors.PODCAST_AUDIO_EXTRACT_FAILED` | 从成片抽取音轨失败，已停止出期 | Failed to extract the audio track from the final video; the episode publish stopped |
 | `podcast.errors.PODCAST_AUDIO_MEASURE_FAILED` | 无法实测音频时长或字节，已停止出期 | The audio duration or size could not be measured; the episode publish stopped |
 | `podcast.errors.PODCAST_AUDIO_SIZE_MISMATCH` | 上传回来的字节与本地实测不一致，这一期没有挂上 | The bytes returned by the upload do not match the local measurement, so this episode was not attached |
+| `podcast.errors.PODCAST_CANCEL_TOO_LATE` | 已进入上传阶段，现在取消会留下半态，因此不能取消；请等本次发布跑完 | The upload has started, so cancelling now would leave a half-published state; please let this publish finish |
+| `podcast.errors.PODCAST_CHANNEL_BUSY` | 该频道正在一键发布，请等本次发布结束后再修改单集 | This channel is publishing right now. Wait for it to finish before editing episodes. |
+| `podcast.errors.PODCAST_CHANNEL_ID_INVALID` | 频道标识形态非法，请重新选择频道 | The channel id format is invalid. Please select the channel again. |
+| `podcast.errors.PODCAST_CHANNEL_ID_REQUIRED` | 未选择播客频道，请先在上方新建或选择一个频道 | No podcast channel selected. Create or pick one above first. |
+| `podcast.errors.PODCAST_CHANNEL_INVALID` | 频道信息不完整，请按下方逐条修正 | Channel information is incomplete. Fix the items listed below. |
+| `podcast.errors.PODCAST_CHANNEL_NAME_REQUIRED` | 频道名称不能为空 | Channel name is required |
+| `podcast.errors.PODCAST_CHANNEL_NOT_FOUND` | 频道不存在，可能已被删除，请重新选择 | Channel not found, it may have been deleted. Please select another one. |
+| `podcast.errors.PODCAST_EPISODES_FULL` | 该频道单集数已达上限，请先删除不再需要的旧期再登记新的 | This channel reached its episode limit. Remove an old episode before adding a new one. |
+| `podcast.errors.PODCAST_EPISODE_INVALID` | 单集信息不合法，请按下方逐条修正 | Episode data is invalid. Fix the items listed below. |
+| `podcast.errors.PODCAST_EPISODE_NOT_FOUND` | 单集不存在，可能已被删除，请刷新列表 | Episode not found, it may have been deleted. Refresh the list. |
+| `podcast.errors.PODCAST_FEED_BUILD_FAILED` | 这一期已登记到本地频道，公网 feed 尚未更新 | This episode is registered on the local channel, but the public feed is not updated yet |
 | `podcast.errors.PODCAST_FEED_INVALID` | Feed 校验未通过，请先按下列问题解决 | Feed validation failed. Fix the issues below first |
 | `podcast.errors.PODCAST_FEED_NOT_BUILT` | 该频道还没有可用的 Feed 产物，请先生成 Feed 再发布 | This channel has no usable feed file yet. Build the feed before publishing. |
-| `podcast.errors.PODCAST_EPISODE_INVALID` | 单集信息不合法，请按下方逐条修正 | Episode data is invalid. Fix the items listed below. |
-| `podcast.errors.PODCAST_EPISODES_FULL` | 该频道单集数已达上限，请先删除不再需要的旧期再登记新的 | This channel reached its episode limit. Remove an old episode before adding a new one. |
+| `podcast.errors.PODCAST_HOSTING_BODY_READ_FAILED` | 读取本地 Feed 文件失败，本次上传并未发出，请检查文件是否被占用或已被移动 | Reading the local feed file failed, so nothing was uploaded. Check whether the file is locked or has been moved. |
+| `podcast.errors.PODCAST_HOSTING_BUCKET_REQUIRED` | Bucket 名称不能为空 | Bucket name is required |
+| `podcast.errors.PODCAST_HOSTING_CREDENTIAL_REQUIRED` | AccessKeyId / AccessKeySecret 不能为空 | AccessKeyId / AccessKeySecret is required |
+| `podcast.errors.PODCAST_HOSTING_CRYPTO_UNAVAILABLE` | 系统凭据保护不可用或被拒绝，凭证未能加密保存，已停止写入 | OS credential protection is unavailable or denied, so the secret was not encrypted. Saving stopped. |
+| `podcast.errors.PODCAST_HOSTING_ENDPOINT_REQUIRED` | Endpoint 不能为空（形如 oss-cn-hangzhou.aliyuncs.com） | Endpoint is required (e.g. oss-cn-hangzhou.aliyuncs.com) |
+| `podcast.errors.PODCAST_HOSTING_IDENTITY_REQUIRED` | 当前登录态无法确定凭证归属，已阻止保存托管配置 | The current sign-in cannot be resolved as the owner, so hosting credentials were not saved. |
+| `podcast.errors.PODCAST_HOSTING_INVALID` | 托管配置不合格，请按下方逐条修正 | Hosting configuration is invalid. Fix the items listed below. |
+| `podcast.errors.PODCAST_HOSTING_PREFIX_UNSAFE` | 路径前缀不得以 / 开头，也不得含 . 或 .. 段（否则发布路径会被改成另一个值） | The path prefix cannot start with / and cannot contain . or .. segments (they would silently rewrite the publish path). |
+| `podcast.errors.PODCAST_HOSTING_PROVIDER_INVALID` | 托管类型只能选阿里云 OSS | Hosting provider must be Aliyun OSS |
+| `podcast.errors.PODCAST_HOSTING_PROVIDER_UNSUPPORTED` | 该托管类型本期未接入，请改用阿里云 OSS，或为单集直接填写音频外链 | This hosting provider is not integrated yet. Switch to Aliyun OSS, or give the episode an audio direct link instead. |
+| `podcast.errors.PODCAST_HOSTING_REQUIRED` | 本地音频需先配置对象存储托管（当前支持阿里云 OSS） | Local audio files need object-storage hosting first (Aliyun OSS is supported today). |
+| `podcast.errors.PODCAST_HOSTING_SECRET_MISSING` | 缺少 AccessKeyId / AccessKeySecret，且没有可复用的已存凭证，请重新填写一次 | AccessKeyId / AccessKeySecret is missing and there is no stored credential to reuse. Fill them in once more. |
+| `podcast.errors.PODCAST_HOSTING_UPLOAD_FAILED` | 上传到对象存储失败，本次发布未生效，请稍后重试或查看发布状态 | Upload to object storage failed. This publish did not take effect. Retry later or check the publish status. |
+| `podcast.errors.PODCAST_HOSTING_URL_UNRESOLVED` | 无法由 Endpoint 与 Bucket 拼出上传地址，请检查这两项是否写全 | The upload URL cannot be built from Endpoint and Bucket. Check that both are filled in. |
+| `podcast.errors.PODCAST_INDEX_BUSY` | 频道目录正被其他操作占用，请稍后重试 | The channel catalog is busy with another operation. Try again shortly. |
+| `podcast.errors.PODCAST_IPC_EXCEPTION` | 播客服务调用失败，请重试 | Podcast service call failed, please retry |
+| `podcast.errors.PODCAST_IPC_UNAVAILABLE` | 播客服务暂不可用（未登录、许可证未激活，或主进程通道未挂载） | Podcast service is unavailable (not signed in, license not activated, or main-process channel not mounted) |
+| `podcast.errors.PODCAST_LOCK_WAIT_TIMEOUT` | 播客数据正在被其他操作占用，请稍后重试 | Podcast data is busy with another operation. Please retry shortly. |
+| `podcast.errors.PODCAST_MIGRATION_CONFLICT` | 旧的播客频道数据与新建的频道内容不一致，已停止写入以免覆盖，请在上方选择保留哪一份 | The legacy podcast data and the new channel differ. Writes are blocked to avoid overwriting. Choose which copy to keep above. |
+| `podcast.errors.PODCAST_MIGRATION_DIRECTION_INVALID` | 未知的迁移处置方式，请重新选择 | Unknown migration resolution. Please choose again. |
+| `podcast.errors.PODCAST_MIGRATION_IO_FAILED` | 播客频道数据迁移未完成，已停止写入，可重试；已有内容仍可读取 | Podcast channel migration did not finish. Writes are blocked; existing content stays readable and you can retry. |
+| `podcast.errors.PODCAST_PAYLOAD_NOT_SERIALIZABLE` | 表单数据无法序列化，请检查后重试 | Form data could not be serialized, please check and retry |
+| `podcast.errors.PODCAST_PUBLISH_CANCELLED` | 本次播客出期已在上传前取消，临时文件已回滚 | This podcast episode publish was cancelled before upload and the temporary file was rolled back |
+| `podcast.errors.PODCAST_STORE_CORRUPT` | 播客数据文件读不出来（可能已损坏），已停止写入以免扩大损坏 | The podcast data file cannot be read (it may be corrupted). Writing stopped to avoid making it worse. |
+| `podcast.errors.PODCAST_STORE_UNAVAILABLE` | 播客数据目录当前不可用（权限或磁盘问题），请稍后重试 | The podcast data directory is unavailable right now (permissions or disk). Try again later. |
+| `podcast.errors.PODCAST_TTS_BILLING_UNCONFIRMED` | 文本出期会逐块调用语音合成服务并产生费用，请先确认用量与费用 | Publishing from text calls the speech synthesis service per chunk and incurs cost. Confirm usage and fees first. |
+| `podcast.errors.PODCAST_VIDEO_NOT_FOUND` | 找不到成片文件，请回结果页重新生成或重选路径 | The final video file cannot be found; regenerate it on the result page or pick the file again |
+| `podcast.errors.fallback` | 发生未知问题（{code}） | Unknown issue ({code}) |
 
-共 45 键；zh/en 逐键成对且均为非空串（另有同文件内的既有键不在本表范围）。
-
+共 131 键；逐键 zh/en 成对且均为非空串。
 
 ## 7. 功能逻辑（按刀次）
 

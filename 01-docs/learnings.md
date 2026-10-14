@@ -18355,7 +18355,7 @@ PLAN 的 M0 有 8 条判据，P0 落地后实跑：通过 4 / 不通过 3（另 
 【技术】**多副本项目里，「用哪个源重生成」决定结论 —— 先确认源，再下判断。**
 
 同一份竞品数据在本机至少两份：仓库内 `01-docs/research/competitor-reverse-2026-10-13/platform-data`
-（被 git 跟踪，134 文件）与仓库外 `D:/Data/projects/rea/analysis/<wemedia-data-zip>/data`。
+（被 git 跟踪，134 文件）与仓库外 `D:/Data/projects/rea/analysis/wemedia-data-zip/data`。
 同名文件 **SHA-256 不同**（编码不同，内容等价）。
 
 我拿**仓库外**副本重生成再与已提交产物比对，得到一堆「差异」，顺势得出「产物血缘元数据错标」的
@@ -18546,8 +18546,48 @@ main e9cfc0020
    否则会误以为自己的 PR 改了无关文件。
 4. 推送后**必须验证远端分支的实际 SHA**（`git ls-remote --heads origin <branch>` 与本地比对），
    不能只信 `git push` 的输出。本会话在这一点上吃过一次亏。
-## 「先量存量」量出来的结论是判据本身不可行：时钟位移 oracle 取代静态形状扫描（2026-10-13，clock-shift-oracle）
 
+### pitfall:esm-import-of-cjs-is-not-the-same-module-instance
+
+【陷阱】ESM `import` 主进程 CJS ≠ 服务的 `require` 拿到的实例 —— 模块级探针会**静默失效**，锁**假绿**。
+本轮实测：测试里 `import { configurePackagedProbe } from './runtime-trust-anchor'` 写进的是**测试侧**的模块实例，
+而被测服务内部 `require('./runtime-trust-anchor')` 是**另一个**实例 ⇒ 打包态探针从未生效，
+「打包版缺信任锚」用例本该红却**假绿**（`syncNow` 被调用，而断言看着像在跑）。
+本仓早有先例与注释：`runtime-trust-anchor.test.js:20`、`bilibili-audit-check.test.js:18` 都用 `createRequire` 取被测 CJS 模块。
+**判据**：任何「改模块级状态 → 断言另一模块的行为」的锁，取模块必须与生产代码同源（CJS 用 `createRequire`）；
+否则你验证的是夹具而不是实现。
+
+### lesson:falsification-target-is-the-claim-not-the-carrier
+
+【教训】要否证的是**断言**，不是「断言写在什么载体里」。同轮写下规则、同轮违反。
+本轮我在同一个 PR 里写下了教训「推断必须先否证」（并附了一次漂亮的实测：据 `.env` 私钥 27 字符推断占位串 → 被一次真实请求否证），
+**然后**又据一句模块 docstring（「走 X-Catalog-Key」）直接断言「bootstrap 只认 X-Catalog-Key、Bearer 不适用」，
+并据此让用户去改配置。读了实现才发现 `verify_bearer_or_catalog_key` 是 **Bearer 优先**。
+**为什么同轮会违反**：我把「否证」下意识绑定到了「看起来可疑的东西」（一个只有 27 字符的密钥），
+而 docstring 属于「看起来权威的东西」，于是没被纳入待否证集合。
+**判据**：待否证集合 = **凡是我将据此改变行动（改码 / 让用户改配置 / 写进记录）的断言**，与其载体形式、权威感无关。
+
+### pitfall:instructed-user-to-use-a-ui-that-was-already-removed
+
+【陷阱】我让用户去操作一个**早已从界面撤下**的表单。
+我告诉用户「应用 → 设置 → 运营中心同步，填地址 + API Key」，而 `views/ModelProviders.vue` L580 的注释就写着
+「运营同步对用户透明：**配置卡片已隐藏**」，模板里 `ops-sync|opsSync|syncUrl|syncApiKey` 命中数 **0**，
+表单文案键（`syncApiKeyLabel` / `opsSyncTitle` / `syncNow`）在非 locale 代码里 **0 处调用**。
+**判据**：给出任何「用户操作步骤」之前，先用一条命令核实该界面存在 ——
+`git grep -n "<该界面的文案键>" -- <渲染端>`，非 locale 调用数为 0 就说明**没有这个界面**。
+光看组件文件里还留着 state/函数（甚至 CSS 类）**不能**证明界面还在：本轮那个 composable 138 行全在，界面却早已不在。
+
+### lesson:the-only-configurable-place-was-a-removed-ui
+
+【教训】判断「某配置是否可达」，要看**写入路径的调用方**，而不是看文档说怎么配。
+`runtimePublicKey` 的文档（记录、代码注释）都写着「在『运营中心同步配置』中指定」，而那个界面**早已撤下**
+⇒ 打包版**不存在任何可达的写入路径** ⇒ `resolveTrustAnchor` 必然 `NO_PRODUCTION_TRUST_ANCHOR` ⇒
+生产版整份运行时策略（含应用菜单）fail-closed **不应用**。这是一个**长期存在**的生产洞，
+而所有文字材料都在描述一个不存在的入口。
+**判据**：配置项「可达性」= 写入函数的调用方数量（从 UI 到 IPC 全链），不是文档里的说明。
+**推论**：删界面 = 删能力。删之前先问「这个界面是不是某个配置的唯一入口」——若是，必须先给它找部署层的新家，否则等于删掉生产环境的一条链路。
+（被 git 跟踪，134 文件）与仓库外 `D:/Data/projects/rea/analysis/<wemedia-data-zip>/data`。
+## 「先量存量」量出来的结论是判据本身不可行：时钟位移 oracle 取代静态形状扫描（2026-10-13，clock-shift-oracle）
 ### 事实
 
 - 上一轮（#3459）留下一类缺陷：**夹具写死绝对时间戳 + 被测路径读真实时钟 + 窗口是相对量**，写下的当天必绿、N 天后自红。当时的收口只改了那一笔夹具，没有留下机制。本轮按登记要求先做"先量存量再定判据形态"，量完的结论不是"该收多少条"，而是**准备登记的静态判据本身不可用**。

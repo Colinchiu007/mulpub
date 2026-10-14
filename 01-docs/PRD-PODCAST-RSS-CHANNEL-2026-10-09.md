@@ -460,11 +460,13 @@ enclosure 解析序（`resolveEnclosure`）：`audioUrl` → `resolvedAudioUrl` 
 | podcast.errors.ENCLOSURE_LENGTH_MISMATCH | 声明的 length 与实际字节数不一致 | Declared length mismatches actual bytes |
 | podcast.errors.DURATION_MISSING | 单集缺少时长 | Episode duration missing |
 
-### 11.5 实现态全量文案清单（与 `locales/{zh,en}.js` 逐字一致，2026-10-10 第八刀生成）
+### 11.5 实现态全量文案清单（**由 `scripts/gen-prd-copy-table.js` 从 `apps/desktop/src/locales/podcast/{zh,en}.js` 生成，改文案必须重新生成，禁止手工维护本节**）
 
-> 上面 §11.1~§11.4 是**规划态**清单，实现中新增/改写的键以前没有逐条回写，实测有 89/135 条 zh 文案在 PRD 里查不到逐字值——这正是"文档落后于实现"的形态。本节按「深度解析 `podcast` 命名空间取键路径」的方式直接从两份 locale 文件生成（键路径 = 嵌套路径，按字典序），因此它是**当前唯一逐字可信的文案清单**；新增或修改 `podcast` 命名空间文案时必须重新生成该表，不得手工维护。同一生成过程同时核对**键集对称性**（zh/en 双向差集必须为空）。
+- 生成口径：解析两份 locale 的 `export default` 字面量 → 扁平化键名 → 按本节的收录前缀取键并**按字典序**排列。
+- `--check` 已接进 `.github/workflows/quality-gate.yml`（Gate 2c）：本节与 locale 不一致即红，所以「文档比代码旧」不再是可能状态。
+- 两处不一致时的裁决方向：以本节（即代码）为准，回改规划态小节，而不是反过来改文案去迁就文档。
 
-| 键路径 | zh（用户可见） | en（用户可见） |
+| 键路径 | zh（用户可见，逐字） | en（用户可见，逐字） |
 | --- | --- | --- |
 | `podcast.audioSource.oss` | 托管直传（对象存储） | Managed upload (object storage) |
 | `podcast.audioSource.url` | 外链直连（https 音频地址） | External URL (https audio link) |
@@ -581,16 +583,108 @@ enclosure 解析序（`resolveEnclosure`）：`audioUrl` → `resolvedAudioUrl` 
 | `podcast.errors.FEED_MISSING_ITUNES_NS` | Feed 缺少 itunes 命名空间 | The feed is missing the itunes namespace |
 | `podcast.errors.FEED_MISSING_XML_DECL` | Feed 缺少 XML 声明 | The feed is missing the XML declaration |
 | `podcast.errors.FEED_NO_ITEMS` | Feed 中没有任何单集 | The feed contains no episodes |
+| `podcast.errors.PODCAST_AUDIO_DEGRADED_SOURCE` | 检测到静音占位旁白，已阻止上传（是素材本身不可用，不是生成失败） | Silent placeholder narration detected; the upload was blocked (the source material is unusable, generation did not fail) |
+| `podcast.errors.PODCAST_AUDIO_ENCODER_UNAVAILABLE` | 打包的 ffmpeg 不含 mp3/aac 编码器，已停止出期 | The bundled ffmpeg has no mp3/aac encoder; the episode publish stopped |
+| `podcast.errors.PODCAST_AUDIO_EXTRACT_FAILED` | 从成片抽取音轨失败，已停止出期 | Failed to extract the audio track from the final video; the episode publish stopped |
+| `podcast.errors.PODCAST_AUDIO_MEASURE_FAILED` | 无法实测音频时长或字节，已停止出期 | The audio duration or size could not be measured; the episode publish stopped |
+| `podcast.errors.PODCAST_AUDIO_SIZE_MISMATCH` | 上传回来的字节与本地实测不一致，这一期没有挂上 | The bytes returned by the upload do not match the local measurement, so this episode was not attached |
+| `podcast.errors.PODCAST_CANCEL_TOO_LATE` | 已进入上传阶段，现在取消会留下半态，因此不能取消；请等本次发布跑完 | The upload has started, so cancelling now would leave a half-published state; please let this publish finish |
+| `podcast.errors.PODCAST_CHANNEL_BUSY` | 该频道正在一键发布，请等本次发布结束后再修改单集 | This channel is publishing right now. Wait for it to finish before editing episodes. |
+| `podcast.errors.PODCAST_CHANNEL_ID_INVALID` | 频道标识形态非法，请重新选择频道 | The channel id format is invalid. Please select the channel again. |
+| `podcast.errors.PODCAST_CHANNEL_ID_REQUIRED` | 未选择播客频道，请先在上方新建或选择一个频道 | No podcast channel selected. Create or pick one above first. |
+| `podcast.errors.PODCAST_CHANNEL_INVALID` | 频道信息不完整，请按下方逐条修正 | Channel information is incomplete. Fix the items listed below. |
+| `podcast.errors.PODCAST_CHANNEL_NAME_REQUIRED` | 频道名称不能为空 | Channel name is required |
+| `podcast.errors.PODCAST_CHANNEL_NOT_FOUND` | 频道不存在，可能已被删除，请重新选择 | Channel not found, it may have been deleted. Please select another one. |
+| `podcast.errors.PODCAST_EPISODES_FULL` | 该频道单集数已达上限，请先删除不再需要的旧期再登记新的 | This channel reached its episode limit. Remove an old episode before adding a new one. |
+| `podcast.errors.PODCAST_EPISODE_INVALID` | 单集信息不合法，请按下方逐条修正 | Episode data is invalid. Fix the items listed below. |
+| `podcast.errors.PODCAST_EPISODE_NOT_FOUND` | 单集不存在，可能已被删除，请刷新列表 | Episode not found, it may have been deleted. Refresh the list. |
+| `podcast.errors.PODCAST_FEED_BUILD_FAILED` | 这一期已登记到本地频道，公网 feed 尚未更新 | This episode is registered on the local channel, but the public feed is not updated yet |
 | `podcast.errors.PODCAST_FEED_INVALID` | Feed 校验未通过，请先按下列问题解决 | Feed validation failed. Fix the issues below first |
+| `podcast.errors.PODCAST_FEED_NOT_BUILT` | 该频道还没有可用的 Feed 产物，请先生成 Feed 再发布 | This channel has no usable feed file yet. Build the feed before publishing. |
+| `podcast.errors.PODCAST_HOSTING_BODY_READ_FAILED` | 读取本地 Feed 文件失败，本次上传并未发出，请检查文件是否被占用或已被移动 | Reading the local feed file failed, so nothing was uploaded. Check whether the file is locked or has been moved. |
+| `podcast.errors.PODCAST_HOSTING_BUCKET_REQUIRED` | Bucket 名称不能为空 | Bucket name is required |
+| `podcast.errors.PODCAST_HOSTING_CREDENTIAL_REQUIRED` | AccessKeyId / AccessKeySecret 不能为空 | AccessKeyId / AccessKeySecret is required |
+| `podcast.errors.PODCAST_HOSTING_CRYPTO_UNAVAILABLE` | 系统凭据保护不可用或被拒绝，凭证未能加密保存，已停止写入 | OS credential protection is unavailable or denied, so the secret was not encrypted. Saving stopped. |
+| `podcast.errors.PODCAST_HOSTING_ENDPOINT_REQUIRED` | Endpoint 不能为空（形如 oss-cn-hangzhou.aliyuncs.com） | Endpoint is required (e.g. oss-cn-hangzhou.aliyuncs.com) |
+| `podcast.errors.PODCAST_HOSTING_IDENTITY_REQUIRED` | 当前登录态无法确定凭证归属，已阻止保存托管配置 | The current sign-in cannot be resolved as the owner, so hosting credentials were not saved. |
+| `podcast.errors.PODCAST_HOSTING_INVALID` | 托管配置不合格，请按下方逐条修正 | Hosting configuration is invalid. Fix the items listed below. |
+| `podcast.errors.PODCAST_HOSTING_PREFIX_UNSAFE` | 路径前缀不得以 / 开头，也不得含 . 或 .. 段（否则发布路径会被改成另一个值） | The path prefix cannot start with / and cannot contain . or .. segments (they would silently rewrite the publish path). |
+| `podcast.errors.PODCAST_HOSTING_PROVIDER_INVALID` | 托管类型只能选阿里云 OSS | Hosting provider must be Aliyun OSS |
+| `podcast.errors.PODCAST_HOSTING_PROVIDER_UNSUPPORTED` | 该托管类型本期未接入，请改用阿里云 OSS，或为单集直接填写音频外链 | This hosting provider is not integrated yet. Switch to Aliyun OSS, or give the episode an audio direct link instead. |
+| `podcast.errors.PODCAST_HOSTING_REQUIRED` | 本地音频需先配置对象存储托管（当前支持阿里云 OSS） | Local audio files need object-storage hosting first (Aliyun OSS is supported today). |
+| `podcast.errors.PODCAST_HOSTING_SECRET_MISSING` | 缺少 AccessKeyId / AccessKeySecret，且没有可复用的已存凭证，请重新填写一次 | AccessKeyId / AccessKeySecret is missing and there is no stored credential to reuse. Fill them in once more. |
+| `podcast.errors.PODCAST_HOSTING_UPLOAD_FAILED` | 上传到对象存储失败，本次发布未生效，请稍后重试或查看发布状态 | Upload to object storage failed. This publish did not take effect. Retry later or check the publish status. |
+| `podcast.errors.PODCAST_HOSTING_URL_UNRESOLVED` | 无法由 Endpoint 与 Bucket 拼出上传地址，请检查这两项是否写全 | The upload URL cannot be built from Endpoint and Bucket. Check that both are filled in. |
+| `podcast.errors.PODCAST_INDEX_BUSY` | 频道目录正被其他操作占用，请稍后重试 | The channel catalog is busy with another operation. Try again shortly. |
 | `podcast.errors.PODCAST_IPC_EXCEPTION` | 播客服务调用失败，请重试 | Podcast service call failed, please retry |
 | `podcast.errors.PODCAST_IPC_UNAVAILABLE` | 播客服务暂不可用（未登录、许可证未激活，或主进程通道未挂载） | Podcast service is unavailable (not signed in, license not activated, or main-process channel not mounted) |
+| `podcast.errors.PODCAST_LOCK_WAIT_TIMEOUT` | 播客数据正在被其他操作占用，请稍后重试 | Podcast data is busy with another operation. Please retry shortly. |
+| `podcast.errors.PODCAST_MIGRATION_CONFLICT` | 旧的播客频道数据与新建的频道内容不一致，已停止写入以免覆盖，请在上方选择保留哪一份 | The legacy podcast data and the new channel differ. Writes are blocked to avoid overwriting. Choose which copy to keep above. |
+| `podcast.errors.PODCAST_MIGRATION_DIRECTION_INVALID` | 未知的迁移处置方式，请重新选择 | Unknown migration resolution. Please choose again. |
+| `podcast.errors.PODCAST_MIGRATION_IO_FAILED` | 播客频道数据迁移未完成，已停止写入，可重试；已有内容仍可读取 | Podcast channel migration did not finish. Writes are blocked; existing content stays readable and you can retry. |
 | `podcast.errors.PODCAST_PAYLOAD_NOT_SERIALIZABLE` | 表单数据无法序列化，请检查后重试 | Form data could not be serialized, please check and retry |
+| `podcast.errors.PODCAST_PUBLISH_CANCELLED` | 本次播客出期已在上传前取消，临时文件已回滚 | This podcast episode publish was cancelled before upload and the temporary file was rolled back |
+| `podcast.errors.PODCAST_STORE_CORRUPT` | 播客数据文件读不出来（可能已损坏），已停止写入以免扩大损坏 | The podcast data file cannot be read (it may be corrupted). Writing stopped to avoid making it worse. |
+| `podcast.errors.PODCAST_STORE_UNAVAILABLE` | 播客数据目录当前不可用（权限或磁盘问题），请稍后重试 | The podcast data directory is unavailable right now (permissions or disk). Try again later. |
+| `podcast.errors.PODCAST_TTS_BILLING_UNCONFIRMED` | 文本出期会逐块调用语音合成服务并产生费用，请先确认用量与费用 | Publishing from text calls the speech synthesis service per chunk and incurs cost. Confirm usage and fees first. |
+| `podcast.errors.PODCAST_VIDEO_NOT_FOUND` | 找不到成片文件，请回结果页重新生成或重选路径 | The final video file cannot be found; regenerate it on the result page or pick the file again |
 | `podcast.errors.fallback` | 发生未知问题（{code}） | Unknown issue ({code}) |
 | `podcast.explicit.clean` | Clean（干净版） | Clean |
 | `podcast.explicit.no` | 未分级 | Not explicit |
 | `podcast.explicit.yes` | Explicit（有成人内容） | Explicit (adult content) |
+| `podcast.hosting.accessKeyId` | AccessKeyId | AccessKeyId |
+| `podcast.hosting.accessKeySecret` | AccessKeySecret | AccessKeySecret |
+| `podcast.hosting.backupMissing` | 注意：本次未能把上一版存档到对象存储，本地回滚点仍在，但云端没有可指回的副本。 | Note: the previous version could not be archived to object storage. The local rollback copy is still there, but there is no cloud copy to point back to. |
+| `podcast.hosting.bucket` | Bucket | Bucket |
+| `podcast.hosting.check` | 测试连通 | Test connection |
+| `podcast.hosting.checkFailed` | 连通失败（HTTP {status}）。 | Connectivity failed (HTTP {status}). |
+| `podcast.hosting.checkNoStatus` | 无状态码 | no status |
+| `podcast.hosting.checkNotConfigured` | 尚未配置凭证，无法测试连通。 | No credential stored, cannot test connectivity. |
+| `podcast.hosting.checkOk` | 连通正常。 | Connectivity OK. |
+| `podcast.hosting.checkSkipped` | 本轮未做真实探测（默认不发出网络请求）；配置已保存，可在发布时验证。 | No live probe was made (no network by default); the config is saved and can be verified when publishing. |
+| `podcast.hosting.clearSecret` | 清除已存凭证 | Clear stored credential |
+| `podcast.hosting.configured` | 已配置（AccessKeyId {key}） | Configured (AccessKeyId {key}) |
+| `podcast.hosting.endpoint` | Endpoint | Endpoint |
+| `podcast.hosting.endpointPlaceholder` | 如 oss-cn-hangzhou.aliyuncs.com | e.g. oss-cn-hangzhou.aliyuncs.com |
+| `podcast.hosting.feedNotSynced` | 公网 feed 尚未更新（{status}），本地单集与已发布内容都不受影响。 | The public feed is not up to date ({status}). Your local episodes and what is already published are unaffected. |
+| `podcast.hosting.feedPartial` | 部分同步 | partially synced |
+| `podcast.hosting.noPrevious` | 这是该频道首次发布，暂时还没有可退回的上一版。 | This is the first publish for this channel, so there is no previous version to roll back to yet. |
+| `podcast.hosting.notConfigured` | 尚未配置托管：单集可以先生成 Feed，但公网 feed 还发不出去。 | Hosting not configured: you can still build the Feed, but it cannot be published yet. |
+| `podcast.hosting.pathPrefix` | 路径前缀 | Path prefix |
+| `podcast.hosting.provider` | 托管类型 | Provider |
+| `podcast.hosting.providerCos` | 腾讯云 COS（本期未接入） | Tencent COS (not supported this release) |
+| `podcast.hosting.providerCosDisabled` | 本期只接了阿里云 OSS，COS 尚未实现，不可选 | Only Aliyun OSS is implemented this release, so COS cannot be selected |
+| `podcast.hosting.providerOss` | 阿里云 OSS | Aliyun OSS |
+| `podcast.hosting.publish` | 发布本频道 Feed | Publish this feed |
+| `podcast.hosting.publishFailed` | 公网 feed 未更新（{status}），本地 Feed 与已发布内容不受影响，可重试。 | Public feed not updated ({status}); the local feed and what is already published are unchanged. You can retry. |
+| `podcast.hosting.publishSuccess` | 已发布：本次共 {count} 期已写入公网 feed，聚合端下次抓取后生效。 | Published: {count} episode(s) are now in the public feed; aggregators pick them up on the next crawl. |
+| `podcast.hosting.retryFeed` | 按当前单集重新生成并上传 feed | Rebuild and upload the feed from current episodes |
+| `podcast.hosting.save` | 保存托管配置 | Save hosting config |
+| `podcast.hosting.secretKeepHint` | 两项凭证留空即保持不变；只有重新填写才会覆写。Secret 不会回显，也不会出现在浏览器里。 | Blank credential fields keep what is already stored; only a re-entered value overwrites. The secret is never echoed back and never reaches the browser. |
+| `podcast.hosting.secretKeepPlaceholder` | 留空 = 沿用已存的凭证 | Leave blank to keep the stored credential |
+| `podcast.hosting.sectionHint` | 凭证全局一份，跨频道共用；发布时按频道写各自的 feed 路径。 | Credentials are stored once and shared across channels; publishing writes a feed path per channel. |
+| `podcast.hosting.sectionTitle` | 对象存储托管 | Object storage hosting |
 | `podcast.pageSubtitle` | 经 RSS 订阅把播客收录进小宇宙 / Apple / Spotify 等聚合端：配置频道一次 → 逐期追加单集 → 生成并自检 Feed → 向分发端提交 Feed 地址 | Podcast inclusion in RSS aggregators (Xiaoyuzhou / Apple / Spotify): configure the channel once → add episodes one by one → build & self-check the feed → submit the feed URL to each directory |
 | `podcast.pageTitle` | 播客 RSS 频道 | Podcast RSS Channel |
+| `podcast.picker.create` | 新建频道 | New channel |
+| `podcast.picker.created` | 频道已创建 | Channel created |
+| `podcast.picker.current` | 当前频道 | Current channel |
+| `podcast.picker.defaultSet` | 默认频道已更新 | Default channel updated |
+| `podcast.picker.empty` | 还没有频道，先新建一个。 | No channel yet. Create one to get started. |
+| `podcast.picker.keepExisting` | 保留当前数据 | Keep current data |
+| `podcast.picker.keepLegacy` | 保留原有数据 | Keep original data |
+| `podcast.picker.migrationConflict` | 频道数据迁移未完成：本地已有两份不同的频道配置，请选择保留哪一份。 | Channel migration is incomplete: two different local channel configs were found. Choose which to keep. |
+| `podcast.picker.migrationError` | 频道数据迁移中途失败，暂时无法写入；请重试或联系支持。 | Channel migration failed midway. Writing is blocked; please retry or contact support. |
+| `podcast.picker.migrationResolved` | 迁移冲突已处理 | Migration conflict resolved |
+| `podcast.picker.namePlaceholder` | 频道名称 | Channel name |
+| `podcast.picker.nameRequired` | 请填写频道名称。 | Enter a channel name. |
+| `podcast.picker.quotaHint` | 该频道已收录 {count} 期，上限 {cap} 期；达到上限时须先删除旧期。 | This channel holds {count} of {cap} episodes; delete some before adding more. |
+| `podcast.picker.rename` | 重命名当前频道 | Rename current channel |
+| `podcast.picker.renamed` | 频道已重命名 | Channel renamed |
+| `podcast.picker.sectionTitle` | 播客频道 | Podcast channels |
+| `podcast.picker.setDefault` | 设为默认频道 | Set as default |
+| `podcast.picker.switchFailed` | 切换频道失败，请稍后重试。 | Could not switch channel. Please try again. |
+| `podcast.picker.switched` | 已切换频道 | Channel switched |
 | `podcast.publish.buildFeed` | 生成 Feed | Build Feed |
 | `podcast.publish.copied` | 路径已复制 | Path copied |
 | `podcast.publish.copyFailed` | 复制失败，请手动复制路径 | Copy failed, please copy the path manually |
@@ -602,6 +696,8 @@ enclosure 解析序（`resolveEnclosure`）：`audioUrl` → `resolvedAudioUrl` 
 | `podcast.publish.verifyFailed` | 自检发现 {count} 个问题 | Self-check found {count} issue(s) |
 | `podcast.publish.verifyFeed` | 自检 Feed | Verify Feed |
 | `podcast.publish.verifyPassed` | 自检通过：共 {count} 期 | Self-check passed: {count} episode(s) |
+
+共 228 键；逐键 zh/en 成对且均为非空串。
 
 ## 十二、验收标准（整体验收）
 
