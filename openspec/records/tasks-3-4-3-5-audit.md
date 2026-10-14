@@ -6,6 +6,8 @@ date: 2026-10-14
 
 # tasks 3.4 / 3.5 对账（tasks-3-4-3-5-audit，2026-10-14）
 
+> **⚠️ 2026-10-14 更正（`tasks-3-5-entry-correction`）**：本篇**表格里那行「3.5 半落」的实测是错的**，原话保留在下文不改写，因为它正是这条错误的现场。错因：判入口在位只搜了 `PodcastPublishAction` **一个组件名**，而同一能力在两个视图用了不同承载件——结果页用的是 `PodcastEpisodeEntry.vue`（`ResultView.vue:65` / `:448` / `:479`，其第 4 行渲染 `t('podcast.episode.entry')`）。真值是**两枚入口都已交付**，3.5① 与 3.5② 均应勾。判据改为**按能力字面量扫**（`podcast.episode.entry`）而非按组件名；这与 learnings 里「字面路径 grep 找不到就断言没人负责装」是同一个错，我第二次犯在同一个对象上。
+
 > 分支 `tasks-3-4-3-5-audit`（隔离 worktree `mp-podcast-script-entries`，**非 C 盘**）。动因是上一轮我自己写下一句过头的话：「3.4/3.5 属勾账滞后而非欠实现」。实测只对了一半。
 
 ## 两条判据现查现写（不读历史结论）
