@@ -4,6 +4,16 @@
 - 现按实测改写：`reasons` 字面值 = `validateEpisode` 原样透出的 **19** 条 `EPISODE_*`（另 3 条经 `resolveEnclosure` 转推，已逐行核对）；码表真源 = `apps/desktop/src/locales/podcast/{zh,en}.js` 的 `errors` 键集（zh 98 / en 98，实测**缺文案 0 条**）；文案渲染唯一实现 `issueText()`，展示层不得再写第二份映射。新增 PRD §8.2.8 记录取值面与重跑口径，并要求实现片同 PR 把 `podcast-rss.js` 加进清点式门禁扫描域。
 - 本节仍只是合同，不含实现（实现在下一片 tasks 4.4b②）。
 
+# [未发布] fix(publish-history): 发布记录缩略图改竖屏 3:4（publish-history-thumb-portrait）
+
+- 用户报「发布记录列表的缩略图目前是横版尺寸，改成竖屏的尺寸显示（3:4比例）」。改动只在 `PublishHistory.vue` 的 scoped CSS，四处断面一次改齐：列表视图 200×112 → **150×200**、网格视图 108×82 → **84×112**、720px 窄屏 78×66 → **63×84**、460px 窄屏 68×60 → **54×72**。
+- **宽度一律由高度推导**（`height × 3/4`）而不是各写一个近似值：近似值会在某次调高度时悄悄漂成非 3:4，而这种漂移在视觉上几乎看不出来；推导关系写进注释。
+- **显式写 `flex-basis`**（列表视图原先是 `flex: 0 0 150px` 简写）：窄容器下 flex 收缩会把实际比例漂回横版，而简写形态下「basis 与 width 是否一致」无法被机械断言。
+- 封面 `<img>` 仍是 `object-fit: cover` 满幅裁切（不改裁切语义，只改容器比例）；内容类型角标保持右下角未位移。
+- 回归锁 5 条（`PublishHistory.test.js`「缩略图竖屏 3:4 比例」）：逐断面断言宽高比 === 0.75、`flex-basis === width`，另加一条**补集**断言「四处一律不得出现 `width > height` 的规则」——只断言四处是 3:4 挡不住有人在响应式块里另起一条 `.record-preview` 覆盖（那会让正向断言全绿而实际仍是横版）。判据读 scoped CSS 原文而非渲染结果：jsdom 不布局，`width`/`height` 计算值恒为 0。
+- TDD：5 条锁先跑 **5 failed**（逐条精确报出现状横版尺寸 200x112 / 108x82 / 78x66 / 68x60），实现后 **83 passed**；变异反证把四处尺寸同时退回横版 ⇒ **5/5 全红**，还原后复绿。
+- 视觉基线按流程刷新（**不是"红了就刷"**）：先 `git stash` 取干净基线对照证明该视图在 main 上不是既有红 → 人工看明暗差异图确认差异**只在缩略图矩形区** → 人工看新渲染确认确为竖版，三步都过才更新 `base-screenshots/publish-history.png` 与 `publish-history-dark.png`；复跑明暗双通道均 100% 通过。基线取自**本 worktree 自己的** dev server（5199 独占端口），并用 `git check-ignore` 验证两份 PNG 未被 `.gitignore` 静默吞掉。
+
 # [未发布] 让「运营」退出应用用户面 + 验签信任锚下沉部署层（ops-ingress-only）
 
 - **用户判断成立，且比表面更严重**：「不应该让应用中存在运营方面的设置」——核实后用户面上残留的运营信息里有一句**可能为假的话**：
