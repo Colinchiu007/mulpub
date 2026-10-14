@@ -2,9 +2,6 @@
 record: gui-gate-required-record
 task: 把 GUI Gate Result 写入 ruleset main-ci-gate 的 required 清单（改「谁来守门」，经用户授权），并更正本仓两处已被该变更推翻的旧陈述
 date: 2026-10-14
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；远程同步这一行的证据只能在合并后取
-sync_backfill_owner: 下一个会话（按 AGENTS.md「合并后收尾清单」回填并删除本段三个字段）
 ---
 
 ## 本次执行记录：GUI Gate Result 进 required 清单（gui-gate-required-record，2026-10-14）
@@ -20,7 +17,7 @@ sync_backfill_owner: 下一个会话（按 AGENTS.md「合并后收尾清单」�
 | 接线棘轮 | N/A | 本笔未新增任何 `*.test.*` 文件；required 清单内容本身不可被仓内测试接线（见逃逸分析 ②），如实写 N/A 而不是假装有新锁 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触碰 `apps/desktop/electron/`、`packages/rpa-engine/` 与任何 UI 面 |
 | QM-6 CCG 双模型外部评审 | 未执行（如实记录） | 本笔仓内改动是纯记录/文档，判据层零代码；被评审的动作（PUT ruleset）发生在 GitHub 侧、无法以 diff 形式交给外部模型。**不以自审冒充双模型通过**；该动作的人工过目由用户在授权环节承担（AGENTS.md 把「改谁来守门」明确划给人工） |
-| 远程同步 | PENDING | 待本 PR 合并后由后续 docs PR 同一次提交内改写 PASS + merge SHA（`git log origin/main --grep='(#NNNN)$' --format=%H\|%cI`）并删除本文件顶部三个 `sync_*` 字段与 ledger 登记项 |
+| 远程同步 | PASS | PR #3590 已 squash 合入。**双源同 SHA**：`gh pr view 3590 --json state,mergedAt,mergeCommit` ⇒ `state=MERGED / mergedAt=2026-10-14T13:09:20Z / mergeCommit=`6748c0d90d51438c9a920e2b714ca22978f82c51`；`git log origin/main --grep='(#3590)$' --format=%H\|%cI` ⇒ `6748c0d90d51438c9a920e2b714ca22978f82c51|2026-10-14T21:09:20+08:00`（恰好 1 行）。**远端分支已删**：`git ls-remote --heads origin gui-gate-required-record` ⇒ rc=0 且 0 行。**落地判据**：`git diff --stat 5e916988e 6748c0d90d51438c9a920e2b714ca22978f82c51` 输出为空 ⇒ 分支 tip 的内容逐字进主干（本轮 main 未前进，所以树相等成立；上两轮合并时该判据被他人提交污染成 24 文件差量，故当场改用逐文件 blob 比对）。**required 现状（合并后复核）**：`gh api repos/Colinchiu007/mulpub/rulesets/23749994` 仍回 7 条并含 `GUI Gate Result`；classic protection 仍 4 条未动。**这笔 PR 自身就是新语义的第二个现场样本**（两次 head 各一次）：`GUI Changes=pass → gui-test=skipping → GUI Gate Result=pass`。 |
 
 ### 成本与收益的现场读数（不写推测）
 
@@ -35,6 +32,18 @@ sync_backfill_owner: 下一个会话（按 AGENTS.md「合并后收尾清单」�
 2. **第一次 PUT 打到空 owner**：`gh api -X PUT "repos/$owner/..."` 里的 `owner` 定义在上一条 Bash 调用里，而 shell 状态不跨调用 ⇒ URL 变成 `repos//rulesets/...` 返回 404。当场用「`updated_at` 仍是 2026-09-21 + 清单仍 6 条」证明**什么都没改**，不是半途写入。
 3. **`OUT=<path> node -e ...` 把环境变量写在命令之后**（同一会话第三次踩同一条），以及**门禁报告的归属用 `grep -qF` 在正文里找**
 4. **字节级「末行插一条」把文件的 EOF 换行吃掉了**：`ledger-insert.js` 里 `raw.slice(0, closeIdx).replace(/\s+$/, '')` 之后再 `raw.slice(closeIdx + 1).replace(/^\s+/, '')`，第二个 replace 正好删掉了 `}` 后面那唯一的 `\n`。提交后逐文件对账 `HEAD~1` vs `HEAD` 的 `ends_nl` 才发现（其余 5 个文件 same，只有它 `true → false`）。**教训**：行尾对账不能只跑 `git diff --numstat` 两口径——它抓的是 CR，抓不到「尾换行被吃掉」；改完文件必须逐文件断言 `ends_nl` 前后相同，或干脆用 `split/join` 而不是 `slice+trim` 拼装。——后者造成一条伪命中（把别处一段含 "CHANGELOG.md" 的乱码路径读成「CHANGELOG.md 在失效清单里」），改为只提取报告的文件头行整行匹配，并加「清单非空」断言。
+
+
+### 合并前两度 re-sync（置顶型文档与 ledger 的并发竞争，2026-10-14 实测）
+
+- **第一轮**：上游两个回填 PR（#3587/#3588）在 `scripts/gate-record-debt-ledger.json` 里**删掉 2 条销账项**，与我新增的那一条落在同一区域 ⇒ `mergeable_state=dirty`，GitHub 因冲突**根本没排队任何 workflow**（`check-runs` 总数 0、`gh run list --branch` 空）。当时我把「检查一条都没来」先当成 CI 故障，量出 `mergeable_state=dirty` 才定性——**判据：PR 无检查先读 mergeable，别先怀疑 runner**。解冲判据是内容断言而非「取后推」：`ours=20 → merged=21`、我的键在位、且被上游撤销的 2 条**保持缺席**（`revoked_present=[]`）。
+- **第二轮**：main 又进 2 个提交（#3589 及其回填），两个**置顶型文档**同时冲突。第一版解法我写的块边界正则是 `process.env.HEAD_RE === "hash" ? /^# / : /^## /`——CHANGELOG 是 `# ` 形态而我**没传该环境变量**，于是静默落到 `/^## /`，边界一路扫到 **125 行**才停，把上游 **15 个条目**当「我的块」复制了一份。
+- **为什么当场三条自证全绿却仍是坏的**：`upstream_lines_kept=true`（多重集包含对**复制**天生免疫）、`my_lines_kept=true`、`conflict_markers=0`、`ends_nl=true` 全部为真。抓住它的是两条**不复用该算式**的读数：① `merged_lines - upstream_lines = 125` 与预期 9 行差得离谱；② 统计一级条目头（`# ` 开头的行）合并后 **467**，而 stage2 与 stage3 各自 **452**。正解是加一条硬断言 `merged_heads === upstream_heads + my_block_heads`，并把块边界正则改成**无默认值、缺失即 throw**（同一脚本对 `.quality-gates.md` 是对的——它确实是 `^## ` 形态，13 行；一份默认值在两文件上一对一错，正是「看起来在工作」的危险形态）。
+- 重复计数校验还要与 `:2:`/`:3:` 各自的计数对照才算数：`# CHANGELOG` 在合并后出现 4 次，但两侧本来就各 4 次，属既有事实而非我造的重复。
+
+### 第五条自留错误（写这条纪律的当场又犯了一次它描述的那个错）
+
+- 我给记忆文件追加「置顶冲突解法器不得用带默认值的块边界正则」这条时，用 Edit 把**旧条目的首行**当 `old_string`、`new_string` 末尾虽重放了它，但重放的文本与文件里的引号形态不同 ⇒ 旧条目首行仍被吞、其续行变成无头孤儿。**发现方式**：写完 `grep -c 关键短语` = 0（而不是我以为的 1），再 `sed -n 208,213p` 直接读那一片。修复走「行数组 splice + 幂等守卫前置 + 行数守恒断言（299→300）+ 命中数恰为 1」，全程不用字节下标。**再次印证本仓那条老结论：记忆与自觉对这类错误无效，能挡住的只有免错写法与写完的计数断言。**
 
 ### 遗留（不假装已闭合）
 
