@@ -24,7 +24,7 @@
 | `composables/useLoginGate.js` | `ElMessage.warning('登录未完成，操作已取消')` | 2 |
 | `composables/useProviderCrud.js` | `ElMessage.error('加载失败')`、`ElMessage.success('已删除')` | 10+ |
 | `composables/useFilmEngineering.js` | `ElMessage.warning('请先选择拍摄镜头')` 等 | 15+ |
-| `composables/useModelProviderCrud.js` / `useOpsCenterSync.js` / `useVideoClone.js` | 混合：部分走 `formatUserError`，部分硬编码 | 混合 |
+| `composables/useModelProviderCrud.js` / `useVideoClone.js` | 混合：部分走 `formatUserError`，部分硬编码 | 混合 |
 
 这些文案存在既有 i18n 系统的另一侧（`locales/zh.js`/`en.js`）形成**双轨制**：走 i18n 的（如 `useFilmEngineering` 部分）可本地化，硬编码的（如 `useBatchPublish` 大部分）只有中文、且未来无法加 en 翻译。
 

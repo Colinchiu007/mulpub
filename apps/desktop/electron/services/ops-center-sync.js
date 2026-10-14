@@ -21,9 +21,9 @@ const crypto = require('./crypto')
 const nodeCrypto = require('crypto') // 内建密码学：Ed25519 验签（与上方 safeStorage 封装区分）
 // 应用菜单配置净化（2026-09-15）：拆出独立模块以控制本文件体量（债务熔断 < 500 行）
 const { normalizeAppMenu } = require('./app-menu-config')
-const { resolveAutoSyncGuard } = require('./ops-center-sync-autosync-guard')
+const { resolveAutoSyncGuard, emitAutoSyncOutcome, safeOrigin } = require('./ops-center-sync-autosync-guard')
 // P0-1 信任锚：内置 DEV 公钥只对未打包态生效（判据拆独立模块，兼控本文件体量）
-const { resolveTrustAnchor } = require('./runtime-trust-anchor')
+const { resolveTrustAnchor, resolveRuntimePublicKey, isPackagedApp } = require('./runtime-trust-anchor')
 // 统一内容类别（2026-10-03）：热门选题 / 采集库 / 账号标签 共用的单一真源
 const { normalizeContentCategories } = require('./content-categories')
 // 断连韧性：L2/L3 数据源 + canonicalJson/config_hash 真源（canonicalJson 自本文件迁入，导出保持不变）
@@ -39,8 +39,7 @@ const MAX_FEATURE_FLAGS = 100
 /**
  * 内置默认 Ed25519 公钥（DEV KEY，2026-09-02 生成）。
  * 与 ops-center/backend/.env.example 中标注的「DEV-ONLY 默认私钥」配对，仅用于开发/演示自验环。
- * 生产部署必须自建密钥对，并在「运营中心同步配置」中指定自定义 runtimePublicKey，
- * 使验签信任锚唯一——默认公钥不作为任何生产部署的信任锚。
+ * 生产部署必须自建密钥对，并在**部署层**（identity-public.json 的 runtimePublicKey / env RUNTIME_PUBLIC_KEY）指定信任锚，默认公钥不作生产信任锚。
  */
 const DEFAULT_RUNTIME_PUBLIC_KEY = [
   '-----BEGIN PUBLIC KEY-----',
@@ -334,7 +333,7 @@ class OpsCenterSync {
     const updated = { url: manualUrl || '', apiKeyEnc: this._getStoredKeyEnc(), autoSync: cfg.autoSync, lastSyncedAt: nowIso, runtimePublicKey: cfg.runtimePublicKey || '' }
     try { this._store.setSetting(SETTING_KEY, updated) } catch (e) { this._log.notify('OpsCenterSync', 'last-synced-at-persist-failed', { level: 'WARN', error: String(e.message) }) }
 
-    this._log.notify('OpsCenterSync', 'catalog-synced', { params: { updated: result.updated, at: nowIso } })
+    this._log.notify('OpsCenterSync', 'catalog-synced', { params: { updated: result.updated, at: nowIso, origin: safeOrigin(effectiveUrl) } })
     return { code: 0, updated: result.updated, syncedAt: nowIso, ...runtimeResult }
   }
 
@@ -380,10 +379,9 @@ class OpsCenterSync {
     return this._readStoredObject(SETTING_KEY).apiKeyEnc || ''
   }
 
-  /** 读取自定义 Ed25519 公钥（PEM）；未配置自定义锚返回空串（verify 时回退内置默认锚） */
+  /** 读验签公钥：部署层优先，其次历史设置项；都没有返回空串（按打包态回落 DEV 或 fail-closed） */
   _getRuntimePublicKey() {
-    const pem = this._readStoredObject(SETTING_KEY).runtimePublicKey
-    return (pem && String(pem).trim()) ? String(pem).trim() : ''
+    return resolveRuntimePublicKey(this._deploymentPublicKey, this._readStoredObject(SETTING_KEY).runtimePublicKey)
   }
 
   // ─── 运行时策略（公告 / 版本发布 / 内容安全）────────────────
@@ -530,6 +528,8 @@ class OpsCenterSync {
   setOpsCenterUrl(url) {
     this._autoOpsCenterUrl = normalizeUrl(url || '') || ''
   }
+
+  setRuntimePublicKey(pem) { this._deploymentPublicKey = pem ? String(pem).trim() : '' }
 
   /**
    * 注入运行时策略变更通知器（由 bootstrap 在窗口就绪后接线）：
@@ -752,9 +752,9 @@ class OpsCenterSync {
       this.restoreRuntimeFromDisk()
       const cfg = this.getConfig()
       const auto = this._getAutoContext()
-      // 判据外移（债务熔断），但出声必须在这里：早退原先静默 = 失败无信号
-      const guard = resolveAutoSyncGuard(cfg, !!auto, normalizeUrl(this._autoOpsCenterUrl || process.env.OPS_CENTER_URL || ''), typeof this._getAccessToken === 'function')
-      if (!guard.ok) return this._log && this._log.notify('OpsCenterSync', guard.reason, { level: 'WARN', params: guard.params })
+      const guard = resolveAutoSyncGuard(cfg, !!auto, normalizeUrl(this._autoOpsCenterUrl || process.env.OPS_CENTER_URL || ''), typeof this._getAccessToken === 'function', isPackagedApp(), !!this._getRuntimePublicKey())
+      emitAutoSyncOutcome(this._log, guard)
+      if (!guard.ok) return
       setTimeout(() => {
         this.syncNow().then((r) => {
           if (r.code !== 0) this._log.notify('OpsCenterSync', 'auto-sync-skipped', { level: 'WARN', error: String(r.message) })

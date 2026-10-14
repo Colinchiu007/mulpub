@@ -7,6 +7,15 @@
  * lastSyncedAt 落盘、启动自动同步。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { createRequire } from 'module'
+// 被测模块是主进程 CJS：在 ESM 测试里必须经 createRequire 载入，**否则拿到的是另一个模块实例**
+// （本仓既有先例与注释见 runtime-trust-anchor.test.js:20 / bilibili-audit-check.test.js:18）。
+// 本轮实测踩到：用 `import { configurePackagedProbe }` 时，打包态探针写进了测试侧的实例，
+// 被测服务里的 `require('./runtime-trust-anchor')` 仍是另一个 ⇒ 探针**静默不生效**，
+// 「打包版缺锚」用例因此假绿（syncNow 被调用）。
+const require$ = createRequire(import.meta.url)
+const { emitAutoSyncOutcome, safeOrigin, resolveAutoSyncGuard } = require$('./ops-center-sync-autosync-guard')
+const { configurePackagedProbe, resolveRuntimePublicKey } = require$('./runtime-trust-anchor')
 
 __registerMock('./crypto', {
   isAvailable: () => true,
@@ -392,7 +401,7 @@ describe('OpsCenterSync autoSyncOnStart', () => {
     vi.advanceTimersByTime(10000)
     expect(spy).not.toHaveBeenCalled()
     expect(eventsOf(log)).toContain('auto-sync-not-started-unconfigured')
-    expect(paramsOf(log, 'auto-sync-not-started-unconfigured').hint).toContain('未配置运营中心地址')
+    expect(paramsOf(log, 'auto-sync-not-started-unconfigured').hint).toContain('部署层未提供运营中心地址')
   })
 
   it('自动发现到地址但缺登录令牌：必须与「完全未配置」区分开（现场就是这一态）', () => {
@@ -411,9 +420,13 @@ describe('OpsCenterSync autoSyncOnStart', () => {
     const p = paramsOf(log, 'auto-sync-not-started-unconfigured')
     expect(p.autoUrlConfigured).toBe('https://ops.auto.example.com')
     expect(p.hasAccessToken).toBe(false)
-    // 这一态必须点出自动发现地址 + 手填 X-Catalog-Key 的出路，否则等于没报
+    // 这一态必须点出自动发现地址，并给出**正确**的出路：部署层配地址 + 身份登录走 Bearer。
+    // 早期 hint 写的是「手填 X-Catalog-Key」——两处都错：界面无填写入口，且 bootstrap 实际上
+    // Bearer 优先（verify_bearer_or_catalog_key）。若把错误出路留着，排查者会照做而无门。
     expect(p.hint).toContain('https://ops.auto.example.com')
-    expect(p.hint).toContain('X-Catalog-Key')
+    expect(p.hint).toContain('Bearer')
+    expect(p.hint).not.toContain('Bearer 不适用')
+    expect(p.hint).not.toContain('设置 → 运营中心同步')
   })
 
   it('有地址但缺 API Key 时：报 missing-api-key，不得报成 unconfigured', () => {
@@ -445,6 +458,99 @@ describe('OpsCenterSync autoSyncOnStart', () => {
     expect(eventsOf(log)).toContain('auto-sync-not-started-disabled')
     expect(eventsOf(log)).not.toContain('auto-sync-not-started-unconfigured')
     expect(paramsOf(log, 'auto-sync-not-started-disabled').hint).toContain('自动同步')
+  })
+
+  // ── 2026-10-14 第二轮：把「可用性」也变成信号 ──────────────────────────────
+  // 第一轮只覆盖了「没连上」，缺的是「连上了没法用」：打包版没有验签信任锚时，
+  // 即使 bootstrap 取回来也会被 fail-closed 丢掉整份运行时策略（含应用菜单）。
+  it('打包版缺验签信任锚：不调度，且报 no-trust-anchor（与配置类原因可区分）', () => {
+    vi.useFakeTimers()
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }
+    const store = makeStore()
+    // 地址与 Key 都齐备 ⇒ 配置类判据全过，唯一变量是「打包版 + 无锚」
+    store.setSetting('opsCenterSync', { url: 'https://ops.example.com', apiKeyEnc: 'enc', autoSync: true, runtimePublicKey: '' })
+    configurePackagedProbe(() => true)
+    try {
+      const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log })
+      const spy = vi.spyOn(svc, 'syncNow')
+      svc.autoSyncOnStart()
+      vi.advanceTimersByTime(10000)
+      expect(spy).not.toHaveBeenCalled()
+      expect(eventsOf(log)).toContain('auto-sync-not-started-no-trust-anchor')
+      expect(eventsOf(log)).not.toContain('auto-sync-not-started-unconfigured')
+      expect(eventsOf(log)).not.toContain('auto-sync-not-started-missing-api-key')
+      expect(paramsOf(log, 'auto-sync-not-started-no-trust-anchor').hint).toContain('runtimePublicKey')
+    } finally {
+      configurePackagedProbe(null)
+    }
+  })
+
+  it('打包版 + 有信任锚：放行调度，并出声记下这次用哪种身份（可用性也要有信号）', () => {
+    vi.useFakeTimers()
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }
+    const store = makeStore() // makeStore 预置了验签公钥
+    configurePackagedProbe(() => true)
+    try {
+      const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log })
+      svc.saveConfig({ url: 'https://ops.example.com', apiKey: 'k' })
+      const spy = vi.spyOn(svc, 'syncNow').mockResolvedValue({ code: 0 })
+      svc.autoSyncOnStart()
+      vi.advanceTimersByTime(10000)
+      expect(spy).toHaveBeenCalled()
+      expect(paramsOf(log, 'auto-sync-scheduled')).toEqual({ authMode: 'catalog-key' })
+    } finally {
+      configurePackagedProbe(null)
+    }
+  })
+
+  it('emitAutoSyncOutcome：成功与失败都出声；无日志器/空判据不得抛', () => {
+    const log = { notify: vi.fn() }
+    emitAutoSyncOutcome(log, { ok: true, authMode: 'bearer' })
+    expect(log.notify).toHaveBeenCalledWith('OpsCenterSync', 'auto-sync-scheduled', { params: { authMode: 'bearer' } })
+    emitAutoSyncOutcome(log, { ok: false, reason: 'R', params: { a: 1 } })
+    expect(log.notify).toHaveBeenLastCalledWith('OpsCenterSync', 'R', { level: 'WARN', params: { a: 1 } })
+    // 诊断侧绝不能把同步主流程带崩
+    expect(() => emitAutoSyncOutcome(null, { ok: true })).not.toThrow()
+    expect(() => emitAutoSyncOutcome({}, { ok: true })).not.toThrow()
+    expect(() => emitAutoSyncOutcome(log, null)).not.toThrow()
+  })
+
+  it('safeOrigin：只投影 origin，非法输入空串（URL 原文不入日志）', () => {
+    expect(safeOrigin('https://ops.iart.work/api/v1/runtime/bootstrap?token=SECRET')).toBe('https://ops.iart.work')
+    expect(safeOrigin('https://user:pw@ops.example.com:8443/x')).toBe('https://ops.example.com:8443')
+    expect(safeOrigin('not a url')).toBe('')
+    expect(safeOrigin('')).toBe('')
+    expect(safeOrigin(null)).toBe('')
+  })
+
+  it('resolveRuntimePublicKey：部署层优先于历史设置项，都没有则空串', () => {
+    expect(resolveRuntimePublicKey('DEPLOY-PEM', 'STORED-PEM')).toBe('DEPLOY-PEM')
+    expect(resolveRuntimePublicKey('', 'STORED-PEM')).toBe('STORED-PEM')
+    expect(resolveRuntimePublicKey('   ', '  ')).toBe('')
+    expect(resolveRuntimePublicKey(undefined, undefined)).toBe('')
+  })
+
+  // 打包态 × 信任锚的完整矩阵（纯函数级，不依赖模块实例状态）
+  it('打包态 × 信任锚矩阵：只有「打包 + 无锚」被拦，且原因唯一', () => {
+    const cfg = { url: 'https://ops.example.com', apiKeyConfigured: true, autoSync: true }
+    const call = (isPackaged, hasAnchor) => resolveAutoSyncGuard(cfg, false, '', false, isPackaged, hasAnchor)
+    // 打包 + 无锚 ⇒ 拦住（否则取到了也验不了签，整份运行时策略会被丢掉）
+    const blocked = call(true, false)
+    expect(blocked.ok).toBe(false)
+    expect(blocked.reason).toBe('auto-sync-not-started-no-trust-anchor')
+    expect(blocked.params.hint).toContain('runtimePublicKey')
+    // 打包 + 有锚 ⇒ 放行（不得把可用配置误拦）
+    expect(call(true, true)).toEqual({ ok: true, authMode: 'catalog-key' })
+    // 未打包（开发/演示，可回落内置 DEV 锚）⇒ 放行，不受锚影响
+    expect(call(false, false)).toEqual({ ok: true, authMode: 'catalog-key' })
+    expect(call(false, true)).toEqual({ ok: true, authMode: 'catalog-key' })
+  })
+
+  it('authMode 反映实际身份：有自动上下文走 bearer，否则 catalog-key', () => {
+    const auto = { url: '', apiKeyConfigured: false, autoSync: true }
+    expect(resolveAutoSyncGuard(auto, true, 'https://auto.example.com', true, false, false)).toEqual({ ok: true, authMode: 'bearer' })
+    const manual = { url: 'https://ops.example.com', apiKeyConfigured: true, autoSync: true }
+    expect(resolveAutoSyncGuard(manual, false, '', false, false, false)).toEqual({ ok: true, authMode: 'catalog-key' })
   })
 })
 
