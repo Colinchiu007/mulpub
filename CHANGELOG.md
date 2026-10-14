@@ -1,3 +1,11 @@
+# [未发布] fix(desktop): L3 种子探测改按文件描述符，消除打包版每次启动的 Node DEP0180（ops-seed-asar-stat）
+
+- 症状只有 163 字节，但代价很大：打包版 `Multi-Publish.exe` 每次启动都往 stderr 写一行 `DEP0180 fs.Stats constructor is deprecated`。QM-1 的三层判据今天起把「stderr 非空且未命中红线」判成 NEEDS_REVIEW，于是**每一个改主进程的 PR 都会停在同一次人工裁决**——这不是理论代价，#3595 就停在那儿。
+- 根因不在 Node、也不在第三方库，在我们的一行代码：`_probeSeed` 用 `fs.statSync` 探位于 `app.asar` 内的种子文件，而 Electron 为了让包内路径可 stat，走 `asarStatsToFsStats` 用已废弃的 `fs.Stats` 构造造对象。带堆栈取证（`--trace-deprecation` 必须当 argv 传给 exe，`NODE_OPTIONS` 在 Electron 主进程不生效），实测对照：`statSync/lstatSync/promises.stat` 触发、`existsSync/readFileSync/openSync+fstatSync` 不触发、普通磁盘路径全不触发（对照组）。
+- 修法换成 `openSync + fstatSync`，`closeSync` 进 `finally`；**没有**改成"先读进来再量长度"，因为 `MAX_SNAPSHOT_BYTES` 的语义是"超限就拒绝加载"，先读再判等于把防线换成读进内存再后悔——这条由一条 spy 回归锁钉住（超限场景 `readFileSync` 调用次数必须为 0）。
+- 顺带删掉一条装饰性回退：`resolveSeedPaths` 的第二个候选指向包外数据区，但 `build.extraResources` 从未登记 `ops-seed`，安装后那条路径永远不存在。它让人以为"包外还有一份、包内坏了有兜底"，而兜底是空的；连带删掉构造器形参 `resourcesPath` 与 `OpsCenterSync._resolveResourcesPath()`。要真搬出包外，PRD §7.1 写明必须同一 PR 补齐三件事（登记 extraResources + 恢复候选 + 放开结构锁），只做一半会得到"配置说在包外、代码还在包内"的分裂态。
+- 证据：TDD 两段实跑（改测试后 3 红 → 改实现后消费者并集 4 文件 177 passed / 0 failed）；变异 M1–M4 各自**指名红**且红集互不相同；结构锁本身踩中「注释里写着被禁 API 名 ⇒ 判据把注释当代码命中」的同形坑，修法是判据先剥注释而非删注释。复测 QM-1：asar 151,613,521 字节、归属自证通过、冷启动 **stderr 0 字节**（第③层成立）。
+
 # [未发布] 修复点左侧菜单「账号」反应特别慢——主进程 PBKDF2 串行阻塞改并行（fix-sidebar-nav-slow）
 
 - **根因**：`AccountManager.listAccounts()` 为给每个账号附加 `proxy` 代理状态，逐个调 `getAccountProxyStatus()` → `loadCredential()` → `decryptData()` → `pbkdf2Sync`（10 万次迭代，实测约 125ms/账号）。`pbkdf2Sync` 同步阻塞事件循环，N 个账号 = N×125ms 串行，IPC 全部算完才返回 —— 用户感知就是「点『账号』好几秒才加载」，且随账号数线性增长、无上界。

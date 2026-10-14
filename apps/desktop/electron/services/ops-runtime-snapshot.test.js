@@ -5,7 +5,7 @@
  * 覆盖：config_hash 计算范围（design §1.2 三条约束）、L2 完整原始 payload 往返、
  * 连接失败语义所需的「不写 L2」、L3 种子读取与词库剔除、种子 7 项 CI 校验判据。
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
@@ -310,15 +310,14 @@ describe('SEED_BLOCK_TYPES', () => {
 })
 
 describe('resolveSeedPaths', () => {
-  it('同时给出 asar 内相对路径与打包 extraResources 路径两种候选', () => {
-    const paths = resolveSeedPaths({ appDir: 'D:/app/apps/desktop/electron/services', resourcesPath: 'D:/app/resources' })
+  it('只有一个候选：随 asar 发布的那份（第二候选已因从未登记 extraResources 而删除）', () => {
+    const paths = resolveSeedPaths({ appDir: 'D:/app/apps/desktop/electron/services' })
+    expect(paths).toHaveLength(1)
     expect(paths[0]).toBe(path.join('D:/app/apps/desktop/electron/services', '..', '..', 'resources', 'ops-seed', 'runtime-bootstrap.json'))
-    expect(paths[1]).toBe(path.join('D:/app/resources', 'ops-seed', 'runtime-bootstrap.json'))
-    expect(paths).toHaveLength(2)
   })
 
-  it('未给 resourcesPath 时只给 asar 内候选（开发态）', () => {
-    expect(resolveSeedPaths({ appDir: 'D:/app/apps/desktop/electron/services' })).toHaveLength(1)
+  it('再传入 resourcesPath 也不得生出第二候选（防「顺手加回来」复活一条永远命中不了的探测）', () => {
+    expect(resolveSeedPaths({ appDir: 'D:/app/apps/desktop/electron/services', resourcesPath: 'D:/app/resources' })).toHaveLength(1)
   })
 })
 
@@ -424,18 +423,21 @@ describe('OpsRuntimeSnapshot — L3 种子（design §4.4/§4.5）', () => {
     expect(svc.getSeedStatus().stale).toBe(true)
   })
 
-  it('构造器未指定 seedPath 时按 asar 内与 extraResources 两处候选依次探测', () => {
-    // 显式给 appDir/resourcesPath 指向临时目录：本用例不依赖仓库里有没有真实种子文件
-    // （种子是 CI/发布产物，测试不能因为它被添加或删除而变红）
+  it('构造器只认 asar 内候选：往包外数据区写种子读不到，往候选那一位写才读到', () => {
+    // 显式给 appDir 指向临时目录：本用例不依赖仓库里有没有真实种子文件（种子是 CI/发布产物）
     const appDir = path.join(dir, 'fake-app', 'electron', 'services')
-    fs.mkdirSync(appDir, { recursive: true })
+    const inAsar = path.join(appDir, '..', '..', 'resources', 'ops-seed')
     const resourcesPath = path.join(dir, 'resources-root')
     fs.mkdirSync(path.join(resourcesPath, 'ops-seed'), { recursive: true })
+    // 只往包外写 ⇒ 仍判「没有种子」且不抛错（过去这条候选是靠第二项命中的，现已删除）
+    fs.writeFileSync(path.join(resourcesPath, 'ops-seed', 'runtime-bootstrap.json'), JSON.stringify(seedOf()), 'utf8')
     const svc = new OpsRuntimeSnapshot({ store: makeStore(), log: LOG, appDir, resourcesPath })
     expect(svc.getSeedStatus().exists).toBe(false)
-    fs.writeFileSync(path.join(resourcesPath, 'ops-seed', 'runtime-bootstrap.json'), JSON.stringify(seedOf()), 'utf8')
-    const svc2 = new OpsRuntimeSnapshot({ store: makeStore(), log: LOG, appDir, resourcesPath })
-    expect(svc2.readSeed().meta.configVersion).toBe(1)
+    expect(svc.readSeed()).toBeNull()
+    // 往唯一候选那一位写 ⇒ 读到
+    fs.mkdirSync(inAsar, { recursive: true })
+    fs.writeFileSync(path.join(inAsar, 'runtime-bootstrap.json'), JSON.stringify(seedOf()), 'utf8')
+    expect(new OpsRuntimeSnapshot({ store: makeStore(), log: LOG, appDir }).readSeed().meta.configVersion).toBe(1)
   })
 })
 // ─── 非整数 / 非有限数 / 超精度整数：两端必须一致地拒绝（QM-6 外部评审触发）────────
@@ -477,5 +479,57 @@ describe('computeConfigHash 对跨端不一致数值的 fail-closed（与 Python
   it('嵌套数组/对象里的非整数同样被拦', () => {
     expect(() => computeConfigHash({ rewrite_strategies: [{ items: [{ weight: 0.3 }] }] }))
       .toThrow(/rewrite_strategies\[0\]\.items\[0\]\.weight/)
+  })
+})
+
+describe('§L3 种子探测不得走 Electron 的 asar Stats 兼容层（Node DEP0180 源头）', () => {
+  const MOD = path.join(__dirname, 'ops-runtime-snapshot.js')
+
+  it('结构锁：_probeSeed 只能 open+fstat 探测，禁止 statSync/lstatSync/promises.stat，close 必须在 finally', () => {
+    const src = fs.readFileSync(MOD, 'utf8')
+    const start = src.indexOf('_probeSeed () {')
+    expect(start).toBeGreaterThan(-1)
+    const tail = src.slice(start)
+    const closing = tail.match(/\r?\n  \}\r?\n/)
+    expect(closing).toBeTruthy()
+    // 判据必须先剥注释再匹配：本函数的注释里就写着被禁 API 的名字，用来解释"为什么不用它"。
+    // 不剥注释 ⇒ 注释被当成代码命中（本仓已知的「结构锁不剥注释 = 幽灵通道」形态）。
+    const body = tail.slice(0, closing.index).split(/\r?\n/).filter((l) => !l.trimStart().startsWith('//')).join('\n')
+    expect(body).not.toMatch(/fs\.statSync/)
+    expect(body).not.toMatch(/fs\.lstatSync/)
+    expect(body).not.toMatch(/fs\.promises\.stat/)
+    expect(body).toMatch(/fs\.openSync/)
+    expect(body).toMatch(/fs\.fstatSync/)
+    expect(body).toMatch(/finally\s*\{[\s\S]*?fs\.closeSync/)
+  })
+
+  it('行为锁：超限种子必须在读盘之前就被拒绝——readFileSync 一次都不能被调用', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ops-seed-noread-'))
+    const seedPath = path.join(dir, 'runtime-bootstrap.json')
+    fs.writeFileSync(seedPath, ' '.repeat(MAX_SNAPSHOT_BYTES + 16), 'utf8')
+    const fsCjs = require('fs')
+    const spy = vi.spyOn(fsCjs, 'readFileSync')
+    try {
+      const svc = new OpsRuntimeSnapshot({ store: makeStore(), log: LOG, seedPath })
+      expect(svc.readSeed()).toBeNull()
+      expect(svc.getSeedStatus()).toMatchObject({ exists: true, usable: false })
+      expect(spy.mock.calls.length).toBe(0)
+    } finally {
+      spy.mockRestore()
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('行为锁：目录占位与文件缺失都只报「没有可用种子」，不得抛错', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ops-seed-dir-'))
+    const dirAsSeed = path.join(dir, 'runtime-bootstrap.json')
+    fs.mkdirSync(dirAsSeed)
+    const svc = new OpsRuntimeSnapshot({ store: makeStore(), log: LOG, seedPath: dirAsSeed })
+    expect(() => svc.readSeed()).not.toThrow()
+    expect(svc.readSeed()).toBeNull()
+    expect(svc.getSeedStatus().exists).toBe(false)
+    const svc2 = new OpsRuntimeSnapshot({ store: makeStore(), log: LOG, seedPath: path.join(dir, 'nope.json') })
+    expect(svc2.readSeed()).toBeNull()
+    fs.rmSync(dir, { recursive: true, force: true })
   })
 })

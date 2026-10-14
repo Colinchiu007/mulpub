@@ -124,7 +124,7 @@ class OpsCenterSync {
     // 方案C 零配置：运营中心自动发现 URL（由 bootstrap 经 setOpsCenterUrl 注入，优先于全局 env，避免污染其他读取者）
     this._autoOpsCenterUrl = ''
     // 断连韧性（2026-10-07）：L2/L3 数据源与上报侧独立成模块，本类只留接线
-    this._snapshots = new OpsRuntimeSnapshot({ store, log: this._log, resourcesPath: this._resolveResourcesPath() })
+    this._snapshots = new OpsRuntimeSnapshot({ store, log: this._log })
     // fetcher 必须显式注入：不注入时 reporter._fetcher 为 null，_postJson 一律返回
     // {code:0, skipped:true}，而调用方按 code 0 判定成功 ⇒ 降级事件被出队丢弃、ACK 被记为
     // 「已发」并空烧 24h 心跳窗口。测试因为注入了 fetcher 而全绿，生产却整条静默。
@@ -141,10 +141,6 @@ class OpsCenterSync {
     this._replayPayload = null
   }
 
-  /** 打包态的资源目录（开发态为空，只走 asar 内候选路径） */
-  _resolveResourcesPath() {
-    try { return process.resourcesPath ? String(process.resourcesPath) : '' } catch (_) { return '' }
-  }
 
   /** 上报鉴权（catalog key 优先，其次零配置自动发现的 bearer；判据见 reporter 模块注释） */
   _resilienceAuth() {

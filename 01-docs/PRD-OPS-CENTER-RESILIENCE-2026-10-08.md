@@ -297,6 +297,33 @@ CI 校验（`.github/scripts/check-ops-seed.js`）：
 
 > 第 6 条是**安全硬约束**：敏感词库进安装包 = 可被逆向提取。把封禁词库打进客户端等于公开词库。
 
+### 7.1 运行态怎么找到这份种子（2026-10-14 补，随 Node DEP0180 修复写回现实）
+
+- **候选只有一个**：`OpsRuntimeSnapshot` 只探 `<app>/resources/ops-seed/runtime-bootstrap.json`，
+  打包态该路径落在 `app.asar` 内（与 §7 上方「随 asar 发布」一致，由 `files` 白名单保证）。
+- **曾有第二个候选已删除**：`<process.resourcesPath>/ops-seed/runtime-bootstrap.json`，注释写的是
+  「extraResources 从 resources/ 拷出时」——但 `package.json` 的 `build.extraResources` 从未登记 `ops-seed`，
+  安装后那条路径永远不存在。它表面上提供回退、实际一次都命中不了，还会让读者以为包外有副本，
+  因此连同构造器形参 `resourcesPath` 与 `OpsCenterSync._resolveResourcesPath()` 一起删掉。
+- **真要搬出包外**（比如为了让运营者可直接替换种子）：必须**同一个 PR** 里补 `extraResources` 登记 +
+  恢复第二候选 + 恢复结构锁允许两个候选，三者缺一不可；只加其一会得到「配置说在包外、代码还在包内」的分裂态。
+  回归锁 `resolveSeedPaths` 的第二条用例专门拦「只把候选加回来」这一半动作。
+- **探测方式一律按文件描述符**：`fs.openSync` + `fs.fstatSync` + `finally` 里 `closeSync`。
+  原因不是风格：种子在 asar 内，`fs.statSync` 的结果由 Electron 的 `asarStatsToFsStats` 构造，而它用的是
+  Node 已废弃的 `fs.Stats` 构造 ⇒ **打包版每次启动都往 stderr 吐一行 `DEP0180`**。按现行 QM-1 三层判据，
+  「stderr 非空且未命中红线」＝ NEEDS_REVIEW，于是每个改主进程的 PR 都会停在同一次人工判断上。
+  实测对照（每种操作单独一个进程跑，因为 Node 每类弃用告警每进程只发一次）：
+  `statSync`/`lstatSync`/`fs.promises.stat` **触发**；`existsSync`/`readFileSync`/`openSync+fstatSync` **不触发**；
+  普通磁盘路径上三种都不触发（对照组，证明探针不是恒 0）。
+- **必须先看大小再决定读不读**：超限（`MAX_SNAPSHOT_BYTES`，1MB）的种子要**拒绝加载**，而不是读进内存后再判。
+  所以不能拿 `readFileSync` 的长度替代 `stat.size`。回归锁是一条 spy：超限场景下 `fs.readFileSync`
+  的调用次数必须为 0（变异 M2 把判定挪到读盘之后就让它指名红）。
+- **`exists` 与 `usable` 继续分开报**：文件在但超限/非法 ⇒ `exists:true, usable:false`；
+  目录占位或文件缺失 ⇒ `exists:false` 且不抛错。合成「读不到就是没有」会把「种子被拒」误报成「没打包种子」。
+- **结构锁**：`ops-runtime-snapshot.test.js` 末尾的 describe 断言 `_probeSeed` 函数体内
+  不得出现 `fs.statSync`/`fs.lstatSync`/`fs.promises.stat`，必须出现 `fs.openSync`+`fs.fstatSync`，
+  且 `closeSync` 在 `finally` 里。判据**先剥行注释再匹配**——函数注释里就写着被禁 API 的名字来解释为什么不用它。
+
 ---
 
 ## 8. 运营侧：怎么知道「改完生效了」

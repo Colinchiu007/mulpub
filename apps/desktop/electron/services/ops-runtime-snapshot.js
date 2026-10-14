@@ -163,17 +163,19 @@ function stripContentWordList (payload) {
 }
 
 /**
- * L3 种子候选路径（两处都要探，因为打包形态由 electron-builder 决定）：
- *   1) asar 内 <app>/resources/ops-seed/runtime-bootstrap.json（files 白名单包含 resources 时）
- *   2) <process.resourcesPath>/ops-seed/runtime-bootstrap.json（extraResources 从 resources/ 拷出时）
- * 开发态两者等价于仓库路径 apps/desktop/resources/ops-seed/runtime-bootstrap.json。
+ * L3 种子只有一个候选：asar 内的 <app>/resources/ops-seed/runtime-bootstrap.json。
+ * 「随 asar 发布」是 PRD-OPS-CENTER-RESILIENCE §7 与 openspec design §4.5 写定的形态，
+ * 打包配置的 files 白名单也确实把它打进了 app.asar。
+ *
+ * 这里曾有第二个候选 <process.resourcesPath>/ops-seed/…，注释写的是「extraResources 从 resources/
+ * 拷出时」——但 package.json 的 build.extraResources 从未登记 ops-seed，所以安装后那条路径
+ * 永远不存在：它是一个看上去提供回退、实际一次都命中不了的装饰候选，还会让人误以为包外有副本。
+ * 2026-10-14 删除。真要搬出包外，必须同一 PR 里补 extraResources 登记并恢复第二候选，缺一不可。
+ * 开发态该候选等价于仓库路径 apps/desktop/resources/ops-seed/runtime-bootstrap.json。
  */
-function resolveSeedPaths ({ appDir, resourcesPath } = {}) {
-  const candidates = []
+function resolveSeedPaths ({ appDir } = {}) {
   const base = appDir || __dirname
-  candidates.push(path.join(base, '..', '..', SEED_RELATIVE_PATH))
-  if (resourcesPath) candidates.push(path.join(resourcesPath, 'ops-seed', 'runtime-bootstrap.json'))
-  return candidates
+  return [path.join(base, '..', '..', SEED_RELATIVE_PATH)]
 }
 
 function isPlainObject (v) {
@@ -279,11 +281,11 @@ function replayLateBlock (payload, blockName, target, log, tag) {
 }
 
 class OpsRuntimeSnapshot {
-  constructor ({ store, log, seedPath, resourcesPath, appDir, now } = {}) {
+  constructor ({ store, log, seedPath, appDir, now } = {}) {
     this._store = store
     this._log = log || { info () {}, warn () {}, error () {}, notify () {} }
     this._now = typeof now === 'function' ? now : () => Date.now()
-    this._seedPaths = seedPath ? [seedPath] : resolveSeedPaths({ appDir, resourcesPath })
+    this._seedPaths = seedPath ? [seedPath] : resolveSeedPaths({ appDir })
   }
 
   /** 存储侧读取（与 ops-center-sync 同口径：必须走 getSettingObject，再 JSON.parse 会读成 [object Object]） */
@@ -350,21 +352,34 @@ class OpsRuntimeSnapshot {
    */
   _probeSeed () {
     for (const candidate of this._seedPaths) {
-      let stat
-      try { stat = fs.statSync(candidate) } catch (_) { continue }
-      if (!stat.isFile()) continue
-      if (stat.size > MAX_SNAPSHOT_BYTES) {
-        this._log.notify && this._log.notify('OpsRuntimeSnapshot', 'seed-rejected', { level: 'WARN', params: { path: candidate, reason: 'over-1mb', size: stat.size } })
-        return { path: candidate, size: stat.size, exists: true, usable: false, payload: null }
+      // 只按 fd 探测，不用 fs.statSync：种子在包内是 asar 里的文件，而 Electron 的 asar 兼容层
+      // （asarStatsToFsStats）造 Stats 用的是 Node 已废弃的 fs.Stats 构造 ⇒ 打包版每次启动都往
+      // stderr 吐一行 DEP0180。open+fstat 拿到同样的 isFile/size 且不触发那条路径（实测对照：
+      // statSync/lstatSync/promises.stat 触发；existsSync/readFileSync/openSync+fstatSync 不触发）。
+      let fd = null
+      let size = 0
+      try {
+        fd = fs.openSync(candidate, 'r')
+        const stat = fs.fstatSync(fd)
+        if (!stat.isFile()) continue
+        size = stat.size
+      } catch (_) {
+        continue
+      } finally {
+        if (fd !== null) { try { fs.closeSync(fd) } catch (_) { /* 关不上不影响探测结论 */ } }
+      }
+      if (size > MAX_SNAPSHOT_BYTES) {
+        this._log.notify && this._log.notify('OpsRuntimeSnapshot', 'seed-rejected', { level: 'WARN', params: { path: candidate, size } })
+        return { path: candidate, size, exists: true, usable: false, payload: null }
       }
       let raw
       try { raw = JSON.parse(fs.readFileSync(candidate, 'utf8')) } catch (_) {
-        this._log.notify && this._log.notify('OpsRuntimeSnapshot', 'seed-parse-failed', { level: 'WARN', params: { path: candidate } })
-        return { path: candidate, size: stat.size, exists: true, usable: false, payload: null }
+        this._log.notify && this._log.notify('OpsRuntimeSnapshot', 'seed-parse-failed', { level: 'WARN', params: { path: candidate, size } })
+        return { path: candidate, size, exists: true, usable: false, payload: null }
       }
-      if (!isPlainObject(raw)) return { path: candidate, size: stat.size, exists: true, usable: false, payload: null }
-      // 读取路径再次剔除词库：CI 是第一道防线，这里是第二道（本地/历史种子也可能是带词库的）
-      return { path: candidate, size: stat.size, exists: true, usable: true, payload: stripContentWordList(raw) }
+      if (!isPlainObject(raw)) return { path: candidate, size, exists: true, usable: false, payload: null }
+      // 读取路径再次剔除词库：CI 是第一道防线，这里是第二道（本地/历史种子也可能是带词库的老版本）
+      return { path: candidate, size, exists: true, usable: true, payload: stripContentWordList(raw) }
     }
     return { path: this._seedPaths[0] || '', size: 0, exists: false, usable: false, payload: null }
   }
