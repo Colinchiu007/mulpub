@@ -59,5 +59,6 @@
     "reason": "本 PR（fix-bridge-restart-loop）的远程同步待合并后由后续回填 PR 同一次提交内改写 PASS + merge SHA 并删除本条登记项",
     "status": "PENDING",
     "line": 11363
-  }
+  },
+  "本次执行记录：回填 #3585 远程同步 PASS + merge SHA，并销账（preset-readonly-guard）【docs-only】": "本回填 PR（bf-preset-readonly）的远程同步待合并后由后续 docs PR 回填并删除本条登记项"
 }
