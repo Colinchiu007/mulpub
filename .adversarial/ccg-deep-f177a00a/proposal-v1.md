@@ -130,7 +130,7 @@ index 000000000..ed14fc3e6
 +
 +| 引入提交 | 日期 | 贡献 |
 +|---|---|---|
-+| `d3cbe6a08` `feat: integrate 蚁小二 reverse engineering findings` | 2026-06-12 | 引入 `credential-store.js` 的 AES-256-GCM + PBKDF2 10 万次迭代派生。**这是性能特征的源头**：设计意图是"凭证要抗离线暴力破解"，迭代数选得高是对的；但它同时是同步实现 |
++| `d3cbe6a08` `feat: integrate 参考产品 reverse engineering findings` | 2026-06-12 | 引入 `credential-store.js` 的 AES-256-GCM + PBKDF2 10 万次迭代派生。**这是性能特征的源头**：设计意图是"凭证要抗离线暴力破解"，迭代数选得高是对的；但它同时是同步实现 |
 +| `17458ef04` `feat(publish): harden account lifecycle and platform workflows` | 2026-07-25 | 在 `listAccounts()` 里接入 `getAccountProxyStatus(accountId, platform)`，把「逐个账号解密凭证」放进了**列表**这条路径 |
 +
 +`git log -S 'getAccountProxyStatus(accountId, platform)'` 定位到后者；`git log -S '100000, KEY_LENGTH'` 定位到前者。
