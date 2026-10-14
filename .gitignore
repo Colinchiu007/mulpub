@@ -106,6 +106,10 @@ apps/desktop/tests/e2e/reports/film-engineering-real/
 scripts/*.js
 !scripts/ci-pr-changeset.js
 !scripts/ci-pr-changeset.test.js
+# GUI 相关性判据本体：第 106 行 scripts/*.js 会把它静默忽略，而 gui-test.yml 的 changes 作业
+# 与 gui-ci-exit-contract.test.js 都按路径点名它 —— 漏这条 negation 的症状是本地全绿、CI 上
+# Cannot find module（#3011 / Gate 2c3 同族，第三次）。
+!scripts/ci-gui-relevance.js
 !scripts/quality-rhythm-wrapper.js
 !scripts/ccg-gate.js
 !scripts/ccg-deep-review.js

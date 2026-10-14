@@ -1,14 +1,12 @@
 name: GUI Tests
 
 on:
+  # 路径判定**不在触发层**：`on.pull_request.paths` 白名单不匹配时整条 workflow 不启动，
+  # 于是本检查在 required 语义下是"永远不到来"而不是"跳过"（实测 #3499：只改 openspec/records
+  # 的 PR 上 build / electron-tests / 债务熔断检查 都以 skipping 出现，GUI Tests 计数 0）。
+  # 白名单本身搬到 scripts/ci-gui-relevance.js，由下面的 changes 作业逐 PR 计算（同 electron-ci 先例）。
   pull_request:
     branches: [main]
-    paths:
-      - 'apps/desktop/**'
-      - 'packages/**'
-      - 'package.json'
-      - 'pnpm-lock.yaml'
-      - '.github/workflows/gui-test.yml'
   push:
     branches: [codex/gui-test*, main]
     tags: [v*]
@@ -25,8 +23,51 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # GUI 相关性判定（形状照 electron-ci.yml / quality-gate.yml 的 changes 作业；判据本体在
+  # scripts/ci-gui-relevance.js，diff 与 glob 复用 classify-docs-only.js，不写第二份）。
+  # 取 base/head 走 scripts/ci-pr-changeset.js 而不是直接读 github.event.*.sha：
+  # PR 打开后 main 又前进时，checkout 出来的是合并提交，直接算会把别人的提交算进本 PR。
+  changes:
+    name: GUI Changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      gui-relevant: ${{ steps.gui.outputs.gui-relevant }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # merge-base diff 需要完整历史
+
+      - name: Detect GUI-relevant changes
+        id: gui
+        shell: bash
+        env:
+          EVT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # 非 PR 事件（main push / tag / dispatch）一律照旧全量跑，绝不因这次改动被短路。
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "gui-relevant=true" >> "$GITHUB_OUTPUT"
+            echo "gui-relevant=true (non-PR event: full run)"
+            exit 0
+          fi
+          CHANGESET="$(node scripts/ci-pr-changeset.js --repo="$PWD" --evt-name="${{ github.event_name }}" --evt-base="${EVT_BASE_SHA:-}" --evt-head="${EVT_HEAD_SHA:-}")" || exit 1
+          echo "[gui-changeset] $CHANGESET"
+          BASE="$(printf '%s\n' "$CHANGESET" | sed -n 's/^base=//p')"
+          HEAD_SHA="$(printf '%s\n' "$CHANGESET" | sed -n 's/^head=//p')"
+          if [ -z "$BASE" ] || [ -z "$HEAD_SHA" ]; then
+            echo "::error::取不到本 PR 的 base/head（[${BASE}]/[${HEAD_SHA}]）；不得退回 HEAD=合并提交——那会把期间 main 的他人提交算进本 PR 而误判相关性"
+            exit 1
+          fi
+          node scripts/ci-gui-relevance.js --base="$BASE" --head="$HEAD_SHA" --repo="$PWD"
+
   gui-test:
     runs-on: windows-latest
+    needs: [changes]
+    # 相关性短路：不相关的 PR 让本 job 显示为 skipped（skipped 满足 required check 口径，
+    # 与 build / electron-tests 同形）。非 PR 事件必须留在条件里，否则 main push 与 tag
+    # 发布链路会被 changes 的 "true (non-PR)" 之外的任何漂移一并短路掉。
+    if: github.event_name != 'pull_request' || needs.changes.outputs.gui-relevant == 'true'
     timeout-minutes: 30
     defaults:
       run:

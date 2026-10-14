@@ -1,3 +1,13 @@
+# [未发布] GUI Tests 的检查在 required 语义下会整体缺席——路径判定从触发层下沉到作业层（gui-test-required-shape）
+
+- 根因不是"某个 PR 忘了配"：`on.pull_request.paths` 白名单不匹配时整条 workflow 不启动，GitHub 连 check run 都不产生，于是 required 清单里这条是「永远不到来」而不是「跳过」。现场对照（同一 PR 两种形态并存）：#3499 只改 `openspec/records/`，`build` / `electron-tests` / `债务熔断检查` 都以 `skipping` 出现并满足 required，`GUI Tests` 计数 0——差别只在三者把路径判定放在作业层 `changes` 作业，而 `gui-test.yml` 放在触发层。
+- 新增判据 `scripts/ci-gui-relevance.js`：导出 `GUI_PATHS`（原 5 项逐字搬入，搬家不改需求）与 `isGuiRelevant(files)`；diff/glob 复用 `classify-docs-only.js` 的 `changedFileStatuses`/`matchesPattern` 不写第二份，base/head 走 `ci-pr-changeset.js`（防 PR 打开后 main 前进时把他人提交算进本 PR）。取证失败一律 `exit 1` 且**不写 `GITHUB_OUTPUT`**——把"读不到"写成 `gui-relevant=false` 就是静默跳门。
+- workflow 形状：PR 触发去掉 `paths`；新增 `GUI Changes` 作业（非 PR 事件恒判相关，main push / tag / dispatch 照旧全量）；`gui-test` 作业 `needs: [changes]` + `if: github.event_name != 'pull_request' || needs.changes.outputs.gui-relevant == 'true'`。`push` 触发的过滤保持不变，本笔只修 PR 侧检查缺席。
+- 回归锁 6 条（改写 1 条把旧形状钉成契约的用例 + 新增 5 条）：PR 触发不得带 paths / 清单不缩水 / 相关性按行为判定 / needs+if 接线 / push 不变，外加一条 CLI 端到端（临时真 git 仓库：文档判否、桌面判是、取证失败 rc=1 且不写产出、正常路径必须真的追加 GITHUB_OUTPUT）。TDD 先红 4 条后 37/37；反证 8 条逐条 CAUGHT（`MISSED=0 WRONG_CAUSE=0 RESTORED_BYTES_EQUAL=true`），其中两次 MISSED 都查实为**驱动自身**失效——多行锚点按 LF 拼在 CRLF 工作副本上 0 命中，以及 `return false || files.some(…)` 等价于原实现（恒假从未注入）。
+- 决策来源的度量全部当场重取：最近 1000 次 PR 完成运行 = `success 915 / cancelled 76 / failure 9`；9 条读日志原文分档为 **7 真缺陷 / 2 环境**（推翻本轮早前先报的"3 真 / 5 环境"）；`cancelled` 由 `cancel-in-progress` 解释为被同 PR 下次推送顶掉的旧 sha，按 PR 取末次运行后 **266/266 全 success**。成功时长 p50=188s / p90=304s / p99=592s。
+- 同 PR 纠正 `.github/scripts/workflow-contract.test.js` 里的豁免句：原写「正向 paths 白名单仍允许，不影响 required 语义」，与上述实测冲突——它只在该检查不进 required 时成立。该文件 2026-09-21 禁 `paths-ignore` 的理由（纯文档 PR 永不产生该检查 ⇒ mergeStateStatus 永久 BLOCKED）本就适用于正向白名单，只是当时没有 required 检查挂在白名单 workflow 上。
+- 边界：本笔只让 GUI Tests **有资格**进 required；把它真正写进 classic 保护（4 条）或 ruleset `main-ci-gate`（6 条）的并集属「改谁来守门」，未随本笔执行，且 check 名须在真实 PR 检查清单里现场读取而非按 YAML 键猜。
+
 # [未发布] feat(scripts): PRD 提示文字逐字表改由脚本生成并接 CI 漂移门禁（prd-copy-table-generator）
 
 - 新增 `scripts/gen-prd-copy-table.js`：从 `apps/desktop/src/locales/podcast/{zh,en}.js` 实读生成 PRD 两节逐字表，`--check` 不一致即 rc=1；接线在 quality-gate 的 changes job（不受 docs-only 短路影响）。
