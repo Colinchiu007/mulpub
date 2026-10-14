@@ -8,6 +8,36 @@
 - 同 PR 纠正 `.github/scripts/workflow-contract.test.js` 里的豁免句：原写「正向 paths 白名单仍允许，不影响 required 语义」，与上述实测冲突——它只在该检查不进 required 时成立。该文件 2026-09-21 禁 `paths-ignore` 的理由（纯文档 PR 永不产生该检查 ⇒ mergeStateStatus 永久 BLOCKED）本就适用于正向白名单，只是当时没有 required 检查挂在白名单 workflow 上。
 - 边界：本笔只让 GUI Tests **有资格**进 required；把它真正写进 classic 保护（4 条）或 ruleset `main-ci-gate`（6 条）的并集属「改谁来守门」，未随本笔执行，且 check 名须在真实 PR 检查清单里现场读取而非按 YAML 键猜。
 
+# [未发布] docs(podcast): §8.2 compliance 合同措辞写回实测取值面（podcast-prd-compliance-wording）
+
+- 合同里「`compliance.reasons` 是 `PODCAST_*` 一族」与「码表取 `podcast-error-codes.test.js` 那份清单」两条**互相不可满足**：该测试的正向 harvest 只认 `PODCAST_` 前缀、`PRODUCERS` 12 项全在 `apps/desktop/`，而 `validateEpisode`（`packages/shared-utils/src/podcast-rss.js:136`）产出的是 `EPISODE_*` 族。照旧实现要么把锁退化成「字符串非空」（对有码无文案失明），要么给 RSS 层的码统一改名（牵动 98 个 locale 键与 §6.3 已合并的 `PODCAST_FEED_INVALID` 透传合同）。
+- 现按实测改写：`reasons` 字面值 = `validateEpisode` 原样透出的 **19** 条 `EPISODE_*`（另 3 条经 `resolveEnclosure` 转推，已逐行核对）；码表真源 = `apps/desktop/src/locales/podcast/{zh,en}.js` 的 `errors` 键集（zh 98 / en 98，实测**缺文案 0 条**）；文案渲染唯一实现 `issueText()`，展示层不得再写第二份映射。新增 PRD §8.2.8 记录取值面与重跑口径，并要求实现片同 PR 把 `podcast-rss.js` 加进清点式门禁扫描域。
+- 本节仍只是合同，不含实现（实现在下一片 tasks 4.4b②）。
+
+# [未发布] 让「运营」退出应用用户面 + 验签信任锚下沉部署层（ops-ingress-only）
+
+- **用户判断成立，且比表面更严重**：「不应该让应用中存在运营方面的设置」——核实后用户面上残留的运营信息里有一句**可能为假的话**：
+  `ModelProviders.vue` 的 `opsReadonlyHint`（「已启用运营后台同步：预设服务商模型列表由运营后台下发，此处为只读」）**无条件显示**，
+  而它旁边的只读门控 `syncConfigured` **恒为 false**（`loadSyncConfig` 从未被调用）⇒ 提示与其驱动的 `:disabled` 从未生效。
+- **既存生产洞（本笔修掉）**：`runtimePublicKey`（验签信任锚）原先只有 settings 一个来源，写入只经 `ops-center-sync:save` IPC，
+  而该 IPC 的唯一调用方——「运营中心同步」表单——**早已从界面撤下**。于是打包版**不存在任何可达的配置路径**，
+  `resolveTrustAnchor` 必然 `NO_PRODUCTION_TRUST_ANCHOR`，**生产版整份运行时策略（含应用菜单）fail-closed 不应用**。
+  修法：信任锚下沉部署层，与 `opsCenterUrl` 同机制 —— `config/identity-public.json` 的 `runtimePublicKey`，
+  可经 `RUNTIME_PUBLIC_KEY` env 覆盖；设置项降为**次优先**仅为兼容既有安装（已无用户界面可写）。安全不变量未动：打包 + 无锚仍 fail-closed。
+- **渲染端运营面清零**（死代码，非行为变更）：删 `composables/useOpsCenterSync.js` 与其测试（表单状态/保存/立即同步在非 locale 代码里**零调用方**）；
+  `ModelProviders.vue` −93 行（18 个 `.ops-sync-*`/`.auto-*` CSS 死规则块、3 处 `v-if` 提示、2 处无条件提示、1 处 `:disabled`）；
+  locale zh/en **各 −18 键**（成对一致）；`01-docs/ARCH-notify-log-standard.md` 里对该已删文件的引用同步改写。
+- **可用性也变成信号**：守卫新增 `auto-sync-not-started-no-trust-anchor` **前置**判据（在花掉一次请求**之前**说清），
+  `ok` 时返回 `authMode`（bearer / catalog-key）并新增 `auto-sync-scheduled` 事件；
+  `catalog-synced` 日志新增 `origin` —— 只为分辨「连的是哪个运营中心」（用户本轮困惑正源于此），
+  且**只投影 origin**（`safeOrigin` 剥离 userinfo/查询串，异常一律空串，诊断不得把同步主流程带崩）。
+- **提示文案不再指向任何应用内界面**：一律指向部署层字段名，并加反向断言 `not.toContain('设置 → 运营中心同步')` /
+  `not.toContain('Bearer 不适用')` —— 后者是上一轮我未读实现即采信 docstring 留下的**错误结论**。
+- QM-1：`pnpm run build:dir` rc=0；asar 清单含 `ops-center-sync-autosync-guard.js`、`runtime-trust-anchor.js`，且**不含** `useOpsCenterSync`。
+- 回归锁 86 条全绿（新增 6 条）；**变异反证**：3 处改坏各自打红目标用例、还原后全绿。
+- 本轮实测踩到并修正的测试基建坑：ESM `import` 主进程 CJS 与服务的 `require` **不是同一模块实例** ⇒ 打包态探针静默失效、
+  锁会**假绿**；本仓已有 `createRequire` 先例而本笔违反了它，现已按先例取模块并把原因写进注释。
+
 # [未发布] feat(scripts): PRD 提示文字逐字表改由脚本生成并接 CI 漂移门禁（prd-copy-table-generator）
 
 - 新增 `scripts/gen-prd-copy-table.js`：从 `apps/desktop/src/locales/podcast/{zh,en}.js` 实读生成 PRD 两节逐字表，`--check` 不一致即 rc=1；接线在 quality-gate 的 changes job（不受 docs-only 短路影响）。
