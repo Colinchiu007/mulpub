@@ -2,10 +2,6 @@
 record: p3-1-criterion9-anchor
 task: 修 P3-1 判据⑨ 的假绿（正则缺 m 标志）+ 链名别名（视频号 shipinhao）
 date: 2026-10-15
-# ↓ 三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在，无法取证收口
-sync_backfill_owner: 下一个会话（按三形态同改纪律：表格行 + bullet + 删除本段三字段，同一次提交）
 ---
 
 ## 本次执行记录：修 P3-1 判据⑨ 假绿（p3-1-criterion9-anchor，2026-10-15）
@@ -116,9 +112,9 @@ const hasApi = /^[ \t]{4}has_api:[ \t]*true/.test(block)   // ← 缺 m 标志
 | `check-no-brand-residue` | PASS | 扫描全仓 tracked 文件无残留 |
 | 行尾/编码对账 | PASS | 两口径一致 |
 | **QM-1 打包** | **不适用** | 分层判据只要求 `apps/desktop/electron/` 或 `packages/rpa-engine/`；本 PR 只改 `scripts/` + `01-docs/`，不碰运行时代码 |
-| 远程同步 | PENDING | 本 PR 未合并 |
+| 远程同步 | PASS —— PR #3610 已合并为 `origin/main` `a91b5d9473e593280b437a773b6008411a163885`（2026-10-15T03:23:49+08:00，squash merge）；远端分支随合并自动删除。合并后复核：我改的 4 个文件与 merge SHA **零差异**，主干上判据⑨ 的 `m` 标志与 `CHAIN_NAME_ALIASES` 均在场、脚本自测 **18/18**。**另注：首次推送时 `QG Coverage` 因 `test_scheduler_parity.test.js` 的 Python 模拟器失败而红 —— 本地在含全部改动的工作区跑该测试 3/3 通过，判定与本次改动无关，只重跑失败 job 后通过（未改任何调度器代码）** |
 
-- 保留门禁：脚本自测 18/18 ✅ | 变异反证 ✅ | 判据⑨ 如实报到 ✅ | unwired ✅ | 品牌 ✅ | 行尾 ✅ | 远程同步 PENDING
+- 保留门禁：脚本自测 18/18 ✅ | 变异反证 ✅ | 判据⑨ 如实报到 ✅ | unwired ✅ | 品牌 ✅ | 行尾 ✅ | 远程同步 PASS
 
 ## ★ 本记录自身的一次事故：漏写「远程同步」两形态
 
