@@ -1371,6 +1371,25 @@ var require_signer = __commonJS({
   }
 });
 
+// electron/preload/cards.js
+var require_cards = __commonJS({
+  "electron/preload/cards.js"(exports2, module2) {
+    function createCardsApi(ipcRenderer2) {
+      return {
+        /**
+         * 分页渲染：入参 { pages: string[][], widthPx?, heightPx? }，
+         * 成功返回 { code: 0, data: [png 路径...] }（路径数 === pages 长度）。
+         *
+         * ★ 失败纪律由主进程保证：任一步失败即返回 { code, message }，
+         *   **不返回部分产物** —— 少一页比全失败更危险（用户会以为发全了）。
+         */
+        cardsRender: (payload) => ipcRenderer2.invoke("render:cards", payload)
+      };
+    }
+    module2.exports = { createCardsApi };
+  }
+});
+
 // electron/preload/access-control.js
 var require_access_control = __commonJS({
   "electron/preload/access-control.js"(exports2, module2) {
@@ -1640,6 +1659,7 @@ var require_preload = __commonJS({
     var { createPodcastApi } = require_podcast();
     var { createQuickCollectApi } = require_quick_collect();
     var { createSignerApi } = require_signer();
+    var { createCardsApi } = require_cards();
     var {
       ADMIN_ONLY_METHODS,
       PUBLIC_METHODS,
@@ -1695,6 +1715,8 @@ var require_preload = __commonJS({
       ...createQuickCollectApi(ipcRenderer2),
       // 签名页桥（W3 task 2.4，authenticated）：仅白名单 command，无任何任意 JS 求值通道
       ...createSignerApi(ipcRenderer2),
+      // 图文卡片分页渲染（authenticated）：长文按页切分后逐页截图成 PNG
+      ...createCardsApi(ipcRenderer2),
       // P2 限流自检（authenticated，默认受限）
       rateLimitSelfCheck: (params) => ipcRenderer2.invoke("rate-limit:self-check", params),
       rateLimitReport: (payload) => ipcRenderer2.invoke("rate-limit:report", payload)
