@@ -120,7 +120,7 @@ const YAML_CASES = [
   ['toutiao', 17, false],
   ['weibo', 14, false],
   ['zhihu', 17, false],
-  ['baijiahao', 16, true],
+  ['baijiahao', 17, true],
   ['douyin', 16, true],
 ]
 
@@ -168,20 +168,29 @@ test('步骤 9 的顺序无关性：把平台在文件里的位置换掉，结�
 })
 
 // ───────────────────────────────────────────────────────────────────────────
-// 合规版图快照（2026-10-14 P3-1 首次全量跑出的真实结果）
+// 合规版图快照（2026-10-14 P3-1 首次全量跑出的真实结果；同日 P3-2-A 修掉第一项）
 //
 // ★ 这条测试的作用是**记录现状**，不是「说现状是对的」。
 //   它把「哪些平台在哪些判据上有缺口」钉住，任何变化（修好了，或又坏了）都会让它红。
 //
-// 首跑结果：15 个平台里**只有 4 个**完全合规。这不是脚本误报 —— 逐条核对过：
+// 首跑结果：15 个平台里**只有 4 个**完全合规。逐条核对过：
 //   · 步骤 4 要求 `enabled` 有设计文 §9.3 依据（且它是「单平台一键回滚」机制，
-//     见 ARCH-REUSE-INTEGRATION §9.3 回滚成本段）。缺它的三个：
+//     见 ARCH-REUSE-INTEGRATION §9.3 回滚成本段）。首跑缺它的三个：
 //     tencent_video / baijiahao / instagram。
+//     **2026-10-14 P3-2（方案 A，只碰已有平台）已补齐这三个并改成棘轮** ——
+//     本快照随之更新（原话：「若是有意修好了，请同步更新本快照」）。
 //   · 步骤 10 要求候选文件含 formatArticleBody —— 是否过严**尚未裁定**，
 //     故本快照如实记录，不宣称这些平台「有缺陷」。
 // ───────────────────────────────────────────────────────────────────────────
-const FULLY_COMPLIANT = ['douyin', 'xiaohongshu', 'kuaishou', 'bilibili']
-const MISSING_ENABLED = ['tencent_video', 'baijiahao', 'instagram']
+const FULLY_COMPLIANT = ['douyin', 'xiaohongshu', 'kuaishou', 'bilibili', 'baijiahao']
+
+/**
+ * 缺 `enabled` 的平台集合 —— **必须恒为空**。
+ *
+ * 首跑的「真发现」是 `['tencent_video', 'baijiahao', 'instagram']`，已在 P3-2-A 补齐。
+ * 这里从「记录已知缺口」改成「**禁止**该缺口」：空数组是**断言目标**，不是待办清单。
+ */
+const MISSING_ENABLED = []
 
 test('合规版图快照：完全合规的平台集合', () => {
   const all = ['wechat_mp', 'zhihu', 'weibo', 'douyin', 'xiaohongshu', 'tencent_video',
@@ -193,7 +202,7 @@ test('合规版图快照：完全合规的平台集合', () => {
     '合规平台集合变了 —— 若是有意修好了，请同步更新本快照；若是退化，请查因')
 })
 
-test('真发现：缺 enabled 字段的平台（一键回滚机制失效）', () => {
+test('棘轮：没有任何平台缺 enabled 字段（「单平台一键回滚」可达性）', () => {
   const fs = require('node:fs')
   const y = fs.readFileSync(path.join(ROOT, 'config/platforms.yaml'), 'utf8')
   const lines = y.split(/\r?\n/)
@@ -204,18 +213,22 @@ test('真发现：缺 enabled 字段的平台（一键回滚机制失效）', ()
     if (m) { cur = { slug: m[1], lines: [] }; blocks.push(cur); continue }
     if (cur) cur.lines.push(l)
   }
+  // 规模下界：防止解析退化成空集合后「空 == 空」假绿
+  assert.ok(blocks.length >= 15, `平台块解析数异常（${blocks.length}），判据可能空转`)
   const missing = blocks.filter((b) => !b.lines.some((l) => /^[ \t]{4}enabled:/.test(l))).map((b) => b.slug)
   assert.deepEqual(missing, MISSING_ENABLED,
-    '缺 enabled 的平台集合变了 —— 这是「单平台一键回滚」的可达性问题，请核对')
+    '有平台缺 enabled —— 这是「单平台一键回滚」的可达性问题，请核对（不要把它加回白名单）')
 })
 
 test('步骤 4 确实在查 enabled（不是恒过的空判据）', () => {
-  for (const slug of MISSING_ENABLED) {
+  // 正控：全部平台步骤 4 都应过（含原先缺 enabled 的三个）
+  for (const slug of ['kuaishou', 'tencent_video', 'baijiahao', 'instagram']) {
     const r = buildChecks(slug).find((c) => c.id === 4).fn()
-    assert.equal(r.ok, false, `${slug} 缺 enabled，步骤 4 应判 FAIL`)
-    assert.ok(r.detail.includes('enabled'), `详情应点名 enabled，实际: ${r.detail}`)
+    assert.equal(r.ok, true, `${slug} 步骤 4 应过，实际: ${r.ok} / ${r.detail}`)
+    assert.ok(/7 个字段齐/.test(r.detail), `${slug} 步骤 4 详情应报「7 个字段齐」，实际: ${r.detail}`)
   }
-  // 反证：有 enabled 的平台步骤 4 应过
-  const ok = buildChecks('kuaishou').find((c) => c.id === 4).fn()
-  assert.equal(ok.ok, true, `kuaishou 步骤 4 应过，实际: ${ok.detail}`)
+  // ★ 负控不在这里做「假反证」：`buildChecks` 从磁盘读真实 YAML，无法注入夹具。
+  //   判据 4 会 FAIL 这一点由**变异跑**证明（临时抽掉某个平台的 enabled ⇒
+  //   上面的棘轮测试与断言 ① 当即变红，见 PR 描述）。把它写成
+  //   「拿字面量测正则」的形式是同义反复，属假反证，故**刻意不写**。
 })
