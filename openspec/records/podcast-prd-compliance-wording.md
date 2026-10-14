@@ -3,9 +3,6 @@ record: podcast-prd-compliance-wording
 task: 播客 §8.2 compliance 合同措辞写回实测取值面
 date: 2026-10-14
 # ↓ 三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在，无法取证收口
-sync_backfill_owner: 下一个会话（三形态同改：表格行 + bullet + 删本段三字段 + 删 ledger 登记项，同一次提交）
 ---
 
 ## 本次执行记录：播客 §8.2 compliance 合同措辞写回实测取值面（podcast-prd-compliance-wording，2026-10-14）
@@ -43,4 +40,4 @@ sync_backfill_owner: 下一个会话（三形态同改：表格行 + bullet + �
 
 ## 远程同步
 
-| 远程同步 | PENDING | 待本 PR 合并后由后续 docs PR 回填 merge SHA 并销账 |
+| 远程同步 | PASS | merge SHA c63933ebe · 2026-10-14T14:36:35+08:00 · 远端分支已删（ls-remote 0 行）· 同次提交删除 ledger 登记项 |
