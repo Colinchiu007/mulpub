@@ -371,3 +371,8 @@ shared-user-data.backups/
 !scripts/check-clock-shift-oracle.js
 !scripts/check-clock-shift-oracle.test.js
 !apps/desktop/test-setup-clock-shift.js
+# 守卫 ⇄ classify 名单对账锁（2026-10-14，guard-classify-align）。同一条 106 行 scripts/*.js
+# 静默忽略坑必须显式反选：漏了它本地在盘上、CI 上 MODULE_NOT_FOUND（先例 #3011/#3308），
+# 而 .test.js 被吞掉更坏——check-unwired-tests 看不见它，接线与死锁都无从判定。
+!scripts/check-guard-classify-alignment.js
+!scripts/check-guard-classify-alignment.test.js

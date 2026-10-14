@@ -65,8 +65,15 @@ function Test-ExcludedSegment([string]$Path) {
 # 且 classify-docs-only.js 的 docs 白名单已含 .adversarial/**。两份名单必须一致——
 # 漏项的后果：评审产物每写一次就被隔离一次（实测一轮评审 11 个文件全被移走），
 # 评审记录在共享主目录永远留不下来。
-$allowedTop = @('docs','01-docs','scripts','openspec','.ccg','.agent_context','.hermes','.adversarial')
-$allowedRootFiles = @('AGENTS.md','README.md','CHANGELOG.md','.quality-gates.md')
+# 2026-10-14 实测：本处两份名单与 classify-docs-only.js 的 CI_IGNORED_PATHS 互不认账，
+# 漂移面 181 个**已追踪**文件（.quality-rhythm 156 / 根级 .md 与 .gitignore 23 / .claude 1 / .agents 1）。
+# 后果不是报错而是静默撤销：在共享根改 .gitignore，1 秒后被搬进隔离区并从 HEAD 回滚
+# （violations.jsonl 现场：quarantined-tracked @ .gitignore，2026-10-14T11:07:20Z）。
+# 同形第二次（第一次是 #3272 放行 .adversarial），所以由 scripts/check-guard-classify-alignment.js
+# 逐项对账钉住，且其债务清单只能缩小。LICENSE/.editorconfig 虽在 classify 名单内但实测未被追踪，
+# 不为它们建死条目；根级其余 22 个 .md 属历史残留，进对账锁的缩小清单而非本名单（不固化垃圾）。
+$allowedTop = @('docs','01-docs','scripts','openspec','.ccg','.agent_context','.hermes','.adversarial','.quality-rhythm','.claude','.agents')
+$allowedRootFiles = @('AGENTS.md','README.md','CHANGELOG.md','.quality-gates.md','.gitignore')
 $script:ignoreUntil = @{}
 
 function Get-RelativePath([string]$Path) {

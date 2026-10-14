@@ -260,6 +260,26 @@ jobs:
         run: |
           node --test scripts/quality-rhythm-spec-mirror.test.js
 
+      # --- Gate 2b3：守卫 ⇄ classify 两份名单对账锁 ---
+      # 动因（2026-10-14 实测）：classify-docs-only.js 的 CI_IGNORED_PATHS 与
+      # guard-shared-root-writes.ps1 的 $allowedTop/$allowedRootFiles 回答的是同一个问题
+      # （「这条路径能在共享主目录就地改吗」），却分别写在两个文件里、没有任何东西比较过它们。
+      # 漂移的症状不是报错而是**静默撤销**：在共享根改 .gitignore，1 秒后被搬进隔离区并从 HEAD
+      # 回滚（violations.jsonl 现场：quarantined-tracked @ .gitignore，2026-10-14T11:07:20Z），
+      # 读起来就是「改了没反应」。同形第一次是 .adversarial（2b5db77b8 / PR #3272）——当时补完
+      # 那一条没补对账，所以这次换个文件复发。实测漂移面 181 个**已追踪**文件
+      # （.quality-rhythm 156 / 根级 .md 与 .gitignore 23 / .claude 1 / .agents 1），补完清单后
+      # 残留 22 个根级垃圾，进判据的**只可缩小**债务清单：删垃圾才算修完，放宽守卫不算。
+      # 落点必须是本 job：.gitignore 与根级 *.md 都命中 CI_IGNORED_PATHS，放在被
+      # `docs-only != 'true'` 门控的 static-gates 等于给自己关掉校验（AGENTS.md「进白名单前提锁」，
+      # 同 Gate 2b2/2c3 的理由）。
+      # 判据只用 node 内置模块（本 job 没有 Install deps），该前提由测试里的依赖面锁钉住；
+      # 测试同时自证「本步骤确实点名在 changes job 内」，摘掉接线即红。
+      - name: "Gate 2b3 - Guard/classify allow-list alignment (changes job)"
+        shell: bash
+        run: |
+          node --test scripts/check-guard-classify-alignment.test.js
+          node scripts/check-guard-classify-alignment.js
       # --- Gate 2c3：CHANGELOG.md「只可增长」棘轮 ---
       # 动因（实测）：b531bdfe7（PR #2884，一个 ai-taste 功能 PR）把 CHANGELOG.md 从
       # 7,474,293 B / 1,133 条整份替换成 9,155 B / 2 条，**丢掉 1,131 条并全绿合入**。

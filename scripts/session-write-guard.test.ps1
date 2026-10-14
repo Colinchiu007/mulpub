@@ -119,6 +119,40 @@ function Invoke-GuardCases([hashtable]$fx) {
         Remove-Item -LiteralPath (Join-Path $fx.Repo '.adversarial') -Force
     }
 
+    # ── 守卫 ⇄ classify 名单对账（guard-classify-align，2026-10-14）───────────────
+    # 上面 .adversarial 那组是同一缺陷的第一次修复，但补完名单没建对账锁，所以换个文件
+    # 复发。本组的症状也不是报错而是**静默撤销**：在共享根改 .gitignore，1 秒后被搬进
+    # 隔离区并从 HEAD 回滚（真仓 violations.jsonl 现场：quarantined-tracked @ .gitignore，
+    # 2026-10-14T11:07:20Z），读起来就是「改了没反应」。三条各测一头一尾：
+    # 前两条证明补进名单的**确实被放行**，第三条证明**没有多放**。
+    # 收尾形态有两种，必须如实分开：.gitignore 是**已追踪**文件，放行它=工作树按设计变脏，
+    # 所以断言完把内容还原回已提交状态；.quality-rhythm 那条走的是既有 docs/.adversarial 的
+    # 未追踪新文件形态，删掉目录即净。两种都不能漏，否则会崩掉本文件后续的 status 断言。
+    $gitignoreOriginal = Read-RepoFile $fx '.gitignore'
+    $gitignoreBaseline = ViolationCount $fx
+    Write-RepoFile $fx '.gitignore' "node_modules/`ndist/`n.agent_context/`nguard-probe/`n"
+    Invoke-Guard $fx '.gitignore'
+    Assert ((Read-RepoFile $fx '.gitignore') -match 'guard-probe') "[$eol] root .gitignore edit is released, not rolled back"
+    Assert ((ViolationCount $fx) -eq $gitignoreBaseline) "[$eol] releasing a .gitignore edit records no violation"
+    Write-RepoFile $fx '.gitignore' $gitignoreOriginal
+
+    New-Item -ItemType Directory -Force -Path (Join-Path $fx.Repo '.quality-rhythm/skills') | Out-Null
+    Write-RepoFile $fx '.quality-rhythm/skills/SKILL.md' '# vendored'
+    $vendoredBaseline = ViolationCount $fx
+    Invoke-Guard $fx '.quality-rhythm/skills/SKILL.md'
+    Assert (Test-Path -LiteralPath (Join-Path $fx.Repo '.quality-rhythm/skills/SKILL.md')) "[$eol] .quality-rhythm write is released"
+    Assert ((ViolationCount $fx) -eq $vendoredBaseline) "[$eol] released .quality-rhythm write records no violation"
+    Remove-Item -LiteralPath (Join-Path $fx.Repo '.quality-rhythm') -Recurse -Force
+
+    # 反向锁：放宽只覆盖**已追踪**的 docs 路径。新建一个未追踪的根级 .md 必须仍被隔离——
+    # 若把根级 *.md 整族放行，stray 文件会被一并放过，守卫就失去它本来的作用。
+    $strayBaseline = ViolationCount $fx
+    Write-RepoFile $fx 'stray-root.md' '# stray'
+    Invoke-Guard $fx 'stray-root.md'
+    Assert (-not (Test-Path -LiteralPath (Join-Path $fx.Repo 'stray-root.md'))) "[$eol] untracked root .md is still quarantined (no over-release)"
+    Assert ((ViolationCount $fx) -eq ($strayBaseline + 1)) "[$eol] the stray root .md is recorded as a violation"
+    if (Test-Path -LiteralPath (Join-Path $fx.Repo '.quality-rhythm')) { Remove-Item -LiteralPath (Join-Path $fx.Repo '.quality-rhythm') -Recurse -Force }
+    Assert ((StatusLines $fx).Count -eq 0) "[$eol] status stays clean after the alignment cases"
     Write-RepoFile $fx 'node_modules/pkg/new.js' 'module.exports = 2'
     Invoke-Guard $fx 'node_modules/pkg/new.js'
     Assert (Test-Path -LiteralPath (Join-Path $fx.Repo 'node_modules/pkg/new.js')) "[$eol] gitignored artifact is allowed"
@@ -178,11 +212,14 @@ try {
     foreach ($eol in @('lf', 'crlf')) {
         Invoke-GuardCases (New-Fixture $eol)
     }
-    # 规模锁：两档 EOL 各 24 条（原 18 条 + 2026-10-13 新增 6 条启动对账断言），
+    # 规模锁：两档 EOL 各 31 条（原 18 条 + 2026-10-13 新增 6 条启动对账断言 +
+    # 2026-10-14 新增 7 条名单对账断言），外加循环外 2 条常驻模式结构锁，共 64 条。
+    # 少跑一格（EOL 档位被删掉、或某条 Assert 被摘）都必须在这里变红，否则"第二格其实没在跑"
+    # 这种退化在日志里完全看不出来。数字以**实测**为准：本行曾写 17 而实际是 18。
     # 外加循环外 2 条常驻模式结构锁，共 50 条。少跑一格（EOL 档位被删掉、或某条 Assert
     # 被摘）都必须在这里变红，否则"第二格其实没在跑"这种退化在日志里完全看不出来。
     # 数字以**实测**为准：本行曾写 17 而实际是 18，注释与判据不一致时只有真跑一次才知道该信谁。
-    Assert ($passed -eq 50) "both EOL cells plus the structural locks ran to completion (expect 50 checks, got $passed)"
+    Assert ($passed -eq 64) "both EOL cells plus the structural locks ran to completion (expect 64 checks, got $passed)"
     Write-Host "PASS: $passed session write guard checks" -ForegroundColor Green
 } finally {
     Remove-Item -LiteralPath $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue
