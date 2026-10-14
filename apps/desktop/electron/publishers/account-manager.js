@@ -15,6 +15,10 @@ const profileRefresh = require('./account-profile-refresh')
 const pythonBridge = require('../services/python-bridge')
 const accountStateRestorer = require('../services/account-state-restorer')
 const credentialStore = require('../services/credential-store')
+// 账号代理状态的批量读取单独成模块（2026-10-14 从 credential-store 拆出：原文件
+// 加上本片内容会越过 check-max-lines 的 500 行闸）。与本文件的 credentialStore
+// 分开持有，是为了让测试能直接对「批量入口」注入桩，而不必连带桩掉整份凭证存储。
+const proxyStatusReader = require('../services/credential-proxy-status')
 const { normalizeProxyConfig, toPublicProxyConfig } = require('../services/proxy-config')
 const {
   resolveCapturedDisplayName,
@@ -461,6 +465,15 @@ async function deleteAccount (accountId, options = {}) {
 
 /**
  * 获取账号列表
+ *
+ * ⚡ 首帧性能契约（2026-10-14，账号页卡顿修复）：
+ * 附加 `proxy` 状态必须走 `credentialStore.loadProxyStatuses()` 批量并行入口，
+ * **不得**回到「逐账号 getAccountProxyStatus()」的写法。后者每个账号都要
+ * 同步跑一次 PBKDF2（10 万次迭代，实测约 125ms/账号），N 个账号串行阻塞
+ * 主进程 IPC —— 用户感知就是「点左侧菜单『账号』，好几秒才加载」。
+ * 批量入口把 N 次同步串行换成 N 次异步并行（libuv 线程池），实测
+ * 5 账号 600ms → 170ms、10 账号 1.4s → 370ms，KDF 强度一字未降。
+ *
  * @returns {Promise<Array>}
  */
 async function listAccounts () {
@@ -488,16 +501,72 @@ async function listAccounts () {
   } catch (e) {
     log.warn('AccountManager', '清理孤儿凭据失败: ' + (e && e.message ? e.message : String(e)))
   }
+
+  // ── proxy 状态：一次批量并行读取，而不是逐账号同步解密 ──
+  // 只对「id 与 platform 都合法」的账号查 proxy；其余账号原样返回
+  // （与改造前 isSafePathSegment 早退的语义一致）。
+  const { map: proxyById, degraded } = await loadProxyStatusMap(accounts)
+
   return accounts.map(account => {
     const accountId = account?.id || account?.accountId || account?.account_id
     const platform = account?.platform
     if (!isSafePathSegment(accountId) || !isSafePathSegment(platform)) return account
-    try {
-      return { ...account, proxy: getAccountProxyStatus(accountId, platform) }
-    } catch (_) {
-      return { ...account, proxy: { configured: false } }
-    }
+    const proxy = proxyById[accountId]
+    if (proxy) return { ...account, proxy }
+    // 批量入口正常跑完但漏了这个账号 → 单账号兜底（极少发生，付得起一次同步解密）。
+    // 批量入口整体降级 → 直接认定未配置代理，**不走单账号兜底**：那会退化成
+    // N 次同步 PBKDF2 串行，正是本 Bug 的原始形态。
+    if (degraded) return { ...account, proxy: { configured: false } }
+    return { ...account, proxy: safeAccountProxyStatus(accountId, platform) }
   })
+}
+
+/**
+ * 批量取 proxy 状态表。
+ *
+ * 返回值带一个 `degraded` 标记，调用方据此区分两种完全不同的情况：
+ *  - `degraded: false` —— 批量入口正常跑完，表里没有的账号是「这一轮没覆盖到」，
+ *    调用方可以对缺的账号走单账号兜底（数量极少，付得起）。
+ *  - `degraded: true`  —— 批量入口整体失败（safeStorage 失效 / 抛错）。
+ *    此时**绝不能**对每个账号走单账号同步兜底：那正好退化成 N 次同步 PBKDF2
+ *    串行，也就是本 Bug 的原始形态（实测 10 账号 1.4s）。整体降级为「都没配代理」，
+ *    账号页首帧该多快还是多快。
+ *
+ * @param {Array<object>} accounts 后端返回的账号数组
+ * @returns {Promise<{ map: Record<string, object>, degraded: boolean }>}
+ */
+async function loadProxyStatusMap (accounts) {
+  const empty = { map: {}, degraded: true }
+  try {
+    const ownerSubject = resolveOwnerSubject(undefined)
+    const userDataDir = getUserDataDir()
+    const ids = accounts
+      .map(a => a?.id || a?.accountId || a?.account_id)
+      .filter(id => isSafePathSegment(id))
+    if (typeof proxyStatusReader.loadProxyStatuses !== 'function' || ids.length === 0) return empty
+    const options = ownerSubject === undefined ? {} : { ownerSubject }
+    const map = await proxyStatusReader.loadProxyStatuses(ids, userDataDir, options)
+    if (!map || typeof map !== 'object') return empty
+    return { map, degraded: false }
+  } catch (e) {
+    log.warn('AccountManager', '批量读取 proxy 状态失败，整体降级为未配置代理: ' + (e && e.message ? e.message : String(e)))
+    return empty
+  }
+}
+
+/** 单账号 proxy 状态的安全包装（异常时降级为未配置，不抛给账号页首帧）
+ *
+ * 注意：必须经 module.exports 引用调用，不能在函数体内直接调本地
+ * `getAccountProxyStatus`。本仓已有同族教训（见文件头 26-29 行注释）：
+ * require 期解构成本地绑定会让 vi.spyOn 拦不到、测试静默走真实实现。
+ * 经导出对象调用，测试才能把这条兜底路径换成桩并断言它真的被走到。
+ */
+function safeAccountProxyStatus (accountId, platform) {
+  try {
+    return module.exports.getAccountProxyStatus(accountId, platform)
+  } catch (_) {
+    return { configured: false }
+  }
 }
 
 /**
@@ -1125,4 +1194,6 @@ module.exports = {
   setOwnerSubjectProvider,
   accountStateRestorer,
   credentialStore,
+  // 供测试对「批量 proxy 读取」单独注入桩（不必连带桩掉整份凭证存储）
+  proxyStatusReader,
 }

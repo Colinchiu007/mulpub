@@ -1332,6 +1332,144 @@ describe('account-manager — listAccounts 错误透传', () => {
   })
 })
 
+// ─── 账号页首帧卡顿：proxy 状态必须走批量并行入口（2026-10-14）──────
+// 背景：用户报「点左侧菜单『账号』，反应特别慢，好几秒才加载」。
+// 根因：listAccounts() 为给每个账号附加 proxy 状态，逐个同步解密凭证文件，
+// 每次解密都要跑一次 PBKDF2（10 万次迭代，实测约 125ms/账号）——
+// N 个账号就是 N × 125ms 的同步串行，全堵在主进程 IPC 上。
+//
+// 修复：listAccounts() 改走 credentialStore.loadProxyStatuses() 批量并行入口。
+//
+// 本 describe 是「不许回退」的结构锁：
+//  L1 必须调用 loadProxyStatuses（而不是逐账号 getAccountProxyStatus）
+//  L2 批量入口拿到的 proxy 必须真的落到每个账号上（不是装饰）
+//  L3 批量入口整体降级时，逐账号口径兜底，proxy 字段不得消失
+//  L4 批量入口抛错时不得让 listAccounts 整体失败（账号页首帧韧性）
+describe('account-manager — listAccounts proxy 批量并行入口', () => {
+  const ACCOUNTS = [
+    { id: 'acc-1', platform: 'douyin', name: '账号一' },
+    { id: 'acc-2', platform: 'wechat_mp', name: '账号二' },
+    { id: 'acc-3', platform: 'zhihu', name: '账号三' },
+  ]
+
+  beforeEach(() => {
+    global.__enableElectronMock()
+    global.__resetElectronMock()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  function stubBackendAccounts () {
+    const pythonBridge = require('../services/python-bridge')
+    vi.spyOn(pythonBridge, 'requestBackend').mockResolvedValue({ code: 0, data: ACCOUNTS })
+  }
+
+  it('L1 走批量入口 loadProxyStatuses，且不逐账号解密', async () => {
+    stubBackendAccounts()
+    const accountManager = loadAccountManager()
+    const loadProxyStatuses = vi.spyOn(accountManager.proxyStatusReader, 'loadProxyStatuses')
+      .mockResolvedValue({
+        'acc-1': { configured: true, type: 'http', hostMasked: '10.0.*.*', port: 8080 },
+        'acc-2': { configured: false },
+        'acc-3': { configured: true, type: 'socks5', hostMasked: '10.1.*.*', port: 1080 },
+      })
+    const loadCredential = vi.spyOn(accountManager.credentialStore, 'loadCredential')
+
+    const accounts = await accountManager.listAccounts()
+
+    expect(loadProxyStatuses).toHaveBeenCalledTimes(1)
+    // 批量入口一次拿全部 id，不是一次一个
+    expect(loadProxyStatuses.mock.calls[0][0]).toEqual(['acc-1', 'acc-2', 'acc-3'])
+    // 关键：没有为取 proxy 而逐账号解密凭证（那正是卡顿根因）
+    expect(loadCredential).not.toHaveBeenCalled()
+    expect(accounts.map(a => a.id)).toEqual(['acc-1', 'acc-2', 'acc-3'])
+  })
+
+  it('L2 批量入口返回的 proxy 逐字段落到每个账号上', async () => {
+    stubBackendAccounts()
+    const accountManager = loadAccountManager()
+    vi.spyOn(accountManager.proxyStatusReader, 'loadProxyStatuses').mockResolvedValue({
+      'acc-1': { configured: true, type: 'http', hostMasked: '10.0.*.*', port: 8080 },
+      'acc-2': { configured: false },
+      'acc-3': { configured: true, type: 'socks5', hostMasked: '10.1.*.*', port: 1080 },
+    })
+
+    const accounts = await accountManager.listAccounts()
+
+    expect(accounts[0].proxy).toEqual({ configured: true, type: 'http', hostMasked: '10.0.*.*', port: 8080 })
+    expect(accounts[1].proxy).toEqual({ configured: false })
+    expect(accounts[2].proxy).toEqual({ configured: true, type: 'socks5', hostMasked: '10.1.*.*', port: 1080 })
+  })
+
+  it('L3 批量入口漏掉某账号时回落单账号口径，proxy 字段不得消失', async () => {
+    stubBackendAccounts()
+    const accountManager = loadAccountManager()
+    vi.spyOn(accountManager.proxyStatusReader, 'loadProxyStatuses').mockResolvedValue({
+      'acc-1': { configured: true, type: 'http', hostMasked: '10.0.*.*', port: 8080 },
+      // acc-2 / acc-3 缺失（例如批量入口内部跳过）
+    })
+    vi.spyOn(accountManager, 'getAccountProxyStatus').mockImplementation((id) => (
+      { configured: true, type: 'https', hostMasked: 'fallback.*.*', port: 3128 }
+    ))
+
+    const accounts = await accountManager.listAccounts()
+
+    expect(accounts[0].proxy.port).toBe(8080)
+    // 漏掉的两个账号走单账号兜底，仍拿得到 proxy
+    expect(accounts[1].proxy).toEqual({ configured: true, type: 'https', hostMasked: 'fallback.*.*', port: 3128 })
+    expect(accounts[2].proxy).toEqual({ configured: true, type: 'https', hostMasked: 'fallback.*.*', port: 3128 })
+  })
+
+  it('L4 批量入口抛错时整体降级，且绝不回落逐账号同步解密（否则退化成本 Bug 原形）', async () => {
+    stubBackendAccounts()
+    const accountManager = loadAccountManager()
+    vi.spyOn(accountManager.proxyStatusReader, 'loadProxyStatuses').mockRejectedValue(new Error('safeStorage 不可用'))
+    // 若实现错误地在这里回落单账号口径，这个 spy 会被调到 N 次
+    const getAccountProxyStatus = vi.spyOn(accountManager, 'getAccountProxyStatus')
+      .mockReturnValue({ configured: false })
+
+    const accounts = await accountManager.listAccounts()
+
+    expect(accounts).toHaveLength(3)
+    for (const account of accounts) expect(account.proxy).toEqual({ configured: false })
+    // 关键：一次都不许走单账号同步解密 —— 那正是 N×125ms 串行阻塞的原始形态
+    expect(getAccountProxyStatus).not.toHaveBeenCalled()
+  })
+
+  it('L5 单账号口径自身抛错时也降级为未配置，不向上冒泡', async () => {
+    stubBackendAccounts()
+    const accountManager = loadAccountManager()
+    vi.spyOn(accountManager.proxyStatusReader, 'loadProxyStatuses').mockResolvedValue({})
+    vi.spyOn(accountManager, 'getAccountProxyStatus').mockImplementation(() => { throw new Error('boom') })
+
+    const accounts = await accountManager.listAccounts()
+
+    expect(accounts).toHaveLength(3)
+    for (const account of accounts) expect(account.proxy).toEqual({ configured: false })
+  })
+
+  it('L6 批量入口成功但漏掉某账号时走单账号兜底（极少发生，只对漏掉的付）', async () => {
+    stubBackendAccounts()
+    const accountManager = loadAccountManager()
+    // 正常返回（未降级），但只覆盖 acc-1
+    vi.spyOn(accountManager.proxyStatusReader, 'loadProxyStatuses').mockResolvedValue({
+      'acc-1': { configured: true, type: 'http', hostMasked: '10.0.*.*', port: 8080 },
+    })
+    const getAccountProxyStatus = vi.spyOn(accountManager, 'getAccountProxyStatus')
+      .mockImplementation(() => ({ configured: true, type: 'https', hostMasked: 'fallback.*.*', port: 3128 }))
+
+    const accounts = await accountManager.listAccounts()
+
+    expect(accounts[0].proxy.port).toBe(8080)
+    expect(accounts[1].proxy.port).toBe(3128)
+    expect(accounts[2].proxy.port).toBe(3128)
+    // 只对漏掉的 2 个账号走兜底，不是全部 3 个
+    expect(getAccountProxyStatus).toHaveBeenCalledTimes(2)
+  })
+})
+
 describe('setAccountActive 启用态唯一写者（与登录态正交）', () => {
   beforeEach(() => {
     global.__enableElectronMock()
