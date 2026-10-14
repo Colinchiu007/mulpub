@@ -182,6 +182,8 @@ scripts/*.js
 !scripts/check-unwired-tests.js
 !scripts/check-step-failfast.js
 !scripts/check-gate-record-debt.js
+# 同一族第三次：判据本体若被 scripts/*.js 静默忽略，CI 会以 MODULE_NOT_FOUND 红在别人身上，而不是"这条门禁没跑"。
+!scripts/check-no-conflict-markers.js
 !scripts/check-baseline-freshness.js
 !scripts/classify-docs-only.js
 !scripts/lock-timing-audit.js

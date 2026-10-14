@@ -28,8 +28,6 @@
   - **② CI 步骤 fail-fast 闸**：`scripts/check-step-failfast.js` 判 1.13-i5 新增步骤为"会吞失败的多命令步骤"——它只看步骤级 `shell:`，读不到 workflow 级 `defaults.run.shell: bash`；且 `pip install pytest-asyncio` 里的字面量命中其测试命令正则被算作第 2 条。修法按仓内惯例：步骤显式 `shell: bash`，依赖声明收进 `pyproject.toml` 新 `[test]` extra（`pytest>=8.0` + `pytest-asyncio>=0.24`），run 块只留一条 pytest。i5 的"显式 pip install"口径据此作废（依赖只活在 workflow 文本里，本地缺它时 async 用例 0 收集＝绿但恒真）。
   - **破坏-恢复验证（6 种，逐条实跑变红后恢复）**：① DOM 模块自带常量 import → 守卫红；② 删 `wait_until` 轮询 → 守卫红；③ 发布器不再经由 DOM 轮询 → 守卫红；④ 抹掉编辑器等待 label → loguru sink 行为用例红；⑤ overlay 常量写死空占位 / ⑥ overlay 轨整条删除 → **新增**用例 `test_overlay_selector_alone_blocks_without_risk_wording` 红。⑤⑥ 是补出来的：原 risk 用例同时给了「安全验证」文案，文本轨会顺手兜住，删掉整条占位轨照样绿——占位轨（Tier2 回填后承担无文案的纯图形验证码层）此前无独立保护。
   - 回归：发布轨 5 文件 91 passed（+1 为新用例）；全量 2822 passed / 4 failed，4 项仍是 1.13 已归因的既有/环境失败；`check-max-lines.js` ✅、`check-step-failfast.js` 与其 `.test.js` 6/6 ✅
-=======
->>>>>>> 50244cf1d (fix(xhs-dom): 过逐文件行数闸拆出 DOM 模块，并按门禁口径修 CI 步骤)
 
 ## 2. PR-2 · Tier2 活体取证回填（需用户登录小红书）
 
@@ -54,8 +52,6 @@
   - 阻塞实测：5 次启动（18:56:47 / 19:00:38 / 19:08:53 / 19:12:32 / 19:18:58）实例存活 7s～3.5min，日志一律在 `accounts:batch-check-login` 之后截断且**无崩溃栈**；CDP 间歇 `ECONNREFUSED`（端口看似 LISTENING 亦拒连）。驱动连 `listAccounts()` 都未取到，本地证据仅 `fatal: connect ECONNREFUSED`
   - 已就绪的采集面（`.agent_context/tier2/tier2_live_verify.js`，gitignored）：`publish:batch` 图文模式（引擎内 `draftOnly=true`；逐行核对该分支**早于**发布按钮点击即 return ⇒ 结构上不可能公开发布）+ `queue:status/history` 轮询 + 任务期间抓创作者中心 tab 的存草稿钮/发布钮/toast/保存态/风控层/草稿箱入口/输入控件计数 ⇒ 用户在场时一条命令同时产出 2.2 与 2.4
   - 顺带漂移证据：登录态选择器 `[class*="avatar"],[class*="userInfo"],.user-avatar` 在该页超时未命中，靠 dashboard-host 兜底判活——与 2.3b 属同一类"候选过期"缺陷，活体取证时一并采集
-=======
->>>>>>> e21703291 (test(xhs-rpa): 采纳第三轮 CCG 深评两项裁决，把守卫作用域跟着代码搬家)
 
 - [x] 2.12 CCG 深评第四轮（`e2170329` 批次）三项对抗裁决 + 落地（2026-10-09，PRD §4m、`.adversarial/ccg-deep-e2170329/adjudication.json`）：**i1/i3 upheld、i2 dismissed**；i1 是本批唯一生产代码改动。① `visible_texts`/`visible_count` 的 `total = min(count(), limit)` 在 **DOM 序**上截断且**先于可见性过滤**——portal 渲染把真实风控弹层 append 到 body 尾部，前 8 个命中节点若多为常驻隐藏模板，可见风控层下标 ≥8 永不被扫，文案轨与占位轨同时漏判后流程继续走向发布（漏判方向＝红线）；原注释「真实风控层是页面上最靠前的可见容器之一」是零活体证据的假设 ⇒ `limit` 改为「收集满 limit 条**可见**项即停」，探测次数另由新常量 `RISK_HOST_PROBE_LIMIT = 32` 设成本闸，发布器两处适配器传 `probe_cap=`（dom 模块仍不得 import 选择器常量），最坏成本从「整页 `count()` 次 `inner_text`」变为「至多 32 次 `is_visible` + 至多 8 次 `inner_text`」，并删除该假设注释。测试夹具原只能表达"整个 selector 可见/不可见"、**结构上无法表达**这条场景，故为 `FakePage/FakeLocator` 增加逐元素 `hidden_items`；破坏-恢复：`total` 退回 `min(count(), limit)` ⇒ 恰好 1 条红（`test_visible_risk_layer_after_hidden_templates_is_caught`，:460 `assert False is True`），恢复 ⇒ 39 passed、相关全量 68 passed。② i3：`1<=calls<50` 是魔数区间，同一用例把两条 interval 都 patch 成 0.01 使**归属结构上不可分辨** ⇒ 上界改由被 patch 常量推导（`timeout/interval + 3`，下界保持 1 并写明 Windows sleep 粒度 ~15ms 的抖动理由），新增 `test_upload_wait_is_fed_the_upload_constants` 桩 `dom.wait_until` 捕获实参 `(timeout_s, interval_s)`、四条常量各取唯一值，直接断言配对不被拆开（确定性判据，不受时序影响）；双向变异：仅换 interval ⇒ 旧区间绿、新 spy 红（零判别力的直接证据），仅换 timeout ⇒ 两条同时红；恢复 ⇒ 68 passed。③ i2 dismissed：静态守卫按源码字面量断结构被指为 §4f-i4 已除的格式耦合复发——区分口径可核对，§4f-i4 移除的是**给用户看的显示措辞**锚点，第三轮 i3 的修复方向恰是**把锚点换成机器可读 key**，本守卫钉的正是机器可读标识符与调用图，改名/收敛调用形式时红一次是设计目标；行为面另有不依赖字面量的用例（哨兵值归属、超时留痕、本轮实参 spy）。处置为在锚点补按语、不改断言。第四类失效模式：**一个参数/常量同时兼任判据口径与成本上限**（语义相反，兼任必牺牲一侧，且被牺牲一侧常以未验证注释自我合理化）——与前三类并列
 
