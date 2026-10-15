@@ -11,10 +11,9 @@
  * v3（change: publish-frequency-policy-v3）：`release()` 的防风上限改为
  *   `min(max(2, dailyMax), MAX_ROLLBACK_PER_DAY)` —— 日配额被放大 10 倍时，「每日可回滚次数」
  *   不得跟着放大（那等于把防重试风暴的闸写成配额的函数；方向恒为"多等"）。
- * v2（change: publish-frequency-policy-v2）：新增日配额维度与 `bucket:'daily'`/`reason`/`daily`
- *   字段；新增只增不减的抖动（可注入随机源，ratio=0 严格退化为 v1）；新增 `release()`（乐观并发
- *   + 防风上限）与 `recordPublish()` 返回占位前值（供 release 精确还原）；key 一律经 `buildKey()`
- *   构造（percent-encode，消除分隔符碰撞）；未登记平台回落时经注入 warn 出声（进程内按平台去重）。
+ * v2（change: publish-frequency-policy-v2）：新增日配额维度（`bucket:'daily'`/`reason`/`daily`）、
+ *   只增不减的抖动（可注入随机源，ratio=0 退化为 v1）、`release()`（乐观并发 + 防风上限）与
+ *   `recordPublish()` 回传占位前值；key 一律经 `buildKey()`（percent-encode）；未登记平台回落出声。
  */
 const { resolveIntervals, isKnownPlatform, DEFAULT_JITTER_RATIO, MIN_RELEASE_GRACE_MS } = require('./publish-frequency-policy')
 
@@ -204,9 +203,16 @@ class PublishIntervalGuard {
   }
 
   _intervals (platform) {
+    // tier 一并回传：`ipc-handlers/publish-frequency.js` 把本返回原样发给渲染层，设置页「当前档位」
+    // 按 tier 分组显示 —— 缺键时屏幕上每组都是 `undefined（4 个平台…）`（QM-6 前端轴 C2）
     if (this._minInterval !== null) {
-      const dailyMax = this._resolvedDailyMax(platform)
-      return { accountMinMs: this._minInterval, platformMinMs: this._minInterval, accountDailyMax: dailyMax }
+      const resolved = this._policy(platform) || {}
+      return {
+        tier: resolved.tier ?? null,
+        accountMinMs: this._minInterval,
+        platformMinMs: this._minInterval,
+        accountDailyMax: Number(resolved.accountDailyMax) || 0,
+      }
     }
     const resolved = this._policy(platform) || {}
     if (resolved.fallback && !this._warnedFallback.has(platform)) {
@@ -218,16 +224,11 @@ class PublishIntervalGuard {
       )
     }
     return {
+      tier: resolved.tier ?? null,
       accountMinMs: Number(resolved.accountMinMs) || 0,
       platformMinMs: Number(resolved.platformMinMs) || 0,
       accountDailyMax: Number(resolved.accountDailyMax) || 0,
     }
-  }
-
-  /** minInterval 兼容模式下仍按平台取日配额（该档不受 minInterval 影响） */
-  _resolvedDailyMax (platform) {
-    const resolved = this._policy(platform) || {}
-    return Number(resolved.accountDailyMax) || 0
   }
 
   /** 抖动：只增不减；含抖动系数后仍钳在 setTimeout 安全值内 */
@@ -380,15 +381,11 @@ class PublishIntervalGuard {
   }
 
   /**
-   * 回滚一次**未提交**尝试所占的窗口与配额（P0-1）。
-   *
-   * 三条纪律（任一不成立即 no-op，方向恒为「多等」而非「少等」）：
+   * 回滚一次**未提交**尝试所占的窗口与配额（P0-1）。三条纪律任一不成立即 no-op，方向恒为「多等」：
    *   ① 乐观并发：仅当 store.get(key) === hold.at 才回滚该键 —— 绝不回滚他人窗口；
    *   ② hold 必须由 recordPublish() 返回并回传；缺失/错配 ⇒ no-op + 出声；
-   *   ③ 防风上限：每账号每日回滚次数 >= max(2, dailyMax) 时拒绝回滚。
-   *
+   *   ③ 防风上限：当日回滚次数 >= `_rollbackCap()` 时拒绝（该上限带硬顶，不随日配额放大）。
    * 副作用：配额计数幂等回补（下限 0）；回滚计数只增不减。
-   *
    * @returns {{released: boolean, reason: (null|'prev_missing'|'window_taken'|'rollback_cap')}}
    */
   release (platform, accountId, hold) {

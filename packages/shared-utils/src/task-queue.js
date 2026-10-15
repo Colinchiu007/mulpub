@@ -62,9 +62,9 @@ class TaskQueue extends EventEmitter {
     this._platformsProvenSubmit = new Set()
     this._rollbackDisabledPlatforms = new Set()
     this._missingWiringCounts = new Map()
-    // 探针计数（供设置页/诊断读取）
-    // v3：inflightUnknown = 「请求可能仍在飞时失败」的次数（缺陷 D1 的现场计数），
-    // 与 rollbackDisabled/inflightUnknown 一起构成"这套 fail-closed 判据到底拦了多少次"的唯一现场。
+    // 探针计数（**仅进程内**，重启归零；截至本变更无任何 UI/IPC 消费者 —— 见 PRD §10.4，
+    // 不要把它当可靠指标读，也不要以为"设置页能看到"：那个入口从未存在）
+    // v3：inflightUnknown = 「请求可能仍在飞时失败」的次数（缺陷 D1 的现场计数）
     this._probeCounts = { successWithoutSubmittedAt: 0, releaseFailed: 0, rollbackDisabled: 0, inflightUnknown: 0 }
     this._abortControllers = new Map() // 运行中任务的协作式取消信号
     this._runningByChannel = new Map() // 通道键 -> 在跑计数（B 方案：同通道串行，跨通道并行）

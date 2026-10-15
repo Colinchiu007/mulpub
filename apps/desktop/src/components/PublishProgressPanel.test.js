@@ -201,6 +201,29 @@ describe('PublishProgressPanel.vue — 全局进度面板（publish-progress-ux�
     expect(row.classList.contains('ppp__task--cancelled')).toBe(true)
   })
 
+  it('blocked 等待分钟按四舍五入显示（v3 短档 60–84s 不得显示成「2 分钟」—— QM-6 前端轴 W1）', async () => {
+    // 抖动让实际等待 ∈ [标称, 标称×1.4]。v3 短内容档标称 1′ ⇒ 60–84s。
+    // 旧口径 `Math.ceil` 会把这整段显示成「等待 2 分钟后重试」，而 8 秒后任务就发出去了
+    // —— 相对误差接近 100%，用户读成"倒计时不准/工具坏了"。v2 下同样的绝对误差(≤59s)
+    // 摊在 3–20 分钟上看不见，所以这条是**被本次收紧暴露出来**的既有显示口径问题。
+    storeStateRaw.panelVisible = true
+    storeStateRaw.hasRunning = true
+    storeStateRaw.sessions = [makeSession({
+      tasks: {
+        't-1': makeTask({ phase: 'blocked', stageKey: 'waiting', percent: null, remainingWait: 84000, bucket: 'account' }),
+        't-2': makeTask({ taskId: 't-2', phase: 'blocked', stageKey: 'waiting', percent: null, remainingWait: 126000, bucket: 'account' }),
+      },
+      taskOrder: ['t-1', 't-2'],
+    })]
+    wrapper = mountPanel()
+    await nextTick()
+    const rows = body().querySelectorAll('[data-testid="publish-progress-task"]')
+    // 84s → 1 分钟（ceil 会给 2）；126s → 2 分钟（round 与 ceil 同值，证明不是"一律往下取"）
+    expect(rows[0].textContent).toContain('等待 1 分钟')
+    expect(rows[0].textContent).not.toContain('等待 2 分钟')
+    expect(rows[1].textContent).toContain('等待 2 分钟')
+  })
+
   it('blocked 任务：等待分钟数 + 归因两档可区分，归因缺席时不猜档', async () => {
     storeStateRaw.panelVisible = true
     storeStateRaw.hasRunning = true

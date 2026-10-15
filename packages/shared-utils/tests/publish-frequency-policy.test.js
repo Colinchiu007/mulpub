@@ -135,6 +135,39 @@ describe('publish-frequency-policy v3', () => {
       expect(isKnownPlatform({})).toBe(false)
     })
 
+    it('平台 → 档位归属逐平台钉住（QM-6 后端轴 B14：派生表的"谁在哪档"必须可见）', () => {
+      // 数值收敛成派生后，新出现的风险面是「把某平台挪错档」：
+      // 它不改任何档位值，所以「逐 tier 精确表」与「档间单调」两类锁**都照样绿**，
+      // 而用户侧表现是"bilibili 怎么突然比抖音严"。归属必须单独钉。
+      const EXPECTED_TIER = {
+        baijiahao: TIER_LONG, toutiao: TIER_LONG, wechat_mp: TIER_LONG, zhihu: TIER_LONG,
+        bilibili: TIER_CLIP, douyin: TIER_CLIP, facebook: TIER_CLIP, instagram: TIER_CLIP,
+        kuaishou: TIER_CLIP, tencent_video: TIER_CLIP, tiktok: TIER_CLIP, xiaohongshu: TIER_CLIP,
+        youtube: TIER_CLIP,
+        twitter: TIER_SHORT, weibo: TIER_SHORT,
+      }
+      const actual = {}
+      for (const platform of SUPPORTED_PLATFORMS) {
+        actual[platform] = PLATFORM_FREQUENCY_POLICY[platform].tier
+      }
+      expect(actual).toEqual(EXPECTED_TIER)
+      expect(Object.keys(EXPECTED_TIER).length).toBe(SUPPORTED_PLATFORMS.length)
+    })
+
+    it('回落基线不得弱于任何已登记平台（逐维度，QM-6 B7/Info-8）', () => {
+      // 「BASELINE_INTERVALS 是独立常量」的理由是"回落必须是人为想清楚过的最严值"。
+      // 但独立 = 不会被编译器/测试提醒。既有锁只写 `unknown.accountMinMs >= weibo.accountMinMs`
+      // （对最短的那档比），v3 下 weibo=1′、基线=5′ 恒过 —— 它挡不住"把基线调得比 long 档还松"。
+      // 正解是把"不弱于任何已登记平台"变成可执行约束，三个维度逐个比。
+      for (const key of ['accountMinMs', 'platformMinMs']) {
+        const maxRegistered = Math.max(...SUPPORTED_PLATFORMS.map((p) => PLATFORM_FREQUENCY_POLICY[p][key]))
+        expect(BASELINE_INTERVALS[key], `${key} 必须 >= 已登记平台最大值`).toBeGreaterThanOrEqual(maxRegistered)
+      }
+      const minDaily = Math.min(...SUPPORTED_PLATFORMS.map((p) => PLATFORM_FREQUENCY_POLICY[p].accountDailyMax))
+      // 配额维度的"更严"是**更小**（间隔维度是更大），所以这里取下界而不是上界
+      expect(BASELINE_INTERVALS.accountDailyMax, '回落配额不得比任何已登记平台更宽').toBeLessThanOrEqual(minDaily)
+    })
+
     it('策略表里每个平台的 platformMinMs 不得大于 accountMinMs', () => {
       for (const [platform, p] of Object.entries(PLATFORM_FREQUENCY_POLICY)) {
         expect(p.platformMinMs, `${platform}`).toBeLessThanOrEqual(p.accountMinMs)

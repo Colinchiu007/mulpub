@@ -280,6 +280,20 @@ describe('phase4-events — 进度事件富化契约（publish-progress-ux）', 
     expect(progressPayloads(send).at(-1).bucket).toBe(null)
   })
 
+  it('blocked 的 stage 文案分钟取整用 round —— 60–84s 不得显示成「2 分钟」（QM-6 前端轴 W1）', () => {
+    const send = vi.fn()
+    const { taskQueue } = wire(send)
+    const stageOf = () => progressPayloads(send).at(-1).stage
+    taskQueue.emit('publish:blocked', { task: { id: 't-r1', platform: 'weibo' }, remainingWait: 84000, bucket: 'account' })
+    expect(stageOf()).toContain('等待 1 分钟')
+    // 126s → 2 分钟：证明不是"一律往下取"，而是取整口径从 ceil 换成 round
+    taskQueue.emit('publish:blocked', { task: { id: 't-r2', platform: 'weibo' }, remainingWait: 126000, bucket: 'account' })
+    expect(stageOf()).toContain('等待 2 分钟')
+    // 下限：不足 30s 也不得显示「0 分钟」（那读起来像已经可以发了）
+    taskQueue.emit('publish:blocked', { task: { id: 't-r3', platform: 'weibo' }, remainingWait: 1000, bucket: 'account' })
+    expect(stageOf()).toContain('等待 1 分钟')
+  })
+
   it('task:retry → 富化 phase=retry、retriesLeft 结构化透传', () => {
     const send = vi.fn()
     const { taskQueue } = wire(send)

@@ -501,10 +501,38 @@ describe('PublishIntervalGuard v2', () => {
       const hold6 = guard.recordPublish('weibo', 'acc_1')
       expect(guard.release('weibo', 'acc_1', hold6)).toEqual({ released: false, reason: 'rollback_cap' })
       expect(warns.some(m => m.includes('回滚已达上限'))).toBe(true)
-      // 真表读数必须**大于**封顶，否则这条锁测的是"封顶从不生效"的死支路
-      const realDaily = require('../src/publish-frequency-policy').resolveIntervals('weibo', { env: {} })
-      expect(realDaily.accountDailyMax)
-        .toBeGreaterThan(PublishIntervalGuard.MAX_ROLLBACK_PER_DAY)
+      // 真表读数必须**大于**封顶，否则这条锁测的是"封顶从不生效"的死支路。
+      // QM-6 后端轴 B9：逐 tier 都要过，只测 weibo 一档等于给其余两档留了"封顶是否活着的盲区"。
+      const policyModule = require('../src/publish-frequency-policy')
+      for (const platform of policyModule.SUPPORTED_PLATFORMS) {
+        const r = policyModule.resolveIntervals(platform, { env: {} })
+        expect(r.accountDailyMax, `${platform}=${r.tier}`)
+          .toBeGreaterThan(PublishIntervalGuard.MAX_ROLLBACK_PER_DAY)
+      }
+    })
+
+    test('_intervals 必须回传 tier —— 设置页按档位分组显示（QM-6 前端轴 C2）', () => {
+      // 现场缺陷：`ipc-handlers/publish-frequency.js` 把 `_intervals(p)` 的返回原样发给渲染层，
+      // 而 `PublishFrequencySettings.vue::currentTierText` 读 `v.tier` 拼文案。
+      // 返回形状里没有 tier ⇒ 用户屏幕上每组都是「undefined（4 个平台，如 wechat_mp）：…」。
+      // 测试桩当时**注入了生产不存在的 tier**，所以四层测试全绿而 100% 复现（测试替身补字段）。
+      const guard = exactGuard({ policy: (p) => require('../src/publish-frequency-policy').resolveIntervals(p, { env: {} }) })
+      expect(guard._intervals('wechat_mp')).toEqual({
+        tier: 'long', accountMinMs: 5 * 60 * 1000, platformMinMs: 3 * 60 * 1000, accountDailyMax: 30,
+      })
+      // 未登记平台：tier 取回落档名（不是 undefined），否则同一屏再次出现脏字
+      const unknown = guard._intervals('not_registered')
+      expect(unknown.tier).toBe('long')
+    })
+
+    test('minInterval 兼容模式下 tier 仍须来自策略解析（不得缺键）', () => {
+      const guard = exactGuard({
+        minInterval: 60 * 1000,
+        policy: () => ({ tier: 'clip', accountMinMs: 3 * 60 * 1000, platformMinMs: 2 * 60 * 1000, accountDailyMax: 50 }),
+      })
+      const r = guard._intervals('douyin')
+      expect(r.accountMinMs).toBe(60 * 1000)
+      expect(r.tier, '兼容分支也必须给出档位标签').toBe('clip')
     })
 
     test('平台键独立判定：账号键已被覆盖但平台键仍是本次 ⇒ 仍释放平台键', () => {

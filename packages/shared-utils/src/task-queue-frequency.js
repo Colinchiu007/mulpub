@@ -1,5 +1,5 @@
 /**
- * task-queue-frequency — 发布频率相关的队列方法 mixin（publish-frequency-policy-v2）
+ * task-queue-frequency — 发布频率相关的队列方法 mixin（publish-frequency-policy-v2 → v3）
  *
  * 从 task-queue.js 外移而来：该文件被本次变更从 576 行推到 897 行，触到逐文件行数门禁的
  * 「挂账文件膨胀超容差」（growthAllowance=200 ⇒ 上限 776）。门禁给的正解是拆分，
@@ -162,7 +162,10 @@ module.exports = {  /**
       }
       return false
     }
-    if (task.submitUncertain === true) return false
+    if (task.submitUncertain === true) return false  // 故意排在所有旧判据**之前**（QM-6 B16）：
+    // 终身锁一旦置位，后续轮次即使带 definitelyNotSent 也不回滚 —— 第二轮的 recordPublish 已覆盖
+    // _hold，此时回滚还原的是「第一轮仍在飞那次提交之前」的窗口，比不回滚更危险。
+    // 调序前请先读 PRD §5.1；两条分支各有锁（M1/M3 各红一条）。
 
     const platform = task.platform
     const attempted = task.submitAttempted === true

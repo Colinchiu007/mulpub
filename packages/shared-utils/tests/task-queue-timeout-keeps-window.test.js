@@ -156,6 +156,90 @@ describe('超时/中止竞态不得释放频控窗口（D1）', () => {
     queue.shutdown()
   })
 
+  test('真实两轮：超时轮之后再来一轮"确证未送出"，窗口仍不得被释放（QM-6 B8）', async () => {
+    // 「终身锁」不能只靠手造 task 对象证明 —— 真链路里第二轮会重新 recordPublish 覆盖 _hold，
+    // 那一刻"回滚"还原的是新窗口，看起来无害，实际把第一轮在飞的那次提交彻底移出保护。
+    // 用 40ms 的小窗口让第二轮在测试内**真的跑起来**，而不是靠推演。
+    // 判据取**release 是否被调用**而非"窗口还占着没"：后者绑时间轴（窗口一小就必然过期，
+    // 首跑正是这样假红的），前者与时长无关 —— 两轮真跑完而 release 一次都没被调，才是终身锁成立。
+    const guard = new PublishIntervalGuard({ minInterval: 60, jitterRatio: 0 })
+    let releaseCalls = 0
+    const realRelease = guard.release.bind(guard)
+    guard.release = (...args) => { releaseCalls += 1; return realRelease(...args) }
+    const queue = new TaskQueue({ defaultRetry: 1, publishIntervalGuard: guard })
+    let n = 0
+    queue.setExecutor(() => {
+      n += 1
+      if (n === 1) return new Promise(() => {})          // 第一轮：超时，请求仍在飞
+      const e = new Error('凭证缺失')                     // 第二轮：确证未送出
+      e.definitelyNotSent = true
+      throw e
+    })
+    const id = queue.add({ platform: 'weibo', article: { title: 'T', accountId: 'acc_1' }, timeout: 20, retry: 1 })
+    await sleep(500)
+
+    expect(n, '窗口只有 60ms，第二轮必须真的被执行过').toBeGreaterThanOrEqual(2)
+    const seen = findLiveTask(queue, id)
+    expect(seen.submitUncertain, '第一轮的在飞未知必须留着').toBe(true)
+    expect(seen._hold, '第二轮 recordPublish 确实覆盖了 _hold（"回滚会还原错窗口"的前提）').toBeTruthy()
+    expect(releaseCalls, '两轮加起来 release 必须一次都没被调用').toBe(0)
+    // 且第一轮那次未知不被撤销：整条任务终态时不得回滚
+    expect(queue.getProbeCounts().inflightUnknown).toBe(1)
+    expect(queue.getProbeCounts().releaseFailed).toBe(0)
+
+    queue.shutdown()
+  })
+
+  test('退避期内可取消（这条能力是本次才给的，必须被测 —— QM-6 B5 的派生）', async () => {
+    // _delayRequeue 现在登记 _delayed，用户才可能在 grace 期把它取消掉；
+    // 不登记 = 取消不了（旧现实），登记了但 cancel 不覆盖 = 定时器到期后复活（评审主张，实测不成立）。
+    // 两种方向都要有产物证据，不能靠"我读过 cancel()"。
+    const { guard, queue } = makeQueue()
+    queue.setExecutor(() => {
+      const e = new Error('未登录')
+      e.definitelyNotSent = true
+      throw e
+    })
+    const id = queue.add({ platform: 'weibo', article: { title: 'T', accountId: 'acc_1' }, timeout: 5000 })
+    await sleep(150)
+    expect(guard.check('weibo', 'acc_1').allowed).toBe(true)   // 回滚成功 ⇒ 进退避
+    expect(queue._delayed.has(id)).toBe(true)
+
+    expect(queue.cancel(id)).toBe(true)
+    expect(queue.getHistory().find((t) => t.id === id).status).toBe('cancelled')
+    await sleep(150)
+    expect(queue._delayed.has(id)).toBe(false)
+    expect(queue._queue.some((t) => t.id === id)).toBe(false)
+    queue.shutdown()
+  })
+
+  test('重启恢复的任务不得回滚窗口（_hold 不在投影里 —— QM-6 B3 的派生）', async () => {
+    // 评审主张"submitUncertain 不持久化 ⇒ 恢复后可回滚"。核对结论：**该路径不可达** ——
+    // 恢复走 `_queue.push({...task})`，而 task-projection 不含 `_hold`，
+    // `_maybeRollback` 首行 `if (!guard || !task._hold) return false` 就拦住了。
+    // 但"不可达"必须由锁给出，不能由我读代码给出（否则下次有人给投影加 _hold 就静默开门）。
+    const guard = new PublishIntervalGuard({ minInterval: WINDOW, jitterRatio: 0 })
+    const queue = new TaskQueue({ defaultRetry: 1, publishIntervalGuard: guard })
+    queue.setExecutor(() => new Promise(() => {}))
+    const id = queue.add({ platform: 'weibo', article: { title: 'T', accountId: 'acc_1' }, timeout: 30 })
+    await sleep(120)
+    const snapshot = queue.serialize()
+
+    const restored = new TaskQueue({ defaultRetry: 1, publishIntervalGuard: guard })
+    restored.setExecutor(() => {
+      const e = new Error('凭证缺失')
+      e.definitelyNotSent = true
+      throw e
+    })
+    expect(restored.deserialize(snapshot)).toBeGreaterThan(0)
+    const task = findLiveTask(restored, id)
+    expect(task, '恢复出来的任务必须仍可查（_queue 或 _delayed）').toBeTruthy()
+    expect(task._hold, '投影不得带 _hold').toBeFalsy()
+    const err = new Error('凭证缺失'); err.definitelyNotSent = true
+    expect(restored._maybeRollback(task, err, {})).toBe(false)
+    queue.shutdown(); restored.shutdown()
+  })
+
   // ── 正向对偶：不得把「禁止回滚」写成「永不回滚」──────────────────────────
   test('对偶①：执行器**快速抛错**且确证未送出 ⇒ 照常释放（免等重试的收益不能被锁掉）', async () => {
     const { guard, queue } = makeQueue()

@@ -295,9 +295,14 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
     // v2：日配额用尽是「今天到此为止」而非「等一会儿」，remainingWait 恒为 0，
     // 故 stage 文案必须按 reason 分流；渲染端另按 reason 选择本地化文案（勿依赖这句中文）。
     const isDailyQuota = reason === 'daily_quota' || bucket === 'daily'
+    // 分钟取整用 round 不用 ceil：抖动后 60–84s 会被 ceil 显示成「2 分钟」，而 8 秒后任务就发出去了。
+    // v3 把短内容档收到 1′ 后这个相对误差接近 100%（QM-6 前端轴 W1）。
+    // 镜像实现：`PublishProgressTaskRow.vue` 同一口径（两处共用一份 helper 需跨主/渲染进程，代价大于收益，
+    // 改一处必须同改另一处，各有锁：phase4-events.test.js + PublishProgressPanel.test.js）。
+    const waitMinutes = Math.max(1, Math.round(remainingWait / 60000))
     const stage = isDailyQuota
       ? '⏳ 今日发布已达上限，明日 00:00 后自动继续'
-      : '⏳ 发布间隔限制，等待 ' + Math.ceil(remainingWait / 60000) + ' 分钟后重试'
+      : '⏳ 发布间隔限制，等待 ' + waitMinutes + ' 分钟后重试'
     emitter.emit(task.id, task.platform, 'blocked', {
       stage,
       remainingWait,

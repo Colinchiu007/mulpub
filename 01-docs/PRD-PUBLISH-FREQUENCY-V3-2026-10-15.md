@@ -149,8 +149,12 @@ v2 用 `max(2, dailyMax)` 把两者绑死；日配额 ×10 后若不动，短内
 等于把**防重试风暴的闸**写成**配额的函数**。v3 加独立常量 `MAX_ROLLBACK_PER_DAY = 5`
 （由 `PublishIntervalGuard.MAX_ROLLBACK_PER_DAY` 导出，禁止在调用方另抄）。
 
-方向核对：`long`/`clip` 档在 v2 下本就是 3 与 5 → 不变；`short` 档由 20 → **5**（收紧）；
-`dailyMax = 0`（显式关闭）时仍给固定保守上限 2 → 不变。
+方向核对（**QM-6 前端轴 W4 纠正了我最初写的"long/clip 不变"**——那是算错的）：
+v2 许可数 = `max(2, dailyMax)` = 长 3 / 中 5 / 短 20；v3 = `min(max(2, dailyMax), 5)` = **5 / 5 / 5**。
+所以净效果是 **clip 持平、short 由 20 收紧到 5、long 由 3 放宽到 5**（不是"都不变"）。
+放宽 long 是可接受的：v2 那个 3 不是独立量出来的许可额度，它只是**日配额的影子**；
+本次把两者解耦后，统一给一个"与运营量级无关的小常数"，比继续让 long 因配额小而只能纠错两次更一致。
+若产品认为长文档也该只有 3 次，改法是给 `_rollbackCap` 按 tier 取值，而不是回到 `max(2, dailyMax)`。
 
 ---
 
@@ -206,23 +210,44 @@ v2 用 `max(2, dailyMax)` 把两者绑死；日配额 ×10 后若不动，短内
 |---|---|---|
 | 设置 → 发布频率 → `pubfreq-current` | `currentTierText`：按"生效值签名"分组列出各 tier 及其覆盖的平台数 | 分组数不变，但**平台档现在按档不同**（3′/2′/1′），旧版三组同值 |
 | 同上 | `effectiveRangeText`：当前生效区间 | 区间下界随 v3 收窄 |
-| 发布进度面板（`PublishProgressTaskRow.vue`） | `publish:blocked` → `stageKey:'waiting'`，文案 `⏳ …分钟后重试`；日配额命中另有专门文案 | **倒计时上限变小**（长文最长 7′→约 7′ 含抖动，v2 是 28′）；不新增相位 |
+| 发布进度面板（`PublishProgressTaskRow.vue`） | `publish:blocked` → `stageKey:'waiting'`，文案 `等待 N 分钟后重试`；日配额命中另有专门文案 | 等待量级变小（长文档标称 5′、含抖动最长 7′；v2 是 20′/28′）；**不新增相位**。取整口径本次由 `ceil` 改为 `round`（见 §9 的 W1 条）；注意这是**事件时刻的一次性快照**，不是逐秒递减的倒计时（`stores/publishProgress.js` 只在事件里赋值） |
 | 设置 → 覆盖表单 | `accountMinutes` / `platformMinutes`（0..10080 分钟）、三档 `dailyMax*` | 未填 = 继续用各平台默认档；**`platformMinutes` 是全局单值**，一旦填写会把三档平台档抹平成同一个值（既有语义，v3 分级后更需要注意，见 §9 提示文字建议） |
 | 设置 → 紧急放行 | 平台选择 + accountId + 确认 | 每日每账号上限仍为 1（`emergencyMaxPerDay` 未动） |
 | 探针计数 `getProbeCounts()` | 含 `inflightUnknown`（v3 新增键） | **界面无消费者**（§10），只有 `console.warn` 与内存计数 |
 
-## 9. 提示文字（本次是否改文案）
+## 9. 提示文字（本次改了 4 条，zh/en 成对）
 
-本次**不改任何用户可见文案**，因此不新增 locale 键（AGENTS 禁止死键），zh/en 成对约束不适用。
-引用现场（已核实的键名，来自 `PublishFrequencySettings.vue` 与 `locales/publish-page/zh.js`）：
-`settings.publishFrequency.{currentTier, effectiveRange, unset, tierSummary, tierSeparator,
-dailyMaxLong, dailyMaxClip, dailyMaxShort, dailyMaxPendingConfirm, emergencyPlatform,
-emergencyAccountPlaceholder}`；进度侧既有 `blockedDailyQuota` / `releasedNotSubmitted` /
-`emergencyDisabled`。
+首稿写的是「本次不改任何用户可见文案」——**那句已被 QM-6 前端轴否证**：有两处文案的内容是**数值陈述**，
+数值一动就变成同屏自相矛盾的假话，不改等于交付一条已知的可见假陈述。实际改动：
 
-一条**登记给用户判断的建议**（不在本次动，因为改文案属产品判断）：v3 起平台档分三值，
-设置页"平台档"这一个输入框的覆盖语义变成"把三档拍平成一个值"。若要保持可解释性，
-正解是把它改成三档输入（与 `dailyMax*` 同形），而不是在提示里加一句长解释。
+| locale 键 | 旧文案的问题 | 新文案 |
+|---|---|---|
+| `settings.publishFrequency.dailyMaxPendingConfirm`（zh:42 / en:40） | 写死「默认值 **3 / 5 / 20**」，而同屏上方 `currentTierText` 显示的是 30/50/200 ⇒ 用户读到两个互相矛盾的数字 | 改为指回动态读数：「三档默认值见本页上方「当前档位」的第三项；它们是工程保守起点、不是平台官方规则，待运营确认。」 |
+| `settings.publishFrequency.platformIntervalHint`（zh:36 / en:34） | 承诺「同账号时账号档**恒**更严，该值不改变结果」—— 守卫是两桶取更严，用户把这个值填得比账号档大时该承诺即被自己的输入打破 | 改为条件式：「同账号时取「账号档」与本值的**较严者**：默认各档账号档更严，本值不改变结果；但把它填得比账号档还大时，同账号也会被本值拦住。」 |
+
+另两处显示面修复（不是文案，但同属"用户看到什么"）：
+
+- **`_intervals()` 补 `tier`**：`ipc-handlers/publish-frequency.js` 把 `_intervals(p)` 原样转发给设置页，
+  而 `currentTierText` 读 `v.tier` 拼 `tierSummary` ⇒ 修复前生产渲染结果是
+  `undefined（4 个平台，如 wechat_mp）：5 min / 3 min / 30`。这是**先于本变更存在**的缺陷
+  （v2 引入分组显示时就没回传 tier），之所以从未暴露：`PublishFrequencySettings.test.js` 的
+  夹具**自行注入了生产不存在的 `tier`**（「契约夹具不得替对方补字段」的又一落点）。
+  现在：实现补键 + 守卫侧 `_intervals` 形状锁 + 夹具退回该字段必红（变异 M16）。
+- **等待分钟取整 `ceil → round`**：抖动让实际等待 ∈ [标称, ×1.4]，短档标称 1′ ⇒ 60–84s 一律被
+  `ceil` 显示成「等待 2 分钟」，而 8 秒后任务就发出 —— 相对误差接近 100%（v2 下同样的绝对误差
+  ≤59s 摊在 3–20 分钟上看不见）。主进程 `phase4-events.js` 与渲染层 `PublishProgressTaskRow.vue`
+  两处同口径（跨主/渲染共用一份 helper 的代价大于收益，改为**两处各一条锁**：
+  `phase4-events.test.js` + `PublishProgressPanel.test.js`，改一处必须同改另一处）。
+
+引用现场（已核实的键名）：`settings.publishFrequency.{title, subtitle, currentTier, effectiveRange,
+accountInterval, platformInterval, platformIntervalHint, unset, overrideScopeHint, dailyMaxLong,
+dailyMaxClip, dailyMaxShort, dailyMaxPendingConfirm, jitterOn, jitterHint, tierSummary, tierSeparator,
+save, reset, saveOk, emergencyPlatform, emergencyAccountPlaceholder}`；
+进度侧 `publishPage.publishProgressPanel.{blockedWaitMinutes, blockedDailyQuota, releasedNotSubmitted,
+emergencyDisabled, stageWaiting, statusBlocked}`。
+
+一条**登记给用户判断的建议**（不在本次动）：设置页「平台档」是**全局单值**，v3 起平台档按档分级，
+用户一旦填它就三档抹平。正解是改成三档输入（与 `dailyMax*` 同形），而不是再加一句长解释。
 
 ---
 
@@ -255,16 +280,20 @@ emergencyAccountPlaceholder}`；进度侧既有 `blockedDailyQuota` / `releasedN
 
 | 文件 | 条数 | 本次新增/修改 |
 |---|---|---|
-| `packages/shared-utils/tests/publish-frequency-policy.test.js` | 32 | 改 5 条数值断言 + 新增 4 条（逐 tier 精确表、平台档分级集合、档间单调、"恰为 v2 的 10 倍"数据表） |
-| `packages/shared-utils/tests/publish-interval-guard.test.js` | 49 | 新增 1 条：回滚许可硬顶（含"真表读数必须大于封顶"的活性前置） |
-| `packages/shared-utils/tests/task-queue-timeout-keeps-window.test.js` | 10 | **新文件**：4 条 D1 行为锁 + 4 条正向对偶 + cancel 不变量 + 退避可观测性 |
-| `apps/desktop/electron/core/container.setup.test.js` | — | 装配锁按 v3 精确值改断言（经真实容器取守卫，不是 mock） |
+| `packages/shared-utils/tests/publish-frequency-policy.test.js` | 34 | 改 5 条数值断言 + 新增 6 条：逐 tier 精确表、平台档分级集合、档间单调、"恰为 v2 的 10 倍"数据表、**平台→档位归属逐平台钉住**（QM-6 B14：派生表的新风险面是"挪错档"，而它不改任何档位值 ⇒ 前四条全照绿）、**回落基线逐维度不弱于任何已登记平台**（QM-6 B7：独立常量不会被编译器提醒） |
+| `packages/shared-utils/tests/publish-interval-guard.test.js` | 51 | 新增 3 条：回滚许可硬顶（含"真表读数必须大于封顶"的活性前置，QM-6 B9 后扩成**逐平台**而非只测 weibo）、`_intervals()` 必须回传 `tier`、minInterval 兼容分支同样要带 `tier` |
+| `packages/shared-utils/tests/task-queue-timeout-keeps-window.test.js` | 13 | **新文件**：4 条 D1 行为锁 + 4 条正向对偶 + cancel 不变量 + 退避可观测性 + QM-6 三条（**真实两轮且判据取"release 有没有被调用"**、退避期内可取消、重启恢复不得回滚） |
+| `apps/desktop/electron/core/container.setup.test.js` | — | 装配锁按 v3 精确值改断言（经真实容器取守卫，不是 mock）；回落判据由 `>= weibo(1′)` 改成与**最严那档**比 |
+| `packages/shared-utils/src/__tests__/frequency-declaration-contract.test.js` | 6 | **新文件**：枚举 `publish-frequency-policy` 与 `PublishIntervalGuard` 的**全部公开面**，逐个要求在 `index.d.ts` 里声明（QM-6 W3：该子路径 require 在类型检查里恒为 `any`，漂移永远不会红） |
+| desktop 显示面 3 文件 | +4 | 设置页三条（tier 不再渲染成 undefined / 旧默认值文案不得残留 / 平台档提示不得做绝对承诺）+ 进度面板与主进程各一条 round 取整锁 |
 | 其余（`task-queue.test.js` 等） | 141 基线 | 未改，全绿 |
 
-`packages/shared-utils` 全量：**1021 passed / 10 skipped**（49 个文件）；上述 desktop 消费者并集：**291 passed**。
-（消费者并集按 `git grep` 对 4 个被改模块名求并集取得，共 9 个 desktop 测试文件。）
+`packages/shared-utils` 全量：**1034 passed / 10 skipped**（50 个文件）；desktop 侧受影响面（`container.setup` / `bootstrap.test` / `publish.test` / `publish-progress-events` / `publisher-router` / `store-owner-isolation` / 设置页 / 进度面板 / `SettingsDialog` / `phase4-events`）**全部通过**。
+（消费者并集按 `git grep` 对 4 个被改模块名求并集取得。）
 
-变异反证 11 条，全部实跑，且**还原后与原文逐字节相同**；另有一条驱动自身的假失败被当场抓到：
+**净新增 27 条用例**（阶段 A/B 14 条 + QM-6 处置 13 条：`_intervals` 的 tier 两格、d.ts 枚举锁六格、真两轮 / 退避期内可取消 / 恢复不回滚三格、显示面四格）。
+
+变异反证 **20 条**（第一批 M1–M11 打本次实现，第二批 M12–M20 打 QM-6 修复本身），全部实跑，且**还原后与原文逐字节相同**（还原判据由外部 `md5sum -c` 对账，不由驱动自证）；另有一条驱动自身的假失败被当场抓到：
 第一版驱动按未剥 ANSI 的 `FAIL` 行取用例名 ⇒ `rc=1 而 red=0`，报成 9 条"MISSED"。
 真实原因是探针失明，不是锁失效 —— 驱动已改为剥 ANSI 并新增 `PROBE_BLIND` 独立档位
 （"有测试失败但叫不出名字"必须与"没测出问题"分开），并在跑变异前先做**未变异必须全绿**的正控。
@@ -280,6 +309,9 @@ emergencyAccountPlaceholder}`；进度侧既有 `blockedDailyQuota` / `releasedN
 | M9 | race 里另起一次执行器调用 | CAUGHT，红 3 条（重复执行类） |
 | M10 | 算了 `executorSettled` 却没传给判据 | CAUGHT，红 3 条（D1 三条本体） |
 | M11 | 把封顶数值抬到不再生效（5→500） | CAUGHT，红 1 条（证明常量在**管**而非仅在位） |
+
+第二批 M12–M20 覆盖的是 QM-6 修复本身（`_intervals` 回传 tier、round 取整、两条提示文案、**夹具退回"替生产补字段"**、d.ts 枚举锁三格、真两轮链路）。
+M18 跑了**三轮**才对上，前两轮都是我自己的错：首版变异删的是 `dailyPrev/dayKey`（不是锁声称的 `at`，属**空操作**）；第二版把变异打在一条 `toContain(「at」)` 形状的断言上 —— 它同时被「pl**at**form」这个子串**和**相邻成员 `release(hold: { at: number; … })` 的参数形状满足，是条恒真断言。判据改成「按花括号配对只切出 recordPublish 自己的返回块，再逐字段按 `名: 类型` 的形状判」之后，M18 才真的指名红。**教训**：新写的锁必须当场被一次变异打过 ——「断言存在」很容易被当成「锁有效」，而这两件事在 M18 的第二轮之间就是零差距。`M13/M14/M15/M16` 各只红一条、红在指名的用例上（M16 打的正是 C2 的逃逸原因：夹具替生产补 `tier`）。
 
 两条**如实记录、不改成恰好能红**的覆盖面事实：
 
