@@ -2,10 +2,6 @@
 record: ccg-explicit-mode
 task: 把 diff 区间接进 CCG 判定器 —— 补完「带显式路径补跑」时模式判定静默不执行
 date: 2026-10-15
-# ↓ 三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在，无法取证收口
-sync_backfill_owner: 下一个会话（按三形态同改纪律：表格行 + bullet + 删除本段三字段，同一次提交）
 ---
 
 ## 本次执行记录：补完缺陷 C 的另一半（ccg-explicit-mode，2026-10-15）
@@ -143,9 +139,9 @@ base 三级回退：`CCG_DECIDER_BASE` → `origin/main` → `main`。
 | 行尾/编码对账 | `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` **一致** |
 | 品牌残留 | PASS |
 | 深度审查（DUAL） | **已跑**：critique 6 条 → 逐条裁决 **6/6 upheld** → 全部处置（见 §五之二）|
-| 远程同步 | PENDING | 本 PR 未合并 |
+| 远程同步 | PASS | PR #3662 已合并 → `f940edd8380a94dfc973880c85c27d3281f6a40f`（2026-10-16T01:27:08+08:00）；远端分支已删（`git ls-remote --heads origin ccg-explicit-mode` = 0 行）|
 
-- 保留门禁：decider 19/19 ✅ | exec-record 48/48 ✅ | bash-entry 9/9 ✅ | 变异反证 M1–M5 全部实测变红 ✅ | 深度审查已跑并逐条裁决 6/6 ✅ | 行尾对账 ✅ | unwired ✅ | 债务熔断 ✅ | 品牌 ✅ | 远程同步 PENDING
+- 保留门禁：decider 19/19 ✅ | exec-record 48/48 ✅ | bash-entry 9/9 ✅ | 变异反证 M1–M5 全部实测变红 ✅ | 深度审查已跑并逐条裁决 6/6 ✅ | 行尾对账 ✅ | unwired ✅ | 债务熔断 ✅ | 品牌 ✅ | 远程同步 PASS
 
 ## 五之二、深度审查（DUAL）
 
