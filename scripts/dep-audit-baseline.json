@@ -356,18 +356,6 @@
     },
     {
       "source": "pip",
-      "id": "CVE-2026-85394",
-      "module": "python-jose",
-      "severity": "unknown",
-      "patched": "",
-      "roots": [
-        "ops-center/backend"
-      ],
-      "decision": "not-exploitable",
-      "note": "pip 域不提供严重度，统一 unknown（pip-audit JSON 无该字段），按既有约定由本 note 补注。公告本体：python-jose through 3.5.0 未正确校验 HMAC 初始化中的非对称密钥，接受缺 PEM armor / SSH 前缀的 DER 公钥，攻击者持有服务公钥时可伪造通过校验的 HS256 令牌——**成立前提是「算法未被显式限定」**（原文：when algorithms are not explicitly restricted）。本仓两处调用点均显式传 algorithms 白名单：middleware/auth.py:37 `algorithms=[settings.jwt_algorithm]`、services/logto_verifier.py:95 `algorithms=[\"RS256\",\"ES256\"]`；且 config.py:52 把取值类型锁死为 `Literal[\"HS256\"] = \"HS256\"`（无法配成非对称算法），tests/test_security_config.py:43 `test_rejects_unsupported_jwt_algorithm` 已回归拦截 HS384。CVE 自身也标注为 CVE-2024-33663 的不完整修复。结论：在本仓当前调用形态下不可利用，故 not-exploitable 而非 no-fix-available（后者会谎称上游已放弃）。复核条件：①任一 jwt 验证点去掉 algorithms 参数；②jwt_algorithm 的 Literal 放宽为多算法。上游修复版出现后应改判 upgrade-tracked。实际安装版本 python-jose 3.5.0（pip-audit 实测）。"
-    },
-    {
-      "source": "pip",
       "id": "PYSEC-2026-1325",
       "module": "ecdsa",
       "severity": "unknown",
@@ -377,6 +365,18 @@
       ],
       "decision": "no-fix-available",
       "note": "ecdsa 由 python-jose[cryptography] 传递引入，确实在签名校验路径上被调用（ops-center/backend/services/logto_verifier.py 以 algorithms=[\"RS256\",\"ES256\"] 调 jose_jwt.decode）。但 PYSEC-2026-1325 是 Minerva 计时侧信道，影响面限定在私钥运算（SigningKey.sign_digest），本仓不持私钥、不签发 JWT，只做验签；上游明确「side channel out of scope，no planned fix」，无可用修复版本。真正的收敛动作是把 python-jose 换成 PyJWT/cryptography 直接验签（另行立项），而不是等 ecdsa 升版。"
+    },
+    {
+      "source": "pip",
+      "id": "PYSEC-2026-4298",
+      "module": "python-jose",
+      "severity": "unknown",
+      "patched": "",
+      "roots": [
+        "ops-center/backend"
+      ],
+      "decision": "not-exploitable",
+      "note": "【同一条公告换了主 id】pip-audit 实测 PYSEC-2026-4298 的 aliases = GHSA-3qf3-8w2g-rqmx, CVE-2026-85394 —— 与本基线原挂账的 CVE-2026-85394 是同一漏洞（本轮 `--update` 因此同时产生「CVE 不再命中」与「PYSEC 新增」两条差分，不是修好了、也不是新风险）。公告本体：python-jose through 3.5.0 未正确校验 HMAC 初始化中的非对称密钥，接受缺 PEM armor / SSH 前缀的 DER 公钥，攻击者持有服务公钥时可伪造通过校验的 HS256 令牌——**成立前提是「算法未被显式限定」**（原文：when algorithms are not explicitly restricted）。本仓两处验签点均显式传 algorithms 白名单（2026-10-16 复核仍在位）：middleware/auth.py:37 `algorithms=[settings.jwt_algorithm]`、services/logto_verifier.py:95 `algorithms=[\"RS256\", \"ES256\"]`；且 config.py:52 把取值锁死为 `Literal[\"HS256\"] = \"HS256\"`（无法配成非对称算法），tests/test_security_config.py:43 `test_rejects_unsupported_jwt_algorithm` 已回归拦截 HS384。实际安装版本 python-jose 3.5.0（pip-audit 实测）。结论：在本仓当前调用形态下不可利用 ⇒ not-exploitable（而非 no-fix-available，后者会谎称上游已放弃）。复核条件：①任一 jwt 验证点去掉 algorithms 参数；②jwt_algorithm 的 Literal 放宽为多算法。上游修复版出现后应改判 upgrade-tracked。"
     }
   ]
 }

@@ -1,0 +1,30 @@
+{
+  "sha": "81d9d5b0cf057dc511a62f1557cb1a5cee787ee3",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 16 行（≤ 200）但命中 auth/数据库/加密：敏感内容 2 处",
+  "stats": {
+    "changedLines": 16,
+    "fileCount": 2,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 2,
+    "docSensitiveContentHits": 4,
+    "docSensitiveContentSample": [
+      "2026-10-15 22:58 起，`依赖漏洞审计` 在**全部开放 PR** 上同时转红（本仓实测：`#3656` 知乎凭据设置化 与 `#3639` worktree 删除守卫，两者都不碰任何依赖文件）。日志两条：",
+      "❌ RESOLVED_STILL_BASELINED: pip/CVE-2026-85394 已不再命中（多半已升级），请 --update 清账",
+      "所以「CVE 不再命中」**不是修好了**，「PYSEC 新增」**也不是新风险** —— 是 `--update` 在换 id 时的必然形状。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "7a6b0e9ce33e7bac2237dfdc33c6a202f4e3a2ed06b46576a3504ac189459b9e",
+  "decidedAt": "2026-10-15T17:28:03.272Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}
