@@ -334,8 +334,35 @@ function main(argv) {
 }
 
 /**
+ * 深度审查的**闭环状态白名单** —— 只有落在这里的状态才算「审查已出裁决」。
+ *
+ * ★ 判据取白名单而非黑名单（2026-10-15 实测纠正，QM-6 评审 i2 引出）：
+ *   初版写的是 `status === 'pending'`（黑名单），只认判定器落下的初始值。
+ *   而引擎 ccg-deep-review.js 跑完会写回**别的**状态：实测本 PR 的记录被写成
+ *   `self_play_pending`（= 自扮演裁决「5/5 条仍无 verdict」，**公开承认未闭环**），
+ *   于是新版门禁照样放行 —— 换一个失败形态就绕过了，正是本仓反复出现的
+ *   「判据被改宽」同型错误。
+ *   改成白名单后，引擎将来新增任何状态都会**自动**计入欠账（fail-closed）。
+ *
+ *   来自引擎 writeBack 的取值全集（grep `status:` 穷举）：
+ *     cleared / needs_revision / blocked / incomplete            —— diff 层裁决
+ *     self_play_resolved / self_play_blocked / self_play_pending
+ *     escalated / incomplete_review / error / skipped_by_mode
+ *
+ * 为什么 cleared / needs_revision / self_play_resolved 算闭环：
+ *   三者都意味着**裁决已经产出并落盘**（cleared=放行、needs_revision=无 Critical
+ *   但留 High 建议、self_play_resolved=第三档出口已裁决）。本门禁要防的是
+ *   「深度审查静默地从未发生」，不是「建议项没改完」—— 后者属评审环节。
+ */
+const CLOSED_DEEP_REVIEW_STATUSES = new Set([
+  'cleared',
+  'needs_revision',
+  'self_play_resolved',
+])
+
+/**
  * ★ 2026-10-15 增（缺陷 D）：检查 `.ccg/reviews/*.json` 里被判定需要深度审查
- * （`deepReview.required === true`）但状态仍是 `pending` 的记录。
+ * （`deepReview.required === true`）但**状态不在闭环白名单里**的记录。
  *
  * 动因：`ccg-review-decider.js` 对 mode != skip 的改动会置
  * `deepReview: { required: true, status: "pending", performedBy: null }`，
@@ -349,9 +376,10 @@ function main(argv) {
  *
  * 设计取舍（不误伤）：
  *   - 只查**本次变更集涉及**的记录文件（A 或 M 的 .ccg/reviews/*.json），
-     不扫全仓 —— 否则历史遗留的 pending 会让所有 PR 红。
+ *     不扫全仓 —— 否则历史遗留的 pending 会让所有 PR 红。
  *   - 记录本身是审计产物（AUDIT_ARTIFACT_RE），其 sha 命名与 squash 合并后的
- *    HEAD 不同，所以按「本次改动是否带上它」判定，不按 sha 反查。
+ *     HEAD 不同，所以按「本次改动是否带上它」判定，不按 sha 反查。
+ *   - `status` 缺失/非字符串一律算欠账（fail-closed），不给「字段被删」留后门。
  */
 function evaluateDeepReviewDebt (statuses, repo) {
   const reasons = []
@@ -360,22 +388,24 @@ function evaluateDeepReviewDebt (statuses, repo) {
     .map((e) => e.file)
   if (involved.length === 0) return { reasons, checked: 0 }
 
-  const pending = []
+  const unresolved = []
   for (const rel of involved) {
     let rec = null
     try {
       rec = JSON.parse(fs.readFileSync(path.join(repo, rel), 'utf8'))
     } catch { continue } // 损坏记录由别的门禁负责，这里不重复报
-    if (rec && rec.deepReview && rec.deepReview.required === true && rec.deepReview.status === 'pending') {
-      pending.push(`${rel}（mode=${rec.mode || '?'}，decidedAt=${rec.decidedAt || '?'}）`)
+    if (!rec || !rec.deepReview || rec.deepReview.required !== true) continue
+    const st = typeof rec.deepReview.status === 'string' ? rec.deepReview.status : '(缺失)'
+    if (!CLOSED_DEEP_REVIEW_STATUSES.has(st)) {
+      unresolved.push(`${rel}（mode=${rec.mode || '?'}，status=${st}，decidedAt=${rec.decidedAt || '?'}）`)
     }
   }
-  if (pending.length > 0) {
+  if (unresolved.length > 0) {
     reasons.push(
-      `CCG 深度审查欠账 ${pending.length} 条 —— 这些改动被判需要深度审查（deepReview.required=true）`
-      + `但状态仍是 pending：\n`
-      + pending.slice(0, 8).map((p) => `    - ${p}`).join('\n')
-      + `\n    补跑：sh scripts/deep-review.sh（或确认该判定是假阳性后，在记录里写明原因并置 status）`
+      `CCG 深度审查欠账 ${unresolved.length} 条 —— 这些改动被判需要深度审查（deepReview.required=true）`
+      + `但状态不在闭环白名单 {${[...CLOSED_DEEP_REVIEW_STATUSES].join(', ')}} 内：\n`
+      + unresolved.slice(0, 8).map((p) => `    - ${p}`).join('\n')
+      + `\n    补跑：sh scripts/deep-review.sh（或确认该判定是假阳性后，在记录里写明原因并把 status 置为闭环值）`
     )
   }
   return { reasons, checked: involved.length }
@@ -396,6 +426,6 @@ function report(r, mode) {
   process.exit(r.ok ? 0 : 1)
 }
 
-module.exports = { evaluate, resolveHeadBranch, readExemptsOnDisk, remoteBranchSet, isPureBackfillChangeSet, evaluateDeepReviewDebt, RECORDS_RE, EXEMPT_RE, CARRIER_RE, DEFAULT_THRESHOLD }
+module.exports = { evaluate, resolveHeadBranch, readExemptsOnDisk, remoteBranchSet, isPureBackfillChangeSet, evaluateDeepReviewDebt, CLOSED_DEEP_REVIEW_STATUSES, RECORDS_RE, EXEMPT_RE, CARRIER_RE, DEFAULT_THRESHOLD }
 
 if (require.main === module) main(process.argv.slice(2))

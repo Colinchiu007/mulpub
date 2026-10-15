@@ -26,6 +26,8 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
+const os = require("node:os");
+const { spawnSync } = require("node:child_process");
 
 // judge() 与 RULES 都是模块内函数，通过读取源码后注入的方式拿到，
 // 避免为了可测性给一个纯 CLI 脚本硬加 module.exports（那会改变它的调用契约）。
@@ -215,4 +217,81 @@ test("常规：deepReview.required 在 mode != skip 时为 true", () => {
   assert.equal(skip.mode, "skip");
   // required 的语义由 saveRecord 决定，这里只验证 mode 分支正确
   assert.ok(["single", "dual"].includes(single.mode));
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// collectStaged 的真实覆盖（QM-6 评审 i1）
+// ═══════════════════════════════════════════════════════════════════
+//
+// 上面所有用例都用 makeStaged() 伪造对象测 judge()，**collectStaged 零覆盖** ——
+// 而它才是缺陷 A/B 的修复主体（逐文件→单次 diff 切段、重命名解析、读取缺口记账）。
+// 伪造对象测不出「切段切错」「重命名定位不到」这类问题，所以这里必须上真实暂存区。
+//
+// 为什么用子进程：collectStaged 内部的 git() 走 process.cwd()，
+// 而测试进程的 cwd 不能中途切换 ⇒ 子进程的 cwd 指向夹具仓库。
+test("collectStaged 真实覆盖：源码/文档/重命名三类在真实暂存区上的解析", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), `ccg-collect-${process.pid}-${Date.now()}-`));
+  try {
+    const g = (...args) => spawnSync("git", args, { cwd: root, encoding: "utf8" });
+    g("init", "-q");
+    g("config", "user.email", "t@example.invalid");
+    g("config", "user.name", "t");
+    g("config", "commit.gpgsign", "false");
+    fs.mkdirSync(path.join(root, "scripts"), { recursive: true });
+    fs.mkdirSync(path.join(root, "docs"), { recursive: true });
+    fs.writeFileSync(path.join(root, "scripts", "old-name.js"), "const a = 1;\n");
+    fs.writeFileSync(path.join(root, "docs", "notes.md"), "初始说明。\n");
+    g("add", ".");
+    g("commit", "-q", "-m", "base");
+
+    // 三类改动同时在暂存区：
+    //   ① 源码：改名 + 改内容（覆盖 i6 的 "old => new" 形态）
+    //   ② 文档：改内容且含敏感词（覆盖 i3 的「文档行单列、不进源码视图」）
+    fs.renameSync(path.join(root, "scripts", "old-name.js"), path.join(root, "scripts", "new-name.js"));
+    fs.writeFileSync(path.join(root, "scripts", "new-name.js"), 'const password = "y";\n');
+    fs.writeFileSync(path.join(root, "docs", "notes.md"), "这里分析加密与口令机制。\n");
+    g("add", "-A");
+
+    // 子进程加载被测模块：剥掉末尾的 process.exit(main()) 后注入 exports
+    const MARK = "process.exit(main());";
+    const loader = [
+      "const fs = require('node:fs'), path = require('node:path'), Module = require('node:module');",
+      `const SRC = ${JSON.stringify(SRC)};`,
+      "let src = fs.readFileSync(SRC, 'utf8');",
+      `const i = src.lastIndexOf(${JSON.stringify(MARK)});`,
+      "if (i >= 0) src = src.slice(0, i);",
+      "const m = new Module(SRC, null);",
+      "m.filename = SRC;",
+      "m.paths = Module._nodeModulePaths(path.dirname(SRC));",
+      "m._compile(src + '\\nmodule.exports = { collectStaged };\\n', SRC);",
+      "process.stdout.write(JSON.stringify(m.exports.collectStaged()));",
+    ].join("\n");
+    const r = spawnSync(process.execPath, ["-e", loader], { cwd: root, encoding: "utf8" });
+    assert.strictEqual(r.status, 0, `加载/执行失败：${r.stderr}`);
+    const st = JSON.parse(r.stdout);
+
+    // ① 重命名 + 改内容：文件必须被认出来，且它的变更行必须读到（i6）
+    assert.ok(
+      st.files.some((f) => f.file === "scripts/new-name.js"),
+      `重命名后的路径必须解析成新名，实际 files=${JSON.stringify(st.files.map((f) => f.file))}`,
+    );
+    assert.ok(
+      st.codeChangedLines.some((l) => l.includes("password")),
+      `重命名文件的变更行必须被读到（否则敏感判定对它静默失效）；实际 codeChangedLines=${JSON.stringify(st.codeChangedLines)}`,
+    );
+    assert.deepEqual(st.lineReadGaps, [], `不得有「有规模却读不到行」的文件；实际 ${JSON.stringify(st.lineReadGaps)}`);
+
+    // ② 源码视图不得混入文档行（i3 的一半：判定只看源码）
+    assert.ok(
+      !st.codeChangedLines.some((l) => l.includes("加密") || l.includes("口令")),
+      `文档行不得进入 codeChangedLines；实际 ${JSON.stringify(st.codeChangedLines)}`,
+    );
+    // ③ 文档视图必须拿到文档行（i3 的另一半：改判定 ≠ 丢弃观测点）
+    assert.ok(
+      st.docChangedLines.some((l) => l.includes("加密")),
+      `文档变更行必须被单列出来供报告；实际 ${JSON.stringify(st.docChangedLines)}`,
+    );
+  } finally {
+    try { fs.rmSync(root, { recursive: true, force: true }) } catch { /* 夹具清理失败不影响判据 */ }
+  }
 });

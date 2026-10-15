@@ -98,64 +98,112 @@ function collectStaged() {
   const numstat = git(["diff", "--cached", "--numstat"]);
   if (numstat === null) return null;
 
-  // ★ 2026-10-15 修（缺陷 A + B）：
-  //   原实现只用一条 `git diff --cached -U0`，然后把所有 +/- 行塞进 changedLines。
-  //   两个后果：
-  //     A) changedLines 含 .md 文档行 ⇒ 敏感内容判定把「文档里分析加密机制」
-  //        也算成「改动涉及加密」（假阳性 dual）；
-  //     B) rebase --continue 走 git 内部 cherry-pick，pre-commit 触发时
-  //        GIT_INDEX_FILE 指向 rebase 临时 index ⇒ 整仓 diff 读不到预期内容，
-  //        changedLines 为空 ⇒ 敏感判定失去依据。
+  // ★ 2026-10-15 修（缺陷 A + B），并吸收 QM-6 评审 i5/i6：
   //
-  //   修法：**按文件分别取 diff**，并把「该文件是否源码扩展名」一并带回，
-  //   让下游能只拿源码文件的行做敏感判定。
+  //   A) 敏感内容判定原来跑在「全部暂存行」（含 .md 文档）上，与 pathHits 的
+  //      codeFiles 口径不一致 ⇒ 在文档里分析加密机制会被判成「改动涉及加密」。
+  //   B) 规模/敏感判定依赖整仓 `git diff --cached -U0` 的一次读取；实测某次
+  //      rebase 产生的提交在判定记录里被采成 `changedLines=0, fileCount=1`。
+  //      ⚠️ 该成因（GIT_INDEX_FILE 指向 rebase 临时 index）目前是**假设，未证实**
+  //      —— 我只有那一条观测，没做出可复现的最小实验。评审 i1 也正是指这一点。
+  //      故本函数只保证「不再把读取失败静默吞掉」（见 lineReadGaps），
+  //      **不宣称已修好 B**。
+  //
+  //   为什么用「单次全量 diff + 按文件切段」而不是「每文件一次 git diff」（i5）：
+  //     ① 大 PR（数百文件）会在 pre-commit 里派生数百个子进程；
+  //     ② 逐文件读取失败若被 catch 吞掉，与 B 同构的**静默失败**只是换了个触发点。
+  const diff = git(["diff", "--cached", "-U0"]) || "";
+
+  // numstat 对重命名输出 "old => new" 或 "src/{old => new}.js"（i6）。
+  // 直接拿它当路径会定位不到 ⇒ 该文件的变更行静默为空、敏感判定漏检。
+  // 旧实现用整仓 diff 由 git 自己处理 rename，没有这个问题；切段后必须自己解析。
+  const resolveRenamed = (raw) => {
+    if (!raw || !raw.includes("=>")) return raw;
+    const brace = raw.match(/^(.*)\{(.*?)\s*=>\s*(.*?)\}(.*)$/);
+    if (brace) return `${brace[1]}${brace[3]}${brace[4]}`;
+    const parts = raw.split("=>");
+    return parts[parts.length - 1].trim();
+  };
+
   const files = numstat
     .split("\n")
     .filter(Boolean)
     .map((line) => {
-      const [add, del, file] = line.split("\t");
+      const [add, del, ...rest] = line.split("\t");
+      const rawPath = rest.join("\t");
       return {
-        file,
+        file: resolveRenamed(rawPath),
+        rawFile: rawPath,
+        binary: add === "-" || del === "-",
         added: add === "-" ? null : Number(add),
         deleted: del === "-" ? null : Number(del),
       };
     });
+
+  // 把整仓 diff 按 `diff --git` 切段，用段内 `+++ b/<path>` 认领目标文件。
+  //
+  // ★ 2026-10-15 由新加的 collectStaged 真实覆盖测试当场抓出的 bug：
+  //   **删除文件**时 `+++` 是 `/dev/null`，路径只在 `--- a/<path>` 里。
+  //   只认 `+++` 会让每个被删除的文件都落进 lineReadGaps（误报），
+  //   而且它的删除行完全没被采集（敏感内容漏检）。
+  const linesByFile = new Map();
+  for (const seg of diff.split(/^diff --git /m).slice(1)) {
+    const strip = (s) => {
+      const t = String(s).trim();
+      return t.startsWith('"') && t.endsWith('"') ? t.slice(1, -1) : t;
+    };
+    const plusM = seg.match(/^\+\+\+ (?:b\/)?(.*)$/m);
+    let target = plusM ? strip(plusM[1]) : "";
+    if (!target || target === "/dev/null") {
+      const minusM = seg.match(/^--- (?:a\/)?(.*)$/m);
+      target = minusM ? strip(minusM[1]) : "";
+    }
+    if (!target || target === "/dev/null") continue;
+    const lines = seg
+      .split("\n")
+      .filter((l) => (l.startsWith("+") || l.startsWith("-")) && !l.startsWith("+++") && !l.startsWith("---"))
+      .map((l) => l.slice(1));
+    linesByFile.set(target, lines);
+  }
 
   const codeFileSet = new Set(
     files
       .filter((f) => RULES.codeExtensions.has(path.extname(f.file).toLowerCase()))
       .map((f) => f.file)
   );
+  // i3：文档文件的变更行单列出来「只报告、不改判定」。
+  // 把文档纳入 mode 判定会造成原来的假阳性；完全丢掉又会让「真口令被贴进 .md」
+  // 失去唯一的观测点。折中：单独计数并在输出里点名，判据仍只看源码。
+  const docFileSet = new Set(
+    files
+      .filter((f) => RULES.docsOnlyExtensions.has(path.extname(f.file).toLowerCase()))
+      .map((f) => f.file)
+  );
 
-  // 逐文件取变更行；同时标出它是不是源码文件
   const changedLines = [];
-  const changedLinesByFile = new Map(); // file -> string[]
-  for (const f of files) {
-    let lines = [];
-    try {
-      const d = git(["diff", "--cached", "-U0", "--", f.file]) || "";
-      lines = d
-        .split("\n")
-        .filter((l) => (l.startsWith("+") || l.startsWith("-")) && !l.startsWith("+++") && !l.startsWith("---"))
-        .map((l) => l.slice(1));
-    } catch (_) {
-      lines = [];
-    }
-    changedLinesByFile.set(f.file, lines);
-    for (const l of lines) changedLines.push(l);
-  }
-
-  // 只含源码文件变更行的视图 —— 敏感内容判定必须用这个，不能用 changedLines
   const codeChangedLines = [];
+  const docChangedLines = [];
+  const lineReadGaps = [];
   for (const f of files) {
-    if (!codeFileSet.has(f.file)) continue;
-    for (const l of changedLinesByFile.get(f.file) || []) codeChangedLines.push(l);
+    const lines = linesByFile.get(f.file) || [];
+    // 有规模却读不到行：明确记账，不再静默当「无敏感内容」（i5 后半条）
+    if (lines.length === 0 && !f.binary && ((f.added || 0) + (f.deleted || 0)) > 0) {
+      lineReadGaps.push(f.file);
+    }
+    for (const l of lines) changedLines.push(l);
+    if (codeFileSet.has(f.file)) {
+      for (const l of lines) codeChangedLines.push(l);
+    } else if (docFileSet.has(f.file)) {
+      for (const l of lines) docChangedLines.push(l);
+    }
   }
 
   return {
     files,
     changedLines,
     codeChangedLines,
+    docChangedLines,
+    lineReadGaps,
     codeFiles: files.filter((f) => codeFileSet.has(f.file)),
   };
 }
@@ -296,6 +344,14 @@ function judge(staged) {
     reason = `变更 ${changedLines} 行（≤ ${RULES.dualLineThreshold}）且无敏感命中 → 走 §12.6 常规专家分派`;
   }
 
+  // i3：文档行里的敏感词**只报告、不改判定**。
+  // 纳入 mode 判定会造出原来的假阳性（在文档里分析加密机制被判成「改动涉及加密」）；
+  // 完全不看又会让「真口令被贴进 .md」失去观测点。折中：单独计数，由 CLI 点名。
+  const docContentHits = (staged.docChangedLines || []).filter((l) =>
+    RULES.sensitiveContents.some((re) => re.test(l))
+  );
+  const lineReadGaps = staged.lineReadGaps || [];
+
   return {
     mode,
     reason,
@@ -306,6 +362,10 @@ function judge(staged) {
       sensitivePathHits: pathHits,
       plannedPathHits,
       sensitiveContentHits: contentHits.length,
+      // 只报告、不参与 mode 判定的两栏（评审 i3 / i5）
+      docSensitiveContentHits: docContentHits.length,
+      docSensitiveContentSample: docContentHits.slice(0, 3),
+      lineReadGaps,
     },
   };
 }
@@ -433,6 +493,21 @@ function main() {
         ? ` / 敏感命中 ${result.stats.sensitivePathHits.length} 路径 + ${result.stats.sensitiveContentHits} 内容`
         : " / 无敏感命中")
   );
+  // i3：文档里的敏感词只报告，不改 mode。点名是为保住这个观测点 ——
+  // 「真口令被贴进 .md」原来靠 contentHits 的假阳性顺带被看见，现在必须显式报。
+  if (result.stats.docSensitiveContentHits > 0) {
+    console.log(
+      `          ⚠ 文档行命中敏感词 ${result.stats.docSensitiveContentHits} 处（**不计入模式判定**，请人工确认是否真凭证）：` +
+        result.stats.docSensitiveContentSample.map((s) => `「${String(s).slice(0, 40)}」`).join(" ")
+    );
+  }
+  // i5：有规模却读不到变更行 —— 显式报出，不让它退化成「无敏感内容」
+  if (result.stats.lineReadGaps && result.stats.lineReadGaps.length > 0) {
+    console.log(
+      `          ⚠ ${result.stats.lineReadGaps.length} 个文件的变更行读不到（规模取自 numstat）⇒ 敏感内容判定对其失效：` +
+        result.stats.lineReadGaps.slice(0, 5).join(", ")
+    );
+  }
 
   if (result.mode === "skip") {
     console.log("          S 复杂度低风险，按 CCG 决策矩阵不调外部模型");

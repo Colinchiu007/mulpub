@@ -50,14 +50,15 @@ plan-review-deps.test.js:44  # 判定器（ccg-review-decider.js）在仓库 scr
 
 ### ④ 修复 + 回归保护测试
 
-新增 **`scripts/ccg-review-decider.test.js`（10 条）**，并给
-`scripts/check-pr-exec-record.test.js` **加 5 条**（39 → 44）。
+新增 **`scripts/ccg-review-decider.test.js`**（初版 10 条；本轮按评审 i1 追加 `collectStaged` 真实覆盖，**共 11 条**），并给
+`scripts/check-pr-exec-record.test.js` **加 8 条**（39 → 47；初版加 5 条，本轮按评审 i2 追加 3 条白名单锁）。
 
 ### ⑤ 预防措施
 
 - 判据逻辑全部可测（测试用「源码剥离 `process.exit(main())` 后注入 exports」的方式，
   **不给纯 CLI 脚本硬加 `module.exports`**，避免改变调用契约）
-- 每个缺陷都配**真变异反证**（见下）
+- 变异反证：**只有缺陷 A、D 做了**（见下）。初版此处写「每个缺陷都配真变异反证」，
+  **与事实不符** —— 2026-10-15 由 CCG 深度审查（QM-6 评审 i1/i7）指出后改正为实际动作。
 
 ## 四个缺陷与修法
 
@@ -122,7 +123,10 @@ const targetFiles = explicitTargets.length > 0 ? explicitTargets : resolveTarget
 我最初只把欠账应用到 `r` 上 ⇒ **CLI 实测发现欠账被静默丢弃**。
 改为 `applyDeepDebt(target)` 同时应用到 `r` 与 `r2`。
 
-## ★ 真变异反证（三个缺陷各一次）
+## ★ 真变异反证（初版标题写「三个缺陷各一次」，**实际只有 A、D 两次**；此处按实改正）
+
+> 标题失真由 CCG 深度审查指出（QM-6 评审 i1/i7）。**声明超出证据**是本仓零容忍的一类问题，
+> 且它恰是自动化门禁挡不住、只能靠人守的那一格 —— 故原文保留在此以便追溯，不静默改掉。
 
 ```
 缺陷 A（contentHits 改回含文档行）:
@@ -156,22 +160,23 @@ const targetFiles = explicitTargets.length > 0 ? explicitTargets : resolveTarget
 
 | 项 | 结果 |
 | --- | --- |
-| `node --test scripts/ccg-review-decider.test.js` | **10/10** |
-| `node --test scripts/check-pr-exec-record.test.js` | **44/44** |
+| `node --test scripts/ccg-review-decider.test.js` | **11/11**（初版 10/10；本轮 +1 条 `collectStaged` 真实覆盖）|
+| `node --test scripts/check-pr-exec-record.test.js` | **47/47**（初版 44/44；本轮 +3 条白名单锁）|
+| `node --test scripts/ccg-bash-entry.test.js` | **9/9**（本轮 +1 条缺陷 E 真实行为锁）|
 | 变异 A / D 反证 | 各精确红 2 / 1 条，还原后全绿 |
 | 缺陷 A 三场景实测 | 只有 `.md` 含敏感词 ⇒ **SINGLE（原为 dual）** |
 | 缺陷 C 实测 | 带路径 ⇒ `使用显式目标路径 1 个`、`4 项通过`（原为 2 项）|
 | 缺陷 D CLI 实测 | 报 `CCG 深度审查欠账 1 条` + 补跑命令，exit=1 |
 | `node --check` 三个脚本 | 全部 exit=0 |
 | `check-gate-record-debt` | exit=0，`❌` 行 0 |
-| `check-pr-exec-record` | OK |
+| `check-pr-exec-record` | **见下方「取证时机」更正** | 初版此行标 OK，但那是**提交前**取的证（此时 `--base` 与 HEAD 相同 ⇒ 变更集为空 ⇒ 走的是另一条理由分支），不是提交后的结论。该失真由评审 i2 指出 |
 | 行尾对账 | 两口径一致 |
 
 ## 保留门禁
 
 | 项 | 状态 | 说明 |
 | --- | --- | --- |
-| 新增测试 | PASS | decider 10 条 + exec-record 增 5 条 |
+| 新增测试 | PASS | decider **11** 条（含 `collectStaged` 真实覆盖）+ exec-record 增 **8** 条 + bash-entry 增 **1** 条 |
 | 真变异反证 | PASS | A/D 各一次，精确命中 |
 | CLI 端到端 | PASS | 缺陷 C/D 均实测生效 |
 | `node --check` | PASS | 三脚本 exit=0 |
@@ -182,14 +187,142 @@ const targetFiles = explicitTargets.length > 0 ? explicitTargets : resolveTarget
 | **QM-1 打包** | **不适用** | 只改 `scripts/` 与文档，不碰运行时代码 |
 | 远程同步 | PENDING | 本 PR 未合并 |
 
-- 保留门禁：新增测试 10+5 ✅ | 变异反证 A/D ✅ | CLI 端到端 ✅ | unwired ✅ | 品牌 ✅ | 行尾 ✅ | 远程同步 PENDING
+- 保留门禁：新增测试 11+8+1（decider 11 / exec-record 47 / bash-entry 9）✅ | 变异反证 A/D + collectStaged + 缺陷E ✅ | CLI 端到端 ✅ | 深度审查已跑并裁决 7/7 ✅ | unwired ✅ | 品牌 ✅ | 行尾 ✅ | 远程同步 PENDING
 
 ## 残余（未含，不假装闭合）
 
 | # | 项 | 说明 |
 | --- | --- | --- |
-| 1 | **`deep-review.sh` 本身未验证** | 本 PR 只保证「欠账会被发现」，没验证补跑命令真的能跑通。建议后续单独验证 |
+| 1 | ~~`deep-review.sh` 本身未验证~~ | **本轮已修并实跑通过** —— 见下「缺陷 E」。原残余项保留删除线以便追溯 |
 | 2 | **`ccg-gate.js` 的显式路径未接进 decider** | 带路径跑 gate 时，模式判定仍读暂存区（会打印「暂存区无变更，跳过」）。要让 decider 也支持显式路径，需改它的 `collectStaged` —— 本 PR 未做 |
-| 3 | **decider 仍无 `module.exports`** | 测试靠「源码剥离 + 注入 exports」实现，耦合了源码结构（测试里有 `assert.notEqual(stripped, src)` 守着）。若 decider 结构变动，测试会先红 |
+| 3 | **decider 仍无 `module.exports`** | 测试靠「源码剥离 + 注入 exports」实现，耦合了源码结构（`assert.notEqual(stripped, src)` 守着）。若 decider 结构变动，测试会先红 |
 | 4 | **历史 pending 记录未清理** | 本 PR 只查「本次涉及的」，仓库里既有的 pending 记录仍躺着。需要时单独清理 |
 | 5 | **`mavis-trash` 本机缺失** | `safe-delete.js` 的删除步骤必然失败（四道闸都过，但 trash 命令不存在）。本轮清理实验文件时只能逐文件 `Remove-Item`（单文件、非递归、非目录）|
+| 6 | **缺陷 B 的根因仍是假设** | 见下「缺陷 B 的诚实结论」 |
+| 7 | **引擎侧终审未取** | 深度审查的自扮演裁决由 agent 填写后收口，**没有**再跑一次引擎取得终审 verdict |
+| 8 | **磁盘曾经打满** | 中途 D 盘 0 字节可用（写入 ENOSPC），由用户自行清理后恢复；期间一次写入失败已补做 |
+
+---
+
+## ★ 本轮追加（2026-10-15）：跑真实深度审查 + 按裁决改正
+
+### 缺陷 E：`deep-review.sh` 永远找不到判定记录（补跑命令本身是坏的）
+
+**这是缺陷 D 的"最后一公里"**：缺陷 D 让欠账可见、并提示「补跑 `sh scripts/deep-review.sh`」，
+但那条命令**跑不起来**。
+
+取证：
+
+| 项 | 值 |
+| --- | --- |
+| `HEAD` | `a711a5e0e…` |
+| `HEAD^` | `71e7994e3…` |
+| 记录文件名 | `71e7994e3949f8eef38e2a757aa292ac0eaddc2a.json` ← **= HEAD^** |
+| `<HEAD>.json` | **不存在** |
+
+成因：判定器在 pre-commit 里跑，那时新 commit 还不存在、`currentSha()` 拿到的是**父提交**
+⇒ 记录恒写在 `<HEAD^>.json` 名下。而 `deep-review.sh` 用 `git rev-parse HEAD` 找记录，
+找不到就 `exit 0` 打印「判定记录: 无 —— 提交时没跑判定器」。
+
+**⇒ 深度审查在真实流程里一次都没跑起来过。** 更讽刺的是：引擎 `ccg-deep-review.js` 的
+`readDecision()` **早就有 `stagedDiffHash` 内容寻址兜底**（其注释专门写了这件事），
+却被包装脚本这行早退挡在门外 —— 兜底成了死代码。
+
+**修法**：`MODE` 为空时回退到 `HEAD^` 的 `<HEAD^>.json`（语义正确：该记录描述的正是 HEAD 这一笔的
+改动集，因为判定器当时写入的暂存 diff == `HEAD^..HEAD`），并打印命中说明。
+
+**修后实测**：`判定记录按父提交 sha 命中：71e7994e` → `判定: DUAL` → 依赖体检通过 →
+引擎内容寻址也命中 → 真的开始深度审查。
+
+### 深度审查结果：critique 7 条，agent 裁决 **7/7 upheld**
+
+引擎跑完走「第三档出口·自扮演裁决」，落盘 `adjudication.json` 并置
+`status=self_play_pending`（5/5 条无 verdict）。由 agent 逐条填写
+`prosecution / defense / verdict / rationale`，并把模板未取的 i6/i7 一并补齐
+（否则「声称 7 条全裁、实裁 5 条」又是一次声明超出证据）。
+
+> **产物位置说明**：`adjudication.json` / `critique-v1.md` / `proposal-v1.md` 位于
+> `.adversarial/ccg-deep-a711a5e0/`，该目录本轮已加进 `.gitignore`（审查工作产物，不进主干）。
+> **因此这些路径只在本地可见**；裁决的实质内容已按上表落在本记录里，以免证据随目录消失。
+> 判定记录 `.ccg/reviews/*.json` 才是进主干的留痕（其中 `deepReview.adjudication` 指向的
+> 也是那个本地路径 —— 读到时请以本记录为准）。
+
+| # | 维度 | 指控要点 | 裁决 | 处置 |
+| --- | --- | --- | --- | --- |
+| i1 | correctness | `collectStaged` 零覆盖；变异标题夸大 | upheld | 新增真实覆盖测试（真实暂存区 + 子进程），**当场抓出真 bug**（见下）；标题已改正 |
+| i2 | correctness | 记录 `exec OK` 与自带 pending 记录自相矛盾 | upheld | 改正记录；并暴露判据漏洞（见缺陷 F）|
+| i3 | security | 敏感内容限定到源码后，文档里的真凭证失去观测 | upheld | 新增 `docChangedLines` + `docSensitiveContentHits`（**只报告、不改判定**）|
+| i4 | correctness | 拼错门禁名被当幽灵路径 ⇒ fail-open | upheld | 改用 `allowedGates` 权威词表 + 显式路径存在性校验，均 rc=2 |
+| i5 | performance | 每文件一个 git 进程；catch 静默吞错 | upheld | 改单次 diff 切段；读取缺口记 `lineReadGaps` 并在 CLI 点名 |
+| i6 | correctness | 重命名 `old => new` 定位不到 | upheld | 新增 `resolveRenamed`；并修同族的删除文件路径洞 |
+| i7 | maintainability | 记录表述与实际不符 | upheld | 已改正 |
+
+### 缺陷 F：我新加的门禁写成了**黑名单**（评审 i2 引出，实测确认）
+
+初版 `evaluateDeepReviewDebt` 判据是 `status === 'pending'`。而引擎写回的是
+**`self_play_pending`**（公开承认 5/5 条无 verdict）⇒ **静默放行**。
+
+**⇒ 换一个失败形态就绕过了 —— 正是本仓反复出现的「判据被改宽」同型错误，
+出现在我自己的修复里。**
+
+**修法**：改**闭环白名单** `{cleared, needs_revision, self_play_resolved}`，
+白名单外一律计欠账（fail-closed）⇒ 引擎将来新增任何状态都会自动计入。
+`status` 缺失/非字符串同样计欠账，不给「字段被删」留后门。
+
+**修后实测**（真实变更集）：
+
+```
+- CCG 深度审查欠账 1 条 —— …状态不在闭环白名单 {cleared, needs_revision, self_play_resolved} 内：
+    - .ccg/reviews/71e7994e….json（mode=dual，status=self_play_pending，decidedAt=…）
+不通过：1 条理由        exit=1
+```
+
+新增 3 条锁：`self_play_pending` 必须算欠账（**黑名单写法正是在这里漏掉的**）、
+未知/缺失状态 fail-closed、白名单形态（不得含 `pending`/`error`，且不得为空集）。
+
+### 新覆盖测试当场抓出的真 bug（i1 的价值证明）
+
+补上 `collectStaged` 真实覆盖后**第一次运行就红了**：
+
+```
+不得有「有规模却读不到行」的文件；实际 ["scripts/old-name.js"]
+```
+
+成因：**删除文件**时 diff 段的 `+++` 是 `/dev/null`，路径只在 `--- a/<path>` 里。
+只认 `+++` ⇒ 该文件定位失败 ⇒ 每个被删除的文件都误报 `lineReadGaps`，
+且它的删除行完全没被采集（敏感内容漏检）。
+
+⇒ 这正是伪造对象**结构上测不到**的部分，也直接反驳了「没有直接覆盖不等于没有保护」的辩护。
+已修并配变异反证：禁用删除路径回退 ⇒ `not ok 11`；还原 ⇒ 11/11。
+
+### 缺陷 B 的诚实结论（更正初版的表述强度）
+
+初版把「rebase 路径下 `GIT_INDEX_FILE` 指向临时 index」写成结论。**那是假设，未证实** ——
+我只有一条观测（某次 rebase 产生的提交被采成 `changedLines=0, fileCount=1`），
+**没有**做出可复现的最小实验。评审 i1 指出的正是这一点。
+
+本轮的处置不是"再断言一次"，而是：把该假设在代码注释里显式标注为假设，
+并把「不再静默吞掉读取失败」做成可验证的行为（`lineReadGaps`）。
+**⇒ 缺陷 B 仍记为残余。**
+
+### 本轮验证（追补）
+
+| 项 | 结果 |
+| --- | --- |
+| `node --test scripts/ccg-review-decider.test.js` | **11/11**（新增 `collectStaged` 真实覆盖）|
+| `node --test scripts/check-pr-exec-record.test.js` | **47/47** |
+| `node --test scripts/ccg-bash-entry.test.js` | **9/9**（新增缺陷 E 真实行为锁）|
+| 变异反证（本轮新增） | ① 禁用删除路径回退 ⇒ `not ok 11` ② 撤掉父提交回退 ⇒ `not ok 9` |
+| 缺陷 E 实测 | 修前「判定记录: 无」；修后「判定记录按父提交 sha 命中：71e7994e」且真跑到引擎 |
+| 缺陷 F 实测 | 修前 `self_play_pending` 静默放行；修后 exit=1 并点名 |
+| i4 实测 | 拼错门禁名 rc=2 / 幽灵路径 rc=2 / 合法路径 rc=0 |
+| 深度审查 | 跑通，critique 7 条，裁决 7/7 upheld |
+
+**★ 一处方法教训（本轮第三次犯同型）**：我用 `node … | Select-Object` 之后读
+`$LASTEXITCODE` 判门禁退出码，得到 rc=2；不经管道重测为 rc=0。
+**管道尾端的 cmdlet 会吃掉原生程序的真 rc** —— 与本仓已登记的「`cmd | tail` 吃掉真 rc」同源。
+凡判退出码，一律不经管道。
+
+**★ 一处取证教训**：记录里 `check-pr-exec-record | OK` 那次是在**提交前**跑的，
+`--base` 与 HEAD 相同 ⇒ 变更集为空。**凡判据依赖变更集，取证必须在 commit 之后**——
+本仓已有同类登记（`classify-docs-only --head=HEAD` 必须在 commit 后取）。

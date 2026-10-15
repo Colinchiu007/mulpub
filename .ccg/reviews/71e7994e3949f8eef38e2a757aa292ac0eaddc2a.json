@@ -16,8 +16,14 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "needs_revision",
+    "performedBy": "agent-adjudication",
+    "confidenceWeight": 0.6,
+    "adjudication": ".adversarial/ccg-deep-a711a5e0/adjudication.json",
+    "findingsTotal": 7,
+    "findingsUpheld": 7,
+    "engineStatusBeforeAdjudication": "self_play_pending",
+    "note": "引擎自扮演出口未填裁决（5/5 条无 verdict），由 agent 逐条填写：7 条全部 upheld。已按裁决改码/改记录。**未**取得引擎侧终审，故本状态不写成 cleared。",
+    "at": "2026-10-15T10:16:16.847Z"
   }
 }

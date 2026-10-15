@@ -252,9 +252,30 @@ function main() {
   //
   // 现在：位置参数里凡不像门禁名的，一律当作目标路径。
   // 这样 pre-commit（无参数）与事后补跑（带路径）走同一条代码路径。
+  //
+  // ★ 2026-10-15 修（QM-6 评审 i4）：初版把「任何非门禁名的位置参数」当目标路径 ⇒
+  //   门禁名拼错（如 verify-qualit）会被静默当成一个**幽灵路径**继续跑，
+  //   门禁对着不存在的文件自然全绿 —— 失败开放。两条 fail-closed 校验补上：
+  //     ① 形如门禁名却不在 allowedGates 里 ⇒ 报错退出（不猜用户意图）
+  //     ② 显式目标必须真实存在 ⇒ 否则报错退出（幽灵路径不许让门禁空转）
   const argv = process.argv.slice(2);
-  const gateNames = new Set(CONFIG.gates.map((g) => g.name));
-  const explicitTargets = argv.filter((a) => !a.startsWith("-") && !gateNames.has(a));
+  const knownGates = new Set(CONFIG.allowedGates);
+  const positional = argv.filter((a) => !a.startsWith("-"));
+  const unknownGateLike = positional.filter(
+    (a) => /^(verify|check|gen)-[a-z0-9-]+$/.test(a) && !knownGates.has(a)
+  );
+  if (unknownGateLike.length > 0) {
+    console.error(`   [CCG] ✗ 未知门禁名：${unknownGateLike.join(", ")}`);
+    console.error(`         可用门禁：${[...knownGates].join(", ")}`);
+    return 2;
+  }
+  const explicitTargets = positional.filter((a) => !knownGates.has(a));
+  const missingTargets = explicitTargets.filter((p) => !fs.existsSync(p));
+  if (missingTargets.length > 0) {
+    console.error(`   [CCG] ✗ 显式目标不存在：${missingTargets.join(", ")}`);
+    console.error("         门禁只对真实文件有效；幽灵路径会让它空转通过。");
+    return 2;
+  }
 
   const ccgDir = resolveCcgDir();
   if (!ccgDir) {

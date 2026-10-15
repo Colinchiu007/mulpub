@@ -233,3 +233,103 @@ test("ccg-review.ps1 入口必须派发到 deep-review.sh 与 plan-review.sh", (
   assert.match(src, /deep-review\.sh/, "必须派发到 deep-review.sh")
   assert.match(src, /plan-review\.sh/, "必须派发到 plan-review.sh")
 })
+
+// ⑧ 缺陷 E 回归锁：记录恒按【父提交 sha】命名，包装脚本必须回退命中而不是早退。
+//
+// 动因（2026-10-15 实测）：deep-review.sh 按 `git rev-parse HEAD` 找
+// `.ccg/reviews/<HEAD>.json`；而判定器在 pre-commit 里跑，那时新 commit 还不存在、
+// currentSha() 拿到的是**父提交** ⇒ 记录恒命名为 `<HEAD^>.json`，按 HEAD 找必然落空。
+// 旧实现随即打印「判定记录: 无 —— 提交时没跑判定器」并 **exit 0**，于是深度审查
+// 在真实流程里一次都没跑起来过；而引擎侧 ccg-deep-review.js 的 readDecision()
+// 早有 stagedDiffHash 内容寻址兜底（其注释专门写了这件事），被这行早退挡在门外成了死代码。
+//
+// 判据为什么取「真实行为」而不是「源码里出现 HEAD^」：后者在回退被放到 exit 之后
+// 时依然为真 —— 本仓明令防再犯锁必须做一次「把锁改成 no-op 就立刻变红」的变异，
+// 纯文本断言过不了这一关。所以这里造一个隔离的两提交仓库，
+// **记录只按父提交 sha 命名**，然后要求脚本既没早退、又报出了 DUAL、还真派发到了引擎。
+test("记录只按父提交 sha 命名时，deep-review.sh 必须回退命中而不是早退「判定记录: 无」", () => {
+  const gitBash = resolveGitBash()
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), `ccg-parentrec-${process.pid}-${seq++}-`))
+  try {
+    // 隔离仓库：复制被测脚本。脚本以自身位置推 ROOT ⇒ ROOT = 夹具目录，不碰真仓库。
+    fs.mkdirSync(path.join(root, "scripts"), { recursive: true })
+    fs.copyFileSync(DEEP_REVIEW, path.join(root, "scripts", "deep-review.sh"))
+
+    const g = (...args) =>
+      spawnSync("git", args, { cwd: root, encoding: "utf8", env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1" } })
+    g("init", "-q")
+    g("config", "user.email", "t@example.invalid")
+    g("config", "user.name", "t")
+    g("config", "commit.gpgsign", "false")
+    fs.writeFileSync(path.join(root, "a.txt"), "1\n")
+    g("add", "a.txt")
+    g("commit", "-q", "-m", "base")
+    const base = g("rev-parse", "HEAD").stdout.trim()
+    assert.equal(base.length, 40, "夹具仓库的第一个提交 sha 必须拿到")
+    fs.writeFileSync(path.join(root, "b.txt"), "2\n")
+    g("add", "b.txt")
+    g("commit", "-q", "-m", "second")
+
+    // 记录**只按父提交（= base）命名**；HEAD 名下故意不放记录 —— 这正是真实现场的形状。
+    fs.mkdirSync(path.join(root, ".ccg", "reviews"), { recursive: true })
+    fs.writeFileSync(
+      path.join(root, ".ccg", "reviews", `${base}.json`),
+      JSON.stringify({ sha: base, mode: "dual", deepReview: { required: true, status: "pending" } }),
+    )
+
+    // 桩 driver：脚本在 --dry-run 下 exec 它。它被调到 = 证明请求真的走到了引擎。
+    const stubDir = path.join(root, "stub-arl")
+    fs.mkdirSync(stubDir, { recursive: true })
+    fs.writeFileSync(path.join(stubDir, "ccg-deep-review.js"), 'console.log("[stub-driver] reached")\n')
+
+    const home = makeFakeHome()
+    const gitRoot = gitBash.replace(/[\\/]usr[\\/]bin[\\/]bash\.exe$/, "")
+    // PATH 三件事缺一不可：① node（脚本内部用 `node -e` 读记录 mode，也是桩 driver 的解释器）
+    // ② git（rev-parse HEAD / HEAD^）③ Git 自带 POSIX 工具（tr/which/dirname）。
+    // 少了任一个，本测试会因**环境**而非**判据**失败 —— 那是最容易把假红当真的地方。
+    const envPath = [
+      toPosixPath(path.dirname(process.execPath)),
+      "/usr/bin",
+      "/bin",
+      `${toPosixPath(gitRoot)}/cmd`,
+      `${toPosixPath(gitRoot)}/mingw64/bin`,
+    ].join(":")
+
+    const res = spawnSync(gitBash, [toPosixPath(path.join(root, "scripts", "deep-review.sh")), "--dry-run"], {
+      encoding: "utf8",
+      // ★ 超时必须给足：本用例要起 1 次 Git Bash + 若干次 git + node，
+      // 实测净跑 35s；而它曾与一个 15 分钟的深度审查并发执行，
+      // 在 60s 超时下被**资源争抢**打成假红（三条断言全失败，看起来像判据坏了）。
+      // 假红的代价是让人去改没坏的判据 —— 所以这里放宽到 300s，
+      // 并把 res.error 显式断言出来，让「超时」不再伪装成「判据失败」。
+      timeout: 300000,
+      cwd: root,
+      env: {
+        PATH: envPath,
+        HOME: toPosixPath(home),
+        USERPROFILE: toPosixPath(home),
+        CCG_BACKEND_BIN_DIRS: "",
+        CCG_ARL_DIR: toPosixPath(stubDir),
+      },
+    })
+    const out = `${res.stdout || ""}${res.stderr || ""}`
+    assert.ok(
+      !res.error,
+      `子进程本身必须正常结束（超时/信号会伪装成判据失败）：${res.error && res.error.message}\n输出：\n${out}`,
+    )
+
+    assert.doesNotMatch(
+      out,
+      /判定记录:\s*无/,
+      `不得因「按 HEAD 找不到记录」而早退；实际输出：\n${out}`,
+    )
+    assert.match(out, /判定:\s*DUAL/i, `必须报出记录里的模式；实际输出：\n${out}`)
+    assert.match(
+      out,
+      /\[stub-driver\] reached/,
+      `必须真的派发到引擎（早退会让这里拿不到证据）；实际输出：\n${out}`,
+    )
+  } finally {
+    try { fs.rmSync(root, { recursive: true, force: true }) } catch { /* 夹具清理失败不影响判据 */ }
+  }
+})

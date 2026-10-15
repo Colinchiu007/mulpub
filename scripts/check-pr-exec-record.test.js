@@ -773,9 +773,11 @@ test('缺陷D：deepReview.required=true 且 status=pending ⇒ 必须报欠账'
   } finally { fs.rmSync(repo, { recursive: true, force: true }) }
 })
 
-test('缺陷D反证：deepReview 已闭环（status != pending）不得报欠账', () => {
+test('缺陷D反证：deepReview 已是闭环状态（白名单内）不得报欠账', () => {
+  // 注意用 'cleared' 而不是自造的 'done' —— 判据是**闭环白名单**，
+  // 白名单外的任何值（含看起来很像成功的 'done'）都会被判欠账。
   const repo = withReviewRecords({
-    [`${SHA40}.json`]: { mode: 'dual', deepReview: { required: true, status: 'done', performedBy: 'claude' } },
+    [`${SHA40}.json`]: { mode: 'dual', deepReview: { required: true, status: 'cleared', performedBy: 'claude' } },
   })
   try {
     const r = mod.evaluateDeepReviewDebt(
@@ -785,6 +787,51 @@ test('缺陷D反证：deepReview 已闭环（status != pending）不得报欠账
     assert.strictEqual(r.checked, 1)
     assert.deepStrictEqual(r.reasons, [], '已闭环不得报欠账')
   } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('缺陷D（实测形态）：self_play_pending 必须算欠账 —— 黑名单写法正是在这里漏掉的', () => {
+  // 真实事故：引擎跑完 writeBack 写的是 self_play_pending
+  // （= 自扮演裁决「5/5 条仍无 verdict」，公开承认未闭环），
+  // 而初版判据写的是 `status === 'pending'`（黑名单）⇒ 静默放行。
+  const repo = withReviewRecords({
+    [`${SHA40}.json`]: {
+      mode: 'dual',
+      deepReview: { required: true, status: 'self_play_pending', performedBy: 'self-play(pending)' },
+    },
+  })
+  try {
+    const r = mod.evaluateDeepReviewDebt(st([['M', `.ccg/reviews/${SHA40}.json`]]), repo)
+    assert.strictEqual(r.reasons.length, 1, 'self_play_pending 必须被判欠账')
+    assert.match(r.reasons[0], /self_play_pending/, '理由里必须点名真实状态，便于归因')
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('缺陷D：fail-closed —— 未知状态与缺失状态都算欠账（引擎新增状态不得自动放行）', () => {
+  const cases = [
+    { name: '未知状态', deepReview: { required: true, status: 'some_future_status' } },
+    { name: 'status 缺失', deepReview: { required: true } },
+    { name: 'status 非字符串', deepReview: { required: true, status: 42 } },
+    { name: 'engine 报错', deepReview: { required: true, status: 'error' } },
+    { name: '升级待外部复核', deepReview: { required: true, status: 'escalated' } },
+    { name: '评审不完整', deepReview: { required: true, status: 'incomplete_review' } },
+    { name: '阻断', deepReview: { required: true, status: 'blocked' } },
+  ]
+  for (const c of cases) {
+    const repo = withReviewRecords({ [`${SHA40}.json`]: { mode: 'dual', deepReview: c.deepReview } })
+    try {
+      const r = mod.evaluateDeepReviewDebt(st([['A', `.ccg/reviews/${SHA40}.json`]]), repo)
+      assert.strictEqual(r.reasons.length, 1, `${c.name} 必须被判欠账（fail-closed）`)
+    } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+  }
+})
+
+test('缺陷D：白名单本身必须是非空且只含「已出裁决」的形态（防止被改成空集=全放行）', () => {
+  const wl = mod.CLOSED_DEEP_REVIEW_STATUSES
+  assert.ok(wl instanceof Set, '必须导出 Set 供本锁核对')
+  assert.ok(wl.size > 0, '白名单为空 ⇒ 所有记录都被判欠账，等于门禁失效（方向相反但同样不可用）')
+  for (const forbidden of ['pending', 'self_play_pending', 'error']) {
+    assert.ok(!wl.has(forbidden), `未闭环状态 ${forbidden} 绝不允许出现在闭环白名单里`)
+  }
 })
 
 test('缺陷D：mode=skip 的记录（required=false）不得报欠账', () => {

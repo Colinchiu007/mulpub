@@ -1,0 +1,28 @@
+{
+  "sha": "a711a5e0e27747df34eee277e416324586e91ecf",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 492 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 492,
+    "fileCount": 11,
+    "codeFileCount": 9,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 12,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "**★ 一处方法教训（本轮第三次犯同型）**：我用 `node … | Select-Object` 之后读"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "8ac24116119e3f1a8e979b0cf3bb3aa422757e1bd4ff55a88f5617cb9e2ea7e0",
+  "decidedAt": "2026-10-15T10:20:31.086Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}
