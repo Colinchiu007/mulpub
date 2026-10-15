@@ -5993,8 +5993,6 @@ Vue 展示组件
 - [PRD-PUBLISH-PROGRESS-UX-2026-09-28.md](./PRD-PUBLISH-PROGRESS-UX-2026-09-28.md) — 发布进度全局反馈面板与后台运行
 - [PRD-PUBLISH-TOPIC-INLINE-DESCRIPTION-2026-10-09.md](./PRD-PUBLISH-TOPIC-INLINE-DESCRIPTION-2026-10-09.md) — 话题内联描述：标签/话题所见即所得 + 发布时平台隐性格式转换 + 抖音/视频号话题链路修复
 - [PRD-ZHIHU-FAV-BATCH-2026-10-03.md](./PRD-ZHIHU-FAV-BATCH-2026-10-03.md) — 采集页知乎收藏批量采集与批量发布/视频：收藏夹清单直选（全部收藏/指定收藏夹、数量N、全量200封顶、favTime倒序）+ 采集后自动改写（失败回退原文）+ URL去重已采集标记 + 图片本地化 + 多选批量发布图文/生成视频/发布视频 + P0字段丢失修复与改写黑盒接通
-- [PRD-ZHIHU-PUBLISH-2026-10-15.md](./PRD-ZHIHU-PUBLISH-2026-10-15.md) — 知乎图文 RPA 发布终态合同：两段式发布（首点落草稿 → 草稿编辑页补点才真发布）+ 严格终态判据（只有公开文章页 `/p/<id>` 算成功，`/edit` 一律不算）+ 发布记录 `post_id/url` 回填 + 失败原因逐字文案 + 真机复核判据（用户报障「知乎显示发布成功但并没有真实发布」）
-- [BUGFIX-ARTICLE-PARAGRAPH-AND-ZHIHU-PUBLISH-2026-10-15.md](./BUGFIX-ARTICLE-PARAGRAPH-AND-ZHIHU-PUBLISH-2026-10-15.md) — 百家号图文正文「整篇一整段」二次报障的根因修正（第一性原因在渲染端富文本编辑器装载吞段落，而非发布链传参）+ 知乎假发布修复的完整取证、逃逸链与预防措施
 
 ### 19.3 架构决策记录（ADR）
 
@@ -14778,6 +14776,7 @@ Vue 展示组件
 - [PRD-PUBLISH-PROGRESS-UX-2026-09-28.md](./PRD-PUBLISH-PROGRESS-UX-2026-09-28.md) — 发布进度全局反馈面板与后台运行
 - [PRD-PUBLISH-TOPIC-INLINE-DESCRIPTION-2026-10-09.md](./PRD-PUBLISH-TOPIC-INLINE-DESCRIPTION-2026-10-09.md) — 话题内联描述：标签/话题所见即所得 + 发布时平台隐性格式转换 + 抖音/视频号话题链路修复
 - [PRD-ZHIHU-FAV-BATCH-2026-10-03.md](./PRD-ZHIHU-FAV-BATCH-2026-10-03.md) — 采集页知乎收藏批量采集与批量发布/视频：收藏夹清单直选（全部收藏/指定收藏夹、数量N、全量200封顶、favTime倒序）+ 采集后自动改写（失败回退原文）+ URL去重已采集标记 + 图片本地化 + 多选批量发布图文/生成视频/发布视频 + P0字段丢失修复与改写黑盒接通
+- [PRD-ZHIHU-API-SETTINGS-2026-10-15.md](./PRD-ZHIHU-API-SETTINGS-2026-10-15.md) — 知乎 API 凭据设置化：设置页新增「知乎 API」分区（紧邻飞书 API 之下）、Access Secret 按登录用户隔离 + safeStorage 加密 + 旧版明文只读兼容与销账 + 连通性自检 + 两步清除；采集页移除就地密钥输入，改为凭据状态条与「前往设置」出口
 
 ### 19.3 架构决策记录（ADR）
 
@@ -20007,3 +20006,7 @@ Gate 9 的 `srcDir` 与 `docPaths` 由 PR **实际变更文件**的落点决定�
 LLM 空输出/报告缺失时，审计 job 会往 job 汇总写 `AUTONOMOUS_VERDICT_NOTE`
 （`NO_VERDICT` / `NO_REPORT`），`Gate Result` 聚合时一并打印：
 `autonomous-verdict : NO_VERDICT <-- 覆盖审计未实际产出有效 verdict，绿色不代表已审计`。
+
+- [PRD-ZHIHU-PUBLISH-2026-10-15.md](./PRD-ZHIHU-PUBLISH-2026-10-15.md) — 知乎图文 RPA 发布终态合同：两段式发布（首点落草稿 → 草稿编辑页补点才真发布）+ 严格终态判据（只有公开文章页 `/p/<id>` 算成功，`/edit` 一律不算）+ 发布记录 `post_id/url` 回填 + 失败原因逐字文案 + 真机复核判据（用户报障「知乎显示发布成功但并没有真实发布」）
+- [BUGFIX-ARTICLE-PARAGRAPH-AND-ZHIHU-PUBLISH-2026-10-15.md](./BUGFIX-ARTICLE-PARAGRAPH-AND-ZHIHU-PUBLISH-2026-10-15.md) — 百家号图文正文「整篇一整段」二次报障的根因修正（第一性原因在渲染端富文本编辑器装载吞段落，而非发布链传参）+ 知乎假发布修复的完整取证、逃逸链与预防措施
+- [PRD-ZHIHU-API-SETTINGS-2026-10-15.md](./PRD-ZHIHU-API-SETTINGS-2026-10-15.md) — 知乎 API 凭据设置化：设置页新增「知乎 API」分区（紧邻飞书 API 之下）、Access Secret 按登录用户隔离 + safeStorage 加密 + 旧版明文只读兼容与销账 + 连通性自检 + 两步清除；采集页移除就地密钥输入，改为凭据状态条与「前往设置」出口

@@ -204,8 +204,14 @@ export default {
     urlListHint: '每行一个 URL，可一次批量采集多篇',
     zhihuFavlist: {
       title: '知乎收藏文章',
-      secretPlaceholder: '输入知乎 Access Secret（developer.zhihu.com 个人中心获取）',
-      secretRequired: '请先输入知乎 Access Secret',
+      // 2026-10-15：Access Secret 改在「设置 → 知乎 API」配置（加密 + 按登录用户隔离），
+      // 采集页不再就地输入；这里只保留「未配置时怎么走」的引导文案。
+      configMissing: '请先在「设置 → 知乎 API」中配置 Access Secret',
+      goSettings: '前往设置',
+      configBadge: '已配置',
+      configNotConfigured: '未配置',
+      configUnreadable: '已保存的密钥无法读取，请到设置中重新保存',
+      configLegacy: '检测到旧版明文密钥，建议到设置中重新保存以完成加密迁移',
       loadBtn: '获取收藏夹',
       loading: '获取中...',
       loadFailed: '获取收藏夹失败',
