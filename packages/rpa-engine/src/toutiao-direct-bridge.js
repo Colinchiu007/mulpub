@@ -207,6 +207,69 @@ async function publishToutiao (p) {
 }
 
 /**
+ * 构造「触发自动保存」的标题扰动脚本（字符串，在页面上下文执行）。
+ *
+ * ⚠️ 2026-10-15 真机事故（BUGFIX-TOUTIAO-TITLE-SUFFIX-2026-10-15）：
+ * 旧实现把标题改成 `原标题.slice(0,26) + ' ' + Date.now().toString().slice(-4)`
+ * 后**从不还原**，页面据此自动保存，重放 body 的 `title=` 就带着这串数字
+ * （用户标题「DeepSeek崩了」→ 头条号上变成「DeepSeek崩了 1935」，
+ * 1935 = 当时的 epoch 毫秒数后 4 位）。根因是**把「触发手段」当成了「发布内容」**。
+ *
+ * 新契约（三条不可破）：
+ *   ① 扰动值 = 原标题 + 一个零宽空格（U+200B）—— React 能感知差异（触发自动保存），
+ *      但零宽字符**不可见**，即便保存请求抢跑也不会把可见数字漏进标题；
+ *      同时不对原标题做任何截断（旧 slice(0,26) 会把长标题砍短）。
+ *   ② 派发 input 后**立即还原为原标题**，再派发第二次 input ⇒ React 的
+ *      最后一次 onChange 携带的是正确标题（自动保存发出正确内容）。
+ *   ③ 扰动脚本内绝不出现 `Date.now` / 取后 N 位 / 对标题值做 slice 这类会把
+ *      时钟或截断漏进用户内容的写法（结构锁见 tests/toutiao-title-no-pollution.test.js D 组）。
+ *
+ * @returns {string} 页面上下文执行的 IIFE 源码；返回值 RESTORED / NO_TITLE
+ */
+function buildTitleBumpScript () {
+  return `(function(){
+    var ta=[...document.querySelectorAll('textarea,input')].find(function(e){return /标题/.test(e.placeholder||'')})
+    if(!ta) return 'NO_TITLE'
+    var s=Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value').set
+    // ① 先记下原值（扰动前的真实标题，之后原样写回，一个字符都不改）
+    var orig=String(ta.value||'')
+    // ② 扰动：追加零宽空格（不可见，且与原值不同 ⇒ React 感知变化 → 触发自动保存）
+    s.call(ta, orig+'\\u200b')
+    ta.dispatchEvent(new Event('input',{bubbles:true}))
+    // ③ 还原：写回第 ① 步记下的原值，再派发一次 input ⇒ React 的
+    //    最后一次 onChange 携带正确标题（自动保存发出正确内容）
+    s.call(ta, orig)
+    ta.dispatchEvent(new Event('input',{bubbles:true}))
+    return 'RESTORED'
+  })()`
+}
+
+/**
+ * 兜底覆盖 body 里的 `title=` 字段（防保存请求抢跑）。
+ *
+ * 为什么需要它：扰动脚本虽已还原标题，但页面 React 的自动保存是**异步**的 ——
+ * 若保存请求在还原前就发出，hook 捕获到的 `__lastSaveBody` 仍带扰动值。
+ * 本函数在重放前把 `title=` 强制改为正确标题，是「不污染」的最后一道闸。
+ *
+ * 判据口径：`title=` 必须**紧跟等号**（`(^|&)title=`），故不会误伤
+ * `title_id=` 这类邻键（本仓 2026-10-15 真机事故的 body 里同时存在二者）。
+ * 无 `title=` 字段时追加到末尾；空标题不覆盖（fail-safe：不拿空值破坏
+ * 页面已生成的标题，宁可保留原值也不发布空标题）。
+ *
+ * @param {string} body form-urlencoded 请求体
+ * @param {string} title 正确标题
+ * @returns {string} 覆盖后的请求体
+ */
+function overrideBodyTitle (body, title) {
+  const b = String(body == null ? '' : body)
+  const wanted = String(title == null ? '' : title)
+  if (!wanted) return b
+  const encoded = encodeURIComponent(wanted)
+  if (/(^|&)title=/.test(b)) return b.replace(/(^|&)title=[^&]*/, '$1title=' + encoded)
+  return b + '&title=' + encoded
+}
+
+/**
  * 页面 XHR 真发布（2026-10-03 真机验证：save=1 → code=0「提交成功」，后台作品列表可见）：
  * 在页面上下文里【实时读取编辑器内容】构造 body（含页面自动保存产生的 pgc_id/title_id），
  * save=1（真发布语义；save=0 实为存草稿——2026-10-03 后台对照定案），
@@ -248,26 +311,34 @@ async function publishViaPageXhr ({ win, title, log }) {
     // ⭐ 复刻诊断脚本成功路径：给标题一个【新值】（React 感知变化 → 触发自动保存）。
     // 应用 RPA 填充后 React state 可能未感知变化（恢复草稿态），从不出保存请求；
     // 而诊断脚本每次填新标题值，2s 内必触发自动保存（多次真机复现）。
-    const rettle = `(function(){
-      var ta=[...document.querySelectorAll('textarea,input')].find(function(e){return /标题/.test(e.placeholder||'')})
-      if(!ta) return 'NO_TITLE'
-      var s=Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value').set
-      s.call(ta, (ta.value||'').slice(0,26)+' '+Date.now().toString().slice(-4))
-      ta.dispatchEvent(new Event('input',{bubbles:true}))
-      return 'TITLE_BUMPED'
-    })()`
-    await win.webContents.executeJavaScript(rettle)
+    //
+    // 2026-10-15 事故修复：扰动值改为「原标题 + 零宽空格」并在同一次脚本内还原，
+    // 不再用 `Date.now().toString().slice(-4)` 这类可见数字后缀 —— 旧写法把
+    // 发布标题变成了「原标题 1935」（详见 buildTitleBumpScript 的契约说明）。
+    await win.webContents.executeJavaScript(buildTitleBumpScript())
     // 等自动保存（最长 12s；诊断脚本实证 2-8s 内必到）
     for (let i = 0; i < 6; i++) {
       if (await win.webContents.executeJavaScript('String(window.__lastSaveBody||"").length>500')) break
       await new Promise((r) => setTimeout(r, 2000))
     }
+    // 重放前兜底覆盖 title=：自动保存是异步的，hook 捕获到的 body 可能仍带扰动值
+    // （2026-10-15 真机事故的第二道闸，见 overrideBodyTitle 契约）。
+    // title 由 Node 侧从 article 透传，页面脚本只做字符串替换（不引入新上下文）。
+    const safeTitle = typeof title === 'string' ? title : ''
     const js = `(function(){
       // 原样重放页面自己的自动保存 body（含新鲜 pgc_id/title_id/tt-anti-token 上下文），
       // 仅把 save 改为 1（真发布；save=0 实为存草稿——2026-10-03 后台对照定案）
       var b=window.__lastSaveBody
       if(!b||b.length<500) return JSON.stringify({ok:false,reason:'NO_BODY'})
       var b2=b.replace(/(^|&)save=\\d+/,'$1save=1')
+      // title= 兜底覆盖：判据要求 title 后紧跟等号，故不误伤 title_id 邻键。
+      // 空标题不覆盖（fail-safe：不拿空值破坏页面已生成的标题）。
+      var wantTitle=${JSON.stringify(safeTitle)}
+      if(wantTitle){
+        var encTitle=encodeURIComponent(wantTitle)
+        if(/(^|&)title=/.test(b2)) b2=b2.replace(/(^|&)title=[^&]*/,'$1title='+encTitle)
+        else b2=b2+'&title='+encTitle
+      }
       var x=new XMLHttpRequest()
       x.open('POST','/mp/agw/article/publish?source=mp&type=article&aid=1231&mp_publish_ab_val=0',false)
       x.setRequestHeader('Content-Type','application/x-www-form-urlencoded;charset=UTF-8')
@@ -318,5 +389,10 @@ async function installToutiaoSaveHook ({ win, log }) {
   } catch (_e) { /* hook 失败不影响 DOM 流程 */ }
 }
 
-module.exports = { publishDirect, publishToutiaoWithFallback, publishToutiao, installToutiaoSaveHook }
+module.exports = {
+  publishDirect, publishToutiaoWithFallback, publishToutiao, installToutiaoSaveHook,
+  // 2026-10-15 标题污染修复：扰动脚本与 body title 覆盖的单一实现
+  // （tests/toutiao-title-no-pollution.test.js 直接锁这两个导出）
+  buildTitleBumpScript, overrideBodyTitle, publishViaPageXhr,
+}
 
