@@ -12,6 +12,7 @@ const fs = require('fs')
 const os = require('os')
 const { pathToFileURL } = require('url')
 const { config, getUrl } = require('../../config/app-config')
+const { resolveBundledPreloadPath } = require('../../core/preload-path')
 const { HOME_SHELL_PARAM } = require('./constants')
 const { LS_INJECTION_TIMEOUT_MS, PARTITION_COOKIE_RESTORE_TIMEOUT_MS, PAGE_TARGET_BOOTSTRAP_URL } = require('./constants')
 
@@ -217,6 +218,30 @@ function _homeShellUrl () {
 }
 
 /**
+ * 解析内嵌浏览器视图（浏览标签 / 账号标签）的 preload：**bundle 优先**。
+ *
+ * 该 preload 现在承担主世界反检测注入，须 require `electron/stealth/`；而 sandbox preload
+ * **无法 require 相对路径文件**（2026-10-15 真机实测：`require('./probe-require-target.js')`
+ * 报 `module not found`），因此必须走 esbuild 产物 `monitor-preload.bundle.js`
+ * （入口登记在 `apps/desktop/scripts/build-preload.js`）。
+ *
+ * 缺 bundle 时回退源文件：页面与 IPC 桥照常可用，**仅反检测降级**——故回退必须出声，
+ * 静默回退会让"反检测没生效"变成无痕迹故障（本仓同族教训：配置错误一律不得静默吞掉）。
+ * @returns {string}
+ */
+function _monitorPreloadPath () {
+  const base = path.join(__dirname, '..', '..', 'monitor-preload')
+  const resolved = resolveBundledPreloadPath(base)
+  if (!resolved.bundled) {
+    const log = require('../logger')
+    log.warn('WebviewManager', 'monitor-preload.bundle.js 不存在，已回退源文件；' +
+      'sandbox 下相对 require 会失败 ⇒ 主世界反检测不可用（页面功能不受影响）。' +
+      '修复：在 apps/desktop 执行 pnpm run build:preload')
+  }
+  return resolved.path
+}
+
+/**
  * 解析内嵌主页标签的 preload：优先 esbuild 产物 bundle（与主窗口 index.bundle.js 同策略，
  * sandbox 下由 Electron 内部机制加载），bundle 不存在（未跑 build:preload 的测试/裸环境）回退源文件。
  * @returns {string}
@@ -323,6 +348,7 @@ module.exports = {
   normalizeElectronCookie,
   _homeShellUrl,
   _homeShellPreloadPath,
+  _monitorPreloadPath,
   _urlHasHomeShellParam,
   _parseHashRoute,
   _partitionRestoreTimeoutMs,
