@@ -349,6 +349,50 @@ function isCaptchaAutoSolveEnabled (platformId) {
   return !!(platformId && wl.includes(platformId))
 }
 
+/**
+ * oss-b1-rpa-hardening（2026-10-15，PR-2 §7.3）：平台是否应走 F3 camofox
+ * stealth 通道。映射表配置化（D6）——白名单缺省为空，即默认全部走 Electron 通道。
+ * 未登记平台一律 false（fail-closed：新平台不经显式登记不获得 stealth 通道）。
+ * @param {unknown} platformId
+ * @returns {boolean}
+ */
+function isStealthChannelPlatform (platformId) {
+  const rc = (data && data.riskControl) || {}
+  const list = rc.stealthChannelPlatforms || []
+  return !!(platformId && list.includes(String(platformId)))
+}
+
+/**
+ * PR-2 §7.3/§7.4 通道路由判定（纯函数）。回答「这次发布该用哪个 driver」。
+ *
+ * 三条规则：
+ * 1. 平台未登记 stealth 白名单 → `electron`（缺省；fail-closed，不经显式登记不升级）
+ * 2. 已登记但 sidecar 不可用（hostIsUsable=false）→ `electron` + fallbackReason 留痕
+ *    （**禁静默**：tasks 7.4 要求回落必须出声，故必须给出 reason 供调用方 warn）
+ * 3. 已登记且 sidecar 可用 → `stealth`
+ *
+ * 注意：`channel:'stealth'` 的路由结果附带 fallbackReason 时，调用方 MUST warn 出声
+ * 并把 reason 写入发布结果（PRD §3.4 评审 FE3：stealthChannelFallback 留痕）。
+ *
+ * @param {unknown} platformId
+ * @param {{ hostIsUsable?: boolean }} [options]
+ * @returns {{ channel: 'stealth'|'electron', registered: boolean, fallbackReason: string|null }}
+ */
+function resolvePublishChannel (platformId, options = {}) {
+  const registered = isStealthChannelPlatform(platformId)
+  if (!registered) {
+    return { channel: 'electron', registered: false, fallbackReason: null }
+  }
+  if (options && options.hostIsUsable === false) {
+    return {
+      channel: 'electron',
+      registered: true,
+      fallbackReason: 'stealth-channel-unavailable',
+    }
+  }
+  return { channel: 'stealth', registered: true, fallbackReason: null }
+}
+
 module.exports = {
   PLATFORM_PUBLISH_META,
   NO_TITLE_PLATFORMS,
@@ -370,4 +414,6 @@ module.exports = {
   // oss-b1-rpa-hardening 风控配置
   getPreloadVariant,
   isCaptchaAutoSolveEnabled,
+  isStealthChannelPlatform,
+  resolvePublishChannel,
 }
