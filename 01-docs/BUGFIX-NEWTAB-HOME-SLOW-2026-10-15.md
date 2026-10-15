@@ -227,6 +227,65 @@ const res = await api.historyList(...)      // 近期动态
   六个路由在真实打包产物上加载，均正常渲染（`el-upload` / `el-icon` / `el-overlay` /
   `el-modal-dialog` / `ql-editor` 等 EP 与 Quill 类名在 DOM 中实测出现）。
 
+### 4.5 修复后 CI 抓到的**新缺陷**：按需样式漏了「纯样式依赖」的内部组件
+
+首轮 CI 的 `QG Visual` 红 3 处（阈值 6%）：
+
+| 视图 | misMatchPercentage |
+|---|---|
+| `podcast-channel` | **21.63%** |
+| `create-editor` | 9.48%（重试 7.66%） |
+| `create-pipeline` | 9.47%（重试 7.67%） |
+
+**根因（P3 机械锁锁不到的维度）**：P3 只锁「组件**注册**」，锁不到「组件**样式**」。
+第一版按需 CSS 只导了「模板里用到的组件」的样式，而 EP 的组件之间存在
+**纯样式依赖**——一批内部组件（`scrollbar` / `popper` / `overlay` / `option-group` /
+`text`）从不出现在任何模板里，但缺了它们的 CSS 就会视觉回归。
+
+**权威判据**：`element-plus/es/components/<name>/style/index.mjs`。它声明该组件依赖
+哪些兄弟组件的样式，例如：
+
+```
+select   → base, scrollbar, popper, tag, option, option-group
+dialog   → base, overlay
+tooltip  → base, popper
+radio-group → base, radio      ← 漏 `el-radio` 本体的来源
+```
+
+沿该图重算闭包，实测漏了 **7 个**：
+`el-scrollbar` / `el-popper` / `el-overlay` / `el-option-group` / `el-text` /
+`el-radio`（本体 —— 上一轮只补了 `radio-button`/`radio-group`）/ `el-config-provider`
+（0 字节占位，renderless 组件）。
+
+**修法**：补齐闭包 → `index.css` 300.4 → **309.5 KB**（仍远低于基线 503 KB）。
+产物内 12 项关键选择器实测全部命中；本地复跑 `podcast-channel`
+**21.63% → 2.05%**。
+
+**过程坑（值得单独记）**：EP 的 `style/index.mjs` 用的是**裸 import**
+（`import "../../x/style/index.mjs"`），没有 `from` 关键字。第一版判据写成
+`/from\s+['"]\.\.\/\.\.\/…/`，匹配数为 **0**，于是算出「闭包 = 已导入」这个**假结论**
+——差点据此认为按需清单是对的。判据必须写成 `/import\s+['"]\.\.\/\.\.\/…/`。
+
+**新增两道机械锁**：
+
+| 锁 | 断言 |
+|---|---|
+| **P4 样式闭包锁** | 按 `style/index.mjs` 重算闭包，断言插件 import 的 CSS **不缺**（且 theme-chalk 里文件真实存在） |
+| **P5 重复 import 锁** | 样式清单不得有重复行（本轮真出过重复：批量替换把 `el-radio-button`/`el-radio-group` 各写了两遍） |
+
+**两处存量的判定（对照实验，不背锅也不甩锅）**：`create-editor` / `create-pipeline`
+本地复跑 9.48% / 9.26%。做**对照实验**——临时在插件里加回
+`import 'element-plus/dist/index.css'`（= 修复前 CSS 超集）后复跑，两者仍是
+**9.48% / 9.26%**，与按需态**逐位相同** ⇒ 与本次样式改造**无关**。
+另有抖动证据：CI 同一 job 两轮数字不同（9.48% → 7.66%），且第一轮
+`podcast-channel` 未失败、第二轮才失败。
+故本 PR 只对「因闭包缺失而变差的 `podcast-channel`」负责并已修复；
+这两条的存量漂移**不在本 PR 范围**，且**刻意不用 `--update-baseline` 掩盖**
+（AGENTS.md 明令禁止）。
+
+**口径提醒**：本地像素默认阈值 **1%**，CI 用 **6%**（`PIXEL_THRESHOLD`）。
+故 `podcast-channel` 本地 2.05% 会判红、CI 6% 阈值下应通过——对照时必须注意口径差异。
+
 ---
 
 ## 5. ⑤ 预防措施（防止再次发生）
@@ -236,10 +295,12 @@ const res = await api.historyList(...)      // 近期动态
 | 1 | **Bug 反思文档**（本文件） | `01-docs/BUGFIX-NEWTAB-HOME-SLOW-2026-10-15.md` |
 | 2 | **bundle 契约进测试**：`main.js` 引入方式 + 按需清单 + Quill 注册位置三条机械锁 | `src/main.bundle-contract.test.js` |
 | 3 | **漏登记机械锁**：扫 src 全部 `<el-xxx>` 核对注册表 | `src/plugins/element-plus.test.js` P3 |
-| 4 | **首屏时序契约**：并行取数 + 懒触发 + 单点失败不扩散 | `src/views/Home.first-paint.test.js` |
-| 5 | **QM-2 新增检查项**：「新增全局 `app.component` / 顶层 CSS import 前必须问『它在几条路由上被用』；UI 框架默认全量引入是高频路径的性能地雷」 | `AGENTS.md` QM-2 |
-| 6 | **learnings 沉淀**：`全量引入在源码层测试里与按需完全等价` + `慢而不错对视觉回归结构性免疫`（与 10-14 同型第二次出现） | `01-docs/learnings.md` |
-| 7 | **CHANGELOG** 条目 | `CHANGELOG.md` |
+| 4 | **样式闭包锁**：按 `style/index.mjs` 重算闭包断言不缺（QG Visual 那次红的直接教训） | `src/plugins/element-plus.test.js` P4 |
+| 5 | **重复 import 锁**：样式清单不得有重复行 | `src/plugins/element-plus.test.js` P5 |
+| 6 | **首屏时序契约**：并行取数 + 懒触发 + 单点失败不扩散 | `src/views/Home.first-paint.test.js` |
+| 7 | **QM-2 新增检查项**：「新增全局 `app.component` / 顶层 CSS import 前必须问『它在几条路由上被用』；UI 框架默认全量引入是高频路径的性能地雷；**UI 框架按需样式必须导闭包而不是模板用到的组件**」 | `AGENTS.md` QM-2 |
+| 8 | **learnings 沉淀**：`全量引入在源码层测试里与按需完全等价` + `慢而不错对视觉回归结构性免疫`（与 10-14 同型第二次出现）+ `按需样式必须导闭包` + `判据写成 /from/ 会匹配 0 条算出假结论` | `01-docs/learnings.md` |
+| 9 | **CHANGELOG** 条目 | `CHANGELOG.md` |
 
 ### 5.1 仍未闭合的（登记，不假装已解决）
 
@@ -252,6 +313,15 @@ const res = await api.historyList(...)      // 近期动态
   只有真进发布页才需要。但若将来发布页也要秒开，可考虑 toolbar 精简。
 - **Home.vue 的失效账号横幅在账号多时仍可能慢**：懒触发只保证它不阻塞首屏，
   不保证它自己快。它的性能属 `accounts:batch-check-login` 的既有议题（并发 3 / 单账号 60 s 超时）。
+- **`create-editor` / `create-pipeline` 存量像素漂移**：对照实验证明与本 PR 无关
+  （见 §4.5），登记为存量待办，不擅自更新基线。
+- **QM-6 深度双模型评审未完成**：判定 `deepReview.required=true`（变更 593 行 > 200 行
+  阈值），但本仓 `ccg-review-decider` 把记录**以提交前的 HEAD sha 命名**
+  （`.git/hooks/pre-commit` 第 148-155 行注释明说这是刻意设计），导致 commit 之后
+  `HEAD` 永远查不到自己的记录，`scripts/deep-review.sh` 与直接驱动
+  `ccg-deep-review.js` 四条调用路径全部无法在「记录名 = 父 sha」的设计下完成评审。
+  **如实登记为 pending，不编造 findings。** 建议独立切片修正记录命名
+  （改用提交后 sha，或同时写父/子两份），使 `deep-review.sh` 可用。
 
 ---
 

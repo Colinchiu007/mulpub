@@ -70,6 +70,32 @@
    `vi.doMock` 对同一文件内已 hoist 的 `vi.mock` **无效**（动态 import 带 `?query` 也不行，模块已被缓存）。正确形态：`const h = vi.hoisted(() => ({ calls: [], stub: {...} }))`，工厂里 `return h.stub`，用例里改 `h.stub.xxx = ...`。
    **另一条**：桩内部若用 `setTimeout` 造延时，`flushPromises()` 只清微任务、**不推进定时器** —— 必须补 `await new Promise(r => setTimeout(r, 120))`，否则断言会拿到 -1（`indexOf` 找不到）。
 
+6. **UI 框架「按需样式」必须导「闭包」，不是「模板里用到的组件」——这是「漏登记机械锁」（P3 类）锁不到的维度。**
+   EP 的组件存在**纯样式依赖**：`scrollbar` / `popper` / `overlay` / `option-group` / `text` 这类内部组件**从不出现在任何模板里**，但缺了它们的 CSS 就视觉回归。权威判据是 `element-plus/es/components/<name>/style/index.mjs`，它声明该组件依赖哪些兄弟组件的样式：
+   ```
+   select      → base, scrollbar, popper, tag, option, option-group
+   dialog      → base, overlay
+   tooltip     → base, popper
+   radio-group → base, radio      ← 漏 `el-radio` 本体的来源
+   ```
+   实测：第一版只导「模板用到的 36 个组件」的 CSS，CI 的 `QG Visual` 当场红 3 处（`podcast-channel` **21.63%** / `create-editor` 9.48% / `create-pipeline` 9.47%，阈值 6%）。沿该图重算闭包，漏 **7** 个（`el-scrollbar`/`el-popper`/`el-overlay`/`el-option-group`/`el-text`/`el-radio` 本体/`el-config-provider`）。补齐后 `podcast-channel` **21.63% → 2.05%**。
+   **反向教训**：`el-config-provider.css` 是 **0 字节占位**（renderless 组件）——「某 CSS 文件里没有对应选择器」**不等于**漏了，判据不能拿选择器存在性倒推完整性。
+
+7. **判据正则写成 `/from\s+['"]…/` 会匹配 0 条，然后算出「一切正常」的假结论。**
+   EP 的 `style/index.mjs` 用的是**裸 import**（`import "../../x/style/index.mjs"`），没有 `from` 关键字。我第一版闭包探针用 `/from\s+['"]\.\.\/\.\.\/([a-z0-9-]+)\/style\/index\.mjs['"]/`，匹配数为 **0**，于是算出「闭包 = USED（无额外依赖）」这个**假结论**——差点据此把 QG Visual 的红归因为「与本次改造无关」。
+   **可复用判据**：结构解析类判据跑完必须**打印命中条数**并对命中数做下界断言（如「闭包大小 ≥ 输入集合大小」）。「匹配 0 条」与「真的没有」在输出上一模一样——这是「夹具比生产更顺」同族坑搬到了正则上。
+
+8. **像素门禁的「红」必须先做对照实验再认领，阈值口径也要先对齐。**
+   本轮 CI 红 3 处，我没有整批认领：
+   - **对照实验**：临时加回 `import 'element-plus/dist/index.css'`（= 修复前 CSS 超集）后复跑，`create-editor` 仍是 **9.48%**、`create-pipeline` **9.26%**，与按需态**逐位相同** ⇒ 这两处与本 PR 无关（存量漂移/抖动）。
+   - **抖动证据**：CI 同一 job 两轮数字不同（9.48% → 7.66%），且第一轮 `podcast-channel` 未失败、第二轮才失败。
+   - **阈值口径差异**：本地像素默认 **1%**，CI 用 **6%**（`PIXEL_THRESHOLD`）。同一张图两边结论可能相反（`podcast-channel` 本地 2.05% 判红、CI 6% 下应通过）。
+   **纪律**：只对「能证明是本 PR 引入」的部分负责并修；存量漂移登记为待办，**禁止用 `--update-baseline` 掩盖**——那会把别人的问题一起洗白。
+
+9. **`ccg-review-decider` 的判定记录以「提交前的 HEAD sha」命名，导致 `deep-review.sh` 在 commit 之后永远查不到自己的记录。**
+   `.git/hooks/pre-commit` 第 148-155 行的注释明说这是刻意设计（防 `.ccg/reviews` 未跟踪堆积），但它与 `deep-review.sh` 的读法（`git rev-parse HEAD` → `.ccg/reviews/$SHA.json`）**错位一格**。实测四条路都走不通：① `sh scripts/deep-review.sh` → 「判定记录: 无」；② `ccg-deep-review.js --sha <记录名>` → `base..head` 恒空（该 sha 已是 main 祖先）⇒ 报「取不到 diff」退出 0；③ 改传真正承载改动的 sha → 被同名旧记录（那份是 docs 提交的 `mode=skip`）短路；④ 删掉旧记录 → 驱动直接「未找到…跳过深度审查」。
+   **后果**：`deepReview.required=true` 的变更**无法完成 QM-6 深度评审**。已如实登记为 pending 并写明修正建议（记录命名改用提交后 sha，或父/子同写两份）。**工具链自身挡住了必做门禁时，正解是如实登记 + 提出修正建议，不是编造 findings 让记录看起来走过了。**
+
 ## 逐文件行数门禁的真实上限、rebase 冲突标记自检，与「不带热点载体」的二次验证（ops-url-split，2026-10-15）
 
 1. **逐文件行数门禁的真实上限 = 登记值 + 容差，且它数的是 `split('\n').length`（结尾换行多算 1）。**

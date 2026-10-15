@@ -387,7 +387,7 @@ onMounted(() => {
         stats.value = { total: res.data.total || 0, success: res.data.success || 0, failed: res.data.failed || 0, daily: Array.isArray(res.data.daily) ? res.data.daily : [] }
       }
     } catch (e) {
-      reportError('加载首页发布统计失败', e)
+      reportError('home dashboard stats failed', e)
     } finally {
       statsLoaded.value = true
     }
@@ -403,7 +403,7 @@ onMounted(() => {
         recentItems.value = res.data.records.slice(0, 5)
       }
     } catch (e) {
-      reportError('加载首页近期动态失败', e)
+      reportError('home recent activity failed', e)
     }
   }
 
@@ -413,7 +413,7 @@ onMounted(() => {
     } catch (e) {
       // 账号取数失败不影响统计/动态：accountCount 停在 0，
       // 由账号页自己负责错误呈现（store 内已有 error/errorCode 状态）。
-      reportError('加载首页账号数失败', e)
+      reportError('home account count failed', e)
     }
   }
 
@@ -423,7 +423,7 @@ onMounted(() => {
     } catch (e) {
       // 平台元数据取数失败时 Home.vue 的 platforms computed 有硬编码回退清单
       // （见上面 platforms 定义），界面不会空。
-      reportError('加载首页平台元数据失败', e)
+      reportError('home platform metadata failed', e)
     }
   }
 
@@ -436,7 +436,7 @@ onMounted(() => {
   // 若用户立刻离开首页，onUnmounted 会清掉这个定时器（见下面 disposeExpiredBanner 旁）。
   expiredBannerTimer = setTimeout(() => {
     expiredBannerTimer = null
-    void refreshExpiredAccounts().catch((e) => reportError('刷新首页失效账号失败', e))
+    void refreshExpiredAccounts().catch((e) => reportError('home expired accounts refresh failed', e))
   }, 0)
 })
 

@@ -74,4 +74,97 @@ describe('element-plus 按需装配（行为验证）', () => {
       .filter(name => !registered[name] && !viaParent.has(name))
     expect(missing, '以下 EP 组件在 src 中被使用但未在按需清单注册: ' + missing.join(', ')).toEqual([])
   })
+
+  /**
+   * P4 样式闭包锁（2026-10-15 加入，由 QG Visual 的真实红触发）
+   *
+   * 为什么必须有这一条：P3 只锁「组件注册」，**锁不到样式**。第一版按需改造时
+   * 我只导了「模板用到的 36 个组件」的 CSS，QG Visual 当场红 3 处
+   * （podcast-channel 21.63% / create-editor 9.48% / create-pipeline 9.47%）。
+   * 根因是 EP 组件之间有**纯样式依赖**：内部组件（scrollbar / popper / overlay /
+   * option-group / text）从不出现在模板里，但缺 CSS 就视觉回归；另外
+   * `radio-group` 依赖 `radio` 本体，而我当时只补了 radio-button/radio-group。
+   *
+   * 权威来源 = `element-plus/es/components/<name>/style/index.mjs`，
+   * 它用**裸 import**（不是 `import ... from`）声明样式依赖——这一点也会坑人：
+   * 判据若写成 /from\s+['"]…/ 会匹配 0 条，算出「闭包 = 已导入」的假结论。
+   */
+  it('P4：样式必须覆盖 element-plus 的完整闭包（不漏纯样式依赖的内部组件）', async () => {
+    const fs = await import('node:fs')
+    const path = await import('node:path')
+
+    const pluginPath = path.join(process.cwd(), 'src/plugins/element-plus.js')
+    const pluginSrc = fs.readFileSync(pluginPath, 'utf8')
+
+    // 1) 插件显式注册的组件（剥掉注释，避免注释里提到的组件名被当成注册项）
+    const arrBody = pluginSrc.match(/const COMPONENTS = \[([\s\S]*?)\n\]/)[1]
+    const noComment = arrBody.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+    const used = [...noComment.matchAll(/El([A-Za-z0-9]+)/g)]
+      .map(m => m[1].replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase())
+    expect(used.length, 'COMPONENTS 清单不应退化成空壳').toBeGreaterThan(25)
+
+    // 2) 插件实际 import 的 el-*.css
+    const imported = new Set(
+      [...pluginSrc.matchAll(/theme-chalk\/(el-[a-z0-9-]+)\.css/g)].map(m => m[1]),
+    )
+
+    // 3) 权威闭包：沿 style/index.mjs 递归（裸 import 形态）
+    const compDir = path.join(
+      process.cwd(), '..', '..', 'node_modules', 'element-plus', 'es', 'components',
+    )
+    expect(
+      fs.existsSync(compDir),
+      '找不到 element-plus/es/components —— 本锁依赖已安装依赖，不得静默跳过',
+    ).toBe(true)
+
+    const styleDeps = (name) => {
+      const p = path.join(compDir, name, 'style', 'index.mjs')
+      if (!fs.existsSync(p)) return []
+      return [...fs.readFileSync(p, 'utf8')
+        .matchAll(/import\s+['"]\.\.\/\.\.\/([a-z0-9-]+)\/style\/index\.mjs['"]/g)]
+        .map(m => m[1])
+    }
+    const closure = new Set()
+    const queue = [...used]
+    while (queue.length) {
+      const n = queue.shift()
+      if (closure.has(n)) continue
+      closure.add(n)
+      for (const d of styleDeps(n)) if (!closure.has(d)) queue.push(d)
+    }
+    // base 由共享底座 base.css 覆盖，不产出 el-base.css
+    const required = [...closure].filter(n => n !== 'base').map(n => 'el-' + n)
+
+    const missing = required.filter(n => !imported.has(n)).sort()
+    expect(
+      missing,
+      '以下 EP 样式在闭包里但未 import（视觉回归风险，QG Visual 会红）: ' + missing.join(', '),
+    ).toEqual([])
+
+    // 4) 共享底座三件套（base.css 不带 el- 前缀，不在上面的 imported 集合里，单独断言）
+    expect(pluginSrc, '缺少共享底座 base.css').toMatch(/theme-chalk\/base\.css/)
+    for (const f of ['el-var', 'el-reset']) {
+      expect(imported.has(f), '缺少共享底座 ' + f + '.css').toBe(true)
+    }
+    // 组件样式目录必须真实存在（防路径写错但恰好被 tree-shake 掩盖）
+    const chalkDir = path.join(
+      process.cwd(), '..', '..', 'node_modules', 'element-plus', 'theme-chalk',
+    )
+    const missingFile = required.filter(n => !fs.existsSync(path.join(chalkDir, n + '.css')))
+    expect(missingFile, 'theme-chalk 里不存在的样式文件: ' + missingFile.join(', ')).toEqual([])
+  })
+
+  it('P5：样式 import 不得重复（重复行说明批量替换改坏了清单）', async () => {
+    const fs = await import('node:fs')
+    const path = await import('node:path')
+    const pluginSrc = fs.readFileSync(
+      path.join(process.cwd(), 'src/plugins/element-plus.js'), 'utf8',
+    )
+    const lines = pluginSrc
+      .split('\n')
+      .map(l => (l.match(/theme-chalk\/(el-[a-z0-9-]+)\.css/) || [])[1])
+      .filter(Boolean)
+    const dupes = lines.filter((v, i) => lines.indexOf(v) !== i)
+    expect([...new Set(dupes)], '重复的样式 import: ' + [...new Set(dupes)].join(', ')).toEqual([])
+  })
 })

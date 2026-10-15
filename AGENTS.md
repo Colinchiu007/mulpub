@@ -496,6 +496,8 @@ Code review 时除逻辑正确性外，必须逐项检查：
 
 - **首屏渲染不得阻塞在 IPC 返回之后；慢而非必需的校验必须懒触发**：任何「每次进页面都会走」的首屏 `onMounted`，判据：① 静态区块（骨架/标题/入口）是否在 `nextTick` 就渲染，不等任何 IPC？② 相互独立的数据源是否并行（`Promise.allSettled`）而非串行 `await`？③ 单源失败是否只停对应区块、不扩散成整页报错？④ 「有问题才可见」的校验（如逐账号登录态批量检测，单账号最坏 60s 超时）是否被 `setTimeout(0)` 推到首帧之后，且组件卸载时 `clearTimeout`？实例（2026-10-15）：`Home.vue` 原为 `platformStore.load() → ensureLoaded() → refreshExpiredAccounts() → dashboardStats() → historyList()` 全串行，最坏耗时是各项之和。回归锁见 `src/views/Home.first-paint.test.js`（4 条）。
 
+- **UI 框架按需引入时，样式必须导「闭包」而不是「模板里用到的组件」**：这是「登记机械锁」锁不到的维度（那种锁只看组件注册表，看不出样式缺失）。任何组件库的组件之间都可能存在**纯样式依赖** —— 内部组件（EP 的 `scrollbar`/`popper`/`overlay`/`option-group`/`text`）从不出现在模板里，但缺了它们的 CSS 就视觉回归。判据：① 以库自己声明的样式依赖图为权威（EP 是 `element-plus/es/components/<name>/style/index.mjs`，注意它是**裸 import 形态**——写成 `/from\s+…/` 会匹配 0 条并算出「闭包 = 已导入」的假结论，故结构解析类判据必须打印命中条数并对命中数做下界断言）；② 补齐闭包后用**产物级**断言核对关键选择器存在（构建成功不够——Vite 对不存在的 CSS 路径会报错，但对「少了某个组件样式」完全沉默）；③ 反向注意**0 字节占位文件**：`el-config-provider.css` 无任何选择器（renderless 组件），「无选择器」≠「漏了」，不能拿选择器存在性倒推完整性。实例（2026-10-15）：EP 按需改造第一版只导模板用到的 36 个组件样式，CI 的 `QG Visual` 当场红 3 处（`podcast-channel` 21.63%），沿 style 图重算发现漏 7 个；补齐后降到 2.05%。回归锁见 `src/plugins/element-plus.test.js` 的 P4（重算闭包断言不缺）与 P5（重复 import 锁）。**像素门禁报红时先做对照实验再认领**：把「修复前状态」临时还原后复跑，若数字逐位不变 ⇒ 该红与本 PR 无关（存量漂移/抖动），登记为待办而**不得用 `--update-baseline` 掩盖**；同时先对齐阈值口径（本地默认 1%，CI 用 `PIXEL_THRESHOLD=6%`）。
+
 - **require 路径**：每个 `require('../x')` / `require('./y')` 的解析目标文件是否真实存在
 
 - **preload sandbox 兼容**：修改 preload 后必须在 sandbox:true 和 sandbox:false 两种模式下验证 `window.electronAPI` 可用

@@ -24,9 +24,12 @@
 - **修复二 QuillEditor 全局注册 → 本地注册**：改在 `ArticleEditor.vue` 内 `const components = { QuillEditor }`，Quill 只随 `/publish` 路由的懒加载 chunk 下载（实测 `quill-*.js` 148 KB 独立 chunk，**不进 `index.js`**）。
 - **修复三 首页数据并行化 + 懒触发**：按「用户何时真正需要它」分档 —— 统计/近期动态/账号数/平台元数据走 `Promise.allSettled` **并行**、各自独立 try/catch；失效账号横幅 `setTimeout(0)` 推到首帧之后，`onUnmounted` 清定时器。`statsLoaded` 语义不变：无 `electronAPI` 时**不**置位（「没拿到数据」≠「确认是 0」，不进全 0 引导态）。
 - **实测效果**：`index.js` 1 841 → **1 334 KB**（−27%）、`index.css` 503 → **300 KB**（−40%）；主页挂载冷 **1 960 → 743 ms（−62%）**、热 **803 → 283 ms（−65%）**；FCP 1 172 → 544 ms。视觉零回归（按需样式就是全量 index.css 中对应组件规则的同一份文件，只是少了 88 个不用的组件）。
-- **回归锁 14 条**：`main.bundle-contract.test.js` 7 条（禁全量 JS/CSS、必须接按需、Quill 不得全局注册）+ `element-plus.test.js` 3 条（含**漏登记机械锁**：扫 `src` 全部 `<el-xxx>` 核对注册表）+ `Home.first-paint.test.js` 4 条（首帧不等 IPC、统计/历史并行、单点失败不扩散、批量校验懒触发）。四条锁均做过变异反证（改回全量 / 删组件 / 改回串行 / 改回同步 await 都当场指名红）。
-- 机械锁在开发中**当场抓到一次真实漏项**：`el-radio-button`/`el-radio-group`（`VideoCloneView.vue` 在用）——EP 把它们实现放在 `radio/` 目录、以 `withNoopInstall` 挂在 `ElRadio` 上当子组件，**不占全局注册表**；正解是只注册 `ElRadio` + 补两个样式文件，而不是把它们加进 `app.use`（无效劳动）。
-- 修复全程与 Bug 反思 5 步产出见 `01-docs/BUGFIX-NEWTAB-HOME-SLOW-2026-10-15.md`；QM-2 新增「新增全局 `app.component`/顶层 CSS import 前必须问它在几条路由上被用」与「首屏渲染不得阻塞在 IPC 之后、慢而非必需的校验必须懒触发」两条检查项；PRD-TAB-INDEPENDENT-HOME 新增 F7 首屏性能需求。
+- **回归锁 17 条**：`main.bundle-contract.test.js` 7 条（禁全量 JS/CSS、必须接按需、Quill 不得全局注册）+ `element-plus.test.js` 5 条（含**漏登记机械锁** P3：扫 `src` 全部 `<el-xxx>` 核对注册表；**样式闭包锁** P4；**重复 import 锁** P5）+ `Home.first-paint.test.js` 4 条（首帧不等 IPC、统计/历史并行、单点失败不扩散、批量校验懒触发）。四条核心锁均做过变异反证（改回全量 / 删组件 / 改回串行 / 改回同步 await 都当场指名红）。
+- **首轮 CI 的 `QG Visual` 抓到一个真实新缺陷并已修**：按需 CSS 只导了「模板用到的组件」，漏掉 EP 的**纯样式依赖内部组件**。权威判据是 `element-plus/es/components/<name>/style/index.mjs`（**裸 import 形态**——判据若写成 `/from\s+…/` 会匹配 0 条、算出「闭包 = 已导入」的假结论）。重算闭包后实测漏 7 个：`el-scrollbar`/`el-popper`/`el-overlay`/`el-option-group`/`el-text`/`el-radio`（本体，`radio-group` 的 style 依赖里就有它）/`el-config-provider`（0 字节占位）。补齐后 `index.css` 300.4 → **309.5 KB**（仍远低于基线 503 KB），产物内 12 项关键选择器全部命中，本地复跑 `podcast-channel` **21.63% → 2.05%**；并留下 P4/P5 两道机械锁。
+- **两处存量像素判定（附对照实验，不背锅也不甩锅）**：`create-editor` 9.48% / `create-pipeline` 9.26% 经**对照实验**（临时加回 `element-plus/dist/index.css` 全量 CSS 后数字逐位不变）证明**与本 PR 无关**；另有抖动证据（CI 同 job 两轮 9.48% → 7.66%，首轮 `podcast-channel` 未失败）。**刻意不用 `--update-baseline` 掩盖**，登记为存量待办。
+- **QM-6 深度评审如实登记为未完成**：判定 `deepReview.required=true`（593 行 > 200 行阈值），但 `ccg-review-decider` 把记录**以提交前的 HEAD sha 命名**，导致 commit 后 `HEAD` 查不到自己的记录，四条调用路径均无法完成评审。**不编造 findings**，已写明根因与修正建议（记录命名改为提交后 sha，或父/子同写）。
+- 机械锁在开发中**当场抓到一次真实漏项**：`el-radio-button`/`el-radio-group`（`VideoCloneView.vue` 在用）——EP 把它们实现放在 `radio/` 目录、以 `withNoopInstall` 挂在 `ElRadio` 上当子组件，**不占全局注册表**；正解是只注册 `ElRadio` + 补样式文件，而不是把它们加进 `app.use`（无效劳动）。样式闭包修复时又发现**漏了 `el-radio` 本体**——`radio-group` 的 style 依赖里就有它。
+- 修复全程与 Bug 反思 5 步产出见 `01-docs/BUGFIX-NEWTAB-HOME-SLOW-2026-10-15.md`；QM-2 新增「新增全局 `app.component`/顶层 CSS import 前必须问它在几条路由上被用」「UI 框架按需样式必须导**闭包**而不是模板用到的组件」「首屏渲染不得阻塞在 IPC 之后」等检查项；PRD-TAB-INDEPENDENT-HOME 新增 F7 首屏性能需求。
 
 # [未发布] test(podcast): 存量 mime 固化「不猜」的变异反证落进文件，并补上它暴露的按值快照（stock-default-write-proof）
 
