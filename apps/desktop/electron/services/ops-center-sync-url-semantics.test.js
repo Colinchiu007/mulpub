@@ -190,7 +190,23 @@ describe('结构锁：混装值不得再被「重读」消费', () => {
 
   it('_fetchJson 的 base 来自第三个参数而非内部重读', () => {
     expect(src).toMatch(/async _fetchJson\(path, auth, base\)/)
-    expect(src).toMatch(/String\(base \|\| process\.env\.OPS_CENTER_URL \|\| ''\)/)
+    expect(src).toMatch(/const url = String\(base\)\.replace/)
+  })
+
+  it('_fetchJson 不再自带 env 兜底（base 单一真源，避免「谁提供 base」劈成两处）', () => {
+    // env（OPS_CENTER_URL）只允许出现在 _getAutoContext / resolveAutoSyncGuard 两个归一处，
+    // 不得再作为 _fetchJson 的 fallback —— 否则空 base 会悄悄改走 env，
+    // 与 autoConnected / useBearer 所依据的来源优先级（手填 > 自动发现）不一致。
+    const codeLines = src.split('\n').filter((l) => !/^\s*(\*|\/\/)/.test(l))
+    const envHits = codeLines.filter((l) => l.includes('process.env.OPS_CENTER_URL'))
+    // 恰好两处：_getAutoContext 的 autoUrl 归一、resolveAutoSyncGuard 的判据入参
+    expect(envHits).toHaveLength(2)
+    expect(envHits.every((l) => /normalizeUrl\(this\._autoOpsCenterUrl \|\| process\.env\.OPS_CENTER_URL \|\| ''\)/.test(l))).toBe(true)
+    expect(envHits.some((l) => /_fetchJson/.test(l))).toBe(false)
+  })
+
+  it('_fetchJson 在 base 为空时 fail-closed 抛错，而不是静默改走别的来源', () => {
+    expect(src).toMatch(/if \(!base\) throw new Error\('内部错误：请求缺少运营中心地址（base 未传入）'\)/)
   })
 
   it('_fetchCatalog / _fetchRuntime 把已接收的 baseUrl 真正传给 _fetchJson（死参数已消除）', () => {
@@ -209,5 +225,76 @@ describe('结构锁：混装值不得再被「重读」消费', () => {
     expect(mod).toMatch(/module\.exports = \{ resolveSyncUrls, shouldRefusePin \}/)
     expect(mod).not.toMatch(/require\(/)
     expect(mod).not.toMatch(/this\./)
+  })
+})
+
+describe('base 单一真源：env 只经唯一入口影响请求地址', () => {
+  let originalFetch
+  const savedEnvUrl = process.env.OPS_CENTER_URL
+  beforeEach(() => { originalFetch = global.fetch })
+  afterEach(() => {
+    global.fetch = originalFetch
+    if (savedEnvUrl === undefined) delete process.env.OPS_CENTER_URL
+    else process.env.OPS_CENTER_URL = savedEnvUrl
+  })
+
+  it('env 地址经 _getAutoContext 归一后仍能驱动真实请求（语义被保留，没被删掉）', async () => {
+    process.env.OPS_CENTER_URL = 'https://env.example.com'
+    const store = makeStore('')
+    const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
+    svc.setGetAccessToken(() => 'jwt-token')
+    // 不调用 setOpsCenterUrl ⇒ autoUrl 只能来自 env
+    expect(svc.getConfig().effectiveUrl).toBe('https://env.example.com')
+    expect(svc.getConfig().autoConnected).toBe(true)
+
+    global.fetch = vi.fn(async (url) => ({ status: 200, ok: true, arrayBuffer: async () => Buffer.from(JSON.stringify({ items: [] })) }))
+    await svc.syncNow()
+    expect(global.fetch).toHaveBeenCalled()
+    expect(global.fetch.mock.calls[0][0]).toBe('https://env.example.com/api/v1/model-presets/catalog')
+  })
+
+  it('手填优先于 env：env 存在但已手填时，请求打在手填地址上', async () => {
+    process.env.OPS_CENTER_URL = 'https://env.example.com'
+    const store = makeStore('')
+    const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
+    // 手填态走 catalog-key 鉴权，必须先存一个 Key，否则 syncNow 会在「未配置 API Key」处提前 return
+    svc.saveConfig({ url: 'https://manual.example.com', apiKey: 'secret-key-123', autoSync: true })
+    expect(svc.getConfig().manualUrl).toBe('https://manual.example.com')
+
+    global.fetch = vi.fn(async () => ({ status: 200, ok: true, arrayBuffer: async () => Buffer.from(JSON.stringify({ items: [] })) }))
+    await svc.syncNow()
+    expect(global.fetch).toHaveBeenCalled()
+    expect(global.fetch.mock.calls[0][0]).toBe('https://manual.example.com/api/v1/model-presets/catalog')
+  })
+
+  it('_fetchJson 收到空 base 时 fail-closed 抛错，而不是静默改走 env', async () => {
+    process.env.OPS_CENTER_URL = 'https://env.example.com'
+    const store = makeStore('')
+    const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
+    svc.setGetAccessToken(() => 'jwt-token')
+    global.fetch = vi.fn(async () => ({ status: 200, ok: true, arrayBuffer: async () => Buffer.from('{}') }))
+    // 直接调 _fetchJson：空 base 必须抛错（旧实现会悄悄打 env.example.com）
+    await expect(svc._fetchJson('/api/v1/model-presets/catalog', { type: 'catalog-key', value: '' }, ''))
+      .rejects.toThrow('内部错误：请求缺少运营中心地址')
+    expect(global.fetch).not.toHaveBeenCalled()
+  })
+
+  it('同一 env 下 syncNow 两次：地址来源始终只有一条（不存在「第一次走 A、第二次走 B」）', async () => {
+    process.env.OPS_CENTER_URL = 'https://env.example.com'
+    const store = makeStore('')
+    const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
+    svc.setGetAccessToken(() => 'jwt-token')
+    const seen = []
+    global.fetch = vi.fn(async (url) => {
+      seen.push(url)
+      return { status: 200, ok: true, arrayBuffer: async () => Buffer.from(JSON.stringify({ items: [] })) }
+    })
+    await svc.syncNow()
+    await svc.syncNow()
+    expect(seen.length).toBeGreaterThanOrEqual(2)
+    // 所有请求的 origin 必须一致
+    const origins = new Set(seen.map((u) => new URL(u).origin))
+    expect(origins.size).toBe(1)
+    expect([...origins][0]).toBe('https://env.example.com')
   })
 })
