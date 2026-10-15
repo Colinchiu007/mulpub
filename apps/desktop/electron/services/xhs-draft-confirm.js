@@ -84,12 +84,12 @@ const POLL_INTERVAL_MS = 1500
 
 /**
  * 计数选择器取值归一化：配置优先，数组取首个，否则回落常量。
- * @param {unknown} configured 平台配置里的 draft_box_counter
+ * @param {any} configured 平台配置里的 draft_box_counter
  * @returns {string}
  */
 function resolveCounterSel (configured) {
-  if (Array.isArray(configured)) return configured[0] || COUNTER_SEL
-  return configured || COUNTER_SEL
+  if (Array.isArray(configured)) return String(configured[0] || COUNTER_SEL)
+  return configured ? String(configured) : COUNTER_SEL
 }
 
 /**
@@ -144,7 +144,7 @@ async function waitForDraftBoxIncrement (host, win, counterSel, baseline, timeou
   while (Date.now() < deadline) {
     await host._sleep(intervalMs || POLL_INTERVAL_MS)
     let read = null
-    try { read = await readDraftBoxCounter(win, counterSel) } catch (_) { read = null }
+    try { read = await readDraftBoxCounter(win, counterSel) } catch (_) { /* 保持 null：读数坏掉不等于没增长 */ }
     if (read !== null && read !== undefined) {
       now = read
       if (now > baseline) return true
@@ -183,16 +183,21 @@ async function recheckDraftBox (host, win, title, baseline, counterSel, boxUrl, 
     return out
   }
   const deadline = Date.now() + (timeoutMs || RECHECK_TIMEOUT_MS)
+  // 「草稿箱真的渲染出来了」的存在性前提（CCG 深度评审 i7）：标题探针用的宽泛后代选择器
+  // `[class*="draft"] [class*="title"]` 在编辑区/提示里也可能命中，一旦误命中会把失败文案
+  // 切成「见到了同名条目」，误导用户该做什么。所以先要求计数节点可读，再采信标题命中。
+  let counterReadable = false
   while (Date.now() < deadline) {
     await host._sleep(intervalMs || RECHECK_INTERVAL_MS)
-    // 确认权：计数增量（与①同判据，换到新加载的页面上再读一次）
-    if (!out.increment && baseline !== null && baseline !== undefined) {
-      let read = null
-      try { read = await readDraftBoxCounter(win, counterSel) } catch (_) { read = null }
-      if (read !== null && read !== undefined && read > baseline) out.increment = true
+    // 每轮都读计数：既供「增量」确认权，也充当上面的存在性前提
+    let read = null
+    try { read = await readDraftBoxCounter(win, counterSel) } catch (_) { /* 保持 null：读数坏掉不等于没增长 */ }
+    if (read !== null && read !== undefined) {
+      counterReadable = true
+      if (!out.increment && baseline !== null && baseline !== undefined && read > baseline) out.increment = true
     }
-    // 辅助证据：列表里的同名条目（不给确认权）
-    if (!out.titleSeen && title) {
+    // 辅助证据：列表里的同名条目（**不给确认权**，且需存在性前提）
+    if (!out.titleSeen && title && counterReadable) {
       try {
         out.titleSeen = Boolean(await win.webContents.executeJavaScript(
           '(function(){var want=' + JSON.stringify(String(title)) + ';' +
@@ -242,6 +247,9 @@ async function confirmDraftSaved (host, win, opts) {
 
   // ② 次判据：保存接口的成功响应。两个条件缺一不可——URL 命中窄路径端点表（红线 1）
   // 且 HTTP 200（红线 2）。
+  // 返回形状**已对着真实 helper 核过**（不靠桩互证）：`rpa-view-helpers.js` 的
+  // `_waitForResponseExclusive` 成功路径 resolve `{url, statusCode, matchedUrls}`（平铺）。
+  // 回归锁：xhs-draft-only-hard-evidence.test.js 的 H10 断言该 helper 的这一行仍在。
   let responseConfirmed = false
   if (!counterConfirmed && saveRespPromise) {
     try {
@@ -288,22 +296,72 @@ function describeUnconfirmed (titleSeen) {
  * 时机本身就是判据的一部分（不变量 2）：平台在填写阶段就会自动保存，晚读会把本次草稿
  * 吃进基线 ⇒ 主判据恒不增长。故调用方必须在标题/正文填写**之前**调用本函数。
  *
- * 读不到时 `baseline` 为 `null`：**不得拿 0 顶替**（「没拿到基线」不是「没增长」的证据），
- * 确认链会把①直接判为不可用。
+ * **读两次取较大值**（CCG 深度评审 i3）：侧边栏是异步渲染的，只读一次时可能赶在计数
+ * 真正挂载/回填之前读到 `草稿箱(0)`——那会把「基线低估」变成**与真机缺陷同形的假成功**：
+ * 旧稿把计数从 0 抬到 1，①就判增量成立。取两次的较大值等价于「按更保守（更大）的起点
+ * 要求增量」，代价是多一次 DOM 读。
  *
- * @param {{webContents: any}} host RpaViewManager（本函数只用 win，host 为签名一致性保留）
+ * 两次都读不到时 `baseline` 为 `null`：**不得拿 0 顶替**（「没拿到基线」不是「没增长」
+ * 的证据），确认链会把①直接判为不可用。
+ *
+ * @param {{ _sleep: (ms: number) => Promise<any> }} host RpaViewManager（本函数只用 host._sleep
+ *   拉开两次读之间的间隔）
  * @param {any} sel 平台选择器表
  * @returns {Promise<{counterSel: string, baseline: number|null}>}
  */
 async function readBaselineContext (host, win, sel) {
   const counterSel = resolveCounterSel(sel && sel.draft_box_counter)
-  const baseline = await readDraftBoxCounter(win, counterSel)
+  const first = await readDraftBoxCounter(win, counterSel)
+  let baseline = first
+  if (first !== null) {
+    // 只在第一次读到数时才复核——第一次就 null 时（大概率还没渲染）再读一次同样会空，
+    // 白等一轮没有收益。
+    await host._sleep(POLL_INTERVAL_MS)
+    const second = await readDraftBoxCounter(win, counterSel)
+    if (second !== null) {
+      if (second !== first) {
+        log.info('RpaView', '[xiaohongshu] draft-only: 基线两次读数不一致（' + first + ' / ' + second +
+          '），取较大值作为基线（避免低估算出来的假增量）')
+      }
+      baseline = Math.max(first, second)
+    }
+  }
   if (baseline === null) {
     log.warn('RpaView', '[xiaohongshu] draft-only: 草稿箱计数基线读不到（sel=' + counterSel + '），计数增量判据不可用')
   } else {
     log.info('RpaView', '[xiaohongshu] draft-only: 草稿箱计数基线=' + baseline + '（写入内容之前）')
   }
   return { counterSel, baseline }
+}
+
+/**
+ * 内容写入闸（2026-10-07 的既有修复，本刀只是把它从调用方搬进来，行为不变）：
+ * 先判「内容真的写进去了吗」，再谈落库。旧实现无条件 return {success:true}——真机 E2E
+ * 实测标题/正文/标签三项全部 not found、页面空白，仍报 success 并写入发布历史。
+ * 硬性判据：文章带了标题就必须写进去；带了正文就必须写进去。标签是增强项（不写不致命），
+ * 单独记 warn 不阻断。
+ *
+ * 对**所有** draftOnly 平台都适用（原实现即如此），故单独导出：非小红书平台也要用它。
+ *
+ * @returns {object|null} 通过返回 null；不通过返回与搬出前逐字段一致的失败返回值
+ */
+function contentGate (article, fillReport, platform, url) {
+  const hardFailures = []
+  if (article.title && fillReport.title && fillReport.title.ok === false) hardFailures.push('title: ' + fillReport.title.error)
+  if (article.content && fillReport.content && fillReport.content.ok === false) hardFailures.push('content: ' + fillReport.content.error)
+  if (fillReport.tags && fillReport.tags.ok === false) {
+    log.warn('RpaView', '[' + platform + '] draft: tags not filled (' + fillReport.tags.error + ') — 降级放行（标签为增强项）')
+  }
+  if (hardFailures.length === 0) return null
+  const detail = hardFailures.join(' | ')
+  log.error('RpaView', '[' + platform + '] draft-only ABORT: content not filled, refuse to report success -> ' + detail)
+  return {
+    success: false, platform, draft: true,
+    error: '草稿内容未写入页面，已中止（避免假成功）: ' + detail,
+    errorCode: 'PUBLISH_DRAFT_CONTENT_NOT_FILLED',
+    fillReport,
+    url: url || '',
+  }
 }
 
 /**
@@ -321,28 +379,12 @@ async function readBaselineContext (host, win, sel) {
  */
 async function runDraftOnly (host, win, ctx) {
   const { platform, sel, article, fillReport, config } = ctx || {}
+  /** @type {any} */
   const baselineCtx = (ctx && ctx.baselineCtx) || {}
 
-  // 内容闸（2026-10-07）：旧实现无条件 return {success:true} —— 真机 E2E 实测标题/正文/
-  // 标签三项全部 not found、页面空白，仍报 success 并写入发布历史。硬性判据：文章带了标题
-  // 就必须写进去；带了正文就必须写进去。标签是增强项（不写不致命），单独记 warn 不阻断。
-  const hardFailures = []
-  if (article.title && fillReport.title && fillReport.title.ok === false) hardFailures.push('title: ' + fillReport.title.error)
-  if (article.content && fillReport.content && fillReport.content.ok === false) hardFailures.push('content: ' + fillReport.content.error)
-  if (fillReport.tags && fillReport.tags.ok === false) {
-    log.warn('RpaView', '[' + platform + '] draft: tags not filled (' + fillReport.tags.error + ') — 降级放行（标签为增强项）')
-  }
-  if (hardFailures.length > 0) {
-    const detail = hardFailures.join(' | ')
-    log.error('RpaView', '[' + platform + '] draft-only ABORT: content not filled, refuse to report success -> ' + detail)
-    return {
-      success: false, platform, draft: true,
-      error: '草稿内容未写入页面，已中止（避免假成功）: ' + detail,
-      errorCode: 'PUBLISH_DRAFT_CONTENT_NOT_FILLED',
-      fillReport,
-      url: win.webContents.getURL() || '',
-    }
-  }
+  // 内容闸先行（对所有 draftOnly 平台同口径，见 contentGate）
+  const gateFailure = contentGate(article, fillReport, platform, win.webContents.getURL())
+  if (gateFailure) return gateFailure
 
   // 分区关系：草稿箱入口就在发布页侧边栏（`DRAFT_BOX_URL` 与发布页同一 URL，见
   // xiaohongshu_selectors.py），故计数读取落在**同一个 RPA 分区、同一个页面**上，
@@ -397,6 +439,7 @@ module.exports = {
   mountSaveResponseWatch,
   confirmDraftSaved,
   describeUnconfirmed,
+  contentGate,
   readBaselineContext,
   runDraftOnly,
 }

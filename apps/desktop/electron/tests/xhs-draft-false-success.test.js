@@ -200,7 +200,13 @@ describe('draftOnly 假成功修复（2026-10-07）', () => {
     expect(draftBlock).toBeTruthy()
     // 只看代码行、不看注释：块内注释会解释旧判据被弃用的原因，必然提到它读的属性名，
     // 对整块文本做 not.toMatch 等于「锁注释不锁代码」（CCG 深度评审 i7）。
-    const codeOnly = draftBlock.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n')
+    // 切片再限定到**小红书子分支**：非小红书平台（头条定时）那半段按评审 i2 有意保留
+    // 了既有页面文本判据，本刀没换它们 —— 锁要锁住的是本刀真正替换掉的那条路径。
+    const xhsSlice = draftBlock.slice(
+      draftBlock.indexOf("if (platform === 'xiaohongshu') {"),
+      draftBlock.indexOf('其它平台的 draftOnly'))
+    expect(xhsSlice).toBeTruthy()
+    const codeOnly = xhsSlice.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n')
     expect(codeOnly).not.toMatch(/innerText/)
     expect(codeOnly).not.toMatch(/_waitForCondition\s*\(/)
 

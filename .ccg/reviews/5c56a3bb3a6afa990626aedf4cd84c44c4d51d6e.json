@@ -19,8 +19,13 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "self_play_pending",
+    "performedBy": "self-play(pending)",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "findings": null,
+    "template": ".adversarial\\ccg-deep-f92b7fb5\\adjudication.json",
+    "note": "裁决尚未填写：5/5 条未定（i1, i2, i3, i4, i5）",
+    "at": "2026-10-15T16:59:03.054Z"
   }
 }

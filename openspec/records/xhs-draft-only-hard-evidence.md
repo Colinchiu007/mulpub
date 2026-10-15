@@ -21,6 +21,7 @@ sync_backfill_owner: xhs-draft-only-hard-evidence 会话（本节作者）
 | 接线棘轮 | ✅ | 新增测试文件在 vitest.config.js 既有 include（`electron/tests/**/*.test.{js,ts}`）内，无需改 workflow |
 | 债务熔断（逐文件行数） | ✅（已修） | 首版把确认链直接写进 `rpa-view-platforms.js`，CI 报 `TARGET_GREW ... 1739 行已超过点名目标 1484 行（+255）`；已把 draftOnly 判定链整体抽成 `xhs-draft-confirm.js`，本文件降到 **1467 行**、门禁转绿。未去改门禁 target 清单（那是「谁来守门」的配置） |
 | 依赖漏洞审计 | ⚠️ 非本刀 | CI 报 `NEW_ADVISORY: pip/PYSEC-2026-4298 (python-jose, 路径 ops-center/backend)` + `RESOLVED_STILL_BASELINED: pip/CVE-2026-85394`。本刀未碰依赖与 ops-center；该工作流上次绿是 2026-10-12。属**新公告**类时间性失败，需人工裁决（升级依赖 or 基线登记 decision+note），不经本 PR 处置 |
+| 静态门禁 Gate 11（ESLint） | ✅（已修） | 抽取后的新模块被 ESLint `no-useless-assignment` 报 2 处（`let read = null` 后 try/catch 两条分支都赋值 ⇒ 初值恒不被读）。处置：catch 改为「保持 null」的注释，两条分支不再都赋值；本地 `eslint --quiet` rc=0 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触打包配置与视觉面 |
 | QM-6 CCG 双模型外部评审 | ✅ | 跨家族深度评审实跑（proposer=opencode / critic=claude，`--sha 8fe885f57`）：7 条发现、1 Critical（i1）＋我方核出同源第二处（i1b）；**7/7 已修**，处置逐条见下 §CCG 评审。修订后门禁重跑 `node scripts/ccg-gate.js` = rc 0（5 项通过、0 安全发现） |
 | 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间；`git ls-remote --heads origin xhs-draft-only-hard-evidence` 返回 0 行证远端分支已删；回填后删除本段三个 sync_* 字段 |
@@ -82,6 +83,32 @@ performance 7 / maintainability 5）。**逐条处置如下，全部已修**：
 与 Python 侧的一处**有意分歧**：Python 的 `recheck_draft_box` 允许标题命中单独返回 True，
 本轨按评审 i4 收紧（同名旧草稿在真机场景里并不罕见，而草稿箱计数选择器是单点取证，
 两者风险不对称：误报成功会静默丢数据，误报失败用户可重试）。
+
+### 第二轮评审（抽取后按整分支 diff 重跑）与处置
+
+rebase 重放不跑 hook ⇒ 按 sha 查不到判定记录，改用 `--base origin/main`（整分支 841 行）。
+读数：发现 **7 → 5 条**、最低分 **4 → 6**、**无 Critical**。八条（含 Info）逐条处置见
+PRD §8.1；**修掉五条**、登记三条。其中两条是实质性的：
+
+- **i2（行为回归，本刀引入）**：`runDraftOnly` 没有平台守卫，而调用方只在
+  `platform === 'xiaohongshu'` 时读基线 ⇒ **任何其它配了 `draftOnly` 的平台**都会被塞进
+  小红书专用链（基线恒 null ⇒ 主判据永久失效 ⇒ 恒失败）。**这不是理论风险**：头条在带
+  `publishTime` 时会走 `draftOnly` 的 DOM 轨（`packages/rpa-engine/src/toutiao-direct-bridge.js`
+  与 `toutiao-schedule-intent.test.js` 都写明「只存草稿、绝不点发布」）。
+  处置：调用方按平台分流，非小红书平台**保留既有行为**（内容闸 + 原页面文本判据），
+  接线锁只锁小红书子分支；新增 **H9/H9b** 行为锁（含「内容没写进去仍按内容闸 fail-closed」）。
+  它们的判据改造（同样的假成功面）登记为下一刀。
+- **i3（与真机缺陷同形）**：基线只对 `null` fail-closed，**低估不设防**——侧边栏异步渲染期
+  若读到 `草稿箱(0)`，一条**旧**草稿把计数抬到 1 就会被判成增量 ⇒ 假成功。
+  处置：基线**读两次取较大值**（等价于要求更保守的起点），两次不一致时写日志；新增 **H11**。
+
+其余三条：i4（对**真实 helper** 锁返回形状，新增 H10）、i7（采信标题命中前先要求计数节点可读，
+新增 H12）、i6（接线锁改锚调用形态与真实代码结构，不再锚日志文案）。
+登记不修的三条：i1（②端点需真机抓包核验）、i5（①串行 20s + ③重载时机的耗时取舍，现选
+「宁可慢也不误报失败」）、i8（②监听窗口上限 30s 自行清理，成本有界）——均在 PRD §9。
+
+**本轮测试读数**：三套相关测试 **26/26**（新增 H9/H9b/H10/H11/H12 五例）。
+
 
 
 ### 前置修复（本刀内，行为等价）

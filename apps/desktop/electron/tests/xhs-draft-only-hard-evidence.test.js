@@ -113,7 +113,7 @@ function article (over = {}) {
   return { title: 'E2E 草稿箱验证', content: '正文内容', tags: ['E2E'], ...over }
 }
 
-async function runDraftOnly (inst, art, config = {}) {
+async function runDraftOnly (inst, art, config = {}, platform = 'xiaohongshu') {
   const mod = await import(MODULE)
   const mixin = mod.default || mod
   // 判据本体（读计数 / 等增量 / 重载复核 / 确认链）已整体在 ../services/xhs-draft-confirm，
@@ -133,15 +133,16 @@ async function runDraftOnly (inst, art, config = {}) {
     },
     ...config,
   }
-  return mixin._publish_generic.call(inst, inst._win, art, 'xiaohongshu', cfg)
+  return mixin._publish_generic.call(inst, inst._win, art, platform, cfg)
 }
 
 afterEach(() => { vi.restoreAllMocks() })
 
 describe('小红书 draftOnly 硬证据确认链（2026-10-15）', () => {
   it('H3 计数增长 ⇒ draft 成功，evidence=counter-increment（主判据命中）', async () => {
-    // 第 0 次读是「写入内容之前」的基线=1；其后都读到 2（增长）
-    const inst = makeInstance((i) => (i === 0 ? 1 : 2))
+    // 基线读**两次**（评审 i3 的设防，取较大值）：索引 0/1 是这两次，都读到 1；
+    // 其后都读到 2（增长）。
+    const inst = makeInstance((i) => (i <= 1 ? 1 : 2))
     const res = await runDraftOnly(inst, article())
     expect(res.success).toBe(true)
     expect(res.draftSaved).toBe(true)
@@ -213,6 +214,63 @@ describe('小红书 draftOnly 硬证据确认链（2026-10-15）', () => {
     expect(res.draftEvidence).toBe('counter-increment-after-reload')
   })
 
+  it('H9 非小红书平台的 draftOnly 保持既有行为，不得被塞进小红书链（评审 i2）', async () => {
+    // 头条（带 publishTime 的 DOM 轨）会以 draftOnly 运行（见 packages/rpa-engine/src/
+    // toutiao-direct-bridge.js）。小红书链是专用选择器 + 中文计数文本，套上去会让它的基线
+    // 恒为 null ⇒ 主判据永久失效 ⇒「本来能报成功的草稿」变成「恒失败」。
+    const inst = makeInstance(() => null, { _waitForCondition: vi.fn(async () => true) })
+    const res = await runDraftOnly(inst, article(), {}, 'toutiao')
+    expect(res.success).toBe(true) // 既有行为：内容闸通过即成功
+    expect(res.draftSaved).toBe(true) // 既有行为：页面文本判据的结果，仅作信息位
+    expect(res.draftEvidence).toBeUndefined() // 没走小红书链（那条链会带 draftEvidence）
+    expect(res.errorCode).toBeUndefined()
+  })
+
+  it('H9b 非小红书平台：内容没写进去时仍按内容闸 fail-closed（既有行为不变）', async () => {
+    const inst = makeInstance(() => null, { _resolveSelector: vi.fn(async () => null) })
+    const res = await runDraftOnly(inst, article(), {
+      selectors: { title_input: ['#never'], editor: ['#never'] },
+    }, 'toutiao')
+    expect(res.success).toBe(false)
+    expect(res.errorCode).toBe('PUBLISH_DRAFT_CONTENT_NOT_FILLED')
+  })
+
+  it('H10 ②的返回形状对着**真实 helper** 锁（评审 i4：不能只用桩互证）', async () => {
+    // confirmDraftSaved 读的是平铺 {statusCode, url}；`_waitForResponseExclusive` 若改成
+    // 嵌套（如 {response:{statusCode}}）或改名，statusCode===200 会恒假 ⇒ ②静默失效
+    // （fail-closed 但少一条通道，且用户侧只看到「未确认」）。所以锁住真实 helper 的形态。
+    const helper = fs.readFileSync(
+      path.resolve(process.cwd(), 'electron/services/rpa-view-helpers.js'), 'utf-8')
+    expect(helper).toMatch(/resolve\(\{url:\s*url\s*,\s*statusCode:\s*d\.statusCode\s*,\s*matchedUrls:\s*matched\}/)
+  })
+
+  it('H11 基线低估（侧边栏未渲染完读到 0）不得被算成增量（评审 i3）', async () => {
+    // 读数序列：基线第一次 0、复核读到 1（渲染完成），其后恒 1。
+    // 只读一次基线的话 baseline=0，随后的 1 会被判成「增量成立」——一条**旧**草稿
+    // 就足以造成假成功（与真机缺陷同形）。现在基线取两次的较大值 = 1 ⇒ 1 > 1 不成立。
+    const inst = makeInstance((i) => (i === 0 ? 0 : 1))
+    const res = await runDraftOnly(inst, article())
+    expect(res.success).toBe(false)
+    expect(res.draftSaved).toBe(false)
+    expect(res.errorCode).toBe('PUBLISH_DRAFT_UNCONFIRMED')
+  })
+
+  it('H12 计数节点读不到时，标题命中不得把失败文案切成「见到了同名条目」（评审 i7）', async () => {
+    const inst = makeInstance(() => null, { _waitForResponse: vi.fn(async () => null) })
+    // 计数节点读不到（草稿箱没渲染出来），而标题探针恒命中——模拟宽泛后代选择器
+    // `[class*="draft"] [class*="title"]` 在编辑区/提示里误命中。
+    inst._win.webContents.executeJavaScript = vi.fn(async (script) => {
+      const s = String(script || '')
+      if (s.includes('hasLoginPrompt')) return { hasLoginPrompt: false, hasForm: true }
+      if (s.includes('JSON.stringify(texts')) return JSON.stringify([])
+      if (s.includes('===want')) return true
+      return undefined
+    })
+    const res = await runDraftOnly(inst, article())
+    expect(res.success).toBe(false)
+    expect(String(res.error)).not.toMatch(/同名/)
+  })
+
   it('H8 接线锁：判据在确认模块里，且调用方只剩委派（八件事）', async () => {
     const moduleSrc = fs.readFileSync(MODULE_SRC(), 'utf-8')
     const callerSrc = fs.readFileSync(CALLER_SRC(), 'utf-8')
@@ -229,38 +287,47 @@ describe('小红书 draftOnly 硬证据确认链（2026-10-15）', () => {
     //    —— **标题命中不得出现在确认式里**（评审 i4）
     expect(moduleSrc).toContain('const draftSaved = counterConfirmed || responseConfirmed || recheckIncrement')
 
-    // ④ 响应监听必须在**点击之前**挂上（评审 i2：只监听注册之后的响应，挂晚了必然错过）
-    const mountAt = moduleSrc.indexOf('const saveRespPromise = mountSaveResponseWatch(host, win)')
-    const clickAt = moduleSrc.indexOf('draft button clicked')
+    // ④ 响应监听必须在**点击之前**挂上（评审 i2：只监听注册之后的响应，挂晚了必然错过）。
+    //    锚**调用形态**而不是日志文案（评审 i6：锚日志串会被无关的文案改动弄红）。
+    const mountAt = moduleSrc.indexOf('mountSaveResponseWatch(host, win)')
+    const clickAt = moduleSrc.indexOf('host._click(win, cand)')
     expect(mountAt).toBeGreaterThan(-1)
     expect(clickAt).toBeGreaterThan(-1)
     expect(mountAt).toBeLessThan(clickAt)
 
     // ⑤ 存草稿入口只点一次（首版曾点两次：基线之前一次、之后又一次）
-    expect((moduleSrc.match(/draft button clicked/g) || []).length).toBe(1)
+    expect((moduleSrc.match(/host\._click\(win, cand\)/g) || []).length).toBe(1)
 
     // ⑥ 兜底回查不得硬编码域名（评审 i3：平台地址走 config.publish_url 单一真源）
     const recheckStart = moduleSrc.indexOf('async function recheckDraftBox (')
     expect(recheckStart).toBeGreaterThan(-1)
     expect(moduleSrc.slice(recheckStart, recheckStart + 1400)).not.toMatch(/loadURL\('https?:\/\//)
 
-    // ⑦ 旧判据（页面文本）必须已不在调用方的 draftOnly 分支里。**只看代码行、不看注释**：
-    //    块内注释会解释「旧判据为什么被弃用」，自然会出现它读的那个属性名；直接对整块
-    //    文本做 not.toMatch 就是「锁注释不锁代码」（评审 i7）。
-    const start = callerSrc.indexOf('if (config.draftOnly) {')
-    const end = callerSrc.indexOf('if (sel.publish_btn && sel.publish_btn.length>0) {', start)
-    expect(start).toBeGreaterThan(-1)
-    expect(end).toBeGreaterThan(start)
-    const branch = callerSrc.slice(start, end)
-    const codeOnly = branch.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n')
-    expect(codeOnly).not.toMatch(/innerText/)
-    expect(codeOnly).not.toMatch(/_waitForCondition\s*\(/)
-    // 调用方只剩委派（判据本体搬进模块，行数门禁点名还账文件零增长容差）
-    expect(codeOnly).toContain('xhsDraftConfirm.runDraftOnly(')
+    // ⑦ 调用方 draftOnly 分支：小红书子分支只剩委派，且**代码行**里不得再有旧判据。
+    //    （只看代码行不看注释——块内注释会解释旧判据为什么被弃用，直接对整块文本做
+    //    not.toMatch 等于「锁注释不锁代码」。）
+    //    非小红书平台的那半段**保留**了既有页面文本判据（评审 i2：不能顺手改别的平台），
+    //    所以这里把切片限定在小红书子分支内，锁的才是本刀真正替换掉的那条路径。
+    const branchStart = callerSrc.indexOf('if (config.draftOnly) {')
+    const branchEnd = callerSrc.indexOf('if (sel.publish_btn && sel.publish_btn.length>0) {', branchStart)
+    expect(branchStart).toBeGreaterThan(-1)
+    expect(branchEnd).toBeGreaterThan(branchStart)
+    const branch = callerSrc.slice(branchStart, branchEnd)
+    const xhsStart = branch.indexOf("if (platform === 'xiaohongshu') {")
+    const xhsEnd = branch.indexOf('其它平台的 draftOnly')
+    expect(xhsStart).toBeGreaterThan(-1)
+    expect(xhsEnd).toBeGreaterThan(xhsStart)
+    const xhsCode = branch.slice(xhsStart, xhsEnd)
+      .split('\n').filter((l) => !l.trim().startsWith('//')).join('\n')
+    expect(xhsCode).not.toMatch(/innerText/)
+    expect(xhsCode).not.toMatch(/_waitForCondition\s*\(/)
+    expect(xhsCode).toContain('xhsDraftConfirm.runDraftOnly(')
+    // 非小红书那半段仍受既有内容闸保护（本条是 H9b 的静态孪生断言）
+    expect(branch).toContain('xhsDraftConfirm.contentGate(')
 
     // ⑧ 基线必须在**写入内容之前**读（评审 i5：填写阶段的自动保存会把本次草稿吃进基线）
     const baselineReadAt = callerSrc.indexOf('xhsDraftConfirm.readBaselineContext(')
-    const fillTitleAt = callerSrc.indexOf("'filling title...'")
+    const fillTitleAt = callerSrc.indexOf('if (article.title && (titleSel || captionSel)) {')
     expect(baselineReadAt).toBeGreaterThan(-1)
     expect(fillTitleAt).toBeGreaterThan(-1)
     expect(baselineReadAt).toBeLessThan(fillTitleAt)

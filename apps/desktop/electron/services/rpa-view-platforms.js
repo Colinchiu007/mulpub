@@ -468,12 +468,27 @@ const platformsMixin = {
     // 有自动草稿保存（页面显示「编辑于 刚刚」，侧边栏草稿箱计数 +1），因此填完字段后
     // 等待落库即可；若平台另提供显式存草稿钮（sel.draft_btn）则优先点它。
     if (config.draftOnly) {
-      // draftOnly 的**全部判定**（内容写入闸 + 硬证据确认链）在 ./xhs-draft-confirm：
-      // 旧判据是页面文本正则、命中的是常驻静态文案，那里是它被替换后的落点；
-      // 本文件只做委派（搬家的行数门禁理由见文件顶该 require 处注释）。
-      return await xhsDraftConfirm.runDraftOnly(this, win, {
-        platform, sel, article, fillReport, config, baselineCtx: xhsBaselineCtx,
-      })
+      // 小红书图文：**硬证据**确认链（判据本体/三条红线/不变量见 ./xhs-draft-confirm）。
+      if (platform === 'xiaohongshu') {
+        return await xhsDraftConfirm.runDraftOnly(this, win, {
+          platform, sel, article, fillReport, config, baselineCtx: xhsBaselineCtx,
+        })
+      }
+      // ⚠️ 其它平台的 draftOnly（头条：带 publishTime 时 DOM 轨只存草稿、绝不点发布）
+      // **保持既有行为不变**——本刀只换小红书的落库判据。不能把它们一并切到上面的链：
+      // 那是小红书专用的选择器与中文计数文本，基线恒为 null、主判据永久失效，会把
+      // 「本来能报成功的草稿」变成「恒失败」（CCG 深度评审 i2）。它们的判据改造
+      // （同样的假成功面）属独立改动，已登记在 PRD §9 与执行记录。
+      const gate = xhsDraftConfirm.contentGate(article, fillReport, platform, win.webContents.getURL())
+      if (gate) return gate
+      const legacySaved = await this._waitForCondition(win,
+        'function(){var t=(document.body&&document.body.innerText)||"";' +
+        'return /编辑于\\s*\\S{1,12}|已保存|保存成功|自动保存/.test(t) && !/编辑于\\s*$/.test(t.trim())}',
+        20000, 1500)
+      await this._sleep(3000)
+      log.info('RpaView', '[' + platform + '] draft-only done saved=' + Boolean(legacySaved) + ' url=' + (win.webContents.getURL() || ''))
+      this._emitProgress(platform, 'draft saved', 100)
+      return { success: true, url: win.webContents.getURL() || '', platform, draft: true, draftSaved: Boolean(legacySaved), fillReport }
     }
     if (sel.publish_btn && sel.publish_btn.length>0) {
       retry.addField('publish')

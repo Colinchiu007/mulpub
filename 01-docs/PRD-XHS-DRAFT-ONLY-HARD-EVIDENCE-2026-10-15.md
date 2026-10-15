@@ -252,6 +252,23 @@ DOMParser 非新引入面——同文件 `plainContent` 分支已在用。
 > （引擎第 2 档 `self_play` 出口要求逐条填 prosecution/defense/verdict/rationale）。
 > 本 PR 的处置是**直接修**而不是走裁决流程 —— 修完的结论即处置记录（见上表与执行记录）。
 
+### 8.1 第二轮评审（改判据后）与处置
+
+驱动同前，改按**整分支 diff** 跑（`--base origin/main`；rebase 重放不跑 hook，
+按 sha 取不到判定记录）。读数：发现 **7 → 5 条**、最低分 **4 → 6**、无 Critical。
+逐条处置：
+
+| # | 级别 | 发现（要点） | 处置 |
+|---|------|--------------|------|
+| i2 | Warning | `runDraftOnly` 无平台守卫：**其它平台配 `draftOnly` 会被塞进小红书专用链**（基线恒 null ⇒ 主判据永久失效 ⇒ 恒失败） | 调用方按 `platform === 'xiaohongshu'` 分流；非小红书平台保留既有行为（内容闸 + 原页面文本判据），接线锁只锁小红书子分支。**新增 H9/H9b 行为锁** |
+| i3 | Warning | 基线只对 `null` fail-closed、**低估不设防**：侧边栏未渲染完读到 0 时，旧稿把计数抬到 1 就被判成增量 ⇒ 与真机缺陷同形 | 基线**读两次取较大值**（等价于要求更保守的起点）；两次不一致时写日志。**新增 H11** |
+| i4 | Warning | 假定 `_waitForResponse` 返回平铺 `{statusCode,url}`；若真实现嵌套/改名则 `statusCode===200` 恒假、②静默失效 | 已对着**真实 helper** 核对（`rpa-view-helpers.js` 成功路径确实平铺 resolve）并把这一点写进模块注释；**新增 H10 源码锁**钉住该形态 |
+| i7 | Info | `titleSeen` 的宽泛后代选择器在编辑区/提示里可能误命中 ⇒ 把失败文案误切成「见到了同名条目」，误导用户 | 采信标题命中前**先要求计数节点可读**（页面确实渲染出草稿箱）。**新增 H12** |
+| i6 | Info | 接线锁锚日志文案与完整语句文本（`'draft button clicked'`、mount 行全文等），重命名/改文案即误红 | 改锚**调用形态**（`mountSaveResponseWatch(host, win)`、`host._click(win, cand)`）与真实代码结构（`if (article.title && (titleSel || captionSel)) {`） |
+| i1 | Warning | ②的窄路径未真机核验；`_waitForResponse` 不支持按 HTTP 方法过滤 | **不修，登记**（§9）：需要真机抓包，合并后随真机验证一并做 |
+| i5 | Warning | ①串行等满 20s 才看②；③的重载可能打断极慢的在途保存 | **不修，登记**（§9）：现选择「宁可慢也不误报失败」，并写明若真机出现反例就改①/②并发 |
+| i8 | Info | ①成功后 ② 的 promise 不再被 await，监听窗口继续存活 | 已核实其**自身上限 30s 后自行清理**，成本有界；在 §9 写明 |
+
 ## 9. 遗留与后续（登记，不假装闭合）
 
 - **`DRAFT_BOX_ITEM_SELECTOR` 仍未取证**（Python 侧已登记的同一问题）：本 PR 把它降级为
@@ -263,11 +280,25 @@ DOMParser 非新引入面——同文件 `plainContent` 分支已在用。
   下一刀应把它做成多候选（`.draft-title` / `[class*="draft"] [class*="count"]` / aria 属性等）
   并活体取证，否则一旦平台改版，用户会看到「每次都说未确认」。本轮已把「节点在但解析不出」
   变成可查现场（info 日志点名 sel 与收到的文本条数）。
+- **其它平台的 `draftOnly` 仍是旧判据（本刀**有意**不动，属独立改动）**：头条在带
+  `publishTime` 时会走 `draftOnly` 的 DOM 轨（`packages/rpa-engine/src/toutiao-direct-bridge.js`
+  的注释与 `toutiao-schedule-intent.test.js` 都写明「只存草稿、绝不点发布」）。它们**同样**
+  有「页面文案当落库证据」这个假成功面，但本刀只换小红书：把别的平台一并切到小红书专用链
+  会让它们的基线恒为 `null`、主判据永久失效，把「本来能报成功的草稿」变成「恒失败」
+  （CCG 第二轮评审 i2）。**处置**：调用方按 `platform === 'xiaohongshu'` 分流，非小红书平台
+  保留既有行为（内容闸 + 原页面文本判据）；接线锁相应**只锁小红书子分支**。
+  下一刀：让头条等地复用本模块的计数通道（选择器与计数节点形态需各自活体取证）。
 - **②的端点若变化会静默失效**（不会假成功，只会少一条通道）：端点值取自 Python 侧的
-  真机取证值，本轨未独立取证。日志里「非成功码」warning 与 `evidence` 分布可用于发现它失效。
+  真机取证值，本轨未独立取证；`_waitForResponse` 也只按 URL 子串匹配、**不支持按 HTTP 方法
+  过滤**（CCG 第二轮评审 i1）。日志里「非成功码」warning 与 `evidence` 分布可用于发现它失效。
+  返回形状已对着真实 helper 锁定（`{url, statusCode, matchedUrls}` 平铺，见 H10 用例）。
 - **失败文案未入 i18n**：`PUBLISH_DRAFT_UNCONFIRMED` 的文案目前是主进程直出的
   `error` 字符串（与 `PUBLISH_DRAFT_CONTENT_NOT_FILLED` 同款既有做法）。若产品要求
   多语言，需按 locale 成对规则补 zh/en——那会触 i18n-content-sync 门禁，属独立改动。
+- **确认链最长耗时约 40s**（①20s → ②窗口收尾 → ③重载复核 8s），且 ③ 的整页重载发生在
+  点击后 ≥30s，理论上仍可能打断极慢的保存请求（CCG 第二轮评审 i5）。当前选择是
+  **宁可慢也不误报失败**；若真机发现「保存成功却报未确认」，应改为 ①/② 并发取先到者。
+  ① 确认成功后 ② 的监听不再被 await，但它自身窗口最多存活 30s 后自行清理（评审 i8）。
 - **真机验证待办**：合并后在应用内发一条小红书图文草稿，确认草稿箱计数 +1、
   发布结果为成功且 `draftEvidence=counter-increment`；再构造一次「主站不授会话」
   场景（如断网）确认报「未确认」失败而非假成功。**这一条决定了「基线在填写前读」的假设是否成立**
