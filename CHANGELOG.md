@@ -1,4 +1,6 @@
 # [未发布] fix(ci): Gate 9 取消「标题前缀就不跑审计」的豁免，覆盖失败只拦可归因本 PR 的那一种（gate9-ratchet）
+
+- 这条 required check 过去对每个 PR 只有两种行为，而两种都不说真话：标题命中 `fix|chore|docs|refactor|test` 或带同族 label ⇒ 审计器第 147 行直接短路，**一项都不审但 Gate 9 绿**；没命中 ⇒ 跑全量存量比对，由 LLM 自由裁一个数决定全仓能否合并。实测近 200 条 squash 主题里 **162 条（81%）走的是第一条**——「这条检查绿」的真实含义是「作者把标题写成了 fix:」。本次把判据换成只看**变更文件**：审计跑不跑不再由被审对象的命名决定。
 - **原方案（覆盖率棘轮基线）是被读实现否证的，不是被评审否证的**：`coverageRate` 由裁判自报（`normalizeSummary()` 只 clamp，不重算），被评估的项集也由裁判自己决定（`details` 取 `verdict.items`），实测同一判据在 main 0.34/41 项、#3617 0.36/218 项、#3372 0.374/227 项之间来回；workflow 传的 `--threshold=0.5` 更是只喂 `VisualTestRunner`、对覆盖判据是死参数。给分母不定的自报数设水位线仍是掷硬币，所以落成的判据是**归属**而不是**水位**：报告只有 `COVERAGE_FAIL` 一个码、且本轮确实量出了项、且本 PR 没声明 `feat_` ⇒ 存量欠账进报告不进闸门（exit 0 + 可见性令牌 `COVERAGE_BACKLOG`）；一旦 PR 声明了要实现的特性（审计面按它收窄），FAIL 就是「你说要实现的东西没实现」⇒ 照旧当场红。
 - 两处刻意收紧，防止「降级」变成第二道恒绿：审计器自身崩溃的 catch 形状 `exitCodes` 也只有 `COVERAGE_FAIL`，但 `summary.total` 是 0——只看失败码会把「没跑成」读成「审过了、欠账是别人的」，所以降级第二条前提必须是真量出了项；`exitCodes` 缺失/空/非数组/未知码一律不降级。既有那条 `{overall:"FAIL"}` ⇒ exit 1 的历史形状锁一字未改仍然绿，用来证明旧报告形状的行为没被动过。
 - 影响面两条都写：22/200 的 PR 过去靠标题躲过审计、现在真跑（`QG Autonomous` 作业实测 27 分 38 秒，本就与其余 job 并行、不在别的 job 关键路径上，docs-only 的 `changes` 层短路未动）；换来的是 45 条真跑审计的 PR 不再被一个分母不定的自报数拦停全仓。label 侧的历史命中数无法离线取证，如实记为未量。
@@ -14,17 +16,6 @@
 - **`Publish.vue` 净零行（本刀最硬的约束）**：该文件被 `check-max-lines` 的**点名还账** `targets` 盯着（`max-lines-baseline.json` → `1773`，容差 0，超一行即 `TARGET_GREW`）。按 `learnings.md:17959`「接线逻辑抽独立 composable…结构性拆分才是正解」（同族先例 `hot-topics-publish-handoff` 面对 `TARGET_GREW: Publish.vue 1896 > 1773` 同样是真实拆分而非上调 targets），本刀三步做到 `5 added / 5 removed` = **净零**、门禁 rc=0：① 接线抽进 `usePublishAddAccountTargets`（内联需 13 行必红）；② 三个模板属性合并为 1 行 `v-bind="addAccountBindings"`；③ 把既有 `loadAccounts()`（3 行 + 注释）搬进同一 composable 抵掉增量。**没有选择「上调 targets」**——那等于给这个文件再送 13 行免涨额度，与点名还账的立项目的直接冲突。顺带更正 `usePublishGroupTargets.js` 里「行数预算只剩约 30 行」的旧口径（`targets` 生效后真实预算为 0）。
 - **`v-bind` 键名合同有回归锁**：`v-bind` 的对象键必须是驼峰 `on*` 才能命中 kebab 事件名（`emit('add-account')` → `onAddAccount`）。`PublishTargetSelector.test.js` 新增 v-bind 合同用例，把 `{ refreshingAccounts, onAddAccount, onRefreshAccounts }` 作为 props 传入并断言两个回调真被调用——键名漂移会当场变红，而不是让事件静默失效。
 - 测试：新增 `usePublishAddAccount.test.js` 14 条 + `usePublishAddAccountTargets.test.js` 4 条 + `PublishTargetSelector.test.js` 6 条空态出口/v-bind 用例，末态 40 passed；消费者并集合跑 363 passed / 0 failed；locale `--keys` 与 `--cjk` 双门禁通过。契约与残余风险（保存后的账号 id 是占位值 `mp-new-<platform>`，与账号页 id 形态不一致）见 `01-docs/PRD-PUBLISH-ADD-ACCOUNT-ENTRY-2026-10-15.md`。
-
-# [未发布] fix(rpa): 头条图文标题不再被追加时间戳后 4 位，「触发保存」与「发布内容」隔离（fix-toutiao-title-suffix）
-
-- **用户可见症状**：发布图文到头条号，原标题「DeepSeek崩了」在头条号后台变成「DeepSeek崩了 1935」；26 字以上标题还会被静默截短到 26 字。
-- **根因**：`packages/rpa-engine/src/toutiao-direct-bridge.js` 的 `publishViaPageXhr()`（页面 XHR 重放兜底）里，为「触发头条编辑器自动保存」把标题改写为 `原标题.slice(0,26) + ' ' + Date.now().toString().slice(-4)`，且**从不还原**。页面 React 据此发出自动保存，本仓 XHR hook 捕获其 body 到 `window.__lastSaveBody`，重放脚本「原样重放」（只改 `save=0→1`）时**把污染标题一并发出**。1935 即当时的 epoch 毫秒后 4 位——**把「触发手段」当成了「发布内容」**。
-- **修复（双闸门）**：① 新增 `buildTitleBumpScript()`——先记下原标题，写入 `原标题 + 零宽空格(U+200B)`（React 可感知差异以触发自动保存，但不可见），派发 input 后**同帧内还原为原标题并再派发一次 input**（React 末次 onChange 携带正确值）；零截断、脚本内禁 `Date.now`。② 新增 `overrideBodyTitle()`——重放前强制把 body 的 `title=` 覆盖为 `article.title`，防「页面自动保存在还原前抢跑发出」的竞态；判据 `(^|&)title=` 要求紧跟等号以免误伤 `title_id=` 邻键，无 `title=` 字段时追加，**空标题不覆盖**（fail-safe）。
-- **回归锁 19 条**（`packages/rpa-engine/tests/toutiao-title-no-pollution.test.js`）：A 组净效果（普通/空/超 26 字/含 `<stdio.h>` 与 emoji 的标题原样还原）；B 组触发能力保留（扰动确实发生，且扰动标记不可见、非数字）；C 组 body 覆盖口径（不误伤邻键 / `^` 首位 / 追加 / 幂等 / 空标题 fail-safe）；D 组结构锁（脚本内无 `Date.now`、无 `slice(-N)`、无对标题值的 `slice(0,`）；E 组端到端集成（走完整 `publishViaPageXhr`，断言**真正 POST 出去的 body** 每一次 `title=` 都是原标题）。沙箱复刻了两个关键真机语义：标题框 `value` 访问器在 prototype 上、React `inputValueTracking` 与「异步自动保存 XHR」竞态。
-- **变异反证实测**：把扰动值改回事故写法，**4 条立刻变红**（B 组 1 + D 组 3）。同批实跑 rpa-engine 全量 **274 passed / 0 failed**（含定时意图契约 7 条不回归）。
-- **全平台审计结论**：该问题是**头条图文 XHR 重放兜底这条链独有**；头条视频、头条 API 直连、以及百家号/快手/小红书/B站/知乎/公众号/YouTube 等 RPA 链与全部 API 链均**不同源、无改动**——只有头条这条链需要「制造假变化骗页面自动保存」，其他平台靠 `_fillInput` 的原生 input 事件即可触发保存。
-- 文档：`01-docs/BUGFIX-TOUTIAO-TITLE-SUFFIX-2026-10-15.md`（Bug 反思 5 步全量）、PRD §6.8「标题保真与触发型假值隔离合同」（数据校验/流程/功能逻辑/交互逻辑/显示项/提示文字/异常态矩阵/验收标准）、AGENTS.md QM-2 新增「发布内容保真合同」、`01-docs/learnings.md` 5 条。
-- **待办（未闭合）**：真机复验（用真实账号发 >26 字与 <26 字两条图文，回后台核对标题）；发布后平台回显对账（严格平台作品查询里比对标题）。
 
 # [未发布] test(podcast): 存量 mime 固化「不猜」的变异反证落进文件，并补上它暴露的按值快照（stock-default-write-proof）
 

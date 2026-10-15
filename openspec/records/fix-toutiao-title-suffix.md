@@ -15,12 +15,18 @@ sync_backfill_owner: 下一个会话
 | 第一性原因（QM-5 ①） | ✅ | `publishViaPageXhr()` 为触发头条编辑器自动保存，把标题改写为 `原标题.slice(0,26) + ' ' + Date.now().toString().slice(-4)` 且**从不还原**；页面 React 据此自动保存 → XHR hook 捕获 body 到 `__lastSaveBody` → 重放脚本「只改 save=0→1」把污染 `title=` 一并发出。1935 = 当时的 epoch 毫秒后 4 位（epoch ms 1792001935000 ↔ 2026-10-15 02:18:55 +08:00，与发布同日同量级）。**根因一句话：把「触发手段」当成了「发布内容」** |
 | 逃逸分析（QM-5 ②） | ✅ | 四层全漏：① 单元测试——`toutiao-schedule-intent.test.js` 7 条只锁「定时意图不丢」，**没有一条断言发布出去的标题等于原标题**，且扰动脚本是页面内字符串，mock 掉 `executeJavaScript` 就完全看不到；② 契约锁（content-formatter/topic-inline/registry-sync）——只管 Node 侧字段值，与页面上下文的 RPA 写入**无桥**；③ 代码审查——注释写着「复刻诊断脚本成功路径」并被 `// ⭐` 标为成功经验，读起来不像 bug 位；④ 真机验收——2026-10-03 验的是「save=1 → code=0 提交成功」，**没有回查平台后台的标题文本** |
 | 修复 + 回归保护（QM-5 ④） | ✅ | 修复：`buildTitleBumpScript()`（记 orig → 写 orig+U+200B → input → 同帧还原 orig → 再 input；零截断、禁时钟）+ `overrideBodyTitle()`（重放前强制 body `title=` = `article.title`，`(^|&)title=` 精确判据不误伤 `title_id=`，无字段追加，空标题 fail-safe no-op）。回归锁：`packages/rpa-engine/tests/toutiao-title-no-pollution.test.js` **19 条**（A 净效果 6 / B 触发能力保留 2 / C body 覆盖 6 / D 结构锁 3 / E 端到端集成 2），TDD 两段实跑：先红 19/19 → 修复后绿 19/19 |
-| 防止再次发生（QM-5 ⑤） | ✅ | ① AGENTS.md QM-2 新增「⛔ 发布内容保真合同（trigger-value isolation）」四条不可破 + 修改该文件必须同跑的两个测试文件；② PRD §6.8 完整产品契约（数据校验表/流程图/功能逻辑表/交互逻辑/显示项/提示文字/异常态矩阵 7 行/验收标准 4 条）；③ `01-docs/learnings.md` 5 条（含「测试沙箱复刻真机语义差一点锁就假绿」连踩三处）；④ `01-docs/BUGFIX-TOUTIAO-TITLE-SUFFIX-2026-10-15.md` 完整 5 步 |
-| 行尾与 diff 对账 | ✅ | `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径逐文件一致（PRD +96/-0、learnings +47/-0、AGENTS +2/-0、CHANGELOG +12/-0、toutiao-direct-bridge +86/-10）。删除数 10 行全部来自被替换的旧 `rettle` 扰动脚本段（含其注释），已逐行核对无意外删除 |
+| 防止再次发生（QM-5 ⑤） | ✅ | ① AGENTS.md QM-2 新增「⛔ 发布内容保真合同（trigger-value isolation）」四条不可破 + 修改该文件必须同跑的两个测试文件；② PRD §6.8 完整产品契约（数据校验表/流程图/功能逻辑表/交互逻辑/显示项/提示文字/异常态矩阵 7 行/验收标准 4 条）；③ `01-docs/BUGFIX-TOUTIAO-TITLE-SUFFIX-2026-10-15.md` 完整 5 步。**`01-docs/learnings.md` 与 `CHANGELOG.md` 的条目改由合并后的 docs-only 回填 PR 落地**（见「反活锁处置」） |
+| 行尾与 diff 对账 | ✅ | 本 PR 两口径 `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 逐文件一致（PRD +96/-0、AGENTS +2/-0、toutiao-direct-bridge +86/-10）；删除数 10 行全部来自被替换的旧 `rettle` 扰动脚本段（含其注释），已逐行核对无意外删除 |
 | 接线棘轮 | ✅ | 新增 `packages/rpa-engine/tests/toutiao-title-no-pollution.test.js` 命中 `packages/rpa-engine/vitest.config.js` 既有 `include: ['tests/**/*.test.js']`（该 glob 已被 CI 消费），无需改 workflow；实跑 `pnpm exec vitest run` = **7 files / 274 passed / 0 failed** |
 | QM-1 打包 / QM-4 视觉 | ⚠️ QM-1 已补跑（验证 1/2 通过，验证 3 存活但 stderr 已归因）；QM-4 N/A（无 UI 变更） | **触面判定更正**：改动含 `packages/rpa-engine/`，按 AGENTS.md 字面规则**必须**跑 QM-1，故已补跑而非豁免。完整证据见下方「QM-1 证据」专节 |
 | QM-6 CCG 双模型外部评审 | ⚠️ 部分 | `scripts/ccg-gate.js` 实跑 exit=0，判定 DUAL（变更 446 行 > 200 行阈值），要求 claude + opencode 双模型深度审查，并已把判定记录 stage 进本次提交（`.ccg/reviews/0d14ca8e9918a065844c2cc5db916734316d7cf3.json`）。门禁同时提示两条：①「决策层方案评审尚未执行（deepReview.status=pending）」；②「范围漂移：5 个改动文件不在方案声明范围内」。**双模型深度审查本身未在本次执行**（`sh scripts/deep-review.sh` 未跑），如实登记为未完成，不用自审冒充 |
 | 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin fix-toutiao-title-suffix` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+
+### 反活锁处置（本仓既有的「不带热点载体」策略）
+
+首次 CI 全绿后 PR 变 `CONFLICTING`：CI 耗时约 30–37 分钟，而主干在此期间前进了 2–3 笔，冲突**全部集中在追加型热点文件**——`CHANGELOG.md`（人人往顶部追加）与 `01-docs/learnings.md`（人人往顶部前插）。本仓 `01-docs/learnings.md` 已两次记录这一结构性活锁（混合 PR 连续 4 次「重放→等 CI→又被超过」），并给出正解：**让代码 PR 刻意不带热点载体，把它们的写入交给合并后的 docs-only 回填 PR**（该 PR CI 秒级、不受活锁影响）。
+
+故本 PR 采用同一策略：`CHANGELOG.md` 与 `01-docs/learnings.md` 已**精确回退到 `origin/main` 状态**（`git diff origin/main -- <两文件>` 为空即证），其条目改在回填 PR 落地。`CHANGELOG` 仅在 release gate（version==tag）被要求，本 PR 的 `release` check 为 `skipping` ⇒ 不携带它不影响任何 required check（首轮全绿已实证）。
 
 ### 变异反证（证明锁真的在跑）
 
