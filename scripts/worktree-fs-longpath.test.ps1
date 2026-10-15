@@ -312,7 +312,7 @@ try {
         Check2 'concurrent staging reads as drift, not damage' ((Resolve-DriftDisposition -NewEntries @('A  .ccg/reviews/04f4c269731d7a9b7345bbb0a8fba6f4d105e28c.json')) -eq 'benign_drift') 'mislabelled as cascade'
         Check2 'any deletion in main stays a hard failure' ((Resolve-DriftDisposition -NewEntries @('M  x', 'D  y')) -eq 'cascade') 'gate weakened'
 
-        # 15) real-git fixture for the ignored tier (closes tasks 2.6 / 6.6 for this口径).
+        # 15) real-git fixture for the ignored tier (closes tasks 2.6 / 6.6 for this probe).
         # Pure-mapping rows above cannot prove that `git status --porcelain -uall` really
         # omits ignored files, or that plain `--ignored` really reports them - that claim is
         # about git's behaviour, so it must be run against git. Repo is unborn on purpose:

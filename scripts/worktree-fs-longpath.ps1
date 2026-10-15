@@ -408,8 +408,8 @@ function Format-ContentSummary {
 
 function Test-DriftCascadeSymbol {
     # One implementation of "which porcelain symbols are a cascade signature". The classifier
-    # below and the R7 print面 both read this, because the printed list must be exactly the
-    # lines the verdict was based on - filtering with a second copy of the regex lets the two
+    # below and the R7 printed list both read this, because what gets shown must be exactly
+    # the lines the verdict was based on - filtering with a second copy of the regex lets the two
     # drift apart, and then the message names deletions that are not there (QM-6 B9).
     # Set: ' D' (worktree deleted), 'D ' (index deleted), 'DU'/'UD' (conflicts), '.D' (any Y=D).
     param([string]$Entry)
