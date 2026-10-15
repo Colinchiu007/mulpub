@@ -82,6 +82,7 @@
 | 音频外链 | Audio direct link | podcast.episode.audioUrl |
 | 分发端目录 | Distribution endpoint catalog | podcast.endpoint |
 | 提交指引 | Submission guide | podcast.endpoint.steps |
+| 汤姆鱼 | Tomfish | tabs.brandTitle |
 
 ## 维护规则
 

@@ -23,7 +23,7 @@ const pixelTests = [
   { name: 'publish-history', route: '/publish/history', waitFor: '.mp-workspace .publish-history-page h1:has-text("发布记录")' },
   { name: 'create-editor', route: '/create', waitFor: '.cohere-main h1:has-text("视频创作")' },
   { name: 'model-providers', route: '/model-providers', waitFor: '.cohere-main .page-title:has-text("模型服务商设置")' },
-  { name: 'first-run', route: '/first-run', waitFor: '.fullscreen-main h2:has-text("欢迎使用社媒管家")' },
+  { name: 'first-run', route: '/first-run', waitFor: '.fullscreen-main h2:has-text("欢迎使用汤姆鱼")' },
   { name: 'dashboard', route: '/dashboard', waitFor: '.cohere-main .page-title:has-text("数据看板")' },
   { name: 'calendar', route: '/calendar', waitFor: '.cohere-main .page-title:has-text("发布日历")' },
   { name: 'cloud-publish', route: '/cloud-publish', waitFor: '.cohere-main .page-title:has-text("云端发布")' },

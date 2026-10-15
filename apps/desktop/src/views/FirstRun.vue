@@ -7,7 +7,7 @@
         <!-- Step 0: Welcome -->
         <div v-if="currentStep === 0" class="fr-step">
           <div class="fr-step-icon-lg"><el-icon><Promotion /></el-icon></div>
-          <h2 class="fr-step-title">欢迎使用社媒管家</h2>
+          <h2 class="fr-step-title">{{ $t('onboarding.welcome') }}</h2>
           <p class="fr-step-desc">
             三步完成配置，即可开始多平台一键发布
           </p>
@@ -133,6 +133,12 @@ import { getApi } from '@/api/electron-bridge'
 // eslint-disable-next-line no-unused-vars
 import UiInput from "../components/UiInput.vue";
 import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { useI18n } from 'vue-i18n'
+
+// 欢迎语文案走 locale 单一来源（onboarding.welcome，zh/en 成对）：
+// 曾在此处硬编码欢迎语，改名时漏改即造成「一个产品两个名字」，
+// 且硬编码中文会被 check-locale-sync --cjk 判为新增硬编码。改由 locale 承担。
+const { t: $t } = useI18n()
 // 简单通知
 const notificationMsg = ref('')
 const notificationType = ref('success')

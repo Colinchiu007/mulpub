@@ -16,7 +16,7 @@
  *   const r = new FunctionalRunner({ specName: 'home', viewport: { width: 1920, height: 1080 } });
  *   await r.launch();
  *   await r.goto('/');
- *   await r.expectText('社媒管家');
+ *   await r.expectText('汤姆鱼');
  *   await r.expectNoConsoleError();
  *   await r.close();
  */

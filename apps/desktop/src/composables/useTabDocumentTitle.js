@@ -87,7 +87,7 @@ for (const [p, target] of ROUTE_PREFIX_KEYS) {
 /**
  * 解析路由 path → 标签标题文案（纯函数，可在任意上下文调用）。
  * @param {string|null} path route.path 或 route.fullPath（query 与 hash 会被剥离）
- * @returns {string} 标题文案；未命中回退品牌名「社媒管家」
+ * @returns {string} 标题文案；未命中回退品牌名「汤姆鱼」
  */
 export function resolveRouteTabTitle (path) {
   // i18n.global.t：组件上下文外可用的全局翻译入口（本项目 legacy:false 模式）

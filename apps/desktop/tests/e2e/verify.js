@@ -7,7 +7,7 @@ const { FunctionalRunner } = require('./helpers/functional-runner');
   const r = new FunctionalRunner({ specName: 'phase0-verify' });
   await r.launch();
   await r.goto('/');
-  await r.expectText('社媒管家');
+  await r.expectText('汤姆鱼');
   await r.expectVisible('nav');
   await r.expectNoConsoleError(['vite', 'HMR']);
 

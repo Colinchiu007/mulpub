@@ -3,7 +3,7 @@
  * 从 locales/en.js 拆出，键名与拆出前完全一致；zh/en 成对维护（CI Gate 7）。
  */
 export default {
-    welcome: 'Welcome to Multi-Publish',
+    welcome: 'Welcome to Tomfish',
     step1: 'Add Accounts',
     step2: 'Publish Content',
     step3: 'Complete Setup',

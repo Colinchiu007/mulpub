@@ -207,7 +207,7 @@ async function testHomePage(page) {
   console.log("\n═══ 首页 ═══");
   await page.evaluate((r) => { window.location.hash = "#" + r; }, ROUTES.home);
   await wait(3000);
-  await assertTitle(page, "社媒");
+  await assertTitle(page, "汤姆");
   const cards = await page.evaluate((sel) => document.querySelectorAll(sel.statCard).length, SEL);
   assert(`快捷入口 5 个`, cards === 5);
   await page.screenshot({ path: path.join(SS, "v9-04-home.png") });

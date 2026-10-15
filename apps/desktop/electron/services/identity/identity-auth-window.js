@@ -122,7 +122,7 @@ class IdentityAuthWindow {
       resizable: true,
       autoHideMenuBar: true,
       backgroundColor: AUTH_WINDOW_BG,
-      title: '登录 Multi-Publish',
+      title: '登录汤姆鱼',
       webPreferences: {
         contextIsolation: true,
         nodeIntegration: false,

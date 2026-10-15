@@ -14,7 +14,7 @@ const { fillPublishBody } = require('../helpers/route-functional-suite');
 async function testHome(r) {
   console.log('\n=== Home ===');
   await r.goto('/');
-  await r.expectText('社媒管家');
+  await r.expectText('汤姆鱼');
   await r.expectVisible('nav');
   await r.expectNoConsoleError();
 

@@ -4,7 +4,7 @@
  */
 export default {
     clientStatusUnknown: '客户端状态未知',
-    brandLogoAlt: 'Multi-Publish',
+    brandLogoAlt: '汤姆鱼',
     appVersionTitle: '当前版本',
     serviceStatus: {
       allRunning: '服务运行中',
