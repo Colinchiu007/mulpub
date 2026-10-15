@@ -62,5 +62,9 @@
   "本次执行记录：worktree 删除守卫的脏判据盲区（fix-worktree-remove-dirty-gate，2026-10-15）": {
     "reason": "本 PR 开出的 docs/工具记录，合并前远程同步必然未收口；合并后由后续回填 PR 同一次提交改写为 PASS + merge SHA 并删除本登记项",
     "status": "PENDING"
+  },
+  "本次执行记录：依赖审计门禁 aliases 欠账登记 + CHANGELOG 三处描述校正（tech-debt-dep-audit-alias，2026-10-16）【docs-only】": {
+    "reason": "本 PR 开出的 docs 记录（欠账登记 + CHANGELOG 描述校正），合并前远程同步必然未收口；合并后由后续回填 PR 同一次提交改写为 PASS + merge SHA 并删除本登记项",
+    "status": "PENDING"
   }
 }
