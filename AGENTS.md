@@ -431,6 +431,19 @@ sleep 8 && kill $!
   它不在名单里，判据便打印「未命中红线」⇒ **把未知故障判成通过**。
   脚本侧同源实现见 `scripts/qm1-scheduled-publish-verify.cjs`；改一处必须同改另一处。
 
+- ⛔ **存活是三层判据的隐含前提，必须单独断言；且子进程 env 必须显式剔除 `ELECTRON_RUN_AS_NODE`（fix-qm1-electron-run-as-node，2026-10-15）**：
+  上面那三层判据只规定「stderr 内容怎么判」，它**默认「进程确实起来了」**。前提本身要单独断言 ——
+  进程提前退出时 stderr 必然为空，只看 stderr 就会把「根本没启动」读成「启动干净」⇒ **假绿**。
+  **实测形态**：`ELECTRON_RUN_AS_NODE=1` 会让**任何** Electron 可执行文件以纯 Node 模式启动并静默退出
+  （rc=0、stdout 空、stderr 空、不建窗口、不建 userData），与「启动干净」**完全同形**。
+  该变量是部分宿主/工具链为「用 Electron 二进制跑 Node 脚本」而设的，会**随 shell 继承**给被测应用。
+  三条不可破：① 启动验证**必须**断言「窗口期内仍存活」，提前退出即 FAIL（`bad('进程提前退出')`），不得只看 stderr；
+  ② `spawn(EXE, ...)` **必须显式传 `env`**，并用 `scripts/lib/qm1-child-env.js` 的 `buildChildEnv()` 剔除该变量 ——
+  不传 `env` 就继承父环境、变量再次生效（回归锁 `scripts/qm1-child-env.test.js` 含**接线锁**：改回不传 env 当场红）；
+  ③ 父环境带着它时**必须出声告警**（`envDefectNotice()`），不得静默剔除 —— 静默会让「本机环境一直有问题」永远不被知道，
+  而它同样影响手工启动验证与其它工具链。**归因方法**：拿**未含本次改动的既有构建**做 A/B，若同样 rc=0/零输出，
+  即可证伪「本次改动导致启动失败」（此法已实测有效）。
+
 - Git worktree 打包或执行真实 Electron IPC 验证前，必须运行 `node scripts/verify-worktree-deps.js` 确认 `node_modules/@multi-publish/*` 链接指向当前 worktree；禁止借用指向其他分支源码的 workspace 链接（含历史整目录 Junction）生成交付产物或测试证据。
 
 > 本文件由 Hermes `professional-ai-coding-workflow` 技能转换生成，适配通用 AI 编码工具。
