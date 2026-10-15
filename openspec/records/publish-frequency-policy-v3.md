@@ -158,3 +158,25 @@ recordPublish 自己的返回块"后才真红；
 - 我自己的新锁被自己的变异抓出一条**恒真断言**（M18 第二轮：`toContain('at')` 同时被 "platform"
   子串与相邻成员 `release(hold: { at: number; … })` 满足）；判据改为按花括号配对只切
   `recordPublish` 自己的返回块后才真红。这条记进 learnings 的同族："断言存在"≠"锁有效"。
+
+### re-sync 后的证据边界（2026-10-15 合并 origin/main 至 `2152412bd`）
+
+本 PR 打开后并发会话合入 5 条 main 提交，`CHANGELOG.md` 顶部撞车（双方都置顶新增
+`# [未发布]` 块）。按「两侧记录都保留」解，只删三行冲突标记、把我的块放在上游块之上；
+**没有**用"后推覆盖"消解冲突。无损对账（双侧 blob 剥 `\r` 后按行多重集比较）：
+main 侧 **21343 行 / 缺失 0**、本分支侧 **21334 行 / 缺失 0**、`# [未发布]` 块数
+= main 的 438 + 我的 1 = **439**（条目数是差值不变量，不写死绝对值）。
+`01-docs/learnings.md` 与 `AGENTS.md` 由 git 干净自动合并，且逐侧内容已回读确认在场
+（合并结果第 534 行是本分支那条「TaskQueue 通道调度与频控窗口归属合同」，main 仍是旧标题）。
+
+合并后重跑的现场：`packages/shared-utils` 全量 **50 文件 / 1034 passed / 10 skipped**
+（上游确实动过该包 3 个文件，所以这一跑不是重复劳动）；apps/desktop 侧按"消费者并集"
+跑 5 个文件 **5 passed**（`phase4-events` / `container.setup` / `PublishFrequencySettings`
+/ `PublishProgressPanel` / `publish-progress-events`，最后一个是上游改动面与我方显示面的交界处）。
+
+**残留边界，如实写而不当已闭合**：QM-1 的产物读数取自**合并前**的我方树。本次合并带入了
+上游对 `apps/desktop/electron/`（`bootstrap/phase1-context.js`、`services/publish-progress-events.js`、
+`services/rpa-view-session.js`、两处 preload bundle）的改动，因此现有 asar 证据对应的不是
+最终待合并的整棵树。那些主进程改动由各自 PR 的 QM-1 覆盖；本 PR 没有因合并而改动频控代码，
+所以不重打包的判断依据是"diff 面不相交"而非"打包了一次就够了"——若下一个会话要对本树出
+交付产物，仍需按 QM-1 重跑。
