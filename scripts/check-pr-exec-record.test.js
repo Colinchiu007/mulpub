@@ -735,3 +735,171 @@ test('保留名（_TEMPLATE 这类）即便等于分支名也不得算修订记�
   assert.deepStrictEqual(r.revisedRecords, [], 'RECORDS_RE 的保留名守卫必须同样作用于修订路径')
   assert.strictEqual(r.ok, false, '只改模板不得满足"本 PR 携带执行记录"')
 })
+
+// ── 2026-10-15 增：CCG 深度审查欠账（缺陷 D） ──────────────────────────
+//
+// 动因：ccg-review-decider 对 mode != skip 的改动会置
+//   deepReview: { required: true, status: "pending", performedBy: null }
+// 但没有任何环节检查它是否被执行过。而 ccg-gate.js 里 verify-quality /
+// verify-change 都是「仅告警不阻断」，于是「需要深度审查」在流程上完全静默。
+// 实测：我自己的 PR 就带着一条 pending 记录合了，直到用户问才发现。
+
+/** 造一个临时 repo，写入给定的 .ccg/reviews 记录 */
+function withReviewRecords (files) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccg-debt-'))
+  for (const [name, rec] of Object.entries(files)) {
+    const p = path.join(dir, '.ccg', 'reviews')
+    fs.mkdirSync(p, { recursive: true })
+    fs.writeFileSync(path.join(p, name), JSON.stringify(rec), 'utf8')
+  }
+  return dir
+}
+
+const SHA40 = 'a'.repeat(40)
+
+test('缺陷D：deepReview.required=true 且 status=pending ⇒ 必须报欠账', () => {
+  const repo = withReviewRecords({
+    [`${SHA40}.json`]: { mode: 'dual', deepReview: { required: true, status: 'pending', performedBy: null } },
+  })
+  try {
+    const r = mod.evaluateDeepReviewDebt(
+      st([['A', `.ccg/reviews/${SHA40}.json`]]),
+      repo
+    )
+    assert.strictEqual(r.checked, 1)
+    assert.strictEqual(r.reasons.length, 1, `应报 1 条欠账理由，实际 ${r.reasons.length}`)
+    assert.match(r.reasons[0], /深度审查欠账/, '理由必须点名是「深度审查欠账」')
+    assert.match(r.reasons[0], /deep-review\.sh/, '理由必须给出补跑命令，否则不可执行')
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('缺陷D反证：deepReview 已是闭环状态（白名单内）不得报欠账', () => {
+  // 注意用 'cleared' 而不是自造的 'done' —— 判据是**闭环白名单**，
+  // 白名单外的任何值（含看起来很像成功的 'done'）都会被判欠账。
+  const repo = withReviewRecords({
+    [`${SHA40}.json`]: { mode: 'dual', deepReview: { required: true, status: 'cleared', performedBy: 'claude' } },
+  })
+  try {
+    const r = mod.evaluateDeepReviewDebt(
+      st([['A', `.ccg/reviews/${SHA40}.json`]]),
+      repo
+    )
+    assert.strictEqual(r.checked, 1)
+    assert.deepStrictEqual(r.reasons, [], '已闭环不得报欠账')
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('缺陷D（实测形态）：self_play_pending 必须算欠账 —— 黑名单写法正是在这里漏掉的', () => {
+  // 真实事故：引擎跑完 writeBack 写的是 self_play_pending
+  // （= 自扮演裁决「5/5 条仍无 verdict」，公开承认未闭环），
+  // 而初版判据写的是 `status === 'pending'`（黑名单）⇒ 静默放行。
+  const repo = withReviewRecords({
+    [`${SHA40}.json`]: {
+      mode: 'dual',
+      deepReview: { required: true, status: 'self_play_pending', performedBy: 'self-play(pending)' },
+    },
+  })
+  try {
+    const r = mod.evaluateDeepReviewDebt(st([['M', `.ccg/reviews/${SHA40}.json`]]), repo)
+    assert.strictEqual(r.reasons.length, 1, 'self_play_pending 必须被判欠账')
+    assert.match(r.reasons[0], /self_play_pending/, '理由里必须点名真实状态，便于归因')
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('缺陷D：fail-closed —— 未知状态与缺失状态都算欠账（引擎新增状态不得自动放行）', () => {
+  const cases = [
+    { name: '未知状态', deepReview: { required: true, status: 'some_future_status' } },
+    { name: 'status 缺失', deepReview: { required: true } },
+    { name: 'status 非字符串', deepReview: { required: true, status: 42 } },
+    { name: 'engine 报错', deepReview: { required: true, status: 'error' } },
+    { name: '升级待外部复核', deepReview: { required: true, status: 'escalated' } },
+    { name: '评审不完整', deepReview: { required: true, status: 'incomplete_review' } },
+    { name: '阻断', deepReview: { required: true, status: 'blocked' } },
+  ]
+  for (const c of cases) {
+    const repo = withReviewRecords({ [`${SHA40}.json`]: { mode: 'dual', deepReview: c.deepReview } })
+    try {
+      const r = mod.evaluateDeepReviewDebt(st([['A', `.ccg/reviews/${SHA40}.json`]]), repo)
+      assert.strictEqual(r.reasons.length, 1, `${c.name} 必须被判欠账（fail-closed）`)
+    } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+  }
+})
+
+test('缺陷D：白名单本身必须是非空且只含「已出裁决」的形态（防止被改成空集=全放行）', () => {
+  const wl = mod.CLOSED_DEEP_REVIEW_STATUSES
+  assert.ok(wl instanceof Set, '必须导出 Set 供本锁核对')
+  assert.ok(wl.size > 0, '白名单为空 ⇒ 所有记录都被判欠账，等于门禁失效（方向相反但同样不可用）')
+  for (const forbidden of ['pending', 'self_play_pending', 'error']) {
+    assert.ok(!wl.has(forbidden), `未闭环状态 ${forbidden} 绝不允许出现在闭环白名单里`)
+  }
+})
+
+test('缺陷G：mode=single 不得被要求闭环「双模型深度审查」（否则形成无法闭合的循环）', () => {
+  // 引擎对 mode !== 'skip' 一律置 deepReview.required = true —— 那是「是否需要评审」，
+  // 不是「是否需要双模型深度评审」。判定器自己把两者分得很清楚：
+  //   dual   → 「要求 双模型(claude + opencode) 深度审查」
+  //   single → 「常规专家分派」（§12.6）
+  // 初版对 single 也要求闭环 ⇒ 每次提交都要跑 15 分钟双模型审查，
+  // 而写完审查结果再提交时又生出新的 single 记录 ⇒ 无法闭合。本 PR 实测撞上过。
+  const single = withReviewRecords({
+    [`${SHA40}.json`]: { mode: 'single', deepReview: { required: true, status: 'pending' } },
+  })
+  try {
+    const r = mod.evaluateDeepReviewDebt(st([['A', `.ccg/reviews/${SHA40}.json`]]), single)
+    assert.deepStrictEqual(r.reasons, [], 'single 未闭环不得判欠账')
+    assert.strictEqual(r.checked, 1, '仍须被检查到（不是跳过文件）')
+  } finally { fs.rmSync(single, { recursive: true, force: true }) }
+
+  // 反向锁：dual 未闭环必须判欠账 —— 防止「为省事把判据整个关掉」
+  const dual = withReviewRecords({
+    [`${SHA40}.json`]: { mode: 'dual', deepReview: { required: true, status: 'pending' } },
+  })
+  try {
+    const r = mod.evaluateDeepReviewDebt(st([['A', `.ccg/reviews/${SHA40}.json`]]), dual)
+    assert.strictEqual(r.reasons.length, 1, 'dual 未闭环必须判欠账（原始诉求不能被收窄掉）')
+  } finally { fs.rmSync(dual, { recursive: true, force: true }) }
+})
+
+test('缺陷D：mode=skip 的记录（required=false）不得报欠账', () => {
+  const repo = withReviewRecords({
+    [`${SHA40}.json`]: { mode: 'skip', deepReview: { required: false, status: 'pending', performedBy: null } },
+  })
+  try {
+    const r = mod.evaluateDeepReviewDebt(
+      st([['A', `.ccg/reviews/${SHA40}.json`]]),
+      repo
+    )
+    assert.strictEqual(r.checked, 1)
+    assert.deepStrictEqual(r.reasons, [], 'docs-only 快通道的 skip 不得被当成欠账')
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('缺陷D：本次变更集不涉及任何 .ccg 记录时不得报（不扫全仓历史）', () => {
+  const repo = withReviewRecords({
+    [`${SHA40}.json`]: { mode: 'dual', deepReview: { required: true, status: 'pending', performedBy: null } },
+  })
+  try {
+    // 变更集里没有 .ccg/reviews 文件 —— 那条 pending 是历史遗留，不该拦本 PR
+    const r = mod.evaluateDeepReviewDebt(
+      st([['A', 'scripts/foo.js']]),
+      repo
+    )
+    assert.strictEqual(r.checked, 0)
+    assert.deepStrictEqual(r.reasons, [], '不得扫全仓历史 pending，否则所有 PR 都会被历史遗留拦红')
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('缺陷D：损坏的 JSON 记录不抛异常（由别的门禁负责）', () => {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'ccg-debt-'))
+  const p = path.join(repo, '.ccg', 'reviews')
+  fs.mkdirSync(p, { recursive: true })
+  fs.writeFileSync(path.join(p, `${SHA40}.json`), '{ 这不是合法 JSON', 'utf8')
+  try {
+    const r = mod.evaluateDeepReviewDebt(
+      st([['A', `.ccg/reviews/${SHA40}.json`]]),
+      repo
+    )
+    assert.strictEqual(r.checked, 1, '损坏记录仍算「本次涉及」')
+    assert.deepStrictEqual(r.reasons, [], '损坏记录不重复报，交给别的门禁')
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
