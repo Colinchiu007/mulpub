@@ -56,12 +56,16 @@
 ### 3.4 降级与失败处理（必须显式，不得静默）
 | 失败点 | 处理 |
 |---|---|
-| 桥不可用 / store 未初始化 | `createTab` 抛错或返回 `null` → 降级 `window.open(url,'_blank','noopener')` → 主进程 `setWindowOpenHandler` → `openExternalUrl` 系统浏览器（＝改造前行为） |
-| `switchToTab` 抛异常 | 标签**已建成**，返回成功（不回退成 false——那会造成「应用内 + 系统浏览器」双开） |
+| 桥不可用 / store 未装 | `createTab` 抛错或返回 `null` → 降级 `window.open(url,'_blank','noopener')` → 主进程 `setWindowOpenHandler` → `openExternalUrl` 系统浏览器（＝改造前行为） |
+| `switchToTab` 抛异常 | 标签**已建成**，返回成功、**不降级**（回退成 false 会造成「应用内 + 系统浏览器」双开，比不切换更糟） |
 | `safeHttpUrl` 返回 `null` | 不接管、不降级，交给默认行为（纯文本分支既有形态） |
 
 **顺序约束**：必须先 `preventDefault()` 再尝试应用内打开。反过来会在降级路径出现
 「系统浏览器 + 应用内标签」双开。
+
+**失败不变式（CCG 评审 r1-i2/i4 后强化）**：降级在 `openInAppTab` **内部闭环**，
+不留给调用方——否则将来任何直接调用 `openInAppTab` 的代码都会「点了没反应」。
+唯一例外是「标签已建成、仅切换失败」：那不算没打开，不降级以免双开。
 
 **提示文字**：主路径不弹提示（开标签本身就是反馈）；降级路径与改造前行为完全一致，
 故不加提示，避免噪声。**未新增任何 i18n key。**
@@ -108,7 +112,7 @@ accountId 会用持久账号分区并恢复该账号凭据。发布结果目前*
 
 | 测试 | 锁什么 |
 |---|---|
-| `src/composables/useInAppLink.test.js`（14 例） | C1 修饰键/非左键不接管；C2 成功路径 createTab→switchToTab；C3 失败一律返回 false 且不抛（含非 http(s) 不建标签）；C4 handleLinkClick 的接管/降级/顺序 |
+| `src/composables/useInAppLink.test.js`（19 例） | C1 修饰键/非左键不接管；C2 成功路径 createTab→switchToTab；C3 失败一律返回 false 且不抛（含非 http(s) 不建标签）；C4 handleLinkClick 的接管/降级/顺序；**C5 失败不变式**（CCG r1-i2/i4）：`openInAppTab` 自身闭环降级，含 createTab 同步抛错、store 未装等未预期失败 |
 | `src/views/publish-article-link-inapp-wiring.test.js`（8 例） | 两处锚点形状保持、接线经组合式函数、无 `@click.prevent` |
 | `src/href-scheme-contract.test.js`（既有 16 例） | 新增 `window.open` 站点已登记；锚点规模下界与 noopener 锁不被击穿 |
 

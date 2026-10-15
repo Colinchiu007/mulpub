@@ -27,10 +27,20 @@ date: 2026-10-15
 
 ### 测试读数（当场实跑，不做换算）
 
-- `useInAppLink.test.js`：14/14 通过（TDD 红灯先行——模块不存在时报 transform 失败，实现后转绿）
+- `useInAppLink.test.js`：19/19 通过（TDD 红灯先行——模块不存在时报 transform 失败，实现后转绿；CCG 评审后补 C5 失败不变式 5 例，其中 2 例先红后绿）
 - `publish-article-link-inapp-wiring.test.js`：8/8 通过（首跑 2 红：别名导致判据过严，修正判据为「经组合式函数 + 禁 `.prevent`」后转绿）
 - `href-scheme-contract.test.js`：16/16 通过（首跑 1 红：新增 `window.open` 站点未登记——该契约按设计工作，登记后转绿）
 - `Publish.test.js`：126 通过；`PublishHistory.test.js`：83 通过；`usePublishHistoryContentLink.test.js`：8 通过
+
+### CCG 双模型外部评审（QM-6）
+
+- **执行**：跨家族校验通过（proposer=opencode / critic=claude）；claude critic 提出 4 条 findings，**0 条高危域**（无需外部复核）。
+- **裁决**（`.adversarial/ccg-deep-0b4988a7/adjudication.json`）：
+  - **r1-i2 upheld+fixed**：`await openInAppTab(safe)` 未纳 try、且 `safeHttpUrl` 也在 try 外——未预期抛错会导致「无默认、无应用内、无降级」的静默死点击，违背自身口径。修复：降级下沉到 `openInAppTab` 内部闭环。
+  - **r1-i4 upheld+fixed**：`openInAppTab` 公开导出但失败不兜底，将来直接调用者会静默失败。与 i2 同一次修复解决（失败不变式成为单一函数契约）。
+  - **r1-i1 dismissed（实证驳回）**：指控接线锁对 `PublishHistory` 锚点失明（其 href 多包一层 `publicLinkHref`）。实测：用同款正则在该锚点上逐条跑，五条断言（href/click/blank/noopener/no-prevent）**全部真实通过**——正则不要求括号后紧跟 `result.url`。
+  - **r1-i3 dismissed（实证驳回）**：指控 `.ccg/reviews/<基线sha>.json` 与深度评审产物互相矛盾。实际两者用途不同（前者是 pre-commit ccg-gate 判定器写在父 sha 上的门禁记录，后者是深度评审产物，sha 与 head 一致），changedLines 383 与 648 也是不同口径。
+- **修复过程的自曝缺陷**：C5 首版实现把 `switchToTab` 失败也扫进降级，被既有用例当场抓住（会造成双开）——已修正为「标签已建成则不降级」。
 
 ### 遗留（不假装已闭合）
 

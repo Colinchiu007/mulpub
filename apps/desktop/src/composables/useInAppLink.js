@@ -58,34 +58,42 @@ export function useInAppLink (options = {}) {
     : defaultOpenExternal
 
   /**
-   * 在应用内新标签打开（不切换语义之外的副作用）。
+   * 在应用内新标签打开；**失败一律降级外开**（绝不静默死点击）。
+   *
+   * CCG 评审 r1-i2/i4：降级必须在本函数内闭环，而不是留给调用方——
+   * 否则将来任何直接调用 `openInAppTab` 的代码都会「点了没反应」。
    * @param {unknown} url
-   * @returns {Promise<boolean>} 是否成功在应用内打开
+   * @returns {Promise<boolean>} 是否成功在应用内打开（false 表示已降级外开或拒绝打开）
    */
   async function openInAppTab (url) {
     const safe = safeHttpUrl(url)
+    // 非 http(s) 连降级都不做：不把危险协议交给系统浏览器（PRD §3.4）
     if (!safe) return false
 
     let tabId = null
     try {
       tabId = await tabStore.createTab({ url: safe })
     } catch (_e) {
-      // 桥异常（IPC 失败 / store 未初始化）：交给调用方降级，不向上抛
+      // 桥不可用 / store 未装 / createTab 同步抛错：落到下面的降级，绝不向上抛
+      tabId = null
+    }
+    if (!tabId) {
+      // 标签没建成：降级交主进程兜底，保证「调用它就会被打开」
+      openExternal(safe)
       return false
     }
-    if (!tabId) return false
-
     try {
       await tabStore.switchToTab(tabId)
     } catch (_e) {
-      // 标签已建成，仅切换失败：对用户而言「已打开」，让他自己点那个标签即可。
-      // 不在这里回退成 false —— 那会触发外开，变成「应用内 + 系统浏览器」双开。
+      // 标签**已建成**、仅切换失败：对用户而言「已打开」，让他自己点那个标签即可。
+      // 这里**不降级**——否则会变成「应用内 + 系统浏览器」双开（比不切换更糟）。
     }
     return true
   }
 
   /**
    * 锚点 click 处理器：普通左键接管为应用内打开，其余情形一律不干预。
+   * 接管路径的降级由 `openInAppTab` 内部闭环（C5 失败不变式）。
    * @param {any} event
    * @param {unknown} url
    * @returns {Promise<boolean>} 是否走了应用内打开
@@ -97,9 +105,7 @@ export function useInAppLink (options = {}) {
 
     if (typeof event.preventDefault === 'function') event.preventDefault()
 
-    const opened = await openInAppTab(safe)
-    if (!opened) openExternal(safe)
-    return opened
+    return openInAppTab(safe)
   }
 
   return { openInAppTab, handleLinkClick }

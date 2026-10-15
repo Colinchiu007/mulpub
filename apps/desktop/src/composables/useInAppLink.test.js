@@ -94,6 +94,50 @@ describe('C2/C3 openInAppTab —— 建标签并切换，失败一律返回 fals
   })
 })
 
+// CCG r1-i2/i4：失败不变式——「调用它就必须被打开」。
+// openInAppTab 公开导出，若它自己只返回 false 而不兜底，将来直接调用它的代码
+// 会静默死点击（PRD §3.4 承诺的第四类失败点：未预期抛错）。
+describe('C5 失败不变式 —— 任何失败都必须降级外开，绝不静默', () => {
+  let openExternal
+  beforeEach(() => { openExternal = vi.fn() })
+
+  it('openInAppTab：createTab 返回 null → 自己降级外开，仍返回 false', async () => {
+    h.tabs.createTab.mockResolvedValue(null)
+    const { openInAppTab } = useInAppLink({ openExternal })
+    await expect(openInAppTab(URL_OK)).resolves.toBe(false)
+    expect(openExternal).toHaveBeenCalledWith(URL_OK)
+  })
+
+  it('openInAppTab：createTab 抛异常 → 自己降级外开，不向调用方抛', async () => {
+    h.tabs.createTab.mockRejectedValue(new Error('boom'))
+    const { openInAppTab } = useInAppLink({ openExternal })
+    await expect(openInAppTab(URL_OK)).resolves.toBe(false)
+    expect(openExternal).toHaveBeenCalledWith(URL_OK)
+  })
+
+  it('openInAppTab：成功时绝不降级（不许双开）', async () => {
+    h.tabs.createTab.mockResolvedValue('btab-11')
+    h.tabs.switchToTab.mockResolvedValue(undefined)
+    const { openInAppTab } = useInAppLink({ openExternal })
+    await expect(openInAppTab(URL_OK)).resolves.toBe(true)
+    expect(openExternal).not.toHaveBeenCalled()
+  })
+
+  it('handleLinkClick：tabStore.createTab 本身同步抛错（store 未装）也走降级', async () => {
+    h.tabs.createTab.mockImplementation(() => { throw new Error('store not installed') })
+    const { handleLinkClick } = useInAppLink({ openExternal })
+    const event = { button: 0, preventDefault: vi.fn() }
+    await expect(handleLinkClick(event, URL_OK)).resolves.toBe(false)
+    expect(openExternal).toHaveBeenCalledWith(URL_OK)
+  })
+
+  it('非 http(s) 不降级（不把危险协议交给系统浏览器）', async () => {
+    const { handleLinkClick } = useInAppLink({ openExternal })
+    await expect(handleLinkClick({ button: 0, preventDefault: vi.fn() }, 'javascript:alert(1)')).resolves.toBe(false)
+    expect(openExternal).not.toHaveBeenCalled()
+  })
+})
+
 describe('C4 handleLinkClick —— 拦截语义与降级', () => {
   let openExternal
 
