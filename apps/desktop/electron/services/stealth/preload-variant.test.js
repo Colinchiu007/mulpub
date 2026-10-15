@@ -125,13 +125,24 @@ describe('RPA preload 变体选择（PRD-OSS-RPA-HARDENING §3.1）', () => {
     // 主进程三态读回依赖的 marker（start/done）
     expect(bundleSrc).toContain('__mpStealthInjStart')
     expect(bundleSrc).toContain('__mpStealthInjDone')
-    // evasions 必须已内联（evasions-bundle 特征串；preload 源文件本身不含此串）
-    expect(bundleSrc).toContain('window.outerdimensions')
+    // 2026-10-15 收敛：**不得**再内联 vendored 的任何一条 evasion 代码
+    // （真机对照见 01-docs/evidence/zhihu-stealth-mainworld-2026-10-15/）。
+    // ⚠️ 判据必须是「evasion 的 code 不在 bundle 里」，不能只查名字：源码里有一份
+    // `DISABLED_VENDORED_EVASIONS` 停用清单，它按设计**含有**这些名字字符串——
+    // 查名字会把"已停用"误判成"仍启用"（本轮实测踩过，见 20:40 的失败）。
+    const vendored = require(require('node:path').join(__dirname, 'evasions-bundle.js'))
+    for (const [name, entry] of Object.entries(vendored.evasions)) {
+      expect(bundleSrc, `vendored evasion 仍被内联: ${name}`).not.toContain(entry.code)
+    }
+    // 实测确认不一致的 4 项必须真的被打进 bundle（否则内联失败 ⇒ 运行时静默无补丁）
+    expect(bundleSrc).toContain('loadTimes')
+    expect(bundleSrc).toContain('Google Chrome')
     // 残留相对 require = sandbox 运行时必失败 → bundle=null → evasions 全跳仍标 INJ_DONE 假成功
     expect(bundleSrc).not.toMatch(/require\(["']\.\/evasions-bundle/)
+    expect(bundleSrc, '实测清单的相对 require 也必须已被内联').not.toMatch(/require\(["'][^"']*\bstealth\b["']\)/)
     // 源文件保持单一来源引用（构建期由 esbuild 内联，运行时不经 require）
     const srcPath = path.join(__dirname, 'stealth-preload-enhanced.js')
-    expect(fs.readFileSync(srcPath, 'utf8')).toContain("require('./evasions-bundle.js')")
+    expect(fs.readFileSync(srcPath, 'utf8')).toContain("require('../../stealth')")
   })
 
   it('enhanced bundle 缺失 → fail-closed 回落 baseline + warn 出声（禁静默返回不存在的路径）', () => {

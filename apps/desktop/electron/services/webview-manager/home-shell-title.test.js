@@ -71,7 +71,11 @@ describe('C3/C4：主进程 home-shell 标题上报与地址栏置空（行为�
     __registerMock('../login-network-diagnostics', { attachLoginNetworkDiagnostics: vi.fn() })
     __registerMock('../../core/js-eval-payload', { buildEvalScript: vi.fn(() => '') })
     __registerMock('./constants', { SAFE_IDENTIFIER: /^[a-zA-Z0-9_-]+$/, AUTH_TAB_ID: 'auth-tab', HOME_TAB_ID: 'home', PAGE_TARGET_BOOTSTRAP_URL: 'about:blank' })
-    __registerMock('./utils', {
+    // ⛔ 这份 utils mock 是 tab-lifecycle 顶层解构的**手工镜像**：它少一个 key，对应用例就报
+    // `xxx is not a function`（响亮、不静默，但会在 CI 分片跑满 17 分钟后才红）。
+    // 曾经漏掉 `_monitorPreloadPath`（2026-10-15 反检测改造新增）⇒ 本文件 8 条用例全红。
+    // 现由文件末尾的「utils mock 覆盖锁」从真实源码反推必需 key，漏项 1 秒内本地红。
+    const UTILS_MOCK = {
       _getUserDataDir: () => '',
       // 2026-10-11：返回值改为 { injected, blankBootstrapped }；home-shell 标签不走该路径，
       // 这里只需保持形状正确（缺项会让 tab-lifecycle 的 result.* 读取抛错）。
@@ -81,12 +85,17 @@ describe('C3/C4：主进程 home-shell 标题上报与地址栏置空（行为�
       normalizeElectronCookie: () => null,
       _homeShellUrl: () => 'http://127.0.0.1:5174/?mp-home-shell=1',
       _homeShellPreloadPath: () => '/fake/home-shell-preload.js',
+      // browse/登录/平台标签的 preload（承担主世界反检测注入）。本文件有非 home-shell 标签用例，
+      // 必须提供；形状与真实实现一致：返回一个字符串路径。
+      _monitorPreloadPath: () => '/fake/monitor-preload.bundle.js',
       _urlHasHomeShellParam: (url) => String(url).includes('mp-home-shell=1'),
       _parseHashRoute: (url) => {
         const hash = String(url).split('#')[1] || ''
         return '/' + hash.replace(/^#\/?/, '')
       },
-    })
+      _gateRestoreWithTimeout: (promise) => promise,
+    }
+    __registerMock('./utils', UTILS_MOCK)
     const lifecycle = await import('./tab-lifecycle.js')
     tabLifecycleModule = lifecycle
     const ipcHandlersModule = await import('./ipc-handlers.js')
@@ -355,5 +364,40 @@ describe('宿主 API 归属契约锁（webContents.id 是属性不是方法，�
     const handlerSrc = read('electron/services/webview-manager/ipc-handlers.js')
     expect(handlerSrc).not.toMatch(/webContents\.getId\s*\(/)
     expect(handlerSrc).toMatch(/webContents\.id === senderId/)
+  })
+})
+
+/**
+ * utils mock 覆盖锁（2026-10-15，zhihu-stealth-browse）
+ *
+ * 失效模式：本文件的 `./utils` mock 是 tab-lifecycle 顶层解构的**手工镜像**。
+ * tab-lifecycle 每新增一个从 utils 解构的函数、而镜像没跟上时，对应用例报
+ * `xxx is not a function` —— 响亮不静默，但代价是「本地只跑别的测试文件时全绿、
+ * CI 分片跑满 17 分钟后才红」（本片实测：漏 `_monitorPreloadPath` ⇒ 本文件 8 条用例全红）。
+ *
+ * 本锁从**两份源码**反推（tab-lifecycle 的解构 ↔ 本文件 UTILS_MOCK 的 key 字面量），
+ * 把发现时机从「CI 17 分钟」压到「本地 <1 秒」。
+ * ⛔ 刻意只读源码、不读运行时对象：读运行时状态会把锁变成「依赖前面的用例先跑过」的
+ * 顺序耦合，一旦有人加 `.only` 或改执行顺序，锁就静默失效——那正是它要防的那类假绿。
+ */
+describe('utils mock 覆盖锁：镜像必须覆盖 tab-lifecycle 顶层解构的全部 utils 导出', () => {
+  it('UTILS_MOCK 的 key 集合 ⊇ 源码解构出的标识符集合', () => {
+    const lifecycleSrc = read('electron/services/webview-manager/tab-lifecycle.js')
+    const m = lifecycleSrc.match(/const\s*\{([^}]*)\}\s*=\s*require\('\.\/utils'\)/)
+    expect(m, '未能从 tab-lifecycle.js 解析出 ./utils 解构 —— 判据锚点失效，必须修锁而不是删锁').toBeTruthy()
+    const required = m[1].split(',').map((s) => s.trim()).filter(Boolean)
+    // 规模下界：解析退化成空集合时，「全部覆盖」会假绿
+    expect(required.length).toBeGreaterThanOrEqual(8)
+    expect(required).toContain('_monitorPreloadPath')
+
+    // 从本文件自身源码取 UTILS_MOCK 的 key（不许用运行时对象，理由见上方注释）
+    const selfSrc = readFileSync(fileURLToPath(import.meta.url), 'utf8')
+    const block = selfSrc.match(/const UTILS_MOCK = \{([\s\S]*?)\n {4}\}/)
+    expect(block, '未能解析出 UTILS_MOCK 字面量 —— 判据锚点失效').toBeTruthy()
+    const provided = [...block[1].matchAll(/^\s*([A-Za-z_$][\w$]*)\s*:/gm)].map((x) => x[1])
+    expect(provided.length).toBeGreaterThanOrEqual(8)
+
+    const missing = required.filter((k) => !provided.includes(k))
+    expect(missing, 'utils mock 缺以下导出（补进 UTILS_MOCK 即可）：' + missing.join(', ')).toEqual([])
   })
 })

@@ -1,3 +1,17 @@
+## 「没做对照就补」本身就是缺陷来源；sandbox preload 不能 require 相对文件；测试白名单外的用例一个都不跑（zhihu-stealth-browse，2026-10-15）
+
+1. **反检测/兼容性补丁的第一性纪律：先取「真实浏览器基线」，再决定改什么。** 本轮起点是用户报「应用内点开账号浏览知乎被判网络环境异常」。我按通用风控经验列了 5 项"疑似指纹"（plugins 为空、WebGL 软渲染、outerDimensions 比例、webdriver、chrome.runtime 缺失），**同机同 GPU 用真实 Electron 43.7.7 与真实 Chrome 155 逐项对照后，其中 3 项被证伪、1 项不可比**：`navigator.plugins` 在 Electron 上**已是 5 项且名称与 Chrome 逐字相同**（PDF Viewer / Chrome PDF Viewer / Chromium PDF Viewer / Microsoft Edge PDF Viewer / WebKit built-in PDF）；WebGL vendor/renderer 同机同值；`chrome.runtime` 在**真实 Chrome 的普通网页上也是 `undefined`**；`outerWidth/Height` 侧 Chrome 无头态报 `0/0`，根本不可比。
+   **而既有代码正是按那套"经验"写的**：`stealth-preload.js` 把真实插件换成含 `Native Client` 的 3 项假列表（现代 Chrome 早已移除 Native Client）、凭空造 `chrome.runtime`、强改 `navigator.languages` 与 `clipboard-read` 权限——**通道修好后它会比不修更糟**。
+   **可操作的判据**：写任何"让应用看起来像真实浏览器"的补丁前，必须先用目标浏览器的 headless（或真机）产出同机同版本的对照表；对照表里"一致"的项要**写成反向锁禁止后人再改**（本片 `evasions.test.js` 有一整个 describe 干这件事）。没做对照就补，等于把"未知"换成一个**可被一行代码证伪的确定谎言**。
+2. **`navigator.plugins` / `webdriver` / `chrome.runtime` 这类"经典自动化特征"在 Electron 43 上已经不成立**，不要照抄 puppeteer/headless 时代的清单。真正在 Electron 上不一致的是另外 4 项：`Object.keys(window.chrome)` 是**空数组**（Chrome 为 `['loadTimes','csi','app']`）、`userAgentData.brands` 缺 `Google Chrome`、`Notification.permission` 为 `granted`（Chrome 为 `default`）、`permissions.query` 对 5 项权限**全部**返回 `granted`（Chrome 全为 `prompt`）。最后一条是**系统性**异常：「所有权限都已授予」在任何真实浏览器上都不可能对全新站点出现。
+3. **⛔ sandbox preload 无法 `require` 相对路径文件**（真机实测：`require('./probe-require-target.js')` 报 `module not found`，而**同一次** `require('electron')` 正常——所以这不是"require 不可用"，而是"相对路径解析被沙箱裁掉"）。任何想复用 Node 模块的 sandbox preload 都必须走 esbuild 单文件打包。**推论**：`build:preload` 漏跑 = 该 preload 静默降级，所以本片新增 `preload-path.test.js` 直接断言"三个 bundle 都已产出且确实内联了目标源码"，把"忘了重建"变成红。
+4. **`contextIsolation:true` 下 preload 里改 `navigator` 等于什么都没做**，但它在**代码评审里看不出来**、在**手搓夹具的单测里全绿**。唯一可靠的证伪/证实手段是"页面主世界自己读到什么"——本片 harness（`probe-main-world-injection.js`）让**页面脚本**读并回报，而不是让 preload 自证。同理，"注入成功"与"注入生效"要分开测：三态标记（无标记 / 有标记无 done / done 但缺项）分别对应"没执行""执行中途炸""部分失败"，且**读回失败必须与注入失败措辞分开**（前者只是观测不可用，误报会让人去修不存在的问题）。
+5. **vitest 的 `include` 是白名单：没登记进去的测试文件一个都不会跑，而 CI 全绿。** 本片新增 `electron/stealth/**` 与 `electron/monitor-preload.test.js` 时**先改 `vitest.config.js` 再写测试**。同族历史逃逸：`startup-compat.test.js`。**判据**：新增任何测试文件后，第一件事是跑一次并把该文件名列出来看它**确实被执行**，而不是看退出码。
+6. **夹具最容易替实现撒谎的三个坑（本轮全踩了，全部先红后修，没有靠改断言绕过）**：① 把**访问器**属性写成数据属性——源码按"`Object.getOwnPropertyDescriptor(...).get` 是不是函数"决定接不接管，夹具一写成数据属性，被测逻辑被**静默跳过**而断言照跑；② jsdom 的 UA **不含 `Chrome/<major>`**，靠 UA 推导版本的分支被静默跳过；③ 对 `Object.defineProperty(..., {value})` 造出的**不可写**属性直接赋值，抛 `Cannot assign to read only property`。**判据**：凡是"某分支按宿主形状决定是否执行"的代码，夹具必须造出**真实宿主的那种形状**，否则测试在测一个不存在的环境。
+7. **`ELECTRON_RUN_AS_NODE=1` 会让 `electron.exe` 退化成纯 Node**，症状是 `require('electron')` 返回**可执行文件路径字符串**、`app` 为 `undefined`、`process.versions.electron` 却**仍然有值**（所以看版本号会误判"Electron 在跑"）。凡在本会话环境里跑 Electron harness/打包产物，必须先 `Remove-Item Env:\ELECTRON_RUN_AS_NODE`。
+8. **QM-1 第③层（LIVE stderr 0 字节）有一个会「假通过」的测量写法**：`Start-Process -RedirectStandardError` 配 `[IO.File]::ReadAllText`，在子进程仍持有句柄时抛「文件正由另一进程使用」，而脚本里 `$ErrorActionPreference='Continue'` 把异常吞成 `$null` ⇒ `stderr_bytes` 算成 0 ⇒ **第③层被虚假满足**。正解：按 `[System.IO.FileShare]::ReadWrite` 打开后读，或让子进程自己用 `>out 2>err` 写、退出后再读。**这条与仓内已登记的同型坑是同一个**（`stock-default-write-proof` 记录过），本轮又踩了一次——说明"记录过"不足以阻止复发，必须在脚本里写死共享读。
+9. **`safe-delete.js` 依赖外部的 `mavis-trash`，本机缺失时它只能报错**（`'mavis-trash' 不是内部或外部命令`）。R0 铁律禁止绕过守卫删目录，但**单文件**临时产物的替代做法是**移出仓库**（move 不是 delete，不动 R0 的删除路径）：本轮把 3 个临时脚本/产物移到 `%TEMP%` 之外的归档目录，仓库工作区恢复干净且未触碰任何受管文件。
+10. **行尾噪音会被 `git status` 报成"已修改"而内容 diff 为 0 行**：重跑 `build:preload` 后两个既有 bundle 出现 `LF will be replaced by CRLF` 警告，`git diff --numstat` 却为空。判据是**先看 numstat 再看 status**——否则会把"重建噪音"当成真实改动写进 PR，或反过来把真实改动当成噪音还原掉。正解：`--numstat` 为 0 行且只有行尾警告时，用 `git checkout -- <精确文件>` 还原（R2 允许针对 `git status` 精确列出的文件恢复，禁止的是宽目录恢复）。
 ## 修复层级必须早于事故点；夹具会把缺陷锁成契约；以及成功判据只能是严格形状（fix-article-paragraph-zhihu-publish，2026-10-15）
 
 ### lesson:fix-must-sit-upstream-of-the-accident
@@ -19497,6 +19511,7 @@ mock 之后测试 realm 里一次 PBKDF2 都没真跑过，于是 `listAccounts(
 单账号场景（详情页 / 代理弹窗）完全合理；放进 `listAccounts()` 就变成 N 次同步 PBKDF2。
 **判据**：复用函数到批量场景前，问「这个函数为一个元素付多少 IO / 多少 CPU？N 个元素总成本多少？」
 答不上来就不许复用。**推论**：详情函数与列表函数应当是两个入口（本轮落为 `getAccountProxyStatus` 单条 vs `loadProxyStatuses` 批量并行），
+而不是同一个函数被两个不同量级的场景共享。
 而不是同一个函数被两个不同量级的场景共享。
 
 ## 放松一个数值，必须同批修掉它牵出的每一道闸门（publish-frequency-policy-v3，2026-10-15）

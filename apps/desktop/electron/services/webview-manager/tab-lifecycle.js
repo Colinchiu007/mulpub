@@ -10,7 +10,7 @@ const credentialStore = require('../credential-store')
 const { attachLoginNetworkDiagnostics } = require('../login-network-diagnostics')
 const { buildEvalScript } = require('../../core/js-eval-payload')
 const { SAFE_IDENTIFIER, AUTH_TAB_ID, PAGE_TARGET_BOOTSTRAP_URL } = require('./constants')
-const { _getUserDataDir, _injectLocalStorageAtDocumentStart, _removeBootstrapBlankHistoryEntry, _isBootstrapBlankDocument, normalizeElectronCookie, _homeShellUrl, _homeShellPreloadPath, _urlHasHomeShellParam, _parseHashRoute, _gateRestoreWithTimeout } = require('./utils')
+const { _getUserDataDir, _injectLocalStorageAtDocumentStart, _removeBootstrapBlankHistoryEntry, _isBootstrapBlankDocument, normalizeElectronCookie, _homeShellUrl, _homeShellPreloadPath, _monitorPreloadPath, _urlHasHomeShellParam, _parseHashRoute, _gateRestoreWithTimeout } = require('./utils')
 
 module.exports = {
   /**
@@ -148,9 +148,15 @@ module.exports = {
       }
     }
 
+    // 预加载脚本承担两项职责：主世界反检测注入（browse 标签）/ 内嵌主页壳守卫（homeShell 标签）。
+    // browse 标签必须用 bundle 路径——sandbox preload 无法 require 相对路径文件（真机实测），
+    // 而反检测源码在 electron/stealth/ 下需被打包内联；见 utils.js 的 _monitorPreloadPath。
+    // ⛔ preload 必须**按分支各取各的**，不得"先写一个再覆盖"：home-shell 标签用不到 monitor preload，
+    // 急切求值会①替它白跑一次存在性探测、并可能在缺 bundle 时刷出与它无关的告警；②逼得 home-shell
+    // 相关测试去 mock 一个它根本不消费的导出（home-shell-title.test.js 的 utils mock 即此形态，
+    // 漏项时表现为 8 条用例全红 `_monitorPreloadPath is not a function`）。
     var viewWebPreferences = {
       session: viewSession,
-      preload: path.join(__dirname, '..', 'monitor-preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -159,6 +165,8 @@ module.exports = {
     if (homeShell) {
       viewWebPreferences.preload = _homeShellPreloadPath()
       viewWebPreferences.additionalArguments = ['--mp-home-shell-url=' + initialUrl]
+    } else {
+      viewWebPreferences.preload = _monitorPreloadPath()
     }
     var view = new WebContentsView({ webPreferences: viewWebPreferences })
 

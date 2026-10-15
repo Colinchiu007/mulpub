@@ -1,0 +1,40 @@
+{
+  "notificationPermission": "default",
+  "chromeKeys": [
+    "loadTimes",
+    "csi",
+    "app"
+  ],
+  "pluginsLength": 5,
+  "pluginNames": [
+    "PDF Viewer",
+    "Chrome PDF Viewer",
+    "Chromium PDF Viewer",
+    "Microsoft Edge PDF Viewer",
+    "WebKit built-in PDF"
+  ],
+  "mimeTypesLength": 2,
+  "webdriver": "false",
+  "vendor": "Google Inc.",
+  "chromeRuntimeTypeof": "undefined",
+  "uaDataBrands": [
+    {
+      "brand": "Google Chrome",
+      "version": "155"
+    },
+    {
+      "brand": "Chromium",
+      "version": "155"
+    },
+    {
+      "brand": "Not(A:Brand",
+      "version": "24"
+    }
+  ],
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/155.0.0.0 Safari/537.36",
+  "notifications": "prompt",
+  "geolocation": "prompt",
+  "camera": "prompt",
+  "microphone": "prompt",
+  "clipboard-read": "prompt"
+}
