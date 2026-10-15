@@ -1,34 +1,26 @@
 """Diagnostics API — 桌面端失败诊断上报 + 运营看板汇总/样本查询。"""
-import hmac as _hmac
-
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from config import settings
 from database import get_db
-from middleware.auth import require_admin
+from middleware.auth import require_admin, require_catalog_key
 from services import diagnostics_service
 
 router = APIRouter(tags=["diagnostics"])
 
 
-def _require_catalog_key(request: Request) -> None:
-    expected = settings.catalog_api_key
-    if not expected:
-        raise HTTPException(404, "Not found")
-    provided = request.headers.get("x-catalog-key", "")
-    if not _hmac.compare_digest(provided.encode(), expected.encode()):
-        raise HTTPException(401, "目录同步 Key 无效")
-
-
 @router.post("/api/v1/diagnostics/ingest")
 async def ingest_diagnostics(
-    request: Request,
     body: dict,
     db: AsyncSession = Depends(get_db),
+    _key: None = Depends(require_catalog_key),
 ):
-    """桌面端脱敏诊断上报（X-Catalog-Key 鉴权，无需登录）。"""
-    _require_catalog_key(request)
+    """桌面端脱敏诊断上报（X-Catalog-Key 鉴权，无需登录）。
+
+    2026-10-15：鉴权由函数体内的 `_require_catalog_key(request)` 改为依赖声明
+    `Depends(require_catalog_key)`（唯一实现见 `middleware/auth.py`），
+    使 `route.dependant` 反射即可读到本端点的鉴权要求。
+    """
     try:
         return await diagnostics_service.ingest_diagnostics(db, body)
     except ValueError as e:

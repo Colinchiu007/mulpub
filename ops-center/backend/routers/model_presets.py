@@ -1,13 +1,14 @@
 """Model preset catalog API — 预设模型设置 / 多模态能力设置 / 获取模型ID。"""
 import datetime
 import json
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
 from database import get_db
 from middleware.auth import get_current_user, require_admin
 from services import model_preset_service
+from services.logto_verifier import verify_bearer_or_catalog_key
 
 router = APIRouter(prefix="/api/v1/model-presets", tags=["model-presets"])
 def _secret() -> str:
@@ -36,20 +37,24 @@ async def list_model_presets(
 
 @router.get("/catalog")
 async def get_model_preset_catalog(
-    request: Request,
     db: AsyncSession = Depends(get_db),
+    _key: None = Depends(verify_bearer_or_catalog_key),
 ):
     """模型目录只读同步端点（桌面端拉取运营配置，无需登录）。
 
-    鉴权：X-Catalog-Key 头 == OPS_CATALOG_API_KEY（常量时间比较）。
-    - 未配置 OPS_CATALOG_API_KEY → 404（不暴露端点存在性）
+    鉴权：**Bearer(Logto JWT) 优先，或 `X-Catalog-Key` == `OPS_CATALOG_API_KEY`**
+    （常量时间比较）—— 由 `services.logto_verifier.verify_bearer_or_catalog_key` 实现。
+    - Bearer 非法 → 401（不回落静态 key）
+    - 未配置 `OPS_CATALOG_API_KEY` 且无 Bearer → 404（不暴露端点存在性）
     - key 错误 → 401
-    返回 is_visible=1 的目录（限流/模型/能力，不含敏感字段）。
+
+    2026-10-15（auth-single-source）：鉴权由函数体内的内联调用改为依赖声明。
+    原 docstring 只写了「X-Catalog-Key 头 == OPS_CATALOG_API_KEY」，**漏了 Bearer 通道**，
+    与实际实现不符，已同笔修正。
     """
-    from services.logto_verifier import verify_bearer_or_catalog_key
-    await verify_bearer_or_catalog_key(request)
     items = await model_preset_service.list_catalog(db)
     return {"items": items, "count": len(items), "synced_at": datetime.datetime.utcnow().isoformat() + "Z"}
+
 
 @router.get("/{preset_id}")
 async def get_model_preset(
