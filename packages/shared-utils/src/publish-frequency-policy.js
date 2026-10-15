@@ -1,15 +1,25 @@
 /**
- * 发布频率策略 — 单一真源（v2）
+ * 发布频率策略 — 单一真源（v3）
  *
  * 三个维度：
  *   accountMinMs    —— 同一账号在同一平台两次发布的最小间隔（键 platform:accountId）
- *   platformMinMs   —— 同一平台任意两次发布的最小间隔（键 platform:*，**仅跨账号时绑定**）
+ *   platformMinMs   —— 同一平台任意两次发布的最小间隔（键 platform:*，账号档 ≥ 本档，
+ *                      故**同账号时由账号档决定、跨账号时由本档兜底**）
  *   accountDailyMax —— 同一账号在同一平台的每日提交上限（本机运营日，见 guard）
  *
- * ⚠️ 下表数值是**工程保守默认**（宁慢不险），不是平台官方规则，本工具不声称符合
- * 任何平台官方规定。依据与自认弱点见 01-docs/PRD-PUBLISH-FREQUENCY-POLICY-V2-2026-10-10.md §5。
+ * ⚠️ 下表数值是**工程保守默认**，不是平台官方规则，本工具不声称符合任何平台官方规定。
+ * 依据与自认弱点见 01-docs/PRD-PUBLISH-FREQUENCY-V3-2026-10-15.md §3–§5。
  * 平台若调整节奏，改这一处；禁止在调用方另抄一份。
  * 未登记的平台回落 BASELINE_INTERVALS（最严档），不得回落 0。
+ *
+ * v3 相对 v2 的变更（change: publish-frequency-policy-v3）：
+ *   - 账号档再下调：长文 20′→5′ / 短视频·图文社区 10′→3′ / 短内容 3′→1′
+ *   - 平台档由「统一 2′」改为**按档分级** 3′/2′/1′（长文平台的跨账号节奏也应更稳）
+ *   - 日配额取 10 倍：3/5/20 → 30/50/200（用户运营量级实测后放开，见 PRD §3）
+ *   - 连带项：**「未提交失败回滚」的每日许可数不再随日配额放大**（守卫侧封顶
+ *     MAX_ROLLBACK_PER_DAY）；以及 D1 —— 超时/中止竞态输掉时禁止回滚窗口。
+ *     这两条不是可选优化：间隔从 20′ 收到 5′/3′/1′ 后，D1 的触发窗口提前了一个量级，
+ *     而回滚许可若跟着 ×10 就等于把「防风闸」的额度写成了「配额」的函数。
  *
  * v2 相对 v1 的变更（change: publish-frequency-policy-v2）：
  *   - 数值下调：账号档 60/30/10 → 20/10/3 分钟；平台档 5/3/1 → 统一 2 分钟
@@ -39,35 +49,60 @@ const MIN_RELEASE_GRACE_MS = 10 * 1000
 const DEFAULT_EMERGENCY_MAX_PER_DAY = 1
 const MAX_EMERGENCY_MAX_PER_DAY = 10
 
-const PLATFORM_FREQUENCY_POLICY = Object.freeze({
-  // 长文低频
-  wechat_mp: Object.freeze({ tier: TIER_LONG, accountMinMs: 20 * MIN, platformMinMs: 2 * MIN, accountDailyMax: 3 }),
-  zhihu: Object.freeze({ tier: TIER_LONG, accountMinMs: 20 * MIN, platformMinMs: 2 * MIN, accountDailyMax: 3 }),
-  baijiahao: Object.freeze({ tier: TIER_LONG, accountMinMs: 20 * MIN, platformMinMs: 2 * MIN, accountDailyMax: 3 }),
-  toutiao: Object.freeze({ tier: TIER_LONG, accountMinMs: 20 * MIN, platformMinMs: 2 * MIN, accountDailyMax: 3 }),
-
+/**
+ * 三档预设 —— 数值的**唯一**落点（v3）。
+ * 平台表由本表派生，禁止再逐平台手抄数值：15 份字面量里改漏一份，
+ * 表现是"某平台莫名其妙比别人严/松"，而策略表读起来每行都对。
+ */
+const TIER_PRESETS = Object.freeze({
+  // 长文低频：一篇长文的运营代价高，节奏应最稳
+  [TIER_LONG]: Object.freeze({ accountMinMs: 5 * MIN, platformMinMs: 3 * MIN, accountDailyMax: 30 }),
   // 短视频 / 图文社区
-  douyin: Object.freeze({ tier: TIER_CLIP, accountMinMs: 10 * MIN, platformMinMs: 2 * MIN, accountDailyMax: 5 }),
-  kuaishou: Object.freeze({ tier: TIER_CLIP, accountMinMs: 10 * MIN, platformMinMs: 2 * MIN, accountDailyMax: 5 }),
-  tencent_video: Object.freeze({ tier: TIER_CLIP, accountMinMs: 10 * MIN, platformMinMs: 2 * MIN, accountDailyMax: 5 }),
-  xiaohongshu: Object.freeze({ tier: TIER_CLIP, accountMinMs: 10 * MIN, platformMinMs: 2 * MIN, accountDailyMax: 5 }),
-  bilibili: Object.freeze({ tier: TIER_CLIP, accountMinMs: 10 * MIN, platformMinMs: 2 * MIN, accountDailyMax: 5 }),
-  youtube: Object.freeze({ tier: TIER_CLIP, accountMinMs: 10 * MIN, platformMinMs: 2 * MIN, accountDailyMax: 5 }),
-  tiktok: Object.freeze({ tier: TIER_CLIP, accountMinMs: 10 * MIN, platformMinMs: 2 * MIN, accountDailyMax: 5 }),
-  instagram: Object.freeze({ tier: TIER_CLIP, accountMinMs: 10 * MIN, platformMinMs: 2 * MIN, accountDailyMax: 5 }),
-  facebook: Object.freeze({ tier: TIER_CLIP, accountMinMs: 10 * MIN, platformMinMs: 2 * MIN, accountDailyMax: 5 }),
-
+  [TIER_CLIP]: Object.freeze({ accountMinMs: 3 * MIN, platformMinMs: 2 * MIN, accountDailyMax: 50 }),
   // 短内容、高频容忍
-  weibo: Object.freeze({ tier: TIER_SHORT, accountMinMs: 3 * MIN, platformMinMs: 2 * MIN, accountDailyMax: 20 }),
-  twitter: Object.freeze({ tier: TIER_SHORT, accountMinMs: 3 * MIN, platformMinMs: 2 * MIN, accountDailyMax: 20 }),
+  [TIER_SHORT]: Object.freeze({ accountMinMs: 1 * MIN, platformMinMs: 1 * MIN, accountDailyMax: 200 }),
 })
 
-/** 未登记平台回落的最严档（独立常量：改 long 档不应静默改变回落实质） */
+/** 平台 → 档位分组（复用 v2 的三档分类器，不新增第四档） */
+const PLATFORM_TIER = Object.freeze({
+  wechat_mp: TIER_LONG,
+  zhihu: TIER_LONG,
+  baijiahao: TIER_LONG,
+  toutiao: TIER_LONG,
+
+  douyin: TIER_CLIP,
+  kuaishou: TIER_CLIP,
+  tencent_video: TIER_CLIP,
+  xiaohongshu: TIER_CLIP,
+  bilibili: TIER_CLIP,
+  youtube: TIER_CLIP,
+  tiktok: TIER_CLIP,
+  instagram: TIER_CLIP,
+  facebook: TIER_CLIP,
+
+  weibo: TIER_SHORT,
+  twitter: TIER_SHORT,
+})
+
+const PLATFORM_FREQUENCY_POLICY = Object.freeze(
+  Object.fromEntries(
+    Object.entries(PLATFORM_TIER).map(([platform, tier]) => [
+      platform,
+      Object.freeze({ tier, ...TIER_PRESETS[tier] }),
+    ])
+  )
+)
+
+/**
+ * 未登记平台回落的最严档（**独立常量，故意不从 TIER_PRESETS 派生**：
+ * 改 long 档不应静默改变回落实质——回落必须是"人为想清楚过的最严值"）。
+ * 数值随 v3 同步下调一档，但保持"不弱于任何已登记平台"。
+ */
 const BASELINE_INTERVALS = Object.freeze({
   tier: TIER_LONG,
-  accountMinMs: 20 * MIN,
-  platformMinMs: 2 * MIN,
-  accountDailyMax: 3,
+  accountMinMs: 5 * MIN,
+  platformMinMs: 3 * MIN,
+  accountDailyMax: 30,
 })
 
 const ENV_ACCOUNT_MIN_INTERVAL = 'MP_PUBLISH_MIN_INTERVAL_MS'
@@ -350,6 +385,8 @@ module.exports = {
   isKnownPlatform,
   parseEnvNumber,
   PLATFORM_FREQUENCY_POLICY,
+  TIER_PRESETS,
+  PLATFORM_TIER,
   BASELINE_INTERVALS,
   SUPPORTED_PLATFORMS,
   MAX_INTERVAL_MS,

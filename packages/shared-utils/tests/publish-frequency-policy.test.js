@@ -1,8 +1,14 @@
 /**
- * Test: publish-frequency-policy.js — 发布频率策略单一真源（v2）
+ * Test: publish-frequency-policy.js — 发布频率策略单一真源（v3）
  *
  * 覆盖：15 平台三维度全覆盖、未知平台回落最严档 + fallback 标记、数值下调、
  * 三档日配额 env、抖动比例、回滚退避、紧急放行上限、0 = 显式关闭、非法值回落并出声。
+ *
+ * v3（change: publish-frequency-policy-v3）新增的判据面：
+ *   - 账号档再下调一档（长文 20′→5′ / 短视频图文 10′→3′ / 短内容 3′→1′）
+ *   - 平台档由「统一 2′」改为**按档分级**（3′/2′/1′），并新增「档间单调」与
+ *     「platformMinMs ≤ accountMinMs 且档位差不得反向」两条形状判据
+ *   - 日配额取 10 倍（3/5/20 → 30/50/200），且**恰好** 10 倍（钉成数据表，防止"顺手改宽"）
  */
 const {
   resolveIntervals,
@@ -33,7 +39,7 @@ const {
 
 const MIN = 60 * 1000
 
-describe('publish-frequency-policy v2', () => {
+describe('publish-frequency-policy v3', () => {
   describe('平台覆盖', () => {
     it('15 个支持平台全部登记，且三个维度均为正数', () => {
       expect([...SUPPORTED_PLATFORMS].sort()).toEqual([
@@ -52,27 +58,61 @@ describe('publish-frequency-policy v2', () => {
       }
     })
 
-    it('三组代表平台逐档精确等于策略表（v2 数值）', () => {
+    it('三组代表平台逐档精确等于策略表（v3 数值）', () => {
       expect(resolveIntervals('wechat_mp', { env: {} })).toEqual({
-        tier: TIER_LONG, accountMinMs: 20 * MIN, platformMinMs: 2 * MIN, accountDailyMax: 3, fallback: false,
+        tier: TIER_LONG, accountMinMs: 5 * MIN, platformMinMs: 3 * MIN, accountDailyMax: 30, fallback: false,
       })
       expect(resolveIntervals('douyin', { env: {} })).toEqual({
-        tier: TIER_CLIP, accountMinMs: 10 * MIN, platformMinMs: 2 * MIN, accountDailyMax: 5, fallback: false,
+        tier: TIER_CLIP, accountMinMs: 3 * MIN, platformMinMs: 2 * MIN, accountDailyMax: 50, fallback: false,
       })
       expect(resolveIntervals('weibo', { env: {} })).toEqual({
-        tier: TIER_SHORT, accountMinMs: 3 * MIN, platformMinMs: 2 * MIN, accountDailyMax: 20, fallback: false,
+        tier: TIER_SHORT, accountMinMs: 1 * MIN, platformMinMs: 1 * MIN, accountDailyMax: 200, fallback: false,
       })
     })
 
-    it('数值下调已生效：账号档不再有 60/30/10 分钟', () => {
+    it('v3 账号档已再下调：全域不得超过 5 分钟（v2 的 20 分钟不得残留）', () => {
       for (const platform of SUPPORTED_PLATFORMS) {
         const { accountMinMs } = resolveIntervals(platform, { env: {} })
-        expect(accountMinMs, `${platform} 应为 v2 值`).toBeLessThanOrEqual(20 * MIN)
+        expect(accountMinMs, `${platform} 应为 v3 值`).toBeLessThanOrEqual(5 * MIN)
       }
-      // 平台档统一 2 分钟
+      // 逐档核对，防止"只改了代表平台"：整张表按 tier 收敛
+      const byTier = {}
       for (const platform of SUPPORTED_PLATFORMS) {
-        expect(resolveIntervals(platform, { env: {} }).platformMinMs, `${platform}`).toBe(2 * MIN)
+        const r = resolveIntervals(platform, { env: {} })
+        byTier[r.tier] = { account: r.accountMinMs, platform: r.platformMinMs, daily: r.accountDailyMax }
       }
+      expect(byTier).toEqual({
+        [TIER_LONG]: { account: 5 * MIN, platform: 3 * MIN, daily: 30 },
+        [TIER_CLIP]: { account: 3 * MIN, platform: 2 * MIN, daily: 50 },
+        [TIER_SHORT]: { account: 1 * MIN, platform: 1 * MIN, daily: 200 },
+      })
+    })
+
+    it('平台档不再统一 2 分钟，而是按档分级（v3 新增维度）', () => {
+      const values = new Set(SUPPORTED_PLATFORMS.map((p) => resolveIntervals(p, { env: {} }).platformMinMs))
+      expect([...values].sort((a, b) => a - b)).toEqual([1 * MIN, 2 * MIN, 3 * MIN])
+    })
+
+    it('档间单调：长文 ≥ 短视频图文 ≥ 短内容（两档都是，且不得出现反向）', () => {
+      const long = resolveIntervals('wechat_mp', { env: {} })
+      const clip = resolveIntervals('douyin', { env: {} })
+      const short = resolveIntervals('weibo', { env: {} })
+      expect(long.accountMinMs).toBeGreaterThan(clip.accountMinMs)
+      expect(clip.accountMinMs).toBeGreaterThan(short.accountMinMs)
+      expect(long.platformMinMs).toBeGreaterThanOrEqual(clip.platformMinMs)
+      expect(clip.platformMinMs).toBeGreaterThanOrEqual(short.platformMinMs)
+      expect(long.accountDailyMax).toBeLessThan(clip.accountDailyMax)
+      expect(clip.accountDailyMax).toBeLessThan(short.accountDailyMax)
+    })
+
+    it('日配额恰为 v2 的 10 倍（钉成数据表，不得"顺手改宽"到别的倍数）', () => {
+      const V2_DAILY = { [TIER_LONG]: 3, [TIER_CLIP]: 5, [TIER_SHORT]: 20 }
+      for (const platform of SUPPORTED_PLATFORMS) {
+        const r = resolveIntervals(platform, { env: {} })
+        expect(r.accountDailyMax, `${platform}=${r.tier}`).toBe(V2_DAILY[r.tier] * 10)
+      }
+      // 未登记平台的回落基线也必须同步放大，否则新平台一登记就比老平台严 10 倍
+      expect(BASELINE_INTERVALS.accountDailyMax).toBe(V2_DAILY[TIER_LONG] * 10)
     })
 
     it('未知平台回落基线最严档并带 fallback 标记（供守卫出声）', () => {
@@ -108,7 +148,7 @@ describe('publish-frequency-policy v2', () => {
       const r = resolveIntervals('douyin', { env })
       expect(r.accountMinMs).toBe(45000)
       expect(r.platformMinMs).toBe(9000)
-      expect(r.accountDailyMax).toBe(5) // 日配额不受间隔 env 影响
+      expect(r.accountDailyMax).toBe(50) // 日配额不受间隔 env 影响
     })
 
     it('0 表示该档显式关闭，且不得触发告警', () => {
@@ -116,7 +156,7 @@ describe('publish-frequency-policy v2', () => {
       const env = { [ENV_ACCOUNT_MIN_INTERVAL]: '0' }
       const r = resolveIntervals('weibo', { env, warn: (m) => warns.push(m) })
       expect(r.accountMinMs).toBe(0)
-      expect(r.platformMinMs).toBe(2 * MIN)
+      expect(r.platformMinMs).toBe(1 * MIN)
       expect(warns).toEqual([])
     })
 
@@ -125,7 +165,7 @@ describe('publish-frequency-policy v2', () => {
         const warns = []
         const env = { [ENV_ACCOUNT_MIN_INTERVAL]: bad }
         const r = resolveIntervals('douyin', { env, warn: (m) => warns.push(m) })
-        expect(r.accountMinMs, `bad=${JSON.stringify(bad)}`).toBe(10 * MIN)
+        expect(r.accountMinMs, `bad=${JSON.stringify(bad)}`).toBe(3 * MIN)
         expect(warns.length, `bad=${JSON.stringify(bad)} 必须出声`).toBe(1)
         expect(warns[0]).toContain(ENV_ACCOUNT_MIN_INTERVAL)
       }
@@ -143,7 +183,7 @@ describe('publish-frequency-policy v2', () => {
     it('空白值也回落并出声', () => {
       const warns = []
       const r = resolveIntervals('douyin', { env: { [ENV_ACCOUNT_MIN_INTERVAL]: '   ' }, warn: (m) => warns.push(m) })
-      expect(r.accountMinMs).toBe(10 * MIN)
+      expect(r.accountMinMs).toBe(3 * MIN)
       expect(warns.length).toBe(1)
     })
   })
@@ -180,7 +220,7 @@ describe('publish-frequency-policy v2', () => {
       for (const bad of ['5.5', '-2', 'abc', '']) {
         const warns = []
         const r = resolveIntervals('douyin', { env: { [ENV_DAILY_MAX_CLIP]: bad }, warn: (m) => warns.push(m) })
-        expect(r.accountDailyMax, `bad=${JSON.stringify(bad)}`).toBe(5)
+        expect(r.accountDailyMax, `bad=${JSON.stringify(bad)}`).toBe(50)
         expect(warns.length, `bad=${JSON.stringify(bad)}`).toBe(1)
       }
     })
@@ -326,7 +366,7 @@ describe('publish-frequency-policy v2', () => {
       const saved = process.env[ENV_ACCOUNT_MIN_INTERVAL]
       delete process.env[ENV_ACCOUNT_MIN_INTERVAL]
       try {
-        expect(resolveIntervals('douyin').accountMinMs).toBe(10 * MIN)
+        expect(resolveIntervals('douyin').accountMinMs).toBe(3 * MIN)
       } finally {
         if (saved !== undefined) process.env[ENV_ACCOUNT_MIN_INTERVAL] = saved
       }

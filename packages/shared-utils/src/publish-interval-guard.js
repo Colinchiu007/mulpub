@@ -1,13 +1,18 @@
 /**
- * 发布频率控制 — 间隔 + 日配额守卫（v2）
+ * 发布频率控制 — 间隔 + 日配额守卫（v3）
  *
  * 三个维度（数值由 publish-frequency-policy 单一持有，本文件不抄数值）：
  *   account  档：键 `platform:accountId`  —— 同一账号在同一平台连发
- *   platform 档：键 `platform:*`           —— 同一平台任意两次发布（**仅跨账号时绑定**：
- *                                            同账号时账号档恒 ≥ 平台档，由账号档决定）
+ *   platform 档：键 `platform:*`           —— 同一平台任意两次发布（同账号时账号档恒 ≥
+ *                                            平台档、由账号档决定；跨账号时由本档兜底）
  *   daily    档：键 `platform:accountId`   —— 同一账号在同一平台的每日提交上限（本机运营日）
  *
  * accountId 缺席时账号档与日配额跳过、平台档仍生效：「没有账号身份」不等于「没有发布行为」。
+ *
+ * v3 相对 v2 的变更（change: publish-frequency-policy-v3）：
+ *   - `release()` 的防风上限改为 `min(max(2, dailyMax), MAX_ROLLBACK_PER_DAY)`：
+ *     v3 把日配额放大 10 倍，若许可数仍只由 dailyMax 推导，「每日可回滚次数」会跟着
+ *     放大 10 倍 —— 那等于把防重试风暴的闸写成了配额的函数（方向必须是"多等"）。
  *
  * v2 相对 v1 的变更（change: publish-frequency-policy-v2）：
  *   - 新增日配额维度与 `bucket: 'daily'` / `reason` / `daily` 字段
@@ -27,6 +32,12 @@ const TIMER_SAFE_MS = TIMER_MAX_MS - 2000
 /** release 的合法原因 */
 const REASON_INTERVAL = 'interval'
 const REASON_DAILY_QUOTA = 'daily_quota'
+/**
+ * 「未提交失败回滚」的每账号每日许可数**硬顶**（v3）。
+ * 与日配额解耦：日配额回答"今天最多发几条"，本常量回答"今天最多允许几次
+ * 把已占的窗口退回去"。后者放大不等于前者放大 —— 见 `_rollbackCap`。
+ */
+const MAX_ROLLBACK_PER_DAY = 5
 
 class InMemoryStore {
   constructor () {
@@ -472,10 +483,15 @@ class PublishIntervalGuard {
     return { cleared: clearedKeys.length > 0, clearedKeys }
   }
 
-  /** 回滚上限：max(2, dailyMax)；日配额关闭（0）时给一个保守的固定上限 2 */
+  /**
+   * 回滚上限：`min( max(2, dailyMax), MAX_ROLLBACK_PER_DAY )`。
+   * 日配额关闭（0）时给一个保守的固定上限 2。
+   * 两个参数都必须存在：`max(2, …)` 保证低配额平台至少能纠错两次；
+   * `min(…, 封顶)` 保证 v3 把日配额放大 10 倍时，回滚许可不跟着放大。
+   */
   _rollbackCap (platform) {
     const { accountDailyMax } = this._intervals(platform)
-    return accountDailyMax > 0 ? Math.max(2, accountDailyMax) : 2
+    return Math.min(Math.max(2, accountDailyMax), MAX_ROLLBACK_PER_DAY)
   }
 }
 
@@ -484,6 +500,7 @@ PublishIntervalGuard.InMemoryDailyStore = InMemoryDailyStore
 PublishIntervalGuard.PLATFORM_BUCKET_ACCOUNT_ID = PLATFORM_BUCKET_ACCOUNT_ID
 PublishIntervalGuard.buildKey = buildKey
 PublishIntervalGuard.TIMER_SAFE_MS = TIMER_SAFE_MS
+PublishIntervalGuard.MAX_ROLLBACK_PER_DAY = MAX_ROLLBACK_PER_DAY
 
 module.exports = PublishIntervalGuard
 module.exports.buildKey = buildKey
@@ -491,4 +508,5 @@ module.exports.normalizeAccountId = normalizeAccountId
 module.exports.InMemoryStore = InMemoryStore
 module.exports.InMemoryDailyStore = InMemoryDailyStore
 module.exports.PLATFORM_BUCKET_ACCOUNT_ID = PLATFORM_BUCKET_ACCOUNT_ID
+module.exports.MAX_ROLLBACK_PER_DAY = MAX_ROLLBACK_PER_DAY
 module.exports.PLATFORM_BUCKET_DAILY_KEY_PREFIX = 'platform-daily'

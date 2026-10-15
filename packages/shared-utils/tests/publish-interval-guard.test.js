@@ -1,11 +1,13 @@
 /**
- * Test: publish-interval-guard.js — 发布频率控制（v2）
+ * Test: publish-interval-guard.js — 发布频率控制（v3）
  *
  * 覆盖：两档间隔、日配额、抖动、release 回滚（乐观并发 / prev 缺失 / 防风上限）、
  * key 构造、未登记平台出声、跨日边界、计数读回容错、可插拔存储。
  *
  * ⚠️ v2 起守卫**默认开启抖动**（ratio=0.4，保守方向：宁多等不少等），
  *    断言精确 remainingMs 的用例必须显式传 `jitterRatio: 0`。
+ * ⚠️ v3 起「每账号每日回滚次数」的上限取 `max(2, dailyMax)` 与独立封顶
+ *    `MAX_ROLLBACK_PER_DAY` 的**较小值**：日配额被放大时，回滚许可不得跟着放大。
  */
 
 const PublishIntervalGuard = require('../src/publish-interval-guard')
@@ -480,6 +482,29 @@ describe('PublishIntervalGuard v2', () => {
       expect(r.reason).toBe('rollback_cap')
       expect(warns.some(m => m.includes('回滚已达上限'))).toBe(true)
       expect(guard.check('douyin', 'acc_1').allowed).toBe(false)
+    })
+
+    test('防风上限有硬顶：日配额被放大（v3 的 ×10）不得把回滚许可一起放大', () => {
+      // 耦合点：v3 把 accountDailyMax 取成 v2 的 10 倍（short 档 20→200）。
+      // 若上限仍按 max(2, dailyMax) 单点推导，短内容档的"每日可回滚次数"会跟着变成 200，
+      // 防风闸形同撤销——方向必须是"多等"，所以封顶取独立常量。
+      const warns = []
+      const { guard } = makeReleaseGuard({
+        policy: () => ({ accountMinMs: 60 * 1000, platformMinMs: 60 * 1000, accountDailyMax: 200 }),
+        warn: (m) => warns.push(m),
+      })
+      for (let i = 0; i < 5; i++) {
+        const hold = guard.recordPublish('weibo', 'acc_1')
+        expect(guard.release('weibo', 'acc_1', hold).released, `第 ${i + 1} 次`)
+          .toBe(true)
+      }
+      const hold6 = guard.recordPublish('weibo', 'acc_1')
+      expect(guard.release('weibo', 'acc_1', hold6)).toEqual({ released: false, reason: 'rollback_cap' })
+      expect(warns.some(m => m.includes('回滚已达上限'))).toBe(true)
+      // 真表读数必须**大于**封顶，否则这条锁测的是"封顶从不生效"的死支路
+      const realDaily = require('../src/publish-frequency-policy').resolveIntervals('weibo', { env: {} })
+      expect(realDaily.accountDailyMax)
+        .toBeGreaterThan(PublishIntervalGuard.MAX_ROLLBACK_PER_DAY)
     })
 
     test('平台键独立判定：账号键已被覆盖但平台键仍是本次 ⇒ 仍释放平台键', () => {

@@ -149,12 +149,12 @@ describe('Container setup', () => {
     try {
       var guard = createContainer().get('publishIntervalGuard');
 
-      // v2 数值：weibo 属短内容高频容忍档；未登记平台回落最严基线
+      // v3 数值：weibo 属短内容高频容忍档；未登记平台回落最严基线
       expect(guard._intervals('weibo')).toEqual({
-        accountMinMs: 3 * 60 * 1000, platformMinMs: 2 * 60 * 1000, accountDailyMax: 20,
+        accountMinMs: 1 * 60 * 1000, platformMinMs: 1 * 60 * 1000, accountDailyMax: 200,
       });
       expect(guard._intervals('wechat_mp')).toEqual({
-        accountMinMs: 20 * 60 * 1000, platformMinMs: 2 * 60 * 1000, accountDailyMax: 3,
+        accountMinMs: 5 * 60 * 1000, platformMinMs: 3 * 60 * 1000, accountDailyMax: 30,
       });
       var unknown = guard._intervals('not_a_registered_platform');
       expect(unknown.accountMinMs).toBeGreaterThanOrEqual(guard._intervals('weibo').accountMinMs);
