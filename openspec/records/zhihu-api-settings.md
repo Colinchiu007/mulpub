@@ -79,9 +79,20 @@ sync_backfill_owner: zhihu-api-settings 会话（回填 PR）
 
 **claude 明确核对过的非问题**（原文摘要）：密文不回渲染端；safeStorage 不可用时拒绝保存不降级明文；「已保存但读不出」态可区分；旧版明文写入路径已彻底移除（全仓仅剩测试与注释）；采集与设置共用同一真源、无双真源；写后读回校验能拦住静默丢弃。
 
-**opencode 侧**：在本次给予的时间内**未收敛**到最终发现列表（其模型为 `mimo-v2.6-flash-free`，长时间停在探索阶段，输出是计划/状态而非裁决）。**不记成「通过」**：本 PR 的双模型覆盖实际是「claude 收敛 + opencode 未收敛」，已登记为遗留项。
+**opencode 侧（**更正**：先前记为「未收敛」有误）**：它在本轮最终输出了完整裁决 —— **1 MAJOR + 3 MINOR**，并在只读边界内实跑了受影响的 4 个测试文件（71/71 passed，佐证修复层自洽）：
 
-**修复后的验证**：受影响 4 个 electron 测试文件 **69 绿**（credential 20→24、settings 14→15）；渲染端 4 文件 **45 绿**；ESLint（CI 同口径 `--quiet`）**rc=0**；locale keys 2049 PASS、CJK 无新增；tokens/store/overlay 34 绿。
+| # | 级别 | 位置 | 问题 | 处置 |
+|---|------|------|------|------|
+| 6 | MAJOR | `zhihu-credential.js` `clearConfig` | **无写后读回**，违反模块头契约：存储静默 no-op 时「点清除 → 界面说成功 → 密钥还在」 | **已修**：清除后读回校验（与 `saveConfig` 同口径）；新增回归锁（no-op store 下必须 `ok:false`，含「清除未生效」文案） |
+| 7 | MINOR | 采集页 badge/hint | 与 claude #2 同一条（读取被拒被吞成未配置） | 已在上一提交修复（第四态「暂不可读」） |
+| 8 | MINOR | `zhihu-settings.js` `test-connection` | `markVerified` 返回值被丢弃 ⇒ 「最近验证」永不更新却查不到原因 | **已修**：响应新增 `data.verifiedRecorded`（连通性仍判成功，但不谎称已落库）；新增回归锁（只有兼容档、无配置行时 `verifiedRecorded=false`） |
+| 9 | MINOR | `zhihu-credential.js` `saveConfig` | 读回只验「非空字符串」，未做**解密回环** ⇒ 密文被写坏也算成功 | **已修**：读回后 `_decryptCipher(...) === checked.value` 才算成功；新增回归锁（截断密文的 store 必须 fail closed） |
+
+它同时溯源了一条 `collected-rewrites` 未在 `defineEmits` 声明的 Vue warn，并确认**主干既有**（非本 PR 引入），不计入发现。
+
+**两模型合计**：claude 5 条（2 MAJOR + 3 MINOR）+ opencode 4 条（1 MAJOR + 3 MINOR，其中 1 条与 claude 重叠）⇒ 去重后 **8 条：3 MAJOR + 5 MINOR，已修 7 条、如实登记 1 条**（claude #5：身份模式切换）。
+
+**修复后的验证**：受影响 electron 测试文件 credential **26 绿**（20→26）、settings **16 绿**（14→16）；渲染端 4 文件 45 绿；ESLint（CI 同口径 `--quiet`）rc=0；locale keys 2049 PASS、CJK 无新增；tokens/store/overlay 34 绿。
 
 ### 深度审查欠账（`.ccg/reviews`）闭环说明
 
@@ -96,4 +107,4 @@ sync_backfill_owner: zhihu-api-settings 会话（回填 PR）
 5. **XSS 面未收窄**：渲染端仍可调用 `zhihu:test-connection`（明文不回程，但可触发一次出站）。
 6. **`FeishuSettingsTab.vue` 仍有硬编码色值**（`#67c23a`/`#d32f2f`/`#f0f9eb`/`#fff3f3`，暗色模式下观感不佳）。本次未动它（超出本任务范围，且 `collection-tokens.test.js` 的扫描域不含 `components/`），登记为同族改进项。
 7. **身份模式切换会让配置「看上去丢了」**（QM-6 评审 MINOR #5，未修）：未登录档把配置写进**设备级无前缀**行，之后登录则 scoped 读为空（且兼容档若已销账便无回退）⇒ 采集链显示未配置。正解是读路径增加「设备级配置行回退读 + 一次性迁移」，与 MAJOR #1 属同一片地盘，留作独立小改（本片不夹带）。
-8. **双模型评审的 opencode 侧未收敛**：本次实际拿到的是「claude 收敛 + opencode 未收敛」，不是完整双家族交叉验证；若第 7 条要动读路径，建议同时补一次完整双模型评审。
+8. **身份模式切换会让配置「看上去丢了」**（QM-6 评审 MINOR #5，未修）：未登录档把配置写进**设备级无前缀**行，之后登录则 scoped 读为空（且兼容档若已销账便无回退）⇒ 采集链显示未配置。正解是读路径增加「设备级配置行回退读 + 一次性迁移」，与 MAJOR #1 属同一片地盘，留作独立小改（本片不夹带）。

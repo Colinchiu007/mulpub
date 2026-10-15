@@ -194,6 +194,25 @@ describe('zhihu-settings IPC handlers / test-connection', () => {
     const cfg = await ipcMain._call('zhihu:get-config')
     expect(cfg.data.verifiedAt).toBeTruthy()
     expect(cfg.data.favlistCount).toBe(2)
+    expect(r.data.verifiedRecorded).toBe(true)
+  })
+
+  it('凭据来自兼容档（没有自己的配置行）→ 测试成功但如实上报「验证结果未落库」', async () => {
+    // QM-6 opencode 侧 MINOR：markVerified 的返回值原先被丢弃 ⇒ 用户看到「最近验证」永不更新
+    // 却查不到原因。这里连通性确实通过（code=0），但 verifiedAt 落不下去，必须带标记回去。
+    const store = createMockStore()
+    const service = createFakeService()
+    crypto.setSafeStorage(createMockSafeStorage())
+    store.setSetting('zhihu_access_secret', SECRET) // 只有兼容档，没有 user 行
+    const { ipcMain } = setup({ store, service })
+
+    const r = await ipcMain._call('zhihu:test-connection')
+    expect(r.code).toBe(0)
+    expect(r.data.ok).toBe(true)
+    expect(r.data.verifiedRecorded).toBe(false)
+
+    const cfg = await ipcMain._call('zhihu:get-config')
+    expect(cfg.data.verifiedAt).toBeNull()
   })
 
   it('已存配置 + 传入**不同的**新值测试 → 不得污染已存配置的验证证据', async () => {

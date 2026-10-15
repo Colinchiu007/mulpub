@@ -96,8 +96,15 @@ function registerHandlers (ipcMain, deps) {
         }
       }
       const favlistCount = Number.isFinite(r.favlistCount) ? Number(r.favlistCount) : 0
-      if (!explicit) credential.markVerified(store, { favlistCount })
-      return { code: 0, data: { ok: true, favlistCount } }
+      // markVerified 写的是用户域行：身份不可解析时它是 no-op。**连通性本身已经通过**，
+      // 所以不把整次测试判失败，但也不能静默——把「验证结果没落库」如实带回去，
+      // 免得用户看到「最近验证」永远不更新却查不到原因（QM-6 opencode 侧 MINOR）。
+      let verifiedRecorded = true
+      if (!explicit) {
+        const marked = credential.markVerified(store, { favlistCount })
+        verifiedRecorded = !!(marked && marked.ok)
+      }
+      return { code: 0, data: { ok: true, favlistCount, verifiedRecorded } }
     } catch (e) {
       return { code: ERROR.REQUEST_ERROR, message: _msg(e), data: { ok: false } }
     }

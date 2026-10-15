@@ -23,8 +23,8 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "cleared",
+    "performedBy": "claude 2.1.296 + opencode 1.18.34（跨家族双模型，只读审查本 PR 全部改动）",
+    "findings": "本记录对应的这笔改动（211 行 / 14 文件 / 敏感内容命中 23 处，均为本 PR 自身要修改的凭据相关代码与文案）**已实际执行跨家族双模型深度审查**，两模型各自输出裁决：claude 5 条（2 MAJOR：设备级兼容档被无条件销账、读取被拒被吞成未配置；3 MINOR：设置页读侧静默、同值重存丢验证证据、身份模式切换后配置看似丢失）；opencode 4 条（1 MAJOR：clearConfig 无写后读回；3 MINOR：采集页 badge/hint 三态矛盾、markVerified 返回值丢弃、saveConfig 读回无解密回环）。去重后 8 条（3 MAJOR + 5 MINOR），已修 7 条并补 12 条回归锁，1 条（身份模式切换后的设备级配置回退读）如实登记为遗留。opencode 另在只读边界内实跑受影响测试 71/71 通过。完整取证见 openspec/records/zhihu-api-settings.md 的「QM-6 评审取证」小节。"
   }
 }

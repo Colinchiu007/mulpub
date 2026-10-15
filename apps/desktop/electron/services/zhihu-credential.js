@@ -243,11 +243,15 @@ function saveConfig (store, secret, opts) {
     return { ok: false, error: '保存失败：' + (e && e.message ? e.message : String(e)) }
   }
 
-  // 读回校验：写入被静默丢弃（身份不可解析 / 存储未就绪）时必须出声，不能报成功
+  // 读回校验：写入被静默丢弃（身份不可解析 / 存储未就绪）时必须出声，不能报成功。
+  // 两层：① 行在不在；② **解回来是不是同一把**——存储把密文写坏时 ① 会放行（QM-6 opencode 侧 MINOR）
   try {
     const back = store.getUserSetting(CONFIG_KEY, null)
     if (!back || typeof back !== 'object' || typeof back.accessSecret !== 'string' || !back.accessSecret) {
       return { ok: false, error: '配置写入未生效（用户设置存储不可用）' }
+    }
+    if (_decryptCipher(back.accessSecret, cryptoMod) !== checked.value) {
+      return { ok: false, error: '配置写入未生效（读回内容与保存值不一致）' }
     }
   } catch (e) {
     return { ok: false, error: '配置写入未生效（用户设置存储不可用）' }
@@ -302,6 +306,13 @@ function clearConfig (store) {
     if (_hasUserScope(store)) store.setUserSetting(CONFIG_KEY, null)
     if (!hasOwnConfig && typeof store.setSetting === 'function') {
       store.setSetting(LEGACY_KEY, null)
+    }
+    // 写后读回：与 saveConfig 同一口径 —— 存储静默 no-op（身份不可解析 / 未就绪）时
+    // 不得谎报「已清除」。少了这条，用户点完清除、界面说成功、实际上密钥还在
+    // （QM-6 opencode 侧 MAJOR；模块头契约也要求读写两侧都校验）。
+    const after = _readRow(store)
+    if (after && typeof after.accessSecret === 'string' && after.accessSecret) {
+      return { ok: false, error: '配置清除未生效（用户设置存储不可用）' }
     }
     return { ok: true }
   } catch (e) {

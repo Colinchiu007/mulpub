@@ -289,6 +289,34 @@ describe('zhihu-credential / markVerified 与 clearConfig', () => {
     expect(r.ok).toBe(true)
     expect(credential.resolveSecret(store, { crypto: cryptoMod })).toEqual({ secret: '', source: 'none' })
   })
+
+  it('clearConfig 写后读回：存储静默丢弃时不得谎报「已清除」', () => {
+    // QM-6 opencode 侧 MAJOR：saveConfig 有读回校验而 clearConfig 没有 ⇒ 点清除、
+    // 界面说成功、密钥其实还在。判据必须与 saveConfig 同口径（模块头契约）。
+    const store = createFakeStore({ failUserWrite: true })
+    store._user()[credential.CONFIG_KEY] = { accessSecret: 'stale-cipher', enabled: true }
+    const r = credential.clearConfig(store)
+    expect(r.ok).toBe(false)
+    expect(r.error).toMatch(/清除未生效/)
+  })
+})
+
+describe('zhihu-credential / saveConfig 读回解密回环（QM-6 opencode 侧 MINOR）', () => {
+  it('密文被写坏（截断）时必须 fail closed，而不是「有非空字符串就算成功」', () => {
+    const cryptoMod = createFakeCrypto()
+    const store = createFakeStore()
+    const original = store.setUserSetting
+    store.setUserSetting = (k, v) => {
+      if (v && typeof v === 'object' && 'accessSecret' in v) {
+        original(k, { ...v, accessSecret: String(v.accessSecret).slice(0, 2) })
+      } else {
+        original(k, v)
+      }
+    }
+    const r = credential.saveConfig(store, SECRET, { crypto: cryptoMod })
+    expect(r.ok).toBe(false)
+    expect(r.error).toMatch(/读回内容|未生效/)
+  })
 })
 
 describe('zhihu-credential / fail-safe', () => {
