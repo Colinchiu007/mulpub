@@ -78,6 +78,7 @@
 - [x] 11.4 contextId 双键缓存 + did-navigate 清理重建 + top-frame 范围声明（iframe 内选择器 warn+回落）+ execute 前探活重建（后端 F2）—— **勘误**：双键第二键 `loaderId`（同 4.1）；iframe 回落走 `_isoEval` catch warn
 - [x] 11.5 captcha 未知相位 fallback 渲染（禁透传 code 原值）+ 单测断言 `PHASE_ENUM ⊆ emitter` 且 `TERMINAL_PHASES` 派生自 PHASE_ENUM（前端 FE2）
 - [x] 11.6 capture 状态机入 PRD 但 UI 留 PR-2：PR-1 只入枚举+fallback+同步单测（前端 FE2 范围裁定）—— PRD §3.5 链路状态机 + commit `cba20c74f` 双侧同步
+- [x] 11.17 债务熔断门禁越线修复（debt-guard）：`rpa-view-helpers.js` 648 行 >= 500，根因是 origin/main 已 498 行**贴线**（非超一点），B1 行为层 +149 行即越线 → 按门禁指示「按既有 mixin/composable 范式拆分」，整层下沉 `apps/desktop/electron/services/stealth/rpa-behavior-mixin.js`（220 行：`_isoEval`/`_behaviorClick`/`_probeClickState`/`_behaviorFill`/`_clickViaCdp` + `_fillViaDriver`/`_clickViaDriver` 取值通道 + 驱动开关与阈值常量），helpers 经 `...behaviorMixin` 合入（this 不变、行为不变）只留「委托 + 读回判据」，648 → **481 行**。结构锁 3 把随实现迁移同 PR 同步（`rpa-view-helpers.test.js` 的 `_click`/`_fillInput`/`_probeClickState`；`rpa-view-platforms.test.js` 的 TEXTAREA 原型选择），并在 `_fillInput` 锁加**反向锚点**（helpers 侧必须仍持 `readBack` + `fill not applied`）防「把判据也拆走」。取证纪律：checker 的 rc 不得经管道取（`Select-Object` 会吃掉真 rc）。判据：eslint rc=0 ｜ check-max-lines rc=0 ｜ 消费者并集 12 文件 165 例全绿 ｜ 行尾两口径 numstat 一致
 
 ### PR-2 追加
 - [ ] 11.7 camofox hash 信任链：官方签名优先 + GitHub Releases API 与 npm 锁文件两路独立交叉取 hash，不一致拒落地；manifest 注明「复检防磁盘篡改、不防首次下载污染」（后端 F4）

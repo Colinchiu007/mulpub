@@ -60,6 +60,10 @@ verify-security 对 `rpa-view-helpers.js` 报 5 high（L104/107/140/145/219，XS
 | b3b7214a4 | `_acquireWindow` 传 platform + stealth-preload 头注修正 | 3.1 / 3.2 |
 | 6aa754288 | isolated-world 求值模块（`isolated-world.js`：双键缓存 frameId+loaderId、stale 失效、probe 探活、context-gone 重建）+ binding allowlist 空表守卫 | 4.1–4.3 / 11.3 / 11.4 |
 | 53a3a71df | `_click`/`_fillInput` 接线（`resolveRpaDriver`→`_behaviorClick`→`_isoEval`→`_probeClickState` 主世界豁免；fill 1..40 字符限长+读回校验） | 4.4 / 5.x / Step D |
+| 475bd7699 | QM-6 双轴评审收口：后端 5 findings 处置（enhanced preload 路径 fail-closed 回落 + esbuild 内联 `stealth-preload-enhanced.bundle.js` + `withDebugger` owned 模式）；前端轴 3 次失败按协议跳过 | QM-6 |
+| 8a7a63b1d | evasions 快照哈希 EOL 归一化（修 Windows checkout 平台性假红） | 11.1 |
+| d46a7e049 | 消除 `_resolvePreloadPath` 两条 `no-useless-assignment`（Gate 11 预检） | QM-6 |
+| e44babb3d | **债务熔断门禁越线修复**：B1 行为层整层下沉 `stealth/rpa-behavior-mixin.js`（220 行），`rpa-view-helpers.js` 648 → **481 行**只留委托+读回判据；结构锁 3 把随实现迁移同 PR 同步 | 11.17 |
 
 ### spike 实证要点（F2，两轮）
 
@@ -73,4 +77,4 @@ verify-security 对 `rpa-view-helpers.js` 报 5 high（L104/107/140/145/219，XS
 
 - captcha 兜底三出口（超时/取消/放弃）与 sidecar 四件套归 PR-2（F3+F4），本 PR 只落相位接线与设计决策
 - PRD 跟踪项 1（灰度 n≥15 方差校验）、3（evasion hash 首批取证）——阈值已在 design.md 风险表量化
-- debugger 通道不实现（F1-c 选型决策，helpers 既有 `_clickViaCdp` 为 2026-10-01 旧代码非本 PR 引入）
+- debugger 通道不实现（F1-c 选型决策）；`_clickViaCdp` 为 2026-10-01 旧代码、非本 PR 引入，**11.17 拆分之际已随行为层整层归位到 `stealth/rpa-behavior-mixin.js`**（此前它以「旧代码与本 PR 新代码混居同一文件」的形态存在，既掩盖了本 PR 的真实改动面，也是 648 行越线的组成部分；现按 mixin 范式与行为层收敛到一处）
