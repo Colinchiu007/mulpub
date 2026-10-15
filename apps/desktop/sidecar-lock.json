@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "_doc": "B1 PR-2 sidecar 构件锁（tasks 6.3）。与 apps/desktop/media-tools-lock.json 同级、同构。命名说明：PRD/tasks 里写作 speech-sidecar-lock.json，本文件实际承载 F3 camoufox + F4 ddddocr + 预留给 B2 STT/clone，故按内容命名 sidecar-lock.json。",
+  "_trustModel": "design.md D4 + PRD §3.4 三层：① 官方带签名渠道优先验签 ② npm registry 与 GitHub Releases API 两路独立交叉（本文件 sources 段记录两路的实际取值）③ manifest 明示：spawn 前复检只防磁盘篡改、不防首次下载污染。",
+  "_pendingPolicy": "status=pending 的组件不得被 sidecar-host 启动（sidecar-lock.js 校验器 fail-closed）。留洞比留假 hash 安全——假 hash 会给出虚假的安全保证。",
+  "sources": {
+    "camoufoxNpm": {
+      "registry": "https://registry.npmjs.org",
+      "package": "@askjo/camofox-browser",
+      "version": "1.18.1",
+      "tarball": "https://registry.npmjs.org/@askjo/camofox-browser/-/camofox-browser-1.18.1.tgz",
+      "shasum": "8d3505035b0debcd5d306f630cf63f5208c0ef42",
+      "integrity": "sha512-JLxRXtsCnAyaewFf/jWteZUJLW0x4m+WhZNNRa7iVOWa21R/7/GHH7x6g83DPi7fJ4aIGeq9+RZlHduGiOMOAg==",
+      "unpackedSize": 576493,
+      "fetchedAt": "2026-10-15",
+      "_note": "unpackedSize 仅 576KB = MIT wrapper 本身；~200-500MB 的 camoufox bundle 由 postinstall 另从 GitHub Releases 拉（见 camoufoxRelease）。"
+    },
+    "camoufoxRelease": {
+      "api": "https://api.github.com/repos/daijro/camoufox/releases/tags/v152.0.4-beta.30",
+      "repo": "daijro/camoufox",
+      "tag": "v152.0.4-beta.30",
+      "publishedAt": "2026-09-01T01:09:00Z",
+      "draft": false,
+      "prerelease": false,
+      "fetchedAt": "2026-10-15"
+    }
+  },
+  "components": {
+    "camoufox": {
+      "status": "pinned",
+      "license": "MPL-2.0",
+      "_licenseNote": "MPL 未自分发场景我方非分发者，自托管分发才会触发源码提供义务（PRD §3.4）。",
+      "npm": {
+        "package": "@askjo/camofox-browser",
+        "version": "1.18.1",
+        "shasum": "8d3505035b0debcd5d306f630cf63f5208c0ef42",
+        "integrity": "sha512-JLxRXtsCnAyaewFf/jWteZUJLW0x4m+WhZNNRa7iVOWa21R/7/GHH7x6g83DPi7fJ4aIGeq9+RZlHduGiOMOAg=="
+      },
+      "bundledRelease": "152.0.4-beta.30",
+      "_bundledReleaseNote": "取自 @askjo/camofox-browser@1.18.1 的 lib/camoufox-download.js 导出常量 BUNDLED_CAMOUFOX_RELEASE；其 postinstall 的 checkAsset 只匹配资源名前缀 camoufox-<release>-，不做任何 sha256 校验，且下载失败走 process.exit(0)（安装照样成功）——故首次下载无 hash 保障，只有 spawn 前复检（PRD §3.4 ③ 已明示此边界）。",
+      "assets": {
+        "win32-x64": {
+          "asset": "camoufox-152.0.4-beta.30-win.x86_64.zip",
+          "size": 493141328,
+          "sha256": "ea52a02fb1cfb1813ef6a326bea03fb2b650c9774143d953a94a27bfc8f10072"
+        },
+        "win32-ia32": {
+          "asset": "camoufox-152.0.4-beta.30-win.i686.zip",
+          "size": 478731993,
+          "sha256": "01bd3383af3707f7f44f39f91f060a40e0d5909146ec6fdb439687bf4d4e4fac"
+        },
+        "linux-x64": {
+          "asset": "camoufox-152.0.4-beta.30-lin.x86_64.zip",
+          "size": 663467670,
+          "sha256": "5720d45b894ce1770543de024c6f10d514b38be560fa2dc3226b3d8586caf672"
+        },
+        "linux-arm64": {
+          "asset": "camoufox-152.0.4-beta.30-lin.arm64.zip",
+          "size": 653870625,
+          "sha256": "60447260af8bebdb0ec3f2aa72f687b879e5598367303de2e3fdbc7a5be8c124"
+        },
+        "darwin-x64": {
+          "asset": "camoufox-152.0.4-beta.30-mac.x86_64.zip",
+          "size": 319886717,
+          "sha256": "f12f90a3650478e670064a2f071c13b998fdd1125f79dc9f6cad5a9b9395b4bc"
+        },
+        "darwin-arm64": {
+          "asset": "camoufox-152.0.4-beta.30-mac.arm64.zip",
+          "size": 312665777,
+          "sha256": "3b43e766574f286a6a63296cf58b660b7a3120952086c869b4df4c9a71604bc3"
+        }
+      },
+      "listen": { "host": "127.0.0.1" }
+    },
+    "ddddocr": {
+      "status": "pending",
+      "license": "MIT",
+      "_pendingReason": "尚未取证：需 pip requirements 钉版本 + 4 个 onnx 权重（common.onnx / common_det.onnx / common_old.onnx 逐件）的 sha256 与许可结论。取到之前不得启动该 sidecar。",
+      "assets": {}
+    }
+  }
+}
