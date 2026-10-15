@@ -217,10 +217,10 @@ class OpsCenterSync {
     const auto = this._getAutoContext()
     const u = resolveSyncUrls({ storedUrl: cfg.url, autoUrl: auto ? auto.url : '', autoAvailable: !!auto })
     return {
-      // 三口径显式分开：manualUrl 是判「手动态」的唯一依据；url 是同值历史别名（@deprecated）
+      // 三口径显式分开：manualUrl 判「手动态」，effectiveUrl 是实际请求地址。历史混装别名 url
+      // 已于 2026-10-15 移除（携带它的 ops-center-sync:get IPC 渲染端零调用，表单自 #3543 撤下）。
       manualUrl: u.manualUrl,
       effectiveUrl: u.effectiveUrl,
-      url: u.effectiveUrl,
       apiKeyConfigured: !!(cfg.apiKeyEnc),
       autoSync: cfg.autoSync !== false,
       lastSyncedAt: cfg.lastSyncedAt || '',

@@ -27,6 +27,19 @@
 2. **F2 真实命令名**：`Page.createIsolatedWorld({frameId})` → `Runtime.evaluate({contextId})`；研究文档中的 `Runtime.evaluateInWorld` 写法以此为准更正
 3. **存量缺陷记录**：`stealth-preload.js` 头注错误声明 + patch 实际无效，随 B1 PR-1 同 PR 修正
 
+## 实现期补测（Round 2，2026-10-15）— tasks 4.1/11.4 勘误依据
+
+实现 `services/stealth/isolated-world.js` 过程中的实测修正，**以本节为准，覆盖 tasks.md 4.1/11.4 与 PRD §3.3 中的对应表述**：
+
+| # | 探测项 | 实测结果 | 对任务文本的勘误 |
+|---|--------|----------|------------------|
+| R1 | `Page.Frame` 对象字段 | **无 `documentId` 字段**；`Page.getFrameTree` 响应的 frame 节点同样无该字段 | 双键缓存第二键 = **`loaderId`**（`getFrameTree.topFrame.loaderId`，随导航更换），非任务原文的 `documentId` |
+| R2 | `Page.enable` 前置 | 对已导航页面执行 `Page.getFrameTree` **可省 Page.enable**（round1 HUNG 结论只适用于 fresh about:blank 直连 `Page.enable` 场景，不外推） | 不强制 Page.enable；E1 的 HUNG 结论适用范围收窄至「fresh window 直连」 |
+| R3 | 同 `worldName` 二次 `createIsolatedWorld` | **幂等**，返回同一 `executionContextId` | evaluator 初始化失败/泄漏重试路径无需换 worldName |
+| R4 | 导航后旧 `contextId` | `Runtime.evaluate({contextId})` **命令级 reject**（`Cannot find context with specified id`） | 实现：`did-navigate`/`did-navigate-in-page` 置 stale + execute 前 probe 探活 + context-gone 清缓存重建重试一次（任务 4.2 RED 锁覆盖） |
+| R5 | `Runtime.evaluate` 返回结构 | `exceptionDetails` 存在时**不会 reject**，须显式检查否则吞异常 | evaluator 必须读 `exceptionDetails` 并 throw |
+| R6 | `Runtime.evaluate` 参数 | CDP 拼写为 **`grantUniveralAccess`**（上游 typo，按协议原文） | 实现按原文拼写；另注意 `window.__ocLog` 属主世界、isolated world 不可见，日志断言不得依赖它 |
+
 ## 复现方式
 
 ```bash

@@ -41,7 +41,7 @@ describe('rate-limit IPC handlers', () => {
 
   it('report 未配置运营后台同步时明确提示且不发起请求', async () => {
     const { ipcMain, call } = makeIpcMain()
-    const opsCenterSync = { getConfig: vi.fn(() => ({ url: '', apiKeyConfigured: false })) }
+    const opsCenterSync = { getConfig: vi.fn(() => ({ manualUrl: '', apiKeyConfigured: false })) }
     registerHandlers(ipcMain, { opsCenterSync, app: {}, log: LOG })
     const r = await call('rate-limit:report', { params: { rpm: 20 }, result: { metrics: {} } })
     expect(r.code).toBe(-1)
@@ -55,7 +55,7 @@ describe('rate-limit IPC handlers', () => {
     })
     const { ipcMain, call } = makeIpcMain()
     const opsCenterSync = {
-      getConfig: vi.fn(() => ({ url: 'https://ops.example.com', apiKeyConfigured: true })),
+      getConfig: vi.fn(() => ({ manualUrl: 'https://ops.example.com', apiKeyConfigured: true })),
       getCatalogApiKey: vi.fn(() => 'k'),
     }
     registerHandlers(ipcMain, { opsCenterSync, app: { getPath: () => '/tmp/ud' }, log: LOG })

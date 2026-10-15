@@ -9,6 +9,17 @@
 - 证据：TDD 两段红先于绿（数值 10 条红 + D1 与退避可观测性 8 条红，当场留证）；`packages/shared-utils` 全量 **1021 passed / 10 skipped（49 文件）**，desktop 侧消费者并集（`git grep` 对 4 个被改模块名求并集得 9 个测试文件）**291 passed**。变异反证 **M1–M20 全部 CAUGHT**（第一批 11 条打本次实现、第二批 9 条打 QM-6 修复本身）、红集互不相同、还原后逐字节相同；驱动首轮曾因未剥 ANSI 出现"rc=1 而 red=0"的**探针失明**（9 条被误报 MISSED），已改为独立 `PROBE_BLIND` 档位 + 跑变异前先做"未变异必须全绿"的正控。三条期望写错（M2 认领了不经该判据的守卫用例 / M7 期望集合大小变化而 clip 退回后仍是三值 / M10 期望终身锁红而它读的是未被触及的 sticky 分支）按实测改正，并把"M7 抓不到、M10 不该抓到"如实写进 PRD 与记录 —— **没有改断言去凑红**。QM-1：`build:vue` 与 `electron-builder --win --dir` 均 rc=0，asar 内 v3 特征 12/12 命中且 v2 残留 0 命中（查找键须去前导分隔符并保留反斜杠，换成 `/` 会全部 MISS 而读成"没进包"），打包 exe 启动 8s 存活、stderr 0 字节，且 `%APPDATA%\Multi-Publish` 前后均不存在（userData 隔离到系统临时目录）。
 - 明确不做（PRD §10 逐条给理由）：跨平台全局串行（会废掉一键发多平台）、第四档拆分短视频与图文社区、平台级日配额（守卫里 `PLATFORM_BUCKET_DAILY_KEY_PREFIX` 全仓零引用）、给 `clearRollbackDisabled`（其日志文案承诺"用户在设置页确认后解除"却**没有 IPC 与 UI 入口**）与 `getProbeCounts` 建消费面、`prunePublishDailyCount` 接线、**收敛 `full-auto-pipeline` 绕过队列与守卫的活旁路**（自带 `PUBLISH_INTERVAL_MS = 5000`，违反策略模块头部"禁止在调用方另抄一份"）、`maxConcurrent`/`task.timeout` 重新标定、迟到成功撤下已排定重试。残留风险如实写：窗口保持占用只保证"同通道下一条不早于窗口"，若平台侧处理时间本身超过 `task.timeout`，窗口到点后重试仍可能重复发布。
 
+# [未发布] fix(rpa): 头条图文标题不再被追加时间戳后 4 位，「触发保存」与「发布内容」隔离（fix-toutiao-title-suffix）
+
+- **用户可见症状**：发布图文到头条号，原标题「DeepSeek崩了」在头条号后台变成「DeepSeek崩了 1935」；26 字以上标题还会被静默截短到 26 字。
+- **根因**：`packages/rpa-engine/src/toutiao-direct-bridge.js` 的 `publishViaPageXhr()`（页面 XHR 重放兜底）里，为「触发头条编辑器自动保存」把标题改写为 `原标题.slice(0,26) + ' ' + Date.now().toString().slice(-4)`，且**从不还原**。页面 React 据此发出自动保存，本仓 XHR hook 捕获其 body 到 `window.__lastSaveBody`，重放脚本「原样重放」（只改 `save=0→1`）时**把污染标题一并发出**。1935 即当时的 epoch 毫秒后 4 位——**把「触发手段」当成了「发布内容」**。
+- **修复（双闸门）**：① 新增 `buildTitleBumpScript()`——先记下原标题，写入 `原标题 + 零宽空格(U+200B)`（React 可感知差异以触发自动保存，但不可见），派发 input 后**同帧内还原为原标题并再派发一次 input**（React 末次 onChange 携带正确值）；零截断、脚本内禁 `Date.now`。② 新增 `overrideBodyTitle()`——重放前强制把 body 的 `title=` 覆盖为 `article.title`，防「页面自动保存在还原前抢跑发出」的竞态；判据 `(^|&)title=` 要求紧跟等号以免误伤 `title_id=` 邻键，无 `title=` 字段时追加，**空标题不覆盖**（fail-safe）。
+- **回归锁 19 条**（`packages/rpa-engine/tests/toutiao-title-no-pollution.test.js`）：A 组净效果（普通/空/超 26 字/含 `<stdio.h>` 与 emoji 的标题原样还原）；B 组触发能力保留（扰动确实发生，且扰动标记不可见、非数字）；C 组 body 覆盖口径（不误伤邻键 / `^` 首位 / 追加 / 幂等 / 空标题 fail-safe）；D 组结构锁（脚本内无 `Date.now`、无 `slice(-N)`、无对标题值的 `slice(0,`）；E 组端到端集成（走完整 `publishViaPageXhr`，断言**真正 POST 出去的 body** 每一次 `title=` 都是原标题）。沙箱复刻了两个关键真机语义：标题框 `value` 访问器在 prototype 上、React `inputValueTracking` 与「异步自动保存 XHR」竞态。
+- **变异反证实测**：把扰动值改回事故写法，**4 条立刻变红**（B 组 1 + D 组 3）。同批实跑 rpa-engine 全量 **274 passed / 0 failed**（含定时意图契约 7 条不回归）。
+- **全平台审计结论**：该问题是**头条图文 XHR 重放兜底这条链独有**；头条视频、头条 API 直连、以及百家号/快手/小红书/B站/知乎/公众号/YouTube 等 RPA 链与全部 API 链均**不同源、无改动**——只有头条这条链需要「制造假变化骗页面自动保存」，其他平台靠 `_fillInput` 的原生 input 事件即可触发保存。
+- 文档：`01-docs/BUGFIX-TOUTIAO-TITLE-SUFFIX-2026-10-15.md`（Bug 反思 5 步全量）、PRD §6.8「标题保真与触发型假值隔离合同」（数据校验/流程/功能逻辑/交互逻辑/显示项/提示文字/异常态矩阵/验收标准）、AGENTS.md QM-2 新增「发布内容保真合同」、`01-docs/learnings.md` 5 条。
+- **待办（未闭合）**：真机复验（用真实账号发 >26 字与 <26 字两条图文，回后台核对标题）；发布后平台回显对账（严格平台作品查询里比对标题）。
+
 # [未发布] fix(ci): Gate 9 取消「标题前缀就不跑审计」的豁免，覆盖失败只拦可归因本 PR 的那一种（gate9-ratchet）
 
 - 这条 required check 过去对每个 PR 只有两种行为，而两种都不说真话：标题命中 `fix|chore|docs|refactor|test` 或带同族 label ⇒ 审计器第 147 行直接短路，**一项都不审但 Gate 9 绿**；没命中 ⇒ 跑全量存量比对，由 LLM 自由裁一个数决定全仓能否合并。实测近 200 条 squash 主题里 **162 条（81%）走的是第一条**——「这条检查绿」的真实含义是「作者把标题写成了 fix:」。本次把判据换成只看**变更文件**：审计跑不跑不再由被审对象的命名决定。
@@ -123,6 +134,16 @@
 - 决策来源的度量全部当场重取：最近 1000 次 PR 完成运行 = `success 915 / cancelled 76 / failure 9`；9 条读日志原文分档为 **7 真缺陷 / 2 环境**（推翻本轮早前先报的"3 真 / 5 环境"）；`cancelled` 由 `cancel-in-progress` 解释为被同 PR 下次推送顶掉的旧 sha，按 PR 取末次运行后 **266/266 全 success**。成功时长 p50=188s / p90=304s / p99=592s。
 - 同 PR 纠正 `.github/scripts/workflow-contract.test.js` 里的豁免句：原写「正向 paths 白名单仍允许，不影响 required 语义」，与上述实测冲突——它只在该检查不进 required 时成立。该文件 2026-09-21 禁 `paths-ignore` 的理由（纯文档 PR 永不产生该检查 ⇒ mergeStateStatus 永久 BLOCKED）本就适用于正向白名单，只是当时没有 required 检查挂在白名单 workflow 上。
 - 边界：本笔只让 GUI Tests **有资格**进 required；把它真正写进 classic 保护（4 条）或 ruleset `main-ci-gate`（6 条）的并集属「改谁来守门」，未随本笔执行。**要收进 required 的名字是 `GUI Gate Result`（聚合作业的显示名），不是 `gui-test`** —— 只收 `gui-test` 就会留下上面那条"判据坏了→skipped→假通过"的洞。check 名仍须在真实 PR 的检查清单里现场读取确认，不得按 YAML 键猜。
+# [未发布] feat(rpa): B1 反检测加固 PR-1——evasions 注入、行为层、isolated world、captcha 相位与 preload 变体（oss-b1-rpa-hardening）
+
+- **F1 注入通道实测选型**：spike 证 preload `webFrame.executeJavaScriptInIsolatedWorld(0)` 主世界 document_start 注入早于页面脚本，debugger 通道四类失败模式（fresh window Page.enable HUNG / 需 about:blank bootstrap / CDP 挂起需竞速 / 与上传 per-op attach 冲突）且与 helpers 单 debugger 实例制冲突 ⇒ 不实现 debugger 通道。`scripts/extract-evasions.js` 从参考实现提取 evasions 为自包含 IIFE bundle（源码 diff 逐字节保真锁）；`stealth-preload-enhanced.js` 安装后自清理 + `Object.defineProperty` 非枚举冻结 descriptor（处置 plan-review i2 指纹化，三层缓解）。
+- **F1 行为层**：`behavior-engine.js`（getBounds→planClickSequence→performClickSequence 贝塞尔轨迹，传输无关三方法接口 dispatch/getBounds/typeText）+ `cdp-input.js`（CDP Input 域适配，D2 决策与 camofox driver 复用同接口）。`_click` 走 `resolveRpaDriver`→行为层→失败回落原生合成；`_fillInput` 行为路径限 1..40 字符 isolated 全选+节拍打字+change 兜底+读回校验（readBack=0 抛 `fill not applied`）。
+- **F2 isolated world**：`isolated-world.js` `createIsolatedEvaluator`——attach 1.3 + getFrameTree 双键缓存（frameId+loaderId，spike 实证 Page.Frame 无 documentId）+ 导航 stale 事件失效 + probe 探活 + context-gone 重建；`_isoEval` per-webContents WeakMap 缓存；迁移清单 v1 仅 `_click`/`_fillInput`，probe 与通信 binding 留主世界（PRD §3.3 契约5 留痕）。CDP 参数 `grantUniveralAccess: true`；`exceptionDetails` 必须显式检查；导航后旧 contextId 命令级 reject（据此设计失效）。
+- **F1-d captcha 相位 + F1 preload 变体**：emitter/store `PHASE_ENUM` 双侧同步、`TERMINAL_PHASES` 从 `PHASE_ENUM` 派生（FE2）；`publish-capabilities.json` 新增 `riskControl` 段（`preloadVariant` 表），`_resolvePreloadPath` 映射表不可用一律 fail-closed 回落 baseline + warn。
+- **TDD 与反证**：RED→GREEN 每模块；变异反证全 CAUGHT——Step C 7/7、isolated-world 7/7、Step D 9/9、captcha 相位 1/1、3.3 结构锁 3/3、11.2 allowlist 1/1；消费者并集 93/93 GREEN。
+- **CCG 决策层**：decider 建 plan 记录 → `plan-review.sh` 跨家族 DUAL 对抗（proposer=opencode/critic=claude）第 1 轮 converged 放行（Critical 0/High 0/Warning 5/Info 3），8 条 findings 全部逐条处置进 design.md（i1 token 生命周期、i2 evasions 三层缓解、i3 配置完整性威胁模型、i4 R2/R3 阈值量化、i5 captcha 超时/取消/放弃三出口、i6 spec.md 小写、i7 D1/D3 world 边界、i8 状态标注）。
+- **QM-6 pre-commit 放行**：`SKIP_CCG_GATE=1`（非 `--no-verify`）——verify-security 对 `rpa-view-helpers.js` 报 5 high 全为既有 finding（`git show HEAD:` 同 blob 对照 5 high，行号位移=本 PR 插入行数；2026-07-16 安全净化回写，删改即回归），证据入 commit message 53a3a71df。
+- 归 PR-2（F3+F4）：sidecar 四件套（token 生命周期见 design D4）、captcha 兜底三出口（D5）、camofox/ddddocr（涉 lockfile 与 QM-1）。
 
 # [未发布] feat(gates): 时钟位移 oracle 取代已被否证的静态形状判据，并修掉它当场抓到的 4 条引信（clock-shift-oracle）
 - **换判据而不是再补一条 lint**：`scripts/check-clock-shift-oracle.js` 把同一批候选用例跑两趟，第二趟经 `apps/desktop/test-setup-clock-shift.js` 按 `MP_TEST_NOW_SHIFT_MS` 把 `Date.now()` 与零参 `new Date()` 整体推到未来（默认 45 天），差集 `位移趟红 ∖ 基线趟红` 即"随墙上时钟老化的引信"。静态形状判据在当场测量中被否证：apps/desktop 全域 936 个测试文件，静态形状候选（含时间字面量 + 相对窗口 + 未注入时钟）js/ts 有 66 个需逐个人工判读，而行为判据真找到的引信（本类共 4 条）**一条都不在这 66 个里**。

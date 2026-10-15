@@ -211,10 +211,10 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r)).toContain('probeXiaohongshuDraftChain')
   })
 
-  it('system 模块应导出 149 个方法', () => {
+  it('system 模块应导出 146 个方法（2026-10-15：149 − 3，删 opsCenterSyncGet/Save/Now 三条死通道）', () => {
     const { createSystemApi } = require('./preload/system')
     const r = createSystemApi(ipcRenderer)
-    // 136 + opsCenterSyncGet/Save/Now/Runtime/PipelineOptions（运营后台同步 + 运行时策略）
+    // 136 + opsCenterSyncRuntime/PipelineOptions/AppMenu（运营中心运行时策略，活通道）
     // + generationFeedback/promptLibraryList（提示词引擎自进化 P0 反馈管道）
     // + notifyLog（通知/日志统一通道，notify:log）
     // + promptLibraryGet/Save/Activate（提示词引擎自进化 P1b 记忆库）
@@ -224,11 +224,12 @@ describe('preload 子模块方法数', () => {
     // + onOpsCenterRuntimeUpdated（2026-09-25 运营配置变更后广播，侧边栏免重启刷新）
     // + batchCancel（2026-10-02 批量排期取消：清定时器 + 状态置 cancelled，与 batch:delete 区分）
     // - 10（分屏监控 webview:* API 随监控功能移除，网页查看统一走 pageManager）
-    expect(Object.keys(r).length).toBe(149)
+    // - 3（2026-10-15：ops-center-sync:get/save/now 三条 IPC 在渲染端零调用，随别名一并移除）
+    expect(Object.keys(r).length).toBe(146)
   })
 
-  it('合并后 api 总键数应为 344（2026-10-11：343 + 1 个激活码核销键 identityRedeemCode → identity:redeem-code；上一基线 343 = 338 + 5 个发布频率策略 v2 键 getPublishFrequencyPolicy/setPublishFrequencyPolicy/emergencyReleasePublishWait/getPublishEmergencyStatus/onPublishEmergencyReleased）', () => {
-    expect(Object.keys(api).length).toBe(344)
+  it('合并后 api 总键数应为 341（2026-10-15：344 − 3，删 opsCenterSyncGet/Save/Now 三条死通道；上一基线 344 = 343 + 1 个激活码核销键 identityRedeemCode → identity:redeem-code）', () => {
+    expect(Object.keys(api).length).toBe(341)
     // 新键必须真实存在于聚合入口，防止「改了数字但方法没接上」
     expect(Object.keys(api)).toContain('identityRedeemCode')
   })

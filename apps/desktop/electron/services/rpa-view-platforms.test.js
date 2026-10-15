@@ -535,12 +535,23 @@ describe('rpa-view-platforms — 知乎发布（2026-09-29 图文修复）', () 
 
 describe('rpa-view-helpers — _fillInput 原型选择（2026-09-29 Illegal invocation 修复）', () => {
   it('value setter 按元素 tagName 选原型（TEXTAREA 不得用 HTMLInputElement 的 setter）', async () => {
-    const source = fs.readFileSync(require.resolve('./rpa-view-helpers'), 'utf-8')
-    const fillInputBody = source.slice(source.indexOf('async _fillInput'), source.indexOf('async _click'))
+    // B1 拆分（debt-guard 新代码阻断门禁）：原生 value-set 通道下沉至
+    // stealth/rpa-behavior-mixin.js 的 _fillViaDriver；helpers 侧 _fillInput
+    // 只留「委托 + 读回判据」。故结构锁分两侧断言。
+    const source = fs.readFileSync(require.resolve('./stealth/rpa-behavior-mixin'), 'utf-8')
+    const fillBody = source.slice(source.indexOf('async _fillViaDriver'), source.indexOf('async _clickViaDriver'))
+    expect(fillBody).not.toBe('')
     // 结构锁：必须先按 tagName 分流原型，再取 descriptor
-    expect(fillInputBody).toMatch(/tagName\s*===\s*['"]TEXTAREA['"]/)
+    expect(fillBody).toMatch(/tagName\s*===\s*['"]TEXTAREA['"]/)
     // 反证旧写法：Input 原型 || Textarea 原型 的短路链不得回归
-    expect(fillInputBody).not.toMatch(/HTMLInputElement\.prototype,\s*["']value["']\)\?\.set\s*\|\|\s*Object\.getOwnPropertyDescriptor\(window\.HTMLTextAreaElement/)
+    expect(fillBody).not.toMatch(/HTMLInputElement\.prototype,\s*["']value["']\)\?\.set\s*\|\|\s*Object\.getOwnPropertyDescriptor\(window\.HTMLTextAreaElement/)
+    // helpers 侧仍持有读回判据（拆出去的是取值通道，不是判据）——否则「填充未生效」
+    // 会被当成成功，正是 2026-09-30 修掉的那个缺陷
+    const helpersSource = fs.readFileSync(require.resolve('./rpa-view-helpers'), 'utf-8')
+    const helpersBody = helpersSource.slice(helpersSource.indexOf('async _fillInput'), helpersSource.indexOf('async _click'))
+    expect(helpersBody).toContain('_fillViaDriver')
+    expect(helpersBody).toContain('readBack')
+    expect(helpersBody).toContain('fill not applied')
   })
 })
 

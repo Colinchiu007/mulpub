@@ -30,11 +30,14 @@ export const FIRST_HIDE_TOAST_STORAGE_KEY = 'mp-publish-first-hide-toast-shown'
 
 /** cancelled（publish-progress-panel-refine）：取消终态——主进程 phase4-events
  * 转发 TaskQueue 的 task:cancelled；中性态（非失败红态），计入终态与 aggregate。 */
-const PHASE_ENUM = new Set(['start', 'progress', 'success', 'failed', 'retry', 'blocked', 'released', 'cancelled'])
+// PRD-OSS-RPA-HARDENING（2026-10-14）：新增 captcha 相位（验证码旁路，F4）。
+// 枚举是唯一真源：TERMINAL_PHASES 从本集合派生（评审 FE2：禁并列维护两份）。
+const PHASE_ENUM = new Set(['start', 'progress', 'success', 'failed', 'retry', 'blocked', 'released', 'cancelled', 'captcha'])
+// 派生而非并列：新增相位只需改 PHASE_ENUM 一处（测试锁 emitter/store 双侧一致）
+const TERMINAL_PHASES = new Set(Array.from(PHASE_ENUM).filter((p) => ['success', 'failed', 'cancelled'].includes(p)))
 const STAGE_KEY_ENUM = new Set([
   'prepare', 'upload', 'fill', 'submit', 'verify', 'waiting', 'released', 'done', 'failed', 'detail',
 ])
-const TERMINAL_PHASES = new Set(['success', 'failed', 'cancelled'])
 
 let _sessionCounter = 0
 
