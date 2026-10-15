@@ -72,6 +72,18 @@ export default {
     mentions: '@Mentions',
     mentionsPlaceholder: 'Enter a nickname or @nickname',
     publishTarget: 'Publish Targets',
+      // Empty-state exits when a platform has no account (publish-add-account-entry, 2026-10-15):
+      // "Add" opens the platform login page in a new tab; "Click to refresh" reloads accounts.
+      // Contract: 01-docs/PRD-PUBLISH-ADD-ACCOUNT-ENTRY-2026-10-15.md
+      addAccount: {
+      label: 'Add',
+      ariaLabel: 'Add an account for {platform}',
+      refreshLabel: 'Already added? Click to refresh',
+      refreshing: 'Refreshing...',
+      loginTabTitle: '{platform} login',
+      loginUnsupported: '{platform} cannot open its login page in the app; add it from the Accounts page',
+      openFailed: 'Failed to open the login page, please retry',
+      },
       groupPicker: {
       label: 'Add by group',
       applyAria: 'Add publish accounts from group {name}',

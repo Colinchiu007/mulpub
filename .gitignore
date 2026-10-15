@@ -373,3 +373,8 @@ shared-user-data.backups/
 !scripts/check-clock-shift-oracle.js
 !scripts/check-clock-shift-oracle.test.js
 !apps/desktop/test-setup-clock-shift.js
+
+# oss-b1-rpa-hardening: evasions 提取脚本被 106 行 scripts/*.js 默认忽略, 不 negation 则 CI 与本地 require 不到 (同 #3011 家族)
+!scripts/extract-evasions.js
+# CCG 深度审查的工作产物（提案/评审/裁决），不进主干；判定记录 .ccg/reviews/*.json 才是留痕
+.adversarial/

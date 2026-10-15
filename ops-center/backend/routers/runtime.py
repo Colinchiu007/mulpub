@@ -1,25 +1,27 @@
 """Runtime policy API — 运营公告 / 版本发布策略 / 内容安全策略。
 
 - 管理 CRUD 走登录鉴权（require_admin）
-- GET /api/v1/runtime/bootstrap 走 X-Catalog-Key（桌面端只读拉取，与模型目录端点同鉴权）
+- GET /api/v1/runtime/bootstrap 与 POST /api/v1/runtime/ack 走
+  「Bearer(Logto JWT) 优先，或 X-Catalog-Key」双通道（`verify_bearer_or_catalog_key`），
+  与模型目录端点同鉴权。
+
+2026-10-15（auth-single-source）：这两个端点此前经本模块私有包装 `_require_catalog_key`
+在函数体内调用 —— 该包装**与 diagnostics/usage/publish_metrics 里的同名函数语义不同**
+（那三处只认静态 key，本处 Bearer 双通道），同名不同语义是真实隐患。现统一改为
+`Depends(verify_bearer_or_catalog_key)`，鉴权强度由依赖名唯一表达。
 """
 import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
 from database import get_db
 from middleware.auth import get_current_user, require_admin
 from services import resilience_service, runtime_service
+from services.logto_verifier import verify_bearer_or_catalog_key
 
 router = APIRouter(tags=["runtime"])
-
-
-async def _require_catalog_key(request: Request) -> None:
-    """Accept Bearer JWT (Logto) OR X-Catalog-Key (static fallback)."""
-    from services.logto_verifier import verify_bearer_or_catalog_key
-    await verify_bearer_or_catalog_key(request)
 
 
 # ─── 公告 ────────────────────────────────────────────────
@@ -120,10 +122,9 @@ async def put_content_policy(
 
 @router.get("/api/v1/runtime/bootstrap")
 async def get_runtime_bootstrap(
-    request: Request,
     db: AsyncSession = Depends(get_db),
+    _key: None = Depends(verify_bearer_or_catalog_key),
 ):
-    await _require_catalog_key(request)
     # 签名私钥未配置 → 404 fail-closed（与 catalog_api_key 未配置同一模式）：
     # 未签名响应将被桌面端整体拒绝（尤其 pipelineOptions 阻塞），弱配置必须显式暴露。
     try:
@@ -142,12 +143,11 @@ async def get_runtime_bootstrap(
 
 @router.post("/api/v1/runtime/ack")
 async def post_runtime_ack(
-    request: Request,
     body: dict,
     db: AsyncSession = Depends(get_db),
+    _key: None = Depends(verify_bearer_or_catalog_key),
 ):
     """客户端上报生效回执（鉴权与 bootstrap 同款）。"""
-    await _require_catalog_key(request)
     try:
         return await resilience_service.record_client_ack(db, body)
     except ValueError as e:

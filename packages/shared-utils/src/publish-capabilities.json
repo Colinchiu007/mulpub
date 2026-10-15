@@ -1,6 +1,17 @@
 {
   "version": 2,
   "comment": "发布能力注册表 — 15 平台发布提交内容项单一真源（openspec/changes/publish-capability-registry）。数据由 CJS（publish-capabilities.js，主进程/Node）与 ESM（publish-capabilities.browser.js，渲染进程）双版本共同消费，禁止在两侧复制本文件内容。通用内容判定阈值：语义能力 ≥3 平台 → common；=2 → semiCommon；=1 → unique（用户 2026-10-08 确认）。status 语义：implemented = 本仓代码当前真实消费该字段；platform-capable = 平台 API 支持但本仓未暴露（证据：参考产品 4.13.19 逆向 bundle（本机逆向工程目录的 packages/main/dist/index.cjs，目录名含品牌词按 Gate 12 红线不入库，可复现定位法寻回），2026-10-08 提取证）。标签文案沿用 PLATFORM_NAMES 先例存放于共享数据层（apps/desktop/src 的 CI CJK 基线扫描不覆盖本目录）。",
+  "riskControl": {
+    "comment": "oss-b1-rpa-hardening（2026-10-14）：RPA 窗口风控配置。preloadVariant = 平台 → stealth preload 变体（enhanced=主世界 evasions 注入 / baseline=现状）；默认 baseline。captchaAutoSolve = 白名单平台（默认关，PRD v1.1 §2 法务基线）。stealthChannel = 高风险平台走 camofox sidecar（F3）。",
+    "preloadVariant": {
+      "douyin": "enhanced",
+      "xiaohongshu": "enhanced",
+      "shipinhao": "enhanced"
+    },
+    "defaultPreloadVariant": "baseline",
+    "captchaAutoSolveWhitelist": [],
+    "stealthChannelPlatforms": ["douyin", "xiaohongshu", "shipinhao"]
+  },
   "platforms": {
     "wechat_mp": { "titleMode": "title", "limits": { "titleMax": 64, "contentMax": 20000 } },
     "zhihu": { "titleMode": "title", "limits": { "titleMax": 50, "contentMax": 100000 } },

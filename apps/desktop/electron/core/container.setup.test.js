@@ -149,16 +149,20 @@ describe('Container setup', () => {
     try {
       var guard = createContainer().get('publishIntervalGuard');
 
-      // v2 数值：weibo 属短内容高频容忍档；未登记平台回落最严基线
+      // v3 数值：weibo 属短内容高频容忍档；未登记平台回落最严基线。
+      // tier 也在返回形状里（QM-6 前端轴 C2：设置页「当前档位」按它分组，缺键会渲染成 undefined）
       expect(guard._intervals('weibo')).toEqual({
-        accountMinMs: 3 * 60 * 1000, platformMinMs: 2 * 60 * 1000, accountDailyMax: 20,
+        tier: 'short', accountMinMs: 1 * 60 * 1000, platformMinMs: 1 * 60 * 1000, accountDailyMax: 200,
       });
       expect(guard._intervals('wechat_mp')).toEqual({
-        accountMinMs: 20 * 60 * 1000, platformMinMs: 2 * 60 * 1000, accountDailyMax: 3,
+        tier: 'long', accountMinMs: 5 * 60 * 1000, platformMinMs: 3 * 60 * 1000, accountDailyMax: 30,
       });
       var unknown = guard._intervals('not_a_registered_platform');
-      expect(unknown.accountMinMs).toBeGreaterThanOrEqual(guard._intervals('weibo').accountMinMs);
-      expect(unknown.accountDailyMax).toBeGreaterThan(0);
+      expect(unknown.tier).toBe('long');
+      // 回落必须"不弱于任何已登记平台"：与最**严**的那档比，而不是与最短的那档（weibo=1′）比 ——
+      // 后者在 v3 下 5′>=1′ 恒过，挡不住"把基线调得比 long 档还松"（QM-6 B7/B17）。
+      expect(unknown.accountMinMs).toBeGreaterThanOrEqual(guard._intervals('wechat_mp').accountMinMs);
+      expect(unknown.accountDailyMax).toBeLessThanOrEqual(guard._intervals('wechat_mp').accountDailyMax);
     } finally {
       ENV_KEYS.forEach(function (k, i) {
         if (saved[i] !== undefined) process.env[k] = saved[i];

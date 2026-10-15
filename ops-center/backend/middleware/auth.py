@@ -145,3 +145,30 @@ async def require_admin(user: dict = Depends(get_current_user)):
     if user.get("role") != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="需要管理员权限")
     return user
+
+
+def require_catalog_key(request: Request) -> None:
+    """FastAPI 依赖：**仅**接受静态 `X-Catalog-Key`（常量时间比较），不接受 Bearer。
+
+    与 `services.logto_verifier.verify_bearer_or_catalog_key` 的区别是**刻意的**：
+    后者是「Bearer(Logto JWT) 优先，或 X-Catalog-Key」的双通道；本函数是**单通道**。
+    客户端脚本类上报（用量/发布计数/诊断/反馈）在未登录态也用固定目录 Key，
+    因此这些端点只挂本依赖。
+
+    2026-10-15 收敛（auth-single-source）：此前同一段逻辑以 `_require_catalog_key`
+    为名在 `routers/diagnostics.py`、`routers/publish_metrics.py`、`routers/usage.py`
+    各有一份**逐字重复**的实现，`routers/feedback.py` 还从 `diagnostics` 里跨模块
+    import 私有名；而 `routers/runtime.py` 与 `routers/telemetry.py` 用了**同名/近名
+    但语义不同**的包装（Bearer 或 key）。同名不同语义 + 四份重复是本函数上收的动因：
+    鉴权强度不能再靠「读的是哪个文件的私有函数」来区分。
+
+    错误语义与原实现逐一保持（未配置 → 404「Not found」，不匹配 → 401）。
+    """
+    import hmac as _hmac
+
+    expected = settings.catalog_api_key
+    if not expected:
+        raise HTTPException(404, "Not found")
+    provided = request.headers.get("x-catalog-key", "")
+    if not _hmac.compare_digest(provided.encode(), expected.encode()):
+        raise HTTPException(401, "目录同步 Key 无效")

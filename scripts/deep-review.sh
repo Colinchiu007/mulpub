@@ -468,6 +468,27 @@ if [ -f "$REC" ]; then
   MODE="$(node -e "try{process.stdout.write(require('./$REC').mode||'')}catch(e){}" 2>/dev/null)"
 fi
 
+# ★ 2026-10-15 修（缺陷 E）：记录恒写在【父提交 sha】名下，按 HEAD 找不到是**常态**。
+#
+# 成因：判定器在 pre-commit 里跑，那时新 commit 还不存在，currentSha() 拿到的是
+# 【父提交】⇒ 它把记录写成 .ccg/reviews/<parent>.json。提交完成后 HEAD 变成新 sha，
+# 按 <HEAD>.json 找必然落空。
+#
+# 旧实现在这里直接 `exit 0`，于是**深度审查在真实流程里一次都没跑起来过** ——
+# 而引擎侧 ccg-deep-review.js 的 readDecision() 早就有 stagedDiffHash 内容寻址兜底
+# （其注释还专门写了这件事），却被这行早退挡在门外，兜底成了死代码。
+#
+# 判据：记录 <HEAD^>.json 描述的正是 HEAD 这一笔的改动集（判定器在 HEAD^ 为 HEAD 时
+# 写入的暂存 diff == HEAD^..HEAD）。所以按父提交回退是**语义正确**的，不是猜。
+if [ -z "$MODE" ]; then
+  _PARENT="$(git rev-parse HEAD^ 2>/dev/null || echo '')"
+  if [ -n "$_PARENT" ] && [ -f ".ccg/reviews/$_PARENT.json" ]; then
+    REC=".ccg/reviews/$_PARENT.json"
+    MODE="$(node -e "try{process.stdout.write(require('./$REC').mode||'')}catch(e){}" 2>/dev/null)"
+    [ -n "$MODE" ] && say "判定记录按父提交 sha 命中：${_PARENT%${_PARENT#????????}}（提交时 HEAD 即父提交）"
+  fi
+fi
+
 say "═══ CCG 深度审查（本地） ═══"
 say "HEAD: ${SHA%${SHA#????????}}"
 if [ -z "$MODE" ]; then

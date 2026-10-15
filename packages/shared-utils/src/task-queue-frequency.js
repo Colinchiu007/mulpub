@@ -1,5 +1,5 @@
 /**
- * task-queue-frequency — 发布频率相关的队列方法 mixin（publish-frequency-policy-v2）
+ * task-queue-frequency — 发布频率相关的队列方法 mixin（publish-frequency-policy-v2 → v3）
  *
  * 从 task-queue.js 外移而来：该文件被本次变更从 576 行推到 897 行，触到逐文件行数门禁的
  * 「挂账文件膨胀超容差」（growthAllowance=200 ⇒ 上限 776）。门禁给的正解是拆分，
@@ -135,13 +135,37 @@ module.exports = {  /**
 
   /**
    * P0-1 回滚判定与执行。返回是否真正回滚（供重试退避与事件使用）。
+   *
    * @param {object} task
    * @param {Error & {notSubmitted?: boolean, definitelyNotSent?: boolean}} e
+   * @param {{inFlightAtFailure?: boolean}} [ctx] — 调用方如实告知"失败发生时请求是否仍在飞"
    * @returns {boolean}
    */
-  _maybeRollback (task, e) {
+  _maybeRollback (task, e, ctx = {}) {
     const guard = this._publishIntervalGuard
     if (!guard || !task._hold) return false
+
+    // ── D1（v3）：在飞未知 ⇒ 终身禁止回滚 ──
+    // race 输给超时/中止而执行器尚未收敛：我们**不知道**请求是否已送出，而
+    // "未打点"在此刻不构成"未发起"的证据（markSubmitAttempted 按 _running 查任务，
+    // 超时后 finally 已删除该键 ⇒ 迟到的打点永久落空）。方向恒为多等。
+    // 一旦置位就不再复位：重试轮的 recordPublish 会覆盖 _hold，此时若允许回滚，
+    // 还原的是"上一轮仍在飞的那次提交之前"的窗口 —— 比不滚更糟。
+    if (ctx.inFlightAtFailure === true) {
+      if (!task.submitUncertain) {
+        task.submitUncertain = true
+        this._probeCounts.inflightUnknown += 1
+        console.warn(
+          `[task-queue] 平台 ${task.platform} 的任务 ${task.id} 在**请求可能仍在飞**时失败`
+          + '（超时/中止竞态输掉）：频控窗口保持占用，本任务此后不再回滚窗口'
+        )
+      }
+      return false
+    }
+    if (task.submitUncertain === true) return false  // 故意排在所有旧判据**之前**（QM-6 B16）：
+    // 终身锁一旦置位，后续轮次即使带 definitelyNotSent 也不回滚 —— 第二轮的 recordPublish 已覆盖
+    // _hold，此时回滚还原的是「第一轮仍在飞那次提交之前」的窗口，比不回滚更危险。
+    // 调序前请先读 PRD §5.1；两条分支各有锁（M1/M3 各红一条）。
 
     const platform = task.platform
     const attempted = task.submitAttempted === true
@@ -197,15 +221,25 @@ module.exports = {  /**
     return true
   },
 
-  /** 回滚后的最小退避重排（任务重新入队头，但延后 graceMs 执行） */
+  /**
+   * 回滚后的最小退避重排（任务重新入队头，但延后 graceMs 执行）。
+   *
+   * v3：退避期间任务必须**仍登记在 `_delayed`**。此前它只活在 setTimeout 的闭包里，
+   * 于是 `getStatus()` / `getPendingTasks()` / `serialize()` 在整个 grace 期（默认 60s）
+   * 都看不见这条任务 —— 重启即静默丢失，UI 上"排队中"凭空少一条。
+   * `_delayed` 正是 2026-10-06 为"频控等待中的任务"定的承载处，两种等待同源登记。
+   */
   _delayRequeue (task, ms) {
     const timer = setTimeout(() => {
       this._pendingTimers.delete(timer)
+      this._delayed.delete(task.id)
       if (task.cancelRequested || task.status === 'cancelled') return
       this._queue.unshift(task)
       this._processNext()
     }, ms)
     if (timer && timer.unref) timer.unref()
     this._pendingTimers.add(timer)
+    this._delayed.set(task.id, { task, timer })
+    this._saveState()
   }
 }

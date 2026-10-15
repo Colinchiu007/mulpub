@@ -2,9 +2,6 @@
 record: hot-carrier-atomic-landing
 task: 规格化「热点载体的未提交窗口必须被一条命令收口」——清单单一来源 + pre-commit 行为判据 + docs-land 收口命令 + 退场条件
 date: 2026-10-15
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（合并后按本仓回填口径取 merge SHA 并删本三字段）
 ---
 
 ## 本次执行记录：热点载体的未提交窗口必须一条命令收口（hot-carrier-atomic-landing，2026-10-15）【docs-only】
@@ -21,9 +18,9 @@ sync_backfill_owner: 下一个会话（合并后按本仓回填口径取 merge S
 | 接线棘轮 | N/A | 本 PR 不新增 `*.test.js` / `*.test.ps1`；新增测试属实现 PR，已在 tasks 4.1 声明必须显式点名进 `quality-gate.yml` |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/`、`packages/rpa-engine/` 与任何渲染面 |
 | QM-6 CCG 双模型外部评审 | PASS | docs-only 快速通道按 AGENTS.md **不强制** QM-6，本次仍按项目既有偏好把评审打在方案本身。双模型并行实跑：`--backend claude`（routing.backend.primary，rc=0，完成于 2026-10-15 12:45:12 +08:00）与 `--backend opencode`（routing.frontend.primary，rc=0，完成于 12:32:04 +08:00；其载荷是会话态摘要里的 6 条候选 findings，非最终 JSON，按既有经验仍可用）。**耗时未记录**——wrapper 的 per-PID 日志在完成时被清理，只剩 stdout 落盘文件的 mtime 可取，起止两点取不到第三证；按既有口径时长不参与成败判定，故此处只记 rc 与完成时刻，不写「约 N 分钟」这种没量过的数。**共 12 条，逐条先取证再处置，采纳 11 条、部分采纳 1 条，其中一条导致机制换宿主**：<br>① **[CONFIRMED · 后端] 判据宿主选错**——初稿把行为判据全压在 pre-commit，WHEN 写「本次提交命中热点清单 且 另有脏」；评审把本提案自己立据的 #3602/#3606 代入算了一遍：刀 1 提交的是 `openspec/records/`（被 D4 排除在清单外）⇒ 第一条为假；刀 2 提交热点时工作树已无其它脏 ⇒ 第二条为假 ⇒ **两刀都不拦**，声称的「默认变红」对已发生形态不成立。复核成立，已换宿主到常驻写守卫（实测 `scripts/guard-shared-root-writes.ps1:68-69` 放行面已含这两个文件、`:123-125` 已有 `violations.jsonl` 记账、`:247` 起已有漏事件回看路径），pre-commit 降级为「只覆盖形状 B」并把边界写进 spec 与残留风险（design D9 / 新 Requirement / tasks 2.x）。<br>② **[PLAUSIBLE · 后端] 清单过宽**——撤下 `AGENTS.md`/`CHANGELOG.md`/`01-docs/learnings.md` 三项，理由如实写：收进来的唯一依据是 AGENTS.md 那句「上游也在改同一处」，我**没量过**误拒率；重进须凭 2.x 的窗口读数（design D4 / tasks 1.2(d) 反向钉住）。<br>③ **[CRITICAL · 前端] 退场断言恒真**——「清单为空 ⇒ 实现必须不存在」在整个存续期不被求值到后件。改为两半都可求值 + 对判据本体做变异（design D7 / spec 新增两条 Scenario / tasks 6.6）。<br>④ **[前端] 同会话第二刀被误拒**——钩子分不清「别人的脏」与「我自己的未完步骤」。采纳并加 `.agent_context/pending-landings` 声明层，带到期上限、放行留痕（design D8 / spec / tasks 4.3-4.4）。<br>⑤ **[前端] 缺 `git fetch`**——`reset --keep origin/main` 的目标可能是陈旧 ref。已提为动线第一条动作并加 Scenario（design D6 / tasks 3.1）。<br>⑥ **[前端] 同一把尺子量两遍**——钩子与 `mp-worktree-health.ps1:49` 各写一遍 porcelain。跨语言不合并实现，改为 **parity 锁**钉逐字同形（design D5 补 / 新 Requirement / tasks 5.1）。<br>⑦-⑫ 后端 4 条次要观察 + 前端 2 条命名项：`--amend`/rebase 重放不跑钩子 ⇒ 采纳为**显式覆盖缺口**写入残留风险；「`HEAD == origin/main` 可被陈旧 ref 满足」⇒ 采纳，改比 `git ls-remote origin main` 的当次 SHA；能力名 `hot-carrier-landing` 与 delta 目录/标题不一致 ⇒ 采纳，统一为 `hot-carrier-atomic-landing`；slug 含 `atomic` 与本文禁用「原子落盘」并存 ⇒ **部分采纳**：保留 slug（改名要连带分支、记录文件名、ledger 键三处，收益不抵代价），改为在 proposal 与 spec Purpose 里写清 `atomic` 修饰 landing、与 tmp+rename 无关 |
-| 远程同步 | PENDING | 待本 PR 合并后由后续 docs PR 取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间、`git ls-remote --heads origin hot-carrier-atomic-landing` 返回 0 行证远端分支已删，并在同一次提交删除上方三个 `sync_*` 字段与本条 ledger 登记项 |
+| 远程同步 | PASS | merge `b7a0b34d15c3a001d41f4c03f100f8bc8891badf`（2026-10-15T15:32:47+08:00）；PR #3632 已 MERGED，远端分支 `hot-carrier-atomic-landing` `git ls-remote --heads` 0 行 |
 
-- 保留门禁：行尾对账 PASS（两口径逐文件相同：gate 10/0、ledger 1/1；过程中抓到并修掉一次孤立 CR 造成的 60/60 膨胀）| 品牌残留 PASS（`check-no-brand-residue.js` rc=0，扫描 9140 个 tracked 文件）| 文档同步 PASS（doc-gate）（`openspec-sync-check.js` rc=2 共 14 条，与**未含本改动的干净 main 控制对照逐条同集** ⇒ 本 PR 净增 0；CI 实际收编的是 `node --test scripts/openspec-sync-check.test.js` = 19 passed / 0 failed；那 14 条属存量欠账，非本 PR 引入，既不就地认领也不以「不是我改的」放行）| 远程同步 PENDING
+- 保留门禁：行尾对账 PASS（两口径逐文件相同：gate 10/0、ledger 1/1；过程中抓到并修掉一次孤立 CR 造成的 60/60 膨胀）| 品牌残留 PASS（`check-no-brand-residue.js` rc=0，扫描 9140 个 tracked 文件）| 文档同步 PASS（doc-gate）（`openspec-sync-check.js` rc=2 共 14 条，与**未含本改动的干净 main 控制对照逐条同集** ⇒ 本 PR 净增 0；CI 实际收编的是 `node --test scripts/openspec-sync-check.test.js` = 19 passed / 0 failed；那 14 条属存量欠账，非本 PR 引入，既不就地认领也不以「不是我改的」放行）| 远程同步 PASS（merge b7a0b34d1，远端分支 0 行）
 - rebase 后重取（最终基线 `0d14ca8e9`）：`docs-only=true`；变更集构成 = 规格工件 6 + 执行记录 1 + 两个热点载体 + 钩子按父 SHA 写入的判定产物若干 —— 总数随本 PR 的提交数逐笔增长，**故刻意不写死**（写下时曾为 10、再取为 11，两个数在各自时点都对，引用时必须连着时点一起读）；两口径 numstat 逐文件相同；`check-gate-record-debt.js` rc=0、`openspec validate --strict` 通过、`check-pr-exec-record.js --mode=enforce` rc=0。旧数不追改，按演进链保留。
 - 执行记录：openspec/records/hot-carrier-atomic-landing.md
 

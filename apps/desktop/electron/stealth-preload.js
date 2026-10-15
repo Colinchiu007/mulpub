@@ -1,11 +1,22 @@
 /**
- * Stealth Preload — 在页面 JS 执行前注入反检测脚本
+ * Stealth Preload — baseline 反检测 preload（RPA 窗口变体之一，PRD-OSS-RPA-HARDENING §3.1）
  *
- * 等价于 Playwright 的 context.addInitScript()。
- * 在 BrowserWindow 的 webPreferences.preload 中指定，
- * 确保在页面任何脚本运行之前修改浏览器指纹。
+ * ⚠️ 真实语义（2026-10-14 spike E4b 实证）：
+ * 本文件在 contextIsolation 下运行于**隔离世界**（sandbox preload context），
+ * 下方的 navigator/window patch 对**主世界不可见**——页面脚本读到的仍是原生
+ * `navigator.webdriver` 等。历史头注把本文件描述成「preload 即完成主世界反检测
+ * 注入」（类比 context.addInitScript），属错误声明，已按实证修正。
  *
- * 适配自 MediaTrace stealth.min.js (MIT) + Multi-Publish StealthHelper
+ * 主世界注入的唯一入口是增强版：
+ *   services/stealth/stealth-preload-enhanced.js
+ *   （经 webFrame.executeJavaScriptInIsolatedWorld(0, …) 送进主世界，
+ *    由 preload 变体映射表 riskControl.preloadVariant 按平台选挂：
+ *    douyin/xiaohongshu/shipinhao 默认 enhanced，其余平台走本文件）。
+ *
+ * 本文件保留的原因（kill-switch 落点）：映射表关闭增强、未知平台回落、
+ * 以及混入声明测试都要求 baseline 存在且行为不变。
+ *
+ * 来源：适配自 MediaTrace stealth.min.js (MIT) + Multi-Publish StealthHelper。
  */
 try {
   // 1. Override navigator.webdriver

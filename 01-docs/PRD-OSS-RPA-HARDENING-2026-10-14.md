@@ -72,12 +72,17 @@ export function createCdpInput(win) → { dispatch(kind,x,y,opts), getBounds(sel
 
 **Spike 定案（E3b-E3e）**：`Page.getFrameTree → frameId` → `Page.createIsolatedWorld({frameId})` → `executionContextId` → **`Runtime.evaluate({contextId})`**（注：`Runtime.evaluateInWorld` 非真实 CDP 命令，实测 `wasn't found`——研究文档该写法以此为准更正）；隔离语义成立（iso 写主不可读）。
 
-**实现契约（v1.1，评审 F2/F3）**：
+**实现契约（v1.1，评审 F2/F3；2026-10-14 实现期按 spike 实测修正，见下）**：
 1. **缓存双键**：`contextId` 按 `frameId + documentId` 双键缓存；`did-navigate` / `did-navigate-in-page` 触发清理重建
+   - **⚠️ 实现期勘误（2026-10-14，spike round2 实证）**：`Page.Frame` 对象**没有 `documentId` 字段**（该字段在 `Page.getFrameTree` 的响应中不存在于 frame 节点），双键缓存第二键实际采用 **`loaderId`**（`getFrameTree.topFrame.loaderId`，随导航更换）。最终实现：`frameId + loaderId` 双键 + `did-navigate`/`did-navigate-in-page` 事件置 `stale`（stale 优先于双键比对）+ execute 前 probe 探活 + `Cannot find context with specified id` → 清缓存重建重试一次。对应代码 `services/stealth/isolated-world.js`；**任务清单 tasks 4.1/11.4 中的 `documentId` 表述以本勘误为准**。
+   - **`Page.enable` 可省**：spike round2 实证 `Page.getFrameTree` / `Page.createIsolatedWorld` 在未显式 `Page.enable` 的 debugger 会话上直接可用（与 E1 的 `Page.addScriptToEvaluateOnNewDocument` 需要 enable 不同类）；实现不调用 `Page.enable`。
 2. **v1 范围显式声明**：仅 top frame。检测到多 frame DOM 作用域（iframe 内选择器）→ warn + 回落 main world；`window.open` 弹窗新 renderer 不在通道内（RPA 发布流无弹窗依赖，如出现按未覆盖 warn）
 3. **悬挂恢复**：execute 前探活（一次性 `Runtime.evaluate` 空表达式），失败即重建
 4. **exposeBinding 白名单守卫（评审 F3）**：`BINDING_ISOLATED_ALLOWLIST`（空或明确列举的通信 API 可入 isolated 路径）+ 测试断言「allowlist 外 API 走 isolated 必须抛错」——范围从文字声明升格为机械锁，后人无法静默扩范围
 5. **迁移范围**：v1 只迁 DOM 自动化 evaluate（`_click/_fill` 等）；通信类 binding 不动（白名单守卫兜底）
+   - **4.4 留痕：通信类 binding 留主世界的理由（v1 决策）**：
+     ① `exposeBinding` / `exposeInMainWorld` 注册的回调与页面侧 `window.*` 通信面耦合，其调用方（发布结果回传、进度上报、探针读回）按 **main world 语义**写就，迁移即改变页面可见的全局名空间，属行为变更而非等价搬迁；② 通信面**不是**反检测暴露面（检测脚本针对的是 `navigator`/`webdriver`/UA 指纹，不读应用 binding），迁移无收益、有回归风险；③ 空 allowlist + 抛错守卫使「未来有人想迁通信面」必须先改白名单并连带补测试，把 v1 的范围声明变成机械约束（tasks 11.3 已落地）。
+   - **落点修正（实现期）**：evaluate 通道实现为独立模块 `services/stealth/isolated-world.js` 的 `createIsolatedEvaluator(win)`（per-webContents 缓存 evaluator），`rpa-view-helpers.js` 的 `_isoEval` 作为唯一消费入口（WeakMap 缓存）；`_click`/`_fillInput` 迁移清单 v1 = 这两个方法，probe 与通信 binding 留主世界。
 6. **降级**：任一步骤不可用 → 回落 main world + warn（禁静默）；真机取证：发布导航期间 main world 无自动化脚本痕迹
 
 ### 3.4 F3 camofox 隐身通道

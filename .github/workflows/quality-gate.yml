@@ -138,6 +138,19 @@ jobs:
           node --test scripts/check-pr-exec-record.test.js
           node scripts/check-pr-exec-record.js --base="${EXEC_BASE:-}" --head-branch="${EXEC_HEAD_REF:-}" --head="${EXEC_HEAD_SHA:-HEAD}" --mode=advisory
 
+      # --- Gate 2c4：CCG 判定器（ccg-review-decider）的判据回归锁 ---
+      # 动因（2026-10-15）：该脚本此前**零测试覆盖**（grep 只命中一条注释），
+      # 于是两个判据缺陷长期无人发现：
+      #   ① contentHits 跑在「全部暂存行」（含 .md 文档）上，与 pathHits 的 codeFiles
+      #      口径不一致 ⇒ 在文档里分析加密机制会被判成「改动涉及加密」，误置 deepReview；
+      #   ② 整仓 git diff 在 rebase 路径下读空 ⇒ 规模与模式判定系统性采成 0。
+      # 落点必须在 changes 作业：docs-only PR 会把 static-gates 整个短路，
+      # 放在那里等于给判据自己关掉校验（与 Gate 2c2 / 2c3 同一先例）。
+      # 本测试只 require node 内置模块（该作业无 Install deps），符合 changes 作业的接线约束。
+      - name: "Gate 2c4 - CCG decider regression lock (changes job)"
+        shell: bash
+        run: node --test scripts/ccg-review-decider.test.js
+
       # --- Gate 2c3：执行记录的 QM-5 行集棘轮 ---
       # 动因（本会话实测）：PR #3477 的记录在多次改写中把「防止再次发生（QM-5 ⑤）」的**行标题吞掉**、
       # 正文并入上一行末尾 ⇒ 五步只剩四步有名有姓，而 Gate 2c2 只判"记录存在与否"、不校验行集，全程全绿。

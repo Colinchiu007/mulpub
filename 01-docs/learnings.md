@@ -1,3 +1,195 @@
+## 端点鉴权面单一真源；锁自身可能是 no-op；以及 FastAPI 版本差异造成的 CI 假绿（auth-single-source，2026-10-15）
+
+### lesson:removal-verification-needs-reverse-lookup-not-recall
+
+【教训】「移除型」改动的验证面是**反向检索**，不是**正向回忆**。
+本轮删 `getConfig().url` 别名时，我按「**我改过**的文件」选了 7 个测试文件跑绿（147 条）就提交了 ——
+CI 立刻抓出 2 处遗漏：`electron/preload.test.js` 的**方法数计数锁**（149→146、344→341）与
+`services/settings-roundtrip-contract.test.js` 里 `expect(cfg.url)`（**藏在测试里的消费者**）。
+删除型改动的风险面是「**谁引用了被我删掉的东西**」，只能靠反向检索圈定。
+**判据**：删任何符号前先 `git grep -lE "<符号名>" -- '**/*.test.js'`，把所有断言过它的测试文件列出来，一个都不能少。
+正解不是「多跑几个文件」，而是把 10 个符号模式 `git grep -lE` 圈出的 **32 个文件**全跑（最终 1034 条）。
+**特别要覆盖两类正向回忆必漏的形态**：①**计数锁**（断言导出数量/键数的用例）；②**在测试里而非生产代码里的消费者**。
+
+### pitfall:grep-for-direct-use-cannot-prove-zero-consumers
+
+【陷阱】`git grep 'getConfig()\.url'` 找不到消费者，**不等于**没有消费者。
+本轮据此得出「零消费者」结论并删掉别名，结果漏了 3 处：`resolveAutoSyncGuard(cfg, ...)` 接收的是**整个 cfg 对象**、
+`bootstrap/phase1-context.js` 与 `ipc-handlers/rate-limit.js` 是**解构后读 `cfg.url`** —— 这两种**间接形态 grep 不到**。
+**判据**：证明某字段/接口零消费者，必须同时检索三种形态 ——
+①**字面量取用**（`obj.url` / `obj['url']`）；②**对象整体传递**（函数签名接收整个对象）；③**解构赋值**（`const { url } = cfg`）。
+只做第一种就下结论，等于把「我搜不到」当成「不存在」。
+**加强手段**：给返回对象加**交叉锁**（从外部扫源码断言消费方读的是哪个字段），因为「实现与自家 mock 一起改」会互相掩盖。
+
+### lesson:lock-must-be-validated-by-mutating-the-property-not-the-lock
+
+【教训】写「防再犯锁」时，**锁本身可能是 no-op**，而它看起来完全正常。
+本轮 Track A 的「依赖词表锁」初版是：`unknown = sorted(used - set(KNOWN_AUTH_DEPS))`，
+其中 `used` 取自**已按词表过滤过**的 `auth` 字段 ⇒ 该断言**恒为空**，永远绿。
+它是在准备**变异反证**（M4：换成未登记的自定义守卫）时才暴露的 —— 因为那条变异**本该变红却没红**。
+**判据**：任何锁必须做一次**「把被守护的性质改坏」**的变异，确认它变红；只证「业务改动变红」不算数。
+**推论**：当断言的两侧来自同一条已被过滤/归一化的数据流时，先问「这两侧会不会同时变、从而恒等？」
+本轮修法是给清单新增 `other_deps`（未被词表过滤的原始依赖名），让未登记项**可见**。
+
+### lesson:single-source-claims-must-be-verified-before-building-the-gate
+
+【教训】门禁方案选定「以 X 为唯一真源」后，**第一步必须验证 X 真的覆盖全部**，否则门禁会产出假阴性。
+本轮口径是「以 FastAPI 路由的依赖声明为真源」，实测发现 **153 个端点里有 8 个的鉴权只写在 handler 函数体内**
+（`route.dependant` 反射**读不到**）—— 若直接按反射建清单，这 8 个会被读成「无鉴权」，门禁变成假绿。
+**判据**：建门禁前先做一次「真源覆盖率」探针：用真源枚举出的集合与用**独立手段**（如 AST）枚举出的集合求差，
+差集非空就说明真源不完整。**本轮正解是先补齐真源**（把 8 处函数体内调用上收为 `Depends(...)` 依赖声明），
+再做纯反射门禁 —— 这样「唯一真源」才真的唯一。
+
+### lesson:doc-reconciliation-must-judge-claim-windows-not-lines
+
+【教训】把文档描述与实现对账时，判据要判**「做了声称的那个位置」**，不能判「整行/整文件出现某关键词」。
+本轮 PRD 对账锁初版报 **22 条**告警，逐条核对后**绝大多数是误报**，收敛了两轮：
+① **只判「做了鉴权声称」的位置** —— PRD 里同一路径也出现在「配置来源行」「下发通道行」等非鉴权语境
+（例：`| L1 运营后台配置 | …经 GET /api/v1/model-presets/catalog 同步…`），要求每处提及都满足关键词必然误报；
+② **按「提及窗口」判而非整行判** —— `01-docs/PRD.md` 是追加式文档，存在**巨型行**（实测单行 11494 字符，
+把整节需求挤在一行），按行判会把同行无关段落的 `Bearer` 算成该端点的声称，**导致修完真实描述后仍报红**。
+窗口取提及处 `-40 / +260` 字符即可覆盖 `（无需登录；鉴权 …）` 这类内联从句。
+③ **`forbid` 判据必须否定感知**：`forbid=["Bearer"]` 会把修正后的文案「**不接受 Bearer**」读成「声称接受」 ——
+判的是**语义**（是否声称接受该通道），不是**子串**。修法：关键词出现处前 8 字符内含否定标记（不接受/不支持/无需/非…）则不计。
+**副产品**：这轮收敛抓到 **8 处真实** PRD 过度声称（`usage/ingest`、`publish/ingest` 各 4 处写「Bearer 优先」而实现只认静态 key）。
+
+### lesson:duplicated-guards-need-name-level-uniqueness
+
+【教训】同一段鉴权逻辑在多个文件里**各有一份**，真正的危险不是重复本身，而是**同名不同义**。
+本轮 ops-center 的静态 key 守卫在 4 个文件里逐字重复，但其中 `routers/runtime.py` 那份**名字相同、语义不同**
+（它是「Bearer 或 key」双通道，其余三处是「仅静态 key」），`routers/telemetry.py` 又叫 `_require_client_key`（近名不同义），
+`routers/feedback.py` 还从 `diagnostics` **跨模块 import 私有名**。
+⇒ **鉴权强度要靠「读的是哪个文件的私有函数」来区分**，这是审查必然读过去的形态。
+**判据**：收敛时不是「把多份合成一份」就够，必须让**名字唯一表达语义**（`require_catalog_key` = 仅静态 key、
+`verify_bearer_or_catalog_key` = 双通道），并让门禁能从**声明**（而非实现位置）读出强度。
+**同时**：合并时务必逐一保持错误语义（本轮保留「未配置→404、不匹配→401」），不做「顺手统一」。
+
+### pitfall:security-scanner-reads-cli-path-arg-as-traversal
+
+【陷阱】`.ccg` 的 `verify-security` 会把**开发 CLI 的路径参数**读成「路径遍历」高危，从而拦下 pre-commit。
+本轮 `scripts/auth_surface.py` 因 `--fixture <path>`（用户可传路径后 `write_text`/`read_text`）被报 2 处高危。
+**正解不是 `SKIP_CCG_GATE=1`**（本仓明确禁止绕过门禁），而是**删掉那个多余的参数** ——
+清单路径本就固定，开放为命令行参数纯属无必要的自由度。
+**判据**：本地/CI 工具脚本的文件路径**默认写死**；确实需要参数时，也在写文件前做 realpath + 根目录包含断言。
+
+### lesson:env-second-source-locks-count-normalization-sites
+
+【教训】「同一个值有两个来源」这类缺陷，锁的形态应当是**「数归一处出现的次数」**，而不是「断言某一行长什么样」。
+本轮 `_fetchJson` 里留了 `base || process.env.OPS_CENTER_URL` 兜底：env 早已被 `_getAutoContext()` 归一后汇入
+`effectiveUrl`，所以该兜底在真实链路**不可达**（上游 `if (!effectiveUrl) return` 已拦下空 base）；
+**它一旦可达就有害** —— 调用方用 `effectiveUrl` 表达了来源优先级，这一行却会在 base 为空时悄悄改走 env。
+**判据**：锁断言「该 env 变量在去注释后的代码行中**恰好出现 N 次**，且每行都必须匹配归一处形态，其中无一行与消费方函数相关」。
+这比断言某一版写法更抗漂移。**配套**：变异反证要覆盖「**把坏味道加回去**」这一侧（本轮 M1 即把 env 兜底加回），
+而不是只改业务逻辑 —— 那才证明锁盯的是**性质**（第二真源）而非**某版写法**。
+
+## ⛔ `ELECTRON_RUN_AS_NODE=1` 会让 QM-1 启动验证得到假绿；以及「提前退出」必须自己判（fix-toutiao-title-suffix，2026-10-15）
+
+1. **本机 DSH 会话环境带着 `ELECTRON_RUN_AS_NODE=1`，被它启动的 Electron 应用会静默退出（rc=0、stdout/stderr 全空、不建窗口、不建 userData）。**
+   我用 `child_process.spawn` 跑打包产物做 QM-1 第 3 步，得到 `EXIT code=0`、`stderr_len=0`、`stdout_len=0`。**我的判据只看 stderr 非空与否，于是打印了「判定 = PASS（stderr 为空）」——这是假绿**：进程根本没起来。
+   **归因方法（可复用）**：拿一个**未含本次改动的既有构建**做 A/B（`mp-ops-dead-ipc` 的 `win-unpacked`，同日 14:41 构建），它在同一环境下**表现完全相同**（rc=0、零输出）⇒ 证伪「本次改动导致启动失败」，把矛头转向环境。
+   **修法**：跑 QM-1 启动验证前 `Remove-Item Env:ELECTRON_RUN_AS_NODE`，并把**剔除该变量后的 env** 显式传给子进程；**判据必须同时要求「窗口期内仍存活」**，提前退出即 FAIL（对齐 `scripts/qm1-scheduled-publish-verify.cjs` 的 `bad('进程提前退出：code=… signal=…')`）。
+   **教训**：QM-1 三层判据（①红线 ②非空即 NEEDS_REVIEW ③空才 PASS）解决的是「stderr 内容」的判法，**它默认「进程还活着」这个前提**；前提本身要单独断言。只看输出不看存活，等于给「根本没跑起来」判通过。
+
+2. **`Get-Process` 与 `tasklist` 对已退出的进程可能给出不一致的残留条目，以 `tasklist` 实况为准。**
+   终止 Electron 后 `Get-Process -Name` 仍报 1 个、`Get-Process -Id` 说 gone、`tasklist` 显示 36 MB 活着，`Stop-Process` 报「找不到进程标识符」。最终 `taskkill /PID` 报 not found、`tasklist` 变 "No tasks are running" ⇒ 那条是残留条目。**判活/判死都要交叉核对两个工具**，别在残留条目上反复重试。
+   另：Electron 一个实例会留 main + GPU + renderer 多个**同名**进程，收尾要**按 PID**逐个终止（先确认 before 计数，确认全部属于本轮），终止后复核计数归 0——按名字批量 kill 会误杀其他 worktree 里用户正在用的实例。
+
+## 把「触发手段」当「发布内容」：头条标题被追加时间戳后 4 位（fix-toutiao-title-suffix，2026-10-15）
+
+1. **⛔ RPA 里「为了让页面动起来而临时造的值」必须与「要发布的内容」隔离，否则它会原样出现在用户作品里（pitfall，真机事故）。**
+   真机事实：头条图文标题「DeepSeek崩了」发布后在头条号后台变成「DeepSeek崩了 1935」。
+   病灶是 `publishViaPageXhr` 里「触发页面自动保存」的那段脚本 ——
+   `s.call(ta, (ta.value||'').slice(0,26)+' '+Date.now().toString().slice(-4))`，
+   然后**从不还原**。页面 React 据此发出自动保存，本仓 hook 捕获其 body 到
+   `window.__lastSaveBody`，重放脚本「原样重放」（只改 `save=0→1`），
+   **标题字段一并带出** ⇒ 平台收到的就是污染值。1935 正是当时的 epoch 毫秒后 4 位。
+   **教训**：这类代码的注释写着「复刻诊断脚本成功路径」、还被 `// ⭐` 标成成功经验，
+   读起来完全不像 bug 位。评审看到的是「有注释、有真机依据」，不会问
+   「这个值最终会不会发给平台」。**新增任何「改页面值以触发行为」的 RPA 代码前，
+   必须先回答那个问题**；答案是「会」，就必须满足：不可见（零宽字符）+ 同帧内还原
+   （还原是脚本最后一步，且还原后再派发一次 input，React 末次 onChange 才是正确值）
+   + 零截断 + 禁时钟。
+
+2. **「提交成功」验证与「内容正确」验证是两件事，只验前者会让这类 bug 活到生产。**
+   2026-10-03 真机验证过「save=1 → code=0 提交成功」，验证的是**提交是否成功**；
+   没有回查**平台后台的标题文本**是否与原文一致。判据缺口：现有断言全是
+   「我们发出了什么」，没有「平台收到后应回显什么」。
+   **正解**：在提交前加一道「body `title=` 解码后 === `article.title`」的兜底覆盖
+   （Node 侧第二道闸，不依赖时序假设，防页面自动保存抢跑），并在测试里断言
+   **真正 POST 出去的 body** 的每一次 `title=` 都是原值。
+
+3. **`_fillInput` 的读回校验防「没填进去」，防不了「填进去了但值被改写」。**
+   它的判据是「读回长度 0 且待填值非空即抛错」——本案标题框里始终有值
+   （只是值被追加了 4 位数字），读回长度恒 > 0 ⇒ 这道既有校验对此类污染**结构性失明**。
+   **教训**：读回类校验必须判**值相等**，不能只判**长度非零**；只判长度的校验
+   对「值被污染」这一类是完全无效的。
+
+4. **测试沙箱复刻真机语义差一点，锁就假绿（本次连踩三处）。**
+   ① 标题框的 `value` 访问器必须定义在 **prototype** 上（脚本经
+   `Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value')` 取 setter）——
+   我的假元素一开始把 `value` 当自有属性，setter 调用静默无效，还原判据全绿但什么都没验；
+   ② 必须复刻 React 的 `inputValueTracking` 判据（只有「本次值 != 上次 React 见过的值」
+   才派发 onChange），否则「还原后再派发 input」这一步看起来是多余的，锁不住它的必要性；
+   ③ 必须复刻「React 收到 input 后**异步**发出自动保存 XHR」的竞态，否则
+   `__lastSaveBody` 永远是初始污染值，第二道闸被绕过。
+   **教训**：凡测试要验「页面框架的某个隐式行为」，沙箱必须先复刻那个行为本身，
+   否则测到的是自己在测试里写的假设。
+
+5. **变异反证要真的跑一次，不能只写「已做」。**
+   本轮把扰动值改回事故写法后跑回归锁：**4 条立刻变红**（B 组 1 条 + D 组 3 条结构锁）。
+   跑之前我以为「E 组端到端会红」，实际红的是结构锁那几条——**猜的与实测的不一致**，
+   所以这一步不能省。（另：`git checkout -- <file>` 会把修复一起回掉，
+   变异后恢复要用 `Copy-Item` 备份/还原，别用 checkout。）
+## 混合 PR 的「热点载体」隔离：执行记录自登记，两个追加型热点文件一个字都不碰（publish-add-account-entry，2026-10-15）
+
+1. **混合 PR（代码 + 文档）不要碰 `.quality-gates.md` 与 `scripts/gate-record-debt-ledger.json`。**
+   这两个是全体会话的共同追加重点，带了就必然冲突，且本刀第一次实测 `QG Changes` **fail 19s**，报的是
+   `存在未登记的欠账：38 [PENDING] <我的记录标题>` —— 因为我往 `.quality-gates.md` 写了带
+   `| 远程同步 | PENDING |` 表格行的记录块，而它属于**历史单文件源**，必须同时在外部 ledger 登记。
+   正解两步：① 执行记录住进自己的新文件 `openspec/records/<slug>.md`，它属于**记录文件源**，
+   靠**自己的 frontmatter** `sync_reason` + `sync_backfill_owner`（都不能为空串，fail-closed）即视为已登记，
+   `ledger: {}` 也能过（判据见 `check-gate-record-debt.test.js:311-335`）；② 用
+   `git show origin/main:<path>` 把 `.quality-gates.md` 覆盖回上游版本，使该文件相对 origin/main 的 diff 为 **0/0**。
+   本刀照此修完后：diff 从 13 文件收缩到 12 文件、`behind=0 ahead=1`、欠账门禁 **49/49**。
+
+2. **`git rebase` 的 ours/theirs 与 `git merge` 相反，冲突解决必须靠"删标记行"而不是"取某一侧"。**
+   rebase 时 `HEAD`/`--ours` = 新的 base（上游），`>>>>>>>`/`--theirs` = 正在被重放的我的提交。
+   追加型文件（`.quality-gates.md` / `CHANGELOG.md`）的冲突，正确解法是**删掉三个标记行、两侧内容全保留**；
+   用 `checkout --theirs` 会拿我的旧版覆盖上游，静默撤销别人的已合并记录。
+   实操判据：`grep -c '^<<<<<<<' <file>` 必须归 0，且上游块（如 `gate9-ratchet`）与我的块都要仍在。
+   另外 CRLF 文件的 `=======` 行实际是 `=======\r`，正则必须容忍 `\r` 否则漏匹配、标记残留。
+
+3. **`git diff --name-only origin/main` 里出现别人的文件 ≠ 我把它们加进了 commit。**
+   本刀遇到一次：diff 列出 `gate9-ratchet.md`、`verify-platform-onboarding.js` 等一堆陌生文件，
+   但 `git show --stat HEAD` 显示我的 commit 只有 12 个文件、`git status` 全干净。
+   根因是**本地 origin/main ref 过期**（其他会话合并了 3 笔，我 `behind=3 ahead=1`）。
+   判据：`git rev-list --left-right --count origin/main...HEAD` 的第二个数（behind）> 0 就先
+   `git fetch && git rebase origin/main`；rebase 干净后 diff 会收缩到只剩自己的文件。
+
+4. **pre-commit 钩子有个隐藏成本：`.ccg/reviews/` 堆积会让 commit "卡住"4 分钟以上。**
+   `.git/hooks/pre-commit` 末尾对 `.ccg/reviews/*.json` **逐个**跑 `git ls-files` + `git diff`
+   （目的是把判定记录 stage 进同一个提交）。本 worktree 有 **553 个** json ⇒ **1106 次 git 子进程**，
+   实测单次循环 **232 秒**。第一次 commit 我误判成死锁并 kill 了钩子进程，重试后发现它只是在推进。
+   **判据**：commit 看似卡住时，先 `Get-CimInstance Win32_Process` 找 `bash <repo>/.git/hooks/pre-commit`
+   的 PID，看 CPU 是否在涨——在涨就是在跑，不是死锁；不要轻易 kill（会中断一次本可成功的提交），
+   也不要改钩子（属流程改动）。若确需跳过，官方开关是 `SKIP_CCG_GATE=1`（`ccg-gate.js:20` 明示），
+   而不是我第一直觉写的 `MP_SKIP_CCG_DEEP_REVIEW`（不存在，设了照样跑）。
+
+5. **「切回发布页内容不丢」这类需求，先查宿主是否已经保证了，不要新建机制。**
+   本刀需求含"切回发布页内容不丢"，实测 `App.vue:72-76` 的 `v-show` + `keep-alive :include="['Publish']`
+   已经保证（切标签只是 `display:none`，实例不销毁，行为锁 `publish-tab-state-keepalive.test.js` 含
+   `setupCalls === 1` 反证）。若没读这一条就"顺手"给刷新路径加重置逻辑，那是**破坏性**的。
+   PRD 把这条写进 §4.2 就是为了防将来有人手滑。
+
+6. **判断"视觉门禁能否覆盖我的改动"不能靠推断 profile，要用 DOM 探针实测目标分支是否被渲染。**
+   本刀 PRD 初版写「CI 空 profile ⇒ 每平台都是空态 ⇒ 新增 DOM 必改像素基线，需重建基线并自证 0 px」。
+   实测**前提为假**：`tests/e2e/fixtures/accounts.json` 提供 8 个账号、`ipc-mock.js` 无清空机制，
+   而 `usePlatformSelection.js:54` 硬编码预勾选 `['wechat_mp']` 且该平台在 fixture 里恰好有账号
+   ⇒ `publish-form` 默认截图走"有账号"正常分支，空态 DOM **一次都不渲染**（探针实测默认态计数 0，
+   勾选全部 15 平台后为 8 = `15-7`）。像素 `misMatchPercentage=0.58%` 且变化像素全在表单输入区、
+   右侧目标面板为 0。**那个 PASSED 只证明"正常态无回归"，不构成空态无回归的证据**——
+   若照抄初版结论去重建基线，会是一次无意义且破坏性的大改动。
+
 ## 逐文件行数门禁的真实上限、rebase 冲突标记自检，与「不带热点载体」的二次验证（ops-url-split，2026-10-15）
 
 1. **逐文件行数门禁的真实上限 = 登记值 + 容差，且它数的是 `split('\n').length`（结尾换行多算 1）。**
@@ -19137,6 +19329,79 @@ mock 之后测试 realm 里一次 PBKDF2 都没真跑过，于是 `listAccounts(
 **判据**：复用函数到批量场景前，问「这个函数为一个元素付多少 IO / 多少 CPU？N 个元素总成本多少？」
 答不上来就不许复用。**推论**：详情函数与列表函数应当是两个入口（本轮落为 `getAccountProxyStatus` 单条 vs `loadProxyStatuses` 批量并行），
 而不是同一个函数被两个不同量级的场景共享。
+
+## 放松一个数值，必须同批修掉它牵出的每一道闸门（publish-frequency-policy-v3，2026-10-15）
+
+### lesson:number-relaxation-must-ship-with-its-coupled-gates
+
+【教训】发布频率 v3 把账号档从 20′/10′/3′ 收到 5′/3′/1′、日配额 ×10。真正难的不是改数，
+而是**同一批必须一起改的两道闸门**：
+① **D1**：`Promise.race([执行器, 超时])` 被超时判输时请求仍在飞，而回滚判据读的是
+「有没有打点」—— 间隔从 20′ 收到 1–5′ 后，这条缺陷的**触发窗口提前了一个量级**，
+先改数不改判据等于把已存在的事故面放大。
+② **回滚许可**：`_rollbackCap = max(2, dailyMax)` 把"每日允许几次把窗口退回去"绑在日配额上，
+日配额 ×10 会让这道**防重试风暴的闸**跟着 ×10（短内容档 20→200 次/天）。
+**判据**：改任何"限额型"数值前，先全仓找「同一个数值被推导成第二道闸」的落点
+（`grep` 该字段名的所有**使用点**而不是所有**赋值点**）。凡是「A 的上界由 B 推导」而 B 正在被你调大，
+那次调整就已经把 A 改了 —— 而 A 的语义（安全）与 B 的语义（运营量级）根本不是一回事。
+**推论**：这类"耦合闸门"不能拆成后续 PR。放数值与收闸门分两次提交，中间那个状态是净放松，
+而人会以为只是"还没做完"。
+
+### pitfall:late-signal-lookup-by-container-key-silently-dies
+
+【陷阱】用「容器键查对象」实现的**打点/信号**，在对象被移出容器的瞬间就永久失效，
+而调用方看不出来 —— 它只是"没生效"，不报错。
+`markSubmitAttempted(taskId)` 实现是 `const task = this._running.get(taskId); if (task) task.submitAttempted = true`。
+超时路径：`finally` 里 `this._running.delete(task.id)` 先执行，执行器随后才走到"我确实发出了请求"那一行，
+于是打点落到 `undefined` 上、静默丢弃，判据据此认定"从未发起"并回滚频控窗口 ⇒ 重复发布。
+**判据**：凡是「A 侧异步写标记、B 侧读标记做决策」的配对，问两句 ——
+①标记的存储生命周期是否**覆盖**决策时刻（覆盖不到就是死探针）；
+②决策能不能**不依赖**那个标记（能依赖就别依赖：本案真正的信息是"竞态结束时执行器是否已收敛"，
+队列本来就知道，根本不需要等打点）。
+第②条是本案的修法，也是 D3 决策的来源：不去修打点管道，而是改判据方向 —— 修管道等于赌
+"迟到打点总在读判据之前到"，那是把竞态换成另一个竞态。
+
+### pitfall:mutation-driver-zero-hits-first-prove-the-probe-can-see-red
+
+【陷阱】变异驱动报「9 条 MISSED」，实际是**驱动自己叫不出红的是哪几条**：
+vitest 的 `FAIL` 行带 ANSI 颜色码，正则 `/FAIL\s+\S+\.test\.js > .../` 在 `FAIL` 与路径之间
+撞上转义序列 ⇒ `rc=1`（确实有测试失败）却 `red=0`（一条名字都没抓到），
+于是"锁没牙"和"探针失明"在输出里完全同形。
+**判据**：驱动必须有三件事，缺一就不要读它的结论 ——
+①**未变异正控**：跑变异前先证明"基线全绿 + 解析器此时应当报 0 条红"，
+把"0 命中"从默认值变成一次被验证过的读数；
+②**独立档位**：`rc≠0 或 failedCount>0 但名字集为空` ⇒ 报 `PROBE_BLIND`，绝不并入 `MISSED`；
+③**汇总行按被调用方自己打印的东西取数**（这里用 `Tests  N failed | M passed` 的 N 做交叉核对），
+不要只用一个来源。
+同族第二次落点：本轮另有三条"期望写错"被误读成锁失效 —— M2 认领了一条根本不经该判据的守卫用例、
+M7 期望「平台档集合大小」变化而 clip 档退回后集合仍是三值、M10 期望终身锁变红而它读的是
+未被该变异触及的 sticky 分支。**结论**：`MISSED` 先分诊"红集与变异语义是否自洽"，
+再问"锁是不是装饰"；三条都按实测改正期望，但**不改断言去凑红**，并把"M7 抓不到 / M10 不该抓到"
+如实写进 PRD 与记录 —— 覆盖面事实比一个恰好全绿的表更有用。
+
+### pitfall:state-that-lives-only-in-a-timer-closure-is-invisible-and-lost
+
+【陷阱】"退避等待中的任务"只登记了 `setTimeout` 句柄，没有登记进任何可枚举的承载结构 ⇒
+整个 grace 期（默认 60s）内 `getStatus()` / `getPendingTasks()` / `serialize()` 看不见它，
+`cancel()` 也取消不了它；重启即静默丢失，而界面表现为"排队中凭空少一条"，没有任何报错。
+这条不是设计出来的，是**实测 D1 时撞出来的**：为了断言"超时后任务仍可查"才去取任务，
+结果 `findLiveTask` 返回 `undefined`。
+**判据**：任何"任务/资源处于某种等待态"的实现，落地前问「它现在**住在哪个可枚举的容器里**？」
+答"住在闭包里"就是缺陷。修法优先**复用既有承载结构**（本案复用 `_delayed` ——
+它是 2026-10-06 为"频控等待中的任务"定的唯一承载处，`serialize` / `cancel` / `emergencyRelease`
+四个消费点都已按它实现），另造一份会让四个消费点各改一遍并必然漂移。
+
+### lesson:stale-must-not-in-main-spec-is-a-real-hazard
+
+【教训】主干规格 `openspec/specs/publish-frequency-control/spec.md` 写着
+「任务失败、超时或被中止 MUST NOT 回滚该记账」，而 v2（P0-1）实现了"未提交失败免等重试"的回滚 ——
+**例外是合法的，但规格从未同步**。后果不是"文档旧了"，而是下一个会话读到一条与代码相反的 MUST，
+它会得出"代码违反了规格"的错误归因，或者照规格去删掉合法的回滚。
+**判据**：实现给某条 MUST 开例外时，同一次 PR 里改掉主干规格那句 MUST
+（写成"失败本身不构成回滚理由；唯一例外需确证未送出，且不得由获益方自行声明"），
+而不是只写增量规格。反过来，**也不要**在这次顺手把 v3 全部新增条款塞进主干：
+v2 的 change 尚未归档，主干只 6 条 Requirement 且不含日配额/抖动 —— 塞进去会让主干
+同时"缺 v2、多 v3"，比滞后更难读。判据是**改掉说谎的那句**，不是"补齐所有差异"。
 
 ### 2026-10-14：一条把洞写成"受保护形态"的锁，改它时不能只翻期望值
 

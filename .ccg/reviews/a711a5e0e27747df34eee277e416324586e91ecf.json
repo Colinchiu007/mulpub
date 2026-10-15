@@ -1,0 +1,34 @@
+{
+  "sha": "a711a5e0e27747df34eee277e416324586e91ecf",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 492 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 492,
+    "fileCount": 11,
+    "codeFileCount": 9,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 12,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "**★ 一处方法教训（本轮第三次犯同型）**：我用 `node … | Select-Object` 之后读"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "8ac24116119e3f1a8e979b0cf3bb3aa422757e1bd4ff55a88f5617cb9e2ea7e0",
+  "decidedAt": "2026-10-15T10:20:31.086Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "needs_revision",
+    "performedBy": "agent-adjudication",
+    "confidenceWeight": 0.6,
+    "findingsTotal": 7,
+    "findingsUpheld": 7,
+    "engineStatusBeforeAdjudication": "self_play_pending",
+    "adjudicationLocation": "openspec/records/fix-ccg-decider-defects.md（裁决 7 条逐条表；原始 JSON 在 .adversarial/，已 gitignore）",
+    "note": "本记录描述的是 rebase 前那次提交的改动集（mode=dual，492 行）；深度审查已真实跑过，critique 7 条经逐条核实 7/7 upheld 并全部处置。★ 已知不一致：本文件名是【父提交 sha】，而 rebase 改写了提交 sha ⇒ 文件名指向的父提交已不在当前历史中，stagedDiffHash 也不对应 rebase 后的 diff。这是「记录名 = 父 sha」这一设计在 rebase 下的固有失真，已在执行记录中登记。**未**取得引擎侧终审，故不写成 cleared。",
+    "at": "2026-10-15T10:34:24.415Z"
+  }
+}

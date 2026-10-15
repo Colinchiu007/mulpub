@@ -70,6 +70,8 @@ function resolveTrustAnchor (configuredPem, devFallbackKey) {
  * 「运营同步对用户透明：配置卡片已隐藏」）。于是打包版**不存在任何可达的配置路径**，
  * `resolveTrustAnchor` 必然返回 NO_PRODUCTION_TRUST_ANCHOR ⇒ 生产版整份运行时策略
  * fail-closed 不应用。**这是既存的生产洞，不是新引入的问题。**
+ * （2026-10-15 更新：该 IPC 连同 `ops-center-sync:get` / `:now` 一并删除 —— 渲染端对三个
+ *  封装的调用数盘点为 0。写入路径自此只剩部署层，设置项降为「仅兼容既有安装与企业预置」。）
  *
  * 部署层来源与 `opsCenterUrl` 同机制：`config/identity-public.json` 的 `runtimePublicKey`
  * （打包进 `resources/config/`），可经环境变量 `RUNTIME_PUBLIC_KEY` 覆盖。设置项作为

@@ -1,0 +1,1970 @@
+{
+  "total": 153,
+  "routes": [
+    {
+      "path": "/api/auth/change-password",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/auth/login",
+      "methods": [
+        "POST"
+      ],
+      "auth": [],
+      "auth_kinds": [],
+      "other_deps": []
+    },
+    {
+      "path": "/api/auth/logout",
+      "methods": [
+        "POST"
+      ],
+      "auth": [],
+      "auth_kinds": [],
+      "other_deps": []
+    },
+    {
+      "path": "/api/auth/me",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/auth/session",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/announcements",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/announcements",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/announcements/{announcement_id}",
+      "methods": [
+        "DELETE"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/announcements/{announcement_id}",
+      "methods": [
+        "PUT"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/app-menu",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/app-menu",
+      "methods": [
+        "PUT"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/app-menu/reset",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/config/audit-log",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/config/batch",
+      "methods": [
+        "PUT"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/config/projects",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/config/{project_code}",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/config/{project_code}/{category}/{key}",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/config/{project_code}/{category}/{key}",
+      "methods": [
+        "PUT"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/content-categories",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/content-categories",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/content-categories/reset",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/content-categories/{category_key}",
+      "methods": [
+        "DELETE"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/content-categories/{category_key}",
+      "methods": [
+        "PUT"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/content-categories/{category_key}/reorder",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/content-policy",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/content-policy",
+      "methods": [
+        "PUT"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/content-templates",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/content-templates",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/content-templates/{template_id}",
+      "methods": [
+        "DELETE"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/content-templates/{template_id}",
+      "methods": [
+        "PUT"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/diagnostics/ingest",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "require_catalog_key"
+      ],
+      "auth_kinds": [
+        "apikey"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/diagnostics/samples",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/diagnostics/summary",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/env",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/env/{project_code}",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/feature-flags",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/feature-flags",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/feature-flags/{key}",
+      "methods": [
+        "DELETE"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/feature-flags/{key}",
+      "methods": [
+        "PUT"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/feedback",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/feedback",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "require_catalog_key"
+      ],
+      "auth_kinds": [
+        "apikey"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/feedback/{feedback_id}",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/feedback/{feedback_id}/attachment",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/keyword-watchlist",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/keyword-watchlist",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/keyword-watchlist/{entry_id}",
+      "methods": [
+        "DELETE"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/keyword-watchlist/{entry_id}",
+      "methods": [
+        "PUT"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/licenses",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/licenses",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/licenses/{license_id}",
+      "methods": [
+        "DELETE"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/licenses/{license_id}",
+      "methods": [
+        "PUT"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/licenses/{license_id}/reveal",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/member/grants",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/model-presets",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/model-presets",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/model-presets/catalog",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "verify_bearer_or_catalog_key"
+      ],
+      "auth_kinds": [
+        "dual"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/model-presets/{preset_id}",
+      "methods": [
+        "DELETE"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/model-presets/{preset_id}",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/model-presets/{preset_id}",
+      "methods": [
+        "PUT"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/model-presets/{preset_id}/fetch-models",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/model-presets/{preset_id}/reorder",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/model-presets/{preset_id}/test",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/pipeline-dependencies",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/pipeline-dependencies",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/pipeline-dependencies/{entry_id}",
+      "methods": [
+        "DELETE"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/pipeline-dependencies/{entry_id}",
+      "methods": [
+        "PUT"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/pipeline-options",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/pipeline-options",
+      "methods": [
+        "PUT"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/platform-defs",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/platform-defs",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/platform-defs/{def_id}",
+      "methods": [
+        "DELETE"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/platform-defs/{def_id}",
+      "methods": [
+        "PUT"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/prompt-eval/cases",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/prompt-eval/cases",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/prompt-eval/cases/{case_id}",
+      "methods": [
+        "DELETE"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/prompt-eval/cases/{case_id}",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/prompt-eval/cases/{case_id}",
+      "methods": [
+        "PUT"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/prompt-eval/cases/{case_id}/runs",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/prompt-eval/cases/{case_id}/runs",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/prompt-eval/cases/{case_id}/scenes/{scene_id}/runs",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/prompt-eval/cases/{case_id}/scenes/{scene_id}/translate",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/prompt-eval/cases/{case_id}/translate",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/prompt-eval/engine/status",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/prompt-eval/media/{name}",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/prompt-eval/providers",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/prompt-eval/providers",
+      "methods": [
+        "PUT"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/prompt-eval/providers/test",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/prompt-eval/providers/{key_id}",
+      "methods": [
+        "DELETE"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/prompt-eval/providers/{key_id}/default",
+      "methods": [
+        "PUT"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/prompt-eval/runs/{run_id}",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/prompt-eval/summary",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/publish/ingest",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "require_catalog_key"
+      ],
+      "auth_kinds": [
+        "apikey"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/publish/summary",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/quality-eval/evaluate",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/quality-eval/records",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/quality-eval/stats",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/redemption-codes",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/redemption-codes/batch",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/redemption-codes/disable",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/rewrite-ai-taste",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/rewrite-ai-taste",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/rewrite-ai-taste/import",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/rewrite-ai-taste/runtime",
+      "methods": [
+        "GET"
+      ],
+      "auth": [],
+      "auth_kinds": [],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/rewrite-ai-taste/{word}",
+      "methods": [
+        "DELETE"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/rewrite-ai-taste/{word}",
+      "methods": [
+        "PUT"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/rewrite-ai-taste/{word}/toggle",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/rewrite-hard-constraints",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/rewrite-hard-constraints",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/rewrite-hard-constraints/runtime",
+      "methods": [
+        "GET"
+      ],
+      "auth": [],
+      "auth_kinds": [],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/rewrite-hard-constraints/{constraint_id}",
+      "methods": [
+        "DELETE"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/rewrite-hard-constraints/{constraint_id}",
+      "methods": [
+        "PUT"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/rewrite-hard-constraints/{constraint_id}/set-default",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/rewrite-strategies",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/rewrite-strategies",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/rewrite-strategies/runtime",
+      "methods": [
+        "GET"
+      ],
+      "auth": [],
+      "auth_kinds": [],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/rewrite-strategies/{strategy_id}",
+      "methods": [
+        "DELETE"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/rewrite-strategies/{strategy_id}",
+      "methods": [
+        "PUT"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/rewrite-strategies/{strategy_id}/toggle",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/runtime/ack",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "verify_bearer_or_catalog_key"
+      ],
+      "auth_kinds": [
+        "dual"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/runtime/bootstrap",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "verify_bearer_or_catalog_key"
+      ],
+      "auth_kinds": [
+        "dual"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/runtime/rollout",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/scene-context/rules",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/scene-context/rules",
+      "methods": [
+        "PUT"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/scene-context/rules/export",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/scene-context/rules/validate",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/scheduler/contract",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/scheduler/verify",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/scheduler/verify",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "get_current_user_optional"
+      ],
+      "auth_kinds": [
+        "session-optional"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/scheduler/verify/{run_id}",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/secrets",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/secrets",
+      "methods": [
+        "PUT"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/secrets/summary",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/secrets/{key_id}",
+      "methods": [
+        "DELETE"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/secrets/{key_id}",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/secrets/{key_id}",
+      "methods": [
+        "PUT"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/secrets/{key_id}/reveal",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/snapshots",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/snapshots",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/snapshots/diff",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/snapshots/{snapshot_id}",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/snapshots/{snapshot_id}/restore",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/sync/feature-gates",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/sync/platforms",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/sync/status",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/sync/{project_code}/params",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/system/health",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/telemetry/degradation",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "verify_bearer_or_catalog_key"
+      ],
+      "auth_kinds": [
+        "dual"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/telemetry/degradation/summary",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/update-policy",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/update-policy",
+      "methods": [
+        "PUT"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/usage/ingest",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "require_catalog_key"
+      ],
+      "auth_kinds": [
+        "apikey"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/usage/summary",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/health",
+      "methods": [
+        "GET"
+      ],
+      "auth": [],
+      "auth_kinds": [],
+      "other_deps": []
+    }
+  ]
+}
