@@ -31,7 +31,7 @@ export default {
       unset: 'Not overridden',
       overrideScopeHint: 'These fields apply to **all platforms**; leaving one empty means that dimension is not overridden (each platform keeps its own default tier). Fill in only what you want to change — untouched fields are not cleared.',
       platformInterval: 'Cross-account platform interval (minutes, 0 = off)',
-      platformIntervalHint: 'For the same account the stricter of "account interval" and this value applies: by default the account tier is stricter, so this changes nothing — but if you set it above the account tier, same-account publishing gets limited by it too.',
+      platformIntervalHint: 'For the same account the stricter of "account interval" and this value applies: by default no tier\'s account interval is shorter than this value (for short content they are equal), so the account tier normally decides — but if you set it above the account tier, same-account publishing gets limited by it too.',
       dailyMaxLong: 'Daily limit for long-form tier (0 = unlimited)',
       dailyMaxClip: 'Daily limit for short-video tier (0 = unlimited)',
       dailyMaxShort: 'Daily limit for short-form tier (0 = unlimited)',

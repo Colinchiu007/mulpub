@@ -511,6 +511,25 @@ describe('PublishIntervalGuard v2', () => {
       }
     })
 
+    test('v4：三档真实日配额下回滚许可仍恒等于封顶（配额抬高不得放大许可）', () => {
+      // 上一条锁测的是"真表读数 > 封顶"这个**前提**；这条测前提成立后的**结果**：
+      // 直接把真实策略接进守卫，逐档读 `_rollbackCap`，防止有人把公式改回 `max(2, dailyMax)`
+      // —— v4 下那会长成 200/350/500，而用户看到的是"每天能发 500 条"，
+      // 不是"每天能撤销 500 次窗口"。两者混为一谈正是 v3 立这条硬顶的理由。
+      const policyModule = require('../src/publish-frequency-policy')
+      const guard = exactGuard({
+        policy: (p) => policyModule.resolveIntervals(p, { env: {} }),
+      })
+      const BY_TIER = { long: 'wechat_mp', clip: 'douyin', short: 'weibo' }
+      for (const [tier, platform] of Object.entries(BY_TIER)) {
+        const dailyMax = policyModule.resolveIntervals(platform, { env: {} }).accountDailyMax
+        expect(guard._rollbackCap(platform), `${tier}=${platform} dailyMax=${dailyMax}`)
+          .toBe(PublishIntervalGuard.MAX_ROLLBACK_PER_DAY)
+      }
+      // 封顶本身也得钉住：它是"许可"的唯一上界，改它等于改这道闸的强度
+      expect(PublishIntervalGuard.MAX_ROLLBACK_PER_DAY).toBe(5)
+    })
+
     test('_intervals 必须回传 tier —— 设置页按档位分组显示（QM-6 前端轴 C2）', () => {
       // 现场缺陷：`ipc-handlers/publish-frequency.js` 把 `_intervals(p)` 的返回原样发给渲染层，
       // 而 `PublishFrequencySettings.vue::currentTierText` 读 `v.tier` 拼文案。
@@ -518,7 +537,8 @@ describe('PublishIntervalGuard v2', () => {
       // 测试桩当时**注入了生产不存在的 tier**，所以四层测试全绿而 100% 复现（测试替身补字段）。
       const guard = exactGuard({ policy: (p) => require('../src/publish-frequency-policy').resolveIntervals(p, { env: {} }) })
       expect(guard._intervals('wechat_mp')).toEqual({
-        tier: 'long', accountMinMs: 5 * 60 * 1000, platformMinMs: 3 * 60 * 1000, accountDailyMax: 30,
+        // v4：账号档 5′ 不变，平台档统一 1′，长文日配额由 30 抬到 200
+        tier: 'long', accountMinMs: 5 * 60 * 1000, platformMinMs: 1 * 60 * 1000, accountDailyMax: 200,
       })
       // 未登记平台：tier 取回落档名（不是 undefined），否则同一屏再次出现脏字
       const unknown = guard._intervals('not_registered')

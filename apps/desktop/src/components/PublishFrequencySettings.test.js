@@ -24,12 +24,12 @@ const POLICY_RES = {
   data: {
     // 夹具必须与**生产同形**（QM-6 前端轴 C2）：`platforms[p]` 就是
     // `ipc-handlers/publish-frequency.js` 把 `guard._intervals(p)` 原样转发的结果 ——
-    // v3 起该返回含 `tier`；曾因夹具自行补了一个生产不存在的 tier 而让「档位名渲染成 undefined」全绿过关。
-    // 数值也按 v3 量级写（5′/3′/1′、平台档 3′/2′/1′、日配额 30/50/200），避免夹具停在旧世界。
+    // v4 起该返回含 `tier`；曾因夹具自行补了一个生产不存在的 tier 而让「档位名渲染成 undefined」全绿过关。
+    // 数值按 v4 量级写（账号档 5′/3′/1′、平台档统一 1′、日配额 200/350/500），避免夹具停在旧世界。
     platforms: {
-      wechat_mp: { tier: 'long', accountMinMs: 5 * 60000, platformMinMs: 3 * 60000, accountDailyMax: 30 },
-      douyin: { tier: 'clip', accountMinMs: 3 * 60000, platformMinMs: 2 * 60000, accountDailyMax: 50 },
-      weibo: { tier: 'short', accountMinMs: 1 * 60000, platformMinMs: 1 * 60000, accountDailyMax: 200 },
+      wechat_mp: { tier: 'long', accountMinMs: 5 * 60000, platformMinMs: 1 * 60000, accountDailyMax: 200 },
+      douyin: { tier: 'clip', accountMinMs: 3 * 60000, platformMinMs: 1 * 60000, accountDailyMax: 350 },
+      weibo: { tier: 'short', accountMinMs: 1 * 60000, platformMinMs: 1 * 60000, accountDailyMax: 500 },
     },
     overrides: null,
     jitterRatio: 0.4,
@@ -104,7 +104,7 @@ describe('PublishFrequencySettings（publish-frequency-policy-v2 设置页）', 
   it('提示文字不得把旧默认值写成现状（QM-6 前端轴 C1：v3 后同屏矛盾）', async () => {
     const wrapper = await mountPage()
     const text = wrapper.text()
-    // 页面上方显示的是 30/50/200，alert 若仍写「3 / 5 / 20」就是同屏自相矛盾的可见假陈述
+    // 页面上方显示的是动态读数（v4 夹具：200/350/500），alert 若仍写「3 / 5 / 20」就是同屏自相矛盾的可见假陈述
     expect(text).not.toMatch(/默认值\s*3\s*\/\s*5\s*\/\s*20/)
     expect(text).not.toMatch(/Defaults\s*3\s*\/\s*5\s*\/\s*20/)
     // 且新文案必须把用户指回动态读数，而不是另写一份数
@@ -118,6 +118,10 @@ describe('PublishFrequencySettings（publish-frequency-policy-v2 设置页）', 
     // 旧文案那句「同账号时账号档恒更严，该值不改变结果」是被用户自己的输入可以打破的保证
     expect(text).not.toContain('该值不改变结果')
     expect(text).toContain('较严者')
+    // v4：短内容档的账号间隔与平台间隔**相等**（都是 1′），
+    // 所以"默认各档账号档**更**严"这句从 v4 起是不准确的可见陈述 —— 正确说法是"不低于"。
+    expect(text).not.toMatch(/默认各档账号档更严/)
+    expect(text).toContain('不低于')
   })
 
   it('读失败时显示错误且不渲染表单（不静默降级成默认值糊弄用户）', async () => {
