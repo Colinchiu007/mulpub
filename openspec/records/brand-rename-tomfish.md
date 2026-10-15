@@ -87,7 +87,21 @@ FAIL：渲染端新增 1 处硬编码中文字符串（基线 1374 条，当前 
 2. **直接跑 exe 静默退出 code=0、无任何输出** ⇒ 缺 `desktopDir` 应用路径参数，Electron 起来后无应用可加载。正解是用项目自己的 `apps/desktop/scripts/dev-launcher.js` 的 `buildElectronArgs` / `buildElectronEnv` 契约构造参数，而不是手搓；
 3. **同名单实例锁让第二个实例静默退出**（本机跑着 `mp-app-live2` 的实例）⇒ 用全量副本 + 改名 exe（`TomfishBrandProbe.exe`）绕开，产物逐字节一致。
 
-**已知边界（不假装已闭合）**：运行时欢迎页 DOM 未直接取到——CDP `/json/list` 受单实例锁竞争影响偶发返回 `[]`。最终以静态证据链兜底（asar `<title>` + locale 值 + 模板绑定），并如实登记；`fr-step-title` 的运行时渲染值未直接读到，其正确性由 V3/V5 与 `document.title`（一次成功抓到 = 「汤姆鱼」）间接保证。
+**已知边界（当时）**：运行时欢迎页 DOM 未直接取到——CDP `/json/list` 受单实例锁竞争影响偶发返回 `[]`。最终以静态证据链兜底（asar `<title>` + locale 值 + 模板绑定），并如实登记。
+
+**补记（同 PR 后续，像素层已闭合该边界）**：`QG Visual` 首跑判红两张基线（`first-run.png` 1490 px / 0.072%、`first-run-dark.png` 1504 px / 0.073%），**两轮均红 ⇒ 确定性漂移**（正是欢迎语改名的像素差，不是抖动）。从该 run 的 artifact（`quality-gate-visual-reports`）取权威渲染后自证：
+
+| 来源 | SHA-256 | 结论 |
+|---|---|---|
+| `screenshots-round1/first-run.png` | `516A661C…F2D0` | 与下两行**逐字节相同** |
+| `screenshots/first-run.png`（round2） | `516A661C…F2D0` | 两轮一致 |
+| `screenshots-round1/first-run-current.png` | `516A661C…F2D0` | 两套件一致 |
+| `screenshots-round1/first-run-dark-current.png` | `E8B55E2F…1210` | 与 round2 **逐字节相同** |
+| `screenshots/first-run-dark-current.png`（round2） | `E8B55E2F…1210` | 两轮一致 |
+
+两张图**人工审阅**确认：渲染正常（图标 / 三步列表 / 按钮 / 步骤点齐全，非空白或破损页），且标题显示为「**欢迎使用汤姆鱼**」，浅色与暗色一致 ⇒ **UI 上确实显示新品牌名，这是运行时证据**。随后按 CI 同源纪律重建两张基线（新基线 SHA-256 与上表逐字节一致，`git status` 仅这两条 M）。
+
+顺带记一条纪律失守与纠正：基线**只能取自 CI artifact，禁止用本机渲染**（AGENTS.md QM-4 第 7 条）。本会话曾在本机跑 `PIXEL_ONLY=first-run UPDATE_BASELINE=1`，**因 `test-runner.js` 的 `if (!fs.existsSync(baselinePath))` 守卫而未写盘**（该开关只在基线不存在时创建）——即机制本身挡住了这次误操作，不是靠自觉；随后改走 CI artifact 正源。这条要写进记忆：**「本机重捕」在实现层就是不可能覆盖已有基线的，遇到「基线过期」不要去找开关，直接走 CI artifact**。
 
 ## 顺带确认：两个预先存在的失败与本次无关
 

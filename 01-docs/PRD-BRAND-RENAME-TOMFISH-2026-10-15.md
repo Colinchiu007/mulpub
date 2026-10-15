@@ -211,19 +211,28 @@
 | A9 | asar 内 `<title>` = 汤姆鱼 | ✅ |
 | A10 | 变异反证通过（锁可证在跑） | ✅ |
 | A11 | glossary 术语登记并通过 L3 校验 | ✅ |
-| A12 | PRD / CHANGELOG / .quality-gates.md / openspec 五件套齐备 | 进行中 |
-| A13 | PR 合并 + 回填销账 | 待办 |
-| A14 | 记忆三路沉淀 + 回读验证 | 待办 |
+| A12 | PRD / CHANGELOG / .quality-gates.md / openspec 五件套齐备 | ✅ |
+| A13 | 品牌残留门禁 PASS + 记录债门禁 OK | ✅ |
+| A14 | CI 视觉渲染直接取证：浅/暗两档均显示「欢迎使用汤姆鱼」 | ✅ |
+| A15 | 视觉基线按 CI artifact 同源重建 + SHA-256 自证逐字节一致 | ✅ |
+| A16 | PR 合并 + 回填销账 | 待办 |
+| A17 | 记忆三路沉淀 + 回读验证 | 待办（EverOS 已完成并读回） |
 
 ---
 
 ## 10. 已知边界与风险
 
-1. **运行时欢迎页 DOM 未直接取证**：CDP 探针受同名单实例锁竞争影响（`/json/list` 偶发返回 `[]`），最终取静态证据链（asar `<title>` + locale 值 + 模板绑定）+ 一次成功抓到的运行时 `document.title`（= 汤姆鱼）。`fr-step-title` 的运行时渲染值未直接读到，正确性由 V3/V5 + A8/A9 间接保证。
-2. **CI 侧重型用例（E2E / 视觉）未在本地全跑**：需真实 Electron 窗口，由 CI 执行。
-3. **`Multi-Publish` 白名单是当前快照**：若未来某个白名单位置变成用户可见（如 UA 出现在 UI），需同步收紧白名单 —— 这正是用例 3 的存在意义。
-4. **用户本机仍跑着旧实例**：`mp-app-live2` worktree 的实例窗口标题还是「社媒管家」（旧代码），需用户重启该实例后才会显示新名。本次不改用户运行态。
-5. **`mavis-trash` 缺失**：本机回收后端不在 PATH，`safe-delete.js` 对本次探针脚本恒 FAILED（审计日志已记录）。探针脚本为 untracked 一次性产物，未纳入 PR；worktree 清理时按 R1-R5 流程处理。
+1. ~~**运行时欢迎页 DOM 未直接取证**~~ → **像素层已直接取证（2026-10-15 补记）**：文本层（`fr-step-title` 的 DOM 文本）仍以静态证据链（asar `<title>` + locale 值 + 模板绑定）+ 运行时 `document.title`（= 汤姆鱼）为准；而**像素层已拿到 CI 权威渲染**。
+   **补记（本 PR 的 Gate 7b round1/round2 渲染，已人工审阅）**：`QG Visual` 首跑判红两张基线（`first-run.png` 1490 px / 0.072%、`first-run-dark.png` 1504 px / 0.073%），两轮均红 ⇒ 判定为**确定性漂移**（正是欢迎语由「欢迎使用社媒管家」改为「欢迎使用汤姆鱼」造成的像素差）。从该 run 的 artifact（`quality-gate-visual-reports`）取权威渲染后：
+   - `screenshots-round1/first-run.png` ≡ `screenshots/first-run.png` ≡ `screenshots-round1/first-run-current.png`，SHA-256 同为 `516A661C…F2D0`（**三个来源逐字节相同**）；
+   - `screenshots-round1/first-run-dark-current.png` ≡ `screenshots/first-run-dark-current.png`，SHA-256 同为 `E8B55E2F…1210`（**两轮逐字节相同**）；
+   - 两张图**人工审阅确认**渲染正常（图标、三步列表、按钮、步骤点齐全，非空白/破损页）且标题显示为「**欢迎使用汤姆鱼**」（浅色与暗色一致）。
+   ⇒ **这项边界在像素层已闭合**：UI 上确实显示新品牌名，这是运行时证据，不再只是静态推断。
+2. **CI 侧重型用例（E2E / 视觉）未在本地全跑**：需真实 Electron 窗口与 CI 自建 dev server，由 CI 执行（本 PR 的 `QG Visual` / `QG Browser E2E` / `QG Desktop Shards` 即其证据）。
+3. **基线来源纪律**：视觉基线**只能取自 CI artifact，禁止用本机渲染**（AGENTS.md QM-4 第 7 条；本仓有 #2685 用本机重捕把 9 张基线漂掉的前例）。本次回填严格走「取 CI artifact → 人工审阅 → 替换 → 自证 SHA-256 与 CI 渲染逐字节一致」，且**只改这两张**（`git status` 仅这两条 M）。
+4. **`Multi-Publish` 白名单是当前快照**：若未来某个白名单位置变成用户可见（如 UA 出现在 UI），需同步收紧白名单 —— 这正是用例 3 的存在意义。
+5. **用户本机仍跑着旧实例**：`mp-app-live2` worktree 的实例窗口标题还是「社媒管家」（旧代码），需用户重启该实例后才会显示新名。本次不改用户运行态。
+6. **`mavis-trash` 缺失**：本机回收后端不在 PATH，`safe-delete.js` 对本次探针脚本恒 FAILED（审计日志已记录）。探针脚本为 untracked 一次性产物，已按 R0「不做目录递归删除」纪律**移出** worktree 至 `F:\Temp\brand-rename-holding-20261015\`（无损可逆），未纳入 PR。
 
 ---
 
