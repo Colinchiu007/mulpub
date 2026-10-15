@@ -407,6 +407,17 @@ POST /api/v1/publish 或 /api/v1/batch-publish
 （会吃掉 `#include <stdio.h>` 类代码片段）。全平台承载形态清单、审计矩阵与真机复核 runbook 见
 `01-docs/PRD-ARTICLE-BODY-FORMAT-2026-10-12.md`。
 
+> **⚠️ 2026-10-15 输入前提补充（`fix-article-paragraph-zhihu-publish`；用户对同一症状二次报障）**：
+> `formatArticleBody` 是**必要但非充分**的一层 —— 它只保证「**已经是多段**的内容」写进 HTML 字段时保形。
+> 若正文在**进入本链之前**就已塌成一段，本链会按「已是 HTML」幂等透传**那段单段**，段落无法恢复。
+> 真机取证（2026-10-15 20:40 发布，postId `1879119523718680476`）：公开页正文 `<p>`=**1**、
+> 正文 1055 字符 == 源文（1075 字符 / 10 个换行 / 6 段）去掉全部 `\n`，而同源复现 `buildArticleFormData`
+> 会产出 **6 个 `<p>`** ⇒ 塌陷发生在链路之前。
+> ⇒ 本链的**输入契约收紧**：`taskData.content` 若为 HTML，必须来自**保段**的上游
+> （渲染端富文本编辑器装载前经 `shared-utils` 的 `toHtmlBody`，接线点 `apps/desktop/src/components/ArticleEditor.vue`）。
+> 三层契约（装载保真 → 写入保形 → 平台渲染）见 `01-docs/PRD-ARTICLE-BODY-FORMAT-2026-10-12.md` §15；
+> 完整事故证据见 `01-docs/BUGFIX-ARTICLE-PARAGRAPH-AND-ZHIHU-PUBLISH-2026-10-15.md`。
+
 **私密优先（决策账验收口径）**：`opts.draft !== false` 时默认走 `save?callback=bjhdraft`
 草稿端点；显式 `draft:false` 才走 `publish`。验收首发一律私密草稿、人工确认后再正式。
 
