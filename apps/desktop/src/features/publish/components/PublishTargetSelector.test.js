@@ -80,6 +80,97 @@ describe('PublishTargetSelector', () => {
     expect(wrapper.text()).toContain('请先添加账号')
   })
 
+  // publish-add-account-entry（2026-10-15）：空态从「一句灰字」升级为「一句灰字 + 添加按钮
+  // + 刷新链接」。契约见 01-docs/PRD-PUBLISH-ADD-ACCOUNT-ENTRY-2026-10-15.md。
+  // 组件保持哑组件：两个出口都只 emit 事件，不碰 store、不 import tabStore。
+  describe('无账号平台的空态出口（添加 / 刷新）', () => {
+    const emptyGroups = [{
+      label: '国内平台',
+      items: [{ id: 'zhihu', label: '知乎', accounts: [] }],
+    }]
+
+    it('空态渲染「添加」按钮与「点击刷新」链接，且带 platformId 上报（L7）', async () => {
+      const wrapper = mount(PublishTargetSelector, {
+        props: { groups: emptyGroups, selectedPlatforms: ['zhihu'], selectedAccounts: {} },
+      })
+
+      const addBtn = wrapper.get('[data-testid="add-account-zhihu"]')
+      const refreshLink = wrapper.get('[data-testid="refresh-accounts-zhihu"]')
+      expect(addBtn.text()).toBe('添加')
+      expect(refreshLink.text()).toContain('已经添加成功？点击刷新')
+      expect(addBtn.attributes('aria-label')).toContain('知乎')
+
+      await addBtn.trigger('click')
+      await refreshLink.trigger('click')
+      expect(wrapper.emitted('add-account')).toEqual([['zhihu']])
+      expect(wrapper.emitted('refresh-accounts')).toEqual([['zhihu']])
+    })
+
+    it('有账号的平台不渲染这两个出口（L8）', () => {
+      // 注意：groups 常量里 zhihu 的 accounts 是空数组（那是空态用例的平台），
+      // 本条要断言的是"有账号"那一侧，必须用 wechat_mp（accounts 非空）。
+      const wrapper = mount(PublishTargetSelector, {
+        props: { groups, selectedPlatforms: ['wechat_mp'], selectedAccounts: {} },
+      })
+
+      expect(wrapper.find('[data-testid="add-account-wechat_mp"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="refresh-accounts-wechat_mp"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="account-wechat_mp-wx-1"]').exists()).toBe(true)
+    })
+
+    it('v-bind 合同：驼峰 on* 键名必须命中 kebab 事件名（Publish.vue 用 v-bind="addAccountBindings"）', async () => {
+      // 这是本次重构最脆的一环：Publish.vue 不再逐个写 @add-account/@refresh-accounts，
+      // 而是 v-bind 一个 { refreshingAccounts, onAddAccount, onRefreshAccounts } 对象。
+      // 该写法只有在 Vue 的 emit 归一化（camelize('add-account') → onAddAccount）成立时才对；
+      // 本用例把这个"应该会转"变成实测，避免将来键名漂移后事件静默失效。
+      const onAddAccount = vi.fn()
+      const onRefreshAccounts = vi.fn()
+      const wrapper = mount(PublishTargetSelector, {
+        props: {
+          groups: emptyGroups,
+          selectedPlatforms: ['zhihu'],
+          selectedAccounts: {},
+          refreshingAccounts: false,
+          onAddAccount,
+          onRefreshAccounts,
+        },
+      })
+
+      await wrapper.get('[data-testid="add-account-zhihu"]').trigger('click')
+      await wrapper.get('[data-testid="refresh-accounts-zhihu"]').trigger('click')
+
+      expect(onAddAccount).toHaveBeenCalledWith('zhihu')
+      expect(onRefreshAccounts).toHaveBeenCalledWith('zhihu')
+    })
+
+    it('disabled（发布中）时按钮与链接均禁用（L9）', () => {
+      const wrapper = mount(PublishTargetSelector, {
+        props: { groups: emptyGroups, selectedPlatforms: ['zhihu'], selectedAccounts: {}, disabled: true },
+      })
+
+      expect(wrapper.get('[data-testid="add-account-zhihu"]').element.disabled).toBe(true)
+      expect(wrapper.get('[data-testid="refresh-accounts-zhihu"]').element.disabled).toBe(true)
+    })
+
+    it('refreshingAccounts=true 时链接禁用、文案切「刷新中...」并带 aria-busy（L10）', () => {
+      const wrapper = mount(PublishTargetSelector, {
+        props: {
+          groups: emptyGroups,
+          selectedPlatforms: ['zhihu'],
+          selectedAccounts: {},
+          refreshingAccounts: true,
+        },
+      })
+
+      const link = wrapper.get('[data-testid="refresh-accounts-zhihu"]')
+      expect(link.element.disabled).toBe(true)
+      expect(link.text()).toBe('刷新中...')
+      expect(link.attributes('aria-busy')).toBe('true')
+      // 刷新中「添加」仍可用：用户可能想同时去加另一个平台
+      expect(wrapper.get('[data-testid="add-account-zhihu"]').element.disabled).toBe(false)
+    })
+  })
+
   it('停用账号显示「已停用」标记且复选框禁用', () => {
     const disabledGroups = [{
       label: '国内平台',

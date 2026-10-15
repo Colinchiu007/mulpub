@@ -1,9 +1,10 @@
 /**
  * usePublishGroupTargets.js — 发布页「按组添加」的接线层（P2-8b）
  *
- * 存在的理由：`Publish.vue` 的行数预算只剩约 30 行（`max-lines-baseline.json` 登记 1515、
- * 容差 200、实测 1686），而这段逻辑要读 store、要拼播报文案、要做分类；全塞进视图就是
- * 用一次 PR 吃掉整个增长预算。判据本体在
+ * 存在的理由：`Publish.vue` 的行数预算**实际为 0 行** —— `max-lines-baseline.json` 的 `targets`
+ * 已点名该文件（P2-8b 当时的「登记 1515 + 容差 200」口径已作废，`targets` 优先于登记且容差为 0，
+ * 超一行即 `TARGET_GREW`；2026-10-15 `publish-add-account-entry` 实测确认）。而这段逻辑要读
+ * store、要拼播报文案、要做分类；全塞进视图就是用一个 PR 吃掉整个增长预算。判据本体在
  * `@/features/publish/usePublishGroupApply`（纯函数），这里只做「store ↔ 视图」的桥。
  *
  * 三条不可移动的语义（成因见 PRD §二 / §三）：

@@ -530,6 +530,7 @@
                 @toggle-account="toggleAccount"
                 :account-groups="groupPickerItems"
                 @apply-group="applyGroupById"
+                v-bind="addAccountBindings"
               />
               <!-- 小红书仅存草稿（用户硬约束）：必须在勾选后当场说清，避免用户以为已经公开发布 -->
               <p v-if="selectedPlatforms.includes('xiaohongshu')" class="no-title-hint" data-testid="xhs-draft-only-hint">
@@ -731,6 +732,7 @@ import { useCoverPreview } from '@/composables/useCoverPreview'
 import { releaseEmbeddedViewsForOverlay, suspendEmbeddedViewsForOverlay } from '@/composables/useEmbeddedViewSuspension'
 import { usePlatformSelection } from '@/composables/usePlatformSelection'
 import { usePublishGroupTargets } from '@/composables/usePublishGroupTargets'
+import { usePublishAddAccountTargets } from '@/composables/usePublishAddAccountTargets'
 import { usePublishFlow } from '@/composables/usePublishFlow'
 import { useBatchPublish } from '@/composables/useBatchPublish'
 import { useHotTopicsDraftHandoff } from '@/composables/useHotTopicsDraftHandoff'
@@ -769,7 +771,7 @@ const { t } = useI18n()
 // 共用同一常量源，避免文案与实际校验漂移。2026-10-08 起按**所选平台**显示有效上限
 // （头条经平台 bundle 取证为 7 天；若 hint 仍显全局 30 天，用户按 30 天排期会被提交
 // 校验拒绝）。实现见 fieldSurface.hintTextFor（下方 fieldSurface 定义处接线）。
-const { notifySuccess, notifyWarning, notifyInfo } = useNotify()
+const { notifySuccess, notifyWarning, notifyInfo, notifyError } = useNotify()
 // 视频上传区 el-upload 实例（video/article 两个互斥分支共用一个 ref，同时只有一个渲染）。
 // limit=1 的「重选替换」需要经它 clearFiles + handleStart，否则 el-upload 静默丢弃新文件。
 const videoUploadRef = ref(null)
@@ -811,10 +813,8 @@ const accountStore = useAccountStore()
 const licenseStore = useLicenseStore()
 const { platforms, groupedPlatforms } = usePublishPlatformCatalog(platformStore, accountStore)
 
-// ── 多账号加载 ──────────────────────────
-async function loadAccounts () {
-  await accountStore.ensureLoaded()
-}
+// 无账号平台空态出口 + 账号列表加载：理由见 composables/usePublishAddAccountTargets 头部与 PRD-PUBLISH-ADD-ACCOUNT-ENTRY-2026-10-15.md
+const { addAccountBindings, loadAccounts } = usePublishAddAccountTargets({ accountStore, platformStore, isPublishing: () => publishing.value, notifyError, notifyWarning })
 
 // ── 非批量模式（本地 UI 状态） ────────────
 const article = reactive({
