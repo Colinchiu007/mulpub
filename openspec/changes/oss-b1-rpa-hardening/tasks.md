@@ -40,16 +40,16 @@
 ## PR-2：camofox 通道 + ddddocr sidecar（F3+F4，依赖 PR-1 合并）
 
 ### 6. sidecar-host 基建
-- [ ] 6.1 `electron/services/sidecar-host.js`：start(manifest)/health()/stop()/onExit；下载后 sha256 强制校验（拒落地）+ spawn 前完整性复检；Windows 受控路径复制后 spawn
-- [ ] 6.2 RED：spawn 失败/端口冲突/异常退出清理/sha256 不符拒落地/篡改拒 spawn 五态
-- [ ] 6.3 manifest 建表：camoufox（npm 版本→BUNDLED_CAMOUFOX_RELEASE+sha256）与 ddddocr（requirements 版本+模型 sha256）落 media-tools-lock 同级 speech-sidecar-lock.json
+- [x] 6.1 `electron/services/sidecar-host.js`：start(manifest)/health()/stop()/onExit；下载后 sha256 强制校验（拒落地）+ spawn 前完整性复检；Windows 受控路径复制后 spawn —— 181 行 + 测试 8 例，变异 5/5 CAUGHT；目录布局 `<workDir>/stage/<id>-<version>.bin`（下载后校验）与 `<workDir>/bin/<id>`（spawn 前复检 + spawn 目标）
+- [x] 6.2 RED：spawn 失败/端口冲突/异常退出清理/sha256 不符拒落地/篡改拒 spawn 五态 —— 五态全落；另锁 token 经 env 注入不经 argv（D4）与子进程 env 显式剔除 `ELECTRON_RUN_AS_NODE`
+- [x] 6.3 manifest 建表：camoufox（npm 版本→BUNDLED_CAMOUFOX_RELEASE+sha256）与 ddddocr（requirements 版本+模型 sha256）落 media-tools-lock 同级 speech-sidecar-lock.json —— 落 `apps/desktop/sidecar-lock.json`（按内容命名，未用 tasks 里的 speech- 前缀，理由已写入 lock `_doc` 段）+ 校验器 122 行 + 测试 13 例，变异 6/6 CAUGHT。**两源真实取证**：npm registry `@askjo/camofox-browser@1.18.1`（SRI+shasum）与 GitHub Releases `daijro/camoufox` tag `v152.0.4-beta.30` 六平台官方 sha256/size；`BUNDLED_CAMOUFOX_RELEASE=152.0.4-beta.30` 取自 wrapper 源码常量。**审包发现**：wrapper 下载链路不做任何 sha256 校验（`checkAsset` 只匹配资源名前缀，失败走 `process.exit(0)`）⇒ 首下无 hash 保障，只有 spawn 前复检，即 PRD §3.4 ③ 的真实边界。**ddddocr 显式 `status=pending`**（onnx 权重 hash 未取证），`resolveAsset` fail-closed 拒绝启动——留洞比留假 hash 安全
 
 ### 7. F3 camofox 通道
-- [ ] 7.1 `@askjo/camofox-browser@<pinned>` 依赖 + postinstall 下载路径适配（fail=warn→手动 fetch-bin→通道降级三级）
-- [ ] 7.2 `stealth-channel-camofox.js`：CDP-WebSocket 驱动，复用行为层接口（第二个 driver）；仅绑 127.0.0.1+一次性 token
-- [ ] 7.3 rpa-view-manager `channel:'stealth'` 路由 + 映射表（publish-capabilities.json）
-- [ ] 7.4 RED：路由映射/缺省/sidecar 不可用回落 Electron 通道+warn（禁静默）
-- [ ] 7.5 构建期断言：无 `--remote-debugging-port` 非回环监听
+- [ ] 7.1 `@askjo/camofox-browser@<pinned>` 依赖 + postinstall 下载路径适配（fail=warn→手动 fetch-bin→通道降级三级）—— **待你决策接入方式 A/B/C**（见下「未决」）
+- [x] 7.2 `stealth-channel-camofox.js`：CDP-WebSocket 驱动，复用行为层接口（第二个 driver）；仅绑 127.0.0.1+一次性 token —— 234 行 + 测试 17 例，变异 8/8 CAUGHT。与 `cdp-input.js` 同接口同返回语义（D2）；`assertLoopbackEndpoint` 构造时即拒非回环；合成事件走 `Runtime.evaluate`（camoufox 无 executeJavaScript）。**按变异结果删掉一处冗余防御**（`close()` 的 `if(closed) return` 与 `ws=null` 叠加，摘掉无可观测差异）
+- [x] 7.3 rpa-view-manager `channel:'stealth'` 路由 + 映射表（publish-capabilities.json）—— **判定层已落、manager 薄接线待 7.1**：`resolvePublishChannel(platformId,{hostIsUsable})` 纯函数已入 `publish-capabilities.{js,browser.js}` 两侧（含 parity 锁），配置面 `riskControl.stealthChannelPlatforms` 已随 PR-1 落地。抽成纯函数正是为了与 7.1 的依赖决策解耦
+- [x] 7.4 RED：路由映射/缺省/sidecar 不可用回落 Electron 通道+warn（禁静默）—— 三态全落 + parity 3 条，变异 5/5 CAUGHT。回落必带 `fallbackReason='stealth-channel-unavailable'`（禁静默，供调用方 warn 并写入发布结果，PRD §3.4 评审 FE3 留痕）
+- [x] 7.5 构建期断言：无 `--remote-debugging-port` 非回环监听 —— `scripts/check-camofox-listen.{js,test.js}`（node:test，同 build-paginator 先例），10 例，变异 5/5 CAUGHT。实现中两个真实缺陷由测试当场抓住：**IPv6 逃逸口**（方括号 `[2001:db8::1]` 被「变量形态」判据放过 ⇒ isBracketV6 必须前置于变量判定，变异 M1 专锁）与**回环误报**（裸 `::1` 按第一个冒号切得 `''`）
 
 ### 8. F4 ddddocr
 - [ ] 8.1 python-backend captcha 托管路由（ddddocr api/server.py 子进程，拓扑=桌面端 python-backend）
