@@ -206,7 +206,9 @@ node "C:\Users\邱领\.claude\skills\ccg\run_skill.js" verify-security <file>
 
 **⇒ 两条都不阻断（`verify-quality` 仅告警；`verify-security` 严重/高危为 0）。**
 
-### ★ 顺带发现：`ccg-review-decider` 自身有一个假阳性（本 PR 不修，仅登记）
+### ★ 顺带发现：`ccg-review-decider` 有**两个**缺陷（本 PR 不修，仅登记）
+
+#### 缺陷 A：`contentHits` 口径含文档 ⇒ 假阳性判 `dual`
 
 后续提交时钩子跑出了判定记录，`mode=dual`：
 
@@ -218,25 +220,48 @@ node "C:\Users\邱领\.claude\skills\ccg\run_skill.js" verify-security <file>
 ```
 
 **逐条复测：我的真实 diff（`scripts/` 两个文件，+109 行）对 5 条 `sensitiveContents`
-正则**零命中**。**
+正则零命中。**
 
-**⇒ 那 1 处命中来自 `staged.changedLines` 里的 `.md` 文档行** ——
-我写的记录正文含「加密 / 口令 / 鉴权」等**分析文字**，命中了中文敏感词正则。
+那 1 处命中来自 `staged.changedLines` 里的 `.md` 文档行 ——
+记录正文含「加密 / 口令 / 鉴权」等**分析文字**，命中了中文敏感词正则。
 
-**⇒ 根因（`scripts/ccg-review-decider.js`）：**
+**根因（`scripts/ccg-review-decider.js`）**：
 
 ```js
 const pathHits = codeFiles.map(...)...        // L215  只用 codeFiles ✅
 const contentHits = staged.changedLines.filter(...)   // L228  用了全部暂存行 ❌
 ```
 
-**`pathHits` 按 `codeFiles` 过滤，`contentHits` 却跑在「全部暂存行」上（含文档）——
-两个口径不一致。** 于是「在文档里分析加密机制」会被判成「改动涉及加密」。
+`pathHits` 按 `codeFiles` 过滤，`contentHits` 却跑在「全部暂存行」（含文档）上，
+**两个口径不一致**。于是「在文档里分析加密机制」被判成「改动涉及加密」。
 
-**⇒ 后果**：`deepReview.required=true` 被置起但无人执行（`status=pending`），
-既浪费一次深度审查的名目，也让 `dual` 这个信号失去可信度。
+**⇒ 后果**：`deepReview.required=true` 被误置且无人执行（`status=pending`），
+既浪费深度审查名目，也让 `dual` 信号失去可信度。
 
-**⇒ 本 PR 不修 CCG**（范围外，且改判据要先与 owner 确认口径），
+#### 缺陷 B：rebase / amend 路径下规模被采成 0 ⇒ 判据失去规模依据
+
+实测三个 commit 的 CCG 记录 vs 实际内容：
+
+| commit | 实际包含 | CCG 记录 |
+| --- | --- | --- |
+| `3eca218d0`（**rebase 产生**）| **5 个文件**，含 `scripts/` 两个源码 **+107 行代码** | `fileCount=1, codeFileCount=0, changedLines=0` |
+| `fbbe4bbf6`（手动 add+commit）| 2 个文件（1 `.md` + 1 `.json`）| `fileCount=1`（漏掉钩子自己刚 add 的 `.json`）|
+| `6ce2cf562`（手动 add+commit）| 2 个文件（1 `.md` + 1 `.json`）| 同上 |
+
+**⇒ `3eca218d0` 的实际代码改动（`verify-platform-onboarding.js` +48/-7、
+`...test.js` +59）在 CCG 眼里是「0 个代码文件、0 行」。**
+
+**根因**：`collectStaged()` 用 `git diff --cached` 采集，
+而 `rebase --continue` 走 git 内部 cherry-pick 路径，pre-commit 钩子触发时
+`GIT_INDEX_FILE` 指向 rebase 的临时 index ⇒ `git diff --cached` 读不到预期内容。
+
+**⇒ 也就是说：经过 rebase / amend 的提交，CCG 的规模与模式判定会系统性失真。**
+
+**⇒ 与缺陷 A 叠加**：本 PR 真实规模「源码 114 行 + 文档 290 行」，
+按 `codeFileCount` 口径应为 `single`，但实际记录既没说对规模、也没说对模式，
+只留下一个假阳性 `dual`。
+
+**⇒ 两个缺陷本 PR 都不修**（范围外，改判据需 owner 先定口径），
 **仅在此登记为待修缺陷。**
 
 ## 残余（未含，不假装闭合）
@@ -248,4 +273,5 @@ const contentHits = staged.changedLines.filter(...)   // L228  用了全部暂�
 | **E** | 判据 ⑪（测试覆盖）| 仍欠账 |
 | **CCG-decider** | 审查模式判定（dual/single/skip）只读暂存区 ⇒ 改动提交后**无法补判** | 已补跑 `verify-quality` + `verify-security` 两个 gate；**模式判定未跑**，按规则反推应为 `single` 但**未经脚本确认**，故在此登记 |
 | **CCG-decider 假阳性** | `contentHits` 跑在「全部暂存行」（含 `.md`）而非 `codeFiles`，与 `pathHits` 口径不一致 ⇒ 文档里写「加密/口令」会被判成「改动涉及加密」 | **本 PR 不修**（范围外，需 owner 定口径）；已登记，见上节 |
+| **CCG-decider 规模失真** | `collectStaged()` 用 `git diff --cached`，而 rebase/amend 路径下 `GIT_INDEX_FILE` 指向临时 index ⇒ 规模与模式判定系统性采成 0 | **本 PR 不修**；已登记，见上节 |
 | 新 | `TAG_STYLES` 里的 `tengxun_shipin` / `pipixia` / `xigua` 等 6 个非 config 平台键 | **本 PR 不动**（属另一套命名体系，清理需 owner 确认口径）|
