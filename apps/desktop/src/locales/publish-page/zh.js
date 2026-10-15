@@ -73,6 +73,18 @@ export default {
     mentions: '@好友',
     mentionsPlaceholder: '输入昵称或 @昵称',
     publishTarget: '发布目标',
+      // 平台无账号时的空态出口（publish-add-account-entry，2026-10-15）：
+      // 「添加」直达该平台登录页的新标签；「点击刷新」重拉账号列表。
+      // 契约见 01-docs/PRD-PUBLISH-ADD-ACCOUNT-ENTRY-2026-10-15.md。
+      addAccount: {
+      label: '添加',
+      ariaLabel: '为{platform}添加账号',
+      refreshLabel: '已经添加成功？点击刷新',
+      refreshing: '刷新中...',
+      loginTabTitle: '{platform}登录页',
+      loginUnsupported: '{platform}暂不支持在应用内打开登录页，请前往账号管理页添加',
+      openFailed: '打开登录页失败，请重试',
+      },
       groupPicker: {
       label: '按分组添加',
       applyAria: '按分组 {name} 添加发布账号',
