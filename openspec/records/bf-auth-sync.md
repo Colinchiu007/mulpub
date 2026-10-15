@@ -2,9 +2,6 @@
 record: bf-auth-sync
 task: 回填 #3651 远程同步 PASS + merge SHA，并登记本轮两处严重失误
 date: 2026-10-15
-sync_status: PENDING
-sync_reason: 本回填 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话
 ---
 
 ## 本次执行记录：回填 #3651 远程同步 PASS + merge SHA，并销账（bf-auth-sync）【docs-only】
@@ -24,6 +21,6 @@ sync_backfill_owner: 下一个会话
 | 品牌残留 | PASS | `node scripts/check-no-brand-residue.js` |
 | QM-1 / QM-2 / QM-4 视觉 / TDD | N/A | docs-only 通道：与运行时无关 |
 | QM-6 双模型外部评审 | 未执行 | 本机无 `codeagent-wrapper`，如实登记（docs-only 通道本不要求） |
-| 远程同步 | PENDING | 本回填 PR 自身；合并后就地改写为 `PASS` + merge SHA（同次销账） |
+| 远程同步 | PASS | PR #3661 已 squash 合并，merge SHA `c1ff0a55658a115cc57ce2f0974966447d04b915`（2026-10-15T15:13:05Z）；远端分支已删 | 本回填 PR 自身；合并后就地改写为 `PASS` + merge SHA（同次销账） |
 
-- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PENDING
+- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PASS
