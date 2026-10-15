@@ -15,7 +15,7 @@
 
 #### Scenario: 纯流程文档不豁免 PR
 - **WHEN** 变更仅涉及 openspec/、.ccg/、docs/、工具脚本、CHANGELOG、.quality-gates.md 等纯流程/文档
-- **THEN** 不要求独立 linked worktree，可在共享主工作区就地编辑并 stage 命名路径且保持可回滚；但 MUST 经 PR 落地——远端分支保护对任何推入 `refs/heads/main` 的变更一律返回 `GH011: Repository rule violations found for refs/heads/main`，直推路径无法满足 required status checks（2026-09-26 以纯 `.quality-gates.md` 回填提交实测被拒，见 PR #2411）
+- **THEN** 不要求独立 linked worktree，可在共享主工作区就地编辑并 stage 命名路径且保持可回滚（**就地编辑的"许可"不等于往旧载体"新增"记录块**：`.quality-gates.md` 与 ledger 自「旧载体冻结」起是只读存档，只许就地关闭已有行，边界由下一条 Requirement 承载）；但 MUST 经 PR 落地——远端分支保护对任何推入 `refs/heads/main` 的变更一律返回 `GH011: Repository rule violations found for refs/heads/main`，直推路径无法满足 required status checks（2026-09-26 以纯 `.quality-gates.md` 回填提交实测被拒，见 PR #2411）
 
 #### Scenario: 新 PR 不再写旧载体
 - **WHEN** 一个 PR 的执行记录同时出现在 `openspec/records/` 与 `.quality-gates.md` 顶部（或向 ledger 新增了键）

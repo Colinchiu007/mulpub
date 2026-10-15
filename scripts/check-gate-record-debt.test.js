@@ -824,3 +824,28 @@ test('基线重算器 freeze-gate-carrier.js 必须在库、不得被忽略、�
   assert.ok(!/\^## /.test(codeOnly), '重算器自带 `^## ` 提取是第二份实现——标题口径必须由 check-gate-record-debt.js 单点持有')
   assert.ok(!/\.slice\(3\)/.test(codeOnly), '重算器自带 `.slice(3)` 是第二份实现——去掉 `## ` 前缀只准在 headingTitle 里发生一次')
 })
+test('冻结基线自身不一致（headings 长度 != headingCount）必须抛错，不得退化成只报计数', () => {
+  // 采纳 QM-6 后端轴 ①-W2。这里的关键不是"能不能报红"，而是**报出来的东西名不副实**：
+  // 计数与标题清单不符时，判据仍会因 sha/count 不等而红，但点名分支走 baselineHasTitles=false，
+  // 打印成"基线没带标题"——把一次手改基线（design R3 明令禁止的形态）伪装成合法形态。
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-freeze-self-'))
+  const file = path.join(dir, 'freeze.json')
+  const write = (obj) => fs.writeFileSync(file, JSON.stringify(obj), 'utf8')
+
+  // 正控：合法基线必须读得出来。缺了它，下面三条负控只是"任何文件都抛错"的同形红。
+  write({ headingSha256: 'a'.repeat(64), headingCount: 2, headings: ['甲', '乙'] })
+  assert.deepStrictEqual(checker.loadCarrierFreeze(file).headings, ['甲', '乙'])
+
+  // 负控 1：长度与计数不符（手改基线最可能的形态）⇒ 抛错
+  write({ headingSha256: 'a'.repeat(64), headingCount: 3, headings: ['甲', '乙'] })
+  assert.throws(() => checker.loadCarrierFreeze(file), /headings 与 headingCount 不一致/)
+
+  // 负控 2：headings 不是数组 ⇒ 抛错
+  write({ headingSha256: 'a'.repeat(64), headingCount: 2, headings: '甲乙' })
+  assert.throws(() => checker.loadCarrierFreeze(file), /headings 与 headingCount 不一致/)
+
+  // 负控 3：headings 缺席 ⇒ 仍然合法（夹具形态，baselineHasTitles 那条可见项就是为它设的；
+  // 把它一并禁掉会让 6 条冻结用例集体红，那是把锁焊在实现细节上，不是守门）
+  write({ headingSha256: 'a'.repeat(64), headingCount: 2 })
+  assert.strictEqual(checker.loadCarrierFreeze(file).headings, undefined)
+})

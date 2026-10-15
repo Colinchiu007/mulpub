@@ -74,7 +74,7 @@ node scripts/classify-docs-only.js --base=origin/main --head=HEAD
 **执行记录的唯一强制载体是 `openspec/records/<分支名>.md`。** `.quality-gates.md` 与 `scripts/gate-record-debt-ledger.json` 转为**存档面**：
 
 - 新 PR **不再**往 `.quality-gates.md` 顶部插块，也**不再**往 ledger 加键。判据：`scripts/check-gate-record-debt.js` 比对旧载体记录块集合与 `scripts/gate-carrier-freeze.json` 基线（排序标题的 sha256 + 条数），**加块或删块即红**。
-- 仍**允许**就地改写旧载体里已有记录块的状态行——ledger 里还挂着 25 条历史欠账（多为 2026-08），它们只存在于旧载体，关闭只能靠这条通道；把这条路封掉等于把旧账永远钉红。
+- 仍**允许**就地改写旧载体里已有记录块的状态行——ledger 里还挂着历史欠账（现读数以 `scripts/gate-record-debt-ledger.json` 键数为准，本轮实测 25 条，多为 2026-08），它们只存在于旧载体，关闭只能靠这条通道；把这条路封掉等于把旧账永远钉红。
 - 基线重算只由人工执行：`node scripts/freeze-gate-carrier.js`。这属"改谁来守门"，**必须人工过目，不走 agent 自动合并**。
 - 上文「docs-only 快速通道」里的 `.quality-gates.md` 精简模板与「⛔ 两种形态必须同写」两条，自本节起**只适用于关闭已有旧行**；新 PR 的两形态写在 `openspec/records/<分支名>.md` 内（表行 + `- 保留门禁：… | 远程同步 <状态>` bullet，缺行/矛盾由 `missingRecordRows`、`statusContradictions` 拦截，两者都在拦截面上）。
 - 「最顶部那篇记录必须带 `远程同步` 行」这条已从拦截面移入可见面：它的作用仅是"用位置猜哪篇最新"，而记录文件源有逐篇硬判据，位置猜测不再必要。

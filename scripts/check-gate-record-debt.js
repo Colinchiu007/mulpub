@@ -67,6 +67,13 @@ function loadCarrierFreeze(file = CARRIER_FREEZE_FILE) {
   if (!raw || typeof raw.headingSha256 !== 'string' || !Number.isInteger(raw.headingCount) || raw.headingCount <= 0) {
     throw new Error(`旧载体冻结基线不合法（缺 headingSha256 / headingCount）：${file}`)
   }
+  // 基线自身一致性（QM-6 后端轴 ①-W2 采纳）：headings 一旦出现就必须是数组且长度等于 headingCount。
+  // 不等时判据照样报红，但点名分支走 baselineHasTitles=false、打印成"基线没带标题"——一次手改基线
+  // （design R3 明令禁止的形态）会被伪装成合法形态。headings 缺席仍允许：夹具就这么用。
+  if (raw.headings !== undefined && (!Array.isArray(raw.headings) || raw.headings.length !== raw.headingCount)) {
+    throw new Error(`旧载体冻结基线不合法（headings 与 headingCount 不一致：`
+      + `${Array.isArray(raw.headings) ? raw.headings.length : typeof raw.headings} vs ${raw.headingCount}）：${file}`)
+  }
   return raw
 }
 

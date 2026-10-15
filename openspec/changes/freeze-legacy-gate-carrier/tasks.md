@@ -1,9 +1,9 @@
 ## 1. 冻结判据（TDD）
 
-- [x] 1.1 生成基线并入库：`scripts/freeze-gate-carrier.js` + `scripts/gate-carrier-freeze.json`。读数演进链：初取 `条数=603 sha=5fed93f022ff…`（起点 `5952d38c2`）⇒ **本 PR rebase 到 origin/main 后判据当场报红**，抓到上游已合并的两块（`fix-qm1-electron-run-as-node` 与 `publish-frequency-policy-v3`），按本规格自己定的出路 ② 由人工重取基线 ⇒ 现值 `条数=605 sha=e47048f748ec…`。这条红是判据的第一次真实命中，且命中对象是"基线本身滞后于存档面"，不是有人违规（标题按 `check-gate-record-debt.js` 同一 `normalize` 口径取，避免生成器与判据两套切法）
+- [x] 1.1 生成基线并入库：`scripts/freeze-gate-carrier.js` + `scripts/gate-carrier-freeze.json`。读数演进链：初取 `条数=603 sha=5fed93f022ff…`（起点 `5952d38c2`）⇒ **本 PR rebase 到 origin/main 后判据当场报红**，抓到上游已合并的两块（`fix-qm1-electron-run-as-node` 与 `publish-frequency-policy-v3`），按本规格自己定的出路 ② 由人工重取基线 ⇒ 第一次人工重取 `条数=605 sha=e47048f748ec…` ⇒ **第二次 rebase（origin/main 又前进两笔）判据再次当场 rc=1**，点名 `fix-newtab-home-slow` 一块 ⇒ 第二次人工重取 `条数=607 sha=636b6e82cdf8…`。两次同因：**基线滞后于存档面，没有任何人违规**。这条红是判据的第一次真实命中，且命中对象是"基线本身滞后于存档面"，不是有人违规（标题按 `check-gate-record-debt.js` 同一 `normalize` 口径取，避免生成器与判据两套切法）
 - [x] 1.2 先写测试再实现（本仓要求两段驱动、先见证红）：`check-gate-record-debt.test.js` 新增 6 条 —— 一致不报漂移 / 加块判红并点名 / 删块判红 / **只改状态行不得判红** / 缺基线与零基线必须抛错 / 未注入不得静默读生产基线。实现后 `node --test` 全绿
 - [x] 1.3 实现 `carrierDrift`（`collect({carrierFreeze})` 注入式，CLI 才读生产文件）并接入 `hasBlocking`；`node scripts/check-gate-record-debt.js` 真仓 rc=0
-- [x] 1.4 变异反证 3 条，逐条还原并核 md5 与改前一致：M1 从拦截面摘掉 `carrierDrift` ⇒ 仅「加块判红」那条红；M2 哈希改常量 ⇒ 仅「真仓冻结自检」那条红；M3 缺基线改成静默 `return null` ⇒ 仅「必须抛错」那条红。`escaped=0`，还原后 md5 一致
+- [x] 1.4 变异反证两批共 7 条（M1–M3 打判据本体；N1–N4 打接线锁与基线一致性校验，第二批先跑控制对照证明探针不恒红），逐条还原并核 md5 与改前一致：M1 从拦截面摘掉 `carrierDrift` ⇒ 仅「加块判红」那条红；M2 哈希改常量 ⇒ 仅「真仓冻结自检」那条红；M3 缺基线改成静默 `return null` ⇒ 仅「必须抛错」那条红。`escaped=0`，还原后 md5 一致
 - [x] 1.5 顶部棘轮退役要同 PR 迁断言，不许留旧语义测试冒充覆盖：把「最顶部缺行 ⇒ 判红」改写为「不再判红 + 可见项 + 不得再打 `❌ 最顶部…`」；真仓自检从"顶部带行"换成"等于冻结基线 + 规模下界 500"（防识别退化让"零漂移"变假绿）；删除旧的 `❌ 最顶部的执行记录缺…` 打印
 
 ## 2. 载体约定与文档同步
@@ -28,4 +28,4 @@
 
 - 净零漂移（一加一删）只被哈希抓到、计数不变，added/removed 会同时非空需人读（design D2）。
 - 计时器未落地 ⇒ 当前只有"拦住"没有"事后读数"（tasks 3.2）。
-- 基线含 605 条标题 ≈ 73 KB，是本仓较大的数据文件；且它是一次**会随上游记录块漂移**的读数——上游每往旧载体插一块，本判据就报红一次并要求人工重取（rebase 后实测抓到 2 块）；换来的是不依赖 git 历史可达性（design D1）。
+- 基线含 607 条标题 ≈ 73 KB，是本仓较大的数据文件；且它是一次**会随上游记录块漂移**的读数——上游每往旧载体插一块，本判据就报红一次并要求人工重取（rebase 后实测抓到 2 块）；换来的是不依赖 git 历史可达性（design D1）。

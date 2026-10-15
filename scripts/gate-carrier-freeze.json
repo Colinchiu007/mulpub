@@ -1,8 +1,8 @@
 {
   "_policy": "旧载体 .quality-gates.md 的冻结基线。新 PR 的执行记录一律写 openspec/records/<分支名>.md；本文件只允许就地关闭已有记录块里的状态行，不许加块、不许删块。有意变更存档面时人工跑 `node scripts/freeze-gate-carrier.js` 重算，属\"改谁来守门\"、不走自动合并。",
   "frozenAt": "2026-10-15",
-  "headingCount": 605,
-  "headingSha256": "e47048f748ec7243a2203997c2ce84973bb58712909687631077b5f7d6443d26",
+  "headingCount": 607,
+  "headingSha256": "636b6e82cdf83a4b87628a7ecc5ed53ae9aba57baf218b2fc1dd6d4d07f611eb",
   "headings": [
     "2026-08-06 应用日志 log 功能 提交前自检",
     "2026-08-06 技术债务 W1/W2/W3 提交前自检",
@@ -219,6 +219,7 @@
     "本次执行记录：worktree 删除护栏长路径硬化（wt-remove-longpath，2026-09-23）",
     "本次执行记录：worktree-fs-longpath 长路径负控改运行时探针推导并回接（测试基建 / 欠账收口，longpath-probe，2026-09-27）",
     "本次执行记录：§6.1 发布方式徽标 fallback 第三态补测 + 快手观测规划捞回（w1-fallback-badge，2026-10-09）【test + docs-only · 事后补建】",
+    "本次执行记录：「+」新标签主页慢（fix-newtab-home-slow，2026-10-15）【混合 PR】",
     "本次执行记录：「测试覆盖但未接线」死代码检测脚本（detect-unwired-exports，2026-09-13）",
     "本次执行记录：「远程同步」欠账棘轮（.quality-gates.md 状态列）+ 回填本会话四条记录（机制加固，gate-record-debt，2026-09-28）",
     "本次执行记录：一键发布入口判据全量清点（podcast-entry-criteria-docs，2026-10-13）【docs-only】",
@@ -603,6 +604,7 @@
     "本次执行记录：预设官方模型ID URL 预填（preset-models-url-official，2026-08-27）",
     "本次执行记录：预设服务商模型列表只读保护（改数据驱动判据，修一处从未生效的保护）（preset-readonly-guard，2026-10-14）【混合 PR】",
     "本次执行记录：预设模型「获取模型ID URL」全量预填（preset-models-url-all，2026-08-27）",
+    "本次执行记录：频道页固化摘要「扫描 · 补齐 · 待人工」（podcast-stock-summary，2026-10-15）",
     "本次执行记录：风控挂起误判修复（fix-risk-hold-false-positive，2026-10-13）【混合 PR】",
     "本轮实际处置",
     "沉淀进文档的两条可复用经验",
