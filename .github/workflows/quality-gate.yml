@@ -1789,6 +1789,10 @@ jobs:
           # 正解：令牌由门禁自己算（带 started-after）并经 --note-file 落盘，本步只读那个文件。
           # 缺 --note-file 参数时下面 Test-Path 会恒走 else ⇒ 覆盖审计永远显示「未审计」，
           # 与删掉可见性同等错误，所以由 workflow-contract 的 --note-file= 正向锁钉住。
+          # --required-feature-ids：本 PR 声明要实现的 feat_ 特性，与喂给审计器的是同一个值
+          # （审计器已按它把评估面收窄）。门禁必须知道这一点，否则「全仓存量欠账」与
+          # 「本 PR 声称实现却没实现」在门禁眼里是同一个 FAIL，前者会把后者一起吃掉。
+          # 未声明时 GITHUB_ENV 里根本没有该键，展开成空串 ⇒ 按存量归属处理。
           $gateArgs = @(
             ".github/scripts/agent-review-gate.js",
             "autonomous",
@@ -1796,7 +1800,8 @@ jobs:
             "--started-after=$reportStart",
             "--audit-exit-code=$exitCode",
             "--has-openai-key=$([bool]$env:OPENAI_API_KEY)",
-            "--note-file=gate9-verdict-note.txt"
+            "--note-file=gate9-verdict-note.txt",
+            "--required-feature-ids=$env:REQUIRED_FEATURE_IDS"
           )
           & node @gateArgs
           $gateExit = $LASTEXITCODE

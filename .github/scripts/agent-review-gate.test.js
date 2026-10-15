@@ -7,6 +7,7 @@ const test = require("node:test");
 const {
   evaluateAgentJudgeGate,
   evaluateAutonomousGate,
+  verdictNoteFor,
 } = require("./agent-review-gate");
 
 function withReportDir(run) {
@@ -352,6 +353,164 @@ test("自主审计 CLI 的 --note-file 把令牌落盘，供 workflow 直接读�
       assert.equal(result.status, 1, "无报告仍须阻塞");
       assert.match(result.stdout, /::error::MISSING_REPORT/);
       assert.equal(fs.readFileSync(noteFile, "utf8").trim(), "NO_REPORT");
+    } finally {
+      fs.rmSync(noteFile, { force: true });
+    }
+  });
+});
+
+// ── Gate 9 归属判据（2026-10-15）──────────────────────────────────────────
+// QG Autonomous 是 required check（经 Gate Result 承重拦合并），而它对**没有声明
+// feat_ 特性的 PR** 量的是整份 PRD 对全仓实现的存量比对。实测同一判据：
+//   run 38625943131 / job 116065246885（main push 367e1af4a）score 0.34、items 41
+//   run 38646664947 / job 116135306680（PR #3617）            score 0.36、items 218
+//   2026-10-12 #3372 实测 0.374 / 227，#3413 实测 0.31
+// items 数由裁判自己决定（requirements-runner.js:113 的 details 取自 verdict.items，
+// 不是 PRD 全量），coverageRate 也是裁判自报（agent-judge.js normalizeSummary）；
+// workflow 传的 --threshold=0.5 只喂 VisualTestRunner（run-autonomous-e2e.js:289），
+// 对覆盖判据是死参数。⇒「同一份代码两次跑落在不同结论两侧」的量没有资格决定
+// 全仓每个 PR 能不能合并。存量欠账进报告不进闸门；本 PR 自己声明要实现的东西
+// 没实现，仍然当场红。
+function backlogFailReport(extra = {}) {
+  return {
+    overall: "FAIL",
+    coverageStatus: "FAIL",
+    exitCodes: ["COVERAGE_FAIL"],
+    coverage: {
+      coverageRate: 0.34,
+      auditedCount: 218,
+      summary: { total: 218, passed: 74, failed: 144 },
+    },
+    ...extra,
+  };
+}
+
+test("存量覆盖 FAIL（评估面不由本 PR 限定）降级为报告型", () => {
+  withReportDir(reportDir => {
+    writeJson(reportDir, "autonomous-e2e-report-1.json", backlogFailReport());
+    const r = evaluateAutonomousGate({ reportDir, auditExitCode: 1, hasOpenAiKey: true });
+    assert.equal(r.exitCode, 0);
+    assert.equal(r.status, "COVERAGE_BACKLOG_REPORT");
+    // 文案必须自报它量的是全仓存量并带上报数现场，否则下一个读者会把绿读成「覆盖已达标」
+    assert.match(r.message, /backlog/);
+    assert.match(r.message, /34\.0%/);
+    assert.match(r.message, /144/);
+  });
+});
+
+// 令牌与退出码分格断言：两者压在一条用例里时，「摘掉退出码」和「摘掉令牌」会给出
+// 逐字相同的红集，读起来像其中一条没有牙（2026-10-15 变异反证 M6/M7 实测撞车后拆开）。
+test("存量降级必须另打 COVERAGE_BACKLOG 可见性令牌（绿要能看出为什么绿）", () => {
+  withReportDir(reportDir => {
+    writeJson(reportDir, "autonomous-e2e-report-1.json", backlogFailReport());
+    const r = evaluateAutonomousGate({ reportDir, auditExitCode: 1, hasOpenAiKey: true });
+    assert.equal(r.status, "COVERAGE_BACKLOG_REPORT");
+    assert.equal(r.verdictNote, "COVERAGE_BACKLOG");
+    assert.equal(verdictNoteFor("COVERAGE_FAIL"), "", "可归因的阻塞状态不得带「降级留痕」令牌");
+  });
+});
+
+
+test("本 PR 声明了 feat_ 特性（审计面按其收窄）→ 覆盖 FAIL 仍然阻塞", () => {
+  withReportDir(reportDir => {
+    writeJson(reportDir, "autonomous-e2e-report-1.json", backlogFailReport());
+    const blocked = evaluateAutonomousGate({
+      reportDir, auditExitCode: 1, hasOpenAiKey: true, requiredFeatureIds: "feat_podcast_stock",
+    });
+    assert.equal(blocked.exitCode, 1, "可归因于本 PR 的覆盖失败必须当场红");
+    assert.equal(blocked.status, "COVERAGE_FAIL");
+    assert.match(blocked.message, /feat_podcast_stock/);
+    assert.equal(blocked.verdictNote, "", "阻塞路径不打「降级留痕」令牌");
+  });
+});
+
+test("降级判据只认「仅覆盖失败」：混进任何其它失败码一律阻塞", () => {
+  withReportDir(reportDir => {
+    for (const codes of [["COVERAGE_FAIL", "FUNCTIONAL_FAIL"], ["COVERAGE_FAIL", "VISUAL_FAIL"], ["FUNCTIONAL_FAIL"]]) {
+      fs.rmSync(path.join(reportDir, "autonomous-e2e-report-1.json"), { force: true });
+      writeJson(reportDir, "autonomous-e2e-report-1.json", backlogFailReport({ exitCodes: codes }));
+      const r = evaluateAutonomousGate({ reportDir, auditExitCode: 1, hasOpenAiKey: true });
+      assert.equal(r.exitCode, 1, `${codes.join("+")} 不得被覆盖降级吃掉`);
+      assert.notEqual(r.status, "COVERAGE_BACKLOG_REPORT");
+    }
+  });
+});
+
+test("降级判据对 exitCodes 形状缺失一律 fail-closed（旧报告形状保持原行为）", () => {
+  withReportDir(reportDir => {
+    const shapes = [
+      { overall: "FAIL" },
+      { overall: "FAIL", exitCodes: [] },
+      { overall: "FAIL", exitCodes: "COVERAGE_FAIL" },
+      { overall: "FAIL", exitCodes: ["SOMETHING_NEW"] },
+    ];
+    for (const [i, shape] of shapes.entries()) {
+      const name = `autonomous-e2e-report-${i}.json`;
+      writeJson(reportDir, name, shape);
+      const r = evaluateAutonomousGate({ reportDir, auditExitCode: 1, hasOpenAiKey: true });
+      assert.equal(r.exitCode, 1, `形状 ${JSON.stringify(shape)} 不得降级放行`);
+      fs.rmSync(path.join(reportDir, name));
+    }
+  });
+});
+
+// 审计器自身崩溃时（run-autonomous-e2e.js 的 catch 分支返回 summary.total=0 且
+// coverageStatus 由 classifyCoverageResult 判成 FAIL），exitCodes 同样只有 COVERAGE_FAIL。
+// 只看失败码会把「审计没跑成」读成「审过了、欠账是别人的」——降级的前提必须是真量出了项。
+test("审计器崩溃形状（只有覆盖失败码但零项）不得降级为存量报告", () => {
+  withReportDir(reportDir => {
+    writeJson(reportDir, "autonomous-e2e-report-1.json", {
+      overall: "FAIL",
+      coverageStatus: "FAIL",
+      exitCodes: ["COVERAGE_FAIL"],
+      coverage: { error: "boom", summary: { total: 0, passed: 0, failed: 0 }, details: [] },
+    });
+    const r = evaluateAutonomousGate({ reportDir, auditExitCode: 1, hasOpenAiKey: true });
+    assert.equal(r.exitCode, 1, "零项 FAIL 不是存量欠账");
+    assert.equal(r.status, "FAIL");
+  });
+});
+
+
+test("NEED_HUMAN 与裁判空返回两条既有路径不受本次改造影响", () => {
+  withReportDir(reportDir => {
+    writeJson(reportDir, "autonomous-e2e-report-1.json", {
+      overall: "NEED_HUMAN",
+      coverage: { _verdict: { decision: "NEED_HUMAN", items: [{ feature: "f", status: "missing" }], _rawOutput: "{}" } },
+    });
+    assert.equal(evaluateAutonomousGate({ reportDir, auditExitCode: 1, hasOpenAiKey: true }).status, "PROMPT_REVIEW_REQUIRED");
+    fs.rmSync(path.join(reportDir, "autonomous-e2e-report-1.json"));
+
+    writeJson(reportDir, "autonomous-e2e-report-2.json", {
+      overall: "NEED_HUMAN",
+      coverage: { _verdict: { decision: "NEED_HUMAN", items: [], _parseError: "Empty text", _rawOutput: "" } },
+    });
+    assert.equal(evaluateAutonomousGate({ reportDir, auditExitCode: 1, hasOpenAiKey: true }).status, "AUDIT_NO_VERDICT");
+  });
+});
+
+test("CLI 必须真的把 --required-feature-ids 交给判据（参数不是装饰）", () => {
+  const scriptPath = path.join(__dirname, "agent-review-gate.js");
+  withReportDir(reportDir => {
+    writeJson(reportDir, "autonomous-e2e-report-1.json", backlogFailReport());
+    const noteFile = path.join(reportDir, "..", "gate9-note.txt");
+    const run = (extraArgs) => spawnSync(process.execPath, [
+      scriptPath, "autonomous",
+      `--report-dir=${reportDir}`, "--started-after=0", "--audit-exit-code=1",
+      "--has-openai-key=true", `--note-file=${noteFile}`, ...extraArgs,
+    ], { encoding: "utf8" });
+
+    try {
+      const advisory = run([]);
+      assert.equal(advisory.status, 0, advisory.stdout + advisory.stderr);
+      assert.match(advisory.stdout, /::warning::COVERAGE_BACKLOG_REPORT/);
+      assert.equal(fs.readFileSync(noteFile, "utf8").trim(), "COVERAGE_BACKLOG");
+
+      fs.rmSync(noteFile, { force: true });
+      const blocked = run(["--required-feature-ids=feat_x"]);
+      assert.equal(blocked.status, 1, blocked.stdout + blocked.stderr);
+      assert.match(blocked.stdout, /::error::COVERAGE_FAIL/);
+      assert.equal(fs.readFileSync(noteFile, "utf8").trim(), "");
     } finally {
       fs.rmSync(noteFile, { force: true });
     }

@@ -7,28 +7,53 @@
  */
 const test = require('node:test')
 const assert = require('node:assert/strict')
+const fs = require('node:fs')
 const { classifyGate9 } = require('./gate9-classify.js')
+
+// 结构判据只看代码本体：注释里会如实写出被禁的标识符（说明它为什么被禁），
+// 不剥注释就会把「解释这条禁令的注释」当成违例，反向假红。
+function stripComments (src) {
+  return String(src)
+    .replace(/\r\n/g, String.fromCharCode(10))
+    .replace(/\/\*[\s\S]*?\*\//g, String.fromCharCode(10))
+    .split(String.fromCharCode(10))
+    .filter((l) => !/^[ \t]*\/\//.test(l))
+    .join(String.fromCharCode(10))
+}
 
 const DESKTOP = 'apps/desktop/src/views/Foo.vue'
 const OPS = 'ops-center/frontend/src/views/ChangePassword.vue'
 const DOC = '01-docs/PRD.md'
 
-test('维护型标题（fix/chore/docs/refactor/test 前缀）→ report-only', () => {
-  for (const t of ['fix(x): a', 'chore(x): a', 'docs(x): a', 'refactor(x): a', 'test(x): a']) {
-    const r = classifyGate9({ title: t, changedFiles: [DESKTOP] })
-    assert.equal(r.mode, 'report-only', t)
-  }
+test('⛔ 标题不决定 mode：同一批变更文件下六种前缀判定逐字一致', () => {
+  const titles = ['feat(x): a', 'fix(x): a', 'chore(x): a', 'docs(x): a', 'refactor(x): a', 'test(x): a']
+  const results = titles.map((t) => classifyGate9({ title: t, changedFiles: [DESKTOP] }))
+  assert.deepEqual([...new Set(results.map((r) => r.mode))], ['full'])
+  assert.deepEqual([...new Set(results.map((r) => r.srcDir))], ['apps/desktop/src'])
 })
 
-test('维护型 label → report-only（与标题同权）', () => {
-  const r = classifyGate9({ title: 'feat(x): a', labels: 'bug', changedFiles: [DESKTOP] })
-  assert.equal(r.mode, 'report-only')
+test('⛔ label 不决定 mode：打满维护型 label 与不打 label 的结果完全相同', () => {
+  const a = classifyGate9({ title: 'feat(x): a', labels: 'bug,fix,docs,chore,test', changedFiles: [DESKTOP] })
+  const b = classifyGate9({ title: 'feat(x): a', labels: '', changedFiles: [DESKTOP] })
+  assert.deepEqual(a, b)
 })
 
-test('反证：标题前缀判据被摘掉 → 立刻红（证明锁在跑）', () => {
-  const { MAINTENANCE_TITLE_RE } = require('./gate9-classify.js')
-  assert.match('fix(x): a', MAINTENANCE_TITLE_RE)
-  // 若有人把 MAINTENANCE_TITLE_RE 放宽成永假，上面那条用例会红
+test('⛔ 纯文档 PR 仍 report-only，且不因维护型标题而变化（判据只剩文件）', () => {
+  const docFiles = [DOC, '.quality-gates.md', 'CHANGELOG.md']
+  const feat = classifyGate9({ title: 'feat(x): a', changedFiles: docFiles })
+  const fix = classifyGate9({ title: 'fix(x): a', changedFiles: docFiles })
+  assert.equal(feat.mode, 'report-only')
+  assert.deepEqual(feat, fix)
+})
+
+test('反证：源码不得再有按标题/label 关审计的判据（剥注释后检查，含防失明正控）', () => {
+  const code = fs.readFileSync(require.resolve('./gate9-classify.js'), 'utf8')
+  const body = stripComments(code)
+  // 正控：剥完还剩东西，否则下面三条 doesNotMatch 全部恒真（空集不是证据）
+  assert.ok(body.length > 400)
+  assert.doesNotMatch(body, /MAINTENANCE_TITLE_RE|MAINTENANCE_LABEL_RE/)
+  assert.doesNotMatch(body, /input\.title|input\.labels/)
+  assert.match(body, /changedFiles/)
 })
 
 test('缺陷①根因回归：只碰 ops-center 的 feat PR → 审 ops-center 自己，不审桌面端存量', () => {

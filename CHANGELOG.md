@@ -1,3 +1,11 @@
+# [未发布] fix(ci): Gate 9 取消「标题前缀就不跑审计」的豁免，覆盖失败只拦可归因本 PR 的那一种（gate9-ratchet）
+
+- 这条 required check 过去对每个 PR 只有两种行为，而两种都不说真话：标题命中 `fix|chore|docs|refactor|test` 或带同族 label ⇒ 审计器第 147 行直接短路，**一项都不审但 Gate 9 绿**；没命中 ⇒ 跑全量存量比对，由 LLM 自由裁一个数决定全仓能否合并。实测近 200 条 squash 主题里 **162 条（81%）走的是第一条**——「这条检查绿」的真实含义是「作者把标题写成了 fix:」。本次把判据换成只看**变更文件**：审计跑不跑不再由被审对象的命名决定。
+- **原方案（覆盖率棘轮基线）是被读实现否证的，不是被评审否证的**：`coverageRate` 由裁判自报（`normalizeSummary()` 只 clamp，不重算），被评估的项集也由裁判自己决定（`details` 取 `verdict.items`），实测同一判据在 main 0.34/41 项、#3617 0.36/218 项、#3372 0.374/227 项之间来回；workflow 传的 `--threshold=0.5` 更是只喂 `VisualTestRunner`、对覆盖判据是死参数。给分母不定的自报数设水位线仍是掷硬币，所以落成的判据是**归属**而不是**水位**：报告只有 `COVERAGE_FAIL` 一个码、且本轮确实量出了项、且本 PR 没声明 `feat_` ⇒ 存量欠账进报告不进闸门（exit 0 + 可见性令牌 `COVERAGE_BACKLOG`）；一旦 PR 声明了要实现的特性（审计面按它收窄），FAIL 就是「你说要实现的东西没实现」⇒ 照旧当场红。
+- 两处刻意收紧，防止「降级」变成第二道恒绿：审计器自身崩溃的 catch 形状 `exitCodes` 也只有 `COVERAGE_FAIL`，但 `summary.total` 是 0——只看失败码会把「没跑成」读成「审过了、欠账是别人的」，所以降级第二条前提必须是真量出了项；`exitCodes` 缺失/空/非数组/未知码一律不降级。既有那条 `{overall:"FAIL"}` ⇒ exit 1 的历史形状锁一字未改仍然绿，用来证明旧报告形状的行为没被动过。
+- 影响面两条都写：22/200 的 PR 过去靠标题躲过审计、现在真跑（`QG Autonomous` 作业实测 27 分 38 秒，本就与其余 job 并行、不在别的 job 关键路径上，docs-only 的 `changes` 层短路未动）；换来的是 45 条真跑审计的 PR 不再被一个分母不定的自报数拦停全仓。label 侧的历史命中数无法离线取证，如实记为未量。
+- 证据：TDD 两段（阶段① classify 4 条指名红 → 阶段② 12 passed）、门禁本体 21 passed、workflow-contract 37 passed；**变异反证 8 条全部 CAUGHT**，其中首跑有两条红集逐字相同，按既有教训把「退出码」与「可见性令牌」拆成两条独立用例后才各 Own 一格；`pwsh 7` 与 `Windows PowerShell 5.1` 各做一次真解释器 `Parser::ParseInput`（`PARSE_ERRORS=0`）与 `$gateArgs` 展开（8 元素含新参数，env 未设时展开成空串走 advisory 路径）——注释若误插进数组字面量内部，YAML 与 js-yaml 判据会全绿而这条 required check 整条消失。
+
 # [未发布] test(podcast): 存量 mime 固化「不猜」的变异反证落进文件，并补上它暴露的按值快照（stock-default-write-proof）
 
 - tasks 4.4b④ 收口：PRD §7.9.7 记着两次尝试「均未把变异真正落进文件」，于是 §7.9.5 第 5 条此前只有行为证据。这次九条变异（D1–D6 打不猜的四个猜点 + W1–W3 打落盘与幂等）每条都先自证锚点命中=1、写回后能从磁盘读回，跑完逐条还原并断言整文件 md5 一致，基线 12 passed / 0 failed、**九条全部指名红**。
