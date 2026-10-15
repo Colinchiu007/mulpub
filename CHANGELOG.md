@@ -1,3 +1,12 @@
+# [未发布] feat(podcast): 频道页合规三态徽标——缺席与「没问题」在界面上必须不同形（podcast-compliance-badge）
+
+- 新增 `podcast.compliance.{stock,invalid,reasonsTitle,degradeNotice}` 四对 zh/en 文案（PRD §8.2.5 逐字表）。
+- 单集行按 compliance 三档分别显示：`ok` 不显示；`stock` 显示「存量沿用（未重新校验）」；`invalid` 显示计数句 + 具体原因清单 + 可播出提示，原因逐字走 `issueText` 单一实现。
+- `compliance` 键缺席时整块不显示，且不渲染成「0 项不符合」——与 `stock: null` 同一条「缺席 ≠ 0」纪律的第二处落点。
+- 回归锁 7 条（`PodcastChannelView.test.js`），含一条结构锁禁止展示层自抄第二份码→文案映射。
+
+
+
 # [未发布] fix(desktop): 内嵌浏览器反检测改走主世界，且只按真机对照修 4 项实测异常（zhihu-stealth-browse）
 
 - 用户现象是「应用内点开账号浏览知乎被判『网络环境或行为异常』」。查下来应用侧有**两个互相独立的缺陷**：① `stealth-preload.js` 在 `contextIsolation:true + sandbox:true` 下改的是**隔离世界**的 `navigator`，页面主世界毫无感觉（本仓 `PRD-OSS-RPA-HARDENING` §3.1 E4b 早有 spike 记录，本片复测一致：隔离世界标记在主世界读为 `undefined`）；② 账号标签根本没挂反检测——`tab-lifecycle.js` 的 preload 指向只暴露两个只读 IPC 的 `monitor-preload.js`，`stealth-preload.js` 只在 RPA 发布窗口被引用，于是「点开账号浏览」这条最高频路径从未接入。
