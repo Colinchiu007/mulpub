@@ -16,6 +16,15 @@ vi.mock("@/api/publisher", () => ({
 
 import FirstRunView from "./FirstRun.vue";
 import { authOpenLogin, accountAdd } from "@/api/publisher";
+import i18n from "@/i18n";
+
+/** 统一挂载入口：FirstRun.vue 用 useI18n() 读 onboarding.welcome（品牌名单一来源），
+ *  与 Home/Accounts 等同构——mount 必须装真实 i18n 插件，否则 useI18n 抛
+ *  createI18nError（19 例全挂）。locale 固定 zh 以保证断言稳定。 */
+function createView() {
+  i18n.global.locale.value = "zh";
+  return mount(FirstRunView, { global: { plugins: [createPinia(), i18n] } });
+}
 
 describe("FirstRunView", () => {
   beforeEach(() => {
@@ -24,16 +33,12 @@ describe("FirstRunView", () => {
     window.electronAPI = {};
   });
 
-  function createView() {
-    return mount(FirstRunView, { global: { plugins: [createPinia()] } });
-  }
-
   it("shows welcome step initially", async () => {
     const w = createView();
     await nextTick();
     await new Promise(r => setTimeout(r, 0));
     await nextTick();
-    expect(w.text()).toContain("\u6b22\u8fce\u4f7f\u7528\u793e\u5a92\u7ba1\u5bb6");
+    expect(w.text()).toContain("欢迎使用汤姆鱼");
   });
 
   it("advances to next step on click", async () => {
@@ -182,7 +187,7 @@ describe("FirstRunView — extra coverage", () => {
     const mocks = await import("@/api/publisher");
     var cb = null;
     mocks.onFirstRunStatus.mockImplementation(callback => { cb = callback; return vi.fn(); });
-    const w = mount(FirstRunView, { global: { plugins: [createPinia()] } });
+    const w = createView();
     await nextTick();
     cb({ type: "step", data: { step: "python", message: "installing..." } });
     await nextTick();
@@ -194,7 +199,7 @@ describe("FirstRunView — extra coverage", () => {
     const mocks = await import("@/api/publisher");
     var cb = null;
     mocks.onFirstRunStatus.mockImplementation(callback => { cb = callback; return vi.fn(); });
-    const w = mount(FirstRunView, { global: { plugins: [createPinia()] } });
+    const w = createView();
     await nextTick();
     cb({ type: "done" });
     await nextTick();
@@ -207,7 +212,7 @@ describe("FirstRunView — extra coverage", () => {
     var cb = null;
     mocks.onFirstRunStatus.mockImplementation(callback => { cb = callback; return vi.fn(); });
     mocks.firstRunCheck.mockResolvedValue({ code: 0, data: { setupDone: false } });
-    const w = mount(FirstRunView, { global: { plugins: [createPinia()] } });
+    const w = createView();
     await nextTick();
     // Set a step as active first so error handler finds it
     w.vm.depSteps[0].status = "active";
@@ -220,7 +225,7 @@ describe("FirstRunView — extra coverage", () => {
   it("firstRunCheck setupDone skips deps step", async () => {
     const mocks = await import("@/api/publisher");
     mocks.firstRunCheck.mockResolvedValue({ code: 0, data: { setupDone: true } });
-    const w = mount(FirstRunView, { global: { plugins: [createPinia()] } });
+    const w = createView();
     await nextTick();
     await new Promise(r => setTimeout(r, 0));
     await nextTick();
@@ -229,7 +234,7 @@ describe("FirstRunView — extra coverage", () => {
   });
 
   it("renders account step (step 2)", async () => {
-    const w = mount(FirstRunView, { global: { plugins: [createPinia()] } });
+    const w = createView();
     await nextTick();
     w.vm.currentStep = 2;
     await nextTick();
@@ -237,7 +242,7 @@ describe("FirstRunView — extra coverage", () => {
   });
 
   it("renders quick publish tutorial step (step 3)", async () => {
-    const w = mount(FirstRunView, { global: { plugins: [createPinia()] } });
+    const w = createView();
     await nextTick();
     w.vm.currentStep = 3;
     await nextTick();
