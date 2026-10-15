@@ -2,9 +2,6 @@
 record: oss-b1-rpa-hardening
 task: B1 RPA 反检测加固 PR-1（F1 evasions/行为层/captcha 相位/preload 变体 + F2 isolated world + 接线）
 date: 2026-10-14
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 不存在
-sync_backfill_owner: 合并后由后续 docs PR 回填并删除本段三个 sync_* 字段
 ---
 
 ## 本次执行记录：B1 RPA 反检测加固 PR-1（oss-b1-rpa-hardening，2026-10-14）
@@ -21,7 +18,7 @@ sync_backfill_owner: 合并后由后续 docs PR 回填并删除本段三个 sync
 | QM-1 打包 / QM-4 视觉 | PASS / N/A | QM-1：首次直接 `electron-builder --win --dir` 被三层判据抓出 `ERR_FILE_NOT_FOUND dist/index.html`（跳过 build:vue 缺 renderer 产物）→ 改走 `pnpm run build:dir`（= build:vue + electron-builder --dir）EXIT=0；asar 清单含 `\dist\index.html` + 5 个 stealth 模块（behavior-engine/cdp-input/evasions-bundle/isolated-world/stealth-preload-enhanced）；asar 抽取后 require 链 rpa-engine + 4 stealth 模块全 OK；启动测试 10 秒存活、LAYER1 红线零命中、stderr 仅 `DEP0180 fs.Stats constructor` Node 核心弃用警告（两次运行均出现、与本变更文件无交集，人工判定 benign → PASS）。**QM-6 修复后重跑（2026-10-15）再次全过**：`pnpm run build:dir` EXIT=0；asar 清单含 `\dist\index.html` + 6 个 stealth 文件（5 模块 + 新增 `stealth-preload-enhanced.bundle.js` 94.9kb——正是 Critical ①/Warning ② 修复的产物，缺它则增强 preload 回落 baseline）；抽取后 `require('@multi-publish/rpa-engine')` OK；启动 10s 存活、stderr 仅 DEP0180（与首跑同）。QM-4 N/A（无 UI 可见变更，captcha 相位复用既有面板） |
 | QM-6 CCG 双模型外部评审 | PASS（backend 轴完成；frontend 轴 3 次有效失败按协议跳过，见下节） | backend=claude 全量 findings 已取回并逐条核实处置（1 Critical + 2 Warning + 2 Info，全部落码修复 + 变异反证 5/5 CAUGHT，见「后端轴 findings 与处置」节）；frontend=opencode 3 次尝试全败 → 按协议跳过（尝试史见「前端轴尝试史与跳过决定」节）；跨家族对抗性由 CCG plan-review（opencode↔claude DUAL、converged cleared，见下行）承重；前端轴视角缺失记为残余风险。路由真源 `~/.claude/.ccg/config.toml` |
 | CCG 决策层 plan-review | PASS | decider `--input design.md` 建 plan 记录（mode=SINGLE，plannedFiles 40）→ `plan-review.sh` 跨家族 DUAL 对抗（proposer=opencode / critic=claude）：第 1 轮 converged，8 findings（Critical 0 / High 0 / Warning 5 / Info 3），裁定 **cleared 放行**；8 条全部逐条处置进 design.md（i1→D4 token 生命周期、i2→D1 evasions 三层缓解、i3→D6 配置完整性威胁模型、i4→风险表 R2/R3 阈值量化、i5→D5 captcha 超时/取消/放弃三出口、i6→Specs 段小写统一、i7→D1/D3 world 边界、i8→决策状态标注）；记录 JSON `.ccg/reviews/53a3a71df….json`（deepReview.status=cleared） |
-| 远程同步 | PENDING | 合并后回填 merge SHA 与时间；`git ls-remote --heads origin oss-rpa-hardening` 0 行证分支删除 |
+| 远程同步 | PASS | PR #3619 squash 合并 merge SHA `f66081aec18ca72ef9dde2a2fdde2ab23731629e`（committer 2026-10-15T11:15:32Z / +08:00 19:15:31）；取证 `git log origin/main --grep='(#3619)$' --format=%H|%cI` **恰 1 行**；`git ls-remote --heads origin oss-rpa-hardening` 返回 **0 行** 证远端分支已删 |
 
 ### CCG pre-commit 放行证据（SKIP_CCG_GATE=1，提交 5）
 
