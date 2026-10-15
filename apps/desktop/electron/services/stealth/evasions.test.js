@@ -63,7 +63,10 @@ describe('stealth evasions 提取产物（PRD §3.1 三重锁之防回归层）'
   })
 
   it('快照 sha256 锁定（未评审的上游漂移即红；重录须走 EVASIONS_SNAPSHOT_SHA256）', () => {
-    const raw = fs.readFileSync(BUNDLE, 'utf8')
+    // EOL 归一化（2026-10-14）：blob 为 LF（i/lf），但 text=auto 在 Windows checkout 转 CRLF（w/crlf）。
+    // readFileSync 读工作副本会拿到 CRLF 字节，直接哈希得 CRLF 指纹，与 LF 快照（记录源=提取脚本 LF 产物）
+    // 平台性不符。归一化 \r\n→\n 后哈希 = LF blob 指纹，跨平台稳定且仍能捕捉真实内容漂移。
+    const raw = fs.readFileSync(BUNDLE, 'utf8').replace(/\r\n/g, '\n')
     const hash = crypto.createHash('sha256').update(raw, 'utf8').digest('hex')
     expect(hash, `bundle 漂移：现 ${hash}；若为上游显式升级请重录快照并走 npm 版本评审`).toBe(SNAPSHOT_SHA256)
   })
