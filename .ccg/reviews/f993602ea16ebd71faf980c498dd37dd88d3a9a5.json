@@ -19,8 +19,13 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "needs_revision",
+    "performedBy": "agent-adjudication",
+    "findings": 6,
+    "findingsUpheld": 6,
+    "engineStatusBeforeAdjudication": "pending",
+    "adjudicationLocation": ".adversarial/ccg-deep-f993602e/adjudication.json",
+    "note": "深度审查已跑（sh scripts/deep-review.sh）：critique 6 条 → 逐条裁决 6/6 upheld → 全部在本 PR 内修订。performedBy=agent-adjudication（引擎第三档自扮演出口；★ 引擎侧终审 verdict 未取得，故不写 cleared）。裁决与反证见 .adversarial/ccg-deep-f993602e/adjudication.json 与 openspec/records/ccg-explicit-mode.md §五之二。修订提交：e2f228916",
+    "at": "2026-10-15T16:00:00.000Z"
   }
 }
