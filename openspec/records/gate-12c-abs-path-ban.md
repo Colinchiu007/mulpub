@@ -1,0 +1,34 @@
+---
+record: gate-12c-abs-path-ban
+task: Gate 12c 的判据输入由「路径是否存在」换成「路径计数」，使它在无盘符 runner 上也能真判；账本按新口径换代
+date: 2026-10-14
+sync_status: PENDING
+sync_reason: 本 PR（gate-12c-abs-path-ban）尚未合并，merge SHA 还不存在
+sync_backfill_owner: 下一个会话（合并后改为 PASS 并删除本段三个字段；新载体不进 JSON ledger）
+---
+
+## 本次执行记录：Gate 12c 计数口径换代（gate-12c-abs-path-ban，2026-10-14）【混合 PR】
+
+| 门禁 | 状态 | Fresh 证据 |
+|------|------|-----------|
+| 变更类型与隔离 | PASS | 🔧 CI/门禁 + 🧪 测试 + 📝 文档 ⇒ 改到 `scripts/**`（门禁本体、自测、账本 JSON）故为**混合 PR**，不走 docs-only 通道。worktree `D:/Data/projects/mp-worktrees/mp-<本任务>`、裸分支 `gate-12c-abs-path-ban`（`git rev-parse --abbrev-ref HEAD` 实证），基线 `db4ac8172`；依赖经 `start-mp-task.ps1` 内置 `pnpm install --frozen-lockfile` + `verify-worktree-deps.js` 通过。共享根保持 main clean，未在其中落盘 |
+| 第一性原因（QM-5 ①） | PASS | 不是「CI 用了 Linux」，是**判据把文件系统当成了输入**：`scanFile` 只在 `firstMissingSegment` 非空时 push，而该函数对**本机不存在的盘符一律返回 null** ⇒ ubuntu 上 findings 恒空 ⇒ 现场计数恒 0 ⇒ 与账本比较两个方向都不可能红。原判据注释甚至把这件事写成了受保护形态（「无盘符时若仍比计数，整张账本会变成永久红——比它挡的问题更糟」）——这句话在旧口径下是对的，而它正是洞本身。第二条第一性原因由**用户一句话**触发：文档本就不该写本机绝对路径 ⇒ 约束应当提前到「写入时」而不是「失效后」 |
+| 逃逸分析（QM-5 ②） | PASS | ① **单元层**：既有 51 条锁里有多条把「无盘符 ⇒ 跳过计数」写成**期望行为**（`if (!DRIVE) t.skip`），所以 CI 上它们静默 skip、既不红也不证——洞被"正确跳过"这件事永久掩护。② **门禁层**：`--all` 只在有盘符的机器上跑（本仓 `--all` 不在 CI），日常 CI 口径 `--base/--head` 落在 ubuntu ⇒ 存在性判定**从未在任何 PR 上执行过**。③ **审查层**：#3583 的外部评审已独立命中同一处，当时只补了「不需要盘符的那一半」（`judgeLedgerDrift` + 无从判定成数出声），把另一半登记为欠账——本轮是那条欠账的收口。④ **现场层（分类）**：测试场景缺失（缺"无盘符仍须判"这一类跑法）+ 判据形态错误（可观测面选成文件系统）。⑤ **现成证据**：main 上另一会话合入的 `openspec/records/fix-bridge-restart-loop.md` 写死了一个已删除的 worktree 路径且未登记账本，本机 `--all` 当场报「超出存量基线 1 个文件」，而它是在 CI 上绿灯合进去的 |
+| 修复 + 回归保护（QM-5 ④） | PASS | 判据四处改动：① `scanFile` 无条件 push，存在性降级为 `missing` 附加字段；② `judgeBaseline` 的 `over/shrink` **摘掉 `canJudge` 门控**（这是洞的正中）；③ 账本新增 `METRIC_VERSION`（判据代码为唯一真源，head 侧不符 ⇒ 退出码 2，base 侧只回传不校验）；④ `judgeLedgerDrift` 增 `generationChange` 一支——换代那次逐文件计数不可比，不判放宽但**照报缩小与陈旧**，且 head 侧 metric 仍强制等于代码常量 ⇒ 想第二次走这条豁免必须先把账本退回上一代，会在别的 PR 上先红（**按构造只能发生一次**）。回归保护 51 条（其中本轮新增/改签 14 条），`node --test` **51 tests / 51 pass / 0 fail / 0 skipped**。关键新增锁：核心锁「无盘符也必须报超出存量基线」、A/B 负控「有盘符与无盘符两档 counts 必须相同（打印 `counts=` 机读行）」、`--simulate-no-drives` 使 ubuntu 那一档在 Windows 上也能复现、迁移锁「换代必须能被 `--write-baseline` 完成」并反向钉「非写模式仍严格要求 metric」 |
+| 防止再次发生（QM-5 ⑤） | PASS | ① **机制**——判据本体 + 51 条锁（已接 `quality-gate.yml` 的 `changes` job，该 job 无盘符 ⇒ 这些锁现在在 CI 上真跑，`skipped` 从若干条变 **0**）。② **反失明**——每次运行打印 `counts=N domain=N canJudge=B`，让"这次判了没有"不靠读代码推断；结构锁「`judgeBaseline` 体内不得出现 `if (canJudge)`」作为行为锁的靶子独立存在。③ **规范**（同 PR 落 AGENTS.md）：受管文档不得**新增**本机绝对路径，要写运行现场一律用占位符形态（`<...>` / `$VAR` / 通配），因为占位符豁免是按路径词元自身生效的。④ **经验**（同 PR 落 learnings）：本轮两条——「新守卫拒绝执行它自己要求的那次迁移」与「一条把洞写成受保护形态的锁，改它时不能只翻期望值，要保住它的机制」。⑤ 账本换代读数已可一句话重取：`node scripts/check-doc-abs-paths.js --all` |
+| 账本换代现场 | PASS | `--all --write-baseline` 扫描域 3112 个受管文件 ⇒ 有绝对路径的文件 **516 个 / 总处数 1117**（旧口径 435 / 870），`新增 81 / 消失 0 / 计数变化 80`。上升**只因为少了一个「盘上不存在」过滤器**，不是新增违规；`added/gone/changed` 三个集合逐文件对账过，无"本 PR 自己写进去的路径"（新记录一律用占位符，被自己的词元豁免挡在计数外） |
+| TDD 红→绿 | PASS | 先写 8 条新锁 + 摘掉旧 skip，在未改实现上实测 **50 tests / 36 pass / 14 fail**，红的是「该拦的没拦」方向。实现后按四处自纠逐条转绿：36→43（`serializeBaseline` 漏写 metric ⇒ 它生成的账本通不过自己新加的校验；写盘前未建目录 ⇒ 取消无盘符拒写后这段代码第一次真被执行才暴露 ENOENT；git 夹具 base 账本缺 metric ⇒ 被读成"来自上一代"，三条放宽行为锁被自己的豁免分支豁免掉；一条纯函数锁我算错了数）⇒ 43→45（改签两条旧口径锁）⇒ 45→50（解开"守卫拒绝迁移自己"的死结 + 改签 3 条机制被换代削掉的旧锁）⇒ 50→**51/51**。其中「换代行为锁」的 14 分钟红因是**我的夹具用错跑法**：`runGate()` 恒带 `--all`，而 `--all` 按设计跳过放宽检测 ⇒ 分支根本没执行；正解是喂两个真提交，并补 `doesNotMatch /账本被放宽/`——因为「放行」与「没跑到」在输出上同形 |
+| 变异反证（2 条，红集互不相同） | PASS | 驱动 `.tools/tmp/gate75/mut-75.cjs`，收尾断言 `RESTORE_BYTES_EQUAL=true` 且 `git status` 干净。**M1** 把 `over/shrink` 重新包进 `if (canJudge)`（**规则明文禁止的那个形态本身**，不是近似）⇒ `fail=5`：结构锁 + 无盘符计数正反两条 + 核心锁 + 存在性措辞锁；**「真实存在的路径」那条不红**（`scanFile` 没动，正确）。**M2** 把 `scanFile` 入域条件退回「只有盘上不存在才记」（即旧口径）⇒ `fail=8`：真实路径锁 + 中文句读锁 + 活体等序锁 + 迁移锁 + 换代行为锁 + 盘符无关计数 A/B 锁 + 措辞锁 + 写基线锁；**结构锁不红**（`judgeBaseline` 没动，正确）。两条红集的交集只有「存在性措辞锁」一条，并集才是真实防护面——只跑一条会把另一条锁误当成在守同一个变量。意外收获：M2 也打红「换代必须能被 `--write-baseline` 完成」，说明那条锁顺带守住了整个入域口径 |
+| 接线棘轮 | PASS | **不改任何 workflow**：`check-doc-abs-paths.js` 与它的自测早已逐个点名在 `quality-gate.yml` 的 `changes` job（该 job 是 docs-only 短路时唯一仍执行的判据面）。本轮换的是"它能不能判"，所以接线面为零、`check-unwired-tests` 与 `check-step-failfast` 无需改动即 OK；也因此**不触发**「改谁来守门」的人工过目条件（未碰分支保护、未碰 `CI_IGNORED_PATHS`） |
+| 性能 | PASS | `--all` 重写后现场 1117 处 / 516 文件，比旧口径多扫「存在但仍计入」那一类；判据不再为每条路径做逐级 `existsSync` 之外的额外 I/O（`firstMissingSegment` 仍跑，但只用于填 `missing`，不再决定是否入域）。CI 侧同一 job 的耗时读数在 PR 说明里给（本记录不预填未量过的数） |
+| 行尾与 diff 对账 | PASS | 实现与自测是 `i/lf w/crlf`（checkout 转换），账本 JSON 与记录是 `i/lf w/lf`（工具直接写回）——**索引侧全 `i/lf`** ⇒ 提交内容不含行尾改动。所有脚本化改写一律"逐文件量 eol 再拼锚点 + 回写按原 eol join"，禁整文件统一行尾；变异驱动因锚点按 LF 写、文件是 CRLF 曾会"永不命中"，已在驱动内显式归一再还原（否则 `ANCHOR_NOT_APPLIED` 会被读成"变异无效"）。`git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 排序后逐字节相同，删除数逐行归因 = 被就地改写的判据行与旧断言行，非幽灵行 |
+| QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/`、`packages/rpa-engine/`、任何 `.vue`/样式/基线 PNG；改的是 CI 门禁脚本、其自测与账本 JSON |
+| QM-6 CCG 双模型外部评审 | PENDING | 下一轮执行：本 PR 属"改门禁判据 + 换代存量基线"，命中 QM-6 触发条件。通道按本机实况走替代路（见记忆中 QM-6 替代评审通道条），评审产物落仓库外 |
+| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin gate-12c-abs-path-ban` 返回 0 行证远端分支已删；回填时把本行改写为 PASS 并**删除上方三个 `sync_*` 字段**（同一次提交内完成，不在 JSON ledger 留项） |
+
+### 遗留（不假装已闭合）
+
+- **本 PR 只闭合了"能不能判"，没闭合"判得对不对"**：计数口径把「文档里出现绝对路径」当违规，而真正的语义违规是「这条路径在别人机器上/未来的自己机器上不存在」。前者可以在任何机器上机械判定（本轮），后者仍然只有活体 `--all` 在有盘符的机器上能判。存在性报告被保留为**附加信息**而不是入域条件，这是刻意的取舍，不是遗漏。
+- **词元终点仍按空白切分**（沿用 #3583 登记的 F4/F10/F12）：路径里合法含空格时后续内容被吸进词元；空格**在**提取器字符集里，所以两条相邻路径会被吞成一条——这条在自测里是**如实断言**而非隐藏。
+- **占位符是纪律不是证据**：`mp-<task>` 这类写法保住了豁免，但也让"当时到底是哪个 worktree"不可复原。取舍理由写进 AGENTS.md：执行记录的取证力靠分支名与 PR 号，不靠绝对路径。
+- **`skipped=0` 是本轮换来的，不是本来就有的**：如果后续有人为了让某条锁不红而重新加 `if (!DRIVE) t.skip`，等于把 #75 的洞重新挖开。这条要有人守——目前由「A/B 负控必须两档 counts 相同」那条锁间接守住，尚无直接判据。
