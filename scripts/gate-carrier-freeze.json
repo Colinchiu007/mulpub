@@ -1,8 +1,8 @@
 {
   "_policy": "旧载体 .quality-gates.md 的冻结基线。新 PR 的执行记录一律写 openspec/records/<分支名>.md；本文件只允许就地关闭已有记录块里的状态行，不许加块、不许删块。有意变更存档面时人工跑 `node scripts/freeze-gate-carrier.js` 重算，属\"改谁来守门\"、不走自动合并。",
   "frozenAt": "2026-10-15",
-  "headingCount": 603,
-  "headingSha256": "5fed93f022ffa821bf414d29b912f2b17b30de70aa0239e6aa8848a137a6fb13",
+  "headingCount": 605,
+  "headingSha256": "e47048f748ec7243a2203997c2ce84973bb58712909687631077b5f7d6443d26",
   "headings": [
     "2026-08-06 应用日志 log 功能 提交前自检",
     "2026-08-06 技术债务 W1/W2/W3 提交前自检",
@@ -131,6 +131,7 @@
     "本次执行记录：Provider 运行级熔断与克隆音色恢复去重（minimax-provider-circuit-breaker，2026-08-23）",
     "本次执行记录：Q2/Q3 定案与上游账单交接口径（phase2-q2-q3-decisions，2026-10-11）【docs-only】",
     "本次执行记录：QG Autonomous 报告型化 + PR 类型路由 + 需求跟踪（autonomous-gate-report-only，2026-08-20）",
+    "本次执行记录：QM-1 启动验证的 `ELECTRON_RUN_AS_NODE` 假绿——子进程 env 显式剔除，并把「存活」作为三层判据的隐含前提断言（fix-qm1-electron-run-as-node，2026-10-15）【混合 PR】",
     "本次执行记录：QM-6 补跑与评审处置（cloud-sync-no-store 第三段，2026-09-27）",
     "本次执行记录：Story2Video Text 标准模式对齐",
     "本次执行记录：Story2Video Text 集成分支最终验证",
@@ -310,6 +311,7 @@
     "本次执行记录：发布页「请先添加账号」补上「添加」与「点击刷新」两个出口（publish-add-account-entry，2026-10-15）【混合 PR】",
     "本次执行记录：发布页封面缩略图与点击放大预览（video-cover-thumbnail-preview，2026-09-28）",
     "本次执行记录：发布频率策略 v2（publish-frequency-policy-v2，2026-10-10）",
+    "本次执行记录：发布频率策略 v3（publish-frequency-policy-v3，2026-10-15）【混合 PR】",
     "本次执行记录：古代东亚故事出图西方面孔修复（s2v-east-asian-face-anchor，2026-08-16）",
     "本次执行记录：回填 #2504 缺行 + 补写 #2595 缺席记录 + #2570 销账（backfill-gate-record-evidence，2026-09-28）",
     "本次执行记录：回填 #2626 / #2656 / #2687 三条执行记录（gate-records-backfill，2026-09-30）【docs-only】",
