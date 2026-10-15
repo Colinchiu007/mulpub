@@ -15,7 +15,7 @@
  *      的欢迎语必须逐字等于 locale 值（tabs.brandTitle / onboarding.welcome），
  *      防止「locale 改了、硬编码没改」的二次漂移。
  *
- * 与 check-no-brand-residue.js 的关系：那条门禁查的是**竞品**品牌词（蚁小二），
+ * 与 check-no-brand-residue.js 的关系：那条门禁查的是**竞品**品牌词（参考产品），
  * 与本锁的**自家产品名**口径不同，互不替代。
  */
 import { describe, expect, it } from 'vitest'
