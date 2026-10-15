@@ -302,3 +302,62 @@ test('棘轮：has_api:true 但无发布链的平台集合（待 owner 裁定）
   assert.deepEqual(gaps, STEP9_CHAIN_GAPS,
     'has_api:true 却无链的平台集合变了 —— 若是有意修好了，请更新本棘轮并写明裁定结果；若是退化，请查因')
 })
+
+// ───────────────────────────────────────────────────────────────────────────
+// TAG_STYLES 缺席走默认：判据过严的修正 + 放宽后「不许空转」的反向锁
+// （2026-10-15）
+//
+// 原判据 7/8 要求 TAG_STYLES 有该 slug 的**显式键**。但：
+//   · content-formatter.js 的 formatTags 是 `TAG_STYLES[platform] || '#tag'`
+//     —— **有默认兜底**，缺席不是坏；
+//   · 该表 10 个键里 6 个（pipixia/xigua/tengxun_shipin/meiyou/chejiahao/wangyi）
+//     不在 config/platforms.yaml 的 15 个平台里 —— 缺席是常态；
+//   · 默认值 '#tag' 对海外/短视频平台的 hashtag 约定**恰好正确**。
+// 实测：原判据下 6 个平台 FAIL 且 detail 全是「TAG_STYLES 无 <slug>」
+// （CONTENT_LIMITS / TITLE_LIMITS 均命中）—— 全部是判据过严，不是平台缺陷。
+//
+// ★ 反向锁：放宽后最怕的是「TAG_STYLES 整体失效也没人发现」。
+//   所以这里直接钉住**默认兜底值本身合法**：
+//   把 formatTags 的兜底从 '#tag' 改成非法值 ⇒ 判据 7/8 必须对 6 个缺席平台转 FAIL。
+//   该变异已实跑（见 PR 描述），确认 6 个平台全红。
+// ───────────────────────────────────────────────────────────────────────────
+const TAG_STYLES_ABSENT_OK = ['youtube', 'tiktok', 'twitter', 'instagram', 'facebook', 'tencent_video']
+const TAG_STYLES_ALLOWED = ["'#tag'", "'#tag#'", "'plain'"]
+
+test('TAG_STYLES 缺席的平台走默认兜底，且判据 7/8 不空转', () => {
+  const fs = require('node:fs')
+  const fmt = fs.readFileSync(path.join(ROOT, 'packages/api-publish-engine/src/content-formatter.js'), 'utf8')
+
+  // ① 默认兜底值必须可解析且合法（反向锁的核心）
+  const dm = fmt.match(/TAG_STYLES\[platform\]\s*\|\|\s*'([^']+)'/)
+  assert.ok(dm, 'formatTags 的默认兜底表达式不可解析 —— 判据 8 的缺席分支会失效，请核对')
+  assert.ok(TAG_STYLES_ALLOWED.includes(`'${dm[1]}'`),
+    `默认兜底 '${dm[1]}' 不在允许集 ${TAG_STYLES_ALLOWED.join(' / ')} —— 这会让所有缺席平台的标签样式退化`)
+
+  // ② 这 6 个平台的判据 7/8 应 PASS，且 detail 必须**如实说明走的是默认**
+  for (const slug of TAG_STYLES_ABSENT_OK) {
+    const r7 = buildChecks(slug).find((c) => c.id === 7).fn()
+    assert.equal(r7.ok, true, `${slug} 判据 7 应 PASS（TAG_STYLES 缺席走默认），实际: ${r7.detail}`)
+    assert.ok(/TAG_STYLES 缺席走默认/.test(r7.detail),
+      `${slug} 判据 7 的详情必须说明「TAG_STYLES 缺席走默认」，不能静默通过。实际: ${r7.detail}`)
+    const r8 = buildChecks(slug).find((c) => c.id === 8).fn()
+    assert.equal(r8.ok, true, `${slug} 判据 8 应 PASS，实际: ${r8.detail}`)
+    assert.ok(/走默认/.test(r8.detail), `${slug} 判据 8 的详情必须说明走默认。实际: ${r8.detail}`)
+  }
+
+  // ③ 反向对照：有显式键的平台必须报「显式命中」，不许也被算成走默认
+  for (const slug of ['douyin', 'kuaishou', 'bilibili', 'weibo', 'zhihu', 'baijiahao', 'wechat_mp', 'toutiao']) {
+    const r7 = buildChecks(slug).find((c) => c.id === 7).fn()
+    assert.equal(r7.ok, true, `${slug} 判据 7 应 PASS，实际: ${r7.detail}`)
+    assert.ok(/TAG_STYLES 显式命中/.test(r7.detail),
+      `${slug} 有显式键却报成走默认，说明键匹配退化了。实际: ${r7.detail}`)
+  }
+
+  // ④ 规模下界：CONTENT_LIMITS / TITLE_LIMITS 仍要求显式键（不许一起被放宽）
+  for (const slug of TAG_STYLES_ABSENT_OK) {
+    const r7 = buildChecks(slug).find((c) => c.id === 7).fn()
+    // detail 里不得出现「CONTENT_LIMITS 无」/「TITLE_LIMITS 无」才算真的过了那两关
+    assert.ok(!/CONTENT_LIMITS 无|TITLE_LIMITS 无/.test(r7.detail),
+      `${slug} 的上限表仍有缺失，不应只靠 TAG_STYLES 放宽混过。实际: ${r7.detail}`)
+  }
+})
