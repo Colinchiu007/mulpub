@@ -101,12 +101,29 @@ function missingPathUnderLocalDrive () {
   return DRIVE + '\\Data\\projects\\definitely-not-here-' + FX + '\\apps\\desktop';
 }
 
+/**
+ * 把一条真实存在的目录路径转成 **Windows 形态**的绝对路径字面量。
+ *
+ * 为什么需要它（2026-10-15 CI 实测，本文件当时 8 条红）：这批夹具原本直接返回
+ * `os.tmpdir()` 拼出来的路径 —— Windows 上得到 `D:\tmp\…`（是 Windows 绝对路径，会被计数），
+ * ubuntu runner 上得到 `/tmp/…`（**根本不是 Windows 绝对路径，一条都不计**）。于是"存在的路径也要
+ * 计入账本"这类断言在 Linux 上拿到 status 0 而期望 1：我为了修「旧代码隐式依赖盘符」写的新断言，
+ * 换了一种方式继续依赖 Windows —— 依赖的是"这台机器的 tmpdir 长得像 `D:\`"。
+ * 修共用出口而不是逐条改断言：一处改对 8 处一起好，也不会漏。
+ * 诚实边界：Linux 上这条路径**不真实存在**，所以凡断言"存在性明细"的用例仍须由 DRIVE 门控；
+ * 计数类断言与盘符、与存在性都无关（这正是口径换代买到的东西）。
+ */
+function asWindowsShape (p) {
+  if (DRIVE) return p;
+  return 'Q' + ':\\' + p.replace(/^\//, '').split('/').join('\\');
+}
+
 /** 造一个「本机存在盘符下、且真实存在」的绝对路径（文件必须真的建出来） */
 function existingPathUnderLocalDrive () {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cdap-live-'));
   const file = path.join(dir, 'probe.txt');
   fs.writeFileSync(file, 'x\n');
-  return file;
+  return asWindowsShape(file);
 }
 
 test('检出指向不存在目录的本机绝对路径', (t) => {
@@ -138,7 +155,7 @@ function makeRealPath (levels = ['apps', 'desktop'], withFile = true) {
     fs.mkdirSync(cur, { recursive: true });
   }
   if (withFile) fs.writeFileSync(path.join(cur, 'probe.txt'), 'x\n');
-  return withFile ? path.join(cur, 'probe.txt') : cur;
+  return asWindowsShape(withFile ? path.join(cur, 'probe.txt') : cur);
 }
 
 test('真实存在的路径不报「失效」，但必须计入账本（口径换代的正反两面）', () => {
