@@ -98,13 +98,17 @@ function collectStaged() {
   const numstat = git(["diff", "--cached", "--numstat"]);
   if (numstat === null) return null;
 
-  const diff = git(["diff", "--cached", "-U0"]) || "";
-  // 变更行内容：只取 + / - 开头的新增与删除行
-  const changedLines = diff
-    .split("\n")
-    .filter((l) => (l.startsWith("+") || l.startsWith("-")) && !l.startsWith("+++") && !l.startsWith("---"))
-    .map((l) => l.slice(1));
-
+  // ★ 2026-10-15 修（缺陷 A + B）：
+  //   原实现只用一条 `git diff --cached -U0`，然后把所有 +/- 行塞进 changedLines。
+  //   两个后果：
+  //     A) changedLines 含 .md 文档行 ⇒ 敏感内容判定把「文档里分析加密机制」
+  //        也算成「改动涉及加密」（假阳性 dual）；
+  //     B) rebase --continue 走 git 内部 cherry-pick，pre-commit 触发时
+  //        GIT_INDEX_FILE 指向 rebase 临时 index ⇒ 整仓 diff 读不到预期内容，
+  //        changedLines 为空 ⇒ 敏感判定失去依据。
+  //
+  //   修法：**按文件分别取 diff**，并把「该文件是否源码扩展名」一并带回，
+  //   让下游能只拿源码文件的行做敏感判定。
   const files = numstat
     .split("\n")
     .filter(Boolean)
@@ -117,7 +121,43 @@ function collectStaged() {
       };
     });
 
-  return { files, changedLines };
+  const codeFileSet = new Set(
+    files
+      .filter((f) => RULES.codeExtensions.has(path.extname(f.file).toLowerCase()))
+      .map((f) => f.file)
+  );
+
+  // 逐文件取变更行；同时标出它是不是源码文件
+  const changedLines = [];
+  const changedLinesByFile = new Map(); // file -> string[]
+  for (const f of files) {
+    let lines = [];
+    try {
+      const d = git(["diff", "--cached", "-U0", "--", f.file]) || "";
+      lines = d
+        .split("\n")
+        .filter((l) => (l.startsWith("+") || l.startsWith("-")) && !l.startsWith("+++") && !l.startsWith("---"))
+        .map((l) => l.slice(1));
+    } catch (_) {
+      lines = [];
+    }
+    changedLinesByFile.set(f.file, lines);
+    for (const l of lines) changedLines.push(l);
+  }
+
+  // 只含源码文件变更行的视图 —— 敏感内容判定必须用这个，不能用 changedLines
+  const codeChangedLines = [];
+  for (const f of files) {
+    if (!codeFileSet.has(f.file)) continue;
+    for (const l of changedLinesByFile.get(f.file) || []) codeChangedLines.push(l);
+  }
+
+  return {
+    files,
+    changedLines,
+    codeChangedLines,
+    codeFiles: files.filter((f) => codeFileSet.has(f.file)),
+  };
 }
 
 /**
@@ -225,7 +265,12 @@ function judge(staged) {
     );
   }
 
-  const contentHits = staged.changedLines.filter((l) =>
+  // ★ 2026-10-15 修（缺陷 A）：contentHits 必须只跑**源码文件**的变更行。
+  //   原实现跑在 `staged.changedLines`（含 .md 文档行）上，与 pathHits 的
+  //   codeFiles 口径不一致 ⇒ 在文档里写「加密/口令」的分析文字会被判成
+  //   「改动涉及加密」，误置 deepReview.required。
+  //   现在用 collectStaged() 额外产出的 codeChangedLines（已按 codeExtensions 过滤）。
+  const contentHits = (staged.codeChangedLines || []).filter((l) =>
     RULES.sensitiveContents.some((re) => re.test(l))
   );
   const sensitive =

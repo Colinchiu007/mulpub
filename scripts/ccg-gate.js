@@ -244,6 +244,18 @@ function main() {
     return 0;
   }
 
+  // ★ 2026-10-15 增（缺陷 C）：支持对**任意路径**跑门禁。
+  //
+  // 原实现只从暂存区取目标文件，于是「改动一旦提交就无法再跑」——
+  // 事后补跑 `node scripts/ccg-gate.js verify-quality <file>` 会被静默忽略
+  // （参数根本没被解析），只能得到「暂存区无变更，跳过」。
+  //
+  // 现在：位置参数里凡不像门禁名的，一律当作目标路径。
+  // 这样 pre-commit（无参数）与事后补跑（带路径）走同一条代码路径。
+  const argv = process.argv.slice(2);
+  const gateNames = new Set(CONFIG.gates.map((g) => g.name));
+  const explicitTargets = argv.filter((a) => !a.startsWith("-") && !gateNames.has(a));
+
   const ccgDir = resolveCcgDir();
   if (!ccgDir) {
     console.log(
@@ -254,7 +266,10 @@ function main() {
   }
 
   const staged = gitStagedFiles();
-  const targetFiles = resolveTargetFiles(staged);
+  const targetFiles = explicitTargets.length > 0 ? explicitTargets : resolveTargetFiles(staged);
+  if (explicitTargets.length > 0) {
+    console.log(`   [CCG] 使用显式目标路径 ${explicitTargets.length} 个（绕过暂存区）`);
+  }
 
   const errors = [];
   const warnings = [];

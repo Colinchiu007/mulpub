@@ -310,12 +310,75 @@ function main(argv) {
     remoteBranches: remoteBranches || new Set(),
     threshold,
   })
+  // ★ 2026-10-15 增（缺陷 D）：CCG 深度审查欠账检查。
+  //   与 evaluate 独立：它是「附加债」而非「记录缺失」，
+  //   所以只在 evaluate 已通过时追加理由（否则一次报一类，避免噪声淹没主因）。
+  //
+  //   ⚠️ 必须同时应用到下面的 `r2` 分支：`--no-remote` 时 remoteBranches 为 null，
+  //   控制流会重新 evaluate 出 r2 并 return report(r2) —— 若只改 r，欠账会被静默丢弃。
+  const applyDeepDebt = (target) => {
+    const deepDebt = evaluateDeepReviewDebt(statuses, repo)
+    if (deepDebt.reasons.length > 0) {
+      target.ok = false
+      target.reasons.push(...deepDebt.reasons)
+    }
+    return target
+  }
+  applyDeepDebt(r)
   // 取不到远端清单时不能悄悄按"0 条待清理"过 —— 显式传 null 让 evaluate 自己标 unknown
   if (!remoteBranches) {
     const r2 = evaluate({ statuses, headBranch, branchSource: resolved.source, exemptOnDisk: readExemptsOnDisk(repo), remoteBranches: null, threshold })
-    return report(r2, mode)
+    return report(applyDeepDebt(r2), mode)
   }
   return report(r, mode)
+}
+
+/**
+ * ★ 2026-10-15 增（缺陷 D）：检查 `.ccg/reviews/*.json` 里被判定需要深度审查
+ * （`deepReview.required === true`）但状态仍是 `pending` 的记录。
+ *
+ * 动因：`ccg-review-decider.js` 对 mode != skip 的改动会置
+ * `deepReview: { required: true, status: "pending", performedBy: null }`，
+ * 但**没有任何环节检查它是否被执行过**。而 `ccg-gate.js` 里
+ * `verify-quality` / `verify-change` 都是「仅告警不阻断」，
+ * 于是「需要深度审查」这件事在流程上完全静默 —— 提交照常通过，
+ * 只有一条 pending 记录躺在没人看的 `.ccg/reviews/` 里。
+ *
+ * 实测教训（2026-10-15）：我自己的 PR 就带着一条 pending 记录合了，
+ * 直到用户问「哪些步骤需要补跑」才发现。
+ *
+ * 设计取舍（不误伤）：
+ *   - 只查**本次变更集涉及**的记录文件（A 或 M 的 .ccg/reviews/*.json），
+     不扫全仓 —— 否则历史遗留的 pending 会让所有 PR 红。
+ *   - 记录本身是审计产物（AUDIT_ARTIFACT_RE），其 sha 命名与 squash 合并后的
+ *    HEAD 不同，所以按「本次改动是否带上它」判定，不按 sha 反查。
+ */
+function evaluateDeepReviewDebt (statuses, repo) {
+  const reasons = []
+  const involved = statuses
+    .filter((e) => (e.status === 'A' || e.status === 'M') && AUDIT_ARTIFACT_RE.test(e.file))
+    .map((e) => e.file)
+  if (involved.length === 0) return { reasons, checked: 0 }
+
+  const pending = []
+  for (const rel of involved) {
+    let rec = null
+    try {
+      rec = JSON.parse(fs.readFileSync(path.join(repo, rel), 'utf8'))
+    } catch { continue } // 损坏记录由别的门禁负责，这里不重复报
+    if (rec && rec.deepReview && rec.deepReview.required === true && rec.deepReview.status === 'pending') {
+      pending.push(`${rel}（mode=${rec.mode || '?'}，decidedAt=${rec.decidedAt || '?'}）`)
+    }
+  }
+  if (pending.length > 0) {
+    reasons.push(
+      `CCG 深度审查欠账 ${pending.length} 条 —— 这些改动被判需要深度审查（deepReview.required=true）`
+      + `但状态仍是 pending：\n`
+      + pending.slice(0, 8).map((p) => `    - ${p}`).join('\n')
+      + `\n    补跑：sh scripts/deep-review.sh（或确认该判定是假阳性后，在记录里写明原因并置 status）`
+    )
+  }
+  return { reasons, checked: involved.length }
 }
 
 function report(r, mode) {
@@ -333,6 +396,6 @@ function report(r, mode) {
   process.exit(r.ok ? 0 : 1)
 }
 
-module.exports = { evaluate, resolveHeadBranch, readExemptsOnDisk, remoteBranchSet, isPureBackfillChangeSet, RECORDS_RE, EXEMPT_RE, CARRIER_RE, DEFAULT_THRESHOLD }
+module.exports = { evaluate, resolveHeadBranch, readExemptsOnDisk, remoteBranchSet, isPureBackfillChangeSet, evaluateDeepReviewDebt, RECORDS_RE, EXEMPT_RE, CARRIER_RE, DEFAULT_THRESHOLD }
 
 if (require.main === module) main(process.argv.slice(2))
