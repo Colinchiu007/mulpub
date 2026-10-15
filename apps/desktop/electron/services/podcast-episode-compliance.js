@@ -124,10 +124,13 @@ function annotateEpisodes (p) {
 }
 
 /**
- * 从 index.json 读 `stockStamp.at`。读不到一律返回 null——本层不猜来源。
+ * 从 index.json 读**整份** `stockStamp` 凭据（含固化层当时实测的三个计数）。
+ * 读不到、或 `at` 不在位 ⇒ null：没有 `at` 就没有来源凭据，摘要与 compliance 两档都判不出。
+ *
  * 与固化宿主同用 registry 的 `resolveRoot()`，不再开第二条找路径的路（两处判路径必漂移）。
+ * 返回的是解析产物的一份**拷贝**——调用方改写它碰不到任何真源。
  */
-function readStockStamp (p) {
+function readStockStampRecord (p) {
   const registry = p && p.registry
   const fsImpl = p.fsImpl || require('node:fs')
   const log = p.logger || { warn () {} }
@@ -141,15 +144,60 @@ function readStockStamp (p) {
   try {
     if (!fsImpl.existsSync(file)) return null
     const index = JSON.parse(fsImpl.readFileSync(file, 'utf8'))
-    const at = index && index.stockStamp && index.stockStamp.at
-    return typeof at === 'string' && at ? at : null
+    const stamp = index && index.stockStamp
+    if (!stamp || typeof stamp !== 'object' || Array.isArray(stamp)) return null
+    const at = typeof stamp.at === 'string' && stamp.at ? stamp.at : null
+    // 展开语法走 CreateDataProperty；Object.assign 走 [[Set]]，对 JSON 里出现的
+    // `__proto__` 键会触发 Object.prototype 的那个 setter（本地文件，风险低，但免疫只要一行）。
+    return at ? { ...stamp, at } : null
   } catch (e) {
     if (typeof log.warn === 'function') log.warn('[podcast-compliance] index 读取失败，本列表不判存量档：' + e.message)
     return null
   }
 }
 
-module.exports = { annotateEpisodes, buildCompliance, readStockStamp }
+/**
+ * 既有合同：只要 `stockStamp.at` 那一个串（§8.2 的 stock 档凭据）。
+ * 刻意做成上面那一次读的**投影**而不是第二份读路径——列表路径上读两遍 index.json
+ * 会得到两份可能不一致的凭据（中间有人固化完写了新文件），那正是「两处判路径必漂移」的运行态版本。
+ */
+function readStockStamp (p) {
+  const rec = readStockStampRecord(p)
+  return rec ? rec.at : null
+}
+
+/** 计数只认「非负安全整数」。字符串数字、小数、负数、NaN、Infinity 一律判「不是实测」。 */
+function isMeasuredCount (v) {
+  return typeof v === 'number' && Number.isSafeInteger(v) && v >= 0
+}
+
+/**
+ * PRD §7.9.4 的固化摘要：把凭据里的三个**实测计数**投影成界面要的那三个数。
+ *
+ * 三个计数里任何一个缺席或形态不对 ⇒ 返回 null（界面整行不显示），
+ * **不得**回落成 0：「扫描 0 期，补齐 0 期」会被读成“没有任何存量需要处理”，
+ * 那是把「我不认识这份凭据」伪装成「没有待办」——与 §7.9.4 禁止「制造不存在的待办」是同一类谎，
+ * 只是方向相反。0 只在它**真的是实测值**时才会出现在这里。
+ *
+ * @param {object|null} stamp index.json 的 stockStamp
+ * @returns {{scanned:number, filled:number, unresolved:number, skippedChannels:number}|null}
+ */
+function toFreezeSummary (stamp) {
+  if (!stamp || typeof stamp !== 'object' || Array.isArray(stamp)) return null
+  const scanned = stamp.scanned
+  const filled = stamp.filled
+  const unresolved = stamp.unresolved
+  if (!isMeasuredCount(scanned) || !isMeasuredCount(filled) || !isMeasuredCount(unresolved)) return null
+  // 整频道被跳过的证据只存在于 unresolvedChannels（固化层把"这个频道根本读不出"记在这里，
+  // **不**计入 unresolved 期数）。丢掉它，一个频道全跳过时界面就显示"补齐 M 期"而没有待办——
+  // 与本节反复禁止的"把未知伪装成没有待办"同型，只是方向换成跳过频道（QM-6 后端 B2）。
+  // 数组缺席/形态不对 ⇒ 整份凭据不认识 ⇒ null，同样不给未知补 0。
+  const skipped = stamp.unresolvedChannels
+  if (!Array.isArray(skipped)) return null
+  return { scanned, filled, unresolved, skippedChannels: skipped.length }
+}
+
+module.exports = { annotateEpisodes, buildCompliance, readStockStamp, readStockStampRecord, toFreezeSummary }
 module.exports.COMPLIANCE_STATES = COMPLIANCE_STATES
 module.exports.STOCK_SOURCE = STOCK_SOURCE
 module.exports.FALLBACK_REASON_CODE = FALLBACK_REASON_CODE

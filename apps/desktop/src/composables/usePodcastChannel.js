@@ -10,7 +10,7 @@
  *   src/api/podcast-channel.js 的 8 个具名导出，导出名即下列键名）：
  *   channelGet()    → { ok, channel, feedSync }
  *   channelSave(c)  → { ok, channel }
- *   episodeList()   → { ok, episodes }
+ *   episodeList()   → { ok, episodes, stock }
  *   episodeSave(e)  → { ok, episode }（新增/原地更新，按 id）
  *   episodeRemove(id) → { ok }
  *   feedBuild()     → { ok, xml, path, itemCount }
@@ -45,9 +45,8 @@ import {
   episodeRemove,
   feedBuild,
   feedVerify,
-  endpointList,
 } from '@/api/podcast-channel'
-import { listPodcastEndpoints } from '@multi-publish/shared-utils/src/podcast-endpoints'
+import { createPodcastChannelEndpoints } from './usePodcastChannelEndpoints'
 // 共享引擎的 ESM 孪生（vite alias 登记，见 apps/desktop/vite.config.js）：只消费枚举与目录，禁止改写
 import {
   ITUNES_CATEGORIES,
@@ -197,6 +196,10 @@ export function usePodcastChannel () {
   const episodesLoaded = ref(false)
   const savingEpisode = ref(false)
   const episodesError = ref('')
+  // PRD §7.9.4：存量固化摘要 { scanned, filled, unresolved }。
+  // null = 没有 stockStamp，或有 stockStamp 但三个实测计数不齐——两种都整行不显示。
+  // 不得用 0 占位：那会被读成「没有待处理存量」，而真实语义是「我不知道」。
+  const stockSummary = ref(null)
 
   const feedResult = ref(null) // { ok, xml, path, itemCount } | { ok:false, error }
   const buildingFeed = ref(false)
@@ -204,8 +207,14 @@ export function usePodcastChannel () {
   const verifyResult = ref(null) // { ok, issues, checks, itemCount } | { ok:false, error }
   const verifying = ref(false)
 
-  const endpoints = ref([])
-  const endpointsError = ref('')
+  // 分发端目录域已拆出（逐文件行数门禁 + 「目录数据与页面写路径各有不变量」）：
+  // 本文件只持有它的三个出口，降级口径与实现见 usePodcastChannelEndpoints.js。
+  const { endpoints, endpointsError, loadEndpoints } = createPodcastChannelEndpoints({
+    call,
+    ipcUnavailable: IPC_UNAVAILABLE,
+    ipcException: IPC_EXCEPTION,
+  })
+
 
   const channelIssues = computed(() => {
     const issues = []
@@ -266,34 +275,17 @@ export function usePodcastChannel () {
     const res = await call(episodeList)
     if (res.ok) {
       episodes.value = Array.isArray(res.episodes) ? res.episodes : []
+      stockSummary.value = res.stock == null ? null : res.stock
     } else {
       episodesError.value = res.code || IPC_EXCEPTION
+      // 失败轮同样要清：上一轮的摘要属于上一个频道，留着就是拿旧频道的数字给新频道记账
+      stockSummary.value = null
     }
     episodesLoaded.value = true
     return res
   }
 
-  /**
-   * 分发端目录：优先 IPC（主进程与引擎 CJS 同源）；不可达时降级本地 ESM 孪生目录。
-   * 降级只影响指引展示（纯静态数据），不影响任何写操作。
-   */
-  async function loadEndpoints () {
-    endpointsError.value = ''
-    const res = await call(endpointList)
-    if (res && res.endpoints && Array.isArray(res.endpoints) && res.endpoints.length > 0) {
-      endpoints.value = res.endpoints
-      return { ok: true, source: 'ipc' }
-    }
-    try {
-      endpoints.value = listPodcastEndpoints()
-      if (!res.ok) endpointsError.value = res.code || IPC_EXCEPTION
-      return { ok: true, source: 'local' }
-    } catch {
-      endpoints.value = []
-      endpointsError.value = IPC_UNAVAILABLE
-      return { ok: false, code: IPC_UNAVAILABLE }
-    }
-  }
+
 
   /** 保存频道配置；载荷先脱壳（QM-2 IPC 序列化纪律） */
   async function saveChannel (payload) {
@@ -421,6 +413,9 @@ export function usePodcastChannel () {
     onChannelActivated: async () => {
       channel.value = null
       episodes.value = []
+      // 摘要随频道归属一起失效：loadChannel/loadEpisodes 两次 await 期间若留着上一个频道
+      // 的数字，界面就在给新频道记旧账（QM-6 后端 B5）
+      stockSummary.value = null
       feedResult.value = null
       verifyResult.value = null
       feedSync.value = null // 随频道归属一起失效：留着 A 的 failed 去按 B 的 channelId 出站＝面向错误目标的不可逆外发写（QM-6 #1）
@@ -472,6 +467,7 @@ export function usePodcastChannel () {
     episodesLoaded,
     savingEpisode,
     episodesError,
+    stockSummary,
     feedResult,
     buildingFeed,
     verifyResult,
