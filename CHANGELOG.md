@@ -1,3 +1,14 @@
+# [未发布] fix(rpa): 头条图文标题不再被追加时间戳后 4 位，「触发保存」与「发布内容」隔离（fix-toutiao-title-suffix）
+
+- **用户可见症状**：发布图文到头条号，原标题「DeepSeek崩了」在头条号后台变成「DeepSeek崩了 1935」；26 字以上标题还会被静默截短到 26 字。
+- **根因**：`packages/rpa-engine/src/toutiao-direct-bridge.js` 的 `publishViaPageXhr()`（页面 XHR 重放兜底）里，为「触发头条编辑器自动保存」把标题改写为 `原标题.slice(0,26) + ' ' + Date.now().toString().slice(-4)`，且**从不还原**。页面 React 据此发出自动保存，本仓 XHR hook 捕获其 body 到 `window.__lastSaveBody`，重放脚本「原样重放」（只改 `save=0→1`）时**把污染标题一并发出**。1935 即当时的 epoch 毫秒后 4 位——**把「触发手段」当成了「发布内容」**。
+- **修复（双闸门）**：① 新增 `buildTitleBumpScript()`——先记下原标题，写入 `原标题 + 零宽空格(U+200B)`（React 可感知差异以触发自动保存，但不可见），派发 input 后**同帧内还原为原标题并再派发一次 input**（React 末次 onChange 携带正确值）；零截断、脚本内禁 `Date.now`。② 新增 `overrideBodyTitle()`——重放前强制把 body 的 `title=` 覆盖为 `article.title`，防「页面自动保存在还原前抢跑发出」的竞态；判据 `(^|&)title=` 要求紧跟等号以免误伤 `title_id=` 邻键，无 `title=` 字段时追加，**空标题不覆盖**（fail-safe）。
+- **回归锁 19 条**（`packages/rpa-engine/tests/toutiao-title-no-pollution.test.js`）：A 组净效果（普通/空/超 26 字/含 `<stdio.h>` 与 emoji 的标题原样还原）；B 组触发能力保留（扰动确实发生，且扰动标记不可见、非数字）；C 组 body 覆盖口径（不误伤邻键 / `^` 首位 / 追加 / 幂等 / 空标题 fail-safe）；D 组结构锁（脚本内无 `Date.now`、无 `slice(-N)`、无对标题值的 `slice(0,`）；E 组端到端集成（走完整 `publishViaPageXhr`，断言**真正 POST 出去的 body** 每一次 `title=` 都是原标题）。沙箱复刻了两个关键真机语义：标题框 `value` 访问器在 prototype 上、React `inputValueTracking` 与「异步自动保存 XHR」竞态。
+- **变异反证实测**：把扰动值改回事故写法，**4 条立刻变红**（B 组 1 + D 组 3）。同批实跑 rpa-engine 全量 **274 passed / 0 failed**（含定时意图契约 7 条不回归）。
+- **全平台审计结论**：该问题是**头条图文 XHR 重放兜底这条链独有**；头条视频、头条 API 直连、以及百家号/快手/小红书/B站/知乎/公众号/YouTube 等 RPA 链与全部 API 链均**不同源、无改动**——只有头条这条链需要「制造假变化骗页面自动保存」，其他平台靠 `_fillInput` 的原生 input 事件即可触发保存。
+- 文档：`01-docs/BUGFIX-TOUTIAO-TITLE-SUFFIX-2026-10-15.md`（Bug 反思 5 步全量）、PRD §6.8「标题保真与触发型假值隔离合同」（数据校验/流程/功能逻辑/交互逻辑/显示项/提示文字/异常态矩阵/验收标准）、AGENTS.md QM-2 新增「发布内容保真合同」、`01-docs/learnings.md` 5 条。
+- **待办（未闭合）**：真机复验（用真实账号发 >26 字与 <26 字两条图文，回后台核对标题）；发布后平台回显对账（严格平台作品查询里比对标题）。
+
 # [未发布] fix(ci): Gate 9 取消「标题前缀就不跑审计」的豁免，覆盖失败只拦可归因本 PR 的那一种（gate9-ratchet）
 
 - 这条 required check 过去对每个 PR 只有两种行为，而两种都不说真话：标题命中 `fix|chore|docs|refactor|test` 或带同族 label ⇒ 审计器第 147 行直接短路，**一项都不审但 Gate 9 绿**；没命中 ⇒ 跑全量存量比对，由 LLM 自由裁一个数决定全仓能否合并。实测近 200 条 squash 主题里 **162 条（81%）走的是第一条**——「这条检查绿」的真实含义是「作者把标题写成了 fix:」。本次把判据换成只看**变更文件**：审计跑不跑不再由被审对象的命名决定。
