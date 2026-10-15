@@ -2,10 +2,6 @@
 record: fix-ccg-decider-defects
 task: 修 CCG 四个缺陷 —— 口径假阳性 / rebase 规模失真 / 深度审查静默 / 不可补跑
 date: 2026-10-15
-# ↓ 三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在，无法取证收口
-sync_backfill_owner: 下一个会话（按三形态同改纪律：表格行 + bullet + 删除本段三字段，同一次提交）
 ---
 
 ## 本次执行记录：修 CCG 四个缺陷（fix-ccg-decider-defects，2026-10-15）
@@ -185,9 +181,9 @@ const targetFiles = explicitTargets.length > 0 ? explicitTargets : resolveTarget
 | `check-no-brand-residue` | PASS | 全仓扫描 |
 | 行尾对账 | PASS | 两口径一致 |
 | **QM-1 打包** | **不适用** | 只改 `scripts/` 与文档，不碰运行时代码 |
-| 远程同步 | PENDING | 本 PR 未合并 |
+| 远程同步 | PASS | PR #3640 已合并 → `5952d38c2509028824d58d0f49fe61ce53187409`（2026-10-15T20:06:25+08:00）；远端分支已删（`git ls-remote --heads origin fix-ccg-decider-defects` = 0 行）|
 
-- 保留门禁：新增测试 11+8+1（decider 11 / exec-record 47 / bash-entry 9）✅ | 变异反证 A/D + collectStaged + 缺陷E ✅ | CLI 端到端 ✅ | 深度审查已跑并裁决 7/7 ✅ | unwired ✅ | 品牌 ✅ | 行尾 ✅ | 远程同步 PENDING
+- 保留门禁：新增测试 11+8+1（decider 11 / exec-record 48 / bash-entry 9）✅ | 变异反证 A/D + collectStaged + 缺陷E ✅ | CLI 端到端 ✅ | 深度审查已跑并裁决 7/7 ✅ | unwired ✅ | 品牌 ✅ | 行尾 ✅ | 远程同步 PASS
 
 ## 残余（未含，不假装闭合）
 
@@ -392,5 +388,5 @@ rebase 时冲突文件是 `.ccg/reviews/71e7994e3949f8eef38e2a757aa292ac0eaddc2a
 
 | # | 项 | 说明 |
 | --- | --- | --- |
-| 9 | **记录名 = 父 sha 在并发/rebase 下失真** | 并发分支撞名（本节实证）、rebase 后名字指向不存在的提交。修它需要改命名方案（内容寻址已有 `stagedDiffHash`，可考虑以它为主键）——属独立改动，本 PR 不做 |
+| 9 | **记录名 = 父 sha 在并发/rebase 下失真** | 并发分支撞名（本节实证）、rebase 后名字指向不存在的提交。修它需要改命名方案（内容寻址已有 `stagedDiffHash`，可考虑以它为主键）——属独立改动，本 PR 不做。**已开 issue #3643 给它一个有主的归宿**（含两侧证据与建议修法）|
 
