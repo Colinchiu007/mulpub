@@ -29,28 +29,17 @@ const path = require("node:path");
 const os = require("node:os");
 const { spawnSync } = require("node:child_process");
 
-// judge() 与 RULES 都是模块内函数，通过读取源码后注入的方式拿到，
-// 避免为了可测性给一个纯 CLI 脚本硬加 module.exports（那会改变它的调用契约）。
+// ★ 残余 3（2026-10-15）：原来这里靠「读源码 → 剥掉末尾 process.exit(main()) →
+// 注入 module.exports → _compile」来拿模块内函数，理由是「不给纯 CLI 脚本硬加 exports」。
+// 但那种做法**依赖源码文本**：本 PR 把结尾改成 `if (require.main === module) process.exit(main())`
+// 之后，剥离正则不再匹配 —— 幸好当时留了 `assert.notEqual(stripped, src)` 守卫，
+// 否则测试会**静默地**加载一个仍会执行 main() 的版本。
+// 现在 decider 自带 require.main 守卫与 exports，测试走正路直连 require。
 const SRC = path.join(__dirname, "ccg-review-decider.js");
 const fs = require("node:fs");
 
-function loadJudge() {
-  const src = fs.readFileSync(SRC, "utf8");
-  // 剥掉末尾的 `process.exit(main())` —— 那行会在加载时真的执行 main()
-  // （读暂存区、打印、落盘记录），测试里完全不想要这些副作用。
-  // 剥掉后只剩纯定义，可以安全注入 module.exports。
-  const stripped = src.replace(/\nprocess\.exit\(main\(\)\);\s*$/, "\n");
-  assert.notEqual(stripped, src, "未找到末尾的 process.exit(main())，源码结构可能变了");
-  const wrapped = `${stripped}\nmodule.exports = { RULES, judge, collectStaged };\n`;
-  const Module = require("module");
-  const m = new Module(SRC, null);
-  m.filename = SRC;
-  m.paths = Module._nodeModulePaths(path.dirname(SRC));
-  m._compile(wrapped, SRC);
-  return m.exports;
-}
-
-const { RULES, judge } = loadJudge();
+const decider = require(SRC);
+const { RULES, judge } = decider;
 
 /** 构造一个 staged 对象（与 collectStaged 的产出同构） */
 function makeStaged({ files, codeChangedLines = [], allChangedLines = [], proposal = false }) {
@@ -252,19 +241,10 @@ test("collectStaged 真实覆盖：源码/文档/重命名三类在真实暂存�
     fs.writeFileSync(path.join(root, "docs", "notes.md"), "这里分析加密与口令机制。\n");
     g("add", "-A");
 
-    // 子进程加载被测模块：剥掉末尾的 process.exit(main()) 后注入 exports
-    const MARK = "process.exit(main());";
+    // 子进程加载被测模块：现在直接 require（残余 3 —— 不再剥源码文本）
     const loader = [
-      "const fs = require('node:fs'), path = require('node:path'), Module = require('node:module');",
-      `const SRC = ${JSON.stringify(SRC)};`,
-      "let src = fs.readFileSync(SRC, 'utf8');",
-      `const i = src.lastIndexOf(${JSON.stringify(MARK)});`,
-      "if (i >= 0) src = src.slice(0, i);",
-      "const m = new Module(SRC, null);",
-      "m.filename = SRC;",
-      "m.paths = Module._nodeModulePaths(path.dirname(SRC));",
-      "m._compile(src + '\\nmodule.exports = { collectStaged };\\n', SRC);",
-      "process.stdout.write(JSON.stringify(m.exports.collectStaged()));",
+      `const m = require(${JSON.stringify(SRC)});`,
+      "process.stdout.write(JSON.stringify(m.collectStaged()));",
     ].join("\n");
     const r = spawnSync(process.execPath, ["-e", loader], { cwd: root, encoding: "utf8" });
     assert.strictEqual(r.status, 0, `加载/执行失败：${r.stderr}`);
@@ -293,5 +273,198 @@ test("collectStaged 真实覆盖：源码/文档/重命名三类在真实暂存�
     );
   } finally {
     try { fs.rmSync(root, { recursive: true, force: true }) } catch { /* 夹具清理失败不影响判据 */ }
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// 残余 2：把 diff 区间接进 decider（补完缺陷 C 的另一半）
+// ═══════════════════════════════════════════════════════════════════
+//
+// 缺陷：`ccg-gate.js` 调 decider 时一个参数都不传 ⇒ 补跑时暂存区为空 ⇒
+// decider 打印「暂存区无变更，跳过审查模式判定」⇒ **模式判定从未执行**，
+// 而输出读起来像「无需审查」。修法：decider 支持 `--base`，gate 在补跑时传下去。
+
+/** 造一个隔离 repo：commit1 只放基线，commit2 放待判改动 */
+function makeRangeRepo() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), `ccg-range-${process.pid}-${Date.now()}-`));
+  const g = (...args) => {
+    const r = spawnSync("git", args, { cwd: root, encoding: "utf8" });
+    assert.strictEqual(r.status, 0, `git ${args.join(" ")} 失败：${r.stderr}`);
+    return r.stdout.trim();
+  };
+  g("init", "-q");
+  g("config", "user.email", "t@example.invalid");
+  g("config", "user.name", "t");
+  g("config", "commit.gpgsign", "false");
+  fs.mkdirSync(path.join(root, "scripts"), { recursive: true });
+  fs.writeFileSync(path.join(root, "scripts", "base.js"), "const a = 1;\n");
+  g("add", ".");
+  g("commit", "-q", "-m", "base");
+  return { root, g };
+}
+
+/** 在隔离 repo 里 require decider 并调一个采集函数，返回其 JSON 结果 */
+function collectIn(root, expr) {
+  const loader = `process.stdout.write(JSON.stringify(require(${JSON.stringify(SRC)})${expr}));`;
+  const r = spawnSync(process.execPath, ["-e", loader], { cwd: root, encoding: "utf8" });
+  assert.strictEqual(r.status, 0, `子进程失败：${r.stderr}`);
+  return JSON.parse(r.stdout);
+}
+
+test("collectRange 真实覆盖：判的是 base...HEAD 里那批改动，且能读到变更行", () => {
+  const { root, g } = makeRangeRepo();
+  try {
+    fs.writeFileSync(path.join(root, "scripts", "feature.js"), 'const password = "x";\n');
+    g("add", ".");
+    g("commit", "-q", "-m", "feature");
+
+    const st = collectIn(root, '.collectRange("HEAD~1")');
+    assert.ok(
+      st.files.some((f) => f.file === "scripts/feature.js"),
+      `区间采集必须认出新文件；实际 ${JSON.stringify(st.files.map((f) => f.file))}`,
+    );
+    assert.ok(
+      st.codeChangedLines.some((l) => l.includes("password")),
+      `区间采集必须读到变更行（否则敏感判定失效）；实际 ${JSON.stringify(st.codeChangedLines)}`,
+    );
+    assert.deepStrictEqual(st.lineReadGaps, [], `不得有读取缺口；实际 ${JSON.stringify(st.lineReadGaps)}`);
+  } finally {
+    try { fs.rmSync(root, { recursive: true, force: true }) } catch { /* 夹具 */ }
+  }
+});
+
+test("collectRange 用三点语义：base 之后主干自己的改动不得算进本次", () => {
+  const { root, g } = makeRangeRepo();
+  try {
+    // 主干侧（base 之后、我的分支之前）另有一笔改动
+    fs.writeFileSync(path.join(root, "scripts", "mainline.js"), "const m = 1;\n");
+    g("add", ".");
+    g("commit", "-q", "-m", "mainline");
+    const forkPoint = g("rev-parse", "HEAD");
+
+    // 我的分支：新增一个分支 ref，从 forkPoint 起算「我的改动」
+    g("checkout", "-q", "-b", "feature");
+    fs.writeFileSync(path.join(root, "scripts", "mine.js"), "const mine = 1;\n");
+    g("add", ".");
+    g("commit", "-q", "-m", "mine");
+    // 主干再前进一笔（模拟「从同一 base 拉出后主干也在动」）
+    g("checkout", "-q", "-");
+    fs.writeFileSync(path.join(root, "scripts", "mainline2.js"), "const m2 = 1;\n");
+    g("add", ".");
+    g("commit", "-q", "-m", "mainline2");
+    g("checkout", "-q", "feature");
+
+    const st = collectIn(root, '.collectRange("master")');
+    const names = st.files.map((f) => f.file);
+    assert.ok(names.includes("scripts/mine.js"), `必须包含我自己的改动；实际 ${JSON.stringify(names)}`);
+    assert.ok(
+      !names.includes("scripts/mainline2.js"),
+      `三点语义下不得把主干在分叉点之后的改动算进来；实际 ${JSON.stringify(names)}`,
+    );
+    void forkPoint;
+  } finally {
+    try { fs.rmSync(root, { recursive: true, force: true }) } catch { /* 夹具 */ }
+  }
+});
+
+test("残余2：--base 不存在时必须说「未判定」，不得说「暂存区无变更，跳过审查模式判定」", () => {
+  const { root } = makeRangeRepo();
+  try {
+    const r = spawnSync(process.execPath, [SRC, "--print", "--base", "no-such-rev"], {
+      cwd: root,
+      encoding: "utf8",
+    });
+    const out = `${r.stdout || ""}${r.stderr || ""}`;
+    assert.match(out, /未判定/, `必须显式说「未判定」；实际输出：\n${out}`);
+    assert.doesNotMatch(
+      out,
+      /暂存区无变更，跳过审查模式判定/,
+      `不得让「读不到输入」伪装成「无需审查」；实际输出：\n${out}`,
+    );
+  } finally {
+    try { fs.rmSync(root, { recursive: true, force: true }) } catch { /* 夹具 */ }
+  }
+});
+
+test("残余2：空暂存区且无 --base 时，必须点明「这不是无需审查，是没判」", () => {
+  const { root } = makeRangeRepo();
+  try {
+    const r = spawnSync(process.execPath, [SRC, "--print"], { cwd: root, encoding: "utf8" });
+    const out = `${r.stdout || ""}${r.stderr || ""}`;
+    assert.match(out, /未判定/, `必须说「未判定」；实际输出：\n${out}`);
+    assert.match(out, /没判/, `必须点明「没判」而不是「无需审查」；实际输出：\n${out}`);
+    assert.match(out, /--base/, `必须给出补救命令；实际输出：\n${out}`);
+  } finally {
+    try { fs.rmSync(root, { recursive: true, force: true }) } catch { /* 夹具 */ }
+  }
+});
+
+test("残余2 接线锁：带显式路径补跑时，gate 必须把 --base 传给 decider（断言效果，不断言日志）", () => {
+  // ⛔ 为什么必须断言「效果」而不能断言 gate 打的那行日志：
+  //   第一版本锁断言输出里有「审查模式判定基准：」—— **变异 M2（摘掉
+  //   deciderArgs.push）实测仍然 16/16 全绿**，因为那行 console.log 与 push 是
+  //   相邻但**无因果**的两条语句，摘掉 push 日志照打。锁因此完全无效。
+  //   现在改成断言「decider 真的判了这批改动」：输出里必须出现模式判定结论
+  //   （`审查模式判定 [验证层…]: DUAL|SINGLE|SKIP`）且**不得**出现 `未判定`。
+  //   M2 下 decider 收不到 --base ⇒ 落到空暂存区分支 ⇒ 两条断言同时失败。
+  //
+  // 为什么需要「区间非空」的仓库：本工作区 HEAD == origin/main（尚无提交），
+  //   base...HEAD 为空 ⇒ 即使 --base 正确传下去也只会打印「未判定」，无法区分。
+  //   故用临时仓库：基线在 commit1，HEAD（feature 分支）在 commit2。
+  //
+  // 为什么用 CCG_SKILLS_DIR 指向桩目录：真 CCG 未安装时 gate 会在 resolveCcgDir()
+  //   直接返回（打印「已跳过 CCG 门禁」），**根本走不到**判定器那一段 —— 那会让本锁
+  //   在 CI 上永久静默跳过（本仓登记过的「通配锁全程未执行却被当成已反证」同型）。
+  const stub = fs.mkdtempSync(path.join(os.tmpdir(), `ccg-stub-${process.pid}-${Date.now()}-`));
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), `ccg-wire-${process.pid}-${Date.now()}-`));
+  try {
+    fs.writeFileSync(path.join(stub, "run_skill.js"), "process.exit(0);\n");
+    const g = (...args) => {
+      const r0 = spawnSync("git", args, { cwd: repo, encoding: "utf8" });
+      assert.strictEqual(r0.status, 0, `git ${args.join(" ")} 失败：${r0.stderr}`);
+      return r0.stdout.trim();
+    };
+    g("init", "-q");
+    // 本机 git 默认分支是 master，而 gate 的 base 候选是 origin/main / main
+    // ⇒ 不改名就永远找不到 base（实测：会正确地出声告警、并保持「未判定」）。
+    g("symbolic-ref", "HEAD", "refs/heads/main");
+    g("config", "user.email", "t@example.invalid");
+    g("config", "user.name", "t");
+    g("config", "commit.gpgsign", "false");
+    fs.mkdirSync(path.join(repo, "src"), { recursive: true });
+    fs.writeFileSync(path.join(repo, "src", "base.js"), "const a = 1;\n");
+    g("add", ".");
+    g("commit", "-q", "-m", "base");
+    g("checkout", "-q", "-b", "feature");
+    fs.writeFileSync(path.join(repo, "src", "feature.js"), 'const password = "x";\n');
+    g("add", ".");
+    g("commit", "-q", "-m", "feature");
+
+    const gate = path.resolve(__dirname, "ccg-gate.js");
+    const r = spawnSync(process.execPath, [gate, "verify-quality", "src/feature.js"], {
+      cwd: repo,
+      encoding: "utf8",
+      env: { ...process.env, CCG_SKILLS_DIR: stub },
+    });
+    const out = `${r.stdout || ""}${r.stderr || ""}`;
+
+    assert.doesNotMatch(
+      out,
+      /已跳过 CCG 门禁/,
+      `桩目录没生效，gate 提前退出 ⇒ 本锁会退化成静默跳过；实际输出：\n${out}`,
+    );
+    assert.match(
+      out,
+      /审查模式判定 \[[^\]]*\]:\s*(SKIP|SINGLE|DUAL)/,
+      `gate 没把 --base 传下去 ⇒ 判定器没判这批改动（M2 形态）；实际输出：\n${out}`,
+    );
+    assert.doesNotMatch(
+      out,
+      /未判定/,
+      `补跑路径上判定器仍落回「未判定」⇒ --base 未生效；实际输出：\n${out}`,
+    );
+  } finally {
+    try { fs.rmSync(stub, { recursive: true, force: true }) } catch { /* 夹具 */ }
+    try { fs.rmSync(repo, { recursive: true, force: true }) } catch { /* 夹具 */ }
   }
 });

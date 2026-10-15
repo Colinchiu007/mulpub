@@ -94,8 +94,16 @@ function git(args, opts = {}) {
 /**
  * 采集"已落地的改动"：从 git 暂存区读（验证层用）
  */
-function collectStaged() {
-  const numstat = git(["diff", "--cached", "--numstat"]);
+/**
+ * 采集「一批 diff」的变更集（暂存区 / 已提交区间 共用同一套解析）。
+ *
+ * ★ 2026-10-15 从 collectStaged 抽出（残余 2）：
+ *   解析逻辑一行未改，只把两条 git 命令变成参数 ——
+ *   这样「已提交区间」（`--base`，事后补跑用）能复用同一套
+ *   切段 / 重命名解析 / 读取缺口记账，不必抄第二份。
+ */
+function collectFromDiff(numstatArgs, diffArgs) {
+  const numstat = git(numstatArgs);
   if (numstat === null) return null;
 
   // ★ 2026-10-15 修（缺陷 A + B），并吸收 QM-6 评审 i5/i6：
@@ -112,7 +120,7 @@ function collectStaged() {
   //   为什么用「单次全量 diff + 按文件切段」而不是「每文件一次 git diff」（i5）：
   //     ① 大 PR（数百文件）会在 pre-commit 里派生数百个子进程；
   //     ② 逐文件读取失败若被 catch 吞掉，与 B 同构的**静默失败**只是换了个触发点。
-  const diff = git(["diff", "--cached", "-U0"]) || "";
+  const diff = git(diffArgs) || "";
 
   // numstat 对重命名输出 "old => new" 或 "src/{old => new}.js"（i6）。
   // 直接拿它当路径会定位不到 ⇒ 该文件的变更行静默为空、敏感判定漏检。
@@ -206,6 +214,31 @@ function collectStaged() {
     lineReadGaps,
     codeFiles: files.filter((f) => codeFileSet.has(f.file)),
   };
+}
+
+/** 验证层·暂存区：pre-commit 时用（那时改动只在 index 里） */
+function collectStaged() {
+  return collectFromDiff(["diff", "--cached", "--numstat"], ["diff", "--cached", "-U0"]);
+}
+
+/**
+ * 验证层·已提交区间：事后补跑时用（那时改动已进 commit，index 通常是空的）。
+ *
+ * ★ 2026-10-15 增（残余 2 / 补完缺陷 C 的另一半）：
+ *   `ccg-gate.js` 支持带显式路径补跑后，**模式判定仍读暂存区**（因为调用 decider 时
+ *   一个参数都没传）⇒ 补跑时 index 为空 ⇒ decider 打印「暂存区无变更，跳过审查模式判定」
+ *   ⇒ **「需不需要 CCG 审查」这个判据从未真正执行**，而输出读起来像「无需审查」。
+ *   本函数提供正确输入：判「相对 base 的这批改动」。
+ *
+ * 为什么用三点 `base...HEAD`（merge-base）而不是两点：
+ *   两点的 `base..HEAD` 会把 base 之后主干上的改动也算进来（那些不是本次的改动），
+ *   判出的规模会虚高。三点与 PR 的 diff 语义一致。
+ */
+function collectRange(base) {
+  return collectFromDiff(
+    ["diff", `${base}...HEAD`, "--numstat"],
+    ["diff", `${base}...HEAD`, "-U0"]
+  );
 }
 
 /**
@@ -451,9 +484,18 @@ function main() {
   const shaIdx = argv.indexOf("--sha");
   const sha = shaIdx >= 0 && argv[shaIdx + 1] ? argv[shaIdx + 1] : currentSha();
   const inputIdx = argv.indexOf("--input");
+  // --base <rev> = 验证层·已提交区间：事后补跑时判 base...HEAD，而不是（通常为空的）暂存区
+  const baseIdx = argv.indexOf("--base");
+  const base = baseIdx >= 0 && argv[baseIdx + 1] ? argv[baseIdx + 1] : null;
 
   // --input <方案文件> = 决策层：动手之前对方案判复杂度
-  // 无 --input      = 验证层：对已落地的暂存改动判复杂度
+  // --base <rev>       = 验证层·已提交区间：事后补跑（残余 2）
+  // 两者都无            = 验证层·暂存区：pre-commit
+  //
+  // ★ 残余 2：三种「拿不到输入」的情形原来都打印**读起来像「无需审查」**的话
+  //   （「跳过」「暂存区无变更」），而实际是**判据从未执行**。现在统称「未判定」，
+  //   并给出补救命令。仍然 return 0（不阻断提交）—— pre-commit 阶段暂存区为空是常态，
+  //   把它变成红会误伤所有提交。
   let staged;
   if (inputIdx >= 0 && argv[inputIdx + 1]) {
     const file = path.resolve(argv[inputIdx + 1]);
@@ -462,14 +504,28 @@ function main() {
       console.log(`   [CCG] ${staged.error}`);
       return 0;
     }
-  } else {
-    staged = collectStaged();
+  } else if (base) {
+    staged = collectRange(base);
     if (!staged) {
-      console.log("   [CCG] 判定器无法读取 git 暂存区，跳过（不影响提交）");
+      console.log(`   [CCG] ⚠ 未判定：读不到 ${base}...HEAD（base 不存在，或当前不是 git 仓库）`);
+      console.log("         这**不等于**「无需审查」。请确认 base 后重跑：--base origin/main");
       return 0;
     }
     if (staged.files.length === 0) {
-      console.log("   [CCG] 暂存区无变更，跳过审查模式判定");
+      console.log(`   [CCG] ⚠ 未判定：${base}...HEAD 为空，没有可判的改动`);
+      console.log("         这**不等于**「无需审查」。若你期望有改动，说明 base 选错了。");
+      return 0;
+    }
+  } else {
+    staged = collectStaged();
+    if (!staged) {
+      console.log("   [CCG] ⚠ 未判定：读不到 git 暂存区（不影响提交）");
+      console.log("         这**不等于**「无需审查」。补跑请带 --base <rev>。");
+      return 0;
+    }
+    if (staged.files.length === 0) {
+      console.log("   [CCG] ⚠ 未判定：暂存区无变更，且未给 --base");
+      console.log("         这不是「无需审查」，是「没判」。补跑：--base origin/main");
       return 0;
     }
   }
@@ -545,4 +601,25 @@ function main() {
   return 0;
 }
 
-process.exit(main());
+// ★ 残余 3（2026-10-15 顺带修）：加 require.main 守卫并导出。
+//
+// 原来本文件以无条件的 `process.exit(main());` 结尾、且不导出任何东西，
+// 于是测试只能「读源码 → 剥掉最后那行 process.exit → 注入 module.exports → _compile」。
+// 那种做法**依赖源码文本**：只要结尾那行的形态变了（例如被缩进进 if 块），
+// 剥离就静默失效。本 PR 正好要改这个结尾，所以改成正路：
+//   - 测试直接 require 本模块（require 时不执行 main，因为 require.main !== module）
+//   - CLI 行为不变（作为入口运行时才 process.exit）
+if (require.main === module) {
+  process.exit(main());
+}
+
+module.exports = {
+  RULES,
+  judge,
+  collectStaged,
+  collectFromDiff,
+  collectRange,
+  collectProposal,
+  isDocsOnly,
+};
+

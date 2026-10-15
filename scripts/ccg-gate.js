@@ -334,7 +334,33 @@ function main() {
     if (process.env.SKIP_CCG_GATE === "1") {
       console.log("   [CCG] 审查模式判定已随 SKIP_CCG_GATE 跳过");
     } else {
-      const r = spawnSync(process.execPath, [decider], { encoding: "utf8" });
+      // ★ 2026-10-15 修（残余 2 / 补完缺陷 C 的另一半）：
+      //   有显式目标 = 事后补跑 ⇒ 改动已进 commit、暂存区通常是空的。
+      //   原来这里 `[decider]` 一个参数都不传 ⇒ decider 去读空暂存区 ⇒
+      //   打印「暂存区无变更，跳过审查模式判定」⇒ **模式判定从未执行**，
+      //   而输出读起来像「无需审查」。现在把区间基准传下去，让它判这批改动。
+      const deciderArgs = [decider];
+      if (explicitTargets.length > 0) {
+        // base 三级回退：CCG_DECIDER_BASE 显式覆盖 → origin/main → main
+        const candidate =
+          process.env.CCG_DECIDER_BASE ||
+          ["origin/main", "main"].find(
+            (ref) =>
+              spawnSync("git", ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], {
+                encoding: "utf8",
+              }).status === 0
+          );
+        if (candidate) {
+          deciderArgs.push("--base", candidate);
+          console.log(`   [CCG] 审查模式判定基准：${candidate}...HEAD（事后补跑，不读暂存区）`);
+        } else {
+          warnings.push(
+            "显式补跑模式下找不到可用的 base（origin/main / main 都不存在）⇒ **未做审查模式判定**；" +
+              "请用 CCG_DECIDER_BASE=<rev> 指定基准后重跑"
+          );
+        }
+      }
+      const r = spawnSync(process.execPath, deciderArgs, { encoding: "utf8" });
       const out = `${r.stdout || ""}`.trim();
       if (r.status === 0 && out) {
         out.split("\n").forEach((l) => console.log(l));
