@@ -66,6 +66,8 @@ import {
   ElInput,
   ElInputNumber,
   ElLink,
+  // 指令插件（见文件头约束②）：不过 app.component，走 app.use 的 install。
+  ElLoading,
   ElMessage,
   ElMessageBox,
   ElOption,
@@ -91,10 +93,26 @@ import {
 } from 'element-plus/es'
 
 // ── 共享样式底座 ──
-// 变量（el-var）+ reset（el-reset）+ 过渡/动画基类（base）。
-// 这三个不是组件样式，是 EP 全部组件的地基，最先导入。
+// 变量（el-var + base 的 :root 块）+ 过渡/动画基类（base.css 的 .el-fade-in 等）。
+//
+// ⛔ **不要导入 `el-reset.css`**。它是一个**全局元素重置**，而且 EP 自己的
+// `theme-chalk/index.css`（= `dist/index.css`）**并不包含它** —— 实测在
+// `index.css` 里搜不到 `input,textarea,button{font-family:inherit}` 这条规则。
+// 但 `el-reset.css` 里除了这条，还改了 `a`（链接颜色）、`h1~h6`（颜色/字号）、
+// `p`（line-height:1.8）、`hr`、`sup/sub/small` 等**全部原生元素**。
+// 因此单独导入它 = 悄悄改变应用自身的元素默认样式，而这些在全量引入下
+// **从未被改变过**。
+//
+// **2026-10-15 实测代价**：多导这一个文件后，`input/textarea/button` 从浏览器
+// 默认的 `Arial` 变为「继承应用字体栈」。逐元素计算样式对比显示：348 个元素里
+// 有 32 个（全部是 BUTTON 及其子节点）字体不同 ⇒ 像素门禁红
+// （create-editor 9.48% / create-pipeline 9.26% / podcast-channel 2.05%；
+// 同态重复渲染实测 0.00%，已排除抖动）。移除后即与全量引入逐像素对齐。
+//
+// 可复用判据：把「按需子集」与「全量」对齐时，不能只算组件样式闭包，
+// 还要核对**每个被导入的文件是否真的存在于全量产物中** —— 多导的文件会带来
+// 全量里没有的全局副作用；反向（全量有、子集没有）才是真缺失。
 import 'element-plus/theme-chalk/el-var.css'
-import 'element-plus/theme-chalk/el-reset.css'
 import 'element-plus/theme-chalk/base.css'
 
 // ── 组件样式（= 权威闭包，含 7 个纯样式依赖内部组件）──
@@ -115,6 +133,8 @@ import 'element-plus/theme-chalk/el-icon.css'
 import 'element-plus/theme-chalk/el-input.css'
 import 'element-plus/theme-chalk/el-input-number.css'
 import 'element-plus/theme-chalk/el-link.css'
+// 指令样式：v-loading 的遮罩（走指令不经组件，组件闭包里没有它）。
+import 'element-plus/theme-chalk/el-loading.css'
 // message / message-box 是命令式 API，不在组件闭包里，但运行时确实要渲染 → 必须导。
 import 'element-plus/theme-chalk/el-message.css'
 import 'element-plus/theme-chalk/el-message-box.css'
@@ -184,6 +204,17 @@ const COMPONENTS = [
 ]
 
 /**
+ * 指令插件清单（走 app.use 的 install，不占 app.component 注册表）。
+ *
+ * 见文件头约束②：它们是**必装项**，漏装不会报错、只会静默少渲染。
+ * 本项目实际用到：`v-loading`（4 个文件：PatternAnalysisPanel / FilmEngineeringView ×2 /
+ * PerformanceInsights）。`app.use(ElementPlus)` 会一并装上它，显式清单必须补回。
+ */
+const DIRECTIVES = [
+  ElLoading,
+]
+
+/**
  * Vue 插件：装配按需 EP。
  *
  * 为什么用插件形式而不是 main.js 里逐个 app.component：
@@ -195,6 +226,9 @@ export default {
   install (app) {
     for (const component of COMPONENTS) {
       app.use(component)
+    }
+    for (const directive of DIRECTIVES) {
+      app.use(directive)
     }
   },
 }

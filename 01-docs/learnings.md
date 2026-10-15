@@ -85,16 +85,61 @@
    EP 的 `style/index.mjs` 用的是**裸 import**（`import "../../x/style/index.mjs"`），没有 `from` 关键字。我第一版闭包探针用 `/from\s+['"]\.\.\/\.\.\/([a-z0-9-]+)\/style\/index\.mjs['"]/`，匹配数为 **0**，于是算出「闭包 = USED（无额外依赖）」这个**假结论**——差点据此把 QG Visual 的红归因为「与本次改造无关」。
    **可复用判据**：结构解析类判据跑完必须**打印命中条数**并对命中数做下界断言（如「闭包大小 ≥ 输入集合大小」）。「匹配 0 条」与「真的没有」在输出上一模一样——这是「夹具比生产更顺」同族坑搬到了正则上。
 
-8. **像素门禁的「红」必须先做对照实验再认领，阈值口径也要先对齐。**
-   本轮 CI 红 3 处，我没有整批认领：
-   - **对照实验**：临时加回 `import 'element-plus/dist/index.css'`（= 修复前 CSS 超集）后复跑，`create-editor` 仍是 **9.48%**、`create-pipeline` **9.26%**，与按需态**逐位相同** ⇒ 这两处与本 PR 无关（存量漂移/抖动）。
-   - **抖动证据**：CI 同一 job 两轮数字不同（9.48% → 7.66%），且第一轮 `podcast-channel` 未失败、第二轮才失败。
-   - **阈值口径差异**：本地像素默认 **1%**，CI 用 **6%**（`PIXEL_THRESHOLD`）。同一张图两边结论可能相反（`podcast-channel` 本地 2.05% 判红、CI 6% 下应通过）。
-   **纪律**：只对「能证明是本 PR 引入」的部分负责并修；存量漂移登记为待办，**禁止用 `--update-baseline` 掩盖**——那会把别人的问题一起洗白。
+8. **「按需子集」对齐「全量」时，多导一个全量产物里没有的文件 = 凭空多出全局副作用。**
+   `element-plus/theme-chalk/el-reset.css` 含 `input,textarea,button{font-family:inherit}`，
+   还改了 `a`（链接颜色）、`h1~h6`（颜色/字号）、`p`（`line-height:1.8`）、`hr`、
+   `sup,sub,small` 等**原生元素**规则；而 EP 自己的全量产物 `theme-chalk/index.css`
+   （=`dist/index.css`）**根本不含这个文件**（实测在其内搜不到该规则）。
+   于是按需装配里多导它 = 悄悄改掉应用自身的元素默认样式，而这些在全量引入下从未被改过 ——
+   后果是按钮字体从 UA 默认 `Arial` 变成继承字体栈，像素门禁红
+   （create-editor 9.48% / create-pipeline 9.26% / podcast-channel 2.05%）。
+   **判据（双向）**：「全量有、子集没有」= 真缺失；**「子集有、全量没有」= 凭空多出的全局副作用**。
+   只算「组件 → 样式」闭包不够，必须**逐文件核对它是否真的存在于全量产物中**。
+   回归锁见 `element-plus.test.js` P6。
+   （同批还修了闭包缺失：漏 `el-scrollbar`/`el-popper`/`el-overlay`/`el-option-group`/`el-text`/
+   `el-radio` 本体/`el-config-provider` 共 7 个，补齐后 podcast-channel 21.63% → 2.05%；
+   判据来源是 `es/components/<name>/style/index.mjs`，注意它是**裸 import**，
+   写成 `/from\s+…/` 会匹配 0 条并算出「闭包 = 已导入」的假结论。）
 
-9. **`ccg-review-decider` 的判定记录以「提交前的 HEAD sha」命名，导致 `deep-review.sh` 在 commit 之后永远查不到自己的记录。**
-   `.git/hooks/pre-commit` 第 148-155 行的注释明说这是刻意设计（防 `.ccg/reviews` 未跟踪堆积），但它与 `deep-review.sh` 的读法（`git rev-parse HEAD` → `.ccg/reviews/$SHA.json`）**错位一格**。实测四条路都走不通：① `sh scripts/deep-review.sh` → 「判定记录: 无」；② `ccg-deep-review.js --sha <记录名>` → `base..head` 恒空（该 sha 已是 main 祖先）⇒ 报「取不到 diff」退出 0；③ 改传真正承载改动的 sha → 被同名旧记录（那份是 docs 提交的 `mode=skip`）短路；④ 删掉旧记录 → 驱动直接「未找到…跳过深度审查」。
-   **后果**：`deepReview.required=true` 的变更**无法完成 QM-6 深度评审**。已如实登记为 pending 并写明修正建议（记录命名改用提交后 sha，或父/子同写两份）。**工具链自身挡住了必做门禁时，正解是如实登记 + 提出修正建议，不是编造 findings 让记录看起来走过了。**
+9. **像素回归的三步排除 + 一步定位（本轮实测顺序，可作模板）。**
+   ① **排除缺规则**：解析全量 CSS 与子集的**选择器集合**求差（本轮 1355 个），
+   再在真实页面上对每个差集选择器 `querySelectorAll` —— 命中 0 ⇒ 规则集完整。
+   ② **排除缺注册**：带 e2e 夹具逐路由采集控制台，看有无
+   `Failed to resolve component/directive`。
+   ③ **排除抖动**：同一状态连拍 2–3 次两两比对（本轮 **0.00%**，最大 14 px 属抗锯齿级）。
+   三条都排除后，**决定性一步是「逐元素计算样式签名对比」**：遍历全 DOM（本轮 348 个元素），
+   为每个元素打一份计算样式签名（`font-family`/`color`/`background-image`/`::before`/`::after` 等），
+   两态逐项 diff —— 它会直接给出**唯一差异属性**与**命中的元素集合**
+   （本轮：`font-family` 命中 32 个，全是 BUTTON 及其子节点，一眼指向表单控件重置）。
+   **别用「肉眼看截图」代替这一步**：本轮两张截图肉眼几乎一致（PNG 仅差 127 字节），
+   像素差异却是 9.41%。另注意**阈值口径**：本地像素默认 **1%**，CI 用 **6%**
+   （`PIXEL_THRESHOLD`）—— 同一张图两边结论可能相反，对照前先对齐。
+
+10. **A/B 对照必须还原「完整变更集」；只还原其中一层，会把另一层的因果误判成「无关」。**
+    我做过一次 A/B：「临时加回 `element-plus/dist/index.css`」——只还原了 **CSS**，没还原 **JS 装配**，
+    于是得出「这两处与本 PR 无关」的**错误结论**并写进了文档。真根因 `el-reset.css` 虽在 CSS 侧，
+    却只有在「**整套改动** vs `origin/main`」的对照下才暴露：完整还原后三处是
+    **0.21% / 0% / 0%**，而我的分支是 **9.48% / 9.26% / 2.05%**。
+    **纪律**：下「与我无关」的结论前，先做**整套还原**的对照；只差一层就下结论，
+    等于把「我没测到」当成「不存在」。
+
+11. **`git checkout HEAD -- <目录>`（宽目录恢复）会连带丢掉该目录下所有未提交改动。**
+    做 A/B 时我用它还原 `src`，把**尚未提交**的 `el-reset.css` 修复与 P6 锁一起抹掉，
+    之后一次复跑「红回 9.48%」才发现。AGENTS.md 铁律 R2 明确禁止宽目录恢复
+    （「恢复只针对 `git status` 精确列出的文件」）——**这不是纸面纪律，是这次真踩的**。
+    **正解**：A/B 前先提交，或把未提交文件复制到 `%TEMP%` 备份；
+    恢复时逐个文件 `git checkout HEAD -- <精确路径>`。
+
+12. **工具链自身挡住必做门禁时，正解是如实登记 + 提修正建议，不是编造 findings 让它看起来走过了。**
+    `ccg-review-decider` 把判定记录**以提交前的 HEAD sha 命名**（`.git/hooks/pre-commit`
+    第 148-155 行注释明说这是刻意设计：防 `.ccg/reviews` 未跟踪堆积），而 `deep-review.sh`
+    读的是**当前 HEAD** 的记录 ⇒ **错位一格**，commit 之后永远查不到自己的记录。
+    实测四条调用路径全部走不通：① `sh scripts/deep-review.sh` → 「判定记录: 无」；
+    ② 驱动 `ccg-deep-review.js --sha <记录名>` → `base..head` 恒空（该 sha 已是 main 祖先）
+    ⇒ 报「取不到 diff」退出 0；③ 改传真正承载改动的 sha → 被同名旧记录（`mode=skip`）短路；
+    ④ 删掉旧记录 → 驱动直接「未找到…跳过深度审查」。
+    **后果**：`deepReview.required=true` 的变更**无法完成 QM-6 深度评审**。已在执行记录里如实记
+    `pending` 并写明根因与修正建议（记录命名改用提交后 sha，或父/子同写两份）。
 
 ## 逐文件行数门禁的真实上限、rebase 冲突标记自检，与「不带热点载体」的二次验证（ops-url-split，2026-10-15）
 

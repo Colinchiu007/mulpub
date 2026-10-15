@@ -141,17 +141,78 @@ describe('element-plus 按需装配（行为验证）', () => {
       '以下 EP 样式在闭包里但未 import（视觉回归风险，QG Visual 会红）: ' + missing.join(', '),
     ).toEqual([])
 
-    // 4) 共享底座三件套（base.css 不带 el- 前缀，不在上面的 imported 集合里，单独断言）
+    // 4) 共享底座（base.css 不带 el- 前缀，不在上面的 imported 集合里，单独断言）
     expect(pluginSrc, '缺少共享底座 base.css').toMatch(/theme-chalk\/base\.css/)
-    for (const f of ['el-var', 'el-reset']) {
-      expect(imported.has(f), '缺少共享底座 ' + f + '.css').toBe(true)
-    }
+    expect(imported.has('el-var'), '缺少共享底座 el-var.css').toBe(true)
     // 组件样式目录必须真实存在（防路径写错但恰好被 tree-shake 掩盖）
     const chalkDir = path.join(
       process.cwd(), '..', '..', 'node_modules', 'element-plus', 'theme-chalk',
     )
     const missingFile = required.filter(n => !fs.existsSync(path.join(chalkDir, n + '.css')))
     expect(missingFile, 'theme-chalk 里不存在的样式文件: ' + missingFile.join(', ')).toEqual([])
+  })
+
+  /**
+   * P6 全量产物包含性锁（2026-10-15 加入，由一次 9.48% 的真实像素回归换来）
+   *
+   * 判据：**插件导入的每个 theme-chalk 文件都必须真的存在于 EP 的全量产物
+   * `theme-chalk/index.css` 中**。反向（全量有、子集没有）才是缺失；
+   * 而「子集有、全量没有」的文件会带来**全量引入下根本不存在的全局副作用**。
+   *
+   * 这次踩的是 `el-reset.css`：它含 `input,textarea,button{font-family:inherit}`
+   * 以及 `a` / `h1~h6` / `p` / `hr` 等原生元素规则，而 `index.css` 里一条都没有。
+   * 多导它的后果：按钮字体从浏览器默认 `Arial` 变成继承应用字体栈，
+   * 逐元素计算样式对比 348 个元素里 32 个（全是 BUTTON 及其子节点）字体不同
+   * ⇒ create-editor 9.48% / create-pipeline 9.26% / podcast-channel 2.05%
+   * 像素回归（同态重复渲染实测 0.00%，已排除抖动）。
+   *
+   * 只断言「不含 el-reset」是弱锁（换个文件又会重犯），故这里断言**集合关系**：
+   * 插件导入的每个非空 el-*.css 的首个选择器都必须能在 `index.css` 里定位到。
+   */
+  it('P6：导入的每个主题文件都必须存在于 EP 全量产物 index.css 中（防「多导带来全局副作用」）', async () => {
+    const fs = await import('node:fs')
+    const path = await import('node:path')
+
+    const pluginSrc = fs.readFileSync(
+      path.join(process.cwd(), 'src/plugins/element-plus.js'), 'utf8',
+    )
+    const imported = [...new Set(
+      [...pluginSrc.matchAll(/theme-chalk\/(el-[a-z0-9-]+)\.css/g)].map(m => m[1]),
+    )]
+
+    // 明确禁止：全局元素重置不在全量产物里
+    expect(
+      imported.includes('el-reset'),
+      'el-reset.css 不在 EP 全量产物 index.css 中，导入它会改变原生元素默认样式'
+        + '（2026-10-15 实测造成 9.48% 像素回归）',
+    ).toBe(false)
+
+    const chalkDir = path.join(
+      process.cwd(), '..', '..', 'node_modules', 'element-plus', 'theme-chalk',
+    )
+    const indexCss = fs.readFileSync(path.join(chalkDir, 'index.css'), 'utf8')
+
+    const firstSelector = (css) => {
+      const m = css.match(/\.el-[a-z0-9-]+(?:__[a-z0-9-]+)?(?:--[a-z0-9-]+)?/)
+      return m ? m[0] : null
+    }
+    const placeholders = []
+    const notInFull = []
+    for (const name of imported) {
+      const p = path.join(chalkDir, name + '.css')
+      if (!fs.existsSync(p)) continue
+      const css = fs.readFileSync(p, 'utf8')
+      if (!css.trim()) { placeholders.push(name); continue } // renderless，0 字节
+      const sel = firstSelector(css)
+      if (!sel) { placeholders.push(name); continue }
+      if (!indexCss.includes(sel)) notInFull.push(name + '（首个选择器 ' + sel + '）')
+    }
+    expect(
+      notInFull,
+      '以下主题文件的首个选择器在全量 index.css 里找不到 —— 它们带来的是全量引入下不存在的样式: '
+        + notInFull.join(', '),
+    ).toEqual([])
+    expect(placeholders.length, '占位/无选择器文件数异常: ' + placeholders.join(', ')).toBeLessThan(5)
   })
 
   it('P5：样式 import 不得重复（重复行说明批量替换改坏了清单）', async () => {
@@ -166,5 +227,61 @@ describe('element-plus 按需装配（行为验证）', () => {
       .filter(Boolean)
     const dupes = lines.filter((v, i) => lines.indexOf(v) !== i)
     expect([...new Set(dupes)], '重复的样式 import: ' + [...new Set(dupes)].join(', ')).toEqual([])
+  })
+
+  /**
+   * P7 指令覆盖锁（2026-10-15 加入）
+   *
+   * P3 扫的是模板里的 `<el-xxx>` **标签**，而 EP 还有一类装配项是**指令**：
+   * `v-loading`（`ElLoading`）/ `v-infinite-scroll`（`ElInfiniteScroll`）。
+   * `app.use(ElementPlus)` 会一并装上它们，显式按需清单则**必须手动登记**，
+   * 而且漏装**不会报错、只会静默少渲染**（加载遮罩整块不出现）。
+   *
+   * 本项目实测用到 `v-loading` 的 4 个文件：PatternAnalysisPanel /
+   * FilmEngineeringView ×2 / PerformanceInsights。本锁把它们变成机械判据：
+   * 模板里出现 `v-loading` ⇒ 插件必须 import `ElLoading` 且 `app.use` 它，
+   * 并导入 `el-loading.css`（指令样式不在任何组件的样式闭包里）。
+   */
+  it('P7：模板用到的 EP 指令必须被装配（v-loading ⇒ ElLoading + el-loading.css）', async () => {
+    const fs = await import('node:fs')
+    const path = await import('node:path')
+    const src = path.join(process.cwd(), 'src')
+
+    const usedDirectives = new Map() // 指令名 -> 首个使用文件
+    const scan = (dir) => {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, e.name)
+        if (e.isDirectory()) { if (e.name !== 'node_modules') scan(p); continue }
+        if (!/\.vue$/.test(e.name)) continue
+        const text = fs.readFileSync(p, 'utf8')
+        for (const m of text.matchAll(/\sv-(loading|infinite-scroll)\b/g)) {
+          if (!usedDirectives.has(m[1])) usedDirectives.set(m[1], p.replace(src, 'src'))
+        }
+      }
+    }
+    scan(src)
+
+    const pluginSrc = fs.readFileSync(
+      path.join(process.cwd(), 'src/plugins/element-plus.js'), 'utf8',
+    )
+    const missing = []
+    for (const [dir, file] of usedDirectives) {
+      if (dir === 'loading') {
+        if (!/\bElLoading\b/.test(pluginSrc)) missing.push('v-loading ⇒ 需 import 并 app.use ElLoading（用于 ' + file + '）')
+        if (!/theme-chalk\/el-loading\.css/.test(pluginSrc)) missing.push('v-loading ⇒ 需 import el-loading.css（用于 ' + file + '）')
+      }
+      if (dir === 'infinite-scroll') {
+        if (!/\bElInfiniteScroll\b/.test(pluginSrc)) missing.push('v-infinite-scroll ⇒ 需 import 并 app.use ElInfiniteScroll（用于 ' + file + '）')
+      }
+    }
+    expect(missing, missing.join('; ')).toEqual([])
+    // 指令必须真的挂进注册表（不是只 import 了名字）
+    const { createApp, h } = await import('vue')
+    const app = createApp({ render: () => h('div') })
+    app.use(elementPlusOnDemand)
+    expect(
+      app._context.directives.loading,
+      'ElLoading 未挂进 app._context.directives —— v-loading 会静默失效',
+    ).toBeTruthy()
   })
 })

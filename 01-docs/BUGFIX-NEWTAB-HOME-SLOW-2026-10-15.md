@@ -273,18 +273,65 @@ radio-group → base, radio      ← 漏 `el-radio` 本体的来源
 | **P4 样式闭包锁** | 按 `style/index.mjs` 重算闭包，断言插件 import 的 CSS **不缺**（且 theme-chalk 里文件真实存在） |
 | **P5 重复 import 锁** | 样式清单不得有重复行（本轮真出过重复：批量替换把 `el-radio-button`/`el-radio-group` 各写了两遍） |
 
-**两处存量的判定（对照实验，不背锅也不甩锅）**：`create-editor` / `create-pipeline`
-本地复跑 9.48% / 9.26%。做**对照实验**——临时在插件里加回
-`import 'element-plus/dist/index.css'`（= 修复前 CSS 超集）后复跑，两者仍是
-**9.48% / 9.26%**，与按需态**逐位相同** ⇒ 与本次样式改造**无关**。
-另有抖动证据：CI 同一 job 两轮数字不同（9.48% → 7.66%），且第一轮
-`podcast-channel` 未失败、第二轮才失败。
-故本 PR 只对「因闭包缺失而变差的 `podcast-channel`」负责并已修复；
-这两条的存量漂移**不在本 PR 范围**，且**刻意不用 `--update-baseline` 掩盖**
-（AGENTS.md 明令禁止）。
-
 **口径提醒**：本地像素默认阈值 **1%**，CI 用 **6%**（`PIXEL_THRESHOLD`）。
-故 `podcast-channel` 本地 2.05% 会判红、CI 6% 阈值下应通过——对照时必须注意口径差异。
+同一张图在两边结论可能相反——对照时必须先对齐口径。
+
+### 4.6 真根因（第二步）：多导了 `el-reset.css` —— 一次 9.48% 的像素回归
+
+补完样式闭包后 `podcast-channel` 由 21.63% 降到 2.05%，但 `create-editor`/`create-pipeline`
+**仍停在 9.48% / 9.26%**。定位过程（可复用）：
+
+1. **先排除三类常见解释**，每类都用判据而不是感觉：
+   - *缺选择器？* 解析全量 `index.css` 与按需集合的全部选择器求差集（1355 个），
+     再在真实页面上对每个差集选择器 `querySelectorAll` ⇒ **命中数 0**，样式规则集完整。
+   - *缺组件/指令注册？* 带 e2e 夹具逐路由采集控制台警告 ⇒ **无任何
+     "Failed to resolve component/directive"**。
+   - *抖动？* 同一状态连拍 3 次两两比对 ⇒ **0.00%（0 px / 14 px）**，渲染完全确定。
+2. **决定性一步：逐元素计算样式签名对比**。遍历全 DOM，为 348 个元素各打一份计算样式
+   签名（含 `font-family`/`color`/`background-image`/`::before`/`::after` 等 28 项），
+   两态逐项 diff ⇒ **唯一差异是 `font-family`**，命中 **32 个元素，全部是 BUTTON 及其子节点**：
+   - 我的分支：`"Noto Sans CJK SC", "PingFang SC", …`（继承应用字体栈）
+   - main：**`Arial`**（Chrome 对表单控件的 UA 默认值）
+
+**根因**：`element-plus/theme-chalk/el-reset.css` 里有
+`input,textarea,button{font-family:inherit}`，此外还改了
+`a`（链接颜色）、`h1~h6`（颜色/字号）、`p`（`line-height:1.8`）、`hr`、`sup,sub,small`
+等**全部原生元素**；而 **EP 自己的全量产物 `theme-chalk/index.css` 里根本没有这个文件**
+（实测在其内搜不到该规则）。因此单独导入它 = **悄悄改变应用自身的元素默认样式**，
+而这些在全量引入下**从未被改变过**。
+
+**修法**：从插件移除 `el-reset.css`（保留 `base.css` + `el-var.css`）。
+结果：三处全部归零 —— **create-editor 0.21% / create-pipeline 0% / podcast-channel 0%**，
+与 `origin/main` 逐位一致；本地完整像素套件 **19/20 通过**（唯一失败的 `collection` 1.44%
+经两态单跑均为 0% ⇒ 抖动，且低于 CI 阈值 6%）。
+
+**新增 P6 全量产物包含性锁**（只断言「不含 el-reset」是弱锁，换个文件又会重犯）：
+断言插件导入的**每个**非空主题文件的首个选择器都能在 `index.css` 里定位到，并显式禁止 `el-reset`。
+
+**可复用判据**：把「按需子集」与「全量」对齐时，不能只算**组件样式闭包**，
+还要核对**每个被导入的文件是否真的存在于全量产物中** ——
+「全量有、子集没有」是真缺失；**「子集有、全量没有」则是凭空多出的全局副作用**。
+
+### 4.7 我给出的两个错误结论（留证，不删）
+
+本任务中我曾把这两处红判成「与本 PR 无关」并写进了文档，**后来被自己推翻**：
+
+| 错误结论 | 当时的依据 | 为什么错 |
+|---|---|---|
+| `create-editor`/`create-pipeline` 是存量漂移/抖动 | 「临时加回 `element-plus/dist/index.css` 后数字逐位不变」的 A/B | 那次 A/B **只还原了 CSS，没还原 JS 装配**；真根因（`el-reset.css`）虽在 CSS 侧，却必须在「**完整变更集** vs main」的对照下才暴露 |
+| `podcast-channel` 21.63% 属环境差异 | CI 与本地数字不一致 | 把整套改动还原成 `origin/main` 后它是 **0%**；且同态连拍 0.00%，与抖动无关 |
+
+**更正后的决定性取证**：整套改动还原成 `origin/main` ⇒ **0.21% / 0% / 0%**；
+我的分支 ⇒ **9.48% / 9.26% / 2.05%**；同态重复 ⇒ **0.00%**。
+**教训**：A/B 必须还原**完整变更集**；只还原其中一层，会把另一层的因果误判成「无关」。
+
+### 4.8 排查手法本身也有坑（记录）
+
+- **`git checkout HEAD -- apps/desktop/src`（宽目录恢复）会连带丢掉该目录下所有未提交改动。**
+  我在做 A/B 时用它还原，结果把当时**尚未提交**的 `el-reset.css` 修复与 P6 锁一起抹掉，
+  随后一次像素复跑「又红回 9.48%」才发现。AGENTS.md 铁律 R2 明确禁止宽目录恢复
+  （「恢复只针对 `git status` 精确列出的文件」）——**这条不是纸面纪律，是这次真踩的**。
+  正解：A/B 前先把未提交文件备份/提交；恢复时逐个文件 `git checkout HEAD -- <file>`。
 
 ---
 
@@ -295,12 +342,13 @@ radio-group → base, radio      ← 漏 `el-radio` 本体的来源
 | 1 | **Bug 反思文档**（本文件） | `01-docs/BUGFIX-NEWTAB-HOME-SLOW-2026-10-15.md` |
 | 2 | **bundle 契约进测试**：`main.js` 引入方式 + 按需清单 + Quill 注册位置三条机械锁 | `src/main.bundle-contract.test.js` |
 | 3 | **漏登记机械锁**：扫 src 全部 `<el-xxx>` 核对注册表 | `src/plugins/element-plus.test.js` P3 |
-| 4 | **样式闭包锁**：按 `style/index.mjs` 重算闭包断言不缺（QG Visual 那次红的直接教训） | `src/plugins/element-plus.test.js` P4 |
+| 4 | **样式闭包锁**：按 `style/index.mjs` 重算闭包断言不缺（QG Visual 第一处红的教训） | `src/plugins/element-plus.test.js` P4 |
 | 5 | **重复 import 锁**：样式清单不得有重复行 | `src/plugins/element-plus.test.js` P5 |
-| 6 | **首屏时序契约**：并行取数 + 懒触发 + 单点失败不扩散 | `src/views/Home.first-paint.test.js` |
-| 7 | **QM-2 新增检查项**：「新增全局 `app.component` / 顶层 CSS import 前必须问『它在几条路由上被用』；UI 框架默认全量引入是高频路径的性能地雷；**UI 框架按需样式必须导闭包而不是模板用到的组件**」 | `AGENTS.md` QM-2 |
-| 8 | **learnings 沉淀**：`全量引入在源码层测试里与按需完全等价` + `慢而不错对视觉回归结构性免疫`（与 10-14 同型第二次出现）+ `按需样式必须导闭包` + `判据写成 /from/ 会匹配 0 条算出假结论` | `01-docs/learnings.md` |
-| 9 | **CHANGELOG** 条目 | `CHANGELOG.md` |
+| 6 | **全量产物包含性锁**：导入的每个主题文件必须存在于 `index.css` 中（防「多导带来全局副作用」，`el-reset` 那条 9.48% 的教训） | `src/plugins/element-plus.test.js` P6 |
+| 7 | **首屏时序契约**：并行取数 + 懒触发 + 单点失败不扩散 | `src/views/Home.first-paint.test.js` |
+| 8 | **QM-2 新增检查项**：「新增全局 `app.component` / 顶层 CSS import 前必须问『它在几条路由上被用』；UI 框架默认全量引入是高频路径的性能地雷；**UI 框架按需样式必须导闭包、且不得多导全量产物里没有的文件**」 | `AGENTS.md` QM-2 |
+| 9 | **learnings 沉淀**：`全量引入在源码层测试里与按需完全等价` + `慢而不错对视觉回归结构性免疫`（与 10-14 同型第二次出现）+ `按需样式必须导闭包` + `判据写成 /from/ 会匹配 0 条算出假结论` + `多导全量产物里没有的 CSS 会带来全局副作用` + `A/B 必须还原完整变更集` + `宽目录恢复会吞掉未提交改动` | `01-docs/learnings.md` |
+| 10 | **CHANGELOG** 条目 | `CHANGELOG.md` |
 
 ### 5.1 仍未闭合的（登记，不假装已解决）
 
@@ -313,8 +361,8 @@ radio-group → base, radio      ← 漏 `el-radio` 本体的来源
   只有真进发布页才需要。但若将来发布页也要秒开，可考虑 toolbar 精简。
 - **Home.vue 的失效账号横幅在账号多时仍可能慢**：懒触发只保证它不阻塞首屏，
   不保证它自己快。它的性能属 `accounts:batch-check-login` 的既有议题（并发 3 / 单账号 60 s 超时）。
-- **`create-editor` / `create-pipeline` 存量像素漂移**：对照实验证明与本 PR 无关
-  （见 §4.5），登记为存量待办，不擅自更新基线。
+- **`create-editor` / `create-pipeline` 存量像素漂移**：已在本 PR 内定位并修复
+  （真根因见 §4.6：多导 `el-reset.css`），不再作为存量待办。
 - **QM-6 深度双模型评审未完成**：判定 `deepReview.required=true`（变更 593 行 > 200 行
   阈值），但本仓 `ccg-review-decider` 把记录**以提交前的 HEAD sha 命名**
   （`.git/hooks/pre-commit` 第 148-155 行注释明说这是刻意设计），导致 commit 之后
