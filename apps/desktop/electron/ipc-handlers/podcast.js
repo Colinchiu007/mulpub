@@ -10,7 +10,7 @@
  * 通道合同（渲染层按同一份合同并行开发，**键名逐字不得改**）：
  *   podcast:channel:get     → { code, data: { channel, feedSync } }
  *   podcast:channel:save    → { code, data: { channel } }
- *   podcast:episode:list    → { code, data: { episodes } }
+ *   podcast:episode:list    → { code, data: { episodes, cap, count, stock } }   // stock = §7.9.4 固化摘要，无凭据/计数不齐即 null
  *   podcast:episode:save    → { code, data: { episode } }
  *   podcast:episode:remove  → { code, data: { removed } }
  *   podcast:feed:build      → { code, data: { path, itemCount, bytes } }
@@ -187,6 +187,9 @@ function registerHandlers (ipcMain, deps) {
     return { channel: getService(channelOf(payload), { writable: true }).saveChannel(unwrapObject(payload, 'channel')) }
   }))
 
+  // L5 去重位：每次注册一份，随生命周期走，不跨用例污染
+  let stockShapeWarned = false
+
   ipcMain.handle('podcast:episode:list', guarded('episode:list', (payload) => {
     const svc = getService(channelOf(payload))
     const episodes = svc.listEpisodes()
@@ -195,19 +198,32 @@ function registerHandlers (ipcMain, deps) {
     // 不对称口径：episodes 是主路、compliance 是旁路，旁路炸了只回落成「没有这个键」，
     // 不得丢期、不得让整个列表报错（§8.2.3 行 4）。
     let annotated = episodes
+    let stock = null
+    // 畸形 stockStamp 是**常驻**状态：不去重就每次列表刷新都同一句 warn（刷屏会把真信号冲掉）。
+    // 位点放在本 registerHandlers 作用域而非模块作用域——模块级标记是跨用例状态，测试里会互相吞。
     try {
       const mod = (deps && deps.podcastEpisodeCompliance) || require('../services/podcast-episode-compliance')
+      // 只取「已被解析过」的 registry：读 index 属旁路，不得在列表路径上第一次去碰 userData
+      const stampRecord = mod.readStockStampRecord({ registry, logger: log, fsImpl: deps && deps.podcastFs })
       annotated = mod.annotateEpisodes({
         episodes,
-        // 只取「已被解析过」的 registry：读 index 属旁路，不得在列表路径上第一次去碰 userData
-        stockStamp: mod.readStockStamp({ registry, logger: log, fsImpl: deps && deps.podcastFs }),
+        stockStamp: stampRecord ? stampRecord.at : null,
         channelId: channelOf(payload),
         logger: log,
       })
+      // PRD §7.9.4：频道页的固化摘要与 compliance 共用上面那一次读（两份读必然漂移）
+      stock = mod.toFreezeSummary(stampRecord)
+      if (stampRecord && !stock) {
+        // 凭据在位而计数不齐 = 固化层写出的形状本层不认识。出声，界面上是「整行不显示」而不是「0 期」
+        if (!stockShapeWarned) {
+          stockShapeWarned = true
+          log.warn('[podcast-stock] stockStamp 在位但三个实测计数不齐，本次列表不显示固化摘要（同一进程只报一次）')
+        }
+      }
     } catch (e) {
       log.warn('[podcast-compliance] 标记失败，本次列表不带 compliance：' + e.message)
     }
-    return { episodes: annotated, cap: svc.episodeCap(), count: episodes.length }
+    return { episodes: annotated, cap: svc.episodeCap(), count: episodes.length, stock }
   }))
 
   ipcMain.handle('podcast:episode:save', guarded('episode:save', (payload) => {

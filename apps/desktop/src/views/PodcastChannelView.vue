@@ -131,6 +131,15 @@
     <section class="podcast-section" data-testid="podcast-episodes-section" aria-labelledby="podcast-episodes-heading">
       <h2 id="podcast-episodes-heading">{{ t('podcast.episodes.sectionTitle') }}</h2>
       <p v-if="episodesError" class="podcast-error" data-testid="podcast-episodes-error">{{ errorText(episodesError) }}</p>
+      <p v-if="stockSummary" class="podcast-hint" data-testid="podcast-stock-summary">
+        {{ t('podcast.stock.freezeSummary', { scanned: stockSummary.scanned, filled: stockSummary.filled }) }}
+        <span v-if="stockSummary.unresolved > 0" data-testid="podcast-stock-unresolved">
+          · {{ t('podcast.stock.unresolved', { count: stockSummary.unresolved }) }}
+        </span>
+        <span v-if="stockSummary.skippedChannels > 0" data-testid="podcast-stock-skipped">
+          · {{ t('podcast.stock.skippedChannels', { count: stockSummary.skippedChannels }) }}
+        </span>
+      </p>
 
       <div v-if="episodes.length === 0" class="podcast-empty" data-testid="podcast-episodes-empty">
         {{ t('podcast.episodes.empty') }}
@@ -337,6 +346,7 @@ const {
   channelError,
   episodes,
   episodesError,
+  stockSummary,
   savingEpisode,
   feedResult,
   buildingFeed,

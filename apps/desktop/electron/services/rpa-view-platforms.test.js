@@ -506,30 +506,16 @@ describe('rpa-view-platforms — 知乎发布（2026-09-29 图文修复）', () 
     expect(context._setElementContentSafe).toHaveBeenCalled()
   })
 
-  it('发布成功判定包含知乎 /p/<id> 文章 URL 模式（实测发布后跳转 zhuanlan.zhihu.com/p/xxx）', async () => {
-    // 发布点击后 URL 已是文章页 → URL 检查应直接判成功，不落入 panelGone 兜底
-    const { win, executeJavaScript } = createZhihuWindow('https://zhuanlan.zhihu.com/p/2088256436652589762/edit')
+  it('★ 草稿编辑页 URL 不得判成功（2026-10-15 假发布修复：/p/<id>/edit 是草稿页）', async () => {
+    // 旧测试用同一形态的 URL 断言 success=true —— 那是把缺陷锁成契约（见 BUGFIX 文档逃逸链）。
+    const { win } = createZhihuWindow('https://zhuanlan.zhihu.com/p/2094165753981309631/edit')
     const context = createZhihuContext()
 
     const result = await platformsMixin._publish_zhihu.call(context, win, { title: 'T', content: 'C' })
 
-    expect(result.success).toBe(true)
-    expect(result.url).toContain('/p/')
-  })
-
-  it('panelGone 兜底脚本不得在原生 querySelector 里用 :has-text（实测抛 SyntaxError）', async () => {
-    const { win, executeJavaScript } = createZhihuWindow('https://zhuanlan.zhihu.com/write')
-    const context = createZhihuContext()
-
-    await platformsMixin._publish_zhihu.call(context, win, { title: 'T', content: 'C' })
-
-    const panelGoneScript = executeJavaScript.mock.calls
-      .map(([script]) => String(script))
-      .find(script => script.includes('PublishPanel-publish') && script.includes('display'))
-    if (panelGoneScript) {
-      // 若走 panelGone 兜底，脚本必须用 querySelectorAll 文本匹配，不得用 :has-text
-      expect(panelGoneScript).not.toMatch(/querySelector\([^)]*:has-text/)
-    }
+    expect(result.success).toBe(false)
+    expect(String(result.error)).toContain('not confirmed')
+    expect(result.url).toContain('/edit')
   })
 })
 

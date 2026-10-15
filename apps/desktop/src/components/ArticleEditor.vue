@@ -56,6 +56,14 @@ import { QuillEditor } from '@vueup/vue-quill'
 import '@vueup/vue-quill/dist/vue-quill.snow.css'
 import { useI18n } from 'vue-i18n'
 import { APP_ARTICLE_CONTENT_MAX } from '@/features/publish/publish-contract'
+// 正文承载形态原语（shared-utils ESM 孪生，已在 vite.config.js 登记 alias）：
+// 富文本模式是 Quill 的 `content-type="html"` —— 它把传进去的值原样写进
+// `quill.root.innerHTML`。纯文本（`第一段\n\n第二段`）进 HTML 语义时换行属**可忽略空白**，
+// 整篇会塌成一整段，回写 modelValue 的又是 Quill 的 innerHTML（单个 `<p>`）——
+// 2026-10-15 百家号「正文一整段」二次报障的第一性根因就在这一步：内容在**进入发布链之前**
+// 就已是一段，发布链侧 `formatArticleBody` 再正确也救不回来。
+// 故装载前必须经 `toHtmlBody`：纯文本按行成段、已是 HTML 原样透传（与发布链同判据）。
+import { toHtmlBody } from '@multi-publish/shared-utils/src/article-body-format'
 
 // 本地注册（2026-10-15 fix-newtab-home-slow）：QuillEditor 原先由 main.js 以
 // app.component 全局注册，那会把 @vueup/vue-quill 拉进首屏 bundle 闭包。
@@ -95,7 +103,13 @@ const editorMode = ref('rich')
 const charCount = computed(() => Array.from(props.modelValue || '').length)
 
 const richContent = computed({
-  get: () => props.modelValue,
+  // 装载：纯文本按行成段（`toHtmlBody`），已是 HTML 幂等透传。
+  // ⛔ 不得改回直接 `props.modelValue`：那会让 Quill 把换行当可忽略空白，
+  // 段落结构在编辑器装载那一刻就被吞掉（2026-10-15 百家号事故，回归锁见
+  // ArticleEditor.test.js「富文本装载不得吞段落」与 article-body-format-parity.test.js）。
+  get: () => toHtmlBody(props.modelValue),
+  // 回写：Quill 的 innerHTML（此时每段都是真 `<p>` 块）；纯文本承载平台由发布链
+  // 的 formatArticleBody 统一转回纯文本，故此处不做反向转换。
   set: (val) => emit('update:modelValue', val)
 })
 

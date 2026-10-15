@@ -79,6 +79,14 @@ export default defineConfig({
       // （由 scripts/check-renderer-cjs-boundary 静态拦截）。
       '@multi-publish/shared-utils/src/card-paginator-core':
         path.resolve(__dirname, '..', '..', 'packages/shared-utils/src/card-paginator-core.browser.js'),
+      // 正文承载形态原语（BUGFIX-ARTICLE-PARAGRAPH-AND-ZHIHU-PUBLISH-2026-10-15）：
+      // 渲染端富文本编辑器装载内容前用 `toHtmlBody()` 把纯文本按行成段（否则 Quill 的
+      // content-type="html" 会把换行当可忽略空白、整篇段落塌成一段 —— 百家号「一整段」根因）。
+      // 与发布链 formatArticleBody 的同判据由 shared-utils 的
+      // __tests__/article-body-format-parity.test.js 锁定；未登记此 alias 时渲染层会拉到
+      // CJS 主进程版而跨边界（由 scripts/check-renderer-cjs-boundary 静态拦截）。
+      '@multi-publish/shared-utils/src/article-body-format':
+        path.resolve(__dirname, '..', '..', 'packages/shared-utils/src/article-body-format.browser.js'),
     }
   },
   // workspace 包不在 node_modules 下，开发服务器不会默认预构建其 CommonJS 入口。

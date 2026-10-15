@@ -190,6 +190,11 @@ export default {
         cancelled: 'Cancelled',
       },
     },
+    stock: {
+      freezeSummary: 'Legacy audio metadata frozen: scanned {scanned}, filled {filled}',
+      unresolved: '{count} episodes could not be typed; regenerate to resolve',
+      skippedChannels: '{count} channels could not be frozen; retry required',
+    },
     errors: {
       // Slice 3 (episode from final video). Domain-code map per PRD §6.4; the podcast.episode.*
       // entries below are the overlay-facing copy and are deliberately a separate layer from these.
