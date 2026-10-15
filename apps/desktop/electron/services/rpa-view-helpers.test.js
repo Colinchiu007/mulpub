@@ -192,6 +192,11 @@ describe('rpa-view-helpers — 行为层接线（任务 3.4）', () => {
 
 describe('rpa-view-helpers — 迁移清单结构锁（任务 4.3）', () => {
   const src = fs.readFileSync(path.join(__dirname, 'rpa-view-helpers.js'), 'utf8')
+  // B1 拆分（debt-guard 新代码阻断门禁）：行为层 + CDP 传输 + isolated 通道整层
+  // 下沉至 stealth/rpa-behavior-mixin.js，由 helpers 侧 ...behaviorMixin 合入。
+  // 迁移后 helpers 只保留「委托入口 + 读回判据」，故下方结构锁分两侧断言：
+  // helpers 侧锁「已委托」，mixin 侧锁「实现仍在」。
+  const mixinSrc = fs.readFileSync(path.join(__dirname, 'stealth', 'rpa-behavior-mixin.js'), 'utf8')
 
   /** 括号配对提取函数体（跳过字符串字面量与注释——AGENTS.md 注册表提取纪律同款） */
   function extractFnBody (source, marker) {
@@ -234,22 +239,33 @@ describe('rpa-view-helpers — 迁移清单结构锁（任务 4.3）', () => {
   it('_click 主体经 isolated 通道与行为层，无裸 executeJavaScript 主世界调用', () => {
     const body = extractFnBody(src, 'async _click(win, sel) {')
     expect(body).not.toBe('')
-    expect(body).toContain('_isoEval')
-    expect(body).toContain('_behaviorClick')
+    // helpers 侧只留委托入口（B1 拆分后行为层在 mixin 内）
+    expect(body).toContain('_clickViaDriver')
     expect(body).toContain('_probeClickState')
     expect(body).not.toContain('executeJavaScript')
+    // 委托目标在 mixin 内仍具备行为层 + isolated 通道
+    const drvBody = extractFnBody(mixinSrc, 'async _clickViaDriver(win, sel) {')
+    expect(drvBody).not.toBe('')
+    expect(drvBody).toContain('_behaviorClick')
+    expect(drvBody).toContain('_isoEval')
+    expect(drvBody).not.toContain('executeJavaScript')
   })
 
   it('_fillInput 主体经 isolated 通道与行为层，无裸 executeJavaScript 主世界调用', () => {
     const body = extractFnBody(src, 'async _fillInput(win, sel, val) {')
     expect(body).not.toBe('')
-    expect(body).toContain('_behaviorFill')
-    expect(body).toContain('_isoEval')
+    expect(body).toContain('_fillViaDriver')
     expect(body).not.toContain('executeJavaScript')
+    // 委托目标在 mixin 内仍具备行为层 + isolated 通道
+    const fillBody = extractFnBody(mixinSrc, 'async _fillViaDriver(win, sel, val) {')
+    expect(fillBody).not.toBe('')
+    expect(fillBody).toContain('_behaviorFill')
+    expect(fillBody).toContain('_isoEval')
+    expect(fillBody).not.toContain('executeJavaScript')
   })
 
   it('点击探针显式豁免于主世界（window.__ocLog 状态只在主世界——spike 实证）', () => {
-    const probeBody = extractFnBody(src, 'async _probeClickState(win) {')
+    const probeBody = extractFnBody(mixinSrc, 'async _probeClickState(win) {')
     expect(probeBody).not.toBe('')
     expect(probeBody).toContain('window.__ocLog')
     expect(probeBody).toContain('executeJavaScript')
