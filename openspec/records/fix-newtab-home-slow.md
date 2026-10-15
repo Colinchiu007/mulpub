@@ -2,6 +2,9 @@
 record: fix-newtab-home-slow
 task: 点击顶部「+」新增标签后 3-4 秒才显示应用主页——element-plus 全量引入改按需 + 首页数据并行化
 date: 2026-10-15
+sync_status: PENDING
+sync_reason: 代码 PR 已开（#3631），CI 全绿后由 agent 按 AGENTS.md「PR 自动合并」小节自动 squash 合并
+sync_backfill_owner: agent
 ---
 
 ## 本次执行记录：「+」新标签主页慢（fix-newtab-home-slow，2026-10-15）【混合 PR】
