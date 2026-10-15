@@ -229,3 +229,17 @@ export function validateRegistry () {
   }
   return problems
 }
+
+// oss-b1-rpa-hardening（2026-10-14）：风控配置（与 CJS 孪生同构，parity 测试锁）
+export function getPreloadVariant (platformId) {
+  const rc = registryData.riskControl || {}
+  const table = rc.preloadVariant || {}
+  const v = platformId && table[platformId]
+  return v === 'enhanced' ? 'enhanced' : (rc.defaultPreloadVariant === 'enhanced' ? 'enhanced' : 'baseline')
+}
+
+export function isCaptchaAutoSolveEnabled (platformId) {
+  const rc = registryData.riskControl || {}
+  const wl = rc.captchaAutoSolveWhitelist || []
+  return !!(platformId && wl.includes(platformId))
+}

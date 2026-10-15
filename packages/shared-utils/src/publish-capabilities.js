@@ -328,6 +328,27 @@ function validateRegistry () {
   return problems
 }
 
+/**
+ * oss-b1-rpa-hardening（2026-10-14）：RPA 窗口 stealth preload 变体解析。
+ * enhanced = 主世界 evasions 注入（douyin/xiaohongshu/shipinhao 高风控平台）；
+ * baseline = 现状（隔离世界 patch，对其他平台足够）。未登记平台回落 baseline。
+ * @param {string} platformId
+ * @returns {'enhanced' | 'baseline'}
+ */
+function getPreloadVariant (platformId) {
+  const rc = (data && data.riskControl) || {}
+  const table = rc.preloadVariant || {}
+  const v = platformId && table[platformId]
+  return v === 'enhanced' ? 'enhanced' : (rc.defaultPreloadVariant === 'enhanced' ? 'enhanced' : 'baseline')
+}
+
+/** 验证码自动破解白名单（默认关，PRD v1.1 §2 法务基线） */
+function isCaptchaAutoSolveEnabled (platformId) {
+  const rc = (data && data.riskControl) || {}
+  const wl = rc.captchaAutoSolveWhitelist || []
+  return !!(platformId && wl.includes(platformId))
+}
+
 module.exports = {
   PLATFORM_PUBLISH_META,
   NO_TITLE_PLATFORMS,
@@ -346,4 +367,7 @@ module.exports = {
   mapVisibilitySemantic,
   resolveVisibilityOverride,
   getVisibilitySemanticSupport,
+  // oss-b1-rpa-hardening 风控配置
+  getPreloadVariant,
+  isCaptchaAutoSolveEnabled,
 }

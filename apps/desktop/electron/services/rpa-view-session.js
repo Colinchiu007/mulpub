@@ -10,6 +10,7 @@
  */
 const { BrowserWindow, session, app } = require('electron')
 const path = require('path')
+const fs = require('fs')
 const log = require('./logger')
 const { normalizeProxyConfig, toElectronProxyRules } = require('./proxy-config')
 const { PLATFORM_LOGIN_URLS, PLATFORM_COOKIE_DOMAINS } = require('@multi-publish/shared-utils/src/platform-definitions')
@@ -140,7 +141,9 @@ const sessionMixin = {
       return { win: hit, reused: true }
     }
     const partition = 'persist:' + key
-    return { win: this._createWindow(partition), reused: false }
+    // 2026-10-14 oss-b1 接线断点修复：必须透传 platform，否则 _resolvePreloadPath(undefined)
+    // 恒选 baseline 变体，增强 preload（douyin/xiaohongshu/shipinhao 主世界注入）静默永不生效
+    return { win: this._createWindow(partition, platform), reused: false }
   },
   /** 归还窗口：healthy=true 入池（先导航 about:blank 释放页面状态），false 立即销毁。 */
   async _releaseWindow (platform, accountId, win, healthy) {
@@ -165,8 +168,8 @@ const sessionMixin = {
   },
 
   // ========== Window management ==========
-  _createWindow(partition) {
-    const win = new BrowserWindow({ show:false, width:1280, height:800, webPreferences:{ session:session.fromPartition(partition,{cache:true}), contextIsolation:true, nodeIntegration:false, sandbox:true, backgroundThrottling:false,preload:path.join(__dirname,'../stealth-preload.js') } })
+  _createWindow(partition, platform) {
+    const win = new BrowserWindow({ show:false, width:1280, height:800, webPreferences:{ session:session.fromPartition(partition,{cache:true}), contextIsolation:true, nodeIntegration:false, sandbox:true, backgroundThrottling:false,preload:this._resolvePreloadPath(platform) } })
     win.webContents.on('did-fail-load',function(e,code,desc){log.warn('RpaView','load fail: '+desc+' ('+code+')')})
     // 渲染进程 console 转发（logging-coverage-audit：此前空处理器吞掉页面 JS 报错）
     win.webContents.on('console-message', function (e, _level, message, line, sourceId) {
@@ -184,6 +187,37 @@ const sessionMixin = {
      
     // stealth injected via preload script
     return win
+  },
+  /**
+   * oss-b1-rpa-hardening（2026-10-14）：按平台风控映射选 stealth preload 变体。
+   * enhanced = 主世界 evasions 注入（高风控平台）；baseline = 现状。
+   * 映射表单一真源 = packages/shared-utils/src/publish-capabilities.json riskControl。
+   * 加载失败/未知平台一律回落 baseline（fail-closed 到现状，禁静默升级）。
+   */
+  _resolvePreloadPath(platform) {
+    let variant = 'baseline'
+    try {
+      const { getPreloadVariant } = require('@multi-publish/shared-utils/src/publish-capabilities')
+      variant = getPreloadVariant(platform) === 'enhanced' ? 'enhanced' : 'baseline'
+    } catch (e) {
+      this._logPreloadFallback(platform, e)
+    }
+    const baseline = path.join(__dirname, '..', 'stealth-preload.js')
+    if (variant !== 'enhanced') return baseline
+    // enhanced 必须指向 esbuild bundle：sandbox preload 的 require 是受限 polyfill，不支持
+    // 相对文件——源文件内的 require('./evasions-bundle.js') 只能在构建期内联成单文件
+    //（scripts/build-preload.js 的 buildStealthEnhancedPreload，QM-6 Warning-2）
+    const enhanced = path.join(__dirname, 'stealth', 'stealth-preload-enhanced.bundle.js')
+    let exists = false
+    try { exists = fs.existsSync(enhanced) } catch (_e) { /* exists 保持 false（fail-closed） */ }
+    if (exists) return enhanced
+    // bundle 缺失（未构建/打包遗漏）：fail-closed 回落 baseline 并出声——直接返回不存在的
+    // 路径 = Electron 静默不加载 preload，连 baseline 反检测一起丢（QM-6 Critical）
+    this._logPreloadFallback(platform, new Error('enhanced preload bundle missing: ' + enhanced))
+    return baseline
+  },
+  _logPreloadFallback(platform, e) {
+    try { log.warn('RpaView', 'preload variant resolve failed, fallback baseline: ' + platform + ' ' + (e && e.message)) } catch (_e) { /* ignore */ }
   },
   _windowKey(platform, accountId) { return 'rpa-'+platform+'-'+(accountId||'default')+'-'+(this._nextId++) },
 

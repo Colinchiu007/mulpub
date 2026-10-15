@@ -1,0 +1,159 @@
+{
+  "sha": "53a3a71dfce6d69c695487b34a6a523e347ca609",
+  "layer": "plan",
+  "mode": "single",
+  "reason": "变更 62 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 62,
+    "fileCount": 1,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0
+  },
+  "plannedFiles": [
+    "01-docs/PRD-OSS-RPA-HARDENING-2026-10-14.md",
+    "rpa-view-helpers.js",
+    "page.mouse",
+    "cdp-input.js",
+    "publish-capabilities.json",
+    "specs/rpa-stealth-injection/spec.md",
+    "specs/rpa-behavior-layer/Spec.md",
+    "specs/rpa-isolated-execution/spec.md",
+    "specs/stealth-channel-sidecar/spec.md",
+    "specs/captcha-solver/Spec.md",
+    "main...HEAD",
+    "apps/desktop/electron/services/stealth/evasions-bundle.js",
+    "apps/desktop/electron/services/stealth/evasions.test.js",
+    "apps/desktop/electron/services/stealth/stealth-preload-enhanced.js",
+    "apps/desktop/electron/services/stealth/stealth-preload-enhanced.test.js",
+    "apps/desktop/electron/services/stealth/behavior-engine.js",
+    "apps/desktop/electron/services/stealth/behavior-engine.test.js",
+    "apps/desktop/electron/services/stealth/cdp-input.js",
+    "apps/desktop/electron/services/stealth/cdp-input.test.js",
+    "apps/desktop/electron/services/stealth/isolated-world.js",
+    "apps/desktop/electron/services/stealth/isolated-world.test.js",
+    "apps/desktop/electron/services/stealth/preload-variant.test.js",
+    "apps/desktop/electron/services/stealth/preload-variant-failclosed.test.js",
+    "apps/desktop/electron/stealth-preload.js",
+    "apps/desktop/electron/services/rpa-view-helpers.js",
+    "apps/desktop/electron/services/rpa-view-helpers.test.js",
+    "apps/desktop/electron/services/rpa-view-session.js",
+    "apps/desktop/electron/services/publish-progress-events.js",
+    "apps/desktop/src/stores/publishProgress.js",
+    "apps/desktop/src/stores/publishProgress.test.js",
+    "packages/shared-utils/src/publish-capabilities.json",
+    "packages/shared-utils/src/publish-capabilities.js",
+    "packages/shared-utils/src/publish-capabilities.browser.js",
+    "scripts/extract-evasions.js",
+    "openspec/changes/oss-b1-rpa-hardening/tasks.md",
+    "openspec/changes/oss-b1-rpa-hardening/design.md",
+    "openspec/changes/oss-b1-rpa-hardening/spike-evidence.md",
+    "openspec/records/oss-b1-rpa-hardening.md",
+    ".quality-gates.md",
+    "CHANGELOG.md"
+  ],
+  "decidedAt": "2026-10-14T18:47:50.874Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "layer": "decision",
+    "status": "cleared",
+    "performedBy": "claude",
+    "objectType": "plan",
+    "minScore": 7,
+    "dimensionScores": {
+      "completeness": 7,
+      "consistency": 8,
+      "clarity": 8,
+      "feasibility": 8,
+      "security": 7
+    },
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "dimension": "security",
+        "finding": "D4 契约仅提'127.0.0.1+token'，未定义 token 的生成、下发通道、TTL、轮换与撤销；经 argv/env 传入会被同机进程读取，防篡改但防不了窃取与重放。",
+        "suggestion": "Spec 补 token 生命周期：启动时生成、短 TTL、单次有效，禁止经 argv/env 明文下发。"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "dimension": "security",
+        "finding": "D1 将 evasions 以主世界注入，页面脚本可经 toString/行为探测对隐身代码本身指纹化，反成更稳定检测面，与 R3 evasion hash 检测面风险叠加。",
+        "suggestion": "明确安装后自清理/极薄附着（不可直接 toString 读源），或说明与 D3 隔离域的配合方式。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "dimension": "security",
+        "finding": "D6 把 stealth 通道与 captcha 白名单做成可改配置，却无签名/完整性校验与篡改审计；本地改 JSON 即可静默绕过 kill-switch，回滚失效。",
+        "suggestion": "配置加载时比对内置清单哈希或加签名，变更写入审计日志。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "dimension": "completeness",
+        "finding": "R2/R3 仅定'灰度校方差''首批取证'跟踪项，未定义首批样本量、异常中止条件与回滚触发阈值，风险敞口无量化出口。",
+        "suggestion": "跟踪项补充具体阈值（检出率下限/误报上限）与中止回滚规则。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "dimension": "completeness",
+        "finding": "captcha 人工兜底未定义超时、取消与放弃路径；用户不干预时发布进度永久停留 captcha 相位，TERMINAL_PHASES 语义被破坏。",
+        "suggestion": "设计补兜底超时/取消/失败终态及对应 UI 提示。"
+      },
+      {
+        "id": "i6",
+        "severity": "Info",
+        "dimension": "consistency",
+        "finding": "规格文件大小写混用：behavior/captcha 为 Spec.md，其余三个为 spec.md；大小写敏感 CI 与 glob 可能断链。",
+        "suggestion": "统一小写 spec.md，并在 CI 加路径大小写校验。"
+      },
+      {
+        "id": "i7",
+        "severity": "Info",
+        "dimension": "clarity",
+        "finding": "D1 走 webFrame 主世界注入、D3 走 CDP createIsolatedWorld，双机制并存却不落边界：何种 evaluate 归哪个 world、worldName 冲突、页面探测可见性差异未说明。",
+        "suggestion": "写明两机制职责边界与命名约定，并解释不复用同一 world 的原因。"
+      },
+      {
+        "id": "i8",
+        "severity": "Info",
+        "dimension": "consistency",
+        "finding": "文档时序矛盾：D2/D3 标'进 RED'，但 git log 显示行为层/隔离求值已实现且测试 GREEN；评审基准是计划还是回溯记录不明。",
+        "suggestion": "每决策标注'已落地/待落地'，或补状态清单区分两者。"
+      }
+    ],
+    "unresolvedBySeverity": {
+      "Critical": 0,
+      "High": 0,
+      "Warning": 5,
+      "Info": 3
+    },
+    "scoreThreshold": 8,
+    "rounds": [
+      {
+        "round": 1,
+        "issues": 8,
+        "critical": 0,
+        "minScore": 7,
+        "dimensionScores": {
+          "completeness": 7,
+          "consistency": 8,
+          "clarity": 8,
+          "feasibility": 8,
+          "security": 7
+        }
+      }
+    ],
+    "roundsRun": 1,
+    "roundsMax": 3,
+    "stoppedBy": "converged",
+    "note": "第 1 轮：无 Critical、无未解决的 High 级问题，方案可执行（最低维度分 7，仅作参考，不作放行判据）",
+    "artifacts": ".adversarial\\ccg-plan-design-claude",
+    "at": "2026-10-14T18:52:57.092Z"
+  }
+}

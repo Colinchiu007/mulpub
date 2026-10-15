@@ -3,38 +3,39 @@
 > 分支策略：`mp-oss-rpa-hardening` worktree（`scripts/start-mp-task.ps1 -TaskName oss-rpa-hardening`）；PR-1 / PR-2 两刀；每刀 QM-6 + QM-1。
 > TDD 纪律：每个 Code 任务先 RED（测试全挂）再 GREEN；变异反证至少 1 条；禁止 `--no-verify`。
 > 数据口径契约（PRD §4）是灰度判定唯一依据，n≥15 前不判去留。
+> **实现期勘误总则（2026-10-14/15）**：落点从任务文本的 `electron/stealth/` 统一改为 `electron/services/stealth/`（决策见 PRD §3）；`documentId` 表述按 PRD §3.3 勘误改 `loaderId`；勾选以实测证据为准，未勾项=尚未执行而非被否决。
 
 ## PR-1：stealth 注入 + 行为层 + isolated world（F1+F2）
 
 ### 1. 基线（ spike 已产出，不重跑）
-- [ ] 1.1 spike 结论归档（注入通道对比矩阵/时序证据/命令名纠正）随本 change 入库 PRD §3
+- [x] 1.1 spike 结论归档（注入通道对比矩阵/时序证据/命令名纠正）随本 change 入库 PRD §3 —— spike-evidence.md（E1-E6 矩阵 + E3c 命令名纠正）+ PRD §3.1/§3.3 引用
 
 ### 2. F1-c evasions 主世界注入
-- [ ] 2.1 结构：`electron/stealth/evasions.js`（从 puppeteer-extra-plugin-stealth 提取 MIT 版，npm 版本锁定+提取脚本 sha256+产物快照 hash 三重锁）
-- [ ] 2.2 实现 `electron/stealth/stealth-preload-enhanced.js`：顶层 `executeJavaScriptInIsolatedWorld(0, [{code}], true)` 注入最小集；注入 marker `window.__mpStealthInjected`
-- [ ] 2.3 RED→GREEN 单测：假 preload 断言调用与 source 非空；marker 读回；结构锁（版本+sha256+快照）
-- [ ] 2.4 `rpa-view-session.js:169` preload 挂载改映射表选变体（现状/增强），映射表进 publish-capabilities.json（douyin/xiaohongshu/shipinhao 默认增强）
-- [ ] 2.5 kill-switch 演练：配置关闭单平台 → 该平台无注入（行为锁）
-- [ ] 2.6 `stealth-preload.js` 头注修正（错误声明→真实语义+指向增强版）
-- [ ] 2.7 H2 风险登记 + 按平台拆分子集（v1 缓解①）
+- [x] 2.1 结构：evasions 提取（puppeteer-extra-plugin-stealth MIT 版，npm 版本锁定+提取脚本 sha256+产物快照 hash 三重锁）—— 落点 `services/stealth/evasions-bundle.js` + `scripts/extract-evasions.js`；锁在 `evasions.test.js`（快照 sha256 漂移即红）
+- [x] 2.2 实现 `services/stealth/stealth-preload-enhanced.js`：顶层 `executeJavaScriptInIsolatedWorld(0, [{code}], true)` 注入 —— **勘误**：marker 按 11.1 改为 `__mpStealthInjStart/__mpStealthInjDone` 三态读回（原单 marker `__mpStealthInjected` 计划被 11.1 取代）
+- [x] 2.3 RED→GREEN 单测：假 preload 断言调用与 source 非空；marker 读回；结构锁（版本+sha256+快照）
+- [x] 2.4 preload 挂载改映射表选变体（现状/增强），映射表进 publish-capabilities.json（douyin/xiaohongshu/shipinhao 默认增强）—— 落点 `rpa-view-session.js` `_acquireWindow` 传 platform + `_resolvePreloadPath` 映射（fail-closed 回落 baseline）；接线断言在 `preload-variant.test.js`，防回退断言在 `stealth-preload` 头注修正
+- [x] 2.5 kill-switch 演练：配置关闭单平台 → 该平台无注入（行为锁）—— `preload-variant.test.js`「kill-switch：改 JSON 映射即切换」
+- [x] 2.6 `stealth-preload.js` 头注修正（错误声明→真实语义+指向增强版）—— commit `b3b7214a4`
+- [x] 2.7 H2 风险登记 + 按平台拆分子集（v1 缓解①）—— PRD §3.1 契约 6
 
 ### 3. F1-a/b 行为层
-- [ ] 3.1 `electron/stealth/behavior-engine.js`：planMove（贝塞尔+随机控制点+ease+burst+wobble）/planClickSequence（9 字段序列）/planType——移植算法注释保留 MIT 来源
-- [ ] 3.2 `electron/services/cdp-input.js`：dispatch/getBounds（DOM.getBoxModel）/typeText（Input.insertText）实现，per-op attach 复用 helpers 模式
-- [ ] 3.3 RED：确定性 seed 轨迹断言 + 接口层事件序列断言（假 driver）；变异反证（摘 wobble/改线性/摘 sleep 三条各自变红）
-- [ ] 3.4 `rpa-view-session.js` `_click/_fill` 改调行为层；行为层失败回落原生调用并 warn
+- [x] 3.1 `services/stealth/behavior-engine.js`：planMove（贝塞尔+随机控制点+ease+burst+wobble）/planClickSequence（9 字段序列）/planType——移植算法注释保留 MIT 来源（落点勘误：非 `electron/stealth/`）
+- [x] 3.2 `services/stealth/cdp-input.js`：dispatch/getBounds（DOM.getBoxModel）/typeText（Input.insertText）实现，per-op attach 复用 helpers 模式
+- [x] 3.3 RED：确定性 seed 轨迹断言 + 接口层事件序列断言（假 driver）；变异反证（摘 wobble/改线性/摘 sleep 三条各自变红）—— 测试就位（`behavior-engine.test.js` 三条命名变异断言）；**变异实跑 2026-10-15：M1 摘 wobble / M2 改线性（双控制点偏置归零）/ M3 摘 sleep 3/3 CAUGHT**（脚本 `D:\Temp\opencode\mutation-3-3-behavior.js`）
+- [x] 3.4 `rpa-view-helpers.js` `_click/_fillInput` 改调行为层；行为层失败回落原生调用并 warn（落点勘误：Step D 在 helpers 而非 session）
 
 ### 4. F2 isolated world
-- [ ] 4.1 `rpa-view-session.js` 增加 isolated evaluate：Page.enable（未启用时）→ getFrameTree → createIsolatedWorld（缓存 contextId）→ Runtime.evaluate({contextId})
-- [ ] 4.2 did-navigate 失效重建 contextId（RED 锁）；通信类 binding 不动（v1 范围声明）
-- [ ] 4.3 RED：假 debugger 断言路径选择/失效重建/降级回落 main world+warn；结构锁（无裸 executeJavaScript 主世界调用残留于迁移清单内路径）
-- [ ] 4.4 通信 binding 留痕评估记录（v1 不动理由入 PRD 决策节）
+- [x] 4.1 isolated evaluate：getFrameTree → createIsolatedWorld（缓存 contextId）→ Runtime.evaluate({contextId}) —— **勘误**：双键第二键为 `loaderId` 非 `documentId`（spike 实证 Page.Frame 无该字段）；`Page.enable` 可省（round2 实证）；落点 `services/stealth/isolated-world.js` `createIsolatedEvaluator`
+- [x] 4.2 did-navigate 失效重建 contextId（RED 锁）；通信类 binding 不动（v1 范围声明）—— stale 事件置位优先于双键比对
+- [x] 4.3 RED：假 debugger 断言路径选择/失效重建/降级回落 main world+warn；结构锁（迁移清单内路径无裸主世界 executeJavaScript）—— 11 条契约 + 结构锁 3 条，变异反证 7/7 CAUGHT
+- [x] 4.4 通信 binding 留痕评估记录（v1 不动理由入 PRD 决策节）—— PRD §3.3 契约 5「4.4 留痕」三条理由
 
 ### 5. PR-1 收口
-- [ ] 5.1 QM-6 双模型评审（PR-1 diff）
-- [ ] 5.2 QM-1 打包 + 启动 8s stderr 三层判定（AGENTS.md QM-1 新规：stderr 非空未命中红线=NEEDS_REVIEW）
-- [ ] 5.3 真机取证启动：B1 数据口径契约计数表建立；首平台灰度 n≥15
-- [ ] 5.4 文档同步：CHANGELOG + PRD 取证节更新
+- [x] 5.1 QM-6 双模型评审（PR-1 diff）—— backend=claude 5 findings（1C+2W+2I）全处置 + 变异反证 M1–M5 全 CAUGHT；frontend=opencode 3 次有效失败按协议跳过（尝试史与残余风险见 `openspec/records/oss-b1-rpa-hardening.md`）；跨家族对抗由 CCG plan-review DUAL 承重
+- [x] 5.2 QM-1 打包 + 启动 8s stderr 三层判定（AGENTS.md QM-1 新规：stderr 非空未命中红线=NEEDS_REVIEW）—— 首跑被三层判据抓出 `ERR_FILE_NOT_FOUND dist/index.html`（直接 electron-builder 跳过 build:vue）→ 改走 `pnpm run build:dir` EXIT=0；asar 命中 dist/index.html + 5 stealth 模块；require 链 OK；启动 10s 存活、零红线、stderr 仅 DEP0180（人工判定 benign）
+- [ ] 5.3 真机取证启动：B1 数据口径契约计数表建立；首平台灰度 n≥15；**QM-6 Info-5 追加：wechat_mp / youtube 标题填充冒烟（`_fillInput` ≤10 字符走 `Input.insertText` 分支取证）**
+- [x] 5.4 文档同步：CHANGELOG + PRD 取证节更新 —— CHANGELOG 条目、PRD 偏差说明、design.md 8 findings 处置、spike-evidence 均已落盘
 
 ## PR-2：camofox 通道 + ddddocr sidecar（F3+F4，依赖 PR-1 合并）
 
@@ -71,12 +72,13 @@
 ## 11. v1.1 评审补丁（CCG 双轴 16 findings 落地项，随对应 PR 完成）
 
 ### PR-1 追加
-- [ ] 11.1 evasions 注入顺序重构：首行最小 navigator patch + inj-start marker 三态读回（后端 F1）
-- [ ] 11.2 「延迟注入」变异反证（推迟 500ms 必须红）（后端 F1）
-- [ ] 11.3 exposeBinding `BINDING_ISOLATED_ALLOWLIST` 白名单守卫 + 「allowlist 外走 isolated 必须抛错」单测（后端 F3）
-- [ ] 11.4 contextId 双键缓存（frameId+documentId）+ did-navigate 清理重建 + top-frame 范围声明（iframe 内选择器 warn+回落）+ execute 前探活重建（后端 F2）
-- [ ] 11.5 captcha 未知相位 fallback 渲染（禁透传 code 原值）+ 单测断言 `PHASE_ENUM ⊆ emitter` 且 `TERMINAL_PHASES` 派生自 PHASE_ENUM（前端 FE2）
-- [ ] 11.6 capture 状态机入 PRD 但 UI 留 PR-2：PR-1 只入枚举+fallback+同步单测（前端 FE2 范围裁定）
+- [x] 11.1 evasions 注入顺序重构：首行最小 navigator patch + inj-start marker 三态读回（后端 F1）
+- [x] 11.2 「延迟注入」变异反证（推迟 500ms 必须红）（后端 F1）—— 锁在 `stealth-preload-enhanced.test.js`；**变异实跑 2026-10-15：`main()` → `setTimeout(main, 500)` CAUGHT（exit=1）**（脚本 `D:\Temp\opencode\mutation-11-2-delay.js`）
+- [x] 11.3 exposeBinding `BINDING_ISOLATED_ALLOWLIST` 白名单守卫 + 「allowlist 外走 isolated 必须抛错」单测（后端 F3）—— 契约11
+- [x] 11.4 contextId 双键缓存 + did-navigate 清理重建 + top-frame 范围声明（iframe 内选择器 warn+回落）+ execute 前探活重建（后端 F2）—— **勘误**：双键第二键 `loaderId`（同 4.1）；iframe 回落走 `_isoEval` catch warn
+- [x] 11.5 captcha 未知相位 fallback 渲染（禁透传 code 原值）+ 单测断言 `PHASE_ENUM ⊆ emitter` 且 `TERMINAL_PHASES` 派生自 PHASE_ENUM（前端 FE2）
+- [x] 11.6 capture 状态机入 PRD 但 UI 留 PR-2：PR-1 只入枚举+fallback+同步单测（前端 FE2 范围裁定）—— PRD §3.5 链路状态机 + commit `cba20c74f` 双侧同步
+- [x] 11.17 债务熔断门禁越线修复（debt-guard）：`rpa-view-helpers.js` 648 行 >= 500，根因是 origin/main 已 498 行**贴线**（非超一点），B1 行为层 +149 行即越线 → 按门禁指示「按既有 mixin/composable 范式拆分」，整层下沉 `apps/desktop/electron/services/stealth/rpa-behavior-mixin.js`（220 行：`_isoEval`/`_behaviorClick`/`_probeClickState`/`_behaviorFill`/`_clickViaCdp` + `_fillViaDriver`/`_clickViaDriver` 取值通道 + 驱动开关与阈值常量），helpers 经 `...behaviorMixin` 合入（this 不变、行为不变）只留「委托 + 读回判据」，648 → **481 行**。结构锁 3 把随实现迁移同 PR 同步（`rpa-view-helpers.test.js` 的 `_click`/`_fillInput`/`_probeClickState`；`rpa-view-platforms.test.js` 的 TEXTAREA 原型选择），并在 `_fillInput` 锁加**反向锚点**（helpers 侧必须仍持 `readBack` + `fill not applied`）防「把判据也拆走」。取证纪律：checker 的 rc 不得经管道取（`Select-Object` 会吃掉真 rc）。判据：eslint rc=0 ｜ check-max-lines rc=0 ｜ 消费者并集 12 文件 165 例全绿 ｜ 行尾两口径 numstat 一致
 
 ### PR-2 追加
 - [ ] 11.7 camofox hash 信任链：官方签名优先 + GitHub Releases API 与 npm 锁文件两路独立交叉取 hash，不一致拒落地；manifest 注明「复检防磁盘篡改、不防首次下载污染」（后端 F4）
