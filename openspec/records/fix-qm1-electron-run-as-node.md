@@ -2,9 +2,6 @@
 record: fix-qm1-electron-run-as-node
 task: 修 QM-1 启动验证的假绿——子进程 env 显式剔除 ELECTRON_RUN_AS_NODE，并断言存活是三层判据的隐含前提
 date: 2026-10-15
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话
 ---
 
 ## 本次执行记录：QM-1 启动验证的 `ELECTRON_RUN_AS_NODE` 假绿（fix-qm1-electron-run-as-node，2026-10-15）
@@ -22,7 +19,7 @@ sync_backfill_owner: 下一个会话
 | workflow 契约 | ✅ | 本 PR 改了 workflow，故实跑 `node --test .github/scripts/workflow-contract.test.js` = **37 passed / 0 failed**；`check-workflow-structure.test.js` = **6 passed / 0 failed** |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/` 与 `packages/rpa-engine/`，无渲染层改动 |
 | QM-6 CCG 双模型外部评审 | 未执行 | `scripts/ccg-gate.js` 随 pre-commit 跑（结果见提交输出）；深度审查未执行，如实登记，不以自审冒充通过 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin fix-qm1-electron-run-as-node` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | #3648 squash 合并 merge SHA `0da7f0dc6ec236b0c1ef081a201778014f4c3c99`（2026-10-15T21:01:16+08:00）；远端分支 `fix-qm1-electron-run-as-node` 已删（`git ls-remote --heads` 0 行）；回填与销账**同一次提交**——本记录 frontmatter 的 `sync_*` 三字段已在本次提交删除。本片按「代码 PR 不带热点载体」纪律落地，故本体不产生 ledger 登记项 |
 
 ### 为什么不是「只写文档」
 
