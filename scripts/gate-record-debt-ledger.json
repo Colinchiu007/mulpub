@@ -56,5 +56,6 @@
   "本次执行记录：回填 #3543 远程同步 PASS + merge SHA，并销账（ops-ingress-only）【docs-only】": "本回填 PR（bf-ops-ingress）的远程同步待合并后由后续 docs PR 回填并删除本条登记项",
   "本次执行记录：回填 #3572 远程同步 PASS + merge SHA，并销账（prd-auth-fix）【docs-only】": "本回填 PR（bf-prd-auth）的远程同步待合并后由后续 docs PR 回填并删除本条登记项",
   "本次执行记录：修复点左侧菜单「账号」反应特别慢（fix-sidebar-nav-slow，2026-10-14）【混合 PR】": "本 PR（fix-sidebar-nav-slow）的远程同步待合并后由后续 docs PR 回填并删除本条登记项",
-  "本次执行记录：回填 #3594 远程同步 PASS + merge SHA，并销账（bf-bridge-restart-loop）【docs-only】": "本回填 PR（bf-bridge-restart-loop）的远程同步待合并后由后续 docs PR 回填并删除本条登记项"
+  "本次执行记录：回填 #3594 远程同步 PASS + merge SHA，并销账（bf-bridge-restart-loop）【docs-only】": "本回填 PR（bf-bridge-restart-loop）的远程同步待合并后由后续 docs PR 回填并删除本条登记项",
+  "本次执行记录：回填 #3622 远程同步 PASS + merge SHA，并补本体 QG 块（ops-base-single-src）【docs-only】": "本回填 PR（bf-ops-base）的远程同步待合并后由后续 docs PR 回填并删除本条登记项"
 }
