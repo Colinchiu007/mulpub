@@ -457,6 +457,7 @@ jobs:
           node --test scripts/check-unwired-tests.test.js
           node --test scripts/branch-naming-contract.test.js
           node --test scripts/safe-delete.test.js
+          node --test scripts/qm1-child-env.test.js
           node --test .github/scripts/check-ipc-bridge.test.js
           node --test scripts/detect-unwired-exports.test.js
           node --test scripts/ensure-desktop-deps.test.js
