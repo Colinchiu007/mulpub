@@ -37,6 +37,7 @@ const { navigationHelpers, stripHtmlToPlainText } = require('./rpa-view-navigati
 // 2026-10 三次拆分：视频上传等待循环（v4 自适应轮询，publish-progress-dup-upload）
 const { uploadWaiterMixin, readVideoFileBytes } = require('./upload-waiter')
 const { artifactsHelpers } = require('./rpa-view-artifacts')
+const zhihuPublishState = require('./zhihu-publish-state') // 2026-10-15 知乎假发布修复：终态判据 + 两段式确认（纯函数，见模块头注释）
 
 let _platformConfigInstance
 const PLATFORM_SUCCESS_PATTERNS = {}
@@ -1453,22 +1454,23 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
       }
       await this._click(win,pubBtn)
       this._emitProgress('zhihu','verifying...',95)
-      await this._sleep(3000)
-      const curUrl = win.webContents.getURL()
-      // 2026-09-29 实测：知乎发布成功后跳转 zhuanlan.zhihu.com/p/<id>（文章页），
-      // 旧检查只认 success/publish/article 三个子串，/p/ 模式漏判 → 已发布却报失败。
-      if (curUrl.includes('success')||curUrl.includes('publish')||curUrl.includes('article')||/\/p\/\d+/.test(curUrl)) {
+      // 2026-10-15 报障修复（「显示成功但没有真实发布」）：知乎发布是**两段式** —— 首次点
+      // 「发布」只落成草稿并跳到 /p/<id>/edit，该页需再点一次才真发布；旧判据 `/\/p\/\d+/`
+      // 恰好命中草稿编辑页 ⇒ 假成功（真机 2026-10-15T12:40:19Z→22Z）。确认逻辑见模块。
+      const confirm = await zhihuPublishState.confirmZhihuPublished({
+        readUrl: () => win.webContents.getURL(),
+        waitForElement: (sel,ms) => this._waitForElement(win,sel,ms),
+        click: (sel) => this._click(win,sel),
+        sleep: (ms) => this._sleep(ms),
+        publishButton: pubBtn,
+        log,
+      })
+      if (confirm.published) {
         this._emitProgress('zhihu','published!',100)
-        return {success:true,url:curUrl,platform:'zhihu'}
+        return {success:true,url:confirm.url,platform:'zhihu',postId:confirm.postId}
       }
-      // 2026-09-29 修复：panelGone 兜底不得在原生 querySelector 里用 :has-text（Playwright
-      // 专属语法，实测抛 SyntaxError 使整个验证 catch 成「Script failed」）；改 querySelectorAll 文本匹配。
-      const panelGone = await win.webContents.executeJavaScript("(function(){var pb=[...document.querySelectorAll('button')].find(function(b){return (b.innerText||'').trim()==='发布'})||document.querySelector('.PublishPanel-publish');return !pb||getComputedStyle(pb).display==='none';})()")
-      if (panelGone) {
-        this._emitProgress('zhihu','published!',100)
-        return {success:true,url:curUrl,platform:'zhihu'}
-      }
-      { log.warn('RpaView', '[zhihu] publish verification failed url=' + curUrl); return {success:false,error:'zhihu: publish verification failed',platform:'zhihu'} }
+      log.warn('RpaView', '[zhihu] publish not confirmed reason='+confirm.reason+' url='+confirm.url)
+      return {success:false,error:'zhihu: publish not confirmed ('+confirm.reason+') url='+confirm.url,platform:'zhihu',url:confirm.url}
     } catch(e) {
       log.error('RpaView','zhihu publish: '+e.message)
       return {success:false,error:e.message,platform:'zhihu'}

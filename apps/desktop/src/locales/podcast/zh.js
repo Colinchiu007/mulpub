@@ -190,6 +190,11 @@ export default {
         cancelled: '已取消',
       },
     },
+    stock: {
+      freezeSummary: '存量音频信息已补齐：扫描 {scanned} 期，补齐 {filled} 期',
+      unresolved: '{count} 期无法判定音频类型，需重新生成',
+      skippedChannels: '{count} 个频道未能固化，需重试',
+    },
     errors: {
       // 刀 3 成片一键出期（PRD §6.4 领域码映射表；与 podcast.episode.* 的浮层文案分层，见该节）
       PODCAST_VIDEO_NOT_FOUND: '找不到成片文件，请回结果页重新生成或重选路径',

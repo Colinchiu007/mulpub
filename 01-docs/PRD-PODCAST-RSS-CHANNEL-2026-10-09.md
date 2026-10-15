@@ -696,8 +696,11 @@ enclosure 解析序（`resolveEnclosure`）：`audioUrl` → `resolvedAudioUrl` 
 | `podcast.publish.verifyFailed` | 自检发现 {count} 个问题 | Self-check found {count} issue(s) |
 | `podcast.publish.verifyFeed` | 自检 Feed | Verify Feed |
 | `podcast.publish.verifyPassed` | 自检通过：共 {count} 期 | Self-check passed: {count} episode(s) |
+| `podcast.stock.freezeSummary` | 存量音频信息已补齐：扫描 {scanned} 期，补齐 {filled} 期 | Legacy audio metadata frozen: scanned {scanned}, filled {filled} |
+| `podcast.stock.skippedChannels` | {count} 个频道未能固化，需重试 | {count} channels could not be frozen; retry required |
+| `podcast.stock.unresolved` | {count} 期无法判定音频类型，需重新生成 | {count} episodes could not be typed; regenerate to resolve |
 
-共 228 键；逐键 zh/en 成对且均为非空串。
+共 231 键；逐键 zh/en 成对且均为非空串。
 
 ## 十二、验收标准（整体验收）
 
