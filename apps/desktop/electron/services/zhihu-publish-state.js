@@ -108,7 +108,7 @@ async function waitZhihuUrlSettle (deps, budgetMs, pollMs) {
   const step = Math.max(100, Number(pollMs) || ZHIHU_CONFIRM_TIMINGS.pollMs)
   const deadline = Math.max(0, Number(budgetMs) || 0)
   let waited = 0
-  let url = ''
+  let url
   for (;;) {
     try { url = String(deps.readUrl() || '') } catch (_) { url = '' }
     if (isZhihuPublishedUrl(url)) return url
@@ -146,7 +146,7 @@ async function confirmZhihuPublished (deps) {
   const publishButton = String(deps.publishButton || '')
   let url = await waitZhihuUrlSettle(deps, timings.settleMs, timings.pollMs)
   let extraClicks = 0
-  let reason = 'not-confirmed'
+  let reason
   if (isZhihuPublishedUrl(url)) {
     return { published: true, url, postId: extractZhihuPostId(url), reason: 'published', extraClicks }
   }
