@@ -2,9 +2,6 @@
 record: podcast-stock-summary
 task: 落 PRD §7.9.4 的最后一条显示项——频道页存量固化摘要（扫描 / 补齐 / 待人工），并把「缺席」与「0」这两种事实在代码里分开
 date: 2026-10-15
-sync_status: PENDING
-sync_reason: 本 PR 合并后由后续 docs PR 按既有 PASS 口径回填 merge SHA 与时间，并在同一次提交删除 frontmatter 三字段与本记录对应的 ledger 登记项
-sync_backfill_owner: agent 收尾链（回填 = 合并后第一笔 docs PR）
 ---
 
 # 频道页固化摘要（podcast-stock-summary，2026-10-15）
@@ -109,4 +106,4 @@ sync_backfill_owner: agent 收尾链（回填 = 合并后第一笔 docs PR）
 
 ## 远程同步
 
-| 远程同步 | PENDING | 本 PR 未合并，merge SHA 尚不存在 |
+| 远程同步 | PASS（merge `2bcce6833cdbdd851920d5619f2d1754c6b66cd6`，2026-10-15T16:20:43Z） |
