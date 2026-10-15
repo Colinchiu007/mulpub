@@ -75,6 +75,17 @@
 .PARAMETER WhatIf
     Print the plan and every command that would run; change nothing.
 
+    WhatIf ALWAYS exits 0 (QM-6 F6). Refusals it predicts are conveyed only by the printed
+    'would REFUSE : ... -> exit N' lines - a scripted caller that judges -WhatIf by exit code
+    will read "success" out of a plan that real execution would have blocked. Re-run without
+    -WhatIf to get the actual gate.
+
+    Exit codes (caller contract): 0 removed; 2 escaping links; 3 deletions seen in the main
+    workspace (cascade); 4 confirmation required; 5 residual directory could not be deleted;
+    6 protected anchor overlap; 7 residue could not be scanned; 8 long-path library missing
+    next to this script; 9 held by a live process; 10 content unproven (neither git nor the
+    filesystem could classify the tree - confirmation does not release it).
+
 .EXAMPLE
     safe-worktree-remove.ps1 -Worktree D:\...\mp-foo -WhatIf
     safe-worktree-remove.ps1 -Worktree D:\...\mp-foo -Force -ConfirmDirtyDiscarded
@@ -114,6 +125,14 @@ function Test-PathInside([string]$Path, [string]$Root) {
 function Resolve-LinkTarget([string]$LinkPath) {
     # Junction/symlink .Target may be relative - resolve against the LINK's own directory.
     $it = Get-Item -LiteralPath $LinkPath -Force -ErrorAction SilentlyContinue
+    if (-not $it) {
+        # QM-6 B2: link paths coming out of the scan have their \\?\ prefix stripped, so a
+        # reparse point deeper than MAX_PATH made the plain call above fail and the link was
+        # reported as unresolvable - i.e. blocked as if it ESCAPED. Retry through the
+        # extended-length form so "deep" is not read as "dangerous"; still fail closed if
+        # neither form resolves.
+        $it = Get-Item -LiteralPath (Get-LongPath $LinkPath) -Force -ErrorAction SilentlyContinue
+    }
     if (-not $it) { return $null }
     $t = ''
     if ($it.PSObject.Properties.Name -contains 'Target') {
@@ -248,9 +267,43 @@ if ($scan.Errors.Count -gt 0) {
 
 # ---------------- registration + dirty ----------------
 $registered = [bool](Test-WorktreeRegistered $wt)
-$dirty = @(if ($registered) { git -C $wt status --porcelain 2>$null })
+# git classifies when it can answer. When it cannot (unregistered, .git gone), the tree is
+# MEASURED from the filesystem instead of collapsing to an empty array: the old shape printed
+# "worktree dirty : 0" in front of 20 MB of session artifacts, and the confirmation gate
+# could never fire in exactly the state that needed it.
+$porcelain = $null
+$ignoredProbe = $null
+if ($registered) {
+    $pw = & git -C $wt status --porcelain --untracked-files=all 2>$null
+    if ($LASTEXITCODE -eq 0) { $porcelain = @($pw) }
+    # Ignored content arrives from its OWN probe and never feeds the gate. Plain --ignored
+    # collapses ignored directories to one entry each; measured 2026-10-15 it costs 10-80 lines,
+    # whereas --untracked-files=all --ignored emits 55,191 lines on a task worktree and 127,654
+    # on the shared root - the guard would pay that recursion on every single removal.
+    $ig = & git -C $wt status --porcelain --ignored 2>$null
+    if ($LASTEXITCODE -eq 0) { $ignoredProbe = @($ig) }
+}
+$treeEnumerated = $true; $topLevelEntries = 0
+if ($null -eq $porcelain) {
+    try { $topLevelEntries = @([System.IO.Directory]::GetFileSystemEntries((Get-LongPath $wt))).Count }
+    catch { $treeEnumerated = $false }
+}
+$content = Get-WorktreeContent -PorcelainLines $porcelain -IgnoredProbeLines $ignoredProbe -Registered $registered -TreeEnumerated $treeEnumerated -TopLevelEntries $topLevelEntries
+$disposition = Resolve-ContentDisposition -Content $content -Confirmed ([bool]$ConfirmDirtyDiscarded)
 Write-Host "  git-registered : $registered"
-Write-Host "  worktree dirty : $($dirty.Count)"
+Write-Host ("  content        : {0}  basis={1}" -f (Format-ContentSummary $content), $content.Basis)
+if ($content.Basis -eq 'measured-fs') {
+    Write-Host "  content note   : git could not classify; the count above is filesystem-level, not a git measurement"
+}
+elseif ($content.Basis -eq 'unproven') {
+    Write-Host "  content note   : git could not classify AND the directory could not be enumerated - no number above is a measurement"
+}
+elseif (-not $content.IgnoredKnown) {
+    Write-Host "  content note   : ignored probe failed - the ignored tier is UNKNOWN, which is not the same as empty"
+}
+if ($content.Ignored -gt 0) {
+    Write-Host ("  CONTENT NOTICE: {0} ignored entr(y/ies) (ignored directories collapse to one entry each) - invisible to plain git status - will be destroyed with this worktree (reported, not blocked; see tasks 6.5)." -f $content.Ignored)
+}
 
 # ---------------- busy-holder scan (before anything is destroyed) ----------------
 # Runs ahead of the WhatIf branch on purpose: -WhatIf has to show the refusal it would hit.
@@ -287,16 +340,31 @@ if ($WhatIf) {
     if ($procEnumError) { Write-Host "  would REFUSE : idleness unproven (process enumeration failed) -> exit 9" }
     elseif ($busy.Holders.Count -gt 0) { Write-Host "  would REFUSE : $($busy.Holders.Count) live holder(s) -> exit 9" }
     else { Write-Host "  would pass   : no process references this worktree" }
+    # Content refusals are previewed the same way holder refusals are: -WhatIf must show the
+    # gate it would hit, not just the numbers, or a preview reads as "clean" to whoever only
+    # scans for the word REFUSE.
+    if ($disposition -eq 'unproven') { Write-Host "  would REFUSE : content unproven, confirmation cannot substitute -> exit 10" }
+    elseif ($disposition -eq 'confirm_required') { Write-Host "  would REFUSE : content would be discarded without -ConfirmDirtyDiscarded -> exit 4" }
+    else { Write-Host "  would pass   : content gate satisfied" }
     Write-Host "  would verify : main status + stash count unchanged vs baseline"
     Remove-Item -LiteralPath $baselineFile -ErrorAction SilentlyContinue
     exit 0
 }
 
 # ---------------- gate: dirty / force ----------------
-if ($dirty.Count -gt 0 -and -not $ConfirmDirtyDiscarded) {
+if ($disposition -eq "unproven") {
     Write-Host ""
-    Write-Host "  BLOCKED: worktree has $($dirty.Count) dirty/untracked entr(y/ies)."
-    $dirty | Select-Object -First 20 | ForEach-Object { Write-Host "    $_" }
+    Write-Host "  BLOCKED: neither git nor the filesystem could classify this tree's content."
+    Write-Host "  Confirmation cannot substitute for measurement - nothing is discarded here."
+    Write-Host "  Release whatever holds the tree (a shell cwd, a running dev server) and re-run."
+    Write-Host "  Any live process referencing this worktree is listed above under 'busy holders'."
+    Remove-Item -LiteralPath $baselineFile -ErrorAction SilentlyContinue
+    exit 10
+}
+if ($disposition -eq "confirm_required") {
+    Write-Host ""
+    Write-Host ("  BLOCKED: content will be discarded ({0} basis={1})." -f (Format-ContentSummary $content), $content.Basis)
+    if ($porcelain) { $porcelain | Select-Object -First 20 | ForEach-Object { Write-Host "    $_" } }
     Write-Host "  Commit/stash them, or re-run with -ConfirmDirtyDiscarded."
     Remove-Item -LiteralPath $baselineFile -ErrorAction SilentlyContinue
     exit 4
@@ -432,14 +500,35 @@ if (Test-FsEntry $wt) {
 Write-Section "R7 verify main workspace vs baseline"
 $after       = @(git -C $main status --porcelain 2>$null)
 $afterStash  = @(git -C $main stash list 2>$null).Count
+# QM-6 B5: the baseline was also written to a temp file at R1. Until now nothing read it back,
+# which makes that write pure dead I/O (and a silent failure point). Read it here so the
+# persisted copy is load-bearing - it is the artefact that survives a run killed mid-way - and
+# print which source was actually used, so "compared against nothing" cannot masquerade as a
+# passing verification.
+$baselineSource = 'memory'
+if (Test-Path -LiteralPath $baselineFile) {
+    try {
+        $diskBaseline = @(Get-Content -LiteralPath $baselineFile -Encoding utf8)
+        if ($diskBaseline.Count -eq $baseline.Count) { $baseline = $diskBaseline; $baselineSource = 'disk' }
+        else { Write-Warning "baseline file has $($diskBaseline.Count) entries, memory copy has $($baseline.Count) - verifying against memory" }
+    } catch { Write-Warning "baseline file unreadable ($($_.Exception.Message)) - verifying against memory" }
+}
+Write-Host ("  baseline source  : $baselineSource (entries=$($baseline.Count))")
 $beforeSet   = @{}; $baseline | ForEach-Object { $beforeSet[$_] = $true }
 $newEntries  = @($after | Where-Object { -not $beforeSet.ContainsKey($_) })
 
 $failed = $false
-if ($newEntries.Count -gt 0) {
-    Write-Host "  FAIL: main workspace has changes outside the baseline:"
-    $newEntries | Select-Object -First 20 | ForEach-Object { Write-Host "    $_" }
+$drift = Resolve-DriftDisposition -NewEntries $newEntries
+if ($drift -eq "cascade") {
+    # QM-6 B9: name what is actually being shown. Printing every new entry under a heading that
+    # says "DELETIONS" is how an operator learns to distrust the message.
+    Write-Host ("  FAIL: cascade signature (D/U symbols) among {0} new entries outside the baseline; deletion-shaped lines:" -f $newEntries.Count)
+    @($newEntries | Where-Object { Test-DriftCascadeSymbol $_ } | Select-Object -First 20) | ForEach-Object { Write-Host "    $_" }
     $failed = $true
+}
+if ($drift -eq "benign_drift") {
+    Write-Host ("  R7 BENIGN-DRIFT: {0} concurrent M/A/?? entry(ies), no deletion -> not a cascade." -f $newEntries.Count)
+    $newEntries | Select-Object -First 20 | ForEach-Object { Write-Host "    $_" }
 }
 if ($afterStash -ne $baselineStash) {
     Write-Host "  FAIL: stash count changed $baselineStash -> $afterStash"
