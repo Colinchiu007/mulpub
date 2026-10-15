@@ -164,9 +164,53 @@ tencent_video  7: ok=false  detail="TAG_STYLES 无 tencent_video"
 | `check-no-brand-residue` | PASS | 全仓扫描 |
 | 行尾对账 | PASS | 两口径一致 |
 | **QM-1 打包** | **不适用** | 只改 `scripts/` 与文档；`content-formatter.js` 仅**临时变异后已还原**（`git diff` 为空）|
+| **CCG `verify-quality`** | PASS | 两文件均「✓ 通过，错误 0 ｜ 警告 0」（仅 4 条格式类 ℹ 提示）|
+| **CCG `verify-security`** | PASS | 严重 0 ｜ 高危 0 ｜ 中危 0 ｜ 低危 7（均不阻断）|
 | 远程同步 | PENDING | 本 PR 未合并 |
 
-- 保留门禁：脚本自测 19/19 ✅ | 变异反证 ✅ | 判据⑦⑧ 0 失败 ✅ | 无回归 ✅ | 运行时代码未碰坏 ✅ | unwired ✅ | 品牌 ✅ | 行尾 ✅ | 远程同步 PENDING
+- 保留门禁：脚本自测 19/19 ✅ | 变异反证 ✅ | 判据⑦⑧ 0 失败 ✅ | 无回归 ✅ | 运行时代码未碰坏 ✅ | unwired ✅ | 品牌 ✅ | 行尾 ✅ | CCG quality+security ✅ | 远程同步 PENDING
+
+## ★ 质量节拍 7 步 + CCG 补跑记录（用户要求核查后补）
+
+### 已跑齐的
+
+| 步骤 | 结果 |
+| --- | --- |
+| ⓪ pre-flight | worktree 隔离 + 非 C 盘 + 0 脏文件 |
+| ① 上下文检查 | 已读 `content-formatter.js` / `registry-sync.test.js` / 判据实现 |
+| ② 测试场景脑暴 | 4 层断言（默认合法 / 缺席 PASS / 显式命中 / 另两表不许缺）|
+| ③ 增量实现 | 只改判据 7/8 + 测试 + 记录 + 文档 |
+| ④ 上下文完整性审查 | 6 专项自审 + **追加变异验证（兜底不可解析）** |
+| ⑤ 文档更新 | §4.3 改写 + §6 加第三类 + §7 快照 + 本记录 |
+| ⑥ AI 协作质量检查 | 两条教训写进本记录 |
+| ⑦ CI 流水线验证 | `fail=0`，`pending` 递减中 |
+
+### CCG 补跑（此前只有 pre-commit 钩子的暂存区判定，且对 amend 前的 commit 误判 `skip`）
+
+**根因**：`ccg-gate.js` / `ccg-review-decider.js` **只读暂存区**，改动一旦提交就无法再用
+`--mode staged` 复判；而 amend 前那次判定读到的是「纯文档」暂存态，于是误判 `skip`。
+
+**补跑方式**（绕过暂存区限制，直接调 CCG 本体）：
+
+```
+node "C:\Users\邱领\.claude\skills\ccg\run_skill.js" verify-quality  <file>
+node "C:\Users\邱领\.claude\skills\ccg\run_skill.js" verify-security <file>
+```
+
+**结果**：
+
+| 文件 | verify-quality | verify-security |
+| --- | --- | --- |
+| `scripts/verify-platform-onboarding.js` | ✓ 通过，错误 0 ｜ 警告 0（4 条格式 ℹ）| 严重 0 ｜ 高危 0 ｜ 中危 0 ｜ 低危 7 |
+| `scripts/verify-platform-onboarding.test.js` | ✓ 通过，错误 0 ｜ 警告 0 | 严重 0 ｜ 高危 0 ｜ 中危 0 ｜ 低危 0 |
+
+**⇒ 两条都不阻断（`verify-quality` 仅告警；`verify-security` 严重/高危为 0）。**
+
+**★ 但这里有一个**未闭合的缺口**：`ccg-review-decider` 的**审查模式判定**（dual / single / skip）
+仍然只对「暂存区」有效，改动提交后无法补判。本 PR 应按 `dual` 还是 `single` 走，
+**目前没有可复现的判定记录**。按规则反推：源码变更 114 行（≤ 200）且未命中
+auth/数据库/加密路径 ⇒ 应为 `single`（§12.6 常规专家分派）。
+**该反推未经脚本确认，故在残余里登记，不冒充已跑。**
 
 ## 残余（未含，不假装闭合）
 
@@ -175,4 +219,5 @@ tencent_video  7: ok=false  detail="TAG_STYLES 无 tencent_video"
 | **B** | `youtube`/`twitter`/`facebook` 的 `has_api:true` + `dom-only` + 无链 | 仍待 owner 裁定（判据 ⑨ 棘轮 `STEP9_CHAIN_GAPS` 钉住）|
 | **C** | 判据 ⑩（`formatArticleBody`）| 仍未裁定 |
 | **E** | 判据 ⑪（测试覆盖）| 仍欠账 |
+| **CCG-decider** | 审查模式判定（dual/single/skip）只读暂存区 ⇒ 改动提交后**无法补判** | 已补跑 `verify-quality` + `verify-security` 两个 gate；**模式判定未跑**，按规则反推应为 `single` 但**未经脚本确认**，故在此登记 |
 | 新 | `TAG_STYLES` 里的 `tengxun_shipin` / `pipixia` / `xigua` 等 6 个非 config 平台键 | **本 PR 不动**（属另一套命名体系，清理需 owner 确认口径）|
