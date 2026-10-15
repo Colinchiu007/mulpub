@@ -1,5 +1,5 @@
 {
-  "：播客合规三态徽标（podcast-compliance-badge，2026-10-15）":   {
+  "本次执行记录：播客合规三态徽标（podcast-compliance-badge，2026-10-15）": {
     "reason": "本片（podcast-compliance-badge）刚开 PR，合并后由后续 docs PR 回填 PASS 并删除本条",
     "record": "openspec/records/podcast-compliance-badge.md"
   },
