@@ -18,7 +18,9 @@
  *      三处口径不一致，导致「绿的 check」名不副实。
  *
  * 定数规则（与 gate-budget.js 同风格：写死、可测、注释与判据一一对应）：
- *   - PR_MODE=report-only ⇔ 该 PR 的变更不值得跑全量覆盖审计（维护型 / 非桌面端）；
+ *   - PR_MODE=report-only ⇔ 变更本身没有覆盖审计的标的（纯文档 / 未触碰任何前端源码目录）；
+ *     **判据不含标题与 label**——2026-10-15 移除该豁免：实测它让"这条检查绿"变成
+ *     "作者写了 fix: 前缀所以没跑"，而真正跑起来的 PR 又因为量的是全仓存量而必红；
  *   - PR_MODE=full ⇔ 需要审计，此时必须给出 srcDir 与 docPaths；
  *   - srcDir 由**变更文件实际落点**决定，不是固定值。
  */
@@ -27,9 +29,10 @@ const DESKTOP_PREFIX = 'apps/desktop/'
 const OPS_CENTER_PREFIX = 'ops-center/'
 const DOCS_PREFIXES = ['01-docs/', 'docs/', 'openspec/']
 
-// 维护型标题/标签：既有口径原样保留（改宽要有人为此负责）
-const MAINTENANCE_TITLE_RE = /^(fix|chore|docs|refactor|test)\b/
-const MAINTENANCE_LABEL_RE = /bug|fix|docs|refactor|chore|test/
+// ⛔ 这里**不再有**「标题前缀 / label ⇒ report-only」那条豁免（2026-10-15 移除，见本文件末注释）。
+// 原标题豁免让被审对象自己决定要不要被审：一个 feat 改动只要把标题写成 fix: 就整步不跑
+// （实测 #3605 就是这样绕过的），于是"这条 check 绿"的真实含义变成"前缀命中、没跑"。
+// 现在 mode 只由变更文件决定；PR 的类型语义仍可用于报告，但不得用来关掉门禁。
 
 // 文档/流程类路径（与 classify-docs-only 的白名单同源思路，这里只做 Gate 9 自己的粗分层）
 const DOC_ONLY_PATH_PREFIXES = [
@@ -48,9 +51,8 @@ const DOC_ONLY_PATH_PREFIXES = [
  * @returns {{mode: 'full'|'report-only', srcDir: string, docPaths: string[], reason: string, featureIds: string[]}}
  */
 function classifyGate9(input) {
-  const title = String((input && input.title) || '')
   const body = String((input && input.body) || '')
-  const labels = String((input && input.labels) || '')
+  // title / labels 被**故意**忽略：审计跑不跑只该看改了什么文件。
   const changedFiles = Array.isArray(input && input.changedFiles) ? input.changedFiles.filter(Boolean) : []
 
   const featureIds = Array.from(
@@ -62,16 +64,6 @@ function classifyGate9(input) {
     docPaths: ['01-docs/PRD.md'],
   }
 
-  // ① 维护型（标题前缀或 label）：原有口径，跳过全量审计
-  const isMaintenance = MAINTENANCE_TITLE_RE.test(title) || MAINTENANCE_LABEL_RE.test(labels)
-  if (isMaintenance) {
-    return {
-      ...base,
-      mode: 'report-only',
-      srcDir: '',
-      reason: '维护型 PR（标题前缀或 label 命中），不跑全量覆盖审计',
-    }
-  }
 
   // 变更文件缺失（本地/非 PR 上下文）：fail-closed 走 full + 桌面端，保持既有行为
   if (changedFiles.length === 0) {
@@ -129,4 +121,4 @@ function classifyGate9(input) {
   }
 }
 
-module.exports = { classifyGate9, DOC_ONLY_PATH_PREFIXES, MAINTENANCE_TITLE_RE, MAINTENANCE_LABEL_RE }
+module.exports = { classifyGate9, DOC_ONLY_PATH_PREFIXES }
