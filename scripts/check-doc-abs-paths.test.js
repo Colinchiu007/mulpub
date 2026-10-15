@@ -141,13 +141,40 @@ function makeRealPath (levels = ['apps', 'desktop'], withFile = true) {
   return withFile ? path.join(cur, 'probe.txt') : cur;
 }
 
-test('指向真实存在目录的路径必须放行', () => {
+test('真实存在的路径不报「失效」，但必须计入账本（口径换代的正反两面）', () => {
   const { root } = makeFixture({});
   const realPath = makeRealPath(); // 每一级都已创建
   fs.mkdirSync(path.join(root, '01-docs'), { recursive: true });
   fs.writeFileSync(path.join(root, '01-docs', 'ok.md'), 'cd ' + realPath + '\n');
   const r = runGate(root);
-  assert.equal(r.status, 0, 'stderr: ' + r.stderr + '\nrealPath=' + realPath);
+  // 旧这条锁断言的是 status 0（"存在就放行"）。计数口径之后"存在"不再等于"豁免"：
+  // 这条路径**仍然要进账本**，账本没有它 ⇒ 超出存量基线。改成正反两面各钉一条：
+  assert.equal(r.status, 1, '存在的路径也要计数 ⇒ 无账本时必须报超出，stderr: ' + r.stderr);
+  assert.match(r.stderr, /超出存量基线/);
+  assert.doesNotMatch(r.stderr, /磁盘上不存在/, '它明明存在，报告不得说它失效：' + r.stderr);
+});
+
+test('换代必须能被 --write-baseline 完成（守卫不能把自己的迁移路径焊死）', () => {
+  // 这是一条**修 bug 的回归锁**，红因是设计缺陷不是笔误：metric 强校验原本连
+  // "正要被覆盖的旧账本"一起拒，于是 v1→v2 在机械上无法开始（实测 rc=2）。
+  const { root } = makeFixture({});
+  fs.mkdirSync(path.join(root, '01-docs'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'scripts'), { recursive: true });
+  fs.writeFileSync(path.join(root, '01-docs', 'a.md'), docWith([anyAbsPath('gen1'), anyAbsPath('gen2')]));
+  // 手写一份**没有 metric** 的 v1 账本（正是 main 上现在那份的形状）
+  fs.writeFileSync(path.join(root, 'scripts', 'doc-abs-paths-baseline.json'),
+    JSON.stringify({ note: 'v1', generated: '2026-10-14', reason: 'v1', files: { '01-docs/a.md': 1 } }, null, 2) + '\n');
+  const r = spawnSync(process.execPath, [SCRIPT, '--root', root, '--all', '--write-baseline'], { encoding: 'utf8' });
+  assert.equal(r.status, 0, '迁移必须能跑完，不能被自己的版本校验拒掉：' + r.stderr + r.stdout);
+  const j = JSON.parse(fs.readFileSync(path.join(root, 'scripts', 'doc-abs-paths-baseline.json'), 'utf8'));
+  assert.equal(j.metric, require(SCRIPT).METRIC_VERSION, '写出来的账本必须带当代口径');
+  assert.equal(j.files['01-docs/a.md'], 2, '按新口径如实重数：' + JSON.stringify(j.files));
+  // 迁移完成后，普通判定必须重新严格要求 metric（否则这条豁免就成了永久后门）
+  const back = JSON.parse(JSON.stringify(j));
+  delete back.metric;
+  fs.writeFileSync(path.join(root, 'scripts', 'doc-abs-paths-baseline.json'), JSON.stringify(back, null, 2) + '\n');
+  const strict = runGate(root);
+  assert.equal(strict.status, 2, '账本缺 metric 时非写模式必须走自身故障档：' + strict.stderr);
 });
 
 test('产品品牌名不是路径，必须放行（误伤回归）', () => {
@@ -209,7 +236,11 @@ test('中文句读不得被吞进路径（贪心捕获回归）', () => {
     '路径是 ' + realDir + '`。截图见下。\n'
   );
   const r = runGate(root);
-  assert.equal(r.status, 0, 'stderr: ' + r.stderr + '\nstdout: ' + r.stdout);
+  // 这条锁的**机制**是"提取器若贪婪吞掉句读，拼出来的串就不存在于盘上 ⇒ 被报失效"。
+  // 计数口径之后 status 不再由存在性决定（真实路径也计数 ⇒ 必红），所以判据落到那一句
+  // 「有没有报出一条它说磁盘上不存在的路径」上 —— 那才是贪婪回归的现场。
+  assert.equal(r.status, 1, '真实路径按新口径计入，无账本必报超出：' + r.stderr);
+  assert.doesNotMatch(r.stderr, /磁盘上不存在/, '提取器若把 `。截图见下。` 吞进路径就会出现这条：' + r.stderr + r.stdout);
 });
 
 test('盘符根构造必须是 D:\\ 而非 D\\（replace 吞冒号回归）', (t) => {
@@ -225,7 +256,9 @@ test('盘符根构造必须是 D:\\ 而非 D\\（replace 吞冒号回归）', (t
   fs.mkdirSync(path.join(root, '01-docs'), { recursive: true });
   fs.writeFileSync(path.join(root, '01-docs', 'deep.md'), '见 ' + realPath + '\n');
   const r = runGate(root);
-  assert.equal(r.status, 0, 'stderr: ' + r.stderr);
+  // 同上：盘符根若被 replace 吞成 `D\`，逐级 existsSync 失准 ⇒ 会冒出一条"磁盘上不存在"。
+  // 计数口径下 status 恒 1（真实路径也计数），所以这条回归的现场只能在明细措辞上读。
+  assert.doesNotMatch(r.stderr, /磁盘上不存在/, '盘符根算错时才会出现这句：' + r.stderr);
 });
 
 test('非受管目录（apps/ 等运行时代码）不扫描', () => {

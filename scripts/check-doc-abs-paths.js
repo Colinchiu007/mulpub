@@ -371,7 +371,11 @@ function parseBaselineText (raw, label, opts) {
 }
 
 /** 返回 { map, absent, error }。absent=账本还没建（按"空基线"从严），error=自身故障。 */
-function loadBaseline () {
+function loadBaseline (opts) {
+  // requireMetric 默认开。唯一该关掉的时候是 `--write-baseline`：那次它马上要被整份覆盖，
+  // 而 v1→v2 的迁移**必须**从一份没有 metric 的旧账本开始 —— 强校验会把迁移这条路自己焊死
+  // （实测：`--all --write-baseline` 在 v1 账本上直接 rc=2，守卫拒绝执行它自己要求的那次迁移）。
+  const requireMetric = !opts || opts.requireMetric !== false;
   const p = baselinePath();
   if (!fs.existsSync(p)) return { map: new Map(), absent: true, error: null };
   let raw;
@@ -380,7 +384,7 @@ function loadBaseline () {
   } catch (e) {
     return { map: null, absent: false, error: '读不到基线文件：' + e.message };
   }
-  const r = parseBaselineText(raw, '基线');
+  const r = parseBaselineText(raw, '基线', { requireMetric });
   if (r.error) return { map: null, absent: false, error: r.error };
   // requireMetric 已在 parse 里强校验过 ⇒ 这里必然是当代口径
   return { map: r.map, absent: false, error: null, metric: r.metric };
@@ -580,7 +584,7 @@ function findingsByFile (files, driveRoots) {
 function main () {
   // 基线读不到 ⇒ 自身故障（退出码 2）。**既不得判 0（"没问题"）也不得判 1（"发现失效路径"）**——
   // 把"门禁瞎了"读成任何一种结论，都是给自己造假证据。
-  const bl = loadBaseline();
+  const bl = loadBaseline({ requireMetric: !writeBaseline });
   if (bl.error) {
     process.stderr.write(
       `[check-doc-abs-paths] 自身故障：${bl.error} ⇒ 既不判 PASS 也不判 FAIL（退出码 2，与"发现失效路径"的 1 分开）\n`
