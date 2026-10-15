@@ -201,7 +201,6 @@ const sessionMixin = {
       variant = getPreloadVariant(platform) === 'enhanced' ? 'enhanced' : 'baseline'
     } catch (e) {
       this._logPreloadFallback(platform, e)
-      variant = 'baseline'
     }
     const baseline = path.join(__dirname, '..', 'stealth-preload.js')
     if (variant !== 'enhanced') return baseline
@@ -210,7 +209,7 @@ const sessionMixin = {
     //（scripts/build-preload.js 的 buildStealthEnhancedPreload，QM-6 Warning-2）
     const enhanced = path.join(__dirname, 'stealth', 'stealth-preload-enhanced.bundle.js')
     let exists = false
-    try { exists = fs.existsSync(enhanced) } catch (_e) { exists = false }
+    try { exists = fs.existsSync(enhanced) } catch (_e) { /* exists 保持 false（fail-closed） */ }
     if (exists) return enhanced
     // bundle 缺失（未构建/打包遗漏）：fail-closed 回落 baseline 并出声——直接返回不存在的
     // 路径 = Electron 静默不加载 preload，连 baseline 反检测一起丢（QM-6 Critical）
