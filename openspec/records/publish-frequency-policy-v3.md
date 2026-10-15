@@ -18,8 +18,8 @@ sync_backfill_owner: 下一个会话（回填时同时新增 .quality-gates.md �
 | 防止再次发生（QM-5 ⑤） | PASS | ①`AGENTS.md` 的 TaskQueue 合同条目从 2 条扩到 **4 条不可破**：新增「回滚资格必须先问竞态收敛性、再问打点状态（含终身锁与正向对偶两侧）」与「有界退避等待必须登记进 `_delayed` 并持久化」，并把"进 race 的必须是被观测的那个 promise"写进去（变异 M9 实测：另起一次 `_runTask` 会让执行器跑两遍，红的是"第二条任务被执行了"）。②`01-docs/learnings.md` 5 条：`lesson:number-relaxation-must-ship-with-its-coupled-gates`（改限额前先找"同一数值被推导成第二道闸"的落点，且**不许拆成后续 PR**）、`pitfall:late-signal-lookup-by-container-key-silently-dies`（打点存储生命周期是否覆盖决策时刻；能不依赖标记就别依赖）、`pitfall:mutation-driver-zero-hits-first-prove-the-probe-can-see-red`、`pitfall:state-that-lives-only-in-a-timer-closure-is-invisible-and-lost`、`lesson:stale-must-not-in-main-spec-is-a-real-hazard`（实现给 MUST 开例外时必须同 PR 改掉主干那句）。③主干规格那句已说谎的 MUST 已改写，并补 2 条 Scenario（在飞未知不得回滚 / 确证未送出仍须照常回滚）。④PRD §13 写死**重测/收紧触发条件**四条，下一个会话可照做 |
 | 行尾与 diff 对账 | PASS | 前置当场测量（不引 MEMORY 旧数字）：`git ls-files --eol` 对 `CHANGELOG.md` / `.quality-gates.md` / `AGENTS.md` / `01-docs/learnings.md` / `scripts/gate-record-debt-ledger.json` 全部 `i/lf w/crlf attr/text=auto`；工作副本实测 `CHANGELOG.md LF=CR=21311 loneCR=0 NUL=0`、`learnings.md` 同形 ⇒ 新增块**按 CRLF 落**（写脚本逐行 `split('\n').join('\r\n')`，不做"探测多数派后统一回写"），写后回读断言 `loneCR=0 且 NUL=0`。两口径 numstat **逐行相等**：`learnings.md 73/0`、`CHANGELOG.md 11/0`、`AGENTS.md 1/1`、`spec.md 15/4` ⇒ 删除行全是语义行、无行尾重排。删除数归因：`AGENTS.md 1/1` 是把 TaskQueue 条目整条改写（同一条目替换）、`spec.md 4` 是被替换掉的旧 Scenario 与旧 MUST 句，全部属语义删除 |
 | 接线棘轮 | PASS | 新增测试文件落在 `packages/shared-utils/tests/`，由该包 `vitest.config.js` 的 `include: ['tests/**']` **自动收集**、并经 workspace 的 `test` 脚本进 CI ⇒ 属 `check-unwired-tests.js` 的 `WORKSPACE_COVERED` 豁免域（不是"没接线"）。判据取现场：包内全量 **49 个文件 / 1021 passed / 10 skipped**，新文件的 10 条在其中被跑到（未变异正控 `rc=0 failedCount=0` 亦为实跑输出）。本次**未新增** `scripts/` 判据，故无 `.gitignore:106 scripts/*.js` negation 需要补 |
-| QM-1 打包 / QM-4 视觉 | PASS / N/A | QM-1：`cd apps/desktop && pnpm run build:vue` → **rc=0**；`pnpm exec electron-builder --win --dir --publish never` → **rc=0**（electron 43.7.7，`appOutDir=dist-electron\win-unpacked`；日志另有两条 `file source doesn't exist`（`dist/fonts`、`.playwright-browsers`），与 v2 记录同形态、非本次引入）。**产物内容判据**经 `@electron/asar` 的 `extractFile` 直读（`entries=14993` 过规模下界）：v3 特征 **12/12 命中**（三档精确值 ×3、基线回落、`MAX_ROLLBACK_PER_DAY=5`、上限取 `min`、`inFlightAtFailure: !executorSettled`、`inflightUnknown: 0`、终身锁、退避登记 `_delayed`），v2 残留（`accountMinMs: 20 * MIN`、`accountDailyMax: 20`）**0 命中** ⇒ 交付产物确实带 v3 而不是源码树带 v3。**启动项按三层判据落第③层**：`Multi-Publish.exe --user-data-dir=<系统临时目录>` 8 秒**进程存活**（pid=40120）、**stderr 0 字节**、四类红线 0 命中；并额外自证隔离生效——`%APPDATA%\Multi-Publish` 启动**前后均不存在**（否则等于往用户默认 profile 写测试期数据）。⚠️ 一条与既有文档不同的实测：`--user-data-dir` 在**打包 exe** 上被 Chromium 正常接受（AGENTS 记录的 `bad option:` 属 `electron.exe .` 开发态路径，两者不是同一件事）。QM-4 视觉：变更集不含任何 `.vue/.css/.less/.scss` 与基线 PNG（4 个源文件 + 3 个测试文件 + 文档），设置页与进度面板的文案**一字未改** ⇒ 像素回归无对象；但如实声明**间接影响面**：`PublishFrequencySettings.vue` 的 `currentTierText`/`effectiveRangeText` 是按生效值动态分组的，v3 会让"当前生效"读数与分档形状变化，而该页无像素基线（既有缺口，非本次引入）。构建副产物三处 `*.bundle.js` / `card-paginator.iife.js` 出现 `M` 而 `git diff --numstat` 为空 ⇒ 索引态伪改动，按精确路径 `git checkout HEAD -- <三个文件>` 归位（**未用宽目录恢复**） |
-| QM-6 CCG 双模型外部评审 | PENDING | 见「QM-6 发现处置」节；本行在评审跑完后就地改写，不留复合状态 |
+| QM-1 打包 / QM-4 视觉 | PASS / N/A | QM-1：`cd apps/desktop && pnpm run build:vue` → **rc=0**；`pnpm exec electron-builder --win --dir --publish never` → **rc=0**（electron 43.7.7，`appOutDir=dist-electron\win-unpacked`；日志另有两条 `file source doesn't exist`（`dist/fonts`、`.playwright-browsers`），与 v2 记录同形态、非本次引入）。**产物内容判据**经 `@electron/asar` 的 `extractFile` 直读（`entries=14993` 过规模下界）：v3 特征 **12/12 命中**（三档精确值 ×3、基线回落、`MAX_ROLLBACK_PER_DAY=5`、上限取 `min`、`inFlightAtFailure: !executorSettled`、`inflightUnknown: 0`、终身锁、退避登记 `_delayed`），v2 残留（`accountMinMs: 20 * MIN`、`accountDailyMax: 20`）**0 命中** ⇒ 交付产物确实带 v3 而不是源码树带 v3。**启动项按三层判据落第③层**：`Multi-Publish.exe --user-data-dir=<系统临时目录>` 8 秒**进程存活**（pid=40120）、**stderr 0 字节**、四类红线 0 命中；并额外自证隔离生效——`%APPDATA%\Multi-Publish` 启动**前后均不存在**（否则等于往用户默认 profile 写测试期数据）。⚠️ 一条与既有文档不同的实测：`--user-data-dir` 在**打包 exe** 上被 Chromium 正常接受（AGENTS 记录的 `bad option:` 属 `electron.exe .` 开发态路径，两者不是同一件事）。QM-4 视觉：变更集不含任何 `.vue/.css/.less/.scss` 与基线 PNG（4 个源文件 + 3 个测试文件 + 文档），设置页与进度面板的文案**一字未改** ⇒ 像素回归无对象；但如实声明**间接影响面**：`PublishFrequencySettings.vue` 的 `currentTierText`/`effectiveRangeText` 是按生效值动态分组的，v3 会让"当前生效"读数与分档形状变化，而该页无像素基线（既有缺口，非本次引入）。构建副产物三处 `*.bundle.js` / `card-paginator.iife.js` 出现 `M` 而 `git diff --numstat` 为空 ⇒ 索引态伪改动，按精确路径 `git checkout HEAD -- <三个文件>` 归位（**未用宽目录恢复**）**QM-6 处置后重跑**（不是沿用第一次打包的读数）：`pnpm run build:vue` rc=0 → `pnpm exec electron-builder --win --dir --publish never` rc=0（`appOutDir=dist-electron\win-unpacked`；两条 `file source doesn't exist`（`dist/fonts`、`.playwright-browsers`）同前、非本次引入）。产物内容判据换成**覆盖 QM-6 新增面**的那一组：`entries=14993` 过规模下界，**11/11 命中 / 0 缺失** —— 三档精确值 ×3、无 v2 残留 `20 分钟`、封顶 5 且取 `min`、D1 判据接进 race、终身锁、退避登记 `_delayed`、`_intervals` 回传 `tier`（F-C2）、主进程等待分钟用 `round` 且不再用 `ceil`（F-W1）。启动第③层：8 秒**存活** pid=42260、**stderr 0 字节**（stdout 21993 字节是应用自身日志，不进判据）、四类红线 0 命中，`%APPDATA%\Multi-Publish` 启动**前后均不存在**（隔离自证）⇒ `VERDICT=PASS`。 |
+| QM-6 CCG 双模型外部评审 | PASS（替代通道） | 本机 CC Switch 网关 `127.0.0.1:15721` 实测 `-InformationLevel Quiet` = False，`~/.claude/.ccg/config.toml` 两个 primary（codex / claude）都绑该网关 ⇒ 走 `opencode run --agent plan` 只读档双轴。通道正控 `PROBE_OK`（首跑 rc=1 是我的提示词带 `<` `>` 被 cmd 当重定向，属探针自毁不是通道故障）。**后端 17 条 + 前端 15 条**，逐条在当前树重放后定归属：后端 5 条 Critical 里 4 条**不可达**（拒绝时附"哪一行让这条路走不通"），前端 2 条 Critical **成立且用户可见**（设置页 alert 写死旧默认值；`_intervals()` 不回传 `tier` 使「当前档位」渲染成 `undefined（4 个平台…）`，且该缺陷先于本变更存在、逃逸原因是**测试夹具自行注入了生产不存在的字段**）。处置表 **27 行覆盖双轴 32 条**（前端 Info #8 与后端 B7 命中同一处，合并写在 B7 行）：**采纳 17 行 / 拒绝 9 行**（其中 B3、B5 两行是"拒绝原主张但采纳其派生锁"）**/ 登记不认领 1 行**（该行覆盖 4 条非本 diff 引入的 Info）。逐条见下表 |
 | 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin publish-frequency-policy-v3` 返回 0 行证远端分支已删；回填时删除上方三个 `sync_*` 字段，并在**同一次提交**内新增 `.quality-gates.md` 本体块（直接写 PASS 形态，故本体无需 ledger 登记项） |
 
 ### 本轮我自己制造并当场抓到的问题（不抹平）
@@ -57,7 +57,62 @@ sync_backfill_owner: 下一个会话（回填时同时新增 .quality-gates.md �
 
 ### QM-6 发现处置
 
-（待评审回文后逐条填写：来源轴 / 严重度 / 采纳或拒绝 + 证据。）
+通道：本机 CC Switch 网关 `127.0.0.1:15721` 实测 `Test-NetConnection -InformationLevel Quiet` = **False**，
+而 `~/.claude/.ccg/config.toml` 的 `[routing.backend].primary = codex` 与 `[routing.frontend].primary = claude`
+两路都经该网关 ⇒ 按既有降级口径走 `opencode run --agent plan`（只读档）。
+通道正控先行：`PROBE_OK Nemotron 3 Pro Free`（首跑 `rc=1 / len=20` 是**我的提示词里带了 `<` `>`**，
+被 cmd 当重定向吃掉 —— 与「反证不得执行被守护动作」同族的"探针自己先把命令毁了"）。
+
+| 轴 / 模型 | 回文规模 |
+|---|---|
+| 后端 `opencode/nemotron-3-ultra-free` | 17 条（5 Critical / 5 Warning / 7 Info） |
+| 前端 `opencode/big-pickle` | 15 条（2 Critical / 4 Warning / 9 Info） |
+
+**评审原件入库**：`.ccg/reviews/freq-v3-review-backend.md`（17 条）与
+`.ccg/reviews/freq-v3-review-frontend.md`（15 条），头部带轴 / 模型 / 通道 / 被评审 head
+（`b63bb9e97`）四项出处。留存范围只到结论段 —— `===STDERR===` 之后的过程转录（含对仓库文件的
+`ls`/`cat` 回显与机器本地绝对路径）**刻意不入库**，因为那会把"评审者读过什么"误当成结论。
+下一个会话据此可逐条复核下面的每一条"拒绝"，不必采信我的转述。
+
+**处置口径**：每条先在**当前树**重放（读那一行代码 / 跑那条断言），再定归属；
+拒绝时必须指出"哪一行让这条路走不通"，而不是"我觉得不会发生"。
+
+| # | 主张 | 重放结果 | 处置 |
+|---|---|---|---|
+| B1 | D1 分支抢在接线探针前 ⇒ 整平台停用回滚永不触发、窗口永久膨胀 | 不成立：`inFlightAtFailure` 只在执行器**未收敛**时为真，那种失败本来就不是"接线缺陷"信号；执行器快失败时走原判据（对偶②绿） | 拒绝 |
+| B2 | `executorPromise` 提前求值 ⇒ 执行器跑两遍 / 已决 promise 使 D1 误判 | 前半不成立（同一 promise 只求值一次；M9 证明"另起一次调用"才跑两遍）。后半成立但方向正确：已收敛=不在飞，允许回滚正是设计（对偶③） | 拒绝 |
+| B3 | `submitUncertain` 不持久化 ⇒ 重启后可回滚；`retry()` 复用对象把锁带进新轮次 | 两条失败路径都不可达：恢复走 `_queue.push({...task})` 且投影不含 `_hold` ⇒ 首行 `!task._hold` 即拒；`retry()` 在 `task-queue.js:263-272` 新建对象 | 拒绝原主张，**采纳派生**：把"不可达"落成两条锁（恢复不回滚 / 真两轮 release=0），不再靠我读码断言 |
+| B4 | 设置页可填 dailyMax=200 而回滚上限 5 ⇒ 配置假象；`clearRollbackDisabled` 会读 dailyMax | 上限与配额是两件事，不存在"填大没生效"；后半是对未实现代码的推测 | 拒绝（PRD §8 如实写明本片不暴露回滚许可） |
+| B5 | `cancel()` 不清 `_delayed` ⇒ 取消的任务在 grace 到期后复活 | 不成立：`cancel()` 第 218–225 行本就 `clearTimeout` + `_delayed.delete` + `_markCancelled` | 拒绝原主张，**采纳派生**：新增"退避期内可取消"锁（该能力本次才给，必须被测） |
+| B6 | 中止被算作在飞 ⇒ 误判 | 不可达：取消在 catch 首行 `if (task.cancelRequested…) return`，根本不进 `_maybeRollback` | 拒绝（cancel 不变量锁已在测该方向） |
+| B7 | `BASELINE_INTERVALS` 与 long 档同值 ⇒ "独立常量"失去防漏改价值 | **成立**：既有断言用 `>= weibo(1′)`，恒过，挡不住基线被调得比 long 还松 | 采纳：新增"逐维度不弱于任何已登记平台"锁（间隔取上界、配额取下界——**两维度的"更严"方向相反**，写进注释）；不采纳"把基线改成 6′"（数值无依据）。**与前端轴 Info #8 同源**（两个模型独立命中同一处），合并在本行处置 |
+| B8 | 终身锁测试绕过真实两轮路径 | **成立** | 采纳：新增真两轮锁，判据取 **release 是否被调用**（首版取"窗口是否仍占用"，在 60ms 小窗口下必然过期 ⇒ 假红，已改） |
+| B9 | 硬顶测试只验 weibo 一档 | 部分成立（活性前置已在，但覆盖面窄） | 采纳：逐平台断言真表读数 > 封顶 |
+| B10 | `console.warn` 日志注入（task.id 含换行） | 不成立：`task.id` 由 `_add` 生成 `task_<n>_<ts>`，不接受外部值 | 拒绝 |
+| B11 | 新导出 `TIER_PRESETS` / `PLATFORM_TIER` 零消费者 | **成立**（`git grep` 只命中文档）——正是我自己在 D7 批评的形状 | 采纳：从 `module.exports` 收回，保持模块内常量 |
+| B12 | `_probeCounts` 注释写「供设置页/诊断读取」而实际零消费者 | **成立** | 采纳：注释改为如实（进程内、重启归零、无消费者），并在 PRD §10 登记 |
+| B13 | `findLiveTask` 可能读到 `_history` 里的旧快照 | 不成立：`_history` 存的是同一对象引用 | 拒绝 |
+| B14 | 档间单调只测三代表平台，改 `PLATFORM_TIER` 分组无人可见 | **成立**：`byTier` 断言的是"每档的值"，不锁"谁在哪档" | 采纳：新增逐平台 platform→tier 成员映射锁 |
+| B15 | `platformMinMs ≤ accountMinMs` 无测试 | 不成立：既有锁逐平台遍历策略表 | 拒绝 |
+| B16 | 终身锁屏蔽旧判据处缺显式注释 | 成立（小） | 采纳：加注释 + 指出两条分支各有锁（M1/M3 各红一条） |
+| B17 | container 的 `>=` 断言过弱 | 与 B7 同源 | 采纳：改与最严那档精确比 |
+| F-C1 | 设置页 alert 写死「默认值 3 / 5 / 20」，与同屏动态读数矛盾 | **成立**（zh:42 / en:40 逐字读过） | 采纳：两条 locale 改成指回动态读数；新增锁断言旧串不得残留 |
+| F-C2 | `_intervals()` 不回传 `tier` ⇒「当前档位」渲染成 `undefined（4 个平台…）` | **成立**，且**先于本变更存在**；四层测试全绿的原因是**夹具自行注入了生产不存在的 tier** | 采纳：实现补键（含 minInterval 兼容分支）+ 守卫形状锁两条 + 夹具退回该字段必红（M16）+ `index.d.ts` 接口补 `tier` |
+| F-W1 | 等待分钟 `ceil` 在短档把 60–84s 显示成「2 分钟」 | **成立**（绝对误差 ≤59s 与 v2 相同，但相对误差因收紧而放大到近 100%） | 采纳：主进程与渲染层两处改 `round`（共用 helper 需跨主/渲染，代价大于收益 ⇒ 两处各一条锁 + 注释互指） |
+| F-W2 | 平台档提示做绝对承诺 | **成立**：守卫是两桶取更严，用户填大即反转 | 采纳：条件式改写（zh/en） |
+| F-W3 | `index.d.ts` 与实现全面漂移；`recordPublish` 被声明成 `void` | **成立**，且该包子路径 require 在类型检查里恒为 `any` ⇒ 漂移**永远不会红** | 采纳（范围控制）：补齐本 PR 涉及的三面 + `recordPublish` 返回 hold 对象；并新增**枚举式声明契约锁**（实现面每个公开名字都必须在 d.ts 里出现）；剩余 v2 -era 缺口记 遗留 |
+| F-W4 | 我在 PRD/CHANGELOG 写的「long/clip 许可不变」算错 | **成立**：实况是 clip 持平、short 20→5 收紧、**long 3→5 放宽** | 采纳：三处文本全部改正，并说明放宽 long 的理由与改法（按 tier 取值 ≠ 回到 `max(2, dailyMax)`） |
+| F-I1 | `release()` JSDoc 仍是旧公式 | 成立 | 采纳（顺带在行数门禁下压缩注释，事实移入 PRD） |
+| F-I2/I3 | PRD 把静态快照说成"倒计时"、`7′→约 7′` 笔误 | 成立 | 采纳：§8/§9 改写 |
+| F-I4 | 两处模块头仍写 v2 | 成立（我改过的那个文件） | 采纳：`task-queue-frequency.js` 头改 v3；`ipc-handlers/publish-frequency.js` 未在本次改动面内，登记不做 |
+| F-I5/6/7/9 | `fmtMin` 输出英文单位、`effectiveRangeText` 不看平台档、平台输入框无 placeholder、full-auto 旁路 | 成立但**非本 diff 引入** | 登记不认领（前三条另成 UI 片；第四条已在我自己的 遗留 里） |
+**我自己被这批处置抓出来的两个新问题**（不抹平）：
+① M18 变异三轮才对上，第二轮暴露我新写的 d.ts 锁里有一条恒真断言（`toContain('at')` 同时被
+"platform" 子串与相邻成员 `release(hold: { at: number; … })` 满足）——判据改成"按花括号配对只切出
+recordPublish 自己的返回块"后才真红；
+② 为压 `publish-interval-guard.js` 的行数（495→513 触发 `NEW_OVER_LIMIT`）压缩注释时，
+第一次 `git ls-files --eol` 的判据被我写成 `cr !== lf`，对**纯 LF 工作副本**必然假红，
+并把"已写盘"的状态留在文件里——同族于「观察者要报告自己的失明」，只是这次失明的是我自己的检查。
 
 ### 遗留（不假装已闭合）
 
@@ -90,3 +145,16 @@ sync_backfill_owner: 下一个会话（回填时同时新增 .quality-gates.md �
 - **`.quality-gates.md` 与 ledger 刻意不由本 PR 携带**：沿用 `ops-base-single-src`（#3622）确立的
   热点载体规避口径 —— 那两个文件是全体会话共同追加的活冲突面，携带会造成"~13min 冲突 vs ~40min CI"
   的活锁。本体欠账由本记录 frontmatter 的 `sync_*` 三字段满足；回填 PR 新增 QG 块时直接写 PASS 形态。
+### QM-6 处置后的实况更正（追加，不改写上面已写下的读数）
+
+- 测试规模由「1021 passed / 10 skipped（49 文件）」变为 **1034 passed / 10 skipped（50 文件）**；
+  净新增用例 14 → **27**（QM-6 处置补 13 条：`_intervals` 的 tier 两格、d.ts 枚举契约锁六格、
+  真两轮 / 退避期内可取消 / 恢复不回滚三格、显示面四格中的两条守卫 + 两条文案锁）。
+- 变异反证由 M1–M11 → **M1–M20**，第二批 9 条专打 QM-6 修复本身，20/20 CAUGHT、还原逐字节相同。
+- 本 PR 改动了 `apps/desktop/electron/bootstrap/phase4-events.js` 与两处 locale ⇒ **QM-1 必须重跑**
+  （不是沿用第一次打包的读数）；重跑已实跑，读数落在 QM-1 行的「QM-6 处置后重跑」段：**asar 判据 11/11 命中（`entries=14993`**，覆盖 tier / round 两个新增面）、**启动 8 秒存活且 stderr 0 字节**。
+- PRD 首稿的两处自述被评审否证并已改正：「本次不改任何用户可见文案」（实际改了 4 条 locale）
+  与「回滚许可 long/clip 不变」（实况是 **long 由 3 放宽到 5**、clip 持平、short 由 20 收紧到 5）。
+- 我自己的新锁被自己的变异抓出一条**恒真断言**（M18 第二轮：`toContain('at')` 同时被 "platform"
+  子串与相邻成员 `release(hold: { at: number; … })` 满足）；判据改为按花括号配对只切
+  `recordPublish` 自己的返回块后才真红。这条记进 learnings 的同族："断言存在"≠"锁有效"。
