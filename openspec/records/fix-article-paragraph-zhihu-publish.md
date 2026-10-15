@@ -2,10 +2,6 @@
 record: fix-article-paragraph-zhihu-publish
 task: 百家号图文正文「整篇一整段」二次报障（编辑器装载吞段落）+ 知乎「显示发布成功但未真实发布」两条独立缺陷同批修复
 date: 2026-10-15
-# ↓ 以下三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并（分支 `fix-article-paragraph-zhihu-publish` 仍在本地，merge SHA 还不存在），按既有口径先写 PENDING；合并后由回填提交取 merge SHA 与时间改写。
-sync_backfill_owner: 本分支作者（下一次会话接管时为该会话）
 ---
 
 ## 本次执行记录：百家号图文正文「整篇一整段」二次报障 + 知乎「显示发布成功但未真实发布」（fix-article-paragraph-zhihu-publish，2026-10-15）【混合 PR】
@@ -42,9 +38,9 @@ sync_backfill_owner: 本分支作者（下一次会话接管时为该会话）
 | CCG verify-security（存量误报，取证豁免） | PASS（附取证） | 门禁对本次触及的 `apps/desktop/electron/services/rpa-view-platforms.js` 报 **1 条 XSS 高危**（报告行 `:1029`）。**取证：属 main 存量、与本 PR 无关** —— ① 该语句是**抖音**描述填充的净化容器（`tmp.innerHTML=…`，语句内已移除 `script, iframe, object, embed` 与 `on*` 属性，注释亦标「安全修复（2026-07-16）」）；② 对 `git show origin/main:apps/desktop/electron/services/rpa-view-platforms.js` 逐行比对，同一语句在 origin/main 位于 `:1028`（本 PR 仅因顶部多 1 行 `require` 而整体下移 1 行），**内容逐字相同**；③ 本 PR 在该文件只有两个 hunk（顶部 `zhihuPublishState` require + `_publish_zhihu` 发布终态块），**未触碰**该行。按 `ccg-gate.js` 的「零高危增量」设计意图与既有先例（`hot-topics-publish-handoff`、`converge-article-body-helpers`、`createview-split-step1` 三篇记录同为存量误报 + 取证豁免）以 `SKIP_CCG_GATE=1` 提交；**未使用** `--no-verify` |
 | 保留门禁 | PASS（品牌 / 文档同步 / 热点载体隔离） | 品牌残留：本次文档需指代竞品处一律写「参考产品」（`check-no-brand-residue.js` 判据实跑 PASS，扫描 9247 个 tracked 文件；另按码点对本次新增/修改的 10 份文件自查，命中 **0**）；文档同步：本 PR 含 `01-docs/**` 与 `openspec/**` ⇒ `check-docs-sync.sh` 的 PRD_PATTERN 命中，无需额外同步；**热点载体隔离**：本 PR 不含 `.quality-gates.md` / `CHANGELOG.md` / `01-docs/learnings.md` / `scripts/gate-record-debt-ledger.json`（先例 #3633 / #3627），`CHANGELOG.md` 两条条目与 `01-docs/learnings.md` 本轮 6 条教训**推迟到回填 PR** 落地 |
 | 热点载体隔离 | PASS | 本 PR **不含** `.quality-gates.md` / `CHANGELOG.md` / `01-docs/learnings.md` / `scripts/gate-record-debt-ledger.json`（先例 #3633 / #3627，纪律见 `AGENTS.md`「PR 自动合并」与两篇记录）；原因：CI 单轮 30–37 分钟、主干同期前进 2–3 笔，追加型热点文件必冲突。⇒ PENDING 状态行与 `sync_*` 三字段改由**本记录 frontmatter** 承载（记录文件源自带登记），`.quality-gates.md` 条目、`CHANGELOG.md` 两条条目与 `01-docs/learnings.md` 本轮 6 条教训的落地一律**推迟到合并后的回填 PR**，并与其销账同次发生 |
-| 远程同步 | PENDING | 本 PR **#3663**（`fix-article-paragraph-zhihu-publish`，commit `ed3e84f49`）已推送并开 PR，尚未合并 ⇒ 表格行写 PENDING + 上方 `sync_status` / `sync_reason` / `sync_backfill_owner` 三字段登记（记录文件源自带登记，无需外部账本条目）。回填口径：取 `git log origin/main --grep='(#3663)$' --format=%H|%cI` 的 merge SHA 与时间改写本行与下方 bullet，确认 `git ls-remote --heads origin fix-article-paragraph-zhihu-publish` 返回 0 行，并在**同一次提交**里删除 `sync_*` 三字段、补 `.quality-gates.md` 条目与 CHANGELOG/learnings 条目 |
+| 远程同步 | PASS | #3663 squash 合并 merge SHA `ffb2209251b3c3a1221300b39cd9d238f0193d1a`（2026-10-16T00:48:12+08:00）；`git ls-remote --heads origin fix-article-paragraph-zhihu-publish` 返回 **0 行**（远端分支已删）；本提交**同次**删除 frontmatter 的 `sync_*` 三字段、补 `.quality-gates.md` 条目 + `CHANGELOG.md` 两条 + `01-docs/learnings.md` 6 条教训（回填与销账同一次发生） |
 
-- 保留门禁：判定 docs-only=false ✅ | 行尾对账 待提交后取证 | 品牌残留 ✅（指代写「参考产品」，自查命中 0）| 文档同步 ✅（`01-docs/**` + `openspec/**`）| 执行记录 ✅ `openspec/records/fix-article-paragraph-zhihu-publish.md` | 热点载体隔离 ✅（本 PR 不含 `.quality-gates.md` / `CHANGELOG.md` / `01-docs/learnings.md` / ledger；`CHANGELOG.md` 条目与 learnings 教训推迟到回填 PR）| 远程同步 PENDING
+- 保留门禁：判定 docs-only=false ✅ | 行尾对账 待提交后取证 | 品牌残留 ✅（指代写「参考产品」，自查命中 0）| 文档同步 ✅（`01-docs/**` + `openspec/**`）| 执行记录 ✅ `openspec/records/fix-article-paragraph-zhihu-publish.md` | 热点载体隔离 ✅（本 PR 不含 `.quality-gates.md` / `CHANGELOG.md` / `01-docs/learnings.md` / ledger；`CHANGELOG.md` 条目与 learnings 教训推迟到回填 PR）| 远程同步 PASS（#3663 merge `ffb2209251b3c3a1221300b39cd9d238f0193d1a`，远端分支已删）
 
 ### 真机复核（待执行，判据取产物，不假装已闭合）
 
