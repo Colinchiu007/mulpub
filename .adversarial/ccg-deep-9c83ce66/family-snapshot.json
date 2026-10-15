@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "snapshotCreatedAt": "2026-10-15T11:55:27.196Z",
+  "resolvedFamily": {
+    "proposer": "opencode",
+    "critic": "claude"
+  },
+  "familyMap": {
+    "claude": [
+      "anthropic"
+    ],
+    "codex": [
+      "openai"
+    ],
+    "gemini": [
+      "google"
+    ],
+    "grok": [
+      "xai"
+    ],
+    "kimi": [
+      "moonshot"
+    ],
+    "opencode": [
+      "deepseek",
+      "hy3"
+    ]
+  }
+}

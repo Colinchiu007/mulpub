@@ -431,6 +431,19 @@ sleep 8 && kill $!
   它不在名单里，判据便打印「未命中红线」⇒ **把未知故障判成通过**。
   脚本侧同源实现见 `scripts/qm1-scheduled-publish-verify.cjs`；改一处必须同改另一处。
 
+- ⛔ **存活是三层判据的隐含前提，必须单独断言；且子进程 env 必须显式剔除 `ELECTRON_RUN_AS_NODE`（fix-qm1-electron-run-as-node，2026-10-15）**：
+  上面那三层判据只规定「stderr 内容怎么判」，它**默认「进程确实起来了」**。前提本身要单独断言 ——
+  进程提前退出时 stderr 必然为空，只看 stderr 就会把「根本没启动」读成「启动干净」⇒ **假绿**。
+  **实测形态**：`ELECTRON_RUN_AS_NODE=1` 会让**任何** Electron 可执行文件以纯 Node 模式启动并静默退出
+  （rc=0、stdout 空、stderr 空、不建窗口、不建 userData），与「启动干净」**完全同形**。
+  该变量是部分宿主/工具链为「用 Electron 二进制跑 Node 脚本」而设的，会**随 shell 继承**给被测应用。
+  三条不可破：① 启动验证**必须**断言「窗口期内仍存活」，提前退出即 FAIL（`bad('进程提前退出')`），不得只看 stderr；
+  ② `spawn(EXE, ...)` **必须显式传 `env`**，并用 `scripts/lib/qm1-child-env.js` 的 `buildChildEnv()` 剔除该变量 ——
+  不传 `env` 就继承父环境、变量再次生效（回归锁 `scripts/qm1-child-env.test.js` 含**接线锁**：改回不传 env 当场红）；
+  ③ 父环境带着它时**必须出声告警**（`envDefectNotice()`），不得静默剔除 —— 静默会让「本机环境一直有问题」永远不被知道，
+  而它同样影响手工启动验证与其它工具链。**归因方法**：拿**未含本次改动的既有构建**做 A/B，若同样 rc=0/零输出，
+  即可证伪「本次改动导致启动失败」（此法已实测有效）。
+
 - Git worktree 打包或执行真实 Electron IPC 验证前，必须运行 `node scripts/verify-worktree-deps.js` 确认 `node_modules/@multi-publish/*` 链接指向当前 worktree；禁止借用指向其他分支源码的 workspace 链接（含历史整目录 Junction）生成交付产物或测试证据。
 
 > 本文件由 Hermes `professional-ai-coding-workflow` 技能转换生成，适配通用 AI 编码工具。
@@ -491,6 +504,12 @@ Code review 时除逻辑正确性外，必须逐项检查：
 - **高频路径不得含同步 CPU 密集原语**：任何**每次进页面都会走**的 IPC / 列表 / 渲染路径，不得调用 `pbkdf2Sync` / `scryptSync` / 大输入 `createHash` 等**同步阻塞事件循环**的原语。判据：该路径的执行次数 × 单次耗时是否随数据量线性增长。实例（2026-10-14）：`listAccounts()` 为每个账号调 `getAccountProxyStatus()` → `decryptData()` → `pbkdf2Sync`（10 万次迭代，实测 125ms/次），N 个账号 = N×125ms 串行阻塞 IPC，用户感知「点左侧菜单『账号』好几秒才加载」。修法见 `01-docs/BUGFIX-SIDEBAR-ACCOUNTS-SLOW-2026-10-14.md`：批量入口 + 异步并行派生（`crypto.pbkdf2`），**不得用调小 KDF 迭代数换性能**（openspec 对本项目 PBKDF2 的基线是 ≥200000 次）。
 
 - **详情函数复用到列表路径前必须核算单元素成本**：给单条记录用的函数（读完整凭证、逐项网络请求、整表扫描）被 `map` 到列表上时，单元素成本会乘以 N。判据：问「这个函数为一个元素付多少 IO / 多少 CPU？列表有 N 个元素时总成本是多少？」答不上来就不许合。
+
+- **新增全局 `app.component` / 顶层 CSS import 前必须问「它在几条路由上被用」**：UI 框架（element-plus 等）默认**全量**引入（`app.use(Framework)` + `dist/index.css`）会把全部组件打进首屏 bundle——这是高频路径的性能地雷。判据：① 该组件/样式被几条路由消费？只有 1 条 ⇒ 必须在该路由的懒加载 chunk 内注册（如 `ArticleEditor` 的 QuillEditor，2026-10-15 从 `main.js` 全局注册改本地注册）；② UI 框架是否按需（`element-plus/es` 具名导入 + `theme-chalk/el-*.css` 单文件）？③ 新增 `<el-xxx>` 用法是否同步登记进 `apps/desktop/src/plugins/element-plus.js` 的组件清单与样式清单（漏登记由 `element-plus.test.js` 的机械锁判红）？实例（2026-10-15）：「+」新标签 3-4 秒才显示主页，根因是 element-plus 全量把 124 个组件打进 `index.js`/`index.css`（1.84 MB / 503 KB），而本仓只用 36 个；改按需后 1.33 MB / 300 KB，主页挂载 1960ms → 743ms。修法与契约锁见 `01-docs/BUGFIX-NEWTAB-HOME-SLOW-2026-10-15.md`。**注意**：全量/按需在源码层单测里完全等价（两者都让 `<el-button>` 正常渲染），因此这条只能靠产物级契约锁（`main.bundle-contract.test.js`）守，不能靠功能测试守。
+
+- **首屏渲染不得阻塞在 IPC 返回之后；慢而非必需的校验必须懒触发**：任何「每次进页面都会走」的首屏 `onMounted`，判据：① 静态区块（骨架/标题/入口）是否在 `nextTick` 就渲染，不等任何 IPC？② 相互独立的数据源是否并行（`Promise.allSettled`）而非串行 `await`？③ 单源失败是否只停对应区块、不扩散成整页报错？④ 「有问题才可见」的校验（如逐账号登录态批量检测，单账号最坏 60s 超时）是否被 `setTimeout(0)` 推到首帧之后，且组件卸载时 `clearTimeout`？实例（2026-10-15）：`Home.vue` 原为 `platformStore.load() → ensureLoaded() → refreshExpiredAccounts() → dashboardStats() → historyList()` 全串行，最坏耗时是各项之和。回归锁见 `src/views/Home.first-paint.test.js`（4 条）。
+
+- **UI 框架按需引入时，样式必须导「闭包」，且不得多导「全量产物里没有的文件」**：这是「登记机械锁」锁不到的维度（那种锁只看组件注册表，看不出样式）。**双向判据：「全量有、子集没有」= 真缺失；「子集有、全量没有」= 凭空多出的全局副作用。** ① 以库自己声明的样式依赖图为权威（EP 是 `element-plus/es/components/<name>/style/index.mjs`；内部组件 `scrollbar`/`popper`/`overlay`/`option-group`/`text` 从不出现在模板里，缺 CSS 就视觉回归）。注意它是**裸 import 形态**——写成 `/from\s+…/` 会匹配 0 条并算出「闭包 = 已导入」的假结论，故结构解析类判据必须打印命中条数并对命中数做下界断言。② **逐个核对被导入文件是否存在于全量产物中**：EP 的 `el-reset.css`（含 `input,textarea,button{font-family:inherit}` 及 `a`/`h1~h6`/`p`/`hr` 等原生元素规则）**不在** `theme-chalk/index.css` 里，多导它会把按钮字体从 UA 默认 `Arial` 改成继承字体栈 ⇒ 2026-10-15 实测像素回归 create-editor 9.48% / create-pipeline 9.26% / podcast-channel 2.05%（移除后三处归零至 0.21%/0%/0%）。③ 补齐后用**产物级**断言核对关键选择器存在（构建成功不够——Vite 对不存在的 CSS 路径会报错，但对「多了/少了某组样式」完全沉默）。④ 反向注意 **0 字节占位文件**：`el-config-provider.css` 无任何选择器（renderless），「无选择器」≠「漏了」。回归锁见 `src/plugins/element-plus.test.js` P4（闭包不缺）/ P5（重复 import）/ P6（全量包含性）。**像素门禁排红模板（本轮实测顺序）**：① 选择器差集在真实页面上的命中数（排除「缺规则」）→ ② 带 e2e 夹具采控制台看 `Failed to resolve component/directive`（排除「缺注册」）→ ③ 同态连拍 2–3 次互比（排除抖动，本轮 0.00%）→ ④ **逐元素计算样式签名对比**（决定性一步：遍历全 DOM 为每个元素打一份计算样式签名，两态逐项 diff，直接给出**唯一差异属性**与**命中元素集合**；本轮 `font-family` 命中 32 个全是 BUTTON 及其子节点，一眼指向表单控件重置）。**别用肉眼看截图代替第④步**——本轮两张截图 PNG 仅差 127 字节，像素差异却有 9.41%。**对照实验必须还原「完整变更集」**：只还原其中一层会把另一层的因果误判成「无关」（本轮真踩过：只还原 CSS 就写下「与我无关」的错误结论，后被推翻）。阈值口径先对齐（本地默认 1%，CI 用 `PIXEL_THRESHOLD=6%`），**禁止用 `--update-baseline` 掩盖**。
 
 - **require 路径**：每个 `require('../x')` / `require('./y')` 的解析目标文件是否真实存在
 

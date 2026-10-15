@@ -80,6 +80,11 @@ import HomeView from "./Home.vue";
 async function flushMounted(w) {
   await nextTick();
   await new Promise((r) => setTimeout(r, 0));
+  // 2026-10-15 fix-newtab-home-slow：Home.vue 首屏数据改为并行 + 懒触发
+  // （失效账号校验走 setTimeout(0)），一轮 setTimeout(0) 已不够它跑完。
+  // 多给两轮，让并行批与懒触发的批量检测都有机会落定。
+  await new Promise((r) => setTimeout(r, 0));
+  await new Promise((r) => setTimeout(r, 0));
   await nextTick();
   return w;
 }

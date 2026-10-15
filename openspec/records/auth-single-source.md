@@ -2,9 +2,6 @@
 record: auth-single-source
 task: 端点鉴权上收为 FastAPI 依赖声明，并以反射为真源建 PRD 对账锁
 date: 2026-10-15
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；远程同步这一行的证据只能在合并后取
-sync_backfill_owner: 下一个会话（按 AGENTS.md「合并后收尾清单」回填并删除本段三个字段）
 ---
 
 ## 本次执行记录：端点鉴权上收为 FastAPI 依赖声明，并以反射为真源建 PRD 对账锁（auth-single-source，2026-10-15）【混合 PR】
@@ -29,7 +26,7 @@ sync_backfill_owner: 下一个会话（按 AGENTS.md「合并后收尾清单」�
 | locale 成对 | N/A | 未改用户可见文案 |
 | 视觉回归 | N/A | 无渲染端改动 |
 | QM-6 双模型外部评审 | 未执行 | 本机无 `codeagent-wrapper`，如实登记 |
-| 远程同步 | PENDING | 开 PR 时登记；合并后就地改写为 `PASS` + merge SHA（回填 PR 完成，含销账） |
+| 远程同步 | PASS | PR #3642 已 squash 合并，merge SHA `fccee8c26ddd3839845b7f83c0911461e894fd7c`（2026-10-15T12:37:25Z）；远端分支已删 |
 
 ### 交付内容（12 文件）
 
@@ -66,8 +63,6 @@ sync_backfill_owner: 下一个会话（按 AGENTS.md「合并后收尾清单」�
 
 ### 保留门禁
 
-行尾对账 ✅ | 品牌残留 ✅ | locale 成对 N/A | 视觉回归 N/A | 行数门禁 N/A（无 Python lint）| QM-1 N/A | 远程同步 PENDING
+行尾对账 ✅ | 品牌残留 ✅ | locale 成对 N/A | 视觉回归 N/A | 行数门禁 N/A（无 Python lint）| QM-1 N/A | 远程同步 PASS
 
-### 保留门禁
-
-行尾对账 ✅ | 品牌残留 ✅ | locale 成对 N/A | 视觉回归 N/A | 行数门禁 N/A（无 Python lint）| QM-1 N/A | 远程同步 PENDING
+行尾对账 ✅ | 品牌残留 ✅ | locale 成对 N/A | 视觉回归 N/A | 行数门禁 N/A（无 Python lint）| QM-1 N/A | 远程同步 PASS

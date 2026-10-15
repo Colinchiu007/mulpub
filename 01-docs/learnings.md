@@ -226,6 +226,132 @@ CI 立刻抓出 2 处遗漏：`electron/preload.test.js` 的**方法数计数锁
    右侧目标面板为 0。**那个 PASSED 只证明"正常态无回归"，不构成空态无回归的证据**——
    若照抄初版结论去重建基线，会是一次无意义且破坏性的大改动。
 
+## 「+」新标签 3-4 秒：UI 框架全量引入是高频路径的性能地雷，而它对源码层测试完全隐形（fix-newtab-home-slow，2026-10-15）
+
+1. **UI 框架「全量引入」在源码层单测里与「按需引入」完全等价 —— 所以这条只能靠产物级契约锁守，不能靠功能测试守。**
+   实测：`app.use(ElementPlus)` + `element-plus/dist/index.css` 与按需 34 组件，在 vitest 里都让 `<el-button>` 正常渲染、全部用例同绿。差别只在**打包产物**：`index.js` 1 841 vs 1 334 KB、`index.css` 503 vs 300 KB。因此任何「读 `main.js` 断言引入方式」的测试都是**必要**的（它是唯一能看见这件事的层），且断言必须落在**源码文本**（禁 `import ElementPlus from 'element-plus'`）而不是运行时行为。
+   **判据**：改动 `main.js` 的装配段（`app.use(...)` / 顶层 CSS import / `app.component(...)`）时，先跑 `src/main.bundle-contract.test.js`，并 `vite build` 后 `ls -la dist/assets/index-*` 对账体积。
+
+2. **「慢而不错」的缺陷对视觉回归结构性免疫 —— 这是本仓第二次踩同一条（10-14 账号页、10-15 新标签），必须升级为通用认知。**
+   两次的共同形态：画面**完全正常**，只是迟到。像素对比看最终画面，天然看不见「迟到」；功能测试看「最后对不对」，也看不见。**真正的判据只能是 wall-time**：首屏以某个 testid 出现为界（本次用 `mp-home`），冷/热各测一轮。
+   **可复用的探针套路**（本次四个，均一次性不随产物分发）：① Node 直驱主进程真实模块逐段计时（不起 Electron，排除法先证明「不是它」）；② Playwright + 本地 HTTP 托管 `dist/` 量首屏时间线（`file://` 会撞 CORS，必须起 http）；③ 扫 `src` 全部 `.vue` 的 `<el-xxx>` 对照 `element-plus/es/components` 目录清单，算出「实际用几个/共几个」；④ 解 rollup 产物的模块位置判断某库是否真在首屏 chunk。
+
+3. **EP 的 `withNoopInstall` 组件不占全局注册表 —— 按需清单里写它们是无效劳动，且会让「漏登记机械锁」误报。**
+   `el-radio-button` / `el-radio-group` 的实现放在 `radio/` 目录，由 `ElRadio` 以 `withNoopInstall` 挂成子组件（`app.use` 是 no-op）。第一次修按需时把它们写进 `COMPONENTS`，机械锁仍报 missing —— 那其实是**锁在说真话**：它们确实不在注册表里。正解是只注册 `ElRadio` + 补 `theme-chalk/el-radio-button.css` / `el-radio-group.css` 两个**样式**文件（样式不走 install，必须单独 import）。
+   **判据**：往按需清单加组件前，先看 `node_modules/element-plus/es/components/<name>/index.mjs` 里是 `withInstall` 还是 `withNoopInstall`；后者应改成注册其父组件。
+
+4. **首屏 `onMounted` 的「串行 await 链」要把「用户何时真正需要它」分三档，而不是一律并行。**
+   `Home.vue` 原为 5 项串行，最重的是逐账号登录态批量检测（单账号最坏 60s 超时）。并行化只解决了「相互独立的项不该互相等」，没解决「这一项根本不该在首屏跑」——它是「有问题才可见」的横幅，用户没失效账号时它的可见产出是**零**。正解是分档：首帧必需的并行、慢而非必需的 `setTimeout(0)` 懒触发 + `onUnmounted` 清定时器。
+   **配套细节**：`statsLoaded` 的语义要保住 —— 无 `electronAPI` 时**不**置位（「没拿到数据」≠「确认是 0」），否则会误进全 0 引导态、把近期动态区整块藏掉（既有测试 `handles missing electronAPI gracefully` 锁的就是这条，我第一版改parallel时踩了）。
+
+5. **`vi.mock` 工厂被 hoist，不能用外层变量；要「运行期改桩行为」必须用 `vi.hoisted` 造同一份引用。**
+   `vi.doMock` 对同一文件内已 hoist 的 `vi.mock` **无效**（动态 import 带 `?query` 也不行，模块已被缓存）。正确形态：`const h = vi.hoisted(() => ({ calls: [], stub: {...} }))`，工厂里 `return h.stub`，用例里改 `h.stub.xxx = ...`。
+   **另一条**：桩内部若用 `setTimeout` 造延时，`flushPromises()` 只清微任务、**不推进定时器** —— 必须补 `await new Promise(r => setTimeout(r, 120))`，否则断言会拿到 -1（`indexOf` 找不到）。
+
+6. **UI 框架「按需样式」必须导「闭包」，不是「模板里用到的组件」——这是「漏登记机械锁」（P3 类）锁不到的维度。**
+   EP 的组件存在**纯样式依赖**：`scrollbar` / `popper` / `overlay` / `option-group` / `text` 这类内部组件**从不出现在任何模板里**，但缺了它们的 CSS 就视觉回归。权威判据是 `element-plus/es/components/<name>/style/index.mjs`，它声明该组件依赖哪些兄弟组件的样式：
+   ```
+   select      → base, scrollbar, popper, tag, option, option-group
+   dialog      → base, overlay
+   tooltip     → base, popper
+   radio-group → base, radio      ← 漏 `el-radio` 本体的来源
+   ```
+   实测：第一版只导「模板用到的 36 个组件」的 CSS，CI 的 `QG Visual` 当场红 3 处（`podcast-channel` **21.63%** / `create-editor` 9.48% / `create-pipeline` 9.47%，阈值 6%）。沿该图重算闭包，漏 **7** 个（`el-scrollbar`/`el-popper`/`el-overlay`/`el-option-group`/`el-text`/`el-radio` 本体/`el-config-provider`）。补齐后 `podcast-channel` **21.63% → 2.05%**。
+   **反向教训**：`el-config-provider.css` 是 **0 字节占位**（renderless 组件）——「某 CSS 文件里没有对应选择器」**不等于**漏了，判据不能拿选择器存在性倒推完整性。
+
+7. **判据正则写成 `/from\s+['"]…/` 会匹配 0 条，然后算出「一切正常」的假结论。**
+   EP 的 `style/index.mjs` 用的是**裸 import**（`import "../../x/style/index.mjs"`），没有 `from` 关键字。我第一版闭包探针用 `/from\s+['"]\.\.\/\.\.\/([a-z0-9-]+)\/style\/index\.mjs['"]/`，匹配数为 **0**，于是算出「闭包 = USED（无额外依赖）」这个**假结论**——差点据此把 QG Visual 的红归因为「与本次改造无关」。
+   **可复用判据**：结构解析类判据跑完必须**打印命中条数**并对命中数做下界断言（如「闭包大小 ≥ 输入集合大小」）。「匹配 0 条」与「真的没有」在输出上一模一样——这是「夹具比生产更顺」同族坑搬到了正则上。
+
+8. **「按需子集」对齐「全量」时，多导一个全量产物里没有的文件 = 凭空多出全局副作用。**
+   `element-plus/theme-chalk/el-reset.css` 含 `input,textarea,button{font-family:inherit}`，
+   还改了 `a`（链接颜色）、`h1~h6`（颜色/字号）、`p`（`line-height:1.8`）、`hr`、
+   `sup,sub,small` 等**原生元素**规则；而 EP 自己的全量产物 `theme-chalk/index.css`
+   （=`dist/index.css`）**根本不含这个文件**（实测在其内搜不到该规则）。
+   于是按需装配里多导它 = 悄悄改掉应用自身的元素默认样式，而这些在全量引入下从未被改过 ——
+   后果是按钮字体从 UA 默认 `Arial` 变成继承字体栈，像素门禁红
+   （create-editor 9.48% / create-pipeline 9.26% / podcast-channel 2.05%）。
+   **判据（双向）**：「全量有、子集没有」= 真缺失；**「子集有、全量没有」= 凭空多出的全局副作用**。
+   只算「组件 → 样式」闭包不够，必须**逐文件核对它是否真的存在于全量产物中**。
+   回归锁见 `element-plus.test.js` P6。
+   （同批还修了闭包缺失：漏 `el-scrollbar`/`el-popper`/`el-overlay`/`el-option-group`/`el-text`/
+   `el-radio` 本体/`el-config-provider` 共 7 个，补齐后 podcast-channel 21.63% → 2.05%；
+   判据来源是 `es/components/<name>/style/index.mjs`，注意它是**裸 import**，
+   写成 `/from\s+…/` 会匹配 0 条并算出「闭包 = 已导入」的假结论。）
+
+9. **像素回归的三步排除 + 一步定位（本轮实测顺序，可作模板）。**
+   ① **排除缺规则**：解析全量 CSS 与子集的**选择器集合**求差（本轮 1355 个），
+   再在真实页面上对每个差集选择器 `querySelectorAll` —— 命中 0 ⇒ 规则集完整。
+   ② **排除缺注册**：带 e2e 夹具逐路由采集控制台，看有无
+   `Failed to resolve component/directive`。
+   ③ **排除抖动**：同一状态连拍 2–3 次两两比对（本轮 **0.00%**，最大 14 px 属抗锯齿级）。
+   三条都排除后，**决定性一步是「逐元素计算样式签名对比」**：遍历全 DOM（本轮 348 个元素），
+   为每个元素打一份计算样式签名（`font-family`/`color`/`background-image`/`::before`/`::after` 等），
+   两态逐项 diff —— 它会直接给出**唯一差异属性**与**命中的元素集合**
+   （本轮：`font-family` 命中 32 个，全是 BUTTON 及其子节点，一眼指向表单控件重置）。
+   **别用「肉眼看截图」代替这一步**：本轮两张截图肉眼几乎一致（PNG 仅差 127 字节），
+   像素差异却是 9.41%。另注意**阈值口径**：本地像素默认 **1%**，CI 用 **6%**
+   （`PIXEL_THRESHOLD`）—— 同一张图两边结论可能相反，对照前先对齐。
+
+10. **A/B 对照必须还原「完整变更集」；只还原其中一层，会把另一层的因果误判成「无关」。**
+    我做过一次 A/B：「临时加回 `element-plus/dist/index.css`」——只还原了 **CSS**，没还原 **JS 装配**，
+    于是得出「这两处与本 PR 无关」的**错误结论**并写进了文档。真根因 `el-reset.css` 虽在 CSS 侧，
+    却只有在「**整套改动** vs `origin/main`」的对照下才暴露：完整还原后三处是
+    **0.21% / 0% / 0%**，而我的分支是 **9.48% / 9.26% / 2.05%**。
+    **纪律**：下「与我无关」的结论前，先做**整套还原**的对照；只差一层就下结论，
+    等于把「我没测到」当成「不存在」。
+
+11. **`git checkout HEAD -- <目录>`（宽目录恢复）会连带丢掉该目录下所有未提交改动。**
+    做 A/B 时我用它还原 `src`，把**尚未提交**的 `el-reset.css` 修复与 P6 锁一起抹掉，
+    之后一次复跑「红回 9.48%」才发现。AGENTS.md 铁律 R2 明确禁止宽目录恢复
+    （「恢复只针对 `git status` 精确列出的文件」）——**这不是纸面纪律，是这次真踩的**。
+    **正解**：A/B 前先提交，或把未提交文件复制到 `%TEMP%` 备份；
+    恢复时逐个文件 `git checkout HEAD -- <精确路径>`。
+
+12. **「防再犯锁」自己被对抗评审判红 4 条 —— 锁的判据比锁的存在更重要。**
+    本 PR 的 QM-6 双模型深度审查（critic=claude）对**我为防再犯而新写的两道锁**判出
+    7 条 findings，其中 4 条争议项我逐条复核后**全部判 upheld、无一条驳回**：
+    - **Critical**：P6 自称「断言集合关系，防换个文件重犯」，但抽首选择器用的是
+      `/\\.el-[a-z0-9-]+/`（**只认 class 选择器**）。而 `el-reset.css` 以 `body{}` /
+      `input,textarea,button{}` 开头 ⇒ 正则匹配不到 ⇒ 返回 null ⇒ 被塞进「占位」桶，
+      **根本不会进「不在全量里」那个桶**。真正挡住事故文件的只有那条硬编码断言，
+      而我自己在注释里称它是「弱锁」。⇒ **所谓通用锁对本次事故文件一次都没生效。**
+    - 另 3 条：子串匹配假通过（`.el-radio` 命中 `.el-radio-group`）；魔法数阈值把
+      「判据失效」与「合法 0 字节占位」混在一个桶里（等于给判据自身的失效留了名额）；
+      扫描面过窄（只扫 `.vue`、要求 `v-` 前是空白、不扫 `withDirectives`）。
+    **通用教训**：写「防再犯锁」时必须自问 —— ① 判据能否覆盖**本次事故对象本身**？
+    ② 判据的**自我描述与实现是否一致**（"断言集合关系"就必须真的按集合判）？
+    ③ 判据失效（解析出 0 条、抽不出字段）时是**判红**还是**静默通过**？
+    ④ 正则/扫描的**覆盖范围**是否写全（文件类型、前导字符）？
+    **验证手法**：把**硬编码那条断言改成 `false`**，看通用判据能否独立抓出事故对象 ——
+    能，才证明通用锁真的在跑。本 PR 实测：改掉硬编码后 P6 仍报
+    `el-reset（首个选择器 body）` 判红 ⇒ 通用锁已独立生效。
+    **另一条配套**：判据扫源码时必须**排除判据自身**——放宽 P7 正则后，它立刻把
+    本文件里的 `v-infinite-scroll` 字面量扫成「用法」而自指误报。
+
+13. **工具链自身挡住必做门禁时，正解是找变通跑法或如实登记，不是编造 findings 让它看起来走过了。**
+    `ccg-review-decider` 把判定记录**以提交前的 HEAD sha 命名**（`.git/hooks/pre-commit`
+    第 148-155 行注释明说这是刻意设计：防 `.ccg/reviews` 未跟踪堆积），而 `deep-review.sh`
+    读的是**当前 HEAD** 的记录 ⇒ **错位一格**。实测四条常规路径全部走不通：
+    ① `sh scripts/deep-review.sh` → 「判定记录: 无」；② 驱动 `--sha <记录名>` →
+    `base..head` 恒空（该 sha 已是 main 祖先）⇒ 报「取不到 diff」退出 0；
+    ③ 改传真正承载改动的 sha → 被同名旧记录（`mode=skip`）短路；
+    ④ 删掉旧记录 → 驱动直接「未找到…跳过深度审查」。
+    **变通跑法（本 PR 实测可用）**：让决定器对一个**真正承载改动**的提交判一次 ——
+    `git reset --soft <parent>`（改动留在索引）→ `ccg-review-decider.js --sha <HEAD>`
+    产出名字正确的记录（DUAL）→ `git reset --soft <HEAD>` 复原 →
+    `ccg-deep-review.js --sha <HEAD> --base <parent>`。这样记录的内容是决定器**真实**
+    对本次改动 diff 的判定，不是伪造。
+    **建议独立切片修正记录命名**（改用提交后 sha，或父/子同写两份）。
+    **纪律**：先穷尽变通跑法；确实跑不通时如实登记并写明根因，**绝不编造 findings**。
+
+14. **同一指标在文档里出现多个数字时，必须连环境一起写。**
+    本次 QM-6 评审的 i4 就是这条：`create-pipeline` 在 openspec 记录里写 **9.47%**、
+    在 BUGFIX/CHANGELOG 里写 **9.26%** —— 两个数**都真实但来自不同环境**
+    （9.47% = CI 首轮，9.26% = 本地复跑，本地阈值 1% vs CI 阈值 6%）。
+    单看文档像自相矛盾，会**削弱「对照实验」结论的可信度**。
+    **纪律**：写像素/耗时/体积这类环境相关数字时，一律标注**来源环境**。
+
 ## 逐文件行数门禁的真实上限、rebase 冲突标记自检，与「不带热点载体」的二次验证（ops-url-split，2026-10-15）
 
 1. **逐文件行数门禁的真实上限 = 登记值 + 容差，且它数的是 `split('\n').length`（结尾换行多算 1）。**

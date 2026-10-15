@@ -57,6 +57,13 @@ import '@vueup/vue-quill/dist/vue-quill.snow.css'
 import { useI18n } from 'vue-i18n'
 import { APP_ARTICLE_CONTENT_MAX } from '@/features/publish/publish-contract'
 
+// 本地注册（2026-10-15 fix-newtab-home-slow）：QuillEditor 原先由 main.js 以
+// app.component 全局注册，那会把 @vueup/vue-quill 拉进首屏 bundle 闭包。
+// 改成本地注册后，Quill 只随 /publish 路由的懒加载 chunk 一起下载
+// （实测 quill-DQhlSbIM.js 144KB 独立 chunk，不进 index.js）。
+// 契约锁：src/main.bundle-contract.test.js 断言 main.js 不得再出现它。
+const components = { QuillEditor }
+
 const { t } = useI18n()
 
 const props = defineProps({

@@ -75,6 +75,32 @@
 - 关闭活动标签后的回退逻辑不变（切相邻标签，全关则回 home 虚拟标签）。
 - home 虚拟标签仍不可关闭、始终存在于标签栏第一位。
 
+### F7 新标签首屏性能（2026-10-15 补充，P1）
+
+**背景**：F1 落地后，「+」新标签 = 一个全新渲染进程完整加载本应用 SPA。
+实测从点击到主页可见要 3-4 秒，用户感知为「点了没反应」。根因不在主进程
+（`createNewTabPage` 同步段实测 24 ms/1 ms），而在**首屏 bundle 为所有页面的并集付钱**：
+element-plus 全量引入把 124 个组件全部打进 `index.js`/`index.css`，
+而本仓实际只用 36 个。详见 `01-docs/BUGFIX-NEWTAB-HOME-SLOW-2026-10-15.md`。
+
+**需求**：
+
+- **F7.1 首屏载荷最小化**：`index.js` / `index.css` 只包含首屏（`/` 路由）真正需要的代码与样式。
+  UI 框架必须按需引入，禁止全量 `app.use(Framework)` + 全量 CSS。
+  - 基线（2026-10-15 修复后实测）：`index.js` 1 334 KB、`index.css` 300 KB。
+  - 契约锁：`src/main.bundle-contract.test.js`。
+- **F7.2 重依赖只在用到它的路由加载**：只在单一路由使用的重型组件（如富文本编辑器 Quill）
+  必须在该路由的懒加载 chunk 内注册，**不得**在 `main.js` 全局 `app.component`。
+- **F7.3 首屏数据不串行**：首页首帧渲染不得阻塞在任何 IPC 返回之后；
+  相互独立的数据源必须并行取数，单个失败不得扩散。
+- **F7.4 慢而非必需的校验懒触发**：逐账号登录态校验（`accounts:batch-check-login`）
+  这类「有问题才可见」的校验，不得在首屏同步 await 链上；组件卸载时取消未发出的触发。
+- **F7.5 验收判据**：点击「+」到主页可见 ≤ 1 s（开发态 devServer）/
+  ≤ 1.5 s（打包态 file://），以 `mp-home` testid 出现为判据。
+- **F7.6 新增 EP 组件的登记纪律**：`src` 任一处新增 `<el-xxx>` 用法，
+  必须在 `src/plugins/element-plus.js` 的组件清单与样式清单同步登记。
+  漏登记由 `src/plugins/element-plus.test.js` 的机械锁判红（而不是线上白屏）。
+
 ## 4. 数据校验与边界
 
 | 项 | 规则 |
@@ -85,6 +111,10 @@
 | Cookie/localStorage | 内嵌主页标签不注入账号凭证（无 accountId 即跳过凭证恢复，既有逻辑天然满足） |
 | 并发创建 | 连点"+"允许多个内嵌主页标签并存，各自独立 tabId/分区/实例 |
 | 内嵌实例降级 | 非 Electron 环境（纯浏览器打开 Vite）无 pageManager API，home-shell 参数无消费者，正常按普通 SPA 渲染，不报错 |
+| **首屏 bundle 边界（F7）** | `index.js` / `index.css` 只允许含首屏路由（`/`）必需代码；UI 框架按需（契约：`main.bundle-contract.test.js`）；单路由重型组件在该路由 chunk 内注册 |
+| **首屏取数边界（F7）** | 首帧渲染不阻塞任何 IPC；相互独立的数据源并行；单源失败只停对应区块（默认值），不扩散、不整页报错 |
+| **懒触发边界（F7）** | `accounts:batch-check-login` 不得出现在首屏同步 await 链；触发定时器在组件卸载时必须清除（`onUnmounted` → `clearTimeout`） |
+| **EP 登记边界（F7）** | `src` 任一处 `<el-xxx>` 用法必须同步登记进 `src/plugins/element-plus.js` 的组件清单 + 样式清单；机械锁核对（`element-plus.test.js` P3） |
 
 ## 5. 安全约束（CRITICAL，不可妥协）
 
@@ -123,6 +153,8 @@
 6. `node_modules` 全量单测通过；新增回归测试覆盖：默认主页 URL 构造、preload 选择矩阵（home-shell vs 普通 vs 外站重定向）、归位守卫移除、标题 i18n。
 7. QM-1 打包验证通过（electron-builder --win --dir + asar 清单 + require 链 + 8 秒启动无 stderr 报错）。
 8. CI 全绿并合并。
+9. **（F7）首屏性能验收**：点击「+」到 `mp-home` testid 出现 ≤ 1 s（devServer）/ ≤ 1.5 s（打包 file://）；`index.js` ≤ 1.4 MB、`index.css` ≤ 320 KB（2026-10-15 修复后基线 1 334 KB / 300 KB）。
+10. **（F7）EP 按需验收**：`/` `/publish` `/accounts` `/dashboard` `/publish/history` `/collection` 六路由在真实打包产物上均正常渲染（无 "Failed to resolve component"）；Quill 只在 `/publish` 的 chunk 内。
 
 ## 9. 非目标（Out of Scope）
 
@@ -138,6 +170,8 @@
 | 双 SPA 实例全局副作用重复（心跳/管道/通知） | 中 | S5 清单化禁用项；dogfooding 观察日志重复计数 |
 | 移除归位守卫后旧操作路径失联（浏览器标签点侧边栏期望弹回） | 低 | F3 替代交互：外层侧边栏仅 home 标签可见时才可点；行为变更写入 CHANGELOG |
 | 内嵌实例内存开销（双 SPA） | 低 | 每标签独立分区已有先例；主页标签数不做限制，用户关闭即释放 |
+| **首屏 bundle 随功能增长而无界膨胀（F7）** | **中** | **契约锁**：`main.bundle-contract.test.js` 禁全量引入；`element-plus.test.js` P3 机械锁漏登记；每次新增重依赖须问「它在几条路由上被用」（QM-2 新增项） |
+| **按需改造漏登记组件导致页面白屏（F7）** | **中** | P3 扫 `src` 全部 `<el-xxx>` 核对注册表；六路由真实产物冒烟 |
 
 ## 11. 测试计划（TDD，先红后绿）
 
@@ -149,6 +183,9 @@
 | store 单测 | `src/stores/tab.test.js` | createTab 默认参数不含 title:'首页' |
 | locale 门禁 | CI Gate 7 | zh/en 成对 |
 | 视觉回归 | 现有 `test:visual:pixel` 集 | 新标签主页截图基线 |
+| **bundle 契约（F7）** | `src/main.bundle-contract.test.js`（新） | 禁全量 EP / 禁全量 CSS / 必须接按需插件 / Quill 不得全局注册（7 条） |
+| **EP 注册行为（F7）** | `src/plugins/element-plus.test.js`（新） | 注册表含关键组件；命令式 API 单独导出；**扫 src 全部 `<el-xxx>` 核对注册表**（漏登记机械锁，3 条） |
+| **首屏时序（F7）** | `src/views/Home.first-paint.test.js`（新） | 首帧不等 IPC；统计/历史并行；单点失败不扩散；批量登录态校验懒触发（4 条） |
 
 ## 12. 文档与追溯
 

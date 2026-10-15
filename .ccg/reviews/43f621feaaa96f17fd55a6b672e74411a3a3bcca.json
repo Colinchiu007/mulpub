@@ -1,0 +1,28 @@
+{
+  "sha": "43f621feaaa96f17fd55a6b672e74411a3a3bcca",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 28 行（≤ 200）但命中 auth/数据库/加密：敏感内容 1 处",
+  "stats": {
+    "changedLines": 28,
+    "fileCount": 3,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 1,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "| ⚠️ 失误 4：`--continue` 的失败被取证方式掩盖 | 已修 | 首次 `git rebase --continue` 实际未成功（冲突仍在、rebase 未结束），而我把输出用 `Select-Object -Last 1` 截断后读成「成功」。**教训**：判 rebase 成败**不得只看截断输出**，必须查 `<git-dir>/rebase-merge` 是否仍存在 + `git status` 是否仍有 `UU` + `HEAD` 与意图差异是否一致 |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "eaeadda3a6a8ac6865379e834fd48bbde4bfb395e51bf93f29741e5cb33eb9f2",
+  "decidedAt": "2026-10-15T14:38:22.899Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

@@ -1,4 +1,10 @@
 const { execSync, spawn } = require('child_process')
+// QM-1 子进程环境纪律（fix-qm1-electron-run-as-node）：剔除 ELECTRON_RUN_AS_NODE，
+// 并在父环境带着它时出声告警。回归锁 scripts/qm1-child-env.test.js 含接线锁。
+// 注意：helper 必须放在 scripts/lib/ 下 —— 根级 .gitignore 的 `scripts/*.js`
+// 只放行白名单里的若干文件，放同级会被静默忽略（症状：本地全绿、CI 上
+// Cannot find module；见 .gitignore:109-111 的同族记载）。
+const { ELECTRON_RUN_AS_NODE, buildChildEnv, envDefectNotice } = require('./lib/qm1-child-env.js')
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
@@ -105,7 +111,14 @@ if (!fs.existsSync(EXE)) {
 } else {
   let stderr = ''
   let stdout = ''
-  const child = spawn(EXE, [], { stdio: ['ignore', 'pipe', 'pipe'] })
+  // ⛔ 2026-10-15：必须显式传 env，且其中剔除 ELECTRON_RUN_AS_NODE。
+  //    父环境带该变量时（本机 DSH 会话默认带），Electron 会以纯 Node 模式启动并
+  //    静默退出（rc=0、stdout/stderr 全空）—— 与「启动干净」同形 ⇒ 假绿。
+  const envNotice = envDefectNotice(process.env)
+  if (envNotice) {
+    console.log(`  ⚠ 环境告警：${envNotice}`)
+  }
+  const child = spawn(EXE, [], { stdio: ['ignore', 'pipe', 'pipe'], env: buildChildEnv(process.env) })
   child.stdout.on('data', d => { stdout += d.toString() })
   child.stderr.on('data', d => { stderr += d.toString() })
 
@@ -117,7 +130,11 @@ if (!fs.existsSync(EXE)) {
   // 会被 Node 钳到 1ms 并抛 TimeoutOverflowWarning，导致验证窗口形同虚设）
   setTimeout(() => {
     if (exited) {
-      bad(`进程提前退出：code=${premature.code} signal=${premature.signal}`)
+      // 存活是「三层 stderr 判据」的隐含前提：进程没起来时 stderr 必然为空，
+      // 只看 stderr 就会把「根本没启动」读成「启动干净」。故这里必须红。
+      bad(`进程提前退出：code=${premature.code} signal=${premature.signal}`
+        + `（若 code=0 且 stdout/stderr 皆空，先查 ${ELECTRON_RUN_AS_NODE}：`
+        + '它会让孩子以纯 Node 模式启动并静默退出）')
     } else {
       ok(`进程在 ${LAUNCH_WINDOW_MS / 1000} 秒后仍存活（未崩溃）`)
     }
