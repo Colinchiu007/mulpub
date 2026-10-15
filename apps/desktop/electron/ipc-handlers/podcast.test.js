@@ -113,6 +113,8 @@ describe('podcast handler · 成功信封', () => {
         episodes: [{ id: 'ep-1', compliance: { state: 'invalid', reasons: expect.arrayContaining(['EPISODE_TITLE_REQUIRED']), checkedAt: expect.any(String) } }],
         cap: 1000,
         count: 1,
+        // §7.9.4 新键：本夹具没有 registry ⇒ 凭据读不出 ⇒ 摘要为 null（缺席必须是 null，不是 0）
+        stock: null,
       },
     })
     // 评审 i2：分发端目录不再经「按频道构造」的 service，所以注入的假 service 一次都不该被调用
@@ -410,7 +412,7 @@ describe('podcast handler · 单集 compliance 接线', () => {
     expect(ep.compliance.reasons).toEqual(validateEpisode({ id: 'ep-1' }, 0).issues.map((i) => i.code))
     expect(ep.compliance.checkedAt).toEqual(expect.any(String))
     // 既有键一个都没动（追加式契约的另一半：cap/count 与期数照旧）
-    expect(Object.keys(res.data)).toEqual(['episodes', 'cap', 'count'])
+    expect(Object.keys(res.data)).toEqual(['episodes', 'cap', 'count', 'stock'])
     expect(res.data.cap).toBe(1000)
     expect(res.data.count).toBe(1)
   })
@@ -440,10 +442,10 @@ describe('podcast handler · 单集 compliance 接线', () => {
   })
 
   it('旁路降级：组装抛错 ⇒ 返回不带 compliance、期数不变、只 warn 一次', async () => {
-    const boom = {
-      readStockStamp: () => null,
+    const boom = Object.assign({}, require('../services/podcast-episode-compliance'), {
+      readStockStampRecord: () => null,
       annotateEpisodes: () => { throw new Error('装配炸了') },
-    }
+    })
     const { ipcMain, log } = setupCompliance({ complianceMod: boom })
     const res = await invoke(ipcMain, 'podcast:episode:list', { channelId: 'ch-1' })
     expect(res.code).toBe(0)
@@ -457,13 +459,104 @@ describe('podcast handler · 单集 compliance 接线', () => {
     const service = makeService({ listEpisodes: vi.fn(() => [{ id: 'e1' }, { id: 'e2' }]) })
     const { ipcMain } = setupCompliance({
       service,
-      complianceMod: {
-        readStockStamp: () => null,
-        annotateEpisodes: require('../services/podcast-episode-compliance').annotateEpisodes,
-      },
+      complianceMod: Object.assign({}, require('../services/podcast-episode-compliance'), {
+        readStockStampRecord: () => null,
+      }),
     })
     const res = await invoke(ipcMain, 'podcast:episode:list', { channelId: 'ch-1' })
     expect(res.code).toBe(0)
     expect(res.data.episodes.map((e) => e.compliance.state)).toEqual(['invalid', 'invalid'])
+  })
+
+  it('固化摘要随列表带出：index 的三个实测计数原样投影，界面不必自己数', async () => {
+    const service = makeService({ listEpisodes: vi.fn(() => [{ id: 'e1', mimeSource: 'stock' }, { id: 'e2' }]) })
+    const files = {}
+    const indexFile = nodePath.join('/podcast', 'index.json')
+    files[indexFile] = JSON.stringify({
+      stockStamp: { at: '2026-10-14T00:00:00.000Z', channels: 1, scanned: 2, filled: 1, unresolved: 1, unresolvedChannels: [], source: 'libmp3lame/aac' },
+    })
+    // 按**路径**记账（不按"有没有调过 readFileSync"）：列表路径上别的实现也可能读别的文件，
+    // 无路径过滤的计数会把「读了三次别的文件」也记成通过、把「读了两次 index」记成失败但说不清是哪份。
+    const reads = []
+    const { ipcMain } = setupCompliance({
+      service,
+      registry: { resolveRoot: () => '/podcast', channelDir: () => '/podcast/ch-1' },
+      fsImpl: {
+        existsSync: (f) => f in files,
+        readFileSync: (f) => { reads.push(String(f)); return files[f] },
+      },
+    })
+    const res = await invoke(ipcMain, 'podcast:episode:list', { channelId: 'ch-1' })
+
+    // 多余字段（channels/source/unresolvedChannels/at）一律不外泄：界面只拿它要显示的三个数
+    expect(res.data.stock).toEqual({ scanned: 2, filled: 1, unresolved: 1, skippedChannels: 0 })
+    // 两个消费者共用同一次读：compliance 判得出 stock 档，摘要同时带出计数
+    expect(res.data.episodes[0].compliance.state).toBe('stock')
+    expect(res.data.episodes[1].compliance.state).toBe('invalid')
+  })
+
+  it('compliance 与摘要共用**同一次** index 读取：列表路径上 index.json 只被读一次', async () => {
+    // 单列一格而不是并到上一条的断言尾巴上：并进去以后，"多读一次"这种变异只会让那条
+    // 恰好也在抓别的形态的用例变红，红集互相包含，读起来像没有指名。
+    const service = makeService({ listEpisodes: vi.fn(() => [{ id: 'e1', mimeSource: 'stock' }]) })
+    const indexFile = nodePath.join('/podcast', 'index.json')
+    const files = {}
+    files[indexFile] = JSON.stringify({ stockStamp: { at: '2026-10-14T00:00:00.000Z', scanned: 1, filled: 1, unresolved: 0, unresolvedChannels: ['ch-gone'] } })
+    const reads = []
+    const { ipcMain } = setupCompliance({
+      service,
+      registry: { resolveRoot: () => '/podcast', channelDir: () => '/podcast/ch-1' },
+      fsImpl: {
+        existsSync: (f) => f in files,
+        readFileSync: (f) => { reads.push(String(f)); return files[f] },
+      },
+    })
+    const res = await invoke(ipcMain, 'podcast:episode:list', { channelId: 'ch-1' })
+    // 两个消费者都必须有产物，否则"只读一次"可以靠"少读一次/谁都没读到"混过去
+    expect(res.data.episodes[0].compliance.state).toBe('stock')
+    // 整频道被跳过时 unresolved 仍是 0——skippedChannels 是它唯一的可见出口（后端 B2）
+    expect(res.data.stock).toEqual({ scanned: 1, filled: 1, unresolved: 0, skippedChannels: 1 })
+    expect(reads.filter((f) => f === indexFile)).toHaveLength(1)
+  })
+
+  it('凭据在位但计数不齐 ⇒ stock 为 null 且出声（不得把「不认识」显示成「0 期待处理」）', async () => {
+    const files = {}
+    files[nodePath.join('/podcast', 'index.json')] = JSON.stringify({ stockStamp: { at: '2026-10-12T00:00:00.000Z' } })
+    const { ipcMain, log } = setupCompliance({
+      service: makeService({ listEpisodes: vi.fn(() => [{ id: 'e1', mimeSource: 'stock' }]) }),
+      registry: { resolveRoot: () => '/podcast', channelDir: () => '/podcast/ch-1' },
+      fsImpl: { existsSync: (f) => f in files, readFileSync: (f) => files[f] },
+    })
+    const res = await invoke(ipcMain, 'podcast:episode:list', { channelId: 'ch-1' })
+    expect(res.code).toBe(0)
+    expect(res.data.stock).toBeNull()
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('stockStamp'))
+    // 摘要缺席不拖垮 compliance：两个回落各自独立（否则一份凭据读坏 = 整个列表没标记）
+    expect(res.data.episodes[0].compliance.state).toBe('stock')
+  })
+
+  it('畸形 stockStamp 是常驻状态 ⇒ 同一句 warn 每进程只出声一次（去重，不是静默）', async () => {
+    const files = {}
+    files[nodePath.join('/podcast', 'index.json')] = JSON.stringify({ stockStamp: { at: '2026-10-12T00:00:00.000Z' } })
+    const { ipcMain, log } = setupCompliance({
+      service: makeService({ listEpisodes: vi.fn(() => [{ id: 'e1', mimeSource: 'stock' }]) }),
+      registry: { resolveRoot: () => '/podcast', channelDir: () => '/podcast/ch-1' },
+      fsImpl: { existsSync: (f) => f in files, readFileSync: (f) => files[f] },
+    })
+    await invoke(ipcMain, 'podcast:episode:list', { channelId: 'ch-1' })
+    await invoke(ipcMain, 'podcast:episode:list', { channelId: 'ch-1' })
+    await invoke(ipcMain, 'podcast:episode:list', { channelId: 'ch-1' })
+    // 去重 ≠ 静默：第一轮必须出声，之后不重复（刷屏会把真信号冲掉，QM-6 前端轴线索 L5）
+    const hits = log.warn.mock.calls.filter((c) => String(c[0]).indexOf('stockStamp') >= 0)
+    expect(hits).toHaveLength(1)
+  })
+
+  it('摘要这一路炸了也不毁主路：模块缺 readStockStampRecord 时列表照旧、stock 为 null', async () => {
+    const { ipcMain, log } = setupCompliance({ complianceMod: { annotateEpisodes: () => [] } })
+    const res = await invoke(ipcMain, 'podcast:episode:list', { channelId: 'ch-1' })
+    expect(res.code).toBe(0)
+    expect(res.data.episodes).toEqual([{ id: 'ep-1' }])
+    expect(res.data.stock).toBeNull()
+    expect(log.warn).toHaveBeenCalledTimes(1)
   })
 })

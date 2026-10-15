@@ -11,7 +11,7 @@
 const path = require('node:path')
 const fs = require('node:fs')
 
-const { annotateEpisodes, readStockStamp, COMPLIANCE_STATES, FALLBACK_REASON_CODE } = require('./podcast-episode-compliance')
+const { annotateEpisodes, readStockStamp, readStockStampRecord, toFreezeSummary, COMPLIANCE_STATES, FALLBACK_REASON_CODE } = require('./podcast-episode-compliance')
 
 const APPS_DESKTOP = path.resolve(__dirname, '..', '..')
 
@@ -202,5 +202,138 @@ describe('单集 compliance 只读重跑（PRD §8.2）', () => {
       fsImpl: { existsSync: () => true, readFileSync: () => '{坏 JSON' },
       logger: { warn () {} },
     })).toBeNull()
+  })
+})
+
+/**
+ * PRD §7.9.4「频道页固化摘要」。与上面 §8.2.6 那七条分开写，因为它量的是**另一件事**：
+ * 摘要不参与合格与否，它只是把固化层当时实测的三个计数原样投影给界面。
+ * 一条判据贯穿全部：缺席一律 null（不显示），**绝不回落成 0**。
+ */
+describe('§7.9.4 固化摘要：一次读、按计数投影、缺席不猜 0', () => {
+  const indexFile = path.join('/podcast', 'index.json')
+  const reg = { resolveRoot: () => '/podcast' }
+  const fsOf = (indexObj) => {
+    const files = {}
+    files[indexFile] = JSON.stringify(indexObj)
+    return { existsSync: (f) => f in files, readFileSync: (f) => files[f] }
+  }
+  const NOLOG = { warn () {} }
+
+  it('readStockStampRecord 给出整份凭据；readStockStamp 是它的 .at 投影（同一次读，只有一份路径判据）', () => {
+    const full = { at: '2026-10-14T00:00:00.000Z', channels: 2, scanned: 11, filled: 4, unresolved: 1 }
+    const rec = readStockStampRecord({ registry: reg, fsImpl: fsOf({ stockStamp: full }), logger: NOLOG })
+    expect(rec).toEqual(full)
+    expect(rec).not.toBe(full)
+    expect(readStockStamp({ registry: reg, fsImpl: fsOf({ stockStamp: full }), logger: NOLOG })).toBe(full.at)
+  })
+
+  it('stockStamp 在位但 at 缺席 ⇒ 两份投影都是 null（没有 at 就没有来源凭据）', () => {
+    expect(readStockStampRecord({ registry: reg, fsImpl: fsOf({ stockStamp: { scanned: 3, filled: 0, unresolved: 0 } }), logger: NOLOG })).toBeNull()
+    expect(readStockStamp({ registry: reg, fsImpl: fsOf({ stockStamp: { scanned: 3 } }), logger: NOLOG })).toBeNull()
+  })
+
+  it('toFreezeSummary 只投影三个计数，at/channels/source/unresolvedChannels 都不外泄', () => {
+    const s = toFreezeSummary({ at: 'x', channels: 2, scanned: 11, filled: 4, unresolved: 1, unresolvedChannels: ['a', 'b'], source: 'libmp3lame/aac' })
+    expect(Object.keys(s)).toEqual(['scanned', 'filled', 'unresolved', 'skippedChannels'])
+    expect(s).toEqual({ scanned: 11, filled: 4, unresolved: 1, skippedChannels: 2 })
+  })
+
+  it('计数 0 是真实结论，必须原样保留（不得被「缺席判据」吃掉）', () => {
+    expect(toFreezeSummary({ at: 'x', scanned: 0, filled: 0, unresolved: 0, unresolvedChannels: [] })).toEqual({ scanned: 0, filled: 0, unresolved: 0, skippedChannels: 0 })
+  })
+
+  it('计数缺席或形态不对 ⇒ null，绝不回落成 0（「不知道」不等于「没有待办」）', () => {
+    const bad = [
+      null, undefined, 'x', 0, [], {},
+      { at: 'x', scanned: 3, filled: 1 },
+      // unresolvedChannels 缺席/形态不对同样判 null：不给"不知道有几个频道被跳过"补 0
+      { at: 'x', scanned: 3, filled: 1, unresolved: 0 },
+      { at: 'x', scanned: 3, filled: 1, unresolved: 0, unresolvedChannels: 'ch-1' },
+      { at: 'x', scanned: 3, unresolved: 1 },
+      { at: 'x', filled: 3, unresolved: 1 },
+
+      { at: 'x', scanned: 3, filled: 1.5, unresolved: 0 },
+      { at: 'x', scanned: '3', filled: 1, unresolved: 0 },
+      { at: 'x', scanned: NaN, filled: 1, unresolved: 0 },
+      { at: 'x', scanned: Infinity, filled: 1, unresolved: 0 },
+    ]
+    for (const c of bad) expect(toFreezeSummary(c)).toBeNull()
+  })
+
+  it('负数计数不是实测值 ⇒ null（与「缺席」分格：放宽符号判据必须被这一条指名抓到）', () => {
+
+    // `unresolvedChannels: []` 是**必要**的：投影对"跳过频道数组缺席"也判 null，
+    // 少了这个字段，本用例会在"符号放宽"的变异下仍然通过（null 来自另一个原因），
+    // 变异因此逃掉——加一条判据后，所有"只测一件事"的夹具都要回头核一遍。
+    expect(toFreezeSummary({ at: 'x', scanned: 3, filled: -1, unresolved: 0, unresolvedChannels: [] })).toBeNull()
+  })
+
+  it('JSON 里带 __proto__ 键的凭据不得污染返回对象的原型', () => {
+    // 来源是本机自己写的 index.json，风险等级低；但免疫只要一行（展开语法用
+    // CreateDataProperty，而 Object.assign 用 [[Set]] 会触发 Object.prototype 的 __proto__ setter）。
+    const raw = '{"stockStamp":{"at":"2026-10-15T00:00:00.000Z","__proto__":{"polluted":1}}}'
+    const files = {}
+    files[indexFile] = raw
+    const rec = readStockStampRecord({ registry: reg, fsImpl: { existsSync: () => true, readFileSync: () => raw }, logger: NOLOG })
+    expect(Object.getPrototypeOf(rec)).toBe(Object.prototype)
+    expect(rec.polluted).toBeUndefined()
+    expect(rec.at).toBe('2026-10-15T00:00:00.000Z')
+  })
+
+  it('只读：投影不得改写凭据', () => {
+    const stamp = { at: 'x', scanned: 2, filled: 1, unresolved: 1 }
+    const before = JSON.stringify(stamp)
+    toFreezeSummary(stamp)
+    expect(JSON.stringify(stamp)).toBe(before)
+  })
+
+  it('跨层同结论：真固化层写出的 stockStamp 必须被摘要层读出（哪天改计数名，本条当场红）', async () => {
+    const { freezeStockMime } = require('./podcast-episode-stock-mime')
+    let index = {}
+    const store = {
+      episodes: [
+        { id: 'a', mime: 'audio/mpeg', url: 'https://x/a.mp3' },
+        { id: 'b', mime: 'application/octet-stream', url: 'https://x/b.m4a' },
+        { id: 'c', url: 'https://x/c.bin' },
+      ],
+    }
+    await freezeStockMime({
+      logger: { info () {}, warn () {}, error () {} },
+      listChannels: () => [{ channelId: 'ch-1', episodesFile: 'episodes.json' }],
+      readEpisodes: () => store,
+      writeEpisodes: (f, next) => { store.episodes = next.episodes },
+      readIndex: () => index,
+      writeIndex: (next) => { index = next },
+      withChannelLock: (id, tag, fn) => fn(),
+    })
+    expect(index.stockStamp).toBeTruthy()
+    expect(toFreezeSummary(index.stockStamp)).toEqual({ scanned: 3, filled: 1, unresolved: 1, skippedChannels: 0 })
+    // 同一份凭据也必须让 compliance 判得出 stock 档（两处共用一次读，不许一处认一处不认）
+    expect(readStockStamp({ registry: reg, fsImpl: fsOf(index), logger: NOLOG })).toBe(index.stockStamp.at)
+  })
+
+  it('结构锁：readStockStamp 必须是 readStockStampRecord 的投影，不得自己再解析一遍 index', () => {
+    // 「同一次读」这句话在行为层测不到（两条投影各自返回值相同），只能锁实现形态。
+    // 判据必须先剥注释再匹配：本文件的注释里就写着 readFileSync/existsSync 的名字，
+    // 不剥注释会把"注释提到读盘"判成"实现在读盘"——同仓「结构锁不剥注释 = 幽灵通道」的反向落点。
+    const src = fs.readFileSync(path.join(__dirname, 'podcast-episode-compliance.js'), 'utf8')
+    const code = src.split('\n')
+      .map((l) => l.replace(/\r$/, ''))
+      .filter((l) => !l.trimStart().startsWith('//'))
+      .join('\n')
+    const i = code.indexOf('function readStockStamp (p) {')
+    expect(i).toBeGreaterThan(-1)
+    // 范围按**语义块**取（起点之后第一条顶列 `}`），不用固定字符窗口：
+    // 窗口写死 240 时，函数体一旦变长就提前截断，"不得出现 readFileSync" 会在还没走到那行时
+    // 就成立 —— 那是一条会因为实现变长而**静默失效**的锁（QM-6 前端轴线索 L1）。
+    const close = code.slice(i).match(/\r?\n}/)
+    expect(close).not.toBeNull()
+    const seg = code.slice(i, i + close.index + close[0].length)
+    // 完整性断言：截出来的必须就是这个函数的全部体（含它的 return），否则下面的负断言无意义
+    expect(seg).toContain('return rec ? rec.at : null')
+    expect(seg).toContain('readStockStampRecord(p)')
+    expect(seg).not.toContain('readFileSync')
+    expect(seg).not.toContain('existsSync')
   })
 })
