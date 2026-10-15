@@ -707,8 +707,10 @@ class OpsCenterSync {
 
   async _fetchJson(path, auth, base) {
     // auth: { type: 'catalog-key', value } | { type: 'bearer', getAccessToken }
-    // base 由调用方显式传入（此前内部重读混装的 getConfig().url，是唯一误用点）
-    const url = String(base || process.env.OPS_CENTER_URL || '').replace(/\/+$/, '') + path
+    // base 是唯一真源：env（OPS_CENTER_URL）只经 _getAutoContext() 归一后汇入 effectiveUrl 到这里。
+    // 曾带 `|| process.env.OPS_CENTER_URL` 兜底，空 base 时悄悄改走 env ⇒ 「谁提供 base」劈成两个真源，与 autoConnected/useBearer/resolveAutoSyncGuard 的来源优先级不一致。
+    if (!base) throw new Error('内部错误：请求缺少运营中心地址（base 未传入）')
+    const url = String(base).replace(/\/+$/, '') + path
     const controller = typeof AbortController === 'function' ? new AbortController() : null
     const timer = controller ? setTimeout(() => controller.abort(), SYNC_TIMEOUT_MS) : null
     let headers = { Accept: 'application/json' }
