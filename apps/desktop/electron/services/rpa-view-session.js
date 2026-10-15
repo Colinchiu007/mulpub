@@ -10,6 +10,7 @@
  */
 const { BrowserWindow, session, app } = require('electron')
 const path = require('path')
+const fs = require('fs')
 const log = require('./logger')
 const { normalizeProxyConfig, toElectronProxyRules } = require('./proxy-config')
 const { PLATFORM_LOGIN_URLS, PLATFORM_COOKIE_DOMAINS } = require('@multi-publish/shared-utils/src/platform-definitions')
@@ -202,8 +203,19 @@ const sessionMixin = {
       this._logPreloadFallback(platform, e)
       variant = 'baseline'
     }
-    const file = variant === 'enhanced' ? path.join('stealth', 'stealth-preload-enhanced.js') : 'stealth-preload.js'
-    return path.join(__dirname, '..', file)
+    const baseline = path.join(__dirname, '..', 'stealth-preload.js')
+    if (variant !== 'enhanced') return baseline
+    // enhanced 必须指向 esbuild bundle：sandbox preload 的 require 是受限 polyfill，不支持
+    // 相对文件——源文件内的 require('./evasions-bundle.js') 只能在构建期内联成单文件
+    //（scripts/build-preload.js 的 buildStealthEnhancedPreload，QM-6 Warning-2）
+    const enhanced = path.join(__dirname, 'stealth', 'stealth-preload-enhanced.bundle.js')
+    let exists = false
+    try { exists = fs.existsSync(enhanced) } catch (_e) { exists = false }
+    if (exists) return enhanced
+    // bundle 缺失（未构建/打包遗漏）：fail-closed 回落 baseline 并出声——直接返回不存在的
+    // 路径 = Electron 静默不加载 preload，连 baseline 反检测一起丢（QM-6 Critical）
+    this._logPreloadFallback(platform, new Error('enhanced preload bundle missing: ' + enhanced))
+    return baseline
   },
   _logPreloadFallback(platform, e) {
     try { log.warn('RpaView', 'preload variant resolve failed, fallback baseline: ' + platform + ' ' + (e && e.message)) } catch (_e) { /* ignore */ }

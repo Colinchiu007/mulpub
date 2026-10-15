@@ -28,11 +28,21 @@ function createCdpInput (win) {
 
   async function withDebugger (fn) {
     const dbg = wc.debugger
-    try { await dbg.attach('1.3') } catch (_e) { /* 已附着时继续用（上传路径可能持着） */ }
+    // owned-detach（对齐 isolated-world 模式，QM-6 Warning-3）：仅会话归我们时才 detach——
+    // 他方（上传路径/网络取证）已附着时复用会话，无条件 detach 会拆掉别人的 CDP 通道
+    let owned = false
+    try {
+      if (!(typeof dbg.isAttached === 'function' && dbg.isAttached())) {
+        await dbg.attach('1.3')
+        owned = true
+      }
+    } catch (_e) { /* attach 被拒（他方刚附着）：复用现状，owned=false 不拆别人的会话 */ }
     try {
       return await fn(dbg)
     } finally {
-      try { await dbg.detach() } catch (_e) { /* ignore */ }
+      if (owned) {
+        try { await dbg.detach() } catch (_e) { /* ignore */ }
+      }
     }
   }
 
@@ -54,8 +64,8 @@ function createCdpInput (win) {
         const x = (Math.min(...xs) + Math.max(...xs)) / 2
         const y = (Math.min(...ys) + Math.max(...ys)) / 2
         return { x, y, width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys), nodeId: q.nodeId }
-      }).catch((e) => {
-        try { wc.debugger && wc.debugger.detach && wc.debugger.detach() } catch (_e) { /* ignore */ }
+      }).catch(() => {
+        // 失败只降级不抛；detach 已收归 withDebugger 的 owned 判定（他方附着时不得拆通道）
         return null
       })
     },

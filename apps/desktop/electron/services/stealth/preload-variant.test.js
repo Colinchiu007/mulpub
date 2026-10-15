@@ -7,10 +7,25 @@
  * 2. 其他平台/未知平台 → baseline 变体（现状）
  * 3. 映射表不可用（require 失败）→ **fail-closed 回落 baseline** 且 warn 出声（禁静默升级）
  * 4. 映射表改配置即切换（kill-switch = 改 JSON 一行，无需回滚代码）
+ * 5. enhanced 路径必须**真实存在且为 esbuild bundle**（QM-6 Critical：路径字符串对 ≠
+ *    文件存在——Electron 遇到不存在的 preload 不报错、只是不加载，静默连 baseline 一起丢）
+ * 6. enhanced bundle 缺失 → fail-closed 回落 baseline + warn 出声（禁静默返回不存在的路径）
+ * 7. bundle 契约：evasions 必须已内联（sandbox preload 的 require 是受限 polyfill、
+ *    不支持相对文件——残留相对 require = evasions 全跳仍标 INJ_DONE 的三态假成功，
+ *    QM-6 Warning-2）
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 __enableElectronMock()
+
+// 模块作用域注册一次（warnSpy 身份跨用例稳定——AGENTS「日志类锁」条：beforeEach 只 clearAllMocks 清计数）
+const warnSpy = vi.fn()
+__registerMock('./logger', {
+  debug: vi.fn(),
+  info: vi.fn(),
+  warn: warnSpy,
+  error: vi.fn(),
+})
 
 let sessionMixin
 
@@ -26,19 +41,25 @@ function makeHost () {
 }
 
 describe('RPA preload 变体选择（PRD-OSS-RPA-HARDENING §3.1）', () => {
-  it('高风控平台 → enhanced', () => {
+  it('高风控平台 → enhanced bundle（路径真实存在——QM-6 Critical 回归锁）', () => {
     const host = makeHost()
-    expect(host._resolvePreloadPath('douyin')).toMatch(/stealth-preload-enhanced\.js$/)
-    expect(host._resolvePreloadPath('xiaohongshu')).toMatch(/stealth-preload-enhanced\.js$/)
-    expect(host._resolvePreloadPath('shipinhao')).toMatch(/stealth-preload-enhanced\.js$/)
+    const fs = require('fs')
+    for (const p of ['douyin', 'xiaohongshu', 'shipinhao']) {
+      const resolved = host._resolvePreloadPath(p)
+      expect(resolved).toMatch(/stealth-preload-enhanced\.bundle\.js$/)
+      // 字符串断言之外必须验存在性：不存在的 preload 被 Electron 静默跳过（不报错）
+      expect(fs.existsSync(resolved)).toBe(true)
+    }
   })
 
-  it('其他平台与未知平台 → baseline（现状路径）', () => {
+  it('其他平台与未知平台 → baseline（现状路径，文件真实存在）', () => {
     const host = makeHost()
-    expect(host._resolvePreloadPath('bilibili')).toMatch(/stealth-preload\.js$/)
-    expect(host._resolvePreloadPath('weibo')).toMatch(/stealth-preload\.js$/)
-    expect(host._resolvePreloadPath('no-such-platform')).toMatch(/stealth-preload\.js$/)
-    expect(host._resolvePreloadPath(undefined)).toMatch(/stealth-preload\.js$/)
+    const fs = require('fs')
+    for (const p of ['bilibili', 'weibo', 'no-such-platform', undefined]) {
+      const resolved = host._resolvePreloadPath(p)
+      expect(resolved).toMatch(/stealth-preload\.js$/)
+      expect(fs.existsSync(resolved)).toBe(true)
+    }
   })
 
   it('kill-switch：改 JSON 映射即切换（无需改代码）', () => {
@@ -48,7 +69,7 @@ describe('RPA preload 变体选择（PRD-OSS-RPA-HARDENING §3.1）', () => {
     vi.resetModules()
     sessionMixin = require('../rpa-view-session')
     const host = makeHost()
-    expect(host._resolvePreloadPath('bilibili')).toMatch(/stealth-preload-enhanced\.js$/)
+    expect(host._resolvePreloadPath('bilibili')).toMatch(/stealth-preload-enhanced\.bundle\.js$/)
     pc.riskControl.preloadVariant.bilibili = undefined
     delete pc.riskControl.preloadVariant.bilibili
   })
@@ -75,7 +96,8 @@ describe('RPA preload 变体选择（PRD-OSS-RPA-HARDENING §3.1）', () => {
     })
     host._acquireWindow('douyin', 'acc-2')
     expect(resolved).toHaveLength(1)
-    expect(resolved[0]).toMatch(/stealth-preload-enhanced\.js$/)
+    expect(resolved[0]).toMatch(/stealth-preload-enhanced\.bundle\.js$/)
+    expect(require('fs').existsSync(resolved[0])).toBe(true)
   })
 
   it('任务 2.6：baseline stealth-preload.js 头注如实声明语义并指向增强版（防错误声明回退）', () => {
@@ -92,6 +114,48 @@ describe('RPA preload 变体选择（PRD-OSS-RPA-HARDENING §3.1）', () => {
     expect(head).toMatch(/主世界不可见|不达主世界/)
     // 必须指向增强版（主世界注入的唯一入口）
     expect(head).toMatch(/stealth-preload-enhanced/)
+  })
+
+  it('enhanced bundle 契约：evasions 已内联 + 三态 marker 齐全（QM-6 Warning-2 回归锁）', () => {
+    const fs = require('fs')
+    const path = require('path')
+    const host = makeHost()
+    const bundlePath = host._resolvePreloadPath('douyin')
+    const bundleSrc = fs.readFileSync(bundlePath, 'utf8')
+    // 主进程三态读回依赖的 marker（start/done）
+    expect(bundleSrc).toContain('__mpStealthInjStart')
+    expect(bundleSrc).toContain('__mpStealthInjDone')
+    // evasions 必须已内联（evasions-bundle 特征串；preload 源文件本身不含此串）
+    expect(bundleSrc).toContain('window.outerdimensions')
+    // 残留相对 require = sandbox 运行时必失败 → bundle=null → evasions 全跳仍标 INJ_DONE 假成功
+    expect(bundleSrc).not.toMatch(/require\(["']\.\/evasions-bundle/)
+    // 源文件保持单一来源引用（构建期由 esbuild 内联，运行时不经 require）
+    const srcPath = path.join(__dirname, 'stealth-preload-enhanced.js')
+    expect(fs.readFileSync(srcPath, 'utf8')).toContain("require('./evasions-bundle.js')")
+  })
+
+  it('enhanced bundle 缺失 → fail-closed 回落 baseline + warn 出声（禁静默返回不存在的路径）', () => {
+    const fsModule = require('fs')
+    const realExists = fsModule.existsSync
+    // 按路径分域：只让 enhanced bundle 路径为假，全盘 false 会打断模块加载（AGENTS mock 纪律）
+    const spy = vi.spyOn(fsModule, 'existsSync').mockImplementation((p) => {
+      if (String(p).endsWith('stealth-preload-enhanced.bundle.js')) return false
+      return realExists(p)
+    })
+    try {
+      const host = makeHost()
+      const resolved = host._resolvePreloadPath('douyin')
+      expect(resolved).toMatch(/stealth-preload\.js$/)
+      expect(resolved).not.toMatch(/enhanced/)
+      expect(realExists(resolved)).toBe(true)
+      expect(warnSpy).toHaveBeenCalledTimes(1)
+      const [tag, msg] = warnSpy.mock.calls[0]
+      expect(tag).toBe('RpaView')
+      expect(msg).toContain('fallback baseline')
+      expect(msg).toContain('douyin')
+    } finally {
+      spy.mockRestore()
+    }
   })
 
 })

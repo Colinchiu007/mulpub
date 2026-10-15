@@ -4,65 +4,65 @@
     {
       "id": "i1",
       "severity": "Warning",
-      "dimension": "consistency",
-      "finding": "D7 要求官方 Key 路径 SHALL 调用 createKmsFromEnv、不得另立第三套判断；但该函数是 JS（cloud-accounts/index.js），Python 迁移 CLI 无法调用，选择语义（keyring 优先、空白 vs 未配、双缺 INVALID）必在 Python 复刻，而 D1 防漂移锁与 D11 对拍均不覆盖选择逻辑。复刻错则生产可能静默用 local 单密钥封印全部官方 Key。",
-      "suggestion": "将 KMS 选择语义纳入对拍与单测断言（含 alg 字面量），或两侧读取同一声明式配置，禁止 Python 独立实现判断。"
+      "dimension": "security",
+      "finding": "D4 契约仅提'127.0.0.1+token'，未定义 token 的生成、下发通道、TTL、轮换与撤销；经 argv/env 传入会被同机进程读取，防篡改但防不了窃取与重放。",
+      "suggestion": "Spec 补 token 生命周期：启动时生成、短 TTL、单次有效，禁止经 argv/env 明文下发。"
     },
     {
       "id": "i2",
       "severity": "Warning",
-      "dimension": "consistency",
-      "finding": "D5 幂等判据（'有信封且可解开'即跳过）与续跑查询（envelope IS NULL）不一致：若存在'有信封但解不开'的行（误挂另一密钥环封印的残留），续跑会跳过它，D6 变红后却无修复路径被定义。",
-      "suggestion": "续跑判据改为'无信封 OR 解不开'，并为 CLI 增加坏行重封印动作（--repair），与幂等判据对齐。"
+      "dimension": "security",
+      "finding": "D1 将 evasions 以主世界注入，页面脚本可经 toString/行为探测对隐身代码本身指纹化，反成更稳定检测面，与 R3 evasion hash 检测面风险叠加。",
+      "suggestion": "明确安装后自清理/极薄附着（不可直接 toString 读源），或说明与 D3 隔离域的配合方式。"
     },
     {
       "id": "i3",
       "severity": "Warning",
       "dimension": "security",
-      "finding": "OQ2 未定案时步骤 7 不 gating：迁移 CLI 的 KMS 自检只验证往返成功、不验证 provider，生产若只配 MP_CLOUD_KMS_LOCAL_KEY 会静默用 local 单密钥封印全部官方 Key，错误在删列后固化且不可见。",
-      "suggestion": "迁移 CLI 默认拒绝以 local provider 封印官方 Key，需显式 --allow-local（仅 CI/开发），使误配在迁移即失败。"
+      "finding": "D6 把 stealth 通道与 captcha 白名单做成可改配置，却无签名/完整性校验与篡改审计；本地改 JSON 即可静默绕过 kill-switch，回滚失效。",
+      "suggestion": "配置加载时比对内置清单哈希或加签名，变更写入审计日志。"
     },
     {
       "id": "i4",
       "severity": "Warning",
       "dimension": "completeness",
-      "finding": "key_service 写路径（双写期与仅信封期）遇 KMS 不可用的失败语义未定义；信封表 key_id 的 ON DELETE 行为未指定，删 official_keys 行可能留孤儿信封，D6-1 不覆盖。",
-      "suggestion": "写明写路径 KMS 故障 fail-closed 及提示；FK 设 ON DELETE CASCADE，并把'无孤儿信封'纳入巡检。"
+      "finding": "R2/R3 仅定'灰度校方差''首批取证'跟踪项，未定义首批样本量、异常中止条件与回滚触发阈值，风险敞口无量化出口。",
+      "suggestion": "跟踪项补充具体阈值（检出率下限/误报上限）与中止回滚规则。"
     },
     {
       "id": "i5",
       "severity": "Warning",
-      "dimension": "feasibility",
-      "finding": "D11 要求密钥环包裹格式（id 前缀+iv+tag+密文）双向解析对拍 SHALL 进 CI；但 D12 的 CI 只配 MP_CLOUD_KMS_LOCAL_KEY（无密钥 id 前缀），keyring 格式对拍在 CI 无 fixture 可跑，需求与 CI 环境矛盾。",
-      "suggestion": "为对拍提供独立 keyring fixture，或将 keyring 字节解析做成纯函数，测试注入字节样本（与 KMS 环境无关）。"
+      "dimension": "completeness",
+      "finding": "captcha 人工兜底未定义超时、取消与放弃路径；用户不干预时发布进度永久停留 captcha 相位，TERMINAL_PHASES 语义被破坏。",
+      "suggestion": "设计补兜底超时/取消/失败终态及对应 UI 提示。"
     },
     {
       "id": "i6",
       "severity": "Info",
-      "dimension": "clarity",
-      "finding": "D7 '明文不出模块：短时句柄/直接完成调用'未定义句柄接口形态与存活期；Node 服务端代调及 Python model_preset_service:1122 把 Key 发给上游如何落进该约束不明。",
-      "suggestion": "spec 阶段给出句柄最小接口（如 withKey(callback)），明确不可序列化、不可长期持有、用完即弃。"
+      "dimension": "consistency",
+      "finding": "规格文件大小写混用：behavior/captcha 为 Spec.md，其余三个为 spec.md；大小写敏感 CI 与 glob 可能断链。",
+      "suggestion": "统一小写 spec.md，并在 CI 加路径大小写校验。"
     },
     {
       "id": "i7",
       "severity": "Info",
-      "dimension": "security",
-      "finding": "D5 的 KMS 自检只证明'当前 KMS 往返可用'，不能证明所挂密钥环即运维意图之环；挂空/新环时自检通过、迁移与 D6 全绿，错误延至未来轮转才暴露。",
-      "suggestion": "迁移报告记录环文件的密钥 id 列表，与部署文档登记的预期清单比对后才放行。"
+      "dimension": "clarity",
+      "finding": "D1 走 webFrame 主世界注入、D3 走 CDP createIsolatedWorld，双机制并存却不落边界：何种 evaluate 归哪个 world、worldName 冲突、页面探测可见性差异未说明。",
+      "suggestion": "写明两机制职责边界与命名约定，并解释不复用同一 world 的原因。"
     },
     {
       "id": "i8",
       "severity": "Info",
       "dimension": "consistency",
-      "finding": "D10 优化提示（provider_plans 若步骤 3 前定型则用 v2 起步）与主决定'v1 锁定'并列，未说明两分支如何汇合、以及中途切换对步骤 3/5/6 与 D6-4 变异反证的影响。",
-      "suggestion": "明确该提示仅步骤 1 决策前有效，步骤 1 后一律 v1，避免中途切换 AAD 材料。"
+      "finding": "文档时序矛盾：D2/D3 标'进 RED'，但 git log 显示行为层/隔离求值已实现且测试 GREEN；评审基准是计划还是回溯记录不明。",
+      "suggestion": "每决策标注'已落地/待落地'，或补状态清单区分两者。"
     }
   ],
   "dimensionScores": {
     "completeness": 7,
-    "consistency": 6,
-    "clarity": 7,
-    "feasibility": 6,
-    "security": 6
+    "consistency": 8,
+    "clarity": 8,
+    "feasibility": 8,
+    "security": 7
   }
 }
