@@ -254,8 +254,8 @@ function extractContext(container) {
     getOpsCenterAuth: () => {
       if (!opsCenterSync || typeof opsCenterSync.getConfig !== 'function') return null
       const cfg = opsCenterSync.getConfig()
-      if (!cfg.url || !cfg.apiKeyConfigured || typeof opsCenterSync.getCatalogApiKey !== 'function') return null
-      return { url: cfg.url, apiKey: opsCenterSync.getCatalogApiKey() }
+      if (!cfg.manualUrl || !cfg.apiKeyConfigured || typeof opsCenterSync.getCatalogApiKey !== 'function') return null
+      return { url: cfg.manualUrl, apiKey: opsCenterSync.getCatalogApiKey() }
     },
     getClientId: () => {
       try {
@@ -288,8 +288,8 @@ function extractContext(container) {
     getOpsCenterAuth: () => {
       if (!opsCenterSync || typeof opsCenterSync.getConfig !== 'function') return null
       const cfg = opsCenterSync.getConfig()
-      if (!cfg.url || !cfg.apiKeyConfigured || typeof opsCenterSync.getCatalogApiKey !== 'function') return null
-      return { url: cfg.url, apiKey: opsCenterSync.getCatalogApiKey() }
+      if (!cfg.manualUrl || !cfg.apiKeyConfigured || typeof opsCenterSync.getCatalogApiKey !== 'function') return null
+      return { url: cfg.manualUrl, apiKey: opsCenterSync.getCatalogApiKey() }
     },
     getHistory: () => history,
     getClientId: () => {
@@ -309,8 +309,8 @@ function extractContext(container) {
     getOpsCenterAuth: () => {
       if (!opsCenterSync || typeof opsCenterSync.getConfig !== 'function') return null
       const cfg = opsCenterSync.getConfig()
-      if (!cfg.url || !cfg.apiKeyConfigured || typeof opsCenterSync.getCatalogApiKey !== 'function') return null
-      return { url: cfg.url, apiKey: opsCenterSync.getCatalogApiKey() }
+      if (!cfg.manualUrl || !cfg.apiKeyConfigured || typeof opsCenterSync.getCatalogApiKey !== 'function') return null
+      return { url: cfg.manualUrl, apiKey: opsCenterSync.getCatalogApiKey() }
     },
     getClientId: () => {
       try {

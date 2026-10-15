@@ -124,7 +124,9 @@ describe('Settings 真源：OpsCenterSync 配置与运营菜单重启后必须�
     const reopened = restartStore()
     const afterRestart = new OpsCenterSync({ store: reopened, log: { info () {}, warn () {}, error() {}, notify() {} } })
     const cfg = afterRestart.getConfig()
-    expect(cfg.url).toBe('http://127.0.0.1:8010')
+    // 2026-10-15：url 混装别名已移除，改断 manualUrl（落盘形状 url 见上一行，仍保持不变）
+    expect(cfg.manualUrl).toBe('http://127.0.0.1:8010')
+    expect(cfg.effectiveUrl).toBe('http://127.0.0.1:8010')
     expect(cfg.apiKeyConfigured).toBe(true)
     expect(cfg.runtimePublicKey).toBe(RUNTIME_PUBLIC_KEY)
     expect(afterRestart.getCatalogApiKey()).toBe('catalog-key-abc')

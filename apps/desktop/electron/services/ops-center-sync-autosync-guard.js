@@ -53,7 +53,9 @@ const DEPLOY_ANCHOR_HINT = 'config/identity-public.json 的 runtimePublicKey（�
  *
  * 纯函数：不读环境、不碰 store、不打日志 —— 判据可单测，调用方只负责出声。
  *
- * @param {{autoSync?: boolean, url?: string, apiKeyConfigured?: boolean}} cfg getConfig() 的结果
+ * @param {{autoSync?: boolean, manualUrl?: string, apiKeyConfigured?: boolean}} cfg getConfig() 的结果
+ *   （2026-10-15：改读 `manualUrl` —— 原 `url` 是「手填/自动发现」混装别名，已移除；
+ *    本函数要判的恰是**手动态**，用 manualUrl 语义精确且不再受自动地址干扰）
  * @param {boolean} hasAutoContext `_getAutoContext()` 是否返回了对象（须同时有地址与令牌回调）
  * @param {string} autoUrlRaw 自动发现地址（**已由调用方 normalizeUrl**，避免第二份归一化实现）
  * @param {boolean} hasAccessToken 是否注入了登录令牌回调
@@ -62,7 +64,7 @@ const DEPLOY_ANCHOR_HINT = 'config/identity-public.json 的 runtimePublicKey（�
  * @returns {{ok: true, authMode: 'bearer' | 'catalog-key'} | {ok: false, reason: string, params: object}}
  */
 function resolveAutoSyncGuard (cfg, hasAutoContext, autoUrlRaw, hasAccessToken, isPackaged, hasTrustAnchor) {
-  const url = (cfg && cfg.url) || ''
+  const url = (cfg && cfg.manualUrl) || ''
 
   if (!cfg || cfg.autoSync === false) {
     return {

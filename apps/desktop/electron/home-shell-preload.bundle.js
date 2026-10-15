@@ -671,9 +671,7 @@ var require_system = __commonJS({
         },
         // 模型服务商管理 API（5 类模型 CRUD + 默认设置 + 调用日志）
         modelProviderList: (category) => ipcRenderer2.invoke("model-provider:list", category),
-        opsCenterSyncGet: () => ipcRenderer2.invoke("ops-center-sync:get"),
-        opsCenterSyncSave: (payload) => ipcRenderer2.invoke("ops-center-sync:save", payload),
-        opsCenterSyncNow: () => ipcRenderer2.invoke("ops-center-sync:now"),
+        // 运营中心下发的运行时策略（2026-10-15：get/save/now 三条已删，渲染端零调用）
         opsCenterSyncRuntime: () => ipcRenderer2.invoke("ops-center-sync:runtime"),
         opsCenterSyncPipelineOptions: () => ipcRenderer2.invoke("ops-center-sync:pipelineOptions"),
         opsCenterSyncAppMenu: () => ipcRenderer2.invoke("ops-center-sync:appMenu"),
@@ -1465,9 +1463,7 @@ var require_access_control = __commonJS({
       "syncCached",
       "modelProviderList",
       "modelProviderGet",
-      "opsCenterSyncGet",
-      "opsCenterSyncSave",
-      "opsCenterSyncNow",
+      // 运营中心运行时策略（2026-10-15：get/save/now 三条已删，渲染端零调用）
       "opsCenterSyncRuntime",
       // 订阅本身只收到一个时间戳、不返回任何运营数据，故 public；
       // 事件到达后的重拉（opsCenterSyncAppMenu）仍受 authenticated 门控。
