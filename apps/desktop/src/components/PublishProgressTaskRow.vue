@@ -40,7 +40,7 @@
         {{ t('publishPage.publishProgressPanel.blockedDailyQuota', { used: dailyUsed, max: dailyMax }) }}
       </template>
       <template v-else>
-        {{ t('publishPage.publishProgressPanel.blockedWaitMinutes', { minutes: Math.max(1, Math.ceil((task.remainingWait || 0) / 60000)) }) }}
+        {{ t('publishPage.publishProgressPanel.blockedWaitMinutes', { minutes: Math.max(1, Math.round((task.remainingWait || 0) / 60000)) }) }}
       </template>
       <span
         v-if="blockedBucketLabel"

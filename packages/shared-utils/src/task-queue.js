@@ -62,8 +62,10 @@ class TaskQueue extends EventEmitter {
     this._platformsProvenSubmit = new Set()
     this._rollbackDisabledPlatforms = new Set()
     this._missingWiringCounts = new Map()
-    // 探针计数（供设置页/诊断读取）
-    this._probeCounts = { successWithoutSubmittedAt: 0, releaseFailed: 0, rollbackDisabled: 0 }
+    // 探针计数（**仅进程内**，重启归零；截至本变更无任何 UI/IPC 消费者 —— 见 PRD §10.4，
+    // 不要把它当可靠指标读，也不要以为"设置页能看到"：那个入口从未存在）
+    // v3：inflightUnknown = 「请求可能仍在飞时失败」的次数（缺陷 D1 的现场计数）
+    this._probeCounts = { successWithoutSubmittedAt: 0, releaseFailed: 0, rollbackDisabled: 0, inflightUnknown: 0 }
     this._abortControllers = new Map() // 运行中任务的协作式取消信号
     this._runningByChannel = new Map() // 通道键 -> 在跑计数（B 方案：同通道串行，跨通道并行）
     this._paused = false
@@ -607,10 +609,17 @@ class TaskQueue extends EventEmitter {
       if (timeoutHandle && timeoutHandle.unref) timeoutHandle.unref()
     })
 
+    // v3/D1：必须知道"race 结束时执行器是否已经收敛"。被**超时**判输时平台请求仍在飞，
+    // 此时若按「没打点 = 没发起」去回滚窗口，就是"仍在飞"读成"从未发起"（缺陷 D1）。
+    // 声明在 try **之外**：catch 分支要读它（try 内的 let 在 catch 里不可见）。
+    let executorSettled = false
+    const executorPromise = Promise.resolve(this._runTask(task, abortController.signal))
+      .then((value) => { executorSettled = true; return value }, (err) => { executorSettled = true; throw err })
+
     try {
       // 执行发布 (由外部注册)
       const result = await Promise.race([
-        this._runTask(task, abortController.signal),
+        executorPromise,
         timeoutPromise,
         abortPromise,
       ])
@@ -651,7 +660,9 @@ class TaskQueue extends EventEmitter {
       // ── P0-1：未提交失败回滚窗口 ──
       // 判据是**提交阶段**而非错误类型：从未发起平台写尝试（submitAttempted=false），
       // 或传输层显式声明可确证未送出（definitelyNotSent=true）。其余一律占窗口（I2）。
-      const rolledBack = this._maybeRollback(task, e)
+      // v3/D1 追加前置条件：race 被超时/中止判输而执行器**尚未收敛**时，请求仍在飞，
+      // "未打点"不等于"未发起" ⇒ 禁止回滚（inFlightAtFailure 由调用方如实告知）。
+      const rolledBack = this._maybeRollback(task, e, { inFlightAtFailure: !executorSettled })
 
       // 风控即停等不可重试错误（e.noRetry）直接判失败，不进入重试环
       if (!e.noRetry && task.retriesLeft > 0) {

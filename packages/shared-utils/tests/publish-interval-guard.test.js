@@ -1,11 +1,13 @@
 /**
- * Test: publish-interval-guard.js — 发布频率控制（v2）
+ * Test: publish-interval-guard.js — 发布频率控制（v3）
  *
  * 覆盖：两档间隔、日配额、抖动、release 回滚（乐观并发 / prev 缺失 / 防风上限）、
  * key 构造、未登记平台出声、跨日边界、计数读回容错、可插拔存储。
  *
  * ⚠️ v2 起守卫**默认开启抖动**（ratio=0.4，保守方向：宁多等不少等），
  *    断言精确 remainingMs 的用例必须显式传 `jitterRatio: 0`。
+ * ⚠️ v3 起「每账号每日回滚次数」的上限取 `max(2, dailyMax)` 与独立封顶
+ *    `MAX_ROLLBACK_PER_DAY` 的**较小值**：日配额被放大时，回滚许可不得跟着放大。
  */
 
 const PublishIntervalGuard = require('../src/publish-interval-guard')
@@ -480,6 +482,57 @@ describe('PublishIntervalGuard v2', () => {
       expect(r.reason).toBe('rollback_cap')
       expect(warns.some(m => m.includes('回滚已达上限'))).toBe(true)
       expect(guard.check('douyin', 'acc_1').allowed).toBe(false)
+    })
+
+    test('防风上限有硬顶：日配额被放大（v3 的 ×10）不得把回滚许可一起放大', () => {
+      // 耦合点：v3 把 accountDailyMax 取成 v2 的 10 倍（short 档 20→200）。
+      // 若上限仍按 max(2, dailyMax) 单点推导，短内容档的"每日可回滚次数"会跟着变成 200，
+      // 防风闸形同撤销——方向必须是"多等"，所以封顶取独立常量。
+      const warns = []
+      const { guard } = makeReleaseGuard({
+        policy: () => ({ accountMinMs: 60 * 1000, platformMinMs: 60 * 1000, accountDailyMax: 200 }),
+        warn: (m) => warns.push(m),
+      })
+      for (let i = 0; i < 5; i++) {
+        const hold = guard.recordPublish('weibo', 'acc_1')
+        expect(guard.release('weibo', 'acc_1', hold).released, `第 ${i + 1} 次`)
+          .toBe(true)
+      }
+      const hold6 = guard.recordPublish('weibo', 'acc_1')
+      expect(guard.release('weibo', 'acc_1', hold6)).toEqual({ released: false, reason: 'rollback_cap' })
+      expect(warns.some(m => m.includes('回滚已达上限'))).toBe(true)
+      // 真表读数必须**大于**封顶，否则这条锁测的是"封顶从不生效"的死支路。
+      // QM-6 后端轴 B9：逐 tier 都要过，只测 weibo 一档等于给其余两档留了"封顶是否活着的盲区"。
+      const policyModule = require('../src/publish-frequency-policy')
+      for (const platform of policyModule.SUPPORTED_PLATFORMS) {
+        const r = policyModule.resolveIntervals(platform, { env: {} })
+        expect(r.accountDailyMax, `${platform}=${r.tier}`)
+          .toBeGreaterThan(PublishIntervalGuard.MAX_ROLLBACK_PER_DAY)
+      }
+    })
+
+    test('_intervals 必须回传 tier —— 设置页按档位分组显示（QM-6 前端轴 C2）', () => {
+      // 现场缺陷：`ipc-handlers/publish-frequency.js` 把 `_intervals(p)` 的返回原样发给渲染层，
+      // 而 `PublishFrequencySettings.vue::currentTierText` 读 `v.tier` 拼文案。
+      // 返回形状里没有 tier ⇒ 用户屏幕上每组都是「undefined（4 个平台，如 wechat_mp）：…」。
+      // 测试桩当时**注入了生产不存在的 tier**，所以四层测试全绿而 100% 复现（测试替身补字段）。
+      const guard = exactGuard({ policy: (p) => require('../src/publish-frequency-policy').resolveIntervals(p, { env: {} }) })
+      expect(guard._intervals('wechat_mp')).toEqual({
+        tier: 'long', accountMinMs: 5 * 60 * 1000, platformMinMs: 3 * 60 * 1000, accountDailyMax: 30,
+      })
+      // 未登记平台：tier 取回落档名（不是 undefined），否则同一屏再次出现脏字
+      const unknown = guard._intervals('not_registered')
+      expect(unknown.tier).toBe('long')
+    })
+
+    test('minInterval 兼容模式下 tier 仍须来自策略解析（不得缺键）', () => {
+      const guard = exactGuard({
+        minInterval: 60 * 1000,
+        policy: () => ({ tier: 'clip', accountMinMs: 3 * 60 * 1000, platformMinMs: 2 * 60 * 1000, accountDailyMax: 50 }),
+      })
+      const r = guard._intervals('douyin')
+      expect(r.accountMinMs).toBe(60 * 1000)
+      expect(r.tier, '兼容分支也必须给出档位标签').toBe('clip')
     })
 
     test('平台键独立判定：账号键已被覆盖但平台键仍是本次 ⇒ 仍释放平台键', () => {
