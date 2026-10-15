@@ -105,7 +105,7 @@ function missingPathUnderLocalDrive () {
  * 把一条真实存在的目录路径转成 **Windows 形态**的绝对路径字面量。
  *
  * 为什么需要它（2026-10-15 CI 实测，本文件当时 8 条红）：这批夹具原本直接返回
- * `os.tmpdir()` 拼出来的路径 —— Windows 上得到 `D:\tmp\…`（是 Windows 绝对路径，会被计数），
+ * `os.tmpdir()` 拼出来的路径 —— Windows 上得到 `D:\<tmpdir>\…`（是 Windows 绝对路径，会被计数），
  * ubuntu runner 上得到 `/tmp/…`（**根本不是 Windows 绝对路径，一条都不计**）。于是"存在的路径也要
  * 计入账本"这类断言在 Linux 上拿到 status 0 而期望 1：我为了修「旧代码隐式依赖盘符」写的新断言，
  * 换了一种方式继续依赖 Windows —— 依赖的是"这台机器的 tmpdir 长得像 `D:\`"。
