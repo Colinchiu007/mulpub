@@ -769,3 +769,58 @@ test('跨源：真仓现场报得出配对数，且当前零未承认违例（�
   assert.strictEqual(r.crossSrcViolations.length, 0, '新违例必须由作者回填或显式承认，不许带着红合并')
   assert.strictEqual(r.crossSrcStaleAck.length, 0, JSON.stringify(r.crossSrcStaleAck))
 })
+// ---- 基线重算器的接线锁（2026-10-15，QM-6 前端轴命中）----
+//
+// 命中点不是风格问题而是**不可复位**：仓里没有任何测试/门禁引用 scripts/freeze-gate-carrier.js
+// （`check-unwired-tests.js` 只扫 `*.test.*`），所以它一旦被 .gitignore 的 `scripts/*.js` 静默
+// 吞掉，没有任何东西会变红——而冻结基线从此永久不可重取。那时 design R3 的两条
+// 「不许手改基线」+「基线只能由该脚本生成」同时成立，等于把存档面焊在一个不存在的文件上。
+//
+// 三条各守一格：
+//   ① 在库且未被忽略 —— 本地漏 negation 即红，不必等 CI 那句 Cannot find module；
+//   ② 复用判据导出的 HEADING_RE / headingTitle —— 生成器曾自带 /^## / 与 slice(3)，
+//      两处各写一份时判据改口径会让基线静默对不上，症状是"没人违规却门禁红"；
+//   ③ 那条提取口径不得在生成器里再出现第二份（按去注释后的代码体判，注释里提它不算）。
+
+test('基线重算器 freeze-gate-carrier.js 必须在库、不得被忽略、且复用判据同一套口径', () => {
+  const { execFileSync } = require('node:child_process')
+  const root = path.join(__dirname, '..')
+  const rel = 'scripts/freeze-gate-carrier.js'
+  const abs = path.join(__dirname, 'freeze-gate-carrier.js')
+
+  // ① 在库：CI 检出里没有这个文件 ⇒ 一切免谈（那正是被忽略后的现场）
+  assert.ok(fs.existsSync(abs), `基线重算器不在库：${rel} —— 冻结基线将不可重取`)
+
+  // ① 未被忽略：判据看 check-ignore 的**回显规则**，不看 rc（反选也返回 rc=0，两者语义相同；
+  //    而"没有任何规则命中"才是真未忽略，此时 rc=1 且输出为空）
+  let decided = ''
+  try {
+    decided = execFileSync('git', ['check-ignore', '--no-index', '-v', rel], { cwd: root, encoding: 'utf8' }).trim()
+  } catch (e) {
+    const noise = String((e.stdout || '') + (e.stderr || '')).trim()
+    assert.strictEqual(e.status, 1, `git check-ignore 探针异常（status=${e.status}）：${noise.slice(0, 200)}`)
+    assert.strictEqual(noise, '', `git check-ignore rc=1 却有输出，探针不可信：${noise.slice(0, 200)}`)
+    decided = ''
+  }
+  if (decided) {
+    assert.match(
+      decided,
+      /![^\s]*freeze-gate-carrier\.js/,
+      `决定该文件命运的规则不是反选：「${decided}」—— 漏了 .gitignore 里那条 !scripts/freeze-gate-carrier.js 就会这样：本地全绿、CI 上 Cannot find module`,
+    )
+  }
+
+  // ②③ 口径单点：必须从判据取 HEADING_RE / headingTitle，且自己不得再写一份提取
+  const src = fs.readFileSync(abs, 'utf8')
+  assert.match(src, /require\('\.\/check-gate-record-debt\.js'\)/, '重算器没有复用判据模块，两份实现必然漂移')
+  for (const sym of ['HEADING_RE', 'headingTitle', 'carrierSignature', 'GATE_FILE', 'CARRIER_FREEZE_FILE']) {
+    assert.ok(src.includes(sym), `重算器未复用判据导出的 ${sym} —— 基线与判据的标题口径会分叉`)
+  }
+  const codeOnly = src
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n')
+    .filter((l) => !/^\s*(\/\/|\*)/.test(l))
+    .join('\n')
+  assert.ok(!/\^## /.test(codeOnly), '重算器自带 `^## ` 提取是第二份实现——标题口径必须由 check-gate-record-debt.js 单点持有')
+  assert.ok(!/\.slice\(3\)/.test(codeOnly), '重算器自带 `.slice(3)` 是第二份实现——去掉 `## ` 前缀只准在 headingTitle 里发生一次')
+})

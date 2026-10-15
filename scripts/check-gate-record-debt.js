@@ -126,6 +126,13 @@ function normalize(s) {
   return s.replace(/\r$/, '').trim()
 }
 
+// 标题提取的唯一口径：判据与基线重算器必须同用这一对（HEADING_RE + headingTitle）。
+// 生成器曾自带 `/^## /` 与 `slice(3)`（QM-6 前端轴命中）——两处各写一份时，判据一改口径
+// 基线就静默对不上，症状是"没人违规却门禁红"。
+function headingTitle(line) {
+  return normalize(line.slice(3))
+}
+
 function loadLedger(root) {
   // 必须认参数：测试一直按 `loadLedger(root)` 调用，而无参实现会永远读真实清单，
   // 于是"给了夹具目录却拿到生产 ledger"—— 静默读生产，属假绿通道。
@@ -215,7 +222,7 @@ function collect({ root = process.cwd(), ledger = loadLedger(), duplicatesAllowe
 
   const headings = []
   lines.forEach((l, i) => {
-    if (HEADING_RE.test(l)) headings.push({ line: i, text: normalize(l.slice(3)) })
+    if (HEADING_RE.test(l)) headings.push({ line: i, text: headingTitle(l) })
   })
 
   // 旧载体冻结漂移：基线由调用方注入（main 从冻结文件读，测试传夹具）。未注入 ⇒ 不参与判定，
@@ -546,7 +553,7 @@ module.exports = {
   listRecordFiles, readRecord, readFrontmatter,
   CROSS_SLUG_RE, CROSS_BACKFILL_RE, CROSS_SRC_ALLOWED,
   RECORDS_REL, RECORD_FIELD_REASON, RECORD_FIELD_OWNER, RECORD_FIELD_STATUS,
-  GATE_FILE, LEDGER_FILE, DUPLICATE_HEADINGS_ALLOWED,
+  GATE_FILE, LEDGER_FILE, DUPLICATE_HEADINGS_ALLOWED, HEADING_RE, headingTitle,
   CARRIER_FREEZE_FILE, loadCarrierFreeze, carrierSignature,
 }
 

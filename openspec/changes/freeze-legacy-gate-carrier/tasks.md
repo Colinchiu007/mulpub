@@ -8,7 +8,7 @@
 
 ## 2. 载体约定与文档同步
 
-- [x] 2.1 `AGENTS.md` 追加「旧载体冻结」小节（**不改写既有段落**：该文件是多会话共改热点，改写会制造整文件冲突）。新 PR 只写 `openspec/records/`；旧载体只许就地关闭已有行；基线重算属人工动作、不走自动合并
+- [x] 2.1 `AGENTS.md` 追加「旧载体冻结」小节，并**就地限定四处仍在命令写旧载体的原文**（docs-only 精简模板、「回填与销账必须同一次提交」、合并后收尾清单第 3 步、QM-6 评审记录落点）。新段落用**追加**（该文件多会话共改，新写段落改写即造整文件冲突）；那四处属"同一条规矩的两端"，只追加不就地限定会留下**规范叫你去写、判据拦你别写**的矛盾指令，故按"就地关闭已有行"的同一口径改这四行本身。实测：AGENTS.md 相对主干净 diff = **16 行加 / 4 行删**，删除的那 4 行逐条核对正是上述四处被就地限定的原文（不是误删他人段落），两口径 numstat 相同
 - [ ] 2.2 `openspec/specs/openspec-integration/spec.md` 的「分层分支策略」同步：由本 change 归档时由 `openspec archive` 落基线（delta 已写在 `specs/openspec-integration/spec.md`，含完整 requirement 正文），**故此处留未勾 —— 基线规格现在还没改**
 - [ ] 2.3 docs-only 模板与「⛔ 两种形态必须同写」两处口径复核：AGENTS.md 已用"自本节起只适用于关闭已有旧行"限定，但 `openspec/specs/openspec-integration/spec.md:123/:131` 的"可就地编辑 …… `.quality-gates.md`"字面仍在新基线里 —— 归档时一并核，避免规范与判据两套口径
 - [x] 2.4 本 PR 自我示范新规矩：变更集**不含** `.quality-gates.md` 与 `scripts/gate-record-debt-ledger.json`（`git diff --name-only origin/main..HEAD` 自证，见执行记录）

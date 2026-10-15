@@ -5,11 +5,11 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
-const { normalize, carrierSignature, GATE_FILE, CARRIER_FREEZE_FILE } = require('./check-gate-record-debt.js');
+const { HEADING_RE, headingTitle, carrierSignature, GATE_FILE, CARRIER_FREEZE_FILE } = require('./check-gate-record-debt.js');
 
 const root = path.resolve(__dirname, '..');
 const lines = fs.readFileSync(path.join(root, GATE_FILE), 'utf8').split('\n');
-const titles = lines.filter((l) => /^## /.test(l)).map((l) => normalize(l.slice(3)));
+const titles = lines.filter((l) => HEADING_RE.test(l)).map((l) => headingTitle(l));
 const sig = carrierSignature(titles);
 const payload = {
   _policy: '旧载体 .quality-gates.md 的冻结基线。新 PR 的执行记录一律写 openspec/records/<分支名>.md；'
