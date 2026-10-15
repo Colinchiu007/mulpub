@@ -387,6 +387,7 @@
                 rel="noopener"
                 class="detail-link"
                 data-testid="detail-link"
+                @click="openArticleLinkInApp($event, publicLinkHref(selectedRecord))"
               >{{ publicLinkHref(selectedRecord) }}</a>
               <span v-if="linkSourceHint(linkRenderState(selectedRecord))" class="detail-link-hint" data-testid="detail-link-derived-hint">{{ linkSourceHint(linkRenderState(selectedRecord)) }}</span>
               <template v-if="linkRenderState(selectedRecord).kind === 'plain'">
@@ -449,6 +450,7 @@ import { usePlatformStore } from '@/stores/platforms'
 import { usePublishHistoryContentLink, CARD_INTERACTIVE_SELECTOR } from '@/composables/usePublishHistoryContentLink'
 // 2026-10-12 发布记录真实封面缩略图（本地 cover_path → cover:read-data；远程 → safeHttpUrl）
 import { useHistoryCoverThumbnails } from '@/composables/useHistoryCoverThumbnails'
+import { useInAppLink } from '@/composables/useInAppLink'
 import { useIdentity } from '@/composables/useIdentity'
 import { isAuthGateResult } from '@/utils/auth-gate'
 import { formatUserError } from '@/utils/user-facing-error'
@@ -523,6 +525,9 @@ const filteredRecords = computed(() => {
 })
 // 2026-10-12：缩略图 = 本次实际使用的封面；拿不到即回退平台图标
 const { coverUrlFor: thumbnailUrl } = useHistoryCoverThumbnails(filteredRecords)
+
+// 发布记录详情「公开链接」：与发布结果区同一套「应用内新标签」语义（普通左键接管）
+const { handleLinkClick: openArticleLinkInApp } = useInAppLink()
 const allSelected = computed(() => (
   filteredRecords.value.length > 0
   && filteredRecords.value.every(record => selectedIds.value.includes(record.id))
