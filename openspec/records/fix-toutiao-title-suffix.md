@@ -2,9 +2,6 @@
 record: fix-toutiao-title-suffix
 task: 修复头条图文标题被追加时间戳后 4 位（「DeepSeek崩了」→「DeepSeek崩了 1935」），把「触发保存的手段值」与「发布的内容值」隔离，并全平台审计同源问题
 date: 2026-10-15
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话
 ---
 
 ## 本次执行记录：头条图文标题污染修复（fix-toutiao-title-suffix，2026-10-15）
@@ -20,7 +17,7 @@ sync_backfill_owner: 下一个会话
 | 接线棘轮 | ✅ | 新增 `packages/rpa-engine/tests/toutiao-title-no-pollution.test.js` 命中 `packages/rpa-engine/vitest.config.js` 既有 `include: ['tests/**/*.test.js']`（该 glob 已被 CI 消费），无需改 workflow；实跑 `pnpm exec vitest run` = **7 files / 274 passed / 0 failed** |
 | QM-1 打包 / QM-4 视觉 | ⚠️ QM-1 已补跑（验证 1/2 通过，验证 3 存活但 stderr 已归因）；QM-4 N/A（无 UI 变更） | **触面判定更正**：改动含 `packages/rpa-engine/`，按 AGENTS.md 字面规则**必须**跑 QM-1，故已补跑而非豁免。完整证据见下方「QM-1 证据」专节 |
 | QM-6 CCG 双模型外部评审 | ⚠️ 部分 | `scripts/ccg-gate.js` 实跑 exit=0，判定 DUAL（变更 446 行 > 200 行阈值），要求 claude + opencode 双模型深度审查，并已把判定记录 stage 进本次提交（`.ccg/reviews/0d14ca8e9918a065844c2cc5db916734316d7cf3.json`）。门禁同时提示两条：①「决策层方案评审尚未执行（deepReview.status=pending）」；②「范围漂移：5 个改动文件不在方案声明范围内」。**双模型深度审查本身未在本次执行**（`sh scripts/deep-review.sh` 未跑），如实登记为未完成，不用自审冒充 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin fix-toutiao-title-suffix` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | #3633 squash 合并 merge SHA `c5b52322862b0cf7a4aaa6492f9738550637bc12`（2026-10-15T18:21:47+08:00）；远端分支 `fix-toutiao-title-suffix` 已删（`git ls-remote --heads` 0 行）；回填与销账**同一次提交**——本记录 frontmatter 的 `sync_*` 三字段已在本次提交删除。本片按「代码 PR 不带热点载体」纪律落地（`CHANGELOG.md` 与 `01-docs/learnings.md` 亦移出代码 PR，随本次回填落地），故本体不产生 ledger 登记项 |
 
 ### 反活锁处置（本仓既有的「不带热点载体」策略）
 
