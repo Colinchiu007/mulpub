@@ -590,7 +590,21 @@ class RpaVmPublisher {
             durationMs: Date.now() - startedAt,
           },
         })
-        return { success: true, url: sanitizePublishResultUrl(result.url), ...(postId ? { postId } : {}), platform, mode: 'dom', ...(diagnostics ? { diagnostics } : {}) }
+        return {
+          success: true,
+          url: sanitizePublishResultUrl(result.url),
+          ...(postId ? { postId } : {}),
+          platform,
+          mode: 'dom',
+          // 2026-10-15：`draft:true` 必须**透传**（小红书图文强制只落草稿箱，DraftOnly 轨在
+          // rpa-view-platforms 的返回点上带这个键）。此前它在这一层被丢掉，后果有两处：
+          //   ① 历史记录里小红书草稿与「已公开但没抓到链接」不可区分 ⇒ 发布记录页对草稿
+          //      显示「未获取到作品 ID」（把产品事实说成缺陷）；
+          //   ② phase4-events 的 `isDraftResult` 判据恒假 ⇒ 草稿也会去建审核回查监控任务
+          //      （目前被「无 postId」连带挡住，属侥幸而非设计）。
+          ...(result.draft === true ? { draft: true } : {}),
+          ...(diagnostics ? { diagnostics } : {}),
+        }
       }
       // publish-frequency-policy-v2 P0-1：登录态失效族**可确证未送出**（RPA 在发布页导航后
       // 先判登录态并 early-return，早于任何表单填充/提交）⇒ 打标后由队列回滚间隔窗口。

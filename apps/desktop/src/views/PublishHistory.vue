@@ -235,6 +235,18 @@
             <div class="record-title-row">
               <h2>{{ recordTitle(record) }}</h2>
               <div class="record-actions">
+                <!-- 「再次发布」（PRD-PUBLISH-RECORD-REPUBLISH-2026-10-15）：把该次发布的内容与选项
+                     还原回发布页。快照按记录 ID 单独存放，早期记录没有快照 → 禁用并说明原因
+                     （禁用而不是隐藏：用户需要知道「这里本该有个按钮，为什么用不了」）。 -->
+                <button
+                  type="button"
+                  class="record-action republish"
+                  :class="{ 'is-disabled': !canRepublish(record) }"
+                  :data-testid="`republish-${record.id}`"
+                  :disabled="!canRepublish(record)"
+                  :title="republishHint(record)"
+                  @click="republishRecord(record)"
+                >{{ t('historyPage.republish') }}</button>
                 <button type="button" class="record-action" :data-testid="`detail-${record.id}`" @click="openRecord(record)">{{ t('historyPage.detail') }}</button>
                 <button v-if="normalizedStatusGroup(record) === 'failed'" type="button" class="record-action retry" :data-testid="`retry-${record.id}`" @click="retryRecord(record)">{{ t('historyPage.retryRecord') }}</button>
               </div>
@@ -257,6 +269,14 @@
               >{{ auditLabel(record) }}</span>
               <span v-if="deliveryModeValue(record)" class="delivery-mode-badge" :class="'delivery-mode-' + deliveryModeValue(record)" :title="deliveryModeHint(record)" :data-testid="`delivery-mode-${record.id}`">{{ deliveryModeLabel(record) }}</span>
               <span class="platform-name"><img v-if="isPlatformIconUrl(platformIcon(record.platform))" :src="platformIcon(record.platform)" class="platform-icon-thumb mp-platform-icon" :alt="platformName(record.platform)" width="16" height="16" aria-hidden="true"><span v-else aria-hidden="true">{{ platformIcon(record.platform) }}</span>{{ platformName(record.platform) }}</span>
+              <!-- 同批徽标：一次 N 平台发布落 N 条**独立**记录（状态/审核/作品链接/互动数据都是
+                   平台级动作，合并成一条会丢掉可执行性）。徽标把「这几条属于同一次发布」补回来。 -->
+              <span
+                v-if="batchBadgeMap.get(record.id)"
+                class="batch-badge"
+                :data-testid="`batch-${record.id}`"
+                :title="batchBadgeMap.get(record.id).tooltip"
+              >{{ batchBadgeMap.get(record.id).label }}</span>
             </div>
             <!-- 失败原因：task:failed 落库的 error 字段（publish-progress-ux G8 数据链路的渲染侧收口）。
                  单行截断 + title 悬停全文；无 error 的旧失败记录不渲染该行（详情弹窗有占位）。 -->
@@ -847,6 +867,49 @@ function onCardClick (event, record) {
   void openCardLink(record)
 }
 
+// ── 「再次发布」（PRD-PUBLISH-RECORD-REPUBLISH-2026-10-15 §5.1）──
+// 存在性判据只有一个：主进程在 history:list / history:get 上附加的
+// `hasRepublishSnapshot`（由快照存储现算，不落库 ⇒ 淘汰/删除后自动变 false）。
+// 内容本身**不随列表下发**（正文会让每次分页/筛选变成整文件重解析），
+// 点按钮后由发布页按记录 ID 惰性取。
+function canRepublish (record) {
+  return Boolean(record && record.hasRepublishSnapshot === true)
+}
+
+function republishHint (record) {
+  return canRepublish(record) ? t('historyPage.republishHint') : t('historyPage.republishUnavailable')
+}
+
+function republishRecord (record) {
+  if (!canRepublish(record)) return
+  // 与 `?draft=` 同一条发布页入口（同一份「快照 → 表单」实现），只是快照来源不同
+  router.push('/publish?republish=' + encodeURIComponent(String(record.id)))
+}
+
+/**
+ * 同批徽标映射：batchId → 该批全部记录（仅在 ≥2 条时展示）。
+ * 记录本身仍是**平台级独立行**（这是刻意的：状态/审核/作品链接/互动数据/重试/删除
+ * 都是平台级动作），徽标只补「同一次发布」这层被丢掉的关联信息。
+ */
+const batchBadgeMap = computed(() => {
+  const groups = new Map()
+  for (const record of records.value) {
+    const batchId = record && typeof record.batchId === 'string' ? record.batchId.trim() : ''
+    if (!batchId) continue
+    if (!groups.has(batchId)) groups.set(batchId, [])
+    groups.get(batchId).push(record)
+  }
+  const map = new Map()
+  for (const group of groups.values()) {
+    if (group.length < 2) continue
+    const platforms = [...new Set(group.map(item => platformName(item.platform)))]
+    const label = t('historyPage.batchBadge', { count: group.length })
+    const tooltip = t('historyPage.batchTooltip', { platforms: platforms.join(' / ') })
+    for (const record of group) map.set(record.id, { label, tooltip })
+  }
+  return map
+})
+
 async function retryRecord (record) {
   const taskId = record?.taskId || record?.id
   if (!taskId) return
@@ -1303,6 +1366,8 @@ onMounted(loadRecords)
 .delivery-mode-badge.delivery-mode-api { background: #eaf2fe; color: #1d4ed8; }
 .delivery-mode-badge.delivery-mode-dom { background: #f1f0f7; color: #5b21b6; }
 .delivery-mode-badge.delivery-mode-fallback { background: #fff6df; color: #9a6700; }
+/* 同批徽标：中性色，与状态/审核/发布方式三枚徽标区分开（它不是状态，是分组） */
+.batch-badge { border-radius: 4px; padding: 3px 7px; font-size: var(--font-size-xs); font-weight: 600; background: #eef0f6; color: #4b5563; }
 /* 失败原因行：与 status-badge.failed 同色系（#b42318）；单行截断防长错误顶开卡片布局，全文经 title 悬停 */
 .record-error { margin: 6px 0 0; font-size: var(--font-size-xs); color: #b42318; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -1368,6 +1433,11 @@ onMounted(loadRecords)
 .record-action { min-height: 26px; padding: 2px 8px; border: 1px solid #e5e7ef; border-radius: 5px; background: var(--color-bg-card); color: #68708b; font-size: var(--font-size-xs); cursor: pointer; }
 .record-action:hover { border-color: #5048e5; color: #5048e5; }
 .record-action.retry { color: #c43d4d; }
+/* 「再次发布」禁用态：早期记录没有快照。保持可见可悬停（原因写在 title 里），
+   只降对比度 + 禁指针 —— 直接隐藏会让用户以为按钮不存在。 */
+.record-action.republish.is-disabled,
+.record-action:disabled { color: #a8adba; border-color: #eceef4; cursor: not-allowed; background: #fafbfd; }
+.record-action:disabled:hover { border-color: #eceef4; color: #a8adba; }
 .record-detail-backdrop { position: fixed; inset: 0; z-index: 10000; display: grid; place-items: center; padding: 24px; background: rgba(25, 28, 48, .32); }
 .record-detail-modal { width: min(640px, 100%); max-height: min(720px, 90vh); overflow: auto; border-radius: 14px; background: var(--color-bg-card); box-shadow: 0 18px 60px rgba(23, 30, 65, .24); }
 .record-detail-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding: 22px 24px; border-bottom: 1px solid #edf0f7; }

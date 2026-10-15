@@ -741,6 +741,10 @@ import BatchArticleCard from '@/features/publish/components/BatchArticleCard.vue
 import CopyDetailBanner from '@/features/publish/components/CopyDetailBanner.vue'
 import { useCopyDetailMode } from '@/composables/useCopyDetailMode'
 import { usePublishDrafts } from '@/composables/usePublishDrafts'
+// 「再次发布」（PRD-PUBLISH-RECORD-REPUBLISH-2026-10-15）：按记录 ID 取回该次发布的内容与选项快照，
+// 用**与草稿箱同一份**字段映射（applyPublishSnapshot）写回表单。
+import { historyGetRepublishSnapshot } from '@/api/publisher'
+import { applyPublishSnapshot } from '@/features/publish/publish-snapshot'
 import {
   normalizePublishMentions,
   normalizePublishStringList,
@@ -771,7 +775,7 @@ const { t } = useI18n()
 // 共用同一常量源，避免文案与实际校验漂移。2026-10-08 起按**所选平台**显示有效上限
 // （头条经平台 bundle 取证为 7 天；若 hint 仍显全局 30 天，用户按 30 天排期会被提交
 // 校验拒绝）。实现见 fieldSurface.hintTextFor（下方 fieldSurface 定义处接线）。
-const { notifySuccess, notifyWarning, notifyInfo, notifyError } = useNotify()
+const { notifySuccess, notifyWarning, notifyInfo, notifyError, notifyConfirm } = useNotify()
 // 视频上传区 el-upload 实例（video/article 两个互斥分支共用一个 ref，同时只有一个渲染）。
 // limit=1 的「重选替换」需要经它 clearFiles + handleStart，否则 el-upload 静默丢弃新文件。
 const videoUploadRef = ref(null)
@@ -1322,6 +1326,91 @@ watch(() => route.query.draft, async (draftId, previousDraftId) => {
   await loadDraft(String(draftId))
 })
 
+// ── 「再次发布」：从发布记录把该次发布的内容与选项还原回表单 ──
+// 与 `?draft=` 的区别只在快照来源：草稿在 settings['drafts']，快照按记录 ID 单独存
+// （正文不进历史行、也不随列表下发，见主进程 services/publish-republish-snapshot.js）。
+// 同一份「快照 → 表单」映射（applyPublishSnapshot），因此两条路径的还原行为必然一致。
+const appliedRepublishIds = new Set()
+
+/** 把 selectedAccounts 里指向已删除账号的条目清掉；返回被清掉的平台名列表 */
+function pruneMissingAccounts () {
+  const cleared = []
+  const map = selectedAccounts.value && typeof selectedAccounts.value === 'object' ? selectedAccounts.value : {}
+  for (const platform of Object.keys(map)) {
+    const wanted = Array.isArray(map[platform]) ? map[platform].map(String).filter(Boolean) : []
+    if (wanted.length === 0) continue
+    const available = (typeof getAccounts === 'function' ? (getAccounts(platform) || []) : [])
+      .map(account => String((account && account.id) || ''))
+      .filter(Boolean)
+    // 账号列表尚未加载（或该平台没有账号数据）时不误清：宁可让发布时的账号校验拦住，
+    // 也不要把用户可用的账号静默删掉。
+    if (available.length === 0) continue
+    const kept = wanted.filter(id => available.includes(id))
+    if (kept.length === wanted.length) continue
+    map[platform] = kept
+    cleared.push(platform)
+  }
+  return cleared
+}
+
+async function applyRepublishSnapshot (recordId) {
+  const id = String(recordId || '').trim()
+  if (!id || appliedRepublishIds.has(id)) return false
+  appliedRepublishIds.add(id)
+  const abort = () => { appliedRepublishIds.delete(id); return false }
+
+  let snapshot
+  try {
+    const res = await historyGetRepublishSnapshot(id)
+    if (!res || res.code !== 0) {
+      notifyError('publishPage.republishLoadFailed', { message: t('publishPage.republishLoadFailed') })
+      return abort()
+    }
+    snapshot = res.data && res.data.snapshot
+  } catch {
+    notifyError('publishPage.republishLoadFailed', { message: t('publishPage.republishLoadFailed') })
+    return abort()
+  }
+  // 「没有快照」是正常业务态（早期记录/快照已按上限淘汰），不是错误：提示措辞必须不同
+  if (!snapshot) {
+    notifyWarning('publishPage.republishMissing', { message: t('publishPage.republishMissing') })
+    return abort()
+  }
+
+  // 覆盖当前表单前先确认（载入会丢掉用户正在编辑的内容，属不可逆操作）
+  const hasUnsavedInput = Boolean(String(article.title || '').trim() || String(article.content || '').trim())
+  if (hasUnsavedInput) {
+    const confirmed = await notifyConfirm('publishPage.republishDiscardConfirmMessage', {
+      title: t('publishPage.republishDiscardConfirmTitle'),
+      confirmButtonText: t('publishPage.republishDiscardConfirmButton'),
+      type: 'warning',
+    })
+    if (!confirmed) return abort()
+  }
+
+  const outcome = applyPublishSnapshot(snapshot, {
+    article, selectedPlatforms, selectedAccounts, platformOverrides: diffEdits,
+  })
+  if (!outcome.applied) {
+    notifyError('publishPage.republishLoadFailed', { message: t('publishPage.republishLoadFailed') })
+    return abort()
+  }
+
+  const clearedPlatforms = pruneMissingAccounts()
+  if (clearedPlatforms.length > 0) {
+    notifyWarning('publishPage.republishAccountUnavailable', { message: t('publishPage.republishAccountUnavailable') })
+  }
+  // 地址栏去掉参数：刷新不重复载入，也避免用户把这条 URL 当成「永久指向某次发布」
+  router.replace({ path: '/publish', query: publishEditorQuery() })
+  notifySuccess('publishPage.republishLoaded', { message: t('publishPage.republishLoaded') })
+  return true
+}
+
+watch(() => route.query.republish, async (recordId, previousRecordId) => {
+  if (!recordId || recordId === previousRecordId) return
+  await applyRepublishSnapshot(String(recordId))
+})
+
 function publishEditorQuery (extra = {}) {
   const query = { tab: 'publish', ...extra }
   if (route.query?.type) query.type = String(route.query.type)
@@ -1413,7 +1502,12 @@ onMounted(async () => {
     return
   }
   const draftId = route.query.draft
-  if (!draftId) return
+  if (!draftId) {
+    // 「再次发布」与 ?draft= 互斥：两者同时出现时以草稿为准（那是用户当下的手工选择）。
+    const republishId = route.query.republish
+    if (republishId) await applyRepublishSnapshot(String(republishId))
+    return
+  }
 
   await loadDrafts()
   await loadDraft(String(draftId))
@@ -1431,6 +1525,10 @@ onActivated(() => {
   // applyDraftHandoff 自带「同一批 id 只装载一次」的幂等键，重复激活不会重置用户编辑。
   const handoffIds = handoffIdsFromQuery()
   if (handoffIds.length > 0) applyDraftHandoff(handoffIds)
+  // 同上：「从发布记录点『再次发布』」也可能命中已被 keep-alive 缓存的发布页实例，
+  // 此时只有 query 变化、onMounted 不跑。applyRepublishSnapshot 自带「同一记录只应用一次」幂等键。
+  const republishId = route.query.republish
+  if (republishId) void applyRepublishSnapshot(String(republishId))
 })
 
 // 暴露给测试（w.vm.xxx）和外部组件

@@ -1135,4 +1135,23 @@ describe("RpaVmPublisher 发布方式标记", () => {
     const result = await publisher.publish({ id: "t-rpa", platform: "wechat_mp", article: { title: "T", content: "C" } })
     expect(result.mode).toBe("dom")
   })
+
+  // 2026-10-15 用户报障「链接功能一直没生效」的取证副产物：`draft` 键此前在本层被丢掉，
+  // 后果是历史记录把「小红书只落草稿箱」说成「未获取到作品 ID」（产品事实被说成缺陷），
+  // 且 phase4-events 的 isDraftResult 判据恒假。透传是**加法**，不改任何成功判定。
+  it("RPA 结果是草稿（小红书 draftOnly）时 draft:true 必须透传", async () => {
+    const rpaViewManager = {
+      publish: vi.fn(async () => ({ success: true, url: "https://creator.xiaohongshu.com/publish/publish", draft: true, draftSaved: true })),
+    }
+    const publisher = new PublisherRouter().createPublisher("xiaohongshu", { rpaViewManager, store: { getAccount: vi.fn(() => null) } })
+    const result = await publisher.publish({ id: "t-xhs", platform: "xiaohongshu", article: { title: "T", content: "C" } })
+    expect(result.draft).toBe(true)
+  })
+
+  it("非草稿成功结果不得凭空多出 draft 键（避免把已公开内容标成草稿）", async () => {
+    const rpaViewManager = { publish: vi.fn(async () => ({ success: true, url: "https://example.com/post/1", draft: false })) }
+    const publisher = new PublisherRouter().createPublisher("wechat_mp", { rpaViewManager, store: { getAccount: vi.fn(() => null) } })
+    const result = await publisher.publish({ id: "t-rpa2", platform: "wechat_mp", article: { title: "T", content: "C" } })
+    expect(Object.prototype.hasOwnProperty.call(result, "draft")).toBe(false)
+  })
 })

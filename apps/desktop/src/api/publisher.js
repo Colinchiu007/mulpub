@@ -70,6 +70,15 @@ export async function historyDelete (ids) {
   return invokeWithFallback("historyDelete", { code: -1, message: 'electronAPI not available' }, normalizedIds)
 }
 
+/**
+ * 「再次发布」：按记录 id 取回该次发布的内容与选项快照。
+ * 主进程以 `{ code: 0, data: { snapshot: null } }` 表示「这条记录没有快照」
+ * （早期记录，或快照已按上限淘汰）——那是正常业务态，不是错误。
+ */
+export async function historyGetRepublishSnapshot (recordId) {
+  return invokeWithFallback("historyGetRepublishSnapshot", { code: 0, data: { snapshot: null } }, recordId)
+}
+
 // ─── 发布统计 API ──────────────────────────
 export async function dashboardStats () {
   return invokeWithFallback("dashboardStats", { code: 0, data: { total: 0, success: 0, failed: 0, byPlatform: {}, daily: [] } })

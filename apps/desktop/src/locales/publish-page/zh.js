@@ -18,6 +18,16 @@ export default {
     batchSubtitle: '批量编辑多篇文章，各平台独立发布',
     singleSubtitle: '编辑内容并发布到多个平台',
     batchMode: '批量模式',
+    // 「再次发布」（PRD-PUBLISH-RECORD-REPUBLISH-2026-10-15）：从发布记录把该次发布的
+    // 内容与选项还原回表单。三种失败语义必须分开：载入失败（可重试）/ 没有快照（不可重试）/
+    // 原账号已不可用（需重选）。合成一句会让用户不知道该做什么。
+    republishLoaded: '已载入该次发布的内容与选项，请确认后发布',
+    republishMissing: '该记录未保存原始内容，无法再次发布',
+    republishLoadFailed: '载入发布内容失败，请稍后重试',
+    republishAccountUnavailable: '原发布账号已不可用，请重新选择账号',
+    republishDiscardConfirmTitle: '放弃当前未保存的内容？',
+    republishDiscardConfirmMessage: '载入这次发布的内容会覆盖当前表单中未保存的内容。',
+    republishDiscardConfirmButton: '放弃并载入',
     // 热门选题批量交接 + 批量设置发布目标（hot-topics-publish-handoff，2026-10-09）
     handoff: {
       loaded: '已装载 {count} 条热门选题草稿',

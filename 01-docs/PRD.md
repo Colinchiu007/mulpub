@@ -2419,6 +2419,80 @@ pending → publishing → { success | failed | partial | denied | cancelled }
 3. 不回归定时意图契约（`toutiao-schedule-intent.test.js` 7 条）与 rpa-engine 全量（274 条）。
 4. 其他平台图文/视频链经审计**不同源、无改动**（见 BUGFIX 文档 §3 审计表）。
 
+### 6.9 发布记录「再次发布」与作品链接可得性合同（pub-record-republish，2026-10-15）
+
+> 完整 PRD（现状取证 / 设计决策 D1–D3 / 数据模型 / 逐项交互 / i18n 键表 / 验收 A1–A12 / 风险）：[PRD-PUBLISH-RECORD-REPUBLISH-2026-10-15.md](./PRD-PUBLISH-RECORD-REPUBLISH-2026-10-15.md)。
+> 本节是**产品契约**（数据校验 / 流程 / 功能逻辑 / 交互逻辑 / 显示项 / 提示文字 / 异常态），代码与测试以本节为准。
+
+#### 6.9.1 三条需求的定调
+
+| 需求 | 定调 |
+|---|---|
+| 每条发布记录增加「再次发布」 | 新增**内容与选项快照**持久化（此前正文与选项**零落库**，见 §6.9.2）；按钮**每条记录都渲染**，无快照则禁用并写明原因 |
+| 发布成功记录卡片带作品链接 | 卡片点击链路本就完好；「一直没生效」的真相是**写入侧没有可点开的东西**（57 条成功记录里 45 条解析为「无链接」）。修写入侧两个可离线验证的接口缺陷 + UI 把**原因**说清楚 |
+| 多平台发布是集合还是独立记录 | **保留每平台独立记录**（状态/审核/作品链接/互动数据/重试/删除都是平台级动作，合并会丢掉可执行性），补 `batchId` 与「同批 N 个平台」徽标找回关联 |
+
+#### 6.9.2 现状取证（活体数据，2026-10-15）
+
+`shared-user-data/publish-history.jsonl`：72 条（成功 57）。顶层键频次 —— `id/platform/title/taskId/status/result/owner_subject/timestamp` 各 72；`error` 11；`publishMode`/`cover_path`/`cover_url` 各 4。**`content` 出现 0 次** ⇒ 正文与选项从未落库；仅 11 条成功记录有 `postId`（含 2 条 `task_1_…` 垃圾、11 条快手全为合成值 `published-<ts>`）⇒ 用作品链接解析器逐条判定的结果是 **45/57 无链接**。
+
+#### 6.9.3 数据模型与校验
+
+| 项 | 规则 |
+|---|---|
+| 存储位置 | owner 作用域 SQLite `settings`，键 `publish-republish-snapshot:<recordId>` + 索引键 `publish-republish-snapshot:index`。**不写进历史 JSONL 行**（`readRecords()` 每次分页整文件重解析、`updateRecordAudit` 整文件重写 ⇒ 正文进行里会造成每页 O(文件) 写放大，违反 QM-2） |
+| 字段白名单 | 必存 20：`title/content/author/cover_url/cover_path/cover_file/video_path/images/image_files/tags/topics/mentions/contentFormat/aiGenerated/platformOverrides/rewriteHistoryId/platform/accountId/platforms/accounts`；可选 3：`visibilitySemantic/publishMode/batchId`；另存 `recordId/taskId/savedAt`。**逐字段白名单提取，禁止 `...article` 展开**（`article.cookies` 真实存在，展开即把登录凭证写进快照） |
+| 数组字段 | `images/image_files/tags/topics/mentions` 缺失/类型错误一律回落 `[]`，**不得回落 `''`**（空串会触发 publish-contract「images 文件引用无效」，把纯文字内容挡在门外） |
+| `rewriteHistoryId` | `string\|null` 语义：非法形态折 `null`，**不得折空串**（否则「没关联」与「关联被抹」不可区分） |
+| 上限与淘汰 | 单归属最多 200 条（`MAX_SNAPSHOTS`），超出淘汰最旧并**真删键**；单条序列化上限 512 KB，超限拒写并出声 |
+| 不一致处理 | 索引里有、键缺失（并发删/手工改库）⇒ 列表仍显示可点，点开时提示「未保存原始内容」，不抛错、不误导 |
+| 定时时间 | **不还原**为绝对时刻：过期值静默沿用会让下一次发布被 `validateScheduleEntries` 拒绝且用户不知情。判据与草稿箱逐字一致（可解析且不晚于当前才算过期；不可解析一律保留） |
+
+#### 6.9.4 流程
+
+```
+发布成功/失败 → phase4-events 写历史行 → （旁路）按白名单构造快照 → 存 settings[snapshot:<id>] → 更新索引
+发布记录页 → history:list 附加 hasRepublishSnapshot（由索引现算，不落库）→ 有快照则按钮可点
+点「再次发布」→ /publish?republish=<id> → history:get-republish-snapshot →
+  有快照 → （表单非空则先确认覆盖）→ applyPublishSnapshot 写回表单 → toast → 清 query
+  无快照 → 提示「未保存原始内容，无法再次发布」（正常业务态，非错误）
+删记录 → history.deleteRecords 成功 → 级联 deleteSnapshots（失败只 warn，不回滚记录删除）
+```
+
+#### 6.9.5 交互逻辑与显示项
+
+| 元素 | 规则 |
+|---|---|
+| 卡片「再次发布」按钮 | 每条记录都渲染；`hasRepublishSnapshot !== true` 时 `disabled` + 降对比度 + 悬停写明原因（**不隐藏**：用户需要知道「这里本该有按钮」） |
+| 同批徽标 | `batchId` 相同且**同批 ≥2 条**时显示「同批 N 个平台」，悬停列出平台名；单条不显示 |
+| 卡片点击 | 沿用既有 `CARD_INTERACTIVE_SELECTOR` 委托（按钮/复选框点击不触发打开链接） |
+| 无链接原因（三态） | 草稿 → 「草稿（未公开，无链接）」；平台结构性无公开页（规则表 `contentPathRe` 与 `template` 同为 null，当前仅视频号）→ 「该平台不提供网页端公开链接（内容仅在客户端内可见）」；有后台页但无作品 ID → 「本次发布未获取到作品 ID，无法定位公开链接」；完全无证据 → 「暂无平台公开链接」 |
+
+#### 6.9.6 提示文字（zh / en 成对，CI Gate 7 拦截）
+
+`historyPage.republish` / `.republishHint` / `.republishUnavailable` / `.batchBadge` / `.batchTooltip` / `.cardNoLinkStructural` / `.cardNoLinkNoPostId`；`publishPage.republishLoaded` / `.republishMissing` / `.republishLoadFailed` / `.republishAccountUnavailable` / `.republishDiscardConfirm*`。文案全文见专项 PRD §6。
+
+#### 6.9.7 异常态矩阵
+
+| 异常 | 处理 |
+|---|---|
+| 记录无快照（早期记录/已淘汰） | 按钮禁用；若并发命中（索引有键无）→ toast「该记录未保存原始内容」；**两处都不走错误分支** |
+| 拉取快照 IPC 失败 | toast「载入发布内容失败，请稍后重试」；表单**保持不变**（`applyPublishSnapshot` 在快照不可用时 `applied:false` 且不改表单） |
+| 表单已有未保存内容 | 先确认「放弃当前未保存的内容？」，取消则不改表单、不写 query |
+| 原发布账号已删除/不可用 | 清掉该平台的账号选择 + toast「原发布账号已不可用，请重新选择账号」；账号列表未加载时**不误清** |
+| 历史行存在、tracked 行不存在 | 静默跳过回填（不报错、不新建行） |
+| 既有 post_id 不可用、新值也不可用 | **不覆盖**（避免把假值换成另一个假值） |
+
+#### 6.9.8 验收标准
+
+1. 新发布的记录：列表卡片「再次发布」可点，点击后发布页表单的**正文/标题/话题/封面/图片/分平台覆盖/平台与账号选择**与上次一致（A1–A7）。
+2. 早期记录（无快照）：按钮禁用且悬停给出原因，点击无任何跳转（A8）。
+3. 删除记录后该记录的快照键被清除，同 id 不再命中（A9）。
+4. 快照超过 200 条时最旧被淘汰且**真删键**，列表上对应记录按钮回到禁用态（A10）。
+5. 快手记录在账号级采集命中真 `photoId` 后，卡片变为可点击并打开公开内容页（A11）。
+6. 小红书草稿记录显示「草稿（未公开，无链接）」而非「未获取到作品 ID」（A12）。
+7. 回归锁：`electron/services/publish-republish-snapshot.test.js` 21 条、`src/features/publish/publish-snapshot.test.js` 10 条、`src/views/PublishHistory.test.js` 88 条（含新增 5 条）全绿；变异反证三处判据同时退回事故写法 ⇒ 3 文件 5 条用例变红（实测）。
+
 ## 七、视频创作流程
 
 ### 7.1 故事讲述（原 全能创作 / Omni Creation；2026-08-14 更名）

@@ -16,7 +16,31 @@ function registerHandlers(ipcMain, deps) {
   const { createPublishHelpers } = require('./publish-helpers')
   // eslint-disable-next-line no-unused-vars
   // eslint-disable-next-line no-unused-vars
-  const { taskQueue, history, BrowserWindow, log, identityService, riskSuspender } = deps
+  const { taskQueue, history, BrowserWindow, log, identityService, riskSuspender, store } = deps
+
+  // 2026-10-15「再次发布」快照（PRD-PUBLISH-RECORD-REPUBLISH-2026-10-15）：
+  // 正文与选项**不进历史行**（`readRecords()` 每次分页整文件重解析，正文入行会让
+  // 一次筛选放大成数十 MB 解析），落 owner 作用域快照存储，按记录 id 惰性读。
+  // 列表/详情只附加一个**存在性布尔**（读一次索引，O(1)，N 条记录不做 N 次读）。
+  const republishSnapshot = require('../services/publish-republish-snapshot')
+
+  /**
+   * 给历史记录附加 `hasRepublishSnapshot`。该标志**不落库**、由存储现算，
+   * 因此淘汰/删除后自动变 false，不存在「标志说有、实际没有」的漂移。
+   */
+  const withRepublishFlag = (records, owner) => {
+    if (!Array.isArray(records) || records.length === 0) return records
+    const ids = republishSnapshot.readSnapshotIdSet(owner, { store })
+    return records.map(record => (record && typeof record === 'object' && !Array.isArray(record)
+      ? { ...record, hasRepublishSnapshot: ids.has(String(record.id || '')) }
+      : record))
+  }
+
+  const withRepublishFlagOne = (record, owner) => {
+    if (!record || typeof record !== 'object') return record
+    const ids = republishSnapshot.readSnapshotIdSet(owner, { store })
+    return { ...record, hasRepublishSnapshot: ids.has(String(record.id || '')) }
+  }
 
   // 发布 IPC 局部工具：路径段校验 / 统一日志 / 文章摘要（见 publish-helpers.js）
   const { isSafePathSegment, ipcLog, summarizeArticle } = createPublishHelpers({ log })
@@ -295,11 +319,18 @@ function registerHandlers(ipcMain, deps) {
       normalizedTargets.push({ platform, accountId })
     }
     const plainArticle = JSON.parse(JSON.stringify(article || {}))
+    // 2026-10-15：一次 publish:batch 产生的 N 个任务共享一个 batchId。
+    // 历史记录仍按平台各写一行（状态/审核/作品链接/互动数据都是平台级动作，合并成
+    // 一条「集合记录」会丢掉可执行性），但「这几条属于同一次发布」此前无从回答——
+    // taskQueue 早已归一 batchId 字段（packages/shared-utils/src/task-queue.js:184），
+    // 只是从来没有人传过它。
+    const batchId = 'batch_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
     const taskIds = normalizedTargets.map(({ platform, accountId }) => {
       return taskQueue.add({
         platform,
         article: { ...plainArticle, accountId },
         accountId,
+        batchId,
         // 视频发布要等大文件真实上传完成（强判定最长 15 分钟）+转码/表单等待，
         // 队列默认 180s 会在上传中途杀任务（2026-09 smoke5 实锤），视频任务放宽到 30 分钟
         ...(plainArticle.video_path ? { timeout: 1800000 } : {}),
@@ -369,8 +400,9 @@ function registerHandlers(ipcMain, deps) {
         return { code: EC.AUTH_ERROR, message: '无法识别当前用户', data: { total: 0, records: [] } }
       }
       const result = history.listRecords(opts, owner)
+      const enriched = { ...result, records: withRepublishFlag(result && result.records, owner) }
       ipcLog('info', 'history:list', 'ok', `owner=${owner} total=${result?.total} records=${Array.isArray(result?.records) ? result.records.length : '?'} page=${opts?.page} pageSize=${opts?.pageSize}`)
-      return { code: 0, data: result }
+      return { code: 0, data: enriched }
     } catch (e) {
       ipcLog('error', 'history:list', 'error', `message=${e.message}`)
       return { code: EC.REQUEST_ERROR, message: e.message, data: { total: 0, records: [] } }
@@ -390,7 +422,7 @@ function registerHandlers(ipcMain, deps) {
         return { code: EC.NOT_FOUND, message: '记录不存在' }
       }
       ipcLog('info', 'history:get', 'ok', `id=${id} platform=${record?.platform} status=${record?.status}`)
-      return { code: 0, data: record }
+      return { code: 0, data: withRepublishFlagOne(record, owner) }
     } catch (e) { ipcLog('error', 'history:get', 'error', `id=${id} message=${e.message}`); return { code: EC.REQUEST_ERROR, message: e.message } }
   }))
 
@@ -421,9 +453,42 @@ function registerHandlers(ipcMain, deps) {
         ipcLog('warn', 'history:delete', 'not-found', `ids=${normalizedIds.join(',')}`)
         return { code: EC.NOT_FOUND, data: { deleted: 0 }, message: '记录不存在' }
       }
+      // 级联清理「再次发布」快照：记录没了，快照键就是永远读不到的孤儿行（settings 只增不减）。
+      // 旁路：清理失败只出声，记录已删的事实不回滚（回滚等于把用户删掉的记录找回来）。
+      try {
+        const purged = republishSnapshot.deleteSnapshots(normalizedIds, owner, { store })
+        if (purged && purged.deleted > 0) {
+          ipcLog('info', 'history:delete', 'snapshots-purged', `count=${purged.deleted}`)
+        }
+      } catch (e) {
+        ipcLog('warn', 'history:delete', 'snapshot-purge-failed', `message=${e && e.message}`)
+      }
       ipcLog('info', 'history:delete', 'ok', `deleted=${result.deleted} ids=${normalizedIds.join(',')}`)
       return { code: 0, data: result, message: '发布记录已删除' }
     } catch (e) { ipcLog('error', 'history:delete', 'error', `message=${e.message}`); return { code: EC.REQUEST_ERROR, message: e.message } }
+  }))
+
+  // 「再次发布」：按记录 id 取回该次发布的内容与选项快照。
+  // 返回 `{ snapshot: null }` 而不是 NOT_FOUND —— 「这条记录没有快照」（早期记录/已淘汰）
+  // 是**正常业务态**，前端据此提示「未保存原始内容」，不该走错误分支。
+  ipcMain.handle('history:get-republish-snapshot', withSenderCheck(async (event, recordId) => {
+    try {
+      const owner = getOwnerSubject()
+      if (owner === null) {
+        ipcLog('warn', 'history:get-republish-snapshot', 'auth-failed', '无法识别当前用户')
+        return { code: EC.AUTH_ERROR, message: '无法识别当前用户' }
+      }
+      if (typeof recordId !== 'string' || !recordId.trim()) {
+        ipcLog('warn', 'history:get-republish-snapshot', 'validation-failed', `recordId=${String(recordId)}`)
+        return { code: EC.VALIDATION_ERROR, message: '记录 ID 无效' }
+      }
+      const snapshot = republishSnapshot.readSnapshot(recordId.trim(), owner, { store })
+      ipcLog('info', 'history:get-republish-snapshot', 'ok', `recordId=${recordId.trim()} hit=${Boolean(snapshot)}`)
+      return { code: 0, data: { snapshot: snapshot || null } }
+    } catch (e) {
+      ipcLog('error', 'history:get-republish-snapshot', 'error', `message=${e.message}`)
+      return { code: EC.REQUEST_ERROR, message: e.message, data: { snapshot: null } }
+    }
   }))
 
   // ─── W1 §5 enforcement：风控挂起守卫查询/恢复 ───

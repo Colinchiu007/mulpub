@@ -141,6 +141,50 @@ describe('applyAccountSyncLinks', () => {
     expect(db.prepare('SELECT post_id FROM tracked_content WHERE id = ?').get('fill-1').post_id).toBe('aweme-777')
   })
 
+  // 2026-10-15（用户报障「作品链接一直没生效」的写入侧根因之一）：
+  // 快手拿不到真 id 时把**合成成功信号** `published-<时间戳>` 写进 post_id，
+  // 它非空但拼不出任何公开页，于是「只补空值」把真 photoId 永久挡在门外。
+  it('T16c 合成 post_id（published-*）不占位：真作品 ID 必须能覆盖它', () => {
+    // 快手的作品 ID 形态是**纯数字**（published-content-url 的 postIdRe=/^\d{6,}$/），
+    // 合成值 `published-<时间戳>` 正是被这条形态闸门拒掉的那一类。
+    insertTracked('ks-1', 'kuaishou', 'published-mv4y7b6d', 'user-A')
+    const store = makeStore()
+    const out = store.applyAccountSyncLinks({
+      links: [{ trackedId: 'ks-1', work: { platform: 'kuaishou', postId: '1874289148083371214', metrics: { views: 7 } } }],
+      ownerSubject: 'user-A',
+      nowMs: Date.parse('2026-10-12T02:00:00.000Z'),
+      source: 'account_sync',
+    })
+    expect(out.backfilled).toBe(1)
+    expect(db.prepare('SELECT post_id FROM tracked_content WHERE id = ?').get('ks-1').post_id).toBe('1874289148083371214')
+  })
+
+  it('T16d 真作品 ID 仍然不可被覆盖（V14 本意不变）', () => {
+    insertTracked('ks-2', 'kuaishou', '1874289148083371214', 'user-A')
+    const store = makeStore()
+    const out = store.applyAccountSyncLinks({
+      links: [{ trackedId: 'ks-2', work: { platform: 'kuaishou', postId: '1875007830173233602', metrics: { views: 7 } } }],
+      ownerSubject: 'user-A',
+      nowMs: Date.parse('2026-10-12T02:00:00.000Z'),
+      source: 'account_sync',
+    })
+    expect(out.backfilled).toBe(0)
+    expect(db.prepare('SELECT post_id FROM tracked_content WHERE id = ?').get('ks-2').post_id).toBe('1874289148083371214')
+  })
+
+  it('T16e 新值本身也不可用时不得覆盖（避免把假值换成另一个假值）', () => {
+    insertTracked('ks-3', 'kuaishou', 'published-aaa', 'user-A')
+    const store = makeStore()
+    const out = store.applyAccountSyncLinks({
+      links: [{ trackedId: 'ks-3', work: { platform: 'kuaishou', postId: 'published-bbb', metrics: { views: 7 } } }],
+      ownerSubject: 'user-A',
+      nowMs: Date.parse('2026-10-12T02:00:00.000Z'),
+      source: 'account_sync',
+    })
+    expect(out.backfilled).toBe(0)
+    expect(db.prepare('SELECT post_id FROM tracked_content WHERE id = ?').get('ks-3').post_id).toBe('published-aaa')
+  })
+
   it('T18d 归属不符的行一律不写（fail closed：owner 过滤不能只靠上游）', () => {
     insertTracked('foreign-1', 'xiaohongshu', '', 'user-B')
     const store = makeStore()
