@@ -61,7 +61,31 @@
                 >{{ riskBadgeText }}</span>
               </label>
             </template>
-            <span v-else class="target-accounts__empty">请先添加账号</span>
+            <template v-else>
+              <div class="target-accounts__empty-row">
+                <span class="target-accounts__empty">请先添加账号</span>
+                <!-- 空态出口（publish-add-account-entry，2026-10-15）：不跳去账号页，
+                     直接打开该平台登录页的新标签。契约见 PRD §二.2。 -->
+                <button
+                  type="button"
+                  class="target-accounts__add"
+                  :data-testid="'add-account-' + platform.id"
+                  :disabled="disabled"
+                  :aria-label="addAccountAriaLabel(platform.label)"
+                  @click="$emit('add-account', platform.id)"
+                >{{ addAccountLabel }}</button>
+              </div>
+              <!-- 回补入口：用户在新标签登录并「保存账号」后，切回本页点它重拉账号列表。
+                   单独一行是与「添加」的主次之分（PRD §二.1）。 -->
+              <button
+                type="button"
+                class="target-accounts__refresh"
+                :data-testid="'refresh-accounts-' + platform.id"
+                :disabled="disabled || refreshingAccounts"
+                :aria-busy="refreshingAccounts ? 'true' : null"
+                @click="$emit('refresh-accounts', platform.id)"
+              >{{ refreshingAccounts ? refreshingLabel : refreshLabel }}</button>
+            </template>
           </div>
         </div>
       </div>
@@ -88,6 +112,9 @@ const props = defineProps({
   selectedPlatforms: { type: Array, default: () => [] },
   selectedAccounts: { type: Object, default: () => ({}) },
   disabled: { type: Boolean, default: false },
+  /** 账号列表重拉中（publish-add-account-entry）：禁用刷新链接防重复点击，
+   *  文案切「刷新中...」。由上层（Publish.vue → usePublishAddAccount.refreshing）提供。 */
+  refreshingAccounts: { type: Boolean, default: false },
   /** 风控挂起清单（P0-2 发布页可见性）：[{platform, accountId}]，accountId 为 null 表示平台级挂起。
    *  数据源是 useRiskStore（Publish.vue 注入），组件保持哑组件不直接耦合 store。 */
   riskSuspended: { type: Array, default: () => [] },
@@ -96,7 +123,7 @@ const props = defineProps({
   accountGroups: { type: Array, default: () => [] },
 })
 
-defineEmits(['toggle-platform', 'toggle-account', 'apply-group'])
+defineEmits(['toggle-platform', 'toggle-account', 'apply-group', 'add-account', 'refresh-accounts'])
 
 const search = ref('')
 const filteredGroups = computed(() => {
@@ -117,6 +144,14 @@ const filteredGroups = computed(() => {
 })
 
 const disabledFlagText = computed(() => i18n.global.t('accountsPage.accountCardLabels.disabledFlag'))
+
+// 空态出口文案（publish-add-account-entry，2026-10-15；契约见 PRD §七）。
+const addAccountLabel = computed(() => i18n.global.t('publishPage.addAccount.label'))
+const refreshLabel = computed(() => i18n.global.t('publishPage.addAccount.refreshLabel'))
+const refreshingLabel = computed(() => i18n.global.t('publishPage.addAccount.refreshing'))
+function addAccountAriaLabel (platformLabel) {
+  return i18n.global.t('publishPage.addAccount.ariaLabel', { platform: platformLabel })
+}
 
 // P0-2 风控挂起可见性：挂起清单判账号级/平台级命中（与 risk-suspender-store 键语义一致——
 // 平台级（accountId==null）命中该平台所有账号；账号级仅命中对应账号）。
@@ -149,6 +184,14 @@ function isAccountSelected (platformId, accountId) {
 .target-selector__search:focus { outline: 2px solid color-mix(in srgb, var(--action-blue, #1890ff) 25%, transparent); border-color: var(--action-blue, #1890ff); }
 .target-selector__list { min-height: 0; max-height: clamp(220px, 38vh, 430px); overflow-y: auto; padding-right: 4px; scrollbar-gutter: stable; }
 .target-selector__empty, .target-accounts__empty { color: var(--muted, #8a8f98); font-size: var(--font-size-xs); }
+/* 空态出口（publish-add-account-entry）：提示文字与「添加」同一行，刷新链接单独一行。
+   按钮刻意用小号文字按钮（非实心大按钮）——它活在平台列表里，不能抢已选平台的焦点。 */
+.target-accounts__empty-row { display: inline-flex; align-items: center; gap: 8px; }
+.target-accounts__add { padding: 1px 8px; border: 1px solid var(--border-light, #e0e0e0); border-radius: 4px; background: var(--surface, #fff); color: var(--action-blue, #1890ff); font-size: var(--font-size-xs); line-height: 1.6; cursor: pointer; }
+.target-accounts__add:hover:not(:disabled) { border-color: var(--action-blue, #1890ff); }
+.target-accounts__refresh { display: block; padding: 0; border: 0; background: none; color: var(--muted, #8a8f98); font-size: var(--font-size-xs); text-align: left; cursor: pointer; }
+.target-accounts__refresh:hover:not(:disabled) { color: var(--action-blue, #1890ff); text-decoration: underline; }
+.target-accounts__add:disabled, .target-accounts__refresh:disabled { cursor: not-allowed; opacity: .6; }
 .target-group { display: grid; gap: 8px; }
 .target-group__label { margin: 0; color: var(--muted, #73777d); font-size: var(--font-size-xs); font-weight: 600; }
 .target-platform { display: grid; gap: 6px; }
