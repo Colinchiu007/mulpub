@@ -91,25 +91,36 @@ base 三级回退：`CCG_DECIDER_BASE` → `origin/main` → `main`。
 
 ## 四、测试与变异反证（判据只取产物）
 
-新增 5 条测试（`ccg-review-decider.test.js`：11 → **16**）：
+新增 8 条测试（`ccg-review-decider.test.js`：11 → **19**）：其中 12–16 出自本 PR 的首次实现，
+**17/18/19 出自深度审查 i1/i3/i6 的处置**。
 
-| # | 测试 | 变红于 |
-| --- | --- | --- |
-| 12 | `collectRange` 真实覆盖：判的是 `base...HEAD` 那批改动，且能读到变更行 | **M1** |
-| 13 | 三点语义：base 之后主干自己的改动不得算进本次 | **M1** |
-| 14 | `--base` 不存在时必须说「未判定」，不得说「暂存区无变更，跳过审查模式判定」 | — |
-| 15 | 空暂存区且无 `--base` 时，必须点明「这不是无需审查，是没判」并给补救命令 | — |
-| 16 | **接线锁**：带显式路径补跑时 gate 必须把 `--base` 传下去（断言效果） | **M2** |
+| # | 测试 | 变红于 | 出自 |
+| --- | --- | --- | --- |
+| 12 | `collectRange` 真实覆盖：判的是 `base...HEAD` 那批改动，且能读到变更行 | **M1** | 首次实现 |
+| 13 | 三点语义：base 之后主干自己的改动不得算进本次 | **M1** | 首次实现 |
+| 14 | `--base` 不存在时必须说「未判定」，不得说旧措辞 | **M5** | 首次实现（i4a 修后才可证伪）|
+| 15 | 空暂存区且无 `--base` 时，必须点明「这不是无需审查，是没判」并给补救命令 | — | 首次实现 |
+| 16 | **接线锁**：带显式路径补跑时 gate 必须把 `--base` 传下去（断言效果） | **M2** | 首次实现 |
+| 17 | **i1 锁**：暂存区非空时，带显式目标也必须仍判暂存区 | **M3** | 深度审查 i1 |
+| 18 | **i3 锁**：区间为空时提示必须给出**可用**基准 | — | 深度审查 i3 |
+| 19 | **i6 锁**：坏 `CCG_DECIDER_BASE` 必须被拒并告警，不得先印基准行 | **M4** | 深度审查 i6 |
 
 | 变异 | 施加内容 | 结果 |
 | --- | --- | --- |
-| **M1** | `collectRange` 退化为 `collectStaged()`（base 被忽略） | **not ok 12 / 13**（16 连带）⇒ 3 红 |
-| **M2** | 摘掉 `deciderArgs.push("--base", candidate)` | **not ok 16** ⇒ 1 红 |
-| 基线 | — | **16/16 全绿** |
-| 还原后复验 | — | **16/16 全绿** |
+| **M1** | `collectRange` 退化为 `collectStaged()`（base 被忽略） | **not ok 12 / 13**（16 连带）|
+| **M2** | 摘掉 `deciderArgs.push("--base", candidate)` | **not ok 16** |
+| **M3** | 判据退回「只看显式目标」（i1 复现） | **not ok 17** |
+| **M4** | 取消 `CCG_DECIDER_BASE` 校验（i6 复现） | **not ok 19** |
+| **M5** | 让 decider 重新打印「跳过」（旧措辞回流） | **not ok 14** |
+| 基线 / 还原后复验 | — | **19/19 全绿** |
 
-变异脚本落在仓库外（`D:\Temp\mut-r2.cjs`），**行尾无关**：先归一为 LF 匹配、再按原文行尾写回
-（第一版按 LF 拼目标串，而工作区当时是 CRLF ⇒ 两处目标都「0 次命中」，脚本**拒绝盲改**）。
+变异脚本落在仓库外（`D:\Temp\mut-r2.cjs` / `mut-r2b.cjs`），**行尾无关**：先归一为 LF 匹配、
+再按原文行尾写回（第一版按 LF 拼目标串，而工作区当时是 CRLF ⇒ 两处目标都「0 次命中」，
+脚本**拒绝盲改**）。
+
+> **M5 是本轮第二次「假绿锁」教训**：测试 14 原本断「不得出现 `<已删除的旧措辞>`」——
+> 那串字在本次提交后已从源码消失 ⇒ 断言**永真**。只给「新加的锁」做变异反证**不足以**发现
+> 存量断言的措辞漂移腐化；M5 的作用就是让这条断言重新变成**可证伪**的。
 
 **同场修掉的工具坑（值得记账）**：用 PowerShell `Set-Content -Encoding utf8` 还原文件，
 在 PS 5.1 下会把文件写成带 BOM / 换行的形态；本轮实测把 3 个文件**全量转成 CRLF**
@@ -122,24 +133,74 @@ base 三级回退：`CCG_DECIDER_BASE` → `origin/main` → `main`。
 
 | 项 | 结果 |
 | --- | --- |
-| `ccg-review-decider.test.js` | **16/16** |
+| `ccg-review-decider.test.js` | **19/19**（11 → 16 → 19，新增 8 条）|
 | `check-pr-exec-record.test.js` | **48/48** |
 | `ccg-bash-entry.test.js` | **9/9** |
+| 变异反证 | **M1–M5 全部实测变红后还原复绿**（详见 §五之二）|
 | `node --check`（3 个文件） | 全部 exit=0 |
 | `check-unwired-tests.js` | exit=0 |
 | `check-gate-record-debt.js` | exit=0 |
 | 行尾/编码对账 | `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` **一致** |
 | 品牌残留 | PASS |
+| 深度审查（DUAL） | **已跑**：critique 6 条 → 逐条裁决 **6/6 upheld** → 全部处置（见 §五之二）|
 | 远程同步 | PENDING | 本 PR 未合并 |
 
-- 保留门禁：decider 16/16 ✅ | exec-record 48/48 ✅ | bash-entry 9/9 ✅ | 变异反证 M1+M2 均实测变红 ✅ | 行尾对账 ✅ | unwired ✅ | 债务熔断 ✅ | 品牌 ✅ | 远程同步 PENDING
+- 保留门禁：decider 19/19 ✅ | exec-record 48/48 ✅ | bash-entry 9/9 ✅ | 变异反证 M1–M5 全部实测变红 ✅ | 深度审查已跑并逐条裁决 6/6 ✅ | 行尾对账 ✅ | unwired ✅ | 债务熔断 ✅ | 品牌 ✅ | 远程同步 PENDING
 
-## 五之二、深度审查（DUAL，判定理由：变更 354 行 > 200 行阈值）
+## 五之二、深度审查（DUAL）
+
+**判定触发**：`mode=dual`，理由「变更 > 200 行阈值（对齐 §12.6 Red Team）」。
+**两次判定的规模不同，因为时点不同（深度审查 i5 要求写明）**：
+
+| 时点 | 范围 | 规模 | 权威引用 |
+| --- | --- | --- | --- |
+| 写记录前（staged） | 3 个脚本 | **354 行** | — |
+| commit 时（pre-commit） | 4 个源文件（多出本次新增的记录文件等） | **380 行** | `.ccg/reviews/0da7f0dc6….json` |
+
+> 以 `.ccg` 判定记录为权威；354 那次是同一批改动的早期时点。**不是矛盾，是两个时点。**
+
+**执行**：`sh scripts/deep-review.sh` → critic=claude 出 **6 条 finding**；
+维度分 correctness 4 / security 8 / performance 9 / maintainability 7，最低分 4（无高危域）；
+收敛判为 `self_play` → 引擎第三档**自扮演裁决** → 状态 `self_play_pending`。
+
+**裁决（`.adversarial/ccg-deep-f993602e/adjudication.json`）**：
+`adjudicatedBy: agent-adjudication`，**6 条逐条填 prosecution / defense / verdict / rationale**。
+**★ 引擎侧终审 verdict 未取得 —— 不得据此声称已获引擎裁定。**
+
+| finding | 严重度 | 裁决 | 处置 |
+| --- | --- | --- | --- |
+| i1 显式目标 ⇒ 无条件传 `--base`，漏掉已暂存的改动（**回归**） | Critical | **upheld** | 判据改为「**暂存区是否为空**」；锁：测试 17 + 变异 M3 |
+| i2 DUAL 审查未跑就把记录留空段 | Warning | **upheld** | 本节即在 PR 内补齐；且门禁当场拦下（见下） |
+| i3 空区间的补救示例是不可用的基准 | Warning | **upheld** | 列两个子情形 + 各自可用的基准 + 打印 HEAD/base 短 sha；锁：测试 18 |
+| i4a 测试 14 的负向断言断的是**已删除的旧措辞 ⇒ 永真、形同虚设** | Info | **upheld** | 改断「跳过」；**变异 M5 证明它现在可证伪** |
+| i4b 未覆盖「pre-commit + 暂存」形态 | Info | **upheld** | 已由测试 17 覆盖 |
+| i5 记录 354 行 / .ccg 380 行，未写时点 | Info | **upheld** | 见上方两次判定表 |
+| i6 `CCG_DECIDER_BASE` 未校验即当候选 ⇒ 输出自相矛盾 | Info | **upheld** | 先 `rev-parse` 校验，无效则点名忽略且不印基准行；锁：测试 19 + 变异 M4 |
+
+**i4a 值得单独记账**：那是一条**我自己刚写的、还专门做过变异反证的测试文件里**的**永真断言** ——
+说明「只给**新加的锁**做变异反证」不够，**存量断言的措辞漂移会静默腐化**。
+
+**i2 的闭环值得单独记账**：拦下「记录不完整」的，正是**上一个 PR 修好的缺陷 D 门禁**
+（现场输出：`mode=dual，status=pending` ⇒ 「不通过：1 条理由」⇒ 提示补跑 deep-review.sh）。
+若那处没修，这次就会带着空段合入。
+
+**本轮变异反证共 5 次，全部实测变红后还原复绿**：
+
+| 变异 | 施加内容 | 结果 |
+| --- | --- | --- |
+| M1 | `collectRange` 退化为 `collectStaged()` | not ok **12 / 13**（16 连带）|
+| M2 | gate 不传 `--base` | not ok **16** |
+| M3 | 判据退回「只看显式目标」（i1 复现）| not ok **17** |
+| M4 | 取消 `CCG_DECIDER_BASE` 校验（i6 复现）| not ok **19** |
+| M5 | 让 decider 重新打印「跳过」（旧措辞回流）| not ok **14**（证明该断言已可证伪）|
+| 基线 / 还原后 | — | 均 **19/19** |
 
 ## 六、残余（未闭合，不假装）
 
 | # | 项 | 说明 |
 | --- | --- | --- |
-| R1 | gate 的 base 候选只有 `origin/main` / `main` | 默认分支是 `master` 的仓库取不到 base。此时**出声告警并保持未判定**（fail-closed），补救靠 `CCG_DECIDER_BASE`。是否自动补 `master` 属产品判断，本轮不做 |
+| R1 | gate 的 base 候选只有 `origin/main` / `main` | 默认分支是 `master` 的仓库取不到 base。此时**出声告警并保持未判定**（fail-closed），补救靠 `CCG_DECIDER_BASE`（深度审查 i6 后该 env **已加 rev-parse 校验**，坏值会被点名拒绝）。是否自动补 `master` 属产品判断，本轮不做 |
 | R2 | `--base` 只覆盖「验证层」 | 决策层（`--input` 方案文件）不受影响，本来就不读 diff |
 | R3 | 上一 PR 的残余 1–9 仍在 | 见 `openspec/records/fix-ccg-decider-defects.md`；其中残余 9（记录名 = 父 sha）已开 **issue #3643** |
+| R4 | 深度审查的**引擎侧终审未取得** | critique 6 条由 agent 逐条裁决（`adjudicatedBy: agent-adjudication`），第三档自扮演出口。**不得**据此声称已获引擎裁定；若要换更强的结论，须再跑一次并拿到引擎 verdict |
+| R5 | 「存量断言措辞漂移」无机械防护 | 测试 14 的永真断言是**人（deep review）发现的**，不是门禁发现的。是否给测试断言的**可证伪性**加一条机械检查（例如：负向断言的目标串必须仍出现在被测源码里）——属新机制，本轮不做 |

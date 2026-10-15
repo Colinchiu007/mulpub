@@ -508,12 +508,26 @@ function main() {
     staged = collectRange(base);
     if (!staged) {
       console.log(`   [CCG] ⚠ 未判定：读不到 ${base}...HEAD（base 不存在，或当前不是 git 仓库）`);
-      console.log("         这**不等于**「无需审查」。请确认 base 后重跑：--base origin/main");
+      console.log("         这**不等于**「无需审查」。可用基准按序试：");
+      console.log("           origin/main / main / <本次改动之前的那个提交>；");
+      console.log("           或用 CCG_DECIDER_BASE=<rev> 指定后重跑。");
       return 0;
     }
     if (staged.files.length === 0) {
-      console.log(`   [CCG] ⚠ 未判定：${base}...HEAD 为空，没有可判的改动`);
-      console.log("         这**不等于**「无需审查」。若你期望有改动，说明 base 选错了。");
+      // ★ 深度审查 i3 修正（2026-10-15）：原措辞只提示「若你期望有改动，说明 base 选错了」，
+      //   而补救示例仍是 `--base origin/main` —— 在**最常触发本分支的场景**
+      //   （改动已并入 base、HEAD 就在基准上）里，origin/main 恰恰是失效的那个基准，
+      //   用户照着做还是空的，等于把系统提示写成「是你选错了」。
+      //   现在把两个真实子情形与各自**可用**的基准写出来。
+      const head = (git(["rev-parse", "--short", "HEAD"]) || "?").trim();
+      const baseShort = (git(["rev-parse", "--short", base]) || "?").trim();
+      console.log(`   [CCG] ⚠ 未判定：${base}...HEAD 为空（HEAD=${head}，base=${baseShort}）`);
+      console.log("         这**不等于**「无需审查」。两种常见成因与各自的可执行补救：");
+      console.log("           ① 改动**还没提交**（在暂存区）⇒ 去掉 --base，直接判暂存区");
+      console.log(
+        `           ② 改动**已并入 ${base}**（HEAD 就在基准上）⇒ 换更早的基准，例如` +
+          ` \`--base ${base}~1\`，或用 \`git log\` 找到本次改动的父提交`
+      );
       return 0;
     }
   } else {
