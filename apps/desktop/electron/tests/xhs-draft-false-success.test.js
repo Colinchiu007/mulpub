@@ -48,6 +48,13 @@ function makeInstance (overrides = {}) {
     // 导航后弹窗关闭：生产实现在 _publish_generic 里于 draftOnly 分支之前调用，
     // 缺这个桩会让 6 例在抵达被测逻辑前就 TypeError（首轮 7/7 全红的唯一原因）。
     _dismissPostNavDialogs: vi.fn(async () => {}),
+    // 2026-10-15 硬证据确认链：草稿箱计数三件套。本文件的用例只关心「内容填写」
+    // 这一层，所以给「读到计数且随后增长」的默认桩，让流程能走到返回处；
+    // 计数判据本身由 xhs-draft-only-hard-evidence.test.js 专锁（那边驱动真实方法，
+    // 不抄生产逻辑——见该文件顶部修订说明）。
+    _readDraftBoxCounter: vi.fn(async () => 1),
+    _waitForDraftBoxIncrement: vi.fn(async () => true),
+    _recheckDraftBox: vi.fn(async () => ({ increment: false, titleSeen: false })),
     ...overrides,
   }
   inst.__calls = calls
@@ -169,33 +176,46 @@ describe('draftOnly 假成功修复（2026-10-07）', () => {
     expect(res.success).toBe(true)
   })
 
-  it('draftSaved 判定条件不再接受孤立的「草稿」二字', async () => {
-    // 从源码位置反推文件绝对路径：vitest 4 + jsdom 下 import.meta.url
-    // 不是 file: scheme，new URL(..., import.meta.url) 会被 fs 拒收。
+  it('draftSaved 判定已换成硬证据（不再是页面文本正则）', async () => {
+    // 2026-10-15 真机实测证伪了「页面文本正则」这条路：
+    // 应用报「发布成功」但草稿箱无新增——旧正则 3 秒即命中页面静态文案，
+    // 同一时刻页面控制台正在连报「获取某个数据失败 / 请求失败」。
+    // 本断言从「锁旧正则形状」改为「锁新判据已接线」：draftOnly 分支必须
+    // 读草稿箱计数、等计数增量，并把三条硬证据通道接齐。
+    // 计数判据的行为细节由 xhs-draft-only-hard-evidence.test.js 专锁。
     const fs = await import('node:fs')
     const file = path.resolve(process.cwd(), 'electron/services/rpa-view-platforms.js')
     const src = fs.readFileSync(file, 'utf-8')
 
-    // 落库判定被拆成多行 JS 字符串拼接，不能按「单行含编辑于」去找——
-    // 首轮就是这么写的，结果 find 返回 undefined，断言在错误的层面失败。
-    const block = src.slice(
-      src.indexOf('draftSaved = await this._waitForCondition'),
-      src.indexOf('draftSaved = await this._waitForCondition') + 600)
+    // 旧判据的页面文本正则必须已不在 draftOnly 分支里。
+    // 注意：块内**注释**会提到旧判据的名字（解释为什么弃用它），所以不能简单
+    // 搜「已保存」字样；要搜的是「把它当判据用」的代码形态——innerText 匹配
+    // 与 _waitForCondition 驱动 saved。
+    // 切片按**分支边界**取，不按「标记 + 固定字符数」取：固定长度切片会在注释一改
+    // 就静默切歪（切少了会漏检，切多了会把相邻分支的 innerText 也算进来）——
+    // CCG 深度评审 i7 点的就是这个脆弱锚点。
+    const start = src.indexOf('if (config.draftOnly) {')
+    const end = src.indexOf('if (sel.publish_btn && sel.publish_btn.length>0) {', start)
+    expect(start).toBeGreaterThan(-1)
+    expect(end).toBeGreaterThan(start)
+    const draftBlock = src.slice(start, end)
+    expect(draftBlock).toBeTruthy()
+    // 只看代码行、不看注释：块内注释会解释旧判据被弃用的原因，必然提到它读的属性名，
+    // 对整块文本做 not.toMatch 等于「锁注释不锁代码」（CCG 深度评审 i7）。
+    const codeOnly = draftBlock.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n')
+    expect(codeOnly).not.toMatch(/innerText/)
+    expect(codeOnly).not.toMatch(/_waitForCondition\s*\(/)
 
-    expect(block).toBeTruthy()
-    // 旧正则尾部是「|草稿/」，孤立的「草稿」二字在小红书创作者页恒真
-    expect(block).not.toMatch(/草稿\//)
-    expect(block).not.toMatch(/已保存\|草稿/)
-    // 收紧后：要求「编辑于」后跟时间量词。
-    // 注意 block 是**源码文本**，该段是 JS 字符串字面量，所以源码里写的是
-    // 双反斜杠 \\s*\\S{1,12}；正则字面量要匹配这两个反斜杠需写 \\\\s。
-    // 首轮写成 /编辑于\\s\*\\S/ 只匹配「一个反斜杠」，差一层转义。
-    expect(block).toContain('编辑于\\\\s*\\\\S{1,12}')
-    expect(block).toMatch(/已保存/)
-    // 额外锁住「不接受孤立的草稿」这一意图：整个判定块里不得再出现「草稿」二字。
-    // （旧实现是 /编辑于|已保存|草稿/ —— 裸「草稿」在小红书创作者页是侧边栏
-    //   「草稿箱」常驻文案，恒真 ⇒ saved 恒为 true，等于没有判据。）
-    expect(block.includes('草稿')).toBe(false)
+    // 新判据的确认链必须在场。注意 `_readDraftBoxCounter`（读基线）**不在**这个分支内：
+    // 基线已按评审 i5 前移到「写入内容之前」读，分支里用的是那份读好的 baseline。
+    expect(draftBlock).toContain('_waitForDraftBoxIncrement')
+    expect(draftBlock).toContain('_recheckDraftBox')
+    expect(draftBlock).toContain('_waitForResponse')
+    expect(draftBlock).toContain('baseline')
+    // fail-closed：三条都不可达必须报失败，而不是返回 success:true
+    expect(draftBlock).toContain('PUBLISH_DRAFT_UNCONFIRMED')
+    // 基线确实被读过（只是发生在这个分支之外）
+    expect(src).toContain('xhsDraftBaseline = await this._readDraftBoxCounter')
   })
 })
 
