@@ -958,17 +958,27 @@ test('换代守卫纯函数：prev.metric 与 next.metric 不同 ⇒ 不判放�
 });
 
 test('行为锁：账本换代 + 计数上涨 ⇒ 放行但必须出声', (t) => {
-  const { root } = makeFixture({ '01-docs/a.md': docWith([anyAbsPath('m1'), anyAbsPath('m2')]) });
-  writeBaseline(root, { '01-docs/a.md': 1 }, { metric: 'dead_abs_paths_v1' });
-  const bPath = path.join(root, 'scripts', 'doc-abs-paths-baseline.json');
-  const j = JSON.parse(fs.readFileSync(bPath, 'utf8'));
-  j.files['01-docs/a.md'] = 2;
-  j.metric = require(SCRIPT).METRIC_VERSION;
-  fs.writeFileSync(bPath, JSON.stringify(j, null, 2) + '\n');
-  const r = runGate(root, ['--base=HEAD', '--head=HEAD']);
+  // 第一版这条锁写错了跑法：它用 runGate()，而那个 helper 恒带 --all，--all 按设计**跳过**
+  // 放宽检测（没有 base 可比）⇒ 换代分支一次都没被执行，断言只读到那句"未执行"就当失败。
+  // 换代豁免只在改动集口径（--base/--head）上有意义，所以必须用真 git 夹具喂两个提交。
+  const B = require(SCRIPT).BASELINE_REL;
+  const v1Ledger = (files) => JSON.stringify(
+    { note: 'v1', generated: '2026-10-14', reason: 'v1', files }, null, 2) + '\n';
+  const doc2 = docWith([anyAbsPath('g1'), anyAbsPath('g2')]);
+  const doc3 = doc2 + docWith([anyAbsPath('g3')]);
+  const { root, refs } = makeGitFixture([
+    { '01-docs/g.md': doc2, [B]: v1Ledger({ '01-docs/g.md': 2 }) },
+    { '01-docs/g.md': doc3, [B]: baselineJson({ '01-docs/g.md': 3 }) }
+  ]);
+  const r = spawnSync(
+    process.execPath,
+    [SCRIPT, '--root', root, `--base=${refs[0]}`, '--head=HEAD'],
+    { encoding: 'utf8' }
+  );
   const all = r.stdout + r.stderr;
-  assert.equal(r.status, 0, all);
-  assert.match(all, /口径换代|generation/, '放行也必须出声：' + all);
+  assert.equal(r.status, 0, all.slice(0, 1200));
+  assert.match(all, /口径换代/, '放行也必须出声，否则"接受换代"没有出处：' + all.slice(0, 1200));
+  assert.doesNotMatch(all, /账本被放宽/, '换代那一次逐文件计数不可比，不得判放宽：' + all.slice(0, 1200));
 });
 
 test('--write-baseline 不再要求盘符（口径与机器无关后，原拒绝的前提消失），但窄域仍拒', (t) => {
