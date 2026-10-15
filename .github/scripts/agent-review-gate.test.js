@@ -532,3 +532,66 @@ test("CLI 必须真的把 --required-feature-ids 交给判据（参数不是装�
     }
   });
 });
+
+// ── QM-6 后端轴 findings #1 / #3 的处置落点（2026-10-15）───────────────────
+// 评审说「拿 summary.total 当唯一物证不安全」。逐条核实后**部分采纳**：
+// `coverage.summary` 确实是本仓 `requirements-runner.js:117` 的 `this.summarize(details)`
+// 算出来的（不是裁判自报的那份 —— 自报的是 `coverage._verdict.summary`），所以
+// 「total 谎报成裁判数」这一半前提不成立；但它指出的**跨文件依赖**是真的：
+// 判据应直接读审计器逐条写出的 `coverage.details`，而不是读那个由 details 派生的计数。
+// 拒绝它给的修法（要求 missing>0）：#3617 的真实产物是 `missing=0 / partial=130` 且
+// decision=FAIL，按该修法本片要放的行一条也放不了，等于把整个 PR 的目的反掉。
+test("降级前提读 details 这份直接物证，不读由它派生的 summary.total", () => {
+  withReportDir(reportDir => {
+    // 格 1：details 有项、派生计数谎报 0 ⇒ 仍然「量出了东西」⇒ 报告型放行
+    writeJson(reportDir, "autonomous-e2e-report-1.json", {
+      overall: "FAIL",
+      coverageStatus: "FAIL",
+      exitCodes: ["COVERAGE_FAIL"],
+      coverage: {
+        coverageRate: 0.36,
+        details: [{ testName: "a", type: "covered" }],
+        summary: { total: 0, passed: 0, failed: 0 },
+      },
+    });
+    const lenient = evaluateAutonomousGate({ reportDir, auditExitCode: 1, hasOpenAiKey: true });
+    assert.equal(lenient.exitCode, 0, "details 非空就是量过了，派生计数不得反向否决");
+    assert.equal(lenient.status, "COVERAGE_BACKLOG_REPORT");
+    fs.rmSync(path.join(reportDir, "autonomous-e2e-report-1.json"));
+
+    // 格 2：details 空、派生计数谎报 218 ⇒ 没有直接物证 ⇒ 照旧阻塞（fail-closed）
+    writeJson(reportDir, "autonomous-e2e-report-2.json", {
+      overall: "FAIL",
+      coverageStatus: "FAIL",
+      exitCodes: ["COVERAGE_FAIL"],
+      coverage: { coverageRate: 0.36, details: [], summary: { total: 218, passed: 218, failed: 0 } },
+    });
+    const strict = evaluateAutonomousGate({ reportDir, auditExitCode: 1, hasOpenAiKey: true });
+    assert.equal(strict.exitCode, 1, "零条物证时不得因为派生计数好看就降级");
+  });
+});
+
+// findings #3 的可用内核：分项与总数必须能对上账，未知 type 不得被静默丢掉——
+// 否则「covered 88 / partial 130」这类现场数字会在生产方加第四种状态时悄悄少算。
+test("注解的分项必须与 judged 总数对得上，未知 type 归入 other 而不是丢掉", () => {
+  withReportDir(reportDir => {
+    const details = [];
+    for (let i = 0; i < 2; i++) details.push({ testName: "c" + i, type: "covered" });
+    for (let i = 0; i < 3; i++) details.push({ testName: "p" + i, type: "partial" });
+    for (let i = 0; i < 1; i++) details.push({ testName: "m" + i, type: "missing" });
+    for (let i = 0; i < 4; i++) details.push({ testName: "u" + i, type: "someday-new-state" });
+    writeJson(reportDir, "autonomous-e2e-report-1.json", {
+      overall: "FAIL",
+      coverageStatus: "FAIL",
+      exitCodes: ["COVERAGE_FAIL"],
+      coverage: { coverageRate: 0.3, auditedCount: 227, details, summary: { total: details.length } },
+    });
+    const r = evaluateAutonomousGate({ reportDir, auditExitCode: 1, hasOpenAiKey: true });
+    assert.equal(r.status, "COVERAGE_BACKLOG_REPORT");
+    assert.match(r.message, /judge picked 10/);
+    assert.match(r.message, /covered 2 \/ partial 3 \/ missing 1 \/ other 4/);
+    const sums = [2, 3, 1, 4].reduce((a, b) => a + b, 0);
+    assert.equal(sums, details.length, "四个分项之和必须等于 judged 总数，注解里不得出现对不上账的数");
+  });
+});
+

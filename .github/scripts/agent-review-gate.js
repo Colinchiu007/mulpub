@@ -125,11 +125,16 @@ function parseFeatureIds(value) {
 function isCoverageOnlyFailure(report) {
   const codes = report && report.exitCodes;
   if (!Array.isArray(codes) || codes.length === 0 || !codes.every((code) => code === "COVERAGE_FAIL")) return false;
-  // 降级还有一条前提：本轮**确实量出了项**。审计器自己崩溃时（run-autonomous-e2e.js 的
-  // catch 分支）exitCodes 同样只有 COVERAGE_FAIL，但 summary.total 是 0——那种 FAIL 不是
-  // 存量欠账而是"审计没跑成"，照旧阻塞；否则崩溃会被读成"审过了，欠账是别人的"。
-  const summary = (report.coverage && report.coverage.summary) || {};
-  return Number.isFinite(summary.total) && summary.total > 0;
+  // 降级还有第二条前提：本轮**确实量出了项**。审计器自己崩溃时（run-autonomous-e2e.js 的
+  // catch 分支）exitCodes 同样只有 COVERAGE_FAIL，但没有逐条结果——那种 FAIL 不是存量欠账
+  // 而是"审计没跑成"，照旧阻塞；否则崩溃会被读成"审过了，欠账是别人的"。
+  // ⚠️ 物证一律取 coverage.details（审计器逐条写出的那一份），**不取 coverage.summary.total**：
+  // 后者是由 details 经 summarize() 派生的计数（requirements-runner.js:117），读它等于把判据
+  // 架在一条跨文件约定上——哪天生产方改成"total 写裁判自报数"，闸门就静默漏放。
+  // （QM-6 后端轴 finding #1 的内核；它给的「还要求 missing>0」被拒：#3617 的真实产物就是
+  // missing=0 / partial=130 / decision=FAIL，按那条本片一条也放不了。）
+  const details = report.coverage && report.coverage.details;
+  return Array.isArray(details) && details.length > 0;
 }
 
 // 降级放行时把现场数字一并写进注解：只说"这是存量"等于让下一个读者重新去翻 artifact。
@@ -145,9 +150,12 @@ function coverageShape(report) {
     rate: typeof coverage.coverageRate === "number" ? `${(coverage.coverageRate * 100).toFixed(1)}%` : "N/A",
     inScope: Number.isFinite(coverage.auditedCount) ? String(coverage.auditedCount) : "N/A",
     judged: String(details.length),
-    covered: String(countBy("covered")),
-    partial: String(countBy("partial")),
-    missing: String(countBy("missing")),
+    covered: countBy("covered"),
+    partial: countBy("partial"),
+    missing: countBy("missing"),
+    // 未知 type 归 other 并照打：生产方将来加第五种状态时，四个分项之和仍等于 judged，
+    // 不会悄悄少算（QM-6 后端轴 finding #3）。
+    other: details.length - countBy("covered") - countBy("partial") - countBy("missing"),
   };
 }
 
@@ -199,7 +207,7 @@ function evaluateAutonomousGateDecision({ reportDir, auditExitCode, hasOpenAiKey
       return evaluation(1, "COVERAGE_FAIL", `Autonomous coverage audit failed on the features this PR declares (${ids.join(", ")}); the audited scope is exactly those features.`);
     }
     const shape = coverageShape(report);
-    return evaluation(0, "COVERAGE_BACKLOG_REPORT", `Autonomous coverage audit measured the whole-repo PRD backlog (self-reported coverageRate ${shape.rate}; PRD items in scope ${shape.inScope}, judge picked ${shape.judged}: covered ${shape.covered} / partial ${shape.partial} / missing ${shape.missing}). Both the rate and the item set are the judge's own choice, so this green does NOT mean coverage is acceptable.`);
+    return evaluation(0, "COVERAGE_BACKLOG_REPORT", `Autonomous coverage audit measured the whole-repo PRD backlog (self-reported coverageRate ${shape.rate}; PRD items in scope ${shape.inScope}, judge picked ${shape.judged}: covered ${shape.covered} / partial ${shape.partial} / missing ${shape.missing} / other ${shape.other}). Both the rate and the item set are the judge's own choice, so this green does NOT mean coverage is acceptable.`);
   }
   return evaluation(1, report.overall || "FAIL", "Autonomous coverage audit did not pass.");
 }

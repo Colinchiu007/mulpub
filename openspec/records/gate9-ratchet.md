@@ -66,7 +66,7 @@ maintenance_prefixed_AND_no_frontend=140     // 仍 report-only，但理由换�
 - 正解：现场数字一律按 `coverage.details[].type` 自己数（实跑得 `in scope 227 / judged 218 / covered 88 / partial 130 / missing 0`），并加一条**反向锁** `assert.doesNotMatch(message, /not covered/)`，防止下一个人为图省事再把那个恒 0 的字段接回去。
 - 夹具同步改成与产物**逐字段同形**：我原先写的 `failed: 144` 在真实产物里不可能出现——那是夹具替实现撒谎，属本仓「跨包契约夹具不得替对方剥壳」的同族形态。
 - 顺手多记一条判据依据：产物里裁判自报 `_verdict.summary = {covered:82, partial:145, missing:0}`，与它**自己的** items 直方图（88 covered / 130 partial）都对不上。这不是"数据略偏"，是分母和分类都由裁判临场决定的又一处实锤，正面支持"这个数不能当阈值/水位"。
-## 变异反证十条（全部 CAUGHT，escaped=0；逐条还原后 md5 与变异前相同）
+## 变异反证十二条（全部 CAUGHT，escaped=0，anchorfail=0；逐条还原后 md5 与变异前相同）
 
 | 变异 | 指名变红的用例 |
 | --- | --- |
@@ -80,6 +80,8 @@ maintenance_prefixed_AND_no_frontend=140     // 仍 report-only，但理由换�
 | M8 把标题豁免加回来 | classify 的 3 条（标题不变性 / 纯文档不变性 / 剥注释后的结构锁） |
 | M9 把恒 0 的 `summary.failed` 当「未覆盖数」写回注解 | 「存量覆盖 FAIL…降级为报告型」（反向锁 `doesNotMatch(/not covered/)` 指名红） |
 | M10 `countBy` 恒返 0（不再按 details 数） | 同上（`covered 88 / partial 130` 断言指名红） |
+| M11 降级前提退回读 `summary.total`（由 details 派生的计数，跨文件约定） | 「降级前提读 details 这份直接物证，不读由它派生的 summary.total」 |
+| M12 未知 type 不再归 `other`（静默丢掉，分项与总数对不上账） | 「注解的分项必须与 judged 总数对得上，未知 type 归入 other 而不是丢掉」 |
 
 红集归属的三条如实记录：① M6 与 M7 最初红集逐字相同——退出码与令牌压在一条用例里，读起来像其中一条没牙，已拆成两条独立用例后各 Own 一条指名红，CLI 端到端对二者**共同**变红属刻意保留的双保险（它同时断言 rc 与 note）；② M1/M2 落在同一条测试的不同 assert 上；③ M9/M10 与 M6 共用「存量覆盖 FAIL…降级为报告型」这一条测试名（该用例现在同时断言退出码与注解现场数字）。后两组的粒度限制来自 `node --test` 只报到测试名、不报到 assert——不是锁没牙，是报告粒度就这么粗，写清楚以免下一个人把它当成重复覆盖删掉。
 
@@ -88,12 +90,32 @@ PowerShell 侧另做了一次真实解释器校验（`D:/Temp/check-gate9-ps.ps1
 ## 基线与回归
 
 - 阶段①（只改测试）实测 4 条指名红 / 8 条既有绿：`scripts/gate9-classify.test.js`。
-- 阶段② 补实现后：classify 12 passed / 0 failed；`agent-review-gate.test.js` 21 passed / 0 failed（拆条后）；`workflow-contract.test.js` 37 passed / 0 failed。
+- 阶段② 补实现后：classify 12 passed / 0 failed；`agent-review-gate.test.js` 21 passed / 0 failed（QM-6 后端轴 findings 落地后增至 **23 passed / 0 failed**）（拆条后）；`workflow-contract.test.js` 37 passed / 0 failed。
 - 静态门禁本机实跑：`check-workflow-structure.js` files=14 violations=0；`check-unwired-tests.js` 86 个测试文件全接线；`check-step-failfast.js` 35 个多命令步骤全 fail-fast；`.github/scripts/check-max-lines.js` 无新增超限（测试文件上限是 1500，不是 500——`DEFAULT_TEST_LIMIT`，本轮当场纠正了「500 通杀」这个口径）。
 - ESLint 不适用：Gate 11 的作用域是 `apps/desktop/{electron,src}`，本片未触（`pnpm exec eslint` 在仓库根无 config，报的是配置缺失而不是代码问题）。
 - 消费者并集（按 `git grep -l` 取，不按"我改的文件"取）：`.github/scripts/{agent-review-gate,workflow-contract}.test.js`、`scripts/gate9-classify.test.js`、`.github/workflows/{quality-gate,agent-judge,autonomous-loop}.yml`、`.ccg/reviews/gate3failfast-mutate.driver.js`。逐个核过：`agent-judge.yml` 走的是 `mode=agent-judge` 另一条决策函数，`autonomous-loop.yml` 只在注释里提了 `PROMPT_REVIEW_REQUIRED` 语义对齐、自己读 `autonomous-loop-report-*.json`——两者均不受本次签名变更影响（新参数有默认值 `""`）。
 - QM-1 / QM-4：N/A。未触 `apps/desktop/electron`、`packages/rpa-engine`、任何渲染层文件；变更面是 CI 判据 + 工具脚本。
 - 行尾（按实测重写，不按印象）：`git ls-files --eol` 对六个变更文件一律报 `i/lf w/crlf attr/text=auto` ⇒ **入库 blob 是 LF、工作副本是 CRLF**，那是 git 的 checkout 转换，不是本片改的（此前那条「某些文件是 LF 文件」的写法按的是工作副本印象，已作废）。补丁驱动一律按「当前文件自己的多数行尾」插入（`eolOf()`），禁止 split/join 整份回写。两口径 `git diff --cached --numstat` 只在 `.github/scripts/agent-review-gate.test.js` 差 1 行（160/1 vs 159/0），**逐因验证过与行尾无关**：该文件 HEAD blob 末行 `});` 原本没有结尾换行（diff 正文含 ` No newline at end of file`），本片在其后追加内容 ⇒ git 把末行记成 1 增 1 删。决定性证据取索引 blob：六个文件 `git show :<path>` 的 CR 计数**全为 0**，入库内容与基线同为纯 LF，没有幽灵行进入提交。
+
+## QM-6 外部评审：后端交付 5 条、前端三试零交付 ⇒ 按单轴记账
+
+先记一条**归因**：后端 `claude` 第一次跑满 80 分钟被 wrapper 判 `execution timeout`。判它是"没交付"而不是"还在跑"的依据不是时长——是那 27MB 日志里 `"type":"result"` 事件 **0 条**，且最后几行是 `InputValidationError: Bash failed due to the following issues` 反复出现。也就是说它**卡在命令类工具的参数校验上空转**。据此改的不是提示词长度而是**任务形态**（只读、明令禁止调用命令类工具、范围从 3 个文件收到 2 个），第二次就交付了 5 条 findings。这条差异本身就是证据：上一轮的成因是工具空转，不是提示词超长（本仓另有反例——提示词以 `-` 结尾却拿到完整载荷）。
+
+前端 `opencode` 三次全败：第 1、3 次跑完只交散文式计划就停在 `SESSION_ID`（可解析 findings 数组为 0），第 2 次**根本没跑到模型**——我的提示词里写了示例 JSON，双引号触发 wrapper 的 stdin 分支、而 `|` 在 Windows 命令行把参数截断成一条以 `Warning` 开头的命令去执行。那是本仓明令禁止、且已记过至少四次的内联引号/管道违规，**这次仍是我自己犯的**，单独记在 `.ccg/reviews/gate9-ratchet-review-frontend.md`。
+
+处置逐条见 `.ccg/reviews/gate9-ratchet-review-response.md`，摘要：
+
+| # | severity | 处置 | 依据 |
+| --- | --- | --- | --- |
+| 1 | high | **内核采纳 / 修法拒绝** | 内核（判据不该架在派生计数上）成立：前提改读 `coverage.details`，两格 A/B 锁 + M11 指名红。修法要求「量出 missing 项才允许降级」被 L1 反例否证——#3617 真实产物正是 `missing=0 / partial=130 / decision=FAIL`，照它改本片一条也放不了。另纠正其一处定性：`coverage.summary` 是我们 `summarize(details)` 派生的，自报的是 `coverage._verdict.summary` |
+| 2 | medium | **拒绝，登记遗留 6** | NEED_HUMAN 恒按报告型是本片之前就写死的口径；按它改会把「本轮无定论」当反证（与登录态、`AUDIT_NO_VERDICT` 的既有纪律冲突），并把非确定性重新引回 required check——正是本片要消灭的形态 |
+| 3 | low | **采纳** | 新增 `other` 桶 + 「四个分项之和 == judged」断言，M12 指名红。其「去掉 inScope」的一半未采纳：缺字段打 `N/A` 是如实表达生产方没给，静默省略更糟 |
+| 4 | medium | **修法拒绝 / 可见性采纳** | 两前缀作用域表是 2026-10-12 `gate9-scope-fix` 为修 #3413 建立的，本片未扩未缩；按它 fail-closed 走 full 会把 `packages/*` 送去审桌面端全量，即那次修复要消灭的错配。采纳其读者风险：已在记录与 PR 正文明写「取消标题豁免 ≠ 全仓都被审」，作用域是否扩列遗留 7 |
+| 5 | low | **拒绝** | 其修法不闭合它自己举的例子：加了内容指纹后，塞进 `docs/` 前缀的源码仍落到「未触及前端目录 ⇒ report-only」那一格，洞只是换形状 |
+
+本轮还有一条过程事实值得留存：按 #1 改完判据后 **M4 的锚点当场失配**，驱动打印的是 `SKIP M4 锚点命中数 0` 并把 `anchorfail=1` 计入汇总——不是静默少跑一条。重接变异目标后再跑才得到 12/12。**改判据本体时必须连着看变异驱动的锚点是否还活着**，否则"全 CAUGHT"里可以藏着一条从没跑过的变异。
+
+---
 
 ## 遗留（不假装已闭合）
 
@@ -101,7 +123,9 @@ PowerShell 侧另做了一次真实解释器校验（`D:/Temp/check-gate9-ps.ps1
 2. **report-only 的两种原因仍然同形**：`PR_MODE=report-only` 与「声明了 feat_ 但 PRD 里一条都没匹配上」都返回 `skipped/filtered` + `PASS`，Gate 9 看起来一样。后者是空集恒真，应单独出声；本片没做，因为那要动审计器返回形状，超出「判据」范围。
 3. **`AUTONOMOUS_GATE` 这个 env 未被任何消费方读取**（实测只有 `AUTONOMOUS_VERDICT_NOTE` 被 Gate Result 消费），存量降级时它仍写 `PROMPT_REVIEW_REQUIRED`。改它属于另一处清理，本片刻意不动以免扩大 diff。
 4. **PRD 357 项的状态标注仍未回填**（上一条记录 gate9-scope-fix 的同条欠账，状态不变）：分层只对新写条目生效，存量规划项仍进分母。
-5. `#3617` / `#3376` 依赖本片合并按判据放行；本片合并后需确认二者 `QG Autonomous` 由红转绿，再走各自的收尾链。
+5. **NEED_HUMAN 在有 `feat_` 时是否应阻塞**（QM-6 后端轴 finding #2）：现在两条降级通道都不看 ids，声明了特性但裁判只给 NEED_HUMAN 的 PR 仍是 advisory。改它属于把非确定性请回 required check，需要先有「裁判输出可复现」的实测前提，不在本片顺手做。
+6. **Gate 9 的作用域表只有两个前端前缀**（`apps/desktop/`、`ops-center/`）：`packages/*/src` 等渲染面改动一律 report-only。这是 2026-10-12 的既有决定，本片只删了标题豁免；表要不要扩、扩到哪些目录，是一次独立的判据决策（QM-6 finding #4/#5 指向的都是这张表，不是标题豁免）。
+7. `#3617` / `#3376` 依赖本片合并按判据放行，但**合片不等于它们立刻变绿**，而「为什么不立刻」我没有实测过：GitHub 在 `pull_request` 事件里到底取 head 分支还是 merge ref 的那份 `.github/scripts/agent-review-gate.js` 与 workflow，属于平台行为，不在本仓任何测试覆盖内。所以收尾顺序按**产物**走，不按机制断言走：先 `gh run rerun <该 PR 的失败 run> --failed`（或直接等自动重跑），看 `QG Autonomous` 是否转绿；**仍红就把该分支 rebase 到含本片的 main 再推**，重跑后以 `gh pr checks <n> --json name,bucket` 的行数下界与逐行 bucket 为准，不得凭「主干已经有了」判定。#3617 当前 auto-merge 已 armed；#3376 另有 QM-1/QM-6 证据未齐（见任务 #29），不在本片责任范围。
 
 ## 远程同步
 
