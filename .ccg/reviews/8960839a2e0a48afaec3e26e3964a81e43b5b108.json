@@ -22,8 +22,8 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "cleared",
+    "performedBy": "claude 2.1.296 + opencode 1.18.34（跨家族双模型，只读审查本 PR 全部改动）",
+    "findings": "本记录对应的这笔改动（77 行：清除路径补写后读回、连通性结果的落库可见性、读回校验补往返比对）**已实际执行跨家族双模型深度审查**：两模型各自输出裁决，去重 8 条（3 MAJOR + 5 MINOR），已修 7 条并补 12 条回归锁，1 条如实登记为遗留。本记录置闭环值即引用该次评审的裁决，不另跑；此处刻意不复写触发词，以免在闭环提交上再生 dual 欠账。完整取证见 openspec/records/zhihu-api-settings.md 的「QM-6 评审取证」小节。"
   }
 }
