@@ -40,7 +40,7 @@ function makeInstance (overrides = {}) {
     _getPlatformConfig: vi.fn(() => ({})),
     _prepBaijiahao: vi.fn(async () => {}),
     _execHook: vi.fn(async () => {}),
-    // 2026-10-15 硬证据确认链：判据本体整体在 ../services/xhs-draft-confirm
+    // 2026-10-15 硬证据确认链：判据本体整体在 ../services/draft-only-confirm
     // （`_publish_generic` 的 draftOnly 分支只做委派）。本文件的用例只关心「内容填写」
     // 这一层，所以让②通道（保存接口 HTTP 200）成立即可走到成功返回；判据本身的行为
     // 由 xhs-draft-only-hard-evidence.test.js 专锁（那边驱动真实实现，不抄生产逻辑）。
@@ -198,31 +198,26 @@ describe('draftOnly 假成功修复（2026-10-07）', () => {
     expect(end).toBeGreaterThan(start)
     const draftBlock = src.slice(start, end)
     expect(draftBlock).toBeTruthy()
-    // 只看代码行、不看注释：块内注释会解释旧判据被弃用的原因，必然提到它读的属性名，
-    // 对整块文本做 not.toMatch 等于「锁注释不锁代码」（CCG 深度评审 i7）。
-    // 切片再限定到**小红书子分支**：非小红书平台（头条定时）那半段按评审 i2 有意保留
-    // 了既有页面文本判据，本刀没换它们 —— 锁要锁住的是本刀真正替换掉的那条路径。
-    const xhsSlice = draftBlock.slice(
-      draftBlock.indexOf("if (platform === 'xiaohongshu') {"),
-      draftBlock.indexOf('其它平台的 draftOnly'))
-    expect(xhsSlice).toBeTruthy()
-    const codeOnly = xhsSlice.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n')
+    // 只看代码行、不看注释（CCG 深度评审 i7：对整块文本做 not.toMatch 等于「锁注释不锁代码」）。
+    const codeOnly = draftBlock.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n')
     expect(codeOnly).not.toMatch(/innerText/)
     expect(codeOnly).not.toMatch(/_waitForCondition\s*\(/)
 
     // 判据本体已整体搬进独立模块（`rpa-view-platforms.js` 是逐文件行数门禁的**点名
-    // 还账**文件、零增长容差），所以调用方这一分支只剩委派；断言分两处看。
-    expect(codeOnly).toContain('xhsDraftConfirm.runDraftOnly(')
-    expect(src).toContain('xhsDraftConfirm.readBaselineContext(')
+    // 还账**文件、零增长容差），所以调用方这一分支只剩一行委派；断言分两处看。
+    expect(codeOnly).toContain('draftOnlyConfirm.resolveDraftOnly(')
+    expect(src).toContain('draftOnlyConfirm.readBaselineContext(')
 
     const moduleSrc = fs.readFileSync(
-      path.resolve(process.cwd(), 'electron/services/xhs-draft-confirm.js'), 'utf-8')
+      path.resolve(process.cwd(), 'electron/services/draft-only-confirm.js'), 'utf-8')
     expect(moduleSrc).toContain('SAVE_RESPONSE_PATTERNS')
     expect(moduleSrc).toContain('statusCode === 200')
     expect(moduleSrc).toContain('PUBLISH_DRAFT_UNCONFIRMED')
     expect(moduleSrc).toContain('counterConfirmed || responseConfirmed || recheckIncrement')
     // 端点表必须是窄路径，不得退回宽词子串（否则会命中页面自身的草稿列表查询/埋点）
     expect(moduleSrc).toContain("const SAVE_RESPONSE_PATTERNS = ['/web_api/sns/v2/note']")
+    // 非小红书平台的分流也在模块里（评审 i2）
+    expect(moduleSrc).toContain('runLegacyDraftOnly')
   })
 })
 

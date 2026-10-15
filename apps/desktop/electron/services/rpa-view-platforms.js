@@ -89,13 +89,10 @@ function parsePublishResponseEvidence (body, response) {
 }
 
 
-// 小红书图文草稿的「硬证据」确认链**整体**在 ./xhs-draft-confirm（2026-10-15）：
-// 端点表、计数选择器、三个超时常量与全部判据函数都在那里，本文件只保留薄调用点。
-// 这样切分的直接原因：本文件在逐文件行数门禁里是**点名还账**文件（零增长容差），
-// 首版把确认链直接写在这里会让 CI 债务熔断检查报 TARGET_GREW。
-// 判据细节与三条红线（端点必须专属窄路径 / 必须校验 HTTP 200 / 标题匹配不给确认权）
-// 见该模块头部注释，也有独立的回归锁。
-const xhsDraftConfirm = require('./xhs-draft-confirm')
+// draftOnly 的**全部判定**在 ./draft-only-confirm（小红书硬证据链 + 其它平台既有行为）。
+// 判据本体、三条红线与不变量见该模块头部注释。本文件只留薄调用点——它自己是逐文件行数
+// 门禁的**点名还账**文件（零增长容差），每多一行都在挤压一个已经压线的额度。
+const draftOnlyConfirm = require('./draft-only-confirm')
 
 
 const platformsMixin = {
@@ -234,12 +231,11 @@ const platformsMixin = {
     // 导航后清理草稿恢复弹窗/引导遮罩（否则上传区与表单被遮挡）
     await this._dismissPostNavDialogs(win, platform)
 
-    // 草稿模式（小红书）：计数基线必须在**写入任何内容之前**读——平台在填写阶段就会
-    // 自动保存，晚读会把本次草稿吃进基线 ⇒ 主判据恒不增长（CCG 评审 i5）。读不到保持
-    // null，不得拿 0 顶替。时机与判据细节见 ./xhs-draft-confirm 的 readBaselineContext。
-    let xhsBaselineCtx = null
+    // 草稿模式（小红书）：计数基线必须在**写入任何内容之前**读——平台在填写阶段就会自动
+    // 保存，晚读会把本次草稿吃进基线 ⇒ 主判据恒不增长（CCG 评审 i5）。细节见模块。
+    let draftOnlyBaselineCtx = null
     if (config.draftOnly && platform === 'xiaohongshu') {
-      xhsBaselineCtx = await xhsDraftConfirm.readBaselineContext(this, win, sel)
+      draftOnlyBaselineCtx = await draftOnlyConfirm.readBaselineContext(this, win, sel)
     }
 
     // image upload（2026-09-29 图文模式）：无视频但有本地图片时上传首图。
@@ -468,27 +464,11 @@ const platformsMixin = {
     // 有自动草稿保存（页面显示「编辑于 刚刚」，侧边栏草稿箱计数 +1），因此填完字段后
     // 等待落库即可；若平台另提供显式存草稿钮（sel.draft_btn）则优先点它。
     if (config.draftOnly) {
-      // 小红书图文：**硬证据**确认链（判据本体/三条红线/不变量见 ./xhs-draft-confirm）。
-      if (platform === 'xiaohongshu') {
-        return await xhsDraftConfirm.runDraftOnly(this, win, {
-          platform, sel, article, fillReport, config, baselineCtx: xhsBaselineCtx,
-        })
-      }
-      // ⚠️ 其它平台的 draftOnly（头条：带 publishTime 时 DOM 轨只存草稿、绝不点发布）
-      // **保持既有行为不变**——本刀只换小红书的落库判据。不能把它们一并切到上面的链：
-      // 那是小红书专用的选择器与中文计数文本，基线恒为 null、主判据永久失效，会把
-      // 「本来能报成功的草稿」变成「恒失败」（CCG 深度评审 i2）。它们的判据改造
-      // （同样的假成功面）属独立改动，已登记在 PRD §9 与执行记录。
-      const gate = xhsDraftConfirm.contentGate(article, fillReport, platform, win.webContents.getURL())
-      if (gate) return gate
-      const legacySaved = await this._waitForCondition(win,
-        'function(){var t=(document.body&&document.body.innerText)||"";' +
-        'return /编辑于\\s*\\S{1,12}|已保存|保存成功|自动保存/.test(t) && !/编辑于\\s*$/.test(t.trim())}',
-        20000, 1500)
-      await this._sleep(3000)
-      log.info('RpaView', '[' + platform + '] draft-only done saved=' + Boolean(legacySaved) + ' url=' + (win.webContents.getURL() || ''))
-      this._emitProgress(platform, 'draft saved', 100)
-      return { success: true, url: win.webContents.getURL() || '', platform, draft: true, draftSaved: Boolean(legacySaved), fillReport }
+      // draftOnly 的全部判定在 ./draft-only-confirm：按平台分流——小红书走硬证据确认链，
+      // 其它平台（头条定时）保留既有行为。红线与不变量见该模块头部注释。
+      return await draftOnlyConfirm.resolveDraftOnly(this, win, {
+        platform, sel, article, fillReport, config, baselineCtx: draftOnlyBaselineCtx,
+      })
     }
     if (sel.publish_btn && sel.publish_btn.length>0) {
       retry.addField('publish')

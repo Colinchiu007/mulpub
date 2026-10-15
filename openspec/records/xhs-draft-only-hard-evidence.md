@@ -19,7 +19,7 @@ sync_backfill_owner: xhs-draft-only-hard-evidence 会话（本节作者）
 | 防止再次发生（QM-5 ⑤） | ✅ | ①原「锁旧正则形状」的用例改写为「锁新判据已接线」（三个新方法在场 + `innerText` 判据已移除 + `PUBLISH_DRAFT_UNCONFIRMED` 在场）——防止回退回文案判据；②H1/H2 两例专门钉住「基线未知不得拿 0 顶替」「文案说已保存但计数没涨不得报成功」这两个最容易复发的形态；③`draftEvidence` 字段回传哪条通道确认的，真机验证时可直接看判据健康度 |
 | 行尾与 diff 对账 | ✅ | 两口径 `numstat` 相等（改写既有测试文件处保持原 CRLF） |
 | 接线棘轮 | ✅ | 新增测试文件在 vitest.config.js 既有 include（`electron/tests/**/*.test.{js,ts}`）内，无需改 workflow |
-| 债务熔断（逐文件行数） | ✅（已修） | 首版把确认链直接写进 `rpa-view-platforms.js`，CI 报 `TARGET_GREW ... 1739 行已超过点名目标 1484 行（+255）`；已把 draftOnly 判定链整体抽成 `xhs-draft-confirm.js`，本文件降到 **1467 行**、门禁转绿。未去改门禁 target 清单（那是「谁来守门」的配置） |
+| 债务熔断（逐文件行数） | ✅（修了两次） | ①首版把确认链直接写进 `rpa-view-platforms.js`，CI 报 `TARGET_GREW ... 1739 行已超过点名目标 1484 行（+255）` ⇒ 抽成独立模块；②按第二轮评审加回非小红书分支后又报 `1486 行（+2）`——因门禁量的是 **PR merge ref**（我的分支 + 当时主干，主干 `ffb220925` #3663 也改了该文件），而我本地量的是自己的分支。**最终做法：先 rebase 到最新主干再量**，并把非小红书分支也搬进模块，调用方只剩一行委派 + 一次基线读取 ⇒ 1466 行（余量 18），模块 489 行（上限 500，余量 11）。未去改门禁 target 清单（那是「谁来守门」的配置） |
 | 依赖漏洞审计 | ⚠️ 非本刀 | CI 报 `NEW_ADVISORY: pip/PYSEC-2026-4298 (python-jose, 路径 ops-center/backend)` + `RESOLVED_STILL_BASELINED: pip/CVE-2026-85394`。本刀未碰依赖与 ops-center；该工作流上次绿是 2026-10-12。属**新公告**类时间性失败，需人工裁决（升级依赖 or 基线登记 decision+note），不经本 PR 处置 |
 | 静态门禁 Gate 11（ESLint） | ✅（已修） | 抽取后的新模块被 ESLint `no-useless-assignment` 报 2 处（`let read = null` 后 try/catch 两条分支都赋值 ⇒ 初值恒不被读）。处置：catch 改为「保持 null」的注释，两条分支不再都赋值；本地 `eslint --quiet` rc=0 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触打包配置与视觉面 |
@@ -131,10 +131,20 @@ CCG `verify-security` 的 XSS 判据（「点号 + innerHTML + 等号」模式�
 ```
 
 处置：把 draftOnly 的**全部判定**（内容写入闸 + 硬证据确认链：基线读取 / 读数 / 等增量 /
-重载复核 / 三通道裁定 / 失败文案）整体搬进新模块 `apps/desktop/electron/services/
-xhs-draft-confirm.js`，调用方只留一行委派 + 一次基线读取。本文件 **1739 → 1467 行**，
-门禁转绿（`node .github/scripts/check-max-lines.js` rc=0）。同源先例：
-`wechat-mp-draft-mediaid.js` 就是为同一原因从该文件抽出来的。
+重载复核 / 三通道裁定 / 失败文案 + **平台分流**）整体搬进新模块
+`apps/desktop/electron/services/draft-only-confirm.js`，调用方只留一行委派 + 一次基线读取。
+本文件 **1739 → 1466 行**，模块 489 行（上限 500），门禁转绿
+（`node .github/scripts/check-max-lines.js` rc=0）。同源先例：`wechat-mp-draft-mediaid.js`
+就是为同一原因从该文件抽出来的。
+
+**这一项红了两次，第二次的因值得单独记**（本刀最贵的教训之一）：第一次抽完到 1467 行、
+CI 转绿；随后按第二轮评审加回非小红书分支（+18 行），CI **又**报 `1486 行（+2）`。
+差别在**门禁量的是哪个版本**——Actions 检出的是 **PR merge ref**（我的分支 + 当时主干），
+而我本地量的是**自己的分支**；两者差 3 行，恰好来自主干在开工后合入的 `ffb220925`（#3663）
+也改了同一个文件。所以那一刻**本地 rc=0 与 CI 红都没错，量的不是同一样东西**。
+**做法修正**：本地复现「点名还账 / 挂账」这类门禁前，先 `git rebase origin/main`
+（或对 merge 结果量），否则本地绿灯对 CI 不具证据力；并把余量留出来（现 18 行 / 11 行），
+因为该文件主干也在改，压线等于把下一次主干改动变成本 PR 的红。
 
 **没有**采取的两条路，以及为什么：① 不去改门禁的 target 清单——那是「谁来守门」的配置，
 属必须人工过目，且为本 PR 放宽自己文件的额度正是挂账机制要防的事；

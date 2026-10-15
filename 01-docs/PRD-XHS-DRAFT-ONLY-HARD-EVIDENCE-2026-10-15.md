@@ -134,7 +134,7 @@
 | `electron/tests/xhs-draft-false-success.test.js`（既有 9 例，更新 2 例） | 内容填写层判据不变（8 例）；原「锁旧正则形状」用例改为「锁新判据已接线」，切片按分支边界、断言只看代码行（不锁注释） |
 
 **H8 接线锁断言的是哪几件事**（每条都对应一处评审发现；判据搬进模块后，
-锁同时读 `xhs-draft-confirm.js` 与 `rpa-view-platforms.js` 两个文件）：
+锁同时读 `draft-only-confirm.js` 与 `rpa-view-platforms.js` 两个文件）：
 
 1. 端点表必须是窄路径 `['/web_api/sns/v2/note']`，且**不得**退回宽词子串（评审 i1，Critical）；
 2. 调用方 `draftOnly` 分支的**代码行**里不得再出现 `innerText` / `_waitForCondition(`
@@ -155,15 +155,18 @@
 
 ## 7. 影响面
 
-- **新增** `apps/desktop/electron/services/xhs-draft-confirm.js`：draftOnly 的**全部判定**——
-  内容写入闸（2026-10-07 那套，一并搬入）+ 硬证据确认链（基线读取 / 读数 / 等增量 /
-  重载复核 / 三通道裁定 / 失败文案）。判据本体、三条红线与不变量的详细说明都在这个模块头部。
+- **新增** `apps/desktop/electron/services/draft-only-confirm.js`：`draftOnly` 的**全部判定**——
+  内容写入闸（2026-10-07 那套，一并搬入）+ 硬证据确认链（基线读取 / 读数 / 等增量 / 重载复核 /
+  三通道裁定 / 失败文案）+ **平台分流**（`resolveDraftOnly`：小红书走硬证据链，其它平台走
+  `runLegacyDraftOnly` 保留既有行为）。判据本体、三条红线与不变量的详细说明都在这个模块头部。
+  > 模块名：首版只装小红书链时叫 `xhs-draft-confirm.js`；把「其它平台的既有行为保留」
+  > 也搬进来后名实不符，故本批改动内一并更名为 `draft-only-confirm.js`。
 - 修改 `apps/desktop/electron/services/rpa-view-platforms.js`：
-  - draftOnly 分支改为**一行委派**（`xhsDraftConfirm.runDraftOnly(...)`）；
-  - 内容填写**之前**增加一次 `xhsDraftConfirm.readBaselineContext(...)`（取计数基线）；
+  - draftOnly 分支改为**一行委派**（`draftOnlyConfirm.resolveDraftOnly(...)`）；
+  - 内容填写**之前**增加一次 `draftOnlyConfirm.readBaselineContext(...)`（取计数基线）；
   - 文件顶新增该模块的 require。
 - 修改 `apps/desktop/electron/tests/xhs-draft-false-success.test.js`（9 例，改写 2 例）
-- 新增 `apps/desktop/electron/tests/xhs-draft-only-hard-evidence.test.js`（8 例）
+- 新增 `apps/desktop/electron/tests/xhs-draft-only-hard-evidence.test.js`（13 例）
 - 不触：平台协议、凭据体系、Python 后端、i18n（失败文案走 `error` 字段，未加新 key——
   见 §9 遗留）
 
@@ -178,12 +181,28 @@ CI **债务熔断检查**当场变红：
    已超过点名目标 1484 行（+255）。被点名还账的文件一律零增长容差
 ```
 
-处置：把 draftOnly 的判定链整体搬进 `xhs-draft-confirm.js`（`1739 → 1467` 行，门禁转绿）。
-之所以**不**去改门禁的 target 清单：那是「谁来守门」的配置，属必须人工过目的改动，
-而且为本 PR 放宽自己文件的额度正是挂账机制要防的事。
+处置：把 draftOnly 的判定链整体搬进独立模块，并把非小红书分支也一并搬进去，
+让调用方只剩**一行委派 + 一次基线读取**。之所以**不**去改门禁的 target 清单：
+那是「谁来守门」的配置，属必须人工过目的改动，而且为本 PR 放宽自己文件的额度
+正是挂账机制要防的事。
 
 > 同源先例：`wechat-mp-draft-mediaid.js` 就是为同一原因从本文件抽出来的
 > （见该模块头部注释）。
+
+**这一项红了两次，第二次的因值得记下来**：第一轮抽完本文件到 1467 行、CI 转绿；
+随后我按第二轮评审又加回了非小红书分支（+18 行），CI **再次**报
+`TARGET_GREW: 1486 行（+2）`。
+
+关键在**门禁量的是哪个版本**：GitHub Actions 检出的是 **PR 的 merge ref**
+（本分支 + 当时的主干），而我本地量的是**自己分支的工作区**——两者差 3 行，
+恰好来自主干在我们开工后合入的一次改动（`ffb220925` #3663 也改了同一个文件）。
+所以那一刻我本地 `check-max-lines` 报 rc=0、CI 报红，**两者都没错，量的不是同一样东西**。
+
+**做法修正**：本地复现这类「点名还账 / 挂账」门禁前，必须先 `git rebase origin/main`
+（或至少 `git fetch` 后对 merge 结果量），否则本地绿灯对 CI 没有意义。
+本刀此后按此执行：rebase 到最新主干后量得 1466 行（余量 18），模块 489 行（上限 500，余量 11），
+留出真实余量而不是压在线上——因为这个文件主干也在改，压线就等于把下一次主干改动变成
+本 PR 的红。
 
 ### 7.2 前置修复：抖音 desc 填写的 innerHTML 写法（行为等价）
 

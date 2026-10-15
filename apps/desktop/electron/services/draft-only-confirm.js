@@ -1,26 +1,23 @@
 // @ts-check
 /**
- * xhs-draft-confirm.js — 小红书图文 draftOnly 的「硬证据」确认链
- * （xhs-draft-only-hard-evidence，2026-10-15）
+ * draft-only-confirm.js — `draftOnly` 的**全部判定**：小红书图文草稿的「硬证据」确认链
+ * （xhs-draft-only-hard-evidence，2026-10-15）＋其它平台（头条定时）的既有行为保留。
+ *
+ * 入口是 `resolveDraftOnly(host, win, ctx)`：小红书走硬证据链，其它平台走
+ * `runLegacyDraftOnly`（原实现在 `rpa-view-platforms.js` 的 draftOnly 分支里）。
+ * 两者都先过同一道内容闸 `contentGate`。
+ *
+ * 文件名不带 `xhs-`：它承载**整个 draftOnly 判定**（含非小红书分支），首版只装小红书链时
+ * 叫 `xhs-draft-confirm.js`，非小红书分支搬进来后名实不符，故随同改名。
  *
  * ## 修的是什么
  *
- * 真机现场（2026-10-15）：应用里发一条小红书图文草稿报「发布成功」，平台草稿箱
- * **没有新增**。日志显示 `draft-only done saved=true` 只等了 3 秒，同一时刻页面
- * 控制台在连报「获取某个数据失败 / 请求失败」；直接读执行窗口：草稿箱计数仍是 1
- * （唯一条目是 10-08 的人工取证稿），编辑页**空白**。
- *
- * 根因：判据是**页面文本正则**（匹配 `body.innerText` 的
- * `/编辑于\s*\S{1,12}|已保存|保存成功|自动保存/`）——命中的是页面**常驻静态文案**，
- * 与本次是否落库无关。2026-10-07 曾收紧过这个正则（去掉恒真的裸「草稿」），
- * 但只改了字符形状、没改变「用页面文案当落库证据」这一本质。
- *
- * ## 为什么单独成模块
- *
- * `rpa-view-platforms.js` 在逐文件行数门禁里是**点名还账**文件（零增长容差），
- * 本刀首版把确认链直接写在里面 ⇒ CI 债务熔断检查报
- * `TARGET_GREW: ... 1739 行已超过点名目标 1484 行`。抽成独立模块既避开膨胀，
- * 也让判据有独立可测的接缝（同 `wechat-mp-draft-mediaid.js` 的既有做法）。
+ * 真机现场（2026-10-15）报「发布成功」但平台草稿箱**没有新增**：判据是**页面文本正则**
+ * （匹配 `body.innerText` 的「已保存／保存成功／自动保存／编辑于…」），命中的是页面
+ * **常驻静态文案**、与本次是否落库无关。2026-10-07 的收紧只改了字符形状，没改变本质。
+ * 完整时间线与取证见 PRD `01-docs/PRD-XHS-DRAFT-ONLY-HARD-EVIDENCE-2026-10-15.md` §1。
+ * 为什么单独成模块：`rpa-view-platforms.js` 是逐文件行数门禁的**点名还账**文件
+ * （零增长容差），确认链直接写在那里会触债务熔断（`TARGET_GREW`）。
  *
  * ## 判据：能单独确认成功的只有 ①②
  *
@@ -427,11 +424,55 @@ async function runDraftOnly (host, win, ctx) {
   return { success: true, url: win.webContents.getURL() || '', platform, draft: true, draftSaved: true, fillReport, draftEvidence: verdict.evidence }
 }
 
+// 非小红书平台沿用至今的「页面文本」判据（原实现在 rpa-view-platforms.js 的 draftOnly
+// 分支里，原样搬入，行为不变；见 runLegacyDraftOnly 的注释说明为什么本刀不动它们）。
+const LEGACY_CONFIRM_TIMEOUT_MS = 20000
+const LEGACY_DRAFT_SAVED_CONDITION = 'function(){var t=(document.body&&document.body.innerText)||"";' +
+  'return /编辑于\\s*\\S{1,12}|已保存|保存成功|自动保存/.test(t) && !/编辑于\\s*$/.test(t.trim())}'
+
+/**
+ * 非小红书平台 draftOnly 的**既有行为保留**。
+ *
+ * 头条在带 `publishTime` 时会走这条（`packages/rpa-engine/src/toutiao-direct-bridge.js`
+ * 与 `toutiao-schedule-intent.test.js` 都写明「只存草稿、绝不点发布」）。它的判据同样是
+ * 「页面文本」——正是本刀在小红书侧认定不成立的那条路。但**本刀只换小红书**：把别的平台
+ * 一并切到上面的硬证据链，会让它们的基线恒为 `null`、主判据永久失效，把「本来能报成功的
+ * 草稿」变成「恒失败」（CCG 第二轮评审 i2）。它们的判据改造（同样的假成功面）属独立改动，
+ * 登记在 PRD §9 与执行记录。
+ *
+ * 返回值逐字段保留搬出前的语义：`success` 恒 true（内容闸不通过时另说），
+ * `draftSaved` 仅作信息位。
+ */
+async function runLegacyDraftOnly (host, win, ctx) {
+  const { platform, article, fillReport } = ctx || {}
+  const gateFailure = contentGate(article, fillReport, platform, win.webContents.getURL())
+  if (gateFailure) return gateFailure
+  const saved = await host._waitForCondition(win, LEGACY_DRAFT_SAVED_CONDITION, LEGACY_CONFIRM_TIMEOUT_MS, POLL_INTERVAL_MS)
+  await host._sleep(3000)
+  log.info('RpaView', '[' + platform + '] draft-only done saved=' + Boolean(saved) + ' url=' + (win.webContents.getURL() || ''))
+  host._emitProgress(platform, 'draft saved', 100)
+  return { success: true, url: win.webContents.getURL() || '', platform, draft: true, draftSaved: Boolean(saved), fillReport }
+}
+
+/**
+ * draftOnly 的**总入口**：按平台分流。
+ *
+ * 分流放在这里而不是调用方，是为了让 `rpa-view-platforms.js`（逐文件行数门禁的**点名
+ * 还账**文件、零增长容差）只留一行委派——它每多一行都在挤压一个已经压线的额度。
+ */
+async function resolveDraftOnly (host, win, ctx) {
+  const platform = ctx && ctx.platform
+  return platform === 'xiaohongshu'
+    ? runDraftOnly(host, win, ctx)
+    : runLegacyDraftOnly(host, win, ctx)
+}
+
 module.exports = {
   SAVE_RESPONSE_PATTERNS,
   COUNTER_SEL,
   CONFIRM_TIMEOUT_MS,
   SAVE_RESPONSE_TIMEOUT_MS,
+  LEGACY_DRAFT_SAVED_CONDITION,
   resolveCounterSel,
   readDraftBoxCounter,
   waitForDraftBoxIncrement,
@@ -442,4 +483,6 @@ module.exports = {
   contentGate,
   readBaselineContext,
   runDraftOnly,
+  runLegacyDraftOnly,
+  resolveDraftOnly,
 }

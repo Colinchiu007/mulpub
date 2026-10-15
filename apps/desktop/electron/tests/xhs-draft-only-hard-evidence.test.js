@@ -46,8 +46,8 @@ async function loadPublishGeneric () {
 }
 
 const SRC_PATH = () => path.resolve(process.cwd(), 'electron/services/rpa-view-platforms.js')
-// 判据本体搬去独立模块（行数门禁点名还账文件零增长容差），接线锁因此要同时看两个文件。
-const MODULE_SRC = () => path.resolve(process.cwd(), 'electron/services/xhs-draft-confirm.js')
+// 判据本体在独立模块（行数门禁点名还账文件零增长容差），接线锁因此要同时看两个文件。
+const MODULE_SRC = () => path.resolve(process.cwd(), 'electron/services/draft-only-confirm.js')
 const CALLER_SRC = SRC_PATH
 
 /** 虚拟时钟：让轮询循环（①20s / ③8s）在毫秒内走完，而不是真等 28 秒。 */
@@ -116,9 +116,9 @@ function article (over = {}) {
 async function runDraftOnly (inst, art, config = {}, platform = 'xiaohongshu') {
   const mod = await import(MODULE)
   const mixin = mod.default || mod
-  // 判据本体（读计数 / 等增量 / 重载复核 / 确认链）已整体在 ../services/xhs-draft-confirm，
-  // `_publish_generic` 的 draftOnly 分支只做委派 ⇒ 用例天然驱动**真实实现**，
-  // 不需要（也没有）任何生产逻辑的桩副本。
+  // 判据本体（读计数 / 等增量 / 重载复核 / 确认链 / 平台分流）已整体在
+  // ../services/draft-only-confirm，`_publish_generic` 的 draftOnly 分支只做委派
+  // ⇒ 用例天然驱动**真实实现**，不需要（也没有）任何生产逻辑的桩副本。
   const cfg = {
     publish_url: 'https://creator.xiaohongshu.com/publish/publish',
     draftOnly: true,
@@ -303,30 +303,25 @@ describe('小红书 draftOnly 硬证据确认链（2026-10-15）', () => {
     expect(recheckStart).toBeGreaterThan(-1)
     expect(moduleSrc.slice(recheckStart, recheckStart + 1400)).not.toMatch(/loadURL\('https?:\/\//)
 
-    // ⑦ 调用方 draftOnly 分支：小红书子分支只剩委派，且**代码行**里不得再有旧判据。
-    //    （只看代码行不看注释——块内注释会解释旧判据为什么被弃用，直接对整块文本做
-    //    not.toMatch 等于「锁注释不锁代码」。）
-    //    非小红书平台的那半段**保留**了既有页面文本判据（评审 i2：不能顺手改别的平台），
-    //    所以这里把切片限定在小红书子分支内，锁的才是本刀真正替换掉的那条路径。
+    // ⑦ 调用方 draftOnly 分支：只剩一行委派（判据本体全在模块里）。**只看代码行不看注释**：
+    //    块内注释会解释旧判据为什么被弃用，直接对整块文本做 not.toMatch 等于「锁注释不锁
+    //    代码」（评审 i7）。
     const branchStart = callerSrc.indexOf('if (config.draftOnly) {')
     const branchEnd = callerSrc.indexOf('if (sel.publish_btn && sel.publish_btn.length>0) {', branchStart)
     expect(branchStart).toBeGreaterThan(-1)
     expect(branchEnd).toBeGreaterThan(branchStart)
     const branch = callerSrc.slice(branchStart, branchEnd)
-    const xhsStart = branch.indexOf("if (platform === 'xiaohongshu') {")
-    const xhsEnd = branch.indexOf('其它平台的 draftOnly')
-    expect(xhsStart).toBeGreaterThan(-1)
-    expect(xhsEnd).toBeGreaterThan(xhsStart)
-    const xhsCode = branch.slice(xhsStart, xhsEnd)
-      .split('\n').filter((l) => !l.trim().startsWith('//')).join('\n')
-    expect(xhsCode).not.toMatch(/innerText/)
-    expect(xhsCode).not.toMatch(/_waitForCondition\s*\(/)
-    expect(xhsCode).toContain('xhsDraftConfirm.runDraftOnly(')
-    // 非小红书那半段仍受既有内容闸保护（本条是 H9b 的静态孪生断言）
-    expect(branch).toContain('xhsDraftConfirm.contentGate(')
+    const codeOnly = branch.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n')
+    expect(codeOnly).not.toMatch(/innerText/)
+    expect(codeOnly).not.toMatch(/_waitForCondition\s*\(/)
+    expect(codeOnly).toContain('draftOnlyConfirm.resolveDraftOnly(')
+    // 平台分流在模块里：小红书走硬证据链、其它平台**保留既有行为**（评审 i2）
+    expect(moduleSrc).toContain("platform === 'xiaohongshu'")
+    expect(moduleSrc).toContain('runLegacyDraftOnly')
+    expect(moduleSrc).toContain('LEGACY_DRAFT_SAVED_CONDITION')
 
     // ⑧ 基线必须在**写入内容之前**读（评审 i5：填写阶段的自动保存会把本次草稿吃进基线）
-    const baselineReadAt = callerSrc.indexOf('xhsDraftConfirm.readBaselineContext(')
+    const baselineReadAt = callerSrc.indexOf('draftOnlyConfirm.readBaselineContext(')
     const fillTitleAt = callerSrc.indexOf('if (article.title && (titleSel || captionSel)) {')
     expect(baselineReadAt).toBeGreaterThan(-1)
     expect(fillTitleAt).toBeGreaterThan(-1)
