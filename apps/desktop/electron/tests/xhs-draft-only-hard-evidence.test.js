@@ -46,6 +46,9 @@ async function loadPublishGeneric () {
 }
 
 const SRC_PATH = () => path.resolve(process.cwd(), 'electron/services/rpa-view-platforms.js')
+// 判据本体搬去独立模块（行数门禁点名还账文件零增长容差），接线锁因此要同时看两个文件。
+const MODULE_SRC = () => path.resolve(process.cwd(), 'electron/services/xhs-draft-confirm.js')
+const CALLER_SRC = SRC_PATH
 
 /** 虚拟时钟：让轮询循环（①20s / ③8s）在毫秒内走完，而不是真等 28 秒。 */
 function installVirtualClock () {
@@ -113,14 +116,9 @@ function article (over = {}) {
 async function runDraftOnly (inst, art, config = {}) {
   const mod = await import(MODULE)
   const mixin = mod.default || mod
-  // 把生产的三个方法**绑定到桩实例**上，用例因此驱动真实实现——而不是像首版那样
-  // 把 `_waitForDraftBoxIncrement` / 兜底复核的实现抄一份进测试（抄了就等于没测：
-  // 生产改了、桩不改，测试照旧全绿。评审 i6）。
-  for (const name of ['_readDraftBoxCounter', '_waitForDraftBoxIncrement', '_recheckDraftBox']) {
-    if (typeof inst[name] !== 'function' && typeof mixin[name] === 'function') {
-      inst[name] = mixin[name].bind(inst)
-    }
-  }
+  // 判据本体（读计数 / 等增量 / 重载复核 / 确认链）已整体在 ../services/xhs-draft-confirm，
+  // `_publish_generic` 的 draftOnly 分支只做委派 ⇒ 用例天然驱动**真实实现**，
+  // 不需要（也没有）任何生产逻辑的桩副本。
   const cfg = {
     publish_url: 'https://creator.xiaohongshu.com/publish/publish',
     draftOnly: true,
@@ -215,60 +213,56 @@ describe('小红书 draftOnly 硬证据确认链（2026-10-15）', () => {
     expect(res.draftEvidence).toBe('counter-increment-after-reload')
   })
 
-  it('H8 接线锁：端点表形态 / 基线时机 / 监听时机 / 旧判据已移除 / 只点一次', async () => {
-    const src = fs.readFileSync(SRC_PATH(), 'utf-8')
+  it('H8 接线锁：判据在确认模块里，且调用方只剩委派（八件事）', async () => {
+    const moduleSrc = fs.readFileSync(MODULE_SRC(), 'utf-8')
+    const callerSrc = fs.readFileSync(CALLER_SRC(), 'utf-8')
 
     // ① 端点表必须是**窄路径**（有据可查：Python 侧 DRAFT_SAVE_RESPONSE_PATTERNS），
     //    且**不得**退回宽词子串 —— 宽词会命中页面自身的草稿列表查询/埋点（评审 i1）。
-    expect(src).toContain("const XHS_DRAFT_SAVE_PATTERNS = ['/web_api/sns/v2/note']")
-    expect(src).not.toMatch(/XHS_DRAFT_SAVE_PATTERNS\s*=\s*\[[^\]]*['"](draft|save)['"]/)
+    expect(moduleSrc).toContain("const SAVE_RESPONSE_PATTERNS = ['/web_api/sns/v2/note']")
+    expect(moduleSrc).not.toMatch(/SAVE_RESPONSE_PATTERNS\s*=\s*\[[^\]]*['"](draft|save)['"]/)
 
-    const start = src.indexOf('if (config.draftOnly) {')
-    const end = src.indexOf('if (sel.publish_btn && sel.publish_btn.length>0) {', start)
+    // ② 次判据必须校验 HTTP 200（评审 i1b：`_waitForResponse` 的兜底分支会 resolve 非 200）
+    expect(moduleSrc).toContain('statusCode === 200')
+
+    // ③ 确认式只能由「计数增量 / 响应 200 / 重载后增量」组成
+    //    —— **标题命中不得出现在确认式里**（评审 i4）
+    expect(moduleSrc).toContain('const draftSaved = counterConfirmed || responseConfirmed || recheckIncrement')
+
+    // ④ 响应监听必须在**点击之前**挂上（评审 i2：只监听注册之后的响应，挂晚了必然错过）
+    const mountAt = moduleSrc.indexOf('const saveRespPromise = mountSaveResponseWatch(host, win)')
+    const clickAt = moduleSrc.indexOf('draft button clicked')
+    expect(mountAt).toBeGreaterThan(-1)
+    expect(clickAt).toBeGreaterThan(-1)
+    expect(mountAt).toBeLessThan(clickAt)
+
+    // ⑤ 存草稿入口只点一次（首版曾点两次：基线之前一次、之后又一次）
+    expect((moduleSrc.match(/draft button clicked/g) || []).length).toBe(1)
+
+    // ⑥ 兜底回查不得硬编码域名（评审 i3：平台地址走 config.publish_url 单一真源）
+    const recheckStart = moduleSrc.indexOf('async function recheckDraftBox (')
+    expect(recheckStart).toBeGreaterThan(-1)
+    expect(moduleSrc.slice(recheckStart, recheckStart + 1400)).not.toMatch(/loadURL\('https?:\/\//)
+
+    // ⑦ 旧判据（页面文本）必须已不在调用方的 draftOnly 分支里。**只看代码行、不看注释**：
+    //    块内注释会解释「旧判据为什么被弃用」，自然会出现它读的那个属性名；直接对整块
+    //    文本做 not.toMatch 就是「锁注释不锁代码」（评审 i7）。
+    const start = callerSrc.indexOf('if (config.draftOnly) {')
+    const end = callerSrc.indexOf('if (sel.publish_btn && sel.publish_btn.length>0) {', start)
     expect(start).toBeGreaterThan(-1)
     expect(end).toBeGreaterThan(start)
-    const draftBlock = src.slice(start, end)
-
-    // ② 旧判据（页面文本）必须已不在这个分支里。**只看代码行、不看注释**：
-    //    块内注释会解释「旧判据为什么被弃用」，自然会出现它读的那个属性名；直接对
-    //    整块文本做 not.toMatch 就是「锁注释不锁代码」，注释一改就误红或漏检
-    //    （CCG 深度评审 i7 点的就是这类锚点）。
-    const codeOnly = draftBlock.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n')
+    const branch = callerSrc.slice(start, end)
+    const codeOnly = branch.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n')
     expect(codeOnly).not.toMatch(/innerText/)
     expect(codeOnly).not.toMatch(/_waitForCondition\s*\(/)
+    // 调用方只剩委派（判据本体搬进模块，行数门禁点名还账文件零增长容差）
+    expect(codeOnly).toContain('xhsDraftConfirm.runDraftOnly(')
 
-    // ③ 新判据已接线
-    expect(draftBlock).toContain('_waitForDraftBoxIncrement(')
-    expect(draftBlock).toContain('_recheckDraftBox(')
-    expect(draftBlock).toContain('XHS_DRAFT_SAVE_PATTERNS')
-    expect(draftBlock).toContain('PUBLISH_DRAFT_UNCONFIRMED')
-    expect(draftBlock).toContain('draftEvidence')
-    // ④ 次判据必须校验 HTTP 200（评审 i1：`_waitForResponse` 的兜底分支会 resolve 非 200）
-    expect(draftBlock).toContain('statusCode === 200')
-    // ⑤ 标题匹配**不得**单独确认成功：确认式只能由 ①/②/③的计数增量组成
-    expect(draftBlock).toContain('const draftSaved = counterConfirmed || responseConfirmed || recheckIncrement')
-
-    // ⑥ 存草稿入口只点一次（首版曾点两次：基线之前一次、之后又一次）
-    expect((draftBlock.match(/draft button clicked/g) || []).length).toBe(1)
-
-    // ⑦ 基线必须在**写入内容之前**读（评审 i5：填写阶段的自动保存会把本次草稿吃进基线）
-    const baselineReadAt = src.indexOf('xhsDraftBaseline = await this._readDraftBoxCounter')
-    const fillTitleAt = src.indexOf("'filling title...'")
+    // ⑧ 基线必须在**写入内容之前**读（评审 i5：填写阶段的自动保存会把本次草稿吃进基线）
+    const baselineReadAt = callerSrc.indexOf('xhsDraftConfirm.readBaselineContext(')
+    const fillTitleAt = callerSrc.indexOf("'filling title...'")
     expect(baselineReadAt).toBeGreaterThan(-1)
     expect(fillTitleAt).toBeGreaterThan(-1)
     expect(baselineReadAt).toBeLessThan(fillTitleAt)
-
-    // ⑧ 响应监听必须在**点击之前**挂上（评审 i2：只监听注册之后的响应，挂晚了必然错过）
-    const mountAt = src.indexOf('this._waitForResponse(win, XHS_DRAFT_SAVE_PATTERNS')
-    const clickLogAt = src.indexOf('draft button clicked')
-    expect(mountAt).toBeGreaterThan(-1)
-    expect(clickLogAt).toBeGreaterThan(-1)
-    expect(mountAt).toBeLessThan(clickLogAt)
-
-    // ⑨ 兜底回查不得硬编码域名（评审 i3：平台地址走 config.publish_url 单一真源）
-    const recheckStart = src.indexOf('async _recheckDraftBox (')
-    expect(recheckStart).toBeGreaterThan(-1)
-    const recheckBody = src.slice(recheckStart, recheckStart + 1400)
-    expect(recheckBody).not.toMatch(/loadURL\('https?:\/\//)
   })
 })

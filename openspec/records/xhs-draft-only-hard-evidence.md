@@ -19,6 +19,8 @@ sync_backfill_owner: xhs-draft-only-hard-evidence 会话（本节作者）
 | 防止再次发生（QM-5 ⑤） | ✅ | ①原「锁旧正则形状」的用例改写为「锁新判据已接线」（三个新方法在场 + `innerText` 判据已移除 + `PUBLISH_DRAFT_UNCONFIRMED` 在场）——防止回退回文案判据；②H1/H2 两例专门钉住「基线未知不得拿 0 顶替」「文案说已保存但计数没涨不得报成功」这两个最容易复发的形态；③`draftEvidence` 字段回传哪条通道确认的，真机验证时可直接看判据健康度 |
 | 行尾与 diff 对账 | ✅ | 两口径 `numstat` 相等（改写既有测试文件处保持原 CRLF） |
 | 接线棘轮 | ✅ | 新增测试文件在 vitest.config.js 既有 include（`electron/tests/**/*.test.{js,ts}`）内，无需改 workflow |
+| 债务熔断（逐文件行数） | ✅（已修） | 首版把确认链直接写进 `rpa-view-platforms.js`，CI 报 `TARGET_GREW ... 1739 行已超过点名目标 1484 行（+255）`；已把 draftOnly 判定链整体抽成 `xhs-draft-confirm.js`，本文件降到 **1467 行**、门禁转绿。未去改门禁 target 清单（那是「谁来守门」的配置） |
+| 依赖漏洞审计 | ⚠️ 非本刀 | CI 报 `NEW_ADVISORY: pip/PYSEC-2026-4298 (python-jose, 路径 ops-center/backend)` + `RESOLVED_STILL_BASELINED: pip/CVE-2026-85394`。本刀未碰依赖与 ops-center；该工作流上次绿是 2026-10-12。属**新公告**类时间性失败，需人工裁决（升级依赖 or 基线登记 decision+note），不经本 PR 处置 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触打包配置与视觉面 |
 | QM-6 CCG 双模型外部评审 | ✅ | 跨家族深度评审实跑（proposer=opencode / critic=claude，`--sha 8fe885f57`）：7 条发现、1 Critical（i1）＋我方核出同源第二处（i1b）；**7/7 已修**，处置逐条见下 §CCG 评审。修订后门禁重跑 `node scripts/ccg-gate.js` = rc 0（5 项通过、0 安全发现） |
 | 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间；`git ls-remote --heads origin xhs-draft-only-hard-evidence` 返回 0 行证远端分支已删；回填后删除本段三个 sync_* 字段 |
@@ -90,6 +92,26 @@ CCG `verify-security` 的 XSS 判据（「点号 + innerHTML + 等号」模式�
 
 证据：改后扫描**通过（0 发现）**；抖音 + 小红书三套测试 **18/18** 全绿。
 坑记：**注释里也不能复述该写法**——正则连注释一起匹配（本刀第二次踩同型坑，第一次是抖音端点数组锁）。
+
+### CI 债务熔断检查：本刀首版触红并已修复（如实登记）
+
+首版把确认链直接写在 `rpa-view-platforms.js` 里，CI 的逐文件行数门禁（点名还账文件、
+**零增长容差**）当场变红：
+
+```
+❌ TARGET_GREW: apps/desktop/electron/services/rpa-view-platforms.js 共 1739 行
+   已超过点名目标 1484 行（+255）
+```
+
+处置：把 draftOnly 的**全部判定**（内容写入闸 + 硬证据确认链：基线读取 / 读数 / 等增量 /
+重载复核 / 三通道裁定 / 失败文案）整体搬进新模块 `apps/desktop/electron/services/
+xhs-draft-confirm.js`，调用方只留一行委派 + 一次基线读取。本文件 **1739 → 1467 行**，
+门禁转绿（`node .github/scripts/check-max-lines.js` rc=0）。同源先例：
+`wechat-mp-draft-mediaid.js` 就是为同一原因从该文件抽出来的。
+
+**没有**采取的两条路，以及为什么：① 不去改门禁的 target 清单——那是「谁来守门」的配置，
+属必须人工过目，且为本 PR 放宽自己文件的额度正是挂账机制要防的事；
+② 不去删既有注释凑行数——那会动到与本刀无关的内容。
 
 ### 并行会话 stash 误弹事故（如实登记）
 

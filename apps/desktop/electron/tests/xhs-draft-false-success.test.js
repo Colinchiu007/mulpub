@@ -40,7 +40,11 @@ function makeInstance (overrides = {}) {
     _getPlatformConfig: vi.fn(() => ({})),
     _prepBaijiahao: vi.fn(async () => {}),
     _execHook: vi.fn(async () => {}),
-    _waitForResponse: vi.fn(async () => null),
+    // 2026-10-15 硬证据确认链：判据本体整体在 ../services/xhs-draft-confirm
+    // （`_publish_generic` 的 draftOnly 分支只做委派）。本文件的用例只关心「内容填写」
+    // 这一层，所以让②通道（保存接口 HTTP 200）成立即可走到成功返回；判据本身的行为
+    // 由 xhs-draft-only-hard-evidence.test.js 专锁（那边驱动真实实现，不抄生产逻辑）。
+    _waitForResponse: vi.fn(async () => ({ statusCode: 200, url: 'https://edith.xiaohongshu.com/web_api/sns/v2/note' })),
     _waitForCondition: vi.fn(async () => true),
     _composeEditorCaption: vi.fn(() => ''),
     _navigateAndWait: vi.fn(async () => {}),
@@ -48,13 +52,6 @@ function makeInstance (overrides = {}) {
     // 导航后弹窗关闭：生产实现在 _publish_generic 里于 draftOnly 分支之前调用，
     // 缺这个桩会让 6 例在抵达被测逻辑前就 TypeError（首轮 7/7 全红的唯一原因）。
     _dismissPostNavDialogs: vi.fn(async () => {}),
-    // 2026-10-15 硬证据确认链：草稿箱计数三件套。本文件的用例只关心「内容填写」
-    // 这一层，所以给「读到计数且随后增长」的默认桩，让流程能走到返回处；
-    // 计数判据本身由 xhs-draft-only-hard-evidence.test.js 专锁（那边驱动真实方法，
-    // 不抄生产逻辑——见该文件顶部修订说明）。
-    _readDraftBoxCounter: vi.fn(async () => 1),
-    _waitForDraftBoxIncrement: vi.fn(async () => true),
-    _recheckDraftBox: vi.fn(async () => ({ increment: false, titleSeen: false })),
     ...overrides,
   }
   inst.__calls = calls
@@ -65,6 +62,7 @@ function makeInstance (overrides = {}) {
       // 用例在抵达断言前 TypeError（真实 WebContents 恒有该方法，故桩必须补齐）。
       isDestroyed: () => false,
       executeJavaScript: async () => undefined,
+      loadURL: async () => {},
     },
   }
   return inst
@@ -206,16 +204,19 @@ describe('draftOnly 假成功修复（2026-10-07）', () => {
     expect(codeOnly).not.toMatch(/innerText/)
     expect(codeOnly).not.toMatch(/_waitForCondition\s*\(/)
 
-    // 新判据的确认链必须在场。注意 `_readDraftBoxCounter`（读基线）**不在**这个分支内：
-    // 基线已按评审 i5 前移到「写入内容之前」读，分支里用的是那份读好的 baseline。
-    expect(draftBlock).toContain('_waitForDraftBoxIncrement')
-    expect(draftBlock).toContain('_recheckDraftBox')
-    expect(draftBlock).toContain('_waitForResponse')
-    expect(draftBlock).toContain('baseline')
-    // fail-closed：三条都不可达必须报失败，而不是返回 success:true
-    expect(draftBlock).toContain('PUBLISH_DRAFT_UNCONFIRMED')
-    // 基线确实被读过（只是发生在这个分支之外）
-    expect(src).toContain('xhsDraftBaseline = await this._readDraftBoxCounter')
+    // 判据本体已整体搬进独立模块（`rpa-view-platforms.js` 是逐文件行数门禁的**点名
+    // 还账**文件、零增长容差），所以调用方这一分支只剩委派；断言分两处看。
+    expect(codeOnly).toContain('xhsDraftConfirm.runDraftOnly(')
+    expect(src).toContain('xhsDraftConfirm.readBaselineContext(')
+
+    const moduleSrc = fs.readFileSync(
+      path.resolve(process.cwd(), 'electron/services/xhs-draft-confirm.js'), 'utf-8')
+    expect(moduleSrc).toContain('SAVE_RESPONSE_PATTERNS')
+    expect(moduleSrc).toContain('statusCode === 200')
+    expect(moduleSrc).toContain('PUBLISH_DRAFT_UNCONFIRMED')
+    expect(moduleSrc).toContain('counterConfirmed || responseConfirmed || recheckIncrement')
+    // 端点表必须是窄路径，不得退回宽词子串（否则会命中页面自身的草稿列表查询/埋点）
+    expect(moduleSrc).toContain("const SAVE_RESPONSE_PATTERNS = ['/web_api/sns/v2/note']")
   })
 })
 

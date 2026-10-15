@@ -89,34 +89,13 @@ function parsePublishResponseEvidence (body, response) {
 }
 
 
-// 小红书保存接口的**专属路径**模式（draftOnly 硬证据链第二通道的端点表）。
-// 取值有据可查、不是猜的：Python 侧同轨常量 xiaohongshu_selectors.py 里的
-// `DRAFT_SAVE_RESPONSE_PATTERNS = ["/web_api/sns/v2/note"]`，其常量注释记载该端点
-// 经真机确认——页内自动保存/存草稿与笔记提交走**同一个端点**，成功回包
-// {code:0, data:{note_id, draft_id}}。
-//
-// ⛔ 只允许「专属路径」形态，**不得**退化成宽词子串。'draft' / 'save' 这种短词会命中
-// 发布页自身的草稿列表查询、埋点等无关 200 响应，使第二通道在主判据超时后把
-// 「任意无关请求成功」读成本次落库证据 —— 那与 2026-10-15 要消灭的假成功同形
-// （CCG 跨家族深度评审 i1，Critical，已按此收窄）。
-//
-// 提为命名常量的另一个理由：本文件里抖音/公众号的等待端点数组是字面量，而
-// douyin-rpa-create-v2-pattern.test.js 用正则抽取「文件中第一个等待调用」的
-// 端点数组（它假定抖音那处是首例）。此处若也写字面量数组，会抢在抖音之前被
-// 抓住，让那条锁无故变红。注意：**注释里也不能出现该调用的字面形态**，
-// 因为那个正则会连注释一起匹配——这正是本常量首次落地时踩到的坑。
-const XHS_DRAFT_SAVE_PATTERNS = ['/web_api/sns/v2/note']
-// ① 主判据的等待上限：等「计数增量」本身（与 Python 侧 CONFIRM_TIMEOUT_S=20 对齐）。
-const XHS_DRAFT_CONFIRM_TIMEOUT_MS = 20000
-// ② 次判据的监听窗口：必须覆盖「点击存草稿 → 平台落库」这段，且要盖过①的等待
-// （①跑完再 await 它，若窗口短于①就会在自己还在等的时候就超时收摊）。
-const XHS_DRAFT_SAVE_RESPONSE_TIMEOUT_MS = 30000
-// 草稿箱计数节点（① 的读数来源）。活体取证 2026-10-08 实测为 `SPAN.draft-title`，
-// 文本形如「草稿箱(1)」，与 Python 侧 DRAFT_BOX_COUNTER_SELECTOR 同源。
-// Electron 侧 platforms 配置里**没有** draft_box_counter 这一项，所以这就是实际生效值；
-// 仍先读配置是为了平台改版时能不改码救急（配置若给数组则取首个——`querySelectorAll`
-// 不接受数组，喂进去会静默查不到，把「选择器形态错」伪装成「节点不存在」）。
-const XHS_DRAFT_COUNTER_SEL = '.draft-title'
+// 小红书图文草稿的「硬证据」确认链**整体**在 ./xhs-draft-confirm（2026-10-15）：
+// 端点表、计数选择器、三个超时常量与全部判据函数都在那里，本文件只保留薄调用点。
+// 这样切分的直接原因：本文件在逐文件行数门禁里是**点名还账**文件（零增长容差），
+// 首版把确认链直接写在这里会让 CI 债务熔断检查报 TARGET_GREW。
+// 判据细节与三条红线（端点必须专属窄路径 / 必须校验 HTTP 200 / 标题匹配不给确认权）
+// 见该模块头部注释，也有独立的回归锁。
+const xhsDraftConfirm = require('./xhs-draft-confirm')
 
 
 const platformsMixin = {
@@ -255,25 +234,12 @@ const platformsMixin = {
     // 导航后清理草稿恢复弹窗/引导遮罩（否则上传区与表单被遮挡）
     await this._dismissPostNavDialogs(win, platform)
 
-    // 草稿模式（小红书）：计数**基线**必须在写入任何内容**之前**读，原因是可复现的时序。
-    // 图文草稿会被平台自动保存（活体取证 2026-10-08）：若等填完内容再读基线，
-    // 平台在填写阶段已经把计数 +1，基线就含住了本次草稿，之后永远看不到增量
-    // —— 主判据①常态失效，成功与否全被推给弱通道（CCG 跨家族深度评审 i5）。
-    // Python 侧同轨也是在导航完成后、上传/填写之前读基线（xiaohongshu.py 的 `if draft:`）。
-    // 读不到时保持 null：**不得拿 0 顶替**（「没拿到基线」不是「没增长」的证据）。
-    let xhsDraftBaseline = null
-    let xhsDraftCounterSel = ''
+    // 草稿模式（小红书）：计数基线必须在**写入任何内容之前**读——平台在填写阶段就会
+    // 自动保存，晚读会把本次草稿吃进基线 ⇒ 主判据恒不增长（CCG 评审 i5）。读不到保持
+    // null，不得拿 0 顶替。时机与判据细节见 ./xhs-draft-confirm 的 readBaselineContext。
+    let xhsBaselineCtx = null
     if (config.draftOnly && platform === 'xiaohongshu') {
-      const rawCounterSel = sel && sel.draft_box_counter
-      xhsDraftCounterSel = Array.isArray(rawCounterSel)
-        ? (rawCounterSel[0] || XHS_DRAFT_COUNTER_SEL)
-        : (rawCounterSel || XHS_DRAFT_COUNTER_SEL)
-      xhsDraftBaseline = await this._readDraftBoxCounter(win, xhsDraftCounterSel)
-      if (xhsDraftBaseline === null || xhsDraftBaseline === undefined) {
-        log.warn('RpaView', '[xiaohongshu] draft-only: 草稿箱计数基线读不到（sel=' + xhsDraftCounterSel + '），计数增量判据不可用')
-      } else {
-        log.info('RpaView', '[xiaohongshu] draft-only: 草稿箱计数基线=' + xhsDraftBaseline + '（写入内容之前）')
-      }
+      xhsBaselineCtx = await xhsDraftConfirm.readBaselineContext(this, win, sel)
     }
 
     // image upload（2026-09-29 图文模式）：无视频但有本地图片时上传首图。
@@ -502,128 +468,12 @@ const platformsMixin = {
     // 有自动草稿保存（页面显示「编辑于 刚刚」，侧边栏草稿箱计数 +1），因此填完字段后
     // 等待落库即可；若平台另提供显式存草稿钮（sel.draft_btn）则优先点它。
     if (config.draftOnly) {
-      // 2026-10-07 假成功修复：先判「内容真的写进去了吗」，再谈落库。
-      // 旧实现无条件 return {success:true} —— 真机 E2E 实测标题/正文/标签三项
-      // 全部 not found，页面空白，仍报 success 并写入发布历史。
-      // 硬性判据：文章带了标题就必须写进去；带了正文就必须写进去。
-      // 标签是增强项（不写不致命），单独记 warn 不阻断。
-      const hardFailures = []
-      if (article.title && fillReport.title && fillReport.title.ok === false) hardFailures.push('title: ' + fillReport.title.error)
-      if (article.content && fillReport.content && fillReport.content.ok === false) hardFailures.push('content: ' + fillReport.content.error)
-      if (fillReport.tags && fillReport.tags.ok === false) {
-        log.warn('RpaView', '[' + platform + '] draft: tags not filled (' + fillReport.tags.error + ') — 降级放行（标签为增强项）')
-      }
-      if (hardFailures.length > 0) {
-        const detail = hardFailures.join(' | ')
-        log.error('RpaView', '[' + platform + '] draft-only ABORT: content not filled, refuse to report success -> ' + detail)
-        return {
-          success: false, platform, draft: true,
-          error: '草稿内容未写入页面，已中止（避免假成功）: ' + detail,
-          errorCode: 'PUBLISH_DRAFT_CONTENT_NOT_FILLED',
-          fillReport,
-          url: win.webContents.getURL() || '',
-        }
-      }
-      // ── 硬证据确认链（2026-10-15，取代页面文本正则）────────────
-      // 旧判据是**页面文本正则**（匹配 body.innerText 的「已保存／保存成功／自动保存／编辑于…」），
-      // 2026-10-15 真机实测证伪：应用报「发布成功」但草稿箱无新增——日志显示该正则
-      // 3 秒即命中（命中的是页面**静态文案**），同一时刻页面控制台正在连报
-      // 「获取某个数据失败 / 请求失败」，发布窗口随后是空编辑页，草稿箱计数仍是 1。
-      //
-      // 新判据与 Python 侧 #3469 的确认链同构（xiaohongshu.py `_confirm_saved`），
-      // 能**单独确认成功**的只剩两条硬证据：
-      //   ① 草稿箱计数**增量**（主判据）——基线已在写入内容之前读好（见上）
-      //   ② 保存接口**成功响应**（次判据）——窄路径端点表 + HTTP 200，两条件缺一不可
-      //   ③ 草稿箱整页重载后的复核（兜底）——只在①②都不可达时跑一次；它**不新增**
-      //      确认权：重载后仍以计数增量确认，标题命中只作辅助证据（同名草稿会误命中）
-      // 三条全不可达 ⇒ fail-closed 报失败，**绝不拿页面文案当落库证据**。
-      //
-      // 选址说明（草稿箱与分区的关系）：小红书草稿箱入口就在发布页侧边栏
-      // （`DRAFT_BOX_URL` 与发布页同一 URL，见 xiaohongshu_selectors.py），
-      // 因此计数读取落在**同一个 RPA 分区**内、同一个页面上，无需另开窗口；
-      // 兜底通道的整页 goto 也仍在本分区内（登录态一致，草稿箱内容一致）。
-      const counterSel = xhsDraftCounterSel || XHS_DRAFT_COUNTER_SEL
-      const baseline = xhsDraftBaseline
-
-      this._emitProgress(platform, 'saving draft...', 90)
-      // ② 的监听必须在**点击之前**挂上：`_waitForResponse` 只监听注册之后完成的响应、
-      // 不回放历史，挂在点击之后就必然错过真正的保存响应（CCG 深度评审 i2）。
-      let saveRespPromise = null
-      if (XHS_DRAFT_SAVE_PATTERNS.length > 0 && typeof this._waitForResponse === 'function') {
-        saveRespPromise = this._waitForResponse(win, XHS_DRAFT_SAVE_PATTERNS, XHS_DRAFT_SAVE_RESPONSE_TIMEOUT_MS)
-          .catch(() => null)
-      }
-      // 存草稿入口：平台有显式按钮就点它，**只点一次**；没有则依赖平台自动保存。
-      if (sel.draft_btn && sel.draft_btn.length > 0) {
-        for (const cand of sel.draft_btn) {
-          try {
-            if (await this._click(win, cand)) { log.info('RpaView', '[' + platform + '] draft button clicked: ' + cand); break }
-          } catch (_) { /* 候选失效继续下一个 */ }
-        }
-      } else {
-        log.info('RpaView', '[' + platform + '] draft-only: 未配置存草稿入口，按平台自动保存处理，以草稿箱计数为确认判据')
-      }
-
-      // ① 主判据：等计数增量（等待条件是「增量本身」，不是「节点出现」）
-      const counterConfirmed = baseline === null || baseline === undefined
-        ? false
-        : await this._waitForDraftBoxIncrement(win, counterSel, baseline, XHS_DRAFT_CONFIRM_TIMEOUT_MS, 1500)
-
-      // ② 次判据：保存接口的成功响应。两个条件缺一不可——
-      //   (a) URL 命中**窄路径**端点表（见文件顶 XHS_DRAFT_SAVE_PATTERNS 的取证与红线）；
-      //   (b) HTTP 200。`_waitForResponse` 的超时兜底分支会把**非 200** 的命中
-      //       （见 rpa-view-helpers.js `_waitForResponseExclusive` 的 fallbackTimer）也
-      //       resolve 出来，所以**不能**拿「resolve 非空」当成功——那会把一次
-      //       500/302 读成落库证据（同属 CCG 深度评审 i1 的形态）。
-      let responseConfirmed = false
-      if (!counterConfirmed && saveRespPromise) {
-        try {
-          const resp = await saveRespPromise
-          if (resp && resp.statusCode === 200) {
-            responseConfirmed = true
-          } else if (resp) {
-            log.warn('RpaView', '[' + platform + '] draft-only: 捕获到保存接口响应但非成功码，不作为落库证据 statusCode=' +
-              resp.statusCode + ' url=' + String(resp.url || '').slice(0, 120))
-          }
-        } catch (_) { /* 监听失败不当判据，继续往下走 */ }
-      }
-
-      // ③ 兜底通道：整页重载草稿箱后复核（贵，只在①②都不可达时跑一次）。
-      // **不给标题匹配单独的确认权**：标题是精确匹配、同名草稿会误命中；若允许它单独
-      // 确认成功，历史同名草稿就能把「计数没涨（很可能真没保存）」翻案成成功——与真机
-      // 缺陷同形（CCG 深度评审 i4）。故重载后仍以计数增量确认，标题命中只作辅助证据上报。
-      let recheckIncrement = false
-      let titleSeen = false
-      if (!counterConfirmed && !responseConfirmed) {
-        const recheck = await this._recheckDraftBox(win, article.title, baseline, counterSel, config.publish_url, 8000, 1500)
-        recheckIncrement = recheck.increment
-        titleSeen = recheck.titleSeen
-      }
-
-      const draftSaved = counterConfirmed || responseConfirmed || recheckIncrement
-      const evidence = counterConfirmed ? 'counter-increment'
-        : (responseConfirmed ? 'save-response'
-          : (recheckIncrement ? 'counter-increment-after-reload' : 'none'))
-      log.info('RpaView', '[' + platform + '] draft-only done saved=' + Boolean(draftSaved) +
-        ' evidence=' + evidence + ' baseline=' + String(baseline) +
-        ' titleSeen=' + Boolean(titleSeen) + ' url=' + (win.webContents.getURL() || ''))
-
-      if (!draftSaved) {
-        // fail-closed：能单独确认成功的硬证据一条都没拿到 ⇒ 不报成功。内容写进去了但
-        // 没确认落库，属于「不确定」，绝不能写成 success（那正是 2026-10-15 假成功的形态）。
-        this._emitProgress(platform, 'draft unconfirmed', 100)
-        return {
-          success: false, platform, draft: true, draftSaved: false,
-          error: titleSeen
-            ? '草稿保存未获确认（草稿列表见到了同名条目，但草稿箱计数没有增量、保存接口也没有成功响应；同名旧草稿会被误认，故不据此判成功），已按失败处理以避免假成功'
-            : '草稿保存未获确认（草稿箱计数无增量、保存接口无成功响应、草稿箱重载复核仍无增量），已按失败处理以避免假成功',
-          errorCode: 'PUBLISH_DRAFT_UNCONFIRMED',
-          fillReport,
-          url: win.webContents.getURL() || '',
-        }
-      }
-      this._emitProgress(platform, 'draft saved', 100)
-      return { success: true, url: win.webContents.getURL() || '', platform, draft: true, draftSaved: true, fillReport, draftEvidence: evidence }
+      // draftOnly 的**全部判定**（内容写入闸 + 硬证据确认链）在 ./xhs-draft-confirm：
+      // 旧判据是页面文本正则、命中的是常驻静态文案，那里是它被替换后的落点；
+      // 本文件只做委派（搬家的行数门禁理由见文件顶该 require 处注释）。
+      return await xhsDraftConfirm.runDraftOnly(this, win, {
+        platform, sel, article, fillReport, config, baselineCtx: xhsBaselineCtx,
+      })
     }
     if (sel.publish_btn && sel.publish_btn.length>0) {
       retry.addField('publish')
@@ -683,126 +533,6 @@ const platformsMixin = {
     { log.warn('RpaView', '[' + platform + '] no publish_btn selector configured'); return {success:false,error:platform+' no publish_btn selector',platform:platform} }
   },
 
-  // ========== 小红书草稿箱硬证据确认链（2026-10-15）==========
-  // 与 Python 侧 #3469（xiaohongshu_dom.py）同构的三条通道。判据必须落在**同一个
-  // RPA 分区**内：草稿箱入口就在发布页侧边栏（同一 URL），所以计数读取不需要
-  // 另开窗口；兜底通道的整页 goto 也仍在本分区内（登录态一致、草稿箱内容一致）。
-
-  /**
-   * 读「草稿箱(N)」计数。读不到可见节点、或文本不含计数 ⇒ null。
-   *
-   * null 的两种成因必须分开查（没有可见节点 vs 节点在但正则不命中），
-   * 所以后者落一条 debug；判据不可用这件事由调用方在最终结论处统一出声。
-   *
-   * 括号与空格是**显示格式不是协议**：只实证过半角 `草稿箱(1)`，但平台换成全角
-   * 括号或多打空格时，代价应当只是「少一条证据」，而不是把唯一确认通道整个
-   * 押在字符形状上。
-   * @returns {Promise<number|null>}
-   */
-  async _readDraftBoxCounter (win, counterSel) {
-    try {
-      const raw = await win.webContents.executeJavaScript(
-        '(function(){var sel=' + JSON.stringify(counterSel || '.draft-title') + ';' +
-        'var els=document.querySelectorAll(sel);var texts=[];' +
-        'for(var i=0;i<els.length;i++){var e=els[i];if(e.offsetParent){var t=(e.innerText||e.textContent||"").trim();if(t)texts.push(t)}}' +
-        'return JSON.stringify(texts.slice(0,3))})()')
-      const texts = JSON.parse(raw || '[]')
-      for (const t of texts) {
-        const m = /草稿箱\s*[（(]\s*(\d+)\s*[）)]/.exec(t)
-        if (m) return parseInt(m[1], 10)
-      }
-      if (texts.length > 0) {
-        log.info('RpaView', '[xiaohongshu] 草稿箱计数节点可见但文本解析不出计数（sel=' + counterSel +
-          '，收到 ' + texts.length + ' 条文本）——显示形态可能已漂移')
-      }
-      return null
-    } catch (e) {
-      log.info('RpaView', '[xiaohongshu] 草稿箱计数探测异常: ' + ((e && e.message) || e))
-      return null
-    }
-  },
-
-  /**
-   * 等计数**增量**（等待条件是增量本身，不是「节点出现」）。
-   * baseline 为 null 时直接判未确认——「没拿到基线」不是「没增长」的证据，
-   * 也不得拿 0 顶替。单次探测异常保持上一读数继续轮询，不中断、不抹平。
-   * @returns {Promise<boolean>} 是否观察到计数变大
-   */
-  async _waitForDraftBoxIncrement (win, counterSel, baseline, timeoutMs, intervalMs) {
-    if (baseline === null || baseline === undefined) return false
-    const deadline = Date.now() + (timeoutMs || 20000)
-    let now = baseline
-    while (Date.now() < deadline) {
-      await this._sleep(intervalMs || 1500)
-      let read = null
-      try { read = await this._readDraftBoxCounter(win, counterSel) } catch (_) { read = null }
-      if (read !== null && read !== undefined) {
-        now = read
-        if (now > baseline) return true
-      }
-    }
-    log.info('RpaView', '[xiaohongshu] 草稿箱计数未增长（baseline=' + baseline + ' → now=' + now + '），退到下一通道')
-    return false
-  },
-
-  /**
-   * 兜底通道：整页重载草稿箱后复核。贵（一次整页 goto），只在①②都不可达时跑一次。
-   *
-   * 返回 `{ increment, titleSeen }` 两条**分开**的事实，由调用方决定怎么用：
-   * - `increment`：重载后重新读计数，观察到比 baseline 变大。它是**确认权来源**——
-   *   与①同一判据，只是在「新加载的页面」上再读一次，覆盖①遇到的一次性读失败。
-   * - `titleSeen`：列表里见到同名条目，**只作辅助证据**。标题是精确匹配，历史同名草稿
-   *   会误命中；单独用它确认成功就等于把真机缺陷原样搬回来（CCG 深度评审 i4）。
-   *
-   * 回查本身抛错 ⇒ 两条都 false（fail-closed），但留 warning——它是自动保存路径被真机
-   * 证实过的判据，「为什么没确认」必须能在日志里查到（与 Python 侧同口径）。
-   *
-   * URL 由调用方按 `config.publish_url` 单一真源传入（草稿箱入口与发布页同 URL，见
-   * xiaohongshu_selectors.py 的 DRAFT_BOX_URL）。硬编码域名会绕开平台配置，与
-   * ops-base-single-src 刚收敛的「平台地址单一真源」原则冲突（CCG 深度评审 i3）。
-   * 导航优先走 `_navigateAndWait`（等 did-finish-load + 稳定），不用裸 loadURL——
-   * 后者只等到「导航开始」，8s 轮询可能整个落在还没渲染的空白页上。
-   * @returns {Promise<{increment: boolean, titleSeen: boolean}>}
-   */
-  async _recheckDraftBox (win, title, baseline, counterSel, boxUrl, timeoutMs, intervalMs) {
-    const out = { increment: false, titleSeen: false }
-    try {
-      if (typeof this._navigateAndWait === 'function') {
-        await this._navigateAndWait(win, boxUrl, 1500)
-      } else {
-        await win.webContents.loadURL(boxUrl)
-      }
-    } catch (e) {
-      log.warn('RpaView', '[xiaohongshu] 草稿箱回查异常（整页重载失败），按未确认处理: ' + ((e && e.message) || e))
-      return out
-    }
-    const deadline = Date.now() + (timeoutMs || 8000)
-    while (Date.now() < deadline) {
-      await this._sleep(intervalMs || 1500)
-      // 确认权：计数增量（与①同判据，换到新加载的页面上再读一次）
-      if (!out.increment && baseline !== null && baseline !== undefined) {
-        let read = null
-        try { read = await this._readDraftBoxCounter(win, counterSel) } catch (_) { read = null }
-        if (read !== null && read !== undefined && read > baseline) out.increment = true
-      }
-      // 辅助证据：列表里的同名条目（不给确认权）
-      if (!out.titleSeen && title) {
-        try {
-          out.titleSeen = Boolean(await win.webContents.executeJavaScript(
-            '(function(){var want=' + JSON.stringify(String(title)) + ';' +
-            'var els=document.querySelectorAll(\'[class*="draft"] [class*="title"],[class*="draft-title"]\');' +
-            'for(var i=0;i<els.length;i++){var e=els[i];if(!e.offsetParent)continue;' +
-            'var t=(e.innerText||e.textContent||"").trim();if(t&&t===want)return true}return false})()'))
-        } catch (_) { /* 单次探测失败继续轮询 */ }
-      }
-      if (out.increment) break
-    }
-    if (!out.increment) {
-      log.info('RpaView', '[xiaohongshu] 草稿箱重载复核未获计数增量（baseline=' + String(baseline) + '）' +
-        (out.titleSeen ? '；列表见到同名条目，但仅作辅助证据、不作确认权' : ''))
-    }
-    return out
-  },
 
   // ========== 平台专用：百家号发布前准备（创作声明等） ==========
   async _prepBaijiahao(win, article) {

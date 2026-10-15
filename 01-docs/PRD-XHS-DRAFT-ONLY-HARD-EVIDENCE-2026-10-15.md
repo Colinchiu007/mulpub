@@ -133,16 +133,18 @@
 | `electron/tests/xhs-draft-only-hard-evidence.test.js`（**8 例**，新增） | H1 基线未知不报成功；H2 计数未增长不报成功（**哪怕草稿列表里见到了同名条目**）；H3 计数增长⇒成功且 `draftEvidence='counter-increment'`；H4 三条全不可达⇒fail-closed；H5 保存接口 200⇒成功（`save-response`）；H6 **保存接口非 200 不得确认成功**；H7 重载后计数增量⇒成功（`counter-increment-after-reload`）；H8 接线锁 |
 | `electron/tests/xhs-draft-false-success.test.js`（既有 9 例，更新 2 例） | 内容填写层判据不变（8 例）；原「锁旧正则形状」用例改为「锁新判据已接线」，切片按分支边界、断言只看代码行（不锁注释） |
 
-**H8 接线锁断言的是哪几件事**（每条都对应一处评审发现）：
+**H8 接线锁断言的是哪几件事**（每条都对应一处评审发现；判据搬进模块后，
+锁同时读 `xhs-draft-confirm.js` 与 `rpa-view-platforms.js` 两个文件）：
 
 1. 端点表必须是窄路径 `['/web_api/sns/v2/note']`，且**不得**退回宽词子串（评审 i1，Critical）；
-2. `draftOnly` 分支的**代码行**里不得再出现 `innerText` / `_waitForCondition(`（旧判据已移除）；
+2. 调用方 `draftOnly` 分支的**代码行**里不得再出现 `innerText` / `_waitForCondition(`
+   （旧判据已移除），且该分支只剩 `xhsDraftConfirm.runDraftOnly(` 委派；
 3. 确认式只能是 `counterConfirmed || responseConfirmed || recheckIncrement`
    —— **标题命中不得出现在确认式里**（评审 i4）；
 4. 必须出现 `statusCode === 200`（评审 i1b）；
-5. 基线读取必须**早于** `filling title...`（评审 i5）；
-6. 响应监听必须**早于**存草稿点击（评审 i2）；
-7. 存草稿点击在本分支内**只出现一次**（本刀自查发现的重复点击）；
+5. 基线读取（`readBaselineContext(`）必须**早于** `filling title...`（评审 i5）；
+6. 响应监听（`mountSaveResponseWatch`）必须**早于**存草稿点击（评审 i2）；
+7. 存草稿点击在模块内**只出现一次**（本刀自查发现的重复点击）；
 8. 兜底回查方法体内**不得**出现硬编码 URL（评审 i3）。
 
 **测试写法上的一个刻意选择**（评审 i6）：本文件**不把生产逻辑抄成桩**。
@@ -153,13 +155,35 @@
 
 ## 7. 影响面
 
-- 修改：`apps/desktop/electron/services/rpa-view-platforms.js`（`_publish_generic` 的
-  draftOnly 分支 + 基线读取前移 + 新增 3 个方法 + 新增 3 个命名常量
-  `XHS_DRAFT_SAVE_PATTERNS` / `XHS_DRAFT_COUNTER_SEL` / 两个超时常量）、
-  `apps/desktop/electron/tests/xhs-draft-false-success.test.js`
-- 新增：`apps/desktop/electron/tests/xhs-draft-only-hard-evidence.test.js`
+- **新增** `apps/desktop/electron/services/xhs-draft-confirm.js`：draftOnly 的**全部判定**——
+  内容写入闸（2026-10-07 那套，一并搬入）+ 硬证据确认链（基线读取 / 读数 / 等增量 /
+  重载复核 / 三通道裁定 / 失败文案）。判据本体、三条红线与不变量的详细说明都在这个模块头部。
+- 修改 `apps/desktop/electron/services/rpa-view-platforms.js`：
+  - draftOnly 分支改为**一行委派**（`xhsDraftConfirm.runDraftOnly(...)`）；
+  - 内容填写**之前**增加一次 `xhsDraftConfirm.readBaselineContext(...)`（取计数基线）；
+  - 文件顶新增该模块的 require。
+- 修改 `apps/desktop/electron/tests/xhs-draft-false-success.test.js`（9 例，改写 2 例）
+- 新增 `apps/desktop/electron/tests/xhs-draft-only-hard-evidence.test.js`（8 例）
 - 不触：平台协议、凭据体系、Python 后端、i18n（失败文案走 `error` 字段，未加新 key——
   见 §9 遗留）
+
+### 7.4 为什么判据要单独成模块（一条**硬约束**，不是风格偏好）
+
+`rpa-view-platforms.js` 在逐文件行数门禁（`.github/scripts/check-max-lines.js`）里是
+**点名还账**文件：目标 1484 行、**零增长容差**。本刀首版把确认链直接写在该文件里，
+CI **债务熔断检查**当场变红：
+
+```
+❌ TARGET_GREW: apps/desktop/electron/services/rpa-view-platforms.js 共 1739 行
+   已超过点名目标 1484 行（+255）。被点名还账的文件一律零增长容差
+```
+
+处置：把 draftOnly 的判定链整体搬进 `xhs-draft-confirm.js`（`1739 → 1467` 行，门禁转绿）。
+之所以**不**去改门禁的 target 清单：那是「谁来守门」的配置，属必须人工过目的改动，
+而且为本 PR 放宽自己文件的额度正是挂账机制要防的事。
+
+> 同源先例：`wechat-mp-draft-mediaid.js` 就是为同一原因从本文件抽出来的
+> （见该模块头部注释）。
 
 ### 7.2 前置修复：抖音 desc 填写的 innerHTML 写法（行为等价）
 
