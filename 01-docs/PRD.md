@@ -2323,6 +2323,102 @@ pending → publishing → { success | failed | partial | denied | cancelled }
 - **失败原因渲染收口（2026-09-29）**：历史页列表卡片与详情弹窗消费 `error` 字段——卡片失败原因行（单行截断 + title 全文，`record-error-{id}`）、详情「失败原因」格（跨双列可换行，无 error 时占位「未记录失败原因」）；成功/进行中不渲染；zh/en 成对（`historyPage.detailErrorReason` / `errorUnknown`）。完整合同见 PRD-PUBLISH-PROGRESS-UX §5.7。
 - **不改**：TaskQueue 编排语义（并发 3 / 自动重试 2 / 失败不中断整批）、ROUTE_TABLE、跨重启恢复（`deserialize` 既有能力，仅如实呈现其语义）。
 
+### 6.8 标题保真与「触发型假值」隔离合同（fix-toutiao-title-suffix，2026-10-15）
+
+> 事故与完整 Bug 反思循环（根因溯源 / 逃逸链 / 系统性漏洞 / 回归保护 / 预防措施）：[BUGFIX-TOUTIAO-TITLE-SUFFIX-2026-10-15.md](./BUGFIX-TOUTIAO-TITLE-SUFFIX-2026-10-15.md)。
+> 本节是**产品契约**（数据校验 / 流程 / 功能逻辑 / 交互逻辑 / 显示项 / 提示文字），代码与测试以本节为准。
+
+#### 6.8.1 需求背景与用户可见症状
+
+用户发布图文到**头条号**，原标题「DeepSeek崩了」，在头条号后台看到的标题是「DeepSeek崩了 1935」
+——尾部多出 4 位十进制数字（来自 `Date.now().toString().slice(-4)`，epoch 毫秒后 4 位）。
+26 字以上标题还会被静默截短到 26 字。
+
+**根因（一句话）**：RPA 为了「让头条编辑器触发自动保存」，把标题改写成了
+`原标题.slice(0,26) + ' ' + 时间戳后4位`，这个**触发手段值**被直接当成**发布内容**发出且从不还原。
+
+#### 6.8.2 核心契约（三条不可破）
+
+1. **发布内容 == 用户输入**：任何平台收到的 `title=` / 描述，必须与用户填写值逐字符相等
+   （平台自身限制导致的截断除外，且截断必须出声提示）。
+2. **触发型假值必须与内容真值隔离**：凡是为了让第三方页面/接口动起来而临时造的值
+   （假标题、扰动标记、假备注），必须同时满足：
+   - **不可见**（零宽字符 U+200B 一类；禁止可见数字/文字/年份）；
+   - **同帧内还原**（造出 → 使用 → 还原，还原是同一段页面脚本的最后一步）；
+   - **零截断**（不得对用户原文做 `slice` 一类裁剪）；
+   - **禁时钟**（脚本内不得出现 `Date.now` / 取后 N 位 / 随机数）。
+3. **双重闸门**：还原（第一道闸，页面上下文）+ 重放前 `title=` 兜底覆盖（第二道闸，Node 上下文）。
+   第二道闸防的是「页面自动保存在还原前抢跑发出」的竞态——它不依赖时序假设。
+
+#### 6.8.3 数据校验
+
+| 校验点 | 时机 | 判据 | 不满足时的行为 |
+|---|---|---|---|
+| 标题长度 | 发布前（渲染层） | 按 `publish-capabilities` 注册表 `titleMax`（头条 30 字符；百家号按 UTF-8 字节 149） | 按平台截断 + **出声提示**（`publishPage.publishFlow.platformContentTruncated` 一类），禁止静默 |
+| 标题读回 | RPA 填充后（`_fillInput`） | 页面标题框读回长度 > 0 | 抛错走字段重试（既有机制） |
+| 标题保真 | 重放/直连提交前 | body `title=` 解码后 === `article.title` | 强制覆盖为 `article.title`（第二道闸）；空标题不覆盖（fail-safe，保留页面已生成标题） |
+| 邻键不误伤 | 同上 | `title=` 判据须「title 后紧跟等号」 | 不得匹配 `title_id=` / `title_url=` 一类邻键 |
+| 发布后回显 | 发布成功判定后（**待办**） | 平台作品查询返回的标题 === 本地标题 | 记 `unknown` 并提示用户自查，**不得**当作已验证 |
+
+#### 6.8.4 流程
+
+```
+用户填标题 → 渲染层校验（注册表 titleMax）→ [平台链分发]
+                                              ├─ API 链：适配器 buildPostData 用 taskData.title（无改写）
+                                              └─ RPA 链：_fillInput 写原标题（含读回校验）
+                                                        ↓
+                                              （仅头条图文 XHR 重放兜底）触发自动保存
+                                                        ↓
+                                          buildTitleBumpScript：记 orig → 写 orig+U+200B → input
+                                                        ↓ 页面 React 发出自动保存（异步）
+                                          同脚本内：写回 orig → 再 input（React 末次 onChange = 原标题）
+                                                        ↓ 等待捕获 __lastSaveBody
+                                          重放前 overrideBodyTitle：body title= 强制 = article.title
+                                                        ↓
+                                          POST（save=1）→ 平台
+```
+
+#### 6.8.5 功能逻辑
+
+| 组件 | 职责 | 关键约束 |
+|---|---|---|
+| `buildTitleBumpScript()`（`packages/rpa-engine/src/toutiao-direct-bridge.js`） | 生成「触发 + 还原」一体的页面脚本 | 返回值 `RESTORED` / `NO_TITLE`；扰动值 = `orig + U+200B`；同脚本还原并二次 input |
+| `overrideBodyTitle(body, title)` | 重放前覆盖 body 的 `title=` | `(^|&)title=` 精确判据；无字段则追加；空标题 no-op；幂等 |
+| `publishViaPageXhr()` | 页面 XHR 真发布 | 先装 hook → bump → 等捕获 → 覆盖 title= → save=1 重放 |
+| `_fillInput`（既有） | RPA 通用填充 | 只写调用方给的值，不自造值（读回 0 且待填非空即抛错） |
+
+#### 6.8.6 交互逻辑与显示项
+
+- **用户侧无新增交互**：本契约是「修坏」，不引入新控件、新弹窗、新设置项。
+- **显示项不变**：发布页标题输入框、平台差异化面板（标题上限提示「标题 最多 N 字」）、
+  发布进度面板的字段步骤，均维持现状。
+- **提示文字（既有，本契约复用，不新增）**：
+  - 标题超长：`publishPage.publishFlow.platformContentTruncated`（平台 / limit / before / after）；
+  - 标题为空：`publishPage.titleRequired`；
+  - 百家号标题按字节自动截断的既有路径保留。
+- **日志（仅开发者可见，不面向用户）**：`[toutiao-xhr]` 一行已有（code / msg / pgcId）；
+  本契约不新增用户可见日志。
+
+#### 6.8.7 异常态矩阵
+
+| 场景 | 行为 | 判据 |
+|---|---|---|
+| 标题框找不到（`NO_TITLE`） | 返回 `NO_TITLE`，不抛错，后续流程继续（可能拿不到 body 而降级） | bump 脚本不 throw |
+| 标题为空 | 扰动值 = `''+U+200B`，还原为 `''`；body 覆盖 no-op | 空标题不覆盖（fail-safe） |
+| 标题 >26 字 | **不截断**（旧实现会截到 26） | 回归锁 A 组「超 26 字标题」用例 |
+| 标题含 `<stdio.h>` / `😀` / `&` | 原样还原；body 侧 `encodeURIComponent` 编码 | 回归锁 A 组「含 HTML/尖括号/表情」用例 |
+| body 无 `title=` 字段 | 追加到末尾，其余字段不动 | 回归锁 C 组「无字段时追加」 |
+| body 已有正确 `title=` | 覆盖结果与原文一致（幂等） | 回归锁 C 组「幂等」 |
+| 自动保存抢跑（还原前已发出） | 第二道闸把 body `title=` 改回正确值 | 回归锁 E 组集成用例 |
+
+#### 6.8.8 验收标准
+
+1. 头条号后台的图文标题与用户原标题**逐字符一致**（含 >26 字长标题、含特殊字符标题）——真机复验为待办，见 BUGFIX 文档 §8。
+2. 回归锁 `packages/rpa-engine/tests/toutiao-title-no-pollution.test.js` 19 条全绿；
+   变异反证：把扰动值改回事故写法，至少 4 条立刻变红（实测通过）。
+3. 不回归定时意图契约（`toutiao-schedule-intent.test.js` 7 条）与 rpa-engine 全量（274 条）。
+4. 其他平台图文/视频链经审计**不同源、无改动**（见 BUGFIX 文档 §3 审计表）。
+
 ## 七、视频创作流程
 
 ### 7.1 故事讲述（原 全能创作 / Omni Creation；2026-08-14 更名）
