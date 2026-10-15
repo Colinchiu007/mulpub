@@ -57,7 +57,16 @@ maintenance_prefixed_AND_no_frontend=140     // 仍 report-only，但理由换�
 - **收益**：45 条真跑到审计的 PR 里，不再出现「LLM 自报一个分母不定的数 ⇒ required check 判红 ⇒ 全仓停摆」。可归因的失败（声明了 `feat_` 却没实现）判据反而**变严**：以前它和存量欠账混在同一个 FAIL 里，现在单独命名 `COVERAGE_FAIL`。
 - **未量**：label 侧豁免的历史命中数无法离线取证（需要逐 PR 拉 labels），如实记为未量。
 
-## 变异反证八条（全部 CAUGHT，escaped=0；逐条还原后 md5 与变异前相同）
+## 真实产物复跑——单测给不了的那一步，以及它当场抓到的一条缺陷
+
+把 #3617 那次 CI 的 artifact（`autonomous-e2e-report-2026-10-14T22-23-17-517Z.json`，run 38646664947 / job 116135306680）原样喂给新门禁跑一遍（`D:/Temp/replay-gate9.cjs`）：
+
+- 未声明 `feat_` ⇒ `rc=0` + 令牌 `COVERAGE_BACKLOG`；声明 `feat_` ⇒ `rc=1` + `COVERAGE_FAIL`。两条归属路径都在**真产品**上成立，不只是在夹具上成立。
+- 但产物同时暴露我自己写错的一处：真实 `coverage.summary` 是 `{total:218, passed:218, failed:0}`，而 `coverageRate=0.36` 并存——因为 `requirements-runner.js:114` 把 `PARTIAL` 映射成 `PASSED`，**`failed` 恒为 0**。我最初拿它当「未覆盖数」写进注解，打出来会是「覆盖 36%，未覆盖 0」这种自相矛盾的句子。
+- 正解：现场数字一律按 `coverage.details[].type` 自己数（实跑得 `in scope 227 / judged 218 / covered 88 / partial 130 / missing 0`），并加一条**反向锁** `assert.doesNotMatch(message, /not covered/)`，防止下一个人为图省事再把那个恒 0 的字段接回去。
+- 夹具同步改成与产物**逐字段同形**：我原先写的 `failed: 144` 在真实产物里不可能出现——那是夹具替实现撒谎，属本仓「跨包契约夹具不得替对方剥壳」的同族形态。
+- 顺手多记一条判据依据：产物里裁判自报 `_verdict.summary = {covered:82, partial:145, missing:0}`，与它**自己的** items 直方图（88 covered / 130 partial）都对不上。这不是"数据略偏"，是分母和分类都由裁判临场决定的又一处实锤，正面支持"这个数不能当阈值/水位"。
+## 变异反证十条（全部 CAUGHT，escaped=0；逐条还原后 md5 与变异前相同）
 
 | 变异 | 指名变红的用例 |
 | --- | --- |
@@ -69,8 +78,10 @@ maintenance_prefixed_AND_no_frontend=140     // 仍 report-only，但理由换�
 | M6 存量 FAIL 退回阻塞 | 「存量覆盖 FAIL…降级为报告型」+ CLI 端到端 |
 | M7 摘掉 `COVERAGE_BACKLOG` 令牌 | 「存量降级必须另打 COVERAGE_BACKLOG 可见性令牌」+ CLI 端到端 |
 | M8 把标题豁免加回来 | classify 的 3 条（标题不变性 / 纯文档不变性 / 剥注释后的结构锁） |
+| M9 把恒 0 的 `summary.failed` 当「未覆盖数」写回注解 | 「存量覆盖 FAIL…降级为报告型」（反向锁 `doesNotMatch(/not covered/)` 指名红） |
+| M10 `countBy` 恒返 0（不再按 details 数） | 同上（`covered 88 / partial 130` 断言指名红） |
 
-M6 与 M7 最初红集逐字相同——退出码与令牌压在一条用例里，读起来像其中一条没牙。已拆成两条独立用例，现各 Own 一条指名红；CLI 端到端用例对二者**共同**变红是刻意保留的双保险（它同时断言 rc 与 note）。
+红集归属的三条如实记录：① M6 与 M7 最初红集逐字相同——退出码与令牌压在一条用例里，读起来像其中一条没牙，已拆成两条独立用例后各 Own 一条指名红，CLI 端到端对二者**共同**变红属刻意保留的双保险（它同时断言 rc 与 note）；② M1/M2 落在同一条测试的不同 assert 上；③ M9/M10 与 M6 共用「存量覆盖 FAIL…降级为报告型」这一条测试名（该用例现在同时断言退出码与注解现场数字）。后两组的粒度限制来自 `node --test` 只报到测试名、不报到 assert——不是锁没牙，是报告粒度就这么粗，写清楚以免下一个人把它当成重复覆盖删掉。
 
 PowerShell 侧另做了一次真实解释器校验（`D:/Temp/check-gate9-ps.ps1`，pwsh 7 与 Windows PowerShell 5.1 各一遍）：从 yml 里抽出该步 `run:` 正文喂 `Parser::ParseInput` ⇒ `PARSE_ERRORS=0`；`Invoke-Expression` 展开 `$gateArgs` ⇒ 8 个元素、含 `--required-feature-ids=feat_a,feat_b`；**未设置该 env 时展开成 `--required-feature-ids=`（空串）**，即 advisory 路径。这一步不是形式主义：注释若误插进数组字面量内部，YAML 侧完全合法、js-yaml 判据全绿，只有 PowerShell 解析会炸，而它的炸法是整个 required check 消失。
 

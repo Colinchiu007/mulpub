@@ -133,13 +133,21 @@ function isCoverageOnlyFailure(report) {
 }
 
 // 降级放行时把现场数字一并写进注解：只说"这是存量"等于让下一个读者重新去翻 artifact。
+// ⚠️ 这些数一律从 coverage.details[].type 自己数，**不得**拿 coverage.summary.failed
+// 当「未覆盖数」：requirements-runner.js:114 把 PARTIAL 映射成 PASSED，#3617 的真实产物里
+// summary={total:218,passed:218,failed:0} 与 coverageRate:0.36 同时成立——照抄后者会打出
+// 「覆盖 36%，未覆盖 0」这种自相矛盾的句子（2026-10-15 拿 artifact 复跑才抓到）。
 function coverageShape(report) {
   const coverage = (report && report.coverage) || {};
-  const summary = coverage.summary || {};
+  const details = Array.isArray(coverage.details) ? coverage.details : [];
+  const countBy = (type) => details.filter((item) => item && item.type === type).length;
   return {
     rate: typeof coverage.coverageRate === "number" ? `${(coverage.coverageRate * 100).toFixed(1)}%` : "N/A",
-    items: Number.isFinite(summary.total) ? String(summary.total) : "N/A",
-    uncovered: Number.isFinite(summary.failed) ? String(summary.failed) : "N/A",
+    inScope: Number.isFinite(coverage.auditedCount) ? String(coverage.auditedCount) : "N/A",
+    judged: String(details.length),
+    covered: String(countBy("covered")),
+    partial: String(countBy("partial")),
+    missing: String(countBy("missing")),
   };
 }
 
@@ -191,7 +199,7 @@ function evaluateAutonomousGateDecision({ reportDir, auditExitCode, hasOpenAiKey
       return evaluation(1, "COVERAGE_FAIL", `Autonomous coverage audit failed on the features this PR declares (${ids.join(", ")}); the audited scope is exactly those features.`);
     }
     const shape = coverageShape(report);
-    return evaluation(0, "COVERAGE_BACKLOG_REPORT", `Autonomous coverage audit measured the whole-repo PRD backlog (coverageRate ${shape.rate}, judged items ${shape.items}, not covered ${shape.uncovered}). Those items are pre-existing backlog and the rate is the judge self-report, so this green does NOT mean coverage is acceptable.`);
+    return evaluation(0, "COVERAGE_BACKLOG_REPORT", `Autonomous coverage audit measured the whole-repo PRD backlog (self-reported coverageRate ${shape.rate}; PRD items in scope ${shape.inScope}, judge picked ${shape.judged}: covered ${shape.covered} / partial ${shape.partial} / missing ${shape.missing}). Both the rate and the item set are the judge's own choice, so this green does NOT mean coverage is acceptable.`);
   }
   return evaluation(1, report.overall || "FAIL", "Autonomous coverage audit did not pass.");
 }

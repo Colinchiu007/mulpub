@@ -371,15 +371,27 @@ test("自主审计 CLI 的 --note-file 把令牌落盘，供 workflow 直接读�
 // 对覆盖判据是死参数。⇒「同一份代码两次跑落在不同结论两侧」的量没有资格决定
 // 全仓每个 PR 能不能合并。存量欠账进报告不进闸门；本 PR 自己声明要实现的东西
 // 没实现，仍然当场红。
+// 夹具形状取自 #3617 那次 CI 的**真实 artifact**（run 38646664947 / job 116135306680 里的
+// autonomous-e2e-report-2026-10-14T22-23-17-517Z.json），逐字段同形：
+//   overall=FAIL  coverageStatus=FAIL  exitCodes=["COVERAGE_FAIL"]
+//   coverageRate=0.36  auditedCount=227  details.length=218（88 covered + 130 partial）
+//   summary={total:218,passed:218,failed:0} ← PARTIAL 被映射成 PASSED，failed 恒 0
+//   _verdict.summary={covered:82,partial:145,missing:0} ← 连它自己的 items 直方图都对不上
 function backlogFailReport(extra = {}) {
+  const details = [];
+  for (let i = 0; i < 88; i++) details.push({ testName: "f" + i, status: "PASSED", type: "covered" });
+  for (let i = 0; i < 130; i++) details.push({ testName: "p" + i, status: "PASSED", type: "partial" });
   return {
     overall: "FAIL",
     coverageStatus: "FAIL",
     exitCodes: ["COVERAGE_FAIL"],
     coverage: {
-      coverageRate: 0.34,
-      auditedCount: 218,
-      summary: { total: 218, passed: 74, failed: 144 },
+      coverageRate: 0.36,
+      auditedCount: 227,
+      totalPrdFeaturesRaw: 227,
+      details,
+      summary: { total: 218, passed: 218, failed: 0 },
+      _verdict: { decision: "FAIL", score: 0.36, summary: { covered: 82, partial: 145, missing: 0, coverageRate: 0.36 } },
     },
     ...extra,
   };
@@ -391,10 +403,14 @@ test("存量覆盖 FAIL（评估面不由本 PR 限定）降级为报告型", ()
     const r = evaluateAutonomousGate({ reportDir, auditExitCode: 1, hasOpenAiKey: true });
     assert.equal(r.exitCode, 0);
     assert.equal(r.status, "COVERAGE_BACKLOG_REPORT");
-    // 文案必须自报它量的是全仓存量并带上报数现场，否则下一个读者会把绿读成「覆盖已达标」
+    // 文案必须自报它量的是全仓存量，并带上**按 details 自己数出来**的现场数字；
+    // 否则下一个读者会把这条绿读成「覆盖已达标」。
     assert.match(r.message, /backlog/);
-    assert.match(r.message, /34\.0%/);
-    assert.match(r.message, /144/);
+    assert.match(r.message, /36\.0%/);
+    assert.match(r.message, /in scope 227/);
+    assert.match(r.message, /covered 88 \/ partial 130 \/ missing 0/);
+    // 反向锁：summary.failed 因 PARTIAL→PASSED 映射而恒 0，注解里不得出现它
+    assert.doesNotMatch(r.message, /not covered/);
   });
 });
 
