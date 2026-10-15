@@ -2,9 +2,6 @@
 record: gate9-ratchet
 task: Gate 9（PRD/源码自主覆盖审计）判据改造——取消标题/label 命名豁免，覆盖失败只拦「可归因于本 PR」的那一种
 date: 2026-10-15
-sync_status: PENDING
-sync_reason: 本 PR 合并后由后续 docs PR 按既有 PASS 口径回填 merge SHA 与时间，并在同一次提交删除 frontmatter 三字段与本记录对应的 ledger 登记项
-sync_backfill_owner: agent 收尾链（回填 = 合并后第一笔 docs PR）
 ---
 
 # Gate 9 判据改造（gate9-ratchet，2026-10-15）
@@ -129,4 +126,4 @@ PowerShell 侧另做了一次真实解释器校验（`D:/Temp/check-gate9-ps.ps1
 
 ## 远程同步
 
-| 远程同步 | PENDING | 本 PR 未合并，merge SHA 尚不存在；本片合并后由第一笔 docs PR 按 PASS 口径回填，并在同一次提交删除 ledger 登记项与 frontmatter 三字段 |
+| 远程同步 | PASS | merge SHA 71e7994e3 · 2026-10-15T14:50:04+08:00 · 远端分支已删（ls-remote 0 行）· 同次提交删除 ledger 登记项 |

@@ -1,9 +1,4 @@
 {
-  "本次执行记录：Gate 9 判据改造——取消标题豁免、覆盖失败只拦可归因项（gate9-ratchet，2026-10-15）【混合 PR】": {
-    "reason": "gate9-ratchet 是本 PR 自己的欠账：合并后由第一笔 docs PR 按 PASS 口径回填 merge SHA 与时间，并在同一次提交删除本登记项与 openspec/records/gate9-ratchet.md 的 frontmatter 三字段",
-    "status": "PENDING",
-    "line": 19
-  },
   "本次执行记录：Story2Video 历史失败提示脱敏与模型账号细化（error-message-fix，2026-08-19）": {
     "reason": "error-message-fix 分支的 L4479 远程同步行状态写的是「执行中」而非闭合词表——属于该记录作者的登记欠账；本人无法代为取证其 PR 合并 SHA，按「不代其他会话改写其执行记录」惯例在此登记并说明",
     "status": "PENDING",
