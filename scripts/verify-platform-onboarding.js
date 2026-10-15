@@ -124,27 +124,68 @@ function buildChecks (slug) {
       : { ok: false, detail: `kind='${kind}' 不是 html/plain` }
   })
 
-  add(7, '三张上限表（CONTENT_LIMITS / TITLE_LIMITS / TAG_STYLES）均有该键', () => {
+  // TAG_STYLES 的**默认兜底值**，从实现里读出来（不复制字面量）。
+  // 用途：判据 7/8 对「TAG_STYLES 缺席」的平台不再一律判 FAIL（见下）。
+  function tagStylesDefault (formatterText) {
+    const m = formatterText.match(/TAG_STYLES\[platform\]\s*\|\|\s*'([^']+)'/)
+    return m ? m[1] : null
+  }
+
+  add(7, '上限表一致（CONTENT_LIMITS / TITLE_LIMITS 必须有键；TAG_STYLES 可缺席走默认）', () => {
     const t = formatter()
     if (!t) return { ok: false, detail: '文件不存在' }
     const missing = []
-    for (const name of ['CONTENT_LIMITS', 'TITLE_LIMITS', 'TAG_STYLES']) {
+    for (const name of ['CONTENT_LIMITS', 'TITLE_LIMITS']) {
       const m = t.match(new RegExp(`${name}\\s*=\\s*\\{([\\s\\S]*?)\\n\\}`))
       if (!m) { missing.push(`${name} 未找到`); continue }
       if (!new RegExp(`\\b${slug}:`).test(m[1])) missing.push(`${name} 无 ${slug}`)
     }
-    return missing.length === 0
-      ? { ok: true, detail: '三表均命中（与注册表一致性由 content-formatter-registry-sync.test.js 契约锁钉住）' }
-      : { ok: false, detail: missing.join('; ') }
+    // ★ TAG_STYLES 单独处理（2026-10-15 修，判据过严）：
+    //   原判据要求三张表**都有**该 slug 的显式键。但 TAG_STYLES 是**标签样式**表，
+    //   与另两张「上限表」不同：
+    //     · content-formatter.js 的 formatTags 是 `TAG_STYLES[platform] || '#tag'`
+    //       —— **有默认兜底**，缺席不是坏；
+    //     · 该表 10 个键里 6 个（pipixia/xigua/tengxun_shipin/meiyou/chejiahao/wangyi）
+    //      不在 config/platforms.yaml 的 15 个平台里 —— 缺席是常态；
+    //     · 默认值 '#tag' 对海外/短视频平台（youtube/tiktok/twitter/instagram/facebook）
+    //      的 hashtag 约定**恰好正确**。
+    //   实测：原判据下 6 个平台 FAIL，且 detail 全是「TAG_STYLES 无 <slug>」
+    //   （CONTENT_LIMITS / TITLE_LIMITS 均命中）—— 全部是判据过严，不是平台缺陷。
+    const ts = t.match(/TAG_STYLES\s*=\s*\{([\s\S]*?)\n\}/)
+    if (!ts) { missing.push('TAG_STYLES 未找到'); return missing.length === 0 ? { ok: true, detail: '上限表齐' } : { ok: false, detail: missing.join('; ') } }
+    const def = tagStylesDefault(t)
+    if (!def) { missing.push('TAG_STYLES 默认值不可解析（formatTags 的兜底表达式变了）') }
+    else if (!new RegExp(`\\b${slug}:`).test(ts[1])) {
+      // 缺席：接受，但必须在 detail 里如实说明走的是默认值
+      if (!["'#tag'", "'#tag#'", "'plain'"].includes(`'${def}'`)) {
+        missing.push(`TAG_STYLES 无 ${slug} 且默认值 '${def}' 不在允许集`)
+      }
+    }
+    if (missing.length > 0) return { ok: false, detail: missing.join('; ') }
+    const hasKey = new RegExp(`\\b${slug}:`).test(ts[1])
+    return {
+      ok: true,
+      detail: hasKey
+        ? '上限表齐 + TAG_STYLES 显式命中（注册表一致性由 content-formatter-registry-sync.test.js 钉住）'
+        : `上限表齐 + TAG_STYLES 缺席走默认 '${def}'（语义正确，见判据说明）`,
+    }
   })
 
-  add(8, 'TAG_STYLES 取值合法', () => {
+  add(8, 'TAG_STYLES 取值合法（有键则校验取值；缺席则校验默认兜底值）', () => {
     const t = formatter()
     if (!t) return { ok: false, detail: '文件不存在' }
     const m = t.match(/TAG_STYLES\s*=\s*\{([\s\S]*?)\n\}/)
     if (!m) return { ok: false, detail: '未找到 TAG_STYLES' }
     const km = m[1].match(new RegExp(`\\b${slug}:\\s*'([^']+)'`))
-    if (!km) return { ok: false, detail: `TAG_STYLES 无 ${slug}` }
+    if (!km) {
+      // 缺席：不再判 FAIL，改为校验**默认兜底值**本身合法。
+      // 这样若有人把 formatTags 的兜底从 '#tag' 改成非法值，本判据会红。
+      const def = tagStylesDefault(t)
+      if (!def) return { ok: false, detail: 'TAG_STYLES 默认兜底表达式不可解析，无法判定' }
+      return ["'#tag'", "'#tag#'", "'plain'"].includes(`'${def}'`)
+        ? { ok: true, detail: `TAG_STYLES 无 ${slug}，走默认 '${def}'（合法）` }
+        : { ok: false, detail: `TAG_STYLES 无 ${slug}，且默认兜底 '${def}' 不在允许集` }
+    }
     return ["'#tag'", "'#tag#'", "'plain'"].includes(`'${km[1]}'`)
       ? { ok: true, detail: `style='${km[1]}'` }
       : { ok: false, detail: `style='${km[1]}' 不在允许集` }

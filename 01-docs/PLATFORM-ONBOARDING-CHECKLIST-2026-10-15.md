@@ -150,28 +150,86 @@ const hasApi = /^[ \t]{4}has_api:[ \t]*true/.test(block)   // ← 缺 m 标志
 
 ---
 
-### 4.3 判据 ⑦/⑧（`TAG_STYLES`）—— **对 6 个平台判据过严（D 类）**
+### 4.3 判据 ⑦/⑧（`TAG_STYLES`）—— ✅ **已修：缺席走默认兜底（原判据过严，D 类）**
 
-**判据要求 `TAG_STYLES` 有该 slug 的显式键。实测 6 个平台没有：**
+> 修正记录：`openspec/records/p3-2-tagstyles-default.md`
+
+**原判据要求 `TAG_STYLES` 有该 slug 的显式键。实测 6 个平台没有：**
 `tencent_video` / `youtube` / `tiktok` / `twitter` / `instagram` / `facebook`
 
-**三条证据表明这不是平台缺陷：**
+#### 先取精确 detail 再定性（不要只看 FAIL 标题）
+
+原判据 ⑦ 的失败 detail 逐平台取出来，**6 个全是「TAG_STYLES 无 <slug>」**
+⇒ `CONTENT_LIMITS` / `TITLE_LIMITS` **均已命中**，只缺 `TAG_STYLES` **一张**。
+
+三张表的真实键数：
+
+| 表 | 键数 | 键 |
+| --- | --- | --- |
+| `CONTENT_LIMITS` | 4 | `wechat_mp, douyin, toutiao, youtube` |
+| `TITLE_LIMITS` | 6 | `wechat_mp, douyin, toutiao, youtube, weibo, tiktok` |
+| `TAG_STYLES` | 10 | `douyin, bilibili, pipixia, xigua, tengxun_shipin, meiyou, chejiahao, weibo, zhihu, wangyi` |
+
+#### 四条证据表明这不是平台缺陷
 
 | # | 证据 | 结论 |
 | --- | --- | --- |
-| ① | `content-formatter.js:60` — `var style = TAG_STYLES[platform] \|\| '#tag'` | **代码有默认值** ⇒ 缺席 ≠ 坏 |
-| ② | `shipinhao-video.js:73` 传 `'tencent_video'`；`shipinhao.js:2` 注释确认 `constructor 'tencent_video'` | 表按**调度 id** 键，`shipinhao` 是**文件名**不是 id |
-| ③ | `TAG_STYLES` 里有 `dayu` / `qiehao` / `aiqiyi` 等**不在 `platforms.yaml`** 的键 | 表覆盖范围比 config 广，**缺席是常态** |
+| ① | `content-formatter.js:60` — `var style = TAG_STYLES[platform] \|\| '#tag'` | **代码有默认兜底** ⇒ 缺席 ≠ 坏 |
+| ② | `content-formatter-registry-sync.test.js` 的注释与测试**只锁 `CONTENT_LIMITS` / `TITLE_LIMITS`**，完全不涉及 `TAG_STYLES` | `TAG_STYLES` 本就不在「必须全覆盖」的契约范围内 |
+| ③ | `TAG_STYLES` 的 10 个键里 **6 个**（`pipixia`/`xigua`/`tengxun_shipin`/`meiyou`/`chejiahao`/`wangyi`）**不在 `platforms.yaml` 的 15 个平台里** | 缺席是这张表的**常态** |
+| ④ | `formatTags`（L58-67）：`'#tag'` ⇒ `#话题`、`'#tag#'` ⇒ `#话题#`、`plain` ⇒ 原样 | 默认 `'#tag'` 对海外/短视频平台的 hashtag 约定**恰好正确** |
 
-**逐个定性：**
+#### ★ 曾写错的一处：`shipinhao` 不是 `TAG_STYLES` 的键
 
-| slug | 定性 | 说明 |
+本文档首个版本写「`TAG_STYLES['shipinhao']` 是够不着的孤键」—— **那是错的**：
+
+- 表里的键是 **`tengxun_shipin`**，不是 `shipinhao`
+- `tencent_video` 的调度 id 是 `tencent_video`（已由 `shipinhao-video.js:73` 调
+  `formatArticleBody('tencent_video', …)`、`shipinhao.js:2` 注释确认）
+- **两者都不是** ⇒ 不存在「本平台的孤键」，只有「另一套命名体系的残留键」
+
+**⇒ 教训：「读到的键名」必须与「判据实际查的名字」**逐字对上**再下结论。
+那次用 `Select-String` 提键名被 PowerShell 转义问题吃成 0 键，于是基于推测下了结论；
+改用 Node 探针（与实现同款正则）才拿到真值。**
+
+#### 修法（已实施）
+
+| 判据 | 改动 |
+| --- | --- |
+| ⑦ | `CONTENT_LIMITS` / `TITLE_LIMITS` **仍要求显式键**（不放宽）；`TAG_STYLES` 改为「键存在 ⇒ 显式命中；缺席 ⇒ 默认兜底值合法即通过」 |
+| ⑧ | 有键 ⇒ 校验取值合法（原逻辑）；缺席 ⇒ 改为校验**默认兜底值本身**合法 |
+
+**★ 默认兜底值不复制字面量，从实现里读**：
+`formatterText.match(/TAG_STYLES\[platform\]\s*\|\|\s*'([^']+)'/)`。
+**这样若有人改了兜底表达式，判据当场报「不可解析」，而不是静默按旧值放过。**
+
+**★ detail 必须如实说明走了默认**（`TAG_STYLES 缺席走默认 '…'`），不许静默通过。
+
+#### ★ 反向锁（放宽后最怕空转）
+
+`verify-platform-onboarding.test.js` 新增一条，四层断言：
+
+1. **默认兜底值必须可解析且合法** —— 反向锁的核心
+2. **6 个缺席平台判据 ⑦/⑧ PASS，且 detail 必须含「TAG_STYLES 缺席走默认」**
+3. **8 个有显式键的平台必须报「TAG_STYLES 显式命中」** —— 防键匹配退化
+4. **`CONTENT_LIMITS` / `TITLE_LIMITS` 仍不许缺** —— 防「一起被放宽混过」
+
+**真变异反证（已实跑）**：把兜底 `'#tag'` 改成非法值
+⇒ 该锁变红，**且 6 个缺席平台的判据 ⑦/⑧ 逐条转 FAIL（12 条）** ⇒ 放宽后仍在真正校验。
+
+#### 结果
+
+| 指标 | 修前 | 修后 |
 | --- | --- | --- |
-| `tencent_video` | ⚠️ **潜在隐患（孤键）** | `TAG_STYLES['shipinhao'] = '#tag'` **永远够不着**（实际查的是 `'tencent_video'`）。因两者值相同，**行为无差异**；但若有人把 `shipinhao` 改成 `'plain'`，`tencent_video` 不会跟随 |
-| `youtube`/`tiktok`/`twitter`/`instagram`/`facebook` | ✅ **判据不适用** | 缺席 ⇒ 默认 `'#tag'`，**对海外/短视频平台恰好正确**（hashtag 约定）|
+| 判据 ⑦ 失败平台数 | 6 | **0** |
+| 判据 ⑧ 失败平台数 | 6 | **0** |
+| 全 PASS 平台数 | 5 / 15 | **5 / 15（无变化 ⇒ 没顺手放宽别的判据）** |
+| 脚本自测 | 18 / 18 | **19 / 19** |
 
-**⇒ 正解（建议，未实施）：判据 ⑦/⑧ 应接受「键存在 **或** 默认值语义正确」，
-并把默认值本身钉进回归锁。**
+#### 仍未清理（留 owner 定口径）
+
+`TAG_STYLES` 里的 `tengxun_shipin` / `pipixia` / `xigua` / `meiyou` / `chejiahao` / `wangyi`
+这 6 个**非 config 平台键**属另一套命名体系，本 PR **不动**（清理需先确认口径）。
 
 ---
 
@@ -222,30 +280,44 @@ const hasApi = /^[ \t]{4}has_api:[ \t]*true/.test(block)   // ← 缺 m 标志
 
 ## 6. 反证纪律（这套判据自己的教训）
 
-**本套判据出过两类「假绿」，都写进教训：**
+**本套判据出过三类问题，都写进教训：**
 
 | 形态 | 实例 | 教训 |
 | --- | --- | --- |
 | **判据空转** | `structure-lock` 的 `for (const k of [])` 空循环 | 一个断言如果「空集合也过」，它就不是棘轮而是待办清单 |
-| **判据只在多数输入的少数上执行** | 本条判据⑨ 的正则缺 `m` | 一个正则标志位可以决定整条判据是否执行，而逻辑读起来完全正确 |
+| **判据只在多数输入的少数上执行** | 判据⑨ 的正则缺 `m` | 一个正则标志位可以决定整条判据是否执行，而逻辑读起来完全正确 |
+| **判据过严** | 判据⑦/⑧ 要求 `TAG_STYLES` 全覆盖 | **先看代码有没有默认兜底**。有兜底值的表，「缺席」不是缺陷；要求全覆盖等于把兜底机制判成 bug |
 
 **⇒ 所以：改门禁时**必须**做一次真变异跑**（把修复点改回错误形态 ⇒ 测试必须变红），
 **不能用「拿字面量测正则」这类同义反复冒充反证。**
 
-**⇒ 且负控优先用**真实数据**：本条的 `facebook`（`has_api:true` 不在首行 + 无链 ⇒ 应 FAIL）
+**⇒ 且负控优先用**真实数据**：判据⑨ 的 `facebook`（`has_api:true` 不在首行 + 无链 ⇒ 应 FAIL）
 天然就是证伪样本，不需要造夹具。**
+
+**⇒ ★ 放宽判据时，反向锁要钉住「放宽后不许空转」：**
+判据⑦/⑧ 放宽后，锁的不是「6 个平台通过」，而是三层一起钉 ——
+**① 默认兜底值本身合法；② detail 必须说明走默认；③ 另两张上限表仍不许缺。**
+只钉①会退化成待办清单；三层一起钉，改动兜底值就当场红。
 
 ---
 
-## 7. 现状快照（2026-10-15）
+## 7. 现状快照（2026-10-15，含两轮修正后）
 
 | 指标 | 值 |
 | --- | --- |
 | 平台总数 | 15 |
 | 判据 ④ 失败数 | **0**（P3-2 方案 A 修复后）|
-| 全 PASS | **5 / 15**（`baijiahao` 只缺 ④ ⇒ 整平台转绿）|
-| 判据 ⑨ 失败 | 3（`youtube`/`twitter`/`facebook`，B 类待裁定）|
-| 判据 ⑦/⑧ 失败 | 6（D 类，判据过严）|
+| 判据 ⑨ 失败 | 3（`youtube`/`twitter`/`facebook`，**B 类待 owner 裁定**）|
+| 判据 ⑦/⑧ 失败 | **0**（原 6，已修：缺席走默认兜底，见 §4.3）|
 | 判据 ⑩ 失败 | 6（C 类，未裁定）|
 | 判据 ⑪ 失败 | 9（E 类，测试欠账）|
-| P3-1 脚本自测 | **16 / 16** |
+| 全 PASS | **5 / 15** |
+| P3-1 脚本自测 | **19 / 19** |
+
+**⇒ 剩余失败集中在三处，且都不是「照 FAIL 清单批量改」能解决的：**
+
+| 判据 | 类 | 下一步 |
+| --- | --- | --- |
+| ⑨ | B | 需裁定「`has_api:true` 必须有实现」还是「总闸可关 API 轨」⇒ 定后再改数据或改判据 |
+| ⑩ | C | 需裁定 `formatArticleBody` 对短内容/视频平台是否适用 ⇒ 已有一条线索：`AGENTS.md` 承载形态合同把这 12 个平台都列为**纯文本承载**，故更可能是**真要求**，需逐平台核对调用点 |
+| ⑪ | E | 测试覆盖欠账，可独立排期 |
