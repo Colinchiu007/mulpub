@@ -288,25 +288,27 @@ test('改动集口径：未改动的文档里的陈旧路径不应报红', (t) =
   assert.match(r2.stderr, /HISTORY/);
 });
 
-test('基线对账纯函数：无本机盘符的 runner 不得把整张账本报成"待收紧"（也不得静默当已判定）', () => {
-  // 这条锁的分支在 Windows 本机永远走不到（CI 的 changes job 是 ubuntu-latest，那里没有盘符
-  // ⇒ 现场计数恒 0）。留在 main 里就是一条没人跑过的分支，而它决定门禁在 CI 上是恒红还是恒绿，
-  // 所以把判据抽成纯函数直接喂参数测。
+test('基线对账纯函数：无本机盘符也必须按计数判 over/shrink（口径换代的正反两面）', () => {
+  // 这条锁原先钉的是**旧口径**：「无盘符 ⇒ 现场计数恒 0 ⇒ 不得比计数，否则整张账本永久红」。
+  // 那句话在旧口径下是对的，而它的存在本身就是 #75 那个洞——它把"判据的输入是文件系统"这件事
+  // 固化成了受保护形态。计数口径之后现场计数与盘符无关，所以两支必须给出同一结论。
   const mod = require(SCRIPT);
   const baseline = new Map([['a.md', 2], ['b.md', 1], ['gone.md', 4]]);
   const domain = new Set(['a.md', 'b.md']);
   const counts = new Map([['a.md', [{}, {}, {}]]]);
 
   const noDrive = mod.judgeBaseline({ counts, baseline, domain, canJudge: false });
-  assert.equal(noDrive.judged, false);
-  assert.equal(noDrive.over.length, 0, '无盘符时不得凭恒 0 的现场计数判"超出基线"');
-  assert.equal(noDrive.shrink.length, 0, '无盘符时若仍比计数，整张账本会变成永久红——比它挡的问题更糟');
+  assert.equal(noDrive.judged, false, 'judged 只描述"存在性核对做没做"，不再描述"判不判"');
+  assert.deepEqual(noDrive.over.map((o) => o.file), ['a.md'], '无盘符也必须报超出基线（这条就是 #75 的洞）');
+  assert.deepEqual(noDrive.shrink.map((o) => o.file), ['b.md'], '无盘符也必须报待收紧');
   assert.deepEqual(noDrive.stale.map((s) => s.file), ['gone.md'], '陈旧登记是跨平台事实，必须照样判');
 
   const withDrive = mod.judgeBaseline({ counts, baseline, domain, canJudge: true });
   assert.deepEqual(withDrive.over.map((o) => o.file), ['a.md'], 'a.md 3 处 > 基线 2 必须报');
   assert.deepEqual(withDrive.shrink.map((o) => o.file), ['b.md'], 'b.md 0 处 < 基线 1 必须要求收紧');
   assert.deepEqual(withDrive.stale.map((s) => s.file), ['gone.md']);
+  assert.deepEqual(noDrive.over.map((o) => o.file), withDrive.over.map((o) => o.file),
+    '两支结论必须逐字相同，否则"与机器无关"只是说法');
 });
 
 test('账本内容必须是"条数"而不是明细（第一版真把 finding 对象写了出去）', () => {
@@ -748,15 +750,17 @@ test('剥成对加粗必须要求"紧邻路径之前有同一段记号"，孤立
   assert.equal(mod.stripPairedEmphasis('', 'C:\\x'), 'C:\\x', '没有尾缀记号时原样返回');
 });
 
-test('--write-baseline 在无盘符环境必须拒写（axis1c F1：跑一次就把整张账本写成空表还 exit 0）', () => {
+test('--write-baseline 与盘符无关之后必须放行（旧拒绝的前提已消失），但窄域仍拒', () => {
   const mod = require(SCRIPT);
-  // 无盘符 ⇒ 现场计数恒 0 ⇒ serializeBaseline 写出 {"files":{}} 且退出码 0。
-  // 这与 AGENTS 记的「--update 抹掉别的域」同型：一次"成功"的重写把门禁变成零豁免面。
-  assert.equal(mod.judgeWriteBaseline({ all: true, canJudge: false }).verdict, 'refuse');
+  // 旧这条锁钉的是「无盘符 ⇒ 现场计数恒 0 ⇒ 写出来是空表还 exit 0」，在旧口径下完全正确
+  // （axis1c F1）。计数口径之后现场计数与文件系统无关，该前提不再成立 ⇒ 这一支改为**允许**；
+  // 仍保留的是与盘符无关的那条真风险：窄域重写会抹掉整张账本。
+  assert.equal(mod.judgeWriteBaseline({ all: true, canJudge: false }).verdict, 'write',
+    '无盘符也必须能生成账本，否则新口径永远落不了地');
   assert.equal(mod.judgeWriteBaseline({ all: true, canJudge: true }).verdict, 'write');
   assert.equal(mod.judgeWriteBaseline({ all: false, canJudge: true }).verdict, 'refuse', '窄域仍然必须拒');
   assert.equal(mod.judgeWriteBaseline({ all: false, canJudge: false }).verdict, 'refuse');
-  assert.match(mod.judgeWriteBaseline({ all: true, canJudge: false }).why, /盘符/);
+  assert.match(mod.judgeWriteBaseline({ all: false, canJudge: false }).why, /--all/);
 });
 
 test('本次改动集里删掉的受管文档必须判"陈旧登记"而不是"改少了"（axis1c F5）', () => {
