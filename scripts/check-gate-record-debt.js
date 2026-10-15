@@ -20,6 +20,7 @@
 
 const fs = require('fs')
 const path = require('path')
+const crypto = require('crypto')
 
 const GATE_FILE = '.quality-gates.md'
 const ROW_RE = /^\|\s*远程同步\s*\|/
@@ -37,6 +38,37 @@ const RECORD_FIELD_STATUS = 'sync_status'
 
 // 已收口的写法。只允许这一侧扩张，新增未收口写法必须走 gate-record-debt-ledger.json。
 const CLOSED_RE = /^(PASS|N\/A|✅|已)/
+
+// ── 旧载体冻结锁（change: freeze-legacy-gate-carrier）────────────────────────────
+// 为什么：每个 PR 都要往 `.quality-gates.md` 顶部插一块、并往 ledger 加一个键，而**所有会话共用同一份
+// 工作树 / index / HEAD**。机器判定其实不需要这两处——记录文件源（`source:'records'`）读的是文件自身的
+// frontmatter，全程不碰 ledger；ledger 只服务于旧载体的历史行（`source:'legacy'`）。于是"挤公共大文件"
+// 这件事对判定是纯冗余，对并发却是真实的丢工风险（实测：同一条回填 #3602/#3606 相隔 20 分钟落两遍）。
+// 判据：旧载体的**记录块集合**必须等于冻结基线——不许加块、不许删块；只允许就地改写已有块里的状态行
+// （关闭一笔 8 月的旧账仍然可做）。比较用「排序后标题的 sha256 + 条数」，两条都不等即红。
+// 为什么不用 `git show <冻结commit>:` 现算基线：CI 默认浅检出取不到该 commit，届时基线读不到 ⇒
+//   要么静默跳过（空集恒真，本仓反复复发的形状），要么每跑必红。故基线入库成一个小 JSON。
+const CARRIER_FREEZE_FILE = path.join(__dirname, 'gate-carrier-freeze.json')
+
+function carrierSignature(headingTexts) {
+  const sorted = headingTexts.slice().sort()
+  return {
+    count: sorted.length,
+    sha256: crypto.createHash('sha256').update(sorted.join('\n'), 'utf8').digest('hex'),
+    titles: sorted,
+  }
+}
+
+function loadCarrierFreeze(file = CARRIER_FREEZE_FILE) {
+  if (!fs.existsSync(file)) {
+    throw new Error(`旧载体冻结基线缺失：${file} —— 冻结判据不得静默跳过（读不到基线 ≠ 没有漂移）`)
+  }
+  const raw = JSON.parse(fs.readFileSync(file, 'utf8'))
+  if (!raw || typeof raw.headingSha256 !== 'string' || !Number.isInteger(raw.headingCount) || raw.headingCount <= 0) {
+    throw new Error(`旧载体冻结基线不合法（缺 headingSha256 / headingCount）：${file}`)
+  }
+  return raw
+}
 
 // 同一篇执行记录把「远程同步」状态写在两个位置：表格行（权威，回填时改它）与 docs-only 模板的
 // 声明式 bullet（`- 保留门禁：… | 远程同步 PENDING`）。既有判据只读前者，于是后者可以永久停在
@@ -176,7 +208,7 @@ function readRecord(recordsRoot, fileName) {
   }
 }
 
-function collect({ root = process.cwd(), ledger = loadLedger(), duplicatesAllowed = DUPLICATE_HEADINGS_ALLOWED, crossSrcAllowed = CROSS_SRC_ALLOWED, recordsRoot = path.join(root, RECORDS_REL) } = {}) {
+function collect({ root = process.cwd(), ledger = loadLedger(), duplicatesAllowed = DUPLICATE_HEADINGS_ALLOWED, crossSrcAllowed = CROSS_SRC_ALLOWED, recordsRoot = path.join(root, RECORDS_REL), carrierFreeze = null } = {}) {
   const file = path.join(root, GATE_FILE)
   if (!fs.existsSync(file)) throw new Error(`${GATE_FILE} 不存在：${file}`)
   const lines = fs.readFileSync(file, 'utf8').split('\n')
@@ -185,6 +217,26 @@ function collect({ root = process.cwd(), ledger = loadLedger(), duplicatesAllowe
   lines.forEach((l, i) => {
     if (HEADING_RE.test(l)) headings.push({ line: i, text: normalize(l.slice(3)) })
   })
+
+  // 旧载体冻结漂移：基线由调用方注入（main 从冻结文件读，测试传夹具）。未注入 ⇒ 不参与判定，
+  // 但**不得**由本函数默认去读生产文件，否则夹具会静量到真仓基线（同款假绿通道踩过一次）。
+  let carrierDrift = null
+  if (carrierFreeze) {
+    const sig = carrierSignature(headings.map((h) => h.text))
+    if (sig.sha256 !== carrierFreeze.headingSha256 || sig.count !== carrierFreeze.headingCount) {
+      const base = new Set(carrierFreeze.headings || [])
+      const now = new Set(sig.titles)
+      carrierDrift = {
+        countBefore: carrierFreeze.headingCount,
+        countAfter: sig.count,
+        shaBefore: carrierFreeze.headingSha256.slice(0, 12),
+        shaAfter: sig.sha256.slice(0, 12),
+        added: sig.titles.filter((t) => !base.has(t)),
+        removed: (carrierFreeze.headings || []).filter((t) => !now.has(t)),
+        baselineHasTitles: Array.isArray(carrierFreeze.headings),
+      }
+    }
+  }
 
   const open = []
   const seen = new Set()
@@ -359,6 +411,7 @@ function collect({ root = process.cwd(), ledger = loadLedger(), duplicatesAllowe
     recordsWithoutRow,
     topRecord,
     topRecordMissingRow,
+    carrierDrift,
     recordsFromFiles,
     missingRecordRows,
     statusContradictions,
@@ -389,12 +442,6 @@ function format(r) {
   if (r.staleRecordFields.length) {
     out.push(`❌ 已回填却仍留登记字段的记录 ${r.staleRecordFields.length} 篇（回填后请删除这两个字段）：`)
     for (const s of r.staleRecordFields) out.push(`  ${s}`)
-  }
-  if (r.topRecordMissingRow) {
-    out.push(`❌ 最顶部的执行记录缺 远程同步 行：「${r.topRecord.text}」`)
-    out.push('   新记录必须带这一行。两种合法写法：① 已合并 ⇒ 按既有 PASS 口径回填 merge SHA 与时间；'
-      + '② 尚未合并 ⇒ 写 PENDING，并**同一条 PR 里**往 gate-record-debt-ledger.json 按本篇标题登记原因'
-      + '（回填时顺手删除该登记项，否则报陈旧）。')
   }
   if (r.open.length) {
     out.push(`❌ 未登记的欠账 ${r.open.length} 条（新增未收口行必须带原因进 ${path.basename(LEDGER_FILE)}）：`)
@@ -448,24 +495,47 @@ function format(r) {
   if (r.legacyVisibleContradictions) {
     out.push(`（可见项，不拦截：旧载体 .quality-gates.md 同形态矛盾 ${r.legacyVisibleContradictions} 处 — 属他人会话的记录块，不代改）`)
   }
-  if (!r.open.length && !r.stale.length && !r.duplicates.length && !r.topRecordMissingRow
+  if (r.topRecordMissingRow && r.topRecord) {
+    out.push(`（可见项，不拦截：旧载体最顶部记录缺 远程同步 行「${r.topRecord.text.slice(0, 60)}」—— 新 PR 的强制载体是 openspec/records/，该处已不判红）`)
+  }
+  if (r.carrierDrift) {
+    const d = r.carrierDrift
+    out.push('❌ 旧载体冻结被破坏：.quality-gates.md 的记录块集合不再等于冻结基线（新 PR 只允许写 openspec/records/，旧载体只许就地关闭已有行，不许加块/删块）')
+    out.push(`   基线 条数=${d.countBefore} sha=${d.shaBefore}…  现状 条数=${d.countAfter} sha=${d.shaAfter}…`)
+    if (d.added.length) {
+      out.push(`   新增块 ${d.added.length} 个：`)
+      d.added.slice(0, 10).forEach((t) => out.push(`     + ${t.slice(0, 90)}`))
+      if (d.added.length > 10) out.push(`     …（其余 ${d.added.length - 10} 个省略）`)
+    }
+    if (d.removed.length) {
+      out.push(`   消失块 ${d.removed.length} 个：`)
+      d.removed.slice(0, 10).forEach((t) => out.push(`     - ${t.slice(0, 90)}`))
+    }
+    if (!d.baselineHasTitles) out.push('   （基线未含标题清单，只能报计数/哈希；要逐条点名请在冻结文件里补 headings）')
+    out.push('   出路：① 把这块内容改写成 openspec/records/<分支名>.md（推荐）；② 确属有意变更存档面 → 由人工重算基线并在 PR 里单独说明（属"改谁来守门"，不走自动合并）。')
+  }
+  if (!r.open.length && !r.stale.length && !r.duplicates.length
     && !r.missingRecordRows.length && !r.staleRecordFields.length && !r.statusContradictions.length
-    && !r.crossSrcViolations.length && !r.crossSrcStaleAck.length) {
-    out.push('OK: 顶部记录带行，两源所有未收口的 远程同步 行均已登记，清单无陈旧项、记录标题无重复、记录文件登记字段无残留')
+    && !r.crossSrcViolations.length && !r.crossSrcStaleAck.length && !r.carrierDrift) {
+    out.push('OK: 两源所有未收口的 远程同步 行均已登记，清单无陈旧项、记录标题无重复、记录文件登记字段无残留、旧载体与冻结基线一致')
   }
   return out.join('\n')
 }
 
 // main 与测试共用这一条谓词：判据若被降级成「只打印」，hasBlocking 断言会当场变红。
 function hasBlocking(r) {
-  return !!(r.open.length || r.stale.length || r.duplicates.length || r.topRecordMissingRow
+  // 顶部记录带行已从拦截面**移入可见面**：那条规则唯一作用是"用位置猜哪篇最新"，而记录文件源
+  // 有逐篇硬判据（missingRecordRows 在拦截面里），位置猜测不再必要。留它会继续逼每个会话去挤
+  // 那个所有会话共用的大文件 —— 而那正是本判据要消灭的丢工窗口。
+  return !!(r.open.length || r.stale.length || r.duplicates.length
     || r.missingRecordRows.length || r.staleRecordFields.length || r.statusContradictions.length
-    || r.crossSrcViolations.length || r.crossSrcStaleAck.length)
+    || r.crossSrcViolations.length || r.crossSrcStaleAck.length || r.carrierDrift)
 }
 
 function main() {
   const root = path.resolve(__dirname, '..')
-  const r = collect({ root })
+  // 冻结基线只在 CLI 侧读生产文件；collect() 保持可注入，避免测试静流量到真仓基线。
+  const r = collect({ root, carrierFreeze: loadCarrierFreeze() })
   console.log(format(r))
   if (hasBlocking(r)) process.exit(1)
 }
@@ -477,6 +547,7 @@ module.exports = {
   CROSS_SLUG_RE, CROSS_BACKFILL_RE, CROSS_SRC_ALLOWED,
   RECORDS_REL, RECORD_FIELD_REASON, RECORD_FIELD_OWNER, RECORD_FIELD_STATUS,
   GATE_FILE, LEDGER_FILE, DUPLICATE_HEADINGS_ALLOWED,
+  CARRIER_FREEZE_FILE, loadCarrierFreeze, carrierSignature,
 }
 
 if (require.main === module) main()
