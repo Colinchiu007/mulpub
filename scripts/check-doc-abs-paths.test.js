@@ -90,15 +90,41 @@ function localDrive () {
   return null;
 }
 
-const DRIVE = localDrive();
+/**
+ * 「无盘符档」开关：`MP_TEST_FORCE_NO_DRIVE=1` 时把本机盘符当作不存在。
+ *
+ * 为什么要有它（2026-10-15 CI 实测）：口径换代的全部卖点就是**判据与盘符无关**，
+ * 但 `DRIVE` 只有在 ubuntu runner 上才是 null —— 于是"这条锁在 Linux 上真跑过"这件事
+ * **只能靠 CI 验**，而 CI 恰好是本轮两次把它判红的地方（夹具拼出 `null\Data\…`）。
+ * 本仓口径：可本机配置的一维必须本机跑完，不得记成「只有 runner 知道」。
+ * 诚实边界：这个开关模拟的是 `driveRoots` 为空 + `canJudge=false`，模拟不了
+ * `os.tmpdir()` 返回 POSIX 形状 —— 所以它只用于**验证计数类锁真的与盘符无关**，
+ * 不用于替换 CI（CI 仍是最终判据）。
+ */
+const FORCE_NO_DRIVE = process.env.MP_TEST_FORCE_NO_DRIVE === '1';
+const DRIVE = FORCE_NO_DRIVE ? null : localDrive();
+
+/**
+ * 夹具用的盘符：本机有就用真的，没有（Linux runner / 无盘符档）用合成的 `Q`。
+ *
+ * 这里必须是**合成值而不是 `DRIVE`**：计数口径下判据只看字符串形状，与文件系统无关，
+ * 而 `DRIVE` 为 null 时 `DRIVE + '\\Data\\…'` 拼出的是 `null\Data\…` —— 没有冒号 ⇒
+ * 一条都不计数 ⇒ 那三条**刻意不加 DRIVE 门槛**的账本放宽行为锁（它们的全部意义就是
+ * 在 Linux 上真拦住）被夹具自己判成"低于基线待收紧"。2026-10-15 CI 实测 2 红即此。
+ * 合成字母用运行时拼接：本文件自己在门禁扫描域内，写死 `Q:\` 形态会被数进账本。
+ */
+function fxDrive () {
+  return DRIVE || ('Q' + ':');
+}
+
 // 夹具路径的一次性后缀：pid + 随机段，跨进程/跨轮次都不会撞上同一个目录名
 const FX = process.pid.toString(36) + Math.random().toString(36).slice(2, 8);
 
-/** 造一个「本机存在盘符下、但该子目录不存在」的绝对路径 */
+/** 造一个「盘符下、但该子目录不存在」的绝对路径（两档 runner 都产出可计数的形状） */
 function missingPathUnderLocalDrive () {
   // 一次性随机段（axis1c F11）：写死名字 ⇒ 某台机器上恰好存在那个目录时，用例以无法复现的方式假红，
   // 而红因看起来像判据坏了。
-  return DRIVE + '\\Data\\projects\\definitely-not-here-' + FX + '\\apps\\desktop';
+  return fxDrive() + '\\Data\\projects\\definitely-not-here-' + FX + '\\apps\\desktop';
 }
 
 /**
@@ -127,10 +153,6 @@ function existingPathUnderLocalDrive () {
 }
 
 test('检出指向不存在目录的本机绝对路径', (t) => {
-  if (!DRIVE) {
-    t.skip('本机无 Windows 盘符（Linux runner），门禁按设计跳过判定');
-    return;
-  }
   const { root } = makeFixture({
     '01-docs/runbook.md': 'cd ' + missingPathUnderLocalDrive() + '\n',
   });
@@ -290,10 +312,6 @@ test('非受管目录（apps/ 等运行时代码）不扫描', () => {
 test('改动集口径：未改动的文档里的陈旧路径不应报红', (t) => {
   // 这是 2026-10-07 最重要的设计决定：全量扫描会命中 100+ 处历史引用，
   // 逐条核对后绝大多数不该改。只查改动集，精准覆盖"改了文档但路径是陈的"。
-  if (!DRIVE) {
-    t.skip('本机无 Windows 盘符（Linux runner），陈旧路径按设计不被判定');
-    return;
-  }
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cdap-git-'));
   const tgit = (...args) =>
     execFileSync('git', ['-c', 'commit.gpgsign=false', ...args], { cwd: dir, encoding: 'utf8' });
@@ -383,10 +401,6 @@ test('--root 必须同时支持 --root=X 与 --root X（变异反证：等号形
   // 2026-10-07 实测踩坑：脚本最初只认 `--root=X`。用 `--root <dir>` 调用时参数被
   // 静默忽略 → 扫到**真实仓库**而不是 fixture，于是每个 fixture 用例都拿真实仓库的
   // 报红来判。若当时就有这条测试，第一次跑就会红。
-  if (!DRIVE) {
-    t.skip('本机无 Windows 盘符（Linux runner），无法构造可判定的失效路径');
-    return;
-  }
   const { root } = makeFixture({});
   fs.mkdirSync(path.join(root, '01-docs'), { recursive: true });
   fs.writeFileSync(
@@ -428,10 +442,6 @@ test('--root 必须同时支持 --root=X 与 --root X（变异反证：等号形
 // 于是「加粗 + 路径自身含占位符」这条真实形态（文档里大量存在）立刻假红。
 
 test('加粗行里的失效绝对路径必须照报（豁免不得按整行生效）', (t) => {
-  if (!DRIVE) {
-    t.skip('本机无 Windows 盘符（Linux runner），门禁按设计跳过判定');
-    return;
-  }
   const missing = missingPathUnderLocalDrive();
   const { root } = makeFixture({
     '01-docs/bold.md': '**重要**：产物在 ' + missing + ' 下，请核对。\n',
@@ -442,18 +452,14 @@ test('加粗行里的失效绝对路径必须照报（豁免不得按整行生�
 });
 
 test('豁免必须落在路径片段上：同一行既有加粗、路径自身又含通配符时必须放行', (t) => {
-  if (!DRIVE) {
-    t.skip('本机无 Windows 盘符（Linux runner），门禁按设计跳过判定');
-    return;
-  }
   const { root } = makeFixture({
     '01-docs/mixed.md': [
       // 加粗 + 通配符路径（静态无法判定 ⇒ 仍须豁免，否则文档里大量写法假红）
-      '**通配**：日志在 ' + DRIVE + '\\Data\\projects\\mp-*\\apps\\logs 下',
+      '**通配**：日志在 ' + fxDrive() + '\\Data\\projects\\mp-*\\apps\\logs 下',
       // 加粗 + 变量路径
-      '**变量**：见 ' + DRIVE + '\\Data\\projects\\${PROJECT}\\apps',
+      '**变量**：见 ' + fxDrive() + '\\Data\\projects\\${PROJECT}\\apps',
       // 加粗 + 尖括号占位符
-      '**模板**：输出到 ' + DRIVE + '\\out\\<buildTag>\\app.asar',
+      '**模板**：输出到 ' + fxDrive() + '\\out\\<buildTag>\\app.asar',
     ].join('\n') + '\n',
   });
   const r = runGate(root);
@@ -481,14 +487,13 @@ function writeBaseline (root, files, extra) {
 /** 造 n 条互不相同的失效路径（同盘符下不同子目录名，确保逐条被数到；带一次性后缀见 FX） */
 function deadPaths (n) {
   return Array.from({ length: n }, (_, i) =>
-    DRIVE + '\\Data\\projects\\dead-baseline-' + i + '-' + FX + '\\apps\\desktop');
+    fxDrive() + '\\Data\\projects\\dead-baseline-' + i + '-' + FX + '\\apps\\desktop');
 }
 function docWith (paths) {
   return paths.map((p, i) => 'run' + i + ' ' + p).join('\n') + '\n';
 }
 
 test('基线内的存量必须放行（不挡别人写下的历史行）', (t) => {
-  if (!DRIVE) { t.skip('Linux runner 无本机盘符'); return; }
   const { root } = makeFixture({ '01-docs/a.md': docWith(deadPaths(2)) });
   writeBaseline(root, { '01-docs/a.md': 2 });
   const r = runGate(root);
@@ -496,7 +501,6 @@ test('基线内的存量必须放行（不挡别人写下的历史行）', (t) =
 });
 
 test('超出基线必须红，并点名"超出存量基线"', (t) => {
-  if (!DRIVE) { t.skip('Linux runner 无本机盘符'); return; }
   const { root } = makeFixture({ '01-docs/a.md': docWith(deadPaths(2)) });
   writeBaseline(root, { '01-docs/a.md': 1 });
   const r = runGate(root);
@@ -505,7 +509,6 @@ test('超出基线必须红，并点名"超出存量基线"', (t) => {
 });
 
 test('低于基线也必须红（基线只能缩小，不许变成永久豁免）', (t) => {
-  if (!DRIVE) { t.skip('Linux runner 无本机盘符'); return; }
   const { root } = makeFixture({ '01-docs/a.md': docWith(deadPaths(1)) });
   writeBaseline(root, { '01-docs/a.md': 3 });
   const r = runGate(root);
@@ -514,7 +517,6 @@ test('低于基线也必须红（基线只能缩小，不许变成永久豁免�
 });
 
 test('基线里的文件已不在扫描域 ⇒ 陈旧登记必须红', (t) => {
-  if (!DRIVE) { t.skip('Linux runner 无本机盘符'); return; }
   const { root } = makeFixture({ '01-docs/a.md': docWith(deadPaths(1)) });
   writeBaseline(root, { '01-docs/a.md': 1, '01-docs/deleted.md': 4 });
   const r = runGate(root);
@@ -535,7 +537,6 @@ test('基线里的文件已不在扫描域 ⇒ 陈旧登记必须红', (t) => {
 });
 
 test('基线里的文件还在、但已移出受管范围 ⇒ 陈旧登记必须说明"不再受管"', (t) => {
-  if (!DRIVE) { t.skip('Linux runner 无本机盘符'); return; }
   // 归档豁免目录里的文件**磁盘上存在**，只是不再受管（`isManagedDoc` 判假）。
   // 这一支与上一支的区分全靠 `v.why`：文件在不在磁盘上。没有这条用例时，
   // 把 existsSync 的两个分支写反（归档件报成"已不存在"）不会有任何锁变红。
@@ -555,7 +556,6 @@ test('基线里的文件还在、但已移出受管范围 ⇒ 陈旧登记必须
 });
 
 test('逐文件比较不得退化成全局总数（A 变差 + B 变好、总数相等也必须红）', (t) => {
-  if (!DRIVE) { t.skip('Linux runner 无本机盘符'); return; }
   const { root } = makeFixture({
     '01-docs/worse.md': docWith(deadPaths(2)),   // 基线 1 → 实际 2（变差）
     '01-docs/better.md': docWith(deadPaths(1)),  // 基线 2 → 实际 1（变好）
@@ -567,7 +567,6 @@ test('逐文件比较不得退化成全局总数（A 变差 + B 变好、总数�
 });
 
 test('基线 JSON 损坏必须走"自身故障"档（退出码 2），既不是 0 也不是 1', (t) => {
-  if (!DRIVE) { t.skip('Linux runner 无本机盘符'); return; }
   const { root } = makeFixture({ '01-docs/a.md': docWith(deadPaths(1)) });
   fs.mkdirSync(path.join(root, 'scripts'), { recursive: true });
   fs.writeFileSync(path.join(root, 'scripts', 'doc-abs-paths-baseline.json'), '{ 这不是 JSON', 'utf8');
@@ -577,14 +576,12 @@ test('基线 JSON 损坏必须走"自身故障"档（退出码 2），既不是 
 });
 
 test('基线文件缺席按"空基线"从严处理（删掉账本不能让门禁闭眼）', (t) => {
-  if (!DRIVE) { t.skip('Linux runner 无本机盘符'); return; }
   const { root } = makeFixture({ '01-docs/a.md': docWith(deadPaths(1)) });
   const r = runGate(root);
   assert.equal(r.status, 1, '没有基线时每条失效路径都要报，stderr: ' + r.stderr);
 });
 
 test('--write-baseline 必须搭配 --all（防止窄域跑一次就把整张账本抹掉）', (t) => {
-  if (!DRIVE) { t.skip('Linux runner 无本机盘符'); return; }
   const { root } = makeFixture({ '01-docs/a.md': docWith(deadPaths(1)) });
   writeBaseline(root, { '01-docs/a.md': 1, '01-docs/elsewhere.md': 9 });
   // 不带 --all：拒绝重写
@@ -609,13 +606,6 @@ test('--write-baseline 必须搭配 --all（防止窄域跑一次就把整张账
 });
 
 test('本仓基线必须与现场逐文件相等（既不多也不少，防止悄悄恒 0 或悄悄漏扫）', (t) => {
-  if (!DRIVE) {
-    // Linux runner 上没有本机 Windows 盘符 ⇒ 门禁按设计全部跳过 ⇒ 现场计数恒 0，
-    // 与真实基线（非 0）必然不等。这里不是缺陷，但也不能因此跳过整条锁：
-    // 改成"平台不自洽时红"，逼后来人在 Windows 上取基线。
-    t.skip('本机无 Windows 盘符：基线是在 Windows 上生成的，跨平台无法逐文件对账');
-    return;
-  }
   const repoRoot = path.join(__dirname, '..');
   const r = spawnSync(process.execPath, [SCRIPT, '--root', repoRoot, '--all'], { encoding: 'utf8', maxBuffer: 1 << 26 });
   assert.equal(r.status, 0, '全量审计必须与基线逐文件相等，stderr: ' + r.stderr.slice(0, 1500));
@@ -766,7 +756,6 @@ test('行为锁：只动账本、文档 blob 未变 ⇒ 放行并出声归因（
 // 因为"评审说了"不构成判据：F3c 我先用夹具复现，再用真仓库量暴露面（成对加粗包裹 0 处）。
 
 test('加粗**包裹**路径时闭合星号不得替路径作保（axis1c F3c，实测复现）', (t) => {
-  if (!DRIVE) { t.skip('本机无 Windows 盘符'); return; }
   // 当场复现（dbg-single.cjs，五文件同批夹具）：裸路径被照报、`**路径**` 被豁免 ⇒
   // "豁免落在词元上"只堵住了**同行别处加粗**，没堵住**紧贴路径尾的 `**`**——原洞的孪生形态。
   const { root } = makeFixture({});
@@ -779,7 +768,6 @@ test('加粗**包裹**路径时闭合星号不得替路径作保（axis1c F3c，
 });
 
 test('被加粗包裹的**真通配路径**仍必须豁免（与上一条成对，防止把修法做成"见尾星就剥"）', (t) => {
-  if (!DRIVE) { t.skip('本机无 Windows 盘符'); return; }
   const { root } = makeFixture({});
   fs.mkdirSync(path.join(root, '01-docs'), { recursive: true });
   fs.writeFileSync(path.join(root, '01-docs', 'glob.md'),
@@ -923,6 +911,49 @@ test('计数不得依赖盘符存在：同一份夹具在两种档位下命中�
   };
   assert.equal(take(withDrive), 3, withDrive.stdout + withDrive.stderr);
   assert.equal(take(noDrive), 3, noDrive.stdout + noDrive.stderr);
+});
+
+test('夹具自检：无盘符档也不得拼出判据数不到的形状（2026-10-15 CI 2 红的根因）', () => {
+  // 本轮两次 CI 红都不是判据坏了，是**夹具**坏了：夹具拼路径时用了裸的 DRIVE，
+  // 而 DRIVE 在无盘符档是 null ⇒ 拼出的串没有冒号（不是 Windows 绝对路径）⇒ 一条都不计数，
+  // 于是账本写着 1、现场数到 0 ⇒ 三条刻意不加 DRIVE 门槛的放宽行为锁被夹具自己判成「低于基线待收紧」。
+  // 已有的 A/B 锁用的是另一只夹具出口（anyAbsPath），对本次失效完全免疫
+  // ⇒ 判据必须直接量**批量锁共用的那两只出口**（missingPathUnderLocalDrive 与 deadPaths）。
+  const shape = /^[A-Za-z]:\\/;
+  const p1 = missingPathUnderLocalDrive();
+  const p2 = deadPaths(2);
+  assert.match(p1, shape, '夹具盘符必须是 Windows 绝对路径形状，实际: ' + JSON.stringify(p1));
+  assert.equal(p2.length, 2);
+  p2.forEach((p) => assert.match(p, shape, 'deadPaths 必须是 Windows 绝对路径形状，实际: ' + JSON.stringify(p)));
+  // 正向对偶（禁令不得单独存在）：光「形状像」不构成证据 —— 必须让**门禁自己**数到 2 条。
+  const { root } = makeFixture({ '01-docs/fx-shape.md': docWith(deadPaths(2)) });
+  const r = runGate(root, ['--counts-only']);
+  const m = /counts=(\d+)/.exec(r.stdout + r.stderr);
+  assert.ok(m, '机读行必须存在，stdout: ' + r.stdout + r.stderr);
+  assert.equal(Number(m[1]), 2, '夹具造的 2 条必须被真实计数（数为 0 = 形状像而判据不认，正是本轮 CI 现场）: ' + JSON.stringify({ counts: m[1], p: p2 }));
+});
+
+test('结构锁：夹具盘符只能经 fxDrive（禁止再出现裸 DRIVE 拼接的第三条出口）', () => {
+  // 禁令本身：夹具的盘符只允许一只出口（fxDrive）。本轮 CI 两次红都是同一个形状 ——
+  // 「修依赖盘符的代码时，新写的夹具/断言又换一种方式依赖盘符」，而裸拼在 null 档产出一个不像路径的串，
+  // 判据对此**完全不报错**，只是静默不计数。所以这条禁令的正控在上一条「夹具自检」锁里（真让门禁数一遍）。
+  const src = fs.readFileSync(__filename, 'utf8').replace(/\r/g, '');
+  const at = src.indexOf('结构锁：夹具盘符只能经 ');
+  assert.ok(at > 0, '锚点必须存在，否则下面的切片失效（本锁会扫不到自己）');
+  const domain = src.slice(0, at);                     // 只看本锁之前：本锁自带 needle 不构成命中
+  assert.ok(domain.length > 2000, '反失明：扫描域不得退化（切片写错就是空串 ⇒ 恒 0 命中假绿）');
+  const code = domain.split('\n').filter((l) => {
+    const s = l.trim();
+    return s && !s.startsWith('//') && !s.startsWith('*');   // 只扫代码行：动因注释里必然要引用被禁写法
+  });
+  const A = String.fromCharCode(39);      // 单引号：needle 由它拼出，本行自身不构成命中
+  const n1 = A + ' + DRIVE + ' + A;
+  const n2 = 'DRIVE + ' + A;
+  const hits = code.filter((l) => l.includes(n1) || l.includes(n2));
+  assert.equal(hits.length, 0, '夹具盘符必须走 fxDrive()，发现裸拼：' + hits.join('\n'));
+  // 正控：禁令不能把唯一合法出口一起删掉而照报 0 命中。
+  assert.ok(domain.includes('function fxDrive'), 'fxDrive 必须仍在（否则 hits=0 是"把出口删了"）');
+  assert.ok(code.some((l) => l.includes('fxDrive()')), '至少一处夹具必须真的调用 fxDrive()');
 });
 
 test('纯函数锁：canJudge=false 时 judgeBaseline 仍必须给出 over 与 shrink', () => {
