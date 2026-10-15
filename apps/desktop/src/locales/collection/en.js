@@ -211,6 +211,8 @@ export default {
       goSettings: 'Open Settings',
       configBadge: 'Configured',
       configNotConfigured: 'Not configured',
+      // The read channel was denied (license / not signed in) — distinct from "nothing configured"
+      configDenied: 'Unavailable',
       configUnreadable: 'The saved secret cannot be read; please save it again in Settings',
       configLegacy: 'A legacy plaintext secret was detected; save it again in Settings to migrate it to encrypted storage',
       loadBtn: 'Load Favorites',

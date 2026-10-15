@@ -293,6 +293,7 @@ knowledgeBase: {
     zhihuLegacyNotice: 'A legacy plaintext secret was found: save once to migrate it to encrypted storage and remove the plaintext record.',
     zhihuUnreadableHint: 'The stored secret cannot be decrypted right now (OS credential protection unavailable, or it came from another device). Please enter and save it again.',
     zhihuPermissionDenied: 'Your current account cannot change the Zhihu API config. Please sign in or activate a license first.',
+    zhihuConfigReadFailed: 'Cannot read the Zhihu API config status. Please sign in or activate a license, then retry.',
     zhihuInstrLine1: '1. Visit developer.zhihu.com and sign in with your Zhihu account',
     zhihuInstrLine2: '2. Get the Access Secret under Profile / My Apps',
     zhihuInstrLine3: '3. Paste it above and click "Save Config" (encrypted locally, scoped to the signed-in user)',

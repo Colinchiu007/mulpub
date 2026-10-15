@@ -293,6 +293,7 @@ knowledgeBase: {
     zhihuLegacyNotice: '检测到旧版明文密钥：保存一次即以加密方式迁移，并清除明文记录。',
     zhihuUnreadableHint: '已保存的密钥当前无法解密（系统凭据保护不可用，或配置来自其他设备），请重新输入并保存。',
     zhihuPermissionDenied: '当前账号无权修改知乎 API 配置，请先登录或激活许可证。',
+    zhihuConfigReadFailed: '无法读取知乎 API 配置状态，请先登录或激活许可证后重试。',
     zhihuInstrLine1: '1. 访问 developer.zhihu.com，用你的知乎账号登录',
     zhihuInstrLine2: '2. 在「个人中心 / 我的应用」中获取 Access Secret',
     zhihuInstrLine3: '3. 粘贴到上方并点击「保存配置」（本机加密存储，仅当前登录用户可用）',

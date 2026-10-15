@@ -210,6 +210,8 @@ export default {
       goSettings: '前往设置',
       configBadge: '已配置',
       configNotConfigured: '未配置',
+      // 读取通道被拒（许可证/未登录）——与「确实没配」区分：用户该做的事不同
+      configDenied: '暂不可读',
       configUnreadable: '已保存的密钥无法读取，请到设置中重新保存',
       configLegacy: '检测到旧版明文密钥，建议到设置中重新保存以完成加密迁移',
       loadBtn: '获取收藏夹',

@@ -70,7 +70,7 @@
             class="zb-config-badge"
             :class="{ ok: zhihuSecretAvailable }"
             data-testid="zhihu-config-badge"
-          >{{ zhihuSecretAvailable ? $t('collection.zhihuFavlist.configBadge') : $t('collection.zhihuFavlist.configNotConfigured') }}</span>
+          >{{ zhihuSecretAvailable ? $t('collection.zhihuFavlist.configBadge') : (zhihuConfigError ? $t('collection.zhihuFavlist.configDenied') : $t('collection.zhihuFavlist.configNotConfigured')) }}</span>
           <span
             v-if="zhihuSecretAvailable && zhihuConfig.maskedSecret"
             class="col-hint"
@@ -366,6 +366,9 @@ const zhihuConfig = ref({
   configured: false, readable: false, maskedSecret: '', updatedAt: null,
   verifiedAt: null, favlistCount: null, legacyDetected: false, source: 'none',
 })
+// 读取被拒的原因（许可证 / 未登录 / 发送方校验）：非空时状态条改说原因，
+// 不再渲染成「未配置」——后者会让已配置但当前无权读的用户重复配置（QM-6 评审 MAJOR #2）
+const zhihuConfigError = ref('')
 const zhihuFavlists = ref([])
 const zhihuSelectedFavlist = ref('')
 const zhihuFavlistLoading = ref(false)
@@ -379,6 +382,9 @@ const zhihuSecretAvailable = computed(() => zhihuConfig.value.source !== 'none')
 
 /** 状态条下方的解释文案（可用时不打扰；旧版明文时提示迁移；读不出与未配置分开说） */
 const zhihuConfigHint = computed(() => {
+  // 读取被拒（许可证/未登录/发送方校验）优先说原因：静默塌成「未配置」会把
+  // 「已配置、只是当前无权读」的用户引向重复配置（QM-6 评审 MAJOR #2）
+  if (zhihuConfigError.value) return zhihuConfigError.value
   if (zhihuSecretAvailable.value) {
     return zhihuConfig.value.source === 'legacy'
       ? resolveNotifyText('collection.zhihuFavlist.configLegacy').text
@@ -394,8 +400,20 @@ async function loadZhihuConfig () {
   if (!api || typeof api.zhihuGetConfig !== 'function') return
   try {
     const r = await api.zhihuGetConfig()
-    if (r && r.code === 0 && r.data) zhihuConfig.value = { ...zhihuConfig.value, ...r.data }
-  } catch { /* 状态读取失败按未配置渲染，不阻塞页面 */ }
+    if (r && r.code === 0 && r.data) {
+      zhihuConfig.value = { ...zhihuConfig.value, ...r.data }
+      zhihuConfigError.value = ''
+      return
+    }
+    // 非 0：读取通道被拒（-3 许可证/未登录；-2 发送方校验；-1 存储异常）。
+    // 必须与「确实没配」区分开——两者都是「不可用」，但用户该做的事完全不同。
+    zhihuConfigError.value = r && r.message ? String(r.message) : ''
+    zhihuConfig.value = { ...zhihuConfig.value, configured: false, readable: false, source: 'none' }
+  } catch (e) {
+    // 抛异常路径（同步权限拒绝）同样出声，不冒充「未配置」
+    zhihuConfigError.value = e && e.message ? String(e.message) : ''
+    zhihuConfig.value = { ...zhihuConfig.value, configured: false, readable: false, source: 'none' }
+  }
 }
 
 /** 就地打开「设置 → 知乎 API」（死胡同文案的反面：提示必须带出口） */

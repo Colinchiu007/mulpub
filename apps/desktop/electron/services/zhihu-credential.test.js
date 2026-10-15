@@ -149,12 +149,49 @@ describe('zhihu-credential / saveConfig + readConfig', () => {
     expect(r.error).toMatch(/未生效|不可用/)
   })
 
-  it('保存成功即销掉旧版全局明文行', () => {
+  it('保存的是**同一份**旧版明文时销账（迁移收口）', () => {
+    const store = createFakeStore()
+    store.setSetting(credential.LEGACY_KEY, SECRET)
+    const r = credential.saveConfig(store, SECRET, { crypto: createFakeCrypto() })
+    expect(r.ok).toBe(true)
+    expect(store._global()[credential.LEGACY_KEY]).toBeNull()
+  })
+
+  it('保存的是**另一份**凭据时不得动设备级明文（否则误删他人兼容档）', () => {
+    // 根因（QM-6 跨家族评审 MAJOR #1）：legacy 键是无前缀的**设备级**键。
+    // 无条件清掉 ⇒ 仍依赖兼容档的另一个用户 / 未登录档静默失去凭据。
     const store = createFakeStore()
     store.setSetting(credential.LEGACY_KEY, 'legacy-plain-secret')
     const r = credential.saveConfig(store, SECRET, { crypto: createFakeCrypto() })
     expect(r.ok).toBe(true)
-    expect(store._global()[credential.LEGACY_KEY]).toBeNull()
+    expect(store._global()[credential.LEGACY_KEY]).toBe('legacy-plain-secret')
+  })
+
+  it('重存**同一把**密钥保留「最近验证」证据（不把已验证打回未验证）', () => {
+    const store = createFakeStore()
+    const cryptoMod = createFakeCrypto()
+    credential.saveConfig(store, SECRET, { crypto: cryptoMod })
+    credential.markVerified(store, { favlistCount: 7 })
+    const before = credential.readConfig(store, { crypto: cryptoMod })
+    expect(before.verifiedAt).toBeTruthy()
+
+    const again = credential.saveConfig(store, SECRET, { crypto: cryptoMod })
+    expect(again.ok).toBe(true)
+    const after = credential.readConfig(store, { crypto: cryptoMod })
+    expect(after.verifiedAt).toBe(before.verifiedAt)
+    expect(after.favlistCount).toBe(7)
+  })
+
+  it('重存**不同**密钥必须重置验证证据（旧结论对新密钥不成立）', () => {
+    const store = createFakeStore()
+    const cryptoMod = createFakeCrypto()
+    credential.saveConfig(store, SECRET, { crypto: cryptoMod })
+    credential.markVerified(store, { favlistCount: 7 })
+
+    credential.saveConfig(store, 'another-secret-1234567890', { crypto: cryptoMod })
+    const after = credential.readConfig(store, { crypto: cryptoMod })
+    expect(after.verifiedAt).toBeNull()
+    expect(after.favlistCount).toBeNull()
   })
 
   it('密文存在但解不开 → configured=true 且 readable=false（可观测，不冒充未配置）', () => {
@@ -231,7 +268,7 @@ describe('zhihu-credential / markVerified 与 clearConfig', () => {
     expect(store._user()[credential.CONFIG_KEY]).toBeUndefined()
   })
 
-  it('clearConfig 同时清加密配置与旧版明文', () => {
+  it('clearConfig 清掉本用户的加密配置，但**不**动设备级明文（本用户凭据来自加密行）', () => {
     const store = createFakeStore()
     const cryptoMod = createFakeCrypto()
     credential.saveConfig(store, SECRET, { crypto: cryptoMod })
@@ -239,6 +276,17 @@ describe('zhihu-credential / markVerified 与 clearConfig', () => {
     const r = credential.clearConfig(store)
     expect(r.ok).toBe(true)
     expect(credential.readConfig(store, { crypto: cryptoMod }).configured).toBe(false)
+    // 那份明文不属于本用户 ⇒ 必须留着（QM-6 评审 MAJOR #1 的另一半）
+    expect(store._global()[credential.LEGACY_KEY]).toBe('legacy-plain-secret')
+    expect(credential.resolveSecret(store, { crypto: cryptoMod })).toEqual({ secret: 'legacy-plain-secret', source: 'legacy' })
+  })
+
+  it('clearConfig 在本用户凭据**就是**那条设备级明文时一并销账', () => {
+    const store = createFakeStore()
+    const cryptoMod = createFakeCrypto()
+    store.setSetting(credential.LEGACY_KEY, SECRET)
+    const r = credential.clearConfig(store)
+    expect(r.ok).toBe(true)
     expect(credential.resolveSecret(store, { crypto: cryptoMod })).toEqual({ secret: '', source: 'none' })
   })
 })

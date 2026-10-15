@@ -158,6 +158,22 @@ function readConfig (store, opts) {
 }
 
 /**
+ * 密文 → 明文。解不开一律返回空串（由调用方按「读不出」处理），本函数绝不抛。
+ * 抽出来是为了让 resolveSecret 与 saveConfig 的「重存同一把密钥」判定共用同一份解密语义。
+ * @param {string} cipher
+ * @param {object} cryptoMod
+ * @returns {string}
+ */
+function _decryptCipher (cipher, cryptoMod) {
+  try {
+    const plain = cryptoMod.decrypt(Buffer.from(String(cipher), 'base64')) || ''
+    return typeof plain === 'string' ? plain.trim() : ''
+  } catch {
+    return ''
+  }
+}
+
+/**
  * 解析出可出站的明文密钥。
  * 优先级：本用户加密配置 > 旧版全局明文 > 无。
  * @param {object} store
@@ -170,13 +186,7 @@ function resolveSecret (store, opts) {
     const row = _readRow(store)
     const cipher = row && typeof row.accessSecret === 'string' ? row.accessSecret : ''
     if (cipher) {
-      let plain = ''
-      try {
-        plain = cryptoMod.decrypt(Buffer.from(cipher, 'base64')) || ''
-      } catch {
-        plain = ''
-      }
-      plain = typeof plain === 'string' ? plain.trim() : ''
+      const plain = _decryptCipher(cipher, cryptoMod)
       if (plain) return { secret: plain, source: 'config' }
     }
     const legacy = _readLegacy(store)
@@ -216,13 +226,18 @@ function saveConfig (store, secret, opts) {
   }
 
   const updatedAt = new Date().toISOString()
+  // 重存**同一把**密钥时保留「最近验证」证据：否则用户手滑重存一次，
+  // 已验证时间与收藏夹数就被归零，UI 从「最近验证：<时间>」退回「尚未验证」（QM-6 评审 MINOR）。
+  const prevRow = _readRow(store)
+  const prevCipher = prevRow && typeof prevRow.accessSecret === 'string' ? prevRow.accessSecret : ''
+  const sameAsStored = !!prevCipher && _decryptCipher(prevCipher, cryptoMod) === checked.value
   try {
     store.setUserSetting(CONFIG_KEY, {
       accessSecret: cipherText,
       enabled: true,
       updatedAt,
-      verifiedAt: null,
-      favlistCount: null,
+      verifiedAt: sameAsStored && typeof prevRow.verifiedAt === 'string' ? prevRow.verifiedAt : null,
+      favlistCount: sameAsStored && Number.isFinite(prevRow.favlistCount) ? prevRow.favlistCount : null,
     })
   } catch (e) {
     return { ok: false, error: '保存失败：' + (e && e.message ? e.message : String(e)) }
@@ -238,9 +253,13 @@ function saveConfig (store, secret, opts) {
     return { ok: false, error: '配置写入未生效（用户设置存储不可用）' }
   }
 
-  // 迁移收口：加密配置已就位，销掉旧版全局明文（失败不改变「保存成功」的结论）
+  // 迁移收口：**只销掉「就是本次保存的这一份」**旧版明文（失败不改变「保存成功」的结论）。
+  // `zhihu_access_secret` 是**设备级**无前缀键：无条件清掉会把仍依赖兼容档的另一个用户
+  // （或未登录档）的凭据一并抹掉，而对方从未在自己的账户下重存过（QM-6 评审 MAJOR #1）。
   try {
-    if (typeof store.setSetting === 'function') store.setSetting(LEGACY_KEY, null)
+    if (typeof store.setSetting === 'function' && _readLegacy(store) === checked.value) {
+      store.setSetting(LEGACY_KEY, null)
+    }
   } catch { /* 销账失败不影响新配置可用性 */ }
 
   return { ok: true, data: { maskedSecret: maskSecret(checked.value), updatedAt } }
@@ -266,14 +285,24 @@ function markVerified (store, info) {
 }
 
 /**
- * 清除配置（加密行 + 旧版明文行）。
+ * 清除配置（本用户的加密行；**仅当**本用户当前解析到的正是那条设备级明文时，才一并销账）。
+ *
+ * 为什么不是无条件清：`zhihu_access_secret` 是设备级无前缀键，属于「升级前那份明文」。
+ * 用户 A 已迁移到自己的加密行后来点「清除」，若顺手把设备级明文也删了，
+ * 仍依赖兼容档的用户 B（或未登录档）会静默失去凭据（QM-6 评审 MAJOR #1）。
  * @param {object} store
  * @returns {{ok: boolean, error?: string}}
  */
 function clearConfig (store) {
   try {
+    // 判据取**结构**（有没有自己的加密行）而不是「解出来是什么」：解密依赖调用方注入的
+    // crypto 模块，用解析结果判归属会把「解不开」误判成「本来就用兼容档」。
+    const row = _readRow(store)
+    const hasOwnConfig = !!(row && typeof row.accessSecret === 'string' && row.accessSecret)
     if (_hasUserScope(store)) store.setUserSetting(CONFIG_KEY, null)
-    if (typeof store.setSetting === 'function') store.setSetting(LEGACY_KEY, null)
+    if (!hasOwnConfig && typeof store.setSetting === 'function') {
+      store.setSetting(LEGACY_KEY, null)
+    }
     return { ok: true }
   } catch (e) {
     return { ok: false, error: e && e.message ? e.message : String(e) }

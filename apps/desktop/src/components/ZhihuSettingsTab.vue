@@ -172,7 +172,11 @@ async function refresh () {
     const res = await api.zhihuGetConfig()
     if (res && res.code === 0 && res.data) {
       state.value = { ...state.value, ...res.data }
+      return
     }
+    // 非 0（许可证 / 未登录 / 发送方校验）也要出声：静默会把「无权读」渲染成「未配置」，
+    // 用户于是反复重配而问题不在密钥（QM-6 评审 MINOR，与采集页 MAJOR #2 同根）
+    setStatus(describeError(new Error(res && res.message ? String(res.message) : t('knowledgeBase.zhihuConfigReadFailed'))), false)
   } catch (e) {
     // 读取失败按「未配置」渲染，但把原因留在状态行（不冒充成功、也不崩页面）
     setStatus(describeError(e), false)

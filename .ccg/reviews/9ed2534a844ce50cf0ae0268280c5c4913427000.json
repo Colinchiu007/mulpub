@@ -1,0 +1,30 @@
+{
+  "sha": "9ed2534a844ce50cf0ae0268280c5c4913427000",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 211 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 211,
+    "fileCount": 14,
+    "codeFileCount": 12,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 23,
+    "docSensitiveContentHits": 8,
+    "docSensitiveContentSample": [
+      "⑥ 【清除配置】（两步确认）→ 状态回到「未配置」，加密行与旧版明文行一并清除",
+      "⑥ 【清除配置】（两步确认）→ 状态回到「未配置」：清掉**本用户**的加密行；仅当本用户凭据本来就来自设备级兼容档时，才把那条明文一并销掉（别人的兼容档不动）",
+      "| 旧版明文销账（**同值才销**） | 仅当兼容档里就是**本次保存的同一份**明文时，才把 `zhihu_access_secret` 置 null | 销账失败**不**改变「保存成功」结论（新配置已可用），仅不消灭旧明文（下次保存/清除重试）。**不同值绝不动**：该键是设备级无前缀键，无条件清掉会误删仍依赖兼容档的另一个用户/未登录档的凭据（QM-6 跨家族评审 MAJOR #1 回归锁：`zhihu-credential.test.js`「保存的是**另一份**凭据时不得动设备级明文」） |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "11e877e9fe52071bf7960573c9f0cb6c3e01a5f543af5614ffb4eacfcc137688",
+  "decidedAt": "2026-10-15T18:53:15.953Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

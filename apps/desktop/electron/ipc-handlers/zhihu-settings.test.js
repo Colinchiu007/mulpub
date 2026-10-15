@@ -125,7 +125,8 @@ describe('zhihu-settings IPC handlers / save-config', () => {
 
   it('保存成功 → 用户域密文 + 响应不含明文 + 旧明文被销账', async () => {
     const store = createMockStore()
-    store.setSetting('zhihu_access_secret', 'legacy-plain-secret')
+    // 兼容档里放的就是本次要迁移的**同一份**明文 ⇒ 保存成功后应当销账
+    store.setSetting('zhihu_access_secret', SECRET)
     crypto.setSafeStorage(createMockSafeStorage())
     const { ipcMain } = setup({ store })
 
@@ -256,11 +257,11 @@ describe('zhihu-settings IPC handlers / test-connection', () => {
 })
 
 describe('zhihu-settings IPC handlers / clear-config', () => {
-  it('清除后 get-config 回到未配置，且旧明文一并清掉', async () => {
+  it('清除后 get-config 回到未配置，且旧明文一并清掉（本用户凭据本来就来自兼容档）', async () => {
     const store = createMockStore()
     crypto.setSafeStorage(createMockSafeStorage())
     const { ipcMain } = setup({ store })
-    await ipcMain._call('zhihu:save-config', SECRET)
+    // 场景：本用户没有自己的加密行，用的就是设备级兼容档 ⇒ 清除应把这条也销掉
     store.setSetting('zhihu_access_secret', 'legacy-plain-secret')
 
     const r = await ipcMain._call('zhihu:clear-config')
@@ -270,5 +271,23 @@ describe('zhihu-settings IPC handlers / clear-config', () => {
     const cfg = await ipcMain._call('zhihu:get-config')
     expect(cfg.data.configured).toBe(false)
     expect(cfg.data.legacyDetected).toBe(false)
+    expect(store._global().zhihu_access_secret).toBeNull()
+  })
+
+  it('清除只动本用户的加密行：设备级明文不属于本用户时必须留着', async () => {
+    // 根因（QM-6 跨家族评审 MAJOR #1）：无条件清全局 legacy ⇒ 误删他人兼容档
+    const store = createMockStore()
+    crypto.setSafeStorage(createMockSafeStorage())
+    const { ipcMain } = setup({ store })
+    await ipcMain._call('zhihu:save-config', SECRET)
+    store.setSetting('zhihu_access_secret', 'someone-elses-legacy')
+
+    const r = await ipcMain._call('zhihu:clear-config')
+    expect(r.code).toBe(0)
+    expect(store._global().zhihu_access_secret).toBe('someone-elses-legacy')
+
+    const cfg = await ipcMain._call('zhihu:get-config')
+    expect(cfg.data.configured).toBe(false)
+    expect(cfg.data.legacyDetected).toBe(true) // 兼容档仍在 ⇒ 采集链仍可用
   })
 })

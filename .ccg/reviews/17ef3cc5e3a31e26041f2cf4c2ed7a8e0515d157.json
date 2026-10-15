@@ -22,8 +22,8 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "cleared",
+    "performedBy": "claude 2.1.296（跨家族独立审查，只读）+ opencode 1.18.34（同批启动，未收敛）；本条记录本身按误报出口闭环",
+    "findings": "两个层次：① 本记录描述的这笔改动（2 个测试文件 + 1 篇记录、20 行）被判 dual 的触发条件是散文里的中文术语命中，属关键词误报 —— 无执行代码路径、无出站/存储边界变化，按 check-pr-exec-record.js 的说明在此写明原因并置闭环值，JSON 内不复写触发词以免再生 dual。② 本 PR 整体（2253 行 > 200 行阈值，§12.6）**确实执行了跨家族双模型审查**：claude 收敛出 2 MAJOR（设备级兼容档被无条件销账；读取被拒被吞成未配置）+ 3 MINOR（设置页读侧静默；同值重存丢验证证据；身份模式切换后配置看似丢失），其中 4 条已修并补 9 条回归锁、1 条如实登记为遗留；opencode 未在合理时间内收敛，已登记为未闭合项而不是记成通过。完整取证见 openspec/records/zhihu-api-settings.md 的「QM-6 评审取证」小节。"
   }
 }

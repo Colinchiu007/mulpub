@@ -25,7 +25,8 @@ sync_backfill_owner: zhihu-api-settings 会话（回填 PR）
 | QM-1 打包 | PASS | 见下方「QM-1 取证」小节：rc=0 + 9/9 模块在场 + **8/8 逐文件 sha256 与工作区相等** + 两份 preload 产物含 4 绑定 + 启动 8s 存活且 stderr 长度 0 |
 | QM-4 视觉回归 | PASS（含一次假红证伪） | 见下方「QM-4 取证」小节：首轮 collection 1.44% 系**端口被另一会话 dev server 占用**（量错对象）；对本 worktree 自起 5199 后单视图 PASS（0.000%）；**去掉本次改动的对照组同样 1.44%** ⇒ 该差异与本次改动无因果，未动基线 |
 | 执行记录取证 | PASS | `node scripts/check-pr-exec-record.js --base=origin/main --mode=enforce` ⇒ OK（本记录随代码 PR 携带；`.quality-gates.md`/ledger 按 2026-10-15「旧载体冻结」新规**不再新增块与键**） |
-| 门禁（CCG） | PASS（含一次被拦） | CCG 判定层：本次改动 2253 行 > 200 ⇒ `mode=dual`（要求双模型深度审查，见「未闭合」）。`verify-security` **首轮拦下本次 amend**：报 `publish-tab-state-keepalive.test.js`/`publish-draft-keepalive.test.js` 各 1 处高危 —— 根因是这两个文件里**既有的** `document.body.innerHTML = ''`（XSS sink 形态）。判据「只扫本次提交涉及的文件」意味着**一旦为了让某个既有测试通过而编辑它，它的存量形态就会被算到本次提交头上**。处置：两处改为等价的 `document.body.replaceChildren()`（jsdom 实测支持、5 例仍绿），既解阻又消掉一笔真实存量债，**不用** `SKIP_CCG_GATE=1` |
+| 门禁（CCG） | PASS（含一次被拦） | CCG 判定层：本次改动 2253 行 > 200 ⇒ `mode=dual`。`verify-security` **首轮拦下本次 amend**：报 `publish-tab-state-keepalive.test.js`/`publish-draft-keepalive.test.js` 各 1 处高危 —— 根因是这两个文件里**既有的** `document.body.innerHTML = ''`（XSS sink 形态）。处置：两处改为等价的 `document.body.replaceChildren()`（jsdom 实测支持、5 例仍绿），既解阻又消掉一笔真实存量债，**不用** `SKIP_CCG_GATE=1` |
+| QM-6 双模型评审 | PASS（发现 2 MAJOR + 3 MINOR，已修 4 条） | 跨家族双模型在真实 worktree 上对 PR diff 做只读审查：`claude` 2.1.296 + `opencode` 1.18.34（后端体检 `deep-review.sh --check-deps` 通过）。**claude 收敛出 5 条**（见下），**opencode 未在合理时间内收敛**（详见「未闭合」）。发现与处置见「QM-6 评审取证」小节 |
 
 | 远程同步 | PENDING | PR 未开（记录先落地）。合并后本次**同一次提交**改写为 `PASS` + merge SHA 并删除 frontmatter `sync_*` 三字段 |
 
@@ -62,6 +63,30 @@ sync_backfill_owner: zhihu-api-settings 会话（回填 PR）
 - 设置弹窗的像素覆盖说明：像素套件 20 视图**不含 settings**（`settings-general.png` 基线由 `tests/visual-testing/autonomous-*.js` 产出，不属本次门禁面）。因此「新增知乎 API Tab」的可见面由 **DOM 级锁**覆盖：`SettingsDialog.test.js` 断言 6 个 Tab、`zhihuIdx === feishuIdx + 1`、点击切换、`initialTab` 只在打开那一刻生效。
 - 遗留给套件所有人：`collection` 整轮跑 1.44% 的既有差异（本会话已证伪与本次改动无关，未改基线——**不得**用 `UPDATE_BASELINE` 把它烘进基线，那会把一个真实的状态泄漏洗成"正常"）。
 
+### QM-6 评审取证（跨家族双模型，2026-10-16）
+
+后端：`sh scripts/deep-review.sh --check-deps` ⇒ 体检通过（claude 2.1.296 / opencode 1.18.34）。审查对象 = 本 PR 全部改动（只读，禁止改文件）。
+
+**claude 收敛出 5 条**：
+
+| # | 级别 | 位置 | 问题 | 处置 |
+|---|------|------|------|------|
+| 1 | MAJOR | `services/zhihu-credential.js` `saveConfig`/`clearConfig` | `zhihu_access_secret` 是**设备级无前缀键**，保存任一用户配置后无条件置 null ⇒ 误删仍依赖兼容档的另一个用户/未登录档的凭据 | **已修**：保存改为「**同值才销账**」；清除改为「只有本用户没有自己的加密行时」才销兼容档。4 条新回归锁（同值销账 / 异值不动 / 清除不动他人 / 兼容档用户清除时一并销） |
+| 2 | MAJOR | `features/collection/BatchCollectPanel.vue` `loadZhihuConfig` | 非 0 code（-3 许可证/未登录等）被静默吞掉、状态保持默认「未配置」⇒ 把「已配置但无权读」的用户引向重复配置 | **已修**：新增第四态「暂不可读」+ 原样透出原因；新增 2 条行为锁（非 0 返回值 / 同步抛错） |
+| 3 | MINOR | `components/ZhihuSettingsTab.vue` `refresh()` | 同一根因：设置页读侧失败同样静默（badge 显示「未配置」且无提示） | **已修**：非 0 走 `describeError` 写入状态行；新增 1 条用例 + `zhihuConfigReadFailed` 文案（zh/en 成对） |
+| 4 | MINOR | `services/zhihu-credential.js` `saveConfig` | 重存**同一把**密钥也把 `verifiedAt`/`favlistCount` 归零 ⇒ 用户手滑重存就从「最近验证：<时间>」退回「尚未验证」 | **已修**：同值重存保留验证证据，异值仍重置；2 条回归锁 |
+| 5 | MINOR | `saveConfig` + `settings-store.js` | 身份模式切换（未登录 → 登录）后 scoped 读为空，配置「看上去丢了」 | **未修，如实登记**：需要「设备级配置行回退读」的迁移设计（与第 1 条同源的地盘），属独立小改；已列入「遗留」并在 PRD 未闭合项同步 |
+
+**claude 明确核对过的非问题**（原文摘要）：密文不回渲染端；safeStorage 不可用时拒绝保存不降级明文；「已保存但读不出」态可区分；旧版明文写入路径已彻底移除（全仓仅剩测试与注释）；采集与设置共用同一真源、无双真源；写后读回校验能拦住静默丢弃。
+
+**opencode 侧**：在本次给予的时间内**未收敛**到最终发现列表（其模型为 `mimo-v2.6-flash-free`，长时间停在探索阶段，输出是计划/状态而非裁决）。**不记成「通过」**：本 PR 的双模型覆盖实际是「claude 收敛 + opencode 未收敛」，已登记为遗留项。
+
+**修复后的验证**：受影响 4 个 electron 测试文件 **69 绿**（credential 20→24、settings 14→15）；渲染端 4 文件 **45 绿**；ESLint（CI 同口径 `--quiet`）**rc=0**；locale keys 2049 PASS、CJK 无新增；tokens/store/overlay 34 绿。
+
+### 深度审查欠账（`.ccg/reviews`）闭环说明
+
+`.ccg/reviews/17ef3cc5….json` 被判 `mode=dual`，触发词是**散文里的中文术语**（该笔改动只有 2 个测试文件 + 1 篇记录）。**处置两条并行**：① 该记录按门禁说明的误报出口闭环（写明原因 + 置闭环值 + 标注非模型评审）；② **PR 整体**（2253 行 > 200 行阈值）按 §12.6 真跑了跨家族双模型审查，结论见上表 —— 即「被判要评审」这件事**确实发生过**，不是靠改状态混过去。判定器对闭环提交复核为 SINGLE，不会再生 dual 欠账。
+
 ### 遗留（不假装已闭合）
 
 1. **未做真机验证**：需要用户用**自己的**知乎账号在真实应用里「保存 → 测试连接 → 跑一次收藏夹采集」。本次证据止于单测/集成 + 打包产物级；「用户的 Secret 能否通过平台鉴权」只能由真实密钥证伪。
@@ -70,3 +95,5 @@ sync_backfill_owner: zhihu-api-settings 会话（回填 PR）
 4. **无密钥轮换/过期提醒**：平台侧失效只能靠「测试连接」或采集失败暴露。
 5. **XSS 面未收窄**：渲染端仍可调用 `zhihu:test-connection`（明文不回程，但可触发一次出站）。
 6. **`FeishuSettingsTab.vue` 仍有硬编码色值**（`#67c23a`/`#d32f2f`/`#f0f9eb`/`#fff3f3`，暗色模式下观感不佳）。本次未动它（超出本任务范围，且 `collection-tokens.test.js` 的扫描域不含 `components/`），登记为同族改进项。
+7. **身份模式切换会让配置「看上去丢了」**（QM-6 评审 MINOR #5，未修）：未登录档把配置写进**设备级无前缀**行，之后登录则 scoped 读为空（且兼容档若已销账便无回退）⇒ 采集链显示未配置。正解是读路径增加「设备级配置行回退读 + 一次性迁移」，与 MAJOR #1 属同一片地盘，留作独立小改（本片不夹带）。
+8. **双模型评审的 opencode 侧未收敛**：本次实际拿到的是「claude 收敛 + opencode 未收敛」，不是完整双家族交叉验证；若第 7 条要动读路径，建议同时补一次完整双模型评审。

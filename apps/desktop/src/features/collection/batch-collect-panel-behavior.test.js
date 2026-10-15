@@ -63,6 +63,7 @@ const i18n = createI18n({
           configMissing: '请先在「设置 → 知乎 API」中配置 Access Secret',
           configBadge: '已配置',
           configNotConfigured: '未配置',
+          configDenied: '暂不可读',
           configUnreadable: '已保存的密钥无法读取，请到设置中重新保存',
           configLegacy: '检测到旧版明文密钥，建议到设置中重新保存以完成加密迁移',
           goSettings: '前往设置',
@@ -156,6 +157,34 @@ describe('BatchCollectPanel 知乎收藏夹批量行为锁', () => {
     expect(w.vm.zhihuSecretAvailable).toBe(true)
     expect(w.get('[data-testid="zhihu-config-badge"]').text()).toContain('已配置')
     expect(w.get('[data-testid="zhihu-config-masked"]').text()).toBe('zhih****7890')
+  })
+
+  it('读取被拒（许可证/未登录 code=-3）→ 说原因、不塌成「未配置」', async () => {
+    // 根因（QM-6 跨家族评审 MAJOR #2）：原先只看 r.code===0，非 0 一律静默保持默认态，
+    // 于是「已配置但当前无权读」被渲染成「未配置」，把用户引向重复配置。
+    window.electronAPI = {
+      zhihuGetConfig: vi.fn().mockResolvedValue({ code: -3, message: '许可证权限不足，无法调用 zhihuGetConfig' }),
+      zhihuFavlistList: vi.fn(),
+    }
+    const w = mountPanel()
+    await flushPromises()
+    expect(w.vm.zhihuSecretAvailable).toBe(false)
+    const badge = w.get('[data-testid="zhihu-config-badge"]').text()
+    expect(badge).not.toContain('未配置')
+    expect(badge).toContain('暂不可读')
+    expect(w.get('[data-testid="zhihu-config-hint"]').text()).toContain('许可证权限不足')
+  })
+
+  it('读取抛异常（同步权限拒绝）同样出声，不冒充未配置', async () => {
+    const deny = new Error('许可证权限不足，无法调用 zhihuGetConfig')
+    deny.name = 'LicensePermissionError'
+    window.electronAPI = {
+      zhihuGetConfig: vi.fn().mockRejectedValue(deny),
+    }
+    const w = mountPanel()
+    await flushPromises()
+    expect(w.get('[data-testid="zhihu-config-badge"]').text()).toContain('暂不可读')
+    expect(w.get('[data-testid="zhihu-config-hint"]').text()).toContain('许可证权限不足')
   })
 
   it('旧版明文兼容期：仍可用（source=legacy），但提示去设置里加密迁移', async () => {

@@ -102,6 +102,14 @@ describe('ZhihuSettingsTab 状态展示', () => {
     await flushPromises()
     expect(w.get('[data-testid="zhihu-status-badge"]').text()).toContain('未配置')
   })
+
+  it('get-config 返回非 0（许可证/未登录）→ 状态行说原因，不静默塌成未配置', async () => {
+    // 根因（QM-6 跨家族评审 MINOR，与采集页 MAJOR #2 同根）：原先只在 code===0 时写状态，
+    // 非 0 完全静默 ⇒ 用户看到「未配置」而问题其实是「没登录 / 许可证不足」。
+    const w = mountTab({ zhihuGetConfig: vi.fn().mockResolvedValue({ code: -3, message: '许可证权限不足，无法调用 zhihuGetConfig' }) })
+    await flushPromises()
+    expect(w.get('[data-testid="zhihu-status-msg"]').text()).toContain('无权')
+  })
 })
 
 describe('ZhihuSettingsTab 保存', () => {
