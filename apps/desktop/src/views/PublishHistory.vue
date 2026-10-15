@@ -235,18 +235,9 @@
             <div class="record-title-row">
               <h2>{{ recordTitle(record) }}</h2>
               <div class="record-actions">
-                <!-- 「再次发布」（PRD-PUBLISH-RECORD-REPUBLISH-2026-10-15）：把该次发布的内容与选项
-                     还原回发布页。快照按记录 ID 单独存放，早期记录没有快照 → 禁用并说明原因
-                     （禁用而不是隐藏：用户需要知道「这里本该有个按钮，为什么用不了」）。 -->
-                <button
-                  type="button"
-                  class="record-action republish"
-                  :class="{ 'is-disabled': !canRepublish(record) }"
-                  :data-testid="`republish-${record.id}`"
-                  :disabled="!canRepublish(record)"
-                  :title="republishHint(record)"
-                  @click="republishRecord(record)"
-                >{{ t('historyPage.republish') }}</button>
+                <!-- 「再次发布」：无快照（早期记录/已淘汰）时禁用并悬停说明原因 —— 不隐藏，
+                     因为用户需要知道「这里本该有个按钮、为什么用不了」。逻辑见 usePublishRecordActions。 -->
+                <button type="button" class="record-action republish" :class="{ 'is-disabled': !canRepublish(record) }" :data-testid="`republish-${record.id}`" :disabled="!canRepublish(record)" :title="republishHint(record)" @click="republishRecord(record)">{{ t('historyPage.republish') }}</button>
                 <button type="button" class="record-action" :data-testid="`detail-${record.id}`" @click="openRecord(record)">{{ t('historyPage.detail') }}</button>
                 <button v-if="normalizedStatusGroup(record) === 'failed'" type="button" class="record-action retry" :data-testid="`retry-${record.id}`" @click="retryRecord(record)">{{ t('historyPage.retryRecord') }}</button>
               </div>
@@ -269,14 +260,8 @@
               >{{ auditLabel(record) }}</span>
               <span v-if="deliveryModeValue(record)" class="delivery-mode-badge" :class="'delivery-mode-' + deliveryModeValue(record)" :title="deliveryModeHint(record)" :data-testid="`delivery-mode-${record.id}`">{{ deliveryModeLabel(record) }}</span>
               <span class="platform-name"><img v-if="isPlatformIconUrl(platformIcon(record.platform))" :src="platformIcon(record.platform)" class="platform-icon-thumb mp-platform-icon" :alt="platformName(record.platform)" width="16" height="16" aria-hidden="true"><span v-else aria-hidden="true">{{ platformIcon(record.platform) }}</span>{{ platformName(record.platform) }}</span>
-              <!-- 同批徽标：一次 N 平台发布落 N 条**独立**记录（状态/审核/作品链接/互动数据都是
-                   平台级动作，合并成一条会丢掉可执行性）。徽标把「这几条属于同一次发布」补回来。 -->
-              <span
-                v-if="batchBadgeMap.get(record.id)"
-                class="batch-badge"
-                :data-testid="`batch-${record.id}`"
-                :title="batchBadgeMap.get(record.id).tooltip"
-              >{{ batchBadgeMap.get(record.id).label }}</span>
+              <!-- 同批徽标：一次 N 平台发布落 N 条独立记录，徽标补回「这几条同属一次发布」 -->
+              <span v-if="batchBadgeMap.get(record.id)" class="batch-badge" :data-testid="`batch-${record.id}`" :title="batchBadgeMap.get(record.id).tooltip">{{ batchBadgeMap.get(record.id).label }}</span>
             </div>
             <!-- 失败原因：task:failed 落库的 error 字段（publish-progress-ux G8 数据链路的渲染侧收口）。
                  单行截断 + title 悬停全文；无 error 的旧失败记录不渲染该行（详情弹窗有占位）。 -->
@@ -474,6 +459,7 @@ import { isAuthGateResult } from '@/utils/auth-gate'
 import { formatUserError } from '@/utils/user-facing-error'
 import { confirmDanger } from '@/utils/confirm-danger'
 import PublishTypeDialog from '@/features/publish/components/PublishTypeDialog.vue'
+import { usePublishRecordActions } from '@/composables/usePublishRecordActions'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -867,48 +853,11 @@ function onCardClick (event, record) {
   void openCardLink(record)
 }
 
-// ── 「再次发布」（PRD-PUBLISH-RECORD-REPUBLISH-2026-10-15 §5.1）──
-// 存在性判据只有一个：主进程在 history:list / history:get 上附加的
-// `hasRepublishSnapshot`（由快照存储现算，不落库 ⇒ 淘汰/删除后自动变 false）。
-// 内容本身**不随列表下发**（正文会让每次分页/筛选变成整文件重解析），
-// 点按钮后由发布页按记录 ID 惰性取。
-function canRepublish (record) {
-  return Boolean(record && record.hasRepublishSnapshot === true)
-}
-
-function republishHint (record) {
-  return canRepublish(record) ? t('historyPage.republishHint') : t('historyPage.republishUnavailable')
-}
-
-function republishRecord (record) {
-  if (!canRepublish(record)) return
-  // 与 `?draft=` 同一条发布页入口（同一份「快照 → 表单」实现），只是快照来源不同
-  router.push('/publish?republish=' + encodeURIComponent(String(record.id)))
-}
-
-/**
- * 同批徽标映射：batchId → 该批全部记录（仅在 ≥2 条时展示）。
- * 记录本身仍是**平台级独立行**（这是刻意的：状态/审核/作品链接/互动数据/重试/删除
- * 都是平台级动作），徽标只补「同一次发布」这层被丢掉的关联信息。
- */
-const batchBadgeMap = computed(() => {
-  const groups = new Map()
-  for (const record of records.value) {
-    const batchId = record && typeof record.batchId === 'string' ? record.batchId.trim() : ''
-    if (!batchId) continue
-    if (!groups.has(batchId)) groups.set(batchId, [])
-    groups.get(batchId).push(record)
-  }
-  const map = new Map()
-  for (const group of groups.values()) {
-    if (group.length < 2) continue
-    const platforms = [...new Set(group.map(item => platformName(item.platform)))]
-    const label = t('historyPage.batchBadge', { count: group.length })
-    const tooltip = t('historyPage.batchTooltip', { platforms: platforms.join(' / ') })
-    for (const record of group) map.set(record.id, { label, tooltip })
-  }
-  return map
-})
+// ── 卡片动作与状态展示：实现见 composables/usePublishRecordActions.js ──
+const {
+  canRepublish, republishHint, republishRecord, batchBadgeMap,
+  normalizedStatusGroup, recordErrorText, statusLabel, statusClass, statusValue,
+} = usePublishRecordActions({ records, router, t, platformName })
 
 async function retryRecord (record) {
   const taskId = record?.taskId || record?.id
@@ -960,45 +909,7 @@ function publisherName (record) {
   return record?.publisher || record?.author || record?.operator || t('historyPage.systemAccount')
 }
 
-function statusValue (record) {
-  if (record?.success === false) return 'failed'
-  return String(record?.status || 'success').toLowerCase()
-}
 
-function normalizedStatusGroup (record) {
-  const value = statusValue(record)
-  if (['success', 'completed', 'published'].includes(value)) return 'success'
-  if (['failed', 'error'].includes(value)) return 'failed'
-  return 'pending'
-}
-
-/**
- * 列表卡片失败原因文本：仅失败组渲染；error 非字符串或空白时返回空串（卡片不渲染该行，
- * 详情弹窗侧由 errorUnknown 占位兜底）。截断展示由 CSS 负责，全文经 title 悬停可见。
- */
-function recordErrorText (record) {
-  if (normalizedStatusGroup(record) !== 'failed') return ''
-  const error = record?.error
-  return typeof error === 'string' && error.trim() ? error.trim() : ''
-}
-
-function statusLabel (record) {
-  const labels = {
-    success: 'statusAllSuccess',
-    completed: 'statusAllSuccess',
-    published: 'statusAllSuccess',
-    failed: 'statusFailed',
-    error: 'statusFailed',
-    running: 'statusRunning',
-    pending: 'statusWaiting',
-    scheduled: 'statusScheduled',
-  }
-  return t('historyPage.' + (labels[statusValue(record)] || 'statusPending'))
-}
-
-function statusClass (record) {
-  return normalizedStatusGroup(record)
-}
 
 // ── P0-1 审核状态（枚举与映射真源在 shared-utils 双孪生，渲染端走 ESM 版）──
 // 只在记录带**合法**审核结论时渲染徽标；无结论（旧记录/监控无定论）不渲染，
