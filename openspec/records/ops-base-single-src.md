@@ -2,9 +2,6 @@
 record: ops-base-single-src
 task: 收敛 ops-center 请求 base 的单一真源
 date: 2026-10-15
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；远程同步这一行的证据只能在合并后取
-sync_backfill_owner: 下一个会话（按 AGENTS.md「合并后收尾清单」回填并删除本段三个字段）
 ---
 
 ## 本次执行记录：收敛 ops-center 请求 base 的单一真源（ops-base-single-src，2026-10-15）【混合 PR】
@@ -24,8 +21,7 @@ sync_backfill_owner: 下一个会话（按 AGENTS.md「合并后收尾清单」�
 | locale 成对 | N/A | 未新增/修改任何用户可见文案（`内部错误：…` 是主进程内部错误串，不达渲染端） |
 | 视觉回归 | N/A | 无前端视觉变更（纯主进程地址来源收敛） |
 | QM-6 双模型外部评审 | 未执行 | 本机无 `codeagent-wrapper`，如实登记 |
-| 远程同步 | PENDING | 开 PR 时登记；合并后就地改写为 `PASS` + merge SHA（回填 PR 完成，含销账） |
-
+| 远程同步 | PASS | merge `a92508dff528c8c6c7c4f156abe50849f3c5d93f`（2026-10-15 13:10:48 +08:00）；PR 已 MERGED，远端分支 `ls-remote` 0 行 |
 ### 交付内容（2 文件）
 
 1. **`apps/desktop/electron/services/ops-center-sync.js`（+7 −2）** —— 只动 `_fetchJson` 的 base 行：删 env 兜底 + 加空 base fail-closed；另压缩 1 行注释以留在行数上限内。
@@ -42,4 +38,4 @@ sync_backfill_owner: 下一个会话（按 AGENTS.md「合并后收尾清单」�
 
 ### 保留门禁
 
-行尾对账 ✅ | 品牌残留 ✅ | locale 成对 N/A | 视觉回归 N/A | 行数门禁 ✅（rc=0，未动基线）| QM-1 ✅ | 远程同步 PENDING
+行尾对账 ✅ | 品牌残留 ✅ | locale 成对 N/A | 视觉回归 N/A | 行数门禁 ✅（rc=0，未动基线）| QM-1 ✅ | 远程同步 PASS（merge a92508dff，远端分支 0 行）
