@@ -98,16 +98,16 @@ describe('ops-center-sync-url：三口径纯函数', () => {
   })
 })
 
-describe('OpsCenterSync.getConfig()：字段形状与别名关系', () => {
-  it('零配置态：manualUrl 为空、autoConnected=true、url 与 effectiveUrl 同值', () => {
+describe('OpsCenterSync.getConfig()：字段形状（混装别名已移除）', () => {
+  it('零配置态：manualUrl 为空、autoConnected=true、effectiveUrl=autoUrl，且无 url 别名', () => {
     const svc = makeAutoService('')
     const cfg = svc.getConfig()
     expect(cfg.manualUrl).toBe('')
     expect(cfg.autoUrl).toBe('https://auto.example.com')
     expect(cfg.effectiveUrl).toBe('https://auto.example.com')
     expect(cfg.autoConnected).toBe(true)
-    // 别名关系：url 是历史混装名，必须与 effectiveUrl 严格同值（防止日后只改一个）
-    expect(cfg.url).toBe(cfg.effectiveUrl)
+    // 历史混装别名 url 已于 2026-10-15 移除（携带它的 IPC 在渲染端零调用）
+    expect(cfg.url).toBeUndefined()
   })
 
   it('手填态：manualUrl 非空、autoConnected=false、effectiveUrl=手填', () => {
@@ -116,7 +116,7 @@ describe('OpsCenterSync.getConfig()：字段形状与别名关系', () => {
     expect(cfg.manualUrl).toBe('https://manual.example.com')
     expect(cfg.effectiveUrl).toBe('https://manual.example.com')
     expect(cfg.autoConnected).toBe(false)
-    expect(cfg.url).toBe(cfg.effectiveUrl)
+    expect(cfg.url).toBeUndefined()
   })
 
   it('两态皆无：三者皆空、autoConnected=false', () => {
@@ -126,13 +126,13 @@ describe('OpsCenterSync.getConfig()：字段形状与别名关系', () => {
     expect(cfg.autoUrl).toBe('')
     expect(cfg.effectiveUrl).toBe('')
     expect(cfg.autoConnected).toBe(false)
-    expect(cfg.url).toBe('')
+    expect(cfg.url).toBeUndefined()
   })
 
   it('手填优先：手填与自动都存在时 effectiveUrl 取手填', () => {
     const svc = makeAutoService('https://manual.example.com')
     expect(svc.getConfig().effectiveUrl).toBe('https://manual.example.com')
-    expect(svc.getConfig().url).toBe('https://manual.example.com')
+    expect(svc.getConfig().url).toBeUndefined()
   })
 })
 
@@ -225,6 +225,48 @@ describe('结构锁：混装值不得再被「重读」消费', () => {
     expect(mod).toMatch(/module\.exports = \{ resolveSyncUrls, shouldRefusePin \}/)
     expect(mod).not.toMatch(/require\(/)
     expect(mod).not.toMatch(/this\./)
+  })
+
+  it('getConfig() 不再产出 url 混装别名（别名已移除，不得复活）', () => {
+    // 2026-10-15：携带该别名的 ops-center-sync:get IPC 在渲染端零调用，盘点后移除。
+    // 这条锁盯的是「不得再把 effectiveUrl 赋给一个叫 url 的字段」。
+    const cfgBlock = src.slice(src.indexOf('getConfig()'), src.indexOf('saveConfig('))
+    expect(cfgBlock).not.toMatch(/^\s*url:\s*/m)
+    expect(cfgBlock).toMatch(/manualUrl: u\.manualUrl/)
+    expect(cfgBlock).toMatch(/effectiveUrl: u\.effectiveUrl/)
+  })
+
+
+  it('getConfig() 别名移除后的主进程消费者必须读 manualUrl', () => {
+    // 2026-10-15 实测教训：删 url 别名时，git grep 的 "getConfig().url" 找不到**间接消费者** ——
+    // 整个 cfg 对象被传进 resolveAutoSyncGuard，或在别处解构后读 cfg.url。首轮因此漏了三处
+    // （autosync-guard / phase1-context / rate-limit），靠 4+2+13 条测试变红才发现。
+    // 这条锁**独立于各文件自身 mock**：直接扫这三处源码，断言它们读的是 manualUrl 而非 url。
+    const guardSrc = readFileSync(join(HERE, 'ops-center-sync-autosync-guard.js'), 'utf8')
+    const phase1Src = readFileSync(join(HERE, '..', 'bootstrap', 'phase1-context.js'), 'utf8')
+    const rateLimitSrc = readFileSync(join(HERE, '..', 'ipc-handlers', 'rate-limit.js'), 'utf8')
+    // guard：取手动态的唯一入口
+    expect(guardSrc).toMatch(/const url = \(cfg && cfg\.manualUrl\) \|\| ''/)
+    expect(guardSrc).not.toMatch(/cfg && cfg\.url\)/)
+    // phase1-context：三处上报鉴权，全部 manualUrl
+    const phase1Hits = phase1Src.split('\n').filter((l) => l.includes('opsCenterSync.getCatalogApiKey()'))
+    expect(phase1Hits.length).toBeGreaterThanOrEqual(3)
+    expect(phase1Hits.every((l) => l.includes('cfg.manualUrl'))).toBe(true)
+    expect(phase1Src).not.toMatch(/cfg\.url \|\|/)
+    // rate-limit：判据与 fetch base 都必须是 manualUrl
+    expect(rateLimitSrc).toMatch(/!cfg\.manualUrl \|\| !cfg\.apiKeyConfigured/)
+    expect(rateLimitSrc).toMatch(/String\(cfg\.manualUrl\)/)
+    expect(rateLimitSrc).not.toMatch(/cfg\.url/)
+  })
+  it('死 IPC 通道不得复活：get/save/now 三个通道在主进程侧均未注册', () => {
+    const handlerSrc = readFileSync(join(HERE, '..', 'ipc-handlers', 'ops-center-sync.js'), 'utf8')
+    for (const dead of ['ops-center-sync:get', 'ops-center-sync:save', 'ops-center-sync:now']) {
+      expect(handlerSrc).not.toContain(`'${dead}'`)
+    }
+    // 保留的三条必须在
+    for (const live of ['ops-center-sync:runtime', 'ops-center-sync:pipelineOptions', 'ops-center-sync:appMenu']) {
+      expect(handlerSrc).toContain(`'${live}'`)
+    }
   })
 })
 

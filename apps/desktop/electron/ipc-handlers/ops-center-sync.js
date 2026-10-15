@@ -1,6 +1,17 @@
 // @ts-check
 /**
- * ops-center-sync IPC handlers — 运营后台同步配置与手动同步
+ * ops-center-sync IPC handlers — 运营后台下发的运行时策略通道
+ *
+ * 2026-10-15 收敛：`get` / `save` / `now` 三条通道已删除。原因是「运营中心同步配置」
+ * 表单自 #3543 起从界面撤下（零配置化：地址走部署层 identity-public.json + Logto JWT），
+ * 渲染端对这三个封装的调用数经 `git grep` 盘点为 **0**（只剩 api/ 封装自身），
+ * 而它们携带的 `getConfig().url` 别名与 `saveConfig` 固化护栏在应用内已无触发路径。
+ * 保留的三条（runtime / pipelineOptions / appMenu）是运营下发的运行时策略，
+ * 渲染端分别有 18 / 4 / 5 处真实调用。
+ *
+ * 删除前取证（`git grep <api> origin/main -- apps/desktop/src`，排除 src/api/ 自身）：
+ *   opsCenterSyncGet 0、opsCenterSyncSave 0、opsCenterSyncNow 0
+ *   opsCenterSyncRuntime 18、opsCenterSyncPipelineOptions 4、opsCenterSyncAppMenu 5
  */
 
 function registerHandlers (ipcMain, deps) {
@@ -9,28 +20,6 @@ function registerHandlers (ipcMain, deps) {
     log && log.warn('OpsCenterSync', 'opsCenterSync service not provided')
     return
   }
-
-  ipcMain.handle('ops-center-sync:get', () => {
-    try { return { code: 0, config: opsCenterSync.getConfig() } }
-    catch (e) { log.warn('[ipc:ops-center-sync]', ((e && e.message) || String(e))); return { code: -1, message: e.message } }
-  })
-
-  ipcMain.handle('ops-center-sync:save', (_event, payload) => {
-    try {
-      const data = (payload && typeof payload === 'object') ? payload : {}
-      return opsCenterSync.saveConfig({
-        url: data.url,
-        apiKey: data.apiKey,
-        autoSync: data.autoSync !== false,
-        runtimePublicKey: data.runtimePublicKey,
-      })
-    } catch (e) { log.warn('[ipc:ops-center-sync]', ((e && e.message) || String(e))); return { code: -1, message: e.message } }
-  })
-
-  ipcMain.handle('ops-center-sync:now', async () => {
-    try { return await opsCenterSync.syncNow() }
-    catch (e) { log.warn('[ipc:ops-center-sync]', ((e && e.message) || String(e))); return { code: -1, message: e.message } }
-  })
 
   ipcMain.handle('ops-center-sync:runtime', () => {
     try {

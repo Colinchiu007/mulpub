@@ -35,7 +35,7 @@ function registerHandlers (ipcMain, deps) {
         return { code: -1, message: '运营后台同步服务未就绪' }
       }
       const cfg = opsCenterSync.getConfig()
-      if (!cfg.url || !cfg.apiKeyConfigured || typeof opsCenterSync.getCatalogApiKey !== 'function') {
+      if (!cfg.manualUrl || !cfg.apiKeyConfigured || typeof opsCenterSync.getCatalogApiKey !== 'function') {
         return { code: -1, message: '未配置运营后台同步（地址/Key），无法上报自检结果' }
       }
       const data = (payload && typeof payload === 'object') ? payload : {}
@@ -61,7 +61,7 @@ function registerHandlers (ipcMain, deps) {
       const controller = typeof AbortController === 'function' ? new AbortController() : null
       const timer = controller ? setTimeout(() => controller.abort(), 10000) : null
       try {
-        const resp = await fetch(String(cfg.url).replace(/\/+$/, '') + '/api/v1/scheduler/verify', {
+        const resp = await fetch(String(cfg.manualUrl).replace(/\/+$/, '') + '/api/v1/scheduler/verify', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Catalog-Key': opsCenterSync.getCatalogApiKey(), Accept: 'application/json' },
           body: JSON.stringify(body),

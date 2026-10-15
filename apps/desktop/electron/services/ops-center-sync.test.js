@@ -141,7 +141,7 @@ describe('OpsCenterSync saveConfig/getConfig', () => {
     const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
     const res = svc.saveConfig({ url: 'https://ops.example.com', apiKey: 'secret-key-123', autoSync: true })
     expect(res.code).toBe(0)
-    expect(res.config.url).toBe('https://ops.example.com')
+    expect(res.config.effectiveUrl).toBe('https://ops.example.com')
     expect(res.config.apiKeyConfigured).toBe(true)
     expect(res.config.autoSync).toBe(true)
     // 明文不出现在任何返回/存储中
@@ -213,7 +213,7 @@ describe('OpsCenterSync 零配置 autoConnected（setOpsCenterUrl 注入）', ()
     const cfg = svc.getConfig()
     expect(cfg.autoConnected).toBe(true)
     expect(cfg.autoUrl).toBe('https://ops.iart.work')
-    expect(cfg.url).toBe('https://ops.iart.work')
+    expect(cfg.effectiveUrl).toBe('https://ops.iart.work')
     expect(process.env.OPS_CENTER_URL).toBeUndefined()
   })
 
@@ -224,7 +224,8 @@ describe('OpsCenterSync 零配置 autoConnected（setOpsCenterUrl 注入）', ()
     svc.setOpsCenterUrl('https://ops.iart.work')
     svc.setGetAccessToken(() => 'jwt')
     const cfg = svc.getConfig()
-    expect(cfg.url).toBe('https://manual.example.com')
+    expect(cfg.manualUrl).toBe('https://manual.example.com')
+    expect(cfg.effectiveUrl).toBe('https://manual.example.com')
     expect(cfg.autoConnected).toBe(false)
   })
 
@@ -551,7 +552,7 @@ describe('OpsCenterSync autoSyncOnStart', () => {
 
   // 打包态 × 信任锚的完整矩阵（纯函数级，不依赖模块实例状态）
   it('打包态 × 信任锚矩阵：只有「打包 + 无锚」被拦，且原因唯一', () => {
-    const cfg = { url: 'https://ops.example.com', apiKeyConfigured: true, autoSync: true }
+    const cfg = { manualUrl: 'https://ops.example.com', apiKeyConfigured: true, autoSync: true }
     const call = (isPackaged, hasAnchor) => resolveAutoSyncGuard(cfg, false, '', false, isPackaged, hasAnchor)
     // 打包 + 无锚 ⇒ 拦住（否则取到了也验不了签，整份运行时策略会被丢掉）
     const blocked = call(true, false)
@@ -566,9 +567,9 @@ describe('OpsCenterSync autoSyncOnStart', () => {
   })
 
   it('authMode 反映实际身份：有自动上下文走 bearer，否则 catalog-key', () => {
-    const auto = { url: '', apiKeyConfigured: false, autoSync: true }
+    const auto = { manualUrl: '', apiKeyConfigured: false, autoSync: true }
     expect(resolveAutoSyncGuard(auto, true, 'https://auto.example.com', true, false, false)).toEqual({ ok: true, authMode: 'bearer' })
-    const manual = { url: 'https://ops.example.com', apiKeyConfigured: true, autoSync: true }
+    const manual = { manualUrl: 'https://ops.example.com', apiKeyConfigured: true, autoSync: true }
     expect(resolveAutoSyncGuard(manual, false, '', false, false, false)).toEqual({ ok: true, authMode: 'catalog-key' })
   })
 })
@@ -1269,7 +1270,7 @@ describe('OpsCenterSync 存储契约留痕（QM6-C1）', () => {
     const store = { getSetting: vi.fn(() => ''), setSetting: vi.fn() }
     const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log })
     const cfg = svc.getConfig()
-    expect(cfg.url).toBe('')
+    expect(cfg.effectiveUrl).toBe('')
     // getConfig() 会读两次（配置 + 密文），判据是「每次失败读取都留痕」而非恰好一次
     expect(log.notify.mock.calls.length).toBeGreaterThan(0)
     expect(log.notify.mock.calls.some((c) => c[1] === 'get-setting-object-missing')).toBe(true)
@@ -1287,7 +1288,7 @@ describe('OpsCenterSync 存储契约留痕（QM6-C1）', () => {
     }
     const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log })
     const cfg = svc.getConfig()
-    expect(cfg.url).toBe('')
+    expect(cfg.effectiveUrl).toBe('')
     expect(log.notify.mock.calls.length).toBeGreaterThan(0)
     expect(log.notify.mock.calls.some((c) => String((c[2] || {}).error).includes('boom-read'))).toBe(true)
   })
@@ -1296,7 +1297,7 @@ describe('OpsCenterSync 存储契约留痕（QM6-C1）', () => {
     const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }
     const svc = new OpsCenterSync({ store: undefined, modelProviderManager: makeManager(), log })
     const cfg = svc.getConfig()
-    expect(cfg.url).toBe('')
+    expect(cfg.effectiveUrl).toBe('')
     expect(log.notify.mock.calls.length).toBeGreaterThan(0)
     expect(log.notify.mock.calls.some((c) => c[1] === 'store-missing-empty-config')).toBe(true)
   })

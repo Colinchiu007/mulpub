@@ -249,9 +249,7 @@ function createSystemApi(ipcRenderer) {
 
     // 模型服务商管理 API（5 类模型 CRUD + 默认设置 + 调用日志）
     modelProviderList: (category) => ipcRenderer.invoke('model-provider:list', category),
-    opsCenterSyncGet: () => ipcRenderer.invoke('ops-center-sync:get'),
-    opsCenterSyncSave: (payload) => ipcRenderer.invoke('ops-center-sync:save', payload),
-    opsCenterSyncNow: () => ipcRenderer.invoke('ops-center-sync:now'),
+    // 运营中心下发的运行时策略（2026-10-15：get/save/now 三条已删，渲染端零调用）
     opsCenterSyncRuntime: () => ipcRenderer.invoke('ops-center-sync:runtime'),
     opsCenterSyncPipelineOptions: () => ipcRenderer.invoke('ops-center-sync:pipelineOptions'),
     opsCenterSyncAppMenu: () => ipcRenderer.invoke('ops-center-sync:appMenu'),

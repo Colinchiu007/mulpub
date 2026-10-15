@@ -33,7 +33,8 @@ const PUBLIC_METHODS = [
   'sensitiveCheck', 'sensitiveReplace',
   'syncAll', 'syncPlatform', 'syncCached',
   'modelProviderList', 'modelProviderGet',
-  'opsCenterSyncGet', 'opsCenterSyncSave', 'opsCenterSyncNow', 'opsCenterSyncRuntime',
+  // 运营中心运行时策略（2026-10-15：get/save/now 三条已删，渲染端零调用）
+  'opsCenterSyncRuntime',
   // 订阅本身只收到一个时间戳、不返回任何运营数据，故 public；
   // 事件到达后的重拉（opsCenterSyncAppMenu）仍受 authenticated 门控。
   'onOpsCenterRuntimeUpdated',
