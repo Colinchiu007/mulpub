@@ -48,6 +48,28 @@
    右侧目标面板为 0。**那个 PASSED 只证明"正常态无回归"，不构成空态无回归的证据**——
    若照抄初版结论去重建基线，会是一次无意义且破坏性的大改动。
 
+## 「+」新标签 3-4 秒：UI 框架全量引入是高频路径的性能地雷，而它对源码层测试完全隐形（fix-newtab-home-slow，2026-10-15）
+
+1. **UI 框架「全量引入」在源码层单测里与「按需引入」完全等价 —— 所以这条只能靠产物级契约锁守，不能靠功能测试守。**
+   实测：`app.use(ElementPlus)` + `element-plus/dist/index.css` 与按需 34 组件，在 vitest 里都让 `<el-button>` 正常渲染、全部用例同绿。差别只在**打包产物**：`index.js` 1 841 vs 1 334 KB、`index.css` 503 vs 300 KB。因此任何「读 `main.js` 断言引入方式」的测试都是**必要**的（它是唯一能看见这件事的层），且断言必须落在**源码文本**（禁 `import ElementPlus from 'element-plus'`）而不是运行时行为。
+   **判据**：改动 `main.js` 的装配段（`app.use(...)` / 顶层 CSS import / `app.component(...)`）时，先跑 `src/main.bundle-contract.test.js`，并 `vite build` 后 `ls -la dist/assets/index-*` 对账体积。
+
+2. **「慢而不错」的缺陷对视觉回归结构性免疫 —— 这是本仓第二次踩同一条（10-14 账号页、10-15 新标签），必须升级为通用认知。**
+   两次的共同形态：画面**完全正常**，只是迟到。像素对比看最终画面，天然看不见「迟到」；功能测试看「最后对不对」，也看不见。**真正的判据只能是 wall-time**：首屏以某个 testid 出现为界（本次用 `mp-home`），冷/热各测一轮。
+   **可复用的探针套路**（本次四个，均一次性不随产物分发）：① Node 直驱主进程真实模块逐段计时（不起 Electron，排除法先证明「不是它」）；② Playwright + 本地 HTTP 托管 `dist/` 量首屏时间线（`file://` 会撞 CORS，必须起 http）；③ 扫 `src` 全部 `.vue` 的 `<el-xxx>` 对照 `element-plus/es/components` 目录清单，算出「实际用几个/共几个」；④ 解 rollup 产物的模块位置判断某库是否真在首屏 chunk。
+
+3. **EP 的 `withNoopInstall` 组件不占全局注册表 —— 按需清单里写它们是无效劳动，且会让「漏登记机械锁」误报。**
+   `el-radio-button` / `el-radio-group` 的实现放在 `radio/` 目录，由 `ElRadio` 以 `withNoopInstall` 挂成子组件（`app.use` 是 no-op）。第一次修按需时把它们写进 `COMPONENTS`，机械锁仍报 missing —— 那其实是**锁在说真话**：它们确实不在注册表里。正解是只注册 `ElRadio` + 补 `theme-chalk/el-radio-button.css` / `el-radio-group.css` 两个**样式**文件（样式不走 install，必须单独 import）。
+   **判据**：往按需清单加组件前，先看 `node_modules/element-plus/es/components/<name>/index.mjs` 里是 `withInstall` 还是 `withNoopInstall`；后者应改成注册其父组件。
+
+4. **首屏 `onMounted` 的「串行 await 链」要把「用户何时真正需要它」分三档，而不是一律并行。**
+   `Home.vue` 原为 5 项串行，最重的是逐账号登录态批量检测（单账号最坏 60s 超时）。并行化只解决了「相互独立的项不该互相等」，没解决「这一项根本不该在首屏跑」——它是「有问题才可见」的横幅，用户没失效账号时它的可见产出是**零**。正解是分档：首帧必需的并行、慢而非必需的 `setTimeout(0)` 懒触发 + `onUnmounted` 清定时器。
+   **配套细节**：`statsLoaded` 的语义要保住 —— 无 `electronAPI` 时**不**置位（「没拿到数据」≠「确认是 0」），否则会误进全 0 引导态、把近期动态区整块藏掉（既有测试 `handles missing electronAPI gracefully` 锁的就是这条，我第一版改parallel时踩了）。
+
+5. **`vi.mock` 工厂被 hoist，不能用外层变量；要「运行期改桩行为」必须用 `vi.hoisted` 造同一份引用。**
+   `vi.doMock` 对同一文件内已 hoist 的 `vi.mock` **无效**（动态 import 带 `?query` 也不行，模块已被缓存）。正确形态：`const h = vi.hoisted(() => ({ calls: [], stub: {...} }))`，工厂里 `return h.stub`，用例里改 `h.stub.xxx = ...`。
+   **另一条**：桩内部若用 `setTimeout` 造延时，`flushPromises()` 只清微任务、**不推进定时器** —— 必须补 `await new Promise(r => setTimeout(r, 120))`，否则断言会拿到 -1（`indexOf` 找不到）。
+
 ## 逐文件行数门禁的真实上限、rebase 冲突标记自检，与「不带热点载体」的二次验证（ops-url-split，2026-10-15）
 
 1. **逐文件行数门禁的真实上限 = 登记值 + 容差，且它数的是 `split('\n').length`（结尾换行多算 1）。**

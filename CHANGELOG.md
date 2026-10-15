@@ -17,6 +17,17 @@
 - **`v-bind` 键名合同有回归锁**：`v-bind` 的对象键必须是驼峰 `on*` 才能命中 kebab 事件名（`emit('add-account')` → `onAddAccount`）。`PublishTargetSelector.test.js` 新增 v-bind 合同用例，把 `{ refreshingAccounts, onAddAccount, onRefreshAccounts }` 作为 props 传入并断言两个回调真被调用——键名漂移会当场变红，而不是让事件静默失效。
 - 测试：新增 `usePublishAddAccount.test.js` 14 条 + `usePublishAddAccountTargets.test.js` 4 条 + `PublishTargetSelector.test.js` 6 条空态出口/v-bind 用例，末态 40 passed；消费者并集合跑 363 passed / 0 failed；locale `--keys` 与 `--cjk` 双门禁通过。契约与残余风险（保存后的账号 id 是占位值 `mp-new-<platform>`，与账号页 id 形态不一致）见 `01-docs/PRD-PUBLISH-ADD-ACCOUNT-ENTRY-2026-10-15.md`。
 
+# [未发布] fix(desktop): 「+」新标签打开主页 3-4 秒——element-plus 全量改按需 + 首页数据并行化（fix-newtab-home-slow）
+
+- **根因不在主进程**（`createNewTabPage` 同步段实测 24ms/1ms），而在**渲染进程首屏载荷为所有页面的并集付钱**：`main.js` 全量 `app.use(ElementPlus)` + `element-plus/dist/index.css`，把 124 个 EP 组件全部打进 `index.js`/`index.css`（**1 841 KB / 503 KB**），而本仓 `src` 实际只用到 36 个；另外 `QuillEditor` 在 `main.js` 全局注册，把 `@vueup/vue-quill` 拉进首屏 JS 闭包。次要原因：`Home.vue` `onMounted` 是 5 项串行 `await`，其中最重的逐账号登录态批量检测（单账号最坏 60s 超时）把统计与近期动态一起挡在后面。
+- **修复一（收益最大）element-plus 全量 → 按需**：新增 `src/plugins/element-plus.js`，从 `element-plus/es` 具名导入 34 个真正用到的组件 + 只导入这 34 个的 `theme-chalk/el-*.css` 与 3 个共享底座（`el-var`/`el-reset`/`base`），导出标准 Vue 插件；`main.js` 改 `app.use(elementPlusOnDemand)`。**未新增任何依赖**（不引 unplugin-vue-components / auto-import），用显式清单 + 契约测试替代自动扫描。
+- **修复二 QuillEditor 全局注册 → 本地注册**：改在 `ArticleEditor.vue` 内 `const components = { QuillEditor }`，Quill 只随 `/publish` 路由的懒加载 chunk 下载（实测 `quill-*.js` 148 KB 独立 chunk，**不进 `index.js`**）。
+- **修复三 首页数据并行化 + 懒触发**：按「用户何时真正需要它」分档 —— 统计/近期动态/账号数/平台元数据走 `Promise.allSettled` **并行**、各自独立 try/catch；失效账号横幅 `setTimeout(0)` 推到首帧之后，`onUnmounted` 清定时器。`statsLoaded` 语义不变：无 `electronAPI` 时**不**置位（「没拿到数据」≠「确认是 0」，不进全 0 引导态）。
+- **实测效果**：`index.js` 1 841 → **1 334 KB**（−27%）、`index.css` 503 → **300 KB**（−40%）；主页挂载冷 **1 960 → 743 ms（−62%）**、热 **803 → 283 ms（−65%）**；FCP 1 172 → 544 ms。视觉零回归（按需样式就是全量 index.css 中对应组件规则的同一份文件，只是少了 88 个不用的组件）。
+- **回归锁 14 条**：`main.bundle-contract.test.js` 7 条（禁全量 JS/CSS、必须接按需、Quill 不得全局注册）+ `element-plus.test.js` 3 条（含**漏登记机械锁**：扫 `src` 全部 `<el-xxx>` 核对注册表）+ `Home.first-paint.test.js` 4 条（首帧不等 IPC、统计/历史并行、单点失败不扩散、批量校验懒触发）。四条锁均做过变异反证（改回全量 / 删组件 / 改回串行 / 改回同步 await 都当场指名红）。
+- 机械锁在开发中**当场抓到一次真实漏项**：`el-radio-button`/`el-radio-group`（`VideoCloneView.vue` 在用）——EP 把它们实现放在 `radio/` 目录、以 `withNoopInstall` 挂在 `ElRadio` 上当子组件，**不占全局注册表**；正解是只注册 `ElRadio` + 补两个样式文件，而不是把它们加进 `app.use`（无效劳动）。
+- 修复全程与 Bug 反思 5 步产出见 `01-docs/BUGFIX-NEWTAB-HOME-SLOW-2026-10-15.md`；QM-2 新增「新增全局 `app.component`/顶层 CSS import 前必须问它在几条路由上被用」与「首屏渲染不得阻塞在 IPC 之后、慢而非必需的校验必须懒触发」两条检查项；PRD-TAB-INDEPENDENT-HOME 新增 F7 首屏性能需求。
+
 # [未发布] test(podcast): 存量 mime 固化「不猜」的变异反证落进文件，并补上它暴露的按值快照（stock-default-write-proof）
 
 - tasks 4.4b④ 收口：PRD §7.9.7 记着两次尝试「均未把变异真正落进文件」，于是 §7.9.5 第 5 条此前只有行为证据。这次九条变异（D1–D6 打不猜的四个猜点 + W1–W3 打落盘与幂等）每条都先自证锚点命中=1、写回后能从磁盘读回，跑完逐条还原并断言整文件 md5 一致，基线 12 passed / 0 failed、**九条全部指名红**。

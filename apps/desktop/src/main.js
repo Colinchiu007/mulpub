@@ -1,9 +1,6 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
-import ElementPlus from 'element-plus'
-import 'element-plus/dist/index.css'
-import { QuillEditor } from '@vueup/vue-quill'
-import '@vueup/vue-quill/dist/vue-quill.snow.css'
+import elementPlusOnDemand from './plugins/element-plus'
 import './styles/tokens.css'
 import './styles/cohere-design-system.css'
 import './styles/ep-theme.css'
@@ -53,8 +50,10 @@ window.addEventListener('unhandledrejection', (e) => {
 app.use(createPinia())
 app.use(router)
 app.use(i18n)
-app.use(ElementPlus)
-app.component('QuillEditor', QuillEditor)
+// element-plus 按需装配（fix-newtab-home-slow）：全量引入会把 124 个组件
+// 全部打进首屏 bundle（实测 index.js 1.84MB / index.css 503KB），
+// 而本仓只用 36 个。清单与理由见 ./plugins/element-plus.js。
+app.use(elementPlusOnDemand)
 app.component('EmptyState', EmptyState)
 app.component('LoadingState', LoadingState)
 app.component('UiSkeleton', UiSkeleton)

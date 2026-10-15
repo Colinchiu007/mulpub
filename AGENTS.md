@@ -492,6 +492,10 @@ Code review 时除逻辑正确性外，必须逐项检查：
 
 - **详情函数复用到列表路径前必须核算单元素成本**：给单条记录用的函数（读完整凭证、逐项网络请求、整表扫描）被 `map` 到列表上时，单元素成本会乘以 N。判据：问「这个函数为一个元素付多少 IO / 多少 CPU？列表有 N 个元素时总成本是多少？」答不上来就不许合。
 
+- **新增全局 `app.component` / 顶层 CSS import 前必须问「它在几条路由上被用」**：UI 框架（element-plus 等）默认**全量**引入（`app.use(Framework)` + `dist/index.css`）会把全部组件打进首屏 bundle——这是高频路径的性能地雷。判据：① 该组件/样式被几条路由消费？只有 1 条 ⇒ 必须在该路由的懒加载 chunk 内注册（如 `ArticleEditor` 的 QuillEditor，2026-10-15 从 `main.js` 全局注册改本地注册）；② UI 框架是否按需（`element-plus/es` 具名导入 + `theme-chalk/el-*.css` 单文件）？③ 新增 `<el-xxx>` 用法是否同步登记进 `apps/desktop/src/plugins/element-plus.js` 的组件清单与样式清单（漏登记由 `element-plus.test.js` 的机械锁判红）？实例（2026-10-15）：「+」新标签 3-4 秒才显示主页，根因是 element-plus 全量把 124 个组件打进 `index.js`/`index.css`（1.84 MB / 503 KB），而本仓只用 36 个；改按需后 1.33 MB / 300 KB，主页挂载 1960ms → 743ms。修法与契约锁见 `01-docs/BUGFIX-NEWTAB-HOME-SLOW-2026-10-15.md`。**注意**：全量/按需在源码层单测里完全等价（两者都让 `<el-button>` 正常渲染），因此这条只能靠产物级契约锁（`main.bundle-contract.test.js`）守，不能靠功能测试守。
+
+- **首屏渲染不得阻塞在 IPC 返回之后；慢而非必需的校验必须懒触发**：任何「每次进页面都会走」的首屏 `onMounted`，判据：① 静态区块（骨架/标题/入口）是否在 `nextTick` 就渲染，不等任何 IPC？② 相互独立的数据源是否并行（`Promise.allSettled`）而非串行 `await`？③ 单源失败是否只停对应区块、不扩散成整页报错？④ 「有问题才可见」的校验（如逐账号登录态批量检测，单账号最坏 60s 超时）是否被 `setTimeout(0)` 推到首帧之后，且组件卸载时 `clearTimeout`？实例（2026-10-15）：`Home.vue` 原为 `platformStore.load() → ensureLoaded() → refreshExpiredAccounts() → dashboardStats() → historyList()` 全串行，最坏耗时是各项之和。回归锁见 `src/views/Home.first-paint.test.js`（4 条）。
+
 - **require 路径**：每个 `require('../x')` / `require('./y')` 的解析目标文件是否真实存在
 
 - **preload sandbox 兼容**：修改 preload 后必须在 sandbox:true 和 sandbox:false 两种模式下验证 `window.electronAPI` 可用

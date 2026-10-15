@@ -2,28 +2,17 @@
   "sha": "8e9109a556630fb4d0ad0cb714f737191a4914cd",
   "layer": "diff",
   "mode": "dual",
-  "reason": "变更 95 行（≤ 200）但命中 auth/数据库/加密：敏感内容 4 处",
+  "reason": "变更 593 行 > 200 行阈值（对齐 §12.6 Red Team）",
   "stats": {
-    "changedLines": 95,
-    "fileCount": 3,
-    "codeFileCount": 2,
+    "changedLines": 593,
+    "fileCount": 14,
+    "codeFileCount": 8,
     "sensitivePathHits": [],
     "plannedPathHits": [],
-    "sensitiveContentHits": 4
+    "sensitiveContentHits": 1
   },
-  "stagedDiffHash": "60a962caaf3e948cd1cd601a1d529bcf88d0e2e0ae65e3712ba2a9009a78929e",
-  "decidedAt": "2026-10-15T04:07:25.939Z",
-  "reason": "变更 486 行 > 200 行阈值（对齐 §12.6 Red Team）",
-  "stats": {
-    "changedLines": 486,
-    "fileCount": 12,
-    "codeFileCount": 7,
-    "sensitivePathHits": [],
-    "plannedPathHits": [],
-    "sensitiveContentHits": 2
-  },
-  "stagedDiffHash": "c3c5b73333e6cb1a082e63b391ae6e11db83a587644d9b7629b1f6b13fb09a01",
-  "decidedAt": "2026-10-15T06:13:37.228Z",
+  "stagedDiffHash": "1fc55a0b737f4ee764e62da368af7a7ba59c2c6ecc6818dbb0da4e60cb64cbff",
+  "decidedAt": "2026-10-15T07:13:28.403Z",
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,

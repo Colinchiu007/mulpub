@@ -208,6 +208,9 @@ const stats = ref({ total: 0, success: 0, failed: 0, daily: [] })
 const accountCount = computed(() => accountStore.accounts.length)
 const recentItems = ref([])
 const statsLoaded = ref(false)
+// 懒触发的失效账号校验定时器句柄：卸载时清掉，避免离开首页后仍在跑
+// （用户已看不到横幅，跑了也白跑，还白占主进程的批量检测槽位）。
+let expiredBannerTimer = null
 
 /** 待办摘要：只展示有真实数据的项，全 0 显示鼓励语（PRD §5.2，禁止假数据） */
 const todoItems = computed(() => {
@@ -348,38 +351,97 @@ async function handleSaveAllUnsaved() {
   }
 }
 
-onMounted(async () => {
+/**
+ * 首屏数据装配（2026-10-15 fix-newtab-home-slow）
+ *
+ * 修复前是**串行** await 链：
+ *   platformStore.load() → accountStore.ensureLoaded() → refreshExpiredAccounts()
+ *   → dashboardStats() → historyList()
+ * 其中 refreshExpiredAccounts() 内部还要 accountStore.load() +
+ * accountBatchCheckLogin()，后者逐账号跑 checkLoginStatus（HTTP 请求，单账号
+ * 最坏 60s 硬超时）。整条链的最坏耗时 = 各项之和，直接表现为「+」新标签点下去
+ * 3-4 秒才看到主页。
+ *
+ * 修复后按「用户何时真正需要它」分三档：
+ *   ① 首帧必需：统计数字 + 近期动态（组件已渲染，只差数据）→ **并行**发起；
+ *   ② 账号数（overview 那一个数字）→ 并入并行批，不再单独 await；
+ *   ③ 失效账号横幅 → **完全不阻塞首屏**，等首帧稳定后再跑（懒触发）。
+ *     它是「有问题才出现」的提示，本就不该让所有用户为它付出等待。
+ *
+ * 容错口径：每个数据源独立 try/catch，任一失败只让对应区块停在默认值，
+ * 不互相拖累、不整页报错（首屏永远可见）。
+ */
+onMounted(() => {
   subscribeAutoRefresh()
-  try {
-    platformStore.load()
-    await accountStore.ensureLoaded()
-    await refreshExpiredAccounts()
-    const api = getApi()
-    if (api) {
-      // 发布统计与数据看板同源：dashboard:stats（publish-history JSONL 聚合）。
-      // SQLite publish_history 表已无生产写入方（store:add-publish-record 零调用），读它只会得到空值或迁移快照残留。
-      if (api.dashboardStats) {
-        const res = await api.dashboardStats()
-        if (res && res.code === 0 && res.data) {
-          stats.value = { total: res.data.total || 0, success: res.data.success || 0, failed: res.data.failed || 0, daily: Array.isArray(res.data.daily) ? res.data.daily : [] }
-        }
+
+  const api = getApi()
+
+  // ── ①+② 并行批：统计 / 近期动态 / 账号数 ──
+  // 无 electronAPI（纯浏览器调试/测试环境）时保持 statsLoaded=false 的原语义：
+  // 「没拿到数据」不等于「确认是 0」，此时不进入全 0 引导态，继续显示近期动态空态。
+  const loadStats = async () => {
+    if (!api || typeof api.dashboardStats !== 'function') return
+    try {
+      const res = await api.dashboardStats()
+      if (res && res.code === 0 && res.data) {
+        stats.value = { total: res.data.total || 0, success: res.data.success || 0, failed: res.data.failed || 0, daily: Array.isArray(res.data.daily) ? res.data.daily : [] }
       }
+    } catch (e) {
+      reportError('加载首页发布统计失败', e)
+    } finally {
       statsLoaded.value = true
-      if (api.historyList) {
-        const res = await api.historyList({ limit: 5, offset: 0 })
-        // history:list 合同为 { total, records }（与 Dashboard/Calendar 口径一致）；
-        // 旧判定 Array.isArray(res.data) 恒为 false，导致近期动态永远为空。
-        if (res && res.code === 0 && Array.isArray(res.data && res.data.records)) {
-          recentItems.value = res.data.records.slice(0, 5)
-        }
-      }
     }
-  } catch (e) {
-    reportError('加载首页数据失败', e)
   }
+
+  const loadRecent = async () => {
+    if (!api || typeof api.historyList !== 'function') return
+    try {
+      const res = await api.historyList({ limit: 5, offset: 0 })
+      // history:list 合同为 { total, records }（与 Dashboard/Calendar 口径一致）；
+      // 旧判定 Array.isArray(res.data) 恒为 false，导致近期动态永远为空。
+      if (res && res.code === 0 && Array.isArray(res.data && res.data.records)) {
+        recentItems.value = res.data.records.slice(0, 5)
+      }
+    } catch (e) {
+      reportError('加载首页近期动态失败', e)
+    }
+  }
+
+  const loadAccounts = async () => {
+    try {
+      await accountStore.ensureLoaded()
+    } catch (e) {
+      // 账号取数失败不影响统计/动态：accountCount 停在 0，
+      // 由账号页自己负责错误呈现（store 内已有 error/errorCode 状态）。
+      reportError('加载首页账号数失败', e)
+    }
+  }
+
+  const loadPlatforms = async () => {
+    try {
+      await platformStore.load()
+    } catch (e) {
+      // 平台元数据取数失败时 Home.vue 的 platforms computed 有硬编码回退清单
+      // （见上面 platforms 定义），界面不会空。
+      reportError('加载首页平台元数据失败', e)
+    }
+  }
+
+  // Promise.allSettled：单个 reject 不会让其他项被跳过，也不会漏出 unhandled rejection。
+  void Promise.allSettled([loadStats(), loadRecent(), loadAccounts(), loadPlatforms()])
+
+  // ── ③ 懒触发：失效账号校验（慢，且只在真有失效账号时才有可见产出）──
+  // 用 setTimeout(0) 把它推到首帧之后：Vue 已完成首次渲染、浏览器已把
+  // 静态区块画出来，此时再发起逐账号登录态校验，用户感知不到阻塞。
+  // 若用户立刻离开首页，onUnmounted 会清掉这个定时器（见下面 disposeExpiredBanner 旁）。
+  expiredBannerTimer = setTimeout(() => {
+    expiredBannerTimer = null
+    void refreshExpiredAccounts().catch((e) => reportError('刷新首页失效账号失败', e))
+  }, 0)
 })
 
 onUnmounted(() => {
+  if (expiredBannerTimer) { clearTimeout(expiredBannerTimer); expiredBannerTimer = null }
   disposeExpiredBanner()
 })
 </script>
