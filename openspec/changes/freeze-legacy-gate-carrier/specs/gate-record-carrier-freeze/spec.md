@@ -20,6 +20,12 @@
 - **WHEN** 提交只把某个既有记录块里的 `| 远程同步 | PENDING | … |` 改成 `PASS` + merge SHA，未增删任何块
 - **THEN** MUST NOT 报漂移。理由必须可验证：ledger 现存 25 条未收口欠账多为 2026-08 老记录、只存在于旧载体，封掉这条路等于把旧账永远钉红
 
+#### Scenario: 冻结判据按档落点
+
+- **WHEN** 同一次运行处于 `pull_request` 事件（GitHub 检出 `main ⊕ 本分支` 的合并预览，其中含主干在基线之后新增的记录块）
+- **THEN** 状态-等于-基线判据 MUST 降为可见项并说明"这不是有人违规"；MUST NOT 因上游新增块阻断该 PR
+- **AND** 处于 main push / dispatch 档时 MUST 按严格相等阻断；`--carrier-mode` 取非法值或裸旗标 MUST 当场抛错，**不得静默回落**
+
 #### Scenario: 净零漂移（加一块同时删一块）
 
 - **WHEN** 记录块条数不变但标题集合改变

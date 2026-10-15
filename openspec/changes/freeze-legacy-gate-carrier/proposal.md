@@ -46,6 +46,7 @@
 
 ## Impact
 
+- 修改（CI 实测后追加）：`.github/workflows/quality-gate.yml` 的 `changes` job 按事件名传 `--carrier-mode`——**本 PR 因此直接动了守门 workflow 本体**，更属必须人工过目那一类
 - 新增：`scripts/freeze-gate-carrier.js`（基线重算器）、`scripts/gate-carrier-freeze.json`（基线：607 个标题 + sha256，重取口径见 tasks 1.1）、本 change 工件、`openspec/records/freeze-legacy-gate-carrier.md`。
 - 修改：`scripts/check-gate-record-debt.js`（`carrierDrift` 判据 + 顶部规则移入可见面 + 旧 `❌ 最顶部…` 打印删除）、`scripts/check-gate-record-debt.test.js`（55 条：新增 6 条冻结用例，改写 2 条旧语义，真仓自检换成冻结自检）、`AGENTS.md`（追加小节 **+ 四处就地限定**：docs-only 精简模板、「回填与销账必须同一次提交」条款、合并后收尾清单第 3 步、QM-6 评审记录落点——这四处原文都在命令会话去写旧载体，不限定就成了"规范叫你去写、判据拦你别写"）、`openspec/changes/hot-carrier-atomic-landing/tasks.md`（把两档拦截判据标为不实现）、`.gitignore`（补 `!scripts/freeze-gate-carrier.js` 反选——第 106 行 `scripts/*.js` 会把新建脚本本体静默忽略，漏这条时 `git status` 里它根本不存在、本地在盘跑得通而 CI 看不见）。
 - **本 PR 自身即示范**：只写 `openspec/records/`，未触碰 `.quality-gates.md` 与 ledger（判据 `git diff --name-only` 可自证）。

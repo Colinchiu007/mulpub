@@ -273,8 +273,26 @@ test('真仓：旧载体必须等于冻结基线（这条是冻结判据的落�
   assert.ok(r.recordCount > 50, `识别到的执行记录数异常小：${r.recordCount}`)
   assert.ok(r.headingCount > 500,
     `冻结基线的规模下界不满足（实测 ${r.headingCount}）—— 识别退化会让"零漂移"变成假绿`)
-  assert.strictEqual(r.carrierDrift, null,
-    '真仓旧载体与冻结基线不一致：说明有人在旧载体上加/删了记录块，应改写 openspec/records/')
+  // 这条自检必须按档分判，否则它就是个写在今天、红在明天的引信：pull_request 事件里 GitHub 检出的是
+  // main⊕本分支的**合并预览**，主干每几分钟长一块，"状态等于基线"在 PR 档结构上必红（2026-10-16 实测
+  // run 38781654774 就是它先红）。PR 档改判"本分支自己没往旧载体加/删块"——那才是本 change 真正要守的东西。
+  const onPr = (process.env.GITHUB_EVENT_NAME || '') === 'pull_request'
+  if (onPr) {
+    const d = r.carrierDrift
+    if (d) {
+      assert.strictEqual(d.removed.length, 0,
+        'PR 档允许上游新增块，但绝不允许本 PR 删掉任何一块（删块＝搬走存档）')
+      assert.ok(!d.added.some((t) => /freeze-legacy-gate-carrier/.test(t)),
+        '本 PR 自己的记录块出现在旧载体里 ⇒ 违反了本 change 的规矩，应改写 openspec/records/')
+      console.log('[carrier-selfcheck] branch=PR可见档 removed=0 自己的slug未进旧载体 added=' + d.added.length)
+    } else {
+      console.log('[carrier-selfcheck] branch=PR可见档 drift=null')
+    }
+  } else {
+    assert.strictEqual(r.carrierDrift, null,
+      '真仓旧载体与冻结基线不一致（main/本地档）：说明有人在旧载体上加/删了记录块，应改写 openspec/records/；确属有意变更存档面 → 人工跑 node scripts/freeze-gate-carrier.js 重取')
+    console.log('[carrier-selfcheck] branch=严格档 headingCount=' + r.headingCount + ' drift=null')
+  }
 })
 
 // ---- 旧载体冻结锁（change: freeze-legacy-gate-carrier）----
@@ -848,4 +866,41 @@ test('冻结基线自身不一致（headings 长度 != headingCount）必须抛�
   // 把它一并禁掉会让 6 条冻结用例集体红，那是把锁焊在实现细节上，不是守门）
   write({ headingSha256: 'a'.repeat(64), headingCount: 2 })
   assert.strictEqual(checker.loadCarrierFreeze(file).headings, undefined)
+})
+test('carrier-mode：visible 档只可见不阻断，block 档照拦，非法取值必须抛错', () => {
+  // 这条锁守的是"锁装在哪一档"本身：PR 档（visible）里上游新增块必然让状态不等于基线，
+  // 若它仍阻断，本门禁就变成"每个 PR 都红"的常量红；若实现退化成两档都不拦，冻结就没了牙。
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-mode-'))
+  const lines = []
+  lines.push('## 本次执行记录：最新（m-newest，2026-09-28）')
+  lines.push('')
+  lines.push('| 门禁 | 状态 | Fresh 证据 |')
+  lines.push('|------|------|-----------|')
+  lines.push('| 远程同步 | PASS | PR #9101 合并 |')
+  lines.push('')
+  fs.writeFileSync(path.join(dir, '.quality-gates.md'), lines.join('\n'), 'utf8')
+  fs.mkdirSync(path.join(dir, 'openspec', 'records'), { recursive: true })
+
+  const base = checker.carrierSignature(['别的块'])
+  const driftFreeze = { headingCount: base.count, headingSha256: base.sha256, titles: base.titles }
+  const r = checker.collect({ root: dir, ledger: {}, carrierFreeze: driftFreeze })
+  assert.ok(r.carrierDrift, '夹具必须真的构成漂移，否则下面两句是同形真')
+
+  // 两档的差别必须可判：block 拦、visible 不拦
+  assert.strictEqual(checker.hasBlocking(r, { carrierVisible: false }), true, 'block 档必须拦')
+  assert.strictEqual(checker.hasBlocking(r, { carrierVisible: true }), false, 'visible 档不得拦')
+  // 不拦不等于不说：可见项必须出现，且不得再以 ❌ 形态出现
+  assert.match(checker.format(r, { carrierBlocking: false }), /可见项，PR 档不拦/)
+  assert.match(checker.format(r, { carrierBlocking: true }), /^❌ 旧载体冻结被破坏/m)
+
+  // 默认参数不得被改掉：老测试与 main 之外任何调用点都按"拦"理解
+  assert.strictEqual(checker.hasBlocking(r), true, 'hasBlocking 默认必须仍拦')
+
+  // 旗标解析：缺省=block，两种合法值各自生效，非法值与"看起来像但不等于"的写法一律抛错
+  assert.strictEqual(checker.parseCarrierMode([]), 'block')
+  assert.strictEqual(checker.parseCarrierMode(['--carrier-mode=visible']), 'visible')
+  assert.strictEqual(checker.parseCarrierMode(['--carrier-mode=block']), 'block')
+  for (const bad of ['--carrier-mode=visbile', '--carrier-mode=', '--carrier-mode=SKIP', '--carrier-mode']) {
+    assert.throws(() => checker.parseCarrierMode([bad]), /carrier-mode/, `非法取值未抛错：${bad}`)
+  }
 })

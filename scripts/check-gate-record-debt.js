@@ -445,7 +445,7 @@ function collect({ root = process.cwd(), ledger = loadLedger(), duplicatesAllowe
   }
 }
 
-function format(r) {
+function format(r, opt = {}) {
   const out = []
   out.push(`远程同步行 ${r.rowCount} 条 / 执行记录 ${r.recordCount} 篇（全部 ## 标题 ${r.headingCount} 个）/ 已登记欠账 ${r.registered.length} 条 / 记录文件 ${r.recordsFromFiles} 篇（两源分列，不可合并成一个趋势数）`)
   out.push(`（可见项，不拦截：其中 ${r.recordsWithoutRow.length} 篇执行记录整块没有 远程同步 行，属历史缺口）`)
@@ -514,7 +514,9 @@ function format(r) {
   }
   if (r.carrierDrift) {
     const d = r.carrierDrift
-    out.push('❌ 旧载体冻结被破坏：.quality-gates.md 的记录块集合不再等于冻结基线（新 PR 只允许写 openspec/records/，旧载体只许就地关闭已有行，不许加块/删块）')
+    out.push(opt.carrierBlocking === false
+      ? '（可见项，PR 档不拦）旧载体与冻结基线不一致：PR 检出的是 main⊕本分支的合并预览，上游新增块必然不在基线里 —— 这不是有人违规；合并后由收口会话在 main 档重取基线（读数演进见 openspec/changes/freeze-legacy-gate-carrier/tasks.md 1.1）'
+      : '❌ 旧载体冻结被破坏：.quality-gates.md 的记录块集合不再等于冻结基线（新 PR 只允许写 openspec/records/，旧载体只许就地关闭已有行，不许加块/删块）')
     out.push(`   基线 条数=${d.countBefore} sha=${d.shaBefore}…  现状 条数=${d.countAfter} sha=${d.shaAfter}…`)
     if (d.added.length) {
       out.push(`   新增块 ${d.added.length} 个：`)
@@ -537,21 +539,42 @@ function format(r) {
 }
 
 // main 与测试共用这一条谓词：判据若被降级成「只打印」，hasBlocking 断言会当场变红。
-function hasBlocking(r) {
+function hasBlocking(r, opt = {}) {
   // 顶部记录带行已从拦截面**移入可见面**：那条规则唯一作用是"用位置猜哪篇最新"，而记录文件源
   // 有逐篇硬判据（missingRecordRows 在拦截面里），位置猜测不再必要。留它会继续逼每个会话去挤
   // 那个所有会话共用的大文件 —— 而那正是本判据要消灭的丢工窗口。
   return !!(r.open.length || r.stale.length || r.duplicates.length
     || r.missingRecordRows.length || r.staleRecordFields.length || r.statusContradictions.length
-    || r.crossSrcViolations.length || r.crossSrcStaleAck.length || r.carrierDrift)
+    || r.crossSrcViolations.length || r.crossSrcStaleAck.length
+    // carrierVisible：PR 档把冻结降成可见项。动因是 2026-10-16 实测 CI —— pull_request 事件检出的是
+    // main⊕本分支的合并预览，主干每几分钟长一块，"状态等于冻结基线"在 PR 档结构上必红（写在今天、
+    // 红在明天的引信）。main 档仍拦，所以这条不是把锁拆松，是把锁装回它真能成立的那一档。
+    || (!opt.carrierVisible && r.carrierDrift))
+}
+
+// --carrier-mode=block|visible，默认 block。非法取值一律抛错走"自身故障"档：
+// 把拼错的旗标静默当成某一档，等于让守门随命令行抖动而变（同「参数不得静默忽略」那条）。
+function parseCarrierMode(argv) {
+  const hit = argv.find((a) => a === '--carrier-mode' || a.startsWith('--carrier-mode='))
+  if (!hit) return 'block'
+  if (!hit.includes('=')) {
+    throw new Error('--carrier-mode 必须写成 --carrier-mode=block|visible（裸旗标会被静默忽略，等于守门随命令行抖动）')
+  }
+  const raw = hit
+  const v = raw.slice('--carrier-mode='.length)
+  if (v !== 'block' && v !== 'visible') {
+    throw new Error(`--carrier-mode 只认 block|visible，收到：${v}`)
+  }
+  return v
 }
 
 function main() {
   const root = path.resolve(__dirname, '..')
   // 冻结基线只在 CLI 侧读生产文件；collect() 保持可注入，避免测试静流量到真仓基线。
+  const mode = parseCarrierMode(process.argv.slice(2))
   const r = collect({ root, carrierFreeze: loadCarrierFreeze() })
-  console.log(format(r))
-  if (hasBlocking(r)) process.exit(1)
+  console.log(format(r, { carrierBlocking: mode === "block" }))
+  if (hasBlocking(r, { carrierVisible: mode === "visible" })) process.exit(1)
 }
 
 module.exports = {
@@ -561,7 +584,7 @@ module.exports = {
   CROSS_SLUG_RE, CROSS_BACKFILL_RE, CROSS_SRC_ALLOWED,
   RECORDS_REL, RECORD_FIELD_REASON, RECORD_FIELD_OWNER, RECORD_FIELD_STATUS,
   GATE_FILE, LEDGER_FILE, DUPLICATE_HEADINGS_ALLOWED, HEADING_RE, headingTitle,
-  CARRIER_FREEZE_FILE, loadCarrierFreeze, carrierSignature,
+  CARRIER_FREEZE_FILE, loadCarrierFreeze, carrierSignature, parseCarrierMode,
 }
 
 if (require.main === module) main()
