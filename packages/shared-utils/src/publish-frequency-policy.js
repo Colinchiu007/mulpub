@@ -144,6 +144,50 @@ function isKnownPlatform (platform) {
   return typeof platform === 'string' && Object.prototype.hasOwnProperty.call(PLATFORM_FREQUENCY_POLICY, platform)
 }
 
+/**
+ * 回落基线不得弱于任何已登记平台 —— **运行期**自检（QM-6 后端轴 C1/W1）。
+ *
+ * 为什么还要一道运行期的：`BASELINE_INTERVALS` 刻意不从 `TIER_PRESETS` 派生（回落必须是
+ * "人为想清楚过的最严值"），于是"改档忘改基线"只能靠测试发现 —— 测试一旦被绕过
+ * （跳过、--no-verify、只跑子集）语义就静默反转。这里把同一判据在模块加载时再跑一遍并**出声**。
+ * 只出声不抛错：抛错会让整条发布链起不来，而这属于"配置写错"级别，不是"安全门失效"级别。
+ *
+ * 表可由参数注入 ⇒ "基线被调宽"这一格在测试里可表示（默认读真实表，不造第二份判据）。
+ * @param {{warn?: (msg: string) => void, policyTable?: object, baseline?: object}} [options]
+ * @returns {string[]} 违规描述数组（空＝通过）
+ */
+function checkBaselineStrength (options = {}) {
+  const warn = typeof options.warn === 'function' ? options.warn : (msg) => console.warn(msg)
+  const table = options.policyTable || PLATFORM_FREQUENCY_POLICY
+  const baseline = options.baseline || BASELINE_INTERVALS
+  const platforms = Object.keys(table)
+
+  if (platforms.length === 0) {
+    // 空表会让"零个违规"读起来像通过 —— 自检必须报告自己没测到东西
+    warn('[PublishFrequency] 策略表为空，回落基线无法比对（本次自检未生效）')
+    return ['策略表为空，自检未生效']
+  }
+
+  const problems = []
+  for (const key of ['accountMinMs', 'platformMinMs']) {
+    const maxRegistered = Math.max(...platforms.map((p) => Number(table[p][key]) || 0))
+    if (!(Number(baseline[key]) >= maxRegistered)) {
+      problems.push(`${key} 基线 ${baseline[key]} < 已登记最大 ${maxRegistered}`)
+    }
+  }
+  // 配额维度的"更严"是**更小**（与间隔维度方向相反），所以比的是下界
+  const minDaily = Math.min(...platforms.map((p) => Number(table[p].accountDailyMax) || 0))
+  if (!(Number(baseline.accountDailyMax) <= minDaily)) {
+    problems.push(`accountDailyMax 基线 ${baseline.accountDailyMax} > 已登记最小 ${minDaily}`)
+  }
+
+  if (problems.length) warn(`[PublishFrequency] 回落基线弱于已登记平台：${problems.join('；')}`)
+  return problems
+}
+
+// 加载即自检：正常配置下静默；只在"改了档位忘了改基线"时出声一次
+checkBaselineStrength()
+
 function warnSink (options) {
   return typeof options.warn === 'function' ? options.warn : (msg) => console.warn(msg)
 }
@@ -399,6 +443,7 @@ module.exports = {
   resolveEmergencyMaxPerDay,
   resolvePolicyOverrides,
   isKnownPlatform,
+  checkBaselineStrength,
   parseEnvNumber,
   PLATFORM_FREQUENCY_POLICY,
   BASELINE_INTERVALS,

@@ -1,4 +1,4 @@
-/* v4 变异反证驱动（照 mutate-freq-v3-b.js 的已验证语义重写）
+/* v4 变异反证驱动（照 mutate-freq-v3-b.js 的已验证语义重写；N1–N6 数值面，N7–N10 QM-6 采纳项）
  * 每条：锚点命中=1 → 落盘 → 跑目标测试 → 记录指名红 → 还原 → Buffer.equals 逐字节校验。
  * 用法：node .ccg/reviews/freq-v4-mutate.driver.js   （从仓库内任意 cwd 皆可，路径由 __dirname 推导）
  */
@@ -13,6 +13,9 @@ const T_POLICY = 'tests/publish-frequency-policy.test.js'
 const T_GUARD = 'tests/publish-interval-guard.test.js'
 const P_POLICY = 'packages/shared-utils/src/publish-frequency-policy.js'
 const P_GUARD = 'packages/shared-utils/src/publish-interval-guard.js'
+const LF = String.fromCharCode(10)
+const T_DTS = 'src/__tests__/frequency-declaration-contract.test.js'
+const P_DTS = 'packages/shared-utils/index.d.ts'
 
 function withFileEol (text, buf) {
   const crlf = buf.toString('utf8').split('\r\n').length > 1
@@ -68,6 +71,28 @@ const MUTS = [
       [P_POLICY, CLIP, CLIP.replace('platformMinMs: 1 * MIN', 'platformMinMs: 0')],
       [P_POLICY, SHORT, SHORT.replace('platformMinMs: 1 * MIN', 'platformMinMs: 0')]],
     expectRed: ['v4：平台间隔三档统一 1′', '三组代表平台逐档精确等于策略表'] },
+  { id: 'N7', files: [T_GUARD],
+    why: '拆掉回滚许可的地板 max(2, …)（QM-6 后端轴 C2：v4 数值下该分支永不生效，无人测过）',
+    edits: [[P_GUARD, 'return Math.min(Math.max(2, accountDailyMax), MAX_ROLLBACK_PER_DAY)', 'return Math.min(accountDailyMax, MAX_ROLLBACK_PER_DAY)']],
+    expectRed: ['回滚许可的**地板** 2 必须被真实测到'] },
+  { id: 'N8', files: [T_POLICY],
+    why: '摘掉模块加载时的基线自检调用（判据函数仍有测试，但运行期守护消失）',
+    edits: [[P_POLICY, LF + 'checkBaselineStrength()' + LF, LF + 'checkBaselineStrength /** 反证 N8：加载调用被摘掉 */' + LF]],
+    expectRed: ['回落基线强度运行期自检'] },
+  { id: 'N9a', files: [T_POLICY],
+    why: '归属错档：zhihu 由 long 挪到 clip（标签变了、档位数值没变）—— 只有归属锁该红；逐平台数值交叉锁不该红（zhihu 仍等于它自己档位的代表平台），第一版把它写进期望是错的',
+    edits: [[P_POLICY, '  zhihu: TIER_LONG,', '  zhihu: TIER_CLIP,']],
+    expectRed: ['平台 → 档位归属逐平台钉住'] },
+  { id: 'N9b', files: [T_POLICY],
+    why: '派生表被局部篡改：构建时给 zhihu 换成 clip 的预设但 tier 标签仍写 long —— 这才测「某平台与自身档位数值不一致」（归属锁该保持绿）',
+    edits: [[P_POLICY,
+      '      Object.freeze({ tier, ...TIER_PRESETS[tier] }),',
+      '      Object.freeze({ tier, ...(platform === \'zhihu\' ? TIER_PRESETS[TIER_CLIP] : TIER_PRESETS[tier]) }),']],
+    expectRed: ['逐平台数值必须等于其档位代表平台的数值'] },
+  { id: 'N10', files: [T_DTS],
+    why: '新增导出忘记在 index.d.ts 声明（枚举式声明契约锁必须有牙）',
+    edits: [[P_DTS, 'checkBaselineStrength(options?: {', 'checkBaselineStrengthX(options?: {']],
+    expectRed: ['策略模块的每一个公开导出都必须在 d.ts 里声明'] },
 ]
 
 const touched = [...new Set(MUTS.flatMap((m) => m.edits.map((e) => e[0])))]

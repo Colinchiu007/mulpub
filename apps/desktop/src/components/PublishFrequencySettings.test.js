@@ -62,7 +62,7 @@ async function mountPage () {
   return wrapper
 }
 
-describe('PublishFrequencySettings（publish-frequency-policy-v2 设置页）', () => {
+describe('PublishFrequencySettings（发布频率设置页；刻意不带档位版本号，避免每版都留一个过期索引名）', () => {
   beforeEach(() => {
     i18n.global.locale.value = 'zh'
     api.getPublishFrequencyPolicy.mockReset().mockResolvedValue(POLICY_RES)

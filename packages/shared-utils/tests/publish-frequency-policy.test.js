@@ -17,6 +17,7 @@ const {
   resolveEmergencyMaxPerDay,
   resolvePolicyOverrides,
   isKnownPlatform,
+  checkBaselineStrength,
   BASELINE_INTERVALS,
   PLATFORM_FREQUENCY_POLICY,
   SUPPORTED_PLATFORMS,
@@ -183,6 +184,64 @@ describe('publish-frequency-policy v3', () => {
       for (const [platform, p] of Object.entries(PLATFORM_FREQUENCY_POLICY)) {
         expect(p.platformMinMs, `${platform}`).toBeLessThanOrEqual(p.accountMinMs)
       }
+    })
+
+    it('逐平台数值必须等于其档位代表平台的数值（QM-6 后端轴 W2：不得只有代表平台被断言）', () => {
+      // 既有锁的形态是"三个代表平台精确值" + "byTier 按档聚合取**最后一个**平台的值"，
+      // 于是"15 个非代表平台里某一个与同档别人不一样"这类错值可以全程绿。
+      // 正解是按归属表逐平台比到同档代表平台 —— 派生表被局部篡改时当场红。
+      const REPRESENTATIVE = { long: 'wechat_mp', clip: 'douyin', short: 'weibo' }
+      const rep = {}
+      for (const [tier, platform] of Object.entries(REPRESENTATIVE)) {
+        rep[tier] = resolveIntervals(platform, { env: {} })
+      }
+      let compared = 0
+      for (const platform of SUPPORTED_PLATFORMS) {
+        const r = resolveIntervals(platform, { env: {} })
+        const expectSame = rep[r.tier]
+        expect(expectSame, `${platform} 所属档 ${r.tier} 必须有代表平台`).toBeTruthy()
+        for (const key of ['accountMinMs', 'platformMinMs', 'accountDailyMax']) {
+          expect(r[key], `${platform}.${key} 应等于 ${r.tier} 档代表平台`).toBe(expectSame[key])
+        }
+        compared++
+      }
+      // 规模下界：解析退化（表空/字段丢）会让"零个不一致"读起来像通过
+      expect(compared).toBe(15)
+    })
+
+    it('回落基线强度运行期自检：正常配置静默、被调宽时出声且不抛错（QM-6 后端轴 C1/W1）', () => {
+      // 判据本体在模块内，加载时已跑过一次；这里用注入表把"改档忘改基线"那一格表示出来。
+      // 刻意只 warn 不抛：抛错会让整条发布链起不来，而这属于"配置写错"级别。
+      const real = []
+      expect(checkBaselineStrength({ warn: (m) => real.push(m) })).toEqual([])
+      expect(real).toEqual([])
+
+      // ① 基线配额比最严平台还宽
+      const wide = []
+      expect(checkBaselineStrength({
+        warn: (m) => wide.push(m),
+        baseline: { tier: 'long', accountMinMs: 5 * MIN, platformMinMs: 1 * MIN, accountDailyMax: 600 },
+      })).toHaveLength(1)
+      expect(wide[0]).toContain('accountDailyMax')
+
+      // ② 基线间隔比最宽平台还短（方向与配额相反，两个维度都要各自被咬到）
+      const short = []
+      expect(checkBaselineStrength({
+        warn: (m) => short.push(m),
+        baseline: { tier: 'long', accountMinMs: 30 * 1000, platformMinMs: 1 * MIN, accountDailyMax: 200 },
+      })).toHaveLength(1)
+      expect(short[0]).toContain('accountMinMs')
+
+      // ③ 表为空时必须报告"自检未生效"，不得把"没找到违规"当成通过（观察者要报告自己的失明）
+      const blind = []
+      expect(checkBaselineStrength({ warn: (m) => blind.push(m), policyTable: {} })).toHaveLength(1)
+      expect(blind[0]).toContain('自检未生效')
+
+      // 加载即跑这件事本身也要有锁：删掉模块里的顶层 `checkBaselineStrength()` 调用后，
+      // 上面几条判据照样全绿（它们是自己手动调的），运行期守护却已经消失 —— 这是装饰性门禁的
+      // 第三种形态："函数有测试"不等于"生产路径真的调了它"。
+      const src = require('fs').readFileSync(require.resolve('../src/publish-frequency-policy'), 'utf8')
+      expect(src).toMatch(/\r?\ncheckBaselineStrength\(\)/)
     })
   })
 

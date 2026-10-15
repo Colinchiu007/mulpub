@@ -530,6 +530,20 @@ describe('PublishIntervalGuard v2', () => {
       expect(PublishIntervalGuard.MAX_ROLLBACK_PER_DAY).toBe(5)
     })
 
+    test('回滚许可的**地板** 2 必须被真实测到（QM-6 后端轴 C2：无人测过的分支会被静默删掉）', () => {
+      // `_rollbackCap = min(max(2, dailyMax), 5)` 的中段 `max(2, …)` 在 v4 三档（200/350/500）下
+      // 永不生效，而既有两条锁分别用 dailyMax=3 与 =200 —— **两式同值**，把它删了照样全绿。
+      // 只有把 dailyMax 压到 <2 才看得出地板在不在。这里逐格钉：0/1 都得回 2，2 仍是 2。
+      const capFor = (dailyMax) => exactGuard({
+        policy: () => ({ accountMinMs: 0, platformMinMs: 0, accountDailyMax: dailyMax }),
+      })._rollbackCap('weibo')
+      expect(capFor(0), 'dailyMax=0（配额关闭）时仍有 2 次许可，不因配额归零而失去退避保护').toBe(2)
+      expect(capFor(1), 'dailyMax=1 时地板 2 生效（这条正是"删掉 max(2,…) 无人发现"的那一格）').toBe(2)
+      expect(capFor(2)).toBe(2)
+      // 反向钉：地板之上、封顶之下按 dailyMax 取值（删掉 min(...) 也会被这条咬到）
+      expect(capFor(3)).toBe(3)
+    })
+
     test('_intervals 必须回传 tier —— 设置页按档位分组显示（QM-6 前端轴 C2）', () => {
       // 现场缺陷：`ipc-handlers/publish-frequency.js` 把 `_intervals(p)` 的返回原样发给渲染层，
       // 而 `PublishFrequencySettings.vue::currentTierText` 读 `v.tier` 拼文案。
