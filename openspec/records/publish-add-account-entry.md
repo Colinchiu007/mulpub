@@ -1,8 +1,5 @@
 ---
 record: publish-add-account-entry
-sync_status: PENDING
-sync_reason: 本 PR 合并前无法取证 merge SHA；由下一个会话按 PASS 口径就地回填，并同次删除本三字段
-sync_backfill_owner: 下一个会话（docs-only 回填 PR）
 ---
 
 # 执行记录：发布页「请先添加账号」补上「添加」与「点击刷新」出口
@@ -107,7 +104,10 @@ PRD 初版写「CI 空 profile ⇒ 每平台都是空态 ⇒ 新增 DOM 必改�
 
 ## 八、远程同步
 
-| 远程同步 | PENDING | 见 frontmatter `sync_reason`；合并后由下一个会话按 PASS 口径回填 merge SHA，并在同一次提交删除三字段 |
+| 远程同步 | PASS | #3627 squash 合并 merge SHA `df0a7402e68fcde0ce938eb87c0dc38ff80eeb2e`（2026-10-15T17:30:52+08:00）；远端分支 `publish-add-account` 已删（`git ls-remote --heads origin publish-add-account` 0 行）；frontmatter 的 `sync_*` 三字段已在**同一次提交**删除 |
 
-**关于载体的纪律**：本 PR **刻意不把质量记录写进 `.quality-gates.md`**（那是全体会话的共同追加热点，混合 PR 带它必冲突，见 `01-docs/learnings.md`「混合 PR 的结构性活锁」）。本文件自带的 frontmatter 三字段即满足 `check-gate-record-debt` 的登记判据；`.quality-gates.md` 的本刀块由随后的 docs-only 回填 PR 落地。
+**关于载体的纪律**：本 PR **刻意不把质量记录写进 `.quality-gates.md`**（那是全体会话的共同追加热点，混合 PR 带它必冲突，见 `01-docs/learnings.md`「混合 PR 的结构性活锁」）。本文件自带的 frontmatter 三字段即满足 `check-gate-record-debt` 的登记判据；`.quality-gates.md` 的本刀块由**本次 docs-only 回填 PR** 落地（按「状态列只写当下状态」，该块直接写最终 PASS 形态）。
+
+**本次回填与销账同一次提交**：① `.quality-gates.md` 新增本体 QG 块（40 行纯追加、0 删除）；② 本文件 frontmatter 删三字段 + 本行 PENDING→PASS。因落地时已是 PASS 形态，**本体不产生 `gate-record-debt-ledger.json` 登记项**（登记只服务未收口状态）。
+
 
