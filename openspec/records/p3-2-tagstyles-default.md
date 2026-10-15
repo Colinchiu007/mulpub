@@ -206,11 +206,38 @@ node "C:\Users\邱领\.claude\skills\ccg\run_skill.js" verify-security <file>
 
 **⇒ 两条都不阻断（`verify-quality` 仅告警；`verify-security` 严重/高危为 0）。**
 
-**★ 但这里有一个**未闭合的缺口**：`ccg-review-decider` 的**审查模式判定**（dual / single / skip）
-仍然只对「暂存区」有效，改动提交后无法补判。本 PR 应按 `dual` 还是 `single` 走，
-**目前没有可复现的判定记录**。按规则反推：源码变更 114 行（≤ 200）且未命中
-auth/数据库/加密路径 ⇒ 应为 `single`（§12.6 常规专家分派）。
-**该反推未经脚本确认，故在残余里登记，不冒充已跑。**
+### ★ 顺带发现：`ccg-review-decider` 自身有一个假阳性（本 PR 不修，仅登记）
+
+后续提交时钩子跑出了判定记录，`mode=dual`：
+
+```json
+{ "mode": "dual",
+  "reason": "变更 0 行（≤ 200）但命中 auth/数据库/加密：敏感内容 1 处",
+  "stats": { "changedLines": 0, "codeFileCount": 0, "sensitiveContentHits": 1 },
+  "deepReview": { "required": true, "status": "pending", "performedBy": null } }
+```
+
+**逐条复测：我的真实 diff（`scripts/` 两个文件，+109 行）对 5 条 `sensitiveContents`
+正则**零命中**。**
+
+**⇒ 那 1 处命中来自 `staged.changedLines` 里的 `.md` 文档行** ——
+我写的记录正文含「加密 / 口令 / 鉴权」等**分析文字**，命中了中文敏感词正则。
+
+**⇒ 根因（`scripts/ccg-review-decider.js`）：**
+
+```js
+const pathHits = codeFiles.map(...)...        // L215  只用 codeFiles ✅
+const contentHits = staged.changedLines.filter(...)   // L228  用了全部暂存行 ❌
+```
+
+**`pathHits` 按 `codeFiles` 过滤，`contentHits` 却跑在「全部暂存行」上（含文档）——
+两个口径不一致。** 于是「在文档里分析加密机制」会被判成「改动涉及加密」。
+
+**⇒ 后果**：`deepReview.required=true` 被置起但无人执行（`status=pending`），
+既浪费一次深度审查的名目，也让 `dual` 这个信号失去可信度。
+
+**⇒ 本 PR 不修 CCG**（范围外，且改判据要先与 owner 确认口径），
+**仅在此登记为待修缺陷。**
 
 ## 残余（未含，不假装闭合）
 
@@ -220,4 +247,5 @@ auth/数据库/加密路径 ⇒ 应为 `single`（§12.6 常规专家分派）�
 | **C** | 判据 ⑩（`formatArticleBody`）| 仍未裁定 |
 | **E** | 判据 ⑪（测试覆盖）| 仍欠账 |
 | **CCG-decider** | 审查模式判定（dual/single/skip）只读暂存区 ⇒ 改动提交后**无法补判** | 已补跑 `verify-quality` + `verify-security` 两个 gate；**模式判定未跑**，按规则反推应为 `single` 但**未经脚本确认**，故在此登记 |
+| **CCG-decider 假阳性** | `contentHits` 跑在「全部暂存行」（含 `.md`）而非 `codeFiles`，与 `pathHits` 口径不一致 ⇒ 文档里写「加密/口令」会被判成「改动涉及加密」 | **本 PR 不修**（范围外，需 owner 定口径）；已登记，见上节 |
 | 新 | `TAG_STYLES` 里的 `tengxun_shipin` / `pipixia` / `xigua` 等 6 个非 config 平台键 | **本 PR 不动**（属另一套命名体系，清理需 owner 确认口径）|
