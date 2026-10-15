@@ -1,13 +1,12 @@
 """User feedback ingest and admin inspection APIs."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
-from middleware.auth import require_admin
-from routers.diagnostics import _require_catalog_key
+from middleware.auth import require_admin, require_catalog_key
 from services import feedback_service
 
 router = APIRouter(tags=["feedback"])
@@ -15,15 +14,20 @@ router = APIRouter(tags=["feedback"])
 
 @router.post("/api/v1/feedback")
 async def ingest_feedback(
-    request: Request,
     message: str = Form(...),
     client_id: str = Form(""),
     app_version: str = Form(""),
     platform: str = Form(""),
     log_archive: UploadFile | None = File(None),
     db: AsyncSession = Depends(get_db),
+    _key: None = Depends(require_catalog_key),
 ):
-    _require_catalog_key(request)
+    """桌面端用户反馈上报（X-Catalog-Key 鉴权，无需登录）。
+
+    2026-10-15：鉴权由函数体内的 `_require_catalog_key(request)` 改为依赖声明。
+    该守卫此前是**从 `routers/diagnostics` 跨模块 import 的私有名**，现已上收到
+    `middleware/auth.py` 的 `require_catalog_key`（唯一实现）。
+    """
     try:
         return await feedback_service.create_feedback(
             db,

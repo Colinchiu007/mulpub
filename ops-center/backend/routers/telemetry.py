@@ -8,7 +8,7 @@
 
 所以本模块只负责「客户端侧断连的影响面统计」，不承担「服务端自身可用性告警」。
 """
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
@@ -19,19 +19,18 @@ from services.logto_verifier import verify_bearer_or_catalog_key
 router = APIRouter(tags=["telemetry"])
 
 
-async def _require_client_key(request: Request) -> None:
-    """Accept Bearer JWT (Logto) OR X-Catalog-Key（与 runtime/bootstrap 同款）。"""
-    await verify_bearer_or_catalog_key(request)
-
-
 @router.post("/api/v1/telemetry/degradation")
 async def post_degradation(
-    request: Request,
     body: dict,
     db: AsyncSession = Depends(get_db),
+    _key: None = Depends(verify_bearer_or_catalog_key),
 ):
-    """客户端上报一轮断连降级事件。"""
-    await _require_client_key(request)
+    """客户端上报一轮断连降级事件。
+
+    2026-10-15（auth-single-source）：鉴权由本模块私有的 `_require_client_key(request)`
+    改为依赖声明 `Depends(verify_bearer_or_catalog_key)`（原包装只是它的同义转发，
+    且名字与别处的 `_require_catalog_key` 近名不同义）。语义不变：Bearer 优先，或静态 key。
+    """
     try:
         return await resilience_service.record_degradation_event(db, body)
     except ValueError as e:
