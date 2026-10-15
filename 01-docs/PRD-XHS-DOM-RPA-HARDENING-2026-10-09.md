@@ -130,8 +130,6 @@ DRAFT_SAVE_RESPONSE_PATTERNS: list[str] = ["/web_api/sns/v2/note"]
   `test_visible_hosts_beyond_scan_limit_are_not_read`。
 - 判定记录：i1、i2 均 `upheld`（含 prosecution/defense/rationale 三列，可复核）。
 
-=======
->>>>>>> fef47eb7e (fix(xhs-dom): 落地 CCG 深评五项（风控可见性硬前提 / 等待上限回归 / 守卫解耦 / CI 纳管）)
 ## 4d. Python 轨认证已被策略硬阻（2026-10-09 用户实跑暴露）
 
 用户按 §6 运行探针，崩溃于 `legacy_auth_policy.require_legacy_plaintext_auth()`：
@@ -732,7 +730,6 @@ i4（基线轮询最坏多花 30s）与 i5（判据证据强度仍是 n=1）判�
 扫描上限）、M16（删掉截断留痕）、M17（上限不走常量）、M18（回查告警退回 debug）各**恰好红于**
 对应用例。全部 CAUGHT，还原后 `59 passed`、RESTORE_CHECK CLEAN。
 
->>>>>>> f961a8015 (fix(xhs-rpa): 兜底标题扫描补成本闸与截断留痕，回查失败升到 warning)
 ## 5. 剩余工作（必须完成才算验收）
 
 | 项 | 状态 | 阻塞 |

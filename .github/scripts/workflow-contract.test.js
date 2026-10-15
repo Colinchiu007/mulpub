@@ -325,7 +325,9 @@ test('Agent Judge 在 Windows 下使用 PowerShell 参数数组，并将无模�
   assert.match(workflow, /mtime >= reportStart/);
 });
 
-test('自主覆盖审计仅在确认是无模型 NEED_HUMAN 报告时降级为告警', () => {
+// 标题原为「仅在确认是无模型 NEED_HUMAN 报告时降级为告警」。2026-10-15 起还有第二条
+// 降级路径（与本 PR 无归属关系的存量覆盖 FAIL），「仅」字因此变成假的，按实改写。
+test('自主覆盖审计的两条降级路径都必须显式命名并各自接线，不得由 overall 泛化', () => {
   const workflow = fs.readFileSync(qualityGatePath, 'utf8');
   const gate9 = workflow.match(/- name: "Gate 9 - Autonomous coverage audit"[\s\S]*?(?=\n      - name: "Upload GUI quality artifacts")/)?.[0];
 
@@ -354,6 +356,23 @@ test('自主覆盖审计仅在确认是无模型 NEED_HUMAN 报告时降级为�
   assert.match(gate9, /AUTONOMOUS_VERDICT_NOTE=\$verdictNote/);
   assert.doesNotMatch(gate9, /Get-ChildItem|ConvertFrom-Json/);
   assert.match(workflow, /agent-review-gate\.test\.js/);
+
+  // ── 归属判据的接线（2026-10-15）──────────────────────────────────────────
+  // 门禁要区分「全仓存量欠账」与「本 PR 声称实现却没实现」，输入就是 PR 正文里的 feat_ 清单。
+  // 只喂审计器、不喂门禁 ⇒ 降级判据恒拿到空清单 ⇒ 可归因的覆盖失败也被当存量放行，
+  // 那是拆闸门。取参数**块**而不是取整步正文：审计器与门禁吃的是同一段字面串，
+  // 按整步匹配会被 auditArgs 一侧先命中，于是「门禁侧整条删掉」照样绿。
+  const gateBlock = String(gate9).match(/\$gateArgs = @\([\s\S]*?\r?\n {10}\)/);
+  assert.ok(gateBlock, '必须能取到 $gateArgs 参数块（锚点失效不得静默跳过）');
+  assert.match(gateBlock[0], /--required-feature-ids=\$env:REQUIRED_FEATURE_IDS/,
+    '门禁参数块必须含 --required-feature-ids，否则归属判据没有输入');
+  const auditBlock = String(gate9).match(/\$auditArgs = @\([\s\S]*?\r?\n {10}\)/);
+  assert.ok(auditBlock, '必须能取到 $auditArgs 参数块');
+  assert.notEqual(gateBlock[0], auditBlock[0], '两块取到同一段说明锚点退化（那会让上面的正向锁被审计器侧代答）');
+  // 上游产出方：清单必须由 Gate 9 的 PR 画像步骤写进 GITHUB_ENV，否则上面那个变量恒为空串，
+  // 归属判据恒退化成「存量」——全绿而闸门已空。
+  assert.match(workflow, /REQUIRED_FEATURE_IDS=\$ids/,
+    'feat_ 清单必须由 classify 步骤写出，消费侧才拿得到值');
 });
 
 test("verdict 令牌的跨 job 通路必须真的接上（Gate Result 读的 job output 要有声明与写出方）", () => {

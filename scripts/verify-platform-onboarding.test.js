@@ -120,7 +120,7 @@ const YAML_CASES = [
   ['toutiao', 17, false],
   ['weibo', 14, false],
   ['zhihu', 17, false],
-  ['baijiahao', 16, true],
+  ['baijiahao', 17, true],
   ['douyin', 16, true],
 ]
 
@@ -168,20 +168,29 @@ test('步骤 9 的顺序无关性：把平台在文件里的位置换掉，结�
 })
 
 // ───────────────────────────────────────────────────────────────────────────
-// 合规版图快照（2026-10-14 P3-1 首次全量跑出的真实结果）
+// 合规版图快照（2026-10-14 P3-1 首次全量跑出的真实结果；同日 P3-2-A 修掉第一项）
 //
 // ★ 这条测试的作用是**记录现状**，不是「说现状是对的」。
 //   它把「哪些平台在哪些判据上有缺口」钉住，任何变化（修好了，或又坏了）都会让它红。
 //
-// 首跑结果：15 个平台里**只有 4 个**完全合规。这不是脚本误报 —— 逐条核对过：
+// 首跑结果：15 个平台里**只有 4 个**完全合规。逐条核对过：
 //   · 步骤 4 要求 `enabled` 有设计文 §9.3 依据（且它是「单平台一键回滚」机制，
-//     见 ARCH-REUSE-INTEGRATION §9.3 回滚成本段）。缺它的三个：
+//     见 ARCH-REUSE-INTEGRATION §9.3 回滚成本段）。首跑缺它的三个：
 //     tencent_video / baijiahao / instagram。
+//     **2026-10-14 P3-2（方案 A，只碰已有平台）已补齐这三个并改成棘轮** ——
+//     本快照随之更新（原话：「若是有意修好了，请同步更新本快照」）。
 //   · 步骤 10 要求候选文件含 formatArticleBody —— 是否过严**尚未裁定**，
 //     故本快照如实记录，不宣称这些平台「有缺陷」。
 // ───────────────────────────────────────────────────────────────────────────
-const FULLY_COMPLIANT = ['douyin', 'xiaohongshu', 'kuaishou', 'bilibili']
-const MISSING_ENABLED = ['tencent_video', 'baijiahao', 'instagram']
+const FULLY_COMPLIANT = ['douyin', 'xiaohongshu', 'kuaishou', 'bilibili', 'baijiahao']
+
+/**
+ * 缺 `enabled` 的平台集合 —— **必须恒为空**。
+ *
+ * 首跑的「真发现」是 `['tencent_video', 'baijiahao', 'instagram']`，已在 P3-2-A 补齐。
+ * 这里从「记录已知缺口」改成「**禁止**该缺口」：空数组是**断言目标**，不是待办清单。
+ */
+const MISSING_ENABLED = []
 
 test('合规版图快照：完全合规的平台集合', () => {
   const all = ['wechat_mp', 'zhihu', 'weibo', 'douyin', 'xiaohongshu', 'tencent_video',
@@ -193,7 +202,7 @@ test('合规版图快照：完全合规的平台集合', () => {
     '合规平台集合变了 —— 若是有意修好了，请同步更新本快照；若是退化，请查因')
 })
 
-test('真发现：缺 enabled 字段的平台（一键回滚机制失效）', () => {
+test('棘轮：没有任何平台缺 enabled 字段（「单平台一键回滚」可达性）', () => {
   const fs = require('node:fs')
   const y = fs.readFileSync(path.join(ROOT, 'config/platforms.yaml'), 'utf8')
   const lines = y.split(/\r?\n/)
@@ -204,18 +213,151 @@ test('真发现：缺 enabled 字段的平台（一键回滚机制失效）', ()
     if (m) { cur = { slug: m[1], lines: [] }; blocks.push(cur); continue }
     if (cur) cur.lines.push(l)
   }
+  // 规模下界：防止解析退化成空集合后「空 == 空」假绿
+  assert.ok(blocks.length >= 15, `平台块解析数异常（${blocks.length}），判据可能空转`)
   const missing = blocks.filter((b) => !b.lines.some((l) => /^[ \t]{4}enabled:/.test(l))).map((b) => b.slug)
   assert.deepEqual(missing, MISSING_ENABLED,
-    '缺 enabled 的平台集合变了 —— 这是「单平台一键回滚」的可达性问题，请核对')
+    '有平台缺 enabled —— 这是「单平台一键回滚」的可达性问题，请核对（不要把它加回白名单）')
 })
 
 test('步骤 4 确实在查 enabled（不是恒过的空判据）', () => {
-  for (const slug of MISSING_ENABLED) {
+  // 正控：全部平台步骤 4 都应过（含原先缺 enabled 的三个）
+  for (const slug of ['kuaishou', 'tencent_video', 'baijiahao', 'instagram']) {
     const r = buildChecks(slug).find((c) => c.id === 4).fn()
-    assert.equal(r.ok, false, `${slug} 缺 enabled，步骤 4 应判 FAIL`)
-    assert.ok(r.detail.includes('enabled'), `详情应点名 enabled，实际: ${r.detail}`)
+    assert.equal(r.ok, true, `${slug} 步骤 4 应过，实际: ${r.ok} / ${r.detail}`)
+    assert.ok(/7 个字段齐/.test(r.detail), `${slug} 步骤 4 详情应报「7 个字段齐」，实际: ${r.detail}`)
   }
-  // 反证：有 enabled 的平台步骤 4 应过
-  const ok = buildChecks('kuaishou').find((c) => c.id === 4).fn()
-  assert.equal(ok.ok, true, `kuaishou 步骤 4 应过，实际: ${ok.detail}`)
+  // ★ 负控不在这里做「假反证」：`buildChecks` 从磁盘读真实 YAML，无法注入夹具。
+  //   判据 4 会 FAIL 这一点由**变异跑**证明（临时抽掉某个平台的 enabled ⇒
+  //   上面的棘轮测试与断言 ① 当即变红，见 PR 描述）。把它写成
+  //   「拿字面量测正则」的形式是同义反复，属假反证，故**刻意不写**。
+})
+
+// ───────────────────────────────────────────────────────────────────────────
+// 判据 9 的锚定独立性（2026-10-15 假绿事故的回归锁）
+//
+// 事故：`/^[ \t]{4}has_api:[ \t]*true/.test(block)` **缺 m 标志** ⇒ `^` 只锚字符串
+// 开头 ⇒ 该判据**只在「块的第一行恰好是 has_api」时才执行**，其余一律走
+// `if (!hasApi) return { ok: true, detail: 'has_api 非 true ⇒ 无需发布链' }` ⇒ 判通过。
+// 实测 15 个平台里 **6 个是假绿**（douyin / tencent_video / kuaishou / bilibili /
+// baijiahao / facebook），其中 tencent_video 与 facebook 是 has_api:true 却 0 个链文件
+// —— 真缺口被这条假绿藏住了。只有恰好把 has_api 写在块首行的 youtube / twitter 被抓到。
+//
+// ★ 反证用**真实数据**，不造夹具：`facebook` 的 has_api 不在块首行且无链 ⇒ 期望 FAIL。
+//   若有人去掉 m，它会误判 PASS ⇒ 本测试当场变红。
+// ───────────────────────────────────────────────────────────────────────────
+test('判据 9 不依赖 has_api 在块中的位置（缺 m 标志的假绿回归锁）', () => {
+  // 负例：has_api:true **不在**块首行、且无链 ⇒ 必须 FAIL（证明判据确实执行了）
+  const fb = buildChecks('facebook').find((c) => c.id === 9).fn()
+  assert.equal(fb.ok, false, `facebook(has_api:true 不在首行 + 无链) 步骤 9 应 FAIL，实际: ${fb.ok} / ${fb.detail}`)
+  assert.ok(/无 publish\/platforms\//.test(fb.detail), `详情应点名缺链，实际: ${fb.detail}`)
+
+  // 正控：has_api 同样不在块首行、但**有链**的平台应 PASS
+  //（证明上一条不是「恒 FAIL」）
+  for (const slug of ['douyin', 'kuaishou', 'bilibili', 'baijiahao']) {
+    const r = buildChecks(slug).find((c) => c.id === 9).fn()
+    assert.equal(r.ok, true, `${slug} 步骤 9 应 PASS，实际: ${r.ok} / ${r.detail}`)
+  }
+
+  // 别名：tencent_video 的链叫 shipinhao-*，不得因命名差异误报
+  const tv = buildChecks('tencent_video').find((c) => c.id === 9).fn()
+  assert.equal(tv.ok, true, `tencent_video 步骤 9 应 PASS（链名 shipinhao-*），实际: ${tv.ok} / ${tv.detail}`)
+})
+
+/**
+ * `has_api: true` 却无发布链的平台集合 —— **待平台 owner 裁定**。
+ *
+ * 这三个的共同点：「声明有 API 能力」+「`publishMode: dom-only`」+「无链实现」
+ * 三者不可能同时为真。两种可能的裁定：
+ *   · 若「有 API 能力但总闸设 dom-only」是合法状态 ⇒ 判据 9 应放宽为
+ *     「has_api:true **且** publishMode != 'dom-only' 时才要求链」
+ *   · 若「has_api:true 必须有实现」⇒ 应补链，或把 has_api 改成 false
+ *
+ * ★ 本列表是**棘轮**：修好后请同步更新（并说明裁定结果），不得直接删条目了事。
+ */
+const STEP9_CHAIN_GAPS = ['youtube', 'twitter', 'facebook']
+
+test('棘轮：has_api:true 但无发布链的平台集合（待 owner 裁定）', () => {
+  const fs = require('node:fs')
+  const y = fs.readFileSync(path.join(ROOT, 'config/platforms.yaml'), 'utf8')
+  // 与实现同源：按行扫描块
+  const lines = y.split(/\r?\n/)
+  const blocks = []
+  let cur = null
+  for (const l of lines) {
+    const m = l.match(/^[ \t]{2}([a-z][a-z0-9_]*):[ \t]*$/)
+    if (m) { cur = { slug: m[1], lines: [] }; blocks.push(cur); continue }
+    if (cur) cur.lines.push(l)
+  }
+  // 规模下界：防解析退化成空集合后「空 == 空」假绿
+  assert.ok(blocks.length >= 15, `平台块解析数异常（${blocks.length}），判据可能空转`)
+
+  const gaps = blocks
+    .filter((b) => /^[ \t]{4}has_api:[ \t]*true/m.test(b.lines.join('\n')))
+    .map((b) => b.slug)
+    .filter((slug) => {
+      const r = buildChecks(slug).find((c) => c.id === 9).fn()
+      return !r.ok
+    })
+  assert.deepEqual(gaps, STEP9_CHAIN_GAPS,
+    'has_api:true 却无链的平台集合变了 —— 若是有意修好了，请更新本棘轮并写明裁定结果；若是退化，请查因')
+})
+
+// ───────────────────────────────────────────────────────────────────────────
+// TAG_STYLES 缺席走默认：判据过严的修正 + 放宽后「不许空转」的反向锁
+// （2026-10-15）
+//
+// 原判据 7/8 要求 TAG_STYLES 有该 slug 的**显式键**。但：
+//   · content-formatter.js 的 formatTags 是 `TAG_STYLES[platform] || '#tag'`
+//     —— **有默认兜底**，缺席不是坏；
+//   · 该表 10 个键里 6 个（pipixia/xigua/tengxun_shipin/meiyou/chejiahao/wangyi）
+//     不在 config/platforms.yaml 的 15 个平台里 —— 缺席是常态；
+//   · 默认值 '#tag' 对海外/短视频平台的 hashtag 约定**恰好正确**。
+// 实测：原判据下 6 个平台 FAIL 且 detail 全是「TAG_STYLES 无 <slug>」
+// （CONTENT_LIMITS / TITLE_LIMITS 均命中）—— 全部是判据过严，不是平台缺陷。
+//
+// ★ 反向锁：放宽后最怕的是「TAG_STYLES 整体失效也没人发现」。
+//   所以这里直接钉住**默认兜底值本身合法**：
+//   把 formatTags 的兜底从 '#tag' 改成非法值 ⇒ 判据 7/8 必须对 6 个缺席平台转 FAIL。
+//   该变异已实跑（见 PR 描述），确认 6 个平台全红。
+// ───────────────────────────────────────────────────────────────────────────
+const TAG_STYLES_ABSENT_OK = ['youtube', 'tiktok', 'twitter', 'instagram', 'facebook', 'tencent_video']
+const TAG_STYLES_ALLOWED = ["'#tag'", "'#tag#'", "'plain'"]
+
+test('TAG_STYLES 缺席的平台走默认兜底，且判据 7/8 不空转', () => {
+  const fs = require('node:fs')
+  const fmt = fs.readFileSync(path.join(ROOT, 'packages/api-publish-engine/src/content-formatter.js'), 'utf8')
+
+  // ① 默认兜底值必须可解析且合法（反向锁的核心）
+  const dm = fmt.match(/TAG_STYLES\[platform\]\s*\|\|\s*'([^']+)'/)
+  assert.ok(dm, 'formatTags 的默认兜底表达式不可解析 —— 判据 8 的缺席分支会失效，请核对')
+  assert.ok(TAG_STYLES_ALLOWED.includes(`'${dm[1]}'`),
+    `默认兜底 '${dm[1]}' 不在允许集 ${TAG_STYLES_ALLOWED.join(' / ')} —— 这会让所有缺席平台的标签样式退化`)
+
+  // ② 这 6 个平台的判据 7/8 应 PASS，且 detail 必须**如实说明走的是默认**
+  for (const slug of TAG_STYLES_ABSENT_OK) {
+    const r7 = buildChecks(slug).find((c) => c.id === 7).fn()
+    assert.equal(r7.ok, true, `${slug} 判据 7 应 PASS（TAG_STYLES 缺席走默认），实际: ${r7.detail}`)
+    assert.ok(/TAG_STYLES 缺席走默认/.test(r7.detail),
+      `${slug} 判据 7 的详情必须说明「TAG_STYLES 缺席走默认」，不能静默通过。实际: ${r7.detail}`)
+    const r8 = buildChecks(slug).find((c) => c.id === 8).fn()
+    assert.equal(r8.ok, true, `${slug} 判据 8 应 PASS，实际: ${r8.detail}`)
+    assert.ok(/走默认/.test(r8.detail), `${slug} 判据 8 的详情必须说明走默认。实际: ${r8.detail}`)
+  }
+
+  // ③ 反向对照：有显式键的平台必须报「显式命中」，不许也被算成走默认
+  for (const slug of ['douyin', 'kuaishou', 'bilibili', 'weibo', 'zhihu', 'baijiahao', 'wechat_mp', 'toutiao']) {
+    const r7 = buildChecks(slug).find((c) => c.id === 7).fn()
+    assert.equal(r7.ok, true, `${slug} 判据 7 应 PASS，实际: ${r7.detail}`)
+    assert.ok(/TAG_STYLES 显式命中/.test(r7.detail),
+      `${slug} 有显式键却报成走默认，说明键匹配退化了。实际: ${r7.detail}`)
+  }
+
+  // ④ 规模下界：CONTENT_LIMITS / TITLE_LIMITS 仍要求显式键（不许一起被放宽）
+  for (const slug of TAG_STYLES_ABSENT_OK) {
+    const r7 = buildChecks(slug).find((c) => c.id === 7).fn()
+    // detail 里不得出现「CONTENT_LIMITS 无」/「TITLE_LIMITS 无」才算真的过了那两关
+    assert.ok(!/CONTENT_LIMITS 无|TITLE_LIMITS 无/.test(r7.detail),
+      `${slug} 的上限表仍有缺失，不应只靠 TAG_STYLES 放宽混过。实际: ${r7.detail}`)
+  }
 })

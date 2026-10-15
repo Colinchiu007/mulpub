@@ -87,20 +87,79 @@ function evaluateAgentJudgeGate({ reportDir, llmProvider, startedAfterMs, requir
   return evaluation(1, "INVALID_VERDICT", "Agent Judge verdict has an unsupported decision.");
 }
 
-// 「审计没有真正发生」的三种状态 → Gate Result 用的可见性令牌。
+// Gate Result 用的可见性令牌：两类语义共用一条通道，令牌文本自身必须能区分——
+// ①「审计没有真正发生」（NO_REPORT / INVALID_REPORT / NO_VERDICT）；
+// ②「审计发生了，但量的不是本 PR」（COVERAGE_BACKLOG）。
+// 阻塞路径（MISSING_REPORT/INVALID_REPORT 等）同样落盘，见 main() 的 --note-file 注释。
 // 单一实现放在这里：workflow 不得再自行 Get-ChildItem/ConvertFrom-Json 读报告——那份第二实现
 // 不带 started-after，重跑或残留时会把上一轮的旧报告当成本轮结论（#46）。
 const VERDICT_NOTE_BY_STATUS = {
   MISSING_REPORT: "NO_REPORT",
   INVALID_REPORT: "INVALID_REPORT",
   AUDIT_NO_VERDICT: "NO_VERDICT",
+  COVERAGE_BACKLOG_REPORT: "COVERAGE_BACKLOG",
 };
 
 function verdictNoteFor(status) {
   return VERDICT_NOTE_BY_STATUS[status] || "";
 }
 
-function evaluateAutonomousGateDecision({ reportDir, auditExitCode, hasOpenAiKey, startedAfterMs, requireCurrentRun = false }) {
+// 覆盖失败能否归因于本 PR（2026-10-15 判据改造，动因见 record gate9-ratchet）。
+// 审计器收到 --required-feature-ids 时会把评估面按这些 id 收窄
+// （requirements-runner.js 的 filterPrdItemsByFeatureIds），此时的 FAIL 说的是
+// 「本 PR 声称实现的特性没实现」；没有 id 时评估面是整份 PRD 对全仓实现的存量比对，
+// 同一个 FAIL 说的是存量欠账——与本 PR 改了什么无关，而且那个数是裁判自报的
+// （coverageRate 写在 verdict.summary，items 数由裁判自己决定），同一份代码两次跑
+// 可以落在不同结论两侧（实测 main 0.34/41 项、#3617 0.36/218 项、#3372 0.374/227 项）。
+// 不稳定的量没有资格决定全仓每个 PR 能不能合并：存量欠账进报告不进闸门，
+// 可归因的失败照旧当场红。
+function parseFeatureIds(value) {
+  return String(value || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+// 只认「本轮唯一的失败项就是覆盖」。按 overall 字符串降级会把视觉/功能失败一起豁免，
+// 所以必须逐码判；exitCodes 缺失、为空、非数组、含未知码一律不降级（fail-closed）。
+function isCoverageOnlyFailure(report) {
+  const codes = report && report.exitCodes;
+  if (!Array.isArray(codes) || codes.length === 0 || !codes.every((code) => code === "COVERAGE_FAIL")) return false;
+  // 降级还有第二条前提：本轮**确实量出了项**。审计器自己崩溃时（run-autonomous-e2e.js 的
+  // catch 分支）exitCodes 同样只有 COVERAGE_FAIL，但没有逐条结果——那种 FAIL 不是存量欠账
+  // 而是"审计没跑成"，照旧阻塞；否则崩溃会被读成"审过了，欠账是别人的"。
+  // ⚠️ 物证一律取 coverage.details（审计器逐条写出的那一份），**不取 coverage.summary.total**：
+  // 后者是由 details 经 summarize() 派生的计数（requirements-runner.js:117），读它等于把判据
+  // 架在一条跨文件约定上——哪天生产方改成"total 写裁判自报数"，闸门就静默漏放。
+  // （QM-6 后端轴 finding #1 的内核；它给的「还要求 missing>0」被拒：#3617 的真实产物就是
+  // missing=0 / partial=130 / decision=FAIL，按那条本片一条也放不了。）
+  const details = report.coverage && report.coverage.details;
+  return Array.isArray(details) && details.length > 0;
+}
+
+// 降级放行时把现场数字一并写进注解：只说"这是存量"等于让下一个读者重新去翻 artifact。
+// ⚠️ 这些数一律从 coverage.details[].type 自己数，**不得**拿 coverage.summary.failed
+// 当「未覆盖数」：requirements-runner.js:114 把 PARTIAL 映射成 PASSED，#3617 的真实产物里
+// summary={total:218,passed:218,failed:0} 与 coverageRate:0.36 同时成立——照抄后者会打出
+// 「覆盖 36%，未覆盖 0」这种自相矛盾的句子（2026-10-15 拿 artifact 复跑才抓到）。
+function coverageShape(report) {
+  const coverage = (report && report.coverage) || {};
+  const details = Array.isArray(coverage.details) ? coverage.details : [];
+  const countBy = (type) => details.filter((item) => item && item.type === type).length;
+  return {
+    rate: typeof coverage.coverageRate === "number" ? `${(coverage.coverageRate * 100).toFixed(1)}%` : "N/A",
+    inScope: Number.isFinite(coverage.auditedCount) ? String(coverage.auditedCount) : "N/A",
+    judged: String(details.length),
+    covered: countBy("covered"),
+    partial: countBy("partial"),
+    missing: countBy("missing"),
+    // 未知 type 归 other 并照打：生产方将来加第五种状态时，四个分项之和仍等于 judged，
+    // 不会悄悄少算（QM-6 后端轴 finding #3）。
+    other: details.length - countBy("covered") - countBy("partial") - countBy("missing"),
+  };
+}
+
+function evaluateAutonomousGateDecision({ reportDir, auditExitCode, hasOpenAiKey, startedAfterMs, requireCurrentRun = false, requiredFeatureIds = "" }) {
   if (requiresValidReportStart(requireCurrentRun, startedAfterMs)) {
     return evaluation(1, "INVALID_REPORT_START", "A valid current-run report start time is required.");
   }
@@ -142,6 +201,14 @@ function evaluateAutonomousGateDecision({ reportDir, auditExitCode, hasOpenAiKey
   if (report.overall === "PASS") {
     return evaluation(1, "INCONSISTENT_REPORT", `Autonomous coverage audit exited with 1 but ${path.basename(reportPath)} is PASS.`);
   }
+  if (isCoverageOnlyFailure(report)) {
+    const ids = parseFeatureIds(requiredFeatureIds);
+    if (ids.length > 0) {
+      return evaluation(1, "COVERAGE_FAIL", `Autonomous coverage audit failed on the features this PR declares (${ids.join(", ")}); the audited scope is exactly those features.`);
+    }
+    const shape = coverageShape(report);
+    return evaluation(0, "COVERAGE_BACKLOG_REPORT", `Autonomous coverage audit measured the whole-repo PRD backlog (self-reported coverageRate ${shape.rate}; PRD items in scope ${shape.inScope}, judge picked ${shape.judged}: covered ${shape.covered} / partial ${shape.partial} / missing ${shape.missing} / other ${shape.other}). Both the rate and the item set are the judge's own choice, so this green does NOT mean coverage is acceptable.`);
+  }
   return evaluation(1, report.overall || "FAIL", "Autonomous coverage audit did not pass.");
 }
 
@@ -181,6 +248,7 @@ function main() {
       hasOpenAiKey: parseBoolean(args["has-openai-key"]),
       startedAfterMs: args["started-after"],
       requireCurrentRun: true,
+      requiredFeatureIds: args["required-feature-ids"],
     });
   } else {
     result = evaluation(2, "INVALID_MODE", "Expected mode: agent-judge or autonomous.");

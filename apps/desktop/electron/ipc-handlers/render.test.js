@@ -292,13 +292,16 @@ describe('render:cards 入参校验（判据①：稳定错误合同而非 crash
   })
 
   // ★ 失败纪律：部分产物比没有更危险（用户会以为发全了）
-  it('渲染页数不符 ⇒ REQUEST_ERROR 且**不返回部分产物**', async () => {
+  it('渲染页数不符 ⇒ REQUEST_ERROR + 领域码，且**不返回部分产物**', async () => {
     const { handler } = getHandler({
       renderCardsToPng: vi.fn(async () => [Buffer.from('only-one')]), // 期望 2 页，只给 1 页
     })
     const r = await handler(TRUSTED_EVENT, { pages: [['a'], ['b']] })
     expect(r).toMatchObject({ code: -1 })
-    expect(r.message).toContain('渲染页数不符')
+    // ★ message 是**领域码**（渲染端按码判断，不靠中文句子匹配）；
+    //   人类可读文案由渲染端 locale 出，数字在 detail 里。
+    expect(r.message).toBe('RENDER_PAGE_COUNT_MISMATCH')
+    expect(r.detail).toContain('2')
     expect(r.data).toBeUndefined()
   })
 

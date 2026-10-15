@@ -72,6 +72,7 @@ export default {
     apiKeyPlaceholder2: 'sk-...',
     multimodalHint: (ctx) => 'Multimodal provider: only the API Key is needed; capabilities and models come from presets (supports: ' + ctx.named('caps') + ').',
     modelsLabel2: 'Models (comma-separated)',
+    modelsReadonlyHint: 'The model list is managed centrally from the ops console and is read-only here. Change it there and sync.',
     multimodalModelsHint: 'Model lists are controlled by system presets and Ops Center sync; no need to fill here.',
     currentModels: (ctx) => 'Current models: ' + ctx.named('models') + '.',
     singleModelHint: (ctx) => 'Model: ' + ctx.named('models') + ' (single-model provider; no Model ID needed)',

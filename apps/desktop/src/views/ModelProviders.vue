@@ -465,7 +465,11 @@
         </template>
         <template v-else>
           <label class="input-label">{{ t('modelProviders.modelsLabel2') }}</label>
-          <input class="input" v-model="form.modelsText" />
+          <!-- 预设服务商（is_preset=1）的模型列表由运营目录下发，applyCatalog 会整表覆盖；
+               不锁则用户改了也在下次同步被静默冲掉。判据用「是否预设」这一数据事实，
+               不用「是否连上运营中心」——后者曾因判断恒假而从未生效。 -->
+          <input class="input" v-model="form.modelsText" :disabled="isPresetEditing" />
+          <div v-if="isPresetEditing" class="form-hint muted-hint">{{ t('modelProviders.modelsReadonlyHint') }}</div>
         </template>
         <div v-if="form.models.length > 0" class="form-field">
           <label class="input-label">{{ t('modelProviders.userDefaultModelLabel') }}</label>
@@ -514,14 +518,15 @@ import { computed, onMounted } from 'vue'
 import { Bell, Box, Connection, Cpu, Lightning, Loading, Microphone, Picture, Service, VideoCamera } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import { useModelProviderCrud } from '@/composables/useModelProviderCrud'
+import { presetManagedFields } from '@/utils/preset-managed-fields'
 
 const { t } = useI18n()
 
-// 编辑中的服务商是否为预设（预设行的模型/限流由运营后台同步下发，字段只读）
-const isPresetEditing = computed(() => {
-  const p = providers.value.find(item => item.id === form.value.id)
-  return p ? p.is_preset === true : false
-})
+// 编辑中的服务商是否是「运营下发的预设」——决定其受管字段是否只读。
+// 抽成纯函数（presetManagedFields）而不是内联 computed，为的是可单测：
+// 这条判据曾以内联形式存在过，且因依赖「是否连上运营中心」而**恒为假**、从未生效，
+// 没有任何测试能发现它。判据必须是**数据事实**（is_preset），不是连接状态。
+const isPresetEditing = computed(() => presetManagedFields(providers.value, form.value.id))
 
 const {
   CATEGORY_OPTIONS,

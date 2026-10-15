@@ -64,6 +64,15 @@ jobs:
           # 放在非 PR 早退之前，所以 main push 那一档同样覆盖。
           node --test scripts/check-gate-record-debt.test.js
           node scripts/check-gate-record-debt.js
+          # 主干上真实存在过 6 个带着 git 冲突标记的文件（4 篇 stash pop 冲突被整块提交、
+          # 2 篇 rebase 只删了左侧七个尖括号那一侧），而此前没有任何判据在看这件事：
+          # check-text-encoding-integrity 管控制字节、numstat 管行尾，都对标记免疫。
+          # 落在本 job（不被 docs-only 短路）且在非 PR 早退之前 ⇒ PR 档全覆盖（pull_request 触发无 paths 过滤）。
+          # main push 档只覆盖"真的触发了本 workflow 的 push"：push 侧有 paths-ignore（含 openspec/**、*.md），
+          # 纯文档 push 不生成 run。它当前不构成漏洞，因为进 main 的唯一通路是 PR（直推被 GH011 拒、
+          # ruleset main-ci-gate 的 bypass_actors 实测为空）；若将来给 ruleset 加了旁路主体，须补 schedule 档。
+          node --test scripts/check-no-conflict-markers.test.js
+          node scripts/check-no-conflict-markers.js
           # CCG 安全扫描器自身的回归保护：扫描器一旦回退成「静默 0 文件绿灯」
           # 或把 fixtures 当真实高危，verify-security 的结论就不可信了。
           node --test .ccg/skills/tools/verify-security/scripts/security_scanner.test.js
@@ -1780,6 +1789,10 @@ jobs:
           # 正解：令牌由门禁自己算（带 started-after）并经 --note-file 落盘，本步只读那个文件。
           # 缺 --note-file 参数时下面 Test-Path 会恒走 else ⇒ 覆盖审计永远显示「未审计」，
           # 与删掉可见性同等错误，所以由 workflow-contract 的 --note-file= 正向锁钉住。
+          # --required-feature-ids：本 PR 声明要实现的 feat_ 特性，与喂给审计器的是同一个值
+          # （审计器已按它把评估面收窄）。门禁必须知道这一点，否则「全仓存量欠账」与
+          # 「本 PR 声称实现却没实现」在门禁眼里是同一个 FAIL，前者会把后者一起吃掉。
+          # 未声明时 GITHUB_ENV 里根本没有该键，展开成空串 ⇒ 按存量归属处理。
           $gateArgs = @(
             ".github/scripts/agent-review-gate.js",
             "autonomous",
@@ -1787,7 +1800,8 @@ jobs:
             "--started-after=$reportStart",
             "--audit-exit-code=$exitCode",
             "--has-openai-key=$([bool]$env:OPENAI_API_KEY)",
-            "--note-file=gate9-verdict-note.txt"
+            "--note-file=gate9-verdict-note.txt",
+            "--required-feature-ids=$env:REQUIRED_FEATURE_IDS"
           )
           & node @gateArgs
           $gateExit = $LASTEXITCODE

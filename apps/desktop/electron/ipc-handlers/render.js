@@ -197,7 +197,17 @@ function registerHandlers(ipcMain, deps) {
       })
       if (!Array.isArray(pngs) || pngs.length !== pages.length) {
         // 数量不符 ⇒ 视为整体失败，**不返回部分产物**
-        return { code: EC.REQUEST_ERROR, message: `渲染页数不符（期望 ${pages.length}，实得 ${Array.isArray(pngs) ? pngs.length : '非数组'}）` }
+        //
+        // ★ message 用**领域码**（RENDER_PAGE_COUNT_MISMATCH）而不是中文句子：
+        //   渲染端原先靠 `message.includes('渲染页数不符')` 识别这一种失败，
+        //   那是「两侧靠自然语言匹配」—— 主进程改一个字，渲染端静默失配。
+        //   且渲染端的中文字面量会被 `check-locale-sync --cjk` 拦（用户可见文案必须走 locale）。
+        //   具体数字放 detail，渲染端按需插值；人类可读文案由渲染端 locale 出。
+        return {
+          code: EC.REQUEST_ERROR,
+          message: 'RENDER_PAGE_COUNT_MISMATCH',
+          detail: `期望 ${pages.length} 页，实得 ${Array.isArray(pngs) ? pngs.length : '非数组'}`,
+        }
       }
 
       // ③ 落临时文件：每页一个 PNG，同一次调用共用一个子目录（便于整批清理）

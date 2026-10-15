@@ -113,6 +113,7 @@ platforms:
     # 分片 + Content-MD5 + post_draft/post_create 双分支，带链级测试）从未被触发。
     has_api: true
     publishMode: api-then-dom   # W1 §5.1 三态总闸：api-only|api-then-dom|dom-only
+    enabled: true
   kuaishou:
     id: 35
     name: 快手
@@ -213,6 +214,7 @@ platforms:
     max_content: 100000
     has_api: true
     publishMode: api-then-dom   # W1 §5.1 三态总闸：api-only|api-then-dom|dom-only
+    enabled: true
   twitter:
     has_api: true
     publishMode: dom-only   # W1 §5.1 三态总闸：api-only|api-then-dom|dom-only
@@ -241,6 +243,7 @@ platforms:
     max_content: 2200
     has_api: false
     publishMode: dom-only   # W1 §5.1 三态总闸：api-only|api-then-dom|dom-only
+    enabled: true
   facebook:
     id: 104
     name: Facebook

@@ -124,27 +124,68 @@ function buildChecks (slug) {
       : { ok: false, detail: `kind='${kind}' 不是 html/plain` }
   })
 
-  add(7, '三张上限表（CONTENT_LIMITS / TITLE_LIMITS / TAG_STYLES）均有该键', () => {
+  // TAG_STYLES 的**默认兜底值**，从实现里读出来（不复制字面量）。
+  // 用途：判据 7/8 对「TAG_STYLES 缺席」的平台不再一律判 FAIL（见下）。
+  function tagStylesDefault (formatterText) {
+    const m = formatterText.match(/TAG_STYLES\[platform\]\s*\|\|\s*'([^']+)'/)
+    return m ? m[1] : null
+  }
+
+  add(7, '上限表一致（CONTENT_LIMITS / TITLE_LIMITS 必须有键；TAG_STYLES 可缺席走默认）', () => {
     const t = formatter()
     if (!t) return { ok: false, detail: '文件不存在' }
     const missing = []
-    for (const name of ['CONTENT_LIMITS', 'TITLE_LIMITS', 'TAG_STYLES']) {
+    for (const name of ['CONTENT_LIMITS', 'TITLE_LIMITS']) {
       const m = t.match(new RegExp(`${name}\\s*=\\s*\\{([\\s\\S]*?)\\n\\}`))
       if (!m) { missing.push(`${name} 未找到`); continue }
       if (!new RegExp(`\\b${slug}:`).test(m[1])) missing.push(`${name} 无 ${slug}`)
     }
-    return missing.length === 0
-      ? { ok: true, detail: '三表均命中（与注册表一致性由 content-formatter-registry-sync.test.js 契约锁钉住）' }
-      : { ok: false, detail: missing.join('; ') }
+    // ★ TAG_STYLES 单独处理（2026-10-15 修，判据过严）：
+    //   原判据要求三张表**都有**该 slug 的显式键。但 TAG_STYLES 是**标签样式**表，
+    //   与另两张「上限表」不同：
+    //     · content-formatter.js 的 formatTags 是 `TAG_STYLES[platform] || '#tag'`
+    //       —— **有默认兜底**，缺席不是坏；
+    //     · 该表 10 个键里 6 个（pipixia/xigua/tengxun_shipin/meiyou/chejiahao/wangyi）
+    //      不在 config/platforms.yaml 的 15 个平台里 —— 缺席是常态；
+    //     · 默认值 '#tag' 对海外/短视频平台（youtube/tiktok/twitter/instagram/facebook）
+    //      的 hashtag 约定**恰好正确**。
+    //   实测：原判据下 6 个平台 FAIL，且 detail 全是「TAG_STYLES 无 <slug>」
+    //   （CONTENT_LIMITS / TITLE_LIMITS 均命中）—— 全部是判据过严，不是平台缺陷。
+    const ts = t.match(/TAG_STYLES\s*=\s*\{([\s\S]*?)\n\}/)
+    if (!ts) { missing.push('TAG_STYLES 未找到'); return missing.length === 0 ? { ok: true, detail: '上限表齐' } : { ok: false, detail: missing.join('; ') } }
+    const def = tagStylesDefault(t)
+    if (!def) { missing.push('TAG_STYLES 默认值不可解析（formatTags 的兜底表达式变了）') }
+    else if (!new RegExp(`\\b${slug}:`).test(ts[1])) {
+      // 缺席：接受，但必须在 detail 里如实说明走的是默认值
+      if (!["'#tag'", "'#tag#'", "'plain'"].includes(`'${def}'`)) {
+        missing.push(`TAG_STYLES 无 ${slug} 且默认值 '${def}' 不在允许集`)
+      }
+    }
+    if (missing.length > 0) return { ok: false, detail: missing.join('; ') }
+    const hasKey = new RegExp(`\\b${slug}:`).test(ts[1])
+    return {
+      ok: true,
+      detail: hasKey
+        ? '上限表齐 + TAG_STYLES 显式命中（注册表一致性由 content-formatter-registry-sync.test.js 钉住）'
+        : `上限表齐 + TAG_STYLES 缺席走默认 '${def}'（语义正确，见判据说明）`,
+    }
   })
 
-  add(8, 'TAG_STYLES 取值合法', () => {
+  add(8, 'TAG_STYLES 取值合法（有键则校验取值；缺席则校验默认兜底值）', () => {
     const t = formatter()
     if (!t) return { ok: false, detail: '文件不存在' }
     const m = t.match(/TAG_STYLES\s*=\s*\{([\s\S]*?)\n\}/)
     if (!m) return { ok: false, detail: '未找到 TAG_STYLES' }
     const km = m[1].match(new RegExp(`\\b${slug}:\\s*'([^']+)'`))
-    if (!km) return { ok: false, detail: `TAG_STYLES 无 ${slug}` }
+    if (!km) {
+      // 缺席：不再判 FAIL，改为校验**默认兜底值**本身合法。
+      // 这样若有人把 formatTags 的兜底从 '#tag' 改成非法值，本判据会红。
+      const def = tagStylesDefault(t)
+      if (!def) return { ok: false, detail: 'TAG_STYLES 默认兜底表达式不可解析，无法判定' }
+      return ["'#tag'", "'#tag#'", "'plain'"].includes(`'${def}'`)
+        ? { ok: true, detail: `TAG_STYLES 无 ${slug}，走默认 '${def}'（合法）` }
+        : { ok: false, detail: `TAG_STYLES 无 ${slug}，且默认兜底 '${def}' 不在允许集` }
+    }
     return ["'#tag'", "'#tag#'", "'plain'"].includes(`'${km[1]}'`)
       ? { ok: true, detail: `style='${km[1]}'` }
       : { ok: false, detail: `style='${km[1]}' 不在允许集` }
@@ -162,11 +203,34 @@ function buildChecks (slug) {
     const blockLines = platformYamlBlock(y, slug)
     if (!blockLines) return { ok: false, detail: `platforms.yaml 无 ${slug}` }
     const block = blockLines.join('\n')
-    const hasApi = /^[ \t]{4}has_api:[ \t]*true/.test(block)
+    // ⚠️ `m` 标志不可省（2026-10-15 修，假绿事故）：
+    //    原写法 `/^[ \t]{4}has_api:[ \t]*true/` **没有 `m`**，`^` 只锚**字符串开头**，
+    //    于是该判据**只在「块的第一行恰好是 has_api」时才真正执行**；
+    //    其余平台一律走下面的 `if (!hasApi) return { ok: true, … }` ⇒ **判「无需发布链」而通过**。
+    //    实测 15 个平台里 **6 个是假绿**（douyin / tencent_video / kuaishou / bilibili /
+    //    baijiahao / facebook），其中 tencent_video 与 facebook 是
+    //    `has_api: true` 却 **0 个链文件** —— 真缺口被这条假绿藏住了。
+    //    只有恰好把 `has_api` 写在块首行的 youtube / twitter 被正确检查（所以当时只报出这两个）。
+    //    ⇒ 与 `structure-lock` 的 `[]` 空转、`check-doc-abs-paths` 的无盘符跳过同型：
+    //      **判据在多数输入上不执行，却一律判通过。**
+    //    回归锁：`verify-platform-onboarding.test.js` 的「判据 9 不依赖 has_api 在块中的位置」，
+    //    用真实数据 `facebook`（has_api 不在首行 + 无链 ⇒ 应 FAIL）作证伪样本。
+    const hasApi = /^[ \t]{4}has_api:[ \t]*true/m.test(block)
     if (!hasApi) return { ok: true, detail: 'has_api 非 true ⇒ 无需发布链' }
     const dir = path.join(ROOT, 'packages/api-publish-engine/src/publish/platforms')
-    const chainFiles = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.startsWith(slug + '-')) : []
-    if (chainFiles.length === 0) return { ok: false, detail: `has_api:true 但无 publish/platforms/${slug}-*.js` }
+    // ★ 链文件名前缀不等于 slug 的平台（2026-10-15 补）：
+    //   视频号的链是 `shipinhao-video.js` / `shipinhao-music.js`，而 slug 是 `tencent_video`。
+    //   证据：`config/platforms.yaml` 的 tencent_video 块自带注释
+    //   「使视频号完整链（src/publish/platforms/shipinhao-video.js，分片 + Content-MD5 +
+    //     post_draft/post_create 双分支，带链级测试）从未被触发」；
+    //   且 `shipinhao-video.js:73` 调 `formatArticleBody('tencent_video', …)`、
+    //   `shipinhao.js:2` 注释确认 `constructor 'tencent_video'` —— 即**调度 id 就是 tencent_video**，
+    //   `shipinhao` 只是**文件名**。
+    //   没有这张表时，判据会因**命名**差异报「无链」——那是判据错，不是平台错。
+    const CHAIN_NAME_ALIASES = { tencent_video: 'shipinhao' }
+    const chainPrefix = (CHAIN_NAME_ALIASES[slug] || slug) + '-'
+    const chainFiles = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.startsWith(chainPrefix)) : []
+    if (chainFiles.length === 0) return { ok: false, detail: `has_api:true 但无 publish/platforms/${chainPrefix}*.js` }
     const entries = read('packages/api-publish-engine/src/platform-entries.js') || ''
     return entries.includes(slug)
       ? { ok: true, detail: `链 ${chainFiles.length} 个 + 已被 platform-entries.js 登记` }

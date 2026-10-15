@@ -24,6 +24,7 @@ import filmEngineeringEn from './film-engineering/en'
 import rewritePageEn from './rewrite-page/en'
 import viralAnalysisEn from './viral-analysis/en'
 import hotTopicsEn from './hot-topics/en'
+import cardsEn from './cards/en'
 import automationEn from './automation/en'
 import videoCloneEn from './video-clone/en'
 import userErrorsEn from './user-errors/en'
@@ -283,6 +284,9 @@ knowledgeBase: {
   contentCategories: { ...contentCategoriesEn },
 
   hotTopics: { ...hotTopicsEn },
+
+  // ── Image-card paginated rendering (P2-5): "Generate image cards" entry ──
+  cards: { ...cardsEn },
 
   // ── Automation module (2026-10-03): scheduled / app-start triggered tasks ──
   automation: { ...automationEn },

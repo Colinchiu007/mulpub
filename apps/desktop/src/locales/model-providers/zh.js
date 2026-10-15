@@ -72,6 +72,7 @@ export default {
     apiKeyPlaceholder2: 'sk-...',
     multimodalHint: (ctx) => '多模态服务商：仅需填写 API Key，能力与模型由系统预设（支持：' + ctx.named('caps') + '）。',
     modelsLabel2: '模型（逗号分隔）',
+    modelsReadonlyHint: '模型列表由运营后台统一下发，此处为只读；如需变更请在运营后台修改后同步。',
     multimodalModelsHint: '模型列表由系统预设与运营后台下发控制，无需在此填写。',
     currentModels: (ctx) => '当前模型：' + ctx.named('models') + '。',
     singleModelHint: (ctx) => '模型: ' + ctx.named('models') + '（单模型服务商，无需填写 Model ID）',

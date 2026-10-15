@@ -21,12 +21,25 @@ const fs = require('fs')
 const path = require('path')
 const crypto = require('crypto')
 const log = require('./logger')
+// proxy 公开形态归一：与 account-manager.getAccountProxyStatus 共用同一实现，
+// 保证「批量入口」与「单账号口径」对同一份 proxy 原值给出逐字段一致的结论。
+// proxy-config 只依赖 node:net，不会与本文件形成循环依赖，故在顶部静态 require。
+const { toPublicProxyConfig } = require('./proxy-config')
 
 const ALGORITHM = 'aes-256-gcm'
 const KEY_LENGTH = 32
 const IV_LENGTH = 16
 const TAG_LENGTH = 16
 const SALT_LENGTH = 32
+/**
+ * PBKDF2 迭代次数 —— 单一常量，同步与异步两条派生路径必须共用。
+ *
+ * ⛔ 不得为「让账号页更快」把这个数字调小：openspec 规格
+ * （openspec/specs/ops-center/local-login/spec.md）对本项目 PBKDF2 的基线是
+ * **≥200000 次**，而这里用的是 100000 次 —— 已经低于基线。再往下调是把
+ * 一处既有的安全欠账继续放大，性能问题必须用并行化解决，不能用降强度解决。
+ */
+const PBKDF2_ITERATIONS = 100000
 const SAFE_STORAGE_PREFIX = 'safeStorage:v1:'
 const PLAINTEXT_PREFIX = 'plaintext:v1:'
 const MASTER_KEY_PATTERN = /^[0-9a-f]{64}$/i
@@ -116,7 +129,7 @@ function writeMasterKeyFiles (keyFile, masterKey, safeStorage) {
  * 派生 AES-256 密钥
  */
 function deriveKey (masterKey, salt) {
-  return crypto.pbkdf2Sync(masterKey, salt, 100000, KEY_LENGTH, 'sha512')
+  return crypto.pbkdf2Sync(masterKey, salt, PBKDF2_ITERATIONS, KEY_LENGTH, 'sha512')
 }
 
 /**
@@ -437,6 +450,11 @@ function cleanOrphanCredentials (knownAccountIds, userDataDir, ownerSubject) {
 }
 
 module.exports = {
+  // 供 credential-proxy-status.js 取用（该模块 require 本文件，方向单向、无循环）
+  resolveCredentialArgs,
+  CRYPTO_PARAMS: Object.freeze({
+    ALGORITHM, KEY_LENGTH, IV_LENGTH, TAG_LENGTH, SALT_LENGTH, PBKDF2_ITERATIONS
+  }),
   getMasterKey,
   getCredentialFilePath,
   getCredentialDir,
