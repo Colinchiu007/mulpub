@@ -47,6 +47,17 @@
    勾选全部 15 平台后为 8 = `15-7`）。像素 `misMatchPercentage=0.58%` 且变化像素全在表单输入区、
    右侧目标面板为 0。**那个 PASSED 只证明"正常态无回归"，不构成空态无回归的证据**——
    若照抄初版结论去重建基线，会是一次无意义且破坏性的大改动。
+## ⛔ `ELECTRON_RUN_AS_NODE=1` 会让 QM-1 启动验证得到假绿；以及「提前退出」必须自己判（fix-toutiao-title-suffix，2026-10-15）
+
+1. **本机 DSH 会话环境带着 `ELECTRON_RUN_AS_NODE=1`，被它启动的 Electron 应用会静默退出（rc=0、stdout/stderr 全空、不建窗口、不建 userData）。**
+   我用 `child_process.spawn` 跑打包产物做 QM-1 第 3 步，得到 `EXIT code=0`、`stderr_len=0`、`stdout_len=0`。**我的判据只看 stderr 非空与否，于是打印了「判定 = PASS（stderr 为空）」——这是假绿**：进程根本没起来。
+   **归因方法（可复用）**：拿一个**未含本次改动的既有构建**做 A/B（`mp-ops-dead-ipc` 的 `win-unpacked`，同日 14:41 构建），它在同一环境下**表现完全相同**（rc=0、零输出）⇒ 证伪「本次改动导致启动失败」，把矛头转向环境。
+   **修法**：跑 QM-1 启动验证前 `Remove-Item Env:ELECTRON_RUN_AS_NODE`，并把**剔除该变量后的 env** 显式传给子进程；**判据必须同时要求「窗口期内仍存活」**，提前退出即 FAIL（对齐 `scripts/qm1-scheduled-publish-verify.cjs` 的 `bad('进程提前退出：code=… signal=…')`）。
+   **教训**：QM-1 三层判据（①红线 ②非空即 NEEDS_REVIEW ③空才 PASS）解决的是「stderr 内容」的判法，**它默认「进程还活着」这个前提**；前提本身要单独断言。只看输出不看存活，等于给「根本没跑起来」判通过。
+
+2. **`Get-Process` 与 `tasklist` 对已退出的进程可能给出不一致的残留条目，以 `tasklist` 实况为准。**
+   终止 Electron 后 `Get-Process -Name` 仍报 1 个、`Get-Process -Id` 说 gone、`tasklist` 显示 36 MB 活着，`Stop-Process` 报「找不到进程标识符」。最终 `taskkill /PID` 报 not found、`tasklist` 变 "No tasks are running" ⇒ 那条是残留条目。**判活/判死都要交叉核对两个工具**，别在残留条目上反复重试。
+   另：Electron 一个实例会留 main + GPU + renderer 多个**同名**进程，收尾要**按 PID**逐个终止（先确认 before 计数，确认全部属于本轮），终止后复核计数归 0——按名字批量 kill 会误杀其他 worktree 里用户正在用的实例。
 
 ## 把「触发手段」当「发布内容」：头条标题被追加时间戳后 4 位（fix-toutiao-title-suffix，2026-10-15）
 

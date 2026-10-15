@@ -18,7 +18,7 @@ sync_backfill_owner: 下一个会话
 | 防止再次发生（QM-5 ⑤） | ✅ | ① AGENTS.md QM-2 新增「⛔ 发布内容保真合同（trigger-value isolation）」四条不可破 + 修改该文件必须同跑的两个测试文件；② PRD §6.8 完整产品契约（数据校验表/流程图/功能逻辑表/交互逻辑/显示项/提示文字/异常态矩阵 7 行/验收标准 4 条）；③ `01-docs/learnings.md` 5 条（含「测试沙箱复刻真机语义差一点锁就假绿」连踩三处）；④ `01-docs/BUGFIX-TOUTIAO-TITLE-SUFFIX-2026-10-15.md` 完整 5 步 |
 | 行尾与 diff 对账 | ✅ | `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径逐文件一致（PRD +96/-0、learnings +47/-0、AGENTS +2/-0、CHANGELOG +12/-0、toutiao-direct-bridge +86/-10）。删除数 10 行全部来自被替换的旧 `rettle` 扰动脚本段（含其注释），已逐行核对无意外删除 |
 | 接线棘轮 | ✅ | 新增 `packages/rpa-engine/tests/toutiao-title-no-pollution.test.js` 命中 `packages/rpa-engine/vitest.config.js` 既有 `include: ['tests/**/*.test.js']`（该 glob 已被 CI 消费），无需改 workflow；实跑 `pnpm exec vitest run` = **7 files / 274 passed / 0 failed** |
-| QM-1 打包 / QM-4 视觉 | N/A | 本次未触运行面：改动限 `packages/rpa-engine/src`（RPA 引擎，非 `apps/desktop/electron/`），且**无任何 UI/视觉变更**（用户侧无新增交互、无新增控件、无新增文案）。按 QM-1 门禁描述（"每次修改 apps/desktop/electron/ 或 packages/rpa-engine/ 下代码后"）本应打包——**但本条据实登记为待补**：见「遗留」第 1 条 |
+| QM-1 打包 / QM-4 视觉 | ⚠️ QM-1 已补跑（验证 1/2 通过，验证 3 存活但 stderr 已归因）；QM-4 N/A（无 UI 变更） | **触面判定更正**：改动含 `packages/rpa-engine/`，按 AGENTS.md 字面规则**必须**跑 QM-1，故已补跑而非豁免。完整证据见下方「QM-1 证据」专节 |
 | QM-6 CCG 双模型外部评审 | ⚠️ 部分 | `scripts/ccg-gate.js` 实跑 exit=0，判定 DUAL（变更 446 行 > 200 行阈值），要求 claude + opencode 双模型深度审查，并已把判定记录 stage 进本次提交（`.ccg/reviews/0d14ca8e9918a065844c2cc5db916734316d7cf3.json`）。门禁同时提示两条：①「决策层方案评审尚未执行（deepReview.status=pending）」；②「范围漂移：5 个改动文件不在方案声明范围内」。**双模型深度审查本身未在本次执行**（`sh scripts/deep-review.sh` 未跑），如实登记为未完成，不用自审冒充 |
 | 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin fix-toutiao-title-suffix` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
 
@@ -39,10 +39,27 @@ sync_backfill_owner: 下一个会话
 
 根本原因也解释了为何独此一家：只有头条这条链需要「制造假变化骗页面自动保存」。
 
+### QM-1 证据（`electron-builder --win --dir --publish never`，rc=0）
+
+前置：`node scripts/verify-worktree-deps.js` OK（11 项消费方解析到本 worktree，非借用他分支链接）；`PLAYWRIGHT_BROWSERS_PATH=.playwright-browsers pnpm exec playwright install chromium` 已装（`.playwright-browsers` 现有 chromium-1228 / headless_shell / ffmpeg / winldll）。
+
+| 步骤 | 结果 | 证据 |
+|---|---|---|
+| 打包 | ✅ rc=0 | `electron-builder 25.1.8` → `dist-electron\win-unpacked`；asar = 146,699,886 字节；期间仅一条 `file source doesn't exist …apps\desktop\dist\fonts` 告警（见验证 3 归因） |
+| 验证 1：asar 清单含目标文件 | ✅ | `asar list` 命中 `\node_modules\@multi-publish\rpa-engine\src\toutiao-direct-bridge.js` |
+| 验证 2：require 链 + 修复内容自证 | ✅ | 用 `@electron/asar` 从 asar **内存读取**该文件字节：`packed sha256 = a4257d4a1038f2b881ba7d465818110b0fde9e5589374b7a26a0e9079793707b` **与工作区修复源码 sha256 逐字节相等**；编译加载成功，导出 7 项（含新增 `buildTitleBumpScript` / `overrideBodyTitle` / `publishViaPageXhr`）；打包版脚本 `Date.now` 命中 = false、`slice(-N)` 命中 = false；`overrideBodyTitle("title=x&save=0&title_id=T","Real")` → `title=` 已覆盖且 `title_id` 保留 |
+| 验证 3：启动 12s 存活 + stderr 三层判据 | ⚠️ 存活 ✅ / 判定 NEEDS_REVIEW（**已归因，与本改动无关**） | 主进程 `alive_after_12s = true`（未崩溃）；stderr 296 字节 = `Failed to load URL: file:///…app.asar/dist/index.html … ERR_FILE_NOT_FOUND`。**归因**：`apps/desktop/dist` 目录**不存在**（本次未跑渲染端 web build，electron-builder 亦已告警 `dist/fonts` 缺失）⇒ 渲染页缺失，与 `toutiao-direct-bridge.js` 无关。非四类红线、非 `Cannot find module`；主进程 20,925 字节 stdout 显示插件/阶段执行器正常注册。按三层判据**不得判 PASS**，故如实记为 NEEDS_REVIEW 并交出归因，不写成通过 |
+
+**验证 3 的两条过程教训（必须记下，否则后人会重复踩）**：
+
+1. **⛔ 本机 DSH 会话环境里 `ELECTRON_RUN_AS_NODE=1` 会让任何 Electron 应用静默退出（rc=0、stdout/stderr 全空）**。首跑据此得到「PASS（stderr 为空）」是**假绿**——我的判据只看 stderr、没看进程是否提前退出。**修法两条**：跑 QM-1 启动验证前必须 `Remove-Item Env:ELECTRON_RUN_AS_NODE`（并把剔除后的 env 传给子进程），且**判据必须同时要求「窗口期内仍存活」**（提前退出即 FAIL，对齐 `scripts/qm1-scheduled-publish-verify.cjs` 的 `bad('进程提前退出')`）。**归因方法**：用**未含本次改动的既有构建**（`mp-ops-dead-ipc`，10/15 14:41 构建）做 A/B —— 它在同一环境下同样 rc=0 / 零输出 ⇒ 证伪「本次改动导致启动失败」。
+2. **进程收尾要按 PID 而非按名字**：Electron 会留 main + GPU + renderer 多个同名进程；本机 before=0 时全部同名进程都是我这一轮的，按 PID 逐个终止后复核计数归 0。`Get-Process` 与 `tasklist` 对已退出进程可能给出不一致的残留条目，以 `tasklist` 实况为准。
+
 ### 遗留（不假装已闭合）
 
-- **QM-1 打包未跑**：按 AGENTS.md 字面规则（改 `packages/rpa-engine/` 下代码后必须本地打包验证）应执行 `cd apps/desktop && pnpm exec electron-builder --win --dir --publish never` 并按三层判据查 stderr。本次未跑，原因是改动不触任何 electron 主进程/渲染进程入口（`toutiao-direct-bridge.js` 只被 `rpa-view-platforms._publish_toutiao` require，且本次未改其导出签名之外的行为契约——**但导出确实新增了 3 个名字**，故这条不能算"确定无影响"）。**待补**，或由评审裁决是否可豁免。
-- **QM-6 双模型深度审查未跑**（`deepReview.status=pending` + 范围漂移提示），决策层方案评审亦未执行。本 PR 是 bug 修复、无新功能面，但按 §12.6 Red Team 阈值（>200 行）已被判 DUAL。
-- **真机复验未做**：需用户侧真实账号向头条号发一条 >26 字、一条 <26 字图文，回后台核对标题回显。本次证据止于单元/集成级。
+- **QM-1 验证 3 未取得「通过」形态**：主进程存活已证，但渲染端 `dist/index.html` 缺失使 stderr 非空 ⇒ 按三层判据只能记 NEEDS_REVIEW。**要收成 PASS 需先跑渲染端 web build 再打包**（本次未跑）；该缺口与本改动无关（A/B 对照已证），但「完整 QM-1」在本轮确实没走完。
+- **QM-6 双模型深度审查未跑**（`deepReview.status=pending` + 范围漂移提示），决策层方案评审亦未执行。本 PR 是 bug 修复、无新功能面，但按 §12.6 Red Team 阈值（>200 行）已被判 DUAL；`scripts/ccg-gate.js` 本体 exit=0。
+- **真机复验未做**：需用户侧真实账号向头条号发一条 >26 字、一条 <26 字图文，回后台核对标题回显。本次证据止于单元/集成级 + 打包产物字节级。
 - **发布后平台回显对账未实现**：严格平台（baijiahao/kuaishou/toutiao）的作品查询里比对标题，使「平台收到什么」从此有机械判据。
-- **临时文件未删**：`packages/rpa-engine/mutate-check.js`（一次性变异脚本，**未跟踪、未纳入本次提交**）。本机 `mavis-trash` 后端不可用导致 `scripts/safe-delete.js` 走不到删除那步（四道闸已通过，仅可恢复删除后端缺失）。待该后端可用后按 R0 删除。
+- **临时文件未删（两处，均未纳入提交）**：① `packages/rpa-engine/mutate-check.js`（一次性变异脚本）；② `D:\Temp\qm1-asar-check-472984733\`（**我不完整的 asar 全量解包残留，134.6 MB**——当时为做验证 2 而解包，遇到 `ENOSPC` 中断）。两者都因 R0 的机械闸门无法用 `safe-delete.js` 清理：②是**目录**（闸 1 一律拒绝）且在仓库外（闸 3 亦不过），①是未跟踪文件但本机 `mavis-trash` 后端缺失（四道闸已过、仅可恢复删除后端不可用）。**按 R0 不绕过、不递归删除**，如实登记待人工处置。
+- **本轮 D 盘一度打满（0 可用 → 后回升至约 900 MB）**：由 asar 全量解包 + `dist-electron`（1.69 GB）+ `.playwright-browsers`（688 MB）叠加造成；进程终止后释放。若后续要在本 worktree 重跑 QM-1，先确认可用空间。
