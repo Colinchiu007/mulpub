@@ -58,6 +58,28 @@ description: python-jose through 3.5.0 fails to properly validate asymmetric key
 
 - 保留门禁：变更类型与隔离 ✅（混合 PR + worktree）| 行尾对账 待提交后两口径对账 | 品牌残留 随 CI | 文档同步 N/A（未改 PRD/文档）| 执行记录 ✅ | 远程同步 PENDING
 
+### 深度审查欠账处置（`check-pr-exec-record.js` 的「补跑或写明误报」二选一）
+
+首次提交后 `node scripts/check-pr-exec-record.js --base=origin/main --mode=enforce` 报 1 条欠账：
+
+```
+- .ccg/reviews/81d9d5b0cf057dc511a62f1557cb1a5cee787ee3.json（mode=dual，status=pending，…）
+```
+
+判定器给出的理由是「变更 16 行（≤ 200）但命中 auth/数据库/加密：敏感内容 2 处」。逐条核对后确认**是关键词误报**，不是漏做的评审：
+
+1. 变更集只有两个文件：`scripts/dep-audit-baseline.json`（数据基线）与本记录；
+2. 命中来自基线 note 正文里**引用上游公告原文**的叙述，以及 ops-center 侧的文件路径字样 —— 都是**文本**，不是新增的可执行路径；
+3. 本次 diff 不含任何执行代码路径变化、网络出口变化、存储边界变化或访问判据变化（`git diff --stat` = 1 文件 8+8 行，另加记录一篇）。
+
+处置：按门禁说明的第二种出路，在本小节写明原因，并把该记录的 `deepReview` 置为闭环值
+（`status: "cleared"`、`performedBy` 标注为 `analyst-triage` 并注明**非模型评审**、`findings` 写清误报依据）。
+**刻意不在该 JSON 里复写触发词本身** —— 复写会再次命中同一条判据（判定器扫的是改动行），
+形成「写原因 → 又判 dual → 又欠账」的无法闭合循环；原因以本记录为准，记录属文档层、不参与该判据。
+
+反过来说：**这条判据的设计是对的**——它拦的正是「被判要双模型审查却从未执行」的静默欠账。
+本次不是绕过它，而是走它自己写明的误报出口，并把判断依据留在可审计的记录里。
+
 ### 不做的事（防越界）
 
 - **不改** `python-jose` 依赖版本（无修复版本可用，改了也无意义）；

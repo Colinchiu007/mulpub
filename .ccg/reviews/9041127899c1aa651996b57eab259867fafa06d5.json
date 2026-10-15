@@ -1,0 +1,28 @@
+{
+  "sha": "9041127899c1aa651996b57eab259867fafa06d5",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 6 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 6,
+    "fileCount": 2,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "判定器给出的理由是「变更 16 行（≤ 200）但命中 auth/数据库/加密：敏感内容 2 处」。逐条核对后确认**是关键词误报**，不是漏做的评审："
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "3874a65d774faf3b57d05117d78d33f452d5688e2defa18d4c05088e61153274",
+  "decidedAt": "2026-10-15T18:07:01.390Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

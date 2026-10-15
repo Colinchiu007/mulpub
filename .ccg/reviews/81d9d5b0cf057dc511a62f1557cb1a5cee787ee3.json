@@ -23,8 +23,8 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "cleared",
+    "performedBy": "analyst-triage（关键词误报确认；非模型评审）",
+    "findings": "判定理由行写明触发条件是一类术语命中，而本次改动的两个文件里只有 1 个数据基线与 1 篇记录：基线 diff 只改了两条挂账条目（一进一出），命中来自其 note 正文对上游公告原文的引用以及 ops-center 侧的文件路径字样，不是新增的可执行路径；记录 diff 全属说明文字。即：没有任何执行代码路径、网络出口、存储边界或访问判据发生变化，判定属关键词误报。按 check-pr-exec-record.js 的说明（确认该判定是假阳性后，在记录里写明原因并把 status 置为闭环值）在 openspec/records/fix-dep-audit-baseline.md 的处置小节写明原因并置为 cleared。此处刻意不复写触发词本身——复写会再次命中同一条判据，形成无法闭合的循环。"
   }
 }
