@@ -1,3 +1,87 @@
+## 端点鉴权面单一真源；锁自身可能是 no-op；以及 FastAPI 版本差异造成的 CI 假绿（auth-single-source，2026-10-15）
+
+### lesson:removal-verification-needs-reverse-lookup-not-recall
+
+【教训】「移除型」改动的验证面是**反向检索**，不是**正向回忆**。
+本轮删 `getConfig().url` 别名时，我按「**我改过**的文件」选了 7 个测试文件跑绿（147 条）就提交了 ——
+CI 立刻抓出 2 处遗漏：`electron/preload.test.js` 的**方法数计数锁**（149→146、344→341）与
+`services/settings-roundtrip-contract.test.js` 里 `expect(cfg.url)`（**藏在测试里的消费者**）。
+删除型改动的风险面是「**谁引用了被我删掉的东西**」，只能靠反向检索圈定。
+**判据**：删任何符号前先 `git grep -lE "<符号名>" -- '**/*.test.js'`，把所有断言过它的测试文件列出来，一个都不能少。
+正解不是「多跑几个文件」，而是把 10 个符号模式 `git grep -lE` 圈出的 **32 个文件**全跑（最终 1034 条）。
+**特别要覆盖两类正向回忆必漏的形态**：①**计数锁**（断言导出数量/键数的用例）；②**在测试里而非生产代码里的消费者**。
+
+### pitfall:grep-for-direct-use-cannot-prove-zero-consumers
+
+【陷阱】`git grep 'getConfig()\.url'` 找不到消费者，**不等于**没有消费者。
+本轮据此得出「零消费者」结论并删掉别名，结果漏了 3 处：`resolveAutoSyncGuard(cfg, ...)` 接收的是**整个 cfg 对象**、
+`bootstrap/phase1-context.js` 与 `ipc-handlers/rate-limit.js` 是**解构后读 `cfg.url`** —— 这两种**间接形态 grep 不到**。
+**判据**：证明某字段/接口零消费者，必须同时检索三种形态 ——
+①**字面量取用**（`obj.url` / `obj['url']`）；②**对象整体传递**（函数签名接收整个对象）；③**解构赋值**（`const { url } = cfg`）。
+只做第一种就下结论，等于把「我搜不到」当成「不存在」。
+**加强手段**：给返回对象加**交叉锁**（从外部扫源码断言消费方读的是哪个字段），因为「实现与自家 mock 一起改」会互相掩盖。
+
+### lesson:lock-must-be-validated-by-mutating-the-property-not-the-lock
+
+【教训】写「防再犯锁」时，**锁本身可能是 no-op**，而它看起来完全正常。
+本轮 Track A 的「依赖词表锁」初版是：`unknown = sorted(used - set(KNOWN_AUTH_DEPS))`，
+其中 `used` 取自**已按词表过滤过**的 `auth` 字段 ⇒ 该断言**恒为空**，永远绿。
+它是在准备**变异反证**（M4：换成未登记的自定义守卫）时才暴露的 —— 因为那条变异**本该变红却没红**。
+**判据**：任何锁必须做一次**「把被守护的性质改坏」**的变异，确认它变红；只证「业务改动变红」不算数。
+**推论**：当断言的两侧来自同一条已被过滤/归一化的数据流时，先问「这两侧会不会同时变、从而恒等？」
+本轮修法是给清单新增 `other_deps`（未被词表过滤的原始依赖名），让未登记项**可见**。
+
+### lesson:single-source-claims-must-be-verified-before-building-the-gate
+
+【教训】门禁方案选定「以 X 为唯一真源」后，**第一步必须验证 X 真的覆盖全部**，否则门禁会产出假阴性。
+本轮口径是「以 FastAPI 路由的依赖声明为真源」，实测发现 **153 个端点里有 8 个的鉴权只写在 handler 函数体内**
+（`route.dependant` 反射**读不到**）—— 若直接按反射建清单，这 8 个会被读成「无鉴权」，门禁变成假绿。
+**判据**：建门禁前先做一次「真源覆盖率」探针：用真源枚举出的集合与用**独立手段**（如 AST）枚举出的集合求差，
+差集非空就说明真源不完整。**本轮正解是先补齐真源**（把 8 处函数体内调用上收为 `Depends(...)` 依赖声明），
+再做纯反射门禁 —— 这样「唯一真源」才真的唯一。
+
+### lesson:doc-reconciliation-must-judge-claim-windows-not-lines
+
+【教训】把文档描述与实现对账时，判据要判**「做了声称的那个位置」**，不能判「整行/整文件出现某关键词」。
+本轮 PRD 对账锁初版报 **22 条**告警，逐条核对后**绝大多数是误报**，收敛了两轮：
+① **只判「做了鉴权声称」的位置** —— PRD 里同一路径也出现在「配置来源行」「下发通道行」等非鉴权语境
+（例：`| L1 运营后台配置 | …经 GET /api/v1/model-presets/catalog 同步…`），要求每处提及都满足关键词必然误报；
+② **按「提及窗口」判而非整行判** —— `01-docs/PRD.md` 是追加式文档，存在**巨型行**（实测单行 11494 字符，
+把整节需求挤在一行），按行判会把同行无关段落的 `Bearer` 算成该端点的声称，**导致修完真实描述后仍报红**。
+窗口取提及处 `-40 / +260` 字符即可覆盖 `（无需登录；鉴权 …）` 这类内联从句。
+③ **`forbid` 判据必须否定感知**：`forbid=["Bearer"]` 会把修正后的文案「**不接受 Bearer**」读成「声称接受」 ——
+判的是**语义**（是否声称接受该通道），不是**子串**。修法：关键词出现处前 8 字符内含否定标记（不接受/不支持/无需/非…）则不计。
+**副产品**：这轮收敛抓到 **8 处真实** PRD 过度声称（`usage/ingest`、`publish/ingest` 各 4 处写「Bearer 优先」而实现只认静态 key）。
+
+### lesson:duplicated-guards-need-name-level-uniqueness
+
+【教训】同一段鉴权逻辑在多个文件里**各有一份**，真正的危险不是重复本身，而是**同名不同义**。
+本轮 ops-center 的静态 key 守卫在 4 个文件里逐字重复，但其中 `routers/runtime.py` 那份**名字相同、语义不同**
+（它是「Bearer 或 key」双通道，其余三处是「仅静态 key」），`routers/telemetry.py` 又叫 `_require_client_key`（近名不同义），
+`routers/feedback.py` 还从 `diagnostics` **跨模块 import 私有名**。
+⇒ **鉴权强度要靠「读的是哪个文件的私有函数」来区分**，这是审查必然读过去的形态。
+**判据**：收敛时不是「把多份合成一份」就够，必须让**名字唯一表达语义**（`require_catalog_key` = 仅静态 key、
+`verify_bearer_or_catalog_key` = 双通道），并让门禁能从**声明**（而非实现位置）读出强度。
+**同时**：合并时务必逐一保持错误语义（本轮保留「未配置→404、不匹配→401」），不做「顺手统一」。
+
+### pitfall:security-scanner-reads-cli-path-arg-as-traversal
+
+【陷阱】`.ccg` 的 `verify-security` 会把**开发 CLI 的路径参数**读成「路径遍历」高危，从而拦下 pre-commit。
+本轮 `scripts/auth_surface.py` 因 `--fixture <path>`（用户可传路径后 `write_text`/`read_text`）被报 2 处高危。
+**正解不是 `SKIP_CCG_GATE=1`**（本仓明确禁止绕过门禁），而是**删掉那个多余的参数** ——
+清单路径本就固定，开放为命令行参数纯属无必要的自由度。
+**判据**：本地/CI 工具脚本的文件路径**默认写死**；确实需要参数时，也在写文件前做 realpath + 根目录包含断言。
+
+### lesson:env-second-source-locks-count-normalization-sites
+
+【教训】「同一个值有两个来源」这类缺陷，锁的形态应当是**「数归一处出现的次数」**，而不是「断言某一行长什么样」。
+本轮 `_fetchJson` 里留了 `base || process.env.OPS_CENTER_URL` 兜底：env 早已被 `_getAutoContext()` 归一后汇入
+`effectiveUrl`，所以该兜底在真实链路**不可达**（上游 `if (!effectiveUrl) return` 已拦下空 base）；
+**它一旦可达就有害** —— 调用方用 `effectiveUrl` 表达了来源优先级，这一行却会在 base 为空时悄悄改走 env。
+**判据**：锁断言「该 env 变量在去注释后的代码行中**恰好出现 N 次**，且每行都必须匹配归一处形态，其中无一行与消费方函数相关」。
+这比断言某一版写法更抗漂移。**配套**：变异反证要覆盖「**把坏味道加回去**」这一侧（本轮 M1 即把 env 兜底加回），
+而不是只改业务逻辑 —— 那才证明锁盯的是**性质**（第二真源）而非**某版写法**。
+
 ## ⛔ `ELECTRON_RUN_AS_NODE=1` 会让 QM-1 启动验证得到假绿；以及「提前退出」必须自己判（fix-toutiao-title-suffix，2026-10-15）
 
 1. **本机 DSH 会话环境带着 `ELECTRON_RUN_AS_NODE=1`，被它启动的 Electron 应用会静默退出（rc=0、stdout/stderr 全空、不建窗口、不建 userData）。**
