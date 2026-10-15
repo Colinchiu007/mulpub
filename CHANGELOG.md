@@ -1,3 +1,17 @@
+# [未发布] fix(scripts): worktree 删除守卫不再把"测不到"报成"没内容"——脏判据分级 + 新增 exit 10（fix-worktree-remove-dirty-gate）
+
+- 事故取证：`safe-worktree-remove.ps1` 的 `worktree dirty : 0` 取自 `git status --porcelain`，该命令**不列被 .gitignore 忽略的文件**；且未注册时判据塌成空数组——"构造出来的 0"被当成"测到的 0"，`-ConfirmDirtyDiscarded` 这道门在最需要它的状态下永不触发。
+- 新增三个纯函数进 `scripts/worktree-fs-longpath.ps1`：`Get-WorktreeContent`（三态 `Basis`：measured-git / measured-fs / unproven）、`Resolve-ContentDisposition`（`ok|confirm_required|unproven`）、`Resolve-DriftDisposition`（`clean|benign_drift|cascade`）。
+- 守卫侧：ignored 内容按**独立档位**处理，只打印条数（`CONTENT NOTICE`）、**不设任何体积/条数门槛**——`node_modules` 与构建产物天然就是 ignored 且天然巨大，以体积为判据的门槛会在每次正常删除上触发，后果是训练使用者习惯性加 `-Force`，门禁退化为装饰（这条是初版设计 `-IgnoredByteBudget` 被决策层评审当场否证后改正的结论，详见 openspec change 的 design.md 决策 3）；新增 **exit 10 = 内容不可判定，确认参数不得替代测量**。
+- R7 漂移分级：只有 main 出现 `D/U` 符号才算级联并 exit 3；并发会话的 `M/A/??` 打印 `R7 BENIGN-DRIFT` 并全量列出后放行——本仓共享根几乎每分钟被别的会话写，旧判据已把告警烧成噪声。**这是有意收窄拦截面**（旧逻辑对任何非空漂移都 exit 3），两个边界如实写进规格：真级联若恰在采样前被同名 `M` 条目掩盖则不会红，且 R7 只单次采样、采样之后发生的删除仍会漏。
+- 测试：`scripts/worktree-fs-longpath.test.ps1` 追加第 12–17 节共 **30 条**真值表/夹具/顺序断言（总 PASS 41→**59**），并加**反失明三重防护**（前置存在性断言 + 节内异常计入 failures + 断言执行条数），因为实测函数缺失时 harness 会静默跳过整节并打印 `TEST_OK`；断言条数计数器在扩写过程中**两次**当场抓住"我以为加了、其实没跑"和"我自己数错了"。pwsh 7 与 Windows PowerShell 5.1 两档各 59 PASS / 0 FAIL，两份 skill 物理副本各实跑一遍也是 57 PASS。
+- 范围如实收缩：证据镜像豁免（`-PreserveEvidenceGlob`）本刀**未落地**，只交付可见性；规格与设计已按实现回写，不留说谎的契约。
+- 对抗循环第 3 轮又抓到一条**比评审本身更硬**的事实：ignored 的取数原本用 `--untracked-files=all --ignored`，实测在任务 worktree 吐 **55,191 行**、共享根 **127,654 行**（每次删除都付这笔递归）。改为独立的 `--porcelain --ignored` 折叠档（本机 10–80 条），`ignored=N` 的**单位由"文件"改为"条目"**并写进规格；同时新增 `IgnoredKnown`，git 答不上时打印 `n/a(not measured)` 而**不是 0**——把"没测"印成 0 就是本刀要消灭的"构造性零"在新代码里复活。
+- 打印面本身也是判据的一部分：`unproven` / `measured-fs` 下 `trackedDirty` 与 `untracked` 同样是 0，而那个 0 一样是"没测"。故把格式化从脚本正文**提成纯函数** `Format-ContentSummary`，未测得档位一律印 `n/a(not measured)`，真值表另加一行「输出 MUST NOT 出现 `trackedDirty=0`」。**理由不是美观**：写在脚本正文里的字符串进不了真值表，下一次编辑就会把 `0` 放回去且无人变红——那正是本刀要消灭的东西的复发路径。
+- 退出码先后由「取最严重」改为**结构性先后**（`8→6→2→7→10/4→9→1→5→3`，从代码里读出来），并落两条只数语句行的顺序锁（`^\s*exit N\s*$`，不数文档与预览字符串——注释可以怎么说都行）。`-WhatIf` 现在也预览内容档拒绝（`would REFUSE : … -> exit 4/10`），预演不再只预览持有者那一档。
+- 验证层（QM-6 双模型）改出的四处：① `measured-fs` 的 BLOCKED 行必须**带上触发门禁的那个条目数**（只印三个 `n/a` 会把"没测到"再读成"没内容"）；② 谓词与字段改名 `Get-WorktreeContent` / `TopLevelEntries`（`Resolve-*` 在本库里一律返回裁决串，对象返回用 `Get-*`；顶层计数含目录，不能叫 "Files"）；③ `$baselineFile` 从"只写不读"的死 I/O 改为 R7 的读取源并打印 `baseline source : disk|memory`；④ 级联符号集合收敛为唯一实现 `Test-DriftCascadeSymbol`，判据与 R7 打印过滤共用它，文案不再把混入的 ` M`/`??` 说成"DELETIONS"。
+- 如实上报一条**本刀未修**的安全命题（后端轴 B8）：R6 主删除策略 `[IO.Directory]::Delete($lp,$true)` 没有 `/XJ` 那种"不穿透 reparse point"的原语保证，其安全性目前是**时序性**的（靠"刚扫过并解过链"）。换原语属另一个 change，值得自己的评审，不夹带。
+- 跨仓（skill 侧）：补丁后的守卫 + 缺失的长路径库**两份物理副本都补齐**（旧副本先备份），SKILL.md 把"哈希不一致就用内置副本"换成三条**能力自证**（该指引方向是反的），退出码表补全 0–10，`references/pitfalls.md` 加载源新增 §二十二（`dirty:0` 三口径盲区）。同场留痕两条：`plan-review.sh` 打印 `blocked` 的那趟 **rc=0**；`deep-review.sh --force` **不真 force**（引擎用 `decision.mode` 覆盖），验证层因此改按 AGENTS.md 的原始命令形态直接起两路后端。
 # [未发布] fix(desktop): 富文本编辑器装载吞段落——百家号图文正文「整篇一整段」二次报障的第一性根因（fix-article-paragraph-zhihu-publish）
 
 - **用户可见症状**：发布到百家号的图文，平台上正文没有分段、是一整段。用户明确指出「这个问题之前修过」。本次答案是：**修复在，而且正在跑的应用就是含修复的构建，但真机产物证明它无效。**
