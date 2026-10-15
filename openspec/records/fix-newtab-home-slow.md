@@ -2,9 +2,6 @@
 record: fix-newtab-home-slow
 task: 点击顶部「+」新增标签后 3-4 秒才显示应用主页——element-plus 全量引入改按需 + 首页数据并行化
 date: 2026-10-15
-sync_status: PENDING
-sync_reason: 代码 PR 已开（#3631），CI 全绿后由 agent 按 AGENTS.md「PR 自动合并」小节自动 squash 合并
-sync_backfill_owner: agent
 ---
 
 ## 本次执行记录：「+」新标签主页慢（fix-newtab-home-slow，2026-10-15）【混合 PR】
@@ -30,7 +27,7 @@ sync_backfill_owner: agent
 | QM-4 视觉 | ✅ | 有渲染端样式变更 ⇒ 跑了视觉判据。首轮 CI 的 `QG Visual` **红 3 处**，经**两步**定位并全部修复（① 样式闭包漏 7 个纯样式依赖内部组件；② 多导 `el-reset.css` 改变了原生元素默认字体）。**本地完整像素套件 19/20 通过**（阈值 1%；CI 用 6%），三处从 9.48%/9.26%/21.63% 全部归零，与 `origin/main` 逐位一致；唯一失败的 `collection` 1.44% 经两态单跑均为 **0%** ⇒ 抖动（且 1.44% < CI 阈值 6%）。六路由冒烟亦实测无组件解析失败 |
 | QM-6 CCG 双模型深度审查 | ✅ **已完成**（critic=claude / proposer=opencode 跨家族；7 条 findings，4 条争议项 **全部 upheld 并已修**） | 判定 `mode=dual`、`required=true`（变更 211 行 > 200 行阈值）。**跑法取证**：判定记录以**提交前的 HEAD sha** 命名（`.git/hooks/pre-commit` 第 148-155 行注释明说这是刻意设计），故 `deep-review.sh` 读当前 HEAD 时永远查不到自己的记录 —— 四条常规路径实测全部走不通（见下「遗留」）。**解法**：让决定器对一个**真正承载改动**的提交判一次 —— 先 `git reset --soft <parent>`（改动留在索引），再 `node scripts/ccg-review-decider.js --sha <HEAD>` 产出名字正确的记录 `9c83ce66…json`（DUAL），随后 `git reset --soft <HEAD>` 复原，最后 `ccg-deep-review.js --sha 9c83ce66… --base 65b5afb8…`。**critic 轮 1 产出 7 条**（维度分 correctness 5 / security 9 / performance 8 / maintainability 5），引擎判 `self_play` 并要求 agent 逐条裁决 ⇒ **i1/i2/i3/i5 四条争议项我全部判 upheld（无一条驳回）**，逐条给最强指控/最强辩护/可验证理由，并**全部落成代码修复**。<br>• **i1（Critical）「P6 的通用集合锁抓不到 el-reset」成立** —— 第一版抽首选择器用 `/\\.el-[a-z0-9-]+/`（只认 class 选择器），而 `el-reset.css` 以 `body{}` / `input,textarea,button{}` 开头 ⇒ 返回 null ⇒ 被塞进 `placeholders` 桶而**不是** `notInFull`；**真正挡住它的只有我自称「弱锁」的那条硬编码**。修法：`firstSelector` 改为括号感知地抽「首个规则的完整选择器」（不再限定 `.el-` 前缀），只有 **0 字节**文件才进占位桶，并新增 `unparsable` 桶（非空却抽不出选择器即判红）。<br>• **i2（Warning）「子串匹配假通过」成立** —— `.el-radio` 会命中 `index.css` 里的 `.el-radio-group`。修法：把 `index.css` 解析成**选择器集合**，改判整串成员关系，并加 `size > 500` 规模下界断言防「解析退化成空集」。<br>• **i3（Warning）「魔法数 5 + 混桶」成立** —— 取消阈值，改**逐个点名**断言 0 字节文件集合 = `['el-config-provider','el-tab-pane','el-tooltip']`，并把「判据失效」与「合法占位」严格分桶。<br>• **i5（Warning）「P7 扫描面过窄」成立** —— 只扫 `.vue` 且正则要求 `v-` 前是空白。修法：扩到 `.vue/.js/.ts`、去掉前导空白限定、加命中数下界断言（≥4，防扫描退化成 0 命中假绿）、并识别 `withDirectives` 非模板用法；修复中还发现并修掉一个**自指误报**（放宽正则后把本锁自己的字符串字面量扫成了用法）。<br>• **i4（Info）文档数字不一致** —— 指出 openspec 写 9.47% 而 BUGFIX/CHANGELOG 写 9.26%。**成立且已修**：两个数各有来源（9.47% = CI 首轮，9.26% = 本地复跑），已在各处标注环境口径，不再留歧义。<br>• **i6/i7（Info）** 属判据健壮性建议（直接读真实 `node_modules`、依赖 Vue 私有 `_context`）：**登记为残余风险不修**，理由见下「遗留」。<br>**决定性变异反证**：临时加回 `import el-reset.css` **并同时把硬编码断言改成 `false`**，P6 仍判红且红在**通用路径**上，报 `el-reset（首个选择器 body）` ⇒ 通用锁**已能独立抓住**它，硬编码降级为双保险。裁决产物 `.adversarial/ccg-deep-9c83ce66/adjudication.json`（含逐条 prosecution/defense/verdict/rationale + `summary.mutationCounterProof`）与 `critique-v1.md` 一并入库 |
 | OpenSpec change | 判定不建（如实记录） | 单点根因修复、无方案级取舍、无新增 IPC 通道/存储/接口/依赖；同域先例（2026-10-11 账号标签首屏登录态）同样只产出 PRD + 执行记录 |
-| 远程同步 | PENDING | 开 PR 时登记；合并后就地改写为 PASS + merge SHA，并同一次提交删除 frontmatter `sync_*` 三字段与 `scripts/gate-record-debt-ledger.json` 登记项 |
+| 远程同步 | PASS | #3631 squash 合并 merge SHA `58256ffc899f6bb75b013e4828fcc794ca797c13`（2026-10-15T21:23:06+08:00）；远端分支 `fix-newtab-home-slow` 已删（`git ls-remote --heads` 0 行）；回填与销账**同一次提交**——本记录 frontmatter 的 `sync_*` 三字段已在本次提交删除。本体不产生 ledger 登记项（`scripts/gate-record-debt-ledger.json` 无本记录条目，已核对） |
 
 ### 构建验证（QM-1 不适用时的渲染层对应验证）
 
