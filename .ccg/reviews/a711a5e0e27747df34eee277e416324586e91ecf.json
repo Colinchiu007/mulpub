@@ -21,8 +21,14 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "needs_revision",
+    "performedBy": "agent-adjudication",
+    "confidenceWeight": 0.6,
+    "findingsTotal": 7,
+    "findingsUpheld": 7,
+    "engineStatusBeforeAdjudication": "self_play_pending",
+    "adjudicationLocation": "openspec/records/fix-ccg-decider-defects.md（裁决 7 条逐条表；原始 JSON 在 .adversarial/，已 gitignore）",
+    "note": "本记录描述的是 rebase 前那次提交的改动集（mode=dual，492 行）；深度审查已真实跑过，critique 7 条经逐条核实 7/7 upheld 并全部处置。★ 已知不一致：本文件名是【父提交 sha】，而 rebase 改写了提交 sha ⇒ 文件名指向的父提交已不在当前历史中，stagedDiffHash 也不对应 rebase 后的 diff。这是「记录名 = 父 sha」这一设计在 rebase 下的固有失真，已在执行记录中登记。**未**取得引擎侧终审，故不写成 cleared。",
+    "at": "2026-10-15T10:34:24.415Z"
   }
 }

@@ -326,3 +326,71 @@ const targetFiles = explicitTargets.length > 0 ? explicitTargets : resolveTarget
 **★ 一处取证教训**：记录里 `check-pr-exec-record | OK` 那次是在**提交前**跑的，
 `--base` 与 HEAD 相同 ⇒ 变更集为空。**凡判据依赖变更集，取证必须在 commit 之后**——
 本仓已有同类登记（`classify-docs-only --head=HEAD` 必须在 commit 后取）。
+
+---
+
+## ★ 合并前追加（2026-10-15，rebase 到最新 main 时暴露）
+
+### 缺陷 G：门禁对 `single` 也要求闭环双模型审查 ⇒ **无法闭合的循环**
+
+修完缺陷 F 后，门禁开始正常工作，随即暴露出**它自己的第 7 个缺陷**：
+
+引擎对 `mode !== 'skip'`（**含 `single`**）一律置 `deepReview.required = true`，
+但 `deepReview` 这个字段名有歧义 —— 它是「是否需要**评审**」，不是「是否需要**双模型深度**评审」。
+判定器自己的输出把两者分得很清楚：
+
+| mode | 判定器原话 | 需要什么 |
+| --- | --- | --- |
+| `dual` | 「要求 双模型(claude + opencode) 深度审查」 | 双模型深度审查（15 分钟级）|
+| `single` | 「常规专家分派」（§12.6） | 单人专家分派 |
+| `skip` | 「按 CCG 决策矩阵不调外部模型」 | 无 |
+
+初版门禁对 `single` 也要求「闭环」⇒ 每次提交都必须跑一次 15 分钟双模型审查；
+而**写完审查结果再提交时又会生成一条新的 `single` 记录**（因为记录文件本身命中了
+`codeExtensions` 里的 `.json`）⇒ **永远闭合不了**。本 PR 实测撞上：第一次提交
+（`mode=dual`，492 行）确实应当审；但收口那次提交又生出 `single` 记录。
+
+**修法**：判据收窄到 `mode === 'dual'`，并补一条反向锁（dual 未闭环必须判欠账），
+防止「为省事把判据整个关掉」。
+
+> 为什么这不是「把判据改宽来放行自己」：收窄的是**适用范围**（single 本就不属于双模型
+> 深度审查），而不是**判定强度**；且原始诉求（被判要双模型深度审查却从未执行）被完整保留，
+> 并有反向锁守着。**测试 48 条**覆盖两侧。
+
+### 一条记录命名的设计缺陷：`<父提交 sha>.json` 会在并发分支间撞名
+
+rebase 时冲突文件是 `.ccg/reviews/71e7994e3949f8eef38e2a757aa292ac0eaddc2a.json`，两侧内容：
+
+| 侧 | 来源 | mode |
+| --- | --- | --- |
+| ours | `origin/main` 上**别的会话**的提交 | `single` |
+| theirs | 我的提交 | `dual` |
+
+成因：记录名 = **父提交 sha**，而 `71e7994e3` 是当时 `origin/main` 的 tip ——
+**从同一 base 拉出的并发分支，其提交的父 sha 相同 ⇒ 记录文件名必然相同**。
+两条记录描述的是**两个不同的 changeset**，却被挤在同一个路径上。
+
+处置与教训：
+- rebase 时取 `ours` 保住 main 侧（**不销毁别人已合并提交的审计产物**）；
+- 但我的第二个提交随后又把 `deepReview` 块叠上去，得到「别人的 `mode=single`
+  + 我的裁决」的**混合体** —— 语义错乱，已还原成 main 版本；
+- 我自己那条改由 `a711a5e0e….json` 承载并如实收口；
+- **残余**：rebase 改写了提交 sha ⇒ 该文件名指向的父提交已不在当前历史中，
+  其 `stagedDiffHash` 也不对应 rebase 后的 diff。这是「记录名 = 父 sha」在 rebase 下的固有失真，
+  本 PR **未修**（属独立问题，见残余 9）。
+
+### rebase 后实测
+
+| 项 | 结果 |
+| --- | --- |
+| `check-pr-exec-record` | exit=0（`71e7994e3` 与 main 逐字节一致 ⇒ 退出变更集；`a711a5e0e` 已闭环）|
+| `check-pr-exec-record.test.js` | **48/48**（+1 条缺陷 G 锁，含反向锁）|
+| `ccg-review-decider.test.js` | 11/11 |
+| `check-gate-record-debt` / `check-unwired-tests` | exit=0 |
+
+### 残余（追加）
+
+| # | 项 | 说明 |
+| --- | --- | --- |
+| 9 | **记录名 = 父 sha 在并发/rebase 下失真** | 并发分支撞名（本节实证）、rebase 后名字指向不存在的提交。修它需要改命名方案（内容寻址已有 `stagedDiffHash`，可考虑以它为主键）——属独立改动，本 PR 不做 |
+

@@ -834,6 +834,32 @@ test('缺陷D：白名单本身必须是非空且只含「已出裁决」的形�
   }
 })
 
+test('缺陷G：mode=single 不得被要求闭环「双模型深度审查」（否则形成无法闭合的循环）', () => {
+  // 引擎对 mode !== 'skip' 一律置 deepReview.required = true —— 那是「是否需要评审」，
+  // 不是「是否需要双模型深度评审」。判定器自己把两者分得很清楚：
+  //   dual   → 「要求 双模型(claude + opencode) 深度审查」
+  //   single → 「常规专家分派」（§12.6）
+  // 初版对 single 也要求闭环 ⇒ 每次提交都要跑 15 分钟双模型审查，
+  // 而写完审查结果再提交时又生出新的 single 记录 ⇒ 无法闭合。本 PR 实测撞上过。
+  const single = withReviewRecords({
+    [`${SHA40}.json`]: { mode: 'single', deepReview: { required: true, status: 'pending' } },
+  })
+  try {
+    const r = mod.evaluateDeepReviewDebt(st([['A', `.ccg/reviews/${SHA40}.json`]]), single)
+    assert.deepStrictEqual(r.reasons, [], 'single 未闭环不得判欠账')
+    assert.strictEqual(r.checked, 1, '仍须被检查到（不是跳过文件）')
+  } finally { fs.rmSync(single, { recursive: true, force: true }) }
+
+  // 反向锁：dual 未闭环必须判欠账 —— 防止「为省事把判据整个关掉」
+  const dual = withReviewRecords({
+    [`${SHA40}.json`]: { mode: 'dual', deepReview: { required: true, status: 'pending' } },
+  })
+  try {
+    const r = mod.evaluateDeepReviewDebt(st([['A', `.ccg/reviews/${SHA40}.json`]]), dual)
+    assert.strictEqual(r.reasons.length, 1, 'dual 未闭环必须判欠账（原始诉求不能被收窄掉）')
+  } finally { fs.rmSync(dual, { recursive: true, force: true }) }
+})
+
 test('缺陷D：mode=skip 的记录（required=false）不得报欠账', () => {
   const repo = withReviewRecords({
     [`${SHA40}.json`]: { mode: 'skip', deepReview: { required: false, status: 'pending', performedBy: null } },

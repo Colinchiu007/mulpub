@@ -395,6 +395,16 @@ function evaluateDeepReviewDebt (statuses, repo) {
       rec = JSON.parse(fs.readFileSync(path.join(repo, rel), 'utf8'))
     } catch { continue } // 损坏记录由别的门禁负责，这里不重复报
     if (!rec || !rec.deepReview || rec.deepReview.required !== true) continue
+    // ★ 2026-10-15 实测补正（缺陷 G）：只看 mode === 'dual'。
+    //   引擎对 mode !== 'skip' 一律置 required=true —— 那是「是否需要评审」，
+    //   不是「是否需要**双模型深度**评审」。判定器自己的输出分得很清楚：
+    //     dual   → 「要求 双模型(claude + opencode) 深度审查」
+    //     single → 「常规专家分派」（§12.6）
+    //   初版对 single 也要求闭环 ⇒ 每次提交都要跑 15 分钟双模型审查，
+    //   而写完审查结果再提交时又生成新的 single 记录 ⇒ **无法闭合的循环**。
+    //   本 PR 实测撞上过。收窄到 dual：既保住原始诉求（被判要双模型审查却从未执行），
+    //   又不把「单人专家分派」这种机器无法核验的路径假扮成可判据。
+    if (rec.mode !== 'dual') continue
     const st = typeof rec.deepReview.status === 'string' ? rec.deepReview.status : '(缺失)'
     if (!CLOSED_DEEP_REVIEW_STATUSES.has(st)) {
       unresolved.push(`${rel}（mode=${rec.mode || '?'}，status=${st}，decidedAt=${rec.decidedAt || '?'}）`)
