@@ -10,7 +10,7 @@ date: 2026-10-16
 
 # 数据看板免费版横幅视觉修正（fix-dashboard-trial-banner，2026-10-16）
 
-> 分支 `fix-dashboard-trial-banner`（隔离 worktree `D:\Data\projects\mp-worktrees\mp-fix-trial-banner`）；基线 `origin/main` @ `193ee0406`。
+> 分支 `fix-dashboard-trial-banner`（隔离 worktree，本机路径见 `mp-worktrees/<任务名>` 约定，不写绝对路径 —— CI runner 上不存在该盘符，会被 Gate 12c 判「超出存量基线」）；基线 `origin/main` @ `193ee0406`。
 
 ## 用户报的两个问题，与代码里的真因
 
