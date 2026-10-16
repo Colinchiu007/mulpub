@@ -2,9 +2,6 @@
 record: podcast-tasks-reconcile-41-42
 task: 刀 4 账目对账——4.1 口语化 / 4.2 分块 TTS 已在主干却挂着未勾；顺带清掉一条「尚未收口」引导注释
 date: 2026-10-17
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 与合并时间还不存在；合并后由本会话开回填 PR，把「远程同步」行改成 PASS + merge SHA，并在同一次提交删除本段三个字段
-sync_backfill_owner: podcast-tasks-reconcile-41-42 会话（本节作者）
 ---
 
 ## 本次执行记录：刀 4 账目对账（podcast-tasks-reconcile-41-42，2026-10-17）【docs-only】
@@ -12,13 +9,13 @@ sync_backfill_owner: podcast-tasks-reconcile-41-42 会话（本节作者）
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
 | 变更类型与隔离 | ✅ | 纯账目/文档变更（`openspec/changes/.../tasks.md` 两行勾收 + `openspec/records/` 两篇），无运行时代码。按分层规则就地编辑 + 经 PR 落地，不进 worktree。 |
-| 判定（docs-only） | PENDING | 合并前提交后跑 `node scripts/classify-docs-only.js --base=origin/main --head=HEAD`，结果与判定串写入本行（未提交时 HEAD==base ⇒ 空 diff ⇒ 假结论，故必须 commit 后取证）。 |
+| 判定（docs-only） | PASS | commit 后取证：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD` ⇒ docs-only=true files=5（PR 正文已记）；rebase 到最新主干后净差异仍只含本篇四件产物。 |
 | 行尾/编码对账 | ✅ | `git diff --numstat` 与 `git diff --ignore-cr-at-eol --numstat` 两口径逐文件相同（tasks.md 4/2、记录 0/1）；改动由驱动脚本逐行保留各自行尾，CR 总量守恒断言实跑（tasks.md cr 107→109、记录 79→78）。 |
 | 品牌残留 | PENDING | `node scripts/check-no-brand-residue.js`（本 PR 文案只写「参考产品」口径，不写竞品名）。 |
 | 文档同步 | PENDING | `openspec-sync-check` 由 CI 跑；本片不改任何 spec 条款，只勾收已完成项并补出处行。 |
-| 远程同步 | PENDING | 本 PR 合并后取 `git log origin/main --grep=(#PR号)$ --format=%H` 回填 merge SHA 与时间、`git ls-remote --heads origin podcast-tasks-reconcile-41-42` 返回 0 行证远端分支已删，并在同一次提交删除本段三个 sync_* 字段 |
+| 远程同步 | PASS | 已合并，merge SHA bbcc1440f127b21f58346426c93cf85b372f6e9c（2026-10-16T17:29:38Z）；取证自 git log origin/main 的 (#3758) 尾注恰 1 行，`git ls-remote --heads origin podcast-tasks-reconcile-41-42` 返回 0 行证远端分支已删，可离线复核 |
 
-- 保留门禁：判定 docs-only PENDING | 行尾对账 ✅ | 品牌残留 PENDING | 文档同步 PENDING | 远程同步 PENDING
+- 保留门禁：判定 docs-only PENDING | 行尾对账 ✅ | 品牌残留 PENDING | 文档同步 PENDING | 远程同步 PASS
 
 ## 一、这次到底改了什么（为什么值得一个 PR）
 
