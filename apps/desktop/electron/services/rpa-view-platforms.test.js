@@ -160,6 +160,7 @@ describe('rpa-view-platforms — 微信公众号发布', () => {
     const { win, executeJavaScript } = createWindow('https://mp.weixin.qq.com/cgi-bin/appmsg?appmsgid=12345&token=123456')
     // 调用顺序：群发保护预检（2026-10-12 新增，只在 massSend 时发）→ 登录态检测 → 同意勾选 → 群发列表草稿选择
     executeJavaScript
+    // 调用顺序：群发保护预检（2026-10-12 新增，只在 massSend 时发）→ 登录态检测 → 保存前拦截注入（wxmp-save-body-intercept）→ 同意勾选 → 群发列表草稿选择
       .mockResolvedValueOnce('') // 预检：无 wx.cgiData ⇒ 未开启群发保护，放行
       .mockResolvedValueOnce({ hasTimeout: false, hasLoginPrompt: false })
       .mockResolvedValueOnce(undefined)
@@ -1464,32 +1465,27 @@ describe('rpa-view-platforms — douyin 图文事件驱动等待（A2：去固�
     const result = await platformsMixin._publish_douyin.call(context, win, {
       title: '图文标题', content: '内容', images: ['C:/tmp/cover.png'], cover_path: 'C:/tmp/c.png',
     })
-
     expect(result.success).toBeDefined()
     expect(result.error === undefined || !String(result.error).includes('cover')).toBe(true)
   })
 })
-// CCG 第三/四轮 i2（upheld）：本文件曾自写两轴合取，与产品侧 isApiTrack 在 publishMode
-// 缺省时给出**相反**结论。现在必须是**直接调用单一来源**。判据埋在 _publish_generic 的
-// 真实发布链里，行为级无真实样本 ⇒ 用源码结构锁；假过风险由变异反证兜住（退回本地合取 ⇒ 红）。
-// 全平台一致性与接线锁见 packages/api-publish-engine/test/publish-mode-config.test.js，
-// 完整理由见 openspec/records/p3-residual-criteria.md。
+
+// CCG 第三/四轮 i2（upheld）：本文件曾自写两轴合取，与产品侧 isApiTrack 在 publishMode 缺省时给出**相反**结论；
+// 现必须直接调用单一来源。真实发布链里无行为级样本 ⇒ 用源码结构锁，假过风险由变异反证兜住（退回本地合取 ⇒ 红）。
+// 全平台一致性与接线锁见 packages/api-publish-engine/test/publish-mode-config.test.js；完整理由见 openspec/records/p3-residual-criteria.md。
 describe('rpa-view-platforms — API 响应等待的判据来自单一来源（CCG i2 结构锁）', () => {
   const fs = require('node:fs')
   const path = require('node:path')
-
   it('必须调用产品侧 isApiTrack，且不得本地复写合取', () => {
     const src = fs.readFileSync(path.join(__dirname, 'rpa-view-platforms.js'), 'utf8')
-    // ⚠ 正则里不要写多余的转义：`['\"]` 会被 ESLint 的 no-useless-escape 判红（Gate 11，
-    //    在正则字面量里 `\"` 与 `"` 语义完全相同）。用字符拼接表达「单引号或双引号」，两边都不得能省则省。
+    // 正则里的 `\"` 是多余转义（ESLint no-useless-escape / Gate 11）⇒ 引号一律用字符拼接表达
     const Q1 = String.fromCharCode(39)
     const Q2 = String.fromCharCode(34)
     expect(src, '必须 require 产品侧单一来源')
       .toMatch(new RegExp('require\\(' + '[' + Q1 + Q2 + ']@multi-publish/api-publish-engine/src/api-router[' + Q1 + Q2 + ']\\)'))
     expect(src, '等 API 响应的判据必须真的调用 isApiTrack(...)').toMatch(/isApiTrack\(config\)/)
     // 不得本地复写合取（能力轴与轨道轴比较在同一句）；正则用拼接，防本文件自指
-    const capRe = new RegExp('has' + '_api')
-    const trkRe = new RegExp('publish' + 'Mode' + '\\s*(===|!==)')
+    const capRe = new RegExp('has' + '_api'), trkRe = new RegExp('publish' + 'Mode' + '\\s*(===|!==)')
     const localRewrite = src.split('\n').filter((l) => trkRe.test(l) && capRe.test(l))
     expect(localRewrite.length,
       '不得本地复写两轴合取（请调用 isApiTrack），命中: ' + localRewrite.join(' | ')).toBe(0)
