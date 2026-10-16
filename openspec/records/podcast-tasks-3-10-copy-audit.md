@@ -2,9 +2,6 @@
 record: podcast-tasks-3-10-copy-audit
 task: 把 tasks 3.10 从"看着没做"对账成"已交付并勾账"，并把勾账门槛从"键存在"升级成"键被消费（字面 ∪ 动态）"
 date: 2026-10-16
-sync_status: PENDING
-sync_reason: 本 PR 合并后由后续 docs PR 回填 merge SHA 与时间，并在同一次提交删除本文件 frontmatter 的 sync_* 三字段
-sync_backfill_owner: agent 收尾链（回填 = 合并后第一笔 docs PR）
 ---
 
 # tasks 3.10 文案键对账（podcast-tasks-3-10-copy-audit，2026-10-16）
@@ -70,4 +67,4 @@ if (key) return i18n.global.t(`podcast.episode.${key}`)
 
 ## 远程同步
 
-| 远程同步 | PENDING | 本 PR（podcast-tasks-3-10-copy-audit）合并后由后续 docs PR 回填 merge SHA 与时间，并在同一次提交删除本文件 frontmatter 的 sync_* 三字段 |
+| 远程同步 | PASS | 已合并，merge SHA fd69175e0fd922e092dd4253552e87f26dec12e8（2026-10-16T05:28:35Z）；取证自 `git log origin/main --grep` 该 PR 尾注，恰 1 行，可离线复核 |
