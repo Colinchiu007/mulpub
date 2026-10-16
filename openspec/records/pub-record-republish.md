@@ -92,3 +92,12 @@ sync_backfill_owner: 下一个会话（或本会话合并后立即回填）
 3. **小红书结构性没有公开链接**：图文链强制 `draftOnly:true`，内容只进草稿箱。本 PR 修的是「别把它说成缺陷」（草稿文案分态），不是「给它一个链接」——给不出，也不该给。
 4. **QM-6 双模型外部评审未执行**（本机无 wrapper 调用），不以自审冒充通过。
 5. **未合并的相关 PR #3624**（`publish-article-inapp-tab`：把发布结果的「查看文章」改为应用内新标签）与本 PR **无代码依赖**，两者都触及「打开链接」但层次不同（#3624 改的是**打开方式**，本 PR 修的是**有没有东西可打开**）；若 #3624 先合并，本 PR 的卡片点击仍走 `usePublishHistoryContentLink`（未与其冲突）。
+
+### CI 第二轮判红的两项（均为本 PR 的真实回归，已修）
+
+| 判红项 | 根因 | 修法 |
+|---|---|---|
+| `QG Desktop Shards` 2 条 / `QG Coverage` | `electron/services/observability-messagekey.test.js` 的**登记机械锁**：本 PR 在 `bootstrap/phase4-events.js` 新增了两个 notify（`RepublishSnapshot:snapshot-skipped` / `RepublishSnapshot:snapshot-save-failed`），未登记进 `ALLOWED_KEYS`；该锁断言「全仓登记键总数 === 四文件 notify 调用总数」，漏登记当场红 | 按该锁约定登记两个键并写明理由（快照落库是**旁路**：失败不影响发布结果，但「这条记录为什么不能再次发布」必须能从日志回答）。本地 `observability-messagekey.test.js` 32 passed |
+| `QG Visual` | `check-baseline-freshness.js` 判 `publish-history-dark.png` **4116 px (0.198%)**、`publish-history.png` **432 px (0.021%)** —— 每条记录卡片新增「再次发布」按钮，是**刻意的 UI 变更** | 用 **CI 自己的渲染**刷新这两张基线（本地 dev server 的渲染与 CI 不同形，不能拿本地图当基线）：从 CI artifact `quality-gate-visual-reports` 取 `screenshots/publish-history.png` 与 `screenshots/publish-history-dark-current.png` 覆盖两张基线；本机复跑**同一判据** `check-baseline-freshness.js --renders=<artifact screenshots> --baselines=<基线目录>` ⇒ 违规 **2 → 0**（修复前本机复现到与 CI **完全一致**的 4116 px / 0.198%，即判据同源） |
+
+判据口径（值得记住）：`check-baseline-freshness.js` 对每张基线找 `<name>.png` 或 `<name>-current.png`，`--max-drift-px=0` 即**逐像素对账**，因此「UI 有意变更」的正解是**刷新基线**（不是改阈值或加豁免），而刷新必须用 CI 的渲染。本地 `pnpm run test:visual:pixel:dark` 因缺 dev server（`127.0.0.1:5174` ECONNREFUSED）**拒绝出结论**——这是预期行为（工具自己说明「缺宿主时每个视图都会死在 page.goto，与真实回归同形」），不是缺陷；也正是它挡住了「拿本地图当 CI 证据」这一步。

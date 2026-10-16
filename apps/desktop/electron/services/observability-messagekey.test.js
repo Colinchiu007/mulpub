@@ -178,6 +178,10 @@ const ALLOWED_KEYS = new Set([
   'PerformanceLoop:tracked-content-backfill-skipped',
   'FailureDraftSaver:auto-draft-save-rejected',
   'FailureDraftSaver:auto-draft-save-failed',
+  // 2026-10-15「再次发布」快照旁路（bootstrap/phase4-events.js）：快照落库失败绝不影响
+  // 发布结果，但「这条记录为什么不能再次发布」必须能从日志回答，故两个失败出口都出声。
+  'RepublishSnapshot:snapshot-skipped',
+  'RepublishSnapshot:snapshot-save-failed',
   'RiskSuspender:suspend-failed',
   // fix-risk-hold-false-positive：弱信号「不挂起」这个决定本身必须可观测，
   // 否则事后无法回答「为什么这次没暂停」。新增 notify 必须同步登记本清单（本文件断言
