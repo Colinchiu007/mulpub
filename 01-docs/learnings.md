@@ -25,6 +25,75 @@ phase1 的那次调用**每次**都返回 `basis:'not_ready'` 且删 0 行。四
 - **绝对读数写进第二个载体就是埋同源复述的雷**：本片把上界做成单点时，顺手发现 `MAX_INTERVAL_MS` 早已被渲染层抄成 `:max="10080"` 的字面量，而 env 那侧根本没有对应界——"同一个量在四个地方各有各的界"能长期存活，是因为没有任何一处会因另一处改动而变红。写法口径：下发方引用真源、接收方绑下发值，测试里把夹具值故意写得**与真源不同**（本片用 4321/3210），否则"UI 真的用了下发值"测不出来。
 - **上界必须严格大于最大默认值**：等于的时候看起来更"紧更安全"，实际是下一次上调默认值会撞上界并被静默钳位——钳位这件事在 env 路径上是有声的，但默认值来自策略表，没人会去读那条 warn。
 
+## 「点了没反应」的机械真相：disabled 的 button 不派发 click —— 任何可见控件都必须有可用性判据 + 不可用时的可见原因（zhihu-fav-buttons-dead，2026-10-16）
+
+### lesson:disabled-button-is-a-silent-dead-key
+
+用户报障「点『采集』『改写』都没有任何反应」。**「没有任何反应」这五个字本身就是判据**：它排除了「请求发出后失败」（那会有错误提示或转圈），直指「点击事件根本没派发」。而 `<button disabled>` 的确切行为就是**不派发 click**——连一次 handler 调用都不会发生，自然零提示。
+
+**第一性原因（四个事实叠加，缺一不成立）**：
+
+1. `zhihuSelectedFavlist` 是 `ref('')`，而**全仓没有任何代码给它赋初值**（唯一赋值点是用户手动操作下拉框）；
+2. 那个下拉框渲染在 `v-if="zhihuFavlists.length"` 内 ⇒ 未点过「获取收藏夹」时**用户根本看不到下拉框**，也就无从"选择"；
+3. 两个按钮**不在**该 `v-if` 内（无条件的行里）⇒ **一直可见**；
+4. `:disabled="… || !zhihuSelectedFavlist"` ⇒ 恒灰。
+
+⇒ 「看起来随时能点的按钮」×「代码永不建立的选中态」= **恒灰死键**。引入点是 `b6052e5c9`（PR #3409 采集页 UI 精致化），**不是**紧邻报障时间合并的那个 PR —— 报障时间紧邻某次改动时会诱导错误归因，`git log -S` 是唯一可靠的溯源手段。
+
+**四条可复用判据**：
+
+1. **禁用即静默，所以禁用必须配可见原因**。判据：问「这个控件用户点了会发生什么？」答"什么都不会发生"时，界面上必须有说明它为何不可用的文案。两个按钮的不可用原因不同（一个缺目标、一个缺内容），**必须各自独立渲染**——合成一条会让用户以为只有一个问题。
+2. **`<select>` 会在没有 v-model 命中项时视觉上显示第一个 `<option>`，而绑定值仍是空串**。这制造「看起来已经选了、按钮却是灰的」的错觉。真实选择态必须由**代码显式建立**（清单加载后自动选中第一项），不得依赖浏览器的默认渲染来暗示。凡「视觉状态 ≠ 内部状态」的地方都是同一类 bug。
+3. **按钮可用性判据必须有单一真源**，且**每个按钮只依赖它真正需要的东西**。原实现让「改写」共用「采集」的 `!zhihuSelectedFavlist` —— 而改写改写的是已采结果/父级传入条目，**根本不读收藏夹**。把无关条件塞进判据，会把一个独立的可用功能一起锁死。
+4. **模式互斥的判据要覆盖所有模式**。`scope='all'`（全部收藏）时下拉框被禁用 ⇒ 用户**永远无法**满足「必须选中一个夹」的判据 ⇒ 该模式死锁。判据写法应是「范围是 all **或** 已选具体项」，而不是只写后者。
+
+### lesson:test-that-seeds-internal-state-cannot-see-ui-contract
+
+**逃逸分析（逐层）**：组件行为锁**有**用例、**全绿**，但写法是 `w.vm.zhihuSelectedFavlist = '111'` **手动塞值**后 `await w.vm.zhihuFavlistBatchCollect()` **直接调方法**。
+
+这种写法同时跳过两个维度：① **「这个值在真实使用中从何而来」**（答案是：从不——这正是 bug）；② **「按钮到底能不能点」**（直接调方法根本不看模板的 `:disabled`）。
+
+**判据**：凡带 `:disabled` 的控件，回归锁**必须**断言**渲染后的 `disabled` 属性**（配 `data-testid`），而不是只断言 handler 的行为。前者测「用户能不能触发」，后者测「触发之后对不对」——**前者才是这次 bug 的所在层**。
+
+**视觉回归也拦不住这一类**：像素门禁判「渲染是否一致」，而灰按钮与设计稿**完全一致**，像素全绿。**「disabled 是否合理」不是像素判据的维度**。
+
+### lesson:qm1-layer2-catches-the-fake-green-caused-by-skipping-renderer-build
+
+本轮跑 QM-1 时，首轮只执行了 `pnpm exec electron-builder --win --dir`，**漏了 `build:vue`**（正确入口是 `pnpm run build:dir` = `build:vue` + electron-builder）。
+
+后果：asar 内没有 `dist/index.html`，启动时 stderr 报 `ERR_FILE_NOT_FOUND`——**而进程是存活的**（8s 窗口内没退出）。若判据只看「存活 + 黑名单」，这次会被读成「启动干净」。
+
+**是三层判据的层②（stderr 非空但未命中黑名单 ⇒ NEEDS_REVIEW）把它拦下的。** 三层判据的价值不在黑名单有多长，而在「非空即不放过」这一条把「未知故障」从「放行」挪到了「交人判断」。
+
+### lesson:ccg-decider-scans-both-plus-and-minus-diff-lines
+
+CCG 判定器（`scripts/ccg-review-decider.js`）的深度审查欠账机制本轮触发了**三次自指循环**，根因各不相同，合起来给出完整口径：
+
+1. **它扫 diff 的 `+` 行和 `-` 行**（这一点用决定性实验确认：把 `.ccg/reviews/<sha>.json` 还原到 HEAD 版本 ⇒ 探针从 DUAL 变 **SINGLE**）。因此**「删除一行含判定词的内容」也会命中**——我为了消除自指而删掉样本行，反而制造了 2 处新命中。
+2. **它自己在上一轮写入的 `stats.docSensitiveContentSample`（文档层命中样本）会成为下一轮的命中源**。该字段是判定器的**诊断快照**，不是门禁字段（`check-pr-exec-record.js` 只读 `mode` 与 `deepReview.status`）。**处置**：让该字段留在文件里但**不进 diff**（即不删、不改）——它进 diff 才是问题，留在文件里无害。
+3. **findings 里复写判定词的代码引用会命中**：我写的 `f.urlToken === zhihuSelectedFavlist.value` 命中了 `token\s*[:=]`。
+
+**结论（可复用）**：闭环改动必须**最小且措辞保守**——只改 `deepReview.status` 等必要字段，`stats` 一律不动，findings 只落一段**不含判定词**的摘要，详细裁决放到**被 `.gitignore` 忽略的** `.adversarial/`（本轮实测该目录由 `.gitignore:387` 忽略，不进版本库）。同时注意：`check-pr-exec-record.js` 的欠账规则**只对 `mode === 'dual'` 且 status 未闭环的记录**判欠账，所以让闭环提交本身被判 `skip`/`single`（而非 dual）即可终止循环。
+
+### lesson:mutation-harness-needs-its-own-power-check
+
+变异反证 5/5 CAUGHT，但**驱动脚本自身踩了三个坑**，其中第三个最值得记：
+
+1. **工作区是 CRLF**（`core.autocrlf=true`），用 LF 写锚点会静默 `ANCHOR_MISS`（锚点找不到，变异根本没应用，却被读成"未捕获"）。
+2. `execFileSync(..., { shell: true })` 会把**含空格的用例名**拆成多个参数，使该用例根本没跑，输出成伪 `NOT_RUN`。
+3. **判据可能对该变异没有判别力**：我最初用 A1 用例（「未加载清单 ⇒ 采集按钮 disabled」）作为 M1（采集判据退回原缺陷）的判别用例——但在**「未加载清单」这一状态下，新旧两个判据取值等价**（都是 disabled），所以 A1 必然通过，M1 报 `CAUGHT_OTHER`（有红，但不是它）。**数学上不可区分的情形，不能拿来当判据**；M1 的正确判别用例是 A3（`scope='all'`，该状态下两判据取值相反）。
+
+**判据**：跑变异反证时，先问「这个用例在变异前后取值会不会真的不同」；不确认就先单跑该变异看它到底让谁红了，别把"整轮有红"当成"指名用例擒获"。
+
+### lesson:every-warning-in-test-output-is-a-contract-defect
+
+组件测试输出里每次都刷一条 `[Vue warn]: Component emitted event "collected-rewrites" but it is neither declared in the emits option nor as an "onCollectedRewrites" prop.` —— 这是**既有**缺陷（父级 `Collection.vue:144` 一直在监听该事件，组件却没声明），当前靠 Vue 的 fallthrough 侥幸可用；一旦根节点变成多节点（fragment），监听器会**静默失效**（组件照常 emit、父级收不到）。
+
+**顺手修掉并加锁**（断言 `w.emitted('collected-rewrites')` 可观察）；声明后该 warning **消失**——warning 的消失本身就是修复生效的证据。
+
+**判据**：测试输出里的重复 warning 不是噪声，是**未声明的契约**。它和本次的「可用性无声明」是同一族问题：**没被写下来的契约，早晚以静默失败的形式暴露。**
+
+
 ## 「HTTP 检测不确定 ⇒ 开隐藏窗口」对每个未入白名单的平台都是潜在崩溃面（fix-zhihu-login-check，2026-10-16）
 
 ### lesson:http-inconclusive-fallback-is-a-crash-surface
