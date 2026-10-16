@@ -203,7 +203,7 @@ const FFPROBE = findFfprobe()
 // Windows 中文字体候选历史（按优先级）：msyh.ttc / msyh.ttf / simhei.ttf / simsun.ttc / msjh.ttc
 // ⚠️ 2026-10-16：该列表已移入 font-resolver 的 SYSTEM_FONT_CANDIDATES，本模块不再自持。
 // 原因是实测 ffmpeg drawtext 的 `fontfile=` 对非 ASCII 路径**静默失败**（豆腐块、
-// rc=0、stderr 干净），而用户可能把应用装到 `D:\软件\社媒管家\`。自包含得意黑 +
+// rc=0、stderr 干净），而用户可能把应用装到 `<中文安装目录>\`。自包含得意黑 +
 // ASCII 副本由 font-resolver 统一负责，见该模块头注释与 font-resolver.test.js。
 // 另修一处历史 bug：原候选值写的是 'C:\\\\Windows\\\\Fonts\\\\msyh.ttc'（JS 字符串里
 // 双层反斜杠），fs.existsSync 永远匹配不到真实路径 —— 系统字体回落实际上是失效的。

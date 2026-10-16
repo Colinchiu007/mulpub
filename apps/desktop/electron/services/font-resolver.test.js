@@ -5,7 +5,7 @@
  * 背景（2026-10-16 实测）：
  *   ffmpeg drawtext 的 `fontfile=` 对**非 ASCII 路径**静默失败 —— 目录名或文件名
  *   任一含中文，渲染结果就是豆腐块（bytes 5495 → 765），不报错、不进 stderr。
- *   而用户完全可能把应用装到 `D:\软件\社媒管家\`。因此自包含字体不能直接喂原始路径，
+ *   而用户完全可能把应用装到 `<中文安装目录>\`。因此自包含字体不能直接喂原始路径，
  *   必须先落到**纯 ASCII 路径**再交给 ffmpeg。
  *
  * 本模块职责（单一实现，禁止各链自抄）：
@@ -64,7 +64,7 @@ describe('font-resolver — 自包含中文字体解析', () => {
     it('拒绝含中文的路径（目录名或文件名任一含中文即拒）', () => {
       expect(isAsciiSafe('D:\\软件\\fonts\\SmileySans-Oblique.otf')).toBe(false)
       expect(isAsciiSafe('D:\\fonts\\得意黑.otf')).toBe(false)
-      expect(isAsciiSafe('D:\\Temp\\社媒管家\\a.otf')).toBe(false)
+      expect(isAsciiSafe('D:\\Temp\\中文目录\\a.otf')).toBe(false)
     })
 
     it('拒绝空值与非字符串', () => {
