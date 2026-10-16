@@ -12,10 +12,15 @@
       </div>
     </div>
 
-    <!-- 试用横幅 -->
-    <TrialBanner :dismissed="dismissBanner" @upgrade="showUpgradeModal = true" @dismiss="dismissBanner = true" />
-
     <div class="cohere-content">
+      <!-- 试用横幅 -->
+      <!-- 布局说明（2026-10-16）：横幅必须放在 .cohere-content **内部**，才能继承
+           它的左右 padding（--space-xxl），使背景块左右边缘与下方统计卡片对齐。
+           此前放在外侧时，横幅是全页唯一没有水平 padding 的元素：背景色左侧直接
+           贴到容器边，且被 .banner-text 的 flex:1 拉满整页宽度，与下方内容区宽度
+           不一致，视觉上显得过宽且不专业。 -->
+      <TrialBanner :dismissed="dismissBanner" @upgrade="showUpgradeModal = true" @dismiss="dismissBanner = true" />
+
       <!-- 统计卡片网格 - 不规则布局 -->
       <div class="stats-grid">
         <!-- 大卡片：总发布 (占据 2 列) -->
