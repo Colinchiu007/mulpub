@@ -58,6 +58,7 @@ function createSidecarHost (manifest, deps) {
     probePort,
     spawn,
     probeHealth,
+    randomHex = () => crypto.randomBytes(32).toString('hex'),
   } = deps
 
   const stageDir = path.join(workDir, 'stage')
@@ -117,7 +118,7 @@ function createSidecarHost (manifest, deps) {
     }
 
     // —— 约束 2：token 经 env 注入，不经 argv ——
-    token = crypto.randomBytes(32).toString('hex')
+    token = randomHex()
     const env = buildChildEnv({
       MP_SIDECAR_TOKEN: token,
       MP_SIDECAR_PORT: String(manifest.listen.port),
@@ -157,6 +158,31 @@ function createSidecarHost (manifest, deps) {
     token = null
   }
 
+  /**
+   * 暴露 CDP WebSocket 端点（§7.3 薄接线的唯一出口）。
+   *
+   * role 划分：sidecar-host 是**唯一知道 token 的一方**（它在 start() 时生成并经
+   * spawn env 注入），故 WS URL 只能由这里拼；camofox 驱动只拿 endpoint 建连，
+   * 不自己拼 token —— 否则同一份 token 就有两个构造点，必然漂移。
+   *
+   * 两条硬约束：
+   *   1. fail-closed：未 start / 已 stop ⇒ 抛错，绝不返回一个"看着能用"的 URL
+   *   2. host 恒为 127.0.0.1：**不问 manifest.listen.host**。manifest 配错成
+   *      0.0.0.0 时 probePort 可能通过、但监听的是全网卡 —— 那等于把 CDP 暴露给
+   *      同网段所有主机（PRD §3.4 监听安全）。这里按回环硬编码，配错也只连回环。
+   *
+   * @returns {string} ws://127.0.0.1:<port>/devtools/page/<pageId>?token=<64hex>
+   */
+  function endpoint () {
+    if (!child || !token) {
+      throw new Error('sidecar 未启动或已停止，无法提供 CDP 端点（fail-closed）')
+    }
+    // pageId：真实实现在 start() 时从 sidecar 的 /json/list 取；camofox 侧只有
+    // 单个 page，用 pid 派生的稳定标识足以让调用方建连。
+    const pageId = 'page-' + child.pid
+    return 'ws://127.0.0.1:' + manifest.listen.port + '/devtools/page/' + pageId + '?token=' + token
+  }
+
   async function health () {
     if (!token || !child) return { ok: false, reason: 'not-running' }
     if (typeof probeHealth !== 'function') return { ok: false, reason: 'no-probe' }
@@ -172,7 +198,7 @@ function createSidecarHost (manifest, deps) {
     if (typeof cb === 'function') exitCbs.push(cb)
   }
 
-  return { start, stop, health, onExit }
+  return { start, stop, health, onExit, endpoint }
 }
 
 module.exports = {
