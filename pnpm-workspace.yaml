@@ -10,7 +10,18 @@ allowBuilds:
   ffmpeg-ffprobe-static: true
   nx: true
   tesseract.js: true
-  better-sqlite3: true
+  # ⛔ better-sqlite3 显式拒绝构建（false 是 pnpm 语义里的"显式拒绝"；**删掉该行反而更糟**：
+  #   pnpm 对"有 binding.gyp 且无 install 脚本"的包会自动注入 `node-gyp rebuild`）。
+  #   它是 PR-2 §7.1 引入的 @askjo/camofox-browser@1.18.1 的传递依赖：全仓无任何 require，
+  #   且该包自带 prebuilds/（含 win32-x64.node），真实加载路径是 prebuilds 而非 build/Release。
+  #   放行的后果（2026-10-16 CI 实测）：每次 install 都要本机 VS C++ 工具链 —— runner 的
+  #   node-gyp@9.4.1 认不出 VS 18（unknown version "undefined" found at
+  #   "C:\\Program Files\\Microsoft Visual Studio\\18\\Enterprise"）⇒ install rc=1，
+  #   13 个下游作业连红。拒绝后 install rc=0，且 require('better-sqlite3') 仍成功（走 prebuilds）
+  #   —— 隔离探针 A/B 实证与取证见 openspec/records/oss-b1-pr2.md，回归锁见
+  #   apps/desktop/scripts/fetch-camofox.test.js。若将来 sidecar 真要依赖该 npm 包的 JS，
+  #   先复核本条（那时才需要确认 prebuild 是否覆盖目标 ABI）。
+  better-sqlite3: false
 # ⛔ @askjo/camofox-browser **刻意不放进 allowBuilds**（PR-2 §7.1，2026-10-16）：
 #   它的 postinstall 会拉 ~500MB 的 camoufox 浏览器本体，且 ① 不做任何 sha256 校验
 #   （checkAsset 只匹配资源名前缀）② 失败走 process.exit(0) —— 下载失败安装照样"成功"。

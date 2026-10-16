@@ -30,17 +30,57 @@ test('依赖已 pin 精确版本（不用 ^，避免 lock 漂移）', () => {
   assert.equal(pkg.dependencies['@askjo/camofox-browser'], '1.18.1')
 })
 
+// 从 pnpm-workspace.yaml 取 allowBuilds 的**条目**（而不是原文片段）：判据必须按条目判，
+// 否则注释里"为何不放行某包"的论述会被原文匹配当成放行/不放行，判据随注释措辞漂移
+// （旧实现用 /allowBuilds:([\s\S]*?)(?=\n\w|\n#)/ 抓原文段，那个 lookahead 要 \n 后紧跟
+//  # 才停，而本文件的注释缩进两格 ⇒ 注释一插进去，全文匹配就把注释也算成段内内容）。
+// 反失明下界见函数末尾：解析退化成空集合会让"一个都没解析到"读成"没有任何违规"。
+function readAllowBuilds (ws) {
+  const lines = ws.split(/\r?\n/)
+  const start = lines.findIndex(l => /^allowBuilds:\s*$/.test(l))
+  assert.notEqual(start, -1, '必须有 allowBuilds 段')
+  const entries = {}
+  for (let i = start + 1; i < lines.length; i++) {
+    const line = lines[i]
+    if (line.trim() === '') continue
+    if (!/^\s/.test(line)) break // 回到 0 缩进 ⇒ 本段结束（下一节如 overrides）
+    const t = line.trim()
+    if (t.startsWith('#')) continue // 注释不是条目
+    const m = /^([^\s:]+):\s*(\S+)\s*$/.exec(t)
+    assert.ok(m, 'allowBuilds 段出现无法解析的行：' + JSON.stringify(line))
+    entries[m[1]] = m[2]
+  }
+  assert.ok(Object.keys(entries).length >= 5,
+    '解析退化：allowBuilds 只解析出 ' + Object.keys(entries).length + ' 条，低于下界 5')
+  return entries
+}
+
 test('pnpm-workspace.yaml 的 allowBuilds 不含 camofox（pnpm 10+ 白名单机制）', () => {
   // __dirname = <repo>/apps/desktop/scripts ⇒ 仓根在上三级（实测：up3 命中 pnpm-workspace.yaml）
   const wsPath = path.join(__dirname, '..', '..', '..', 'pnpm-workspace.yaml')
   assert.ok(fs.existsSync(wsPath), 'pnpm-workspace.yaml 必须存在（apps/desktop/scripts 上三级）')
   const ws = fs.readFileSync(wsPath, 'utf8')
-  const allowBlock = /allowBuilds:([\s\S]*?)(?=\n\w|\n#|\Z)/.exec(ws)
-  assert.ok(allowBlock, '必须有 allowBuilds 段')
+  const entries = readAllowBuilds(ws)
   // camofox 绝不得出现在白名单里 —— 它的 postinstall 会拉 500MB 且失败走 exit(0)
-  assert.ok(!/camofox/.test(allowBlock[1]), 'camofox 不得进 allowBuilds')
+  assert.ok(!Object.keys(entries).some(k => /camofox/.test(k)), 'camofox 不得进 allowBuilds')
   // 且白名单里必须留下"为什么不放"的注释，防止后人顺手补全
   assert.ok(/刻意不放进 allowBuilds/.test(ws), '必须留注释说明为何不放行')
+})
+
+test('allowBuilds 必须显式拒绝 better-sqlite3 的原生构建（false ≠ 未列出）', () => {
+  // 动因（2026-10-16 CI 实测）：@askjo/camofox-browser@1.18.1 声明 better-sqlite3@13.0.1，
+  // 后者有 binding.gyp 且**没有** install/postinstall 脚本 ⇒ pnpm 自动注入 node-gyp rebuild
+  // ⇒ 每次 install 都要本机 VS C++ 工具链：runner 的 node-gyp@9.4.1 认不出 VS 18
+  // （unknown version "undefined" found at "C:\Program Files\Microsoft Visual Studio\18\Enterprise"）
+  // ⇒ install rc=1 ⇒ 13 个下游作业连红。该包自带 prebuilds/（含 win32-x64.node），
+  // lib/binding.js 在没有 build/Release 时回落到 prebuilds ⇒ 真实加载路径不依赖编译。
+  // 隔离探针 A/B：allowBuilds=true ⇒ rc=1 且执行 node-gyp；=false ⇒ rc=0 且**两档**
+  // require('better-sqlite3') 都成功（取证与原始输出见 openspec/records/oss-b1-pr2.md）。
+  // 判据取**显式 false** 而不是「该行不存在」：删掉它会让该包退回 pnpm 缺省注入的构建。
+  const wsPath = path.join(__dirname, '..', '..', '..', 'pnpm-workspace.yaml')
+  const entries = readAllowBuilds(fs.readFileSync(wsPath, 'utf8'))
+  assert.equal(entries['better-sqlite3'], 'false',
+    'better-sqlite3 必须显式为 false（删掉该行 = 允许 pnpm 自动注入 node-gyp rebuild ⇒ install 需要本机 VS）')
 })
 
 test('package.json 不得有废弃的 pnpm 字段（pnpm 11 会 WARN 并忽略）', () => {

@@ -51,10 +51,12 @@
   - `pnpm run fetch:camofox` 手动拉，自带 `sidecar-lock.json` 的 GitHub Releases 官方 sha256 校验（camofox 自身不校验）
   - 实证：`node_modules/@askjo/camofox-browser` 存在而 `%LOCALAPPDATA%\camoufox\...\Cache` 不存在
   - **删掉一度加的 `package.json` `pnpm.neverBuiltDependencies`**：pnpm 11 已废弃该字段（`pnpm config get` 报 WARN "no longer read by pnpm ... ignored"），新家在 `pnpm-workspace.yaml`
+  - **CI 硬阻塞与修法（2026-10-16，第二轮 13 连红）**：本 pin 的传递依赖 `better-sqlite3`（有 `binding.gyp`、无 install 脚本）被 pnpm 自动注入 `node-gyp rebuild`，而 `allowBuilds` 里它是 `true` ⇒ runner 的 `node-gyp@9.4.1` 认不出 VS 18 ⇒ install rc=1 ⇒ 13 个下游作业连红。修为 **`better-sqlite3: false` + 11 行注释**（**删掉该行反而更糟**：退回缺省 = 允许）；隔离 A/B 探针两档对照与取证落 `openspec/records/oss-b1-pr2.md`，回归锁 `fetch-camofox.test.js` #3/#4
+  - **接线补课**：`apps/desktop/scripts/{fetch-camofox,check-camofox-listen}.test.js` 此前**从未在 CI 执行** —— `vitest.config.js` 的 include 白名单不含 `scripts/**`，而 `check-unwired-tests.js` 的 `WORKSPACE_COVERED` 又跳过整棵 `apps/` 子树 ⇒ 棘轮对它们结构性失明。本轮在 `quality-gate.yml` 的 Gate 2b 显式点名（同目录 7 个兄弟文件先例，不做通配）
 - [x] 7.2 `stealth-channel-camofox.js`：CDP-WebSocket 驱动，复用行为层接口（第二个 driver）；仅绑 127.0.0.1+一次性 token —— 234 行 + 测试 17 例，变异 8/8 CAUGHT。与 `cdp-input.js` 同接口同返回语义（D2）；`assertLoopbackEndpoint` 构造时即拒非回环；合成事件走 `Runtime.evaluate`（camoufox 无 executeJavaScript）。**按变异结果删掉一处冗余防御**（`close()` 的 `if(closed) return` 与 `ws=null` 叠加，摘掉无可观测差异）
 - [x] 7.3 rpa-view-manager `channel:'stealth'` 路由 + 映射表（publish-capabilities.json）—— **判定层已落、manager 薄接线待 7.1**：`resolvePublishChannel(platformId,{hostIsUsable})` 纯函数已入 `publish-capabilities.{js,browser.js}` 两侧（含 parity 锁），配置面 `riskControl.stealthChannelPlatforms` 已随 PR-1 落地。抽成纯函数正是为了与 7.1 的依赖决策解耦
 - [x] 7.4 RED：路由映射/缺省/sidecar 不可用回落 Electron 通道+warn（禁静默）—— 三态全落 + parity 3 条，变异 5/5 CAUGHT。回落必带 `fallbackReason='stealth-channel-unavailable'`（禁静默，供调用方 warn 并写入发布结果，PRD §3.4 评审 FE3 留痕）
-- [x] 7.5 构建期断言：无 `--remote-debugging-port` 非回环监听 —— `scripts/check-camofox-listen.{js,test.js}`（node:test，同 build-paginator 先例），10 例，变异 5/5 CAUGHT。实现中两个真实缺陷由测试当场抓住：**IPv6 逃逸口**（方括号 `[2001:db8::1]` 被「变量形态」判据放过 ⇒ isBracketV6 必须前置于变量判定，变异 M1 专锁）与**回环误报**（裸 `::1` 按第一个冒号切得 `''`）
+- [x] 7.5 构建期断言：无 `--remote-debugging-port` 非回环监听 —— `scripts/check-camofox-listen.{js,test.js}`（node:test，同 build-paginator 先例），10 例，变异 5/5 CAUGHT。实现中两个真实缺陷由测试当场抓住：**IPv6 逃逸口**（方括号 `[2001:db8::1]` 被「变量形态」判据放过 ⇒ isBracketV6 必须前置于变量判定，变异 M1 专锁）与**回环误报**（裸 `::1` 按第一个冒号切得 `''`）。**本轮补**：该 `.test.js` 此前对 CI 接线棘轮隐形（`apps/` 子树被整棵跳过），已在 Gate 2b 显式接线，见 §7.1 末条
 
 ### 8. F4 ddddocr
 - [ ] 8.1 python-backend captcha 托管路由（ddddocr api/server.py 子进程，拓扑=桌面端 python-backend）

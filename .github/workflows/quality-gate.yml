@@ -379,6 +379,13 @@ jobs:
           # 01-docs 忽略规则回归锁（#2792 复盘：「01-docs 递归 .md」全量忽略曾让正式文档
           # 静默不入库，PRD 链接 404；见 apps/desktop/scripts/gitignore-docs.test.js 头注释）
           node --test apps/desktop/scripts/gitignore-docs.test.js
+          # PR-2 §7.1（camofox 依赖接入）与 §7.5（构建期非回环监听断言）各有一个测试文件，
+          # 此前**从未被 CI 执行**：vitest 的 include 是白名单、不含 scripts/**（见
+          # apps/desktop/vitest.config.js 注释"未登记的测试文件一个都不会跑"），而
+          # scripts/check-unwired-tests.js 的 WORKSPACE_COVERED 在遍历时跳过整个 apps/ 子树
+          # ⇒ 既不被执行、也不被接线棘轮发现（2026-10-16 实测；本目录 7 个兄弟文件都是逐个
+          # 点名接线的，故这里同样显式点名，不做通配）。
+          node --test apps/desktop/scripts/fetch-camofox.test.js apps/desktop/scripts/check-camofox-listen.test.js
           node --test scripts/sync-platform-config.test.js
           node --test scripts/compare-scheduler-models.test.js
           # 会话隔离入口脚本的结构锁：native stderr 捕获不得处在 EAP=Stop 作用域内
