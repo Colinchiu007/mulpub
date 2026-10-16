@@ -1,7 +1,7 @@
 {
   "id": "merge-paused-interrupted-history",
   "title": "历史记录可恢复聚合筛选 tab",
-  "status": "completed",
+  "currentPhase": "archived",  "status": "completed",
   "complexity": "M",
   "risk": "medium",
   "domain": "frontend",

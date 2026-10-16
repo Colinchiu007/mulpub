@@ -55,6 +55,12 @@ const ALLOWED_KEYS = new Set([
   'UsageReporter:get-scheduler-metrics-failed',
   'DiagnosticsReporter:hook-error',
   'SignalCollector:startup-cleanup-failed',
+  // publish-frequency-unwired-surfaces：日计数启动期裁剪（phase3-services.js，store.init() 之后）。
+  // 三条各对一个调用点——本文件末尾断言「登记键总数 === notify 调用总数」，
+  // 所以既不能漏登记（红在"未在清单登记"），也不能登记没有调用点的键（红在总数不等）。
+  'PublishDailyCount:startup-prune',
+  'PublishDailyCount:startup-prune-skipped',
+  'PublishDailyCount:startup-prune-failed',
   'PromptMemory:memory-load-failed',
   'App:platform-config-load-failed',
   'App:bridge-start-failed',

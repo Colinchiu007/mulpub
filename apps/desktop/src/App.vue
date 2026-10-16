@@ -81,7 +81,7 @@
     </template>
 
     <UpdateNotification />
-    <SettingsDialog :visible="showSettingsDialog" @close="closeSettingsDialog" />
+    <SettingsDialog :visible="showSettingsDialog" :initial-tab="settingsDialogInitialTab" @close="closeSettingsDialog" />
     <PipelineBackgroundToast />
     <!-- 发布进度全局面板（publish-progress-ux）：App 级常驻，setup 内完成事件订阅 -->
     <PublishProgressPanel />
@@ -113,7 +113,7 @@ import { clearRouteLoadError, routeLoadError } from '@/router'
 import { useLicenseStore } from '@/stores/license'
 import { useIdentityStore } from '@/stores/identity'
 import { useTabStore } from '@/stores/tab'
-import { notifySettingsDialogClosed } from '@/stores/settings-dialog'
+import { notifySettingsDialogClosed, settingsDialogRequest } from '@/stores/settings-dialog'
 import { isHomeShellSearch } from '@/utils/home-shell'
 import { suspendEmbeddedViewsForOverlay, releaseEmbeddedViewsForOverlay } from '@/composables/useEmbeddedViewSuspension'
 import { useTabDocumentTitle } from '@/composables/useTabDocumentTitle'
@@ -214,6 +214,8 @@ async function onSaveAccount () {
 }
 
 const showSettingsDialog = ref(false)
+// 「就地打开设置」请求的目标 Tab（由 requestSettingsDialog 写入，SettingsDialog 在打开时消费）
+const settingsDialogInitialTab = ref('')
 let unsubscribeNavigate = null
 // 内嵌主页实例订阅「共享左侧边栏」下发的导航指令（方案 B：点菜单驱动当前聚焦标签）
 let unsubscribeHomeShellNav = null
@@ -237,6 +239,15 @@ let unsubscribeDispatchFailed = null
 watch(showSettingsDialog, (open) => {
   if (open) suspendEmbeddedViewsForOverlay('settings-dialog')
   else releaseEmbeddedViewsForOverlay('settings-dialog')
+})
+
+// 「就地打开设置」请求（2026-10-15）：页面（如采集页知乎区块）需要把用户直接送到
+// 某个具体 Tab——只说「去设置里配」而没有任何入口，是典型的死胡同文案。
+// 请求带 seq：同一个 Tab 被连续请求两次时对象身份仍会变化，watch 才会再次触发。
+watch(settingsDialogRequest, (req) => {
+  if (!req) return
+  settingsDialogInitialTab.value = req.tab
+  showSettingsDialog.value = true
 })
 
 // 关闭「设置」弹窗并通知依赖模型配置的视图刷新（如图片轮播的服务商/音色能力下拉），

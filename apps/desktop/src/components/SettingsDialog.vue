@@ -26,6 +26,8 @@
         <ModelProviders v-if="activeTab === 'model'" />
         <LogsSettings v-else-if="activeTab === 'general'" />
         <FeishuSettingsTab v-else-if="activeTab === 'feishu'" />
+        <!-- 知乎 API 紧随飞书 API 之下：两者都是「第三方开放平台凭据」，同类相邻 -->
+        <ZhihuSettingsTab v-else-if="activeTab === 'zhihu'" />
         <PublishFrequencySettings v-else-if="activeTab === 'publish'" />
         <div v-else class="placeholder-panel">
           <div class="placeholder-icon"><el-icon><Compass /></el-icon></div>
@@ -37,18 +39,28 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+/**
+ * SettingsDialog — 应用设置（左侧 Tab + 右侧面板）
+ *
+ * `initialTab` 供「就地去设置」入口使用（例如采集页的「前往设置」按钮要求直接落在
+ * 「知乎 API」）：只在**打开那一刻**生效，之后仍由用户点击决定当前 Tab——
+ * 否则父级任何一次无关重渲染都会把用户拉回被请求的那个 Tab。
+ */
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Connection, Setting, Link, Upload, User, Compass } from '@element-plus/icons-vue'
+import { Connection, Setting, Link, Reading, Upload, User, Compass } from '@element-plus/icons-vue'
 import UiModal from './UiModal.vue'
 import ModelProviders from '@/views/ModelProviders.vue'
 import LogsSettings from './LogsSettings.vue'
 import FeishuSettingsTab from './FeishuSettingsTab.vue'
+import ZhihuSettingsTab from './ZhihuSettingsTab.vue'
 // publish-frequency-policy-v2：发布频率策略（含紧急放行出口）——原 publish tab 由 disabled 转为可用
 import PublishFrequencySettings from './PublishFrequencySettings.vue'
 
-defineProps({
+const props = defineProps({
   visible: { type: Boolean, default: false },
+  // 打开时定位到的 Tab key；空串表示保持默认（模型设置）
+  initialTab: { type: String, default: '' },
 })
 defineEmits(['close'])
 
@@ -58,9 +70,17 @@ const { t } = useI18n()
     { key: 'model', label: t('settings.tabModel'), icon: Connection, disabled: false },
     { key: 'general', label: t('settings.tabGeneral'), icon: Setting, disabled: false },
     { key: 'feishu', label: t('knowledgeBase.feishuApi'), icon: Link, disabled: false },
+    { key: 'zhihu', label: t('knowledgeBase.zhihuApi'), icon: Reading, disabled: false },
     { key: 'publish', label: t('settings.tabPublish'), icon: Upload, disabled: false },
     { key: 'account', label: t('settings.tabAccount'), icon: User, disabled: true },
   ])
+
+// 打开瞬间应用 initialTab（disabled 的 Tab 不接受定位）
+watch(() => props.visible, (open) => {
+  if (!open || !props.initialTab) return
+  const target = tabs.value.find((x) => x.key === props.initialTab && !x.disabled)
+  if (target) activeTab.value = target.key
+})
 
 function onTabClick (tab) {
   if (tab.disabled) return

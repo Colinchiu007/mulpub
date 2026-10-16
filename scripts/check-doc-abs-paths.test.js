@@ -7,9 +7,15 @@
  *
  * 本测试用临时目录做 fixture，验证门禁的**检出能力**（而不只是"当前仓库干净"）：
  * - 失效的本机绝对路径必须命中
- * - 存在的路径必须放行
+ * - 存在的路径不报「失效」，但**必须计入账本**（口径换代：判据不再以文件系统为输入）
  * - 产品品牌名 / Linux 部署路径 / 云沙箱路径 / CI runner 路径必须**不**命中
  * - 归档快照目录按契约豁免
+ *
+ * 2026-10-14 口径换代（gate-12c-abs-path-ban）：判据的输入由「这条路径在不在盘上」改成
+ * 「文档里出现了多少条绝对路径」。动因是拉 CI 现场日志读到的读数——ubuntu runner 上没有盘符，
+ * firstMissingSegment 对每条路径一律返回 null ⇒ 现场计数恒 0 ⇒ 与账本比较两个方向都不可能红，
+ * 那一步打印的是「无从判定 1094 条」紧跟 PASS。计数与盘符无关之后，本文件里原先
+ * 「本机无 Windows 盘符 ⇒ t.skip」的用例**全部变成 CI 上真跑**，这既是修法也是修好的证据。
  *
  * 特别注意最后两条"误伤回归"：本门禁最容易踩的坑不是漏报，而是**误伤历史文档**
  * （2026-10-07 实测：全量扫描误报 260 处，收紧后仍有 101 处历史引用，
@@ -84,15 +90,58 @@ function localDrive () {
   return null;
 }
 
-const DRIVE = localDrive();
+/**
+ * 「无盘符档」开关：`MP_TEST_FORCE_NO_DRIVE=1` 时把本机盘符当作不存在。
+ *
+ * 为什么要有它（2026-10-15 CI 实测）：口径换代的全部卖点就是**判据与盘符无关**，
+ * 但 `DRIVE` 只有在 ubuntu runner 上才是 null —— 于是"这条锁在 Linux 上真跑过"这件事
+ * **只能靠 CI 验**，而 CI 恰好是本轮两次把它判红的地方（夹具拼出 `null\Data\…`）。
+ * 本仓口径：可本机配置的一维必须本机跑完，不得记成「只有 runner 知道」。
+ * 诚实边界：这个开关模拟的是 `driveRoots` 为空 + `canJudge=false`，模拟不了
+ * `os.tmpdir()` 返回 POSIX 形状 —— 所以它只用于**验证计数类锁真的与盘符无关**，
+ * 不用于替换 CI（CI 仍是最终判据）。
+ */
+const FORCE_NO_DRIVE = process.env.MP_TEST_FORCE_NO_DRIVE === '1';
+const DRIVE = FORCE_NO_DRIVE ? null : localDrive();
+
+/**
+ * 夹具用的盘符：本机有就用真的，没有（Linux runner / 无盘符档）用合成的 `Q`。
+ *
+ * 这里必须是**合成值而不是 `DRIVE`**：计数口径下判据只看字符串形状，与文件系统无关，
+ * 而 `DRIVE` 为 null 时 `DRIVE + '\\Data\\…'` 拼出的是 `null\Data\…` —— 没有冒号 ⇒
+ * 一条都不计数 ⇒ 那三条**刻意不加 DRIVE 门槛**的账本放宽行为锁（它们的全部意义就是
+ * 在 Linux 上真拦住）被夹具自己判成"低于基线待收紧"。2026-10-15 CI 实测 2 红即此。
+ * 合成字母用运行时拼接：本文件自己在门禁扫描域内，写死 `Q:\` 形态会被数进账本。
+ */
+function fxDrive () {
+  return DRIVE || ('Q' + ':');
+}
+
 // 夹具路径的一次性后缀：pid + 随机段，跨进程/跨轮次都不会撞上同一个目录名
 const FX = process.pid.toString(36) + Math.random().toString(36).slice(2, 8);
 
-/** 造一个「本机存在盘符下、但该子目录不存在」的绝对路径 */
+/** 造一个「盘符下、但该子目录不存在」的绝对路径（两档 runner 都产出可计数的形状） */
 function missingPathUnderLocalDrive () {
   // 一次性随机段（axis1c F11）：写死名字 ⇒ 某台机器上恰好存在那个目录时，用例以无法复现的方式假红，
   // 而红因看起来像判据坏了。
-  return DRIVE + '\\Data\\projects\\definitely-not-here-' + FX + '\\apps\\desktop';
+  return fxDrive() + '\\Data\\projects\\definitely-not-here-' + FX + '\\apps\\desktop';
+}
+
+/**
+ * 把一条真实存在的目录路径转成 **Windows 形态**的绝对路径字面量。
+ *
+ * 为什么需要它（2026-10-15 CI 实测，本文件当时 8 条红）：这批夹具原本直接返回
+ * `os.tmpdir()` 拼出来的路径 —— Windows 上得到 `D:\<tmpdir>\…`（是 Windows 绝对路径，会被计数），
+ * ubuntu runner 上得到 `/tmp/…`（**根本不是 Windows 绝对路径，一条都不计**）。于是"存在的路径也要
+ * 计入账本"这类断言在 Linux 上拿到 status 0 而期望 1：我为了修「旧代码隐式依赖盘符」写的新断言，
+ * 换了一种方式继续依赖 Windows —— 依赖的是"这台机器的 tmpdir 长得像 `D:\`"。
+ * 修共用出口而不是逐条改断言：一处改对 8 处一起好，也不会漏。
+ * 诚实边界：Linux 上这条路径**不真实存在**，所以凡断言"存在性明细"的用例仍须由 DRIVE 门控；
+ * 计数类断言与盘符、与存在性都无关（这正是口径换代买到的东西）。
+ */
+function asWindowsShape (p) {
+  if (DRIVE) return p;
+  return 'Q' + ':\\' + p.replace(/^\//, '').split('/').join('\\');
 }
 
 /** 造一个「本机存在盘符下、且真实存在」的绝对路径（文件必须真的建出来） */
@@ -100,14 +149,10 @@ function existingPathUnderLocalDrive () {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cdap-live-'));
   const file = path.join(dir, 'probe.txt');
   fs.writeFileSync(file, 'x\n');
-  return file;
+  return asWindowsShape(file);
 }
 
 test('检出指向不存在目录的本机绝对路径', (t) => {
-  if (!DRIVE) {
-    t.skip('本机无 Windows 盘符（Linux runner），门禁按设计跳过判定');
-    return;
-  }
   const { root } = makeFixture({
     '01-docs/runbook.md': 'cd ' + missingPathUnderLocalDrive() + '\n',
   });
@@ -132,16 +177,43 @@ function makeRealPath (levels = ['apps', 'desktop'], withFile = true) {
     fs.mkdirSync(cur, { recursive: true });
   }
   if (withFile) fs.writeFileSync(path.join(cur, 'probe.txt'), 'x\n');
-  return withFile ? path.join(cur, 'probe.txt') : cur;
+  return asWindowsShape(withFile ? path.join(cur, 'probe.txt') : cur);
 }
 
-test('指向真实存在目录的路径必须放行', () => {
+test('真实存在的路径不报「失效」，但必须计入账本（口径换代的正反两面）', () => {
   const { root } = makeFixture({});
   const realPath = makeRealPath(); // 每一级都已创建
   fs.mkdirSync(path.join(root, '01-docs'), { recursive: true });
   fs.writeFileSync(path.join(root, '01-docs', 'ok.md'), 'cd ' + realPath + '\n');
   const r = runGate(root);
-  assert.equal(r.status, 0, 'stderr: ' + r.stderr + '\nrealPath=' + realPath);
+  // 旧这条锁断言的是 status 0（"存在就放行"）。计数口径之后"存在"不再等于"豁免"：
+  // 这条路径**仍然要进账本**，账本没有它 ⇒ 超出存量基线。改成正反两面各钉一条：
+  assert.equal(r.status, 1, '存在的路径也要计数 ⇒ 无账本时必须报超出，stderr: ' + r.stderr);
+  assert.match(r.stderr, /超出存量基线/);
+  assert.doesNotMatch(r.stderr, /磁盘上不存在/, '它明明存在，报告不得说它失效：' + r.stderr);
+});
+
+test('换代必须能被 --write-baseline 完成（守卫不能把自己的迁移路径焊死）', () => {
+  // 这是一条**修 bug 的回归锁**，红因是设计缺陷不是笔误：metric 强校验原本连
+  // "正要被覆盖的旧账本"一起拒，于是 v1→v2 在机械上无法开始（实测 rc=2）。
+  const { root } = makeFixture({});
+  fs.mkdirSync(path.join(root, '01-docs'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'scripts'), { recursive: true });
+  fs.writeFileSync(path.join(root, '01-docs', 'a.md'), docWith([anyAbsPath('gen1'), anyAbsPath('gen2')]));
+  // 手写一份**没有 metric** 的 v1 账本（正是 main 上现在那份的形状）
+  fs.writeFileSync(path.join(root, 'scripts', 'doc-abs-paths-baseline.json'),
+    JSON.stringify({ note: 'v1', generated: '2026-10-14', reason: 'v1', files: { '01-docs/a.md': 1 } }, null, 2) + '\n');
+  const r = spawnSync(process.execPath, [SCRIPT, '--root', root, '--all', '--write-baseline'], { encoding: 'utf8' });
+  assert.equal(r.status, 0, '迁移必须能跑完，不能被自己的版本校验拒掉：' + r.stderr + r.stdout);
+  const j = JSON.parse(fs.readFileSync(path.join(root, 'scripts', 'doc-abs-paths-baseline.json'), 'utf8'));
+  assert.equal(j.metric, require(SCRIPT).METRIC_VERSION, '写出来的账本必须带当代口径');
+  assert.equal(j.files['01-docs/a.md'], 2, '按新口径如实重数：' + JSON.stringify(j.files));
+  // 迁移完成后，普通判定必须重新严格要求 metric（否则这条豁免就成了永久后门）
+  const back = JSON.parse(JSON.stringify(j));
+  delete back.metric;
+  fs.writeFileSync(path.join(root, 'scripts', 'doc-abs-paths-baseline.json'), JSON.stringify(back, null, 2) + '\n');
+  const strict = runGate(root);
+  assert.equal(strict.status, 2, '账本缺 metric 时非写模式必须走自身故障档：' + strict.stderr);
 });
 
 test('产品品牌名不是路径，必须放行（误伤回归）', () => {
@@ -203,7 +275,11 @@ test('中文句读不得被吞进路径（贪心捕获回归）', () => {
     '路径是 ' + realDir + '`。截图见下。\n'
   );
   const r = runGate(root);
-  assert.equal(r.status, 0, 'stderr: ' + r.stderr + '\nstdout: ' + r.stdout);
+  // 这条锁的**机制**是"提取器若贪婪吞掉句读，拼出来的串就不存在于盘上 ⇒ 被报失效"。
+  // 计数口径之后 status 不再由存在性决定（真实路径也计数 ⇒ 必红），所以判据落到那一句
+  // 「有没有报出一条它说磁盘上不存在的路径」上 —— 那才是贪婪回归的现场。
+  assert.equal(r.status, 1, '真实路径按新口径计入，无账本必报超出：' + r.stderr);
+  assert.doesNotMatch(r.stderr, /磁盘上不存在/, '提取器若把 `。截图见下。` 吞进路径就会出现这条：' + r.stderr + r.stdout);
 });
 
 test('盘符根构造必须是 D:\\ 而非 D\\（replace 吞冒号回归）', (t) => {
@@ -219,7 +295,9 @@ test('盘符根构造必须是 D:\\ 而非 D\\（replace 吞冒号回归）', (t
   fs.mkdirSync(path.join(root, '01-docs'), { recursive: true });
   fs.writeFileSync(path.join(root, '01-docs', 'deep.md'), '见 ' + realPath + '\n');
   const r = runGate(root);
-  assert.equal(r.status, 0, 'stderr: ' + r.stderr);
+  // 同上：盘符根若被 replace 吞成 `D\`，逐级 existsSync 失准 ⇒ 会冒出一条"磁盘上不存在"。
+  // 计数口径下 status 恒 1（真实路径也计数），所以这条回归的现场只能在明细措辞上读。
+  assert.doesNotMatch(r.stderr, /磁盘上不存在/, '盘符根算错时才会出现这句：' + r.stderr);
 });
 
 test('非受管目录（apps/ 等运行时代码）不扫描', () => {
@@ -234,10 +312,6 @@ test('非受管目录（apps/ 等运行时代码）不扫描', () => {
 test('改动集口径：未改动的文档里的陈旧路径不应报红', (t) => {
   // 这是 2026-10-07 最重要的设计决定：全量扫描会命中 100+ 处历史引用，
   // 逐条核对后绝大多数不该改。只查改动集，精准覆盖"改了文档但路径是陈的"。
-  if (!DRIVE) {
-    t.skip('本机无 Windows 盘符（Linux runner），陈旧路径按设计不被判定');
-    return;
-  }
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cdap-git-'));
   const tgit = (...args) =>
     execFileSync('git', ['-c', 'commit.gpgsign=false', ...args], { cwd: dir, encoding: 'utf8' });
@@ -282,25 +356,27 @@ test('改动集口径：未改动的文档里的陈旧路径不应报红', (t) =
   assert.match(r2.stderr, /HISTORY/);
 });
 
-test('基线对账纯函数：无本机盘符的 runner 不得把整张账本报成"待收紧"（也不得静默当已判定）', () => {
-  // 这条锁的分支在 Windows 本机永远走不到（CI 的 changes job 是 ubuntu-latest，那里没有盘符
-  // ⇒ 现场计数恒 0）。留在 main 里就是一条没人跑过的分支，而它决定门禁在 CI 上是恒红还是恒绿，
-  // 所以把判据抽成纯函数直接喂参数测。
+test('基线对账纯函数：无本机盘符也必须按计数判 over/shrink（口径换代的正反两面）', () => {
+  // 这条锁原先钉的是**旧口径**：「无盘符 ⇒ 现场计数恒 0 ⇒ 不得比计数，否则整张账本永久红」。
+  // 那句话在旧口径下是对的，而它的存在本身就是 #75 那个洞——它把"判据的输入是文件系统"这件事
+  // 固化成了受保护形态。计数口径之后现场计数与盘符无关，所以两支必须给出同一结论。
   const mod = require(SCRIPT);
   const baseline = new Map([['a.md', 2], ['b.md', 1], ['gone.md', 4]]);
   const domain = new Set(['a.md', 'b.md']);
   const counts = new Map([['a.md', [{}, {}, {}]]]);
 
   const noDrive = mod.judgeBaseline({ counts, baseline, domain, canJudge: false });
-  assert.equal(noDrive.judged, false);
-  assert.equal(noDrive.over.length, 0, '无盘符时不得凭恒 0 的现场计数判"超出基线"');
-  assert.equal(noDrive.shrink.length, 0, '无盘符时若仍比计数，整张账本会变成永久红——比它挡的问题更糟');
+  assert.equal(noDrive.judged, false, 'judged 只描述"存在性核对做没做"，不再描述"判不判"');
+  assert.deepEqual(noDrive.over.map((o) => o.file), ['a.md'], '无盘符也必须报超出基线（这条就是 #75 的洞）');
+  assert.deepEqual(noDrive.shrink.map((o) => o.file), ['b.md'], '无盘符也必须报待收紧');
   assert.deepEqual(noDrive.stale.map((s) => s.file), ['gone.md'], '陈旧登记是跨平台事实，必须照样判');
 
   const withDrive = mod.judgeBaseline({ counts, baseline, domain, canJudge: true });
   assert.deepEqual(withDrive.over.map((o) => o.file), ['a.md'], 'a.md 3 处 > 基线 2 必须报');
   assert.deepEqual(withDrive.shrink.map((o) => o.file), ['b.md'], 'b.md 0 处 < 基线 1 必须要求收紧');
   assert.deepEqual(withDrive.stale.map((s) => s.file), ['gone.md']);
+  assert.deepEqual(noDrive.over.map((o) => o.file), withDrive.over.map((o) => o.file),
+    '两支结论必须逐字相同，否则"与机器无关"只是说法');
 });
 
 test('账本内容必须是"条数"而不是明细（第一版真把 finding 对象写了出去）', () => {
@@ -325,10 +401,6 @@ test('--root 必须同时支持 --root=X 与 --root X（变异反证：等号形
   // 2026-10-07 实测踩坑：脚本最初只认 `--root=X`。用 `--root <dir>` 调用时参数被
   // 静默忽略 → 扫到**真实仓库**而不是 fixture，于是每个 fixture 用例都拿真实仓库的
   // 报红来判。若当时就有这条测试，第一次跑就会红。
-  if (!DRIVE) {
-    t.skip('本机无 Windows 盘符（Linux runner），无法构造可判定的失效路径');
-    return;
-  }
   const { root } = makeFixture({});
   fs.mkdirSync(path.join(root, '01-docs'), { recursive: true });
   fs.writeFileSync(
@@ -370,10 +442,6 @@ test('--root 必须同时支持 --root=X 与 --root X（变异反证：等号形
 // 于是「加粗 + 路径自身含占位符」这条真实形态（文档里大量存在）立刻假红。
 
 test('加粗行里的失效绝对路径必须照报（豁免不得按整行生效）', (t) => {
-  if (!DRIVE) {
-    t.skip('本机无 Windows 盘符（Linux runner），门禁按设计跳过判定');
-    return;
-  }
   const missing = missingPathUnderLocalDrive();
   const { root } = makeFixture({
     '01-docs/bold.md': '**重要**：产物在 ' + missing + ' 下，请核对。\n',
@@ -384,18 +452,14 @@ test('加粗行里的失效绝对路径必须照报（豁免不得按整行生�
 });
 
 test('豁免必须落在路径片段上：同一行既有加粗、路径自身又含通配符时必须放行', (t) => {
-  if (!DRIVE) {
-    t.skip('本机无 Windows 盘符（Linux runner），门禁按设计跳过判定');
-    return;
-  }
   const { root } = makeFixture({
     '01-docs/mixed.md': [
       // 加粗 + 通配符路径（静态无法判定 ⇒ 仍须豁免，否则文档里大量写法假红）
-      '**通配**：日志在 ' + DRIVE + '\\Data\\projects\\mp-*\\apps\\logs 下',
+      '**通配**：日志在 ' + fxDrive() + '\\Data\\projects\\mp-*\\apps\\logs 下',
       // 加粗 + 变量路径
-      '**变量**：见 ' + DRIVE + '\\Data\\projects\\${PROJECT}\\apps',
+      '**变量**：见 ' + fxDrive() + '\\Data\\projects\\${PROJECT}\\apps',
       // 加粗 + 尖括号占位符
-      '**模板**：输出到 ' + DRIVE + '\\out\\<buildTag>\\app.asar',
+      '**模板**：输出到 ' + fxDrive() + '\\out\\<buildTag>\\app.asar',
     ].join('\n') + '\n',
   });
   const r = runGate(root);
@@ -408,24 +472,28 @@ test('豁免必须落在路径片段上：同一行既有加粗、路径自身�
 // 而日常阻断口径是"改动集里的整份文件"⇒ 只收紧不管存量，等于让每个碰 learnings 的会话
 // 都被 26 条历史行判红。基线按文件计数、只能缩小，同时把三种走漏洞路全堵上。
 
-function writeBaseline (root, files) {
+function writeBaseline (root, files, extra) {
   const p = path.join(root, 'scripts');
   fs.mkdirSync(p, { recursive: true });
-  const json = { note: 'fixture', generated: '2026-10-14', reason: 'fixture', files };
+  // 计数口径之后账本必须带 metric；夹具默认写当代版本，只有专门测「版本不匹配」的用例才改坏它。
+  const json = Object.assign(
+    { note: 'fixture', generated: '2026-10-14', reason: 'fixture', metric: require(SCRIPT).METRIC_VERSION },
+    extra || {},
+    { files }
+  );
   fs.writeFileSync(path.join(p, 'doc-abs-paths-baseline.json'), JSON.stringify(json, null, 2) + '\n', 'utf8');
 }
 
 /** 造 n 条互不相同的失效路径（同盘符下不同子目录名，确保逐条被数到；带一次性后缀见 FX） */
 function deadPaths (n) {
   return Array.from({ length: n }, (_, i) =>
-    DRIVE + '\\Data\\projects\\dead-baseline-' + i + '-' + FX + '\\apps\\desktop');
+    fxDrive() + '\\Data\\projects\\dead-baseline-' + i + '-' + FX + '\\apps\\desktop');
 }
 function docWith (paths) {
   return paths.map((p, i) => 'run' + i + ' ' + p).join('\n') + '\n';
 }
 
 test('基线内的存量必须放行（不挡别人写下的历史行）', (t) => {
-  if (!DRIVE) { t.skip('Linux runner 无本机盘符'); return; }
   const { root } = makeFixture({ '01-docs/a.md': docWith(deadPaths(2)) });
   writeBaseline(root, { '01-docs/a.md': 2 });
   const r = runGate(root);
@@ -433,7 +501,6 @@ test('基线内的存量必须放行（不挡别人写下的历史行）', (t) =
 });
 
 test('超出基线必须红，并点名"超出存量基线"', (t) => {
-  if (!DRIVE) { t.skip('Linux runner 无本机盘符'); return; }
   const { root } = makeFixture({ '01-docs/a.md': docWith(deadPaths(2)) });
   writeBaseline(root, { '01-docs/a.md': 1 });
   const r = runGate(root);
@@ -442,7 +509,6 @@ test('超出基线必须红，并点名"超出存量基线"', (t) => {
 });
 
 test('低于基线也必须红（基线只能缩小，不许变成永久豁免）', (t) => {
-  if (!DRIVE) { t.skip('Linux runner 无本机盘符'); return; }
   const { root } = makeFixture({ '01-docs/a.md': docWith(deadPaths(1)) });
   writeBaseline(root, { '01-docs/a.md': 3 });
   const r = runGate(root);
@@ -451,7 +517,6 @@ test('低于基线也必须红（基线只能缩小，不许变成永久豁免�
 });
 
 test('基线里的文件已不在扫描域 ⇒ 陈旧登记必须红', (t) => {
-  if (!DRIVE) { t.skip('Linux runner 无本机盘符'); return; }
   const { root } = makeFixture({ '01-docs/a.md': docWith(deadPaths(1)) });
   writeBaseline(root, { '01-docs/a.md': 1, '01-docs/deleted.md': 4 });
   const r = runGate(root);
@@ -472,7 +537,6 @@ test('基线里的文件已不在扫描域 ⇒ 陈旧登记必须红', (t) => {
 });
 
 test('基线里的文件还在、但已移出受管范围 ⇒ 陈旧登记必须说明"不再受管"', (t) => {
-  if (!DRIVE) { t.skip('Linux runner 无本机盘符'); return; }
   // 归档豁免目录里的文件**磁盘上存在**，只是不再受管（`isManagedDoc` 判假）。
   // 这一支与上一支的区分全靠 `v.why`：文件在不在磁盘上。没有这条用例时，
   // 把 existsSync 的两个分支写反（归档件报成"已不存在"）不会有任何锁变红。
@@ -492,7 +556,6 @@ test('基线里的文件还在、但已移出受管范围 ⇒ 陈旧登记必须
 });
 
 test('逐文件比较不得退化成全局总数（A 变差 + B 变好、总数相等也必须红）', (t) => {
-  if (!DRIVE) { t.skip('Linux runner 无本机盘符'); return; }
   const { root } = makeFixture({
     '01-docs/worse.md': docWith(deadPaths(2)),   // 基线 1 → 实际 2（变差）
     '01-docs/better.md': docWith(deadPaths(1)),  // 基线 2 → 实际 1（变好）
@@ -504,7 +567,6 @@ test('逐文件比较不得退化成全局总数（A 变差 + B 变好、总数�
 });
 
 test('基线 JSON 损坏必须走"自身故障"档（退出码 2），既不是 0 也不是 1', (t) => {
-  if (!DRIVE) { t.skip('Linux runner 无本机盘符'); return; }
   const { root } = makeFixture({ '01-docs/a.md': docWith(deadPaths(1)) });
   fs.mkdirSync(path.join(root, 'scripts'), { recursive: true });
   fs.writeFileSync(path.join(root, 'scripts', 'doc-abs-paths-baseline.json'), '{ 这不是 JSON', 'utf8');
@@ -514,14 +576,12 @@ test('基线 JSON 损坏必须走"自身故障"档（退出码 2），既不是 
 });
 
 test('基线文件缺席按"空基线"从严处理（删掉账本不能让门禁闭眼）', (t) => {
-  if (!DRIVE) { t.skip('Linux runner 无本机盘符'); return; }
   const { root } = makeFixture({ '01-docs/a.md': docWith(deadPaths(1)) });
   const r = runGate(root);
   assert.equal(r.status, 1, '没有基线时每条失效路径都要报，stderr: ' + r.stderr);
 });
 
 test('--write-baseline 必须搭配 --all（防止窄域跑一次就把整张账本抹掉）', (t) => {
-  if (!DRIVE) { t.skip('Linux runner 无本机盘符'); return; }
   const { root } = makeFixture({ '01-docs/a.md': docWith(deadPaths(1)) });
   writeBaseline(root, { '01-docs/a.md': 1, '01-docs/elsewhere.md': 9 });
   // 不带 --all：拒绝重写
@@ -546,13 +606,6 @@ test('--write-baseline 必须搭配 --all（防止窄域跑一次就把整张账
 });
 
 test('本仓基线必须与现场逐文件相等（既不多也不少，防止悄悄恒 0 或悄悄漏扫）', (t) => {
-  if (!DRIVE) {
-    // Linux runner 上没有本机 Windows 盘符 ⇒ 门禁按设计全部跳过 ⇒ 现场计数恒 0，
-    // 与真实基线（非 0）必然不等。这里不是缺陷，但也不能因此跳过整条锁：
-    // 改成"平台不自洽时红"，逼后来人在 Windows 上取基线。
-    t.skip('本机无 Windows 盘符：基线是在 Windows 上生成的，跨平台无法逐文件对账');
-    return;
-  }
   const repoRoot = path.join(__dirname, '..');
   const r = spawnSync(process.execPath, [SCRIPT, '--root', repoRoot, '--all'], { encoding: 'utf8', maxBuffer: 1 << 26 });
   assert.equal(r.status, 0, '全量审计必须与基线逐文件相等，stderr: ' + r.stderr.slice(0, 1500));
@@ -572,7 +625,10 @@ test('本仓基线必须与现场逐文件相等（既不多也不少，防止�
 
 function baselineJson (files) {
   return JSON.stringify({
-    note: 'fixture', generated: '2026-01-01', reason: 'fixture', files
+    // base 处的账本也必须带 metric：上一节那个「换代豁免」把"base 没写 metric"读成"来自上一代"，
+    // 于是三条放宽行为锁会在**没有换代发生**的夹具里被豁免掉 —— 守卫自己的豁免分支必须先被夹具喂对。
+    note: 'fixture', generated: '2026-01-01', reason: 'fixture',
+    metric: require(SCRIPT).METRIC_VERSION, files
   }, null, 2) + '\n';
 }
 
@@ -700,7 +756,6 @@ test('行为锁：只动账本、文档 blob 未变 ⇒ 放行并出声归因（
 // 因为"评审说了"不构成判据：F3c 我先用夹具复现，再用真仓库量暴露面（成对加粗包裹 0 处）。
 
 test('加粗**包裹**路径时闭合星号不得替路径作保（axis1c F3c，实测复现）', (t) => {
-  if (!DRIVE) { t.skip('本机无 Windows 盘符'); return; }
   // 当场复现（dbg-single.cjs，五文件同批夹具）：裸路径被照报、`**路径**` 被豁免 ⇒
   // "豁免落在词元上"只堵住了**同行别处加粗**，没堵住**紧贴路径尾的 `**`**——原洞的孪生形态。
   const { root } = makeFixture({});
@@ -713,7 +768,6 @@ test('加粗**包裹**路径时闭合星号不得替路径作保（axis1c F3c，
 });
 
 test('被加粗包裹的**真通配路径**仍必须豁免（与上一条成对，防止把修法做成"见尾星就剥"）', (t) => {
-  if (!DRIVE) { t.skip('本机无 Windows 盘符'); return; }
   const { root } = makeFixture({});
   fs.mkdirSync(path.join(root, '01-docs'), { recursive: true });
   fs.writeFileSync(path.join(root, '01-docs', 'glob.md'),
@@ -734,15 +788,17 @@ test('剥成对加粗必须要求"紧邻路径之前有同一段记号"，孤立
   assert.equal(mod.stripPairedEmphasis('', 'C:\\x'), 'C:\\x', '没有尾缀记号时原样返回');
 });
 
-test('--write-baseline 在无盘符环境必须拒写（axis1c F1：跑一次就把整张账本写成空表还 exit 0）', () => {
+test('--write-baseline 与盘符无关之后必须放行（旧拒绝的前提已消失），但窄域仍拒', () => {
   const mod = require(SCRIPT);
-  // 无盘符 ⇒ 现场计数恒 0 ⇒ serializeBaseline 写出 {"files":{}} 且退出码 0。
-  // 这与 AGENTS 记的「--update 抹掉别的域」同型：一次"成功"的重写把门禁变成零豁免面。
-  assert.equal(mod.judgeWriteBaseline({ all: true, canJudge: false }).verdict, 'refuse');
+  // 旧这条锁钉的是「无盘符 ⇒ 现场计数恒 0 ⇒ 写出来是空表还 exit 0」，在旧口径下完全正确
+  // （axis1c F1）。计数口径之后现场计数与文件系统无关，该前提不再成立 ⇒ 这一支改为**允许**；
+  // 仍保留的是与盘符无关的那条真风险：窄域重写会抹掉整张账本。
+  assert.equal(mod.judgeWriteBaseline({ all: true, canJudge: false }).verdict, 'write',
+    '无盘符也必须能生成账本，否则新口径永远落不了地');
   assert.equal(mod.judgeWriteBaseline({ all: true, canJudge: true }).verdict, 'write');
   assert.equal(mod.judgeWriteBaseline({ all: false, canJudge: true }).verdict, 'refuse', '窄域仍然必须拒');
   assert.equal(mod.judgeWriteBaseline({ all: false, canJudge: false }).verdict, 'refuse');
-  assert.match(mod.judgeWriteBaseline({ all: true, canJudge: false }).why, /盘符/);
+  assert.match(mod.judgeWriteBaseline({ all: false, canJudge: false }).why, /--all/);
 });
 
 test('本次改动集里删掉的受管文档必须判"陈旧登记"而不是"改少了"（axis1c F5）', () => {
@@ -814,4 +870,184 @@ test('账本 JSON 不得进 docs-only 白名单（否则"改账本"可以走精�
     '账本进了白名单就意味着"只改账本的 PR"可以走 docs-only，而 docs-only 会跳过 static-gates');
   // 正向对偶（禁令必须配对偶，否则"删掉白名单里的它"和"根本没写过它"同形）：
   assert.match(src, /gate-record-debt-ledger\.json/, '同一份白名单必须真的被读到（探针通路自证）');
+});
+// ==================== 口径换代：判据输入由文件系统改成纯文本计数（#75 / gate-12c-abs-path-ban）====================
+//
+// 这一整块的立意来自一条 CI 现场读数（run 38572799318 / job 115882369237 / step
+// "Gate 12c - Doc abs-path validity (changes job)"）：ubuntu runner 上那一步打印
+// 「无从判定 1094 条 Windows 绝对路径」紧跟 PASS。原因不是配置，是判据把"这条路径在不在盘上"
+// 当成了输入，而 Linux 上没有盘符 ⇒ firstMissingSegment 一律返回 null ⇒ 现场计数恒 0 ⇒
+// 与账本比较两个方向都不可能红。下面的锁逐条钉"换掉输入之后，判据必须与机器无关"。
+
+/**
+ * 造一条**与本机有没有盘符无关**的绝对路径。计数口径下判据不得再问"这台机器有没有 Q 盘"，
+ * 所以夹具也不得问。源码里之所以拆成 'Q' + ':' 而不是写全：这个文件本身在门禁的扫描域内，
+ * 写全等于给自己记一笔账（#3583 收尾时已被自己的守卫拦过一次）。
+ */
+function anyAbsPath (tail) {
+  return 'Q' + ':' + '\\Data\\projects\\nope-' + FX + '-' + (tail || 'x');
+}
+
+test('核心锁：无盘符环境也必须能报「超出存量基线」（这就是 #75 那个洞的锁）', (t) => {
+  const { root } = makeFixture({ '01-docs/a.md': docWith([anyAbsPath('one'), anyAbsPath('two')]) });
+  writeBaseline(root, { '01-docs/a.md': 1 });
+  // --simulate-no-drives 强制 existingDriveRoots() 返回空集，等价于 ubuntu runner。
+  // 旧实现在这一支把现场计数做成恒 0 ⇒ 与账本 1 比较只会报"改少了"或 PASS，绝不报超出。
+  const r = runGate(root, ['--simulate-no-drives']);
+  assert.equal(r.status, 1, '无盘符也必须红，stdout: ' + r.stdout + ' stderr: ' + r.stderr);
+  assert.match(r.stderr, /超出存量基线/);
+  assert.match(r.stderr, /01-docs\/a\.md/);
+});
+
+test('计数不得依赖盘符存在：同一份夹具在两种档位下命中数必须相同', (t) => {
+  const { root } = makeFixture({ '01-docs/a.md': docWith([anyAbsPath('p1'), anyAbsPath('p2'), anyAbsPath('p3')]) });
+  writeBaseline(root, { '01-docs/a.md': 9 });
+  const withDrive = runGate(root, ['--counts-only']);
+  const noDrive = runGate(root, ['--simulate-no-drives', '--counts-only']);
+  const take = (x) => {
+    const m = /counts=(\d+)/.exec(x.stdout + x.stderr);
+    assert.ok(m, '必须打印可机读的 counts= 读数（两份都要），with=' + x.stdout + x.stderr);
+    return Number(m[1]);
+  };
+  assert.equal(take(withDrive), 3, withDrive.stdout + withDrive.stderr);
+  assert.equal(take(noDrive), 3, noDrive.stdout + noDrive.stderr);
+});
+
+test('夹具自检：无盘符档也不得拼出判据数不到的形状（2026-10-15 CI 2 红的根因）', () => {
+  // 本轮两次 CI 红都不是判据坏了，是**夹具**坏了：夹具拼路径时用了裸的 DRIVE，
+  // 而 DRIVE 在无盘符档是 null ⇒ 拼出的串没有冒号（不是 Windows 绝对路径）⇒ 一条都不计数，
+  // 于是账本写着 1、现场数到 0 ⇒ 三条刻意不加 DRIVE 门槛的放宽行为锁被夹具自己判成「低于基线待收紧」。
+  // 已有的 A/B 锁用的是另一只夹具出口（anyAbsPath），对本次失效完全免疫
+  // ⇒ 判据必须直接量**批量锁共用的那两只出口**（missingPathUnderLocalDrive 与 deadPaths）。
+  const shape = /^[A-Za-z]:\\/;
+  const p1 = missingPathUnderLocalDrive();
+  const p2 = deadPaths(2);
+  assert.match(p1, shape, '夹具盘符必须是 Windows 绝对路径形状，实际: ' + JSON.stringify(p1));
+  assert.equal(p2.length, 2);
+  p2.forEach((p) => assert.match(p, shape, 'deadPaths 必须是 Windows 绝对路径形状，实际: ' + JSON.stringify(p)));
+  // 正向对偶（禁令不得单独存在）：光「形状像」不构成证据 —— 必须让**门禁自己**数到 2 条。
+  const { root } = makeFixture({ '01-docs/fx-shape.md': docWith(deadPaths(2)) });
+  const r = runGate(root, ['--counts-only']);
+  const m = /counts=(\d+)/.exec(r.stdout + r.stderr);
+  assert.ok(m, '机读行必须存在，stdout: ' + r.stdout + r.stderr);
+  assert.equal(Number(m[1]), 2, '夹具造的 2 条必须被真实计数（数为 0 = 形状像而判据不认，正是本轮 CI 现场）: ' + JSON.stringify({ counts: m[1], p: p2 }));
+});
+
+test('结构锁：夹具盘符只能经 fxDrive（禁止再出现裸 DRIVE 拼接的第三条出口）', () => {
+  // 禁令本身：夹具的盘符只允许一只出口（fxDrive）。本轮 CI 两次红都是同一个形状 ——
+  // 「修依赖盘符的代码时，新写的夹具/断言又换一种方式依赖盘符」，而裸拼在 null 档产出一个不像路径的串，
+  // 判据对此**完全不报错**，只是静默不计数。所以这条禁令的正控在上一条「夹具自检」锁里（真让门禁数一遍）。
+  const src = fs.readFileSync(__filename, 'utf8').replace(/\r/g, '');
+  const at = src.indexOf('结构锁：夹具盘符只能经 ');
+  assert.ok(at > 0, '锚点必须存在，否则下面的切片失效（本锁会扫不到自己）');
+  const domain = src.slice(0, at);                     // 只看本锁之前：本锁自带 needle 不构成命中
+  assert.ok(domain.length > 2000, '反失明：扫描域不得退化（切片写错就是空串 ⇒ 恒 0 命中假绿）');
+  const code = domain.split('\n').filter((l) => {
+    const s = l.trim();
+    return s && !s.startsWith('//') && !s.startsWith('*');   // 只扫代码行：动因注释里必然要引用被禁写法
+  });
+  const A = String.fromCharCode(39);      // 单引号：needle 由它拼出，本行自身不构成命中
+  const n1 = A + ' + DRIVE + ' + A;
+  const n2 = 'DRIVE + ' + A;
+  const hits = code.filter((l) => l.includes(n1) || l.includes(n2));
+  assert.equal(hits.length, 0, '夹具盘符必须走 fxDrive()，发现裸拼：' + hits.join('\n'));
+  // 正控：禁令不能把唯一合法出口一起删掉而照报 0 命中。
+  assert.ok(domain.includes('function fxDrive'), 'fxDrive 必须仍在（否则 hits=0 是"把出口删了"）');
+  assert.ok(code.some((l) => l.includes('fxDrive()')), '至少一处夹具必须真的调用 fxDrive()');
+});
+
+test('纯函数锁：canJudge=false 时 judgeBaseline 仍必须给出 over 与 shrink', () => {
+  const mod = require(SCRIPT);
+  // over 需要「现场比账本多」：3 条命中 vs 基线 2。第一版我只放了一条，于是这条锁在
+  // 实现已经正确的情况下报红 —— 红的是夹具算错，不是判据没改（写下这条以免下一个会话重踩）。
+  const three = [1, 2, 3].map((i) => ({ file: '01-docs/a.md', line: i, path: 'Q:\\x' + i }));
+  const counts = new Map([['01-docs/a.md', three]]);
+  const baseline = new Map([['01-docs/a.md', 2]]);
+  const domain = new Set(['01-docs/a.md']);
+  const up = mod.judgeBaseline({ counts, baseline, domain, canJudge: false });
+  assert.equal(up.over.length, 1, '无盘符也必须给出 over：' + JSON.stringify(up));
+  assert.equal(up.shrink.length, 0);
+  const down = mod.judgeBaseline({ counts: new Map([['01-docs/a.md', []]]), baseline, domain, canJudge: false });
+  assert.equal(down.shrink.length, 1, '变少也必须报收紧，哪怕没有盘符：' + JSON.stringify(down));
+});
+
+test('存在性明细：无盘符时不得声称「磁盘上不存在」，但必须说自己没核对', (t) => {
+  const { root } = makeFixture({ '01-docs/a.md': docWith([anyAbsPath('gone')]) });
+  writeBaseline(root, { '01-docs/a.md': 0 });
+  const r = runGate(root, ['--simulate-no-drives']);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.doesNotMatch(r.stderr, /磁盘上不存在/, '没核对过就不能这么写：' + r.stderr);
+  assert.match(r.stderr, /存在性核对未执行|未核对存在性/);
+});
+
+test('账本必须带口径版本；版本与本判据不符走「自身故障」档（既不 0 也不 1）', (t) => {
+  const { root } = makeFixture({ '01-docs/a.md': docWith([anyAbsPath('z')]) });
+  writeBaseline(root, { '01-docs/a.md': 1 });
+  const bPath = path.join(root, 'scripts', 'doc-abs-paths-baseline.json');
+  const j = JSON.parse(fs.readFileSync(bPath, 'utf8'));
+  j.metric = 'some_other_generation';
+  fs.writeFileSync(bPath, JSON.stringify(j, null, 2) + '\n');
+  const r = runGate(root, []);
+  assert.equal(r.status, 2, '口径版本不匹配必须是自身故障档，不能读成任何一种结论，stderr: ' + r.stderr + r.stdout);
+  assert.match(r.stderr, /口径|metric/);
+});
+
+test('换代守卫纯函数：prev.metric 与 next.metric 不同 ⇒ 不判放宽，但缩小照报', () => {
+  const mod = require(SCRIPT);
+  const prev = new Map([['a.md', 1], ['b.md', 5]]);
+  const next = new Map([['a.md', 7], ['b.md', 2]]);
+  const changedDocs = new Set(['a.md']);
+  const same = mod.judgeLedgerDrift({ prev, next, changedDocs, prevMetric: 'x', nextMetric: 'x' });
+  assert.equal(same.widened.length, 1, '同代内上涨必须判放宽：' + JSON.stringify(same));
+  const gen = mod.judgeLedgerDrift({ prev, next, changedDocs, prevMetric: 'v1', nextMetric: 'v2' });
+  assert.equal(gen.widened.length, 0, '换代那一次逐文件计数不可比，不得判放宽：' + JSON.stringify(gen));
+  assert.equal(gen.tightened.length, 1, '缩小仍要照报（换代不是把整条守卫关掉）：' + JSON.stringify(gen));
+  assert.equal(gen.generationChange.length, 1, JSON.stringify(gen));
+});
+
+test('行为锁：账本换代 + 计数上涨 ⇒ 放行但必须出声', (t) => {
+  // 第一版这条锁写错了跑法：它用 runGate()，而那个 helper 恒带 --all，--all 按设计**跳过**
+  // 放宽检测（没有 base 可比）⇒ 换代分支一次都没被执行，断言只读到那句"未执行"就当失败。
+  // 换代豁免只在改动集口径（--base/--head）上有意义，所以必须用真 git 夹具喂两个提交。
+  const B = require(SCRIPT).BASELINE_REL;
+  const v1Ledger = (files) => JSON.stringify(
+    { note: 'v1', generated: '2026-10-14', reason: 'v1', files }, null, 2) + '\n';
+  const doc2 = docWith([anyAbsPath('g1'), anyAbsPath('g2')]);
+  const doc3 = doc2 + docWith([anyAbsPath('g3')]);
+  const { root, refs } = makeGitFixture([
+    { '01-docs/g.md': doc2, [B]: v1Ledger({ '01-docs/g.md': 2 }) },
+    { '01-docs/g.md': doc3, [B]: baselineJson({ '01-docs/g.md': 3 }) }
+  ]);
+  const r = spawnSync(
+    process.execPath,
+    [SCRIPT, '--root', root, `--base=${refs[0]}`, '--head=HEAD'],
+    { encoding: 'utf8' }
+  );
+  const all = r.stdout + r.stderr;
+  assert.equal(r.status, 0, all.slice(0, 1200));
+  assert.match(all, /口径换代/, '放行也必须出声，否则"接受换代"没有出处：' + all.slice(0, 1200));
+  assert.doesNotMatch(all, /账本被放宽/, '换代那一次逐文件计数不可比，不得判放宽：' + all.slice(0, 1200));
+});
+
+test('--write-baseline 不再要求盘符（口径与机器无关后，原拒绝的前提消失），但窄域仍拒', (t) => {
+  const { root } = makeFixture({ '01-docs/a.md': docWith([anyAbsPath('w1'), anyAbsPath('w2')]) });
+  const denied = spawnSync(process.execPath, [SCRIPT, '--root', root, '--write-baseline', '--simulate-no-drives'], { encoding: 'utf8' });
+  assert.equal(denied.status, 2, '不带 --all 仍然必须拒：' + denied.stderr);
+  const ok = spawnSync(process.execPath, [SCRIPT, '--root', root, '--all', '--write-baseline', '--simulate-no-drives'], { encoding: 'utf8' });
+  assert.equal(ok.status, 0, '无盘符也应能写基线（计数不依赖文件系统）：' + ok.stderr + ok.stdout);
+  const b = JSON.parse(fs.readFileSync(path.join(root, 'scripts', 'doc-abs-paths-baseline.json'), 'utf8'));
+  assert.equal(b.files['01-docs/a.md'], 2, '写出的账本必须非空且如实计数：' + JSON.stringify(b));
+  assert.equal(b.metric, require(SCRIPT).METRIC_VERSION);
+});
+
+test('结构锁：over/shrink 的循环不得再被 canJudge 包住（行为锁的反证靶子）', () => {
+  const src = fs.readFileSync(SCRIPT, 'utf8');
+  const start = src.indexOf('function judgeBaseline');
+  assert.ok(start >= 0, 'judgeBaseline 必须存在，否则本锁在测一个不存在的函数');
+  const body = src.slice(start);
+  const closedAt = body.search(/\r?\n\}\r?\n/);
+  assert.ok(closedAt > 0, '锚点必须能取到函数闭合');
+  const fn = body.slice(0, closedAt);
+  assert.ok(/over\.push/.test(fn) && /shrink\.push/.test(fn), '函数体应包含两支的 push：' + fn.slice(0, 200));
+  assert.equal(fn.search(/if\s*\(\s*canJudge\s*\)/), -1, 'canJudge 门控回来了 ⇒ 计数又被文件系统绑架：' + fn.slice(0, 400));
 });

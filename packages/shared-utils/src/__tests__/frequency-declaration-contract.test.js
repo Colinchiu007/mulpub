@@ -86,6 +86,31 @@ describe('频率策略与守卫的 d.ts 声明契约', () => {
     expect(instance.length).toBeGreaterThanOrEqual(8)
   })
 
+  // ── 反向锁（change: publish-frequency-unwired-surfaces）──────────────────────
+  // 上面两条只锁「实现面 → 声明面」。那个方向对**幽灵声明**结构性失明：
+  // 实现里删掉一个成员，声明里留着它，两条锁都照绿。本片删掉
+  // `PLATFORM_BUCKET_DAILY_KEY_PREFIX` 时就只剩一条 `static …: string;` 在 index.d.ts 里，
+  // 而它对着每个 TS 消费者都承诺"这个常量存在"——正是本 PR 的立题要消灭的形态，
+  // 只是这次的载体是类型面。两条各配一个方向，缺一不可。
+  it('反向：d.ts 声明的守卫静态成员必须真实存在于实现面（幽灵声明即红）', () => {
+    const block = extractBlock(declared, /export class PublishIntervalGuard/)
+    const names = [...block.matchAll(/^[ \t]*static[ \t]+([A-Za-z0-9_$]+)[ \t]*[(:]/gm)].map((m) => m[1])
+    // 反失明：解析退化（正则没命中 / 块被截断）会让差集恒空而假绿
+    expect(names.length, '未从 d.ts 解析出守卫静态成员（解析退化）').toBeGreaterThanOrEqual(5)
+    const phantom = names.filter((n) => PublishIntervalGuard[n] === undefined)
+    expect(phantom, `d.ts 声明了实现面不存在的守卫静态成员：${phantom.join(', ')}`).toEqual([])
+  })
+
+  it('反向：d.ts 声明的策略方法必须真实存在于实现面（幽灵声明即红）', () => {
+    const block = extractBlock(declared, /export const publishFrequencyPolicy/)
+    // 只取**缩进两格**的行首名字 = 块的第一层成员；返回类型/参数对象里的字段缩进更深，
+    // 把它们也当成员会让锁误报（且会随排版漂移）。
+    const names = [...block.matchAll(/^ {2}([A-Za-z0-9_$]+)[ \t]*\(/gm)].map((m) => m[1])
+    expect(names.length, '未从 d.ts 解析出策略方法名（解析退化）').toBeGreaterThanOrEqual(6)
+    const phantom = names.filter((n) => policy[n] === undefined)
+    expect(phantom, `d.ts 声明了实现面不存在的策略方法：${phantom.join(', ')}`).toEqual([])
+  })
+
   it('recordPublish 的返回值不得被声明成 void（release 的还原凭据依赖它）', () => {
     const block = extractBlock(declared, /export class PublishIntervalGuard/)
     const start = block.indexOf('recordPublish')

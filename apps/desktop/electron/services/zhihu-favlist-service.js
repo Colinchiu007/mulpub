@@ -147,6 +147,22 @@ class ZhihuFavlistService {
   }
 
   /**
+   * 连通性测试（设置页「测试连接」）。
+   *
+   * 复用收藏夹列表这一条**功能自身就要用**的鉴权调用，不新造探测端点：新端点会带来
+   * 「探测通过但功能失败」的假绿灯（权限模型相同不代表配额/作用域相同）。
+   * 失败时原样透传 listFavlists 的归一错误（含 retryable），由上层决定文案。
+   *
+   * @param {string} accessSecret
+   * @returns {Promise<{success: boolean, favlistCount?: number, error?: string, retryable?: boolean, apiCode?: number}>}
+   */
+  async testConnection (accessSecret) {
+    const r = await this.listFavlists(accessSecret)
+    if (!r.success) return r
+    return { success: true, favlistCount: Array.isArray(r.favlists) ? r.favlists.length : 0 }
+  }
+
+  /**
    * API 业务错误（Code !== 0）归一化。
    */
   _apiError (body) {

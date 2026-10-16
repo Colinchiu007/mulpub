@@ -461,3 +461,242 @@ test('绿文必须披露 prod 口径（--omit=dev 的盲区对 CI 读者不可�
     assert.ok(green.includes('--omit=dev'), '绿文必须让 CI 读者知道 dev 依赖不在判据面内：' + green)
   } finally { fs.rmSync(dir, { recursive: true, force: true }) }
 })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 公告 ID 迁移（同一条公告换号）：解析层收集 aliases + 判定层按别名认同
+//
+// 现场（2026-10-16）：pip-audit 对 python-jose 3.5.0 报的 id 从 CVE-2026-85394 变成
+// PYSEC-2026-4298（旧号降为 aliases 成员），而基线仍以旧号为键 ⇒ 门禁同时打出
+// NEW_ADVISORY 与 RESOLVED_STILL_BASELINED 两条互相矛盾的结论，
+// **而安全结论一个字都没变**（同一条公告、同一版本、同一「无修复版本」）。
+//
+// 逃逸原因：既有夹具的公告 id 全都是稳定的，从来没有「同一条公告换号」这个形状。
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('pip-audit JSON 解析：收集 aliases，去重且剔除主 id 自身', () => {
+  const rows = D.parsePipAudit({
+    dependencies: [
+      {
+        name: 'python-jose',
+        version: '3.5.0',
+        vulns: [{ id: 'PYSEC-2026-4298', aliases: ['GHSA-3qf3-8w2g-rqmx', 'CVE-2026-85394', 'PYSEC-2026-4298'], fix_versions: [] }],
+      },
+      { name: 'no-alias', version: '1.0', vulns: [{ id: 'PYSEC-2', fix_versions: [] }] },
+    ],
+  });
+  const jose = rows.find((r) => r.id === 'PYSEC-2026-4298');
+  assert.deepEqual(jose.aliases, ['CVE-2026-85394', 'GHSA-3qf3-8w2g-rqmx'], 'aliases 需去重、剔除主 id 自身，并排序保证确定性');
+  assert.deepEqual(rows.find((r) => r.id === 'PYSEC-2').aliases, [], '没有 aliases 字段时必须是 []，不能是 undefined');
+});
+
+test('同公告换号（基线旧号 → 扫描新号）不双报，只报 ID 迁移', () => {
+  const base = { reviewBy: FUTURE, advisories: [ledger('pip', 'CVE-2026-85394', 'not-exploitable', '人工风险分析：三处 algorithms 显式限定')] };
+  const found = [entry('pip', 'PYSEC-2026-4298', { aliases: ['CVE-2026-85394'] })];
+  const { violations, migrations } = D.evaluate(base, found, FUTURE);
+  assert.equal(violations.filter((v) => v.includes('NEW_ADVISORY')).length, 0, '换号不是新增公告');
+  assert.equal(violations.filter((v) => v.includes('RESOLVED_STILL_BASELINED')).length, 0, '换号不是公告失效');
+  assert.equal(migrations.length, 1, '必须报出迁移，不能静默');
+  assert.deepEqual({ source: migrations[0].source, from: migrations[0].from, to: migrations[0].to }, { source: 'pip', from: 'CVE-2026-85394', to: 'PYSEC-2026-4298' });
+  assert.equal(migrations[0].matchedVia, 'CVE-2026-85394', '裁决 i1：必须带认领证据');
+  assert.equal(migrations[0].viaAlias, true, '裁决 i1：必须标明经别名认领');
+});
+
+test('同公告换号方向相反（基线新号 → 扫描旧号）同样不双报', () => {
+  const base = { reviewBy: FUTURE, advisories: [ledger('pip', 'PYSEC-2026-4298')] };
+  const found = [entry('pip', 'CVE-2026-85394', { aliases: ['PYSEC-2026-4298'] })];
+  const { violations, migrations } = D.evaluate(base, found, FUTURE);
+  assert.equal(violations.length, 0);
+  assert.equal(migrations.length, 1);
+  assert.deepEqual({ source: migrations[0].source, from: migrations[0].from, to: migrations[0].to }, { source: 'pip', from: 'PYSEC-2026-4298', to: 'CVE-2026-85394' });
+  assert.equal(migrations[0].matchedVia, 'PYSEC-2026-4298', '认领证据 = 被认领的那个基线键的主 id');
+  assert.equal(migrations[0].viaAlias, true);
+});
+
+test('对偶：别名匹配不得把真正的新公告一起放过', () => {
+  const base = { reviewBy: FUTURE, advisories: [ledger('pip', 'CVE-old')] };
+  const found = [
+    entry('pip', 'PYSEC-migrated', { aliases: ['CVE-old'] }),
+    entry('pip', 'PYSEC-really-new'),
+  ];
+  const { violations } = D.evaluate(base, found, FUTURE);
+  assert.equal(
+    violations.filter((v) => v.includes('NEW_ADVISORY') && v.includes('PYSEC-really-new')).length, 1,
+    '无别名关联的新公告必须照红 —— 该锁若整体放过，等于把门禁改松');
+  assert.equal(violations.filter((v) => v.includes('PYSEC-migrated')).length, 0);
+});
+
+test('别名匹配不得跨 source：pip 的 alias 不能认领 npm 的同名 id', () => {
+  const base = { reviewBy: FUTURE, advisories: [ledger('npm', 'X-1')] };
+  const found = [entry('pip', 'Y-2', { aliases: ['X-1'] })];
+  const { violations, migrations } = D.evaluate(base, found, FUTURE);
+  assert.equal(violations.filter((v) => v.includes('NEW_ADVISORY')).length, 1, 'pip 的新条目照红');
+  assert.equal(violations.filter((v) => v.includes('RESOLVED_STILL_BASELINED')).length, 1, 'npm 的旧条目照判失效');
+  assert.deepEqual(migrations, [], '跨 source 不算同一条公告');
+});
+
+test('--update 跨 ID 迁移必须保留人工结论（decision/note），不得重置成 TODO', () => {
+  const base = { reviewBy: FUTURE, advisories: [ledger('pip', 'CVE-2026-85394', 'not-exploitable', '人工风险分析原文')] };
+  const found = [entry('pip', 'PYSEC-2026-4298', { aliases: ['CVE-2026-85394'] })];
+  const tmp = path.join(os.tmpdir(), 'dep-audit-migration-' + process.pid + '.json');
+  try {
+    const body = D.writeBaseline(found, base, tmp);
+    const item = body.advisories.find((a) => a.module === 'm');
+    assert.equal(item.id, 'PYSEC-2026-4298', '键要跟着扫描结果迁移到新号');
+    assert.equal(item.decision, 'not-exploitable', '人工结论必须沿用 —— 迁移不得把风险分析冲掉');
+    assert.equal(item.note, '人工风险分析原文', '人工 note 必须沿用');
+    assert.deepEqual(item.aliases, ['CVE-2026-85394'], 'aliases 要落盘，供下一轮继续双向认同');
+  } finally { fs.rmSync(tmp, { force: true }); }
+});
+
+test('迁移不放宽既有校验：沿用过来的 upgrade-tracked 仍受 patched 约束', () => {
+  const base = { reviewBy: FUTURE, advisories: [ledger('pip', 'CVE-old', 'upgrade-tracked', '已排期升级')] };
+  const found = [entry('pip', 'PYSEC-migrated', { aliases: ['CVE-old'], patched: '' })];
+  const tmp = path.join(os.tmpdir(), 'dep-audit-migration-check-' + process.pid + '.json');
+  try {
+    const body = D.writeBaseline(found, base, tmp);
+    const { violations } = D.evaluate(body, found, FUTURE);
+    assert.equal(
+      violations.filter((v) => v.includes('DECISION_CONTRADICTS_PATCHED')).length, 1,
+      '别名匹配只影响「这条公告是否已在账上」，decision/patched 校验一条都不能少');
+  } finally { fs.rmSync(tmp, { force: true }); }
+});
+
+test('对偶：公告库把同一条公告的两个号都报出来时，不得报出反向伪迁移', () => {
+  // 现场依据：公告库确实会把一条公告的多个 id 分别列出（本轮 pip-audit 给的就是
+  // 主 id + aliases 两个号）。此时 found 里存在与基线同键的条目，
+  // 按 found 的排序谁先谁后**不该**决定"迁移方向" —— 所以有直接命中就不报迁移。
+  const baseNew = { reviewBy: FUTURE, advisories: [ledger('pip', 'PYSEC-2026-4298')] };
+  const both = [
+    entry('pip', 'CVE-2026-85394', { aliases: ['PYSEC-2026-4298'] }),
+    entry('pip', 'PYSEC-2026-4298', { aliases: ['CVE-2026-85394'] }),
+  ];
+  const r1 = D.evaluate(baseNew, both, FUTURE);
+  assert.equal(r1.violations.length, 0, '两个号指向同一条公告，不该有任何违规');
+  assert.deepEqual(r1.migrations, [], '基线键在 found 里有直接命中 ⇒ 不存在迁移，更不该报「新号 → 旧号」的反向迁移');
+  assert.equal(r1.ledgerCount, 1);
+
+  const baseOld = { reviewBy: FUTURE, advisories: [ledger('pip', 'CVE-2026-85394')] };
+  const r2 = D.evaluate(baseOld, both, FUTURE);
+  assert.equal(r2.violations.length, 0);
+  assert.deepEqual(r2.migrations, [], '同一件事两个方向都成立时，静默比报一个可能反的迁移更诚实');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// QM-6 评审裁决后新增的回归锁（critic i1 / i2，均已实测证实为真缺陷）
+// ─────────────────────────────────────────────────────────────────────────────
+
+const path2 = require('node:path');
+
+test('裁决 i1：基线双份（旧 bug 一增一失留下两份）时，--update 不得丢掉任一份的人工结论', () => {
+  // 实测现场：把同一条公告在基线里写两份（旧号 + 新号各一份，人工 note 写在旧号那份），
+  // found 只报新号 ⇒ 修复前 --update 只认领新号那条，旧号那份连同它的人工结论
+  // 一起被全量重写丢掉 —— 而那正是「换号前那一轮」写的复核依据。
+  //
+  // 注意口径：writeBaseline 的语义是「以 found 为准全量重写」（自愈式清账），
+  // 不为本 bug 改变它 —— 那样会把 --update 变成"永不删条目"，与登记边界冲突。
+  // 所以判据是**结论不丢**（合并到保留的那条），不是"条目数不变"。
+  const base = { reviewBy: FUTURE, advisories: [
+    ledger('pip', 'PYSEC-2026-4298', 'not-exploitable', '【新号那份】三处 algorithms 显式限定'),
+    ledger('pip', 'CVE-2026-85394', 'not-exploitable', '【旧号那份】另一轮的人工结论'),
+  ] };
+  const found = [entry('pip', 'PYSEC-2026-4298', { aliases: ['CVE-2026-85394'] })];
+  const tmp = path.join(os.tmpdir(), 'dep-audit-dup-' + process.pid + '.json');
+  try {
+    const body = D.writeBaseline(found, base, tmp);
+    const kept = body.advisories.filter((a) => a.module === 'm');
+    assert.equal(kept.length, 1, 'writeBaseline 以 found 全量重写，双份合并成一条（既有语义不变）');
+    // 关键判据：**两份的人工 note 都必须还在**，一条都不能丢
+    assert.ok(/新号那份/.test(String(kept[0].note)), '新号那份的 note 必须保住：' + String(kept[0].note));
+    assert.ok(/旧号那份/.test(String(kept[0].note)), '旧号那份的 note 必须保住（修复前它被整体丢弃）：' + String(kept[0].note));
+    assert.ok(/已合并/.test(String(kept[0].note)), '必须标明这是合并产物，不能让读者以为只有一份结论');
+    // 双份形态下 evaluate 也不得对旧键报 RESOLVED：它不是"已不再命中"，是被 aliases 覆盖了
+    const { violations, migrations } = D.evaluate(base, found, FUTURE, new Set(['pip']));
+    assert.equal(violations.filter((v) => v.includes('RESOLVED_STILL_BASELINED')).length, 0,
+      '旧键被新号那条通过 aliases 覆盖 ⇒ 不得再诱导人去删它');
+    assert.equal(migrations.length, 0, '双份都在账上时不存在"迁移"，两个号都是活的');
+  } finally { fs.rmSync(tmp, { force: true }); }
+});
+
+test('裁决 i2：有迁移时不得打印「基线与现实一致」——那正是欠账所述的"训练人忽略门禁"绿文版', () => {
+  // 实测现场：基线单键旧号 + found 新号 ⇒ violations=0 而基线键仍是旧号。
+  // 修复前 main() 走绿文分支打印「基线与现实一致且结论完整」，CI 读者据此以为已对齐、
+  // 不去跑 --update ⇒ stale 基线被永久合法化（比红文更危险：红文至少吵）。
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dep-audit-i2-'));
+  const bp = path.join(dir, 'baseline.json');
+  fs.writeFileSync(bp, JSON.stringify({ reviewBy: FUTURE, advisories: [ledger('pip', 'CVE-2026-85394', 'not-exploitable', '人工结论')] }, null, 2), 'utf8');
+  const out = [];
+  try {
+    const code = D.runCheck({
+      registry: 'npm',
+      baselinePath: bp,
+      log: (...a) => out.push(a.join(' ')),
+      runners: {
+        npm: () => ({ ok: true, json: { advisories: {} } }),
+        'npm-opscenter': () => ({ ok: true, json: { vulnerabilities: {} } }),
+        pip: () => ({ ok: true, json: { dependencies: [{ name: 'python-jose', version: '3.5.0', vulns: [{ id: 'PYSEC-2026-4298', aliases: ['CVE-2026-85394', 'GHSA-3qf3-8w2g-rqmx'], fix_versions: [] }] }] } }),
+      },
+    });
+    const green = out.find((l) => l.includes('基线与现实一致'));
+    const hint = out.find((l) => l.includes('--update') && l.includes('ID_MIGRATED'));
+    assert.equal(code, 0, '迁移不阻断（登记边界：不引入新违规类型）。实际输出：\n' + out.join('\n'));
+    assert.ok(!green, '有迁移而基线键仍是旧号时，不得打印「基线与现实一致且结论完整」——实测该形态 violations=0 而键未迁，这句话自相矛盾：' + (green || ''));
+    assert.ok(hint, '必须明确提示迁移尚未落盘、需要跑 --update，而不是用一句"一致"盖过去。实际输出：\n' + out.join('\n'));
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// QM-6 第二轮裁决后新增的回归锁（critic i1 / i2 / i3，均已实测证实为真缺陷）
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('裁决 i1：别名认领必须带上证据字段——否则 alias 撞车会把真新增吞成"迁移"', () => {
+  // 实测现场：基线有 CVE-OLD，found 是一条与它**无关的真新公告** PYSEC-NEW，
+  // 仅因 aliases 误标含 CVE-OLD ⇒ 修复前 evaluate 输出 violations=0 + 1 条迁移，
+  // 且输出里没有任何字段说明"这条是经别名认领的"，审计无法区分换号与撞车。
+  const base = { reviewBy: FUTURE, advisories: [ledger('pip', 'CVE-OLD', 'not-exploitable', '人工结论')] };
+  const found = [entry('pip', 'PYSEC-NEW', { aliases: ['CVE-OLD'] })];
+  const { violations, migrations } = D.evaluate(base, found, FUTURE, new Set(['pip']));
+  assert.equal(violations.length, 0, '别名认领仍不阻断（登记边界）');
+  assert.equal(migrations.length, 1);
+  // 关键判据：迁移记录必须带"经哪个 id 认领"的证据，否则审计分不清换号与撞车
+  assert.equal(migrations[0].matchedVia, 'CVE-OLD', '必须记录是经哪个 id 认领的');
+  assert.equal(migrations[0].viaAlias, true, '必须标明这是经别名（非主键）认领的');
+});
+
+test('裁决 i2：两个新键争同一条旧基线 ⇒ 必须报碰撞，且 --update 不得复制成双份', () => {
+  // 实测现场：基线 CVE-OLD 一条，found 的 PYSEC-A 与 PYSEC-B 的 aliases 都含 CVE-OLD。
+  // 修复前：evaluate 只报 1 条迁移、B 静默通过；writeBaseline 把同一旧行复制成两行
+  // （同 note、不同 id）⇒ 正是欠账条目所述"同一条公告在基线里留两份"的双份复发。
+  const base = { reviewBy: FUTURE, advisories: [ledger('pip', 'CVE-OLD', 'not-exploitable', '人工结论')] };
+  const found = [
+    entry('pip', 'PYSEC-A', { aliases: ['CVE-OLD'] }),
+    entry('pip', 'PYSEC-B', { aliases: ['CVE-OLD'] }),
+  ];
+  const { violations } = D.evaluate(base, found, FUTURE, new Set(['pip']));
+  assert.equal(violations.filter((v) => v.includes('MIGRATION_COLLISION')).length, 1,
+    '多个 found 争同一条基线键必须出声（不阻断，但不得静默）');
+  assert.ok(violations.some((v) => v.includes('PYSEC-A') && v.includes('PYSEC-B')),
+    '碰撞提示必须点名两个争抢方');
+  const tmp = path.join(os.tmpdir(), 'dep-audit-collision-' + process.pid + '.json');
+  try {
+    const body = D.writeBaseline(found, base, tmp);
+    const kept = body.advisories.filter((a) => a.module === 'm');
+    assert.equal(kept.length, 1, '不得把同一旧行复制成多份 —— 那正是"一增一失"的双份复发形态');
+  } finally { fs.rmSync(tmp, { force: true }); }
+});
+
+test('裁决 i3：基线条目已存的 aliases 必须参与认领（"双向认同"不能是单向）', () => {
+  // 实测现场：基线条目 PYSEC-NEW 已存 aliases=[CVE-OLD]（上一轮 --update 落盘的形态），
+  // 下一轮 found 只报 CVE-OLD 且不带 aliases。修复前：NEW_ADVISORY(CVE-OLD) +
+  // RESOLVED_STILL_BASELINED(PYSEC-NEW) —— 原事故在公告库清理 aliases 后原样复现。
+  const base = { reviewBy: FUTURE, advisories: [Object.assign(ledger('pip', 'PYSEC-NEW', 'not-exploitable', '人工结论'), { aliases: ['CVE-OLD'] })] };
+  const found = [entry('pip', 'CVE-OLD')];
+  const { violations, migrations } = D.evaluate(base, found, FUTURE, new Set(['pip']));
+  assert.equal(violations.filter((v) => v.includes('NEW_ADVISORY')).length, 0,
+    '基线条目已存的 aliases 必须参与认领，不得把旧号当新公告');
+  assert.equal(violations.filter((v) => v.includes('RESOLVED_STILL_BASELINED')).length, 0,
+    '同理不得把新号判成"已不再命中"');
+  assert.equal(migrations.length, 1, '该形态报一条迁移（方向：PYSEC-NEW → CVE-OLD）');
+  assert.equal(migrations[0].from, 'PYSEC-NEW');
+  assert.equal(migrations[0].to, 'CVE-OLD');
+  assert.equal(migrations[0].matchedVia, 'PYSEC-NEW', '证据字段同样要带（= 被认领的基线键主 id）');
+});

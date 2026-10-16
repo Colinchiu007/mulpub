@@ -178,8 +178,6 @@ export class PublishIntervalGuard {
   /** accountId 归一（空白/非串 → null）；装配与测试都走这一份实现 */
   static normalizeAccountId(value: unknown): string | null;
   static TIMER_SAFE_MS: number;
-  /** ⚠️ **计划了但从未接线**：全仓除本定义外零引用，平台级日配额维度当前不存在（PRD §10.2） */
-  static PLATFORM_BUCKET_DAILY_KEY_PREFIX: string;
 }
 
 export const publishFrequencyPolicy: {
@@ -196,6 +194,15 @@ export const publishFrequencyPolicy: {
   /** 设置页覆盖：任一字段非法 ⇒ 整个对象作废（返回 null），不允许部分生效 */
   resolvePolicyOverrides(raw: unknown, options?: { warn?: (msg: string) => void }): object | null;
   isKnownPlatform(platform: unknown): boolean;
+  /**
+   * 回落基线强度运行期自检：逐维度比较 `BASELINE_INTERVALS` 与已登记平台
+   * （间隔取上界、日配额取下界），违规只**出声不抛错**。表可注入以便测试。
+   */
+  checkBaselineStrength(options?: {
+    warn?: (msg: string) => void;
+    policyTable?: Record<string, { accountMinMs: number; platformMinMs: number; accountDailyMax: number }>;
+    baseline?: { accountMinMs: number; platformMinMs: number; accountDailyMax: number };
+  }): string[];
   /** 单个环境变量的解析（合法域 [0, MAX_INTERVAL_MS]；非法回落 + 出声） */
   parseEnvNumber(
     raw: string | number | undefined | null,
@@ -208,6 +215,8 @@ export const publishFrequencyPolicy: {
   BASELINE_INTERVALS: PublishFrequencyIntervals;
   SUPPORTED_PLATFORMS: readonly string[];
   MAX_INTERVAL_MS: number;
+  /** 日配额上界：env / 设置页覆盖 / 设置页输入框共用的同一个界（三条路径此前各有其界） */
+  MAX_DAILY_QUOTA: number;
   DEFAULT_JITTER_RATIO: number;
   DEFAULT_RELEASE_GRACE_MS: number;
   MIN_RELEASE_GRACE_MS: number;

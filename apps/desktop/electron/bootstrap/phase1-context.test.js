@@ -50,7 +50,7 @@ function makeMockContainer() {
       if (key === 'templateManager') return { seedDefaults: vi.fn() }
       // aiGenerator 需要 setModelProviderManager 方法（用于测试条件调用）
       if (key === 'aiGenerator') return { setModelProviderManager: vi.fn() }
-      // store 需要是 truthy
+      // store 需要是 truthy（启动期日计数裁剪不在本阶段 —— 见下方禁令锁与 phase3-services.test.js）
       if (key === 'store') return { getSetting: vi.fn(), setSetting: vi.fn() }
       // taskQueue 需要 setExecutor 方法（虽然 extractContext 不调用，但 createAppContext 会用）
       if (key === 'taskQueue') return { setExecutor: vi.fn(), on: vi.fn() }
@@ -100,6 +100,90 @@ describe('phase1-context.extractContext', () => {
     const container = makeMockContainer()
     const ctx = extractContext(container)
     expect(ctx.templateManager.seedDefaults).toHaveBeenCalled()
+  })
+
+  it('phase1 不得有启动期裁剪调用点：存储那时还没 init，调了也删不动（QM-6 自审 C-1）', () => {
+    // 与本文件「只构造 ModelProviderManager，等待 Phase 3 的 Store 初始化后再启动」是同一条前提：
+    // phase1 只是同步构建上下文，`store.init()` 要到 phase3-services.js 才发生，而
+    // `prunePublishDailyCountAllOwners` 对未就绪的存储恒返 basis:'not_ready' 且一行都不删。
+    // 挂在 phase1 的第一版有调用点、有单测、CI 全绿，生产上却是永久 no-op ——
+    // 因为它的夹具无条件返回 measured，替真实存储声称了就绪。
+    // 正向对偶在 phase3-services.test.js 的「启动期日计数裁剪」（夹具按 _ready 决定 basis + 顺序锁）。
+    const fs = require('node:fs')
+    const path = require('node:path')
+    const src = fs.readFileSync(path.join(__dirname, 'phase1-context.js'), 'utf8')
+    expect(src.length, '扫描域不得为空').toBeGreaterThan(1000)
+    expect(src).not.toMatch(/prunePublishDailyCountAllOwners/)
+    expect(src).not.toMatch(/startup-prune/)
+    // 禁令必须配正向对偶：否则「删掉被禁物」与「删掉整条需求」在判据上同形
+    const p3 = fs.readFileSync(path.join(__dirname, 'phase3-services.js'), 'utf8')
+    const callAt = p3.indexOf('prunePublishDailyCountAllOwners(')
+    const initAt = p3.indexOf('await store.init()')
+    expect(callAt, 'phase3-services.js 必须真的有这个调用点').toBeGreaterThan(-1)
+    expect(initAt, 'phase3-services.js 必须真的在等 store.init()').toBeGreaterThan(-1)
+    expect(callAt, '调用点必须排在 store.init() 之后').toBeGreaterThan(initAt)
+  })
+
+  it('bootstrap 接线文件的 notify 调用一律不得自带顶层 meta 字段（logger 只抬四个白名单键）', () => {
+    // 结构锁的动机是**自己踩的**：`{level:'WARN', hasStore, hasGuardToday}` 读起来完全像
+    // 会把两个布尔落盘，实际 logger.notify 只抬 errorCategory/level/params/error，
+    // 其余静默丢弃 ⇒ 落盘 `PublishDailyCount startup-prune-skipped {}`。
+    // 扫描域＝两个 bootstrap 接线文件：日计数裁剪随 C-1 修复从 phase1 搬到 phase3-services.js，
+    // 锁跟着调用点走，不是把 phase1 的锁留在原地自我安慰。
+    const fs = require('node:fs')
+    const path = require('node:path')
+    const TARGET_FILES = ['phase1-context.js', 'phase3-services.js']
+    /**
+     * 从 `notify('Mod','key', {…})` 的 meta 字面量里取**顶层**键名。
+     * 必须按花括号深度扫描：用 `[^}]*` 一类的近似会在第一个内层 `}` 截断，
+     * 于是 `{ params: { owners: 1 } }` 的 `owners:` 被当成顶层键 ⇒ 假红（本条首跑就是这样）。
+     */
+    function topLevelMetaKeys (objLiteral) {
+      const keys = []
+      let depth = 0
+      for (let i = 0; i < objLiteral.length; i++) {
+        const ch = objLiteral[i]
+        if (ch === '{' || ch === '[' || ch === '(') { depth += 1; continue }
+        if (ch === '}' || ch === ']' || ch === ')') { depth -= 1; continue }
+        if (depth !== 0) continue
+        const m = /^([A-Za-z_$][\w$]*)\s*:/.exec(objLiteral.slice(i))
+        if (m) { keys.push(m[1]); i += m[0].length - 1 }
+      }
+      return keys
+    }
+    function extractObjectLiteral (text, from) {
+      const open = text.indexOf('{', from)
+      if (open < 0) return null
+      let depth = 0
+      for (let i = open; i < text.length; i++) {
+        if (text[i] === '{') depth += 1
+        else if (text[i] === '}') { depth -= 1; if (depth === 0) return text.slice(open + 1, i) }
+      }
+      return null
+    }
+    const ALLOWED = new Set(['level', 'error', 'errorCategory', 'params'])
+    const offenders = []
+    for (const file of TARGET_FILES) {
+      const src = fs.readFileSync(path.join(__dirname, file), 'utf8')
+      let seen = 0
+      const re = /\.notify\(\s*['"][^'"]+['"]\s*,\s*['"]([^'"]+)['"]\s*,/g
+      let m
+      while ((m = re.exec(src)) !== null) {
+        seen += 1
+        const literal = extractObjectLiteral(src, m.index + m[0].length)
+        if (literal === null) { offenders.push([file, m[1], 'meta 字面量解析失败'].join(': ')); continue }
+        const extra = topLevelMetaKeys(literal).filter((k) => !ALLOWED.has(k))
+        if (extra.length) offenders.push([file, m[1], extra.join(', ')].join(' -> '))
+      }
+      // 反失明：某个文件的扫描退化（带 meta 的调用点一个都没抓到）不得读成"合规"
+      expect(seen, file + ' 应有带 meta 的 notify 调用点（解析退化即红）').toBeGreaterThan(0)
+    }
+    // 如实记录这把锁**抓不到什么**：它只认 `key:` 形态的顶层键。
+    // `{ level:'WARN', hasStore }` 这种**简写属性**在 depth 0 上是裸标识符，判据看不见
+    // ——要把它也判出来，就得区分"裸标识符是键还是值"（`error: String(e && e.message)` 里
+    // 的 `e` 也是裸标识符），那是另一类解析。两个文件现存调用点都写成 `key: value`，
+    // 所以射程覆盖实际形态；新增简写属性时本条不会红，需靠各自的行为锁兜。
+    expect(offenders, 'notify 的 meta 里出现非白名单顶层键：' + offenders.join(' | ')).toEqual([])
   })
 
   it('offlineManager.startMonitoring 被调用', () => {

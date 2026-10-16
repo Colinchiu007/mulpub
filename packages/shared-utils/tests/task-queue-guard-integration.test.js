@@ -329,9 +329,23 @@ describe('TaskQueue + PublishIntervalGuard 集成', () => {
     await new Promise(r => setTimeout(r, 60))
     expect(guard.canPublish('douyin', 'acc_2')).toBe(false)
 
-    queue.clearRollbackDisabled('douyin')
-    expect(queue.getProbeCounts().rollbackDisabledPlatforms).toEqual([])
+    // 唯一真实出路是**重启进程**：`_rollbackDisabledPlatforms` 是实例态，新实例不继承。
+    // change: publish-frequency-unwired-surfaces 据此删掉了 `clearRollbackDisabled()` ——
+    // 它的注释与告警文案都承诺「用户在设置页确认后解除」，而设置页**根本没有这个入口**
+    // （全仓零调用点，唯一"消费者"是本测试自己）。留着一个能悄悄重新允许回滚的方法，
+    // 比留着一句假话更危险：接线未被证实的平台重新获得"未提交即回滚"的权力。
+    expect(typeof queue.clearRollbackDisabled).toBe('undefined')
+    const restarted = new TaskQueue({ defaultRetry: 0, publishIntervalGuard: guard })
+    expect(restarted.getProbeCounts().rollbackDisabledPlatforms).toEqual([])
+    // 同一实例内不得被解除（方向恒为"多等"）
+    expect(queue.getProbeCounts().rollbackDisabledPlatforms).toContain('douyin')
+
+    const logged = errSpy.mock.calls.map((c) => String(c[0])).join('\n')
+    expect(logged).toContain('重启')
+    // 文案不得再承诺一个不存在的出口（这条锁防的是"把假承诺改回来也没人发现"）
+    expect(logged).not.toMatch(/设置页确认后解除/)
     errSpy.mockRestore()
+    restarted.shutdown()
     queue.shutdown()
   })
 

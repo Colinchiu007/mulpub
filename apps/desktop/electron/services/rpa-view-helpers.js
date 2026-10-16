@@ -34,15 +34,6 @@ function _guessMimeType (fileName) {
   return map[ext] || 'application/octet-stream'
 }
 
-function _sanitizeCaptureEndpoint (url) {
-  try {
-    const parsed = new URL(String(url || ''))
-    return parsed.origin + parsed.pathname
-  } catch (_) {
-    return ''
-  }
-}
-
 const helpersMixin = {
   // B1（oss-b1-rpa-hardening）：行为层引擎 + CDP 传输 + 隔离世界求值通道 mixin
   // （独立模块：stealth/rpa-behavior-mixin.js，this 指向不变）
@@ -348,70 +339,10 @@ const helpersMixin = {
     return false
   },
 
-  // 发布点击后的网络证据采集。只在点击发布前短时开启，避免影响页面其它请求。
+  // 发布点击后的网络证据采集（实现下沉 rpa-view-response-body.js，行为不变；行数门禁拆分）。
   // 原始响应体只在 parseResponseBody 回调的局部作用域内使用，禁止写入 records、日志或 IPC 结果。
   async _startPublishNetworkCapture(win, options = {}) {
-    const dbg = win.webContents.debugger
-    const records = []
-    const evidence = []
-    const responseByRequestId = new Map()
-    const pendingBodies = new Set()
-    const parseResponseBody = typeof options.parseResponseBody === 'function' ? options.parseResponseBody : null
-    const relevant = (url) => /(?:publish|submit|create|article|content|media|video|clue|work)/i.test(url || '')
-    let stopped = false
-    const onMessage = async (_event, method, params) => {
-      try {
-        if (stopped) return
-        if (method === 'Network.responseReceived' && relevant(params?.response?.url)) {
-          const record = {
-            endpoint: _sanitizeCaptureEndpoint(params.response.url),
-            status: params.response.status,
-            mimeType: String(params.response.mimeType || '').slice(0, 160),
-          }
-          records.push(record)
-          responseByRequestId.set(params.requestId, record)
-        }
-        if (method !== 'Network.loadingFinished') return
-        const response = responseByRequestId.get(params.requestId)
-        if (!response || !parseResponseBody) return
-        const bodyPromise = dbg.sendCommand('Network.getResponseBody', { requestId: params.requestId })
-          .then(async result => {
-            const body = result?.base64Encoded
-              ? Buffer.from(result.body || '', 'base64').toString('utf8')
-              : String(result?.body || '')
-            const parsedEvidence = await parseResponseBody(body.slice(0, 200 * 1024), { ...response })
-            if (parsedEvidence && typeof parsedEvidence === 'object') evidence.push(parsedEvidence)
-          })
-          .catch(() => {})
-        pendingBodies.add(bodyPromise)
-        await bodyPromise
-        pendingBodies.delete(bodyPromise)
-      } catch (_) { /* 页面导航/窗口销毁时网络证据可为空 */ }
-    }
-    try {
-      try { await dbg.attach('1.3') } catch (_) { /* 已附加时继续 */ }
-      dbg.on('message', onMessage)
-      await dbg.sendCommand('Network.enable')
-    } catch (error) {
-      try { dbg.removeListener('message', onMessage) } catch (_) { /* ignore */ }
-      try { await dbg.detach() } catch (_) { /* ignore */ }
-      log.warn('RpaView', 'publish network capture unavailable: ' + error.message)
-      return null
-    }
-    return {
-      records,
-      evidence,
-      async stop () {
-        if (stopped) return records.map(record => ({ ...record }))
-        stopped = true
-        await Promise.allSettled([...pendingBodies])
-        try { await dbg.sendCommand('Network.disable') } catch (_) { /* ignore */ }
-        try { dbg.removeListener('message', onMessage) } catch (_) { /* ignore */ }
-        try { await dbg.detach() } catch (_) { /* ignore */ }
-        responseByRequestId.clear()
-        return records.map(record => ({ ...record }))
-      },
-    }
+    return require('./rpa-view-response-body').startPublishNetworkCapture(win, options)
   },
 
   // ========== Network response monitor ==========
@@ -428,24 +359,51 @@ const helpersMixin = {
   async _waitForResponseExclusive(win, patterns, timeout) {
     timeout = timeout||60000
     const session = win.webContents.session
+    // wxmp-save-body-intercept（2026-10-16）：resolve 对象补 body 字段（真实契约修复）；
+    // CDP 采集逻辑在 rpa-view-response-body.js，本文件只接线。CDP 不可用时 body=''。
+    const collector = require('./rpa-view-response-body').createResponseBodyCollector(win, patterns)
+    function urlHit (url) {
+      const u = url || ''
+      for (let pi = 0; pi < patterns.length; pi++) { if (u.includes(patterns[pi])) return true }
+      return false
+    }
     return new Promise(function(resolve) {
       let settled = false
       const t = setTimeout(function(){ cleanup(); resolve(null) }, timeout)
       if (t && t.unref) t.unref()
       const matched = []
+      const onCdpMessage = collector.onCdpMessage(function (url, status, requestId) {
+        if (settled) return
+        matched.push({ url: url, statusCode: status })
+        if (status === 200) settleWith(url, status, requestId)
+      })
       function cleanup() {
         try { session.webRequest.onCompleted({urls:['<all_urls>']}, null) } catch(e) { /* session may be destroyed */ }
+        collector.stop(onCdpMessage)
       }
+      function settleWith (url, statusCode, requestId) {
+        if (settled) return
+        settled = true
+        clearTimeout(t)
+        collector.fetchBody(requestId).then(function (body) {
+          cleanup()
+          resolve({ url: url, statusCode: statusCode, matchedUrls: matched.slice(), body: body })
+        })
+      }
+      // CDP 通道就绪后挂监听；不阻塞 webRequest 老通道（并行挂载）
+      collector.start().then(function () {
+        if (collector.cdpReady) {
+          try { win.webContents.debugger.on('message', onCdpMessage) } catch (_e) { /* ignore */ }
+        }
+      }).catch(function () { /* 降级 */ })
       session.webRequest.onCompleted({urls:['<all_urls>']}, function(d) {
         if (settled) return
         const url = d.url||''
-        let hit = false
-        for (let pi=0;pi<patterns.length;pi++){if(url.includes(patterns[pi])){hit=true;break}}
-        if (!hit) return
+        if (!urlHit(url)) return
         matched.push({url:url,statusCode:d.statusCode})
-        if (d.statusCode===200) { settled=true; clearTimeout(t); cleanup(); resolve({url:url,statusCode:d.statusCode,matchedUrls:matched}) }
+        if (d.statusCode===200) { settleWith(url, d.statusCode, null) }
       })
-      const fallbackTimer = setTimeout(function(){ if(!settled && matched.length>0){ settled=true; cleanup(); resolve({url:matched[0].url,statusCode:matched[0].statusCode,matchedUrls:matched}) } }, timeout+1000)
+      const fallbackTimer = setTimeout(function(){ if(!settled && matched.length>0){ settleWith(matched[0].url, matched[0].statusCode, null) } }, timeout+1000)
       if (fallbackTimer && fallbackTimer.unref) fallbackTimer.unref()
     })
   },

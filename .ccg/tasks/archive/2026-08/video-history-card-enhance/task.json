@@ -1,17 +1,5 @@
 {
   "id": "video-history-card-enhance",
-  "title": "视频创作历史记录任务卡片增强：标题/文案预览/缩略图/时长/更新时间/详情访问",
-  "status": "in_progress",
-  "complexity": "M",
-  "risk": "medium",
-  "domain": "frontend",
-  "currentPhase": "analysis",
-  "nextAction": "定位视频创作历史记录代码，分析现有数据模型与组件",
-  "createdAt": "2026-08-20T10:16:00Z",
-  "branch": "codex/video-history-card-enhance"
-}
-{
-  "id": "video-history-card-enhance",
   "title": "视频创作历史记录任务卡片增强",
   "status": "completed",
   "complexity": "M",
@@ -21,5 +9,6 @@
   "nextAction": "已完成，由 video-history-card-detail task 在 PR #1048 中交付",
   "createdAt": "2026-08-20T10:16:00Z",
   "completedAt": "2026-08-20T10:30:00Z",
-  "supersededBy": "video-history-card-detail"
+  "supersededBy": "video-history-card-detail",
+  "branch": "codex/video-history-card-enhance"
 }

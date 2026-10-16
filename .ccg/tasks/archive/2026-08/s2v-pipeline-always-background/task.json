@@ -7,7 +7,7 @@
   "domain": "frontend",
   "currentPhase": "completed",
   "nextAction": "已完成 PR 合并、OpenSpec 归档、CCG 归档与远程核验",
-  "openspecChange": "2026-08-19-s2v-pipeline-always-background-run",
+  "openspecChange": "s2v-pipeline-always-background-run",
   "createdAt": "2026-08-19T11:30:00Z",
   "branch": "codex/s2v-pipeline-always-background",
   "remoteStatus": {

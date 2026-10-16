@@ -2,9 +2,6 @@
 record: freeze-legacy-gate-carrier
 task: 把 .quality-gates.md 冻结为只读存档（哈希+计数基线、加块/删块判红、顶部棘轮退役），新 PR 记录载体统一为 openspec/records/
 date: 2026-10-15
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（合并后按本仓回填口径取 merge SHA，并删本三字段；按新规矩**不再**回写旧载体与 ledger）
 ---
 
 ## 本次执行记录：冻结旧载体为只读存档（freeze-legacy-gate-carrier，2026-10-15）【混合 PR】
@@ -24,9 +21,9 @@ sync_backfill_owner: 下一个会话（合并后按本仓回填口径取 merge S
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/`、`packages/rpa-engine/` 与任何渲染面 |
 | CI 实测暴露的分档缺陷（已修） | PASS | **PR #3672 的 CI 第一次跑就红了**（run `38781654774` / job `116583113972`，步骤 `Detect docs-only changes`，红的是「真仓：旧载体必须等于冻结基线」那条自检）。根因不是有人违规，而是**我把一条 main 态性质装到了 PR 档**：`pull_request` 事件 GitHub 检出的是 `main ⊕ 本分支` 的**合并预览**，主干每几分钟长一块 ⇒ "状态等于冻结基线"在 PR 档结构上必红（写在今天、红在明天的引信）。修法=按档分判：新增 `--carrier-mode=block|visible`（默认 block，**非法取值与裸旗标一律抛错**），workflow 在 `changes` job 里按 `GITHUB_EVENT_NAME` 传档，真仓自检同步换成两档（PR 档判"本分支没加块、没删块"，main/本地档判严格相等），并**打印本次走的是哪条支路**。实跑：CLI 三档各验（block rc=0 / visible rc=0 / 非法旗标抛错）；`GITHUB_EVENT_NAME=pull_request node --test` 全绿且打印 `branch=PR可见档`；变异 M8 摘掉模式开关 / M9 非法旗标静默回落 / M10 可见项退回 ❌ 形态，三条各让「carrier-mode」那条指名变红、还原 md5 一致、控制对照 58/0 |
 | QM-6 双模型外部评审 | PARTIAL（不假装 PASS） | **后端 claude**：首跑 rc=0 但交付物是一行 `API Error: 503 system cpu overloaded`（本机 CPU 92% 超网关阈值）⇒ 属"跑完但零交付"，已重跑并**交付 14 条 findings**，逐条先取证再处置（采纳 6、不修 2、否证 2、升级人工 1），明细见「QM-6 评审处置」小节。**前端 opencode**：三次真跑 rc 全为 0，三次都只回 Objective/Work State 过程快照、没有 findings 载荷（第 3 次是我自己犯的引号嵌套把提示词打碎，不计入真跑）——按规格「3 次全败才跳过」计入跳过，**不得据此声称双模型已评审**。已从两份快照里取出它**自己验证过的事实**并逐条核对：①基线 JSON 不在 `CI_IGNORED_PATHS`（与自测一致）；②校验接在 `quality-gate.yml:65-66` 的 `changes` job、不被 docs-only 短路（与自测一致）；③**没有任何测试或门禁引用 `scripts/freeze-gate-carrier.js`** —— Critical 级真命中，已补接线锁 + N1–N3 变异反证。 |
-| 远程同步 | PENDING | 待本 PR 合并后由后续 docs PR 取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间、`git ls-remote --heads origin freeze-legacy-gate-carrier` 返回 0 行证远端分支已删，并删除上方三个 `sync_*` 字段。**按本 PR 自己定的规矩：不再回写 `.quality-gates.md`、不再往 ledger 加/删键** |
+| 远程同步 | PASS | PR #3672 已 squash 合并 = `4997c24fcbb8e01a6e61fc5a89252a077d58f5ba`（2026-10-16T11:12:57+08:00，取证 `git log origin/main --grep='(#3672)$' --format=%H|%cI` 恰 1 行）；远端分支已删（`git ls-remote --heads origin freeze-legacy-gate-carrier` = 0 行）。**合并由用户当次明确授权**（本 PR 属"改谁来守门"，不适用自动合并）。⚠ 合并后 main push run `38844395334` 的 `QG Changes` **按设计判红**（`not ok 17 - 真仓：旧载体必须等于冻结基线`，main 档严格自检）⇒ 冻结判据第一次真实咬合；已由本笔回填同次重取基线收口（见下行） |
 
-- 保留门禁：变更类型与隔离 PASS（混合 PR 走 worktree）| 行尾对账 PASS（两口径逐文件相同）| 品牌残留 PASS（`check-no-brand-residue.js` rc=0，扫描 9214 个 tracked 文件）| 文档同步 PASS（被 CI 收编的 `node --test scripts/openspec-sync-check.test.js` 见下条；`openspec-sync-check.js` 本身的 14 条与干净 main 控制对照逐条同集 ⇒ 本 PR 净增 0）| 变异反证 PASS（3 条指名红、escaped=0、还原 md5 一致）| 载体自证 PASS（变更集不含 `.quality-gates.md` 与 ledger，见下节命令）| 远程同步 PENDING
+- 保留门禁：变更类型与隔离 PASS（混合 PR 走 worktree）| 行尾对账 PASS（两口径逐文件相同）| 品牌残留 PASS（`check-no-brand-residue.js` rc=0，扫描 9214 个 tracked 文件）| 文档同步 PASS（被 CI 收编的 `node --test scripts/openspec-sync-check.test.js` 见下条；`openspec-sync-check.js` 本身的 14 条与干净 main 控制对照逐条同集 ⇒ 本 PR 净增 0）| 变异反证 PASS（3 条指名红、escaped=0、还原 md5 一致）| 载体自证 PASS（变更集不含 `.quality-gates.md` 与 ledger，见下节命令）| 远程同步 PASS
 - 两个 change 的 validate 均 rc=0（`hot-carrier-atomic-landing` 勾账后复跑 + `freeze-legacy-gate-carrier` 新建）
 - 顶部棘轮退役后「最新一篇必须有收口」由谁承担（一条在拦截面上、一条是 advisory —— 后者见「QM-6 评审处置」③W1）：`check-pr-exec-record.js` 要求每个 PR **携带新增执行记录 ≥1 篇**（本 PR 现场打印 `新增记录 1 篇 / 载体M=0`），键就是 `openspec/records/<分支名>.md` 的文件名——**但它在 CI 上是 `--mode=advisory`（`quality-gate.yml:139`），只出声不拦**，所以"整篇记录缺席"目前无人阻断（QM-6 后端轴命中；转 enforce 属改谁来守门，留给人工裁决）；旧载体不再增长 ⇒ "顶部"这个概念测量对象消失，而非把判据降级成约定。缺行/矛盾另有 `missingRecordRows`、`statusContradictions` 两条在拦截面上兜记录文件源
 - 静态门禁按 **CI 点名的原样路径**逐个跑过（不是按目录猜）：`check-unwired-tests`(88 个测试文件) / `check-no-brand-residue`(9254 个受管文件) / `check-no-conflict-markers` / `check-record-qm5-rows` / `check-spec-purpose`(153 份主规格) / `check-step-failfast`(35 个多命令步骤) / `check-changelog-growth` / `check-changelog-duplicate-entries` / `check-text-encoding-integrity` / `check-renderer-cjs-boundary` / `check-visual-coverage` / `check-gate4-selection` / `.github/scripts/check-workflow-structure` / `.github/scripts/check-ps1-bom` 均 rc=0；`check-baseline-freshness` / `check-clock-shift-oracle` / `check-desktop-shard-forwarding` 本机不可复现，点名交给 CI（不得当成通过）
@@ -51,9 +48,13 @@ sync_backfill_owner: 下一个会话（合并后按本仓回填口径取 merge S
 - 前端轴三次真跑 rc 均 0、均只回过程快照（零 findings 交付），按规格计入跳过。**所以双模型里前端这一路没有结论，本 PR 不声称 QM-6 全绿。**
 
 
+- **第四次基线重取（回填时当场）**：合并落主干后，main 的记录块集合已从基线 607 涨到 613；差集实测 `removed=0 / added=6`（6 块全是冻结落地前按旧惯例插入的上游 PR：`podcast-voice-source-spec`、`podcast-compliance-badge`、`fix-worktree-remove-dirty-gate`、`fix-article-paragraph-*`、`tech-debt-dep-audit-alias`、`dev-http-cache-guard`）⇒ 人工重取 `613 / 27eebfa9ff6c…`，重取后 CLI rc=0、测试 58/58。**这条红不是回归，是判据第一次在 main 档真实生效**。
+- **合并前 CI 的两条 desktop 红（归因写在这里，免得下一个会话重新猜）**：attempt 1 里 `QG Desktop Shards (2/2)` 报 `local-cover-generator.test.js:37` 60s 超时（本仓已记录该形态见 `01-docs/PRD.md:19414`「sharp 原生模块 CI 首载超时」）、`QG Coverage` 报 `windows-file-lock.test.js` 两条「真跑（仅 Windows）」红。三条证据判它非本 PR 引入：本 PR 净变更集含 `apps/desktop/**` 文件数 = 0；两条都属文档明列的运行态敏感族；只重跑失败 job 后同轮全绿（同期 #3675/#3676 一直绿，所以也**不能**说成"仓库常量红"——这一点我一开始判错过一次，被重跑结果纠正）。
+- **QM-6 后端轴对最终状态的复审在合并时才刚起跑**（不是跑完）：最后两笔实现（分档 + 基线一致性）晚于上一轮 14 条评审，用户授权合并在先。结论到达后逐条处置并入本文件，不拿旧结论冒充新复审。
+
 ### 示范自证（本 PR 必须自己守自己提的规矩）
 
-判据 `carrierDrift` 生效前，`.quality-gates.md` 有 607 个记录块（读数演进 603 → 605 → 607：每次 rebase 后判据当场报红、由人工重取，见 tasks 1.1 与本文件「QM-6 评审处置」①W1）。本 PR **刻意不碰它**：若本 PR 按旧惯例往顶部插一块，就会立刻被自己刚加的判据判红。合并前用一条命令自证：
+判据 `carrierDrift` 生效时，`.quality-gates.md` 有 613 个记录块（读数演进 **603 → 605 → 607 → 613**：每次主干前进后判据当场报红、由人工重取；见 tasks 1.1 与本文件「QM-6 评审处置」①W1）。本 PR **刻意不碰它**：若本 PR 按旧惯例往顶部插一块，就会立刻被自己刚加的判据判红。合并前用一条命令自证：
 
 ```
 MB=$(git merge-base origin/main HEAD); git diff --name-only "$MB" HEAD | grep -E '^(\.quality-gates\.md|scripts/gate-record-debt-ledger\.json)$'

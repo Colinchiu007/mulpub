@@ -53,7 +53,7 @@ const i18n = createI18n({
         batchProgress: '批量采集进度',
         cancelBatch: '取消',
         batchGroupLabel: '批量采集方式',
-        zhihuFavlist: { title: '知乎收藏夹', secretPlaceholder: '访问密钥', loadBtn: '加载收藏夹', loading: '加载中', collectBtn: '采集', collecting: '采集中', rewriteBtn: '改写', rewriting: '改写中', hint: '提示', progressTitle: '采集并改写进度', progressText: '{done} / {total}' },
+        zhihuFavlist: { title: '知乎收藏夹', loadBtn: '加载收藏夹', loading: '加载中', collectBtn: '采集', collecting: '采集中', rewriteBtn: '改写', rewriting: '改写中', hint: '提示', progressTitle: '采集并改写进度', progressText: '{done} / {total}', configBadge: '已配置', configNotConfigured: '未配置', configMissing: '请先在「设置 → 知乎 API」中配置 Access Secret', configUnreadable: '已保存的密钥无法读取', configLegacy: '旧版明文密钥，建议迁移', goSettings: '前往设置' },
         zhihuFav: { scopeFavlist: '指定收藏夹', scopeAll: '全部收藏', countPlaceholder: '数量', fullMode: '全量', includeCollected: '包含已采集', loadContents: '加载内容', loadingContents: '加载中', selectAll: '全选', selectedCount: '已选 {count} 条', collectAndRewrite: '采集并改写', collecting: '采集中', markCollected: '已采集', rewriteFailedBadge: '改写失败', rewrittenBadge: '已改写', imageFallbackBadge: '{count} 张图片降级' },
         batch: { selectedCount: '已选 {count} 条', publishImages: '发布图文', generateVideos: '生成视频', publishVideos: '发布视频', videoPlatformLabel: '视频平台', videoPoolNote: '{count} 条视频' },
         resultsEmptyTitle: '还没有采集结果',

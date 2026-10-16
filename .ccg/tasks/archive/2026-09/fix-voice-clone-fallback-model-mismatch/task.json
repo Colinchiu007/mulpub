@@ -1,1 +1,10 @@
-{\\" id\:\fix-voice-clone-fallback-model-mismatch\,\title\:\Fix cloned voice fallback model key "mismatch\,\status\:\in_progress\,\complexity\:\M\,\risk\:\medium\,\domain\:\backend\,\currentPhase\:\analysis\,\branch\:\main\} 
+{
+  "id": "fix-voice-clone-fallback-model-mismatch",
+  "title": "Fix cloned voice fallback model key \"mismatch\"",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "backend",
+  "currentPhase": "analysis",
+  "branch": "main"
+}

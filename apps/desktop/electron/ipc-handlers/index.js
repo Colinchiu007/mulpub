@@ -60,6 +60,10 @@ function registerAllHandlers(ipcMain, deps) {
   require('./hot-topics')(ipcMain, deps)
   // 知乎收藏夹批量采集/改写（官方 API + 频率控制）
   require('./zhihu-favlist')(ipcMain, deps)
+  // 知乎 API 配置（设置页「设置 → 知乎 API」：Access Secret 加密保存 / 测试连接 / 清除）。
+  // 必须注册：缺了它渲染端设置页拿到的是 Electron 原生 "No handler registered"，
+  // 而采集页会显示「未配置」——用户明明配过，却无从解释。
+  require('./zhihu-settings')(ipcMain, deps)
   require('./logs')(ipcMain, deps)
   // 缓存清理（设置-通用设置：统计/清理 os.tmpdir() 下的合成与影视工程临时缓存）
   require('./cache')(ipcMain, deps)

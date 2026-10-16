@@ -465,3 +465,99 @@ describe('phase3-services.startServices', () => {
     expect(mockAccountManager.setOwnerSubjectProvider).toHaveBeenLastCalledWith(null)
   })
 })
+
+// ── 启动期日计数裁剪（change: publish-frequency-unwired-surfaces；QM-6 自审 C-1 的回归锁）──
+// 时机是本组唯一的判据对象：`prunePublishDailyCountAllOwners` 对未就绪的存储恒返回
+// basis:'not_ready' 且一行都不删（`base-store.js` 的 `_ready` 只在 init() 里置真），而 store.init()
+// 发生在本文件被测的 startServices 里、不在 phase1-context。挂在 phase1 的第一版「有调用点、
+// 单测全绿」在生产上却是永久 no-op —— 因为它的夹具无条件返回 measured，替真实存储声称了就绪。
+// 所以这里的夹具必须**由就绪标志决定返回值**：把调用点挪回 init() 之前必定变红。
+describe('phase3-services 启动期日计数裁剪', () => {
+  const GUARD_TODAY = '2026-10-16'
+
+  /** 夹具与真实存储同形：`_ready` 决定 basis，而不是恒返 measured */
+  function makeDeps (opts = {}) {
+    const calls = []
+    const deps = makeMockDeps()
+    const store = deps.store
+    store._ready = false
+    store.init = vi.fn(() => {
+      if (opts.initFails === true) return false
+      store._ready = true
+      return true
+    })
+    if (opts.withoutPruneMethod !== true) {
+      store.prunePublishDailyCountAllOwners = vi.fn((todayKey) => {
+        calls.push({ todayKey, afterInit: store._ready })
+        if (opts.throwOnPrune === true) throw new Error('DB_BUSY')
+        return store._ready
+          ? { owners: 2, removed: 5, basis: 'measured' }
+          : { owners: 0, removed: 0, basis: 'not_ready' }
+      })
+    }
+    const baseGet = deps.container.get
+    deps.container = {
+      get: vi.fn((key) => {
+        if (key === 'publishIntervalGuard') return opts.withoutToday ? {} : { today: () => GUARD_TODAY }
+        return baseGet(key)
+      })
+    }
+    return { deps, calls }
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('裁剪在 store.init() 之后调用恰好一次，日键取自守卫的 today()', async () => {
+    const { deps, calls } = makeDeps()
+    const result = await startServices(deps)
+
+    expect(calls.length, '启动期裁剪调用次数').toBe(1)
+    expect(calls[0].afterInit, '必须在存储就绪之后调用（就绪前恒 not_ready＝一行都不删）').toBe(true)
+    expect(calls[0].todayKey).toBe(GUARD_TODAY)
+    const hit = log.notify.mock.calls.find((c) => String(c[1] || '') === 'startup-prune')
+    expect(hit, `成功路径必须打 startup-prune，实际 notify: ${JSON.stringify(log.notify.mock.calls)}`).toBeTruthy()
+    expect(hit[0]).toBe('PublishDailyCount')
+    expect(hit[2], '读数必须挂在 params 下（logger.notify 只抬白名单顶层键）').toEqual({
+      params: { owners: 2, removed: 5, basis: 'measured' },
+    })
+    await result.rollback()
+  })
+
+  it('store.init() 失败时不得调用裁剪（那条路径整轮启动已中止）', async () => {
+    const { deps, calls } = makeDeps({ initFails: true })
+    await expect(startServices(deps)).rejects.toThrow('Local data store failed to initialize')
+    expect(calls.length).toBe(0)
+  })
+
+  it('接不上时必须出声，且原因可归因（store 缺方法 / 守卫缺 today 两种）', async () => {
+    for (const variant of [{ withoutPruneMethod: true }, { withoutToday: true }]) {
+      const { deps, calls } = makeDeps(variant)
+      log.notify.mockClear()
+      const result = await startServices(deps)
+
+      expect(calls.length).toBe(0)
+      const hit = log.notify.mock.calls.find((c) => String(c[1] || '') === 'startup-prune-skipped')
+      expect(hit, `接不上必须出声（${JSON.stringify(variant)}），实际: ${JSON.stringify(log.notify.mock.calls)}`).toBeTruthy()
+      const expected = variant.withoutPruneMethod
+        ? { hasStore: false, hasGuardToday: true }
+        : { hasStore: true, hasGuardToday: false }
+      expect(hit[2].params, '跳过原因必须落在 params 里').toEqual(expected)
+      expect(hit[2].level).toBe('WARN')
+      await result.rollback()
+    }
+  })
+
+  it('裁剪抛错不得打断启动（旁路维护，方向是「留着旧行」而不是「起不来」）', async () => {
+    const { deps, calls } = makeDeps({ throwOnPrune: true })
+    log.notify.mockClear()
+    const result = await startServices(deps)
+
+    expect(calls.length).toBe(1)
+    expect(deps.modelProviderManager.init, '裁剪失败不得阻止后续服务启动').toHaveBeenCalled()
+    expect(log.notify.mock.calls.some((c) => String(c[1] || '').includes('prune')),
+      `启动期裁剪失败必须留痕，实际: ${JSON.stringify(log.notify.mock.calls)}`).toBe(true)
+    await result.rollback()
+  })
+})

@@ -492,4 +492,7 @@ module.exports.InMemoryStore = InMemoryStore
 module.exports.InMemoryDailyStore = InMemoryDailyStore
 module.exports.PLATFORM_BUCKET_ACCOUNT_ID = PLATFORM_BUCKET_ACCOUNT_ID
 module.exports.MAX_ROLLBACK_PER_DAY = MAX_ROLLBACK_PER_DAY
-module.exports.PLATFORM_BUCKET_DAILY_KEY_PREFIX = 'platform-daily'
+// 曾导出 PLATFORM_BUCKET_DAILY_KEY_PREFIX = 'platform-daily'（v2 起的"平台级日配额"设想）。
+// 该前缀**从未被任何代码路径产出**（日计数只在 `if (accountKey)` 分支里写），平台级配额也
+// 无数值来源、无 env 名、无设置页入口 ⇒ 已删除；留着只会让下一个会话以为存在这条通道并照着接线。
+// 回归锁见 `tests/publish-interval-guard.test.js` 的「没有『平台级日配额』这回事」。

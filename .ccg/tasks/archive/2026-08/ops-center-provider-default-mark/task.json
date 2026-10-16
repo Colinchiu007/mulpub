@@ -7,7 +7,7 @@
   "domain": "ops-center",
   "currentPhase": "completed",
   "nextAction": "PR #871 已合并（squash 87ae8a61）；OpenSpec 已归档；真实复验通过",
-  "openspecChange": "2026-08-16-ops-center-provider-default-mark",
+  "openspecChange": "ops-center-provider-default-mark",
   "createdAt": "2026-08-16T01:00:00Z",
   "completedAt": "2026-08-16T01:55:00Z",
   "branch": "codex/ops-center-provider-default-mark",

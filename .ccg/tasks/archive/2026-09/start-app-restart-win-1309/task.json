@@ -20,7 +20,7 @@
     "reusedWorktree": "无可复用: mp-start-app-win 残留 1.7G 但 .git 链接已被并发会话 worktree remove 抹掉(非 git 仓库); 其余 mp-worktrees 目录同样失效",
     "chosenWorktree": "D:/Data/projects/mp-worktrees/mp-start-app-win-1309 (新建, 基于 origin/main, 分支 local/start-app-20260905-1309); 故意换新路径避免与并发动作抢同名目录",
     "deps": "pnpm install --frozen-lockfile 38.2s 全 store 复用; DESKTOP_DEPS_OK(missing 0); electron v43.1.1; verify-worktree-deps OK(9 项消费方解析)",
-    "startCommand": "pwsh -File scripts/start-desktop.ps1 -Worktree D:\Data\projects\mp-worktrees\mp-start-app-win-1309 -Profile 'D:\tmp\Multi-Publish-debug-profile' -CheckIdentity -Json -StopForeignProfile",
+    "startCommand": "pwsh -File scripts/start-desktop.ps1 -Worktree D:\\Data\\projects\\mp-worktrees\\mp-start-app-win-1309 -Profile 'D:\\tmp\\Multi-Publish-debug-profile' -CheckIdentity -Json -StopForeignProfile",
     "result": {
       "contractExit": 0,
       "windowHandle": 7805548,

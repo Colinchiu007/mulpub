@@ -77,14 +77,16 @@ function setup (overrides) {
 }
 
 describe('podcast handler · 通道注册', () => {
-  it('十九条通道全部注册（缺一条即渲染层拿到 "No handler registered"）', () => {
-    const { ipcMain, service } = setup()
+  it('二十条通道全部注册（缺一条即渲染层拿到 "No handler registered"）', () => {
+    const { ipcMain } = setup()
     expect([...ipcMain.handlers.keys()].sort()).toEqual([
       'podcast:channel:create', 'podcast:channel:get', 'podcast:channel:list',
       'podcast:channel:migrate:resolve', 'podcast:channel:rename',
       'podcast:channel:save', 'podcast:channel:setDefault',
       'podcast:endpoints:list', 'podcast:episode:list',
       'podcast:episode:publishFromVideo', 'podcast:episode:publish:cancel',
+      // 4.3②-a 的只读预览（PRD §7.10.4.1）：计费确认框的计数与音色段只有这一处来源
+      'podcast:episode:planPreview',
       'podcast:episode:remove', 'podcast:episode:save',
       'podcast:feed:build', 'podcast:feed:verify', 'podcast:feed:publish',
       'podcast:hosting:get', 'podcast:hosting:save', 'podcast:hosting:check',
@@ -94,7 +96,7 @@ describe('podcast handler · 通道注册', () => {
   it('注册阶段不得触碰 userData：未注入服务时也能完成注册，第一次调用才惰性建服务', () => {
     const ipcMain = makeIpcMain()
     expect(() => registerHandlers(ipcMain, { log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })).not.toThrow()
-    expect(ipcMain.handlers.size).toBe(19)
+    expect(ipcMain.handlers.size).toBe(20)
   })
 })
 
@@ -361,7 +363,7 @@ describe('podcast IPC · 刀2 托管与发布（真服务 + 假凭证/假网络�
   it('注册阶段不得建托管服务（惰性）：注册本身不触盘、不起服务', () => {
     const ipcMain = makeIpcMain()
     expect(() => registerHandlers(ipcMain, { log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })).not.toThrow()
-    expect(ipcMain.handlers.size).toBe(19)
+    expect(ipcMain.handlers.size).toBe(20)
   })
 })
 

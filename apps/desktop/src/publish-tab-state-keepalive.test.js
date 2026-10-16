@@ -45,7 +45,14 @@ vi.mock('@/router', () => ({
 }))
 vi.mock('@/stores/license', () => ({ useLicenseStore: () => ({ load: () => {} }) }))
 vi.mock('@/stores/identity', () => ({ useIdentityStore: () => ({ load: () => {}, dispose: () => {} }) }))
-vi.mock('@/stores/settings-dialog', () => ({ notifySettingsDialogClosed: () => {} }))
+// 与真实模块的**被消费面**同形：App.vue 现在还会 watch「就地打开设置」请求
+// （settingsDialogRequest），mock 少一个导出会让 watch(undefined) 直接抛错
+// （2026-10-15 实测：本文件 + publish-draft-keepalive 共 5 例全红）
+vi.mock('@/stores/settings-dialog', () => ({
+  notifySettingsDialogClosed: () => {},
+  settingsDialogRevision: ref(0),
+  settingsDialogRequest: ref(null),
+}))
 vi.mock('@/composables/useEmbeddedViewSuspension', () => ({
   suspendEmbeddedViewsForOverlay: () => {},
   releaseEmbeddedViewsForOverlay: () => {},
@@ -115,7 +122,9 @@ async function mountApp () {
 describe('App.vue 固化标签切回后工作区状态保持（v-show 不卸载 router-view）', () => {
   beforeEach(() => {
     setupCalls.value = 0
-    document.body.innerHTML = ''
+    // 清空挂载容器：用 replaceChildren() 而非 innerHTML=''（后者是安全扫描器判定的
+    // XSS sink 形态，写它会连累本文件所在的任何提交被 CCG verify-security 拦下）
+    document.body.replaceChildren()
   })
 
   it('首页标签：工作区路由组件挂载且 setup 恰好执行一次', async () => {

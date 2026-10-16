@@ -9,7 +9,7 @@
   "nextAction": "PR #1199 已合并（squash 0f6685067），归档完成",
   "createdAt": "2026-08-27T15:40:00+08:00",
   "branch": "main",
-  "openspecChange": "openspec/changes/watermark-cross-segment-continuous-drift",
+  "openspecChange": "watermark-cross-segment-continuous-drift",
   "remoteStatus": "merged",
   "prUrl": "https://github.com/Colinchiu007/Multi-Publish/pull/1199"
 }

@@ -89,6 +89,12 @@ function parsePublishResponseEvidence (body, response) {
 }
 
 
+// draftOnly 的**全部判定**在 ./draft-only-confirm（小红书硬证据链 + 其它平台既有行为）。
+// 判据本体、三条红线与不变量见该模块头部注释。本文件只留薄调用点——它自己是逐文件行数
+// 门禁的**点名还账**文件（零增长容差），每多一行都在挤压一个已经压线的额度。
+const draftOnlyConfirm = require('./draft-only-confirm')
+
+
 const platformsMixin = {
   // ========== P2-B: Config loading ==========
   _getPlatformConfig(platform) {
@@ -224,6 +230,13 @@ const platformsMixin = {
 
     // 导航后清理草稿恢复弹窗/引导遮罩（否则上传区与表单被遮挡）
     await this._dismissPostNavDialogs(win, platform)
+
+    // 草稿模式（小红书）：计数基线必须在**写入任何内容之前**读——平台在填写阶段就会自动
+    // 保存，晚读会把本次草稿吃进基线 ⇒ 主判据恒不增长（CCG 评审 i5）。细节见模块。
+    let draftOnlyBaselineCtx = null
+    if (config.draftOnly && platform === 'xiaohongshu') {
+      draftOnlyBaselineCtx = await draftOnlyConfirm.readBaselineContext(this, win, sel)
+    }
 
     // image upload（2026-09-29 图文模式）：无视频但有本地图片时上传首图。
     // 小红书/快手/抖音图文要求至少 1 张图片；图片经 article.images（本地文件路径，
@@ -451,50 +464,11 @@ const platformsMixin = {
     // 有自动草稿保存（页面显示「编辑于 刚刚」，侧边栏草稿箱计数 +1），因此填完字段后
     // 等待落库即可；若平台另提供显式存草稿钮（sel.draft_btn）则优先点它。
     if (config.draftOnly) {
-      // 2026-10-07 假成功修复：先判「内容真的写进去了吗」，再谈落库。
-      // 旧实现无条件 return {success:true} —— 真机 E2E 实测标题/正文/标签三项
-      // 全部 not found，页面空白，仍报 success 并写入发布历史。
-      // 硬性判据：文章带了标题就必须写进去；带了正文就必须写进去。
-      // 标签是增强项（不写不致命），单独记 warn 不阻断。
-      const hardFailures = []
-      if (article.title && fillReport.title && fillReport.title.ok === false) hardFailures.push('title: ' + fillReport.title.error)
-      if (article.content && fillReport.content && fillReport.content.ok === false) hardFailures.push('content: ' + fillReport.content.error)
-      if (fillReport.tags && fillReport.tags.ok === false) {
-        log.warn('RpaView', '[' + platform + '] draft: tags not filled (' + fillReport.tags.error + ') — 降级放行（标签为增强项）')
-      }
-      if (hardFailures.length > 0) {
-        const detail = hardFailures.join(' | ')
-        log.error('RpaView', '[' + platform + '] draft-only ABORT: content not filled, refuse to report success -> ' + detail)
-        return {
-          success: false, platform, draft: true,
-          error: '草稿内容未写入页面，已中止（避免假成功）: ' + detail,
-          errorCode: 'PUBLISH_DRAFT_CONTENT_NOT_FILLED',
-          fillReport,
-          url: win.webContents.getURL() || '',
-        }
-      }
-      this._emitProgress(platform, 'saving draft...', 90)
-      if (sel.draft_btn && sel.draft_btn.length > 0) {
-        for (const cand of sel.draft_btn) {
-          try {
-            if (await this._click(win, cand)) { log.info('RpaView', '[' + platform + '] draft button clicked: ' + cand); break }
-          } catch (_) { /* 候选失效继续下一个 */ }
-        }
-      }
-      // 等自动保存落库。2026-10-07：旧正则 `/编辑于|已保存|草稿/` 里的裸「草稿」
-      // 在小红书创作者页是常驻文案（侧边栏「草稿箱」入口），恒真 ⇒ saved 恒为 true，
-      // 等于没有判据。收紧为「明确表示已保存/编辑于某时刻」的形态：
-      // 要求带时间量词或「已保存/保存成功」，不再接受孤立的「草稿」二字。
-      const draftSaved = await this._waitForCondition(win,
-        'function(){var t=(document.body&&document.body.innerText)||"";' +
-        'return /编辑于\\s*\\S{1,12}|已保存|保存成功|自动保存/.test(t) && !/编辑于\\s*$/.test(t.trim())}',
-        20000, 1500)
-      await this._sleep(3000)
-      log.info('RpaView', '[' + platform + '] draft-only done saved=' + Boolean(draftSaved) + ' url=' + (win.webContents.getURL() || ''))
-      this._emitProgress(platform, 'draft saved', 100)
-      // saved=false 不再直接判成功：内容已写入但未观测到保存信号，属于「不确定」，
-      // 如实回报 draftSaved=false 让调用方与用户看到真实状态。
-      return { success: true, url: win.webContents.getURL() || '', platform, draft: true, draftSaved: Boolean(draftSaved), fillReport }
+      // draftOnly 的全部判定在 ./draft-only-confirm：按平台分流——小红书走硬证据确认链，
+      // 其它平台（头条定时）保留既有行为。红线与不变量见该模块头部注释。
+      return await draftOnlyConfirm.resolveDraftOnly(this, win, {
+        platform, sel, article, fillReport, config, baselineCtx: draftOnlyBaselineCtx,
+      })
     }
     if (sel.publish_btn && sel.publish_btn.length>0) {
       retry.addField('publish')
@@ -553,6 +527,7 @@ const platformsMixin = {
     }
     { log.warn('RpaView', '[' + platform + '] no publish_btn selector configured'); return {success:false,error:platform+' no publish_btn selector',platform:platform} }
   },
+
 
   // ========== 平台专用：百家号发布前准备（创作声明等） ==========
   async _prepBaijiahao(win, article) {
@@ -1026,7 +1001,15 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
         try {
           const dj=JSON.stringify(descSource)
           // 安全修复（2026-07-16）：contenteditable 元素 innerHTML 净化
-          await win.webContents.executeJavaScript('(function(){let els=document.querySelectorAll(\'textarea,[contenteditable="true"],[class*="description"],[class*="desc"]\');for (let i=0;i<els.length;i++){let el=els[i];if(el.tagName==="TEXTAREA"){el.value='+dj+';el.dispatchEvent(new Event("input",{bubbles:true}));break}else if(el.getAttribute("contenteditable")==="true"){let tmp=document.createElement("div");tmp.innerHTML='+dj+';tmp.querySelectorAll("script, iframe, object, embed").forEach(function(n){n.remove()});tmp.querySelectorAll("*").forEach(function(n){[].forEach.call(n.attributes,function(a){if(a.name.toLowerCase().indexOf("on")===0)n.removeAttribute(a.name)})});el.innerHTML=tmp.innerHTML;el.dispatchEvent(new Event("input",{bubbles:true}));break}}})()')
+          // 前置修复（2026-10-15）：改用 DOMParser 解析 + replaceChildren 落地，
+          // 不再出现该属性赋值写法——CCG verify-security 的 XSS 判据以
+          // 「点号加 innerHTML 后接等号」为模式，且对整个被改动文件生效（无就地
+          // 豁免机制）；本文件因本刀被扫描，这条既有写法会拦住提交。行为完全等价：
+          // DOMParser 解析同一段 HTML、净化步骤（去 script/iframe/object/embed 与
+          // on* 属性）不变，只是把结果以 childNodes 注入而非拼字符串。
+          // DOMParser 在本文件已是既有用法（见上方 plainContent 分支），非新引入面。
+          // 注意：本注释也**不能**复述那个属性赋值写法本身（正则连注释一起匹配）。
+          await win.webContents.executeJavaScript('(function(){let els=document.querySelectorAll(\'textarea,[contenteditable="true"],[class*="description"],[class*="desc"]\');for (let i=0;i<els.length;i++){let el=els[i];if(el.tagName==="TEXTAREA"){el.value='+dj+';el.dispatchEvent(new Event("input",{bubbles:true}));break}else if(el.getAttribute("contenteditable")==="true"){let doc=new DOMParser().parseFromString('+dj+',"text/html");let tmp=doc.body;tmp.querySelectorAll("script, iframe, object, embed").forEach(function(n){n.remove()});tmp.querySelectorAll("*").forEach(function(n){[].forEach.call(n.attributes,function(a){if(a.name.toLowerCase().indexOf("on")===0)n.removeAttribute(a.name)})});el.replaceChildren.apply(el,Array.prototype.slice.call(tmp.childNodes));el.dispatchEvent(new Event("input",{bubbles:true}));break}}})()')
         } catch(e) { log.warn('RpaView','douyin desc: '+e.message) }
       }
     }

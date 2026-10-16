@@ -1,0 +1,27 @@
+{
+  "sha": "2961fe941ac9b0668850fd8fd70c6a094db54183",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 141 行（≤ 200）但命中 auth/数据库/加密：敏感内容 8 处",
+  "stats": {
+    "changedLines": 141,
+    "fileCount": 5,
+    "codeFileCount": 5,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 8,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-16T09:20:21.364Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "needs_revision",
+    "performedBy": "self-play(resolved)",
+    "findings": null,
+    "note": "假阳性（已实测证实）：本记录 sha 2961fe94 的业务变更集（相对其父提交、排除 .ccg 后 numstat）与最终交付物 2669208c 的变更集逐行相同，即同一份业务改动；该变更集的深度评审已跑完并产出裁决产物（.adversarial/ccg-deep-*/adjudication.json，proposer=opencode / critic=claude 跨家族校验通过，两轮共 9 条争议全部 upheld 并已落地）。因该轮确有需修项，置 needs_revision 而非 cleared。成因是 pre-commit decider 每提交/amend 一次生成一条新 pending 记录（缺陷 G 的循环在 mode=dual 下仍存在）。",
+    "at": "2026-10-16T09:22:11.666Z"
+  }
+}

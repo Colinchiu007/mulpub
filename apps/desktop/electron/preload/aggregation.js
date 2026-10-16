@@ -38,6 +38,13 @@ function createAggregationApi(ipcRenderer) {
       ipcRenderer.on('zhihu-fav-batch:progress', listener)
       return () => ipcRenderer.removeListener('zhihu-fav-batch:progress', listener)
     },
+    // 知乎 API 配置（设置页「设置 → 知乎 API」）：
+    //   getConfig 只回遮罩与状态（永不回明文）；saveConfig 明文只在这一次调用里出现；
+    //   testConnection 可传未保存的值（不落盘）或留空测已存配置。
+    zhihuGetConfig: () => ipcRenderer.invoke('zhihu:get-config'),
+    zhihuSaveConfig: (accessSecret) => ipcRenderer.invoke('zhihu:save-config', accessSecret),
+    zhihuTestConnection: (accessSecret) => ipcRenderer.invoke('zhihu:test-connection', accessSecret),
+    zhihuClearConfig: () => ipcRenderer.invoke('zhihu:clear-config'),
   }
 }
 

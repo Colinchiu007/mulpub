@@ -9,5 +9,7 @@
   "nextAction": "已归档：调查结论移入 subtitle-split-quality 实现任务",
   "createdAt": "2026-08-15T09:24:23Z",
   "branch": "main",
-  "openspecChange": "investigate-subtitle-splitter-runtime"
+  "openspecChange": "investigate-subtitle-splitter-runtime",
+  "openspecState": "superseded",
+  "supersededBy": "subtitle-split-quality"
 }

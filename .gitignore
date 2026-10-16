@@ -110,6 +110,9 @@ scripts/*.js
 # 与 gui-ci-exit-contract.test.js 都按路径点名它 —— 漏这条 negation 的症状是本地全绿、CI 上
 # Cannot find module（#3011 / Gate 2c3 同族，第三次）。
 !scripts/ci-gui-relevance.js
+# pre-commit 进程创建预算锁本体：第 106 行 scripts/*.js 会把判据本体静默忽略（CI 上 Cannot find module）。
+# 测试文件不单独反选 —— 第 204 行 !scripts/*.test.js 的通用例外已兜住（同上方各条注释口径）。
+!scripts/check-precommit-spawn-budget.js
 !scripts/quality-rhythm-wrapper.js
 !scripts/ccg-gate.js
 !scripts/ccg-deep-review.js

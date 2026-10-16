@@ -2,9 +2,6 @@
 record: zhihu-stealth-browse
 task: 修复内嵌浏览器（浏览/账号标签）不达主世界的反检测，并只按真机对照修 4 项实测指纹异常
 date: 2026-10-15
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个 docs 会话（按 AGENTS.md「合并后收尾清单」回填并销账）
 ---
 
 ## 本次执行记录：内嵌浏览器主世界反检测（zhihu-stealth-browse，2026-10-15）【混合 PR】
@@ -20,9 +17,9 @@ sync_backfill_owner: 下一个 docs 会话（按 AGENTS.md「合并后收尾清�
 | 接线棘轮 | ✅ | 新增 4 个 `*.test.js` 已登记进 `apps/desktop/vitest.config.js` 的 include 白名单（未登记等于没写，本片把这一步前置） |
 | QM-1 打包 / QM-4 视觉 | ✅ / N/A | QM-1：改动落在 `apps/desktop/electron/` ⇒ 已执行打包 + 启动判据（下详）。QM-4：未触碰任何 `.vue` / 样式 / locale 文件，无视觉面变更 |
 | QM-6 CCG 双模型外部评审 | 未执行 | 本机未见可用的外部评审通道（`codeagent-wrapper` 类工具未探测到）；**如实记为未执行，不以自审冒充通过** |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin zhihu-stealth-browse` 返回 0 行证远端分支已删；回填后删除上方三个 `sync_*` 字段并销账 |
+| 远程同步 | PASS | PR #3635 已 squash 合并：merge SHA `dfc6096487ebf6d3f3e27c2d38a9c15187f7e2aa`（2026-10-16T03:20:36+08:00，`git log origin/main --grep='(#3635)$' --format=%H|%cI` 取证）；`git ls-remote --heads origin zhihu-stealth-browse` 返回 0 行证远端分支已删。回填与本次状态改写同一次提交完成 |
 
-- 保留门禁：判定 docs-only=false（走完整节拍）| 行尾对账 ✅ | 品牌残留 随 CI | 文档同步 随 CI doc-gate | 执行记录 ✅ 本文件（旧载体 `.quality-gates.md` 与 ledger 按 2026-10-15「旧载体冻结」政策**零改写**）| 远程同步 PENDING
+- 保留门禁：判定 docs-only=false（走完整节拍）| 行尾对账 ✅ | 品牌残留 随 CI | 文档同步 随 CI doc-gate | 执行记录 ✅ 本文件（旧载体 `.quality-gates.md` 与 ledger 按 2026-10-15「旧载体冻结」政策**零改写**）| 远程同步 PASS
 
 ### 实测对照（本片全部技术判断的依据）
 
