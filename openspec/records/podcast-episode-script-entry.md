@@ -46,13 +46,19 @@ PRD §7.10.6 与 AGENTS 都禁「先开通道再补入口」（无消费者的�
 | 载体冻结合规 | PASS | 旧载体与 ledger 未出现在净 diff（`git diff --name-only` 命中 0），记录只写 openspec/records |
 | QM-1 / QM-4 / TDD | N/A | 本片未触运行时代码与 locales；被改动的两个文件均在文档白名单内 |
 | QM-6 双模型外部评审 | 未执行 | 纯规格/文档片按 AGENTS 不强制；如实登记，不自扮演豁免 |
-| 远程同步 | PENDING | 见本篇末尾唯一一行 |
+| 交付收尾 | 见本篇末尾的「远程同步」小节——一条事实只留一行，此处刻意不重复 ROW_RE 形状 |
 
 ## 五、遗留与不假装闭合的部分
 
 - ②-a / ②-b 均未开工，实现时仍要各走 QM-1（②-a 改的是 electron IPC 面 ⇒ 必须打包 + 三层 stderr；②-b 另加 QM-4 像素与 `overlay-view-suspension` 登记）。
 - §7.10.4 原表那行**没改**（它写的仍是目标态数据来源）。刻意不去「顺手改写」成 plan-preview，是为了让「合同落后于实现」这件事在本篇里留痕；待 ②-a 落地后由实现 PR 一并把该行数据来源更新。
 - 共享根本次实测出现三格连拒（脏 AGENTS.md 是滞后错觉 → 钩子落后于 #3688 → 外来 worktree 未登记），已全部按仓内正规入口处置；其中 `violations.jsonl` 位于 `quarantine/` 内、隔离区堆积集中在 10-06→10-10 这两条是我自己的误读，已更正。
+
+## 六、提交后的就地更正（同 PR 第二笔提交，合并前改自己分支）
+
+第一版 §7.10.4.1 把接口写成 `podcast:episode:plan-preview` 与 `podcastEpisode.planPreview`。实现前核对既有形状（`git grep` 真实通道 + preload 键）发现两处都与本仓惯例不符：真实通道是 `podcast:episode:publishFromVideo`（动词段 camelCase），preload 键是**扁平**的 `episodeList` / `episodePublishFromVideo`（不存在 `podcastEpisode.*` 这层命名空间）。合同若留 kebab + 命名空间，实现期只有两种坏结果——照合同做就破坏命名一致性，照惯例做就与已提交的合同漂移。故就地改名 `plan-preview`→`planPreview`、`podcastEpisode.planPreview`→`episodePlanPreview`，并补两条判据：① 命名照既有形状写进正文；② **改 `electron/preload/podcast.js` 必须同 PR 重生 `preload/index.bundle.js` 与 `home-shell-preload.bundle.js` 两个 tracked 产物**（`git ls-files` 实测两者都入库）。只改源不重生 ⇒ 通道在打包产物里根本不存在，而 vitest 读的是源文件 ⇒ 本地全绿也测不出来，因此这条必须由 QM-1 在 bundle 里验到通道名。
+
+刻意**没动** §8.2.9 里 `podcast:voice-preview` 那 4 处字样——那是他人已合并进主干的文本，改它等于替别人的合并结果改写措辞（与「不得代删已合并载体」同一资格判断），两节关系由 §8.2.9 顶部的承载指针统一说明。写后断言：kebab 残留 0、`planPreview` 恰 3（含正文那条命名判据自身）、扁平键恰 2、`voice-preview` 仍 4。
 
 ## 远程同步
 
