@@ -1,8 +1,21 @@
+# [未发布] perf(accounts): 账号页列表路径零解密——代理信息移出列表，改为打开弹窗时按需读取（nav-perf-ux，PR #3742）
+
+- **现象与根因**：用户「点左侧菜单『账号』好几秒才加载」，且上一轮 #3591 修完（同步串行 → 异步并行）后**实测仍 1451–1579 ms**（8 账号，日志逐行间隔约 100 ms = 串行特征）。第一性原因：`listAccounts()` 为让每个账号带上 `proxy`，逐账号走 `getAccountProxyStatus() → loadCredential() → decryptData() → deriveKey() → crypto.pbkdf2Sync(100000)`——**同步阻塞主进程事件循环**，单次约 125 ms。**#3591 只改了并行度，总 CPU 一字未减**，而 `listAccounts()` 每次进账号页都跑 ⇒ 复发性成本。
+- **为什么正解是"不读"而不是"再并行一次"**：代理配置与 cookies / localStorage / indexedDB 存在**同一份加密 payload**，读它必须解密整份文件；而列表要显示的 5 个字段（`configured` / `type` / `hostMasked` / `port` / `hasAuthentication`）**全部非敏感**（host 已掩码，`username`/`password` 永不外传）。为 5 个非敏感字段付 N 次整份凭证解密，是典型的「详情级数据进了列表路径」。
+- **改动**：① 列表**不再附加 proxy**（删除 `loadProxyStatusMap` / `safeAccountProxyStatus` 及其 `degraded` 降级分支）；② 账号卡片「代理」行与列表「代理」徽标/tooltip 一并移除，保留「设置/配置代理」入口；③ 新增 IPC `account:get-proxy` → `AccountManager.getAccountProxyStatusLazy()`（**异步**密钥派生，不阻塞事件循环），处理器单独成 `ipc-handlers/account-proxy.js`（`account.js` 已在行数挂账清单上，沿用 `account-active.js`/`account-rename.js` 的读写分离先例）；④ 代理弹窗整体下沉到 `useAccountProxyDialog` composable（`Accounts.vue` 是零增长容差的点名还账文件，**1624 → 1538 行**，低于目标 1578）。
+- **交互三态（惰性化必然引入，缺一不可）**：读取中显示「正在读取当前代理配置...」并禁用保存；读到则预填（掩码态）；**读失败显示可重试的错误提示且不关闭弹窗**（用户仍可填一份新代理直接保存）。少了这些，用户会先看到「当前未配置代理」的**假象**再被数据填上。文案 zh/en 成对（`accountsPage.proxyLoading` / `proxyLoadFailed` / `proxyRetry`）。
+- **本轮实测修到的两个实现缺陷**：① **数组 getter 的 watch 陷阱**——`watch(() => [props.visible, props.account?.id], resetForm)` 每次依赖失效都返回**新数组**，`Object.is` 比较必然不等；而惰性读取正是换上带 `proxy` 的新 account 对象（`id` 未变），于是 `resetForm()` 被误触发、**清掉用户在读取窗口里已敲的内容**。改为原始值字符串键 + `prefilled` 闸只预填一次。② **漏带 preload IIFE bundle**——改 `preload/account.js` 后须重生成 `preload/index.bundle.js`，前两次提交漏带 3 行 ⇒ **打包版** preload 无该 API ⇒ `invokeWithFallback` 静默返回 `code=-1` ⇒ 弹窗**永远显示"读取失败"**。五层测试都拦不住（单测 mock 掉 `window.electronAPI`、E2E 跑 dev 态不经过该 bundle），**只有真实打包产物里才暴露**——正是 QM-1 要拦的形状，且**确实被 QM-1 拦到了**（打包重生成后工作区出现该文件改动），是我第一轮漏看工作区变化。
+- **回归锁 10 条**：主进程 L1 列表路径 `loadProxyStatuses` 与 `getAccountProxyStatus` **都不得被调用** / L2 返回对象不带 proxy / L3 上游字段原样透传 / L4 按需入口只读该账号 / L5 入参非法与抛错降级为未配置 / L6 表里没有则返回未配置；渲染端「不再渲染代理行」（变异：加回即红）/ 加载态 / 错误+重试 / 只预填一次。
+- **QM-4 视觉**：首轮我把 QM-4 判成 `N/A`（理由「被删元素没有像素基线」）**是错的**——基线确有账号页 `accounts-list[-flag-on][-dark].png`。CI 以 `Gate 7b - Baseline freshness` 打红（不是 `Gate 7`，后者 6% 阈值下通过）。**归因四条**：两轮独立重采数值**逐位相同**（light 34481px/1.663%、dark 62878px/3.032%）⇒ 确定性真实漂移非抖动；43 个视图**只有这 4 个**漂移、其余 39 个零漂移；本地独立复现数值与 CI 一致、差异图红带正落在被删代理行处及其垂直重排；换新基线后浅/暗均 **0 失败**（漂移 → 0）。按判据原文「该处行为已改，须**重新取证**而非抬预算」重采（用 `PIXEL_ONLY` 限定范围、`git rm` 受管基线并先备份、dev server 用独占端口 5179）。
+- 判据：`check-max-lines` exit 0（首轮两处打红已修：`publish.js` 508≥500 回退耗时日志、`Accounts.vue` 超目标改 composable 下沉）、ESLint exit 0、前端 166 / 主进程 166 全绿、QM-1 打包 exit 0 + 存活断言通过 + env 剔除 `ELECTRON_RUN_AS_NODE` + **stderr 为空（第③层）**、`check-pr-exec-record --mode=enforce` OK、`check-gate-record-debt` OK。
+- **附带排查结论**：「菜单『发布』慢 1–2 秒」**不同因**——该页零凭证层零 pbkdf2，唯一同步原语 `publish-history.js:60` 全量 `readFileSync` 用真实数据实测仅 **4 ms**（71 行/178 KB）。但 `history:list` **无耗时读数**（对比 `accounts:list` 有）⇒ 只能推理不能证实；补日志撞 `publish.js` 行数闸故回退，登记为遗留（正解是先按范式拆出 history 处理器再补 `耗时=` 与 `>300 ms` 告警）。详见 [01-docs/ACCOUNTS-PROXY-LAZY-2026-10-15.md](01-docs/ACCOUNTS-PROXY-LAZY-2026-10-15.md)。
+
 # 播客刀 4 账目对勾：4.1 口语化分段与 4.2 分块 TTS 补勾收（代码与指名回归锁已在主干）
 
 - 事实纠正：`tasks.md` 的 4.1/4.2 长期挂着未勾，而分块唯一实现（2000 码点上限、切不开即拒绝）、逐块退化汇总门禁、`anullsrc` 块间静音、唯一合成出口与口语化结构不变量锁都已在主干并各自带指名用例。勾收时逐条写出现场取证的 merge SHA 与标志物，不写「已完成」三个字了事。
 - 顺带清掉一条记录自相矛盾：某篇已回填 PASS 的执行记录里仍留着「远程同步尚未收口」的引导注释（注释说没做完、表格行说做完了，而没有任何门禁在看它）。清点实测：主干 370 篇记录里仅 1 篇命中。
 - 未动的两项如实保留未勾：4.5（音色来源三态标注只有合同没有实现）、4.3②-b（文本出期通道必须与计费浮层同片落地）。
+
 
 # [未发布] refactor(frequency): 频率四个「声明了没人接」面逐条定夺——两条删、启动期裁剪接上、日配额上界单点持有（publish-frequency-unwired-surfaces）
 
@@ -22,6 +35,7 @@
 - 文档：新增**机制参考** `01-docs/ARCH-PUBLISH-FREQUENCY-AND-QUEUE-2026-10-16.md`（359 行）——把散在四个 PRD 与代码注释里的"现在到底怎么跑"收敛成一份可核对的现行实现说明：组件地图与唯一真源、v4 数值表与三条形状不变量、合法域/env 全表与全有或全无、守卫判定顺序（含"日配额是独立否决项 ⇒ remainingMs 恒 0"）、队列通道调度与被频控推迟时的四条纪律、打点分层语义与不变量 I4、race/D1 终身锁、**回滚资格矩阵**（9 行，含"佐证位与阶段判据矛盾时取更保守一侧"与"必须排除 definitelyNotSent"两处 fail-closed）、紧急放行四道闸与三类如实结果、持久化/投影/启动期裁剪、设置页显示项与文案纪律四条、观测面三条限制（不当仪表盘）、活例外五条（含 `full-auto-pipeline` 旁路）、按改动面列的必跑锁表、排障手册八行、v1→v4 沿革与每版连带项。另加 `01-docs/PRD-PUBLISH-FREQUENCY-UNWIRED-2026-10-16.md` §10（三条自引入缺陷的归属表 + §10.1 反证 + §10.2 本机/CI 相反读数）。
 - 文档：`01-docs/PRD-PUBLISH-FREQUENCY-UNWIRED-2026-10-16.md`（四条面定夺表、合法域三路径表、日键两条口径、显示项与提示文字表、反证表 U1–U11、回退路径、未闭合五条）；v4 PRD §8 未接线清单逐条补"已定夺"状态并保留 v4 时点原文（那节记的是当时的事实，不改写历史）。
 - 明确不做并留痕：`full-auto-pipeline` 的 5s 直发旁路仍不经守卫；设置页账号/平台间隔仍是全局单值覆盖；裁剪只在启动跑一次，长驻进程跨月不自动裁（行数量级为"账号数 × 天数"，故不加定时器，如实记取舍）；`basis=unproven` 分支只有单元锁、无真实 sqlite 故障注入。
+
 # [未发布] feat(podcast): 出期前计费预览的只读接口（podcast-episode-plan-preview，tasks 4.3②-a）
 
 - **为什么单独一刀**：PRD §7.10.4 把「块数 / 总码点 / 服务商·模型·音色三段」写成二次确认框的显示项，但这两个数**在渲染端 0 可达**——分块判据只在 `electron/services/podcast-tts-compose.js`，音色回退只在 `podcast-tts-voice.js`，而 `resolveEpisodeVoice` 此前**零生产调用方**（只有它自己的测试在调）。先做浮层只有两种坏结果：显示 0，或前端另抄一份切分与音色推断（两份口径必然漂移，而漂移方向是「显示的块数」≠「实际计费的块数」）。本片把唯一读路径接通：IPC `podcast:episode:planPreview` + preload 键 `episodePlanPreview` + 桥接 `src/api/podcast-channel.js`，**只转发不加工**。

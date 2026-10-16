@@ -816,6 +816,13 @@ function registerHandlers(ipcMain, deps) {
     }
   }))
 
+  // 代理状态**按需读取**通道单独成文件（./account-proxy.js）：列表路径已不再附加 proxy
+  // （账号卡片代理行与列表徽标已移除），代理状态只在用户打开代理设置弹窗时读一次。
+  // 与上面 account:set-proxy 读写分离，且同样避开本文件的行数挂账。
+  require('./account-proxy').registerAccountProxyReadHandler(ipcMain, {
+    AccountManager, getOwnerSubject, ipcLog, isSafePathSegment: _isSafePathSegment
+  })
+
   // 启用态写入通道单独成文件（./account-active.js）：它与登录态属于不同关注点，
   // 而 account.js 已在行数挂账清单上（登记值 571，main 实测 728），继续往里堆会撞
   // check-max-lines 的膨胀容差。这里只把本模块已有的上下文闭包注入进去，判定口径不复制第二份。

@@ -1,6 +1,7 @@
 import {
   accountCheckLogin,
   accountDelete,
+  accountGetProxy,
   accountSetProxy,
   authClose,
   authCompleteLogin,
@@ -43,5 +44,18 @@ export function useAccountActions() {
     return accountSetProxy(account.id, account.platform, proxy)
   }
 
-  return { openLogin, completeLogin, closeLogin, checkLogin, remove, setProxy }
+  /**
+   * 按需读取账号当前的代理状态（打开代理设置弹窗时调用）。
+   *
+   * 列表接口不再返回 proxy，所以这里是渲染端**唯一**能拿到"当前代理"的入口。
+   * 读的是掩码后的公开态（hostMasked / port / type / hasAuthentication），
+   * username/password 永不外传。
+   */
+  async function getProxy(account) {
+    const accountId = account?.id || account?.accountId || account?.account_id
+    if (!accountId) throw new Error('账号信息不完整')
+    return accountGetProxy(accountId, account?.platform)
+  }
+
+  return { openLogin, completeLogin, closeLogin, checkLogin, remove, setProxy, getProxy }
 }

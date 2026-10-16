@@ -101,7 +101,9 @@
         <div class="account-assignees" :aria-label="t('accountsPage.accountCardLabels.accountInfo')">
           <div :data-testid="`account-owner-${account.id}`"><span class="assignee-badge assignee-owner">{{ t('accountsPage.accountCardLabels.ownerLabel') }}</span><strong>{{ assigneeLabel(account, OWNER_KEYS) }}</strong></div>
           <div :data-testid="`account-publisher-${account.id}`"><span class="assignee-badge assignee-publisher">{{ t('accountsPage.accountCardLabels.publisherLabel') }}</span><strong>{{ assigneeLabel(account, PUBLISHER_KEYS) }}</strong></div>
-          <div :data-testid="`account-proxy-${account.id}`"><span class="assignee-badge assignee-proxy">{{ t('accountsPage.accountCardLabels.proxyLabel') }}</span><strong>{{ proxyLabel(account) }}</strong></div>
+          <!-- 代理行已移除（2026-10-15，nav-perf-ux）：它是"每次进账号页对每个账号
+               各做一次整份凭证解密（同步 PBKDF2 10 万次迭代）"的唯一理由。
+               代理是详情级信息，改为在用户点「设置」打开代理弹窗时按需读取。 -->
         </div>
       </div>
     </div>
@@ -250,12 +252,6 @@ function followersLabel (account) {
 
 function assigneeLabel (account, keys) {
   return firstValue(account, keys) || t('accountsPage.accountCardLabels.notSet')
-}
-
-function proxyLabel (account) {
-  const proxy = account?.proxy || account?.proxy_url || account?.proxyUrl
-  const value = valueLabel(proxy)
-  return value || t('accountsPage.accountCardLabels.notSet')
 }
 
 function isActive (account) {
@@ -545,7 +541,6 @@ function formatDate (value) {
 /* 参考产品契约：负责人蓝 / 运营人灰 / 代理紫 */
 .account-assignees .assignee-owner { background: #e8f1ff; color: #2b6cb0; }
 .account-assignees .assignee-publisher { background: #f5f5f7; color: #85858f; }
-.account-assignees .assignee-proxy { background: #eeecff; color: var(--primary, #5048e5); }
 
 .account-assignees strong {
   overflow: hidden;

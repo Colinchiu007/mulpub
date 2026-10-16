@@ -263,7 +263,7 @@ describe('AccountManagementCard', () => {
     expect(wrapper.get('[data-testid="account-owner-account-1"]').text()).toContain('团队甲')
     expect(wrapper.get('[data-testid="account-publisher-account-1"]').text()).toContain('运营人')
     expect(wrapper.get('[data-testid="account-publisher-account-1"]').text()).toContain('秋叔')
-    expect(wrapper.get('[data-testid="account-proxy-account-1"]').text()).toContain('127.0.0.1:7890')
+    // 卡片上的代理行已下线（见下方专门的回归锁），此处不再断言它的内容
   })
 
   it('缺少参考产品归属字段时显示未设置而不是伪造数据', () => {
@@ -272,23 +272,34 @@ describe('AccountManagementCard', () => {
     expect(wrapper.get('[data-testid="account-followers-account-1"]').text()).toContain('粉丝：暂无数据')
     expect(wrapper.get('[data-testid="account-owner-account-1"]').text()).toContain('未设置')
     expect(wrapper.get('[data-testid="account-publisher-account-1"]').text()).toContain('未设置')
-    expect(wrapper.get('[data-testid="account-proxy-account-1"]').text()).toContain('未设置')
   })
 
-  it('归属徽章按参考产品契约分色：负责人蓝、运营人灰、代理紫', () => {
+  // ── 回归锁（nav-perf-ux，2026-10-15）────────────────────────────────────
+  // 账号卡片**不得**再渲染代理行。它是「每次进账号页对每个账号各做一次整份凭证
+  // 解密（同步 PBKDF2 10 万次迭代，实测 8 账号 accounts:list 1451–1579ms）」的
+  // 唯一理由；列表接口已不再返回 proxy，代理状态改为打开代理弹窗时按需读取。
+  // 变异反证：把 template 里的代理行加回来 ⇒ 本用例立即变红。
+  it('账号卡片不再渲染代理行（列表路径零解密的前提）', () => {
+    const wrapper = mountCard({
+      account: { ...account, proxy: '127.0.0.1:7890' },
+    })
+
+    expect(wrapper.find('[data-testid="account-proxy-account-1"]').exists()).toBe(false)
+    expect(wrapper.html()).not.toContain('assignee-proxy')
+  })
+
+  it('归属徽章按参考产品契约分色：负责人蓝、运营人灰', () => {
     const wrapper = mountCard()
 
     const ownerBadge = wrapper.get('[data-testid="account-owner-account-1"] span')
     const publisherBadge = wrapper.get('[data-testid="account-publisher-account-1"] span')
-    const proxyBadge = wrapper.get('[data-testid="account-proxy-account-1"] span')
 
     expect(ownerBadge.classes()).toContain('assignee-owner')
     expect(publisherBadge.classes()).toContain('assignee-publisher')
-    expect(proxyBadge.classes()).toContain('assignee-proxy')
-    const kinds = new Set([ownerBadge.classes(), publisherBadge.classes(), proxyBadge.classes()]
+    const kinds = new Set([ownerBadge.classes(), publisherBadge.classes()]
       .flat()
       .filter(cls => cls.startsWith('assignee-') && cls !== 'assignee-badge'))
-    expect(kinds.size).toBe(3)
+    expect(kinds.size).toBe(2)
   })
 
   it('只在名称非空且发生变化时上抛重命名', async () => {
