@@ -50,14 +50,26 @@
       改为注入 `random` 的确定性扫描并把两个边界**精确**断言（归属：非本片引入，实测未改动树上
       单跑 55 全绿、重跑全量 1054 全绿，红的那次只在合并全量里出现过一次）
 - [x] 3.4 逐文件行数门禁 `.github/scripts/check-max-lines.js` rc=0（超限 97 == 挂账 97）
-- [ ] 3.5 QM-1 打包（触 `apps/desktop/electron/`，必跑：build:vue + electron-builder --dir +
-      asar 产物内容判据 + 启动三层判据）
+- [x] 3.5 QM-1 打包（触 `apps/desktop/electron/`，必跑：build:vue + electron-builder --dir +
+      asar 产物内容判据 + 启动三层判据）—— 实测 `pnpm run build:dir` rc=0、asar `entries=15015`、
+      产物内容判据 6/6 命中（含"死常量导出 0 命中"两条反向判据）、启动 12 秒存活且 **stderr 0 字节**、
+      electron/Multi-Publish 进程计数 0→0、默认 `%APPDATA%\Multi-Publish` 前后均不存在
+- [x] 3.7 首轮 CI 红归因并修复（`QG Desktop Shards 1/2` + `QG Coverage` 双红，同一根因）：
+      ① 3 个新增 notify 键未登记进 `observability-messagekey` 契约；② 诊断值写在 `notify` 的 meta
+      顶层被 logger 静默丢弃（实测落盘 `{}`）；③ 成功路径用裸标签 `log.info`，只是侥幸躲过
+      `LEGACY_RE`。三条口径与修法见 PRD §10 表；复跑 `shared-utils` 51 文件 / 1056 passed，
+      `apps/desktop` 关键 5 文件 / 144 passed，消费者并集 12 文件 / 378 passed
+- [x] 3.8 删幽灵声明 + 补**反向**声明锁：`index.d.ts` 里 `static PLATFORM_BUCKET_DAILY_KEY_PREFIX`
+      随实现一起删除；`frequency-declaration-contract.test.js` 新增两条"d.ts ⇒ 实现面"差集锁
+      （各带解析规模下界）。反证：隔离副本里把幽灵加回 ⇒ 恰好 1 条变红（未变异 8 passed）
 - [ ] 3.6 QM-6 双模型外部评审与逐条处置（替代通道，评审原件入库）
 
 ## 4. 文档与收口
 
-- [ ] 4.1 PRD v4 §8 未接线清单改写：两条改为"已删除"、一条改为"已接线（启动期）"、
+- [x] 4.1 PRD v4 §8 未接线清单改写：两条改为"已删除"、一条改为"已接线（启动期）"、
       `getProbeCounts` 改为"观测面，当前消费者是测试"并留工单；§5 数据校验表补日配额合法域一行
-- [ ] 4.2 `openspec/records/publish-frequency-unwired-surfaces.md`（新载体，frontmatter 登记欠账）
-- [ ] 4.3 CHANGELOG 置顶 + `01-docs/learnings.md`（"结果同形不等于做法相同"与"反证取被禁形态"两节）
+      （本片另加 `01-docs/PRD-PUBLISH-FREQUENCY-UNWIRED-2026-10-16.md` §10 自引入缺陷登记）
+- [x] 4.2 `openspec/records/publish-frequency-unwired-surfaces.md`（新载体，frontmatter 登记欠账）
+- [x] 4.3 CHANGELOG 置顶 + `01-docs/learnings.md`（"结果同形不等于做法相同"与"反证取被禁形态"两节，
+      并在首轮 CI 红后追加第 4/5/6 条：mock 替对方接受错形状、可观测性契约的双向总数锁、声明面幽灵）
 - [ ] 4.4 PR + CI 全绿 + 自动合并 + 远程同步回填销账；worktree 按 R1–R7 退役

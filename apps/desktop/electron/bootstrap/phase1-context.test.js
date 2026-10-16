@@ -63,7 +63,10 @@ function makeMockContainer() {
           setSetting: vi.fn(),
           prunePublishDailyCountAllOwners: (todayKey) => {
             storePruneCalls.push(todayKey)
-            return { owners: 0, removed: 0 }
+            // 夹具必须与**真实存储的返回形状**逐字同形（`publish-daily-store.js` 的三个出口
+            // 都带 basis）。原先这里不返 basis，等于把 'unproven' 兜底当成主路径来测，
+            // 而真实运行时永远走的是 'measured' —— 契约夹具替被测方漏字段的一类落点。
+            return { owners: 2, removed: 5, basis: 'measured' }
           },
         }
       }
@@ -127,6 +130,22 @@ describe('phase1-context.extractContext', () => {
     expect(storePruneCalls[0]).toBe(GUARD_TODAY)
   })
 
+  it('裁剪读数必须进 notify 的 meta.params —— 顶层自造字段会被 logger 静默丢掉', () => {
+    // 实测形态：`notify(m,'k',{level:'WARN',hasStore:false})` 落盘成 `m k {}`，
+    // logger.notify 只抬 errorCategory / level / params / error 四个顶层键，
+    // 其余一律丢弃。所以"出声"的判据不能停在"打了这个键"，必须核对值真的随行落下去。
+    const notify = require('../services/logger').notify
+    notify.mockClear()
+    storePruneCalls.length = 0
+    extractContext(makeMockContainer())
+    const hit = notify.mock.calls.find((c) => String(c[1] || '') === 'startup-prune')
+    expect(hit, `成功路径必须打 startup-prune，实际 notify: ${JSON.stringify(notify.mock.calls)}`).toBeTruthy()
+    expect(hit[0]).toBe('PublishDailyCount')
+    expect(hit[2], '读数必须挂在 params 下，否则一行里一个数都看不见').toEqual({
+      params: { owners: 2, removed: 5, basis: 'measured' },
+    })
+  })
+
   it('接不上时必须出声（不得静默跳过 —— 否则重构把这条维护摘掉也没人知道）', () => {
     storePruneCalls.length = 0
     const notify = require('../services/logger').notify
@@ -140,8 +159,11 @@ describe('phase1-context.extractContext', () => {
     const ctx = extractContext(inner)
     expect(ctx).toBeDefined()
     expect(storePruneCalls.length).toBe(0)
-    expect(notify.mock.calls.some((c) => String(c[1] || '') === 'startup-prune-skipped'),
-      `实际 notify: ${JSON.stringify(notify.mock.calls)}`).toBe(true)
+    const hit = notify.mock.calls.find((c) => String(c[1] || '') === 'startup-prune-skipped')
+    expect(hit, `接不上必须出声，实际 notify: ${JSON.stringify(notify.mock.calls)}`).toBeTruthy()
+    // 缺的那一侧必须是**可归因的**（是 store 没挂，还是守卫没有 today）
+    expect(hit[2].params, '跳过原因必须落在 params 里').toEqual({ hasStore: false, hasGuardToday: true })
+    expect(hit[2].level).toBe('WARN')
   })
 
   it('裁剪抛错不得打断启动（旁路维护，方向是"留着旧行"而不是"起不来"）', () => {
@@ -161,6 +183,63 @@ describe('phase1-context.extractContext', () => {
     expect(ctx).toBeDefined()
     expect(notify.mock.calls.some((c) => String(c[1] || '').includes('prune')),
       `启动期裁剪失败必须留痕，实际 notify: ${JSON.stringify(notify.mock.calls)}`).toBe(true)
+  })
+
+  it('本文件的 notify 调用一律不得自带顶层 meta 字段（logger 只抬四个白名单键）', () => {
+    // 结构锁的动机是**自己踩的**：`{level:'WARN', hasStore, hasGuardToday}` 读起来完全像
+    // 会把两个布尔落盘，实际 logger.notify 只抬 errorCategory/level/params/error，
+    // 其余静默丢弃 ⇒ 落盘 `PublishDailyCount startup-prune-skipped {}`。
+    // 行为锁测当前两处调用点；这条测"以后再加第三个调用点时别再犯"。
+    const fs = require('node:fs')
+    const path = require('node:path')
+    const src = fs.readFileSync(path.join(__dirname, 'phase1-context.js'), 'utf8')
+    /**
+     * 从 `notify('Mod','key', {…})` 的 meta 字面量里取**顶层**键名。
+     * 必须按花括号深度扫描：用 `[^}]*` 一类的近似会在第一个内层 `}` 截断，
+     * 于是 `{ params: { owners: 1 } }` 的 `owners:` 被当成顶层键 ⇒ 假红（本条首跑就是这样）。
+     */
+    function topLevelMetaKeys (objLiteral) {
+      const keys = []
+      let depth = 0
+      for (let i = 0; i < objLiteral.length; i++) {
+        const ch = objLiteral[i]
+        if (ch === '{' || ch === '[' || ch === '(') { depth += 1; continue }
+        if (ch === '}' || ch === ']' || ch === ')') { depth -= 1; continue }
+        if (depth !== 0) continue
+        const m = /^([A-Za-z_$][\w$]*)\s*:/.exec(objLiteral.slice(i))
+        if (m) { keys.push(m[1]); i += m[0].length - 1 }
+      }
+      return keys
+    }
+    function extractObjectLiteral (text, from) {
+      const open = text.indexOf('{', from)
+      if (open < 0) return null
+      let depth = 0
+      for (let i = open; i < text.length; i++) {
+        if (text[i] === '{') depth += 1
+        else if (text[i] === '}') { depth -= 1; if (depth === 0) return text.slice(open + 1, i) }
+      }
+      return null
+    }
+    const ALLOWED = new Set(['level', 'error', 'errorCategory', 'params'])
+    const offenders = []
+    const re = /\.notify\(\s*['"][^'"]+['"]\s*,\s*['"]([^'"]+)['"]\s*,/g
+    let m
+    while ((m = re.exec(src)) !== null) {
+      const literal = extractObjectLiteral(src, m.index + m[0].length)
+      if (literal === null) { offenders.push(`${m[1]} -> meta 字面量解析失败`); continue }
+      const extra = topLevelMetaKeys(literal).filter((k) => !ALLOWED.has(k))
+      if (extra.length) offenders.push(`${m[1]} -> ${extra.join(', ')}`)
+    }
+    // 反失明：扫描退化（一个调用点都没抓到）不得读成"合规"
+    const callSites = [...src.matchAll(/\.notify\(\s*['"]/g)].length
+    expect(callSites, '本文件应有 notify 调用点（扫描退化即红）').toBeGreaterThan(0)
+    // 如实记录这把锁**抓不到什么**：它只认 `key:` 形态的顶层键。
+    // `{ level:'WARN', hasStore }` 这种**简写属性**在 depth 0 上是裸标识符，判据看不见
+    // ——要把它也判出来，就得区分"裸标识符是键还是值"（`error: String(e && e.message)` 里
+    // 的 `e` 也是裸标识符），那是另一类解析。当前两调用点都写成 `key: value`，
+    // 所以射程覆盖实际形态；新增简写属性时本条不会红，需靠上面的行为锁兜。
+    expect(offenders, `notify 的 meta 里出现非白名单顶层键：${offenders.join('; ')}`).toEqual([])
   })
 
   it('offlineManager.startMonitoring 被调用', () => {

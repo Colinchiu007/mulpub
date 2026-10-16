@@ -132,18 +132,22 @@ function extractContext(container) {
   // 差一天会表现为"昨天的行今天全被删"或"该删的一行没删"。维护是旁路，失败只留痕。
   try {
     const guardForRetention = container.get('publishIntervalGuard')
-    if (store && typeof store.prunePublishDailyCountAllOwners === 'function'
-      && guardForRetention && typeof guardForRetention.today === 'function') {
+    const hasStore = !!(store && typeof store.prunePublishDailyCountAllOwners === 'function')
+    const hasGuardToday = !!(guardForRetention && typeof guardForRetention.today === 'function')
+    if (hasStore && hasGuardToday) {
       const r = store.prunePublishDailyCountAllOwners(guardForRetention.today())
       const basis = r && r.basis ? r.basis : 'unproven'
-      log.info('PublishDailyCount',
-        `startup-prune owners=${r ? r.owners : 'n/a'} removed=${r ? r.removed : 'n/a'} basis=${basis}`)
+      // 读数一律进 meta.params：logger.notify 只把 params 里的原始值抬进落盘行，
+      // **顶层自造字段会被静默丢掉**（实测该行打印成 `PublishDailyCount startup-prune {}`）。
+      // "出声"要出的是内容而不是键名，否则 owners/removed/basis 三个数全都看不见。
+      log.notify('PublishDailyCount', 'startup-prune', {
+        params: { owners: r ? r.owners : 'n/a', removed: r ? r.removed : 'n/a', basis }
+      })
     } else {
       // 没接上必须是**看得见**的：静默跳过会让这条维护在某个重构后悄悄消失
       log.notify('PublishDailyCount', 'startup-prune-skipped', {
         level: 'WARN',
-        hasStore: !!(store && typeof store.prunePublishDailyCountAllOwners === 'function'),
-        hasGuardToday: !!(guardForRetention && typeof guardForRetention.today === 'function'),
+        params: { hasStore, hasGuardToday }
       })
     }
   } catch (e) {

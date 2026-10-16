@@ -104,3 +104,27 @@
 - 裁剪只在启动时跑一次：长驻进程跨月不会自动裁剪（`publish_daily_count` 行数量级很小，
   增长上界是"账号数 × 天数"，故本片不加定时器；如实记下这个取舍）。
 - `basis='unproven'`（包装层查询失败）这条分支只有单元锁，没有真实 sqlite 故障注入。
+
+## 10. 首轮 CI 红与本片自引入的三处缺陷（归属 / 谁抓到的 / 修法）
+
+本片的主题是「声明了没人接的面必须逐条定夺」。首轮 CI 与复核抓到**三处正是本片自己造出来的同类问题**，
+逐条如实登记，不写成"顺手优化"。
+
+| # | 缺陷 | 谁抓到的 | 为什么四层测试没抓到 | 修法 |
+|---|---|---|---|---|
+| D1 | `notify(..., {level, hasStore, hasGuardToday})` 的诊断值被 **logger 静默丢弃**（只抬 `errorCategory/level/params/error` 四个顶层键），实测落盘 `PublishDailyCount startup-prune-skipped {}` | 复核时直接调**真** `logger.notify` 打印一行 | `__registerMock('../services/logger',{notify: vi.fn()})` 对任何入参形状照单接受 ⇒ 「参数形状错 ⇒ 内容永久不可见」这一类对 mock 结构性免疫 | 读数改挂 `meta.params`；行为锁从"打了这个键"升级为 `hit[2].params` **逐字段相等**；夹具补成与真实存储返回逐字同形（补 `basis`，原先不返 ⇒ 把 `unproven` 兜底当主路径测） |
+| D2 | 新增 3 个 notify 键**未登记**进可观测性契约 ⇒ `QG Desktop Shards 1/2`、`QG Coverage`（949 passed / 1 failed）双红 | **CI 本身**（`observability-messagekey.test.js` 是真有两颗牙的门禁：键必须含 `-` 且已登记，末尾断言「登记键总数 === 调用点总数」，**双向**） | 该锁在 `apps/desktop` 全量里，本地定向跑没带上它 ⇒ 消费者并集口径要按「被改模块的测试消费者」取，不是按 diff 里出现的测试文件取 | 三条键登记；同时把成功路径从裸标签 `log.info('PublishDailyCount', \`startup-prune …\`)` 换成 `notify(...,'startup-prune')` —— 原先只是**侥幸**躲过 `LEGACY_RE`（它要求第二参是引号字面量，模板字面量不在射程），属绕过而非合规 |
+| D3 | 删了实现没删声明：`index.d.ts` 残留 `static PLATFORM_BUCKET_DAILY_KEY_PREFIX: string;` | 反向差集探针（第一版探针报 `PHANTOM: (none)` 是**假结论**：锚点写成 `declare class …` 而真实形态是 `export class …` ⇒ `indexOf=-1` ⇒ 块为 `null` ⇒ 差集恒空） | 既有声明契约锁只锁「实现 → d.ts」一个方向；且 `ipc-handlers/publish-frequency.js` 走**子路径** require、类型恒 `any` ⇒ TS 检查永远不会问 | 删幽灵行；补两条**反向锁**（守卫 `static` 成员、策略块 depth-2 方法名必须存在于实现面），各带解析规模下界 + 锚点缺失即抛错（不许返回 null） |
+
+### 10.1 新增两把锁的取证
+
+| 判据 | 形态 | 实测 |
+|---|---|---|
+| 反向声明锁 ×2 | d.ts 声明名 ⇒ 实现面必须存在 | 未变异：`frequency-declaration-contract.test.js` **8 passed**；把幽灵声明加回 `index.d.ts`（在 `D:/tmp` 的**隔离副本**里跑，未触碰被评审工作树）⇒ **恰好 1 条变红**，红名即 `反向：d.ts 声明的守卫静态成员…` |
+| notify meta 顶层键结构锁 | `phase1-context.js` 里 `notify(...)` 的 meta 字面量顶层键必须 ∈ 白名单 | 算法 A/B（`/`按花括号深度扫描`/`）：合规形态 ⇒ 违例 0；被禁形态（D1 的真实写法）⇒ 违例 1 且点名 `hasGuardToday`。规模下界：调用点数 3 > 0 |
+
+两处**如实记录的判据局限**，不得含糊：① 结构锁只认 `key:` 形态，**简写属性**（`{ level, hasStore }`）在 depth 0 上是裸标识符，判据看不见 ⇒ 那种形态要靠行为锁兜；② 反向声明锁的解析器对"策略块里缩进两格的方法名"敏感，若 `index.d.ts` 整体改排版（例如 4 格缩进），解析数会退化 ⇒ 用 `names.length >= 5/6` 的下界当场变红，而不是静默合规。
+
+### 10.2 本机读数与 CI 结论相反的一例（不改文档、不改账本）
+
+`check-doc-abs-paths.js` 本机 PR 模式报 `learnings.md 35 > 基线 34`、`PRD-V4 L4 1 > 基线 0`。取证：① 本 PR 在 learnings.md 的新增行里绝对路径 **0 条**，+1 来自当天退役 worktree 后磁盘状态变化；② CI 的 `QG Changes` 现场（run 38861838047 / job 116845649734 / step Gate 12c）打印 `本机无盘符 ⇒ 逐文件计数比较未执行（仅核对陈旧登记与账本放宽）；无从判定 1093 条`。**结论**：逐文件计数在 runner 上不参与判定，故不改写历史路径、不跑 `--write-baseline`（那正是该门禁要拦的"用自己的红喂账本"形状）。workflow 自己的注释同向：「全量扫描会命中 100+ 处历史引用（已删除的临时 worktree、CI runner 路径等），那些不是缺陷，逐条修好等于篡改历史」。
