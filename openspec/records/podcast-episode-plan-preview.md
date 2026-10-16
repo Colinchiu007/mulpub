@@ -52,7 +52,7 @@ sync_backfill_owner: podcast-episode-plan-preview 会话（本节作者）
 
 `voiceRef` 在 `podcast-channel-registry.js` / `podcast-channel-service.js` / `channel.json` 的 meta 里命中 **0**（`git grep -c` 实测），所以生产路径上 `origin` 只会是 `preference` 或 `providerDefault`。接线按「存在则取」写（`getService(channelId).getChannel().voiceRef`），**没有为此新造字段**：频道音色进真源是 4.5 的范围，届时 ① 层自动生效、本预览一行都不用改。反过来，如果谁把 ① 层当"已支持"来标 UI，就是拿一条不可达的分支给用户看假证据。
 
-## 五、变异反证与两条自造事故
+## 五、变异反证与三条自造事故
 
 变异 7 条，每条只动一个变量、跑指定文件、要求**指名那条用例**变红，跑完按 md5 逐字节还原：M-A 自数块数 / M-B 闭集外 origin 照显示 / M-C 缺实现不拒 / M-D 预览占忙标记 / M-E 改 preload 不重生 bundle / M-F 自算总码点 / M-G 本层去碰 `fs` —— **7/7 CAUGHT**，且每次的红集只有 1 条（说明锁各自独立承重，不是整片 LOADFAIL）。
 
@@ -60,6 +60,11 @@ sync_backfill_owner: podcast-episode-plan-preview 会话（本节作者）
 
 - **变异串必须让判据要找的那串真的消失**。第一版 M-E 把 bundle 里的 `podcast:episode:planPreview` 改成 `podcast:episode:planPreviewX` —— 超串仍然包含 needle，`toContain` 照绿，于是这条判据被误报成"没牙"。换成 `podcast:episode:planRemoved` 后当场指名红。**判据无罪，是我的探针没插进去。**
 - **备份按 basename 命名会撞名**：`ipc-handlers/podcast.js` 与 `preload/podcast.js` 的 basename 都是 `podcast.js`，驱动的备份目录按 basename 存 ⇒ 后者覆盖前者，还原时把 preload 的内容整份写进了 IPC handler（4302 字节的错文件顶在 17430 字节的位置上）。当场被驱动自己的 md5 断言抓住（`还原后 md5 不一致`），没有扩散成第二次破坏。修复顺序：`git checkout HEAD -- <精确路径>`（只用精确路径，不碰宽目录）→ 两份带断言的重放脚本重建（合同行 + 工厂 + 注册点，全部校验先于写盘）→ 重跑 5 文件 77 例绿 → 驱动改为**备份名带序号 + 开工前自证基线**（注册点/桥接键不在位就拒绝开跑）。同族第 N 次：判据/夹具的"坐标"必须自己会报错，而不是等人去读。
+- **探测脚本抛错之后，我照常「git add + rebase --continue」⇒ 把三行冲突标记提交进了 CHANGELOG**（同一次 rebase 里的第二条自造事故，比上一条更该记，因为它骗过了我自己的眼睛）。
+  起因是解冲突驱动里一处参数写错：把一个正则的**字面量写法**当字符串交给做精确匹配的查找函数，必然找不到、必然抛错；而我把驱动与后续动作串在同一条命令里跑，**没有单独取驱动的 rc**，于是错着也往前走。
+  当场骗人的信号是「Successfully rebased and updated」——**rebase 成功与冲突解得对不对是两件事**，前者只说明索引被接受了。真正判得住的是事后独立跑一次标记计数（本次实测报 3），而不是「驱动没报错」。
+  修法（fix-changelog-conflict.cjs）：两侧都是不同的新块 ⇒ 并集（新块在顶，并补回被 git 吃掉的块间空行），且校验必须**先于写盘**，七件缺一不可——标记清零 / 两侧块首行各自命中预期标题 / 块长下界 / 行数等于原行数减三加一 / CRLF 与 LF 分别对账（被删的三行标记自己带行尾，所以不能要求总数相等）/ 行内容与行尾的**多重集**一致 / 新块确在顶部。修完标记计数 0、标题数 482，主干已合并的两块与更早的 docs(prd) 块逐块仍在。
+  **收口的规矩（本仓第 N 次同族）**：任何「解冲突 / 打补丁」的驱动，其 rc 必须单独取、单独判，非 0 即禁止接着 git add；判据要问「输出里还有没有标记」，不能问「驱动有没有报错」。
 
 ## 六、遗留与不假装闭合的部分
 
