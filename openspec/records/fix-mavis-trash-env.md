@@ -3,9 +3,6 @@ record: fix-mavis-trash-env
 task: safe-delete.js 的「可恢复删除」外包给本机不存在的 mavis-trash，四道闸全过、--dry-run 允许、实跑必失败而 12 例测试全绿——本机先补命令，随后按用户指示把脚本改为自足（后端解析链内置平台回收站）
 date: 2026-10-16
 # ↓ 三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
-sync_status: PENDING
-sync_reason: 本 PR（fix-mavis-trash-env）尚未合并，merge SHA 还不存在，无法取证收口
-sync_backfill_owner: 下一个会话（三形态同改：frontmatter 三字段 + 本表 远程同步 行 + 记录文件无 ledger 登记项需删，同一次提交）
 ---
 
 ## 本次执行记录：safe-delete 删除后端 mavis-trash 缺失的根治（fix-mavis-trash-env，2026-10-16）
@@ -25,4 +22,5 @@ sync_backfill_owner: 下一个会话（三形态同改：frontmatter 三字段 +
 | QM-6 CCG 双模型外部评审 | 未执行 | 本 PR 判定为 single（见 .ccg/reviews/<HEAD>.json）；如终提交超阈值产生 dual，将按白名单语义执行并落盘裁决。本机 `codeagent-wrapper` 可用但本片属小面工具修复，按 §12.6 阈值判定走引擎决定 |
 | 门禁命令取证 | ✅ | `check-gate-record-debt --carrier-mode=visible` rc=0（冻结漂移在 PR 档为可见项：合并预览必然含上游新块，判据本身在 L549-553 写明）；`check-unwired-tests` OK；`check-no-brand-residue` PASS（9370 文件）；行尾 parity=True |
 | 已知边界 | ✅ | ① 「可恢复」在 Linux 依赖 `gio`（GNOME 环境标配），无桌面环境的裸 CI/容器上 `gio trash` 会失败 ⇒ 后端链返回失败、文件保留（fail-closed，不静默丢数据）——这是守卫语义的正确行为，不是缺陷；② `mavis-trash` 外部命令保留为第一候选是为了兼容已装机器与未来独立实现，其「缺失不再致瘫」由 builtin 兜底保证；③ Windows 回收站删除极深路径由 PowerShell 的 .NET API 承接，未单测 MAX_PATH 场景（判据层拒目录 ⇒ 深目录不会被整棵送入） |
-| 远程同步 | PENDING | 本 PR 尚未合并；合并后由回填会话同一次提交改写 PASS + merge SHA 并删除上方 sync_* 三字段 |
+| 远程同步 | PASS | PR #3695 已 squash 合并，merge SHA `e5e06a23fb035b2cb7b7241a4db55ff23d9c7498`（2026-10-16T04:36:51Z）；远端分支 `fix-mavis-trash-env` 已删（`git ls-remote` 0 行）；`git log origin/main --grep='(#3695)
+` 恰好 1 行 |
