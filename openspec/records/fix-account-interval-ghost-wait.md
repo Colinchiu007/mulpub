@@ -2,6 +2,8 @@
 pr: PENDING
 branch: fix-account-interval-ghost-wait
 date: 2026-10-16
+sync_reason: 本 PR（fix-account-interval-ghost-wait）的远程同步待合并后由后续 docs PR 就地改写为 PASS 并删除本登记字段
+sync_backfill_owner: fix-account-interval-ghost-wait 分支作者会话（合并收尾时回填）
 ---
 
 # 本次执行记录：发布频率「本账号间隔」幽灵等待修复（fix-account-interval-ghost-wait，2026-10-16）【混合 PR】
@@ -62,6 +64,16 @@ date: 2026-10-16
 - M3 摘掉 store 未来值拦截 ⇒ S1 `Tests 1 failed` ✅。
 - M4 摘掉 UI 标签条件 ⇒ U1 `Tests 1 failed` ✅；还原后 `clockAnomalyLabel` 出现 3 处（computed + 模板 v-if + 插值）。
 - M2（告警去重）由 C2 断言「只告警一次」直接承载，未单列变异（C2 在 M1/M3 之外的实现细节上已可红——如实记录）。
+
+## CI 首轮红的处置（如实记录，2026-10-16）
+
+PR #3731 首轮 CI 3 项红，逐项修复后重推：
+
+| 失败项 | 根因 | 处置 |
+| --- | --- | --- |
+| `QG Changes`（Gate 2c 真仓锁） | 记录文件写了 `| 远程同步 \| PENDING |` 但缺 frontmatter 登记字段（新载体登记走 `sync_reason` + `sync_backfill_owner`，不进 ledger JSON——`check-gate-record-debt.js:33-37` 的登记面） | 补两字段登记 |
+| `债务熔断检查`（行数门禁） | `publish-interval-guard.js` 496 → 523 行越过 500 新代码红线（`NEW_OVER_LIMIT`） | **按门禁正解拆分**（不是抬登记值）：释放域（`release`/`clearWindow`/`_rollbackCap`，~100 行）外移到 `src/guard-release.js` mixin，`Object.assign` 挂回原型；`normalizeAccountId` 经 `__setNormalizeAccountId` 回填避免 require 环；主文件回落 434 行 |
+| —（连带发现） | WriteAllLines 机械拆分漏了对象字面量的逗号分隔（`SyntaxError: Unexpected identifier`）+ 首版 require 环（`TypeError: normalizeAccountId is not a function`） | 两轮本地 vitest 当场抓住并修复；拆分后守卫域 129 passed / 全量 1055 passed 复跑确认 |
 
 ## 预防措施（QM-5 ⑤）
 
