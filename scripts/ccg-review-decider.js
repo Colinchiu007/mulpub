@@ -519,16 +519,27 @@ function saveRecord(result, sha, layer, plannedFiles) {
   //   跨分支撞名，且无任何告警。改为：显式告警 + 记录里写 stagedDiffHash:null，
   //   让「无键」这件事本身可见（门禁与事后审计都能看到）。
   const hashResult = (() => {
+    // ★ 第四轮自查追加（实测踩到）：`git()` 失败时返回 **null**，
+    //   而 `String(null)` 是字符串 **"null"**（非空！）⇒ 旧版 `if (!d.trim())` 判不出空
+    //   ⇒ 把「git 调用失败」当成「有 diff 内容」⇒ 对 "null" 算 sha256 得到
+    //   74234e98…（sha256("null")）这个**稳定但无意义**的哈希 ⇒ 记录落在一个假名字下，
+    //   且永远找不到（因为它不对应任何真实 diff）。
+    //   症状：非 git 目录里 saveRecord 也「成功」写出 64 位记录。
+    //   修法：先判 null/undefined，再判空串。
+    let d;
     try {
-      const d = String(git([
+      d = git([
         "diff", "--cached", "--no-textconv", "--no-ext-diff", "--no-renames",
         "--", ".", ":(exclude).ccg",
-      ]));
-      if (!d.trim()) return { hash: undefined, empty: true };
-      return { hash: require("crypto").createHash("sha256").update(d).digest("hex"), empty: false };
+      ]);
     } catch (e) {
       return { hash: undefined, empty: false, error: String(e && e.message ? e.message : e) };
     }
+    if (d === null || d === undefined) {
+      return { hash: undefined, empty: false, error: "git diff --cached 返回 null（不在 git 仓库？）" };
+    }
+    if (!String(d).trim()) return { hash: undefined, empty: true };
+    return { hash: require("crypto").createHash("sha256").update(String(d)).digest("hex"), empty: false };
   })();
   const stagedDiffHash = hashResult.hash;
   if (!stagedDiffHash) {
@@ -540,8 +551,12 @@ function saveRecord(result, sha, layer, plannedFiles) {
       console.error("[ccg] 判定记录：暂存 diff（排除 .ccg）为空 ⇒ 回落父 sha 命名（纯 .ccg/ 提交）");
     } else {
       console.error("[ccg] ⚠ 无法计算 stagedDiffHash（" + (hashResult.error || "未知原因") + "）");
-      console.error("[ccg] ⇒ 不静默改用其他命名；本次仍用父 sha，但记录会写 stagedDiffHash:null。");
-      console.error("[ccg] ⚠ 这意味着本记录**仍可能撞名**（父 sha 被同基线分支共享）—— 请检查 git diff 是否可用。");
+      console.error("[ccg] ⇒ **不写判定记录**（写父 sha 名会撞名，比不写更糟）；本次跳过记录落盘。");
+      console.error("[ccg] 请检查 git diff 是否可用（git 是否在 PATH、仓库是否可读）。");
+      // ★ 第四轮 i6：error 分支不落盘 —— 首版仍写父 sha 名的记录，而那正是本轮要消灭的
+      //   跨分支撞名源，且没有任何去重处置。不写只会让门禁报「缺记录」（可见、可定位），
+      //   写则产生一个会与他人冲突的文件（不可见、难定位）。两者取其可见者。
+      return null;
     }
   }
   const file = path.join(dir, recordFileName(stagedDiffHash, sha));
@@ -575,6 +590,25 @@ function saveRecord(result, sha, layer, plannedFiles) {
     try { prev = JSON.parse(fs.readFileSync(file, "utf8")); } catch (_) { prev = null; }
     if (shouldPreserveClosedRecord(prev)) {
       // 不覆盖已有实质内容的记录；把本次判定另存，避免两份都丢失。
+      //
+      // ★ 第四轮 i1/i6（Critical）：alt 名不得无限累积。
+      //   同变更 amend 时 stagedDiffHash 相同 ⇒ 每次都会走到这里 ⇒ 每次都新时间戳 ⇒
+      //   反复 amend 会产生一堆 `<64hex>-again-<sha>-<ts>.json`。
+      //   修法：**同 sha 只保留一个 alt** —— 先把已存在的同前缀 alt 清掉再写新的。
+      //   （`<64hex>-again-` 这个前缀在同一份变更下是确定的，故可按前缀清理。）
+      const altPrefix = file.replace(/\.json$/, "-again-");
+      // ★ 必须用 path.basename 取前缀，不能 split("/")：Windows 路径分隔符是 `\`，
+      //   split("/") 在 Windows 上**不拆分** ⇒ pop() 返回整条路径 ⇒ startsWith(整条路径)
+      //   恒 false ⇒ 去重完全失效（实测：两次 amend 留下两份 alt）。
+      const altBase = path.basename(altPrefix);
+      try {
+        for (const n of fs.readdirSync(dir)) {
+          if (n.startsWith(altBase) && n.endsWith(".json")) {
+            fs.unlinkSync(path.join(dir, n));
+          }
+        }
+      } catch (_) { /* 列目录失败不阻塞主流程 */
+      }
       // ★ 第二轮 i5：alt 名必须**全局唯一** —— 首版用 sha.slice(0,8)，同前缀会互相覆盖；
       //   改为完整 sha + 时间戳（同一 sha 内毫秒级也唯一）。
       const alt = file.replace(
@@ -779,5 +813,8 @@ module.exports = {
   CLOSED_DEEP_REVIEW_STATUSES,
   PRESERVE_BY_STATUS,
   shouldPreserveClosedRecord,
+  // 导出 saveRecord 仅为**行为锁**服务（真调它对「同变更反复 amend 不累积 alt」取证）；
+  // 它依赖 process.cwd() 与真实 git，故只在测试里用，不在生产路径上被别处调用。
+  saveRecord,
 };
 

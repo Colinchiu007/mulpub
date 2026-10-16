@@ -1,0 +1,28 @@
+{
+  "sha": "adc9163af78a37639a1d0f80f370ecca8f85df3e",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 167 行（≤ 200）但命中 auth/数据库/加密：敏感内容 4 处",
+  "stats": {
+    "changedLines": 167,
+    "fileCount": 4,
+    "codeFileCount": 3,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 4,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "   ⇒ 旧版 `if (!d.trim())` 判不出空 ⇒ 对 `\"null\"` 算 sha256 得到 `74234e98…`（= sha256(\"null\")）这个"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "781636eed05a603c78c6e80481f71425504dff41d89779bf11d480e6e3184308",
+  "decidedAt": "2026-10-16T15:17:44.128Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

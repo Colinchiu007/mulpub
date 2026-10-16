@@ -553,7 +553,22 @@ fi
 # 兜底会被挡在门外变成死代码 —— 这正是 2026-10-15「缺陷 E」修过一次的同型问题。
 if [ -z "$MODE" ]; then
   _PARENT2="$(git rev-parse HEAD^ 2>/dev/null || echo '')"
+  # ★ 第四轮 i2（Critical）：**首个提交**（仓库只有一笔、无 HEAD^）时，
+  #   首版整个内容寻址段被 _PARENT2 非空守卫挡掉 ⇒ 记录按 stagedDiffHash 命名却找不到，
+  #   且下面的故障判据同样依赖 _PARENT3。这正是残留风险里「未实测无 HEAD^ 场景」那条。
+  #
+  #   口径：无 HEAD^ 时用 `git show HEAD`（首个提交的完整内容）当 diff 源 ——
+  #   它与判定器在 pre-commit 时读到的 `git diff --cached` 是同一份字节
+  #   （首提交时 index 的全部内容就是该提交的全部内容）。
+  #   注意：git show 会带 commit 头，故用 `git show --format= --` 只要 diff 部分。
   if [ -n "$_PARENT2" ]; then
+    _DIFF_TMP="$(mktemp 2>/dev/null || echo "$HOME/.ccg-diff.$$")"
+    git diff --no-textconv --no-ext-diff --no-renames "$_PARENT2" "$SHA" -- . ':(exclude).ccg' > "$_DIFF_TMP" 2>/dev/null
+  else
+    say "ℹ 仓库只有一笔提交（无 HEAD^）⇒ 按首个提交内容寻址"
+    _DIFF_TMP="$(mktemp 2>/dev/null || echo "$HOME/.ccg-diff.$$")"
+    git show --no-textconv --no-ext-diff --no-renames --format= "$SHA" -- . ':(exclude).ccg' > "$_DIFF_TMP" 2>/dev/null
+  fi
     # ★ 第三轮 i7：**只算一次 diff**，哈希与行数都从同一份字节来。
     #   首版把同一份 diff 物化三次（查找哈希、_DIFFLINES、commit -a 自检各一遍），
     #   大变更下是 O(n)×3 的重复管道 IO。
@@ -567,8 +582,6 @@ if [ -z "$MODE" ]; then
     #     而这里首版是裸 git diff —— 两边配方不一致时，同一变更会算出不同哈希
     #     ⇒ 内容寻址失效，而这正是整套方案的承重墙（A == B）。
     #     下方给用户照抄的「自检命令」提示同理，必须与实现同参数。
-    _DIFF_TMP="$(mktemp 2>/dev/null || echo "$HOME/.ccg-diff.$$")"
-    git diff --no-textconv --no-ext-diff --no-renames "$_PARENT2" "$SHA" -- . ':(exclude).ccg' > "$_DIFF_TMP" 2>/dev/null
     _DIFFHASH="$(sha256sum < "$_DIFF_TMP" | cut -d' ' -f1)"
     _DIFFLINES="$(wc -l < "$_DIFF_TMP")"
     rm -f "$_DIFF_TMP"
@@ -577,7 +590,6 @@ if [ -z "$MODE" ]; then
       _read_mode "$REC" || true
       [ -n "$MODE" ] && say "判定记录按内容寻址命中：${_DIFFHASH%${_DIFFHASH#????????}}（stagedDiffHash）"
     fi
-  fi
 fi
 
 # ★ 2026-10-16（QM-6 第二轮 i1，Critical）：三条路径全落空时，必须**区分两种原因**，

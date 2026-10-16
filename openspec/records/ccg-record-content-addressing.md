@@ -122,14 +122,16 @@ i2/i3（高危域 crypto/auth）判阻断 ⇒ 按用户已批准的 **(a) 口径
 | i7 | Info | 已修：deep-review.sh 内三份 diff 合并为一份（落临时文件，哈希与行数都从它读） |
 | i8 | Info | 已修：`_READ_FAILED` 置位，记录损坏时只报一种诊断 |
 
-**本轮自查抓到 7 个自身缺陷**（全部记入裁决表 `selfCaughtBeforeReview`）：
+**本轮自查抓到 8 个自身缺陷**（全部记入裁决表 `selfCaughtBeforeReview`）：
 ① i1 故障判据首版没看工作区是否干净，把「改到一半跑 deep-review」判成故障（**比不报更糟**）；
 ② i4 的 argv 修复引入下标 bug（`node -e` 的脚本**不占** argv ⇒ arg 在 `argv[1]`），**靠真跑一次抓到**；
 ③ i7 用 `printf '%s'` 复用命令替换结果 ⇒ 尾随换行被吃 ⇒ 哈希与 decider 对不上（4 条行为锁同时红）；
 ④ i8 的 `_READ_FAILED` 在 `set -u` 下未预声明 ⇒ 脚本直接退出；
 ⑤ i5 误用 decider 里不存在的 `say()` ⇒ ReferenceError（被「残余 2 接线锁」抓到）；
-⑥ **结构锁四次被字面注释骗过**（M8 / M18 / decider-28 / lock-24）⇒ 判据必须先剥注释行、只取代码行；
-⑦ **A/B 两侧配方不一致**（decider 固定了 flag 而 `deep-review.sh` 仍是裸 `git diff`）——
+⑥ **结构锁五次被字面注释/路径分隔符骗过**（M8 / M18 / decider-28 / lock-24 / M22）
+   ⇒ 判据必须先剥注释行、只取代码行，且**取路径前缀必须用 `path.basename`**（Windows 是 `\`）；
+⑦ **`String(git())` 把 null 变成 `"null"`** ⇒ 对 "null" 算 sha256 得无意义哈希 ⇒ 记录落假名字且永远找不到；
+⑧ **A/B 两侧配方不一致**（decider 固定了 flag 而 `deep-review.sh` 仍是裸 `git diff`）——
    由外部复核指出，已统一并加锁（M21）。这正是「声称同源的三处」之外的第四处漏配。
 
 **外部复核结论**（第三轮，针对 i1/i4 高危域 + 全 8 条；第一次委托因输出截断失败，已重试）：
@@ -149,6 +151,31 @@ i2/i3（高危域 crypto/auth）判阻断 ⇒ 按用户已批准的 **(a) 口径
 ③ **未发现我为过门禁而削弱判据** —— mode 判定未放宽，`PRESERVE` 判据反而变严；
 测试由结构锁升级为行为锁，变异 21/21 全红佐证无放松。
 
+**第四轮**（变更 421 行）：DUAL，7 条问题，最低分 correctness 6，i1/i4 高危域 ⇒ 按 (a) 口径
+委托外部复核。5 条 upheld（其中 i3 修了一半）、2 条 dismissed：
+
+| id | 严重度 | 处置 |
+|---|---|---|
+| i1 | Critical（高危） | 已修：写 alt 前按前缀删掉同变更旧 alt（同 sha 只留一份）。**行为锁**：真 git 仓库连写两次，断言同前缀 alt 只有 1 份且原闭环记录未被覆盖 |
+| i2 | Critical | 已修：补 else 分支，无 `HEAD^` 时用 `git show --format=` 取首个提交的 diff（这正是残留风险里「未实测无 HEAD^ 场景」那条 —— 评审替我校验了） |
+| i3 | Warning | **修了一半**：补正例锁（真 alt + M 载体 ⇒ 纯回填）+ 8 条负向锁，但**正则不再收窄** —— 收窄会让真 alt 被拒 ⇒ 回到第二类假红。伪装风险的机械防护未做 |
+| i4 | Warning（高危） | dismissed：`collectRange`/`collectProposal` 是决策层/补跑路径，不写验证层记录（`saveRecord` 只由验证层调用）；`recordFileName` 只认 64 位是特性不是缺陷 |
+| i6 | Warning | 已修：`hashResult` error 分支 **return null 不写记录** —— 不写只让门禁报「缺记录」（可见、可定位），写父 sha 名则产生会与他人冲突的文件（不可见、难定位） |
+| i5 | Warning | dismissed：白名单同源锁已存在（直接读 gate 源码断言两处集合相等） |
+| i7 | Info | dismissed：`--numstat` 与 `-U0` 服务不同目的（规模统计 / 内容行敏感命中），合并会丢信息 |
+
+**第四轮自查抓到 4 个自身缺陷**（全部记入裁决表 `selfCaughtBeforeReview`）：
+① **alt 去重首版完全失效** —— 用 `altPrefix.split("/").pop()` 取路径前缀，而 **Windows 分隔符是 `\`**，
+   `split("/")` 不拆分 ⇒ `pop()` 返回整条路径 ⇒ `startsWith` 恒 false（实证：两次 amend 留两份 alt）。已改 `path.basename`。
+② **`String(git())` 把 null 变成 `"null"`** —— `git()` 失败返回 null，`String(null)` 是字符串 `"null"`（非空）
+   ⇒ 旧版 `if (!d.trim())` 判不出空 ⇒ 对 `"null"` 算 sha256 得到 `74234e98…`（= sha256("null")）这个
+   **稳定但无意义**的哈希 ⇒ 记录落在假名字下且永远找不到。已改为先判 null/undefined。
+③ **i1 行为锁夹具错** —— 首版造在非 git 目录 ⇒ `saveRecord` 走 error 分支 return null ⇒ 压根没进拒写分支
+   ⇒ 断言 0 份 alt（夹具错，不是实现错；但也因此暴露了缺陷 ②）。
+④ **i6 的 error 分支首版仍写记录** ⇒ 正是本轮要消灭的撞名源。已改不写。
+
+**外部复核结论**（第四轮）：见裁决表 `externalReviewSummary` 段。
+
 ### 风险与防线（**这是本 PR 最需要人看的点**）
 
 改 `AUDIT_ARTIFACT_RE` 是**放宽门禁的识别面**：若放宽过宽，`scripts/evil.js` 一类真·功能新增
@@ -166,9 +193,9 @@ i2/i3（高危域 crypto/auth）判阻断 ⇒ 按用户已批准的 **(a) 口径
 **TDD**：先写测试 ⇒ RED ⇒ 实现 ⇒ 全绿。RED 的预测与实测逐条吻合（四轮分别预测/实测
 decider 5:5、gate 3:3；QM-6 复审 decider 2:2、gate 1:1；第二轮 decider 2:2；
 第三轮 decider 2:2）。其中 gate 的「邻近形态仍被拒」**原本就绿**，作为负向对照证明当前正则确实不收 64 位。
-终态：decider 32/32、gate 56/56、deps 26/26。
+终态：decider 36/36、gate 56/56、deps 26/26。
 
-**变异反证（21/21 RED + 字节级还原 + 还原后复验 0 红）**：
+**变异反证（24/24 RED + 字节级还原 + 还原后复验 0 红）**：
 
 | # | 变异 | 指名的红 |
 |---|---|---|
@@ -193,6 +220,9 @@ decider 5:5、gate 3:3；QM-6 复审 decider 2:2、gate 1:1；第二轮 decider 
 | M19 | 哈希失败改回静默（i5 三轮） | 告警锁红 |
 | M20 | 去掉 `_READ_FAILED` 守卫（i8 三轮） | 单诊断锁红 |
 | M21 | B 侧 diff 去掉固定 flag（外部异议：A/B 配方不一致） | 配方一致锁红 |
+| M22 | 去掉 alt 去重（i1 四轮） | alt 去重锁红 |
+| M23 | 去掉首提交（无 HEAD^）路径（i2 四轮） | 首提交锁红 |
+| M24 | error 分支改回仍写记录（i6 四轮） | 不落盘锁红（3 条） |
 
 （M4/M5 共同证明「位置本身就是判据」：早退在查找之前 ⇒ 兜底变死代码。
 M7/M9 证明**结构锁不够**——必须行为锁才抓得到「字面都在但行为已失效」的变异。
