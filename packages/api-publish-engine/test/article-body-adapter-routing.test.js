@@ -125,6 +125,16 @@ describe('正文承载形态：适配器必须经 formatArticleBody 单一实现
     if (lf !== 2) {
       throw new Error(`weibo 合并后换行数应为 2（标题/正文间 + 正文内各 1），实际 ${lf} ⇒ 段落结构退化：${JSON.stringify(pd.content)}`)
     }
+    // ★ CCG 第六轮 i5（Info，已加固）：标题与正文合并后一起过 formatArticleBody，
+    //   需钉住「标题片段不被改写/吞掉」。weibo 是**无标题平台**（标题只能并入正文首行），
+    //   当前 formatArticleBody 对纯文本平台恒等透传所以无事；但若将来 weibo 改为 HTML 承载，
+    //   标题会被包进 <p> ⇒ 本断言红，提示重新评估合并策略。
+    if (!pd.content.includes('题')) {
+      throw new Error(`weibo 的标题片段在产出里丢失或被改写：${JSON.stringify(pd.content)}`)
+    }
+    if (/<p>题<\/p>/.test(pd.content)) {
+      throw new Error(`weibo 标题被包进 <p>（承载形态变更需重新评估合并策略）：${JSON.stringify(pd.content)}`)
+    }
   })
 
   // ---------- 空值安全（CCG 裁决 i3 的补强，虽判 dismissed 但值得钉住）----------

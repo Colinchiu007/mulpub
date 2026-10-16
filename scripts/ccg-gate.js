@@ -170,23 +170,38 @@ function changedLineRanges(file) {
  * ★ 必须按文件过滤（CCG 第五轮 i1，upheld）：
  *   只按行号抽会把**别的文件**的命中（如扫描器输出多文件/依赖图谱命中
  *   `other.py:37`）套到本文件的 diff 区间上判定 —— 区间外即降级为「存量」，
- *   **真实的新缺陷被放行**（fail-open）。故这里用 file 的 basename 做强校验。
+ *   **真实的新缺陷被放行**（fail-open）。
+ *
+ * ★ CCG 第六轮 i2（upheld）两级收紧：
+ *   ① 不能只用 basename —— `a/util.js:12` 与 `b/util.js:12` 会互认（不同目录同名文件）。
+ *      改为：该行必须包含**完整相对路径**（正斜杠或反斜杠形态）才算本文件命中。
+ *   ② 文件级命中（**无行号**）不得被静默放过：返回 `fileLevel` 计数，
+ *      调用方遇到它时按 **fail-closed 不过滤**处理（无法用区间判定的不放行）。
  *
  * 另外：只用「扩展名 + 冒号 + 行号」这个字面模式，不依赖 \b 与 $ 锚点
- * （实测写 /\s*$/ + /\.(js|…)\b/ 抽不到扫描器那行，行首还有 emoji 前缀，
- *  会导致存量过滤静默失效——门禁照旧阻断而过滤代码看着像生效了）。
+ * （实测写 /\s*$/ + /\.(js|…)\b/ 抽不到扫描器那行，行首还有 emoji 前缀）。
+ *
+ * @returns {{hits: number[], fileLevel: number}}
  */
 function parseSecurityHitLines(output, file) {
   const hits = [];
-  const base = path.basename(String(file || ''));
+  let fileLevel = 0;
+  const rel = String(file || '').replace(/\\/g, '/');
+  const relBack = String(file || '').replace(/\//g, '\\');
+  const base = path.basename(rel);
   for (const line of String(output).split(/\r?\n/)) {
     const m = line.match(/\.(?:js|ts|py|go|java|rs|c|cpp|php):(\d+)/i);
-    if (!m) continue;
-    // 该行必须指向同一个文件（basename 命中），否则是别的文件的命中
-    if (base && !line.includes(base)) continue;
-    hits.push(Number(m[1]));
+    if (m) {
+      // 完整相对路径匹配（两种分隔符形态），避免不同目录同名文件互认
+      const isThisFile = (rel && line.includes(rel)) || (relBack && line.includes(relBack));
+      if (!isThisFile) continue;
+      hits.push(Number(m[1]));
+      continue;
+    }
+    // 提到本文件但没给行号 ⇒ 文件级命中，无法用区间判定，按 fail-closed 处理
+    if ((rel && line.includes(rel)) || (relBack && line.includes(relBack))) fileLevel++;
   }
-  return hits;
+  return { hits, fileLevel };
 }
 
 function runGate(ccgDir, gate, target) {
@@ -366,11 +381,14 @@ function main() {
       ? targetFiles.map((f) => runGate(ccgDir, gate, f))
       : [runGate(ccgDir, gate, null)];
 
-    // ★ 存量命中过滤（2026-10-16 p3-residual-criteria）：
+    // ★ 存量命中过滤（2026-10-16 p3-residual-criteria；CCG 第五/六轮 i1/i2 加固）：
     //   verify-security 只能整文件扫 ⇒ 文件里的存量问题会被算到本次提交头上、拦住提交。
     //   这里对 blocking 的安全门禁做二次判定：**命中行号必须落在本次 diff 的改动区间内**，
     //   区间外的一律降为告警并注明「存量，非本次引入」。
-    //   fail-closed：区间解析失败（返回 null）时不过滤，宁可按存量报也不放行。
+    //   fail-closed 三处，任一触发都**不过滤**（宁可按存量报，不放行）：
+    //     ① 区间解析失败（changedLineRanges 返回 null）；
+    //     ② 本次没改动这个文件（区间为空）⇒ 无从判定；
+    //     ③ 输出里有**文件级命中**（提到本文件但无行号）⇒ 无法用区间判定（CCG 第六轮 i2）。
     const adjusted = results.map((r) => {
       if (r.code === 0 || gate.name !== "verify-security") return r;
       const ranges = changedLineRanges(r.file);
@@ -379,7 +397,17 @@ function main() {
         // 本次没有改动这个文件（例如显式传参扫了别的文件）⇒ 无从判定是否本次引入，不过滤
         return r;
       }
-      const hits = parseSecurityHitLines(r.output, r.file);
+      const parsed = parseSecurityHitLines(r.output, r.file);
+      if (parsed.fileLevel > 0) {
+        // 文件级命中：无法定位行号 ⇒ fail-closed 不过滤（不放行可能的真实缺陷）
+        return {
+          ...r,
+          output: r.output
+            + `\n[存量过滤·fail-closed] 输出含 ${parsed.fileLevel} 处**文件级命中**（提到本文件但无行号），`
+            + `无法用 diff 区间判定 ⇒ 本次不过滤，按原结果阻断。`,
+        };
+      }
+      const hits = parsed.hits;
       if (hits.length === 0) return r;
       const inDiff = hits.filter((ln) => ranges.some(([a, b]) => ln >= a && ln <= b));
       if (inDiff.length === hits.length) return r;
@@ -391,7 +419,8 @@ function main() {
         output: r.output
           + `\n[存量过滤] ${preExisting}/${hits.length} 处命中不在本次 diff 改动区间内 ⇒ 判为存量，不阻断提交。`
           + `\n           改动区间: ${ranges.map(([a, b]) => `${a}-${b}`).join(", ")}`
-          + `\n           （fail-closed：区间解析失败时不过滤）`,
+          + `\n           命中行号: ${hits.join(", ")}（请人工复核是否确为存量）`
+          + `\n           （fail-closed：区间解析失败 / 文件级命中 / 本次未改此文件时不过滤）`,
       };
     });
     const finalResults = adjusted.map((r) =>

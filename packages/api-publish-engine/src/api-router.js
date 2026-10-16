@@ -47,6 +47,17 @@ function derivePublishMode (cfg) {
  *   走 normalizeMode 是 **fail-closed 抛错**的 ⇒ 同一份坏配置，两个读者结论相反
  *   （一个炸、一个静默走 DOM 轨）——正是本 PR 声称要消灭的判据分叉。
  *   现在两处都过同一个归一函数，非法值一致抛错。
+ *
+ * ★ CCG 第六轮 i1（upheld）：但「抛错」不能**级联**。
+ *   loadConfig 里 `_apiPlatforms = Object.entries(...).filter(isApiTrack)` 会在加载时
+ *   对**所有**平台求值；任何一个平台 publishMode 拼错就一路抛到 loadConfig 的 catch
+ *   ⇒ shouldUseApi / supportsApi / listApiPlatforms / getPublishMode **全部**返回 false，
+ *   一个 typo 让整个 App 的 API 路由失效（fail-closed 过度级联：错误影响面从
+ *   「单个平台」放大到「全部平台」）。
+ *   故提供两个入口，语义分离：
+ *     · `isApiTrack(cfg)`      —— 单点查询，**fail-closed 抛错**（调用方明确知道在问哪一个平台）；
+ *     · `isApiTrackSafe(cfg)`  —— 批量推导用，**fail-safe 返回 false 并告警**
+ *       （坏配置的平台退化为「不走 API 轨」，不影响其他平台）。
  */
 function isApiTrack (cfg) {
   if (!cfg || !cfg.has_api) return false
@@ -55,13 +66,27 @@ function isApiTrack (cfg) {
   return mode === pm.MODES.apiOnly || mode === pm.MODES.apiThenDom;
 }
 
+/** isApiTrack 的 fail-safe 版本：非法配置返回 false 并告警，**不抛错**（供批量推导用）。 */
+function isApiTrackSafe (cfg) {
+  try {
+    return isApiTrack(cfg);
+  } catch (e) {
+    logger.warn('api-router',
+      'publishMode 非法，该平台暂按非 API 轨处理（不影响其他平台）: ' + e.message,
+      { publishMode: cfg && cfg.publishMode });
+    return false;
+  }
+}
+
 function loadConfig() {
   if (_platforms) return _platforms;
   try {
     const raw = fs.readFileSync(resolvePlatformConfigPath(), "utf8");
     _platforms = yaml.load(raw).platforms;
+    // ★ CCG 第六轮 i1（upheld）：批量推导必须用 fail-safe 版 —— 用会抛错的 isApiTrack
+    //   会让**任何一个**平台的配置 typo 一路抛到本 catch，导致全部 API 路由静默失效。
     _apiPlatforms = Object.entries(_platforms)
-      .filter(function(e) { return isApiTrack(e[1]); })
+      .filter(function(e) { return isApiTrackSafe(e[1]); })
       .map(function(e) { return e[0]; });
     return _platforms;
   } catch (e) {
@@ -186,5 +211,8 @@ module.exports = {
   //   原先这条判据在 api-router.js 内部 + 三个测试文件里各推导一遍（共 4 份），
   //   新增 publishMode 取值或 sync 重写字段后要 4 处同步，必然漂移。
   //   现在测试与下游一律 require 本函数，不再自己写三元式。
-  isApiTrack,
+  //   ★ CCG 第六轮 i1（upheld）：另导出 fail-safe 版 isApiTrackSafe —— 批量推导
+  //   （loadConfig 的 _apiPlatforms）用它，避免单点配置 typo 级联成全局路由失效；
+  //   单点查询（shouldUseApi / supportsApi）仍用 fail-closed 的 isApiTrack。
+  isApiTrack, isApiTrackSafe,
 };

@@ -114,7 +114,15 @@ test('G) TAG_STYLES 键集 ⊆ 注册表平台集（防再长出不可达孤儿�
   //    「多出的键」会恒为空 ⇒ 本锁**假绿**（本仓已有多次同型事故）。
   const { TAG_STYLES } = require('../src/content-formatter')
   const platforms = Object.keys(registry.PLATFORM_PUBLISH_META)
-  assert.equal(platforms.length, 15, '注册表平台数不是 15 —— 锁的基准本身失效，不得继续判定')
+  // ★ CCG 第六轮 i4（upheld）：这里原先硬编码 `platforms.length === 15`，与「注册表驱动」
+  //   自相矛盾——注册表合法新增平台时断言直接硬失败，而不是给出所宣称的「显式提示」。
+  //   现在改为**下界 + 计数提示**：下限防「解析退化成空集合」的假绿，
+  //   上限刻意不设（新增平台是合法演进，应由下面的 EXPECTED_STYLE/CONFIRMED_DEFAULT_STYLE
+  //   机制去要求人工确认，而不是用一个魔法数把它挡死）。
+  assert.ok(platforms.length >= 15,
+    `注册表平台数 ${platforms.length} < 15 —— 解析退化或注册表被误改，本锁基准失效`)
+  console.log(`  [registry-sync] 注册表平台数 = ${platforms.length}`
+    + `（新增平台需人工确认标签风格，见 CONFIRMED_DEFAULT_STYLE / EXPECTED_STYLE）`)
   assert.ok(TAG_STYLES && typeof TAG_STYLES === 'object', 'TAG_STYLES 未从 content-formatter 导出')
   const keys = Object.keys(TAG_STYLES)
   assert.ok(keys.length > 0, 'TAG_STYLES 为空 —— 解析退化，本锁不得假绿')
@@ -137,10 +145,22 @@ test('G) TAG_STYLES 键集 ⊆ 注册表平台集（防再长出不可达孤儿�
     weibo: '#tag#',
     zhihu: 'plain', wechat_mp: 'plain', baijiahao: 'plain',
   }
-  // 已确认「走默认 '#tag'」的平台登记表（CCG 第五轮 i5）。
-  // 作用：注册表新增平台时，若它还没进 TAG_STYLES，本表决定它是「已确认用默认」
+  // 已确认「走默认 '#tag'」的平台登记表（CCG 第五轮 i5；第六轮 i3 修死代码）。
+  // 作用：注册表新增平台且它还没进 TAG_STYLES 时，本表决定它是「已确认用默认」
   // 还是「未确认 ⇒ 断言红」。当前为空 = 15 个平台全部显式登记，无新平台。
+  //
+  // ⚠️ 顺序至关重要（CCG 第六轮 i3，upheld）：这段检查必须放在下面那个
+  //    「逐平台 assert.equal(TAG_STYLES[p], expected)」循环**之前**。
+  //    原先放在循环后，而循环对 `TAG_STYLES[p] === undefined` 的新平台会**先抛错**，
+  //    导致 `newlyAdded` 永远恒为空 ⇒ 这段「新平台需显式确认」的防护是**死代码**，
+  //    注释声称的「不静默按 '#tag' 通过」名不副实。现已前移。
   const CONFIRMED_DEFAULT_STYLE = []
+  const newlyAdded = platforms.filter((p) => TAG_STYLES[p] === undefined)
+  const unconfirmed = newlyAdded.filter((p) => !CONFIRMED_DEFAULT_STYLE.includes(p))
+  assert.deepEqual(unconfirmed, [],
+    `注册表新增平台（${newlyAdded.join(', ')}）尚未确认标签风格 —— 请人工确认后加入 `
+    + `CONFIRMED_DEFAULT_STYLE（默认按 '#tag'），或在 EXPECTED_STYLE 里显式登记其真实样式`)
+
   for (const p of platforms) {
     const expected = EXPECTED_STYLE[p] || '#tag'
     assert.equal(
@@ -157,15 +177,6 @@ test('G) TAG_STYLES 键集 ⊆ 注册表平台集（防再长出不可达孤儿�
   const unknownExpected = Object.keys(EXPECTED_STYLE).filter((p) => !platforms.includes(p))
   assert.deepEqual(unknownExpected, [],
     `EXPECTED_STYLE 含注册表外的平台: ${unknownExpected.join(', ')}（期望表必须与注册表对齐）`)
-  // 注册表新增平台 ⇒ 必须**显式确认**，不得静默按 '#tag' 通过（CCG 第五轮 i5）：
-  // 新平台的真实标签风格可能不是 '#tag'（需要 '#tag#'/plain），只 console.log 会让
-  // 错误映射静默固化，与注释声称的「需人工确认」不符。机械做法：把「已确认」写成
-  // 一张登记表（CONFIRMED_DEFAULT_STYLE），未登记的新平台**直接红**，提示补登记。
-  const newlyAdded = platforms.filter((p) => TAG_STYLES[p] === undefined)
-  const unconfirmed = newlyAdded.filter((p) => !CONFIRMED_DEFAULT_STYLE.includes(p))
-  assert.deepEqual(unconfirmed, [],
-    `注册表新增平台（${newlyAdded.join(', ')}）尚未确认标签风格 —— 请人工确认后加入 `
-    + `CONFIRMED_DEFAULT_STYLE（默认按 '#tag'），或在 EXPECTED_STYLE 里显式登记其真实样式`)
   // 期望表不得为空（防「删光 ⇒ 断言退化成恒等于默认」的假绿）
   assert.ok(Object.keys(EXPECTED_STYLE).length >= 4,
     `EXPECTED_STYLE 条目数 ${Object.keys(EXPECTED_STYLE).length} < 4 ⇒ 本锁基准失效`)
