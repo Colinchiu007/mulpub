@@ -6,6 +6,7 @@
 - **14 条逐条取证后修复**（规则先读代码，不按红字猜）：2 个文件是**两个 JSON 对象直接拼接**、1 个被**转义过一次**、2 个是 JSON 串里未转义的盘符路径（顺带暴露 `	` 会被静默吃成 TAB）、4 个 `status` 与 `currentPhase` 互相矛盾、4 个 change 引用写成整路径或**带日期目录名**（索引建键会剥日期 ⇒ 数据坏不是探针瞎）、1 个真悬空——后者走检查器自带的 `superseded + supersededBy` 合法出口，**不删引用也不伪造 change 目录**。改完 `taskFiles=387 / parsedTasks=387 / errors=0 / violations=0 / rc=0`。
 - **反证 4 条红因互不相同**：摘接线红在「job 会被跳过」；注入违规红在「必须自证合规」并点名文件；根指向空目录红在「找不到 .ccg/tasks」；根指向"目录都在但只有 1 个 task.json"的仓库**只有规模下界会红**（证它不是装饰）。MD 第一次跑误报成"根不存在"，根因是**探针自己坏了**（对 `JSON.stringify` 结果多做一次反斜杠折叠 ⇒ 生成的字面量里 `	` 变 TAB），修的是探针不是断言。
 - 契约与逐条归因见 `01-docs/PRD-OPENSPEC-SYNC-REALREPO-2026-10-16.md` 与 `openspec/records/openspec-sync-realrepo.md`。
+- **CI 首跑红在 Gate 2c，红因是我漏跑了一条锁**：本地只跑了 `check-unwired-tests.js` 判据本体（rc=0），没跑它自己的测试；那条测试第 24 条把 `MUST_LIVE_IN_UNGATED_JOB` 钉成精确清单，我的新增登记当场把它顶红。修法除更新钉住的清单外，还把「承载 job 的现场证据」从硬编码单文件泛化为逐登记项循环（注释行不算承载）。**如实**：摘掉接线的变异先红在 `collectCheck` 那条，新循环未被该变异到达，故只申报为 defense-in-depth，不申报"已反证"。
 
 # [未发布] docs(podcast): 音色来源三态标注的合同落进 PRD §8.2.9（podcast-voice-source-spec）
 

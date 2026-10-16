@@ -620,7 +620,7 @@ test("真实仓库：接线资格清单只能缩小，且登记的锁确实住�
   )
   assert.deepEqual(
     Object.keys(checker.MUST_LIVE_IN_UNGATED_JOB).sort(),
-    ["scripts/quality-rhythm-spec-mirror.test.js"],
+    ["scripts/openspec-sync-check.test.js", "scripts/quality-rhythm-spec-mirror.test.js"],
     "接线资格登记表只能缩小；新增登记须在同 PR 把点名补进不被跳过的 job",
   )
   for (const [file, ack] of Object.entries(checker.MUST_LIVE_IN_UNGATED_JOB)) {
@@ -636,13 +636,17 @@ test("真实仓库：接线资格清单只能缩小，且登记的锁确实住�
   const r = checker.collectCheck(root, checker.KNOWN_UNWIRED, checker.KNOWN_NESTED_WORKFLOWS, checker.MUST_LIVE_IN_UNGATED_JOB)
   assert.deepEqual(r.ungatedViolations.map((v) => v.file), [], "登记的锁必须真的住在不被 docs-only 短路的 job 里")
   assert.deepEqual(r.staleUngated.map((v) => v.file), [], "存在过时的接线资格登记，请删除")
-  // 现场证据：点名它的那一行确实落在 changes job 的可执行正文里（不是靠"某处出现了文件名"）
-  const carriers = jobs.filter((j) => j.code.includes("scripts/quality-rhythm-spec-mirror.test.js"))
-  assert.ok(carriers.length >= 1, `没解析到点名该锁的 job：${JSON.stringify(jobs.map((j) => j.name))}`)
-  assert.ok(
-    carriers.some((j) => !j.gated && j.name === "changes"),
-    `该锁的承载 job 应为不被门控的 changes，实际：${JSON.stringify(carriers.map((j) => [j.workflow, j.name, j.gated]))}`,
-  )
+  // 现场证据按**每个登记项**核（原先只硬编码核 spec-mirror 那一条，新增登记等于免检）：
+  // 点名它的那一行必须落在不被 job 级 if 门控的 changes 作业**可执行正文**里 ——
+  // 注释行里提一句不算承载（与 collectCheck 的「注释不算点名」同口径，否则这条判据比它守的东西还松）。
+  for (const file of Object.keys(checker.MUST_LIVE_IN_UNGATED_JOB)) {
+    const carriers = jobs.filter((j) => j.code.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n').includes(file))
+    assert.ok(carriers.length >= 1, `没解析到点名 ${file} 的 job：${JSON.stringify(jobs.map((j) => j.name))}`)
+    assert.ok(
+      carriers.some((j) => !j.gated && j.name === "changes"),
+      `${file} 的承载 job 应为不被门控的 changes，实际：${JSON.stringify(carriers.map((j) => [j.workflow, j.name, j.gated]))}`,
+    )
+  }
 })
 
 // —— 点名匹配的两条「假绿」方向（QM-6 两轴各自独立命中，逐条核过代码后确认都成立）——
