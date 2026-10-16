@@ -134,8 +134,11 @@ export default {
     republishUnavailable: 'This record has no saved content snapshot (early record or snapshot pruned), so it cannot be published again',
     // Batch badge: one N-platform publish writes N *independent* records (status, audit,
     // post link and metrics are all per-platform actions); the badge restores the grouping.
-    batchBadge: (ctx) => ctx.named('count') + ' platforms in one batch',
-    batchTooltip: (ctx) => 'Published together with ' + ctx.named('platforms'),
+    // The badge states only "same publish": the number is computed from records visible on the
+    // current page, so it may undercount across pages or after filtering — never assert a total
+    // in the badge itself (CCG deep review i1); the visible count lives in the tooltip.
+    batchBadge: () => 'Same batch',
+    batchTooltip: (ctx) => 'Published together with ' + ctx.named('platforms') + ' (' + ctx.named('count') + ' visible here; the batch may be larger)',
     // Post engagement metrics: see the account-metrics service header for the data source.
     metricsRefresh: 'Refresh data',
     metricsRefreshing: 'Collecting…',

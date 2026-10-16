@@ -343,7 +343,12 @@
       <section class="record-detail-modal" role="dialog" aria-modal="true" aria-labelledby="record-detail-title">
         <header class="record-detail-header">
           <div><span class="record-detail-eyebrow">{{ t('historyPage.detailEyebrow') }}</span><h2 id="record-detail-title">{{ recordTitle(selectedRecord) }}</h2></div>
-          <button type="button" class="record-detail-close" data-testid="close-record-detail" :aria-label="t('historyPage.closeDetail')" @click="closeRecordDetail">×</button>
+          <!-- 详情弹窗是 PRD §5.1 承诺的第二个入口：看完详情直接重发，不必退回卡片找按钮。
+               禁用条件与卡片完全同一份判据（canRepublish/republishHint），不另写一套。 -->
+          <span class="record-detail-header-actions">
+            <button type="button" class="record-action republish" :class="{ 'is-disabled': !canRepublish(selectedRecord) }" data-testid="detail-republish" :disabled="!canRepublish(selectedRecord)" :title="republishHint(selectedRecord)" @click="republishRecord(selectedRecord)">{{ t('historyPage.republish') }}</button>
+            <button type="button" class="record-detail-close" data-testid="close-record-detail" :aria-label="t('historyPage.closeDetail')" @click="closeRecordDetail">×</button>
+          </span>
         </header>
         <div v-if="detailLoading" class="record-detail-state" data-testid="history-detail-loading">
           <UiSkeleton variant="paragraph" :rows="4" />
@@ -1352,6 +1357,7 @@ onMounted(loadRecords)
 .record-detail-backdrop { position: fixed; inset: 0; z-index: 10000; display: grid; place-items: center; padding: 24px; background: rgba(25, 28, 48, .32); }
 .record-detail-modal { width: min(640px, 100%); max-height: min(720px, 90vh); overflow: auto; border-radius: 14px; background: var(--color-bg-card); box-shadow: 0 18px 60px rgba(23, 30, 65, .24); }
 .record-detail-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding: 22px 24px; border-bottom: 1px solid #edf0f7; }
+.record-detail-header-actions { display: flex; align-items: center; gap: 10px; }
 .record-detail-eyebrow { color: #8b92a7; font-size: var(--font-size-xs); }
 .record-detail-header h2 { margin: 4px 0 0; color: #20243e; font-size: var(--font-size-md); }
 .record-detail-close { width: 30px; height: 30px; border: 0; border-radius: 50%; background: #f4f5fa; color: #68708b; font-size: var(--font-size-lg); cursor: pointer; }

@@ -28,6 +28,10 @@ export const SNAPSHOT_ARTICLE_FIELDS = [
   'title',
   'content',
   'author',
+  // 「AI 生成声明」是**发布选项**而不是文案：表单默认 true，不还原就会在下一次发布时
+  // 静默把用户上次的显式选择翻回默认（合规相关，不能靠默认值兜）。CCG 深度审查 i2 指出的
+  // 「主进程存、渲染端不还原」正是这一格。
+  'aiGenerated',
   'cover_url',
   'cover_path',
   'cover_file',
@@ -96,6 +100,12 @@ export function applyPublishSnapshot (snapshot, targets, options = {}) {
     // 折成空串会让「没关联」与「关联被抹」不可区分。
     if (field === 'rewriteHistoryId') {
       article[field] = normalizeRewriteLineage(snapshot[field])
+      continue
+    }
+    // 布尔选项例外：通用分支的 `snapshot[field] || ''` 会把 `false` 折成空串（在 checkbox 上
+    // 反而为真），也会把「快照没有这个字段」的旧记录折成空串而不是保持表单当前值。
+    if (field === 'aiGenerated') {
+      if (typeof snapshot[field] === 'boolean') article[field] = snapshot[field]
       continue
     }
     article[field] = SNAPSHOT_ARRAY_FIELDS.has(field)

@@ -133,8 +133,10 @@ export default {
     republishUnavailable: '这条记录未保存原始内容（早期记录或快照已被清理），无法再次发布',
     // 同批徽标：一次 N 平台发布落 N 条**独立**记录（状态/审核/作品链接/互动数据都是
     // 平台级动作，合并成一条会丢掉可执行性）；徽标把「这几条属于同一次发布」补回来。
-    batchBadge: (ctx) => '同批 ' + ctx.named('count') + ' 个平台',
-    batchTooltip: (ctx) => '与 ' + ctx.named('platforms') + ' 属于同一次发布',
+    // 徽标只陈述「属于同一次发布」这个事实：条数由**当前页可见记录**现算，跨页或被筛选拆散时
+    // 会偏小，因此不在徽标里断言总数（CCG 深度审查 i1），可见条数只放悬停说明。
+    batchBadge: () => '同批',
+    batchTooltip: (ctx) => '与「' + ctx.named('platforms') + '」属于同一次发布（本页可见 ' + ctx.named('count') + ' 条，同批可能更多）',
     // 作品互动数据（播放/评论/点赞/收藏/分享）：数据源见 account-metrics 服务头注释。
     // 「非实时」是产品取舍，必须写在界面上。
     metricsRefresh: '刷新数据',

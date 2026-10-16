@@ -110,12 +110,32 @@ describe("applyPublishSnapshot / 字段映射", () => {
     const t = makeTargets();
     const full = {};
     for (const field of SNAPSHOT_ARTICLE_FIELDS) {
-      full[field] = field === "rewriteHistoryId" ? "rw" : (field === "images" ? ["a"] : "值");
+      full[field] = field === "rewriteHistoryId" ? "rw" : field === "aiGenerated" ? false : (field === "images" ? ["a"] : "值");
     }
     applyPublishSnapshot(full, t);
     for (const field of SNAPSHOT_ARTICLE_FIELDS) {
       expect(t.article[field], `${field} 未被写回`).toBeDefined();
     }
+  });
+
+  // CCG 深度审查 i2：`aiGenerated` 是**发布选项**（表单默认 true），不在映射里就等于
+  // 「存了但永不还原」，下一次发布会把用户的显式选择静默翻回默认。
+  it("布尔选项 aiGenerated 原样还原：false 不得被折成空串", () => {
+    const t = makeTargets({ aiGenerated: true });
+    applyPublishSnapshot(snapshot({ aiGenerated: false }), t);
+    expect(t.article.aiGenerated).toBe(false);
+
+    const t2 = makeTargets({ aiGenerated: false });
+    applyPublishSnapshot(snapshot({ aiGenerated: true }), t2);
+    expect(t2.article.aiGenerated).toBe(true);
+  });
+
+  it("快照没有 aiGenerated（更早的记录）时保持表单当前值，不翻默认", () => {
+    const t = makeTargets({ aiGenerated: true });
+    const snap = snapshot();
+    delete snap.aiGenerated;
+    applyPublishSnapshot(snap, t);
+    expect(t.article.aiGenerated).toBe(true);
   });
 });
 

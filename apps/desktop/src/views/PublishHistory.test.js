@@ -1323,6 +1323,37 @@ describe('PublishHistory「再次发布」与批次/链接原因', () => {
     expect(pushMock).not.toHaveBeenCalled()
   })
 
+  // PRD §5.1 承诺的两个入口：卡片 + 详情弹窗。只做卡片会与契约不符（CCG 深度审查 i3）。
+  it('详情弹窗内也能「再次发布」，判据与卡片完全同一份（有快照可点 / 无快照禁用）', async () => {
+    recordsPage([{ id: 'rec-dlg', title: '标题', platform: 'zhihu', status: 'success', hasRepublishSnapshot: true }])
+    const wrapper = mountView()
+    await flushHistory()
+
+    await wrapper.get('[data-testid="detail-rec-dlg"]').trigger('click')
+    await flushHistory()
+
+    const btn = wrapper.get('[data-testid="detail-republish"]')
+    expect(btn.attributes('disabled')).toBeUndefined()
+    expect(btn.attributes('title')).toBe(i18n.global.t('historyPage.republishHint'))
+    await btn.trigger('click')
+    expect(pushMock).toHaveBeenCalledWith('/publish?republish=rec-dlg')
+  })
+
+  it('详情弹窗内无快照时同样禁用并写明原因（两入口不得各写一套判据）', async () => {
+    recordsPage([{ id: 'rec-dlg-old', title: '标题', platform: 'zhihu', status: 'success' }])
+    const wrapper = mountView()
+    await flushHistory()
+
+    await wrapper.get('[data-testid="detail-rec-dlg-old"]').trigger('click')
+    await flushHistory()
+
+    const btn = wrapper.get('[data-testid="detail-republish"]')
+    expect(btn.attributes('disabled')).toBeDefined()
+    expect(btn.attributes('title')).toBe(i18n.global.t('historyPage.republishUnavailable'))
+    await btn.trigger('click')
+    expect(pushMock).not.toHaveBeenCalled()
+  })
+
   it('hasRepublishSnapshot 必须是严格 true 才算有快照（字符串真值不算）', async () => {
     recordsPage([{ id: 'rec-str', title: '标题', platform: 'zhihu', status: 'success', hasRepublishSnapshot: 'true' }])
     const wrapper = mountView()

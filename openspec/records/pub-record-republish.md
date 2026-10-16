@@ -101,3 +101,21 @@ sync_backfill_owner: 下一个会话（或本会话合并后立即回填）
 | `QG Visual` | `check-baseline-freshness.js` 判 `publish-history-dark.png` **4116 px (0.198%)**、`publish-history.png` **432 px (0.021%)** —— 每条记录卡片新增「再次发布」按钮，是**刻意的 UI 变更** | 用 **CI 自己的渲染**刷新这两张基线（本地 dev server 的渲染与 CI 不同形，不能拿本地图当基线）：从 CI artifact `quality-gate-visual-reports` 取 `screenshots/publish-history.png` 与 `screenshots/publish-history-dark-current.png` 覆盖两张基线；本机复跑**同一判据** `check-baseline-freshness.js --renders=<artifact screenshots> --baselines=<基线目录>` ⇒ 违规 **2 → 0**（修复前本机复现到与 CI **完全一致**的 4116 px / 0.198%，即判据同源） |
 
 判据口径（值得记住）：`check-baseline-freshness.js` 对每张基线找 `<name>.png` 或 `<name>-current.png`，`--max-drift-px=0` 即**逐像素对账**，因此「UI 有意变更」的正解是**刷新基线**（不是改阈值或加豁免），而刷新必须用 CI 的渲染。本地 `pnpm run test:visual:pixel:dark` 因缺 dev server（`127.0.0.1:5174` ECONNREFUSED）**拒绝出结论**——这是预期行为（工具自己说明「缺宿主时每个视图都会死在 page.goto，与真实回归同形」），不是缺陷；也正是它挡住了「拿本地图当 CI 证据」这一步。
+
+### CCG 深度审查闭环（QM-6，2026-10-16）
+
+判定记录：`.ccg/reviews/d8b4c7f954a9bc50f0251005971357e0474f0cbf.json`（mode=dual，变更 9527 行 > 200 行阈值）。
+执行：`sh scripts/deep-review.sh` —— 跨家族校验通过（proposer=opencode / critic=claude），claude 评出 **8 条问题**（维度 4 个，最低分 6），引擎走**第三档自扮演出口**并生成裁决模板 `.adversarial/ccg-deep-d8b4c7f9/adjudication.json`。
+
+**4 条争议逐条裁决为 `upheld`（指控成立），且已逐条修复 —— 不是「写理由后豁免」**：
+
+| id | 指控 | 裁决与修法 |
+|---|---|---|
+| i1 | 同批徽标只统计**当前页可见**记录，「同批 N 个平台」在跨页/筛选拆散时是错误陈述 | upheld。徽标改为不断言总数的「同批」，可见条数与「同批可能更多」移入 tooltip（zh/en 成对）。前端拿不到同批真值 ⇒ 唯一诚实的做法是不在徽标里给数 |
+| i2 | 主进程存了 `aiGenerated`，渲染端映射表没有 ⇒ 重发时 AI 声明静默翻回默认 | upheld。① `aiGenerated` 进 `SNAPSHOT_ARTICLE_FIELDS`；② `applyPublishSnapshot` 增加**布尔分支**（通用分支的 `\|\| ''` 会把 `false` 折成空串、在 checkbox 上反而为真；快照缺该字段时**保持表单现值**）；③ 新增 2 条测试。`contentFormat` 渲染端无此字段可还原，**有意只留主进程审计档** |
+| i3 | PRD §5.1 承诺「卡片 + 详情弹窗」两个入口，实现只有卡片 | upheld。详情弹窗 header 增加 `detail-republish`，**复用同一份 `canRepublish/republishHint/republishRecord`**（不另写判据），新增 2 条测试 |
+| i4 | `hasUnsavedInput` 只判 title/content ⇒ 只改了封面/话题/账号时静默覆盖，属数据丢失面 | upheld。扩到封面/`video_path`/`images`/`tags`/`topics`/**已选账号**；刻意**不判** `selectedPlatforms`（表单预选不是用户输入，判它会把确认弹窗变成人人必遇的噪音） |
+
+闭环状态：`deepReview.status = self_play_resolved`（闭环词表内），`closure` 字段记录逐条修法、裁决产物路径与置信度限制；`check-pr-exec-record.js --mode=enforce` 已 **OK**。首提交时钩子写下的同名记录 `fccee8c26…json` 内容即同一变更，已标注 `supersededBy` 指向最终 HEAD 的记录，避免同一变更携带两份互不相认的判定。
+
+**置信度限制（不假装已闭合）**：本次是**自扮演出口**（`confidenceWeight=0.6`），不是真跨家族独立复核；高危域争议 0 条、无外部复核要求。`self_play_resolved` 的含义是「裁决已填 + 已修」，不等于「通过了跨家族双模型独立复核」。

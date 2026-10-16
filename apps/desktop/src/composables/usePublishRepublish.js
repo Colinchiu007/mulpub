@@ -89,7 +89,18 @@ export function usePublishRepublish (deps) {
       return abort()
     }
 
-    const hasUnsavedInput = Boolean(String(article.title || '').trim() || String(article.content || '').trim())
+    // 「有没有未保存输入」只判正文会漏掉「用户只改了封面/视频/话题/图片/已选账号」这一整类
+    // ——那些同样是不可逆的覆盖面（CCG 深度审查 i4）。平台预选不算用户输入，故判已选账号
+    // 而不是 selectedPlatforms。
+    const hasUnsavedInput = Boolean(
+      String(article.title || '').trim() ||
+      String(article.content || '').trim() ||
+      article.cover_url || article.cover_path || article.cover_file || article.video_path ||
+      (Array.isArray(article.images) && article.images.length > 0) ||
+      (Array.isArray(article.tags) && article.tags.length > 0) ||
+      (Array.isArray(article.topics) && article.topics.length > 0) ||
+      Object.values(selectedAccounts.value || {}).some(list => Array.isArray(list) && list.length > 0)
+    )
     if (hasUnsavedInput) {
       const confirmed = await notifyConfirm('publishPage.republishDiscardConfirmMessage', {
         title: t('publishPage.republishDiscardConfirmTitle'),
