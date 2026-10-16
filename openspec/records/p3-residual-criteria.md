@@ -122,7 +122,7 @@ D 修完后「没有任何平台的 TAG_STYLES 键缺席」⇒ 原用例里「�
 
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
-| 变更类型与隔离 | ✅ | 运行时代码（`packages/` + `config/`）+ 判据脚本（`scripts/`）⇒ **混合 PR**，worktree `D:\Data\projects\mp-worktrees\mp-p3-residual-criteria`，裸分支 `p3-residual-criteria` |
+| 变更类型与隔离 | ✅ | 运行时代码（`packages/` + `config/`）+ 判据脚本（`scripts/`）⇒ **混合 PR**，worktree `<MP_WORKTREES>/mp-p3-residual-criteria`，裸分支 `p3-residual-criteria` |
 | 第一性原因（QM-5 ①） | ✅ | 四项各自的取证见上（不是「判据说红就改」）|
 | 逃逸分析（QM-5 ②） | ✅ | 见下「逃逸链」|
 | 修复 + 回归保护（QM-5 ④） | ✅ | 6 个适配器 + 1 处配置 + 1 张表 + 2 条判据；新增 6 条行为/结构测试 + 2 条判据下界测试 + 1 条契约锁 |
