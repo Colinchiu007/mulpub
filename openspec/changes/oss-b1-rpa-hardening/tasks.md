@@ -45,7 +45,12 @@
 - [x] 6.3 manifest 建表：camoufox（npm 版本→BUNDLED_CAMOUFOX_RELEASE+sha256）与 ddddocr（requirements 版本+模型 sha256）落 media-tools-lock 同级 speech-sidecar-lock.json —— 落 `apps/desktop/sidecar-lock.json`（按内容命名，未用 tasks 里的 speech- 前缀，理由已写入 lock `_doc` 段）+ 校验器 122 行 + 测试 13 例，变异 6/6 CAUGHT。**两源真实取证**：npm registry `@askjo/camofox-browser@1.18.1`（SRI+shasum）与 GitHub Releases `daijro/camoufox` tag `v152.0.4-beta.30` 六平台官方 sha256/size；`BUNDLED_CAMOUFOX_RELEASE=152.0.4-beta.30` 取自 wrapper 源码常量。**审包发现**：wrapper 下载链路不做任何 sha256 校验（`checkAsset` 只匹配资源名前缀，失败走 `process.exit(0)`）⇒ 首下无 hash 保障，只有 spawn 前复检，即 PRD §3.4 ③ 的真实边界。**ddddocr 显式 `status=pending`**（onnx 权重 hash 未取证），`resolveAsset` fail-closed 拒绝启动——留洞比留假 hash 安全
 
 ### 7. F3 camofox 通道
-- [ ] 7.1 `@askjo/camofox-browser@<pinned>` 依赖 + postinstall 下载路径适配（fail=warn→手动 fetch-bin→通道降级三级）—— **待你决策接入方式 A/B/C**（见下「未决」）
+- [x] 7.1 `@askjo/camofox-browser@<pinned>` 依赖 + postinstall 下载路径适配（fail=warn→手动 fetch-bin→通道降级三级）—— **方案 A**：
+  - `package.json` pin 精确 `1.18.1`（不用 ^，避免 lock 漂移）
+  - **不加进 `pnpm-workspace.yaml` 的 `allowBuilds`**（pnpm 10+ 白名单机制 ⇒ postinstall 不跑 ⇒ install 不拉 500MB），并补 8 行注释防后人「顺手补全」
+  - `pnpm run fetch:camofox` 手动拉，自带 `sidecar-lock.json` 的 GitHub Releases 官方 sha256 校验（camofox 自身不校验）
+  - 实证：`node_modules/@askjo/camofox-browser` 存在而 `%LOCALAPPDATA%\camoufox\...\Cache` 不存在
+  - **删掉一度加的 `package.json` `pnpm.neverBuiltDependencies`**：pnpm 11 已废弃该字段（`pnpm config get` 报 WARN "no longer read by pnpm ... ignored"），新家在 `pnpm-workspace.yaml`
 - [x] 7.2 `stealth-channel-camofox.js`：CDP-WebSocket 驱动，复用行为层接口（第二个 driver）；仅绑 127.0.0.1+一次性 token —— 234 行 + 测试 17 例，变异 8/8 CAUGHT。与 `cdp-input.js` 同接口同返回语义（D2）；`assertLoopbackEndpoint` 构造时即拒非回环；合成事件走 `Runtime.evaluate`（camoufox 无 executeJavaScript）。**按变异结果删掉一处冗余防御**（`close()` 的 `if(closed) return` 与 `ws=null` 叠加，摘掉无可观测差异）
 - [x] 7.3 rpa-view-manager `channel:'stealth'` 路由 + 映射表（publish-capabilities.json）—— **判定层已落、manager 薄接线待 7.1**：`resolvePublishChannel(platformId,{hostIsUsable})` 纯函数已入 `publish-capabilities.{js,browser.js}` 两侧（含 parity 锁），配置面 `riskControl.stealthChannelPlatforms` 已随 PR-1 落地。抽成纯函数正是为了与 7.1 的依赖决策解耦
 - [x] 7.4 RED：路由映射/缺省/sidecar 不可用回落 Electron 通道+warn（禁静默）—— 三态全落 + parity 3 条，变异 5/5 CAUGHT。回落必带 `fallbackReason='stealth-channel-unavailable'`（禁静默，供调用方 warn 并写入发布结果，PRD §3.4 评审 FE3 留痕）
