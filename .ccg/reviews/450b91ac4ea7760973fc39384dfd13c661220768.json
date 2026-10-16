@@ -1,0 +1,30 @@
+{
+  "sha": "450b91ac4ea7760973fc39384dfd13c661220768",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 136 行（≤ 200）但命中 auth/数据库/加密：敏感内容 1 处",
+  "stats": {
+    "changedLines": 136,
+    "fileCount": 8,
+    "codeFileCount": 3,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 1,
+    "docSensitiveContentHits": 3,
+    "docSensitiveContentSample": [
+      "| `cookies` | 加密凭证 ∪ 账号 session 分区 Cookie，按 `name + domain` 去重（前者优先） | 只保留 `isPlatformCookieDomain(platform, cookie.domain)` 命中的项；注入前统一 `sameSite` 归一（`no_restriction` / `strict` / `lax`），`expires` 归一为秒 |",
+      "| 1 | 加密凭证与分区 Cookie **均无** | 确定失效 | `NO_COOKIE_NO_STORAGE` → `expired` |",
+      "- **可观测**：每次放弃兜底都写一条 `WARN`，含 `platform:accountId`、`cookies=N`、`lsKeys=N`、是否在允许集——这条日志是\"策略生效了多少次\"的唯一凭据。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "c62365811a8f1827fdaf714a8349f425512cd64284e903f04db5f092b1c21fbb",
+  "decidedAt": "2026-10-16T16:50:00.560Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

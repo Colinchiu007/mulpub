@@ -569,6 +569,14 @@ async function getAccountProxyStatusLazy (accountId, platform, options = {}) {
  * @param {string} accountId - 账号 ID
  * @returns {Promise<{valid: boolean|undefined, code?: string, reason?: string, error?: string}>}
  */
+// 登录态判定的两个集合（2026-10-16 策略翻转；详见 checkLoginStatus 内注释与
+// 01-docs/BUGFIX-LOGIN-CHECK-HTTP-ONLY-2026-10-16.md）。
+// 放在模块级而非函数内，是为了让测试能注入「允许集」：默认空集本身是产品不变量
+// （由 account-manager-http-only-policy.test.js 的结构锁守），但被它门控的子行为
+// （数组选择器逐个尝试、仪表盘域名兜底）仍必须可测，否则会退化成无人覆盖的死代码。
+const DOM_LOGIN_CHECK_ALLOWED_PLATFORMS = new Set([])
+const RENDER_CRASH_PRONE_OPEN_PLATFORMS = new Set(['toutiao', 'wechat_mp', 'baijiahao', 'zhihu', 'kuaishou'])
+
 async function checkLoginStatus (platform, accountId) {
   if (!isSafePathSegment(platform) || !isSafePathSegment(accountId)) {
     return { valid: false, code: 'CHECK_LOGIN_INVALID_PARAMS' }
@@ -694,9 +702,37 @@ async function checkLoginStatus (platform, accountId) {
     // cp.kuaishou.com 真机登录页/已登录页形态证据就不许凭空写判据，故其登录态在 HTTP
     // 判定不足时会显示「未确认」。要恢复确定性结论，先取证再按 zhihu 模式补。
     const RENDER_CRASH_PRONE_OPEN_PLATFORMS = new Set(['toutiao', 'wechat_mp', 'baijiahao', 'zhihu', 'kuaishou'])
+    //
+    //
+    // ===== 2026-10-16 策略翻转：登录态判定收敛到 HTTP 单轨 =====
+    // 上面这份 `RENDER_CRASH_PRONE_OPEN_PLATFORMS` 是**枚举式**的：它把「已知会崩的平台」
+    // 挑出来禁掉，于是**默认值始终留在崩的那一侧** —— 2026-09-16 toutiao → 10-06 wechat_mp
+    // → 10-14 知乎（#3726）→ 10-16 kuaishou，每换一个平台就再崩一次（真机现场：应用日志
+    // 戛然而止停在 `checkLoginStatus: start <platform>`、crashpad not connected、主进程退出
+    // 0xC0000135，随后全部 electron 进程消失、窗口空白 ⇒ 用户视角「应用突然关闭」）。
+    // 更关键的是 2026-10-16 实测：只拆启动参数（--no-sandbox 与 swiftshader 互斥）**不足以**
+    // 收敛——同一实例第一轮 kuaishou 检测通过，30 分钟后的第二轮仍在同一处崩溃 ⇒ 这条支路
+    // 本身必须默认关闭。
+    // 本仓外的实证（本地逆向 参考产品A（Electron 版），Electron v4.14.20 app.asar）：它的
+    // `--no-sandbox` / `swiftshader` / GPU 开关命中数均为 0，`loginStatus`/`isLogin`/
+    // `loginState` 标识符全 0，登录走**可见** BrowserView + Cookie 提取，判定与发布全走
+    // 平台 HTTP API，`render-process-gone` 只挂在普通 UI 窗口上且处理是 `browserWindow.reload()`
+    // （可恢复，不升级为应用级） ⇒ 它**根本没有**"隐藏窗口抓 DOM 判登录"这条路。
+    // 新契约：**只有**显式登记在 `DOM_LOGIN_CHECK_ALLOWED_PLATFORMS` 的平台才允许开隐藏
+    // 窗口；该集合**默认为空** ⇒ 一切"不确定"都判未确认，不拿整个应用的存活去赌一个账号的
+    // 状态。`RENDER_CRASH_PRONE_OPEN_PLATFORMS` 保留为**硬否决**，且**先于**允许集判定
+    // （否决永远赢）。要恢复某平台的 DOM 兜底：把它加进允许集，并在同一次提交附上**真机
+    // 复测证据**（该平台隐藏窗口加载不再崩溃）；不得用环境变量临时开启。
+    // 代价（明说）：更多账号会长期显示「未确认」（既有第三态，不新增文案，不计入失效、
+    // 不触发主页失效横幅）。正解是给它补 HTTP 侧能力（`HTTP_CHECK_APIS[p].checkHtml`），
+    // 而不是重新打开隐藏窗口。
     if (RENDER_CRASH_PRONE_OPEN_PLATFORMS.has(platform)) {
       log.warn('AccountManager', 'checkLoginStatus: INCONCLUSIVE render-crash-prone, skip hidden browser ' + platform + ':' + accountId + ' cookies=' + cookies.length + ' lsKeys=' + lsKeys)
       return { valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE', reason: 'render-crash-prone-http-inconclusive' }
+    }
+    if (!DOM_LOGIN_CHECK_ALLOWED_PLATFORMS.has(platform)) {
+      log.warn('AccountManager', 'checkLoginStatus: INCONCLUSIVE hidden-browser-disabled-default, skip hidden browser ' + platform + ':' + accountId + ' cookies=' + cookies.length + ' lsKeys=' + lsKeys + ' allowed=' + DOM_LOGIN_CHECK_ALLOWED_PLATFORMS.has(platform))
+      return { valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE', reason: 'hidden-browser-disabled-default' }
     }
     // 创建临时 context 加载 Cookie 进行验证
     const browser = await playwrightManager.getContext({ show: false })
@@ -1204,4 +1240,7 @@ module.exports = {
   credentialStore,
   // 供测试对「批量 proxy 读取」单独注入桩（不必连带桩掉整份凭证存储）
   proxyStatusReader,
+  // 供测试注入「允许集」以覆盖被它门控的子行为（数组选择器逐个尝试、仪表盘域名兜底）。
+  // 生产代码不得读取它；「默认空集」由 account-manager-http-only-policy.test.js 的结构锁守。
+  _internals: { DOM_LOGIN_CHECK_ALLOWED_PLATFORMS, RENDER_CRASH_PRONE_OPEN_PLATFORMS },
 }

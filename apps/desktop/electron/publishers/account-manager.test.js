@@ -875,6 +875,11 @@ describe('checkLoginStatus 多选择器回归（数组选择器逐个尝试）',
 
     try {
       const accountManager = loadAccountManager()
+      // 2026-10-16 策略翻转：隐藏窗口兜底**默认关闭**（允许集为空集），本用例要验的是
+      // 被它门控的**子行为**（数组选择器逐个尝试），故显式把被测平台注入允许集。
+      // 产品默认值仍为空集 —— 由 account-manager-http-only-policy.test.js 的结构锁守。
+      // loadAccountManager() 每次删 require 缓存并重新 require，故此处注入不会泄漏到其它用例。
+      accountManager._internals.DOM_LOGIN_CHECK_ALLOWED_PLATFORMS.add('douyin')
       vi.spyOn(accountManager.credentialStore, 'loadCredential').mockReturnValue({
         platform: 'douyin',
         cookies: [{ name: 'sid', value: 'v1', domain: '.douyin.com' }],
@@ -921,6 +926,9 @@ describe('checkLoginStatus 多选择器回归（数组选择器逐个尝试）',
 
     try {
       const accountManager = loadAccountManager()
+      // 同上：本用例验的是「选择器超时 + URL 命中仪表盘域名 ⇒ 判有效」这段**被允许集门控**
+      // 的逻辑，故显式注入；默认空集仍由策略锁保证。
+      accountManager._internals.DOM_LOGIN_CHECK_ALLOWED_PLATFORMS.add('kuaishou')
       vi.spyOn(accountManager.credentialStore, 'loadCredential').mockReturnValue({
         platform: 'weibo',
         cookies: [{ name: 'SUB', value: 'active', domain: '.weibo.com' }],
