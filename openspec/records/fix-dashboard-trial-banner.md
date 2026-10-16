@@ -1,5 +1,8 @@
 ---
 
+sync_reason: PR 刚开、尚未合并，远程同步状态待回填
+sync_backfill_owner: Colinchiu007（本分支作者，合并后同一次提交内删除本两字段）
+
 record: fix-dashboard-trial-banner
 task: 数据看板免费版横幅——宽度与左边缘对齐修正 + 位置回归锁
 date: 2026-10-16
