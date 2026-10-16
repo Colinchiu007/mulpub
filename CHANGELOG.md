@@ -1,3 +1,9 @@
+# [未发布] docs(podcast): 音色来源三态标注的合同落进 PRD §8.2.9（podcast-voice-source-spec）
+
+- PRD 新增 §8.2.9：只读 IPC `podcast:voice-preview`、出期浮层落点、三把 `podcast.voice.origin*` 键的 zh/en 逐字、七条验收判据与两条「故意不做」。
+- 实测依据写进合同：`voiceRef` 在渲染层 0 命中、podcast locales 无音色键、`origin`/`resolvedBy` 从未进 IPC 载荷 ⇒ 落点不存在，本片只写规格不加键。
+- tasks 4.5 追加进度行，父项**保持未勾**（实现待按 §8.2.9 做，触主进程 ⇒ QM-1 必跑）。
+
 # [未发布] feat(podcast): 频道页合规三态徽标——缺席与「没问题」在界面上必须不同形（podcast-compliance-badge）
 
 - 新增 `podcast.compliance.{stock,invalid,reasonsTitle,degradeNotice}` 四对 zh/en 文案（PRD §8.2.5 逐字表）。
