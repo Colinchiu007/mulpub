@@ -3,9 +3,6 @@ record: dev-http-cache-guard
 task: dev 环境渲染层 HTTP 缓存治理——就绪/加载路径不再被 Chromium 旧副本劫持（改了代码不生效、账号页 does not provide an export）
 date: 2026-10-15
 # ↓ 三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
-sync_status: PENDING
-sync_reason: 本 PR（dev-http-cache-guard）尚未合并，merge SHA 还不存在，无法取证收口
-sync_backfill_owner: 下一个会话（三形态同改：frontmatter 三字段 + 表格行 + 删 ledger 登记项，同一次提交）
 ---
 
 ## 本次执行记录：dev 渲染层 HTTP 缓存治理（dev-http-cache-guard，2026-10-15）【混合 PR】
@@ -29,7 +26,54 @@ sync_backfill_owner: 下一个会话（三形态同改：frontmatter 三字段 +
 | QM-4 视觉 | N/A | 无 `.vue` / 样式 / DOM 结构变更 |
 | QM-6 CCG 深度审查（**DUAL 已执行**，三轮 22 条） | ✅ 已执行；三轮裁决全部落盘 | **第三轮为 DUAL**（最终提交 611 行 > 200 阈值）：**跨家族校验通过（proposer=opencode / critic=claude）**，基线 `origin/main..57d6400d9`（594 行），critic 产出 **8 条**，5 条待裁决**已逐条填 verdict/rationale**。**i5「DUAL 未执行、`status=pending`、如实登记 ≠ 闭环」指控成立并接受**：门禁白名单 `{cleared, needs_revision, self_play_resolved}` 的共同语义是「裁决已产出并落盘」（`check-pr-exec-record.js` L352-354），而我上一轮带着 `status=pending` 的 1232 行运行时代码提交了它；更早我还曾把「本机无 `codeagent-wrapper`」写进记录（后经 `--check-deps` 证伪——它在 `/c/Users/邱领/.claude/bin/`，PowerShell 的 `where` 查不到），即以**错误的环境结论**为未执行背书。**本轮已补齐**：DUAL 实跑 + 5 条裁决落盘 + 两条 `.ccg` 记录 status 回填。**第三轮新发现且已修**：i2（`DEV_URL_FILTERS` 缺「仅回环」结构锁，断言是与常量自比较 ⇒ 混入第三方域名仍全绿）、i8（回环判据漏 `127.0.0.0/8`）。**基线落差说明**：第三轮 diff 基线落后于我的修复提交 `da5210ddb`，故 i1/i3/i4/i6/i7 是**独立第三方从同一份旧代码重复命中同样的缺陷**（i1 已连续三轮被不同评审命中）——这加强了原判而非推翻它。**产物位置**：`.adversarial/ccg-deep-57d6400d/`（该目录按 `.gitignore` **有意**不进主干：「工作产物不进主干，判定记录 `.ccg/reviews/*.json` 才是留痕」；上一轮我误将 `ccg-deep-fd8d774e/` 4 文件提交入库，本轮已 `git rm --cached` 撤回） |
 | 已知边界（不假装闭合） | ✅ | ① **本机无法起独立 Electron 探针**：四种方式均令 `require('electron')` 返回 exe 路径字符串（`process.type` undefined）⇒ 运行时取证只能借"已部署应用 + CDP"，**未能做到"arbitrary 最小 main"级隔离**；② `no-store` 让 dev 每次重取资源，dev-only、对打包应用零影响；③ ~~未覆盖 clearCache 时序~~ **已修**（第二轮 i1）；④ QM-1 的两条 `file source doesn't exist`（`dist/fonts`、`.playwright-browsers`）为环境缺口；⑤ `clearCache()` **无「按 origin 清理」的原生 API** ⇒ 启动清的是整个 session 缓存，已被 i5 的 filter 缩窄**部分**抵消；实际**不**波及第三方平台页面（那些在 `persist:auth-*`/`persist:account-*` partition session）；⑥ **源码文本锁无法覆盖顺序语义**（M8 变异全绿），故补行为锁；行为锁弱于真机验证；⑦ **本机 `ELECTRON_RUN_AS_NODE=1` 常驻**——任何未显式传 env 的 Electron 启动验证都会得到「静默退出 + 零输出」的假绿；本轮已按新规范修复该判据，但该变量**仍在父环境**，后续会话任何手工启动验证都需同样处理；⑧ `.ccg` 记录 status 由我按白名单语义**人工登记**（引擎无回写入口，`ccg-gate.js` 只读）——该人工动作本身是新的信任点，如实标注；⑨ **i2 的结构锁只覆盖 filter 常量的 host 形态**，不能证明 Chromium 真的接受这些 pattern（真机 filter 命中需独立 Electron 探针，受边界①限制） |
-| 远程同步 | PENDING | 待本 PR 合并后由后续回填 PR 同一次提交改写 PASS + merge SHA 并销账 |
+| 远程同步 | PASS | PR #3626 已 squash 合并，merge SHA `37951d3f7afff01dc770b1df12e1c4a48b6ad7e9`（2026-10-16T02:45:25Z）；远端分支 `dev-http-cache-guard` 已删（`git ls-remote --heads` 0 行）；`git log origin/main --grep='(#3626)
+
+### CCG 深度审查 22 条处置（三轮：7 + 7 + 8，全部逐条落地）
+
+> **第三轮（DUAL）的完整处置表见 `.quality-gates.md` 同名段的「第三轮」小节**，此处只记要点：
+> 第三轮为 **DUAL**（611 行 > 200 阈值），**跨家族校验通过（proposer=opencode / critic=claude）**，
+> 基线 `origin/main..57d6400d9`（594 行），critic 产出 8 条（correctness 7 / security 7 / performance 8 / maintainability 6）。
+> **两条是新发现且真实、已修**：i2（`DEV_URL_FILTERS` 缺「仅回环」结构锁——原断言是与常量自比较，混入
+> `https://*/*` 时全部测试仍绿，于是 no-store 可能溢出第三方响应）、i8（回环判据只认 `127.0.0.1`，忽略
+> `127.0.0.0/8`，handler 内判定漏网）。**i5「DUAL 未执行、如实登记 ≠ 闭环」成立并接受**，本轮已补齐。
+> 其余 i1/i3/i4/i6/i7 因**评审基线落后于我的修复提交**（`da5210ddb`），属独立第三方从同一份旧代码
+> **重复命中**同样的缺陷——其中 i1（`clearCache` 未 await 导致首屏时序）已**连续三轮**被不同评审命中，
+> 这加强了原判：它是真问题，我的修复方向正确。
+
+
+**第一轮**（claude critic，565 行）：
+
+| 条目 | 裁决 | 处置 |
+|------|------|------|
+| i1 守卫硬编码 `defaultSession`，窗口若改 partition 即静默失效且零信号 | **upheld** | 改用 `mainWindow.webContents.session` + 消费返回值写 `install-result` 日志；两条锁钉住「不得出现 defaultSession」「必须消费 installed」 |
+| i2 注册无 try/catch，`[::1]` pattern 若被拒会**同步抛错使 dev 崩** | **upheld** | 注册包 try/catch → 降级 `reason:'headers-rewrite-unavailable'`（保留清缓存腿）；幂等标记后移；IPv6 字面量不构造 filter |
+| i3 接线锁依赖排版（首个 `} else {` + `indexOf('…({')`） | **upheld** | 改正则 + **花括号计数**取 dev 块 |
+| i4 ledger 新增项为对象、其余为字符串 ⇒ 类型混用可能破坏消费端 | **dismissed**（采纳一致性部分） | 取证推翻前提：全量 **16 字符串 + 9 对象**（9 个历史会话同结构）⇒ 对象非新发明；唯一消费端 L107 本就兼容两形态。仅把本条改为字符串形态（去 `status`/`line` 死字段），**不**迁移既有 9 项 |
+| i5 filter 覆盖回环**所有端口**，连带改写本机其他服务缓存语义 | 采纳 | 新增 `buildDevUrlFilters(devServerUrl)` 精确到 vite 端口 |
+| i6 CDP 未见首帧 document 响应头；clearCache 与首载有竞态 | 采纳（升级为第二轮 i1） | 竞态被证明是**核心时序漏洞**而非边界，已修 |
+| i7 模块头/测试头大段复述事故背景 | 采纳 | 模块头压到 4 行 + 指向本记录 |
+
+**第二轮**（同一引擎重跑，产出更深的 7 条）：
+
+| 条目 | 处置 |
+|------|------|
+| i1 `clearCache()` 未 await ⇒ 旧条目在清完前被命中且 immutable **不发网络请求** ⇒ leg② 不触发 ⇒ **首屏仍旧副本** | **已修**：返回可 await 的 `cacheCleared`（永不 reject）+ `window.js` `Promise.race([cacheCleared, 1.5s])` 后再 `loadURL`；3 条新锁 + 1 条行为锁 |
+| i2 注册无 try/catch + 幂等标记先于注册 ⇒ 半失败后永久 `already-installed` | **已修**（与第一轮 i2 独立同期命中，佐证真实性） |
+| i3 失效路径全静默（reason 被丢弃）⇒ 再犯无诊断线索 | **已修**：`install-result` 日志含 installed/reason |
+| i4 `localhost` 可能优先 IPv6 / 经 LAN-IP ⇒ 不生效且无提示；`hostname` 带括号与 Set 双条目冗余 | **已修**：`normalizeHostname` 去括号单值比对；LAN-IP 不在白名单属**有意**（只治本机），"无提示"由 i3 覆盖 |
+| i5 锁仍基于文本布局，**无法真实证行为顺序** | **已修**：`loadAt` 改正则；i1 的 3 条锁残留 `({` 字面量一并改（由 M13 抓出）；**新增行为锁**（M8 证明其价值） |
+| i6 根因注释三处复制 | 采纳（同第一轮 i7） |
+| i7 每次启动清全 session 缓存 | 采纳为**已知边界⑤** |
+
+### 关键取证数字
+
+- 事故链路：源码 ✓ / 磁盘产物 ✓ / HTTP 200 且 6 导出 ✓ / **渲染层 4 导出 ✗**
+- 真实运行时 4/4 PASS：三个 URL 响应头 `no-store, no-cache, must-revalidate, max-age=0`，`etag=null`
+- 反向证据：同 URL 直连 vite 服务端为 `no-cache` + `ETag: W/"3af-..."` ⇒ 客户端侧差异确由守卫造成
+- CCG：`claude` critic 评审 565 行 × 2 轮 ⇒ 14 条；裁决 4 条（i1/i2/i3 upheld、i4 dismissed）；i1 待外部复核
+- 测试：26/26（新模块）+ 58/58（window）+ 84/84（合跑）；变异反证 **16/16**（两轮）
+- 打包：NSIS 256.1MB，asar 14994 行，`dev-cache-guard` 6 导出，require 链 OK，启动 stderr 0 字节
+` 恰好 1 行 |
 
 ### CCG 深度审查 22 条处置（三轮：7 + 7 + 8，全部逐条落地）
 
