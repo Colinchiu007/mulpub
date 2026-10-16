@@ -3,9 +3,6 @@
 record: podcast-compliance-badge
 task: 落 PRD §8.2.5 的四个 podcast.compliance.* 键与频道页三态徽标（tasks 4.5 的 UI 半片），并让「合规判据缺席」在界面上什么都不显示
 date: 2026-10-15
-sync_status: PENDING
-sync_reason: 本 PR 合并后由后续 docs PR 按既有 PASS 口径回填 merge SHA 与时间，并在同一次提交删除 frontmatter 三字段与 ledger 登记项
-sync_backfill_owner: agent 收尾链（回填 = 合并后第一笔 docs PR）
 ---
 
 # 频道页合规三态徽标（podcast-compliance-badge，2026-10-15）
@@ -43,7 +40,7 @@ sync_backfill_owner: agent 收尾链（回填 = 合并后第一笔 docs PR）
 | QM-1 打包 | N/A | 未触 `apps/desktop/electron`、`packages/rpa-engine`：本片只改渲染层与 locales |
 | QM-4 视觉 | 待 CI | 本机不产基线（AGENTS 规则 7：基线只能取自 CI 产物）。频道页单集行新增徽标节点，若 CI 那次渲染里存在 invalid/stock 期数则需按同一次 run 重取基线——判据交给 `QG Visual` 与 `check-baseline-freshness.js`，不在本地判「视觉中性」 |
 | QM-6 CCG 双模型外部评审 | 待执行 | 本片改的是展示层判据消费点（缺席/ok 的区别），属需要外部轴复核的语义面；如实登记「未执行」而非跳过 |
-| 远程同步 | PENDING | 本 PR 合并后由后续 docs PR 回填 |
+| 远程同步 | PASS（merge `56e34b56b151d1abecc72f1a0659d9ba88f638a2`，2026-10-16T02:25:29Z） |
 
 ## 遗留（不假装已闭合）
 
