@@ -1480,8 +1480,12 @@ describe('rpa-view-platforms — API 响应等待的判据来自单一来源（C
 
   it('必须调用产品侧 isApiTrack，且不得本地复写合取', () => {
     const src = fs.readFileSync(path.join(__dirname, 'rpa-view-platforms.js'), 'utf8')
+    // ⚠ 正则里不要写多余的转义：`['\"]` 会被 ESLint 的 no-useless-escape 判红（Gate 11，
+    //    在正则字面量里 `\"` 与 `"` 语义完全相同）。用字符拼接表达「单引号或双引号」，两边都不得能省则省。
+    const Q1 = String.fromCharCode(39)
+    const Q2 = String.fromCharCode(34)
     expect(src, '必须 require 产品侧单一来源')
-      .toMatch(/require\(['\"]@multi-publish\/api-publish-engine\/src\/api-router['\"]\)/)
+      .toMatch(new RegExp('require\\(' + '[' + Q1 + Q2 + ']@multi-publish/api-publish-engine/src/api-router[' + Q1 + Q2 + ']\\)'))
     expect(src, '等 API 响应的判据必须真的调用 isApiTrack(...)').toMatch(/isApiTrack\(config\)/)
     // 不得本地复写合取（能力轴与轨道轴比较在同一句）；正则用拼接，防本文件自指
     const capRe = new RegExp('has' + '_api')
