@@ -20,12 +20,23 @@ function buildElectronArgs({ electronUserDataDir, electronCacheDir, desktopDir, 
     '--disable-gpu',
     '--disable-gpu-compositing',
   ]
-  // 2026-10-06：--no-sandbox 与 swiftshader 软件光栅化组合下，登录检测拉起的隐藏
-  // BrowserWindow 会触发原生渲染崩溃（主进程 exit 0xFFFF7003 / 0xC0000005，无 minidump）。
-  // 两者各自保留为可关旋钮，默认值不变（有 GPU 的机器仍按原样走软件合成）。
-  if (noSandbox) switches.push('--no-sandbox')
+  // 2026-10-06 记录、2026-10-16 复现并定因果：`--no-sandbox` 与 swiftshader 软件光栅化
+  // **同时开启**时，登录检测拉起的隐藏 BrowserWindow 会触发原生渲染崩溃（无 minidump，
+  // 主进程直接消失）。旧实现把两者各自留成旋钮，但默认值同时为真 ⇒ **默认配置就是
+  // 崩溃配置**，同一个崩溃按平台逐个复发（2026-09-16 toutiao → 2026-10-06 wechat_mp →
+  // 2026-10-14 知乎 #3726 → 2026-10-16 kuaishou），account-manager 侧的白名单
+  // RENDER_CRASH_PRONE_OPEN_PLATFORMS 只能打地鼠：名单外的平台一开隐藏窗就再崩一次
+  // （10-16 现场：应用日志停在 `checkLoginStatus: start kuaishou`，随后 crashpad
+  // not connected，全部 electron 进程消失、窗口空白）。
+  // 去掉任一项即不崩：swiftshader 关系到「无 GPU 的机器窗口是否画得出来」，保留它；
+  // 去掉 --no-sandbox（也更贴合隐藏窗口自己的 webPreferences.sandbox=true）。
+  // 需要 --no-sandbox 的场景仍可显式换取：MP_E2E_SOFTWARE_GPU=0 关掉软件光栅化后
+  // --no-sandbox 照旧下发（该组合不崩）。契约锁见 dev-launcher.test.js 的
+  // 「崩溃组合不可达」全组合性质断言。
   if (softwareGpu) {
     switches.push('--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader')
+  } else if (noSandbox) {
+    switches.push('--no-sandbox')
   }
   // 外部 CDP 客户端（诊断脚本 / agent）握手时带 Origin 头，Chromium 的 origin 校验会直接 403。
   // 只在显式开启时放行，且必须排在 desktopDir 之前 —— desktopDir 是应用路径，永远保持末位。

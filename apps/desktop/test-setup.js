@@ -61,7 +61,10 @@ const electronMock = {
       this.webContents = {
         _handlers: {},
         send: function () {},
-        on: function () {},
+        // 与 once 同构：记录 handler 到 _handlers，使「事件是否被接线」可断言。
+        // 旧实现是空函数，接线类回归（例如隐藏窗口没挂 render-process-gone）在测试里
+        // 完全不可见——2026-10-16 排查 kuaishou 隐藏窗口崩溃时正是卡在这里。
+        on: function (evt, handler) { this._handlers[evt] = handler; return this },
         once: function (evt, handler) { this._handlers[evt] = handler; return this },
         openDevTools: function () {},
         closeDevTools: function () {},
