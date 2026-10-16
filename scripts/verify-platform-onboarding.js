@@ -342,11 +342,23 @@ function buildChecks (slug) {
       //       · 读不到 api-router ⇒ FAIL（fail-closed，判据不闭环）。
       let runtimeSays = null
       let runtimeErr = null
+      let runtimeSkipped = null
       try {
         const router = require(path.join(ROOT, 'packages/api-publish-engine/src/api-router.js'))
         runtimeSays = router.shouldUseApi(slug)
       } catch (e) {
-        runtimeErr = e.message
+        // ★ 第十轮实测（CI 的 changes job 当场红）：该 job **不装依赖**，而 api-router.js
+        //   载入即 `require('js-yaml')` ⇒ MODULE_NOT_FOUND。AGENTS.md 明文规定：
+        //   接进 changes job 的锁**只能 require node 内置模块**。故必须区分两种失败，二者处置相反：
+        //     · MODULE_NOT_FOUND（依赖缺失）⇒ **显式降级**：仍按字面证据判定，但 detail 必须写明
+        //       「运行时对账未执行」+ 原因。既不静默通过（那正是本判据要消灭的弱点），
+        //       也不把「环境缺依赖」当成「判据不闭环」而误红（否则该 job 里本判据永远红）。
+        //     · 其它错误（语法错、require 到坏模块…）⇒ 仍 fail-closed 判红。
+        if (e && (e.code === 'MODULE_NOT_FOUND' || e.code === 'ERR_MODULE_NOT_FOUND')) {
+          runtimeSkipped = String(e.message || '').split('\n')[0]
+        } else {
+          runtimeErr = e.message
+        }
       }
       if (runtimeErr) {
         return {
@@ -354,11 +366,27 @@ function buildChecks (slug) {
           detail: `require api-router 失败，无法与运行时对账 ⇒ 判据不闭环（fail-closed）: ${runtimeErr}`,
         }
       }
+      // 降级说明：任何 PASS 路径都必须把它带上，避免「未对账」被读成「已对账」。
+      const skipNote = runtimeSkipped
+        ? `⚠ 运行时对账未执行：本环境缺少产品依赖（${runtimeSkipped}）；`
+          + '本次**仅按字面实现证据**判定，请在装了依赖的环境复跑以取得同源对账'
+        : ''
+      // ★ 未取得运行时结论时**单独走一条分支**：绝不宣称 `shouldUseApi(...)=x`。
+      //   初版把降级塞进下面的 `runtimeSays !== true` 分支，detail 里照样写着
+      //   `shouldUseApi('youtube')=false` —— 那是**没做过的对账却报告了结论**，
+      //   与「判据不得停在字面证据」要消灭的形态同型（本轮自测当场抓到）。
+      if (runtimeSkipped) {
+        return {
+          ok: true,
+          detail: `has_api:true 且有 API 实现（adapters/${slug}.js、publishMode=${publishMode}）`
+            + ` ⇒ 按字面证据判定${publishMode === 'dom-only' ? '『未入波』（当前 DOM 轨）' : '可入 API 轨'}；${skipNote}`,
+        }
+      }
       if (runtimeSays !== true) {
         return {
           ok: true,
           detail: `has_api:true 但运行时 api-router.shouldUseApi('${slug}')=false`
-            + ` ⇒ 未入波：有 API 实现（adapters/${slug}.js、publishMode=${publishMode}），当前不走 API 轨`,
+            + ` ⇒ 未入波：有 API 实现（adapters/${slug}.js、publishMode=${publishMode}），当前不走 API 轨${skipNote}`,
         }
       }
       if (!hasAdapter) {
@@ -371,7 +399,7 @@ function buildChecks (slug) {
       return {
         ok: true,
         detail: `has_api:true 且运行时 api-router.shouldUseApi('${slug}')=true（两轴合取同源对账通过）`
-          + `，DOM 链 ${chainFiles.length} 个`,
+          + `，DOM 链 ${chainFiles.length} 个${skipNote}`,
       }
     }
     const entries = read('packages/api-publish-engine/src/platform-entries.js') || ''

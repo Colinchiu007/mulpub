@@ -249,6 +249,18 @@ claude 后端恢复（`sh scripts/deep-review.sh --check-deps` 体检通过）�
    > **所有 `mode=dual` 记录**（门禁唯一检查面）全部取得真实评审终态，
    > 其余自动生成的 `single` 记录按补救路径闭环并在 `auditNote` 里写明该机制。
 2. **门禁加固（乙-i1）**：见上表。新增探针第 ④ 向正是抓「兜底被拒时静默成没有命中」这条——它当场红了，才补上 `mentioned`。
+3. **判据⑨ 的依赖降级（CI 的 `changes` job 当场红的真缺陷）**：`changes` job **不装依赖**，而
+   `api-router.js` 载入即 `require('js-yaml')` ⇒ `MODULE_NOT_FOUND`，判据⑨ 的运行时对账直接抛错，
+   把该 job 里 4 条判据（14/17/18/21）一起带红。按 AGENTS.md「接进 changes job 的锁只能 require node 内置模块」
+   改为**显式降级**：MODULE_NOT_FOUND ⇒ 仍按字面实现证据判定，但 detail 必须写明
+   「⚠ 运行时对账未执行」+ 原因；其它错误（语法错/坏模块）仍 fail-closed 判红。
+   **降级时绝不宣称运行时结论**——初版把降级塞进 `runtimeSays !== true` 分支，detail 里照样写着
+   `shouldUseApi('youtube')=false`（没做过的对账却报告了结论），由回归锁的双分支断言当场抓出
+   （`assert.doesNotMatch(/shouldUseApi\('…'\)=/)`）。两支实测：有依赖 **21/21**、无依赖（临时移开 `js-yaml`
+   模拟该 job）**21/21**，且无依赖环境下 15 平台自检仍 **15/15**。
+4. **Gate 12c（Doc abs-path validity）**：本记录 L125 原先写了 worktree 的盘符绝对路径，
+   超出该文件存量基线（0 → 1）⇒ CI 的 `changes` job 红。按判据给出的修法改成占位符
+   `<MP_WORKTREES>/mp-p3-residual-criteria`；复验该文件盘符路径 **0 处**。
 
 #### 本轮的引擎行为（两次实测，值得记进项目知识）
 
