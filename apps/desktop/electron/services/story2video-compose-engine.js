@@ -200,31 +200,28 @@ const FFPROBE = findFfprobe()
  * @param {string} text - 原始字幕文本
  * @returns {string} 转义后的文本，可直接用于 drawtext=text='...'
  */
-// Windows 中文字体候选（按优先级）；Linux/macOS 由 fontconfig 处理 CJK
-const CJK_FONT_CANDIDATES = [
-  'C:\\\\Windows\\\\Fonts\\\\msyh.ttc',
-  'C:\\\\Windows\\\\Fonts\\\\msyh.ttf',
-  'C:\\\\Windows\\\\Fonts\\\\simhei.ttf',
-  'C:\\\\Windows\\\\Fonts\\\\simsun.ttc',
-  'C:\\\\Windows\\\\Fonts\\\\msjh.ttc',
-]
+// Windows 中文字体候选历史（按优先级）：msyh.ttc / msyh.ttf / simhei.ttf / simsun.ttc / msjh.ttc
+// ⚠️ 2026-10-16：该列表已移入 font-resolver 的 SYSTEM_FONT_CANDIDATES，本模块不再自持。
+// 原因是实测 ffmpeg drawtext 的 `fontfile=` 对非 ASCII 路径**静默失败**（豆腐块、
+// rc=0、stderr 干净），而用户可能把应用装到 `D:\软件\社媒管家\`。自包含得意黑 +
+// ASCII 副本由 font-resolver 统一负责，见该模块头注释与 font-resolver.test.js。
+// 另修一处历史 bug：原候选值写的是 'C:\\\\Windows\\\\Fonts\\\\msyh.ttc'（JS 字符串里
+// 双层反斜杠），fs.existsSync 永远匹配不到真实路径 —— 系统字体回落实际上是失效的。
 
 let cachedCjkFont = null
 
-/** 解析一个可用的 CJK 字体路径（仅 Windows 静态 ffmpeg 需要显式 fontfile）。 */
+/**
+ * 解析一个可用的 CJK 字体路径（仅 Windows 静态 ffmpeg 需要显式 fontfile）。
+ *
+ * 2026-10-16 改为委托 font-resolver：优先自包含得意黑（字幕/水印的指定字体），
+ * 并经 ASCII 副本层规避 ffmpeg 的路径敏感性；找不到才回落系统字体。
+ * 返回 '' 表示无可用字体（调用方据此不注入 fontfile，交由 fontconfig）。
+ */
 function resolveCjkFont () {
   if (cachedCjkFont !== null) return cachedCjkFont
-  if (process.platform !== 'win32') {
-    cachedCjkFont = ''
-    return cachedCjkFont
-  }
-  for (const candidate of CJK_FONT_CANDIDATES) {
-    if (fs.existsSync(candidate)) {
-      cachedCjkFont = candidate
-      return cachedCjkFont
-    }
-  }
-  cachedCjkFont = ''
+  const { resolveContentCjkFont } = require('./font-resolver')
+  const { fontFile } = resolveContentCjkFont()
+  cachedCjkFont = fontFile || ''
   return cachedCjkFont
 }
 
