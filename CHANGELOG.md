@@ -27,6 +27,36 @@
 - QM-1 已按三层判据实跑：包内 blob 与工作树逐字节相同（新模块 + handler + 两个 bundle，另带一个未改动文件 `podcast-tts-voice.js` 当对照组）；解包后真 require 通过；启动 8 秒存活、`Multi-Publish.exe` 进程数 0→4、**stderr 为空（第③层）**，只 kill 自己 PID。改 `preload/podcast.js` 已同 PR 重生 `preload/index.bundle.js` 与 `home-shell-preload.bundle.js` 两个 tracked 产物（这条判据由 M-E 实测过有牙）。
 - **两处偏差就地明写**：① tasks 4.3②-a 里「三把 `podcast.episode.plan*` 键 zh/en 成对」**不在本片**——本片没有任何渲染层消费者，先落键就是死键，已拆成新的未勾项 **②-a-l** 随 ②-b 落地；② PRD §7.10.4.1 的七条验收判据中 **3 / 4 未闭合**（那两条量的是浮层如何显示拒绝态与降级态，落点 `PodcastEpisodeEntry.vue`，属 ②-b），本片只闭合 1 / 2 / 5 / 6 / 7，§7.10.4 表那行的数据来源已同步改成现路并标注「浮层尚未消费」。
 - 文档：PRD §7.10.4.1 状态从「合同，尚未实现」改为「主进程与 preload 已落地，浮层与文案键未落地」并追加「落地现场」段；`openspec/changes/podcast-oneclick-publish/tasks.md` 勾 4.3②-a + 补证据行 + 新增未勾 ②-a-l；现场与判据见 `openspec/records/podcast-episode-plan-preview.md`。
+# [未发布] fix(publish): 「本账号间隔」幽灵等待——时钟快进留下的未来时间戳被当成刚发布过（fix-account-interval-ghost-wait）
+
+## 背景
+
+用户现场：微信公众号账号 10+ 小时未发布，进度浮窗仍显示「等待 x 分钟后重试（本账号间隔）」。
+根因：`publish-interval-guard.js` 的 `_remaining()` 无条件信任 `publish_timeline` 的时间戳，
+`remaining = accountMinMs − (now − lastTime)` 只防「已过期」侧，未防**时间戳落在未来**——
+本机时钟快进期间（本仓有共享时钟被快进约 7 小时的实测先例）`recordPublish()` 落盘的
+「未来时间戳」在时钟恢复后成为随倒挂时长线性放大的幽灵窗口。
+
+## 修复
+
+- **守卫读侧钳位**（`packages/shared-utils/src/publish-interval-guard.js`）：`elapsed < 0` 判时钟域损坏，
+  等待钳位到最多一个完整账号档（与 I2「请求已发生就占窗口」对齐），同键告警一次（去重），
+  键记入 `futureTimestampKeys` 诊断 getter；时钟恢复后自愈（非粘滞）。`check()` 返回值附加 `clockAnomaly`。
+- **store 写侧闸**（`rate-limit-store.js`）：`setPublishTimeline` 拒绝 `timestamp > Date.now()+60s` 落盘并告警。
+- **UI 归因**（`PublishProgressTaskRow.vue` + locales zh/en）：命中时追加「（时钟异常，等待已钳位）」，
+  缺席/为假不渲染（不猜档纪律）。
+- 登记债务：已落盘的历史未来时间戳不做自动回写（错误方向是「少等」），用紧急放行人工清除。
+
+## 验证
+
+- TDD 先红后绿：守卫新文件 8 例（钳位精确值/告警去重/自愈/形状/jitter 上界/负例/诊断 getter）、
+  store 3 例（拒未来/容差内放行/正常回归，真实 SQLite 夹具）、UI 2 例（标签渲染/zh·en 成对）。
+- shared-utils 全量 1055 passed；桌面受影响面（面板/进度 store/store owner 隔离/publish IPC）144 passed。
+- 变异反证 M1（摘钳位分支）/M3（摘 store 闸）/M4（摘 UI 条件）各 1 红，逐字节还原。
+- QM-1：`build:dir` rc=0 + `buildChildEnv`（剔 ELECTRON_RUN_AS_NODE，本机父环境实测带该变量）8s 启动验证
+  SIGTERM 收尾、stderr 0 字节 ⇒ 三层判据通过。
+- 文档：PRD V4 新增 §13「时钟倒挂守卫」；PRD 2026-10-02 A13 验收行；learnings 沉淀
+  `pitfall:future-timestamp-in-interval-store-becomes-ghost-wait`（时间差判定测试必须含 elapsed<0 反向样本）。
 
 # [未发布] fix(wechat_mp): 公众号草稿保存「缺少媒体 ID」第二例——响应体通道真机空转 + 平台提示错误信号守卫（wxmp-save-body-intercept）
 

@@ -136,7 +136,7 @@ describe('PublishIntervalGuard v2', () => {
     test('check 返回形状精确（含 v2 新增字段 reason/daily）', () => {
       const { guard } = makeGuard()
       expect(guard.check('douyin', 'acc_1')).toEqual({
-        allowed: true, remainingMs: 0, bucket: null, reason: null, daily: null,
+        allowed: true, remainingMs: 0, bucket: null, reason: null, daily: null, clockAnomaly: false,
       })
     })
 
@@ -144,7 +144,7 @@ describe('PublishIntervalGuard v2', () => {
       const { guard } = makeGuard()
       guard.recordPublish('douyin', 'acc_1', T0 - 20 * 60 * 1000)
       expect(guard.check('douyin', 'acc_1')).toEqual({
-        allowed: false, remainingMs: 10 * 60 * 1000, bucket: 'account', reason: 'interval', daily: null,
+        allowed: false, remainingMs: 10 * 60 * 1000, bucket: 'account', reason: 'interval', daily: null, clockAnomaly: false,
       })
     })
 
@@ -152,7 +152,7 @@ describe('PublishIntervalGuard v2', () => {
       const { guard } = makeGuard()
       guard.recordPublish('douyin', 'acc_1', T0 - 2 * 60 * 1000)
       expect(guard.check('douyin', 'acc_2')).toEqual({
-        allowed: false, remainingMs: 1 * 60 * 1000, bucket: 'platform', reason: 'interval', daily: null,
+        allowed: false, remainingMs: 1 * 60 * 1000, bucket: 'platform', reason: 'interval', daily: null, clockAnomaly: false,
       })
     })
 
@@ -183,7 +183,7 @@ describe('PublishIntervalGuard v2', () => {
       })
       guard.recordPublish('douyin', 'acc_1', T0)
       expect(guard.check('douyin', 'acc_1')).toEqual({
-        allowed: true, remainingMs: 0, bucket: null, reason: null, daily: null,
+        allowed: true, remainingMs: 0, bucket: null, reason: null, daily: null, clockAnomaly: false,
       })
     })
 
