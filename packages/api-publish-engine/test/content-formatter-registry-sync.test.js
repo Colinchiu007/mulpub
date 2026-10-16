@@ -137,6 +137,10 @@ test('G) TAG_STYLES 键集 ⊆ 注册表平台集（防再长出不可达孤儿�
     weibo: '#tag#',
     zhihu: 'plain', wechat_mp: 'plain', baijiahao: 'plain',
   }
+  // 已确认「走默认 '#tag'」的平台登记表（CCG 第五轮 i5）。
+  // 作用：注册表新增平台时，若它还没进 TAG_STYLES，本表决定它是「已确认用默认」
+  // 还是「未确认 ⇒ 断言红」。当前为空 = 15 个平台全部显式登记，无新平台。
+  const CONFIRMED_DEFAULT_STYLE = []
   for (const p of platforms) {
     const expected = EXPECTED_STYLE[p] || '#tag'
     assert.equal(
@@ -153,11 +157,15 @@ test('G) TAG_STYLES 键集 ⊆ 注册表平台集（防再长出不可达孤儿�
   const unknownExpected = Object.keys(EXPECTED_STYLE).filter((p) => !platforms.includes(p))
   assert.deepEqual(unknownExpected, [],
     `EXPECTED_STYLE 含注册表外的平台: ${unknownExpected.join(', ')}（期望表必须与注册表对齐）`)
-  // 注册表新增平台 ⇒ 必须有人看过这条提示后才算数（新平台样式需人工确认）
+  // 注册表新增平台 ⇒ 必须**显式确认**，不得静默按 '#tag' 通过（CCG 第五轮 i5）：
+  // 新平台的真实标签风格可能不是 '#tag'（需要 '#tag#'/plain），只 console.log 会让
+  // 错误映射静默固化，与注释声称的「需人工确认」不符。机械做法：把「已确认」写成
+  // 一张登记表（CONFIRMED_DEFAULT_STYLE），未登记的新平台**直接红**，提示补登记。
   const newlyAdded = platforms.filter((p) => TAG_STYLES[p] === undefined)
-  if (newlyAdded.length > 0) {
-    console.log(`  [TAG_STYLES] 注册表新增平台（默认按 '#tag' 期望，请人工确认）: ${newlyAdded.join(', ')}`)
-  }
+  const unconfirmed = newlyAdded.filter((p) => !CONFIRMED_DEFAULT_STYLE.includes(p))
+  assert.deepEqual(unconfirmed, [],
+    `注册表新增平台（${newlyAdded.join(', ')}）尚未确认标签风格 —— 请人工确认后加入 `
+    + `CONFIRMED_DEFAULT_STYLE（默认按 '#tag'），或在 EXPECTED_STYLE 里显式登记其真实样式`)
   // 期望表不得为空（防「删光 ⇒ 断言退化成恒等于默认」的假绿）
   assert.ok(Object.keys(EXPECTED_STYLE).length >= 4,
     `EXPECTED_STYLE 条目数 ${Object.keys(EXPECTED_STYLE).length} < 4 ⇒ 本锁基准失效`)

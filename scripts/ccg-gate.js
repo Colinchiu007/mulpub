@@ -164,16 +164,27 @@ function changedLineRanges(file) {
   }
 }
 
-/** 从 CCG 安全扫描输出里抽出「文件:行号」形式的命中行号。 */
-function parseSecurityHitLines(output) {
+/**
+ * 从 CCG 安全扫描输出里抽出**属于指定文件**的「:行号」命中。
+ *
+ * ★ 必须按文件过滤（CCG 第五轮 i1，upheld）：
+ *   只按行号抽会把**别的文件**的命中（如扫描器输出多文件/依赖图谱命中
+ *   `other.py:37`）套到本文件的 diff 区间上判定 —— 区间外即降级为「存量」，
+ *   **真实的新缺陷被放行**（fail-open）。故这里用 file 的 basename 做强校验。
+ *
+ * 另外：只用「扩展名 + 冒号 + 行号」这个字面模式，不依赖 \b 与 $ 锚点
+ * （实测写 /\s*$/ + /\.(js|…)\b/ 抽不到扫描器那行，行首还有 emoji 前缀，
+ *  会导致存量过滤静默失效——门禁照旧阻断而过滤代码看着像生效了）。
+ */
+function parseSecurityHitLines(output, file) {
   const hits = [];
+  const base = path.basename(String(file || ''));
   for (const line of String(output).split(/\r?\n/)) {
-    // ★ 只用「扩展名 + 冒号 + 行号」这个字面模式，不依赖 \b 与 $ 锚点：
-    //   实测（2026-10-16 p3-residual-criteria）写 /\s*$/ + /\.(js|…)\b/ 抽不到扫描器那行
-    //   （形如 `…rpa-view-platforms.js:1040`，行首还有 emoji 与其它前缀），
-    //   导致存量过滤**静默失效**——门禁照旧阻断，而过滤代码看着像生效了。
     const m = line.match(/\.(?:js|ts|py|go|java|rs|c|cpp|php):(\d+)/i);
-    if (m) hits.push(Number(m[1]));
+    if (!m) continue;
+    // 该行必须指向同一个文件（basename 命中），否则是别的文件的命中
+    if (base && !line.includes(base)) continue;
+    hits.push(Number(m[1]));
   }
   return hits;
 }
@@ -368,7 +379,7 @@ function main() {
         // 本次没有改动这个文件（例如显式传参扫了别的文件）⇒ 无从判定是否本次引入，不过滤
         return r;
       }
-      const hits = parseSecurityHitLines(r.output);
+      const hits = parseSecurityHitLines(r.output, r.file);
       if (hits.length === 0) return r;
       const inDiff = hits.filter((ln) => ranges.some(([a, b]) => ln >= a && ln <= b));
       if (inDiff.length === hits.length) return r;

@@ -38,11 +38,21 @@ function derivePublishMode (cfg) {
   return (cfg && cfg.has_api) ? 'api-then-dom' : 'dom-only'
 }
 
-/** 该平台当前是否真的走 API 轨（两轴合取，单一来源）。 */
+/**
+ * 该平台当前是否真的走 API 轨（两轴合取，单一来源）。
+ *
+ * ★ CCG 第五轮 i3（upheld）：必须经 `normalizeMode` 归一，**不得**自己比字符串。
+ *   原先直接 `mode === 'api-only' || mode === 'api-then-dom'`，遇到非法 publishMode
+ *   （拼写错误、大小写不符）会**静默返回 false**（当 dom-only 处理）；而 getPublishMode
+ *   走 normalizeMode 是 **fail-closed 抛错**的 ⇒ 同一份坏配置，两个读者结论相反
+ *   （一个炸、一个静默走 DOM 轨）——正是本 PR 声称要消灭的判据分叉。
+ *   现在两处都过同一个归一函数，非法值一致抛错。
+ */
 function isApiTrack (cfg) {
   if (!cfg || !cfg.has_api) return false
-  var mode = derivePublishMode(cfg)
-  return mode === 'api-only' || mode === 'api-then-dom'
+  var pm = require('./publish/core/publish-mode');
+  var mode = pm.normalizeMode(derivePublishMode(cfg));
+  return mode === pm.MODES.apiOnly || mode === pm.MODES.apiThenDom;
 }
 
 function loadConfig() {

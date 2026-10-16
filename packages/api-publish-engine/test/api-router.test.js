@@ -26,9 +26,40 @@ describe("API Router", function() {
       //   现在 shouldUseApi 取**两轴合取**：has_api 且 publishMode ∈ {api-only, api-then-dom}。
       // ★ CCG 第五轮 i5（upheld）：期望值直接来自导出的单一来源 `router.isApiTrack`，
       //   不再本地复写「缺省派生 + 合取」（那正是 i4 指出的第二/第三份实现）。
+      //
+      // ⚠️ 这条是**一致性**断言（shouldUseApi 与 isApiTrack 同源），不是**行为**断言 ——
+      //    它测不出合取逻辑本身写错。行为断言见下面那条「两轴合取的独立行为断言」，
+      //    那里用**字面量期望值**（不经被测函数推导），两者互补，缺一不可。
       Object.keys(platforms).forEach(function(key) {
         expect(router.shouldUseApi(key)).toBe(router.isApiTrack(platforms[key]));
       });
+    });
+
+    test("★ 两轴合取的独立行为断言（期望值用字面量，不经被测函数推导）", function() {
+      // 动因（CCG 第五轮 i2，upheld）：上面那条期望值来自 router.isApiTrack 本身，
+      // 本质是 x===x，测不出合取逻辑回归。这里用**独立的字面量期望**钉住能力轴 × 轨道轴
+      // 的四种组合，任一轴写错都会红。
+      var cases = [
+        [{ has_api: true, publishMode: 'api-only' }, true],
+        [{ has_api: true, publishMode: 'api-then-dom' }, true],
+        [{ has_api: true, publishMode: 'dom-only' }, false],
+        [{ has_api: false, publishMode: 'api-only' }, false],
+        [{ has_api: false, publishMode: 'api-then-dom' }, false],
+        [{ has_api: false, publishMode: 'dom-only' }, false],
+      ];
+      cases.forEach(function (c) {
+        expect(router.isApiTrack(c[0]), JSON.stringify(c[0])).toBe(c[1]);
+      });
+      // 缺省派生：publishMode 缺省时按 has_api 派生（true → api-then-dom ⇒ API 轨）
+      expect(router.isApiTrack({ has_api: true })).toBe(true);
+      expect(router.isApiTrack({ has_api: true, publishMode: '' })).toBe(true);
+      expect(router.isApiTrack({ has_api: true, publishMode: null })).toBe(true);
+      expect(router.isApiTrack({ has_api: false })).toBe(false);
+      // 非法 publishMode ⇒ fail-closed 抛错（与 getPublishMode 同口径，CCG 第五轮 i3）
+      expect(function () { router.isApiTrack({ has_api: true, publishMode: 'bogus-mode' }); })
+        .throw(/unknown publishMode/i);
+      expect(function () { router.isApiTrack({ has_api: true, publishMode: 'API-ONLY' }); })
+        .throw(/unknown publishMode/i);
     });
 
     test("has_api:false returns rpa mode", function() {
