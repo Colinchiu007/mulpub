@@ -19,8 +19,34 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "finding": "behavior lock scenario16 的预算断言用全钩子 grep 计数 `.ccg/reviews` 出现次数（`bscoped ≤ 3`），与 design.md D-9 明确批评并修掉的「全文本计数会假红」问题同构：非暂存段若再出现含 `.ccg/reviews` 的 git 调用，行为锁照样假红，与结构锁段作用域口径不一致。",
+        "highRiskDomains": [],
+        "prosecution": "scenario16 的 budget-ok 断言统计的是整趟钩子里所有 argv 含 .ccg/reviews 的 git 调用（实测读数 reviews_scoped=2），而 D-9 刚刚因为「把无关段落折进预算」被 upheld 并改成了段作用域。两把锁现在口径不一致：结构锁只看暂存段，行为锁看全钩子。将来任何新段（例如「判定记录健康巡检」）每次提交跑一条带 .ccg/reviews 的 git 命令，budget-ok 就会从 2 涨到 4 并红——那是一条与本锁声称的「暂存成本」无关的红，而无关的红正是逼人放宽阈值的那一类。",
+        "defense": "两条锁的测量对象本来就不是同一个问题，因此不一致是应有之义而非漂移。行为锁测的是「每提交为这条目录付多少次进程创建」——它必须按 argv 里的目录名统计，因为 shim 日志里唯一能把「这次调用与判定记录有关」和「无关」分开的信息就是路径本身；把测量范围缩到「暂存段」在行为锁里没有可操作形态（shim 无法知道调用来自哪一段），除非改成匹配具体写法（ls-files --others … / diff --name-only … / add --pathspec-from-file），而那恰恰会重新引入 D-9 反对的形态耦合，并让 M2 那种「整份退回旧实现」的读数变成不可比。结构锁能段作用域是因为它读源码文本、看得见段落边界。",
+        "verdict": "dismissed",
+        "rationale": "指控的机制部分（全钩子计数）属实，但结论（等价于 D-9 的假红）不成立：这里的计数主题与预算主题同为「.ccg/reviews 的 git 调用次数」，不是 D-9 里「git add 出现在版本同步段」那种主题错配——新段若真为这条目录加每提交调用，成本确实上升，红是对的。且收窄到段作用域的唯一可行手段是匹配具体写法，那会同时废掉本锁「与形态无关」这一立锁理由（M2/M6/M8 三条变异都靠它才指名）。残余问题被承认并如实留在注释里：两把锁口径不同的原因必须写明，否则下一个读者会以为是遗漏而「顺手收敛」，把行为锁改回形态耦合。"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "预算/调用次数的数字来源不唯一且语义不同：行为锁 `bscoped≤3`（全钩子含 .ccg/reviews 调用）、结构锁 `gitAddCalls:2`（段内 add）、`recordPathspecMentions:3`（段内字段出现）、design/changelog 各自描述，未来改暂存段需四处同步，语义含混。",
+        "highRiskDomains": [],
+        "prosecution": "同一个「预算」在不同地方有四组数字：行为锁 bscoped≤3、结构锁 gitAddCalls=2、结构锁 recordPathspecMentions=3、以及 design/CHANGELOG 的叙述数字。改一次暂存段要同步四处，语义各不相同却都叫「预算/次数」，未来必然出现「改了代码没改注释」或「改了阈值忘了改另一把锁」的漂移。",
+        "defense": "四组数字量的是四件不同的事，不是同一事实的四份拷贝：① 每提交触碰该目录的 git 调用条数（运行时实测，M2 靠它才红）；② 暂存段内 git add 调用点数（源码静态，含 echo 行剔除规则）；③ 段内 RECORD_PATHSPEC 出现次数（防止把 pathspec 抄成多份不同字面量）；④ 叙述文字。真正需要同源的是「②③ 的上界」——它们已由 DEFAULTS.budgets 单点导出、测试引用 checker.DEFAULTS.budgets.gitAddCalls 而非硬写数字；① 的阈值写在测试里且每次跑都打印实测值。叙述性数字按 AGENTS.md 属「证据数字必须在最终基线上重跑后再写」的范畴，不是配置项。",
+        "verdict": "dismissed",
+        "rationale": "dismissed 的依据是逐项核对四组数字各自能抓住什么：若把 ②③ 与 ① 合并成一个数，M8（回退遍历盘上全集）与 M1（候选集取错）将不再有可指名的红集——实测它们红的是不同锁的不同断言（M1 红范围锁、M8 红 scenario20、②③ 红结构锁），这正是「互不替代」的设计意图。②③ 已由单一 DEFAULTS 常量导出并被测试引用（改常量测试即跟着变，不存在两处硬写）；④ 属文档叙述，其漂移防线是 AGENTS.md 的「最终基线重跑」纪律 + 本轮实跑读数（48/0、TOTAL_BAD=0、14/14），不是再复制一个数字。"
+      }
+    ],
+    "blocking": [],
+    "note": "自扮演裁决：全部指控不成立",
+    "at": "2026-10-16T05:40:41.664Z"
   }
 }
