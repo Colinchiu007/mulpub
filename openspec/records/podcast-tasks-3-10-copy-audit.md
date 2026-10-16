@@ -56,7 +56,7 @@ if (key) return i18n.global.t(`podcast.episode.${key}`)
 | 载体冻结合规 | PASS | 旧载体与 ledger 未出现在 diff（按路径 `git diff --name-only` 核），记录只写 openspec/records |
 | QM-1 / QM-4 / TDD | N/A | 未触运行时代码与 locales |
 | QM-6 双模型外部评审 | 未执行 | 纯文档对账片按 AGENTS 不强制；如实登记，不自扮演豁免 |
-| 远程同步 | PENDING | 本 PR 合并后由后续 docs PR 回填 |
+| 交付收尾 | 见下方「远程同步」小节（一条事实只留一行，不在此重复 PENDING） |
 
 ## 四、遗留（不假装已闭合）
 
