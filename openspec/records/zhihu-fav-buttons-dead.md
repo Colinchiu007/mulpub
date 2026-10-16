@@ -3,6 +3,9 @@ record: zhihu-fav-buttons-dead
 task: 修复采集页「知乎收藏文章」的「采集」「改写」按钮点击无反应（恒灰死键：判据依赖一个永不初始化的选中态 + 改写误共用采集判据 + 全部收藏模式死锁 + handler 静默返回）
 date: 2026-10-16
 branch: zhihu-fav-buttons-dead
+sync_status: PENDING
+sync_reason: PR 尚未合并（记录随代码 PR 落地，合并后回填 merge SHA）
+sync_backfill_owner: zhihu-fav-buttons-dead 会话（回填 PR）
 ---
 
 ## 本次执行记录：知乎收藏「采集/改写」按钮点击无反应（zhihu-fav-buttons-dead，2026-10-16）

@@ -25,6 +25,36 @@ phase1 的那次调用**每次**都返回 `basis:'not_ready'` 且删 0 行。四
 - **绝对读数写进第二个载体就是埋同源复述的雷**：本片把上界做成单点时，顺手发现 `MAX_INTERVAL_MS` 早已被渲染层抄成 `:max="10080"` 的字面量，而 env 那侧根本没有对应界——"同一个量在四个地方各有各的界"能长期存活，是因为没有任何一处会因另一处改动而变红。写法口径：下发方引用真源、接收方绑下发值，测试里把夹具值故意写得**与真源不同**（本片用 4321/3210），否则"UI 真的用了下发值"测不出来。
 - **上界必须严格大于最大默认值**：等于的时候看起来更"紧更安全"，实际是下一次上调默认值会撞上界并被静默钳位——钳位这件事在 env 路径上是有声的，但默认值来自策略表，没人会去读那条 warn。
 
+## 本地判据集合 ≠ CI 判据集合：只跑 `check-pr-exec-record.js` 不等于过了 `changes` job（zhihu-fav-buttons-dead，2026-10-16）
+
+### lesson:local-gate-subset-is-not-the-ci-gate-set
+
+本地 `check-pr-exec-record.js` 报 OK、我据此推送，CI `QG Changes` 却红在 `check-gate-record-debt.test.js:391`：
+
+```
+not ok 24 - 真仓：每一条未收口的 远程同步 行都必须已登记，且登记清单里不得有已回填的陈旧项
+error: 存在未登记的欠账：
+       0 [PENDING] zhihu-fav-buttons-dead.md（缺登记字段）
+```
+
+CI 的 `changes` job 除了 docs-only 判定，还会跑一批 `scripts/*.test.js`（`node --test`）——`check-gate-record-debt.test.js` 就在其中。**「本地绿」的适用范围 = 你实际跑过的那几条判据，不是「CI 会跑的判据」。**
+
+**根因**：执行记录里写了 `| 远程同步 | PENDING |` 表格行（开 PR 时的正确形态），但 frontmatter 缺登记字段。
+
+**判据细节（读实现得来，不是猜的）**：`scripts/check-gate-record-debt.js` 认三个字段
+`sync_reason` / `sync_backfill_owner` / `sync_status`，但 **L352 的判定是 `reasonMissing && ownerMissing`**
+⇒ **必须同时给 `sync_reason` 与 `sync_backfill_owner` 才算登记**。只写 `sync_status: PENDING` **不算登记**
+（L208-209 注释写明：「把 sync_status 算进那一侧等于让『只写 sync_status』就能冒充已登记」）。
+
+**两条可复用判据**：
+
+1. **登记随文件走**：写「未收口」（PENDING）的记录，frontmatter 必须同时带 `sync_reason` + `sync_backfill_owner`；
+   **不往 `scripts/gate-record-debt-ledger.json` 加键**（那是「旧载体冻结」禁止的）。回填时三个字段一起删。
+2. **提交前预跑 CI 的同名判据**，而不是只跑自己熟悉的那一个：
+   `node --test scripts/check-gate-record-debt.test.js`（本次 58/58 pass）+
+   `node scripts/check-gate-record-debt.js`（真仓口径，本次 OK）。
+
+
 ## 「点了没反应」的机械真相：disabled 的 button 不派发 click —— 任何可见控件都必须有可用性判据 + 不可用时的可见原因（zhihu-fav-buttons-dead，2026-10-16）
 
 ### lesson:disabled-button-is-a-silent-dead-key
