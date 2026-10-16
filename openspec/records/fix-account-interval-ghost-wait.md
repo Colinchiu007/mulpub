@@ -1,9 +1,6 @@
 ---
-pr: PENDING
 branch: fix-account-interval-ghost-wait
 date: 2026-10-16
-sync_reason: 本 PR（fix-account-interval-ghost-wait）的远程同步待合并后由后续 docs PR 就地改写为 PASS 并删除本登记字段
-sync_backfill_owner: fix-account-interval-ghost-wait 分支作者会话（合并收尾时回填）
 ---
 
 # 本次执行记录：发布频率「本账号间隔」幽灵等待修复（fix-account-interval-ghost-wait，2026-10-16）【混合 PR】
@@ -14,7 +11,7 @@ sync_backfill_owner: fix-account-interval-ghost-wait 分支作者会话（合并
 | --- | --- |
 | 变更类型 | 🐛 Bug 修复（发布频率控制 / 时钟与数据校验）→ 完整质量节拍 + 隔离 worktree |
 | 计划文档 | `01-docs/PLAN-FIX-ACCOUNT-INTERVAL-GHOST-WAIT-2026-10-16.md` |
-| 远程同步 | PENDING |
+| 远程同步 | PASS（PR #3731 squash 合并 → `3ff90dfcce59d2e04a549a88bbfcfd71f30356dd`，2026-10-17T00:41:36+08:00；回填与本删除同一次提交） |
 
 ## 根因（QM-5 ①）
 
@@ -105,4 +102,4 @@ PR #3731 首轮 CI 3 项红，逐项修复后重推：
 - 行尾对账：见提交时 `git diff --numstat` 两口径核对（执行时补记）
 - 品牌残留：无竞品名（本文「参考产品」口径不涉及）
 - 文档同步：PRD V4 补「时钟倒挂守卫」节、PRD 2026-10-02 A12 第三态、CHANGELOG（见 PR diff）
-- 远程同步 PENDING
+- 远程同步 PASS（PR #3731 → `3ff90dfc`，回填与本删除同一次提交）
