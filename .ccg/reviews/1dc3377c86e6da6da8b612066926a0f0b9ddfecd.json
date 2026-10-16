@@ -1,12 +1,12 @@
 {
   "sha": "1dc3377c86e6da6da8b612066926a0f0b9ddfecd",
   "layer": "diff",
-  "mode": "skip",
-  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "mode": "single",
+  "reason": "变更 171 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
   "stats": {
-    "changedLines": 0,
-    "fileCount": 4,
-    "codeFileCount": 0,
+    "changedLines": 171,
+    "fileCount": 5,
+    "codeFileCount": 4,
     "sensitivePathHits": [],
     "plannedPathHits": [],
     "sensitiveContentHits": 0,
@@ -14,11 +14,11 @@
     "docSensitiveContentSample": [],
     "lineReadGaps": []
   },
-  "stagedDiffHash": "ccd96d743498df67b4687b5c3afeff658a232079fb7b4d22eab331b0bd0ae9ce",
-  "decidedAt": "2026-10-16T08:13:37.486Z",
+  "stagedDiffHash": "0907efebb1e84f22e6f4a8384bf6492eba84f8c4a097eec69cebfc4d70467dfd",
+  "decidedAt": "2026-10-16T08:09:21.452Z",
   "decidedBy": "ccg-review-decider",
   "deepReview": {
-    "required": false,
+    "required": true,
     "status": "pending",
     "performedBy": null,
     "findings": null
