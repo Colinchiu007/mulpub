@@ -178,8 +178,6 @@ export class PublishIntervalGuard {
   /** accountId 归一（空白/非串 → null）；装配与测试都走这一份实现 */
   static normalizeAccountId(value: unknown): string | null;
   static TIMER_SAFE_MS: number;
-  /** ⚠️ **计划了但从未接线**：全仓除本定义外零引用，平台级日配额维度当前不存在（PRD §10.2） */
-  static PLATFORM_BUCKET_DAILY_KEY_PREFIX: string;
 }
 
 export const publishFrequencyPolicy: {
@@ -217,6 +215,8 @@ export const publishFrequencyPolicy: {
   BASELINE_INTERVALS: PublishFrequencyIntervals;
   SUPPORTED_PLATFORMS: readonly string[];
   MAX_INTERVAL_MS: number;
+  /** 日配额上界：env / 设置页覆盖 / 设置页输入框共用的同一个界（三条路径此前各有其界） */
+  MAX_DAILY_QUOTA: number;
   DEFAULT_JITTER_RATIO: number;
   DEFAULT_RELEASE_GRACE_MS: number;
   MIN_RELEASE_GRACE_MS: number;

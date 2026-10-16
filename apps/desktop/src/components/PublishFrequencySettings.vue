@@ -35,24 +35,24 @@
         />
         <div class="pubfreq__field">
           <label class="pubfreq__label">{{ t('settings.publishFrequency.accountInterval') }}</label>
-          <el-input-number v-model="form.accountMinutes" :min="0" :max="10080" :step="1" :placeholder="t('settings.publishFrequency.unset')" data-testid="pubfreq-account-min" />
+          <el-input-number v-model="form.accountMinutes" :min="0" :max="bounds.intervalMinutes" :step="1" :placeholder="t('settings.publishFrequency.unset')" data-testid="pubfreq-account-min" />
         </div>
         <div class="pubfreq__field">
           <label class="pubfreq__label">{{ t('settings.publishFrequency.platformInterval') }}</label>
-          <el-input-number v-model="form.platformMinutes" :min="0" :max="10080" :step="1" data-testid="pubfreq-platform-min" />
+          <el-input-number v-model="form.platformMinutes" :min="0" :max="bounds.intervalMinutes" :step="1" data-testid="pubfreq-platform-min" />
           <span class="pubfreq__field-hint">{{ t('settings.publishFrequency.platformIntervalHint') }}</span>
         </div>
         <div class="pubfreq__field">
           <label class="pubfreq__label">{{ t('settings.publishFrequency.dailyMaxLong') }}</label>
-          <el-input-number v-model="form.dailyLong" :min="0" :max="999" :step="1" data-testid="pubfreq-daily-long" />
+          <el-input-number v-model="form.dailyLong" :min="0" :max="bounds.dailyMax" :step="1" data-testid="pubfreq-daily-long" />
         </div>
         <div class="pubfreq__field">
           <label class="pubfreq__label">{{ t('settings.publishFrequency.dailyMaxClip') }}</label>
-          <el-input-number v-model="form.dailyClip" :min="0" :max="999" :step="1" data-testid="pubfreq-daily-clip" />
+          <el-input-number v-model="form.dailyClip" :min="0" :max="bounds.dailyMax" :step="1" data-testid="pubfreq-daily-clip" />
         </div>
         <div class="pubfreq__field">
           <label class="pubfreq__label">{{ t('settings.publishFrequency.dailyMaxShort') }}</label>
-          <el-input-number v-model="form.dailyShort" :min="0" :max="999" :step="1" data-testid="pubfreq-daily-short" />
+          <el-input-number v-model="form.dailyShort" :min="0" :max="bounds.dailyMax" :step="1" data-testid="pubfreq-daily-short" />
         </div>
         <div class="pubfreq__field">
           <label class="pubfreq__label">{{ t('settings.publishFrequency.jitterOn') }}</label>
@@ -134,6 +134,13 @@ const releasing = ref(false)
 const loadError = ref('')
 const raw = ref(null)
 
+// 合法域上界由 getPolicy 下发，真源是策略模块（change: publish-frequency-unwired-surfaces）。
+// 这里**不写数字兜底**：模板原先硬编码 :max="999" / :max="10080"，于是渲染层与主进程
+// （env 与设置页覆盖当时都没有对应上界）各有各的合法域，改一侧忘另一侧永远不会红。
+// 装载失败时表单不渲染；万一载荷缺字段则留 undefined（el-input-number 视为不设上界），
+// 权威上界仍由主进程 resolvePolicyOverrides 在保存时拒绝 —— UI 的界只是提前告知。
+const bounds = reactive({ dailyMax: undefined, intervalMinutes: undefined })
+
 const form = reactive({
   // null = 该项未覆盖（继续用各平台自己的默认档）。**不用 0 / 默认值预填**，
   // 否则用户「什么都不改直接保存」会把所有平台的差异化档位压平（评审 i3）。
@@ -208,6 +215,10 @@ async function load () {
       return
     }
     raw.value = res.data
+    bounds.dailyMax = Number.isFinite(res.data && res.data.dailyMaxUpperBound)
+      ? res.data.dailyMaxUpperBound : undefined
+    bounds.intervalMinutes = Number.isFinite(res.data && res.data.intervalMaxMinutes)
+      ? res.data.intervalMaxMinutes : undefined
     applyOverridesToForm(res.data)
     // 评审 i8：每日上限来自 publishFreq:emergencyStatus（getPolicy 不返回它）。
     // 此前只读 res.data.emergencyStatus ⇒ 该行恒显示「—」。取不到时保持 null，界面显示 —

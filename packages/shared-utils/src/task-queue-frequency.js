@@ -8,7 +8,7 @@
  *
  * 含三组能力：
  *   ① 传输层打点：markSubmitAttempted / markSubmitted（阶段判据的来源）
- *   ② 探针与降级：getProbeCounts / clearRollbackDisabled / _disableRollbackForPlatform
+ *   ② 探针与降级：getProbeCounts（观测面）/ _disableRollbackForPlatform（降级，只能靠重启解除）
  *   ③ 未提交失败回滚与紧急放行：_maybeRollback / _delayRequeue / emergencyRelease
  *
  * ⚠️ 这些方法依赖 TaskQueue 实例上的字段（_publishIntervalGuard / _running / _probeCounts /
@@ -65,15 +65,15 @@ module.exports = {  /**
     this._probeCounts.rollbackDisabled += 1
     console.error(
       `[task-queue] 已对平台 ${platform} 停用「未提交失败回滚」（${reason}）：`
-      + '宁可多等一个窗口，也不冒早于窗口重复发布的风险。重启或用户在设置页确认后解除'
+      + '宁可多等一个窗口，也不冒早于窗口重复发布的风险。'
+      + '重启进程后自动解除（本进程内不可撤销 —— 设置页没有该入口，也不提供手动解除）'
     )
   },
 
-  /** 用户手动清除「停用回滚」标记（设置页「我确认该平台接线正常」） */
-  clearRollbackDisabled (platform) {
-    if (platform === undefined) this._rollbackDisabledPlatforms.clear()
-    else this._rollbackDisabledPlatforms.delete(platform)
-  },
+  // 曾提供 clearRollbackDisabled(platform)，注释写着「设置页『我确认该平台接线正常』」，
+  // 但全仓没有任何 IPC/UI 调用点 ⇒ 那句承诺是假的；而"能悄悄重新允许回滚一个接线未证实的平台"
+  // 本身就不是想要的权力。恢复出路只有重启（该集合是实例态），已由行为锁钉住。
+  // 见 tests/task-queue-guard-integration.test.js 的【探针 I4】。
 
   /**
    * 紧急放行（P2-2）：跳过该 (platform, accountId) 当前的等待窗口，立即重新入队。
