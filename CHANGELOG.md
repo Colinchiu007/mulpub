@@ -10,6 +10,12 @@
 - **两处偏差就地明写**：① tasks 4.3②-a 里「三把 `podcast.episode.plan*` 键 zh/en 成对」**不在本片**——本片没有任何渲染层消费者，先落键就是死键，已拆成新的未勾项 **②-a-l** 随 ②-b 落地；② PRD §7.10.4.1 的七条验收判据中 **3 / 4 未闭合**（那两条量的是浮层如何显示拒绝态与降级态，落点 `PodcastEpisodeEntry.vue`，属 ②-b），本片只闭合 1 / 2 / 5 / 6 / 7，§7.10.4 表那行的数据来源已同步改成现路并标注「浮层尚未消费」。
 - 文档：PRD §7.10.4.1 状态从「合同，尚未实现」改为「主进程与 preload 已落地，浮层与文案键未落地」并追加「落地现场」段；`openspec/changes/podcast-oneclick-publish/tasks.md` 勾 4.3②-a + 补证据行 + 新增未勾 ②-a-l；现场与判据见 `openspec/records/podcast-episode-plan-preview.md`。
 
+# [未发布] fix(wechat_mp): 公众号草稿保存「缺少媒体 ID」第二例——响应体通道真机空转 + 平台提示错误信号守卫（wxmp-save-body-intercept）
+
+- **第一性原因**：wxmp-draft-mediaid-fix（PR #3445）补的「保存 XHR 响应体 appMsgId」第三条采集通道**从上线起空转**——它读 `saveResp.body`，但 `_waitForResponseExclusive` 的 resolve 对象只有 `{url, statusCode, matchedUrls}`，真实返回里从来没有 `body` 字段（Electron `webRequest` 回调不携带响应体）。真机三条通道全空 ⇒ 仍报「缺少媒体 ID」。上轮测试绿是因为 mock 手写了 `body` 字段——mock 与真实契约脱钩。放大镜根因：「平台提示」的 `[class*="tips"]` 宽选择器命中**可见但非错误**的常驻设置文案（本次是用户水印名「水印：数字生命丘丘」），第一例只加可见性守卫未加错误内容守卫。
+- **修复**：①新模块 `rpa-view-response-body.js` 给 `_waitForResponseExclusive` 补 `body` 字段（CDP `Network.getResponseBody`；attach/enable 失败降级 body=''，复用他人 attach 不 detach，单条失败不 reject），同族 `_startPublishNetworkCapture` 一并下沉（行为不变含端点脱敏）；②保存点击前注入页面内 XHR/fetch 拦截（`XHR_INTERCEPT_SCRIPT`：fetch clone 透传 + XHR load 读 responseText，命中保存端点的 `{url,body}` 存 `window.__mpSaveResponses`，上限 5 条×200KB）作不依赖 debugger 的第二保险，采集通道扩为四条（URL / 响应 URL / CDP 响应体 / 页面内拦截），四条全空仍 fail-closed；③`describeSaveFailure` 加 `looksLikeErrorText` 错误信号守卫——不含错误/失败/重试/请/无法等关键词的可见文案一律退回兜底文案，水印类常驻设置项不再伪装平台业务错误；64714/原创与群发保护映射不回归。
+- **回归**：新增 19 例 `wechat-mp-save-body-intercept.test.js`（真实契约结构锁 + 通道④行为锁 + 错误信号守卫用例）；相关域 8 文件 183 例全绿；变异反证 3/3 变红还原复绿；QM-1 打包 rc=0 + asar/require 链 + 启动 8 秒 stderr 空（子进程剔除 `ELECTRON_RUN_AS_NODE`）；helpers 行数门禁过（CDP 采集下沉后 440 行）。PRD §20、执行记录 `openspec/records/wxmp-save-body-intercept.md`。
+
 # [未发布] fix(gates): Gate 12c 判据换代为纯文本计数，并解开 17 条只在 Windows 上跑的自测（gate-12c-abs-path-ban）
 
 - **判据输入由文件系统换成纯文本计数**（`scripts/check-doc-abs-paths.js`，口径 `all_abs_paths_v2`）。旧实现只在「这条路径在本机不存在」时才记一笔，而 CI 的 `changes` job 跑在无盘符的 ubuntu 上 ⇒ 现场计数恒 0 ⇒ 与存量基线比较两个方向都不可能红；其实际读数是一句「无从判定 1094 条 Windows 绝对路径」紧跟 `PASS`。新口径按文件记录「出现了多少条本机绝对路径」，存在性降级为附加明细，于是同一判据在 Linux 与 Windows 上给出逐字相同的结论。

@@ -158,10 +158,11 @@ describe('rpa-view-platforms — 微信公众号发布', () => {
 
   it('群发列表找不到已保存草稿时返回失败', async () => {
     const { win, executeJavaScript } = createWindow('https://mp.weixin.qq.com/cgi-bin/appmsg?appmsgid=12345&token=123456')
-    // 调用顺序：群发保护预检（2026-10-12 新增，只在 massSend 时发）→ 登录态检测 → 同意勾选 → 群发列表草稿选择
+    // 调用顺序：群发保护预检（2026-10-12 新增，只在 massSend 时发）→ 登录态检测 → 保存前拦截注入（wxmp-save-body-intercept）→ 同意勾选 → 群发列表草稿选择
     executeJavaScript
       .mockResolvedValueOnce('') // 预检：无 wx.cgiData ⇒ 未开启群发保护，放行
       .mockResolvedValueOnce({ hasTimeout: false, hasLoginPrompt: false })
+      .mockResolvedValueOnce('ok') // 保存前 XHR/fetch 拦截注入
       .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce(false)
     const context = createWechatContext()

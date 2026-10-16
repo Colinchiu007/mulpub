@@ -682,4 +682,137 @@ mediaId 仍是群发段 `[appmsgid="<mediaId>"]` 行选择器的唯一依据。�
 | 通用 publish-id 提取（通道 ③ 兜底） | `apps/desktop/electron/services/rpa-publish-id-extract.js` |
 | API 轨同名字段口径 | `packages/api-publish-engine/src/adapters/wechat-mp/draft.js` |
 | 变异反证脚本 | `scripts/mut-check-wxmp-mediaid.cjs` |
+
+---
+
+## 20. 第二轮修复：响应体通道真机空转 + 平台提示错误信号守卫（wxmp-save-body-intercept，2026-10-16）
+
+> **用户报障（第二例）**：发布图文到公众号，进度浮层报
+> 「微信公众号草稿保存结果无法验证：缺少媒体 ID（平台提示：水印：数字生命丘丘），请稍后重试；若反复失败请到公众号后台草稿箱核对」。
+> 与第一例（§13-§19）同文案、不同根因 —— §13 的修复（响应体通道）**从上线起就没在真机上生效过**。
+
+### 20.1 根因（两层，与第一例的关系）
+
+**① 通道 ③ 从上线起空转（真根因，闭合第一例的遗留 2）**：
+wxmp-draft-mediaid-fix（PR #3445，merge `c2b4ea01`）补的第三条采集通道读
+`saveResp.body`（`wechat-mp-draft-mediaid.js` 通道 ③），但它依赖的
+`_waitForResponse` / `_waitForResponseExclusive`（`rpa-view-helpers.js`）的 resolve
+对象只有 `{url, statusCode, matchedUrls}` —— **真实返回里从来没有 `body` 字段**。
+Electron `webRequest` 回调不携带响应体，真机上 `saveResp.body` 恒为 `undefined`
+⇒ 通道 ③ 静默跳过 ⇒ 三条通道全空 ⇒ 仍报「缺少媒体 ID」。
+上一轮测试通过是因为 mock 手写了 `body` 字段 —— **mock 与真实 API 契约脱钩**，
+「测试绿 ≠ 真机行为」。第一例 PRD §18 风险表最后一行（`saveResp.body` 在真机上
+不存在）已精确预言了本缺陷，属「遗留被当成下一刀而流失」。
+
+**② 「平台提示」读到可见但非错误的文案（放大镜，第二例）**：
+第一例只加了「可见性」守卫（§13.2），但 `[class*="tips"]` 宽选择器命中的节点
+**可见却不是错误**——本次是公众号图文设置里的水印标签「水印：数字生命丘丘」
+（用户账号自己的水印名称），被原样拼进 error，把可自愈的重试类问题伪装成平台业务错误。
+
+### 20.2 修复设计（四个动作）
+
+**A. `_waitForResponseExclusive` 补 `body` 字段（真实契约修复，`rpa-view-response-body.js`）**：
+
+- 新模块 `apps/desktop/electron/services/rpa-view-response-body.js`（行数门禁拆分：
+  `rpa-view-helpers.js` 贴近 500 行上限，同族 CDP 响应体采集逻辑下沉，helpers 只留接线）；
+- `createResponseBodyCollector(win, patterns)`：attach `1.3` → `Network.enable` →
+  监听 `Network.responseReceived`（URL 命中 patterns 且 status=200）→
+  `Network.getResponseBody` 取响应体（base64 与明文统一解码）；
+- **三条不可破**：① attach/enable 失败 ⇒ `cdpReady=false`，body 为空串，
+  url/statusCode/matchedUrls 老通道照常工作（降级不阻塞）；② attach 已被占时复用，
+  cleanup **不 detach**（防把宿主会话的 debugger 拆掉）；③ 单条 getResponseBody 失败
+  返回 ''，绝不 reject 整个等待；
+- 同族下沉：`_startPublishNetworkCapture` → `startPublishNetworkCapture`（行为不变，
+  含端点脱敏 `sanitizeCaptureEndpoint`——只留 origin+pathname，query 里的
+  access_token 类凭证不进记录）。
+
+**B. 页面内 XHR/fetch 拦截（不依赖 debugger 的第二保险，`XHR_INTERCEPT_SCRIPT`）**：
+
+- 保存点击**前**注入（幂等：重复注入返回 "already"）；
+- 包住 `XMLHttpRequest`（open 记 URL + load 事件读 responseText）与 `fetch`
+  （clone 响应读 text，**透传原响应**，不吞页面自身逻辑）两条通道；
+- 匹配判据与 `SAVE_RESPONSE_PATTERNS` 同源（`operate_appmsg` / `appmsg/save` / `oper=save`）；
+- 命中的 `{url, body}` 存进 `window.__mpSaveResponses`，只留最近 5 条、每条 body
+  截断 200KB（防长会话内存堆积）；
+- 保存后主进程回读（`READ_INTERCEPTED_SCRIPT`），URL 命中保存端点的条目逐条走
+  `extractAppMsgIdFromBody`（**复用第一例判据，不另造第二份提取**）。
+
+**C. 「平台提示」错误信号守卫（`describeSaveFailure` 第四条规则）**：
+
+- 新增 `looksLikeErrorText(text)`：不含错误信号关键词的可见文案一律视为
+  **非错误内容**，退回兜底文案（不拼进 error）；
+- 关键词表（保守白名单，宁缺勿滥）：错误/失败/异常/警告/重试/请/无法/不能/超时/
+  繁忙/网络/保护/限制/原创/审核/敏感/违规/超过/不足/缺少/无效/过期/失效；
+- 平台真实错误提示几乎必然含其中之一；「水印：xxx」这类常驻设置项不含 ⇒ 丢弃；
+- 既有映射不回归：64714/原创、protect_status/群发保护两类仍直换可操作文案。
+
+**D. 采集通道序（更新后共四条，按证据强度降序）**：
+
+```
+① 保存后页面 URL 的 appmsgid
+② 保存 XHR 响应 URL 的 appmsgid
+③ 保存 XHR 响应体的 appMsgId          ── A：CDP getResponseBody（真实契约）
+④ 页面内拦截结果的 appMsgId           ── B：不依赖 debugger 的第二保险
+    └─ 四条全空 ⇒ 仍 fail-closed（判据不放宽），error 走 F9 文案 + C 守卫
+```
+
+### 20.3 数据校验规则（新增）
+
+| # | 校验项 | 判据 | 不通过时 |
+| --- | --- | --- | --- |
+| D7 | CDP 通道可用 | `cdpReady === true`（attach+enable 成功） | body=''，仅走 webRequest 老通道 |
+| D8 | getResponseBody 单条失败 | `.catch(() => '')` | 该条 body 为空串，不 reject 整个等待 |
+| D9 | 拦截结果 URL 匹配 | `isSaveResponseUrl(item.url)`（同 SAVE_RESPONSE_PATTERNS） | 跳过该条（防误抓其它接口的 ID） |
+| D10 | 拦截缓存上限 | 最多 5 条、单条 body ≤ 200KB | shift 掉最旧条目 |
+| D11 | 提示错误信号 | `looksLikeErrorText(text)`（关键词白名单） | 退回兜底文案，不拼原文 |
+| D12 | 拦截注入失败 | try/catch + warn | 静默降级，CDP 通道仍可用 |
+
+### 20.4 交互逻辑与显示项（增量）
+
+| 场景 | 第一例修复后 | 第二例修复后 |
+| --- | --- | --- |
+| CDP 可用、响应体带 appMsgId | 误报「缺少媒体 ID」（body 字段不存在） | **成功**，日志 `mediaId from save response body` |
+| CDP 不可用（attach 冲突/页面销毁） | 误报 | 页面内拦截兜底，日志 `mediaId from in-page intercept` |
+| 失败 + 页面只有「水印：xxx」等非错误可见文案 | 拼进 error 伪装平台业务错误 | **只用兜底文案 + 可操作下一步**，水印文案不出现 |
+
+### 20.5 日志（新增一条 info，与 §16.3 同用途）
+
+```
+[wechat_mp] mediaId from in-page intercept appMsgId=<id> (CDP body 不可用，走页面内拦截通道)
+```
+
+出现这条 ⇒ CDP 通道降级但页面内拦截拿到了 ID；两条日志都没有 ⇒ 四条通道全空
+（平台真没返回或保存请求没匹配上 pattern），需按 §16.3 的二分法排查。
+
+### 20.6 验收标准（增量）
+
+| # | 验收项 | 判据 | 验证方式 |
+| --- | --- | --- | --- |
+| AC-21 | `_waitForResponseExclusive` resolve 含 body | 源码 `resolve({… body})` 且经 `Network.getResponseBody` | `wechat-mp-save-body-intercept.test.js`（结构锁） |
+| AC-22 | CDP 不可用时页面内拦截兜底 | `_waitForResponse` 返回 null（无 body）时 mediaId 仍被采集 | 同上（行为锁） |
+| AC-23 | 拦截 URL 不匹配保存端点 ⇒ 不采用 | url `…/other` 的条目被跳过 | 同上 |
+| AC-24 | 非错误提示（水印）不进 error 文案 | `describeSaveFailure('水印：数字生命丘丘')` 不含「水印」 | 同上 |
+| AC-25 | 真实错误提示仍保留 | `describeSaveFailure('保存失败，请稍后重试')` 含原文 | 同上 |
+| AC-26 | 注入先于保存点击 | `executeJavaScript(XHR_INTERCEPT_SCRIPT)` 在 `host._click` 之前 | 同上（顺序锁） |
+| AC-27 | 变异反证 3/3 | 摘通道④ / 去错误信号守卫 / 去 helpers body 字段 ⇒ 各自变红 | 执行记录表 |
+
+### 20.7 风险与边界
+
+| 风险 | 影响 | 缓解 |
+| --- | --- | --- |
+| CDP attach 与其它机制（行为层/上传）冲突 | 拿不到 body | 降级为 body=''；attach 已被占时复用不 detach；通道④（页面内拦截）不依赖 debugger |
+| 页面 CSP 或平台改用非 XHR/fetch 通道 | 拦截不到 | 拦截是**第二保险**不是唯一通道；CDP 主通道覆盖网络层 |
+| 错误信号词表漏了某类真实错误提示 | 该提示被丢弃 | 词表是保守白名单，但兜底文案仍含完整可操作下一步；真机取证后可扩表（改 `ERROR_SIGNAL_RE` 同步补 AC 用例） |
+| 拦截脚本对页面产生的副作用 | 页面行为异常 | 纯透传包装（fetch 返回原响应、XHR 调原方法）；缓存仅主进程回读，页面自身不感知 |
+
+### 20.8 本轮实测取证（不假装已闭合）
+
+| 项 | 状态 | 证据 |
+| --- | --- | --- |
+| 单元/集成回归（8 文件 183 例） | ✅ | vitest 全绿（含新增 19 例） |
+| 变异反证 3/3 | ✅ | M1 摘通道④、M2 去错误信号守卫、M3 去 helpers body 字段 ⇒ 各自变红、还原复绿 |
+| QM-1 打包 | ✅ | electron-builder rc=0；asar 含 `rpa-view-response-body.js`；require 链 OK；启动 8 秒存活 + stderr 空（子进程 env 已剔除 `ELECTRON_RUN_AS_NODE`） |
+| 行数门禁 | ✅ | helpers 440 行（<500）；新模块独立计（rpa-view-response-body.js 194 行） |
+| 真机发图文核对 | ❌ 未做 | 本机无公众号会话（同第一例遗留 1）；渠道：CI + 用户实测。`appMsgId` 字段名与「URL 不跳转」沿用第一例参考产品取证口径 |
+| CDP 与行为层/上传同窗口共存 | ⚠️ 部分验证 | 单元层 mock 验证降级路径；真机多机制并发（发布点击 CDP 输入 + 网络采集）需一次真机观察日志确认无 attach 冲突 |
 | 执行记录 | `openspec/records/wxmp-draft-mediaid-fix.md` |
