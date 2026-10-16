@@ -27,6 +27,6 @@ sync_backfill_owner: 下一个会话（合并后改为 PASS 并删除本段三�
 
 ### 遗留（不假装已闭合）
 
-- **#3723 的 main push 读数在本记录写成时尚未收敛**（run `38892053080`，`obs=9 status=in_progress`）。回读看守按第 7 条在跑，结论若红则本轮"口径换代过渡"未收干，需再补一轮；届时以那条结论为准，不以本行措辞为准。
+- **#3723 的 main push 读数：写这行时未收敛，现已按第 7 条回读兑现**——run `38892053080`（merge SHA `89eebe8af`）`status=completed / conclusion=success`（看守在第 `obs=26` 处收到，`VERDICT=MAIN_GREEN`）。证据不停在作业结论：`job QG Changes=success` 且其内层 **step `Gate 12c - Doc abs-path validity (changes job)` = success**（同一 run 里 `QG Static / Visual / Coverage / Unit Tests / Desktop Shards×2 / Browser E2E / Autonomous / Business API Postgres / Gate Result` 亦全 success）⇒ #3652 口径换代的"过渡红"到此闭合，本轮不挂该项欠账。保留"写这行时未收敛"的痕迹而不是把它删掉：它记录的正是**规矩当天写、当天被自己的实测回读兑现**这件事，删掉就等于把兑现过程抹成一条从未存在过的焦虑。
 - **第 7 条仍是人读的规矩**，机械化需要一条"main push 后自动重算并比对账本"的作业，那属另一份 PRD。
 - **`canJudge` 的机器维度还在**：无盘符 runner 上存在性核对不执行（计数判定已照常），这条不对称由 #3652 显式出声而不是消除；彻底消除要把"存在性"从判据里去掉或改为 CI 可判的形态，属另一件事。
