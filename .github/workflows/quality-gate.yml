@@ -288,6 +288,19 @@ jobs:
         run: |
           node --test scripts/quality-rhythm-spec-mirror.test.js
 
+      # --- Gate 2b3：pre-commit 判定记录暂存的进程创建预算锁 ---
+      # 为什么必须常驻 CI 而不只留在钩子测试里：scenario16 是行为测量，只有跑到那段代码才有效；
+      # 「退回逐文件循环」这种改法可以被写成注释、被临时禁用、或在另一个入口里复活。
+      # 本判据读钩子正文本身，与执行路径无关，两者互不替代。
+      # 落点必须是 changes 作业（不是 static-gates）：后者带 `if: needs.changes.outputs.docs-only != 'true'`，
+      # 守门判据若落在被自己防的形态短路的作业里，等于给自己关掉校验（同族实测见上方 Gate 2b2 注释）。
+      # 本作业没有 Install deps ⇒ 判据只能 require node 内置模块（引第三方包会当场 MODULE_NOT_FOUND）。
+      - name: "Gate 2b3 - Pre-commit spawn budget (changes job)"
+        shell: bash
+        run: |
+          node scripts/check-precommit-spawn-budget.js scripts/hooks/pre-commit
+          node --test scripts/check-precommit-spawn-budget.test.js
+
       # --- Gate 2c3：CHANGELOG.md「只可增长」棘轮 ---
       # 动因（实测）：b531bdfe7（PR #2884，一个 ai-taste 功能 PR）把 CHANGELOG.md 从
       # 7,474,293 B / 1,133 条整份替换成 9,155 B / 2 条，**丢掉 1,131 条并全绿合入**。
