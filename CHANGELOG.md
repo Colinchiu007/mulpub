@@ -10,6 +10,23 @@
 - 本轮自我抓到的两处（不抹平）：① 重写变异驱动时把"还原基线"与"变异后内容"复用同一个 Map ⇒ 还原写回变异态，五条改动**叠加残留在源码里**（含把回滚硬顶拆掉那条），教训是"重写一个已解决的问题等于重新引入它"，正解是照已验证的 v3 驱动语义（快照/写入分离、`NO_COLOR=1`、`failedCount` 三值判据、还原后逐字节校验）；② 我给测试起名用了 ` > `（「长文 > 短视频图文 > 短内容」），而 FAIL 行以 ` > ` 作分隔符 ⇒ 名字被截成尾巴半句、驱动据此误报"未点名"。
 - 文档：`01-docs/PRD-PUBLISH-FREQUENCY-V4-2026-10-15.md`（数值表、生效链时序、数据校验表、显示项与提示文字、未接线清单、反证表 N1–N6、回退路径、重测触发条件、自认弱点）；`openspec/changes/publish-frequency-policy-v4/`（proposal / design D1–D6 / tasks / 增量规格）。主干规格 `openspec/specs/publish-frequency-control/spec.md` **本次不需要改**——它是数值无关的，v4 两项改动不与任何 MUST 冲突（与 v3 那次"主干那句已被 v2 违反"的情形不同）。
 
+# [未发布] fix(scripts): safe-delete.js 的可恢复删除改为自足——后端解析链内置平台回收站（fix-mavis-trash-env）
+
+- **为什么还要改脚本**（承接上一条）：给本机装 `mavis-trash` 只修了这一台机器。换个 clone / 新电脑 / CI 上，`safe-delete.js` 依旧「四道闸全过、--dry-run 允许、实跑 `'mavis-trash' 不是内部或外部命令`」；且 12 例回归锁全在判据层，删除路径只被一条**字符串存在性**结构锁（断言源码含 `mavis-trash`）覆盖——**「可恢复删除」这个 R0 核心能力被外包给一个未随仓库交付、未检测存在性的命令，测试对这个缺口全绿**。用户据此授权修改脚本。
+- **实现**：`deleteRecoverable()` 后端解析链——`mavis-trash`（external，向后兼容已装机器）→ **平台内置**（builtin）：win32=PowerShell + `Microsoft.VisualBasic` 送回收站、darwin=`osascript` 经 Finder 进废纸篓、linux=`gio trash`；候选逐个尝试，全部失败则返回 `{ok:false,error}` 且**目标文件原样保留**（删不掉就承认删不掉，绝不退化为不可恢复删除）。判据层（四道闸）一字未动；CLI 输出追加 `（backend=<id>）`，审计日志同步记录实际后端。
+- **回归锁 12→17 例**，补上缺失的那一层：每平台 ≥2 候选且必含 `builtin`（防再次单点外包）、`mavis-trash` 恒排第一（兼容）、注入空后端时必须失败**且文件仍在**（防静默假成功）、删除路径禁用 `fs.rm/unlink` 等不可恢复原语、后端解析必须覆盖三平台。
+- **两个实现陷阱，都是「行为验证」抓出而单测全绿看不见的**：① CLI 入口放在后置 const `BUILTIN_BACKENDS` 之前 ⇒ 真跑 CLI 触发 TDZ（`node --test` 只 require 不执行 main，17/17 绿的同一份代码 CLI 直接崩）⇒ 入口移到文件末尾；② `powershell -Command <脚本> <路径>` 会把实参**拼接进脚本文本**（盘符冒号被当新表达式记号 ⇒ ParserError）⇒ 路径改经环境变量 `MAVIS_TRASH_PATH` 传入。教训：**守卫类脚本的锁必须含「真跑 CLI」层，`node --test` 的 require 覆盖不了入口路径**。
+- 实测：三场景全过——A `mavis-trash` 可用走 external；B 把它从 PATH 移除后自动落 `windows-recycle`（ASCII 与中文路径均成功）；C 注入空后端 ⇒ 失败且文件保留。回归锁 **17/17** 绿；`safe-delete.test.js` 原 12 例未动仍绿。
+
+# [未发布] fix(scripts): 补齐 safe-delete.js 的删除后端 mavis-trash（回收站包装），解除 R0 守卫长期失效（fix-mavis-trash-env）
+
+- 现象（长期）：`scripts/safe-delete.js` 四道闸全过、`--dry-run` 报「允许删除」，实跑却 `✗ 删除失败` + `'mavis-trash' 不是内部或外部命令`，审计日志写 `FAILED`。因 R0 无 `--force` 绕过且明令禁止退回 `rm` / `Remove-Item`，本机临时产物只能长期堆积——本仓 ≥11 处记录登记过该环境事实（`learnings.md`、`fix-agents-safe-delete-filename`、`hot-topics-multi-source`、`fix-toutiao-title-suffix` 等），最早可追到 2026-10-09。
+- 修法（**提供命令，不动脚本**）：新增 `%USERPROFILE%\.local\bin\mavis-trash.cmd` + `mavis-trash.ps1`，包装 Windows 回收站 API（`Microsoft.VisualBasic.FileIO.FileSystem::DeleteFile(..., SendToRecycleBin)`），从而保持 R0 要求的「可恢复」语义。**刻意不改 `safe-delete.js`**：其回归锁 `safe-delete.test.js:165-166` 断言源码必须含 `mavis-trash` 字符串，「提供命令」才是与该锁相容的修法；把删除后端换成别的 API 会同时废掉那条锁的意图。
+- 契约与 `safe-delete.js:169-175` 严格对齐：接受 1+ 个路径；全部成功 `exit 0`，否则 `exit <失败数>` 并把原因写入 stderr。
+- 两处实现细节：① `.cmd` 用 `%~dp0` 自定位，**不**把含中文的用户目录写成字面量（Windows PowerShell 5.1 按 ANSI 码页解析无 BOM 脚本，中文字面量会变乱码 ⇒ 路径失效）；② 两个脚本保持纯 ASCII。
+- 实测：ASCII 路径 / 中文文件名 / 中文目录路径 / 多文件 / 不存在路径（rc=1 且有 stderr）五类全过；端到端 `safe-delete.js` 输出 `✓ 已删除（可恢复）`、审计日志 `FAILED` → `DELETED`、回归锁 **12/12** 绿；随后用它清掉本机积压的 85 个 `%TEMP%` 临时产物（成功 85 / 失败 0 / 残留 0）。
+- 文档同步：`01-docs/learnings.md` 第 9 条由「本机缺失，只能报错」改写为「已补齐 + 契约 + 实测」，避免后续会话继续按旧事实行事。
+
 # [未发布] docs(podcast): 音色来源三态标注的合同落进 PRD §8.2.9（podcast-voice-source-spec）
 
 - PRD 新增 §8.2.9：只读 IPC `podcast:voice-preview`、出期浮层落点、三把 `podcast.voice.origin*` 键的 zh/en 逐字、七条验收判据与两条「故意不做」。
