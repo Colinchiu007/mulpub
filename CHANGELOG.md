@@ -7,6 +7,17 @@
 - **没顺手加机械门禁，是刻意的**：`CHANGE_READY_TO_ARCHIVE`（三条判据 ⇒ 出声不拦）的判据形状已写进审计文档 §七，但它要改的正是 #3693 正在改造与接线的 `openspec-sync-check.js` 判据集——同期改两处会让两个 PR 的判据变更无法分别归因。所以"A 类又攒了几个"目前仍无人看，这是既有缺口的缩小而非闭合。
 - 判据、复现命令（不依赖本地脚本）、B/C/D 三类的下一步与归属见 `01-docs/AUDIT-OPENSPEC-ARCHIVE-2026-10-16.md`；QM-5 全过程与一条入口偏离（共享根有他人 4 个未提交文件 ⇒ `start-mp-task.ps1` 的 `-RequireClean` 拒绝创建，改用 `git worktree add` 直建并当场验可进入）见 `openspec/records/openspec-archive-audit.md`。
 
+# [未发布] feat(publish): 发布记录「再次发布」+ 作品链接写入侧修复 + 同批徽标（pub-record-republish）
+
+- **用户三项需求**：①每条发布记录加「再次发布」，把原始的发布内容与选项设置保留下来便于直接发布；②发布成功的卡片应带内容链接、点击新标签展示平台内容页（「之前做过这个功能，怎么一直没生效」）；③一次发布到多个平台时，记录应是集合记录还是独立记录。
+- **R1 根因是「内容与选项零落库」**（不是前端 bug）：活体取证 `shared-user-data/publish-history.jsonl` 72 条（成功 57）——`id/platform/title/taskId/status/result/owner_subject/timestamp` 各 72 次，而正文 `content` **出现 0 次**。新增 `electron/services/publish-republish-snapshot.js`：20 个必存字段**逐字段白名单**（禁止 `...article` 展开——`article.cookies` 真实存在），数组字段缺失回落 `[]` 而非 `''`，`rewriteHistoryId` 保持 `string|null`；上限 200 条、超限淘汰最旧并**真删键**。存储选 owner 作用域 SQLite `settings`（键 `publish-republish-snapshot:<recordId>` + 索引键）而非写进历史 JSONL 行——`readRecords()` 每次分页整文件重解析、`updateRecordAudit` 整文件重写，正文入行会让一次筛选放大成数十 MB 解析。`hasRepublishSnapshot` 因此**不落库**、由索引现算。
+- **R2 真相是写入侧没有可点开的东西**：用作品链接解析器逐条判定 57 条成功记录 ⇒ **45 条（≈79%）解析为「无链接」**——`result.url` 多为平台后台页或空串，`postId` 仅 11 条有值且快手 11 条全是合成值 `published-<ts>`。修两个可离线验证的缺陷：`publisher-router.js` 透传此前被丢的 `result.draft`（小红书只落草稿箱这一产品事实此前被显示成「未获取到作品 ID」）；`account-metrics-store.js` 的 V14 回填把保护对象改成「**能定位到作品**的既有值」，合成值不再永久占位。无链接原因分三态（草稿 / 平台结构性无公开页 / 未抓到作品 ID）。**红线**：不改任何平台的发布成功判定语义——快手合成值是成功判定的必要信号，删它会把靠它成功的记录改判失败。
+- **R3 定调**：保留每平台独立记录（状态/审核/作品链接/互动数据/重试/删除都是平台级动作），补 `batchId` + 同批徽标把关联信息找回来。
+- **文档与记忆**：`01-docs/PRD-PUBLISH-RECORD-REPUBLISH-2026-10-15.md`（完整 PRD）+ `01-docs/PRD.md` §6.9 产品契约；EverOS 记忆 add→flush（**extracted**）+ 外部记忆 `.agent_context/memory-pub-record-republish.md`。
+- **CI 三轮判红全部定位并修复**（每轮都是本 PR 的真实回归，非环境噪声）：①行数门禁 4 项 ⇒ 按门禁处方**拆分而非上调限额**（`publish.js` 563→451、`Publish.vue` 1871→1754、`PublishHistory.vue` 1460→1370、`publisher-router.js` 833→826，新增 3 个 composable + 2 个 IPC 模块）；②`observability-messagekey` 登记锁（新增 notify 必须登记 `ALLOWED_KEYS`）；③视觉基线漂移 ⇒ 用 **CI 自己的渲染**刷新 `publish-history{,-dark}.png`（本地 dev server 渲染与 CI 不同形，像素门禁本身拒绝在缺宿主时出结论）。
+- **CCG 深度审查闭环**（QM-6）：mode=dual，claude 评出 8 条；4 条争议裁决 `upheld` 后**逐条修复**——同批徽标不再断言跨页总数、`aiGenerated` 补进还原映射并加布尔分支、详情弹窗补第二个入口（复用同一份判据）、未保存输入判据扩到封面/话题/账号。`check-pr-exec-record --mode=enforce` OK。
+- 测试：快照 21 例 + 前端映射 10 例 + `PublishHistory` 90 例 + 路由 69 例 + 回填 28 例 + 175 例 preload/Publish 等，eslint 0 error。
+
 # [未发布] feat(frequency): 发布频率策略 v4——平台间隔三档统一 1′、日配额 200/350/500（publish-frequency-policy-v4）
 
 - 数值（唯一落点 `packages/shared-utils/src/publish-frequency-policy.js`）：`platformMinMs` 由按档分级 3′/2′/1′ 改为**三档统一 1′**；`accountDailyMax` 由 30/50/200 改为 **200/350/500**（用户口径"最低 200、最高 500"，中间档 350 按档间单调推导）。账号档间隔 5′/3′/1′、抖动 0.4、退避下界 10s、紧急放行额度、D1 判据、回滚硬顶公式**一字未动**。
@@ -14,10 +25,10 @@
 - 回落基线 `BASELINE_INTERVALS` 手工同步为 5′/1′/200，仍是**独立常量**（改档不得静默改变回落实质）。v4 下三条"不弱于"判据恰好取到等号，变异 N4（基线配额写成 600）实测 2 条红。
 - 回滚许可不随配额放大：`min(max(2, dailyMax), MAX_ROLLBACK_PER_DAY=5)`。新增一条**行为锁**把真实策略接进守卫、逐档断言许可恒为 5（不从公式推断）；与 v3 那条"真表读数 > 封顶"的前提锁各测一层。变异 N5（退回 `max(2, dailyMax)`）实测 2 条红。
 - 用户可见文案同源修正：`platformIntervalHint`（zh/en 成对）原句「默认各档账号档**更**严」在 v4 起不成立（短内容档账号 1′ 与平台 1′ **相等**），改为「都不低于本值（短内容档两者相等）」，并加锁禁止旧句、要求新句在场。
-- 测试与反证：TDD 红先（实现前 6 条指名红）；`packages/shared-utils` 全量 **50 文件 / 1035 passed / 10 skipped**；apps/desktop 按**消费者并集**跑 9 文件 **294 passed**；变异 **N1–N6 全部 CAUGHT**，驱动入库 `.ccg/reviews/freq-v4-mutate.driver.js`（路径由 `__dirname` 推导，仓库内可复跑），还原后 `Buffer.equals` 逐字节校验。QM-1：`build:vue` + `electron-builder --win --dir` 均 rc=0，asar 内 v4 判据 **11/11 命中**（含 v3 残留 0 命中），打包 exe 8 秒存活、**stderr 0 字节**。
+- 测试与反证：TDD 红先（实现前 6 条指名红）；`packages/shared-utils` 全量 **50 文件 / 1038 passed / 10 skipped**（两轮 re-sync 吸收主干后复跑 **51 文件 / 1047 passed / 10 skipped**，多出的 1 文件 9 例来自主干的 `article-body-format-parity.test.js`，两数都对得上）；apps/desktop 按**消费者并集**跑 9 文件 **294 passed**（合并前后同数）；变异 **N1–N8 + N9a/N9b + N10 共 11 条全部 CAUGHT**（红集互不相同；N9 因"我自己的期望清单写错"拆成两条各测一类错），驱动入库 `.ccg/reviews/freq-v4-mutate.driver.js`（路径由 `__dirname` 推导，仓库内可复跑），还原后 `Buffer.equals` 逐字节校验。QM-1：`build:vue` + `electron-builder --win --dir` 均 rc=0，asar 内 v4 判据 **11/11 命中**（含 v3 残留 0 命中），打包 exe 8 秒存活、**stderr 0 字节**。
 - 明确不做并登记为欠账（PRD §8/§12）：`full-auto-pipeline` 的 5s 直发旁路仍不经守卫（v4 放松配额后其相对权重更大）；`clearRollbackDisabled` / `getProbeCounts` / 平台级日配额 / `prunePublishDailyCount` 四个"声明了没人接"的面未收编；设置页账号档与平台档仍是**全局单值**覆盖，一填即抹平分档；`clip` 档混装短视频与图文社区；`maxConcurrent=3` / `timeout=180s` 未随 v4 重标定。数值仍是工程默认，本工具不声称符合任何平台官方频次规则；重测与收紧的触发条件写死在 PRD §11。
 - 本轮自我抓到的两处（不抹平）：① 重写变异驱动时把"还原基线"与"变异后内容"复用同一个 Map ⇒ 还原写回变异态，五条改动**叠加残留在源码里**（含把回滚硬顶拆掉那条），教训是"重写一个已解决的问题等于重新引入它"，正解是照已验证的 v3 驱动语义（快照/写入分离、`NO_COLOR=1`、`failedCount` 三值判据、还原后逐字节校验）；② 我给测试起名用了 ` > `（「长文 > 短视频图文 > 短内容」），而 FAIL 行以 ` > ` 作分隔符 ⇒ 名字被截成尾巴半句、驱动据此误报"未点名"。
-- 文档：`01-docs/PRD-PUBLISH-FREQUENCY-V4-2026-10-15.md`（数值表、生效链时序、数据校验表、显示项与提示文字、未接线清单、反证表 N1–N6、回退路径、重测触发条件、自认弱点）；`openspec/changes/publish-frequency-policy-v4/`（proposal / design D1–D6 / tasks / 增量规格）。主干规格 `openspec/specs/publish-frequency-control/spec.md` **本次不需要改**——它是数值无关的，v4 两项改动不与任何 MUST 冲突（与 v3 那次"主干那句已被 v2 违反"的情形不同）。
+- 文档：`01-docs/PRD-PUBLISH-FREQUENCY-V4-2026-10-15.md`（数值表、生效链时序、数据校验表、显示项与提示文字、未接线清单、反证表 **N1–N8 + N9a/N9b + N10 共 11 条**、回退路径、重测触发条件、自认弱点）；`openspec/changes/publish-frequency-policy-v4/`（proposal / design D1–D6 / tasks / 增量规格）。主干规格 `openspec/specs/publish-frequency-control/spec.md` **本次不需要改**——它是数值无关的，v4 两项改动不与任何 MUST 冲突（与 v3 那次"主干那句已被 v2 违反"的情形不同）。
 
 # [未发布] fix(scripts): safe-delete.js 的可恢复删除改为自足——后端解析链内置平台回收站（fix-mavis-trash-env）
 
