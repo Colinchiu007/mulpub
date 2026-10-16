@@ -2,9 +2,6 @@
 record: qm6-exec-chain-pointer
 task: 纠正 AGENTS.md「QM-6 与既有门禁的关系」中失效的 skill 引用，改指向本仓真实机械链
 date: 2026-10-16
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（按「PR 自动合并」收尾清单 1–4 条回填，并整段删除本三个 sync_* 字段）
 ---
 
 ## 本次执行记录：纠正 QM-6 门禁落点指向（qm6-exec-chain-pointer，2026-10-16）【docs-only】
@@ -23,9 +20,9 @@ sync_backfill_owner: 下一个会话（按「PR 自动合并」收尾清单 1–
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/`、`packages/rpa-engine/` 与渲染层 |
 | QM-6 CCG 双模型外部评审 | 未执行 | 纯流程/文档变更按本文档豁免 QM-6；且本片正是在修订对该门禁的说明，不以自审冒充通过 |
 | 记录欠账 | PASS | `node scripts/check-gate-record-debt.js` ⇒ rc=0 且不再点名本文件（首跑曾点名「整块缺 远程同步 行」——本 PR 修的正是这个盲区，而我自己第一版就漏了表格行只写了 bullet，被门禁当场抓住；补行后复跑通过）；`node scripts/check-record-qm5-rows.js` ⇒ OK（必需步骤 ① ② ④ ⑤，检查域内记录 180、欠账登记 27、全仓未登记缺行 0） |
-| 远程同步 | PENDING | 本 PR 尚未合并，merge SHA 不存在。合并后由后续 docs PR **同一次提交**内改写本行与下方 bullet 为 `PASS` + merge SHA（`git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 取证）+ 回读本次合并触发的 main push 读数（收尾清单第 7 条；纯记录类改动若因 push `paths-ignore` 按设计不跑，则如实记 `NO_RUN(by design)` 并转核该判据最近一次 main 读数），同时整段删除 frontmatter 的三个 `sync_*` 字段。远端分支已删以 `git ls-remote --heads origin qm6-exec-chain-pointer` 返回 0 行为证 |
+| 远程同步 | PASS | 本 PR 即 **#3747**，`state=MERGED`，merge SHA `bf667e62b69c9f86f8e72b572a737ec92e7fdd3e`，merge 时间 2026-10-16T23:47:21+08:00。取证：`git log origin/main --grep='(#3747)$' --format=%H|%cI` **恰好 1 行**；远端分支 `qm6-exec-chain-pointer` 的 ref 查询返回 **0 行**（随 squash 删除）。**收尾清单第 7 条回读**：`quality-gate.yml` 在该 merge SHA 上 **NO_RUN(by design)**——`gh run list --workflow=quality-gate.yml --commit bf667e62b` = `[]`，该 SHA 上只有 `债务熔断检查=success` 与 `handle-ci-failure=success/skipped`（本片只改 `AGENTS.md` 与记录，两者都在 push `paths-ignore` 内）⇒ 既不把「没有 run」读成丢证，也不拿它当免检；转核该判据最近一次 main push 读数 = run `38928542688` @ `fc24f03d8`（main tip，当场读数 **queued**）——**不代判它的结论，也不替他人清账**，下一会话按 `(merge SHA, workflow)` 复取。另记：本行与下方 bullet 在同一次提交内一起改写，frontmatter 三个 `sync_*` 字段同次删除（新载体不进 JSON ledger）。表中「本记录 35/0」等数是**本体 PR** 的 diff；本回填属就地改写，差量另计 |
 
-- 保留门禁：判定 docs-only=true ✅ | 行尾对账 ✅ | 品牌残留 ✅（`check-no-brand-residue.js` PASS；扫描数随每笔提交自增故不记总数） | 文档同步 ✅（`openspec-sync-check.js` OK：387 tasks / 52 active / 231 archives） | 记录欠账 ✅ | 远程同步 PENDING
+- 保留门禁：判定 docs-only=true ✅ | 行尾对账 ✅ | 品牌残留 ✅（`check-no-brand-residue.js` PASS；扫描数随每笔提交自增故不记总数） | 文档同步 ✅（`openspec-sync-check.js` OK：387 tasks / 52 active / 231 archives） | 记录欠账 ✅ | 远程同步 PASS
 
 ### 遗留（不假装已闭合）
 
