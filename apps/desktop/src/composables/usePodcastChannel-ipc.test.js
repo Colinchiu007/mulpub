@@ -197,7 +197,7 @@ describe('usePodcastChannel：桥接结果到用户可见错误码的映射', ()
 describe('IPC 单轨制结构锁', () => {
   const METHODS = [
     'channelGet', 'channelSave', 'episodeList', 'episodeSave',
-    'episodeRemove', 'feedBuild', 'feedVerify', 'endpointList',
+    'episodeRemove', 'episodePlanPreview', 'feedBuild', 'feedVerify', 'endpointList',
   ]
 
   it('composable 源码不再出现桌面端暴露面字面量，取用点只在 src/api', async () => {
@@ -231,6 +231,6 @@ describe('IPC 单轨制结构锁', () => {
     const createPodcastApi = mod.createPodcastApi ?? mod.default.createPodcastApi
     const surface = createPodcastApi({ invoke: async () => ({ code: 0, data: null }) }).podcast
     expect(Object.keys(api).sort()).toEqual(Object.keys(surface).sort())
-    expect(Object.keys(surface)).toHaveLength(20)
+    expect(Object.keys(surface)).toHaveLength(21) // 2026-10-16：+episodePlanPreview（只读预览，PRD §7.10.4.1）
   })
 })

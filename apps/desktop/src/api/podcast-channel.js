@@ -141,6 +141,12 @@ export async function episodePublishFromVideo (payload) {
   return envelope(() => invokeNamespace(NS, 'episodePublishFromVideo', payload))
 }
 
+// 4.3②-a 的只读预览（PRD §7.10.4.1）：计费确认框的计数与音色段只有这一处来源。
+// 与另外两条形同：方法名写成字面量，ipc-exposure-contract 的账才看得见这条路径。
+export async function episodePlanPreview (payload) {
+  return envelope(() => invokeNamespace(NS, 'episodePlanPreview', payload))
+}
+
 export async function episodePublishCancel (payload) {
   return envelope(() => invokeNamespace(NS, 'episodePublishCancel', payload))
 }

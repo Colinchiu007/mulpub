@@ -27,6 +27,9 @@
  * 成片一键出期（刀 3 第 3 片；完整合同见 PRD §6.4）：
  *   podcast:episode:publishFromVideo → { code, data: { state, phases, audioUrl, episodeId, itemCount, feedUrl, message, errorCode, errorMessage } }
  *   podcast:episode:publish:cancel   → { code, data: { outcome, phase } }   // outcome ∈ accepted|too_late|unknown
+ * 出期前的只读预览（4.3②-a；完整合同见 PRD §7.10.4.1）：
+ *   podcast:episode:planPreview → { code, data: { ok, plan: { totalBlocks, totalCodepoints }, voice|null } }
+ *   // 这条通道不写任何东西；voice 为 null 表示「来源不显示」而不是「没解析出来」，计数缺失一律整块不显示
  * 校验失败：{ code: EC.VALIDATION_ERROR, message, issues }——issues 是引擎的结构化码数组，
  * 文案由渲染层按 code 出（本层不回传用户未发布的标题/音频地址，也不回传 xml 正文）。
  * 失败信封另带 `subCode`（领域码，如 PODCAST_HOSTING_UPLOAD_FAILED）：`code` 是 EC 数字、决定往哪查，
@@ -323,6 +326,63 @@ function registerHandlers (ipcMain, deps) {
     return episodeHost
   }
 
+
+  // 4.3②-a 的只读预览宿主（PRD §7.10.4.1）：计费二次确认框要显示的「切几块 / 多少码点 / 谁说话」
+  // 只有这一处来源。三条不可让：
+  // 1. **只读**——不建目录、不占频道忙标记、不碰出期宿主；判据在 podcast-plan-preview-ipc.test.js 按「缺席」取证
+  //    （返回码为 0 不构成证据：顺手把真 store 拽进来也会照样回 0）。
+  // 2. **不另算一个数**——分块判据仍是 planChunks 一份、音色回退仍是 resolveEpisodeVoice 一份；
+  //    前端自抄一份切分必然与「实际发出去的块数」漂移，而那个数正是确认框唯一要告诉用户的。
+  // 3. 缺实现即拒：deps 没接 store 或没接 modelProviderManager 时不猜默认值，让浮层如实显示「没解析出来」。
+  let planPreview = deps && deps.podcastEpisodePlanPreview ? deps.podcastEpisodePlanPreview : null
+  let previewDepWarned = false
+  function getPlanPreview () {
+    if (planPreview) return planPreview
+    const { createEpisodePlanPreview } = require('../services/podcast-episode-plan-preview')
+    const { createVoiceReaders } = require('../services/podcast-episode-tts-adapters')
+    const catalog = require('../services/tts-voice-catalog')
+    const { resolveProviderDefaultModel } = require('../services/model-provider-manager')
+    const readers = createVoiceReaders({
+      // 偏好键的字面量只在 adapters 那一处，本层不再抄一份（抄了就有两份键格式，改一处即漂移）
+      readSetting: (key) => {
+        const s = deps && deps.store
+        if (!s || typeof s.getUserSetting !== 'function') {
+          if (!previewDepWarned) {
+            previewDepWarned = true
+            log.warn('[ipc:podcast] 预览缺 store 注入：音色偏好按未配置处理（不猜默认音色，只报一次）')
+          }
+          return null
+        }
+        return s.getUserSetting(key, null, resolveIpcOwnerSubject(deps && deps.identityService))
+      },
+      getVoiceCapability: (providerId, model) => catalog.getVoiceCapability(providerId, model),
+    })
+    planPreview = createEpisodePlanPreview({
+      channelRefOf: (channelId) => {
+        // 只读：getService 不带 writable ⇒ 走 assertChannelExists，预览永远拿不到写判据
+        const meta = getService(channelId).getChannel()
+        return meta && meta.voiceRef && typeof meta.voiceRef === 'object' ? meta.voiceRef : null
+      },
+      defaultProviderOf: () => {
+        const m = deps && deps.modelProviderManager
+        if (!m || typeof m.getDefault !== 'function') {
+          if (!previewDepWarned) {
+            previewDepWarned = true
+            log.warn('[ipc:podcast] 预览缺 modelProviderManager 注入：② ③ 两层没有定位键，将如实拒绝')
+          }
+          return null
+        }
+        const row = m.getDefault('tts')
+        if (!row || !row.id) return null
+        // 默认模型取法只有 model-provider-manager 一份实现，本层不自己挑 models[0]
+        return { providerId: String(row.id), model: resolveProviderDefaultModel(row, 'tts') }
+      },
+      readPreference: readers.readPreference,
+      getCapability: readers.getCapability,
+      warn: (msg) => log.warn(String(msg || ''))
+    })
+    return planPreview
+  }
   ipcMain.handle('podcast:hosting:get', withSenderCheck(handlerFor('hosting:get', async () => ({ hosting: getHostingService().getHosting() }))))
 
   ipcMain.handle('podcast:hosting:save', withSenderCheck(handlerFor('hosting:save', async (payload) => {
@@ -363,6 +423,14 @@ function registerHandlers (ipcMain, deps) {
     // outcome 三态如实回：unknown 是「已结束或从未登记」，不得读成「已取消」，
     // 否则界面会对一次已经发布成功的出期说「已取消，临时文件已回滚」。
     return getEpisodeHost().cancelPublish(runId)
+  })))
+
+  // 只读预览（PRD §7.10.4.1）。⛔ 通道名同样必须是字面量：electron/tests/ipc-contract.test.js 按字面量
+  // 双向对账，收回变量或循环注册会让这条通道从对账里消失。
+  ipcMain.handle('podcast:episode:planPreview', withSenderCheck(handlerFor('episode:planPreview', async (payload) => {
+    const p = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {}
+    const script = typeof p.script === 'string' ? p.script : (typeof p.content === 'string' ? p.content : '')
+    return getPlanPreview().previewEpisodePlan({ channelId: channelOf(payload), script })
   })))
 }
 
