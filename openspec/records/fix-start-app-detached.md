@@ -3,9 +3,6 @@ record: fix-start-app-detached
 task: sync-app.ps1 启动链在 agent 会话内必被杀（三次实测），改为 WMI 脱离 + 存活断言；并修掉我第一版断言把活应用误判死的斜杠匹配 bug
 date: 2026-10-16
 # ↓ 三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
-sync_status: PENDING
-sync_reason: 本 PR（fix-start-app-detached）尚未合并，merge SHA 还不存在，无法取证收口
-sync_backfill_owner: 下一个会话（三形态同改：frontmatter 三字段 + 表格行 + 记录文件无 ledger 登记项需删，同一次提交）
 ---
 
 ## 本次执行记录：start-app 启动链脱离 agent 会话 + 存活断言（fix-start-app-detached，2026-10-16）
@@ -25,4 +22,5 @@ sync_backfill_owner: 下一个会话（三形态同改：frontmatter 三字段 +
 | QM-6 CCG 双模型外部评审 | 未执行 | 判定 single（见 .ccg/reviews/<HEAD>.json）；本片为启动脚本修复，不涉运行时代码 |
 | 实测（三场景） | ✅ | ① 修好后在**原失败场景**（agent job 内直接调 sync-app）：`START_CONTRACT_OK: electron alive with visible main window (WMI-detached)` rc=0；② **job 结束后仍存活**：electron 8、窗口 pid=17428「社媒管家」、三端口 5231/9279/18357 全监听；③ 前台直启 dev.js 复现应用无问题（electron=7、账号检查 9 个全过）——证明失败只在启动链，不在应用 |
 | 已知边界 | ✅ | ① `Invoke-CimMethod` 需要本机 WMI 可用（skill 已记载"WMI 不可用回退 Start-Process"，本轮保留该回退但断言仍会兜住：回退形态下断言可能超时失败，属**正确的 fail-loud**，不会假绿）；② 存活断言按 worktree 路径匹配，若未来改用别的活体检测口径需同步锁3；③ `0xC0000135`（STATUS_DLL_NOT_FOUND）在 Job Object 强杀时也会出现——我一度误判为 DLL 缺失，实际电子文件/dist 与 VC 运行时都完好，最终由 A/B 对照（同代码、同环境，仅启动方式不同）定位为连坐杀。**教训：退出码不能单独当根因，必须做变量隔离的对照** |
-| 远程同步 | PENDING | 本 PR 尚未合并；合并后由回填会话同一次提交改写 PASS + merge SHA 并删除上方 sync_* 三字段 |
+| 远程同步 | PASS | PR #3713 已 squash 合并，merge SHA `820bf19e8f9f4fc24f889187df6dc5c5c7fe58de`（2026-10-16T09:30:48Z）；远端分支 `fix-start-app-detached` 已删（`git ls-remote` 0 行）；`git log origin/main --grep='(#3713)
+` 恰好 1 行 |
