@@ -6,6 +6,8 @@
  */
 const https = require("https");
 const querystring = require("querystring");
+// 正文承载形态单一实现（p3-residual-criteria，2026-10-16）
+const { formatArticleBody } = require("../content-formatter");
 
 var CONFIG = {
   apiBase: "https://www.googleapis.com/youtube/v3",
@@ -80,7 +82,10 @@ class YouTubeAdapter {
       var videoBody = {
         snippet: {
           title: taskData.title || "Untitled",
-          description: taskData.content || "",
+          // 承载形态：YouTube 是**纯文本承载平台** ⇒ description 必须过 formatArticleBody
+          // （p3-residual-criteria，2026-10-16：原实现直接写 taskData.content，
+          //  富文本正文会把字面量 `<p>` 写进用户可见视频描述）
+          description: formatArticleBody("youtube", taskData.content || ""),
           tags: taskData.tags || [],
           categoryId: taskData.categoryId || "22",
         },

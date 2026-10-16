@@ -36,6 +36,22 @@ const { execFileSync } = require('node:child_process')
 
 const ROOT = path.resolve(__dirname, '..')
 
+/**
+ * 链文件名前缀 != slug 的平台（⑨ 与 ⑪ 共用，**单一来源**）。
+ *
+ * 视频号的链是 `shipinhao-video.js` / `shipinhao-music.js`，而 slug 是 `tencent_video`。
+ * 证据：`config/platforms.yaml` 的 tencent_video 块自带注释说明「视频号完整链
+ * （src/publish/platforms/shipinhao-video.js，分片 + Content-MD5 + post_draft/post_create
+ * 双分支，带链级测试）从未被触发」；且 `shipinhao-video.js:73` 调
+ * `formatArticleBody('tencent_video', …)`、`shipinhao.js:2` 注释确认 `constructor 'tencent_video'`
+ * —— 即**调度 id 就是 tencent_video**，`shipinhao` 只是**文件名**。
+ *
+ * 没有这张表时，判据会因**命名**差异报「无链」/「无链级测试」——那是判据错，不是平台错。
+ * （2026-10-16 p3-residual-criteria：⑨ 早已用它，⑪ 漏用 ⇒ tencent_video 的链级测试
+ *   `shipinhao-*.test.js` 存在却被判「无」，属同型假 FAIL；现已同源。）
+ */
+const CHAIN_NAME_ALIASES = { tencent_video: 'shipinhao' }
+
 /** 步骤定义：每项返回 { ok, detail } */
 function buildChecks (slug) {
   const read = (rel) => {
@@ -218,19 +234,40 @@ function buildChecks (slug) {
     const hasApi = /^[ \t]{4}has_api:[ \t]*true/m.test(block)
     if (!hasApi) return { ok: true, detail: 'has_api 非 true ⇒ 无需发布链' }
     const dir = path.join(ROOT, 'packages/api-publish-engine/src/publish/platforms')
-    // ★ 链文件名前缀不等于 slug 的平台（2026-10-15 补）：
-    //   视频号的链是 `shipinhao-video.js` / `shipinhao-music.js`，而 slug 是 `tencent_video`。
-    //   证据：`config/platforms.yaml` 的 tencent_video 块自带注释
-    //   「使视频号完整链（src/publish/platforms/shipinhao-video.js，分片 + Content-MD5 +
-    //     post_draft/post_create 双分支，带链级测试）从未被触发」；
-    //   且 `shipinhao-video.js:73` 调 `formatArticleBody('tencent_video', …)`、
-    //   `shipinhao.js:2` 注释确认 `constructor 'tencent_video'` —— 即**调度 id 就是 tencent_video**，
-    //   `shipinhao` 只是**文件名**。
+    // ★ 链文件名前缀不等于 slug 的平台：用模块级 CHAIN_NAME_ALIASES（⑨⑪ 同源，见文件头）。
     //   没有这张表时，判据会因**命名**差异报「无链」——那是判据错，不是平台错。
-    const CHAIN_NAME_ALIASES = { tencent_video: 'shipinhao' }
     const chainPrefix = (CHAIN_NAME_ALIASES[slug] || slug) + '-'
     const chainFiles = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.startsWith(chainPrefix)) : []
-    if (chainFiles.length === 0) return { ok: false, detail: `has_api:true 但无 publish/platforms/${chainPrefix}*.js` }
+
+    // ⚠️ 2026-10-16 p3-residual-criteria 修（**判据把两个轴混为一谈**）：
+    //    原判据要求 `has_api:true` ⇒ 必须有链 + `platform-entries.js` 登记，否则 FAIL。
+    //    但本仓语义是**两个独立轴**（`publish-mode-config.test.js` 有锚点注释）：
+    //      · `has_api`     = 该平台**有没有** API 发布实现；
+    //      · `publishMode` = 当前**走哪条轨**（dom-only / api-only / api-then-dom）。
+    //    实测 youtube / twitter：`has_api:true` + `publishMode:dom-only` + **0 个链**，
+    //    但二者**都有完整的 API 适配器**（adapters/youtube.js 是 YouTube Data API v3 + OAuth2，
+    //    adapters/twitter.js 同构）⇒ `has_api:true` 是**诚实的**（两轴各自成立），
+    //    原判据却因此恒红 —— 那是**判据错**，不是平台错。
+    //    对照 facebook（修复前）：`has_api:true` 却**既无链也无适配器** ⇒ 真·空声明，
+    //    已按**配置缺陷**改 `has_api:false`（见 config/platforms.yaml 该块注释）。
+    //    ⇒ 新口径分三层：① 无声明 ⇒ 无需链；② 有声明 ⇒ 至少有**实现证据**（链或适配器）；
+    //      ③ 有链 ⇒ 还必须被 `platform-entries.js` 登记（这一层不变：要真走轨就必须登记）。
+    const adapterFile = path.join(ROOT, 'packages/api-publish-engine/src/adapters', `${slug}.js`)
+    const hasAdapter = fs.existsSync(adapterFile)
+
+    if (chainFiles.length === 0) {
+      if (!hasAdapter) {
+        return {
+          ok: false,
+          detail: `has_api:true 但既无 publish/platforms/${chainPrefix}*.js 也无 adapters/${slug}.js ⇒ 空声明`,
+        }
+      }
+      return {
+        ok: true,
+        detail: `has_api:true 有 API 适配器（adapters/${slug}.js）但 0 个链 ⇒ 未入波（publishMode=dom-only），`
+          + '按本仓两轴语义合法（能力轴 vs 轨道轴，锚点见 publish-mode-config.test.js）',
+      }
+    }
     const entries = read('packages/api-publish-engine/src/platform-entries.js') || ''
     return entries.includes(slug)
       ? { ok: true, detail: `链 ${chainFiles.length} 个 + 已被 platform-entries.js 登记` }
@@ -272,17 +309,56 @@ function buildChecks (slug) {
         }
   })
 
-  add(11, '测试与文案：formatter 测试 / chain 测试 / locales 成对', () => {
+  add(11, '测试与文案：formatter 覆盖（注册表驱动）/ chain 测试（有链才要求）/ locales 成对', () => {
     const missing = []
     const notes = []
-    const cf = read('packages/api-publish-engine/test/content-formatter.test.js')
-    if (!cf) missing.push('content-formatter.test.js 不存在')
-    else if (!cf.includes(slug)) missing.push('content-formatter.test.js 无该 slug')
 
-    const chainDir = path.join(ROOT, 'packages/api-publish-engine/test')
-    const chains = fs.existsSync(chainDir) ? fs.readdirSync(chainDir).filter((f) => f.startsWith(slug)) : []
-    if (chains.length === 0) missing.push('无该平台的 chain 测试')
+    // ① formatter 覆盖（2026-10-16 p3-residual-criteria 修，**判据过严**）：
+    //    原判据要求 `test/content-formatter.test.js` 里出现该 slug 的**字面量**。
+    //    但本仓 formatter 限值的真实覆盖是**按注册表遍历**的契约锁
+    //    （content-formatter-registry-sync.test.js 的 A 用例遍历
+    //      Object.keys(registry.PLATFORM_PUBLISH_META)，逐平台断言 truncateContent 与
+    //      contentMax 一致）——**注册表加平台，覆盖自动跟上**，不需要逐平台写字面量。
+    //    实测：原判据下 youtube / tiktok / twitter / instagram / facebook 全判 FAIL，
+    //    而它们的限值其实**已被 A 用例逐平台断言** ⇒ 全部是**假 FAIL**。
+    //    判据改为问「该平台在注册表内吗」——这才是「覆盖得到它吗」的真正前提。
+    let inRegistry = false
+    try {
+      const reg = require(path.join(ROOT, 'packages/shared-utils/src/publish-capabilities.js'))
+      inRegistry = Object.keys(reg.PLATFORM_PUBLISH_META || {}).includes(slug)
+    } catch (e) { /* 加载失败按下面的 missing 记账 */ }
+    if (!inRegistry) {
+      missing.push('不在注册表 PLATFORM_PUBLISH_META 内 ⇒ formatter 的注册表驱动契约锁覆盖不到它')
+    } else {
+      notes.push('formatter 覆盖由注册表驱动契约锁提供（已含该平台）')
+    }
 
+    // ② chain 测试：**有链才要求**（2026-10-16 修，**判据不可满足**）：
+    //    原判据无条件要求 `test/<slug>*.js`。但 dom-only 且无链的平台
+    //    （wechat_mp / weibo / toutiao / instagram / facebook 等）**本来就没有链可测**，
+    //    该要求对它们**恒不可满足** —— 这不是平台缺陷，是判据写错了作用面。
+    //    改为「有链 ⇒ 必须有链级测试」，并用与判据⑨**同源**的别名表（tencent_video → shipinhao），
+    //    否则视频号那两个链级测试（shipinhao-*.test.js）存在却被判「无」。
+    const chainPrefix = (CHAIN_NAME_ALIASES[slug] || slug) + '-'
+    const chainDirAbs = path.join(ROOT, 'packages/api-publish-engine/src/publish/platforms')
+    const testDirAbs = path.join(ROOT, 'packages/api-publish-engine/test')
+    const chainFiles = fs.existsSync(chainDirAbs)
+      ? fs.readdirSync(chainDirAbs).filter((f) => f.startsWith(chainPrefix) && f.endsWith('.js'))
+      : []
+    const chainTests = fs.existsSync(testDirAbs)
+      ? fs.readdirSync(testDirAbs).filter((f) => f.startsWith(chainPrefix) && f.endsWith('.test.js'))
+      : []
+    if (chainFiles.length > 0) {
+      if (chainTests.length === 0) {
+        missing.push(`有 ${chainFiles.length} 个链（${chainPrefix}*.js）但无链级测试（${chainPrefix}*.test.js）`)
+      } else {
+        notes.push(`链 ${chainFiles.length} 个 + 链级测试 ${chainTests.length} 个`)
+      }
+    } else {
+      notes.push('无发布链 ⇒ 不要求链级测试（dom-only 平台本来就没有链）')
+    }
+
+    // ③ locales 成对（原有语义保留）
     // ⚠️ 判据的第一版要求 locales 里必须有 slug 字面量，对 baijiahao 误报 ——
     // 实测本仓 `locales/zh.js` 里**没有任何平台 slug**：平台显示名来自
     // `config/platforms.yaml` / `platform-definitions.js`，不是 i18n 文案。
@@ -299,7 +375,7 @@ function buildChecks (slug) {
       else notes.push('locales 成对命中该 slug')
     }
     return missing.length === 0
-      ? { ok: true, detail: `formatter 测试 + ${chains.length} 个 chain 测试；${notes.join('；')}` }
+      ? { ok: true, detail: notes.join('；') }
       : { ok: false, detail: missing.join('; ') }
   })
 

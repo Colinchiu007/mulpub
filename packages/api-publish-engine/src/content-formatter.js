@@ -1,24 +1,38 @@
 /**
  * content-formatter.js — 统一内容格式化
- * 负责：29 平台标签格式转换 + 内容/标题截断
+ * 负责：15 平台标签格式转换 + 内容/标题截断
  * 遵循增量原则：不修改 taskData 结构，只格式化已有字段
  */
 
 // ---- 标签风格映射 ----
-// '#tag'    →  douyin/xiaohongshu/kuaishou/bilibili/toutiao 等（多数平台）
-// '#tag#'   →  weibo/souhu
-// 'plain'   →  zhihu/wechat_mp/dayu/wangyi/yidianhao/dewu/baijiahao
+// 键集**必须**是注册表 `publish-capabilities.json` 的平台集的子集
+// （锁：test/content-formatter-registry-sync.test.js 的 G 用例；缺席合法，走下面的 `|| '#tag'` 兜底）。
+//
+// '#tag'   →  多数平台（含海外平台的 #hashtag 形态）
+// '#tag#'  →  weibo
+// 'plain'  →  zhihu / wechat_mp / baijiahao
+//
+// ⚠️ 2026-10-16 对齐（p3-residual-criteria）：原表有 **29 个键**，其中 **19 个**
+//    （aiqiyi / pipixia / meipai / xigua / duoduo / qiehao / tengxun_shipin / weishi /
+//      souhu_shipin / meiyou / xhs_shangjia / acfun / chejiahao / yichehao / souhu /
+//      dayu / wangyi / yidianhao / dewu）
+//    在**两个平台真源里都不存在**（注册表 `publish-capabilities.json` 无、
+//    `platform-definitions.js` 的 15 张表全无命中）⇒ 而 `TAG_STYLES[platform]` 只可能
+//    被已入册平台调用 ⇒ 那 19 个键**永远不可达**，已删。
+//    另 `shipinhao` 是 `tencent_video` 的**链文件名**（见 verify-platform-onboarding 判据⑨的
+//    CHAIN_NAME_ALIASES），不是平台键，已改回真 slug。
+//    本次**行为等价**：被删的 19 键本就不可达；`shipinhao:'#tag'` 与 `tencent_video` 原先
+//    走默认兜底的 `'#tag'` **同值**。
 var TAG_STYLES = {
+  // '#tag' 风格
   douyin: '#tag', xiaohongshu: '#tag', kuaishou: '#tag',
-  bilibili: '#tag', toutiao: '#tag', aiqiyi: '#tag',
-  pipixia: '#tag', meipai: '#tag', shipinhao: '#tag',
-  xigua: '#tag', duoduo: '#tag', qiehao: '#tag',
-  tengxun_shipin: '#tag', weishi: '#tag', souhu_shipin: '#tag',
-  meiyou: '#tag', xhs_shangjia: '#tag', acfun: '#tag',
-  chejiahao: '#tag', yichehao: '#tag',
-  weibo: '#tag#', souhu: '#tag#',
-  zhihu: 'plain', wechat_mp: 'plain', dayu: 'plain',
-  wangyi: 'plain', yidianhao: 'plain', dewu: 'plain', baijiahao: 'plain',
+  bilibili: '#tag', toutiao: '#tag', tencent_video: '#tag',
+  youtube: '#tag', tiktok: '#tag', twitter: '#tag',
+  instagram: '#tag', facebook: '#tag',
+  // '#tag#' 风格
+  weibo: '#tag#',
+  // 'plain' 风格
+  zhihu: 'plain', wechat_mp: 'plain', baijiahao: 'plain',
 };
 
 // ---- 内容截断上限（字符数） ----
@@ -390,4 +404,7 @@ module.exports = {
   extractInlineTopicNames, stripTopicsFromContent, convertInlineTopics, findInlineTopicPositions,
   hasHtmlTags, htmlToPlainText, textToParagraphHtml, getArticleBodyKind, formatArticleBody,
   HTML_BODY_PLATFORMS, PLAIN_BODY_PLATFORMS,
+  // 导出供「键集 ⊆ 注册表」契约锁断言真对象（比解析源码文本稳）：
+  // test/content-formatter-registry-sync.test.js 的 G 用例。
+  TAG_STYLES,
 };

@@ -5,6 +5,8 @@
  * Requires TWITTER_API_KEY, TWITTER_API_SECRET, TWITTER_ACCESS_TOKEN, TWITTER_ACCESS_SECRET in env.
  */
 const https = require("https");
+// 正文承载形态单一实现（p3-residual-criteria，2026-10-16）
+const { formatArticleBody } = require("../content-formatter");
 
 var CONFIG = {
   apiBase: "https://api.twitter.com/2",
@@ -40,7 +42,9 @@ class TwitterAdapter {
       // X 是无标题平台（openspec/changes/publish-capability-registry）：推文只有
       // text 一个正文字段，发布页填写的标题必须作为 text 首行插入。旧实现
       // `content || title` 在有正文时直接丢弃标题。
-      var tweetText = [taskData.title, taskData.content]
+      // 承载形态：X 是**纯文本承载平台** ⇒ 正文过 formatArticleBody 后（HTML→纯文本）
+      // 再与标题合并（p3-residual-criteria，2026-10-16：原实现直接拼裸 content）。
+      var tweetText = [taskData.title, formatArticleBody("twitter", taskData.content)]
         .map(function (part) { return typeof part === "string" ? part.trim() : ""; })
         .filter(function (part) { return part.length > 0; })
         .join("\n");

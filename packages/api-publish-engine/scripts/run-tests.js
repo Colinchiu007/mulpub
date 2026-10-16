@@ -6,6 +6,9 @@ const { spawnSync } = require('child_process')
 
 const VITEST_FILES = new Set([
   'adapters-interface.test.js',
+  // 正文承载形态路由（p3-residual-criteria，2026-10-16）——依赖 vitest 的 describe/test 全局，
+  // **必须在册**（漏登记时 runner 会用 node 直跑 ⇒ `describe is not defined`，且文件数不增）。
+  'article-body-adapter-routing.test.js',
   'api-router.test.js',
   // 分类守卫（P0-3）。**必须在册**：本 runner 对不在册的文件改用 `node --test`，
   // 而本文件依赖 vitest 的 describe/it 全局 ⇒ 漏登记的表现是

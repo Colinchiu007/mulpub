@@ -5,6 +5,8 @@
  * Uses TikTok Business API for video posting and content publishing.
  */
 const https = require("https");
+// 正文承载形态单一实现（p3-residual-criteria，2026-10-16）
+const { formatArticleBody } = require("../content-formatter");
 
 class TikTokAdapter {
   constructor() { this.name = "tiktok"; }
@@ -52,7 +54,9 @@ class TikTokAdapter {
       // TikTok 是无标题平台（openspec/changes/publish-capability-registry）：
       // DOM 上传页只有 caption（2200 含话题），发布页填写的标题必须作为
       // description 首行插入，否则标题被丢弃。
-      var composedDescription = [taskData.title, taskData.content]
+      // 承载形态：TikTok 是**纯文本承载平台** ⇒ 正文过 formatArticleBody 后（HTML→纯文本）
+      // 再与标题合并（p3-residual-criteria，2026-10-16：原实现直接拼裸 content）。
+      var composedDescription = [taskData.title, formatArticleBody("tiktok", taskData.content)]
         .map(function (part) { return typeof part === "string" ? part.trim() : ""; })
         .filter(function (part) { return part.length > 0; })
         .join("\n");

@@ -97,3 +97,38 @@ test('F) 行为级反证：douyin 40 字标题经 formatContent 管线不再被�
   const td = formatContent('douyin', { title: title40, content: '正文', tags: [] })
   assert.equal(Array.from(td.title).length, 40, 'douyin 40 字标题被引擎截断（旧值 30 未同步注册表 55）')
 })
+
+test('G) TAG_STYLES 键集 ⊆ 注册表平台集（防再长出不可达孤儿键）', () => {
+  // 动因（p3-residual-criteria，2026-10-16）：原表有 29 个键，其中 19 个（aiqiyi / pipixia /
+  // meipai / xigua / duoduo / qiehao / tengxun_shipin / weishi / souhu_shipin / meiyou /
+  // xhs_shangjia / acfun / chejiahao / yichehao / souhu / dayu / wangyi / yidianhao / dewu）
+  // 在**两个平台真源里都不存在**（注册表 publish-capabilities.json 无、
+  // platform-definitions.js 的 15 张表全无命中）。
+  // 而 `TAG_STYLES[platform]` 只可能被已入册平台调用 ⇒ 那些键**永远不可达**：
+  // 不报错、不影响行为，只让「这张表覆盖哪些平台」这件事失真（读的人会以为有 29 个平台）。
+  //
+  // 锁口径：键集必须是注册表平台集的**子集**——缺席合法（判据 8 已允许走 `|| '#tag'` 兜底），
+  // 但**不得多出**注册表里没有的键。
+  //
+  // ⚠️ 下界断言不可省：注册表解析若退化成空集合（或 TAG_STYLES 未导出），
+  //    「多出的键」会恒为空 ⇒ 本锁**假绿**（本仓已有多次同型事故）。
+  const { TAG_STYLES } = require('../src/content-formatter')
+  const platforms = Object.keys(registry.PLATFORM_PUBLISH_META)
+  assert.equal(platforms.length, 15, '注册表平台数不是 15 —— 锁的基准本身失效，不得继续判定')
+  assert.ok(TAG_STYLES && typeof TAG_STYLES === 'object', 'TAG_STYLES 未从 content-formatter 导出')
+  const keys = Object.keys(TAG_STYLES)
+  assert.ok(keys.length > 0, 'TAG_STYLES 为空 —— 解析退化，本锁不得假绿')
+
+  const orphans = keys.filter((k) => !platforms.includes(k))
+  assert.deepEqual(orphans, [], `TAG_STYLES 含注册表外的键（不可达孤儿键）: ${orphans.join(', ')}`)
+
+  // 取值也在允许集内（与 verify-platform-onboarding 判据 8 同一口径）
+  const allowed = new Set(['#tag', '#tag#', 'plain'])
+  for (const k of keys) {
+    assert.ok(allowed.has(TAG_STYLES[k]), `TAG_STYLES.${k} = '${TAG_STYLES[k]}' 不在允许集 #tag/#tag#/plain`)
+  }
+
+  // 反证口径：`shipinhao` 是 tencent_video 的**链文件名**，不是平台键——
+  // 若有人把它加回表里（或按文件名补键），上面 orphans 断言即红。
+  assert.ok(!keys.includes('shipinhao'), 'shipinhao 是链文件名不是平台 slug，不得作为 TAG_STYLES 键')
+})

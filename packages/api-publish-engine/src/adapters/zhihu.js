@@ -2,7 +2,9 @@ const { BasePlatformAdapter } = require("../base-adapter");
 const { upload } = require("../../upload/orchestrator");
 // 话题内联描述（publish-topic-inline-description）：知乎是独立字段型平台——
 // 话题从描述剥离进 topics API（描述与字段无双份重复），剥离用 content-formatter 单一实现
-const { stripTopicsFromContent } = require("../content-formatter");
+// 正文承载形态：知乎是**纯文本承载平台** ⇒ 写 content 字段前必须过 formatArticleBody
+// （p3-residual-criteria，2026-10-16：原实现直接写 stripped.content，自行绕过单一实现）
+const { stripTopicsFromContent, formatArticleBody } = require("../content-formatter");
 
 const ZHIHU_DECLARATION_TYPES = {
   1: "spoiler",
@@ -36,7 +38,8 @@ class ZhihuAdapter extends BasePlatformAdapter {
     const stripped = stripTopicsFromContent(td.content || "", td.tags || []);
     const post = {
       title: td.title || "",
-      content: stripped.content,
+      // 顺序不变量：话题剥离**先于**承载形态适配（反序会让 `(^|\s)#话题` 因井号前是 `>` 而失配）
+      content: formatArticleBody("zhihu", stripped.content),
       commentPermission: "anyone",
       declare: normalizeDeclaration(td.declare),
     };

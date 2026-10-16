@@ -100,7 +100,14 @@ describe('B) 平台行为锁（描述为话题真源，按矩阵三态消费）'
   it('B-8) toutiao：content 剥离话题 + tags 字段含', () => {
     const adapter = new ToutiaoAdapter()
     const data = adapter.buildPostData({ title: 'T', content: CONTENT, tags: [TOPIC] })
-    expect(data.content).toBe('今天探店 太好吃了')
+    // ⚠️ 2026-10-16 期望更新（p3-residual-criteria）：本条原期望 `'今天探店 太好吃了'`（**纯文本**），
+    // 那是**修复前**的形态：适配器把 stripTopicsFromContent 的纯文本**直写** content 字段。
+    // 但 **toutiao 是 HTML 承载平台**（`getArticleBodyKind('toutiao') === 'html'`）——
+    // 纯文本会被平台按 HTML 解析，换行属**可忽略空白** ⇒ 整篇塌成一个文本节点
+    // （AGENTS.md 记的 2026-10-12 百家号同型事故：公开页正文 `<p>`=0）。
+    // 修复后正文经 `formatArticleBody('toutiao', …)` ⇒ 段落以 `<p>` 表达，这正是该平台要的形态。
+    // 话题剥离断言（tags / 无 `#话题` 残留）不变，只更新承载形态。
+    expect(data.content).toBe('<p>今天探店 太好吃了</p>')
     expect(data.tags).toEqual([TOPIC])
   })
 

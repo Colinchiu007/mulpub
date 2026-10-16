@@ -3,7 +3,8 @@ const { BasePlatformAdapter } = require("../base-adapter");
 const { upload } = require("../../upload/orchestrator");
 // 话题内联描述（publish-topic-inline-description）：头条是独立字段型平台——
 // 话题从描述剥离进 tags 字段，剥离用 content-formatter 单一实现
-const { stripTopicsFromContent } = require("../content-formatter");
+// 正文承载形态：写 content 字段前必须过 formatArticleBody（单一实现）
+const { stripTopicsFromContent, formatArticleBody } = require("../content-formatter");
 
 class ToutiaoAdapter extends BasePlatformAdapter {
   constructor() {
@@ -27,7 +28,9 @@ class ToutiaoAdapter extends BasePlatformAdapter {
     const stripped = stripTopicsFromContent(taskData.content || "", taskData.tags || []);
     return {
       title: taskData.title || "",
-      content: stripped.content,
+      // 顺序不变量：话题剥离**先于**承载形态适配
+      // （p3-residual-criteria，2026-10-16：原实现直接写 stripped.content，绕过单一实现）
+      content: formatArticleBody("toutiao", stripped.content),
       tags: taskData.tags || [],
       cover_type: taskData.cover_path ? 1 : 0,
     };
