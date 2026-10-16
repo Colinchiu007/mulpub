@@ -412,6 +412,38 @@ claude 后端恢复（`sh scripts/deep-review.sh --check-deps` 体检通过）�
   `rpa-view-platforms.test.js` **83/83**；`check-max-lines` ✅（测试超限 12 = 挂账 12）；
   CI 侧 `QG Static` → **success**（Gate 11 success）。
 
+### 第十二轮：门禁欠账触发的真实双模型深审（`8f260d6bb`）
+
+**触发**：`check-pr-exec-record --mode=enforce` 报 **1 条 dual 欠账** ——
+`.ccg/reviews/8f260d6bb….json`，理由「变更 806 行 > 200 行阈值（对齐 §12.6 Red Team）」，
+status=pending。**不是假阳性**（那笔提交动的是门禁脚本 `scripts/verify-platform-onboarding.js` 与
+`.github/workflows/quality-gate.yml`），故按判据给的补救路径**补跑真实深审**（不写「假阳性」消红）。
+
+**引擎输出**：`--check-deps` 通过；`proposer=opencode / critic=claude`（跨家族校验通过）；
+基线 `origin/main`（3675 行）；critic 给 **5 条问题**（4 条待裁决），维度分 correctness 5 / security 6 /
+performance 7 / maintainability 4，进入**自扮演裁决**（置信权重 0.6，真跨家族为 1）。
+
+| # | 严重度 | 指控 | 裁决 | 说明 |
+| --- | --- | --- | --- | --- |
+| i1 | Critical | `.ccg/reviews` 记录 status=needs_revision/pending 且 findings=null，制造假审计痕迹 | dismissed（review 时刻成立） | 一轮已闭合：每条带 `auditNote` + `debtClosure{engineTerminalState, whyNotEngineClosed, supersededBy}`；判据只对 `mode=dual` 计欠账 |
+| i2 | Critical | 命中抽取的 basename 兜底会让同名不同目录互认 ⇒ fail-open | dismissed（review 时刻成立） | 本轮之前的提交已修：完整路径优先 + 仅唯一同 basename 才兜底 + 否则 fail-closed；21 例常驻锁接进 CI（Gate 2c5），变异 M3 证红 |
+| i3 | Warning | 「两轴合取」结构锁用窗口正则 + 自指拼接，难读且历史两次误判 | **upheld → 本轮已修** | 改为「逻辑语句分组 + 单谓词」；三向变异：同行合取红 / 跨行拆分红 / **合法 publishMode 筛选不红**；本态 10/10 |
+| i4 | Warning | 依赖缺失处理不一致；降级路径可能宣称运行时结论 | dismissed（可做部分已采纳） | 「降级不得宣称运行时结论」已实现并加锁（`assert.doesNotMatch(/shouldUseApi\('…'\)=/)`）；本轮补**固定可 grep 前缀** `[运行时对账·降级]`；「跨文件统一为一套策略」**不做**——运行时对用户必须 fail-safe、判据对审计者必须响亮，目标函数不同 |
+| i5 | Info | 审计产物与历史文档混进同一 diff，建议分离 | dismissed | 与本仓规定冲突：执行记录的**唯一强制载体**就是 `openspec/records/<分支>.md`，且 `check-pr-exec-record` 的拦截面要求 `.ccg/reviews` 记录在 PR 差集内 |
+
+**i3 的修复过程本身有一条教训**：我第一次改成「语句里同时出现两个轴名」⇒ **当场红** ——
+把平台夹具字面量 `{ has_api: true, publishMode: 'api-only' }` 误判成自写合取。
+是我自己的变异（合法筛选那一路）把它抓出来的，随后保留「必须是对轨道轴的 `===`/`!==` 比较」条件修正。
+⇒ 与第八轮 M2、第十一轮 M2 同型：**锁写宽了/写窄了，都要靠作用在正确一侧的变异才发现**。
+
+**终态**：`deepReview.status = self_play_resolved`；`check-pr-exec-record --mode=enforce` → **OK**。
+
+**引擎行为（本轮新增可复用结论）**：
+1. `--check-deps` 会顺带跑一次判定（输出里会打印 `提交判定: SKIP/DUAL`），可当廉价预检用；
+2. 裁决取「**修复后状态**」——`upheld` 会让引擎落 `self_play_blocked`（**不在**闭环白名单），
+   必须修完再把该条改成 `dismissed`，并在 rationale 里用 `verdictAtReview: upheld` 如实标注 review 时刻成立；
+3. 存档 critique + 已填裁决 ⇒ 重跑**零模型调用**（`♻ 复用存档 critique`），可反复迭代裁决文案。
+
 ### 遗留（不假装已闭合）
 
 - **第九轮深度审查未执行**（后端免费额度耗尽，见上）。前八轮 upheld 已全部修复并加反证，

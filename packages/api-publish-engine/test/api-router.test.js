@@ -145,38 +145,34 @@ describe("API Router", function() {
       var fs = require("fs");
       var path = require("path");
       var self = fs.readFileSync(path.resolve(__dirname, "api-router.test.js"), "utf8");
-      // ★ CCG 第四轮 i4（upheld）：原判据按**单行**匹配，而自写合取完全可以拆成两行
-      //   （能力轴一行 + 换行 `&& (轨道轴比较)`）从而逃逸——实测踩到。
-      //   改为**窗口匹配**：含轨道轴比较的非注释行，若其前后 3 行内出现能力轴引用，
-      //   即判为自写合取（覆盖同行与跨行两种形态）。
+      // ★ 判据形态是两次真实事故换来的：
+      //   · 第四轮 i4：按**单行**匹配漏掉跨行拆分（能力轴一行 + 下一行 `&& (轨道轴比较)`）；
+      //   · 第五轮：用「前后 N 行窗口」会把**合法的按轨道值筛平台**（恰好靠近提到能力轴的代码）误报。
+      //   ⇒ 现改为**逻辑语句分组**：以 `&&`/`||` 结尾、或下一行以它们开头的行并成同一条语句，
+      //     然后判「同一语句内同时出现能力轴与轨道轴」。一次遍历 + 一个谓词，覆盖两种形态且不误报。
       //
-      // ⚠️ 自指陷阱（已踩两次）：本扫描读**自己这个文件**，故下面构造正则的片段
-      //   一律用字符串拼接，不让源码里出现可被匹配的完整模式。
-      var AXIS_CAP = "has" + "_api";                 // 能力轴字段名（拼接，防自匹配）
-      var AXIS_TRK = "publish" + "Mode";             // 轨道轴字段名（拼接，防自匹配）
+      // ⚠️ 自指陷阱（已踩两次）：本扫描读**自己这个文件**，所以构造匹配模式的片段一律用字符串拼接，
+      //    不让源码里出现可被匹配的完整模式（否则本用例会命中自己）。
+      var AXIS_CAP = "has" + "_api";
+      var AXIS_TRK = "publish" + "Mode";
+      // ⚠️ 必须要求「对轨道轴做**比较**」（=== / !==），否则平台夹具字面量
+      //    （`{ has_api: true, publishMode: 'api-only' }`）会被误报成自写合取（本用例实测踩到一次）。
       var cmpRe = new RegExp(AXIS_TRK + "\\s*(===|!==)");
-      var capRe = new RegExp(AXIS_CAP);
-      var codeLines = self.split("\n").filter(function(l) { return !/^\s*\/\//.test(l); });
-      var offenders = [];
-      codeLines.forEach(function(l, i) {
-        if (!cmpRe.test(l)) return;
-        // 合取推导的两种形态，都要求能力轴与轨道轴属于**同一个布尔表达式**：
-        //   ① 同一行；
-        //   ② 续行拆分 —— 下一行以 `&&` / `||` 开头，或本行以它们结尾（跨行连接的同一表达式）。
-        // ⚠️ 不能用「前后 N 行窗口」：那会把**合法的按轨道值筛平台**（同行无能力轴、
-        //    只是恰好靠近一段提到能力轴的代码）误报为合取推导（第五轮实测误报一次）。
-        var sameExpr = capRe.test(l)
-          || /(\|\||&&)\s*$/.test(l)
-          || /^\s*(\|\||&&)/.test(codeLines[i + 1] || '')
-          || /(\|\||&&)\s*$/.test(codeLines[i - 1] || '');
-        if (!sameExpr) return;
-        if (!capRe.test(l)) {
-          // 续行形态：在紧邻的连接行里找能力轴
-          var near = [codeLines[i - 1] || '', codeLines[i + 1] || ''].join("\n");
-          if (!capRe.test(near)) return;
-        }
-        offenders.push("L" + (i + 1) + ": " + l.trim());
+      var isComment = function(l) { return /^\s*(\/\/|\*|\/\*)/.test(l); };
+      var lines = self.split("\n");
+      var statements = [];
+      var buf = "";
+      lines.forEach(function(l, i) {
+        if (isComment(l)) return;                                    // 注释不算代码
+        buf = buf ? buf + "\n" + l : l;
+        var endsOpen = /(\|\||&&)\s*$/.test(l);                      // 本行以连接符结尾
+        var startsOpen = /^\s*(\|\||&&)/.test(lines[i + 1] || "");   // 下一行以连接符开头
+        if (!endsOpen && !startsOpen) { statements.push(buf); buf = ""; }
       });
+      if (buf) statements.push(buf);
+      var offenders = statements
+        .filter(function(s) { return cmpRe.test(s) && s.indexOf(AXIS_CAP) >= 0; })
+        .map(function(s) { return s.trim().split("\n")[0].trim().slice(0, 90); });
       expect(offenders.length,
         "本文件不得自写两轴合取推导（含跨行拆分；请改用 router.isApiTrack()），命中: " + offenders.join(" || "))
         .toBe(0);
