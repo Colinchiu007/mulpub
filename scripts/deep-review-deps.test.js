@@ -359,3 +359,37 @@ test("PATH 分支：相对 PATH 条目命中必须 MISS（相对路径 prepend �
 
 // process.execPath 是 Windows 形态；Git Bash 需要 /c/... 形态。
 // CI（ubuntu）上 execPath 本身就是 POSIX 形态，原样拼即可。
+
+
+// ═══════════════════════════════════════════════════════════════════
+// 记录名内容寻址：deep-review.sh 必须能按新名字找到记录
+// （ccg-record-content-addressing，2026-10-16）
+// ═══════════════════════════════════════════════════════════════════
+
+const fsRec = require('node:fs')
+
+function shSrc () {
+  return fsRec.readFileSync(SCRIPT, 'utf8')
+}
+
+test('内容寻址：deep-review.sh 必须按 stagedDiffHash 找记录（否则新命名下永远找不到）', () => {
+  const src = shSrc()
+  assert.match(src, /sha256sum/, '脚本里必须有内容寻址的哈希计算；记录改名后按 sha 找必然落空')
+})
+
+test('内容寻址：查找必须**早于**「判定记录: 无」早退（否则又成死代码）', () => {
+  // 这是 2026-10-15「缺陷 E」的同型失效：引擎本有内容寻址兜底，
+  // 却被脚本里一行早退 exit 0 挡在门外，兜底成了死代码、深度审查一次没跑起来。
+  // 所以位置本身就是判据：查找段必须在早退**之前**。
+  const src = shSrc()
+  const iHash = src.indexOf('sha256sum')
+  const iEarly = src.indexOf('判定记录: 无')
+  assert.ok(iHash > 0, '找不到内容寻址段')
+  assert.ok(iEarly > 0, '找不到早退段（判据锚点失效，需同步更新本锁）')
+  assert.ok(iHash < iEarly, '内容寻址查找必须在「判定记录: 无」早退之前 —— 否则永远执行不到')
+})
+
+test('内容寻址：配方必须与判定器同源（同一 pathspec :(exclude).ccg）', () => {
+  const src = shSrc()
+  assert.match(src, /:\(exclude\)\.ccg/, '哈希配方必须排除 .ccg，与 ccg-review-decider.js 的 stagedDiffHash 同源；否则算出的名字永远对不上')
+})

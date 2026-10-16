@@ -407,33 +407,61 @@ function judge(staged) {
 //  落盘（可审计）
 // ═══════════════════════════════════════════════════════════════════
 
+/**
+ * 判定记录的文件名 —— **内容寻址**（ccg-record-content-addressing，2026-10-16）。
+ *
+ * 旧行为：`${sha}.json`，其中 sha 是 pre-commit 时的 HEAD，即**新提交的父提交**。
+ *
+ * 为什么必须改（实测三次 add/add 冲突）：
+ *   父 sha 被**同基线的所有分支共享**。两个从同一基线分叉的会话，各自提交**不同**的变更，
+ *   却会写到**同一个文件名**上 ⇒ rebase 时 add/add 冲突；而冲突的任何单侧取法都有损失
+ *   （取 ours 丢掉本 PR 的记录，取 theirs 覆盖他人产物 —— 仓规明令禁止「后推覆盖」）。
+ *   本轮在 2bcce6833 / 5c7b3c127 / 56e34b56b 三个基线上各撞一次。
+ *
+ * 顺带修掉两个同源症状：
+ *   - **孤儿**：名字指向父提交，`amend` 后该父提交可能不再是历史中的任何提交；
+ *   - **不收敛**：闭环需再提交、再提交又按新父 sha 生成新名字。改名后，同一变更
+ *     重提交/amend 得到**同一个名字**（覆盖同一文件），天然收敛。
+ *
+ * 判据：内容寻址键用 `stagedDiffHash`（排除 `.ccg` 的暂存 diff 的 sha256）——
+ * 它与引擎 `ccg-deep-review.js::readDecision()` 的内容寻址键**同源**，所以改名对引擎无影响
+ * （引擎按记录里的字段匹配、不关心文件名）。
+ *
+ * 回落：`stagedDiffHash` 为空（例如只改 `.ccg/` 的提交，diff 排除 `.ccg` 后为空）时，
+ * 回落到既有的 40 位父 sha 形态 —— 保持门禁 `AUDIT_ARTIFACT_RE` 可识别，且不产生空名。
+ * 这类提交多为 `mode: skip`，不参与跨分支的唯一性诉求。
+ */
+function recordFileName(stagedDiffHash, sha) {
+  const h = typeof stagedDiffHash === "string" ? stagedDiffHash.trim() : "";
+  if (/^[0-9a-f]{64}$/.test(h)) return `${h}.json`;
+  return `${sha}.json`;
+}
+
 function saveRecord(result, sha, layer, plannedFiles) {
   const dir = path.join(process.cwd(), ".ccg", "reviews");
   fs.mkdirSync(dir, { recursive: true });
-  const file = path.join(dir, `${sha}.json`);
+  // 内容寻址键：暂存区 diff 的哈希，且排除 .ccg 自身。
+  //
+  // 为什么排除 .ccg：判定器自己的输出文件也会被 git add 进同一个 commit，
+  // 用它做键会随自身输出移位。排除后，pre-commit 的「暂存 diff」与提交后的
+  // 「parent..HEAD diff」逐字节相同，可以稳定对上（实测踩过：不排除就一次都跑不起来）。
+  //
+  // ★ 先算出键、再用它取名 —— 名字与键**同源**，避免两处各算一次而漂移。
+  const stagedDiffHash = (() => {
+    try {
+      const d = String(git(["diff", "--cached", "--", ".", ":(exclude).ccg"]));
+      if (!d.trim()) return undefined;
+      return require("crypto").createHash("sha256").update(d).digest("hex");
+    } catch (_) { return undefined; }
+  })();
+  const file = path.join(dir, recordFileName(stagedDiffHash, sha));
   const record = {
     sha,
     layer: layer || "diff", // plan = 决策层(动手前) | diff = 验证层(动手后)
     mode: result.mode,
     reason: result.reason,
     stats: result.stats,
-    // 内容寻址键：暂存区 diff 的哈希，且排除 .ccg 自身。
-    //
-    // 为什么必须这样：pre-commit 阶段新 commit 的 sha 还不存在，
-    // 记录只能写在父 sha 上；提交完深度审查按新 HEAD 找，必然落空。
-    // 试过用 git write-tree 做键，不行——判定器自己的输出文件
-    // 也会被 git add 进同一个 commit，tree 因此移位，键对不上。
-    //
-    // 排除 .ccg 后，pre-commit 的「暂存 diff」与提交后的
-    // 「parent..HEAD diff」逐字节相同，可以稳定对上。
-    // 实测踩过：不加这个字段，验证层在真实流程里一次都跑不起来。
-    stagedDiffHash: (() => {
-      try {
-        const d = String(git(["diff", "--cached", "--", ".", ":(exclude).ccg"]));
-        if (!d.trim()) return undefined;
-        return require("crypto").createHash("sha256").update(d).digest("hex");
-      } catch (_) { return undefined; }
-    })(),
+    stagedDiffHash,
     // 决策层记录方案点名的待改文件，供事后范围漂移比对
     plannedFiles: (layer === "plan" && plannedFiles) || undefined,
     decidedAt: new Date().toISOString(),
@@ -635,5 +663,6 @@ module.exports = {
   collectRange,
   collectProposal,
   isDocsOnly,
+  recordFileName,
 };
 

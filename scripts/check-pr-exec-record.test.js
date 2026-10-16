@@ -903,3 +903,60 @@ test('缺陷D：损坏的 JSON 记录不抛异常（由别的门禁负责）', (
     assert.deepStrictEqual(r.reasons, [], '损坏记录不重复报，交给别的门禁')
   } finally { fs.rmSync(repo, { recursive: true, force: true }) }
 })
+
+
+// ═══════════════════════════════════════════════════════════════════
+// 记录名内容寻址（ccg-record-content-addressing，2026-10-16）
+// ═══════════════════════════════════════════════════════════════════
+
+const HEX64 = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
+const AUDIT_PATH64 = '.ccg/reviews/' + HEX64 + '.json'
+
+test('内容寻址：64 位十六进制的记录名也必须算审计产物（新方案正向锁）', () => {
+  const f = mod.isPureBackfillChangeSet
+  assert.strictEqual(f(st([['M', 'openspec/records/a.md'], ['A', AUDIT_PATH64]])), true,
+    '新命名（64 位）的审计产物 A 必须与旧的 40 位同等放行；否则每次提交都会被判夹带')
+})
+
+test('内容寻址：邻近形态仍必须被拒（放宽不得连坐）', () => {
+  const f = mod.isPureBackfillChangeSet
+  const near64 = [
+    ['A', '.ccg/reviews/' + HEX64.slice(0, 63) + '.json'],   // 63 位
+    ['A', '.ccg/reviews/' + HEX64 + '0.json'],               // 65 位
+    ['A', '.ccg/reviews/' + HEX64.toUpperCase() + '.json'],  // 大写
+    ['A', '.ccg/reviews/' + HEX64 + '.json.bak'],            // 换后缀
+    ['A', '.ccg/reviews/sub/' + HEX64 + '.json'],            // 子目录
+    ['A', '.ccg/' + HEX64 + '.json'],                        // 少一层目录
+    ['M', AUDIT_PATH64],                                     // 改既有（不是新增）
+    ['D', AUDIT_PATH64],                                     // 删他人记录
+  ]
+  near64.forEach((e) => {
+    assert.strictEqual(f(st([['M', 'openspec/records/a.md'], e])), false,
+      `邻近形态必须仍判不是纯回填（${e[0]} ${e[1]}）`)
+  })
+})
+
+test('fail-open 反向锁：64 位命名的 dual+pending 记录仍必须判欠账', () => {
+  // 这是本方案最大的风险：若 AUDIT_ARTIFACT_RE 放宽后**没接进**欠账检查，
+  // 新命名的记录会对门禁隐形 —— 门禁从「看得见但撞名」退化成「完全看不见」。
+  const repo = withReviewRecords({
+    [HEX64 + '.json']: { mode: 'dual', deepReview: { required: true, status: 'pending', performedBy: null } },
+  })
+  try {
+    const r = mod.evaluateDeepReviewDebt(st([['A', '.ccg/reviews/' + HEX64 + '.json']]), repo)
+    assert.strictEqual(r.checked, 1, '新命名记录必须进入检查范围，否则是 fail-open')
+    assert.strictEqual(r.reasons.length, 1, `新命名的未闭环 dual 记录必须报欠账，实际 ${r.reasons.length}`)
+    assert.match(r.reasons[0], /深度审查欠账/)
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('口径不倒退：64 位命名的 single+pending 不得判欠账（缺陷G 的收窄保持）', () => {
+  const repo = withReviewRecords({
+    [HEX64 + '.json']: { mode: 'single', deepReview: { required: true, status: 'pending', performedBy: null } },
+  })
+  try {
+    const r = mod.evaluateDeepReviewDebt(st([['A', '.ccg/reviews/' + HEX64 + '.json']]), repo)
+    assert.strictEqual(r.checked, 1)
+    assert.deepStrictEqual(r.reasons, [], 'single 不得因改名而开始要求闭环（那是已被修掉的不收敛循环）')
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})

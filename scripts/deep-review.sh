@@ -489,6 +489,28 @@ if [ -z "$MODE" ]; then
   fi
 fi
 
+# ★ 2026-10-16 加（ccg-record-content-addressing）：记录名改为**内容寻址**后，
+#   按 <HEAD>.json / <HEAD^>.json 找必然双双落空 —— 本段就是那两种旧形态之外的第三路。
+#
+# 名字配方必须与 ccg-review-decider.js::recordFileName() 的键**同源**，即
+# `stagedDiffHash` = 排除 .ccg 的 diff 的 sha256。判定器在 pre-commit 用
+# `git diff --cached -- . ':(exclude).ccg'`；提交后与之逐字节等价的是
+# `<HEAD^> <HEAD>` 的同一 pathspec（引擎 ccg-deep-review.js::readDecision() 用的就是这个配方）。
+#
+# 为什么要显式加这一段、而不是靠引擎自己的内容寻址兜底：本脚本在找不到记录时**早退 exit 0**，
+# 兜底会被挡在门外变成死代码 —— 这正是 2026-10-15「缺陷 E」修过一次的同型问题。
+if [ -z "$MODE" ]; then
+  _PARENT2="$(git rev-parse HEAD^ 2>/dev/null || echo '')"
+  if [ -n "$_PARENT2" ]; then
+    _DIFFHASH="$(git diff "$_PARENT2" "$SHA" -- . ':(exclude).ccg' 2>/dev/null | sha256sum | cut -d' ' -f1)"
+    if [ -n "$_DIFFHASH" ] && [ -f ".ccg/reviews/$_DIFFHASH.json" ]; then
+      REC=".ccg/reviews/$_DIFFHASH.json"
+      MODE="$(node -e "try{process.stdout.write(require('./$REC').mode||'')}catch(e){}" 2>/dev/null)"
+      [ -n "$MODE" ] && say "判定记录按内容寻址命中：${_DIFFHASH%${_DIFFHASH#????????}}（stagedDiffHash）"
+    fi
+  fi
+fi
+
 say "═══ CCG 深度审查（本地） ═══"
 say "HEAD: ${SHA%${SHA#????????}}"
 if [ -z "$MODE" ]; then

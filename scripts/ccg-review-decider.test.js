@@ -614,3 +614,56 @@ test("i6 锁：CCG_DECIDER_BASE 是坏值时必须被拒并告警，不得先印
     try { fs.rmSync(repo, { recursive: true, force: true }) } catch { /* 夹具 */ }
   }
 });
+
+
+// ═══════════════════════════════════════════════════════════════════
+// 记录名内容寻址（ccg-record-content-addressing，2026-10-16）
+// ═══════════════════════════════════════════════════════════════════
+
+const HEX64 = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'.replace(/^0/, 'a')
+const PARENT40 = 'b'.repeat(40)
+
+test('recordFileName：暂存 diff 非空 ⇒ 用内容寻址名（不再用父 sha）', () => {
+  assert.strictEqual(decider.recordFileName(HEX64, PARENT40), `${HEX64}.json`)
+})
+
+test('recordFileName：同一变更 ⇒ 同名（收敛，不再因 amend 产生孤儿）', () => {
+  assert.strictEqual(
+    decider.recordFileName(HEX64, PARENT40),
+    decider.recordFileName(HEX64, 'c'.repeat(40)),
+    '父 sha 变了但变更相同 ⇒ 必须仍是同一个文件，否则「闭环需再提交、再提交又生成新名」不收敛'
+  )
+})
+
+test('recordFileName：不同变更 ⇒ 不同名（撞名的反向锁）', () => {
+  const other = 'f'.repeat(64)
+  assert.notStrictEqual(
+    decider.recordFileName(HEX64, PARENT40),
+    decider.recordFileName(other, PARENT40),
+    '同一父 sha 下的不同变更必须写到不同文件 —— 这正是本轮三次 add/add 冲突的根因'
+  )
+})
+
+test('recordFileName：暂存 diff 为空（纯 .ccg 提交）⇒ 回落父 sha 名，且不得返回空名', () => {
+  const n = decider.recordFileName('', PARENT40)
+  assert.strictEqual(n, `${PARENT40}.json`, '空 diff（如只改 .ccg）必须回落到既有 40 位形态，保持门禁可识别')
+  for (const bad of [undefined, null, '   ']) {
+    assert.match(decider.recordFileName(bad, PARENT40), /^[0-9a-f]{40}\.json$/, `非内容寻址输入必须回落，实际 ${bad}`)
+  }
+})
+
+test('结构锁：saveRecord 必须经由 recordFileName 取名（防纯函数被测而调用点漂移）', () => {
+  // 读源码后**先归一化行尾**：本仓源码是 CRLF，直接找 '\n}\n' 会匹配不到
+  // （同一坑在本轮变异脚本上已踩过一次）。归一化只影响本测试内的字符串，不改文件。
+  const src = fs.readFileSync(SRC, 'utf8').replace(/\r\n/g, '\n')
+  // 切片边界用**顶层函数收尾**（列 0 的 `}`），不用 `\n  }`：
+  // 后者会被函数体内部的 `  })();` 之类缩进误命中，导致切片在调用点之前就截断
+  // —— 本测试首版正栽在这里（假红）。修的是**判据脆弱**，不是放松断言。
+  const start = src.indexOf('function saveRecord')
+  assert.ok(start > 0, '找不到 saveRecord 定义')
+  const end = src.indexOf('\n}\n', start)
+  assert.ok(end > start, 'saveRecord 的顶层收尾定位失败')
+  const body = src.slice(start, end + 3)
+  assert.match(body, /recordFileName\s*\(/, 'saveRecord 内必须调用 recordFileName；否则本文件的纯函数测试与实际落盘脱钩')
+  assert.doesNotMatch(body, /\`\$\{sha\}\.json\`/, 'saveRecord 不得再直接拼模板 `${sha}.json`')
+})
