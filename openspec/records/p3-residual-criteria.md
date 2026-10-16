@@ -188,6 +188,23 @@ claude 后端返回 `403 今日免费订阅额度已用尽（次日 00:00 CST �
 第九轮未产生记录。**建议次日 00:00 CST 后由下一会话重跑 `sh scripts/deep-review.sh`
 补上第九轮**（届时 diff 基线会变，引擎会重新评审当前内容）。
 
+#### 末轮之后仍有 **1 条真欠账**（不是假阳性，未闭环）
+
+上面那 3 条是**历史 diff** 的记录（已按补救路径闭环）。但**每一笔新提交都会由 pre-commit
+再生成一条以父 sha 命名的记录**，其状态天然是 `pending`，只能由一次真实评审落终态。
+当前待闭环的是：
+
+- `.ccg/reviews/27c79388bfe6ce13ea957b2fccedf386a778d26e.json`（mode=**dual**，status=pending，
+  对应提交 `e64c85e93` 的 diff）
+
+**这条不是假阳性**（评审确实还没跑过），故**不走**「写明原因 + 置闭环值」的路径。
+`check-pr-exec-record --mode=enforce` 因此仍报 1 条欠账 ⇒ `QG Changes` / `Gate Result` 红
+⇒ 按「任一 required check 红/pending 时禁止自动合并」的规则，**本 PR 暂停在合并前一步**。
+次日 00:00 CST 后端恢复后的收口动作：
+`sh scripts/deep-review.sh` → 逐条填 `.adversarial/ccg-deep-<sha>/adjudication.json`
+（upheld 就修并再提交一轮，直到终态为 `self_play_resolved`）→ 复跑
+`node scripts/check-pr-exec-record.js --base=origin/main --mode=enforce` → 合并 → 按记录回填远程同步。
+
 ### 3 条 dual 记录的闭环（按门禁给出的补救路径；逐条可核）
 
 `check-pr-exec-record.js --mode=enforce` 报 3 条 CCG 深度审查欠账。取证后确认：
