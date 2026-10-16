@@ -34,6 +34,14 @@ const CCG_GATE_VERSION = "1.1.0";
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+// ★ 第十轮遗留项修复（2026-10-16）：存量过滤逻辑抽到可测模块。
+//   本文件末尾是顶层 process.exit(main()) ⇒ **不可 require** ⇒ 这段策略原先没有测试缝，
+//   只能临时抽源码 eval 验证、CI 永远跑不到。抽成 scripts/lib/ccg-gate-security-filter.js 后，
+//   关键方向由 ccg-gate-security-filter.test.js 常驻锁住，并接进 CI 的 changes job。
+const {
+  changedLineRanges,
+  applyPreExistingFilter,
+} = require("./lib/ccg-gate-security-filter");
 const { spawnSync } = require("child_process");
 
 const CONFIG = {
@@ -133,6 +141,8 @@ function resolveTargetFiles(staged) {
   return files;
 }
 
+
+
 function runGate(ccgDir, gate, target) {
   const args = target ? [...gate.args, target] : [...gate.args];
   const res = spawnSync(
@@ -146,6 +156,7 @@ function runGate(ccgDir, gate, target) {
   const output = `${res.stdout || ""}${res.stderr || ""}`.trim();
   return {
     name: gate.name,
+    file: target || null,
     code: res.status,
     output,
     blocking: res.status !== 0 && gate.blocking,
@@ -309,7 +320,26 @@ function main() {
       ? targetFiles.map((f) => runGate(ccgDir, gate, f))
       : [runGate(ccgDir, gate, null)];
 
-    const failed = results.filter((r) => r.code !== 0);
+    // ★ 存量命中过滤（2026-10-16 p3-residual-criteria；CCG 第五/六轮 i1/i2 加固）：
+    //   verify-security 只能整文件扫 ⇒ 文件里的存量问题会被算到本次提交头上、拦住提交。
+    //   这里对 blocking 的安全门禁做二次判定：**命中行号必须落在本次 diff 的改动区间内**，
+    //   区间外的一律降为告警并注明「存量，非本次引入」。
+    //   fail-closed 三处，任一触发都**不过滤**（宁可按存量报，不放行）：
+    //     ① 区间解析失败（changedLineRanges 返回 null）；
+    //     ② 本次没改动这个文件（区间为空）⇒ 无从判定；
+    //     ③ 输出里有**文件级命中**（提到本文件但无行号）⇒ 无法用区间判定（CCG 第六轮 i2）。
+    // ★ 存量过滤：判定逻辑全在模块里（可测）；这里只做「取区间 → 过滤」两件事。
+    //   fail-closed 三处（区间解析失败 / 本次未改此文件 / 文件级命中）都在模块内处理。
+    const adjusted = results.map((r) =>
+      r.code === 0 || gate.name !== "verify-security"
+        ? r
+        : applyPreExistingFilter(r, changedLineRanges(r.file))
+    );
+    const finalResults = adjusted.map((r) =>
+      r.blocking ? r : { ...r, code: r.code === 0 ? 0 : r.code, output: r.output }
+    );
+
+    const failed = finalResults.filter((r) => r.code !== 0);
     if (failed.length === 0) {
       passed++;
       continue;

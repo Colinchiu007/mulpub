@@ -1,0 +1,28 @@
+{
+  "sha": "ece62534a9233dd5f2b5886fa7bbc2efe08d2153",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 1,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "3af62104f83c9dd7480da3be32032ca7b18fa69dc4077e004e2b0a0314a8b7ed",
+  "decidedAt": "2026-10-16T15:52:41.150Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": false,
+    "status": "skipped_by_mode",
+    "performedBy": null,
+    "findings": null,
+    "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+    "at": "2026-10-16T15:54:13.865Z"
+  }
+}

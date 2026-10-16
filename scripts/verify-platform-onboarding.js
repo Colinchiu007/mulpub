@@ -36,8 +36,33 @@ const { execFileSync } = require('node:child_process')
 
 const ROOT = path.resolve(__dirname, '..')
 
+/**
+ * 链文件名前缀 != slug 的平台（⑨ 与 ⑪ 共用，**单一来源**）。
+ *
+ * 视频号的链是 `shipinhao-video.js` / `shipinhao-music.js`，而 slug 是 `tencent_video`。
+ * 证据：`config/platforms.yaml` 的 tencent_video 块自带注释说明「视频号完整链
+ * （src/publish/platforms/shipinhao-video.js，分片 + Content-MD5 + post_draft/post_create
+ * 双分支，带链级测试）从未被触发」；且 `shipinhao-video.js:73` 调
+ * `formatArticleBody('tencent_video', …)`、`shipinhao.js:2` 注释确认 `constructor 'tencent_video'`
+ * —— 即**调度 id 就是 tencent_video**，`shipinhao` 只是**文件名**。
+ *
+ * 没有这张表时，判据会因**命名**差异报「无链」/「无链级测试」——那是判据错，不是平台错。
+ * （2026-10-16 p3-residual-criteria：⑨ 早已用它，⑪ 漏用 ⇒ tencent_video 的链级测试
+ *   `shipinhao-*.test.js` 存在却被判「无」，属同型假 FAIL；现已同源。）
+ */
+const CHAIN_NAME_ALIASES = { tencent_video: 'shipinhao' }
+
 /** 步骤定义：每项返回 { ok, detail } */
-function buildChecks (slug) {
+/**
+ * @param {string} slug 平台
+ * @param {{router?: object|null}} [opts] 测试缝：
+ *   - 省略 `router`  → 真的 require 产品侧 api-router（本地 / 装了依赖的环境）
+ *   - `router: null` → **显式声明本环境没有 router** ⇒ 走确定性降级分支（不碰真实依赖）
+ *   - `router: {...}`→ 用注入的桩（可自由决定 shouldUseApi 返回值）
+ *   动因见判据⑨的注释：对账的 true 侧在真实 15 平台里没有样本，且 CI 的 changes job 不装依赖。
+ */
+function buildChecks (slug, opts) {
+  const o = opts || {}
   const read = (rel) => {
     const p = path.join(ROOT, rel)
     return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : null
@@ -47,6 +72,23 @@ function buildChecks (slug) {
   const formatter = () => read('packages/api-publish-engine/src/content-formatter.js')
   const caps = () => read('packages/shared-utils/src/publish-capabilities.json')
   const yamlText = () => read('config/platforms.yaml')
+
+  // ★ 运行时 router 的**唯一获取入口**（判据⑨用）
+  const resolveRouter = () => {
+    if ('router' in o) {
+      return o.router
+        ? { router: o.router, skipped: null, err: null }
+        : { router: null, skipped: '调用方显式声明本环境无 router（测试桩）', err: null }
+    }
+    try {
+      return { router: require(path.join(ROOT, 'packages/api-publish-engine/src/api-router.js')), skipped: null, err: null }
+    } catch (e) {
+      if (e && (e.code === 'MODULE_NOT_FOUND' || e.code === 'ERR_MODULE_NOT_FOUND')) {
+        return { router: null, skipped: String(e.message || '').split('\n')[0], err: null }
+      }
+      return { router: null, skipped: null, err: e.message }
+    }
+  }
 
   const checks = []
   const add = (id, title, fn) => checks.push({ id, title, fn })
@@ -218,19 +260,176 @@ function buildChecks (slug) {
     const hasApi = /^[ \t]{4}has_api:[ \t]*true/m.test(block)
     if (!hasApi) return { ok: true, detail: 'has_api 非 true ⇒ 无需发布链' }
     const dir = path.join(ROOT, 'packages/api-publish-engine/src/publish/platforms')
-    // ★ 链文件名前缀不等于 slug 的平台（2026-10-15 补）：
-    //   视频号的链是 `shipinhao-video.js` / `shipinhao-music.js`，而 slug 是 `tencent_video`。
-    //   证据：`config/platforms.yaml` 的 tencent_video 块自带注释
-    //   「使视频号完整链（src/publish/platforms/shipinhao-video.js，分片 + Content-MD5 +
-    //     post_draft/post_create 双分支，带链级测试）从未被触发」；
-    //   且 `shipinhao-video.js:73` 调 `formatArticleBody('tencent_video', …)`、
-    //   `shipinhao.js:2` 注释确认 `constructor 'tencent_video'` —— 即**调度 id 就是 tencent_video**，
-    //   `shipinhao` 只是**文件名**。
+    // ★ 链文件名前缀不等于 slug 的平台：用模块级 CHAIN_NAME_ALIASES（⑨⑪ 同源，见文件头）。
     //   没有这张表时，判据会因**命名**差异报「无链」——那是判据错，不是平台错。
-    const CHAIN_NAME_ALIASES = { tencent_video: 'shipinhao' }
     const chainPrefix = (CHAIN_NAME_ALIASES[slug] || slug) + '-'
     const chainFiles = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.startsWith(chainPrefix)) : []
-    if (chainFiles.length === 0) return { ok: false, detail: `has_api:true 但无 publish/platforms/${chainPrefix}*.js` }
+
+    // ⚠️ 2026-10-16 p3-residual-criteria 修（**判据把两个轴混为一谈**）：
+    //    原判据要求 `has_api:true` ⇒ 必须有链 + `platform-entries.js` 登记，否则 FAIL。
+    //    但本仓语义是**两个独立轴**（`publish-mode-config.test.js` 有锚点注释）：
+    //      · `has_api`     = 该平台**有没有** API 发布实现；
+    //      · `publishMode` = 当前**走哪条轨**（dom-only / api-only / api-then-dom）。
+    //    实测 youtube / twitter：`has_api:true` + `publishMode:dom-only` + **0 个链**，
+    //    但二者**都有完整的 API 适配器**（adapters/youtube.js 是 YouTube Data API v3 + OAuth2，
+    //    adapters/twitter.js 同构）⇒ `has_api:true` 是**诚实的**（两轴各自成立），
+    //    原判据却因此恒红 —— 那是**判据错**，不是平台错。
+    //    对照 facebook（修复前）：`has_api:true` 却**既无链也无适配器** ⇒ 真·空声明，
+    //    已按**配置缺陷**改 `has_api:false`（见 config/platforms.yaml 该块注释）。
+    //    ⇒ 新口径分三层：① 无声明 ⇒ 无需链；② 有声明 ⇒ 至少有**实现证据**（链或适配器）；
+    //      ③ 有链 ⇒ 还必须被 `platform-entries.js` 登记（这一层不变：要真走轨就必须登记）。
+    const adapterFile = path.join(ROOT, 'packages/api-publish-engine/src/adapters', `${slug}.js`)
+    const hasAdapter = fs.existsSync(adapterFile)
+
+    if (chainFiles.length === 0) {
+      // ★ CCG 自扮演裁决 i1（2026-10-16，upheld）：上面那条放宽**还必须看 `publishMode`**。
+      //   只看「有没有实现证据」会漏掉一种真缺口：声明了 `publishMode: api-only|api-then-dom`
+      //   （= 现在就该走 API/DOM 轨）却**没有链** —— 那一轨没有可调度的实现。
+      //   当前 15 个平台里 `api-*` 轨的全部都有链，故本分支不会误伤；
+      //   它的作用是把「两轴不一致」在**已声明 API 轨**时挡下来（这是 i1 指出的松弛）。
+      //
+      // ★ CCG 第三轮 i3（2026-10-16，upheld）：缺省派生必须与**运行时同源**。
+      //   运行时（api-router.js 的 getPublishMode / isApiTrack）在 publishMode 缺省时按
+      //   `has_api:true → api-then-dom` 派生；而本判据原来把缺省当 `''` ⇒ 判「未入波」PASS。
+      //   **同一份配置，判据与运行时给出相反语义** ⇒ 两轴不一致被漏报。
+      //   现在本判据按同一条派生规则取值，缺省即 api-then-dom（有声明才算未入波）。
+      // ★ CCG 第七轮 i4（Info，已加固）：原正则 `[A-Za-z-]+` 对**带引号**（`'dom-only'`）
+      //   或**尾随注释**（`dom-only   # 说明`）的取值会匹配失败 ⇒ 落进缺省派生，
+      //   实为 dom-only 的平台可能被误判成 api-then-dom 而假 FAIL。
+      //   改为：先抓行尾全部内容，再剥离引号与注释，最后才校验取值。
+      const pmLine = block.match(/^[ \t]{4}publishMode:[ \t]*(.+)$/m)
+      let publishMode = ''
+      let pmMatch = null
+      if (pmLine) {
+        let v = pmLine[1].trim()
+        v = v.replace(/\s+#.*$/, '').trim()   // 去尾随注释
+        v = v.replace(/^['"]|['"]$/g, '')     // 去首尾引号
+        if (v !== '') { publishMode = v; pmMatch = [pmLine[0], v] }
+      }
+      // ★ 缺省派生必须与运行时同源（CCG 第三轮 i3，upheld）：
+      //   运行时 api-router.js 的 derivePublishMode 在 publishMode 缺省时按
+      //   `has_api:true → api-then-dom`、否则 dom-only 派生。本判据若把缺省当 ''，
+      //   就会判「未入波」而 PASS ⇒ **同一份配置，判据与运行时给出相反结论**。
+      //   （第七轮 i4 重构时一度漏掉这段，是 test 17 的结构锁把它抓回来的。）
+      if (publishMode === '') {
+        publishMode = hasApi ? 'api-then-dom' : 'dom-only'
+      }
+      // ★ CCG 第七轮 i3（upheld）：**API 轨的实现证据不只有 DOM 链**。
+      //   本 PR 已自证：适配器（`src/adapters/<slug>.js` + `src/index.js` 注册）就是 API 轨的
+      //   实现面（youtube/twitter 正是靠它获得 has_api:true 的资格）。原判据在「api-* 轨且无链」
+      //   时**无条件 FAIL**，于是「api-only + 已注册适配器」这种合法组合被假 FAIL ——
+      //   依旧把 DOM 链当成唯一 API 实现证据，两轴仍混淆。
+      //   新口径：api-* 轨 ⇒ 链**或适配器**任一即可（链优先，因其同时给出 DOM 轨能力）；
+      //   两者都没有才 FAIL「该轨无可调度实现」。
+      if (publishMode === 'api-only' || publishMode === 'api-then-dom') {
+        if (!hasAdapter) {
+          return {
+            ok: false,
+            detail: `has_api:true 且 publishMode=${publishMode}${pmMatch ? '' : '（缺省，按运行时同源派生）'}（需走 API 轨）`
+              + `但既无 publish/platforms/${chainPrefix}*.js 也无 adapters/${slug}.js ⇒ 该轨无可调度实现`,
+          }
+        }
+        // 有适配器（ API 轨实现面），可能没有 DOM 链 —— 合法（未入波的双轨平台）
+        return {
+          ok: true,
+          detail: `has_api:true 且 publishMode=${publishMode}，API 轨由 adapters/${slug}.js 承载（已注册）`
+            + `，DOM 链 ${chainFiles.length} 个`,
+        }
+      }
+      // ★ CCG 第七轮 i4（Info）补：publishMode 既不是 api-* 也不是 dom-only ⇒ **非法值**。
+      //   此时不能落进下面「有适配器 ⇒ PASS」——运行时 isApiTrack/getPublishMode 对非法值是
+      //   **fail-closed 抛错**的，判据若放行就与运行时再次分叉（正是本 PR 要消灭的那类）。
+      if (publishMode !== 'dom-only') {
+        return {
+          ok: false,
+          detail: `publishMode='${publishMode}' 不是合法三态（api-only|api-then-dom|dom-only）`
+            + ' ⇒ 运行时会 fail-closed 抛错，判据不得放行',
+        }
+      }
+      if (!hasAdapter) {
+        return {
+          ok: false,
+          detail: `has_api:true 但既无 publish/platforms/${chainPrefix}*.js 也无 adapters/${slug}.js ⇒ 空声明`,
+        }
+      }
+      // ★ CCG 第八轮 i3（upheld）：光看「文件在 + index.js 里有 require 字串」仍不够 ——
+      //   registration 字串命中 ≠ api-router **真的会把这个平台调度到适配器**。
+      //   最硬的判据是直接问运行时：require api-router，调它的 shouldUseApi(slug)。
+      //   它读同一份 platforms.yaml、走同一套两轴合取 ⇒ 判据与运行时**同源**。
+      //
+      //   ⚠️ 本次实测立刻抓到一个**判据与运行时的真实分歧**（对账的价值）：
+      //     youtube/twitter 是「has_api:true（有实现）+ publishMode=dom-only（未入波）」，
+      //     旧口径判「未入波 ⇒ PASS」，而运行时 shouldUseApi 对它们返回 **false**
+      //     （两轴合取：没有 API 轨可走）。裁定：**运行时是对的**（能力轴不等于轨道轴），
+      //     判据旧口径错。故这里的对账断言改为：
+      //       · shouldUseApi(slug) === false ⇒ 该平台当前不走 API 轨 ⇒ **PASS**
+      //         （detail 说明「未入波：有实现、当前 DOM 轨」）；
+      //       · shouldUseApi(slug) === true  ⇒ 必须配有实现证据（链或适配器），否则 FAIL；
+      //       · 读不到 api-router ⇒ FAIL（fail-closed，判据不闭环）。
+      let runtimeSays = null
+      let runtimeErr = null
+      let runtimeSkipped = null
+      {
+        // ★ 第十轮实测（CI 的 changes job 当场红）：该 job **不装依赖**，而 api-router.js
+        //   载入即 `require('js-yaml')` ⇒ MODULE_NOT_FOUND。AGENTS.md 明文规定：
+        //   接进 changes job 的锁**只能 require node 内置模块**。故必须区分两种失败，二者处置相反：
+        //     · MODULE_NOT_FOUND（依赖缺失）⇒ **显式降级**：仍按字面证据判定，但 detail 必须写明
+        //       「运行时对账未执行」+ 原因。既不静默通过（那正是本判据要消灭的弱点），
+        //       也不把「环境缺依赖」当成「判据不闭环」而误红（否则该 job 里本判据永远红）。
+        //     · 其它错误（语法错、require 到坏模块…）⇒ 仍 fail-closed 判红。
+        //   router 的获取统一走 resolveRouter()，它同时是**测试缝**（见 buildChecks 的 opts 说明）。
+        const got = resolveRouter()
+        runtimeErr = got.err
+        runtimeSkipped = got.skipped
+        if (got.router) runtimeSays = got.router.shouldUseApi(slug)
+      }
+      if (runtimeErr) {
+        return {
+          ok: false,
+          detail: `require api-router 失败，无法与运行时对账 ⇒ 判据不闭环（fail-closed）: ${runtimeErr}`,
+        }
+      }
+      // 降级说明：任何 PASS 路径都必须把它带上，避免「未对账」被读成「已对账」。
+      //   前缀 `[运行时对账·降级]` 是**固定可 grep 的标记**（第十二轮 CCG i4 的可做部分：
+      //   让「降级」在输出里可机械检索，而不是散落在各处的自然语言）。
+      const skipNote = runtimeSkipped
+        ? `[运行时对账·降级] 运行时对账未执行：本环境缺少产品依赖（${runtimeSkipped}）；`
+          + '本次**仅按字面实现证据**判定，请在装了依赖的环境复跑以取得同源对账'
+        : ''
+      // ★ 未取得运行时结论时**单独走一条分支**：绝不宣称 `shouldUseApi(...)=x`。
+      //   初版把降级塞进下面的 `runtimeSays !== true` 分支，detail 里照样写着
+      //   `shouldUseApi('youtube')=false` —— 那是**没做过的对账却报告了结论**，
+      //   与「判据不得停在字面证据」要消灭的形态同型（本轮自测当场抓到）。
+      if (runtimeSkipped) {
+        return {
+          ok: true,
+          detail: `has_api:true 且有 API 实现（adapters/${slug}.js、publishMode=${publishMode}）`
+            + ` ⇒ 按字面证据判定${publishMode === 'dom-only' ? '『未入波』（当前 DOM 轨）' : '可入 API 轨'}；${skipNote}`,
+        }
+      }
+      if (runtimeSays !== true) {
+        return {
+          ok: true,
+          detail: `has_api:true 但运行时 api-router.shouldUseApi('${slug}')=false`
+            + ` ⇒ 未入波：有 API 实现（adapters/${slug}.js、publishMode=${publishMode}），当前不走 API 轨${skipNote}`,
+        }
+      }
+      if (!hasAdapter) {
+        // ⚠ 当前**不可达**：同分支前面的「空声明」检查（`!hasAdapter ⇒ FAIL`）已经挡住了
+        //   这种输入；`hasAdapter` 在本函数里也只算一次。保留作防御 —— 若将来调整上面
+        //   那段的顺序（例如把空声明改宽），这里仍能兜住「运行时说要走 API 轨、却没有适配器」。
+        return {
+          ok: false,
+          detail: `运行时 shouldUseApi('${slug}')=true（要走 API 轨）但 adapters/${slug}.js 不存在`
+            + ' ⇒ 该轨无可调度实现',
+        }
+      }
+      return {
+        ok: true,
+        detail: `has_api:true 且运行时 api-router.shouldUseApi('${slug}')=true（两轴合取同源对账通过）`
+          + `，DOM 链 ${chainFiles.length} 个${skipNote}`,
+      }
+    }
     const entries = read('packages/api-publish-engine/src/platform-entries.js') || ''
     return entries.includes(slug)
       ? { ok: true, detail: `链 ${chainFiles.length} 个 + 已被 platform-entries.js 登记` }
@@ -272,17 +471,56 @@ function buildChecks (slug) {
         }
   })
 
-  add(11, '测试与文案：formatter 测试 / chain 测试 / locales 成对', () => {
+  add(11, '测试与文案：formatter 覆盖（注册表驱动）/ chain 测试（有链才要求）/ locales 成对', () => {
     const missing = []
     const notes = []
-    const cf = read('packages/api-publish-engine/test/content-formatter.test.js')
-    if (!cf) missing.push('content-formatter.test.js 不存在')
-    else if (!cf.includes(slug)) missing.push('content-formatter.test.js 无该 slug')
 
-    const chainDir = path.join(ROOT, 'packages/api-publish-engine/test')
-    const chains = fs.existsSync(chainDir) ? fs.readdirSync(chainDir).filter((f) => f.startsWith(slug)) : []
-    if (chains.length === 0) missing.push('无该平台的 chain 测试')
+    // ① formatter 覆盖（2026-10-16 p3-residual-criteria 修，**判据过严**）：
+    //    原判据要求 `test/content-formatter.test.js` 里出现该 slug 的**字面量**。
+    //    但本仓 formatter 限值的真实覆盖是**按注册表遍历**的契约锁
+    //    （content-formatter-registry-sync.test.js 的 A 用例遍历
+    //      Object.keys(registry.PLATFORM_PUBLISH_META)，逐平台断言 truncateContent 与
+    //      contentMax 一致）——**注册表加平台，覆盖自动跟上**，不需要逐平台写字面量。
+    //    实测：原判据下 youtube / tiktok / twitter / instagram / facebook 全判 FAIL，
+    //    而它们的限值其实**已被 A 用例逐平台断言** ⇒ 全部是**假 FAIL**。
+    //    判据改为问「该平台在注册表内吗」——这才是「覆盖得到它吗」的真正前提。
+    let inRegistry = false
+    try {
+      const reg = require(path.join(ROOT, 'packages/shared-utils/src/publish-capabilities.js'))
+      inRegistry = Object.keys(reg.PLATFORM_PUBLISH_META || {}).includes(slug)
+    } catch (e) { /* 加载失败按下面的 missing 记账 */ }
+    if (!inRegistry) {
+      missing.push('不在注册表 PLATFORM_PUBLISH_META 内 ⇒ formatter 的注册表驱动契约锁覆盖不到它')
+    } else {
+      notes.push('formatter 覆盖由注册表驱动契约锁提供（已含该平台）')
+    }
 
+    // ② chain 测试：**有链才要求**（2026-10-16 修，**判据不可满足**）：
+    //    原判据无条件要求 `test/<slug>*.js`。但 dom-only 且无链的平台
+    //    （wechat_mp / weibo / toutiao / instagram / facebook 等）**本来就没有链可测**，
+    //    该要求对它们**恒不可满足** —— 这不是平台缺陷，是判据写错了作用面。
+    //    改为「有链 ⇒ 必须有链级测试」，并用与判据⑨**同源**的别名表（tencent_video → shipinhao），
+    //    否则视频号那两个链级测试（shipinhao-*.test.js）存在却被判「无」。
+    const chainPrefix = (CHAIN_NAME_ALIASES[slug] || slug) + '-'
+    const chainDirAbs = path.join(ROOT, 'packages/api-publish-engine/src/publish/platforms')
+    const testDirAbs = path.join(ROOT, 'packages/api-publish-engine/test')
+    const chainFiles = fs.existsSync(chainDirAbs)
+      ? fs.readdirSync(chainDirAbs).filter((f) => f.startsWith(chainPrefix) && f.endsWith('.js'))
+      : []
+    const chainTests = fs.existsSync(testDirAbs)
+      ? fs.readdirSync(testDirAbs).filter((f) => f.startsWith(chainPrefix) && f.endsWith('.test.js'))
+      : []
+    if (chainFiles.length > 0) {
+      if (chainTests.length === 0) {
+        missing.push(`有 ${chainFiles.length} 个链（${chainPrefix}*.js）但无链级测试（${chainPrefix}*.test.js）`)
+      } else {
+        notes.push(`链 ${chainFiles.length} 个 + 链级测试 ${chainTests.length} 个`)
+      }
+    } else {
+      notes.push('无发布链 ⇒ 不要求链级测试（dom-only 平台本来就没有链）')
+    }
+
+    // ③ locales 成对（原有语义保留）
     // ⚠️ 判据的第一版要求 locales 里必须有 slug 字面量，对 baijiahao 误报 ——
     // 实测本仓 `locales/zh.js` 里**没有任何平台 slug**：平台显示名来自
     // `config/platforms.yaml` / `platform-definitions.js`，不是 i18n 文案。
@@ -299,7 +537,7 @@ function buildChecks (slug) {
       else notes.push('locales 成对命中该 slug')
     }
     return missing.length === 0
-      ? { ok: true, detail: `formatter 测试 + ${chains.length} 个 chain 测试；${notes.join('；')}` }
+      ? { ok: true, detail: notes.join('；') }
       : { ok: false, detail: missing.join('; ') }
   })
 

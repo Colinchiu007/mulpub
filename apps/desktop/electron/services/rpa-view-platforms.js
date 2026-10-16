@@ -18,6 +18,7 @@ const PlatformConfig = require('@multi-publish/shared-utils/src/platform-config'
 const { isNoTitlePlatform } = require('@multi-publish/shared-utils/src/publish-capabilities')
 const { platformSelectors } = require('@multi-publish/rpa-engine')
 const { getPublishUrl } = require('@multi-publish/api-publish-engine/src/platform-entries')
+const { isApiTrack } = require('@multi-publish/api-publish-engine/src/api-router')
 const { buildXhsVideoRefusal } = require('./xiaohongshu-draft-guard')
 // 2026-10-02 头条兜底：DOM 被闭包门控拦下 ⇒ 失败时走「页面内 SDK 签名 + Node 直连」（toutiao-direct-bridge）
 const { ProgressThrottle } = require('./rpa-progress-throttle')
@@ -476,7 +477,7 @@ const platformsMixin = {
         let networkCapture = null
         try {
           this._emitProgress(platform,'publishing...',85)
-          const rp = (config.has_api && config.success_patterns.length>0) ? this._waitForResponse(win,config.success_patterns,60000) : null
+          const rp = (isApiTrack(config) && config.success_patterns.length>0) ? this._waitForResponse(win,config.success_patterns,60000) : null
           // 按优先级依次尝试所有发布按钮候选，任一可见即用（页面改版后首个候选可能失效）
           let publishSelector = null
           for (const cand of sel.publish_btn || []) {

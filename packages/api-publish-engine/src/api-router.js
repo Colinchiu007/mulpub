@@ -1,10 +1,20 @@
-﻿const logger = require('./logger')
+const logger = require('./logger')
 /**
  * API Router ? P0/P1/P2 API mode routing
  *
  * P0: has_api:true platforms use API mode (1-5s vs 60s+ RPA)
  * P1: New platform adapters prioritize API, RPA as fallback
  * P2: Auto-route from platforms.yaml, auto-fallback on failure
+ *
+ * ★ 两轴语义（2026-10-16 p3-residual-criteria，CCG 深度评审 i1 upheld 后修复）：
+ *   `has_api` 与 `publishMode` 是**两个独立轴**：
+ *     · `has_api`    = 该平台**有没有** API 发布实现；
+ *     · `publishMode` = 当前**走哪条轨**（api-only / api-then-dom / dom-only）。
+ *   本仓既有「未入波」状态：`has_api:true` + `publishMode:dom-only`
+ *   （youtube / twitter —— 二者都有完整 API 适配器，但尚未接入 API 发布波次）。
+ *   旧实现 `supportsApi() = !!cfg.has_api` 会把这种平台**过报**成 API 平台，
+ *   与 `rpa-view-manager.js:68` 记载的事故（publishMode=dom-only 却因 has_api=true
+ *   误入 API 轨）同款。故「是不是 API 平台」一律取**两轴合取**。
  */
 const fs = require("fs");
 const yaml = require("js-yaml");
@@ -13,13 +23,76 @@ const { resolvePlatformConfigPath } = require('./runtime-config-path')
 let _platforms = null;
 let _apiPlatforms = null;
 
+/**
+ * 三态总闸的**缺省派生**——单一来源（CCG 第四轮 i4 upheld 后抽出）。
+ *
+ * 原先这条规则在 isApiTrack 与 getPublishMode 里各写一份（后者在文件更下方），
+ * 改一处忘另一处就会重演本 PR 要消灭的漂移。现在两处都走本函数。
+ *
+ * @param {object} cfg 平台配置（platforms.yaml 的一个平台块）
+ * @returns {string} 'api-only' | 'api-then-dom' | 'dom-only'
+ */
+function derivePublishMode (cfg) {
+  if (cfg && cfg.publishMode != null && cfg.publishMode !== '') return cfg.publishMode
+  // 缺省派生：has_api:true → api-then-dom，否则 dom-only（与 W1 §5.1 一致）
+  return (cfg && cfg.has_api) ? 'api-then-dom' : 'dom-only'
+}
+
+/**
+ * 该平台当前是否真的走 API 轨（两轴合取，单一来源）。
+ *
+ * ★ CCG 第五轮 i3（upheld）：必须经 `normalizeMode` 归一，**不得**自己比字符串。
+ *   原先直接 `mode === 'api-only' || mode === 'api-then-dom'`，遇到非法 publishMode
+ *   （拼写错误、大小写不符）会**静默返回 false**（当 dom-only 处理）；而 getPublishMode
+ *   走 normalizeMode 是 **fail-closed 抛错**的 ⇒ 同一份坏配置，两个读者结论相反
+ *   （一个炸、一个静默走 DOM 轨）——正是本 PR 声称要消灭的判据分叉。
+ *   现在两处都过同一个归一函数，非法值一致抛错。
+ *
+ * ★ CCG 第六轮 i1（upheld）：但「抛错」不能**级联**。
+ *   loadConfig 里 `_apiPlatforms = Object.entries(...).filter(isApiTrack)` 会在加载时
+ *   对**所有**平台求值；任何一个平台 publishMode 拼错就一路抛到 loadConfig 的 catch
+ *   ⇒ shouldUseApi / supportsApi / listApiPlatforms / getPublishMode **全部**返回 false，
+ *   一个 typo 让整个 App 的 API 路由失效（fail-closed 过度级联：错误影响面从
+ *   「单个平台」放大到「全部平台」）。
+ *   故提供两个入口，语义分离：
+ *     · `isApiTrack(cfg)`      —— 单点查询，**fail-closed 抛错**（调用方明确知道在问哪一个平台）；
+ *     · `isApiTrackSafe(cfg)`  —— 批量推导用，**fail-safe 返回 false 并告警**
+ *       （坏配置的平台退化为「不走 API 轨」，不影响其他平台）。
+ */
+function isApiTrack (cfg) {
+  var pm = require('./publish/core/publish-mode');
+  // ★ CCG 第八轮 i2 复审（自查补正）：归一必须先于能力轴短路。
+  //   原写法 `if (!cfg || !cfg.has_api) return false` 在归一**之前**返回 ⇒
+  //   `{has_api:false, publishMode:'bogus'}` 这种配置：isApiTrack 静默 false，
+  //   而 getPublishMode 抛错 —— 又是「同一份配置两个读者结论相反」（与第五轮 i3 同型，
+  //   只是换到了能力轴为 false 的那一侧）。现在统一走 resolvePublishMode()，
+  //   判两轴之前先归一；能力轴只决定 true/false，不决定「要不要校验配置」。
+  var mode = resolvePublishMode(cfg, null, cfg && cfg.platform);
+  if (!cfg || !cfg.has_api) return false
+  return mode === pm.MODES.apiOnly || mode === pm.MODES.apiThenDom;
+}
+
+/** isApiTrack 的 fail-safe 版本：非法配置返回 false 并告警，**不抛错**（供批量推导用）。 */
+function isApiTrackSafe (cfg) {
+  try {
+    return isApiTrack(cfg);
+  } catch (e) {
+    logger.warn('api-router',
+      'publishMode 非法，该平台暂按非 API 轨处理（不影响其他平台）: ' + e.message,
+      { publishMode: cfg && cfg.publishMode });
+    return false;
+  }
+}
+
 function loadConfig() {
   if (_platforms) return _platforms;
   try {
     const raw = fs.readFileSync(resolvePlatformConfigPath(), "utf8");
     _platforms = yaml.load(raw).platforms;
+    // ★ CCG 第六轮 i1（upheld）：批量推导必须用 fail-safe 版 —— 用会抛错的 isApiTrack
+    //   会让**任何一个**平台的配置 typo 一路抛到本 catch，导致全部 API 路由静默失效。
     _apiPlatforms = Object.entries(_platforms)
-      .filter(function(e) { return e[1].has_api; })
+      .filter(function(e) { return isApiTrackSafe(e[1]); })
       .map(function(e) { return e[0]; });
     return _platforms;
   } catch (e) {
@@ -40,13 +113,38 @@ function reloadConfig() {
   return loadConfig();
 }
 
+/**
+ * 单点查询的**带平台名** fail-safe 包装（CCG 第七轮 i5，Info 已加固）。
+ *
+ * 背景：isApiTrack 改为 fail-closed（非法 publishMode 抛错）后，
+ * `shouldUseApi`/`supportsApi` 从「从不抛错」变成「可抛错」。而桌面
+ * `_publish_generic` 与批量发布循环（batchPublishWithRouting 之外的调用方）
+ * 未必有 try/catch ⇒ 一个平台的配置 typo 会**中止整批**——i1 的级联在其它接缝复发。
+ *
+ * 口径：告警 + 返回 false（该平台按非 API 轨处理，不影响其他平台），
+ *       与 isApiTrackSafe 一致；但**保留平台名**在日志里，便于定位坏配置。
+ */
+function isApiTrackForPlatform (platform) {
+  try {
+    return isApiTrack(loadConfig()[platform]);
+  } catch (e) {
+    logger.warn('api-router',
+      `publishMode 非法，${platform} 暂按非 API 轨处理（不影响其他平台）: ${e.message}`);
+    return false;
+  }
+}
+
 function shouldUseApi(platform) {
-  var cfg = loadConfig()[platform];
-  return cfg ? !!cfg.has_api : false;
+  // ★ 两轴合取（见文件头 i1 修复说明）：has_api 只说明「有实现」，
+  //   还要 publishMode 真的走 API 轨才算 API 平台。
+  // ★ CCG 第七轮 i5：走带平台名的 fail-safe 包装，避免单点 typo 中止整批发布。
+  return isApiTrackForPlatform(platform);
 }
 
 function supportsApi(platform) {
-  try { return require("./index").supportsApi(platform); }
+  try {
+    return require("./index").supportsApi(platform) && isApiTrackForPlatform(platform);
+  }
   catch(e) { return false; }
 }
 
@@ -57,22 +155,58 @@ function listApiPlatforms() {
 
 /**
  * 发布模式（W1 §5.1）：三态总闸，逐平台。
- * 优先读 platforms.yaml 的 publishMode 字段；缺省时按 has_api 派生
- * （has_api:true → api-then-dom，否则 dom-only），再经 normalizeMode 归一。
- * 非法值 normalizeMode 抛错（fail-closed），避免误配置静默走错轨。
+ * 取值走 **derivePublishMode() 单一来源**（缺省派生不再本地复写，见其注释），
+ * 再经 normalizeMode 归一。非法值 normalizeMode 抛错（fail-closed），
+ * 避免误配置静默走错轨。
+ *
+ * ★ CCG 第八轮 i2（upheld）：本函数与 shouldUseApi 必须**同一口径**。
+ *   shouldUseApi 走 isApiTrackForPlatform（fail-safe：坏配置告警 + 返回 false ⇒ 非 API 轨），
+ *   若本函数对同一份坏配置仍**抛错**，两个读者结论相反（一个说「非 API 轨」、一个炸）。
+ *
+ * ★★ 第八轮 i2 的**第一版修复不成立**（同轮复审自查发现，属与第六轮 i3 同型的**死代码**）：
+ *   只加了 `opts.safe` 这个选项，而**全仓两个生产调用点都没传** ——
+ *   `apps/desktop/electron/services/rpa-view-manager.js:71` 与 `src/index.js:152`
+ *   都调 `getPublishMode(platform)`，于是坏配置**照样抛错**、照样分叉，
+ *   新增的 safe 分支永远走不到（`git grep 'getPublishMode('` 可复核：测试之外只有这两处）。
+ *   现在两处生产调用点都显式传 `{ safe: true }`（见各自注释），并加**接线锁**：
+ *   `publish-mode-config.test.js` 扫描全仓生产代码，凡 `getPublishMode(` 调用必须带 safe。
+ *
+ * 语义分工（与 isApiTrack / isApiTrackSafe 对称）：
+ *   · 默认（不带 safe）—— 单点显式查询，坏配置 **fail-closed 抛错**；
+ *   · `{safe:true}`  —— 发布流程内的逐平台读取，坏配置**告警 + 按 dom-only**（与
+ *     shouldUseApi 返回 false 同结论），不因单平台配置错误中止整条发布。
+ *
  * @param {string} platform
+ * @param {{safe?: boolean}} [opts] safe=true 时坏配置不抛错，告警后返回 dom-only
  * @returns {string} 'api-only' | 'api-then-dom' | 'dom-only'
  */
-function getPublishMode(platform) {
+function getPublishMode(platform, opts) {
+  return resolvePublishMode(loadConfig()[platform], opts, platform);
+}
+
+/**
+ * cfg 级单一来源：derivePublishMode → normalizeMode（两处读者共用同一条归一链）。
+ * 导出**仅为可测性**（与 isApiTrack/isApiTrackSafe 同理）：真实 platforms.yaml 里
+ * 没有非法 publishMode，公开 API 无法构造该分支，故把 cfg 级入口暴露出来供测试注入。
+ * @param {object|undefined} cfg
+ * @param {{safe?: boolean}} [opts]
+ * @param {string} [label] 仅用于告警文案
+ * @returns {string} 'api-only' | 'api-then-dom' | 'dom-only'
+ */
+function resolvePublishMode(cfg, opts, label) {
   var pm = require('./publish/core/publish-mode');
-  var cfg = loadConfig()[platform];
-  var raw;
-  if (cfg && cfg.publishMode != null && cfg.publishMode !== '') {
-    raw = cfg.publishMode;
-  } else {
-    raw = (cfg && cfg.has_api) ? pm.MODES.apiThenDom : pm.MODES.domOnly;
+  var raw = derivePublishMode(cfg);
+  try {
+    return pm.normalizeMode(raw);
+  } catch (e) {
+    if (opts && opts.safe) {
+      logger.warn('api-router',
+        `publishMode 非法，${label || '(unknown)'} 暂按 dom-only 处理`
+        + `（与 shouldUseApi 的 fail-safe 口径一致）: ${e.message}`);
+      return pm.MODES.domOnly;
+    }
+    throw e;
   }
-  return pm.normalizeMode(raw);
 }
 
 async function publishWithFallback(platform, taskData, cookie, opts) {
@@ -140,6 +274,17 @@ async function batchPublishWithRouting(platforms, taskData, cookie, opts) {
 
 module.exports = {
   shouldUseApi, supportsApi, listApiPlatforms, getPublishMode,
+  // ★ CCG 第八轮 i2 复审：cfg 级单一来源，导出**仅为可测性**
+  //   （真实 platforms.yaml 里没有非法 publishMode，公开 API 无法构造该分支）。
+  resolvePublishMode,
   publishWithFallback, batchPublishWithRouting,
   loadConfig, reloadConfig,
+  // ★ CCG 第三轮 i5（2026-10-16，upheld）后导出：两轴合取的**单一来源**。
+  //   原先这条判据在 api-router.js 内部 + 三个测试文件里各推导一遍（共 4 份），
+  //   新增 publishMode 取值或 sync 重写字段后要 4 处同步，必然漂移。
+  //   现在测试与下游一律 require 本函数，不再自己写三元式。
+  //   ★ CCG 第六轮 i1（upheld）：另导出 fail-safe 版 isApiTrackSafe —— 批量推导
+  //   （loadConfig 的 _apiPlatforms）用它，避免单点配置 typo 级联成全局路由失效；
+  //   单点查询（shouldUseApi / supportsApi）仍用 fail-closed 的 isApiTrack。
+  isApiTrack, isApiTrackSafe,
 };
