@@ -50,6 +50,7 @@ sync_backfill_owner: zhihu-api-settings 会话（回填 PR）
 - 验证 2b：`index.bundle.js` 同时含 `zhihuGetConfig`/`zhihuSaveConfig`/`zhihuTestConnection`/`zhihuClearConfig`；`home-shell-preload.bundle.js` 含 `zhihuGetConfig`（证「改了 aggregation.js 也重打包了」）。
 - 验证 3（启动 8s）：**进程存活**（单独断言，未提前退出）+ **stderr 完全为空**（长度 0）⇒ 三层判据第 ③ 层通过；stdout 7286 字节。
 - `ELECTRON_RUN_AS_NODE`：父环境实测 **=1**（本机宿主为「用 Electron 二进制跑 Node 脚本」而设，会随 shell 继承）。本次 spawn 显式 `delete env.ELECTRON_RUN_AS_NODE` 后再启动，并**单独断言存活** —— 与 2026-10-15 新规（`fix-qm1-electron-run-as-node`：存活是三层判据的隐含前提、必须单独断言；子进程 env 必须剔除该变量；父环境带着它时要出声）同口径。之所以强调：该变量会让任意 Electron 可执行文件以纯 Node 模式静默退出（rc=0、零输出、不建窗口），与「启动干净」完全同形。
+- **复验（2026-10-16，QM-6 评审修复 + rebase 后重打包）**：判据脚本 `D:\Temp\qm1-zhihu-verify-2.cjs`（同上口径）。`pnpm exec electron-builder --win --dir --publish never` **rc=0**；asar 内 `electron/ipc-handlers/zhihu-settings.js`、`electron/services/zhihu-credential.js` 在位（含评审后的最终实现）；启动验证 **三层判据第 ③ 层通过**（8s 窗口内仍存活 pid=5676、**stderr 长度=0**），`ELECTRON_RUN_AS_NODE` 再次显式剔除并出声告警。
 
 ### QM-4 取证
 
