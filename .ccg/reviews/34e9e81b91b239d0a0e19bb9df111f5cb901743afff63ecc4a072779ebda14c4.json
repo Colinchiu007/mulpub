@@ -1,0 +1,28 @@
+{
+  "sha": "108da7984930f4324537f606465f9bd9700422e0",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 239 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 239,
+    "fileCount": 5,
+    "codeFileCount": 4,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "局限：复核者与提出者同为 claude 家族（非跨家族）、未运行本仓测试（测试命令需授权，改为逐行核读源码）。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "34e9e81b91b239d0a0e19bb9df111f5cb901743afff63ecc4a072779ebda14c4",
+  "decidedAt": "2026-10-16T06:14:12.258Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

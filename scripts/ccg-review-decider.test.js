@@ -686,7 +686,6 @@ test('QM-6 i3：闭环白名单与门禁同源（改一处忘另一处必须当�
 
 test('QM-6 i3：已闭环的同名记录不得被静默覆盖（否则 amend 抹掉审查结论）', () => {
   // 内容寻址让同一变更落到同一文件（这是收敛性的来源），副作用是后写覆盖先写。
-  // 若先写那份已闭环，覆盖会把状态抹回 pending、结论丢失 ⇒ 必须拒写并另存。
   //
   // ★ 行为锁（不是结构锁）：直接调用 shouldPreserveClosedRecord。
   //   首版只用「grep saveRecord 源码字面」的结构锁，变异反证立即抓到缺口 ——
@@ -700,26 +699,48 @@ test('QM-6 i3：已闭环的同名记录不得被静默覆盖（否则 amend 抹
     assert.strictEqual(f({ deepReview: { status: st } }), true,
       `status=${st} 是闭环态 ⇒ 必须保留旧记录`)
   }
-  // 未闭环 ⇒ 必须允许覆盖（否则同一变更永远无法更新自己的 pending）
-  for (const st of ['pending', 'self_play_pending', 'self_play_blocked', '']) {
+  // ★ 第二轮 i2：blocked/pending 不在闭环白名单（门禁判它们欠账是对的），
+  //   但**已产出 findings** ⇒ 也不该被覆盖丢掉。
+  for (const st of ['self_play_blocked', 'self_play_pending']) {
+    assert.strictEqual(f({ deepReview: { status: st } }), true,
+      `status=${st} 已有 findings ⇒ 必须保留（否则 amend 丢掉上次的推理过程）`)
+  }
+  // 未闭环且无 findings ⇒ 必须允许覆盖（否则同一变更永远无法更新自己的 pending）
+  for (const st of ['pending', '']) {
     assert.strictEqual(f({ deepReview: { status: st } }), false,
-      `status=${st} 不是闭环态 ⇒ 必须允许覆盖`)
+      `status=${st} 无 findings ⇒ 必须允许覆盖`)
   }
   // 字段缺失/畸形 ⇒ 一律允许覆盖（fail-open 于「写」，而不是 fail-open 于「丢结论」）
   for (const bad of [null, undefined, {}, { deepReview: null }, { deepReview: {} }, { deepReview: { status: 123 } }]) {
     assert.strictEqual(f(bad), false, `畸形输入必须允许覆盖，实际 ${JSON.stringify(bad)}`)
   }
-  // 白名单自造值不得算闭环（判据是集合成员，不是「看起来像完成」）
-  assert.strictEqual(f({ deepReview: { status: 'done' } }), false, '白名单外的 done 不得算闭环')
+  // 白名单/保留集外的自造值，且无 findings ⇒ 允许覆盖
+  assert.strictEqual(f({ deepReview: { status: 'done' } }), false, '集外的 done 且无 findings 不得保留')
+  // ★ 状态是未来新态、但已有 findings ⇒ 仍保留（判据是「有实质内容」，不是枚举状态）
+  assert.strictEqual(f({ deepReview: { status: 'some_future_state', findings: [{ id: 'i1' }] } }), true,
+    '任何状态只要已有 findings 就必须保留 —— 枚举追不上未来态')
+  // 有 findings 但为空数组 ⇒ 不算实质内容
+  assert.strictEqual(f({ deepReview: { status: 'pending', findings: [] } }), false,
+    'findings 为空数组不算实质内容，应允许覆盖')
 })
 
-test('QM-6 i3：saveRecord 必须经由 shouldPreserveClosedRecord 判定（防调用点漂移）', () => {
-  // 纯函数被测还不够 —— 必须确认 saveRecord 真的调用它，
-  // 否则「函数对但没人用」同样会静默失效（M7 变异正是打到这一层）。
+test('QM-6 第二轮 i5：另存名必须全局唯一（同 sha 前缀不得互相覆盖）', () => {
   const src = fs.readFileSync(SRC, 'utf8').replace(/\r\n/g, '\n')
-  const start = src.indexOf('function saveRecord')
-  const end = src.indexOf('\n}\n', start)
-  const body = src.slice(start, end + 3)
-  assert.match(body, /shouldPreserveClosedRecord\(prev\)/, 'saveRecord 必须调用 shouldPreserveClosedRecord(prev)')
-  assert.match(body, /-again-/, '拒写时必须另存，否则本次判定被丢弃')
+  assert.match(src, /-again-\$\{sha\}-/, 'alt 名必须含**完整** sha（首版只用 slice(0,8)，同前缀会互覆盖）')
+  assert.match(src, /toISOString\(\)\.replace\(\/\[:\.\]\/g, ""\)/, 'alt 名必须含时间戳，保证同一 sha 内也唯一')
+})
+
+test('QM-6 第二轮 i1：三条路径全落空且有改动时必须报「故障」而非「没跑判定器」', () => {
+  const sh = fs.readFileSync(path.join(__dirname, 'deep-review.sh'), 'utf8')
+  // 判据：用「非 .ccg diff 行数 > 0」区分「本就不该有记录」与「记录丢了」
+  assert.match(sh, /这是\*\*故障\*\*，不是/, '必须明确判为故障，而不是笼统的「没跑判定器」')
+  assert.match(sh, /_DIFFLINES/, '必须实测 diff 行数作为判据')
+  assert.match(sh, /git diff --cached -- \. ':\(exclude\)\.ccg'/, '必须给出两条口径的自检命令')
+})
+
+test('QM-6 第二轮 i4：_read_mode 必须经 argv 传路径（不得内插进 -e 字符串）', () => {
+  const sh = fs.readFileSync(path.join(__dirname, 'deep-review.sh'), 'utf8')
+  assert.doesNotMatch(sh, /require\('\.\/\$f'\)/, '不得把 $f 内插进 node -e 的单引号串（引号/换行会注入或错位）')
+  assert.match(sh, /path\.resolve\(process\.argv\[2\]\)/, '必须经 argv 取路径并 resolve 成绝对路径')
+  assert.match(sh, /"\$f" 2>\/dev\/null/, '必须把 $f 作为独立 argv 传给 node')
 })

@@ -471,17 +471,26 @@ REC=".ccg/reviews/$SHA.json"
 #   两端口径在此分叉 ⇒ 欠账判定可能不一致。故此处显式出声。
 _read_mode() {
   local f="$1" out rc
+  # ★ QM-6 第二轮 i4：路径经 **argv** 传给 node，不再内插进 -e 的单引号任脚串。
+  #   内插形态下路径含引号/换行会注入或让脚本解析错位；当前只有十六进制名时尚安全，
+  #   但形态脆。argv 传参后由 process.argv[2] 取，与 shell 引号彻底解耦。
+  #   另外先校验文件名形态（40/64 位十六进制），不符即告警而非硬 require。
+  case "$f" in
+    *.json) ;;
+    *) say "⚠ 记录名不是 .json 结尾（$f），跳过解析"; return 1 ;;
+  esac
   out="$(node -e "
-    try {
-      const r = require('./$f');
-      const m = r && typeof r.mode === 'string' ? r.mode : '';
-      if (!m) { process.stderr.write('MODE_MISSING'); process.exit(3); }
-      process.stdout.write(m);
-    } catch (e) {
+    const path = require('path');
+    const f = path.resolve(process.argv[2]);
+    let r;
+    try { r = require(f); } catch (e) {
       process.stderr.write('PARSE_FAIL:' + (e && e.message ? e.message : String(e)));
       process.exit(4);
     }
-  " 2>/dev/null)"
+    const m = r && typeof r.mode === 'string' ? r.mode : '';
+    if (!m) { process.stderr.write('MODE_MISSING'); process.exit(3); }
+    process.stdout.write(m);
+  " "$f" 2>/dev/null)"
   rc=$?
   if [ "$rc" -ne 0 ]; then
     say "⚠ 判定记录存在但读不出 mode（$f，rc=$rc）—— 记录文件可能损坏。"
@@ -536,6 +545,45 @@ if [ -z "$MODE" ]; then
       REC=".ccg/reviews/$_DIFFHASH.json"
       _read_mode "$REC" || true
       [ -n "$MODE" ] && say "判定记录按内容寻址命中：${_DIFFHASH%${_DIFFHASH#????????}}（stagedDiffHash）"
+    fi
+  fi
+fi
+
+# ★ 2026-10-16（QM-6 第二轮 i1，Critical）：三条路径全落空时，必须**区分两种原因**，
+#   否则「记录丢了/分叉了」会被读成「从没跑过判定器」—— 后者是正常状态，前者是故障。
+#
+#   判据顺序（★ 第二轮自查补正，见下）：
+#     1. 工作区是否干净？不干净 ⇒ 只提示「请先提交」，**不判故障**
+#        —— 判定记录只对已提交的变更集负责；改到一半就跑本脚本是正常工作流
+#     2. 干净后，本提交相对 HEAD^ 的**非 .ccg diff 是否为空**？
+#        - 空 ⇒ 这笔提交本就不该有记录（纯 .ccg/ 或空提交），「无记录」是正确的
+#        - 非空 ⇒ 判定器本该为它写一条记录，现在三条路径（HEAD / 父 sha / 内容寻址）
+#          全落空 ⇒ 记录丢了，或 A(--cached) 与 B(HEAD^..HEAD) 分叉后被清掉
+#
+#   ★ 第二轮自查补正（重要）：首版**没有第 1 步**，实测立即假阳 ——
+#     HEAD 是旧提交、工作区有 589 行未提交改动 ⇒ 判据报「这是故障」，
+#     而那是正常工作中（改到一半跑 deep-review）。**判据必须先把「未提交」这一档排除**，
+#     否则它会把最常见的工作流判红，比不报更糟。
+#
+#   这是把 fail-open 从「静默」推到「出声」之后的**第二层**：连「是不是故障」都判出来。
+#   （第一层是上面那段 commit -a 告警；它只在「无记录」时报，本段补上「有改动却无记录」的精确判据。）
+if [ -z "$MODE" ]; then
+  _PARENT3="$(git rev-parse HEAD^ 2>/dev/null || echo '')"
+  if [ -n "$_PARENT3" ]; then
+    _DIRTY="$(git status --porcelain -- . ':(exclude).ccg' 2>/dev/null | wc -l)"
+    if [ "${_DIRTY:-0}" -gt 0 ]; then
+      say "ℹ 工作区有 ${_DIRTY} 个未提交/未暂存的非 .ccg 改动 —— 判定记录只对**已提交**的变更集负责。"
+      say "  请先 git add -A && git commit，再跑本脚本；否则「找不到记录」是预期而非故障。"
+    else
+      _DIFFLINES="$(git diff "$_PARENT3" "$SHA" -- . ':(exclude).ccg' 2>/dev/null | wc -l)"
+      if [ "${_DIFFLINES:-0}" -gt 0 ]; then
+        say "⚠ 本提交有 ${_DIFFLINES} 行非 .ccg 改动，却找不到任何判定记录 —— 这是**故障**，不是「没跑判定器」。"
+        say "  可能原因：① git commit -a / --amend 导致 A(--cached) 与 B(HEAD^..HEAD) 分叉，记录按 A 取名落空；"
+        say "            ② 记录文件被清掉（.ccg 被 clean / 换机器 / rebase 丢文件）。"
+        say "  自检：git diff --cached -- . ':(exclude).ccg' | sha256sum"
+        say "        git diff HEAD^ HEAD -- . ':(exclude).ccg' | sha256sum   # 两者应相等"
+        say "  处置：确认 .ccg/reviews 下有无对应 <sha>.json；若确有改动却始终无记录，按欠账处理。"
+      fi
     fi
   fi
 fi

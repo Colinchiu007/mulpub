@@ -426,6 +426,23 @@ function judge(staged) {
 const CLOSED_DEEP_REVIEW_STATUSES = new Set(["cleared", "needs_revision", "self_play_resolved"]);
 
 /**
+ * 「有实质内容、不该被覆盖」的状态集合 —— **不等于闭环白名单**。
+ *
+ * ★ 2026-10-16（QM-6 第二轮 i2）：\`self_play_blocked\` / \`self_play_pending\` **不在闭环白名单里**
+ *   （门禁因此判它们欠账，这是对的），但它们**已经产出了 findings**（prosecution/defense/verdict/rationale）。
+ *   若只按闭环白名单决定「是否保留」，amend/重提交会让这些记录走覆盖分支 ⇒ **已产出的审查结论被丢掉**，
+ *   而门禁仍会报欠账 ⇒ 既要重跑审查、又丢了上次的推理过程。
+ *
+ *   所以保留判据是**并集**：已闭环（结论有效，不该被抹回 pending）
+ *   ∪ 已有 findings（结论未定但推理有效，丢掉就得从零再来）。
+ */
+const PRESERVE_DEEP_REVIEW_STATUSES = new Set([
+  ...CLOSED_DEEP_REVIEW_STATUSES,
+  "self_play_blocked",
+  "self_play_pending",
+]);
+
+/**
  * 判定记录的文件名 —— **内容寻址**（ccg-record-content-addressing，2026-10-16）。
  *
  * 旧行为：`${sha}.json`，其中 sha 是 pre-commit 时的 HEAD，即**新提交的父提交**。
@@ -460,20 +477,24 @@ function recordFileName(stagedDiffHash, sha) {
  *
  * ★ 2026-10-16（QM-6 i3 + 变异反证 M7 暴露的缺口）：
  *   内容寻址让「同一变更反复提交/amend」落到同一个文件 —— 这是收敛性的来源，
- *   但副作用是后写静默覆盖先写。若先写那份的 deepReview 已闭环，覆盖会把状态
- *   抹回 pending、结论丢失 ⇒ 欠账门禁重新变红。
+ *   但副作用是后写静默覆盖先写。若先写那份的 deepReview 已有实质内容，覆盖会把它丢掉。
  *
  *   首版把这段判定**内联**在 saveRecord 里，只用「grep 源码字面」的结构锁守着；
  *   变异反证立即抓到缺口：把 `if (cond)` 改成 `if (false && cond)` 后所有字面仍在
  *   ⇒ 结构锁全绿而**行为已失效**。故抽成纯函数，让行为锁能真正调用它。
  *
+ *   ★ 第二轮 i2：判据用 `PRESERVE_DEEP_REVIEW_STATUSES`（闭环 ∪ 已有 findings），
+ *     不是闭环白名单 —— 后者漏了 self_play_blocked/pending，而它们恰有 findings。
+ *
  * @returns {boolean} true = 保留旧记录、本次另存（不覆盖）
  */
 function shouldPreserveClosedRecord(prev) {
-  const st = prev && prev.deepReview && typeof prev.deepReview.status === "string"
-    ? prev.deepReview.status
-    : null;
-  return !!(st && CLOSED_DEEP_REVIEW_STATUSES.has(st));
+  if (!prev || !prev.deepReview) return false;
+  const st = typeof prev.deepReview.status === "string" ? prev.deepReview.status : null;
+  if (st && PRESERVE_DEEP_REVIEW_STATUSES.has(st)) return true;
+  // 状态不在集合里，但已产出 findings ⇒ 同样不该丢（白名单外的未来态也能受益）
+  const f = prev.deepReview.findings;
+  return Array.isArray(f) && f.length > 0;
 }
 
 function saveRecord(result, sha, layer, plannedFiles) {
@@ -523,8 +544,13 @@ function saveRecord(result, sha, layer, plannedFiles) {
     let prev = null;
     try { prev = JSON.parse(fs.readFileSync(file, "utf8")); } catch (_) { prev = null; }
     if (shouldPreserveClosedRecord(prev)) {
-      // 不覆盖已闭环记录；把本次判定另存为 <name>-again.json，避免两份都丢失。
-      const alt = file.replace(/\.json$/, `-again-${sha.slice(0, 8)}.json`);
+      // 不覆盖已有实质内容的记录；把本次判定另存，避免两份都丢失。
+      // ★ 第二轮 i5：alt 名必须**全局唯一** —— 首版用 sha.slice(0,8)，同前缀会互相覆盖；
+      //   改为完整 sha + 时间戳（同一 sha 内毫秒级也唯一）。
+      const alt = file.replace(
+        /\.json$/,
+        `-again-${sha}-${new Date().toISOString().replace(/[:.]/g, "")}.json`
+      );
       fs.writeFileSync(alt, JSON.stringify(record, null, 2), "utf8");
       return alt;
     }
@@ -721,6 +747,7 @@ module.exports = {
   isDocsOnly,
   recordFileName,
   CLOSED_DEEP_REVIEW_STATUSES,
+  PRESERVE_DEEP_REVIEW_STATUSES,
   shouldPreserveClosedRecord,
 };
 
