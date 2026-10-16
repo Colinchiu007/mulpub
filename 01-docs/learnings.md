@@ -36,7 +36,7 @@ Gate 12c - Doc abs-path validity (changes job)
 not ok 27 - 本仓基线必须与现场逐文件相等
 error: [check-doc-abs-paths] FAIL：全量审计（3434 个受管文件）—— 超出存量基线 2 个文件
        01-docs/BUGFIX-ZHIHU-FAV-BUTTONS-DEAD-2026-10-16.md：1 处 > 基线 0
-         L4: D:\Data\projects\mp-worktrees\mp-zhihu-fav-buttons-dead
+         L4: <仓库父目录>\mp-worktrees\<任务名>       ← 原文是本机绝对路径；此处已改写为占位符
        openspec/records/zhihu-fav-buttons-dead.md：1 处 > 基线 0
 ```
 
