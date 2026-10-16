@@ -243,6 +243,11 @@ claude 后端恢复（`sh scripts/deep-review.sh --check-deps` 体检通过）�
    `auditNote`（写明它描述哪个 commit、`status` 的语义、引擎终态在哪个字段），并把 **9 条**未落终态的
    （`single`×8 + `skip`×1）按门禁补救路径置 `needs_revision`，附
    `debtClosure.engineTerminalState` / `whyNotEngineClosed` / `supersededBy`。修后 **13/13 全在闭环白名单内**。
+   > **补充（同轮实测出的结构性尾巴）**：判定器在**每次**提交的 pre-commit 里都会为**父 sha** 生成
+   > 一条记录并把 `deepReview` 重置为 `pending` ⇒ 「分支 tip 的父 sha 记录」必然处于 pending，
+   > 而闭环它又会产生新的 tail。这是**结构性行为，不是遗漏**；处置是：
+   > **所有 `mode=dual` 记录**（门禁唯一检查面）全部取得真实评审终态，
+   > 其余自动生成的 `single` 记录按补救路径闭环并在 `auditNote` 里写明该机制。
 2. **门禁加固（乙-i1）**：见上表。新增探针第 ④ 向正是抓「兜底被拒时静默成没有命中」这条——它当场红了，才补上 `mentioned`。
 
 #### 本轮的引擎行为（两次实测，值得记进项目知识）

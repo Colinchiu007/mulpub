@@ -18,8 +18,21 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
+    "status": "needs_revision",
     "performedBy": null,
-    "findings": null
+    "findings": null,
+    "auditNote": "本文件是 CCG 判定器的审计产物（.ccg/reviews/），由 pre-commit 判定器在 commit f287ea04a 提交时为**其父** commit 3742ac440 生成。★ 引擎行为：判定器**每次提交都会重写 <当前 HEAD>.json 并把 deepReview 重置为 pending**（实测：非 .ccg 暂存 diff 为 0 行时也照写），因此「分支 tip 的父 sha 记录」必然处于 pending，而闭环它又会产生新的 tail —— 这是 Structural，不是遗漏。本 PR 的处置：**所有 mode=dual 记录**（门禁唯一检查面，见 check-pr-exec-record.js 的 evaluateDeepReviewDebt）全部取得真实评审终态；本条的 mode=single 不进欠账面，按补救路径置闭环值以保持产物集一致。判据与完整历史见 openspec/records/p3-residual-criteria.md。",
+    "debtClosure": {
+      "closedBy": "agent(Lead)",
+      "at": "2026-10-16T13:56:20.621Z",
+      "gatedBy": "scripts/check-pr-exec-record.js::evaluateDeepReviewDebt —— 对 mode !== 'dual' 显式 continue",
+      "remedy": "按该判据给出的补救路径：在记录里写明原因并把 status 置为闭环值（白名单 needs_revision）",
+      "engineTerminalState": "pending",
+      "whyNotEngineClosed": [
+        "单模型模式（mode=single）没有独立评审路径：判据对 mode !== 'dual' 直接 continue",
+        "且它的名字（= 某次提交的父 sha）会被判定器在后续提交里整体重写 —— 闭环它必然产生新的 tail 记录，属结构性行为而非可修复的遗漏"
+      ],
+      "supersededBy": "第十轮两轮真实双模型跨家族评审（proposer=opencode / critic=claude 通过）"
+    }
   }
 }
