@@ -23,7 +23,8 @@ sync_backfill_owner: xhs-draft-only-hard-evidence 会话（本节作者）
 | 依赖漏洞审计 | ⚠️ 非本刀 | CI 报 `NEW_ADVISORY: pip/PYSEC-2026-4298 (python-jose, 路径 ops-center/backend)` + `RESOLVED_STILL_BASELINED: pip/CVE-2026-85394`。本刀未碰依赖与 ops-center；该工作流上次绿是 2026-10-12。属**新公告**类时间性失败，需人工裁决（升级依赖 or 基线登记 decision+note），不经本 PR 处置 |
 | 静态门禁 Gate 11（ESLint） | ✅（已修） | 抽取后的新模块被 ESLint `no-useless-assignment` 报 2 处（`let read = null` 后 try/catch 两条分支都赋值 ⇒ 初值恒不被读）。处置：catch 改为「保持 null」的注释，两条分支不再都赋值；本地 `eslint --quiet` rc=0 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触打包配置与视觉面 |
-| QM-6 CCG 双模型外部评审 | ✅ | 跨家族深度评审实跑（proposer=opencode / critic=claude，`--sha 8fe885f57`）：7 条发现、1 Critical（i1）＋我方核出同源第二处（i1b）；**7/7 已修**，处置逐条见下 §CCG 评审。修订后门禁重跑 `node scripts/ccg-gate.js` = rc 0（5 项通过、0 安全发现） |
+| QM-6 CCG 双模型外部评审 | ✅ | 跨家族深度评审实跑两轮（proposer=opencode / critic=claude）：第一轮 `--sha 8fe885f57` 得 7 条（1 Critical）；第二轮 `--base origin/main`（整分支 diff，因 rebase 重放不跑 hook、按 sha 取不到判定记录）得 5 条、最低分 4→6、无 Critical。**全部 7/7、5/5 已处置**，逐条见下 §CCG 评审与 §第二轮评审。第三份欠账（rebase 重放副本）随同闭合。修订后门禁重跑 `node scripts/ccg-gate.js` = rc 0（0 安全发现） |
+| PR 执行记录取证 | ✅（补过一次） | `node scripts/check-pr-exec-record.js --base=origin/main --mode=enforce` 首跑报 **deepReview 欠账 3 条**——三个提交都被判需要双模型深度审查（mode=dual），而记录里的 `deepReview.status` 停在 pending / self_play_pending：**评审跑了、发现修完了，但引擎第三档出口要求的「逐条裁决」表格没填，门禁不认**。处置：按裁决模板逐条填 prosecution/defense/verdict/rationale 并把 status 置为闭环白名单的 `self_play_resolved`（不是改数字，是补真实结论；逐条人读版在 PRD §8/§8.1）。复跑 rc=0 |
 | 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间；`git ls-remote --heads origin xhs-draft-only-hard-evidence` 返回 0 行证远端分支已删；回填后删除本段三个 sync_* 字段 |
 
 ### 判据选址（针对「草稿箱是否分区本地」疑点）
@@ -108,6 +109,22 @@ PRD §8.1；**修掉五条**、登记三条。其中两条是实质性的：
 「宁可慢也不误报失败」）、i8（②监听窗口上限 30s 自行清理，成本有界）——均在 PRD §9。
 
 **本轮测试读数**：三套相关测试 **26/26**（新增 H9/H9b/H10/H11/H12 五例）。
+
+### CI 抖动两项（本 PR 无关，已如实取证）
+
+`gh run rerun --failed` 重跑后 **22 项全绿**。此前两项红的取证：
+
+- **QG Coverage → Gate 5**：整个套件带覆盖率跑，失败集中在
+  `electron/services/windows-file-lock.test.js` 的 3 例「真跑（仅 Windows）」文件锁握手
+  预算断言；**同一个提交**在 `QG Desktop Shards (1/2)` 里通过。且主干今天的失败 run
+  （#3619 合入后）失败形态完全相同（QG Coverage → Gate 5 → Gate Result 连坐），
+  主干近 30 次 quality-gate 有 5 次失败 ⇒ 仓库级既有抖动，非本刀引入。
+- **QG Visual → Gate 7**：日志末尾自报 `[GATE-7] All visual tests passed`、
+  `[RESULT] All pixel diff tests passed, no Agent review needed`，步骤却退出 1
+  （某个子命令 `exit code 1`）。本 PR 只动 `electron/services` + 测试 + 文档，
+  **不触任何界面/样式/视觉基线** ⇒ 归因不可能落在本刀。
+
+结论：两项均为环境抖动，重跑转绿；本刀未以任何方式放宽或绕过这两项门禁。
 
 
 

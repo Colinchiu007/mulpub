@@ -19,13 +19,43 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "self_play_pending",
+    "status": "self_play_resolved",
     "performedBy": "self-play(pending)",
     "confidenceWeight": 0.6,
     "requiresExternalReview": [],
-    "findings": null,
+    "findings": "同一批评审的 rebase 重放副本（template 指向 ccg-deep-f92b7fb5/adjudication.json）：裁决与 f92b7fb59 那份一致——i2/i3 upheld 已修，i1/i4/i5 dismissed 并登记（PRD §8.1/§9） 逐条指控/辩护/裁决的人读版：01-docs/PRD-XHS-DRAFT-ONLY-HARD-EVIDENCE-2026-10-15.md §8/§8.1 与 openspec/records/xhs-draft-only-hard-evidence.md；评审原始产出（含被填的裁决模板）在 .adversarial/ccg-deep-*/（gitignored，不入库）。",
     "template": ".adversarial\\ccg-deep-f92b7fb5\\adjudication.json",
     "note": "裁决尚未填写：5/5 条未定（i1, i2, i3, i4, i5）",
-    "at": "2026-10-15T16:59:03.054Z"
+    "at": "2026-10-15T16:59:03.054Z",
+    "adjudication": {
+      "template": null,
+      "items": [
+        {
+          "id": "i1",
+          "verdict": "dismissed",
+          "rationale": "可验证依据：①模块内 SAVE_RESPONSE_PATTERNS 只剩窄路径（测试 H8 第①条锁死不得退回宽词）；②statusCode===200 有 H6 反例锁；③残留风险已在 PRD §9 登记为「②端点若变化会静默失效（不会假成功，只会少一条通道）+ 需真机抓包核验」，并列入合并后真机验证步骤。真机抓包在本地环境无法完成（需账号会话），故不假装已闭合。"
+        },
+        {
+          "id": "i2",
+          "verdict": "upheld",
+          "rationale": "处置可验证：①模块新增 resolveDraftOnly 按 platform 分流，非小红书走 runLegacyDraftOnly（原实现逐字段搬入）；②调用方 draftOnly 分支改为一行委派，不再有平台判断；③新增 H9（非小红书平台 success 为 true 且不产生 draftEvidence）+ H9b（内容没写进去仍按内容闸 fail-closed）两条行为锁；④接线锁新增断言「平台分流在模块内」与 LEGACY_DRAFT_SAVED_CONDITION 在场。三套测试 26/26、全量 electron/tests 841 例全绿。"
+        },
+        {
+          "id": "i3",
+          "verdict": "upheld",
+          "rationale": "处置可验证：readBaselineContext 改为读两次取较大值（等价于要求更保守的起点），第一次就 null 时不重复读（无收益），两次不一致时写日志。新增 H11：读数序列 0→1→1（基线 0、复核 1、其后恒 1）时判未确认——单次读基线的实现会把它误判成成功。同时 PRD §9 登记「计数选择器单点取证 + 收紧后成为唯一确认权来源」这一有意取舍及其代价。"
+        },
+        {
+          "id": "i4",
+          "verdict": "dismissed",
+          "rationale": "可验证依据：新增 H10 直接读 rpa-view-helpers.js 源码并断言该 resolve 形态（不许只用桩互证）；模块注释写明该核对结论。若将来 helper 改成嵌套形态，H10 会先红。残留风险（②静默失效只少一条通道、不会假成功）已写入 PRD §9。"
+        },
+        {
+          "id": "i5",
+          "verdict": "dismissed",
+          "rationale": "不修复的理由与登记均可验证：PRD §9 明确写「确认链最长耗时约 40s……若真机发现『保存成功却报未确认』，应改为①/②并发取先到者」，并列入合并后真机验证的判定条件；执行记录同步登记。另核 i8：①成功后②的 promise 不再被 await，但其窗口上限 30s 后自行 cleanup（_waitForResponseExclusive 的 setTimeout + cleanup），成本有界，不会累积泄漏——同记于 PRD §9。"
+        }
+      ]
+    }
   }
 }
