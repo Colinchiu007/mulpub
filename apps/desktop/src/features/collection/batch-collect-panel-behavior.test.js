@@ -10,6 +10,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
+import { nextTick } from 'vue'
 import { createI18n } from 'vue-i18n'
 
 // 真实 electron-bridge 桥（getApi 返回 window.electronAPI），不 mock
@@ -73,6 +74,8 @@ const i18n = createI18n({
           batchDoneCancelledSuffix: '（已取消）', batchDoneCircuitBrokenSuffix: '（熔断）',
           noRewritable: '没有可改写的内容', rewritingProgress: '改写 {count} 条...',
           noSelection: '请先勾选要采集的内容',
+          pickFavlistFirst: '请先获取收藏夹并选择要采集的收藏夹',
+          rewriteNeedsSource: '没有可改写的内容，请先采集',
           emptyItems: '收藏夹清单为空',
           fewerThanRequested: '实际获取 {actual} 条，少于申请的 {requested} 条',
           favlistsCapped: '收藏夹数量已达上限', fullModeCap: '全量模式单次最多 200 条',
@@ -349,6 +352,15 @@ describe('BatchCollectPanel 知乎收藏夹批量行为锁', () => {
     expect(emitted[0].sourceUrl).toBe('https://zhuanlan.zhihu.com/p/1')
     expect(emitted[0].rewrittenContent).toBe('改写稿甲')
     expect(emitted[0].images).toEqual(['D:\\img\\a.jpg'])
+    // 事件契约锁（2026-10-16）：`collected-rewrites` 必须**显式声明**在 defineEmits 里。
+    // 原先未声明时父级 Collection.vue 靠 fallthrough 侥幸能收到；一旦根节点变为多节点
+    // （fragment），监听器会静默失效 —— 组件照 emit、父级收不到，且只在开发期留一条 warning。
+    // 判据：w.emitted() 能观察到该事件（= 声明生效），且载荷是「有改写稿 + 有来源」的条目。
+    const rewrites = w.emitted('collected-rewrites')
+    expect(rewrites, 'collected-rewrites 必须在 defineEmits 中声明').toBeTruthy()
+    expect(rewrites[0][0]).toHaveLength(1)
+    expect(rewrites[0][0][0].rewrittenContent).toBe('改写稿甲')
+    expect(rewrites[0][0][0].sourceUrl).toBe('https://zhuanlan.zhihu.com/p/1')
     // 清单已采集标记刷新（后台异步）
     await new Promise((r) => setTimeout(r, 0))
     expect(window.electronAPI.zhihuFavlistContents).toHaveBeenCalled()
@@ -378,5 +390,120 @@ describe('BatchCollectPanel 知乎收藏夹批量行为锁', () => {
     w.vm.zhihuFavlistResults = []
     await w.vm.zhihuFavlistBatchRewrite()
     expect(w.vm.zhihuFavlistError).toContain('可改写')
+  })
+})
+
+describe('知乎整夹直采按钮可点性（zhihu-fav-buttons-dead，2026-10-16）', () => {
+  // 用户报障：采集 → 知乎收藏文章 → 点「采集」「改写」按钮**没有任何反应**。
+  //
+  // 第一性原因（取证）：这两个按钮的 disabled 判据是 `!zhihuSelectedFavlist`，而该 ref
+  //   初始为 '' 且**代码从不自动赋值**（只有用户手动点下拉框才会变）；下拉框本身又在
+  //   `v-if="zhihuFavlists.length"` 内 ⇒ 未加载清单时用户根本看不到下拉框、无从选择
+  //   ⇒ 按钮恒灰 ⇒ 点击零事件、零提示（disabled 的 button 不派发 click 事件）。
+  // 第二个：**改写根本不需要收藏夹选择**（它改写的是已采集结果/父级传入条目），却共用同一判据。
+  // 第三个：scope='all'（全部收藏）时下拉框被 disabled，用户永远无法满足该判据 ⇒ 该模式死锁。
+  //
+  // 逃逸原因：旧用例 `w.vm.zhihuSelectedFavlist = '111'` 手动塞值后**直接调方法**，
+  //   既绕过了「这个值在真实使用中从何而来」，也绕过了「按钮到底能不能点」这一 UI 契约。
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.electronAPI = {}
+    settingsDialogRevision.value = 0
+  })
+
+  it('未加载清单：采集按钮 disabled 且给出可见原因（不得静默）', async () => {
+    window.electronAPI = {
+      zhihuGetConfig: vi.fn().mockResolvedValue({ code: 0, data: secretConfig() }),
+    }
+    const w = mountPanel()
+    await flushPromises()
+    expect(w.vm.zhihuSelectedFavlist).toBe('')
+    expect(w.get('[data-testid="zhihu-favlist-collect"]').attributes('disabled')).toBeDefined()
+    expect(w.get('[data-testid="zhihu-favlist-target-hint"]').text()).toContain('获取收藏夹')
+  })
+
+  it('加载清单成功 → 自动选中第一个收藏夹（用户无需手动点下拉框）', async () => {
+    window.electronAPI = {
+      zhihuGetConfig: vi.fn().mockResolvedValue({ code: 0, data: secretConfig() }),
+      zhihuFavlistList: vi.fn().mockResolvedValue({
+        code: 0,
+        data: [{ urlToken: '111', title: '夹一' }, { urlToken: '222', title: '夹二' }],
+      }),
+    }
+    const w = mountPanel()
+    await flushPromises()
+    await w.vm.loadZhihuFavlists()
+    await flushPromises()
+    expect(w.vm.zhihuSelectedFavlist).toBe('111')
+    expect(w.get('[data-testid="zhihu-favlist-collect"]').attributes('disabled')).toBeUndefined()
+  })
+
+  it('scope=全部收藏 → 采集按钮可点（该模式不需要选具体收藏夹）', async () => {
+    window.electronAPI = {
+      zhihuGetConfig: vi.fn().mockResolvedValue({ code: 0, data: secretConfig() }),
+    }
+    const w = mountPanel()
+    await flushPromises()
+    w.vm.zhihuFavScope = 'all'
+    await nextTick()
+    expect(w.vm.zhihuSelectedFavlist).toBe('')
+    expect(w.get('[data-testid="zhihu-favlist-collect"]').attributes('disabled')).toBeUndefined()
+  })
+
+  it('全部收藏模式采集 → 走 unified-contents 通道（与 loadZhihuFavItems 同语义）', async () => {
+    const unified = vi.fn().mockResolvedValue({
+      code: 0,
+      data: { items: [{ url: 'https://zhuanlan.zhihu.com/p/9', title: '九' }] },
+    })
+    window.electronAPI = {
+      zhihuGetConfig: vi.fn().mockResolvedValue({ code: 0, data: secretConfig() }),
+      zhihuFavlistUnifiedContents: unified,
+      zhihuFavlistBatchCollect: vi.fn().mockResolvedValue({
+        code: 0,
+        data: {
+          completed: 1, failed: 0, cancelled: false, circuitBroken: false,
+          results: [{ index: 0, ok: true, data: { success: true, title: '九', content: '正文' } }],
+        },
+      }),
+    }
+    const w = mountPanel()
+    await flushPromises()
+    w.vm.zhihuFavScope = 'all'
+    await w.vm.zhihuFavlistBatchCollect()
+    await flushPromises()
+    expect(unified).toHaveBeenCalled()
+    const emitted = w.emitted('collected')[0][0]
+    expect(emitted[0].sourceUrl).toBe('https://zhuanlan.zhihu.com/p/9')
+  })
+
+  it('无目标时调采集 → 出声提示，不得静默 return', async () => {
+    window.electronAPI = {
+      zhihuGetConfig: vi.fn().mockResolvedValue({ code: 0, data: secretConfig() }),
+    }
+    const w = mountPanel()
+    await flushPromises()
+    await w.vm.zhihuFavlistBatchCollect()
+    expect(w.vm.zhihuFavlistError).not.toBe('')
+    expect(w.vm.zhihuFavlistError).toContain('获取收藏夹')
+  })
+
+  it('改写按钮的可点性只看「有无可改写来源」，与是否选收藏夹无关', async () => {
+    window.electronAPI = {
+      zhihuGetConfig: vi.fn().mockResolvedValue({ code: 0, data: secretConfig() }),
+    }
+    const w = mountPanel({ rewriteFallbackItems: [{ content: '这是一段足够长的可改写正文内容，用于触发改写可用性。' }] })
+    await flushPromises()
+    expect(w.vm.zhihuSelectedFavlist).toBe('')
+    expect(w.get('[data-testid="zhihu-favlist-rewrite"]').attributes('disabled')).toBeUndefined()
+  })
+
+  it('改写按钮：无任何可改写来源 → disabled 且给出原因', async () => {
+    window.electronAPI = {
+      zhihuGetConfig: vi.fn().mockResolvedValue({ code: 0, data: secretConfig() }),
+    }
+    const w = mountPanel({ rewriteFallbackItems: [] })
+    await flushPromises()
+    expect(w.get('[data-testid="zhihu-favlist-rewrite"]').attributes('disabled')).toBeDefined()
+    expect(w.get('[data-testid="zhihu-favlist-rewrite-hint"]').text()).toContain('可改写')
   })
 })

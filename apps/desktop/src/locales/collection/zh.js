@@ -214,6 +214,11 @@ export default {
       configDenied: '暂不可读',
       configUnreadable: '已保存的密钥无法读取，请到设置中重新保存',
       configLegacy: '检测到旧版明文密钥，建议到设置中重新保存以完成加密迁移',
+      // 「采集」按钮不可点时的原因（zhihu-fav-buttons-dead）：disabled 的按钮不派发 click，
+      // 没有这行提示，用户看到的就是「点了没反应」
+      pickFavlistFirst: '请先点「获取收藏夹」，或在范围里选「全部收藏」',
+      // 「改写」按钮不可点时的原因：改写不依赖收藏夹，只依赖已有可改写内容
+      rewriteNeedsSource: '还没有可改写的内容，请先用「采集并改写」采集一批',
       loadBtn: '获取收藏夹',
       loading: '获取中...',
       loadFailed: '获取收藏夹失败',
