@@ -1,3 +1,11 @@
+## 「视觉基线刷新」必须用 CI 的渲染：本地渲染不同形时，像素门禁拒绝出结论正是它唯一正确的行为；notify 登记锁与「拆逻辑忘 destructure」是同一族机械锁（pub-record-republish，2026-10-16）
+
+1. **⛔ 视觉基线不得用本地渲染刷新 —— 本地渲染与 CI 不同形时，「刷新」会把他人的界面当成自己的证据。** 本轮在发布记录页每张卡片新增「再次发布」按钮，CI 的 `check-baseline-freshness.js` 判 `publish-history-dark.png` 漂移 **4116 px (0.198%)**。我先在本地起 dev server 跑 `PIXEL_ONLY=publish-history UPDATE_BASELINE=1`，它报 `PASSED`、misMatch 仅 0.026%，**且基线文件 mtime 没变** —— 也就是说本地渲染和旧基线几乎一致，根本复现不出 CI 的漂移（本地页面数据形态与 CI 夹具不同）。正解是从 CI artifact `quality-gate-visual-reports` 取 `screenshots/publish-history.png` 与 `screenshots/publish-history-dark-current.png` 覆盖基线，再在本机复跑**同一判据** `check-baseline-freshness.js --renders=<artifact screenshots>` 对账：修复前本机复现到与 CI **完全一致**的 4116 px / 0.198%（证明判据同源），修复后违规 2→0。**值得记住的是工具的自我保护**：本地缺 dev server（`127.0.0.1:5174` ECONNREFUSED）时它直接拒绝出结论并说明「缺宿主时每个视图都会死在 page.goto，与真实回归同形」——这不是缺陷，正是它挡住了「拿本地图当 CI 证据」。基线映射口径：门禁对每张基线找 `<name>.png` 或 `<name>-current.png`，`--max-drift-px=0` 即逐像素对账，所以「UI 有意变更」的正解是刷新基线（不是改阈值/加豁免）。
+
+2. **⛔ 「新增 notify 必须登记 ALLOWED_KEYS」这条锁，会在只跑部分测试时完全看不见。** 本轮在主进程新增两个 notify（`RepublishSnapshot:snapshot-skipped` / `snapshot-save-failed`），本地只跑了 4 个相关套件全绿；CI 的 Desktop Shards 一跑就红 2 条——`observability-messagekey.test.js` 断言「全仓登记键总数 === 四文件 notify 调用总数」，漏登记当场红。教训不是「以后记得登记」，而是**登记型机械锁的域是「全仓四文件」，本地按需跑套件天然覆盖不到**；凡新增 notify/新登记项，必须显式跑对应的全仓登记锁，不能以「我改的模块测试绿了」推断。
+
+3. **「把逻辑搬出视图」必须同步 destructure 名单，否则 75 条渲染用例一起 ReferenceError。** 行数门禁要求拆分 `PublishHistory.vue` 时，我把 `statusValue` 搬进 composable 却漏加进 destructure，`PublishHistory.test.js` 75 条一起报 `ReferenceError: statusValue is not defined`——模板在渲染期才求值，静态检查看不见。同族教训：布尔字段进白名单后，白名单一致性锁的构造值若是字符串（`full[field] = "值"`），会把布尔的「未写回」误判成失败；而通用写回分支的 `snapshot[field] || ''` 会把 `false` 折成空串（checkbox 上反而为真）。**判据：任何「搬定义」操作都要同时改三处——定义、destructure、锁的构造值。**
+
 ## 放松一个数值之前，先数它被当成几道闸的输入（v4 复现；驱动重写把旧问题重新引入）（2026-10-15）
 
 【背景】发布频率 v4 只做两件事：平台间隔三档统一 1′、日配额 30/50/200 → 200/350/500。

@@ -1,3 +1,14 @@
+# [未发布] feat(publish): 发布记录「再次发布」+ 作品链接写入侧修复 + 同批徽标（pub-record-republish）
+
+- **用户三项需求**：①每条发布记录加「再次发布」，把原始的发布内容与选项设置保留下来便于直接发布；②发布成功的卡片应带内容链接、点击新标签展示平台内容页（「之前做过这个功能，怎么一直没生效」）；③一次发布到多个平台时，记录应是集合记录还是独立记录。
+- **R1 根因是「内容与选项零落库」**（不是前端 bug）：活体取证 `shared-user-data/publish-history.jsonl` 72 条（成功 57）——`id/platform/title/taskId/status/result/owner_subject/timestamp` 各 72 次，而正文 `content` **出现 0 次**。新增 `electron/services/publish-republish-snapshot.js`：20 个必存字段**逐字段白名单**（禁止 `...article` 展开——`article.cookies` 真实存在），数组字段缺失回落 `[]` 而非 `''`，`rewriteHistoryId` 保持 `string|null`；上限 200 条、超限淘汰最旧并**真删键**。存储选 owner 作用域 SQLite `settings`（键 `publish-republish-snapshot:<recordId>` + 索引键）而非写进历史 JSONL 行——`readRecords()` 每次分页整文件重解析、`updateRecordAudit` 整文件重写，正文入行会让一次筛选放大成数十 MB 解析。`hasRepublishSnapshot` 因此**不落库**、由索引现算。
+- **R2 真相是写入侧没有可点开的东西**：用作品链接解析器逐条判定 57 条成功记录 ⇒ **45 条（≈79%）解析为「无链接」**——`result.url` 多为平台后台页或空串，`postId` 仅 11 条有值且快手 11 条全是合成值 `published-<ts>`。修两个可离线验证的缺陷：`publisher-router.js` 透传此前被丢的 `result.draft`（小红书只落草稿箱这一产品事实此前被显示成「未获取到作品 ID」）；`account-metrics-store.js` 的 V14 回填把保护对象改成「**能定位到作品**的既有值」，合成值不再永久占位。无链接原因分三态（草稿 / 平台结构性无公开页 / 未抓到作品 ID）。**红线**：不改任何平台的发布成功判定语义——快手合成值是成功判定的必要信号，删它会把靠它成功的记录改判失败。
+- **R3 定调**：保留每平台独立记录（状态/审核/作品链接/互动数据/重试/删除都是平台级动作），补 `batchId` + 同批徽标把关联信息找回来。
+- **文档与记忆**：`01-docs/PRD-PUBLISH-RECORD-REPUBLISH-2026-10-15.md`（完整 PRD）+ `01-docs/PRD.md` §6.9 产品契约；EverOS 记忆 add→flush（**extracted**）+ 外部记忆 `.agent_context/memory-pub-record-republish.md`。
+- **CI 三轮判红全部定位并修复**（每轮都是本 PR 的真实回归，非环境噪声）：①行数门禁 4 项 ⇒ 按门禁处方**拆分而非上调限额**（`publish.js` 563→451、`Publish.vue` 1871→1754、`PublishHistory.vue` 1460→1370、`publisher-router.js` 833→826，新增 3 个 composable + 2 个 IPC 模块）；②`observability-messagekey` 登记锁（新增 notify 必须登记 `ALLOWED_KEYS`）；③视觉基线漂移 ⇒ 用 **CI 自己的渲染**刷新 `publish-history{,-dark}.png`（本地 dev server 渲染与 CI 不同形，像素门禁本身拒绝在缺宿主时出结论）。
+- **CCG 深度审查闭环**（QM-6）：mode=dual，claude 评出 8 条；4 条争议裁决 `upheld` 后**逐条修复**——同批徽标不再断言跨页总数、`aiGenerated` 补进还原映射并加布尔分支、详情弹窗补第二个入口（复用同一份判据）、未保存输入判据扩到封面/话题/账号。`check-pr-exec-record --mode=enforce` OK。
+- 测试：快照 21 例 + 前端映射 10 例 + `PublishHistory` 90 例 + 路由 69 例 + 回填 28 例 + 175 例 preload/Publish 等，eslint 0 error。
+
 # [未发布] feat(frequency): 发布频率策略 v4——平台间隔三档统一 1′、日配额 200/350/500（publish-frequency-policy-v4）
 
 - 数值（唯一落点 `packages/shared-utils/src/publish-frequency-policy.js`）：`platformMinMs` 由按档分级 3′/2′/1′ 改为**三档统一 1′**；`accountDailyMax` 由 30/50/200 改为 **200/350/500**（用户口径"最低 200、最高 500"，中间档 350 按档间单调推导）。账号档间隔 5′/3′/1′、抖动 0.4、退避下界 10s、紧急放行额度、D1 判据、回滚硬顶公式**一字未动**。
