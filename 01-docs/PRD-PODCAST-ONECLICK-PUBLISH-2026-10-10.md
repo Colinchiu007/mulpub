@@ -902,6 +902,27 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 > 原先写的「入口没做、现在写是死键」不成立——那条豁免只适用于**没有任何收割判据的**展示文案。
 > 4.3② 只补 `episode.*` 那批浮层显示项键。落点：`src/locales/podcast/zh.js` / `en.js` 的 `podcast.errors.*`。
 
+> **口径回写（2026-10-17，4.3②-b 接线实测）**：上面四条是**主进程侧的提示文字**，本片把它们落成渲染端
+> locale 键，并新增两条此前无人写的现场，逐字生效：
+>
+> 1. **收割扫描域已按预告扩回**：`podcast-error-codes.test.js` 的 `PRODUCERS` 现含
+>    `electron/services/podcast-tts-compose.js`，其产出的 `PODCAST_TTS_COPY_TOO_SHORT` /
+>    `PODCAST_TTS_TITLE_INVALID` / `PODCAST_TTS_CHUNK_UNSAFE` / `PODCAST_TTS_VOICE_UNRESOLVED`
+>    四个码必须当场配 zh/en 成对文案。**取证顺序不可颠倒**：先只扩域 ⇒ 守卫红并点名四个码；再补文案 ⇒ 转绿。
+>    少了第一步，「补了文案」与「守卫其实没在看」在产物上完全同形。
+> 2. **拒绝态文案的来源优先级是「locale 命中优先于主进程 message」**（`PodcastScriptEntry.vue` 的
+>    `previewReason`：`subCode` 存在即取 `podcast.errors.<subCode>`，缺席才回落 `message`）。
+>    这条不是风格选择：补上泛型文案后，原先那句**带数字**的 `正文 12 码点，短于一期口播的下限 80`
+>    被顶掉，用户只剩「正文太短」——丢掉的是「差多少」这一条可行动信息，实测由回归用例
+>    （断言原因句含 `80`）当场变红抓到。**因此凡是主进程 message 里带具体数值的领域码，其 locale 文案必须自带那个数**，
+>    不得把数值留给 message 兜底（兜底在该码有文案时永远走不到）。
+> 3. 落地的 zh 文案逐字：`正文少于一期口播的下限 80 码点` / `标题为空或过长，无法出期` /
+>    `稿件含无法安全切分的块，本期不发布` / `未解析到可用音色，请检查服务商与音色设置`；
+>    en 同形成对。**与上面第 2 条的历史条目（`正文 <N> 码点…`）刻意不同**：locale 侧不做插值
+>    （调用点 `t(key)` 不传参），写成 `<N>` 会把占位符原样显示给用户，因此把下限写死在文案里；
+>    若将来要把实到码点数带进界面，必须同时给 `previewReason` 传插值参数并改回带 `{n}` 的文案，
+>    不得只改一侧。
+
 ### 7.10.6 本节故意不做的
 
 - 不加 `podcast:episode:publishFromScript` 的 IPC/preload 通道与三个入口——**没有消费者的通道
