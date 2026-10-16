@@ -119,6 +119,14 @@ export async function accountSetProxy (accountId, platform, proxy) {
   return invokeWithFallback('accountSetProxy', { code: -1, message: 'electronAPI not available' }, accountId, platform, proxy)
 }
 
+// 按需读取单个账号的代理状态（用户打开代理设置弹窗时才调）。
+// 列表接口（accountList）**刻意不再返回** proxy：那是"每次进账号页对每个账号各做一次
+// 整份凭证解密（同步 PBKDF2 10 万次迭代）"的来源，实测 8 账号 accounts:list 1451–1579ms。
+// 代理状态属详情级信息，只在用户真正要看/改时读一次。
+export async function accountGetProxy (accountId, platform) {
+  return invokeWithFallback('accountGetProxy', { code: -1, message: 'electronAPI not available' }, accountId, platform)
+}
+
 // 启用态写通道：主进程 AccountManager.setAccountActive → 后端 PATCH is_active（唯一真源）。
 // 不得改回 accountUpdate：那条通道写 Electron SQLite，而账号列表根本不从那里读，写了也不显示。
 export async function accountSetActive (accountId, platform, isActive) {
