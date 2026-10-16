@@ -1,8 +1,5 @@
 ---
 record: openspec-archive-audit
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并；合并后由后续回填 PR 把远程同步行改为 PASS 并删除本段三个字段
-sync_backfill_owner: 下一个会话（合并后改为 PASS 并删除本段三个字段；新载体不进 JSON ledger）
 ---
 
 ## 本次执行记录：OpenSpec 变更归档审计与单个可安全归档项落地（openspec-archive-audit，2026-10-16）【docs-only】
@@ -22,7 +19,7 @@ sync_backfill_owner: 下一个会话（合并后改为 PASS 并删除本段三�
 | 文档同步（doc-gate） | PASS | 本 PR 动的是 `openspec/changes/**` 与 `01-docs/AUDIT-*.md`；主规格 `openspec/specs/film-engineering/spec.md` **未改动**（判据已验 3/3 整块命中，无需同步），故不触发规格同步欠账 |
 | QM-1 打包 / QM-4 视觉 / TDD | N/A | 未触 `apps/desktop/electron/`、`packages/rpa-engine/`、任何 `.vue`/样式/基线 PNG；本 PR 无代码变更，走 docs-only 快速通道 |
 | QM-6 CCG 双模型外部评审 | N/A | 纯文档/规格变更，按 AGENTS「纯文档/流程变更不强制 QM-6」；本轮**未跑**外部评审，如实记 N/A 而非 PASS |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin openspec-archive-audit` 返回 0 行证远端分支已删；回填时把本行改写为 PASS 并**删除上方三个 `sync_*` 字段**（同一次提交内完成，不在 JSON ledger 留项） |
+| 远程同步 | PASS | 本 PR 即 **#3708**，`state=MERGED`，merge SHA `3518b54560b3efc4d94a97ca11a8bda3ffad2a3f`，时间 2026-10-16T06:35:44Z（UTC）= 14:35:43+08:00。取证三件：① `git log origin/main` 按主题尾 `(#3708)$` 检索得**恰好 1 行**；② `git ls-remote --heads origin openspec-archive-audit` 返回 **0 行**（远端分支已随 squash 删除）；③ 产物回读：`origin/main` 上 `openspec/changes/archive/2026-10-16-film-production-artifact-identity` 与 `01-docs/AUDIT-OPENSPEC-ARCHIVE-2026-10-16.md` 各命中 1。同一次提交内已删除 frontmatter 的三个 `sync_*` 字段（新载体不在 JSON ledger 留项） |
 
 ### 遗留（不假装已闭合）
 
