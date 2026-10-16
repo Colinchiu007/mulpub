@@ -2,9 +2,6 @@
 record: podcast-episode-script-entry
 task: 为 tasks 4.3② 补齐它缺的数据源合同（PRD §7.10.4.1 只读预览接口）并把该项拆成可验收的 ②-a/②-b
 date: 2026-10-16
-sync_status: PENDING
-sync_reason: 本 PR 合并后由后续 docs PR 回填 merge SHA 与时间，并在同一次提交删除本文件 frontmatter 的 sync_* 三字段
-sync_backfill_owner: agent 收尾链（回填 = 合并后第一笔 docs PR）
 ---
 
 # 4.3② 前置合同：只读预览接口（podcast-episode-script-entry，2026-10-16）
@@ -26,7 +23,7 @@ sync_backfill_owner: agent 收尾链（回填 = 合并后第一笔 docs PR）
 
 | 位置 | 内容 |
 | --- | --- |
-| PRD 新增 §7.10.4.1 | 唯一读路径 `podcast:episode:plan-preview`（preload 面 `podcastEpisode.planPreview`）：入参 `{channelId, script}`、成功载荷 `plan{totalBlocks,totalCodepoints}` + `voice{providerId,model,voiceId,origin,resolvedBy}`；`plan` 由 `planChunks` 同一实现产出、`voice` 由 `resolveEpisodeVoice` 产出，**只转发不加工**；拒绝态沿用既有领域码（不为预览新增同义码）；计数缺失=整块不显示、**绝不回落 0**；`origin` 闭集外不显示并 warn。7 条验收判据 + 三条故意不做（不限流、不估金额、不在预览里做口语化）。 |
+| PRD 新增 §7.10.4.1 | 唯一读路径 `podcast:episode:planPreview`（preload 面 `episodePlanPreview`）：入参 `{channelId, script}`、成功载荷 `plan{totalBlocks,totalCodepoints}` + `voice{providerId,model,voiceId,origin,resolvedBy}`；`plan` 由 `planChunks` 同一实现产出、`voice` 由 `resolveEpisodeVoice` 产出，**只转发不加工**；拒绝态沿用既有领域码（不为预览新增同义码）；计数缺失=整块不显示、**绝不回落 0**；`origin` 闭集外不显示并 warn。**（2026-10-16 第二笔改名：第一版此处写作 kebab 通道名 + `podcastEpisode.*` 命名空间，与本仓既有形状不符，现名以主干 PRD 为准，见 §六）** 7 条验收判据 + 三条故意不做（不限流、不估金额、不在预览里做口语化）。 |
 | PRD §8.2.9 顶部 | 一行**承载方**指针：该节读面由 §7.10.4.1 一次提供，不再单开 `podcast:voice-preview`——**偏差就地明写**（两趟近重复读路径会让音色解析跑两遍），落点/三态标注/验收判据照用不变。 |
 | `tasks.md` 4.3② | 原文保留、行末追加实测结论；其后插 **②-a**（只读预览接口 + 两条必需锁）与 **②-b**（出期通道 + 浮层 + 入口，**按枚切**）。父项在两个子项都落地前**不勾**。 |
 
@@ -51,10 +48,10 @@ PRD §7.10.6 与 AGENTS 都禁「先开通道再补入口」（无消费者的�
 ## 五、遗留与不假装闭合的部分
 
 - ②-a / ②-b 均未开工，实现时仍要各走 QM-1（②-a 改的是 electron IPC 面 ⇒ 必须打包 + 三层 stderr；②-b 另加 QM-4 像素与 `overlay-view-suspension` 登记）。
-- §7.10.4 原表那行**没改**（它写的仍是目标态数据来源）。刻意不去「顺手改写」成 plan-preview，是为了让「合同落后于实现」这件事在本篇里留痕；待 ②-a 落地后由实现 PR 一并把该行数据来源更新。
+- §7.10.4 原表那行**没改**（它写的仍是目标态数据来源）。刻意不去「顺手改写」成本片新定的接口名，是为了让「合同落后于实现」这件事在本篇里留痕；待 ②-a 落地后由实现 PR 一并把该行数据来源更新。
 - 共享根本次实测出现三格连拒（脏 AGENTS.md 是滞后错觉 → 钩子落后于 #3688 → 外来 worktree 未登记），已全部按仓内正规入口处置；其中 `violations.jsonl` 位于 `quarantine/` 内、隔离区堆积集中在 10-06→10-10 这两条是我自己的误读，已更正。
 
-## 六、提交后的就地更正（同 PR 第二笔提交，合并前改自己分支）
+## 六、提交后的就地更正（第一笔 #3714 合并后另开 #3715 落地；原计划「同 PR 第二笔」因 auto-merge 抢在推分支之前完成而失效）
 
 第一版 §7.10.4.1 把接口写成 `podcast:episode:plan-preview` 与 `podcastEpisode.planPreview`。实现前核对既有形状（`git grep` 真实通道 + preload 键）发现两处都与本仓惯例不符：真实通道是 `podcast:episode:publishFromVideo`（动词段 camelCase），preload 键是**扁平**的 `episodeList` / `episodePublishFromVideo`（不存在 `podcastEpisode.*` 这层命名空间）。合同若留 kebab + 命名空间，实现期只有两种坏结果——照合同做就破坏命名一致性，照惯例做就与已提交的合同漂移。故就地改名 `plan-preview`→`planPreview`、`podcastEpisode.planPreview`→`episodePlanPreview`，并补两条判据：① 命名照既有形状写进正文；② **改 `electron/preload/podcast.js` 必须同 PR 重生 `preload/index.bundle.js` 与 `home-shell-preload.bundle.js` 两个 tracked 产物**（`git ls-files` 实测两者都入库）。只改源不重生 ⇒ 通道在打包产物里根本不存在，而 vitest 读的是源文件 ⇒ 本地全绿也测不出来，因此这条必须由 QM-1 在 bundle 里验到通道名。
 
@@ -62,4 +59,4 @@ PRD §7.10.6 与 AGENTS 都禁「先开通道再补入口」（无消费者的�
 
 ## 远程同步
 
-| 远程同步 | PENDING | 本 PR 合并后由后续 docs PR 回填 merge SHA 与时间，并在同一次提交删除本文件 frontmatter 的 sync_* 三字段 |
+| 远程同步 | PASS | 两笔均已合并：#3714 merge SHA c643880c0ad7e18811927677511d9cf979a2f723（2026-10-16T08:21:21Z）、#3715 merge SHA b98122a347ff6f22750d9033ff008b1c9eafe9a7（2026-10-16T08:31:09Z）；取证自 `git log origin/main --grep` 两个 PR 尾注各恰 1 行，`git ls-remote --heads origin podcast-episode-script-entry` 返回 0 行证远端分支已删，可离线复核 |

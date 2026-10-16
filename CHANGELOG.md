@@ -1,8 +1,8 @@
 # [未发布] docs(prd): 4.3② 的前置合同 —— 计费二次确认框的只读数据源接口（podcast-episode-script-entry）
 
 - **为什么不是直接做 4.3②**：PRD §7.10.4 要求二次确认框显示「块数 / 总码点 / 服务商·模型·音色三段（含来源标注）」，但这三个数**在渲染端 0 可达**（`origin/main` 实测：`planChunks` 只存在于 `apps/desktop/electron/services/`，`src` 与 `preload` 各命中 0；`resolveEpisodeVoice` 零生产调用方；`voiceRef` 在 `src` 命中 0 个文件）。直做只有两种结果：浮层显示空数，或逼渲染层另抄一份分块与音色推断 —— 后者正是本 PRD 反复禁止的「两份口径必然漂移」。
-- **本片只落合同**：新增 §7.10.4.1 定义唯一读路径 `podcast:episode:plan-preview`（一次往返同时给 `plan{totalBlocks,totalCodepoints}` 与 `voice{providerId,model,voiceId,origin,resolvedBy}`，二者**只转发不加工**）+ 7 条验收判据 + 3 条故意不做；拒绝态沿用既有领域码，**不为预览新增同义码**；计数缺失 = 整块不显示、**绝不回落 0**。三把新键 `podcast.episode.planBlocks/planCodepoints/planVoice`，来源标注**复用** §8.2.9 已定的 `podcast.voice.origin*`，不另写第二份。
-- **一处对本文档早期条款的收敛（偏差就地明写）**：§8.2.9 曾把同一批音色信息规划成独立的 `podcast:voice-preview`。两条并存会让用户打开一次浮层走两趟近重复读路径、音色解析跑两遍，故由 §7.10.4.1 的 `plan-preview` **承载** §8.2.9 的读面；其落点、三态标注与验收判据照用不变，只是 IPC 名与载荷合一。
+- **本片只落合同**：新增 §7.10.4.1 定义唯一读路径 `podcast:episode:planPreview`（一次往返同时给 `plan{totalBlocks,totalCodepoints}` 与 `voice{providerId,model,voiceId,origin,resolvedBy}`，二者**只转发不加工**）+ 7 条验收判据 + 3 条故意不做；拒绝态沿用既有领域码，**不为预览新增同义码**；计数缺失 = 整块不显示、**绝不回落 0**。三把新键 `podcast.episode.planBlocks/planCodepoints/planVoice`，来源标注**复用** §8.2.9 已定的 `podcast.voice.origin*`，不另写第二份。
+- **一处对本文档早期条款的收敛（偏差就地明写）**：§8.2.9 曾把同一批音色信息规划成独立的 `podcast:voice-preview`。两条并存会让用户打开一次浮层走两趟近重复读路径、音色解析跑两遍，故由 §7.10.4.1 的 `planPreview` **承载** §8.2.9 的读面；其落点、三态标注与验收判据照用不变，只是 IPC 名与载荷合一。
 - **tasks 4.3② 拆成 ②-a / ②-b，父项保持未勾**：②-a = 只读预览接口（含两条必须同 PR 的锁 —— 零副作用按**副作用缺席**判（`mkdir`=0 且忙标记未占），以及 `resolveEpisodeVoice` 生产调用方结构锁 `git grep -l` 命中数 > 1）；②-b = 出期通道 + 浮层 + 入口，且**按枚切**（先 `CopyLibraryView.vue`，另两枚各留未勾子项）。「不得先开通道再补入口」的承重是**通道与至少一枚真实消费者同 PR**，不是三枚必须同 PR。
 - 同族手法第二次命中（第一次是 §6.4.2 的七相位进度）：**显示项要反查喂它的那条通道，接不通就说明该显示项还没有合同**。§7.10.4 原表那行刻意未改（仍是目标态数据来源），待 ②-a 落地由实现 PR 一并更新，好让「合同落后于实现」这件事留痕。详见 `openspec/records/podcast-episode-script-entry.md`。
 
