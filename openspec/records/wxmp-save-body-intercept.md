@@ -2,9 +2,9 @@
 record: wxmp-save-body-intercept
 task: 公众号草稿保存 mediaId 响应体通道真机空转修复（_waitForResponseExclusive 补 body 真实契约 + 页面内 XHR/fetch 拦截第二保险 + 平台提示错误信号守卫）
 date: 2026-10-16
-sync_pr: PENDING
-sync_reason: 远程同步待 PR 合并后回填（agent-automerge：CI 全绿后本会话自动合并，随后就地改写为 PASS + merge SHA 并删除本登记三字段）
-sync_backfill_owner: lead-agent (wxmp-save-body-intercept session)
+sync_pr: 'https://github.com/Colinchiu007/mulpub/pull/3738'
+
+
 ---
 
 ## 本次执行记录：公众号「缺少媒体 ID」第二例修复（wxmp-save-body-intercept，2026-10-16）【混合 PR】
@@ -52,4 +52,6 @@ sync_backfill_owner: lead-agent (wxmp-save-body-intercept session)
 
 | 门禁项 | 状态 |
 |--------|------|
-| 远程同步 | PENDING |
+| 远程同步 | PASS | 
+
+> merge SHA 'd24c543726210685930dc9b044d931c1e989bb（PR #3738，committer 2026-10-16T23:47:17+08:00，squash）

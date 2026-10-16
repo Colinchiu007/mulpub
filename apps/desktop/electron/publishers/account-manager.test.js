@@ -895,34 +895,45 @@ describe('checkLoginStatus 多选择器回归（数组选择器逐个尝试）',
     }
   })
 
+  // 2026-10-16 契约变更：本用例原用 kuaishou（`https://cp.kuaishou.com/article/publish/video`）
+  // 走隐藏窗口验证该兜底分支。但 kuaishou 已因隐藏窗口加载该站点触发原生渲染崩溃
+  // （两轮检测断在同一处，见 account-manager-kuaishou-render-crash.test.js 与本轮执行记录）
+  // 被纳入 RENDER_CRASH_PRONE_OPEN_PLATFORMS ⇒ 它**不再进入**隐藏窗口，本用例在该平台上
+  // 已不可能成立。改挂到不在白名单、且同样有仪表盘域名的 weibo 上，语义与覆盖点不变
+  // （HTTP 判定不确定 → 降级隐藏窗口 → selector 超时但 URL 命中仪表盘域名 ⇒ 判有效）。
   it('selector 超时但 URL 在仪表盘域名下仍判为有效', async () => {
     const playwrightPath = require.resolve('../services/playwright-manager')
+    const httpCheckerPath = require.resolve('./http-login-checker')
     const actualPlaywrightManager = require(playwrightPath)
+    const actualHttpChecker = require(httpCheckerPath)
     const page = {
       context: () => ({ addCookies: vi.fn() }),
       addInitScript: vi.fn().mockResolvedValue(undefined),
       goto: vi.fn().mockResolvedValue(undefined),
       waitForSelector: vi.fn().mockRejectedValue(new Error('Timeout')),
       close: vi.fn().mockResolvedValue(undefined),
-      url: vi.fn().mockReturnValue('https://cp.kuaishou.com/article/publish/video'),
+      url: vi.fn().mockReturnValue('https://weibo.com/at/weibo'),
     }
     const getContext = vi.fn().mockResolvedValue({ newPage: vi.fn().mockResolvedValue(page) })
     global.__registerMock(playwrightPath, { getContext })
+    // 必须把 HTTP 检测钉成不确定，否则本用例会随 weibo 的 HTTP 判定实现漂移而失去覆盖点。
+    global.__registerMock(httpCheckerPath, { tryHttpLoginCheck: vi.fn().mockResolvedValue(null) })
 
     try {
       const accountManager = loadAccountManager()
       vi.spyOn(accountManager.credentialStore, 'loadCredential').mockReturnValue({
-        platform: 'kuaishou',
-        cookies: [{ name: 'kuaishou_sid', value: 'active', domain: '.kuaishou.com' }],
+        platform: 'weibo',
+        cookies: [{ name: 'SUB', value: 'active', domain: '.weibo.com' }],
         localStorage: { token: 'valid' },
         accountInfo: {},
       })
       vi.spyOn(accountManager.accountStateRestorer, 'getAccountRecord').mockReturnValue(null)
 
-      await expect(accountManager.checkLoginStatus('kuaishou', 'acc-1'))
+      await expect(accountManager.checkLoginStatus('weibo', 'acc-1'))
         .resolves.toMatchObject({ valid: true })
     } finally {
       global.__registerMock(playwrightPath, actualPlaywrightManager)
+      global.__registerMock(httpCheckerPath, actualHttpChecker)
     }
   })
 

@@ -686,7 +686,9 @@ async function checkLoginStatus (platform, accountId) {
     // show:true、复用 partition 共 24 次对照）证明以上均非触发条件；真因是 baijiahao
     // **未注册 HTTP_CHECK_APIS**（http-login-checker.js 的登记表里没有该键），
     // tryHttpLoginCheck 恒返回 null → 浏览器降级是它唯一检测路径 → 每次启动必开隐藏窗口。
-    // 同配置窗口加载 kuaishou/douyin 均成功返回 CHECK_LOGIN_SUCCESS，故为站点特定。
+    // ⚠️ 2026-10-16 更正：此处原写「同配置窗口加载 kuaishou/douyin 均成功返回
+    // CHECK_LOGIN_SUCCESS，故为站点特定」。该结论对 kuaishou 已不再成立（见下方第五例）；
+    // douyin 本轮未复测，不得再被当作免检依据引用。
     // 与上面两平台同类同机制，按既有白名单处置。
     // 2026-10-16 追加 zhihu（同族第四例）：知乎有 Cookie 但 HTTP 检测恒 inconclusive
     // ⇒ 每次启动批量校验必然走到这里开隐藏 sandbox 窗口加载 https://www.zhihu.com/signin
@@ -695,7 +697,17 @@ async function checkLoginStatus (platform, accountId) {
     // 08:47:13.465Z start zhihu:e10a1715 → 08:47:22.379Z electron-exit code=4294930435。
     // 处置与 toutiao/wechat_mp/baijiahao 同：HTTP 不确定 ⇒ 判未确认，绝不开窗；确定结论
     // 由 zhihu 条目新增的 checkHtml（登录页/已登录页黑名单语义）在 HTTP 快速路径给出。
-    const RENDER_CRASH_PRONE_OPEN_PLATFORMS = new Set(['toutiao', 'wechat_mp', 'baijiahao', 'zhihu'])
+    // 2026-10-16 追加 kuaishou（同族第五例）：同一实例的两轮检测断在同一处 ——
+    // 21:29:58.632Z start kuaishou:a4505f45 → 无后续行；22:20:58.567Z 同一条 →
+    // 22:21:00.504Z electron-exit code=4294930435（0xC0000135 STATUS_DLL_NOT_FOUND，
+    // crashpad not connected）。第二轮尤其关键：该实例**已带** fix-hidden-window-render-crash
+    // 的成因侧修复（不再下发 --no-sandbox，见 apps/desktop/scripts/dev-launcher.js），
+    // 第一轮 kuaishou 通过、30 分钟后的第二轮仍崩 ⇒ 「隐藏窗口加载该站点」这条路径本身
+    // 必须切断，启动参数只能调概率。故 kuaishou 纳入白名单：HTTP 不确定 ⇒ 判未确认。
+    // 边界（如实）：本轮**不**给 kuaishou 补 checkHtml（zhihu 那例的第二半）——没有
+    // cp.kuaishou.com 真机登录页/已登录页形态证据就不许凭空写判据，故其登录态在 HTTP
+    // 判定不足时会显示「未确认」。要恢复确定性结论，先取证再按 zhihu 模式补。
+    const RENDER_CRASH_PRONE_OPEN_PLATFORMS = new Set(['toutiao', 'wechat_mp', 'baijiahao', 'zhihu', 'kuaishou'])
     if (RENDER_CRASH_PRONE_OPEN_PLATFORMS.has(platform)) {
       log.warn('AccountManager', 'checkLoginStatus: INCONCLUSIVE render-crash-prone, skip hidden browser ' + platform + ':' + accountId + ' cookies=' + cookies.length + ' lsKeys=' + lsKeys)
       return { valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE', reason: 'render-crash-prone-http-inconclusive' }

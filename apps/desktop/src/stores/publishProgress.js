@@ -96,6 +96,7 @@ export const usePublishProgressStore = defineStore('publishProgress', () => {
         bucket: null,
         reason: null,
         daily: null,
+        clockAnomaly: false,
         startedAt: null,
         endedAt: null,
         lastEventAt: null,
@@ -176,6 +177,8 @@ export const usePublishProgressStore = defineStore('publishProgress', () => {
     // v2：阻塞原因与当日用量（日配额文案需要 used/max；字段缺席保持 null，不得猜档）
     if (data.reason !== undefined) task.reason = data.reason || null
     if (data.daily !== undefined) task.daily = data.daily || null
+    // 时钟异常标记（fix-account-interval-ghost-wait）：缺席/为假一律落 false，UI 据此不渲染
+    if (data.clockAnomaly !== undefined) task.clockAnomaly = data.clockAnomaly === true
     if (phase === 'start' && !task.startedAt) task.startedAt = Date.now()
     if (isTerminalNow && !task.endedAt) task.endedAt = Date.now()
     _appendLog(session, platform + ' · ' + (task.stage || phase), isTerminalNow ? (phase === 'success' ? 'success' : 'danger') : 'primary')

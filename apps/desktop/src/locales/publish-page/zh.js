@@ -170,6 +170,7 @@ export default {
       blockedBucketAccount: '（本账号间隔）',
       blockedBucketPlatform: '（同平台其他账号间隔）',
       blockedBucketDaily: '（本账号每日上限）',
+      blockedClockAnomaly: '（时钟异常，等待已钳位）',
       blockedDailyQuota: (ctx) => '今日已达上限（' + ctx.named('used') + '/' + ctx.named('max') + '），将于明日 00:00 后自动继续',
       releasedNotSubmitted: '未提交到平台，已恢复可发布',
     },

@@ -2,9 +2,6 @@
 record: brand-rename-tomfish
 task: 把项目代码中所有中文产品名（UI 上大量显示为「社媒管家」）统一改为「汤姆鱼」，并建立品牌名机械防线
 date: 2026-10-15
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在，无法取证收口
-sync_backfill_owner: brand-rename-tomfish 分支作者（合并后由后续回填 PR 改写 PASS + merge SHA，并在同一次提交删除本三个 sync_* 字段）
 ---
 
 # 产品中文名统一为「汤姆鱼」（brand-rename-tomfish，2026-10-15）
@@ -119,9 +116,9 @@ FAIL：渲染端新增 1 处硬编码中文字符串（基线 1374 条，当前 
 | 门禁 | locale-sync 三件套 PASS / eslint 0 error / build:vue rc=0 / electron-builder rc=0 / QM-1 第③层 |
 | 记忆 | 内置（DSH 会话档）+ 外部（`01-docs/learnings.md` + gstack `learnings.jsonl`）+ EverOS（add → flush → 落盘 grep 哨兵词） |
 
-- 保留门禁：行尾对账 ✅（两口径 numstat 逐文件相同） | 品牌残留 ✅（`check-no-brand-residue.js` PASS，9488 tracked 文件） | 文档同步 随 CI doc-gate | 执行记录 ✅ 本文件（唯一强制载体） | 远程同步 PENDING
+- 保留门禁：行尾对账 ✅（两口径 numstat 逐文件相同） | 品牌残留 ✅（`check-no-brand-residue.js` PASS） | 文档同步 随 CI doc-gate | 执行记录 ✅ 本文件（唯一强制载体） | 远程同步 PASS
 
-| 远程同步 | PENDING | 待 PR 合并后回填为 PASS + merge SHA（**2026-10-15 起「旧载体冻结」**：本 PR 不往 `.quality-gates.md` 插块、不往 `scripts/gate-record-debt-ledger.json` 加键，回填只发生在本记录文件内） |
+| 远程同步 | PASS | PR #3625 已 squash 合并，merge SHA `fc24f03d8d32019e0a9dea3ebc93e59fb3764f2c`（2026-10-17T00:00:46+08:00）；远端分支已删除（`git ls-remote --heads origin brand-rename-tomfish` 0 行）。回填按「旧载体冻结」只发生在本记录文件内 |
 
 ---
 

@@ -8,6 +8,11 @@
 - 验证：TDD 先红逐批实测（策略层 9 条、设置页 6 条），实现后转绿；`packages/shared-utils` 全量 **52 文件 / 1063 passed / 10 skipped**；桌面侧消费者并集（按 `git grep` 从被改模块反查测试消费者，不是只跑 diff 里的测试文件）**10 文件 / 329 passed**；locale 成对（`--pair-base` / `--cjk` 双 PASS + 键集比对 zh/en 各 43 键差集为空）；ESLint（CI Gate 11 同口径 `--quiet`）改动文件 0 error；QM-1 `pnpm run build:dir` rc=0，`@electron/asar` 的 `extractFile` 让产物自证（**拆分后重跑那一轮**：`entries=15022`，三个模块 `publish-frequency-policy.js` 16135 B / `publish-frequency-account-interval.js` 8476 B / `publish-frequency-overrides.js` 5190 B **都在 asar 里且判据串齐**——拆文件的唯一真实风险就是 require 链在打包态断，这条只能靠产物验，不能靠单测）、逐平台表与视频号 60′ 与 env 名与解析函数**都在打包后的策略文件里**、IPC 下发 `accountMinDefaults`、渲染端 chunk 内新 testid 与新 locale 键命中且**同一段代码能找到既有 testid 作正控**）；启动第③层**拆分后复跑**：12 秒**存活**、**stderr 0 字节**、本 worktree electron 进程计数 0→0 —— 打包态 require 链可达的直接证据（拆文件唯一真实风险就是产物里少一个文件，这只能靠产物验）。变异反证 **9 道**（M1–M9）：8 道 CAUGHT 且各自指名它声称抓住的那条锁；**M2 报 `ANCHOR_NOT_FOUND`**（拆文件后那行的整条 warn 文案与源码漂移，锚点没命中）——这条**不掩成 CAUGHT**，如实留痕；它要打的判据（env 值非法整条作废）本身有行为锁 L4 覆盖，两次全量跑绿（M1 优先级链翻转 / M2 env 一半生效 / M3 兜底绕过覆盖链 / M4 两解析函数互调 / M5 派生表不采用逐平台账号档 / M6 渲染层提交空 map / M7 渲染层自带第二份平台数字 / M8 IPC 不下发默认表），每道还原后与原文件逐字节相同；驱动入库 `.ccg/reviews/freq-v5-mutate.driver.js`。两处探针自纠写进判据本体：① `extractFile` 的键必须是**清单原形态**（反斜杠路径），归一成斜杠会让 64 个 js 全部取不到，而"新串 0 命中"读起来完全像"没打进产物"——正控（既有 testid）就是用来暴露这一点的；② 变异驱动的测试路径必须**相对各自 cwd**，写成仓库相对路径时 vitest 报"找不到文件"而非报错，第一版 8 道因此全被判成 PROBE_BLIND（盲窗必须出声并打印原始输出前 600 字，不许静默）。
 - **拆分（CI 当场点名，不是自觉）**：策略模块被逐文件行数门禁判 `NEW_OVER_LIMIT`（678 行 ≥ 500，而它此前从未挂账 ⇒ 这条门禁对"新越线"不给豁免通道）。正解按门禁给的话做：**拆**，不是往 `debt-baseline` 里加条目。v5 新增的两块各自内聚，搬到 `publish-frequency-account-interval.js`（逐平台表 + env 解析 + 五级优先级链 + 设置页校验器）与 `publish-frequency-overrides.js`（设置页覆盖的"全有或全无"校验），策略模块**同名再导出** ⇒ 公开面与调用点零变化、33 个导出名一个没动；依赖用工厂参数注入，新模块**不 require 策略模块**（否则成环——这条在拆分前是"两个解析函数不得互调"的行为锁，拆分后变成结构上不可能，锁仍保留以防重新耦合）。搬完当场把变异锚点跟着搬家（M1/M3/M4 指向新文件，M4 改写成"接线反证"：摘掉策略模块对解析器的取用 ⇒ 套件直接崩，`注册≠注入≠生效` 在拆分后仍有牙；新增 M9 打跨模块校验结果未写回的断链）。
 - 明确不做 / 未闭合（不假装已闭合）：`platformMinMs` 与 `accountDailyMax` 仍按档（这两个维度没有逐平台差异需求）；守卫判定算法一行未改（它被 D1／回滚矩阵／紧急放行三套锁钉住，动它要把三套全重跑，差异留在策略层回归面最小）；**定时发布表单仍是 5 分钟输入期校验**，用户可对视频号排两条相隔 5 分钟的定时任务，表单放行、发布时由守卫排队推迟（"能提交但会等"，改成逐平台校验要先决定"冲突时拒填还是自动顺延"，属产品口径）；**视频号 60′ 与日配额 350 不对称**（60′ ⇒ 单账号日理论上限 24 条，真正卡住它的是间隔而非配额，运营口径的 1–5 条两者都没覆盖）；60′ 这个数本身应被运营数据推翻或确认。
+# 播客刀 4 账目对勾：4.1 口语化分段与 4.2 分块 TTS 补勾收（代码与指名回归锁已在主干）
+
+- 事实纠正：`tasks.md` 的 4.1/4.2 长期挂着未勾，而分块唯一实现（2000 码点上限、切不开即拒绝）、逐块退化汇总门禁、`anullsrc` 块间静音、唯一合成出口与口语化结构不变量锁都已在主干并各自带指名用例。勾收时逐条写出现场取证的 merge SHA 与标志物，不写「已完成」三个字了事。
+- 顺带清掉一条记录自相矛盾：某篇已回填 PASS 的执行记录里仍留着「远程同步尚未收口」的引导注释（注释说没做完、表格行说做完了，而没有任何门禁在看它）。清点实测：主干 370 篇记录里仅 1 篇命中。
+- 未动的两项如实保留未勾：4.5（音色来源三态标注只有合同没有实现）、4.3②-b（文本出期通道必须与计费浮层同片落地）。
 
 # [未发布] refactor(frequency): 频率四个「声明了没人接」面逐条定夺——两条删、启动期裁剪接上、日配额上界单点持有（publish-frequency-unwired-surfaces）
 
@@ -38,6 +43,36 @@
 - QM-1 已按三层判据实跑：包内 blob 与工作树逐字节相同（新模块 + handler + 两个 bundle，另带一个未改动文件 `podcast-tts-voice.js` 当对照组）；解包后真 require 通过；启动 8 秒存活、`Multi-Publish.exe` 进程数 0→4、**stderr 为空（第③层）**，只 kill 自己 PID。改 `preload/podcast.js` 已同 PR 重生 `preload/index.bundle.js` 与 `home-shell-preload.bundle.js` 两个 tracked 产物（这条判据由 M-E 实测过有牙）。
 - **两处偏差就地明写**：① tasks 4.3②-a 里「三把 `podcast.episode.plan*` 键 zh/en 成对」**不在本片**——本片没有任何渲染层消费者，先落键就是死键，已拆成新的未勾项 **②-a-l** 随 ②-b 落地；② PRD §7.10.4.1 的七条验收判据中 **3 / 4 未闭合**（那两条量的是浮层如何显示拒绝态与降级态，落点 `PodcastEpisodeEntry.vue`，属 ②-b），本片只闭合 1 / 2 / 5 / 6 / 7，§7.10.4 表那行的数据来源已同步改成现路并标注「浮层尚未消费」。
 - 文档：PRD §7.10.4.1 状态从「合同，尚未实现」改为「主进程与 preload 已落地，浮层与文案键未落地」并追加「落地现场」段；`openspec/changes/podcast-oneclick-publish/tasks.md` 勾 4.3②-a + 补证据行 + 新增未勾 ②-a-l；现场与判据见 `openspec/records/podcast-episode-plan-preview.md`。
+# [未发布] fix(publish): 「本账号间隔」幽灵等待——时钟快进留下的未来时间戳被当成刚发布过（fix-account-interval-ghost-wait）
+
+## 背景
+
+用户现场：微信公众号账号 10+ 小时未发布，进度浮窗仍显示「等待 x 分钟后重试（本账号间隔）」。
+根因：`publish-interval-guard.js` 的 `_remaining()` 无条件信任 `publish_timeline` 的时间戳，
+`remaining = accountMinMs − (now − lastTime)` 只防「已过期」侧，未防**时间戳落在未来**——
+本机时钟快进期间（本仓有共享时钟被快进约 7 小时的实测先例）`recordPublish()` 落盘的
+「未来时间戳」在时钟恢复后成为随倒挂时长线性放大的幽灵窗口。
+
+## 修复
+
+- **守卫读侧钳位**（`packages/shared-utils/src/publish-interval-guard.js`）：`elapsed < 0` 判时钟域损坏，
+  等待钳位到最多一个完整账号档（与 I2「请求已发生就占窗口」对齐），同键告警一次（去重），
+  键记入 `futureTimestampKeys` 诊断 getter；时钟恢复后自愈（非粘滞）。`check()` 返回值附加 `clockAnomaly`。
+- **store 写侧闸**（`rate-limit-store.js`）：`setPublishTimeline` 拒绝 `timestamp > Date.now()+60s` 落盘并告警。
+- **UI 归因**（`PublishProgressTaskRow.vue` + locales zh/en）：命中时追加「（时钟异常，等待已钳位）」，
+  缺席/为假不渲染（不猜档纪律）。
+- 登记债务：已落盘的历史未来时间戳不做自动回写（错误方向是「少等」），用紧急放行人工清除。
+
+## 验证
+
+- TDD 先红后绿：守卫新文件 8 例（钳位精确值/告警去重/自愈/形状/jitter 上界/负例/诊断 getter）、
+  store 3 例（拒未来/容差内放行/正常回归，真实 SQLite 夹具）、UI 2 例（标签渲染/zh·en 成对）。
+- shared-utils 全量 1055 passed；桌面受影响面（面板/进度 store/store owner 隔离/publish IPC）144 passed。
+- 变异反证 M1（摘钳位分支）/M3（摘 store 闸）/M4（摘 UI 条件）各 1 红，逐字节还原。
+- QM-1：`build:dir` rc=0 + `buildChildEnv`（剔 ELECTRON_RUN_AS_NODE，本机父环境实测带该变量）8s 启动验证
+  SIGTERM 收尾、stderr 0 字节 ⇒ 三层判据通过。
+- 文档：PRD V4 新增 §13「时钟倒挂守卫」；PRD 2026-10-02 A13 验收行；learnings 沉淀
+  `pitfall:future-timestamp-in-interval-store-becomes-ghost-wait`（时间差判定测试必须含 elapsed<0 反向样本）。
 
 # [未发布] fix(wechat_mp): 公众号草稿保存「缺少媒体 ID」第二例——响应体通道真机空转 + 平台提示错误信号守卫（wxmp-save-body-intercept）
 
