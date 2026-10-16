@@ -63,6 +63,10 @@ if (key) return i18n.global.t(`podcast.episode.${key}`)
 - 对账脚本在 `D:/Temp/probe-310-consume.cjs` 与驱动 `D:/Temp/tick-310b.cjs`，**未入库**（一次性工具）。要把"勾账前先验消费面（含动态形态）"变成常设判据，属新增门禁本体，需单独一刀并交人工过目。
 - **动态消费的判据是启发式**：它认的是"同一文件内存在映射表值 + 动态出口"。若将来映射表与 `t()` 分处两个文件，B 集会算少并触发停手（fail-closed 方向，可接受），但不会算多（假绿方向）。这一点要写清，免得下个人以为它做过数据流分析。
 - 3.11 / 3.12 与 3.10 无关，仍按原样未勾。
+- **本片已提交并推分支，但故意没开 PR**（2026-10-16 现场）：主干上 `scripts/check-gate-record-debt.js` 当场 rc=1，红因是 `carrierDrift`——冻结基线 607 条 / sha `636b6e82cdf8…`，现状 613 条 / sha `27eebfa9ff6c…`，多出的 **6 个块全是已合并的上游 PR** 留下的旧载体记录，没有任何人违规。该判据**在 PR 档与 main 档都拦**（只有「状态相等」判据分档），所以此刻开 PR 只会红在别人的漂移上，属 AGENTS「既有失败不认领」且不能自动合并。
+  归属已明确：**PR #3694**（分支 `bf-3672`）正是"回填 #3672 + 销账 + 冻结基线第四次重取（607→613）"，本机实测它 `QG Changes=pass`（合并预览里基线已重取）、`mergeable=MERGEABLE`、`autoMergeRequest=null` —— 它本身属「改谁来守门」，**等人工过目**，不得代开、不得代合。
+  **下一步的唯一正解**：#3694 进主干后，把 `podcast-tasks-3-10-copy-audit` rebase 到新 main（`git rebase` 不跑 pre-commit，秒级；不要用重放 commit，那会触发 23–40 分钟的钩子），再开 PR。若届时要重放提交，推之前必须断言 `rev-list --count origin/main..HEAD > 0`——本仓实测把分支推成空 diff 会让 PR 自己关闭。
+  **禁止的处置**：为让 Gate 2c 变绿去改 `scripts/gate-carrier-freeze.json`（那是 #3694 已占的动作，重复即互相覆盖），或放宽/挂起 `carrierDrift`，或按出路①把上游 6 个已合并的块改写成 openspec/records —— 那等于替别人已合并的 PR 改写载体，无此资格。
 
 ## 远程同步
 
