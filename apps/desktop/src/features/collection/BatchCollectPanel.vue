@@ -143,7 +143,10 @@
         </div>
         <!-- 旧整夹直采（保留兼容）：采集要「选了夹」或「全部收藏」，改写只需有可改写来源。
              判据（zhihu-fav-buttons-dead）：两个按钮的可用性必须各自成立——原实现让改写
-             共用采集的 `!zhihuSelectedFavlist`，导致没选夹时两个按钮一起恒灰、点击零反应。 -->
+             共用采集的 `!zhihuSelectedFavlist`，导致没选夹时两个按钮一起恒灰、点击零反应。
+             `data-testid="zhihu-favlist-collect|rewrite|target-hint|rewrite-hint"` 是**测试契约**
+             （可用性回归锁按它们定位）：改名必须同步改 `batch-collect-panel-behavior.test.js`，
+             且保持 `zhihu-*` 前缀惯例。 -->
         <div class="zb-row zb-mt8">
           <button class="cohere-btn-secondary" data-testid="zhihu-favlist-collect" @click="zhihuFavlistBatchCollect" :disabled="zhihuFavlistBatching || !zhihuFavTargetReady">
             {{ zhihuFavlistBatching === 'collect' ? $t('collection.zhihuFavlist.collecting') : $t('collection.zhihuFavlist.collectBtn') }}

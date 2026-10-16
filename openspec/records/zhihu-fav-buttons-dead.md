@@ -20,7 +20,7 @@ branch: zhihu-fav-buttons-dead
 | QM-2 代码必检项 | PASS | ① 无新增同步阻塞原语（改动全在渲染端 computed/模板，无 KDF/大 hash）；② 无新增全局 component/顶层 CSS import；③ 无新增 `require` 路径；④ 未改 preload；⑤ 无 `v-html` 新增；⑥ 渲染端无新增中文字面量（`locale-sync --cjk` PASS：基线 1374、当前 1223、无新增） |
 | locale 成对 | PASS | `check-locale-sync.js --keys` PASS（2067 个使用中 key 均存在于 zh/en）；新增 2 个 key 在 `locales/collection/{zh,en}.js` 成对落盘 |
 | QM-4 视觉回归 | PASS | `TEST_URL=http://127.0.0.1:5199 PIXEL_ONLY=collection pnpm run test:visual:pixel` ⇒ **1/1 通过、0 失败、100%**（报告 `tests/visual-testing/reports/report-1792158014160.json`）。使用本 worktree 自起的独立 Vite（5199，`--strictPort`，HTTP 200 实证），不借用他人端口。**未刷新基线**（新增提示行是条件渲染，采集页默认态不渲染 ⇒ 像素不变，0.000% 差异本身即为证据） |
-| QM-6 双模型评审 | PENDING | 变更 288 行（不含新增文档）> 200 行阈值 ⇒ 按 §12.6 强制跨家族双模型 |
+| QM-6 双模型评审 | PASS | 211 行 > 200 阈值 ⇒ 按 §12.6 走跨家族双模型（proposer=opencode 1.18.34 / critic=claude 2.1.296；跨家族校验「通过」）。轮 1 出 **8 条**（Critical 2 / Warning 3 / Info 3），维度分 correctness 6 / security 4 / performance 8 / maintainability 4 ⇒ 引擎进自扮演裁决。我逐条填最强指控 / 最强辩护 / 可验证理由，**5/5 dismissed、0 upheld**，无高危域需外部复核 ⇒ `deepReview.status=self_play_resolved`。**采纳其中 2 条合理内核**：新增 `zhihuFavScope` 默认值结构锁（25/25 通过）、在组件注释里声明 `data-testid` 为测试契约。裁决全文 `.adversarial/ccg-deep-2908d422/adjudication.json`（该目录由 `.gitignore:387` 忽略，不进版本库） |
 | 相关测试全集 | PASS | `vitest run src/features/collection/ src/views/Collection` ⇒ **15 文件 / 283 用例全绿**（含父级 `Collection.vue` 契约测试） |
 | 文档同步 | PASS | 新增 `01-docs/BUGFIX-ZHIHU-FAV-BUTTONS-DEAD-2026-10-16.md`（报障/复现/根因/逃逸分析/修复/验收/变异/预防/未闭合）；订正 `PRD-ZHIHU-FAV-BATCH-2026-10-03.md` 补 §4.1 可用性契约（原版只写「按钮保留」） |
 | 远程同步 | PENDING | PR 未开。合并后**同一次提交**改写为 `PASS` + merge SHA 并删除 frontmatter `sync_*` 三字段 |

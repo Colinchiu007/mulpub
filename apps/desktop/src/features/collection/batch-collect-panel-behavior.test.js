@@ -506,4 +506,17 @@ describe('知乎整夹直采按钮可点性（zhihu-fav-buttons-dead，2026-10-1
     expect(w.get('[data-testid="zhihu-favlist-rewrite"]').attributes('disabled')).toBeDefined()
     expect(w.get('[data-testid="zhihu-favlist-rewrite-hint"]').text()).toContain('可改写')
   })
+
+  // 结构锁（QM-6 评审 i5 的采纳项）：`zhihuFavTargetReady` 依赖 `zhihuFavScope`，
+  // 而后者不在本次 diff 里 —— 评审据此担心「默认值不确定会让 computed 落在意外状态」。
+  // 事实是源码已有显式默认值 `ref('favlist')`；这条锁把它固定下来，
+  // 避免将来有人去掉默认值（那时 A3 的 scope 分支判据会静默改变语义）。
+  it('结构锁：zhihuFavScope 默认必须是 favlist（zhihuFavTargetReady 的依赖前提）', async () => {
+    window.electronAPI = {
+      zhihuGetConfig: vi.fn().mockResolvedValue({ code: 0, data: secretConfig() }),
+    }
+    const w = mountPanel()
+    await flushPromises()
+    expect(w.vm.zhihuFavScope).toBe('favlist')
+  })
 })
