@@ -2,9 +2,6 @@
 record: publish-frequency-unwired-surfaces
 task: 发布频率四个「声明了没人接」面逐条定夺（删 2 / 接 1 / 改写措辞 1）+ 日配额合法域单点化 + 修一条破坏性日键校验与一条既有 flaky
 date: 2026-10-16
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由后续 docs-only 回填 PR 写 PASS + merge SHA 并删除本三字段
-sync_backfill_owner: 下一个会话（按 #3672 的冻结口径：只改本记录这一行 + 删 sync_*，不回写 .quality-gates.md 与 ledger）
 ---
 
 ## 本次执行记录：发布频率声明面定夺（publish-frequency-unwired-surfaces，2026-10-16）
@@ -31,7 +28,8 @@ sync_backfill_owner: 下一个会话（按 #3672 的冻结口径：只改本记�
 （a）本片已有的替代证据（不能等价于 QM-6，只是可核查的现场）：TDD 先红、`shared-utils` 51 文件/1056 passed、桌面消费者并集 14 文件/396 passed、变异 U1–U11 全 CAUGHT + 两条反向声明锁的 A/B 反证、QM-1 打包与启动三层判据、首轮 CI 自曝三处缺陷已全部修掉 |
 | 二次 re-sync 与 Gate 12c 口径换代 | PASS | 首轮 CI 绿（`9e8169ca2`：24 项检查 `fail=0 pending=0`，8 条 workflow `completed/success`）之后 main 又前进 4 个提交 ⇒ `mergeable` 由 `MERGEABLE` 变回 `CONFLICTING`（**检查不到来 ≠ 红**，这是本仓已登记过的失效形态），再做一次 `git merge origin/main` 并按"两侧都保留"解 `CHANGELOG.md` / `learnings.md`，对 HEAD / origin/main / MERGE_HEAD 三 ref 行多重集对账丢失 0 行。上游 `#3652` 把 `check-doc-abs-paths.js` 的账本口径换代（`dead_abs_paths_v1` 只数失效路径 ⇒ `all_abs_paths_v2` 出现即计），**当场点名本 PR 自己两篇文档里的 3 处机器绝对路径**（旧口径因"路径存在"而豁免）。已按门禁给的正解改写成占位符（`$TMP` / `<worktree 根>/...`），复跑该门禁转 `PASS（…无新增本机绝对路径…）`；换代自带的义务——"把 206 项计数上调这条出声写进 PR 说明"——也已写入 PR 正文。合并后重跑：`shared-utils` 51/1056、桌面 6 文件/153 全绿 |
 | 机制文档（用户 2026-10-16 追加要求） | PASS | 新增 `01-docs/ARCH-PUBLISH-FREQUENCY-AND-QUEUE-2026-10-16.md`（359 行，受 git 跟踪）：现行实现的单一参考面——组件地图与唯一真源、v4 数值表与三条形状不变量、env/合法域全表、守卫判定顺序、队列通道调度与被频控推迟的四条纪律、打点分层与不变量 I4、race/D1 终身锁、回滚资格矩阵、紧急放行四道闸、持久化与投影口径、设置页显示项与文案纪律、观测面限制、活例外、按改动面列的必跑锁表、排障手册、v1→v4 沿革。**逐条取自当场读码**（不是转述 PRD）：读 `publish-frequency-policy.js` 全文、`publish-interval-guard.js` 的 check/recordPublish/release/clearWindow/_rollbackCap、`task-queue.js` 的 constructor/_processNext/_channelKey/_executeTask/serialize、`task-queue-frequency.js`、`container.setup.js` 的守卫与队列注册、`bootstrap.js` 的打点分层、`ipc-handlers/publish-frequency.js` 四通道、`publish-emergency-release.js` 的错误码与冷却。两处按实测**纠正了原本要写错的说法**：① 紧急放行"当日已用尽"的码是 `exhausted` 不是 `quota`（`publish-emergency-release.js:165`）；② 跨重启"结构上不可回滚"的判据补上了投影第二参只带 `startedAt` 这一层证据（`task-queue.js:301,308` + `task-projection.js:43`），并写进"恢复落 queue 尾部、窗口由 `_processNext` 重新判定"。自检：新增文档内绝对盘符路径 **0 条**（`grep -oaE '[A-Za-z]:[\\/]'`）、冲突标记 0、`check-no-brand-residue` PASS、`check-docs-sync.sh --base=main --head=HEAD` PASS、`check-no-conflict-markers` PASS。 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin publish-frequency-unwired-surfaces` 返回 0 行证远端分支已删；回填时删除上方三个 `sync_*` 字段。按 #3672 冻结口径：**不回写 `.quality-gates.md`、不动 ledger** |
+| 远程同步 | PASS | PR #3712 于 2026-10-16T14:42:12Z 经 squash 合并，merge SHA `4562146609ec3e1f2c855260d8a5236874446649`（`git log origin/main --grep='(#3712)$' --format=%H\|%cI` 取到唯一一行 `456214660…\|2026-10-16T22:42:11+08:00`）；`git ls-remote --heads origin publish-frequency-unwired-surfaces` 返回 **0 行** 证远端分支已随合并删除。三条产物齐备即认定落地，**未采信 `gh pr merge` 的返回信息**——它照例报 `failed to run git: fatal: 'main' is already used by worktree at <共享根>`（gh 的本地收尾步骤要动 `main`，而 `main` 由共享根持有），这是本仓已登记的假失败形态，重跑合并只会重复制造同一条噪声。合并前闸门读数留痕：`gh pr checks 3712` = 23 pass / 0 fail / 0 pending / 1 skipping（skipping 的是 `release`），`mergeable=MERGEABLE`。本次回填按 #3672 冻结口径：只改本行 + 删 frontmatter 的三个 `sync_*` 字段，**不回写 `.quality-gates.md`、不动 ledger**。合并后 main push 回读见下一行 |
+| 合并后 main push 回读（收尾第 7 条） | PENDING→见补记 | 截至本回填 PR 开出时的现场读数（`gh run list --commit 456214660…`）：`债务熔断门禁` completed/success，`quality-gate` queued，`GUI Tests`、`Visual Tests`、`Electron CI`、`autonomous-loop`、`Build & Release` in_progress。**"PR 侧全绿"不等于"改动在 main 上成立"**，故本行按第 7 条要求等这些 run 收口后补记结论；若出现红，按归属逐条取证（本 PR 引入 / 既有 / 环境），不认领也不回避 |
 
 ### QM-6 发现处置（本会话按双轴标准自审，非独立模型；外部通道仍未跑成）
 
