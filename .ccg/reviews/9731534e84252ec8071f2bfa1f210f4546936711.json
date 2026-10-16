@@ -19,8 +19,8 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "self_play_resolved",
+    "performedBy": "ccg-deep-review (self-play adjudication, proposer=opencode critic=claude)",
+    "findings": "与本 PR 终态评审同源：4 条裁决 dismissed（i1 装配顺序 / i2 rebase 指纹 / i3 既有设计 / i4 logger 实证）；证据 .adversarial/ccg-deep-787f747c/adjudication.json"
   }
 }
