@@ -1,0 +1,30 @@
+---
+record: openspec-sync-realrepo
+sync_status: PENDING
+sync_reason: 本 PR 尚未合并；合并后由后续回填 PR 把远程同步行改为 PASS 并删除本段三个字段
+sync_backfill_owner: 下一个会话（合并后改为 PASS 并删除本段三个字段；新载体不进 JSON ledger）
+---
+
+## 本次执行记录：openspec-sync-check 真实仓库自证与 14 条存量清理（openspec-sync-realrepo，2026-10-16）【混合 PR】
+
+| 门禁 | 状态 | Fresh 证据 |
+|------|------|-----------|
+| 变更类型与隔离 | PASS | 🔧 CI/门禁 + 📝 元数据修复 ⇒ 改到 `.github/workflows/quality-gate.yml`、`scripts/check-unwired-tests.js`、`scripts/openspec-sync-check.test.js` 与 14 个 `.ccg/tasks/archive/**/task.json`，属**混合 PR**（不走 docs-only 通道，判定见下行）。worktree `D:/Data/projects/mp-worktrees/mp-openspec-sync-realrepo`、裸分支 `openspec-sync-realrepo`（`git rev-parse --abbrev-ref HEAD` 实证），依赖经 `start-mp-task.ps1` 就绪；共享根未在其中落盘 |
+| 第一性原因（QM-5 ①） | PASS | **审计器从未被任何门禁对真实仓库调用一次**。`openspec-sync-check.js:291` 定义 `0 合规 / 1 VIOLATION / 2 ERROR / 3 自身故障` 四档退出码，对当前真实仓库当场是 `rc=2 / 14 条`；而 `quality-gate.yml` 只在 `static-gates` 点名它的测试，那份测试 20 条**全部**在 `os.tmpdir()` 自建夹具仓库上跑（`openspec-sync-check.test.js:13` 的 `makeRepo()`），所以它测的是判据本体，不是本仓库。第二条第一性原因由当场实测得出：`.ccg/**` 与 `openspec/**` **都在 `scripts/classify-docs-only.js` 的 CI_IGNORED_PATHS（14 条）里**，而 `static-gates` 带 `if: needs.changes.outputs.docs-only != 'true'` ⇒ 这把锁**只可能出现在结构上碰不到被审计文件的 PR 上** |
+| 逃逸分析（QM-5 ②） | PASS | ① **门禁层**：唯一的接线在会被 docs-only 整片短路的 job 里（前提锁 #2718 早已为此存在，本条是它的第 N 次复发）；② **测试层**：夹具全绿给人"这条门禁在跑"的错觉——它其实一次都没看过真实仓库，真实违规从 2026-08 累积到 14 条（其中 5 个 task.json **根本无法解析**，`taskFiles=387 / parsedTasks=382`）；③ **记录层**：这笔欠账 2026-10-14 就写在 `openspec/records/film-production-artifact-identity.md:151`「归档前需先清理这些历史欠账」，但没有任何消费者 ⇒ 一句话写在文档里不等于有东西在守；④ **分类**：测试场景缺失（缺"对真实对象跑一次"这类跑法）+ 审查盲区（把"文件被点名在 workflow 里"当成"门禁生效"） |
+| 修复 + 回归保护（QM-5 ④） | PASS | ① 新增「真实仓库自证」锁，带三个构件：对仓库根跑、取不到 `.ccg/tasks` 或 `openspec/changes` **一律当场红（禁 skip）**、`taskFiles > 50` 规模下界；每次跑打印 `summary={taskFiles,parsedTasks,activeChanges,archivedChanges}` 机读行。② 把审计器与它的测试**再点名一次进 `changes` job**（新增 Gate 12e，`static-gates` 那份保留），并用既有机制钉住：给 `check-unwired-tests.js` 的 `MUST_LIVE_IN_UNGATED_JOB` 登记本测试（登记后当场实测 rc=1 报 `TEST_ONLY_IN_SKIPPABLE_JOB`，加接线后转 OK）。③ 14 条存量逐条修复，**每条修法都取过证**：5 个坏 JSON（2 个是两个对象直接拼接、1 个被转义过一次、2 个是 JSON 串里的 Windows 路径没转义——后者顺带暴露 `	` 会被静默吃成 TAB）、4 个 status 与 currentPhase 互相矛盾、4 个 change 引用写成整路径或带日期目录名（索引建键时会剥日期 ⇒ 属数据坏，不是探针瞎）、1 个真悬空。`investigate-subtitle-splitter-runtime` 用检查器自带的 `openspecState=superseded + supersededBy=subtitle-split-quality` 出口（commit `accb3c8ac` 与文件自身 nextAction 都写明"结论移入 subtitle-split-quality"），**不删引用、不伪造 change 目录**。`segment-nav-scroll-highlight` 的 nextAction 原本停在"等待 CI 全绿后合并 PR #1970"，当场查 `gh pr view 1970` = `MERGED / 3ed9a6f2b / 2026-09-18T12:46:55Z` 才改判 completed。改完复扫：`taskFiles=387 parsedTasks=387 errors=0 violations=0 exitCode=0`，测试 20/20 |
+| 防止再次发生（QM-5 ⑤） | PASS | ① **机制**：Gate 12e 接进不被短路的 `changes` job（两脚本只用 node 内置模块，满足该 job 无 Install deps 的前提）+ `MUST_LIVE_IN_UNGATED_JOB` 登记（只能缩小，删登记或摘接线都红）。② **反失明**：真实仓库锁自带"根目录取不到即红"与规模下界，扫描域退化不会被读成通过。③ **规范**：`01-docs/PRD-OPENSPEC-SYNC-REALREPO-2026-10-16.md` 写下三条判据（`CHANGE_ID_RE` / `DATED_ARCHIVE_RE` 剥日期建键 / `TERMINAL_PHASES` + supersession 出口）与 14 条逐条归因表，供下一个会话按规则修而不是按红字猜。④ **经验**（同 PR 落 learnings）：「一个只在夹具上跑的门禁测试，比没有测试更危险——它让所有人都以为有人在守」 |
+| 变异反证（4 条，红因互不相同） | PASS | 驱动 `.tools/tmp/openspec-sync/mutate.cjs`，收尾断言三个目标文件与备份**逐字节相同**。**MA** 摘掉 workflow 里新点名的 Gate 12e ⇒ `check-unwired-tests` 红且红因为「接线不住在不被跳过的 job」；**MB** 把一条 task.json 的 `completed` 改成 `in_progress` ⇒ 真实仓库锁红在「必须自证合规」**并点名该文件**；**MC** 把锁的根指向空临时目录 ⇒ 红在「反失明：找不到 .ccg/tasks」；**MD** 根指向"两个目录都在、只有 1 个 task.json"的仓库 ⇒ `existsSync` 两道全过，**只有规模下界会红**（这条专门证明规模下界不是装饰）。MD 第一次跑曾误报成"红在根不存在"，根因是**探针自己坏了**：我对 `JSON.stringify(路径)` 的结果又做了一次反斜杠折叠，把生成的字面量写成非法转义（`	` 变 TAB）⇒ 修的是探针不是断言 |
+| 账本与存量对账 | PASS | 本 PR 不动 `scripts/doc-abs-paths-baseline.json`。修完在本地量得 `node scripts/check-doc-abs-paths.js --all` 的现场与主干账本仍有漂移（实测主干侧 36 个文件超基线），**那是 PR #3652（计数口径换代）未合并造成的既有状态，不是本 PR 引入**；本 PR 对 `check-doc-abs-paths` 零改动，其自测不在本 PR 的改动集里。另：14 个被改的 task.json 全在 `.ccg/tasks/archive/**`，属 12c 的归档快照豁免域，且我按"补转义不新增内容"逐字节改，不引入新的可计数路径 |
+| TDD 红→绿 | PASS | 先写「真实仓库自证」锁并实测红：`tests 20 / pass 19 / fail 1`，机读行 `taskFiles=387 parsedTasks=382 exitCode=2 findings=14`；再逐条修数据转绿（`fail 0`，`parsedTasks 382 → 387`）。接线判据同样先红后绿：登记 `MUST_LIVE_IN_UNGATED_JOB` 后 `check-unwired-tests` rc=1，加 Gate 12e 后 rc=0 |
+| 接线棘轮 | PASS | 新增 step 落点由 `check-workflow-structure.js` 复验（14 份 workflow，违规 0）；多命令 step 由 `check-step-failfast.js` 复验（36 个 step 全 fail-fast）；测试接线路径由 `check-unwired-tests.js` 复验（检查域 88 个测试文件，未接线 0）。**未碰** 分支保护与 `CI_IGNORED_PATHS` ⇒ 不触发"改谁来守门"的人工过目条件 |
+| QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/`、`packages/rpa-engine/`、任何 `.vue`/样式/基线 PNG |
+| QM-6 CCG 双模型外部评审 | PENDING | 与 #3652 同一现场：CC Switch `127.0.0.1:15721` 实测 `ECONNREFUSED`（node TCP 探针），`codeagent-wrapper --backend claude` 报 `exited with status 1` 且 wrapper 退出即删自己的日志，直跑 `claude -p` 150 s 超时 `rc=124` 双流 0 字节，替代通道 opencode 两个 `-free` 模型宽窄任务书各试过共 4 次全部 0 字节 ⇒ 三条通道均不可达，本轮**未跑成**，不以本地自审替代，合并决定交回人工 |
+| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin openspec-sync-realrepo` 返回 0 行证远端分支已删；回填时把本行改写为 PASS 并**删除上方三个 `sync_*` 字段**（同一次提交内完成，不在 JSON ledger 留项） |
+
+### 遗留（不假装已闭合）
+
+- **本 PR 只让"自相矛盾"不可表示，没让"完成与否"可验证**：14 条修完后 `status/currentPhase` 全部自洽，但 `completed` 是否名副其实仍依赖归档时那一次人工判断；9 号是唯一当场能查到 PR 证据的一条。
+- **`COMPLETED_TASK_ACTIVE_CHANGE` 一类判据本轮 0 命中也未顺带扩面**（不动判据是本 PR 的边界；动它需要另一份 PRD）。
+- **docs-only 白名单本身没改**：`.ccg/**`、`openspec/**` 仍在名单内，所以"输入命中白名单的锁必须自己接进 changes job"这条纪律仍然只由 `MUST_LIVE_IN_UNGATED_JOB` 这张**手工登记表**守——新写一条锁的人若不去登记，机制不会自动发现（这是既有缺口，本 PR 缩小了它但没有闭合）。
+

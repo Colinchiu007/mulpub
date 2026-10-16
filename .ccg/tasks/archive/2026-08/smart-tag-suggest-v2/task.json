@@ -5,18 +5,6 @@
   "complexity": "L",
   "risk": "medium",
   "domain": "frontend+backend",
-  "currentPhase": "implementation",
-  "nextAction": "TDD 实现：先写测试再实现 tag-suggest 模块",
-  "createdAt": "2026-08-31T00:00:00Z",
-  "branch": "codex/smart-tag-suggest-v2"
-}
-{
-  "id": "smart-tag-suggest-v2",
-  "title": "账号发布功能智能标签建议优化（方案 C+D：LLM 生成 + 热门话题库校准重排 + 平台专属类目树/标准话题词表）",
-  "status": "in_progress",
-  "complexity": "L",
-  "risk": "medium",
-  "domain": "frontend+backend",
   "currentPhase": "review",
   "nextAction": "双模型审查（opencode + Claude reviewer）写入 review.md，修复后 QM-1 打包验证并提交推送合并",
   "createdAt": "2026-08-31T00:00:00Z",
