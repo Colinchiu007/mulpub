@@ -2,10 +2,6 @@
 record: p3-2-tagstyles-default
 task: P3-2 方案 A 续 —— 修判据 7/8 过严（TAG_STYLES 缺席应走默认兜底），并加「不许空转」反向锁
 date: 2026-10-15
-# ↓ 三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在，无法取证收口
-sync_backfill_owner: 下一个会话（按三形态同改纪律：表格行 + bullet + 删除本段三字段，同一次提交）
 ---
 
 ## 本次执行记录：修 P3-1 判据 7/8 过严（p3-2-tagstyles-default，2026-10-15）
@@ -166,9 +162,9 @@ tencent_video  7: ok=false  detail="TAG_STYLES 无 tencent_video"
 | **QM-1 打包** | **不适用** | 只改 `scripts/` 与文档；`content-formatter.js` 仅**临时变异后已还原**（`git diff` 为空）|
 | **CCG `verify-quality`** | PASS | 两文件均「✓ 通过，错误 0 ｜ 警告 0」（仅 4 条格式类 ℹ 提示）|
 | **CCG `verify-security`** | PASS | 严重 0 ｜ 高危 0 ｜ 中危 0 ｜ 低危 7（均不阻断）|
-| 远程同步 | PENDING | 本 PR 未合并 |
+| 远程同步 | PASS | PR #3621 已合并 → `91dfc3fb94dbc9edc808da5d621597f3c4dd0bf7`（2026-10-15T15:18:52+08:00）；远端分支已删（`git ls-remote --heads origin p3-2-tagstyles-default` = 0 行）|
 
-- 保留门禁：脚本自测 19/19 ✅ | 变异反证 ✅ | 判据⑦⑧ 0 失败 ✅ | 无回归 ✅ | 运行时代码未碰坏 ✅ | unwired ✅ | 品牌 ✅ | 行尾 ✅ | CCG quality+security ✅ | 远程同步 PENDING
+- 保留门禁：脚本自测 19/19 ✅ | 变异反证 ✅ | 判据⑦⑧ 0 失败 ✅ | 无回归 ✅ | 运行时代码未碰坏 ✅ | unwired ✅ | 品牌 ✅ | 行尾 ✅ | CCG quality+security ✅ | 远程同步 PASS
 
 ## ★ 质量节拍 7 步 + CCG 补跑记录（用户要求核查后补）
 
