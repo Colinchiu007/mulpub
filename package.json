@@ -5,6 +5,7 @@
   "description": "多平台内容一键发布 — Monorepo",
   "packageManager": "pnpm@11.13.1",
   "scripts": {
+    "fetch:camofox": "node apps/desktop/scripts/fetch-camofox.js",
     "dev": "pnpm --filter @multi-publish/desktop dev",
     "build": "pnpm --filter @multi-publish/desktop build",
     "build:win": "pnpm --filter @multi-publish/desktop build:win",
@@ -34,6 +35,7 @@
   ],
   "license": "MIT",
   "dependencies": {
+    "@askjo/camofox-browser": "1.18.1",
     "@jridgewell/trace-mapping": "^0.3.25",
     "app-builder-bin": "5.0.0-alpha.10",
     "cheerio": "^1.2.0",

@@ -11,6 +11,13 @@ allowBuilds:
   nx: true
   tesseract.js: true
   better-sqlite3: true
+# ⛔ @askjo/camofox-browser **刻意不放进 allowBuilds**（PR-2 §7.1，2026-10-16）：
+#   它的 postinstall 会拉 ~500MB 的 camoufox 浏览器本体，且 ① 不做任何 sha256 校验
+#   （checkAsset 只匹配资源名前缀）② 失败走 process.exit(0) —— 下载失败安装照样"成功"。
+#   放进来的后果：所有人每次 pnpm install 都拉 500MB，且可能拿到"装好了但没浏览器"的假成功。
+#   需要构件时显式跑 `pnpm run fetch:camofox`（自带 sidecar-lock.json 的官方 sha256 校验）。
+#   若你认为需要改这条，先读 01-docs/PRD-OSS-RPA-HARDENING-2026-10-14.md §3.4 与
+#   apps/desktop/sidecar-lock.json 的 _trustModel 段。
 # 安全修复版下限：GHSA-3wwx-pv8p-q78v 等 10 条 (undici) / GHSA-qw65-cvwx-89v3 (fast-uri)
 # 三条覆写一律带 ^（有上界），由 packages/api-publish-engine/test/production-dependency-security.test.js
 # 的「override 必须全部有上界」棘轮守着 —— 加一条新的无上界覆写会当场红，不再靠读注释自觉。
