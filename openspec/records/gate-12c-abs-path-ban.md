@@ -2,9 +2,6 @@
 record: gate-12c-abs-path-ban
 task: Gate 12c 的判据输入由「路径是否存在」换成「路径计数」，使它在无盘符 runner 上也能真判；账本按新口径换代
 date: 2026-10-14
-sync_status: PENDING
-sync_reason: 本 PR（gate-12c-abs-path-ban）尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（合并后改为 PASS 并删除本段三个字段；新载体不进 JSON ledger）
 ---
 
 ## 本次执行记录：Gate 12c 计数口径换代（gate-12c-abs-path-ban，2026-10-14）【混合 PR】
@@ -32,7 +29,7 @@ sync_backfill_owner: 下一个会话（合并后改为 PASS 并删除本段三�
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/`、`packages/rpa-engine/`、任何 `.vue`/样式/基线 PNG；改的是 CI 门禁脚本、其自测与账本 JSON |
 | QM-6 CCG 双模型外部评审 | **未跑成（不以自审替代）** | 四条实测，全部当场取到产物：① `Test-NetConnection 127.0.0.1 -Port 15721` 在 PowerShell 5.1 下**不存在该 cmdlet**（`NamedParameterNotFound`），改用 node TCP 探针 ⇒ `15721:ECONNREFUSED`（23:0x 与 00:4x 各一次，两次同果）；② `codeagent-wrapper --backend claude --lite` 返回 `claude exited with status 1`，且 wrapper **退出即删除自己的日志**（旧教训复现，拿不到失败明细）；③ 直跑 `claude -p "reply with one word: OK"` ⇒ **150 s 超时 rc=124、stdout 与 stderr 均 0 字节**（第一次用 `| tail` 把它读成 rc=0 空输出，是探针吃掉了真 rc）；④ 替代通道 `opencode run --model opencode/nemotron-3-ultra-free / ling-3.1-flash-free` 两轴**两轮**：宽任务书挂 30 分钟零产物（判"零产物"前先查了进程存活，确实还挂着，属静默空转不是延迟落盘），收窄到"只读 ≤3 文件 / 四问 / ≤35 行"并给驱动加 14 分钟硬超时后，两轴各 `TIMEOUT_KILLED elapsed_s=840 / out_bytes=0 / err_bytes=0`。⇒ 三条通道均不可达，本轮 QM-6 **没有跑成**；本 PR 的合并决定因此交回人工，不由 agent 自动合并 |
 | CI 三跑：ubuntu 上转绿（本轮唯一有效证据） | PASS | head `2efb977b1`（合并主干 c1ff0a556 + 账本换代 540/1156 之后）读数：`QG Changes pass 39s`、`QG Static pass 6m32s`、`文档同步检查 pass`、18 pass / 1 fail / 2 skip / 1 pending。**那条 fail 是 `依赖漏洞审计`，与本 PR 无关**：同一 workflow 在 15:01–15:23 连续 6 个 PR 全红（含他人 head `f1c3f2a88`/`831e95e5`/`edc6a7a8`），红因两条——`NEW_ADVISORY: pip/PYSEC-2026-4298 (python-jose，无修复版本)` 与 `RESOLVED_STILL_BASELINED: pip/CVE-2026-85394 已不再命中，请 --update 清账`；且它**不在任一 required 清单**（classic 4 条 = Gate Result/build/QG Unit Tests/QG Coverage，ruleset 23749994 七条按 id 取）⇒ 不拦合并，属另一会话的挂账收口，本 PR 不代做。判"合并成功/在跑"只读 gh 的 JSON 字段：`Gate Result` 这一 head 上**尚未出现在清单里**（聚合作业要等全部 job 收敛），因此本行不声称它已绿。看守从 15:24 的"两路 gh ENOENT 全程瞎跑"修好后第一次给出真实观测序列（`obs=25 head=2efb977b1 shaMatch=true mergeable=CONFLICTING`）——ENOENT 的真因不是 gh 坏了，是**看守脚本自己写死了一个已删除的 worktree 当 cwd**，spawn 的 cwd 不存在同样报 ENOENT。 |
-| 远程同步 | PENDING | **当下状态**（不是本 PR 的判据问题）：① 已完成**第五轮 re-sync**（合并提交 `25e4e0b70`，第二父 `820bf19e8`），`mergeable` 待远端重算——置顶件热点使本 PR 每轮合并间隔内都会再撞一次，见上面两行账本轮次；② QM-6 未跑成（见上一行），按 AGENTS「禁止自动合并」第 5 条（存在待人工裁决的争议）交回人工。合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin gate-12c-abs-path-ban` 返回 0 行证远端分支已删；回填时把本行改写为 PASS 并**删除上方三个 `sync_*` 字段**（同一次提交内完成，不在 JSON ledger 留项） |
+| 远程同步 | PASS | 本 PR 即 **#3652**，`state=MERGED`，merge SHA `5546bea64afbd664586453e66a9215618ec03b6b`，merge 时间 2026-10-16T10:15:51Z（PR 侧 `VERDICT=MERGED`：21 pass / 0 fail / 2 skip，绿灯窗口由 sha-pin 看守捕获）。取证三件：main 主题尾 `(#3652)$` 检索**恰好 1 行**；远端分支 `gate-12c-abs-path-ban` 的 ref 查询返回 **404**（随 squash 删除）；判据本体与自测均已在 main 上（`scripts/check-doc-abs-paths.js` 计数口径 + 53 条锁）。⚠️ **合并后 main push 曾红一轮**（如实登记，不改写为本 PR 全绿）：run `38886071122` / job `116923992057` / step 11 `Gate 12c`，红在自测「全量审计必须与基线逐文件相等」——squash 把差量落到更新的 main tip 上，产物树比我的 merge-base `820bf19e8` 多出他人会话的 `dep-audit-alias.md`，账本快照因此过期。由后续 PR（分支 `gate12c-ledger-round9`，账本第九轮）收口，并把「合并后回读 main push」写进 AGENTS 收尾清单第 7 条。同一次提交内删除 frontmatter 的三个 `sync_*` 字段（新载体不进 JSON ledger） |
 
 ### 遗留（不假装已闭合）
 
