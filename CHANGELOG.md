@@ -1,3 +1,16 @@
+# [未发布] fix(accounts): 登录态判定收敛到 HTTP 单轨——隐藏窗口兜底默认关闭（fix-login-check-http-only）
+
+- **问题**：`checkLoginStatus` 在 HTTP/本地证据不足时开**隐藏 sandbox 窗口**加载平台页面抓 DOM 判登录态。该支路自 2026-09 起按平台逐个触发**原生渲染崩溃**：toutiao（09-16）→ wechat_mp（10-06）→ 知乎（10-14 #3726）→ kuaishou（10-16）。现场三条判据同时成立：应用日志**戛然而止**（停在 `checkLoginStatus: start <platform>`）、`crashpad_client_win.cc: not connected`（无 minidump）、主进程退出（`0xC0000135` 同族码），随后全部 electron 进程消失、窗口空白——用户视角即"应用突然关闭"。
+- **为什么之前每次都没修住**：每次处置都是"往白名单再加一个平台"，而**默认值始终留在崩的那一侧**；同时既有契约锁把 `--no-sandbox` 默认写成期望，等于把崩溃组合钉进契约。启动参数那一半已由 `fix-hidden-window-render-crash` 拆开（`--no-sandbox` 与 swiftshader 互斥），本片处理另一半：**那条支路本身**。
+- **为什么"只调参数"不够（实测）**：同一实例两轮 `LoginMonitor`（间隔 30 分钟），第一轮 kuaishou 通过、第二轮仍在同一处崩溃 ⇒ 观测窗口必须覆盖**至少两轮（≥60 分钟）**才配下"已修"的结论。
+- **变更（默认翻转）**：新增 `DOM_LOGIN_CHECK_ALLOWED_PLATFORMS`（**默认空集**）——只有显式登记的平台才允许开隐藏窗口；`RENDER_CRASH_PRONE_OPEN_PLATFORMS` 保留为**硬否决**且**先于**允许集判定（否决永远赢）。证据不足一律判 `CHECK_LOGIN_INCONCLUSIVE`（`reason=hidden-browser-disabled-default`）。两个集合 `Object.freeze`；允许集**不以**可变全局/`_internals` 暴露，测试注入走**函数显式参数** `checkLoginStatus(p, id, { domLoginCheckAllowed })`（不传即永远走默认空集）。
+- **CCG 深度审查 + 跨家族外部复核（本轮真实过程，含被推翻的错判）**：pre-commit 判定 `mode=dual`（命中 auth/加密语义）→ `scripts/deep-review.sh` 跑出 5 条问题/4 维/最低 6 分 → 自扮演裁决 3 条待裁。我最初把 i1/i2/i3 **全判 dismissed**；**外部跨家族复核推翻其中两条：i1/i3 均 upheld**，并指出「生产代码误读 `_internals` 无防御」。**整改不是改文字**：① `Object.freeze` 两集合；② 删 `_internals` 导出；③ 注入改显式参数；④ 新增**正向控制**锁（注入后才开窗，防"零开窗"断言退化成永真）+ **生产面静态锁**（除 `account-manager.js` 外出现 `._internals`/`domLoginCheck`/`DOM_LOGIN_CHECK_ALLOWED` 片段即红）。第二轮外部复核：**i1/i3 resolved**；残余风险仍 `not_resolved` 并给出边界——"把属性名切成互不相邻片段再拼"不可机械拦截（通用限制，如实登记）。**绕过探针**：按复核点名的写法（`const k = 'domLoginCheck' + 'Allowed'`）建探针文件后静态锁**当场红**，探针按 R0 可恢复删除。
+- **参考产品实证（本地逆向）**：参考产品A（Electron v4.14.20，`app.asar` 9.5MB）`--no-sandbox`/`swiftshader`/GPU 开关命中数**均为 0**，`loginStatus`/`isLogin`/`loginState` 标识符**全 0**，登录走**可见 BrowserView** + Cookie 提取、判定与发布走 **HTTP API**，`render-process-gone` 只挂普通 UI 窗口且处理是 `browserWindow.reload()`（可恢复）⇒ 它**不存在**"隐藏窗口抓 DOM 判登录"这条路。参考产品B为 CEF 壳（`CefBrowser.dll`/`cefplug`，266 个 JS 按平台分文件），账号逻辑在 JS 侧，本次未深入。
+- **用户可见影响（复用既有第三态，不新增文案）**：`unverified`（「未确认」/`Unconfirmed`，琥珀底 `#fffaf0` + 字 `#974706`）数量上升；**不计入**失效数量、**不显示**「去登录」、**不触发**主页失效横幅；账号页一键检测汇总的 `Z 个未确认` 随之上升。不新增 locales 条目（如将来要加"未确认原因"提示，zh/en 必须成对，否则 CI Gate 7 判红）。
+- **性能顺带收益**：单账号最坏耗时下降（不再有隐藏窗口的 8s 导航 + 3s 选择器超时 + 500ms 固定等待）。
+- **文档**：新增 `01-docs/BUGFIX-LOGIN-CHECK-HTTP-ONLY-2026-10-16.md`（含数据校验/流程/功能逻辑/交互逻辑/显示项与提示文字/边界与风险）；更新 `01-docs/PRD.md` 的「三种认证模式」条目与 `01-docs/PRD-ACCOUNT-LOGIN-STATUS-CHECK.md` §18。
+- **边界（不假装闭合）**：不修 Chromium 缺陷、不声称消除该类崩溃；允许集一旦被追加平台，风险立即回归，故要求**每一行附真机复测证据**；把 DOM 判定搬进独立进程（崩溃不回传主进程）列为后续工作。
+
 # [未发布] perf(accounts): 账号页列表路径零解密——代理信息移出列表，改为打开弹窗时按需读取（nav-perf-ux，PR #3742）
 
 - **现象与根因**：用户「点左侧菜单『账号』好几秒才加载」，且上一轮 #3591 修完（同步串行 → 异步并行）后**实测仍 1451–1579 ms**（8 账号，日志逐行间隔约 100 ms = 串行特征）。第一性原因：`listAccounts()` 为让每个账号带上 `proxy`，逐账号走 `getAccountProxyStatus() → loadCredential() → decryptData() → deriveKey() → crypto.pbkdf2Sync(100000)`——**同步阻塞主进程事件循环**，单次约 125 ms。**#3591 只改了并行度，总 CPU 一字未减**，而 `listAccounts()` 每次进账号页都跑 ⇒ 复发性成本。

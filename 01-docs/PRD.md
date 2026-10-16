@@ -1082,8 +1082,10 @@ Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 A
 
 **三种认证模式：**
 1. **独立窗口登录** — 独立 BrowserWindow 承载 WebContentsView（AuthViewManager，2026-09-08 由内嵌改为独立窗口，修复账号页顶部多层重叠）
-2. **隐藏 BrowserWindow 静默验证** — 后台恢复 Cookie 检测登录态（loginSilent）
+2. **HTTP 单轨登录态判定**（2026-10-16 变更，取代原「隐藏 BrowserWindow 静默验证」）— 登录态由 **HTTP/本地凭证证据**判定；证据不足时判「**未确认**」，**不再默认**开隐藏窗口抓 DOM。原因是隐藏窗口加载平台页面会在原生渲染层崩溃并让**整个应用消失**（2026-09-16 toutiao → 10-06 wechat_mp → 10-14 知乎 → 10-16 kuaishou 逐平台复发，现场为"日志戛然而止 + crashpad not connected + 主进程退出"）。只有显式登记在 `DOM_LOGIN_CHECK_ALLOWED_PLATFORMS`（默认**空集**）的平台才允许保留 DOM 兜底，且 `RENDER_CRASH_PRONE_OPEN_PLATFORMS` 作为硬否决优先于允许集。详见 `01-docs/BUGFIX-LOGIN-CHECK-HTTP-ONLY-2026-10-16.md` 与 `01-docs/PRD-ACCOUNT-LOGIN-STATUS-CHECK.md` §6。
 3. **扫码登录** — 二维码自动检测（QrCodeLogin）
+
+> 历史备注：原第 2 条「隐藏 BrowserWindow 静默验证 — 后台恢复 Cookie 检测登录态（loginSilent）」是引入该崩溃路径的需求原文；其"静默验证"的目标（登录态可判、可固化）由 HTTP 单轨保留，"隐藏窗口"这一手段因稳定性事故被下线。
 
 ### 2.3 用户认证与账号管理 (User Auth & Account Management)
 
@@ -10325,8 +10327,10 @@ Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 A
 
 **三种认证模式：**
 1. **独立窗口登录** — 独立 BrowserWindow 承载 WebContentsView（AuthViewManager，2026-09-08 由内嵌改为独立窗口，修复账号页顶部多层重叠）
-2. **隐藏 BrowserWindow 静默验证** — 后台恢复 Cookie 检测登录态（loginSilent）
+2. **HTTP 单轨登录态判定**（2026-10-16 变更，取代原「隐藏 BrowserWindow 静默验证」）— 登录态由 **HTTP/本地凭证证据**判定；证据不足时判「**未确认**」，**不再默认**开隐藏窗口抓 DOM。原因是隐藏窗口加载平台页面会在原生渲染层崩溃并让**整个应用消失**（2026-09-16 toutiao → 10-06 wechat_mp → 10-14 知乎 → 10-16 kuaishou 逐平台复发，现场为"日志戛然而止 + crashpad not connected + 主进程退出"）。只有显式登记在 `DOM_LOGIN_CHECK_ALLOWED_PLATFORMS`（默认**空集**）的平台才允许保留 DOM 兜底，且 `RENDER_CRASH_PRONE_OPEN_PLATFORMS` 作为硬否决优先于允许集。详见 `01-docs/BUGFIX-LOGIN-CHECK-HTTP-ONLY-2026-10-16.md` 与 `01-docs/PRD-ACCOUNT-LOGIN-STATUS-CHECK.md` §6。
 3. **扫码登录** — 二维码自动检测（QrCodeLogin）
+
+> 历史备注：原第 2 条「隐藏 BrowserWindow 静默验证 — 后台恢复 Cookie 检测登录态（loginSilent）」是引入该崩溃路径的需求原文；其"静默验证"的目标（登录态可判、可固化）由 HTTP 单轨保留，"隐藏窗口"这一手段因稳定性事故被下线。
 
 ### 2.3 用户认证与账号管理 (User Auth & Account Management)
 

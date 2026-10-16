@@ -875,6 +875,9 @@ describe('checkLoginStatus 多选择器回归（数组选择器逐个尝试）',
 
     try {
       const accountManager = loadAccountManager()
+      // 2026-10-16 策略翻转：隐藏窗口兜底**默认关闭**（允许集为空集），本用例要验的是被它
+      // 门控的**子行为**（数组选择器逐个尝试），故通过**显式注入缝**把被测平台放开。
+      // 产品默认值仍为空集，由 account-manager-http-only-policy.test.js 双向锁守。
       vi.spyOn(accountManager.credentialStore, 'loadCredential').mockReturnValue({
         platform: 'douyin',
         cookies: [{ name: 'sid', value: 'v1', domain: '.douyin.com' }],
@@ -884,7 +887,7 @@ describe('checkLoginStatus 多选择器回归（数组选择器逐个尝试）',
 
       vi.spyOn(accountManager.accountStateRestorer, 'getAccountRecord').mockReturnValue(null)
 
-      await expect(accountManager.checkLoginStatus('douyin', 'acc-1'))
+      await expect(accountManager.checkLoginStatus('douyin', 'acc-1', { domLoginCheckAllowed: ['douyin'] }))
         .resolves.toEqual({ valid: true, code: 'CHECK_LOGIN_SUCCESS' })
       const selectorArg = page.waitForSelector.mock.calls[0][0]
       expect(Array.isArray(selectorArg)).toBe(true)
@@ -921,6 +924,8 @@ describe('checkLoginStatus 多选择器回归（数组选择器逐个尝试）',
 
     try {
       const accountManager = loadAccountManager()
+      // 同上：本用例验的是「选择器超时 + URL 命中仪表盘域名 ⇒ 判有效」这段**被允许集门控**
+      // 的逻辑，故通过显式注入缝放开；默认空集仍由策略锁保证。
       vi.spyOn(accountManager.credentialStore, 'loadCredential').mockReturnValue({
         platform: 'weibo',
         cookies: [{ name: 'SUB', value: 'active', domain: '.weibo.com' }],
@@ -929,7 +934,7 @@ describe('checkLoginStatus 多选择器回归（数组选择器逐个尝试）',
       })
       vi.spyOn(accountManager.accountStateRestorer, 'getAccountRecord').mockReturnValue(null)
 
-      await expect(accountManager.checkLoginStatus('weibo', 'acc-1'))
+      await expect(accountManager.checkLoginStatus('weibo', 'acc-1', { domLoginCheckAllowed: ['weibo'] }))
         .resolves.toMatchObject({ valid: true })
     } finally {
       global.__registerMock(playwrightPath, actualPlaywrightManager)

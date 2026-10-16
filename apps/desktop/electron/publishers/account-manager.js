@@ -569,7 +569,25 @@ async function getAccountProxyStatusLazy (accountId, platform, options = {}) {
  * @param {string} accountId - 账号 ID
  * @returns {Promise<{valid: boolean|undefined, code?: string, reason?: string, error?: string}>}
  */
-async function checkLoginStatus (platform, accountId) {
+// 登录态判定的两个集合（2026-10-16 策略翻转；详见 checkLoginStatus 内注释与
+// 01-docs/BUGFIX-LOGIN-CHECK-HTTP-ONLY-2026-10-16.md）。
+// 放在模块级而非函数内，是为了让测试能注入「允许集」：默认空集本身是产品不变量
+// （由 account-manager-http-only-policy.test.js 的结构锁守），但被它门控的子行为
+// （数组选择器逐个尝试、仪表盘域名兜底）仍必须可测，否则会退化成无人覆盖的死代码。
+const DOM_LOGIN_CHECK_ALLOWED_PLATFORMS = new Set([])
+const RENDER_CRASH_PRONE_OPEN_PLATFORMS = new Set(['toutiao', 'wechat_mp', 'baijiahao', 'zhihu', 'kuaishou'])
+Object.freeze(DOM_LOGIN_CHECK_ALLOWED_PLATFORMS)
+Object.freeze(RENDER_CRASH_PRONE_OPEN_PLATFORMS)
+
+async function checkLoginStatus (platform, accountId, options = {}) {
+  // 测试注入缝（2026-10-16，外部复核 i1/i3 的整改）：允许集**不再**以可变全局 +
+  // `_internals` 导出的方式暴露——那条路要求「调用方记得删 require 缓存」才能隔离，
+  // 且给生产代码留了无留痕改判定策略的口子。现在改为**显式参数**：不传就永远走模块
+  // 常量（空集 = 默认不开窗）。生产调用点**不得**传 `domLoginCheckAllowed`
+  // （由 account-manager-http-only-policy.test.js 的静态锁拦截）。
+  const domLoginCheckAllowed = Object.prototype.hasOwnProperty.call(options, 'domLoginCheckAllowed')
+    ? options.domLoginCheckAllowed
+    : DOM_LOGIN_CHECK_ALLOWED_PLATFORMS
   if (!isSafePathSegment(platform) || !isSafePathSegment(accountId)) {
     return { valid: false, code: 'CHECK_LOGIN_INVALID_PARAMS' }
   }
@@ -694,9 +712,25 @@ async function checkLoginStatus (platform, accountId) {
     // cp.kuaishou.com 真机登录页/已登录页形态证据就不许凭空写判据，故其登录态在 HTTP
     // 判定不足时会显示「未确认」。要恢复确定性结论，先取证再按 zhihu 模式补。
     const RENDER_CRASH_PRONE_OPEN_PLATFORMS = new Set(['toutiao', 'wechat_mp', 'baijiahao', 'zhihu', 'kuaishou'])
+    //
+    //
+    // ===== 2026-10-16 策略翻转：登录态判定收敛到 HTTP 单轨（细节见 
+    // 01-docs/BUGFIX-LOGIN-CHECK-HTTP-ONLY-2026-10-16.md；此处只留契约）=====
+    // 旧写法是**枚举式**黑名单：把已知会崩的平台挑出来禁掉 ⇒ 默认值始终留在崩的那一侧，
+    // 于是按平台逐个复发（toutiao → wechat_mp → 知乎 → kuaishou，日志戛然而止 + crashpad
+    // not connected + 主进程退出 0xC0000135 ⇒ 用户视角「应用突然关闭」）。
+    // 新契约：只有显式登记在 DOM_LOGIN_CHECK_ALLOWED_PLATFORMS 的平台才允许开隐藏窗口，
+    // 该集合**默认为空**；RENDER_CRASH_PRONE_OPEN_PLATFORMS 保留为**硬否决**且**先于**
+    // 允许集判定（否决永远赢）。要放开某平台：加进允许集并在同一次提交附**真机复测证据**，
+    // 不得用环境变量临时开启。代价：更多账号显示「未确认」（不计入失效、不触发失效横幅）；
+    // 正解是给平台补 HTTP 侧能力（HTTP_CHECK_APIS[p].checkHtml），而不是重开隐藏窗口。
     if (RENDER_CRASH_PRONE_OPEN_PLATFORMS.has(platform)) {
       log.warn('AccountManager', 'checkLoginStatus: INCONCLUSIVE render-crash-prone, skip hidden browser ' + platform + ':' + accountId + ' cookies=' + cookies.length + ' lsKeys=' + lsKeys)
       return { valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE', reason: 'render-crash-prone-http-inconclusive' }
+    }
+    if (!(domLoginCheckAllowed instanceof Set ? domLoginCheckAllowed : new Set(domLoginCheckAllowed || [])).has(platform)) {
+      log.warn('AccountManager', 'checkLoginStatus: INCONCLUSIVE hidden-browser-disabled-default, skip hidden browser ' + platform + ':' + accountId + ' cookies=' + cookies.length + ' lsKeys=' + lsKeys + ' allowed=' + DOM_LOGIN_CHECK_ALLOWED_PLATFORMS.has(platform))
+      return { valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE', reason: 'hidden-browser-disabled-default' }
     }
     // 创建临时 context 加载 Cookie 进行验证
     const browser = await playwrightManager.getContext({ show: false })

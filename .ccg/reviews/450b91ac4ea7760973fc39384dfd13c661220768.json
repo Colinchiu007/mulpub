@@ -1,0 +1,64 @@
+{
+  "sha": "450b91ac4ea7760973fc39384dfd13c661220768",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 136 行（≤ 200）但命中 auth/数据库/加密：敏感内容 1 处",
+  "stats": {
+    "changedLines": 136,
+    "fileCount": 8,
+    "codeFileCount": 3,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 1,
+    "docSensitiveContentHits": 3,
+    "docSensitiveContentSample": [
+      "| `cookies` | 加密凭证 ∪ 账号 session 分区 Cookie，按 `name + domain` 去重（前者优先） | 只保留 `isPlatformCookieDomain(platform, cookie.domain)` 命中的项；注入前统一 `sameSite` 归一（`no_restriction` / `strict` / `lax`），`expires` 归一为秒 |",
+      "| 1 | 加密凭证与分区 Cookie **均无** | 确定失效 | `NO_COOKIE_NO_STORAGE` → `expired` |",
+      "- **可观测**：每次放弃兜底都写一条 `WARN`，含 `platform:accountId`、`cookies=N`、`lsKeys=N`、是否在允许集——这条日志是\"策略生效了多少次\"的唯一凭据。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "c62365811a8f1827fdaf714a8349f425512cd64284e903f04db5f092b1c21fbb",
+  "decidedAt": "2026-10-16T16:50:00.56Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play adjudication + 跨家族外部复核 2 轮（claude=critic / opencode=proposer，经 scripts/deep-review.sh）",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "domains": [
+          "auth"
+        ]
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "domains": [
+          "auth"
+        ]
+      }
+    ],
+    "findings": [
+      "critic 5 条问题 / 4 维（correctness/security/performance/maintainability），最低分 6 ⇒ 进入自扮演裁决，3 条待裁（i1/i3 属 auth 高危域，必须外部复核）",
+      "i1（模块级可变允许集经 _internals 导出、隔离依赖 require 缓存）：外部复核第一轮 upheld（我最初 dismissed 被推翻）⇒ 整改后第二轮 resolved（Object.freeze + 删 _internals + 改函数显式参数注入）",
+      "i2（提交里含父 sha 的审查元数据）：dismissed —— 该文件由 pre-commit 钩子按 diff 内容寻址写入，引擎自述为预期行为，且 origin/main 已跟踪同类文件 763 个",
+      "i3（两例既有用例 .add() 无 finally/afterEach 兜底）：外部复核第一轮 upheld ⇒ 整改后第二轮 resolved（注入改为按调用显式传参，用例间无共享可变状态）",
+      "残余风险 not_resolved（如实登记）：策略可变性转移到函数参数；静态锁已加固为片段级（含 domLoginCheck 片段的拼接写法会被拦——探针 __probe-bypass.js 实测 RED 后按 R0 删除），但\"把属性名切成互不相邻片段再拼\"不可机械拦截，属通用限制",
+      "同轮新增的回归保护：策略锁 4 例（反向控制 / 正向控制 / 结构锁 / 生产面静态锁）；全量 108/108；变异反证 2 failed | 2 passed",
+      "裁决与外部复核全文落盘：.adversarial/ccg-deep-0989bfc3/adjudication.json（含 prosecution/defense/verdict/rationale 与 residualRisk）"
+    ],
+    "template": ".adversarial\\ccg-deep-0989bfc3\\adjudication.json",
+    "note": "裁决尚未填写：3/3 条未定（i1, i2, i3）",
+    "at": "2026-10-16T16:52:45.493Z"
+  },
+  "deepReviewArtifacts": {
+    "proposal": ".adversarial/ccg-deep-0989bfc3/proposal-v1.md",
+    "adjudication": ".adversarial/ccg-deep-0989bfc3/adjudication.json",
+    "externalReviewRounds": 2,
+    "critique": ".adversarial/ccg-deep-0989bfc3/critique-v1.md"
+  }
+}
