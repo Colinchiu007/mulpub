@@ -25,6 +25,13 @@ allowBuilds:
 overrides:
   undici: '^7.29.1'
   fast-uri: '^3.1.7'
+  # ip-address：7 条新公告（GHSA-22jq-vg5j-6vgg / 2vr4-cq9g-pvrc / 4xrf-jv44-h6hh /
+  #   h3mg-xc3c-68pw / j6r3-76f7-8jcv / mwp4-54f8-5fhr(high) / rpw4-54j3-4h4q），
+  #   全部要求 >=10.2.1 ~ >=10.7.1 ⇒ 取 latest 10.7.4 一次覆盖。
+  #   ⚠️ 这是**既有**传递依赖（express-rate-limit → ip-address@10.2.0，origin/main 的
+  #   lock 里就是 10.2.0），不是本 PR 引入；是公告在 2026-10-16 前后新发布才触发阻断。
+  #   必须用 overrides 而非升 express-rate-limit——后者由 ops-center 依赖，升级面更大。
+  'ip-address': '^10.7.4'
 # GHSA-3pq3/542g/9fr6/c29m/mghh/vh66/x97p 等 12 条 axios 公告的修复版本是 >=1.20.0（2026-10-01 实测）。
 # 必须用 overrides 而不是只升三个 workspace 包的区间：dev 域 nx@20.8.4 自带一份 axios（实测 1.18.1），
 # 而门禁扫描面是 `pnpm audit --prod` —— 只升 prod 会让门禁变绿、锁里那份低危副本一条没少。
