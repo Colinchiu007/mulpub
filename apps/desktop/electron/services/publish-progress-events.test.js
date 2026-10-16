@@ -273,7 +273,7 @@ describe('createPublishProgressEmitter — 关键相位 notify 可观测性（P0
 // 评审 i6 实测抓出的真缺陷：本文件的 payload 是逐字段挑选的（不是 { ...extra }），
 // 新增 reason/daily/released 若不同步加进白名单，会在这一层被**静默丢掉** ——
 // 而渲染层单测直接注 store 状态、绕过本层，所以那些单测全绿也发现不了。
-describe('publish-frequency-policy-v2 字段穿透（i6 接线锁）', () => {
+describe('发布频率字段穿透（i6 接线锁；刻意不带档位版本号）', () => {
   it('blocked(daily_quota)：reason 与 daily 必须原样出现在 payload 上', () => {
     const win = makeWin()
     const emitter = createPublishProgressEmitter({ getMainWin: () => win })
