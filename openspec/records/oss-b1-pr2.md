@@ -11,7 +11,7 @@ sync_backfill_owner: 下一个会话（合并后回填 PASS + merge SHA 并删�
 
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
-| 变更类型与隔离 | ✅ | 运行时代码：worktree `D:\Data\projects\mp-worktrees\mp-oss-b1-pr2`（D 盘，非 C 盘）+ 裸分支 `oss-b1-pr2`，由 `scripts/start-mp-task.ps1 -TaskName oss-b1-pr2` 创建（依赖/electron/verify-worktree-deps 全 OK）；共享根保持 main 干净，未在共享根落盘 |
+| 变更类型与隔离 | ✅ | 运行时代码：worktree `<repo-parent>/mp-worktrees/mp-oss-b1-pr2`（`$MP_WORKTREES` 默认根，非共享根）+ 裸分支 `oss-b1-pr2`，由 `scripts/start-mp-task.ps1 -TaskName oss-b1-pr2` 创建（依赖/electron/verify-worktree-deps 全 OK）；共享根保持 main 干净，未在共享根落盘 |
 | 第一性原因（QM-5 ①） | N/A | 新功能（PR-2 基建），非 bug 修复 |
 | 逃逸分析（QM-5 ②） | N/A | 新功能，无逃逸链 |
 | 修复 + 回归保护（QM-5 ④） | ✅ | 5 个测试文件 **56 用例全绿**（本轮再增 `fetch-camofox.test.js` 11 例，合计 **67**）；变异反证 **29 条全 CAUGHT**（本轮新增 4 条 allowBuilds 变异 ⇒ **33**），每条按「字节快照备份 → 变异 → 跑测 → 整文件写回 → md5 校验还原」执行 |
@@ -42,9 +42,9 @@ sync_backfill_owner: 下一个会话（合并后回填 PASS + merge SHA 并删�
 
 第一轮读数（上一节末）之后 PR-2 推到第 14 个提交 `a641e0417`，第二轮变成 **13 fail / 1 pass（`QG Changes`）**：`GUI Gate Result` / `Gate Result` / `QG Static` / `QG Unit Tests` / `QG Coverage` / `QG Visual` / `QG Desktop Shards (1/2)(2/2)` / `QG Browser E2E` / `QG Autonomous` / `QG Business API Postgres` / `build` / `gui-test`。归因先做对照：同期 main 的 quality-gate 红在 `Detect docs-only changes`（另一因）、另一分支 quality-gate 绿 ⇒ **确为本 PR 分支特异**，不是上游红。
 
-**第一性原因**：`pnpm-workspace.yaml` 的 `allowBuilds` 里 `better-sqlite3: true`。它是 §7.1 引入的 `@askjo/camofox-browser@1.18.1` 的传递依赖（无 `install`/`postinstall`，deps 仅 `node-addon-api@^8`），而 pnpm 对「有 `binding.gyp` 且无 install 脚本」的包**自动注入 `node-gyp rebuild`**；放行后每次 install 都要本机 VS C++ 工具链，runner 的 `node-gyp@9.4.1` 认不出 VS 18（`unknown version "undefined" found at "C:\Program Files\Microsoft Visual Studio\18\Enterprise"`）⇒ install rc=1 ⇒ 13 个下游作业连红。
+**第一性原因**：`pnpm-workspace.yaml` 的 `allowBuilds` 里 `better-sqlite3: true`。它是 §7.1 引入的 `@askjo/camofox-browser@1.18.1` 的传递依赖（无 `install`/`postinstall`，deps 仅 `node-addon-api@^8`），而 pnpm 对「有 `binding.gyp` 且无 install 脚本」的包**自动注入 `node-gyp rebuild`**；放行后每次 install 都要本机 VS C++ 工具链，runner 的 `node-gyp@9.4.1` 认不出 VS 18（`unknown version "undefined" found at "<VS 安装根>\Microsoft Visual Studio\18\Enterprise"`）⇒ install rc=1 ⇒ 13 个下游作业连红。
 
-**隔离 A/B 探针**（`D:\Temp\opencode\camofox-gate-probe\{probe-true,probe-false}`，同 lock、同 pnpm，只翻 allowBuilds 一格）：
+**隔离 A/B 探针**（`<scratch>/camofox-gate-probe\{probe-true,probe-false}`，同 lock、同 pnpm，只翻 allowBuilds 一格）：
 
 | 档 | install | 执行 node-gyp | `require('better-sqlite3')` |
 |----|---------|---------------|-------------------------------|
@@ -97,19 +97,19 @@ sync_backfill_owner: 下一个会话（合并后回填 PASS + merge SHA 并删�
 | 显式 `false` | **rc=0** | 从 ignored 列表消失、不构建（**正解**） |
 | 显式 `true` | rc=0 但**真跑 postinstall** | 拉 ~500MB 构件，且该 wrapper 的下载链路**不做任何 sha256 校验** |
 
-**A/B（可复跑，`node D:\Temp\opencode\p2-ab-driver.js`）**：BEFORE 腿取**补丁前 blob**（`git show HEAD:pnpm-workspace.yaml`，sha256 `fdd6b6a09992d878`，6183 B，`camofox=undefined`）⇒ **rc=1** + 命中 ignored-builds 行；AFTER 腿取工作副本（sha256 `e716b92993e0ed25`，7017 B，`camofox=false`）⇒ **rc=0** 且无错误行；两侧除 camofox 键外**键集与 overrides（5/5）逐条一致**。
+**A/B（可复跑，`node <scratch>/p2-ab-driver.js`）**：BEFORE 腿取**补丁前 blob**（`git show HEAD:pnpm-workspace.yaml`，sha256 `fdd6b6a09992d878`，6183 B，`camofox=undefined`）⇒ **rc=1** + 命中 ignored-builds 行；AFTER 腿取工作副本（sha256 `e716b92993e0ed25`，7017 B，`camofox=false`）⇒ **rc=0** 且无错误行；两侧除 camofox 键外**键集与 overrides（5/5）逐条一致**。
 
 **第二个真因：解析器陷阱让旧锁变成装饰性门禁。** `fetch-camofox.test.js` 的 `readAllowBuilds` 原实现「遇 0 缩进即 `break`」，而新条目的注释块**写在条目上方且为 0 缩进** ⇒ 解析在第一行注释处提前终止，`@askjo/camofox-browser` 永不可能进 `entries`；于是**旧锁「断言该键不在 `allowBuilds`」在此形态下恒真** —— 它的「绿」与「解析压根没走到那一行」完全同形（本仓「装饰性门禁」的又一落点，与 AGENTS.md 里点名的两种落点同族）。修法三处：① 注释/空行跳过**前置于**缩进判定；② 剥引号（YAML 里 `@` 不能起 plain scalar ⇒ 必须写 `'@askjo/camofox-browser': false`）；③ 取值白名单（只认 `true|false`）+ 条目数下界 6。锁 #3 由「不在 map 内」**翻转为**「在 map 内且 `=== false`」。
 
 **变异反证 7 条**（`p2-mutations.js` 6/6 CAUGHT + 成对反证 `p2-mutation-m7.js`）：M1 `false→true`；M2 整行删除；M3 去 `**`；M4 解析器退回「先 break」；M5 退回不剥引号的旧正则；M6 下界抬到 99；**M7 成对腿** —— 同一触发输入下「有白名单」变红、「白名单 no-op」变绿（**无触发输入时 no-op 恒绿**，那是实验缺触发，不是锁坏）。每条均 `restored=true` 且整文件写回后 md5 校验通过。
 
-**推前门禁同口径复跑全绿**（`node D:\Temp\opencode\p2-gates.js`，逐条落盘 `gate-<id>.txt`）：carrier(PR 档 `visible`) / 记录 QM-5 行 19/19 / `pr-exec-record` 锁 48/48 + `--mode=enforce` OK / brand-residue 6/6 / text-encoding 5/5 / no-conflict-markers 20/20 / ci-pr-changeset 11/11 / classify-docs-only 锁 27/27 / workflow-structure 锁 6/6 + 脚本 violations=0 / unwired-tests 锁 30/30 / step-failfast OK / workflow-contract 无 `not ok` / **Gate 2b 同形两文件 21 tests / 21 pass** / `check:deps` No depcheck issue；**Gate 11**（`pnpm exec eslint electron/ src/ --quiet`，cwd `apps/desktop`）rc=0，stdout/stderr 均空。
+**推前门禁同口径复跑全绿**（`node <scratch>/p2-gates.js`，逐条落盘 `gate-<id>.txt`）：carrier(PR 档 `visible`) / 记录 QM-5 行 19/19 / `pr-exec-record` 锁 48/48 + `--mode=enforce` OK / brand-residue 6/6 / text-encoding 5/5 / no-conflict-markers 20/20 / ci-pr-changeset 11/11 / classify-docs-only 锁 27/27 / workflow-structure 锁 6/6 + 脚本 violations=0 / unwired-tests 锁 30/30 / step-failfast OK / workflow-contract 无 `not ok` / **Gate 2b 同形两文件 21 tests / 21 pass** / `check:deps` No depcheck issue；**Gate 11**（`pnpm exec eslint electron/ src/ --quiet`，cwd `apps/desktop`）rc=0，stdout/stderr 均空。
 
 **为什么第一轮没拦住这件事**：已装好依赖的 worktree 上 `pnpm install --frozen-lockfile` 会**跳过构建检查**（实测 rc=0）——只有**全新 node_modules**（runner 的常态）才复现 `ERR_PNPM_IGNORED_BUILDS`。⇒ 凡改 `allowBuilds` / 依赖声明，本机自检必须用一次性空 store 口径复现一次，不能只看「本机能装」。
 
 ### 两条本机红：pristine 对照实测定性（一条 stale base、一条非本分支引入）
 
-本轮推前本机复跑出现 2 条红，**用 pristine 对照定性，不是推测**（探针 worktree `D:\Temp\opencode\mp-probe-main`，detached @ `origin/main` `af71907bf`，`git status` clean）：
+本轮推前本机复跑出现 2 条红，**用 pristine 对照定性，不是推测**（探针 worktree `<scratch>/mp-probe-main`，detached @ `origin/main` `af71907bf`，`git status` clean）：
 
 | 用例 | 本分支 | pristine origin/main | 定性 |
 |---|---|---|---|
