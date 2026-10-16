@@ -1,0 +1,29 @@
+{
+  "sha": "6642e2c096584a5011c0afbded7bf02408862ad3",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 29 行（≤ 200）但命中 auth/数据库/加密：敏感内容 2 处",
+  "stats": {
+    "changedLines": 29,
+    "fileCount": 2,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 2,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "- [PRD-ZHIHU-API-SETTINGS-2026-10-15.md](./PRD-ZHIHU-API-SETTINGS-2026-10-15.md) — 知乎 API 凭据设置化：设置页新增「知乎 API」分区（紧邻飞书 API 之下）、Access Secret 按登录用户隔离 + safeStorage 加密 + 旧版明文只读兼容与销账 + 连通性自检 + 两步清除；采集页移除就地密钥输入，改为凭据状态条与「前往设置」出口",
+      "- [PRD-ZHIHU-API-SETTINGS-2026-10-15.md](./PRD-ZHIHU-API-SETTINGS-2026-10-15.md) — 知乎 API 凭据设置化：设置页新增「知乎 API」分区（紧邻飞书 API 之下）、Access Secret 按登录用户隔离 + safeStorage 加密 + 旧版明文只读兼容与销账 + 连通性自检 + 两步清除；采集页移除就地密钥输入，改为凭据状态条与「前往设置」出口"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "8c97cf78e0e7585b610937abd229f37ea5784e638b28671dd31bf9169434b259",
+  "decidedAt": "2026-10-16T07:53:29.054Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}
