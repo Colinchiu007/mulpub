@@ -129,8 +129,8 @@ D 修完后「没有任何平台的 TAG_STYLES 键缺席」⇒ 原用例里「�
 | 防止再次发生（QM-5 ⑤） | ✅ | 10 次变异反证；`run-tests.js` 登记新测试文件（漏登记会静默不执行）|
 | 行尾与 diff 对账 | ✅ | `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` **两口径一致** |
 | 接线棘轮 | ✅ | `node scripts/check-unwired-tests.js` → `OK`（88 个测试文件）；新文件已进 `VITEST_FILES` |
-| QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/` 与渲染面 |
-| QM-6 CCG 双模型外部评审 | PENDING | 见下 |
+| QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/` 与渲染面（`rpa-view-platforms.js` 是 electron 服务层，QM-1 不要求；桌面侧 92/92 已跑）|
+| QM-6 CCG 双模型外部评审 | PENDING | 八轮 self_play 全部逐条修复（见下）；**第九轮未执行** —— claude 后端免费额度耗尽（403，次日 00:00 CST 重置），已如实记录，不自审冒充 |
 | 远程同步 | PENDING | 本 PR 未合并 |
 
 ### 逃逸链（QM-5 ②：这些缺陷为什么此前没被拦住）
@@ -148,8 +148,9 @@ D 修完后「没有任何平台的 TAG_STYLES 键缺席」⇒ 原用例里「�
 ### 门禁自检命令（可复跑）
 
 ```bash
-cd packages/api-publish-engine && node scripts/run-tests.js        # 42 文件 / 431 测试
+cd packages/api-publish-engine && node scripts/run-tests.js        # 42 文件 / 438 测试
 node --test scripts/verify-platform-onboarding.test.js             # 20 测试
+node --test packages/api-publish-engine/test/content-formatter-registry-sync.test.js   # 7 测试
 node scripts/check-unwired-tests.js                                # exit 0
 for s in wechat_mp zhihu weibo douyin xiaohongshu tencent_video kuaishou toutiao \
          youtube tiktok bilibili baijiahao twitter instagram facebook; do
@@ -157,14 +158,47 @@ for s in wechat_mp zhihu weibo douyin xiaohongshu tencent_video kuaishou toutiao
 done                                                               # 15/15 全绿
 ```
 
+### CCG 深度评审：八轮 upheld 全修 + 第九轮因后端额度耗尽未执行（如实记录）
+
+本 PR 触发深度审查后，引擎连续判 `self_play`（第三档出口），**八轮**逐条取证并修复：
+
+| 轮 | 判定 |  upheld（已修） | dismissed |
+| --- | --- | --- | --- |
+| 1 | DUAL 562 行 | i1/i4/i5/i6 | i2/i3 |
+| 2 | SINGLE 183 行 | i1（Critical） | i2/i3/i4 |
+| 3 | DUAL 193 行 | i2/i3/i4/i5 | i1 |
+| 4 | DUAL 277 行 | i1–i5 | — |
+| 5 | SINGLE 103 行 | i1/i2/i3 | i4 |
+| 6 | SINGLE 145 行 | i1/i3/i4 | i2/i5 |
+| 7 | SINGLE 156 行 | i1/i3/i4 | — |
+| 8 | SINGLE 165 行 | i1/i2/i3 | i4 |
+
+每轮都做了变异反证（累计 20+ 次，全部实跑、改完即还原并复验）。**过程中三次被抓到真实回归**：
+① 我自己的修复引入 fail-open（存量过滤整体放行区间内新命中，Critical）；
+② 我自己的修复引入 fail-closed 级联（一个 typo 让全 App 路由失效）；
+③ 我重构时漏掉缺省派生，被结构锁当场抓住。这些都写进了对应轮次的裁决 rationale。
+
+**第九轮未执行**（2026-10-16 18:0x，三次尝试均失败）—— 根因已用尾随抢日志证实：
+claude 后端返回 `403 今日免费订阅额度已用尽（次日 00:00 CST 自动重置）`。
+属**环境硬约束**，非代码问题、非瞬时故障。按 QM-6 纪律如实记为「未执行」，
+**不以自审冒充通过**；`.ccg/reviews/` 里最后一条为第八轮的 `self_play_pending`，
+第九轮未产生记录。**建议次日 00:00 CST 后由下一会话重跑 `sh scripts/deep-review.sh`
+补上第九轮**（届时 diff 基线会变，引擎会重新评审当前内容）。
+
 ### 遗留（不假装已闭合）
 
+- **第九轮深度审查未执行**（后端免费额度耗尽，见上）。前八轮 upheld 已全部修复并加反证，
+  但**没有新的独立评审覆盖第八轮之后的那一次提交**（第八轮修复本身的评审就是第九轮）。
 - **tiktok / youtube 的正文形态只有结构档测试**（无可注入缝，见上）。要升级为行为档，
   需要先给这两个适配器加可注入缝（例如把 payload 组装抽成纯函数）。**本次刻意不做**：
   那会扩大改动面到「重构」量级，应单独排期。
-- **`has_api` 与 `publishMode` 的轴语义只写在注释与测试里**，没有可机读的单一来源。
-  若后续再有平台两轴不一致，判据⑨ 只能判「有声明无实现」，判不出「声明与轨道是否相符」。
+- **存量过滤依赖 `git diff --cached` 区间**，未暂存的新增行不在区间内。当前靠
+  「区间外命中只豁免、区间内保留阻断 + 打印命中行号供人工复核」兜住；
+  根治要做 `git diff HEAD` 三区间对比，属单独排期。
 - **`platform-entries.js` 只登记 10 个平台**（DOM 发布入口），与注册表 15 个的差集
-  （youtube/tiktok/twitter/instagram/facebook 等）是否有意为之，本次**未裁定**
-  （不影响本次任何判据的结论，但它是另一条可能的遗留）。
-- QM-6 双模型外部评审按流程执行，结论以 `.ccg/reviews/` 与 PR 描述为准，不在本记录里预先声称。
+  （youtube/tiktok/twitter/instagram/facebook 等）是否有意为之，本次**未裁定**。
+- **源码字形结构锁**（`⇒ 空声明`、`api-only || publishMode` 等）锁的是「防第二份实现」，
+  不是行为覆盖；行为面已由「判据与运行时同源对账」承担。要把字形锁整体删除，
+  需先把 `buildChecks` 的 YAML 源做成可注入，属单独排期。
+- **`supportsApi` 命名与语义不符**（实为轨道口径而非能力口径），更名需跨 3 个文件
+  + 桌面侧，为避免把命名重构混进本 PR 而未做。
