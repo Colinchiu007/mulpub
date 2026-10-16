@@ -294,3 +294,137 @@ function Split-WorktreeHolders {
     }
     return [pscustomobject]@{ KillList = $kill; Holders = $holders }
 }
+
+function Get-WorktreeContent {
+    # Classifies what a worktree holds without touching the filesystem, so the mapping is
+    # testable and so the caller cannot confuse "nothing here" with "could not look".
+    # Basis:
+    #   measured-git : registered AND git answered (the porcelain array is not $null)
+    #   measured-fs  : git could not answer, but the tree was enumerated
+    #   unproven     : neither worked -- no confirmation may substitute for a measurement
+    # Returns a snapshot OBJECT, unlike its three `Resolve-*Disposition` siblings, which return
+    # string verdicts (QM-6 F1: the name now says so - object-returning helpers in this file are
+    # `Get-*`, cf. Get-FsLinkReport).
+    #
+    # ignored (!! lines) get their own tier on purpose: folding them into the dirty count
+    # would make the gate fire on every build residue and train callers to pass -Force.
+    # The caller feeds that tier from a SEPARATE cheap probe, not from `-uall --ignored`:
+    # measured 2026-10-15, `--untracked-files=all --ignored` emits 55,191 porcelain lines on a
+    # task worktree and 127,654 on the shared root (~2-8s and a six-figure array per removal),
+    # while plain `--ignored` collapses ignored directories to one entry each (80 lines / 10
+    # entries here). So Ignored counts ENTRIES, and IgnoredKnown says whether that number is a
+    # measurement at all - printing 0 when the probe never answered would rebuild the very
+    # "constructed zero" this function exists to eliminate.
+    param(
+        [AllowNull()][string[]]$PorcelainLines,
+        [AllowNull()][string[]]$IgnoredProbeLines,
+        [bool]$Registered,
+        [bool]$TreeEnumerated = $true,
+        [int]$TopLevelEntries = 0
+    )
+    $gitMeasured = ($Registered -and ($null -ne $PorcelainLines))
+    $probeAnswered = ($null -ne $IgnoredProbeLines)
+    $tracked = 0; $untracked = 0; $ignored = 0
+    # Every tier requires a git answer. Counting ignored entries while git never replied would
+    # park a non-zero number on the object that IgnoredKnown then refuses to print - a value that
+    # can never legitimately be displayed is a trap for the next reader, not information (QM-6 F4).
+    if ($gitMeasured) {
+        foreach ($line in $PorcelainLines) {
+            if ([string]::IsNullOrWhiteSpace($line)) { continue }
+            $x = $line.Substring(0, 1)
+            $y = if ($line.Length -ge 2) { $line.Substring(1, 1) } else { " " }
+            if ($x -eq "!" -or $y -eq "!") { $ignored++ }
+            elseif ($x -eq "?" -and $y -eq "?") { $untracked++ }
+            else { $tracked++ }
+        }
+        # Two feeds are accepted on purpose: the normal one is split (`-uall` porcelain plus a
+        # separate collapsed `--ignored` probe), but a caller that still passes a single combined
+        # `-uall --ignored` run - the pre-split form, and what the truth table feeds - must still
+        # classify. That is why IgnoredKnown keeps the `-or $ignored -gt 0` term: it is live for
+        # that feed, not dead code (QM-6 B3; disposition recorded in design.md).
+        if ($probeAnswered) {
+            foreach ($line in $IgnoredProbeLines) {
+                if ([string]::IsNullOrWhiteSpace($line)) { continue }
+                $x = $line.Substring(0, 1)
+                $y = if ($line.Length -ge 2) { $line.Substring(1, 1) } else { " " }
+                if ($x -eq "!" -or $y -eq "!") { $ignored++ }
+            }
+        }
+    }
+    $basis = if ($gitMeasured) { "measured-git" } elseif ($TreeEnumerated) { "measured-fs" } else { "unproven" }
+    $ignoredKnown = $gitMeasured -and ($probeAnswered -or $ignored -gt 0)
+    return [pscustomobject]@{
+        TrackedDirty    = $tracked
+        Untracked       = $untracked
+        Ignored         = $ignored
+        IgnoredKnown    = $ignoredKnown
+        GitMeasured     = $gitMeasured
+        TopLevelEntries = $TopLevelEntries
+        Basis           = $basis
+    }
+}
+
+function Resolve-ContentDisposition {
+    # Pure gate matrix: ok | confirm_required | unproven.
+    # 2026-10-15 review correction (decision-layer, Critical): ignored VOLUME is not a
+    # blocking axis. node_modules is ignored and always enormous, so "ignored bytes over a
+    # budget => confirm_required" would fire on every removal and push callers to pass
+    # -Force by reflex - the exact degradation this change exists to avoid. Ignored content
+    # is therefore reported by the caller (visibility) and never blocks here; blocking on
+    # ignored paths returns with the evidence-exemption glob (tasks 6.5), which keys on path
+    # semantics rather than size.
+    #
+    # unproven ignores $Confirmed on purpose: an operator cannot validly sign off on content
+    # nobody could measure.
+    param(
+        [Parameter(Mandatory = $true)]$Content,
+        [bool]$Confirmed = $false
+    )
+    if ($Content.Basis -eq "unproven") { return "unproven" }
+    $needsConfirm = ($Content.Basis -eq "measured-fs" -and $Content.TopLevelEntries -gt 0) -or
+                    ($Content.TrackedDirty -gt 0) -or ($Content.Untracked -gt 0)
+    if ($needsConfirm -and -not $Confirmed) { return "confirm_required" }
+    return "ok"
+}
+
+function Format-ContentSummary {
+    # The print surface is a pure function on purpose. This whole change exists because a
+    # printed "dirty: 0" was read as "nothing here" when it meant "nothing measured"; if the
+    # formatting lives in the script body it cannot be locked, and the next edit puts the
+    # bare zero back. Unmeasured tiers print n/a - never 0.
+    #
+    # Ignored counts ENTRIES from the collapsed probe (see Get-WorktreeContent), so the
+    # unit is written out; a bare number would read as a file count to whoever signs off.
+    param([Parameter(Mandatory = $true)]$Content)
+    $ignoredText = if ($Content.IgnoredKnown) { "$($Content.Ignored) entries(ignored dirs collapsed)" } else { 'n/a(not measured)' }
+    if ($Content.Basis -eq 'measured-git') {
+        return ("trackedDirty={0} untracked={1} ignored={2}" -f $Content.TrackedDirty, $Content.Untracked, $ignoredText)
+    }
+    # QM-6 F2: for measured-fs the number that TRIGGERS the gate is the top-level entry count.
+    # A BLOCKED line carrying only n/a values reads as "nothing to sign off" to whoever only
+    # sees the refusal - the same misreading this change exists to remove, just relocated.
+    return ("trackedDirty=n/a untracked=n/a ignored={0} topLevelEntries={1} (top-level entries, includes directories)" -f $ignoredText, $Content.TopLevelEntries)
+}
+
+function Test-DriftCascadeSymbol {
+    # One implementation of "which porcelain symbols are a cascade signature". The classifier
+    # below and the R7 printed list both read this, because what gets shown must be exactly
+    # the lines the verdict was based on - filtering with a second copy of the regex lets the two
+    # drift apart, and then the message names deletions that are not there (QM-6 B9).
+    # Set: ' D' (worktree deleted), 'D ' (index deleted), 'DU'/'UD' (conflicts), '.D' (any Y=D).
+    param([string]$Entry)
+    return ($Entry -match '^( D|D |DU|UD|.D)')
+}
+
+function Resolve-DriftDisposition {
+    # R7 classification. Only deletion/conflict-shaped drift is a cascade signature; a
+    # concurrent session staging M/A/?? in the shared root is routine in this repo and
+    # must not burn the alarm down to nothing.
+    param([string[]]$NewEntries)
+    $entries = @($NewEntries | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    if ($entries.Count -eq 0) { return "clean" }
+    foreach ($e in $entries) {
+        if (Test-DriftCascadeSymbol $e) { return "cascade" }
+    }
+    return "benign_drift"
+}

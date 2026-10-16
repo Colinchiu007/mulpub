@@ -64,25 +64,47 @@
       return
     }
 
-    // ② 逐条 evasions（单项容错）
-    var bundle
-    try {
-      bundle = require('./evasions-bundle.js')
-    } catch (e) {
-      logErr('evasions bundle require failed: ' + (e && e.message))
-      bundle = null
+    // ② 主世界还原补丁：**只应用实测确认与真实 Chrome 不一致的项**（2026-10-15 收敛）
+    //
+    // ⛔ 本段原先是"无条件遍历 evasions-bundle 的全部 7 条"。那个 bundle 是第三方插件
+    //    （puppeteer-extra-plugin-stealth@2.11.2）的逐字提取快照，它描述的是"通用自动化规避清单"，
+    //    **不是**"本应用与真实 Chrome 的差异清单"。两者不是一回事——照抄前者会把"本来正常的项"
+    //    主动改坏。同机真机对照（Electron 43.7.7 vs Chrome 155，同 GPU、同时段；raw 产物见
+    //    01-docs/evidence/zhihu-stealth-mainworld-2026-10-15/）逐项实测后，那 7 条全部不成立：
+    //      navigator.webdriver   两边都是 false ⇒ 无可修
+    //      chrome.runtime        真实 Chrome 的普通网页上**也是 undefined** ⇒ 凭空造反而自曝
+    //      navigator.plugins     Electron 已是与 Chrome **逐字相同的 5 项**；换成含 Native Client 的
+    //                            假列表（现代 Chrome 早已移除 Native Client）比原状更明显
+    //      navigator.languages   只改 JS 读数会与请求头 Accept-Language 不一致 ⇒ 制造新破绽
+    //      iframe.contentWindow  对照中未见差异 ⇒ 无实测依据
+    //      window.outerdimensions Chrome 无头态报 0/0，**不可比** ⇒ 无实测依据
+    //      navigator.permissions 方向对、取值错（vendored 默认按"已授权"写），且与下方实测清单
+    //                            会打架 ⇒ 统一交给实测清单接管
+    //    ⇒ 全部停用。**停用不是删代码**：vendored bundle 仍作为哈希快照留在仓里（evasions.test.js
+    //      锁它），只是不再被应用；将来若要重新评估某一条，必须补同机对照证据。
+    var DISABLED_VENDORED_EVASIONS = [
+      'navigator.webdriver', 'chrome.runtime', 'navigator.plugins', 'navigator.languages',
+      'iframe.contentWindow', 'window.outerdimensions', 'navigator.permissions'
+    ]
+    if (DISABLED_VENDORED_EVASIONS.length > 0) {
+      logErr('vendored evasions disabled by measurement (' + DISABLED_VENDORED_EVASIONS.length + '): ' +
+        DISABLED_VENDORED_EVASIONS.join(','))
     }
-    if (bundle && bundle.evasions) {
-      var names = Object.keys(bundle.evasions)
-      for (var i = 0; i < names.length; i++) {
-        var entry = bundle.evasions[names[i]]
-        if (!entry || typeof entry.code !== 'string') continue
-        try {
-          inject(webFrame, entry.code)
-        } catch (e) {
-          logErr('evasion injection failed (' + names[i] + '): ' + (e && e.message))
-        }
+
+    // 实测清单（单一真源：electron/stealth/evasions.js，与浏览/账号标签的 monitor-preload 共用同一份，
+    // 避免两条承载各写一套取值）。本文件经 esbuild 打包，故这里的相对 require 会被内联——
+    // sandbox preload 直接 require 相对路径文件是**失败**的（真机实测 module not found）。
+    try {
+      var measured = require('../../stealth')
+      var measuredSource = measured.buildEvasionSource()
+      if (typeof measuredSource === 'string' && measuredSource) {
+        inject(webFrame, measuredSource)
+      } else {
+        logErr('measured evasion source empty; main-world evasion skipped')
       }
+    } catch (e) {
+      // fail-open：反检测是旁路，绝不能连带毁掉发布流程（与本文件既有的逐项容错同因）
+      logErr('measured evasion source unavailable: ' + (e && e.message))
     }
 
     // ③ 末片：done marker

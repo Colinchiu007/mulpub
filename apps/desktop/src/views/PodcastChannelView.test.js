@@ -414,6 +414,67 @@ describe('PodcastChannelView 视图行为', () => {
     expect(en.podcast.stock.skippedChannels).toContain('{count}')
   })
 
+  // ── PRD §8.2.5 / §8.2.6 锁 7：三态徽标（tasks 4.5 UI 半片）──
+  // 夹具口径：第一行带上指定的 compliance，第二行原样带（该键缺席）——
+  // 同一次渲染里同时证明「三态各自的表现」与「缺席整块不显示」，不必各建一套挂载。
+  const epWithCompliance = (compliance) => {
+    const ep = { ...SAMPLE_EPISODES[0] }
+    if (compliance !== undefined) ep.compliance = compliance
+    return [ep, SAMPLE_EPISODES[1]]
+  }
+
+  it('state=stock → 显示「存量沿用（未重新校验）」，不显示原因清单', async () => {
+    podcastApi.episodeList.mockResolvedValue({ ok: true, episodes: epWithCompliance({ state: 'stock', reasons: [], checkedAt: '' }) })
+    const w = await renderView()
+    expect(w.find('[data-testid="podcast-compliance-stock-ep-1"]').text()).toContain('存量沿用')
+    expect(w.find('[data-testid="podcast-compliance-reasons-ep-1"]').exists()).toBe(false)
+    expect(w.find('[data-testid="podcast-compliance-stock-ep-2"]').exists()).toBe(false)
+  })
+
+  it('state=ok → 什么都不显示（「没问题」不需要一条文案去说）', async () => {
+    podcastApi.episodeList.mockResolvedValue({ ok: true, episodes: epWithCompliance({ state: 'ok', reasons: [], checkedAt: '2026-10-15T00:00:00+00:00' }) })
+    const w = await renderView()
+    expect(w.find('[data-testid^="podcast-compliance-"]').exists()).toBe(false)
+  })
+
+  it('state=invalid → 计数句 + 逐条原因 + 可播出提示三样都在，且原因走 issueText 单一实现', async () => {
+    podcastApi.episodeList.mockResolvedValue({ ok: true, episodes: epWithCompliance({ state: 'invalid', reasons: ['TITLE_REQUIRED', 'ENCLOSURE_UNREACHABLE'], checkedAt: '2026-10-15T00:00:00+00:00' }) })
+    const w = await renderView()
+    expect(w.find('[data-testid="podcast-compliance-invalid-ep-1"]').text()).toContain('2 项不符合发布要求')
+    expect(w.find('[data-testid="podcast-compliance-reasons-title-ep-1"]').text()).toBe('具体原因')
+    expect(w.find('[data-testid="podcast-compliance-reasons-ep-1"]').findAll('li')).toHaveLength(2)
+    expect(w.find('[data-testid="podcast-compliance-degrade-ep-1"]').text()).toContain('仍可播出')
+    const items = w.find('[data-testid="podcast-compliance-reasons-ep-1"]').findAll('li').map(li => li.text())
+    expect(items).not.toContain('TITLE_REQUIRED')
+    expect(items[0]).toBe(issueText('TITLE_REQUIRED'))
+  })
+
+  it('compliance 键缺席 → 整块不显示，且绝不渲染成「0 项不符合」（缺席 ≠ 0）', async () => {
+    podcastApi.episodeList.mockResolvedValue({ ok: true, episodes: epWithCompliance(undefined) })
+    const w = await renderView()
+    expect(w.find('[data-testid^="podcast-compliance-"]').exists()).toBe(false)
+    expect(w.text()).not.toContain('0 项不符合发布要求')
+  })
+
+  it('四键 zh/en 成对、invalid 带 {count} 占位，且 zh 用「存量」而非「旧数据」（§8.2.5 术语条款）', () => {
+    for (const k of ['stock', 'invalid', 'reasonsTitle', 'degradeNotice']) {
+      expect(typeof zh.podcast.compliance[k]).toBe('string')
+      expect(typeof en.podcast.compliance[k]).toBe('string')
+    }
+    expect(zh.podcast.compliance.invalid).toContain('{count}')
+    expect(en.podcast.compliance.invalid).toContain('{count}')
+    expect(zh.podcast.compliance.stock).toContain('存量')
+    expect(en.podcast.compliance.stock).toBe('Legacy value kept (not re-validated)')
+  })
+
+  it('结构锁：徽标不得在展示层自带第二份码→文案映射（§8.2.6 锁 5）', () => {
+    const vsrc = fs.readFileSync(path.join(__dirname, 'PodcastChannelView.vue'), 'utf8')
+    const badgeBlock = vsrc.slice(vsrc.indexOf('podcast-compliance-badge'), vsrc.indexOf('podcast-episode-ops'))
+    expect(badgeBlock.length).toBeGreaterThan(40)
+    expect(badgeBlock).toContain('issueText(')
+    expect(badgeBlock).not.toMatch(/PODCAST_[A-Z_]+\s*:/)
+  })
+
   it('频道 IPC 返回非空 → 表单字段被真实填充（数据转发路径）', async () => {
     podcastApi.channelGet.mockResolvedValue({ ok: true, channel: SAMPLE_CHANNEL })
     const w = await renderView()

@@ -30,13 +30,12 @@ function loadPreload ({ webFrameThrows = false } = {}) {
       }
   const fs = require('node:fs')
   const path = require('node:path')
-  // shim：'electron' → 假 webFrame；'./evasions-bundle.js' → 真实产物（相对于本模块目录解析）
+  // shim：'electron' → 假 webFrame；'../../stealth' → **真实的实测清单模块**
+  // （2026-10-15 收敛：本 preload 不再 require vendored 的 evasions-bundle，改 require
+  //  electron/stealth 这份按真机对照写的单一真源；esbuild 打包时它会被内联）
   const requireShim = (name) => {
     if (name === 'electron') return { webFrame: fakeWebFrame }
-    if (name === './evasions-bundle.js') {
-      const bundlePath = path.join(__dirname, 'evasions-bundle.js')
-      return require(bundlePath)
-    }
+    if (name === '../../stealth') return require(path.join(__dirname, '..', '..', 'stealth'))
     throw new Error(`unexpected require: ${name}`)
   }
   const navigatorObj = { webdriver: true }
@@ -80,43 +79,61 @@ describe('stealth-preload-enhanced 契约（PRD v1.1 §3.1）', () => {
     expect(last).toMatch(/__mpStealthInjDone/)
   })
 
-  it('注入内容含 evasions bundle 的最小集（逐条精确包含）', () => {
-    const bundle = require(require('node:path').join(__dirname, 'evasions-bundle.js'))
+  it('注入内容 = 实测清单（4 项），且**不得**含 vendored 的有害项（2026-10-15 收敛锁）', () => {
     const { evalCalls } = loadPreload({})
     const all = evalCalls.flatMap((c) => c.scripts.map((s) => s.code)).join('\n')
-    expect(all).toMatch(/webdriver/)
     expect(all.length).toBeGreaterThan(1000)
-    // 逐条精确包含：bundle 里每项 code 都必须被注入（防「只注了首片」类部分注入）
-    for (const [name, entry] of Object.entries(bundle.evasions)) {
-      expect(all, `evasion 未注入: ${name}`).toContain(entry.code)
-    }
+    // ⚠️ 反向锁只看**实测清单那一片**（evalCalls[1]），不看第一片：第一片是 main 既有的
+    // 「最小 navigator patch + start marker」，其 webdriver 赋值在本仓是**空操作**（两边本就都是
+    // false），且被 stealth-preload-enhanced.test.js 首片契约锁着——不属本次收敛范围。
+    const measured = evalCalls[1].scripts[0].code
+    // ① 实测确认不一致的 4 项必须在场
+    expect(measured).toMatch(/loadTimes/)          // chrome.keys：补 chrome.csi / chrome.app / chrome.loadTimes
+    expect(measured).toMatch(/Google Chrome/)      // userAgentData.brands 补自家品牌
+    expect(measured).toMatch(/Notification/)       // Notification.permission granted → default
+    expect(measured).toMatch(/permissions/)        // permissions.query → prompt
+    // ② 反向锁：vendored 那套"通用规避清单"里被实测证伪的项**一律不得出现**。
+    //    这是本次收敛的核心断言——没有它，后人"顺手把 bundle 挂回去"不会被任何测试拦住。
+    expect(measured, '不得伪造插件列表（真机对照：Electron 已是与 Chrome 逐字相同的 5 项）').not.toMatch(/Native Client/)
+    expect(measured, '不得凭空造 chrome.runtime（真实 Chrome 普通网页上也是 undefined）').not.toMatch(/chrome\.runtime/)
+    expect(measured, '不得强改 navigator.languages（会与请求头 Accept-Language 不一致）').not.toMatch(/defineProperty\(\s*navigator\s*,\s*['"]languages['"]/)
+    expect(measured, '不得改 window.outerdimensions（Chrome 无头态 0/0，不可比）').not.toMatch(/outerdimensions/)
+    expect(measured, '不得改 iframe.contentWindow（同机对照未见差异）').not.toMatch(/contentWindow/)
+    expect(measured, '不得 patch navigator.webdriver（两边都是 false）').not.toMatch(/webdriver/)
   })
 
-  it('单项容错：一条注入抛错不阻断后续条与 done', () => {
+  it('单项容错下沉到实测源码内部：一条失败不影响其余条与 done 标记', () => {
+    const { evalCalls } = loadPreload({})
+    // 现在的注入片固定为 3 片（start / 实测清单 / done）——逐项容错在**源码内部**实现
+    expect(evalCalls.length).toBe(3)
+    const measured = evalCalls[1].scripts[0].code
+    // 源码自带逐项 try/catch 与 applied/failed 记账（失败项可观测，不静默）
+    expect(measured).toMatch(/try\s*\{/)
+    expect(measured).toMatch(/catch/)
+    expect(measured).toMatch(/applied/)
+    expect(measured).toMatch(/failed/)
+    const last = evalCalls[evalCalls.length - 1].scripts[0].code
+    expect(last).toMatch(/__mpStealthInjDone/)
+  })
+
+  it('实测清单模块不可用时 fail-open：出声但不抛，start/done 仍成立', () => {
     const evalCalls = []
-    let n = 0
-    const flaky = {
-      executeJavaScriptInIsolatedWorld: (worldId, scripts) => {
-        evalCalls.push({ worldId, scripts })
-        n++
-        if (n === 2) throw new Error('transient') // 第二条挂
-        return Promise.resolve()
-      },
-    }
+    const consoleErr = vi.spyOn(console, 'error').mockImplementation(() => {})
     const fs = require('node:fs')
     const path = require('node:path')
     const src = fs.readFileSync(path.join(__dirname, 'stealth-preload-enhanced.js'), 'utf8')
     const fn = new Function('require', 'module', 'exports', 'navigator', 'window', src)
     const shim = (name) => {
-      if (name === 'electron') return { webFrame: flaky }
-      if (name === './evasions-bundle.js') return require(path.join(__dirname, 'evasions-bundle.js'))
+      if (name === 'electron') {
+        return { webFrame: { executeJavaScriptInIsolatedWorld: (w, s) => { evalCalls.push({ w, s }); return Promise.resolve() } } }
+      }
+      if (name === '../../stealth') throw new Error('module not found')
       throw new Error(`unexpected require: ${name}`)
     }
-    fn(shim, { exports: {} }, {}, { webdriver: true }, {})
-    // 首片 + 7 evasions + done = 9 条调用都应发生（第二条抛错被吞）
-    expect(evalCalls.length).toBe(9)
-    const last = evalCalls[evalCalls.length - 1].scripts[0].code
-    expect(last).toMatch(/__mpStealthInjDone/)
+    expect(() => fn(shim, { exports: {} }, {}, { webdriver: true }, {})).not.toThrow()
+    // 反检测是旁路：源码取不到也不能连带毁掉发布流程（fail-open，与用户可见行为一致）
+    expect(evalCalls.length).toBe(2)
+    expect(consoleErr).toHaveBeenCalled()
   })
 
   it('通道整体不可用：不抛、console.error 出声（主进程 console-message 可观测）', () => {

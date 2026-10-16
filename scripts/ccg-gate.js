@@ -334,7 +334,63 @@ function main() {
     if (process.env.SKIP_CCG_GATE === "1") {
       console.log("   [CCG] 审查模式判定已随 SKIP_CCG_GATE 跳过");
     } else {
-      const r = spawnSync(process.execPath, [decider], { encoding: "utf8" });
+      // ★ 2026-10-15 修（残余 2 / 补完缺陷 C 的另一半）：
+      //   有显式目标 = 事后补跑 ⇒ 改动已进 commit、暂存区通常是空的。
+      //   原来这里 `[decider]` 一个参数都不传 ⇒ decider 去读空暂存区 ⇒
+      //   打印「暂存区无变更，跳过审查模式判定」⇒ **模式判定从未执行**，
+      //   而输出读起来像「无需审查」。现在把区间基准传下去，让它判这批改动。
+      const deciderArgs = [decider];
+      // ★ 深度审查 i1 修正（2026-10-15）：判据从「有显式目标」改成「暂存区为空」。
+      //
+      //   「有显式目标」**不等于**「事后补跑」—— 带着暂存改动跑
+      //   `node scripts/ccg-gate.js verify-quality <file>` 是**合法且常见**的用法
+      //   （提交前只想查某个文件），此时改动就在 index 里、还没进 commit。
+      //   原来只凭 explicitTargets 就改判 base...HEAD，会把刚暂存的改动**漏掉**
+      //   （区间为空 ⇒ 误报「未判定」；有旧 commit ⇒ 判成无关的历史改动）——
+      //   恰是本 PR 要消灭的「判据判错范围」。
+      //
+      //   正确判据：**暂存区非空 ⇒ 判暂存区（原行为）；暂存区为空 ⇒ 才是补跑，判区间。**
+      if (explicitTargets.length > 0 && staged.length === 0) {
+        // ★ 深度审查 i6：`CCG_DECIDER_BASE` 必须先校验再当候选。
+        //   原来直接把它当 candidate ⇒ 设了坏值/不存在的 rev 时，gate 先打印
+        //   「基准：坏值...HEAD」、decider 紧接着打印「未判定」，**输出自相矛盾**；
+        //   而补救文案只提 --base，与「我改的是 env」的现实相悖。
+        const isRev = (ref) =>
+          !!ref &&
+          spawnSync("git", ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], {
+            encoding: "utf8",
+          }).status === 0;
+        let candidate = null;
+        const envBase = process.env.CCG_DECIDER_BASE;
+        if (envBase) {
+          if (isRev(envBase)) {
+            candidate = envBase;
+          } else {
+            warnings.push(
+              `CCG_DECIDER_BASE 指定的基准「${envBase}」不是有效 rev ⇒ 已忽略 ⇒ **未做审查模式判定**`
+            );
+          }
+        } else {
+          candidate = ["origin/main", "main"].find(isRev) || null;
+        }
+        if (candidate) {
+          deciderArgs.push("--base", candidate);
+          console.log(
+            `   [CCG] 审查模式判定基准：${candidate}...HEAD（暂存区为空 ⇒ 按事后补跑判区间）`
+          );
+        } else {
+          warnings.push(
+            "显式补跑模式下找不到可用的 base（origin/main / main 都不存在）⇒ **未做审查模式判定**；" +
+              "请用 CCG_DECIDER_BASE=<rev> 指定基准后重跑"
+          );
+        }
+      } else if (explicitTargets.length > 0) {
+        console.log(
+          `   [CCG] 显式目标 ${explicitTargets.length} 个，但暂存区有 ${staged.length} 个改动` +
+            " ⇒ 模式判定仍判暂存区（不传 --base）"
+        );
+      }
+      const r = spawnSync(process.execPath, deciderArgs, { encoding: "utf8" });
       const out = `${r.stdout || ""}`.trim();
       if (r.status === 0 && out) {
         out.split("\n").forEach((l) => console.log(l));

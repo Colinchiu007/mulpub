@@ -53,7 +53,7 @@ node scripts/classify-docs-only.js --base=origin/main --head=HEAD
   - **跳过**（与运行时无关）：QM-1 打包、QM-2 代码必检项、QM-4 视觉、TDD（无代码）、QM-6 双模型评审。
   - CI 侧由各全量 workflow 的 `changes` job 自动短路重型 job（job 级 `if`，skipped 满足 required check；触发级 paths-ignore 仍是禁区），无需人工干预。
 - 判定 `false`（混合 PR，含任一代码/依赖/CI 路径）→ 完整质量节拍，不得借道本通道；改 `.github/workflows/`、`scripts/` 工具脚本自身的 PR 属混合 PR。
-- `.quality-gates.md` 记录用精简模板（判定证据必须写入）：
+- `.quality-gates.md` 记录用精简模板（判定证据必须写入；**2026-10-15 起这份模板只用于关闭旧载体里【已存在】的行——新 PR 一律把记录写进 `openspec/records/<分支名>.md`，见「旧载体冻结」**）：
 
 ```
 ## 本次执行记录：<标题>（<slug>，<date>）【docs-only】
@@ -68,6 +68,18 @@ node scripts/classify-docs-only.js --base=origin/main --head=HEAD
 - 反向约束：本通道只豁免「与运行时无关」的门禁；`--no-verify` 仍然禁止；判定脚本自身故障（git 取证失败）时 fail-closed 按混合 PR 处理。
 - 进白名单的前提锁（2026-09-30 实测确立）：任何路径要加进 `CI_IGNORED_PATHS`，它的**校验必须先接线到不被 docs-only 短路的 job**（`quality-gate.yml` 的 `changes`，且放在非 PR 早退之前）。原因是 `static-gates` 整个 job 被 `docs-only != 'true'` 门控 —— 一个"门禁的数据文件"进了白名单却仍只在 static-gates 里被校验，等于**给自己关掉校验**（`scripts/gate-record-debt-ledger.json` 就是这一例：搬进 `changes` 后才放开，锁见 `scripts/classify-docs-only.test.js` 的「账本 JSON 在名单内 ⇒ 它的门禁必须接线进 changes job」）。
 - 前提锁已从"文档纪律"变成**机械登记表**（2026-10-08，change: spec-mirror-wiring-gate）：`scripts/check-unwired-tests.js` 的 `MUST_LIVE_IN_UNGATED_JOB` 按 job 解析 `if:` 归属，登记项若只被点名在有 job 级 `if:` 的 job 里 ⇒ `TEST_ONLY_IN_SKIPPABLE_JOB` 红；文件消失 ⇒ `UNGATED_WIRING_ACK_STALE` 红。动因是实测事故：归档 PR #3114 把 vendored 契约镜像锁判红却合法合入（PR 侧 `QG Changes=pass` / `QG Static=skipping`，那条锁当时**一次都没跑**），main push 才红并卡住全部 open PR。新增命中白名单输入的锁时**由人登记、由该判据核对登记的正确性**；不要改成"从测试源码提取路径字面量和白名单求交"的启发式自动判据（实测 6 条可疑逐条核对只剩 1 条为真，一次引入 5 个假阳的门禁结局是逼人清空登记表）。接进 `changes` job 的锁**只能 require node 内置模块**（该 job 无 Install deps，锁见 `scripts/quality-rhythm-spec-mirror.test.js`）。
+
+### 旧载体冻结（2026-10-15 起，change: freeze-legacy-gate-carrier）
+
+**执行记录的唯一强制载体是 `openspec/records/<分支名>.md`。** `.quality-gates.md` 与 `scripts/gate-record-debt-ledger.json` 转为**存档面**：
+
+- 新 PR **不再**往 `.quality-gates.md` 顶部插块，也**不再**往 ledger 加键。判据：`scripts/check-gate-record-debt.js` 比对旧载体记录块集合与 `scripts/gate-carrier-freeze.json` 基线（排序标题的 sha256 + 条数），**加块或删块即红**。
+- 仍**允许**就地改写旧载体里已有记录块的状态行——ledger 里还挂着历史欠账（现读数以 `scripts/gate-record-debt-ledger.json` 键数为准，本轮实测 25 条，多为 2026-08），它们只存在于旧载体，关闭只能靠这条通道；把这条路封掉等于把旧账永远钉红。
+- 基线重算只由人工执行：`node scripts/freeze-gate-carrier.js`。这属"改谁来守门"，**必须人工过目，不走 agent 自动合并**。
+- 上文「docs-only 快速通道」里的 `.quality-gates.md` 精简模板与「⛔ 两种形态必须同写」两条，自本节起**只适用于关闭已有旧行**；新 PR 的两形态写在 `openspec/records/<分支名>.md` 内（表行 + `- 保留门禁：… | 远程同步 <状态>` bullet，缺行/矛盾由 `missingRecordRows`、`statusContradictions` 拦截，两者都在拦截面上）。
+- 「最顶部那篇记录必须带 `远程同步` 行」这条已从拦截面移入可见面：它的作用仅是"用位置猜哪篇最新"，而记录文件源有逐篇硬判据，位置猜测不再必要。
+
+**为什么做这件事**：`.quality-gates.md` 与 ledger 是所有会话共用的追加型写面，而共享主工作区只有一份工作树、一份 index、一份 HEAD。机器判定其实不需要它们（记录文件源读自身 frontmatter，ledger 只服务旧载体）。实测代价：同一条回填 #3602 / #3606 标题逐字相同、相隔 20 分钟各落一遍；共享根 reflog 在 5 小时窗口内记录到同一 HEAD 上 29 次 git 写动作。规范见 `openspec/changes/freeze-legacy-gate-carrier/specs/`（归档后才落到 `openspec/specs/openspec-integration/spec.md` 的「分层分支策略」——**归档前那份基线规格仍写着旧口径**，以本节与判据为准）。
 
 ### PR 自动合并（2026-10-05 起，branch: agent-automerge-rule）
 
@@ -95,13 +107,13 @@ node scripts/classify-docs-only.js --base=origin/main --head=HEAD
 - `--no-verify`；
 - 直推 `refs/heads/main`（分支保护以 `GH011` 拒绝，直推路径无法满足 required status checks，见 PR #2411）；
 - 在门禁未绿时合并（「先合了再说」是本条最典型的失守形态）；
-- 合并后不回填远程同步：**回填与销账必须同一次提交**（`.quality-gates.md` 状态列 `PENDING` → `PASS` + merge SHA，删除 frontmatter 的 `sync_*` 三字段，同时删 `scripts/gate-record-debt-ledger.json` 的登记项），回填 PR 同样按本节自动合并。
+- 合并后不回填远程同步：**回填与销账必须同一次提交**（`.quality-gates.md` 状态列 `PENDING` → `PASS` + merge SHA，删除 frontmatter 的 `sync_*` 三字段，同时删 `scripts/gate-record-debt-ledger.json` 的登记项；**2026-10-15 起新 PR 这一笔只在 `openspec/records/<分支>.md` 内收口——不往旧载体插块、不往 ledger 加键，上面那两个旧动作仅当关闭的是冻结前【已存在】的那一行时才做，见「旧载体冻结」**），回填 PR 同样按本节自动合并。
 
 **合并后收尾清单（缺一不可）**
 
 1. `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 取 merge SHA 与时间；
 2. `git ls-remote --heads origin <branch>` 返回 0 行，证远端分支已删；
-3. 开回填 PR，一次提交内完成：改写 `.quality-gates.md` 与 `openspec/records/<分支>.md` 的远程同步行、删除 `sync_*` 三字段、删除 ledger 登记项；
+3. 开回填 PR，一次提交内完成：改写 `openspec/records/<分支>.md` 的远程同步行、删除 `sync_*` 三字段、删除 ledger 登记项（**ledger 与 `.quality-gates.md` 这两项只对冻结前已存在的旧行做；新 PR 的回填只发生在记录文件内——往旧载体插新块会被 `carrierDrift` 判红**）；
 4. 按本节判据合并回填 PR；
 5. worktree 按 R1-R5 清理：`scripts/safe-worktree-remove.ps1 -WhatIf` 干跑通过后再实跑，R7 须校验主工作区与基线一致。
 6. 清理被 `busy holders` 挡住时：先按「命令行含该 worktree 绝对路径」定位持有者，再核**完整进程树**与 CPU 增量（同一 PID 间隔 6s 两次采样 `UserModeTime` 完全相同即挂死残留），确认是本会话自己中止的运行后**逐个按 PID** 终止；终止前后各测一次 `Get-Process electron` 计数，两者**必须相等**——本机通常还有别的 worktree 在跑用户的应用实例，按名字批量 kill 必然误杀。脏清单（多为 `.ccg/reviews/<sha>.json` 孤儿）先复制到共享根同名目录留证，再 `-Force -ConfirmDirtyDiscarded`；复制前须先 `git ls-tree -r --name-only origin/main -- <路径>` 确认该文件名未被上游托管，否则会把 `git merge --ff-only` 变成「untracked would be overwritten」并卡住后续所有文档 PR。
@@ -976,7 +988,7 @@ codeagent-wrapper --backend <FRONTEND_PRIMARY> --lite "审查 <change> 实现：
 - 两个模型各返回 JSON findings（severity: Critical / Warning / Info）
 - **Critical 必须修复**后才能合并（含回归保护测试）
 - **Warning 评估后修复**（数据校验/安全类 Warning 必须修复）
-- 评审记录写入 `.quality-gates.md`（双模型评审 PASS + 发现项 + 修复项）
+- 评审记录写入**本 PR 的执行记录载体**（2026-10-15 起为 `openspec/records/<分支名>.md`；此前已写在 `.quality-gates.md` 里的记录留在原处不改写）（双模型评审 PASS + 发现项 + 修复项）
 
 #### 与既有门禁的关系
 

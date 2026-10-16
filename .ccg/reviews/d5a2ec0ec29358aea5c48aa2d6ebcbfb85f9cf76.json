@@ -1,0 +1,23 @@
+{
+  "sha": "d5a2ec0ec29358aea5c48aa2d6ebcbfb85f9cf76",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 55 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 55,
+    "fileCount": 2,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0
+  },
+  "stagedDiffHash": "037fe849feb6a9d1a4f95ca59b569401e308db5fa0028c5b42078b53aea2513f",
+  "decidedAt": "2026-10-15T10:52:20.032Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

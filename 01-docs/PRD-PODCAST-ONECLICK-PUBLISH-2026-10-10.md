@@ -1088,8 +1088,55 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 | `podcast.compliance.reasonsTitle` | 具体原因 | Details |
 | `podcast.compliance.degradeNotice` | 本期信息不完整，仍可播出，但建议先修复 | This episode looks incomplete. It can still publish; fixing it first is recommended |
 
+> 落地状态（2026-10-15，PR 待回填号）：这四把键与频道页三态徽标**已随本片落地**——`ok` 不渲染任何东西、
+> `stock` 显示「存量沿用（未重新校验）」、`invalid` 显示计数句加逐条原因（原因逐字走 `usePodcastChannel` 的 `issueText`，
+> 展示层不另建码表）；`compliance` 键**缺席**时整块不显示，绝不渲染成「0 项不符合」。
+> 同一条 PR **不含** §7.4.0 第 1 条的「来源三态标注」——那需要先把解析层的 `origin`/`resolvedBy` 扩进 IPC 投影（触主进程，QM-1），属另一片。
+
+
 术语与 `01-docs/i18n-glossary.md` 对齐：「存量」不得与「历史数据/旧数据」混用；
 改词典必须同 PR 跑 `apps/desktop/src/i18n/glossary.test.js`（键级成对锁覆盖不到术语成对）。
+
+### 8.2.9 音色来源三态标注（**合同，尚未实现**）
+
+> 本节是 tasks 4.5 剩下那半句的合同，不是实现。写作依据是当场实测的三个事实：
+> `voiceRef` 在 `apps/desktop/src` 下**命中 0 个文件**；`apps/desktop/src/locales/podcast/{zh,en}.js` 里**没有任何音色相关键**；
+> 解析层 `apps/desktop/electron/services/podcast-tts-voice.js` 只在出期时算出 `{voiceId, origin, resolvedBy}`（`origin` 闭集 =
+> `channel | preference | providerDefault`），而**没有任何 IPC 把它带到渲染层**。所以本片不能"顺手加个标签"——那个落点还不存在。
+
+**数据流（唯一正解）**
+
+1. 主进程新增一个**只读** IPC `podcast:voice-preview`，入参 `{channelId}`，内部走既有 `resolveVoiceRef`（同一实现，禁止在 IPC 层重抄回退顺序），
+   返回 `{ok:true, voiceId, origin, resolvedBy}` 或 `{ok:false, code: PODCAST_TTS_VOICE_UNRESOLVED}`。
+2. 渲染层经 `src/api/podcast-channel.js` 增加一个具名导出（与既有 8 个同族），`usePodcastChannel` 持一个 `voicePreview` ref，
+   **按频道归属失效**（切频道清理清单里必须赋值 null，同 `stockSummary` 那条结构锁的口径）。
+3. 展示落点是出期浮层 `apps/desktop/src/components/PodcastEpisodeEntry.vue` 的表单底部一行（不是频道页）：
+   频道页没有"将要发出去"这个语义，把来源标在频道页会让用户以为那是频道属性，而它实际是**这一次出期**的解析结果。
+
+**显示项与提示文字（zh / en 成对；实现片一次性写全并跑 `node scripts/gen-prd-copy-table.js --apply`）**
+
+| 键 | zh | en |
+| --- | --- | --- |
+| `podcast.voice.originChannel` | 本期音色取自频道设置 | Voice comes from the channel |
+| `podcast.voice.originPreference` | 本期音色取自你的默认偏好（{provider} / {model}） | Voice comes from your default preference ({provider} / {model}) |
+| `podcast.voice.originProviderDefault` | 本期音色取自该模型自带的默认音色（{provider} / {model}） | Voice comes from the model default ({provider} / {model}) |
+
+**必须满足的判据（缺一条即不算落地）**
+
+1. **三态只有三态**：`origin` 取闭集外的值 ⇒ 整行不显示并留一条 warn；不得兜底成"取自频道"（那是伪造来源）。
+2. **① 命中不显示**：`origin=channel` 时这行**不出现**——用户自己填的东西不需要再告诉他一遍来源；只有 ②③ 命中才标注（PRD §7.4.0 第 1 条原话）。
+3. **拒绝态不是空态**：解析返回 `PODCAST_TTS_VOICE_UNRESOLVED` 时，该行显示既有的拒绝文案（走 `issueText` 单一实现），
+   不得渲染成"没有音色"或空字符串；出期按钮的可用性不由这行决定（主路仍由 §6.4 的校验决定），属旁路。
+4. **回退顺序不得有两份实现**：标注里的顺序必须来自 `resolveVoiceRef` 的返回值；结构锁要求渲染层与该 IPC 里
+   不出现 `defaultVoiceId` / `tts-voice-preference:` 字面量（那两个只在主进程一处）。
+5. **旁路失败不毁主路**：`podcast:voice-preview` 抛错或超时 ⇒ 整行不显示（`voicePreview=null`），出期表单照常可填（§8.2.3）。
+6. **IPC 序列化**：入参经 `toPlain` 脱壳；返回对象原样转发，渲染层不得再造第二份状态。
+7. **QM-1 必跑**：本片触 `apps/desktop/electron/ipc-handlers` 与 `preload` ⇒ 属运行时代码变更，必须带打包产物证据（三层 stderr 判据 + 存活断言），不得用单测替代。
+
+**故意不做**
+
+- 不做音色下拉选择器（那是产品决策未定的另一件事：本仓无跨 provider 的全局默认音色，选择器会诱导用户去设一个不存在的东西）。
+- 不把 `origin` 持久化到频道/单集记录（它是每次解析算出来的视图量，落盘即过期，与 §8.2.7 对 `compliance` 的处置同一条理由）。
 
 #### 8.2.6 实现片必须带的七条回归锁（缺一条即不算落地）
 

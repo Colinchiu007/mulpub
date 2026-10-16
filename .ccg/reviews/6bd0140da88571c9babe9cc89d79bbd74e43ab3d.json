@@ -1,0 +1,28 @@
+{
+  "sha": "6bd0140da88571c9babe9cc89d79bbd74e43ab3d",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 1,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "| 修复 + 回归保护（QM-5 ④） | ✅ | ①`--update` 并入新 ID 并清账已解决项；②把新条目的 `decision` 从 `TODO` 补为 `not-exploitable`，并在 `note` 里写入 **ID 等同取证**（`aliases=GHSA-3qf3-8w2g-rqmx,CVE-2026-85394`）、四条仓内复核证据、**复核条件**与**改判条件**。验证：`node scripts/check-dep-audit.js` → rc=0（`✅ 无新增已知漏洞公告，基线与现实一致且结论完整`）；`node --test scripts/check-dep-audit.test.js` → **26/26 通过** |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "ff156528c1cb41d62e64d03324f471615e8dea331729b30291528c69febecc50",
+  "decidedAt": "2026-10-15T16:44:14.347Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

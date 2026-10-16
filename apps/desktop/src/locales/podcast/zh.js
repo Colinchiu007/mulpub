@@ -195,6 +195,14 @@ export default {
       unresolved: '{count} 期无法判定音频类型，需重新生成',
       skippedChannels: '{count} 个频道未能固化，需重试',
     },
+    // PRD §8.2.5（tasks 4.5 三态徽标）：三档各自的可见文案 + 原因清单标题。
+    // state=ok 时界面不显示任何东西，所以这里没有 ok 档——「没问题」不需要一条文案去说。
+    compliance: {
+      stock: '存量沿用（未重新校验）',
+      invalid: '本条有 {count} 项不符合发布要求',
+      reasonsTitle: '具体原因',
+      degradeNotice: '本期信息不完整，仍可播出，但建议先修复',
+    },
     errors: {
       // 刀 3 成片一键出期（PRD §6.4 领域码映射表；与 podcast.episode.* 的浮层文案分层，见该节）
       PODCAST_VIDEO_NOT_FOUND: '找不到成片文件，请回结果页重新生成或重选路径',

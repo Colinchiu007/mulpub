@@ -10,6 +10,13 @@ const OUTPUT_FILE = path.join(DESKTOP_ROOT, 'electron', 'preload', 'index.bundle
 // sandbox 运行时可加载（与主窗口 index.bundle.js 同策略）。源文件在 electron/ 根。
 const HOME_SHELL_ENTRY_FILE = path.join(DESKTOP_ROOT, 'electron', 'home-shell-preload.js')
 const HOME_SHELL_OUTPUT_FILE = path.join(DESKTOP_ROOT, 'electron', 'home-shell-preload.bundle.js')
+// 浏览/账号标签 preload（2026-10-15 收敛合并）：它承担**主世界反检测注入**（账号标签是用户
+// 「点开账号浏览平台」的路径，此前的接线缺口），而 stealth 源码在同目录 `electron/stealth/` 下，
+// 必须内联成单文件——sandbox preload 无法 require 相对路径文件（真机实测 module not found）。
+// 消费方：services/webview-manager/utils.js 的 _monitorPreloadPath()（bundle 优先，缺失则回落
+// 源文件并出声告警）。与 RPA 窗口的 stealth-preload-enhanced 是两条独立承载，共用同一份源码。
+const MONITOR_ENTRY_FILE = path.join(DESKTOP_ROOT, 'electron', 'monitor-preload.js')
+const MONITOR_OUTPUT_FILE = path.join(DESKTOP_ROOT, 'electron', 'monitor-preload.bundle.js')
 
 function buildPreload({ write = true, logLevel = 'silent' } = {}) {
   return esbuild.build({
@@ -70,11 +77,29 @@ function buildStealthEnhancedPreload({ write = true, logLevel = 'silent' } = {})
   })
 }
 
+function buildMonitorPreload({ write = true, logLevel = 'silent' } = {}) {
+  return esbuild.build({
+    absWorkingDir: DESKTOP_ROOT,
+    entryPoints: [MONITOR_ENTRY_FILE],
+    outfile: MONITOR_OUTPUT_FILE,
+    bundle: true,
+    platform: 'node',
+    format: 'cjs',
+    target: 'node22',
+    external: ['electron'],
+    legalComments: 'none',
+    charset: 'utf8',
+    logLevel,
+    write,
+  })
+}
+
 async function main() {
   try {
     await buildPreload({ logLevel: 'info' })
     await buildHomeShellPreload({ logLevel: 'info' })
     await buildStealthEnhancedPreload({ logLevel: 'info' })
+    await buildMonitorPreload({ logLevel: 'info' })
   } catch (error) {
     console.error('preload 构建失败：', error)
     process.exitCode = 1
@@ -90,7 +115,10 @@ module.exports = {
   HOME_SHELL_OUTPUT_FILE,
   STEALTH_ENHANCED_ENTRY_FILE,
   STEALTH_ENHANCED_OUTPUT_FILE,
+  MONITOR_ENTRY_FILE,
+  MONITOR_OUTPUT_FILE,
   buildPreload,
   buildHomeShellPreload,
   buildStealthEnhancedPreload,
+  buildMonitorPreload,
 }

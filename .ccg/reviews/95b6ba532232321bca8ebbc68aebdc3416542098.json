@@ -1,0 +1,27 @@
+{
+  "sha": "95b6ba532232321bca8ebbc68aebdc3416542098",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 1031 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 1031,
+    "fileCount": 16,
+    "codeFileCount": 15,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "2062e8c2346cce36f5f3920ba319f16080e5a452412482aa4d03e6d18b82dda7",
+  "decidedAt": "2026-10-16T01:56:29.447Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play(claude critic 三轮 + opencode proposer DUAL 跨家族) + 主代理逐条裁决",
+    "findings": "三轮共 22 条（7 + 7 + 8=DUAL）全部逐条落盘裁决于 .adversarial/ccg-deep-*/adjudication.json；upheld 项已修并配 19 条变异反证全部 CAUGHT；第三轮新发现且已修 i2（filter 仅回环结构锁）、i8（回环判据覆盖 127.0.0.0/8）。本记录（95b6ba532）对应的 1129 行变更即上述三轮处置的汇总（本分支被重写为单提交，与 squash 合并结果一致）。",
+    "note": "status 由主代理按 check-pr-exec-record.js 白名单语义人工登记（引擎无回写入口，ccg-gate.js 只读）；该人工登记动作本身是新的信任点，已在执行记录「已知边界」标注。"
+  }
+}

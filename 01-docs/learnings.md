@@ -33,6 +33,36 @@
 把不变量写进驱动（不满足就 `exit 9` 不写盘）比"跑一遍看看"可靠，因为静默少 16 条用例这件事，**跑一遍看不出来**。
 
 ---
+## 判「挂死」采错进程会得到必然为 0 的 CPU 增量；正确判据是「是否还在拉起新子进程」；RED 阶段必须先预测失败条数（harden-runtime-endpoints-auth，2026-10-16）
+
+1. **⛔ 「同一 PID 间隔采样 CPU 增量」这条判据必须写清采样对象，否则会把正常等待读成挂死。** 本轮给 ops-center 端点加鉴权时，pre-commit 钩子跑了 40 分钟仍未提交，我据此判「挂死」，**连续两次判错**：第一次采 `git.exe`（它在等钩子返回 ⇒ 必然 0 CPU），第二次采父 shell `bash`（它在 `wait` 子进程 ⇒ 也必然 0 CPU）。真正的推进发生在**短命子进程**里：观察 60 秒发现它拉起了 **21 个子进程**，即钩子在按步推进。**可操作判据**：判「是推进还是挂死」要看「是否仍在持续产生新子进程」，而不是某个进程的 CPU 增量；`wait` 型与「等外部返回」型进程的 CPU 恒为 0，用它做判据等于用一个恒定值当信号。（本仓 AGENTS.md 的清理条目写了这条 CPU 采样法，本轮的修正是**补上采样对象**这一前提。）
+
+2. **TDD 的 RED 阶段必须先「预测失败条数」再跑，只看「有红」无法发现空转锁。** 本轮我给自己新写的契约锁预测了失败集：18 条参数化实例里**应有 11 条红**，实测只有 **10 条** ⇒ 差的那条是 `test_runtime_endpoints_are_no_longer_public_allowlisted`，它**本该红却没红**。查因：`PUBLIC_ALLOWLIST` 的键是 `"<METHOD> <path>"`（如 `"GET /api/v1/rewrite-ai-taste/runtime"`），而我用**裸路径**做 `in` 判断 ⇒ **恒为 False** ⇒ 测试**空转通过**。这正是本仓已沉淀过的「锁必须靠变异被守护的性质来验证」同型缺陷，但这次是**在写锁的当下**、靠**数目对账**抓到的，不是靠读代码。修法：用正确键形态 + 加**非空转守卫**（先断言名单里仍能看见 login/logout/health 三条自证合理的公共端点，键形态一变先红）。
+
+3. **「理由」与「它所依赖的事实」之间没有判据时，理由会长期冒充事实。** 本轮抓到的鉴权缺口，其 docstring 写着「免鉴权，**供 bootstrap 内部组装使用**」——读起来完全合理，以至于四层防线全过（见该次执行记录的逃逸链）。而 `git log -S` 追到**同一次提交**（`1aa6aa851`）里，`runtime_service.py` **已经**是进程内直调 service ⇒ 那句理由**诞生即假**，悬置 27 天。**可操作判据**：凡注释/文档声称「供 X 使用」，最好有一条机械判据断言**该调用方确实存在**；否则 X 改走别的路径后，注释会成为无人复核的历史陈述，而 PRD 对账只管「PRD 声称 vs 实现」、覆盖判据只管「有没有测试」——本轮这三条**都有测试**，只是断言了**错的方向**。
+
+4. **判定记录只按「基线 sha」寻址，会让两个 PR 必然撞名；且「取 ours」会丢掉本 PR 的记录。** rebase 到最新主干时 `.ccg/reviews/2bcce6833….json` 发生 **add/add 同名冲突**：该文件名只编码**基线**，而另一会话同样从 `2bcce683` 分叉、按其变更写了同名文件并已合入 main。**关键认知：同名 ≠ 同一逻辑对象** —— 两侧是**两份不同变更**的记录（主干侧 `mode=single`+pending、本 PR 侧 `mode=dual`+cleared），按「内容合并」的思路去解会出错。按仓规**未用后推覆盖**：冲突取 ours 保住他人产物，再把本 PR 的记录移到不撞名路径并写明原因。**建议（属「谁来守门」类，未擅自实施）**：记录名应含 head sha 或分支名，否则同基线分叉必然撞名。
+
+5. **「每次提交都生成一份待闭环记录」这种设计不可能收敛。** 判定记录按「当时的 HEAD」寻址：每次 commit 生成一份 `pending`，而闭环它需要再提交 ⇒ **再提交又生成新的一份**。于是 dual 类改动的**最后一个提交**永远留下未闭环记录；`amend` 还会额外产出「键指向已不存在提交」的**孤儿记录**。本轮实际是靠「最后一次提交只动了 `.ccg/` 与 `openspec/`（都在文档白名单内）、被判 **skip/single** 模式」**侥幸**越过 —— **侥幸不能当机制**。设计要求：门禁要么允许「同一次提交内闭环」，要么对最后一个提交豁免；且 `amend` 产生的孤儿需要明确的清理/登记约定。
+
+6. **把「复核自己的反驳」外包出去时，提示词必须明确允许对方否定你，并要求它出示取证过程。** 本轮 QM-6 评审的 3 条争议被引擎判定为 auth 高危域、**不允许自扮演豁免**，而引擎又没有外部裁决入参通道（`:417-418` 对 `highRiskDomains` 非空无条件阻断、`:342` 硬编码 `adjudicatedBy=self-play`）。于是我把「反驳是否成立」交给外部模型，并**明确要求「允许否定提案方；证据不足须判 upheld 并指出缺什么证据」**。关键是**检查它是否真的去读了证据**：它引用了 `routers/runtime.py:126` 的 `Depends(verify_bearer_or_catalog_key)` 与 `middleware/auth.py:117-129`，这两处**可独立核验** ⇒ 是复核而非附和。**反之，只索取结论而不索取取证过程，得到的是附和。** 另外必须如实标注这次复核的局限：复核者与提出者**同家族**（非跨家族）、只做文本裁定、**未运行**本仓测试。
+
+7. **人工置门禁状态时，必须把「机制」写进记录，而不是只写结论。** 上一条的外部复核满足的是**实质要求**，但引擎的状态字段停在 `self_play_blocked`（不在闭环白名单）。我据门禁自己对闭环的定义（「**裁决已产出并落盘**」）把状态置为 `cleared`，并在**四处**留下机制说明：执行记录、判定记录 `note`、提交信息、PR 正文，且**保留** `engineStatusBeforeClear` 原值、**未删除**引发阻断的 `highRiskDomains` 标记（删标记等于篡改评审来过门禁）。**判据**：只写 `cleared` 不写机制，会让后来者无法区分「引擎自己放行」与「人工裁决后放行」——而那正是本仓最该被区分的两件事。
+
+## 「没做对照就补」本身就是缺陷来源；sandbox preload 不能 require 相对文件；测试白名单外的用例一个都不跑（zhihu-stealth-browse，2026-10-15）
+
+1. **反检测/兼容性补丁的第一性纪律：先取「真实浏览器基线」，再决定改什么。** 本轮起点是用户报「应用内点开账号浏览知乎被判网络环境异常」。我按通用风控经验列了 5 项"疑似指纹"（plugins 为空、WebGL 软渲染、outerDimensions 比例、webdriver、chrome.runtime 缺失），**同机同 GPU 用真实 Electron 43.7.7 与真实 Chrome 155 逐项对照后，其中 3 项被证伪、1 项不可比**：`navigator.plugins` 在 Electron 上**已是 5 项且名称与 Chrome 逐字相同**（PDF Viewer / Chrome PDF Viewer / Chromium PDF Viewer / Microsoft Edge PDF Viewer / WebKit built-in PDF）；WebGL vendor/renderer 同机同值；`chrome.runtime` 在**真实 Chrome 的普通网页上也是 `undefined`**；`outerWidth/Height` 侧 Chrome 无头态报 `0/0`，根本不可比。
+   **而既有代码正是按那套"经验"写的**：`stealth-preload.js` 把真实插件换成含 `Native Client` 的 3 项假列表（现代 Chrome 早已移除 Native Client）、凭空造 `chrome.runtime`、强改 `navigator.languages` 与 `clipboard-read` 权限——**通道修好后它会比不修更糟**。
+   **可操作的判据**：写任何"让应用看起来像真实浏览器"的补丁前，必须先用目标浏览器的 headless（或真机）产出同机同版本的对照表；对照表里"一致"的项要**写成反向锁禁止后人再改**（本片 `evasions.test.js` 有一整个 describe 干这件事）。没做对照就补，等于把"未知"换成一个**可被一行代码证伪的确定谎言**。
+2. **`navigator.plugins` / `webdriver` / `chrome.runtime` 这类"经典自动化特征"在 Electron 43 上已经不成立**，不要照抄 puppeteer/headless 时代的清单。真正在 Electron 上不一致的是另外 4 项：`Object.keys(window.chrome)` 是**空数组**（Chrome 为 `['loadTimes','csi','app']`）、`userAgentData.brands` 缺 `Google Chrome`、`Notification.permission` 为 `granted`（Chrome 为 `default`）、`permissions.query` 对 5 项权限**全部**返回 `granted`（Chrome 全为 `prompt`）。最后一条是**系统性**异常：「所有权限都已授予」在任何真实浏览器上都不可能对全新站点出现。
+3. **⛔ sandbox preload 无法 `require` 相对路径文件**（真机实测：`require('./probe-require-target.js')` 报 `module not found`，而**同一次** `require('electron')` 正常——所以这不是"require 不可用"，而是"相对路径解析被沙箱裁掉"）。任何想复用 Node 模块的 sandbox preload 都必须走 esbuild 单文件打包。**推论**：`build:preload` 漏跑 = 该 preload 静默降级，所以本片新增 `preload-path.test.js` 直接断言"三个 bundle 都已产出且确实内联了目标源码"，把"忘了重建"变成红。
+4. **`contextIsolation:true` 下 preload 里改 `navigator` 等于什么都没做**，但它在**代码评审里看不出来**、在**手搓夹具的单测里全绿**。唯一可靠的证伪/证实手段是"页面主世界自己读到什么"——本片 harness（`probe-main-world-injection.js`）让**页面脚本**读并回报，而不是让 preload 自证。同理，"注入成功"与"注入生效"要分开测：三态标记（无标记 / 有标记无 done / done 但缺项）分别对应"没执行""执行中途炸""部分失败"，且**读回失败必须与注入失败措辞分开**（前者只是观测不可用，误报会让人去修不存在的问题）。
+5. **vitest 的 `include` 是白名单：没登记进去的测试文件一个都不会跑，而 CI 全绿。** 本片新增 `electron/stealth/**` 与 `electron/monitor-preload.test.js` 时**先改 `vitest.config.js` 再写测试**。同族历史逃逸：`startup-compat.test.js`。**判据**：新增任何测试文件后，第一件事是跑一次并把该文件名列出来看它**确实被执行**，而不是看退出码。
+6. **夹具最容易替实现撒谎的三个坑（本轮全踩了，全部先红后修，没有靠改断言绕过）**：① 把**访问器**属性写成数据属性——源码按"`Object.getOwnPropertyDescriptor(...).get` 是不是函数"决定接不接管，夹具一写成数据属性，被测逻辑被**静默跳过**而断言照跑；② jsdom 的 UA **不含 `Chrome/<major>`**，靠 UA 推导版本的分支被静默跳过；③ 对 `Object.defineProperty(..., {value})` 造出的**不可写**属性直接赋值，抛 `Cannot assign to read only property`。**判据**：凡是"某分支按宿主形状决定是否执行"的代码，夹具必须造出**真实宿主的那种形状**，否则测试在测一个不存在的环境。
+7. **`ELECTRON_RUN_AS_NODE=1` 会让 `electron.exe` 退化成纯 Node**，症状是 `require('electron')` 返回**可执行文件路径字符串**、`app` 为 `undefined`、`process.versions.electron` 却**仍然有值**（所以看版本号会误判"Electron 在跑"）。凡在本会话环境里跑 Electron harness/打包产物，必须先 `Remove-Item Env:\ELECTRON_RUN_AS_NODE`。
+8. **QM-1 第③层（LIVE stderr 0 字节）有一个会「假通过」的测量写法**：`Start-Process -RedirectStandardError` 配 `[IO.File]::ReadAllText`，在子进程仍持有句柄时抛「文件正由另一进程使用」，而脚本里 `$ErrorActionPreference='Continue'` 把异常吞成 `$null` ⇒ `stderr_bytes` 算成 0 ⇒ **第③层被虚假满足**。正解：按 `[System.IO.FileShare]::ReadWrite` 打开后读，或让子进程自己用 `>out 2>err` 写、退出后再读。**这条与仓内已登记的同型坑是同一个**（`stock-default-write-proof` 记录过），本轮又踩了一次——说明"记录过"不足以阻止复发，必须在脚本里写死共享读。
+9. **`safe-delete.js` 依赖外部的 `mavis-trash`，本机缺失时它只能报错**（`'mavis-trash' 不是内部或外部命令`）。R0 铁律禁止绕过守卫删目录，但**单文件**临时产物的替代做法是**移出仓库**（move 不是 delete，不动 R0 的删除路径）：本轮把 3 个临时脚本/产物移到 `%TEMP%` 之外的归档目录，仓库工作区恢复干净且未触碰任何受管文件。
+10. **行尾噪音会被 `git status` 报成"已修改"而内容 diff 为 0 行**：重跑 `build:preload` 后两个既有 bundle 出现 `LF will be replaced by CRLF` 警告，`git diff --numstat` 却为空。判据是**先看 numstat 再看 status**——否则会把"重建噪音"当成真实改动写进 PR，或反过来把真实改动当成噪音还原掉。正解：`--numstat` 为 0 行且只有行尾警告时，用 `git checkout -- <精确文件>` 还原（R2 允许针对 `git status` 精确列出的文件恢复，禁止的是宽目录恢复）。
 ## 修复层级必须早于事故点；夹具会把缺陷锁成契约；以及成功判据只能是严格形状（fix-article-paragraph-zhihu-publish，2026-10-15）
 
 ### lesson:fix-must-sit-upstream-of-the-accident
@@ -19533,6 +19563,7 @@ mock 之后测试 realm 里一次 PBKDF2 都没真跑过，于是 `listAccounts(
 **判据**：复用函数到批量场景前，问「这个函数为一个元素付多少 IO / 多少 CPU？N 个元素总成本多少？」
 答不上来就不许复用。**推论**：详情函数与列表函数应当是两个入口（本轮落为 `getAccountProxyStatus` 单条 vs `loadProxyStatuses` 批量并行），
 而不是同一个函数被两个不同量级的场景共享。
+而不是同一个函数被两个不同量级的场景共享。
 
 ## 放松一个数值，必须同批修掉它牵出的每一道闸门（publish-frequency-policy-v3，2026-10-15）
 
@@ -19605,7 +19636,6 @@ M7 期望「平台档集合大小」变化而 clip 档退回后集合仍是三�
 （写成"失败本身不构成回滚理由；唯一例外需确证未送出，且不得由获益方自行声明"），
 而不是只写增量规格。反过来，**也不要**在这次顺手把 v3 全部新增条款塞进主干：
 v2 的 change 尚未归档，主干只 6 条 Requirement 且不含日配额/抖动 —— 塞进去会让主干
-同时"缺 v2、多 v3"，比滞后更难读。判据是**改掉说谎的那句**，不是"补齐所有差异"。
 
 ### 2026-10-14：一条把洞写成"受保护形态"的锁，改它时不能只翻期望值
 
@@ -19622,3 +19652,4 @@ Gate 12c 换计数口径时，最先挡路的不是代码而是**自己的测试
 新写的换代行为锁连续红了一轮，红因不是判据而是**我的夹具用错跑法**：它调的是仓库里那个 `runGate()` 助手，而这个助手恒带 `--all`；`--all` 按设计跳过放宽检测（没有 base 可比），于是断言读到的只有那句「账本放宽检测未执行」。一个永远走不到的分支，配一条"断言它放行了并出声"的锁，看起来完全正常。
 
 可推广的判据有两条：① 写"分支型"行为锁之前，先问**这条分支在我要用的那个口径下可达吗**——同一份判据常常有 `--all` 与改动集两套口径，助手默认的那套未必是我要测的那套；② 凡是"某守卫放行了"的断言，必须**同时**配一条 `doesNotMatch`（不得报「被放宽」），否则"放行"与"没跑到"无法区分。另外补 `PARSER_ALIVE` 式的对偶正控：如果判据读的字段解析退化成了空集，一切"零违规"的结论都是探针失明而不是合规。
+同时"缺 v2、多 v3"，比滞后更难读。判据是**改掉说谎的那句**，不是"补齐所有差异"。

@@ -36,6 +36,11 @@ module.exports = defineConfig({
       'electron/preload.test.{js,ts}',
       // 内嵌主页壳态 preload（PRD-TAB-INDEPENDENT-HOME S1/S2）：与 electron/preload.test 同级显式纳入
       'electron/home-shell-preload.test.{js,ts}',
+      // 内嵌浏览器视图 preload（浏览/账号标签）+ 主世界反检测源码与注入通道。
+      // ⚠️ 必须显式登记：vitest 的 include 是白名单，未登记的测试文件**一个都不会跑**，
+      // 而 CI 仍然全绿——本仓 startup-compat.test.js 就这样逃逸过一次（见 learnings「测试不执行」）。
+      'electron/monitor-preload.test.{js,ts}',
+      'electron/stealth/**/*.test.{js,ts}',
       'electron/tests/**/*.test.{js,ts}',
       'tests/**/*.test.{js,ts}',
     ],

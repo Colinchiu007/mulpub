@@ -8,6 +8,7 @@
 const { app, BrowserWindow, ipcMain, shell } = require('electron')
 const path = require('path')
 const log = require('./services/logger')
+const { installDevCacheGuard } = require('./services/dev-cache-guard')
 const { config, getUrl } = require('./config/app-config')
 const { isTrustedSender } = require('./core/ipc-security')
 const { createAccessControlledIpcMain } = require('./ipc-handlers/license-access-control')
@@ -285,7 +286,40 @@ function createWindow(context) {
     } catch (_) { /* 通知失败不影响主流程 */ }
   })
   if (isDev) {
-    mainWindow.loadURL(getUrl(config.devServer)).catch(reportLoadFailure)
+    // 渲染层 HTTP 缓存治理：Vite 给预构建产物发 immutable 缓存头，而 `?v=<hash>`
+    // 不含 workspace 源码内容 ⇒ 源码变了 URL 没变 ⇒ Chromium 命中旧副本且不校验，
+    // 表现为「改了代码不生效」「页面资源没有成功加载 / does not provide an export」。
+    // 两条腿缺一不可：清掉已污染条目 + 对 dev server origin 强制 no-store。
+    // 必须在 loadURL 之前安装（接线锁见 services/dev-cache-guard.test.js）。
+    //
+    // session 取**窗口实际使用的**而不是硬编码 defaultSession：窗口将来若改用
+    // partition，硬编码会让整个守卫静默失效（CCG 深度审查 i1）；devServerUrl 传进去
+    // 是为了把 filter 缩窄到 vite 端口，避免连带改写本机其他服务的缓存语义（i5）。
+    const devServerUrl = getUrl(config.devServer)
+    const cacheGuard = installDevCacheGuard({
+      app,
+      session: mainWindow.webContents.session,
+      log,
+      devServerUrl,
+    })
+    // 安装结果必须留痕：否则"守卫没装上"与"守卫装上了但没生效"在日志里无法区分。
+    if (!cacheGuard.installed || cacheGuard.reason) {
+      log.notify('window', 'dev-cache-guard-install-result', {
+        level: cacheGuard.installed ? 'WARN' : 'ERROR',
+        params: { installed: cacheGuard.installed, reason: cacheGuard.reason || 'ok' },
+      })
+    }
+    // ⛔ loadURL 必须在「清缓存落定」之后：clearCache 是异步的，而旧磁盘条目若是
+    // immutable，Chromium 命中它时**根本不发网络请求** ⇒ 响应头改写钩子不触发
+    // ⇒ 首屏仍是旧副本、症状原样复现（CCG 第二轮 i1）。
+    // 超时兜底：清缓存若悬挂，宁可带着可能未清的缓存继续加载，也不能让窗口永不出现。
+    Promise.race([
+      cacheGuard.cacheCleared || Promise.resolve(),
+      new Promise((resolve) => {
+        const timer = setTimeout(resolve, 1500)
+        if (timer && typeof timer.unref === 'function') timer.unref()
+      }),
+    ]).then(() => mainWindow.loadURL(getUrl(config.devServer)).catch(reportLoadFailure))
     mainWindow.webContents.openDevTools()
   } else {
     mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html')).catch(reportLoadFailure)
