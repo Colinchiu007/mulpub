@@ -12,7 +12,7 @@ sync_backfill_owner: podcast-episode-plan-preview 会话（本节作者）
 
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
-| 变更类型与隔离 | ✅ | 运行时代码：worktree `D:/Data/projects/mp-worktrees/mp-podcast-episode-plan-preview`，裸分支 `podcast-episode-plan-preview`，由 `scripts/start-mp-task.ps1 -TaskName podcast-episode-plan-preview` 建立（非 C 盘）；`pnpm install --frozen-lockfile` + `node scripts/ensure-electron.js`（v43.7.7）+ `node scripts/verify-worktree-deps.js` 三步均 rc=0，解析通过 11 个 `@multi-publish/*` 指向本工作树 |
+| 变更类型与隔离 | ✅ | 运行时代码：worktree 在仓库父目录下的 `mp-worktrees/mp-podcast-episode-plan-preview`（非 C 盘），裸分支 `podcast-episode-plan-preview`，由 `scripts/start-mp-task.ps1 -TaskName podcast-episode-plan-preview` 建立（非 C 盘）；`pnpm install --frozen-lockfile` + `node scripts/ensure-electron.js`（v43.7.7）+ `node scripts/verify-worktree-deps.js` 三步均 rc=0，解析通过 11 个 `@multi-publish/*` 指向本工作树 |
 | 第一性原因（QM-5 ①） | ✅ | 不是「浮层没做」，是**它要显示的数在渲染端 0 可达**：分块判据只在 `electron/services/podcast-tts-compose.js` 的 `planChunks`，音色回退只在 `podcast-tts-voice.js` 的 `resolveEpisodeVoice`，而后者**零生产调用方**（`git grep` 实测：非测试文件里只有它自己）。缺这条读路径时先做浮层只能显示 0，或让前端另抄一份切分/推断 |
 | 逃逸分析（QM-5 ②） | ✅ | 单元层没测「渲染端能不能取到」——`planChunks`/`resolveEpisodeVoice` 各自测试全绿，**判据存在 ≠ 有人能读到它**；视觉层对本次改动无感（本片不动 UI）；审查层此前只盯「代码是否调了判据」，没盯「显示项反查喂它的通道」（同 §6.4.2 那七相位那次）。本片的三条锁就是补这一格 |
 | 修复 + 回归保护（QM-5 ④） | ✅ | 判据之家：`electron/services/podcast-episode-plan-preview.test.js` **17 例** + `electron/ipc-handlers/podcast-plan-preview-ipc.test.js` **9 例**（后者含「副作用缺席」三件同断言：目录未创建 + `tryBeginPublish`/`endPublish` 0 次 + 宿主两个入口 0 次）；用真 `planChunks`/`resolveEpisodeVoice`（不 mock 判据本体），夹具只喂数据 |
