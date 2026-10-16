@@ -502,7 +502,18 @@ const platformsMixin = {
         let networkCapture = null
         try {
           this._emitProgress(platform,'publishing...',85)
-          const rp = (config.has_api && config.success_patterns.length>0) ? this._waitForResponse(win,config.success_patterns,60000) : null
+          // ★ 2026-10-16 修（p3-residual-criteria，CCG 第三轮 i2 upheld）：
+          //   原判据 `config.has_api && success_patterns.length>0` 只看能力轴。但
+          //   `has_api` 只说明「有 API 实现」，**当前走不走 API 轨**要看三态总闸
+          //   `publishMode`。对「未入波」平台（has_api:true + publishMode:dom-only，
+          //   如修复前的 facebook / youtube / twitter），这里会注册一个**永远不会
+          //   有响应**的 60 秒等待——正是 rpa-view-manager.js:66-80 记载并修掉的
+          //   同型误入 API 轨（那里修的是闸门，这里漏了观测点）。
+          //   判据改为两轴合取，与 api-router.js 的 isApiTrack() 同口径。
+          const pmode = config.publishMode
+          const onApiTrack = !!config.has_api
+            && (pmode === 'api-only' || pmode === 'api-then-dom')
+          const rp = (onApiTrack && config.success_patterns.length>0) ? this._waitForResponse(win,config.success_patterns,60000) : null
           // 按优先级依次尝试所有发布按钮候选，任一可见即用（页面改版后首个候选可能失效）
           let publishSelector = null
           for (const cand of sel.publish_btn || []) {

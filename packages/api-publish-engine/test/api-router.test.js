@@ -107,5 +107,31 @@ describe("API Router", function() {
       });
       expect(leaked).toEqual([]);
     });
+
+    test("★ CCG i5：两轴合取必须是单一来源，本文件不得再自写合取推导", function() {
+      // 动因：这条判据原先在产品与三个测试文件里各写一遍（共 4 份），
+      // 加 publishMode 取值或 sync 重写字段后要 4 处同步，必然漂移。
+      // 锁：本文件不得出现**自写的合取推导**，一律走导出的 router.isApiTrack()。
+      //
+      // ⚠️ 两个自指/误报陷阱（都实测踩到）：
+      //   ① 本扫描读**自己这个文件** ⇒ 注释里不能写会被匹配的表达式片段；
+      //   ② 文件里**本来就有**旧用例用 `publishMode === 'dom-only'` 做过滤（见上一条用例），
+      //      那是「按 dom-only 筛平台」不是「合取推导」，故判据必须要求
+      //      **has_api 与 publishMode 的比较出现在同一行**才算自写合取。
+      var fs = require("fs");
+      var path = require("path");
+      var self = fs.readFileSync(path.resolve(__dirname, "api-router.test.js"), "utf8");
+      var lines = self.split("\n");
+      var selfWritten = lines.filter(function(l) {
+        return /has_api/.test(l) && /publishMode\s*===/.test(l) && !/^\s*\/\//.test(l);
+      });
+      expect(selfWritten.length,
+        "本文件不得自写两轴合取推导（请改用 router.isApiTrack()），命中行: " + selfWritten.join(" | "))
+        .toBe(0);
+      // 单一来源必须真的可用（防「删了自写、也没了来源」的空转）
+      expect(typeof router.isApiTrack).toBe("function");
+      expect(router.isApiTrack(platforms.douyin)).toBe(true);
+      expect(router.isApiTrack(platforms.youtube)).toBe(false);
+    });
   });
 });

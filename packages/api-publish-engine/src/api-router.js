@@ -165,4 +165,9 @@ module.exports = {
   shouldUseApi, supportsApi, listApiPlatforms, getPublishMode,
   publishWithFallback, batchPublishWithRouting,
   loadConfig, reloadConfig,
+  // ★ CCG 第三轮 i5（2026-10-16，upheld）后导出：两轴合取的**单一来源**。
+  //   原先这条判据在 api-router.js 内部 + 三个测试文件里各推导一遍（共 4 份），
+  //   新增 publishMode 取值或 sync 重写字段后要 4 处同步，必然漂移。
+  //   现在测试与下游一律 require 本函数，不再自己写三元式。
+  isApiTrack,
 };

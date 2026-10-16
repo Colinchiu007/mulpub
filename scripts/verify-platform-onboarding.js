@@ -261,13 +261,21 @@ function buildChecks (slug) {
       //   （= 现在就该走 API/DOM 轨）却**没有链** —— 那一轨没有可调度的实现。
       //   当前 15 个平台里 `api-*` 轨的全部都有链，故本分支不会误伤；
       //   它的作用是把「两轴不一致」在**已声明 API 轨**时挡下来（这是 i1 指出的松弛）。
+      //
+      // ★ CCG 第三轮 i3（2026-10-16，upheld）：缺省派生必须与**运行时同源**。
+      //   运行时（api-router.js 的 getPublishMode / isApiTrack）在 publishMode 缺省时按
+      //   `has_api:true → api-then-dom` 派生；而本判据原来把缺省当 `''` ⇒ 判「未入波」PASS。
+      //   **同一份配置，判据与运行时给出相反语义** ⇒ 两轴不一致被漏报。
+      //   现在本判据按同一条派生规则取值，缺省即 api-then-dom（有声明才算未入波）。
       const pmMatch = block.match(/^[ \t]{4}publishMode:[ \t]*([A-Za-z-]+)/m)
-      const publishMode = pmMatch ? pmMatch[1] : ''
+      const publishMode = pmMatch
+        ? pmMatch[1]
+        : (hasApi ? 'api-then-dom' : 'dom-only')
       if (publishMode === 'api-only' || publishMode === 'api-then-dom') {
         return {
           ok: false,
-          detail: `has_api:true 且 publishMode=${publishMode}（需走 API 轨）但无 publish/platforms/${chainPrefix}*.js`
-            + ' ⇒ 该轨无可调度实现',
+          detail: `has_api:true 且 publishMode=${publishMode}${pmMatch ? '' : '（缺省，按运行时同源派生）'}（需走 API 轨）`
+            + `但无 publish/platforms/${chainPrefix}*.js ⇒ 该轨无可调度实现`,
         }
       }
       if (!hasAdapter) {
@@ -279,7 +287,7 @@ function buildChecks (slug) {
       return {
         ok: true,
         detail: `has_api:true 有 API 适配器（adapters/${slug}.js，已由 src/index.js 注册）但 0 个链`
-          + ` ⇒ 未入波（publishMode=${publishMode || '未声明'}），按本仓两轴语义合法（能力轴 vs 轨道轴）`,
+          + ` ⇒ 未入波（publishMode=${publishMode}），按本仓两轴语义合法（能力轴 vs 轨道轴）`,
       }
     }
     const entries = read('packages/api-publish-engine/src/platform-entries.js') || ''

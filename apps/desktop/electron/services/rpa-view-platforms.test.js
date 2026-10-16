@@ -1469,3 +1469,45 @@ describe('rpa-view-platforms — douyin 图文事件驱动等待（A2：去固�
     expect(result.error === undefined || !String(result.error).includes('cover')).toBe(true)
   })
 })
+
+// ───────────────────────────────────────────────────────────────────────────
+// ★ 2026-10-16 新增（p3-residual-criteria，CCG 第三轮 i2 upheld 后修复）
+//
+// 「要不要等 API 响应」必须看**两轴合取**（has_api 且 publishMode ∈ {api-only, api-then-dom}），
+// 不能只看 has_api。动因：facebook 的 has_api 由 true 修正为 false（它在本仓没有任何 API 实现），
+// 排查 has_api 全仓读者时发现本文件 L505 的观测点仍只看能力轴——
+// `config.has_api && success_patterns.length>0` 会注册一个 **60 秒的 API 响应等待**；
+// 对「未入波」平台（has_api:true + publishMode:dom-only，如修复前的 facebook/youtube/twitter）
+// 那是在等一个**永不到来**的响应，与 rpa-view-manager.js:66-80 修掉的「误入 API 轨」同型
+// （那里修的是闸门，这里漏的是观测点）。
+//
+// ⚠️ 锁的形态说明（不自我欺骗）：这段判据深埋在 `_publish_generic` 的真实发布流程里，
+// 要行为级覆盖需要把整条 DOM 发布链跑起来（现有用例都靠大量 mock，且没有平台是
+// 「has_api:true + dom-only」的真实样本可直接触发）。故此处用**源码结构锁**：
+// 断言 L505 那段判据必须是两轴合取、且不得回退成只看 has_api。
+// 这条锁的**假过风险**由变异反证兜住（见记录：把 onApiTrack 退回 !!config.has_api
+// 时本断言即红）。
+// ───────────────────────────────────────────────────────────────────────────
+describe('rpa-view-platforms — API 响应等待的两轴合取（CCG i2，源码结构锁）', () => {
+  const fs = require('node:fs')
+  const path = require('node:path')
+  const SRC = path.join(__dirname, 'rpa-view-platforms.js')
+
+  it('等 API 响应的判据必须是两轴合取，不得只看 has_api', () => {
+    const src = fs.readFileSync(SRC, 'utf8')
+    const lines = src.split('\n')
+    // ① 定位那段判据：onApiTrack 的定义（唯一锚点，找不到即红，不许静默跳过）
+    const defs = lines.filter((l) => /const onApiTrack\s*=/.test(l))
+    expect(defs.length, 'onApiTrack 定义应恰好 1 处（判据失效或重复定义都算红）').toBe(1)
+    // ② 判据是**跨两行**写的（`const onApiTrack = !!config.has_api` + 换行 `&& (pmode === …)`），
+    //    故按「定义起 3 行内」这个窗口检查，不得只看第一行（第一行本就只有 has_api）。
+    const startIdx = lines.indexOf(defs[0])
+    const window = lines.slice(startIdx, startIdx + 3).join('\n')
+    expect(window, 'onApiTrack 必须看 publishMode 轴，不能只看 has_api').toMatch(/pmode/)
+    expect(window, 'onApiTrack 必须限定在 api-* 轨').toMatch(/pmode === 'api-only' \|\| pmode === 'api-then-dom'/)
+    // ③ 使用点必须是合取结果，而不是原始的 config.has_api
+    const useLine = lines.find((l) => /const rp = \(onApiTrack/.test(l))
+    expect(useLine, '等 API 响应的使用点应基于 onApiTrack').toBeTruthy()
+    expect(src, '不得回退成 `const rp = (config.has_api && …)`').not.toMatch(/const rp = \(config\.has_api &&/)
+  })
+})

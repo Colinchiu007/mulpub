@@ -324,6 +324,19 @@ test('判据 9 不依赖 has_api 在块中的位置（缺 m 标志的假绿回�
     '判据 9 的「api-* 轨必须有链」分支在源码里找不到了（CCG i1 修复项）',
   )
 
+  // ★ CCG 第三轮 i3（upheld）后补：publishMode **缺省派生必须与运行时同源**。
+  //   运行时 api-router.js 的 getPublishMode/isApiTrack 在缺省时按
+  //   `has_api:true → api-then-dom` 派生；⑨ 原来把缺省当 '' ⇒ 判「未入波」PASS，
+  //   **同一份配置，判据与运行时给出相反结论** ⇒ 两轴不一致被漏报。
+  //   当前 15 个平台全部显式写了 publishMode（实测无一样本），故这条分支没有真实样本
+  //   可跑，用结构锁守：源码里必须出现「缺省 ⇒ 按 has_api 派生」的三元式，
+  //   且不得退回空串（退回即让上面的矛盾复活）。
+  assert.ok(
+    /pmMatch\s*\?\s*pmMatch\[1\]\s*\n\s*:\s*\(hasApi \? 'api-then-dom' : 'dom-only'\)/.test(scriptSrc),
+    '判据 9 的 publishMode 缺省派生不见了 —— 缺省必须按运行时同源规则（has_api → api-then-dom）；'
+      + '退回空串会让「两轴不一致」被漏报（CCG 第三轮 i3）',
+  )
+
   // 别名：tencent_video 的链叫 shipinhao-*，不得因命名差异误报
   const tv = buildChecks('tencent_video').find((c) => c.id === 9).fn()
   assert.equal(tv.ok, true, `tencent_video 步骤 9 应 PASS（链名 shipinhao-*），实际: ${tv.ok} / ${tv.detail}`)
