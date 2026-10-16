@@ -1,3 +1,13 @@
+## 「HTTP 检测不确定 ⇒ 开隐藏窗口」对每个未入白名单的平台都是潜在崩溃面（fix-zhihu-login-check，2026-10-16）
+
+### lesson:http-inconclusive-fallback-is-a-crash-surface
+
+【现场】sync-app 重启后应用空白。排查：vite 正常（HTTP 200 首页 HTML），electron 主进程 exit 4294930435（0xC0000409 STATUS_STACK_BUFFER_OVERRUN，crashpad not connected）。日志对时：`08:47:13.465Z checkLoginStatus: start zhihu:e10a1715 url=https://www.zhihu.com/signin` → 9 秒后 `electron-exit`。第一性根因：`HTTP_CHECK_APIS.zhihu` 只登记 uid extract、无 checkHtml ⇒ HTTP 检测恒 inconclusive ⇒ `checkLoginStatus` 降级开**隐藏 sandbox BrowserWindow** 加载知乎登录页 ⇒ 原生渲染崩溃 ⇒ 整应用退出。
+
+【教训】`RENDER_CRASH_PRONE_OPEN_PLATFORMS` 白名单（tencent_video/toutiao/wechat_mp/baijiahao/zhihu）是**事故驱动逐个追加**的，没有任何「全平台开隐藏窗口风险审计」的机械锁。**判据**：新增平台登记 `HTTP_CHECK_APIS` 时必须同时给 `check`（JSON）或 `checkHtml`（HTML）判定函数——只有 uid extract 会让 `hasLoginCheck` 为 true 但结论恒 undefined，路径必开窗；无法给出判定函数的平台必须入渲染崩溃白名单。回归锁 `account-manager-zhihu-render-crash.test.js`（6 例，含两道变异反证指名红）。
+
+【坑】① 崩溃发生在 WARN 之后的窗口加载，`render-crash-prone` 日志里**看不到**崩溃平台名（它每次都真开窗、开窗即崩），只能靠日志对时定位；② CI（无窗口）与有 GPU 的开发机都不复现，只有共享 profile + swiftshader 软件光栅化的真机才触发——**不要因为「本地没崩」就否掉用户报障**；③ squash 合并的 amend 中间态会把 `.ccg/reviews` 里的无主判定记录留在树上，与账本收窄交互产生「超出存量基线 1 个文件」的 Gate 12c 假红——先 rebase 到最新 main 再判。
+
 ## 修盘符依赖时又从第二只夹具出口把依赖带回来；批量改写脚本必须自带计数不变量（gate-12c-abs-path-ban，2026-10-15）
 
 ### lesson:fixture-cross-platform-must-be-measured-on-the-fixture-itself
