@@ -26,6 +26,39 @@ const { linkExistingTrackedContent, TRACKED_LINK_HISTORY_SCAN_LIMIT } = require(
 // 2026-10-12：发布记录封面字段的单一真源（历史页缩略图此前恒空 → 回退平台图标，
 // 用户报障「历史记录页的缩略图不是发布的真实封面」）。
 const { resolveRecordCover } = require('../services/publish-record-cover')
+// 2026-10-15：「再次发布」快照（PRD-PUBLISH-RECORD-REPUBLISH-2026-10-15）。
+// 正文与选项**不进历史行**——`readRecords()` 每次分页都整文件重解析，正文入行会把
+// 一次筛选放大成数十 MB 解析（QM-2）。改落 owner 作用域快照存储，按记录 id 惰性读。
+// 写失败只 warn：快照属旁路，不得影响发布主流程与历史落库。
+const republishSnapshot = require('../services/publish-republish-snapshot')
+
+/**
+ * 落一条「再次发布」快照（旁路：任何失败只出声）。
+ * @param {object|null} entry `history.addRecord()` 的返回值（记录主键所在）
+ * @param {object} task 队列任务（`task.article` 含 cookies，故快照侧只按白名单取键）
+ * @param {string|undefined} ownerSubject
+ * @param {object|undefined} store 存储依赖（缺省即为未接线，快照侧按 no_store 跳过）
+ */
+function saveRepublishSnapshotFor (entry, task, ownerSubject, store) {
+  if (!entry || typeof entry.id !== 'string' || !entry.id) return
+  try {
+    const outcome = republishSnapshot.saveSnapshot({
+      recordId: entry.id,
+      platform: task.platform,
+      article: task.article,
+      publishMode: task.publishMode,
+      batchId: task.batchId,
+    }, ownerSubject, { store })
+    if (!outcome || outcome.saved !== true) {
+      log.notify('RepublishSnapshot', 'snapshot-skipped', {
+        level: 'WARN',
+        params: { platform: task.platform, reason: (outcome && outcome.reason) || 'unknown' },
+      })
+    }
+  } catch (e) {
+    log.notify('RepublishSnapshot', 'snapshot-save-failed', { level: 'WARN', error: String(e && e.message) })
+  }
+}
 
 const defaultAuditRequery = {
   resolveCookies: (params) => resolveAuditRequeryCookies(params),
@@ -108,7 +141,7 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
       stage: '✓ 发布成功', percent: 100, result: task.result, batchId: task.batchId || null,
     })
     const ownerSubject = task.owner_subject
-    history.addRecord({
+    const entry = history.addRecord({
       platform: task.platform, title: task.article?.title || '', taskId: task.id,
       status: 'success', result: task.result,
       // 2026-10-12：本次发布**实际使用**的封面（无封面时写空串，不写 undefined——JSON 会丢键）。
@@ -117,7 +150,12 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
       // 定时派发任务带 publishMode='scheduled'（scheduler/batch-manager 排期入队时标记），
       // 历史页「定时发布」过滤器与详情「发布模式」据此区分定时/立即发布。
       ...(task.publishMode ? { publishMode: task.publishMode } : {}),
+      // 2026-10-15：同一次多平台发布共享 batchId（publish:batch 生成），
+      // 历史页据此把 N 条独立记录标注为「同批 N 个平台」。缺值不写键（与 publishMode 同风格）。
+      ...(task.batchId ? { batchId: task.batchId } : {}),
     }, ownerSubject)
+    // 「再次发布」快照：正文 + 选项（白名单，不含 cookies）。旁路，失败只 warn。
+    saveRepublishSnapshotFor(entry, task, ownerSubject, store)
     try {
       const postId = task.result?.postId || task.result?.id
       // 草稿结果（小红书硬约束 2026-10-09，落地于 RPA 轨 draftOnly）：草稿不是已公开作品，
@@ -212,14 +250,18 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
     // publish-progress-ux（G8 修复）：失败必须落发布历史——此前 task:failed 只发事件不落库，
     // 失败结果在任何页面都查不到（历史页 failed 过滤器实际只匹配监控回调写入的记录）。
     // addRecord 内建 try/catch，写入失败不阻塞发布主流程。
-    history.addRecord({
+    const failedEntry = history.addRecord({
       platform: task.platform, title: task.article?.title || '', taskId: task.id,
       status: 'failed', result: null, error: task.error,
       // 失败记录与成功记录**同源**取封面：用户恰恰要在失败记录里确认「当时用的是哪张封面」，
       // 两个落库点各写一份优先级，漂移的方向必然是失败记录没有封面。
       ...resolveRecordCover(task.article),
       ...(task.publishMode ? { publishMode: task.publishMode } : {}),
+      // 同批标注：失败记录同样要能回答「这条属于哪一次多平台发布」
+      ...(task.batchId ? { batchId: task.batchId } : {}),
     }, task.owner_subject)
+    // 失败场景恰恰是「再次发布」最常用的入口：原样还原内容与选项后才能改完重发。
+    saveRepublishSnapshotFor(failedEntry, task, task.owner_subject, store)
     // publish-fail-draft-guard：媒体内容（视频/图文）发布失败 → 自动回存草稿防丢失。
     // 旁路红线：saver 内建全量 try/catch（资格判定不过跳过、写入失败只 warn），
     // 同步/异步失败都不冒泡，绝不影响失败主流程（历史落库/失败通知/风控挂起）。

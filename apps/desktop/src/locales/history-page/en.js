@@ -121,6 +121,24 @@ export default {
     // Draft semantics (PRD-PUBLISH-HISTORY-ENGAGEMENT-2026-10-12 §5.3): content that only reached the
     // platform draft box has no public post, so the card is intentionally not clickable.
     cardDraftHint: 'Draft (not published, no link)',
+    // The *reason* for a missing link must be spelled out (2026-10-15): a single generic
+    // "no public post link" cannot distinguish "this platform has no public web page"
+    // from "no work ID was captured this time" — the user's next step differs.
+    cardNoLinkStructural: 'This platform has no public web link (content is client-only)',
+    cardNoLinkNoPostId: 'No work ID was captured for this publish, so the public link is unknown',
+    // Publish again (PRD-PUBLISH-RECORD-REPUBLISH-2026-10-15): restore the content and
+    // options of that publish into the editor. Snapshots are stored per record id;
+    // early records have none, so the button is disabled with an explanation.
+    republish: 'Publish again',
+    republishHint: "Open the editor with this record's content and options",
+    republishUnavailable: 'This record has no saved content snapshot (early record or snapshot pruned), so it cannot be published again',
+    // Batch badge: one N-platform publish writes N *independent* records (status, audit,
+    // post link and metrics are all per-platform actions); the badge restores the grouping.
+    // The badge states only "same publish": the number is computed from records visible on the
+    // current page, so it may undercount across pages or after filtering — never assert a total
+    // in the badge itself (CCG deep review i1); the visible count lives in the tooltip.
+    batchBadge: () => 'Same batch',
+    batchTooltip: (ctx) => 'Published together with ' + ctx.named('platforms') + ' (' + ctx.named('count') + ' visible here; the batch may be larger)',
     // Post engagement metrics: see the account-metrics service header for the data source.
     metricsRefresh: 'Refresh data',
     metricsRefreshing: 'Collecting…',

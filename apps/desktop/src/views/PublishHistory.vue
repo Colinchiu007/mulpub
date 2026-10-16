@@ -235,6 +235,9 @@
             <div class="record-title-row">
               <h2>{{ recordTitle(record) }}</h2>
               <div class="record-actions">
+                <!-- 「再次发布」：无快照（早期记录/已淘汰）时禁用并悬停说明原因 —— 不隐藏，
+                     因为用户需要知道「这里本该有个按钮、为什么用不了」。逻辑见 usePublishRecordActions。 -->
+                <button type="button" class="record-action republish" :class="{ 'is-disabled': !canRepublish(record) }" :data-testid="`republish-${record.id}`" :disabled="!canRepublish(record)" :title="republishHint(record)" @click="republishRecord(record)">{{ t('historyPage.republish') }}</button>
                 <button type="button" class="record-action" :data-testid="`detail-${record.id}`" @click="openRecord(record)">{{ t('historyPage.detail') }}</button>
                 <button v-if="normalizedStatusGroup(record) === 'failed'" type="button" class="record-action retry" :data-testid="`retry-${record.id}`" @click="retryRecord(record)">{{ t('historyPage.retryRecord') }}</button>
               </div>
@@ -257,6 +260,8 @@
               >{{ auditLabel(record) }}</span>
               <span v-if="deliveryModeValue(record)" class="delivery-mode-badge" :class="'delivery-mode-' + deliveryModeValue(record)" :title="deliveryModeHint(record)" :data-testid="`delivery-mode-${record.id}`">{{ deliveryModeLabel(record) }}</span>
               <span class="platform-name"><img v-if="isPlatformIconUrl(platformIcon(record.platform))" :src="platformIcon(record.platform)" class="platform-icon-thumb mp-platform-icon" :alt="platformName(record.platform)" width="16" height="16" aria-hidden="true"><span v-else aria-hidden="true">{{ platformIcon(record.platform) }}</span>{{ platformName(record.platform) }}</span>
+              <!-- 同批徽标：一次 N 平台发布落 N 条独立记录，徽标补回「这几条同属一次发布」 -->
+              <span v-if="batchBadgeMap.get(record.id)" class="batch-badge" :data-testid="`batch-${record.id}`" :title="batchBadgeMap.get(record.id).tooltip">{{ batchBadgeMap.get(record.id).label }}</span>
             </div>
             <!-- 失败原因：task:failed 落库的 error 字段（publish-progress-ux G8 数据链路的渲染侧收口）。
                  单行截断 + title 悬停全文；无 error 的旧失败记录不渲染该行（详情弹窗有占位）。 -->
@@ -338,7 +343,12 @@
       <section class="record-detail-modal" role="dialog" aria-modal="true" aria-labelledby="record-detail-title">
         <header class="record-detail-header">
           <div><span class="record-detail-eyebrow">{{ t('historyPage.detailEyebrow') }}</span><h2 id="record-detail-title">{{ recordTitle(selectedRecord) }}</h2></div>
-          <button type="button" class="record-detail-close" data-testid="close-record-detail" :aria-label="t('historyPage.closeDetail')" @click="closeRecordDetail">×</button>
+          <!-- 详情弹窗是 PRD §5.1 承诺的第二个入口：看完详情直接重发，不必退回卡片找按钮。
+               禁用条件与卡片完全同一份判据（canRepublish/republishHint），不另写一套。 -->
+          <span class="record-detail-header-actions">
+            <button type="button" class="record-action republish" :class="{ 'is-disabled': !canRepublish(selectedRecord) }" data-testid="detail-republish" :disabled="!canRepublish(selectedRecord)" :title="republishHint(selectedRecord)" @click="republishRecord(selectedRecord)">{{ t('historyPage.republish') }}</button>
+            <button type="button" class="record-detail-close" data-testid="close-record-detail" :aria-label="t('historyPage.closeDetail')" @click="closeRecordDetail">×</button>
+          </span>
         </header>
         <div v-if="detailLoading" class="record-detail-state" data-testid="history-detail-loading">
           <UiSkeleton variant="paragraph" :rows="4" />
@@ -454,6 +464,7 @@ import { isAuthGateResult } from '@/utils/auth-gate'
 import { formatUserError } from '@/utils/user-facing-error'
 import { confirmDanger } from '@/utils/confirm-danger'
 import PublishTypeDialog from '@/features/publish/components/PublishTypeDialog.vue'
+import { usePublishRecordActions } from '@/composables/usePublishRecordActions'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -847,6 +858,12 @@ function onCardClick (event, record) {
   void openCardLink(record)
 }
 
+// ── 卡片动作与状态展示：实现见 composables/usePublishRecordActions.js ──
+const {
+  canRepublish, republishHint, republishRecord, batchBadgeMap,
+  normalizedStatusGroup, recordErrorText, statusLabel, statusClass, statusValue,
+} = usePublishRecordActions({ records, router, t, platformName })
+
 async function retryRecord (record) {
   const taskId = record?.taskId || record?.id
   if (!taskId) return
@@ -897,45 +914,7 @@ function publisherName (record) {
   return record?.publisher || record?.author || record?.operator || t('historyPage.systemAccount')
 }
 
-function statusValue (record) {
-  if (record?.success === false) return 'failed'
-  return String(record?.status || 'success').toLowerCase()
-}
 
-function normalizedStatusGroup (record) {
-  const value = statusValue(record)
-  if (['success', 'completed', 'published'].includes(value)) return 'success'
-  if (['failed', 'error'].includes(value)) return 'failed'
-  return 'pending'
-}
-
-/**
- * 列表卡片失败原因文本：仅失败组渲染；error 非字符串或空白时返回空串（卡片不渲染该行，
- * 详情弹窗侧由 errorUnknown 占位兜底）。截断展示由 CSS 负责，全文经 title 悬停可见。
- */
-function recordErrorText (record) {
-  if (normalizedStatusGroup(record) !== 'failed') return ''
-  const error = record?.error
-  return typeof error === 'string' && error.trim() ? error.trim() : ''
-}
-
-function statusLabel (record) {
-  const labels = {
-    success: 'statusAllSuccess',
-    completed: 'statusAllSuccess',
-    published: 'statusAllSuccess',
-    failed: 'statusFailed',
-    error: 'statusFailed',
-    running: 'statusRunning',
-    pending: 'statusWaiting',
-    scheduled: 'statusScheduled',
-  }
-  return t('historyPage.' + (labels[statusValue(record)] || 'statusPending'))
-}
-
-function statusClass (record) {
-  return normalizedStatusGroup(record)
-}
 
 // ── P0-1 审核状态（枚举与映射真源在 shared-utils 双孪生，渲染端走 ESM 版）──
 // 只在记录带**合法**审核结论时渲染徽标；无结论（旧记录/监控无定论）不渲染，
@@ -1303,6 +1282,8 @@ onMounted(loadRecords)
 .delivery-mode-badge.delivery-mode-api { background: #eaf2fe; color: #1d4ed8; }
 .delivery-mode-badge.delivery-mode-dom { background: #f1f0f7; color: #5b21b6; }
 .delivery-mode-badge.delivery-mode-fallback { background: #fff6df; color: #9a6700; }
+/* 同批徽标：中性色，与状态/审核/发布方式三枚徽标区分开（它不是状态，是分组） */
+.batch-badge { border-radius: 4px; padding: 3px 7px; font-size: var(--font-size-xs); font-weight: 600; background: #eef0f6; color: #4b5563; }
 /* 失败原因行：与 status-badge.failed 同色系（#b42318）；单行截断防长错误顶开卡片布局，全文经 title 悬停 */
 .record-error { margin: 6px 0 0; font-size: var(--font-size-xs); color: #b42318; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -1368,9 +1349,15 @@ onMounted(loadRecords)
 .record-action { min-height: 26px; padding: 2px 8px; border: 1px solid #e5e7ef; border-radius: 5px; background: var(--color-bg-card); color: #68708b; font-size: var(--font-size-xs); cursor: pointer; }
 .record-action:hover { border-color: #5048e5; color: #5048e5; }
 .record-action.retry { color: #c43d4d; }
+/* 「再次发布」禁用态：早期记录没有快照。保持可见可悬停（原因写在 title 里），
+   只降对比度 + 禁指针 —— 直接隐藏会让用户以为按钮不存在。 */
+.record-action.republish.is-disabled,
+.record-action:disabled { color: #a8adba; border-color: #eceef4; cursor: not-allowed; background: #fafbfd; }
+.record-action:disabled:hover { border-color: #eceef4; color: #a8adba; }
 .record-detail-backdrop { position: fixed; inset: 0; z-index: 10000; display: grid; place-items: center; padding: 24px; background: rgba(25, 28, 48, .32); }
 .record-detail-modal { width: min(640px, 100%); max-height: min(720px, 90vh); overflow: auto; border-radius: 14px; background: var(--color-bg-card); box-shadow: 0 18px 60px rgba(23, 30, 65, .24); }
 .record-detail-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding: 22px 24px; border-bottom: 1px solid #edf0f7; }
+.record-detail-header-actions { display: flex; align-items: center; gap: 10px; }
 .record-detail-eyebrow { color: #8b92a7; font-size: var(--font-size-xs); }
 .record-detail-header h2 { margin: 4px 0 0; color: #20243e; font-size: var(--font-size-md); }
 .record-detail-close { width: 30px; height: 30px; border: 0; border-radius: 50%; background: #f4f5fa; color: #68708b; font-size: var(--font-size-lg); cursor: pointer; }

@@ -741,6 +741,10 @@ import BatchArticleCard from '@/features/publish/components/BatchArticleCard.vue
 import CopyDetailBanner from '@/features/publish/components/CopyDetailBanner.vue'
 import { useCopyDetailMode } from '@/composables/useCopyDetailMode'
 import { usePublishDrafts } from '@/composables/usePublishDrafts'
+// 「再次发布」（PRD-PUBLISH-RECORD-REPUBLISH-2026-10-15）：逻辑在 composables/usePublishRepublish.js，
+// 与草稿箱共用同一份「快照 → 表单」字段映射（features/publish/publish-snapshot.js）。
+import { usePublishRepublish } from '@/composables/usePublishRepublish'
+import { usePublishHistoryPrefill } from '@/composables/usePublishHistoryPrefill'
 import {
   normalizePublishMentions,
   normalizePublishStringList,
@@ -771,7 +775,7 @@ const { t } = useI18n()
 // 共用同一常量源，避免文案与实际校验漂移。2026-10-08 起按**所选平台**显示有效上限
 // （头条经平台 bundle 取证为 7 天；若 hint 仍显全局 30 天，用户按 30 天排期会被提交
 // 校验拒绝）。实现见 fieldSurface.hintTextFor（下方 fieldSurface 定义处接线）。
-const { notifySuccess, notifyWarning, notifyInfo, notifyError } = useNotify()
+const { notifySuccess, notifyWarning, notifyInfo, notifyError, notifyConfirm } = useNotify()
 // 视频上传区 el-upload 实例（video/article 两个互斥分支共用一个 ref，同时只有一个渲染）。
 // limit=1 的「重选替换」需要经它 clearFiles + handleStart，否则 el-upload 静默丢弃新文件。
 const videoUploadRef = ref(null)
@@ -1322,6 +1326,17 @@ watch(() => route.query.draft, async (draftId, previousDraftId) => {
   await loadDraft(String(draftId))
 })
 
+// ── 「再次发布」：实现见 composables/usePublishRepublish.js（视图只做接线）──
+const { applyRepublishFromQuery, watchRepublishQuery } = usePublishRepublish({
+  route, router, article, selectedPlatforms, selectedAccounts, platformOverrides: diffEdits,
+  getAccounts, editorQuery: publishEditorQuery, t, notifyError, notifyWarning, notifySuccess, notifyConfirm,
+})
+// query 变化即载入（同一记录只应用一次）
+watchRepublishQuery()
+
+// 历史视频跳转预填充（?video_path= 一族）：逻辑在 composables/usePublishHistoryPrefill.js
+const { applyHistoryVideoQuery } = usePublishHistoryPrefill({ route, article, activeMode, syncTopicsToContent })
+
 function publishEditorQuery (extra = {}) {
   const query = { tab: 'publish', ...extra }
   if (route.query?.type) query.type = String(route.query.type)
@@ -1337,47 +1352,7 @@ function editDraft (draft) {
   return router.replace({ path: '/publish', query: publishEditorQuery({ draft: String(draft.id) }) })
 }
 
-// 历史视频跳转预填充：query 双重编码（跳转方 encode + vue-router 再 encode），
-// 循环解码直到稳定，还原真实路径与文案后写入 article；tags 为逗号分隔字符串。
-// 解码后写入 article；tags 为逗号分隔字符串。
-function applyHistoryVideoQuery () {
-  const query = route.query || {}
-  const decode = value => {
-    if (typeof value !== 'string' || !value) return ''
-    // 双重编码最多需 2 次解码（跳转方 encode + vue-router 序列化再 encode）。
-    // 上限取 2：再多解一层会把单次编码值里合法的 %XX 序列（如真实标题 A%41B）
-    // 过度解码成 AAB，损坏文案。相等即 break，天然终止，无死循环风险。
-    let result = value
-    for (let i = 0; i < 2; i++) {
-      try {
-        const next = decodeURIComponent(result)
-        if (next === result) break
-        result = next
-      } catch {
-        break
-      }
-    }
-    return result
-  }
-  const videoPath = decode(query.video_path)
-  if (!videoPath) return
-  activeMode.value = 'video'
-  article.video_path = videoPath
-  const title = decode(query.title)
-  if (title) article.title = title
-  const content = decode(query.content)
-  if (content) article.content = content
-  const tags = decode(query.tags)
-  if (tags) {
-    const prev = normalizePublishStringList(article.tags)
-    article.tags = normalizePublishStringList(tags)
-    // 历史视频跳转携带的标签同样经追加管道带入描述\n    syncTopicsToContent(prev, normalizePublishStringList(article.tags))
-  }
-  // 历史视频发布走视频首帧封面，不携带自定义封面（百家号 API 不支持）
-  article.cover_url = ''
-  article.cover_path = ''
-  article.cover_file = null
-}
+
 
 // ── 热门选题批量交接（?drafts=id,id,...）──
 // 状态机（解析/装载/幂等/预置目标）在 useHotTopicsDraftHandoff；本视图只保留触发点与提示。
@@ -1413,7 +1388,11 @@ onMounted(async () => {
     return
   }
   const draftId = route.query.draft
-  if (!draftId) return
+  if (!draftId) {
+    // 「再次发布」与 ?draft= 互斥：同时出现时以草稿为准（那是用户当下的手工选择）
+    await applyRepublishFromQuery()
+    return
+  }
 
   await loadDrafts()
   await loadDraft(String(draftId))
@@ -1431,6 +1410,8 @@ onActivated(() => {
   // applyDraftHandoff 自带「同一批 id 只装载一次」的幂等键，重复激活不会重置用户编辑。
   const handoffIds = handoffIdsFromQuery()
   if (handoffIds.length > 0) applyDraftHandoff(handoffIds)
+  // 同上：「再次发布」也可能命中已被 keep-alive 缓存的实例（自带「同一记录只应用一次」幂等键）
+  void applyRepublishFromQuery()
 })
 
 // 暴露给测试（w.vm.xxx）和外部组件

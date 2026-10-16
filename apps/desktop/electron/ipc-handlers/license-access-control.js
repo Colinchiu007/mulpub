@@ -117,6 +117,8 @@ const LOGIN_ONLY_FEATURE_MAP = Object.freeze({
   'history:list': 'publish_history',
   'history:get': 'publish_history',
   'history:delete': 'publish_history',
+  // 「再次发布」快照读取（2026-10-15）：与历史读取同级 —— 登录即可，feature 预留不强制
+  'history:get-republish-snapshot': 'publish_history',
   'queue:status': 'publish_history',
   'queue:history': 'publish_history',
   'queue:cancel': 'publish_history',
