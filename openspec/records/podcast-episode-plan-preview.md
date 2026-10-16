@@ -3,9 +3,6 @@ record: podcast-episode-plan-preview
 task: 落地 tasks 4.3②-a —— 出期前计费二次确认框的只读预览接口（PRD §7.10.4.1 的唯一读路径）
 date: 2026-10-16
 # ↓ 远程同步尚未收口 ⇒ 按 scripts/check-gate-record-debt.js 的第二源判据必须显式登记原因与回填责任人；回填时整段删除。
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 与合并时间还不存在；合并后由本会话开回填 PR，把「远程同步」行改成 PASS + merge SHA，并在同一次提交删除本段三个字段
-sync_backfill_owner: podcast-episode-plan-preview 会话（本节作者）
 ---
 
 ## 本次执行记录：出期前只读预览接口（podcast-episode-plan-preview，2026-10-16）
@@ -22,7 +19,7 @@ sync_backfill_owner: podcast-episode-plan-preview 会话（本节作者）
 | QM-1 打包 | ✅ | `pnpm exec electron-builder --win --dir --publish never` rc=0（先 `pnpm run build:vue` 出渲染层，否则启动验证必假失败）。三层判据：① 红线四条（与 `scripts/qm1-scheduled-publish-verify.cjs` 同源逐字）不命中；② stderr 为空 ⇒ 直落第③层；③ 存活断言独立于 stderr（`exitCode=null` 且 `Multi-Publish.exe` 进程数 0→4，只 kill 自己 PID，收尾后回 0）。**归属自证取最高一级**：包内 blob 与工作树**逐字节相同** —— 新模块 6051B、handler 20827B、`preload/index.bundle.js` 90001B、`home-shell-preload.bundle.js` 91321B，另带一个本次未改动文件 `podcast-tts-voice.js`（6974B）当对照组证明比对方法本身有效；解包后真 `require` 通过（导出 `createEpisodePlanPreview, PREVIEW_ERRORS, REQUIRED_DEPS`） |
 | QM-4 视觉 | N/A | 本片不动任何渲染面与样式（只加主进程 IPC + preload 桥），无新像素用例；浮层的视觉回归随 ②-b 一并跑 |
 | QM-6 CCG 双模型外部评审 | ⚠️ **单轴 + 用户逐条点名豁免本片（2026-10-16）** 前端轴 `--backend opencode` 已发起（18:02，PID 37748，workdir 传 `.`、cwd 在 worktree 内以避开 `external_directory` 自动拒绝），截至合并时**未交付判定**（跨约 2 小时无输出，wrapper 超时 7200s）；后端轴按 `~/.claude/.ccg/config.toml` 的 `[routing.backend].primary = "claude"` 起，被上游拒绝，现场文案逐字：`Failed to authenticate. API Error: 403 今日免费订阅额度已用尽（次日 00:00 CST 自动重置）…`；换路也量过——`--backend codex` 起进程后 `codex exited with status 1`（直跑 CLI 现场是 `401 Unauthorized … Provider: OpenRouter … Missing Authentication header`），`--backend gemini` 是 `gemini command not found in PATH`。 **处置**：按「禁止自扮演豁免」我没有自代缺失那一轴，而是把三条走法交给人；人回「**明确豁免这一片，现在合**」⇒ 本 PR 依此合并（先例是 #3382/#3387 那两条逐条点名豁免）。**豁免只覆盖本片的 QM-6 那一格，不是把这条锁改掉**；额度恢复后若要对这条链补一次外部视角，可单开一轮 `deep-review`（判据取产物不取 rc）。 下面「## 六」末尾记的是**同一件事的现场**（含为什么不能只看 wrapper 的 rc）。 |
-| 远程同步 | PENDING | 本 PR 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间、`git ls-remote --heads origin podcast-episode-plan-preview` 返回 0 行证远端分支已删，并在同一次提交删除本段三个 sync_* 字段 |
+| 远程同步 | PASS | 已合并，merge SHA acf5362b602fa9142e4ed953fab49353bd4d42ef（2026-10-16T12:41:20Z）；取证自 `git log origin/main --grep` 该 PR 尾注恰 1 行，`git ls-remote --heads origin podcast-episode-plan-preview` 返回 0 行证远端分支已删，可离线复核 |
 
 ## 一、这一刀到底解决了什么（不是「多一个接口」）
 
