@@ -67,6 +67,8 @@
 - [ ] 4.5 **音色默认值的两层事实**（PRD §7.4.0 第 1 条）：仓内**不存在**跨 provider 的"全局默认音色"，只有 capability 级 `defaultVoiceId` 与用户偏好 `tts-voice-preference:v1:<providerId>:<model>` 两层；频道 `voiceRef` 三段（providerId/model/voiceId）同存或同缺，回退顺序 ①频道 ②用户偏好 ③capability 默认 ④都无则 `PODCAST_TTS_VOICE_UNRESOLVED` 拒绝，**禁止**用"某个 provider 的第一个音色"猜。②③ 命中时界面必须标注来源三态
   - 进度（2026-10-15，podcast-compliance-badge）：**§8.2.5 的 UI 半片已落**——四把 `podcast.compliance.*` 键 zh/en 成对、频道页单集行三态徽标（`ok` 不渲染 / `stock` 说「沿用」 / `invalid` 计数句加逐条原因加可播出提示），原因逐字走 `issueText`；`compliance` 键缺席整块不显示且绝不写成「0 项不符合」（与 4.4b③ 的 `stock: null` 同一条纪律）。**4.5 父项保持未勾**：本条要求的「②③ 命中时界面标注来源」那半句未做——解析层的 `origin`/`resolvedBy` 还没进任何 IPC 投影，标注它要先改主进程（QM-1），属另一片
 
+  - 进度（2026-10-16，podcast-voice-source-spec）：**本片只写合同，不写实现**——§8.2.9 已在 PRD 落地（只读 IPC `podcast:voice-preview` + `PodcastEpisodeEntry.vue` 落点 + 三把 origin 键的 zh/en 逐字 + 七条验收判据）。动因是当场实测：`voiceRef` 在 `apps/desktop/src` 命中 0 个文件、podcast locales 无任何音色键、`origin`/`resolvedBy` 从未进过 IPC 载荷 ⇒ 落点不存在，直接加文案会造死键。父项 4.5 因此**仍保持未勾**：UI 半片的 compliance 部分已随 #3676 落地，音色来源部分待按 §8.2.9 实现（触主进程 ⇒ QM-1 必跑）
+
 - [ ] 4.6 **不做响度归一**（PRD §7.4.0 第 2 条）：`loudnorm` 不在打包媒体工具的已验证滤镜清单，引入它需同 PR 改 `media-tools-lock.json` + `before-pack` 校验 + 重打包实测，是另一条混合 PR 的体量。本期以"全期同一组 voice/rate/pitch/format 参数"换取块间一致，并在 PRD §13 明写跨 provider 降级时各块响度可能不一致这一接受项
 
 ## 5. 刀 5 收口
