@@ -190,22 +190,36 @@ function parseSecurityHitLines(output, file) {
   const rel = String(file || '').replace(/\\/g, '/');
   const relBack = String(file || '').replace(/\//g, '\\');
   const base = path.basename(rel);
-  for (const line of String(output).split(/\r?\n/)) {
-    const m = line.match(/\.(?:js|ts|py|go|java|rs|c|cpp|php):(\d+)/i);
+  // ★ CCG 第八轮 i5 的**过度收紧**（自查补正，本轮实测踩到）：
+  //   我把「提到本文件但没给行号」一律当成**文件级命中** ⇒ fail-closed 不过滤。
+  //   但扫描器的报告头里本来就有两行提到本文件而无行号：
+  //     `扫描路径: D:\…\rpa-view-platforms.js`（无行号）与 `扫描文件: 1`
+  //   ⇒ 每次扫这个文件都会判「有文件级命中」⇒ **存量过滤被完全关掉**，
+  //   于是该文件里那条**存量** XSS（L1030，改动区间只有 [506,506]）被当成本次引入，
+  //   把一次纯注释瘦身的提交拦下来。这是**我自己引入的门禁假阳**（fail-closed 方向，
+  //   但代价是合法提交被误阻断，且掩盖了过滤功能本身）。
+  //   修法：先剔除扫描器的**行政行**（路径/统计/结果/分隔线/小节标题）。
+  //   注意方向仍是 fail-closed —— **只**剔除这些已知非命中形态，
+  //   任何其它「提到本文件却无行号」的行照旧算文件级命中。
+  const ADMIN_RE = /^(?:扫描路径|扫描文件|扫描结果|统计|问题列表)\s*[:：]/;
+  for (const raw of String(output).split(/\r?\n/)) {
+    const line = raw.trim();
+    if (ADMIN_RE.test(line) || /^[=\-]{5,}$/.test(line)) continue;
+    const m = raw.match(/\.(?:js|ts|py|go|java|rs|c|cpp|php):(\d+)/i);
     if (m) {
       // ★ CCG 第八轮 i5（upheld）：接受三种路径形态 —— 相对路径（正/反斜杠）与 basename。
       //   只匹配相对路径时，扫描器若输出 **Windows 绝对路径**（D:\…\file.js:12）
       //   会把命中静默丢掉 ⇒ hits=0 ⇒ 落入 fail-closed 保留 FAIL（方向保守），
       //   但会把「路径形态不匹配」伪装成「没有命中」。现在三种形态都认。
-      const isThisFile = (rel && line.includes(rel))
-        || (relBack && line.includes(relBack))
-        || (base && line.includes(base));
+      const isThisFile = (rel && raw.includes(rel))
+        || (relBack && raw.includes(relBack))
+        || (base && raw.includes(base));
       if (!isThisFile) continue;
       hits.push(Number(m[1]));
       continue;
     }
     // 提到本文件但没给行号 ⇒ 文件级命中，无法用区间判定，按 fail-closed 处理
-    if ((rel && line.includes(rel)) || (relBack && line.includes(relBack)) || (base && line.includes(base))) {
+    if ((rel && raw.includes(rel)) || (relBack && raw.includes(relBack)) || (base && raw.includes(base))) {
       fileLevel++;
       mentioned++;
     }

@@ -1469,52 +1469,26 @@ describe('rpa-view-platforms — douyin 图文事件驱动等待（A2：去固�
     expect(result.error === undefined || !String(result.error).includes('cover')).toBe(true)
   })
 })
-
-// ───────────────────────────────────────────────────────────────────────────
-// ★ 2026-10-16 新增（p3-residual-criteria，CCG 第三轮 i2 upheld 后修复）
-//
-// 「要不要等 API 响应」必须看**两轴合取**（has_api 且 publishMode ∈ {api-only, api-then-dom}），
-// 不能只看 has_api。动因：facebook 的 has_api 由 true 修正为 false（它在本仓没有任何 API 实现），
-// 排查 has_api 全仓读者时发现本文件 L505 的观测点仍只看能力轴——
-// `config.has_api && success_patterns.length>0` 会注册一个 **60 秒的 API 响应等待**；
-// 对「未入波」平台（has_api:true + publishMode:dom-only，如修复前的 facebook/youtube/twitter）
-// 那是在等一个**永不到来**的响应，与 rpa-view-manager.js:66-80 修掉的「误入 API 轨」同型
-// （那里修的是闸门，这里漏的是观测点）。
-//
-// ⚠️ 锁的形态说明（不自我欺骗）：这段判据深埋在 `_publish_generic` 的真实发布流程里，
-// 要行为级覆盖需要把整条 DOM 发布链跑起来（现有用例都靠大量 mock，且没有平台是
-// 「has_api:true + dom-only」的真实样本可直接触发）。故此处用**源码结构锁**：
-// 断言 L505 那段判据必须是两轴合取、且不得回退成只看 has_api。
-// 这条锁的**假过风险**由变异反证兜住（见记录：把 onApiTrack 退回 !!config.has_api
-// 时本断言即红）。
-// ───────────────────────────────────────────────────────────────────────────
-describe('rpa-view-platforms — API 响应等待的两轴合取（CCG i2，源码结构锁）', () => {
+// CCG 第三/四轮 i2（upheld）：本文件曾自写两轴合取，与产品侧 isApiTrack 在 publishMode
+// 缺省时给出**相反**结论。现在必须是**直接调用单一来源**。判据埋在 _publish_generic 的
+// 真实发布链里，行为级无真实样本 ⇒ 用源码结构锁；假过风险由变异反证兜住（退回本地合取 ⇒ 红）。
+// 全平台一致性与接线锁见 packages/api-publish-engine/test/publish-mode-config.test.js，
+// 完整理由见 openspec/records/p3-residual-criteria.md。
+describe('rpa-view-platforms — API 响应等待的判据来自单一来源（CCG i2 结构锁）', () => {
   const fs = require('node:fs')
   const path = require('node:path')
-  const SRC = path.join(__dirname, 'rpa-view-platforms.js')
 
-  it('等 API 响应的判据必须来自单一来源 isApiTrack，不得本地复写合取', () => {
-    const src = fs.readFileSync(SRC, 'utf8')
-    const lines = src.split('\n')
-    // ★ CCG 第四轮 i2（upheld）后更新判据形态：
-    //   原先这里允许「本地写两轴合取」（只查窗口内有 pmode 即可），但那本身就是第二份实现 ——
-    //   publishMode 缺省时本地合取判 false、产品侧 isApiTrack 判 true，**同一配置两处结论相反**。
-    //   现在的正确形态是**直接调用产品侧单一来源**，故锁改为：
-    //   ① 文件必须 require 它；② 判据必须调用它；③ 不得本地复写合取式。
-    expect(src, '必须 require 产品侧单一来源').toMatch(/require\(['"]@multi-publish\/api-publish-engine\/src\/api-router['"]\)/)
-    const callLines = lines.filter((l) => /const onApiTrack\s*=\s*isApiTrack\(/.test(l))
-    expect(callLines.length, 'onApiTrack 必须由 isApiTrack(...) 得出（恰好 1 处）').toBe(1)
-    // 不得本地复写合取（能力轴与轨道轴比较出现在同一句里）
-    const AXIS_CAP = 'has' + '_api'
-    const AXIS_TRK = 'publish' + 'Mode'
-    const cmpRe = new RegExp(AXIS_TRK + '\\s*(===|!==)')
-    const capRe = new RegExp(AXIS_CAP)
-    const localRewrite = lines.filter((l) => cmpRe.test(l) && capRe.test(l))
+  it('必须调用产品侧 isApiTrack，且不得本地复写合取', () => {
+    const src = fs.readFileSync(path.join(__dirname, 'rpa-view-platforms.js'), 'utf8')
+    expect(src, '必须 require 产品侧单一来源')
+      .toMatch(/require\(['\"]@multi-publish\/api-publish-engine\/src\/api-router['\"]\)/)
+    expect(src, '等 API 响应的判据必须真的调用 isApiTrack(...)').toMatch(/isApiTrack\(config\)/)
+    // 不得本地复写合取（能力轴与轨道轴比较在同一句）；正则用拼接，防本文件自指
+    const capRe = new RegExp('has' + '_api')
+    const trkRe = new RegExp('publish' + 'Mode' + '\\s*(===|!==)')
+    const localRewrite = src.split('\n').filter((l) => trkRe.test(l) && capRe.test(l))
     expect(localRewrite.length,
       '不得本地复写两轴合取（请调用 isApiTrack），命中: ' + localRewrite.join(' | ')).toBe(0)
-    // 使用点必须是合取结果，而不是原始的 config.has_api
-    const useLine = lines.find((l) => /const rp = \(onApiTrack/.test(l))
-    expect(useLine, '等 API 响应的使用点应基于 onApiTrack').toBeTruthy()
     expect(src, '不得回退成 `const rp = (config.has_api && …)`').not.toMatch(/const rp = \(config\.has_api &&/)
   })
 })

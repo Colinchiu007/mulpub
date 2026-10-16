@@ -130,6 +130,8 @@ D 修完后「没有任何平台的 TAG_STYLES 键缺席」⇒ 原用例里「�
 | 行尾与 diff 对账 | ✅ | `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` **两口径一致** |
 | 接线棘轮 | ✅ | `node scripts/check-unwired-tests.js` → `OK`（88 个测试文件）；新文件已进 `VITEST_FILES` |
 | QM-1 打包 | PASS | `pnpm exec electron-builder --win --dir` rc=0（本 PR 确实改了 `apps/desktop/electron/services/rpa-view-{platforms,manager}.js`，此前误记 N/A）；① asar 15012 条含 logger 8 + api-publish-engine 163；② 解包后 require 链 rc=0；③ 启动 8s **存活且 stderr=0B**。首次跑判 NEEDS_REVIEW（stderr `app.asar/dist/index.html ERR_FILE_NOT_FOUND`）—— 根因是渲染端未构建，构建 `build:vue` 后同码重跑转 PASS（单变量 A/B）|
+| CCG 门禁 verify-security 存量过滤 | PASS | **自查补正一处我自己引入的假阳**：第八轮 i5 把「提到本文件但无行号」一律当**文件级命中** ⇒ fail-closed 不过滤；而扫描器报告头里本来就有 `扫描路径: …<本文件>`（无行号）⇒ 每次扫这个文件都判「有文件级命中」，**存量过滤被完全关掉**，于是该文件的存量 XSS（L1030，改动区间只有 `[506,506]`）被当成本次引入，把纯注释瘦身的提交拦下。修法：先剔除扫描器**行政行**（`扫描路径/扫描文件/扫描结果/统计/问题列表` + 分隔线），其余「提到本文件却无行号」照旧算文件级命中（方向仍是 fail-closed）。三向探针（`parseSecurityHitLines` 无测试缝 ⇒ 抽源码 eval）：① 真实输出 ⇒ hits=[1030]、fileLevel=0（存量过滤可用）② 合成真文件级命中 ⇒ fileLevel=1（fail-closed 未退化）③ 他文件命中被排除 |
+| 逐文件行数门禁 | PASS | 首次红两条（**本 PR 造成**）：`TARGET_GREW rpa-view-platforms.js 1502 > 点名目标 1484`（该文件零增长容差）与 `TEST_OVER_LIMIT rpa-view-platforms.test.js 1521 ≥ 1500`。处置：**只删我自己新增的注释**（判据与行为一字未改），理由搬到本记录与包内测试——js 1502→**1484**（达目标）、test 1521→**1495**（超限文件 13→12，全部挂账内）。`check-max-lines.js` rc=0|
 | QM-4 视觉 | N/A | 未触渲染面与样式 |
 | QM-6 CCG 双模型外部评审 | PENDING | 八轮 self_play 全部逐条修复（见下）；**第九轮未执行** —— claude 后端免费额度耗尽（403，次日 00:00 CST 重置），已如实记录，不自审冒充 |
 | 远程同步 | PENDING | 本 PR 未合并 |

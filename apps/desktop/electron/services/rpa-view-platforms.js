@@ -18,11 +18,6 @@ const PlatformConfig = require('@multi-publish/shared-utils/src/platform-config'
 const { isNoTitlePlatform } = require('@multi-publish/shared-utils/src/publish-capabilities')
 const { platformSelectors } = require('@multi-publish/rpa-engine')
 const { getPublishUrl } = require('@multi-publish/api-publish-engine/src/platform-entries')
-// ★ 2026-10-16（p3-residual-criteria，CCG 第四轮 i2 upheld）：两轴合取的**单一来源**。
-//   本文件此前自己写了一份 `has_api && (pmode==='api-only'||pmode==='api-then-dom')`，
-//   而 api-router.js 的 isApiTrack 在 publishMode **缺省**时按 has_api 派生 api-then-dom
-//   ⇒ 同一份配置两处结论相反（缺省时这边 false、那边 true），正是本次要消灭的漂移。
-//   故直接 require 产品侧实现，不再本地复写。
 const { isApiTrack } = require('@multi-publish/api-publish-engine/src/api-router')
 const { buildXhsVideoRefusal } = require('./xiaohongshu-draft-guard')
 // 2026-10-02 头条兜底：DOM 被闭包门控拦下 ⇒ 失败时走「页面内 SDK 签名 + Node 直连」（toutiao-direct-bridge）
@@ -508,20 +503,7 @@ const platformsMixin = {
         let networkCapture = null
         try {
           this._emitProgress(platform,'publishing...',85)
-          // ★ 2026-10-16 修（p3-residual-criteria，CCG 第三轮 i2 upheld）：
-          //   原判据 `config.has_api && success_patterns.length>0` 只看能力轴。但
-          //   `has_api` 只说明「有 API 实现」，**当前走不走 API 轨**要看三态总闸
-          //   `publishMode`。对「未入波」平台（has_api:true + publishMode:dom-only，
-          //   如修复前的 facebook / youtube / twitter），这里会注册一个**永远不会
-          //   有响应**的 60 秒等待——正是 rpa-view-manager.js:66-80 记载并修掉的
-          //   同型误入 API 轨（那里修的是闸门，这里漏了观测点）。
-          //   判据改为两轴合取。
-          //   ★ CCG 第四轮 i2（upheld）：合取改为**直接调用产品侧单一来源**
-          //     `isApiTrack(config)`（见文件头 require），不再本地复写 ——
-          //     本地复写在 publishMode 缺省时会与 isApiTrack 给出**相反**结论
-          //     （缺省时本地 false、isApiTrack 按 has_api 派生 api-then-dom 为 true）。
-          const onApiTrack = isApiTrack(config)
-          const rp = (onApiTrack && config.success_patterns.length>0) ? this._waitForResponse(win,config.success_patterns,60000) : null
+          const rp = (isApiTrack(config) && config.success_patterns.length>0) ? this._waitForResponse(win,config.success_patterns,60000) : null
           // 按优先级依次尝试所有发布按钮候选，任一可见即用（页面改版后首个候选可能失效）
           let publishSelector = null
           for (const cand of sel.publish_btn || []) {
