@@ -1,24 +1,24 @@
 {
   "sha": "3ff90dfcce59d2e04a549a88bbfcfd71f30356dd",
   "layer": "diff",
-  "mode": "skip",
-  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "mode": "dual",
+  "reason": "变更 1067 行 > 200 行阈值（对齐 §12.6 Red Team）",
   "stats": {
-    "changedLines": 0,
-    "fileCount": 1,
-    "codeFileCount": 0,
+    "changedLines": 1067,
+    "fileCount": 14,
+    "codeFileCount": 11,
     "sensitivePathHits": [],
     "plannedPathHits": [],
-    "sensitiveContentHits": 0,
+    "sensitiveContentHits": 4,
     "docSensitiveContentHits": 0,
     "docSensitiveContentSample": [],
     "lineReadGaps": []
   },
-  "stagedDiffHash": "46c6e689a01d432f3a89aa889a46f45ac4c48cc2e2d9e190f7cac2204e81189c",
-  "decidedAt": "2026-10-16T16:47:09.040Z",
+  "stagedDiffHash": "e2d2f18b834e602d62edfe1949425a085d21f487acb2f91ac26770bbae171937",
+  "decidedAt": "2026-10-16T17:29:14.115Z",
   "decidedBy": "ccg-review-decider",
   "deepReview": {
-    "required": false,
+    "required": true,
     "status": "pending",
     "performedBy": null,
     "findings": null

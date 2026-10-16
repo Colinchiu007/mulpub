@@ -13,13 +13,19 @@
     </div>
 
     <div class="cohere-content">
-      <!-- 试用横幅 -->
-      <!-- 布局说明（2026-10-16）：横幅必须放在 .cohere-content **内部**，才能继承
-           它的左右 padding（--space-xxl），使背景块左右边缘与下方统计卡片对齐。
-           此前放在外侧时，横幅是全页唯一没有水平 padding 的元素：背景色左侧直接
-           贴到容器边，且被 .banner-text 的 flex:1 拉满整页宽度，与下方内容区宽度
-           不一致，视觉上显得过宽且不专业。 -->
-      <TrialBanner :dismissed="dismissBanner" @upgrade="showUpgradeModal = true" @dismiss="dismissBanner = true" />
+      <!-- 免费版横幅已撤下（dash-full-entitlement，用户决策方案 C）。
+           原因：横幅文案「当前为免费版，部分功能受限」在本页是**误导** ——
+           本页三个数据源（dashboard:stats / history:list / performance:overview）
+           的门禁都是「登录」而非「套餐」，未登录时由下方 .dashboard-login-gate
+           单独引导，本页没有任何一项内容因套餐受限。
+           撤下后，套餐差异改由下方各区块的「锁区块占位」真实体现（PRD §3.2），
+           那才是诚实且可验证的差异 —— 不再是"声称受限"而是"确实少看几块"。
+
+           注意：若将来要把横幅加回来，**必须放在 .cohere-content 内部**（PR #3752 的教训）：
+           放在外侧时它是全页唯一没有水平 padding（--space-xxl）的元素，背景色左侧
+           直接贴容器边、与下方卡片不对齐，且会被 .banner-text 的 flex:1 拉满整页
+           宽度 —— 比下方内容区更宽，视觉上不专业。该位置关系由
+           Dashboard.style-guard.test.js 的回归锁机械守住。 -->
 
       <!-- 统计卡片网格 - 不规则布局 -->
       <div class="stats-grid">
@@ -85,7 +91,10 @@
       </div>
 
       <!-- 发布趋势（最近 14 天） -->
-      <div v-if="statsData && statsData.daily && statsData.daily.length > 0" class="cohere-card dash-panel trend-panel">
+      <!-- 权益门控：未解锁时渲染占位（不发 IPC、不渲染真实数据），
+           见 PRD §3.2.1 —— 这是体验分级，不是访问控制。 -->
+      <DashboardLockedPanel v-if="!hasDashboardFull" name="trend" :title="$t('dashboard.trendTitle')" @upgrade="showUpgradeModal = true" />
+      <div v-else-if="statsData && statsData.daily && statsData.daily.length > 0" class="cohere-card dash-panel trend-panel">
         <div class="dash-panel-title">
           <el-icon><TrendCharts /></el-icon> 
           {{ $t('dashboard.trendTitle') }}
@@ -110,10 +119,12 @@
       </div>
 
       <!-- 作品互动回流（P2-6c）：数字一律来自 performance_snapshot 聚合 -->
-      <PerformanceFlowPanel class="dash-mt-xl" :reload-token="metricsReloadToken" />
+      <DashboardLockedPanel v-if="!hasDashboardFull" name="perf" :title="$t('dashboard.metrics.title')" @upgrade="showUpgradeModal = true" />
+      <PerformanceFlowPanel v-else class="dash-mt-xl" :reload-token="metricsReloadToken" />
 
       <!-- 平台分布 -->
-      <div v-if="statsData && platformStats.length > 0" class="cohere-card dash-panel platform-panel">
+      <DashboardLockedPanel v-if="!hasDashboardFull" name="platform" :title="$t('dashboard.platformDistTitle')" @upgrade="showUpgradeModal = true" />
+      <div v-else-if="statsData && platformStats.length > 0" class="cohere-card dash-panel platform-panel">
         <div class="dash-panel-title">
           <el-icon><DataLine /></el-icon> 
           {{ $t('dashboard.platformDistTitle') }}
@@ -144,6 +155,84 @@
             </span>
           </li>
         </ul>
+      </div>
+
+      <!-- 账号健康度（新，free 可见）：运营必需信息，不给足会让用户无法判断基本可用与否 -->
+      <div class="cohere-card dash-panel" data-testid="dashboard-account-health">
+        <div class="dash-panel-title">
+          <el-icon><UserFilled /></el-icon> {{ t('dashboard.accountHealthTitle') }}
+        </div>
+        <p v-if="accountHealth.state === 'auth'" class="dash-panel-note" data-testid="account-health-auth">
+          {{ t('dashboard.loginGateHint') }}
+        </p>
+        <p v-else-if="accountHealth.state === 'error'" class="dash-panel-note" data-testid="account-health-error">
+          {{ t('dashboard.accountHealthLoadFailed') }}
+        </p>
+        <p v-else-if="accountHealth.state === 'empty'" class="dash-panel-note" data-testid="account-health-empty">
+          {{ t('dashboard.accountHealthEmpty') }}
+        </p>
+        <template v-else>
+          <div class="dash-health-row">
+            <span class="dash-health-chip ok">{{ t('dashboard.accountHealthOk', { count: accountHealth.ok }) }}</span>
+            <span class="dash-health-chip bad">{{ t('dashboard.accountHealthBad', { count: accountHealth.bad }) }}</span>
+            <span class="dash-health-chip unknown">{{ t('dashboard.accountHealthUnknown', { count: accountHealth.unknown }) }}</span>
+          </div>
+          <ul v-if="accountHealth.badAccounts.length > 0" class="dash-health-list">
+            <li v-for="id in accountHealth.badAccounts" :key="id">{{ id }}</li>
+            <li v-if="accountHealth.badOverflow > 0" class="dash-health-more">
+              {{ t('dashboard.accountHealthMore', { count: accountHealth.badOverflow }) }}
+            </li>
+          </ul>
+        </template>
+      </div>
+
+      <!-- 发布队列状态（新，free 可见） -->
+      <div class="cohere-card dash-panel" data-testid="dashboard-queue-status">
+        <div class="dash-panel-title">
+          <el-icon><Timer /></el-icon> {{ t('dashboard.queueTitle') }}
+        </div>
+        <p v-if="queue.state === 'auth'" class="dash-panel-note" data-testid="queue-auth">
+          {{ t('dashboard.loginGateHint') }}
+        </p>
+        <p v-else-if="queue.state === 'error'" class="dash-panel-note" data-testid="queue-error">
+          {{ t('dashboard.queueLoadFailed') }}
+        </p>
+        <template v-else>
+          <div class="dash-health-row">
+            <span class="dash-health-chip run">{{ t('dashboard.queueRunning', { count: queue.running }) }}</span>
+            <span class="dash-health-chip pending">{{ t('dashboard.queuePending', { count: queue.pending }) }}</span>
+            <span class="dash-health-chip bad">{{ t('dashboard.queueFailed', { count: queue.failed }) }}</span>
+          </div>
+          <p v-if="queue.state === 'empty'" class="dash-panel-note" data-testid="queue-empty">
+            {{ t('dashboard.queueEmpty') }}
+          </p>
+          <ul v-if="queue.failedTitles.length > 0" class="dash-health-list">
+            <li v-for="(title, i) in queue.failedTitles" :key="i">{{ title }}</li>
+          </ul>
+        </template>
+      </div>
+
+      <!-- 题材表现榜（新，full 专属） -->
+      <DashboardLockedPanel v-if="!hasDashboardFull" name="pattern" :title="t('dashboard.patternTitle')" @upgrade="showUpgradeModal = true" />
+      <div v-else class="cohere-card dash-panel" data-testid="dashboard-pattern-board">
+        <div class="dash-panel-title">
+          <el-icon><TrendCharts /></el-icon> {{ t('dashboard.patternTitle') }}
+        </div>
+        <p v-if="patternBoard.state === 'auth'" class="dash-panel-note" data-testid="pattern-auth">
+          {{ t('dashboard.loginGateHint') }}
+        </p>
+        <p v-else-if="patternBoard.state === 'error'" class="dash-panel-note" data-testid="pattern-error">
+          {{ t('dashboard.patternLoadFailed') }}
+        </p>
+        <p v-else-if="patternBoard.state === 'empty'" class="dash-panel-note" data-testid="pattern-empty">
+          {{ t('dashboard.patternEmpty') }}
+        </p>
+        <ol v-else class="dash-pattern-list">
+          <li v-for="row in patternBoard.rows" :key="row.value" class="dash-pattern-row">
+            <span class="dash-pattern-name">{{ row.value }}</span>
+            <span class="dash-pattern-score">{{ row.score }}</span>
+          </li>
+        </ol>
       </div>
 
       <!-- 各平台数据 -->
@@ -204,15 +293,26 @@ import { ElMessage } from 'element-plus'
 // eslint-disable-next-line no-unused-vars
 import { syncAll, syncPlatform } from '@/api/publisher'
 import { usePlatformStore } from '@/stores/platforms'
+import { useAccountStore } from '@/stores/accounts'
 import { useIdentity } from '@/composables/useIdentity'
 import { isAuthGateResult } from '@/utils/auth-gate'
 import { getPlatformIconUrl, isPlatformIconUrl } from '@/composables/usePlatformIconUrl'
 import { formatDateTime } from '@/utils/datetime'
 import BenchmarkChart from '@/components/BenchmarkChart.vue'
 import PerformanceFlowPanel from '@/features/dashboard/PerformanceFlowPanel.vue'
-import TrialBanner from '@/components/TrialBanner.vue'
+import DashboardLockedPanel from '@/features/dashboard/DashboardLockedPanel.vue'
 // eslint-disable-next-line no-unused-vars
 import UpgradeModal from '@/components/UpgradeModal.vue'
+import { useIdentityStore } from '@/stores/identity'
+import { hasFeatureOf, DASHBOARD_FULL_FEATURE } from '@/views/member-center/entitlement-gate'
+import { accountBatchCheckLogin, getQueueStatus, getQueueHistory } from '@/api/publisher'
+import { listPatternPerformance } from '@/api/knowledge-library'
+import {
+  toAccountHealthModel,
+  toQueueStatusModel,
+  toPatternBoardModel,
+  AUTH_GATE,
+} from '@/features/dashboard/dashboard-panels-model'
 
 const syncing = ref(false)
 const dismissBanner = ref(false)
@@ -229,6 +329,25 @@ const statsLoginRequired = ref(false)
 const { isAuthenticated: identityAuthenticated, signIn: identitySignIn } = useIdentity()
 const platformStore = usePlatformStore()
 platformStore.load()
+
+// ─── 套餐权益分级（dash-full-entitlement）─────────────────────────────
+// 一律走服务端 entitlement，**不用** licenseStore.isPro：后者是二值，
+// 会把 standard 档误判成免费（调研确认的既有陷阱）。
+// entitlement 在未登录/未取到时是 null，hasFeatureOf 内部已判空。
+const identityStore = useIdentityStore()
+const hasDashboardFull = computed(() => hasFeatureOf(identityStore.entitlement, DASHBOARD_FULL_FEATURE))
+
+// 批量检测入参：从 store 取 id 后必须 JSON 脱壳 —— Vue ref 包着的是 reactive proxy，
+// 直接传 IPC 会抛 "An object could not be cloned"（项目 QM-2 明写的纪律）。
+const accountStore = useAccountStore()
+const accountIdsForCheck = computed(() =>
+  (accountStore.accounts || []).map((a) => a && a.id).filter((id) => typeof id === 'string' && id)
+)
+
+// ─── 新增区块状态（初值 loading，四态：loading/ready/empty/error/auth）────
+const accountHealth = ref({ state: 'loading', ok: 0, bad: 0, unknown: 0, badAccounts: [], badOverflow: 0 })
+const queue = ref({ state: 'loading', running: 0, pending: 0, failed: 0, failedTitles: [] })
+const patternBoard = ref({ state: 'loading', rows: [] })
 
 function platformName (id) { return platformStore.getLabel(id) || id }
 function platformIcon (id) { return getPlatformIconUrl(id) || platformStore.getIcon(id) || '' }
@@ -310,6 +429,55 @@ async function loadRecent () {
   }
 }
 
+/**
+ * 账号健康度、发布队列、题材表现榜三路**并行**取数（dash-full-entitlement）。
+ *
+ * 纪律（对齐项目 QM-2「首屏不得串行阻塞」）：
+ * ① 三路并行（Promise.allSettled），最坏耗时不是各项之和；
+ * ② 单路失败只停该路，其余照常渲染；
+ * ③ 题材榜未解锁时**根本不发起**请求（PRD §3.2.1）。
+ *
+ * 防重入：onMounted、watch(identityAuthenticated)、watch(hasDashboardFull)
+ * 三个入口都会调它，而权益是异步下发的（挂载时常为 null，随后才到位），
+ * 不加闸门会让同一批数据被取 3~5 次（实测题材榜 IPC 被调 5 次）。
+ */
+// 题材榜单独一个入口：只有它受权益门控，与账号/队列解耦后，
+// 权益到位时不会把已取到的账号/队列数据再拉一遍（拆分前的实测：5 次 IPC）。
+let patternSeq = 0
+async function loadPatternBoard () {
+  const seq = ++patternSeq
+  // 未解锁时**根本不发请求**：主进程对该通道不设权益防（PRD §3.2.1），
+  // 发了会成功返回却不能显示，这个"拿到了但不给看"的状态无从解释，不如不发。
+  if (!hasDashboardFull.value) {
+    patternBoard.value = { state: 'loading', rows: [] }
+    return
+  }
+  try {
+    const res = await listPatternPerformance({ dimension: 'narrative_structure' })
+    if (seq === patternSeq) patternBoard.value = toPatternBoardModel(res)
+  } catch (e) {
+    console.warn('Load pattern board failed:', e && e.message)
+    if (seq === patternSeq) patternBoard.value = { state: 'error', rows: [] }
+  }
+}
+
+let newPanelsSeq = 0
+async function loadNewPanels () {
+  const seq = ++newPanelsSeq
+  const [accountRes, statusRes, historyRes] = await Promise.allSettled([
+    accountBatchCheckLogin(JSON.parse(JSON.stringify(accountIdsForCheck.value))),
+    getQueueStatus(),
+    getQueueHistory(),
+  ])
+  // 被后来的调用取代则丢弃结果（防乱序写回）
+  if (seq !== newPanelsSeq) return
+  accountHealth.value = toAccountHealthModel(accountRes.status === 'fulfilled' ? accountRes.value : null)
+  queue.value = toQueueStatusModel(
+    statusRes.status === 'fulfilled' ? statusRes.value : null,
+    historyRes.status === 'fulfilled' ? historyRes.value : null
+  )
+}
+
 async function signInFromGate () {
   // 打开登录窗口的唯一正确入口：identity.signIn()（主进程 Logto OAuth）；取消保持门禁态。
   try {
@@ -326,7 +494,13 @@ watch(identityAuthenticated, (authed) => {
     loadStats()
     loadRecent()
   }
+  // 新增三区块同样依赖登录态（队列/账号通道不在 public 列表）
+  if (authed) loadNewPanels()
 })
+
+// 权益到位时只补取题材榜（PRD §3.2.1）：它是唯一受门控的区块。
+// 账号/队列不受套餐限制，权益到位不该让它们再取一遍。
+watch(hasDashboardFull, loadPatternBoard)
 
 async function loadCached () {
   const api = getApi()
@@ -348,7 +522,7 @@ function doBenchmark () {
   benchmarkActiveTitle.value = benchmarkTitle.value.trim()
 }
 
-onMounted(() => { loadCached(); loadStats(); loadRecent() })
+onMounted(() => { loadCached(); loadStats(); loadRecent(); loadNewPanels(); loadPatternBoard() })
 </script>
 
 <style scoped>
@@ -757,6 +931,63 @@ onMounted(() => { loadCached(); loadStats(); loadRecent() })
 
 .gate-sign-in:active {
   transform: translateY(0);
+}
+
+/* === 新增区块：账号健康度 / 发布队列 / 题材榜（dash-full-entitlement）=== */
+/* 与既有 .dash-panel-title 同形态，不再另起一套标题样式 */
+.dash-panel-note {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  margin: 0;
+}
+.dash-health-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-sm);
+}
+.dash-health-chip {
+  padding: 2px 10px;
+  border-radius: var(--radius-full, 9999px);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  background: var(--lavender-light);
+  color: var(--deep-purple);
+}
+.dash-health-chip.ok { background: rgba(16, 185, 129, .12); color: var(--color-success); }
+.dash-health-chip.bad { background: rgba(239, 68, 68, .12); color: var(--color-danger); }
+.dash-health-chip.unknown { background: var(--color-border); color: var(--color-text-secondary); }
+.dash-health-chip.run { background: var(--lavender-light); color: var(--deep-purple); }
+.dash-health-chip.pending { background: var(--lavender-light); color: var(--deep-purple); }
+.dash-health-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+}
+.dash-health-more {
+  color: var(--color-text-secondary);
+  list-style: none;
+  margin-left: -18px;
+}
+.dash-pattern-list {
+  margin: 0;
+  padding-left: 20px;
+}
+.dash-pattern-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: 4px 0;
+  font-size: var(--font-size-sm);
+}
+.dash-pattern-name { color: var(--color-text-primary); }
+.dash-pattern-score {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--deep-purple);
 }
 
 /* 响应式 */
