@@ -21,7 +21,7 @@ sync_backfill_owner: podcast-episode-plan-preview 会话（本节作者）
 | 接线棘轮 | ✅ | 两个新测试都在 `apps/desktop/electron/**`，由 vitest workspace 既有 include 收集（不属 `check-unwired-tests.js` 的 scripts/.github 域）；该判据实跑 rc=0（域内 89 个文件全部已接线或按欠账登记） |
 | QM-1 打包 | ✅ | `pnpm exec electron-builder --win --dir --publish never` rc=0（先 `pnpm run build:vue` 出渲染层，否则启动验证必假失败）。三层判据：① 红线四条（与 `scripts/qm1-scheduled-publish-verify.cjs` 同源逐字）不命中；② stderr 为空 ⇒ 直落第③层；③ 存活断言独立于 stderr（`exitCode=null` 且 `Multi-Publish.exe` 进程数 0→4，只 kill 自己 PID，收尾后回 0）。**归属自证取最高一级**：包内 blob 与工作树**逐字节相同** —— 新模块 6051B、handler 20827B、`preload/index.bundle.js` 90001B、`home-shell-preload.bundle.js` 91321B，另带一个本次未改动文件 `podcast-tts-voice.js`（6974B）当对照组证明比对方法本身有效；解包后真 `require` 通过（导出 `createEpisodePlanPreview, PREVIEW_ERRORS, REQUIRED_DEPS`） |
 | QM-4 视觉 | N/A | 本片不动任何渲染面与样式（只加主进程 IPC + preload 桥），无新像素用例；浮层的视觉回归随 ②-b 一并跑 |
-| QM-6 CCG 双模型外部评审 | ⛔ **后端轴今日不可执行（如实记，不以自审冒充）** | 前端轴 `--backend opencode` 已发起（18:02，PID 37748，workdir 传 `.` 且 cwd 在 worktree 内以避开 `external_directory` 自动拒绝）。后端轴按 `~/.claude/.ccg/config.toml` 的 `[routing.backend].primary = "claude"` 起，实测被上游拒绝，现场文案逐字：`Failed to authenticate. API Error: 403 今日免费订阅额度已用尽（次日 00:00 CST 自动重置）…`；换路也试过——`--backend codex` 起进程后 `codex exited with status 1`（日志现场是 `401 Unauthorized … Provider: OpenRouter; model: nvidia/nemotron-3-ultra-550b-a55b:free … Missing Authentication header`），`--backend gemini` 是 `gemini command not found in PATH`。**结论：本片不具备「两个不同家族模型」的外部交叉评审条件 ⇒ 不开自动合并、不宣布交付闭合**，等额度重置（次日 00:00 CST）补跑后端轴或由人明确豁免。前端轴结果到达后逐条处置并追加到本节下方 |
+| QM-6 CCG 双模型外部评审 | ⚠️ **单轴 + 用户逐条点名豁免本片（2026-10-16）** 前端轴 `--backend opencode` 已发起（18:02，PID 37748，workdir 传 `.`、cwd 在 worktree 内以避开 `external_directory` 自动拒绝），截至合并时**未交付判定**（跨约 2 小时无输出，wrapper 超时 7200s）；后端轴按 `~/.claude/.ccg/config.toml` 的 `[routing.backend].primary = "claude"` 起，被上游拒绝，现场文案逐字：`Failed to authenticate. API Error: 403 今日免费订阅额度已用尽（次日 00:00 CST 自动重置）…`；换路也量过——`--backend codex` 起进程后 `codex exited with status 1`（直跑 CLI 现场是 `401 Unauthorized … Provider: OpenRouter … Missing Authentication header`），`--backend gemini` 是 `gemini command not found in PATH`。 **处置**：按「禁止自扮演豁免」我没有自代缺失那一轴，而是把三条走法交给人；人回「**明确豁免这一片，现在合**」⇒ 本 PR 依此合并（先例是 #3382/#3387 那两条逐条点名豁免）。**豁免只覆盖本片的 QM-6 那一格，不是把这条锁改掉**；额度恢复后若要对这条链补一次外部视角，可单开一轮 `deep-review`（判据取产物不取 rc）。 下面「## 六」末尾记的是**同一件事的现场**（含为什么不能只看 wrapper 的 rc）。 |
 | 远程同步 | PENDING | 本 PR 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间、`git ls-remote --heads origin podcast-episode-plan-preview` 返回 0 行证远端分支已删，并在同一次提交删除本段三个 sync_* 字段 |
 
 ## 一、这一刀到底解决了什么（不是「多一个接口」）
@@ -76,7 +76,7 @@ sync_backfill_owner: podcast-episode-plan-preview 会话（本节作者）
 
 ## 七、遗留与不假装闭合的部分
 
-- QM-6 后端轴（claude）今日额度用尽 ⇒ **本片不 arm 自动合并**；前端轴结果到达后逐条处置。补跑命令与现场见上表 QM-6 行。
+- QM-6：**单轴 + 豁免**。后端轴（claude）今日额度用尽、codex 未认证、gemini 未装 ⇒ 双模型这一条今天凑不齐；把三条走法交人后，人选了**逐条点名豁免本片、现在合**（先例 #3382/#3387）。前端轴 opencode 到合并时仍未交付判定，所以本片**没有拿到任何一条外部发现**——这是这次合并的真实剩余风险，不写成"评审已过"。
 - ②-a-l（三把 locale 键 + 死键扫描域）与 ②-b（出期通道 `podcast:episode:publishFromScript` + 计费浮层 + `CopyLibraryView` 入口，另两枚入口各留未勾子项）仍未开工。
 - 验收 3 / 4 属 ②-b，本片不认领。
 - `voiceRef` 在频道真源缺失（4.5 的范围）；`resolveEpisodeVoice` 的 ① 层在生产上不可达这一事实已写进 PRD 落地现场，避免下一个人以为它已经生效。
