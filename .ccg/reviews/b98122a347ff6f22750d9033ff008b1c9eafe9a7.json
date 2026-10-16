@@ -19,8 +19,11 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "error",
+    "performedBy": "claude",
+    "findings": null,
+    "error": "exit 1 [claude]: Backend: claude\n  Command: claude -p --dangerously-skip-permissions --setting-sources  --output-format stream-json --verbose -\n  PID: 21800\n  Log: D:\\Temp\\codeagent-wrapper-21800.log\n  Session-ID: c09b2c96-2e6e-40e5-9836-a365aec0497c\n\n=== Recent Errors ===\nUsing stdin mode for task due to: piped input, explicit \"-\", newline, backslash, double-quote, single-quote, backtick, dollar, length>800\nclaude exited with status 1\nLog file: D:\\Temp\\codeagent-wrapper-21800.log (deleted)",
+    "validationErrors": null,
+    "at": "2026-10-16T13:25:43.739Z"
   }
 }

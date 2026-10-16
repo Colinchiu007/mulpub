@@ -1,0 +1,28 @@
+{
+  "sha": "4e34763ec5780e12a5da8513831e97036c53ab4b",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 1,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "7. **QM-6 未执行，且已阻断自动合并（本 PR 停在此处等用户裁决）**：工具链齐全（`--check-deps` 通过），但 `claude` 后端返回 **403 无订阅配额**（`authentication_failed`），DUAL 跨家族评审无法完成。连带两条后果：① `.ccg/reviews/b98122a3….json` 的 `deepReview.status` 停在 `pending`，不在闭环白名单 `{cleared, needs_revision, self_play_resolved}` 内 ⇒ `node scripts/check-pr-exec-record.js --base=origin/main --mode=enforce` **不通过**（实测 1 条理由），而 AGENTS.md 自动合并判据第 4 条要求它为 OK ⇒ **自动合并不满足，已停止并上报**；② **刻意不把 `status` 改成闭环值** —— 那正是该门禁存在的理由（「被判需要深度审查却从未执行」的静默路径），伪造闭环等于亲手制造它要防的那类假绿。**可选出路（需用户裁决）**：为 claude 后端恢复订阅/配额后我重跑 `sh scripts/deep-review.sh`；或用户明确授权「本次以未执行 QM-6 合并」并在记录中留痕。**不做的事**：不删 `.ccg/reviews/*.json` 绕过门禁、不把 status 置为 `cleared`。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "224fc31a05186c3fd30cafbf5077599b770106940e1394dfeac0a13185dd081a",
+  "decidedAt": "2026-10-16T13:47:54.302Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}
