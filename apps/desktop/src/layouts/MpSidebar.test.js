@@ -287,13 +287,13 @@ describe('MpSidebar', () => {
     const logo = header.get('[data-testid="mp-sidebar-logo"]')
     expect(logo.element.tagName).toBe('IMG')
     expect(logo.attributes('src')).toBeTruthy()
-    expect(logo.attributes('alt')).toBe('Multi-Publish')
+    expect(logo.attributes('alt')).toBe('汤姆鱼')
 
     const version = header.get('[data-testid="mp-sidebar-version"]')
     expect(version.text()).toBe('v2.3.53')
     expect(version.attributes('title')).toBe('当前版本')
 
-    // 旧的文字品牌标识（MP 徽标 / Multi-Publish 文本）已退役
+    // 旧的文字品牌标识（MP 徽标 / 文字品牌文本）已退役
     expect(header.find('.mp-sidebar-brand').exists()).toBe(false)
     expect(header.find('.mp-sidebar-title').exists()).toBe(false)
   })

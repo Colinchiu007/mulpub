@@ -1,0 +1,29 @@
+{
+  "sha": "623bf85e8b245dcaa3dbc62d305f46b58661b82d",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 1,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "2. **`<select>` 会在没有 v-model 命中项时视觉上显示第一个 `<option>`，而绑定值仍是空串**。这制造「看起来已经选了、按钮却是灰的」的错觉。真实选择态必须由**代码显式建立**（清单加载后自动选中第一项），不得依赖浏览器的默认渲染来暗示。凡「视觉状态 ≠ 内部状态」的地方都是同一类 bug。",
+      "3. **findings 里复写判定词的代码引用会命中**：我写的 `f.urlToken === zhihuSelectedFavlist.value` 命中了 `token\\s*[:=]`。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "90ff6020f67bc4b7173db2f65cb40597ae134d7f56e4777b566f3a5aaaeccd5a",
+  "decidedAt": "2026-10-16T13:51:29.210Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

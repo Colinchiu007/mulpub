@@ -93,7 +93,7 @@ function init (mainWindow) {
     },
   ])
   
-  tray.setToolTip('Multi-Publish — 多平台内容发布')
+  tray.setToolTip('汤姆鱼 — 多平台内容发布')
   tray.setContextMenu(contextMenu)
   
   // 双击托盘图标显示窗口

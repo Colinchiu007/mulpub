@@ -31,7 +31,7 @@ function setupRoute (initialPath = '/') {
 beforeEach(() => {
   invokePageManagerMock.mockReset()
   invokePageManagerMock.mockResolvedValue({ code: 0 })
-  document.title = '社媒管家'
+  document.title = '汤姆鱼'
 })
 
 describe('resolveRouteTabTitle（纯函数判定表）', () => {
@@ -49,13 +49,13 @@ describe('resolveRouteTabTitle（纯函数判定表）', () => {
     expect(resolveRouteTabTitle('/create?view=history')).toBe('视频创作')
   })
 
-  it('未知路径回退品牌名「社媒管家」', () => {
-    expect(resolveRouteTabTitle('/no-such-page')).toBe('社媒管家')
+  it('未知路径回退品牌名「汤姆鱼」', () => {
+    expect(resolveRouteTabTitle('/no-such-page')).toBe('汤姆鱼')
   })
 
   it('空/null 回退品牌名', () => {
-    expect(resolveRouteTabTitle('')).toBe('社媒管家')
-    expect(resolveRouteTabTitle(null)).toBe('社媒管家')
+    expect(resolveRouteTabTitle('')).toBe('汤姆鱼')
+    expect(resolveRouteTabTitle(null)).toBe('汤姆鱼')
   })
 
   it('映射表覆盖登记过的全部内部路由 path（规模 + 覆盖度双锁，防解析退化与腐化）', () => {
@@ -115,8 +115,8 @@ describe('useTabDocumentTitle（行为）', () => {
     routeCtl.push('/unknown-page')
     await nextTick()
     await nextTick()
-    expect(document.title).toBe('社媒管家')
-    expect(invokePageManagerMock).toHaveBeenLastCalledWith('reportTabTitle', '社媒管家')
+    expect(document.title).toBe('汤姆鱼')
+    expect(invokePageManagerMock).toHaveBeenLastCalledWith('reportTabTitle', '汤姆鱼')
     stop()
   })
 

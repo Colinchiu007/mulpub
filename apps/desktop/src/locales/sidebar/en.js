@@ -4,7 +4,7 @@
  */
 export default {
     clientStatusUnknown: 'Client status unknown',
-    brandLogoAlt: 'Multi-Publish',
+    brandLogoAlt: 'Tomfish',
     appVersionTitle: 'Current version',
     serviceStatus: {
       allRunning: 'Services running',

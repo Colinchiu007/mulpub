@@ -18,9 +18,9 @@ const supplementaryViewTests = [
   {
     name: 'first-run',
     route: '/first-run',
-    waitFor: 'h2:has-text("欢迎使用社媒管家")',
+    waitFor: 'h2:has-text("欢迎使用汤姆鱼")',
     checks: [
-      check('欢迎页面', 'h2:has-text("欢迎使用社媒管家")', '显示首次运行欢迎页面'),
+      check('欢迎页面', 'h2:has-text("欢迎使用汤姆鱼")', '显示首次运行欢迎页面'),
       check('开始按钮', 'button:has-text("开始配置")', '显示开始配置按钮'),
       check('步骤指示', '.fr-dots .fr-dot', '显示步骤进度指示器'),
     ],

@@ -110,7 +110,7 @@ async function run() {
     await wait(3000);
 
     const hTitle = await win.evaluate(() => document.querySelector(".page-title")?.textContent?.trim() || "");
-    assert("首页标题", hTitle.includes("社媒"), `"${hTitle}"`);
+    assert("首页标题", hTitle.includes("汤姆"), `"${hTitle}"`);
 
     const hCards = await win.evaluate(() => document.querySelectorAll(".cohere-stat-card").length);
     assert("快捷入口 5 个", hCards === 5, `找到 ${hCards} 个`);

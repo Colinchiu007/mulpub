@@ -5,7 +5,7 @@
 export default {
     newTabTitle: 'New Tab',
     newTabAria: 'Open a new tab',
-    brandTitle: 'Social Media Manager',
+    brandTitle: 'Tomfish',
     productionBoard: 'Production Board',
     contactSheet: 'Scene Review',
     replayTimeline: 'Production Replay',

@@ -160,7 +160,7 @@ describe('FunctionalRunner 应用就绪判据合同', () => {
         ? {
             hasAttribute: () => true,
             textContent: '欢迎使用',
-            querySelector: (inner) => (inner.includes('fullscreen-view') ? { textContent: '欢迎使用社媒管家' } : null),
+            querySelector: (inner) => (inner.includes('fullscreen-view') ? { textContent: '欢迎使用汤姆鱼' } : null),
           }
         : null),
     };
