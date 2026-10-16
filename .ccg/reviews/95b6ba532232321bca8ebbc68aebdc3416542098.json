@@ -1,12 +1,21 @@
 {
   "sha": "95b6ba532232321bca8ebbc68aebdc3416542098",
   "layer": "diff",
+<<<<<<< HEAD
   "mode": "skip",
   "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
   "stats": {
     "changedLines": 0,
     "fileCount": 1,
     "codeFileCount": 0,
+=======
+  "mode": "dual",
+  "reason": "变更 1031 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 1031,
+    "fileCount": 16,
+    "codeFileCount": 15,
+>>>>>>> 717c834f8 (fix(desktop): dev 环境渲染层 HTTP 缓存治理——就绪/加载路径不再被 Chromium 旧副本劫持)
     "sensitivePathHits": [],
     "plannedPathHits": [],
     "sensitiveContentHits": 0,
@@ -14,11 +23,19 @@
     "docSensitiveContentSample": [],
     "lineReadGaps": []
   },
+<<<<<<< HEAD
   "stagedDiffHash": "17c8f71330ad4cb2c5ca33775fe03923c9dbfb9607528e084d015a90d627300a",
   "decidedAt": "2026-10-16T01:52:19.261Z",
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": false,
+=======
+  "stagedDiffHash": "2062e8c2346cce36f5f3920ba319f16080e5a452412482aa4d03e6d18b82dda7",
+  "decidedAt": "2026-10-16T01:56:29.447Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+>>>>>>> 717c834f8 (fix(desktop): dev 环境渲染层 HTTP 缓存治理——就绪/加载路径不再被 Chromium 旧副本劫持)
     "status": "pending",
     "performedBy": null,
     "findings": null

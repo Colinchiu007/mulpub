@@ -91,6 +91,7 @@ const ALLOWED_KEYS = new Set([
   'window:main-window-shown',
   'window:main-window-load-failed',
   'window:renderer-gone',
+  'window:dev-cache-guard-install-result',
   'window:publish-running-hide-to-tray',
   'window:pipeline-running-hide-to-tray',
   // 波次-2 刀-1 迁移登记：url-collector.js / auth-partition.js / batch-rate-controller.js
