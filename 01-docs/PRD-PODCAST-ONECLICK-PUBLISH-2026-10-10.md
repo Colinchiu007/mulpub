@@ -791,9 +791,11 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 > §7.4.0 的 `resolveEpisodeVoice` **零生产调用方**（只有它自己的测试在调）；`voiceRef` 在 `apps/desktop/src` 命中 **0** 个文件。
 > 于是「先做 4.3② 的浮层、以后再补 4.5」在合同上不成立——浮层要么显示空数，要么在前端另抄一份分块与音色推断（后者正是本 PRD 反复禁止的「两份口径必然漂移」）。
 
-**唯一读路径**：新增只读 IPC `podcast:episode:plan-preview`（preload 面 `podcastEpisode.planPreview`）。一次往返同时给出分块计划与音色解析结果，浮层不得自己算任何一个显示值。
+**唯一读路径**：新增只读 IPC `podcast:episode:planPreview`（preload 面 `episodePlanPreview`）。一次往返同时给出分块计划与音色解析结果，浮层不得自己算任何一个显示值。
 
 - 入参（全部纯 JSON，须 `JSON.parse(JSON.stringify(x))` 脱壳后传）：`{ channelId, script }`——`script` 是用户那篇待出期的正文，**不是**音频路径。
+- **命名照既有形状，不新造风格**：通道 `podcast:episode:planPreview` 对齐 `podcast:episode:publishFromVideo`（动词段是 camelCase，不用 kebab）；preload 面键 `episodePlanPreview` 对齐 `episodeList` / `episodePublishFromVideo` 的**扁平**形状（本仓没有 `podcastEpisode.*` 这层命名空间，凭空造会让 preload 面出现两种风格）。
+- **改 `electron/preload/podcast.js` 必须同 PR 重生两个 tracked bundle**：`electron/preload/index.bundle.js` 与 `electron/home-shell-preload.bundle.js`（`git ls-files` 实测两者都入库）。只改源不重生 ⇒ 通道在打包产物里**根本不存在**，而 vitest 走的是源文件，本地全绿也测不出来（AGENTS「bundle 断言拦截遗漏」同源；QM-1 必须验到 bundle 里出现该通道名）。
 - 成功载荷：`{ ok: true, plan: { totalBlocks, totalCodepoints }, voice: { providerId, model, voiceId, origin, resolvedBy } }`。
   `plan` 由 `planChunks(script, { maxCodepoints })` 的**同一实现**产出（禁止第二份切分口径，与 §7.9.5 第 5 条「不猜」同源），`voice` 由 `resolveEpisodeVoice` 产出，二者都**只转发不加工**。
 - 拒绝载荷：正文过短 / 音色残缺等一律沿用 §7.4 与 §7.10 既有领域码（`PODCAST_EPISODE_INVALID`、`PODCAST_TTS_VOICE_UNRESOLVED` 一类），**不得为预览新增第二套同义码**；预览被拒就是「这一期现在还发不了」，浮层据此显示原因而不是显示 0。
@@ -1135,7 +1137,7 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 
 ### 8.2.9 音色来源三态标注（**合同，尚未实现**）
 
-> **承载方（2026-10-16）**：本节的读面由 §7.10.4.1 的 `podcast:episode:plan-preview` 一次性提供（不再单开 `podcast:voice-preview`，两趟近重复读路径会让音色解析跑两遍）。下面的落点、三态标注与验收判据**照用不变**，仅 IPC 名与载荷合一；`plan.voice.origin` 三把键由 §7.10.4.1 复用。
+> **承载方（2026-10-16）**：本节的读面由 §7.10.4.1 的 `podcast:episode:planPreview` 一次性提供（不再单开 `podcast:voice-preview`，两趟近重复读路径会让音色解析跑两遍）。下面的落点、三态标注与验收判据**照用不变**，仅 IPC 名与载荷合一；`plan.voice.origin` 三把键由 §7.10.4.1 复用。
 > 本节是 tasks 4.5 剩下那半句的合同，不是实现。写作依据是当场实测的三个事实：
 > `voiceRef` 在 `apps/desktop/src` 下**命中 0 个文件**；`apps/desktop/src/locales/podcast/{zh,en}.js` 里**没有任何音色相关键**；
 > 解析层 `apps/desktop/electron/services/podcast-tts-voice.js` 只在出期时算出 `{voiceId, origin, resolvedBy}`（`origin` 闭集 =
