@@ -664,10 +664,35 @@ fi
 say "═══ CCG 深度审查（本地） ═══"
 say "HEAD: ${SHA%${SHA#????????}}"
 if [ -z "$MODE" ]; then
-  say "判定记录: 无 —— 提交时没跑判定器"
-  say ""
-  say "请先提交一次（pre-commit 会生成 .ccg/reviews/<sha>.json），再跑本脚本。"
-  say "或用 --dry-run 看本脚本将要做什么。"
+  # 统一寻址交给写入侧（内部评审 I2 + §7.1 内容寻址）：它比上面三条 shell 路径多一个
+  # 「base..HEAD 自有提交」候选，且要求记录里的 sha 与内容键互相核对。
+  # 为什么不在 shell 里再抄一遍候选逻辑 —— 两份实现必然漂移，而漂移的形态就是
+  # 「shell 说没记录、node 说找到了」这种不可归因的分歧。
+  LOC_OUT="$(node scripts/ccg-record-ledger.js --locate --repo "$ROOT" 2>/dev/null || true)"
+  case "$LOC_OUT" in
+    "LOCATE none foreign"*) _LOC_REJECTED=1 ;;
+    "LOCATE "*)
+      REC="${LOC_OUT#LOCATE }"
+      REC="${REC%% mode=*}"
+      MODE="${LOC_OUT##* mode=}"
+      _b="${REC##*/}"
+      SHA="${_b%.json}"
+      say "判定记录按统一寻址命中：$REC（mode=$MODE；提交时 HEAD 即该 sha）" ;;
+    *) : ;;
+  esac
+fi
+if [ -z "$MODE" ]; then
+  if [ "${_LOC_REJECTED:-0}" -eq 1 ]; then
+    # 「有一份记录但核不上同源」与「从没跑过判定器」是两种根因，不得共用一句话
+    # （与上游 _READ_FAILED 跳过诊断块是同一条纪律）。
+    say "判定记录: 分支起点那份与本次不同源（内容键/stagedDiffHash 核不上）⇒ 拒绝借用别人的裁决。"
+    say "  请先在本分支重新提交一次（pre-commit 会落新的判定记录），再跑本脚本。"
+  else
+    say "判定记录: 无 —— 提交时没跑判定器"
+    say ""
+    say "请先提交一次（pre-commit 会生成 .ccg/reviews/<sha>.json），再跑本脚本。"
+    say "或用 --dry-run 看本脚本将要做什么。"
+  fi
   say ""
   # ★ 2026-10-16（ccg-record-content-addressing，QM-6 i1，实验已证实）：
   #   内容寻址命名引入了一个**新的 fail-open 失败模式**，必须在这里点名，否则静默 exit 0
@@ -743,12 +768,36 @@ else
 fi
 
 # ---------- 5. 跑 ----------
+# 引擎跑完后收口落证据（刀1，change: ccg-reviews-governance）：
+# 把「判的是哪份代码」以一条 PR 评论 + frontmatter 台账字段的形式钉住，供 check-pr-exec-record 复核。
+#
+# 为什么用 `$DRIVER_RC` 而不是继续 `exec`：exec 会让引擎成为本脚本的**全部**退出语义，
+# 收口步骤就没有地方插进来。这里保留引擎的裁决码作为最终结果，收口失败只出声不改判 ——
+# 强制力在判据那一侧（没有锚 = PR 变红），写入侧没必要装作有权阻断评审。
 if [ "$DRY" -eq 1 ]; then
   if [ "${DRY_NO_DRIVER:-0}" -eq 1 ]; then
     say ""
     say "[dry-run] 引擎缺失 ⇒ 到此为止（判定记录与模式判定已预览完毕）。"
     exit 0
   fi
-  exec node "$DRIVER" --dry-run --sha "$SHA"
+  node "$DRIVER" --dry-run --sha "$SHA"
+  DRIVER_RC=$?
+  say ""
+  say "（dry-run）跳过证据锚落盘；真跑时它会贴一条 PR 评论并回写 openspec/records 的 ccg_* 字段。"
+  exit "$DRIVER_RC"
 fi
-exec node "$DRIVER" --sha "$SHA"
+
+node "$DRIVER" --sha "$SHA"
+DRIVER_RC=$?
+
+say ""
+say "═══ 证据锚落盘 ═══"
+LEDGER_BASE="${MP_CCG_LEDGER_BASE:-origin/main}"
+say "base 取法：$LEDGER_BASE（会被解析成完整 sha 写进台账；判据之后一律按那个 sha 重算）"
+node scripts/ccg-record-ledger.js --base="$LEDGER_BASE"
+LEDGER_RC=$?
+if [ "$LEDGER_RC" -ne 0 ]; then
+  say "✗ 证据锚未落盘（rc=$LEDGER_RC）。深度审查的裁决本身保留在 .ccg/reviews/ 里，"
+  say "  但 PR 侧的 `CCG 深度审查欠账` 判据会继续报红 —— 补法：开好 PR 后重跑本脚本。"
+fi
+exit "$DRIVER_RC"

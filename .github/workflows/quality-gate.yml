@@ -335,6 +335,18 @@ jobs:
           node scripts/check-precommit-spawn-budget.js scripts/hooks/pre-commit
           node --test scripts/check-precommit-spawn-budget.test.js
 
+      # --- Gate 2b4：CCG 评审证据锚（载荷哈希定义 + 台账 frontmatter 写入）---
+      # 为什么单独一条：deep-review 写证据、check-pr-exec-record 验证据，两侧共用本 lib 的一份实现；
+      # 两份实现必然在 exclude 面/行尾/base 解析上漂移，而漂移的表现是「裁决不是这份代码」的假红 ——
+      # 那种红会被当噪声，然后被人放宽。锁住在「排除 openspec/records 与 .ccg/reviews」这一条：
+      # 不排除就形成自指（写下哈希的那一刻改变被哈希内容），判据将永远红、等价于没有判据。
+      # 落点与理由同 Gate 2b3：changes 作业无 Install deps ⇒ lib 只能 require node 内置模块。
+      - name: "Gate 2b4 - CCG evidence anchor (changes job)"
+        shell: bash
+        run: |
+          node --test scripts/lib/ccg-evidence-hash.test.js
+          node --test scripts/ccg-record-ledger.test.js
+
       # --- Gate 2c3：CHANGELOG.md「只可增长」棘轮 ---
       # 动因（实测）：b531bdfe7（PR #2884，一个 ai-taste 功能 PR）把 CHANGELOG.md 从
       # 7,474,293 B / 1,133 条整份替换成 9,155 B / 2 条，**丢掉 1,131 条并全绿合入**。

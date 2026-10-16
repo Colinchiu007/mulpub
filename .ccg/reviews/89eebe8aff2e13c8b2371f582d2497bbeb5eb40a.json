@@ -1,0 +1,30 @@
+{
+  "sha": "89eebe8aff2e13c8b2371f582d2497bbeb5eb40a",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 1743 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 1743,
+    "fileCount": 19,
+    "codeFileCount": 12,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 15,
+    "docSensitiveContentHits": 4,
+    "docSensitiveContentSample": [
+      "- **防伪锚三格**：状态词取闭合白名单（引擎新增任何状态自动计欠账）、`ccg_evidence` 必须指向**一条具体 PR 评论**、载荷 sha 由判据独立重算。载荷定义 = `git diff <base> <head> -- . :(exclude)openspec/records :(exclude).ccg/reviews`，排除那两条是**自指防护**（证据 URL 与哈希本身就写进这两条路径，不排除则「写下哈希」改变被哈希内容 ⇒ 判据永远红，等于没有判据）。强度边界如实写进评论正文：**它不是密码学签名**，只证明「裁决与这份代码同源」，不证明「裁决可信」。",
+      "本设计的核心是把闭环声明抬到「两源自洽 + 公开 PR 面留痕 + 可机器重算载荷」。强度边界见 D9：它抬高伪造成本，**不消除**自证能力，也不构成密码学证明。",
+      "它把伪造门槛从「改一行仓内文本」抬到「必须让**引擎记录也闭环**、并往公开 PR 写一条指向本次载荷的自洽评论」。它**不是密码学签名**（载荷 sha256 无密钥，任何人重算都得同一值），所以能证明的是「裁决与这份代码同源」，不是「裁决可信」。真实性仍靠人抽查 —— 评论正文逐字写了这句话。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "4d0e5ad20425afe4b4e4525f97d46e62f555fa23b7d567bb5f0db4423f100b71",
+  "decidedAt": "2026-10-16T16:54:50.563Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

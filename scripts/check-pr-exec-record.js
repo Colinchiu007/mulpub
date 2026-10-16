@@ -363,17 +363,7 @@ function readExemptsOnDisk(repo) {
     .filter((n) => n.endsWith('.md') && !n.startsWith('_'))
     .map((n) => {
       const text = fs.readFileSync(path.join(dir, n), 'utf8')
-      const fm = {}
-      const lines = text.split('\n')
-      if ((lines[0] || '').trim() === '---') {
-        for (let i = 1; i < lines.length; i++) {
-          const raw = (lines[i] || '').replace(/\r$/, '')
-          if (raw === '---') break
-          if (/^\s*#/.test(raw)) continue
-          const m = /^([A-Za-z0-9_-]+):\s*(.*)$/.exec(raw)
-          if (m) fm[m[1]] = m[2].trim()
-        }
-      }
+      const fm = parseFrontmatterFields(text)
       return { branch: fm.exempt_for || n.replace(/\.md$/, ''), reason: fm.reason || '' }
     })
 }
@@ -484,7 +474,12 @@ function main(argv) {
   //   ⚠️ 必须同时应用到下面的 `r2` 分支：`--no-remote` 时 remoteBranches 为 null，
   //   控制流会重新 evaluate 出 r2 并 return report(r2) —— 若只改 r，欠账会被静默丢弃。
   const applyDeepDebt = (target) => {
-    const deepDebt = evaluateDeepReviewDebt(statuses, repo)
+    // head 必须是 sha：判据要能核对「锚签在这一笔」，而调用方给的可能是 HEAD/分支名。
+    // 解析失败不静默 —— 交空串进去，由台账那一支按「无法核对」处理。
+    let headSha =
+      typeof head === 'string' && /^[0-9a-f]{40}$/.test(head) ? head : ''
+    if (!headSha) { try { headSha = require('./lib/ccg-evidence-hash.js').resolveCommitSha({ repo, ref: head || 'HEAD' }) } catch { headSha = '' } }
+    const deepDebt = evaluateDeepReviewDebt(statuses, repo, { headBranch, headSha, payloadSha: makePayloadSha({ repo, head }) })
     if (deepDebt.reasons.length > 0) {
       target.ok = false
       target.reasons.push(...deepDebt.reasons)
@@ -527,6 +522,53 @@ const CLOSED_DEEP_REVIEW_STATUSES = new Set([
   'self_play_resolved',
 ])
 
+/** 解析 md 顶部 frontmatter 的 `key: value` 顶层行（跳过注释；遇第二个 --- 停）。
+ *  本文件内只此一份解析实现：readExemptsOnDisk 与新台账读取都走它（两份必然口径分裂）。 */
+function parseFrontmatterFields (text) {
+  const lines = String(text == null ? '' : text).replace(/\r\n/g, '\n').split('\n')
+  const out = {}
+  if ((lines[0] || '').trim() !== '---') return out
+  for (let i = 1; i < lines.length; i++) {
+    const raw2 = lines[i]
+    if (raw2.trim() === '---') break
+    if (/^\s*#/.test(raw2)) continue
+    const m = /^([A-Za-z0-9_-]+):\s*(.*)$/.exec(raw2)
+    if (m) out[m[1]] = m[2].trim()
+  }
+  return out
+}
+
+// 台账字段：由 deep-review 收口时写，不是人填的。缺一个都不算闭环（fail closed）。
+// ★ 台账键清单由 lib 派生，不在这里手抄第二份。
+// 手抄的那份原先少一个键（ccg_written_by），而且从名单里删掉任意键都不会红 ——
+// 这份名单是「台账到底算不算存在」的开关本身，漏一个键就等于对该键失去检测。
+const CCG_LEDGER_KEYS = require('./lib/ccg-evidence-hash.js').LEDGER_FIELDS
+// 证据锚必须是 GitHub PR 面（PR 评论或 review 评论锚点）：本地文件里自填一个 URL 字符串不构成外部留痕，
+// 但它至少把「伪造」从「改一行仓内文本」抬到「必须往公开 PR 写一条内容自洽的假评审」。
+const { EVIDENCE_URL_RE: GITHUB_EVIDENCE_RE, HEX40_RE, HEX64_RE } = require('./lib/ccg-evidence-hash.js')
+// ★ 形状判据不得在本文件再写一份字面量：写入侧（ccg-record-ledger）拿同一个常量自检它从 gh 读回的 URL，
+//   两份一旦漂移，表现是「引擎自认合格、判据判它不合格」的死红。要求带 comment 片段是**收紧**：
+//   裸 PR URL 等于「我在这个 PR 里说过话」，任何人都能填；只有指向一条具体评论才构成外部证据。
+
+/** 在变更集里找本 PR 的台账记录文件：分支名精确优先，其次任何带 ccg_* 字段的记录文件。 */
+function findCcgLedger ({ statuses, repo, headBranch, readFile }) {
+  if (!headBranch) return null
+  const rel = 'openspec/records/' + headBranch + '.md'
+  const e = (statuses || []).find((x) => (x.status === 'A' || x.status === 'M') && x.file === rel)
+  if (!e) return null
+  let fields
+  try { fields = parseFrontmatterFields(readFile(path.join(repo, rel))) } catch { return null }
+  if (!CCG_LEDGER_KEYS.some((k) => Object.prototype.hasOwnProperty.call(fields, k))) return null
+  // frontmatter 的 record: 与文件名必须同键（复制模板最容易留下「文件叫 A、内容写 B」）
+  const declared = typeof fields.record === 'string' ? fields.record.trim() : ''
+  if (declared && declared !== headBranch) return null
+  return { file: rel, fields }
+}
+
+// ⛔ 曾经这里有一条兜底：变更集里「任何带 ccg_* 的记录文件」都拿来当取值源。
+// 后果（内部评审 I3 实测）：回填型 PR 按 SOP 只会 M 到**别的分支**那篇记录，
+// 于是它借用别人的台账 ⇒ 要么由绿转红、要么把别人的闭环当自己的。兜底已删。
+
 /**
  * ★ 2026-10-15 增（缺陷 D）：检查 `.ccg/reviews/*.json` 里被判定需要深度审查
  * （`deepReview.required === true`）但**状态不在闭环白名单里**的记录。
@@ -548,44 +590,109 @@ const CLOSED_DEEP_REVIEW_STATUSES = new Set([
  *     HEAD 不同，所以按「本次改动是否带上它」判定，不按 sha 反查。
  *   - `status` 缺失/非字符串一律算欠账（fail-closed），不给「字段被删」留后门。
  */
-function evaluateDeepReviewDebt (statuses, repo) {
+/**
+ * dual 记录的闭环判定源（2026-10-16 刀1，change: ccg-reviews-governance）：
+ *
+ * - **新源优先**：本 PR 的 `openspec/records/<分支>.md` 带任一 ccg_* 字段 ⇒ 一切以它为准。
+ *   此时 json 侧即使写着 cleared 也不能放行 —— 否则「换一份已闭环的 json 进来」就是绕过。
+ * - **双读一周期的原因（不是懒惰）**：实测 15 个在飞 open PR 里 13 个的变更集（2026-10-16 读数，会自增）带 .ccg/reviews 文件，
+ *   它们不可能有尚不存在的字段；硬切等于**静默撤掉这 5 个 PR 的 dual 守卫**。
+ *   无台账字段时沿用旧源，语义与换源前逐字一致。
+ * - 新源闭环需同时满足四件事：状态在闭环词表 + ccg_mode 与判定模式一致 + 证据锚是 GitHub PR 面 +
+ *   载荷哈希能重算且相等（哈希定义见 scripts/lib/ccg-evidence-hash.js，两侧共用一份）。
+ */
+function evaluateDeepReviewDebt (statuses, repo, opts) {
+  const o = opts || {}
+  const readFile = o.readFile || ((p) => fs.readFileSync(p, 'utf8'))
   const reasons = []
-  const involved = statuses
+  const involved = (statuses || [])
     .filter((e) => (e.status === 'A' || e.status === 'M') && AUDIT_ARTIFACT_RE.test(e.file))
     .map((e) => e.file)
-  if (involved.length === 0) return { reasons, checked: 0 }
+  if (involved.length === 0) return { reasons, checked: 0, source: 'none', ledgerFile: null }
+
+  const ledger = findCcgLedger({ statuses, repo, headBranch: o.headBranch || '', readFile })
+  let source = ledger ? 'ledger' : 'json'
+  // 载荷哈希只取一次：多条记录共用同一份 diff，重复计算会把「一次取证」变成 N 次（也有时序不一致风险）
+  let memoSha, memoBase
+  const actualSha = (b) => { if (memoSha === undefined || memoBase !== b) { memoBase = b; memoSha = o.payloadSha(b) } return memoSha }
 
   const unresolved = []
   for (const rel of involved) {
     let rec = null
     try {
-      rec = JSON.parse(fs.readFileSync(path.join(repo, rel), 'utf8'))
+      rec = JSON.parse(readFile(path.join(repo, rel)))
     } catch { continue } // 损坏记录由别的门禁负责，这里不重复报
     if (!rec || !rec.deepReview || rec.deepReview.required !== true) continue
-    // ★ 2026-10-15 实测补正（缺陷 G）：只看 mode === 'dual'。
-    //   引擎对 mode !== 'skip' 一律置 required=true —— 那是「是否需要评审」，
-    //   不是「是否需要**双模型深度**评审」。判定器自己的输出分得很清楚：
-    //     dual   → 「要求 双模型(claude + opencode) 深度审查」
-    //     single → 「常规专家分派」（§12.6）
-    //   初版对 single 也要求闭环 ⇒ 每次提交都要跑 15 分钟双模型审查，
-    //   而写完审查结果再提交时又生成新的 single 记录 ⇒ **无法闭合的循环**。
-    //   本 PR 实测撞上过。收窄到 dual：既保住原始诉求（被判要双模型审查却从未执行），
-    //   又不把「单人专家分派」这种机器无法核验的路径假扮成可判据。
+    // ★ 只看 mode === 'dual'（缺陷 G 的收窄，理由见文件内原文）
     if (rec.mode !== 'dual') continue
-    const st = typeof rec.deepReview.status === 'string' ? rec.deepReview.status : '(缺失)'
-    if (!CLOSED_DEEP_REVIEW_STATUSES.has(st)) {
-      unresolved.push(`${rel}（mode=${rec.mode || '?'}，status=${st}，decidedAt=${rec.decidedAt || '?'}）`)
+    const oldStatus = typeof rec.deepReview.status === 'string' ? rec.deepReview.status : '(缺失)'
+    if (!ledger) {
+      if (!CLOSED_DEEP_REVIEW_STATUSES.has(oldStatus)) {
+        unresolved.push(rel + '（mode=' + rec.mode + '，status=' + oldStatus + '，decidedAt=' + (rec.decidedAt || '?') + '）')
+      }
+      continue
     }
+    const f = ledger.fields
+    const bad = []
+    const st = typeof f.ccg_status === 'string' ? f.ccg_status.trim() : ''
+    if (!st) bad.push('ccg_status 缺失')
+    else if (!CLOSED_DEEP_REVIEW_STATUSES.has(st)) bad.push('ccg_status=' + st)
+    const mode = typeof f.ccg_mode === 'string' ? f.ccg_mode.trim() : ''
+    if (!mode) bad.push('ccg_mode 缺失')
+    else if (mode !== rec.mode) bad.push('ccg_mode=' + mode + ' 与判定 mode=' + rec.mode + ' 不一致')
+    const ev = typeof f.ccg_evidence === 'string' ? f.ccg_evidence.trim() : ''
+    // F6 provenance：ccg_written_by 此前只被写出、无人读 ⇒ 装饰字段。现在参与否决。
+    const by = typeof f.ccg_written_by === 'string' ? f.ccg_written_by.trim() : ''
+    if (by !== 'deep-review') bad.push('ccg_written_by=' + (by || '(空)') + ' ≠ deep-review ⇒ 台账值是手填的，手填不构成闭环')
+    // F7 锚签在哪一笔：head 侧也必须是完整 sha 且等于本次评审对象（与 base 同一条理由）
+    const hdr = typeof f.ccg_payload_head === 'string' ? f.ccg_payload_head.trim() : ''
+    if (!HEX40_RE.test(hdr)) bad.push('ccg_payload_head 缺失或非 40hex（不得写 ref 名）：' + (hdr || '(空)'))
+    else if (typeof o.headSha === 'string' && HEX40_RE.test(o.headSha) && hdr !== o.headSha) {
+      bad.push('锚签在别的提交上：声明 head ' + hdr.slice(0, 12) + '… 本次 head ' + o.headSha.slice(0, 12) + '…')
+    }
+    if (!GITHUB_EVIDENCE_RE.test(ev)) bad.push('ccg_evidence 证据锚缺失或非 GitHub PR 面（' + (ev || '(空)') + '）')
+    const rb = typeof f.ccg_payload_base === 'string' ? f.ccg_payload_base.trim() : ''
+    if (!HEX40_RE.test(rb)) bad.push('ccg_payload_base 缺失或非 40hex（必须写评审当时解析出的 merge-base sha；ref 名会随并发合并移动，写 ref 名的锚无法复核）：' + (rb || '(空)'))
+    const declared = typeof f.ccg_payload_sha256 === 'string' ? f.ccg_payload_sha256.trim() : ''
+    if (!HEX64_RE.test(declared) || declared === require('./lib/ccg-evidence-hash.js').EMPTY_DIFF_SHA256) bad.push('ccg_payload_sha256 缺失/非 64hex/等于空 diff 常量（那等于没描述任何代码）')
+    else if (typeof o.payloadSha !== 'function') bad.push('无法重算载荷哈希（调用方未注入取证入口，取证失败不得算闭环）')
+    else if (!HEX40_RE.test(rb)) { /* base 不合格已单独报，不重复报取证失败 */ }
+    else {
+      let actual = null
+      try { actual = actualSha(rb) } catch (e) { bad.push('载荷哈希取证失败：' + (e && e.message ? String(e.message).split('\n')[0] : e)) }
+      if (actual !== null && actual !== declared) {
+        bad.push('载荷不符：声明 ' + declared.slice(0, 12) + '… 实算 ' + String(actual).slice(0, 12) + '… ⇒ 该裁决描述的不是这份代码')
+      }
+    }
+    // F4 两源一致 —— 这是本次内部评审的主结论（C1）：台账里四个被判值全部可离线导出，
+    // 单靠仓内文本就能凑出一条「看起来完全合法」的闭环。修法不是把 URL 变强（判据不能联网），
+    // 而是让**引擎自己那份判定记录**成为必要条件：台账说闭环而 json 说没闭环时，两者必有一假，
+    // 判据不去猜谁假，一律计欠账并点名两源读数。真实流程不误伤：写入侧本就要求 json 已闭环才落台账。
+    if (bad.length === 0 && !CLOSED_DEEP_REVIEW_STATUSES.has(oldStatus)) {
+      bad.push('两源不一致：台账 ccg_status=' + st + ' 已闭环，但引擎判定记录 status=' + oldStatus + ' ⇒ 台账来路不明')
+    }
+    if (bad.length) unresolved.push(rel + '（新源 ' + ledger.file + '：' + bad.join('；') + '；旧源 status=' + oldStatus + '）')
   }
   if (unresolved.length > 0) {
     reasons.push(
-      `CCG 深度审查欠账 ${unresolved.length} 条 —— 这些改动被判需要深度审查（deepReview.required=true）`
-      + `但状态不在闭环白名单 {${[...CLOSED_DEEP_REVIEW_STATUSES].join(', ')}} 内：\n`
-      + unresolved.slice(0, 8).map((p) => `    - ${p}`).join('\n')
-      + `\n    补跑：sh scripts/deep-review.sh（或确认该判定是假阳性后，在记录里写明原因并把 status 置为闭环值）`
+      'CCG 深度审查欠账 ' + unresolved.length + ' 条 —— 这些改动被判需要深度审查（deepReview.required=true）'
+      + '但状态不在闭环白名单 {' + [...CLOSED_DEEP_REVIEW_STATUSES].join(', ') + '} 内'
+      + '（本次取值源=' + source + (ledger ? '：' + ledger.file : '：台账无 ccg_* 字段，按旧 .ccg/reviews json 判') + '）：\n'
+      + unresolved.slice(0, 8).map((p) => '    - ' + p).join('\n')
+      + '\n    补跑：sh scripts/deep-review.sh（它会算载荷哈希、贴 PR 证据评论并回写台账字段；'
+      + '确认该判定是假阳性时，在台账里写明原因并由判据复核，不接受手填闭环值）'
     )
   }
-  return { reasons, checked: involved.length }
+  return { reasons, checked: involved.length, source, ledgerFile: ledger ? ledger.file : null }
+}
+
+
+/** 载荷哈希的懒取实现：没 base（push 事件 / --statuses 夹具）时返回 undefined，由判据按「取证失败」处理。 */
+function makePayloadSha ({ repo, head }) {
+  // base 不再由调用方给定：重算一律用**锚里记录的 base sha**（理由见 lib 的 LEDGER_FIELDS 注释）。
+  // 本文件只交出「怎么算」；算不出（base 非法 / diff 取不到）由 lib 抛错，判据按取证失败处理。
+  const { computeReviewPayloadSha } = require('./lib/ccg-evidence-hash.js')
+  return (base) => computeReviewPayloadSha({ repo, base, head })
 }
 
 function report(r, mode) {
@@ -613,6 +720,10 @@ function report(r, mode) {
 //   stripCommentsForScan 把源码削成「只含代码行」的视图（引号感知剥注释 + 规范化 CRLF）
 // 生产路径只用 describeAuditWidths / auditAcceptedAltForm().description；
 // 其余导出不改变判据行为，仅为可测性存在。
-module.exports = { evaluate, resolveHeadBranch, readExemptsOnDisk, remoteBranchSet, isPureBackfillChangeSet, evaluateDeepReviewDebt, CLOSED_DEEP_REVIEW_STATUSES, RECORDS_RE, EXEMPT_RE, CARRIER_RE, DEFAULT_THRESHOLD, AUDIT_ARTIFACT_RE, auditAcceptedWidths, auditAcceptedAltForm, describeAuditWidths, stripCommentsForScan, AUDIT_NAME_WIDTH_MIN, AUDIT_NAME_WIDTH_MAX }
+//
+// 本行同时是两份清单的**并集**（另一组来自 ccg-reviews-governance：parseFrontmatterFields /
+// findCcgLedger / GITHUB_EVIDENCE_RE / makePayloadSha，由 scripts/ccg-record-ledger.js 直接消费）。
+// 并集只准加不准减：删掉任一组的名字，会让那一组的消费者 require 到 undefined。
+module.exports = { evaluate, resolveHeadBranch, readExemptsOnDisk, remoteBranchSet, isPureBackfillChangeSet, evaluateDeepReviewDebt, CLOSED_DEEP_REVIEW_STATUSES, parseFrontmatterFields, findCcgLedger, GITHUB_EVIDENCE_RE, makePayloadSha, RECORDS_RE, EXEMPT_RE, CARRIER_RE, DEFAULT_THRESHOLD, AUDIT_ARTIFACT_RE, auditAcceptedWidths, auditAcceptedAltForm, describeAuditWidths, stripCommentsForScan, AUDIT_NAME_WIDTH_MIN, AUDIT_NAME_WIDTH_MAX }
 
 if (require.main === module) main(process.argv.slice(2))

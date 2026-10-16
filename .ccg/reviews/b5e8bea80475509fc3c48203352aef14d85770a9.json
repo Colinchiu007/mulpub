@@ -1,0 +1,30 @@
+{
+  "sha": "b5e8bea80475509fc3c48203352aef14d85770a9",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 985 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 985,
+    "fileCount": 13,
+    "codeFileCount": 7,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 12,
+    "docSensitiveContentHits": 5,
+    "docSensitiveContentSample": [
+      "本设计的核心是把闭环声明抬到「两源自洽 + 公开 PR 面留痕 + 可机器重算载荷」。强度边界见 D9：它抬高伪造成本，**不消除**自证能力，也不构成密码学证明。",
+      "它把「伪造闭环」从「改一行仓内文本」抬到「必须往公开 PR 写一条内容自洽的假评审」。**它不是密码学签名**：载荷 sha256 无密钥，任何人重算都能得到同一个值，因此它能证明的是「裁决与这份代码同源」，不能证明「裁决是可信的」。真实性仍靠人抽查——评论正文里逐字写了这句话，防止下一个读者把它当强防线。",
+      "它把伪造门槛从「改一行仓内文本」抬到「必须让**引擎记录也闭环**、并往公开 PR 写一条指向本次载荷的自洽评论」。它**不是密码学签名**（载荷 sha256 无密钥，任何人重算都得同一值），所以能证明的是「裁决与这份代码同源」，不是「裁决可信」。真实性仍靠人抽查 —— 评论正文逐字写了这句话。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "095a00a020b7a886ccfd2a25e4f6142078b68cd2518648e5aa87ad27e8a233c1",
+  "decidedAt": "2026-10-16T16:52:39.049Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

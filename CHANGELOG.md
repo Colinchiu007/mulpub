@@ -1,3 +1,15 @@
+# [未发布] feat(gates): 深度审查闭环判据换源到执行记录台账，并加一枚可机器重算的防伪锚（ccg-reviews-governance 刀 1）
+
+- **第一性原因不是"某处写错"，而是闭环声明一直没有外部可核验的承载面**：`ccg-review-decider.js` 把 `deepReview:{required,status}` 落在 `.ccg/reviews/<父sha>.json`，判据 `check-pr-exec-record.js` 读的就是这份工作树文本 —— 改一行状态词即可自证「深度审查已完成」。放大这一缺陷的三条实测现场：origin/main 树内该目录 **733** 个受管文件（同日另一篇文档记 659 ⇒ 每笔提交都在自增，所以数字只作时点读数）、本机 **38** 个 worktree 各继承全量、文件名按父提交 sha ⇒ 同 tip 两个会话**静默互相覆盖**审计留痕。磁盘体积不是成本（约 0.9 MiB），检出继承与不可复核才是。
+- **为什么不直接 gitignore 掉**：15 个在飞 open PR 中实测 **13 个**变更集带 `.ccg/reviews` 文件（2026-10-16 读数，会自增）。硬切存档面会把这 5 个 PR 的 dual 守卫**静默撤掉**（它们不可能有尚不存在的替代字段），属本仓反复出现的「判据比现实窄 ⇒ 门禁变装饰」。所以顺序必须是：先换判据数据源（本篇刀 1），再动存档面（刀 2，明确不在本 PR，且属「谁来守门」须人工过目）。
+- **双读一周期**：台账（`openspec/records/<分支>.md` 的 `ccg_*` 字段）出现任一字段 ⇒ 接管；否则旧 json 语义逐字不变。新源优先是硬方向 —— json 已 `cleared` 而台账未闭环必须红，不得被旧源掩盖。
+- **防伪锚三格**：状态词取闭合白名单（引擎新增任何状态自动计欠账）、`ccg_evidence` 必须指向**一条具体 PR 评论**、载荷 sha 由判据独立重算。载荷定义 = `git diff <base> <head> -- . :(exclude)openspec/records :(exclude).ccg/reviews`，排除那两条是**自指防护**（证据 URL 与哈希本身就写进这两条路径，不排除则「写下哈希」改变被哈希内容 ⇒ 判据永远红，等于没有判据）。强度边界如实写进评论正文：**它不是密码学签名**，只证明「裁决与这份代码同源」，不证明「裁决可信」。
+- **base MUST 以完整 sha 入锚（本 PR 自引入缺陷，先写完再被自己想穿）**：初版判据用调用方传入的 base 重算，而 CI 的 `--base` 是 `classify` 算出的 **merge-base sha**（`quality-gate.yml:133` → `scripts/classify-docs-only.js:93`），本地收口手上只有会移动的 `origin/main` ⇒ 任何并发合并都会让**每条正常 PR** 报「裁决不是这份代码」。假红的去向本仓已有口径：被当噪声，然后被放宽。修法：写入侧 `resolveBaseSha()` 固化 sha 进 `ccg_payload_base`，判据只用锚里那个。补的 5 条失败测试**先在未打补丁的判据上看红**（56 pass / 5 fail）再转绿。
+- **写入侧不许伪造证据，且顺序锁住**：贴评论后 MUST 用 `gh api` 读回比对，读不回或 stdout 不是可核对 URL ⇒ 一个字都不写台账；删掉了初版「解析不到就合成 `pr.url + '#issuecomment-ccg-<sha8>'`」的降级路径 —— 那等于把「外部有证据」降级成「仓里有一行像证据的文本」。空载荷（`base==head` ⇒ diff 0 字节，其哈希人人可算）同样拒绝入锚。收口失败只出声、不改判：强制力在判据那一侧。
+- **单一实现**：载荷哈希、台账字段清单、frontmatter 就地改写（按行 splice、逐行保留自身行尾、幂等）、证据 URL 形状全部收在 `scripts/lib/ccg-evidence-hash.js`，写入侧与判据侧共同 require —— 两份实现必然在 exclude 面 / 行尾 / base 解析上漂移，而漂移的表现就是上面那种假红。
+- **反证 11 条，全部 CAUGHT 且各自指名**：M2（重算退回调用方 base）/ M3（base 形状放宽成非空即可）/ M4（URL 允许无 comment 片段）/ M5（贴评论失败仍继续）/ M6（空载荷放行）/ M7（摘自指排除）/ M8（摘「只看 dual」）/ M9（双读退化为只读新源）/ M10（摘 `required` 门禁）/ M11（json 闭环即跳过台账）/ M1（欠账判据恒真）。**驱动自己也翻过两次车**：① 第一版只在末尾做 md5 对照、循环内没写回 ⇒ 11 条变异全叠在工作树里，改为每条跑完立刻还原 + 残留自检 0；② 追加测试的脚本把尾换行的 split 产物留在中间并给末行补 `\r` ⇒ 造出「1 个孤立 CR + 缺尾换行」，git 据此把整份文件判为 `-text`、**对全部行关掉归一化**，numstat 从 220/0 膨胀成 1125/905 的全文件幽灵 diff（正是既有记忆点名的「两口径会一起爆，所以那条对账抓不到成因」形态），靠逐序列计数 `CRLF/bareLF/bareCR` 当场暴露后修回。
+- 规格见 `openspec/changes/ccg-reviews-governance/`（proposal / design D1–D9 + 失败模式表 / specs `ccg-review-evidence` 四条 Requirement / tasks），现场证据与逐条归因见 `openspec/records/ccg-reviews-governance.md`。刀 2（`.gitignore` + 一次性 `git rm --cached`）、刀 3（常驻清理节拍与保留窗口、跨会话撞名防护）在 tasks §5 显式记欠账并写明未决取证点。
+
 # [未发布] feat(gates): 登录态隐藏窗口兜底加「准入登记表 + 配对锁」——把准入纪律变成机械拦截（dom-login-check-registry）
 
 - **问题**：`DOM_LOGIN_CHECK_ALLOWED_PLATFORMS` 默认空集（#3759 落地）挡住了崩溃路径，但**没有任何机械判据**阻止"只加一行平台名、不交真机证据"的提交。而隐藏窗口崩不崩**只有真机能验证**（真实平台页面 + 真实账号 Cookie + 隐藏窗口渲染），CI 永远凑不齐 ⇒ 四例事故（toutiao → wechat_mp → 知乎 → kuaishou）的共同形态都是「CI 全绿、用户机器上崩」。

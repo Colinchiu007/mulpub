@@ -1,0 +1,28 @@
+{
+  "sha": "b0f33ebe346e5346b5d26f13b4f14c0156ab4f85",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 90 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 90,
+    "fileCount": 4,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "| QM-6 CCG 双模型外部评审 | ❌ **未闭合：评审后端未登录，不是本 PR 的失败** | 验证层 `sh scripts/deep-review.sh` 连跑两次，均在轮 1 报 `评审失败: exit 1 [claude] … claude exited with status 1`（引擎把记录写成 `status=error`，`engine_rc=2`；两次 PID 不同、失败同形 ⇒ 不是瞬时抖动）。**归因探针**（绕过 wrapper 直接喂同样的旗标形态给后端）：`claude -p --dangerously-skip-permissions --setting-sources \"\" --output-format stream-json --verbose -` 返回 `\"is_error\":true, \"result\":\"Not logged in · Please run /login\"` ⇒ 根因是**本机 claude 凭据失效**，与本篇改动无关。附带自证：失败现场恰好走通了本 PR 新写的收口分支 —— 引擎落 `error` 后 `[ccg-ledger] 不落证据：status=error 未闭环，落进台账等于自填通过章`，即「未出裁决不得入台账」这条资格门禁在真实故障下确实拦住了。**待用户 `/login` 后重跑**，评审产物与逐条处置回填本格；在此之前**不得**把 QM-6 读成已通过，本 PR 也不满足合并条件 |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "5ccd6d6f060144825380bf02cd546a13383c764221ba022927396e4bc956bb4e",
+  "decidedAt": "2026-10-16T11:20:55.808Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}
