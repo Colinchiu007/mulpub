@@ -2,9 +2,6 @@
 record: pub-record-republish-changelog
 task: PR #3659 合并后的文档收尾——CHANGELOG 条目与 learnings 三条教训落地（执行记录回填已在 #3703 单独完成）
 date: 2026-10-16
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 与合并时间还不存在；远端分支删除状态同样待合并后才可取证
-sync_backfill_owner: 下一个会话（或本会话合并后立即回填）
 ---
 
 ## 本次执行记录：CHANGELOG 与 learnings 收口（pub-record-republish-changelog，2026-10-16）
@@ -20,7 +17,7 @@ sync_backfill_owner: 下一个会话（或本会话合并后立即回填）
 | 接线棘轮 | ✅ | 未新增测试文件（纯文档）。既有测试未受影响 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触碰 `apps/desktop/electron/**` 与任何渲染代码，视觉基线（`publish-history{,-dark}.png`）已在代码 PR 内用 CI 渲染刷新并经 QG Visual 验证通过，本 PR 不再触及 |
 | QM-6 CCG 双模型外部评审 | N/A（docs-only 通道） | 按 docs-only 快速通道跳过 QM-6；上游代码 PR 的 QM-6 已在其执行记录内闭环（mode=dual、4 条 upheld 逐条修复、如实标注自扮演出口 0.6） |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin pub-record-republish-changelog` 返回 0 行证远端分支已删；回填后删除上方三个 `sync_*` 字段 |
+| 远程同步 | PASS | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin pub-record-republish-changelog` 返回 0 行证远端分支已删；回填后删除上方三个 `sync_*` 字段 |
 
 ### 遗留（不假装已闭合）
 
