@@ -4,7 +4,7 @@
 
 - [x] 1.1 质量节拍触发 + pre-code-edit-guard 拦截共享主目录（exit 1，符合预期）
 - [x] 1.2 品牌名全量清点：`社媒管家` 66 命中 / 24 文件；`Multi-Publish` 129 命中（electron 域）；`Social Media Manager` 2 命中
-- [x] 1.3 隔离 worktree：`bash scripts/session-init.sh brand-rename-tomfish` → `D:/Data/projects/mp-worktrees/mp-brand-rename-tomfish`（D 盘），分支 `brand-rename-tomfish`
+- [x] 1.3 隔离 worktree：`bash scripts/session-init.sh brand-rename-tomfish` → `<worktreeRoot>/mp-brand-rename-tomfish`（D 盘，非 C 盘），分支 `brand-rename-tomfish`
 - [x] 1.4 依赖就绪：`pnpm install --frozen-lockfile` + `ensure-electron` + `verify-worktree-deps`（11 项解析通过）
 
 ## 2. TDD —— 先红（已完成）
@@ -67,7 +67,7 @@
 - [ ] 9.3 `gh pr checks` 零 pending/fail → `gh pr merge --squash --delete-branch`
 - [ ] 9.4 回填 PR：`.quality-gates.md` 远程同步 PENDING→PASS + merge SHA、删 ledger 登记、删 `sync_*` 三字段
 - [ ] 9.5 worktree 清理：`scripts/safe-worktree-remove.ps1 -WhatIf` 干跑 → 实跑 → R7 对账基线
-- [x] 9.6 磁盘写满处置：commit 曾因 `No space left on device` 失败（D 盘 0 字节），按 R0 纪律**不做目录递归删除**，把本会话产出的 1GB 冗余副本 + 49.6MB CI 日志**跨盘移到** `F:\Temp\brand-rename-holding-20261015\`（无损可逆，移动前已用 `app.asar` SHA-256 证明副本与 worktree 内一致）。
+- [x] 9.6 磁盘写满处置：commit 曾因 `No space left on device` 失败（D 盘 0 字节），按 R0 纪律**不做目录递归删除**，把本会话产出的 1GB 冗余副本 + 49.6MB CI 日志**跨盘移到** `<TEMP>/brand-rename-holding-20261015/`（无损可逆，移动前已用 `app.asar` SHA-256 证明副本与 worktree 内一致）。
 
 ## 10. 记忆三路沉淀（已完成）
 

@@ -9,7 +9,7 @@ sync_backfill_owner: brand-rename-tomfish 分支作者（合并后由后续回�
 
 # 产品中文名统一为「汤姆鱼」（brand-rename-tomfish，2026-10-15）
 
-> 分支 `brand-rename-tomfish`（worktree `D:/Data/projects/mp-worktrees/mp-brand-rename-tomfish`，D 盘非 C 盘），起点 `8e9109a55` = 当时 origin/main。合同 = `openspec/changes/brand-rename-tomfish/specs/product-brand-name/spec.md`；判据本体 = `apps/desktop/src/i18n/brand-single-source.test.js`。用户要求：产品与项目中文名今后一律「汤姆鱼」，并持久化到内置记忆、外部记忆与 EverOS。
+> 分支 `brand-rename-tomfish`（worktree `<worktreeRoot>/mp-brand-rename-tomfish`，D 盘非 C 盘），起点 `8e9109a55` = 当时 origin/main。合同 = `openspec/changes/brand-rename-tomfish/specs/product-brand-name/spec.md`；判据本体 = `apps/desktop/src/i18n/brand-single-source.test.js`。用户要求：产品与项目中文名今后一律「汤姆鱼」，并持久化到内置记忆、外部记忆与 EverOS。
 
 ## 清点：这不是「改个文案」
 
@@ -188,5 +188,23 @@ pre-commit 会按**父提交 sha** 生成 `.ccg/reviews/<sha>.json` 判定记录
 **为什么 status 不是 `self_play_resolved`**：引擎 `blockingFromAdjudication()` 只有两种阻断理由——① `highRiskDomains` 非空 ⇒ 恒阻断（自扮演不得豁免）；② `verdict === 'upheld'` ⇒ 阻断。而它的裁决词表**只有 upheld/dismissed，没有「已修复（remediated）」这一档**，所以「指控成立但已在本 PR 内消除」这种正确状态会被机械算成阻断，`self_play_resolved` 在本变更集上不可达。据此按 `check-pr-exec-record.js` 自己文档化的兜底收口：**写明原因 + status 置闭环值**；取 `needs_revision` 的依据是它自己的注释口径「**无 Critical 但留 High 建议**」——3 条 Critical 全部处置（2 remediated + 1 dismissed），i4/i5 两条 Warning 如实保留。
 
 **如实登记的边界**：本 PR **未**对 auth 路径做超出既有锁的额外安全再审计（属范围外，不声称已做）；i4/i5 两条建议**保持开放**，不因为闸门变绿而宣称已修。
+
+### 5. `QG Changes` → Gate 12c（文档绝对路径账本）：4 处本机绝对路径，按门禁正解改写
+
+首轮完整 CI 的 `QG Changes` 判红，根因是 **Gate 12c「文档绝对路径账本」**：`scripts/check-doc-abs-paths.test.js` 的 #27「本仓基线必须与现场逐文件相等（既不多也不少）」失败，点名 3 个文件、4 处**本机绝对路径**超出存量基线：
+
+| 文件 | 行 | 原字面 | 改写为 |
+|---|---|---|---|
+| `01-docs/PRD-BRAND-RENAME-TOMFISH-2026-10-15.md` | 235 | `F:\Temp\brand-rename-holding-20261015\` | `<TEMP>/brand-rename-holding-20261015/` |
+| `openspec/changes/brand-rename-tomfish/tasks.md` | 7 | `D:/Data/projects/mp-worktrees/mp-brand-rename-tomfish` | `<worktreeRoot>/mp-brand-rename-tomfish` |
+| `openspec/changes/brand-rename-tomfish/tasks.md` | 70 | `F:\Temp\brand-rename-holding-20261015\` | `<TEMP>/brand-rename-holding-20261015/` |
+| `openspec/records/brand-rename-tomfish.md` | 12 | `D:/Data/projects/mp-worktrees/mp-brand-rename-tomfish` | `<worktreeRoot>/mp-brand-rename-tomfish` |
+
+**为什么不用 `--write-baseline`**：门禁自己写明「**不得**用『跑一次 `--write-baseline` 把新增记进去』来消红——那正是本条要拦的形状」。所以取正解之一的**占位符形态**（`<...>` 词元），而不是放宽账本。
+
+复验：`node scripts/check-doc-abs-paths.js --all` → **PASS**（3438 个受管文件，无新增本机绝对路径）；`node --test scripts/check-doc-abs-paths.test.js` → **53 pass / 0 fail**。
+
+**这条的重要性**：该 gate 失败会让 `QG Changes` 这个**门禁 job** 红，而重型 job（`QG Static` / `QG Unit Tests` / `QG Visual` / `QG Desktop Shards` / `QG Coverage` …）都是它的下游 ⇒ **整个 PR 的实际验证被跳过**（checks 上显示为 `skipping`，看起来"没失败"）。所以「重型 job 全 skipping」本身就是一个必须追的信号，不能当通过。
+
 
 

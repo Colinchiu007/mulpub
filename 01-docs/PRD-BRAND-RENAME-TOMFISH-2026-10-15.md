@@ -232,7 +232,7 @@
 3. **基线来源纪律**：视觉基线**只能取自 CI artifact，禁止用本机渲染**（AGENTS.md QM-4 第 7 条；本仓有 #2685 用本机重捕把 9 张基线漂掉的前例）。本次回填严格走「取 CI artifact → 人工审阅 → 替换 → 自证 SHA-256 与 CI 渲染逐字节一致」，且**只改这两张**（`git status` 仅这两条 M）。
 4. **`Multi-Publish` 白名单是当前快照**：若未来某个白名单位置变成用户可见（如 UA 出现在 UI），需同步收紧白名单 —— 这正是用例 3 的存在意义。
 5. **用户本机仍跑着旧实例**：`mp-app-live2` worktree 的实例窗口标题还是「社媒管家」（旧代码），需用户重启该实例后才会显示新名。本次不改用户运行态。
-6. **`mavis-trash` 缺失**：本机回收后端不在 PATH，`safe-delete.js` 对本次探针脚本恒 FAILED（审计日志已记录）。探针脚本为 untracked 一次性产物，已按 R0「不做目录递归删除」纪律**移出** worktree 至 `F:\Temp\brand-rename-holding-20261015\`（无损可逆），未纳入 PR。
+6. **`mavis-trash` 缺失**：本机回收后端不在 PATH，`safe-delete.js` 对本次探针脚本恒 FAILED（审计日志已记录）。探针脚本为 untracked 一次性产物，已按 R0「不做目录递归删除」纪律**移出** worktree 至 `<TEMP>/brand-rename-holding-20261015/`（无损可逆），未纳入 PR。
 
 ---
 
