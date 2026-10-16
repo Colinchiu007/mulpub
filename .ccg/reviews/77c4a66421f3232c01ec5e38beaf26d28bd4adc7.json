@@ -1,0 +1,31 @@
+{
+  "sha": "77c4a66421f3232c01ec5e38beaf26d28bd4adc7",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 82 行（≤ 200）但命中 auth/数据库/加密：敏感内容 6 处",
+  "stats": {
+    "changedLines": 82,
+    "fileCount": 2,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 6,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "`.ccg/reviews/` 副产物被判定器按 `mode=dual` 要求深度审查（触发理由是「命中 auth/数据库/加密」）。按 QM-6 与门禁要求**真跑**，不绕："
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "3ae314b61ccfad3edde86934e182c11dab5fd5fb694c5d38f626a3dabdd0fb08",
+  "decidedAt": "2026-10-16T14:45:04.876Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "needs_revision",
+    "performedBy": "dual (critic=claude, proposer=opencode) + self-play adjudication + external cross-family recheck (claude)",
+    "findings": null,
+    "engineStatus": "self_play_blocked",
+    "note": "真跑过，不绕：见 .ccg/reviews/bb41947badfa329992eb552f2f22e7462f42ca91.json 的 deepReview.note 与 externalRecheck（逐条裁决、外部跨家族复核、原判保留在 originalVerdict / originalHighRiskDomains），以及 openspec/records/brand-rename-tomfish.md 的「2026-10-16 补记」第 4 节。状态取 needs_revision 的依据是 check-pr-exec-record.js 自己的口径「无 Critical 但留 High 建议」：3 条 Critical 全部处置，2 条 Warning 建议如实保留、不假装闭合。本条记录被判 mode=dual 的触发源是关键词匹配（见 reason 字段），已由外部跨家族复核确认为误触发，同类判定另见 bb41947ba 记录的高危域归因修正。",
+    "at": "2026-10-16T14:52:00.000Z"
+  }
+}

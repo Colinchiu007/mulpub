@@ -37,7 +37,7 @@
       @keydown="handleMenuKeydown"
     >
       <div class="profile-menu-heading">
-        <strong>{{ hasSessionIdentity ? displayName : 'Multi-Publish' }}</strong>
+        <strong>{{ hasSessionIdentity ? displayName : '汤姆鱼' }}</strong>
         <span class="profile-menu-status" :class="`is-${identityStatus}`">
           <i class="profile-menu-status-dot" aria-hidden="true"></i>{{ statusLabel }}
         </span>

@@ -20,7 +20,7 @@ const viewTests = [
   routeView('prompt-eval', '/prompt-eval', '.prompt-eval-page h1:has-text("提示词优化效果评估")'),
   routeView('home-default', '/', '.mp-home .mp-home-welcome'),
   routeView('comments-list', '/comments', '.cohere-main .page-title:has-text("评论管理")'),
-  routeView('first-run', '/first-run', '.fullscreen-main h2:has-text("欢迎使用社媒管家")'),
+  routeView('first-run', '/first-run', '.fullscreen-main h2:has-text("欢迎使用汤姆鱼")'),
   routeView(
     'publish-form',
     '/publish',

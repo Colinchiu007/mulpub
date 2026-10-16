@@ -13,7 +13,7 @@ const path = require('path')
 const log = require('./logger')
 
 const ONBOARDING_STEPS = [
-  { id: 'welcome', title: '欢迎使用 Multi-Publish', description: '一站式多平台发布工具' },
+  { id: 'welcome', title: '欢迎使用汤姆鱼', description: '一站式多平台发布工具' },
   { id: 'accounts', title: '添加账号', description: '点击左侧菜单「账号管理」，添加您的社交媒体账号' },
   { id: 'publish', title: '发布内容', description: '选择平台，填写标题和内容，点击发布即可' },
   { id: 'complete', title: '完成设置', description: '现在开始您的多平台发布之旅！' },

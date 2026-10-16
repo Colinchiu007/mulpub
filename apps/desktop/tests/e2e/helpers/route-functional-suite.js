@@ -151,7 +151,7 @@ async function exerciseComments(r) {
 }
 
 async function exerciseFirstRun(r) {
-  record(r, '首次运行从欢迎步骤开始', await bodyHas(r, '欢迎使用社媒管家'));
+  record(r, '首次运行从欢迎步骤开始', await bodyHas(r, '欢迎使用汤姆鱼'));
   // 验证 firstRunCheck 被调用
   await expectIpc(r, 'firstRunCheck', '首次运行检查环境');
   // 验证下一步可点击：点击 “开始配置” 进入环境步骤
@@ -507,7 +507,7 @@ async function exerciseCalendar(r) {
 const definitions = {
   home: { route: '/', title: '多平台内容一键发布', exercise: exerciseHome },
   comments: { route: '/comments', title: '评论管理', exercise: exerciseComments },
-  'first-run': { route: '/first-run', title: '欢迎使用社媒管家', exercise: exerciseFirstRun },
+  'first-run': { route: '/first-run', title: '欢迎使用汤姆鱼', exercise: exerciseFirstRun },
   publish: { route: '/publish', title: '一键发布', exercise: exercisePublish },
   accounts: { route: '/accounts', title: '账号管理', exercise: exerciseAccounts, initialAuditStrategy: 'semantic' },
   dashboard: { route: '/dashboard', title: '数据看板', exercise: exerciseDashboard },

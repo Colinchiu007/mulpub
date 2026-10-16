@@ -3,7 +3,7 @@
  * 从 locales/zh.js 拆出，键名与拆出前完全一致；zh/en 成对维护（CI Gate 7）。
  */
 export default {
-    welcome: '欢迎使用 Multi-Publish',
+    welcome: '欢迎使用汤姆鱼',
     step1: '添加账号',
     step2: '发布内容',
     step3: '完成设置',
