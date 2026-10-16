@@ -776,6 +776,64 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 - 进度遮罩沿用 §6.4.2 的七相位与 `cancellable` 位（由主进程算，前端不得抄相位表）。
 - 出错时逐条展示 `issues`（按码取 locale 文案），不得只弹「失败」。
 
+### 7.10.3.1 文本出期浮层的组件合同（2026-10-17 补；**合同先于实现**，实现偏离本节必须先改本节）
+
+> 为什么现在写这一节：机械半边（通道 / preload / 桥接 / bundle / 三处清点式守卫）已在分支 `podcast-episode-plan-ui`（commit 见 `openspec/records/podcast-tasks-reconcile-41-42.md` 的姊妹记录）以标好的 WIP 提交，实测 131 passed 含 `ipc-contract` 双向对账；但它按 §7.10.6 **不能单独合并**。会话额度不足以把浮层与入口做完并跑完 QM-1，所以先把合同钉死，避免下一个实现者凭组件名猜落点。
+
+**落点必须是「扩展既有成对装配」，不是新建同名文件**（2026-10-17 实测踩坑）：`apps/desktop/src/components/PodcastEpisodeEntry.vue` **已存在**（80 行、已入库、由 `CreateView.vue` 消费），它是**成片链**的「入口按钮 + 浮层」成对装配，内部挂 `PodcastPublishAction.vue`。本片的文本出期浮层要么在该族上扩一个 `mode`（`video | script`），要么新建**另一个名字**（建议 `PodcastScriptEntry.vue` + `PodcastScriptPublishAction.vue`）——「PRD 写了落点 X」不等于「X 不存在」，实现前必须先 `git ls-files` 查该路径。
+
+**组件接口合同**（两种落点共用形状，字段不得增删而不改本节）：
+
+| 项 | 合同 | 唯一来源 |
+| --- | --- | --- |
+| props | `visible: Boolean`、`channelId: String`、`script: String`（正文，**不是**音频路径）、`title: String`、`gapSec?: Number` | §7.10.1 |
+| emits | `update:visible`、`published`（载荷为编排层信封的 `data`，含 `state`） | §6.4 |
+| 打开时 | 必须**现取**只读预览 `episodePlanPreview({ channelId, script })`；每次打开都取，不得缓存（音色偏好可能在别处改过） | §7.10.4.1 判据 6 |
+| 显示项 | 块数 / 总码点 / 音色三段，全部取自预览返回，**前端不得自己算任何一个数**；任一缺失则整块不显示，绝不回落 `0` | §7.10.4.1 判据 2、§7.9.6 口径 |
+| 来源标注 | 复用 §8.2.9 的三把 `podcast.voice.origin*` 键，不另写一份 | §7.10.4.1 |
+| 预览被拒 | 显示**原因句**（`data.message` 或领域码对应的 locale 文案），不得显示空数；但**发起按钮仍可用**——同意闸门在主进程①层 | §7.10.4.1 判据 3、4 |
+| 预览失败 | 整段 `try/catch`，只降级为「不显示计数」，禁止把按钮锁死或把失败当成功 | §7.10.4.1 判据 4 |
+| 确认动作 | 发 `episodePublishFromScript`，载荷须 `billingConfirmed: true`（**这是用户刚刚做的事，不是前端默认值**），并经 `JSON.parse(JSON.stringify(x))` 脱壳 | §7.10.1 ①、AGENTS「IPC 参数序列化安全」 |
+| 取消确认框 | 只关窗，**不发** publish：此时主进程一次磁盘写都没有，所以不存在半成品可清 | §7.10.3 |
+| 进度 | 沿用既有 `onEpisodePublishProgress` 的七相位与 `cancellable`（由主进程算，前端不抄相位表）；退订必须在关闭与卸载两处各调一次 | §6.4.2 |
+
+**浮层互斥登记（AGENTS「应用级浮层弹窗互斥合同」，不可省）**：新 owner 名建议 `podcast-episode-entry-overlay` / `podcast-script-publish-overlay`；`suspend`/`release` 必须成对且**释放穷尽**——本组件的释放由 `visible` 驱动，因此走 `watch(visible)` 的 false 分支**并另加 `onBeforeUnmount` 兜底**（父组件直接 `v-if` 掉浮层时 `visible` 不经过 `false`，少了兜底就是残留挂起计数）。owner 必须同 PR 登记进 `apps/desktop/src/overlay-view-suspension.test.js` 的接入断言。
+
+**文案键**（zh/en 成对，Gate 7 + `src/i18n/glossary.test.js` 各跑一次；插值是具名形态 `{n}` / `{provider}`）：`podcast.episode.planBlocks` / `planCodepoints` / `planVoice`，逐字文案见 §7.10.4.1。**加键的时机只能是浮层真的引用它们的那一次**——提前加就是死键，AGENTS 明令禁止为不存在的反馈路径建 locale 键。新组件若引用错误码文案，必须把路径追加进 `src/locales/podcast-error-codes.test.js` 的扫描域清单（该清单逐条 `fs.existsSync` 守卫）。
+
+**入口判据**：`CopyLibraryView.vue` 的整卡本身就是 `role="button"` + `@click="openDetail(entry)"`，本仓该文件**没有** dropdown／次级菜单先例；加「发布为播客单集」必须在卡内放独立按钮并 `@click.stop`，否则一次点击走进整卡处理、浮层永不出现（这条属「被绑定物不存在」全绿缺陷族，视觉层对 <0.1% 面积也失明）。按枚切：先 `CopyLibraryView`，`RewriteView` / `Publish` 各留一条新的未勾子项。
+
+**本片合并前必须闭合的验收清单**：① 浮层与入口同 PR（§7.10.6）；② 三把 plan* 键随浮层落地并进扫描域；③ overlay owner 登记 + 释放穷尽；④ QM-1 打包三层 stderr 判据（第③层必须是「读到的空」，且存活单独断言）；⑤ QM-6 双模型外部评审或用户逐片点名豁免；⑥ PRD §15.2 该页状态列改「已落」（tasks 5.1b）。
+
+### 7.10.3.2 浮层的 channelId 来源合同（2026-10-17 补；写实现时发现的规格空洞，先钉再写代码）
+
+> 空洞怎么暴露的：§7.10.1 把 `channelId` 列为必填、§7.10.4.1 让浮层显示块数与音色，但**没有任何一节说这个 channelId 由谁解析**。机械半边与浮层（`PodcastScriptEntry.vue`，11 passed）都已实现，轮到入口时才发现无从下手——这正是「合同看起来完整」与「实现者能不问就知道」之间的差。
+
+| 项 | 合同 | 理由 |
+| --- | --- | --- |
+| 解析者 | **入口侧**（`CopyLibraryView` / `RewriteView` / `Publish` 各自的宿主 composable），不在浮层内 | 浮层自己拉频道列表就会出现第二套频道解析；本仓对「同一个决策抄两份」的复发代价已记多次 |
+| 取值来源 | 既有 `channelList()` 返回的 `defaultChannelId`（运营中心之外唯一的频道真源），**一次读取**，随入口既有列表加载并行，不新增独立请求轮次 | 频道默认值只有一个真源；AGENTS 首屏口径禁止为它新增串行 await |
+| 无频道时 | 入口**不显示**该动作（而不是显示后报错、也不是弹一个必然被宿主拒掉的确认框） | 「有问题才可见」的空态原则；宿主侧仍保留 `出期必须指定频道` 的拒绝作为兜底，但不得把它当交互设计 |
+| 多频道时 | 本期只发默认频道；切换频道沿用频道页既有入口，浮层内**不放**频道下拉 | 浮层的职责是「让用户在花钱前看清要花多少」，不是第二个频道管理界面 |
+| 校验归属 | `channelId` 的形态与存在性判据**只在主进程**②层（`validateComposeInput`）一份；入口与浮层都不得预校验后自行决定禁用条件 | 前端多抄一份判据就会与宿主漂移，用户看到的是「按钮时有时无」 |
+
+**验收判据（补进 §7.10.3.1 的清单，同为合并前必须闭合项）**：① 入口读默认频道的那次调用必须复用既有 `channelList` 出口，禁止新增第二处频道读取；② 无默认频道时动作不出现，且这条要有**渲染层断言**（不是只读源码的结构锁）；③ 宿主 `PODCAST_EPISODE_INVALID`「出期必须指定频道」在入口正常路径上永不被触发，一旦被触发即为回归，须有声援示例覆盖「入口拿到空 defaultChannelId 时不发请求」。
+
+### 7.10.3.3 入口的正文来源与时机合同（2026-10-17 补；与 §7.10.3.2 同一类空洞的第二处）
+
+> 触发原因：接入口时发现「文案库卡片的列表项里到底有没有正文」没有规定。`CopyLibraryView.vue` 的列表项只有标题与摘要，**正文是在 `openDetail()` 里按需取回**的（成片链的入口之所以简单，是因为宿主页面本来就把 project/segments 全量握在手里）。如果不先定这条，入口实现只有两种错法：把摘要当正文发出去（静默发出错误内容），或给浮层挂一个 `fetchScript` 回调（把宿主状态抄进第二个地方）。
+
+| 项 | 合同 | 理由 |
+| --- | --- | --- |
+| 唯一出口 | 入口必须走**既有的按需取正文实现**（`openDetail()` 里那条 `story2videoGetProject` / `useCopyLibrary` 的取回路径），复用它的结果，禁止在浮层或入口里新写一次拉取 | 同一份正文两个取法必然在分页/草稿态上漂移 |
+| 时机 | **点击「发布为播客单集」时**取一次；取到才打开浮层，取不到或为空则不开浮层、给一句失败提示 | 先开浮层再取会让预览用空正文跑一趟（既报错又烧一次 IPC），而预览是唯一计数来源 |
+| 内容判据 | 长度/形态一律由宿主②层判（`validateComposeInput`）。浮层**不得**因为「看起来太短」自己禁用按钮；`planPreview` 拒绝时显示原因句（§7.10.4.1 判据 3、4 不变） | 前端多判一份就会与 80 码点下限漂移 |
+| 传给浮层的形状 | `script` 就是取回的正文**字符串**（`episodePlanPreview` 收 `{channelId, script}`）；确认时浮层再按 §7.10.1 的 `{copy:{content}}` 组装。两个键名**故意不同**，中间层不得做名称统一 | 上一刀已实测：预览收 `script`、出期收 `copy.content`，在中间层合并会让某一侧静默拿到 undefined |
+| 浮层的取数归属 | 入口把已取到的正文交给浮层，**不**给浮层传回调让它自己取 | 与「入口与浮层成对、宿主不持有第二份状态」同条纪律的镜像面：浮层也不得持有第二份取数 |
+| 失败提示 | 取正文失败复用该页既有失败文案键，不新增同义文案 | 避免同一动作两套话术 |
+
+**验收判据**：① 入口点击后 `story2videoGetProject`（或该页既有取回出口）**至多一次**，且浮层拿到的 `script` 与之逐字相等；② 取回失败时浮层**不挂载**（断言 `openedOnce` 仍为 false 或组件未出现），不得先挂再报错；③ 空正文不得进入 `planPreview`（否则预览会以 `PODCAST_TTS_COPY_TOO_SHORT` 拒绝，用户看到的是一句与「我刚点的这篇」无关的原因句）；④ 文案必须来自既有键，本片**不得**新增失败文案键（新增即须 zh/en 成对并进 §11.5 逐字表）。
+
 ### 7.10.4 显示项
 
 | 位置 | 显示内容 | 数据来源 |
