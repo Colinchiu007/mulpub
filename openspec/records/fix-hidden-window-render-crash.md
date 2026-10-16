@@ -2,10 +2,7 @@
 record: fix-hidden-window-render-crash
 task: 隐藏窗口登录检测触发原生渲染崩溃（应用启动后窗口消失）——成因侧拆掉「--no-sandbox + swiftshader」组合，并把实测触发点 kuaishou 纳入白名单止血
 date: 2026-10-16
-# ↓ 三字段只在「远程同步」无法收口时填写；回填成 PASS 后必须整段删除。
-sync_status: PENDING
-sync_reason: 本 PR（fix-hidden-window-render-crash）尚未合并，merge SHA 尚不存在，无法取证收口
-sync_backfill_owner: 下一个会话（同一次提交内改表格行 + 删这三个字段）
+
 ---
 
 ## 本次执行记录：隐藏窗口原生渲染崩溃（fix-hidden-window-render-crash，2026-10-16）
@@ -31,4 +28,4 @@ sync_backfill_owner: 下一个会话（同一次提交内改表格行 + 删这�
 | 行尾与 diff 对账 | ✅ | 两口径 numstat 相等 |
 | 接线棘轮 | ✅ | `check-unwired-tests.js` OK；新测试落在已登记的 `electron/publishers/**` 通配内，无需新增接线 |
 | 已知边界（不假装闭合） | ✅ | ① 修复 A 消除的是**该组合**；若将来有人显式同时要求 sandbox 关 + 软件光栅化，崩溃组合会被重新打开——故由全组合性质锁守，而非靠注释。② **崩溃根因在 Chromium 原生层，本 PR 是规避成因 + 切断触发路径，不是修复 Chromium 缺陷**；未做 minidump 级归因（现场无 minidump）。③ kuaishou 本轮**不补 `checkHtml`**：没有 cp.kuaishou.com 真机登录页/已登录页形态证据就不许凭空写判据，因此其登录态在 HTTP 判定不足时会显示「未确认」；要恢复确定性结论须先取证。④ 白名单机制仍在且会继续沿用（纵深防御），名单外平台在**其它**成因下仍可能崩——届时 `render-process-gone` 会留下 reason/exitCode，不再只剩「日志戛然而止」。⑤ **真修（把隐藏窗口检测隔离到独立进程，使浏览器进程崩溃不再拖死主进程）本轮未做**，属后续工作；本 PR 不声称已消除该类崩溃。⑥ 活体 A/B 为单机观测，样本有限 |
-| 远程同步 | PENDING | 本 PR 尚未合并；合并后由回填会话同一次提交改写 PASS + merge SHA 并删除上方 sync_* 三字段 |
+| 远程同步 | PASS | 已合并：merge SHA `4603db461ee3b110cde03989857b35fc37d264c2`（2026-10-16T17:16:36Z，squash）；远端分支已删（`git ls-remote --heads origin fix-hidden-window-render-crash` 返回 0 行）；`git log origin/main --grep='(#3739)$'` 恰 1 行 |
