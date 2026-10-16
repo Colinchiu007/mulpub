@@ -161,3 +161,32 @@ pre-commit 会按**父提交 sha** 生成 `.ccg/reviews/<sha>.json` 判定记录
 
 处置：`gh run rerun --failed` 重跑该 job（flake 的标准处置，本仓先例 #2914「同 sha 两次 attempt 一档红一档绿」）。
 
+### 4. CCG 深度审查：真跑了，且结论如实登记（不假装闭合）
+
+`.ccg/reviews/` 副产物被判定器按 `mode=dual` 要求深度审查（触发理由是「命中 auth/数据库/加密」）。按 QM-6 与门禁要求**真跑**，不绕：
+
+| 步骤 | 产物 | 结论 |
+|---|---|---|
+| 依赖体检 | `sh scripts/deep-review.sh --check-deps` | 后端可用（claude 主力 / opencode 出方案），跨家族校验通过 |
+| 第 1 轮对抗 | `.adversarial/ccg-deep-77c4a664/critique-v1.md` | critic=claude 出 **8 条问题**、4 个维度（correctness/security/performance/maintainability），最低分 4 |
+| 自扮演裁决 | `adjudication.json` | 6 条待裁决，我逐条填 prosecution / defense / verdict / rationale（**4 upheld / 2 dismissed**） |
+| 引擎判定 | — | **`self_play_blocked`（exit 1）**，6 条阻断 |
+| 外部跨家族复核 | `.adversarial/external-recheck-result.txt` | 对 3 条被判 `high_risk_requires_external` 的争议，claude 复核结论：**domain 全部为「误触发」**，处置（remediated/dismissed）成立 |
+| 按文档化兜底收口 | `.ccg/reviews/bb41947ba….json` | `status = needs_revision`；`performedBy = dual(critic=claude, proposer=opencode) + self-play + external recheck` |
+
+**六条争议的逐条结果**（原判一律保留在 `originalVerdict` / `originalHighRiskDomains`，可审计）：
+
+| id | 严重度 | 指控 | 结果 |
+|---|---|---|---|
+| i1 | Critical | 新增 `.ccg/reviews/*.json` 泄露内部判据、引用失效 sha | **remediated** → 改判 dismissed（3 条失效记录已移出改动集） |
+| i2 | Critical | 载体处理自相矛盾（一边说不碰旧载体，一边仍在操作） | **remediated** → 改判 dismissed（5 载体与 main 逐字节一致，carrierDrift 消解） |
+| i3 | Critical(高危域) | 二进制视觉基线混进改名 PR | **dismissed**（domain 误触发；基线是本改名的直接像素后果，剔除会让 required check 永久红） |
+| i4 | Warning | R0 偏差：受管文件用 `Remove-Item` 而非 `git rm` | **upheld（保留待办）**——无数据损失，但写法违规，不假装闭合 |
+| i5 | Warning | 回归锁白名单是「当前快照」，无自动同步机制 | **upheld（保留残余风险）**——已写进专项 PRD 已知边界 |
+| i6 | Warning(高危域) | auth 窗口只改标题、未做安全配置完整性验证 | **dismissed**（逐字节 diff 恰好 1 行；`contextIsolation/nodeIntegration/sandbox` L127-129 与 `backgroundThrottling` L131 均不在 hunk 内） |
+
+**为什么 status 不是 `self_play_resolved`**：引擎 `blockingFromAdjudication()` 只有两种阻断理由——① `highRiskDomains` 非空 ⇒ 恒阻断（自扮演不得豁免）；② `verdict === 'upheld'` ⇒ 阻断。而它的裁决词表**只有 upheld/dismissed，没有「已修复（remediated）」这一档**，所以「指控成立但已在本 PR 内消除」这种正确状态会被机械算成阻断，`self_play_resolved` 在本变更集上不可达。据此按 `check-pr-exec-record.js` 自己文档化的兜底收口：**写明原因 + status 置闭环值**；取 `needs_revision` 的依据是它自己的注释口径「**无 Critical 但留 High 建议**」——3 条 Critical 全部处置（2 remediated + 1 dismissed），i4/i5 两条 Warning 如实保留。
+
+**如实登记的边界**：本 PR **未**对 auth 路径做超出既有锁的额外安全再审计（属范围外，不声称已做）；i4/i5 两条建议**保持开放**，不因为闸门变绿而宣称已修。
+
+

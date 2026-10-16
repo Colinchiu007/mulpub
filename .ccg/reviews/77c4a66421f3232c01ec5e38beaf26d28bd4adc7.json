@@ -1,0 +1,28 @@
+{
+  "sha": "77c4a66421f3232c01ec5e38beaf26d28bd4adc7",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 82 行（≤ 200）但命中 auth/数据库/加密：敏感内容 6 处",
+  "stats": {
+    "changedLines": 82,
+    "fileCount": 2,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 6,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "`.ccg/reviews/` 副产物被判定器按 `mode=dual` 要求深度审查（触发理由是「命中 auth/数据库/加密」）。按 QM-6 与门禁要求**真跑**，不绕："
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "3ae314b61ccfad3edde86934e182c11dab5fd5fb694c5d38f626a3dabdd0fb08",
+  "decidedAt": "2026-10-16T14:45:04.876Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}
