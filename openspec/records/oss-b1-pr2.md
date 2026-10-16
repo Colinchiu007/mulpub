@@ -51,7 +51,7 @@ sync_backfill_owner: 下一个会话（合并后回填 PASS + merge SHA 并删�
 | `better-sqlite3: true` | **rc=1** | 是（`Could not find any Visual Studio installation`） | — |
 | `better-sqlite3: false` | **rc=0** | 否（无构建步骤） | **成功**（走包内 `prebuilds/`） |
 
-**修法**：`true → false` + 11 行中文注释（`false` 是 pnpm 语义里的显式拒绝；**删掉该行反而更糟**——退回缺省即允许）。不回退依赖声明：该包自带 `prebuilds/`（含 `win32-x64.node` = 1,988,096 字节），`lib/binding.js` 回落 `prebuilds/${target}.node`，且全仓 `require('better-sqlite3')` 命中 0。**回归锁**（`apps/desktop/scripts/fetch-camofox.test.js` 新增 #3/#4）：#3 断言 `@askjo/camofox-browser` **不在** `allowBuilds` 条目里（其 postinstall 会拉 ~500MB 且零 sha256 校验）；#4 断言 `better-sqlite3` 条目存在且为 `false`。判据按**行**解析 `allowBuilds`（跳过注释/空行、遇 0 缩进 break）+ 条目数下界，避免把新增注释纳入段内使既有 `!/camofox/` 断言误红。
+**修法**：`true → false` + 11 行中文注释（`false` 是 pnpm 语义里的显式拒绝；**删掉该行反而更糟**——退回缺省即允许）。不回退依赖声明：该包自带 `prebuilds/`（含 `win32-x64.node` = 1,988,096 字节），`lib/binding.js` 回落 `prebuilds/${target}.node`，且全仓 `require('better-sqlite3')` 命中 0。**回归锁**（`apps/desktop/scripts/fetch-camofox.test.js` 新增 #3/#4）：#3 断言 `@askjo/camofox-browser` **不在** `allowBuilds` 条目里（其 postinstall 会拉 ~500MB 且零 sha256 校验）；#4 断言 `better-sqlite3` 条目存在且为 `false`。判据按**行**解析 `allowBuilds`（跳过注释/空行、遇 0 缩进 break）+ 条目数下界，避免把新增注释纳入段内使既有 `!/camofox/` 断言误红。 ⚠️ **该行与上句的解析器随后被下一轮 CI 打穿**：camofox 必须**在 `allowBuilds` 里显式写 `false`**（三档语义：键**缺席** = *ignored build* ⇒ `ERR_PNPM_IGNORED_BUILDS` + install rc=1；`true` = 真跑 postinstall 拉 ~500MB；`false` = 不构建且 rc=0），且「遇 0 缩进 break」会让条目上方 0 缩进的注释提前终止解析 ⇒ 旧锁「该键不存在」**恒真**。详见下方「CI 第四轮」节。
 
 ### 接线补课：两个测试文件此前根本没在 CI 跑过
 
@@ -63,6 +63,62 @@ sync_backfill_owner: 下一个会话（合并后回填 PASS + merge SHA 并删�
 即「棘轮说 OK」在这里等于「棘轮没看见」。修法：在 `.github/workflows/quality-gate.yml` 的 Gate 2b（`shell: bash`）**显式点名**两文件（与同目录 7 个兄弟文件一致，不做通配）。
 
 **残留风险（不修，如实登记）**：`WORKSPACE_COVERED` 豁免整个 `apps/` 子树的洞口仍开着 —— 任何落在 `apps/*/scripts/**` 的 `node:test` 文件都对棘轮隐形，只能靠人记得手写接线。修它属改「谁来守门」，另开 PR。
+
+### CI 第四轮：`ERR_PNPM_IGNORED_BUILDS` 单一根因连红 12 个作业（2026-10-16，head `c90a72a1d`）
+
+> **序号口径**：本节按 **PR 正文**的轮次称呼（其已有节为「追加：CI 5 个 workflow 红的归因与修复」（ip-address 轮）与「第三轮：`better-sqlite3` 构建脚本硬阻塞 + 接线补课 + 吸收 main」）⇒ 本节 = **第四轮**。本记录把 better-sqlite3 那轮写作「CI 第二轮 13 连红」（记录侧未给 ip-address 轮编号）⇒ 两处序号**一一对应**：**PR「第三轮」= 记录「CI 第二轮」**，不是两件事。
+
+`c90a72a1d`（吸收 main 后的第 3 次推送）三处 workflow 同因失败，**不是逐个修**：
+
+| workflow | run / 失败作业 | 失败步骤 |
+|---|---|---|
+| quality-gate | `38855726731`：`QG Static`(116826795077) / `QG Unit Tests`(116826795027) / `QG Coverage`(116826795014) / `QG Visual`(116826795107) / `QG Browser E2E`(116826795132) / `QG Autonomous`(116826795019) / `QG Desktop Shards (1/2)`(116826795131) / `(2/2)`(116826795025) / `QG Business API Postgres`(116826795031) 共 9 个作业 + `Gate Result`(116827217144) 连坐 | `Install deps` |
+| Build & Release | `38855726713`：`build`(116826733253)（`release` skipped） | `Install dependencies` |
+| GUI Tests | `38855726681`：`gui-test`(116826722411) + `GUI Gate Result`(116827008342) 连坐 | `Install dependencies` / `Verdict` |
+
+同 run 的 `QG Changes`(116826631704) = **success**（未连坐，因它在 `Install deps` 之前就结束了）。
+
+三处日志剥 ANSI 后**逐字同一行**（取回：`gh api repos/Colinchiu007/mulpub/actions/jobs/<id>/logs --allow-escape-sequences` → Node 剥 ANSI；`gh run view --log-failed` 对大日志会静默返回空）：
+
+```
+[ERR_PNPM_IGNORED_BUILDS] Ignored build scripts: @askjo/camofox-browser@1.18.1
+##[error]Process completed with exit code 1.
+```
+
+⇒ 单一根因，修一处即可全绿。
+
+**第一性原因**：pnpm 11 对「带 build 脚本的依赖」要求**在 `allowBuilds` 里显式表态**。§7.1 写的「不加进 `allowBuilds`」在 pnpm 10 语义下等于「不构建」，在 pnpm 11 下是**第三种状态**：判 *ignored build* 并让 `pnpm install` **rc=1**。
+
+**三档语义（本机同 lock / 同 pnpm 逐档探针实测）**：
+
+| `allowBuilds` 内的键 | install | 行为 |
+|---|---|---|
+| 键**缺席** | **rc=1** | `Ignored build scripts: @askjo/camofox-browser@1.18.1` + `ERR_PNPM_IGNORED_BUILDS` |
+| 显式 `false` | **rc=0** | 从 ignored 列表消失、不构建（**正解**） |
+| 显式 `true` | rc=0 但**真跑 postinstall** | 拉 ~500MB 构件，且该 wrapper 的下载链路**不做任何 sha256 校验** |
+
+**A/B（可复跑，`node D:\Temp\opencode\p2-ab-driver.js`）**：BEFORE 腿取**补丁前 blob**（`git show HEAD:pnpm-workspace.yaml`，sha256 `fdd6b6a09992d878`，6183 B，`camofox=undefined`）⇒ **rc=1** + 命中 ignored-builds 行；AFTER 腿取工作副本（sha256 `e716b92993e0ed25`，7017 B，`camofox=false`）⇒ **rc=0** 且无错误行；两侧除 camofox 键外**键集与 overrides（5/5）逐条一致**。
+
+**第二个真因：解析器陷阱让旧锁变成装饰性门禁。** `fetch-camofox.test.js` 的 `readAllowBuilds` 原实现「遇 0 缩进即 `break`」，而新条目的注释块**写在条目上方且为 0 缩进** ⇒ 解析在第一行注释处提前终止，`@askjo/camofox-browser` 永不可能进 `entries`；于是**旧锁「断言该键不在 `allowBuilds`」在此形态下恒真** —— 它的「绿」与「解析压根没走到那一行」完全同形（本仓「装饰性门禁」的又一落点，与 AGENTS.md 里点名的两种落点同族）。修法三处：① 注释/空行跳过**前置于**缩进判定；② 剥引号（YAML 里 `@` 不能起 plain scalar ⇒ 必须写 `'@askjo/camofox-browser': false`）；③ 取值白名单（只认 `true|false`）+ 条目数下界 6。锁 #3 由「不在 map 内」**翻转为**「在 map 内且 `=== false`」。
+
+**变异反证 7 条**（`p2-mutations.js` 6/6 CAUGHT + 成对反证 `p2-mutation-m7.js`）：M1 `false→true`；M2 整行删除；M3 去 `**`；M4 解析器退回「先 break」；M5 退回不剥引号的旧正则；M6 下界抬到 99；**M7 成对腿** —— 同一触发输入下「有白名单」变红、「白名单 no-op」变绿（**无触发输入时 no-op 恒绿**，那是实验缺触发，不是锁坏）。每条均 `restored=true` 且整文件写回后 md5 校验通过。
+
+**推前门禁同口径复跑全绿**（`node D:\Temp\opencode\p2-gates.js`，逐条落盘 `gate-<id>.txt`）：carrier(PR 档 `visible`) / 记录 QM-5 行 19/19 / `pr-exec-record` 锁 48/48 + `--mode=enforce` OK / brand-residue 6/6 / text-encoding 5/5 / no-conflict-markers 20/20 / ci-pr-changeset 11/11 / classify-docs-only 锁 27/27 / workflow-structure 锁 6/6 + 脚本 violations=0 / unwired-tests 锁 30/30 / step-failfast OK / workflow-contract 无 `not ok` / **Gate 2b 同形两文件 21 tests / 21 pass** / `check:deps` No depcheck issue；**Gate 11**（`pnpm exec eslint electron/ src/ --quiet`，cwd `apps/desktop`）rc=0，stdout/stderr 均空。
+
+**为什么第一轮没拦住这件事**：已装好依赖的 worktree 上 `pnpm install --frozen-lockfile` 会**跳过构建检查**（实测 rc=0）——只有**全新 node_modules**（runner 的常态）才复现 `ERR_PNPM_IGNORED_BUILDS`。⇒ 凡改 `allowBuilds` / 依赖声明，本机自检必须用一次性空 store 口径复现一次，不能只看「本机能装」。
+
+### 两条本机红：pristine 对照实测定性（一条 stale base、一条非本分支引入）
+
+本轮推前本机复跑出现 2 条红，**用 pristine 对照定性，不是推测**（探针 worktree `D:\Temp\opencode\mp-probe-main`，detached @ `origin/main` `af71907bf`，`git status` clean）：
+
+| 用例 | 本分支 | pristine origin/main | 定性 |
+|---|---|---|---|
+| `scripts/check-gate-record-debt.test.js` test 17 | 57 pass / **1 fail** | **58 pass / 0 fail** | **stale base**：主干 `fe20b2c8a`（#3694「冻结基线第四次重取到 613」）已把 `scripts/gate-carrier-freeze.json` 更新为 main=`d206450fc67b`，本分支仍停在 `c80e6f527aed`/607 ⇒ 修法 = **吸收 origin/main**，不是改断言 |
+| `scripts/check-doc-abs-paths.test.js` test 26 | 1 fail（超 **83** / 低于基线待收紧 97，3357 受管文件） | **同形红**（超 83 / 低于基线待收紧 97，3369 受管文件） | **非本分支引入**（pristine 同形），且 **CI 不阻塞** |
+
+`doc-abs-paths` 为何在 CI 不红（**决定性证据，非推断**）：该自测在 `changes` job（跑在 **Linux**）当场打印 `DRIVE=null` ⇒ test 26 走 `# SKIP 本机无 Windows 盘符：基线是在 Windows 上生成的，跨平台无法逐文件对齐`；同 run 日志另有「本机无盘符 ⇒ 逐文件计数比较未执行（仅核对陈旧登记与账本放宽）；无从判定 1093 处 Windows 绝对路径」。且 `QG Changes` 在 `c90a72a1d` 与 main 侧均为 **success**。⇒ **修它 = 重取门禁账本**（属「改谁来守门」，须人工过目），本 PR 不修，作为残留风险移交。
+
+**顺带纠正上一轮的不准确表述**：本记录与 PR 正文早前都写过「main 侧 `QG Changes` 恒红」—— 那是 `fe20b2c8a`（#3694 重取基线）**之前**的读数（`4997c24fc`/`e5e06a23f`/`2fd74f508` 三次 failure 的现场）。`fe20b2c8a`、`dfead4cc5` 的 main push 与本分支 `c90a72a1d` 的 `QG Changes` **均为 success**。
 
 ### 两源真实取证（§6.3，零编造）
 
@@ -90,7 +146,7 @@ wrapper 的下载链路**不做任何 sha256 校验**：`checkAsset` 只匹配�
 
 ### 遗留（不假装已闭合）
 
-- **7.1 依赖接入已按方案 A 落地**（精确 pin `1.18.1` + 不进 `allowBuilds` 阻断 postinstall + `pnpm run fetch:camofox` 手动拉构件 + 由 `sidecar-lock.json` 的官方 sha256 校验）：7.2/7.4/7.5 与本决策解耦（判定抽纯函数、监听断言独立成脚本）；7.3 的 `rpa-view-manager` 薄接线仍待补
+- **7.1 依赖接入已按方案 A 落地**（精确 pin `1.18.1` + **在 `allowBuilds` 里显式写 `false`** 阻断 postinstall（键**缺席**在 pnpm 11 下不是「不构建」而是 *ignored build* ⇒ `pnpm install` rc=1） + `pnpm run fetch:camofox` 手动拉构件 + 由 `sidecar-lock.json` 的官方 sha256 校验）：7.2/7.4/7.5 与本决策解耦（判定抽纯函数、监听断言独立成脚本）；7.3 的 `rpa-view-manager` 薄接线仍待补
 - **该 pin 曾让 install 依赖本机 VS C++ 工具链**（`better-sqlite3` 被 pnpm 自动注入 `node-gyp rebuild`）：已用 `allowBuilds: better-sqlite3: false` 消除。若将来 sidecar 真要消费该 npm 包的 JS，须先复核其 `prebuilds/` 是否覆盖目标 ABI（否则要么补回构建、要么换包）
 - **接线棘轮洞口未修**：`check-unwired-tests.js` 的 `WORKSPACE_COVERED` 豁免整个 `apps/` 子树（详见「接线补课」节），本 PR 只把两个文件显式点名，洞口本身另开 PR
 - **ddddocr 未取证**：requirements 钉版本 + 4 个 onnx 权重 sha256 未取，`status=pending`；取到之前该 sidecar 不得启动

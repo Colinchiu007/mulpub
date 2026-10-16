@@ -4,10 +4,13 @@
  * fetch-camofox.js — 手动拉取 camoufox 构件（PR-2 §7.1 的「手动 fetch-bin」级）
  *
  * 三级降级链的第一级前移与第二级落地：
- *   第一级（前移）：`pnpm-workspace.yaml` 的 `allowBuilds` 白名单不含 `@askjo/camofox-browser`
+ *   第一级（前移）：`pnpm-workspace.yaml` 的 `allowBuilds` 里写 `@askjo/camofox-browser: false`
  *                  （pnpm 11 起构建白名单只从该文件读；`pnpm.neverBuiltDependencies` 是旧版
  *                  package.json 字段，现已被忽略并告警）⇒ 它的 postinstall 永不运行，
- *                  install 不再触发 ~500MB 下载，也不再受它「失败走 exit(0) 静默成功」之害
+ *                  install 不再触发 ~500MB 下载，也不再受它「失败走 exit(0) 静默成功」之害。
+ *                  ⛔ 必须**写 false**、不能"不写"：包声明的构建脚本若在 allowBuilds 里没有
+ *                  对应条目，pnpm 判它 *ignored build* 并让 install 直接 rc=1
+ *                  （[ERR_PNPM_IGNORED_BUILDS]，2026-10-16 CI 实测，见 openspec/records/oss-b1-pr2.md）
  *   第二级（本脚本）：用户显式 `pnpm run fetch:camofox` 才拉，且**自带校验**
  *   第三级：sidecar-host.start() 的 spawn 前复检（§6.1/6.2 已落地）
  *

@@ -2,7 +2,11 @@
  * fetch-camofox.test.js — 手动拉取 CLI 契约（PR-2 §7.1）
  *
  * 用 node:test（scripts/ 下 require 不受 vitest include 接管，同
- * check-camofox-listen.test.js / build-paginator.test.js 先例）。
+ * check-camofox-listen.test.js / build-paginator.test.js 先例）——**注意**：
+ * `apps/desktop/vitest.config.js` 的 `include` 是白名单且不含 `apps/desktop/scripts/**`，
+ * 因此本文件能否被执行**只取决于** `.github/workflows/quality-gate.yml` 里是否显式点名
+ * （Gate 2b 的 `node --test <逐文件>`）。PR-2 §7.1 的接线补课即此：本文件与
+ * check-camofox-listen.test.js 此前**从未在 CI 执行过**，本地全绿是假绿。
  *
  * 纪律：**不真实出网**（仓内 network-egress-guard 会红）。故测的是可注入的纯部分：
  * 平台键映射、URL 推导、锁取值；真实下载走 fetchAndVerifyAsset（已在
@@ -42,29 +46,50 @@ function readAllowBuilds (ws) {
   const entries = {}
   for (let i = start + 1; i < lines.length; i++) {
     const line = lines[i]
-    if (line.trim() === '') continue
-    if (!/^\s/.test(line)) break // 回到 0 缩进 ⇒ 本段结束（下一节如 overrides）
+    // 注释**不是结构分隔**：必须放在缩进判定之前跳过。原实现"遇 0 缩进即 break"会把
+    // 0 缩进的注释当成段落结束，于是注释后面的条目**静默不可见**——本仓实测过：
+    // 把注释写在条目上方（0 缩进）时，翻转后的 camofox 锁拿到 undefined 而变红，
+    // 而"断言某键不存在"的旧锁在这种形态下**恒真**（解析压根没走到那一行）。
     const t = line.trim()
-    if (t.startsWith('#')) continue // 注释不是条目
-    const m = /^([^\s:]+):\s*(\S+)\s*$/.exec(t)
+    if (t === '' || t.startsWith('#')) continue
+    if (!/^\s/.test(line)) break // 回到 0 缩进的**非注释**行 ⇒ 本段结束（下一节如 overrides）
+    // 键允许三种形态：单引号/双引号/裸。YAML 里 `@` 是保留指示符，**不能**作 plain scalar 的
+    // 首字符（未加引号时 js-yaml 直接报 bad indentation）⇒ `'@askjo/camofox-browser'` 必须引号，
+    // 而引号会被 ^([^\s:]+) 连引号一起捕获 ⇒ 不剥引号则按条目匹配的判据全部失效（静默变"不存在"）。
+    const m = /^(?:'([^']+)'|"([^"]+)"|([^\s:]+)):\s*(\S+)\s*$/.exec(t)
     assert.ok(m, 'allowBuilds 段出现无法解析的行：' + JSON.stringify(line))
-    entries[m[1]] = m[2]
+    const key = m[1] || m[2] || m[3]
+    // 取值只允许布尔字面量：拼错（Fasle/False）在 YAML 里会变成字符串，被判成"非 false"而放行
+    assert.ok(m[4] === 'true' || m[4] === 'false',
+      'allowBuilds 的取值只允许 true/false：' + JSON.stringify(line))
+    entries[key] = m[4]
   }
-  assert.ok(Object.keys(entries).length >= 5,
-    '解析退化：allowBuilds 只解析出 ' + Object.keys(entries).length + ' 条，低于下界 5')
+  // 反失明下界：解析退化成空集合会让"一个都没解析到"读成"没有任何违规"（下界随条目增长只能抬高）
+  assert.ok(Object.keys(entries).length >= 6,
+    '解析退化：allowBuilds 只解析出 ' + Object.keys(entries).length + ' 条，低于下界 6')
   return entries
 }
 
-test('pnpm-workspace.yaml 的 allowBuilds 不含 camofox（pnpm 10+ 白名单机制）', () => {
+test('pnpm-workspace.yaml 必须**显式**拒绝 camofox 的构建脚本（写 false，不能靠"不写"）', () => {
+  // 本用例 2026-10-16 第三轮 CI 后**翻转**：原先断言"camofox 不得出现在 allowBuilds 里"，
+  // 那条锁**本身就是错的**——pnpm 11 把「包声明了构建脚本、但 allowBuilds 里没有它的条目」
+  // 判为 *ignored build*，并在 install 末尾直接 rc=1：
+  //   [ERR_PNPM_IGNORED_BUILDS] Ignored build scripts: @askjo/camofox-browser@1.18.1
+  // 后果是 13 个下游作业连红（CI run 38855726731）。所以"不写这一行"≠"拒绝"，
+  // "显式 false"才是（false ⇒ 不构建、不报错、install rc=0）。
+  // 另一条要记住的取证陷阱：**已装好 node_modules 时 pnpm 会跳过构建检查**，
+  // 本地 `pnpm install` 因此看不出这条（这正是它第一轮逃过本机自检的原因）；
+  // 复现必须用"真实本文件字节 + 全新 node_modules"（见 openspec/records/oss-b1-pr2.md）。
   // __dirname = <repo>/apps/desktop/scripts ⇒ 仓根在上三级（实测：up3 命中 pnpm-workspace.yaml）
   const wsPath = path.join(__dirname, '..', '..', '..', 'pnpm-workspace.yaml')
   assert.ok(fs.existsSync(wsPath), 'pnpm-workspace.yaml 必须存在（apps/desktop/scripts 上三级）')
   const ws = fs.readFileSync(wsPath, 'utf8')
   const entries = readAllowBuilds(ws)
-  // camofox 绝不得出现在白名单里 —— 它的 postinstall 会拉 500MB 且失败走 exit(0)
-  assert.ok(!Object.keys(entries).some(k => /camofox/.test(k)), 'camofox 不得进 allowBuilds')
-  // 且白名单里必须留下"为什么不放"的注释，防止后人顺手补全
-  assert.ok(/刻意不放进 allowBuilds/.test(ws), '必须留注释说明为何不放行')
+  // camofox 必须**显式 false**：它的 postinstall 会拉 ~500MB 且失败走 process.exit(0)（假成功）
+  assert.equal(entries['@askjo/camofox-browser'], 'false',
+    'camofox 必须在 allowBuilds 里显式为 false（缺席 ⇒ ERR_PNPM_IGNORED_BUILDS ⇒ install rc=1；true ⇒ 拉 500MB）')
+  // 且必须留下"为什么这样写"的注释，防止后人"顺手删掉/改成 true"
+  assert.ok(/必须\*\*显式写 false\*\*/.test(ws), '必须留注释说明为何显式写 false')
 })
 
 test('allowBuilds 必须显式拒绝 better-sqlite3 的原生构建（false ≠ 未列出）', () => {
@@ -74,13 +99,16 @@ test('allowBuilds 必须显式拒绝 better-sqlite3 的原生构建（false ≠ 
   // （unknown version "undefined" found at "C:\Program Files\Microsoft Visual Studio\18\Enterprise"）
   // ⇒ install rc=1 ⇒ 13 个下游作业连红。该包自带 prebuilds/（含 win32-x64.node），
   // lib/binding.js 在没有 build/Release 时回落到 prebuilds ⇒ 真实加载路径不依赖编译。
-  // 隔离探针 A/B：allowBuilds=true ⇒ rc=1 且执行 node-gyp；=false ⇒ rc=0 且**两档**
-  // require('better-sqlite3') 都成功（取证与原始输出见 openspec/records/oss-b1-pr2.md）。
-  // 判据取**显式 false** 而不是「该行不存在」：删掉它会让该包退回 pnpm 缺省注入的构建。
+  // 隔离探针**三档** A/B（allowBuilds 取值 → 实测行为）：
+  //   (a) `true`  ⇒ rc=1，且真的执行 pnpm 自动注入的 node-gyp rebuild（VS 18 认不出）
+  //   (b) **整键缺席** ⇒ 不构建，但被判 *ignored build* ⇒ rc=1（ERR_PNPM_IGNORED_BUILDS）
+  //   (c) `false` ⇒ rc=0 且无构建步骤 —— 且两档 require('better-sqlite3') 均成功（走 prebuilds）
+  // ⇒ 判据必须钉**显式 false**：「删掉该行」与「写 false」不是同一种拒绝，前者 install 直接失败。
+  // 取证与原始输出见 openspec/records/oss-b1-pr2.md。
   const wsPath = path.join(__dirname, '..', '..', '..', 'pnpm-workspace.yaml')
   const entries = readAllowBuilds(fs.readFileSync(wsPath, 'utf8'))
   assert.equal(entries['better-sqlite3'], 'false',
-    'better-sqlite3 必须显式为 false（删掉该行 = 允许 pnpm 自动注入 node-gyp rebuild ⇒ install 需要本机 VS）')
+    'better-sqlite3 必须显式为 false（缺席 ⇒ ERR_PNPM_IGNORED_BUILDS ⇒ install rc=1；true ⇒ 需要本机 VS 工具链）')
 })
 
 test('package.json 不得有废弃的 pnpm 字段（pnpm 11 会 WARN 并忽略）', () => {
