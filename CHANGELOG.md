@@ -5,6 +5,14 @@
 - 账本新增 `METRIC_VERSION`（由判据代码持有，head 侧不符即退出码 2）与换代守卫：`judgeLedgerDrift` 在 `prev.metric !== next.metric` 时不判「账本被放宽」但照报缩小与陈旧，并按构造**只能发生一次**；同时 `--write-baseline` 这一支必须关掉该强校验，否则新守卫会拒绝执行它自己要求的那次迁移（实测 `--all --write-baseline` 曾直接 rc=2）。
 - 自测 51 条全绿、**0 条 skip**（旧口径下多条锁在 CI 上静默 skip，那正是把洞伪装成「按设计跳过」的落点）；变异反证两条（把 `over/shrink` 包回 `canJudge`、把入域条件退回旧口径）红集互不相同。契约见 `AGENTS.md`「受管文档不得新增本机绝对路径」条与 `01-docs/PRD-GATE12C-COUNT-ONLY-2026-10-14.md`。
 - **第三轮（ubuntu CI 二跑）修的是夹具而不是判据**：批量锁共用的两只造路径出口原本用裸的盘符变量拼接，无盘符 runner 上拼出一个没有冒号的串 ⇒ 判据不报错、只是静默不计数 ⇒ 账本 1 / 现场 0 被自己的"待收紧"判红。现收敛为唯一出口 `fxDrive()`，并新增「夹具自检」锁（让门禁自己数到 2，光形状像不算证据）+ 一条带正控与反失明的结构禁令。同时给自测加 `MP_TEST_FORCE_NO_DRIVE=1`（把无盘符那一维搬回本机复现，但它模拟不了 `os.tmpdir()` 形状，CI 仍是最终判据），并解开 17 条 `if (!DRIVE) t.skip` ⇒ **ubuntu 上实际执行的锁从 33 条涨到 52 条**（剩 1 条确需真实盘符，如实保留）。
+# [未发布] docs(prd): 4.3② 的前置合同 —— 计费二次确认框的只读数据源接口（podcast-episode-script-entry）
+
+- **为什么不是直接做 4.3②**：PRD §7.10.4 要求二次确认框显示「块数 / 总码点 / 服务商·模型·音色三段（含来源标注）」，但这三个数**在渲染端 0 可达**（`origin/main` 实测：`planChunks` 只存在于 `apps/desktop/electron/services/`，`src` 与 `preload` 各命中 0；`resolveEpisodeVoice` 零生产调用方；`voiceRef` 在 `src` 命中 0 个文件）。直做只有两种结果：浮层显示空数，或逼渲染层另抄一份分块与音色推断 —— 后者正是本 PRD 反复禁止的「两份口径必然漂移」。
+- **本片只落合同**：新增 §7.10.4.1 定义唯一读路径 `podcast:episode:plan-preview`（一次往返同时给 `plan{totalBlocks,totalCodepoints}` 与 `voice{providerId,model,voiceId,origin,resolvedBy}`，二者**只转发不加工**）+ 7 条验收判据 + 3 条故意不做；拒绝态沿用既有领域码，**不为预览新增同义码**；计数缺失 = 整块不显示、**绝不回落 0**。三把新键 `podcast.episode.planBlocks/planCodepoints/planVoice`，来源标注**复用** §8.2.9 已定的 `podcast.voice.origin*`，不另写第二份。
+- **一处对本文档早期条款的收敛（偏差就地明写）**：§8.2.9 曾把同一批音色信息规划成独立的 `podcast:voice-preview`。两条并存会让用户打开一次浮层走两趟近重复读路径、音色解析跑两遍，故由 §7.10.4.1 的 `plan-preview` **承载** §8.2.9 的读面；其落点、三态标注与验收判据照用不变，只是 IPC 名与载荷合一。
+- **tasks 4.3② 拆成 ②-a / ②-b，父项保持未勾**：②-a = 只读预览接口（含两条必须同 PR 的锁 —— 零副作用按**副作用缺席**判（`mkdir`=0 且忙标记未占），以及 `resolveEpisodeVoice` 生产调用方结构锁 `git grep -l` 命中数 > 1）；②-b = 出期通道 + 浮层 + 入口，且**按枚切**（先 `CopyLibraryView.vue`，另两枚各留未勾子项）。「不得先开通道再补入口」的承重是**通道与至少一枚真实消费者同 PR**，不是三枚必须同 PR。
+- 同族手法第二次命中（第一次是 §6.4.2 的七相位进度）：**显示项要反查喂它的那条通道，接不通就说明该显示项还没有合同**。§7.10.4 原表那行刻意未改（仍是目标态数据来源），待 ②-a 落地由实现 PR 一并更新，好让「合同落后于实现」这件事留痕。详见 `openspec/records/podcast-episode-script-entry.md`。
+
 # [未发布] docs(openspec): 变更归档审计——51 个活跃变更里只有 1 个"可安全归档"，本轮归档它并给其余 50 个定判据（openspec-archive-audit）
 
 - **第一性原因不是"谁忘了归档"，是归档前置条件从没被定义过**：`openspec/changes/` 攒到 51 个活跃变更，仓内没有任何东西回答"哪些已合并、哪些现在就能归档"；`scripts/openspec-sync-check.js` 只查 change 引用**悬空**（引用不到就红），**反向不查**（做完没归档完全无声）。于是每次清理都要现场重造判据。

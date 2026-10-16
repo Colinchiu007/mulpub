@@ -1,0 +1,68 @@
+{
+  "sha": "8fe885f575996caa0346877ccf199fa6d9fdc0ee",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 500 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 500,
+    "fileCount": 5,
+    "codeFileCount": 3,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0
+  },
+  "stagedDiffHash": "8105b4d0ccf328c598e8636a38adda4ca90862ff1f94461c642602495ccefcba",
+  "decidedAt": "2026-10-15T15:50:11.527Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": null,
+    "findings": "第一轮评审 7 条（含作者核出的 i1b）：全部 upheld 且已修，逐条处置见 PRD §8 表与执行记录；完整裁决在 .adversarial/ccg-deep-8fe885f5/adjudication.json（由本 PR 作者填表） 逐条指控/辩护/裁决的人读版：01-docs/PRD-XHS-DRAFT-ONLY-HARD-EVIDENCE-2026-10-15.md §8/§8.1 与 openspec/records/xhs-draft-only-hard-evidence.md；评审原始产出（含被填的裁决模板）在 .adversarial/ccg-deep-*/（gitignored，不入库）。",
+    "adjudication": {
+      "template": null,
+      "items": [
+        {
+          "id": "i1",
+          "verdict": "upheld",
+          "rationale": "处置可验证：端点表改为专属窄路径 ['/web_api/sns/v2/note']（取值对齐 Python 侧 xiaohongshu_selectors.py 的 DRAFT_SAVE_RESPONSE_PATTERNS，其注释记载该端点经真机确认）；H8 第①条锁死端点形态且不得退回宽词。"
+        },
+        {
+          "id": "i1b",
+          "verdict": "upheld",
+          "rationale": "处置可验证：改为必须 resp.statusCode===200，非 200 只记 warning；新增 H5（200⇒成功 save-response）与 H6（500⇒不得确认成功）正反两例；H8 第④条锁死 statusCode===200 在场。"
+        },
+        {
+          "id": "i2",
+          "verdict": "upheld",
+          "rationale": "处置可验证：监听前移到点击之前（mountSaveResponseWatch 在 host._click 之前调用），窗口 30s 覆盖①的 20s；H8 第⑥条以调用形态断言 mount 早于 click。"
+        },
+        {
+          "id": "i3",
+          "verdict": "upheld",
+          "rationale": "处置可验证：回查 URL 改由调用方传 config.publish_url；导航改用既有 _navigateAndWait（等 did-finish-load + 稳定）；H8 第⑧条断言兜底方法体内无硬编码 URL。"
+        },
+        {
+          "id": "i4",
+          "verdict": "upheld",
+          "rationale": "处置可验证：取消标题匹配的确认权——重载后仍以计数增量确认，标题命中降为辅助证据 titleSeen（需计数节点可读才采信，见第二轮 i7），并在失败文案里明说「见到了同名条目但不据此判成功」；H8 第⑤条锁死确认式只能是 counterConfirmed || responseConfirmed || recheckIncrement。此处与 Python 侧 recheck_draft_box 有意分歧，分歧点与理由写在 PRD §3.2。"
+        },
+        {
+          "id": "i5",
+          "verdict": "upheld",
+          "rationale": "处置可验证：基线前移到写入任何内容之前（readBaselineContext 在 filling title 之前，H8 第⑧条锁死）；重复点击删除为一次（H8 第⑦条断言模块内 host._click(win, cand) 只出现一次）。"
+        },
+        {
+          "id": "i6",
+          "verdict": "upheld",
+          "rationale": "处置可验证：测试重写为绑定并驱动真实实现（虚拟时钟让①20s/③8s 毫秒内走完，只桩 executeJavaScript 与外部依赖），不再拷贝生产逻辑；补 H5/H7 正例；断言 draftEvidence 取值（counter-increment / save-response / counter-increment-after-reload）。第二轮再补 H10（对真实 helper 锁返回形状）。"
+        },
+        {
+          "id": "i7",
+          "verdict": "upheld",
+          "rationale": "处置可验证：改为按分支边界切片 + 只断言代码行（先剔除 // 开头的行），并断言具体调用与判据形态；第二轮 i6 进一步把锚点从日志文案/整句语句改为调用形态与真实代码结构。"
+        }
+      ]
+    }
+  }
+}
