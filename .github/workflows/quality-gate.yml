@@ -476,6 +476,9 @@ jobs:
           node --test scripts/check-unwired-tests.test.js
           node --test scripts/branch-naming-contract.test.js
           node --test scripts/safe-delete.test.js
+          # start-app 启动链契约：WMI 脱离 + 存活断言 + 双向斜杠匹配（2026-10-16，
+          # 用户三次看不到应用，根因是启动链被 agent 会话连坐杀）
+          node --test scripts/sync-app.test.js
           node --test scripts/qm1-child-env.test.js
           node --test .github/scripts/check-ipc-bridge.test.js
           node --test scripts/detect-unwired-exports.test.js
