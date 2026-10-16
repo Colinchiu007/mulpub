@@ -69,6 +69,7 @@ let base = null;
 let head = 'HEAD';
 let all = false;
 let writeBaseline = false;
+let simulateNoDrives = false;
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
   const next = () => {
@@ -88,6 +89,7 @@ for (let i = 0; i < argv.length; i++) {
   else if (a === '--head') head = next();
   else if (a === '--all') all = true;
   else if (a === '--write-baseline') writeBaseline = true;
+  else if (a === '--simulate-no-drives') simulateNoDrives = true;
   else if (a === '--help' || a === '-h') {
     process.stdout.write(
       '用法: node scripts/check-doc-abs-paths.js [--base=<ref> --head=<ref>] [--all] [--root=<dir>] [--write-baseline]\n' +
@@ -311,22 +313,24 @@ function judgeWriteBaseline ({ all, canJudge }) {
       why: '--write-baseline 必须搭配 --all —— 窄域（改动集）跑一次会把整张账本按那一两个文件重写掉'
     };
   }
-  if (!canJudge) {
-    return {
-      verdict: 'refuse',
-      why: '--write-baseline 需要本机存在盘符：无盘符时现场计数恒 0，重写会把整张账本写成空表并以 0 退出'
-    };
-  }
+  // 曾经这里还有一条 `!canJudge ⇒ 拒写`（axis1c F1），前提是「无盘符时现场计数恒 0」。
+// 计数口径之后该前提不再成立（计数不再问文件系统），于是那条拒绝会**误伤**在 Linux 上正常生成账本的动作，
+// 故删除；`!all` 那条仍然保留——窄域重写抹掉整张账本的风险与盘符无关。
   return { verdict: 'write', why: '' };
 }
 
 /** 跳过说明：PASS 与 FAIL 两个分支都必须拼上（axis1c F2 实测原实现只拼了 PASS）。 */
 function formatSkipNote (canJudge) {
-  return canJudge ? '' : '；本机无盘符 ⇒ 逐文件计数比较未执行（仅核对陈旧登记与账本放宽）';
+  return canJudge ? '' : '；本机无盘符 ⇒ 存在性核对未执行（计数判定照常执行，这正是口径换代的目的）';
 }
 
 const BASELINE_REL = 'scripts/doc-abs-paths-baseline.json';
-const BASELINE_NOTE = 'Gate 12c 的存量基线：按文件记录「本机绝对路径失效」的处数。只能缩小，不得为容忍新增而调大。';
+// 账本口径版本。**判据代码是唯一真源**：账本里的 metric 与之不符即自身故障（退出码 2）。
+// 存在性口径（dead_abs_paths_v1，只计盘上不存在者）在 ubuntu runner 上现场计数恒 0 ⇒
+// 与账本比较两个方向都不可能红（实测读数：无从判定 1094 条 + PASS）。
+// 计数口径（all_abs_paths_v2）把判据输入换成纯文本，于是它与机器有没有盘符无关。
+const METRIC_VERSION = 'all_abs_paths_v2';
+const BASELINE_NOTE = 'Gate 12c 的存量基线：按文件记录「本机绝对路径出现」的处数（与路径是否还存在无关）。只能缩小，不得为容忍新增而调大。';
 const BASELINE_REASON_INITIAL = 'PLACEHOLDER_RE 由整行收紧到路径词元后新暴露的存量（2026-10-14 实测 539→861）';
 
 function baselinePath () {
@@ -338,7 +342,7 @@ function baselinePath () {
  * 否则两份口径会漂移（"base 处读得通、head 处读不通"这种漂移表现为把正当 re-sync 判成放宽）。
  * 返回 { map, error }；error 非空即"自身故障"，调用方一律走退出码 2，不得读成任何一种结论。
  */
-function parseBaselineText (raw, label) {
+function parseBaselineText (raw, label, opts) {
   let j;
   try {
     j = JSON.parse(raw);
@@ -348,6 +352,14 @@ function parseBaselineText (raw, label) {
   if (!j || typeof j !== 'object' || !j.files || typeof j.files !== 'object') {
     return { map: null, error: `${label}结构不符（需 { files: { "<路径>": <非负整数> } }）` };
   }
+  // 口径版本：head 侧必须逐字等于判据代码里的 METRIC_VERSION；不符即"自身故障"档，
+  // **既不判 PASS 也不判 FAIL** —— 拿一代的计数去比另一代的账本，两种结论都没有依据。
+  // base 侧关掉这条校验（requireMetric:false），它的 metric 只用于识别"换代发生了"。
+  const requireMetric = !opts || opts.requireMetric !== false;
+  if (requireMetric && j.metric !== METRIC_VERSION) {
+    return { map: null, error: `${label}口径版本不符：账本 metric=${JSON.stringify(j.metric)}，本判据 METRIC_VERSION=${JSON.stringify(METRIC_VERSION)}` };
+  }
+  const metric = j.metric === undefined ? "dead_abs_paths_v1" : j.metric;
   const map = new Map();
   for (const [f, c] of Object.entries(j.files)) {
     if (!f || typeof c !== 'number' || !Number.isInteger(c) || c < 0) {
@@ -355,11 +367,15 @@ function parseBaselineText (raw, label) {
     }
     map.set(normalizeBaselineKey(f), c);
   }
-  return { map, error: null };
+  return { map, error: null, metric };
 }
 
 /** 返回 { map, absent, error }。absent=账本还没建（按"空基线"从严），error=自身故障。 */
-function loadBaseline () {
+function loadBaseline (opts) {
+  // requireMetric 默认开。唯一该关掉的时候是 `--write-baseline`：那次它马上要被整份覆盖，
+  // 而 v1→v2 的迁移**必须**从一份没有 metric 的旧账本开始 —— 强校验会把迁移这条路自己焊死
+  // （实测：`--all --write-baseline` 在 v1 账本上直接 rc=2，守卫拒绝执行它自己要求的那次迁移）。
+  const requireMetric = !opts || opts.requireMetric !== false;
   const p = baselinePath();
   if (!fs.existsSync(p)) return { map: new Map(), absent: true, error: null };
   let raw;
@@ -368,9 +384,10 @@ function loadBaseline () {
   } catch (e) {
     return { map: null, absent: false, error: '读不到基线文件：' + e.message };
   }
-  const r = parseBaselineText(raw, '基线');
+  const r = parseBaselineText(raw, '基线', { requireMetric });
   if (r.error) return { map: null, absent: false, error: r.error };
-  return { map: r.map, absent: false, error: null };
+  // requireMetric 已在 parse 里强校验过 ⇒ 这里必然是当代口径
+  return { map: r.map, absent: false, error: null, metric: r.metric };
 }
 
 /**
@@ -409,9 +426,10 @@ function loadBaselineAt (ref) {
     }
     return { map: null, missing: false, error: `读不到 base 处的账本：${msg.split(/\r?\n/)[0]}` };
   }
-  const r = parseBaselineText(raw, 'base 处账本');
+  // base 侧**不**校验 metric：换代 PR 里 base 就是上一代，强校验等于把迁移这件事本身判成故障。
+  const r = parseBaselineText(raw, 'base 处账本', { requireMetric: false });
   if (r.error) return { map: null, missing: false, error: r.error };
-  return { map: r.map, missing: false, error: null };
+  return { map: r.map, missing: false, error: null, metric: r.metric };
 }
 
 /**
@@ -429,14 +447,21 @@ function loadBaselineAt (ref) {
  *   不列出来，下一个会话就分不清"正当 re-sync"与"投毒"。
  * - tightened：计数下降与删键，一律放行（这正是这条门禁想要的成果，判红只会逼人绕开守卫）。
  */
-function judgeLedgerDrift ({ prev, next, changedDocs }) {
+function judgeLedgerDrift ({ prev, next, changedDocs, prevMetric, nextMetric }) {
   const widened = [];
   const attributedToBase = [];
   const tightened = [];
+  const generationChange = [];
+  // 口径换代那一次逐文件计数不可比（同一批命中少了一个过滤器，只会 ≥）。
+  // 这条豁免不是"改个字符串就能拿到"：head 侧 metric 必须等于判据代码里的 METRIC_VERSION
+  // （parseBaselineText 强校验，不符即退出码 2），所以想第二次走这条路必须先回到上一代再回来，
+  // 而那会在别的 PR 上先红 —— 换代按构造只能发生一次。
+  const generation = prevMetric !== nextMetric;
   for (const [file, to] of next) {
     const from = prev.has(file) ? prev.get(file) : 0;
     if (to > from) {
-      if (changedDocs.has(file)) widened.push({ file, from, to });
+      if (generation) generationChange.push({ file, from, to });
+      else if (changedDocs.has(file)) widened.push({ file, from, to });
       else attributedToBase.push({ file, from, to });
     } else if (to < from) {
       tightened.push({ file, from, to });
@@ -445,7 +470,7 @@ function judgeLedgerDrift ({ prev, next, changedDocs }) {
   for (const [file, from] of prev) {
     if (!next.has(file)) tightened.push({ file, from, to: 0 });
   }
-  return { widened, attributedToBase, tightened };
+  return { widened, attributedToBase, tightened, generationChange };
 }
 
 /**
@@ -464,13 +489,13 @@ function judgeBaseline ({ counts, baseline, domain, canJudge }) {
   const over = [];
   const shrink = [];
   const stale = [];
-  if (canJudge) {
-    for (const f of domain) {
-      const n = counts.has(f) ? counts.get(f).length : 0;
-      const b = baseline.get(f) || 0;
-      if (n > b) over.push({ file: f, n, b, list: counts.get(f) || [] });
-      else if (n < b) shrink.push({ file: f, n, b });
-    }
+  // 计数与盘符无关 ⇒ 这一支**不得**再被 canJudge 包住（结构锁盯着这一点，行为锁在自测里）。
+  // canJudge 只决定「存在性明细能不能报」，见 main() 里的分支；它不再决定判不判。
+  for (const f of domain) {
+    const n = counts.has(f) ? counts.get(f).length : 0;
+    const b = baseline.get(f) || 0;
+    if (n > b) over.push({ file: f, n, b, list: counts.get(f) || [] });
+    else if (n < b) shrink.push({ file: f, n, b });
   }
   for (const f of baseline.keys()) {
     if (!domain.has(f)) stale.push({ file: f });
@@ -489,6 +514,7 @@ function serializeBaseline (found, prev) {
     note: BASELINE_NOTE,
     // 首次生成写当天；之后再写**保留原值**——否则每天跑一次账本就多一处无意义 diff，
     // "重写必须幂等"这条锁也就永远立不住。
+    metric: METRIC_VERSION,
     generated: (prev && prev.generated) || new Date().toISOString().slice(0, 10),
     reason: (prev && prev.reason) || BASELINE_REASON_INITIAL,
     files,
@@ -531,15 +557,15 @@ function scanFile (relPath, driveRoots) {
       // 当场用五文件夹具复现：同批里裸路径被照报、加粗包裹的那条被豁免）。
       const token = stripPairedEmphasis(line.slice(0, tokenStart), line.slice(tokenStart, tokenEnd));
       if (PLACEHOLDER_RE.test(token)) continue;
+      // 口径换代：无条件记一条。**存在性只是附加信息，不再是入域条件。**
+      // 旧实现把 `if (missing)` 当作入域闸门，而 missing 在 Linux 上恒 null ⇒ 整份扫描恒空。
       const missing = firstMissingSegment(frag, driveRoots);
-      if (missing) {
-        findings.push({
-          file: relPath.split(path.sep).join('/'),
-          line: i + 1,
-          path: frag,
-          missing,
-        });
-      }
+      findings.push({
+        file: relPath.split(path.sep).join('/'),
+        line: i + 1,
+        path: frag,
+        missing,
+      });
     }
   }
   return findings;
@@ -558,7 +584,7 @@ function findingsByFile (files, driveRoots) {
 function main () {
   // 基线读不到 ⇒ 自身故障（退出码 2）。**既不得判 0（"没问题"）也不得判 1（"发现失效路径"）**——
   // 把"门禁瞎了"读成任何一种结论，都是给自己造假证据。
-  const bl = loadBaseline();
+  const bl = loadBaseline({ requireMetric: !writeBaseline });
   if (bl.error) {
     process.stderr.write(
       `[check-doc-abs-paths] 自身故障：${bl.error} ⇒ 既不判 PASS 也不判 FAIL（退出码 2，与"发现失效路径"的 1 分开）\n`
@@ -566,8 +592,12 @@ function main () {
     return 2;
   }
   const baseline = bl.map;
+  const baselineMetric = bl.metric;
   const scopeAll = all || !base;
-  const driveRoots = existingDriveRoots();
+  let driveRoots = existingDriveRoots();
+  // --simulate-no-drives：把"这台机器没有盘符"这一档变成**可在任何机器上复现**的入参。
+  // 没有它，ubuntu runner 那一支在 Windows 上永远测不到（与"可配置维度必须本机复现"同族纪律）。
+  if (simulateNoDrives) driveRoots = new Set();
 
   // ---- 账本重写（唯一合法的生成入口）----
   if (writeBaseline) {
@@ -587,6 +617,9 @@ function main () {
     const added = [...found.keys()].filter((f) => !baseline.has(f));
     const gone = [...baseline.keys()].filter((f) => !found.has(f));
     const moved = [...found.keys()].filter((f) => baseline.has(f) && baseline.get(f) !== found.get(f).length);
+    // 生成的账本落在 scripts/ 下；fixture 或首次生成时那个目录可能不存在（实测 ENOENT：
+    // 取消 !canJudge 拒绝之前这段代码从没被走到过，所以这个前提一直是隐性的）。
+    fs.mkdirSync(path.dirname(baselinePath()), { recursive: true });
     fs.writeFileSync(baselinePath(), serializeBaseline(found, prev));
     process.stderr.write(
       `[check-doc-abs-paths] 基线已重写：扫描域 ${allFiles.length} 个受管文件 / ` +
@@ -643,8 +676,8 @@ function main () {
   const shrink = verdict.shrink;
   const stale = verdict.stale;
   const skipNote = formatSkipNote(canJudge);
-  // 无从判定的量必须**出声成数**，不能只说"跳过了"：本轮扫描域里有多少条 Windows 绝对路径
-  // 因为本机没有盘符而一条都没核对，是读者判断"这次 PASS 值多少钱"的唯一依据（axis1c F7）。
+  // 存在性核对的缺口必须**出声成数**：本轮域内有多少条绝对路径没能核对（axis1c F7 的原始形状是
+  // "静默 PASS 与静默恒红同一种错"）。口径换代之后计数判定已与盘符无关，这里只披露剩下的那一半缺口。
   let unjudgedNote = '';
   if (!canJudge) {
     const texts = [];
@@ -652,7 +685,7 @@ function main () {
       try { texts.push(fs.readFileSync(path.join(root, f), 'utf8')); } catch { /* 读不到就不计入 */ }
     }
     const n = countUnjudged(texts);
-    unjudgedNote = `；**无从判定 ${n} 条** Windows 绝对路径（本机无盘符，一条都没核对）`;
+    unjudgedNote = `；存在性核对未执行 ${n} 条（本机无盘符；**计数判定已照常执行**）`;
   }
 
   // ---- 账本放宽检测（判据本身不需要盘符 ⇒ 在 ubuntu 的 changes job 上也真实生效）----
@@ -660,6 +693,8 @@ function main () {
   // 不做的两种情形都必须出声，不得静默：① --all；② base 处还没有账本（本 PR 是首次引入）。
   let drift = null;
   let driftSkip = '';
+  let prevMetricShown = 'n/a';
+  let nextMetricShown = 'n/a';
   if (scopeAll) {
     driftSkip = '账本放宽检测未执行（--all 无 base 可比）';
   } else if (base) {
@@ -670,10 +705,13 @@ function main () {
       );
       return 2;
     }
+    prevMetricShown = String(at.metric);
+    nextMetricShown = String(baselineMetric);
     if (at.missing) driftSkip = '账本放宽检测未执行（base 处还没有账本，本 PR 是首次引入）';
     else {
       drift = judgeLedgerDrift({
-        prev: at.map, next: baseline, changedDocs: new Set(changedFiles)
+        prev: at.map, next: baseline, changedDocs: new Set(changedFiles),
+        prevMetric: at.metric, nextMetric: baselineMetric
       });
     }
   }
@@ -692,12 +730,25 @@ function main () {
       process.stderr.write(`  ${a.file}：账本 ${a.from} → ${a.to}（该文档不在本次改动集里）\n`);
     }
   }
+  if (drift && drift.generationChange.length) {
+    process.stderr.write(
+      `[check-doc-abs-paths] 账本口径换代（${prevMetricShown} → ${nextMetricShown}），逐文件计数不可比 ⇒ 本轮不判放宽；` +
+      `共 ${drift.generationChange.length} 项计数上调。请把这条出声写进 PR 说明，作为"接受换代"的出处。\n`
+    );
+    for (const g of drift.generationChange) {
+      process.stderr.write(`  ${g.file}：${g.from} → ${g.to}（口径换代，非放宽）\n`);
+    }
+  }
   if (driftSkip) process.stderr.write(`[check-doc-abs-paths] ${driftSkip}\n`);
+
+  // 机读计数行：A/B 负控（"有盘符 vs 无盘符"两档命中数必须相同）需要一个不靠措辞的读数。
+  const countsTotal = [...found.values()].reduce((s, l) => s + l.length, 0);
+  process.stdout.write(`[check-doc-abs-paths] counts=${countsTotal} domain=${domain.size} files=${found.size} canJudge=${canJudge}\n`);
 
   if (!over.length && !shrink.length && !stale.length && !widened.length) {
     const totalBase = [...found.values()].reduce((s, l) => s + l.length, 0);
     process.stderr.write(
-      `[check-doc-abs-paths] PASS（${scopeDesc}，无新增失效路径；` +
+      `[check-doc-abs-paths] PASS（${scopeDesc}，无新增本机绝对路径；` +
       `基线内 ${baseline.size} 个文件 / 现场存量 ${totalBase} 处已按文件对齐；` +
       '已豁免归档快照、路径词元自身含占位符者与非本机路径' + skipNote + unjudgedNote + '）\n'
     );
@@ -722,7 +773,10 @@ function main () {
     process.stderr.write(`  ${v.file}：${v.n} 处 > 基线 ${v.b}（超出存量基线）\n`);
     for (const f of v.list.slice(0, v.n - v.b + 2)) {
       process.stderr.write(`    L${f.line}: ${f.path}\n`);
-      process.stderr.write(`           └─ 磁盘上不存在：${f.missing}\n`);
+      // 没核对过就不能说"磁盘上不存在"——那是把"判不了"写成结论（同一份输出在两种档位下要能读出来）。
+      if (canJudge && f.missing) process.stderr.write(`           └─ 磁盘上不存在：${f.missing}\n`);
+      else if (canJudge) process.stderr.write('           └─ 存在（但仍计入新增；计数口径不问存在性）\n');
+      else process.stderr.write('           └─ 存在性核对未执行（本机无盘符）\n');
     }
   }
   for (const v of shrink) {
@@ -754,5 +808,5 @@ if (require.main === module) {
 module.exports = {
   judgeBaseline, judgeLedgerDrift, serializeBaseline, loadBaseline, loadBaselineAt,
   normalizeBaselineKey, stripPairedEmphasis, countUnjudged, judgeWriteBaseline, formatSkipNote,
-  isManagedDoc, WIN_ABS_RE, PLACEHOLDER_RE, BASELINE_REL
+  isManagedDoc, WIN_ABS_RE, PLACEHOLDER_RE, BASELINE_REL, METRIC_VERSION
 };

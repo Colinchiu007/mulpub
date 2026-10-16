@@ -17,6 +17,14 @@
 - 文档：`01-docs/PRD-PUBLISH-FREQUENCY-UNWIRED-2026-10-16.md`（四条面定夺表、合法域三路径表、日键两条口径、显示项与提示文字表、反证表 U1–U11、回退路径、未闭合五条）；v4 PRD §8 未接线清单逐条补"已定夺"状态并保留 v4 时点原文（那节记的是当时的事实，不改写历史）。
 - 明确不做并留痕：`full-auto-pipeline` 的 5s 直发旁路仍不经守卫；设置页账号/平台间隔仍是全局单值覆盖；裁剪只在启动跑一次，长驻进程跨月不自动裁（行数量级为"账号数 × 天数"，故不加定时器，如实记取舍）；`basis=unproven` 分支只有单元锁、无真实 sqlite 故障注入。
 
+# [未发布] fix(gates): Gate 12c 判据换代为纯文本计数，并解开 17 条只在 Windows 上跑的自测（gate-12c-abs-path-ban）
+
+- **判据输入由文件系统换成纯文本计数**（`scripts/check-doc-abs-paths.js`，口径 `all_abs_paths_v2`）。旧实现只在「这条路径在本机不存在」时才记一笔，而 CI 的 `changes` job 跑在无盘符的 ubuntu 上 ⇒ 现场计数恒 0 ⇒ 与存量基线比较两个方向都不可能红；其实际读数是一句「无从判定 1094 条 Windows 绝对路径」紧跟 `PASS`。新口径按文件记录「出现了多少条本机绝对路径」，存在性降级为附加明细，于是同一判据在 Linux 与 Windows 上给出逐字相同的结论。
+- 受管文档**不得新增**本机绝对路径：要写运行现场一律用占位符（执行记录的取证力改靠分支名与 PR 号）。存量按文件落进 `scripts/doc-abs-paths-baseline.json`（旧口径 435 / 870 ⇒ 新口径合并主干后 544 个文件 / 1162 处，上升仅因少了一个存在性过滤器；增量全部来自主干他人提交，逐轮 `added/gone/changed` 归因见执行记录）。
+- 账本新增 `METRIC_VERSION`（由判据代码持有，head 侧不符即退出码 2）与换代守卫：`judgeLedgerDrift` 在 `prev.metric !== next.metric` 时不判「账本被放宽」但照报缩小与陈旧，并按构造**只能发生一次**；同时 `--write-baseline` 这一支必须关掉该强校验，否则新守卫会拒绝执行它自己要求的那次迁移（实测 `--all --write-baseline` 曾直接 rc=2）。
+- 自测 51 条全绿、**0 条 skip**（旧口径下多条锁在 CI 上静默 skip，那正是把洞伪装成「按设计跳过」的落点）；变异反证两条（把 `over/shrink` 包回 `canJudge`、把入域条件退回旧口径）红集互不相同。契约见 `AGENTS.md`「受管文档不得新增本机绝对路径」条与 `01-docs/PRD-GATE12C-COUNT-ONLY-2026-10-14.md`。
+- **第三轮（ubuntu CI 二跑）修的是夹具而不是判据**：批量锁共用的两只造路径出口原本用裸的盘符变量拼接，无盘符 runner 上拼出一个没有冒号的串 ⇒ 判据不报错、只是静默不计数 ⇒ 账本 1 / 现场 0 被自己的"待收紧"判红。现收敛为唯一出口 `fxDrive()`，并新增「夹具自检」锁（让门禁自己数到 2，光形状像不算证据）+ 一条带正控与反失明的结构禁令。同时给自测加 `MP_TEST_FORCE_NO_DRIVE=1`（把无盘符那一维搬回本机复现，但它模拟不了 `os.tmpdir()` 形状，CI 仍是最终判据），并解开 17 条 `if (!DRIVE) t.skip` ⇒ **ubuntu 上实际执行的锁从 33 条涨到 52 条**（剩 1 条确需真实盘符，如实保留）。
+
 # [未发布] fix(gates): openspec-sync-check 审计器接进不被 docs-only 短路的 job，并清掉真实仓库 14 条存量违规（openspec-sync-realrepo）
 
 - **第一性原因**：审计器 `scripts/openspec-sync-check.js` 四档退出码（0/1/2/3）**从未被任何门禁对真实仓库调用一次**——CI 只在 `static-gates` 点名它的测试，而那份测试 19 条全部在 `os.tmpdir()` 自建夹具上跑，测的是判据本体不是本仓库。真实仓库当场是 `rc=2 / 14 条`（其中 5 个 `task.json` 根本无法解析）。更糟一层：它审计的 `.ccg/**` 与 `openspec/**` **都在 docs-only 白名单里**，而 `static-gates` 带 `if: docs-only != true` ⇒ 这把锁只可能出现在结构上碰不到被审计文件的 PR 上。这笔欠账 2026-10-14 就写在某条执行记录的第 151 行，但没有任何消费者。
@@ -102,10 +110,37 @@
 - **第四~六轮收口（含一次我自己的结论被实测否证）**：第四轮评审 5 条问题 → 4 条争议，其中 i1 是 **Critical**——主张「已跟踪已改动的记录被暂存后不出现在 `git diff --cached --name-only`，于是规模锁的『仍有效』断言对它们失真」，**实测否证**（暂存前 `[]`、暂存后含该文件），且该类另有 scenario17 逐字集合断言守着；i2 同样否证（钩子只有 `set -u`、无 `set -o pipefail` ⇒ 一侧扫描失败不会把批量 add 挤进回退，复刻实测 `BATCH_OK`）；i3 **成立**——失败侧的临时清单被 `>` 截断后再无写入，`tr -cd 0 | wc -c` 恒读 0，于是 `count=0` 把「一条也没读到」印成「一条也没丢」（同法对健康侧读出 2，证明计数器不是恒 0 的死探针）⇒ 措辞改为「该侧清单不可信…已读到条数=N（下界，不代表损失量）」并加 scenario19 断言 + 变异 M9（退回旧写法只有新断言红，另四条照绿）。i4 dismissed 的理由写清：锚点解析不出即 SELF_FAULT 属**刻意 fail closed**（本仓有终点锚丢失⇒切片区间静默放大、守卫照绿的先例）。修完 i3 后引擎判 `self_play_blocked` ⇒ 该版不作终态；第五轮先 `git reset --soft origin/main` **重新提交**（`--amend` 只让判定器量到本次增量，实测 245 行 vs 全量 850 行，这正是上一轮裁决失效的真因），新判定落在 main 上原本不存在的文件名 ⇒ 不再覆盖他人已提交的产物，评审 2 条争议均 dismissed（口径不一致那条的根据：两条锁测的是不同问题，行为锁区分「这次调用与判定记录有关」的唯一信息就是 argv 里的路径，收窄到段作用域只能靠匹配具体写法，会同时废掉「与形态无关」这一立锁理由），引擎算得 **`self_play_resolved`**、`check-pr-exec-record --mode=enforce` → **rc=0**。**据此更正本条上一条里那句「单提交分支结构上写不进闭环状态」——它是错的**：真实顺序是「先让引擎把裁决写回那份按父 sha 命名的记录，再让后一笔提交经钩子的自动暂存段把它带进提交」，新一次的判定会写到另一个文件名上，两者不互相覆盖。
 
 # [未发布] docs(podcast): 音色来源三态标注的合同落进 PRD §8.2.9（podcast-voice-source-spec）
-
 - PRD 新增 §8.2.9：只读 IPC `podcast:voice-preview`、出期浮层落点、三把 `podcast.voice.origin*` 键的 zh/en 逐字、七条验收判据与两条「故意不做」。
 - 实测依据写进合同：`voiceRef` 在渲染层 0 命中、podcast locales 无音色键、`origin`/`resolvedBy` 从未进 IPC 载荷 ⇒ 落点不存在，本片只写规格不加键。
 - tasks 4.5 追加进度行，父项**保持未勾**（实现待按 §8.2.9 做，触主进程 ⇒ QM-1 必跑）。
+
+# [未发布] fix(scripts): 依赖审计门禁按公告 aliases 认同同一条公告，不再把「换号」判成「一增一失」（dep-audit-alias）
+
+- **根因（第一性）**：`scripts/check-dep-audit.js` 的身份键是 `source + '/' + id`，**隐含假设「公告 id 稳定」**——对 npm/GHSA 成立，对 pip/PySEC 不成立（PySEC 记录会改用自家 id、把旧 CVE 降级成 `aliases`）。`git log -S` 追到引入这次提交就是该门禁被建立那一次（`9a48af893`，2026-09-23，PR #2252）。缺陷分类是**判据设计缺陷（身份模型不完整）**，不是实现 bug。
+- **实测事故**：`pip-audit` 对 `python-jose 3.5.0` 报 `id=PYSEC-2026-4298`、`aliases=["CVE-2026-85394","GHSA-3qf3-8w2g-rqmx"]`、`fix_versions=[]`，而基线以旧 CVE 为键 ⇒ 门禁同时打出 `NEW_ADVISORY: pip/PYSEC-2026-4298` 与 `RESOLVED_STILL_BASELINED: pip/CVE-2026-85394`，**而安全结论一个字都没变**（同一条公告、同一版本、同一「无修复版本」）。
+- **为什么最贵的一层在流程**：门禁把换号说成两条互相矛盾的话，人工读来像「基线腐化 + 来了新公告」⇒ **把人引向"改基线"而不是"改判据"**；而最省事的"修法"是照新号再登记一条，于是同一条公告在基线里留两份，旧条目还会被 `RESOLVED` 提示顺手删掉。
+- **修复（不改任何判据语义）**：`parsePipAudit` 收集 `vuln.aliases`；新增 `idsOf()`（主 id + 别名，去重排序）与 `matchLedgerKey()`（**同 source** 且身份集有交集才算同一条）；`evaluate` 认领后不再双报、改报**不阻断**的 `ID_MIGRATED`（并进 `--json` 的 `migrations`）；`writeBaseline` 跨迁移认领旧条目，**以免 `--update` 把人工写的 `decision`/`note` 冲成 `TODO`**，并把 `aliases` 落盘供下一轮双向认同。
+- **TDD 三段红先于绿**：首批 8 条 ⇒ 26 通过 / **7 失败** → 34/34；QM-6 第一轮后加 2 条 ⇒ 34 通过 / **2 失败** → 36/36；QM-6 第二轮后加 3 条 ⇒ 36 通过 / **3 失败** → **39/39 通过**。
+- **变异反证 M1–M12 全部 CAUGHT（MISSED=0）**，每次改坏后逐字节还原并校验 sha256：不收 aliases→红1｜只认主键→红4｜去 source 隔离→红1｜**把 `NEW_ADVISORY` 判据改松→红5（含 3 条既有用例）**｜不跨迁移认领→红3｜去护栏→红2｜`writeBaseline` 退回只认领第一条→红1｜`evaluate` 退回只认领第一条→红1｜绿文判据退回「只看 violations」→红1｜**M10 去掉迁移证据字段→红1**｜**M11 碰撞判据改恒不报→红1**｜**M12 去掉基线侧 aliases 反向认领→红1**。**M4 是防改松的关键一条：证明这一串改动无法被用来悄悄放宽门禁。**
+- **端到端 A/B（用本轮真实事故形状，不构造数据）**：基线取 `dep-audit-baseline.json` 的 python-jose 条目并把主键改回旧号，`found` 取 pip-audit 实测原文。修复前实现**恰好重现事故**（1 条 NEW + 1 条 RESOLVED）；修复后**违规 0、恰好 1 条 `ID_MIGRATED: pip/CVE-2026-85394 → pip/PYSEC-2026-4298`**；`--update` 产物键迁到新号且 `decision=not-exploitable` 与 note 原文完整保住。
+- **登记的边界一条没松**：`VALID_DECISIONS`、`decision`/`note`/`reviewBy` 语义、`patched`/`targetVersion` 校验全部原样（对偶用例专锁这条：迁移沿用过来的 `upgrade-tracked` 仍被 `DECISION_CONTRADICTS_PATCHED` 拦下）。
+- **CI 接线**：用例文件已由 `.github/workflows/dep-audit.yml:55` 显式点名 ⇒ 新用例在 CI 真跑；`check-unwired-tests.js` rc=0。
+- **QM-6 CCG 双模型外部评审已完成**（`proposer=opencode` / `critic=claude`，跨家族校验通过，`mode=dual` 因 210 行 > 200 阈值）：6 条问题、最低分 7、收敛判 `self_play` ⇒ 3 条争议逐条取证后**全部 upheld（无一条驳回）并全部落成代码修复**：
+  - **i1（已实测证实的真缺陷）**：基线**同时登记旧键与新键**（旧 bug 一增一失留下双份）时，`writeBaseline` 直接命中新键条目，旧键那份连同**人工 `decision`/`note`** 被全量重写整体丢弃；`evaluate` 还对旧键报 `RESOLVED_STILL_BASELINED` 诱导人去删条。⇒ 新增 `matchLedgerKeys()`（复数），`writeBaseline` 与 `evaluate` 均**全部认领**并合并人工结论（decision 取首个非 TODO，note 去重拼接 + 「已合并」标记），`evaluate` 不再对旧键报 RESOLVED，双份时不报迁移。
+  - **i2（已实测证实的真缺陷，高危域 `datamigration`）**：有 `migrations` 且零 `violations` 时 `main()` 走绿文分支打印「基线与现实一致且结论完整」⇒ 而此刻基线键仍是旧号，**输出自相矛盾**；CI 读者据此以为已对齐而不跑 `--update`，**把 stale 基线永久合法化** —— 这正是欠账条目所述「训练人忽略门禁」危害的**绿文版本**（红文至少吵，绿文不吵）。⇒ 绿文判据加 `migrations.length === 0`；有迁移时改打「⚠️ 零违规，但基线里还有 N 条公告主 id 已变更、键尚未迁移」+ 明确提示跑 `--update`。exit code 保持 0（不阻断，符合登记边界）。
+  - **i3（事实成立，属机制已知行为）**：`.ccg/reviews/165bfcc00….json` 的 sha 指向**父提交**（已合并的 #3690）而非本改动 —— pre-commit 的 decider 在新 commit 尚未生成时只能写在父 sha 上，deep-review 输出已明示「这是预期行为」。不改 decider（属"改谁来守门"），本记录如实登记 sha 指向关系；该文件按 `check-pr-exec-record` 口径属「pre-commit 自动 stage 的判定记录，**不承载门禁语义**」，不计入本次业务改动与行尾对账。
+- **QM-6 第二轮（对最终 HEAD 复跑，390 行）**：7 条问题、最低分 5、6 条待裁决、**2 条属高危域 `datamigration`**（引擎明示「不允许自扮演豁免、必须外部复核」）。逐条**先在树上实测复现再裁决**，6 条全部 upheld：
+  - **i1（Critical）**：别名认领**无证据、可整体吞掉真新增** —— found 一条与基线旧键无关的真新公告，仅因 alias 误标含旧号 ⇒ `violations=0` + 1 条迁移即绿，一条从未登记的公告连 `NEW_ADVISORY` 都不报；且输出**无任何字段**说明经哪个 alias 认领。⇒ 迁移记录增加 `matchedVia` + `viaAlias` 两个**证据字段**。
+  - **i2（高危域）**：两个 found 新键争同一条旧基线 ⇒ 只报 1 条迁移、第二个**无任何输出地通过**；`writeBaseline` 把同一旧行**复制成两行** ⇒「一增一失」以双份形态复发。⇒ 报 `MIGRATION_COLLISION`（不阻断、点名争抢双方）；`writeBaseline` 改为合并到一条 + aliases 并集 + note 留痕。
+  - **i3**：我注释里写的「aliases 落盘供下一轮**双向**认同」是**不实陈述** —— `matchLedgerKeys` 只从 found 侧取身份，从不读基线已存 aliases ⇒ 公告库清理 aliases 后原事故原样复现（实测：`NEW_ADVISORY(旧号)` + `RESOLVED(新号)`）。⇒ 增加**反向认领**。
+  - **i4**：我按旧习惯往 `.quality-gates.md` 写了执行块，违反 2026-10-15 起的「旧载体冻结」条款，`carrierDrift` 判红。⇒ 精确恢复该文件与 ledger 到 `origin/main`，执行记录收敛到 `openspec/records/` 单一载体。
+  - **i5**：我 rebase 解决 CHANGELOG 追加型冲突时，把自己的段插到了 podcast 段**标题之后、正文之前**，切断其归属。⇒ 整体下移到该段完整结束之后。
+  - **i6（高危域）**：评审文件要求 i2/i6 外部复核，但裁决由 `self_play`（置信 0.6）直接完成，且两条旧判定记录的 `deepReview.status` 未闭环。⇒ 补跑当前 HEAD 的 decider + deep-review、按实际完成情况闭环旧记录；**高危域争议终究未经第二家族模型复核，该缺口如实登记为残余风险，不以自裁代替**。
+  - **实现层的两个自我纠正（都由断言先红才发现）**：① 碰撞排除条件最初写成 `uniq.every(id => hits.has(...))` —— 恒为 true，碰撞永远不报、那条锁直接失效；② `writeBaseline` 跳过分支引用了尚未初始化的 `advisories`。
+- **残余（登记不假装已闭合）**：① 公告库把两个号**分别列出**时，按排序谁先谁后会决定"迁移方向"，故加护栏「有直接命中即不报迁移」，该形态下**静默**是有意选择，代价是「主 id 变了」不可见；② **`--update` 合并双份时只保留一条**（裁决 i1 的修复选择）：`writeBaseline` 的全量重写是 `--update` 的核心语义（自愈式清账），为单个 bug 改它会把该命令变成"永不删条目"、与登记边界冲突 ⇒ 代价是两份的**字段级**差异（如不同 `targetVersion`）只保留排序后第一条的非 TODO 值，已用 note 拼接 + 「已合并」标记留痕；③ npm 侧未做同源处理（`github_advisory_id` 长期稳定、npm JSON 无对等 aliases 语义，不凭空扩面）；④ `--update` 无 dry-run 且会全量重写基线（既有行为，误跑一次会丢掉未命中条目的挂账与人工 note），登记为观察项；⑤ **高危域争议未经第二家族模型复核**（i6，`self_play` 置信权重 0.6 < 真跨家族 1）；⑥ **i4 暴露的流程缺口无机械判据在盯**：条款已更新而执行者仍按旧习惯——本轮靠人工读条款 + 判据判红才发现。
+- 修法与全套证据见 `openspec/records/dep-audit-alias.md`（含两轮 QM-6 共 9 条裁决的取证过程与 M1–M12 变异矩阵）；欠账条目已从「待排期」改为「✅ 已偿还」（`01-docs/tech-debt.md`）。
+
+
 
 # [未发布] feat(podcast): 频道页合规三态徽标——缺席与「没问题」在界面上必须不同形（podcast-compliance-badge）
 

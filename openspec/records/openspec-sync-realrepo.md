@@ -1,8 +1,5 @@
 ---
 record: openspec-sync-realrepo
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并；合并后由后续回填 PR 把远程同步行改为 PASS 并删除本段三个字段
-sync_backfill_owner: 下一个会话（合并后改为 PASS 并删除本段三个字段；新载体不进 JSON ledger）
 ---
 
 ## 本次执行记录：openspec-sync-check 真实仓库自证与 14 条存量清理（openspec-sync-realrepo，2026-10-16）【混合 PR】
@@ -24,8 +21,8 @@ sync_backfill_owner: 下一个会话（合并后改为 PASS 并删除本段三�
 | CI 首跑（Gate 2c）红因与处置 | PASS | CI 的 `QG Static` 在 **Gate 2c** 红，红的是 `scripts/check-unwired-tests.test.js` 第 24 条「真实仓库：接线资格清单只能缩小…」`deepStrictEqual` 实测 `actual=[openspec-sync-check.test.js, quality-rhythm-spec-mirror.test.js] expected=[quality-rhythm-spec-mirror.test.js]`。根因**不是锁错了，是我漏跑**：本地我只跑了判据本体 `node scripts/check-unwired-tests.js`（rc=0），没跑它自己的测试 ⇒ 那条把登记表钉成精确清单的锁一次都没被喂过我的新增登记。这是 AGENTS「改被多文件消费的模块，验证范围取消费者并集」的镜像形态——**改了某张登记表，必须跑该登记表所属判据的测试**，判据本体绿不代表它的锁绿。修法两条：① 把钉住的清单补上本登记项；② 顺手把「承载 job 的现场证据」从**硬编码只核 spec-mirror 一个文件**泛化为**逐登记项循环**，并规定注释行不算承载（与 `collectCheck` 的「注释里的文件名不算点名」同口径，否则这条判据比它守的东西还松） |
 | 反证状态（如实，不夸大） | PARTIAL | 摘掉 Gate 12e 的两行可执行点名 ⇒ 3 条红，其中第一条红因是 `collectCheck` 的「登记的锁必须真的住在不被 docs-only 短路的 job 里」，**先于我新加的承载循环触发，故该循环未被那次变异到达**。因此本轮把新加的循环申报为 defense-in-depth（把原先只覆盖一个硬编码文件的证据检查推广到每个登记项），**不申报成"已反证的新锁"**。另记一条变异侧自己的坑：`quality-gate.yml` 本仓是 CRLF（实测 `crlf=2006`），锚点先用 `\n` 拼 ⇒ 命中 0 次、反证脚本直接 ABORT；再改成带 `\r\n` 后命中 2 次（`static-gates` 里也点名同一测试），最终用两行组合锚点才唯一。三次读数都是**探针自身**的问题，不是判据的问题 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/`、`packages/rpa-engine/`、任何 `.vue`/样式/基线 PNG |
-| QM-6 CCG 双模型外部评审 | PENDING | 与 #3652 同一现场：CC Switch `127.0.0.1:15721` 实测 `ECONNREFUSED`（node TCP 探针），`codeagent-wrapper --backend claude` 报 `exited with status 1` 且 wrapper 退出即删自己的日志，直跑 `claude -p` 150 s 超时 `rc=124` 双流 0 字节，替代通道 opencode 两个 `-free` 模型宽窄任务书各试过共 4 次全部 0 字节 ⇒ 三条通道均不可达，本轮**未跑成**，不以本地自审替代，合并决定交回人工 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin openspec-sync-realrepo` 返回 0 行证远端分支已删；回填时把本行改写为 PASS 并**删除上方三个 `sync_*` 字段**（同一次提交内完成，不在 JSON ledger 留项） |
+| QM-6 CCG 双模型外部评审 | 未跑成（用户授权在缺此门前合并） | 与 #3652 同一现场：CC Switch `127.0.0.1:15721` 实测 `ECONNREFUSED`（node TCP 探针），`codeagent-wrapper --backend claude` 报 `exited with status 1` 且 wrapper 退出即删自己的日志，直跑 `claude -p` 150 s 超时 `rc=124` 双流 0 字节，替代通道 opencode 两个 `-free` 模型宽窄任务书各试过共 4 次全部 0 字节 ⇒ 三条通道均不可达，本轮**未跑成**，不以本地自审替代，合并决定交回人工 该"交回人工"已有结论：用户 2026-10-16 明确授权在缺此门的情况下合并 **#3693**，故本格状态由 `PENDING` 改为 `未跑成（用户授权在缺此门前合并）`——**合并依据是这条授权，不是这一门变绿**，上面四条通道不可达的实测读数原样保留、不得被合并动作改写。 |
+| 远程同步 | PASS | 本 PR 即 **#3693**，`state=MERGED`，merge SHA `7658d7990e0d84e7129d6e911e85a085dba599e5`，merge 时间 2026-10-16T09:24:07Z。取证三件：main 主题尾 `(#3693)$` 检索**恰好 1 行**；远端分支 `openspec-sync-realrepo` 的 ref 查询返回 **404**（随 squash 删除）；产物回读 `openspec/changes/archive/2026-10-16-film-production-artifact-identity` 与 `01-docs/PRD-OPENSPEC-SYNC-REALREPO-2026-10-16.md` 均在 origin/main 上命中。同一次提交内删除 frontmatter 的三个 `sync_*` 字段（新载体不在 JSON ledger 留项） |
 
 ### 遗留（不假装已闭合）
 
