@@ -27,10 +27,20 @@ date: 2026-10-16
 | 文档门禁 | ✅ | `check-doc-abs-paths.js` PASS（3464 受管文件，无新增本机绝对路径）；新增文档全部用相对路径引用 |
 | 接线棘轮 | ✅ | `check-unwired-tests.js` OK（90 个测试文件）——新测试落在已登记的 `electron/publishers/**` 通配内，无需新增接线 |
 | 已知边界（不假装闭合） | ✅ | ① 本变更**不修 Chromium 缺陷**，也不声称消除该类崩溃：它把会崩的那条支路**默认关掉**；允许集一旦被追加平台，风险立即回归 ⇒ 准入须附真机复测证据。② 代价是「未确认」账号会变多（不计入失效、不触发失效横幅、无「去登录」按钮）；正解是给平台补 HTTP 侧能力（`HTTP_CHECK_APIS[p].checkHtml`），而不是重开隐藏窗口。③ 更彻底的解法（把 DOM 判定搬进独立进程、崩溃不回传主进程，参照参考产品A 的 `reload()` 可恢复思路）列为后续工作。④ 崩溃根因未做 minidump 级归因（现场无 minidump）。⑤ 参考产品B 的账号实现未深入。⑥ **静态锁的机械边界**：生产面扫描覆盖含片段的字面量（含 `'domLoginCheck' + 'Allowed'` 这类拼接），但"把属性名切成互不相邻片段再拼"（如 `['dom','Login'].join(')`）无法机械拦截——这类代码同时绕过本仓所有命名约定，属通用限制；本轮以"探针即红"证明已覆盖外部复核点名的具体路径 |
-| 远程同步 | PASS | 已合并：merge SHA `1cda0ba19df052e3c425de87e686e66793df78cf`（squash，2026-10-16T19:37:52Z）；远端分支已删（`git ls-remote --heads origin fix-login-check-http-only` 返回 0 行）；`git log origin/main --grep='(#3759)$'` 恰 1 行；该 merge SHA 的 main push `quality-gate` 回读见下条 |
+| 远程同步 | PASS | 已合并：merge SHA `1cda0ba19df052e3c425de87e686e66793df78cf`（squash，2026-10-16T19:37:52Z）；远端分支已删（`git ls-remote --heads origin fix-login-check-http-only` 返回 0 行）；`git log origin/main --grep='(#3759)$'` 恰 1 行；该 merge SHA 的 main push `quality-gate` 回读 **completed/success**（run 38956333350，10/10 job 全绿，含 `QG Changes`）|
 
 ## 关联
 
 - 另一半修复（启动参数互斥 + kuaishou 止血 + 隐藏窗口可观测）：PR #3739 / 记录 `openspec/records/fix-hidden-window-render-crash.md`
 - 需求侧：`01-docs/PRD.md`「三种认证模式」、`01-docs/PRD-ACCOUNT-LOGIN-STATUS-CHECK.md` §18
 - 详细文档：`01-docs/BUGFIX-LOGIN-CHECK-HTTP-ONLY-2026-10-16.md`
+
+## 合并后回读（2026-10-17）
+
+| 项 | 读数 |
+|------|------|
+| #3759 merge SHA `1cda0ba19` 的 main push `quality-gate` | **completed/success**（run `38956333350`，10/10 job 全绿，含 `QG Changes`；`QG Coverage` 亦 success） |
+| #3760（#3739 回填）merge SHA `ae46def6e` | `NO_RUN(by design)` —— docs-only 的 push 被 paths-ignore 按设计跳过；该 SHA 上仅 `CI Failure Handler`（skipped） |
+| #3768（#3759 回填）merge SHA `c6bf5a8e1` | `NO_RUN(by design)`；其上 `债务熔断门禁` = **success** |
+| worktree 清理 | `safe-worktree-remove.ps1` → `worktree gone: True`、R7 PASS（主干脏项/stash 与基线一致） |
+| 本地分支退役 | `retire/fix-login-check-http-only-20261017`、`retire/backfill-3759-sync-20261017` 留可恢复出口；逐字节核对 13/13 与 2/2 |
