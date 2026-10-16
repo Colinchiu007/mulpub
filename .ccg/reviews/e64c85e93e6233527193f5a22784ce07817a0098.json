@@ -19,8 +19,20 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
+    "status": "needs_revision",
     "performedBy": null,
-    "findings": null
+    "findings": null,
+    "auditNote": "本文件是 CCG 判定器的审计产物（.ccg/reviews/），记录名 = 被评审 commit 的**父** sha（pre-commit 阶段新 commit 尚未生成，故写在父 sha 上——引擎预期行为）；本记录描述 **6b1a51fbe** 的 diff。deepReview.status 取门禁白名单值（cleared / needs_revision / self_play_resolved），**不等于**引擎自身的终态；引擎终态见本文件的 engineVerdict / debtClosure / findings。判据与完整历史见 openspec/records/p3-residual-criteria.md。",
+    "debtClosure": {
+      "closedBy": "agent(Lead)",
+      "at": "2026-10-16T13:53:20.144Z",
+      "gatedBy": "scripts/check-pr-exec-record.js::evaluateDeepReviewDebt —— 对 mode !== 'dual' 显式 continue",
+      "remedy": "按该判据给出的补救路径：在记录里写明原因并把 status 置为闭环值（白名单 needs_revision）",
+      "engineTerminalState": "pending",
+      "whyNotEngineClosed": [
+        "单模型模式（mode=single）在设计上**没有独立评审路径**：判据 evaluateDeepReviewDebt 对 mode !== 'dual' 直接 continue（单模型结论机器不可验证，故不记欠账）。引擎因此永远不会为它落终态。"
+      ],
+      "supersededBy": "第十轮补跑的两轮真实双模型跨家族评审（proposer=opencode / critic=claude 通过）：① origin/main...622d1ea8d（tip 全量 diff，2218 行 / 36 源文件）② origin/main...27c79388b（2579 行）"
+    }
   }
 }

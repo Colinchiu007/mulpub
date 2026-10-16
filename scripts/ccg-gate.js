@@ -184,7 +184,6 @@ function changedLineRanges(file) {
  * @returns {{hits: number[], fileLevel: number}}
  */
 function parseSecurityHitLines(output, file) {
-  const hits = [];
   let fileLevel = 0;
   let mentioned = 0;
   const rel = String(file || '').replace(/\\/g, '/');
@@ -202,29 +201,53 @@ function parseSecurityHitLines(output, file) {
   //   注意方向仍是 fail-closed —— **只**剔除这些已知非命中形态，
   //   任何其它「提到本文件却无行号」的行照旧算文件级命中。
   const ADMIN_RE = /^(?:扫描路径|扫描文件|扫描结果|统计|问题列表)\s*[:：]/;
+  // ★ 第十轮 i1（dismissed，但脆弱性属实 ⇒ 防御性加固）：
+  //   第三种形态 `line.includes(basename)` **无法区分同名不同目录**（a/util.js 与 b/util.js 互认）。
+  //   当前调用路径是**单文件扫描**（ccg-gate.js:423 传 r.output，报告头 `扫描文件: 1`），
+  //   输出里不可能出现第二个文件 ⇒ 该失败场景不可达。但仍按最小改动消除脆弱性：
+  //   ① 完整路径（正/反斜杠）命中优先；
+  //   ② 只有**一条完整路径命中都没有**时，才退回 basename 兜底；
+  //   ③ 兜底前要求「输出里以本 basename 结尾的**不同路径 token 恰好一个**」——
+  //      出现多个即无法安全归因，退回空命中（fail-closed，由调用方的 mentioned 诊断兜住）。
+  const fullHits = [];
+  const baseHits = [];
+  const basePaths = new Set();
+  const PATH_TOKEN_RE = /([^\s"'(]+[\\/][^\s"'():]+)(?::(\d+))?/g;
   for (const raw of String(output).split(/\r?\n/)) {
     const line = raw.trim();
     if (ADMIN_RE.test(line) || /^[=\-]{5,}$/.test(line)) continue;
     const m = raw.match(/\.(?:js|ts|py|go|java|rs|c|cpp|php):(\d+)/i);
+    const isFull = (rel && raw.includes(rel)) || (relBack && raw.includes(relBack));
+    const isBase = !isFull && base && raw.includes(base);
+    if (isBase) {
+      let t;
+      PATH_TOKEN_RE.lastIndex = 0;
+      while ((t = PATH_TOKEN_RE.exec(raw)) !== null) {
+        if (t[1].endsWith(base)) basePaths.add(t[1]);
+      }
+    }
     if (m) {
-      // ★ CCG 第八轮 i5（upheld）：接受三种路径形态 —— 相对路径（正/反斜杠）与 basename。
+      // ★ CCG 第八轮 i5（upheld）：接受两种路径形态 —— 相对路径（正/反斜杠）与 basename 兜底。
       //   只匹配相对路径时，扫描器若输出 **Windows 绝对路径**（D:\…\file.js:12）
       //   会把命中静默丢掉 ⇒ hits=0 ⇒ 落入 fail-closed 保留 FAIL（方向保守），
-      //   但会把「路径形态不匹配」伪装成「没有命中」。现在三种形态都认。
-      const isThisFile = (rel && raw.includes(rel))
-        || (relBack && raw.includes(relBack))
-        || (base && raw.includes(base));
-      if (!isThisFile) continue;
-      hits.push(Number(m[1]));
+      //   但会把「路径形态不匹配」伪装成「没有命中」。
+      if (isFull) fullHits.push(Number(m[1]));
+      else if (isBase) baseHits.push(Number(m[1]));
       continue;
     }
     // 提到本文件但没给行号 ⇒ 文件级命中，无法用区间判定，按 fail-closed 处理
-    if ((rel && raw.includes(rel)) || (relBack && raw.includes(relBack)) || (base && raw.includes(base))) {
+    if (isFull || isBase) {
       fileLevel++;
       mentioned++;
     }
   }
-  return { hits, fileLevel, mentioned };
+  const baseFallbackSafe = basePaths.size === 1;
+  const hits = fullHits.length ? fullHits : (baseFallbackSafe ? baseHits : []);
+  // ★ 兜底被拒（输出里出现多个同 basename 的不同路径）时，把条数计入 mentioned，
+  //   让调用方走「提到过本文件却没抽到命中 ⇒ 不过滤（fail-closed）+ 显式诊断」的分支。
+  //   否则「无法安全归因」会被静默成「没有命中」—— 探针第 ④ 向正是靠这条断言把该静默抓出来。
+  if (!fullHits.length && !baseFallbackSafe) mentioned += baseHits.length;
+  return { hits, fileLevel, mentioned, basenameFallback: !fullHits.length && hits.length > 0 };
 }
 
 function runGate(ccgDir, gate, target) {

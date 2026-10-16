@@ -133,7 +133,7 @@ D 修完后「没有任何平台的 TAG_STYLES 键缺席」⇒ 原用例里「�
 | CCG 门禁 verify-security 存量过滤 | PASS | **自查补正一处我自己引入的假阳**：第八轮 i5 把「提到本文件但无行号」一律当**文件级命中** ⇒ fail-closed 不过滤；而扫描器报告头里本来就有 `扫描路径: …<本文件>`（无行号）⇒ 每次扫这个文件都判「有文件级命中」，**存量过滤被完全关掉**，于是该文件的存量 XSS（L1030，改动区间只有 `[506,506]`）被当成本次引入，把纯注释瘦身的提交拦下。修法：先剔除扫描器**行政行**（`扫描路径/扫描文件/扫描结果/统计/问题列表` + 分隔线），其余「提到本文件却无行号」照旧算文件级命中（方向仍是 fail-closed）。三向探针（`parseSecurityHitLines` 无测试缝 ⇒ 抽源码 eval）：① 真实输出 ⇒ hits=[1030]、fileLevel=0（存量过滤可用）② 合成真文件级命中 ⇒ fileLevel=1（fail-closed 未退化）③ 他文件命中被排除 |
 | 逐文件行数门禁 | PASS | 首次红两条（**本 PR 造成**）：`TARGET_GREW rpa-view-platforms.js 1502 > 点名目标 1484`（该文件零增长容差）与 `TEST_OVER_LIMIT rpa-view-platforms.test.js 1521 ≥ 1500`。处置：**只删我自己新增的注释**（判据与行为一字未改），理由搬到本记录与包内测试——js 1502→**1484**（达目标）、test 1521→**1495**（超限文件 13→12，全部挂账内）。`check-max-lines.js` rc=0|
 | QM-4 视觉 | N/A | 未触渲染面与样式 |
-| QM-6 CCG 双模型外部评审 | PENDING | 八轮 self_play 全部逐条修复（见下）；**第九轮未执行** —— claude 后端免费额度耗尽（403，次日 00:00 CST 重置），已如实记录，不自审冒充 |
+| QM-6 CCG 双模型外部评审 | PASS | **第十轮已补跑**（claude 额度恢复后，同日 22:0x）：两轮**真实**双模型跨家族评审，`跨家族校验: proposer=opencode critic=claude 通过` —— ① tip 全量 diff（`origin/main...622d1ea8d`，2218 行 / 36 源文件）② 门禁欠账记录范围（`origin/main...27c79388b`，2579 行）。两轮共 12 条问题全部逐条裁决落盘；`check-pr-exec-record --mode=enforce` → **OK**。第九轮当时确因 403 未执行，已如实记录；本轮即为其补位 |
 | 远程同步 | PENDING | 本 PR 未合并 |
 
 ### 逃逸链（QM-5 ②：这些缺陷为什么此前没被拦住）
@@ -205,6 +205,59 @@ claude 后端返回 `403 今日免费订阅额度已用尽（次日 00:00 CST �
 （upheld 就修并再提交一轮，直到终态为 `self_play_resolved`）→ 复跑
 `node scripts/check-pr-exec-record.js --base=origin/main --mode=enforce` → 合并 → 按记录回填远程同步。
 
+### 第十轮：额度恢复后补跑两轮**真实**双模型跨家族评审（2026-10-16 22:0x）
+
+claude 后端恢复（`sh scripts/deep-review.sh --check-deps` 体检通过）后立即补跑，共两轮，
+两轮都是真跨家族（`proposer=opencode critic=claude`），共 12 条问题，**全部逐条裁决落盘**。
+
+#### 第十轮甲：对 **tip 全量 diff** 的评审（`origin/main...622d1ea8d`，2218 行 / 36 源文件）
+
+8 条问题、6 条待裁、最低分 3。裁决结论（`.adversarial/ccg-deep-622d1ea8/adjudication.json`）：
+
+| # | 级别 | 指控 | 裁决 |
+| --- | --- | --- | --- |
+| i1 | Critical | 记录里的 debt-closure 断言只有作者自证、sha 与 HEAD 不同 ⇒ 像「声称闭环但无从核对」 | **成立过**（`verdictAtReview=upheld`）→ 已修：13 条记录加统一 `auditNote`，开门见山写清「记录名 = 被评审 commit 的**父** sha」「`status` 只是门禁白名单值、不等于引擎终态」 |
+| i2 | Critical | PR 携带 `pending/self_play_pending` 且 `findings: null` 的记录 ⇒ 假审计痕迹 | **成立过** → 已修：9 条未落终态的按补救路径闭环，并在 `debtClosure.engineTerminalState` / `whyNotEngineClosed` 里写明引擎真实状态与「为何永远不会有终态」 |
+| i3 | Critical | 关键路由逻辑（`isApiTrack`）缺乏已核验的独立评审 | **成立过** → 已修：两轮真实 dual 跨族评审覆盖；本轮 critique 正是针对该实现提的 8 条 |
+| i4 | Warning | 生产发布路由改动依据是未核验的自扮演结论 | **成立过** → 已修：外部评审补齐 + 变异反证 3/3（接线锁 M1 / 归一 M2 / ⑨ 对账 M3） |
+| i5 | Warning | `platforms.yaml` 引用修复 sha 而 HEAD 已推进 ⇒ SHA 错配 | **成立过** → 已修：`auditNote` 显式区分「记录命名规则」与「`fixedIn` 修复落点」 |
+| i6 | Warning | 记录含 `engineRunBlocked`（403、exit 1）⇒ 掩盖质量缺口 | **不成立**：字段本身即主动披露（含错误原文、尝试次数、取证方式），`residualNotClosed` 与本文「未闭合」章节更是把缺口单列 |
+
+#### 第十轮乙：对 **门禁欠账记录范围**的评审（`origin/main...27c79388b`，2579 行）—— 这一轮把门禁欠账真正闭环
+
+8 条问题、6 条待裁（`.adversarial/ccg-deep-27c79388/adjudication.json`）。**这轮抓出的多是针对我自己代码的实质批判**，
+逐条取证后的裁决：
+
+| # | 级别 | 指控 | 裁决与取证 |
+| --- | --- | --- | --- |
+| i1 | Critical | `parseSecurityHitLines` 的 basename 匹配无法区分同名不同目录（`a/util.js` vs `b/util.js`） | **不成立（不可达）+ 照样加固**：调用点 `ccg-gate.js:423` 传的是**单文件扫描**输出（报告头 `扫描文件: 1`），输出里不可能有第二个文件的命中 ⇒ 该场景当前不可达。但仍按最小改动消除脆弱性：完整路径命中优先 → 仅当**一条完整路径命中都没有**时才退回 basename → 且要求「同 basename 的不同路径 token 恰好一个」，否则退回空命中并计入 `mentioned` 触发 fail-closed 诊断。**五向探针**（抽函数源码 eval，因 `ccg-gate.js` 顶层 `process.exit` 不可 require）：存量过滤可用 / 真文件级命中仍阻断 / 他文件命中被排除 / **同名多路径不归因（`hits=[]` + `mentioned=2`）** / 唯一同 basename 路径兜底 —— 全过 |
+| i2 | Critical | 测试里 `readFileSync(SCRIPT)` 的 `SCRIPT` 未定义 ⇒ 运行时 ReferenceError | **不成立（截断上下文误读）**：`const SCRIPT = path.join(...)` 在同文件 **L17**，用于 L317；且 L18 的 `require(SCRIPT)` 会最先失败。可执行反证：`node --test scripts/verify-platform-onboarding.test.js` → **21/21 通过** |
+| i3 | Warning | 8/13 记录 `findings: null` 且状态 pending/self_play_pending（含 1 条 error） | **成立过** → 已修（见甲-i2 的同一笔修复）。取证：这些是 `mode=single` 记录，判据 `evaluateDeepReviewDebt` 对 `mode !== 'dual'` **显式 continue**（单模型结论机器不可验证）⇒ 设计上没有独立评审路径、永远不会有终态，故必须在记录里写明这一点 |
+| i4 | Warning | 第九轮未执行、该范围缺新一轮独立评审 | **成立过** → 已修：本轮即独立评审，且抓出 8 条问题（正是「第二双眼」起作用的证据） |
+| i5 | Warning | 记录仍标 `PENDING`、写着未合并 | **不成立**：AGENTS.md 明文规定开 PR 时写 `PENDING`、**合并后同一次提交**回填 `PASS` + merge SHA；当前 PR 确实未合并 ⇒ `PENDING` 是此刻唯一正确值（提前写 PASS 才是造假，且 Gate 2c 会判未收口） |
+| i6 | Warning | `fileLevel>0` 只追加文本、不改 `blocking`/`code` ⇒ fail-open | **不成立（方向相反）**：`ccg-gate.js:424-432` 的 `return { ...r, output: … }` **保留**扫描器原始的 `code`/`blocking`（本例 1/true）⇒ 仍然是**阻断**。「不修改」正是在 fail-closed：该分支的目的就是「无法用区间判定 ⇒ 一律不过滤」 |
+
+#### 本轮两侧修复（可核）
+
+1. **审计产物自描述（甲-i1/i2/i5、乙-i3）**：本 PR 携带的 **13 条** `.ccg/reviews` 记录全部加统一
+   `auditNote`（写明它描述哪个 commit、`status` 的语义、引擎终态在哪个字段），并把 **9 条**未落终态的
+   （`single`×8 + `skip`×1）按门禁补救路径置 `needs_revision`，附
+   `debtClosure.engineTerminalState` / `whyNotEngineClosed` / `supersededBy`。修后 **13/13 全在闭环白名单内**。
+2. **门禁加固（乙-i1）**：见上表。新增探针第 ④ 向正是抓「兜底被拒时静默成没有命中」这条——它当场红了，才补上 `mentioned`。
+
+#### 本轮的引擎行为（两次实测，值得记进项目知识）
+
+- **`--sha` 必须传 40 位完整 sha**：记录文件名用完整 sha，传 9 位缩写时 `readDecision` 命中不到，
+  会静默退化成**内容寻址**并挑到另一条记录（实测挑到了 `b2eea6ae74`，mode 从 dual 变 single）
+  —— 表现是「评审了，但审的不是你以为的那条」。
+- **分支 tip 名的记录无法「提交且闭环」**：判定器在**每次**提交的 pre-commit 里都会
+  **整体覆盖** `.ccg/reviews/<当前 HEAD>.json` 并把 `deepReview` 重置为 pending
+  （实测：连纯 `.ccg` 改动、非 `.ccg` 暂存 diff 为 0 行时也照写，`241716…` → `9E6009…`）。
+  因此只有**祖先名**的记录能既闭环又随 PR 携带；对 **tip** 的评审记录只能在本地闭环。
+  本 PR 的门禁欠账记录 `27c79388b.json` 正好是祖先名，故能真正闭环。
+- **复用存档 critique 可零模型调用落终态**：填完裁决后再跑，输出 `♻ 复用存档 critique（N 条）+ 已填完的裁决 —— 跳过模型调用`
+  ⇒ 两轮终态化都没再花额度。
+
 ### 3 条 dual 记录的闭环（按门禁给出的补救路径；逐条可核）
 
 `check-pr-exec-record.js --mode=enforce` 报 3 条 CCG 深度审查欠账。取证后确认：
@@ -236,6 +289,10 @@ claude 后端返回 `403 今日免费订阅额度已用尽（次日 00:00 CST �
 `self_play_resolved` 会谎称「全部指控不成立」——都不取）。
 
 ### ⚠ 本次闭环**不等于**一次全新的末轮评审（如实披露）
+
+> **【2026-10-16 22:0x 更新】该缺口已由「第十轮」补上**：claude 额度恢复后补跑了两轮**真实**双模型
+> 跨家族评审（含 tip 全量 diff），两轮 12 条问题全部逐条裁决落盘，`check-pr-exec-record --mode=enforce` → **OK**。
+> 本节以下内容保留为**当时**的真实状态记录（含当时的额度阻塞），不改写历史。
 
 - 末轮修复提交 `b2eea6ae7` **尚未被任何一次引擎评审覆盖**（第九轮被额度挡住）。
   替代证据：对该轮 3 项修复各做了一次**变异反证**（全部实跑、改完即还原并复验）：

@@ -78,6 +78,7 @@
         "M2: isApiTrack 恢复「能力轴先短路」⇒ 一致性断言红（已实跑）",
         "M3: ⑨ 的 api-router require 指向别的模块 ⇒ ⑨ fail-closed + 4 条判据红（已实跑）"
       ]
-    }
+    },
+    "auditNote": "本文件是 CCG 判定器的审计产物（.ccg/reviews/），记录名 = 被评审 commit 的**父** sha（pre-commit 阶段新 commit 尚未生成，故写在父 sha 上——引擎预期行为）；本记录描述 **a8cac1317** 的 diff。deepReview.status 取门禁白名单值（cleared / needs_revision / self_play_resolved），**不等于**引擎自身的终态；引擎终态见本文件的 engineVerdict / debtClosure / findings。判据与完整历史见 openspec/records/p3-residual-criteria.md。"
   }
 }

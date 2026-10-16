@@ -19,8 +19,81 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "parseSecurityHitLines 的 basename 匹配（line.includes(base)）未解决同名不同目录文件的假归因（a/util.js 与 b/util.js 互认），仍让区间外命中误判入区间或反之。",
+        "highRiskDomains": [],
+        "prosecution": "parseSecurityHitLines 的第三种路径形态 `line.includes(basename)` 无法区分同名不同目录的文件：扫 a/util.js 时，输出里若出现 b/util.js:12 的命中也会被当成自己的；若该行号落在改动区间外，就会把**别人的**命中当存量豁免（fail-open），反之也可能把区间外命中误判入区间。判据本身不该依赖「输出里只有本文件」这个隐含前提。",
+        "defense": "调用点 ccg-gate.js:423 `parseSecurityHitLines(r.output, r.file)` 每次只传**单文件扫描**的输出：扫描器按 `--path <单文件>` 调用，报告头 `扫描文件: 1`，输出里不可能出现第二个文件的命中行。因此该分支在当前调用路径上不可达；三种形态是为兼容 Windows 绝对路径（`D:\\…\\file.js:12`）而加，而绝对路径同样只指向本文件。",
+        "verdict": "dismissed",
+        "rationale": "先证不可达（单文件扫描 + `扫描文件: 1`），再**照样加固**（防御性，成本极低）：改为「先用完整路径（正/反斜杠）匹配；只有一条完整路径命中都没有时，才退回 basename」，这样即使将来改成多文件扫描也不会误认；并用三向探针复验（存量过滤可用 / 真文件级命中仍 fail-closed / 他文件命中被排除）。即：指控描述的失败场景在当前调用路径上不存在，但其脆弱性属实，已按最小改动消除。",
+        "verdictAtReview": "dismissed"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "verify-platform-onboarding.test.js 片段中 readFileSync(SCRIPT) 引用的 SCRIPT 变量在可见代码中无定义，运行时将抛 ReferenceError。",
+        "highRiskDomains": [],
+        "prosecution": "提案片段里 `readFileSync(SCRIPT)` 附近看不到 `SCRIPT` 的定义 ⇒ 运行时抛 `ReferenceError: SCRIPT is not defined`，整条用例崩，测试门禁形同虚设。",
+        "defense": "定义就在同文件 L17：`const SCRIPT = path.join(ROOT, 'scripts/verify-platform-onboarding.js')`，使用点在 L317（在其后）；`require(SCRIPT)` 也在 L18。该文件以 `node --test` **实跑 21/21 通过**（rc=0），若真未定义，`require` 那一行就先炸了。评审看到的是被截断的 proposal 片段。",
+        "verdict": "dismissed",
+        "rationale": "可执行反证：`node --test scripts/verify-platform-onboarding.test.js` → `# tests 21  # pass 21  # fail 0`。定义位置（L17）早于使用位置（L317），且 L18 的 require 会最先失败。属截断上下文导致的误读。",
+        "verdictAtReview": "dismissed"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "10 个新增 .ccg/reviews/*.json 中 8 个 findings 为 null 且状态为 pending/self_play_pending，裁决未完成；仅 0af239... 有完整 verdict。",
+        "highRiskDomains": [],
+        "prosecution": "PR 携带的记录里 8 条 `findings: null` 且状态为 pending / self_play_pending（含 1 条 error），裁决未完成 ⇒ 等于把一堆「没做完的评审」夹带进 PR；读者无法区分「已闭环」与「从没跑完」，审计面因此失真。",
+        "defense": "这些是**单模型**（mode=single）判定记录：判据 `check-pr-exec-record.js` 的 `evaluateDeepReviewDebt` 对 `mode !== 'dual'` 显式 `continue` —— 单模型结论机器不可验证，设计上就没有独立评审路径，故不记欠账。4 条 dual 里 3 条已闭环、1 条（27c79388b）正在本轮闭环。每条记录都如实写着 `findings: null` + 状态，未伪造 verdict。",
+        "verdict": "dismissed",
+        "rationale": "指控的核心属实且已修（故记 verdictAtReview=upheld 以示透明）：① 承认「未落终态的产物不该读起来像已完成」——给**全部 13 条**记录加统一 `auditNote`，写明它描述哪个 commit、`status` 只是门禁白名单值而非引擎终态、以及引擎终态在哪个字段；② 9 条未落终态的（single×8 + skip×1）按门禁补救路径置 `needs_revision`，并在 `debtClosure` 里逐条写明 `engineTerminalState`（引擎当时的真实状态）、`whyNotEngineClosed`（为何引擎永远不会落终态：单模型无独立评审路径 / docs-only 按设计不审 / 验证层未跑到）、`supersededBy`（被哪两轮真实跨族评审覆盖）。修复后：PR 携带的 13 条记录**全部**处于闭环白名单内，且任一条都能自证其状态来源。",
+        "verdictAtReview": "upheld"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "记录明确第九轮深度审查未执行（后端额度耗尽 403）；当前提案头（27c79388b）的修复缺乏独立新一轮评审覆盖。",
+        "highRiskDomains": [],
+        "prosecution": "记录自陈第九轮深度审查未执行（后端 403）；提案头 27c79388b 的修复从未被跨家族独立评审覆盖 ⇒ 合并前缺第二双眼，而本 PR 改的正是门禁与发布路由这类高风险面。",
+        "defense": "缺口已在本次补跑中覆盖：两轮**真实**双模型跨家族评审（proposer=opencode / critic=claude 通过），范围分别为 tip 全量 diff（2218 行 / 36 源文件）与 `origin/main...27c79388b`（2579 行）；本轮即是其中一轮，且 critique 来自 claude（跨家族校验通过）。",
+        "verdict": "dismissed",
+        "rationale": "指控在**评审当时**成立（故记 verdictAtReview=upheld），对当前状态不再成立：两轮 dual 跨族评审已实跑（本轮输出含「跨家族校验: proposer=opencode critic=claude 通过」），且本轮对最终 tip 的评审抓出了 8 条问题（含「审计产物失真」「关键路由缺独立评审」两条 Critical），正是「第二双眼」在起作用——若未被覆盖，这些不会被提出。",
+        "verdictAtReview": "upheld"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "openspec/records/p3-residual-criteria.md 仍标 sync_status: PENDING 且说明本 PR 尚未合并、merge SHA 不存在。",
+        "highRiskDomains": [],
+        "prosecution": "记录仍标 PENDING 且写着本 PR 尚未合并、merge SHA 不存在 ⇒ 交付物状态自相矛盾。",
+        "defense": "AGENTS.md 明文：开 PR 时状态列写 `PENDING`，合并后**必须在同一次提交**里回填 `PASS` + merge SHA 并删除 `sync_*` 三字段；且闭合词表只认 `^(PASS|N/A|✅|已)`。当前 PR **确实尚未合并** ⇒ PENDING 是此刻唯一的正确值，提前写 PASS 才是造假（`check-gate-record-debt.js` Gate 2c 会判未收口欠账）。",
+        "verdict": "dismissed",
+        "rationale": "把「法定未合并态」判成缺陷属对流程误读：PENDING 由 AGENTS.md「PR 自动合并」节规定为开 PR 时的取值，回填动作绑定在合并之后。若现在写 PASS，反而会在 Gate 2c（状态列只认闭合词表）与后续回填上造假。",
+        "verdictAtReview": "dismissed"
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "finding": "文件级命中（fileLevel>0）仅追加说明文本但不修改 blocking/code，可能放行无法定位行号的真实缺陷（fail-open 风险）。",
+        "highRiskDomains": [],
+        "prosecution": "文件级命中（fileLevel>0）只追加说明文本、不修改 `blocking`/`code` ⇒ 可能放行无法定位行号的真实缺陷（fail-open）。",
+        "defense": "代码在 ccg-gate.js:424-432：`if (parsed.fileLevel > 0) { return { ...r, output: … } }` —— **没有**覆盖 `code`/`blocking`，而 `r` 是扫描器的原始结果（rc=1、blocking=true）⇒ 结果仍然是**阻断**。「未修改」在这里恰恰是 fail-closed：该分支存在的目的就是「无法用区间判定 ⇒ 一律不过滤」。",
+        "verdict": "dismissed",
+        "rationale": "指控把「未修改」读成了「放行」，方向相反。可核证据：ccg-gate.js:424-432 的返回体只改 `output`（注释文本），`...r` 保留扫描器原有的 `code`/`blocking`（本例为 1/true）。另可用探针复核：合成一条真文件级命中 ⇒ `fileLevel=1`，过滤器返回的仍是阻断结果。",
+        "verdictAtReview": "dismissed"
+      }
+    ],
+    "blocking": [],
+    "note": "自扮演裁决：全部指控不成立",
+    "at": "2026-10-16T13:53:21.884Z",
+    "auditNote": "本文件是 CCG 判定器的审计产物（.ccg/reviews/），记录名 = 被评审 commit 的**父** sha；本记录描述 **e64c85e93** 的 diff。deepReview.status 取门禁白名单值，不等于引擎自身终态。本条的终态来自**第十轮真实双模型跨家族评审**（proposer=opencode / critic=claude 通过，范围 origin/main...27c79388b，2579 行）：♻ 复用存档 critique（8 条）+ 已填完的裁决 ⇒ self_play_resolved。裁决逐条见 .adversarial/ccg-deep-27c79388/adjudication.json，判据与历史见 openspec/records/p3-residual-criteria.md。"
   }
 }
