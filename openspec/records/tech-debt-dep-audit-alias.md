@@ -2,9 +2,6 @@
 record: tech-debt-dep-audit-alias
 task: 登记依赖审计门禁「按 vuln.id 单键匹配、不认 aliases」欠账；并校正 CHANGELOG 中与 fix-newtab-home-slow 最终代码不符的三处描述
 date: 2026-10-16
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由后续回填 PR 同一次提交改写为 PASS + merge SHA 并删除本段三字段
-sync_backfill_owner: 下一个会话
 ---
 
 ## 本次执行记录：依赖审计门禁 aliases 欠账登记 + CHANGELOG 三处描述校正（tech-debt-dep-audit-alias，2026-10-16）【docs-only】
@@ -24,7 +21,7 @@ sync_backfill_owner: 下一个会话
 | 接线棘轮 | N/A | 未新增 `*.test.js` |
 | QM-1 打包 / QM-4 视觉 | N/A | 变更集不含 `apps/desktop/electron/**`、`packages/rpa-engine/**`、`.vue/.css` 与基线 PNG |
 | QM-6 CCG 双模型外部评审 | N/A | docs-only 通道按 `CI_IGNORED_PATHS` 短路 QM-6；pre-commit 的 CCG 判定亦判「改动全部命中文档白名单 ⇒ 走 §11.2b docs-only 快通道」 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin tech-debt-dep-audit-alias` 返回 0 行证远端分支已删；回填后删除上方三个 `sync_*` 字段 |
+| 远程同步 | PASS | #3671 squash 合并 merge SHA `03e2eae9fc2adc52092f5135768e429a6b0a8b83`（2026-10-16T03:13:22+08:00）；远端分支 `tech-debt-dep-audit-alias` 已删（`git ls-remote --heads` 0 行）；`git log origin/main --grep='(#3671)$'` 恰好 1 行；回填与销账**同一次提交**——本记录 frontmatter 的 `sync_*` 三字段与 `scripts/gate-record-debt-ledger.json` 登记项均已在本次提交删除 |
 
 ### 本轮实际改了什么
 
