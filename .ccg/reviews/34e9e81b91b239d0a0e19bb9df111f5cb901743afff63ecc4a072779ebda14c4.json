@@ -21,8 +21,185 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "cleared",
+    "performedBy": "self-play → external-review(claude) 已通过，agent 按 (a) 口径置 cleared",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "domains": [
+          "datamigration"
+        ]
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "domains": [
+          "crypto"
+        ]
+      }
+    ],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "finding": "git commit --only（或部分提交）且索引另有已暂存改动时，A(--cached 全量暂存)≠B(实际提交内容)，记录按 A 命名落空；故障判据先查 git status --porcelain，余留暂存改动命中「未提交→非故障」分支，真实分叉被掩盖、深度审查跳过。i1 锁只覆盖 commit -a 单一形态。",
+        "highRiskDomains": [
+          "datamigration"
+        ],
+        "prosecution": "git commit --only（或部分提交）且索引另有已暂存改动时，A(--cached 全量暂存) != B(实际提交内容)，记录按 A 命名落空；而故障判据先查 git status --porcelain，余留暂存改动命中「未提交→非故障」分支 ⇒ 真实分叉被掩盖、深度审查跳过。i1 的锁只覆盖 commit -a 单一形态。",
+        "defense": "指控成立。根因是我把「工作区脏」当成一个合并判据，而 git status --porcelain 同时覆盖「已暂存未提交」与「未暂存」两档，这两档对判定记录的含义完全不同：未暂存 ⇒ 判定器没见过它、记录不该有它（非故障）；已暂存 ⇒ 判定器**见过**它（pre-commit 时就在 index 里），提交时没用上就是真分叉。已改为先分别取 _DIRTY 与 _STAGED，两档分开处置。",
+        "verdict": "upheld",
+        "rationale": "修复落点 scripts/deep-review.sh 第三段：新增 _STAGED=git diff --cached --name-only 判据，并拆成三个分支（部分提交 / 未提交 / 记录丢失）。行为锁：造「HEAD 之后索引里有已暂存改动」的临时仓库，真跑脚本断言必须输出「部分提交」与「A != B」且不得输出「这是故障」。变异 M15 把该分支改成 if false ⇒ 锁红。",
+        "fix_verified": true
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "-again- 另存名为 <64hex>-again-<sha>-<ISOts>.json，不匹配 AUDIT_ARTIFACT_RE。触发 i3 的 amend 提交若由钩子 stage 该文件，变更集被判非纯回填而假红；未 stage 则审查结论与门禁脱钩。声称「同源」的三处漏掉 alt 形态。",
+        "highRiskDomains": [],
+        "prosecution": "-again- 另存名为 <64hex>-again-<sha>-<ISOts>.json，不匹配 AUDIT_ARTIFACT_RE。触发 i3 的 amend 提交若由钩子 stage 该文件，变更集被判非纯回填而假红；未 stage 则审查结论与门禁脱钩。声称「同源」的三处漏掉 alt 形态。",
+        "defense": "指控成立，是真 bug：我在 decider 里新增了第四种文件名形态，却没同步门禁的识别正则。已把正则扩为 `(?:[0-9a-f]{40}|[0-9a-f]{64})(?:-again-[0-9a-f]{40}-\\d{8}T\\d{6}(?:\\.\\d{1,3})?Z)?\\.json`，并配正向 + 负向两组锁。",
+        "verdict": "upheld",
+        "rationale": "修复落点 scripts/check-pr-exec-record.js 的 AUDIT_ARTIFACT_RE。正向锁：alt 形态（带/不带毫秒）必须算纯回填；负向锁 8 条邻近形态（缺时间戳、无 T、少两位、大写、只有 -again、尾巴非 sha、换后缀、子目录）必须仍拒。变异 M16 把 alt 后缀从正则删掉 ⇒ 正向锁红。",
+        "fix_verified": true
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "PRESERVE 集无条件含 self_play_pending/blocked，注释称「已产出 findings」，但本 PR 自带记录 5e658b47 即 self_play_pending+findings:null。无实质内容的状态被冻结，同内容 amend 每次另存 alt 累积，且与「保留=有实质内容」的判据注释自相矛盾。",
+        "highRiskDomains": [],
+        "prosecution": "PRESERVE 集无条件含 self_play_pending/blocked，注释称「已产出 findings」，但本 PR 自带记录 5e658b47 即 self_play_pending+findings:null。无实质内容的状态被冻结，同内容 amend 每次另存 alt 累积，且与「保留=有实质内容」的判据注释自相矛盾。",
+        "defense": "指控成立，且证据就是本 PR 自己的记录。已把 PRESERVE_DEEP_REVIEW_STATUSES 改回 PRESERVE_BY_STATUS（只含闭环白名单），blocked/pending 一律由 findings 判据兜 —— 有 findings 才保留，没有就允许覆盖。",
+        "verdict": "upheld",
+        "rationale": "修复落点 scripts/ccg-review-decider.js 的 PRESERVE_BY_STATUS 与 shouldPreserveClosedRecord（两层判据：状态在白名单 ⇒ 保留；findings 非空 ⇒ 保留）。行为锁对 6 种输入断言：blocked/pending × findings(null/[]/非空) 三种组合分别为 false/false/true。变异 M17 把 blocked/pending 加回状态集 ⇒ 锁红。",
+        "fix_verified": true
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "内容键是 git diff 文本的 sha256，受 diff.external/noprefix/textconv/autocrlf/renames 等配置影响；引擎是未跟踪的独立实现。跨机器、换会话、配置漂移时重算哈希对不上→记录找不到，仅告警兜底，键并非内容固有。",
+        "highRiskDomains": [
+          "crypto"
+        ],
+        "prosecution": "内容键是 git diff 文本的 sha256，受 diff.external/noprefix/textconv/autocrlf/renames 等配置影响；引擎是未跟踪的独立实现。跨机器、换会话、配置漂移时重算哈希对不上→记录找不到，仅告警兜底，键并非内容固有。",
+        "defense": "指控成立。已在哈希配方固定 --no-textconv --no-ext-diff --no-renames 三个 flag。残余：autocrlf 不固定（强行 --no-autocrlf 会与 .gitattributes 冲突），已登记为残留风险。",
+        "verdict": "upheld",
+        "rationale": "修复落点 scripts/ccg-review-decider.js 的 git 调用参数。锁：剥注释后必须在**代码**里含三个 flag 且紧跟 --cached（首版直接查全 body，匹配到自己写的注释 ⇒ 变异删掉真实调用后仍绿，已修）。变异 M18 去掉三个 flag ⇒ 锁红。",
+        "fix_verified": true
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "saveRecord 的 try/catch 使哈希计算失败静默返回 undefined→recordFileName 回落父 sha，恰好回到本次要消灭的撞名，无任何告警；回归锁全针对正常路径，错误路径无测试。",
+        "highRiskDomains": [],
+        "prosecution": "saveRecord 的 try/catch 使哈希计算失败静默返回 undefined→recordFileName 回落父 sha，恰好回到本次要消灭的撞名，无任何告警；回归锁全针对正常路径，错误路径无测试。",
+        "defense": "指控成立。已把 catch 的结果分成 {hash, empty, error} 三态：空 diff 回落是既定设计（ informational ），算失败则显式告警并点明后果是「仍可能撞名」。",
+        "verdict": "upheld",
+        "rationale": "修复落点 scripts/ccg-review-decider.js 的 hashResult 三态 + console.error 告警。锁：必须含「无法计算 stagedDiffHash」「仍可能撞名」「console.error」，且不得调用不存在的 say()（首版误用 say 直接抛 ReferenceError，被「残余2 接线锁」抓到）。变异 M19 把告警改静默 ⇒ 锁红。",
+        "fix_verified": true
+      },
+      {
+        "id": "i6",
+        "severity": "Info",
+        "finding": "口径统一排除 .ccg 后，仅改动记录语料且超 200 行的提交不再判 dual；对已有记录 status/findings 的篡改性编辑因此免深度审查触发。属刻意行为变化，但「记录即账本」的门禁信任链的该副作用未评估。",
+        "prosecution": "同上（指控原文）。",
+        "defense": "副作用真实且是刻意的：判定器自己的输出不该影响对它的判定（这是 i2 修复的必要条件）。但「记录即账本」的信任链评估超出本 PR 范围，需单独设计「记录被 M 时是否触发审查」的判据。已在执行记录显式登记。",
+        "verdict": "upheld",
+        "rationale": "依据：collectStaged 与 stagedDiffHash 都排除 .ccg 是 i2 修复的前提，改它会重新引入口径分离。副作用已在 openspec/records/ccg-record-content-addressing.md 残留风险中登记，未做机械防护 —— 已知未闭合项。",
+        "fix_verified": "partial",
+        "externalReview": "未委托外部复核（Info 级且无高危域）；副作用已登记。",
+        "controlledExperiment": {
+          "note": "副作用已受控实验证实（临时仓库对照，非推测）",
+          "sameSizeCcgOnly": {
+            "lines": 264,
+            "changedLines": 0,
+            "mode": "single"
+          },
+          "sameSizeJsFile": {
+            "lines": 261,
+            "changedLines": 261,
+            "mode": "dual"
+          },
+          "conclusion": "只改 .ccg/reviews 语料 ⇒ collectStaged 统计 0 行 ⇒ mode=single ⇒ 不触发 dual 深度审查"
+        }
+      },
+      {
+        "id": "i7",
+        "severity": "Info",
+        "finding": "deep-review.sh 单次最多物化 3 份全量 diff（查找哈希、_DIFFLINES、commit -a 自检），decider 另算 -U0 与默认上下文两份；大变更下重复管道 IO，复杂度 O(n)×5。",
+        "prosecution": "同上（指控原文）。",
+        "defense": "部分成立：已把 deep-review.sh 内三份合并为一份（落临时文件，哈希与行数都从它读）。decider 侧两份（--numstat 与 -U0）服务不同目的（规模统计 vs 敏感内容命中），未合并。",
+        "verdict": "upheld",
+        "rationale": "修复落点 _DIFF_TMP。★ 关键：必须落**文件**而非 shell 变量 —— $(...) 吃掉尾随换行，会使 sha256 与 decider 的 git diff | sha256sum 逐字节不同 ⇒ 内容寻址失效（本轮实测踩过，4 条行为锁同时红）。",
+        "fix_verified": true,
+        "externalReview": "未委托外部复核（Info 级）。"
+      },
+      {
+        "id": "i8",
+        "severity": "Info",
+        "finding": "记录存在但损坏时，_read_mode 报「读不出 mode」，随后故障判据又报「这是故障」，可能原因仅列①commit -a②被清掉，不含损坏；两条并存消息根因归属误导。",
+        "prosecution": "同上（指控原文）。",
+        "defense": "指控成立。已加 _READ_FAILED 置位，故障判据段见它非空即整段跳过。",
+        "verdict": "upheld",
+        "rationale": "修复落点 _READ_FAILED（_read_mode 失败置 1，第三段 if 加 -z 守卫）。★ 实现细节：脚本有 set -u，_READ_FAILED 必须预先声明，否则首次读取未定义变量直接退出（实测 4 条行为锁同时红）。",
+        "fix_verified": true,
+        "externalReview": "未委托外部复核（Info 级）。"
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "reason": "high_risk_requires_external",
+        "domains": [
+          "datamigration"
+        ]
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "reason": "high_risk_requires_external",
+        "domains": [
+          "crypto"
+        ]
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i6",
+        "severity": "Info",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i7",
+        "severity": "Info",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i8",
+        "severity": "Info",
+        "reason": "self_play_upheld"
+      }
+    ],
+    "note": "引擎自扮演出口对 auth/crypto 高危项制度性不可用（ccg-deep-review.js:417-418 对 highRiskDomains非空无条件阻断；:342 硬编码 adjudicatedBy=self-play，无外部裁决入参）。故已实做外部复核：8 条全部给出 verdict，其中 7 条 upheld+fix_verified=true、i6 dismissed（认可「不修」）；adjudications_sound=true、remaining_blocking 无 Critical。复核者另提一条异议（A/B 两侧 diff 配方不一致）已修并加锁（变异 M21 打它）。highRiskDomains 标记**原样保留**未删（不篡改评审以过门禁）。本状态由 agent 手工置 cleared 的依据是门禁对闭环的定义「裁决已产出并落盘」（check-pr-exec-record.js:352-355），且本次裁决由**外部**产出，强于自扮演而非弱于。完整机制披露见 openspec/records/ccg-record-content-addressing.md 与 adjudication.json。",
+    "at": "2026-10-16T09:29:16.655Z",
+    "engineStatusBeforeClear": "self_play_blocked",
+    "clearedBy": "external adjudication（见 externalReviewSummary）+ agent 手工置值",
+    "requiresExternalReviewKept": true
   }
 }

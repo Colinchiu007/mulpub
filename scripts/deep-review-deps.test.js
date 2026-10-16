@@ -483,8 +483,8 @@ descB('QM-6 i1 行为锁：无记录时必须输出 commit -a 告警与两条自
     const r = spawnB(bashB, ['scripts/deep-review.sh', '--dry-run'], { cwd: dir, encoding: 'utf8', maxBuffer: 1 << 24 })
     const out = (r.stdout || '') + (r.stderr || '')
     assert.match(out, /git commit -a/, '必须点名实测故障形态 git commit -a')
-    assert.match(out, /git diff --cached -- \. ':\(exclude\)\.ccg'/, '必须给出提交前口径的自检命令')
-    assert.match(out, /git diff HEAD\^ HEAD -- \. ':\(exclude\)\.ccg'/, '必须给出提交后口径的自检命令')
+    assert.match(out, /git diff --cached --no-textconv --no-ext-diff --no-renames -- \. ':\(exclude\)\.ccg'/, '必须给出提交前口径的自检命令（与实现同参数）')
+    assert.match(out, /git diff HEAD\^ HEAD --no-textconv --no-ext-diff --no-renames -- \. ':\(exclude\)\.ccg'/, '必须给出提交后口径的自检命令（与实现同参数）')
   } finally { fsB.rmSync(dir, { recursive: true, force: true }) }
 })
 
@@ -527,6 +527,83 @@ descB('QM-6 第二轮 i1 反向：纯 .ccg 提交（无其他改动）不得误�
     const out = (r.stdout || '') + (r.stderr || '')
     assert.doesNotMatch(out, /这是\*\*故障\*\*/, '纯 .ccg 提交不得误报故障（否则假阳）')
   } finally { fsB.rmSync(dir, { recursive: true, force: true }) }
+})
+
+descB('QM-6 第三轮 i1：部分提交（索引有已暂存改动）必须报「分叉」而非「非故障」', () => {
+  // 场景：HEAD 是一笔只含部分改动的提交，而**索引里还有已暂存的改动**。
+  //   git status --porcelain 会显示有未提交改动 ⇒ 若只用「工作区脏 ⇒ 非故障」的合并判据，
+  //   这种真分叉会被漏进「非故障」分支、深度审查被跳过（第三轮 i1 的指控）。
+  // 正确行为：识别出「已暂存未提交」这一档，明确报部分提交导致的 A != B。
+  const dir = makeRepoWithoutRecordB()
+  try {
+    fsB.writeFileSync(pathB.join(dir, 'staged.txt'), 'staged but not committed\n')
+    execB('git', ['add', 'staged.txt'], { cwd: dir, stdio: 'pipe' })
+    const r = spawnB(bashB, ['scripts/deep-review.sh', '--dry-run'], { cwd: dir, encoding: 'utf8', maxBuffer: 1 << 24 })
+    const out = (r.stdout || '') + (r.stderr || '')
+    assert.match(out, /部分提交/, '索引有已暂存改动时必须点名「部分提交」这一形态')
+    assert.match(out, /A != B/, '必须说明分叉机理（判定器按全量暂存取哈希，提交只含一部分）')
+    assert.doesNotMatch(out, /这是\*\*故障\*\*/, '这一档报的是「部分提交」，不是「记录丢了」—— 两者根因不同')
+  } finally { fsB.rmSync(dir, { recursive: true, force: true }) }
+})
+
+descB('QM-6 第三轮 i8：记录损坏时不得再报「这是故障」（避免两条诊断互相误导）', () => {
+  // 同一屏输出「读不出 mode」和「这是故障」会让读者无法判断根因归属。
+  // 损坏时应只有一条诊断。
+  const dir = makeRepoWithoutRecordB()
+  try {
+    const head = execB('git', ['rev-parse', 'HEAD'], { cwd: dir, encoding: 'utf8' }).trim()
+    fsB.writeFileSync(pathB.join(dir, '.ccg', 'reviews', head + '.json'), '{ broken')
+    const r = spawnB(bashB, ['scripts/deep-review.sh', '--dry-run'], { cwd: dir, encoding: 'utf8', maxBuffer: 1 << 24 })
+    const out = (r.stdout || '') + (r.stderr || '')
+    assert.match(out, /读不出 mode/, '损坏必须报「读不出 mode」')
+    assert.doesNotMatch(out, /这是\*\*故障\*\*/, '损坏时不得再报「这是故障」—— 只能有一条诊断')
+  } finally { fsB.rmSync(dir, { recursive: true, force: true }) }
+})
+
+descB('QM-6 第三轮外部异议：B 侧 diff 配方必须与 A 侧（decider）逐项一致', () => {
+  // 外部复核第三轮指出：A 侧（decider 的 stagedDiffHash）固定了
+  // --no-textconv --no-ext-diff --no-renames，而 B 侧（本脚本）首版是**裸 git diff**
+  // ⇒ 两边配方不一致时同一变更算出不同哈希 ⇒ 内容寻址失效。
+  // 而这正是整套方案的承重墙（A == B），故必须钉住。
+  const sh = fsB.readFileSync(SCRIPT, 'utf8')
+  const dec = fsB.readFileSync(pathB.join(__dirname, 'ccg-review-decider.js'), 'utf8')
+  const FLAGS = ['--no-textconv', '--no-ext-diff', '--no-renames']
+  // B 侧真实调用
+  const callLine = sh.split('\n').find((l) => l.includes('git diff') && l.includes('_DIFF_TMP'))
+  assert.ok(callLine, '必须找到落临时文件的那次 git diff 调用')
+  for (const f of FLAGS) {
+    assert.ok(callLine.includes(f), `B 侧调用必须含 ${f}（与 A 侧同配方）`)
+  }
+  // A 侧（decider 的哈希配方）
+  for (const f of FLAGS) {
+    assert.ok(dec.includes('"' + f + '"'), `A 侧 decider 必须含 ${f}`)
+  }
+  // 给用户照抄的自检命令也必须同参数（否则用户按提示跑出的哈希与实现对不上）。
+  // ★ 只取 **say 行**（代码），不取所有含 sha256sum 的行 —— 注释里也有 sha256sum
+  //   （解释 printf 坑那段），首版把它当命令 ⇒ 恒假红（「注释骗过锁」第四次）。
+  const selfCheck = sh.split('\n').filter((l) => /^\s*say /.test(l) && l.includes('sha256sum'))
+  assert.ok(selfCheck.length >= 2, '至少应有两条自检命令（提交前口径 + 提交后口径）')
+  for (const l of selfCheck) {
+    for (const f of FLAGS) {
+      assert.ok(l.includes(f), `自检命令也必须含 ${f}：${l.trim()}`)
+    }
+  }
+})
+
+descB('QM-6 第三轮 i7：deep-review.sh 不得对同一份 diff 重复物化', () => {
+  // 首版把同一份 diff 物化三次（查找哈希、_DIFFLINES、commit -a 自检），大变更下 O(n)×3。
+  // 用 includes 逐项点，不用一条大正则 —— 正则转义在跨 shell/node 两层时极易写错
+  // （本轮实测：一条「看起来对」的正则匹配 0 次，而 includes 同为 true）。
+  const sh = fsB.readFileSync(SCRIPT, 'utf8')
+  const nDiff = sh.split('git diff --no-textconv --no-ext-diff --no-renames "$_PARENT2" "$SHA"').length - 1
+  assert.strictEqual(nDiff, 1, '内容寻址段对同一份 diff 只应调用一次 git diff（哈希与行数复用）')
+  // ★★ 关键：不得用 `$(...)` + `printf '%s'` 复用 —— 命令替换吃掉尾随换行，
+  //   会使 sha256 与 decider 的 `git diff | sha256sum` 逐字节不同 ⇒ 内容寻址失效。
+  assert.strictEqual(sh.includes("printf '%s' \"$_DIFF_OUT\""), false,
+    '不得用 printf 复用命令替换的结果 —— 尾随换行被吃，哈希与 decider 对不上')
+  assert.strictEqual(sh.includes('_DIFF_TMP='), true, '必须落临时文件，两处从同一份字节读')
+  assert.strictEqual(sh.includes('sha256sum < "$_DIFF_TMP"'), true,
+    '哈希必须从临时文件读（保留尾随换行），而不是从管道重读')
 })
 
 descB('QM-6 第二轮自查：工作区有未提交改动时不得误报故障（最常见工作流）', () => {

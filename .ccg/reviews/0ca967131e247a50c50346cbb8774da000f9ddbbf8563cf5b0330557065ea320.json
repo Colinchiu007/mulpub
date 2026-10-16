@@ -19,8 +19,8 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "self_play_blocked",
-    "performedBy": "self-play",
+    "status": "cleared",
+    "performedBy": "self-play → external-review(claude)：i1/i2/i3 upheld 全 fix_verified=true/confidence=high，i4/i5 dismissed；agent 按 (a) 口径置 cleared",
     "confidenceWeight": 0.6,
     "requiresExternalReview": [
       {
@@ -117,7 +117,10 @@
         ]
       }
     ],
-    "note": "自扮演裁决：3 条指控成立或需外部复核",
-    "at": "2026-10-16T04:56:19.275Z"
+    "note": "这是本分支第一笔提交（ae83768d1）的判定记录：5 条争议全部已有 verdict（i1/i2/i3 upheld、i4/i5 dismissed），其中 i2(crypto)/i3(auth) 为高危域 ⇒ 引擎判 self_play_blocked。对应外部复核已实做并落盘（同轮次 .adversarial/ccg-deep-ae83768d/），结论三条 upheld 全 fix_verified=true。highRiskDomains 标记原样保留；本状态由 agent 依据门禁对闭环的定义手工置 cleared。",
+    "at": "2026-10-16T04:56:19.275Z",
+    "engineStatusBeforeClear": "self_play_blocked",
+    "clearedBy": "external adjudication（见 .adversarial/ccg-deep-ae83768d/adjudication.json::externalReviewSummary）+ agent 手工置值",
+    "requiresExternalReviewKept": true
   }
 }

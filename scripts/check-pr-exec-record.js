@@ -53,7 +53,14 @@ const CARRIER_RE = /^(?:openspec\/records\/[^_][^/]*\.md|\.quality-gates\.md|scr
 //   两种必须同时认：只认 64 会让全部历史记录被判夹带；而**不加约束**地放宽成任意 .json
 //   会让 `scripts/evil.js` 一类真·功能新增借道这条白名单（既有负例锁见
 //   check-pr-exec-record.test.js 的「审计产物白名单不得被形态邻近的写法穿过」）。
-const AUDIT_ARTIFACT_RE = /^\.ccg\/reviews\/(?:[0-9a-f]{40}|[0-9a-f]{64})\.json$/
+//
+// ★★ 第三轮 i2 修正：必须**同时认 alt 形态**。
+//   同名记录已有实质内容（findings 非空或已闭环）时，判定器把本次判定另存为
+//   `<64hex>-again-<40sha>-<ISO时间戳>.json`（见 ccg-review-decider.js 的拒写分支）。
+//   首版**没认这个形态** ⇒ 钩子若把它 stage 进同一次提交，出路④判「非纯回填」而假红；
+//   不 stage 则审查结论与门禁脱钩。属「声称同源的三处漏了第四处」。
+//   形态收得很紧：后缀必须形如 `-again-<40hex>_<14位T时间戳>`，且必须带 T 与 Z。
+const AUDIT_ARTIFACT_RE = /^\.ccg\/reviews\/(?:[0-9a-f]{40}|[0-9a-f]{64})(?:-again-[0-9a-f]{40}-\d{8}T\d{6}(?:\.\d{1,3})?Z)?\.json$/
 const DEFAULT_THRESHOLD = 3
 
 // 出路④的判据核心（独立成纯函数以便直接单测，QM-6 前端 I1）：变更集非空、每条都是载体的 M

@@ -699,11 +699,17 @@ test('QM-6 i3：已闭环的同名记录不得被静默覆盖（否则 amend 抹
     assert.strictEqual(f({ deepReview: { status: st } }), true,
       `status=${st} 是闭环态 ⇒ 必须保留旧记录`)
   }
-  // ★ 第二轮 i2：blocked/pending 不在闭环白名单（门禁判它们欠账是对的），
-  //   但**已产出 findings** ⇒ 也不该被覆盖丢掉。
+  // ★ 第三轮 i3：blocked/pending **不按状态名无条件保留** ——
+  //   第二轮我把它们直接加进保留集，但实测本 PR 自带的 5e658b47….json 就是
+  //   self_play_pending + findings:null：那种记录没有任何实质内容，
+  //   保留它只会让同内容 amend 每次另存 alt、无限累积，且与「保留=有实质内容」自相矛盾。
   for (const st of ['self_play_blocked', 'self_play_pending']) {
-    assert.strictEqual(f({ deepReview: { status: st } }), true,
-      `status=${st} 已有 findings ⇒ 必须保留（否则 amend 丢掉上次的推理过程）`)
+    assert.strictEqual(f({ deepReview: { status: st, findings: null } }), false,
+      `status=${st} 且 findings:null ⇒ 无实质内容 ⇒ 必须允许覆盖（否则冻结 + alt 累积）`)
+    assert.strictEqual(f({ deepReview: { status: st, findings: [] } }), false,
+      `status=${st} 且 findings 空数组 ⇒ 同样无实质内容 ⇒ 必须允许覆盖`)
+    assert.strictEqual(f({ deepReview: { status: st, findings: [{ id: 'i1' }] } }), true,
+      `status=${st} 但 findings 非空 ⇒ 有实质内容 ⇒ 必须保留`)
   }
   // 未闭环且无 findings ⇒ 必须允许覆盖（否则同一变更永远无法更新自己的 pending）
   for (const st of ['pending', '']) {
@@ -730,17 +736,82 @@ test('QM-6 第二轮 i5：另存名必须全局唯一（同 sha 前缀不得互�
   assert.match(src, /toISOString\(\)\.replace\(\/\[:\.\]\/g, ""\)/, 'alt 名必须含时间戳，保证同一 sha 内也唯一')
 })
 
+test('QM-6 第三轮 i5：哈希算失败时不得静默回落父 sha（那正是要消灭的撞名）', () => {
+  // saveRecord 的 try/catch 若把哈希失败吞成 undefined ⇒ recordFileName 回落父 sha
+  // ⇒ 恰好回到本次要消灭的跨分支撞名，且无任何告警。必须显式出声。
+  const src = fs.readFileSync(SRC, 'utf8').replace(/\r\n/g, '\n')
+  const s = src.indexOf('function saveRecord')
+  const e = src.indexOf('\n}\n', s)
+  const body = src.slice(s, e + 3)
+  assert.match(body, /无法计算 stagedDiffHash/, '哈希失败必须显式告警，不得静默')
+  assert.match(body, /仍可能\*\*撞名\*\*|仍可能撞名/, '告警必须点明后果是撞名，否则读者不知道严重性')
+  assert.match(body, /console\.error/, '告警必须走 stderr（decider 无 shell 的 say()；且不得污染 stdout）')
+  // 不得调用不存在的 say()（它是 deep-review.sh 的函数，decider 里会直接抛 ReferenceError）。
+  // ★ 必须**先剥掉注释行**再查 —— 首版用 /\bsay\(/ 直接查全 body，
+  //   结果匹配到我自己写的注释「没有 shell 的 say()」⇒ 恒假红（判据错，不是实现错）。
+  const codeOnly = body.split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n')
+  assert.doesNotMatch(codeOnly, /\bsay\(/, '不得调用不存在的 say() —— 它是 deep-review.sh 的函数')
+  // 告警后仍用父 sha（无替代命名），但记录里必须写 null 让「无键」可见
+  assert.match(body, /hashResult\.empty/, '必须区分「空 diff」与「算失败」—— 前者回落是设计，后者是故障')
+})
+
+test('QM-6 第三轮 i4：哈希配方必须固定 diff 行为（跨机器/换配置要对得上）', () => {
+  // diff 文本的 sha256 受 diff.external / noprefix / textconv / autocrlf / renames 等
+  // 用户配置影响；不固定的话同一个变更在不同机器会算出不同键 ⇒ 记录找不到。
+  //
+  // ★ 必须**剥掉注释行**再查：这三个 flag 会出现在解释性注释里（本 PR 就有），
+  //   直接查全 body 会匹配到注释 ⇒ 把真实调用删掉后断言仍绿（变异 M18 实测踩过）。
+  const src = fs.readFileSync(SRC, 'utf8').replace(/\r\n/g, '\n')
+  const s = src.indexOf('function saveRecord')
+  const e = src.indexOf('\n}\n', s)
+  const body = src.slice(s, e + 3)
+  const codeOnly = body.split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n')
+  for (const flag of ['--no-textconv', '--no-ext-diff', '--no-renames']) {
+    assert.ok(codeOnly.includes(flag), `哈希配方必须含 ${flag}（在**代码**里，不是注释里）`)
+  }
+  // 且必须是 git 调用参数的一部分（形如 "diff", "--cached", ...）
+  assert.match(codeOnly, /"diff",\s*"--cached",\s*"--no-textconv",\s*"--no-ext-diff",\s*"--no-renames"/,
+    '三个 flag 必须紧跟 --cached 出现在同一次 git 调用里')
+})
+
 test('QM-6 第二轮 i1：三条路径全落空且有改动时必须报「故障」而非「没跑判定器」', () => {
   const sh = fs.readFileSync(path.join(__dirname, 'deep-review.sh'), 'utf8')
   // 判据：用「非 .ccg diff 行数 > 0」区分「本就不该有记录」与「记录丢了」
   assert.match(sh, /这是\*\*故障\*\*，不是/, '必须明确判为故障，而不是笼统的「没跑判定器」')
   assert.match(sh, /_DIFFLINES/, '必须实测 diff 行数作为判据')
-  assert.match(sh, /git diff --cached -- \. ':\(exclude\)\.ccg'/, '必须给出两条口径的自检命令')
+  assert.match(sh, /git diff --cached --no-textconv --no-ext-diff --no-renames -- \. ':\(exclude\)\.ccg'/, '必须给出两条口径的自检命令（与实现同参数）')
 })
 
 test('QM-6 第二轮 i4：_read_mode 必须经 argv 传路径（不得内插进 -e 字符串）', () => {
   const sh = fs.readFileSync(path.join(__dirname, 'deep-review.sh'), 'utf8')
   assert.doesNotMatch(sh, /require\('\.\/\$f'\)/, '不得把 $f 内插进 node -e 的单引号串（引号/换行会注入或错位）')
-  assert.match(sh, /path\.resolve\(process\.argv\[2\]\)/, '必须经 argv 取路径并 resolve 成绝对路径')
+  assert.match(sh, /path\.resolve\(process\.argv\[1\]\)/, '必须经 argv 取路径并 resolve 成绝对路径')
   assert.match(sh, /"\$f" 2>\/dev\/null/, '必须把 $f 作为独立 argv 传给 node')
+  // ★ 下标必须是 argv[1]：`node -e <script> <arg>` 中 -e 的脚本不占 argv ⇒ arg 在 argv[1]。
+  //   写成 argv[2] 会得到 undefined ⇒ path.resolve 抛 ERR_INVALID_ARG_TYPE
+  //   ⇒ 记录明明存在却读不出 ⇒ 被误判「无记录」。这个 bug 真实发生过一轮。
+  assert.doesNotMatch(sh, /process\.argv\[2\]/, '不得用 argv[2] —— node -e 的脚本不占 argv，arg 在 argv[1]')
+})
+
+test('QM-6 第二轮 i4 行为锁：真跑一次，记录存在就必须真的读到 mode', () => {
+  // 纯结构锁抓不到 argv 下标的 bug（字面确实在），必须真跑。
+  // 这条锁直接复现当时的故障形态：构造一条合法记录，用与脚本相同的调用方式读它。
+  const os = require('node:os')
+  const { spawnSync } = require('node:child_process')
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'argv-lock-'))
+  try {
+    fs.writeFileSync(path.join(dir, 'r.json'), JSON.stringify({ mode: 'dual' }))
+    const code = `
+      const path = require('path');
+      const f = path.resolve(process.argv[1]);
+      let r;
+      try { r = require(f); } catch (e) { process.exit(4); }
+      const m = r && typeof r.mode === 'string' ? r.mode : '';
+      if (!m) process.exit(3);
+      process.stdout.write(m);
+    `
+    const r = spawnSync(process.execPath, ['-e', code, path.join(dir, 'r.json')], { encoding: 'utf8' })
+    assert.strictEqual(r.status, 0, '调用必须成功（status=0）；非 0 说明 argv 下标又错了')
+    assert.strictEqual(r.stdout.trim(), 'dual', '必须真的读到 mode')
+  } finally { fs.rmSync(dir, { recursive: true, force: true }) }
 })

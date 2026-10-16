@@ -428,19 +428,46 @@ const CLOSED_DEEP_REVIEW_STATUSES = new Set(["cleared", "needs_revision", "self_
 /**
  * 「有实质内容、不该被覆盖」的状态集合 —— **不等于闭环白名单**。
  *
- * ★ 2026-10-16（QM-6 第二轮 i2）：\`self_play_blocked\` / \`self_play_pending\` **不在闭环白名单里**
- *   （门禁因此判它们欠账，这是对的），但它们**已经产出了 findings**（prosecution/defense/verdict/rationale）。
- *   若只按闭环白名单决定「是否保留」，amend/重提交会让这些记录走覆盖分支 ⇒ **已产出的审查结论被丢掉**，
- *   而门禁仍会报欠账 ⇒ 既要重跑审查、又丢了上次的推理过程。
+ * ★ 2026-10-16（QM-6 第二轮 i2）：\`cleared\`/\`needs_revision\`/\`self_play_resolved\` 是闭环态，
+ *   被覆盖会把有效结论抹掉。
  *
- *   所以保留判据是**并集**：已闭环（结论有效，不该被抹回 pending）
- *   ∪ 已有 findings（结论未定但推理有效，丢掉就得从零再来）。
+ * ★ 第三轮 i3 修正：\`self_play_blocked\`/\`self_play_pending\` **不无条件入集** ——
+ *   第二轮我把它们直接加进 PRESERVE，注释写「已产出 findings」，但实测本 PR 自带的
+ *   \`5e658b47….json\` 就是 \`self_play_pending\` + \`findings: null\`：
+ *   那种记录**没有任何实质内容**，保留它只会让同内容 amend 每次另存 alt、无限累积，
+ *   且与「保留 = 有实质内容」的判据自相矛盾。
+ *   故这两个态改为**由 findings 判据兜**（见 shouldPreserveClosedRecord 的第二条），
+ *   不再按状态名无条件保留。
  */
-const PRESERVE_DEEP_REVIEW_STATUSES = new Set([
-  ...CLOSED_DEEP_REVIEW_STATUSES,
-  "self_play_blocked",
-  "self_play_pending",
-]);
+const PRESERVE_BY_STATUS = new Set(CLOSED_DEEP_REVIEW_STATUSES);
+
+/**
+ * 是否该**保留**已存在的同名记录（即本次不覆盖它）。
+ *
+ * ★ 2026-10-16（QM-6 i3 + 变异反证 M7 暴露的缺口）：
+ *   内容寻址让「同一变更反复提交/amend」落到同一个文件 —— 这是收敛性的来源，
+ *   但副作用是后写静默覆盖先写。若先写那份有实质内容，覆盖会把它丢掉。
+ *
+ *   首版把这段判定**内联**在 saveRecord 里，只用「grep 源码字面」的结构锁守着；
+ *   变异反证立即抓到缺口：把 `if (cond)` 改成 `if (false && cond)` 后所有字面仍在
+ *   ⇒ 结构锁全绿而**行为已失效**。故抽成纯函数，让行为锁能真正调用它。
+ *
+ *   ★ 判据是**两层**，且第二层才是主判据：
+ *     ① 状态在闭环白名单 ⇒ 保留（结论有效，不该被抹回 pending）
+ *     ② **`deepReview.findings` 是非空数组** ⇒ 保留
+ *     第二层让任何状态（含白名单外的未来态、含 blocked/pending）只要**真有内容**就保留；
+ *     没有内容的状态一律允许覆盖，不会冻结、不会累积 alt。
+ *
+ * @returns {boolean} true = 保留旧记录、本次另存（不覆盖）
+ */
+function shouldPreserveClosedRecord(prev) {
+  if (!prev || !prev.deepReview) return false;
+  const st = typeof prev.deepReview.status === "string" ? prev.deepReview.status : null;
+  if (st && PRESERVE_BY_STATUS.has(st)) return true;
+  // 主判据：已产出 findings ⇒ 有实质内容 ⇒ 保留（与状态名无关，未来态也受益）
+  const f = prev.deepReview.findings;
+  return Array.isArray(f) && f.length > 0;
+}
 
 /**
  * 判定记录的文件名 —— **内容寻址**（ccg-record-content-addressing，2026-10-16）。
@@ -472,31 +499,6 @@ function recordFileName(stagedDiffHash, sha) {
   return `${sha}.json`;
 }
 
-/**
- * 是否该**保留**已存在的同名记录（即本次不覆盖它）。
- *
- * ★ 2026-10-16（QM-6 i3 + 变异反证 M7 暴露的缺口）：
- *   内容寻址让「同一变更反复提交/amend」落到同一个文件 —— 这是收敛性的来源，
- *   但副作用是后写静默覆盖先写。若先写那份的 deepReview 已有实质内容，覆盖会把它丢掉。
- *
- *   首版把这段判定**内联**在 saveRecord 里，只用「grep 源码字面」的结构锁守着；
- *   变异反证立即抓到缺口：把 `if (cond)` 改成 `if (false && cond)` 后所有字面仍在
- *   ⇒ 结构锁全绿而**行为已失效**。故抽成纯函数，让行为锁能真正调用它。
- *
- *   ★ 第二轮 i2：判据用 `PRESERVE_DEEP_REVIEW_STATUSES`（闭环 ∪ 已有 findings），
- *     不是闭环白名单 —— 后者漏了 self_play_blocked/pending，而它们恰有 findings。
- *
- * @returns {boolean} true = 保留旧记录、本次另存（不覆盖）
- */
-function shouldPreserveClosedRecord(prev) {
-  if (!prev || !prev.deepReview) return false;
-  const st = typeof prev.deepReview.status === "string" ? prev.deepReview.status : null;
-  if (st && PRESERVE_DEEP_REVIEW_STATUSES.has(st)) return true;
-  // 状态不在集合里，但已产出 findings ⇒ 同样不该丢（白名单外的未来态也能受益）
-  const f = prev.deepReview.findings;
-  return Array.isArray(f) && f.length > 0;
-}
-
 function saveRecord(result, sha, layer, plannedFiles) {
   const dir = path.join(process.cwd(), ".ccg", "reviews");
   fs.mkdirSync(dir, { recursive: true });
@@ -506,14 +508,42 @@ function saveRecord(result, sha, layer, plannedFiles) {
   // 用它做键会随自身输出移位。排除后，pre-commit 的「暂存 diff」与提交后的
   // 「parent..HEAD diff」逐字节相同，可以稳定对上（实测踩过：不排除就一次都跑不起来）。
   //
-  // ★ 先算出键、再用它取名 —— 名字与键**同源**，避免两处各算一次而漂移。
-  const stagedDiffHash = (() => {
+  // ★ QM-6 第三轮 i4：配方必须**固定 diff 行为**，否则跨机器/换配置时同一个变更
+  //   会算出不同哈希（记录找不到）。`--no-textconv --no-ext-diff` 关掉用户配置的
+  //   外部差异与 textconv 驱动；`--no-renames` 关掉重命名检测（否则「重命名 + 小改」
+  //   与「删除 + 新增」可能给出不同 diff 文本）。
+  //   注意：`autocrlf` 不在此列 —— 它影响的是工作区文件而非 git diff 的输出文本，
+  //   且强行 --no-autocrlf 会与仓库 .gitattributes 冲突。此项记为残留风险。
+  //
+  // ★ QM-6 第三轮 i5：哈希算不出来时**绝不静默回落父 sha** —— 那恰好回到本次要消灭的
+  //   跨分支撞名，且无任何告警。改为：显式告警 + 记录里写 stagedDiffHash:null，
+  //   让「无键」这件事本身可见（门禁与事后审计都能看到）。
+  const hashResult = (() => {
     try {
-      const d = String(git(["diff", "--cached", "--", ".", ":(exclude).ccg"]));
-      if (!d.trim()) return undefined;
-      return require("crypto").createHash("sha256").update(d).digest("hex");
-    } catch (_) { return undefined; }
+      const d = String(git([
+        "diff", "--cached", "--no-textconv", "--no-ext-diff", "--no-renames",
+        "--", ".", ":(exclude).ccg",
+      ]));
+      if (!d.trim()) return { hash: undefined, empty: true };
+      return { hash: require("crypto").createHash("sha256").update(d).digest("hex"), empty: false };
+    } catch (e) {
+      return { hash: undefined, empty: false, error: String(e && e.message ? e.message : e) };
+    }
   })();
+  const stagedDiffHash = hashResult.hash;
+  if (!stagedDiffHash) {
+    // 空 diff（纯 .ccg 提交）与算失败是两件事：前者回落父 sha 是既定设计，
+    // 后者是故障。必须分开报，否则「算失败」会被读成「本来就没有」。
+    // 注意：decider 是纯 node CLI，没有 shell 的 say()；告警走 stderr（console.error），
+    // 且**不得**污染 stdout —— 某些调用方会解析 stdout。
+    if (hashResult.empty) {
+      console.error("[ccg] 判定记录：暂存 diff（排除 .ccg）为空 ⇒ 回落父 sha 命名（纯 .ccg/ 提交）");
+    } else {
+      console.error("[ccg] ⚠ 无法计算 stagedDiffHash（" + (hashResult.error || "未知原因") + "）");
+      console.error("[ccg] ⇒ 不静默改用其他命名；本次仍用父 sha，但记录会写 stagedDiffHash:null。");
+      console.error("[ccg] ⚠ 这意味着本记录**仍可能撞名**（父 sha 被同基线分支共享）—— 请检查 git diff 是否可用。");
+    }
+  }
   const file = path.join(dir, recordFileName(stagedDiffHash, sha));
   const record = {
     sha,
@@ -747,7 +777,7 @@ module.exports = {
   isDocsOnly,
   recordFileName,
   CLOSED_DEEP_REVIEW_STATUSES,
-  PRESERVE_DEEP_REVIEW_STATUSES,
+  PRESERVE_BY_STATUS,
   shouldPreserveClosedRecord,
 };
 

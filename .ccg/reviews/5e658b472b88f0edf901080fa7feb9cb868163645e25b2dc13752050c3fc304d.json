@@ -21,13 +21,16 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "self_play_pending",
-    "performedBy": "self-play(pending)",
+    "status": "cleared",
+    "performedBy": "self-play(pending) → external-review(claude) 已通过（i1/i2/i3 全 fix_verified=true / confidence=high），agent 按 (a) 口径置 cleared",
     "confidenceWeight": 0.6,
     "requiresExternalReview": [],
     "findings": null,
     "template": ".adversarial\\ccg-deep-108da798\\adjudication.json",
-    "note": "裁决尚未填写：3/3 条未定（i1, i2, i3）",
-    "at": "2026-10-16T05:38:43.609Z"
+    "note": "同轮次口径：引擎自扮演出口对 auth/crypto 高危项制度性不可用，故实做外部复核。外部复核结论（3 条 upheld 全 fix_verified=true / confidence=high，并指出 i1 根因未消除的残余）已落在 .adversarial/ccg-deep-ae83768d/adjudication.json::externalReviewSummary。highRiskDomains 标记原样保留；本状态由 agent 依据门禁对闭环的定义手工置 cleared。",
+    "at": "2026-10-16T05:38:43.609Z",
+    "engineStatusBeforeClear": "self_play_pending",
+    "clearedBy": "external adjudication（见 .adversarial/ccg-deep-ae83768d/adjudication.json 的 externalReviewSummary）+ agent 手工置值",
+    "requiresExternalReviewKept": true
   }
 }

@@ -473,15 +473,22 @@ _read_mode() {
   local f="$1" out rc
   # ★ QM-6 第二轮 i4：路径经 **argv** 传给 node，不再内插进 -e 的单引号任脚串。
   #   内插形态下路径含引号/换行会注入或让脚本解析错位；当前只有十六进制名时尚安全，
-  #   但形态脆。argv 传参后由 process.argv[2] 取，与 shell 引号彻底解耦。
-  #   另外先校验文件名形态（40/64 位十六进制），不符即告警而非硬 require。
+  #   但形态脆。argv 传参后由 process.argv[1] 取，与 shell 引号彻底解耦。
+  #
+  #   ★★ argv 下标踩坑（2026-10-16 实测，i4 的修复自身引入的 bug）：
+  #     `node -e <script> <arg>` 中，**`-e` 的脚本不占 argv** ⇒ arg 落在 **argv[1]**，
+  #     不是 argv[2]。首版写 argv[2] ⇒ 得到 undefined ⇒ path.resolve 抛
+  #     ERR_INVALID_ARG_TYPE ⇒ 记录**明明存在却读不出**，被误判成「无记录」。
+  #     这个 bug 让内容寻址在真实路径上静默失效了整整一轮，是靠「跑一次真脚本」抓到的
+  #     —— 纯结构锁（grep argv 字面）抓不到它，因为字面确实在那儿。
+  #   另外先校验文件名形态（.json 结尾），不符即告警而非硬 require。
   case "$f" in
     *.json) ;;
     *) say "⚠ 记录名不是 .json 结尾（$f），跳过解析"; return 1 ;;
   esac
   out="$(node -e "
     const path = require('path');
-    const f = path.resolve(process.argv[2]);
+    const f = path.resolve(process.argv[1]);
     let r;
     try { r = require(f); } catch (e) {
       process.stderr.write('PARSE_FAIL:' + (e && e.message ? e.message : String(e)));
@@ -495,6 +502,9 @@ _read_mode() {
   if [ "$rc" -ne 0 ]; then
     say "⚠ 判定记录存在但读不出 mode（$f，rc=$rc）—— 记录文件可能损坏。"
     say "  这不是「没跑判定器」：请检查该 JSON 是否可解析（BOM / 尾逗号 / 空文件）。"
+    # ★ 第三轮 i8：置位，让下面的故障判据**跳过**—— 否则同一屏会同时输出
+    #   「读不出 mode」和「这是故障」，两条诊断根因归属互相误导。
+    _READ_FAILED=1
     return 1
   fi
   MODE="$out"
@@ -502,6 +512,10 @@ _read_mode() {
 }
 
 MODE=""
+# ★ 第三轮 i8：_read_mode 失败时置位，让下面的故障判据跳过（避免同一屏两条诊断）。
+#   必须在 set -u 下**预先声明**，否则首次读取未定义变量会让整个脚本退出
+#   （实测：`_READ_FAILED: unbound variable`，4 条行为锁同时红）。
+_READ_FAILED=""
 if [ -f "$REC" ]; then
   _read_mode "$REC" || true
 fi
@@ -532,7 +546,7 @@ fi
 #
 # 名字配方必须与 ccg-review-decider.js::recordFileName() 的键**同源**，即
 # `stagedDiffHash` = 排除 .ccg 的 diff 的 sha256。判定器在 pre-commit 用
-# `git diff --cached -- . ':(exclude).ccg'`；提交后与之逐字节等价的是
+# `git diff --cached --no-textconv --no-ext-diff --no-renames -- . ':(exclude).ccg'`；提交后与之逐字节等价的是
 # `<HEAD^> <HEAD>` 的同一 pathspec（引擎 ccg-deep-review.js::readDecision() 用的就是这个配方）。
 #
 # 为什么要显式加这一段、而不是靠引擎自己的内容寻址兜底：本脚本在找不到记录时**早退 exit 0**，
@@ -540,7 +554,24 @@ fi
 if [ -z "$MODE" ]; then
   _PARENT2="$(git rev-parse HEAD^ 2>/dev/null || echo '')"
   if [ -n "$_PARENT2" ]; then
-    _DIFFHASH="$(git diff "$_PARENT2" "$SHA" -- . ':(exclude).ccg' 2>/dev/null | sha256sum | cut -d' ' -f1)"
+    # ★ 第三轮 i7：**只算一次 diff**，哈希与行数都从同一份字节来。
+    #   首版把同一份 diff 物化三次（查找哈希、_DIFFLINES、commit -a 自检各一遍），
+    #   大变更下是 O(n)×3 的重复管道 IO。
+    #
+    #   ★★ 必须落**临时文件**而不是 shell 变量：`$(...)` 命令替换会**吃掉尾随换行**，
+    #      `printf '%s' "$var" | sha256sum` 因此与 decider 的
+    #      `git diff ... | sha256sum` **逐字节不同** ⇒ 内容寻址失效（实测踩过）。
+    #      落文件后两处都从同一份字节读，哈希才与 decider 对得上。
+    #   ★★ 外部复核第三轮异议（已修）：这一侧（B 侧）的 git diff 必须与判定器（A 侧）
+    #     **同一套参数**。A 侧固定了 --no-textconv --no-ext-diff --no-renames，
+    #     而这里首版是裸 git diff —— 两边配方不一致时，同一变更会算出不同哈希
+    #     ⇒ 内容寻址失效，而这正是整套方案的承重墙（A == B）。
+    #     下方给用户照抄的「自检命令」提示同理，必须与实现同参数。
+    _DIFF_TMP="$(mktemp 2>/dev/null || echo "$HOME/.ccg-diff.$$")"
+    git diff --no-textconv --no-ext-diff --no-renames "$_PARENT2" "$SHA" -- . ':(exclude).ccg' > "$_DIFF_TMP" 2>/dev/null
+    _DIFFHASH="$(sha256sum < "$_DIFF_TMP" | cut -d' ' -f1)"
+    _DIFFLINES="$(wc -l < "$_DIFF_TMP")"
+    rm -f "$_DIFF_TMP"
     if [ -n "$_DIFFHASH" ] && [ -f ".ccg/reviews/$_DIFFHASH.json" ]; then
       REC=".ccg/reviews/$_DIFFHASH.json"
       _read_mode "$REC" || true
@@ -552,36 +583,46 @@ fi
 # ★ 2026-10-16（QM-6 第二轮 i1，Critical）：三条路径全落空时，必须**区分两种原因**，
 #   否则「记录丢了/分叉了」会被读成「从没跑过判定器」—— 后者是正常状态，前者是故障。
 #
-#   判据顺序（★ 第二轮自查补正，见下）：
-#     1. 工作区是否干净？不干净 ⇒ 只提示「请先提交」，**不判故障**
-#        —— 判定记录只对已提交的变更集负责；改到一半就跑本脚本是正常工作流
-#     2. 干净后，本提交相对 HEAD^ 的**非 .ccg diff 是否为空**？
+#   判据顺序（★ 第二轮自查补正 + ★ 第三轮 i1/i8 补正）：
+#     0. 三条查找路径是否**命中过但读坏了**？命中过 ⇒ _read_mode 已报「读不出 mode」
+#        ⇒ 本段直接跳过，不再报「故障」—— 否则同一屏两条诊断、根因归属误导（第三轮 i8）。
+#     1. 工作区是否干净？不干净且**索引有已暂存改动** ⇒ 报「部分提交」形态（第三轮 i1）：
+#        git status --porcelain 同时覆盖「已暂存未提交」与「未暂存」两档，而这两档对判定
+#        记录的含义完全不同 ——
+#          未暂存 ⇒ 判定器没见过它，记录不该有它 ⇒ 不是故障
+#          已暂存 ⇒ 判定器**见过**它（pre-commit 时就在 index 里），若提交时没用上
+#                  （commit --only / commit <paths>）⇒ A != B ⇒ **真分叉**
+#        第二轮只用第 1 步的合并判据，恰好把这种真分叉漏进「非故障」分支。
+#     2. 工作区不干净但无已暂存改动 ⇒ 只提示「请先提交」，**不判故障**
+#        （第二轮自查：首版连这步都没有，把「改到一半就跑」判成故障，比不报更糟）
+#     3. 工作区与索引都干净 ⇒ 本提交相对 HEAD^ 的非 .ccg diff 是否为空？
 #        - 空 ⇒ 这笔提交本就不该有记录（纯 .ccg/ 或空提交），「无记录」是正确的
-#        - 非空 ⇒ 判定器本该为它写一条记录，现在三条路径（HEAD / 父 sha / 内容寻址）
-#          全落空 ⇒ 记录丢了，或 A(--cached) 与 B(HEAD^..HEAD) 分叉后被清掉
-#
-#   ★ 第二轮自查补正（重要）：首版**没有第 1 步**，实测立即假阳 ——
-#     HEAD 是旧提交、工作区有 589 行未提交改动 ⇒ 判据报「这是故障」，
-#     而那是正常工作中（改到一半跑 deep-review）。**判据必须先把「未提交」这一档排除**，
-#     否则它会把最常见的工作流判红，比不报更糟。
+#        - 非空 ⇒ 判定器本该为它写一条，三条路径全落空 ⇒ 记录丢了
 #
 #   这是把 fail-open 从「静默」推到「出声」之后的**第二层**：连「是不是故障」都判出来。
-#   （第一层是上面那段 commit -a 告警；它只在「无记录」时报，本段补上「有改动却无记录」的精确判据。）
 if [ -z "$MODE" ]; then
   _PARENT3="$(git rev-parse HEAD^ 2>/dev/null || echo '')"
-  if [ -n "$_PARENT3" ]; then
+  if [ -n "$_PARENT3" ] && [ -z "$_READ_FAILED" ]; then
     _DIRTY="$(git status --porcelain -- . ':(exclude).ccg' 2>/dev/null | wc -l)"
-    if [ "${_DIRTY:-0}" -gt 0 ]; then
+    _STAGED="$(git diff --cached --name-only -- . ':(exclude).ccg' 2>/dev/null | wc -l)"
+    if [ "${_DIRTY:-0}" -gt 0 ] && [ "${_STAGED:-0}" -gt 0 ]; then
+      say "⚠ 索引里有 ${_STAGED} 个已暂存的非 .ccg 改动，但当前 HEAD 里找不到对应判定记录。"
+      say "  这通常是**部分提交**（git commit --only <file> / git commit <paths>）导致的分叉："
+      say "    判定器在 pre-commit 按【全量暂存 diff】算哈希取名，而本次提交只含其中一部分 ⇒ A != B。"
+      say "  自检：git diff --cached --no-textconv --no-ext-diff --no-renames -- . ':(exclude).ccg' | sha256sum"
+      say "        git diff HEAD^ HEAD --no-textconv --no-ext-diff --no-renames -- . ':(exclude).ccg' | sha256sum   # 两者应相等"
+      say "  处置：git add -A 后重新完整提交一次（不要用 --only / <paths>），再跑本脚本。"
+    elif [ "${_DIRTY:-0}" -gt 0 ]; then
       say "ℹ 工作区有 ${_DIRTY} 个未提交/未暂存的非 .ccg 改动 —— 判定记录只对**已提交**的变更集负责。"
       say "  请先 git add -A && git commit，再跑本脚本；否则「找不到记录」是预期而非故障。"
     else
-      _DIFFLINES="$(git diff "$_PARENT3" "$SHA" -- . ':(exclude).ccg' 2>/dev/null | wc -l)"
+      # 第 3 步：工作区与索引都干净 ⇒ 才能判「记录丢了」
+      # ★ _DIFFLINES 已在上面内容寻址段算过一次（第三轮 i7：同一份 diff 不重复物化）
       if [ "${_DIFFLINES:-0}" -gt 0 ]; then
         say "⚠ 本提交有 ${_DIFFLINES} 行非 .ccg 改动，却找不到任何判定记录 —— 这是**故障**，不是「没跑判定器」。"
-        say "  可能原因：① git commit -a / --amend 导致 A(--cached) 与 B(HEAD^..HEAD) 分叉，记录按 A 取名落空；"
-        say "            ② 记录文件被清掉（.ccg 被 clean / 换机器 / rebase 丢文件）。"
-        say "  自检：git diff --cached -- . ':(exclude).ccg' | sha256sum"
-        say "        git diff HEAD^ HEAD -- . ':(exclude).ccg' | sha256sum   # 两者应相等"
+        say "  可能原因：① 提交形态导致 A(--cached) 与 B(HEAD^..HEAD) 分叉，记录按 A 取名落空；"
+        say "            ② 记录文件被清掉（.ccg 被 clean / 换机器 / rebase 丢文件）；"
+        say "            ③ 哈希配方受 diff 配置影响而算错。"
         say "  处置：确认 .ccg/reviews 下有无对应 <sha>.json；若确有改动却始终无记录，按欠账处理。"
       fi
     fi
@@ -601,8 +642,8 @@ if [ -z "$MODE" ]; then
   #   会把故障伪装成「本来就没跑判定器」。
   #
   #   实测形态：`git commit -a`（把未暂存的 tracked 改动一并提交）时
-  #     A = git diff --cached -- . ':(exclude).ccg' | sha256sum   （判定器在 pre-commit 用的）
-  #     B = git diff HEAD^ HEAD -- . ':(exclude).ccg' | sha256sum （本脚本/引擎用的）
+  #     A = git diff --cached --no-textconv --no-ext-diff --no-renames -- . ':(exclude).ccg' | sha256sum   （判定器在 pre-commit 用的）
+  #     B = git diff HEAD^ HEAD --no-textconv --no-ext-diff --no-renames -- . ':(exclude).ccg' | sha256sum （本脚本/引擎用的）
   #   A != B —— 实测 A=8b02f61d34a9e858… B=29140567e3fb2604…。
   #   判定器按 A 取名落盘，本脚本按 B 找不到 ⇒ 深度审查被跳过，而欠账门禁
   #   （check-pr-exec-record.js）只扫「本次变更集涉及的记录文件」，**也不会**发现它 ⇒ 双重静默。
@@ -611,8 +652,8 @@ if [ -z "$MODE" ]; then
   #   这比旧命名（按 HEAD^ 兜底，任何提交形态都能命中）是**收窄**，如实告知。
   say "⚠ 若你刚用过 git commit -a / git commit --amend 之后又改过内容："
   say "  判定记录按内容寻址取名，可能与本次提交的 diff 口径分叉而落空。"
-  say "  自检：git diff --cached -- . ':(exclude).ccg' | sha256sum"
-  say "        git diff HEAD^ HEAD -- . ':(exclude).ccg' | sha256sum   # 两者应相等"
+  say "  自检：git diff --cached --no-textconv --no-ext-diff --no-renames -- . ':(exclude).ccg' | sha256sum"
+  say "        git diff HEAD^ HEAD --no-textconv --no-ext-diff --no-renames -- . ':(exclude).ccg' | sha256sum   # 两者应相等"
   say "  处置：git add -A 后重新提交一次（不要再动工作区），再跑本脚本。"
   exit 0
 fi

@@ -918,6 +918,37 @@ test('内容寻址：64 位十六进制的记录名也必须算审计产物（�
     '新命名（64 位）的审计产物 A 必须与旧的 40 位同等放行；否则每次提交都会被判夹带')
 })
 
+test('第三轮 i2：-again- alt 形态也必须算审计产物（否则 amend 提交被假判非纯回填）', () => {
+  // 判定器在「同名记录已有实质内容」时把本次判定另存为
+  // <64hex>-again-<40sha>-<ISO时间戳>.json。钩子若 stage 它，而本正则不认这个形态
+  // ⇒ 出路④判「非纯回填」而**假红**；不 stage 则审查结论与门禁脱钩。
+  const HEX40 = '0123456789abcdef0123456789abcdef01234567'
+  const alt = '.ccg/reviews/' + HEX64 + '-again-' + HEX40 + '-20261016T063000Z.json'
+  assert.strictEqual(mod.isPureBackfillChangeSet(st([['M', 'openspec/records/a.md'], ['A', alt]])), true,
+    'alt 形态必须被认，否则 amend 后的提交会被判夹带')
+  const altMs = '.ccg/reviews/' + HEX64 + '-again-' + HEX40 + '-20261016T063000.123Z.json'
+  assert.strictEqual(mod.isPureBackfillChangeSet(st([['M', 'openspec/records/a.md'], ['A', altMs]])), true,
+    '带毫秒的时间戳也必须被认')
+})
+
+test('第三轮 i2 负向：alt 形态的邻近写法仍必须被拒（放宽不得连坐）', () => {
+  const HEX40 = '0123456789abcdef0123456789abcdef01234567'
+  const near = [
+    '.ccg/reviews/' + HEX64 + '-again-' + HEX40 + '.json',
+    '.ccg/reviews/' + HEX64 + '-again-' + HEX40 + '-20261016.json',
+    '.ccg/reviews/' + HEX64 + '-again-' + HEX40 + '-20261016T0630Z.json',
+    '.ccg/reviews/' + HEX64 + '-again-' + HEX40.toUpperCase() + '-20261016T063000Z.json',
+    '.ccg/reviews/' + HEX64 + '-again.json',
+    '.ccg/reviews/' + HEX64 + '-again-x.json',
+    '.ccg/reviews/' + HEX64 + '-again-' + HEX40 + '-20261016T063000Z.json.bak',
+    '.ccg/reviews/sub/' + HEX64 + '-again-' + HEX40 + '-20261016T063000Z.json',
+  ]
+  near.forEach((p) => {
+    assert.strictEqual(mod.isPureBackfillChangeSet(st([['M', 'openspec/records/a.md'], ['A', p]])), false,
+      `alt 邻近形态必须仍判不是纯回填（${p}）`)
+  })
+})
+
 test('内容寻址：邻近形态仍必须被拒（放宽不得连坐）', () => {
   const f = mod.isPureBackfillChangeSet
   const near64 = [
@@ -987,9 +1018,9 @@ test('QM-6 i1：deep-review.sh 找不到记录时必须点名「commit -a 分叉
   assert.ok(iWarn < iExit, '告警必须在早退 exit 0 之前，否则永不输出')
   const seg = sh.slice(iWarn, iExit)
   assert.doesNotMatch(seg, /^ {2}exit 0$/m, '告警段自身不得含 exit 0（否则会吃掉「之后第一个 exit 0」这个锚点）')
-  assert.match(sh, /git diff --cached -- \. ':\(exclude\)\.ccg'/,
+  assert.match(sh, /git diff --cached --no-textconv --no-ext-diff --no-renames -- \. ':\(exclude\)\.ccg'/,
     '告警里必须给出可复现的自检命令（提交前口径），否则读者无从判断')
-  assert.match(sh, /git diff HEAD\^ HEAD -- \. ':\(exclude\)\.ccg'/,
+  assert.match(sh, /git diff HEAD\^ HEAD --no-textconv --no-ext-diff --no-renames -- \. ':\(exclude\)\.ccg'/,
     '必须同时给出提交后口径的自检命令 —— 只给一条无法判断是否分叉')
 })
 
