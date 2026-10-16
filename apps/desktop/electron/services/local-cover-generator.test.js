@@ -173,6 +173,18 @@ describe('local-cover-generator — 内容感知封面（纯函数，不依赖 s
     expect(Number(m[1])).toBeGreaterThan(1080 * 0.5)
   })
 
+  // QM-6 评审 i2（2026-10-16）：临时 SVG 必须回收，否则批量做 N 条封面就堆 N 个垃圾文件
+  it('栅格化后不残留临时 SVG（finally 回收）', async () => {
+    const svgDir = path.join(os.tmpdir(), 'mp-cover-svg')
+    const countSvg = () => {
+      try { return fs.readdirSync(svgDir).filter(f => f.endsWith('.svg')).length } catch (_) { return 0 }
+    }
+    const before = countSvg()
+    const r = await generateLocalCover('临时文件回收验证', { outputDir: TMP_DIR, content: '封面清理' })
+    expect(r.code).toBe(0)
+    expect(countSvg(), '每次生成都在 os.tmpdir()/mp-cover-svg 留下一个 SVG，长期堆积').toBe(before)
+  }, 60000)
+
   it('生成结果回传 theme / themeLabel / keywords', async () => {
     const r = await generateLocalCover('每月定投指数基金', { outputDir: TMP_DIR, content: '基金定投理财复盘' })
     expect(r.code).toBe(0)
