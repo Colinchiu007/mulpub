@@ -152,13 +152,30 @@ function listApiPlatforms() {
  * 取值走 **derivePublishMode() 单一来源**（缺省派生不再本地复写，见其注释），
  * 再经 normalizeMode 归一。非法值 normalizeMode 抛错（fail-closed），
  * 避免误配置静默走错轨。
+ *
+ * ★ CCG 第八轮 i2（upheld）：本函数与 shouldUseApi 必须**同一口径**。
+ *   shouldUseApi 走 isApiTrackForPlatform（fail-safe：坏配置告警 + 返回 false ⇒ 非 API 轨），
+ *   若本函数对同一份坏配置仍**抛错**，两个读者结论相反（一个说「非 API 轨」、一个炸），
+ *   正是本 PR 声称要消灭的判据分叉。故本函数提供同口径的 fail-safe 版本：
+ *   坏配置 ⇒ 告警 + 返回 dom-only（与 shouldUseApi 的 false 一致）。
+ *
  * @param {string} platform
+ * @param {{safe?: boolean}} [opts] safe=true 时坏配置不抛错，告警后返回 dom-only
  * @returns {string} 'api-only' | 'api-then-dom' | 'dom-only'
  */
-function getPublishMode(platform) {
+function getPublishMode(platform, opts) {
   var pm = require('./publish/core/publish-mode');
   var raw = derivePublishMode(loadConfig()[platform]);
-  return pm.normalizeMode(raw);
+  try {
+    return pm.normalizeMode(raw);
+  } catch (e) {
+    if (opts && opts.safe) {
+      logger.warn('api-router',
+        `publishMode 非法，${platform} 暂按 dom-only 处理（与 shouldUseApi 的 fail-safe 口径一致）: ${e.message}`);
+      return pm.MODES.domOnly;
+    }
+    throw e;
+  }
 }
 
 async function publishWithFallback(platform, taskData, cookie, opts) {

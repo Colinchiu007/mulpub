@@ -186,22 +186,31 @@ function changedLineRanges(file) {
 function parseSecurityHitLines(output, file) {
   const hits = [];
   let fileLevel = 0;
+  let mentioned = 0;
   const rel = String(file || '').replace(/\\/g, '/');
   const relBack = String(file || '').replace(/\//g, '\\');
   const base = path.basename(rel);
   for (const line of String(output).split(/\r?\n/)) {
     const m = line.match(/\.(?:js|ts|py|go|java|rs|c|cpp|php):(\d+)/i);
     if (m) {
-      // 完整相对路径匹配（两种分隔符形态），避免不同目录同名文件互认
-      const isThisFile = (rel && line.includes(rel)) || (relBack && line.includes(relBack));
+      // ★ CCG 第八轮 i5（upheld）：接受三种路径形态 —— 相对路径（正/反斜杠）与 basename。
+      //   只匹配相对路径时，扫描器若输出 **Windows 绝对路径**（D:\…\file.js:12）
+      //   会把命中静默丢掉 ⇒ hits=0 ⇒ 落入 fail-closed 保留 FAIL（方向保守），
+      //   但会把「路径形态不匹配」伪装成「没有命中」。现在三种形态都认。
+      const isThisFile = (rel && line.includes(rel))
+        || (relBack && line.includes(relBack))
+        || (base && line.includes(base));
       if (!isThisFile) continue;
       hits.push(Number(m[1]));
       continue;
     }
     // 提到本文件但没给行号 ⇒ 文件级命中，无法用区间判定，按 fail-closed 处理
-    if ((rel && line.includes(rel)) || (relBack && line.includes(relBack))) fileLevel++;
+    if ((rel && line.includes(rel)) || (relBack && line.includes(relBack)) || (base && line.includes(base))) {
+      fileLevel++;
+      mentioned++;
+    }
   }
-  return { hits, fileLevel };
+  return { hits, fileLevel, mentioned };
 }
 
 function runGate(ccgDir, gate, target) {
@@ -408,16 +417,45 @@ function main() {
         };
       }
       const hits = parsed.hits;
-      if (hits.length === 0) return r;
+      // ★ CCG 第八轮 i5（upheld）：扫描输出**提到过本文件**却一个行号都没抽出
+      //   ⇒ 路径形态不匹配（如扫描器输出绝对路径而我们只认相对路径）。必须显式说出，
+      //   否则会把「解析失败」误读成「没有命中」（本次已让三种路径形态都认，但仍保留诊断）。
+      if (hits.length === 0) {
+        if (parsed.mentioned > 0) {
+          return {
+            ...r,
+            output: r.output
+              + `\n[存量过滤·诊断] 扫描输出提到本文件 ${parsed.mentioned} 次但未抽到任何行号`
+              + ` ⇒ 路径形态可能不匹配（相对/反斜杠/绝对路径）。本次不过滤（fail-closed）。`,
+          };
+        }
+        return r;
+      }
       const inDiff = hits.filter((ln) => ranges.some(([a, b]) => ln >= a && ln <= b));
-      if (inDiff.length === hits.length) return r;
-      const preExisting = hits.length - inDiff.length;
+      const preExisting = hits.filter((ln) => !inDiff.includes(ln));
+      if (preExisting.length === 0) return r;   // 全部在区间内 ⇒ 全部算本次引入，不过滤
+      // ★ CCG 第八轮 i1（Critical，upheld）：**必须逐条判定，不得整体放行**。
+      //   原写法 `if (inDiff.length === hits.length) return r; 否则整体 code:0` ——
+      //   只要混入**任意一条**存量命中，就把整条输出（含区间内真实新增的命中）一起豁免
+      //   ⇒ fail-open，比不过滤更危险。现在：区间内命中仍然阻断，只在输出里注明
+      //   「另有 N 条区间外命中已按存量豁免」。
+      if (inDiff.length > 0) {
+        return {
+          ...r,
+          output: r.output
+            + `\n[存量过滤·部分豁免] ${preExisting.length}/${hits.length} 处命中不在本次 diff 区间内`
+            + `（已按存量豁免）；但仍有 ${inDiff.length} 处**区间内命中 ⇒ 保留阻断**。`
+            + `\n           改动区间: ${ranges.map(([a, b]) => `${a}-${b}`).join(", ")}`
+            + `\n           命中行号: ${hits.join(", ")}（区间内: ${inDiff.join(", ")}）`,
+        };
+      }
+      // 全部命中都在区间外 ⇒ 整体按存量豁免（保留原样降级）
       return {
         ...r,
         code: 0,
         blocking: false,
         output: r.output
-          + `\n[存量过滤] ${preExisting}/${hits.length} 处命中不在本次 diff 改动区间内 ⇒ 判为存量，不阻断提交。`
+          + `\n[存量过滤] ${preExisting.length}/${hits.length} 处命中不在本次 diff 改动区间内 ⇒ 判为存量，不阻断提交。`
           + `\n           改动区间: ${ranges.map(([a, b]) => `${a}-${b}`).join(", ")}`
           + `\n           命中行号: ${hits.join(", ")}（请人工复核是否确为存量）`
           + `\n           （fail-closed：区间解析失败 / 文件级命中 / 本次未改此文件时不过滤）`,

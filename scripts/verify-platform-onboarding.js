@@ -326,33 +326,52 @@ function buildChecks (slug) {
           detail: `has_api:true 但既无 publish/platforms/${chainPrefix}*.js 也无 adapters/${slug}.js ⇒ 空声明`,
         }
       }
-      // ★ CCG 第四轮 i3（upheld）：原判据只查**适配器文件存在**，detail 却断言
-      //   「已由 src/index.js 注册」——文件在而没被 require 时会给**虚假证据**。
-      //   这正是 i1 指责的「证据链未固化」换个位置复发。现在把这句话变成真判据：
-      //   读 index.js，断言它确实 require 了该适配器（找不到 require ⇒ FAIL）。
+      // ★ CCG 第八轮 i3（upheld）：光看「文件在 + index.js 里有 require 字串」仍不够 ——
+      //   registration 字串命中 ≠ api-router **真的会把这个平台调度到适配器**。
+      //   最硬的判据是直接问运行时：require api-router，调它的 shouldUseApi(slug)。
+      //   它读同一份 platforms.yaml、走同一套两轴合取 ⇒ 判据与运行时**同源**。
       //
-      //   ★ CCG 第七轮 i1（upheld）：`index.js` 读不到时**不得短路放行**。
-      //     原写法 `if (indexSrc && !re.test(indexSrc))` 在 indexSrc 为 null/空串时
-      //     整个校验被跳过 ⇒ 平台仍 PASS 且 detail 照样声称「已注册」——证据链断裂却放行
-      //     （fail-open）。现在读不到就**判 FAIL**（fail-closed）：无法证明注册即不放行。
-      const indexSrc = read('packages/api-publish-engine/src/index.js')
-      if (!indexSrc) {
+      //   ⚠️ 本次实测立刻抓到一个**判据与运行时的真实分歧**（对账的价值）：
+      //     youtube/twitter 是「has_api:true（有实现）+ publishMode=dom-only（未入波）」，
+      //     旧口径判「未入波 ⇒ PASS」，而运行时 shouldUseApi 对它们返回 **false**
+      //     （两轴合取：没有 API 轨可走）。裁定：**运行时是对的**（能力轴不等于轨道轴），
+      //     判据旧口径错。故这里的对账断言改为：
+      //       · shouldUseApi(slug) === false ⇒ 该平台当前不走 API 轨 ⇒ **PASS**
+      //         （detail 说明「未入波：有实现、当前 DOM 轨」）；
+      //       · shouldUseApi(slug) === true  ⇒ 必须配有实现证据（链或适配器），否则 FAIL；
+      //       · 读不到 api-router ⇒ FAIL（fail-closed，判据不闭环）。
+      let runtimeSays = null
+      let runtimeErr = null
+      try {
+        const router = require(path.join(ROOT, 'packages/api-publish-engine/src/api-router.js'))
+        runtimeSays = router.shouldUseApi(slug)
+      } catch (e) {
+        runtimeErr = e.message
+      }
+      if (runtimeErr) {
         return {
           ok: false,
-          detail: '读不到 packages/api-publish-engine/src/index.js ⇒ 无法证明适配器已注册（fail-closed）',
+          detail: `require api-router 失败，无法与运行时对账 ⇒ 判据不闭环（fail-closed）: ${runtimeErr}`,
         }
       }
-      const adapterRequireRe = new RegExp(`require\\(['"]\\./adapters/${slug}['"]\\)`)
-      if (!adapterRequireRe.test(indexSrc)) {
+      if (runtimeSays !== true) {
+        return {
+          ok: true,
+          detail: `has_api:true 但运行时 api-router.shouldUseApi('${slug}')=false`
+            + ` ⇒ 未入波：有 API 实现（adapters/${slug}.js、publishMode=${publishMode}），当前不走 API 轨`,
+        }
+      }
+      if (!hasAdapter) {
         return {
           ok: false,
-          detail: `adapters/${slug}.js 存在但 src/index.js 未 require 它 ⇒ 有文件、无注册（不可达）`,
+          detail: `运行时 shouldUseApi('${slug}')=true（要走 API 轨）但 adapters/${slug}.js 不存在`
+            + ' ⇒ 该轨无可调度实现',
         }
       }
       return {
         ok: true,
-        detail: `has_api:true 有 API 适配器（adapters/${slug}.js，已由 src/index.js 注册）但 0 个链`
-          + ` ⇒ 未入波（publishMode=${publishMode}），按本仓两轴语义合法（能力轴 vs 轨道轴）`,
+        detail: `has_api:true 且运行时 api-router.shouldUseApi('${slug}')=true（两轴合取同源对账通过）`
+          + `，DOM 链 ${chainFiles.length} 个`,
       }
     }
     const entries = read('packages/api-publish-engine/src/platform-entries.js') || ''
