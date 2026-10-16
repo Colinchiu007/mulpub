@@ -1088,6 +1088,12 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 | `podcast.compliance.reasonsTitle` | 具体原因 | Details |
 | `podcast.compliance.degradeNotice` | 本期信息不完整，仍可播出，但建议先修复 | This episode looks incomplete. It can still publish; fixing it first is recommended |
 
+> 落地状态（2026-10-15，PR 待回填号）：这四把键与频道页三态徽标**已随本片落地**——`ok` 不渲染任何东西、
+> `stock` 显示「存量沿用（未重新校验）」、`invalid` 显示计数句加逐条原因（原因逐字走 `usePodcastChannel` 的 `issueText`，
+> 展示层不另建码表）；`compliance` 键**缺席**时整块不显示，绝不渲染成「0 项不符合」。
+> 同一条 PR **不含** §7.4.0 第 1 条的「来源三态标注」——那需要先把解析层的 `origin`/`resolvedBy` 扩进 IPC 投影（触主进程，QM-1），属另一片。
+
+
 术语与 `01-docs/i18n-glossary.md` 对齐：「存量」不得与「历史数据/旧数据」混用；
 改词典必须同 PR 跑 `apps/desktop/src/i18n/glossary.test.js`（键级成对锁覆盖不到术语成对）。
 

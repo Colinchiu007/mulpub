@@ -195,6 +195,13 @@ export default {
       unresolved: '{count} episodes could not be typed; regenerate to resolve',
       skippedChannels: '{count} channels could not be frozen; retry required',
     },
+    // PRD §8.2.5 (tasks 4.5 badge). No `ok` entry on purpose: a clean episode renders nothing.
+    compliance: {
+      stock: "Legacy value kept (not re-validated)",
+      invalid: "{count} items do not meet publishing requirements",
+      reasonsTitle: "Details",
+      degradeNotice: "This episode looks incomplete. It can still publish; fixing it first is recommended",
+    },
     errors: {
       // Slice 3 (episode from final video). Domain-code map per PRD §6.4; the podcast.episode.*
       // entries below are the overlay-facing copy and are deliberately a separate layer from these.
