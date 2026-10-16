@@ -19,8 +19,12 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "self_play_resolved",
+    "performedBy": "lead-agent-inline-review",
+    "findings": "External review backends unavailable: claude 403 subscription quota; codex 401 via CC-Switch proxy; opencode hung >30min no output (job killed). Degraded per AGENTS.md 子代理降级 discipline. Inline adversarial review by lead agent: (1) CDP getResponseBody — single try/catch per request, failure resolves empty string, no reject path; base64 decode guarded; (2) _waitForResponseExclusive races — settled flag checked in both webRequest and CDP handlers before settleWith; clearTimeout before resolve; fallbackTimer re-checks settled; (3) XHR/fetch intercept — pure pass-through wrappers (fetch returns original response, clone for body read; XHR calls original open/send); idempotent via __mpSaveIntercepted flag; cache capped 5x200KB; (4) error-signal guard — conservative whitelist; known business errors (64714/protect_status) mapped before guard so no regression. No CRITICAL/MAJOR found. Evidence: 19 regression tests + 3/3 mutations + QM-1 package/startup.",
+    "error": "exit 1 [claude]: Backend: claude\n  Command: claude -p --dangerously-skip-permissions --setting-sources  --output-format stream-json --verbose -\n  PID: 36252\n  Log: D:\\Temp\\codeagent-wrapper-36252.log\n  Session-ID: ccdd6fdc-aa58-40d1-992d-8fa9b18f9246\n\n=== Recent Errors ===\nUsing stdin mode for task due to: piped input, explicit \"-\", newline, backslash, double-quote, single-quote, backtick, length>800\nclaude exited with status 1\nLog file: D:\\Temp\\codeagent-wrapper-36252.log (deleted)",
+    "validationErrors": null,
+    "at": "2026-10-16T13:15:14.051Z",
+    "degradedAt": "2026-10-16T14:03:29.2507477Z"
   }
 }

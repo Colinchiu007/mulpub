@@ -24,6 +24,7 @@ sync_pr: PENDING
 | 行数与行尾门禁 | PASS | `check-max-lines.js` ✅（helpers 440 行 <500，新模块独立计）；编码完整性 ✅ 无新增损坏；numstat 两口径一致 |
 | ESLint | PASS | 改动文件 **0 error**；6 个 warning 逐一核对均为存量（main 同文件已有，diff hunk 不含） |
 | QM-4 视觉 | N/A | 无渲染层 / CSS / 模板改动 |
+| QM-6 双模型评审 | 降级闭环 | deep-review 判定 DUAL（609 行 > 200 阈值），但三个外部评审后端全部不可用：claude 403 订阅额度、codex 401（CC-Switch 代理缺鉴权头）、opencode 挂起 30 分钟无输出（job 终止）。按 AGENTS.md「子代理降级」纪律降级为 Lead 代理内联对抗评审（CDP 用法/竞态/拦截副作用/守卫启发式四维，无 CRITICAL/MAJOR），判定记录 status 置 `self_play_resolved` + 降级原因落盘 `.ccg/reviews/3c8617355*.json` |
 | 真机验证 | ⚠️ PENDING | 本机无公众号会话（同第一例遗留）；`appMsgId` 字段名与「URL 不跳转」沿用参考产品取证口径；CDP 与行为层并发共存需真机观察日志 |
 
 ### 变异反证明细
