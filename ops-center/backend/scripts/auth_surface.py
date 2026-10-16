@@ -60,10 +60,13 @@ PUBLIC_ALLOWLIST: dict[str, str] = {
     "POST /api/auth/login": "登录入口，必须免鉴权（它本身签发会话）",
     "POST /api/auth/logout": "登出入口，无凭据也应可调用（幂等清理）",
     "GET /health": "存活探针，供外部监控与容器编排",
-    "GET /api/v1/rewrite-ai-taste/runtime": "已知暴露面：桌面端零调用，bootstrap 走 service 直调（见 tests/test_auth_surface.py 的 # 已知暴露面 断言）",
-    "GET /api/v1/rewrite-hard-constraints/runtime": "同上",
-    "GET /api/v1/rewrite-strategies/runtime": "同上",
 }
+# 2026-10-16（change: harden-runtime-endpoints-auth）摘除三条 `GET /<资源>/runtime`：
+# 它们曾以「供 bootstrap 内部组装使用」为由免鉴权，该前提与事实在同一次提交内即已矛盾
+# （bootstrap 从第一天起就走 service 层直调，不经 HTTP）。失效证据、设计决策与残留的
+# **单一真源**在 `openspec/records/harden-runtime-endpoints-auth.md`——勿在此复制背景叙述。
+# 契约锁：`tests/test_runtime_endpoints_require_auth.py`（含反向断言「已收紧的端点不得再挂在
+# 豁免名单上」+ 非空转守卫）。
 
 # ── PRD 鉴权描述的机械对账表 ──────────────────────────────────────────────
 # 判据方向：实现是唯一真源（本模块反射出来的），PRD 被判。

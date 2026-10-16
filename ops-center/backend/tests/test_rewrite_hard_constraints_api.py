@@ -70,7 +70,7 @@ async def test_seed_provides_default():
 @pytest.mark.asyncio
 async def test_runtime_returns_default():
     async with _client() as c:
-        r = await c.get("/api/v1/rewrite-hard-constraints/runtime")
+        r = await c.get("/api/v1/rewrite-hard-constraints/runtime", headers=_admin_headers())
         assert r.status_code == 200
         item = r.json()["item"]
         assert item is not None
@@ -118,8 +118,8 @@ async def test_set_default_unique():
         defaults = [x for x in items if x["isDefault"]]
         assert len(defaults) == 1
         assert defaults[0]["id"] == "hc-test-2"
-        # runtime 现在返回新默认
-        r = await c.get("/api/v1/rewrite-hard-constraints/runtime")
+        # runtime 现在返回新默认（且与列表端点同样需要登录，复用本测试的 headers）
+        r = await c.get("/api/v1/rewrite-hard-constraints/runtime", headers=headers)
         assert r.json()["item"]["content"] == "规则B"
 
 

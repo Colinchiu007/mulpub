@@ -21,8 +21,14 @@ async def list_entries(
 @router.get("/runtime")
 async def runtime_entries(
     db: AsyncSession = Depends(get_db),
+    user: dict = Depends(get_current_user),
 ):
-    """运行时全量词库（免鉴权，供 bootstrap 内部组装使用；含 enabled=0 条目）。"""
+    """运行时全量词库（含 enabled=0 条目）；鉴权同本资源列表端点（``get_current_user``）。
+
+    本条曾以「供 bootstrap 内部组装使用」为由免鉴权，2026-10-16 收紧。失效证据、设计决策
+    与残留**单一真源**在 ``openspec/records/harden-runtime-endpoints-auth.md``（勿在此复制背景
+    叙述，避免多源漂移）；契约锁见 ``tests/test_runtime_endpoints_require_auth.py``。
+    """
     items = await rewrite_ai_taste_service.list_runtime_entries(db)
     return {"items": items, "count": len(items)}
 

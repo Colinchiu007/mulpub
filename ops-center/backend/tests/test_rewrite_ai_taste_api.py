@@ -172,7 +172,7 @@ async def test_s7_runtime_includes_disabled():
         r = await c.get("/api/v1/rewrite-ai-taste", headers=_admin_headers())
         first = r.json()["items"][0]["word"]
         await c.post(f"/api/v1/rewrite-ai-taste/{quote(first)}/toggle", headers=_admin_headers())
-        r = await c.get("/api/v1/rewrite-ai-taste/runtime")
+        r = await c.get("/api/v1/rewrite-ai-taste/runtime", headers=_user_headers())
         assert r.status_code == 200
         items = r.json()["items"]
         assert any(x["word"] == first and x["enabled"] == 0 for x in items)
@@ -180,7 +180,14 @@ async def test_s7_runtime_includes_disabled():
 
 @pytest.mark.asyncio
 async def test_s8_auth_matrix():
-    """S8 鉴权矩阵（未登录 401；非 admin 403；runtime 免鉴权）。"""
+    """S8 鉴权矩阵（未登录 401；非 admin 403；runtime 现已需登录）。
+
+    `runtime` 原先在本矩阵里被断言为「免鉴权（200）」，2026-10-16 起改为与同资源列表端点
+    一致的 `get_current_user`（change: harden-runtime-endpoints-auth）。此处保留它在本矩阵中，
+    正是为了把这次的**语义反转**留在原处可见，而不是让旧断言悄悄消失。
+    完整契约（含伪造令牌、非 admin 放行、白名单反向断言）见
+    `tests/test_runtime_endpoints_require_auth.py`。
+    """
     async with _client() as c:
         r = await c.get("/api/v1/rewrite-ai-taste")
         assert r.status_code == 401
@@ -188,5 +195,8 @@ async def test_s8_auth_matrix():
             "word": "越权词", "replacement": "x", "severity": "S2",
         })
         assert r.status_code == 403
+        # runtime：未登录 401，登录后 200（曾经是「免鉴权 ⇒ 恒 200」）
         r = await c.get("/api/v1/rewrite-ai-taste/runtime")
+        assert r.status_code == 401
+        r = await c.get("/api/v1/rewrite-ai-taste/runtime", headers=_user_headers())
         assert r.status_code == 200
