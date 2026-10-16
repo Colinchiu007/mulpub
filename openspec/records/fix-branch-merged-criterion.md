@@ -3,15 +3,12 @@ record: fix-branch-merged-criterion
 task: 纠正 AGENTS.md「比树判分支已合并」这条恒假判据，改为「收敛到本 PR 文件集 + 普通文件逐字节 / 追加型文件双向行级」
 date: 2026-10-16
 # ↓ 下面三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
-sync_status: PENDING
-sync_reason: 本 PR（fix-branch-merged-criterion）尚未合并；合并后由回填 PR 把远程同步行改为 PASS 并删除本段三个字段
-sync_backfill_owner: 下一个会话（合并后改为 PASS 并删除本段三个字段；新载体不进 JSON ledger）
 ---
 
 ## 本次执行记录：判「分支内容已进主干」的判据面纠正（fix-branch-merged-criterion，2026-10-16）【docs-only】
 
 - 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD` → `docs-only=true`（files=2：`AGENTS.md`、本记录）
-- 保留门禁：变更类型与隔离 ✅ | 行尾对账（两口径 numstat）✅ | 品牌残留 ✅ | 文档同步 ✅ | CHANGELOG 不适用（理由见下）| 远程同步 PENDING
+- 保留门禁：变更类型与隔离 ✅ | 行尾对账（两口径 numstat）✅ | 品牌残留 ✅ | 文档同步 ✅ | CHANGELOG 不适用（理由见下）| 远程同步 PASS
 
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
@@ -24,7 +21,7 @@ sync_backfill_owner: 下一个会话（合并后改为 PASS 并删除本段三�
 | 接线棘轮 | PASS | 不改 workflow、不改 `CI_IGNORED_PATHS`、不动分支保护、不改任何脚本与账本 ⇒ 无新增测试文件需点名，`check-unwired-tests` / `check-step-failfast` / `check-workflow-structure` 复验见 PR 正文 |
 | CHANGELOG | N/A | docs-only 通道该项标注"如适用"。本改动只改**贡献者侧的删除判据文案**，无用户可见行为变化；`CHANGELOG.md` 是本仓最热的并发写面，为一条文档措辞去插块只会增加 re-sync 轮次，不值。不适用这件事在此写明，不静默省略 |
 | QM-1 打包 / QM-4 视觉 / TDD / QM-6 | N/A | docs-only：未触 `apps/desktop/electron/`、`packages/rpa-engine/`、任何 `.vue`/样式/基线 PNG；无运行时代码可测；QM-6 按「纯文档/流程变更不强制」判 N/A（三通道本轮实测仍不可达，故也不存在"跑了没问题"这回事） |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin fix-branch-merged-criterion` 返回 0 行证远端分支已删；回填时把本行改写为 PASS 并**删除上方三个 `sync_*` 字段**（同一次提交内完成，不在 JSON ledger 留项）。合并后另按收尾清单第 7 条回读 main push：本 PR 只改 `AGENTS.md` 与本记录 ⇒ 预期落在 `NO_RUN(by design)` 那一档，如实记这一档 |
+| 远程同步 | PASS | 本 PR 即 **#3741**，`state=MERGED`，merge SHA `757ecd1a19793847797c8b22a091d1fd0fc87564`，merge 时间 2026-10-16T14:49:16Z。取证：main 主题尾 `(#3741)$` 检索**恰好 1 行**；远端分支 `fix-branch-merged-criterion` 的 ref 查询返回 **404**（随 squash 删除）；`AGENTS.md` 与本记录按本片刚立的 `C` 判据复核——两者都是普通文档面，逐字节比 blob 即成立。**关联 issue #3674 已带证据关闭**（评论 `#issuecomment-6218110504`，`state=CLOSED / closedAt=2026-10-16T14:50:35Z` 已回读），评论里显式写明"本 issue 提议的 `-- $FILES` 缩面仍有 2/5 假阳性"，防后来者照提案结案。 **收尾清单第 7 条回读**：原预期"`NO_RUN(by design)`"**实测成立**——该 merge SHA 上只有 `债务熔断门禁` 在排队，`quality-gate` 零 push run（本 PR 只改 `AGENTS.md` 与记录，两者都在 `paths-ignore` 内）⇒ 既不把"没有 run"读成丢证，也不拿它当免检。主干侧当下能取到的读数如实记：最后一次**有** quality-gate push run 的是 `acf5362b6`（#3725，run `38902290942` = `success`），其后我合的三次（#3728 / #3732 / #3741）均为纯文档/记录类，按设计不跑；下一次会有 run 的是 `456214660`（他人代码合并），回读时仍 `in_progress` —— **不代判它的结论，也不替他人清账**。同一次提交内删除 frontmatter 的三个 `sync_*` 字段（新载体不进 JSON ledger） |
 
 ### 遗留（不假装已闭合）
 
