@@ -1,3 +1,11 @@
+# [未发布] docs(openspec): 变更归档审计——51 个活跃变更里只有 1 个"可安全归档"，本轮归档它并给其余 50 个定判据（openspec-archive-audit）
+
+- **第一性原因不是"谁忘了归档"，是归档前置条件从没被定义过**：`openspec/changes/` 攒到 51 个活跃变更，仓内没有任何东西回答"哪些已合并、哪些现在就能归档"；`scripts/openspec-sync-check.js` 只查 change 引用**悬空**（引用不到就红），**反向不查**（做完没归档完全无声）。于是每次清理都要现场重造判据。
+- **三条判据**：任务全勾 ∧ delta 的每个 `### Requirement:` **整块**（标题+正文+场景）已在主规格里 ∧ 有 `MERGED` 证据。第二条是本轮刻意收紧的地方——**只比标题名不够**，同名少一段正文就是规格丢失。按此实测分桶 **A=1 / B=3 / C=43 / D=4**。
+- **已归档那一个**：`film-production-artifact-identity` → `archive/2026-10-16-film-production-artifact-identity`（6 文件纯 rename，内容零改写）。任务 27/27 已勾；`film-engineering` 主规格 16 条里整块命中 **3/3**；PR #3427 `MERGED`，merge SHA `e82c1d3f7`。**归档动作零新增违规**由 A/B 对照证：搬迁前后各跑一次审计器，两份输出**逐字节相同**（同为 `rc=2 / 14 条`，那 14 条是本工作树基于 main 的既有状态、由 PR #3693 在修）。
+- **B 类三个看着最像"该归档了"，实则不能动**：`collection-ui-refinement` / `quick-collect` / `wechat-mp-publish-track` 任务都全勾，但它们的主规格**整份不存在**——归档本身不会把 delta 搬进主规格，真归档这三组需求就永久留在 `archive/` 里。C 类 43 个的未勾数从 1 跨到 55，两端语义几乎一定不同，**本轮未逐个判**（那是 43 次实质核查，不属于一次卫生审计）。D 类 4 个**根本没有 `tasks.md`**，任何"`grep -c [ ]` == 0 ⇒ 可归档"的朴素写法都会把它们判成满足，本审计对这类返回 `-1` 并单列。
+- **没顺手加机械门禁，是刻意的**：`CHANGE_READY_TO_ARCHIVE`（三条判据 ⇒ 出声不拦）的判据形状已写进审计文档 §七，但它要改的正是 #3693 正在改造与接线的 `openspec-sync-check.js` 判据集——同期改两处会让两个 PR 的判据变更无法分别归因。所以"A 类又攒了几个"目前仍无人看，这是既有缺口的缩小而非闭合。
+- 判据、复现命令（不依赖本地脚本）、B/C/D 三类的下一步与归属见 `01-docs/AUDIT-OPENSPEC-ARCHIVE-2026-10-16.md`；QM-5 全过程与一条入口偏离（共享根有他人 4 个未提交文件 ⇒ `start-mp-task.ps1` 的 `-RequireClean` 拒绝创建，改用 `git worktree add` 直建并当场验可进入）见 `openspec/records/openspec-archive-audit.md`。
 # [未发布] feat(frequency): 发布频率策略 v4——平台间隔三档统一 1′、日配额 200/350/500（publish-frequency-policy-v4）
 
 - 数值（唯一落点 `packages/shared-utils/src/publish-frequency-policy.js`）：`platformMinMs` 由按档分级 3′/2′/1′ 改为**三档统一 1′**；`accountDailyMax` 由 30/50/200 改为 **200/350/500**（用户口径"最低 200、最高 500"，中间档 350 按档间单调推导）。账号档间隔 5′/3′/1′、抖动 0.4、退避下界 10s、紧急放行额度、D1 判据、回滚硬顶公式**一字未动**。
