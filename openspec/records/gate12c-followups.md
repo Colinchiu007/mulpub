@@ -3,9 +3,6 @@ record: gate12c-followups
 task: 两处口径换代余波的收口——我自己记录里的 worktree 绝对路径占位符化（账本纯收紧），以及给收尾清单第 7 条补「按 (merge SHA, workflow) 这一格判」的限定
 date: 2026-10-16
 # ↓ 下面三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
-sync_status: PENDING
-sync_reason: 本 PR（gate12c-followups）尚未合并；合并后由回填 PR 把远程同步行改为 PASS 并删除本段三个字段
-sync_backfill_owner: 下一个会话（合并后改为 PASS 并删除本段三个字段；新载体不进 JSON ledger）
 ---
 
 ## 本次执行记录：口径换代的两处余波——自身违规收紧 + 第 7 条收尾规矩的过强限定（gate12c-followups，2026-10-16）
@@ -23,7 +20,7 @@ sync_backfill_owner: 下一个会话（合并后改为 PASS 并删除本段三�
 | TDD 红→绿 | PASS | 本轮不改判据代码，但按同一纪律走"先量再改"：改前先跑 `--all` 得 `counts=1186 files=565`；占位符化后**先跑门禁本体**（不是我的探针）看到该文件 `1 处 > 基线`→ 已归零，再 `--write-baseline` 收紧，最后 `--all` 与 53 条自测同时 rc=0 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/`、`packages/rpa-engine/`、任何 `.vue`/样式/基线 PNG |
 | QM-6 CCG 双模型外部评审 | N/A | 变更集 = 一条 SOP 限定语 + 一处路径写法 + 账本收紧，**无运行时代码**；按 AGENTS「纯文档/流程变更不强制 QM-6」判 N/A。如实登记：三条外部评审通道本轮实测仍不可达（同 #3652/#3693/#3723 现场），所以这里没有"跑了但没问题"这回事——N/A 的依据是变更类型，不是评审结果 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin gate12c-followups` 返回 0 行证远端分支已删；回填时把本行改写为 PASS 并**删除上方三个 `sync_*` 字段**（同一次提交内完成，不在 JSON ledger 留项）。按第 7 条回读 main push 时，本 PR 改了 Gate 12c 的**数据**（账本 JSON 不在 `paths-ignore` 白名单内）⇒ 必须要求 `quality-gate` 有该 SHA 的 run，不适用 `NO_RUN(by design)` 那一档 |
+| 远程同步 | PASS | 本 PR 即 **#3728**，`state=MERGED`，merge SHA `fea258a59a16a928bb6f54aeb068e2601291c8bf`，merge 时间 2026-10-16T12:16:09Z（绿灯窗口由 sha-pin 看守捕获，`21 pass / 0 fail / 2 skip`）。取证四件全部当场命令：main 主题尾 `(#3728)$` 检索**恰好 1 行**；远端分支 `gate12c-followups` 的 ref 查询返回 **404**（随 squash 删除）；**四个被改 blob 与 `origin/main` 逐个 SAME**（`openspec/records/gate12c-followups.md`=`b7a8f6bded`、`scripts/doc-abs-paths-baseline.json`=`2c7e5b0b8f`、`openspec/records/openspec-sync-realrepo.md`=`12e2f89cca`、`AGENTS.md`=`365a7ea763`）；账本在 main 上读得 **564 文件 / 1185 处**，且 `openspec/records/openspec-sync-realrepo.md` **已不在账本键里** —— 即那条盘符路径确实从受管文档消失了（收紧方向，不是将新增记进账本）。 **按收尾清单第 7 条回读 main push**：`quality-gate` 在该 merge SHA 上有 push run（run `38899343718`，本 PR 改了 Gate 12c 的数据文件、不在 `paths-ignore` 内 ⇒ 不适用 `NO_RUN(by design)` 那一档），结论 **MAIN_GREEN**。同一次提交内删除 frontmatter 的三个 `sync_*` 字段（新载体不进 JSON ledger） |
 
 ### 遗留（不假装已闭合）
 
