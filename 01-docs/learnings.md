@@ -19959,3 +19959,10 @@ CI 把 `QG Static` 钉红在 Gate 2c，红的是 `check-unwired-tests.test.js` �
 - 现象：本地十余条门禁全绿 + `check-unwired-tests.js` rc=0；CI `QG Static` 红。
 - 判据：补跑 `node --test scripts/check-unwired-tests.test.js`，`tests 30 / fail 1`，红在 `deepStrictEqual` 的清单差异。
 - 归因：不是既有缺陷（该清单在我改之前只有 1 项且测试是绿的），是本 PR 新增登记未同 PR 更新被钉的期望。
+## 2026-10-17 · wxmp-save-body-intercept：mock 契约脱钩与「错误信号守卫」
+
+- **pattern · mock 与真实 API 契约必须同源锁定**：`_waitForResponse` 通道修复（#3445）测试绿、真机空转，根因是 mock 手写了真实实现不存在的 `body` 字段。预防是**结构锁指向真实源码**（`resolve({… body})` + `Network.getResponseBody` 出现判据），而不是只测消费方。同族坑：`xhs-draft-only-hard-evidence` H10 用正则写死 resolve 形态——契约锁也要随契约演进而同步（本 PR 连带更新）。
+- **pattern · 依赖 webRequest 的响应体需求走双通道**：Electron `webRequest` 不携带响应体；CDP `getResponseBody` 依赖 debugger（attach 冲突/页面销毁失效）。保存类关键采集应「CDP 主通道 + 页面内 XHR/fetch 拦截第二保险」，两条失效域独立。
+- **pattern · 「平台提示」要过两道守卫**：可见性守卫（#3445，防隐藏节点）之后还有**错误内容守卫**——`[class*="tips"]` 宽选择器会命中可见的常驻设置文案（本次用户水印名「水印：数字生命丘丘」）。判据：不含错误信号关键词（错误/失败/重试/请/无法…）的提示一律退回兜底文案。
+- **pitfall · 外部评审后端三连不可用要当场降级并留痕**：claude 403 额度 / codex 401 代理 / opencode 挂起 30 分钟——按「子代理降级」纪律降级为内联对抗评审，`deepReview.status` 置 `self_play_resolved` + 原因落盘，不得静默跳过 QM-6。
+- **preference · CI 门禁判红的根因优先怀疑「本 PR 改动改变了判据输入」**：QG Changes（缺 sync 登记字段）、Gate 12c（记录文件新增本机绝对路径）、Desktop Shards（H10 正则锁）三连红全是本 PR 改动的连带，A/B 对照（main 基线跑同测试）可快速二分「存量 vs 连带」。
