@@ -328,13 +328,40 @@ test('判据 9 不依赖 has_api 在块中的位置（缺 m 标志的假绿回�
   //   运行时 api-router.js 的 getPublishMode/isApiTrack 在缺省时按
   //   `has_api:true → api-then-dom` 派生；⑨ 原来把缺省当 '' ⇒ 判「未入波」PASS，
   //   **同一份配置，判据与运行时给出相反结论** ⇒ 两轴不一致被漏报。
-  //   当前 15 个平台全部显式写了 publishMode（实测无一样本），故这条分支没有真实样本
-  //   可跑，用结构锁守：源码里必须出现「缺省 ⇒ 按 has_api 派生」的三元式，
-  //   且不得退回空串（退回即让上面的矛盾复活）。
+  //   当前 15 个平台全部显式写了 publishMode（实测无样本），故这条分支没有真实样本
+  //   可跑，用结构锁守：源码里必须出现「缺省 ⇒ 按 has_api 派生」的规则。
+  //
+  //   ★ CCG 第七轮 i4（Info）后改写：解析从「单行正则 `[A-Za-z-]+`」升级为
+  //     「抓行尾 → 去尾随注释 → 去首尾引号 → 空则缺省派生」（带引号/尾随注释的取值
+  //     以前会匹配失败而误落缺省）。结构锁同步钉新形态。
+  //
+  //   ⚠️ 锁的**匹配对象**刻意选稳定的字符串常量，而不是那段易变的正则字面量：
+  //     第一版写成匹配 `/^[ \t]{4}publishMode:[ \t]*(.+)$/m` 这个正则本身，
+  //     结果 PowerShell here-string 的二次转义把锁自己的正则污染了 ⇒ 锁假绿又假红。
+  //     现在改钉**不随写法漂移的锚点**：去注释、去引号、缺省派生三个动作各有一个
+  //     稳定字面量（`#.*$`、`^['"]|['"]$`、`hasApi ? 'api-then-dom' : 'dom-only'`）。
   assert.ok(
-    /pmMatch\s*\?\s*pmMatch\[1\]\s*\n\s*:\s*\(hasApi \? 'api-then-dom' : 'dom-only'\)/.test(scriptSrc),
+    /#\.\*\$/.test(scriptSrc) && /\.replace\(/.test(scriptSrc),
+    '判据 9 的 publishMode 去注释步骤不见了 —— 尾随注释会让取值匹配失败而误落缺省（CCG 第七轮 i4）',
+  )
+  // 去引号：源码是 `v.replace(/^['"]|['"]$/g, '')`。用 indexOf 钉两个极短锚点，
+  // 不写正则（正则字面量在多层转义里反复出错，实测踩了三次）。
+  const Q = String.fromCharCode(39)
+  const DQ = String.fromCharCode(34)
+  assert.ok(
+    scriptSrc.includes('^[' + Q + DQ + ']') && scriptSrc.includes(Q + DQ + ']$'),
+    '判据 9 的 publishMode 去引号步骤不见了 —— 带引号取值会匹配失败而误落缺省（CCG 第七轮 i4）',
+  )
+  assert.ok(
+    /\(hasApi \? 'api-then-dom' : 'dom-only'\)/.test(scriptSrc)
+      || /publishMode = hasApi \? 'api-then-dom' : 'dom-only'/.test(scriptSrc),
     '判据 9 的 publishMode 缺省派生不见了 —— 缺省必须按运行时同源规则（has_api → api-then-dom）；'
       + '退回空串会让「两轴不一致」被漏报（CCG 第三轮 i3）',
+  )
+  // 非法值必须显式 FAIL（不得落进「有适配器 ⇒ PASS」）——运行时对非法值是 fail-closed 抛错的
+  assert.ok(
+    /不是合法三态/.test(scriptSrc),
+    '判据 9 对非法 publishMode 的显式 FAIL 分支不见了（CCG 第七轮 i4）',
   )
 
   // 别名：tencent_video 的链叫 shipinhao-*，不得因命名差异误报

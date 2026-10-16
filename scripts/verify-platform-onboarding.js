@@ -267,15 +267,57 @@ function buildChecks (slug) {
       //   `has_api:true → api-then-dom` 派生；而本判据原来把缺省当 `''` ⇒ 判「未入波」PASS。
       //   **同一份配置，判据与运行时给出相反语义** ⇒ 两轴不一致被漏报。
       //   现在本判据按同一条派生规则取值，缺省即 api-then-dom（有声明才算未入波）。
-      const pmMatch = block.match(/^[ \t]{4}publishMode:[ \t]*([A-Za-z-]+)/m)
-      const publishMode = pmMatch
-        ? pmMatch[1]
-        : (hasApi ? 'api-then-dom' : 'dom-only')
+      // ★ CCG 第七轮 i4（Info，已加固）：原正则 `[A-Za-z-]+` 对**带引号**（`'dom-only'`）
+      //   或**尾随注释**（`dom-only   # 说明`）的取值会匹配失败 ⇒ 落进缺省派生，
+      //   实为 dom-only 的平台可能被误判成 api-then-dom 而假 FAIL。
+      //   改为：先抓行尾全部内容，再剥离引号与注释，最后才校验取值。
+      const pmLine = block.match(/^[ \t]{4}publishMode:[ \t]*(.+)$/m)
+      let publishMode = ''
+      let pmMatch = null
+      if (pmLine) {
+        let v = pmLine[1].trim()
+        v = v.replace(/\s+#.*$/, '').trim()   // 去尾随注释
+        v = v.replace(/^['"]|['"]$/g, '')     // 去首尾引号
+        if (v !== '') { publishMode = v; pmMatch = [pmLine[0], v] }
+      }
+      // ★ 缺省派生必须与运行时同源（CCG 第三轮 i3，upheld）：
+      //   运行时 api-router.js 的 derivePublishMode 在 publishMode 缺省时按
+      //   `has_api:true → api-then-dom`、否则 dom-only 派生。本判据若把缺省当 ''，
+      //   就会判「未入波」而 PASS ⇒ **同一份配置，判据与运行时给出相反结论**。
+      //   （第七轮 i4 重构时一度漏掉这段，是 test 17 的结构锁把它抓回来的。）
+      if (publishMode === '') {
+        publishMode = hasApi ? 'api-then-dom' : 'dom-only'
+      }
+      // ★ CCG 第七轮 i3（upheld）：**API 轨的实现证据不只有 DOM 链**。
+      //   本 PR 已自证：适配器（`src/adapters/<slug>.js` + `src/index.js` 注册）就是 API 轨的
+      //   实现面（youtube/twitter 正是靠它获得 has_api:true 的资格）。原判据在「api-* 轨且无链」
+      //   时**无条件 FAIL**，于是「api-only + 已注册适配器」这种合法组合被假 FAIL ——
+      //   依旧把 DOM 链当成唯一 API 实现证据，两轴仍混淆。
+      //   新口径：api-* 轨 ⇒ 链**或适配器**任一即可（链优先，因其同时给出 DOM 轨能力）；
+      //   两者都没有才 FAIL「该轨无可调度实现」。
       if (publishMode === 'api-only' || publishMode === 'api-then-dom') {
+        if (!hasAdapter) {
+          return {
+            ok: false,
+            detail: `has_api:true 且 publishMode=${publishMode}${pmMatch ? '' : '（缺省，按运行时同源派生）'}（需走 API 轨）`
+              + `但既无 publish/platforms/${chainPrefix}*.js 也无 adapters/${slug}.js ⇒ 该轨无可调度实现`,
+          }
+        }
+        // 有适配器（ API 轨实现面），可能没有 DOM 链 —— 合法（未入波的双轨平台）
+        return {
+          ok: true,
+          detail: `has_api:true 且 publishMode=${publishMode}，API 轨由 adapters/${slug}.js 承载（已注册）`
+            + `，DOM 链 ${chainFiles.length} 个`,
+        }
+      }
+      // ★ CCG 第七轮 i4（Info）补：publishMode 既不是 api-* 也不是 dom-only ⇒ **非法值**。
+      //   此时不能落进下面「有适配器 ⇒ PASS」——运行时 isApiTrack/getPublishMode 对非法值是
+      //   **fail-closed 抛错**的，判据若放行就与运行时再次分叉（正是本 PR 要消灭的那类）。
+      if (publishMode !== 'dom-only') {
         return {
           ok: false,
-          detail: `has_api:true 且 publishMode=${publishMode}${pmMatch ? '' : '（缺省，按运行时同源派生）'}（需走 API 轨）`
-            + `但无 publish/platforms/${chainPrefix}*.js ⇒ 该轨无可调度实现`,
+          detail: `publishMode='${publishMode}' 不是合法三态（api-only|api-then-dom|dom-only）`
+            + ' ⇒ 运行时会 fail-closed 抛错，判据不得放行',
         }
       }
       if (!hasAdapter) {
@@ -288,9 +330,20 @@ function buildChecks (slug) {
       //   「已由 src/index.js 注册」——文件在而没被 require 时会给**虚假证据**。
       //   这正是 i1 指责的「证据链未固化」换个位置复发。现在把这句话变成真判据：
       //   读 index.js，断言它确实 require 了该适配器（找不到 require ⇒ FAIL）。
+      //
+      //   ★ CCG 第七轮 i1（upheld）：`index.js` 读不到时**不得短路放行**。
+      //     原写法 `if (indexSrc && !re.test(indexSrc))` 在 indexSrc 为 null/空串时
+      //     整个校验被跳过 ⇒ 平台仍 PASS 且 detail 照样声称「已注册」——证据链断裂却放行
+      //     （fail-open）。现在读不到就**判 FAIL**（fail-closed）：无法证明注册即不放行。
       const indexSrc = read('packages/api-publish-engine/src/index.js')
+      if (!indexSrc) {
+        return {
+          ok: false,
+          detail: '读不到 packages/api-publish-engine/src/index.js ⇒ 无法证明适配器已注册（fail-closed）',
+        }
+      }
       const adapterRequireRe = new RegExp(`require\\(['"]\\./adapters/${slug}['"]\\)`)
-      if (indexSrc && !adapterRequireRe.test(indexSrc)) {
+      if (!adapterRequireRe.test(indexSrc)) {
         return {
           ok: false,
           detail: `adapters/${slug}.js 存在但 src/index.js 未 require 它 ⇒ 有文件、无注册（不可达）`,

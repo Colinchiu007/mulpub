@@ -107,16 +107,37 @@ function reloadConfig() {
   return loadConfig();
 }
 
+/**
+ * 单点查询的**带平台名** fail-safe 包装（CCG 第七轮 i5，Info 已加固）。
+ *
+ * 背景：isApiTrack 改为 fail-closed（非法 publishMode 抛错）后，
+ * `shouldUseApi`/`supportsApi` 从「从不抛错」变成「可抛错」。而桌面
+ * `_publish_generic` 与批量发布循环（batchPublishWithRouting 之外的调用方）
+ * 未必有 try/catch ⇒ 一个平台的配置 typo 会**中止整批**——i1 的级联在其它接缝复发。
+ *
+ * 口径：告警 + 返回 false（该平台按非 API 轨处理，不影响其他平台），
+ *       与 isApiTrackSafe 一致；但**保留平台名**在日志里，便于定位坏配置。
+ */
+function isApiTrackForPlatform (platform) {
+  try {
+    return isApiTrack(loadConfig()[platform]);
+  } catch (e) {
+    logger.warn('api-router',
+      `publishMode 非法，${platform} 暂按非 API 轨处理（不影响其他平台）: ${e.message}`);
+    return false;
+  }
+}
+
 function shouldUseApi(platform) {
-  var cfg = loadConfig()[platform];
   // ★ 两轴合取（见文件头 i1 修复说明）：has_api 只说明「有实现」，
   //   还要 publishMode 真的走 API 轨才算 API 平台。
-  return isApiTrack(cfg);
+  // ★ CCG 第七轮 i5：走带平台名的 fail-safe 包装，避免单点 typo 中止整批发布。
+  return isApiTrackForPlatform(platform);
 }
 
 function supportsApi(platform) {
   try {
-    return require("./index").supportsApi(platform) && isApiTrack(loadConfig()[platform]);
+    return require("./index").supportsApi(platform) && isApiTrackForPlatform(platform);
   }
   catch(e) { return false; }
 }

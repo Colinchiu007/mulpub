@@ -202,6 +202,20 @@ describe('正文承载形态：适配器必须经 formatArticleBody 单一实现
       if (!referenced && !composed) {
         throw new Error(`B ${slug}: description 的取值既不直接调用也不来自 formatArticleBody 组装`)
       }
+      // ④ ★ CCG 第七轮 i8（Info，已加固）：调用必须传**本平台**的 slug 作首参。
+      //    原判据只查 `formatArticleBody(` 字样 ⇒ 在 youtube.js 里误写成
+      //    `formatArticleBody('weibo', …)` 也能过（按别的平台的承载形态处理本平台正文）。
+      //    现在要求：至少一处调用的首参就是本平台 slug（单/双引号都算）。
+      const selfCall = lines.filter((l) => l.includes('formatArticleBody(')
+        && (l.includes(`'${slug}'`) || l.includes(`"${slug}"`)))
+      // eslint-disable-next-line no-console
+      console.log(`  [B ${slug}] 首参为本平台 slug 的调用 ${selfCall.length} 条`)
+      if (selfCall.length < 1) {
+        throw new Error(
+          `B ${slug}: 未找到以 '${slug}' 为首参的 formatArticleBody 调用 —— `
+          + `可能误传了别的平台 slug（本平台正文会按错误的承载形态处理）`,
+        )
+      }
     })
   }
 })
