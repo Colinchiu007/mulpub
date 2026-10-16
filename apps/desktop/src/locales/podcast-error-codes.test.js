@@ -33,12 +33,10 @@ const PRODUCERS = [
   // 校验器在 shared-utils：`validateEpisode` 产出的 EPISODE_* 是 compliance.reasons 的唯一来源
   // （PRD §8.2.6 锁5）。不列进来，「有码无文案」就只靠人记——§8.2 的整条硬锁会变成装饰性门禁。
   '../../packages/shared-utils/src/podcast-rss.js',
-  // 刻意**不**把 podcast-tts-compose.js 列入扫描域：它产出的 4 个码（PODCAST_TTS_COPY_TOO_SHORT /
-  // TITLE_INVALID / CHUNK_UNSAFE / VOICE_UNRESOLVED）目前没有任何用户可达路径——刀 4 第 2 片只是纯函数层，
-  // 入参校验失败要到第 3 片接进出期浮层才会显示。此刻加进来只能逼出 4 条无人消费的文案（AGENTS：
-  // 不得为不存在的反馈路径新增 locale 键）。**第 3 片接线时 MUST 把它加回本清单并同 PR 补 zh/en 成对文案**，
-  // 否则那条链在这里没有留痕。也不得改用 EXEMPT_WITH_REASON 绕过——例外表要求码真的没有文案，
-  // 而那 4 个码是**会**面向用户的，写进例外表就是把待办伪装成豁免。
+  // 校验器在 electron/services：`validateComposeInput` 产出的 PODCAST_TTS_* 是出期浮层拒绝态
+  // 唯一的原因句来源（PRD §7.10.1 第 2 层 + §7.10.3.1）。刀 4 第 3 片已把浮层接进用户路径，
+  // 于是「有码无文案」不再只是人记的规矩——本行必须在，且 zh/en 必须成对。
+  'electron/services/podcast-tts-compose.js',
 ]
 
 /**
