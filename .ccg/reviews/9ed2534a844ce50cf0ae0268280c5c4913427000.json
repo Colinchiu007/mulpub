@@ -1,0 +1,30 @@
+{
+  "sha": "9ed2534a844ce50cf0ae0268280c5c4913427000",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 211 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 211,
+    "fileCount": 14,
+    "codeFileCount": 12,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 23,
+    "docSensitiveContentHits": 8,
+    "docSensitiveContentSample": [
+      "⑥ 【清除配置】（两步确认）→ 状态回到「未配置」，加密行与旧版明文行一并清除",
+      "⑥ 【清除配置】（两步确认）→ 状态回到「未配置」：清掉**本用户**的加密行；仅当本用户凭据本来就来自设备级兼容档时，才把那条明文一并销掉（别人的兼容档不动）",
+      "| 旧版明文销账（**同值才销**） | 仅当兼容档里就是**本次保存的同一份**明文时，才把 `zhihu_access_secret` 置 null | 销账失败**不**改变「保存成功」结论（新配置已可用），仅不消灭旧明文（下次保存/清除重试）。**不同值绝不动**：该键是设备级无前缀键，无条件清掉会误删仍依赖兼容档的另一个用户/未登录档的凭据（QM-6 跨家族评审 MAJOR #1 回归锁：`zhihu-credential.test.js`「保存的是**另一份**凭据时不得动设备级明文」） |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "11e877e9fe52071bf7960573c9f0cb6c3e01a5f543af5614ffb4eacfcc137688",
+  "decidedAt": "2026-10-15T18:53:15.953Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "cleared",
+    "performedBy": "claude 2.1.296 + opencode 1.18.34（跨家族双模型，只读审查本 PR 全部改动）",
+    "findings": "本记录对应的这笔改动（211 行 / 14 文件 / 敏感内容命中 23 处，均为本 PR 自身要修改的凭据相关代码与文案）**已实际执行跨家族双模型深度审查**，两模型各自输出裁决：claude 5 条（2 MAJOR：设备级兼容档被无条件销账、读取被拒被吞成未配置；3 MINOR：设置页读侧静默、同值重存丢验证证据、身份模式切换后配置看似丢失）；opencode 4 条（1 MAJOR：clearConfig 无写后读回；3 MINOR：采集页 badge/hint 三态矛盾、markVerified 返回值丢弃、saveConfig 读回无解密回环）。去重后 8 条（3 MAJOR + 5 MINOR），已修 7 条并补 12 条回归锁，1 条（身份模式切换后的设备级配置回退读）如实登记为遗留。opencode 另在只读边界内实跑受影响测试 71/71 通过。完整取证见 openspec/records/zhihu-api-settings.md 的「QM-6 评审取证」小节。"
+  }
+}

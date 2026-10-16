@@ -19,3 +19,22 @@ export const settingsDialogRevision = ref(0)
 export function notifySettingsDialogClosed () {
   settingsDialogRevision.value += 1
 }
+
+/**
+ * 「就地打开设置」请求 — 页面需要把用户直接送到某个具体 Tab 时使用
+ * （例如采集页知乎区块的「前往设置」要求落在「知乎 API」）。
+ *
+ * 形状是 `{ tab, seq }` 而不是裸字符串：**同一个 Tab 被连续请求两次**时，
+ * 给 ref 赋同一个字符串不会触发 watch（值相等），用户第二次点击就会没反应；
+ * seq 让每次请求的对象身份都不同。
+ */
+export const settingsDialogRequest = ref(null)
+
+/**
+ * 请求打开「设置」弹窗并定位到指定 Tab。
+ * @param {string} [tab] Tab key（model / general / feishu / zhihu / publish）；不存在或禁用时回落默认 Tab
+ */
+export function requestSettingsDialog (tab = 'model') {
+  const prev = settingsDialogRequest.value
+  settingsDialogRequest.value = { tab, seq: prev ? prev.seq + 1 : 1 }
+}

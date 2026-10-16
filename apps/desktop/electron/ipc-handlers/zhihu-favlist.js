@@ -13,12 +13,14 @@
  *   zhihu-favlist:unified-contents → 「全部收藏」聚合清单（多夹合并去重 + favTime 降序截断）
  *   zhihu-fav-batch:cancel      → 取消采集并改写任务
  *
- * Access Secret 来源：store 设置 zhihu_access_secret（用户在采集页配置）。
+ * Access Secret 来源：`services/zhihu-credential`（设置页「设置 → 知乎 API」写入；
+ * 旧版全局明文 `zhihu_access_secret` 作为只读兼容保留）。
  */
 
 const ZhihuFavlistService = require('../services/zhihu-favlist-service')
 const BatchRateController = require('../services/batch-rate-controller')
 const { classifyZhihuUrl, buildUnifiedFavItems, normalizeFavItem } = require('../services/zhihu-fav-core')
+const credential = require('../services/zhihu-credential')
 
 /** 进行中批量任务的取消标记（单例：同类型任务同时只允许一个） */
 const activeBatches = { collect: null, rewrite: null, favBatch: null }
@@ -61,14 +63,15 @@ function registerHandlers (ipcMain, deps) {
     ? rateControllerFactory(opts)
     : new BatchRateController({ log: logger, ...opts })
 
-  /** 读取用户配置的知乎 Access Secret */
+  /**
+   * 读取用户配置的知乎 Access Secret。
+   *
+   * 单一真源：`services/zhihu-credential`（与设置页写配置同一实现）。解析优先级为
+   * 「本用户 safeStorage 加密配置 > 旧版全局明文」，因此历史版本里在采集页粘贴过的
+   * 明文密钥升级后仍然可用，同时新保存的走密文、按登录身份隔离。
+   */
   function getAccessSecret () {
-    try {
-      const v = store.getSetting('zhihu_access_secret')
-      return typeof v === 'string' ? v.trim() : ''
-    } catch {
-      return ''
-    }
+    return credential.resolveSecret(store).secret
   }
 
   ipcMain.handle('zhihu-favlist:list', async () => {

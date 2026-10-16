@@ -34,7 +34,14 @@ vi.mock('@/utils/home-shell', () => ({ isHomeShellSearch: () => false }))
 vi.mock('@/router', () => ({ routeLoadError: ref(null), clearRouteLoadError: () => {} }))
 vi.mock('@/stores/license', () => ({ useLicenseStore: () => ({ load: () => {} }) }))
 vi.mock('@/stores/identity', () => ({ useIdentityStore: () => ({ load: () => {}, dispose: () => {} }) }))
-vi.mock('@/stores/settings-dialog', () => ({ notifySettingsDialogClosed: () => {} }))
+// 与真实模块的**被消费面**同形：App.vue 现在还会 watch「就地打开设置」请求
+// （settingsDialogRequest），mock 少一个导出会让 watch(undefined) 直接抛错
+// （2026-10-15 实测：本文件 + publish-tab-state-keepalive 共 5 例全红）
+vi.mock('@/stores/settings-dialog', () => ({
+  notifySettingsDialogClosed: () => {},
+  settingsDialogRevision: ref(0),
+  settingsDialogRequest: ref(null),
+}))
 vi.mock('@/composables/useEmbeddedViewSuspension', () => ({
   suspendEmbeddedViewsForOverlay: () => {},
   releaseEmbeddedViewsForOverlay: () => {},
@@ -92,7 +99,7 @@ async function mountApp () {
 }
 
 describe('App.vue keep-alive：发布页草稿在路由切换时保持', () => {
-  beforeEach(() => { setupCalls.value = 0; document.body.innerHTML = '' })
+  beforeEach(() => { setupCalls.value = 0; document.body.replaceChildren() })
 
   it('/publish → / → /publish 一次来回：Publish 实例不被销毁、草稿保留', async () => {
     const { wrapper, router } = await mountApp()
