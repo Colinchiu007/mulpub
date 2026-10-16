@@ -1,3 +1,11 @@
+# [未发布] fix(gates): Gate 12c 判据换代为纯文本计数，并解开 17 条只在 Windows 上跑的自测（gate-12c-abs-path-ban）
+
+- **判据输入由文件系统换成纯文本计数**（`scripts/check-doc-abs-paths.js`，口径 `all_abs_paths_v2`）。旧实现只在「这条路径在本机不存在」时才记一笔，而 CI 的 `changes` job 跑在无盘符的 ubuntu 上 ⇒ 现场计数恒 0 ⇒ 与存量基线比较两个方向都不可能红；其实际读数是一句「无从判定 1094 条 Windows 绝对路径」紧跟 `PASS`。新口径按文件记录「出现了多少条本机绝对路径」，存在性降级为附加明细，于是同一判据在 Linux 与 Windows 上给出逐字相同的结论。
+- 受管文档**不得新增**本机绝对路径：要写运行现场一律用占位符（执行记录的取证力改靠分支名与 PR 号）。存量按文件落进 `scripts/doc-abs-paths-baseline.json`（旧口径 435 / 870 ⇒ 新口径合并主干后 544 个文件 / 1162 处，上升仅因少了一个存在性过滤器；增量全部来自主干他人提交，逐轮 `added/gone/changed` 归因见执行记录）。
+- 账本新增 `METRIC_VERSION`（由判据代码持有，head 侧不符即退出码 2）与换代守卫：`judgeLedgerDrift` 在 `prev.metric !== next.metric` 时不判「账本被放宽」但照报缩小与陈旧，并按构造**只能发生一次**；同时 `--write-baseline` 这一支必须关掉该强校验，否则新守卫会拒绝执行它自己要求的那次迁移（实测 `--all --write-baseline` 曾直接 rc=2）。
+- 自测 51 条全绿、**0 条 skip**（旧口径下多条锁在 CI 上静默 skip，那正是把洞伪装成「按设计跳过」的落点）；变异反证两条（把 `over/shrink` 包回 `canJudge`、把入域条件退回旧口径）红集互不相同。契约见 `AGENTS.md`「受管文档不得新增本机绝对路径」条与 `01-docs/PRD-GATE12C-COUNT-ONLY-2026-10-14.md`。
+- **第三轮（ubuntu CI 二跑）修的是夹具而不是判据**：批量锁共用的两只造路径出口原本用裸的盘符变量拼接，无盘符 runner 上拼出一个没有冒号的串 ⇒ 判据不报错、只是静默不计数 ⇒ 账本 1 / 现场 0 被自己的"待收紧"判红。现收敛为唯一出口 `fxDrive()`，并新增「夹具自检」锁（让门禁自己数到 2，光形状像不算证据）+ 一条带正控与反失明的结构禁令。同时给自测加 `MP_TEST_FORCE_NO_DRIVE=1`（把无盘符那一维搬回本机复现，但它模拟不了 `os.tmpdir()` 形状，CI 仍是最终判据），并解开 17 条 `if (!DRIVE) t.skip` ⇒ **ubuntu 上实际执行的锁从 33 条涨到 52 条**（剩 1 条确需真实盘符，如实保留）。
+
 # [未发布] fix(gates): openspec-sync-check 审计器接进不被 docs-only 短路的 job，并清掉真实仓库 14 条存量违规（openspec-sync-realrepo）
 
 - **第一性原因**：审计器 `scripts/openspec-sync-check.js` 四档退出码（0/1/2/3）**从未被任何门禁对真实仓库调用一次**——CI 只在 `static-gates` 点名它的测试，而那份测试 19 条全部在 `os.tmpdir()` 自建夹具上跑，测的是判据本体不是本仓库。真实仓库当场是 `rc=2 / 14 条`（其中 5 个 `task.json` 根本无法解析）。更糟一层：它审计的 `.ccg/**` 与 `openspec/**` **都在 docs-only 白名单里**，而 `static-gates` 带 `if: docs-only != true` ⇒ 这把锁只可能出现在结构上碰不到被审计文件的 PR 上。这笔欠账 2026-10-14 就写在某条执行记录的第 151 行，但没有任何消费者。
