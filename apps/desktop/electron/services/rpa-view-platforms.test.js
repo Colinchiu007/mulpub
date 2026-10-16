@@ -1493,19 +1493,26 @@ describe('rpa-view-platforms — API 响应等待的两轴合取（CCG i2，源�
   const path = require('node:path')
   const SRC = path.join(__dirname, 'rpa-view-platforms.js')
 
-  it('等 API 响应的判据必须是两轴合取，不得只看 has_api', () => {
+  it('等 API 响应的判据必须来自单一来源 isApiTrack，不得本地复写合取', () => {
     const src = fs.readFileSync(SRC, 'utf8')
     const lines = src.split('\n')
-    // ① 定位那段判据：onApiTrack 的定义（唯一锚点，找不到即红，不许静默跳过）
-    const defs = lines.filter((l) => /const onApiTrack\s*=/.test(l))
-    expect(defs.length, 'onApiTrack 定义应恰好 1 处（判据失效或重复定义都算红）').toBe(1)
-    // ② 判据是**跨两行**写的（`const onApiTrack = !!config.has_api` + 换行 `&& (pmode === …)`），
-    //    故按「定义起 3 行内」这个窗口检查，不得只看第一行（第一行本就只有 has_api）。
-    const startIdx = lines.indexOf(defs[0])
-    const window = lines.slice(startIdx, startIdx + 3).join('\n')
-    expect(window, 'onApiTrack 必须看 publishMode 轴，不能只看 has_api').toMatch(/pmode/)
-    expect(window, 'onApiTrack 必须限定在 api-* 轨').toMatch(/pmode === 'api-only' \|\| pmode === 'api-then-dom'/)
-    // ③ 使用点必须是合取结果，而不是原始的 config.has_api
+    // ★ CCG 第四轮 i2（upheld）后更新判据形态：
+    //   原先这里允许「本地写两轴合取」（只查窗口内有 pmode 即可），但那本身就是第二份实现 ——
+    //   publishMode 缺省时本地合取判 false、产品侧 isApiTrack 判 true，**同一配置两处结论相反**。
+    //   现在的正确形态是**直接调用产品侧单一来源**，故锁改为：
+    //   ① 文件必须 require 它；② 判据必须调用它；③ 不得本地复写合取式。
+    expect(src, '必须 require 产品侧单一来源').toMatch(/require\(['"]@multi-publish\/api-publish-engine\/src\/api-router['"]\)/)
+    const callLines = lines.filter((l) => /const onApiTrack\s*=\s*isApiTrack\(/.test(l))
+    expect(callLines.length, 'onApiTrack 必须由 isApiTrack(...) 得出（恰好 1 处）').toBe(1)
+    // 不得本地复写合取（能力轴与轨道轴比较出现在同一句里）
+    const AXIS_CAP = 'has' + '_api'
+    const AXIS_TRK = 'publish' + 'Mode'
+    const cmpRe = new RegExp(AXIS_TRK + '\\s*(===|!==)')
+    const capRe = new RegExp(AXIS_CAP)
+    const localRewrite = lines.filter((l) => cmpRe.test(l) && capRe.test(l))
+    expect(localRewrite.length,
+      '不得本地复写两轴合取（请调用 isApiTrack），命中: ' + localRewrite.join(' | ')).toBe(0)
+    // 使用点必须是合取结果，而不是原始的 config.has_api
     const useLine = lines.find((l) => /const rp = \(onApiTrack/.test(l))
     expect(useLine, '等 API 响应的使用点应基于 onApiTrack').toBeTruthy()
     expect(src, '不得回退成 `const rp = (config.has_api && …)`').not.toMatch(/const rp = \(config\.has_api &&/)

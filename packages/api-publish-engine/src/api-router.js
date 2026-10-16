@@ -23,12 +23,25 @@ const { resolvePlatformConfigPath } = require('./runtime-config-path')
 let _platforms = null;
 let _apiPlatforms = null;
 
+/**
+ * 三态总闸的**缺省派生**——单一来源（CCG 第四轮 i4 upheld 后抽出）。
+ *
+ * 原先这条规则在 isApiTrack 与 getPublishMode 里各写一份（后者在文件更下方），
+ * 改一处忘另一处就会重演本 PR 要消灭的漂移。现在两处都走本函数。
+ *
+ * @param {object} cfg 平台配置（platforms.yaml 的一个平台块）
+ * @returns {string} 'api-only' | 'api-then-dom' | 'dom-only'
+ */
+function derivePublishMode (cfg) {
+  if (cfg && cfg.publishMode != null && cfg.publishMode !== '') return cfg.publishMode
+  // 缺省派生：has_api:true → api-then-dom，否则 dom-only（与 W1 §5.1 一致）
+  return (cfg && cfg.has_api) ? 'api-then-dom' : 'dom-only'
+}
+
 /** 该平台当前是否真的走 API 轨（两轴合取，单一来源）。 */
 function isApiTrack (cfg) {
   if (!cfg || !cfg.has_api) return false
-  var mode = cfg.publishMode
-  // publishMode 缺省时按 has_api 派生（与 getPublishMode 同口径）
-  if (mode == null || mode === '') mode = 'api-then-dom'
+  var mode = derivePublishMode(cfg)
   return mode === 'api-only' || mode === 'api-then-dom'
 }
 
@@ -80,21 +93,15 @@ function listApiPlatforms() {
 
 /**
  * 发布模式（W1 §5.1）：三态总闸，逐平台。
- * 优先读 platforms.yaml 的 publishMode 字段；缺省时按 has_api 派生
- * （has_api:true → api-then-dom，否则 dom-only），再经 normalizeMode 归一。
- * 非法值 normalizeMode 抛错（fail-closed），避免误配置静默走错轨。
+ * 取值走 **derivePublishMode() 单一来源**（缺省派生不再本地复写，见其注释），
+ * 再经 normalizeMode 归一。非法值 normalizeMode 抛错（fail-closed），
+ * 避免误配置静默走错轨。
  * @param {string} platform
  * @returns {string} 'api-only' | 'api-then-dom' | 'dom-only'
  */
 function getPublishMode(platform) {
   var pm = require('./publish/core/publish-mode');
-  var cfg = loadConfig()[platform];
-  var raw;
-  if (cfg && cfg.publishMode != null && cfg.publishMode !== '') {
-    raw = cfg.publishMode;
-  } else {
-    raw = (cfg && cfg.has_api) ? pm.MODES.apiThenDom : pm.MODES.domOnly;
-  }
+  var raw = derivePublishMode(loadConfig()[platform]);
   return pm.normalizeMode(raw);
 }
 

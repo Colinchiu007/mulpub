@@ -24,11 +24,10 @@ describe("API Router", function() {
       //   即 youtube/twitter——二者都有完整 API 适配器，只是还没接入 API 发布波次）
       //   会被过报成 API 平台，与 rpa-view-manager.js:68 记载的误入 API 轨事故同款。
       //   现在 shouldUseApi 取**两轴合取**：has_api 且 publishMode ∈ {api-only, api-then-dom}。
+      // ★ CCG 第五轮 i5（upheld）：期望值直接来自导出的单一来源 `router.isApiTrack`，
+      //   不再本地复写「缺省派生 + 合取」（那正是 i4 指出的第二/第三份实现）。
       Object.keys(platforms).forEach(function(key) {
-        var cfg = platforms[key];
-        var mode = (cfg.publishMode == null || cfg.publishMode === '') ? 'api-then-dom' : cfg.publishMode;
-        var expectApi = !!cfg.has_api && (mode === 'api-only' || mode === 'api-then-dom');
-        expect(router.shouldUseApi(key)).toBe(expectApi);
+        expect(router.shouldUseApi(key)).toBe(router.isApiTrack(platforms[key]));
       });
     });
 
@@ -68,16 +67,10 @@ describe("API Router", function() {
   describe("listApiPlatforms", function() {
     test("returns exactly the platforms on the API track (两轴合取)", function() {
       // ★ 2026-10-16 更新：原期望是「所有 has_api:true 的平台」。
-      //   单一事实来源改为由 platforms.yaml 的 **has_api + publishMode 合取**推导，
-      //   不硬编码平台名/魔法数量。sync-platform-config 等重写这两个字段后，
-      //   本测试仍校验 listApiPlatforms 精确反映配置，不会陈旧漂移。
+      // ★ CCG 第五轮 i5（upheld）：期望集合直接由**导出的单一来源** `router.isApiTrack`
+      //   推导，不再在本文件重写一遍「缺省派生 + 合取」。
       var expected = Object.keys(platforms)
-        .filter(function(k) {
-          var cfg = platforms[k];
-          if (!cfg.has_api) return false;
-          var mode = (cfg.publishMode == null || cfg.publishMode === '') ? 'api-then-dom' : cfg.publishMode;
-          return mode === 'api-only' || mode === 'api-then-dom';
-        })
+        .filter(function(k) { return router.isApiTrack(platforms[k]); })
         .sort();
       var apiPlatforms = router.listApiPlatforms().slice().sort();
       expect(apiPlatforms).toEqual(expected);
@@ -121,12 +114,40 @@ describe("API Router", function() {
       var fs = require("fs");
       var path = require("path");
       var self = fs.readFileSync(path.resolve(__dirname, "api-router.test.js"), "utf8");
-      var lines = self.split("\n");
-      var selfWritten = lines.filter(function(l) {
-        return /has_api/.test(l) && /publishMode\s*===/.test(l) && !/^\s*\/\//.test(l);
+      // ★ CCG 第四轮 i4（upheld）：原判据按**单行**匹配，而自写合取完全可以拆成两行
+      //   （能力轴一行 + 换行 `&& (轨道轴比较)`）从而逃逸——实测踩到。
+      //   改为**窗口匹配**：含轨道轴比较的非注释行，若其前后 3 行内出现能力轴引用，
+      //   即判为自写合取（覆盖同行与跨行两种形态）。
+      //
+      // ⚠️ 自指陷阱（已踩两次）：本扫描读**自己这个文件**，故下面构造正则的片段
+      //   一律用字符串拼接，不让源码里出现可被匹配的完整模式。
+      var AXIS_CAP = "has" + "_api";                 // 能力轴字段名（拼接，防自匹配）
+      var AXIS_TRK = "publish" + "Mode";             // 轨道轴字段名（拼接，防自匹配）
+      var cmpRe = new RegExp(AXIS_TRK + "\\s*(===|!==)");
+      var capRe = new RegExp(AXIS_CAP);
+      var codeLines = self.split("\n").filter(function(l) { return !/^\s*\/\//.test(l); });
+      var offenders = [];
+      codeLines.forEach(function(l, i) {
+        if (!cmpRe.test(l)) return;
+        // 合取推导的两种形态，都要求能力轴与轨道轴属于**同一个布尔表达式**：
+        //   ① 同一行；
+        //   ② 续行拆分 —— 下一行以 `&&` / `||` 开头，或本行以它们结尾（跨行连接的同一表达式）。
+        // ⚠️ 不能用「前后 N 行窗口」：那会把**合法的按轨道值筛平台**（同行无能力轴、
+        //    只是恰好靠近一段提到能力轴的代码）误报为合取推导（第五轮实测误报一次）。
+        var sameExpr = capRe.test(l)
+          || /(\|\||&&)\s*$/.test(l)
+          || /^\s*(\|\||&&)/.test(codeLines[i + 1] || '')
+          || /(\|\||&&)\s*$/.test(codeLines[i - 1] || '');
+        if (!sameExpr) return;
+        if (!capRe.test(l)) {
+          // 续行形态：在紧邻的连接行里找能力轴
+          var near = [codeLines[i - 1] || '', codeLines[i + 1] || ''].join("\n");
+          if (!capRe.test(near)) return;
+        }
+        offenders.push("L" + (i + 1) + ": " + l.trim());
       });
-      expect(selfWritten.length,
-        "本文件不得自写两轴合取推导（请改用 router.isApiTrack()），命中行: " + selfWritten.join(" | "))
+      expect(offenders.length,
+        "本文件不得自写两轴合取推导（含跨行拆分；请改用 router.isApiTrack()），命中: " + offenders.join(" || "))
         .toBe(0);
       // 单一来源必须真的可用（防「删了自写、也没了来源」的空转）
       expect(typeof router.isApiTrack).toBe("function");

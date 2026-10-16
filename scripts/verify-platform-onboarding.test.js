@@ -433,11 +433,17 @@ test('TAG_STYLES 缺席的平台走默认兜底，且判据 7/8 不空转', () =
   assert.deepEqual(TAG_STYLES_ABSENT_OK, [],
     '本常量应恒为空：15 个平台都已显式登记（若有平台回到兜底，要么是有意为之请更新本清单并说明，要么是误删）')
 
-  // ③ 全部 15 平台必须报「显式命中」，不许被算成走默认（这才是现在真实生效的覆盖）
-  const ALL_15 = ['wechat_mp', 'zhihu', 'weibo', 'douyin', 'xiaohongshu', 'tencent_video',
-    'kuaishou', 'toutiao', 'youtube', 'tiktok', 'bilibili', 'baijiahao', 'twitter', 'instagram', 'facebook']
-  assert.equal(ALL_15.length, 15, '平台清单长度异常 ⇒ 本用例基准失效')
-  for (const slug of ALL_15) {
+  // ③ 全部平台必须报「显式命中」，不许被算成走默认（这才是现在真实生效的覆盖）
+  // ★ CCG 第四轮 i5（upheld）：平台清单改为从**注册表动态派生**，不再硬编码 15 个名字
+  //   （原先注册表加平台时要手改这里，正是本 PR 要消灭的漂移模式）。
+  const fs2 = require('node:fs')
+  const yaml2 = fs2.readFileSync(path.join(ROOT, 'config/platforms.yaml'), 'utf8')
+  const ALL_PLATFORMS = yaml2.split(/\r?\n/)
+    .filter((l) => /^[ \t]{2}[a-z][a-z0-9_]*:[ \t]*$/.test(l))
+    .map((l) => l.trim().replace(/:$/, ''))
+  assert.ok(ALL_PLATFORMS.length >= 15,
+    `平台清单解析数 ${ALL_PLATFORMS.length} < 15 ⇒ 解析退化，本用例不得假绿`)
+  for (const slug of ALL_PLATFORMS) {
     const r7 = buildChecks(slug).find((c) => c.id === 7).fn()
     assert.equal(r7.ok, true, `${slug} 判据 7 应 PASS，实际: ${r7.detail}`)
     assert.ok(/TAG_STYLES 显式命中/.test(r7.detail),
@@ -445,7 +451,7 @@ test('TAG_STYLES 缺席的平台走默认兜底，且判据 7/8 不空转', () =
   }
 
   // ④ 规模下界：CONTENT_LIMITS / TITLE_LIMITS 仍要求显式键（不许一起被放宽）
-  for (const slug of ALL_15) {
+  for (const slug of ALL_PLATFORMS) {
     const r7 = buildChecks(slug).find((c) => c.id === 7).fn()
     // detail 里不得出现「CONTENT_LIMITS 无」/「TITLE_LIMITS 无」才算真的过了那两关
     assert.ok(!/CONTENT_LIMITS 无|TITLE_LIMITS 无/.test(r7.detail),

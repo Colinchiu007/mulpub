@@ -144,8 +144,23 @@ test('G) TAG_STYLES 键集 ⊆ 注册表平台集（防再长出不可达孤儿�
       `TAG_STYLES.${p} 应为 '${expected}'，实际 '${TAG_STYLES[p]}'（映射被改动 ⇒ 用户可见标签形态变化）`,
     )
   }
-  // 下界：期望表里除默认档外必须确有条目，防「EXPECTED_STYLE 为空 ⇒ 断言退化成恒等于默认」
-  assert.equal(Object.keys(EXPECTED_STYLE).length, 4, 'EXPECTED_STYLE 条目数异常 ⇒ 本锁基准失效')
+  // 下界（CCG 第四轮 i5 upheld 后改为**注册表驱动**）：
+  // 原写法硬编码 `EXPECTED_STYLE.length === 4`，注册表一加平台这条就与基准脱节。
+  // 现在改为：期望表必须**覆盖注册表里全部非默认平台**——
+  //   ① 每个被显式登记的期望平台都必须真的在注册表里（防往期望表里塞不存在的平台）；
+  //   ② 注册表新增平台时给出**显式提示**（新平台默认按 '#tag' 期望，需人工确认），
+  //      不静默通过 —— 这是本 PR 要消灭的「硬编码清单漂移」的正解。
+  const unknownExpected = Object.keys(EXPECTED_STYLE).filter((p) => !platforms.includes(p))
+  assert.deepEqual(unknownExpected, [],
+    `EXPECTED_STYLE 含注册表外的平台: ${unknownExpected.join(', ')}（期望表必须与注册表对齐）`)
+  // 注册表新增平台 ⇒ 必须有人看过这条提示后才算数（新平台样式需人工确认）
+  const newlyAdded = platforms.filter((p) => TAG_STYLES[p] === undefined)
+  if (newlyAdded.length > 0) {
+    console.log(`  [TAG_STYLES] 注册表新增平台（默认按 '#tag' 期望，请人工确认）: ${newlyAdded.join(', ')}`)
+  }
+  // 期望表不得为空（防「删光 ⇒ 断言退化成恒等于默认」的假绿）
+  assert.ok(Object.keys(EXPECTED_STYLE).length >= 4,
+    `EXPECTED_STYLE 条目数 ${Object.keys(EXPECTED_STYLE).length} < 4 ⇒ 本锁基准失效`)
 
   // 反证口径：`shipinhao` 是 tencent_video 的**链文件名**，不是平台键——
   // 若有人把它加回表里（或按文件名补键），上面 orphans 断言即红。

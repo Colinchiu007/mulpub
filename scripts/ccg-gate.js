@@ -133,6 +133,51 @@ function resolveTargetFiles(staged) {
   return files;
 }
 
+/**
+ * 取某文件本次 diff 的**改动行区间**（按 hunk 头解析）。
+ *
+ * 为什么需要它：CCG 的 verify-security 只能整文件扫（它只接受 --path，不接受行区间），
+ * 于是「本次只改了这个文件 3 行、文件里另有 1500 行存量代码」时，存量问题会被算到本次提交头上。
+ * 本文件 CONFIG 注释里「刻意不按目录扫描，避免把历史问题算到本次提交、导致门禁失效」说的就是这件事，
+ * 但那个粒度只到**文件**，没到**行** —— 实测（2026-10-16 p3-residual-criteria）：
+ * 改了 rpa-view-platforms.js 的 12 行，却被该文件 L1040 一处**存量** innerHTML（2026-07-16
+ * 的安全修复代码，且 diff 完全没触及）拦住提交。
+ *
+ * 解析失败/无 diff 时返回 null —— 调用方据此**不过滤**（fail-closed：宁可按存量报，也不放行）。
+ */
+function changedLineRanges(file) {
+  try {
+    const r = spawnSync("git", ["diff", "--cached", "-U0", "--", file], { encoding: "utf8" });
+    if (r.status !== 0 || !r.stdout) return null;
+    const ranges = [];
+    const re = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/gm;
+    let m;
+    while ((m = re.exec(r.stdout)) !== null) {
+      const start = Number(m[1]);
+      const len = m[2] === undefined ? 1 : Number(m[2]);
+      if (len > 0) ranges.push([start, start + len - 1]);
+    }
+    // 空 diff（例如文件被还原成与 HEAD 一致）不算解析失败：本次没改 ⇒ 没有命中该算
+    return ranges;
+  } catch (_) {
+    return null;
+  }
+}
+
+/** 从 CCG 安全扫描输出里抽出「文件:行号」形式的命中行号。 */
+function parseSecurityHitLines(output) {
+  const hits = [];
+  for (const line of String(output).split(/\r?\n/)) {
+    // ★ 只用「扩展名 + 冒号 + 行号」这个字面模式，不依赖 \b 与 $ 锚点：
+    //   实测（2026-10-16 p3-residual-criteria）写 /\s*$/ + /\.(js|…)\b/ 抽不到扫描器那行
+    //   （形如 `…rpa-view-platforms.js:1040`，行首还有 emoji 与其它前缀），
+    //   导致存量过滤**静默失效**——门禁照旧阻断，而过滤代码看着像生效了。
+    const m = line.match(/\.(?:js|ts|py|go|java|rs|c|cpp|php):(\d+)/i);
+    if (m) hits.push(Number(m[1]));
+  }
+  return hits;
+}
+
 function runGate(ccgDir, gate, target) {
   const args = target ? [...gate.args, target] : [...gate.args];
   const res = spawnSync(
@@ -146,6 +191,7 @@ function runGate(ccgDir, gate, target) {
   const output = `${res.stdout || ""}${res.stderr || ""}`.trim();
   return {
     name: gate.name,
+    file: target || null,
     code: res.status,
     output,
     blocking: res.status !== 0 && gate.blocking,
@@ -309,7 +355,39 @@ function main() {
       ? targetFiles.map((f) => runGate(ccgDir, gate, f))
       : [runGate(ccgDir, gate, null)];
 
-    const failed = results.filter((r) => r.code !== 0);
+    // ★ 存量命中过滤（2026-10-16 p3-residual-criteria）：
+    //   verify-security 只能整文件扫 ⇒ 文件里的存量问题会被算到本次提交头上、拦住提交。
+    //   这里对 blocking 的安全门禁做二次判定：**命中行号必须落在本次 diff 的改动区间内**，
+    //   区间外的一律降为告警并注明「存量，非本次引入」。
+    //   fail-closed：区间解析失败（返回 null）时不过滤，宁可按存量报也不放行。
+    const adjusted = results.map((r) => {
+      if (r.code === 0 || gate.name !== "verify-security") return r;
+      const ranges = changedLineRanges(r.file);
+      if (ranges === null) return r;
+      if (ranges.length === 0) {
+        // 本次没有改动这个文件（例如显式传参扫了别的文件）⇒ 无从判定是否本次引入，不过滤
+        return r;
+      }
+      const hits = parseSecurityHitLines(r.output);
+      if (hits.length === 0) return r;
+      const inDiff = hits.filter((ln) => ranges.some(([a, b]) => ln >= a && ln <= b));
+      if (inDiff.length === hits.length) return r;
+      const preExisting = hits.length - inDiff.length;
+      return {
+        ...r,
+        code: 0,
+        blocking: false,
+        output: r.output
+          + `\n[存量过滤] ${preExisting}/${hits.length} 处命中不在本次 diff 改动区间内 ⇒ 判为存量，不阻断提交。`
+          + `\n           改动区间: ${ranges.map(([a, b]) => `${a}-${b}`).join(", ")}`
+          + `\n           （fail-closed：区间解析失败时不过滤）`,
+      };
+    });
+    const finalResults = adjusted.map((r) =>
+      r.blocking ? r : { ...r, code: r.code === 0 ? 0 : r.code, output: r.output }
+    );
+
+    const failed = finalResults.filter((r) => r.code !== 0);
     if (failed.length === 0) {
       passed++;
       continue;

@@ -284,6 +284,18 @@ function buildChecks (slug) {
           detail: `has_api:true 但既无 publish/platforms/${chainPrefix}*.js 也无 adapters/${slug}.js ⇒ 空声明`,
         }
       }
+      // ★ CCG 第四轮 i3（upheld）：原判据只查**适配器文件存在**，detail 却断言
+      //   「已由 src/index.js 注册」——文件在而没被 require 时会给**虚假证据**。
+      //   这正是 i1 指责的「证据链未固化」换个位置复发。现在把这句话变成真判据：
+      //   读 index.js，断言它确实 require 了该适配器（找不到 require ⇒ FAIL）。
+      const indexSrc = read('packages/api-publish-engine/src/index.js')
+      const adapterRequireRe = new RegExp(`require\\(['"]\\./adapters/${slug}['"]\\)`)
+      if (indexSrc && !adapterRequireRe.test(indexSrc)) {
+        return {
+          ok: false,
+          detail: `adapters/${slug}.js 存在但 src/index.js 未 require 它 ⇒ 有文件、无注册（不可达）`,
+        }
+      }
       return {
         ok: true,
         detail: `has_api:true 有 API 适配器（adapters/${slug}.js，已由 src/index.js 注册）但 0 个链`
