@@ -1,20 +1,29 @@
 /**
- * 发布频率策略 — 单一真源（v3）
+ * 发布频率策略 — 单一真源（v4）
  *
  * 三个维度：
  *   accountMinMs    —— 同一账号在同一平台两次发布的最小间隔（键 platform:accountId）
- *   platformMinMs   —— 同一平台任意两次发布的最小间隔（键 platform:*，账号档 ≥ 本档，
- *                      故**同账号时由账号档决定、跨账号时由本档兜底**）
+ *   platformMinMs   —— 同一平台任意两次发布的最小间隔（键 platform:*）。v4 起三档统一 1 分钟，
+ *                      且恒 ≤ 各档 accountMinMs ⇒ **同账号时永远由账号档决定，跨账号时由本档兜底**；
+ *                      它只防一件事：同一台机器/同一出口 IP 下不同号在同一平台并行被关联。
  *   accountDailyMax —— 同一账号在同一平台的每日提交上限（本机运营日，见 guard）
  *
  * ⚠️ 下表数值是**工程保守默认**，不是平台官方规则，本工具不声称符合任何平台官方规定。
- * 依据与自认弱点见 01-docs/PRD-PUBLISH-FREQUENCY-V3-2026-10-15.md §3–§5。
+ * 依据与自认弱点见 01-docs/PRD-PUBLISH-FREQUENCY-V4-2026-10-15.md §3–§5。
  * 平台若调整节奏，改这一处；禁止在调用方另抄一份。
  * 未登记的平台回落 BASELINE_INTERVALS（最严档），不得回落 0。
  *
+ * v4 相对 v3 的变更（change: publish-frequency-policy-v4）：
+ *   - 平台档三级 **统一成 1′**（3′/2′/1′ → 1′）：分级撤掉，机制保留 —— 删掉整条会撤掉
+ *     唯一防"同机多号被平台关联"的闸，而那种故障本地无任何信号（表现为莫名掉登录/发不出去）。
+ *   - 日配额 30/50/200 → **200/350/500**（用户口径"最低 200、最高 500"，档间单调保持）。
+ *     长文由 30 抬到 200，是 6.7× 放松 —— 因此"节奏仍分档"这件事此后**只由 accountMinMs 承载**。
+ *   - 回滚硬顶不变：`min(max(2, dailyMax), MAX_ROLLBACK_PER_DAY=5)` 在三档下均为 5
+ *     （由行为锁实测，不从公式推断）。
+ *
  * v3 相对 v2 的变更（change: publish-frequency-policy-v3）：
  *   - 账号档再下调：长文 20′→5′ / 短视频·图文社区 10′→3′ / 短内容 3′→1′
- *   - 平台档由「统一 2′」改为**按档分级** 3′/2′/1′（长文平台的跨账号节奏也应更稳）
+ *   - 平台档由「统一 2′」改为**按档分级** 3′/2′/1′（v4 又统一回 1′，见上）
  *   - 日配额取 10 倍：3/5/20 → 30/50/200（用户运营量级实测后放开，见 PRD §3）
  *   - 连带项：**「未提交失败回滚」的每日许可数不再随日配额放大**（守卫侧封顶
  *     MAX_ROLLBACK_PER_DAY）；以及 D1 —— 超时/中止竞态输掉时禁止回滚窗口。
@@ -50,17 +59,23 @@ const DEFAULT_EMERGENCY_MAX_PER_DAY = 1
 const MAX_EMERGENCY_MAX_PER_DAY = 10
 
 /**
- * 三档预设 —— 数值的**唯一**落点（v3）。
+ * 三档预设 —— 数值的**唯一**落点（v4）。
  * 平台表由本表派生，禁止再逐平台手抄数值：15 份字面量里改漏一份，
  * 表现是"某平台莫名其妙比别人严/松"，而策略表读起来每行都对。
+ *
+ * v4 相对 v3 的两处改动，各自的方向不同，不要当成一次统一下调：
+ *   - `platformMinMs` 三档**统一 1 分钟**：机制保留、分级撤掉。它只作用在
+ *     "同一平台、不同账号"这一种场景（同号并发由 TaskQueue 的通道调度串行挡住）。
+ *   - `accountDailyMax` 提高并仍保持档间单调（长文最少）。间隔维度的单调没动，
+ *     所以"长文比短内容慢"这条产品语义依然由 `accountMinMs` 承载，而不是配额。
  */
 const TIER_PRESETS = Object.freeze({
   // 长文低频：一篇长文的运营代价高，节奏应最稳
-  [TIER_LONG]: Object.freeze({ accountMinMs: 5 * MIN, platformMinMs: 3 * MIN, accountDailyMax: 30 }),
+  [TIER_LONG]: Object.freeze({ accountMinMs: 5 * MIN, platformMinMs: 1 * MIN, accountDailyMax: 200 }),
   // 短视频 / 图文社区
-  [TIER_CLIP]: Object.freeze({ accountMinMs: 3 * MIN, platformMinMs: 2 * MIN, accountDailyMax: 50 }),
+  [TIER_CLIP]: Object.freeze({ accountMinMs: 3 * MIN, platformMinMs: 1 * MIN, accountDailyMax: 350 }),
   // 短内容、高频容忍
-  [TIER_SHORT]: Object.freeze({ accountMinMs: 1 * MIN, platformMinMs: 1 * MIN, accountDailyMax: 200 }),
+  [TIER_SHORT]: Object.freeze({ accountMinMs: 1 * MIN, platformMinMs: 1 * MIN, accountDailyMax: 500 }),
 })
 
 /** 平台 → 档位分组（复用 v2 的三档分类器，不新增第四档） */
@@ -96,13 +111,14 @@ const PLATFORM_FREQUENCY_POLICY = Object.freeze(
 /**
  * 未登记平台回落的最严档（**独立常量，故意不从 TIER_PRESETS 派生**：
  * 改 long 档不应静默改变回落实质——回落必须是"人为想清楚过的最严值"）。
- * 数值随 v3 同步下调一档，但保持"不弱于任何已登记平台"。
+ * v4 下"最严"= 账号间隔取最大（5′）、平台间隔取唯一值（1′）、日配额取最小（200）；
+ * 三个维度的"更严"方向不一致，回归锁 `回落基线不得弱于任何已登记平台` 逐维度分别取上/下界。
  */
 const BASELINE_INTERVALS = Object.freeze({
   tier: TIER_LONG,
   accountMinMs: 5 * MIN,
-  platformMinMs: 3 * MIN,
-  accountDailyMax: 30,
+  platformMinMs: 1 * MIN,
+  accountDailyMax: 200,
 })
 
 const ENV_ACCOUNT_MIN_INTERVAL = 'MP_PUBLISH_MIN_INTERVAL_MS'
@@ -127,6 +143,50 @@ const SUPPORTED_PLATFORMS = Object.freeze(Object.keys(PLATFORM_FREQUENCY_POLICY)
 function isKnownPlatform (platform) {
   return typeof platform === 'string' && Object.prototype.hasOwnProperty.call(PLATFORM_FREQUENCY_POLICY, platform)
 }
+
+/**
+ * 回落基线不得弱于任何已登记平台 —— **运行期**自检（QM-6 后端轴 C1/W1）。
+ *
+ * 为什么还要一道运行期的：`BASELINE_INTERVALS` 刻意不从 `TIER_PRESETS` 派生（回落必须是
+ * "人为想清楚过的最严值"），于是"改档忘改基线"只能靠测试发现 —— 测试一旦被绕过
+ * （跳过、--no-verify、只跑子集）语义就静默反转。这里把同一判据在模块加载时再跑一遍并**出声**。
+ * 只出声不抛错：抛错会让整条发布链起不来，而这属于"配置写错"级别，不是"安全门失效"级别。
+ *
+ * 表可由参数注入 ⇒ "基线被调宽"这一格在测试里可表示（默认读真实表，不造第二份判据）。
+ * @param {{warn?: (msg: string) => void, policyTable?: object, baseline?: object}} [options]
+ * @returns {string[]} 违规描述数组（空＝通过）
+ */
+function checkBaselineStrength (options = {}) {
+  const warn = typeof options.warn === 'function' ? options.warn : (msg) => console.warn(msg)
+  const table = options.policyTable || PLATFORM_FREQUENCY_POLICY
+  const baseline = options.baseline || BASELINE_INTERVALS
+  const platforms = Object.keys(table)
+
+  if (platforms.length === 0) {
+    // 空表会让"零个违规"读起来像通过 —— 自检必须报告自己没测到东西
+    warn('[PublishFrequency] 策略表为空，回落基线无法比对（本次自检未生效）')
+    return ['策略表为空，自检未生效']
+  }
+
+  const problems = []
+  for (const key of ['accountMinMs', 'platformMinMs']) {
+    const maxRegistered = Math.max(...platforms.map((p) => Number(table[p][key]) || 0))
+    if (!(Number(baseline[key]) >= maxRegistered)) {
+      problems.push(`${key} 基线 ${baseline[key]} < 已登记最大 ${maxRegistered}`)
+    }
+  }
+  // 配额维度的"更严"是**更小**（与间隔维度方向相反），所以比的是下界
+  const minDaily = Math.min(...platforms.map((p) => Number(table[p].accountDailyMax) || 0))
+  if (!(Number(baseline.accountDailyMax) <= minDaily)) {
+    problems.push(`accountDailyMax 基线 ${baseline.accountDailyMax} > 已登记最小 ${minDaily}`)
+  }
+
+  if (problems.length) warn(`[PublishFrequency] 回落基线弱于已登记平台：${problems.join('；')}`)
+  return problems
+}
+
+// 加载即自检：正常配置下静默；只在"改了档位忘了改基线"时出声一次
+checkBaselineStrength()
 
 function warnSink (options) {
   return typeof options.warn === 'function' ? options.warn : (msg) => console.warn(msg)
@@ -383,6 +443,7 @@ module.exports = {
   resolveEmergencyMaxPerDay,
   resolvePolicyOverrides,
   isKnownPlatform,
+  checkBaselineStrength,
   parseEnvNumber,
   PLATFORM_FREQUENCY_POLICY,
   BASELINE_INTERVALS,
