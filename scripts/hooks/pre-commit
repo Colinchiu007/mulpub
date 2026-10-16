@@ -153,12 +153,58 @@ if [ -f "scripts/ccg-gate.js" ]; then
     # 36 个 worktree 堆积 300+ 个未跟踪判定记录，其中按文件名反查
     # 「已在 origin/main = 0」——结构性无法随 PR 入主，只能本地堆积。
     # 所以在门禁跑完后立刻把本次生成的记录 stage 进同一个提交。
-    for rec in .ccg/reviews/*.json; do
-        [ -e "$rec" ] || continue
-        if [ -z "$(git ls-files -- "$rec")" ] || ! git diff --quiet -- "$rec" 2>/dev/null; then
-            git add -- "$rec" || true
+    # 候选集由 git 自身视图派生，进程创建次数与树上记录数无关。
+    # 旧写法逐文件 fork 2~3 次 git；而这些记录一旦入库就被每个 worktree 检出继承
+    # （origin/main 该目录现有 600+ 个 .json，且按月自增），于是 N 只增不减：
+    # 拥堵现场（13 条链并发、18.2 次创建/秒）实测：单次提交约 1,218 次进程创建、单次创建约 1.175 秒
+    # => 24-30 分钟/提交；风暴排空后同法复测单次仅 53ms => 这是并发放大的读数，不是机器常数。
+    # O(N) 的 spawn 形态正是制造该拥堵的源头，所以消掉它是拆掉放大器，不只是少等一会。
+    # 两集合按定义互斥（未跟踪=不在 index；已改动=在 index 且工作树不等于 index），拼接即全集，无需去重。
+    # pathspec 必须加引号交给 git 匹配（交给 shell 展开会在无匹配时留下字面量）。
+    # 必须带 :(glob) 路径魔法：git 裸 pathspec 的 * 跨 /（实测会取到 .ccg/reviews/inner/*.json），
+    # 而旧形态的 shell glob 不跨 /。不加魔法则候选域是旧集合的超集，违反 spec「恰好等于旧集合」那条 MUST。
+    # 批量 add 走 stdin + NUL：绕开 Windows CreateProcess 约 32k 命令行上限，并兼容含空格/中文的文件名。
+    # 契约见 openspec/changes/fix-precommit-reviews-spawn-storm/；回归锁 scripts/hooks/pre-commit.test.sh scenario16
+    RECORD_PATHSPEC=':(glob).ccg/reviews/*.json'
+    # 两次扫描各自落一个临时清单，**不吞 stderr**：旧写法带 2>/dev/null 会把「index 损坏 / 扫描失败」
+    # 压成「没记录要暂存」，于是判定记录无声滞留未跟踪区 —— 那正是 #3396 要消除的形态，且比逐文件
+    # 老写法更隐蔽（老写法逐条尝试时 git 的报错会露出来）。失败必须点名，且不静默跳过。
+    rev_tmp="${TMPDIR:-/tmp}/mp-ccg-reviews-$$"
+    scan_untracked_ok=1
+    scan_modified_ok=1
+    git ls-files --others --exclude-standard -z -- "$RECORD_PATHSPEC" > "$rev_tmp.u" || scan_untracked_ok=0
+    git diff --name-only -z -- "$RECORD_PATHSPEC" > "$rev_tmp.m" || scan_modified_ok=0
+    # 每一侧独立判定：一侧扫描失败不得连带弃掉另一侧的健康清单（QM-6 i1）——否则"扫描失败"会把
+    # 损失放大成全部弃投，且与批量失败有逐条回退的处置不对称。失败侧点名并报**放弃条数**，
+    # 让损失可见；健康侧照常暂存。
+    if [ "$scan_untracked_ok" = 0 ] || [ "$scan_modified_ok" = 0 ]; then
+        dropped=0
+        if [ "$scan_untracked_ok" = 0 ]; then
+            dropped="$(tr -cd '\0' < "$rev_tmp.u" | wc -c | tr -d ' ')"
         fi
-    done
+        if [ "$scan_modified_ok" = 0 ]; then
+            dropped="$((dropped + $(tr -cd '\0' < "$rev_tmp.m" | wc -c | tr -d ' ')))"
+        fi
+        echo "   [reviews] 扫描失败（untracked=$scan_untracked_ok modified=$scan_modified_ok），该侧清单不可信、本轮放弃该侧暂存；已读到条数=$dropped（下界，不代表损失量）"
+    fi
+    # --exclude-standard 与「.ccg 是否被 ignore」耦合：若将来把 .ccg 加入 .gitignore 作无界增长治理，
+    # 本段就不再 stage 判定记录。该语义由 scenario15 钉住（未跟踪记录必须入库），改动会当场变红而非静默。
+    if [ -s "$rev_tmp.u" ] || [ -s "$rev_tmp.m" ]; then
+        # 走 stdin+NUL：不经 argv，绕开 Windows CreateProcess 约 32k 命令行上限，且兼容含空格/中文文件名
+        if ! { [ "$scan_untracked_ok" = 1 ] && [ -s "$rev_tmp.u" ] && cat "$rev_tmp.u"; [ "$scan_modified_ok" = 1 ] && [ -s "$rev_tmp.m" ] && cat "$rev_tmp.m"; } \
+                | git add --pathspec-from-file=- --pathspec-file-nul; then
+            # 回退逐条以保持「单条失败不阻断提交」的既有语义；必须出声，否则批量恒失败会静默退化无人知道
+            # 同时带出 git 版本：--pathspec-from-file 需要 git>=2.25，缺该旗标时这一行就是唯一现场证据
+            echo "   [reviews] 批量 git add 失败，已回退逐条暂存（git=$(git --version 2>/dev/null || echo unknown)）"
+            n_rev=0
+            while IFS= read -r -d "" rec; do
+                git add -- "$rec" || true
+                n_rev=$((n_rev + 1))
+            done < <( { [ "$scan_untracked_ok" = 1 ] && [ -s "$rev_tmp.u" ] && cat "$rev_tmp.u"; [ "$scan_modified_ok" = 1 ] && [ -s "$rev_tmp.m" ] && cat "$rev_tmp.m"; } )
+            echo "   [reviews] 回退完成，共逐条暂存 $n_rev 个文件"
+        fi
+    fi
+    rm -f "$rev_tmp.u" "$rev_tmp.m"
 fi
 echo "=== Pre-commit 检查完成 ==="
 exit 0
