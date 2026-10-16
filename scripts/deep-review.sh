@@ -667,6 +667,20 @@ if [ -z "$MODE" ]; then
   say "  自检：git diff --cached --no-textconv --no-ext-diff --no-renames -- . ':(exclude).ccg' | sha256sum"
   say "        git diff HEAD^ HEAD --no-textconv --no-ext-diff --no-renames -- . ':(exclude).ccg' | sha256sum   # 两者应相等"
   say "  处置：git add -A 后重新提交一次（不要再动工作区），再跑本脚本。"
+
+  # ★ 第五轮 i4（Critical 级失败模式）：**不得一律 exit 0**。
+  #   旧版这里无条件 exit 0 ⇒ 记录缺失时深度审查被静默跳过 ⇒ fail-open。
+  #   判据：本提交**本该有**判定记录吗？
+  #     - 非 .ccg diff 行数 > 0 ⇒ 判定器本该为它写一条 ⇒ 缺失即故障 ⇒ **exit 1**（fail-closed）
+  #     - 为空 ⇒ 这本就不该有记录（纯 .ccg/ 或空提交）⇒ exit 0 正确
+  #   _DIFFLINES 已在内容寻址段算过（同一份 diff，不重复物化）。
+  #   --dry-run 仍 exit 0（它只预览，不承担门禁职责）。变量名是 DRY（不是 DRY_RUN）。
+  if [ "${_DIFFLINES:-0}" -gt 0 ] && [ "${DRY:-0}" -eq 0 ]; then
+    say ""
+    say "🔴 本提交有 ${_DIFFLINES} 行非 .ccg 改动却没有判定记录 ⇒ 深度审查无法进行（fail-closed）。"
+    say "   按上面自检定位分叉原因，修复后重跑；不要用 '跳过' 当作通过。"
+    exit 1
+  fi
   exit 0
 fi
 say "判定: $(echo "$MODE" | tr '[:lower:]' '[:upper:]')"

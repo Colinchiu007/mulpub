@@ -621,3 +621,35 @@ descB('QM-6 第二轮自查：工作区有未提交改动时不得误报故障�
     assert.match(out, /工作区有 \d+ 个未提交/, '必须明说「未提交改动」这一档，并提示先提交')
   } finally { fsB.rmSync(dir, { recursive: true, force: true }) }
 })
+
+descB('QM-6 第五轮 i4：dual 提交缺记录必须 fail-closed（exit 1），不得静默 exit 0', () => {
+  // 旧版「判定记录: 无」分支无条件 exit 0 ⇒ 记录缺失时深度审查被静默跳过 ⇒ fail-open。
+  // 判据：本提交**本该有**记录吗（非 .ccg diff 行数 > 0）？本该有却缺失 ⇒ exit 1。
+  // --dry-run 仍 exit 0（只预览，不承担门禁职责）。
+  const dir = makeRepoWithoutRecordB()
+  try {
+    const r = spawnB(bashB, ['scripts/deep-review.sh'], { cwd: dir, encoding: 'utf8', maxBuffer: 1 << 24 })
+    const out = (r.stdout || '') + (r.stderr || '')
+    assert.strictEqual(r.status, 1,
+      '有非 .ccg 改动却无判定记录 ⇒ 必须 exit 1（fail-closed）；实际 status=' + r.status)
+    assert.match(out, /fail-closed/, '必须明说这是 fail-closed，而不是含糊的「跳过」')
+    // --dry-run 仍应为 0
+    const r2 = spawnB(bashB, ['scripts/deep-review.sh', '--dry-run'], { cwd: dir, encoding: 'utf8', maxBuffer: 1 << 24 })
+    assert.strictEqual(r2.status, 0, '--dry-run 只预览 ⇒ 仍应 exit 0')
+  } finally { fsB.rmSync(dir, { recursive: true, force: true }) }
+})
+
+descB('QM-6 第五轮 i4 反向：纯 .ccg 提交无记录不得判故障（应 exit 0）', () => {
+  // 反向对照：这本就不该有记录，exit 1 会造成假阳。
+  try {
+    const dir = makeRepoWithoutRecordB()
+    try {
+      fsB.writeFileSync(pathB.join(dir, '.ccg', 'reviews', 'note.txt'), 'x')
+      execB('git', ['add', '-A'], { cwd: dir, stdio: 'pipe' })
+      execB('git', ['commit', '-q', '-m', 'ccg only'], { cwd: dir, stdio: 'pipe' })
+      const r = spawnB(bashB, ['scripts/deep-review.sh'], { cwd: dir, encoding: 'utf8', maxBuffer: 1 << 24 })
+      assert.strictEqual(r.status, 0,
+        '纯 .ccg 提交本就不该有记录 ⇒ 必须 exit 0（否则假阳）；实际 status=' + r.status)
+    } finally { fsB.rmSync(dir, { recursive: true, force: true }) }
+  } catch (e) { throw e }
+})

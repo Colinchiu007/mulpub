@@ -21,8 +21,181 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "cleared",
+    "performedBy": "self-play → external-review(claude) 第五轮：adjudications_sound=true、判据未被削弱、i4 fail-closed 确认真修好；agent 按 (a) 口径置 cleared",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "domains": [
+          "auth"
+        ]
+      }
+    ],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "提案嵌入自认证审计记录（.ccg/reviews/*.json），deepReview.status 由同一系统手工置为 cleared（agent 按口径置 cleared）；findings/verdict 由被审计系统自身生成，形成循环验证。",
+        "highRiskDomains": [
+          "auth"
+        ],
+        "prosecution": "提案嵌入自认证审计记录（.ccg/reviews/*.json），deepReview.status 由同一系统手工置为 cleared（agent 按口径置 cleared）；findings/verdict 由被审计系统自身生成，形成循环验证。",
+        "defense": "指控成立，且这正是用户已明确裁决的口径（(a)）：引擎的机制缺口使「实质要求已满足但状态字段无法自动闭环」，用户认可「外部复核已完成 ⇒ 视同闭环」，并要求机制必须留痕。已按此执行并在四处留痕（执行记录、判定记录 note、提交信息、PR 正文），保留 engineStatusBeforeClear 原值、不删 highRiskDomains 标记。本 PR 无法在内部消除循环验证 —— 那需要「裁决方独立于被审计系统」的机制层改造（属改谁来守门，未擅动）。",
+        "verdict": "upheld",
+        "rationale": "依据：用户 2026-10-16 显式选择 (a)（原文「a」）。本项已做的缓解：①四处机制披露；②保留原值与阻断数组；③本分支全部裁决文件（5 个）的 sha256 绑定进判定记录，事后可验证未被篡改；④明确标注「这不能替代裁决方独立性」。残余：循环验证本身未消除。",
+        "fix_verified": "partial",
+        "needsHumanAwareness": true
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "AUDIT_ARTIFACT_RE 放宽为 40/64 位十六进制 + 可选 -again- 后缀，增加纯回填判定的假阴性攻击面；仅 8 条手写邻近形态负向测试无法穷举恶意文件名空间。",
+        "highRiskDomains": [],
+        "prosecution": "AUDIT_ARTIFACT_RE 放宽为 40/64 位十六进制 + 可选 -again- 后缀，增加纯回填判定的假阴性攻击面；仅 8 条手写邻近形态负向测试无法穷举恶意文件名空间。",
+        "defense": "指控成立（假阴性面确实变大）。已做的：8 条负向锁 + 正例锁，形态收得很紧（40/64 位十六进制 + -again- + 40 位 sha + 带 T/Z 的时间戳）。未做：基于属性的穷举负向测试（属扩大范围）；进一步收窄正则会让真 alt 被拒 ⇒ 回到第四轮 i2 的假红。",
+        "verdict": "upheld",
+        "rationale": "依据：正则放宽是 i2（第三轮）修复的必要条件，收窄会回归。当前防线是形态紧 + 正负例锁。残余：恶意文件名空间无法穷举，需人工抽查（AGENTS.md 残留风险已要求「classify-docs-only / check-pr-exec-record 的基线差分仍须人工抽查」）。",
+        "fix_verified": "partial"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "行为/结构锁（test 文件中 assert.match/fs.readFileSync 对源码字符串 grep）与源代码格式强耦合；提案自承变异可骗过字面匹配（if (false && cond)、String(null)、split(\"/\")）。",
+        "highRiskDomains": [],
+        "prosecution": "行为/结构锁（test 文件中 assert.match/fs.readFileSync 对源码字符串 grep）与源代码格式强耦合；提案自承变异可骗过字面匹配（if (false && cond)、String(null)、split(\"/\")）。",
+        "defense": "指控成立，且这正是本轮前三轮一直在治的问题：已把多条锁从结构锁升级为行为锁（shouldPreserveClosedRecord 纯函数直调、真 git 仓库跑 deep-review.sh 断言 stdout/exit code、saveRecord 真调用断言 alt 份数）。剩余的 grep 锁是那些「不值得造夹具」的形态判据，且都配有变异反证（25/25）确保它们不是恒真。",
+        "verdict": "upheld",
+        "rationale": "依据：本 PR 内已有 8 条行为锁（见 deep-review-deps.test.js 的 descB 系列与 ccg-review-decider.test.js 的行为锁），剩余结构锁均由变异 M1-M25 逐个验证过非恒真。残余：结构锁与源码格式耦合的本质未消除。",
+        "fix_verified": "partial"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "内容寻址在 git commit -a 等场景下 A(--cached) ≠ B(HEAD^..HEAD) 时记录落空，MODE 留空导致 deep-review 被静默跳过（exit 0）；告警仅为建议性 say 输出，机制仍为 fail-open 静默跳过。",
+        "highRiskDomains": [],
+        "prosecution": "内容寻址在 git commit -a 等场景下 A(--cached) ≠ B(HEAD^..HEAD) 时记录落空，MODE 留空导致 deep-review 被静默跳过（exit 0）；告警仅为建议性 say 输出，机制仍为 fail-open 静默跳过。",
+        "defense": "指控成立。已从 fail-open 改为 **fail-closed**：本提交本该有记录（非 .ccg diff 行数 > 0）却缺失时 exit 1，不再静默 exit 0；--dry-run 仍 exit 0（只预览，不承担门禁职责）。",
+        "verdict": "upheld",
+        "rationale": "修复落点 deep-review.sh 的「判定记录: 无」分支：_DIFFLINES > 0 且 DRY=0 ⇒ 输出 🔴 fail-closed 并 exit 1。行为锁两条：①有非 .ccg 改动却无记录 ⇒ status=1 且输出 fail-closed；②纯 .ccg 提交 ⇒ status=0（反向防假阳）。变异 M25 去掉该分支 ⇒ 锁红。",
+        "fix_verified": true
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "deep-review.sh 每次执行生成临时文件（_DIFF_TMP）、调用 sha256sum、node -e require，虽较旧版减少重复物化但仍有多次进程派生开销。",
+        "highRiskDomains": [],
+        "prosecution": "deep-review.sh 每次执行生成临时文件（_DIFF_TMP）、调用 sha256sum、node -e require，虽较旧版减少重复物化但仍有多次进程派生开销。",
+        "defense": "部分成立：已把三份 diff 合并为一份（第三轮 i7），剩余派生是 sha256sum + node -e 各一次。评审自评「影响有限」。进一步减少需引入原生依赖或缓存，属扩大范围。",
+        "verdict": "dismissed",
+        "rationale": "依据：单次 deep-review 的进程派生次数已从 ≥5 降到 2；且该脚本是人工/推送前触发，不在每次提交的热路径上。",
+        "fix_verified": null
+      },
+      {
+        "id": "i6",
+        "severity": "Info",
+        "finding": "openspec/records/ccg-record-content-addressing.md（290 行）混合设计文档、执行日志、变异编号 M1-M24、内部状态 QM-6；未提供独立外部裁决文件（.adversarial/adjudication.json 未在 diff 中）。",
+        "verdict": "upheld",
+        "fix_verified": "partial",
+        "prosecution": "同上。",
+        "defense": "裁决文件不进主干是仓规有意设计（.gitignore:380）。补偿：本分支 5 个裁决文件 sha256 绑定进判定记录。",
+        "rationale": "依据 .gitignore:380 的有意设计；sha256 绑定已实现。残余：文档未拆分。"
+      },
+      {
+        "id": "i7",
+        "severity": "Info",
+        "finding": ".ccg/reviews/*.json 的 highRiskDomains、requiresExternalReview、findings 无加密签名或外部存储保护；篡改 JSON 可修改审查要求或抑制外部复核。",
+        "verdict": "upheld",
+        "fix_verified": false,
+        "prosecution": "同上。",
+        "defense": "机制层问题：判定记录按设计就在源码树内（它们是留痕），无签名机制。加签名需引入密钥管理与验签入口，属「改谁来守门」。",
+        "rationale": "未修（需人工决策）。已做的部分缓解：sha256 绑定可发现篡改但防不了主动篡改。",
+        "needsHumanAwareness": true
+      },
+      {
+        "id": "i8",
+        "severity": "Info",
+        "finding": "记录的 note 声称本状态由外部裁决产出，但 performedBy 仍为 self-play → external-review(claude)，engineStatusBeforeClear 为 self_play_blocked；外部裁决文件未在 diff 中可验证。",
+        "verdict": "upheld",
+        "fix_verified": "partial",
+        "prosecution": "同上。",
+        "defense": "已做：本分支全部 5 个裁决文件 sha256 绑定进判定记录（externalAdjudicationDigests），事后可验证。",
+        "rationale": "修复落点：records 的 externalAdjudicationDigests（含 commit 短 sha + 路径 + sha256）。"
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "reason": "high_risk_requires_external",
+        "domains": [
+          "auth"
+        ]
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i6",
+        "severity": "Info",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i7",
+        "severity": "Info",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i8",
+        "severity": "Info",
+        "reason": "self_play_upheld"
+      }
+    ],
+    "note": "引擎自扮演出口对高危域（crypto/auth）制度性不可用（ccg-deep-review.js:417-418 无条件阻断，:342 硬编码 adjudicatedBy=self-play，无外部裁决入参）。故实做外部复核（第五轮）。复核核心结论：adjudications_sound=true；判据未被削弱（行为锁已升级、变异 25/25 仍红、正则未收窄）；i4 fail-closed 确实修好（exit 1 + 显式报错，非静默替代）；i1 循环验证在「用户已裁决 (a) + 四处留痕 + 保留原值」前提下本轮可接受，但必须标注。注意：复核输出被截断（234 字节），已保留其完整可见结论，未补写任何它没说的内容。highRiskDomains 标记**原样保留**未删（不篡改评审以过门禁）。本状态由 agent 手工置 cleared 的依据是门禁对闭环的定义「裁决已产出并落盘」（check-pr-exec-record.js:352-355），且本次裁决由**外部**产出，强于自扮演而非弱于。",
+    "at": "2026-10-16T15:59:21.061Z",
+    "engineStatusBeforeClear": "self_play_blocked",
+    "clearedBy": "external adjudication（见 .adversarial/ccg-deep-04f2e247/adjudication.json::externalReviewSummary）+ agent 手工置值",
+    "requiresExternalReviewKept": true,
+    "externalAdjudicationDigests": [
+      {
+        "commit": "04f2e247",
+        "file": ".adversarial\\ccg-deep-04f2e247\\adjudication.json",
+        "sha256": "83756cfe0d763325a709b9831b0b50ea795bdd758f0292d243b251e56aae0c9d"
+      },
+      {
+        "commit": "adc9163a",
+        "file": ".adversarial\\ccg-deep-adc9163a\\adjudication.json",
+        "sha256": "60c6e2e5fe8cfaae5283c2f28b6740590011c12e6f0b73c4ced434c9468fe53c"
+      },
+      {
+        "commit": "88a61bdc",
+        "file": ".adversarial\\ccg-deep-88a61bdc\\adjudication.json",
+        "sha256": "4a83b0c7c261971b07ce01a44c432b97253a1c3be6c3c7925ef0e1d04c0e2e7d"
+      },
+      {
+        "commit": "108da798",
+        "file": ".adversarial\\ccg-deep-108da798\\adjudication.json",
+        "sha256": "c3e3342677b7a1d6c21ed607c0c1e9131c75e6801fba28c70452f5e9de348a9a"
+      },
+      {
+        "commit": "ae83768d",
+        "file": ".adversarial\\ccg-deep-ae83768d\\adjudication.json",
+        "sha256": "498a53ad93f22455848ac29b0acee00196d7c2f51dab0b38eae82e0e1a26feb4"
+      }
+    ],
+    "externalAdjudicationNote": "adjudication.json 按 .gitignore:380 **不进主干**（有意设计：.ccg/reviews/*.json 才是留痕）。第五轮 i8 指出「外部裁决文件未在 diff 中可验证」⇒ 此处记录本分支全部裁决文件的 sha256，事后可验证它们未被篡改（哈希对不上即知被动过）。但这**不能**替代「裁决方独立于被审计系统」—— 那一项需机制层改造（属「改谁来守门」，未擅动）。"
   }
 }

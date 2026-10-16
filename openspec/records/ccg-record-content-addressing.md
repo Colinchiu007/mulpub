@@ -122,7 +122,7 @@ i2/i3（高危域 crypto/auth）判阻断 ⇒ 按用户已批准的 **(a) 口径
 | i7 | Info | 已修：deep-review.sh 内三份 diff 合并为一份（落临时文件，哈希与行数都从它读） |
 | i8 | Info | 已修：`_READ_FAILED` 置位，记录损坏时只报一种诊断 |
 
-**本轮自查抓到 8 个自身缺陷**（全部记入裁决表 `selfCaughtBeforeReview`）：
+**本轮自查抓到 9 个自身缺陷**（全部记入裁决表 `selfCaughtBeforeReview`）：
 ① i1 故障判据首版没看工作区是否干净，把「改到一半跑 deep-review」判成故障（**比不报更糟**）；
 ② i4 的 argv 修复引入下标 bug（`node -e` 的脚本**不占** argv ⇒ arg 在 `argv[1]`），**靠真跑一次抓到**；
 ③ i7 用 `printf '%s'` 复用命令替换结果 ⇒ 尾随换行被吃 ⇒ 哈希与 decider 对不上（4 条行为锁同时红）；
@@ -132,7 +132,9 @@ i2/i3（高危域 crypto/auth）判阻断 ⇒ 按用户已批准的 **(a) 口径
    ⇒ 判据必须先剥注释行、只取代码行，且**取路径前缀必须用 `path.basename`**（Windows 是 `\`）；
 ⑦ **`String(git())` 把 null 变成 `"null"`** ⇒ 对 "null" 算 sha256 得无意义哈希 ⇒ 记录落假名字且永远找不到；
 ⑧ **A/B 两侧配方不一致**（decider 固定了 flag 而 `deep-review.sh` 仍是裸 `git diff`）——
-   由外部复核指出，已统一并加锁（M21）。这正是「声称同源的三处」之外的第四处漏配。
+   由外部复核指出，已统一并加锁（M21）；
+⑨ **i4 fail-closed 首版用了不存在的变量名 `DRY_RUN`**（实际是 `DRY`）⇒ `set -u` 下直接
+   `unbound variable` 退出 ⇒ 靠真跑一次抓到（结构锁抓不到：字面对）。
 
 **外部复核结论**（第三轮，针对 i1/i4 高危域 + 全 8 条；第一次委托因输出截断失败，已重试）：
 **7 条 upheld + fix_verified=true；i6 dismissed（认可「不修」）；`adjudications_sound=true`；
@@ -176,6 +178,25 @@ i2/i3（高危域 crypto/auth）判阻断 ⇒ 按用户已批准的 **(a) 口径
 
 **外部复核结论**（第四轮）：见裁决表 `externalReviewSummary` 段。
 
+**第五轮（最终轮）**（变更 167 行但命中敏感词 ⇒ DUAL，8 条问题，最低分 correctness 4 / maintainability 3）：
+**i4 完全修复**（fail-open ⇒ fail-closed）；i1/i2/i3/i6/i8 部分修复；i7 未修（属机制层）；i5 dismissed。
+
+| id | 严重度 | 处置 |
+|---|---|---|
+| i1 | Critical（高危） | **部分修复**：循环验证（审计记录与被审计代码同 PR、status 由 agent 手工置）在本 PR 内**无法消除**。已做：四处机制披露 + 保留 `engineStatusBeforeClear` 原值 + 不删 `highRiskDomains` + 本分支 5 个裁决文件 sha256 绑定。用户已按 (a) 口径显式裁决 |
+| i2 | Critical | **部分修复**：补正例锁 + 8 条负向锁；正则**不再收窄**（收窄会让真 alt 被拒 ⇒ 回到第四轮 i2 的假红）。恶意文件名空间无法穷举 ⇒ 需人工抽查 |
+| i3 | Warning | **部分修复**：已把多条锁从结构锁升级为**行为锁**（纯函数直调 / 真 git 仓库跑脚本断言 exit code / 真调 `saveRecord` 断言 alt 份数）；剩余 grep 锁均由变异 25/25 逐个验证非恒真 |
+| i4 | Warning | **已完全修复**：fail-open ⇒ **fail-closed**。本该有记录（非 `.ccg` diff 行数 > 0）却缺失 ⇒ 输出 🔴 并 `exit 1`，不再静默 `exit 0`；`--dry-run` 仍 `exit 0`（只预览，不承担门禁职责） |
+| i5 | Warning | dismissed：进程派生已从 ≥5 次降到 2 次，且该脚本不在每次提交的热路径上 |
+| i6 | Info | **部分修复**：裁决文件不进主干是 `.gitignore:380` 的**有意设计**（注释明写「判定记录 `.ccg/reviews/*.json` 才是留痕」）；已把本分支 5 个裁决文件 sha256 绑定进判定记录。文档未拆分 |
+| i7 | Info | **未修**：判定记录无加密签名/无外部存证。加签名需引入密钥管理与验签入口，属「改谁来守门」，需人工决策 |
+| i8 | Info | **部分修复**：本分支全部 5 个裁决文件的 sha256 已绑定进判定记录（`externalAdjudicationDigests`），事后可验证未被篡改 |
+
+**第五轮自查抓到 1 个自身缺陷**：i4 的 fail-closed 首版用了不存在的变量名 `DRY_RUN`（实际是 `DRY`），
+`set -u` 下直接 `unbound variable` 退出 —— 靠「真跑一次」抓到（结构锁抓不到：字面对）。
+
+**外部复核结论**（第五轮）：见裁决表 `externalReviewSummary` 段。
+
 ### 风险与防线（**这是本 PR 最需要人看的点**）
 
 改 `AUDIT_ARTIFACT_RE` 是**放宽门禁的识别面**：若放宽过宽，`scripts/evil.js` 一类真·功能新增
@@ -193,9 +214,9 @@ i2/i3（高危域 crypto/auth）判阻断 ⇒ 按用户已批准的 **(a) 口径
 **TDD**：先写测试 ⇒ RED ⇒ 实现 ⇒ 全绿。RED 的预测与实测逐条吻合（四轮分别预测/实测
 decider 5:5、gate 3:3；QM-6 复审 decider 2:2、gate 1:1；第二轮 decider 2:2；
 第三轮 decider 2:2）。其中 gate 的「邻近形态仍被拒」**原本就绿**，作为负向对照证明当前正则确实不收 64 位。
-终态：decider 36/36、gate 56/56、deps 26/26。
+终态：decider 36/36、gate 56/56、deps 28/28。
 
-**变异反证（24/24 RED + 字节级还原 + 还原后复验 0 红）**：
+**变异反证（25/25 RED + 字节级还原 + 还原后复验 0 红）**：
 
 | # | 变异 | 指名的红 |
 |---|---|---|
@@ -223,6 +244,7 @@ decider 5:5、gate 3:3；QM-6 复审 decider 2:2、gate 1:1；第二轮 decider 
 | M22 | 去掉 alt 去重（i1 四轮） | alt 去重锁红 |
 | M23 | 去掉首提交（无 HEAD^）路径（i2 四轮） | 首提交锁红 |
 | M24 | error 分支改回仍写记录（i6 四轮） | 不落盘锁红（3 条） |
+| M25 | 去掉 fail-closed 分支（i4 五轮） | fail-closed 锁红 |
 
 （M4/M5 共同证明「位置本身就是判据」：早退在查找之前 ⇒ 兜底变死代码。
 M7/M9 证明**结构锁不够**——必须行为锁才抓得到「字面都在但行为已失效」的变异。
