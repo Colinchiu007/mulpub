@@ -9,7 +9,7 @@ sync_backfill_owner: lead-agent (wxmp-save-body-intercept session)
 
 ## 本次执行记录：公众号「缺少媒体 ID」第二例修复（wxmp-save-body-intercept，2026-10-16）【混合 PR】
 
-- **变更类型**：运行时代码（`apps/desktop/electron/**`）⇒ 隔离 worktree `D:\Data\projects\mp-worktrees\mp-wxmp-save-body-intercept`（标准入口 `scripts/start-mp-task.ps1 -TaskName wxmp-save-body-intercept`，D 盘），裸分支 `wxmp-save-body-intercept`（基线 origin/main `3c8617355`）。
+- **变更类型**：运行时代码（`apps/desktop/electron/**`）⇒ 隔离 worktree（标准入口 `scripts/start-mp-task.ps1 -TaskName wxmp-save-body-intercept`，非 C 盘，路径见 worktree 登记），裸分支 `wxmp-save-body-intercept`（基线 origin/main `3c8617355`）。
 - **本 PR 不是 docs-only**：含运行时代码，按混合 PR 走完整质量节拍。
 - PRD 增量章节：`01-docs/PRD-WECHAT-MP-ARTICLE-PUBLISH-2026-10-12.md` §20（修复设计/校验规则 D7-D12/显示项/AC-21~27/风险）。
 
@@ -48,7 +48,7 @@ sync_backfill_owner: lead-agent (wxmp-save-body-intercept session)
 1. 真机发图文核对（无会话）：确认四通道在真机的实际命中顺序与 `appMsgId` 字段名。
 2. CDP attach 与行为层/上传并发共存：真机一次观察日志确认无 "Another debugger is already attached" 冲突路径。
 3. `ERROR_SIGNAL_RE` 词表由真机错误提示样本持续校准。
-4. 临时解包目录 `D:\Temp\app-test-wxmp` 保留未删（R0 守卫拒目录删除，按铁律不动）。
+4. asar 解包临时目录保留未删（R0 守卫拒目录删除，按铁律不动；路径 `%TEMP%\app-test-wxmp` 级别的会话临时产物）。
 
 | 门禁项 | 状态 |
 |--------|------|
