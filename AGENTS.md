@@ -126,7 +126,18 @@ node scripts/classify-docs-only.js --base=origin/main --head=HEAD
 - `scripts/classify-docs-only.js --head=HEAD` 必须在 **commit 之后**取证：未提交时 `HEAD==base` ⇒ 空 diff ⇒ 返回 `docs-only=false files=0`。那是取证顺序问题，不是判定失灵——把预提交的那次判定写进 PR 正文会写成假结论。
 - 共享根下 `git show origin/main:<path>` 会被 Git Bash 的 MSYS 参数转换改成 `origin\main;<path>` ⇒ `fatal: ambiguous argument`。读主干 blob 前先 `export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'`。
 - `safe-worktree-remove.ps1` 在 `node_modules` 深路径上报 `error: failed to delete ...: Filename too long`（`git worktree remove` rc=255）属**预期路径**：注册已解除，脚本的 R6 长路径兜底会直删残留目录、R7 再对账基线，末尾出现 `worktree gone : True` 即成功。**不得**据此改判失败、更不得手工递归删除（R0）。
-- squash 合并后**分支 tip 不是 `origin/main` 的祖先**，用 `git merge-base --is-ancestor <branch> origin/main` 判「已合并」必然为假（`git branch -d` 同因拒绝）。删本地分支前的正解是比**树**：`git diff --stat <branch-tip> <merge-SHA>` 输出为空 ⇒ 内容已完整进主干，此时删除才安全。
+- squash 合并后**分支 tip 不是 `origin/main` 的祖先**，用 `git merge-base --is-ancestor <branch> origin/main` 判「已合并」必然为假（`git branch -d` 同因拒绝）。删本地分支前的判据**面必须收敛到本 PR 自己的改动集，并按文件类别拆两半**（2026-10-16 由 #3674 立；下面每条假阳性率都取自当天 5 次真实合并的实测，不得当修辞）：
+  先取改动集 `FILES=$(git diff --name-only "$(git merge-base origin/main <branch-tip>)" <branch-tip>)`。
+  ① **普通文件**逐字节比 blob：`[ "$(git rev-parse <branch-tip>:<f>)" = "$(git rev-parse <merge-SHA>:<f>)" ]`，逐文件要求相等。
+  ② **多会话共用写面**（`CHANGELOG.md`、`01-docs/learnings.md`、`.quality-gates.md`、`scripts/gate-record-debt-ledger.json`、`scripts/doc-abs-paths-baseline.json` 这类追加/置顶型文件）**只能按行级多重集判，且必须双向**：
+     用 `git diff --unified=0 <base> <branch-tip> -- <f>` 取出**我的新增行**，逐条要求在 `<merge-SHA>:<f>` 中出现次数 ≥ 我给的次数；
+     再取出**我的删除行**（去重、去空白、`trim` 后比较），逐条要求其**不出现**在主干该文件里——单向只证"我的东西都在"，证不出"我删掉的那行没被后续合并带回来"。
+  ⛔ **不得用不带文件集的 `git diff --stat <branch-tip> <merge-SHA>` 全树比较当判据**：主干含其他会话的并发提交，与"我的内容有没有进主干"无关。
+     实测 5 例中 **3 例假阳性**（差异 52 / 10 / 5 行，逐行核对全是别人的文件）⇒ 照字面执行只能得出"分支永不可删"，或逼人在判据非空时照样删（本次就是后者，属违规）。
+  ⛔ **也不得只把判据缩到 `-- $FILES` 就收工**（#3674 提议的那一行改法）：同 5 例实测仍 **2 例假阳性**，差的正是 ② 中他人后续追加的 `CHANGELOG.md` / `01-docs/learnings.md` 行；
+     写面越热，"整文件比较"越不可靠，必须降到"我的新增行 / 删除行"这一层。按 ①+② 重测 5 例**全部通过、零假阳性**：逐字节 20/20、5/5、2/2、3/3、1/1；新增行 2/2、3/3、1/1、1/1、0/0；删除行 79 种与 1 种在主干复现数均为 0。
+  ③ 删除前先 `git tag retire/<branch>-<日期> <branch-tip>` 留可恢复出口；删除后按 R1/R7 核对主工作区与基线一致。
+     **判据取不到读数时（blob 读不到、diff 为空但文件集非空、多重集比较因编码/行尾失败）一律按"未证实"处理，不得当成"已合并"**——把工具的失明读成结论，是本仓「装饰性门禁」的同型。
 - 共享根 `main` 滞后于 `origin/main` 时**不得**就地编辑 `AGENTS.md` / `.quality-gates.md` / `CHANGELOG.md` 这类「上游也在改同一处」的文件：分层判据只看影响面，但**滞后的工作副本会让 docs PR 反向撤销已合并的那一行**。开写前先 `git merge --ff-only origin/main`（被 untracked 挡住就移开那个文件），并用 `git log HEAD..origin/main -- <目标文件>` 确认没有未吸收的上游改动。
 
 **残留风险（不假装已闭合）**
