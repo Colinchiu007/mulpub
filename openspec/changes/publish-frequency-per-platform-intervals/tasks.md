@@ -46,8 +46,8 @@
 - [x] 4.3 locale 成对：`check-locale-sync.js --pair-base` PASS、`--cjk` PASS；
   另以键集比对确认 `publishFrequency` 段 zh/en 各 43 键、差集为空
 - [x] 4.4 ESLint（CI Gate 11 同口径 `--quiet`）对改动文件 0 error
-- [ ] 4.5 QM-1 打包 + asar 产物判据 + 启动三层 stderr 判据
-- [ ] 4.6 变异反证：优先级链翻转 / 表退回档位派生 / env 只部分生效 / 渲染层数字字面量
+- [x] 4.5 QM-1 打包 + asar 产物判据 + 启动三层 stderr 判据（`build:dir` rc=0；`entries=15019`、`dist/` 125 条含 `index.html`；产物内策略四项命中 + IPC 含 `accountMinDefaults` + 渲染端新 testid/locale 命中且以既有 testid 作正控；启动 12s 存活、stderr 0 字节、本 worktree 进程 0→0）
+- [x] 4.6 变异反证 **M1–M8 全部 CAUGHT 且各自指名**（驱动入库 `.ccg/reviews/freq-v5-mutate.driver.js`，仓库根由 `__dirname` 推导、不写盘符；还原逐字节相同。第一版把测试路径写成仓库相对路径 ⇒ 8 道全判 `PROBE_BLIND`，已改为盲窗出声 + 打印原始输出）
 
 ## 5. 文档
 
@@ -56,13 +56,13 @@
 - [x] 5.2 `01-docs/ARCH-PUBLISH-FREQUENCY-AND-QUEUE-2026-10-16.md` 同步：§2 数值改 v5 并给逐平台表、
   §3 env 表与 §3.1/§3.2 校验与优先级、§7 用户可见面（含"分组键必须是 tier"）、
   §9 活例外（定时表单 / 配额不对称）、§10 锁清单、§11 排障新增一行、§12 沿革新增 v5 行
-- [ ] 5.3 `CHANGELOG.md` 置顶一条
-- [ ] 5.4 `01-docs/learnings.md` 沉淀
-- [ ] 5.5 `openspec/records/publish-frequency-per-platform-intervals.md`（两形态同写）
+- [x] 5.3 `CHANGELOG.md` 置顶一条（两口径 numstat 相同 `10/0`，CR 21597→21607 == 新增行数）
+- [x] 5.4 `01-docs/learnings.md` 置顶一节（五条：量被当界用 / 参照物即被改结构的锁 / 分组标签语义≠数据真源 / 新解析器的兜底递归 / 写→当场验→才报）
+- [x] 5.5 `openspec/records/publish-frequency-per-platform-intervals.md`（表格行 + 声明式 bullet 两形态同写；`check-gate-record-debt` 实测 rc=0 OK）
 
 ## 6. 交付
 
-- [ ] 6.1 QM-6：三通道外部评审不可用则按用户口径自审并如实登记"未跑成"
+- [x] 6.1 QM-6：三通道外部评审不可用 ⇒ 记录里登记「未跑成」，另按用户口径做双轴自审（S-1/S-2/S-5 已修，S-3 拒绝附不可达判据，S-4 撤回附复核证据）
 - [ ] 6.2 push + PR + CI（sha-pin 看守）+ 判据齐备后 squash 合并并删远端分支
 - [ ] 6.3 合并后回填远程同步 PASS + merge SHA，同次提交内完成销账
 - [ ] 6.4 worktree 按 R1–R7 退役（先 tag 再动手，`safe-worktree-remove.ps1 -WhatIf` 先干跑）

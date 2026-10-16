@@ -1,8 +1,11 @@
-// p9a.cjs —— v5 变异反证驱动（8 道）。每道：备份 → 注入被禁形态 → 跑指定测试 → 记录红集 → 还原 → md5 逐字节校验。
+// v5 变异反证驱动（8 道）。每道：备份 → 注入被禁形态 → 跑指定测试 → 记录红集 → 还原 → md5 逐字节校验。
 // 反证必须取"规则明文禁止的那个形态"本身，且每道都必须指名它声称抓住的那条锁。
 const fs = require('node:fs')
 const cp = require('node:child_process')
-const W = 'D:/Data/projects/mp-worktrees/mp-publish-frequency-per-platform-intervals/'
+const path = require('node:path')
+// 仓库根由 __dirname 推导（`.ccg/reviews/` 的上两级），**不写机器绝对路径**：
+// 写死盘符会被 Gate 12c（check-doc-abs-paths，账本"出现即计"）当场判红，且换机/换 worktree 即失效。
+const W = path.resolve(__dirname, '..', '..') + path.sep
 const POL = W + 'packages/shared-utils/src/publish-frequency-policy.js'
 const VUE = W + 'apps/desktop/src/components/PublishFrequencySettings.vue'
 const IPC = W + 'apps/desktop/electron/ipc-handlers/publish-frequency.js'
