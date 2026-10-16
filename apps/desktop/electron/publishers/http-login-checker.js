@@ -233,21 +233,29 @@ const HTTP_CHECK_APIS = {
       return uid ? { platformAccountId: uid } : {}
     }
   },
-  // 知乎：同样无仓库内取证的 JSON user-info 端点（api.zhihu.com/topstory、
-  // www.zhihu.com/api/v4/articles、developer.zhihu.com/api/v1 均非「当前登录账号身份」
-  // 接口），故与小红书同走 HTML 身份属性通道，端点用已注册主页
-  // PLATFORM_DASHBOARD_URLS.zhihu（www.zhihu.com 已在 PLATFORM_AUTH_HOSTS 白名单内，
-  // 且它不是登录地址 https://www.zhihu.com/signin）。
-  // ⛔ 明确禁止的来源：`document.title`（真源里知乎账号 name 现值即「首页 - 知乎」
-  // 这类页面标题）、og:title、昵称、头像 URL 及其任何派生值（AGENTS.md「标题类来源
-  // 不得当结构化身份字段」+ PRD-CLOUD-ACCOUNT-SYNC §5.1）。本 extract 不产出
-  // nickname/followers，缺席即「不修改」。
-  // 可靠性等级：低-中（同小红书，待 tasks 3.6 实测确认 SSR 是否直出身份属性）。
+  // 知乎：与小红书同走 HTML 身份属性通道（无仓库内取证的 JSON user-info 端点），
+  // 端点用已注册主页 PLATFORM_DASHBOARD_URLS.zhihu。⛔ 禁止 document.title/og:title/
+  // 昵称/头像等派生值冒充身份字段（PRD-CLOUD-ACCOUNT-SYNC §5.1），extract 缺席即不修改。
   zhihu: {
     url: PLATFORM_DASHBOARD_URLS.zhihu,
     headers: {
       Referer: PLATFORM_DASHBOARD_URLS.zhihu,
       Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+    },
+    // 2026-10-16 追加（渲染崩溃保护配套）：zhihu HTTP 检测此前恒 inconclusive ⇒ 启动批量
+    // 校验降级到隐藏 sandbox 窗口加载 www.zhihu.com/signin ⇒ 原生渲染崩溃（exit 0xC0000409）；
+    // account-manager 已把 zhihu 纳入渲染崩溃白名单，本判定让 HTTP 快速路径给出确定结论。
+    // 判据（无 Cookie GET 实测）：登录容器 SignFlow/signqrcode/扫码登录/密码登录（未登录形态
+    // 26 处命中）vs 已登录身份导航 AppHeader-profileAvatar/ProfileHeader（未登录形态 0 命中）。
+    // 黑名单语义：明确未登录 false、明确已登录 true、其余/两者并存 → undefined（降级=白名单判未确认，绝不开窗）。行为向量见 account-manager-zhihu-render-crash.test.js。
+    checkHtml: (html) => {
+      if (!html || typeof html !== 'string') return undefined
+      const hasLoginBox = /SignFlow|signqrcode|扫码登录|密码登录/.test(html)
+      const hasIdentityNav = /AppHeader-profileAvatar|ProfileHeader/.test(html)
+      if (hasLoginBox && hasIdentityNav) return undefined
+      if (hasLoginBox) return false
+      if (hasIdentityNav) return true
+      return undefined
     },
     uidSource: 'html',
     extract: (html) => {
