@@ -2,9 +2,6 @@
 record: dep-audit-alias
 task: 偿还欠账：依赖审计门禁按公告 aliases 认同同一条公告，不再把「换号」判成「一增一失」
 date: 2026-10-16
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由后续回填 PR 同一次提交改写为 PASS + merge SHA 并删除本段三字段
-sync_backfill_owner: 下一个会话
 ---
 
 ## 本次执行记录：依赖审计门禁 aliases 认同（dep-audit-alias，2026-10-16）【混合 PR】
@@ -31,7 +28,6 @@ sync_backfill_owner: 下一个会话
 | 接线棘轮 | ✅ | `.github/workflows/dep-audit.yml:55` 显式点名 `node --test scripts/check-dep-audit.test.js` ⇒ 新用例在 CI 真跑；`check-unwired-tests.js` rc=0（88 个测试文件均已接线或登记） |
 | 行尾与 diff 对账 | ✅ | 两口径 `--numstat` / `--ignore-cr-at-eol --numstat` **逐值相同**（`check-dep-audit.js` 50/12、`check-dep-audit.test.js` 63/0）；4 个证据探针已按 R0 删除，`.ccg/reviews/<sha>.json`（pre-commit 自动 stage、不承载门禁语义）不计入本次业务改动 |
 | QM-1 打包 / QM-4 视觉 | N/A | 变更集不含 `apps/desktop/electron/**`、`packages/rpa-engine/**`、`.vue/.css` 与基线 PNG；`scripts/` 工具脚本不进打包产物 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin dep-audit-alias` 返回 0 行证远端分支已删；回填后删除上方三个 `sync_*` 字段 |
 
 ### QM-5 Bug 反思五步
 
@@ -184,6 +180,6 @@ i2 的输出口径另经真 CLI 复现：有迁移时**不打**「基线与现�
 - **碰撞合并只保留第一条 found 的主 id 作为键**：另一条 id 进 `aliases`，但其 `severity`/`patched`/`roots` 若与第一条不同，只保留第一条的值（未做字段级合并）。
 - **i4/i5 暴露的流程缺口**：我在第一笔提交时按旧习惯往 `.quality-gates.md` 写了块 —— AGENTS.md 的「旧载体冻结」条款（2026-10-15 起）明确禁止，是我**没读新条款**。已在记录里改正，但「条款已更新而执行者仍按旧习惯」这一类漂移没有机械判据在盯。
 
-- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PENDING
+- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PASS
 
-| 远程同步 | PENDING | 本 PR 尚未合并；合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin dep-audit-alias` 返回 0 行证远端分支已删；回填后删除上方三个 `sync_*` 字段 |
+| 远程同步 | PASS | PR #3699 已 squash 合并，merge SHA `6430671cb008c06e257fa494dd12f1fa5dca028d`（2026-10-16T18:09:11+08:00）；远端分支 `dep-audit-alias` 已删（`git ls-remote --heads` 0 行）；`git log origin/main --grep='(#3699)$'` 恰好 1 行；**main push run 已回读**：`gh run list --workflow=quality-gate.yml --commit 6430671cb…` → `conclusion=success` / `event=push`（防「PR 侧全绿但 main 侧红」，见 AGENTS.md 收尾清单第 7 步）；frontmatter 的 `sync_*` 三字段已在本次提交删除（本记录无 ledger 登记项，已核对） |
