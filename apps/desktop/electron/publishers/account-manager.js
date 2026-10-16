@@ -714,28 +714,16 @@ async function checkLoginStatus (platform, accountId, options = {}) {
     const RENDER_CRASH_PRONE_OPEN_PLATFORMS = new Set(['toutiao', 'wechat_mp', 'baijiahao', 'zhihu', 'kuaishou'])
     //
     //
-    // ===== 2026-10-16 策略翻转：登录态判定收敛到 HTTP 单轨 =====
-    // 上面这份 `RENDER_CRASH_PRONE_OPEN_PLATFORMS` 是**枚举式**的：它把「已知会崩的平台」
-    // 挑出来禁掉，于是**默认值始终留在崩的那一侧** —— 2026-09-16 toutiao → 10-06 wechat_mp
-    // → 10-14 知乎（#3726）→ 10-16 kuaishou，每换一个平台就再崩一次（真机现场：应用日志
-    // 戛然而止停在 `checkLoginStatus: start <platform>`、crashpad not connected、主进程退出
-    // 0xC0000135，随后全部 electron 进程消失、窗口空白 ⇒ 用户视角「应用突然关闭」）。
-    // 更关键的是 2026-10-16 实测：只拆启动参数（--no-sandbox 与 swiftshader 互斥）**不足以**
-    // 收敛——同一实例第一轮 kuaishou 检测通过，30 分钟后的第二轮仍在同一处崩溃 ⇒ 这条支路
-    // 本身必须默认关闭。
-    // 本仓外的实证（本地逆向 参考产品A（Electron 版），Electron v4.14.20 app.asar）：它的
-    // `--no-sandbox` / `swiftshader` / GPU 开关命中数均为 0，`loginStatus`/`isLogin`/
-    // `loginState` 标识符全 0，登录走**可见** BrowserView + Cookie 提取，判定与发布全走
-    // 平台 HTTP API，`render-process-gone` 只挂在普通 UI 窗口上且处理是 `browserWindow.reload()`
-    // （可恢复，不升级为应用级） ⇒ 它**根本没有**"隐藏窗口抓 DOM 判登录"这条路。
-    // 新契约：**只有**显式登记在 `DOM_LOGIN_CHECK_ALLOWED_PLATFORMS` 的平台才允许开隐藏
-    // 窗口；该集合**默认为空** ⇒ 一切"不确定"都判未确认，不拿整个应用的存活去赌一个账号的
-    // 状态。`RENDER_CRASH_PRONE_OPEN_PLATFORMS` 保留为**硬否决**，且**先于**允许集判定
-    // （否决永远赢）。要恢复某平台的 DOM 兜底：把它加进允许集，并在同一次提交附上**真机
-    // 复测证据**（该平台隐藏窗口加载不再崩溃）；不得用环境变量临时开启。
-    // 代价（明说）：更多账号会长期显示「未确认」（既有第三态，不新增文案，不计入失效、
-    // 不触发主页失效横幅）。正解是给它补 HTTP 侧能力（`HTTP_CHECK_APIS[p].checkHtml`），
-    // 而不是重新打开隐藏窗口。
+    // ===== 2026-10-16 策略翻转：登录态判定收敛到 HTTP 单轨（细节见 
+    // 01-docs/BUGFIX-LOGIN-CHECK-HTTP-ONLY-2026-10-16.md；此处只留契约）=====
+    // 旧写法是**枚举式**黑名单：把已知会崩的平台挑出来禁掉 ⇒ 默认值始终留在崩的那一侧，
+    // 于是按平台逐个复发（toutiao → wechat_mp → 知乎 → kuaishou，日志戛然而止 + crashpad
+    // not connected + 主进程退出 0xC0000135 ⇒ 用户视角「应用突然关闭」）。
+    // 新契约：只有显式登记在 DOM_LOGIN_CHECK_ALLOWED_PLATFORMS 的平台才允许开隐藏窗口，
+    // 该集合**默认为空**；RENDER_CRASH_PRONE_OPEN_PLATFORMS 保留为**硬否决**且**先于**
+    // 允许集判定（否决永远赢）。要放开某平台：加进允许集并在同一次提交附**真机复测证据**，
+    // 不得用环境变量临时开启。代价：更多账号显示「未确认」（不计入失效、不触发失效横幅）；
+    // 正解是给平台补 HTTP 侧能力（HTTP_CHECK_APIS[p].checkHtml），而不是重开隐藏窗口。
     if (RENDER_CRASH_PRONE_OPEN_PLATFORMS.has(platform)) {
       log.warn('AccountManager', 'checkLoginStatus: INCONCLUSIVE render-crash-prone, skip hidden browser ' + platform + ':' + accountId + ' cookies=' + cookies.length + ' lsKeys=' + lsKeys)
       return { valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE', reason: 'render-crash-prone-http-inconclusive' }
