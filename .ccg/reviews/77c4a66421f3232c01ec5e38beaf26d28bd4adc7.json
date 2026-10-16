@@ -21,8 +21,11 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "needs_revision",
+    "performedBy": "dual (critic=claude, proposer=opencode) + self-play adjudication + external cross-family recheck (claude)",
+    "findings": null,
+    "engineStatus": "self_play_blocked",
+    "note": "真跑过，不绕：见 .ccg/reviews/bb41947badfa329992eb552f2f22e7462f42ca91.json 的 deepReview.note 与 externalRecheck（逐条裁决、外部跨家族复核、原判保留在 originalVerdict / originalHighRiskDomains），以及 openspec/records/brand-rename-tomfish.md 的「2026-10-16 补记」第 4 节。状态取 needs_revision 的依据是 check-pr-exec-record.js 自己的口径「无 Critical 但留 High 建议」：3 条 Critical 全部处置，2 条 Warning 建议如实保留、不假装闭合。本条记录被判 mode=dual 的触发源是关键词匹配（见 reason 字段），已由外部跨家族复核确认为误触发，同类判定另见 bb41947ba 记录的高危域归因修正。",
+    "at": "2026-10-16T14:52:00.000Z"
   }
 }
