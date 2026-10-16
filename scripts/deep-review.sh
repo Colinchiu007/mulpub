@@ -449,12 +449,32 @@ do
   [ -n "$c" ] && [ -f "$c" ] && DRIVER="$c" && break
 done
 if [ -z "$DRIVER" ]; then
-  say "✗ 找不到 ccg-deep-review.js。"
-  say "  三种解法任选其一："
-  say "    a) 把 adversarial-review-loop 的 scripts/ vendor 到本仓库 scripts/ 下"
-  say "    b) 安装技能：npx ccg-workflow"
-  say "    c) 设置 CCG_ARL_DIR 指向引擎目录"
-  exit 2
+  # ★ 2026-10-17（CI 实证修复，Gate 2b 全红）：引擎缺失时**不得无条件 exit 2**。
+  #
+  #   动因（实测）：CI runner 上没有 ccg-deep-review.js（它只在 ~/.claude/skills/...），
+  #   而本脚本在「定位驱动」阶段就 exit 2 —— 于是**连判定记录查找都没走到**。
+  #   后果：behavior 锁（真跑本脚本断言记录查找/故障判据/exit code 的那批）在 CI 上
+  #   全部拿到 exit 2 ⇒ 8 条同时红 ⇒ QG Static 挂掉。本地全绿只因本机有引擎。
+  #
+  #   判据：--dry-run 的职责是**预览将要做什么**，不该因缺工具而拒绝预览。
+  #   故 dry-run 下改为「明确标注引擎缺失 + 继续完成预览」；
+  #   非 dry-run（真要跑审查）仍 fail-closed exit 2 —— 那才是该拦的地方。
+  if [ "${DRY:-0}" -eq 1 ]; then
+    say "⚠ 找不到 ccg-deep-review.js（引擎）—— 本次 dry-run 只预览到「判定记录」为止。"
+    say "  三种解法任选其一："
+    say "    a) 把 adversarial-review-loop 的 scripts/ vendor 到本仓库 scripts/ 下"
+    say "    b) 安装技能：npx ccg-workflow"
+    say "    c) 设置 CCG_ARL_DIR 指向引擎目录"
+    say "  （真实审查需要引擎；dry-run 不需要。）"
+    DRY_NO_DRIVER=1
+  else
+    say "✗ 找不到 ccg-deep-review.js。"
+    say "  三种解法任选其一："
+    say "    a) 把 adversarial-review-loop 的 scripts/ vendor 到本仓库 scripts/ 下"
+    say "    b) 安装技能：npx ccg-workflow"
+    say "    c) 设置 CCG_ARL_DIR 指向引擎目录"
+    exit 2
+  fi
 fi
 
 # ---------- 3. 读判定记录 ----------
@@ -691,32 +711,44 @@ if [ "$MODE" = "skip" ] && [ "$FORCE" -eq 0 ]; then
 fi
 
 # ---------- 4. 依赖体检 ----------
-WRAPPER="${CODEAGENT_WRAPPER:-${HOME:-}/.claude/bin/codeagent-wrapper.exe}"
-[ -x "$WRAPPER" ] || [ -f "$WRAPPER" ] || {
-  say "✗ 找不到 codeagent-wrapper: $WRAPPER"
-  say "  生成：npx ccg-workflow"
-  exit 2
-}
-# 后端体检**并补 PATH**（旧实现只 say 一句被动告警然后照跑 ⇒ 静默降级）。
-# 降级（单后端）保持非致命，与旧语义一致；真要 fail-closed 请用 --check-deps。
-# 但「一个后端都没有」必须早退：继续跑只会在引擎深处抛一个难懂的错误，
-# 而上一行刚打印过「深度审查根本起不来」，再打印「体检通过」是自相矛盾
-# （QM-6 评审 i3）。
-report_backends || true
-say ""
-if [ "$_RB_OK" -eq 0 ]; then
-  say "✗ 没有可用评审后端，深度审查起不来。修法见上方逐条（也可先跑 --check-deps）。"
-  exit 2
-fi
-if [ "$_RB_RC" -eq 0 ]; then
-  say "依赖体检通过，开始深度审查（可能耗时 15 分钟以上，取决于 diff 体量）…"
+# ★ 2026-10-17（CI 实证修复）：dry-run 下依赖体检**不得 fail-closed**。
+#   动因同上一处：CI 上没有 codeagent-wrapper / 评审后端，而 dry-run 只预览，
+#   不该因缺工具而拒绝预览（否则 behavior 锁在 CI 上又全红）。
+if [ "${DRY:-0}" -eq 1 ]; then
+  say "[dry-run] 跳过依赖体检的 fail-closed（真跑时才要求后端就绪）。"
 else
-  say "依赖体检有降级，开始深度审查（缺一路跨家族交叉验证）…"
+  WRAPPER="${CODEAGENT_WRAPPER:-${HOME:-}/.claude/bin/codeagent-wrapper.exe}"
+  [ -x "$WRAPPER" ] || [ -f "$WRAPPER" ] || {
+    say "✗ 找不到 codeagent-wrapper: $WRAPPER"
+    say "  生成：npx ccg-workflow"
+    exit 2
+  }
+  # 后端体检**并补 PATH**（旧实现只 say 一句被动告警然后照跑 ⇒ 静默降级）。
+  # 降级（单后端）保持非致命，与旧语义一致；真要 fail-closed 请用 --check-deps。
+  # 但「一个后端都没有」必须早退：继续跑只会在引擎深处抛一个难懂的错误，
+  # 而上一行刚打印过「深度审查根本起不来」，再打印「体检通过」是自相矛盾
+  # （QM-6 评审 i3）。
+  report_backends || true
+  say ""
+  if [ "$_RB_OK" -eq 0 ]; then
+    say "✗ 没有可用评审后端，深度审查起不来。修法见上方逐条（也可先跑 --check-deps）。"
+    exit 2
+  fi
+  if [ "$_RB_RC" -eq 0 ]; then
+    say "依赖体检通过，开始深度审查（可能耗时 15 分钟以上，取决于 diff 体量）…"
+  else
+    say "依赖体检有降级，开始深度审查（缺一路跨家族交叉验证）…"
+  fi
+  say ""
 fi
-say ""
 
 # ---------- 5. 跑 ----------
 if [ "$DRY" -eq 1 ]; then
+  if [ "${DRY_NO_DRIVER:-0}" -eq 1 ]; then
+    say ""
+    say "[dry-run] 引擎缺失 ⇒ 到此为止（判定记录与模式判定已预览完毕）。"
+    exit 0
+  fi
   exec node "$DRIVER" --dry-run --sha "$SHA"
 fi
 exec node "$DRIVER" --sha "$SHA"

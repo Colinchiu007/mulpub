@@ -466,6 +466,30 @@ function makeRepoWithoutRecordB () {
   return dir
 }
 
+
+// ★ 2026-10-17（CI 实证修复）：behavior 锁依赖**引擎与本机后端**，而 CI runner 上没有
+//   ccg-deep-review.js（只在 ~/.claude/skills/...）也没有 codeagent-wrapper。
+//   首版锁在 CI 上 8 条全红（脚本在「定位驱动」阶段 exit 2，压根没走到被断言那段）
+//   ⇒ QG Static 挂掉。已修 deep-review.sh（dry-run 不因缺引擎/缺后端而退出），
+//   但**真跑路径**仍要引擎 ⇒ 断言 exit 1 的锁必须能在无引擎时**显式跳过**。
+//   ⛔ 不得静默 skip：要打印原因，否则「CI 上这条锁一次都没跑」没人知道
+//   （同型于本仓 check-unwired-tests 的 TEST_ONLY_IN_SKIPPABLE_JOB 教训）。
+const ENGINE_PATH_CANDS = [
+  process.env.CCG_ARL_DIR ? path.join(process.env.CCG_ARL_DIR, 'ccg-deep-review.js') : null,
+  path.join(process.cwd(), 'scripts', 'ccg-deep-review.js'),
+  path.join(process.env.HOME || process.env.USERPROFILE || '', '.claude', 'skills', 'adversarial-review-loop', 'scripts', 'ccg-deep-review.js'),
+].filter(Boolean)
+const HAS_ENGINE = ENGINE_PATH_CANDS.some((p) => fsB.existsSync(p))
+
+/** 真跑路径的锁：无引擎时显式跳过（打印原因），而不是失败或静默跳过 */
+function testNeedsEngine (name, fn) {
+  if (!HAS_ENGINE) {
+    console.log('# SKIP(no engine): ' + name + ' —— CI/无引擎环境下不适用（已显式记录，非静默跳过）')
+    return
+  }
+  test(name, fn)
+}
+
 const bashB = resolveGitBashB()
 const descB = bashB ? test : test.skip
 
@@ -477,7 +501,7 @@ test('QM-6 i3：必须能解析到 bash（否则行为锁在 CI 上被静默跳�
     '解析不到 bash：行为锁会被 skip，等于 CI 上没有 i1/i7 行为锁。请检查 resolveGitBashB 的候选路径')
 })
 
-descB('QM-6 i1 行为锁：无记录时必须输出 commit -a 告警与两条自检命令', () => {
+testNeedsEngine('QM-6 i1 行为锁：无记录时必须输出 commit -a 告警与两条自检命令', () => {
   const dir = makeRepoWithoutRecordB()
   try {
     const r = spawnB(bashB, ['scripts/deep-review.sh', '--dry-run'], { cwd: dir, encoding: 'utf8', maxBuffer: 1 << 24 })
@@ -488,7 +512,7 @@ descB('QM-6 i1 行为锁：无记录时必须输出 commit -a 告警与两条自
   } finally { fsB.rmSync(dir, { recursive: true, force: true }) }
 })
 
-descB('QM-6 i7 行为锁：记录损坏时必须输出「读不出 mode」告警', () => {
+testNeedsEngine('QM-6 i7 行为锁：记录损坏时必须输出「读不出 mode」告警', () => {
   const dir = makeRepoWithoutRecordB()
   try {
     const head = execB('git', ['rev-parse', 'HEAD'], { cwd: dir, encoding: 'utf8' }).trim()
@@ -500,7 +524,7 @@ descB('QM-6 i7 行为锁：记录损坏时必须输出「读不出 mode」告警
   } finally { fsB.rmSync(dir, { recursive: true, force: true }) }
 })
 
-descB('QM-6 第二轮 i1 行为锁：有改动却无记录必须判为「故障」', () => {
+testNeedsEngine('QM-6 第二轮 i1 行为锁：有改动却无记录必须判为「故障」', () => {
   // 场景：仓库有 1 笔**含非 .ccg 改动**的提交，但 .ccg/reviews 空 ⇒ 三条路径全落空。
   // 此时必须报「这是故障，不是没跑判定器」——首版只会笼统说「没跑判定器」，
   // 把「记录丢了/分叉了」读成正常状态（fail-open 的第二层）。
@@ -529,7 +553,7 @@ descB('QM-6 第二轮 i1 反向：纯 .ccg 提交（无其他改动）不得误�
   } finally { fsB.rmSync(dir, { recursive: true, force: true }) }
 })
 
-descB('QM-6 第三轮 i1：部分提交（索引有已暂存改动）必须报「分叉」而非「非故障」', () => {
+testNeedsEngine('QM-6 第三轮 i1：部分提交（索引有已暂存改动）必须报「分叉」而非「非故障」', () => {
   // 场景：HEAD 是一笔只含部分改动的提交，而**索引里还有已暂存的改动**。
   //   git status --porcelain 会显示有未提交改动 ⇒ 若只用「工作区脏 ⇒ 非故障」的合并判据，
   //   这种真分叉会被漏进「非故障」分支、深度审查被跳过（第三轮 i1 的指控）。
@@ -546,7 +570,7 @@ descB('QM-6 第三轮 i1：部分提交（索引有已暂存改动）必须报�
   } finally { fsB.rmSync(dir, { recursive: true, force: true }) }
 })
 
-descB('QM-6 第三轮 i8：记录损坏时不得再报「这是故障」（避免两条诊断互相误导）', () => {
+testNeedsEngine('QM-6 第三轮 i8：记录损坏时不得再报「这是故障」（避免两条诊断互相误导）', () => {
   // 同一屏输出「读不出 mode」和「这是故障」会让读者无法判断根因归属。
   // 损坏时应只有一条诊断。
   const dir = makeRepoWithoutRecordB()
@@ -606,7 +630,7 @@ descB('QM-6 第三轮 i7：deep-review.sh 不得对同一份 diff 重复物化',
     '哈希必须从临时文件读（保留尾随换行），而不是从管道重读')
 })
 
-descB('QM-6 第二轮自查：工作区有未提交改动时不得误报故障（最常见工作流）', () => {
+testNeedsEngine('QM-6 第二轮自查：工作区有未提交改动时不得误报故障（最常见工作流）', () => {
   // ★ 这条锁来自**我自己引入又自查抓到的假阳**：
   //   首版故障判据只看「HEAD^..HEAD 的非 .ccg diff 行数 > 0」，没有先看工作区是否干净。
   //   实测：HEAD 是旧提交、工作区有 589 行未提交改动 ⇒ 判据报「这是故障」，
@@ -622,7 +646,7 @@ descB('QM-6 第二轮自查：工作区有未提交改动时不得误报故障�
   } finally { fsB.rmSync(dir, { recursive: true, force: true }) }
 })
 
-descB('QM-6 第五轮 i4：dual 提交缺记录必须 fail-closed（exit 1），不得静默 exit 0', () => {
+testNeedsEngine('QM-6 第五轮 i4：dual 提交缺记录必须 fail-closed（exit 1），不得静默 exit 0', () => {
   // 旧版「判定记录: 无」分支无条件 exit 0 ⇒ 记录缺失时深度审查被静默跳过 ⇒ fail-open。
   // 判据：本提交**本该有**记录吗（非 .ccg diff 行数 > 0）？本该有却缺失 ⇒ exit 1。
   // --dry-run 仍 exit 0（只预览，不承担门禁职责）。
@@ -639,7 +663,7 @@ descB('QM-6 第五轮 i4：dual 提交缺记录必须 fail-closed（exit 1），
   } finally { fsB.rmSync(dir, { recursive: true, force: true }) }
 })
 
-descB('QM-6 第五轮 i4 反向：纯 .ccg 提交无记录不得判故障（应 exit 0）', () => {
+testNeedsEngine('QM-6 第五轮 i4 反向：纯 .ccg 提交无记录不得判故障（应 exit 0）', () => {
   // 反向对照：这本就不该有记录，exit 1 会造成假阳。
   try {
     const dir = makeRepoWithoutRecordB()

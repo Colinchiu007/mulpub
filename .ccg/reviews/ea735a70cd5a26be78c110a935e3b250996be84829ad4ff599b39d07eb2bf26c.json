@@ -21,8 +21,21 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "self_play_pending",
+    "performedBy": "self-play(pending)",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "domains": [
+          "crypto"
+        ]
+      }
+    ],
+    "findings": null,
+    "template": ".adversarial\\ccg-deep-752fcfe6\\adjudication.json",
+    "note": "裁决尚未填写：5/5 条未定（i1, i2, i3, i4, i5）",
+    "at": "2026-10-16T16:18:45.773Z"
   }
 }
