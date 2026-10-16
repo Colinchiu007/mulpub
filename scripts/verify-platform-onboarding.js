@@ -53,7 +53,16 @@ const ROOT = path.resolve(__dirname, '..')
 const CHAIN_NAME_ALIASES = { tencent_video: 'shipinhao' }
 
 /** 步骤定义：每项返回 { ok, detail } */
-function buildChecks (slug) {
+/**
+ * @param {string} slug 平台
+ * @param {{router?: object|null}} [opts] 测试缝：
+ *   - 省略 `router`  → 真的 require 产品侧 api-router（本地 / 装了依赖的环境）
+ *   - `router: null` → **显式声明本环境没有 router** ⇒ 走确定性降级分支（不碰真实依赖）
+ *   - `router: {...}`→ 用注入的桩（可自由决定 shouldUseApi 返回值）
+ *   动因见判据⑨的注释：对账的 true 侧在真实 15 平台里没有样本，且 CI 的 changes job 不装依赖。
+ */
+function buildChecks (slug, opts) {
+  const o = opts || {}
   const read = (rel) => {
     const p = path.join(ROOT, rel)
     return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : null
@@ -63,6 +72,23 @@ function buildChecks (slug) {
   const formatter = () => read('packages/api-publish-engine/src/content-formatter.js')
   const caps = () => read('packages/shared-utils/src/publish-capabilities.json')
   const yamlText = () => read('config/platforms.yaml')
+
+  // ★ 运行时 router 的**唯一获取入口**（判据⑨用）
+  const resolveRouter = () => {
+    if ('router' in o) {
+      return o.router
+        ? { router: o.router, skipped: null, err: null }
+        : { router: null, skipped: '调用方显式声明本环境无 router（测试桩）', err: null }
+    }
+    try {
+      return { router: require(path.join(ROOT, 'packages/api-publish-engine/src/api-router.js')), skipped: null, err: null }
+    } catch (e) {
+      if (e && (e.code === 'MODULE_NOT_FOUND' || e.code === 'ERR_MODULE_NOT_FOUND')) {
+        return { router: null, skipped: String(e.message || '').split('\n')[0], err: null }
+      }
+      return { router: null, skipped: null, err: e.message }
+    }
+  }
 
   const checks = []
   const add = (id, title, fn) => checks.push({ id, title, fn })
@@ -343,10 +369,7 @@ function buildChecks (slug) {
       let runtimeSays = null
       let runtimeErr = null
       let runtimeSkipped = null
-      try {
-        const router = require(path.join(ROOT, 'packages/api-publish-engine/src/api-router.js'))
-        runtimeSays = router.shouldUseApi(slug)
-      } catch (e) {
+      {
         // ★ 第十轮实测（CI 的 changes job 当场红）：该 job **不装依赖**，而 api-router.js
         //   载入即 `require('js-yaml')` ⇒ MODULE_NOT_FOUND。AGENTS.md 明文规定：
         //   接进 changes job 的锁**只能 require node 内置模块**。故必须区分两种失败，二者处置相反：
@@ -354,11 +377,11 @@ function buildChecks (slug) {
         //       「运行时对账未执行」+ 原因。既不静默通过（那正是本判据要消灭的弱点），
         //       也不把「环境缺依赖」当成「判据不闭环」而误红（否则该 job 里本判据永远红）。
         //     · 其它错误（语法错、require 到坏模块…）⇒ 仍 fail-closed 判红。
-        if (e && (e.code === 'MODULE_NOT_FOUND' || e.code === 'ERR_MODULE_NOT_FOUND')) {
-          runtimeSkipped = String(e.message || '').split('\n')[0]
-        } else {
-          runtimeErr = e.message
-        }
+        //   router 的获取统一走 resolveRouter()，它同时是**测试缝**（见 buildChecks 的 opts 说明）。
+        const got = resolveRouter()
+        runtimeErr = got.err
+        runtimeSkipped = got.skipped
+        if (got.router) runtimeSays = got.router.shouldUseApi(slug)
       }
       if (runtimeErr) {
         return {
@@ -390,6 +413,9 @@ function buildChecks (slug) {
         }
       }
       if (!hasAdapter) {
+        // ⚠ 当前**不可达**：同分支前面的「空声明」检查（`!hasAdapter ⇒ FAIL`）已经挡住了
+        //   这种输入；`hasAdapter` 在本函数里也只算一次。保留作防御 —— 若将来调整上面
+        //   那段的顺序（例如把空声明改宽），这里仍能兜住「运行时说要走 API 轨、却没有适配器」。
         return {
           ok: false,
           detail: `运行时 shouldUseApi('${slug}')=true（要走 API 轨）但 adapters/${slug}.js 不存在`

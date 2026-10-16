@@ -138,6 +138,19 @@ jobs:
           node --test scripts/check-pr-exec-record.test.js
           node scripts/check-pr-exec-record.js --base="${EXEC_BASE:-}" --head-branch="${EXEC_HEAD_REF:-}" --head="${EXEC_HEAD_SHA:-HEAD}" --mode=advisory
 
+      # --- Gate 2c5：CCG 门禁「存量命中过滤」的判据回归锁 ---
+      # 动因（2026-10-16，第十轮 CCG 外部评审遗留项）：这段决定「本次提交是否被安全门禁拦下」
+      # 的策略原先内联在 `scripts/ccg-gate.js` 里，而该文件末尾是顶层 `process.exit(main())`
+      # ⇒ **不可 require** ⇒ 一直没有测试缝，只能临时抽源码 eval 验证，CI 永远跑不到它。
+      # 本步之前已把它抽成 `scripts/lib/ccg-gate-security-filter.js`，这里把常驻锁接上
+      # —— 不接就等于「写了测试但永不执行」（check-unwired-tests 拦的就是这种）。
+      # 落点必须在 changes 作业：docs-only PR 会把 static-gates 整个短路
+      # （与 Gate 2c2 / 2c3 / 2c4 同一先例）。
+      # 被测模块与本测试只 require node 内置（该作业无 Install deps），符合 changes 作业的接线约束。
+      - name: "Gate 2c5 - CCG security pre-existing filter regression lock (changes job)"
+        shell: bash
+        run: node --test scripts/lib/ccg-gate-security-filter.test.js
+
       # --- Gate 2c4：CCG 判定器（ccg-review-decider）的判据回归锁 ---
       # 动因（2026-10-15）：该脚本此前**零测试覆盖**（grep 只命中一条注释），
       # 于是两个判据缺陷长期无人发现：

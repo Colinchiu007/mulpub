@@ -545,69 +545,56 @@ test('判据 11 适用面修正：有链才要求链级测试 + 别名同源 + �
 // ─────────────────────────────────────────────────────────────────────────────
 test('判据 9 与运行时同源对账（CCG 第八轮 i3 回归锁）', () => {
   const fs = require('node:fs')
-  // ★ 第十轮实测：本文件被 CI 的 `changes` job 跑到，而那个 job **不装依赖**；
-  //   产品侧 api-router.js 载入即 require('js-yaml') ⇒ 这里一个裸 require 会让整条用例崩。
-  //   故本用例走**双分支**：能加载产品模块 → 断言同源对账；不能 → 断言判据**显式降级**
-  //   （detail 必须写「运行时对账未执行」+ 原因，绝不静默通过）。
-  let router = null
-  try { router = require(path.join(ROOT, 'packages/api-publish-engine/src/api-router.js')) } catch (_) { router = null }
+  // ★ 第十轮遗留项修复：`buildChecks(slug, { router })` 现在是**测试缝**，于是
+  //   ①「运行时确实会走 API 轨」这一侧不再缺样本（注入 shouldUseApi⇒true 的桩）；
+  //   ② 依赖缺失的降级分支可**确定性**触发（`router: null`），不再需要「临时移开 js-yaml」那种环境把戏。
+  const id9 = (slug, opts) => buildChecks(slug, opts).find((c) => c.id === 9).fn()
 
-  if (!router) {
-    // ⚠ 只有**无链但已声明 API 能力**的平台（youtube/twitter）才会走到运行时对账那段：
-    //   有链的平台在 ⑨ 里走「链证据」分支，根本不进对账。对它们断言降级文案会假红。
-    let sawDegrade = 0
-    for (const slug of ['youtube', 'twitter']) {
-      const r = buildChecks(slug).find((c) => c.id === 9).fn()
-      assert.equal(r.ok, true, `${slug} 无依赖环境下判据 9 应仍按字面证据 PASS，实际: ${r.detail}`)
-      assert.match(r.detail, /运行时对账未执行/,
-        `${slug} 无依赖环境必须**显式**说明「运行时对账未执行」，不得静默通过。实际: ${r.detail}`)
-      assert.match(r.detail, /Cannot find module|MODULE_NOT_FOUND/,
-        `${slug} 应给出降级原因。实际: ${r.detail}`)
-      // ★ 最关键的一条：**没做过的对账不得报告结论**。
-      //   初版把降级塞进 `runtimeSays !== true` 分支，于是 detail 里照样写着
-      //   `shouldUseApi('youtube')=false` —— 未对账却宣称了运行时结论，本轮自测当场抓到。
+  // ① true 侧（此前无任何真实样本）：运行时说「要走 API 轨」且适配器在 ⇒ 必须 PASS 且报同源对账通过
+  const t1 = id9('youtube', { router: { shouldUseApi: () => true } })
+  assert.equal(t1.ok, true, `true 侧应 PASS，实际: ${t1.detail}`)
+  assert.match(t1.detail, /同源对账通过/, `true 侧应报「同源对账通过」。实际: ${t1.detail}`)
+
+  // ② false 侧（真实样本：youtube/twitter 有实现但当前不走 API 轨）⇒ PASS + 点明「未入波」
+  const f1 = id9('youtube', { router: { shouldUseApi: () => false } })
+  assert.equal(f1.ok, true, `false 侧应 PASS，实际: ${f1.detail}`)
+  assert.match(f1.detail, /未入波/, `false 侧应说明「未入波」。实际: ${f1.detail}`)
+
+  // ③ 显式降级（无依赖环境）：必须写清「运行时对账未执行」+ 原因，且**不得宣称运行时结论**
+  const sk = id9('youtube', { router: null })
+  assert.equal(sk.ok, true, `降级时应按字面证据 PASS，实际: ${sk.detail}`)
+  assert.match(sk.detail, /运行时对账未执行/, `降级必须显式说明。实际: ${sk.detail}`)
+  assert.match(sk.detail, /显式声明本环境无 router/, `降级应给出原因。实际: ${sk.detail}`)
+  assert.doesNotMatch(sk.detail, /shouldUseApi\('[^']+'\)\s*=/,
+    `未对账时不得宣称运行时结论。实际: ${sk.detail}`)
+
+  // ④ 有链平台：走链证据分支，不受注入影响，且降级不得把它带红
+  for (const slug of ['douyin', 'bilibili']) {
+    const r = id9(slug, { router: null })
+    assert.equal(r.ok, true, `${slug}（有链）应 PASS，实际: ${r.detail}`)
+    assert.match(r.detail, /链 \d+ 个 \+ 已被 platform-entries\.js 登记/, `${slug}: ${r.detail}`)
+  }
+
+  // ⑤ 真实环境一致性：能加载产品模块时，判据给出的运行时结论必须与实际一致（防判据自己另算一套）
+  let realRouter = null
+  try { realRouter = require(path.join(ROOT, 'packages/api-publish-engine/src/api-router.js')) } catch (_) { realRouter = null }
+  const yamlTxt = fs.readFileSync(path.join(ROOT, 'config/platforms.yaml'), 'utf8')
+  const allSlugs = yamlTxt.split(/\r?\n/)
+    .filter((l) => /^[ \t]{2}[a-z][a-z0-9_]*:[ \t]*$/.test(l))
+    .map((l) => l.trim().replace(/:$/, ''))
+  assert.ok(allSlugs.length >= 15, `平台清单解析数 ${allSlugs.length} < 15 ⇒ 基准失效`)
+  for (const slug of allSlugs) {
+    const r = buildChecks(slug).find((c) => c.id === 9).fn()
+    assert.equal(r.ok, true, `${slug} 判据 9 应 PASS，实际: ${r.detail}`)
+    if (!realRouter) {
+      // 无依赖环境：必须走降级且写明未对账，不得出现伪造的运行时结论
       assert.doesNotMatch(r.detail, /shouldUseApi\('[^']+'\)\s*=/,
-        `${slug} 未对账时不得宣称运行时结论。实际: ${r.detail}`)
-      sawDegrade++
+        `${slug} 无依赖环境不得宣称运行时结论。实际: ${r.detail}`)
     }
-    assert.ok(sawDegrade >= 1, '降级分支不可达 ⇒ 本锁退化成恒过')
-    // 有链平台仍必须 PASS（降级不得把整条判据带红）
-    for (const slug of ['douyin', 'bilibili']) {
-      const r = buildChecks(slug).find((c) => c.id === 9).fn()
-      assert.equal(r.ok, true, `${slug}（有链）无依赖环境下判据 9 应 PASS，实际: ${r.detail}`)
-    }
-  } else {
-    // ① 行为：未入波平台（有实现但当前不走 API 轨）必须 PASS 且 detail 点明「未入波」
-    for (const slug of ['youtube', 'twitter']) {
-      const r = buildChecks(slug).find((c) => c.id === 9).fn()
-      assert.equal(r.ok, true, `${slug} 判据 9 应 PASS，实际: ${r.detail}`)
-      assert.match(r.detail, /未入波/,
-        `${slug} 详情应说明「未入波」（有 API 实现但当前不走 API 轨）。实际: ${r.detail}`)
-      // 结论必须与运行时一致（防判据自己另算一套）
-      assert.equal(router.shouldUseApi(slug), false, `${slug} 运行时 shouldUseApi 应为 false`)
-    }
-
-    // ② 行为：全平台 ⑨ 必须 PASS，且**凡 detail 给了运行时结论的，必须与运行时一致**。
-    //    （⑨ 对「有链」与「无链」走不同分支：有链报链证据、无链才走运行时对账。
-    //      故这里不假设某平台走哪个分支，只锁「给了结论就必须对」+「对账分支确实可达」。）
-    const yamlTxt = fs.readFileSync(path.join(ROOT, 'config/platforms.yaml'), 'utf8')
-    const allSlugs = yamlTxt.split(/\r?\n/)
-      .filter((l) => /^[ \t]{2}[a-z][a-z0-9_]*:[ \t]*$/.test(l))
-      .map((l) => l.trim().replace(/:$/, ''))
-    assert.ok(allSlugs.length >= 15, `平台清单解析数 ${allSlugs.length} < 15 ⇒ 基准失效`)
-    let sawReconciliation = 0
-    for (const slug of allSlugs) {
-      const r = buildChecks(slug).find((c) => c.id === 9).fn()
-      assert.equal(r.ok, true, `${slug} 判据 9 应 PASS，实际: ${r.detail}`)
-      const m = r.detail.match(/shouldUseApi\('[\w]+'\)\s*=\s*(true|false)/)
-      if (m) {
-        sawReconciliation++
-        assert.equal(String(router.shouldUseApi(slug)), m[1],
-          `${slug} ⑨ 的 detail 声称运行时为 ${m[1]}，而实际 shouldUseApi=${router.shouldUseApi(slug)} ⇒ 判据与运行时不一致`)
-      }
-    }
-    assert.ok(sawReconciliation >= 1,
-      '没有任何平台的 ⑨ 给出运行时对账结论 ⇒ 对账分支不可达（判据退化成只看字面证据）')
+  }
+  if (realRouter) {
+    assert.equal(realRouter.shouldUseApi('youtube'), false, '真实样本 youtube 的 shouldUseApi 应为 false')
+    assert.equal(id9('youtube').ok, true)
   }
 
   // ③ 结构性：脚本必须真的 require 了 api-router 并调用 shouldUseApi

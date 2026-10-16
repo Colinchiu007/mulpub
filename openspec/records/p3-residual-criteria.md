@@ -327,7 +327,68 @@ claude 后端恢复（`sh scripts/deep-review.sh --check-deps` 体检通过）�
   同时把 `isApiTrack` 的归一挪到能力轴短路**之前**（原写法对
   `{has_api:false, publishMode:'bogus'}` 静默 false、而 `getPublishMode` 抛错 ⇒ 又一次分叉）。
 - 判据⑨ 的「运行时对账」行为面只在 `dom-only + 有适配器` 的平台（youtube/twitter）可达；
-  当前没有「`api-*` 轨且无链」的平台，故该分支的 true 侧**无真实样本**（已如实列入遗留）。
+  当前没有「`api-*` 轨且无链」的平台，故该分支的 true 侧**无真实样本**
+  —— **已修（第十一轮遗留①）**：给判据加可注入 router 的测试缝，`true` 侧首次有真实样本，
+  降级分支也变成确定性可测（变异 M4/M5 证红）。
+
+### 第十一轮：清理两条遗留（均已修复；2026-10-16 22:4x）
+
+#### 遗留①「判据⑨ 的 true 侧无真实样本」→ 已修：给判据加**可注入 router 的测试缝**
+
+原状：⑨ 的运行时对账只在「无链 + 有适配器」的平台（youtube/twitter）可达，而它们的
+`shouldUseApi` 都是 `false` ⇒ 只有 `false` 侧有真实样本；`true` 侧（运行时确实要走 API 轨）
+在 15 个平台里**没有任何样本**，那段代码第一次运行就会发生在真实 CI 上。
+
+修法：`buildChecks(slug, opts)` 支持注入 —— `opts.router` 省略＝真 require、
+`router: null`＝**显式声明本环境无 router**（确定性降级）、`router: {...}`＝用桩。
+于是：
+
+- `true` 侧**首次有真实样本**：`buildChecks('youtube', { router: { shouldUseApi: () => true } })`
+  ⇒ 必须 PASS 且报「同源对账通过」；
+- 降级分支**确定性可测**：`router: null` ⇒ 必须 PASS 但写明「运行时对账未执行」+ 原因，
+  且**不得宣称 `shouldUseApi(...)=x`**（没做过的对账不得报告结论）；
+- 无依赖环境下的降级不再需要「临时移开 `js-yaml`」那种环境把戏。
+
+变异反证（都实跑、改完即还原并复验）：
+| # | 变异 | 结果 |
+| --- | --- | --- |
+| M4 | 忽略注入的 router（测试缝失效） | 该锁红 ✅ |
+| M5 | 降级时仍宣称运行时结论 | 该锁红 ✅ |
+
+实测：有依赖 **21/21**；无依赖（移开 `js-yaml` 模拟 `changes` job）**21/21**，且该环境下 15 平台自检 **15/15**。
+
+#### 遗留②「`ccg-gate.js` 的存量过滤无测试缝」→ 已修：抽成可测模块 + 常驻锁 + 接进 CI
+
+原状：那段策略内联在 `ccg-gate.js` 里，而该文件末尾是顶层 `process.exit(main())` ⇒ **不可 require**
+⇒ 只能临时抽源码 eval 验证，CI 永远跑不到；谁改回脆弱写法都没有测试会红。
+
+修法：
+- 新增 `scripts/lib/ccg-gate-security-filter.js`：`parseDiffHunkRanges`（纯）/ `changedLineRanges`（git 包装）/
+  **`parseSecurityHitLines`（逐字搬运）** / `applyPreExistingFilter`（把原先内联在门禁循环里的
+  逐条判定整段搬进来，成为纯函数）。`ccg-gate.js` **629 → 466 行**，只留「取区间 → 过滤」两步。
+- 抽取纪律：`parseSecurityHitLines` 与旧文件**逐字等价**（提取时脚本核对 + 本锁兜底），
+  `changedLineRanges` 因拆出纯函数而不是逐字，其行为由区间解析用例覆盖
+  （含**纯删除 hunk 不产生区间**这条容易写错的边界）。
+- 新增 `scripts/lib/ccg-gate-security-filter.test.js`：**21 例**，覆盖路径归因四方向
+  （绝对/相对/他文件/同名多路径不归因）、区间解析三形态、过滤策略每条出口
+  （三处 fail-closed、全部在区间内、全部在区间外、**混合必须保留阻断**）、以及接线锁。
+- 接线：按 `check-unwired-tests` 的约定，新测试必须登记进 workflow 才不是「写了但永不执行」
+  ⇒ 接进 `changes` job 的 **Gate 2c5**（该 job 不装依赖，被测模块与本测试只用 node 内置，合规）。
+
+变异反证：
+| # | 变异 | 结果 |
+| --- | --- | --- |
+| M1 | 「混合命中仍阻断」退回旧的「整体豁免」（第八轮 i1 之前的 fail-open） | 该锁红 ✅ |
+| M2 | 拆掉接线（`true ? r : applyPreExistingFilter(...)`，模块被架空） | **首次没红** → 补断言后红 ✅ |
+| M3 | basename 加固退回「三种形态都认」 | 该锁红 2 条 ✅ |
+
+> ⚠️ M2 是**又一条「锁写弱了」的记录**：原接线锁只断言标识符出现过，而死分支里照样有它。
+> 补上「调用点必须在三元 else 这一活位置」+「不得出现 `true ?` 形状」+「门控条件必须在」三条后才红。
+> 与第八轮 M2（断言写在没有短路的那一侧）同型 —— 说明「变异反证要作用在**真正会退化的那一侧**」这条纪律必须每次都过。
+>
+> ⚠️ 接线唯一一处 `.github/workflows/` 改动：`changes` job 新增 Gate 2c5 一步。
+> 该 job 对 docs-only PR 不短路，是本仓给「判据自身回归锁」约定的落点（Gate 2c2/2c3/2c4 同一先例）。
+> 已跑 `check-workflow-structure.test.js`（6/6）与 `workflow-contract.test.js`（37/37）确认结构未被破坏。
 
 ### 遗留（不假装已闭合）
 
@@ -339,6 +400,8 @@ claude 后端恢复（`sh scripts/deep-review.sh --check-deps` 体检通过）�
 - **存量过滤依赖 `git diff --cached` 区间**，未暂存的新增行不在区间内。当前靠
   「区间外命中只豁免、区间内保留阻断 + 打印命中行号供人工复核」兜住；
   根治要做 `git diff HEAD` 三区间对比，属单独排期。
+  （**注**：这条讲的是**区间口径**，与第十一轮遗留②「这段策略没有测试缝」是两件事——
+  遗留②已修：策略抽成 `scripts/lib/ccg-gate-security-filter.js` 并有 21 例常驻锁 + CI 接线。）
 - **`platform-entries.js` 只登记 10 个平台**（DOM 发布入口），与注册表 15 个的差集
   （youtube/tiktok/twitter/instagram/facebook 等）是否有意为之，本次**未裁定**。
 - **源码字形结构锁**（`⇒ 空声明`、`api-only || publishMode` 等）锁的是「防第二份实现」，

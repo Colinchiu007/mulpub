@@ -34,6 +34,14 @@ const CCG_GATE_VERSION = "1.1.0";
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+// ★ 第十轮遗留项修复（2026-10-16）：存量过滤逻辑抽到可测模块。
+//   本文件末尾是顶层 process.exit(main()) ⇒ **不可 require** ⇒ 这段策略原先没有测试缝，
+//   只能临时抽源码 eval 验证、CI 永远跑不到。抽成 scripts/lib/ccg-gate-security-filter.js 后，
+//   关键方向由 ccg-gate-security-filter.test.js 常驻锁住，并接进 CI 的 changes job。
+const {
+  changedLineRanges,
+  applyPreExistingFilter,
+} = require("./lib/ccg-gate-security-filter");
 const { spawnSync } = require("child_process");
 
 const CONFIG = {
@@ -133,122 +141,7 @@ function resolveTargetFiles(staged) {
   return files;
 }
 
-/**
- * 取某文件本次 diff 的**改动行区间**（按 hunk 头解析）。
- *
- * 为什么需要它：CCG 的 verify-security 只能整文件扫（它只接受 --path，不接受行区间），
- * 于是「本次只改了这个文件 3 行、文件里另有 1500 行存量代码」时，存量问题会被算到本次提交头上。
- * 本文件 CONFIG 注释里「刻意不按目录扫描，避免把历史问题算到本次提交、导致门禁失效」说的就是这件事，
- * 但那个粒度只到**文件**，没到**行** —— 实测（2026-10-16 p3-residual-criteria）：
- * 改了 rpa-view-platforms.js 的 12 行，却被该文件 L1040 一处**存量** innerHTML（2026-07-16
- * 的安全修复代码，且 diff 完全没触及）拦住提交。
- *
- * 解析失败/无 diff 时返回 null —— 调用方据此**不过滤**（fail-closed：宁可按存量报，也不放行）。
- */
-function changedLineRanges(file) {
-  try {
-    const r = spawnSync("git", ["diff", "--cached", "-U0", "--", file], { encoding: "utf8" });
-    if (r.status !== 0 || !r.stdout) return null;
-    const ranges = [];
-    const re = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/gm;
-    let m;
-    while ((m = re.exec(r.stdout)) !== null) {
-      const start = Number(m[1]);
-      const len = m[2] === undefined ? 1 : Number(m[2]);
-      if (len > 0) ranges.push([start, start + len - 1]);
-    }
-    // 空 diff（例如文件被还原成与 HEAD 一致）不算解析失败：本次没改 ⇒ 没有命中该算
-    return ranges;
-  } catch (_) {
-    return null;
-  }
-}
 
-/**
- * 从 CCG 安全扫描输出里抽出**属于指定文件**的「:行号」命中。
- *
- * ★ 必须按文件过滤（CCG 第五轮 i1，upheld）：
- *   只按行号抽会把**别的文件**的命中（如扫描器输出多文件/依赖图谱命中
- *   `other.py:37`）套到本文件的 diff 区间上判定 —— 区间外即降级为「存量」，
- *   **真实的新缺陷被放行**（fail-open）。
- *
- * ★ CCG 第六轮 i2（upheld）两级收紧：
- *   ① 不能只用 basename —— `a/util.js:12` 与 `b/util.js:12` 会互认（不同目录同名文件）。
- *      改为：该行必须包含**完整相对路径**（正斜杠或反斜杠形态）才算本文件命中。
- *   ② 文件级命中（**无行号**）不得被静默放过：返回 `fileLevel` 计数，
- *      调用方遇到它时按 **fail-closed 不过滤**处理（无法用区间判定的不放行）。
- *
- * 另外：只用「扩展名 + 冒号 + 行号」这个字面模式，不依赖 \b 与 $ 锚点
- * （实测写 /\s*$/ + /\.(js|…)\b/ 抽不到扫描器那行，行首还有 emoji 前缀）。
- *
- * @returns {{hits: number[], fileLevel: number}}
- */
-function parseSecurityHitLines(output, file) {
-  let fileLevel = 0;
-  let mentioned = 0;
-  const rel = String(file || '').replace(/\\/g, '/');
-  const relBack = String(file || '').replace(/\//g, '\\');
-  const base = path.basename(rel);
-  // ★ CCG 第八轮 i5 的**过度收紧**（自查补正，本轮实测踩到）：
-  //   我把「提到本文件但没给行号」一律当成**文件级命中** ⇒ fail-closed 不过滤。
-  //   但扫描器的报告头里本来就有两行提到本文件而无行号：
-  //     `扫描路径: D:\…\rpa-view-platforms.js`（无行号）与 `扫描文件: 1`
-  //   ⇒ 每次扫这个文件都会判「有文件级命中」⇒ **存量过滤被完全关掉**，
-  //   于是该文件里那条**存量** XSS（L1030，改动区间只有 [506,506]）被当成本次引入，
-  //   把一次纯注释瘦身的提交拦下来。这是**我自己引入的门禁假阳**（fail-closed 方向，
-  //   但代价是合法提交被误阻断，且掩盖了过滤功能本身）。
-  //   修法：先剔除扫描器的**行政行**（路径/统计/结果/分隔线/小节标题）。
-  //   注意方向仍是 fail-closed —— **只**剔除这些已知非命中形态，
-  //   任何其它「提到本文件却无行号」的行照旧算文件级命中。
-  const ADMIN_RE = /^(?:扫描路径|扫描文件|扫描结果|统计|问题列表)\s*[:：]/;
-  // ★ 第十轮 i1（dismissed，但脆弱性属实 ⇒ 防御性加固）：
-  //   第三种形态 `line.includes(basename)` **无法区分同名不同目录**（a/util.js 与 b/util.js 互认）。
-  //   当前调用路径是**单文件扫描**（ccg-gate.js:423 传 r.output，报告头 `扫描文件: 1`），
-  //   输出里不可能出现第二个文件 ⇒ 该失败场景不可达。但仍按最小改动消除脆弱性：
-  //   ① 完整路径（正/反斜杠）命中优先；
-  //   ② 只有**一条完整路径命中都没有**时，才退回 basename 兜底；
-  //   ③ 兜底前要求「输出里以本 basename 结尾的**不同路径 token 恰好一个**」——
-  //      出现多个即无法安全归因，退回空命中（fail-closed，由调用方的 mentioned 诊断兜住）。
-  const fullHits = [];
-  const baseHits = [];
-  const basePaths = new Set();
-  const PATH_TOKEN_RE = /([^\s"'(]+[\\/][^\s"'():]+)(?::(\d+))?/g;
-  for (const raw of String(output).split(/\r?\n/)) {
-    const line = raw.trim();
-    if (ADMIN_RE.test(line) || /^[=\-]{5,}$/.test(line)) continue;
-    const m = raw.match(/\.(?:js|ts|py|go|java|rs|c|cpp|php):(\d+)/i);
-    const isFull = (rel && raw.includes(rel)) || (relBack && raw.includes(relBack));
-    const isBase = !isFull && base && raw.includes(base);
-    if (isBase) {
-      let t;
-      PATH_TOKEN_RE.lastIndex = 0;
-      while ((t = PATH_TOKEN_RE.exec(raw)) !== null) {
-        if (t[1].endsWith(base)) basePaths.add(t[1]);
-      }
-    }
-    if (m) {
-      // ★ CCG 第八轮 i5（upheld）：接受两种路径形态 —— 相对路径（正/反斜杠）与 basename 兜底。
-      //   只匹配相对路径时，扫描器若输出 **Windows 绝对路径**（D:\…\file.js:12）
-      //   会把命中静默丢掉 ⇒ hits=0 ⇒ 落入 fail-closed 保留 FAIL（方向保守），
-      //   但会把「路径形态不匹配」伪装成「没有命中」。
-      if (isFull) fullHits.push(Number(m[1]));
-      else if (isBase) baseHits.push(Number(m[1]));
-      continue;
-    }
-    // 提到本文件但没给行号 ⇒ 文件级命中，无法用区间判定，按 fail-closed 处理
-    if (isFull || isBase) {
-      fileLevel++;
-      mentioned++;
-    }
-  }
-  const baseFallbackSafe = basePaths.size === 1;
-  const hits = fullHits.length ? fullHits : (baseFallbackSafe ? baseHits : []);
-  // ★ 兜底被拒（输出里出现多个同 basename 的不同路径）时，把条数计入 mentioned，
-  //   让调用方走「提到过本文件却没抽到命中 ⇒ 不过滤（fail-closed）+ 显式诊断」的分支。
-  //   否则「无法安全归因」会被静默成「没有命中」—— 探针第 ④ 向正是靠这条断言把该静默抓出来。
-  if (!fullHits.length && !baseFallbackSafe) mentioned += baseHits.length;
-  return { hits, fileLevel, mentioned, basenameFallback: !fullHits.length && hits.length > 0 };
-}
 
 function runGate(ccgDir, gate, target) {
   const args = target ? [...gate.args, target] : [...gate.args];
@@ -435,69 +328,13 @@ function main() {
     //     ① 区间解析失败（changedLineRanges 返回 null）；
     //     ② 本次没改动这个文件（区间为空）⇒ 无从判定；
     //     ③ 输出里有**文件级命中**（提到本文件但无行号）⇒ 无法用区间判定（CCG 第六轮 i2）。
-    const adjusted = results.map((r) => {
-      if (r.code === 0 || gate.name !== "verify-security") return r;
-      const ranges = changedLineRanges(r.file);
-      if (ranges === null) return r;
-      if (ranges.length === 0) {
-        // 本次没有改动这个文件（例如显式传参扫了别的文件）⇒ 无从判定是否本次引入，不过滤
-        return r;
-      }
-      const parsed = parseSecurityHitLines(r.output, r.file);
-      if (parsed.fileLevel > 0) {
-        // 文件级命中：无法定位行号 ⇒ fail-closed 不过滤（不放行可能的真实缺陷）
-        return {
-          ...r,
-          output: r.output
-            + `\n[存量过滤·fail-closed] 输出含 ${parsed.fileLevel} 处**文件级命中**（提到本文件但无行号），`
-            + `无法用 diff 区间判定 ⇒ 本次不过滤，按原结果阻断。`,
-        };
-      }
-      const hits = parsed.hits;
-      // ★ CCG 第八轮 i5（upheld）：扫描输出**提到过本文件**却一个行号都没抽出
-      //   ⇒ 路径形态不匹配（如扫描器输出绝对路径而我们只认相对路径）。必须显式说出，
-      //   否则会把「解析失败」误读成「没有命中」（本次已让三种路径形态都认，但仍保留诊断）。
-      if (hits.length === 0) {
-        if (parsed.mentioned > 0) {
-          return {
-            ...r,
-            output: r.output
-              + `\n[存量过滤·诊断] 扫描输出提到本文件 ${parsed.mentioned} 次但未抽到任何行号`
-              + ` ⇒ 路径形态可能不匹配（相对/反斜杠/绝对路径）。本次不过滤（fail-closed）。`,
-          };
-        }
-        return r;
-      }
-      const inDiff = hits.filter((ln) => ranges.some(([a, b]) => ln >= a && ln <= b));
-      const preExisting = hits.filter((ln) => !inDiff.includes(ln));
-      if (preExisting.length === 0) return r;   // 全部在区间内 ⇒ 全部算本次引入，不过滤
-      // ★ CCG 第八轮 i1（Critical，upheld）：**必须逐条判定，不得整体放行**。
-      //   原写法 `if (inDiff.length === hits.length) return r; 否则整体 code:0` ——
-      //   只要混入**任意一条**存量命中，就把整条输出（含区间内真实新增的命中）一起豁免
-      //   ⇒ fail-open，比不过滤更危险。现在：区间内命中仍然阻断，只在输出里注明
-      //   「另有 N 条区间外命中已按存量豁免」。
-      if (inDiff.length > 0) {
-        return {
-          ...r,
-          output: r.output
-            + `\n[存量过滤·部分豁免] ${preExisting.length}/${hits.length} 处命中不在本次 diff 区间内`
-            + `（已按存量豁免）；但仍有 ${inDiff.length} 处**区间内命中 ⇒ 保留阻断**。`
-            + `\n           改动区间: ${ranges.map(([a, b]) => `${a}-${b}`).join(", ")}`
-            + `\n           命中行号: ${hits.join(", ")}（区间内: ${inDiff.join(", ")}）`,
-        };
-      }
-      // 全部命中都在区间外 ⇒ 整体按存量豁免（保留原样降级）
-      return {
-        ...r,
-        code: 0,
-        blocking: false,
-        output: r.output
-          + `\n[存量过滤] ${preExisting.length}/${hits.length} 处命中不在本次 diff 改动区间内 ⇒ 判为存量，不阻断提交。`
-          + `\n           改动区间: ${ranges.map(([a, b]) => `${a}-${b}`).join(", ")}`
-          + `\n           命中行号: ${hits.join(", ")}（请人工复核是否确为存量）`
-          + `\n           （fail-closed：区间解析失败 / 文件级命中 / 本次未改此文件时不过滤）`,
-      };
-    });
+    // ★ 存量过滤：判定逻辑全在模块里（可测）；这里只做「取区间 → 过滤」两件事。
+    //   fail-closed 三处（区间解析失败 / 本次未改此文件 / 文件级命中）都在模块内处理。
+    const adjusted = results.map((r) =>
+      r.code === 0 || gate.name !== "verify-security"
+        ? r
+        : applyPreExistingFilter(r, changedLineRanges(r.file))
+    );
     const finalResults = adjusted.map((r) =>
       r.blocking ? r : { ...r, code: r.code === 0 ? 0 : r.code, output: r.output }
     );
