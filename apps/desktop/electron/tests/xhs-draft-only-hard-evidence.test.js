@@ -239,9 +239,11 @@ describe('小红书 draftOnly 硬证据确认链（2026-10-15）', () => {
     // confirmDraftSaved 读的是平铺 {statusCode, url}；`_waitForResponseExclusive` 若改成
     // 嵌套（如 {response:{statusCode}}）或改名，statusCode===200 会恒假 ⇒ ②静默失效
     // （fail-closed 但少一条通道，且用户侧只看到「未确认」）。所以锁住真实 helper 的形态。
+    // wxmp-save-body-intercept（2026-10-16）：resolve 增补 body 字段（CDP 响应体采集），
+    // 平铺形状不变——本正则改为锚定现行调用形态，嵌套/改名回归仍会被抓。
     const helper = fs.readFileSync(
       path.resolve(process.cwd(), 'electron/services/rpa-view-helpers.js'), 'utf-8')
-    expect(helper).toMatch(/resolve\(\{url:\s*url\s*,\s*statusCode:\s*d\.statusCode\s*,\s*matchedUrls:\s*matched\}/)
+    expect(helper).toMatch(/resolve\(\{ url: url, statusCode: statusCode, matchedUrls: matched\.slice\(\), body: body \}\)/)
   })
 
   it('H11 基线低估（侧边栏未渲染完读到 0）不得被算成增量（评审 i3）', async () => {
