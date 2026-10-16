@@ -163,6 +163,9 @@ var require_publish = __commonJS({
         historyList: (opts) => ipcRenderer2.invoke("history:list", opts),
         historyGet: (id) => ipcRenderer2.invoke("history:get", id),
         historyDelete: (ids) => ipcRenderer2.invoke("history:delete", { ids: Array.isArray(ids) ? ids : [ids] }),
+        // 「再次发布」：按记录 id 取回该次发布的内容与选项快照
+        // （主进程返回 { snapshot: null } 表示这条记录没有快照，属正常业务态）
+        historyGetRepublishSnapshot: (recordId) => ipcRenderer2.invoke("history:get-republish-snapshot", recordId),
         // 发布统计 API
         dashboardStats: () => ipcRenderer2.invoke("dashboard:stats"),
         // 定时发布 API

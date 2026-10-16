@@ -18,6 +18,16 @@ export default {
     batchSubtitle: 'Batch edit multiple articles and publish to each platform independently',
     singleSubtitle: 'Compose content and publish to multiple platforms',
     batchMode: 'Batch Mode',
+    // Publish again (PRD-PUBLISH-RECORD-REPUBLISH-2026-10-15): restore the content and
+    // options of that publish into the form. The three failure semantics must stay
+    // distinct — load failure (retryable) / no snapshot (not retryable) / account gone.
+    republishLoaded: 'Loaded the content and options from that publish; review before publishing',
+    republishMissing: 'This record has no saved content, so it cannot be published again',
+    republishLoadFailed: 'Failed to load the saved content. Please retry.',
+    republishAccountUnavailable: 'The original account is unavailable; please pick another',
+    republishDiscardConfirmTitle: 'Discard unsaved content?',
+    republishDiscardConfirmMessage: 'Loading this record will overwrite the unsaved content in the form.',
+    republishDiscardConfirmButton: 'Discard and load',
     // Hot-topics draft handoff + batch publish targets (hot-topics-publish-handoff, 2026-10-09)
     handoff: {
       loaded: 'Loaded {count} hot-topic drafts',

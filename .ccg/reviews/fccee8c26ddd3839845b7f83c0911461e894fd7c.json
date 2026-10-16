@@ -1,26 +1,30 @@
 {
   "sha": "fccee8c26ddd3839845b7f83c0911461e894fd7c",
   "layer": "diff",
-  "mode": "single",
-  "reason": "变更 3 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "mode": "dual",
+  "reason": "变更 1709 行 > 200 行阈值（对齐 §12.6 Red Team）",
   "stats": {
-    "changedLines": 3,
-    "fileCount": 4,
-    "codeFileCount": 1,
+    "changedLines": 1709,
+    "fileCount": 29,
+    "codeFileCount": 26,
     "sensitivePathHits": [],
     "plannedPathHits": [],
-    "sensitiveContentHits": 0,
+    "sensitiveContentHits": 5,
     "docSensitiveContentHits": 0,
     "docSensitiveContentSample": [],
     "lineReadGaps": []
   },
-  "stagedDiffHash": "bb06018697a33d5186ba19fcba9d15edd15b7ba7e3f0e14112d4cec689906813",
-  "decidedAt": "2026-10-15T12:45:25.488Z",
+  "stagedDiffHash": "9081e5ca17a2fa8970cc3aa388c9c89d3ec1bbaa4d1010e4bb5b773538ee1e4c",
+  "decidedAt": "2026-10-15T13:36:29.807Z",
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "findings": null,
+    "confidenceWeight": 0.6,
+    "note": "本条是本分支首次提交时钩子写下的判定记录，其内容（同一变更）已被最终提交的判定记录 .ccg/reviews/d8b4c7f954a9bc50f0251005971357e0474f0cbf.json 覆盖：深度审查按最终 HEAD 执行并完成自扮演裁决（4/4 upheld）与逐条修复。",
+    "supersededBy": "d8b4c7f954a9bc50f0251005971357e0474f0cbf",
+    "adjudicationArtifact": ".adversarial/ccg-deep-d8b4c7f9/adjudication.json"
   }
 }

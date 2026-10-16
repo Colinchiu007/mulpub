@@ -590,7 +590,16 @@ class RpaVmPublisher {
             durationMs: Date.now() - startedAt,
           },
         })
-        return { success: true, url: sanitizePublishResultUrl(result.url), ...(postId ? { postId } : {}), platform, mode: 'dom', ...(diagnostics ? { diagnostics } : {}) }
+        return {
+          success: true,
+          url: sanitizePublishResultUrl(result.url),
+          ...(postId ? { postId } : {}),
+          platform,
+          mode: 'dom',
+          // draft 透传（此前被丢：小红书只落草稿箱，草稿被当成「未获取作品 ID」）
+          ...(result.draft === true ? { draft: true } : {}),
+          ...(diagnostics ? { diagnostics } : {}),
+        }
       }
       // publish-frequency-policy-v2 P0-1：登录态失效族**可确证未送出**（RPA 在发布页导航后
       // 先判登录态并 early-return，早于任何表单填充/提交）⇒ 打标后由队列回滚间隔窗口。

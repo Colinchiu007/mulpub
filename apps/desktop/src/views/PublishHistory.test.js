@@ -1008,7 +1008,10 @@ describe('PublishHistory 作品链接必须落到平台公开内容页', () => {
   it('V3 只有后台页、无作品 ID ⇒ 卡片不可点，不产出任何打开行为', async () => {
     const openSpy = vi.spyOn(window, 'open').mockReturnValue(null)
     const wrapper = await mountRecords([record({ result: { url: CONSOLE_URL } })])
-    expect(wrapper.find('.record-card').attributes('title')).toBe('暂无平台公开链接')
+    // 2026-10-15：无链接的原因必须分态。这条是「有后台页、但没有作品 ID」⇒ 走
+    // cardNoLinkNoPostId（旧断言用的笼统 cardNoLinkHint 无法区分「平台没有公开页」
+    // 与「这次没抓到 ID」，而后者是真缺陷、可修）。
+    expect(wrapper.find('.record-card').attributes('title')).toBe('本次发布未获取到作品 ID，无法定位公开链接')
     expect(wrapper.find('.record-card').classes()).not.toContain('is-clickable')
     await wrapper.find('.record-title-row h2').trigger('click')
     await flushHistory()
@@ -1078,7 +1081,9 @@ describe('PublishHistory 作品链接必须落到平台公开内容页', () => {
       platform: 'tencent_video',
       result: { url: 'https://channels.weixin.qq.com/platform/post/create', postId: '1000000001' },
     })])
-    expect(wrapper.find('.record-card').attributes('title')).toBe('暂无平台公开链接')
+    // 2026-10-15：结构性无公开页的平台要有**专属**文案（旧断言用笼统 cardNoLinkHint，
+    // 用户看不出「这个平台本来就没有网页版」与「我们抓漏了」的区别）。
+    expect(wrapper.find('.record-card').attributes('title')).toBe('该平台不提供网页端公开链接（内容仅在客户端内可见）')
     await openDetail(wrapper, 'pl-1')
     expect(wrapper.find('[data-testid="detail-link"]').exists()).toBe(false)
     expect(wrapper.get('[data-testid="detail-link-loginwall-hint"]').exists()).toBe(true)
@@ -1273,5 +1278,119 @@ describe('PublishHistory — 缩略图竖屏 3:4 比例（2026-10-14）', () => 
         expect(w, `${label}: 发现横版比例 ${w}x${h}（width > height）`).toBeLessThanOrEqual(h)
       }
     }
+  })
+})
+
+// ── 「再次发布」+ 同批徽标 + 无链接原因三态 ──
+// PRD-PUBLISH-RECORD-REPUBLISH-2026-10-15 §5.1 / §5.2.3 / §5.3
+describe('PublishHistory「再次发布」与批次/链接原因', () => {
+  function recordsPage (records) {
+    historyListMock.mockReset().mockResolvedValue({ code: 0, data: { total: records.length, records } })
+  }
+
+  beforeEach(() => {
+    i18n.global.locale.value = 'zh'
+    vi.clearAllMocks()
+    historyGetMock.mockReset().mockResolvedValue({ code: 0, data: {} })
+    retryTaskMock.mockReset().mockResolvedValue({ code: 0 })
+    draftListMock.mockReset().mockResolvedValue({ code: 0, data: [] })
+    identityAuthenticatedRef.value = false
+  })
+
+  it('有快照时「再次发布」可点，并跳到发布页的 republish 入口', async () => {
+    recordsPage([{ id: 'rec-snap', title: '标题', platform: 'zhihu', status: 'success', hasRepublishSnapshot: true }])
+    const wrapper = mountView()
+    await flushHistory()
+
+    const button = wrapper.get('[data-testid="republish-rec-snap"]')
+    expect(button.attributes('disabled')).toBeUndefined()
+    expect(button.attributes('title')).toBe(i18n.global.t('historyPage.republishHint'))
+
+    await button.trigger('click')
+    expect(pushMock).toHaveBeenCalledWith('/publish?republish=rec-snap')
+  })
+
+  it('早期记录没有快照：按钮禁用且悬停说明原因（不隐藏、不静默）', async () => {
+    recordsPage([{ id: 'rec-old', title: '标题', platform: 'zhihu', status: 'success' }])
+    const wrapper = mountView()
+    await flushHistory()
+
+    const button = wrapper.get('[data-testid="republish-rec-old"]')
+    expect(button.attributes('disabled')).toBeDefined()
+    expect(button.attributes('title')).toBe(i18n.global.t('historyPage.republishUnavailable'))
+
+    await button.trigger('click')
+    expect(pushMock).not.toHaveBeenCalled()
+  })
+
+  // PRD §5.1 承诺的两个入口：卡片 + 详情弹窗。只做卡片会与契约不符（CCG 深度审查 i3）。
+  it('详情弹窗内也能「再次发布」，判据与卡片完全同一份（有快照可点 / 无快照禁用）', async () => {
+    recordsPage([{ id: 'rec-dlg', title: '标题', platform: 'zhihu', status: 'success', hasRepublishSnapshot: true }])
+    const wrapper = mountView()
+    await flushHistory()
+
+    await wrapper.get('[data-testid="detail-rec-dlg"]').trigger('click')
+    await flushHistory()
+
+    const btn = wrapper.get('[data-testid="detail-republish"]')
+    expect(btn.attributes('disabled')).toBeUndefined()
+    expect(btn.attributes('title')).toBe(i18n.global.t('historyPage.republishHint'))
+    await btn.trigger('click')
+    expect(pushMock).toHaveBeenCalledWith('/publish?republish=rec-dlg')
+  })
+
+  it('详情弹窗内无快照时同样禁用并写明原因（两入口不得各写一套判据）', async () => {
+    recordsPage([{ id: 'rec-dlg-old', title: '标题', platform: 'zhihu', status: 'success' }])
+    const wrapper = mountView()
+    await flushHistory()
+
+    await wrapper.get('[data-testid="detail-rec-dlg-old"]').trigger('click')
+    await flushHistory()
+
+    const btn = wrapper.get('[data-testid="detail-republish"]')
+    expect(btn.attributes('disabled')).toBeDefined()
+    expect(btn.attributes('title')).toBe(i18n.global.t('historyPage.republishUnavailable'))
+    await btn.trigger('click')
+    expect(pushMock).not.toHaveBeenCalled()
+  })
+
+  it('hasRepublishSnapshot 必须是严格 true 才算有快照（字符串真值不算）', async () => {
+    recordsPage([{ id: 'rec-str', title: '标题', platform: 'zhihu', status: 'success', hasRepublishSnapshot: 'true' }])
+    const wrapper = mountView()
+    await flushHistory()
+    expect(wrapper.get('[data-testid="republish-rec-str"]').attributes('disabled')).toBeDefined()
+  })
+
+  it('同批 ≥2 条记录渲染批次徽标并列出平台；单条不渲染', async () => {
+    recordsPage([
+      { id: 'b1', title: '标题一', platform: 'zhihu', status: 'success', batchId: 'batch_x' },
+      { id: 'b2', title: '标题二', platform: 'douyin', status: 'success', batchId: 'batch_x' },
+      { id: 'alone', title: '标题三', platform: 'weibo', status: 'success', batchId: 'batch_y' },
+      { id: 'none', title: '标题四', platform: 'toutiao', status: 'success' },
+    ])
+    const wrapper = mountView()
+    await flushHistory()
+
+    expect(wrapper.get('[data-testid="batch-b1"]').text()).toBe(i18n.global.t('historyPage.batchBadge', { count: 2 }))
+    expect(wrapper.get('[data-testid="batch-b2"]').attributes('title')).toContain('知乎')
+    expect(wrapper.find('[data-testid="batch-alone"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="batch-none"]').exists()).toBe(false)
+  })
+
+  it('无链接原因三态：草稿 / 平台结构性无公开页 / 未抓到作品 ID', async () => {
+    recordsPage([
+      { id: 'r-draft', title: '草稿', platform: 'xiaohongshu', status: 'success', result: { draft: true } },
+      { id: 'r-struct', title: '视频号', platform: 'tencent_video', status: 'success', result: { url: 'https://channels.weixin.qq.com/x' } },
+      { id: 'r-noid', title: '抖音', platform: 'douyin', status: 'success', result: { url: 'https://creator.douyin.com/creator-micro/content/manage' } },
+      { id: 'r-empty', title: '空', platform: 'toutiao', status: 'success', result: {} },
+    ])
+    const wrapper = mountView()
+    await flushHistory()
+
+    const hintOf = (id) => wrapper.get(`[data-testid="republish-${id}"]`).element.closest('article').getAttribute('title')
+    expect(hintOf('r-draft')).toBe(i18n.global.t('historyPage.cardDraftHint'))
+    expect(hintOf('r-struct')).toBe(i18n.global.t('historyPage.cardNoLinkStructural'))
+    expect(hintOf('r-noid')).toBe(i18n.global.t('historyPage.cardNoLinkNoPostId'))
+    expect(hintOf('r-empty')).toBe(i18n.global.t('historyPage.cardNoLinkHint'))
   })
 })
