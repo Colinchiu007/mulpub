@@ -147,9 +147,13 @@ async function batchPublish(platforms, taskData, cookie, opts) {
 // ─── W1 §5 双轨发布服务入口（API 优先 + 18min 频控 + 风控挂起；服务层事实路由）───
 // getMode=apiRouter.getPublishMode(§5.1) 供三态；spacer/riskSuspender 为进程内单例；
 // apiPublish=publishViaApi；domPublish 由每次调用 opts.rpaPublish 注入（缺省走 requiresDom）。
+// ★ CCG 第八轮 i2（upheld）复审：**必须传 { safe: true }**。
+//   getMode 是发布流程内**逐平台**读取（服务层事实路由），坏配置抛错会中止整条发布；
+//   而同一份坏配置下 shouldUseApi 是 fail-safe（false ⇒ 非 API 轨）。
+//   不传 safe ⇒ 两读者结论相反；传了 ⇒ 坏配置告警 + 'dom-only'，与 shouldUseApi 同结论。
 var _publishService = createPublishService({
   apiPublish: publishViaApi,
-  getMode: function (p) { return apiRouter.getPublishMode(p); },
+  getMode: function (p) { return apiRouter.getPublishMode(p, { safe: true }); },
   logger: logger,
   onRiskEvent: function (e) { try { logger.warn("publish-service", "risk_" + e.type, e); } catch (_e) { /* 通知失败不炸主流程 */ } },
 });

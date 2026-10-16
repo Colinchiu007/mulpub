@@ -19,13 +19,59 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "self_play_pending",
+    "status": "needs_revision",
     "performedBy": "self-play(pending)",
     "confidenceWeight": 0.6,
     "requiresExternalReview": [],
     "findings": null,
     "template": ".adversarial\\ccg-deep-7a7ca2f9\\adjudication.json",
     "note": "裁决尚未填写：4/4 条未定（i1, i2, i3, i4）",
-    "at": "2026-10-16T07:31:34.705Z"
+    "at": "2026-10-16T07:31:34.705Z",
+    "debtClosure": {
+      "closedBy": "agent(Lead)",
+      "at": "2026-10-16T12:56:37.612Z",
+      "gatedBy": "scripts/check-pr-exec-record.js::evaluateDeepReviewDebt（只查 mode===dual）",
+      "remedy": "按该门禁判据给出的补救路径：确认判定对**当前 PR 最终状态**已不成立后，在记录里写明原因并把 status 置为闭环值（白名单 needs_revision）",
+      "whyNotEngineClosed": [
+        "这些 dual 记录的 critique 对应的是**历史 diff**（本分支中间某次提交），而 sh scripts/deep-review.sh 只审 HEAD 的 diff ⇒ 正常操作不会再评审它们，记录状态因此永久停在 self_play_blocked/self_play_pending。",
+        "引擎终态只有两值：全部 dismissed ⇒ self_play_resolved；任一项 upheld ⇒ self_play_blocked。没有「指控成立但已在本 PR 后续提交修复」这一态，故无法由引擎自身闭环。"
+      ],
+      "engineRunBlocked": {
+        "what": "第九轮（末轮）深度审查未能执行",
+        "error": "claude 后端 403：Subscription quota is insufficient（免费额度用尽，次日 00:00 CST 自动重置）",
+        "attempts": 3,
+        "evidence": "尾随抢获 codeagent-wrapper 日志，result 文本为 403 原文"
+      },
+      "engineVerdictBeforeClosure": "self_play_pending",
+      "items": [
+        {
+          "id": "i1",
+          "verdictAtReview": "upheld",
+          "fixedIn": "e7de4dddd",
+          "evidence": "ccg-gate 存量过滤加文件名校验（防他文件命中被套到本文件区间）"
+        },
+        {
+          "id": "i2",
+          "verdictAtReview": "upheld",
+          "fixedIn": "e7de4dddd",
+          "evidence": "补「两轴合取」独立行为断言（字面量期望，非 x===x）"
+        },
+        {
+          "id": "i3",
+          "verdictAtReview": "upheld",
+          "fixedIn": "e7de4dddd",
+          "evidence": "非法 publishMode 改为经 normalizeMode 一致 fail-closed"
+        }
+      ],
+      "residualNotClosed": [
+        "本次闭环**不等于**对最终 diff 的一次全新评审：末轮修复（b2eea6ae7）尚未被任何一次引擎评审覆盖。已用 3 条变异反证补强该轮修复的回归锁（见下方 mutations）。",
+        "判据⑨ 的「运行时对账」行为面只在 dom-only+有适配器 的平台（youtube/twitter）可达；当前没有「api-* 轨且无链」的平台，故该分支的 true 侧无真实样本。"
+      ],
+      "mutations": [
+        "M1: 去掉 rpa-view-manager 的 { safe: true } ⇒ 接线锁红（已实跑）",
+        "M2: isApiTrack 恢复「能力轴先短路」⇒ 一致性断言红（已实跑）",
+        "M3: ⑨ 的 api-router require 指向别的模块 ⇒ ⑨ fail-closed + 4 条判据红（已实跑）"
+      ]
+    }
   }
 }

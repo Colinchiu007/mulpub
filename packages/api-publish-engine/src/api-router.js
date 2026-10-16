@@ -60,9 +60,15 @@ function derivePublishMode (cfg) {
  *       （坏配置的平台退化为「不走 API 轨」，不影响其他平台）。
  */
 function isApiTrack (cfg) {
-  if (!cfg || !cfg.has_api) return false
   var pm = require('./publish/core/publish-mode');
-  var mode = pm.normalizeMode(derivePublishMode(cfg));
+  // ★ CCG 第八轮 i2 复审（自查补正）：归一必须先于能力轴短路。
+  //   原写法 `if (!cfg || !cfg.has_api) return false` 在归一**之前**返回 ⇒
+  //   `{has_api:false, publishMode:'bogus'}` 这种配置：isApiTrack 静默 false，
+  //   而 getPublishMode 抛错 —— 又是「同一份配置两个读者结论相反」（与第五轮 i3 同型，
+  //   只是换到了能力轴为 false 的那一侧）。现在统一走 resolvePublishMode()，
+  //   判两轴之前先归一；能力轴只决定 true/false，不决定「要不要校验配置」。
+  var mode = resolvePublishMode(cfg, null, cfg && cfg.platform);
+  if (!cfg || !cfg.has_api) return false
   return mode === pm.MODES.apiOnly || mode === pm.MODES.apiThenDom;
 }
 
@@ -155,23 +161,48 @@ function listApiPlatforms() {
  *
  * ★ CCG 第八轮 i2（upheld）：本函数与 shouldUseApi 必须**同一口径**。
  *   shouldUseApi 走 isApiTrackForPlatform（fail-safe：坏配置告警 + 返回 false ⇒ 非 API 轨），
- *   若本函数对同一份坏配置仍**抛错**，两个读者结论相反（一个说「非 API 轨」、一个炸），
- *   正是本 PR 声称要消灭的判据分叉。故本函数提供同口径的 fail-safe 版本：
- *   坏配置 ⇒ 告警 + 返回 dom-only（与 shouldUseApi 的 false 一致）。
+ *   若本函数对同一份坏配置仍**抛错**，两个读者结论相反（一个说「非 API 轨」、一个炸）。
+ *
+ * ★★ 第八轮 i2 的**第一版修复不成立**（同轮复审自查发现，属与第六轮 i3 同型的**死代码**）：
+ *   只加了 `opts.safe` 这个选项，而**全仓两个生产调用点都没传** ——
+ *   `apps/desktop/electron/services/rpa-view-manager.js:71` 与 `src/index.js:152`
+ *   都调 `getPublishMode(platform)`，于是坏配置**照样抛错**、照样分叉，
+ *   新增的 safe 分支永远走不到（`git grep 'getPublishMode('` 可复核：测试之外只有这两处）。
+ *   现在两处生产调用点都显式传 `{ safe: true }`（见各自注释），并加**接线锁**：
+ *   `publish-mode-config.test.js` 扫描全仓生产代码，凡 `getPublishMode(` 调用必须带 safe。
+ *
+ * 语义分工（与 isApiTrack / isApiTrackSafe 对称）：
+ *   · 默认（不带 safe）—— 单点显式查询，坏配置 **fail-closed 抛错**；
+ *   · `{safe:true}`  —— 发布流程内的逐平台读取，坏配置**告警 + 按 dom-only**（与
+ *     shouldUseApi 返回 false 同结论），不因单平台配置错误中止整条发布。
  *
  * @param {string} platform
  * @param {{safe?: boolean}} [opts] safe=true 时坏配置不抛错，告警后返回 dom-only
  * @returns {string} 'api-only' | 'api-then-dom' | 'dom-only'
  */
 function getPublishMode(platform, opts) {
+  return resolvePublishMode(loadConfig()[platform], opts, platform);
+}
+
+/**
+ * cfg 级单一来源：derivePublishMode → normalizeMode（两处读者共用同一条归一链）。
+ * 导出**仅为可测性**（与 isApiTrack/isApiTrackSafe 同理）：真实 platforms.yaml 里
+ * 没有非法 publishMode，公开 API 无法构造该分支，故把 cfg 级入口暴露出来供测试注入。
+ * @param {object|undefined} cfg
+ * @param {{safe?: boolean}} [opts]
+ * @param {string} [label] 仅用于告警文案
+ * @returns {string} 'api-only' | 'api-then-dom' | 'dom-only'
+ */
+function resolvePublishMode(cfg, opts, label) {
   var pm = require('./publish/core/publish-mode');
-  var raw = derivePublishMode(loadConfig()[platform]);
+  var raw = derivePublishMode(cfg);
   try {
     return pm.normalizeMode(raw);
   } catch (e) {
     if (opts && opts.safe) {
       logger.warn('api-router',
-        `publishMode 非法，${platform} 暂按 dom-only 处理（与 shouldUseApi 的 fail-safe 口径一致）: ${e.message}`);
+        `publishMode 非法，${label || '(unknown)'} 暂按 dom-only 处理`
+        + `（与 shouldUseApi 的 fail-safe 口径一致）: ${e.message}`);
       return pm.MODES.domOnly;
     }
     throw e;
@@ -243,6 +274,9 @@ async function batchPublishWithRouting(platforms, taskData, cookie, opts) {
 
 module.exports = {
   shouldUseApi, supportsApi, listApiPlatforms, getPublishMode,
+  // ★ CCG 第八轮 i2 复审：cfg 级单一来源，导出**仅为可测性**
+  //   （真实 platforms.yaml 里没有非法 publishMode，公开 API 无法构造该分支）。
+  resolvePublishMode,
   publishWithFallback, batchPublishWithRouting,
   loadConfig, reloadConfig,
   // ★ CCG 第三轮 i5（2026-10-16，upheld）后导出：两轴合取的**单一来源**。

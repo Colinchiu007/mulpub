@@ -534,3 +534,61 @@ test('判据 11 适用面修正：有链才要求链级测试 + 别名同源 + �
   assert.match(real.detail, /formatter 覆盖由注册表驱动契约锁提供/,
     `在册平台应报「注册表驱动覆盖」。实际: ${real.detail}`)
 })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ★ CCG 第八轮 i3（upheld）回归锁 —— 判据⑨ 必须与**运行时**对账，不许停在字面证据
+//
+// 动因：⑨ 一路从「适配器文件存在」修到「index.js 里有 require 字串」，但每一步都仍是**静态字面**
+// 判断——文件在、字串在，都不等于 api-router 真的会把该平台调度到 API 轨。
+// 终局修法是直接 require 产品侧 api-router 调 shouldUseApi(slug)，判据与运行时**同源**。
+// 这组用例锁住「同源对账真的在跑」以及它给出的两种结论形态。
+// ─────────────────────────────────────────────────────────────────────────────
+test('判据 9 与运行时同源对账（CCG 第八轮 i3 回归锁）', () => {
+  const fs = require('node:fs')
+  const router = require(path.join(ROOT, 'packages/api-publish-engine/src/api-router.js'))
+
+  // ① 行为：未入波平台（有实现但当前不走 API 轨）必须 PASS 且 detail 点明「未入波」
+  for (const slug of ['youtube', 'twitter']) {
+    const r = buildChecks(slug).find((c) => c.id === 9).fn()
+    assert.equal(r.ok, true, `${slug} 判据 9 应 PASS，实际: ${r.detail}`)
+    assert.match(r.detail, /未入波/,
+      `${slug} 详情应说明「未入波」（有 API 实现但当前不走 API 轨）。实际: ${r.detail}`)
+    // 结论必须与运行时一致（防判据自己另算一套）
+    assert.equal(router.shouldUseApi(slug), false, `${slug} 运行时 shouldUseApi 应为 false`)
+  }
+
+  // ② 行为：全平台 ⑨ 必须 PASS，且**凡 detail 给了运行时结论的，必须与运行时一致**。
+  //    （⑨ 对「有链」与「无链」走不同分支：有链报链证据、无链才走运行时对账。
+  //      故这里不假设某平台走哪个分支，只锁「给了结论就必须对」+「对账分支确实可达」。）
+  const fsYaml = require('node:fs')
+  const yamlTxt = fsYaml.readFileSync(path.join(ROOT, 'config/platforms.yaml'), 'utf8')
+  const allSlugs = yamlTxt.split(/\r?\n/)
+    .filter((l) => /^[ \t]{2}[a-z][a-z0-9_]*:[ \t]*$/.test(l))
+    .map((l) => l.trim().replace(/:$/, ''))
+  assert.ok(allSlugs.length >= 15, `平台清单解析数 ${allSlugs.length} < 15 ⇒ 基准失效`)
+  let sawReconciliation = 0
+  for (const slug of allSlugs) {
+    const r = buildChecks(slug).find((c) => c.id === 9).fn()
+    assert.equal(r.ok, true, `${slug} 判据 9 应 PASS，实际: ${r.detail}`)
+    const m = r.detail.match(/shouldUseApi\('[\w]+'\)\s*=\s*(true|false)/)
+    if (m) {
+      sawReconciliation++
+      assert.equal(String(router.shouldUseApi(slug)), m[1],
+        `${slug} ⑨ 的 detail 声称运行时为 ${m[1]}，而实际 shouldUseApi=${router.shouldUseApi(slug)} ⇒ 判据与运行时不一致`)
+    }
+  }
+  assert.ok(sawReconciliation >= 1,
+    '没有任何平台的 ⑨ 给出运行时对账结论 ⇒ 对账分支不可达（判据退化成只看字面证据）')
+
+  // ③ 结构性：脚本必须真的 require 了 api-router 并调用 shouldUseApi
+  //    （若有人把它改回「只看文件/字串」，① 的 detail 会退回旧文案 ⇒ 上面已红；
+  //      这条再从源码侧钉一次调用点，防「文案留着、对账删了」）
+  const src = fs.readFileSync(path.join(ROOT, 'scripts/verify-platform-onboarding.js'), 'utf8')
+  assert.match(src, /require\(.*api-router\.js['"]\)/,
+    '判据 9 丢失了 api-router 的 require ⇒ 运行时对账被删除')
+  assert.match(src, /\.shouldUseApi\s*\(/,
+    '判据 9 丢失了 shouldUseApi 调用 ⇒ 运行时对账被删除')
+  // 下界：对账失败时必须 fail-closed（读不到 api-router ⇒ FAIL，不得静默放行）
+  assert.match(src, /判据不闭环（fail-closed）/,
+    '判据 9 丢失了「读不到 api-router ⇒ FAIL」的 fail-closed 分支')
+})
