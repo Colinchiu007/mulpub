@@ -8,7 +8,7 @@ date: 2026-10-16
 ## 本次执行记录：判「分支内容已进主干」的判据面纠正（fix-branch-merged-criterion，2026-10-16）【docs-only】
 
 - 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD` → `docs-only=true`（files=2：`AGENTS.md`、本记录）
-- 保留门禁：变更类型与隔离 ✅ | 行尾对账（两口径 numstat）✅ | 品牌残留 ✅ | 文档同步 ✅ | CHANGELOG 不适用（理由见下）| 远程同步 PENDING
+- 保留门禁：变更类型与隔离 ✅ | 行尾对账（两口径 numstat）✅ | 品牌残留 ✅ | 文档同步 ✅ | CHANGELOG 不适用（理由见下）| 远程同步 PASS
 
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
