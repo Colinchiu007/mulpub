@@ -66,7 +66,15 @@ sync_backfill_owner: podcast-episode-plan-preview 会话（本节作者）
   修法（fix-changelog-conflict.cjs）：两侧都是不同的新块 ⇒ 并集（新块在顶，并补回被 git 吃掉的块间空行），且校验必须**先于写盘**，七件缺一不可——标记清零 / 两侧块首行各自命中预期标题 / 块长下界 / 行数等于原行数减三加一 / CRLF 与 LF 分别对账（被删的三行标记自己带行尾，所以不能要求总数相等）/ 行内容与行尾的**多重集**一致 / 新块确在顶部。修完标记计数 0、标题数 482，主干已合并的两块与更早的 docs(prd) 块逐块仍在。
   **收口的规矩（本仓第 N 次同族）**：任何「解冲突 / 打补丁」的驱动，其 rc 必须单独取、单独判，非 0 即禁止接着 git add；判据要问「输出里还有没有标记」，不能问「驱动有没有报错」。
 
-## 六、遗留与不假装闭合的部分
+## 六、CI 首红（Gate 12c）的两半归因，以及为什么 QM-1 证据可以沿用
+
+第一次 `QG Changes` / `Gate Result` 红在 `check-doc-abs-paths.test.js` 的「本仓基线必须与现场逐文件相等」。报的是**两个**文件，两半各归一方：
+
+- **我的那一半**：本篇 L15 写了 worktree 的盘符绝对路径。Gate 12c 换代后（#3652）判据是**按文件计数**、**不问这个路径现在存不存在** ⇒ 「这是真实存在的 worktree」不构成豁免。处置：改成占位形态「仓库父目录下的 `mp-worktrees/<分支名>`（非 C 盘）」，取证力改由分支名 + PR 号承载（与该 gate 的处方一致）。**没去动账本**——账本只能缩小，为容忍自己新增而调大账本正是那条锁要拦的形状。
+- **不归我的一半**：另一半超基线的是 `openspec/records/dep-audit-alias.md`（主干既有内容，`git show origin/main:` 里就有那两个盘符路径）。它由**另一会话**的「账本第九轮」PR #3723 收口，我不去替他人改载体、也不把自己的红算进去。归因手法值得留：**先把 `--all` 与 `--base=origin/main --head=HEAD` 两个口径各跑一次**——改动集口径只报我这一个文件，全量口径才报出第二个 ⇒ 一眼分清「我引入的」与「主干带来的」。
+- **rebase 到新主干后重验**：`git diff --name-only <旧 base> <新 base> -- apps/desktop packages` 输出 **0 行**（这轮主干只动了 `AGENTS.md`、两篇 records 与账本 JSON）⇒ **运行时代码逐文件未变**，所以 QM-1 那套证据（包内 blob 与工作树逐字节相同、解包真 require、启动 8 秒 stderr 为空）仍然适用于同一批字节；这是「允许沿用」的唯一依据形态——**按 diff 证明没有代码参与**，而不是「我记得没改代码」。重跑的是会变的数：`check-doc-abs-paths` 两口径 rc=0、`check-changelog-growth` PASS（477→478）、`check-pr-exec-record --mode=enforce` rc=0、消费者并集 14 文件 **203 passed** 复核未退化。
+
+## 七、遗留与不假装闭合的部分
 
 - QM-6 后端轴（claude）今日额度用尽 ⇒ **本片不 arm 自动合并**；前端轴结果到达后逐条处置。补跑命令与现场见上表 QM-6 行。
 - ②-a-l（三把 locale 键 + 死键扫描域）与 ②-b（出期通道 `podcast:episode:publishFromScript` + 计费浮层 + `CopyLibraryView` 入口，另两枚入口各留未勾子项）仍未开工。
