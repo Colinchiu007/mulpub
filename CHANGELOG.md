@@ -7,6 +7,21 @@
 - **反证 4 条红因互不相同**：摘接线红在「job 会被跳过」；注入违规红在「必须自证合规」并点名文件；根指向空目录红在「找不到 .ccg/tasks」；根指向"目录都在但只有 1 个 task.json"的仓库**只有规模下界会红**（证它不是装饰）。MD 第一次跑误报成"根不存在"，根因是**探针自己坏了**（对 `JSON.stringify` 结果多做一次反斜杠折叠 ⇒ 生成的字面量里 `	` 变 TAB），修的是探针不是断言。
 - 契约与逐条归因见 `01-docs/PRD-OPENSPEC-SYNC-REALREPO-2026-10-16.md` 与 `openspec/records/openspec-sync-realrepo.md`。
 
+# [未发布] docs(podcast): 音色来源三态标注的合同落进 PRD §8.2.9（podcast-voice-source-spec）
+
+- PRD 新增 §8.2.9：只读 IPC `podcast:voice-preview`、出期浮层落点、三把 `podcast.voice.origin*` 键的 zh/en 逐字、七条验收判据与两条「故意不做」。
+- 实测依据写进合同：`voiceRef` 在渲染层 0 命中、podcast locales 无音色键、`origin`/`resolvedBy` 从未进 IPC 载荷 ⇒ 落点不存在，本片只写规格不加键。
+- tasks 4.5 追加进度行，父项**保持未勾**（实现待按 §8.2.9 做，触主进程 ⇒ QM-1 必跑）。
+
+# [未发布] feat(podcast): 频道页合规三态徽标——缺席与「没问题」在界面上必须不同形（podcast-compliance-badge）
+
+- 新增 `podcast.compliance.{stock,invalid,reasonsTitle,degradeNotice}` 四对 zh/en 文案（PRD §8.2.5 逐字表）。
+- 单集行按 compliance 三档分别显示：`ok` 不显示；`stock` 显示「存量沿用（未重新校验）」；`invalid` 显示计数句 + 具体原因清单 + 可播出提示，原因逐字走 `issueText` 单一实现。
+- `compliance` 键缺席时整块不显示，且不渲染成「0 项不符合」——与 `stock: null` 同一条「缺席 ≠ 0」纪律的第二处落点。
+- 回归锁 7 条（`PodcastChannelView.test.js`），含一条结构锁禁止展示层自抄第二份码→文案映射。
+
+
+
 # [未发布] fix(desktop): 内嵌浏览器反检测改走主世界，且只按真机对照修 4 项实测异常（zhihu-stealth-browse）
 
 - 用户现象是「应用内点开账号浏览知乎被判『网络环境或行为异常』」。查下来应用侧有**两个互相独立的缺陷**：① `stealth-preload.js` 在 `contextIsolation:true + sandbox:true` 下改的是**隔离世界**的 `navigator`，页面主世界毫无感觉（本仓 `PRD-OSS-RPA-HARDENING` §3.1 E4b 早有 spike 记录，本片复测一致：隔离世界标记在主世界读为 `undefined`）；② 账号标签根本没挂反检测——`tab-lifecycle.js` 的 preload 指向只暴露两个只读 IPC 的 `monitor-preload.js`，`stealth-preload.js` 只在 RPA 发布窗口被引用，于是「点开账号浏览」这条最高频路径从未接入。

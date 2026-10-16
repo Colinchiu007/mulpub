@@ -189,19 +189,22 @@ function mixFixture(blocks, opt = {}) {
   return dir
 }
 
-test('最顶部执行记录缺 远程同步 行 ⇒ 判红，且点名该记录标题与两种合法写法', () => {
+test('最顶部执行记录缺 远程同步 行 ⇒ 不再判红，但必须识别、可见、并指向新载体', () => {
+  // 语义变更（change: freeze-legacy-gate-carrier）：这条此前是拦截项，作用仅是"用位置猜哪篇最新"。
+  // 新 PR 的强制载体已是 openspec/records/（那边有逐篇硬判据 missingRecordRows，在拦截面里），
+  // 所以继续拦在这里只会逼会话去挤那个所有会话共用的大文件 —— 那正是丢工窗口的来源。
   const dir = mixFixture([
     { head: '本次执行记录：新功能甲（feat-a，2026-09-28）', row: null },
     { head: '本次执行记录：旧功能乙（feat-b，2026-09-27）', row: 'PASS', evidence: 'PR #9002 合并' },
   ])
   const r = checker.collect({ root: dir, ledger: {} })
-  assert.strictEqual(r.topRecordMissingRow, true)
+  assert.strictEqual(r.topRecordMissingRow, true, '状态本身仍要算出来，否则可见项也无从打印')
   assert.match(r.topRecord.text, /新功能甲/)
   assert.strictEqual(r.recordsWithoutRow.length, 1)
+  assert.strictEqual(checker.hasBlocking(r), false, '顶部缺行不得再进拦截面')
   const msg = checker.format(r)
-  assert.match(msg, /最顶部的执行记录缺 远程同步 行/)
-  assert.match(msg, /gate-record-debt-ledger\.json/, '提示必须指向登记路径，否则作者只能猜')
-  assert.match(msg, /PENDING/)
+  assert.match(msg, /可见项，不拦截：旧载体最顶部记录缺 远程同步 行/)
+  assert.doesNotMatch(msg, /❌ 最顶部/, '已不拦截却打 ❌ 会把读者引向一个不存在的失败')
 })
 
 test('顶部记录带行时，历史缺行的记录只报可见、不判红（否则一上线就红 192 条而不可用）', () => {
@@ -262,13 +265,122 @@ test('loadLedger 必须认参数：传夹具目录时不得静默读真实清单
     '夹具 ledger 与真实 ledger 必须能被区分开，否则参数是装饰')
 })
 
-test('真仓：顶部执行记录必须带 远程同步 行（这条是本增强的落地自检）', () => {
+test('真仓：旧载体必须等于冻结基线（这条是冻结判据的落地自检）', () => {
+  // 原来的真仓自检盯的是"顶部那篇带没带行"，随该判据退出拦截面一起换掉。
   const root = path.resolve(__dirname, '..')
-  const r = checker.collect({ root, ledger: checker.loadLedger() })
+  const r = checker.collect({ root, ledger: checker.loadLedger(), carrierFreeze: checker.loadCarrierFreeze() })
   assert.ok(r.topRecord, '一篇执行记录都识别不到 ⇒ 分类判据坏了，不是通过')
   assert.ok(r.recordCount > 50, `识别到的执行记录数异常小：${r.recordCount}`)
-  assert.strictEqual(r.topRecordMissingRow, false,
-    `最新记录「${r.topRecord && r.topRecord.text}」缺 远程同步 行`)
+  assert.ok(r.headingCount > 500,
+    `冻结基线的规模下界不满足（实测 ${r.headingCount}）—— 识别退化会让"零漂移"变成假绿`)
+  // 这条自检必须按档分判，否则它就是个写在今天、红在明天的引信：pull_request 事件里 GitHub 检出的是
+  // main⊕本分支的**合并预览**，主干每几分钟长一块，"状态等于基线"在 PR 档结构上必红（2026-10-16 实测
+  // run 38781654774 就是它先红）。PR 档改判"本分支自己没往旧载体加/删块"——那才是本 change 真正要守的东西。
+  const onPr = (process.env.GITHUB_EVENT_NAME || '') === 'pull_request'
+  if (onPr) {
+    const d = r.carrierDrift
+    if (d) {
+      assert.strictEqual(d.removed.length, 0,
+        'PR 档允许上游新增块，但绝不允许本 PR 删掉任何一块（删块＝搬走存档）')
+      assert.ok(!d.added.some((t) => /freeze-legacy-gate-carrier/.test(t)),
+        '本 PR 自己的记录块出现在旧载体里 ⇒ 违反了本 change 的规矩，应改写 openspec/records/')
+      console.log('[carrier-selfcheck] branch=PR可见档 removed=0 自己的slug未进旧载体 added=' + d.added.length)
+    } else {
+      console.log('[carrier-selfcheck] branch=PR可见档 drift=null')
+    }
+  } else {
+    assert.strictEqual(r.carrierDrift, null,
+      '真仓旧载体与冻结基线不一致（main/本地档）：说明有人在旧载体上加/删了记录块，应改写 openspec/records/；确属有意变更存档面 → 人工跑 node scripts/freeze-gate-carrier.js 重取')
+    console.log('[carrier-selfcheck] branch=严格档 headingCount=' + r.headingCount + ' drift=null')
+  }
+})
+
+// ---- 旧载体冻结锁（change: freeze-legacy-gate-carrier）----
+//
+// 为什么需要它（实测，非推断）：每个 PR 都要往 `.quality-gates.md` 顶部插一块，而所有会话共用同一份
+// 工作树 / index / HEAD。机器判定其实不需要这块 —— 记录文件源读自己 frontmatter（source:'records'），
+// ledger 只服务旧载体（source:'legacy'）。实测代价：同一条回填 #3602/#3606 相隔 20 分钟落了两遍，
+// 而共享根 reflog 显示 5 小时窗口内同一 HEAD 上发生 29 次 git 写动作。
+//
+// 判据是"记录块集合等于基线"：不许加块、不许删块，但**允许就地改写已有块里的状态行** ——
+// 关闭 ledger 里那 25 条历史欠账这条路必须留着，否则冻结等于把旧账永远钉红。
+function freezeOf(dir) {
+  const lines = fs.readFileSync(path.join(dir, '.quality-gates.md'), 'utf8').split('\n')
+  const titles = lines.filter((l) => /^## /.test(l)).map((l) => checker.normalize(l.slice(3)))
+  const sig = checker.carrierSignature(titles)
+  return { headingCount: sig.count, headingSha256: sig.sha256, headings: sig.titles }
+}
+
+test('冻结：与基线一致 ⇒ 不报漂移', () => {
+  const dir = mixFixture([
+    { head: '本次执行记录：甲（a，2026-10-15）', row: 'PASS', evidence: 'PR #1' },
+    { head: '本次执行记录：乙（b，2026-10-14）', row: 'PASS', evidence: 'PR #2' },
+  ])
+  const r = checker.collect({ root: dir, ledger: {}, carrierFreeze: freezeOf(dir) })
+  assert.strictEqual(r.carrierDrift, null)
+  assert.strictEqual(checker.hasBlocking(r), false)
+})
+
+test('冻结：往旧载体加一块 ⇒ 判红并点名新块标题', () => {
+  const dir = mixFixture([
+    { head: '本次执行记录：甲（a，2026-10-15）', row: 'PASS', evidence: 'PR #1' },
+  ])
+  const base = freezeOf(dir)
+  // 会话按旧惯习又插了一块（这正是本判据要拦的形态）
+  fs.appendFileSync(path.join(dir, '.quality-gates.md'),
+    '## 本次执行记录：新功能丙（feat-c，2026-10-15）\n\n| 远程同步 | PASS | x |\n\n', 'utf8')
+  const r = checker.collect({ root: dir, ledger: {}, carrierFreeze: base })
+  assert.ok(r.carrierDrift, '加了块却没报漂移 ⇒ 冻结锁是装饰')
+  assert.deepStrictEqual(r.carrierDrift.added.filter((t) => /新功能丙/.test(t)).length, 1)
+  assert.strictEqual(r.carrierDrift.removed.length, 0)
+  assert.strictEqual(checker.hasBlocking(r), true)
+  const msg = checker.format(r)
+  assert.match(msg, /❌ 旧载体冻结被破坏/)
+  assert.match(msg, /新功能丙/, '必须点名是哪一块，否则作者只能猜')
+  assert.match(msg, /openspec\/records/, '必须给出合法出路')
+})
+
+test('冻结：只改已有块里的状态行（关闭历史欠账）⇒ 不得报漂移', () => {
+  // 这条是"冻结不能把旧账封死"的反向锁：ledger 里还挂着 25 条 8 月欠账，唯一的关闭方式
+  // 就是就地改旧载体里的状态行。没有这条，"冻结"会变成第二次静默丢工的成因。
+  const dir = mixFixture([
+    { head: '本次执行记录：老账（old，2026-08-13）', row: 'PENDING', evidence: '待回填' },
+  ])
+  const base = freezeOf(dir)
+  const before = fs.readFileSync(path.join(dir, '.quality-gates.md'), 'utf8')
+  fs.writeFileSync(path.join(dir, '.quality-gates.md'),
+    before.replace('| 远程同步 | PENDING | 待回填 |', '| 远程同步 | PASS | merge abc123 |'), 'utf8')
+  const r = checker.collect({ root: dir, ledger: {}, carrierFreeze: base })
+  assert.strictEqual(r.carrierDrift, null, '关闭旧账不是加块，不得被冻结锁误伤')
+})
+
+test('冻结：删块同样判红（只减不增不等于可以搬走存档）', () => {
+  const dir = mixFixture([
+    { head: '本次执行记录：甲（a，2026-10-15）', row: 'PASS' },
+    { head: '本次执行记录：乙（b，2026-10-14）', row: 'PASS' },
+  ])
+  const base = freezeOf(dir)
+  const kept = mixFixture([{ head: '本次执行记录：甲（a，2026-10-15）', row: 'PASS' }])
+  const r = checker.collect({ root: kept, ledger: {}, carrierFreeze: base })
+  assert.ok(r.carrierDrift)
+  assert.strictEqual(r.carrierDrift.removed.length, 1)
+  assert.match(r.carrierDrift.removed[0], /乙/)
+})
+
+test('冻结：判据本体不得有"读不到基线就当没漂移"这条路', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-freeze-miss-'))
+  assert.throws(() => checker.loadCarrierFreeze(path.join(dir, 'nope.json')),
+    /冻结基线缺失/, '缺基线必须抛错，不能静默跳过')
+  fs.writeFileSync(path.join(dir, 'bad.json'), JSON.stringify({ headingCount: 0 }), 'utf8')
+  assert.throws(() => checker.loadCarrierFreeze(path.join(dir, 'bad.json')),
+    /不合法/, '条数为 0 的基线会让任何内容都判成漂移或都不漂移，两种都不可接受')
+})
+
+test('冻结：collect 默认不读生产基线（否则夹具会静流量到真仓状态）', () => {
+  const dir = mixFixture([{ head: '本次执行记录：夹具甲（f，2026-10-15）', row: 'PASS' }])
+  const r = checker.collect({ root: dir, ledger: {} })
+  assert.strictEqual(r.carrierDrift, null,
+    '未注入基线时不得报漂移；同时说明基线只能由调用方显式传入')
 })
 
 
@@ -674,4 +786,121 @@ test('跨源：真仓现场报得出配对数，且当前零未承认违例（�
   assert.ok(r.crossSrcPairs > 50, '配对数退化成 ' + r.crossSrcPairs + ' —— 身份规则或载体块解析已失效')
   assert.strictEqual(r.crossSrcViolations.length, 0, '新违例必须由作者回填或显式承认，不许带着红合并')
   assert.strictEqual(r.crossSrcStaleAck.length, 0, JSON.stringify(r.crossSrcStaleAck))
+})
+// ---- 基线重算器的接线锁（2026-10-15，QM-6 前端轴命中）----
+//
+// 命中点不是风格问题而是**不可复位**：仓里没有任何测试/门禁引用 scripts/freeze-gate-carrier.js
+// （`check-unwired-tests.js` 只扫 `*.test.*`），所以它一旦被 .gitignore 的 `scripts/*.js` 静默
+// 吞掉，没有任何东西会变红——而冻结基线从此永久不可重取。那时 design R3 的两条
+// 「不许手改基线」+「基线只能由该脚本生成」同时成立，等于把存档面焊在一个不存在的文件上。
+//
+// 三条各守一格：
+//   ① 在库且未被忽略 —— 本地漏 negation 即红，不必等 CI 那句 Cannot find module；
+//   ② 复用判据导出的 HEADING_RE / headingTitle —— 生成器曾自带 /^## / 与 slice(3)，
+//      两处各写一份时判据改口径会让基线静默对不上，症状是"没人违规却门禁红"；
+//   ③ 那条提取口径不得在生成器里再出现第二份（按去注释后的代码体判，注释里提它不算）。
+
+test('基线重算器 freeze-gate-carrier.js 必须在库、不得被忽略、且复用判据同一套口径', () => {
+  const { execFileSync } = require('node:child_process')
+  const root = path.join(__dirname, '..')
+  const rel = 'scripts/freeze-gate-carrier.js'
+  const abs = path.join(__dirname, 'freeze-gate-carrier.js')
+
+  // ① 在库：CI 检出里没有这个文件 ⇒ 一切免谈（那正是被忽略后的现场）
+  assert.ok(fs.existsSync(abs), `基线重算器不在库：${rel} —— 冻结基线将不可重取`)
+
+  // ① 未被忽略：判据看 check-ignore 的**回显规则**，不看 rc（反选也返回 rc=0，两者语义相同；
+  //    而"没有任何规则命中"才是真未忽略，此时 rc=1 且输出为空）
+  let decided = ''
+  try {
+    decided = execFileSync('git', ['check-ignore', '--no-index', '-v', rel], { cwd: root, encoding: 'utf8' }).trim()
+  } catch (e) {
+    const noise = String((e.stdout || '') + (e.stderr || '')).trim()
+    assert.strictEqual(e.status, 1, `git check-ignore 探针异常（status=${e.status}）：${noise.slice(0, 200)}`)
+    assert.strictEqual(noise, '', `git check-ignore rc=1 却有输出，探针不可信：${noise.slice(0, 200)}`)
+    decided = ''
+  }
+  if (decided) {
+    assert.match(
+      decided,
+      /![^\s]*freeze-gate-carrier\.js/,
+      `决定该文件命运的规则不是反选：「${decided}」—— 漏了 .gitignore 里那条 !scripts/freeze-gate-carrier.js 就会这样：本地全绿、CI 上 Cannot find module`,
+    )
+  }
+
+  // ②③ 口径单点：必须从判据取 HEADING_RE / headingTitle，且自己不得再写一份提取
+  const src = fs.readFileSync(abs, 'utf8')
+  assert.match(src, /require\('\.\/check-gate-record-debt\.js'\)/, '重算器没有复用判据模块，两份实现必然漂移')
+  for (const sym of ['HEADING_RE', 'headingTitle', 'carrierSignature', 'GATE_FILE', 'CARRIER_FREEZE_FILE']) {
+    assert.ok(src.includes(sym), `重算器未复用判据导出的 ${sym} —— 基线与判据的标题口径会分叉`)
+  }
+  const codeOnly = src
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n')
+    .filter((l) => !/^\s*(\/\/|\*)/.test(l))
+    .join('\n')
+  assert.ok(!/\^## /.test(codeOnly), '重算器自带 `^## ` 提取是第二份实现——标题口径必须由 check-gate-record-debt.js 单点持有')
+  assert.ok(!/\.slice\(3\)/.test(codeOnly), '重算器自带 `.slice(3)` 是第二份实现——去掉 `## ` 前缀只准在 headingTitle 里发生一次')
+})
+test('冻结基线自身不一致（headings 长度 != headingCount）必须抛错，不得退化成只报计数', () => {
+  // 采纳 QM-6 后端轴 ①-W2。这里的关键不是"能不能报红"，而是**报出来的东西名不副实**：
+  // 计数与标题清单不符时，判据仍会因 sha/count 不等而红，但点名分支走 baselineHasTitles=false，
+  // 打印成"基线没带标题"——把一次手改基线（design R3 明令禁止的形态）伪装成合法形态。
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-freeze-self-'))
+  const file = path.join(dir, 'freeze.json')
+  const write = (obj) => fs.writeFileSync(file, JSON.stringify(obj), 'utf8')
+
+  // 正控：合法基线必须读得出来。缺了它，下面三条负控只是"任何文件都抛错"的同形红。
+  write({ headingSha256: 'a'.repeat(64), headingCount: 2, headings: ['甲', '乙'] })
+  assert.deepStrictEqual(checker.loadCarrierFreeze(file).headings, ['甲', '乙'])
+
+  // 负控 1：长度与计数不符（手改基线最可能的形态）⇒ 抛错
+  write({ headingSha256: 'a'.repeat(64), headingCount: 3, headings: ['甲', '乙'] })
+  assert.throws(() => checker.loadCarrierFreeze(file), /headings 与 headingCount 不一致/)
+
+  // 负控 2：headings 不是数组 ⇒ 抛错
+  write({ headingSha256: 'a'.repeat(64), headingCount: 2, headings: '甲乙' })
+  assert.throws(() => checker.loadCarrierFreeze(file), /headings 与 headingCount 不一致/)
+
+  // 负控 3：headings 缺席 ⇒ 仍然合法（夹具形态，baselineHasTitles 那条可见项就是为它设的；
+  // 把它一并禁掉会让 6 条冻结用例集体红，那是把锁焊在实现细节上，不是守门）
+  write({ headingSha256: 'a'.repeat(64), headingCount: 2 })
+  assert.strictEqual(checker.loadCarrierFreeze(file).headings, undefined)
+})
+test('carrier-mode：visible 档只可见不阻断，block 档照拦，非法取值必须抛错', () => {
+  // 这条锁守的是"锁装在哪一档"本身：PR 档（visible）里上游新增块必然让状态不等于基线，
+  // 若它仍阻断，本门禁就变成"每个 PR 都红"的常量红；若实现退化成两档都不拦，冻结就没了牙。
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-mode-'))
+  const lines = []
+  lines.push('## 本次执行记录：最新（m-newest，2026-09-28）')
+  lines.push('')
+  lines.push('| 门禁 | 状态 | Fresh 证据 |')
+  lines.push('|------|------|-----------|')
+  lines.push('| 远程同步 | PASS | PR #9101 合并 |')
+  lines.push('')
+  fs.writeFileSync(path.join(dir, '.quality-gates.md'), lines.join('\n'), 'utf8')
+  fs.mkdirSync(path.join(dir, 'openspec', 'records'), { recursive: true })
+
+  const base = checker.carrierSignature(['别的块'])
+  const driftFreeze = { headingCount: base.count, headingSha256: base.sha256, titles: base.titles }
+  const r = checker.collect({ root: dir, ledger: {}, carrierFreeze: driftFreeze })
+  assert.ok(r.carrierDrift, '夹具必须真的构成漂移，否则下面两句是同形真')
+
+  // 两档的差别必须可判：block 拦、visible 不拦
+  assert.strictEqual(checker.hasBlocking(r, { carrierVisible: false }), true, 'block 档必须拦')
+  assert.strictEqual(checker.hasBlocking(r, { carrierVisible: true }), false, 'visible 档不得拦')
+  // 不拦不等于不说：可见项必须出现，且不得再以 ❌ 形态出现
+  assert.match(checker.format(r, { carrierBlocking: false }), /可见项，PR 档不拦/)
+  assert.match(checker.format(r, { carrierBlocking: true }), /^❌ 旧载体冻结被破坏/m)
+
+  // 默认参数不得被改掉：老测试与 main 之外任何调用点都按"拦"理解
+  assert.strictEqual(checker.hasBlocking(r), true, 'hasBlocking 默认必须仍拦')
+
+  // 旗标解析：缺省=block，两种合法值各自生效，非法值与"看起来像但不等于"的写法一律抛错
+  assert.strictEqual(checker.parseCarrierMode([]), 'block')
+  assert.strictEqual(checker.parseCarrierMode(['--carrier-mode=visible']), 'visible')
+  assert.strictEqual(checker.parseCarrierMode(['--carrier-mode=block']), 'block')
+  for (const bad of ['--carrier-mode=visbile', '--carrier-mode=', '--carrier-mode=SKIP', '--carrier-mode']) {
+    assert.throws(() => checker.parseCarrierMode([bad]), /carrier-mode/, `非法取值未抛错：${bad}`)
+  }
 })
