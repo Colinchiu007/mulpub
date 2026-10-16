@@ -125,6 +125,10 @@ scripts/*.js
 # 它是 Gate 7c（暗色文本对比度）的本地前置判据 —— 少了它，改色只能等 4 分钟的
 # CI 才知道达标与否；该按钮配色实测改了三轮才定稿，判据必须随代码入库。
 !scripts/check-trial-banner-contrast.js
+# 像素 diff 分布分析本体（2026-10-17）。用途：视觉回归报 N% 时，用**差异铺在哪儿**
+# 替代"肉眼看截图"来判断是否可接受 —— 本项目实测过「两张 PNG 差 127 字节、
+# 像素差 9.41%」，肉眼不可靠。同 #3011 同族：第 106 行 scripts/*.js 会静默忽略它。
+!scripts/analyze-pixel-diff.js
 # Gate 9 覆盖审计的 PR 画像判据（2026-10-12，change: gate9-scope-fix）。
 # ⚠ 同 #3011 同族：`scripts/*.js` 会把门禁本体静默忽略掉 —— 实测三个 commit 反复 CI 红，
 # 根因是判据模块没入库（.test.js 后缀不同逃过忽略，被测模块没有），CI 上
