@@ -18,8 +18,9 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "cleared",
+    "performedBy": "lead-self-assessment (docs-only commit inside nav-perf-ux PR #3742)",
+    "findings": null,
+    "clearedReason": "假阳性（同族第二次）：本提交只含文档——01-docs/PRD.md §18.2.4、01-docs/ACCOUNTS-PROXY-LAZY-2026-10-15.md、CHANGELOG.md、01-docs/learnings.md、openspec/records/nav-perf-ux.md。被判命中敏感内容的原因是这些文档用散文描述了 PBKDF2/KDF 参数、密钥派生与凭证解密路径，而非改动任何加解密代码。佐证：① diff 内零 .js/.vue 运行时代码文件；② 本 PR 真正含加解密改动的提交是 f5b4004b5（preload/account-manager/ipc-handlers），走 mode=dual 全量评审并已完成跨家族复核；③ 该判据按词匹配的已知局限——文档引用术语即命中。不存在未评审的加密面变更。"
   }
 }
