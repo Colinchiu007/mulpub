@@ -7,7 +7,10 @@
    挡的是「改了鉴权但没人发现」。
 2. `test_every_public_route_is_explicitly_registered` —— **公开端点白名单锁**：无鉴权依赖的
    路由必须逐条登记在 `scripts/auth_surface.py::PUBLIC_ALLOWLIST`。挡的是「新端点忘了挂鉴权
-   ⇒ 静默变成公开」。那条 # 已知暴露面 断言同时把 3 个无消费者的免鉴权端点钉在案。
+   ⇒ 静默变成公开」。2026-10-16 起名单只剩 3 条**自证合理**的公共端点（login/logout/health）
+   —— 原先 3 条以「供 bootstrap 内部组装使用」为由豁免的 `GET /<资源>/runtime` 已改为
+   `get_current_user`（change: harden-runtime-endpoints-auth），其反向断言与非空转守卫见
+   `tests/test_runtime_endpoints_require_auth.py`。
 3. `test_no_auth_guard_called_inside_handler_body` —— **AST 结构锁**：router 模块的函数体内
    不得再出现鉴权原语调用。挡的是「退回反射读不到的形态」（2026-10-15 之前 8 个端点就是如此，
    且 4 份重复实现 + 1 处同名不同义）。

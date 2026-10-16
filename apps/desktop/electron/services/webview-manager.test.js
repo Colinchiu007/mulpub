@@ -1147,7 +1147,13 @@ describe('WebviewManager home-shell 内嵌主页标签', () => {
 
     const tabId = wm.createNewTabPage({ url: 'https://creator.douyin.com' })
     const view = wm._tabViews.get(tabId)
-    expect(view._opts.webPreferences.preload).toMatch(/monitor-preload\.js$/)
+    const preload = view._opts.webPreferences.preload
+    // 「monitor preload 家族」而不是逐字 `monitor-preload.js`：浏览/账号标签的 preload 现在
+    // 承担主世界反检测注入，须经 esbuild 打包（sandbox 无法 require 相对路径文件），
+    // 运行时优先取 `monitor-preload.bundle.js`。锁的**意图**未变：非 home-shell 标签用
+    // monitor 家族 preload、且绝不用 home-shell preload。
+    expect(preload).toMatch(/monitor-preload(\.bundle)?\.js$/)
+    expect(preload).not.toMatch(/home-shell-preload/)
     expect(view._opts.webPreferences.additionalArguments || []).not.toEqual(
       expect.arrayContaining([expect.stringContaining('--mp-home-shell-url=')])
     )

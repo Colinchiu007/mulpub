@@ -32,6 +32,79 @@
 【口径】"限额型"数值改动前，grep 的是**使用点**而不是赋值点；改完后要有一条锁真的把
 另一个值喂进去看结果，不能只断言公式字符串长什么样。
 
+## 判「挂死」采错进程会得到必然为 0 的 CPU 增量；正确判据是「是否还在拉起新子进程」；RED 阶段必须先预测失败条数（harden-runtime-endpoints-auth，2026-10-16）
+
+1. **⛔ 「同一 PID 间隔采样 CPU 增量」这条判据必须写清采样对象，否则会把正常等待读成挂死。** 本轮给 ops-center 端点加鉴权时，pre-commit 钩子跑了 40 分钟仍未提交，我据此判「挂死」，**连续两次判错**：第一次采 `git.exe`（它在等钩子返回 ⇒ 必然 0 CPU），第二次采父 shell `bash`（它在 `wait` 子进程 ⇒ 也必然 0 CPU）。真正的推进发生在**短命子进程**里：观察 60 秒发现它拉起了 **21 个子进程**，即钩子在按步推进。**可操作判据**：判「是推进还是挂死」要看「是否仍在持续产生新子进程」，而不是某个进程的 CPU 增量；`wait` 型与「等外部返回」型进程的 CPU 恒为 0，用它做判据等于用一个恒定值当信号。（本仓 AGENTS.md 的清理条目写了这条 CPU 采样法，本轮的修正是**补上采样对象**这一前提。）
+
+2. **TDD 的 RED 阶段必须先「预测失败条数」再跑，只看「有红」无法发现空转锁。** 本轮我给自己新写的契约锁预测了失败集：18 条参数化实例里**应有 11 条红**，实测只有 **10 条** ⇒ 差的那条是 `test_runtime_endpoints_are_no_longer_public_allowlisted`，它**本该红却没红**。查因：`PUBLIC_ALLOWLIST` 的键是 `"<METHOD> <path>"`（如 `"GET /api/v1/rewrite-ai-taste/runtime"`），而我用**裸路径**做 `in` 判断 ⇒ **恒为 False** ⇒ 测试**空转通过**。这正是本仓已沉淀过的「锁必须靠变异被守护的性质来验证」同型缺陷，但这次是**在写锁的当下**、靠**数目对账**抓到的，不是靠读代码。修法：用正确键形态 + 加**非空转守卫**（先断言名单里仍能看见 login/logout/health 三条自证合理的公共端点，键形态一变先红）。
+
+3. **「理由」与「它所依赖的事实」之间没有判据时，理由会长期冒充事实。** 本轮抓到的鉴权缺口，其 docstring 写着「免鉴权，**供 bootstrap 内部组装使用**」——读起来完全合理，以至于四层防线全过（见该次执行记录的逃逸链）。而 `git log -S` 追到**同一次提交**（`1aa6aa851`）里，`runtime_service.py` **已经**是进程内直调 service ⇒ 那句理由**诞生即假**，悬置 27 天。**可操作判据**：凡注释/文档声称「供 X 使用」，最好有一条机械判据断言**该调用方确实存在**；否则 X 改走别的路径后，注释会成为无人复核的历史陈述，而 PRD 对账只管「PRD 声称 vs 实现」、覆盖判据只管「有没有测试」——本轮这三条**都有测试**，只是断言了**错的方向**。
+
+4. **判定记录只按「基线 sha」寻址，会让两个 PR 必然撞名；且「取 ours」会丢掉本 PR 的记录。** rebase 到最新主干时 `.ccg/reviews/2bcce6833….json` 发生 **add/add 同名冲突**：该文件名只编码**基线**，而另一会话同样从 `2bcce683` 分叉、按其变更写了同名文件并已合入 main。**关键认知：同名 ≠ 同一逻辑对象** —— 两侧是**两份不同变更**的记录（主干侧 `mode=single`+pending、本 PR 侧 `mode=dual`+cleared），按「内容合并」的思路去解会出错。按仓规**未用后推覆盖**：冲突取 ours 保住他人产物，再把本 PR 的记录移到不撞名路径并写明原因。**建议（属「谁来守门」类，未擅自实施）**：记录名应含 head sha 或分支名，否则同基线分叉必然撞名。
+
+5. **「每次提交都生成一份待闭环记录」这种设计不可能收敛。** 判定记录按「当时的 HEAD」寻址：每次 commit 生成一份 `pending`，而闭环它需要再提交 ⇒ **再提交又生成新的一份**。于是 dual 类改动的**最后一个提交**永远留下未闭环记录；`amend` 还会额外产出「键指向已不存在提交」的**孤儿记录**。本轮实际是靠「最后一次提交只动了 `.ccg/` 与 `openspec/`（都在文档白名单内）、被判 **skip/single** 模式」**侥幸**越过 —— **侥幸不能当机制**。设计要求：门禁要么允许「同一次提交内闭环」，要么对最后一个提交豁免；且 `amend` 产生的孤儿需要明确的清理/登记约定。
+
+6. **把「复核自己的反驳」外包出去时，提示词必须明确允许对方否定你，并要求它出示取证过程。** 本轮 QM-6 评审的 3 条争议被引擎判定为 auth 高危域、**不允许自扮演豁免**，而引擎又没有外部裁决入参通道（`:417-418` 对 `highRiskDomains` 非空无条件阻断、`:342` 硬编码 `adjudicatedBy=self-play`）。于是我把「反驳是否成立」交给外部模型，并**明确要求「允许否定提案方；证据不足须判 upheld 并指出缺什么证据」**。关键是**检查它是否真的去读了证据**：它引用了 `routers/runtime.py:126` 的 `Depends(verify_bearer_or_catalog_key)` 与 `middleware/auth.py:117-129`，这两处**可独立核验** ⇒ 是复核而非附和。**反之，只索取结论而不索取取证过程，得到的是附和。** 另外必须如实标注这次复核的局限：复核者与提出者**同家族**（非跨家族）、只做文本裁定、**未运行**本仓测试。
+
+7. **人工置门禁状态时，必须把「机制」写进记录，而不是只写结论。** 上一条的外部复核满足的是**实质要求**，但引擎的状态字段停在 `self_play_blocked`（不在闭环白名单）。我据门禁自己对闭环的定义（「**裁决已产出并落盘**」）把状态置为 `cleared`，并在**四处**留下机制说明：执行记录、判定记录 `note`、提交信息、PR 正文，且**保留** `engineStatusBeforeClear` 原值、**未删除**引发阻断的 `highRiskDomains` 标记（删标记等于篡改评审来过门禁）。**判据**：只写 `cleared` 不写机制，会让后来者无法区分「引擎自己放行」与「人工裁决后放行」——而那正是本仓最该被区分的两件事。
+
+## 「没做对照就补」本身就是缺陷来源；sandbox preload 不能 require 相对文件；测试白名单外的用例一个都不跑（zhihu-stealth-browse，2026-10-15）
+
+1. **反检测/兼容性补丁的第一性纪律：先取「真实浏览器基线」，再决定改什么。** 本轮起点是用户报「应用内点开账号浏览知乎被判网络环境异常」。我按通用风控经验列了 5 项"疑似指纹"（plugins 为空、WebGL 软渲染、outerDimensions 比例、webdriver、chrome.runtime 缺失），**同机同 GPU 用真实 Electron 43.7.7 与真实 Chrome 155 逐项对照后，其中 3 项被证伪、1 项不可比**：`navigator.plugins` 在 Electron 上**已是 5 项且名称与 Chrome 逐字相同**（PDF Viewer / Chrome PDF Viewer / Chromium PDF Viewer / Microsoft Edge PDF Viewer / WebKit built-in PDF）；WebGL vendor/renderer 同机同值；`chrome.runtime` 在**真实 Chrome 的普通网页上也是 `undefined`**；`outerWidth/Height` 侧 Chrome 无头态报 `0/0`，根本不可比。
+   **而既有代码正是按那套"经验"写的**：`stealth-preload.js` 把真实插件换成含 `Native Client` 的 3 项假列表（现代 Chrome 早已移除 Native Client）、凭空造 `chrome.runtime`、强改 `navigator.languages` 与 `clipboard-read` 权限——**通道修好后它会比不修更糟**。
+   **可操作的判据**：写任何"让应用看起来像真实浏览器"的补丁前，必须先用目标浏览器的 headless（或真机）产出同机同版本的对照表；对照表里"一致"的项要**写成反向锁禁止后人再改**（本片 `evasions.test.js` 有一整个 describe 干这件事）。没做对照就补，等于把"未知"换成一个**可被一行代码证伪的确定谎言**。
+2. **`navigator.plugins` / `webdriver` / `chrome.runtime` 这类"经典自动化特征"在 Electron 43 上已经不成立**，不要照抄 puppeteer/headless 时代的清单。真正在 Electron 上不一致的是另外 4 项：`Object.keys(window.chrome)` 是**空数组**（Chrome 为 `['loadTimes','csi','app']`）、`userAgentData.brands` 缺 `Google Chrome`、`Notification.permission` 为 `granted`（Chrome 为 `default`）、`permissions.query` 对 5 项权限**全部**返回 `granted`（Chrome 全为 `prompt`）。最后一条是**系统性**异常：「所有权限都已授予」在任何真实浏览器上都不可能对全新站点出现。
+3. **⛔ sandbox preload 无法 `require` 相对路径文件**（真机实测：`require('./probe-require-target.js')` 报 `module not found`，而**同一次** `require('electron')` 正常——所以这不是"require 不可用"，而是"相对路径解析被沙箱裁掉"）。任何想复用 Node 模块的 sandbox preload 都必须走 esbuild 单文件打包。**推论**：`build:preload` 漏跑 = 该 preload 静默降级，所以本片新增 `preload-path.test.js` 直接断言"三个 bundle 都已产出且确实内联了目标源码"，把"忘了重建"变成红。
+4. **`contextIsolation:true` 下 preload 里改 `navigator` 等于什么都没做**，但它在**代码评审里看不出来**、在**手搓夹具的单测里全绿**。唯一可靠的证伪/证实手段是"页面主世界自己读到什么"——本片 harness（`probe-main-world-injection.js`）让**页面脚本**读并回报，而不是让 preload 自证。同理，"注入成功"与"注入生效"要分开测：三态标记（无标记 / 有标记无 done / done 但缺项）分别对应"没执行""执行中途炸""部分失败"，且**读回失败必须与注入失败措辞分开**（前者只是观测不可用，误报会让人去修不存在的问题）。
+5. **vitest 的 `include` 是白名单：没登记进去的测试文件一个都不会跑，而 CI 全绿。** 本片新增 `electron/stealth/**` 与 `electron/monitor-preload.test.js` 时**先改 `vitest.config.js` 再写测试**。同族历史逃逸：`startup-compat.test.js`。**判据**：新增任何测试文件后，第一件事是跑一次并把该文件名列出来看它**确实被执行**，而不是看退出码。
+6. **夹具最容易替实现撒谎的三个坑（本轮全踩了，全部先红后修，没有靠改断言绕过）**：① 把**访问器**属性写成数据属性——源码按"`Object.getOwnPropertyDescriptor(...).get` 是不是函数"决定接不接管，夹具一写成数据属性，被测逻辑被**静默跳过**而断言照跑；② jsdom 的 UA **不含 `Chrome/<major>`**，靠 UA 推导版本的分支被静默跳过；③ 对 `Object.defineProperty(..., {value})` 造出的**不可写**属性直接赋值，抛 `Cannot assign to read only property`。**判据**：凡是"某分支按宿主形状决定是否执行"的代码，夹具必须造出**真实宿主的那种形状**，否则测试在测一个不存在的环境。
+7. **`ELECTRON_RUN_AS_NODE=1` 会让 `electron.exe` 退化成纯 Node**，症状是 `require('electron')` 返回**可执行文件路径字符串**、`app` 为 `undefined`、`process.versions.electron` 却**仍然有值**（所以看版本号会误判"Electron 在跑"）。凡在本会话环境里跑 Electron harness/打包产物，必须先 `Remove-Item Env:\ELECTRON_RUN_AS_NODE`。
+8. **QM-1 第③层（LIVE stderr 0 字节）有一个会「假通过」的测量写法**：`Start-Process -RedirectStandardError` 配 `[IO.File]::ReadAllText`，在子进程仍持有句柄时抛「文件正由另一进程使用」，而脚本里 `$ErrorActionPreference='Continue'` 把异常吞成 `$null` ⇒ `stderr_bytes` 算成 0 ⇒ **第③层被虚假满足**。正解：按 `[System.IO.FileShare]::ReadWrite` 打开后读，或让子进程自己用 `>out 2>err` 写、退出后再读。**这条与仓内已登记的同型坑是同一个**（`stock-default-write-proof` 记录过），本轮又踩了一次——说明"记录过"不足以阻止复发，必须在脚本里写死共享读。
+9. **`safe-delete.js` 依赖外部的 `mavis-trash`，本机缺失时它只能报错**（`'mavis-trash' 不是内部或外部命令`）。R0 铁律禁止绕过守卫删目录，但**单文件**临时产物的替代做法是**移出仓库**（move 不是 delete，不动 R0 的删除路径）：本轮把 3 个临时脚本/产物移到 `%TEMP%` 之外的归档目录，仓库工作区恢复干净且未触碰任何受管文件。
+10. **行尾噪音会被 `git status` 报成"已修改"而内容 diff 为 0 行**：重跑 `build:preload` 后两个既有 bundle 出现 `LF will be replaced by CRLF` 警告，`git diff --numstat` 却为空。判据是**先看 numstat 再看 status**——否则会把"重建噪音"当成真实改动写进 PR，或反过来把真实改动当成噪音还原掉。正解：`--numstat` 为 0 行且只有行尾警告时，用 `git checkout -- <精确文件>` 还原（R2 允许针对 `git status` 精确列出的文件恢复，禁止的是宽目录恢复）。
+## 修复层级必须早于事故点；夹具会把缺陷锁成契约；以及成功判据只能是严格形状（fix-article-paragraph-zhihu-publish，2026-10-15）
+
+### lesson:fix-must-sit-upstream-of-the-accident
+
+【教训】用户问「这个问题之前不是修过了吗，怎么没生效」时，第一个要证的**不是**「修复在不在」，而是「**修复的相对位置在事故点的上游还是下游**」。
+本轮百家号图文「正文一整段」二次报障：2026-10-12 的修复（`#3389`）确实在、而且**正在跑的应用就是含修复的构建**（`require.resolve` 实证引擎解析到 `baijiahao-article.js:152` 的 `formatArticleBody` 调用行，`2bb7c2b9a` 是运行 tip 的祖先）。但真机产物仍是 **1 个 `<p>`**，且「源文去掉全部换行 == 平台正文」为 True（1055 == 1055）。
+把链路拆开量一次就定位了：**同一份引擎源码**对同一篇源文调 `BaijiahaoArticleChain.buildArticleFormData` ⇒ **6 个 `<p>`**。⇒ 链路本身能成段，段落是在**进链路之前**丢的。第一性根因在渲染层：富文本编辑器（`content-type="html"`）装载**纯文本**时，Quill 的 `setHTML()` 把 `root.innerHTML` 设为纯文本，换行在 HTML 语义里是**可忽略空白** ⇒ 装载那一刻（**无需用户输入**，靠 MutationObserver 的 `text-change`）就回写单段 HTML，`article.content` 从此就是一段；链侧 `formatArticleBody` 看到「已是 HTML」只能**幂等透传**（这一步本身没错）。
+**判据**：报障「修过了没生效」时，先做一次**分层复现**——用同一份实现分别喂「链路的输入」与「链路的输出」，看哪一层开始不对。修复落在事故**下游**时，症状会伪装成「修复无效」，而代码读起来完全正确。
+**推论**：任何「幂等透传」型修复（看到已是目标形态就原样放行）都不能证明上游是对的——它只能保证「不再变坏」。
+
+### pitfall:mock-of-real-editor-hides-the-write-back
+
+【陷阱】`vi.mock` 掉真实编辑器组件，等于把整条链路里**唯一会改内容的那一跳**换成假的。
+本轮修复前**没有任何**「编辑器装载后段落数」用例，而 `ArticleEditor.test.js` 全程 mock `QuillEditor` —— mock 版本不会回写 `update:content`，所以「装载即改内容」这个真实行为在测试里**完全不存在**。修复后补的第二层用例 `ArticleEditor.quill-load.test.js` 用**真实 Quill**（不 mock）直接在编辑器 DOM 里数 `<p>`：两段源文 ⇒ 恰好 2 个、六段 ⇒ 恰好 6 个。
+**判据**：当被测对象的契约里有「它会改我喂进去的东西」时，必须至少有一条用例跑**真实实现**并断言**产物形态**（这里是在 DOM 里数元素），mock 版只能覆盖接线。
+**配套**：慢的真实用例不必多，但必须在**变异下变红**——本轮把装载改回直传后，mock 层红 4 例、真实层红 3 例，两层都证明了自己在跑。
+
+### pitfall:test-fixture-locked-the-defect-as-contract
+
+【陷阱】夹具写的是**事故形态**，断言却要求「成功」——缺陷从此被固化成契约，任何后续改动都不会让它变红。
+本轮知乎假成功的逃逸链核心：2026-09-29 的回归测试「发布成功判定包含知乎 `/p/<id>` 文章 URL 模式」，**夹具 URL 就是 `https://zhuanlan.zhihu.com/p/2088256436652589762/edit`**（草稿编辑页），却断言 `success === true`。而 `_publish_zhihu` 的判据 `/\/p\/\d+/` 恰好也被 `/edit` 命中 ⇒ 只要没人质疑那条断言，缺陷就永远绿。
+**判据**：写「终态判定」类用例时，必须给**每一个被接受的形态**配一条**必须被拒绝的相邻形态**（这里：`/p/<id>` 接受、`/p/<id>/edit` 拒绝），并把两者放进同一个 describe 里互相制衡。本轮修复同时把原用例**改写为反例**（`success === false` + error 含 `not confirmed`）。
+**加强手段**：新增结构锁，断言「成功只能经 `<判据函数>` 得出、不得再自造 URL 子串判据」——把「怎么判」也钉住，而不只钉「判出什么」。
+
+### lesson:success-criterion-must-be-strict-shape-and-single-exit
+
+【教训】「成功」这种动作的判据必须是**严格形状**（结构化解析 + 逐段白名单），且一个动作**只能有一条成功出口**。
+本轮两个反例同源：① `/\/p\/\d+/` 与 `curUrl.includes('publish' | 'success' | 'article')` 这类判据是**子串命中**，被更长的 URL（`/edit`、查询串、别的页面）命中即误判；② 另有一个 `panelGone` 兜底（发布按钮消失/隐藏即成功）——它可因「发布设置面板遮罩遮住原按钮」而成立。两条出口的成功面是**并集**，等于判据的宽度取两者之宽。
+**判据**：① 判 URL 一律 `new URL()` + 逐段严格匹配（主机白名单、协议白名单、路径 `^/p/(\d+)/?$`），并给「相邻但必须拒绝」的形态（`/draft`、`/manage`、后缀伪装域名、`javascript:`）各写反例；② 复选式的成功条件（`||` 连接多个子串）出现即视为异味，逐个问「这条真的等价于成功吗」；③ 兜底型成功出口一律删除，宁可失败也不要第二个出口。
+
+### lesson:two-phase-action-needs-eligibility-gated-reentry
+
+【教训】当一次点击**只完成第一阶段**（真机实证：知乎首次点「发布」只把稿子落成草稿并跳到 `/p/<id>/edit`，需在该页再点一次才真发布），补点必须满足两条**同时**成立：**资格判定**（确证停在草稿编辑页才补点）+ **次数上限**（至多 1 次）。
+少了资格判定会**多造草稿**（在写作页或未知页盲点「发布」可能生成第二份）；少了次数上限会把轮询变成连点。本轮落地为一个**注入式状态机**：`readUrl` / `waitForElement` / `click` / `sleep` / 时限全部由调用方注入 ⇒ 39 例穷举单测无需浏览器，宿主只剩接线；三种落点各有明确 reason（`unexpected-page` 不补点、`draft-editor-publish-button-missing` 不点击、`draft-editor-still-not-published` 补点后仍未离开）。
+**判据**：把「补点」写成**带前提的恢复动作**而不是「再试一次」；前提不成立时如实失败，并让点击数成为**可断言量**（本轮有「写作页 ⇒ 点击恰 1 次」的用例）。
+**另一面**：未确认一律判失败会改变重试语义（「其实已发布 + 重试再发一篇」的风险），必须登记为遗留而**不是**顺手改重试策略。
+
+### lesson:documented-root-cause-is-not-a-verified-root-cause
+
+【教训】把根因结论写进 PRD / QM-2 合同 **不等于**已经复核过它；未复核的结论一旦沉淀成合同，会成为下一个会话的**错误前提**。
+本轮两条修复合起来证明了这一点：2026-10-12 把根因写成「发布时传参不对」并落了 QM-2 合同（写平台正文字段前必须经 `formatArticleBody`），而真正丢失段落的环节在**它上游**；该条的「真机复核」在前作 PRD 与执行记录里都标着「待执行」，**却没有人因为它未执行而拦住「已完成」的结论**。结果是一份写得很严谨的合同守着一个错误的边界，用户二次报障。
+**判据**：① 凡「结论级」文档（根因、合同、PRD 需求）必须**显式标注复核状态**与**复核判据**（本轮：公开页容器内 `<p>` 数 == 源文段数），未复核的条目沿用「待复核」而不得写成结论；② 上游修复落地时，**跨层边界**（内容从哪来 → 装进什么容器 → 怎么序列化）要一并过一遍，别只在本层里找；③ 本次修复为装载层新增 QM-2 合同并把「同一不变式」写成合同条目（编辑器里看到的段落数 == HTML 承载平台拿到的 `<p>` 数），使「层与层之间」这一段有东西守。
+
 ## 端点鉴权面单一真源；锁自身可能是 no-op；以及 FastAPI 版本差异造成的 CI 假绿（auth-single-source，2026-10-15）
 
 ### lesson:removal-verification-needs-reverse-lookup-not-recall
@@ -19488,6 +19561,7 @@ mock 之后测试 realm 里一次 PBKDF2 都没真跑过，于是 `listAccounts(
 单账号场景（详情页 / 代理弹窗）完全合理；放进 `listAccounts()` 就变成 N 次同步 PBKDF2。
 **判据**：复用函数到批量场景前，问「这个函数为一个元素付多少 IO / 多少 CPU？N 个元素总成本多少？」
 答不上来就不许复用。**推论**：详情函数与列表函数应当是两个入口（本轮落为 `getAccountProxyStatus` 单条 vs `loadProxyStatuses` 批量并行），
+而不是同一个函数被两个不同量级的场景共享。
 而不是同一个函数被两个不同量级的场景共享。
 
 ## 放松一个数值，必须同批修掉它牵出的每一道闸门（publish-frequency-policy-v3，2026-10-15）

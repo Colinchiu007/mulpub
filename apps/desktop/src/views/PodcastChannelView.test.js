@@ -10,6 +10,8 @@
  * 6. IPC 传参纯 JSON 脱壳（reactive proxy 不得进 electronAPI）。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import fs from 'node:fs'
+import path from 'node:path'
 import { reactive, nextTick } from 'vue'
 import { mount, flushPromises } from '@vue/test-utils'
 import i18n from '@/i18n'
@@ -139,7 +141,7 @@ describe('usePodcastChannel 导出完整性（模板消费的每个键都必须�
     const api = usePodcastChannel()
     for (const key of [
       'channel', 'channelLoaded', 'savingChannel', 'channelError',
-      'episodes', 'episodesLoaded', 'savingEpisode', 'episodesError',
+      'episodes', 'episodesLoaded', 'savingEpisode', 'episodesError', 'stockSummary',
       'feedResult', 'buildingFeed',
       'verifyResult', 'verifying',
       'endpoints', 'endpointsError', 'channelIssues',
@@ -238,6 +240,24 @@ describe('usePodcastChannel 数据路径（IPC 非空 → 状态真的转发）'
     expect(api.episodes.value[1].title).toBe('第二期：访谈')
   })
 
+  it('episodeList 的 stock：成功带出 → 失败清空 → 无凭据清空（同一实例，残留才会现形）', async () => {
+    const api = usePodcastChannel()
+
+    podcastApi.episodeList.mockResolvedValue({ ok: true, episodes: SAMPLE_EPISODES, stock: { scanned: 3, filled: 1, unresolved: 2, skippedChannels: 0 } })
+    await api.loadEpisodes()
+    expect(api.stockSummary.value).toEqual({ scanned: 3, filled: 1, unresolved: 2, skippedChannels: 0 })
+
+    // 换频道/重载失败：上一轮的摘要必须消失。留着就是拿旧频道的数字给新频道记账。
+    podcastApi.episodeList.mockResolvedValue({ ok: false, code: 'PODCAST_IPC_EXCEPTION' })
+    await api.loadEpisodes()
+    expect(api.stockSummary.value).toBeNull()
+
+    // 成功但主进程不带 stock（没有 stockStamp 是常态）：同样必须是 null，不得沿用
+    podcastApi.episodeList.mockResolvedValue({ ok: true, episodes: SAMPLE_EPISODES })
+    await api.loadEpisodes()
+    expect(api.stockSummary.value).toBeNull()
+  })
+
   it('episodeSave 按 id 原地更新而非追加副本', async () => {
     podcastApi.episodeList.mockResolvedValue({ ok: true, episodes: SAMPLE_EPISODES })
     const api = usePodcastChannel()
@@ -269,6 +289,23 @@ describe('usePodcastChannel 数据路径（IPC 非空 → 状态真的转发）'
     await api.removeEpisode('ep-1')
     expect(api.episodes.value.map((e) => e.id)).toEqual(['ep-2'])
     expect(podcastApi.episodeRemove).toHaveBeenCalledWith({ channelId: 'ch_test0001', id: 'ep-1' })
+  })
+
+  it('结构锁：切频道的清理清单必须把 stockSummary 一起清掉', () => {
+    // onChannelActivated 是"切换频道要清哪几样"的唯一清单（picker 的头注释就是这么写的）。
+    // 这个瞬时窗口在行为测试里要靠挂起 promise 才可表示，成本不成比例，所以锁清单本身；
+    // 判据先剥行注释——本文件注释里就写着 stockSummary 的名字，不剥会把注释当代码命中。
+    const fsrc = fs.readFileSync(path.join(__dirname, '..', 'composables', 'usePodcastChannel.js'), 'utf8')
+    const lines = fsrc.split('\n').map((l) => l.replace(/\r$/, ''))
+    const start = lines.findIndex((l) => l.indexOf('onChannelActivated: async () => {') >= 0)
+    expect(start).toBeGreaterThan(-1)
+    let end = start
+    while (end < lines.length && lines[end].trim() !== '},') end++
+    expect(end).toBeLessThan(lines.length)
+    const body = lines.slice(start, end).filter((l) => !l.trimStart().startsWith('//')).join('\n')
+    expect(body).toContain('stockSummary.value = null')
+    // 必须是**赋值**：只出现名字不算清理（同仓"注释写了解放、代码没写"那条反向坑）
+    expect(body).toContain('episodes.value = []')
   })
 
   it('feedBuild 成功 → feedResult 转发 path 与 itemCount', async () => {
@@ -331,6 +368,112 @@ describe('PodcastChannelView 视图行为', () => {
     await nextTick()
     return w
   }
+
+  it('固化摘要在位 → 区块二显示扫描/补齐，待人工非 0 时另起一段（§7.9.4）', async () => {
+    podcastApi.episodeList.mockResolvedValue({ ok: true, episodes: SAMPLE_EPISODES, stock: { scanned: 11, filled: 4, unresolved: 1, skippedChannels: 0 } })
+    const w = await renderView()
+    const line = w.find('[data-testid="podcast-stock-summary"]')
+    expect(line.exists()).toBe(true)
+    expect(line.text()).toContain('扫描 11 期，补齐 4 期')
+    expect(w.find('[data-testid="podcast-stock-unresolved"]').text()).toContain('1 期无法判定音频类型')
+  })
+
+  it('unresolved 为 0 → 不显示「待人工」那一段（不得制造不存在的待办）', async () => {
+    // 夹具里让 skippedChannels 为非 0：这样"待人工段没出现"只可能因为 unresolved=0，
+    // 而不是因为整行都不渲染（两件事分格，M12 才有自己的指名红）
+    podcastApi.episodeList.mockResolvedValue({ ok: true, episodes: SAMPLE_EPISODES, stock: { scanned: 11, filled: 4, unresolved: 0, skippedChannels: 2 } })
+    const w = await renderView()
+    expect(w.find('[data-testid="podcast-stock-summary"]').exists()).toBe(true)
+    expect(w.find('[data-testid="podcast-stock-unresolved"]').exists()).toBe(false)
+  })
+
+  it('skippedChannels 为 0 → 不显示「频道未固化」那一段（与上一条分格：两类待办各自守）', async () => {
+    podcastApi.episodeList.mockResolvedValue({ ok: true, episodes: SAMPLE_EPISODES, stock: { scanned: 11, filled: 4, unresolved: 2, skippedChannels: 0 } })
+    const w = await renderView()
+    expect(w.find('[data-testid="podcast-stock-summary"]').exists()).toBe(true)
+    expect(w.find('[data-testid="podcast-stock-skipped"]').exists()).toBe(false)
+    expect(w.find('[data-testid="podcast-stock-unresolved"]').exists()).toBe(true)
+  })
+
+  it('期数待人工为 0 但整频道被跳过 → 仍必须出声（skippedChannels 是它唯一的可见出口）', async () => {
+    podcastApi.episodeList.mockResolvedValue({ ok: true, episodes: SAMPLE_EPISODES, stock: { scanned: 11, filled: 4, unresolved: 0, skippedChannels: 2 } })
+    const w = await renderView()
+    expect(w.find('[data-testid="podcast-stock-unresolved"]').exists()).toBe(false)
+    expect(w.find('[data-testid="podcast-stock-skipped"]').text()).toContain('2 个频道未能固化')
+  })
+
+  it('没有 stockStamp → 整行不渲染；两对文案 zh/en 成对且带插值占位', async () => {
+    podcastApi.episodeList.mockResolvedValue({ ok: true, episodes: SAMPLE_EPISODES })
+    const w = await renderView()
+    expect(w.find('[data-testid="podcast-stock-summary"]').exists()).toBe(false)
+    expect(zh.podcast.stock.freezeSummary).toContain('{scanned}')
+    expect(zh.podcast.stock.unresolved).toContain('{count}')
+    expect(en.podcast.stock.freezeSummary).toContain('{scanned}')
+    expect(en.podcast.stock.unresolved).toContain('{count}')
+    expect(zh.podcast.stock.skippedChannels).toContain('{count}')
+    expect(en.podcast.stock.skippedChannels).toContain('{count}')
+  })
+
+  // ── PRD §8.2.5 / §8.2.6 锁 7：三态徽标（tasks 4.5 UI 半片）──
+  // 夹具口径：第一行带上指定的 compliance，第二行原样带（该键缺席）——
+  // 同一次渲染里同时证明「三态各自的表现」与「缺席整块不显示」，不必各建一套挂载。
+  const epWithCompliance = (compliance) => {
+    const ep = { ...SAMPLE_EPISODES[0] }
+    if (compliance !== undefined) ep.compliance = compliance
+    return [ep, SAMPLE_EPISODES[1]]
+  }
+
+  it('state=stock → 显示「存量沿用（未重新校验）」，不显示原因清单', async () => {
+    podcastApi.episodeList.mockResolvedValue({ ok: true, episodes: epWithCompliance({ state: 'stock', reasons: [], checkedAt: '' }) })
+    const w = await renderView()
+    expect(w.find('[data-testid="podcast-compliance-stock-ep-1"]').text()).toContain('存量沿用')
+    expect(w.find('[data-testid="podcast-compliance-reasons-ep-1"]').exists()).toBe(false)
+    expect(w.find('[data-testid="podcast-compliance-stock-ep-2"]').exists()).toBe(false)
+  })
+
+  it('state=ok → 什么都不显示（「没问题」不需要一条文案去说）', async () => {
+    podcastApi.episodeList.mockResolvedValue({ ok: true, episodes: epWithCompliance({ state: 'ok', reasons: [], checkedAt: '2026-10-15T00:00:00+00:00' }) })
+    const w = await renderView()
+    expect(w.find('[data-testid^="podcast-compliance-"]').exists()).toBe(false)
+  })
+
+  it('state=invalid → 计数句 + 逐条原因 + 可播出提示三样都在，且原因走 issueText 单一实现', async () => {
+    podcastApi.episodeList.mockResolvedValue({ ok: true, episodes: epWithCompliance({ state: 'invalid', reasons: ['TITLE_REQUIRED', 'ENCLOSURE_UNREACHABLE'], checkedAt: '2026-10-15T00:00:00+00:00' }) })
+    const w = await renderView()
+    expect(w.find('[data-testid="podcast-compliance-invalid-ep-1"]').text()).toContain('2 项不符合发布要求')
+    expect(w.find('[data-testid="podcast-compliance-reasons-title-ep-1"]').text()).toBe('具体原因')
+    expect(w.find('[data-testid="podcast-compliance-reasons-ep-1"]').findAll('li')).toHaveLength(2)
+    expect(w.find('[data-testid="podcast-compliance-degrade-ep-1"]').text()).toContain('仍可播出')
+    const items = w.find('[data-testid="podcast-compliance-reasons-ep-1"]').findAll('li').map(li => li.text())
+    expect(items).not.toContain('TITLE_REQUIRED')
+    expect(items[0]).toBe(issueText('TITLE_REQUIRED'))
+  })
+
+  it('compliance 键缺席 → 整块不显示，且绝不渲染成「0 项不符合」（缺席 ≠ 0）', async () => {
+    podcastApi.episodeList.mockResolvedValue({ ok: true, episodes: epWithCompliance(undefined) })
+    const w = await renderView()
+    expect(w.find('[data-testid^="podcast-compliance-"]').exists()).toBe(false)
+    expect(w.text()).not.toContain('0 项不符合发布要求')
+  })
+
+  it('四键 zh/en 成对、invalid 带 {count} 占位，且 zh 用「存量」而非「旧数据」（§8.2.5 术语条款）', () => {
+    for (const k of ['stock', 'invalid', 'reasonsTitle', 'degradeNotice']) {
+      expect(typeof zh.podcast.compliance[k]).toBe('string')
+      expect(typeof en.podcast.compliance[k]).toBe('string')
+    }
+    expect(zh.podcast.compliance.invalid).toContain('{count}')
+    expect(en.podcast.compliance.invalid).toContain('{count}')
+    expect(zh.podcast.compliance.stock).toContain('存量')
+    expect(en.podcast.compliance.stock).toBe('Legacy value kept (not re-validated)')
+  })
+
+  it('结构锁：徽标不得在展示层自带第二份码→文案映射（§8.2.6 锁 5）', () => {
+    const vsrc = fs.readFileSync(path.join(__dirname, 'PodcastChannelView.vue'), 'utf8')
+    const badgeBlock = vsrc.slice(vsrc.indexOf('podcast-compliance-badge'), vsrc.indexOf('podcast-episode-ops'))
+    expect(badgeBlock.length).toBeGreaterThan(40)
+    expect(badgeBlock).toContain('issueText(')
+    expect(badgeBlock).not.toMatch(/PODCAST_[A-Z_]+\s*:/)
+  })
 
   it('频道 IPC 返回非空 → 表单字段被真实填充（数据转发路径）', async () => {
     podcastApi.channelGet.mockResolvedValue({ ok: true, channel: SAMPLE_CHANNEL })

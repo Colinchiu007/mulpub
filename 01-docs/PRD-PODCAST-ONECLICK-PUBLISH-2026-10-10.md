@@ -626,6 +626,14 @@ pickChannel → colloquialize → chunk → ttsBlock(逐块，串行) → concat
   **禁止**用一个笼统的 `blocked` 涵盖存量。
 - 频道页显示固化摘要（仅当 `stockStamp` 存在）：`扫描 N 期 · 补齐 M 期 · 待人工 K 期`。
   `K`（unresolved）为 0 时不显示「待人工」这一段，避免制造不存在的待办。
+- **另有一类待办不能并入 `K`**：固化时某个频道整体读不出（解析失败）会被记进
+  `stockStamp.unresolvedChannels`，而它**不进** `unresolved` 期数。只投影三个计数的话，
+  「一个频道完全没固化」会显示成「补齐 M 期」且没有任何待办提示——这与本节禁止的
+  「把不知道伪装成没有待办」是同一类谎，只是方向从「不知凭据」换成「跳过频道」（QM-6 后端 B2）。
+  因此摘要是**四个数**：`{ scanned, filled, unresolved, skippedChannels }`，
+  `skippedChannels` 由 `unresolvedChannels` 的**数组长度**得出；该数组缺席或不是数组
+  ⇒ 整份摘要判 `null`（不给未知补 0，与三个计数同一条口径）。`skippedChannels > 0` 时
+  与「待人工」并列多出一段「N 个频道未能固化，需重试」，为 0 时同样不显示。
 
 **提示文字（zh / en 成对，落 `locales/podcast/{zh,en}.js`，由实现片一次性写全）**：
 
@@ -633,9 +641,26 @@ pickChannel → colloquialize → chunk → ttsBlock(逐块，串行) → concat
 | --- | --- | --- |
 | `podcast.stock.freezeSummary` | `存量音频信息已补齐：扫描 {scanned} 期，补齐 {filled} 期` | `Legacy audio metadata frozen: scanned {scanned}, filled {filled}` |
 | `podcast.stock.unresolved` | `{count} 期无法判定音频类型，需重新生成` | `{count} episodes could not be typed; regenerate to resolve` |
+| `podcast.stock.skippedChannels` | `{count} 个频道未能固化，需重试` | `{count} channels could not be frozen; retry required` |
 | `podcast.compliance.stock` | `存量沿用（未重新校验）` | `Legacy value kept (not re-validated)` |
 
 术语与 `01-docs/i18n-glossary.md` 对齐：「存量」不得写成「历史数据/旧数据」混用；
+
+**2026-10-15 落地增量（tasks 4.4b③）**
+
+- 上表**第三行 `podcast.compliance.stock` 不在本片落**。它的消费方是 §8.2.5 的三态徽标（tasks 4.5），
+  现在写进 locales 就是无人读的文案（AGENTS.md 明令不得为不可达路径建 locale 键，`podcast-error-codes.test.js`
+  那类清点式守卫也会把死键判红）。本片只落前两对；逐字值已进 §8.1 的脚本生成表，改文案必须重新生成。
+- **「不显示」与「显示 0」是两种事实**，这条是本节的主要风险面：
+  `episode:list` 新增一个 `stock` 键，取值只有两种——`{ scanned, filled, unresolved }`（三个非负安全整数）
+  或 `null`。`null` 覆盖两种情形：① 没有 `stockStamp`（从未固化，正常态）；② 有 `stockStamp` 但三个计数
+  不齐或形态不对（说明固化层写出的形状本层不认识，此时主进程另记一条 warn）。
+  情形 ② **不得**回落成 0：界面会把它读成「扫描 0 期、补齐 0 期」＝"没有任何存量要处理"，而真相是"我不知道"。
+- 渲染端：`null` ⇒ 整行不渲染；`unresolved === 0` ⇒ 只省略「待人工」那一段，摘要主体照常（§7.9.4 那句
+  "避免制造不存在的待办"就落在这一个 `v-if` 上）。切频道或重载失败时必须清成 `null`，不得沿用上一个频道的数字。
+- 取数路径只有一份：`compliance` 用的 `stockStamp.at` 与摘要用的三个计数来自**同一次** `index.json` 读取。
+  分两次读会在"两次之间恰好有人固化完落盘"时得到两份互相矛盾的凭据（一处认 stock 档、一处报另一组数），
+  这条由一条按路径过滤的调用次数锁钉住（`readFileSync` 对 `index.json` 恰好 1 次）。
 改词典必须同 PR 跑 `apps/desktop/src/i18n/glossary.test.js`（键级成对锁覆盖不到术语成对）。
 
 #### 7.9.5 实现片必须带的回归锁（缺一条即不算落地）
@@ -679,6 +704,18 @@ pickChannel → colloquialize → chunk → ttsBlock(逐块，串行) → concat
   - **D5** 只在 `mime` 为空或缺失时才兜默认值、**D6** 不动 `mime` 只就地追加一个来源键 ⇒ 均指名红。这两条形态由 QM-6 两条 Warning 独立预判、先于落地补进夹具与断言。
   同批补上 §7.9.5 第 1/2 条（真库往返与幂等）此前同样缺失的变异证据：**W1** 落盘写的仍是未派生的原 store / **W2** 干脆不写 episodes 文件（`filled` 照常返回）/ **W3** 不写 `index.stockStamp` ⇒ 三条均指名红「固化后关闭再重开同一文件读回：脏值被派生、戳记落盘」。
   至此第 1/2/3/5/6/7 条同时具备**行为 + 变异**两类证据（第 4 条随 #3589 落地）。仍**未做**的只剩 ③ 频道页摘要与 `podcast.stock.*` 三对键 zh/en 成对，故 4.4b 父项保持未勾。九条变异逐条现场、QM-6 九条 findings 的处置与 QM-1 第②层判定的理由见 `openspec/records/stock-default-write-proof.md`。
+
+- **2026-10-15（tasks 4.4b③ 频道页固化摘要）**：§7.9.4 的显示项已落地，唯一实现三段——
+  `podcast-episode-compliance.js` 的 `readStockStampRecord()`（读整份 `stockStamp`，`at` 不在位即 `null`）、
+  `readStockStamp()`（刻意做成前者的 `.at` **投影**，不是第二份读路径，由一条剥注释后的结构锁钉住）、
+  `toFreezeSummary()`（只投影 `scanned/filled/unresolved` 三个非负安全整数，任一不齐即 `null`；0 只在它是实测值时保留）。
+  `ipc-handlers/podcast.js` 的 `episode:list` 读一次 index 供两个消费者，返回值增键 `stock`；
+  `usePodcastChannel.js` 增状态 `stockSummary`（成功/失败两条出口都赋值，不留残值）；
+  `PodcastChannelView.vue` 区块二增一行 `data-testid="podcast-stock-summary"`，其中「待人工」段另挂
+  `podcast-stock-unresolved` 且 `unresolved === 0` 时不渲染。locales 落 `podcast.stock.{freezeSummary,unresolved}`
+  两对（zh/en 成对，`--pair-base/--keys/--cjk` 四档全 PASS）；`podcast.compliance.stock` 属 §8.2.5/4.5，**故意不落**。
+  §8.1 的逐字表生成器同时扩了 `stock` 域（手工抄表正是它要消灭的东西）。
+
 - **2026-10-14 更正（#3387 已合并，merge SHA `8bd87f385`）**：下方那句「宿主接线未做」**已过期**，保留只作当时的现场。4.4b 的 ① 现已落地——`apps/desktop/electron/services/podcast-stock-freeze-host.js` 用注入的 `registry` / `listChannels` / `readEpisodes` / `writeEpisodes` / `readIndex` / `writeIndex` 构造，`ipc-handlers/podcast.js` 的 `getService` 在**首个需要频道数据的调用处**触发一次：进程内恰好一次（同一频道第二次调用是 no-op），固化抛错走旁路只 `warn` 不外冒、返回 `null`，**§7.9.5 的数据校验与幂等口径一字未改**（重跑必须 `filled=0` 且字节不变）。仍**未做**的三件：② `compliance` 的 `stock` 档（§7.9.5 第 4 条）、③ 频道页摘要「扫描 N · 补齐 M · 待人工 K」与 `podcast.stock.*` 三对键 zh/en 成对、④ 「缺失即填默认值」那条**真的落进文件**的变异反证；故 `openspec/changes/podcast-oneclick-publish/tasks.md` 的 4.4b 父项保持未勾。
 **（2026-10-12 的现场，其中「宿主接线未做」已被上面那条更正）**：`podcast-channel-service.js` / `podcast-channel-registry.js` 尚无调用点，
 `stockStamp` 目前只由本层的 `writeIndex` 写；`compliance` 的 `stock` 档与频道页摘要、
@@ -799,7 +836,7 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 
 ---
 
-### 8.1 频道目录域、托管域与错误码的提示文字（逐字表，脚本生成）
+### 8.1 频道目录域、托管域、固化摘要域与错误码的提示文字（逐字表，脚本生成）
 
 > ⛔ 本节由 `node openspec/changes/podcast-oneclick-publish/tools/gen-picker-copy-table.js` 从 `apps/desktop/src/locales/podcast/{zh,en}.js` 解析生成，**改文案必须重新生成，不得手工维护**（手工抄录会被后续文案/术语改动打旧；判据同 `01-docs/PRD-PODCAST-RSS-CHANNEL-2026-10-09.md` §11.5）。脚本可重复执行：已有本节则整节替换。
 > 取源路径随刀 2 的 locales 结构拆分一起迁移：播客命名空间现在住在 `locales/podcast/`，父文件 `locales/zh.js` 只剩一行 spread。**改这两处任一时先确认本脚本仍能解析出非空表**（解析不到即抛错，不产出空表）。
@@ -865,10 +902,27 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 | `feedPartial` | 部分同步 | partially synced |
 | `retryFeed` | 按当前单集重新生成并上传 feed | Rebuild and upload the feed from current episodes |
 
-键路径 `podcast.errors.*`（88 键）。渲染层按**领域码**取键：`toIpcError` 在失败信封里带 `subCode`，preload 原样透出，`usePodcastChannel.call()` 单点把 `code` 归一为领域码；未知码落 `fallback` 且**带码可见**（不得空白吞掉）。刀 2 新增的 8 个托管码必须成对入表，不得长期靠 `fallback` 兜着：
+键路径 `podcast.stock.*`（3 键，zh/en 双向差集为空）。频道页固化摘要（PRD §7.9.4）：`{scanned}` / `{filled}` / `{count}` 是插值占位，实值由主进程从 `index.json` 的 `stockStamp` 三个**实测计数**投影；投影不出即 `null`，界面整行不渲染——**不得**显示 0，那会把"我不认识这份凭据"说成"没有待处理存量"。
 
 | 键 | zh（界面逐字） | en |
 | --- | --- | --- |
+| `freezeSummary` | 存量音频信息已补齐：扫描 {scanned} 期，补齐 {filled} 期 | Legacy audio metadata frozen: scanned {scanned}, filled {filled} |
+| `unresolved` | {count} 期无法判定音频类型，需重新生成 | {count} episodes could not be typed; regenerate to resolve |
+| `skippedChannels` | {count} 个频道未能固化，需重试 | {count} channels could not be frozen; retry required |
+
+键路径 `podcast.errors.*`（98 键）。渲染层按**领域码**取键：`toIpcError` 在失败信封里带 `subCode`，preload 原样透出，`usePodcastChannel.call()` 单点把 `code` 归一为领域码；未知码落 `fallback` 且**带码可见**（不得空白吞掉）。刀 2 新增的 8 个托管码必须成对入表，不得长期靠 `fallback` 兜着：
+
+| 键 | zh（界面逐字） | en |
+| --- | --- | --- |
+| `PODCAST_VIDEO_NOT_FOUND` | 找不到成片文件，请回结果页重新生成或重选路径 | The final video file cannot be found; regenerate it on the result page or pick the file again |
+| `PODCAST_PUBLISH_CANCELLED` | 本次播客出期已在上传前取消，临时文件已回滚 | This podcast episode publish was cancelled before upload and the temporary file was rolled back |
+| `PODCAST_CANCEL_TOO_LATE` | 已进入上传阶段，现在取消会留下半态，因此不能取消；请等本次发布跑完 | The upload has started, so cancelling now would leave a half-published state; please let this publish finish |
+| `PODCAST_FEED_BUILD_FAILED` | 这一期已登记到本地频道，公网 feed 尚未更新 | This episode is registered on the local channel, but the public feed is not updated yet |
+| `PODCAST_AUDIO_DEGRADED_SOURCE` | 检测到静音占位旁白，已阻止上传（是素材本身不可用，不是生成失败） | Silent placeholder narration detected; the upload was blocked (the source material is unusable, generation did not fail) |
+| `PODCAST_AUDIO_EXTRACT_FAILED` | 从成片抽取音轨失败，已停止出期 | Failed to extract the audio track from the final video; the episode publish stopped |
+| `PODCAST_AUDIO_ENCODER_UNAVAILABLE` | 打包的 ffmpeg 不含 mp3/aac 编码器，已停止出期 | The bundled ffmpeg has no mp3/aac encoder; the episode publish stopped |
+| `PODCAST_AUDIO_MEASURE_FAILED` | 无法实测音频时长或字节，已停止出期 | The audio duration or size could not be measured; the episode publish stopped |
+| `PODCAST_AUDIO_SIZE_MISMATCH` | 上传回来的字节与本地实测不一致，这一期没有挂上 | The bytes returned by the upload do not match the local measurement, so this episode was not attached |
 | `PODCAST_IPC_UNAVAILABLE` | 播客服务暂不可用（未登录、许可证未激活，或主进程通道未挂载） | Podcast service is unavailable (not signed in, license not activated, or main-process channel not mounted) |
 | `PODCAST_IPC_EXCEPTION` | 播客服务调用失败，请重试 | Podcast service call failed, please retry |
 | `PODCAST_PAYLOAD_NOT_SERIALIZABLE` | 表单数据无法序列化，请检查后重试 | Form data could not be serialized, please check and retry |
@@ -881,6 +935,7 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 | `PODCAST_MIGRATION_DIRECTION_INVALID` | 未知的迁移处置方式，请重新选择 | Unknown migration resolution. Please choose again. |
 | `PODCAST_LOCK_WAIT_TIMEOUT` | 播客数据正在被其他操作占用，请稍后重试 | Podcast data is busy with another operation. Please retry shortly. |
 | `PODCAST_CHANNEL_BUSY` | 该频道正在一键发布，请等本次发布结束后再修改单集 | This channel is publishing right now. Wait for it to finish before editing episodes. |
+| `PODCAST_TTS_BILLING_UNCONFIRMED` | 文本出期会逐块调用语音合成服务并产生费用，请先确认用量与费用 | Publishing from text calls the speech synthesis service per chunk and incurs cost. Confirm usage and fees first. |
 | `PODCAST_EPISODE_NOT_FOUND` | 单集不存在，可能已被删除，请刷新列表 | Episode not found, it may have been deleted. Refresh the list. |
 | `PODCAST_HOSTING_REQUIRED` | 本地音频需先配置对象存储托管（当前支持阿里云 OSS） | Local audio files need object-storage hosting first (Aliyun OSS is supported today). |
 | `PODCAST_HOSTING_INVALID` | 托管配置不合格，请按下方逐条修正 | Hosting configuration is invalid. Fix the items listed below. |
@@ -1033,8 +1088,55 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 | `podcast.compliance.reasonsTitle` | 具体原因 | Details |
 | `podcast.compliance.degradeNotice` | 本期信息不完整，仍可播出，但建议先修复 | This episode looks incomplete. It can still publish; fixing it first is recommended |
 
+> 落地状态（2026-10-15，PR 待回填号）：这四把键与频道页三态徽标**已随本片落地**——`ok` 不渲染任何东西、
+> `stock` 显示「存量沿用（未重新校验）」、`invalid` 显示计数句加逐条原因（原因逐字走 `usePodcastChannel` 的 `issueText`，
+> 展示层不另建码表）；`compliance` 键**缺席**时整块不显示，绝不渲染成「0 项不符合」。
+> 同一条 PR **不含** §7.4.0 第 1 条的「来源三态标注」——那需要先把解析层的 `origin`/`resolvedBy` 扩进 IPC 投影（触主进程，QM-1），属另一片。
+
+
 术语与 `01-docs/i18n-glossary.md` 对齐：「存量」不得与「历史数据/旧数据」混用；
 改词典必须同 PR 跑 `apps/desktop/src/i18n/glossary.test.js`（键级成对锁覆盖不到术语成对）。
+
+### 8.2.9 音色来源三态标注（**合同，尚未实现**）
+
+> 本节是 tasks 4.5 剩下那半句的合同，不是实现。写作依据是当场实测的三个事实：
+> `voiceRef` 在 `apps/desktop/src` 下**命中 0 个文件**；`apps/desktop/src/locales/podcast/{zh,en}.js` 里**没有任何音色相关键**；
+> 解析层 `apps/desktop/electron/services/podcast-tts-voice.js` 只在出期时算出 `{voiceId, origin, resolvedBy}`（`origin` 闭集 =
+> `channel | preference | providerDefault`），而**没有任何 IPC 把它带到渲染层**。所以本片不能"顺手加个标签"——那个落点还不存在。
+
+**数据流（唯一正解）**
+
+1. 主进程新增一个**只读** IPC `podcast:voice-preview`，入参 `{channelId}`，内部走既有 `resolveVoiceRef`（同一实现，禁止在 IPC 层重抄回退顺序），
+   返回 `{ok:true, voiceId, origin, resolvedBy}` 或 `{ok:false, code: PODCAST_TTS_VOICE_UNRESOLVED}`。
+2. 渲染层经 `src/api/podcast-channel.js` 增加一个具名导出（与既有 8 个同族），`usePodcastChannel` 持一个 `voicePreview` ref，
+   **按频道归属失效**（切频道清理清单里必须赋值 null，同 `stockSummary` 那条结构锁的口径）。
+3. 展示落点是出期浮层 `apps/desktop/src/components/PodcastEpisodeEntry.vue` 的表单底部一行（不是频道页）：
+   频道页没有"将要发出去"这个语义，把来源标在频道页会让用户以为那是频道属性，而它实际是**这一次出期**的解析结果。
+
+**显示项与提示文字（zh / en 成对；实现片一次性写全并跑 `node scripts/gen-prd-copy-table.js --apply`）**
+
+| 键 | zh | en |
+| --- | --- | --- |
+| `podcast.voice.originChannel` | 本期音色取自频道设置 | Voice comes from the channel |
+| `podcast.voice.originPreference` | 本期音色取自你的默认偏好（{provider} / {model}） | Voice comes from your default preference ({provider} / {model}) |
+| `podcast.voice.originProviderDefault` | 本期音色取自该模型自带的默认音色（{provider} / {model}） | Voice comes from the model default ({provider} / {model}) |
+
+**必须满足的判据（缺一条即不算落地）**
+
+1. **三态只有三态**：`origin` 取闭集外的值 ⇒ 整行不显示并留一条 warn；不得兜底成"取自频道"（那是伪造来源）。
+2. **① 命中不显示**：`origin=channel` 时这行**不出现**——用户自己填的东西不需要再告诉他一遍来源；只有 ②③ 命中才标注（PRD §7.4.0 第 1 条原话）。
+3. **拒绝态不是空态**：解析返回 `PODCAST_TTS_VOICE_UNRESOLVED` 时，该行显示既有的拒绝文案（走 `issueText` 单一实现），
+   不得渲染成"没有音色"或空字符串；出期按钮的可用性不由这行决定（主路仍由 §6.4 的校验决定），属旁路。
+4. **回退顺序不得有两份实现**：标注里的顺序必须来自 `resolveVoiceRef` 的返回值；结构锁要求渲染层与该 IPC 里
+   不出现 `defaultVoiceId` / `tts-voice-preference:` 字面量（那两个只在主进程一处）。
+5. **旁路失败不毁主路**：`podcast:voice-preview` 抛错或超时 ⇒ 整行不显示（`voicePreview=null`），出期表单照常可填（§8.2.3）。
+6. **IPC 序列化**：入参经 `toPlain` 脱壳；返回对象原样转发，渲染层不得再造第二份状态。
+7. **QM-1 必跑**：本片触 `apps/desktop/electron/ipc-handlers` 与 `preload` ⇒ 属运行时代码变更，必须带打包产物证据（三层 stderr 判据 + 存活断言），不得用单测替代。
+
+**故意不做**
+
+- 不做音色下拉选择器（那是产品决策未定的另一件事：本仓无跨 provider 的全局默认音色，选择器会诱导用户去设一个不存在的东西）。
+- 不把 `origin` 持久化到频道/单集记录（它是每次解析算出来的视图量，落盘即过期，与 §8.2.7 对 `compliance` 的处置同一条理由）。
 
 #### 8.2.6 实现片必须带的七条回归锁（缺一条即不算落地）
 
@@ -1160,6 +1262,8 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 ---
 
 ## 13. 未闭合（诚实记录，不是遗漏）
+- **固化摘要的首屏竞态（QM-6 后端 B1，2026-10-15 登记）**：`episode:list` 里宿主触发的一次性固化是 fire-and-forget，同一次调用随后同步读 `index.json` ⇒ **首次进页时摘要恒为 `null`**，固化写完之后要等下一次列表调用才看得见。当前行为是诚实的空（绝不显示 0），但"首屏永远看不到摘要"是真实缺口。两条出路都要付代价：把固化 `await` 在列表路径之前违反 §8.2.3「旁路不得成为主路的等待对象」；新增"固化完成"事件通道是新的跨层通道（IPC 事件 + preload 暴露面 + store 订阅）。**未做，按自成一页处理。**
+- **`stockStamp.scanned` 含非对象元素（QM-6 后端 B3，同日登记）**：固化层按原始数组长度计 `scanned`，而列表侧会把非对象元素剔掉 ⇒ 有脏行时"扫描 N 期"会大于用户可见期数。口径被 §7.9.5 的既有锁钉在固化层，改它要连同那一片的计数锁一起动。**未做，属固化层的独立欠账。**
 
 1. **第 5 轮对抗评审无有效结论**（critic 进程异常）⇒ v5 里 9 条残留项未经独立复核，闭合责任改由 §10 的测试锁承担；实现期每条都必须有指名用例。
 2. 存储侧字节损坏在默认零出站路径**不覆盖**（归入注入才跑的巡检）。

@@ -131,6 +131,15 @@
     <section class="podcast-section" data-testid="podcast-episodes-section" aria-labelledby="podcast-episodes-heading">
       <h2 id="podcast-episodes-heading">{{ t('podcast.episodes.sectionTitle') }}</h2>
       <p v-if="episodesError" class="podcast-error" data-testid="podcast-episodes-error">{{ errorText(episodesError) }}</p>
+      <p v-if="stockSummary" class="podcast-hint" data-testid="podcast-stock-summary">
+        {{ t('podcast.stock.freezeSummary', { scanned: stockSummary.scanned, filled: stockSummary.filled }) }}
+        <span v-if="stockSummary.unresolved > 0" data-testid="podcast-stock-unresolved">
+          · {{ t('podcast.stock.unresolved', { count: stockSummary.unresolved }) }}
+        </span>
+        <span v-if="stockSummary.skippedChannels > 0" data-testid="podcast-stock-skipped">
+          · {{ t('podcast.stock.skippedChannels', { count: stockSummary.skippedChannels }) }}
+        </span>
+      </p>
 
       <div v-if="episodes.length === 0" class="podcast-empty" data-testid="podcast-episodes-empty">
         {{ t('podcast.episodes.empty') }}
@@ -139,6 +148,18 @@
         <li v-for="ep in episodes" :key="ep.id" class="podcast-episode-row" :data-testid="'podcast-episode-' + ep.id">
           <span class="podcast-episode-title">{{ ep.title }}</span>
           <span class="podcast-episode-meta">{{ durationText(ep.durationSec) }} · {{ ep.pubDate }} · {{ ep.episodeType || 'full' }}</span>
+          <!-- PRD §8.2.5 三态徽标：ok 不显示；stock 只说「沿用」；invalid 说清几项 + 逐条原因 + 可播出提示。
+               compliance 这个键缺席（旁路降级/主进程没带）时同样整块不显示——「我不知道」不得渲染成「没问题」，
+               也不得渲染成「0 项不符合」。 -->
+          <span v-if="ep.compliance && ep.compliance.state === 'stock'" class="podcast-compliance-badge" :data-testid="'podcast-compliance-stock-' + ep.id">{{ t('podcast.compliance.stock') }}</span>
+          <span v-else-if="ep.compliance && ep.compliance.state === 'invalid'" class="podcast-compliance-badge podcast-compliance-invalid" :data-testid="'podcast-compliance-invalid-' + ep.id">
+            {{ t('podcast.compliance.invalid', { count: ep.compliance.reasons.length }) }}
+            <span :data-testid="'podcast-compliance-reasons-title-' + ep.id">{{ t('podcast.compliance.reasonsTitle') }}</span>
+            <ul class="podcast-compliance-reasons" :data-testid="'podcast-compliance-reasons-' + ep.id">
+              <li v-for="code in ep.compliance.reasons" :key="code">{{ issueText(code) }}</li>
+            </ul>
+            <span :data-testid="'podcast-compliance-degrade-' + ep.id">{{ t('podcast.compliance.degradeNotice') }}</span>
+          </span>
           <span class="podcast-episode-ops">
             <button type="button" :data-testid="'podcast-episode-edit-' + ep.id" @click="startEditEpisode(ep)">{{ t('podcast.episodes.edit') }}</button>
             <template v-if="pendingDeleteId === ep.id">
@@ -337,6 +358,7 @@ const {
   channelError,
   episodes,
   episodesError,
+  stockSummary,
   savingEpisode,
   feedResult,
   buildingFeed,

@@ -2,12 +2,12 @@
 
 | 项目 | 内容 |
 |------|------|
-| 版本 | v1.0（2026-10-12） |
-| 分支 | `fix-article-body-format`（隔离 worktree `D:/Data/projects/mp-worktrees/mp-fix-article-body-format`，基线 `origin/main` = `c5a355f7d`） |
-| change | `openspec/changes/article-body-format` |
-| 执行记录 | `openspec/records/fix-article-body-format.md`、`.quality-gates.md` 同名条目 |
-| 变更类型 | 🐛 Bug 修复（用户报障：百家号图文正文「一整段文字」） |
-| 状态 | 代码 + 单测已落地；**真机复核待执行**（判据见 §12.3，未复核前不得声称端到端已通） |
+| 版本 | v2.0（2026-10-15 根因修正；v1.0 = 2026-10-12） |
+| 分支 | v1.0：`fix-article-body-format`（worktree `mp-fix-article-body-format`，基线 `c5a355f7d`）；**v2.0：`fix-article-paragraph-zhihu-publish`（worktree `mp-fix-article-paragraph-zhihu-publish`，基线 `58256ffc8`）** |
+| change | v1.0：`openspec/changes/article-body-format`；**v2.0：`openspec/changes/fix-article-paragraph-zhihu-publish`** |
+| 执行记录 | v1.0：`openspec/records/fix-article-body-format.md`；**v2.0：`openspec/records/fix-article-paragraph-zhihu-publish.md`** |
+| 变更类型 | 🐛 Bug 修复（v1.0：用户报障「百家号图文正文一整段」；v2.0：同一症状**二次报障**，定位到真正的第一性原因并修正结论） |
+| 状态 | 代码 + 单测已落地（三层）；**真机复核待执行**（v2.0 判据见 §15.6，未复核前不得声称端到端已通） |
 
 ---
 
@@ -23,7 +23,7 @@
 | # | 问题 | 本文档结论 |
 |---|------|-----------|
 | Q1 | 是「正文内容本身就没有分段」吗？ | **否**。落库源文含 `\n\n` 空行分段（例：863 字符 / 8 个换行 / 5 个自然段） |
-| Q2 | 是「发布时传参不对」吗？ | **是**。百家号 `content` 是富文本编辑器的 **HTML** 字段，链路把纯文本原样塞进去；HTML 把换行当**可忽略空白**，整篇正文被平台存成单个文本节点 |
+| Q2 | 是「发布时传参不对」吗？ | **是**。百家号 `content` 是富文本编辑器的 **HTML** 字段，链路把纯文本原样塞进去；HTML 把换行当**可忽略空白**，整篇正文被平台存成单个文本节点。**⚠️ v2.0 修正（2026-10-15）**：本条只描述了「发布链」这一段；用户二次报障后取证发现**真正的第一性原因是内容在更上游的编辑器装载阶段就已塌成一段**，发布链侧只是把单段 HTML 幂等透传。详见 §15 |
 | Q3 | 其他自媒体平台有没有同样的问题？ | 分三类：**同类已确认**（百家号）、**同类先例已被修**（公众号 2026-10-12、头条直连兜底）、**反向同类缺陷**（HTML 进纯文本字段：抖音/小红书/快手/B站/视频号描述，本次一并修）、**待真机复核**（DOM 轨 contenteditable 注入路径）。逐平台判定见 §4 |
 
 ---
@@ -31,6 +31,8 @@
 ## 2. 结论先行
 
 **根因是发布期的「正文承载形态」不匹配，而不是正文内容质量问题。**
+
+> **⚠️ v2.0 修正（2026-10-15，二次报障后）**：本节与 §5 建立的是**必要但非充分**的一层 —— 它解决「**已经是多段**的内容如何写进 HTML 承载字段」。二次报障取证证明：本次事故的正文在**进入发布链之前**（桌面端富文本编辑器装载那一刻）就已经塌成一段，因此这一层再正确也无法恢复段落。**完整的层级链**是：① 编辑器装载保真（`toHtmlBody`，新增，见 §15）→ ② 发布链写入保形（`formatArticleBody`，本节）→ ③ 平台渲染保段（真机复核判据，见 §12.3 与 §15.6）。三层缺一不可，任何一层缺失都会退化成「一整段」。
 
 每个平台的正文字段都有固定承载形态：
 
@@ -405,8 +407,84 @@ PY
 
 ---
 
-## 15. 变更记录
+## 15. v2.0 根因修正与第三层合同（2026-10-15，用户二次报障后）
+
+> 本节是 v1.0 的**修正**，不是补充说明。v1.0 的结论（§1 Q2 / §2）在「发布链」这一层是正确且已被真机产物证实有效的，但它**把根因定位错了层级**：真正的第一性原因在更上游。用户报障原文：「发布到百家号上的图文内容，在百家号上显示是一整段，没有分段和分行。查一下原因。我记得这个问题，之前已经修复过啊，怎么没有生效。确认一下。」
+
+### 15.1 为什么 v1.0 的修复没生效（结论先行）
+
+**因为 v1.0 修复的环节在事故之后**：正文在**桌面端富文本编辑器装载那一刻**就已经塌成一段，发布链看到的是「已是 HTML」，按 §8.4 的设计**幂等透传** —— 这一步本身没错，它只是把上游造成的单段原样送到平台。
+
+| 判据 | v1.0 的说法 | v2.0 的取证结论 |
+|------|------------|----------------|
+| 修复代码是否在运行构建里 | （未验证） | **在**。运行中的构建 `mp-app-live2@fe9f41879` 含 `#3389`（`2bb7c2b9a` 为其祖先），且 `require.resolve` 实证引擎解析到该 worktree 的 `baijiahao-article.js:152`（即 `formatArticleBody` 调用点） |
+| 链路是否会把多段转成 `<p>` | 会（单测） | **会**。用同一份引擎源码对同源正文跑 `buildArticleFormData` → **6 个 `<p>`**、1097 字符 |
+| 平台是否收到多个 `<p>` | 预期会 | **只收到 1 个**。公开页 `id=1879119523718680476`：`<p>`=1、正文 1055 字符、`源文去掉全部 \n == 平台正文` 为 True（1075 字符 / 10 个换行 / 6 段） |
+| ⇒ 结论 | 「发布时传参不对」 | **「送进链路时就已经是一段」** |
+
+### 15.2 第一性根因（渲染层，2026-09-04 引入）
+
+`apps/desktop/src/components/ArticleEditor.vue` 的富文本模式是 `@vueup/vue-quill` 的 `<QuillEditor content-type="html" v-model:content="richContent">`，而 `richContent.get()` 原先直接返回 `props.modelValue`（纯文本）。`vue-quill@1.5.3` 对 `contentType==='html'` 走 `setHTML()`（`quill.root.innerHTML = 值`）⇒ 换行按 HTML 可忽略空白处理 ⇒ 一整段；随后 Quill 经 `text-change` 回写 `getHTML()`（**无需用户输入**即触发）⇒ `article.content` 变成单段 HTML。
+
+- **引入点**：`git blame` 指向 `08e7d95a66`（2026-09-04，富文本模式接到 Quill HTML 承载那一轮）。
+- **触发范围**：凡走发布页富文本模式的图文（百家号/头条/公众号等 HTML 承载平台受影响；纯文本承载平台因发布链会转纯文本而表现不同）。
+
+### 15.3 第三层合同（新增，不可破）
+
+**不变式**：**编辑器里看到的段落数 == HTML 承载平台拿到的 `<p>` 数**（Markdown 模式与批量发布路径同样成立）。
+
+三条不可破：
+
+1. **装载必须归一**：`ArticleEditor.vue` 的 `richContent.get()` 必须返回 `toHtmlBody(props.modelValue)`（纯文本按行成段、已是 HTML 幂等透传）；**禁止**回退直传 `props.modelValue`。
+2. **单一判据**：装载原语 `toHtmlBody` 与发布链 `formatArticleBody(platform, content)` 的 HTML 分支必须**逐字节等价**（`packages/shared-utils/src/__tests__/article-body-format-parity.test.js` 的行为向量锁死；两包不能互相 require，属本仓「各存一份 + parity 锁」的既有形态）。
+3. **判据不得放宽**：标签判据仍是**标签名白名单**（见 §8.1、§14.6），装载层同样适用（`#include <stdio.h>` 必须原样保留为文本）。
+
+**新增单一实现**：`packages/shared-utils/src/article-body-format.js`（CJS）+ `article-body-format.browser.js`（ESM 孪生，逐行同源），渲染端经 `apps/desktop/vite.config.js` 的 alias 消费（未登记 alias 由 `scripts/check-renderer-cjs-boundary.js` 拦红）。
+
+### 15.4 数据校验（装载层）
+
+| 输入 | 输出 | 说明 |
+|------|------|------|
+| `null` / `undefined` / 非字符串 | `''` | 不抛异常 |
+| 空串 / 纯空白 | `''` | 不产出空 `<p>` |
+| `第一段\n\n第二段` | `<p>第一段</p><p>第二段</p>` | 空行分段 |
+| `a\nb` | `<p>a</p><p>b</p>` | **单换行也算段界**（与发布链同口径） |
+| `a\r\n\r\nb` | `<p>a</p><p>b</p>` | CRLF 归一 |
+| `  文本  \n\n\n` | `<p>文本</p>` | 行首尾空白剔除；空行不入段 |
+| `<p>x</p>` | `<p>x</p>` | 已是 HTML ⇒ 幂等透传（不二次包装） |
+| `a < b && c > d` | `<p>a &lt; b &amp;&amp; c &gt; d</p>` | 转义先行（`&`→`&amp;`、`<`→`&lt;`、`>`→`&gt;`） |
+| `#include <stdio.h>` | `<p>#include &lt;stdio.h&gt;</p>` | 代码片段不被当标签 |
+
+### 15.5 测试映射（v2.0 新增）
+
+| 文件 | 用例 | 锁什么 |
+|------|------|--------|
+| `packages/shared-utils/src/__tests__/article-body-format-parity.test.js` | 9 | CJS↔ESM 逐行同源 + 导出面相等 + 与 `formatArticleBody(baijiahao/toutiao/wechat_mp, x)` 逐字节相同 + 6 段源文不得产出单 `<p>` + 幂等 |
+| `apps/desktop/src/components/ArticleEditor.test.js` | +7 | 装载保真（多段/HTML/空/代码片段/回写/Markdown 模式）+ 结构锁（`toHtmlBody` 不得被绕过） |
+| `apps/desktop/src/components/ArticleEditor.quill-load.test.js` | 4 | **真实 Quill**（不 mock）DOM 级：2 段 ⇒ 2 个 `<p>`、6 段 ⇒ 6 个 `<p>` |
+
+**变异反证（已实测）**：把 getter 改回 `props.modelValue` ⇒ 组件级 4 例红 + 真实 Quill 3 例红；恢复即绿。
+
+### 15.6 真机复核判据（升级版，仍未执行）
+
+在 v1.0 §12.3 的 runbook 基础上，判据收紧为**两个产物同时成立**：
+
+1. 发布后公开页 `https://baijiahao.baidu.com/s?id=<postId>` 的 `div[data-testid="article"]` 容器内 **`<p>` 数 == 源文自然段数**（源文段数按 `rewrite_history.rewritten_content` 的 `\n\n` 计数）；
+2. 应用内编辑器装载该源文时**显示为多个自然段**（这是最早可观测的一层，也是本次故障的第一现场）。
+
+未同时满足前，不得声称「百家号图文分段已修复」。同批取证的完整记录见 `01-docs/BUGFIX-ARTICLE-PARAGRAPH-AND-ZHIHU-PUBLISH-2026-10-15.md` 与 `openspec/records/fix-article-paragraph-zhihu-publish.md`。
+
+### 15.7 本层新增遗留
+
+1. **头条 / 公众号注入路径未取证**：这两家同为 HTML 承载（同一 `formatArticleBody` 契约），但其正文来自各自的 DOM 注入/草稿链（头条 `toutiao-direct-bridge` 页内重放、公众号 ProseMirror DOM 注入），是否存在同类「装载吞段落」路径需分别取证（v1.0 §14.1 的延伸）。
+2. **§14.5 的推论已被本次取证改写**：段落合并的原因**不是**平台期望特殊形态（如 `<p style=…>`），而是我们自己的编辑器装载丢结构 —— 平台对 1 个 `<p>` 的渲染是忠实的（公开页 `<p>`=1）。该遗留项保留但结论更正。
+3. **`contentFormat` 名实不符**（`usePublishFlow` 把非 Markdown 一律记作 `'html'`）与**富文本模式字数口径**（计 HTML 串长度）维持既有行为，未在本次改动，登记待办。
+
+---
+
+## 16. 变更记录
 
 | 版本 | 日期 | 变更 |
 |------|------|------|
 | v1.0 | 2026-10-12 | 首版：现象/取证（11/11 篇 `<p>`=0、逐字节对账）/全平台审计矩阵/形态合同与单一实现/数据校验/流程/交互/显示项/测试映射/真机 runbook/遗留 |
+| v2.0 | 2026-10-15 | **根因修正**：第一性原因在渲染层「富文本编辑器装载」而非发布链；新增第三层合同（装载保真）+ 装载层数据校验与测试映射（含真实 Quill 用例与变异反证）；改写 §14.5 推论；真机复核判据收紧为「编辑器段落数 == 平台 `<p>` 数」。代码见 `ArticleEditor.vue` + `packages/shared-utils/src/article-body-format*.js`；完整证据见 `01-docs/BUGFIX-ARTICLE-PARAGRAPH-AND-ZHIHU-PUBLISH-2026-10-15.md` |

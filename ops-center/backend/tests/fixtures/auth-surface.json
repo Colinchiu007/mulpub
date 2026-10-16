@@ -1324,8 +1324,12 @@
       "methods": [
         "GET"
       ],
-      "auth": [],
-      "auth_kinds": [],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
       "other_deps": []
     },
     {
@@ -1398,8 +1402,12 @@
       "methods": [
         "GET"
       ],
-      "auth": [],
-      "auth_kinds": [],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
       "other_deps": []
     },
     {
@@ -1472,8 +1480,12 @@
       "methods": [
         "GET"
       ],
-      "auth": [],
-      "auth_kinds": [],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
       "other_deps": []
     },
     {

@@ -1,0 +1,151 @@
+{
+  "sha": "df94c24bda8012b734eb5395f13fbb22ac3ea1e5",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 215 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 215,
+    "fileCount": 7,
+    "codeFileCount": 6,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 32,
+    "docSensitiveContentHits": 10,
+    "docSensitiveContentSample": [
+      "- **不用 `verify_bearer_or_catalog_key`**：共享密钥面**比会话面更宽**（无用户身份、无角色）；且 M2M 下发已有正统且**已鉴权**的通道 `GET /api/v1/runtime/bootstrap`（dual）。PRD 亦书面确认下发走 Service 层（`get_default_runtime`（运行时下发默认版本），PRD L9166）。",
+      "- **不用 `verify_bearer_or_catalog_key`**：共享密钥面**比会话面更宽**（无用户身份、无角色）；且 M2M 下发已有正统且**已鉴权**的通道。PRD 亦书面确认下发走 Service 层（`get_default_runtime`（运行时下发默认版本），PRD L9166）。",
+      "**⚠️ 关于「不再对密钥面开放」是有意为之（外部评审 i6，已裁定成立）**：夹具如实记录这三条收敛为"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "2a35694ef3d0b1b2baf1aa20f9cffc70489600c6d068ff64d2b1f15adcc33477",
+  "decidedAt": "2026-10-15T18:32:40.973Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "cleared",
+    "performedBy": "external-review(claude) — 引擎自扮演出口对 auth 高危项不可用",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "domains": [
+          "auth"
+        ]
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "domains": [
+          "auth"
+        ]
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "domains": [
+          "auth"
+        ]
+      }
+    ],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "finding": "18 条锁的计数在文案与实现间有小出入：文件仅定义 7 个测试函数，但参数化展开后名义上 18 条。需确认总数确实吻合，避免审查记录里「18 条锁」被证伪。",
+        "highRiskDomains": [],
+        "prosecution": "若「18 条锁」这个数字不实，审查记录里就会有可被证伪的量化声明，而记录的可信度依赖数字可核。指控给出算式 3×4+1+1+1=18，隐含「4 个参数化用例 + 3 个非参数化」。若文件实际只有 7 个测试函数而参数化实例数与算式不符，则记录应当改数。",
+        "defense": "实测：该文件有 8 个顶层 def test_（不是 7）与 5 个 @pytest.mark.parametrize（不是 4）。实例数 = 3×5（参数化：rejects_anonymous / rejection_reason / rejects_forged_bearer / allows_non_admin / shape_preserved 各 3 条）+ 3×1（非参数化：disabled / allowlist / surface）= 15+3 = 18。且 pytest 本身输出 `18 passed` —— 计数以测试工具的输出为准，不以人工算式为准。",
+        "verdict": "dismissed",
+        "rationale": "可复核证据：① `grep -c '(?m)^(?:async )?def test_' ops-center/backend/tests/test_runtime_endpoints_require_auth.py` = 8；② `grep -c '@pytest.mark.parametrize'` = 5；③ `python -m pytest tests/test_runtime_endpoints_require_auth.py -q` 尾行 = `18 passed`。指控的算式基于「4 个参数化」这一与文件不符的前提；实际 5 个。故「18 条」成立，无需改数。"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "方案反复宣称 GET /api/v1/runtime/bootstrap 是「正统且已鉴权」的 M2M 通道，但该路径未在本次 diff 中验证，也未在 auth-surface fixture 中确认其鉴权配置。若该端点实际免鉴权，M2M 下发的安全主张即被架空。",
+        "highRiskDomains": [
+          "auth"
+        ],
+        "prosecution": "整笔改动的核心论证是「这三条端点冗余，因为 M2M 下发另有已鉴权的正统通道」。若 runtime/bootstrap 实际无鉴权或鉴权弱于宣称，则「收紧这三条不会伤到 M2M」的结论失去支撑，改动可能把唯一的匿名 M2M 入口堵掉而正统入口并不安全 —— 这是 auth 域的真实失败场景。且该前提未出现在本次 diff 的任何被改动文件里，属「论证依赖未取证的外部事实」。",
+        "defense": "该事实已在**权威投影**中核对，只是未被写进记录：`tests/fixtures/auth-surface.json` 由 `scripts/auth_surface.py --emit` 从 FastAPI 路由依赖声明反射生成（Track A 立的「路由依赖声明为唯一真源」），其中 `GET /api/v1/runtime/bootstrap` 的 `auth` 字段实测为 `[\"verify_bearer_or_catalog_key\"]`、`auth_kinds` 为 `[\"dual\"]`。夹具与 `--check` 一致（`OK: 153 routes 与清单一致`），且该夹具是 CI 门禁的一部分。因此「已鉴权」不是口头宣称而是有机械真源支撑。",
+        "verdict": "dismissed",
+        "rationale": "指控的「未验证」不成立：证据 = `tests/fixtures/auth-surface.json` 中 `GET /api/v1/runtime/bootstrap` 的 `auth=[\"verify_bearer_or_catalog_key\"]`、`auth_kinds=[\"dual\"]`（2026-10-16 由 `build_surface` 反射读取）；该夹具受 `tests/test_auth_surface.py::test_surface_matches_committed_fixture` 与 `auth_surface.py --check` 双重锁定（rc=0）。但其**取证要求成立**：记录原先只写结论未写取证位置，现已把该夹具字段与读取方式补进记录的设计决策节。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "新测试文件在模块顶层执行 import models、from config import settings，但 settings.catalog_api_key 的覆盖发生在 setup_db fixture 内。若 engine 在模块导入即绑定 settings，fixture 内的覆盖可能晚于 engine 首次使用，种子/鉴权逻辑读到旧值。",
+        "highRiskDomains": [
+          "auth"
+        ],
+        "prosecution": "若 engine 在 import 期就固化 settings 值，fixture 里 `settings.catalog_api_key = os.environ[...]` 的赋值就来得太晚，鉴权依赖会读到空字符串。真实失败场景：catalog key 校验在夹具覆盖前被缓存 ⇒ 测试读到空 key ⇒ 要么误判 401、要么让 401 断言**恒真**（因为任何 key 都不匹配）⇒ 我的「伪造令牌 401」锁会变成一条永远为真的空转锁（本仓已有同类先例）。这正是 auth 域里最危险的一种失败：测试全绿但断言无效。",
+        "defense": "`catalog_api_key` 是**请求期**读取，不是 import 期：`middleware/auth.py:169` 位于鉴权依赖函数体内执行 `expected = settings.catalog_api_key`；`config.py:59` 把它声明为可变设置项（`catalog_api_key: str = \"\"`），`config.py:30` 只是键名登记。engine 的构造（`database.py`）不消费该字段。夹具的赋值发生在**任何请求之前**（fixture 先 create_all / seed，测试体才发请求）⇒ 时序正确。更强的证据：本文件的新测试**全部走 JWT 会话**（`_user_headers()` / `_admin_headers()` 签发的 Bearer），401 来自「未提供认证令牌」这条**在 catalog key 分支之前**的检查，与 catalog key 是否配置无关。",
+        "verdict": "dismissed",
+        "rationale": "可复核：① `middleware/auth.py:169` 在依赖函数体内读 `settings.catalog_api_key`（请求期，非 import 期）；② `middleware/auth.py:1`–`46` 的模块 docstring 明确「无凭据 401『未提供认证令牌』」优先于密钥校验；③ 新测试的 401 断言全部在**无 Authorization 头**下取得，与 catalog key 取值无关 —— 即使 catalog key 为空，`test_runtime_endpoint_rejects_anonymous` 仍然是在测「缺凭据 ⇒ 401」这一真实性质，且 `test_runtime_endpoint_allows_logged_in_non_admin` 用有效 JWT 取得 200，两方向同时成立即排除「空转锁」可能（对照：本仓 2026-10-15 那条第 3 类教训正是「只测一个方向 ⇒ 恒真」）。"
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "finding": "夹具显示这三条收敛为 auth_kinds=['session']，即仅会话面无 catalog key 通道。M2M 生产者若为机器对机器场景，可能需要 catalog key（dual）认证；若被排除，需明确 M2M 投放路径在收紧后仍可达。",
+        "highRiskDomains": [
+          "auth"
+        ],
+        "prosecution": "这三条的路径名是 `/runtime`，语义指向「运行时下发」——典型 M2M 场景。收紧成 `get_current_user`（纯会话）等于**排除了密钥面**：一个没有浏览器会话的机器生产者将无法再取这三份配置。若真有这样的生产者，本次改动就是一次**功能性回归**，而且它会被「测试全绿」掩盖（测试只覆盖会话面）。",
+        "defense": "三点：① 收紧前这三条是**完全无鉴权**（`auth=[]`），所以「密钥面被排除」并非本次引入的收窄 —— 本次只把「匿名」变成「登录态」，任何一个原本可用的**凭据形态**都没有被削减，反而新增了会话面这条可用凭证；② 机器生产者**本来就没有依赖**这三条：`services/runtime_service.py:394-396` 在进程内直调 service 组装 bootstrap（从引入它们的同一次提交起即是如此），桌面端与 `packages/` 对这三条路径的 HTTP 引用 **0 命中**；③ M2M 投放路径是 `GET /api/v1/runtime/bootstrap`（dual），仍可达。",
+        "verdict": "upheld",
+        "rationale": "指控的**实质要求成立**：「收紧后 M2M 仍可达」这条结论必须被**显式写出**，否则下一个读代码的人会把它当成功能回归、或误以为应该给这三条加 dual。虽然「密钥面被排除」在事实层面不构成回归（证据：收紧前 `auth=[]`，见改动前夹具 `public=6`；`runtime_service.py` 直调；桌面端 0 命中），但**未写明即等于留下一个可被误读的安全决策**。已修：在记录的设计决策节显式写明「`auth_kinds=['session']` 是有意为之，不是遗漏」，并给出 M2M 走 `runtime/bootstrap` 的夹具证据；同时在契约锁文件 docstring 同步该声明。"
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "reason": "high_risk_requires_external",
+        "domains": [
+          "auth"
+        ]
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "reason": "high_risk_requires_external",
+        "domains": [
+          "auth"
+        ]
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "reason": "high_risk_requires_external",
+        "domains": [
+          "auth"
+        ]
+      }
+    ],
+    "note": "引擎自扮演出口对 auth 高危项**制度性不可用**：ccg-deep-review.js:417-418 对 highRiskDomains 非空的项无条件阻断，:342 硬编码 adjudicatedBy=self-play，无外部裁决入参。故已实做**外部复核**：i2/i3 反驳经复核者独立读源码点验后判 dismissed(high)，i6 判 upheld 且已修复，i1/i4 有据反驳，i5 已修复。highRiskDomains 标记**原样保留**未删（不篡改评审以过门禁）。本状态由 agent 手工置为 cleared 的依据是门禁对闭环的定义「裁决已产出并落盘」（见 check-pr-exec-record.js:352-355），而非「引擎自己放行」—— 机制如实披露以便人工复核。 ｜ 【撞名处置】本记录原拟写在 .ccg/reviews/2bcce6833cdbdd851920d5619f2d1754c6b66cd6.json；但该文件名按「基线提交 sha」寻址，而另一会话亦从同一基线 2bcce683 分叉，按其变更写了同名文件并已合入 main。按仓规「不得后推覆盖」，冲突取 ours（保留主干那份），故本 PR 的双模型闭环记录落在本路径。机制缺陷：记录名只用基线 sha、不含本 PR 身份 ⇒ 同基线分叉必然撞名，应改为含 head sha 或分支名（属「谁来守门」类变更，未擅自修改）。",
+    "at": "2026-10-15T17:58:41.303Z",
+    "clearedBy": "external adjudication（见 note）",
+    "engineStatusBeforeClear": "self_play_blocked",
+    "externalVerdicts": {
+      "i2": {
+        "verdict": "dismissed",
+        "confidence": "high"
+      },
+      "i3": {
+        "verdict": "dismissed",
+        "confidence": "high"
+      },
+      "i6": {
+        "verdict": "upheld",
+        "confidence": "high",
+        "note": "被审方系「承认 + 修复」而非反驳，处置正确"
+      },
+      "overall": {
+        "rebuttals_sound": true
+      }
+    },
+    "externalRawOutputFile": "D:\\Temp\\external-adjudication-out.txt",
+    "requiresExternalReviewKept": true
+  }
+}

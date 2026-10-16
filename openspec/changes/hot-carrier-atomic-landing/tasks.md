@@ -1,8 +1,12 @@
 ## 0. 前置与归属核对（阻塞全部后续）
 
-- [ ] 0.1 核对 `enforce-gate-record-presence` 的当前状态与本 change 的退场耦合：`git log origin/main --oneline -5 -- openspec/changes/enforce-gate-record-presence openspec/records/` 取现况，确认它是否仍在 `changes/` 未归档；若已归档且聚合热点文件已不再是写入面，本 change **立即作废**并按退场条件走空实现
-- [ ] 0.2 与 #3582 跨源一致性门禁对账：读 `scripts/check-gate-record-debt.js` 的跨源比对段（现场读数：配对 113 组 / 违例 0 / 承认 1），确认本 change 判据域与其不重叠；结论写进文末「对账结论」，**禁止以「看起来不冲突」交下**
-- [ ] 0.3 `openspec validate hot-carrier-atomic-landing --strict` 通过（初稿实测 rc=0），并把 Requirement↔Scenario 配对结果写进 0.1 同一次提交
+> **2026-10-15 让位说明（change: freeze-legacy-gate-carrier）**：本 change 的 (2) `scripts/docs-land.ps1` 与 (3) pre-commit 归属拦截 **标为不实现**，理由不是"太难"而是**对象消失**——后继 change 把 `.quality-gates.md` 与 ledger 冻结为只读存档（判据：记录块集合必须等于 `scripts/gate-carrier-freeze.json` 基线，加块/删块皆红），新 PR 不再写这两个文件，于是"窗口"不再出现在日常路径上；此时再实现 (2)(3) 只会新增"别的会话没关账、我的提交被拒"的无辜方误伤面。这正是本 change 自己写的 D7/退场条件的正向应用。
+> **仍要实现的是 (1)**：常驻守卫的开窗/收窗时长读数（tasks 2.x）——它的作用从"守窗口"变成"证明确实没人再挤旧载体"，是 `freeze-legacy-gate-carrier` 判据的事后对账面，缺失即等于只有拦截没有观测。该刀拆出为 tasks 3.2（在后者仓库中跟踪）。
+> 下面 2.x/3.x/4.x 各条保留为历史计划文本，不再作为待办执行；1.x 与 5.x 中被后继 change 覆盖的部分同理。
+
+- [x] 0.1 核对 `enforce-gate-record-presence` 的当前状态与本 change 的退场耦合：实测**不触发作废**——该 change 仍在 `openspec/changes/` 未归档（`openspec/specs/quality-gate-execution-record/` 不存在），且 `scripts/gate-record-debt-ledger.json` **仍是手工写入面**（`check-gate-record-debt.js:91` 读它、`:205` 要求未收口行必须登记），最近两笔回填 PR #3634/#3638 都在改它 ⇒ 热点写面当时仍在。（后续走向见本节顶部的让位说明：写面由 `freeze-legacy-gate-carrier` 冻结，而非等 `enforce-gate-record-presence` 自己收敛。）
+- [x] 0.2 与 #3582 跨源一致性门禁对账（读判据源码 + 现算场）：判据域**不重叠**——那条门禁比「同一 slug 在记录文件与旧载体两侧的收口方向」（静态、已提交态，排除回填型块、带承认清单；现场读数 配对 120 组 / 违例 0 / 承认 1），本 change 的 (1) 比「一段时间内工作树是否存在未提交热点改动」（机器态、CI 不可见）。本 change 未改那条门禁的判据。0.1 的让位说明生效后，(2)(3) 不再实现，域冲突面进一步缩小。
+- [x] 0.3 `openspec validate hot-carrier-atomic-landing --strict` 通过：初稿实测 rc=0（7 条 Requirement / 20 条 Scenario）；本文件改账后重跑仍 rc=0（见执行记录）。Requirement↔Scenario 配对由 `--strict` 本身保证（每条 Requirement 至少一个 Scenario 是该 CLI 的校验项之一）。
 - [ ] 0.4 核对常驻守卫的现有结构是否真能承载「开窗/收窗」：`scripts/guard-shared-root-writes.ps1` 的 `$allowedTop`(`:68`)/`$allowedRootFiles`(`:69`)、`violations.jsonl` 写入点(`:123-125`)、启动对账路径(`:247` 起)四处逐个读实现并记录「事件能否配对」；若 FileSystemWatcher 的缓冲溢出会把收窗事件丢掉，本片的判据形态要回 design D9 重裁，不得硬写
 
 ## 1. 清单单一来源（小片）

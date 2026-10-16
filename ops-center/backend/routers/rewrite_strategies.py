@@ -21,7 +21,14 @@ async def list_strategies(
 @router.get("/runtime")
 async def list_runtime_strategies(
     db: AsyncSession = Depends(get_db),
+    user: dict = Depends(get_current_user),
 ):
+    """运行时策略全量（含未启用项）；鉴权同本资源列表端点（``get_current_user``）。
+
+    本条曾以「供 bootstrap 内部组装使用」为由免鉴权，2026-10-16 收紧。失效证据、设计决策
+    与残留**单一真源**在 ``openspec/records/harden-runtime-endpoints-auth.md``（勿在此复制背景
+    叙述，避免多源漂移）；契约锁见 ``tests/test_runtime_endpoints_require_auth.py``。
+    """
     items = await rewrite_strategy_service.list_runtime_rewrite_strategies(db)
     return {"items": items, "count": len(items)}
 

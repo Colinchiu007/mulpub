@@ -1,0 +1,28 @@
+{
+  "sha": "57d6400d97672e2aeab3fa4712e3ca6bb6ded3dc",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 611 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 611,
+    "fileCount": 12,
+    "codeFileCount": 8,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0
+  },
+  "stagedDiffHash": "86e7d7aa022786a67c90276e88e029fcf7ceded154ff2781790d0fbbdd2ed773",
+  "decidedAt": "2026-10-15T12:32:11.412Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play(claude critic + opencode proposer DUAL 跨家族) + 主代理逐条裁决",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "findings": "8 条（第三轮 DUAL，跨家族校验通过 proposer=opencode critic=claude）：i2/i8 为新发现且已修（filter 仅回环结构锁、回环判据覆盖 127.0.0.0/8）；i1/i3/i4/i6/i7 因评审基线落后于修复提交 da5210ddb，属独立第三方重复命中同一批缺陷；i5「DUAL 未执行 ≠ 闭环」成立并接受，本轮已补齐。逐条裁决落盘 .adversarial/ccg-deep-57d6400d/adjudication.json。",
+    "template": ".adversarial\\ccg-deep-57d6400d\\adjudication.json",
+    "note": "status 由主代理按 check-pr-exec-record.js 白名单语义人工登记（引擎无回写入口，ccg-gate.js 只读）；该人工登记动作本身是新的信任点，已在执行记录「已知边界」标注。",
+    "at": "2026-10-15T12:58:58.698Z"
+  }
+}

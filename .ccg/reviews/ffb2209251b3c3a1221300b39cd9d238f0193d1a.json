@@ -1,0 +1,30 @@
+{
+  "sha": "ffb2209251b3c3a1221300b39cd9d238f0193d1a",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 4,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 3,
+    "docSensitiveContentSample": [
+      "- 第一性原因 A（QM-5 ①）：`apps/desktop/src/components/ArticleEditor.vue` 的富文本模式把 `props.modelValue` 直接交给 `@vueup/vue-quill` 的 `<QuillEditor content-type=\"html\" v-model:content=\"richContent\">`。`@vueup/vue-quill@1.5.3` 的 `setContents()` 对 `contentType === 'html'` 走 `setHTML()` ⇒ `quill.root.innerHTML = 值`（源码 `dist/vue-quill.esm-bundler.js:427-429`）；Quill 随后经 MutationObserver 触发 `text-change` → `handleTextChange`（`:257`、`:336-341`）→ `emit('update:content', getHTML())`（`:423-425`），**回写的是 `quill.root.innerHTML`**。纯文本里的换行在 HTML 语义下是**可忽略空白** ⇒ **编辑器装载那一刻（无需用户输入）段落就塌成一整段**并回写进 `article.content`；发布链看到「已是 HTML」即幂等透传。**根因一句话：修复层级在事故之后 —— 2026-10-12 的 `#3389` 改的是「已多段内容在 HTML 承载平台如何表达」，而段落在上游的编辑器装载就已经没了。**",
+      "本轮修复前**没有任何**「编辑器装载后段落数」用例，而 `ArticleEditor.test.js` 全程 mock `QuillEditor` —— mock 版本不会回写 `update:content`，所以「装载即改内容」这个真实行为在测试里**完全不存在**。修复后补的第二层用例 `ArticleEditor.quill-load.test.js` 用**真实 Quill**（不 mock）直接在编辑器 DOM 里数 `<p>`：两段源文 ⇒ 恰好 2 个、六段 ⇒ 恰好 6 个。",
+      "- **第一性根因（渲染层，2026-09-04 由 `08e7d95a66` 引入）**：`apps/desktop/src/components/ArticleEditor.vue` 富文本模式把 `props.modelValue` 直接交给 `@vueup/vue-quill@1.5.3` 的 `<QuillEditor content-type=\"html\">`。该组件的 `setContents()` 对 `contentType === 'html'` 走 `setHTML()` ⇒ `quill.root.innerHTML = 值`（源码 `:427-429`），Quill 随后经 MutationObserver 触发 `text-change` → `handleTextChange`（`:257`、`:336-341`）→ `emit('update:content', getHTML())`（`:423-425`），**回写的是 `quill.root.innerHTML`**；纯文本里的换行在 HTML 语义下是**可忽略空白** ⇒ **编辑器装载那一刻（无需用户输入）段落就塌成一整段**并回写进 `article.content`。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "12cfdf14ebd78582372c995978f61fa197e76f2e71a010af551c0df994afb28d",
+  "decidedAt": "2026-10-15T16:50:11.558Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

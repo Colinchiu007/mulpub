@@ -138,12 +138,51 @@ describe('window — createWindow', () => {
     expect(opts.show).toBe(false)
   })
 
-  it('开发环境加载 127.0.0.1:5174', () => {
+  it('开发环境加载 127.0.0.1:5174', async () => {
     process.env.NODE_ENV = 'development'
     createWindow(context)
     const win = lastWindow()
-    expect(win.loadURL).toHaveBeenCalledWith('http://127.0.0.1:5174')
+    // loadURL 现在排在「清缓存落定」之后（CCG 深度审查第二轮 i1：clearCache 是异步的，
+    // 抢跑会让 immutable 旧条目不发网络请求 ⇒ onHeadersReceived 不触发 ⇒ 首屏仍是旧副本）。
+    // 判据不变（仍断言以该 URL 加载），只是必须等这条异步时序落定。
+    await vi.waitFor(() => {
+      expect(win.loadURL).toHaveBeenCalledWith('http://127.0.0.1:5174')
+    })
     delete process.env.NODE_ENV
+  })
+
+  it('行为锁：loadURL 必须等到清缓存落定（顺序语义，不是文本存在性）', async () => {
+    // CCG 深度审查第二轮 i1/i5：仅靠源码文本锁证明不了「loadURL 排在清缓存之后」——
+    // 实测把 loadURL 改回同步调用后，文本锁**依然全绿**（M8 变异 NOT-CAUGHT）。
+    // 这里用可控 session 做行为断言：clearCache 未落定前不得 loadURL。
+    let release;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    const originalPackaged = __electronMock.app.isPackaged
+    const originalImplementation = __electronMock.BrowserWindow.getMockImplementation()
+    __electronMock.app.isPackaged = false
+    __electronMock.BrowserWindow.mockImplementationOnce(function (options) {
+      originalImplementation.call(this, options)
+      this.webContents.session = {
+        clearCache: () => gate,
+        webRequest: { onHeadersReceived: vi.fn() },
+      }
+    })
+    try {
+      createWindow(context)
+      const win = lastWindow()
+      // 清缓存尚未落定：此时不允许发起导航（否则 immutable 旧条目不发网络请求，
+      // onHeadersReceived 不触发 ⇒ 首屏仍是旧副本）
+      await new Promise((r) => setTimeout(r, 30))
+      expect(win.loadURL).not.toHaveBeenCalled()
+      release()
+      await vi.waitFor(() => {
+        expect(win.loadURL).toHaveBeenCalled()
+      })
+    } finally {
+      __electronMock.app.isPackaged = originalPackaged
+    }
   })
 
   it('生产环境加载 dist/index.html', () => {

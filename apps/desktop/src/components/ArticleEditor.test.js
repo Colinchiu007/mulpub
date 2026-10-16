@@ -98,3 +98,65 @@ describe("ArticleEditor", () => {
     expect(w.find("textarea").attributes("maxlength")).toBe("10");
   });
 });
+
+import fs from "node:fs";
+import path from "node:path";
+
+// ---------------------------------------------------------------------------
+// 富文本装载：段落结构不得被吞
+// （2026-10-15 百家号「正文一整段」二次报障的**渲染端第一性根因**：
+//   Quill 的 content-type="html" 把纯文本里的换行当可忽略空白 ⇒ 装载即塌成一段。）
+// ---------------------------------------------------------------------------
+const quillProp = (w) => w.findComponent({ name: "QuillEditor" }).props("content");
+
+describe("ArticleEditor — 富文本装载的正文承载形态", () => {
+  it("纯文本多段 → 传给 Quill 的是逐段 <p>（不是裸换行）", async () => {
+    const w = mountEditor({ modelValue: "第一段\n\n第二段\n第三段" });
+    await nextTick();
+    expect(quillProp(w)).toBe("<p>第一段</p><p>第二段</p><p>第三段</p>");
+  });
+
+  it("已是 HTML 的内容幂等透传（不二次包装）", async () => {
+    const w = mountEditor({ modelValue: "<p>甲</p><p>乙</p>" });
+    await nextTick();
+    expect(quillProp(w)).toBe("<p>甲</p><p>乙</p>");
+  });
+
+  it("空/空白内容不产出空 <p>", async () => {
+    const w = mountEditor({ modelValue: "   " });
+    await nextTick();
+    expect(quillProp(w)).toBe("");
+  });
+
+  it("代码片段不被当成标签（白名单判据：<stdio.h> 转义保留，不整段吃掉）", async () => {
+    const w = mountEditor({ modelValue: "#include <stdio.h>" });
+    await nextTick();
+    expect(quillProp(w)).toBe("<p>#include &lt;stdio.h&gt;</p>");
+  });
+
+  it("Quill 回写变化时 modelValue 收到 HTML（发布链按承载形态再适配）", async () => {
+    const w = mountEditor({ modelValue: "a\n\nb" });
+    await nextTick();
+    await w.findComponent({ name: "QuillEditor" }).vm.$emit("update:content", "<p>a</p><p>b</p>");
+    expect(w.emitted("update:modelValue")).toBeTruthy();
+    expect(w.emitted("update:modelValue").at(-1)).toEqual(["<p>a</p><p>b</p>"]);
+  });
+
+  it("Markdown 模式仍按原文编辑（装载不做 HTML 归一）", async () => {
+    const w = mountEditor({ modelValue: "第一段\n\n第二段" });
+    await nextTick();
+    const mdBtn = w.findAll("button").filter(b => b.text().includes("Markdown"));
+    await mdBtn[0].trigger("click");
+    await nextTick();
+    expect(w.find("textarea").element.value).toBe("第一段\n\n第二段");
+  });
+
+  it("结构锁：richContent.get 必须经 toHtmlBody 装载，不得回退直传 modelValue", () => {
+    const src = fs.readFileSync(path.resolve(__dirname, "ArticleEditor.vue"), "utf8");
+    expect(src).toContain("toHtmlBody(props.modelValue)");
+    expect(src).toContain("@multi-publish/shared-utils/src/article-body-format");
+    // 反例只在**富文本** getter 内成立（Markdown textarea 仍应直读 modelValue）
+    const richGetter = src.slice(src.indexOf("const richContent"), src.indexOf("const mdContent"));
+    expect(richGetter).not.toMatch(/get:\s*\(\)\s*=>\s*props\.modelValue/);
+  });
+});

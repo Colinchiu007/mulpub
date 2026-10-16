@@ -1,0 +1,30 @@
+{
+  "sha": "0d61d52ae564e094c07872cb6dc7a78787bb2f4f",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 659 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 659,
+    "fileCount": 21,
+    "codeFileCount": 15,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 21,
+    "docSensitiveContentHits": 12,
+    "docSensitiveContentSample": [
+      "- 功能逻辑：投影的唯一实现是 `toFreezeSummary()`；取凭据的唯一实现是 `readStockStampRecord()`（`at` 不在位即 `null`），既有出口 `readStockStamp()` 刻意做成它的 `.at` **投影**而不是第二份读路径。`episode:list` 读**一次** `index.json` 同时喂 `compliance`（要 `at`）与摘要（要三个计数）——分两次读会在\"两次之间恰好有人固化完落盘\"时得到两份互相矛盾的凭据（一处认 stock 档、一处报另一组数）。",
+      "  「把不知道伪装成没有待办」是同一类谎，只是方向从「不知凭据」换成「跳过频道」（QM-6 后端 B2）。",
+      "  分两次读会在\"两次之间恰好有人固化完落盘\"时得到两份互相矛盾的凭据（一处认 stock 档、一处报另一组数），"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "18f3b55b830a8872be24132eb17c6ff758843e74b5a0da02a194c4b109a7e437",
+  "decidedAt": "2026-10-15T15:13:15.616Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}
