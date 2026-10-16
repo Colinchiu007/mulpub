@@ -2,10 +2,6 @@
 record: xhs-draft-only-hard-evidence
 task: 小红书图文 draftOnly 的成功判据从「页面文本正则」换成硬证据（草稿箱计数增量/保存响应/标题兜底），假成功改真失败
 date: 2026-10-15
-# 远程同步尚未收口 ⇒ 本行状态是 PENDING，按 scripts/check-gate-record-debt.js 的第二源
-# 判据（openspec/records/<slug>.md）必须显式登记原因与回填责任人；回填时整段删除。
-sync_reason: 本 PR 尚未合并，无法回填 merge SHA 与合并时间；合并后由本会话开回填 PR，把表格行的 远程同步 改成 PASS + merge SHA，并删除本段三个字段
-sync_backfill_owner: xhs-draft-only-hard-evidence 会话（本节作者）
 ---
 
 ## 本次执行记录：小红书草稿硬证据确认链（xhs-draft-only-hard-evidence，2026-10-15）
@@ -25,7 +21,7 @@ sync_backfill_owner: xhs-draft-only-hard-evidence 会话（本节作者）
 | QM-1 打包 / QM-4 视觉 | N/A | 未触打包配置与视觉面 |
 | QM-6 CCG 双模型外部评审 | ✅ | 跨家族深度评审实跑两轮（proposer=opencode / critic=claude）：第一轮 `--sha 8fe885f57` 得 7 条（1 Critical）；第二轮 `--base origin/main`（整分支 diff，因 rebase 重放不跑 hook、按 sha 取不到判定记录）得 5 条、最低分 4→6、无 Critical。**全部 7/7、5/5 已处置**，逐条见下 §CCG 评审与 §第二轮评审。第三份欠账（rebase 重放副本）随同闭合。修订后门禁重跑 `node scripts/ccg-gate.js` = rc 0（0 安全发现） |
 | PR 执行记录取证 | ✅（补过一次） | `node scripts/check-pr-exec-record.js --base=origin/main --mode=enforce` 首跑报 **deepReview 欠账 3 条**——三个提交都被判需要双模型深度审查（mode=dual），而记录里的 `deepReview.status` 停在 pending / self_play_pending：**评审跑了、发现修完了，但引擎第三档出口要求的「逐条裁决」表格没填，门禁不认**。处置：按裁决模板逐条填 prosecution/defense/verdict/rationale 并把 status 置为闭环白名单的 `self_play_resolved`（不是改数字，是补真实结论；逐条人读版在 PRD §8/§8.1）。复跑 rc=0 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间；`git ls-remote --heads origin xhs-draft-only-hard-evidence` 返回 0 行证远端分支已删；回填后删除本段三个 sync_* 字段 |
+| 远程同步 | ✅ PASS | PR #3667 已 squash 合并，merge SHA `2a43a888b1775e3a848e7d71a6b95911b630cfc4`，合并时间 2026-10-16T16:18:45+08:00；`git ls-remote --heads origin xhs-draft-only-hard-evidence` 返回 0 行，远端分支已删；`gh pr view 3667` state=MERGED。本段 frontmatter 的三个 sync_* 字段已随本次回填删除 |
 
 ### 判据选址（针对「草稿箱是否分区本地」疑点）
 
