@@ -1,3 +1,12 @@
+# [未发布] fix(scripts): 补齐 safe-delete.js 的删除后端 mavis-trash（回收站包装），解除 R0 守卫长期失效（fix-mavis-trash-env）
+
+- 现象（长期）：`scripts/safe-delete.js` 四道闸全过、`--dry-run` 报「允许删除」，实跑却 `✗ 删除失败` + `'mavis-trash' 不是内部或外部命令`，审计日志写 `FAILED`。因 R0 无 `--force` 绕过且明令禁止退回 `rm` / `Remove-Item`，本机临时产物只能长期堆积——本仓 ≥11 处记录登记过该环境事实（`learnings.md`、`fix-agents-safe-delete-filename`、`hot-topics-multi-source`、`fix-toutiao-title-suffix` 等），最早可追到 2026-10-09。
+- 修法（**提供命令，不动脚本**）：新增 `%USERPROFILE%\.local\bin\mavis-trash.cmd` + `mavis-trash.ps1`，包装 Windows 回收站 API（`Microsoft.VisualBasic.FileIO.FileSystem::DeleteFile(..., SendToRecycleBin)`），从而保持 R0 要求的「可恢复」语义。**刻意不改 `safe-delete.js`**：其回归锁 `safe-delete.test.js:165-166` 断言源码必须含 `mavis-trash` 字符串，「提供命令」才是与该锁相容的修法；把删除后端换成别的 API 会同时废掉那条锁的意图。
+- 契约与 `safe-delete.js:169-175` 严格对齐：接受 1+ 个路径；全部成功 `exit 0`，否则 `exit <失败数>` 并把原因写入 stderr。
+- 两处实现细节：① `.cmd` 用 `%~dp0` 自定位，**不**把含中文的用户目录写成字面量（Windows PowerShell 5.1 按 ANSI 码页解析无 BOM 脚本，中文字面量会变乱码 ⇒ 路径失效）；② 两个脚本保持纯 ASCII。
+- 实测：ASCII 路径 / 中文文件名 / 中文目录路径 / 多文件 / 不存在路径（rc=1 且有 stderr）五类全过；端到端 `safe-delete.js` 输出 `✓ 已删除（可恢复）`、审计日志 `FAILED` → `DELETED`、回归锁 **12/12** 绿；随后用它清掉本机积压的 85 个 `%TEMP%` 临时产物（成功 85 / 失败 0 / 残留 0）。
+- 文档同步：`01-docs/learnings.md` 第 9 条由「本机缺失，只能报错」改写为「已补齐 + 契约 + 实测」，避免后续会话继续按旧事实行事。
+
 # [未发布] docs(podcast): 音色来源三态标注的合同落进 PRD §8.2.9（podcast-voice-source-spec）
 
 - PRD 新增 §8.2.9：只读 IPC `podcast:voice-preview`、出期浮层落点、三把 `podcast.voice.origin*` 键的 zh/en 逐字、七条验收判据与两条「故意不做」。
