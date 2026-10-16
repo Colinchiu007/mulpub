@@ -776,6 +776,35 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 - 进度遮罩沿用 §6.4.2 的七相位与 `cancellable` 位（由主进程算，前端不得抄相位表）。
 - 出错时逐条展示 `issues`（按码取 locale 文案），不得只弹「失败」。
 
+### 7.10.3.1 文本出期浮层的组件合同（2026-10-17 补；**合同先于实现**，实现偏离本节必须先改本节）
+
+> 为什么现在写这一节：机械半边（通道 / preload / 桥接 / bundle / 三处清点式守卫）已在分支 `podcast-episode-plan-ui`（commit 见 `openspec/records/podcast-tasks-reconcile-41-42.md` 的姊妹记录）以标好的 WIP 提交，实测 131 passed 含 `ipc-contract` 双向对账；但它按 §7.10.6 **不能单独合并**。会话额度不足以把浮层与入口做完并跑完 QM-1，所以先把合同钉死，避免下一个实现者凭组件名猜落点。
+
+**落点必须是「扩展既有成对装配」，不是新建同名文件**（2026-10-17 实测踩坑）：`apps/desktop/src/components/PodcastEpisodeEntry.vue` **已存在**（80 行、已入库、由 `CreateView.vue` 消费），它是**成片链**的「入口按钮 + 浮层」成对装配，内部挂 `PodcastPublishAction.vue`。本片的文本出期浮层要么在该族上扩一个 `mode`（`video | script`），要么新建**另一个名字**（建议 `PodcastScriptEntry.vue` + `PodcastScriptPublishAction.vue`）——「PRD 写了落点 X」不等于「X 不存在」，实现前必须先 `git ls-files` 查该路径。
+
+**组件接口合同**（两种落点共用形状，字段不得增删而不改本节）：
+
+| 项 | 合同 | 唯一来源 |
+| --- | --- | --- |
+| props | `visible: Boolean`、`channelId: String`、`script: String`（正文，**不是**音频路径）、`title: String`、`gapSec?: Number` | §7.10.1 |
+| emits | `update:visible`、`published`（载荷为编排层信封的 `data`，含 `state`） | §6.4 |
+| 打开时 | 必须**现取**只读预览 `episodePlanPreview({ channelId, script })`；每次打开都取，不得缓存（音色偏好可能在别处改过） | §7.10.4.1 判据 6 |
+| 显示项 | 块数 / 总码点 / 音色三段，全部取自预览返回，**前端不得自己算任何一个数**；任一缺失则整块不显示，绝不回落 `0` | §7.10.4.1 判据 2、§7.9.6 口径 |
+| 来源标注 | 复用 §8.2.9 的三把 `podcast.voice.origin*` 键，不另写一份 | §7.10.4.1 |
+| 预览被拒 | 显示**原因句**（`data.message` 或领域码对应的 locale 文案），不得显示空数；但**发起按钮仍可用**——同意闸门在主进程①层 | §7.10.4.1 判据 3、4 |
+| 预览失败 | 整段 `try/catch`，只降级为「不显示计数」，禁止把按钮锁死或把失败当成功 | §7.10.4.1 判据 4 |
+| 确认动作 | 发 `episodePublishFromScript`，载荷须 `billingConfirmed: true`（**这是用户刚刚做的事，不是前端默认值**），并经 `JSON.parse(JSON.stringify(x))` 脱壳 | §7.10.1 ①、AGENTS「IPC 参数序列化安全」 |
+| 取消确认框 | 只关窗，**不发** publish：此时主进程一次磁盘写都没有，所以不存在半成品可清 | §7.10.3 |
+| 进度 | 沿用既有 `onEpisodePublishProgress` 的七相位与 `cancellable`（由主进程算，前端不抄相位表）；退订必须在关闭与卸载两处各调一次 | §6.4.2 |
+
+**浮层互斥登记（AGENTS「应用级浮层弹窗互斥合同」，不可省）**：新 owner 名建议 `podcast-episode-entry-overlay` / `podcast-script-publish-overlay`；`suspend`/`release` 必须成对且**释放穷尽**——本组件的释放由 `visible` 驱动，因此走 `watch(visible)` 的 false 分支**并另加 `onBeforeUnmount` 兜底**（父组件直接 `v-if` 掉浮层时 `visible` 不经过 `false`，少了兜底就是残留挂起计数）。owner 必须同 PR 登记进 `apps/desktop/src/overlay-view-suspension.test.js` 的接入断言。
+
+**文案键**（zh/en 成对，Gate 7 + `src/i18n/glossary.test.js` 各跑一次；插值是具名形态 `{n}` / `{provider}`）：`podcast.episode.planBlocks` / `planCodepoints` / `planVoice`，逐字文案见 §7.10.4.1。**加键的时机只能是浮层真的引用它们的那一次**——提前加就是死键，AGENTS 明令禁止为不存在的反馈路径建 locale 键。新组件若引用错误码文案，必须把路径追加进 `src/locales/podcast-error-codes.test.js` 的扫描域清单（该清单逐条 `fs.existsSync` 守卫）。
+
+**入口判据**：`CopyLibraryView.vue` 的整卡本身就是 `role="button"` + `@click="openDetail(entry)"`，本仓该文件**没有** dropdown／次级菜单先例；加「发布为播客单集」必须在卡内放独立按钮并 `@click.stop`，否则一次点击走进整卡处理、浮层永不出现（这条属「被绑定物不存在」全绿缺陷族，视觉层对 <0.1% 面积也失明）。按枚切：先 `CopyLibraryView`，`RewriteView` / `Publish` 各留一条新的未勾子项。
+
+**本片合并前必须闭合的验收清单**：① 浮层与入口同 PR（§7.10.6）；② 三把 plan* 键随浮层落地并进扫描域；③ overlay owner 登记 + 释放穷尽；④ QM-1 打包三层 stderr 判据（第③层必须是「读到的空」，且存活单独断言）；⑤ QM-6 双模型外部评审或用户逐片点名豁免；⑥ PRD §15.2 该页状态列改「已落」（tasks 5.1b）。
+
 ### 7.10.4 显示项
 
 | 位置 | 显示内容 | 数据来源 |
