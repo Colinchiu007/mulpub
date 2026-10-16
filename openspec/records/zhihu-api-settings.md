@@ -3,9 +3,6 @@ record: zhihu-api-settings
 task: 知乎 Access Secret 设置化（设置页新增「知乎 API」分区 + 按用户隔离 + safeStorage 加密 + 旧版明文兼容迁移）
 date: 2026-10-15
 branch: zhihu-api-settings
-sync_status: PENDING
-sync_reason: PR 尚未合并（记录随代码 PR 落地，合并后回填 merge SHA）
-sync_backfill_owner: zhihu-api-settings 会话（回填 PR）
 ---
 
 ## 本次执行记录：知乎 API 凭据设置化（zhihu-api-settings，2026-10-15）
@@ -28,9 +25,9 @@ sync_backfill_owner: zhihu-api-settings 会话（回填 PR）
 | 门禁（CCG） | PASS（含一次被拦） | CCG 判定层：本次改动 2253 行 > 200 ⇒ `mode=dual`。`verify-security` **首轮拦下本次 amend**：报 `publish-tab-state-keepalive.test.js`/`publish-draft-keepalive.test.js` 各 1 处高危 —— 根因是这两个文件里**既有的** `document.body.innerHTML = ''`（XSS sink 形态）。处置：两处改为等价的 `document.body.replaceChildren()`（jsdom 实测支持、5 例仍绿），既解阻又消掉一笔真实存量债，**不用** `SKIP_CCG_GATE=1` |
 | QM-6 双模型评审 | PASS（发现 2 MAJOR + 3 MINOR，已修 4 条） | 跨家族双模型在真实 worktree 上对 PR diff 做只读审查：`claude` 2.1.296 + `opencode` 1.18.34（后端体检 `deep-review.sh --check-deps` 通过）。**claude 收敛出 5 条**（见下），**opencode 未在合理时间内收敛**（详见「未闭合」）。发现与处置见「QM-6 评审取证」小节 |
 
-| 远程同步 | PENDING | PR 未开（记录先落地）。合并后本次**同一次提交**改写为 `PASS` + merge SHA 并删除 frontmatter `sync_*` 三字段 |
+| 远程同步 | PASS | PR **#3656 已合并**：merge commit `abec241c275618a28090bb177b7c6348f2e651d8`（2026-10-16T17:01:53+08:00，`git log origin/main --grep='(#3656)$'` 取证）；远端分支 `zhihu-api-settings` 已删（`git ls-remote --heads` 0 行）；45/45 文件经 `git diff <merge-base> <merge-commit> --name-only` 核对全部进入主干。**回填与销账同一次提交**（本 PR）|
 
-- 保留门禁：变更类型与隔离 ✅ | 行尾对账 ✅（`git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径各自 20 行，一致）| 品牌残留 随 CI | 文档同步 ✅（PRD + openspec change + 上游 PRD 指针 + 主 PRD 索引）| 执行记录 ✅ | 远程同步 PENDING
+- 保留门禁：变更类型与隔离 ✅ | 行尾对账 ✅（`git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径各自 20 行，一致）| 品牌残留 随 CI | 文档同步 ✅（PRD + openspec change + 上游 PRD 指针 + 主 PRD 索引）| 执行记录 ✅ | 远程同步 PASS
 
 ### 方法学教训（本次实测，值得复用）
 
