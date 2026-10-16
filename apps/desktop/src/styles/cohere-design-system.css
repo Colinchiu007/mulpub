@@ -5,21 +5,14 @@
    ============================================ */
 
 /* ── 自包含中文字体（得意黑 SmileySans）──────────────────────────────────────
-   定位（2026-10-16 确立，与 font-resolver 同一判据）：
-     · **创作内容**（视频字幕 / 水印 / 封面 / 占位图）**必须**用它 —— 那几条链走
-       ffmpeg drawtext 与 sharp/librsvg，不读本文件的 @font-face，靠 font-resolver
-       注入 fontfile / FONTCONFIG_FILE。见 electron/services/font-resolver.js。
-     · **应用界面 UI** 只把它当兜底：界面走 Chromium，系统有中文字体时优先用系统字体
-       （雅黑/PingFang 的非斜体字形更适合长时间阅读；得意黑是 -8° 斜体设计）。
-       系统无中文字体时（精简/英文版 Windows、headless Linux）才回落到本条 @font-face。
-   历史：原为 Noto Sans CJK SC + Noto Color Emoji（PR #1361 引入），
-        2026-09-04 被一次「normalize line endings + accumulated workspace changes」
-        杂项提交连同字体文件一起删掉，只剩这两条 @font-face 指向不存在的文件（404）。
-        现改为指向真实存在的得意黑。 */
+   创作内容（字幕/水印/封面/占位图）**必须**用它 —— 那几条链走 ffmpeg drawtext 与
+   sharp/librsvg，不读本文件的 @font-face，靠 font-resolver 注入 fontfile。界面只当
+   兜底：Chromium 下系统有中文字体时优先系统字体（得意黑是 -8° 斜体设计），只有精简 /
+   英文版 Windows、headless Linux 才回落到本条。历史：原为 Noto Sans CJK SC（PR #1361），
+   被 2026-09-04 的「行尾归一 + workspace 杂项」提交连同字体一起删掉（@font-face 404）；
+   现改为指向真实存在的得意黑。 */
 
-/* 开发环境：Vite 从 src/public/fonts/ 拷贝到 dist/fonts/，访问路径 /fonts/xxx
-   生产环境：extraResources 把 dist/fonts 复制到 <resourcesPath>/fonts/，
-            界面经 app:// 加载，同源路径仍可解析 */
+/* 开发：Vite 产 dist/fonts/ → 访问 /fonts/xxx；生产：extraResources 复制到 <resourcesPath>/fonts/ */
 @font-face {
   font-family: 'Smiley Sans';
   src: local('Smiley Sans'),

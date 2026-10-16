@@ -93,7 +93,7 @@ SIL OFL 1.1，允许自由使用/修改/再分发/商用，**硬性要求「每�
 | 中文 | 中文 | `bytes=765` ❌ 豆腐块 |
 
 判据：**目录名或文件名任一含非 ASCII 字符即失败**，且 `rc=0`、stderr 干净、不抛异常。
-风险面：用户把应用装到 `D:\软件\社媒管家\`，或 Windows 用户名含中文导致 `%TEMP%` 路径含中文 —— 自包含字体形同虚设。
+风险面：用户把应用装到 `<中文安装目录>\`，或 Windows 用户名含中文导致 `%TEMP%` 路径含中文 —— 自包含字体形同虚设。
 
 **方案**：`font-resolver` 统一把字体复制到 **ASCII 安全路径**（`os.tmpdir()/mp-fonts/SmileySans-Oblique.otf`），并把副本路径交给 ffmpeg。副本名与目录名均为模块级常量（纯 ASCII），命中已存在副本时跳过拷贝（幂等，1.9 MB 不重复写）。
 
@@ -140,7 +140,7 @@ return path.dirname(process.resourcesPath)   // <installRoot>/resources → <ins
 
 | | `packagedFontCandidates()` | `resolveContentCjkFont()` |
 | --- | --- | --- |
-| 修复前 | `<win-unpacked>/fonts/...` `exists=false`<br>`<win-unpacked>/src/public/fonts/...` `exists=false` | `{"fontFile":"C:\\Windows\\Fonts\\msyh.ttc","source":"system"}` |
+| 修复前 | `<win-unpacked>/fonts/...` `exists=false`<br>`<win-unpacked>/src/public/fonts/...` `exists=false` | `{"fontFile":"<系统字体路径>","source":"system"}` |
 | 修复后 | `<win-unpacked>/resources/fonts/...` `exists=true` | `{"fontFile":"...\\mp-fonts\\SmileySans-Oblique.otf","source":"bundled"}` |
 
 **即：安装后的应用永远不会使用自带得意黑**，无 CJK 字体的机器上照样豆腐块 ——
@@ -201,10 +201,10 @@ function packagedFontCandidates () {
   dirs = []
   if fontDir 存在且为目录且 ASCII 安全 ⇒ dirs.push(fontDir)
   if dirs 为空 ⇒ return { injected: false }（不伪造配置文件）
-  dirs.unshift(系统字体目录)   // C:/Windows/Fonts 或 /usr/share/fonts
+  dirs.unshift(系统字体目录)   // <系统字体目录>
   写 <tmpRoot>/mp-fonts/fonts.conf：
     <fontconfig>
-      <dir prefix="cwd">C:/Windows/Fonts</dir>
+      <dir prefix="cwd"><系统字体目录></dir>
       <dir prefix="cwd"><fontDir，正斜杠></dir>
       <cachedir><tmpRoot>/mp-fonts/fontconfig-cache</cachedir>
     </fontconfig>

@@ -28,6 +28,33 @@ const path = require('path')
 /** ASCII 副本目录名（os.tmpdir() 下）—— 必须是纯 ASCII，这是 ffmpeg 兼容性的前提 */
 const ASCII_SAFE_DIR_NAME = 'mp-fonts'
 
+/**
+ * 字体回落**出声器**（QM-6 评审 i2，2026-10-16）：解析不到字体时中文会静默变豆腐块，
+ * 必须可观测。放在这里让三条链共用；logger 不可用时只吞 logger 的异常，
+ * 绝不把调用方的渲染链弄崩 —— 调用语义是「尽力出声、不阻断生成」。
+ */
+function warnFontFallback (detail) {
+  try {
+    require('./logger').warn('[font] 中文回退为无 fontfile 渲染，中文可能显示为豆腐块：' + detail)
+  } catch (_) { /* logger 不可用不应影响生成 */ }
+}
+
+/**
+ * 生成 drawtext 的 `:fontfile='...'` 片段（无可用字体时返回 `''` **并出声**）。
+ * 把「解析 → 转义 → 回落出声」收在一处：各链自抄必然漂移，且调用方（如
+ * asset-generator）是「点名还账」的零增长文件，不宜承载这块逻辑。
+ */
+function buildDrawtextFontOption () {
+  try {
+    const { fontFile, source } = resolveContentCjkFont()
+    if (fontFile) return ":fontfile='" + fontFile.replace(/\\+/g, '/').replace(/:/g, '\\:') + "'"
+    warnFontFallback('未解析到可用中文字体（source=' + source + '）')
+  } catch (e) {
+    warnFontFallback('字体解析抛错：' + (e && e.message ? e.message : String(e)))
+  }
+  return ''
+}
+
 /** ASCII 副本文件名 —— 与源文件名解耦，源文件名含中文也不影响 */
 const BUNDLED_FONT_BASENAME = 'SmileySans-Oblique.otf'
 
@@ -298,6 +325,8 @@ function buildFontconfigForSharp (opts = {}) {
 
 module.exports = {
   resolveContentCjkFont,
+  warnFontFallback,
+  buildDrawtextFontOption,
   isAsciiSafe,
   isFfmpegFontPathSafe,
   ASCII_SAFE_DIR_NAME,

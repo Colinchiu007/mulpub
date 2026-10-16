@@ -178,7 +178,7 @@ CCG 判定器（`scripts/ccg-review-decider.js`）的深度审查欠账机制本
 3. **测试断言是条件式的**：`if (r.fontFile && r.source === 'bundled') { … }` —— `source` 不是 `bundled` 时**整段静默跳过**。这类「条件式断言」等价于「只在功能正常时才检查功能是否正常」。
 4. **测试环境的 cwd 恰好掩盖**：从 `apps/desktop` 作 cwd 跑 vitest 时，dev 候选 `<cwd>/src/public/fonts/` **真实存在** ⇒ 测试里恒为 `bundled`。缺陷**只在打包态显形**，而打包态没有测试。
 
-**抓住它的动作只有一个**：**打完包之后，拿真实产物去跑一遍「解析链」**，而不是只看构建日志与 stderr。取证方式是把 `process.resourcesPath` 覆写成真实产物的 `resources` 目录，然后调 `resolveContentCjkFont()` 并**打印它的返回值**——修复前 `{"fontFile":"C:\\Windows\\Fonts\\msyh.ttc","source":"system"}`，一眼看出在回落系统字体。
+**抓住它的动作只有一个**：**打完包之后，拿真实产物去跑一遍「解析链」**，而不是只看构建日志与 stderr。取证方式是把 `process.resourcesPath` 覆写成真实产物的 `resources` 目录，然后调 `resolveContentCjkFont()` 并**打印它的返回值**——修复前 `{"fontFile":"<系统字体路径>","source":"system"}`，一眼看出在回落系统字体。
 
 **可推广的四条**：
 
@@ -190,7 +190,7 @@ CCG 判定器（`scripts/ccg-review-decider.js`）的深度审查欠账机制本
 **顺带记录一条判据自检**：本轮补完锁后做了定向变异 M8（把落点改回 `dirname(resourcesPath)` 的事故写法）验证锁有牙 —— 正控 GREEN、变异 CAUGHT（2 条指名用例变红）、还原逐字节 IDENTICAL。**「补了锁」不等于「锁有效」，必须用一次定向变异证明它能红**；否则只是把盲区从「没断言」换成「有断言但不报错」，症状完全一样。
 ## ffmpeg `fontfile=` 对非 ASCII 路径静默失败；sharp 加载不了未注册字体；「看起来对」是假绿（cjk-font-selfcontained，2026-10-16）
 
-1. **⛔ ffmpeg `drawtext` 的 `fontfile=` 只要目录名或文件名含非 ASCII 字符就静默失败** —— 渲染成豆腐块，`rc=0`、stderr 干净、不抛异常。四组隔离对照把变量钉死：ASCII 目录 + ASCII 文件名 `bytes=5495`（有字形），其余三组（ASCII 目录 + 中文名 / 中文目录 + ASCII 名 / 全中文）一律 `bytes=765`。所以「把自带字体路径交给 ffmpeg」在用户把应用装到 `D:\软件\社媒管家\` 时会**静默退化**，而验收截图看上去只是「字体不太对」。正解：先复制到 ASCII 安全路径再喂给 ffmpeg，副本名用模块级常量（幂等，命中即跳过 1.9 MB 拷贝）。可推广判据：**凡把路径交给 native 工具（ffmpeg / fontconfig / librsvg）当参数，先问「这个路径可能含中文吗」**。
+1. **⛔ ffmpeg `drawtext` 的 `fontfile=` 只要目录名或文件名含非 ASCII 字符就静默失败** —— 渲染成豆腐块，`rc=0`、stderr 干净、不抛异常。四组隔离对照把变量钉死：ASCII 目录 + ASCII 文件名 `bytes=5495`（有字形），其余三组（ASCII 目录 + 中文名 / 中文目录 + ASCII 名 / 全中文）一律 `bytes=765`。所以「把自带字体路径交给 ffmpeg」在用户把应用装到 `<中文安装目录>\` 时会**静默退化**，而验收截图看上去只是「字体不太对」。正解：先复制到 ASCII 安全路径再喂给 ffmpeg，副本名用模块级常量（幂等，命中即跳过 1.9 MB 拷贝）。可推广判据：**凡把路径交给 native 工具（ffmpeg / fontconfig / librsvg）当参数，先问「这个路径可能含中文吗」**。
 
 2. **⛔ sharp 的 `font` 选项加载不了未注册到 fontconfig 的字体，且 SVG 经 sharp 栅格化不读 `@font-face`**。三条被否证的路（与对照逐字节相同或同形）：`font` 传字体文件路径、`font` 传字体目录、CSS `@font-face` + `url()`。唯一可行：**给渲染子进程注入 `FONTCONFIG_FILE`** —— 该变量由 libfontconfig 在**进程启动时**读取，同进程改 `process.env` 后再调 sharp 完全无效（单例已用旧环境初始化）。两个静默失效点：`<dir>` 必须是**目录**（传单个 `.ttf`/`.otf` 文件路径会被当目录处理）、路径必须转**正斜杠**（反斜杠触发 `ambiguous path` 警告并跳过该目录）。同时必须保留系统字体目录，否则西文一起变方块。
 

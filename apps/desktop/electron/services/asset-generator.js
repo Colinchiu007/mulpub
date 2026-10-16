@@ -28,19 +28,6 @@ const { ProviderError, ERROR_CODES } = require('./adapters/_base/provider-error'
 
 const execFileAsync = promisify(execFile)
 
-/**
- * 字体回落出声器（QM-6 评审 i2，2026-10-16）。
- *
- * 为什么单独抽一个函数：占位图的字体回落必须**可观测**，但 logger 本身不可用时
- * 也绝不能把「生成占位图」这条链弄崩 —— 所以这里吞掉 logger 自身的异常，
- * 只保证「尽力出声」。调用方语义：不阻断生成。
- */
-function warnFontFallback (detail) {
-  try {
-    require('./logger').warn('[asset-generator] 中文占位图回退为无 fontfile 渲染，中文可能显示为豆腐块：' + detail)
-  } catch (_) { /* logger 不可用不应影响生成 */ }
-}
-
 /** 下载远程视频到本地（支持 http/https 与重定向；失败清理半成品文件） */
 function downloadVideoFile (url, dest, maxRedirects = 5) {
   return new Promise((resolve, reject) => {
@@ -569,31 +556,8 @@ class AssetGenerator {
     }
     const bgColor = styleColors[opts?.style] || '0x1a1a2e'
 
-    // 截取前 30 个字符作为图片文字
     const displayText = escapeDrawtextText((prompt || '').slice(0, 30))
-    // 中文占位图必须显式指定 CJK fontfile：Windows 静态 ffmpeg 的 drawtext 默认字体
-    // 无中文字形，不注入就是豆腐块（2026-10-09 快手足图文 tofu 实锤，
-    // 见 ipc-handlers/publish.test.js 的 img_9400.png 记录）。
-    // 路径由 font-resolver 统一解析并转到 ASCII 安全副本 —— ffmpeg 对非 ASCII 路径
-    // 静默失败（2026-10-16 实测：豆腐块、rc=0、stderr 干净）。
-    let fontOption = ''
-    try {
-      const { resolveContentCjkFont } = require('./font-resolver')
-      const { fontFile, source } = resolveContentCjkFont()
-      if (fontFile) {
-        fontOption = ":fontfile='" + fontFile.replace(/\\+/g, '/').replace(/:/g, '\\:') + "'"
-      } else {
-        // ⛔ 不得静默（QM-6 评审 i2，2026-10-16）：解析不到字体时会退化成无 fontfile 的
-        // drawtext，中文直接成豆腐块。原实现此处**一句话都不说**（`catch (_) {}`），
-        // 用户拿到豆腐块占位图却无从归因 —— 与「打包落点写错导致 source=system」同属
-        // 静默降级。仍不阻断生成（西文 prompt 照常），但必须出声。
-        warnFontFallback('未解析到可用中文字体（source=' + source + '）')
-      }
-    } catch (e) {
-      // 字体解析失败不该阻断占位图生成（西文 prompt 仍可正常渲染），但必须出声
-      warnFontFallback('字体解析抛错：' + (e && e.message ? e.message : String(e)))
-      fontOption = ''
-    }
+    const fontOption = require('./font-resolver').buildDrawtextFontOption() // 须显式注入 CJK fontfile，否则中文豆腐块
 
     const args = [
       '-y',
