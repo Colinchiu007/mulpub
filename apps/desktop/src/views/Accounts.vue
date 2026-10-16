@@ -327,8 +327,11 @@
       :visible="showProxyDialog"
       :account="proxyAccount"
       :busy="savingProxy"
+      :loading="proxyLoading"
+      :load-error="proxyLoadError"
       @save="saveProxy"
       @clear="clearProxy"
+      @retry="loadProxyForDialog"
       @close="closeProxyDialog"
     />
 
@@ -367,6 +370,7 @@ import AccountProxyDialog from '@/features/accounts/components/AccountProxyDialo
 import RiskSuspendedBanner from '@/features/accounts/components/RiskSuspendedBanner.vue'
 import LoadMoreRow from '@/components/LoadMoreRow.vue'
 import { useAccountActions } from '@/composables/useAccountActions'
+import { useAccountProxyDialog } from '@/composables/useAccountProxyDialog'
 import { accountBatchCheckLogin } from '@/api/publisher'
 import { getApi } from '@/api/electron-bridge'
 import { useAccountEvents } from '@/composables/useAccountEvents'
@@ -411,11 +415,16 @@ const router = useRouter()
 const { t, te } = useI18n()
 const { notifyError, notifySuccess, notifyWarning, notifyInfo, notifyConfirm } = useNotify()
 const accountActions = useAccountActions()
+// 代理设置弹窗的状态与流程（按需读取 + 五个态）下沉到 composable：
+// 本文件是行数门禁点名还账的超长文件，零增长容差，新逻辑不再堆在视图里。
+const {
+  showProxyDialog, proxyAccount, savingProxy, proxyLoading, proxyLoadError,
+  openProxyDialog, loadProxyForDialog, closeProxyDialog, saveProxy, clearProxy,
+} = useAccountProxyDialog({
+  accountActions, refresh, notifySuccess, notifyError, formatUserError, t,
+})
 const loading = ref(false)
 const showAddDialog = ref(false)
-const showProxyDialog = ref(false)
-const proxyAccount = ref(null)
-const savingProxy = ref(false)
 const adding = ref(false)
 // completingLogin 已移除（NavBar 保存按钮替代）
 const showAuthorizationGuide = ref(false)
@@ -920,54 +929,6 @@ function openPlatform (account) {
   if (url) window.open(url, '_blank')
 }
 
-function openProxyDialog (account) {
-  proxyAccount.value = account
-  showProxyDialog.value = true
-}
-
-function closeProxyDialog () {
-  if (savingProxy.value) return
-  showProxyDialog.value = false
-  proxyAccount.value = null
-}
-
-async function saveProxy (proxy) {
-  if (!proxyAccount.value) return
-  savingProxy.value = true
-  try {
-    const result = await accountActions.setProxy(proxyAccount.value, proxy)
-    if (result?.code !== 0) {
-      notifyError('accountsPage.saveProxyFailed', { message: formatUserError(result, { fallback: t('accountsPage.saveProxyFailed') }).message })
-      return
-    }
-    notifySuccess('accountsPage.proxySaved')
-    await refresh()
-    closeProxyDialog()
-  } catch (error) {
-    notifyError('accountsPage.saveProxyFailed', { message: formatUserError(error, { fallback: t('accountsPage.saveProxyFailed') }).message })
-  } finally {
-    savingProxy.value = false
-  }
-}
-
-async function clearProxy () {
-  if (!proxyAccount.value) return
-  savingProxy.value = true
-  try {
-    const result = await accountActions.setProxy(proxyAccount.value, null)
-    if (result?.code !== 0) {
-      notifyError('accountsPage.clearProxyFailed', { message: formatUserError(result, { fallback: t('accountsPage.clearProxyFailed') }).message })
-      return
-    }
-    notifySuccess('accountsPage.proxyCleared')
-    await refresh()
-    closeProxyDialog()
-  } catch (error) {
-    notifyError('accountsPage.clearProxyFailed', { message: formatUserError(error, { fallback: t('accountsPage.clearProxyFailed') }).message })
-  } finally {
-    savingProxy.value = false
-  }
-}
 
 async function checkLogin (account) {
   const id = account?.id

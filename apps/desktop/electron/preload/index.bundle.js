@@ -352,6 +352,9 @@ var require_account = __commonJS({
         accountGetDefault: (platform) => ipcRenderer2.invoke("store:get-default-account", platform),
         accountUpdate: (id, fields) => ipcRenderer2.invoke("store:update-account", { id, fields }),
         accountSetProxy: (accountId, platform, proxy) => ipcRenderer2.invoke("account:set-proxy", { accountId, platform, proxy }),
+        // 按需读取单个账号的代理状态（用户打开代理设置弹窗时才调用）。
+        // 列表接口不再返回 proxy —— 那正是"每次进账号页做 N 次整份凭证解密"的来源。
+        accountGetProxy: (accountId, platform) => ipcRenderer2.invoke("account:get-proxy", { accountId, platform }),
         accountSetActive: (accountId, platform, isActive) => ipcRenderer2.invoke("account:set-active", { accountId, platform, isActive }),
         accountRename: (accountId, platform, name) => ipcRenderer2.invoke("account:rename", { accountId, platform, name }),
         // 账号云镜像同步 API

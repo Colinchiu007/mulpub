@@ -44,10 +44,23 @@ const CARRIER_RE = /^(?:openspec\/records\/[^_][^/]*\.md|\.quality-gates\.md|scr
 // 审计产物：#3396 的 pre-commit 会在每次提交后把本次产生的判定记录（.ccg/reviews/<pre-commit HEAD sha>.json）
 // 自动 stage 进同一个提交。它们不承载门禁语义、不是功能改动，却会让「在任何跑过门禁的 worktree 里做
 // 纯回填」被④判成夹带新增（实测 PR #3432：本地 enforce 红，而 CI 的 Gate Result 因 docs-only 通道照过）。
-// 放宽只发生在一个维度上：状态必须是 A，且文件名必须精确匹配 .ccg/reviews/<40 位小写十六进制>.json。
+// 放宽只发生在一个维度上：状态必须是 A，且文件名必须精确匹配 .ccg/reviews/<小写十六进制>.json。
 // M/D、短 sha、大写、多一段目录或后缀、别的目录、任何非载体文件 —— 一律仍不算纯回填；
 // 且 C2 收紧（至少一篇记录 M）不因这些新增而被绕过。
-const AUDIT_ARTIFACT_RE = /^\.ccg\/reviews\/[0-9a-f]{40}\.json$/
+//
+// ★ 2026-10-16（ccg-record-content-addressing）：位宽由「只认 40」放宽为「**40 或 64**」。
+//   40 位 = 历史形态（父 sha）；64 位 = 新形态（内容寻址键 stagedDiffHash，sha256）。
+//   两种必须同时认：只认 64 会让全部历史记录被判夹带；而**不加约束**地放宽成任意 .json
+//   会让 `scripts/evil.js` 一类真·功能新增借道这条白名单（既有负例锁见
+//   check-pr-exec-record.test.js 的「审计产物白名单不得被形态邻近的写法穿过」）。
+//
+// ★★ 第三轮 i2 修正：必须**同时认 alt 形态**。
+//   同名记录已有实质内容（findings 非空或已闭环）时，判定器把本次判定另存为
+//   `<64hex>-again-<40sha>-<ISO时间戳>.json`（见 ccg-review-decider.js 的拒写分支）。
+//   首版**没认这个形态** ⇒ 钩子若把它 stage 进同一次提交，出路④判「非纯回填」而假红；
+//   不 stage 则审查结论与门禁脱钩。属「声称同源的三处漏了第四处」。
+//   形态收得很紧：后缀必须形如 `-again-<40hex>_<14位T时间戳>`，且必须带 T 与 Z。
+const AUDIT_ARTIFACT_RE = /^\.ccg\/reviews\/(?:[0-9a-f]{40}|[0-9a-f]{64})(?:-again-[0-9a-f]{40}-\d{8}T\d{6}(?:\.\d{1,3})?Z)?\.json$/
 const DEFAULT_THRESHOLD = 3
 
 // 出路④的判据核心（独立成纯函数以便直接单测，QM-6 前端 I1）：变更集非空、每条都是载体的 M

@@ -502,69 +502,55 @@ async function listAccounts () {
     log.warn('AccountManager', '清理孤儿凭据失败: ' + (e && e.message ? e.message : String(e)))
   }
 
-  // ── proxy 状态：一次批量并行读取，而不是逐账号同步解密 ──
-  // 只对「id 与 platform 都合法」的账号查 proxy；其余账号原样返回
-  // （与改造前 isSafePathSegment 早退的语义一致）。
-  const { map: proxyById, degraded } = await loadProxyStatusMap(accounts)
-
-  return accounts.map(account => {
-    const accountId = account?.id || account?.accountId || account?.account_id
-    const platform = account?.platform
-    if (!isSafePathSegment(accountId) || !isSafePathSegment(platform)) return account
-    const proxy = proxyById[accountId]
-    if (proxy) return { ...account, proxy }
-    // 批量入口正常跑完但漏了这个账号 → 单账号兜底（极少发生，付得起一次同步解密）。
-    // 批量入口整体降级 → 直接认定未配置代理，**不走单账号兜底**：那会退化成
-    // N 次同步 PBKDF2 串行，正是本 Bug 的原始形态。
-    if (degraded) return { ...account, proxy: { configured: false } }
-    return { ...account, proxy: safeAccountProxyStatus(accountId, platform) }
-  })
+  // ── 列表路径不再附加 proxy 状态（2026-10-15，nav-perf-ux）──
+  // 账号卡片上的代理行与列表徽标/tooltip 都已移除，账号页**不再需要代理数据**，
+  // 因此这里直接返回后端账号，一次 PBKDF2 也不跑。
+  //
+  // 为什么不是"再优化一次并行度"：#3591 把 N 次同步 PBKDF2 改成异步并行，wall-time
+  // 降了 3.5–3.7x，但**总 CPU 一字未减**，而且 `listAccounts()` 每次进账号页都跑 ⇒
+  // 复发性成本。真正的修法是让列表根本不付这份钱——代理状态只在用户**打开代理设置
+  // 弹窗**时按需读取（IPC `account:get-proxy`）。
+  //
+  // 代价（如实记录）：列表页不再显示"哪些账号配了代理"。这是产品决策：代理状态是
+  // 详情级信息，不值得为它给每次进页加 N 次整份凭证解密。
+  return accounts
 }
 
 /**
- * 批量取 proxy 状态表。
+ * 按需读取**单个**账号的代理状态（用户打开代理设置弹窗时才调用）。
  *
- * 返回值带一个 `degraded` 标记，调用方据此区分两种完全不同的情况：
- *  - `degraded: false` —— 批量入口正常跑完，表里没有的账号是「这一轮没覆盖到」，
- *    调用方可以对缺的账号走单账号兜底（数量极少，付得起）。
- *  - `degraded: true`  —— 批量入口整体失败（safeStorage 失效 / 抛错）。
- *    此时**绝不能**对每个账号走单账号同步兜底：那正好退化成 N 次同步 PBKDF2
- *    串行，也就是本 Bug 的原始形态（实测 10 账号 1.4s）。整体降级为「都没配代理」，
- *    账号页首帧该多快还是多快。
+ * 为什么在主进程做：代理配置存在加密凭证文件里（`setAccountProxy` 把它写进
+ * cookies/localStorage 同一份 payload），读取必须解密，渲染端没有解密能力。
  *
- * @param {Array<object>} accounts 后端返回的账号数组
- * @returns {Promise<{ map: Record<string, object>, degraded: boolean }>}
+ * 为什么走 `proxyStatusReader`（异步）而不是本地 `getAccountProxyStatus`（同步）：
+ * 同步版内部是 `pbkdf2Sync`（10 万次迭代，实测 ~125ms），会**阻塞主进程事件循环**、
+ * 拖慢同刻所有 IPC。异步版把密钥派生丢进 libuv 线程池，弹窗打开期间界面不卡。
+ * 两者读同一份密文、同一套 KDF 参数，结论逐字段一致。
+ *
+ * 返回契约（与 `getAccountProxyStatus` 完全一致，避免两条路径给出不同答案）：
+ *  - 账号不存在 / 未配置代理 → `{ configured: false }`
+ *  - 密文损坏 / 主密钥不可用 → `{ configured: false }`（旁路降级，不抛给弹窗）
+ *  - 代理字段存在但格式非法 → `{ configured: true, invalid: true }`
+ *
+ * @param {string} accountId 账号 id（必须能安全用作路径片段）
+ * @param {string} [platform] 仅作入参合法性校验；读取本身只需要 accountId
+ * @param {{ ownerSubject?: string }} [options]
+ * @returns {Promise<{configured: boolean, type?: string, hostMasked?: string, port?: number, hasAuthentication?: boolean, invalid?: boolean}>}
  */
-async function loadProxyStatusMap (accounts) {
-  const empty = { map: {}, degraded: true }
+async function getAccountProxyStatusLazy (accountId, platform, options = {}) {
+  if (!isSafePathSegment(accountId)) return { configured: false }
+  if (platform !== undefined && !isSafePathSegment(platform)) return { configured: false }
   try {
-    const ownerSubject = resolveOwnerSubject(undefined)
+    const ownerSubject = resolveOwnerSubject(options.ownerSubject)
     const userDataDir = getUserDataDir()
-    const ids = accounts
-      .map(a => a?.id || a?.accountId || a?.account_id)
-      .filter(id => isSafePathSegment(id))
-    if (typeof proxyStatusReader.loadProxyStatuses !== 'function' || ids.length === 0) return empty
-    const options = ownerSubject === undefined ? {} : { ownerSubject }
-    const map = await proxyStatusReader.loadProxyStatuses(ids, userDataDir, options)
-    if (!map || typeof map !== 'object') return empty
-    return { map, degraded: false }
+    const opts = ownerSubject === undefined ? {} : { ownerSubject }
+    if (typeof proxyStatusReader.loadProxyStatuses !== 'function') return { configured: false }
+    const map = await proxyStatusReader.loadProxyStatuses([accountId], userDataDir, opts)
+    const status = map && map[accountId]
+    return status && typeof status === 'object' ? status : { configured: false }
   } catch (e) {
-    log.warn('AccountManager', '批量读取 proxy 状态失败，整体降级为未配置代理: ' + (e && e.message ? e.message : String(e)))
-    return empty
-  }
-}
-
-/** 单账号 proxy 状态的安全包装（异常时降级为未配置，不抛给账号页首帧）
- *
- * 注意：必须经 module.exports 引用调用，不能在函数体内直接调本地
- * `getAccountProxyStatus`。本仓已有同族教训（见文件头 26-29 行注释）：
- * require 期解构成本地绑定会让 vi.spyOn 拦不到、测试静默走真实实现。
- * 经导出对象调用，测试才能把这条兜底路径换成桩并断言它真的被走到。
- */
-function safeAccountProxyStatus (accountId, platform) {
-  try {
-    return module.exports.getAccountProxyStatus(accountId, platform)
-  } catch (_) {
+    // 旁路失败不该让「代理设置」弹窗打不开：如实降级为「当前未配置」，用户仍可重新保存
+    log.warn('AccountManager', '按需读取代理状态失败，降级为未配置: ' + (e && e.message ? e.message : String(e)))
     return { configured: false }
   }
 }
@@ -583,7 +569,25 @@ function safeAccountProxyStatus (accountId, platform) {
  * @param {string} accountId - 账号 ID
  * @returns {Promise<{valid: boolean|undefined, code?: string, reason?: string, error?: string}>}
  */
-async function checkLoginStatus (platform, accountId) {
+// 登录态判定的两个集合（2026-10-16 策略翻转；详见 checkLoginStatus 内注释与
+// 01-docs/BUGFIX-LOGIN-CHECK-HTTP-ONLY-2026-10-16.md）。
+// 放在模块级而非函数内，是为了让测试能注入「允许集」：默认空集本身是产品不变量
+// （由 account-manager-http-only-policy.test.js 的结构锁守），但被它门控的子行为
+// （数组选择器逐个尝试、仪表盘域名兜底）仍必须可测，否则会退化成无人覆盖的死代码。
+const DOM_LOGIN_CHECK_ALLOWED_PLATFORMS = new Set([])
+const RENDER_CRASH_PRONE_OPEN_PLATFORMS = new Set(['toutiao', 'wechat_mp', 'baijiahao', 'zhihu', 'kuaishou'])
+Object.freeze(DOM_LOGIN_CHECK_ALLOWED_PLATFORMS)
+Object.freeze(RENDER_CRASH_PRONE_OPEN_PLATFORMS)
+
+async function checkLoginStatus (platform, accountId, options = {}) {
+  // 测试注入缝（2026-10-16，外部复核 i1/i3 的整改）：允许集**不再**以可变全局 +
+  // `_internals` 导出的方式暴露——那条路要求「调用方记得删 require 缓存」才能隔离，
+  // 且给生产代码留了无留痕改判定策略的口子。现在改为**显式参数**：不传就永远走模块
+  // 常量（空集 = 默认不开窗）。生产调用点**不得**传 `domLoginCheckAllowed`
+  // （由 account-manager-http-only-policy.test.js 的静态锁拦截）。
+  const domLoginCheckAllowed = Object.prototype.hasOwnProperty.call(options, 'domLoginCheckAllowed')
+    ? options.domLoginCheckAllowed
+    : DOM_LOGIN_CHECK_ALLOWED_PLATFORMS
   if (!isSafePathSegment(platform) || !isSafePathSegment(accountId)) {
     return { valid: false, code: 'CHECK_LOGIN_INVALID_PARAMS' }
   }
@@ -708,9 +712,25 @@ async function checkLoginStatus (platform, accountId) {
     // cp.kuaishou.com 真机登录页/已登录页形态证据就不许凭空写判据，故其登录态在 HTTP
     // 判定不足时会显示「未确认」。要恢复确定性结论，先取证再按 zhihu 模式补。
     const RENDER_CRASH_PRONE_OPEN_PLATFORMS = new Set(['toutiao', 'wechat_mp', 'baijiahao', 'zhihu', 'kuaishou'])
+    //
+    //
+    // ===== 2026-10-16 策略翻转：登录态判定收敛到 HTTP 单轨（细节见 
+    // 01-docs/BUGFIX-LOGIN-CHECK-HTTP-ONLY-2026-10-16.md；此处只留契约）=====
+    // 旧写法是**枚举式**黑名单：把已知会崩的平台挑出来禁掉 ⇒ 默认值始终留在崩的那一侧，
+    // 于是按平台逐个复发（toutiao → wechat_mp → 知乎 → kuaishou，日志戛然而止 + crashpad
+    // not connected + 主进程退出 0xC0000135 ⇒ 用户视角「应用突然关闭」）。
+    // 新契约：只有显式登记在 DOM_LOGIN_CHECK_ALLOWED_PLATFORMS 的平台才允许开隐藏窗口，
+    // 该集合**默认为空**；RENDER_CRASH_PRONE_OPEN_PLATFORMS 保留为**硬否决**且**先于**
+    // 允许集判定（否决永远赢）。要放开某平台：加进允许集并在同一次提交附**真机复测证据**，
+    // 不得用环境变量临时开启。代价：更多账号显示「未确认」（不计入失效、不触发失效横幅）；
+    // 正解是给平台补 HTTP 侧能力（HTTP_CHECK_APIS[p].checkHtml），而不是重开隐藏窗口。
     if (RENDER_CRASH_PRONE_OPEN_PLATFORMS.has(platform)) {
       log.warn('AccountManager', 'checkLoginStatus: INCONCLUSIVE render-crash-prone, skip hidden browser ' + platform + ':' + accountId + ' cookies=' + cookies.length + ' lsKeys=' + lsKeys)
       return { valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE', reason: 'render-crash-prone-http-inconclusive' }
+    }
+    if (!(domLoginCheckAllowed instanceof Set ? domLoginCheckAllowed : new Set(domLoginCheckAllowed || [])).has(platform)) {
+      log.warn('AccountManager', 'checkLoginStatus: INCONCLUSIVE hidden-browser-disabled-default, skip hidden browser ' + platform + ':' + accountId + ' cookies=' + cookies.length + ' lsKeys=' + lsKeys + ' allowed=' + DOM_LOGIN_CHECK_ALLOWED_PLATFORMS.has(platform))
+      return { valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE', reason: 'hidden-browser-disabled-default' }
     }
     // 创建临时 context 加载 Cookie 进行验证
     const browser = await playwrightManager.getContext({ show: false })
@@ -1202,6 +1222,9 @@ module.exports = {
   restoreLocalStorage: sessionRestore.restoreLocalStorage,
   loadSavedCredentials,
   getAccountProxyStatus,
+  // 按需（打开代理设置弹窗时）读单账号代理状态：异步、不阻塞事件循环。
+  // 列表路径已不再附加 proxy，这是它唯一的调用方。
+  getAccountProxyStatusLazy,
   setAccountProxy,
   openSavedAccount,
   checkLocalCredentials,

@@ -903,3 +903,137 @@ test('缺陷D：损坏的 JSON 记录不抛异常（由别的门禁负责）', (
     assert.deepStrictEqual(r.reasons, [], '损坏记录不重复报，交给别的门禁')
   } finally { fs.rmSync(repo, { recursive: true, force: true }) }
 })
+
+
+// ═══════════════════════════════════════════════════════════════════
+// 记录名内容寻址（ccg-record-content-addressing，2026-10-16）
+// ═══════════════════════════════════════════════════════════════════
+
+const HEX64 = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
+const AUDIT_PATH64 = '.ccg/reviews/' + HEX64 + '.json'
+
+test('内容寻址：64 位十六进制的记录名也必须算审计产物（新方案正向锁）', () => {
+  const f = mod.isPureBackfillChangeSet
+  assert.strictEqual(f(st([['M', 'openspec/records/a.md'], ['A', AUDIT_PATH64]])), true,
+    '新命名（64 位）的审计产物 A 必须与旧的 40 位同等放行；否则每次提交都会被判夹带')
+})
+
+test('第三轮 i2：-again- alt 形态也必须算审计产物（否则 amend 提交被假判非纯回填）', () => {
+  // 判定器在「同名记录已有实质内容」时把本次判定另存为
+  // <64hex>-again-<40sha>-<ISO时间戳>.json。钩子若 stage 它，而本正则不认这个形态
+  // ⇒ 出路④判「非纯回填」而**假红**；不 stage 则审查结论与门禁脱钩。
+  const HEX40 = '0123456789abcdef0123456789abcdef01234567'
+  const alt = '.ccg/reviews/' + HEX64 + '-again-' + HEX40 + '-20261016T063000Z.json'
+  assert.strictEqual(mod.isPureBackfillChangeSet(st([['M', 'openspec/records/a.md'], ['A', alt]])), true,
+    'alt 形态必须被认，否则 amend 后的提交会被判夹带')
+  const altMs = '.ccg/reviews/' + HEX64 + '-again-' + HEX40 + '-20261016T063000.123Z.json'
+  assert.strictEqual(mod.isPureBackfillChangeSet(st([['M', 'openspec/records/a.md'], ['A', altMs]])), true,
+    '带毫秒的时间戳也必须被认')
+})
+
+test('第三轮 i2 负向：alt 形态的邻近写法仍必须被拒（放宽不得连坐）', () => {
+  const HEX40 = '0123456789abcdef0123456789abcdef01234567'
+  const near = [
+    '.ccg/reviews/' + HEX64 + '-again-' + HEX40 + '.json',
+    '.ccg/reviews/' + HEX64 + '-again-' + HEX40 + '-20261016.json',
+    '.ccg/reviews/' + HEX64 + '-again-' + HEX40 + '-20261016T0630Z.json',
+    '.ccg/reviews/' + HEX64 + '-again-' + HEX40.toUpperCase() + '-20261016T063000Z.json',
+    '.ccg/reviews/' + HEX64 + '-again.json',
+    '.ccg/reviews/' + HEX64 + '-again-x.json',
+    '.ccg/reviews/' + HEX64 + '-again-' + HEX40 + '-20261016T063000Z.json.bak',
+    '.ccg/reviews/sub/' + HEX64 + '-again-' + HEX40 + '-20261016T063000Z.json',
+  ]
+  near.forEach((p) => {
+    assert.strictEqual(mod.isPureBackfillChangeSet(st([['M', 'openspec/records/a.md'], ['A', p]])), false,
+      `alt 邻近形态必须仍判不是纯回填（${p}）`)
+  })
+})
+
+test('内容寻址：邻近形态仍必须被拒（放宽不得连坐）', () => {
+  const f = mod.isPureBackfillChangeSet
+  const near64 = [
+    ['A', '.ccg/reviews/' + HEX64.slice(0, 63) + '.json'],   // 63 位
+    ['A', '.ccg/reviews/' + HEX64 + '0.json'],               // 65 位
+    ['A', '.ccg/reviews/' + HEX64.toUpperCase() + '.json'],  // 大写
+    ['A', '.ccg/reviews/' + HEX64 + '.json.bak'],            // 换后缀
+    ['A', '.ccg/reviews/sub/' + HEX64 + '.json'],            // 子目录
+    ['A', '.ccg/' + HEX64 + '.json'],                        // 少一层目录
+    ['M', AUDIT_PATH64],                                     // 改既有（不是新增）
+    ['D', AUDIT_PATH64],                                     // 删他人记录
+  ]
+  near64.forEach((e) => {
+    assert.strictEqual(f(st([['M', 'openspec/records/a.md'], e])), false,
+      `邻近形态必须仍判不是纯回填（${e[0]} ${e[1]}）`)
+  })
+})
+
+test('fail-open 反向锁：64 位命名的 dual+pending 记录仍必须判欠账', () => {
+  // 这是本方案最大的风险：若 AUDIT_ARTIFACT_RE 放宽后**没接进**欠账检查，
+  // 新命名的记录会对门禁隐形 —— 门禁从「看得见但撞名」退化成「完全看不见」。
+  const repo = withReviewRecords({
+    [HEX64 + '.json']: { mode: 'dual', deepReview: { required: true, status: 'pending', performedBy: null } },
+  })
+  try {
+    const r = mod.evaluateDeepReviewDebt(st([['A', '.ccg/reviews/' + HEX64 + '.json']]), repo)
+    assert.strictEqual(r.checked, 1, '新命名记录必须进入检查范围，否则是 fail-open')
+    assert.strictEqual(r.reasons.length, 1, `新命名的未闭环 dual 记录必须报欠账，实际 ${r.reasons.length}`)
+    assert.match(r.reasons[0], /深度审查欠账/)
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('口径不倒退：64 位命名的 single+pending 不得判欠账（缺陷G 的收窄保持）', () => {
+  const repo = withReviewRecords({
+    [HEX64 + '.json']: { mode: 'single', deepReview: { required: true, status: 'pending', performedBy: null } },
+  })
+  try {
+    const r = mod.evaluateDeepReviewDebt(st([['A', '.ccg/reviews/' + HEX64 + '.json']]), repo)
+    assert.strictEqual(r.checked, 1)
+    assert.deepStrictEqual(r.reasons, [], 'single 不得因改名而开始要求闭环（那是已被修掉的不收敛循环）')
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+
+// ═══════════════════════════════════════════════════════════════════
+// QM-6 复审追加（2026-10-16）：i1 的 fail-open 收口 + i2 口径统一
+// ═══════════════════════════════════════════════════════════════════
+
+test('QM-6 i1：deep-review.sh 找不到记录时必须点名「commit -a 分叉」，不许静默 exit 0', () => {
+  // 实测：git commit -a 时 A(--cached) != B(HEAD^..HEAD)，判定器按 A 取名落盘、
+  // 脚本按 B 找不到 ⇒ 深度审查被跳过。旧命名下这只是「漏跑」；新命名下它会
+  // **掩盖一个真实故障**，所以早退前必须给出可执行的自检命令。
+  //
+  // 判据取**实质**而非字面：必须点名实测故障形态（commit -a）+ 给出两个口径的自检命令。
+  // 首版用「内容寻址分叉」字面做锚，结果文案一改写锁就假红 —— 那是判据脆弱，不是实现错。
+  const sh = fs.readFileSync(path.join(__dirname, 'deep-review.sh'), 'utf8')
+  // ★ 锚点必须是**行首代码形态**，不能用裸字符串：脚本注释里就写着「静默 exit 0」
+  // （L523），裸 indexOf('exit 0') 会命中注释 ⇒ 判据假红（本轮实测踩过两次）。
+  // 用 /^ {2}exit 0$/m 只匹配行首两个空格 + exit 0 的代码行。
+  const codeExits = [...sh.matchAll(/^ {2}exit 0$/gm)].map((m) => m.index)
+  const iNoRec = sh.indexOf('判定记录: 无')
+  const iWarn = sh.indexOf('git commit -a')
+  // 取「判定记录: 无」之后的第一个**代码** exit 0 —— 即它所在 if 块的早退点
+  const iExit = codeExits.find((p) => p > iNoRec)
+  assert.ok(iWarn > 0, '告警段必须点名实测故障形态 git commit -a')
+  assert.ok(iExit !== undefined, '找不到早退 exit 0，本锁需同步更新')
+  assert.ok(iWarn < iExit, '告警必须在早退 exit 0 之前，否则永不输出')
+  const seg = sh.slice(iWarn, iExit)
+  assert.doesNotMatch(seg, /^ {2}exit 0$/m, '告警段自身不得含 exit 0（否则会吃掉「之后第一个 exit 0」这个锚点）')
+  assert.match(sh, /git diff --cached --no-textconv --no-ext-diff --no-renames -- \. ':\(exclude\)\.ccg'/,
+    '告警里必须给出可复现的自检命令（提交前口径），否则读者无从判断')
+  assert.match(sh, /git diff HEAD\^ HEAD --no-textconv --no-ext-diff --no-renames -- \. ':\(exclude\)\.ccg'/,
+    '必须同时给出提交后口径的自检命令 —— 只给一条无法判断是否分叉')
+})
+
+test('QM-6 i2：decider 的行数统计与 hash 必须同一口径（都排除 .ccg）', () => {
+  // 曾实测分离：stats 用 --cached --numstat（不排除 .ccg），hash 用排除 .ccg
+  // ⇒ 纯 .ccg 提交 stats 非空而 hash 空 ⇒ 回落旧命名 ⇒ 回到要消灭的撞名。
+  const src = fs.readFileSync(path.join(__dirname, 'ccg-review-decider.js'), 'utf8').replace(/\r\n/g, '\n')
+  const s = src.indexOf('function collectStaged')
+  const e = src.indexOf('\n}\n', s)
+  const body = src.slice(s, e)
+  const numstat = body.slice(body.indexOf('--numstat'), body.indexOf('--numstat') + 90)
+  assert.match(numstat, /:\(exclude\)\.ccg/,
+    'numstat 必须排除 .ccg —— 与 stagedDiffHash 同口径；否则同一份 diff 判出不同 mode 与不同名字')
+  assert.match(body, /diff", "--cached", "-U0", "--", "\.", ":\(exclude\)\.ccg/,
+    '-U0 也必须排除 .ccg（口径要对齐的是**两条**命令，不是只改第一条）')
+})

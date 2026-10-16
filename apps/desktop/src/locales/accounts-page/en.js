@@ -142,6 +142,12 @@ export default {
     proxyCleared: 'Account proxy cleared',
     saveProxyFailed: 'Failed to save proxy',
     clearProxyFailed: 'Failed to clear proxy',
+    // Added with the lazy proxy-status read (the list no longer returns `proxy`).
+    // These three states are mandatory: the read involves one async decryption
+    // round-trip, and without them the user first sees a false "no proxy configured".
+    proxyLoading: 'Loading current proxy settings...',
+    proxyLoadFailed: 'Failed to load current proxy settings',
+    proxyRetry: 'Retry',
     verifyingLogin: (ctx) => 'Verifying ' + ctx.named('platform') + ' login status...',
     loginValid: 'Login status is normal',
     loginExpired: 'Session expired',
@@ -206,7 +212,6 @@ export default {
       followers: 'Followers: ',
       ownerLabel: 'Owner',
       publisherLabel: 'Publisher',
-      proxyLabel: 'Proxy',
       notSet: 'Not set',
       noData: 'No data',
       unnamedAccount: 'Unnamed account',

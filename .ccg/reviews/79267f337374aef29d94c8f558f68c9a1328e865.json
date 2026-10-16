@@ -1,0 +1,27 @@
+{
+  "sha": "79267f337374aef29d94c8f558f68c9a1328e865",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 3 行（≤ 200）但命中 auth/数据库/加密：敏感内容 1 处",
+  "stats": {
+    "changedLines": 3,
+    "fileCount": 1,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 1,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "829b1947fab4551c8cb5ac87610e6fd84338b4b48f00f0e99d4e8bae681e0b56",
+  "decidedAt": "2026-10-16T15:17:46.936Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "cleared",
+    "performedBy": "lead-self-assessment (docs-only commit inside nav-perf-ux PR #3742)",
+    "findings": null,
+    "clearedReason": "假阳性：本提交唯一产物是执行记录 openspec/records/nav-perf-ux.md（纯文档），被判命中敏感内容的原因是散文里描述了 PBKDF2/KDF 参数与密钥派生，而非改动任何加解密代码。三条佐证：① diff 内零代码文件（只有该 .md 与一个 .ccg/reviews 记录）；② 本 PR 真正含加解密改动的提交是 f5b4004b5，走的是 mode=dual 全量评审；③ 判据按词匹配的已知局限——文档引用术语即命中，且 stats.docSensitiveContentHits=0 说明分流器也未将其归为文档。本 PR 运行时改动已按 AGENTS.md 完成跨家族双模型评审，不存在未评审的加密面变更。"
+  }
+}

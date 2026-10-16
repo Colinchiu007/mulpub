@@ -192,4 +192,47 @@ describe("Dashboard 样式源码守卫（PR #2075/#2114 事故回归保护）", 
     });
     expect(hasRule, "scoped 样式缺少 .stat-decor 规则").toBe(true);
   });
+
+  it("TrialBanner 必须位于 .cohere-content 内部（横幅贴边/超宽回归保护）", () => {
+    // 事故（2026-10-16）：横幅曾挂在 .cohere-content **外面**，成为全页唯一没有
+    // 水平 padding（--space-xxl）的元素 —— 背景块左边缘直接贴到容器边、与下方
+    // 统计卡片不对齐；同时 .banner-text 的 flex:1 把它拉满整页宽度，比下方内容区
+    // 更宽，视觉上显得突兀不专业。
+    // 该缺陷**无法**被挂载断言发现：vitest 不注入 CSS，getComputedStyle 拿不到
+    // .cohere-content 的 padding，横幅在 DOM 里存在且可查（故 Dashboard.test.js
+    // 的 "shows TrialBanner component" 照样通过）。唯一可机械判定的面是模板结构，
+    // 因此在本源码守卫里锁定位置关系。
+    const tpl = descriptor.template.content;
+    const contentIdx = tpl.indexOf('class="cohere-content"');
+    const bannerIdx = tpl.indexOf("<TrialBanner");
+    expect(bannerIdx, "模板缺少 <TrialBanner>").toBeGreaterThan(-1);
+    expect(contentIdx, "模板缺少 .cohere-content 容器").toBeGreaterThan(-1);
+    expect(
+      bannerIdx,
+      `<TrialBanner> 必须放在 .cohere-content 内部，才能继承左右 padding 与下方卡片对齐`
+    ).toBeGreaterThan(contentIdx);
+
+    // 且必须在 .cohere-content 的**闭合**之前：证明是嵌套而非同层后置。
+    // 用 div 深度计数定位与开头匹配的闭合标签，避免被内层嵌套 div 误导。
+    const openTagRe = /<div\b/g;
+    const closeTagRe = /<\/div>/g;
+    let depth = 0;
+    let closeIdx = -1;
+    const tags = [];
+    for (const m of tpl.matchAll(openTagRe)) tags.push({ i: m.index, t: "o" });
+    for (const m of tpl.matchAll(closeTagRe)) tags.push({ i: m.index, t: "c" });
+    tags.sort((a, b) => a.i - b.i || (a.t === "o" ? -1 : 1));
+    for (const tag of tags) {
+      if (tag.t === "o") depth += 1;
+      else {
+        depth -= 1;
+        if (depth === 0 && tag.i > contentIdx) { closeIdx = tag.i; break; }
+      }
+    }
+    expect(closeIdx, "未找到 .cohere-content 的闭合标签").toBeGreaterThan(-1);
+    expect(
+      bannerIdx,
+      `<TrialBanner> 越过了 .cohere-content 的闭合标签（同层而非嵌套 → padding 不生效）`
+    ).toBeLessThan(closeIdx);
+  });
 });

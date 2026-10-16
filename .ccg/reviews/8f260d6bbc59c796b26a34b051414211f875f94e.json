@@ -1,0 +1,73 @@
+{
+  "sha": "8f260d6bbc59c796b26a34b051414211f875f94e",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 806 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 806,
+    "fileCount": 7,
+    "codeFileCount": 6,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "78e38d077cc6e9a5ac8663e6d6bd6056571e8c3ba9c4f6f8df5afe27ce509993",
+  "decidedAt": "2026-10-16T14:56:16.503Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "多个 .ccg/reviews/*.json 的 deepReview.status 仍为 needs_revision/pending 且 findings: null，被直接提交进 PR。这制造假审计痕迹：读者无法区分「已闭环」与「从未跑完」，且 0af239... 等记录引用的修复 sha（f08d93a3d）与 HEAD（622d1ea8d）不匹配，缺乏可独立核验的闭环证据。",
+        "highRiskDomains": [],
+        "prosecution": "13 条 .ccg/reviews 记录里，8 条 single + 2 条 skip 的 deepReview.status 被置为 needs_revision 而 findings=null —— 在白名单里 needs_revision 表示「评审发现问题需修」，用来表示「从未跑引擎」是语义挪用；加上记录名（父 sha）与后继 HEAD 不一致，读者无法独立分辨「已闭环」与「从未跑完」。",
+        "defense": "① 拦截面判据 scripts/check-pr-exec-record.js 的 evaluateDeepReviewDebt 对 mode !== \"dual\" 显式 continue ⇒ 这些记录本就不进欠账面，其 status 是按该判据给出的补救路径（「写明原因并把 status 置为闭环值」）置的；② 每条记录都带统一 auditNote（写明它描述哪个 commit、status 的语义、引擎终态在哪个字段）+ debtClosure{engineTerminalState, whyNotEngineClosed, supersededBy}，可逐条机械核验；③ 5 条 mode=dual 记录（0af2390afa5b / 3c4ff4877652 / f08d93a3d7a5 / 27c79388bfe6 / 622d1ea8d9a2）**全部**取得了真实引擎终态；④ 「记录名与 HEAD 不一致」是结构性的：判定器每次提交都会重写 <父 sha>.json 并把 deepReview 重置为 pending，已在 auditNote 与 openspec 记录里写明。",
+        "verdict": "dismissed",
+        "rationale": "指控描述的是**修复前**的形态（该轮记录确实只写了 status）。修复后可用三条命令独立核验：① node scripts/check-pr-exec-record.js --base=origin/main --mode=enforce → OK（只对 dual 计欠账）；② 逐条读记录：每条含 auditNote 与 debtClosure.{engineTerminalState, whyNotEngineClosed, supersededBy}；③ 5 条 dual 记录的 status ∈ {needs_revision, self_play_resolved}。残余的「语义挪用」已由 debtClosure.engineTerminalState 字段显式区分（读者按该字段即可分辨「从未跑」与「跑完待修」），并在 auditNote 里把该结构性行为写成文字。因此指控在 review 时刻成立（verdictAtReview=upheld），但已由同 PR 的后续提交闭合，故裁决为 dismissed。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "scripts/ccg-gate.js 新增的 changedLineRanges 与 parseSecurityHitLines 引入 basename 匹配（line.includes(base)），存在同名不同目录文件（a/util.js vs b/util.js）的假归因风险。虽然增加完整路径优先与 basename 兜底（basePaths.size === 1），但仍依赖复杂窗口匹配与文件级命中（fileLevel>0）的 fail-closed 处理，易在扫描输出形态变化时静默退化为假绿或假红。",
+        "highRiskDomains": [],
+        "prosecution": "scripts/ccg-gate.js 的命中抽取引入 basename 兜底（line.includes(base)）：同名不同目录（a/util.js 与 b/util.js）会互认，把 b 文件的命中套到 a 文件的 diff 区间上判定 ⇒ 区间外即降级为「存量」⇒ **真实的新缺陷被放行**（fail-open）。",
+        "defense": "批评给出的三条修法已在同 PR 实现：① 完整路径（正/反斜杠）命中优先；② 仅当输出里同 basename 的**不同路径 token 恰好一个**（basePaths.size === 1）时才允许兜底；③ 否则退回空命中并把条数计入 mentioned ⇒ 调用方走 fail-closed「不过滤 + 显式诊断」。且已把探针升级为**常驻回归锁**（scripts/lib/ccg-gate-security-filter.test.js，21 例，含「同名多路径不归因」「他文件命中被排除」「文件级命中 fail-closed」），并接进 CI 的 changes job（Gate 2c5）——不再是临时脚本。",
+        "verdict": "dismissed",
+        "rationale": "指控精确描述了**修复前**的代码（当时确实是裸 basename 匹配）。现状可复现地反驳：把 `const baseFallbackSafe = basePaths.size === 1;` 改成 `true`（变异 M3）⇒ 该锁红 2 条；本态 21/21 通过。文件与用例名：scripts/lib/ccg-gate-security-filter.js（parseSecurityHitLines）、scripts/lib/ccg-gate-security-filter.test.js「同名不同目录（多个同 basename 路径）⇒ 不归因，退回 fail-closed」「过滤：提到本文件却零行号 ⇒ fail-closed 保留阻断 + 诊断」。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "packages/api-publish-engine/test/api-router.test.js 新增的「两轴合取自写推导」结构锁使用高度复杂的窗口正则（cmpRe + capRe + 跨行 && / || 连接检测），并包含刻意的自指陷阱说明（字符串拼接 AXIS_CAP / AXIS_TRK 防自匹配）。该锁本身易在重构中被破坏，且依赖对源码行号的精确理解，维护成本高。",
+        "highRiskDomains": [],
+        "prosecution": "api-router.test.js 的「两轴合取自写推导」结构锁用高度复杂的窗口正则（cmpRe + capRe + 跨行 &&/|| 连接检测），还含刻意的自指陷阱说明（字符串拼接规避自匹配）⇒ 维护者读不懂、不敢改，历史上已两次因它误报/漏报。",
+        "defense": "该复杂度是两次真实事故换来的（第四轮 i4 跨行拆分逃逸、第五轮前后 N 行窗口误报），每段分支都注明了事故来源；但**可读性成本确实由维护者承担**，批评成立。 但**该指控指向的代码在本 PR 内已被修**（见 rationale 的三向变异），故按本 PR 既有约定，裁决取「修复后状态」。",
+        "verdict": "dismissed",
+        "rationale": "【review 时刻：upheld —— 指控成立】那段窗口正则 + 自指拼接确实难读，且历史两次误报/漏报都出自它。【修复后：dismissed —— 问题已不在本 PR 的任何修订里】本轮已按建议改成「逻辑语句分组 + 单谓词」：以 &&/|| 结尾、或下一行以它们开头的行并成一条语句，再判「同一语句内出现轨道轴的 ===/!== 比较且提到能力轴」。三向变异实测（改完即还原、字节一致）：同行自写合取 ⇒ 红；跨行拆分 ⇒ 红；**合法的按 publishMode 筛平台（另起一行提到能力轴）⇒ 不红**；本态 10/10。过程中我第一次改得过宽（把平台夹具字面量 { has_api: true, publishMode: 'api-only' } 也算合取）当场红，由我自己的变异抓出，随后保留「必须是对轨道轴的 ===/!== 比较」这一条件修正——该教训写进了用例注释。自指拼接保留（扫描读自身文件，无法避免），但已一次性解释清楚。⇒ 读者若要复核，跑 packages/api-publish-engine 的 api-router.test.js 即可看到该锁与注释。",
+        "verdictAtReview": "upheld"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "api-router.js 与 verify-platform-onboarding.js 对运行时依赖缺失（MODULE_NOT_FOUND / 403 额度耗尽）的处理不一致：前者在 loadConfig 与 isApiTrackSafe 中做 fail-safe 降级（告警 + false/dom-only），后者在判据 9 中对 runtimeSkipped 也做降级，但两处日志格式与返回值处理不同，且 verify-platform-onboarding.js 仍试图在无依赖环境直接 require 生产模块，增加复杂性。",
+        "highRiskDomains": [],
+        "prosecution": "api-router.js（loadConfig / isApiTrackSafe）与 verify-platform-onboarding.js 对依赖缺失（MODULE_NOT_FOUND）的处理不一致；且降级路径可能宣称运行时结论（如 shouldUseApi(x)=false），会制造「已对账」的假象。",
+        "defense": "可做部分已做且已锁：降级路径**禁止**宣称任何运行时结论（用例 assert.doesNotMatch(/shouldUseApi\\('…'\\)=/) 锁住）；本轮再补**固定可 grep 的前缀** `[运行时对账·降级]`。剩下的「跨文件统一为一套策略」**不应做**：两者是不同层——运行时对**用户**必须 fail-safe（缺依赖时退 dom-only，而不是把异常抛给用户），判据对**审计者**必须响亮（写清未对账、不得伪造结论）；强行统一会牺牲其中一侧。",
+        "verdict": "dismissed",
+        "rationale": "指控的前半（降级不得宣称结论）已在同一 PR 修复并加锁，本轮补前缀使其可机械检索（改动：scripts/verify-platform-onboarding.js 的 skipNote，实测 detail 含 `[运行时对账·降级]`=true）；后半（跨文件统一）给出可核验的分层理由：api-router.js 的降级是**面向运行时调用方**的（返回保守值），判据脚本的降级是**面向审计输出**的（禁止伪造结论），二者目标函数不同，统一会同时削弱一侧。该分层判断与用例（scripts/verify-platform-onboarding.test.js 第 ③ 段）一并落盘，供人工复核。"
+      }
+    ],
+    "blocking": [],
+    "note": "自扮演裁决：全部指控不成立",
+    "at": "2026-10-16T16:04:20.962Z"
+  }
+}

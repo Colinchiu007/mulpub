@@ -1,0 +1,30 @@
+{
+  "sha": "c3781859bd54426aa2a4189ad90cb483036addcc",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 1,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 4,
+    "docSensitiveContentSample": [
+      "task: 账号页列表路径零解密——代理信息移出列表改为弹窗按需读取",
+      "## 本次执行记录：账号页列表路径零解密（nav-perf-ux，2026-10-15）【混合 PR】",
+      "| 防止再次发生（QM-5 ⑤） | PASS | ① `AGENTS.md` QM-2 已有「高频路径不得含同步 CPU 密集原语」+「详情函数复用到列表路径前必须核算单元素成本」两条（#3591 落），**本轮正是后者的第二个实例**（列表为读一个 `proxy` 字段解密整份凭证）；② 代码注释就地固化三条踩坑（数组 getter 的 watch 陷阱 / 为什么必须异步 / 为什么列表不读）；③ `CHANGELOG.md`；④ 本轮新增可复用判据：**「手段合格」的锁要配「目标达成」的锁**——`maxInFlight>1` 锁不住「总 CPU 是否被消除」。 |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "1060e12096afbed991292df2b0cefd09d774a4767fad8c28b50e94b5ee256c4f",
+  "decidedAt": "2026-10-16T14:41:42.706Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

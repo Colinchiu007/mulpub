@@ -875,6 +875,9 @@ describe('checkLoginStatus 多选择器回归（数组选择器逐个尝试）',
 
     try {
       const accountManager = loadAccountManager()
+      // 2026-10-16 策略翻转：隐藏窗口兜底**默认关闭**（允许集为空集），本用例要验的是被它
+      // 门控的**子行为**（数组选择器逐个尝试），故通过**显式注入缝**把被测平台放开。
+      // 产品默认值仍为空集，由 account-manager-http-only-policy.test.js 双向锁守。
       vi.spyOn(accountManager.credentialStore, 'loadCredential').mockReturnValue({
         platform: 'douyin',
         cookies: [{ name: 'sid', value: 'v1', domain: '.douyin.com' }],
@@ -884,7 +887,7 @@ describe('checkLoginStatus 多选择器回归（数组选择器逐个尝试）',
 
       vi.spyOn(accountManager.accountStateRestorer, 'getAccountRecord').mockReturnValue(null)
 
-      await expect(accountManager.checkLoginStatus('douyin', 'acc-1'))
+      await expect(accountManager.checkLoginStatus('douyin', 'acc-1', { domLoginCheckAllowed: ['douyin'] }))
         .resolves.toEqual({ valid: true, code: 'CHECK_LOGIN_SUCCESS' })
       const selectorArg = page.waitForSelector.mock.calls[0][0]
       expect(Array.isArray(selectorArg)).toBe(true)
@@ -921,6 +924,8 @@ describe('checkLoginStatus 多选择器回归（数组选择器逐个尝试）',
 
     try {
       const accountManager = loadAccountManager()
+      // 同上：本用例验的是「选择器超时 + URL 命中仪表盘域名 ⇒ 判有效」这段**被允许集门控**
+      // 的逻辑，故通过显式注入缝放开；默认空集仍由策略锁保证。
       vi.spyOn(accountManager.credentialStore, 'loadCredential').mockReturnValue({
         platform: 'weibo',
         cookies: [{ name: 'SUB', value: 'active', domain: '.weibo.com' }],
@@ -929,7 +934,7 @@ describe('checkLoginStatus 多选择器回归（数组选择器逐个尝试）',
       })
       vi.spyOn(accountManager.accountStateRestorer, 'getAccountRecord').mockReturnValue(null)
 
-      await expect(accountManager.checkLoginStatus('weibo', 'acc-1'))
+      await expect(accountManager.checkLoginStatus('weibo', 'acc-1', { domLoginCheckAllowed: ['weibo'] }))
         .resolves.toMatchObject({ valid: true })
     } finally {
       global.__registerMock(playwrightPath, actualPlaywrightManager)
@@ -1356,7 +1361,7 @@ describe('account-manager — listAccounts 错误透传', () => {
 //  L2 批量入口拿到的 proxy 必须真的落到每个账号上（不是装饰）
 //  L3 批量入口整体降级时，逐账号口径兜底，proxy 字段不得消失
 //  L4 批量入口抛错时不得让 listAccounts 整体失败（账号页首帧韧性）
-describe('account-manager — listAccounts proxy 批量并行入口', () => {
+describe('account-manager — listAccounts 列表路径零解密（nav-perf-ux）', () => {
   const ACCOUNTS = [
     { id: 'acc-1', platform: 'douyin', name: '账号一' },
     { id: 'acc-2', platform: 'wechat_mp', name: '账号二' },
@@ -1377,107 +1382,72 @@ describe('account-manager — listAccounts proxy 批量并行入口', () => {
     vi.spyOn(pythonBridge, 'requestBackend').mockResolvedValue({ code: 0, data: ACCOUNTS })
   }
 
-  it('L1 走批量入口 loadProxyStatuses，且不逐账号解密', async () => {
+  // ── 回归锁（nav-perf-ux，2026-10-15）──────────────────────────────────────
+  // 列表路径**一次解密都不许做**。这是「点左侧菜单『账号』好几秒才加载」的第一性修法：
+  // #3591 只把 N 次同步 PBKDF2 改成异步并行（wall-time 降 3.5–3.7x，**总 CPU 未减**），
+  // 本次直接让列表不付这份成本 —— 代理是详情级信息，改由 account:get-proxy 按需读。
+  // 变异反证：在 listAccounts 里加回任一 proxy 读取 ⇒ 本用例立即变红。
+  it('L1 列表路径不读代理状态：批量入口与单账号解密都不得被调用', async () => {
     stubBackendAccounts()
     const accountManager = loadAccountManager()
     const loadProxyStatuses = vi.spyOn(accountManager.proxyStatusReader, 'loadProxyStatuses')
-      .mockResolvedValue({
-        'acc-1': { configured: true, type: 'http', hostMasked: '10.0.*.*', port: 8080 },
-        'acc-2': { configured: false },
-        'acc-3': { configured: true, type: 'socks5', hostMasked: '10.1.*.*', port: 1080 },
-      })
-    const loadCredential = vi.spyOn(accountManager.credentialStore, 'loadCredential')
+    const getAccountProxyStatus = vi.spyOn(accountManager, 'getAccountProxyStatus')
 
     const accounts = await accountManager.listAccounts()
 
-    expect(loadProxyStatuses).toHaveBeenCalledTimes(1)
-    // 批量入口一次拿全部 id，不是一次一个
-    expect(loadProxyStatuses.mock.calls[0][0]).toEqual(['acc-1', 'acc-2', 'acc-3'])
-    // 关键：没有为取 proxy 而逐账号解密凭证（那正是卡顿根因）
-    expect(loadCredential).not.toHaveBeenCalled()
+    expect(loadProxyStatuses).not.toHaveBeenCalled()
+    expect(getAccountProxyStatus).not.toHaveBeenCalled()
     expect(accounts.map(a => a.id)).toEqual(['acc-1', 'acc-2', 'acc-3'])
   })
 
-  it('L2 批量入口返回的 proxy 逐字段落到每个账号上', async () => {
+  it('L2 返回的账号对象上不再带 proxy 字段（渲染层无从依赖它）', async () => {
     stubBackendAccounts()
     const accountManager = loadAccountManager()
-    vi.spyOn(accountManager.proxyStatusReader, 'loadProxyStatuses').mockResolvedValue({
-      'acc-1': { configured: true, type: 'http', hostMasked: '10.0.*.*', port: 8080 },
-      'acc-2': { configured: false },
-      'acc-3': { configured: true, type: 'socks5', hostMasked: '10.1.*.*', port: 1080 },
-    })
 
     const accounts = await accountManager.listAccounts()
 
-    expect(accounts[0].proxy).toEqual({ configured: true, type: 'http', hostMasked: '10.0.*.*', port: 8080 })
-    expect(accounts[1].proxy).toEqual({ configured: false })
-    expect(accounts[2].proxy).toEqual({ configured: true, type: 'socks5', hostMasked: '10.1.*.*', port: 1080 })
+    for (const account of accounts) expect(account).not.toHaveProperty('proxy')
   })
 
-  it('L3 批量入口漏掉某账号时回落单账号口径，proxy 字段不得消失', async () => {
+  it('L3 上游账号字段原样透传，不被 proxy 逻辑改写', async () => {
     stubBackendAccounts()
     const accountManager = loadAccountManager()
-    vi.spyOn(accountManager.proxyStatusReader, 'loadProxyStatuses').mockResolvedValue({
-      'acc-1': { configured: true, type: 'http', hostMasked: '10.0.*.*', port: 8080 },
-      // acc-2 / acc-3 缺失（例如批量入口内部跳过）
-    })
-    vi.spyOn(accountManager, 'getAccountProxyStatus').mockImplementation((id) => (
-      { configured: true, type: 'https', hostMasked: 'fallback.*.*', port: 3128 }
-    ))
 
     const accounts = await accountManager.listAccounts()
 
-    expect(accounts[0].proxy.port).toBe(8080)
-    // 漏掉的两个账号走单账号兜底，仍拿得到 proxy
-    expect(accounts[1].proxy).toEqual({ configured: true, type: 'https', hostMasked: 'fallback.*.*', port: 3128 })
-    expect(accounts[2].proxy).toEqual({ configured: true, type: 'https', hostMasked: 'fallback.*.*', port: 3128 })
+    expect(accounts[0]).toMatchObject({ id: 'acc-1', platform: 'douyin', name: '账号一' })
+    expect(accounts[1]).toMatchObject({ id: 'acc-2', platform: 'wechat_mp', name: '账号二' })
+    expect(accounts[2]).toMatchObject({ id: 'acc-3', platform: 'zhihu', name: '账号三' })
   })
 
-  it('L4 批量入口抛错时整体降级，且绝不回落逐账号同步解密（否则退化成本 Bug 原形）', async () => {
-    stubBackendAccounts()
+  // ── 按需读取入口（惰性化之后唯一的代理读取路径）──────────────────────────
+  it('L4 getAccountProxyStatusLazy 走异步入口只读该账号，不逐账号扫描', async () => {
     const accountManager = loadAccountManager()
+    const loadProxyStatuses = vi.spyOn(accountManager.proxyStatusReader, 'loadProxyStatuses')
+      .mockResolvedValue({ 'acc-1': { configured: true, type: 'http', hostMasked: '10.0.*.*', port: 8080 } })
+
+    const status = await accountManager.getAccountProxyStatusLazy('acc-1', 'douyin')
+
+    expect(loadProxyStatuses).toHaveBeenCalledTimes(1)
+    expect(loadProxyStatuses.mock.calls[0][0]).toEqual(['acc-1'])
+    expect(status).toEqual({ configured: true, type: 'http', hostMasked: '10.0.*.*', port: 8080 })
+  })
+
+  it('L5 入参非法 / 批量入口抛错时降级为未配置，不向上冒泡（弹窗必须能打开）', async () => {
+    const accountManager = loadAccountManager()
+
+    expect(await accountManager.getAccountProxyStatusLazy('../evil')).toEqual({ configured: false })
+    expect(await accountManager.getAccountProxyStatusLazy('acc-1', '../evil')).toEqual({ configured: false })
+
     vi.spyOn(accountManager.proxyStatusReader, 'loadProxyStatuses').mockRejectedValue(new Error('safeStorage 不可用'))
-    // 若实现错误地在这里回落单账号口径，这个 spy 会被调到 N 次
-    const getAccountProxyStatus = vi.spyOn(accountManager, 'getAccountProxyStatus')
-      .mockReturnValue({ configured: false })
-
-    const accounts = await accountManager.listAccounts()
-
-    expect(accounts).toHaveLength(3)
-    for (const account of accounts) expect(account.proxy).toEqual({ configured: false })
-    // 关键：一次都不许走单账号同步解密 —— 那正是 N×125ms 串行阻塞的原始形态
-    expect(getAccountProxyStatus).not.toHaveBeenCalled()
+    expect(await accountManager.getAccountProxyStatusLazy('acc-1', 'douyin')).toEqual({ configured: false })
   })
 
-  it('L5 单账号口径自身抛错时也降级为未配置，不向上冒泡', async () => {
-    stubBackendAccounts()
+  it('L6 批量入口表里没有该账号时如实返回未配置', async () => {
     const accountManager = loadAccountManager()
     vi.spyOn(accountManager.proxyStatusReader, 'loadProxyStatuses').mockResolvedValue({})
-    vi.spyOn(accountManager, 'getAccountProxyStatus').mockImplementation(() => { throw new Error('boom') })
 
-    const accounts = await accountManager.listAccounts()
-
-    expect(accounts).toHaveLength(3)
-    for (const account of accounts) expect(account.proxy).toEqual({ configured: false })
-  })
-
-  it('L6 批量入口成功但漏掉某账号时走单账号兜底（极少发生，只对漏掉的付）', async () => {
-    stubBackendAccounts()
-    const accountManager = loadAccountManager()
-    // 正常返回（未降级），但只覆盖 acc-1
-    vi.spyOn(accountManager.proxyStatusReader, 'loadProxyStatuses').mockResolvedValue({
-      'acc-1': { configured: true, type: 'http', hostMasked: '10.0.*.*', port: 8080 },
-    })
-    const getAccountProxyStatus = vi.spyOn(accountManager, 'getAccountProxyStatus')
-      .mockImplementation(() => ({ configured: true, type: 'https', hostMasked: 'fallback.*.*', port: 3128 }))
-
-    const accounts = await accountManager.listAccounts()
-
-    expect(accounts[0].proxy.port).toBe(8080)
-    expect(accounts[1].proxy.port).toBe(3128)
-    expect(accounts[2].proxy.port).toBe(3128)
-    // 只对漏掉的 2 个账号走兜底，不是全部 3 个
-    expect(getAccountProxyStatus).toHaveBeenCalledTimes(2)
+    expect(await accountManager.getAccountProxyStatusLazy('acc-1', 'douyin')).toEqual({ configured: false })
   })
 })
 
