@@ -1,8 +1,5 @@
 ---
 
-sync_reason: PR 刚开、尚未合并，远程同步状态待回填
-sync_backfill_owner: Colinchiu007（本分支作者，合并后同一次提交内删除本两字段）
-
 record: fix-dashboard-trial-banner
 task: 数据看板免费版横幅——宽度与左边缘对齐修正 + 位置回归锁
 date: 2026-10-16
@@ -44,12 +41,38 @@ date: 2026-10-16
 | 项 | 值 |
 | --- | --- |
 | 受影响测试 | TrialBanner 6 + more-tests 30 + Dashboard.style-guard 10 + Dashboard 18 + Home 28 = **92 passed / 0 failed** |
-| 新增回归锁 | `Dashboard.style-guard.test.js`「TrialBanner 必须位于 .cohere-content 内部」 |
+| 新增回归锁 | `Dashboard.style-guard.test.js`「TrialBanner 必须位于 .cohere-content 内部」<br>⚠️ **后续已被反转**：分支 `dash-full-entitlement`（用户决策方案 C）撤下了该横幅，此锁随之改为「不得再出现 TrialBanner」（防回潮）。反转理由与两版历史都写在测试注释里 |
 | 变异反证 | **已做**：把横幅移回 `.cohere-content` 外 ⇒ 该锁精确变红 `expected 450 to be greater than 572`；还原后 10 passed。未做变异的守卫等于没守卫 |
 | 依赖解析门禁 | `verify-worktree-deps.js` OK（11 项消费方解析通过） |
 | 构建 | `pnpm run build` exit 0（vite 59.05s + electron-builder nsis 打包成功） |
 | 一致性 | `check-frontend-consistency.js` PASS（windowConfirm 0 / rendererIpcDirect 0 / appleAlias 0） |
 | QM-1 打包 | 本次改动不触 `apps/desktop/electron/**`，QM-1「改 electron 主进程必打包」不适用；但已跑完整 `pnpm run build`（含 electron-builder），不以此为 QM-1 证据 |
+
+## 合并前补修的两个真实缺陷（都由 CI 抓出，不是测试报的）
+
+### 1. 暗色模式按钮文字隐形 —— 改了三轮才定稿
+
+CI Gate 7c（暗色文本对比度）三次实测，失败形态各不相同，逐轮记录以防重蹈：
+
+| 轮次 | 方案 | 实测结果 |
+| --- | --- | --- |
+| 1 | `color: var(--coral)` | `fg=bg=rgb(194,65,12)`，**ratio 1**，文字完全隐形 |
+| 2 | 亮 `#b91c1c` 字 / 暗 `#c2410c` 底白字（双分支） | **ratio 1.25** —— scoped 内的 `:global(html[data-theme='dark'])` 分支没盖住亮色规则，亮色字落到 tokens 给的暗色底上，两深撞色 |
+| 3 ✅ | **取消主题分支**，统一实底 + 白字 | 亮 6.47:1 / 暗 5.18:1，**两档都达标** |
+
+第 3 轮的关键洞察：**白字在两种底色下都达标**（`#b91c1c`+白=6.47、`#c2410c`+白=5.18），所以无论 tokens.css:365 那条暗色覆盖生效与否都不会翻车。描边式做不到这点——它的前景色必须随底色变，而 scoped 主题分支不可靠。
+
+附 `scripts/check-trial-banner-contrast.js`：用 WCAG 公式本地校验色对，把三轮的历史失败值（1:1 / 1.25 / 2.58）都作为**回归对照**锁住，改色即红，不必等 4 分钟的 CI Gate 7c。
+
+### 2. dashboard 像素基线过期（Gate 7b）
+
+Gate 7 像素回归 pass（2.40% 在 6% 容差内），但 **Gate 7b 基线新鲜度红** —— 它要求基线**逐像素等于同一次 CI 渲染**（0px 不变量），横幅改动后基线必然过期。
+
+处置：用**本次 CI 渲染**（`tests/visual-testing/screenshots/`）更新 `base-screenshots/dashboard{,-dark}.png`，**不用本机截图**（QM-4 第 7 条明令禁止，`check-baseline-freshness.js` 就是守这条的）。
+
+更新前用程序化剖面核验差异分布（替代肉眼看图 —— 本项目实测过「两张 PNG 差 127 字节、像素差 9.41%」）：
+差异覆盖 **19.4% 高度**、23 段离散行带，集中在 y165-468（横幅区域及下方内容上移）与 y899-1030，**非铺满全图** ⇒ 无字体/主题类全局污染，与「撤横幅→内容上移」预期吻合。
+分析脚本：`scripts/analyze-pixel-diff.js`（同族纪律：第 106 行 `scripts/*.js` 会静默忽略，已加 negation 放行）。
 
 ## 为什么锁写在模板层而不是挂载层
 
@@ -57,4 +80,4 @@ date: 2026-10-16
 
 ## 远程同步
 
-| 远程同步 | PENDING |
+| 远程同步 | PASS | 已合并：PR #3752，merge 575eacea1ba4f1814b80bdc1cf9ac819879c6262（2026-10-17，squash）。取证：`git log origin/main --grep='(#3752)$' --format=%H\|%cI`；远端分支已删（`git ls-remote --heads origin fix-dashboard-trial-banner` 返回 0 行） |
