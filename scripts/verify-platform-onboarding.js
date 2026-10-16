@@ -256,6 +256,20 @@ function buildChecks (slug) {
     const hasAdapter = fs.existsSync(adapterFile)
 
     if (chainFiles.length === 0) {
+      // ★ CCG 自扮演裁决 i1（2026-10-16，upheld）：上面那条放宽**还必须看 `publishMode`**。
+      //   只看「有没有实现证据」会漏掉一种真缺口：声明了 `publishMode: api-only|api-then-dom`
+      //   （= 现在就该走 API/DOM 轨）却**没有链** —— 那一轨没有可调度的实现。
+      //   当前 15 个平台里 `api-*` 轨的全部都有链，故本分支不会误伤；
+      //   它的作用是把「两轴不一致」在**已声明 API 轨**时挡下来（这是 i1 指出的松弛）。
+      const pmMatch = block.match(/^[ \t]{4}publishMode:[ \t]*([A-Za-z-]+)/m)
+      const publishMode = pmMatch ? pmMatch[1] : ''
+      if (publishMode === 'api-only' || publishMode === 'api-then-dom') {
+        return {
+          ok: false,
+          detail: `has_api:true 且 publishMode=${publishMode}（需走 API 轨）但无 publish/platforms/${chainPrefix}*.js`
+            + ' ⇒ 该轨无可调度实现',
+        }
+      }
       if (!hasAdapter) {
         return {
           ok: false,
@@ -264,8 +278,8 @@ function buildChecks (slug) {
       }
       return {
         ok: true,
-        detail: `has_api:true 有 API 适配器（adapters/${slug}.js）但 0 个链 ⇒ 未入波（publishMode=dom-only），`
-          + '按本仓两轴语义合法（能力轴 vs 轨道轴，锚点见 publish-mode-config.test.js）',
+        detail: `has_api:true 有 API 适配器（adapters/${slug}.js，已由 src/index.js 注册）但 0 个链`
+          + ` ⇒ 未入波（publishMode=${publishMode || '未声明'}），按本仓两轴语义合法（能力轴 vs 轨道轴）`,
       }
     }
     const entries = read('packages/api-publish-engine/src/platform-entries.js') || ''

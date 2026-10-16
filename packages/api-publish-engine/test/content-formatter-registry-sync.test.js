@@ -128,6 +128,25 @@ test('G) TAG_STYLES 键集 ⊆ 注册表平台集（防再长出不可达孤儿�
     assert.ok(allowed.has(TAG_STYLES[k]), `TAG_STYLES.${k} = '${TAG_STYLES[k]}' 不在允许集 #tag/#tag#/plain`)
   }
 
+  // ★ CCG 自扮演裁决 i5（2026-10-16，upheld）：上面两条只保证「键合法、取值在允许集内」，
+  //   **锁不住映射本身**——把 `weibo` 从 '#tag#' 改成 '#tag'（两者都在允许集）不会被发现，
+  //   而那是用户可见的标签形态退化。故此处逐平台钉住**期望样式**：
+  //   `#tag#` 只属 weibo；`plain` 属知乎/公众号/百家号（把标签当纯文本，不加井号）；
+  //   其余（含全部海外平台）为 '#tag'（与它们原先走默认兜底时的取值一致）。
+  const EXPECTED_STYLE = {
+    weibo: '#tag#',
+    zhihu: 'plain', wechat_mp: 'plain', baijiahao: 'plain',
+  }
+  for (const p of platforms) {
+    const expected = EXPECTED_STYLE[p] || '#tag'
+    assert.equal(
+      TAG_STYLES[p], expected,
+      `TAG_STYLES.${p} 应为 '${expected}'，实际 '${TAG_STYLES[p]}'（映射被改动 ⇒ 用户可见标签形态变化）`,
+    )
+  }
+  // 下界：期望表里除默认档外必须确有条目，防「EXPECTED_STYLE 为空 ⇒ 断言退化成恒等于默认」
+  assert.equal(Object.keys(EXPECTED_STYLE).length, 4, 'EXPECTED_STYLE 条目数异常 ⇒ 本锁基准失效')
+
   // 反证口径：`shipinhao` 是 tencent_video 的**链文件名**，不是平台键——
   // 若有人把它加回表里（或按文件名补键），上面 orphans 断言即红。
   assert.ok(!keys.includes('shipinhao'), 'shipinhao 是链文件名不是平台 slug，不得作为 TAG_STYLES 键')

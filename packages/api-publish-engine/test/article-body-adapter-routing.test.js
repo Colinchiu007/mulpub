@@ -93,6 +93,40 @@ describe('正文承载形态：适配器必须经 formatArticleBody 单一实现
     assertNoTags(captured.body.text, 'twitter.execute() → POST /2/tweets 的 text')
   })
 
+  // ---------- A 档 · 生产常见路径（纯文本/多行）----------
+  // ★ CCG 自扮演裁决 i6（2026-10-16，upheld）：上面 A1-A4 全喂 **HTML** 输入，
+  //   而生产里最常见的是**纯文本现成段落**。纯文本承载平台的 `formatArticleBody` 对纯文本
+  //   必须**原样返回**（幂等）——若它把多行折叠成一行、或改写话题标记，A1-A4 会全绿而
+  //   用户可见的段落结构/话题形态已经退化。故此处补纯文本输入的行为断言。
+  test('A5 zhihu（纯文本承载）：多行纯文本进 ⇒ 换行**原样保留**（不折叠、不包 <p>）', function () {
+    const ZhihuAdapter = require('../src/adapters/zhihu')
+    const pd = new ZhihuAdapter().buildPostData({ title: '题', content: PLAIN_MULTILINE, tags: [] })
+    if (pd.content !== PLAIN_MULTILINE) {
+      throw new Error(
+        `zhihu 纯文本多行未原样保留（幂等破坏）⇒ 用户可见段落结构变化：${JSON.stringify(pd.content)}`,
+      )
+    }
+  })
+
+  test('A6 weibo（纯文本承载）：话题转换后的 `#话题#` 形态必须穿过承载形态适配而不被改写', function () {
+    const WeiboAdapter = require('../src/adapters/weibo')
+    const pd = new WeiboAdapter().buildPostData({
+      title: '题', content: '#探店 今天\n第二段', tags: ['探店'],
+    })
+    if (!pd.content.includes('#探店#')) {
+      throw new Error(`weibo 的 #话题# 形态被承载形态适配改写/吞掉：${JSON.stringify(pd.content)}`)
+    }
+    // ⚠️ 换行断言必须是**精确的**，不能只写 includes('\n')：
+    //   实测（CCG 自扮演裁决 i6 的变异 M3）——把 [title, converted] 的 join('\n') 改成 join('')
+    //   后，正文源文自带换行，`includes('\n')` 仍然为真 ⇒ 断言**测不出**「合并点丢换行」。
+    //   正确口径：数换行数。本用例构造 1 行标题 + 2 行正文，合并后必须恰好 2 个 \n
+    //   （标题/正文之间 1 个 + 正文内部 1 个）。join 若退化为 '' ⇒ 只剩 1 个 ⇒ 红。
+    const lf = (pd.content.match(/\n/g) || []).length
+    if (lf !== 2) {
+      throw new Error(`weibo 合并后换行数应为 2（标题/正文间 + 正文内各 1），实际 ${lf} ⇒ 段落结构退化：${JSON.stringify(pd.content)}`)
+    }
+  })
+
   // ---------- B 档 · 结构级（非行为证明）----------
   // tiktok / youtube 的正文组装深埋在真实网络调用之后（tiktok 要先 /video/init/ 拿 upload_url
   // 再走上传协议切片；youtube 要先 OAuth 换 token），没有可注入缝 ⇒ 只能做结构断言。

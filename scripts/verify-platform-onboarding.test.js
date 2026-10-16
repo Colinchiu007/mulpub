@@ -307,6 +307,23 @@ test('判据 9 不依赖 has_api 在块中的位置（缺 m 标志的假绿回�
   const fbHasApi = (fbBlock.slice(0, 25).find((l) => /^[ \t]{4}has_api:/.test(l)) || '').trim()
   assert.equal(fbHasApi, 'has_api: false', `facebook 应为 has_api: false（空声明已修正），实际: ${fbHasApi}`)
 
+  // ★ CCG 自扮演裁决 i4（2026-10-16，upheld）：「空声明 ⇒ FAIL」分支放宽后**已无真实样本**
+  //   （15 个平台都合法）⇒ 只断言 facebook 的配置值**跑不到那条分支**，分支若被删成恒过没人知道。
+  //   两条防线：
+  //     ① 结构锁（本处）—— FAIL 分支的判据代码必须仍在源码里，删掉即红；
+  //     ② 变异反证（记录在案）—— 把 facebook 临时改回 has_api:true ⇒ ⑨ 必须 FAIL。
+  //   如实说明：这不是行为级覆盖（`buildChecks` 从磁盘读真实 YAML，无法注入夹具），
+  //   故它与 ② 合起来守，不单独声称覆盖。
+  const scriptSrc = require('node:fs').readFileSync(SCRIPT, 'utf8')
+  assert.ok(
+    /⇒ 空声明/.test(scriptSrc),
+    '判据 9 的「空声明 ⇒ FAIL」分支在源码里找不到了 —— 放宽后该下界不得被静默删除',
+  )
+  assert.ok(
+    /api-only' \|\| publishMode === 'api-then-dom/.test(scriptSrc),
+    '判据 9 的「api-* 轨必须有链」分支在源码里找不到了（CCG i1 修复项）',
+  )
+
   // 别名：tencent_video 的链叫 shipinhao-*，不得因命名差异误报
   const tv = buildChecks('tencent_video').find((c) => c.id === 9).fn()
   assert.equal(tv.ok, true, `tencent_video 步骤 9 应 PASS（链名 shipinhao-*），实际: ${tv.ok} / ${tv.detail}`)

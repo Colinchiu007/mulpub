@@ -19,8 +19,95 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "self_play_blocked",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "finding": "判据⑨ 以『有适配器』充当 API 轨实现证据未经验证：api-router 的 API 轨是否真调度 src/adapters/*.js 未在 diff 中证实，若只调度 publish/platforms/* 链，则 youtube/twitter 的 has_api:true 仍是空声明；且 ⑨ 不看 publishMode，api-only 且无链也会过。",
+        "highRiskDomains": [],
+        "prosecution": "指控成立面：判据 ⑨ 把「有适配器文件」当成 API 轨可用的证据，但 diff 里没有任何证据说明 api-router 真的会去 require src/adapters/*.js；若引擎只调度 publish/platforms/ 下的链，那 youtube/twitter 的 has_api:true 依旧是无实现的空声明，⑨ 会给出假 PASS。后半句同样成立：⑨ 完全不看 publishMode，一个 publishMode=api-only 且无链的平台也能过。",
+        "defense": "取证反证：src/index.js 确实 require 了 adapters/youtube.js 与 adapters/twitter.js（grep 'adapters/' 命中 index.js、base-adapter、xiaohongshu 等），说明适配器目录是引擎注册面的一部分，不是死代码。此外 youtube.js 是完整的 YouTube Data API v3 + OAuth2 实现（apiBase/uploadBase/scopes/getAccessToken 齐备），不是空壳。",
+        "verdict": "upheld",
+        "rationale": "后半句成立且已修，前半句经取证不成立但同属「证据链未经判据固化」。① 已查证 src/index.js 注册两个适配器（非空声明）；② ⑨ 不看 publishMode 是真松弛：现在若某平台声明 api-only/api-then-dom 却无链，⑨ 会放行。修复：⑨ 增加 publishMode 分支——api-* 轨且无链 ⇒ FAIL；无链但有适配器 ⇒ PASS 且 detail 写明「已由 src/index.js 注册」+ 未入波。反证：变异把 ⑨ 退回『必须有链』⇒ test 14/17/18 全红；把 facebook 改回 has_api:true ⇒ ⑨ FAIL（M1）。"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "tiktok/youtube 的 C 修只过结构档：B 档仅断言文件含 formatArticleBody 调用，不验证产出；本 diff 未改 PLAIN_BODY_PLATFORMS/HTML_BODY_PLATFORMS，若二者未列入纯文本集，字面量 <p> 仍会泄漏且无测试能红。",
+        "highRiskDomains": [],
+        "prosecution": "指控成立面：B 档（结构档）只 grep 'formatArticleBody(' 字样，不看产出；如果 youtube/tiktok 没被登记为纯文本承载平台，formatArticleBody 对它们会走 HTML 分支把 <p> 包进去，字面量泄漏到用户可见描述里，而现有测试一条都不会红。",
+        "defense": "取证反证：实测 getArticleBodyKind('youtube')='plain'、getArticleBodyKind('tiktok')='plain'，且 PLAIN_BODY_PLATFORMS 明确列出 youtube/tiktok/twitter/instagram/facebook/weibo/zhihu 等共 12 项，HTML_BODY_PLATFORMS 只有 baijiahao/toutiao/wechat_mp 三项。即二者**已在**纯文本集内，条件前提为假。至于 B 档只做结构断言这一局限，测试文件头与记录里已如实标注『非行为证明』，没有冒充覆盖。",
+        "verdict": "dismissed",
+        "rationale": "前提为假：youtube/tiktok 已在 PLAIN_BODY_PLATFORMS（实测 kind=plain），不存在『未列入纯文本集』的情形；formatArticleBody 对 plain 平台会把 HTML 剥成纯文本，字面量 <p> 不可能泄漏。『B 档只做结构断言』这一层批评本身成立，但它指向的是测试档位分级而非缺陷，且该局限已在测试注释、文件头说明、记录遗留项三处显式披露（记录列为遗留 1：tiktok/youtube 要升级行为档需先加可注入缝，属单独排期的重构）。不据此判 upheld。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "facebook 改 has_api:false 后 ⑨ 直接早退：facebook 在 api-publish-engine 内零实现（无链无适配器）却 15 平台全绿；记录未证明 facebook 有任一可发布实现（DOM 或桌面侧），『DOM 轨有无实现』不在任何判据内。",
+        "highRiskDomains": [],
+        "prosecution": "指控成立面：⑨ 对 has_api:false 的平台直接早退『无需发布链』，等于 facebook 从此不再接受任何 API 实现面检查；如果 facebook 其实也没有 DOM 侧发布实现，那它就是个完全不可发布的平台，而 15/15 全绿会掩盖这件事。",
+        "defense": "取证反证：platform-definitions.js 里 facebook 命中 16 次（登录 URL / 登录成功判定 / cookie 域 / dashboard / creator home 等表层），且 platform-definitions.test.js 有 facebook 专测（登录页及其设备分支跳转不算成功）。即 facebook 是**有 DOM/桌面侧登录与承载支撑**的平台，不是零实现。本 PR 修的是「API 面谎称有实现」，不是「facebook 整体无实现」。",
+        "verdict": "dismissed",
+        "rationale": "隐含前提（facebook 可能完全无实现）经取证为假：platform-definitions.js 命中 16 次 + 桌面侧专测存在，说明它有 DOM 承载面，与 publishMode=dom-only 一致。『DOM 轨有无实现不在任何判据内』这个观察本身成立，但它指向的是判据覆盖面缺口（新判据需求），不是本 PR 引入的缺陷；已作为遗留项写进记录（platform-entries.js 与 15 平台差集未裁定、DOM 轨实现无判据）。据此不判 upheld。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "⑨ 的『空声明→FAIL』分支已无真实样本；新测试只断言 facebook 配置值等于 has_api:false，不再运行 ⑨ 的 FAIL 路径，若该分支退化为恒过无测试变红——违反本仓『放宽后不许空转』纪律。",
+        "highRiskDomains": [],
+        "prosecution": "指控成立面：放宽后 15 个平台全部合法，『空声明 ⇒ FAIL』这条分支没有任何真实平台会走到；测试里对它的检查只是读 yaml 断言 facebook 的配置值，并不会执行判据的 FAIL 路径。若有人把该分支删掉或改成恒 ok，没有任何测试会红。",
+        "defense": "部分辩护：判据⑨ 的 api-* 分支（i1 修复新增）与「链存在但未登记」分支仍有真实样本可走；且已补一条结构锁断言源码里必须含『⇒ 空声明』与 api-* 分支字样。",
+        "verdict": "upheld",
+        "rationale": "指控成立。修复分两层：① 结构锁（test 17 内新增）：读 verify-platform-onboarding.js 源码，断言『⇒ 空声明』与「api-only || publishMode === 'api-then-dom」字串仍在，删分支即红；② 变异反证：把 facebook 临时改回 has_api:true ⇒ ⑨ 实测 FAIL（M1 已实跑，脚本侧输出 FAIL [9]，test 14/17/18 三处红），证明该分支确实可执行、未退化为恒过。如实说明局限：这不是行为级常态覆盖（buildChecks 从磁盘读真实 YAML，无法注入夹具），由结构锁 + 变异反证合起来守，记录中已写明。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "⑪① 把 formatter 覆盖降级为『在注册表内』，但注册表驱动 A 用例只断言截断限值（truncateContent/contentMax），不覆盖 formatTags/formatArticleBody 行为；平台标签样式此后仅受『键存在+取值合法』约束，样式映射错误不会红。",
+        "highRiskDomains": [],
+        "prosecution": "指控成立面：A 用例遍历 PLATFORM_PUBLISH_META 只比 contentMax/titleMax；formatTags 的标签形态（#tag / #tag# / plain）没有任何行为级断言。⑪① 改成『在注册表内』后，标签样式只剩 G 用例的『键存在 + 取值在允许集』两道形式检查；把 weibo 从 '#tag#' 改成 '#tag'（两者都合法）不会有任何测试红，而这是用户可见的标签形态退化。",
+        "defense": "无有力辩护：取值合法性确实不等于映射正确性，两条都合法而期望值被改坏的情形当前无覆盖。",
+        "verdict": "upheld",
+        "rationale": "指控成立。修复：G 用例新增逐平台期望样式锁——EXPECTED_STYLE 钉住 weibo='#tag#'、zhihu/wechat_mp/baijiahao='plain'，其余（含全部海外平台）='#tag'；并对 EXPECTED_STYLE 条目数做下界断言（==4），防『表被清空 ⇒ 断言退化成恒等于默认』的假绿。反证：变异 M2（weibo '#tag#'→'#tag'）⇒ G 用例红，详情点名「TAG_STYLES.weibo 应为 '#tag#'，实际 '#tag'」；还原后 7/7 全绿。"
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "finding": "A 档 4 条用例全喂 HTML 输入，生产常见路径（纯文本/多行：weibo 标题+正文按 \\n 合并、zhihu 剥离后多段）未测；若 formatArticleBody 折叠换行或改写 #话题#，现有测试全绿而用户可见退化。",
+        "highRiskDomains": [],
+        "prosecution": "指控成立面：A1-A4 全部输入 '<p>甲</p><p>乙</p>'（HTML），而生产里用户写的就是纯文本多段；若 formatArticleBody 把纯文本多行折叠成一行、或把话题标记改坏，四条 HTML 用例一条都不会红。",
+        "defense": "无有力辩护：纯文本路径确实没有覆盖。",
+        "verdict": "upheld",
+        "rationale": "指控成立。修复：新增 A5/A6 两条纯文本路径行为断言。A5 zhihu：多行纯文本进 ⇒ 必须逐字节原样出（幂等，不折叠、不包 <p>）。A6 weibo：输入 '#探店 今天\\n第二段' + tags ['探店']，断言 ① '#探店#' 双井号形态穿过承载形态适配不被改写 ② 合并后换行数**恰好为 2**。⚠️ A6 第一版写的是 includes('\\n')，变异 M3（join('\\n')→join('')）下**未红**——因为正文源文自带换行，弱断言测不出合并点丢换行；已改成数换行数，M3 复跑即红（A6 是唯一失败项）。反证：M3 已实跑并证红，还原后 8/8 全绿。"
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      }
+    ],
+    "note": "自扮演裁决：4 条指控成立或需外部复核",
+    "at": "2026-10-16T05:19:47.143Z"
   }
 }
