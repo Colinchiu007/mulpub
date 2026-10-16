@@ -688,7 +688,14 @@ async function checkLoginStatus (platform, accountId) {
     // tryHttpLoginCheck 恒返回 null → 浏览器降级是它唯一检测路径 → 每次启动必开隐藏窗口。
     // 同配置窗口加载 kuaishou/douyin 均成功返回 CHECK_LOGIN_SUCCESS，故为站点特定。
     // 与上面两平台同类同机制，按既有白名单处置。
-    const RENDER_CRASH_PRONE_OPEN_PLATFORMS = new Set(['toutiao', 'wechat_mp', 'baijiahao'])
+    // 2026-10-16 追加 zhihu（同族第四例）：知乎有 Cookie 但 HTTP 检测恒 inconclusive
+    // ⇒ 每次启动批量校验必然走到这里开隐藏 sandbox 窗口加载 https://www.zhihu.com/signin
+    // ⇒ 原生渲染崩溃（主进程 exit 4294930435 = 0xC0000409 STATUS_STACK_BUFFER_OVERRUN，
+    // crashpad not connected），vite 连带被杀 ⇒ 应用空白。日志取证：
+    // 08:47:13.465Z start zhihu:e10a1715 → 08:47:22.379Z electron-exit code=4294930435。
+    // 处置与 toutiao/wechat_mp/baijiahao 同：HTTP 不确定 ⇒ 判未确认，绝不开窗；确定结论
+    // 由 zhihu 条目新增的 checkHtml（登录页/已登录页黑名单语义）在 HTTP 快速路径给出。
+    const RENDER_CRASH_PRONE_OPEN_PLATFORMS = new Set(['toutiao', 'wechat_mp', 'baijiahao', 'zhihu'])
     if (RENDER_CRASH_PRONE_OPEN_PLATFORMS.has(platform)) {
       log.warn('AccountManager', 'checkLoginStatus: INCONCLUSIVE render-crash-prone, skip hidden browser ' + platform + ':' + accountId + ' cookies=' + cookies.length + ' lsKeys=' + lsKeys)
       return { valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE', reason: 'render-crash-prone-http-inconclusive' }
