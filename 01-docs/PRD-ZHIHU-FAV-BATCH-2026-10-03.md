@@ -1,8 +1,14 @@
 # PRD：采集页知乎收藏批量采集与批量发布/视频（zhihu-fav-batch）
 
-> 立项日期：2026-10-03 ｜ 分支：`zhihu-fav-batch` ｜ Worktree：`D:\Data\projects\mp-worktrees\mp-zhihu-fav-batch`
+> 立项日期：2026-10-03 ｜ 分支：`zhihu-fav-batch` ｜ Worktree：`mp-worktrees/mp-zhihu-fav-batch`（已按 R1-R5 清理，路径改为相对写法以免留下失效绝对路径）
 > 状态：实现中（本文档随实现同步收口）
 > 上游功能：`zhihu-favlist`（2026-09-18 PR #1986 合入的最小可用版本，此后零迭代）
+
+> **2026-10-15 凭据来源变更（zhihu-api-settings）**：本文档中「Access Secret 由采集页输入框提供」的设计**已被取代**。
+> 密钥改在「设置 → 知乎 API」分区配置，按登录用户隔离并以 safeStorage 加密存储；采集页不再就地输入，
+> 只显示凭据状态（徽标 + 遮罩）与「前往设置」出口。解析优先级为「本用户加密配置 > 旧版全局明文（只读兼容）」，
+> 旧明文在用户保存/清除时销账。详见 `01-docs/PRD-ZHIHU-API-SETTINGS-2026-10-15.md`。
+> 下文 §2.1 的 `accessSecret` 行与 §3.1 的采集页交互描述按新口径阅读。
 
 ---
 
@@ -106,7 +112,7 @@
 | `fullMode` | boolean | false | true 时 count 失效，上限 200 | 「全量采集上限 200 条，超出请分批」（触发即中止并提示，不部分执行） |
 | `forceRecollect` | boolean | false | true 时已采集条目重新采集并覆盖更新原条目 | — |
 | `imageLocalization` | boolean | true | 可配置开关（C1） | — |
-| `accessSecret` | string | 已存 `zhihu_access_secret` | 缺失时禁止拉取清单 | 「请先填写知乎开放平台 Access Secret」 |
+| `accessSecret` | string | 本用户加密配置 `zhihu_api_config`（旧版明文 `zhihu_access_secret` 只读兼容） | 缺失时禁止拉取清单 | 「请先在「设置 → 知乎 API」中配置 Access Secret」 |
 
 ### 2.2 收藏夹清单拉取（②）
 

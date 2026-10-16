@@ -183,7 +183,69 @@ if ($PrepareOnly) {
   exit 0
 }
 
-# 7. launch via detached launcher (non-blocking; node escapes the agent job via WMI)
-$launcher = Join-Path $repoRoot 'scripts/mp-applive-launcher.ps1'
-Start-Process powershell.exe -ArgumentList ("-ExecutionPolicy Bypass -File `"$launcher`" -Worktree `"$Worktree`" -Profile `"$Profile`"") -WindowStyle Normal
-Write-Info 'launcher started (detached); app will appear shortly'
+# 7. launch via WMI-detached launcher, then ASSERT survival (never trust "started")
+#
+# Why WMI instead of Start-Process: Start-Process spawns a child that stays in the
+# caller's Windows Job Object. When an agent harness runs this script inside a
+# background job, job termination takes the whole tree down -- measured 3 times on
+# 2026-10-16 (job + Start-Job + Start-Process variants all died; WMI survived).
+# The launcher itself already WMI-spawns dev.js (its own comment: "breaks the agent
+# job association"), so the only missing link was the sync-app -> launcher hop.
+#
+# Why the survival assertion: QM-1's 2026-10-15 lesson (ELECTRON_RUN_AS_NODE false
+# green) -- "process started" and "process alive" are different claims. Same shape
+# here: printing "launcher started" proves nothing about the app.
+$launcher = Join-Path $repoRoot 'scripts\mp-applive-launcher.ps1'
+$launcherCmd = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' + $launcher + '" -Worktree "' + $Worktree + '" -Profile "' + $Profile + '"'
+$create = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{
+  CommandLine      = $launcherCmd
+  CurrentDirectory = $repoRoot
+}
+if ($create.ReturnValue -ne 0) {
+  Write-Info ('ERROR: WMI launch failed, ReturnValue=' + $create.ReturnValue)
+  exit 1
+}
+Write-Info ('launcher spawned via WMI (pid=' + $create.ProcessId + '); asserting survival...')
+
+# Survival: assert on electron (the launcher is designed to exit).
+# CRITICAL: match the worktree path BOTH slash variants and case-insensitively.
+# Win32_Process.CommandLine carries backslashes while launcher passes the
+# normalized (forward-slash) form, and PowerShell -like is neither slash- nor
+# case-tolerant. Measured 2026-10-16: app was alive (7 electron procs, window,
+# 3 ports) while the naive -like asserted FAIL -- a false negative that would
+# have killed a healthy app in an automated gate.
+$wtFwd = $Worktree.Replace('\', '/')
+$wtBack = $Worktree.Replace('/', '\')
+$wtPat = ('*' + ($Worktree -replace '\\', '/') + '*')
+function Test-AppAlive {
+  param([string[]]$WtVariants)
+  $procs = @(Get-CimInstance Win32_Process -Filter "Name='electron.exe'" -ErrorAction SilentlyContinue)
+  foreach ($pr in $procs) {
+    $cl = [string]$pr.CommandLine
+    foreach ($v in $WtVariants) {
+      if ($cl -like ('*' + $v + '*')) { return $true }
+    }
+  }
+  return $false
+}
+$wtVariants = @($Worktree, $wtFwd, $wtBack)
+$survived = $false
+$windowSeen = $false
+$deadline = (Get-Date).AddSeconds(150)
+while ((Get-Date) -lt $deadline) {
+  if (Test-AppAlive -WtVariants $wtVariants) {
+    $survived = $true
+    $withWin = @(Get-Process electron -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 })
+    if ($withWin.Count -gt 0) { $windowSeen = $true; break }
+  }
+  Start-Sleep -Seconds 5
+}
+if (-not $survived) {
+  Write-Info 'FAIL: process exited early -- no electron for this worktree within 150s (do not judge pass from "launcher started")'
+  exit 1
+}
+if ($windowSeen) {
+  Write-Info 'START_CONTRACT_OK: electron alive with visible main window (WMI-detached)'
+} else {
+  Write-Info 'START_CONTRACT_OK(partial): electron alive, window not visible yet -- check %TEMP%\mp-start-dev.err.log'
+}

@@ -160,6 +160,58 @@ describe("ZhihuFavlistService", () => {
     });
   });
 
+  describe("testConnection（设置页「测试连接」的服务端实现）", () => {
+    it("复用收藏夹列表这一条真实鉴权调用，返回 favlistCount", async () => {
+      const { axios, calls } = makeMockAxios([okBody([
+        { UrlToken: 1, Title: "A" },
+        { UrlToken: 2, Title: "B" },
+        { UrlToken: 3, Title: "C" },
+      ])]);
+      svc = new ZhihuFavlistService({ axios, log });
+      const r = await svc.testConnection("secret-xxx");
+      expect(r.success).toBe(true);
+      expect(r.favlistCount).toBe(3);
+      // 不新造端点：仍走 /user/favlists（这是功能自身要用的那一条）
+      expect(calls).toHaveLength(1);
+      expect(calls[0].url).toContain("/user/favlists");
+      expect(calls[0].config.headers.Authorization).toBe("Bearer secret-xxx");
+    });
+
+    it("无 secret → 直接失败，且一次都不出站", async () => {
+      const { axios, calls } = makeMockAxios([]);
+      svc = new ZhihuFavlistService({ axios, log });
+      const r = await svc.testConnection("");
+      expect(r.success).toBe(false);
+      expect(r.error).toContain("Access Secret");
+      expect(calls).toHaveLength(0);
+    });
+
+    it("鉴权失败（业务码）→ 原样透传归一错误，不谎报成功", async () => {
+      const { axios } = makeMockAxios([{ data: { Code: 40001, Message: "invalid token" } }]);
+      svc = new ZhihuFavlistService({ axios, log });
+      const r = await svc.testConnection("bad-secret");
+      expect(r.success).toBe(false);
+      expect(r.error).toContain("40001");
+      expect(r.favlistCount).toBeUndefined();
+    });
+
+    it("频率限制 → retryable 标记保留（UI 可据此提示稍后重试）", async () => {
+      const { axios } = makeMockAxios([{ data: { Code: 30001, Message: "rate limited" } }]);
+      svc = new ZhihuFavlistService({ axios, log });
+      const r = await svc.testConnection("secret");
+      expect(r.success).toBe(false);
+      expect(r.retryable).toBe(true);
+    });
+
+    it("网络异常 → 网络连接失败", async () => {
+      const { axios } = makeMockAxios([new Error("socket hang up")]);
+      svc = new ZhihuFavlistService({ axios, log });
+      const r = await svc.testConnection("secret");
+      expect(r.success).toBe(false);
+      expect(r.error).toContain("网络连接失败");
+    });
+  });
+
   describe("headers 构造", () => {
     it("Bearer + 秒级时间戳 + Content-Type", () => {
       svc = new ZhihuFavlistService({ log });

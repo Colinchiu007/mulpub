@@ -16,6 +16,24 @@
 - 文档：`01-docs/PRD-PUBLISH-FREQUENCY-UNWIRED-2026-10-16.md`（四条面定夺表、合法域三路径表、日键两条口径、显示项与提示文字表、反证表 U1–U11、回退路径、未闭合五条）；v4 PRD §8 未接线清单逐条补"已定夺"状态并保留 v4 时点原文（那节记的是当时的事实，不改写历史）。
 - 明确不做并留痕：`full-auto-pipeline` 的 5s 直发旁路仍不经守卫；设置页账号/平台间隔仍是全局单值覆盖；裁剪只在启动跑一次，长驻进程跨月不自动裁（行数量级为"账号数 × 天数"，故不加定时器，如实记取舍）；`basis=unproven` 分支只有单元锁、无真实 sqlite 故障注入。
 
+# [未发布] fix(gates): openspec-sync-check 审计器接进不被 docs-only 短路的 job，并清掉真实仓库 14 条存量违规（openspec-sync-realrepo）
+
+- **第一性原因**：审计器 `scripts/openspec-sync-check.js` 四档退出码（0/1/2/3）**从未被任何门禁对真实仓库调用一次**——CI 只在 `static-gates` 点名它的测试，而那份测试 19 条全部在 `os.tmpdir()` 自建夹具上跑，测的是判据本体不是本仓库。真实仓库当场是 `rc=2 / 14 条`（其中 5 个 `task.json` 根本无法解析）。更糟一层：它审计的 `.ccg/**` 与 `openspec/**` **都在 docs-only 白名单里**，而 `static-gates` 带 `if: docs-only != true` ⇒ 这把锁只可能出现在结构上碰不到被审计文件的 PR 上。这笔欠账 2026-10-14 就写在某条执行记录的第 151 行，但没有任何消费者。
+- **机制收口**：新增 Gate 12e 把审计器与它的测试**再点名一次进 `changes` job**（`static-gates` 那份保留，两处只构成"docs-only PR 也拦得住"），并用既有机制钉住接线——登记进 `check-unwired-tests.js` 的 `MUST_LIVE_IN_UNGATED_JOB`（登记后实测 rc=1 报 `TEST_ONLY_IN_SKIPPABLE_JOB`，加接线才转 OK）。两脚本只用 node 内置模块，满足该 job 无 Install deps 的前提锁。
+- **真实仓库自证锁**三个构件缺一不可：对仓库根跑；取不到 `.ccg/tasks` 或 `openspec/changes` **一律当场红（禁 skip，因为"根没找到"与"找到且合规"在通过消息里完全同形）**；`taskFiles > 50` 规模下界。每次跑打印 `summary={taskFiles,parsedTasks,activeChanges,archivedChanges}`。
+- **14 条逐条取证后修复**（规则先读代码，不按红字猜）：2 个文件是**两个 JSON 对象直接拼接**、1 个被**转义过一次**、2 个是 JSON 串里未转义的盘符路径（顺带暴露 `	` 会被静默吃成 TAB）、4 个 `status` 与 `currentPhase` 互相矛盾、4 个 change 引用写成整路径或**带日期目录名**（索引建键会剥日期 ⇒ 数据坏不是探针瞎）、1 个真悬空——后者走检查器自带的 `superseded + supersededBy` 合法出口，**不删引用也不伪造 change 目录**。改完 `taskFiles=387 / parsedTasks=387 / errors=0 / violations=0 / rc=0`。
+- **反证 4 条红因互不相同**：摘接线红在「job 会被跳过」；注入违规红在「必须自证合规」并点名文件；根指向空目录红在「找不到 .ccg/tasks」；根指向"目录都在但只有 1 个 task.json"的仓库**只有规模下界会红**（证它不是装饰）。MD 第一次跑误报成"根不存在"，根因是**探针自己坏了**（对 `JSON.stringify` 结果多做一次反斜杠折叠 ⇒ 生成的字面量里 `	` 变 TAB），修的是探针不是断言。
+- 契约与逐条归因见 `01-docs/PRD-OPENSPEC-SYNC-REALREPO-2026-10-16.md` 与 `openspec/records/openspec-sync-realrepo.md`。
+- **CI 首跑红在 Gate 2c，红因是我漏跑了一条锁**：本地只跑了 `check-unwired-tests.js` 判据本体（rc=0），没跑它自己的测试；那条测试第 24 条把 `MUST_LIVE_IN_UNGATED_JOB` 钉成精确清单，我的新增登记当场把它顶红。修法除更新钉住的清单外，还把「承载 job 的现场证据」从硬编码单文件泛化为逐登记项循环（注释行不算承载）。**如实**：摘掉接线的变异先红在 `collectCheck` 那条，新循环未被该变异到达，故只申报为 defense-in-depth，不申报"已反证"。
+
+# [未发布] docs(prd): 4.3② 的前置合同 —— 计费二次确认框的只读数据源接口（podcast-episode-script-entry）
+
+- **为什么不是直接做 4.3②**：PRD §7.10.4 要求二次确认框显示「块数 / 总码点 / 服务商·模型·音色三段（含来源标注）」，但这三个数**在渲染端 0 可达**（`origin/main` 实测：`planChunks` 只存在于 `apps/desktop/electron/services/`，`src` 与 `preload` 各命中 0；`resolveEpisodeVoice` 零生产调用方；`voiceRef` 在 `src` 命中 0 个文件）。直做只有两种结果：浮层显示空数，或逼渲染层另抄一份分块与音色推断 —— 后者正是本 PRD 反复禁止的「两份口径必然漂移」。
+- **本片只落合同**：新增 §7.10.4.1 定义唯一读路径 `podcast:episode:planPreview`（一次往返同时给 `plan{totalBlocks,totalCodepoints}` 与 `voice{providerId,model,voiceId,origin,resolvedBy}`，二者**只转发不加工**）+ 7 条验收判据 + 3 条故意不做；拒绝态沿用既有领域码，**不为预览新增同义码**；计数缺失 = 整块不显示、**绝不回落 0**。三把新键 `podcast.episode.planBlocks/planCodepoints/planVoice`，来源标注**复用** §8.2.9 已定的 `podcast.voice.origin*`，不另写第二份。
+- **一处对本文档早期条款的收敛（偏差就地明写）**：§8.2.9 曾把同一批音色信息规划成独立的 `podcast:voice-preview`。两条并存会让用户打开一次浮层走两趟近重复读路径、音色解析跑两遍，故由 §7.10.4.1 的 `planPreview` **承载** §8.2.9 的读面；其落点、三态标注与验收判据照用不变，只是 IPC 名与载荷合一。
+- **tasks 4.3② 拆成 ②-a / ②-b，父项保持未勾**：②-a = 只读预览接口（含两条必须同 PR 的锁 —— 零副作用按**副作用缺席**判（`mkdir`=0 且忙标记未占），以及 `resolveEpisodeVoice` 生产调用方结构锁 `git grep -l` 命中数 > 1）；②-b = 出期通道 + 浮层 + 入口，且**按枚切**（先 `CopyLibraryView.vue`，另两枚各留未勾子项）。「不得先开通道再补入口」的承重是**通道与至少一枚真实消费者同 PR**，不是三枚必须同 PR。
+- 同族手法第二次命中（第一次是 §6.4.2 的七相位进度）：**显示项要反查喂它的那条通道，接不通就说明该显示项还没有合同**。§7.10.4 原表那行刻意未改（仍是目标态数据来源），待 ②-a 落地由实现 PR 一并更新，好让「合同落后于实现」这件事留痕。详见 `openspec/records/podcast-episode-script-entry.md`。
+
 # [未发布] docs(openspec): 变更归档审计——51 个活跃变更里只有 1 个"可安全归档"，本轮归档它并给其余 50 个定判据（openspec-archive-audit）
 
 - **第一性原因不是"谁忘了归档"，是归档前置条件从没被定义过**：`openspec/changes/` 攒到 51 个活跃变更，仓内没有任何东西回答"哪些已合并、哪些现在就能归档"；`scripts/openspec-sync-check.js` 只查 change 引用**悬空**（引用不到就红），**反向不查**（做完没归档完全无声）。于是每次清理都要现场重造判据。

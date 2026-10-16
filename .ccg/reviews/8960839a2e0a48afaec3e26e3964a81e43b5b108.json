@@ -1,0 +1,29 @@
+{
+  "sha": "8960839a2e0a48afaec3e26e3964a81e43b5b108",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 77 行（≤ 200）但命中 auth/数据库/加密：敏感内容 8 处",
+  "stats": {
+    "changedLines": 77,
+    "fileCount": 7,
+    "codeFileCount": 5,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 8,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "| 6 | MAJOR | `zhihu-credential.js` `clearConfig` | **无写后读回**，违反模块头契约：存储静默 no-op 时「点清除 → 界面说成功 → 密钥还在」 | **已修**：清除后读回校验（与 `saveConfig` 同口径）；新增回归锁（no-op store 下必须 `ok:false`，含「清除未生效」文案） |",
+      "| 9 | MINOR | `zhihu-credential.js` `saveConfig` | 读回只验「非空字符串」，未做**解密回环** ⇒ 密文被写坏也算成功 | **已修**：读回后 `_decryptCipher(...) === checked.value` 才算成功；新增回归锁（截断密文的 store 必须 fail closed） |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "0f2d4cb70110a4e8fb7b5866ed51eab2a5a4cf07e996288a3840aac49634a9f6",
+  "decidedAt": "2026-10-15T19:09:05.060Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "cleared",
+    "performedBy": "claude 2.1.296 + opencode 1.18.34（跨家族双模型，只读审查本 PR 全部改动）",
+    "findings": "本记录对应的这笔改动（77 行：清除路径补写后读回、连通性结果的落库可见性、读回校验补往返比对）**已实际执行跨家族双模型深度审查**：两模型各自输出裁决，去重 8 条（3 MAJOR + 5 MINOR），已修 7 条并补 12 条回归锁，1 条如实登记为遗留。本记录置闭环值即引用该次评审的裁决，不另跑；此处刻意不复写触发词，以免在闭环提交上再生 dual 欠账。完整取证见 openspec/records/zhihu-api-settings.md 的「QM-6 评审取证」小节。"
+  }
+}

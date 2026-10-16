@@ -784,6 +784,44 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 | 进度遮罩 | 当前相位 + `durationSec` / `sizeBytes` / `mime` 实测值 | `publish:progress` 富化事件（§6.4.2） |
 | 结果 | 成功给 `feedUrl`；partial 明示「公网 feed 未更新」；cancelled 明示「已回滚，未产生远端对象」 | 编排层信封 |
 
+#### 7.10.4.1 二次确认框的数据源合同（2026-10-16 补；**合同，尚未实现**）
+
+> 补这一节的直接原因：上表把「块数 / 总码点 / 音色三段」写成已有事实，但**这三个数在渲染端一个都取不到**（`origin/main` 实测）：
+> `planChunks` 只存在于 `apps/desktop/electron/services/`（`src` 命中 **0**、`preload` 命中 **0**）；
+> §7.4.0 的 `resolveEpisodeVoice` **零生产调用方**（只有它自己的测试在调）；`voiceRef` 在 `apps/desktop/src` 命中 **0** 个文件。
+> 于是「先做 4.3② 的浮层、以后再补 4.5」在合同上不成立——浮层要么显示空数，要么在前端另抄一份分块与音色推断（后者正是本 PRD 反复禁止的「两份口径必然漂移」）。
+
+**唯一读路径**：新增只读 IPC `podcast:episode:planPreview`（preload 面 `episodePlanPreview`）。一次往返同时给出分块计划与音色解析结果，浮层不得自己算任何一个显示值。
+
+- 入参（全部纯 JSON，须 `JSON.parse(JSON.stringify(x))` 脱壳后传）：`{ channelId, script }`——`script` 是用户那篇待出期的正文，**不是**音频路径。
+- **命名照既有形状，不新造风格**：通道 `podcast:episode:planPreview` 对齐 `podcast:episode:publishFromVideo`（动词段是 camelCase，不用 kebab）；preload 面键 `episodePlanPreview` 对齐 `episodeList` / `episodePublishFromVideo` 的**扁平**形状（本仓没有 `podcastEpisode.*` 这层命名空间，凭空造会让 preload 面出现两种风格）。
+- **改 `electron/preload/podcast.js` 必须同 PR 重生两个 tracked bundle**：`electron/preload/index.bundle.js` 与 `electron/home-shell-preload.bundle.js`（`git ls-files` 实测两者都入库）。只改源不重生 ⇒ 通道在打包产物里**根本不存在**，而 vitest 走的是源文件，本地全绿也测不出来（AGENTS「bundle 断言拦截遗漏」同源；QM-1 必须验到 bundle 里出现该通道名）。
+- 成功载荷：`{ ok: true, plan: { totalBlocks, totalCodepoints }, voice: { providerId, model, voiceId, origin, resolvedBy } }`。
+  `plan` 由 `planChunks(script, { maxCodepoints })` 的**同一实现**产出（禁止第二份切分口径，与 §7.9.5 第 5 条「不猜」同源），`voice` 由 `resolveEpisodeVoice` 产出，二者都**只转发不加工**。
+- 拒绝载荷：正文过短 / 音色残缺等一律沿用 §7.4 与 §7.10 既有领域码（`PODCAST_EPISODE_INVALID`、`PODCAST_TTS_VOICE_UNRESOLVED` 一类），**不得为预览新增第二套同义码**；预览被拒就是「这一期现在还发不了」，浮层据此显示原因而不是显示 0。
+- 计数语义：`totalBlocks` / `totalCodepoints` 缺失时**整块不显示**，不得回落成 `0`（同 §7.9.6 摘要「计数不齐绝不回落 0」那条口径）。`origin` 不在闭集 `channel|preference|providerDefault` 内时不显示并 `console.warn`。
+
+**显示项键**（zh/en 成对，Gate 7 + `apps/desktop/src/i18n/glossary.test.js` 各跑一次）：
+
+- `podcast.episode.planBlocks` —— zh `将切成 {n} 块` / en `Will be split into {n} chunks`
+- `podcast.episode.planCodepoints` —— zh `合计 {n} 码点` / en `{n} code points in total`
+- `podcast.episode.planVoice` —— zh `服务商 {provider} · 模型 {model} · 音色 {voice}` / en `Provider {provider} · Model {model} · Voice {voice}`
+- 来源标注**复用** §8.2.9 已定的三把 `podcast.voice.origin*` 键，**不另写一份**（同一句话抄两处必然漂移）。
+
+**验收判据（逐条可测，缺一不可）**：
+
+1. 预览是**只读**：不建目录、不写 feed、不调 TTS、不 spawn ffmpeg、不发 PUT——用副作用缺席断言（`mkdir` 次数 = 0 且忙标记未被占用），只看返回码不构成证据。
+2. `plan.totalBlocks` 与真源 `planChunks(script).chunks.length` **逐字相等**（行为锁，不是"看起来像"）。
+3. 拒绝态**不是空态**：预览抛 `PODCAST_TTS_VOICE_UNRESOLVED` 时浮层必须显示原因句，不得显示「0 块 / 空音色」。
+4. 预览失败**不得毁掉主路**：整段 `try/catch`，失败只降级为「不显示计数」，发起按钮仍可用（同意闸门在主进程，§7.10.3 那条没变）。
+5. IPC 载荷必须是纯 JSON；`origin`/`resolvedBy` 的闭集判据只在主进程一份。
+6. 预览**不得缓存到磁盘**，也不得进发布历史；每次打开浮层现取（音色偏好可能在别处改过）。
+7. 该 IPC 一旦落地，`resolveEpisodeVoice` 就有了**第一个生产调用方**——必须同 PR 补一条结构锁：`git grep -l resolveEpisodeVoice -- apps/desktop/electron` 的命中文件数 `> 1`（只有它自己和它的测试即红），否则这条链仍可能是装饰性的。
+
+**故意不做**：不给预览加限流/去抖（打开浮层是低频动作，加限流只会让计数与用户刚改完的正文不一致）；不做「预估费用金额」（本仓无服务商价目表真源，写出来就是猜）；不在预览里做口语化重写（§7.6 那条链独立，且必须保持换行与终止标点的结构不变量）。
+
+**与 §8.2.9 的关系（偏差在此明写）**：§8.2.9 曾把同一批音色信息规划成独立的 `podcast:voice-preview`。二者若并存，用户打开一次浮层要走两趟近重复读路径，且音色解析会跑两遍。故本节的 `podcast:episode:planPreview` **承载** §8.2.9 的读面，§8.2.9 的落点、三态标注与验收判据全部照用，只是 IPC 名与载荷合一。这是对本 PRD 自身早期条款的收敛，不是新增偏离。
+
 ### 7.10.5 提示文字（逐字，供 §11.5 生成器对齐）
 
 - 未同意计费：`文本出期会逐块调用 TTS 服务商并产生计费，请先确认用量与费用`
@@ -1099,6 +1137,7 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 
 ### 8.2.9 音色来源三态标注（**合同，尚未实现**）
 
+> **承载方（2026-10-16）**：本节的读面由 §7.10.4.1 的 `podcast:episode:planPreview` 一次性提供（不再单开 `podcast:voice-preview`，两趟近重复读路径会让音色解析跑两遍）。下面的落点、三态标注与验收判据**照用不变**，仅 IPC 名与载荷合一；`plan.voice.origin` 三把键由 §7.10.4.1 复用。
 > 本节是 tasks 4.5 剩下那半句的合同，不是实现。写作依据是当场实测的三个事实：
 > `voiceRef` 在 `apps/desktop/src` 下**命中 0 个文件**；`apps/desktop/src/locales/podcast/{zh,en}.js` 里**没有任何音色相关键**；
 > 解析层 `apps/desktop/electron/services/podcast-tts-voice.js` 只在出期时算出 `{voiceId, origin, resolvedBy}`（`origin` 闭集 =

@@ -10,7 +10,7 @@
   "nextAction": "已归档；PR #1194 已合并（54a3036e4）",
   "createdAt": "2026-08-27T00:00:00Z",
   "branch": "codex/fix-watermark-drift-center",
-  "openspecChange": "openspec/changes/archive/2026-08-27-fix-watermark-drift-start-center",
+  "openspecChange": "fix-watermark-drift-start-center",
   "remoteStatus": "merged",
   "remoteRef": "https://github.com/Colinchiu007/Multi-Publish/pull/1194"
 }
