@@ -1,0 +1,29 @@
+{
+  "sha": "0989bfc3bcf036384122e5b1d50c4ad2f3059d78",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 149 行（≤ 200）但命中 auth/数据库/加密：敏感内容 1 处",
+  "stats": {
+    "changedLines": 149,
+    "fileCount": 6,
+    "codeFileCount": 4,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 1,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "- **CCG 深度审查 + 跨家族外部复核（本轮真实过程，含被推翻的错判）**：pre-commit 判定 `mode=dual`（命中 auth/加密语义）→ `scripts/deep-review.sh` 跑出 5 条问题/4 维/最低 6 分 → 自扮演裁决 3 条待裁。我最初把 i1/i2/i3 **全判 dismissed**；**外部跨家族复核推翻其中两条：i1/i3 均 upheld**，并指出「生产代码误读 `_internals` 无防御」。**整改不是改文字**：① `Object.freeze` 两集合；② 删 `_internals` 导出；③ 注入改显式参数；④ 新增**正向控制**锁（注入后才开窗，防\"零开窗\"断言退化成永真）+ **生产面静态锁**（除 `account-manager.js` 外出现 `._internals`/`domLoginCheck`/`DOM_LOGIN_CHECK_ALLOWED` 片段即红）。第二轮外部复核：**i1/i3 resolved**；残余风险仍 `not_resolved` 并给出边界——\"把属性名切成互不相邻片段再拼\"不可机械拦截（通用限制，如实登记）。**绕过探针**：按复核点名的写法（`const k = 'domLoginCheck' + 'Allowed'`）建探针文件后静态锁**当场红**，探针按 R0 可恢复删除。",
+      "| QM-6 CCG 双模型评审 | ⚠️→✅ | pre-commit 判定 `mode=dual`（命中 auth/加密语义），记录 `.ccg/reviews/450b91ac….json`；`scripts/deep-review.sh`（Git for Windows Bash，依赖体检通过：proposer=opencode / critic=claude 跨家族）跑出 **5 条问题、4 个维度、最低分 6**，收敛为自扮演裁决（`.adversarial/ccg-deep-0989bfc3/adjudication.json`，3 条待裁，其中 i1/i3 属 **auth 高危域必须外部复核**）。**关键过程**：我最初把 i1/i2/i3 全判 `dismissed`；**跨家族外部复核推翻其中两条——i1/i3 均 upheld**，并指出残余风险「生产代码误读 `_internals` 无防御」。**整改**（不是改文字）：① `Object.freeze` 两个集合（`add()` 失效）；② 删除 `_internals` 导出；③ 注入改**函数显式参数** `options.domLoginCheckAllowed`（不传即默认空集）；④ 补**正向控制**锁（注入后才开窗）+ **生产面静态锁**（除 `account-manager.js` 外，出现 `._internals`/`domLoginCheck`/`DOM_LOGIN_CHECK_ALLOWED` 片段即红，能拦住\"动态拼接属性名\"这一具体绕过）。第二轮外部复核：**i1 resolved、i3 resolved**；残余风险仍判 `not_resolved` 并给出边界（把属性名切成互不相邻片段再拼不可机械拦截）——如实登记，不假装闭合 |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "96bbe8148ef65e14e5091d28040a248088df037d0a543f25e7551bcac459bd6b",
+  "decidedAt": "2026-10-16T17:20:55.150Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

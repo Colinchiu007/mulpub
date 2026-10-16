@@ -576,8 +576,18 @@ async function getAccountProxyStatusLazy (accountId, platform, options = {}) {
 // （数组选择器逐个尝试、仪表盘域名兜底）仍必须可测，否则会退化成无人覆盖的死代码。
 const DOM_LOGIN_CHECK_ALLOWED_PLATFORMS = new Set([])
 const RENDER_CRASH_PRONE_OPEN_PLATFORMS = new Set(['toutiao', 'wechat_mp', 'baijiahao', 'zhihu', 'kuaishou'])
+Object.freeze(DOM_LOGIN_CHECK_ALLOWED_PLATFORMS)
+Object.freeze(RENDER_CRASH_PRONE_OPEN_PLATFORMS)
 
-async function checkLoginStatus (platform, accountId) {
+async function checkLoginStatus (platform, accountId, options = {}) {
+  // 测试注入缝（2026-10-16，外部复核 i1/i3 的整改）：允许集**不再**以可变全局 +
+  // `_internals` 导出的方式暴露——那条路要求「调用方记得删 require 缓存」才能隔离，
+  // 且给生产代码留了无留痕改判定策略的口子。现在改为**显式参数**：不传就永远走模块
+  // 常量（空集 = 默认不开窗）。生产调用点**不得**传 `domLoginCheckAllowed`
+  // （由 account-manager-http-only-policy.test.js 的静态锁拦截）。
+  const domLoginCheckAllowed = Object.prototype.hasOwnProperty.call(options, 'domLoginCheckAllowed')
+    ? options.domLoginCheckAllowed
+    : DOM_LOGIN_CHECK_ALLOWED_PLATFORMS
   if (!isSafePathSegment(platform) || !isSafePathSegment(accountId)) {
     return { valid: false, code: 'CHECK_LOGIN_INVALID_PARAMS' }
   }
@@ -730,7 +740,7 @@ async function checkLoginStatus (platform, accountId) {
       log.warn('AccountManager', 'checkLoginStatus: INCONCLUSIVE render-crash-prone, skip hidden browser ' + platform + ':' + accountId + ' cookies=' + cookies.length + ' lsKeys=' + lsKeys)
       return { valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE', reason: 'render-crash-prone-http-inconclusive' }
     }
-    if (!DOM_LOGIN_CHECK_ALLOWED_PLATFORMS.has(platform)) {
+    if (!(domLoginCheckAllowed instanceof Set ? domLoginCheckAllowed : new Set(domLoginCheckAllowed || [])).has(platform)) {
       log.warn('AccountManager', 'checkLoginStatus: INCONCLUSIVE hidden-browser-disabled-default, skip hidden browser ' + platform + ':' + accountId + ' cookies=' + cookies.length + ' lsKeys=' + lsKeys + ' allowed=' + DOM_LOGIN_CHECK_ALLOWED_PLATFORMS.has(platform))
       return { valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE', reason: 'hidden-browser-disabled-default' }
     }
@@ -1240,7 +1250,4 @@ module.exports = {
   credentialStore,
   // 供测试对「批量 proxy 读取」单独注入桩（不必连带桩掉整份凭证存储）
   proxyStatusReader,
-  // 供测试注入「允许集」以覆盖被它门控的子行为（数组选择器逐个尝试、仪表盘域名兜底）。
-  // 生产代码不得读取它；「默认空集」由 account-manager-http-only-policy.test.js 的结构锁守。
-  _internals: { DOM_LOGIN_CHECK_ALLOWED_PLATFORMS, RENDER_CRASH_PRONE_OPEN_PLATFORMS },
 }
