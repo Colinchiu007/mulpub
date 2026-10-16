@@ -29,13 +29,20 @@ sync_backfill_owner: 下一个会话（合并后在本文件内收口：远程�
 
 ### QM-1 证据（三层判据 + 存活断言）
 
-待补：本次改动含 `apps/desktop/electron/` 下代码，按 QM-1 必须本地打包验证。
+本改动含 `apps/desktop/electron/` 下代码，已本地打包验证。**全部实测读数如下**：
 
-- 打包：`cd apps/desktop && pnpm exec electron-builder --win --dir --publish never`
-- 断言 1（存活，**新增的独立前提**）：窗口期内进程必须仍存活 —— 进程提前退出时 stderr 必然为空，只看 stderr 会把「根本没启动」读成「启动干净」
-- 断言 2（子进程 env）：spawn 必须显式传 `env`，用 `scripts/lib/qm1-child-env.js` 的 `buildChildEnv()` 剔除 `ELECTRON_RUN_AS_NODE`（该变量会随 shell 继承，令 Electron 以纯 Node 模式静默退出：rc=0 / stdout 空 / stderr 空）
-- 断言 3（stderr 三层）：① 命中红线 ⇒ FAIL；② 非空未命中 ⇒ NEEDS_REVIEW；③ 为空 ⇒ PASS
-- 另：`node scripts/verify-worktree-deps.js` 必须 OK（断言 `@multi-publish/*` 解析到本 worktree）
+| 项 | 命令 / 断言 | 结果 |
+|---|---|---|
+| 依赖解析 | `node scripts/verify-worktree-deps.js` | **OK**（消费方解析通过 11 项；被消费 workspace 9 个） |
+| 打包 | `pnpm exec electron-builder --win --dir --publish never` | **exit 0**（electron-builder 25.1.8 / electron 43.7.7 / win32 x64） |
+| 产物含新文件 | `asar list .../app.asar` | 命中 `\electron\ipc-handlers\account-proxy.js` 与 `\electron\services\credential-proxy-status.js` |
+| **① 存活断言**（三层判据的隐含前提） | 8000ms 窗口期内进程必须仍在存活 | **OK 存活断言通过** —— 未提前退出 |
+| **② 子进程 env** | spawn 必须显式传 `env`，经 `scripts/lib/qm1-child-env.js` 的 `buildChildEnv()` 剔除 `ELECTRON_RUN_AS_NODE` | **已剔除 = true**（不传 env 会继承父环境，该变量令 Electron 以纯 Node 模式静默退出：rc=0 / stdout 空 / stderr 空，与「启动干净」完全同形） |
+| **③ stderr 三层** | 红线命中 ⇒ FAIL；非空未命中 ⇒ NEEDS_REVIEW；为空 ⇒ PASS | **PASS（第③层）** —— stderr 为空 |
+
+产物内 `require` 与旧 API 未破坏：新增的两个主进程文件均进入 asar，且 `credential-proxy-status.js` 是上一轮已在产物中验证过的模块（本轮未改其内部契约，只改了调用方）。
+
+- 打包期两条 `file source doesn't exist`（`dist/fonts`、`.playwright-browsers`）为**既知环境态**：本 worktree 未跑 renderer build、未安装 Playwright 浏览器，与本次改动无关（本次未触碰 renderer 构建配置）。
 
 ### 本轮实测修到的实现缺陷（写进注释防回归）
 
