@@ -18,12 +18,19 @@
     "lineReadGaps": []
   },
   "stagedDiffHash": "96bbe8148ef65e14e5091d28040a248088df037d0a543f25e7551bcac459bd6b",
-  "decidedAt": "2026-10-16T17:20:55.150Z",
+  "decidedAt": "2026-10-16T17:20:55.15Z",
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "self_play_resolved",
+    "performedBy": "self-play adjudication + 跨家族外部复核 2 轮（deep-review.sh，proposer=opencode / critic=claude）",
+    "findings": [
+      "critic 5 条问题 / 4 维（正确性/安全性/性能/可维护性），最低分 6 ⇒ 进入自扮演裁决，3 条待裁",
+      "i1：外部跨家族复核第一轮 upheld（我最初自判 dismissed 被推翻）⇒ 整改后第二轮 resolved（Object.freeze 两个集合 + 去掉可变全局导出 + 注入改函数显式参数）",
+      "i2：dismissed —— 该文件由 pre-commit 钩子按 diff 内容寻址写入，引擎自述为预期行为；主干已跟踪同类审计产物 763 个",
+      "i3：外部复核第一轮 upheld ⇒ 第二轮 resolved（注入改为按调用显式传参，用例之间无共享可变状态）",
+      "残余风险 not_resolved（如实登记）：生产面静态锁为片段级，拼接属性名的写法可拦（探针实测变红），但把属性名切成互不相邻片段再拼无法机械拦截 —— 属通用限制，不假装闭合",
+      "回归保护：策略锁 4 例（反向控制 / 正向控制 / 结构锁 / 生产面静态锁）；全量 108/108；变异反证 2 failed | 2 passed；绕过探针 1 failed | 3 passed 后按 R0 删除"
+    ]
   }
 }
