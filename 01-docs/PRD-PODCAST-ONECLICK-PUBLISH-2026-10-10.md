@@ -780,11 +780,11 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 
 | 位置 | 显示内容 | 数据来源 |
 | --- | --- | --- |
-| 二次确认框 | 块数、总码点、服务商/模型/音色三段 | `planChunks` 的 `totalBlocks` + 频道 `voiceRef`（§7.4.0 三层回退，命中来源必须标注） |
+| 二次确认框 | 块数、总码点、服务商/模型/音色三段 | **只读 IPC `podcast:episode:planPreview`**（§7.10.4.1，2026-10-16 主进程侧已落）：`plan.totalBlocks/totalCodepoints` 由 `planChunks` 同一实现产出、`voice` 五段由 `resolveEpisodeVoice` 产出，本层只转发不加工；⚠️ 浮层尚未消费（②-b），三把 `podcast.episode.plan*` 键也未落（②-a-l） |
 | 进度遮罩 | 当前相位 + `durationSec` / `sizeBytes` / `mime` 实测值 | `publish:progress` 富化事件（§6.4.2） |
 | 结果 | 成功给 `feedUrl`；partial 明示「公网 feed 未更新」；cancelled 明示「已回滚，未产生远端对象」 | 编排层信封 |
 
-#### 7.10.4.1 二次确认框的数据源合同（2026-10-16 补；**合同，尚未实现**）
+#### 7.10.4.1 二次确认框的数据源合同（2026-10-16 补；**主进程与 preload 已落地，浮层与文案键未落地**）
 
 > 补这一节的直接原因：上表把「块数 / 总码点 / 音色三段」写成已有事实，但**这三个数在渲染端一个都取不到**（`origin/main` 实测）：
 > `planChunks` 只存在于 `apps/desktop/electron/services/`（`src` 命中 **0**、`preload` 命中 **0**）；
@@ -821,6 +821,14 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 **故意不做**：不给预览加限流/去抖（打开浮层是低频动作，加限流只会让计数与用户刚改完的正文不一致）；不做「预估费用金额」（本仓无服务商价目表真源，写出来就是猜）；不在预览里做口语化重写（§7.6 那条链独立，且必须保持换行与终止标点的结构不变量）。
 
 **与 §8.2.9 的关系（偏差在此明写）**：§8.2.9 曾把同一批音色信息规划成独立的 `podcast:voice-preview`。二者若并存，用户打开一次浮层要走两趟近重复读路径，且音色解析会跑两遍。故本节的 `podcast:episode:planPreview` **承载** §8.2.9 的读面，§8.2.9 的落点、三态标注与验收判据全部照用，只是 IPC 名与载荷合一。这是对本 PRD 自身早期条款的收敛，不是新增偏离。
+
+> **落地现场（2026-10-16，tasks 4.3②-a）**：主进程侧已按本节落地——`apps/desktop/electron/services/podcast-episode-plan-preview.js`（分块与音色**只转发不加工**，缺注入实现即 fail closed）+ IPC 通道 `podcast:episode:planPreview` + preload 键 `episodePlanPreview` + 两个 tracked bundle 已重生。
+
+> 验收判据的处置：**1 / 2 / 5 / 6 / 7 已闭合**（判据之家 `podcast-episode-plan-preview.test.js` 17 例 + `podcast-plan-preview-ipc.test.js` 9 条，后者含「副作用缺席」三件同时断言：目录未建 + `tryBeginPublish`/`endPublish` 0 次 + 宿主两个入口 0 次）；**3 / 4 未闭合**——那两条量的是浮层怎么显示拒绝态与降级态，落点是 `PodcastEpisodeEntry.vue`，属 ②-b 的判据范围，本片不冒充已交付。
+
+> 频道级音色**至今没有落点**：`voiceRef` 在 `podcast-channel-registry.js` / `podcast-channel-service.js` / `channel.json` 的 meta 里命中 **0**（`git grep` 实测），所以生产路径上 `origin` 只会是 `preference` 或 `providerDefault`，① 层恒空。接线按「存在则取」写（`getService(channelId).getChannel().voiceRef`），**不新造字段**——把频道音色落进真源是 4.5 那一刀的范围，届时 ① 层自动生效，本预览不需要改一行。
+
+> 计数口径如实写明：`totalBlocks` 逐字等于 `planChunks(script).chunks.length`；`totalCodepoints` = **各块码点之和**（不含被切掉的空白段落，也不是原文的 UTF-16 长度）。计费面是「逐块调 TTS」，第二个数只有取块内码点之和才对得上费用；写这条是因为浮层若显示另一个数，用户会以为「显示的是正文长度」，而实际按块付费——两个数必须同源。
 
 ### 7.10.5 提示文字（逐字，供 §11.5 生成器对齐）
 
