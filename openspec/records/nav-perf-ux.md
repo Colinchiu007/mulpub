@@ -14,7 +14,7 @@ sync_backfill_owner: 下一个会话（合并后在本文件内收口：远程�
 
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
-| 变更类型与隔离 | PASS | **运行时代码变更** ⇒ 隔离 worktree `D:/Data/projects/mp-worktrees/mp-fix-sidebar-nav-slow`（D 盘，非 C 盘）+ 分支 `nav-perf-ux`。`pre-code-edit-guard.ps1` exit 0。**如实声明**：本任务开始时标准入口 `start-mp-task.ps1` 被硬拒（共享根有另一会话未提交的 3 个已跟踪文件，`mp-worktree-health.ps1 -RequireClean` 返回 `ok=false`），`session-init.sh` 同样 `exit 2` 且明确「leaving them untouched」。**未做任何手动补救**（无 `rm` worktree 注册、未在共享根落盘、未碰他人改动），改为**复用已有隔离 worktree** 并从 `origin/main` 开新分支（经用户明确批准）。 |
+| 变更类型与隔离 | PASS | **运行时代码变更** ⇒ 隔离 worktree `<仓库父目录>/mp-worktrees/mp-fix-sidebar-nav-slow`（D 盘，非 C 盘）+ 分支 `nav-perf-ux`。`pre-code-edit-guard.ps1` exit 0。**如实声明**：本任务开始时标准入口 `start-mp-task.ps1` 被硬拒（共享根有另一会话未提交的 3 个已跟踪文件，`mp-worktree-health.ps1 -RequireClean` 返回 `ok=false`），`session-init.sh` 同样 `exit 2` 且明确「leaving them untouched」。**未做任何手动补救**（无 `rm` worktree 注册、未在共享根落盘、未碰他人改动），改为**复用已有隔离 worktree** 并从 `origin/main` 开新分支（经用户明确批准）。 |
 | 第一性原因（QM-5 ①） | PASS | 用户实测：上一轮 #3591 修完（同步串行 → 异步并行）后 `accounts:list` **仍是 1451–1579ms**（`shared-user-data/logs/app-2026-10-15.log`，8 账号、每账号一行 `checkLocalCredentials` 间隔 ~100ms）。第一性原因：`listAccounts()` 为给每个账号附加 `proxy`，逐账号走 `getAccountProxyStatus()` → `loadCredential()` → `decryptData()` → `deriveKey()` → **`crypto.pbkdf2Sync(100000)` 同步阻塞事件循环**。#3591 只改了**并行度**（wall-time 降 3.5–3.7x），**总 CPU 一字未减**，且每次进页复发 ⇒ 复发性成本。**正解是让列表根本不读代理**：代理是详情级信息。 |
 | 逃逸分析（QM-5 ②） | PASS | 五层：① 单测 `mockReturnValue` 掉 `loadCredential` ⇒ 唯一 CPU 热点从未在测试里真跑；② 凭证层 15 条用例只断言功能正确性，零条断言耗时；③ 无「多账号 + accounts:list 计时」集成用例；④ 视觉回归对「画面正确只是迟到」结构性免疫；⑤ QM-2 清单原无性能维度（#3591 已补两条）。**本轮新增的第 6 层教训**：即使上一轮补了「并行度」契约（C5 断言 `maxInFlight>1`），**并行度合格 ≠ 成本被消除**——判据锁住了手段，没锁住目标。 |
 | 修复 + 回归保护（QM-5 ④） | PASS | ① 列表**不再附加 proxy**（`return accounts` 直返），账号卡片代理行与列表徽标/tooltip 一并移除；② 新增 IPC `account:get-proxy` → `AccountManager.getAccountProxyStatusLazy()`（复用 #3591 的异步批量入口，不阻塞事件循环）；③ 交互三态（加载/错误+重试/预填）；④ 代理弹窗关注点下沉 `useAccountProxyDialog`。**回归锁 10 条**：主进程 L1–L6（L1 列表路径 `loadProxyStatuses` 与 `getAccountProxyStatus` **都不得被调用**）+ 渲染端 4 条（不再渲染代理行 / 加载态 / 错误+重试 / **只预填一次不覆盖用户输入**）。 |
@@ -55,3 +55,4 @@ sync_backfill_owner: 下一个会话（合并后在本文件内收口：远程�
 3. **列表失去「哪些账号配了代理」的一眼可见性** —— 这是**有意的产品决策**（用户确认：代理信息从账号卡片去掉）。若将来要恢复，正解不是给列表加回解密，而是把 `configured` 布尔作为**明文元数据**存进后端 `accounts.json`（详情仍以解密为准），代价是引入第二个真源。
 4. **用户报告的「1–2 秒」未被完整归因**：静态分析找不到能吃掉 1–2s 的主进程成本，日志也缺该页读数。未证伪的候选（无证据指向，仅登记）：dev 态懒加载路由首次模块图加载（打包态为独立 chunk，不适用）、每 5s 整库 `export()` 的间歇争用（`multi-publish.db` 5.5MB）、LoginMonitor 巡检窗口（日志可见单次占用 40–90s）。**打通第 1 条（耗时日志）是证实或证伪它们的前提。**
 5. **上一轮 #3591 的远程同步回填尚未做**：`openspec/records/fix-sidebar-nav-slow.md` 仍是 `PENDING`。该记录的收口属「关闭冻结前已存在的行」，允许就地改写（ledger 里那条登记也同属旧载体，可销账）。
+
