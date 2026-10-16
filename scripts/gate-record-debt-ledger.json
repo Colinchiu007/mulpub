@@ -1,8 +1,4 @@
 {
-  "本次执行记录：播客音色来源三态标注的合同（podcast-voice-source-spec，2026-10-16）": {
-    "reason": "本片（podcast-voice-source-spec）刚开 PR，合并后由后续 docs PR 回填 PASS 并删除本条",
-    "record": "openspec/records/podcast-voice-source-spec.md"
-  },
   "本次执行记录：Story2Video 历史失败提示脱敏与模型账号细化（error-message-fix，2026-08-19）": {
     "reason": "error-message-fix 分支的 L4479 远程同步行状态写的是「执行中」而非闭合词表——属于该记录作者的登记欠账；本人无法代为取证其 PR 合并 SHA，按「不代其他会话改写其执行记录」惯例在此登记并说明",
     "status": "PENDING",

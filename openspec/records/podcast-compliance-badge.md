@@ -49,4 +49,3 @@ date: 2026-10-15
 
 ## 远程同步
 
-| 远程同步 | PENDING | 本 PR（podcast-compliance-badge）合并后由后续 docs PR 回填 merge SHA 与时间，并在同一次提交删除本文件 frontmatter 的 sync_* 三字段与 `scripts/gate-record-debt-ledger.json` 的登记项 |

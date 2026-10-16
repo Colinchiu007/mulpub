@@ -196,10 +196,10 @@ describe('preload 子模块工厂函数', () => {
 
 // === 总方法数验证（防止漏迁移或重复）===
 describe('preload 子模块方法数', () => {
-  it('publish 模块应导出 129 个键（W1 §5 enforcement：+onRiskSuspended/listSuspendedRisk/resumeRisk/isSuspendedRisk；2026-10-06 定时派发失败信号 +onSchedulerDispatchFailed；2026-10-10 发布频率策略 v2 +getPublishFrequencyPolicy/setPublishFrequencyPolicy/emergencyReleasePublishWait/getPublishEmergencyStatus/onPublishEmergencyReleased）', () => {
+  it('publish 模块应导出 130 个键（W1 §5 enforcement：+onRiskSuspended/listSuspendedRisk/resumeRisk/isSuspendedRisk；2026-10-06 定时派发失败信号 +onSchedulerDispatchFailed；2026-10-10 发布频率策略 v2 +getPublishFrequencyPolicy/setPublishFrequencyPolicy/emergencyReleasePublishWait/getPublishEmergencyStatus/onPublishEmergencyReleased；2026-10-15 「再次发布」+historyGetRepublishSnapshot）', () => {
     const { createPublishApi } = require('./preload/publish')
     const r = createPublishApi(ipcRenderer)
-    expect(Object.keys(r).length).toBe(129)
+    expect(Object.keys(r).length).toBe(130)
   })
 
   it('account 模块应导出 51 个方法（50 + probeXiaohongshuDraftChain，2026-10-08 小红书 API 草稿链受控调试通道；49 + accountCredentialNames，2026-10-07 小红书 AT 凭据诊断；52 - 3 个 scheduled_tasks 死桥接，2026-10-02 死路径清理）', () => {
@@ -228,10 +228,11 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(146)
   })
 
-  it('合并后 api 总键数应为 341（2026-10-15：344 − 3，删 opsCenterSyncGet/Save/Now 三条死通道；上一基线 344 = 343 + 1 个激活码核销键 identityRedeemCode → identity:redeem-code）', () => {
-    expect(Object.keys(api).length).toBe(341)
+  it('合并后 api 总键数应为 342（2026-10-15：344 − 3 条死通道 + 1 个「再次发布」快照读口 historyGetRepublishSnapshot；344 = 343 + 1 个激活码核销键 identityRedeemCode → identity:redeem-code）', () => {
+    expect(Object.keys(api).length).toBe(342)
     // 新键必须真实存在于聚合入口，防止「改了数字但方法没接上」
     expect(Object.keys(api)).toContain('identityRedeemCode')
+    expect(Object.keys(api)).toContain('historyGetRepublishSnapshot')
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {

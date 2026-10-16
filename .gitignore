@@ -376,5 +376,9 @@ shared-user-data.backups/
 
 # oss-b1-rpa-hardening: evasions 提取脚本被 106 行 scripts/*.js 默认忽略, 不 negation 则 CI 与本地 require 不到 (同 #3011 家族)
 !scripts/extract-evasions.js
+# 旧载体冻结基线的重取工具（2026-10-15，change: freeze-legacy-gate-carrier）。第 106 行 scripts/*.js
+# 会把脚本本体静默忽略：漏这条 negation 时 git status 里它根本不存在，本地在盘、跑得通，
+# 而 Gate 2c 在 CI 上 Cannot find module（同 #3011 家族）。基线 JSON 不在该 glob 内，无需放行。
+!scripts/freeze-gate-carrier.js
 # CCG 深度审查的工作产物（提案/评审/裁决），不进主干；判定记录 .ccg/reviews/*.json 才是留痕
 .adversarial/

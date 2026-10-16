@@ -2,9 +2,6 @@
 record: podcast-voice-source-spec
 task: 为播客音色来源三态标注写合同（PRD §8.2.9），并如实登记 4.5 仍缺的那半句与其落点事实
 date: 2026-10-16
-sync_status: PENDING
-sync_reason: 本 PR 合并后由后续 docs PR 按既有 PASS 口径回填 merge SHA 与时间，并在同一次提交删除 frontmatter 三字段与 ledger 登记项
-sync_backfill_owner: agent 收尾链（回填 = 合并后第一笔 docs PR）
 ---
 
 # 播客音色来源三态标注的合同（podcast-voice-source-spec，2026-10-16）
@@ -38,7 +35,6 @@ PRD §7.4.0 第 1 条要求「②用户偏好 / ③capability 默认 命中时�
 | 文档同步 | 待 CI | `openspec-sync-check` / doc-gate 由 CI 跑；本片新增 PRD 小节与 tasks 进度行成对 |
 | QM-1 打包 / QM-4 视觉 / TDD | N/A | 纯规格片，未触运行时代码、未触 locales、未加键 ⇒ 无产物面也无新测试面 |
 | QM-6 双模型外部评审 | 未执行 | 规格片不强制（AGENTS：纯文档变更不强制 QM-6），如实登记 |
-| 远程同步 | PENDING | 本 PR（podcast-voice-source-spec）合并后由后续 docs PR 回填 merge SHA 与时间，并在同一次提交删除本文件 frontmatter 的 sync_* 三字段与 ledger 登记项 |
 
 ## 遗留
 
@@ -47,4 +43,4 @@ PRD §7.4.0 第 1 条要求「②用户偏好 / ③capability 默认 命中时�
 
 ## 远程同步
 
-| 远程同步 | PENDING | 本 PR（podcast-voice-source-spec）合并后由后续 docs PR 回填 merge SHA 与时间，并同次删除 ledger 登记项与本文件 frontmatter 三字段 |
+| 远程同步 | PASS（merge `165bfcc00dc77e330eef035223042782fa7309f6`，2026-10-16T02:59:56Z） |
