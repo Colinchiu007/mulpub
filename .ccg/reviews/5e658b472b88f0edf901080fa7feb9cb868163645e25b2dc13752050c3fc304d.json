@@ -1,0 +1,28 @@
+{
+  "sha": "ae83768d13c40de5bb9ac18bcc30b6102d4ef8d3",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 296 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 296,
+    "fileCount": 6,
+    "codeFileCount": 5,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "   但性质接近，**已提请用户明确授权后才动手**（用户原话：「修。应用质量节拍」）。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "5e658b472b88f0edf901080fa7feb9cb868163645e25b2dc13752050c3fc304d",
+  "decidedAt": "2026-10-16T05:31:20.783Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

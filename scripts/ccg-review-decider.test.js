@@ -667,3 +667,59 @@ test('结构锁：saveRecord 必须经由 recordFileName 取名（防纯函数�
   assert.match(body, /recordFileName\s*\(/, 'saveRecord 内必须调用 recordFileName；否则本文件的纯函数测试与实际落盘脱钩')
   assert.doesNotMatch(body, /\`\$\{sha\}\.json\`/, 'saveRecord 不得再直接拼模板 `${sha}.json`')
 })
+
+
+// ═══════════════════════════════════════════════════════════════════
+// QM-6 复审追加（2026-10-16）
+// ═══════════════════════════════════════════════════════════════════
+
+test('QM-6 i3：闭环白名单与门禁同源（改一处忘另一处必须当场红）', () => {
+  // 重复定义的风险只能用等价锁兜底：直接读门禁源码断言两处集合相等。
+  const gate = fs.readFileSync(path.join(__dirname, 'check-pr-exec-record.js'), 'utf8')
+  const m = gate.match(/CLOSED_DEEP_REVIEW_STATUSES = new Set\(\[([^\]]*)\]\)/)
+  assert.ok(m, '门禁侧的白名单定义形态变了，本锁需同步更新（不允许静默失配）')
+  const fromGate = [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]).sort()
+  const fromDecider = [...decider.CLOSED_DEEP_REVIEW_STATUSES].sort()
+  assert.deepStrictEqual(fromDecider, fromGate,
+    'decider 与门禁的闭环白名单必须一致；否则「已闭环」在两处判定不同 ⇒ 要么丢结论要么误红')
+})
+
+test('QM-6 i3：已闭环的同名记录不得被静默覆盖（否则 amend 抹掉审查结论）', () => {
+  // 内容寻址让同一变更落到同一文件（这是收敛性的来源），副作用是后写覆盖先写。
+  // 若先写那份已闭环，覆盖会把状态抹回 pending、结论丢失 ⇒ 必须拒写并另存。
+  //
+  // ★ 行为锁（不是结构锁）：直接调用 shouldPreserveClosedRecord。
+  //   首版只用「grep saveRecord 源码字面」的结构锁，变异反证立即抓到缺口 ——
+  //   把 `if (cond)` 改成 `if (false && cond)` 后所有字面仍在、结构锁全绿，
+  //   而行为已失效。故抽纯函数 + 用行为锁守它。
+  const f = decider.shouldPreserveClosedRecord
+  assert.strictEqual(typeof f, 'function', 'shouldPreserveClosedRecord 必须导出（否则本锁退化成结构锁）')
+
+  // 已闭环 ⇒ 必须保留（不覆盖）
+  for (const st of ['cleared', 'needs_revision', 'self_play_resolved']) {
+    assert.strictEqual(f({ deepReview: { status: st } }), true,
+      `status=${st} 是闭环态 ⇒ 必须保留旧记录`)
+  }
+  // 未闭环 ⇒ 必须允许覆盖（否则同一变更永远无法更新自己的 pending）
+  for (const st of ['pending', 'self_play_pending', 'self_play_blocked', '']) {
+    assert.strictEqual(f({ deepReview: { status: st } }), false,
+      `status=${st} 不是闭环态 ⇒ 必须允许覆盖`)
+  }
+  // 字段缺失/畸形 ⇒ 一律允许覆盖（fail-open 于「写」，而不是 fail-open 于「丢结论」）
+  for (const bad of [null, undefined, {}, { deepReview: null }, { deepReview: {} }, { deepReview: { status: 123 } }]) {
+    assert.strictEqual(f(bad), false, `畸形输入必须允许覆盖，实际 ${JSON.stringify(bad)}`)
+  }
+  // 白名单自造值不得算闭环（判据是集合成员，不是「看起来像完成」）
+  assert.strictEqual(f({ deepReview: { status: 'done' } }), false, '白名单外的 done 不得算闭环')
+})
+
+test('QM-6 i3：saveRecord 必须经由 shouldPreserveClosedRecord 判定（防调用点漂移）', () => {
+  // 纯函数被测还不够 —— 必须确认 saveRecord 真的调用它，
+  // 否则「函数对但没人用」同样会静默失效（M7 变异正是打到这一层）。
+  const src = fs.readFileSync(SRC, 'utf8').replace(/\r\n/g, '\n')
+  const start = src.indexOf('function saveRecord')
+  const end = src.indexOf('\n}\n', start)
+  const body = src.slice(start, end + 3)
+  assert.match(body, /shouldPreserveClosedRecord\(prev\)/, 'saveRecord 必须调用 shouldPreserveClosedRecord(prev)')
+  assert.match(body, /-again-/, '拒写时必须另存，否则本次判定被丢弃')
+})

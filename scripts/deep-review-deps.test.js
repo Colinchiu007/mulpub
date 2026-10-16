@@ -377,19 +377,91 @@ test('内容寻址：deep-review.sh 必须按 stagedDiffHash 找记录（否则�
   assert.match(src, /sha256sum/, '脚本里必须有内容寻址的哈希计算；记录改名后按 sha 找必然落空')
 })
 
-test('内容寻址：查找必须**早于**「判定记录: 无」早退（否则又成死代码）', () => {
+test('内容寻址：查找必须**早于**早退 exit 0（否则又成死代码）', () => {
   // 这是 2026-10-15「缺陷 E」的同型失效：引擎本有内容寻址兜底，
   // 却被脚本里一行早退 exit 0 挡在门外，兜底成了死代码、深度审查一次没跑起来。
   // 所以位置本身就是判据：查找段必须在早退**之前**。
+  //
+  // ★ 锚点必须用**行首代码形态** /^ {2}exit 0$/m，不能用自然语言：
+  //   首版用 indexOf('判定记录: 无') 做锚，而该串会出现在告警文案与注释里
+  //   （实测多个位置）⇒ 取到更早的那个 ⇒ 判据假红。
+  //   另 indexOf('exit 0') 也会命中 L523 注释里的「静默 exit 0」。
   const src = shSrc()
+  const codeExits = [...src.matchAll(/^ {2}exit 0$/gm)].map((m) => m.index)
   const iHash = src.indexOf('sha256sum')
-  const iEarly = src.indexOf('判定记录: 无')
   assert.ok(iHash > 0, '找不到内容寻址段')
-  assert.ok(iEarly > 0, '找不到早退段（判据锚点失效，需同步更新本锁）')
-  assert.ok(iHash < iEarly, '内容寻址查找必须在「判定记录: 无」早退之前 —— 否则永远执行不到')
+  assert.ok(codeExits.length > 0, '找不到任何行首 exit 0')
+  const iExit = codeExits.find((p) => p > iHash)
+  assert.ok(iExit !== undefined, '内容寻址段之后必须有 exit 0（早退点）')
+  assert.ok(iHash < iExit, '内容寻址查找必须在早退 exit 0 之前 —— 否则永远执行不到')
 })
 
 test('内容寻址：配方必须与判定器同源（同一 pathspec :(exclude).ccg）', () => {
   const src = shSrc()
   assert.match(src, /:\(exclude\)\.ccg/, '哈希配方必须排除 .ccg，与 ccg-review-decider.js 的 stagedDiffHash 同源；否则算出的名字永远对不上')
+})
+/**
+ * 把 i1 / i7 的锁从「grep 字面」升级为行为锁（真跑 deep-review.sh）。
+ * 追加到已接线的 deep-review-deps.test.js，不新建文件（避免 check-unwired-tests 门禁）。
+ *
+ * 背景：首版用 grep 字面做结构锁，变异反证抓到缺口 ——
+ *   M8 把 say 内容换掉，但 git commit -a 仍在注释里 ⇒ 结构锁全绿而告警已消失；
+ *   M9 把 node 内 process.exit(3) 改成 exit(0)，字面全在 ⇒ 同样假绿。
+ * 故改为：临时 git 仓库里造场景，真跑脚本，断言 stdout。
+ */
+const fsB = require('node:fs')
+const osB = require('node:os')
+const pathB = require('node:path')
+const { execFileSync: execB, spawnSync: spawnB } = require('node:child_process')
+
+function resolveGitBashB () {
+  const cands = [
+    process.env.MP_GIT_BASH,
+    'C:\\Program Files\\Git\\bin\\bash.exe',
+    'C:\\Program Files (x86)\\Git\\bin\\bash.exe',
+  ].filter(Boolean)
+  for (const c of cands) { if (fsB.existsSync(c)) return c }
+  return null
+}
+
+/** 造一个「有 1 笔提交、.ccg/reviews 里没有任何记录」的临时仓库，并把脚本复制进去 */
+function makeRepoWithoutRecordB () {
+  const dir = fsB.mkdtempSync(pathB.join(osB.tmpdir(), 'dr-behav-'))
+  const run = (cmd, args) => execB(cmd, args, { cwd: dir, encoding: 'utf8', stdio: 'pipe' })
+  run('git', ['init', '-q'])
+  run('git', ['config', 'user.email', 't@t'])
+  run('git', ['config', 'user.name', 't'])
+  fsB.writeFileSync(pathB.join(dir, 'a.txt'), 'hello\n')
+  run('git', ['add', '-A'])
+  run('git', ['commit', '-q', '-m', 'init'])
+  fsB.mkdirSync(pathB.join(dir, 'scripts'), { recursive: true })
+  fsB.copyFileSync(SCRIPT, pathB.join(dir, 'scripts', 'deep-review.sh'))
+  fsB.mkdirSync(pathB.join(dir, '.ccg', 'reviews'), { recursive: true })
+  return dir
+}
+
+const bashB = resolveGitBashB()
+const descB = bashB ? test : test.skip
+
+descB('QM-6 i1 行为锁：无记录时必须输出 commit -a 告警与两条自检命令', () => {
+  const dir = makeRepoWithoutRecordB()
+  try {
+    const r = spawnB(bashB, ['scripts/deep-review.sh', '--dry-run'], { cwd: dir, encoding: 'utf8', maxBuffer: 1 << 24 })
+    const out = (r.stdout || '') + (r.stderr || '')
+    assert.match(out, /git commit -a/, '必须点名实测故障形态 git commit -a')
+    assert.match(out, /git diff --cached -- \. ':\(exclude\)\.ccg'/, '必须给出提交前口径的自检命令')
+    assert.match(out, /git diff HEAD\^ HEAD -- \. ':\(exclude\)\.ccg'/, '必须给出提交后口径的自检命令')
+  } finally { fsB.rmSync(dir, { recursive: true, force: true }) }
+})
+
+descB('QM-6 i7 行为锁：记录损坏时必须输出「读不出 mode」告警', () => {
+  const dir = makeRepoWithoutRecordB()
+  try {
+    const head = execB('git', ['rev-parse', 'HEAD'], { cwd: dir, encoding: 'utf8' }).trim()
+    fsB.writeFileSync(pathB.join(dir, '.ccg', 'reviews', head + '.json'), '{ this is not json')
+    const r = spawnB(bashB, ['scripts/deep-review.sh', '--dry-run'], { cwd: dir, encoding: 'utf8', maxBuffer: 1 << 24 })
+    const out = (r.stdout || '') + (r.stderr || '')
+    assert.match(out, /读不出 mode/, '记录损坏必须显式告警，不得静默走「无记录」分支')
+    assert.match(out, /可能损坏|BOM|尾逗号/, '告警必须指出可能原因，否则读者无从下手')
+  } finally { fsB.rmSync(dir, { recursive: true, force: true }) }
 })

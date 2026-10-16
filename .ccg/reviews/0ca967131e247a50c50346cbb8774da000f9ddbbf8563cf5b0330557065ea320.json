@@ -19,8 +19,105 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "self_play_blocked",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "domains": [
+          "crypto"
+        ]
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "domains": [
+          "auth"
+        ]
+      }
+    ],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "核心假设「暂存diff==提交diff」无校验。git commit --only/部分提交、暂存区含无关改动时，decider 用 --cached 算的哈希与 deep-review.sh/引擎用 HEAD^..HEAD 算的哈希分叉，记录落空→深度审查静默跳过（fail-open）且无告警，相对旧父sha命名是回归。",
+        "highRiskDomains": [],
+        "prosecution": "内容寻址把「记录能否被找到」从「按父 sha 兜底、任何提交形态都能命中」改成「按暂存 diff 哈希精确命中」。只要两种口径分叉，记录就落空 => 深度审查被跳过 => 而欠账门禁只扫本次变更集涉及的记录文件，也不会发现它 => 双重静默 fail-open。旧命名下同样的提交形态不会失效，所以这是本次改动引入的回归，且没有任何校验或告警。",
+        "defense": "指控成立，且已被受控实验证实（不是推测）：实测 git commit -a 时 A(git diff --cached) = 8b02f61d34a9e858 而 B(git diff HEAD^ HEAD) = 29140567e3fb2604，两者不等。同时实测 git commit --only <单文件> 时 A == B（771a37953cfb79c9），说明分叉只发生在「提交内容超出 pre-commit 时所见暂存区」的形态。已修复：找不到记录时显式点名 git commit -a 这个实测故障形态，并给出两个口径的自检命令与处置（git add -A 后重新提交），不再静默 exit 0。",
+        "verdict": "upheld",
+        "rationale": "实验证据：A(--cached)=8b02f61d34a9e858 vs B(HEAD^..HEAD)=29140567e3fb2604 => 不等（commit -a）；A==B（commit --only，771a37953cfb79c9）。修复落点 scripts/deep-review.sh 的「判定记录: 无」分支新增告警段（点名 git commit -a + 两条自检命令），并有回归锁 QM-6 i1 钉住「告警必须在行首 exit 0 之前」与「必须给出两条口径的自检命令」。"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "空非-.ccg diff（纯 .ccg 提交）回落父sha名——恰是本次要消灭的跨分支撞名源；且 stats 行数统计若含 .ccg、hash 却排除 .ccg，口径分离下 dual 的纯 .ccg 提交仍走旧命名，rebase 照旧 add/add。",
+        "highRiskDomains": [
+          "crypto"
+        ],
+        "prosecution": "纯 .ccg 提交时非-.ccg diff 为空 => stagedDiffHash 为空 => 回落父 sha 命名 => 恰好回到本次要消灭的跨分支撞名源；更关键的是行数统计（git diff --cached --numstat，原先不排除 .ccg）与 hash（排除 .ccg）口径分离，同一份暂存 diff 会判出不同 mode 与不同记录名。",
+        "defense": "口径分离确实存在，已实测确认并修复：collectStaged 的两条命令（--numstat 与 -U0）都加上 -- . :(exclude).ccg，与 stagedDiffHash 同口径。修复后纯 .ccg 提交的 stats 也为空 => mode=skip => 不参与 dual 欠账判据，撞名的实际危害仅限「纯 .ccg 提交之间 add/add」，且此类记录门禁本就不扫。",
+        "verdict": "upheld",
+        "rationale": "修复落点 scripts/ccg-review-decider.js::collectStaged（两条命令都排除 .ccg），回归锁 QM-6 i2 钉住「numstat 与 -U0 都必须排除 .ccg」——首版只改了一条，锁的文案即写明「口径要对齐的是两条命令」。残留：纯 .ccg 提交仍回落父 sha 命名（已在执行记录残留风险第 2 条登记，未做机械证明）。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "残留撞名：两分支产出逐字节相同的非-.ccg diff 时文件名相同，后写静默覆盖先写（decidedAt/reason/审查状态丢失），merge 仍 add/add。测试只锁「不同变更不同名」，未锁「同变更异session不覆盖」。",
+        "highRiskDomains": [
+          "auth"
+        ],
+        "prosecution": "内容寻址让同一变更落到同一文件（这是收敛性的来源），副作用是后写静默覆盖先写。若先写那份的 deepReview 已闭环，覆盖会把状态抹回 pending => 欠账门禁重新变红，且已产出的审查结论丢失。",
+        "defense": "指控成立。sha256 抗碰撞 => 「同名而内容不同」只可能来自回落路径或碰撞，无需防；真正要防的是「同名 + 已闭环」。已修复：saveRecord 写前检查同名文件，若其 deepReview.status 在闭环白名单内则拒写，并把本次判定另存为 <name>-again-<sha8>.json，两个都不丢。",
+        "verdict": "upheld",
+        "rationale": "修复落点 scripts/ccg-review-decider.js::saveRecord 的写前检查分支（if (fs.existsSync(file)) => CLOSED_DEEP_REVIEW_STATUSES.has(prevStatus) => 写 alt + return alt）。回归锁 QM-6 i3 钉住三件事：拒写分支必须存在；必须另存（含 -again-）；return alt 之后必须先闭合 if 块、正常路径仍写原名。另加白名单同源锁：decider 与门禁的 CLOSED_DEEP_REVIEW_STATUSES 必须逐项相等。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "plan 层（动手前）记录：暂存区为空则回落父sha尚可；若含无关已暂存改动，则被命名成与最终提交对不上的哈希，事后引擎/fallback 找不到 plan 记录→深度审查跳过；旧命名靠 HEAD^ 可命中。",
+        "highRiskDomains": [],
+        "prosecution": "plan 层（动手前）记录在暂存区含无关已暂存改动时，会被命名成与最终提交对不上的哈希，事后引擎/fallback 找不到 plan 记录 => 深度审查跳过；旧命名靠 HEAD^ 可命中。",
+        "defense": "指控描述的场景存在，但 plan 层记录的用途与验证层不同：它是「方案期快照」，供事后范围漂移比对（plannedFiles 字段），不参与提交后的审查闭环（闭环靠验证层记录）。且 i1 的告警已覆盖「找不到记录」这一表象。本轮改它会动决策层语义，属扩大范围，故登记为残留风险而非本轮修复。",
+        "verdict": "dismissed",
+        "rationale": "依据：saveRecord 的 layer 参数（plan/diff）与 plannedFiles 字段只在 layer===\"plan\" 时写；门禁 evaluateDeepReviewDebt 只扫本次变更集涉及的记录文件，plan 记录若不进变更集则不参与判据。i1 的告警段对「找不到记录」已给出可执行自检。残留风险已在执行记录登记（plan 层命名未加固）。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "「同源」仅靠三处字符串互锁（decider 内联计算、shell 复算、测试 grep 子串），decider 的 git 调用本身无测试锁定；pathspec 或参数一旦漂移（如加 --color、换排除写法），匹配静默失效而测试仍绿。",
+        "highRiskDomains": [],
+        "prosecution": "「同源」仅靠三处字符串互锁（decider 内联计算、shell 复算、测试 grep 子串），decider 的 git 调用本身无测试锁定；pathspec 或参数一旦漂移（如加 --color、换排除写法），匹配静默失效而测试仍绿。",
+        "defense": "部分成立：shell 无法 require JS，物理上抽不出「一个共享函数供三处调用」。但「配方等价」已被端到端实证钉住：实测 A(git diff --cached) == B(git diff HEAD^ HEAD) 逐字节相同（0ca967131e247a50），且 deep-review.sh 与引擎 readDecision 命中同一个文件。参数漂移的风险由两条结构锁覆盖（QM-6 i2 锁 numstat/-U0 的 pathspec；deep-review-deps 锁 sha256sum 段存在且早于早退）。",
+        "verdict": "dismissed",
+        "rationale": "端到端实证（本轮决定性取证）：提交前 A=0ca967131e247a50c50346cbb8774da000f9ddbbf8563cf5b0330557065ea320；钩子写出的记录名与 A 逐字节相同；提交后 B 与 A 逐字节相等；deep-review.sh 报「判定记录按内容寻址命中：0ca96713」，引擎报「判定记录按 diff 内容寻址命中」同一文件。=> 配方等价已被实测证明，不是仅靠字符串互锁。残留：若有人改 git 参数（如加 --color），两条锁会红（pathspec 锁 + 存在性锁）。"
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "reason": "high_risk_requires_external",
+        "domains": [
+          "crypto"
+        ]
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "reason": "high_risk_requires_external",
+        "domains": [
+          "auth"
+        ]
+      }
+    ],
+    "note": "自扮演裁决：3 条指控成立或需外部复核",
+    "at": "2026-10-16T04:56:19.275Z"
   }
 }

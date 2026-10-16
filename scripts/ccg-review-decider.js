@@ -217,8 +217,16 @@ function collectFromDiff(numstatArgs, diffArgs) {
 }
 
 /** 验证层·暂存区：pre-commit 时用（那时改动只在 index 里） */
+// ★ 2026-10-16（QM-6 i2，实测口径分离）：`stagedDiffHash` 排除 `.ccg`，而行数统计原先
+// **不排除** ⇒ 同一份暂存 diff 会因「.ccg 是否参与」判出不同的 mode 与不同的记录名。
+// 纯 `.ccg/` 提交即该分叉的极端形态：stats 非空（把记录自身算进去）而 hash 为空
+// ⇒ 回落旧命名 ⇒ 恰恰回到本次要消灭的跨分支撞名。统一口径为「两者都排除 .ccg」：
+// 判定器自己的输出文件不该影响对它的判定。
 function collectStaged() {
-  return collectFromDiff(["diff", "--cached", "--numstat"], ["diff", "--cached", "-U0"]);
+  return collectFromDiff(
+    ["diff", "--cached", "--numstat", "--", ".", ":(exclude).ccg"],
+    ["diff", "--cached", "-U0", "--", ".", ":(exclude).ccg"]
+  );
 }
 
 /**
@@ -408,6 +416,16 @@ function judge(staged) {
 // ═══════════════════════════════════════════════════════════════════
 
 /**
+ * 闭环白名单 —— 与 `check-pr-exec-record.js` 的 `CLOSED_DEEP_REVIEW_STATUSES` **必须一致**。
+ *
+ * 为什么在此重复定义而不是跨文件 require：decider 跑在 pre-commit 钩子里，被
+ * `ccg-review.ps1` / `deep-review.sh` 直接 spawn；跨文件 require 会把耦合伸进钩子启动路径。
+ * 重复定义的风险由回归锁兜底：`ccg-review-decider.test.js` 直接读
+ * `check-pr-exec-record.js` 的源码断言两处集合相等，改一处忘另一处当场红。
+ */
+const CLOSED_DEEP_REVIEW_STATUSES = new Set(["cleared", "needs_revision", "self_play_resolved"]);
+
+/**
  * 判定记录的文件名 —— **内容寻址**（ccg-record-content-addressing，2026-10-16）。
  *
  * 旧行为：`${sha}.json`，其中 sha 是 pre-commit 时的 HEAD，即**新提交的父提交**。
@@ -435,6 +453,27 @@ function recordFileName(stagedDiffHash, sha) {
   const h = typeof stagedDiffHash === "string" ? stagedDiffHash.trim() : "";
   if (/^[0-9a-f]{64}$/.test(h)) return `${h}.json`;
   return `${sha}.json`;
+}
+
+/**
+ * 是否该**保留**已存在的同名记录（即本次不覆盖它）。
+ *
+ * ★ 2026-10-16（QM-6 i3 + 变异反证 M7 暴露的缺口）：
+ *   内容寻址让「同一变更反复提交/amend」落到同一个文件 —— 这是收敛性的来源，
+ *   但副作用是后写静默覆盖先写。若先写那份的 deepReview 已闭环，覆盖会把状态
+ *   抹回 pending、结论丢失 ⇒ 欠账门禁重新变红。
+ *
+ *   首版把这段判定**内联**在 saveRecord 里，只用「grep 源码字面」的结构锁守着；
+ *   变异反证立即抓到缺口：把 `if (cond)` 改成 `if (false && cond)` 后所有字面仍在
+ *   ⇒ 结构锁全绿而**行为已失效**。故抽成纯函数，让行为锁能真正调用它。
+ *
+ * @returns {boolean} true = 保留旧记录、本次另存（不覆盖）
+ */
+function shouldPreserveClosedRecord(prev) {
+  const st = prev && prev.deepReview && typeof prev.deepReview.status === "string"
+    ? prev.deepReview.status
+    : null;
+  return !!(st && CLOSED_DEEP_REVIEW_STATUSES.has(st));
 }
 
 function saveRecord(result, sha, layer, plannedFiles) {
@@ -473,6 +512,23 @@ function saveRecord(result, sha, layer, plannedFiles) {
       findings: null,
     },
   };
+  // ★ 2026-10-16（QM-6 i3，成立并已修）：内容寻址让「同一变更反复提交/amend」落到**同一个文件**，
+  // 这正是收敛性的来源；但副作用是**后写会静默覆盖先写**。若先写那份的 deepReview 已经闭环
+  // （例如 amend 前已跑完双模型审查），覆盖就会把闭环状态抹回 pending ⇒ 欠账门禁重新变红，
+  // 且**已产出的审查结论丢失**。
+  //
+  // sha256 抗碰撞 ⇒ 「同名而内容不同」只可能来自回落路径或哈希碰撞，无需防；
+  // 真正要防的就是这一种：同名 + 已闭环。故写前检查，命中则拒写并保留原文件。
+  if (fs.existsSync(file)) {
+    let prev = null;
+    try { prev = JSON.parse(fs.readFileSync(file, "utf8")); } catch (_) { prev = null; }
+    if (shouldPreserveClosedRecord(prev)) {
+      // 不覆盖已闭环记录；把本次判定另存为 <name>-again.json，避免两份都丢失。
+      const alt = file.replace(/\.json$/, `-again-${sha.slice(0, 8)}.json`);
+      fs.writeFileSync(alt, JSON.stringify(record, null, 2), "utf8");
+      return alt;
+    }
+  }
   fs.writeFileSync(file, JSON.stringify(record, null, 2), "utf8");
   return file;
 }
@@ -664,5 +720,7 @@ module.exports = {
   collectProposal,
   isDocsOnly,
   recordFileName,
+  CLOSED_DEEP_REVIEW_STATUSES,
+  shouldPreserveClosedRecord,
 };
 

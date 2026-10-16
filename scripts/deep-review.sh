@@ -463,9 +463,38 @@ SHA="$(git rev-parse HEAD 2>/dev/null || echo '')"
 # 相对路径：node 的 require() 不认 POSIX 路径，脚本已 cd 到仓库根，用相对路径最稳
 REC=".ccg/reviews/$SHA.json"
 
+# ★ 2026-10-16（QM-6 i7，与 i1 同型）：`require('./$REC')` 的失败被 try-catch **静默吞掉**
+#   ⇒ MODE 取空 ⇒ 走「判定记录: 无」分支 ⇒ 深度审查被跳过。
+#   而记录文件是我们自己刚写出来的 JSON，它坏掉（BOM / 尾逗号 / 空文件）本身就是故障，
+#   不是「没跑判定器」—— 两种原因必须分开报，否则同一个表象掩盖两个不同根因。
+#   引擎侧（ccg-deep-review.js::readDecision）也是 try-catch 后落到内容寻址，
+#   两端口径在此分叉 ⇒ 欠账判定可能不一致。故此处显式出声。
+_read_mode() {
+  local f="$1" out rc
+  out="$(node -e "
+    try {
+      const r = require('./$f');
+      const m = r && typeof r.mode === 'string' ? r.mode : '';
+      if (!m) { process.stderr.write('MODE_MISSING'); process.exit(3); }
+      process.stdout.write(m);
+    } catch (e) {
+      process.stderr.write('PARSE_FAIL:' + (e && e.message ? e.message : String(e)));
+      process.exit(4);
+    }
+  " 2>/dev/null)"
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    say "⚠ 判定记录存在但读不出 mode（$f，rc=$rc）—— 记录文件可能损坏。"
+    say "  这不是「没跑判定器」：请检查该 JSON 是否可解析（BOM / 尾逗号 / 空文件）。"
+    return 1
+  fi
+  MODE="$out"
+  return 0
+}
+
 MODE=""
 if [ -f "$REC" ]; then
-  MODE="$(node -e "try{process.stdout.write(require('./$REC').mode||'')}catch(e){}" 2>/dev/null)"
+  _read_mode "$REC" || true
 fi
 
 # ★ 2026-10-15 修（缺陷 E）：记录恒写在【父提交 sha】名下，按 HEAD 找不到是**常态**。
@@ -484,7 +513,7 @@ if [ -z "$MODE" ]; then
   _PARENT="$(git rev-parse HEAD^ 2>/dev/null || echo '')"
   if [ -n "$_PARENT" ] && [ -f ".ccg/reviews/$_PARENT.json" ]; then
     REC=".ccg/reviews/$_PARENT.json"
-    MODE="$(node -e "try{process.stdout.write(require('./$REC').mode||'')}catch(e){}" 2>/dev/null)"
+    _read_mode "$REC" || true
     [ -n "$MODE" ] && say "判定记录按父提交 sha 命中：${_PARENT%${_PARENT#????????}}（提交时 HEAD 即父提交）"
   fi
 fi
@@ -505,7 +534,7 @@ if [ -z "$MODE" ]; then
     _DIFFHASH="$(git diff "$_PARENT2" "$SHA" -- . ':(exclude).ccg' 2>/dev/null | sha256sum | cut -d' ' -f1)"
     if [ -n "$_DIFFHASH" ] && [ -f ".ccg/reviews/$_DIFFHASH.json" ]; then
       REC=".ccg/reviews/$_DIFFHASH.json"
-      MODE="$(node -e "try{process.stdout.write(require('./$REC').mode||'')}catch(e){}" 2>/dev/null)"
+      _read_mode "$REC" || true
       [ -n "$MODE" ] && say "判定记录按内容寻址命中：${_DIFFHASH%${_DIFFHASH#????????}}（stagedDiffHash）"
     fi
   fi
@@ -518,6 +547,25 @@ if [ -z "$MODE" ]; then
   say ""
   say "请先提交一次（pre-commit 会生成 .ccg/reviews/<sha>.json），再跑本脚本。"
   say "或用 --dry-run 看本脚本将要做什么。"
+  say ""
+  # ★ 2026-10-16（ccg-record-content-addressing，QM-6 i1，实验已证实）：
+  #   内容寻址命名引入了一个**新的 fail-open 失败模式**，必须在这里点名，否则静默 exit 0
+  #   会把故障伪装成「本来就没跑判定器」。
+  #
+  #   实测形态：`git commit -a`（把未暂存的 tracked 改动一并提交）时
+  #     A = git diff --cached -- . ':(exclude).ccg' | sha256sum   （判定器在 pre-commit 用的）
+  #     B = git diff HEAD^ HEAD -- . ':(exclude).ccg' | sha256sum （本脚本/引擎用的）
+  #   A != B —— 实测 A=8b02f61d34a9e858… B=29140567e3fb2604…。
+  #   判定器按 A 取名落盘，本脚本按 B 找不到 ⇒ 深度审查被跳过，而欠账门禁
+  #   （check-pr-exec-record.js）只扫「本次变更集涉及的记录文件」，**也不会**发现它 ⇒ 双重静默。
+  #
+  #   所以：按内容寻址没命中时，要显式提示「本提交可能不是全量 add 后提交」。
+  #   这比旧命名（按 HEAD^ 兜底，任何提交形态都能命中）是**收窄**，如实告知。
+  say "⚠ 若你刚用过 git commit -a / git commit --amend 之后又改过内容："
+  say "  判定记录按内容寻址取名，可能与本次提交的 diff 口径分叉而落空。"
+  say "  自检：git diff --cached -- . ':(exclude).ccg' | sha256sum"
+  say "        git diff HEAD^ HEAD -- . ':(exclude).ccg' | sha256sum   # 两者应相等"
+  say "  处置：git add -A 后重新提交一次（不要再动工作区），再跑本脚本。"
   exit 0
 fi
 say "判定: $(echo "$MODE" | tr '[:lower:]' '[:upper:]')"
