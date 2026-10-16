@@ -1,7 +1,7 @@
 # BUGFIX：采集页「知乎收藏文章」的「采集」「改写」按钮点击无反应（zhihu-fav-buttons-dead）
 
 - 报障时间：2026-10-16
-- 分支 / worktree：`zhihu-fav-buttons-dead` / `D:\Data\projects\mp-worktrees\mp-zhihu-fav-buttons-dead`
+- 分支 / worktree：`zhihu-fav-buttons-dead` / `<仓库父目录>\mp-worktrees\mp-zhihu-fav-buttons-dead`（临时隔离 worktree，任务收尾后按 R1-R5 清理）
 - 影响范围：采集页 → 「知乎收藏文章」分组 → 底部「旧整夹直采」行的 **「采集」「改写」两个按钮**
 - 严重度：**高**（功能完全不可用，且无任何反馈；用户无法自行判断是「没配好」还是「坏了」）
 - 关联 PRD：`PRD-ZHIHU-FAV-BATCH-2026-10-03.md`（本次订正其 §4 交互逻辑）

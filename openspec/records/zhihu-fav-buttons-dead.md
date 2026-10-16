@@ -12,7 +12,7 @@ sync_backfill_owner: zhihu-fav-buttons-dead 会话（回填 PR）
 
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
-| 变更类型与隔离 | PASS | 运行时代码（`apps/desktop/src/**`）⇒ 隔离 worktree `D:\Data\projects\mp-worktrees\mp-zhihu-fav-buttons-dead`，裸分支 `zhihu-fav-buttons-dead`，基线 `origin/main`=`670c2e7f1`。入口：PowerShell 原生 `git worktree add -b zhihu-fav-buttons-dead <绝对路径> origin/main`（不触碰共享根 index/工作树）；`pre-code-edit-guard.ps1` rc=0 放行；`git worktree list` + `rev-parse --abbrev-ref HEAD` 实证落盘 |
+| 变更类型与隔离 | PASS | 运行时代码（`apps/desktop/src/**`）⇒ 隔离 worktree `<仓库父目录>\mp-worktrees\mp-zhihu-fav-buttons-dead`（临时，收尾后按 R1-R5 清理），裸分支 `zhihu-fav-buttons-dead`，基线 `origin/main`=`670c2e7f1`。入口：PowerShell 原生 `git worktree add -b zhihu-fav-buttons-dead <绝对路径> origin/main`（不触碰共享根 index/工作树）；`pre-code-edit-guard.ps1` rc=0 放行；`git worktree list` + `rev-parse --abbrev-ref HEAD` 实证落盘 |
 | 行尾对账 | PASS | `git diff --numstat` 与 `git diff --ignore-cr-at-eol --numstat` 两口径逐文件一致（5 个改动文件：PRD 76/1、组件 64/10、测试 127/0、locales en 5/0、zh 5/0） |
 | 依赖就绪 | PASS | `pnpm install --frozen-lockfile` rc=0（1407 包）→ `ensure-electron.js` v43.7.7 就绪 → `verify-worktree-deps.js` OK（11 项解析、9 个 workspace 全指向本 worktree） |
 | TDD（RED→GREEN） | PASS | 先写 7 条回归锁 ⇒ **RED 7 failed / 24**（`data-testid` 与 computed 均不存在）；实现后 **GREEN 24/24**。用例见 `batch-collect-panel-behavior.test.js` 新增 describe「知乎整夹直采按钮可点性」 |

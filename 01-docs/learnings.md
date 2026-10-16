@@ -1,30 +1,3 @@
-## 结果同形不等于做法相同；反证必须取被禁形态本身（频率声明面定夺片）（2026-10-16）
-
-一次片子里连着撞到三把"锁可以既精确又无用"的变体，共同点是**判据测的是结果，而被禁的做法只在做法层可见**：
-
-1. **「逐 owner 删」与「一条不带 owner 的 DELETE」在最终删了哪些行上同形。** 我给启动期裁剪写的第一个用例只断言"删了哪几行 + owners/removed 计数"——把 SQL 改成跨 owner 一把删，那条用例照样绿（第一次调用就把三个 owner 的行全删了，计数仍然是 3/3）。正解是拦 `db.prepare()`，断言裁剪期间**每条 DELETE 都带 `owner_subject = ?` 谓词、首参是非空 owner、每个 owner 各一条**。口径：任何"必须按 X 分别做"的不变量，只断言聚合结果等于没断言——先问"做错的产物和做对的产物能不能区分"。
-2. **反证必须取被禁形态本身，取半个等于没取。** 那条日键校验的变异我第一版只把 round-trip 一行改成 `return true`，忘了自己还写了月份/日期区间判断 ⇒ `2026-13-40` 仍被区间挡住，驱动如实报 MISSED。这不是锁失灵，是变异没测它声称的那一格。同类第一格：跨行锚点在本仓 `i/lf w/crlf` 的工作副本上**永不命中**（`String.replace` 静默返回原串），驱动报的是 ANCHOR_NOT_FOUND——三种"看起来都是没红"必须分成三档，否则修的人会去改断言。
-3. **动因注释会把自己写进判据的射程。** 两次：`.vue` 里我把被禁写法 `:max="999"` 原样抄进解释注释，结构锁当场把注释当代码判红；asar 判据里我把被删常量 `PLATFORM_BUCKET_DAILY_KEY_PREFIX = 'platform-daily'` 整条抄进注释，产物内容判据也报"不应存在"。正解不是删注释（注释是有用的历史），而是**判据按代码形态收窄**：只扫非注释行、字面量取语句形态（`module.exports.X`）而不是"提到 X 就算"。
-4. **本片自己的"必须出声"是一句假话，而且是 mock 夹具替它圆的。** 我在 `phase1-context.js` 写 `log.notify('PublishDailyCount','startup-prune-skipped',{level:'WARN',hasStore,hasGuardToday})`，读起来像两个诊断布尔会随行落盘。实测真 `logger.notify` 打印成 `PublishDailyCount startup-prune-skipped {}` —— 它只抬 `errorCategory / level / params / error` **四个**顶层键，其余静默丢弃，值必须挂进 `meta.params`。四层测试全绿的原因和既有教训「契约夹具不得替对方剥壳」同源：`__registerMock('../services/logger',{notify: vi.fn()})` 对**任何**入参形状都照单接受，"参数形状错了 ⇒ 内容永久不可见"这一整类缺陷对它是结构性免疫的。口径：① 跨模块调用把参数交给**真实现**跑一次（本仓先例 `cloud-account-restore.test.js` 注真 `persistLoginState`），或 ② 至少让断言穿过 mock 读到**参数嵌套位置**（`hit[2].params` 而不是 `hit[2]` 存在）。
-5. **"出声"的键名不在观测契约清单里 ⇒ 那行日志根本不会被采集侧认出来。** `apps/desktop/electron/services/observability-messagekey.test.js` 是一把我真有两颗牙的门禁：它按 TARGET_FILES 扫 `notify('Module','key')` 字面量，要求每个键**含 `-` 且已登记**，末尾还断言「登记键总数 === 调用点总数」。我新增 3 个调用点、0 条登记 ⇒ `QG Desktop Shards 1/2` + `QG Coverage`（949 passed / 1 failed）双红。这条的价值在"总数相等"那格：漏登记会红在"未在清单登记"，**多登记一个没有调用点的键同样会红**，所以它双向挡"登记了个不存在的键"和"加了键不登记"两种漂移。
-
-6. **删了实现没删声明 ⇒ 类型面留下一条谁都能编译通过的承诺。** 我删掉 `PLATFORM_BUCKET_DAILY_KEY_PREFIX` 的导出，却把它在 `packages/shared-utils/index.d.ts` 里的 `static PLATFORM_BUCKET_DAILY_KEY_PREFIX: string;` 留着。既有声明契约锁的方向是**实现 → d.ts**（"实现面每个公开名字都必须出现"），对"d.ts 多出一条"完全失明——这条链在 `ipc-handlers/publish-frequency.js` 用**子路径** require、类型恒为 `any`，所以连 TS 检查都不会问一句。补两条反向锁（守卫 `static` 成员、策略块 depth-2 方法名 ⇒ 必须存在于实现面）。取证时我第一次探针报 `PHANTOM: (none)` 是**假结论**：锚点写成 `declare class PublishIntervalGuard`，而真实形态是 `export class …` ⇒ `indexOf` 返回 -1 ⇒ 整块解析成 `null` ⇒ 差集恒空。"0 命中先证明我的坐标是旧的"第 N 次应验；修法是把锚点缺失做成抛错而不是返回 null，并对解析出的名字数做**下界**断言。
-
-7. **「有生产调用点」不等于「接上了」——装配锁必须同时锁住依赖就绪的顺序。** 我把裁剪从"没人调用"接进 `phase1-context.js`，
-跑完 TDD、变异、消费者并集、打包，CI 也绿；但 `_ready` 只在 `store.init()` 里置真，而 `init()` 的唯一生产调用点在 `phase3-services.js`——
-phase1 的那次调用**每次**都返回 `basis:'not_ready'` 且删 0 行。四层测试同时漏过的原因只有一条：
-`phase1-context.test.js` 的 store 夹具无条件 `return {owners:2, removed:5, basis:'measured'}`，**替真实存储声称了就绪**；
-"调用时机"这一维在那种夹具下根本不可表示（同族的第二落点：夹具不只是"别替对方剥壳"，还包括"别替对方声称状态"）。
-判据手法：给"接上某依赖"写锁时，先问**这个依赖在此刻是否已就绪**（从 `init()` 的调用点反查阶段顺序，三行读码即可），
-再问夹具是否会把"就绪前/就绪后"两种输入摊成同一个输出。修法两把锁都要——夹具按 `_ready` 决定 `basis`（顺序错位即红）
-+ 一条禁令锁钉"调用点排在 `await store.init()` 之后"（禁令必须带正向对偶，否则"删掉需求"与"删掉被禁物"同形）。
-最刺的一点：同文件早就有一条用例写着「只构造 ModelProviderManager，等待 Phase 3 的 Store 初始化后再启动」——
-规则就写在我要改的这个文件里，我读它时把它当成"别人的历史约束"，没当成对自己新代码的前提。
-另记两条与"放松/收紧数值"无关但同族的：
-
-- **绝对读数写进第二个载体就是埋同源复述的雷**：本片把上界做成单点时，顺手发现 `MAX_INTERVAL_MS` 早已被渲染层抄成 `:max="10080"` 的字面量，而 env 那侧根本没有对应界——"同一个量在四个地方各有各的界"能长期存活，是因为没有任何一处会因另一处改动而变红。写法口径：下发方引用真源、接收方绑下发值，测试里把夹具值故意写得**与真源不同**（本片用 4321/3210），否则"UI 真的用了下发值"测不出来。
-- **上界必须严格大于最大默认值**：等于的时候看起来更"紧更安全"，实际是下一次上调默认值会撞上界并被静默钳位——钳位这件事在 env 路径上是有声的，但默认值来自策略表，没人会去读那条 warn。
-
 ## 本地判据集合 ≠ CI 判据集合：只跑 `check-pr-exec-record.js` 不等于过了 `changes` job（zhihu-fav-buttons-dead，2026-10-16）
 
 ### lesson:local-gate-subset-is-not-the-ci-gate-set
@@ -54,6 +27,39 @@ CI 的 `changes` job 除了 docs-only 判定，还会跑一批 `scripts/*.test.j
    `node --test scripts/check-gate-record-debt.test.js`（本次 58/58 pass）+
    `node scripts/check-gate-record-debt.js`（真仓口径，本次 OK）。
 
+### lesson:enumerate-the-whole-job-then-pre-run-it-locally
+
+**上一节的做法「跑几个熟悉的判据」是不够的 —— 同一轮里我又踩了第二次。** 修完 `check-gate-record-debt` 后 CI 仍红，这次是：
+
+```
+Gate 12c - Doc abs-path validity (changes job)
+not ok 27 - 本仓基线必须与现场逐文件相等
+error: [check-doc-abs-paths] FAIL：全量审计（3434 个受管文件）—— 超出存量基线 2 个文件
+       01-docs/BUGFIX-ZHIHU-FAV-BUTTONS-DEAD-2026-10-16.md：1 处 > 基线 0
+         L4: D:\Data\projects\mp-worktrees\mp-zhihu-fav-buttons-dead
+       openspec/records/zhihu-fav-buttons-dead.md：1 处 > 基线 0
+```
+
+**根因**：我在文档里写了**临时隔离 worktree 的绝对路径**。该 worktree 任务收尾后会被删除 ⇒ 这条路径必然失效 ⇒ 判据把「新增的失效绝对路径」判红。判据自己给的修法：改成**占位符形态**（`<...>` / `$VAR` / 通配），或指向现存目录。
+
+**正解做法（把判据集合从"记忆"变成"枚举"）**：
+
+```bash
+# 从 workflow 的 job 段里把判据一条不落地抠出来（不要凭记忆列）
+sed -n '/^  changes:/,/^  static-gates:/p' .github/workflows/quality-gate.yml \
+  | grep -E "node --test|node scripts"
+```
+
+本次枚举出该 job 共 **20 个 `node --test`** + **12 条真仓判据脚本**（`check-gate-record-debt` / `check-no-conflict-markers` / `gen-prd-copy-table` / `check-record-qm5-rows` / `check-no-brand-residue` / `check-text-encoding-integrity` / `check-doc-abs-paths` / `check-spec-purpose` / `openspec-sync-check` / `check-precommit-spawn-budget` / `check-changelog-growth` / `check-changelog-duplicate-entries`），逐条本地跑过之后才推送 —— 之后 CI 一次通过。
+
+**两个附带判据**：
+
+- 真仓脚本的参数**必须照 workflow 抄**，不能自己猜：`check-gate-record-debt.js --carrier-mode=...` 只认 `block|visible`
+  （workflow L69-70：`block`，PR 事件下改 `visible`）。我第一版脚本瞎写了 `--carrier-mode=2026-10-16`，
+  脚本直接抛 `只认 block|visible` —— **"本地报错"里有一类其实是调用方错了，不是判据红了**，要分清。
+- 跑完后要**看判据自己打印的口径**确认它在真仓上真跑了，而不是空转到「0 文件」：
+  `check-doc-abs-paths` 本次打印「改动集 origin/main..HEAD（改动 8 个 + 基线并入，扫描 571 个文件）」，
+  这个数字就是「它确实按 PR 口径跑过」的证据。
 
 ## 「点了没反应」的机械真相：disabled 的 button 不派发 click —— 任何可见控件都必须有可用性判据 + 不可用时的可见原因（zhihu-fav-buttons-dead，2026-10-16）
 
@@ -122,7 +128,6 @@ CCG 判定器（`scripts/ccg-review-decider.js`）的深度审查欠账机制本
 **顺手修掉并加锁**（断言 `w.emitted('collected-rewrites')` 可观察）；声明后该 warning **消失**——warning 的消失本身就是修复生效的证据。
 
 **判据**：测试输出里的重复 warning 不是噪声，是**未声明的契约**。它和本次的「可用性无声明」是同一族问题：**没被写下来的契约，早晚以静默失败的形式暴露。**
-
 
 ## 「HTTP 检测不确定 ⇒ 开隐藏窗口」对每个未入白名单的平台都是潜在崩溃面（fix-zhihu-login-check，2026-10-16）
 
