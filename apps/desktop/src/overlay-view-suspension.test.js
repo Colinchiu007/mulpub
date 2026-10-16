@@ -110,6 +110,17 @@ describe('弹窗互斥：静态链路完整性', () => {
   // owner 登记表：发布页封面流程的三个模态浮层（PRD-PUBLISH-COVER-PREVIEW-2026-09-28 §7.5）。
   // 裁剪弹窗与 AI 封面浮层是本次一并补登记的既有漏项 —— 同一封面行里新浮层守规矩、
   // 旁边的不守，等于把同一个 Bug 留在原地。
+  // owner 登记表：文本出期的计费二次确认浮层（PRD-PODCAST-ONECLICK-PUBLISH §7.10.3.1 / §7.10.3.2）。
+  // 它是应用级居中模态，必须挂起内嵌视图；释放走 watch(visible) 的 false 分支**并另加 onBeforeUnmount 兜底**
+  // ——父组件直接 v-if 掉浮层时 visible 不经过 false，少这条就是残留挂起计数（AGENTS 浮层互斥合同的原话）。
+  it('PodcastScriptEntry：文本出期浮层接入挂起，owner 为 podcast-script-entry-overlay 且释放穷尽', () => {
+    const src = fs.readFileSync(path.join(ROOT, 'src/components/PodcastScriptEntry.vue'), 'utf8')
+    expect(src).toMatch(/const OVERLAY_OWNER = ['\"]podcast-script-entry-overlay['\"]/)
+    expect(src).toMatch(/suspendEmbeddedViewsForOverlay\(OVERLAY_OWNER\)/)
+    expect(src).toMatch(/releaseEmbeddedViewsForOverlay\(OVERLAY_OWNER\)/)
+    expect(src).toMatch(/onBeforeUnmount\(\(\) => \{[^\n]*release\(\)/)
+  })
+
   it('发布页封面流程：放大预览 / 裁剪弹窗 / AI 封面浮层各自持唯一 owner 并成对释放', () => {
     const cropSrc = fs.readFileSync(path.join(ROOT, 'src/components/CoverCropDialog.vue'), 'utf8')
     const previewSrc = fs.readFileSync(path.join(ROOT, 'src/components/CoverPreviewDialog.vue'), 'utf8')

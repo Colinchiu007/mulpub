@@ -114,6 +114,7 @@ describe('播客领域码必须都能取到文案（反方向接线守卫）', (
       'src/composables/usePodcastEpisodePublish.js',
       'src/components/PodcastPublishAction.vue',
       'src/components/PodcastEpisodeEntry.vue',
+      'src/components/PodcastScriptEntry.vue',
       'src/views/PodcastChannelView.vue',
     ].map((rel) => {
       const p = path.resolve(ROOT, rel)
