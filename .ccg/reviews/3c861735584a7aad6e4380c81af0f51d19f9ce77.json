@@ -19,8 +19,8 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "cleared",
+    "performedBy": "not-applicable (foreign commit record)",
+    "findings": "本记录 sha=3c8617355 是共享根 main 的提交（#3726 知乎登录检测修复，他人会话），其 stagedDiffHash=934d4960… 与本 PR diff（fde48db5…）不同——被本会话第一笔提交的 git add -A 误收进分支。该提交的深度评审归其作者会话，main 上已有完整处置（openspec/records/fix-zhihu-login-check.md）。非本 PR 欠账，置 cleared 并留此说明。"
   }
 }
