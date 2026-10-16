@@ -47,6 +47,11 @@
         class="ppp__task-wait-bucket"
         data-testid="publish-progress-task-bucket"
       >{{ blockedBucketLabel }}</span>
+      <span
+        v-if="clockAnomalyLabel"
+        class="ppp__task-wait-bucket"
+        data-testid="publish-progress-task-clock-anomaly"
+      >{{ clockAnomalyLabel }}</span>
     </span>
     <span v-else-if="task.phase === 'released'" class="ppp__task-released" data-testid="publish-progress-task-released">
       {{ t('publishPage.publishProgressPanel.releasedNotSubmitted') }}
@@ -174,6 +179,10 @@ const blockedBucketLabel = computed(() => {
   if (bucket === 'daily') return t('publishPage.publishProgressPanel.blockedBucketDaily')
   return ''
 })
+
+/** 时钟异常标记（fix-account-interval-ghost-wait）：守卫的 clockAnomaly 缺席/为假时不渲染（不猜档纪律） */
+const clockAnomalyLabel = computed(() =>
+  props.task.clockAnomaly === true ? t('publishPage.publishProgressPanel.blockedClockAnomaly') : '')
 
 /** v2：日配额用尽走独立文案（它是「改期」而非「等待」，remainingWait 恒为 0） */
 const isDailyQuota = computed(() =>

@@ -365,6 +365,27 @@ describe('Store 多用户隔离', () => {
     expect(store.getPublishTimeline('douyin:shared-account', 'user-b')).toBe('200')
   })
 
+  // ── fix-account-interval-ghost-wait：未来时间戳写入闸 ─────────────────────────
+  describe('setPublishTimeline 未来时间戳拦截', () => {
+    it('S1 拒绝写入超过 60s 容差的未来时间戳，DB 不落行', () => {
+      const future = Date.now() + 60 * 60 * 1000 // 未来 1 小时
+      store.setPublishTimeline('douyin:acc1', future, 'user-a')
+      expect(store.getPublishTimeline('douyin:acc1', 'user-a')).toBe(null)
+    })
+
+    it('S2 容差内（<60s 未来）允许写入（防临界竞态误伤）', () => {
+      const slightlyFuture = Date.now() + 30 * 1000
+      store.setPublishTimeline('douyin:acc1', slightlyFuture, 'user-a')
+      expect(Number(store.getPublishTimeline('douyin:acc1', 'user-a'))).toBe(slightlyFuture)
+    })
+
+    it('S3 正常过去时间戳写入/读回不回归', () => {
+      const past = Date.now() - 5 * 60 * 1000
+      store.setPublishTimeline('douyin:acc1', past, 'user-a')
+      expect(Number(store.getPublishTimeline('douyin:acc1', 'user-a'))).toBe(past)
+    })
+  })
+
   // ── publish-frequency-policy-v2：日配额计数（新表 publish_daily_count）──────────
   describe('publish_daily_count（日配额计数）', () => {
     const DAY = '2026-10-10'

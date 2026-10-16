@@ -143,6 +143,13 @@ class PublishIntervalGuard {
     this._warn = typeof options.warn === 'function' ? options.warn : (msg) => console.warn(msg)
     /** 未登记平台告警去重（进程内） */
     this._warnedFallback = new Set()
+    /** 时间戳落在未来的间隔键（时钟快进/回拨产物；fix-account-interval-ghost-wait） */
+    this._futureTimestampKeys = new Set()
+  }
+
+  /** 命中「未来时间戳」判定的间隔键（诊断用；写入侧闸在 rate-limit-store） */
+  get futureTimestampKeys () {
+    return [...this._futureTimestampKeys]
   }
 
   get jitterRatio () {
@@ -243,7 +250,22 @@ class PublishIntervalGuard {
     if (!(minInterval > 0)) return 0
     const lastTime = this._store.get(key)
     if (!lastTime) return 0
-    return Math.max(0, minInterval - (now - Number(lastTime)))
+    const elapsed = now - Number(lastTime)
+    // 时钟倒挂守卫（fix-account-interval-ghost-wait）：时间戳在未来 ⇒ 本机时钟域损坏
+    //（快进期间 recordPublish 落盘的产物），不可信任其作为风控信号无限阻塞——
+    // 倒挂多久等待就多多久。钳位到最多一个完整间隔（与 I2「请求已发生就占窗口」对齐），
+    // 并出声 + 记录诊断键；同键只告警一次防日志风暴。
+    if (!(elapsed >= 0)) {
+      if (!this._futureTimestampKeys.has(key)) {
+        this._futureTimestampKeys.add(key)
+        this._warn(`[PublishFrequency] 间隔键 ${key} 的时间戳 ${lastTime} 落在未来（当前 ${now}），` +
+          '本机时钟疑似快进/回拨；等待钳位到单个间隔，请校准系统时间或使用紧急放行')
+      }
+      return minInterval
+    }
+    // 自愈：时钟域恢复正常后清除诊断标记，clockAnomaly 随之回落（不做粘滞历史）
+    this._futureTimestampKeys.delete(key)
+    return Math.max(0, minInterval - elapsed)
   }
 
   _readDaily (key, dayKey) {
@@ -302,27 +324,32 @@ class PublishIntervalGuard {
     // ② 两档间隔取更严
     let remainingMs = 0
     let bucket = null
+    /** 时钟倒挂命中标记：任一档命中的键在未来 ⇒ 整个判定标记为异常（fix-account-interval-ghost-wait） */
+    let clockAnomaly = false
 
     if (accountKey && accountMinMs > 0) {
       const r = this._remaining(accountKey, accountMinMs, now)
       if (r > 0) {
         remainingMs = r
         bucket = 'account'
+        if (this._futureTimestampKeys.has(accountKey)) clockAnomaly = true
       }
     }
 
+    const platformKey = this._key(platform, null)
     const platformRemaining = this._remaining(
-      this._key(platform, null), platformMinMs, now
+      platformKey, platformMinMs, now
     )
     if (platformRemaining > remainingMs) {
       remainingMs = platformRemaining
       bucket = 'platform'
     }
+    if (this._futureTimestampKeys.has(platformKey)) clockAnomaly = true
 
     if (remainingMs > 0) {
-      return { allowed: false, remainingMs: this._jitter(remainingMs), bucket, reason: REASON_INTERVAL, daily }
+      return { allowed: false, remainingMs: this._jitter(remainingMs), bucket, reason: REASON_INTERVAL, daily, clockAnomaly }
     }
-    return { allowed: true, remainingMs: 0, bucket: null, reason: null, daily }
+    return { allowed: true, remainingMs: 0, bucket: null, reason: null, daily, clockAnomaly: false }
   }
 
   /**
