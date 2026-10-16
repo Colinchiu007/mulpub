@@ -390,6 +390,28 @@ claude 后端恢复（`sh scripts/deep-review.sh --check-deps` 体检通过）�
 > 该 job 对 docs-only PR 不短路，是本仓给「判据自身回归锁」约定的落点（Gate 2c2/2c3/2c4 同一先例）。
 > 已跑 `check-workflow-structure.test.js`（6/6）与 `workflow-contract.test.js`（37/37）确认结构未被破坏。
 
+#### 本轮附带修掉一条**被跳过门禁掩盖**的存量红：Gate 11 ESLint
+
+`QG Static` 在本 PR 上一直红 —— 但它此前**一直是 skipped**：`changes` job 先红 ⇒ 下游 job 级
+`if` 短路 ⇒ Gate 11 从未真正跑过。`changes` 修好后它才第一次执行并当场红。
+
+- **定位方法**（值得复用）：`--log-failed` 在 run 未完成时拿不到日志，改为**按 step 读结论**：
+  `gh api repos/:owner/:repo/actions/jobs/<job_id> --jq '.steps[] | "\(.number) \(.conclusion) \(.name)"'`
+  ⇒ 直接指出 **Gate 11 - ESLint**。
+- **根因**：Gate 11 只 lint `apps/desktop` 的 `electron/` 与 `src/`（与 `scripts/` 无关），
+  而红的是本 PR 早先压缩过的 `rpa-view-platforms.test.js` —— 我在那轮瘦身时写了
+  `/require\(['\"]@multi-publish\/…['\"]\)/`：正则字面量里 `\"` 与 `"` 语义完全相同，
+  属 `no-useless-escape`（2 处 error）。
+- **修法**：用 `String.fromCharCode(39/34)` 拼出「单引号或双引号」再 `new RegExp`
+  —— 既消除多余转义，也不把引号字面量写进该文件（同块里的 `AXIS_CAP`/`AXIS_TRK` 已是这个套路）。
+- **教训（写进本节以免下次再踩）**：**job 被短路时的「绿」不是绿**。本 PR 里 `QG Static` 与
+  `QG Coverage`/`Desktop Shards` 都曾长期 skipped，`changes` 一修好就冒出新的红
+  —— 「上游红了」既掩盖问题，也让「本轮我只改了 scripts」这种直觉失效。
+  定位这类红的正确路径是**按 step 读结论**，而不是拿本地对着自己改过的目录盲跑。
+- 复验：`cd apps/desktop && pnpm exec eslint electron/ src/ --quiet` → **rc=0**；
+  `rpa-view-platforms.test.js` **83/83**；`check-max-lines` ✅（测试超限 12 = 挂账 12）；
+  CI 侧 `QG Static` → **success**（Gate 11 success）。
+
 ### 遗留（不假装已闭合）
 
 - **第九轮深度审查未执行**（后端免费额度耗尽，见上）。前八轮 upheld 已全部修复并加反证，
