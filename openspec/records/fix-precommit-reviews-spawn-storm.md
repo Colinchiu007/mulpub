@@ -2,9 +2,6 @@
 record: fix-precommit-reviews-spawn-storm
 task: pre-commit 判定记录自动暂存从逐文件 fork git 改为常数次扫描（提交耗时与树上记录数解耦）
 date: 2026-10-16
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 此刻不存在；合并后由后续回填 PR 就地改写为 PASS 并删除本段三个 sync_* 字段
-sync_backfill_owner: 下一个会话（按 `git log origin/main --grep='(#NNNN)$'` 取 merge SHA 回填）
 ---
 
 ## 本次执行记录：pre-commit 判定记录暂存的进程创建预算（fix-precommit-reviews-spawn-storm，2026-10-16）
@@ -20,7 +17,7 @@ sync_backfill_owner: 下一个会话（按 `git log origin/main --grep='(#NNNN)$
 | 接线棘轮 | ✅ | 新增 `scripts/check-precommit-spawn-budget.test.js` 已被 `quality-gate.yml` Gate 2b3 按完整相对路径显式点名；`node scripts/check-unwired-tests.js` → `OK: 全部测试均已接线或按欠账登记` |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/`、`packages/rpa-engine/` 与任何渲染层文件；本次改动全在开发流程工具链（钩子 shell + node 判据 + workflow 接线 + 文档），不产生用户可见界面或打包产物变化 |
 | QM-6 CCG 双模型外部评审 | ✅ `self_play_resolved`（引擎算，非手填） | 六轮实跑，模型名取真源 `[routing.backend].primary=claude` / `[routing.frontend].primary=opencode`（读 `~/.claude/.ccg/config.toml`）。1–2 轮处置见 tasks 6.5.1–6.5.10。第三轮（单笔 646 行，DUAL）：i1 upheld（裸 pathspec 的 `*` 跨 `/` ⇒ 加 `:(glob)`）、i3 upheld（预算全文计数与无关段耦合 ⇒ 改段作用域 + 锚点 fail closed）、i2 dismissed（回退成本按候选数走：树上 200 条时 1→1 / 2→2）。第四轮（845 行）：i1 **Critical** dismissed（实测否证其机制主张：暂存后已跟踪已改动记录**会**出现在 `--cached`）、i2 dismissed（钩子无 `set -o pipefail` ⇒ 一侧扫描失败不会把批量 add 挤进回退，复刻实测 `BATCH_OK`）、i3 **upheld**（失败侧清单被 `>` 截断 ⇒ `count=0` 把「没读到」印成「没丢」）、i4 dismissed（SELF_FAULT 是刻意 fail closed）⇒ 引擎判 `self_play_blocked`（upheld Warning 按设计阻断），该版不作终态。第五轮：先把 i3 修完再 `git reset --soft origin/main` **重新提交**（amend 只会让判定器量到增量，实测 245 行 vs 全量 850 行——这就是第四轮裁决失效的真因），新记录 `2fd74f508….json` 在 main 上原本不存在 ⇒ 不覆盖他人产物；评审 2 条争议均 dismissed 并留可验证理由 ⇒ 引擎算得 **`deepReview.status=self_play_resolved`**，`check-pr-exec-record --base=origin/main --mode=enforce` → **rc=0**。闭环能进提交的实际机制见 tasks 6.5.17（它更正了我先前「单提交必 pending」的过度推断） |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin fix-precommit-reviews-spawn-storm` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | 已 squash 合并为 `95ff4714530864afcf5a2111a359fd40fa4f8573`（`git log origin/main` 按 `(#3688)$` 取 %H|%cI 恰好 1 行 = 2026-10-16T14:35:31+08:00）；远端分支已删（`git ls-remote --heads origin fix-precommit-reviews-spawn-storm` 返回 0 行）；本仓无 ledger 登记项（新载体 openspec/records 用 frontmatter 三字段登记，已随本行同次删除） |
 
 ### 变异反证（9 条，最终基线重跑 `TOTAL_BAD=0`）
 
