@@ -1,0 +1,28 @@
+{
+  "sha": "bb41947badfa329992eb552f2f22e7462f42ca91",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 68 行（≤ 200）但命中 auth/数据库/加密：敏感内容 3 处",
+  "stats": {
+    "changedLines": 68,
+    "fileCount": 4,
+    "codeFileCount": 3,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 3,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "pre-commit 会按**父提交 sha** 生成 `.ccg/reviews/<sha>.json` 判定记录。rebase 重写历史后，这些文件的 `sha` 字段指向**已不存在的提交**（属历史重写的氧化产物），却仍被带上分支，并有 3 条被判 `mode=dual`（判据是「命中 auth/数据库/加密：敏感内容 2 处」——触发源是 `identity-auth-window.js` 这个**只改了 1 行标题**的文件）。处置：**从本 PR 移除全部 3 条新增记录**（恢复 `.ccg/reviews/` 与 origin/main 一致），理由是它们既非交付物、又引用失效 sha。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "4db6fec0ebdde9c89b7a588cb66efe609d32d3bd3eef1686004e8afad08e303c",
+  "decidedAt": "2026-10-16T14:31:15.194Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}
