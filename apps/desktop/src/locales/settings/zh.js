@@ -30,6 +30,12 @@ export default {
       currentTier: '当前档位（账号间隔 / 平台间隔 / 每日上限）',
       effectiveRange: '实际等待区间（含抖动）',
       accountInterval: '同账号最小间隔（分钟）',
+      // v5 逐平台同账号间隔（change: publish-frequency-per-platform-intervals）
+      perPlatformTitle: '按平台覆盖同账号间隔（分钟）',
+      perPlatformHint: '逐平台的默认间隔来自策略表（视频号已单独收紧）。留空表示该平台继续用默认值；填写后优先于上方「同账号最小间隔」的全局值。',
+      perPlatformDefault: '默认 {value}',
+      perPlatformEffective: '生效 {value}',
+      perPlatformOverridden: '已覆盖',
       unset: '未覆盖',
       overrideScopeHint: '以下字段对**所有平台**生效；留空表示不覆盖该维度（继续使用各平台自己的默认档）。只填你想改的那几项即可，未填的不会被清掉。',
       platformInterval: '同平台跨账号最小间隔（分钟，0 = 关闭）',

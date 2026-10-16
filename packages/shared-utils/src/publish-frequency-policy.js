@@ -13,7 +13,16 @@
  * 平台若调整节奏，改这一处；禁止在调用方另抄一份。
  * 未登记的平台回落 BASELINE_INTERVALS（最严档），不得回落 0。
  *
- * v4 相对 v3 的变更（change: publish-frequency-policy-v4）：
+ * v5 相对 v4 的变更（change: publish-frequency-per-platform-intervals）：
+ *   - **账号档改为逐平台**：新增 PLATFORM_ACCOUNT_MIN_INTERVAL_MS 作为该维度唯一数值真源，
+ *     档位只管 platformMinMs 与 accountDailyMax。动机是各平台对连发的容忍度不同（视频号最严），
+ *     而「为一个平台开第四档 / 写 if 分支」都会把差异化从数据面赶进控制流。
+ *   - 视频号 3′ → **60′**（产品决策，非平台公布值；公开渠道没有任何平台给出量化间隔）。
+ *     其余 14 个平台生效值逐字节不变，由「偏离集合 == [tencent_video]」锁钉住。
+ *   - 新增覆盖入口：设置页 accountMinMsByPlatform（对象）与 env
+ *     MP_PUBLISH_ACCOUNT_MIN_INTERVAL_MS_JSON（一条 JSON，不设 15 个变量）。
+ *     优先级：设置页平台专属 > 设置页全局 > env 平台专属 > env 全局 > 逐平台表默认。
+ * * v4 相对 v3 的变更（change: publish-frequency-policy-v4）：
  *   - 平台档三级 **统一成 1′**（3′/2′/1′ → 1′）：分级撤掉，机制保留 —— 删掉整条会撤掉
  *     唯一防"同机多号被平台关联"的闸，而那种故障本地无任何信号（表现为莫名掉登录/发不出去）。
  *   - 日配额 30/50/200 → **200/350/500**（用户口径"最低 200、最高 500"，档间单调保持）。
@@ -113,11 +122,49 @@ const PLATFORM_TIER = Object.freeze({
   twitter: TIER_SHORT,
 })
 
+/**
+ * 同账号最小发布间隔的**逐平台默认表**（毫秒）—— 该维度唯一的数值真源（v5）。
+ *
+ * 为什么从「按档位派生」改成「逐平台字面量」（change: publish-frequency-per-platform-intervals）：
+ * 档位把 15 个平台压成三档，于是「只想收紧视频号」要么连带改整档、要么在代码里写
+ * if (platform === tencent_video) 分支 —— 后者正是本模块要消灭的「同一个量抄成多份」。
+ * 现在差异化只落在这张表里：**以后任何平台收紧或放宽，改这一行数据，不动分类器、不动控制流。**
+ * 档位仍承载 platformMinMs 与 accountDailyMax（这两个维度确实没有逐平台差异需求）。
+ *
+ * 取值依据如实标注（详见 01-docs/PRD-PUBLISH-FREQUENCY-V5-2026-10-16.md §2）：
+ *   - 公开渠道**没有**任何平台给出「两次发布必须间隔 N 分钟」的量化规则；
+ *   - 视频号 60 分钟是**产品决策**，依据是公开运营口径的「日发上限按粉丝量分级
+ *     （千粉 1 条／万粉 2 条／万粉以上 ≤5 条）、超出限制直接限流」，不是平台公布的阈值；
+ *   - 其余 14 个平台 = 各自档位现行值，**行为零变化**，由回归锁
+ *     「偏离集合 == [tencent_video]」钉住，防止顺手调数值混进同一次改动。
+ */
+const PLATFORM_ACCOUNT_MIN_INTERVAL_MS = Object.freeze({
+  tencent_video: 60 * MIN, // 视频号：唯一偏离档位的平台（60 分钟，产品决策）
+  wechat_mp: 5 * MIN, // 以下均为暂定：沿用各自档位现行值，未取到官方量化口径
+  zhihu: 5 * MIN,
+  baijiahao: 5 * MIN,
+  toutiao: 5 * MIN,
+  douyin: 3 * MIN,
+  kuaishou: 3 * MIN,
+  xiaohongshu: 3 * MIN,
+  bilibili: 3 * MIN,
+  youtube: 3 * MIN,
+  tiktok: 3 * MIN,
+  instagram: 3 * MIN,
+  facebook: 3 * MIN,
+  weibo: 1 * MIN,
+  twitter: 1 * MIN,
+})
+
+/** 逐平台账号间隔的 env 覆盖入口：一条 JSON，不设 15 个独立变量（PRD v5 §4）。 */
+const ENV_ACCOUNT_MIN_INTERVAL_JSON = 'MP_PUBLISH_ACCOUNT_MIN_INTERVAL_MS_JSON'
+
 const PLATFORM_FREQUENCY_POLICY = Object.freeze(
   Object.fromEntries(
     Object.entries(PLATFORM_TIER).map(([platform, tier]) => [
       platform,
-      Object.freeze({ tier, ...TIER_PRESETS[tier] }),
+      // 账号档自 v5 起取逐平台表；档位值只作为「表里没登记该平台」时的兜底来源。
+      Object.freeze({ tier, ...TIER_PRESETS[tier], accountMinMs: PLATFORM_ACCOUNT_MIN_INTERVAL_MS[platform] }),
     ])
   )
 )
@@ -130,7 +177,9 @@ const PLATFORM_FREQUENCY_POLICY = Object.freeze(
  */
 const BASELINE_INTERVALS = Object.freeze({
   tier: TIER_LONG,
-  accountMinMs: 5 * MIN,
+  // 基线的定义是「人为想清楚过的最严值」。v5 起已登记里最严的是视频号 60 分钟，
+  // 故账号档**引用逐平台表**而不是另写一个数字——两个数字必然有一天漂移。
+  accountMinMs: PLATFORM_ACCOUNT_MIN_INTERVAL_MS.tencent_video,
   platformMinMs: 1 * MIN,
   accountDailyMax: 200,
 })
@@ -252,6 +301,109 @@ function parseEnvNumber (raw, envName, fallback, warn, bounds = {}) {
 function parseEnvInterval (raw, envName, fallback, warn) {
   return parseEnvNumber(raw, envName, fallback, warn, { max: MAX_INTERVAL_MS })
 }
+/**
+ * 解析逐平台账号间隔的 env JSON 覆盖（`MP_PUBLISH_ACCOUNT_MIN_INTERVAL_MS_JSON`）。
+ *
+ * 两档严格度（PRD v5 §4，刻意不同口径）：
+ *   - **值非法**（非有限数 / <0）⇒ 整条作废并出声：不做「一半生效」，
+ *     否则用户会看到「改了 A 却影响了 B」这种不可解释的行为；
+ *   - **平台键未知** ⇒ 只忽略该键并点名：拼错一个平台名不该抹掉其余 14 个平台的配置。
+ *   超上界按既有间隔语义**钳位**（不作废）——与 parseEnvInterval 同口径。
+ * 未设置 / 空串 / 全部键被忽略 ⇒ 返回 null（视为缺席，落到下一级），绝不抛错打断发布链。
+ *
+ * @param {Record<string, string|undefined>} env
+ * @param {(msg: string) => void} warn
+ * @returns {Record<string, number> | null}
+ */
+function parseAccountMinIntervalEnv (env, warn) {
+  const raw = env[ENV_ACCOUNT_MIN_INTERVAL_JSON]
+  if (raw === undefined || raw === null) return null
+  const text = String(raw).trim()
+  if (!text) return null
+  let parsed
+  try {
+    parsed = JSON.parse(text)
+  } catch (err) {
+    warn('[PublishFrequency] 环境变量 ' + ENV_ACCOUNT_MIN_INTERVAL_JSON + ' 不是合法 JSON，整条作废、全部平台回落默认表：' + (err && err.message ? err.message : err))
+    return null
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    warn('[PublishFrequency] 环境变量 ' + ENV_ACCOUNT_MIN_INTERVAL_JSON + ' 需对象 { <platform>: ms }，整条作废、全部平台回落默认表')
+    return null
+  }
+  const map = {}
+  let ignoredUnknown = 0
+  for (const entry of Object.entries(parsed)) {
+    const platform = entry[0]
+    const value = entry[1]
+    if (value === undefined || value === null) continue
+    if (!isKnownPlatform(platform)) {
+      ignoredUnknown += 1
+      warn('[PublishFrequency] 环境变量 ' + ENV_ACCOUNT_MIN_INTERVAL_JSON + ' 含未知平台 ' + JSON.stringify(platform) + '，已忽略该键')
+      continue
+    }
+    const n = Number(value)
+    if (!Number.isFinite(n) || n < 0) {
+      warn('[PublishFrequency] 环境变量 ' + ENV_ACCOUNT_MIN_INTERVAL_JSON + ' 的 ' + platform + '=' + JSON.stringify(value) + ' 非法（需 >=0 的有限数），整条作废、全部平台回落默认表')
+      return null
+    }
+    if (n > MAX_INTERVAL_MS) {
+      warn('[PublishFrequency] 环境变量 ' + ENV_ACCOUNT_MIN_INTERVAL_JSON + ' 的 ' + platform + '=' + n + ' 超出上界 ' + MAX_INTERVAL_MS + '，已钳位到上界')
+      map[platform] = MAX_INTERVAL_MS
+      continue
+    }
+    map[platform] = Math.floor(n)
+  }
+  if (Object.keys(map).length === 0) {
+    if (ignoredUnknown > 0) {
+      warn('[PublishFrequency] 环境变量 ' + ENV_ACCOUNT_MIN_INTERVAL_JSON + ' 的全部键都不是已支持平台，视为未配置')
+    }
+    return null
+  }
+  return map
+}
+
+/**
+ * 解析「同一账号在同一平台的最小发布间隔」—— v5 起这是**逐平台**维度，不再由档位派生。
+ *
+ * 优先级链（细粒度必须赢粗粒度，PRD v5 §3）：
+ *   1. 设置页平台专属覆盖  overrides.accountMinMsByPlatform[platform]
+ *   2. 设置页全局覆盖      overrides.accountMinMs
+ *   3. env 平台专属        MP_PUBLISH_ACCOUNT_MIN_INTERVAL_MS_JSON[platform]
+ *   4. env 全局            MP_PUBLISH_MIN_INTERVAL_MS
+ *   5. 逐平台表默认        PLATFORM_ACCOUNT_MIN_INTERVAL_MS[platform]（未登记平台回落 BASELINE_INTERVALS）
+ *
+ * ⛔ 本函数**不得**调用 resolveIntervals：resolveIntervals 的账号档正是由本函数提供，
+ *    互相调用即无限递归（回归锁「两个解析函数不得互相调用」以 RangeError 形式抓住）。
+ *
+ * @param {string} platform
+ * @param {{env?: Record<string,string|undefined>, warn?: (msg: string) => void, overrides?: object}} [options]
+ * @returns {number} 毫秒；0 = 显式关闭该档
+ */
+function resolveAccountMinIntervalMs (platform, options = {}) {
+  const env = options.env || process.env
+  const warn = warnSink(options)
+  const ov = options.overrides || {}
+  const known = isKnownPlatform(platform)
+  const tableDefault = known ? PLATFORM_ACCOUNT_MIN_INTERVAL_MS[platform] : BASELINE_INTERVALS.accountMinMs
+
+  // 1 设置页平台专属：值已由 resolvePolicyOverrides 校验过，这里只按「键是否存在」取用。
+  //    键存在但值非法（上游作废后不该出现）时出声并继续走链，不得静默吞成 tableDefault。
+  const byPlatform = ov.accountMinMsByPlatform
+  if (byPlatform && typeof byPlatform === 'object' &&
+      Object.prototype.hasOwnProperty.call(byPlatform, platform) &&
+      byPlatform[platform] !== undefined && byPlatform[platform] !== null) {
+    const n = Number(byPlatform[platform])
+    if (Number.isFinite(n) && n >= 0) return Math.min(Math.floor(n), MAX_INTERVAL_MS)
+    warn('[PublishFrequency] 设置页账号间隔覆盖 ' + platform + '=' + JSON.stringify(byPlatform[platform]) + ' 非法，已忽略该覆盖')
+  }
+
+  // 3 env 平台专属 赢 4 env 全局（同一条 env 内部优先），但两者都让位于 2 设置页全局覆盖。
+  const envJson = parseAccountMinIntervalEnv(env, warn)
+  const envPlatform = envJson ? envJson[platform] : undefined
+  const globalRaw = pick(ov.accountMinMs, envPlatform, env[ENV_ACCOUNT_MIN_INTERVAL])
+  return parseEnvInterval(globalRaw, ENV_ACCOUNT_MIN_INTERVAL, tableDefault, warn)
+}
 
 /**
  * 解析某平台的完整策略。
@@ -270,9 +422,9 @@ function resolveIntervals (platform, options = {}) {
   const base = fallback ? BASELINE_INTERVALS : PLATFORM_FREQUENCY_POLICY[platform]
   const ov = options.overrides || {}
 
-  const accountMinMs = parseEnvInterval(
-    pick(ov.accountMinMs, env[ENV_ACCOUNT_MIN_INTERVAL]), ENV_ACCOUNT_MIN_INTERVAL, base.accountMinMs, warn
-  )
+  // 账号档不再由档位派生：真源是 PLATFORM_ACCOUNT_MIN_INTERVAL_MS（逐平台表），
+  // 优先级链与 env JSON 覆盖一并交给 resolveAccountMinIntervalMs（它不会回调本函数）。
+  const accountMinMs = resolveAccountMinIntervalMs(platform, { overrides: ov, env, warn })
   const platformMinMs = parseEnvInterval(
     pick(ov.platformMinMs, env[ENV_PLATFORM_MIN_INTERVAL]), ENV_PLATFORM_MIN_INTERVAL, base.platformMinMs, warn
   )
@@ -396,6 +548,44 @@ function resolvePolicyOverrides (raw, options = {}) {
     out[key] = Math.min(Math.floor(n), MAX_INTERVAL_MS)
   }
 
+  // 逐平台账号间隔覆盖：对象，键必须 ∈ SUPPORTED_PLATFORMS，值 [0, MAX_INTERVAL_MS] 整数毫秒。
+  // 值非法 ⇒ **整个覆盖对象作废**（与同函数其余字段的「全有或全无」纪律一致）；
+  // 未知平台键 ⇒ 忽略该键但不作废（拼错一个平台名不该抹掉用户其余配置）；
+  // 全部键都未知 ⇒ 视为无效（不得留下空 map 被下游读成「覆盖了但值为空」）。
+  if (raw.accountMinMsByPlatform !== undefined && raw.accountMinMsByPlatform !== null) {
+    const byPlatform = raw.accountMinMsByPlatform
+    if (typeof byPlatform !== 'object' || Array.isArray(byPlatform)) {
+      bad('accountMinMsByPlatform', byPlatform, '需对象 { <platform>: ms }')
+      return null
+    }
+    const map = {}
+    let ignoredUnknown = 0
+    for (const entry of Object.entries(byPlatform)) {
+      const platform = entry[0]
+      const value = entry[1]
+      if (value === undefined || value === null) continue
+      if (!isKnownPlatform(platform)) {
+        ignoredUnknown += 1
+        warn('[PublishFrequency] 设置页账号间隔覆盖含未知平台 ' + JSON.stringify(platform) + '，已忽略该键')
+        continue
+      }
+      const n = Number(value)
+      if (!Number.isInteger(n) || n < 0 || n > MAX_INTERVAL_MS) {
+        bad('accountMinMsByPlatform.' + platform, value, '需 [0,' + MAX_INTERVAL_MS + '] 的整数毫秒')
+        return null
+      }
+      map[platform] = n
+    }
+    if (Object.keys(map).length === 0) {
+      if (ignoredUnknown > 0) {
+        bad('accountMinMsByPlatform', raw.accountMinMsByPlatform, '全部键都不是已支持平台')
+        return null
+      }
+    } else {
+      out.accountMinMsByPlatform = map
+    }
+  }
+
   const intKeys = [
     ['accountDailyMax', 0, MAX_DAILY_QUOTA],
     ['emergencyMaxPerDay', 0, MAX_EMERGENCY_MAX_PER_DAY],
@@ -473,6 +663,9 @@ module.exports = {
   TIER_CLIP,
   TIER_SHORT,
   ENV_ACCOUNT_MIN_INTERVAL,
+  ENV_ACCOUNT_MIN_INTERVAL_JSON,
+  PLATFORM_ACCOUNT_MIN_INTERVAL_MS,
+  resolveAccountMinIntervalMs,
   ENV_PLATFORM_MIN_INTERVAL,
   ENV_DAILY_MAX_LONG,
   ENV_DAILY_MAX_CLIP,

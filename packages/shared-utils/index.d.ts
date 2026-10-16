@@ -185,6 +185,15 @@ export const publishFrequencyPolicy: {
     platform: string,
     options?: { env?: Record<string, string | undefined>; warn?: (msg: string) => void; overrides?: object }
   ): PublishFrequencyIntervals;
+  /**
+   * 同账号最小发布间隔（v5 起逐平台维度）：设置页平台专属 > 设置页全局 > env 平台专属
+   * > env 全局 > PLATFORM_ACCOUNT_MIN_INTERVAL_MS 默认（未登记平台回落 BASELINE_INTERVALS）。
+   * ⛔ 不得调用 resolveIntervals（后者账号档由本函数提供，互调即无限递归）。
+   */
+  resolveAccountMinIntervalMs(
+    platform: string,
+    options?: { env?: Record<string, string | undefined>; warn?: (msg: string) => void; overrides?: object }
+  ): number;
   /** 抖动比例 [0,1)；0 = 关闭（严格退化为 v1 行为） */
   resolveJitterRatio(options?: { env?: object; warn?: Function; overrides?: object }): number;
   /** 回滚后最小退避（整数 ms，下界 MIN_RELEASE_GRACE_MS 钳位） */
@@ -212,6 +221,8 @@ export const publishFrequencyPolicy: {
     bounds?: { integer?: boolean; max?: number }
   ): number;
   PLATFORM_FREQUENCY_POLICY: Record<string, PublishFrequencyIntervals>;
+  /** 同账号最小发布间隔的逐平台默认表（ms）—— 该维度唯一数值真源（v5） */
+  PLATFORM_ACCOUNT_MIN_INTERVAL_MS: Record<string, number>;
   BASELINE_INTERVALS: PublishFrequencyIntervals;
   SUPPORTED_PLATFORMS: readonly string[];
   MAX_INTERVAL_MS: number;
@@ -226,6 +237,8 @@ export const publishFrequencyPolicy: {
   TIER_CLIP: string;
   TIER_SHORT: string;
   ENV_ACCOUNT_MIN_INTERVAL: string;
+  /** 逐平台账号间隔的 env 覆盖入口：一条 JSON {"<platform>": ms}（值非法整条作废、未知键忽略） */
+  ENV_ACCOUNT_MIN_INTERVAL_JSON: string;
   ENV_PLATFORM_MIN_INTERVAL: string;
   ENV_DAILY_MAX_LONG: string;
   ENV_DAILY_MAX_CLIP: string;
