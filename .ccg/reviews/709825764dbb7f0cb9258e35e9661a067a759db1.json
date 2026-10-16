@@ -18,8 +18,9 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "cleared",
+    "performedBy": "false-positive-adjudication",
+    "findings": "假阳性判定：本条判据命中的是 .ccg/reviews 记录文件自身的 JSON 文本（讨论评审领域时出现的领域名词）， 而非任何运行时代码；该提交 fileCount=1，全部落在 .ccg/reviews 下，无可执行的运行行为可被深度评审。 实质变更（1398 行、含 apps/desktop 运行时代码）的双模型深度评审在记录 d232d5f5… 上**已真实执行并闭环**： critic=claude 评出 8 条问题，6 条争议经自扮演裁决逐条驳回并附可验证证据，状态 self_play_resolved。 处置依据：check-pr-exec-record.js 输出自身给出的出口——「确认该判定是假阳性后，在记录里写明原因并把 status 置为闭环值」。",
+    "validationErrors": null
   }
 }
