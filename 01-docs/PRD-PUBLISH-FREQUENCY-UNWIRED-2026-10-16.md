@@ -58,7 +58,7 @@
 | 位置 | 文案/显示 | 变化 | 落点 |
 |---|---|---|---|
 | 队列告警（`console.error`） | 「已对平台 X 停用『未提交失败回滚』（原因）：宁可多等一个窗口，也不冒早于窗口重复发布的风险。**重启进程后自动解除（本进程内不可撤销 —— 设置页没有该入口，也不提供手动解除）**」 | 去掉假承诺 | `task-queue-frequency.js`；文案被两条锁钉住（含 `重启`、禁 `设置页确认后解除`） |
-| 启动日志 | `PublishDailyCount startup-prune owners=N removed=M basis=measured\|invalid_input\|not_ready\|unproven` | 新增 | `phase1-context.js`；`basis` 让"没有行"与"没测到"可区分（不得把没测印成 0） |
+| 启动日志 | `PublishDailyCount startup-prune owners=N removed=M basis=measured\|invalid_input\|not_ready\|unproven` | 新增 | `phase3-services.js`（`store.init()` 之后；原先挂 `phase1-context.js` 时被 C-1 判为永久 no-op）；`basis` 让"没有行"与"没测到"可区分（不得把没测印成 0） |
 | 启动日志 | `startup-prune-skipped`（WARN，带 `hasStore` / `hasGuardToday`） | 新增 | 接不上必须出声，否则将来谁把这条维护摘掉，现场是静默的 |
 | 设置页 日配额三输入框 | `:max` 由 999 改为下发的上界 | 改 | `PublishFrequencySettings.vue`；`:max="999"` 在代码行里 0 命中（注释里保留为动因说明，锁只扫代码行） |
 | 设置页 账号/平台间隔输入框 | `:max` 由 10080 改为下发的 `intervalMaxMinutes` | 改 | 同上 |
@@ -66,7 +66,7 @@
 无新增用户可见文案 ⇒ 不涉及 locales 成对（Gate 7 无新增键）；像素门禁对 `:max` 这类属性**结构性失明**，
 故判据走组件断言（把夹具界值故意写成与真源不同的 4321/3210，否则"UI 真的用下发值"测不出来）。
 
-## 7. 反证表（U1–U11，驱动 `.ccg/reviews/freq-unwired-mutate.driver.js`，已实跑）
+## 7. 反证表（U1–U12，驱动 `.ccg/reviews/freq-unwired-mutate.driver.js`，已实跑）
 
 | 变异 | 被禁形态 | 点名的锁 |
 |---|---|---|
@@ -78,7 +78,8 @@
 | U6 | 告警文案退回「重启或用户在设置页确认后解除」 | 【探针 I4】的文案锁 |
 | U7 | DELETE 改成跨 owner | 「每条 DELETE 必须带 owner_subject 谓词」+ 既有"只删本 owner"用例 |
 | U8 | 日键校验退回"只看形状"（区间判断与 round-trip 同时摘掉） | 「形状对但日历不存在的日期必须拒绝」 |
-| U9 | 启动期裁剪调用摘掉 | 「启动期裁剪日计数表：必须调用一次且日键取自守卫 today()」 |
+| U9 | 启动期裁剪调用摘掉 | 「裁剪在 store.init() 之后调用恰好一次，日键取自守卫的 today()」 |
+| U12 | 把裁剪调用点搬回 phase1-context（C-1 的原形态） | 「phase1 不得有启动期裁剪调用点」（禁令锁自带正向对偶） |
 | U10 | IPC 下发值改成硬编码 999 | 「getPolicy 必须把合法域上界一并下发」 |
 | U11 | 组件 `:max` 退回硬编码 999 | 「合法域上界必须来自 IPC 下发：模板里不得留第二份数字」 |
 
@@ -121,7 +122,7 @@
 | 判据 | 形态 | 实测 |
 |---|---|---|
 | 反向声明锁 ×2 | d.ts 声明名 ⇒ 实现面必须存在 | 未变异：`frequency-declaration-contract.test.js` **8 passed**；把幽灵声明加回 `index.d.ts`（在 `$TMP`（系统临时目录）的**隔离副本**里跑，未触碰被评审工作树）⇒ **恰好 1 条变红**，红名即 `反向：d.ts 声明的守卫静态成员…` |
-| notify meta 顶层键结构锁 | `phase1-context.js` 里 `notify(...)` 的 meta 字面量顶层键必须 ∈ 白名单 | 算法 A/B（`/`按花括号深度扫描`/`）：合规形态 ⇒ 违例 0；被禁形态（D1 的真实写法）⇒ 违例 1 且点名 `hasGuardToday`。规模下界：调用点数 3 > 0 |
+| notify meta 顶层键结构锁 | `phase1-context.js` **与** `phase3-services.js` 里 `notify(...)` 的 meta 字面量顶层键必须 ∈ 白名单（逐文件各自有"调用点数 > 0"的反失明下界） | 算法 A/B（`/`按花括号深度扫描`/`）：合规形态 ⇒ 违例 0；被禁形态（D1 的真实写法）⇒ 违例 1 且点名 `hasGuardToday`。规模下界：调用点数 3 > 0 |
 
 两处**如实记录的判据局限**，不得含糊：① 结构锁只认 `key:` 形态，**简写属性**（`{ level, hasStore }`）在 depth 0 上是裸标识符，判据看不见 ⇒ 那种形态要靠行为锁兜；② 反向声明锁的解析器对"策略块里缩进两格的方法名"敏感，若 `index.d.ts` 整体改排版（例如 4 格缩进），解析数会退化 ⇒ 用 `names.length >= 5/6` 的下界当场变红，而不是静默合规。
 
@@ -145,3 +146,21 @@
   真因是 CC Switch 上游 provider 的**当日免费额度 403**（`今日免费订阅额度已用尽（次日 00:00 CST 自动重置）`，
   codex 与 claude 两路同错）。我的"短提示成功 / 长提示失败"对照**变的不是被怀疑的那一维**——
   真正变化的是时间（额度余量），所以它测不出我声称测出的东西。撤回该结论。
+
+
+### 10.4 QM-6 自审发现的 C-1：接上了，但接在依赖就绪之前
+
+外部模型三通道当日全部不可用（见执行记录「QM-6」行），用户 2026-10-16 指示由本会话按双轴标准自审。
+自审读出的头号问题不在数值、不在 SQL，而在**调用时机**：
+
+1. `store.init()` 的唯一生产调用点是 `phase3-services.js:88`，由 `bootstrap.js:250` 的 `startServices` 触发；
+   裁剪原先挂在 `phase1-context.js`，由 `bootstrap.js:81` 的 `extractContext()` 触发 —— 同一轮启动里**恒早于**前者。
+2. `base-store.js` 构造时 `_ready=false`，只有 `init()` 里置真；未就绪时 `prunePublishDailyCountAllOwners`
+   直接返回 `{owners:0, removed:0, basis:'not_ready'}`（运行时用真实 mixin 在未 init 的宿主上实测取得）。
+3. ⇒ 每一条 `basis` 纪律、每一个 owner 谓词锁都真实成立，而**一次删除都没发生过**。
+   这正是本片要消灭的那类"装饰性链路"换了形态：从「没有调用点」变成「有调用点但调用时依赖没就绪」。
+
+为什么本地四层测试全绿：`phase1-context.test.js` 的 store 夹具里 `prunePublishDailyCountAllOwners` 无条件返回
+`{owners:2,removed:5,basis:'measured'}` —— 夹具替真实存储声称了就绪，"调用时机"这一维在测试域里根本不可表示。
+同文件的既有用例「只构造 ModelProviderManager，等待 Phase 3 的 Store 初始化后再启动」写的就是这条前提，
+但我没把它当成对自己新代码的约束。修法与两条反证（MUT-A/MUT-B）见 tasks 3.9 与驱动 U9/U12。

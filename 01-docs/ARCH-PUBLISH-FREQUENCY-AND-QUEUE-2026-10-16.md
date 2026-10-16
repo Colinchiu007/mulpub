@@ -22,7 +22,7 @@
 | 提交打点 | `apps/desktop/electron/bootstrap.js`（executor 内） | 唯一有权声明"发出去了/发过但没成"的层 |
 | 主进程 ↔ 渲染层 | `apps/desktop/electron/ipc-handlers/publish-frequency.js` | 4 个通道：`publishFreq:getPolicy / setPolicy / emergencyRelease / emergencyStatus` |
 | 日计数与时间线持久化 | `apps/desktop/electron/services/store/publish-daily-store.js` + store 的 timeline 面 | 表 `publish_daily_count` / `publish_timeline`，owner 作用域 |
-| 启动期裁剪 | `apps/desktop/electron/bootstrap/phase1-context.js` | 调用 `prunePublishDailyCountAllOwners(guard.today())` |
+| 启动期裁剪 | `apps/desktop/electron/bootstrap/phase3-services.js` | 在 `store.init()` 成功后调用 `prunePublishDailyCountAllOwners(guard.today())` |
 | 设置页 | `apps/desktop/src/components/PublishFrequencySettings.vue` | 只渲染下发值，**不持有第二份数字** |
 
 ---
@@ -240,13 +240,18 @@ else: status='failed'; emit('task:failed')
 | `shared-user-data/publish-history.jsonl` | 发布历史（标定读这里，**不读 `publish_history` 表**） | — |
 | `publish-emergency-audit.jsonl` | 紧急放行审计（追加式） | — |
 
-**启动期裁剪**（`phase1-context.js` → `prunePublishDailyCountAllOwners(guard.today())`）三条口径：
+**启动期裁剪**（`phase3-services.js`，在 `store.init()` 返回成功之后 → `prunePublishDailyCountAllOwners(guard.today())`）
+四条口径（第 4 条是 QM-6 自审 C-1 补的：调用点必须在存储就绪之后，否则恒 `not_ready`、一行都不删）：
 
 1. 日键**取守卫的 `today()`**，不在启动侧另算本地日期（理由见 §4）。
 2. **按 owner 逐个删**。"逐 owner 删"与"一条不带 owner 的 DELETE"在**最终删了哪些行**上同形，
    所以回归锁拦的是 `db.prepare()`：裁剪期间每条 DELETE 都带 `owner_subject = ?` 谓词、首参是非空 owner、每个 owner 各一条。
 3. 失败与接不上都必须出声，返回值带 `basis: 'measured' | 'invalid_input' | 'not_ready' | 'unproven'`
    ——把"没测到"印成 0 是本仓反复登记的构造性零。
+4. **调用时机**：调用点排在 `store.init()` 成功之后。未就绪的存储对裁剪恒返
+   `basis:'not_ready'` 且一行都不删 ——「有调用点」不等于「接上了」；回归锁必须看到这个顺序
+   （`phase3-services.test.js` 的夹具按 `_ready` 决定 basis，`phase1-context.test.js` 另有一条带正向
+   对偶的禁令锁）。这是 QM-6 自审 C-1 的落点，第一版正是接在 phase1 而永久 no-op。
 
 日键校验是**形状 + 日历 round-trip 双校验**：只校验形状时，`2026-13-40` 过得了正则却被 `Date.UTC`
 归一化滚到 2027-02 ⇒ cutoff 落在所有历史行之后 ⇒ **整表被裁光**。
@@ -318,7 +323,7 @@ else: status='failed'; emit('task:failed')
 | 守卫判据 | `packages/shared-utils/tests/publish-interval-guard.test.js`（含日键形态锁、导出面无死常量、抖动确定性扫描） |
 | 队列 race / 记账 / 回滚 | `task-queue.test.js` + `task-queue-guard-integration.test.js` + `task-queue-timeout-keeps-window.test.js` + `task-queue-delayed-observability.test.js` **全量** |
 | 打点管道（executor / publisher-router / rpa-view-manager） | 上述四个 + bootstrap 侧行为锁 |
-| 启动期裁剪 | `apps/desktop/electron/services/store-owner-isolation.test.js` + `electron/bootstrap/phase1-context.test.js`（含 notify meta 顶层键结构锁） |
+| 启动期裁剪 | `apps/desktop/electron/services/store-owner-isolation.test.js` + `electron/bootstrap/phase3-services.test.js`（顺序锁 + 夹具按 `_ready` 决定 basis）+ `electron/bootstrap/phase1-context.test.js`（禁令锁 + notify meta 顶层键结构锁，扫描域含两个接线文件） |
 | 设置页 | `src/components/PublishFrequencySettings.test.js`（夹具界值故意与真源不同） |
 | 声明面漂移 | `packages/shared-utils/src/__tests__/frequency-declaration-contract.test.js`（**双向**：实现→d.ts 与 d.ts→实现） |
 | DI 装配 | 装配锁：`createContainer()` 不带参数 ⇒ `container.get('taskQueue')` 内部守卫必须就是 `container.get('publishIntervalGuard')` 同一实例 |

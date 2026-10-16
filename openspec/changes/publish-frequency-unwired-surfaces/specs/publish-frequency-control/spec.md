@@ -51,16 +51,26 @@
 其裁剪实现 MUST 有**生产调用点**，且调用点 MUST 被回归锁观察到 ——
 "实现完整 + 单测全绿 + 无人调用"在本仓记作装饰性链路，不是半成品。
 
-两条附加约束：① 维护用的日键 MUST 与写入方同源（守卫的 `today()`），MUST NOT 在调用侧重算本地日期；
+三条附加约束：① 维护用的日键 MUST 与写入方同源（守卫的 `today()`），MUST NOT 在调用侧重算本地日期；
 ② 删除 MUST 按 owner 逐个进行，且判据必须锁**语句本身**带 `owner_subject` 谓词
 ——"逐 owner 删"与"一条跨 owner 的 DELETE"在最终删了哪些行上可以同形，只断言结果等于锁不住做法。
 维护属旁路：失败只出声（WARN）不得打断启动；接不上时同样必须出声，不得静默跳过。
+③ **调用时机**：调用点 MUST 排在存储就绪之后（`store.init()` 返回成功之后）。未就绪的存储对裁剪
+恒返回 `basis:'not_ready'` 且一行都不删，于是"有调用点 + 单测全绿 + CI 全绿"三件同时成立而生产永久
+no-op；回归锁 MUST 观察到这个**顺序**，且夹具 MUST NOT 在未就绪的存储上返回 `measured`（替真实依赖
+声称就绪的夹具，等于把这条约束从测试域里删掉）。
 
-#### Scenario: 启动时执行一次裁剪
+#### Scenario: 存储就绪后执行一次裁剪
 
-- **WHEN** 应用上下文构建（`extractContext`）
+- **WHEN** `store.init()` 在 `startServices` 内返回成功
 - **THEN** `prunePublishDailyCountAllOwners` 被调用**恰好一次**，且参数等于
   `publishIntervalGuard.today()` 的返回值
+- **AND** 调用点 MUST NOT 排在 `store.init()` 之前（那时恒 `not_ready`，接了等于没接）
+
+#### Scenario: 存储初始化失败时不得调用裁剪
+
+- **WHEN** `store.init()` 返回 `false`（整轮启动随之中止）
+- **THEN** 裁剪一次都不调用
 
 #### Scenario: 裁剪失败不影响启动，但一定留痕
 

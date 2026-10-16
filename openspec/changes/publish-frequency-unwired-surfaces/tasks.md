@@ -10,7 +10,8 @@
 - [x] 1.3 `clearRollbackDisabled` 与假承诺：`task-queue-guard-integration.test.js` 的【探针 I4】改写
       ⇒ 实现前**实测 1 红 / 15 绿**；新增"重启语义（新实例恢复可回滚）"与两条文案锁
       （含 `重启`、禁 `设置页确认后解除`）
-- [x] 1.4 启动期裁剪：`store-owner-isolation.test.js` 3 条 + `phase1-context.test.js` 3 条
+- [x] 1.4 启动期裁剪：`store-owner-isolation.test.js` 3 条 + `phase3-services.test.js` 4 条（含"调用点必须排在
+      `store.init()` 之后"的顺序锁，夹具按 `_ready` 决定 basis）+ `phase1-context.test.js` 1 条禁令锁（带正向对偶）
       ⇒ 实现前**实测 4 红 / 34 绿**（含 SQL 形状锁与破坏性日键两条新发明的判据面）
 - [x] 1.5 上界下发与 UI 绑定：`ipc-handlers/publish.test.js` 1 条 + `PublishFrequencySettings.test.js` 1 条
       ⇒ 后者实现前红（模板仍含 `:max="999"`），并把夹具的界值故意写成与真源不同的 4321/3210，
@@ -28,7 +29,7 @@
 - [x] 2.4 `publish-daily-store.js`：`prunePublishDailyCountAllOwners(todayKey)` 按 owner 逐个删，
       返回 `{owners, removed, basis}`；`isValidDayKey` 做形状 + **日历 round-trip** 双校验，
       两个 prune 入口共用
-- [x] 2.5 `bootstrap/phase1-context.js`：启动期调用一次，日键取 `publishIntervalGuard.today()`；
+- [x] 2.5 `bootstrap/phase3-services.js`：在 `store.init()` 返回成功之后调用一次，日键取 `publishIntervalGuard.today()`；
       抛错 → WARN `startup-prune-failed`，接不上 → WARN `startup-prune-skipped`（静默跳过即无痕）
 - [x] 2.6 `ipc-handlers/publish-frequency.js`：`getPolicy` 下发 `dailyMaxUpperBound` /
       `intervalMaxMinutes`，值直接引用策略模块常量（不复制数字）
@@ -62,6 +63,18 @@
 - [x] 3.8 删幽灵声明 + 补**反向**声明锁：`index.d.ts` 里 `static PLATFORM_BUCKET_DAILY_KEY_PREFIX`
       随实现一起删除；`frequency-declaration-contract.test.js` 新增两条"d.ts ⇒ 实现面"差集锁
       （各带解析规模下界）。反证：隔离副本里把幽灵加回 ⇒ 恰好 1 条变红（未变异 8 passed）
+- [x] 3.9 QM-6 改由本会话按双轴标准自审（用户 2026-10-16 指示"你自己来模拟外部评审"）：
+      **C-1（Critical）启动期裁剪调用点挂在 phase1-context.js，而 `store.init()` 要到 phase3 才发生**
+      ⇒ 生产上每次启动都走 `basis:'not_ready'`、一行都不删，日计数表仍在无界增长——本片的头号目标
+      当时并未达成。判据（三处独立读码 + 一次运行时前提取证）：`main.js:78 → bootstrap.js:81 extractContext()
+      → phase1-context.js` 与 `bootstrap.js:250 → phase3-services.js:88 store.init()`；`base-store.js:35` 构造
+      `_ready=false`、只有 `:94` 在 init() 里置真；用真实 mixin 在未 init 的宿主上调 `prunePublishDailyCountAllOwners` 实测得
+      `{owners:0,removed:0,basis:"not_ready"}`。逃逸原因＝phase1 那条锁的 store 夹具**无条件返回 measured**。
+      修法＝调用点移到 `store.init()` 成功之后 + 夹具改为按 `_ready` 决定 basis + 新增顺序锁与禁令锁；
+      两条反证各自独立实测（MUT-A 把调用点搬回 init 之前 ⇒ 3 条指名红；MUT-B 在 phase1 加回调用点 ⇒ 禁令锁红），
+      还原后逐字节相同。同源复述同批改写：spec 的 ADDED 约束与场景、tasks 1.4/2.5、驱动 U9 + 新增 U12、
+      PRD §7/§10.4、ARCH §组件地图/裁剪口径/必跑锁表、CHANGELOG 置顶条目、learnings 第 7 条
+      （外部模型三通道仍全部未跑成，见 3.6；本条是自审，不等价于独立交叉审查）
 - [ ] 3.6 QM-6 双模型外部评审与逐条处置（替代通道，评审原件入库）
       —— **未跑成（保持未勾，不得因"本地测试全绿"而勾掉）**：CC Switch `:15721` 实测 CLOSED；
       `opencode run --agent plan` 宽任务书双轴 65 分钟零产物（已 TaskStop，确认无悬挂子进程）；

@@ -102,11 +102,19 @@ const MUTS = [
   },
   {
     id: 'U9', desc: '启动期裁剪调用摘掉（cleanup 又变成没有生产调用点的死代码）',
+    file: AD + '/electron/bootstrap/phase3-services.js',
+    from: '        const r = store.prunePublishDailyCountAllOwners(guardForRetention.today())',
+    to: "        const r = { owners: 0, removed: 0, basis: 'measured' }",
+    cwd: AD, args: ['run', 'electron/bootstrap/phase3-services.test.js'],
+    expect: ['裁剪在 store.init() 之后调用恰好一次'],
+  },
+  {
+    id: 'U12', desc: '把启动期裁剪调用点搬回 phase1-context（C-1 的原形态：那时 store 还没 init）',
     file: AD + '/electron/bootstrap/phase1-context.js',
-    from: '      const r = store.prunePublishDailyCountAllOwners(guardForRetention.today())',
-    to: "      const r = { owners: 0, removed: 0, basis: 'measured' }",
+    from: "  const store = container.get('store')",
+    to: "  const store = container.get('store'); if (typeof store.prunePublishDailyCountAllOwners === 'function') store.prunePublishDailyCountAllOwners('2026-10-16')",
     cwd: AD, args: ['run', 'electron/bootstrap/phase1-context.test.js'],
-    expect: ['启动期裁剪日计数表'],
+    expect: ['phase1 不得有启动期裁剪调用点'],
   },
   {
     id: 'U10', desc: 'IPC 下发的上界改成硬编码 999',

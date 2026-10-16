@@ -124,35 +124,6 @@ function extractContext(container) {
   if (qrCodeLogin && typeof qrCodeLogin.setAccountManager === 'function') {
     qrCodeLogin.setAccountManager(AccountManager)
   }
-  // 启动期裁剪日计数行（change: publish-frequency-unwired-surfaces）。
-  // `prunePublishDailyCount` 自 v2 起就有实现和单测，却**从来没有生产调用点**
-  // ⇒ `publish_daily_count` 只增不减（先例：phase1 里 signalCollector 的 30 天清理，
-  // 那条注释原文就是「cleanup 需要有生产调用点」）。
-  // 日键一律取**守卫的** today()：写入方就是它，启动侧另算一次本地日期就是第二套口径，
-  // 差一天会表现为"昨天的行今天全被删"或"该删的一行没删"。维护是旁路，失败只留痕。
-  try {
-    const guardForRetention = container.get('publishIntervalGuard')
-    const hasStore = !!(store && typeof store.prunePublishDailyCountAllOwners === 'function')
-    const hasGuardToday = !!(guardForRetention && typeof guardForRetention.today === 'function')
-    if (hasStore && hasGuardToday) {
-      const r = store.prunePublishDailyCountAllOwners(guardForRetention.today())
-      const basis = r && r.basis ? r.basis : 'unproven'
-      // 读数一律进 meta.params：logger.notify 只把 params 里的原始值抬进落盘行，
-      // **顶层自造字段会被静默丢掉**（实测该行打印成 `PublishDailyCount startup-prune {}`）。
-      // "出声"要出的是内容而不是键名，否则 owners/removed/basis 三个数全都看不见。
-      log.notify('PublishDailyCount', 'startup-prune', {
-        params: { owners: r ? r.owners : 'n/a', removed: r ? r.removed : 'n/a', basis }
-      })
-    } else {
-      // 没接上必须是**看得见**的：静默跳过会让这条维护在某个重构后悄悄消失
-      log.notify('PublishDailyCount', 'startup-prune-skipped', {
-        level: 'WARN',
-        params: { hasStore, hasGuardToday }
-      })
-    }
-  } catch (e) {
-    log.notify('PublishDailyCount', 'startup-prune-failed', { level: 'WARN', error: String(e && e.message) })
-  }
   const contentIntelligence = container.get('contentIntelligence')
   const publishImpactTracker = container.get('publishImpactTracker')
   const keywordMonitor = container.get('keywordMonitor')

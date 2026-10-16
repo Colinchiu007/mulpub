@@ -40,8 +40,6 @@ __registerMock('@multi-publish/shared-utils/src/sensitive-filter', { createWithB
 const { extractContext } = require('./phase1-context')
 
 // 构建 mock container，container.get(key) 返回带 key 标记的对象
-const storePruneCalls = []
-const GUARD_TODAY = '2026-10-16'
 function makeMockContainer() {
   const calls = []
   return {
@@ -52,24 +50,8 @@ function makeMockContainer() {
       if (key === 'templateManager') return { seedDefaults: vi.fn() }
       // aiGenerator 需要 setModelProviderManager 方法（用于测试条件调用）
       if (key === 'aiGenerator') return { setModelProviderManager: vi.fn() }
-      // 启动期裁剪的日键真源是守卫的 today()（与写入方同源），夹具如实给形状
-      if (key === 'publishIntervalGuard') return { today: () => GUARD_TODAY }
-      // store 需要是 truthy；顺带提供「启动期裁剪日计数」探针
-      // （change: publish-frequency-unwired-surfaces —— cleanup 必须有生产调用点，
-      //   否则 publish_daily_count 只增不减，实现得再对也是死代码）
-      if (key === 'store') {
-        return {
-          getSetting: vi.fn(),
-          setSetting: vi.fn(),
-          prunePublishDailyCountAllOwners: (todayKey) => {
-            storePruneCalls.push(todayKey)
-            // 夹具必须与**真实存储的返回形状**逐字同形（`publish-daily-store.js` 的三个出口
-            // 都带 basis）。原先这里不返 basis，等于把 'unproven' 兜底当成主路径来测，
-            // 而真实运行时永远走的是 'measured' —— 契约夹具替被测方漏字段的一类落点。
-            return { owners: 2, removed: 5, basis: 'measured' }
-          },
-        }
-      }
+      // store 需要是 truthy（启动期日计数裁剪不在本阶段 —— 见下方禁令锁与 phase3-services.test.js）
+      if (key === 'store') return { getSetting: vi.fn(), setSetting: vi.fn() }
       // taskQueue 需要 setExecutor 方法（虽然 extractContext 不调用，但 createAppContext 会用）
       if (key === 'taskQueue') return { setExecutor: vi.fn(), on: vi.fn() }
       // 默认返回一个标记对象
@@ -120,79 +102,37 @@ describe('phase1-context.extractContext', () => {
     expect(ctx.templateManager.seedDefaults).toHaveBeenCalled()
   })
 
-  it('启动期裁剪日计数表：必须调用一次且日键取自守卫的 today()（cleanup 没有生产调用点＝死代码）', () => {
-    storePruneCalls.length = 0
-    extractContext(makeMockContainer())
-    expect(storePruneCalls.length, 'prunePublishDailyCountAllOwners 的调用次数').toBe(1)
-    expect(storePruneCalls[0], '必须给当天运营日键').toMatch(/^\d{4}-\d{2}-\d{2}$/)
-    // 日键必须来自**守卫**（写入方就是它）；启动侧另算一次本地日期就是第二套口径，
-    // 差一天的表现是"昨天的行今天被删"或"该删的没删"，且两处都不报错。
-    expect(storePruneCalls[0]).toBe(GUARD_TODAY)
-  })
-
-  it('裁剪读数必须进 notify 的 meta.params —— 顶层自造字段会被 logger 静默丢掉', () => {
-    // 实测形态：`notify(m,'k',{level:'WARN',hasStore:false})` 落盘成 `m k {}`，
-    // logger.notify 只抬 errorCategory / level / params / error 四个顶层键，
-    // 其余一律丢弃。所以"出声"的判据不能停在"打了这个键"，必须核对值真的随行落下去。
-    const notify = require('../services/logger').notify
-    notify.mockClear()
-    storePruneCalls.length = 0
-    extractContext(makeMockContainer())
-    const hit = notify.mock.calls.find((c) => String(c[1] || '') === 'startup-prune')
-    expect(hit, `成功路径必须打 startup-prune，实际 notify: ${JSON.stringify(notify.mock.calls)}`).toBeTruthy()
-    expect(hit[0]).toBe('PublishDailyCount')
-    expect(hit[2], '读数必须挂在 params 下，否则一行里一个数都看不见').toEqual({
-      params: { owners: 2, removed: 5, basis: 'measured' },
-    })
-  })
-
-  it('接不上时必须出声（不得静默跳过 —— 否则重构把这条维护摘掉也没人知道）', () => {
-    storePruneCalls.length = 0
-    const notify = require('../services/logger').notify
-    notify.mockClear()
-    const inner = makeMockContainer()
-    const innerGet = inner.get
-    // store 缺该方法（例如 mixin 未挂载）⇒ 必须打 startup-prune-skipped
-    inner.get = vi.fn((key) => (key === 'store'
-      ? { getSetting: vi.fn(), setSetting: vi.fn() }
-      : innerGet(key)))
-    const ctx = extractContext(inner)
-    expect(ctx).toBeDefined()
-    expect(storePruneCalls.length).toBe(0)
-    const hit = notify.mock.calls.find((c) => String(c[1] || '') === 'startup-prune-skipped')
-    expect(hit, `接不上必须出声，实际 notify: ${JSON.stringify(notify.mock.calls)}`).toBeTruthy()
-    // 缺的那一侧必须是**可归因的**（是 store 没挂，还是守卫没有 today）
-    expect(hit[2].params, '跳过原因必须落在 params 里').toEqual({ hasStore: false, hasGuardToday: true })
-    expect(hit[2].level).toBe('WARN')
-  })
-
-  it('裁剪抛错不得打断启动（旁路维护，方向是"留着旧行"而不是"起不来"）', () => {
-    storePruneCalls.length = 0
-    const notify = require('../services/logger').notify
-    notify.mockClear()
-    const inner = makeMockContainer()
-    const innerGet = inner.get
-    inner.get = vi.fn((key) => (key === 'store'
-      ? {
-          getSetting: vi.fn(),
-          setSetting: vi.fn(),
-          prunePublishDailyCountAllOwners: () => { throw new Error('DB_BUSY') },
-        }
-      : innerGet(key)))
-    const ctx = extractContext(inner)
-    expect(ctx).toBeDefined()
-    expect(notify.mock.calls.some((c) => String(c[1] || '').includes('prune')),
-      `启动期裁剪失败必须留痕，实际 notify: ${JSON.stringify(notify.mock.calls)}`).toBe(true)
-  })
-
-  it('本文件的 notify 调用一律不得自带顶层 meta 字段（logger 只抬四个白名单键）', () => {
-    // 结构锁的动机是**自己踩的**：`{level:'WARN', hasStore, hasGuardToday}` 读起来完全像
-    // 会把两个布尔落盘，实际 logger.notify 只抬 errorCategory/level/params/error，
-    // 其余静默丢弃 ⇒ 落盘 `PublishDailyCount startup-prune-skipped {}`。
-    // 行为锁测当前两处调用点；这条测"以后再加第三个调用点时别再犯"。
+  it('phase1 不得有启动期裁剪调用点：存储那时还没 init，调了也删不动（QM-6 自审 C-1）', () => {
+    // 与本文件「只构造 ModelProviderManager，等待 Phase 3 的 Store 初始化后再启动」是同一条前提：
+    // phase1 只是同步构建上下文，`store.init()` 要到 phase3-services.js 才发生，而
+    // `prunePublishDailyCountAllOwners` 对未就绪的存储恒返 basis:'not_ready' 且一行都不删。
+    // 挂在 phase1 的第一版有调用点、有单测、CI 全绿，生产上却是永久 no-op ——
+    // 因为它的夹具无条件返回 measured，替真实存储声称了就绪。
+    // 正向对偶在 phase3-services.test.js 的「启动期日计数裁剪」（夹具按 _ready 决定 basis + 顺序锁）。
     const fs = require('node:fs')
     const path = require('node:path')
     const src = fs.readFileSync(path.join(__dirname, 'phase1-context.js'), 'utf8')
+    expect(src.length, '扫描域不得为空').toBeGreaterThan(1000)
+    expect(src).not.toMatch(/prunePublishDailyCountAllOwners/)
+    expect(src).not.toMatch(/startup-prune/)
+    // 禁令必须配正向对偶：否则「删掉被禁物」与「删掉整条需求」在判据上同形
+    const p3 = fs.readFileSync(path.join(__dirname, 'phase3-services.js'), 'utf8')
+    const callAt = p3.indexOf('prunePublishDailyCountAllOwners(')
+    const initAt = p3.indexOf('await store.init()')
+    expect(callAt, 'phase3-services.js 必须真的有这个调用点').toBeGreaterThan(-1)
+    expect(initAt, 'phase3-services.js 必须真的在等 store.init()').toBeGreaterThan(-1)
+    expect(callAt, '调用点必须排在 store.init() 之后').toBeGreaterThan(initAt)
+  })
+
+  it('bootstrap 接线文件的 notify 调用一律不得自带顶层 meta 字段（logger 只抬四个白名单键）', () => {
+    // 结构锁的动机是**自己踩的**：`{level:'WARN', hasStore, hasGuardToday}` 读起来完全像
+    // 会把两个布尔落盘，实际 logger.notify 只抬 errorCategory/level/params/error，
+    // 其余静默丢弃 ⇒ 落盘 `PublishDailyCount startup-prune-skipped {}`。
+    // 扫描域＝两个 bootstrap 接线文件：日计数裁剪随 C-1 修复从 phase1 搬到 phase3-services.js，
+    // 锁跟着调用点走，不是把 phase1 的锁留在原地自我安慰。
+    const fs = require('node:fs')
+    const path = require('node:path')
+    const TARGET_FILES = ['phase1-context.js', 'phase3-services.js']
     /**
      * 从 `notify('Mod','key', {…})` 的 meta 字面量里取**顶层**键名。
      * 必须按花括号深度扫描：用 `[^}]*` 一类的近似会在第一个内层 `}` 截断，
@@ -223,23 +163,27 @@ describe('phase1-context.extractContext', () => {
     }
     const ALLOWED = new Set(['level', 'error', 'errorCategory', 'params'])
     const offenders = []
-    const re = /\.notify\(\s*['"][^'"]+['"]\s*,\s*['"]([^'"]+)['"]\s*,/g
-    let m
-    while ((m = re.exec(src)) !== null) {
-      const literal = extractObjectLiteral(src, m.index + m[0].length)
-      if (literal === null) { offenders.push(`${m[1]} -> meta 字面量解析失败`); continue }
-      const extra = topLevelMetaKeys(literal).filter((k) => !ALLOWED.has(k))
-      if (extra.length) offenders.push(`${m[1]} -> ${extra.join(', ')}`)
+    for (const file of TARGET_FILES) {
+      const src = fs.readFileSync(path.join(__dirname, file), 'utf8')
+      let seen = 0
+      const re = /\.notify\(\s*['"][^'"]+['"]\s*,\s*['"]([^'"]+)['"]\s*,/g
+      let m
+      while ((m = re.exec(src)) !== null) {
+        seen += 1
+        const literal = extractObjectLiteral(src, m.index + m[0].length)
+        if (literal === null) { offenders.push([file, m[1], 'meta 字面量解析失败'].join(': ')); continue }
+        const extra = topLevelMetaKeys(literal).filter((k) => !ALLOWED.has(k))
+        if (extra.length) offenders.push([file, m[1], extra.join(', ')].join(' -> '))
+      }
+      // 反失明：某个文件的扫描退化（带 meta 的调用点一个都没抓到）不得读成"合规"
+      expect(seen, file + ' 应有带 meta 的 notify 调用点（解析退化即红）').toBeGreaterThan(0)
     }
-    // 反失明：扫描退化（一个调用点都没抓到）不得读成"合规"
-    const callSites = [...src.matchAll(/\.notify\(\s*['"]/g)].length
-    expect(callSites, '本文件应有 notify 调用点（扫描退化即红）').toBeGreaterThan(0)
     // 如实记录这把锁**抓不到什么**：它只认 `key:` 形态的顶层键。
     // `{ level:'WARN', hasStore }` 这种**简写属性**在 depth 0 上是裸标识符，判据看不见
     // ——要把它也判出来，就得区分"裸标识符是键还是值"（`error: String(e && e.message)` 里
-    // 的 `e` 也是裸标识符），那是另一类解析。当前两调用点都写成 `key: value`，
-    // 所以射程覆盖实际形态；新增简写属性时本条不会红，需靠上面的行为锁兜。
-    expect(offenders, `notify 的 meta 里出现非白名单顶层键：${offenders.join('; ')}`).toEqual([])
+    // 的 `e` 也是裸标识符），那是另一类解析。两个文件现存调用点都写成 `key: value`，
+    // 所以射程覆盖实际形态；新增简写属性时本条不会红，需靠各自的行为锁兜。
+    expect(offenders, 'notify 的 meta 里出现非白名单顶层键：' + offenders.join(' | ')).toEqual([])
   })
 
   it('offlineManager.startMonitoring 被调用', () => {
