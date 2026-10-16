@@ -193,12 +193,15 @@ pre-commit 会按**父提交 sha** 生成 `.ccg/reviews/<sha>.json` 判定记录
 
 首轮完整 CI 的 `QG Changes` 判红，根因是 **Gate 12c「文档绝对路径账本」**：`scripts/check-doc-abs-paths.test.js` 的 #27「本仓基线必须与现场逐文件相等（既不多也不少）」失败，点名 3 个文件、4 处**本机绝对路径**超出存量基线：
 
-| 文件 | 行 | 原字面 | 改写为 |
+| 文件 | 行 | 原形态 | 改写为 |
 |---|---|---|---|
-| `01-docs/PRD-BRAND-RENAME-TOMFISH-2026-10-15.md` | 235 | `F:\Temp\brand-rename-holding-20261015\` | `<TEMP>/brand-rename-holding-20261015/` |
-| `openspec/changes/brand-rename-tomfish/tasks.md` | 7 | `D:/Data/projects/mp-worktrees/mp-brand-rename-tomfish` | `<worktreeRoot>/mp-brand-rename-tomfish` |
-| `openspec/changes/brand-rename-tomfish/tasks.md` | 70 | `F:\Temp\brand-rename-holding-20261015\` | `<TEMP>/brand-rename-holding-20261015/` |
-| `openspec/records/brand-rename-tomfish.md` | 12 | `D:/Data/projects/mp-worktrees/mp-brand-rename-tomfish` | `<worktreeRoot>/mp-brand-rename-tomfish` |
+| `01-docs/PRD-BRAND-RENAME-TOMFISH-2026-10-15.md` | 235 | 本机盘符 + `\Temp\brand-rename-holding-20261015\`（会话产物暂存目录） | `<TEMP>/brand-rename-holding-20261015/` |
+| `openspec/changes/brand-rename-tomfish/tasks.md` | 7 | 本机盘符 + `/Data/projects/mp-worktrees/mp-brand-rename-tomfish`（隔离 worktree 绝对根） | `<worktreeRoot>/mp-brand-rename-tomfish` |
+| `openspec/changes/brand-rename-tomfish/tasks.md` | 70 | 本机盘符 + `\Temp\brand-rename-holding-20261015\` | `<TEMP>/brand-rename-holding-20261015/` |
+| `openspec/records/brand-rename-tomfish.md` | 12 | 本机盘符 + `/Data/projects/mp-worktrees/mp-brand-rename-tomfish` | `<worktreeRoot>/mp-brand-rename-tomfish` |
+
+**本表刻意不抄原字面**：第一稿我在表里为了"说清楚改了什么"把 4 个原字符串逐字抄了下来，**结果等于把它们又写回仓库**，同一门禁当场二次判红（`openspec/records/brand-rename-tomfish.md` 4 处超基线）——与第 4 节 `.ccg/reviews` 的自我指涉是同型坑：**"记录某个违规"的动作本身会复制该违规**。正解是用**形态描述**（"本机盘符 + 相对段"）而不是复制字面；凡账本型门禁，回填表述都必须走占位符。
+
 
 **为什么不用 `--write-baseline`**：门禁自己写明「**不得**用『跑一次 `--write-baseline` 把新增记进去』来消红——那正是本条要拦的形状」。所以取正解之一的**占位符形态**（`<...>` 词元），而不是放宽账本。
 
