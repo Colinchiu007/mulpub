@@ -3,9 +3,6 @@ record: zhihu-fav-buttons-dead
 task: 修复采集页「知乎收藏文章」的「采集」「改写」按钮点击无反应（恒灰死键：判据依赖一个永不初始化的选中态 + 改写误共用采集判据 + 全部收藏模式死锁 + handler 静默返回）
 date: 2026-10-16
 branch: zhihu-fav-buttons-dead
-sync_status: PENDING
-sync_reason: PR 尚未合并（记录随代码 PR 落地，合并后回填 merge SHA）
-sync_backfill_owner: zhihu-fav-buttons-dead 会话（回填 PR）
 ---
 
 ## 本次执行记录：知乎收藏「采集/改写」按钮点击无反应（zhihu-fav-buttons-dead，2026-10-16）
@@ -26,9 +23,9 @@ sync_backfill_owner: zhihu-fav-buttons-dead 会话（回填 PR）
 | QM-6 双模型评审 | PASS | 211 行 > 200 阈值 ⇒ 按 §12.6 走跨家族双模型（proposer=opencode 1.18.34 / critic=claude 2.1.296；跨家族校验「通过」）。轮 1 出 **8 条**（Critical 2 / Warning 3 / Info 3），维度分 correctness 6 / security 4 / performance 8 / maintainability 4 ⇒ 引擎进自扮演裁决。我逐条填最强指控 / 最强辩护 / 可验证理由，**5/5 dismissed、0 upheld**，无高危域需外部复核 ⇒ `deepReview.status=self_play_resolved`。**采纳其中 2 条合理内核**：新增 `zhihuFavScope` 默认值结构锁（25/25 通过）、在组件注释里声明 `data-testid` 为测试契约。裁决全文 `.adversarial/ccg-deep-2908d422/adjudication.json`（该目录由 `.gitignore:387` 忽略，不进版本库） |
 | 相关测试全集 | PASS | `vitest run src/features/collection/ src/views/Collection` ⇒ **15 文件 / 283 用例全绿**（含父级 `Collection.vue` 契约测试） |
 | 文档同步 | PASS | 新增 `01-docs/BUGFIX-ZHIHU-FAV-BUTTONS-DEAD-2026-10-16.md`（报障/复现/根因/逃逸分析/修复/验收/变异/预防/未闭合）；订正 `PRD-ZHIHU-FAV-BATCH-2026-10-03.md` 补 §4.1 可用性契约（原版只写「按钮保留」） |
-| 远程同步 | PENDING | PR 未开。合并后**同一次提交**改写为 `PASS` + merge SHA 并删除 frontmatter `sync_*` 三字段 |
+| 远程同步 | PASS | PR **#3735** 已 squash 合并，merge SHA `f39be29cc9e6a134a98baaf919b7ceb6d0a4f94b`（`git log origin/main --grep='(#3735)$' --format=%H|%cI` ⇒ 恰好 1 行，时间 `2026-10-16T23:49:24+08:00`）；远端分支 `git ls-remote --heads origin zhihu-fav-buttons-dead` ⇒ 0 行（已删）。`gh pr merge` rc=1 属 SOP 已登记假失败形态（`fatal: 'main' is already used by worktree at <共享根>`，先例 #3239/#3240），判据一律取产物：`state=MERGED` + `mergeCommit.oid` 一致。回填与销账同一次提交（本行 + bullet + 删 `sync_*` 三字段） |
 
-- 保留门禁：变更类型与隔离 ✅ | 行尾对账 ✅（两口径一致，5 文件）| 品牌残留 随 CI | 文档同步 ✅ | 执行记录 ✅ | 远程同步 PENDING
+- 保留门禁：变更类型与隔离 ✅ | 行尾对账 ✅（两口径一致，5 文件）| 品牌残留 随 CI | 文档同步 ✅ | 执行记录 ✅ | 远程同步 PASS
 
 ### 根因（第一性原因，`git log -S` 溯源）
 
