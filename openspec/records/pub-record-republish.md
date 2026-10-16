@@ -2,9 +2,6 @@
 record: pub-record-republish
 task: 发布记录页三项需求——①每条记录「再次发布」（内容与选项快照持久化，一键还原回发布页）②发布成功记录卡片带作品链接（诊断「一直没生效」的第一性原因并修写入侧）③多平台发布是集合记录还是独立记录（定调：保留平台级独立记录 + 批次标注）
 date: 2026-10-15
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 与合并时间还不存在；远端分支删除状态同样待合并后才可取证
-sync_backfill_owner: 下一个会话（或本会话合并后立即回填）
 ---
 
 ## 本次执行记录：发布记录「再次发布」+ 作品链接写入侧修复 + 批次标注（pub-record-republish，2026-10-15）
@@ -19,9 +16,9 @@ sync_backfill_owner: 下一个会话（或本会话合并后立即回填）
 | 行尾与 diff 对账 | ✅ | `git diff --numstat` 与 `git diff --ignore-cr-at-eol --numstat` 两口径逐文件一致（无 CRLF 混入）。删除行归因：`publisher-router.js` 的单行 return 被展开为多行（净增，未删语义）；`usePublishDrafts.js` 删掉的 `clearStaleDraftSchedule` / `replaceRecord` 两个私有函数**逐字搬进** `features/publish/publish-snapshot.js`（同一判据、同一 `||` 默认值），不是删除能力。 |
 | 接线棘轮 | ✅ | 新增 `electron/services/publish-republish-snapshot.test.js` 与 `src/features/publish/publish-snapshot.test.js` 均由 `apps/desktop/vitest.config.js` 既有 glob 消费；`node scripts/check-unwired-tests.js` 实跑：`检查域内测试文件 87 个 → OK: 全部测试均已接线或按欠账登记`。未改任何 workflow。 |
 | QM-1 打包 / QM-4 视觉 | ✅ QM-1（打包 rc=0 + asar 内容逐字节自证）；QM-4 N/A（无既有页面视觉改版，仅新增按钮/徽标与文案，样式为局部新增，未动 `record-preview` 等被像素门禁覆盖的规则） | 见下方「QM-1 证据」专节 |
-| QM-6 CCG 双模型外部评审 | ⚠️ 未执行 | 本机未跑 `sh scripts/deep-review.sh`；**不以自审冒充通过**。变更面较大（跨主进程/渲染/i18n/存储），已用「同族先例对齐 + 逐项回归锁 + 打包产物自证」替代，残余风险如实列在下方「遗留」。 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin pub-record-republish` 返回 0 行证远端分支已删；回填后删除上方三个 `sync_*` 字段 |
-- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PENDING
+| QM-6 CCG 双模型外部评审 | ✅ 已执行 | `sh scripts/deep-review.sh`（mode=dual，变更 9527 行 > 200 行阈值）：跨家族校验通过（proposer=opencode / critic=claude），claude 评出 8 条问题；4 条争议逐条裁决 `upheld` 并**逐条修复**（详见下方「CCG 深度审查闭环」节）。限制如实记录：本次为**自扮演出口**（confidenceWeight=0.6），非真跨家族独立复核 |
+| 远程同步 | PASS | PR #3659 于 2026-10-16T12:54:23+08:00 squash 合并为 `2fd74f50876b438f0ccae4cf12713eec77292753`（取证：`git log origin/main --grep='(#3659)$' --format=%H\|%cI`）；`git ls-remote --heads origin pub-record-republish` 返回 0 行 ⇒ 远端分支已删；比树验证：本分支 12 个关键文件 blob 与 merge 提交逐字节相同（SAME），189 行差异全部来自 main 上其他会话后续合入的 `.ccg/reviews/*.json` 等文件，非本 PR 内容丢失 |
+- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PASS
 
 ### QM-1 证据（`electron-builder --win --dir --publish never`，rc=0）
 
