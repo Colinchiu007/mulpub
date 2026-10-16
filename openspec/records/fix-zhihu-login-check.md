@@ -2,9 +2,6 @@
 record: fix-zhihu-login-check
 task: 知乎登录检测触发渲染崩溃（0xC0000409）致应用空白 —— HTTP 检测补 checkHtml + 渲染崩溃白名单第四例
 date: 2026-10-16
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并（分支 fix-zhihu-login-check 在本地，merge SHA 还不存在），按既有口径先写 PENDING；合并后由回填提交取 merge SHA 与时间改写。
-sync_backfill_owner: 本分支作者（下一次会话接管时为该会话）
 ---
 
 ## 本次执行记录：知乎登录检测触发渲染崩溃致应用空白（fix-zhihu-login-check，2026-10-16）【混合 PR】
@@ -27,6 +24,6 @@ sync_backfill_owner: 本分支作者（下一次会话接管时为该会话）
 | QM-6 CCG 双模型外部评审 | PENDING | `ccg-review-decider` 已产出判定（mode=dual，480 行 > 200 阈值，记录 `.ccg/reviews/5546bea64….json`）；深度审查未执行（与本仓常态一致：origin/main 594 条判定记录中 dual/pending 213 条 vs dual/cleared 1 条，工具链上「最后一次提交携带闭环记录」结构性不可达）。不以自审冒充通过 |
 | 热点载体隔离 | PASS | 本 PR 不含 `.quality-gates.md` / `CHANGELOG.md` / `01-docs/learnings.md` / ledger（先例 #3633 / #3627）；条目与远程同步销账由合并后的回填 PR 同次落地 |
 | 遗留（不假装已闭合） | PASS | ① **全平台开隐藏窗口风险未审计**：除已入白名单 4 平台外，其余平台 HTTP 检测 inconclusive 时仍会开隐藏窗口，无结构性锁禁止新增平台重复本例；② 知乎**已登录形态**的真 Cookie checkHtml=true 实证未做（无 Cookie false 已实证）；③ 知乎条目 uid extract 的 SSR 身份属性命中率未实测（沿用登记时「低-中」等级） |
-| 远程同步 | PENDING | 本 PR 尚未合并；回填口径：`git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 取 merge SHA 与时间，确认远端分支已删，并同次删除 `sync_*` 三字段 |
+| 远程同步 | PASS | #3726 squash 合并 merge SHA `3c861735584a7aad6e4380c81af0f51d19f9ce77`（2026-10-16T19:56:31+08:00）；`git ls-remote --heads origin fix-zhihu-login-check` 返回 **0 行**（远端分支已删）；main push run `38897125739` **success**（收尾规矩 7）；本提交**同次**删除 frontmatter 的 `sync_*` 三字段、落 `01-docs/BUGFIX-ZHIHU-LOGIN-CHECK-2026-10-16.md` 与 `01-docs/learnings.md` 教训（回填与销账同一次发生） |
 
-- 保留门禁：判定 docs-only=false ✅ | 行尾对账 ✅（IDENTICAL）| 品牌残留 ✅（无竞品指代）| 文档同步 ✅（记录文件本篇 + PRD 补充随回填）| 执行记录 ✅ 本篇 | 热点载体隔离 ✅ | 远程同步 PENDING
+- 保留门禁：判定 docs-only=false ✅ | 行尾对账 ✅（IDENTICAL）| 品牌残留 ✅（无竞品指代）| 文档同步 ✅（记录文件本篇 + PRD 补充随回填）| 执行记录 ✅ 本篇 | 热点载体隔离 ✅ | 远程同步 PASS（#3726 merge `3c861735584a7aad6e4380c81af0f51d19f9ce77`，远端分支已删）
