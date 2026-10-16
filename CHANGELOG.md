@@ -6,6 +6,7 @@
 - **B 类三个看着最像"该归档了"，实则不能动**：`collection-ui-refinement` / `quick-collect` / `wechat-mp-publish-track` 任务都全勾，但它们的主规格**整份不存在**——归档本身不会把 delta 搬进主规格，真归档这三组需求就永久留在 `archive/` 里。C 类 43 个的未勾数从 1 跨到 55，两端语义几乎一定不同，**本轮未逐个判**（那是 43 次实质核查，不属于一次卫生审计）。D 类 4 个**根本没有 `tasks.md`**，任何"`grep -c [ ]` == 0 ⇒ 可归档"的朴素写法都会把它们判成满足，本审计对这类返回 `-1` 并单列。
 - **没顺手加机械门禁，是刻意的**：`CHANGE_READY_TO_ARCHIVE`（三条判据 ⇒ 出声不拦）的判据形状已写进审计文档 §七，但它要改的正是 #3693 正在改造与接线的 `openspec-sync-check.js` 判据集——同期改两处会让两个 PR 的判据变更无法分别归因。所以"A 类又攒了几个"目前仍无人看，这是既有缺口的缩小而非闭合。
 - 判据、复现命令（不依赖本地脚本）、B/C/D 三类的下一步与归属见 `01-docs/AUDIT-OPENSPEC-ARCHIVE-2026-10-16.md`；QM-5 全过程与一条入口偏离（共享根有他人 4 个未提交文件 ⇒ `start-mp-task.ps1` 的 `-RequireClean` 拒绝创建，改用 `git worktree add` 直建并当场验可进入）见 `openspec/records/openspec-archive-audit.md`。
+
 # [未发布] feat(frequency): 发布频率策略 v4——平台间隔三档统一 1′、日配额 200/350/500（publish-frequency-policy-v4）
 
 - 数值（唯一落点 `packages/shared-utils/src/publish-frequency-policy.js`）：`platformMinMs` 由按档分级 3′/2′/1′ 改为**三档统一 1′**；`accountDailyMax` 由 30/50/200 改为 **200/350/500**（用户口径"最低 200、最高 500"，中间档 350 按档间单调推导）。账号档间隔 5′/3′/1′、抖动 0.4、退避下界 10s、紧急放行额度、D1 判据、回滚硬顶公式**一字未动**。
