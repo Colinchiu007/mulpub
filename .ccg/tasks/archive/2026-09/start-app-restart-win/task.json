@@ -19,7 +19,7 @@
     "reusedWorktree": "无可复用: mp-worktrees 下现有目录均非 Multi-Publish 注册 worktree (属 D:/Data/projects=ReelClone 或空目录)",
     "chosenWorktree": "D:/Data/projects/mp-worktrees/mp-start-app-win (新建, 基于 origin/main, 分支 local/start-app-20260905)",
     "deps": "pnpm install --frozen-lockfile 54.1s 全 store 复用; DESKTOP_DEPS_OK(missing 0); electron v43.1.1; verify-worktree-deps OK(9 项消费方解析)",
-    "startCommand": "pwsh -File scripts/start-desktop.ps1 -Worktree D:\Data\projects\mp-worktrees\mp-start-app-win -Profile 'D:\tmp\Multi-Publish-debug-profile' -CheckIdentity -Json -StopForeignProfile",
+    "startCommand": "pwsh -File scripts/start-desktop.ps1 -Worktree D:\\Data\\projects\\mp-worktrees\\mp-start-app-win -Profile 'D:\\tmp\\Multi-Publish-debug-profile' -CheckIdentity -Json -StopForeignProfile",
     "result": {
       "contractExit": 0,
       "windowHandle": 26478944,

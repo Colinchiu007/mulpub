@@ -66,6 +66,15 @@ const KNOWN_UNWIRED = {}
 // resolveWhen 说明"什么时候可以销账"。合成一句散文的写法（上一版）只能被子串绊线糊过去
 // ——「销账条件：无」也算通过 includes("销账")，那是把形式合规当成校验（QM-6 maintainability 轴实测指出）。
 const MUST_LIVE_IN_UNGATED_JOB = {
+  "scripts/openspec-sync-check.test.js": {
+    reason:
+      "它审计的两类输入 .ccg/** 与 openspec/** 都在 docs-only 白名单内（实测 CI_IGNORED_PATHS 14 条里占这两条），" +
+      "而它原先只接在 static-gates（该 job 带 if: needs.changes.outputs.docs-only != true 的门槛）" +
+      "⇒ 纯文档 PR 可以改坏被审计文件，却让这把锁一次都不跑（实测：真实仓库当场 rc=2 / 14 条违规，无人看）",
+    resolveWhen:
+      "它被点名进 changes job（无 job 级 if 的那类面），或 .ccg/openspec 从 CI_IGNORED_PATHS 移出",
+  },
+
   "scripts/quality-rhythm-spec-mirror.test.js": {
     reason:
       "输入含 openspec/specs/openspec-integration/spec.md，而 openspec/** 在 docs-only 白名单内 ⇒ " +

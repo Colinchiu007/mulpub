@@ -1,7 +1,7 @@
 {
   "id": "review-login-state-oscillation",
   "title": "审查登录态状态机修复 diff",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "M",
   "risk": "high",
   "domain": "desktop-auth",

@@ -173,6 +173,47 @@ test("terminal phase requires completed status", () => {
   }
 })
 
+// ===================== 真实仓库自证（openspec-sync-realrepo，2026-10-16）=====================
+//
+// 上面每一条都在 os.tmpdir() 里自建夹具仓库 ⇒ 它们证的是"判据本体正确"，不是"真实仓库合规"。
+// 而 CI 只跑这个文件，所以真实仓库当场 rc=2 / 14 条违规这件事，**从来没有被任何东西看过一眼**。
+// 还有一层：这个文件原先只接在 static-gates（`if: needs.changes.outputs.docs-only != 'true'`），
+// 而它审计的两类输入 `.ccg/**` 与 `openspec/**` **都在 docs-only 白名单里**（实测
+// `scripts/classify-docs-only.js` 的 CI_IGNORED_PATHS 14 条中占两条）⇒ 这把锁只可能出现在
+// "结构上碰不到被审计文件"的 PR 上，接线等于没接（AGENTS 的"前提锁"正是为此而写）。
+//
+// 因此这条锁有三个不可省的构件，缺一个它就退化成又一盏恒绿的装饰灯：
+//   ① 对**真实仓库根**跑，不建夹具；
+//   ② 取不到 `.ccg/tasks` 或 `openspec/changes` 一律**当场红**——禁止 skip，
+//      因为"根目录没找到 ⇒ 静默跳过"与"找到了且合规"在通过消息里完全同形；
+//   ③ 规模下界：扫描到的 task.json 数必须远大于夹具规模，否则扫描域塌成空集时
+//      "零违规"读起来跟通过一模一样。
+const REPO_ROOT = path.join(__dirname, "..")
+
+test("真实仓库：审计器必须对仓库本体跑一次且退出码为 0", () => {
+  for (const required of [".ccg/tasks", "openspec/changes"]) {
+    assert.ok(fs.existsSync(path.join(REPO_ROOT, required)),
+      `反失明：仓库根 ${REPO_ROOT} 下找不到 ${required} —— 这条锁正在测量一个不存在的对象`)
+  }
+  const result = checker.scanRepository(REPO_ROOT)
+  const findings = [...result.errors, ...result.violations]
+  console.log(
+    `[openspec-sync/real-repo] summary=${JSON.stringify(result.summary)}` +
+    ` exitCode=${result.exitCode} findings=${findings.length}`,
+  )
+  assert.ok(
+    result.summary.taskFiles > 50,
+    `反失明（规模下界）：真实仓库只扫到 taskFiles=${result.summary.taskFiles} 个 task.json，` +
+    "说明扫描域退化；此时“零违规”不构成通过证据",
+  )
+  const detail = findings.slice(0, 20).map(item => `  ${item.code} ${item.file || item.change || ""}`).join("\n")
+  assert.equal(
+    result.exitCode,
+    0,
+    `真实仓库必须自证合规（errors=${result.errors.length} violations=${result.violations.length}）：\n${detail}`,
+  )
+})
+
 test("superseded tasks require non-empty replacement evidence", () => {
   const root = makeRepo()
   try {

@@ -1,7 +1,7 @@
 {
   "id": "user-feedback-log-upload",
   "title": "桌面端用户反馈与日志上传、运营后台反馈查看",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "L+",
   "risk": "medium",
   "domain": "cross-app",
