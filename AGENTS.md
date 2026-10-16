@@ -118,6 +118,8 @@ node scripts/classify-docs-only.js --base=origin/main --head=HEAD
 5. worktree 按 R1-R5 清理：`scripts/safe-worktree-remove.ps1 -WhatIf` 干跑通过后再实跑，R7 须校验主工作区与基线一致。
 6. 清理被 `busy holders` 挡住时：先按「命令行含该 worktree 绝对路径」定位持有者，再核**完整进程树**与 CPU 增量（同一 PID 间隔 6s 两次采样 `UserModeTime` 完全相同即挂死残留），确认是本会话自己中止的运行后**逐个按 PID** 终止；终止前后各测一次 `Get-Process electron` 计数，两者**必须相等**——本机通常还有别的 worktree 在跑用户的应用实例，按名字批量 kill 必然误杀。脏清单（多为 `.ccg/reviews/<sha>.json` 孤儿）先复制到共享根同名目录留证，再 `-Force -ConfirmDirtyDiscarded`；复制前须先 `git ls-tree -r --name-only origin/main -- <路径>` 确认该文件名未被上游托管，否则会把 `git merge --ff-only` 变成「untracked would be overwritten」并卡住后续所有文档 PR。
 
+7. **回读这次合并触发的 main push，再宣布收工**（2026-10-16 由账本第九轮补，动因实测：#3652 的 PR 侧 CI 全绿合入后，main push 的 `QG Changes` step 11 `Gate 12c` 当场红——squash 把我的**差量**落到**更新的 main tip** 上，产物树多出他人会话刚合入的 `openspec/records/dep-audit-alias.md`，而账本是在旧 merge-base 上重算的快照，于是"逐文件相等"自测在 PR 侧与 main 侧量的是两棵树）。 判据：`gh run list -R <repo> --workflow=quality-gate.yml --commit <merge SHA> --json databaseId,conclusion,event` 必须有该 merge SHA 的 push run， 且 `conclusion=success`；**红了就按本轮口径补一轮 follow-up PR，不得因为"我的 PR 绿了"而把 main 的红留给下一个会话**。 尤其针对"账本 / 基线 / 快照型数据文件"类 PR：PR 侧全绿**不构成** main 会绿的证据。
+
 **收尾链上的已知假失败（判据一律取产物，不取 rc）**
 
 - `gh pr merge <n> --squash --delete-branch` 的 rc **不可作为判据——本仓实测两种值都出现过**：#3239 / #3240 现场 rc=1（`failed to run git: fatal: 'main' is already used by worktree at <共享根>`，gh 的本地收尾步骤要动 `main`，而 `main` 由共享根 worktree 持有），#3241 / #3243 现场 rc=0。两组现场的差异落在「执行合并时所在 worktree 是否已检出 `main`」这一维上，但**该归因没做过对照实验，只作线索、不写成结论**（原判据写的「恒 rc=1」已被后两次实跑否证，属把一次观测当定律的同型错误）。合并成败一律只认上面三条产物（`state=MERGED` + `mergeCommit.oid`、远端分支 0 行、`git log` 恰好 1 行），**既不得因 rc=1 重跑合并，也不得因 rc=0 就免做产物取证**。
