@@ -167,3 +167,62 @@ test('结构锁：脚本不得提供 --force / --skip-tracked 之类绕过开关
   assert.doesNotMatch(src, /\brm\s+-rf\b/, '不得出现 rm -rf')
   assert.doesNotMatch(src, /Remove-Item[^\n]*-Recurse/, '不得出现递归删除')
 })
+
+// ── 删除后端解析链（2026-10-16 补）────────────────────────────────────────
+// 上面那条结构锁只锁「源码里出现了 mavis-trash 这个名字」，**不锁这个命令在
+// 本机/CI 上存在**。实测后果：四道闸全过、--dry-run 报「允许删除」，实跑一律
+// `'mavis-trash' 不是内部或外部命令` ⇒ 审计日志写 FAILED；本仓 ≥11 处记录
+// 从 2026-10-09 起登记过这个环境事实，而 12 例测试始终全绿。
+// 根因是「可恢复删除」这个 R0 核心能力被外包给一个未随仓库交付的外部命令。
+// 下面的锁补上缺失的那一层：能力必须自足，不可用时必须**失败**而非静默。
+
+test('后端链：每个平台都必须给出 ≥2 个候选，且至少一个不依赖外部 PATH', () => {
+  const { trashBackends } = require('./safe-delete.js')
+  assert.equal(typeof trashBackends, 'function', '必须可测地暴露后端解析，否则这层只能靠人肉验证')
+  for (const platform of ['win32', 'darwin', 'linux']) {
+    const list = trashBackends(platform)
+    assert.ok(Array.isArray(list) && list.length >= 2,
+      `${platform} 至少要 2 个候选（外部命令 + 平台内置），实际 ${list && list.length}`)
+    assert.ok(list.some((b) => b.kind === 'builtin'),
+      `${platform} 必须含一个不依赖外部命令的 builtin 后端 —— 只依赖 PATH 里的外部命令正是本缺陷`)
+    for (const b of list) {
+      assert.ok(typeof b.id === 'string' && b.id, 'backend 需要稳定 id')
+      assert.ok(['external', 'builtin'].includes(b.kind), `unknown kind: ${b.kind}`)
+    }
+  }
+})
+
+test('后端链：mavis-trash 仍排第一（向后兼容已装该命令的机器）', () => {
+  const { trashBackends } = require('./safe-delete.js')
+  for (const platform of ['win32', 'darwin', 'linux']) {
+    assert.equal(trashBackends(platform)[0].id, 'mavis-trash')
+  }
+})
+
+test('后端链：全部不可用时必须失败，且**文件必须仍在**（绝不静默当成功）', () => {
+  const { deleteRecoverable } = require('./safe-delete.js')
+  assert.equal(typeof deleteRecoverable, 'function')
+  const p = path.join(REPO, 'recoverable-probe.tmp')
+  fs.writeFileSync(p, 'keep me')
+  try {
+    const r = deleteRecoverable(p, { backends: [] })
+    assert.equal(r.ok, false, '没有可用后端时必须返回失败')
+    assert.ok(r.error, '失败必须带原因')
+    assert.ok(fs.existsSync(p), '失败路径下文件必须原样存在 —— 删不掉就必须承认删不掉')
+  } finally { fs.rmSync(p, { force: true }) }
+})
+
+test('结构锁：删除路径不得使用不可恢复原语（rm / unlink 一律视为绕过可恢复通道）', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'safe-delete.js'), 'utf8')
+  assert.doesNotMatch(src, /fs\.(rm|rmSync|unlink|unlinkSync)\s*\(/,
+    'FS 层删除不可恢复，会绕过 R0 的可恢复语义')
+  assert.doesNotMatch(src, /(?:^|[^\w.])rm\s+-[rf]{1,2}\b/, '不得出现 rm -r / rm -f')
+  assert.doesNotMatch(src, /shutil\.rmtree|Remove-Item[^\n]*-Recurse/, '不得递归删除')
+})
+
+test('结构锁：后端必须按平台区分（防「只加一个 win32 分支」又退化成单点）', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'safe-delete.js'), 'utf8')
+  for (const platform of ['win32', 'darwin', 'linux']) {
+    assert.match(src, new RegExp(platform), `后端解析必须覆盖 ${platform}`)
+  }
+})

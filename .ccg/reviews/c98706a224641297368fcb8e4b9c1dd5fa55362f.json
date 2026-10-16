@@ -1,0 +1,28 @@
+{
+  "sha": "c98706a224641297368fcb8e4b9c1dd5fa55362f",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 168 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 168,
+    "fileCount": 4,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "- **为什么还要改脚本**（承接上一条）：给本机装 `mavis-trash` 只修了这一台机器。换个 clone / 新电脑 / CI 上，`safe-delete.js` 依旧「四道闸全过、--dry-run 允许、实跑 `'mavis-trash' 不是内部或外部命令`」；且 12 例回归锁全在判据层，删除路径只被一条**字符串存在性**结构锁（断言源码含 `mavis-trash`）覆盖——**「可恢复删除」这个 R0 核心能力被外包给一个未随仓库交付、未检测存在性的命令，测试对这个缺口全绿**。用户据此授权修改脚本。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "151426be5ae8187cbeabf6f48861201add81662db94d5659e5764e03925efd6b",
+  "decidedAt": "2026-10-16T03:45:56.525Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}
