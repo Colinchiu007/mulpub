@@ -438,5 +438,103 @@ describe('Store 多用户隔离', () => {
       // 别的 owner 不受影响
       expect(store.getPublishDailyCount('douyin:acc_1', '2026-10-01', 'user-b')).not.toBe(null)
     })
+
+    it('全 owner 裁剪：逐个 owner 删（不得跨 owner 一把删），并如实回报 owners/removed', () => {
+      // change: publish-frequency-unwired-surfaces —— prunePublishDailyCount 此前**没有生产调用点**，
+      // 于是 publish_daily_count 只增不减。启动期要按 owner 逐个裁剪：
+      // AGENTS 的 owner 隔离不变量是「查询、更新和删除必须同时匹配 owner_subject」，
+      // 所以这里不得写成 `DELETE ... WHERE day_key < ?`（那会跨 owner 删）。
+      store.incrPublishDailyCount('douyin:acc_1', '2026-09-20', 'count', 5, 'user-a')
+      store.incrPublishDailyCount('douyin:acc_1', '2026-10-09', 'count', 1, 'user-a')
+      store.incrPublishDailyCount('weibo:acc_9', '2026-09-21', 'count', 2, 'user-b')
+      store.incrPublishDailyCount('weibo:acc_9', '2026-09-25', 'count', 2, 'user-c')
+
+      const res = store.prunePublishDailyCountAllOwners('2026-10-10')
+      expect(res).toEqual({ owners: 3, removed: 3, basis: 'measured' })
+      expect(store.getPublishDailyCount('douyin:acc_1', '2026-09-20', 'user-a')).toBe(null)
+      expect(store.getPublishDailyCount('weibo:acc_9', '2026-09-21', 'user-b')).toBe(null)
+      expect(store.getPublishDailyCount('weibo:acc_9', '2026-09-25', 'user-c')).toBe(null)
+      // 窗口内的行一律保留
+      expect(store.getPublishDailyCount('douyin:acc_1', '2026-10-09', 'user-a')).not.toBe(null)
+    })
+
+    it('全 owner 裁剪对非法 todayKey 不动任何行（不得把 NaN/undefined 拼进 SQL）', () => {
+      store.incrPublishDailyCount('douyin:acc_1', '2026-09-20', 'count', 5, 'user-a')
+      for (const bad of [undefined, null, '', '2026-10-1', '2026-13-40', 123]) {
+        expect(store.prunePublishDailyCountAllOwners(bad), JSON.stringify(bad))
+          .toEqual({ owners: 0, removed: 0, basis: 'invalid_input' })
+      }
+      expect(store.getPublishDailyCount('douyin:acc_1', '2026-09-20', 'user-a')).not.toBe(null)
+    })
+
+    it('未就绪的 store 不得把「没测到」印成 0：basis=not_ready', () => {
+      // 构造性零是本仓反复登记的形态（#3639 的 exit 10 / n/a(not measured) 同源）。
+      // 启动日志里"owners=0 removed=0"如果是查询没成功的产物，运维就会以为表是干净的。
+      const saved = store._ready
+      store._ready = false
+      try {
+        expect(store.prunePublishDailyCountAllOwners('2026-10-10'))
+          .toEqual({ owners: 0, removed: 0, basis: 'not_ready' })
+      } finally {
+        store._ready = saved
+      }
+    })
+
+    it('裁剪期间每条 DELETE 都必须带 owner_subject 谓词与 owner 实参（结果同形不等于做法相同）', () => {
+      // 上一条只断言"删了哪些行"，而"逐 owner 删"与"一条不带 owner 的 DELETE"
+      // 在**结果**上完全同形 ⇒ 那种写法既能通过上一条，又违反本文件的隔离不变量。
+      // 所以这里锁语句本身：谓词 + 实参 + 每个 owner 各一条。
+      store.incrPublishDailyCount('douyin:acc_1', '2026-09-20', 'count', 5, 'user-a')
+      store.incrPublishDailyCount('weibo:acc_9', '2026-09-21', 'count', 2, 'user-b')
+      store.incrPublishDailyCount('weibo:acc_9', '2026-09-19', 'count', 2, 'user-c')
+
+      const deletes = []
+      const realPrepare = store.db.prepare.bind(store.db)
+      store.db.prepare = function (sql) {
+        const stmt = realPrepare(sql)
+        if (!/DELETE/i.test(sql)) return stmt
+        return {
+          run: (...args) => {
+            deletes.push({ sql, args })
+            return stmt.run(...args)
+          },
+          all: (...args) => stmt.all(...args),
+          get: (...args) => stmt.get(...args),
+        }
+      }
+      try {
+        const res = store.prunePublishDailyCountAllOwners('2026-10-10')
+        expect(res.basis).toBe('measured')
+      } finally {
+        store.db.prepare = realPrepare
+      }
+
+      expect(deletes.length, `实际 DELETE: ${JSON.stringify(deletes.map((d) => d.sql))}`).toBe(3)
+      for (const d of deletes) {
+        expect(d.sql).toMatch(/owner_subject\s*=\s*\?/)
+        expect(typeof d.args[0], '首参必须是具体 owner，不得靠"少写谓词"覆盖全表').toBe('string')
+        expect(d.args[0].length).toBeGreaterThan(0)
+      }
+      expect(deletes.map((d) => d.args[0]).sort()).toEqual(['user-a', 'user-b', 'user-c'])
+    })
+
+    it('形状对但日历不存在的日期必须拒绝（2026-13-40 会滚成 2027-02 ⇒ 一把删光全部历史行）', () => {
+      // 既有 `prunePublishDailyCount` 只做了 /^\d{4}-\d{2}-\d{2}$/ 形状校验。
+      // 形状过、日历不过的串经 Date.UTC 归一化会**滚到未来**（2026-13-40 → 2027-02-10），
+      // 于是 cutoff 落在所有行之后 ⇒ DELETE 命中全部行。这不是理论：调用方一旦把
+      // 用户输入或格式错的日期传进来，日配额历史就整表蒸发（表现为"所有人今天都能重发"）。
+      // 正解＝round-trip 校验（解析后重新格式化必须等于输入），两个 prune 共用同一个谓词。
+      store.incrPublishDailyCount('douyin:acc_1', '2026-09-20', 'count', 5, 'user-a')
+      store.incrPublishDailyCount('douyin:acc_1', '2026-10-09', 'count', 1, 'user-a')
+
+      expect(store.prunePublishDailyCount('2026-13-40', 'user-a')).toBe(0)
+      expect(store.prunePublishDailyCount('2026-02-30', 'user-a')).toBe(0)
+      expect(store.getPublishDailyCount('douyin:acc_1', '2026-09-20', 'user-a')).not.toBe(null)
+      expect(store.getPublishDailyCount('douyin:acc_1', '2026-10-09', 'user-a')).not.toBe(null)
+
+      // 对照：合法日期确实会裁掉窗口外的行（否则上面两条"拒绝"可能只是函数坏了）
+      expect(store.prunePublishDailyCount('2026-10-10', 'user-a')).toBe(1)
+      expect(store.getPublishDailyCount('douyin:acc_1', '2026-09-20', 'user-a')).toBe(null)
+    })
   })
 })

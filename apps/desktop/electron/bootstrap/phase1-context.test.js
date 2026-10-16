@@ -40,6 +40,8 @@ __registerMock('@multi-publish/shared-utils/src/sensitive-filter', { createWithB
 const { extractContext } = require('./phase1-context')
 
 // 构建 mock container，container.get(key) 返回带 key 标记的对象
+const storePruneCalls = []
+const GUARD_TODAY = '2026-10-16'
 function makeMockContainer() {
   const calls = []
   return {
@@ -50,8 +52,21 @@ function makeMockContainer() {
       if (key === 'templateManager') return { seedDefaults: vi.fn() }
       // aiGenerator 需要 setModelProviderManager 方法（用于测试条件调用）
       if (key === 'aiGenerator') return { setModelProviderManager: vi.fn() }
-      // store 需要是 truthy
-      if (key === 'store') return { getSetting: vi.fn(), setSetting: vi.fn() }
+      // 启动期裁剪的日键真源是守卫的 today()（与写入方同源），夹具如实给形状
+      if (key === 'publishIntervalGuard') return { today: () => GUARD_TODAY }
+      // store 需要是 truthy；顺带提供「启动期裁剪日计数」探针
+      // （change: publish-frequency-unwired-surfaces —— cleanup 必须有生产调用点，
+      //   否则 publish_daily_count 只增不减，实现得再对也是死代码）
+      if (key === 'store') {
+        return {
+          getSetting: vi.fn(),
+          setSetting: vi.fn(),
+          prunePublishDailyCountAllOwners: (todayKey) => {
+            storePruneCalls.push(todayKey)
+            return { owners: 0, removed: 0 }
+          },
+        }
+      }
       // taskQueue 需要 setExecutor 方法（虽然 extractContext 不调用，但 createAppContext 会用）
       if (key === 'taskQueue') return { setExecutor: vi.fn(), on: vi.fn() }
       // 默认返回一个标记对象
@@ -100,6 +115,52 @@ describe('phase1-context.extractContext', () => {
     const container = makeMockContainer()
     const ctx = extractContext(container)
     expect(ctx.templateManager.seedDefaults).toHaveBeenCalled()
+  })
+
+  it('启动期裁剪日计数表：必须调用一次且日键取自守卫的 today()（cleanup 没有生产调用点＝死代码）', () => {
+    storePruneCalls.length = 0
+    extractContext(makeMockContainer())
+    expect(storePruneCalls.length, 'prunePublishDailyCountAllOwners 的调用次数').toBe(1)
+    expect(storePruneCalls[0], '必须给当天运营日键').toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    // 日键必须来自**守卫**（写入方就是它）；启动侧另算一次本地日期就是第二套口径，
+    // 差一天的表现是"昨天的行今天被删"或"该删的没删"，且两处都不报错。
+    expect(storePruneCalls[0]).toBe(GUARD_TODAY)
+  })
+
+  it('接不上时必须出声（不得静默跳过 —— 否则重构把这条维护摘掉也没人知道）', () => {
+    storePruneCalls.length = 0
+    const notify = require('../services/logger').notify
+    notify.mockClear()
+    const inner = makeMockContainer()
+    const innerGet = inner.get
+    // store 缺该方法（例如 mixin 未挂载）⇒ 必须打 startup-prune-skipped
+    inner.get = vi.fn((key) => (key === 'store'
+      ? { getSetting: vi.fn(), setSetting: vi.fn() }
+      : innerGet(key)))
+    const ctx = extractContext(inner)
+    expect(ctx).toBeDefined()
+    expect(storePruneCalls.length).toBe(0)
+    expect(notify.mock.calls.some((c) => String(c[1] || '') === 'startup-prune-skipped'),
+      `实际 notify: ${JSON.stringify(notify.mock.calls)}`).toBe(true)
+  })
+
+  it('裁剪抛错不得打断启动（旁路维护，方向是"留着旧行"而不是"起不来"）', () => {
+    storePruneCalls.length = 0
+    const notify = require('../services/logger').notify
+    notify.mockClear()
+    const inner = makeMockContainer()
+    const innerGet = inner.get
+    inner.get = vi.fn((key) => (key === 'store'
+      ? {
+          getSetting: vi.fn(),
+          setSetting: vi.fn(),
+          prunePublishDailyCountAllOwners: () => { throw new Error('DB_BUSY') },
+        }
+      : innerGet(key)))
+    const ctx = extractContext(inner)
+    expect(ctx).toBeDefined()
+    expect(notify.mock.calls.some((c) => String(c[1] || '').includes('prune')),
+      `启动期裁剪失败必须留痕，实际 notify: ${JSON.stringify(notify.mock.calls)}`).toBe(true)
   })
 
   it('offlineManager.startMonitoring 被调用', () => {

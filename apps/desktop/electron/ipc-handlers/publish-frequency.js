@@ -42,6 +42,11 @@ function registerPublishFrequencyHandlers (ipcMain, deps) {
           jitterRatio: publishIntervalGuard.jitterRatio,
           releaseGraceMs: publishIntervalGuard.releaseGraceMs,
           emergencyCooldownHint: 10 * 60 * 1000,
+          // 合法域上界由策略模块单一持有，这里只**下发**，渲染层不得再抄一份数字
+          // （change: publish-frequency-unwired-surfaces：此前模板里硬编码 :max="999" /
+          //  :max="10080"，与主进程 env / 覆盖两条路径的实际合法域不同步）
+          dailyMaxUpperBound: policyModule.MAX_DAILY_QUOTA,
+          intervalMaxMinutes: policyModule.MAX_INTERVAL_MS / 60000,
         },
       }
     } catch (e) { ipcLog('error', 'publishFreq:getPolicy', 'error', `message=${e.message}`); return { code: EC.REQUEST_ERROR, message: e.message } }

@@ -22,6 +22,7 @@ const {
   PLATFORM_FREQUENCY_POLICY,
   SUPPORTED_PLATFORMS,
   MAX_INTERVAL_MS,
+  MAX_DAILY_QUOTA,
   DEFAULT_JITTER_RATIO,
   MIN_RELEASE_GRACE_MS,
   ENV_ACCOUNT_MIN_INTERVAL,
@@ -461,6 +462,80 @@ describe('publish-frequency-policy v3', () => {
       const r = resolveIntervals('douyin', { env, overrides: o })
       expect(r.accountMinMs).toBe(12345)
       expect(r.accountDailyMax).toBe(2)
+    })
+  })
+
+  describe('日配额上界单一真源（MAX_DAILY_QUOTA，change: publish-frequency-unwired-surfaces）', () => {
+    // 动因：设置页三个日配额输入框硬编码 :max="999"，而 env 与设置页覆盖路径**无上界**
+    // （intKeys 里 accountDailyMax 的 max 是 undefined，dailyMax[tier] 只判 >=0）。
+    // 同一个量在三条路径上各有自己的合法域 ⇒ 用户从 UI 填不进去的值可以用 env 填进去，
+    // 而 env 填错了没人告诉他上限在哪。正解＝上界住策略模块，三条路径共用（MAX_INTERVAL_MS 先例）。
+    it('导出上界常量，且严格大于三档默认值与回落基线（否则默认值自己就被钳位）', () => {
+      expect(typeof MAX_DAILY_QUOTA).toBe('number')
+      expect(Number.isInteger(MAX_DAILY_QUOTA)).toBe(true)
+      for (const platform of SUPPORTED_PLATFORMS) {
+        const r = resolveIntervals(platform, { env: {} })
+        expect(r.accountDailyMax, platform).toBeLessThanOrEqual(MAX_DAILY_QUOTA)
+      }
+      expect(BASELINE_INTERVALS.accountDailyMax).toBeLessThanOrEqual(MAX_DAILY_QUOTA)
+      // 必须留余量：上界"刚好等于最大默认值"时，下一次上调默认值就会撞上判据而被静默钳位
+      expect(MAX_DAILY_QUOTA).toBeGreaterThan(500)
+    })
+
+    it('env 超上界 ⇒ 钳位到上界并**只**出声一次（沿用间隔那套语义：钳位不作废）', () => {
+      const warns = []
+      const r = resolveIntervals('douyin', {
+        env: { [ENV_DAILY_MAX_CLIP]: String(MAX_DAILY_QUOTA + 1) },
+        warn: (m) => warns.push(m),
+      })
+      expect(r.accountDailyMax).toBe(MAX_DAILY_QUOTA)
+      expect(warns.length).toBe(1)
+      expect(warns[0]).toContain('超出上界')
+      expect(warns[0]).toContain(String(MAX_DAILY_QUOTA))
+    })
+
+    it('env 恰好等于上界 ⇒ 不钳位、不出声（边界不得被判成越界）', () => {
+      const warns = []
+      const r = resolveIntervals('douyin', {
+        env: { [ENV_DAILY_MAX_CLIP]: String(MAX_DAILY_QUOTA) },
+        warn: (m) => warns.push(m),
+      })
+      expect(r.accountDailyMax).toBe(MAX_DAILY_QUOTA)
+      expect(warns).toEqual([])
+    })
+
+    it('0 仍可显式关闭该档配额（上界不得把 0 吃掉），全局 env 同样受上界约束', () => {
+      const warns = []
+      expect(resolveIntervals('douyin', { env: { [ENV_ACCOUNT_DAILY_MAX]: '0' }, warn: (m) => warns.push(m) })
+        .accountDailyMax).toBe(0)
+      expect(warns).toEqual([])
+      const warns2 = []
+      expect(resolveIntervals('douyin', {
+        env: { [ENV_ACCOUNT_DAILY_MAX]: String(MAX_DAILY_QUOTA + 5) },
+        warn: (m) => warns2.push(m),
+      }).accountDailyMax).toBe(MAX_DAILY_QUOTA)
+      expect(warns2.length).toBe(1)
+    })
+
+    it('设置页覆盖的两条日配额路径共用同一上界，且**保持各自既有错误语义**（丢弃而非钳位）', () => {
+      const w1 = []
+      expect(resolvePolicyOverrides({ accountDailyMax: MAX_DAILY_QUOTA + 1 }, { warn: (m) => w1.push(m) }))
+        .toBe(null)
+      expect(w1.length).toBe(1)
+      expect(w1[0]).toContain('已整体丢弃')
+      // 文案必须把合法域写出来，否则用户只知道自己"非法"、不知道界在哪
+      expect(w1[0]).toContain(`0,${MAX_DAILY_QUOTA}]`)
+
+      const w2 = []
+      expect(resolvePolicyOverrides({ dailyMax: { clip: MAX_DAILY_QUOTA + 1 } }, { warn: (m) => w2.push(m) }))
+        .toBe(null)
+      expect(w2[0]).toContain('dailyMax.clip')
+      expect(w2[0]).toContain(String(MAX_DAILY_QUOTA))
+
+      const w3 = []
+      const ok = resolvePolicyOverrides({ dailyMax: { clip: MAX_DAILY_QUOTA } }, { warn: (m) => w3.push(m) })
+      expect(ok.dailyMax.clip).toBe(MAX_DAILY_QUOTA)
+      expect(w3).toEqual([])
     })
   })
 

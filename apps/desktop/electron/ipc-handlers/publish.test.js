@@ -793,6 +793,24 @@ describe('publishFreq IPC（策略与紧急放行）', () => {
     expect(result.data.releaseGraceMs).toBe(60000)
   })
 
+  it('getPolicy 必须把**合法域上界**一并下发（渲染层不得自己抄一份数字）', async () => {
+    // 此前设置页把 `:max="999"`（日配额）与 `:max="10080"`（分钟）硬编码在模板里，
+    // 而主进程侧 env 与设置页覆盖**没有**对应上界 ⇒ UI 与真实合法域各说各话：
+    // 用户从 UI 填不进去的值可以用 env 填进去，env 填错也没人告诉他界在哪。
+    // 上界的唯一真源是策略模块（change: publish-frequency-unwired-surfaces），
+    // 这里断言的是"下发值 == 真源值"，不是某个具体数字（数字改了这条不该跟着改）。
+    const policyModule = require('@multi-publish/shared-utils/src/publish-frequency-policy')
+    const ipcMain = createMockIpcMain()
+    registerFreq(ipcMain, makeDeps({}))
+    const result = await ipcMain._get('publishFreq:getPolicy')(TRUSTED_EVENT)
+    expect(result.code).toBe(0)
+    expect(result.data.dailyMaxUpperBound).toBe(policyModule.MAX_DAILY_QUOTA)
+    expect(result.data.intervalMaxMinutes).toBe(policyModule.MAX_INTERVAL_MS / 60000)
+    // 下发值必须是**可用**的界（否则输入框永远填不进合法值）
+    expect(result.data.dailyMaxUpperBound).toBeGreaterThan(500)
+    expect(result.data.intervalMaxMinutes).toBeGreaterThan(1000)
+  })
+
   it('守卫未初始化时 getPolicy/setPolicy 如实回报，不抛', async () => {
     const ipcMain = createMockIpcMain()
     registerFreq(ipcMain, makeDeps({ publishIntervalGuard: null }))

@@ -124,6 +124,31 @@ function extractContext(container) {
   if (qrCodeLogin && typeof qrCodeLogin.setAccountManager === 'function') {
     qrCodeLogin.setAccountManager(AccountManager)
   }
+  // 启动期裁剪日计数行（change: publish-frequency-unwired-surfaces）。
+  // `prunePublishDailyCount` 自 v2 起就有实现和单测，却**从来没有生产调用点**
+  // ⇒ `publish_daily_count` 只增不减（先例：phase1 里 signalCollector 的 30 天清理，
+  // 那条注释原文就是「cleanup 需要有生产调用点」）。
+  // 日键一律取**守卫的** today()：写入方就是它，启动侧另算一次本地日期就是第二套口径，
+  // 差一天会表现为"昨天的行今天全被删"或"该删的一行没删"。维护是旁路，失败只留痕。
+  try {
+    const guardForRetention = container.get('publishIntervalGuard')
+    if (store && typeof store.prunePublishDailyCountAllOwners === 'function'
+      && guardForRetention && typeof guardForRetention.today === 'function') {
+      const r = store.prunePublishDailyCountAllOwners(guardForRetention.today())
+      const basis = r && r.basis ? r.basis : 'unproven'
+      log.info('PublishDailyCount',
+        `startup-prune owners=${r ? r.owners : 'n/a'} removed=${r ? r.removed : 'n/a'} basis=${basis}`)
+    } else {
+      // 没接上必须是**看得见**的：静默跳过会让这条维护在某个重构后悄悄消失
+      log.notify('PublishDailyCount', 'startup-prune-skipped', {
+        level: 'WARN',
+        hasStore: !!(store && typeof store.prunePublishDailyCountAllOwners === 'function'),
+        hasGuardToday: !!(guardForRetention && typeof guardForRetention.today === 'function'),
+      })
+    }
+  } catch (e) {
+    log.notify('PublishDailyCount', 'startup-prune-failed', { level: 'WARN', error: String(e && e.message) })
+  }
   const contentIntelligence = container.get('contentIntelligence')
   const publishImpactTracker = container.get('publishImpactTracker')
   const keywordMonitor = container.get('keywordMonitor')

@@ -112,13 +112,66 @@ module.exports = {
   prunePublishDailyCount (todayKey, ownerSubject) {
     if (!this._ready) return 0
     const owner = this._resolveOwnerSubject(ownerSubject)
-    if (!owner || typeof todayKey !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(todayKey)) return 0
+    if (!owner || !isValidDayKey(todayKey)) return 0
     const cutoff = shiftDayKey(todayKey, -(RETAIN_DAYS - 1))
     const res = this.db.prepare(
       'DELETE FROM publish_daily_count WHERE owner_subject = ? AND day_key < ?'
     ).run(owner, cutoff)
     return res && Number.isFinite(res.changes) ? res.changes : 0
   },
+
+  /**
+   * 启动期维护：按 owner **逐个**裁剪（change: publish-frequency-unwired-surfaces）。
+   *
+   * 为什么必须逐个 owner 而不是一条不带 owner_subject 的 DELETE：
+   * 本仓的 owner 隔离不变量是「查询、更新和删除必须同时匹配 owner_subject」
+   * （`store-owner-isolation.test.js` 有同名锁）。跨 owner 一把删会让"删除"这个动作
+   * 失去归属，也与上面那个 per-owner prune 形成两套口径。
+   *
+   * ⚠️ 返回值带 `basis`：`owners: 0, removed: 0` 在"表本来没行"和"查询没成功"之间
+   * 必须可区分 —— 把「没测到」印成 0 正是本仓反复登记过的「构造性零」。
+   *
+   * @param {string} todayKey - 'YYYY-MM-DD' 且日历真实存在
+   * @returns {{owners: number, removed: number, basis: 'measured'|'invalid_input'|'not_ready'|'unproven'}}
+   */
+  prunePublishDailyCountAllOwners (todayKey) {
+    if (!this._ready) return { owners: 0, removed: 0, basis: 'not_ready' }
+    if (!isValidDayKey(todayKey)) return { owners: 0, removed: 0, basis: 'invalid_input' }
+    const rows = this.db.prepare(
+      'SELECT DISTINCT owner_subject AS owner FROM publish_daily_count'
+    ).all()
+    // sqlite-wrapper 的 all() 出错时会 log.error 并回吐非数组 ⇒ 那是「没测到」不是「没有行」
+    if (!Array.isArray(rows)) return { owners: 0, removed: 0, basis: 'unproven' }
+    let removed = 0
+    let owners = 0
+    for (const row of rows) {
+      const owner = row && row.owner
+      if (!owner) continue
+      owners += 1
+      removed += this.prunePublishDailyCount(todayKey, owner)
+    }
+    return { owners, removed, basis: 'measured' }
+  },
+}
+
+/**
+ * 日键校验：形状 + **日历真实性**（缺一不可）。
+ *
+ * 只做形状校验是不够的：'2026-13-40' 过得了 /^\d{4}-\d{2}-\d{2}$/，但经
+ * `Date.UTC(2026, 12, 40)` 归一化会**滚到 2027-02**，于是 cutoff 落在所有历史行之后
+ * ⇒ 一次"清理"把整表删光（症状是所有人当天都能重发）。这是保留窗口的破坏性输入，
+ * 不是无害的空操作，所以两个 prune 入口共用这一个谓词。
+ */
+function isValidDayKey (s) {
+  if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false
+  const parts = s.split('-').map(Number)
+  const y = parts[0]
+  const m = parts[1]
+  const d = parts[2]
+  if (!Number.isInteger(y) || !Number.isInteger(m) || !Number.isInteger(d)) return false
+  if (m < 1 || m > 12 || d < 1 || d > 31) return false
+  const t = new Date(Date.UTC(y, m - 1, d))
+  return t.getUTCFullYear() === y && t.getUTCMonth() === m - 1 && t.getUTCDate() === d
 }
 
 /** 'YYYY-MM-DD' 平移 n 天（只用于裁剪阈值，不参与判定口径） */

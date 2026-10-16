@@ -21,6 +21,12 @@
  *   - 回滚硬顶不变：`min(max(2, dailyMax), MAX_ROLLBACK_PER_DAY=5)` 在三档下均为 5
  *     （由行为锁实测，不从公式推断）。
  *
+ * 本次（change: publish-frequency-unwired-surfaces）新增 **日配额上界 `MAX_DAILY_QUOTA`**：
+ *   此前 env 与设置页覆盖两条路径都**没有上界**，而设置页输入框硬编码 `:max="999"` ——
+ *   同一个量在三条路径上各有各的合法域，于是「UI 填不进去的值 env 能填进去」且
+ *   「env 填了个荒谬值没人说界在哪」。上界从此只在本模块定义一处，三条路径与 UI 共用它
+ *   （沿用 `MAX_INTERVAL_MS` 的形态：env 超界钳位并出声，设置页覆盖超界按既有语义整体丢弃）。
+ *
  * v3 相对 v2 的变更（change: publish-frequency-policy-v3）：
  *   - 账号档再下调：长文 20′→5′ / 短视频·图文社区 10′→3′ / 短内容 3′→1′
  *   - 平台档由「统一 2′」改为**按档分级** 3′/2′/1′（v4 又统一回 1′，见上）
@@ -43,6 +49,14 @@ const DAY = 24 * HOUR
 
 /** 间隔源上界：7 天。超过它会让 wait × (1 + jitterRatio) 逼近 2^31-1（setTimeout 上限） */
 const MAX_INTERVAL_MS = 7 * DAY
+
+/**
+ * 日配额上界：env、设置页覆盖、设置页输入框**共用**的同一个界（此前三条路径各有其界）。
+ * 取 5000 = v4 最大档（short 500）× 10 的余量；再高就与"关掉配额"（0）在运营上无从区分，
+ * 而"关掉"已有 0 这个显式语义，不需要靠填一个天文数字来表达。
+ * 必须**严格大于**最大默认值：写成刚好等于时，下一次上调默认值会撞上界并被静默钳位。
+ */
+const MAX_DAILY_QUOTA = 5000
 
 /** 日配额分档名（与账号档/平台档同表，避免第二套分类器） */
 const TIER_LONG = 'long'
@@ -274,7 +288,7 @@ function resolveIntervals (platform, options = {}) {
     useGlobal ? ENV_ACCOUNT_DAILY_MAX : tierEnvName,
     base.accountDailyMax,
     warn,
-    { integer: true }
+    { integer: true, max: MAX_DAILY_QUOTA }
   )
 
   return { tier, accountMinMs, platformMinMs, accountDailyMax, fallback }
@@ -383,7 +397,7 @@ function resolvePolicyOverrides (raw, options = {}) {
   }
 
   const intKeys = [
-    ['accountDailyMax', 0, undefined],
+    ['accountDailyMax', 0, MAX_DAILY_QUOTA],
     ['emergencyMaxPerDay', 0, MAX_EMERGENCY_MAX_PER_DAY],
   ]
   for (const [key, min, max] of intKeys) {
@@ -406,8 +420,8 @@ function resolvePolicyOverrides (raw, options = {}) {
       const v = raw.dailyMax[tier]
       if (v === undefined || v === null) continue
       const n = Number(v)
-      if (!Number.isInteger(n) || n < 0) {
-        bad(`dailyMax.${tier}`, v, '需 >=0 的整数')
+      if (!Number.isInteger(n) || n < 0 || n > MAX_DAILY_QUOTA) {
+        bad(`dailyMax.${tier}`, v, `需 [0,${MAX_DAILY_QUOTA}] 的整数`)
         return null
       }
       daily[tier] = n
@@ -449,6 +463,7 @@ module.exports = {
   BASELINE_INTERVALS,
   SUPPORTED_PLATFORMS,
   MAX_INTERVAL_MS,
+  MAX_DAILY_QUOTA,
   DEFAULT_JITTER_RATIO,
   DEFAULT_RELEASE_GRACE_MS,
   MIN_RELEASE_GRACE_MS,

@@ -217,6 +217,8 @@ export const publishFrequencyPolicy: {
   BASELINE_INTERVALS: PublishFrequencyIntervals;
   SUPPORTED_PLATFORMS: readonly string[];
   MAX_INTERVAL_MS: number;
+  /** 日配额上界：env / 设置页覆盖 / 设置页输入框共用的同一个界（三条路径此前各有其界） */
+  MAX_DAILY_QUOTA: number;
   DEFAULT_JITTER_RATIO: number;
   DEFAULT_RELEASE_GRACE_MS: number;
   MIN_RELEASE_GRACE_MS: number;

@@ -34,11 +34,17 @@ const POLICY_RES = {
     overrides: null,
     jitterRatio: 0.4,
     releaseGraceMs: 60000,
+    // 合法域上界由主进程下发（change: publish-frequency-unwired-surfaces）。
+    // 夹具值刻意与策略模块真源**不同**（真源是 5000 / 10080）：若夹具照抄真源，
+    // "UI 是否真的用下发值"这件事就测不出来 —— 组件哪怕自己硬编码 5000 也能过。
+    dailyMaxUpperBound: 4321,
+    intervalMaxMinutes: 3210,
   },
 }
 
 const STUBS = {
-  'el-input-number': { template: '<div class="stub-number" />' },
+  // 暴露 min/max 到 DOM：否则"上界来自 IPC"这条判据在测试里不可观测
+  'el-input-number': { props: ['min', 'max'], template: '<div class="stub-number" :data-max="max" :data-min="min" />' },
   'el-switch': { template: '<div class="stub-switch" />' },
   // 必须声明 emits: ['click']：否则 onClick 会作为 fallthrough 属性落到原生 <button> 上，
   // 与显式 $emit('click') 叠加 ⇒ 一次点击触发两次（本仓实测踩过）
@@ -122,6 +128,27 @@ describe('PublishFrequencySettings（发布频率设置页；刻意不带档位�
     // 所以"默认各档账号档**更**严"这句从 v4 起是不准确的可见陈述 —— 正确说法是"不低于"。
     expect(text).not.toMatch(/默认各档账号档更严/)
     expect(text).toContain('不低于')
+  })
+
+  it('合法域上界必须来自 IPC 下发：模板里不得留第二份数字', async () => {
+    // 动因：模板曾硬编码 :max="999"（日配额）与 :max="10080"（分钟）。同一个量在
+    // 主进程（env 无上界、设置页覆盖无上界）与渲染层各有各的界 ⇒ UI 与真实合法域脱钩。
+    // 正解＝上界只住策略模块，经 getPolicy 下发，UI 绑定它。
+    const src = require('fs').readFileSync(require.resolve('./PublishFrequencySettings.vue'), 'utf8')
+    // 只扫**代码行**：修动的注释里会引用旧写法（本次就引用了 `:max="999"`），
+    // 不过滤等于把注释当代码扫 —— 本仓在别的结构锁上踩过同一形态两次。
+    const code = src.split(/\r?\n/)
+      .filter((l) => !/^\s*(\/\/|\*|<!--)/.test(l))
+      .join('\n')
+    expect(code).not.toMatch(/:max="999"/)
+    expect(code).not.toMatch(/:max="10080"/)
+    // 真用上：夹具故意给的是 4321 / 3210（不是真源数字），断言到就说明值真的在流动
+    const wrapper = await mountPage()
+    expect(wrapper.find('[data-testid="pubfreq-daily-long"]').attributes('data-max')).toBe('4321')
+    expect(wrapper.find('[data-testid="pubfreq-daily-clip"]').attributes('data-max')).toBe('4321')
+    expect(wrapper.find('[data-testid="pubfreq-daily-short"]').attributes('data-max')).toBe('4321')
+    expect(wrapper.find('[data-testid="pubfreq-account-min"]').attributes('data-max')).toBe('3210')
+    expect(wrapper.find('[data-testid="pubfreq-platform-min"]').attributes('data-max')).toBe('3210')
   })
 
   it('读失败时显示错误且不渲染表单（不静默降级成默认值糊弄用户）', async () => {
