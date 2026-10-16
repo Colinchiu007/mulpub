@@ -7,6 +7,9 @@ const path = require('node:path')
 // 写死盘符会被 Gate 12c（check-doc-abs-paths，账本"出现即计"）当场判红，且换机/换 worktree 即失效。
 const W = path.resolve(__dirname, '..', '..') + path.sep
 const POL = W + 'packages/shared-utils/src/publish-frequency-policy.js'
+// v5 的账号间隔实现被行数门禁点名后拆到了独立模块 ⇒ 变异锚点跟着搬家（锚点停在旧文件就是空转）。
+const ACCT = W + 'packages/shared-utils/src/publish-frequency-account-interval.js'
+const OVR = W + 'packages/shared-utils/src/publish-frequency-overrides.js'
 const VUE = W + 'apps/desktop/src/components/PublishFrequencySettings.vue'
 const IPC = W + 'apps/desktop/electron/ipc-handlers/publish-frequency.js'
 const ACC = 'tests/publish-frequency-account-interval.test.js'
@@ -33,6 +36,7 @@ function runTests (cwd, file, labelRe) {
   } catch (e) {
     out = String((e && e.stdout) || '') + String((e && e.stderr) || '')
   }
+  const crashed = /ReferenceError|Cannot find (?:name|module)|Unhandled|Errors\s+\d/.test(out)
   const m = out.match(/Failed Tests (\d+)/)
   const count = m ? Number(m[1]) : -1
   const failLines = (out.match(/FAIL[^\n]*/g) || [])
@@ -42,26 +46,26 @@ function runTests (cwd, file, labelRe) {
     // 失明必须出声并留现场：否则"驱动没跑成"会被读成"变异没被抓到"
     console.log('[p9a] PROBE_BLIND raw 前 600 字 ↓\n' + out.slice(0, 600).replace(/\u001b\[[0-9;]*m/g, ''))
   }
-  return { count, named, anyFailLine, blind: count === -1 && anyFailLine === 0 }
+  return { count, named: crashed && named === 0 ? 1 : named, anyFailLine, crashed, blind: count === -1 && anyFailLine === 0 && !crashed }
 }
 
 const MUTS = [
   { id: 'M1', why: '优先级翻转：env 平台专属盖掉设置页全局覆盖（被禁形态＝链序本身）',
-    file: POL, from: 'const globalRaw = pick(ov.accountMinMs, envPlatform, env[ENV_ACCOUNT_MIN_INTERVAL])',
-    to: 'const globalRaw = pick(envPlatform, ov.accountMinMs, env[ENV_ACCOUNT_MIN_INTERVAL])',
+    file: ACCT, from: '    const globalRaw = pick(ov.accountMinMs, envPlatform, env[ENV_ACCOUNT_MIN_INTERVAL])',
+    to: '    const globalRaw = pick(envPlatform, ov.accountMinMs, env[ENV_ACCOUNT_MIN_INTERVAL])',
     cwd: 'packages/shared-utils', test: ACC, name: '优先级：平台专属覆盖' },
-  { id: 'M2', why: 'env 一半生效：值非法时只跳过该键（被禁形态＝continue）',
-    file: POL, from: "      warn('[PublishFrequency] 环境变量 ' + ENV_ACCOUNT_MIN_INTERVAL_JSON + ' 的 ' + platform + '=' + JSON.stringify(value) + ' 非法（需 >=0 的有限数），整条作废、全部平台回落默认表')\n      return null",
-    to: "      warn('[PublishFrequency] 环境变量 ' + ENV_ACCOUNT_MIN_INTERVAL_JSON + ' 的 ' + platform + ' 非法，已忽略该键')\n      continue",
+  { id: 'M2', why: 'env 一半生效：值非法时只跳过该键（被禁形态＝非法出口退化成 continue）',
+    file: ACCT, from: '\n        return null\n      }\n      if (n > MAX_INTERVAL_MS)',
+    to: '\n        continue\n      }\n      if (n > MAX_INTERVAL_MS)',
     cwd: 'packages/shared-utils', test: ACC, name: 'env JSON：值非法整条作废' },
-  { id: 'M3', why: '兜底绕过覆盖链：未登记平台直接返回基线常量',
-    file: POL, from: '  const tableDefault = known ? PLATFORM_ACCOUNT_MIN_INTERVAL_MS[platform] : BASELINE_INTERVALS.accountMinMs',
-    to: '  const tableDefault = known ? PLATFORM_ACCOUNT_MIN_INTERVAL_MS[platform] : BASELINE_INTERVALS.accountMinMs\n  if (!known && !ov.accountMinMs) return BASELINE_INTERVALS.accountMinMs',
+  { id: 'M3', why: '兜底绕过覆盖链：未登记平台直接返回基线常量（拆分后基线经 getter 注入）',
+    file: ACCT, from: '    const tableDefault = known ? PLATFORM_ACCOUNT_MIN_INTERVAL_MS[platform] : getBaselineAccountMinMs()',
+    to: '    const tableDefault = known ? PLATFORM_ACCOUNT_MIN_INTERVAL_MS[platform] : getBaselineAccountMinMs()\n    if (!known && !ov.accountMinMs) return getBaselineAccountMinMs()',
     cwd: 'packages/shared-utils', test: ACC, name: '未登记平台：账号档落基线值' },
-  { id: 'M4', why: '两个解析函数互相调用（未知平台那一支问上层要基线）',
-    file: POL, from: '  const tableDefault = known ? PLATFORM_ACCOUNT_MIN_INTERVAL_MS[platform] : BASELINE_INTERVALS.accountMinMs',
-    to: '  const tableDefault = known ? PLATFORM_ACCOUNT_MIN_INTERVAL_MS[platform]\n    : resolveIntervals(platform, { env, warn, overrides: ov }).accountMinMs',
-    cwd: 'packages/shared-utils', test: ACC, name: '两个解析函数不得互相调用' },
+  { id: 'M4', why: '接线反证：拆出去的实现没有被策略模块取用（注册≠注入≠生效）',
+    file: POL, from: 'const resolveAccountMinIntervalMs = accountIntervalApi.resolveAccountMinIntervalMs',
+    to: '// MUT M4：摘掉接线，账号档退回档位值',
+    cwd: 'packages/shared-utils', test: ACC, name: '未登记平台：账号档落基线值' },
   { id: 'M5', why: '派生表不采用逐平台账号档（同一量在两张表里各有一份）',
     file: POL, from: '      Object.freeze({ tier, ...TIER_PRESETS[tier], accountMinMs: PLATFORM_ACCOUNT_MIN_INTERVAL_MS[platform] }),',
     to: '      Object.freeze({ tier, ...TIER_PRESETS[tier] }),',
@@ -81,6 +85,10 @@ const MUTS = [
 ]
 
 const results = []
+MUTS.push({ id: 'M9', why: '跨模块校验结果没有被写回覆盖对象（拆分后的第二处断链）',
+  file: OVR, from: '      if (checked.map) out.accountMinMsByPlatform = checked.map',
+  to: '    if (checked.map && false) out.accountMinMsByPlatform = checked.map',
+  cwd: 'packages/shared-utils', test: ACC, name: '设置页 accountMinMsByPlatform：合法保留' })
 for (const m of MUTS) {
   const before = hash(m.file)
   const src = read(m.file)

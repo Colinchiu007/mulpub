@@ -45,7 +45,7 @@ short     weibo twitter                              1 分钟         1 分钟  
 未登记    任何不在表内（含非字符串）的 platform      60 分钟        1 分钟    200   + fallback:true
 ```
 
-`accountMinMs` 的逐平台默认表（唯一数值真源，`publish-frequency-policy.js`）：
+`accountMinMs` 的逐平台默认表（唯一数值真源，`publish-frequency-account-interval.js`；策略模块同名再导出）：
 
 | 平台 | 账号间隔默认 | 相对档位 | 性质与依据 |
 |---|---|---|---|
@@ -418,4 +418,4 @@ else: status='failed'; emit('task:failed')
 | v3（`publish-frequency-policy-v3`） | 账号档 → 5/3/1′；平台档分级 3/2/1′；日配额 ×10 → 30/50/200 | **D1**：间隔收到分钟级后触发窗口提前一个量级；**回滚许可硬顶**：许可数不再随日配额放大。数值落点从 15 行手抄收敛为 `TIER_PRESETS + PLATFORM_TIER` 派生，但基线**故意仍独立** |
 | v4（`publish-frequency-policy-v4`） | 平台档三档**统一 1′**（分级撤、机制留）；日配额 200/350/500 | 节奏此后只由 `accountMinMs` 表达；`platformMinMs` 归零即视为门禁缺失（回归锁 + 运行期判据） |
 | 本片（`publish-frequency-unwired-surfaces`） | 四个"声明了没人接"的面逐条定夺；`MAX_DAILY_QUOTA` 单点化；启动期裁剪接上；日键双校验 | 幽灵声明删除 + **反向**声明锁；notify 诊断值必须进 `meta.params`（否则被 logger 静默丢弃） |
-| v5（`publish-frequency-per-platform-intervals`） | **账号档从"按档位派生"改为逐平台表** `PLATFORM_ACCOUNT_MIN_INTERVAL_MS`；视频号 3′→60′（唯一行为变化）；新增设置页 `accountMinMsByPlatform` 与 env `MP_PUBLISH_ACCOUNT_MIN_INTERVAL_MS_JSON`；档位只管 `platformMinMs` 与 `accountDailyMax` | ① 回落基线的账号档**改为引用逐平台表**（两个数字必漂移）；② `PLATFORM_FREQUENCY_POLICY` 的账号档随之变逐平台值，`checkBaselineStrength` 与"档间单调"锁的口径要同时改（否则把产品决策读成回归）；③ 设置页档位摘要的分组键从「三维元组」改成 `tier` + 账号给区间；④ 新增 `resolveAccountMinIntervalMs`，`resolveIntervals` 的账号档经它取值 ⇒ 必须锁"不得互相递归"；⑤ d.ts 三个新导出（双向声明锁当场抓到） |
+| v5（`publish-frequency-per-platform-intervals`） | **实现按行数门禁拆成三个文件**：`publish-frequency-policy.js`（档位/基线/解析入口）、`publish-frequency-account-interval.js`（逐平台表 + env JSON + 五级链 + 覆盖校验器）、`publish-frequency-overrides.js`（设置页"全有或全无"校验）；策略模块同名再导出，公开面与调用点零变化，依赖经工厂注入且新模块不反向 require 策略模块。 | **账号档从"按档位派生"改为逐平台表** `PLATFORM_ACCOUNT_MIN_INTERVAL_MS`；视频号 3′→60′（唯一行为变化）；新增设置页 `accountMinMsByPlatform` 与 env `MP_PUBLISH_ACCOUNT_MIN_INTERVAL_MS_JSON`；档位只管 `platformMinMs` 与 `accountDailyMax` | ① 回落基线的账号档**改为引用逐平台表**（两个数字必漂移）；② `PLATFORM_FREQUENCY_POLICY` 的账号档随之变逐平台值，`checkBaselineStrength` 与"档间单调"锁的口径要同时改（否则把产品决策读成回归）；③ 设置页档位摘要的分组键从「三维元组」改成 `tier` + 账号给区间；④ 新增 `resolveAccountMinIntervalMs`，`resolveIntervals` 的账号档经它取值 ⇒ 必须锁"不得互相递归"；⑤ d.ts 三个新导出（双向声明锁当场抓到） |

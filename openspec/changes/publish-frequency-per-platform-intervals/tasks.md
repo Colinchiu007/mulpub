@@ -47,7 +47,7 @@
   另以键集比对确认 `publishFrequency` 段 zh/en 各 43 键、差集为空
 - [x] 4.4 ESLint（CI Gate 11 同口径 `--quiet`）对改动文件 0 error
 - [x] 4.5 QM-1 打包 + asar 产物判据 + 启动三层 stderr 判据（`build:dir` rc=0；`entries=15019`、`dist/` 125 条含 `index.html`；产物内策略四项命中 + IPC 含 `accountMinDefaults` + 渲染端新 testid/locale 命中且以既有 testid 作正控；启动 12s 存活、stderr 0 字节、本 worktree 进程 0→0）
-- [x] 4.6 变异反证 **M1–M8 全部 CAUGHT 且各自指名**（驱动入库 `.ccg/reviews/freq-v5-mutate.driver.js`，仓库根由 `__dirname` 推导、不写盘符；还原逐字节相同。第一版把测试路径写成仓库相对路径 ⇒ 8 道全判 `PROBE_BLIND`，已改为盲窗出声 + 打印原始输出）
+- [x] 4.6 变异反证 **9 道（M1–M9）：8 道 CAUGHT 且各自指名；M2 报 `ANCHOR_NOT_FOUND`（拆文件后文案与锚点漂移，如实留痕不掩成 CAUGHT；其判据由行为锁 L4 覆盖）**（驱动入库 `.ccg/reviews/freq-v5-mutate.driver.js`，仓库根由 `__dirname` 推导、不写盘符；还原逐字节相同。第一版把测试路径写成仓库相对路径 ⇒ 8 道全判 `PROBE_BLIND`，已改为盲窗出声 + 打印原始输出）
 
 ## 5. 文档
 

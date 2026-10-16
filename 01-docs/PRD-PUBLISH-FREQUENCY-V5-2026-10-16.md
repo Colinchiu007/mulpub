@@ -107,6 +107,22 @@ TaskQueue 出队（通道 = (platform, accountId)）
 
 ---
 
+### 3.5 实现落点（拆文件是被门禁点名的正解，不是分层设计）
+
+本 PR 把策略模块推到 678 行，被逐文件行数门禁判 `NEW_OVER_LIMIT`（该文件此前从未挂账 ⇒ 门禁对"新越线"不给豁免通道，
+唯一出路是拆分，不是往 `scripts/debt-baseline.json` 里加一条）。拆出去的两块恰好各自内聚：
+
+| 文件 | 装什么 | 谁消费它 |
+|---|---|---|
+| `publish-frequency-policy.js` | 档位表、回落基线、`resolveIntervals` 等解析入口 | 守卫、IPC、标定脚本（**公开面 33 个导出名一个没动**） |
+| `publish-frequency-account-interval.js` | 逐平台表 `PLATFORM_ACCOUNT_MIN_INTERVAL_MS`、env JSON 解析、五级优先级链 `resolveAccountMinIntervalMs`、设置页覆盖校验器 | 策略模块**同名再导出** |
+| `publish-frequency-overrides.js` | 设置页覆盖的"全有或全无"校验 `resolvePolicyOverrides` | 策略模块**同名再导出** |
+
+两条硬约束：依赖一律经工厂参数注入，**新模块不 require 策略模块**（否则成环）；策略模块只再导出、不复制实现
+（否则就是本片立题要消灭的"同一个量抄成多份"）。拆分后原来的「两个解析函数不得互相调用」行为锁**保留**
+——虽然结构上已不可能互调，留着防的是"下一次又把实现搬回去"。反证也跟着搬家：M4 改写成**接线反证**
+（摘掉策略模块对解析器的取用 ⇒ 套件当场崩），并新增 M9 打"跨模块校验结果没被写回覆盖对象"这一格断链。
+
 ## 4. 数据校验（三个入口，两套严格度）
 
 | 入口 | 字段 | 合法域 | 非法时行为 |
