@@ -2,10 +2,6 @@
 record: p3-residual-criteria
 task: P3-2 四项遗留裁定并修复 —— B 类 facebook 空声明、C 类 6 适配器自抄正文转换、D 类 TAG_STYLES 19 个不可达孤儿键、E 类判据⑨⑪ 作用面错位
 date: 2026-10-16
-# ↓ 下面三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在，无法取证收口
-sync_backfill_owner: 下一个会话（按三形态同改纪律：表格行 + bullet + 删除本段三字段，同一次提交）
 ---
 
 ## 本次执行记录：P3-2 四项遗留裁定并修复（p3-residual-criteria，2026-10-16）
@@ -134,7 +130,9 @@ D 修完后「没有任何平台的 TAG_STYLES 键缺席」⇒ 原用例里「�
 | 逐文件行数门禁 | PASS | 首次红两条（**本 PR 造成**）：`TARGET_GREW rpa-view-platforms.js 1502 > 点名目标 1484`（该文件零增长容差）与 `TEST_OVER_LIMIT rpa-view-platforms.test.js 1521 ≥ 1500`。处置：**只删我自己新增的注释**（判据与行为一字未改），理由搬到本记录与包内测试——js 1502→**1484**（达目标）、test 1521→**1495**（超限文件 13→12，全部挂账内）。`check-max-lines.js` rc=0|
 | QM-4 视觉 | N/A | 未触渲染面与样式 |
 | QM-6 CCG 双模型外部评审 | PASS | **第十轮已补跑**（claude 额度恢复后，同日 22:0x）：两轮**真实**双模型跨家族评审，`跨家族校验: proposer=opencode critic=claude 通过` —— ① tip 全量 diff（`origin/main...622d1ea8d`，2218 行 / 36 源文件）② 门禁欠账记录范围（`origin/main...27c79388b`，2579 行）。两轮共 12 条问题全部逐条裁决落盘；`check-pr-exec-record --mode=enforce` → **OK**。第九轮当时确因 403 未执行，已如实记录；本轮即为其补位 |
-| 远程同步 | PENDING | 本 PR 未合并 |
+| 远程同步 | PASS | 已合并 `3e78471f1f6b`（merge SHA `3e78471f1f6b98178f55eaee7a9b85717ad97810`，2026-10-17 01:49 +08:00） |
+
+- 保留门禁：QM-1 打包 ✅ | 逐文件行数门禁 ✅ | CCG verify-security 存量过滤 ✅ | QM-6 双模型评审 ✅ | 远程同步 PASS（`3e78471f1f6b98178f55eaee7a9b85717ad97810`）
 
 ### 逃逸链（QM-5 ②：这些缺陷为什么此前没被拦住）
 
