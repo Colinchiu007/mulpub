@@ -116,18 +116,23 @@ const type = computed(() => isTrial.value ? "trial" : "free")
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
-/* 描边式按钮：与底色同系描边，hover 实底化（对齐 LoginExpiredBanner 的成熟写法）。
+/* 描边式按钮 hover 后实底化，主态亦为实底 —— 见下方「为什么改成实底」。
  *
- * ⚠️ 色值不能用 var(--coral)：该 token 在暗色主题下被覆盖为 #c2410c（cohere-design-system.css:1566），
- * 而 tokens.css:365 又给 .banner-btn 设了 background: #c2410c —— 两者**撞成同色**，
- * 「升级 Pro」文字前景=背景，对比度 1:1 完全隐形（CI Gate 7c 暗色对比度实测抓到：
- * fg=bg=rgb(194,65,12), ratio=1）。
+ * ⚠️⚠️ 本按钮的配色经过三轮 CI Gate 7c（暗色文本对比度）实测才定稿，改色前必读：
  *
- * 故这里显式写死两档达标色，并在注释里记下实测对比度（改色前请先复算）：
- *   亮色：#b91c1c 字 vs #f3f0ff 底 = 5.77:1 ✅
- *   暗色：#c2410c 实底 + #fff 字    = 5.18:1 ✅（与 tokens.css:365 的既有口径一致）
- * 注：--coral 亮色值 #f56c6c 作前景 vs 浅紫底只有 2.58:1、作实底配白字只有 2.9:1，
- *     两档都不达标，所以亮色也必须换深一档。 */
+ * 第 1 轮：color: var(--coral) → 暗色下 --coral 被覆盖为 #c2410c，而 tokens.css:365
+ *   又给 .banner-btn 设 background: #c2410c ⇒ fg = bg = rgb(194,65,12)，**ratio 1:1 文字隐形**。
+ * 第 2 轮：改成「亮 #b91c1c 字 + 暗 #c2410c 底白字」的双分支 → 实测 ratio **1.25**。
+ *   原因：scoped 内的 :global(html[data-theme='dark']) 分支**没盖住**亮色规则，
+ *   于是亮色的 #b91c1c 字落在 tokens 给的 #c2410c 底上，两个深色撞一起。
+ * 第 3 轮（当前）：**取消主题分支**，统一用实底 + 白字。
+ *
+ * 为什么实底方案对主题切换免疫（这是本轮的关键洞察）：
+ *   · 亮色：#b91c1c 底 + #fff 字 = 6.47:1 ✅
+ *   · 暗色：tokens.css:365 会把底色换成 #c2410c，#c2410c + #fff = 5.18:1 ✅
+ *   即**白字在两种底色下都达标**，无论 tokens 那条覆盖生效与否都不会翻车。
+ *   描边式做不到这点 —— 它的前景色必须随底色变，而 scoped 主题分支不可靠。
+ */
 .banner-btn {
   flex: 0 0 auto;
   padding: 6px 14px;
@@ -136,28 +141,14 @@ const type = computed(() => isTrial.value ? "trial" : "free")
   font-size: var(--font-size-xs);
   font-weight: 500;
   cursor: pointer;
-  background: transparent;
-  color: #b91c1c;
-  white-space: nowrap;
-  transition: background 0.15s ease, color 0.15s ease;
-}
-.banner-btn:hover {
   background: #b91c1c;
   color: #fff;
+  white-space: nowrap;
+  transition: background 0.15s ease, border-color 0.15s ease;
 }
-/* 暗色：走 tokens.css:365 既有的 #c2410c 实底，补齐白字（那里只给了底色没给字色）。
- * 必须用 :global() —— scoped 下写裸 html[...] 会被编译成 html[data-theme][data-v-xxx]，
- * 而 data-theme 挂在 <html> 上、html 元素不带组件的 scope id ⇒ 选择器永不匹配
- * （该坑由 Dashboard.style-guard.test.js 的「裸 :root / 主题选择器」守卫拦截）。 */
-:global(html[data-theme='dark']) .banner-btn {
-  border-color: #c2410c;
-  background: #c2410c;
-  color: #fff;
-}
-:global(html[data-theme='dark']) .banner-btn:hover {
-  background: #9a3412;
-  border-color: #9a3412;
-  color: #fff;
+.banner-btn:hover {
+  background: #991b1b;
+  border-color: #991b1b;
 }
 .banner-close {
   flex: 0 0 auto;
