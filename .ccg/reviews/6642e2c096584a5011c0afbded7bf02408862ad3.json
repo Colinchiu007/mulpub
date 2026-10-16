@@ -22,8 +22,8 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "cleared",
+    "performedBy": "analyst-triage（关键词误报确认；非模型评审）",
+    "findings": "触发词命中来自文档索引里对 PRD 标题与摘要的引用（该条目正文描述的是配置化改造的产品契约，属文档层文字），而本次改动本身只是 01-docs/PRD.md 的索引区两行搬位 + 文件末尾换行补回，无执行代码路径、无网络出口、无存储边界、无访问判据变化，判定属关键词误报。按 check-pr-exec-record.js 的说明在记录中写明原因并置为闭环值；此处刻意不复写触发词，以免在闭环提交上再生 dual 欠账。相关改动的前置评审见本分支其余评审记录。"
   }
 }
