@@ -205,8 +205,16 @@ export default {
     urlListHint: 'One URL per line for batch collection',
     zhihuFavlist: {
       title: 'Zhihu Favorited Articles',
-      secretPlaceholder: 'Enter Zhihu Access Secret (from developer.zhihu.com profile)',
-      secretRequired: 'Please enter your Zhihu Access Secret first',
+      // 2026-10-15: the Access Secret is now configured under Settings → Zhihu API
+      // (encrypted, scoped to the signed-in user); the collection page no longer asks for it.
+      configMissing: 'Configure the Access Secret in Settings → Zhihu API first',
+      goSettings: 'Open Settings',
+      configBadge: 'Configured',
+      configNotConfigured: 'Not configured',
+      // The read channel was denied (license / not signed in) — distinct from "nothing configured"
+      configDenied: 'Unavailable',
+      configUnreadable: 'The saved secret cannot be read; please save it again in Settings',
+      configLegacy: 'A legacy plaintext secret was detected; save it again in Settings to migrate it to encrypted storage',
       loadBtn: 'Load Favorites',
       loading: 'Loading...',
       loadFailed: 'Failed to load favorites',

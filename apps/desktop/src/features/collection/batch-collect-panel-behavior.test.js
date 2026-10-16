@@ -8,7 +8,7 @@
  *
  * IPC 走真实 getApi() 桥（window.electronAPI 桩）—— 不 mock 组件内部函数。
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
 
@@ -17,7 +17,28 @@ vi.mock('@/api/publisher', () => ({
   storeSetSetting: vi.fn(async () => ({ code: 0 })),
 }))
 
+// 「前往设置」出口走 settings-dialog 信号：请求函数必须是可观测的 spy，
+// 版本号要是真 ref（组件 watch 它来在弹窗关闭后刷新凭据状态）
+vi.mock('@/stores/settings-dialog', async () => {
+  const { ref } = await import('vue')
+  return {
+    settingsDialogRevision: ref(0),
+    requestSettingsDialog: vi.fn(),
+    notifySettingsDialogClosed: vi.fn(),
+  }
+})
+
 const BatchCollectPanel = (await import('./BatchCollectPanel.vue')).default
+const { settingsDialogRevision, requestSettingsDialog } = await import('@/stores/settings-dialog')
+
+/** 凭据状态桩：默认「已配置且可读」，需要未配置/旧版明文的用例自行覆盖 */
+function secretConfig (overrides = {}) {
+  return {
+    configured: true, readable: true, maskedSecret: 'zhih****7890',
+    updatedAt: '2026-10-15T10:00:00.000Z', verifiedAt: null, favlistCount: null,
+    legacyDetected: false, source: 'config', ...overrides,
+  }
+}
 
 const i18n = createI18n({
   legacy: false,
@@ -36,10 +57,16 @@ const i18n = createI18n({
         batchProgress: '批量采集进度',
         cancelBatch: '取消',
         zhihuFavlist: {
-          title: '知乎收藏夹', secretPlaceholder: '访问密钥', loadBtn: '加载收藏夹', loading: '加载中',
+          title: '知乎收藏夹', loadBtn: '加载收藏夹', loading: '加载中',
           collectBtn: '采集', collecting: '采集中', rewriteBtn: '改写', rewriting: '改写中', hint: '提示',
           progressTitle: '采集并改写进度', progressText: '{done} / {total}',
-          secretRequired: '请先填写知乎 Access Secret',
+          configMissing: '请先在「设置 → 知乎 API」中配置 Access Secret',
+          configBadge: '已配置',
+          configNotConfigured: '未配置',
+          configDenied: '暂不可读',
+          configUnreadable: '已保存的密钥无法读取，请到设置中重新保存',
+          configLegacy: '检测到旧版明文密钥，建议到设置中重新保存以完成加密迁移',
+          goSettings: '前往设置',
           loadFailed: '加载失败', empty: '没有收藏夹', emptyFavlist: '收藏夹没有内容',
           fetchingContents: '获取收藏内容...', collectingProgress: '共 {count} 条，采集中...',
           batchDone: '完成，成功 {completed} 失败 {failed}',
@@ -67,8 +94,13 @@ const i18n = createI18n({
   },
 })
 
+// 组件必须逐例卸载：本组件在挂载期订阅了模块级共享信号（settingsDialogRevision），
+// 泄漏的旧实例会在版本号变化时**用当前的 window.electronAPI**再拉一次配置，
+// 把后续用例的调用计数污染成「6 次而不是 2 次」（实测踩过）。
+const mountedWrappers = []
+
 function mountPanel (props = {}) {
-  return mount(BatchCollectPanel, {
+  const w = mount(BatchCollectPanel, {
     global: { plugins: [i18n] },
     props: {
       collectedUrlSet: new Set(),
@@ -77,7 +109,15 @@ function mountPanel (props = {}) {
       ...props,
     },
   })
+  mountedWrappers.push(w)
+  return w
 }
+
+afterEach(() => {
+  while (mountedWrappers.length) {
+    try { mountedWrappers.pop().unmount() } catch { /* 已卸载 */ }
+  }
+})
 
 /** 取组件内部 setup 状态（script setup 变量经 defineExpose 未导出的，走 vm 代理） */
 function state (w, key, value) {
@@ -89,26 +129,108 @@ describe('BatchCollectPanel 知乎收藏夹批量行为锁', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     window.electronAPI = {}
+    settingsDialogRevision.value = 0
   })
 
-  it('loadZhihuFavlists 无 secret → 显示必填提示，不发请求', async () => {
-    window.electronAPI = { zhihuFavlistList: vi.fn() }
+  it('凭据未配置 → 状态条提示「未配置」+ 引导文案，点加载不发请求', async () => {
+    window.electronAPI = {
+      zhihuGetConfig: vi.fn().mockResolvedValue({ code: 0, data: secretConfig({ configured: false, readable: false, maskedSecret: '', source: 'none' }) }),
+      zhihuFavlistList: vi.fn(),
+    }
     const w = mountPanel()
-    w.vm.zhihuAccessSecret = ''
+    await flushPromises()
+    expect(w.vm.zhihuSecretAvailable).toBe(false)
+    expect(w.get('[data-testid="zhihu-config-badge"]').text()).toContain('未配置')
+    expect(w.get('[data-testid="zhihu-config-hint"]').text()).toContain('设置')
+
     await w.vm.loadZhihuFavlists()
-    expect(w.vm.zhihuFavlistError).toContain('Access Secret')
+    expect(w.vm.zhihuFavlistError).toContain('设置')
     expect(window.electronAPI.zhihuFavlistList).not.toHaveBeenCalled()
+  })
+
+  it('凭据已配置 → 显示遮罩与「已配置」徽标（不回显明文）', async () => {
+    window.electronAPI = {
+      zhihuGetConfig: vi.fn().mockResolvedValue({ code: 0, data: secretConfig() }),
+    }
+    const w = mountPanel()
+    await flushPromises()
+    expect(w.vm.zhihuSecretAvailable).toBe(true)
+    expect(w.get('[data-testid="zhihu-config-badge"]').text()).toContain('已配置')
+    expect(w.get('[data-testid="zhihu-config-masked"]').text()).toBe('zhih****7890')
+  })
+
+  it('读取被拒（许可证/未登录 code=-3）→ 说原因、不塌成「未配置」', async () => {
+    // 根因（QM-6 跨家族评审 MAJOR #2）：原先只看 r.code===0，非 0 一律静默保持默认态，
+    // 于是「已配置但当前无权读」被渲染成「未配置」，把用户引向重复配置。
+    window.electronAPI = {
+      zhihuGetConfig: vi.fn().mockResolvedValue({ code: -3, message: '许可证权限不足，无法调用 zhihuGetConfig' }),
+      zhihuFavlistList: vi.fn(),
+    }
+    const w = mountPanel()
+    await flushPromises()
+    expect(w.vm.zhihuSecretAvailable).toBe(false)
+    const badge = w.get('[data-testid="zhihu-config-badge"]').text()
+    expect(badge).not.toContain('未配置')
+    expect(badge).toContain('暂不可读')
+    expect(w.get('[data-testid="zhihu-config-hint"]').text()).toContain('许可证权限不足')
+  })
+
+  it('读取抛异常（同步权限拒绝）同样出声，不冒充未配置', async () => {
+    const deny = new Error('许可证权限不足，无法调用 zhihuGetConfig')
+    deny.name = 'LicensePermissionError'
+    window.electronAPI = {
+      zhihuGetConfig: vi.fn().mockRejectedValue(deny),
+    }
+    const w = mountPanel()
+    await flushPromises()
+    expect(w.get('[data-testid="zhihu-config-badge"]').text()).toContain('暂不可读')
+    expect(w.get('[data-testid="zhihu-config-hint"]').text()).toContain('许可证权限不足')
+  })
+
+  it('旧版明文兼容期：仍可用（source=legacy），但提示去设置里加密迁移', async () => {
+    window.electronAPI = {
+      zhihuGetConfig: vi.fn().mockResolvedValue({ code: 0, data: secretConfig({ configured: false, readable: false, maskedSecret: 'last****cret', legacyDetected: true, source: 'legacy' }) }),
+    }
+    const w = mountPanel()
+    await flushPromises()
+    expect(w.vm.zhihuSecretAvailable).toBe(true)
+    expect(w.get('[data-testid="zhihu-config-hint"]').text()).toContain('加密迁移')
+  })
+
+  it('「前往设置」按钮 → 请求打开设置并定位到知乎 API 分区', async () => {
+    window.electronAPI = { zhihuGetConfig: vi.fn().mockResolvedValue({ code: 0, data: secretConfig({ source: 'none', configured: false }) }) }
+    const w = mountPanel()
+    await flushPromises()
+    await w.get('[data-testid="zhihu-go-settings"]').trigger('click')
+    await flushPromises()
+    expect(requestSettingsDialog).toHaveBeenCalledWith('zhihu')
+  })
+
+  it('设置弹窗关闭（版本号 +1）→ 重新读取凭据状态（配好即立即可用）', async () => {
+    const getConfig = vi.fn()
+      .mockResolvedValueOnce({ code: 0, data: secretConfig({ source: 'none', configured: false, maskedSecret: '' }) })
+      .mockResolvedValueOnce({ code: 0, data: secretConfig() })
+    window.electronAPI = { zhihuGetConfig: getConfig }
+    const w = mountPanel()
+    await flushPromises()
+    expect(w.vm.zhihuSecretAvailable).toBe(false)
+
+    settingsDialogRevision.value += 1
+    await flushPromises()
+    expect(getConfig).toHaveBeenCalledTimes(2)
+    expect(w.vm.zhihuSecretAvailable).toBe(true)
   })
 
   it('loadZhihuFavlists 成功 → 下拉数据填充', async () => {
     window.electronAPI = {
+      zhihuGetConfig: vi.fn().mockResolvedValue({ code: 0, data: secretConfig() }),
       zhihuFavlistList: vi.fn().mockResolvedValue({ code: 0, data: [
         { urlToken: 111, title: '收藏夹A', isPublic: true },
         { urlToken: 222, title: '收藏夹B', isPublic: false },
       ] }),
     }
     const w = mountPanel()
-    w.vm.zhihuAccessSecret = 'my-secret'
+    await flushPromises()
     await w.vm.loadZhihuFavlists()
     await flushPromises()
     expect(w.vm.zhihuFavlists).toHaveLength(2)
@@ -118,10 +240,11 @@ describe('BatchCollectPanel 知乎收藏夹批量行为锁', () => {
 
   it('loadZhihuFavlists 失败 → 错误提示', async () => {
     window.electronAPI = {
+      zhihuGetConfig: vi.fn().mockResolvedValue({ code: 0, data: secretConfig() }),
       zhihuFavlistList: vi.fn().mockResolvedValue({ code: -1, message: '网络连接失败' }),
     }
     const w = mountPanel()
-    w.vm.zhihuAccessSecret = 'secret'
+    await flushPromises()
     await w.vm.loadZhihuFavlists()
     await flushPromises()
     expect(w.vm.zhihuFavlistError).toContain('网络连接失败')

@@ -1,0 +1,29 @@
+{
+  "sha": "17ef3cc5e3a31e26041f2cf4c2ed7a8e0515d157",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 20 行（≤ 200）但命中 auth/数据库/加密：敏感内容 2 处",
+  "stats": {
+    "changedLines": 20,
+    "fileCount": 2,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 2,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "| QM-2 必检项 | PASS | 无硬编码密钥（新代码只读取存储值）；IPC 参数纯 JSON（渲染端只传 string）；新模块 `require` 路径逐条核对存在；preload 改动后重打包两份 bundle 且 `ipc-contract.test.js` 断言每个 preload 通道都有主进程 handler；无 `console.log` 污染；无同步 CPU 密集原语（凭据读写在保存/测试这类低频路径） |",
+      "| QM-2 必检项 | PASS（含一次 CI 抓红） | 无硬编码密钥（新代码只读取存储值）；IPC 参数纯 JSON（渲染端只传 string）；新模块 `require` 路径逐条核对存在；preload 改动后重打包两份 bundle 且 `ipc-contract.test.js` 断言每个 preload 通道都有主进程 handler；无 `console.log` 污染；无同步 CPU 密集原语（凭据读写在保存/测试这类低频路径）。**ESLint 教训（如实登记）**：本地只跑了 vitest、**没跑 eslint** ⇒ CI `QG Static` 的 Gate 11 抓到两处 error（`zhihu-credential.js` 的 `no-control-regex` 与一处未使用赋值）；已改为码点比较 + 结构调整，本地按 CI 同口径 `pnpm exec eslint electron/ src/ --quiet` 复跑 **rc=0**，并重跑受影响的两个变异（M2/M5 仍指名红、还原字节一致） |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "0b29d2dac43eddb7e23c94c598d3e278f2b04ada32530ea91680a553107adc47",
+  "decidedAt": "2026-10-15T14:16:43.422Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "cleared",
+    "performedBy": "claude 2.1.296（跨家族独立审查，只读）+ opencode 1.18.34（同批启动，未收敛）；本条记录本身按误报出口闭环",
+    "findings": "两个层次：① 本记录描述的这笔改动（2 个测试文件 + 1 篇记录、20 行）被判 dual 的触发条件是散文里的中文术语命中，属关键词误报 —— 无执行代码路径、无出站/存储边界变化，按 check-pr-exec-record.js 的说明在此写明原因并置闭环值，JSON 内不复写触发词以免再生 dual。② 本 PR 整体（2253 行 > 200 行阈值，§12.6）**确实执行了跨家族双模型审查**：claude 收敛出 2 MAJOR（设备级兼容档被无条件销账；读取被拒被吞成未配置）+ 3 MINOR（设置页读侧静默；同值重存丢验证证据；身份模式切换后配置看似丢失），其中 4 条已修并补 9 条回归锁、1 条如实登记为遗留；opencode 未在合理时间内收敛，已登记为未闭合项而不是记成通过。完整取证见 openspec/records/zhihu-api-settings.md 的「QM-6 评审取证」小节。"
+  }
+}

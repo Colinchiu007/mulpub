@@ -63,16 +63,28 @@
         @click="expandBatch('zhihu')"
       >{{ $t('collection.zhihuFavlist.title') }}</button>
       <div v-show="expandedBatch === 'zhihu'" id="batch-panel-zhihu" class="zb-panel">
+        <!-- 凭据状态条（2026-10-15）：Access Secret 改在「设置 → 知乎 API」配置
+             （本机加密 + 按登录用户隔离），此处只显示状态并提供就地入口，不再就地输入。 -->
         <div class="zb-row">
-          <input
-            v-model="zhihuAccessSecret"
-            type="password"
-            :placeholder="$t('collection.zhihuFavlist.secretPlaceholder')"
-            class="col-input zb-secret"
-          />
-          <button class="cohere-btn-secondary" @click="loadZhihuFavlists" :disabled="zhihuFavlistLoading || !zhihuAccessSecret.trim()">
+          <span
+            class="zb-config-badge"
+            :class="{ ok: zhihuSecretAvailable }"
+            data-testid="zhihu-config-badge"
+          >{{ zhihuSecretAvailable ? $t('collection.zhihuFavlist.configBadge') : (zhihuConfigError ? $t('collection.zhihuFavlist.configDenied') : $t('collection.zhihuFavlist.configNotConfigured')) }}</span>
+          <span
+            v-if="zhihuSecretAvailable && zhihuConfig.maskedSecret"
+            class="col-hint"
+            data-testid="zhihu-config-masked"
+          >{{ zhihuConfig.maskedSecret }}</span>
+          <button class="cohere-btn-secondary" @click="loadZhihuFavlists" :disabled="zhihuFavlistLoading || !zhihuSecretAvailable">
             {{ zhihuFavlistLoading ? $t('collection.zhihuFavlist.loading') : $t('collection.zhihuFavlist.loadBtn') }}
           </button>
+          <button class="cohere-btn-ghost" data-testid="zhihu-go-settings" @click="openZhihuSettings">
+            {{ $t('collection.zhihuFavlist.goSettings') }}
+          </button>
+        </div>
+        <div v-if="zhihuConfigHint" class="col-hint zb-mt6" data-testid="zhihu-config-hint">
+          {{ zhihuConfigHint }}
         </div>
         <div v-if="zhihuFavlists.length" class="zb-row zb-mt8">
           <select v-model="zhihuFavScope" class="zb-select" data-testid="zhihu-fav-scope">
@@ -172,11 +184,12 @@
 </template>
 
 <script setup>
-import { ref, computed, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { getApi } from '@/api/electron-bridge'
 import { useNotify } from '@/composables/useNotify'
 import { resolveNotifyText } from '@/utils/notifyCore'
 import { useBatchPollGuard } from '@/composables/useBatchPollGuard'
+import { settingsDialogRevision } from '@/stores/settings-dialog'
 import { mapFavBatchResultsToItems } from '@/features/collection/collection-batch'
 import { normalizeCollectedItem } from '@/features/collection/collected-item'
 import ColProgressBlock from './ColProgressBlock.vue'
@@ -346,7 +359,16 @@ function cancelBatchCollect () {
 }
 
 // ─── 知乎收藏夹批量采集/改写（整夹兼容路径） ───
-const zhihuAccessSecret = ref('')
+// 凭据状态（2026-10-15）：Access Secret 由「设置 → 知乎 API」写入（safeStorage 加密 +
+// 按登录用户隔离），本组件只读状态、不再持有明文——旧实现在就地输入框里要求用户
+// 每次粘贴密钥，且保存后不回填，用户每开一次页面都要再粘一次。
+const zhihuConfig = ref({
+  configured: false, readable: false, maskedSecret: '', updatedAt: null,
+  verifiedAt: null, favlistCount: null, legacyDetected: false, source: 'none',
+})
+// 读取被拒的原因（许可证 / 未登录 / 发送方校验）：非空时状态条改说原因，
+// 不再渲染成「未配置」——后者会让已配置但当前无权读的用户重复配置（QM-6 评审 MAJOR #2）
+const zhihuConfigError = ref('')
 const zhihuFavlists = ref([])
 const zhihuSelectedFavlist = ref('')
 const zhihuFavlistLoading = ref(false)
@@ -355,22 +377,59 @@ const zhihuFavlistProgress = ref('')
 const zhihuFavlistError = ref('')
 const zhihuFavlistResults = ref([])
 
-async function saveZhihuSecret () {
+/** 可出站的凭据是否存在：加密配置可用，或旧版明文仍在（兼容期）。判据与服务端同一来源。 */
+const zhihuSecretAvailable = computed(() => zhihuConfig.value.source !== 'none')
+
+/** 状态条下方的解释文案（可用时不打扰；旧版明文时提示迁移；读不出与未配置分开说） */
+const zhihuConfigHint = computed(() => {
+  // 读取被拒（许可证/未登录/发送方校验）优先说原因：静默塌成「未配置」会把
+  // 「已配置、只是当前无权读」的用户引向重复配置（QM-6 评审 MAJOR #2）
+  if (zhihuConfigError.value) return zhihuConfigError.value
+  if (zhihuSecretAvailable.value) {
+    return zhihuConfig.value.source === 'legacy'
+      ? resolveNotifyText('collection.zhihuFavlist.configLegacy').text
+      : ''
+  }
+  return zhihuConfig.value.configured
+    ? resolveNotifyText('collection.zhihuFavlist.configUnreadable').text
+    : resolveNotifyText('collection.zhihuFavlist.configMissing').text
+})
+
+async function loadZhihuConfig () {
+  const api = getApi()
+  if (!api || typeof api.zhihuGetConfig !== 'function') return
   try {
-    const { storeSetSetting } = await import('@/api/publisher')
-    await storeSetSetting('zhihu_access_secret', zhihuAccessSecret.value.trim())
-  } catch { /* 保存失败不阻塞 */ }
+    const r = await api.zhihuGetConfig()
+    if (r && r.code === 0 && r.data) {
+      zhihuConfig.value = { ...zhihuConfig.value, ...r.data }
+      zhihuConfigError.value = ''
+      return
+    }
+    // 非 0：读取通道被拒（-3 许可证/未登录；-2 发送方校验；-1 存储异常）。
+    // 必须与「确实没配」区分开——两者都是「不可用」，但用户该做的事完全不同。
+    zhihuConfigError.value = r && r.message ? String(r.message) : ''
+    zhihuConfig.value = { ...zhihuConfig.value, configured: false, readable: false, source: 'none' }
+  } catch (e) {
+    // 抛异常路径（同步权限拒绝）同样出声，不冒充「未配置」
+    zhihuConfigError.value = e && e.message ? String(e.message) : ''
+    zhihuConfig.value = { ...zhihuConfig.value, configured: false, readable: false, source: 'none' }
+  }
+}
+
+/** 就地打开「设置 → 知乎 API」（死胡同文案的反面：提示必须带出口） */
+async function openZhihuSettings () {
+  const { requestSettingsDialog } = await import('@/stores/settings-dialog')
+  requestSettingsDialog('zhihu')
 }
 
 async function loadZhihuFavlists () {
-  if (!zhihuAccessSecret.value.trim()) {
-    zhihuFavlistError.value = resolveNotifyText('collection.zhihuFavlist.secretRequired').text
+  if (!zhihuSecretAvailable.value) {
+    zhihuFavlistError.value = zhihuConfigHint.value
     return
   }
   zhihuFavlistLoading.value = true
   zhihuFavlistError.value = ''
   try {
-    await saveZhihuSecret()
     const api = getApi()
     const r = await api.zhihuFavlistList()
     if (r.code !== 0) {
@@ -550,7 +609,6 @@ async function loadZhihuFavItems () {
   zhihuFavScopeNote.value = ''
   zhihuFavChecked.value = new Set()
   try {
-    await saveZhihuSecret()
     const api = getApi()
     const collectedUrls = props.collectedUrlSet
     let items = []
@@ -683,6 +741,11 @@ function subscribeZhihuFavProgress () {
 
 subscribeZhihuFavProgress()
 
+// 凭据状态：挂载即读一次；用户去设置里配好后关闭弹窗，再刷一次状态
+// （settingsDialogRevision 就是为「弹窗内改了配置、弹窗外的页面要跟上」而存在的信号）
+onMounted(loadZhihuConfig)
+watch(settingsDialogRevision, () => { loadZhihuConfig() })
+
 onUnmounted(() => {
   if (zhihuFavProgressUnsubscribe) { zhihuFavProgressUnsubscribe(); zhihuFavProgressUnsubscribe = null }
   stopBatchPolling()
@@ -717,7 +780,34 @@ defineExpose({ expandBatch })
 .zb-mt6 { margin-top: 6px; }
 .zb-mt8 { margin-top: 8px; }
 .zb-flex1 { flex: 1; }
-.zb-secret { flex: 1; min-width: 200px; }
+/* 凭据状态徽标（zhihu-api-settings）：中性=未配置、成功色=可用；旧版明文态由下方 hint 说明。
+   色值一律走语义令牌（collection-tokens.test.js 禁止本区块出现 hex 字面量）。 */
+.zb-config-badge {
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--color-bg-inset);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+}
+.zb-config-badge.ok {
+  border-color: var(--color-success);
+  color: var(--color-success);
+  background: var(--color-success-soft);
+}
+/* ghost 按钮在本仓是各组件自带的局部类（见 components/PersonalKnowledgePanel.vue），
+   这里显式自带一份，避免「引用了不存在的全局类」导致的裸样式按钮 */
+.cohere-btn-ghost {
+  padding: 6px 10px;
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-xs, 6px);
+  cursor: pointer;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-primary);
+}
+.cohere-btn-ghost:hover { border-color: var(--color-primary); color: var(--color-primary); }
 .zb-select { border: 1px solid var(--color-border); border-radius: var(--r-xs, 6px); padding: 8px 10px; font-size: var(--font-size-sm); }
 .zb-select-grow { flex: 1; min-width: 200px; }
 .zb-count { width: 130px; }

@@ -5,11 +5,22 @@
 - 账本新增 `METRIC_VERSION`（由判据代码持有，head 侧不符即退出码 2）与换代守卫：`judgeLedgerDrift` 在 `prev.metric !== next.metric` 时不判「账本被放宽」但照报缩小与陈旧，并按构造**只能发生一次**；同时 `--write-baseline` 这一支必须关掉该强校验，否则新守卫会拒绝执行它自己要求的那次迁移（实测 `--all --write-baseline` 曾直接 rc=2）。
 - 自测 51 条全绿、**0 条 skip**（旧口径下多条锁在 CI 上静默 skip，那正是把洞伪装成「按设计跳过」的落点）；变异反证两条（把 `over/shrink` 包回 `canJudge`、把入域条件退回旧口径）红集互不相同。契约见 `AGENTS.md`「受管文档不得新增本机绝对路径」条与 `01-docs/PRD-GATE12C-COUNT-ONLY-2026-10-14.md`。
 - **第三轮（ubuntu CI 二跑）修的是夹具而不是判据**：批量锁共用的两只造路径出口原本用裸的盘符变量拼接，无盘符 runner 上拼出一个没有冒号的串 ⇒ 判据不报错、只是静默不计数 ⇒ 账本 1 / 现场 0 被自己的"待收紧"判红。现收敛为唯一出口 `fxDrive()`，并新增「夹具自检」锁（让门禁自己数到 2，光形状像不算证据）+ 一条带正控与反失明的结构禁令。同时给自测加 `MP_TEST_FORCE_NO_DRIVE=1`（把无盘符那一维搬回本机复现，但它模拟不了 `os.tmpdir()` 形状，CI 仍是最终判据），并解开 17 条 `if (!DRIVE) t.skip` ⇒ **ubuntu 上实际执行的锁从 33 条涨到 52 条**（剩 1 条确需真实盘符，如实保留）。
+
+# [未发布] fix(gates): openspec-sync-check 审计器接进不被 docs-only 短路的 job，并清掉真实仓库 14 条存量违规（openspec-sync-realrepo）
+
+- **第一性原因**：审计器 `scripts/openspec-sync-check.js` 四档退出码（0/1/2/3）**从未被任何门禁对真实仓库调用一次**——CI 只在 `static-gates` 点名它的测试，而那份测试 19 条全部在 `os.tmpdir()` 自建夹具上跑，测的是判据本体不是本仓库。真实仓库当场是 `rc=2 / 14 条`（其中 5 个 `task.json` 根本无法解析）。更糟一层：它审计的 `.ccg/**` 与 `openspec/**` **都在 docs-only 白名单里**，而 `static-gates` 带 `if: docs-only != true` ⇒ 这把锁只可能出现在结构上碰不到被审计文件的 PR 上。这笔欠账 2026-10-14 就写在某条执行记录的第 151 行，但没有任何消费者。
+- **机制收口**：新增 Gate 12e 把审计器与它的测试**再点名一次进 `changes` job**（`static-gates` 那份保留，两处只构成"docs-only PR 也拦得住"），并用既有机制钉住接线——登记进 `check-unwired-tests.js` 的 `MUST_LIVE_IN_UNGATED_JOB`（登记后实测 rc=1 报 `TEST_ONLY_IN_SKIPPABLE_JOB`，加接线才转 OK）。两脚本只用 node 内置模块，满足该 job 无 Install deps 的前提锁。
+- **真实仓库自证锁**三个构件缺一不可：对仓库根跑；取不到 `.ccg/tasks` 或 `openspec/changes` **一律当场红（禁 skip，因为"根没找到"与"找到且合规"在通过消息里完全同形）**；`taskFiles > 50` 规模下界。每次跑打印 `summary={taskFiles,parsedTasks,activeChanges,archivedChanges}`。
+- **14 条逐条取证后修复**（规则先读代码，不按红字猜）：2 个文件是**两个 JSON 对象直接拼接**、1 个被**转义过一次**、2 个是 JSON 串里未转义的盘符路径（顺带暴露 `	` 会被静默吃成 TAB）、4 个 `status` 与 `currentPhase` 互相矛盾、4 个 change 引用写成整路径或**带日期目录名**（索引建键会剥日期 ⇒ 数据坏不是探针瞎）、1 个真悬空——后者走检查器自带的 `superseded + supersededBy` 合法出口，**不删引用也不伪造 change 目录**。改完 `taskFiles=387 / parsedTasks=387 / errors=0 / violations=0 / rc=0`。
+- **反证 4 条红因互不相同**：摘接线红在「job 会被跳过」；注入违规红在「必须自证合规」并点名文件；根指向空目录红在「找不到 .ccg/tasks」；根指向"目录都在但只有 1 个 task.json"的仓库**只有规模下界会红**（证它不是装饰）。MD 第一次跑误报成"根不存在"，根因是**探针自己坏了**（对 `JSON.stringify` 结果多做一次反斜杠折叠 ⇒ 生成的字面量里 `	` 变 TAB），修的是探针不是断言。
+- 契约与逐条归因见 `01-docs/PRD-OPENSPEC-SYNC-REALREPO-2026-10-16.md` 与 `openspec/records/openspec-sync-realrepo.md`。
+- **CI 首跑红在 Gate 2c，红因是我漏跑了一条锁**：本地只跑了 `check-unwired-tests.js` 判据本体（rc=0），没跑它自己的测试；那条测试第 24 条把 `MUST_LIVE_IN_UNGATED_JOB` 钉成精确清单，我的新增登记当场把它顶红。修法除更新钉住的清单外，还把「承载 job 的现场证据」从硬编码单文件泛化为逐登记项循环（注释行不算承载）。**如实**：摘掉接线的变异先红在 `collectCheck` 那条，新循环未被该变异到达，故只申报为 defense-in-depth，不申报"已反证"。
+
 # [未发布] docs(prd): 4.3② 的前置合同 —— 计费二次确认框的只读数据源接口（podcast-episode-script-entry）
 
 - **为什么不是直接做 4.3②**：PRD §7.10.4 要求二次确认框显示「块数 / 总码点 / 服务商·模型·音色三段（含来源标注）」，但这三个数**在渲染端 0 可达**（`origin/main` 实测：`planChunks` 只存在于 `apps/desktop/electron/services/`，`src` 与 `preload` 各命中 0；`resolveEpisodeVoice` 零生产调用方；`voiceRef` 在 `src` 命中 0 个文件）。直做只有两种结果：浮层显示空数，或逼渲染层另抄一份分块与音色推断 —— 后者正是本 PRD 反复禁止的「两份口径必然漂移」。
-- **本片只落合同**：新增 §7.10.4.1 定义唯一读路径 `podcast:episode:plan-preview`（一次往返同时给 `plan{totalBlocks,totalCodepoints}` 与 `voice{providerId,model,voiceId,origin,resolvedBy}`，二者**只转发不加工**）+ 7 条验收判据 + 3 条故意不做；拒绝态沿用既有领域码，**不为预览新增同义码**；计数缺失 = 整块不显示、**绝不回落 0**。三把新键 `podcast.episode.planBlocks/planCodepoints/planVoice`，来源标注**复用** §8.2.9 已定的 `podcast.voice.origin*`，不另写第二份。
-- **一处对本文档早期条款的收敛（偏差就地明写）**：§8.2.9 曾把同一批音色信息规划成独立的 `podcast:voice-preview`。两条并存会让用户打开一次浮层走两趟近重复读路径、音色解析跑两遍，故由 §7.10.4.1 的 `plan-preview` **承载** §8.2.9 的读面；其落点、三态标注与验收判据照用不变，只是 IPC 名与载荷合一。
+- **本片只落合同**：新增 §7.10.4.1 定义唯一读路径 `podcast:episode:planPreview`（一次往返同时给 `plan{totalBlocks,totalCodepoints}` 与 `voice{providerId,model,voiceId,origin,resolvedBy}`，二者**只转发不加工**）+ 7 条验收判据 + 3 条故意不做；拒绝态沿用既有领域码，**不为预览新增同义码**；计数缺失 = 整块不显示、**绝不回落 0**。三把新键 `podcast.episode.planBlocks/planCodepoints/planVoice`，来源标注**复用** §8.2.9 已定的 `podcast.voice.origin*`，不另写第二份。
+- **一处对本文档早期条款的收敛（偏差就地明写）**：§8.2.9 曾把同一批音色信息规划成独立的 `podcast:voice-preview`。两条并存会让用户打开一次浮层走两趟近重复读路径、音色解析跑两遍，故由 §7.10.4.1 的 `planPreview` **承载** §8.2.9 的读面；其落点、三态标注与验收判据照用不变，只是 IPC 名与载荷合一。
 - **tasks 4.3② 拆成 ②-a / ②-b，父项保持未勾**：②-a = 只读预览接口（含两条必须同 PR 的锁 —— 零副作用按**副作用缺席**判（`mkdir`=0 且忙标记未占），以及 `resolveEpisodeVoice` 生产调用方结构锁 `git grep -l` 命中数 > 1）；②-b = 出期通道 + 浮层 + 入口，且**按枚切**（先 `CopyLibraryView.vue`，另两枚各留未勾子项）。「不得先开通道再补入口」的承重是**通道与至少一枚真实消费者同 PR**，不是三枚必须同 PR。
 - 同族手法第二次命中（第一次是 §6.4.2 的七相位进度）：**显示项要反查喂它的那条通道，接不通就说明该显示项还没有合同**。§7.10.4 原表那行刻意未改（仍是目标态数据来源），待 ②-a 落地由实现 PR 一并更新，好让「合同落后于实现」这件事留痕。详见 `openspec/records/podcast-episode-script-entry.md`。
 
