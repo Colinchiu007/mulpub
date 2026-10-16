@@ -1006,7 +1006,12 @@ codeagent-wrapper --backend <FRONTEND_PRIMARY> --lite "审查 <change> 实现：
 #### 与既有门禁的关系
 
 - QM-6 是**外部交叉审查**，补充 QM-2 的自审（代码审查必检项）——两者不可互相替代
-- 质量节拍 skill 的"日常循环 Step ④ 审查"已同步固化此强制卡点（见质量节拍 skill 仓库）
+- QM-6 的强制卡点**不在**质量节拍 skill 层，而在本仓这条机械链上（2026-10-16 实测纠正：skill 的"日常循环 Step ④ 审查"只有主代理自审六项——风格/命名/硬编码/异常/权限/事务，用户级安装副本与仓内两份 vendored 镜像的 `SKILL.md` 全文均无 QM-6 编号；skill 只在 §5.7「M5 交付节奏」把「双模型审查」当流程描述提了一句，不构成卡点）：
+  1. `scripts/ccg-review-decider.js` 按变更规模判定 `mode`，并置 `deepReview.required = (mode !== "skip")`（`:442`）——注意 `single` 也为 true，所以「required 为真」不等于「需要双模型」，要求闭环的范围在下一步只取 `mode === "dual"`；
+  2. pre-commit 把该判定落成审计产物 `.ccg/reviews/<pre-commit HEAD sha>.json` 并自动 stage 进提交；
+  3. `scripts/check-pr-exec-record.js` 的 `evaluateDeepReviewDebt` 要求本次变更集内每条 `mode=dual` 产物的 `deepReview.status` ∈ `{cleared, needs_revision, self_play_resolved}`，否则报「CCG 深度审查欠账」并阻断；
+  4. 该门禁同时是上文「PR 自动合并」判据第 4 条——所以「要不要走 CCG」不靠临场自觉。
+- ⚠️ 上述闭环集含 `self_play_resolved`，即**引擎自扮演裁决在机械上就能满足本门禁**，外部模型一个都没跑也可能判绿；「高危域（`highRiskDomains` 含 crypto）不得自扮演豁免」目前只由引擎与逐片 records 承担，本门禁未镜像它——收紧它属改「谁来守门」，须人工过目。
 - 纯文档/流程变更（`openspec/`、`docs/`、`scripts/` 工具脚本）不强制 QM-6，但建议执行
 
 ## 测试质量增强工具（v0.16.0）

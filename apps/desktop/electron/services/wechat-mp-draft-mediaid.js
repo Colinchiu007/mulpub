@@ -82,8 +82,56 @@ const SAVE_SUCCESS_CONDITION = 'function(){' +
   'return /保存成功|已保存/.test(t);' +
 '}'
 
+/**
+ * 保存 XHR 响应拦截脚本（wxmp-save-body-intercept，2026-10-16）。
+ *
+ * 为什么需要它：CDP `Network.getResponseBody`（rpa-view-helpers.js 的真实契约修复）
+ * 依赖 debugger attach，页面销毁/attach 冲突时可能拿不到 body；这条**页面内拦截**
+ * 是不依赖 CDP 的第二保险——保存点击前注入，包住 XHR 与 fetch 两条通道，把匹配
+ * 保存端点的响应 url+body 存进 `window.__mpSaveResponses`，保存后主进程回读提取。
+ *
+ * 三条不可破：
+ *  ① 匹配判据与 SAVE_RESPONSE_PATTERNS 同源（operate_appmsg / appmsg/save / oper=save）；
+ *  ② 拦截必须**透传**（返回原响应，不得吞掉页面自身逻辑）；
+ *  ③ 只存最近 5 条、每条 body 截断 200KB，防长会话内存堆积。
+ */
+const XHR_INTERCEPT_SCRIPT = '(function(){' +
+  'if(window.__mpSaveIntercepted)return "already";window.__mpSaveIntercepted=true;' +
+  'window.__mpSaveResponses=[];' +
+  'var PATTERNS=["operate_appmsg","appmsg/save","oper=save"];' +
+  'function hit(u){if(!u)return false;for(var i=0;i<PATTERNS.length;i++){if(String(u).indexOf(PATTERNS[i])>=0)return true}return false}' +
+  'function record(u,b){try{window.__mpSaveResponses.push({url:String(u||""),body:String(b||"").slice(0,200*1024)});' +
+  'if(window.__mpSaveResponses.length>5)window.__mpSaveResponses.shift()}catch(e){}}' +
+  // fetch 通道：克隆响应读 text，再放行原响应
+  'var of=window.fetch;' +
+  'if(typeof of==="function"){window.fetch=function(){' +
+  'var u=(arguments[0]&&arguments[0].url)||arguments[0];' +
+  'return of.apply(this,arguments).then(function(r){' +
+  'if(hit(r.url||u)){try{var c=r.clone();c.text().then(function(t){record(r.url||u,t)}).catch(function(){})}catch(e){}}' +
+  'return r})}}' +
+  // XHR 通道：open 记 url，load 事件读 responseText
+  'var oo=XMLHttpRequest.prototype.open;' +
+  'XMLHttpRequest.prototype.open=function(m,u){this.__mpUrl=u;return oo.apply(this,arguments)};' +
+  'var os=XMLHttpRequest.prototype.send;' +
+  'XMLHttpRequest.prototype.send=function(){' +
+  'var self=this;' +
+  'this.addEventListener("load",function(){if(hit(self.__mpUrl)){try{record(self.__mpUrl,self.responseText)}catch(e){}}});' +
+  'return os.apply(this,arguments)};' +
+  'return "ok"})()'
+
+/** 从页面拦截结果提取 appMsgId：遍历 __mpSaveResponses，逐条走 extractAppMsgIdFromBody。 */
+const READ_INTERCEPTED_SCRIPT = '(function(){' +
+  'var arr=window.__mpSaveResponses||[];' +
+  'return JSON.stringify(arr.map(function(r){return {url:r.url||"",body:(r.body||"").slice(0,4000)}}))})()'
+
 /** 保存请求 URL 特征（用于响应体通道的日志判读）。 */
 const SAVE_RESPONSE_PATTERNS = ['operate_appmsg', 'appmsg/save', 'oper=save']
+
+/** 拦截结果 url 也按这套特征匹配（同一判据，不另造第二份）。 */
+function isSaveResponseUrl (url) {
+  const u = String(url || '')
+  return SAVE_RESPONSE_PATTERNS.some(p => u.includes(p))
+}
 
 /**
  * 平台提示读取脚本：只收**可见**提示节点的文本。
@@ -109,16 +157,23 @@ function buildVisibleToastScript (selectors) {
 /**
  * 点「保存草稿」并采集 mediaId。
  *
- * 三条采集通道（按证据强度降序）：
+ * 四条采集通道（按证据强度降序）：
  *   ① 保存后页面 URL 的 `appmsgid`
  *   ② 保存 XHR **响应 URL** 的 `appmsgid`
- *   ③ 保存 XHR **响应体** 的 `appMsgId`  ← 本次新增（真机唯一可达的那条）
+ *   ③ 保存 XHR **响应体** 的 `appMsgId`（两条来源：CDP getResponseBody 真实契约 + 页面内拦截）
+ *   ④ 页面内拦截结果（`window.__mpSaveResponses`，不依赖 debugger，第二保险）
  *
  * @param {object} host RpaViewManager 混入对象（`_click` / `_waitForCondition` / `_waitForResponse` / `_sleep`）
  * @param {object} win BrowserWindow
  * @returns {Promise<{ok: boolean, mediaId?: string, saved?: boolean, detail?: string, error?: string}>}
  */
 async function saveWechatMpDraft (host, win) {
+  // 保存前注入页面内拦截（幂等：重复注入返回 "already"，不重置既有缓存）
+  try {
+    await win.webContents.executeJavaScript(XHR_INTERCEPT_SCRIPT)
+  } catch (e) {
+    log.warn('RpaView', '[wechat_mp] save intercept inject failed: ' + e.message)
+  }
   const saveResponse = host._waitForResponse(win, SAVE_RESPONSE_PATTERNS, 30000)
   const saveClicked = await host._click(win, SAVE_BUTTON_SELECTOR)
   if (!saveClicked) {
@@ -149,6 +204,24 @@ async function saveWechatMpDraft (host, win) {
     }
   }
 
+  // 通道 ④：页面内拦截结果（wxmp-save-body-intercept，不依赖 debugger 的第二保险）
+  if (!mediaId) {
+    try {
+      const raw = await win.webContents.executeJavaScript(READ_INTERCEPTED_SCRIPT)
+      const list = JSON.parse(String(raw || '[]'))
+      for (const item of Array.isArray(list) ? list : []) {
+        if (!isSaveResponseUrl(item && item.url)) continue
+        const id = extractAppMsgIdFromBody(item && item.body)
+        if (id) {
+          mediaId = id
+          log.info('RpaView', '[wechat_mp] mediaId from in-page intercept appMsgId=' + mediaId
+            + ' (CDP body 不可用，走页面内拦截通道)')
+          break
+        }
+      }
+    } catch (_) { /* 拦截不可用时静默降级，老通道仍可用 */ }
+  }
+
   if (!mediaId) {
     log.warn('RpaView', '[wechat_mp] save done without mediaId (saved=' + saved + ' url=' + finalUrl
       + ' xhr=' + (saveResp ? String(saveResp.statusCode || '') : 'none') + ')')
@@ -157,12 +230,30 @@ async function saveWechatMpDraft (host, win) {
 }
 
 /**
+ * 提示文本是否像「真实错误」：不含错误信号关键词的可见文案
+ * （如编辑器常驻设置项「水印：xxx」、说明性文字）一律视为**非错误内容**，
+ * 不得拼进失败文案——那是把可自愈问题伪装成平台业务错误的第二例
+ * （2026-10-16：「平台提示：水印：数字生命丘丘」）。
+ *
+ * 判据（保守白名单，宁缺勿滥）：错误/失败/异常/警告/重试/请/无法/不能/超时/繁忙/
+ * 网络/保护/限制/原创/审核/敏感/违规/超过/不足/缺少/无效/过期/失效。
+ * 平台真实错误提示几乎必然含其中之一；不含时按「非错误内容」丢弃（用兜底文案）。
+ */
+const ERROR_SIGNAL_RE = /错误|失败|异常|警告|重试|请|无法|不能|超时|繁忙|网络|保护|限制|原创|审核|敏感|违规|超过|不足|缺少|无效|过期|失效/
+
+function looksLikeErrorText (text) {
+  return ERROR_SIGNAL_RE.test(String(text == null ? '' : text).trim())
+}
+
+/**
  * 保存失败文案：把「平台原文」与「我们自己的判据」分开呈现。
  *
- * 三条不可破：
+ * 四条不可破：
  *  ① 原创性（64714）/ 群发保护两类已知业务错误 → 直接换成可操作文案（既有行为，不回归）；
  *  ② 其它原文 → 原样带上，但**必须同时给出用户下一步**（去哪看、能不能重试）；
- *  ③ 无原文 → 只用兜底文案，不得编造平台提示。
+ *  ③ 无原文 → 只用兜底文案，不得编造平台提示；
+ *  ④ **原文必须像错误**（looksLikeErrorText）——可见但非错误的常驻设置文案
+ *     （水印标签、说明文字）不得进 error 文案（wxmp-save-body-intercept 第二例）。
  *
  * @param {string} raw 平台/页面可见提示（可为空）
  * @param {string} [fallback] 无法识别时的兜底文案
@@ -177,8 +268,8 @@ function describeSaveFailure (raw, fallback) {
     return '发布失败：账号开启了群发保护。请前往「微信公众平台 → 设置与开发 → 安全中心 → 风险操作保护」，关闭「群发消息」保护后重试'
   }
   const fb = fallback || '微信公众号草稿保存结果无法验证：缺少媒体 ID'
-  // 关键信息在前 40 字内：历史页「失败原因」行单行渲染
-  if (!text) return fb + '，请稍后重试；若反复失败请到公众号后台草稿箱核对'
+  // ④ 错误信号守卫：非错误内容一律退回兜底文案（关键信息仍在前 40 字内）
+  if (!text || !looksLikeErrorText(text)) return fb + '，请稍后重试；若反复失败请到公众号后台草稿箱核对'
   return fb + '（平台提示：' + text.slice(0, 120) + '），请稍后重试；若反复失败请到公众号后台草稿箱核对'
 }
 
@@ -186,8 +277,12 @@ module.exports = {
   SAVE_BUTTON_SELECTOR,
   SAVE_SUCCESS_CONDITION,
   SAVE_RESPONSE_PATTERNS,
+  XHR_INTERCEPT_SCRIPT,
+  READ_INTERCEPTED_SCRIPT,
   buildVisibleToastScript,
   extractAppMsgIdFromBody,
+  isSaveResponseUrl,
+  looksLikeErrorText,
   saveWechatMpDraft,
   describeSaveFailure,
 }

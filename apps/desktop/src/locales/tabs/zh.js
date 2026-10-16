@@ -5,7 +5,7 @@
 export default {
     newTabTitle: '新标签页',
     newTabAria: '新建标签页',
-    brandTitle: '社媒管家',
+    brandTitle: '汤姆鱼',
     productionBoard: '素材看板',
     contactSheet: '场景审批',
     replayTimeline: '生产回放',

@@ -141,17 +141,29 @@
             <span v-if="it.collected" class="col-hint">· {{ $t('collection.zhihuFav.markCollected') }}</span>
           </div>
         </div>
-        <!-- 旧整夹直采（保留兼容） -->
+        <!-- 旧整夹直采（保留兼容）：采集要「选了夹」或「全部收藏」，改写只需有可改写来源。
+             判据（zhihu-fav-buttons-dead）：两个按钮的可用性必须各自成立——原实现让改写
+             共用采集的 `!zhihuSelectedFavlist`，导致没选夹时两个按钮一起恒灰、点击零反应。
+             `data-testid="zhihu-favlist-collect|rewrite|target-hint|rewrite-hint"` 是**测试契约**
+             （可用性回归锁按它们定位）：改名必须同步改 `batch-collect-panel-behavior.test.js`，
+             且保持 `zhihu-*` 前缀惯例。 -->
         <div class="zb-row zb-mt8">
-          <button class="cohere-btn-secondary" @click="zhihuFavlistBatchCollect" :disabled="zhihuFavlistBatching || !zhihuSelectedFavlist">
+          <button class="cohere-btn-secondary" data-testid="zhihu-favlist-collect" @click="zhihuFavlistBatchCollect" :disabled="zhihuFavlistBatching || !zhihuFavTargetReady">
             {{ zhihuFavlistBatching === 'collect' ? $t('collection.zhihuFavlist.collecting') : $t('collection.zhihuFavlist.collectBtn') }}
           </button>
-          <button class="cohere-btn-secondary" @click="zhihuFavlistBatchRewrite" :disabled="zhihuFavlistBatching || !zhihuSelectedFavlist">
+          <button class="cohere-btn-secondary" data-testid="zhihu-favlist-rewrite" @click="zhihuFavlistBatchRewrite" :disabled="zhihuFavlistBatching || !zhihuFavRewriteReady">
             {{ zhihuFavlistBatching === 'rewrite' ? $t('collection.zhihuFavlist.rewriting') : $t('collection.zhihuFavlist.rewriteBtn') }}
           </button>
           <button v-if="zhihuFavlistBatching" class="cohere-btn-secondary" @click="cancelZhihuFavlistBatch">
             {{ $t('collection.cancelBatch') }}
           </button>
+        </div>
+        <!-- 不可点时必须给出**可见原因**（disabled 的 button 不派发 click，静默等于「点了没反应」） -->
+        <div v-if="!zhihuFavTargetReady" class="col-hint zb-mt4" data-testid="zhihu-favlist-target-hint">
+          {{ $t('collection.zhihuFavlist.pickFavlistFirst') }}
+        </div>
+        <div v-if="!zhihuFavRewriteReady" class="col-hint zb-mt4" data-testid="zhihu-favlist-rewrite-hint">
+          {{ $t('collection.zhihuFavlist.rewriteNeedsSource') }}
         </div>
         <div v-if="zhihuFavlistProgress" class="col-hint zb-mt8">{{ zhihuFavlistProgress }}</div>
         <div v-if="zhihuFavlistError" class="col-error-banner zb-mt8">{{ zhihuFavlistError }}</div>
@@ -205,7 +217,10 @@ const props = defineProps({
   rewriteFallbackItems: { type: Array, default: () => [] },
 })
 
-const emit = defineEmits(['collected', 'error'])
+// 事件契约必须显式声明（顺带修复的既有缺陷，2026-10-16）：父级 Collection.vue:144 一直在监听
+// `@collected-rewrites`，而本组件原先只声明 ['collected','error'] ⇒ 靠 fallthrough 侥幸可用，
+// 一旦根节点变成多节点（fragment），监听器会静默失效（组件照 emit、父级收不到）。
+const emit = defineEmits(['collected', 'error', 'collected-rewrites'])
 
 const { notifyWarning, notifyError, notifySuccess, notifyInfo } = useNotify()
 
@@ -439,6 +454,11 @@ async function loadZhihuFavlists () {
     zhihuFavlists.value = r.data || []
     if (!zhihuFavlists.value.length) {
       zhihuFavlistError.value = resolveNotifyText('collection.zhihuFavlist.empty').text
+    } else if (!zhihuFavlists.value.some((f) => f && f.urlToken === zhihuSelectedFavlist.value)) {
+      // 自动选中第一项（zhihu-fav-buttons-dead）：`<select>` 视觉上会显示第一项，而 v-model
+      // 仍是空串 ⇒ 用户「看起来已经选了」，按钮却因 `!zhihuSelectedFavlist` 恒灰。
+      // 真实选择态必须由代码显式建立，不能靠浏览器默认渲染来暗示。
+      zhihuSelectedFavlist.value = zhihuFavlists.value[0].urlToken
     }
   } catch (e) {
     zhihuFavlistError.value = String(e && e.message || e)
@@ -448,13 +468,24 @@ async function loadZhihuFavlists () {
 }
 
 async function zhihuFavlistBatchCollect () {
-  if (!zhihuSelectedFavlist.value) return
+  // 原为 `if (!zhihuSelectedFavlist.value) return` —— **静默返回**，即使被调用也毫无反馈。
+  // 改为出声，并复用与按钮同一判据（含「全部收藏」模式，该模式不需要选中具体收藏夹）。
+  if (!zhihuFavTargetReady.value) {
+    zhihuFavlistError.value = resolveNotifyText('collection.zhihuFavlist.pickFavlistFirst').text
+    return
+  }
   zhihuFavlistBatching.value = 'collect'
   zhihuFavlistError.value = ''
   zhihuFavlistProgress.value = resolveNotifyText('collection.zhihuFavlist.fetchingContents').text
   try {
     const api = getApi()
-    const contents = await api.zhihuFavlistContents({ urlToken: zhihuSelectedFavlist.value })
+    // 与 `loadZhihuFavItems` 同语义（消除两处口径漂移）：全部收藏走 unified-contents，指定夹走 contents
+    const contents = zhihuFavScope.value === 'all'
+      ? await api.zhihuFavlistUnifiedContents({
+        count: zhihuFavFullMode.value ? 200 : zhihuFavCount.value,
+        fullMode: zhihuFavFullMode.value,
+      })
+      : await api.zhihuFavlistContents({ urlToken: zhihuSelectedFavlist.value })
     if (contents.code !== 0) {
       zhihuFavlistError.value = contents.message || resolveNotifyText('collection.zhihuFavlist.loadFailed').text
       return
@@ -491,10 +522,8 @@ async function zhihuFavlistBatchCollect () {
   }
 }
 async function zhihuFavlistBatchRewrite () {
-  // 优先改写本次采集结果；无结果时改写父级传入的有正文条目（与迁移前同一语义）
-  const source = zhihuFavlistResults.value.length
-    ? zhihuFavlistResults.value
-    : (props.rewriteFallbackItems || []).filter((x) => (x.content || '').trim().length >= 20)
+  // 与按钮可用性共用同一判据（`zhihuFavRewriteSource`），消除「按钮说能点、handler 说没内容」的双真源
+  const source = zhihuFavRewriteSource.value
   if (!source.length) {
     zhihuFavlistError.value = resolveNotifyText('collection.zhihuFavlist.noRewritable').text
     return
@@ -560,6 +589,34 @@ const zhihuFavProgressPercent = computed(() => {
   return Math.round((zhihuFavProgressDone.value / zhihuFavProgressTotal.value) * 100)
 })
 const zhihuFavScopeHint = computed(() => zhihuFavScopeNote.value || '')
+
+/**
+ * 「整夹直采」的目标是否就绪（zhihu-fav-buttons-dead，2026-10-16）。
+ *
+ * 为什么要单独抽判据：原实现把按钮写成 `:disabled="... || !zhihuSelectedFavlist"`，
+ * 而 `zhihuSelectedFavlist` 初始为 '' 且**代码从不自动赋值**（只有用户手动点下拉框才会变），
+ * 下拉框本身又在 `v-if="zhihuFavlists.length"` 内 ⇒ 未加载清单时用户看不到下拉框、无从选择
+ * ⇒ **按钮恒灰、点击零事件零提示**（用户报障「点采集/改写没反应」的第一性原因）。
+ * 另外「全部收藏」模式下下拉框被 disabled，用户永远无法满足「必须选中一个夹」的判据 ⇒ 该模式死锁。
+ */
+const zhihuFavTargetReady = computed(() => zhihuFavScope.value === 'all' || !!zhihuSelectedFavlist.value)
+
+/**
+ * 改写来源（与 `zhihuFavlistBatchRewrite` 共用同一判据，消除双真源）：
+ * 优先本次采集结果，其次父级传入的有正文条目。
+ */
+const zhihuFavRewriteSource = computed(() => (
+  zhihuFavlistResults.value.length
+    ? zhihuFavlistResults.value
+    : (props.rewriteFallbackItems || []).filter((x) => (x.content || '').trim().length >= 20)
+))
+
+/**
+ * 改写是否可发起：**只看有没有可改写来源，与是否选收藏夹无关**。
+ * 原实现让「改写」共用采集的 `!zhihuSelectedFavlist` 判据 ⇒ 没选夹时改写也恒灰，
+ * 而改写根本不读收藏夹（它改写的是已采结果/父级条目）。
+ */
+const zhihuFavRewriteReady = computed(() => zhihuFavRewriteSource.value.length > 0)
 
 function zhihuKindLabel (kind) {
   const keyMap = { answer: 'kindAnswer', article: 'kindArticle', column: 'kindColumn', pin: 'kindPin', video: 'kindVideo', unknown: 'kindUnknown' }

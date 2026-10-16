@@ -215,6 +215,11 @@ export default {
       configDenied: 'Unavailable',
       configUnreadable: 'The saved secret cannot be read; please save it again in Settings',
       configLegacy: 'A legacy plaintext secret was detected; save it again in Settings to migrate it to encrypted storage',
+      // Reason the Collect button is disabled (zhihu-fav-buttons-dead): a disabled button fires no
+      // click event, so without this hint the user's experience is simply "nothing happens"
+      pickFavlistFirst: 'Load your favorites first, or choose "All favorites" as the scope',
+      // Reason the Rewrite button is disabled: rewriting depends on existing content, not on a favlist
+      rewriteNeedsSource: 'Nothing to rewrite yet — collect a batch with "Collect & rewrite" first',
       loadBtn: 'Load Favorites',
       loading: 'Loading...',
       loadFailed: 'Failed to load favorites',

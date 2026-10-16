@@ -239,7 +239,7 @@ const supplementaryWorkflowTests = [
     name: 'first-run-flow',
     route: '/first-run',
     steps: [
-      { action: 'waitFor', selector: 'h2:has-text("欢迎使用社媒管家")' },
+      { action: 'waitFor', selector: 'h2:has-text("欢迎使用汤姆鱼")' },
       { action: 'screenshot', name: '首次运行引导' },
     ],
   },
