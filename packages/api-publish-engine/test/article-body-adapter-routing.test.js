@@ -127,6 +127,43 @@ describe('正文承载形态：适配器必须经 formatArticleBody 单一实现
     }
   })
 
+  // ---------- 空值安全（CCG 裁决 i3 的补强，虽判 dismissed 但值得钉住）----------
+  // 动因：i3 质疑「youtube 有 `|| \"\"` 而 tiktok/twitter 没有」。取证后 formatArticleBody
+  // 自身对 null/undefined/'' 全部安全返回 \"\"（首行 String(content == null ? \"\" : content)
+  //  + !raw.trim() 短路），故判 dismissed。但这是**未被钉住的安全性质**——将来若有人改掉
+  // formatArticleBody 的首行归一化，tiktok/twitter 会失去兜底而 youtube 仍有。
+  test('A7 空值安全：三个平台 × null/undefined/空串 ⇒ 产出恒为 \"\"，不抛错', function () {
+    const Adapters = {
+      youtube: require('../src/adapters/youtube'),
+      tiktok: require('../src/adapters/tiktok'),
+      twitter: require('../src/adapters/twitter'),
+    }
+    const { formatArticleBody } = require('../src/content-formatter')
+    for (const [name, Adapter] of Object.entries(Adapters)) {
+      for (const v of [null, undefined, '']) {
+        let out
+        try { out = formatArticleBody(name, v) } catch (e) {
+          throw new Error(`formatArticleBody('${name}', ${JSON.stringify(v)}) 抛错：${e.message}`)
+        }
+        if (out !== '') {
+          throw new Error(`formatArticleBody('${name}', ${JSON.stringify(v)}) 应返回 \"\"，实际 ${JSON.stringify(out)}`)
+        }
+      }
+    }
+    // 三平台兜底一致性：adapter 侧也不得因空 content 抛错（走 execute/buildPostData 视平台而定）
+    const twitter = new Adapters.twitter()
+    twitter._getAuth = () => ({ apiKey: 'k', apiSecret: 's', accessToken: 't', accessSecret: 'x' })
+    let captured = null
+    twitter._apiPost = async (endpoint, body) => { captured = body; return { data: { id: 't-1' } } }
+    return twitter.execute({ title: '', content: undefined, tags: [] }, null, {}).then(() => {
+      if (!captured) throw new Error('twitter: 空 content 时 _apiPost 未被调用')
+      if (typeof captured.text !== 'string') throw new Error(`twitter: 空 content 产出非字符串：${JSON.stringify(captured.text)}`)
+      if (/undefined|null/.test(captured.text)) {
+        throw new Error(`twitter: 空 content 产出含字面量 undefined/null：${JSON.stringify(captured.text)}`)
+      }
+    })
+  })
+
   // ---------- B 档 · 结构级（非行为证明）----------
   // tiktok / youtube 的正文组装深埋在真实网络调用之后（tiktok 要先 /video/init/ 拿 upload_url
   // 再走上传协议切片；youtube 要先 OAuth 换 token），没有可注入缝 ⇒ 只能做结构断言。

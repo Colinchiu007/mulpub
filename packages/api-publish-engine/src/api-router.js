@@ -1,10 +1,20 @@
-﻿const logger = require('./logger')
+const logger = require('./logger')
 /**
  * API Router ? P0/P1/P2 API mode routing
  *
  * P0: has_api:true platforms use API mode (1-5s vs 60s+ RPA)
  * P1: New platform adapters prioritize API, RPA as fallback
  * P2: Auto-route from platforms.yaml, auto-fallback on failure
+ *
+ * ★ 两轴语义（2026-10-16 p3-residual-criteria，CCG 深度评审 i1 upheld 后修复）：
+ *   `has_api` 与 `publishMode` 是**两个独立轴**：
+ *     · `has_api`    = 该平台**有没有** API 发布实现；
+ *     · `publishMode` = 当前**走哪条轨**（api-only / api-then-dom / dom-only）。
+ *   本仓既有「未入波」状态：`has_api:true` + `publishMode:dom-only`
+ *   （youtube / twitter —— 二者都有完整 API 适配器，但尚未接入 API 发布波次）。
+ *   旧实现 `supportsApi() = !!cfg.has_api` 会把这种平台**过报**成 API 平台，
+ *   与 `rpa-view-manager.js:68` 记载的事故（publishMode=dom-only 却因 has_api=true
+ *   误入 API 轨）同款。故「是不是 API 平台」一律取**两轴合取**。
  */
 const fs = require("fs");
 const yaml = require("js-yaml");
@@ -13,13 +23,22 @@ const { resolvePlatformConfigPath } = require('./runtime-config-path')
 let _platforms = null;
 let _apiPlatforms = null;
 
+/** 该平台当前是否真的走 API 轨（两轴合取，单一来源）。 */
+function isApiTrack (cfg) {
+  if (!cfg || !cfg.has_api) return false
+  var mode = cfg.publishMode
+  // publishMode 缺省时按 has_api 派生（与 getPublishMode 同口径）
+  if (mode == null || mode === '') mode = 'api-then-dom'
+  return mode === 'api-only' || mode === 'api-then-dom'
+}
+
 function loadConfig() {
   if (_platforms) return _platforms;
   try {
     const raw = fs.readFileSync(resolvePlatformConfigPath(), "utf8");
     _platforms = yaml.load(raw).platforms;
     _apiPlatforms = Object.entries(_platforms)
-      .filter(function(e) { return e[1].has_api; })
+      .filter(function(e) { return isApiTrack(e[1]); })
       .map(function(e) { return e[0]; });
     return _platforms;
   } catch (e) {
@@ -42,11 +61,15 @@ function reloadConfig() {
 
 function shouldUseApi(platform) {
   var cfg = loadConfig()[platform];
-  return cfg ? !!cfg.has_api : false;
+  // ★ 两轴合取（见文件头 i1 修复说明）：has_api 只说明「有实现」，
+  //   还要 publishMode 真的走 API 轨才算 API 平台。
+  return isApiTrack(cfg);
 }
 
 function supportsApi(platform) {
-  try { return require("./index").supportsApi(platform); }
+  try {
+    return require("./index").supportsApi(platform) && isApiTrack(loadConfig()[platform]);
+  }
   catch(e) { return false; }
 }
 

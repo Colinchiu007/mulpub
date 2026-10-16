@@ -61,9 +61,14 @@ describe('§5.1 getPublishMode 读取器', function () {
     // 故优先级改由 youtube 的反向样本证明，断言本身随之更新。
     expect(router.shouldUseApi('tencent_video')).toBe(true)
     expect(router.getPublishMode('tencent_video')).toBe('api-then-dom')
-    // youtube: has_api=true，但 publishMode=dom-only → 应取字段值（反向样本：
+    // youtube: has_api=true，但 publishMode=dom-only → getPublishMode 应取字段值（反向样本：
     // 若 getPublishMode 由 has_api 派生，这里会得到 api-then-dom，断言即红）
-    expect(router.shouldUseApi('youtube')).toBe(true)
+    // ★ 2026-10-16 更新（p3-residual-criteria，CCG 深度评审 i1 upheld 后修复）：
+    //   shouldUseApi 已改为**两轴合取**（has_api 且 publishMode ∈ {api-only, api-then-dom}）。
+    //   youtube 虽 has_api:true，但 publishMode=dom-only（未入波）⇒ shouldUseApi 为 false。
+    //   这条正是 i1 要堵的「过报 API 平台」：旧语义会把 youtube 报成 API 平台，
+    //   与 rpa-view-manager.js:68 记载的误入 API 轨事故同款。
+    expect(router.shouldUseApi('youtube')).toBe(false)
     expect(router.getPublishMode('youtube')).toBe('dom-only')
   })
 
