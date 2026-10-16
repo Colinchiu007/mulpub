@@ -1,0 +1,30 @@
+{
+  "sha": "4a1dc9474296b97883d6eb06165eed4646f9b2b1",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 5,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 35,
+    "docSensitiveContentSample": [
+      "# 账号页列表路径零解密 —— 代理信息移出列表、改为弹窗按需读取",
+      "同批日志里每个账号一行 `checkLocalCredentials: OK encrypted <platform>:<id>`，**8 行间隔约 100ms** —— 串行特征。",
+      "代理配置存在**加密凭证文件**里（`setAccountProxy` 把它写进与 cookies / localStorage / indexedDB / accountInfo **同一份 payload**）。读取必须解密整份文件。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "59bd41a0f7bcb9518fb840a9787a42f3bcaf70954b8ab11c77e8e85c3462abbf",
+  "decidedAt": "2026-10-16T15:25:11.828Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

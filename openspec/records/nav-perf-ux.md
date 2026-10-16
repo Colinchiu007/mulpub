@@ -22,7 +22,7 @@ sync_backfill_owner: 下一个会话（合并后在本文件内收口：远程�
 | 行尾与 diff 对账 | PASS | 两口径 numstat 一致（`git diff --numstat` == `--ignore-cr-at-eol --numstat`） |
 | 接线棘轮 | N/A | 未新增任何 `*.test.js` **文件**（10 条锁全部追加进两个已接线文件）；新增的两个**源码**文件 `account-proxy.js` / `useAccountProxyDialog.js` 不属接线棘轮管辖面 |
 | QM-1 打包 | PASS | 见下「QM-1 证据」小节 |
-| QM-4 视觉 | N/A | 账号卡片少一行、列表少一个徽标，属**移除**而非改样式；弹窗新增三态仅影响弹窗内部。**如实声明**：本轮未跑像素回归，理由是被删元素没有任何像素基线（移除即不存在），新增态在弹窗内且未被视觉基线覆盖 |
+| QM-4 视觉 | PASS（重采基线，非抬预算） | **首轮我判成 N/A 是错的**——当时写「被删元素没有任何像素基线」，实际 `apps/desktop/tests/visual-testing/base-screenshots/` 里**有**账号页基线（`accounts-list[-flag-on][-dark].png`），删元素必然改变它。这是本轮最实质的失误：把「我没查」写成了「不适用」。CI 随后以 `Gate 7b - Baseline freshness` 打红（**不是** `Gate 7 - Visual regression`，后者 6% 阈值下通过了）。**归因证据四条**：① CI 两轮独立重采数值**逐位相同**（round1 == round2 == light 34481px/1.663%、dark 62878px/3.032%）⇒ 经 two-round verdict 判定为确定性真实漂移、非抖动；② 43 个受管视图**只有这 4 个**漂移、其余 39 个**零漂移** ⇒ 无附带损伤；③ 本地独立复现数值与 CI 一致（1.66% / 3.03%），差异图红带正落在被删的代理行处、其下为整片垂直重排（删掉一行后内容上移的机械必然后果）；④ **闭环**：换用新基线、去掉 `UPDATE_BASELINE` 重跑，浅/暗均 **0 失败**（漂移 → 0）。**手法受控**：用脚本自带 `PIXEL_ONLY` 限定范围（其注释明确全量重采会把无关环境差烘进基线）、`git rm` 4 张受管基线（正规路径）并先备份 `%TEMP%`、dev server 用**独占端口 5179**（脚本 L214 警告 TEST_URL 指向并发会话的 server 会拿到别人的构建当自己的证据）。判据原文支持这条路径：「该处行为已改，须重新取证而非抬预算」——抬 `DYNAMIC_ALLOWED` 会把「我删的」与「别的什么坏了」一起盖住 |
 | QM-6 CCG 双模型评审 | 见下 | 判定器读数由 pre-commit 落盘 `.ccg/reviews/<sha>.json`；本 PR 为混合 PR（含运行时代码），按 §12.6 走 `mode=dual` |
 | 逐文件行数门禁 | PASS | 首轮打红两条并已修：① `publish.js` 508 行 ≥ 500（我加的 `history:list` 耗时日志 +11 行）⇒ **回退该改动**并登记为遗留项（正确修法是先按范式拆文件再补日志）；② `Accounts.vue` 1624 行 > 点名目标 1578（零增长容差）⇒ 按门禁提示的 **composable 范式**把代理弹窗整体下沉到 `useAccountProxyDialog.js`，**1624 → 1538 行**。终局 `node .github/scripts/check-max-lines.js` → **exit 0**（`✅ 无新增超大文件，挂账清单与现实一致`） |
 | 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间；`git ls-remote --heads origin nav-perf-ux` 返回 0 行证远端分支已删；回填后删除上方三个 `sync_*` 字段 |
@@ -46,7 +46,17 @@ sync_backfill_owner: 下一个会话（合并后在本文件内收口：远程�
 
 ### 本轮实测修到的实现缺陷（写进注释防回归）
 
+**① 数组 getter 的 watch 会误触发重置（渲染端）**
+
 `watch(() => [props.visible, props.account?.id], resetForm)` 这类**数组 getter**：每次依赖失效都会返回**新数组**，watch 用 `Object.is` 比较必然不相等 ⇒ 父组件换上带 `proxy` 的新 `account` 对象时（惰性读取正是这么做的，`id` 并未变）也会触发 `resetForm`，**清掉用户在读取窗口里已经输入的内容**。改为原始值拼成的字符串键。回归锁：`AccountProxyDialog.test.js`「惰性读到的当前代理只预填一次，不覆盖用户已输入的内容」（先用数组 getter 复现变红，再改字符串键转绿）。
+
+**② 漏带 preload IIFE bundle（打包版才会暴露的功能性缺陷）**
+
+`preload/account.js` 新增 `accountGetProxy` 后，打包会重生成 `electron/preload/index.bundle.js`；我前两次提交**漏带了该产物**（3 行新增）。后果：**打包版**（非 dev）的 preload 里没有这个 API ⇒ `invokeWithFallback` 静默返回 `code=-1` ⇒ 代理设置弹窗**永远显示「读取当前代理配置失败」**。
+
+为什么五层测试都没拦住：单测全部 mock 掉 `window.electronAPI`，只能验渲染端分支；而 dev 态 Vite 直接走源文件、不经过该 bundle ⇒ **只有真实打包产物里才暴露**。这正是 QM-1「单元测试不能替代完整打包验证」要拦的形状——而且它**确实被 QM-1 拦到了**（打包重生成后工作区出现该文件改动），是我第一轮漏看了工作区变化、没把它纳入提交。
+
+> 可复用判据：凡改 `electron/preload/*.js`，**必须检查 `git status` 里 `index.bundle.js` 是否被重新生成**，是则一并提交。仅跑打包不够——还要看产物是否"脏"。
 
 ### 遗留（不假装已闭合）
 
