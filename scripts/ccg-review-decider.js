@@ -217,8 +217,16 @@ function collectFromDiff(numstatArgs, diffArgs) {
 }
 
 /** 验证层·暂存区：pre-commit 时用（那时改动只在 index 里） */
+// ★ 2026-10-16（QM-6 i2，实测口径分离）：`stagedDiffHash` 排除 `.ccg`，而行数统计原先
+// **不排除** ⇒ 同一份暂存 diff 会因「.ccg 是否参与」判出不同的 mode 与不同的记录名。
+// 纯 `.ccg/` 提交即该分叉的极端形态：stats 非空（把记录自身算进去）而 hash 为空
+// ⇒ 回落旧命名 ⇒ 恰恰回到本次要消灭的跨分支撞名。统一口径为「两者都排除 .ccg」：
+// 判定器自己的输出文件不该影响对它的判定。
 function collectStaged() {
-  return collectFromDiff(["diff", "--cached", "--numstat"], ["diff", "--cached", "-U0"]);
+  return collectFromDiff(
+    ["diff", "--cached", "--numstat", "--", ".", ":(exclude).ccg"],
+    ["diff", "--cached", "-U0", "--", ".", ":(exclude).ccg"]
+  );
 }
 
 /**
@@ -407,33 +415,158 @@ function judge(staged) {
 //  落盘（可审计）
 // ═══════════════════════════════════════════════════════════════════
 
+/**
+ * 闭环白名单 —— 与 `check-pr-exec-record.js` 的 `CLOSED_DEEP_REVIEW_STATUSES` **必须一致**。
+ *
+ * 为什么在此重复定义而不是跨文件 require：decider 跑在 pre-commit 钩子里，被
+ * `ccg-review.ps1` / `deep-review.sh` 直接 spawn；跨文件 require 会把耦合伸进钩子启动路径。
+ * 重复定义的风险由回归锁兜底：`ccg-review-decider.test.js` 直接读
+ * `check-pr-exec-record.js` 的源码断言两处集合相等，改一处忘另一处当场红。
+ */
+const CLOSED_DEEP_REVIEW_STATUSES = new Set(["cleared", "needs_revision", "self_play_resolved"]);
+
+/**
+ * 「有实质内容、不该被覆盖」的状态集合 —— **不等于闭环白名单**。
+ *
+ * ★ 2026-10-16（QM-6 第二轮 i2）：\`cleared\`/\`needs_revision\`/\`self_play_resolved\` 是闭环态，
+ *   被覆盖会把有效结论抹掉。
+ *
+ * ★ 第三轮 i3 修正：\`self_play_blocked\`/\`self_play_pending\` **不无条件入集** ——
+ *   第二轮我把它们直接加进 PRESERVE，注释写「已产出 findings」，但实测本 PR 自带的
+ *   \`5e658b47….json\` 就是 \`self_play_pending\` + \`findings: null\`：
+ *   那种记录**没有任何实质内容**，保留它只会让同内容 amend 每次另存 alt、无限累积，
+ *   且与「保留 = 有实质内容」的判据自相矛盾。
+ *   故这两个态改为**由 findings 判据兜**（见 shouldPreserveClosedRecord 的第二条），
+ *   不再按状态名无条件保留。
+ */
+const PRESERVE_BY_STATUS = new Set(CLOSED_DEEP_REVIEW_STATUSES);
+
+/**
+ * 是否该**保留**已存在的同名记录（即本次不覆盖它）。
+ *
+ * ★ 2026-10-16（QM-6 i3 + 变异反证 M7 暴露的缺口）：
+ *   内容寻址让「同一变更反复提交/amend」落到同一个文件 —— 这是收敛性的来源，
+ *   但副作用是后写静默覆盖先写。若先写那份有实质内容，覆盖会把它丢掉。
+ *
+ *   首版把这段判定**内联**在 saveRecord 里，只用「grep 源码字面」的结构锁守着；
+ *   变异反证立即抓到缺口：把 `if (cond)` 改成 `if (false && cond)` 后所有字面仍在
+ *   ⇒ 结构锁全绿而**行为已失效**。故抽成纯函数，让行为锁能真正调用它。
+ *
+ *   ★ 判据是**两层**，且第二层才是主判据：
+ *     ① 状态在闭环白名单 ⇒ 保留（结论有效，不该被抹回 pending）
+ *     ② **`deepReview.findings` 是非空数组** ⇒ 保留
+ *     第二层让任何状态（含白名单外的未来态、含 blocked/pending）只要**真有内容**就保留；
+ *     没有内容的状态一律允许覆盖，不会冻结、不会累积 alt。
+ *
+ * @returns {boolean} true = 保留旧记录、本次另存（不覆盖）
+ */
+function shouldPreserveClosedRecord(prev) {
+  if (!prev || !prev.deepReview) return false;
+  const st = typeof prev.deepReview.status === "string" ? prev.deepReview.status : null;
+  if (st && PRESERVE_BY_STATUS.has(st)) return true;
+  // 主判据：已产出 findings ⇒ 有实质内容 ⇒ 保留（与状态名无关，未来态也受益）
+  const f = prev.deepReview.findings;
+  return Array.isArray(f) && f.length > 0;
+}
+
+/**
+ * 判定记录的文件名 —— **内容寻址**（ccg-record-content-addressing，2026-10-16）。
+ *
+ * 旧行为：`${sha}.json`，其中 sha 是 pre-commit 时的 HEAD，即**新提交的父提交**。
+ *
+ * 为什么必须改（实测三次 add/add 冲突）：
+ *   父 sha 被**同基线的所有分支共享**。两个从同一基线分叉的会话，各自提交**不同**的变更，
+ *   却会写到**同一个文件名**上 ⇒ rebase 时 add/add 冲突；而冲突的任何单侧取法都有损失
+ *   （取 ours 丢掉本 PR 的记录，取 theirs 覆盖他人产物 —— 仓规明令禁止「后推覆盖」）。
+ *   本轮在 2bcce6833 / 5c7b3c127 / 56e34b56b 三个基线上各撞一次。
+ *
+ * 顺带修掉两个同源症状：
+ *   - **孤儿**：名字指向父提交，`amend` 后该父提交可能不再是历史中的任何提交；
+ *   - **不收敛**：闭环需再提交、再提交又按新父 sha 生成新名字。改名后，同一变更
+ *     重提交/amend 得到**同一个名字**（覆盖同一文件），天然收敛。
+ *
+ * 判据：内容寻址键用 `stagedDiffHash`（排除 `.ccg` 的暂存 diff 的 sha256）——
+ * 它与引擎 `ccg-deep-review.js::readDecision()` 的内容寻址键**同源**，所以改名对引擎无影响
+ * （引擎按记录里的字段匹配、不关心文件名）。
+ *
+ * 回落：`stagedDiffHash` 为空（例如只改 `.ccg/` 的提交，diff 排除 `.ccg` 后为空）时，
+ * 回落到既有的 40 位父 sha 形态 —— 保持门禁 `AUDIT_ARTIFACT_RE` 可识别，且不产生空名。
+ * 这类提交多为 `mode: skip`，不参与跨分支的唯一性诉求。
+ */
+function recordFileName(stagedDiffHash, sha) {
+  const h = typeof stagedDiffHash === "string" ? stagedDiffHash.trim() : "";
+  if (/^[0-9a-f]{64}$/.test(h)) return `${h}.json`;
+  return `${sha}.json`;
+}
+
 function saveRecord(result, sha, layer, plannedFiles) {
   const dir = path.join(process.cwd(), ".ccg", "reviews");
   fs.mkdirSync(dir, { recursive: true });
-  const file = path.join(dir, `${sha}.json`);
+  // 内容寻址键：暂存区 diff 的哈希，且排除 .ccg 自身。
+  //
+  // 为什么排除 .ccg：判定器自己的输出文件也会被 git add 进同一个 commit，
+  // 用它做键会随自身输出移位。排除后，pre-commit 的「暂存 diff」与提交后的
+  // 「parent..HEAD diff」逐字节相同，可以稳定对上（实测踩过：不排除就一次都跑不起来）。
+  //
+  // ★ QM-6 第三轮 i4：配方必须**固定 diff 行为**，否则跨机器/换配置时同一个变更
+  //   会算出不同哈希（记录找不到）。`--no-textconv --no-ext-diff` 关掉用户配置的
+  //   外部差异与 textconv 驱动；`--no-renames` 关掉重命名检测（否则「重命名 + 小改」
+  //   与「删除 + 新增」可能给出不同 diff 文本）。
+  //   注意：`autocrlf` 不在此列 —— 它影响的是工作区文件而非 git diff 的输出文本，
+  //   且强行 --no-autocrlf 会与仓库 .gitattributes 冲突。此项记为残留风险。
+  //
+  // ★ QM-6 第三轮 i5：哈希算不出来时**绝不静默回落父 sha** —— 那恰好回到本次要消灭的
+  //   跨分支撞名，且无任何告警。改为：显式告警 + 记录里写 stagedDiffHash:null，
+  //   让「无键」这件事本身可见（门禁与事后审计都能看到）。
+  const hashResult = (() => {
+    // ★ 第四轮自查追加（实测踩到）：`git()` 失败时返回 **null**，
+    //   而 `String(null)` 是字符串 **"null"**（非空！）⇒ 旧版 `if (!d.trim())` 判不出空
+    //   ⇒ 把「git 调用失败」当成「有 diff 内容」⇒ 对 "null" 算 sha256 得到
+    //   74234e98…（sha256("null")）这个**稳定但无意义**的哈希 ⇒ 记录落在一个假名字下，
+    //   且永远找不到（因为它不对应任何真实 diff）。
+    //   症状：非 git 目录里 saveRecord 也「成功」写出 64 位记录。
+    //   修法：先判 null/undefined，再判空串。
+    let d;
+    try {
+      d = git([
+        "diff", "--cached", "--no-textconv", "--no-ext-diff", "--no-renames",
+        "--", ".", ":(exclude).ccg",
+      ]);
+    } catch (e) {
+      return { hash: undefined, empty: false, error: String(e && e.message ? e.message : e) };
+    }
+    if (d === null || d === undefined) {
+      return { hash: undefined, empty: false, error: "git diff --cached 返回 null（不在 git 仓库？）" };
+    }
+    if (!String(d).trim()) return { hash: undefined, empty: true };
+    return { hash: require("crypto").createHash("sha256").update(String(d)).digest("hex"), empty: false };
+  })();
+  const stagedDiffHash = hashResult.hash;
+  if (!stagedDiffHash) {
+    // 空 diff（纯 .ccg 提交）与算失败是两件事：前者回落父 sha 是既定设计，
+    // 后者是故障。必须分开报，否则「算失败」会被读成「本来就没有」。
+    // 注意：decider 是纯 node CLI，没有 shell 的 say()；告警走 stderr（console.error），
+    // 且**不得**污染 stdout —— 某些调用方会解析 stdout。
+    if (hashResult.empty) {
+      console.error("[ccg] 判定记录：暂存 diff（排除 .ccg）为空 ⇒ 回落父 sha 命名（纯 .ccg/ 提交）");
+    } else {
+      console.error("[ccg] ⚠ 无法计算 stagedDiffHash（" + (hashResult.error || "未知原因") + "）");
+      console.error("[ccg] ⇒ **不写判定记录**（写父 sha 名会撞名，比不写更糟）；本次跳过记录落盘。");
+      console.error("[ccg] 请检查 git diff 是否可用（git 是否在 PATH、仓库是否可读）。");
+      // ★ 第四轮 i6：error 分支不落盘 —— 首版仍写父 sha 名的记录，而那正是本轮要消灭的
+      //   跨分支撞名源，且没有任何去重处置。不写只会让门禁报「缺记录」（可见、可定位），
+      //   写则产生一个会与他人冲突的文件（不可见、难定位）。两者取其可见者。
+      return null;
+    }
+  }
+  const file = path.join(dir, recordFileName(stagedDiffHash, sha));
   const record = {
     sha,
     layer: layer || "diff", // plan = 决策层(动手前) | diff = 验证层(动手后)
     mode: result.mode,
     reason: result.reason,
     stats: result.stats,
-    // 内容寻址键：暂存区 diff 的哈希，且排除 .ccg 自身。
-    //
-    // 为什么必须这样：pre-commit 阶段新 commit 的 sha 还不存在，
-    // 记录只能写在父 sha 上；提交完深度审查按新 HEAD 找，必然落空。
-    // 试过用 git write-tree 做键，不行——判定器自己的输出文件
-    // 也会被 git add 进同一个 commit，tree 因此移位，键对不上。
-    //
-    // 排除 .ccg 后，pre-commit 的「暂存 diff」与提交后的
-    // 「parent..HEAD diff」逐字节相同，可以稳定对上。
-    // 实测踩过：不加这个字段，验证层在真实流程里一次都跑不起来。
-    stagedDiffHash: (() => {
-      try {
-        const d = String(git(["diff", "--cached", "--", ".", ":(exclude).ccg"]));
-        if (!d.trim()) return undefined;
-        return require("crypto").createHash("sha256").update(d).digest("hex");
-      } catch (_) { return undefined; }
-    })(),
+    stagedDiffHash,
     // 决策层记录方案点名的待改文件，供事后范围漂移比对
     plannedFiles: (layer === "plan" && plannedFiles) || undefined,
     decidedAt: new Date().toISOString(),
@@ -445,6 +578,47 @@ function saveRecord(result, sha, layer, plannedFiles) {
       findings: null,
     },
   };
+  // ★ 2026-10-16（QM-6 i3，成立并已修）：内容寻址让「同一变更反复提交/amend」落到**同一个文件**，
+  // 这正是收敛性的来源；但副作用是**后写会静默覆盖先写**。若先写那份的 deepReview 已经闭环
+  // （例如 amend 前已跑完双模型审查），覆盖就会把闭环状态抹回 pending ⇒ 欠账门禁重新变红，
+  // 且**已产出的审查结论丢失**。
+  //
+  // sha256 抗碰撞 ⇒ 「同名而内容不同」只可能来自回落路径或哈希碰撞，无需防；
+  // 真正要防的就是这一种：同名 + 已闭环。故写前检查，命中则拒写并保留原文件。
+  if (fs.existsSync(file)) {
+    let prev = null;
+    try { prev = JSON.parse(fs.readFileSync(file, "utf8")); } catch (_) { prev = null; }
+    if (shouldPreserveClosedRecord(prev)) {
+      // 不覆盖已有实质内容的记录；把本次判定另存，避免两份都丢失。
+      //
+      // ★ 第四轮 i1/i6（Critical）：alt 名不得无限累积。
+      //   同变更 amend 时 stagedDiffHash 相同 ⇒ 每次都会走到这里 ⇒ 每次都新时间戳 ⇒
+      //   反复 amend 会产生一堆 `<64hex>-again-<sha>-<ts>.json`。
+      //   修法：**同 sha 只保留一个 alt** —— 先把已存在的同前缀 alt 清掉再写新的。
+      //   （`<64hex>-again-` 这个前缀在同一份变更下是确定的，故可按前缀清理。）
+      const altPrefix = file.replace(/\.json$/, "-again-");
+      // ★ 必须用 path.basename 取前缀，不能 split("/")：Windows 路径分隔符是 `\`，
+      //   split("/") 在 Windows 上**不拆分** ⇒ pop() 返回整条路径 ⇒ startsWith(整条路径)
+      //   恒 false ⇒ 去重完全失效（实测：两次 amend 留下两份 alt）。
+      const altBase = path.basename(altPrefix);
+      try {
+        for (const n of fs.readdirSync(dir)) {
+          if (n.startsWith(altBase) && n.endsWith(".json")) {
+            fs.unlinkSync(path.join(dir, n));
+          }
+        }
+      } catch (_) { /* 列目录失败不阻塞主流程 */
+      }
+      // ★ 第二轮 i5：alt 名必须**全局唯一** —— 首版用 sha.slice(0,8)，同前缀会互相覆盖；
+      //   改为完整 sha + 时间戳（同一 sha 内毫秒级也唯一）。
+      const alt = file.replace(
+        /\.json$/,
+        `-again-${sha}-${new Date().toISOString().replace(/[:.]/g, "")}.json`
+      );
+      fs.writeFileSync(alt, JSON.stringify(record, null, 2), "utf8");
+      return alt;
+    }
+  }
   fs.writeFileSync(file, JSON.stringify(record, null, 2), "utf8");
   return file;
 }
@@ -635,5 +809,12 @@ module.exports = {
   collectRange,
   collectProposal,
   isDocsOnly,
+  recordFileName,
+  CLOSED_DEEP_REVIEW_STATUSES,
+  PRESERVE_BY_STATUS,
+  shouldPreserveClosedRecord,
+  // 导出 saveRecord 仅为**行为锁**服务（真调它对「同变更反复 amend 不累积 alt」取证）；
+  // 它依赖 process.cwd() 与真实 git，故只在测试里用，不在生产路径上被别处调用。
+  saveRecord,
 };
 

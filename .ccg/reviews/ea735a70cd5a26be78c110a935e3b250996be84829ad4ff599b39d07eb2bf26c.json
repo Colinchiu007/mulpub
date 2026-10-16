@@ -1,0 +1,41 @@
+{
+  "sha": "04f2e247590b91788813000e6d140c279beb90cb",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 46 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 46,
+    "fileCount": 3,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "| i7 | Info | **未修**：判定记录无加密签名/无外部存证。加签名需引入密钥管理与验签入口，属「改谁来守门」，需人工决策 |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "ea735a70cd5a26be78c110a935e3b250996be84829ad4ff599b39d07eb2bf26c",
+  "decidedAt": "2026-10-16T16:14:59.695Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "self_play_pending",
+    "performedBy": "self-play(pending)",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "domains": [
+          "crypto"
+        ]
+      }
+    ],
+    "findings": null,
+    "template": ".adversarial\\ccg-deep-752fcfe6\\adjudication.json",
+    "note": "裁决尚未填写：5/5 条未定（i1, i2, i3, i4, i5）",
+    "at": "2026-10-16T16:18:45.773Z"
+  }
+}
