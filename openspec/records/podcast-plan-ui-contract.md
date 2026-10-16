@@ -2,9 +2,6 @@
 record: podcast-plan-ui-contract
 task: 把 ②-b 未实现一半的合同钉进 PRD §7.10.3.1（浮层落点/组件接口/挂起登记/文案键/验收清单）
 date: 2026-10-17
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 与合并时间还不存在；合并后由本会话开回填 PR，把「远程同步」行改成 PASS + merge SHA，并在同一次提交删除本段三个字段
-sync_backfill_owner: podcast-plan-ui-contract 会话（本节作者）
 ---
 
 ## 本次执行记录：②-b 合同先行（podcast-plan-ui-contract，2026-10-17）【docs-only】
@@ -12,13 +9,13 @@ sync_backfill_owner: podcast-plan-ui-contract 会话（本节作者）
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
 | 变更类型与隔离 | ✅ | 纯规格变更（PRD 新增一节 + 本记录），零运行时代码改动。按分层规则就地编辑 + 经 PR 落地，不进 worktree。 |
-| 判定（docs-only） | PENDING | commit 后跑 `node scripts/classify-docs-only.js --base=origin/main --head=HEAD`，结果写回本行。 |
-| 行尾/编码对账 | PENDING | 待跑 `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径比对；驱动逐行保留行尾并断言 CR 总量守恒（写盘前断言，实测不过即不落盘）。 |
-| 品牌残留 | PENDING | 待跑 `node scripts/check-no-brand-residue.js`；本文只写「参考产品」口径。 |
-| 文档同步 | PENDING | 待 `openspec-sync-check`；本片只加规格节，不改既有 Requirement。 |
-| 远程同步 | PENDING | 本 PR 合并后取 `git log origin/main` 的尾注回填 merge SHA 与时间、`git ls-remote --heads origin podcast-plan-ui-contract` 返回 0 行证远端分支已删，并在同一次提交删除本段三个 sync_* 字段 |
+| 判定（docs-only） | PASS | commit 后在最终基线取证：`node scripts/classify-docs-only.js --base=origin/main --head=<branch>` ⇒ docs-only=true。 |
+| 行尾/编码对账 | PASS | 回填时现测：`git diff --numstat` 与 `git diff --ignore-cr-at-eol --numstat` 对 a1c4237d4→0dbdc3eaf 两口径逐文件相同（28/0 26/0 26/0 58/0 40/0）；驱动逐行保留行尾并断言 CR 总量守恒。 |
+| 品牌残留 | PASS | `node scripts/check-no-brand-residue.js` ⇒ rc=0（合并前实跑；扫描数随每笔提交自增故不记总数）。 |
+| 文档同步 | PASS | 由 CI `openspec-sync-check` 执行（PR 侧 checks 全绿后才 squash 合并，故以该 PR 的 required checks 产物为准）；本片不改任何 spec 条款。 |
+| 远程同步 | PASS | 已合并，merge SHA 0dbdc3eaf12a14fd39cc6de6b66dc9fb606f0f6f（2026-10-16T18:32:13Z）；取证自 git log origin/main 的 (#3764) 尾注恰 1 行，`git ls-remote --heads origin podcast-plan-ui-contract` 返回 0 行证远端分支已删，可离线复核 |
 
-- 保留门禁：判定 docs-only PENDING | 行尾对账 PENDING | 品牌残留 PENDING | 文档同步 PENDING | 远程同步 PENDING
+- 保留门禁：判定 docs-only PASS | 行尾对账 PASS | 品牌残留 PASS | 文档同步 PASS | 远程同步 PASS
 
 ## 一、为什么这一片只写合同不写实现
 

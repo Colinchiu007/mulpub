@@ -11,11 +11,11 @@ date: 2026-10-17
 | 变更类型与隔离 | ✅ | 纯账目/文档变更（`openspec/changes/.../tasks.md` 两行勾收 + `openspec/records/` 两篇），无运行时代码。按分层规则就地编辑 + 经 PR 落地，不进 worktree。 |
 | 判定（docs-only） | PASS | commit 后取证：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD` ⇒ docs-only=true files=5（PR 正文已记）；rebase 到最新主干后净差异仍只含本篇四件产物。 |
 | 行尾/编码对账 | ✅ | `git diff --numstat` 与 `git diff --ignore-cr-at-eol --numstat` 两口径逐文件相同（tasks.md 4/2、记录 0/1）；改动由驱动脚本逐行保留各自行尾，CR 总量守恒断言实跑（tasks.md cr 107→109、记录 79→78）。 |
-| 品牌残留 | PENDING | `node scripts/check-no-brand-residue.js`（本 PR 文案只写「参考产品」口径，不写竞品名）。 |
-| 文档同步 | PENDING | `openspec-sync-check` 由 CI 跑；本片不改任何 spec 条款，只勾收已完成项并补出处行。 |
+| 品牌残留 | PASS | `node scripts/check-no-brand-residue.js` ⇒ rc=0（合并前实跑；扫描数随每笔提交自增故不记总数）。 |
+| 文档同步 | PASS | 由 CI `openspec-sync-check` 执行（本 PR required checks 全绿后才 squash 合并）；本片不改任何 spec 条款。 |
 | 远程同步 | PASS | 已合并，merge SHA bbcc1440f127b21f58346426c93cf85b372f6e9c（2026-10-16T17:29:38Z）；取证自 git log origin/main 的 (#3758) 尾注恰 1 行，`git ls-remote --heads origin podcast-tasks-reconcile-41-42` 返回 0 行证远端分支已删，可离线复核 |
 
-- 保留门禁：判定 docs-only PENDING | 行尾对账 ✅ | 品牌残留 PENDING | 文档同步 PENDING | 远程同步 PASS
+- 保留门禁：判定 docs-only PASS | 行尾对账 ✅ | 品牌残留 PASS | 文档同步 PASS | 远程同步 PASS
 
 ## 一、这次到底改了什么（为什么值得一个 PR）
 
