@@ -1,26 +1,30 @@
 {
   "sha": "670c2e7f1ea853bfd57e572d90bbaee28dda2c6c",
   "layer": "diff",
-  "mode": "skip",
-  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "mode": "dual",
+  "reason": "变更 211 行 > 200 行阈值（对齐 §12.6 Red Team）",
   "stats": {
-    "changedLines": 0,
-    "fileCount": 1,
-    "codeFileCount": 0,
+    "changedLines": 211,
+    "fileCount": 7,
+    "codeFileCount": 4,
     "sensitivePathHits": [],
     "plannedPathHits": [],
-    "sensitiveContentHits": 0,
-    "docSensitiveContentHits": 0,
-    "docSensitiveContentSample": [],
+    "sensitiveContentHits": 5,
+    "docSensitiveContentHits": 5,
+    "docSensitiveContentSample": [
+      "**结论：凭据已配置、已加密落库、测试连接已通过（拿到 3 个收藏夹）。**",
+      "⇒ 采集链的 IPC / 权限门 / safeStorage 解密**全部正常**，问题不在凭据侧。",
+      "`<select>` 在没有 v-model 命中项时，**视觉上会显示第一个 `<option>`**，但绑定值仍是空串。"
+    ],
     "lineReadGaps": []
   },
-  "stagedDiffHash": "1a9819ff62da6b2964ac59c76a90243487fbf625deeb2080b6982121fc336030",
-  "decidedAt": "2026-10-16T13:18:58.709Z",
+  "stagedDiffHash": "6cc6412ce3aa6ef8c13bc62e7f7014c2e36c011589d64f07478df5ce4a0382b9",
+  "decidedAt": "2026-10-16T13:41:00.461Z",
   "decidedBy": "ccg-review-decider",
   "deepReview": {
-    "required": false,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "findings": "跨家族双模型评审（proposer=opencode 1.18.34 / critic=claude 2.1.296；跨家族校验「通过」）轮 1 出 8 条（Critical 2 / Warning 3 / Info 3），维度分 correctness 6 / security 4 / performance 8 / maintainability 4。逐条自扮演裁决：5 条争议全部 dismissed、0 条 upheld（其余 3 条为 Info 级的正面评价与流程建议）；无高危域需外部复核 ⇒ self_play_resolved。采纳其中 2 条合理内核（已在闭环提交落地）：新增 zhihuFavScope 默认值结构锁；在组件注释中声明 data-testid 为测试契约。裁决全文（含逐条最强指控 / 最强辩护 / 可验证理由）见工作区 .adversarial/ccg-deep-2908d422/adjudication.json（该目录由 .gitignore:387 忽略，不进版本库）；要点亦见 openspec/records/zhihu-fav-buttons-dead.md 的 QM-6 行。"
   }
 }
