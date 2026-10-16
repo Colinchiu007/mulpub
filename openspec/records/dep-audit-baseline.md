@@ -2,9 +2,6 @@
 record: dep-audit-baseline
 task: 依赖审计基线续判 python-jose 新公告 ID（PYSEC-2026-4298 ≡ CVE-2026-85394）并清账已解决公告，解除全仓阻塞
 date: 2026-10-15
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个 docs 会话（按 AGENTS.md「合并后收尾清单」回填并销账）
 ---
 
 ## 本次执行记录：依赖审计基线续判 python-jose 新公告 ID 并清账（dep-audit-baseline，2026-10-15）【混合 PR】
@@ -20,9 +17,9 @@ sync_backfill_owner: 下一个 docs 会话（按 AGENTS.md「合并后收尾清�
 | 接线棘轮 | N/A | 未新增 `*.test.js`；改动是门禁读取的数据文件，判据本身由既有 `scripts/check-dep-audit.test.js`（26 例）与 CI job 覆盖 |
 | QM-1 打包 / QM-4 视觉 | N/A / N/A | 未触碰 `apps/desktop/electron/**` 或 `packages/**`，无运行面与视觉面变更 ⇒ 不触发打包与视觉门禁 |
 | QM-6 CCG 双模型外部评审 | 未执行 | 本机未见可用外部评审通道；**如实记为未执行，不以自审冒充通过**。pre-commit 的 CCG 判定层已执行（3 项通过），但那不等于双模型外部评审 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin dep-audit-baseline` 返回 0 行证远端分支已删；回填后删除上方三个 `sync_*` 字段并销账 |
+| 远程同步 | PASS | PR #3668 已 squash 合并：merge SHA `ce88f1b45979bbf95bf5ae323c45c310234eec9a`（2026-10-16T02:24:44+08:00，`git log origin/main --grep='(#3668)$' --format=%H|%cI` 取证）；`git ls-remote --heads origin dep-audit-baseline` 返回 0 行证远端分支已删。回填与本次状态改写同一次提交完成 |
 
-- 保留门禁：判定 docs-only=false（`scripts/` 不在 CI_IGNORED_PATHS，走完整门禁）| 行尾对账 ✅ | 品牌残留 随 CI | 文档同步 随 CI doc-gate | 执行记录 ✅ 本文件（旧载体 `.quality-gates.md` 与 ledger 按 2026-10-15「旧载体冻结」政策**零改写**）| 远程同步 PENDING
+- 保留门禁：判定 docs-only=false（`scripts/` 不在 CI_IGNORED_PATHS，走完整门禁）| 行尾对账 ✅ | 品牌残留 随 CI | 文档同步 随 CI doc-gate | 执行记录 ✅ 本文件（旧载体 `.quality-gates.md` 与 ledger 按 2026-10-15「旧载体冻结」政策**零改写**）| 远程同步 PASS
 
 ### 上游事实（本片结论的全部依据）
 

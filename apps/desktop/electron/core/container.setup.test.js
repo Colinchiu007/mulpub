@@ -149,13 +149,13 @@ describe('Container setup', () => {
     try {
       var guard = createContainer().get('publishIntervalGuard');
 
-      // v3 数值：weibo 属短内容高频容忍档；未登记平台回落最严基线。
+      // v4 数值：weibo 属短内容高频容忍档（日配额 500）；未登记平台回落最严基线（200、平台档 1′）。
       // tier 也在返回形状里（QM-6 前端轴 C2：设置页「当前档位」按它分组，缺键会渲染成 undefined）
       expect(guard._intervals('weibo')).toEqual({
-        tier: 'short', accountMinMs: 1 * 60 * 1000, platformMinMs: 1 * 60 * 1000, accountDailyMax: 200,
+        tier: 'short', accountMinMs: 1 * 60 * 1000, platformMinMs: 1 * 60 * 1000, accountDailyMax: 500,
       });
       expect(guard._intervals('wechat_mp')).toEqual({
-        tier: 'long', accountMinMs: 5 * 60 * 1000, platformMinMs: 3 * 60 * 1000, accountDailyMax: 30,
+        tier: 'long', accountMinMs: 5 * 60 * 1000, platformMinMs: 1 * 60 * 1000, accountDailyMax: 200,
       });
       var unknown = guard._intervals('not_a_registered_platform');
       expect(unknown.tier).toBe('long');

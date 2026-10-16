@@ -17,6 +17,7 @@ const {
   resolveEmergencyMaxPerDay,
   resolvePolicyOverrides,
   isKnownPlatform,
+  checkBaselineStrength,
   BASELINE_INTERVALS,
   PLATFORM_FREQUENCY_POLICY,
   SUPPORTED_PLATFORMS,
@@ -58,15 +59,17 @@ describe('publish-frequency-policy v3', () => {
       }
     })
 
-    it('三组代表平台逐档精确等于策略表（v3 数值）', () => {
+    it('三组代表平台逐档精确等于策略表（v4 数值）', () => {
+      // v4：平台间隔三档统一 1′（跨号仍错开，但不再按内容形态分级）；
+      // 日配额改为 200 / 350 / 500 —— 间隔维度的档间单调保留，配额维度也仍单调（长文最少）。
       expect(resolveIntervals('wechat_mp', { env: {} })).toEqual({
-        tier: TIER_LONG, accountMinMs: 5 * MIN, platformMinMs: 3 * MIN, accountDailyMax: 30, fallback: false,
+        tier: TIER_LONG, accountMinMs: 5 * MIN, platformMinMs: 1 * MIN, accountDailyMax: 200, fallback: false,
       })
       expect(resolveIntervals('douyin', { env: {} })).toEqual({
-        tier: TIER_CLIP, accountMinMs: 3 * MIN, platformMinMs: 2 * MIN, accountDailyMax: 50, fallback: false,
+        tier: TIER_CLIP, accountMinMs: 3 * MIN, platformMinMs: 1 * MIN, accountDailyMax: 350, fallback: false,
       })
       expect(resolveIntervals('weibo', { env: {} })).toEqual({
-        tier: TIER_SHORT, accountMinMs: 1 * MIN, platformMinMs: 1 * MIN, accountDailyMax: 200, fallback: false,
+        tier: TIER_SHORT, accountMinMs: 1 * MIN, platformMinMs: 1 * MIN, accountDailyMax: 500, fallback: false,
       })
     })
 
@@ -82,37 +85,46 @@ describe('publish-frequency-policy v3', () => {
         byTier[r.tier] = { account: r.accountMinMs, platform: r.platformMinMs, daily: r.accountDailyMax }
       }
       expect(byTier).toEqual({
-        [TIER_LONG]: { account: 5 * MIN, platform: 3 * MIN, daily: 30 },
-        [TIER_CLIP]: { account: 3 * MIN, platform: 2 * MIN, daily: 50 },
-        [TIER_SHORT]: { account: 1 * MIN, platform: 1 * MIN, daily: 200 },
+        [TIER_LONG]: { account: 5 * MIN, platform: 1 * MIN, daily: 200 },
+        [TIER_CLIP]: { account: 3 * MIN, platform: 1 * MIN, daily: 350 },
+        [TIER_SHORT]: { account: 1 * MIN, platform: 1 * MIN, daily: 500 },
       })
     })
 
-    it('平台档不再统一 2 分钟，而是按档分级（v3 新增维度）', () => {
+    it('v4：平台间隔三档统一 1′（机制在、分级撤了）', () => {
+      // 平台桶只防"同机不同号在同一平台同时发"（同号并发由通道调度串行挡）。
+      // v4 把它统一成 1′：**不得整条删除** —— 删掉后同平台多号零间隔并行，
+      // 而"被平台侧关联成矩阵号"在本地没有任何可观测信号。
       const values = new Set(SUPPORTED_PLATFORMS.map((p) => resolveIntervals(p, { env: {} }).platformMinMs))
-      expect([...values].sort((a, b) => a - b)).toEqual([1 * MIN, 2 * MIN, 3 * MIN])
+      expect([...values]).toEqual([1 * MIN])
+      for (const platform of SUPPORTED_PLATFORMS) {
+        expect(resolveIntervals(platform, { env: {} }).platformMinMs, platform).toBe(1 * MIN)
+      }
     })
 
-    it('档间单调：长文 ≥ 短视频图文 ≥ 短内容（两档都是，且不得出现反向）', () => {
+    it('档间单调：长文最慢、短内容最快（间隔与配额两个维度都不得反向）', () => {
+      // 测试名刻意不含 ` > `：FAIL 行以 ` > ` 作 describe/test 分隔符，
+      // 名字里带它会被任何按该分隔符解析日志的工具（含本次变异驱动）截成尾巴半句。
       const long = resolveIntervals('wechat_mp', { env: {} })
       const clip = resolveIntervals('douyin', { env: {} })
       const short = resolveIntervals('weibo', { env: {} })
       expect(long.accountMinMs).toBeGreaterThan(clip.accountMinMs)
       expect(clip.accountMinMs).toBeGreaterThan(short.accountMinMs)
-      expect(long.platformMinMs).toBeGreaterThanOrEqual(clip.platformMinMs)
-      expect(clip.platformMinMs).toBeGreaterThanOrEqual(short.platformMinMs)
+      // 平台档已统一 ⇒ 这一维从"单调不高于"变成"三档相等"（相等不是退化，是 v4 的显式规则）
+      expect(long.platformMinMs).toBe(clip.platformMinMs)
+      expect(clip.platformMinMs).toBe(short.platformMinMs)
       expect(long.accountDailyMax).toBeLessThan(clip.accountDailyMax)
       expect(clip.accountDailyMax).toBeLessThan(short.accountDailyMax)
     })
 
-    it('日配额恰为 v2 的 10 倍（钉成数据表，不得"顺手改宽"到别的倍数）', () => {
-      const V2_DAILY = { [TIER_LONG]: 3, [TIER_CLIP]: 5, [TIER_SHORT]: 20 }
+    it('日配额钉成数据表 200 / 350 / 500（v2 3/5/20 → v3 ×10 → v4；不得"顺手改宽"到别值）', () => {
+      const V4_DAILY = { [TIER_LONG]: 200, [TIER_CLIP]: 350, [TIER_SHORT]: 500 }
       for (const platform of SUPPORTED_PLATFORMS) {
         const r = resolveIntervals(platform, { env: {} })
-        expect(r.accountDailyMax, `${platform}=${r.tier}`).toBe(V2_DAILY[r.tier] * 10)
+        expect(r.accountDailyMax, `${platform}=${r.tier}`).toBe(V4_DAILY[r.tier])
       }
-      // 未登记平台的回落基线也必须同步放大，否则新平台一登记就比老平台严 10 倍
-      expect(BASELINE_INTERVALS.accountDailyMax).toBe(V2_DAILY[TIER_LONG] * 10)
+      // 未登记平台的回落基线配额不得比任何已登记平台更宽 ⇒ 取最严那档（= 最小值 200）
+      expect(BASELINE_INTERVALS.accountDailyMax).toBe(V4_DAILY[TIER_LONG])
     })
 
     it('未知平台回落基线最严档并带 fallback 标记（供守卫出声）', () => {
@@ -173,6 +185,64 @@ describe('publish-frequency-policy v3', () => {
         expect(p.platformMinMs, `${platform}`).toBeLessThanOrEqual(p.accountMinMs)
       }
     })
+
+    it('逐平台数值必须等于其档位代表平台的数值（QM-6 后端轴 W2：不得只有代表平台被断言）', () => {
+      // 既有锁的形态是"三个代表平台精确值" + "byTier 按档聚合取**最后一个**平台的值"，
+      // 于是"15 个非代表平台里某一个与同档别人不一样"这类错值可以全程绿。
+      // 正解是按归属表逐平台比到同档代表平台 —— 派生表被局部篡改时当场红。
+      const REPRESENTATIVE = { long: 'wechat_mp', clip: 'douyin', short: 'weibo' }
+      const rep = {}
+      for (const [tier, platform] of Object.entries(REPRESENTATIVE)) {
+        rep[tier] = resolveIntervals(platform, { env: {} })
+      }
+      let compared = 0
+      for (const platform of SUPPORTED_PLATFORMS) {
+        const r = resolveIntervals(platform, { env: {} })
+        const expectSame = rep[r.tier]
+        expect(expectSame, `${platform} 所属档 ${r.tier} 必须有代表平台`).toBeTruthy()
+        for (const key of ['accountMinMs', 'platformMinMs', 'accountDailyMax']) {
+          expect(r[key], `${platform}.${key} 应等于 ${r.tier} 档代表平台`).toBe(expectSame[key])
+        }
+        compared++
+      }
+      // 规模下界：解析退化（表空/字段丢）会让"零个不一致"读起来像通过
+      expect(compared).toBe(15)
+    })
+
+    it('回落基线强度运行期自检：正常配置静默、被调宽时出声且不抛错（QM-6 后端轴 C1/W1）', () => {
+      // 判据本体在模块内，加载时已跑过一次；这里用注入表把"改档忘改基线"那一格表示出来。
+      // 刻意只 warn 不抛：抛错会让整条发布链起不来，而这属于"配置写错"级别。
+      const real = []
+      expect(checkBaselineStrength({ warn: (m) => real.push(m) })).toEqual([])
+      expect(real).toEqual([])
+
+      // ① 基线配额比最严平台还宽
+      const wide = []
+      expect(checkBaselineStrength({
+        warn: (m) => wide.push(m),
+        baseline: { tier: 'long', accountMinMs: 5 * MIN, platformMinMs: 1 * MIN, accountDailyMax: 600 },
+      })).toHaveLength(1)
+      expect(wide[0]).toContain('accountDailyMax')
+
+      // ② 基线间隔比最宽平台还短（方向与配额相反，两个维度都要各自被咬到）
+      const short = []
+      expect(checkBaselineStrength({
+        warn: (m) => short.push(m),
+        baseline: { tier: 'long', accountMinMs: 30 * 1000, platformMinMs: 1 * MIN, accountDailyMax: 200 },
+      })).toHaveLength(1)
+      expect(short[0]).toContain('accountMinMs')
+
+      // ③ 表为空时必须报告"自检未生效"，不得把"没找到违规"当成通过（观察者要报告自己的失明）
+      const blind = []
+      expect(checkBaselineStrength({ warn: (m) => blind.push(m), policyTable: {} })).toHaveLength(1)
+      expect(blind[0]).toContain('自检未生效')
+
+      // 加载即跑这件事本身也要有锁：删掉模块里的顶层 `checkBaselineStrength()` 调用后，
+      // 上面几条判据照样全绿（它们是自己手动调的），运行期守护却已经消失 —— 这是装饰性门禁的
+      // 第三种形态："函数有测试"不等于"生产路径真的调了它"。
+      const src = require('fs').readFileSync(require.resolve('../src/publish-frequency-policy'), 'utf8')
+      expect(src).toMatch(/\r?\ncheckBaselineStrength\(\)/)
+    })
   })
 
   describe('间隔环境变量覆盖', () => {
@@ -181,7 +251,7 @@ describe('publish-frequency-policy v3', () => {
       const r = resolveIntervals('douyin', { env })
       expect(r.accountMinMs).toBe(45000)
       expect(r.platformMinMs).toBe(9000)
-      expect(r.accountDailyMax).toBe(50) // 日配额不受间隔 env 影响
+      expect(r.accountDailyMax, 'douyin 属 clip 档，日配额取 v4 值').toBe(350) // 日配额不受间隔 env 影响
     })
 
     it('0 表示该档显式关闭，且不得触发告警', () => {
@@ -253,7 +323,7 @@ describe('publish-frequency-policy v3', () => {
       for (const bad of ['5.5', '-2', 'abc', '']) {
         const warns = []
         const r = resolveIntervals('douyin', { env: { [ENV_DAILY_MAX_CLIP]: bad }, warn: (m) => warns.push(m) })
-        expect(r.accountDailyMax, `bad=${JSON.stringify(bad)}`).toBe(50)
+        expect(r.accountDailyMax, `bad=${JSON.stringify(bad)}`).toBe(350)
         expect(warns.length, `bad=${JSON.stringify(bad)}`).toBe(1)
       }
     })

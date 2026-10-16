@@ -20,9 +20,28 @@
 
 const log = require('../logger')
 const { LEGACY_OWNER_SUBJECT } = require('../store-schema')
+// 公开内容页解析器：本文件只用它回答一个问题 ——「这个 post_id 能不能定位到作品」。
+// 与渲染端作品链接、platform-metrics 的 resolveContentUrl **同源**，不另写一份形态正则。
+const { resolvePublishedContentUrl } = require('@multi-publish/shared-utils/src/published-content-url')
 
 /** 账号级采集状态的 settings 键（按归属分桶，见 settings-store 的 getUserSetting）。 */
 const STATE_KEY = 'account_metrics_sync_state'
+
+/**
+ * 该作品 ID 是否**能定位到公开作品**。
+ * 合成值（`published-<时间戳>` 等成功信号）与形态不合的值一律 false —— 它们非空，
+ * 但拼不出任何真实内容页。
+ * @param {string} platform
+ * @param {string} postId
+ * @returns {boolean}
+ */
+function isUsableWorkId (platform, postId) {
+  try {
+    return resolvePublishedContentUrl({ platform, postId }).source !== 'none'
+  } catch (_) {
+    return false
+  }
+}
 
 /**
  * 归属谓词。与 performance-loop-store 的 `_ownerPredicate` **逐字同口径**：
@@ -101,13 +120,21 @@ module.exports = {
       try {
         // 写入前必须确认该行属于当前归属：owner 过滤不能只靠上游（fail closed）
         const row = this.db.prepare(
-          'SELECT id, post_id, url FROM tracked_content WHERE id = ? AND ' + pred.sql,
+          'SELECT id, platform, post_id, url FROM tracked_content WHERE id = ? AND ' + pred.sql,
         ).get(trackedId, ...pred.params)
         if (!row) { out.skipped += 1; continue }
 
-        // V14：只补空值，绝不覆盖既有 post_id（既有值可能来自平台发布回传，强度更高）
+        // V14：只补空值，绝不覆盖既有 post_id（既有值可能来自平台发布回传，强度更高）。
+        // 2026-10-15 补充：V14 想保护的是「**能定位到作品**的既有值」，而不是「非空的既有值」。
+        // 快手链路在拿不到真 id 时会把合成成功信号 `published-<时间戳>` 写进 post_id
+        // （rpa-view-platforms.js），它拼不出任何公开页、却因为非空永久占住这一格 ——
+        // 账号级采集明明拿到了真 photoId（platform-metrics/adapters），却永远补不进去，
+        // 于是快手发布记录的作品链接**恒为无链接**（用户报障「链接功能一直没生效」）。
+        // 现在：既有值不可用、且新值可用时才覆盖；两个条件缺一不可（否则会把真值降级成假值）。
         const existingPostId = String(row.post_id || '').trim()
-        if (!existingPostId) {
+        const canBackfill = !existingPostId ||
+          (!isUsableWorkId(row.platform, existingPostId) && isUsableWorkId(row.platform, postId))
+        if (canBackfill && existingPostId !== postId) {
           this.db.prepare('UPDATE tracked_content SET post_id = ? WHERE id = ? AND ' + pred.sql)
             .run(postId, trackedId, ...pred.params)
           out.backfilled += 1

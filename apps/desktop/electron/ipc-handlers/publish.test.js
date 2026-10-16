@@ -394,11 +394,40 @@ describe('publish IPC 可信来源正常工作', () => {
     })
 
     expect(result.code).toBe(0)
-    expect(deps.taskQueue.add).toHaveBeenCalledWith({
+    expect(deps.taskQueue.add).toHaveBeenCalledWith(expect.objectContaining({
       platform: 'douyin',
       article: { title: '视频标题', accountId: 'dy-1' },
       accountId: 'dy-1',
+    }))
+    // 2026-10-15：一次 publish:batch 的 N 个任务必须共享同一个非空 batchId
+    // （历史记录按平台各写一行，「同批 N 个平台」的关联只能靠它）
+    const batchId = deps.taskQueue.add.mock.calls[0][0].batchId
+    expect(typeof batchId).toBe('string')
+    expect(batchId.length).toBeGreaterThan(0)
+  })
+
+  it('publish:batch 多目标共享同一 batchId（同批关联键），且逐次调用不重复', async () => {
+    const deps = createMockDeps()
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+    const handler = ipcMain._get('publish:batch')
+
+    await handler(TRUSTED_EVENT, {
+      platforms: [{ platform: 'douyin', accountId: 'dy-1' }, { platform: 'zhihu', accountId: 'zh-1' }],
+      article: { title: '多平台标题' },
     })
+
+    const calls = deps.taskQueue.add.mock.calls.map(call => call[0])
+    expect(calls).toHaveLength(2)
+    expect(calls[0].batchId).toBe(calls[1].batchId)
+    expect(calls[0].batchId).toMatch(/^batch_/)
+
+    deps.taskQueue.add.mockClear()
+    await handler(TRUSTED_EVENT, {
+      platforms: [{ platform: 'douyin', accountId: 'dy-1' }],
+      article: { title: '第二次发布' },
+    })
+    expect(deps.taskQueue.add.mock.calls[0][0].batchId).not.toBe(calls[0].batchId)
   })
 
   // smoke5（2026-09-23）实锤：视频发布要等上传完成（强判定≤7min），队列默认 180s

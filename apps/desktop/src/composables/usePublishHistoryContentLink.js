@@ -30,7 +30,7 @@ import { safeHttpUrl } from '@multi-publish/shared-utils/src/safe-http-url'
 // 不带 `.browser` 后缀：渲染层统一从不带后缀的模块名导入，由 apps/desktop/vite.config.js 的
 // resolve.alias 映射到 ESM 孪生（与 safe-http-url / publish-audit-status 同约定）。
 // 直接写 `.browser` 后缀会被 scripts/check-renderer-cjs-boundary 判为未登记的 CJS 跨边界导入。
-import { resolvePublishedContentUrl } from '@multi-publish/shared-utils/src/published-content-url'
+import { resolvePublishedContentUrl, PUBLIC_CONTENT_URL_RULES } from '@multi-publish/shared-utils/src/published-content-url'
 import { useTabStore } from '@/stores/tab'
 
 /**
@@ -96,8 +96,31 @@ export function usePublishHistoryContentLink ({ t, recordTitle, resultValue, act
   }
 
   function cardClickHint (record) {
-    if (isDraftRecord(record)) return t('historyPage.cardDraftHint')
-    return isCardClickable(record) ? t('historyPage.cardOpenHint') : t('historyPage.cardNoLinkHint')
+    if (isCardClickable(record)) return t('historyPage.cardOpenHint')
+    return t(noLinkReasonKey(record))
+  }
+
+  /**
+   * 该平台是否**结构性**没有网页端公开内容页（规则表里 contentPathRe 与 template 同时为 null）。
+   * 目前只有视频号（内容仅在微信客户端内可达）。这类记录点不动是产品事实、不是缺陷，
+   * 必须与「这次没抓到作品 ID」分开说 —— 前者用户无事可做，后者是真缺陷且可修。
+   */
+  function hasNoPublicContentPage (platform) {
+    const key = String(platform || '').trim().toLowerCase()
+    const rules = PUBLIC_CONTENT_URL_RULES[key]
+    return Boolean(rules && !rules.contentPathRe && !rules.template)
+  }
+
+  /**
+   * 无链接时的**原因文案键**（三态）。
+   * 2026-10-15 用户报障「链接功能一直没生效」时，界面上只有笼统一句「暂无平台公开链接」，
+   * 既看不出是平台没有公开页、也看不出是发布链没抓到作品 ID —— 诊断成本全转嫁给用户。
+   */
+  function noLinkReasonKey (record) {
+    if (isDraftRecord(record)) return 'historyPage.cardDraftHint'
+    if (hasNoPublicContentPage(record && record.platform)) return 'historyPage.cardNoLinkStructural'
+    if (resultValue(record, 'url')) return 'historyPage.cardNoLinkNoPostId'
+    return 'historyPage.cardNoLinkHint'
   }
 
   /**
@@ -161,6 +184,8 @@ export function usePublishHistoryContentLink ({ t, recordTitle, resultValue, act
     isCardClickable,
     isDraftRecord,
     cardClickHint,
+    noLinkReasonKey,
+    hasNoPublicContentPage,
     linkRenderState,
     linkSourceHint,
     linkLoginWallHint,

@@ -196,6 +196,15 @@ export const publishFrequencyPolicy: {
   /** 设置页覆盖：任一字段非法 ⇒ 整个对象作废（返回 null），不允许部分生效 */
   resolvePolicyOverrides(raw: unknown, options?: { warn?: (msg: string) => void }): object | null;
   isKnownPlatform(platform: unknown): boolean;
+  /**
+   * 回落基线强度运行期自检：逐维度比较 `BASELINE_INTERVALS` 与已登记平台
+   * （间隔取上界、日配额取下界），违规只**出声不抛错**。表可注入以便测试。
+   */
+  checkBaselineStrength(options?: {
+    warn?: (msg: string) => void;
+    policyTable?: Record<string, { accountMinMs: number; platformMinMs: number; accountDailyMax: number }>;
+    baseline?: { accountMinMs: number; platformMinMs: number; accountDailyMax: number };
+  }): string[];
   /** 单个环境变量的解析（合法域 [0, MAX_INTERVAL_MS]；非法回落 + 出声） */
   parseEnvNumber(
     raw: string | number | undefined | null,

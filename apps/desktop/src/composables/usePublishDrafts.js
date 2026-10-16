@@ -3,7 +3,8 @@ import { ref } from 'vue'
 import { draftDelete, draftList, draftSave } from '@/api/publisher'
 import { formatUserError } from '@/utils/user-facing-error'
 import { normalizeRewriteLineage } from '@/utils/rewrite-lineage'
-import { normalizePublishStringList } from '@/features/publish/publish-contract'
+// 「快照 → 表单」的唯一实现（草稿箱与本 PR 的「再次发布」共用，禁止各写一份）
+import { applyPublishSnapshot } from '@/features/publish/publish-snapshot'
 import i18n from '@/i18n'
 import { useNotify } from './useNotify'
 
@@ -36,11 +37,6 @@ const ARRAY_FIELDS = new Set(['images', 'image_files', 'tags', 'topics', 'mentio
 
 function toPlainJson (value) {
   return JSON.parse(JSON.stringify(value))
-}
-
-function replaceRecord (target, source) {
-  for (const key of Object.keys(target)) delete target[key]
-  Object.assign(target, toPlainJson(source || {}))
 }
 
 function errorMessage (error, fallback) {
@@ -88,15 +84,8 @@ export function usePublishDrafts ({
 
   // 加载侧守卫：草稿里的定时时间若已过期，静默恢复会让下一次发布被
   // validateScheduleEntries 拒绝（「定时时间已过去」）且用户不知情——
-  // 恢复时直接清除并提示。
-  function clearStaleDraftSchedule (draft) {
-    const time = String((draft && draft.publishTime) || '').trim()
-    if (!time) return
-    const ts = Date.parse(time)
-    if (Number.isNaN(ts) || ts > Date.now()) return
-    article.publishTime = ''
-    notifyWarning('publishDrafts.staleScheduleCleared', { message: t('publishDrafts.staleScheduleCleared', { time }) })
-  }
+  // 过期判定与清空已下沉到 `applyPublishSnapshot`（唯一实现，与「再次发布」共用），
+  // 这里只负责把被清掉的时刻提示给用户。
 
   function buildDraftSnapshot () {
     const snapshot = {
@@ -121,38 +110,17 @@ export function usePublishDrafts ({
   }
 
   function applyDraft (draft) {
-    if (!draft || typeof draft !== 'object') return false
-    for (const field of ARTICLE_FIELDS) {
-      // 同上：归因关联必须落到 null（含"这份草稿没有关联"时清掉 article 上的旧值），
-      // 不得沿用 `|| ''`，也不得在键缺席时保持现状——否则跨草稿会串关联。
-      if (field === 'rewriteHistoryId') {
-        article[field] = normalizeRewriteLineage(draft[field])
-        continue
-      }
-      article[field] = ARRAY_FIELDS.has(field)
-        ? (Array.isArray(draft[field]) ? toPlainJson(draft[field]) : [])
-        : (draft[field] || '')
+    // 字段映射的唯一实现见 features/publish/publish-snapshot.js（与「再次发布」共用）。
+    // 这里只保留草稿箱特有的两件事：过期定时的用户提示 + 关面板。
+    const outcome = applyPublishSnapshot(draft, {
+      article, selectedPlatforms, selectedAccounts, platformOverrides,
+    })
+    if (!outcome.applied) return false
+    if (outcome.staleScheduleTime) {
+      notifyWarning('publishDrafts.staleScheduleCleared', {
+        message: t('publishDrafts.staleScheduleCleared', { time: outcome.staleScheduleTime }),
+      })
     }
-    // 话题标签统一（topic-tag-unify）：UI 只剩「话题标签」一个入口（tags），
-    // 历史草稿的 topics 一次性并入 tags，topics 字段清空防双份——引擎侧
-    // mergeUniqueStrings 本就合并两者，这里提前合并让 UI 显示不缺话题。
-    // 归一口径与引擎侧一致（normalizePublishStringList：拆分逗号/顿号、
-    // 剥 # 前缀由发布链处理、Set 去重），禁止第二份归一实现。
-    const mergedTags = normalizePublishStringList([
-      ...(Array.isArray(article.tags) ? article.tags : []),
-      ...(Array.isArray(draft.topics) ? draft.topics : []),
-    ])
-    article.tags = mergedTags
-    article.topics = []
-    // 定时×草稿互斥（P1-4）：恢复后清除已过期的定时时间（见 clearStaleDraftSchedule）
-    clearStaleDraftSchedule(draft)
-    selectedPlatforms.value = Array.isArray(draft.platforms)
-      ? toPlainJson(draft.platforms)
-      : []
-    selectedAccounts.value = draft.accounts && typeof draft.accounts === 'object'
-      ? toPlainJson(draft.accounts)
-      : {}
-    replaceRecord(platformOverrides, draft.platformOverrides)
     showDraftList.value = false
     return true
   }

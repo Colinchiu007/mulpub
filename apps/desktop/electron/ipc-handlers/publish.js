@@ -16,7 +16,11 @@ function registerHandlers(ipcMain, deps) {
   const { createPublishHelpers } = require('./publish-helpers')
   // eslint-disable-next-line no-unused-vars
   // eslint-disable-next-line no-unused-vars
-  const { taskQueue, history, BrowserWindow, log, identityService, riskSuspender } = deps
+  const { taskQueue, history, BrowserWindow, log, identityService, riskSuspender, store } = deps
+
+  // 发布历史读写与「再次发布」快照（history:list/get/delete + 快照读口）已拆到独立模块：
+  // 本文件顶到逐文件行数门禁上限，而历史/快照的生命周期与发布链路无关，见 publish-history-ipc.js。
+  const { registerHistoryHandlers } = require('./publish-history-ipc')
 
   // 发布 IPC 局部工具：路径段校验 / 统一日志 / 文章摘要（见 publish-helpers.js）
   const { isSafePathSegment, ipcLog, summarizeArticle } = createPublishHelpers({ log })
@@ -295,11 +299,18 @@ function registerHandlers(ipcMain, deps) {
       normalizedTargets.push({ platform, accountId })
     }
     const plainArticle = JSON.parse(JSON.stringify(article || {}))
+    // 2026-10-15：一次 publish:batch 产生的 N 个任务共享一个 batchId。
+    // 历史记录仍按平台各写一行（状态/审核/作品链接/互动数据都是平台级动作，合并成
+    // 一条「集合记录」会丢掉可执行性），但「这几条属于同一次发布」此前无从回答——
+    // taskQueue 早已归一 batchId 字段（packages/shared-utils/src/task-queue.js:184），
+    // 只是从来没有人传过它。
+    const batchId = 'batch_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
     const taskIds = normalizedTargets.map(({ platform, accountId }) => {
       return taskQueue.add({
         platform,
         article: { ...plainArticle, accountId },
         accountId,
+        batchId,
         // 视频发布要等大文件真实上传完成（强判定最长 15 分钟）+转码/表单等待，
         // 队列默认 180s 会在上传中途杀任务（2026-09 smoke5 实锤），视频任务放宽到 30 分钟
         ...(plainArticle.video_path ? { timeout: 1800000 } : {}),
@@ -361,70 +372,9 @@ function registerHandlers(ipcMain, deps) {
     } catch (e) { ipcLog('error', 'queue:retry', 'error', `message=${e.message}`); return { code: EC.REQUEST_ERROR, message: e.message } }
   }))
 
-  ipcMain.handle('history:list', withSenderCheck(async (event, opts) => {
-    try {
-      const owner = getOwnerSubject()
-      if (owner === null) {
-        ipcLog('warn', 'history:list', 'auth-failed', '无法识别当前用户')
-        return { code: EC.AUTH_ERROR, message: '无法识别当前用户', data: { total: 0, records: [] } }
-      }
-      const result = history.listRecords(opts, owner)
-      ipcLog('info', 'history:list', 'ok', `owner=${owner} total=${result?.total} records=${Array.isArray(result?.records) ? result.records.length : '?'} page=${opts?.page} pageSize=${opts?.pageSize}`)
-      return { code: 0, data: result }
-    } catch (e) {
-      ipcLog('error', 'history:list', 'error', `message=${e.message}`)
-      return { code: EC.REQUEST_ERROR, message: e.message, data: { total: 0, records: [] } }
-    }
-  }))
+  // 发布历史读写（history:list/get/delete）与「再次发布」快照：见 publish-history-ipc.js
+  registerHistoryHandlers(ipcMain, { EC, withSenderCheck, getOwnerSubject, ipcLog, history, store })
 
-  ipcMain.handle('history:get', withSenderCheck(async (event, id) => {
-    try {
-      const owner = getOwnerSubject()
-      if (owner === null) {
-        ipcLog('warn', 'history:get', 'auth-failed', '无法识别当前用户')
-        return { code: EC.AUTH_ERROR, message: '无法识别当前用户' }
-      }
-      const record = history.getRecord(id, owner)
-      if (!record) {
-        ipcLog('warn', 'history:get', 'not-found', `id=${id} owner=${owner}`)
-        return { code: EC.NOT_FOUND, message: '记录不存在' }
-      }
-      ipcLog('info', 'history:get', 'ok', `id=${id} platform=${record?.platform} status=${record?.status}`)
-      return { code: 0, data: record }
-    } catch (e) { ipcLog('error', 'history:get', 'error', `id=${id} message=${e.message}`); return { code: EC.REQUEST_ERROR, message: e.message } }
-  }))
-
-  ipcMain.handle('history:delete', withSenderCheck(async (event, payload) => {
-    try {
-      const owner = getOwnerSubject()
-      if (owner === null) {
-        ipcLog('warn', 'history:delete', 'auth-failed', '无法识别当前用户')
-        return { code: EC.AUTH_ERROR, message: '无法识别当前用户' }
-      }
-
-      const ids = Array.isArray(payload) ? payload : payload && payload.ids
-      if (!Array.isArray(ids) || ids.length === 0 || ids.length > 100) {
-        ipcLog('warn', 'history:delete', 'validation-failed', `ids=${JSON.stringify(ids)}`)
-        return { code: EC.VALIDATION_ERROR, message: '记录 ID 列表无效' }
-      }
-      const normalizedIds = ids
-        .filter(id => typeof id === 'string')
-        .map(id => id.trim())
-        .filter(Boolean)
-      if (normalizedIds.length !== ids.length) {
-        ipcLog('warn', 'history:delete', 'validation-failed', '记录 ID 格式无效')
-        return { code: EC.VALIDATION_ERROR, message: '记录 ID 格式无效' }
-      }
-
-      const result = history.deleteRecords(normalizedIds, owner)
-      if (!result || result.deleted === 0) {
-        ipcLog('warn', 'history:delete', 'not-found', `ids=${normalizedIds.join(',')}`)
-        return { code: EC.NOT_FOUND, data: { deleted: 0 }, message: '记录不存在' }
-      }
-      ipcLog('info', 'history:delete', 'ok', `deleted=${result.deleted} ids=${normalizedIds.join(',')}`)
-      return { code: 0, data: result, message: '发布记录已删除' }
-    } catch (e) { ipcLog('error', 'history:delete', 'error', `message=${e.message}`); return { code: EC.REQUEST_ERROR, message: e.message } }
-  }))
 
   // ─── W1 §5 enforcement：风控挂起守卫查询/恢复 ───
   function isRiskPlatformValid(value) {

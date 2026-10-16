@@ -1,0 +1,126 @@
+{
+  "sha": "d8b4c7f954a9bc50f0251005971357e0474f0cbf",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 9527 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 9527,
+    "fileCount": 178,
+    "codeFileCount": 133,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 96,
+    "docSensitiveContentHits": 50,
+    "docSensitiveContentSample": [
+      "- 第一性原因 A（QM-5 ①）：`apps/desktop/src/components/ArticleEditor.vue` 的富文本模式把 `props.modelValue` 直接交给 `@vueup/vue-quill` 的 `<QuillEditor content-type=\"html\" v-model:content=\"richContent\">`。`@vueup/vue-quill@1.5.3` 的 `setContents()` 对 `contentType === 'html'` 走 `setHTML()` ⇒ `quill.root.innerHTML = 值`（源码 `dist/vue-quill.esm-bundler.js:427-429`）；Quill 随后经 MutationObserver 触发 `text-change` → `handleTextChange`（`:257`、`:336-341`）→ `emit('update:content', getHTML())`（`:423-425`），**回写的是 `quill.root.innerHTML`**。纯文本里的换行在 HTML 语义下是**可忽略空白** ⇒ **编辑器装载那一刻（无需用户输入）段落就塌成一整段**并回写进 `article.content`；发布链看到「已是 HTML」即幂等透传。**根因一句话：修复层级在事故之后 —— 2026-10-12 的 `#3389` 改的是「已多段内容在 HTML 承载平台如何表达」，而段落在上游的编辑器装载就已经没了。**",
+      "- 功能逻辑：投影的唯一实现是 `toFreezeSummary()`；取凭据的唯一实现是 `readStockStampRecord()`（`at` 不在位即 `null`），既有出口 `readStockStamp()` 刻意做成它的 `.at` **投影**而不是第二份读路径。`episode:list` 读**一次** `index.json` 同时喂 `compliance`（要 `at`）与摘要（要三个计数）——分两次读会在\"两次之间恰好有人固化完落盘\"时得到两份互相矛盾的凭据（一处认 stock 档、一处报另一组数）。",
+      "  set: (val) => emit('update:modelValue', val),"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "0f9cdfa6c2acca48493d240c292f2321587889a9096c293189170793930673e4",
+  "decidedAt": "2026-10-16T02:41:26.177Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "finding": "batchBadgeMap 只对当前页 records 计算，count=组内可见条数。同批跨页时徽标消失或显示偏小；按状态/审核/平台筛选把同批拆散后，徽标数量与实际 N 平台不符，「同批 N 个平台」成为错误陈述。",
+        "highRiskDomains": [],
+        "prosecution": "指控成立。`usePublishRecordActions.batchBadgeMap` 的输入只有 `records`（当前页 + 当前筛选结果），因此 group.size 是**可见条数**而不是同批总条数。具体失败场景：一次发布到 5 个平台，页大小 10，5 条都在第 1 页时徽标写「同批 5 个平台」；用户把筛选切成「仅失败」后同批只剩 1 条可见 ⇒ 徽标消失；同批跨页时两页分别写「同批 3 个平台」「同批 2 个平台」——三条陈述里两条是**错误**的，且界面没有任何「可能更多」的限定。",
+        "defense": "可辩护的部分：徽标只为「把平台级独立记录之间的关联补回来」，数量并非行动依据；且 `history:list` 不返回同批聚合计数，前端拿不到真值。但这只能说明「不必显示总数」，**不能说明「可以显示一个偏小的总数」**——把不确定的量写成确定陈述正是本仓反复出现的同型缺陷。",
+        "verdict": "upheld",
+        "rationale": "指控更强。已修：徽标文案改为**不断言总数**的「同批」（en: Same batch），可见条数与「同批可能更多」移入悬停说明（zh/en 成对）：batchBadge: () => '同批'、batchTooltip: '与「{platforms}」属于同一次发布（本页可见 {count} 条，同批可能更多）'。修的是「用不确定的量做确定陈述」，而不是把 count 调大——前端确实拿不到真值，唯一诚实的做法是不在徽标里给数。"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "主进程快照白名单含 contentFormat、aiGenerated，但渲染端 SNAPSHOT_ARTICLE_FIELDS 不含二者——保存后永不还原。重新发布时格式/AI 声明与上次发布可能静默漂移（如 aiGenerated 默认口径回退），与 PRD A6「与快照一致」承诺不一致。",
+        "highRiskDomains": [],
+        "prosecution": "指控成立（就 aiGenerated 而言，证据是实测的）：article.aiGenerated 是发布表单上的真实 checkbox（Publish.vue 的 data-testid=\"ai-declaration-checkbox\"，初值 aiGenerated: true），主进程 SNAPSHOT_FIELDS 明确收录它（「这次发布用的是哪个声明」已被持久化），但渲染端映射表没有它 ⇒ 用户上次取消勾选（false）后再次发布，表单会以默认 true 提交，**静默改变对外声明**，且与 PRD A6 直接冲突。",
+        "defense": "部分可辩护：contentFormat 在渲染端表单里根本没有对应字段（apps/desktop/src/views/Publish.vue 无引用），属「主进程审计留档」而非「待还原字段」；aiGenerated 的默认 true 也可说「更保守」。但「更保守」在这里站不住：用户显式取消勾选的原因（内容确非 AI 生成）被默认值覆盖，恰好把声明改错。",
+        "verdict": "upheld",
+        "rationale": "指控成立且成因是**两处白名单不同步**（主进程 SNAPSHOT_FIELDS vs 渲染端 SNAPSHOT_ARTICLE_FIELDS）。已修：① aiGenerated 进渲染端 SNAPSHOT_ARTICLE_FIELDS；② 布尔字段不能走通用的 snapshot[field] || ''（false 会被折成空串，在 checkbox 上反而为真），applyPublishSnapshot 增加布尔分支：只有快照里确实是 boolean 才写回，否则**保持表单当前值**（更早的记录不被动翻默认）；③ 新增 2 条测试（false/true 原样还原、缺失时保持现值），并把白名单一致性锁的构造值改为类型正确。contentFormat 保持只在主进程留档：渲染端无此字段可还原，这是**有意的范围**而非遗漏，已写入执行记录。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "PRD §5.1 承诺入口是「卡片与详情弹窗」两处，diff 只在卡片 record-actions 新增按钮，详情弹窗无「再次发布」，交付与契约不符。",
+        "highRiskDomains": [],
+        "prosecution": "指控成立。PRD-PUBLISH-RECORD-REPUBLISH-2026-10-15 §5.1 明确写了两个入口，实现只做了卡片；详情弹窗是用户「看完失败原因/审核结论后决定重发」的自然位置，缺这一处会让「契约与交付不一致」由文档读者承担。本仓已有判据把「任务勾选与证据不符」列为禁止自动合并的情形。",
+        "defense": "可辩护的部分：卡片入口已覆盖功能本身，详情弹窗只是便利性；少做一处入口不会造成错误结果。但这正是 i3 要防的形态——契约写了就必须对齐，否则 PRD 会逐条退化为「参考建议」。",
+        "verdict": "upheld",
+        "rationale": "指控成立。已修：详情弹窗 header 增加 data-testid=\"detail-republish\" 按钮，**复用同一份 canRepublish/republishHint/republishRecord**（不另写判据），禁用时同样悬停写明原因；新增 2 条测试（弹窗内可点并跳同一路由、无快照时禁用且写明原因）。实现选择「复用同一份函数」而非复制条件判断，正是为了避免两入口将来漂移。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "hasUnsavedInput 仅判 title/content 非空；用户只改了封面/话题标签/平台选择/分平台覆盖时，载入快照不弹确认直接静默覆盖，与「若有未保存内容，先弹确认」的契约不符，属数据丢失面。",
+        "highRiskDomains": [],
+        "prosecution": "指控成立。usePublishRepublish.applyRepublishSnapshot 的 hasUnsavedInput 只看 title/content 两串。具体失败场景：用户先选了封面图、填了话题标签、勾选了发布账号（未写正文），此时点「再次发布」→ 判据认为「没有未保存内容」⇒ 直接 applyPublishSnapshot 覆盖 cover_url/cover_path/cover_file/tags/selectedAccounts，此前的选择无提示消失且没有撤销路径。",
+        "defense": "可辩护的部分：空表单下弹确认会变成噪音（用户什么都不可能丢）。但这与「只判两个字段」是两件事：正解是**准确判断表单是否非空**，而不是用两个字段近似整个表单。",
+        "verdict": "upheld",
+        "rationale": "指控成立。已修：hasUnsavedInput 扩到封面（cover_url/cover_path/cover_file）、video_path、images、tags、topics 与**已选账号**（selectedAccounts 非空数组）——刻意不判 selectedPlatforms，因为它是表单预选、不代表用户输入，判它会把确认弹窗变成每个用户都会遇到的噪音。修法方向是「让判据贴近真实表单状态」，不是放宽为「一律弹确认」。"
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      }
+    ],
+    "note": "自扮演裁决 4 条全部 upheld（指控成立），已在同一分支内逐条修复并以测试锁定；闭环依据见 closure。复核强度限制：本次为自扮演（confidenceWeight 0.6），非真跨家族复核。",
+    "at": "2026-10-16T02:59:28.565Z",
+    "closure": {
+      "resolvedBy": "agent",
+      "resolvedAt": "2026-10-16T03:00:08.661Z",
+      "adjudicationArtifact": ".adversarial/ccg-deep-d8b4c7f9/adjudication.json",
+      "critiqueArtifact": ".adversarial/ccg-deep-d8b4c7f9/critique-v1.md",
+      "items": [
+        {
+          "id": "i1",
+          "verdict": "upheld",
+          "fix": "徽标不再断言同批总数（batchBadge → 「同批」），可见条数与「同批可能更多」移入 tooltip（zh/en 成对）"
+        },
+        {
+          "id": "i2",
+          "verdict": "upheld",
+          "fix": "aiGenerated 进渲染端 SNAPSHOT_ARTICLE_FIELDS + applyPublishSnapshot 布尔分支（false 不被折成空串；快照缺该字段时保持表单现值），新增 2 条测试"
+        },
+        {
+          "id": "i3",
+          "verdict": "upheld",
+          "fix": "详情弹窗 header 增加 detail-republish 按钮，复用同一份 canRepublish/republishHint/republishRecord，新增 2 条测试"
+        },
+        {
+          "id": "i4",
+          "verdict": "upheld",
+          "fix": "hasUnsavedInput 扩到封面/video/images/tags/topics/已选账号（刻意不判 selectedPlatforms，避免把预选当用户输入产生噪音）"
+        }
+      ],
+      "confidenceCaveat": "confidenceWeight=0.6（自扮演出口）。高危域争议 0 条，无外部复核要求；本条闭环的含义是「裁决已填 + 已修」，不等于跨家族双模型独立复核通过。"
+    }
+  }
+}
