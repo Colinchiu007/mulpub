@@ -1,4 +1,4 @@
-﻿// @ts-check
+// @ts-check
 /**
  * AssetGenerator - 资源生成服务
  *
@@ -558,11 +558,27 @@ class AssetGenerator {
 
     // 截取前 30 个字符作为图片文字
     const displayText = escapeDrawtextText((prompt || '').slice(0, 30))
+    // 中文占位图必须显式指定 CJK fontfile：Windows 静态 ffmpeg 的 drawtext 默认字体
+    // 无中文字形，不注入就是豆腐块（2026-10-09 快手足图文 tofu 实锤，
+    // 见 ipc-handlers/publish.test.js 的 img_9400.png 记录）。
+    // 路径由 font-resolver 统一解析并转到 ASCII 安全副本 —— ffmpeg 对非 ASCII 路径
+    // 静默失败（2026-10-16 实测：豆腐块、rc=0、stderr 干净）。
+    let fontOption = ''
+    try {
+      const { resolveContentCjkFont } = require('./font-resolver')
+      const { fontFile } = resolveContentCjkFont()
+      if (fontFile) {
+        fontOption = ":fontfile='" + fontFile.replace(/\\+/g, '/').replace(/:/g, '\\:') + "'"
+      }
+    } catch (_) {
+      // 字体解析失败不该阻断占位图生成（西文 prompt 仍可正常渲染）
+      fontOption = ''
+    }
 
     const args = [
       '-y',
       '-f', 'lavfi', '-i', 'color=c=' + bgColor + ':s=' + width + 'x' + height + ':d=1',
-       '-vf', "drawtext=text='" + displayText + "':fontcolor=white:fontsize=36:" +
+       '-vf', "drawtext=text='" + displayText + "'" + fontOption + ":fontcolor=white:fontsize=36:" +
         'x=(w-text_w)/2:y=(h-text_h)/2:borderw=2:bordercolor=black',
       '-frames:v', '1',
       imgPath,

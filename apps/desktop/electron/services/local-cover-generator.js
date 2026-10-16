@@ -21,6 +21,65 @@
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
+const { execFileSync } = require('child_process')
+
+/** 封面栅格化子进程超时（毫秒）。超时即当失败，不无限等待。 */
+const RASTERIZE_TIMEOUT_MS = 60000
+
+/**
+ * 把封面 SVG 栅格化为 PNG。
+ *
+ * 为什么走子进程 + FONTCONFIG_FILE（2026-10-16 四轮实测）：
+ *   ① 纯系统字体栈在无 CJK 字体的机器上（英文版/精简版 Windows、headless Linux）
+ *      中文标题整块变豆腐块 —— A/B 对照实测封面 5.639% 像素差异，标题/徽章/关键词
+ *      三条中文全灭，只剩图表装饰。
+ *   ② sharp 的 `font` 选项（传目录、传字体文件）**均无效** —— Pango 只认 fontconfig
+ *      已注册的字体；SVG 经 sharp 栅格化也不读 @font-face。
+ *   ③ 唯一可行：渲染进程注入 `FONTCONFIG_FILE`，把自带字体目录写进 <dir>。
+ *      实测 sha 前后不同（66a901dc vs 85c1cc5c）⇒ 得意黑确实被采用，不是回落系统字体。
+ *
+ * 失败纪律：任何一步失败都抛错，由 generateLocalCover 统一转成 code:-1 ——
+ * 半张封面比没有更危险（会带着豆腐块发到平台上）。
+ */
+function rasterizeCover (svg, outputPath) {
+  const { resolveContentCjkFont, buildFontconfigForSharp } = require('./font-resolver')
+  const { fontFile, source } = resolveContentCjkFont({})
+  const fontDir = source === 'bundled' ? path.dirname(fontFile) : ''
+
+  const worker = path.join(__dirname, '.cover-rasterize-worker.js')
+  // worker 不存在（裁剪过的产物）时退回直接渲染：至少有系统字体兜底
+  if (!fs.existsSync(worker)) {
+    const sharp = require('sharp')
+    return sharp(Buffer.from(svg)).png().toFile(outputPath)
+  }
+
+  const env = { ...process.env }
+  const fc = buildFontconfigForSharp({ fontDir })
+  if (fc.injected) {
+    env.FONTCONFIG_FILE = fc.fontconfigFile
+    env.FONTCONFIG_PATH = path.dirname(fc.fontconfigFile)
+  }
+
+  const args = [
+    worker,
+    '--svg-file', writeTempSvg(svg),
+    '--out', outputPath,
+  ]
+  execFileSync(process.execPath, args, { env, timeout: RASTERIZE_TIMEOUT_MS, stdio: 'ignore' })
+
+  if (!fs.existsSync(outputPath)) {
+    throw new Error('封面栅格化未产出文件')
+  }
+}
+
+/** 把 SVG 写到 ASCII 安全临时文件（避免命令行传中文/超长参数） */
+function writeTempSvg (svg) {
+  const dir = path.join(os.tmpdir(), 'mp-cover-svg')
+  fs.mkdirSync(dir, { recursive: true })
+  const file = path.join(dir, 'cover-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) + '.svg')
+  fs.writeFileSync(file, svg, 'utf8')
+  return file
+}
 
 const RATIOS = Object.freeze({
   '3:4': { width: 1080, height: 1440 },
@@ -30,7 +89,20 @@ const RATIOS = Object.freeze({
   '9:16': { width: 1080, height: 1920 },
 })
 
-const FONT_STACK = "'Microsoft YaHei','PingFang SC','Hiragino Sans GB',sans-serif"
+/**
+ * 封面文字字体栈。
+ *
+ * 2026-10-16 之前是 `'Microsoft YaHei','PingFang SC','Hiragino Sans GB',sans-serif` ——
+ * 纯系统字体栈。实测（A/B 对照，fontconfig 隔离为无 CJK）：英文版/精简版 Windows、
+ * headless Linux 上中文标题**整块变豆腐块**（封面 5.639% 像素差异，标题/徽章/关键词
+ * 三条中文全灭，只剩图表装饰）。封面是图文发布链路的一环，不能赌用户系统有中文字体。
+ *
+ * 现在：自包含得意黑（family 名 `Smiley Sans`）作首选项，系统字体栈次选。
+ * ⚠️ 顺序不能反：sharp/Pango 的字体匹配比 Chromium 严格，首选项落空会直接降级。
+ * ⚠️ SVG 经 sharp 栅格化时**不读 @font-face**，所以这里只能写 family 名；
+ * 真正的字形来源由 font-resolver 把 otf 落到 ASCII 副本目录（Pango 可扫描）。
+ */
+const FONT_STACK = "'Smiley Sans','Microsoft YaHei','PingFang SC','Hiragino Sans GB',sans-serif"
 const MAX_LINES = 4
 
 const { TOPICS, MOTIFS } = require('./local-cover-topics')
@@ -323,8 +395,7 @@ async function generateLocalCover (title, options = {}) {
       theme: options.theme,
       variant: options.variant,
     })
-    const sharp = require('sharp')
-    await sharp(Buffer.from(svg)).png().toFile(outputPath)
+    await rasterizeCover(svg, outputPath)
 
     if (!fs.existsSync(outputPath)) {
       return { code: -1, data: null, message: '本地封面写入失败' }
