@@ -19,7 +19,7 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "self_play_blocked",
+    "status": "needs_revision",
     "performedBy": "self-play",
     "confidenceWeight": 0.6,
     "requiresExternalReview": [],
@@ -108,6 +108,7 @@
       }
     ],
     "note": "自扮演裁决：2 条指控成立或需外部复核",
-    "at": "2026-10-17T07:19:51.113Z"
+    "at": "2026-10-17T07:23:05.580Z",
+    "resolutionNote": "状态由 self_play_blocked 置为 needs_revision，依据判据自身给出的两条收口路径之一（如实登记，不按假阳性处理）：\n\n自扮演裁决的 2 条 upheld（i3 / i4）对**本提交（73742862）的差量**属实 —— 缺陷当时确实存在：\n- i3：scripts/check-same-type-risk-locks.js 被 .gitignore:106 的 scripts/*.js 静默忽略，未随本提交入库\n  ⇒ 本地全绿、CI 必然 Cannot find module（本仓已记录三次的同族陷阱，本次为第 4 次）。\n- i4：scanCatchRecursion 的调用侧未排除 new OwnerName(，会误报自调用。\n\n两处的修订都已完成于本分支的后续提交（不是口头认领，有产物）：\n- a72ddf697：.gitignore 增加 !scripts/check-same-type-risk-locks.js（沿既有 negation 范式 + 动因注释），\n  CLI 已入库（git show --stat 可验）；check-ignore 命中 negation 行本身。\n- 67b2fe2b3：调用侧补 new 排除（与属性访问同待遇）+ 绿夹具 const fallback = new outer()；\n  测试 16/16 全绿；M1–M4 变异反证全部打红且字节还原一致。\n\n另如实登记一次流程瑕疵：ae28eb6f 提交的裁决文书曾声称 i4「已修」，但当时只改了声明侧未改调用侧 ——\n裁决与代码不符，已在 67b2fe2b3 的提交说明里自纠。head 提交自己的评审（2802dbca，single）已收敛为\nself_play_resolved，无未处置发现。"
   }
 }
