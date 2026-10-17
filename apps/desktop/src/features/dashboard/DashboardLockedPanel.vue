@@ -39,8 +39,22 @@ const { t } = useI18n()
 </script>
 
 <style scoped>
-/* 与页面既有 .dash-panel 同形态（圆角卡片 + 虚线边），保证免费版看到的
- * 占位与付费版看到的真实区块在版式上一致，不会显得像"缺了一块"。 */
+/* ⚠️ 本组件配色经 CI Gate 7c（暗色文本对比度）实测修过一轮，改色前必读：
+ *
+ * 首版两处都在暗色下不达标（实测 fg/bg/ratio 由 CI 精确报出）：
+ *   ① .dash-locked-head 用 var(--deep-purple) = #1e1b4b —— 该变量是 Dashboard.vue
+ *      在 :global(:root) 里写死的**亮色值**，暗色主题下不切换 ⇒ 深紫字压暗卡底
+ *      (#26262d)，ratio **1.06**，标题几乎隐形。
+ *      修法：改用语义 token var(--color-text-primary)，它在 tokens.css 里亮
+ *      (#1e1b4b) 暗 (#e8e8ed) 双档都有定义，随主题自动切换。
+ *   ② .dash-locked-cta 用描边式（透明底 + var(--lavender-primary) 紫字）⇒
+ *      #7c5cbf 压 #26262d 只有 **2.96**，差 0.04 不达标。
+ *      修法：改**实底 + 白字**，色值固定 #7c5cbf。这样对比度恒为 5.07，
+ *      与主题无关 —— 同 TrialBanner 第 3 轮的结论：白字在固定底色下对
+ *      「暗色主题是否覆盖了某个 token」完全免疫，描边式做不到这点。
+ *
+ * 判据：正文/UI 文本 ≥ 3:1（与 contrast-audit.js 阈值一致）。
+ */
 .dash-locked {
   margin-bottom: var(--space-md);
   padding: 16px;
@@ -54,7 +68,8 @@ const { t } = useI18n()
   gap: var(--space-sm, 8px);
   font-weight: 600;
   font-size: var(--font-size-base, 15px);
-  color: var(--deep-purple, var(--color-text-primary));
+  /* 语义 token：亮 #1e1b4b / 暗 #e8e8ed，随主题切换（勿改回 --deep-purple） */
+  color: var(--color-text-primary);
 }
 .dash-locked-hint {
   margin: var(--space-sm, 8px) 0 var(--space-md, 12px);
@@ -64,18 +79,19 @@ const { t } = useI18n()
 .dash-locked-cta {
   appearance: none;
   -webkit-appearance: none;
-  border: 1px solid var(--lavender-primary, var(--color-primary));
-  background: transparent;
-  color: var(--lavender-primary, var(--color-primary));
+  border: 1px solid #7c5cbf;
+  /* 实底 + 白字：对比度恒 5.07，对主题覆盖免疫（见文件头说明） */
+  background: #7c5cbf;
+  color: #fff;
   cursor: pointer;
   padding: 6px 14px;
   border-radius: var(--radius-sm, 8px);
   font-size: var(--font-size-xs);
   font-weight: 500;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: background 0.15s ease, border-color 0.15s ease;
 }
 .dash-locked-cta:hover {
-  background: var(--lavender-primary, var(--color-primary));
-  color: var(--color-on-primary, #fff);
+  background: #6d28d9;
+  border-color: #6d28d9;
 }
 </style>

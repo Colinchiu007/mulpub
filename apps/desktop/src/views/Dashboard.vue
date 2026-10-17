@@ -157,83 +157,16 @@
         </ul>
       </div>
 
-      <!-- 账号健康度（新，free 可见）：运营必需信息，不给足会让用户无法判断基本可用与否 -->
-      <div class="cohere-card dash-panel" data-testid="dashboard-account-health">
-        <div class="dash-panel-title">
-          <el-icon><UserFilled /></el-icon> {{ t('dashboard.accountHealthTitle') }}
-        </div>
-        <p v-if="accountHealth.state === 'auth'" class="dash-panel-note" data-testid="account-health-auth">
-          {{ t('dashboard.loginGateHint') }}
-        </p>
-        <p v-else-if="accountHealth.state === 'error'" class="dash-panel-note" data-testid="account-health-error">
-          {{ t('dashboard.accountHealthLoadFailed') }}
-        </p>
-        <p v-else-if="accountHealth.state === 'empty'" class="dash-panel-note" data-testid="account-health-empty">
-          {{ t('dashboard.accountHealthEmpty') }}
-        </p>
-        <template v-else>
-          <div class="dash-health-row">
-            <span class="dash-health-chip ok">{{ t('dashboard.accountHealthOk', { count: accountHealth.ok }) }}</span>
-            <span class="dash-health-chip bad">{{ t('dashboard.accountHealthBad', { count: accountHealth.bad }) }}</span>
-            <span class="dash-health-chip unknown">{{ t('dashboard.accountHealthUnknown', { count: accountHealth.unknown }) }}</span>
-          </div>
-          <ul v-if="accountHealth.badAccounts.length > 0" class="dash-health-list">
-            <li v-for="id in accountHealth.badAccounts" :key="id">{{ id }}</li>
-            <li v-if="accountHealth.badOverflow > 0" class="dash-health-more">
-              {{ t('dashboard.accountHealthMore', { count: accountHealth.badOverflow }) }}
-            </li>
-          </ul>
-        </template>
-      </div>
-
-      <!-- 发布队列状态（新，free 可见） -->
-      <div class="cohere-card dash-panel" data-testid="dashboard-queue-status">
-        <div class="dash-panel-title">
-          <el-icon><Timer /></el-icon> {{ t('dashboard.queueTitle') }}
-        </div>
-        <p v-if="queue.state === 'auth'" class="dash-panel-note" data-testid="queue-auth">
-          {{ t('dashboard.loginGateHint') }}
-        </p>
-        <p v-else-if="queue.state === 'error'" class="dash-panel-note" data-testid="queue-error">
-          {{ t('dashboard.queueLoadFailed') }}
-        </p>
-        <template v-else>
-          <div class="dash-health-row">
-            <span class="dash-health-chip run">{{ t('dashboard.queueRunning', { count: queue.running }) }}</span>
-            <span class="dash-health-chip pending">{{ t('dashboard.queuePending', { count: queue.pending }) }}</span>
-            <span class="dash-health-chip bad">{{ t('dashboard.queueFailed', { count: queue.failed }) }}</span>
-          </div>
-          <p v-if="queue.state === 'empty'" class="dash-panel-note" data-testid="queue-empty">
-            {{ t('dashboard.queueEmpty') }}
-          </p>
-          <ul v-if="queue.failedTitles.length > 0" class="dash-health-list">
-            <li v-for="(title, i) in queue.failedTitles" :key="i">{{ title }}</li>
-          </ul>
-        </template>
-      </div>
-
-      <!-- 题材表现榜（新，full 专属） -->
-      <DashboardLockedPanel v-if="!hasDashboardFull" name="pattern" :title="t('dashboard.patternTitle')" @upgrade="showUpgradeModal = true" />
-      <div v-else class="cohere-card dash-panel" data-testid="dashboard-pattern-board">
-        <div class="dash-panel-title">
-          <el-icon><TrendCharts /></el-icon> {{ t('dashboard.patternTitle') }}
-        </div>
-        <p v-if="patternBoard.state === 'auth'" class="dash-panel-note" data-testid="pattern-auth">
-          {{ t('dashboard.loginGateHint') }}
-        </p>
-        <p v-else-if="patternBoard.state === 'error'" class="dash-panel-note" data-testid="pattern-error">
-          {{ t('dashboard.patternLoadFailed') }}
-        </p>
-        <p v-else-if="patternBoard.state === 'empty'" class="dash-panel-note" data-testid="pattern-empty">
-          {{ t('dashboard.patternEmpty') }}
-        </p>
-        <ol v-else class="dash-pattern-list">
-          <li v-for="row in patternBoard.rows" :key="row.value" class="dash-pattern-row">
-            <span class="dash-pattern-name">{{ row.value }}</span>
-            <span class="dash-pattern-score">{{ row.score }}</span>
-          </li>
-        </ol>
-      </div>
+      <!-- 三个附加区块：账号健康度 / 发布队列 / 题材榜。
+           抽成 DashboardExtraPanels 是因为直接内联会让本文件超出「行数债务熔断」
+           容差（check-max-lines.js 的 LEDGER_GREW，登记值 796 + 容差 200）。 -->
+      <DashboardExtraPanels
+        :account-health="accountHealth"
+        :queue="queue"
+        :pattern-board="patternBoard"
+        :has-full="hasDashboardFull"
+        @upgrade="showUpgradeModal = true"
+      />
 
       <!-- 各平台数据 -->
       <div class="cohere-section-title dash-section-header">
@@ -301,6 +234,7 @@ import { formatDateTime } from '@/utils/datetime'
 import BenchmarkChart from '@/components/BenchmarkChart.vue'
 import PerformanceFlowPanel from '@/features/dashboard/PerformanceFlowPanel.vue'
 import DashboardLockedPanel from '@/features/dashboard/DashboardLockedPanel.vue'
+import DashboardExtraPanels from '@/features/dashboard/DashboardExtraPanels.vue'
 // eslint-disable-next-line no-unused-vars
 import UpgradeModal from '@/components/UpgradeModal.vue'
 import { useIdentityStore } from '@/stores/identity'
@@ -933,62 +867,9 @@ onMounted(() => { loadCached(); loadStats(); loadRecent(); loadNewPanels(); load
   transform: translateY(0);
 }
 
-/* === 新增区块：账号健康度 / 发布队列 / 题材榜（dash-full-entitlement）=== */
-/* 与既有 .dash-panel-title 同形态，不再另起一套标题样式 */
-.dash-panel-note {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-secondary);
-  margin: 0;
-}
-.dash-health-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-sm);
-  margin-bottom: var(--space-sm);
-}
-.dash-health-chip {
-  padding: 2px 10px;
-  border-radius: var(--radius-full, 9999px);
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  background: var(--lavender-light);
-  color: var(--deep-purple);
-}
-.dash-health-chip.ok { background: rgba(16, 185, 129, .12); color: var(--color-success); }
-.dash-health-chip.bad { background: rgba(239, 68, 68, .12); color: var(--color-danger); }
-.dash-health-chip.unknown { background: var(--color-border); color: var(--color-text-secondary); }
-.dash-health-chip.run { background: var(--lavender-light); color: var(--deep-purple); }
-.dash-health-chip.pending { background: var(--lavender-light); color: var(--deep-purple); }
-.dash-health-list {
-  margin: 0;
-  padding-left: 18px;
-  font-size: var(--font-size-sm);
-  color: var(--color-text-primary);
-}
-.dash-health-more {
-  color: var(--color-text-secondary);
-  list-style: none;
-  margin-left: -18px;
-}
-.dash-pattern-list {
-  margin: 0;
-  padding-left: 20px;
-}
-.dash-pattern-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-md);
-  padding: 4px 0;
-  font-size: var(--font-size-sm);
-}
-.dash-pattern-name { color: var(--color-text-primary); }
-.dash-pattern-score {
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  color: var(--deep-purple);
-}
+/* 账号健康度 / 发布队列 / 题材榜的样式已随模板一并迁入
+ * features/dashboard/DashboardExtraPanels.vue（自包含 scoped）。
+ * 这里不再保留副本 —— 两份定义会静默漂移（改一处忘另一处）。 */
 
 /* 响应式 */
 @media (max-width: 1024px) {
