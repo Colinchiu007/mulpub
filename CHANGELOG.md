@@ -1,3 +1,34 @@
+# [未发布] fix(gate): 行数门禁的扫描域改成 git 的域 —— 本机跑过构建就报 NEW_OVER_LIMIT 的假红（max-lines-git-domain）
+
+## 症状与根因
+- 症状：在跑过 `pnpm run build:preload` 的工作树里执行 `node .github/scripts/check-max-lines.js` 报两条
+  `NEW_OVER_LIMIT`（`apps/desktop/electron/preload/index.bundle.js 1752 行`、`home-shell-preload.bundle.js 1803 行`），
+  而 CI 上同一条门禁一直是绿的。
+- 根因：`826fa7e13`（PR #3782，change `bundle-untrack`）把 5 个构建产物移出版本控制时，只给消费它们的 CI 作业
+  补了「先重建再测」，**没改行数门禁自己的扫描域** —— `walkDir` 一直按 `fs.readdirSync` 走磁盘、从不问 `.gitignore`，
+  而这两个产物恰好落在 `SCAN_DIRS` 内、扩展名又是 `.js`。于是「本机域」比「CI 域」多出若干不受管的生成物，
+  两边却比同一份挂账账本。它们在账本里是 `pruned` 墓碑，所以症状是"重新欠债"而不是"存量膨胀"。
+
+## 修复
+- 扫描域交给 git：`gitDomain` = `git ls-files -z` ∪ `git ls-files -z --others --exclude-standard`
+  （即 `git status` 与 CI 检出共同看的集合），`walkDir` / `scanTestFiles` 在读文件之前按域过滤。
+- 三条不可破：不退回磁盘全量；不收窄成只看索引（未 `git add` 但未被忽略的新文件仍是新增债）；
+  取不到 git 读数（非工作树 / git 不可执行 / 空集合）一律抛错并由 `main()` 转退出码 **2**，
+  与「发现违规」的 1 分开 —— 把工具的失明读成结论是本仓反复出现的同型错误。
+- 现场留痕：plain 模式打印 `[max-lines] domain=<n>`，`--json` 模式不打印该行而在 JSON 里给 `domainSize`。
+- 顺带采纳两轴评审：被跟踪但同时命中 `.gitignore` 的文件**仍在域内**（并集，不是 check-ignore）并补锁；
+  读文件失败从静默 `continue` 改成出声登记；测试夹具另关 `GIT_CONFIG_NOSYSTEM`（实测 system 档里的
+  `core.excludesFile` 能把文件整批藏出域，`delete GIT_CONFIG_SYSTEM` 挡不住）。
+
+## 验收（注意域）
+- **真实验收是本机同树 A/B**，不是 CI 绿：同一份工作树 + 同一份账本，修复前实现 rc=1 报那两条假红，
+  修复后 rc=0 且 `domain=9996`（该数随仓库增长、每次 re-sync 重取，不是基线）；干净检出下修复前后判定逐字不变（超限文件=95 挂账=95 墓碑=5 点名还账=20，
+  测试超限=12 测试挂账=12），账本 127 个键逐个 `git ls-files --error-unmatch` 全部受管 ⇒ 零回归。
+  CI 的检出里从来没有这些产物，所以"CI 全绿"只证明没把别的搞坏，不证明修好了假红。
+- 回归锁 10 条（`node --test .github/scripts/check-max-lines.test.js` = 36/36），变异反证 10 道：
+  9 道 CAUGHT 且红集互不相同，M8（摘掉读失败出声）实测 MISSED —— 那一格本机造不出确定性读失败，
+  如实登记为无锁。同根因第二处 `scripts/check-debt-budget.js`（本机 filesOver500=97 vs CI 95、基线 101，
+  靠余量没红）另开任务，不在本片顺手改第二个门禁的判定域。
 # [未发布] docs(CI): 沉淀 QG Coverage 40 分钟超时 flake（归因证据 + 不动 workflow）
 
 ## 现象
