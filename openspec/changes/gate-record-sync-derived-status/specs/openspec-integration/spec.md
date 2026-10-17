@@ -4,7 +4,7 @@
 
 ### Requirement: 远程同步的收口证据由主干历史推导，squash 尾注是本仓契约
 
-执行记录的「远程同步」收口 SHALL 以主干历史为证据来源：一条记录被认为已同步，当且仅当**把它首次带入 `main` 的那次合并提交**可被解析为带 squash 尾注 `(#NNNN)` 的已合并 PR。本仓 MUST 保持「经 PR 合并且提交信息带 `(#NNNN)` 尾注」这一惯例，因为它是该判据的唯一取证入口；合并方式改为不写尾注的形态（rebase-merge、平台默认合并、人工 merge）会使推导档整体失效，属**契约变更**，MUST 与判据变更同 PR 落地并出声。
+执行记录的「远程同步」收口 SHALL 以主干历史为证据来源：一条记录被认为已同步，当且仅当**最近一次把它带入 `main` 的那次合并提交**（取向显式，非"首次新增"，见 `quality-gate-execution-record` 的归属映射条款）可被解析为带 squash 尾注 `(#NNNN)` 的已合并 PR。本仓 MUST 保持「经 PR 合并且提交信息带 `(#NNNN)` 尾注」这一惯例，因为它是该判据的唯一取证入口；合并方式改为不写尾注的形态（rebase-merge、平台默认合并、人工 merge）会使推导档整体失效，属**契约变更**，MUST 与判据变更同 PR 落地并出声。
 
 收口既由推导得出，系统 SHALL NOT 再要求「合并后另开一次 PR 把状态改写为 PASS + merge SHA」。经 PR 落地这条本身 MUST NOT 放松：直推 `refs/heads/main` 仍被远端分支保护以 `GH011` 拒绝，required status checks 仍只能经 PR 满足。
 
