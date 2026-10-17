@@ -73,8 +73,14 @@
               :data-testid="'batch-item-check-' + item.id"
               @change="$emit('toggleSelect', item)"
             />
-            <div class="card-icon"><el-icon><component :is="item.mediaType === 'video' ? VideoCamera : Document" /></el-icon></div>
-            <div class="card-info">
+            <!-- 卡片主体可点（2026-10-17，change: collected-results-fix）：
+                 用户实测「点结果内容有链接光标但没反应」。修法：整个信息区绑定 select
+                 （与「查看」按钮同语义——选中该条并展示详情），并加 pointer 光标，
+                 让「看着像链接」的区域真的可点。card-info 当前无交互子元素，故直接 @click；
+                 若将来往里面加按钮，须同步改为 @click.self 或在子元素上 stopPropagation
+                 （QM-6 评审 #5：注释曾承诺 .self 而代码未加，两处必须一致）。 -->
+            <div class="card-icon card-icon--click" :data-testid="'card-icon-' + item.id" @click="$emit('select', item)"><el-icon><component :is="item.mediaType === 'video' ? VideoCamera : Document" /></el-icon></div>
+            <div class="card-info card-info--click" :data-testid="'card-info-' + item.id" @click="$emit('select', item)">
               <!-- 一级：标题 + 元信息（Q10-c 层级重排） -->
               <div class="card-platform">{{ item.title || $t('collection.recordsUntitled') }}</div>
               <div class="card-account">
@@ -83,7 +89,7 @@
                 <template v-if="item.mediaType === 'video' && item.platform && platformKeys.includes(item.platform)"> · {{ platformLabel(item.platform) }}</template>
               </div>
               <!-- 二级：徽标区 -->
-              <div v-if="item.rewriteFailed" class="card-badge card-badge--warning">{{ $t('collection.zhihuFav.rewriteFailedBadge') }}</div>
+              <div v-if="item.rewriteFailed" class="card-badge card-badge--warning" :title="item.rewriteError || ''" :data-testid="'badge-rewrite-failed-' + item.id">{{ $t('collection.zhihuFav.rewriteFailedBadge') }}<template v-if="item.rewriteError">：{{ item.rewriteError }}</template></div>
               <div v-else-if="item.rewrittenContent" class="card-badge" :title="item.rewrittenContent">{{ $t('collection.zhihuFav.rewrittenBadge') }}：{{ item.rewrittenContent.slice(0, 40) }}</div>
               <div v-if="item.imageFallbacks && item.imageFallbacks.length" class="card-badge">{{ $t('collection.zhihuFav.imageFallbackBadge', { count: String(item.imageFallbacks.length) }) }}</div>
             </div>
@@ -155,6 +161,13 @@ defineExpose({ platformScope, videoPlatformScope })
 </script>
 
 <style scoped>
+/* 卡片主体可点（2026-10-17，change: collected-results-fix）：
+   用户实测「点结果内容有链接光标但没反应」。此前 card-info 无点击绑定，
+   但继承了链接形态的光标样式（全局 a/.card-* 类），形成"假可点"。
+   现在 card-info / card-icon 绑定 select 并显式给 pointer 光标 —— 看着能点就真能点。 */
+.card-info--click { cursor: pointer; }
+.card-icon--click { cursor: pointer; display: flex; align-items: center; }
+.card-info--click:hover .card-platform { color: var(--color-primary); }
 .batch-bar { display: flex; gap: var(--space-sm); align-items: center; flex-wrap: wrap; margin: 8px 0; padding: 10px 12px; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-bg-card); }
 .batch-bar--video { margin: 0 0 8px; padding: 8px 12px; border-style: dashed; }
 .batch-bar-count { font-size: var(--font-size-sm); }

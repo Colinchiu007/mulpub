@@ -104,4 +104,29 @@ describe('CollectedResultsList 批量操作条', () => {
     await w.find('[data-testid="batch-select-all"]').setValue(true)
     expect(w.emitted('toggleSelectAll')[0][0]).toBe(true)
   })
+
+  // ── 结果区可点性与改写失败可诊断（2026-10-17，change: collected-results-fix）──
+  it('点卡片内容/图标 = 选中该条（emit select）——修「有链接光标但没反应」', async () => {
+    const w = mountList()
+    await w.find('[data-testid="card-info-a"]').trigger('click')
+    expect(w.emitted('select')[0][0]).toMatchObject({ id: 'a' })
+    await w.find('[data-testid="card-icon-b"]').trigger('click')
+    expect(w.emitted('select')[1][0]).toMatchObject({ id: 'b' })
+  })
+
+  it('改写失败徽标带原因（rewriteError 内联 + title 悬停），改写成功徽标不带', () => {
+    const w = mountList({
+      items: [
+        item('f', { rewriteFailed: true, rewriteError: 'connect ECONNREFUSED 127.0.0.1:8010' }),
+        item('s', { rewrittenContent: '改写后的文字' }),
+      ],
+    })
+    const fail = w.find('[data-testid="badge-rewrite-failed-f"]')
+    expect(fail.exists()).toBe(true)
+    expect(fail.text()).toContain('改写失败')
+    expect(fail.text()).toContain('ECONNREFUSED')
+    expect(fail.attributes('title')).toContain('ECONNREFUSED')
+    // 成功条目不得带失败徽标（防旧数据误标）
+    expect(w.find('[data-testid="badge-rewrite-failed-s"]').exists()).toBe(false)
+  })
 })

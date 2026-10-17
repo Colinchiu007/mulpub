@@ -135,6 +135,69 @@ describe("zhihu-fav-batch run 通道", () => {
     expect(r.data.items[0].rewriteFailed).toBe(true);
   });
 
+  // ── 改写失败必须可诊断（2026-10-17，用户实测反馈「改写失败用原文」看不到原因）──
+  // 旧实现 `catch {}` 把真实异常吞掉，用户只看到失败、不知道是后端没起还是接口报错。
+  it("改写抛异常 → 原因摘要落在条目 rewriteError + done 事件带 rewriteError（Q26C-D）", async () => {
+    deps.pythonBridge.requestBackend.mockRejectedValueOnce(new Error("connect ECONNREFUSED 127.0.0.1:8010"));
+    const r = await handlers["zhihu-fav-batch:run"](event, {
+      items: [ITEM("https://zhuanlan.zhihu.com/p/1", "article")],
+    });
+    expect(r.data.rewriteFailed).toBe(1);
+    const item = r.data.items[0];
+    expect(item.rewriteFailed).toBe(true);
+    // 原因摘要必须落条目（截断到 200 字符以内），且包含真实错误关键字
+    expect(typeof item.rewriteError).toBe("string");
+    expect(item.rewriteError.length).toBeGreaterThan(0);
+    expect(item.rewriteError.length).toBeLessThanOrEqual(200);
+    expect(item.rewriteError).toContain("ECONNREFUSED");
+    // done 事件同步带原因，进度行才显示得出来（进度事件经 event.sends 收集，与本文件其他用例同式）
+    const prog = event.sends.filter((s) => s.ch === "zhihu-fav-batch:progress");
+    const doneEv = prog.map((s) => s.payload).filter((p) => p.phase === "done").pop();
+    expect(doneEv.result.rewriteFailed).toBe(true);
+    expect(doneEv.result.rewriteError).toContain("ECONNREFUSED");
+  });
+
+  it("改写返回空 result_content → rewriteError 说明「空结果」而不是笼统失败", async () => {
+    deps.pythonBridge.requestBackend.mockResolvedValueOnce({ result_content: "" });
+    const r = await handlers["zhihu-fav-batch:run"](event, {
+      items: [ITEM("https://zhuanlan.zhihu.com/p/1", "article")],
+    });
+    const item = r.data.items[0];
+    expect(item.rewriteFailed).toBe(true);
+    expect(item.rewriteError).toContain("空");
+  });
+
+  it("改写成功 → 条目不得带 rewriteError 字段（避免旧数据误标）", async () => {
+    const r = await handlers["zhihu-fav-batch:run"](event, {
+      items: [ITEM("https://zhuanlan.zhihu.com/p/1", "article")],
+    });
+    expect(r.data.rewriteFailed).toBe(0);
+    expect(r.data.items[0].rewriteError).toBeUndefined();
+  });
+
+  // ── QM-6 评审 #1/#6 回归锁（2026-10-17）：摘要脱敏 + 非 Error 抛出值可读 ──
+  it("rewriteError 内网端点脱敏：127.*/localhost:port 替换为通用说法，原文只在日志", async () => {
+    deps.pythonBridge.requestBackend.mockRejectedValueOnce(new Error("connect ECONNREFUSED 127.0.0.1:8010"));
+    const r = await handlers["zhihu-fav-batch:run"](event, {
+      items: [ITEM("https://zhuanlan.zhihu.com/p/1", "article")],
+    });
+    const err = r.data.items[0].rewriteError;
+    expect(err).not.toMatch(/127\.\d+\.\d+\.\d+/);
+    expect(err).not.toMatch(/:\d{2,5}/);
+    expect(err).toContain("后端服务");
+    expect(deps.log.warn).toHaveBeenCalled(); // 完整原文保留在日志侧
+  });
+
+  it("非 Error 抛出值（对象/字符串）也能产出可读摘要，不出现 [object Object]", async () => {
+    deps.pythonBridge.requestBackend.mockRejectedValueOnce({ code: -1, message: "后端返回错误码" });
+    const r = await handlers["zhihu-fav-batch:run"](event, {
+      items: [ITEM("https://zhuanlan.zhihu.com/p/1", "article")],
+    });
+    const err = r.data.items[0].rewriteError;
+    expect(err).not.toContain("[object Object]");
+    expect(err).toContain("后端返回错误码");
+  });
+
   it("视频型条目：跳过采集与改写，登记 kind=video（B4）", async () => {
     const r = await handlers["zhihu-fav-batch:run"](event, {
       items: [ITEM("https://www.zhihu.com/zvideo/1", "video")],

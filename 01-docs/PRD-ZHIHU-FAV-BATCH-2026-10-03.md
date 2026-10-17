@@ -432,7 +432,29 @@
 
 1. **仍无真机验证**：路标出现/消失的逻辑由组件锁覆盖（5 条），但真实窗口里的**视觉位置**（是否紧跟在对应按钮下方）未截图确认。
 2. **像素门禁仍不覆盖**：路标同样在折叠组内，`collection` 默认态截图看不到 ⇒ 像素 PASS 不能证明路标位置合理。
-3. **文案里的按钮名与 locale 的耦合未做机械校验**（S1/S2 只断言包含关键词）：若将来改 `loadContents` 的文案而忘了改路标，锁不会红。列入 §9 范围外（代价大于收益：需要跨 key 的引用校验机制）。
+3. **文案里的按钮名与 locale 的耦合未做机械校验**（S1/S2 只断言包含关键词）：若将来改 `loadContents` 的文案而忘了改路标，锁不会红。~~列入 §9 范围外~~ ⇒ **已在 §4.3.6 闭环（2026-10-17 当日）**。
+
+#### 4.3.6 引导文案按钮名同步锁（2026-10-17，change: collected-results-fix）
+
+§4.3.5 第 3 条的遗留当日闭环：新增判据 `scripts/check-locale-button-name-sync.js`，接进 `quality-gate.yml` 的 **changes job**（不被 docs-only 短路、在非 PR 早退之前 ⇒ PR 档与 main push 档全覆盖）。
+
+**判据形态：显式登记表，非启发式**。本仓实测教训是启发式判据一次引入 5 个假阳、结局逼人清空登记表（AGENTS.md「spec-mirror-wiring-gate」）。因此：
+
+- 登记表 `REGISTRY` 声明「哪条引导文案引用了哪些按钮 key」，例如 `zhihuFav.stepHintNoFavlists → [zhihuFav.loadBtn]`；
+- 判据从 locale 源码按 key 抽值，**逐字比对**引导文案里第 n 个 `「…」`/`"…"` 引用段与被引用按钮的现值；
+- **登记之外的一律不管**（防假阳）；登记指向不存在的 key 也红（`missing-ref`）；key 被删而登记没跟也红（`missing-key`）；
+- **按语言可覆盖 refKeys**（en 文案的引用结构与 zh 不同时用 `locales: { zh:[...], en:[...] }`）。
+
+**接线锁**：自测 `scripts/check-locale-button-name-sync.test.js`（6 例）与判据同进 changes job；`check-unwired-tests.js` 全绿（30 例）。
+
+**当前登记**：
+
+| localeKey | refKeys（zh / en 相异处已按语言覆盖） |
+|---|---|
+| `zhihuFav.stepHintNoFavlists` | `zhihuFav.loadBtn`（zh+en 同） |
+| `zhihuFav.stepHintNeedContents` | zh：`loadContents` + `collectAndRewrite`；en：仅 `loadContents`（en 里"采集并改写"以普通短语 `collected & rewritten` 出现，不构成按钮名引用，不做逐字核对） |
+
+**扩展规约**：将来**新增**任何引用按钮名的引导文案，必须同时把 `(localeKey, refKeys)` 登记进来；改按钮文案时判据会当场点名「引导现值 vs 按钮现值」两侧。
 
 ## 5. 显示项与提示文字（locale zh/en 成对）
 

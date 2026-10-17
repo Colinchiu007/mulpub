@@ -51,7 +51,12 @@
         <div v-if="videoCollectStage" data-testid="collection-video-stage" class="col-stage-banner">
           {{ videoStageText(videoCollectStage) }}
         </div>
-        <div v-if="collectedResult" class="col-result-box">
+        <!-- 结果详情框（2026-10-17 加锚点）：id=collected-result-box。
+             修复「点编辑/点内容没反应」：之前 select 只改了 collectedResult，详情框
+             出现在页面很靠上的位置，而列表在视口下方 ⇒ 视觉上"点了没反应"。
+             现在 selectCollectedItem 会选中并 scrollIntoView 到这个框。
+             用 id 而非 ref 做锚：采集页单实例，且 jsdom 测试可直接桩元素。 -->
+        <div v-if="collectedResult" id="collected-result-box" data-testid="collected-result-box" class="col-result-box">
           <div class="col-result-title">✅ {{ collectedResult.title || '无标题' }}</div>
           <div class="col-result-meta">
             {{ collectedResult.description ? collectedResult.description.slice(0, 120) + '...' : '' }}
@@ -156,7 +161,7 @@
         :batch-video-account-options="batchVideoAccountOptions"
         :platform-keys="PLATFORM_KEYS"
         :is-account-selected-fn="batch.isBatchAccountSelected"
-        @select="collectedResult = $event"
+        @select="selectCollectedItem"
         @create-draft="createFromItem"
         @to-video="sendItemToPipeline"
         @publish="goPublishFromItem"
@@ -435,7 +440,7 @@ import { useI18n } from 'vue-i18n'
 import { useTabStore } from '@/stores/tab'
 // eslint-disable-next-line no-unused-vars
 import UiInput from "../components/UiInput.vue";
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { Document, DocumentCopy, FolderAdd, FolderOpened, Link, MagicStick, Promotion, Search, VideoCamera } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import { useNotify } from '@/composables/useNotify'
@@ -486,6 +491,28 @@ const collecting = ref(false)
 const rewriting = ref(false)
 const oneClickRewriting = ref(false)
 const collectedResult = ref(null)
+/**
+ * 选中一条采集结果并**滚动到详情框**。
+ *
+ * 为什么不只是 `collectedResult = $event`：详情框在页面上方，而结果列表在下方；
+ * 用户点列表里的「查看/编辑」或卡片内容时视口停在列表区 ⇒ 状态其实变了但视口内看不到
+ * ⇒ 被感知为「点了没反应」（用户实测反馈）。选中后把详情框滚进视口 + 短高亮，
+ * 让「点了有地方去」成为可见反馈。card-info/card-icon 的点击与「查看」按钮同走这里。
+ * 锚点用 `document.getElementById('collected-result-box')`（采集页单实例；jsdom 可桩）。
+ */
+function selectCollectedItem (item) {
+  collectedResult.value = item
+  nextTick(() => {
+    const box = document.getElementById('collected-result-box')
+    if (box && typeof box.scrollIntoView === 'function') {
+      box.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      box.classList.remove('col-result-box--flash')
+      // 触发一次重排后再加类，保证重复点击同一项也有高亮动画
+      void box.offsetWidth
+      box.classList.add('col-result-box--flash')
+    }
+  })
+}
 const collectError = ref(null)
 const videoCollectStage = ref('')  // 视频采集分阶段提示: probe/downloading/extracting/transcribing
 
@@ -2159,6 +2186,13 @@ async function deleteLibraryRewrite (record) {
 .col-error-banner { margin-top: 8px; padding: 6px 10px; background: var(--color-error-banner-bg); border-radius: var(--r-xs); font-size: var(--font-size-xs); color: var(--color-error-banner-text); }
 .col-stage-banner { margin-top: 8px; padding: 6px 10px; background: var(--color-info-soft); border-radius: var(--r-xs); font-size: var(--font-size-xs); color: var(--color-info-text); }
 .col-result-box { margin-top: var(--space-sm); padding: var(--space-sm); background: var(--color-bg-inset); border-radius: 6px; }
+/* 选中反馈高亮（2026-10-17，change: collected-results-fix）：点列表「查看/编辑」或卡片内容
+   后滚动到此框并闪一次，让"点了有反应"在视口里可见（keyframes 命名带 col- 前缀防撞）。 */
+.col-result-box--flash { animation: col-result-flash 1.1s ease-out 1; }
+@keyframes col-result-flash {
+  0% { background: var(--color-primary-light, rgba(59, 130, 246, 0.18)); }
+  100% { background: var(--color-bg-inset); }
+}
 .col-result-title { font-weight: 600; margin-bottom: 4px; }
 .col-result-meta { font-size: var(--font-size-xs); color: var(--color-text-secondary); }
 .col-mt8 { margin-top: 8px; }
