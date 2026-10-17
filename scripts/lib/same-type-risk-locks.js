@@ -99,10 +99,11 @@ function matchBrace (masked, openIdx) {
 function scanEscapeMapCoverage (sources) {
   const findings = []
   const stats = { filesWithCharClassCallback: 0, mapsFound: 0 }
-  for (const { path, text } of sources) {
+  for (const src of sources) {
+    const { path, text } = src
     // ⚠ 这里必须保留字符串：L1 的字符类形如 `[&<>"']`，把引号当字符串起始会把后续代码一起抹白
     //   ⇒ 调用点匹配不到 ⇒ 这条锁变成空转（首版实测 mapsFound=0 就是这么来的）。
-    const masked = maskNonCode(text, { maskStrings: false })
+    const masked = src._maskedKeepStrings || maskNonCode(text, { maskStrings: false })
     // 形态：replace(/[...]/g, (m) => map[m]) 或 replace(/[...]/g, function (m) { return map[m] })
     const callRe = /replace\(\s*\/\[([^\]]*)\]\s*\/[a-z]*\s*,\s*(?:\(?\s*[A-Za-z_$][\w$]*\s*\)?\s*=>|function\s*\(?\s*[A-Za-z_$][\w$]*\s*\)?)/g
     let m
@@ -182,7 +183,7 @@ function findCharMaps (text) {
     while ((p = pairRe.exec(body)) !== null) {
       if (p[2].length === 1) keys.push(p[2])
     }
-    if (keys.length >= 2) maps.push({ keys })
+    if (keys.length >= 1) maps.push({ keys })
   }
   return maps
 }
@@ -192,8 +193,9 @@ function findCharMaps (text) {
 function scanWhileTrue (sources) {
   const findings = []
   const stats = { loops: 0 }
-  for (const { path, text } of sources) {
-    const masked = maskNonCode(text)
+  for (const src of sources) {
+    const { path, text } = src
+    const masked = src._masked || maskNonCode(text)
     const re = /while\s*\(\s*true\s*\)/g
     let m
     while ((m = re.exec(masked)) !== null) {
@@ -272,9 +274,10 @@ function collectFunctions (masked) {
 function scanCatchRecursion (sources) {
   const findings = []
   const stats = { catchBlocks: 0, skippedTestFiles: 0 }
-  for (const { path, text } of sources) {
+  for (const src of sources) {
+    const { path, text } = src
     if (isTestFile(path)) { stats.skippedTestFiles++; continue }
-    const masked = maskNonCode(text)
+    const masked = src._masked || maskNonCode(text)
     const fns = collectFunctions(masked)
     // ⚠ 必须容忍 `catch((error) => {`（promise 链最常见的写法）：首版只认 `catch (e) {`，
     //   把这一整类漏掉，是**红夹具**当场抓出来的。同时要求后面真跟 `{`：
@@ -325,9 +328,10 @@ function scanCatchRecursion (sources) {
 function scanIntervalCleanup (sources) {
   const findings = []
   const stats = { filesWithInterval: 0, skippedTestFiles: 0 }
-  for (const { path, text } of sources) {
+  for (const src of sources) {
+    const { path, text } = src
     if (isTestFile(path)) { stats.skippedTestFiles++; continue }
-    const masked = maskNonCode(text)
+    const masked = src._masked || maskNonCode(text)
     if (!/\bsetInterval\s*\(/.test(masked)) continue
     stats.filesWithInterval++
     if (!/\bclearInterval\s*\(/.test(masked)) {
@@ -338,11 +342,21 @@ function scanIntervalCleanup (sources) {
 }
 
 /** 四条一起跑（CLI 与测试共用，禁止第二份实现）。 */
+/** 一次性预算每个文件的两种屏蔽文本（i6：避免四个扫描器各自 mask 一遍）。 */
+function prepareSources (sources) {
+  return sources.map((s) => ({
+    ...s,
+    _masked: s._masked || maskNonCode(s.text),
+    _maskedKeepStrings: s._maskedKeepStrings || maskNonCode(s.text, { maskStrings: false }),
+  }))
+}
+
 function scanAll (sources) {
-  const l1 = scanEscapeMapCoverage(sources)
-  const l2 = scanWhileTrue(sources)
-  const l3 = scanCatchRecursion(sources)
-  const l4 = scanIntervalCleanup(sources)
+  const prepared = prepareSources(sources)
+  const l1 = scanEscapeMapCoverage(prepared)
+  const l2 = scanWhileTrue(prepared)
+  const l3 = scanCatchRecursion(prepared)
+  const l4 = scanIntervalCleanup(prepared)
   const findings = [...l1.findings, ...l2.findings, ...l3.findings, ...l4.findings]
   return {
     ok: findings.length === 0,
@@ -359,5 +373,6 @@ module.exports = {
   scanWhileTrue,
   scanCatchRecursion,
   scanIntervalCleanup,
+  prepareSources,
   scanAll,
 }

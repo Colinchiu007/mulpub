@@ -33,6 +33,7 @@ const {
   scanWhileTrue,
   scanCatchRecursion,
   scanIntervalCleanup,
+  prepareSources,
   scanAll,
 } = require('./lib/same-type-risk-locks')
 
@@ -166,6 +167,32 @@ test('maskNonCode：注释与字符串里的 while (true) 不得被当成真循�
   assert.match(masked, /const t = 1/, '真代码必须保留')
   assert.equal(masked.length, code.length, '等长（下标可复用）')
 })
+
+test('L1 红夹具（评审驱动 i4）：单键映射表也必须在射程内', () => {
+  // 评审指出：findCharMaps 原要求 keys.length >= 2，只有一个键的转义表会被静默跳过。
+  // 值是 `&xxx;` 形态 + 必须有字符类回调，随机对象字面量撞上的概率可忽略 ⇒ 降到 >= 1。
+  const code = [
+    'const m = {',
+    "  '&': '&amp;'",
+    '}',
+    's.replace(/[&<]/g, (x) => m[x])',
+  ].join('\n')
+  const r = scanEscapeMapCoverage(src('fixture.js', code))
+  assert.equal(r.ok, false, '单键映射表 + 字符类含 < ⇒ 必须红')
+  assert.equal(r.stats.mapsFound, 1, '单键映射表必须被识别')
+})
+
+test('prepareSources（评审驱动 i6）：屏蔽结果被扫描器复用，而不是各自重算', () => {
+  const prepared = prepareSources(src('a.js', 'while (true) { await x() }'))
+  assert.equal(prepared.length, 1)
+  assert.equal(typeof prepared[0]._masked, 'string')
+  assert.equal(typeof prepared[0]._maskedKeepStrings, 'string')
+  // 把预置的屏蔽文本换成空白：扫描器若复用，就看不出循环（证明没有重算）
+  prepared[0]._masked = ' '.repeat(prepared[0]._masked.length)
+  const r = scanWhileTrue(prepared)
+  assert.equal(r.stats.loops, 0, '必须复用外部预置的屏蔽文本（重算会得到 1）')
+})
+
 
 // ────────────────── ③ 真实仓：覆盖下界（防空转） ──────────────────
 
