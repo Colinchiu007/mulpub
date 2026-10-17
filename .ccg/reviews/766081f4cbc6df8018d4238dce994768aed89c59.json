@@ -1,0 +1,18 @@
+{
+  "sha": "766081f4cbc6df8018d4238dce994768aed89c59",
+  "layer": "diff",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "layer": "decision",
+    "status": "error",
+    "performedBy": "claude",
+    "objectType": "plan",
+    "rounds": [],
+    "error": "JSON解析失败:模型输出被截断，JSON 不完整：括号计数恰好配平（14/14，那是已闭合的内层对象），但结尾不是 }——真正被砍断的是最后一个字符串，共 4732 字符 —— 这通常意味着方案问题太多、模型输出超长被截断。重跑同样输入多半还是截断。可选：把方案拆小后分批评审，或先让 critic 只挑 Critical / Warning、暂不要求 Info。",
+    "validationErrors": null,
+    "note": "第 1 轮评审失败",
+    "artifacts": ".adversarial\\ccg-plan-ux-audit-2026-10-17",
+    "at": "2026-10-17T14:10:40.402Z"
+  }
+}
