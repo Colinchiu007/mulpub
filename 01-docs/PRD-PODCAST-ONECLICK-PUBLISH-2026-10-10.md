@@ -849,11 +849,11 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 
 | 位置 | 显示内容 | 数据来源 |
 | --- | --- | --- |
-| 二次确认框 | 块数、总码点、服务商/模型/音色三段 | **只读 IPC `podcast:episode:planPreview`**（§7.10.4.1，2026-10-16 主进程侧已落）：`plan.totalBlocks/totalCodepoints` 由 `planChunks` 同一实现产出、`voice` 五段由 `resolveEpisodeVoice` 产出，本层只转发不加工；⚠️ 浮层尚未消费（②-b），三把 `podcast.episode.plan*` 键也未落（②-a-l） |
+| 二次确认框 | 块数、总码点、服务商/模型/音色三段 | **只读 IPC `podcast:episode:planPreview`**（§7.10.4.1，2026-10-16 主进程侧已落）：`plan.totalBlocks/totalCodepoints` 由 `planChunks` 同一实现产出、`voice` 五段由 `resolveEpisodeVoice` 产出，本层只转发不加工；浮层已消费（②-b）；三把 `podcast.episode.plan*` 键与 §8.2.9 的 origin 三把均已落（②-a-l 的欠账在 ②-b 同 PR 清偿，共七把 zh/en 成对键） |
 | 进度遮罩 | 当前相位 + `durationSec` / `sizeBytes` / `mime` 实测值 | `publish:progress` 富化事件（§6.4.2） |
 | 结果 | 成功给 `feedUrl`；partial 明示「公网 feed 未更新」；cancelled 明示「已回滚，未产生远端对象」 | 编排层信封 |
 
-#### 7.10.4.1 二次确认框的数据源合同（2026-10-16 补；**主进程与 preload 已落地，浮层与文案键未落地**）
+#### 7.10.4.1 二次确认框的数据源合同（2026-10-16 补；**主进程与 preload 已落地；**浮层与文案键已于 2026-10-17 随 tasks 4.3②-b 落地（PR #3776）****）
 
 > 补这一节的直接原因：上表把「块数 / 总码点 / 音色三段」写成已有事实，但**这三个数在渲染端一个都取不到**（`origin/main` 实测）：
 > `planChunks` 只存在于 `apps/desktop/electron/services/`（`src` 命中 **0**、`preload` 命中 **0**）；
@@ -893,7 +893,7 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 
 > **落地现场（2026-10-16，tasks 4.3②-a）**：主进程侧已按本节落地——`apps/desktop/electron/services/podcast-episode-plan-preview.js`（分块与音色**只转发不加工**，缺注入实现即 fail closed）+ IPC 通道 `podcast:episode:planPreview` + preload 键 `episodePlanPreview` + 两个 tracked bundle 已重生。
 
-> 验收判据的处置：**1 / 2 / 5 / 6 / 7 已闭合**（判据之家 `podcast-episode-plan-preview.test.js` 17 例 + `podcast-plan-preview-ipc.test.js` 9 条，后者含「副作用缺席」三件同时断言：目录未建 + `tryBeginPublish`/`endPublish` 0 次 + 宿主两个入口 0 次）；**3 / 4 未闭合**——那两条量的是浮层怎么显示拒绝态与降级态，落点是 `PodcastEpisodeEntry.vue`，属 ②-b 的判据范围，本片不冒充已交付。
+> 验收判据的处置：**1 / 2 / 5 / 6 / 7 已闭合**（判据之家 `podcast-episode-plan-preview.test.js` 17 例 + `podcast-plan-preview-ipc.test.js` 9 条，后者含「副作用缺席」三件同时断言：目录未建 + `tryBeginPublish`/`endPublish` 0 次 + 宿主两个入口 0 次）；**3 / 4 已闭合（2026-10-17，tasks 4.3②-b，PR #3776）**——那两条量的是浮层怎么显示拒绝态与降级态；**判据之家 `src/components/PodcastScriptEntry.test.js` 的「缺失与拒绝的形状」describe**（拒绝态显示原因句且发起按钮仍可用；预览整段抛错只降级为不显示计数）。⚠️ 原句把落点写成 `PodcastEpisodeEntry.vue` 是**错的**：那是成片链（视频出期）的入口，文本出期的浮层是同族新建组件 `PodcastScriptEntry.vue`。
 
 > 频道级音色**至今没有落点**：`voiceRef` 在 `podcast-channel-registry.js` / `podcast-channel-service.js` / `channel.json` 的 meta 里命中 **0**（`git grep` 实测），所以生产路径上 `origin` 只会是 `preference` 或 `providerDefault`，① 层恒空。接线按「存在则取」写（`getService(channelId).getChannel().voiceRef`），**不新造字段**——把频道音色落进真源是 4.5 那一刀的范围，届时 ① 层自动生效，本预览不需要改一行。
 
