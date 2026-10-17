@@ -48,3 +48,16 @@ sync_backfill_owner: 下一个会话（按「PR 自动合并」收尾清单 1–
 | 未做（不假装） | 转拦（`unknown` 占比到阈值后让门禁生效）另起一片；高危面清单与 `HIGH_RISK_SURFACES` 机械实现、`backendAvailability` 落盘、`fallback_closed` 欠账棘轮（tasks 2.x/3.x/5.x）仍未开始 |
 
 - 一条同族小缺陷登记（未夹带修）：`check-pr-exec-record.js` 的参数解析只认 `--repo=<dir>`，写成 `--repo <dir>` 会得到 `args.repo===true` 并抛出 `options.cwd ... type boolean (true)`，报错文案是「git 取证失败」——与 AGENTS.md 已点名的「`--limit 4` 被静默丢弃」同型。本片实测踩到（我的夹具先写错形式），修法应是未知/裸旗标一律非零码出声，另起一片。
+
+## 切片C 实现补记：降级资格以物证为准（tasks 3.x，2026-10-17 同分支后续提交）
+
+| 项 | 读数 |
+|---|---|
+| 落码 | `summarizeBackendAvailability(backends)` 纯函数（`count` 0/1/2 + `partial` + `wrapperReady` + 原样 `backends`）；`saveRecord` 第 5 参数可注入、缺省自探；`main` 把**判定时那一份** `backends` 传下去（不传则第二次探测与判定现场不是同一份） |
+| 为什么现在做 | `detectBackends()`（`:641`）一直在算 `{wrapperExists, claude, opencode}` 却从不落盘 ⇒ 「CLI 不可用」只能靠自述。规格里 D6 的落点就是把这份现场钉进产物 |
+| 测试 | `ccg-review-decider.test.js` **42 passed / 0 failed**（新增 4 条）；与 gate 侧合计 **112 passed / 0 failed** |
+| 变异 | 本片 4 条 M-B1…M-B4 全部指名红，`escaped=0 anchorfail=0`，逐条还原 md5 一致；累计 16 条（切片A 7 + B 5 + C 4）|
+| 反真空留痕 | 丙3.3 断言默认路径等于**当场再探测一次**的结果，并打印现场：本轮 `count=2 wrapperReady=true claude=true opencode=true`。为什么必须打印：若某台机器两个后端都没装，该断言两边同为全 false ⇒ 恒真，锁会变真空 —— 打印是为了让读者看见它这一趟到底测到了什么 |
+| 明确未做 | **3.2 判据侧尚未消费 `backendAvailability`**：目前它只是被记录，不构成降级资格判据。落盘≠接线到判据，这一格留给高危面矩阵那片（tasks 2.x）一起落。3.5 失败形态三档分档同样未做 |
+
+- 一条同族小缺陷仍挂账未修：`check-pr-exec-record.js` 的参数解析只认 `--repo=<dir>`，写成 `--repo <dir>` 会得到 `args.repo===true` 并抛「git 取证失败（…options.cwd…type boolean (true)）」——与 AGENTS.md 点名的「`--limit 4` 被静默丢弃」同型；本片夹具踩过一次，改的是**夹具**不是判据。

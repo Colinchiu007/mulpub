@@ -499,7 +499,7 @@ function recordFileName(stagedDiffHash, sha) {
   return `${sha}.json`;
 }
 
-function saveRecord(result, sha, layer, plannedFiles) {
+function saveRecord(result, sha, layer, plannedFiles, backends) {
   const dir = path.join(process.cwd(), ".ccg", "reviews");
   fs.mkdirSync(dir, { recursive: true });
   // 内容寻址键：暂存区 diff 的哈希，且排除 .ccg 自身。
@@ -571,6 +571,7 @@ function saveRecord(result, sha, layer, plannedFiles) {
     plannedFiles: (layer === "plan" && plannedFiles) || undefined,
     decidedAt: new Date().toISOString(),
     decidedBy: "ccg-review-decider",
+    backendAvailability: summarizeBackendAvailability(backends === undefined ? detectBackends() : backends),
     deepReview: buildDeepReviewInit(result.mode),
   };
   // ★ 2026-10-16（QM-6 i3，成立并已修）：内容寻址让「同一变更反复提交/amend」落到**同一个文件**，
@@ -631,6 +632,25 @@ function buildDeepReviewInit(mode) {
     performedBy: null,
     evidence: null,
     findings: null,
+  };
+}
+
+/**
+ * 后端可用性以**计数**分档，不是布尔「有没有」。
+ * 沿用 deep-review.sh:373-375 的既有口径：只看 0/1 标志时，2/2 可用与 1/2 可用长成一个样，
+ * 于是「双模型齐备」也会打印「只剩单后端」。降级资格的判据要能区分这两档。
+ */
+function summarizeBackendAvailability(backends) {
+  const b = backends || {};
+  const wrapperExists = b.wrapperExists === true;
+  const claude = b.claude === true;
+  const opencode = b.opencode === true;
+  const count = (claude ? 1 : 0) + (opencode ? 1 : 0);
+  return {
+    count,
+    partial: count === 1,
+    wrapperReady: wrapperExists,
+    backends: { wrapperExists, claude, opencode },
   };
 }
 
@@ -790,7 +810,8 @@ function main() {
       result,
       sha,
       staged.proposal ? "plan" : "diff",
-      staged.plannedFiles
+      staged.plannedFiles,
+      backends
     );
     console.log(`          判定已落盘: ${path.relative(process.cwd(), f)}`);
     if (staged.proposal && staged.plannedFiles && staged.plannedFiles.length) {
@@ -815,6 +836,8 @@ if (require.main === module) {
 module.exports = {
   RULES,
   buildDeepReviewInit,
+  detectBackends,
+  summarizeBackendAvailability,
   judge,
   collectStaged,
   collectFromDiff,

@@ -939,3 +939,82 @@ test('丙：saveRecord 必须真的用初始化函数（接线锁，防"字段�
   assert.match(src, /deepReview:\s*buildDeepReviewInit\(result\.mode\)/,
     'saveRecord 必须调用 buildDeepReviewInit —— 手写字面量的话新增字段会在下一次被漏掉')
 })
+
+// ── QM-6 丙 3.x：降级资格以物证为准 ──────────────────────────────────────────
+// detectBackends()（:641）已经在算 {wrapperExists, claude, opencode}，但从未落进判定记录
+// ⇒ 「CLI 不可用」只能靠自述。规格里 D6 的落点就是把这份现场钉进产物。
+// 夹具沿用本文件既有的「真 git 仓库 + chdir + 真调 saveRecord」写法，不另起一套。
+function withTempGitRepo (fn) {
+  const os = require('node:os')
+  const { execFileSync } = require('node:child_process')
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'avail-lock-'))
+  const origCwd = process.cwd()
+  try {
+    // 必须是真 git 仓库且 index 干净：git diff --cached 为空 ⇒ 走「父 sha 命名」回落路径。
+    execFileSync('git', ['init', '-q'], { cwd: dir, stdio: 'pipe' })
+    execFileSync('git', ['config', 'user.email', 't@t'], { cwd: dir, stdio: 'pipe' })
+    execFileSync('git', ['config', 'user.name', 't'], { cwd: dir, stdio: 'pipe' })
+    fs.writeFileSync(path.join(dir, 'seed.txt'), 'seed' + String.fromCharCode(10))
+    execFileSync('git', ['add', '-A'], { cwd: dir, stdio: 'pipe' })
+    execFileSync('git', ['commit', '-q', '-m', 'seed'], { cwd: dir, stdio: 'pipe' })
+    process.chdir(dir)
+    return fn(dir)
+  } finally {
+    process.chdir(origCwd)
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+test('丙3.4 summarizeBackendAvailability：0/1/2 必须分档（1/2 与 2/2 不得同形）', () => {
+  const s = decider.summarizeBackendAvailability
+  assert.strictEqual(typeof s, 'function', '必须导出纯函数（内联在 saveRecord 里的话行为锁无从注入）')
+  const two = s({ wrapperExists: true, claude: true, opencode: true })
+  const one = s({ wrapperExists: true, claude: true, opencode: false })
+  const none = s({ wrapperExists: false, claude: false, opencode: false })
+  assert.deepStrictEqual([two.count, one.count, none.count], [2, 1, 0])
+  assert.notDeepStrictEqual(two, one, '两档必须可区分 —— 只看"有没有"时 2/2 与 1/2 长成一个样')
+  assert.strictEqual(one.partial, true)
+  assert.strictEqual(two.partial, false)
+  assert.strictEqual(two.wrapperReady, true)
+  assert.strictEqual(none.wrapperReady, false)
+  assert.deepStrictEqual(none.backends, { wrapperExists: false, claude: false, opencode: false })
+})
+
+test('丙3.1 行为锁：saveRecord 必须把可用性写进记录（注入夹具，不碰本机 PATH）', () => {
+  withTempGitRepo(() => {
+    const written = decider.saveRecord(
+      { mode: 'dual', reason: 'probe', stats: {} }, 'a'.repeat(40), 'diff', undefined,
+      { wrapperExists: true, claude: true, opencode: false }
+    )
+    assert.ok(written, 'saveRecord 应返回落盘路径')
+    const rec = JSON.parse(fs.readFileSync(written, 'utf8'))
+    assert.ok(rec.backendAvailability, '记录必须含 backendAvailability —— 否则"CLI 不可用"只能靠自述')
+    assert.strictEqual(rec.backendAvailability.count, 1)
+    assert.strictEqual(rec.backendAvailability.partial, true)
+    assert.deepStrictEqual(rec.backendAvailability.backends, { wrapperExists: true, claude: true, opencode: false })
+    assert.strictEqual(rec.deepReview.tier, 'unknown', '本轮初始化的 tier 不得被可用性落盘顺带改掉')
+  })
+})
+
+test('丙3.3 默认路径不得丢字段：不注入后端时也要写出可读的可用性', () => {
+  withTempGitRepo(() => {
+    const written = decider.saveRecord({ mode: 'single', reason: 'probe', stats: {} }, 'b'.repeat(40), 'diff', undefined)
+    const rec = JSON.parse(fs.readFileSync(written, 'utf8'))
+    assert.ok(rec.backendAvailability, '缺省调用也要有该字段，否则新记录形状分成两种')
+    assert.ok([0, 1, 2].includes(rec.backendAvailability.count), 'count 必须是 0/1/2，不得是 undefined 或布尔')
+    assert.strictEqual(typeof rec.backendAvailability.wrapperReady, 'boolean')
+    const expect = decider.summarizeBackendAvailability(decider.detectBackends())
+    assert.deepStrictEqual(rec.backendAvailability, expect,
+      '默认路径必须真的探测一次 —— 把 detectBackends 回退摘掉就会写成全 false，与本机现场不符')
+    // 反真空留痕：若这台机器两个后端都没装，上一条会因「两边都是 0/false」而恒真 ⇒ 必须打印现场，
+    // 让读者看见它到底测到了什么（同仓规矩：每次跑要打印走的是哪条支路 + 关键实测值）。
+    console.log('  [avail] 默认路径现场 count=' + expect.count + ' wrapperReady=' + expect.wrapperReady +
+      ' claude=' + expect.backends.claude + ' opencode=' + expect.backends.opencode)
+  })
+})
+
+test('丙3.2 接线锁：main 必须把已算出的 backends 传给 saveRecord', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'ccg-review-decider.js'), 'utf8').replace(/\r\n/g, '\n')
+  assert.match(src, /saveRecord\(\s*result,\s*sha,[\s\S]{0,90}staged\.plannedFiles,\s*backends\s*\)/,
+    '调用点漏传 backends ⇒ 记录里的可用性来自第二次探测，与判定时的现场不是同一份（本机 PATH 中途变了就漂移）')
+})
