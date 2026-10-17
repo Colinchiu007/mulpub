@@ -57,9 +57,11 @@ function scanIndependentMimeMaps (sources) {
   for (const src of sources) {
     const { path, text } = src
     if (R7_EXEMPT(path)) continue
-    // i3（CCG 416338fc）：配对必须在 mask 版文本上做（字符串内的花括号会让配对错位，
-    //   实测夹具 matchBrace 返回 -1）；keep 版只用于对象体内容匹配。
-    const maskedPair = src._masked || maskNonCode(text)
+    // i3（CCG 416338fc）：配对必须在 mask 版文本上做（字符串内的花括号会让配对错位）；
+    // i1（CCG 15e5134a）：mask 版**不得信任调用方的 _masked** —— scanAllR3 为 R7 传入的
+    //   _masked 已被覆盖成 keep 版（R11 需要看字面量），复用等于把配对语义外包出去。
+    //   故 R7 自己算 mask 版（每文件一次，成本可接受）。
+    const maskedPair = maskNonCode(text)
     const maskedKeep = src._maskedKeep || maskNonCode(text, { strings: 'keep' })
     const objRe = /\{/g
     let m
@@ -74,7 +76,9 @@ function scanIndependentMimeMaps (sources) {
       const hasJpegExt = /['"`]?\.jpe?g['"`]?\s*:|['"`]\.jpe?g['"`]/.test(body)
       const hasJpgMimeCompat = /image\/jpg/.test(body)
       const hasPngPair = /image\/png/.test(body) && /['"`]?\.png['"`]?\s*:|['"`]\.png['"`]/.test(body)
-      if ((hasJpegMime && hasJpegExt) || (hasPngPair && !hasJpgMimeCompat)) {
+      // i3（CCG 15e5134a）：png 信号必须独立判定 —— jpg 兼容条目只抑制 jpeg 族；
+      //   实测「png 表 + image/jpg 别名」被旧条件整表抑制（假阴）。
+      if ((hasJpegMime && hasJpegExt) || hasPngPair) {
         stats.hits++
         findings.push({
           rule: 'R7-independent-mime-map',
