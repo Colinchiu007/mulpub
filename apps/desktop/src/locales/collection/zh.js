@@ -335,10 +335,11 @@ export default {
     draftsSource_clipboard: '剪贴板',
     draftsSource_url: '链接采集',
     draftsSource_rss: 'RSS',
-    // 素材来源快捷入口（语义：去哪**找素材**，不是去哪发内容）
+    // 素材来源快捷入口（语义：去哪**找素材**，不是去哪发内容）。
+    // 卡片 = 免登录可匿名浏览的渲染页；知乎已撤下（强制登录），头条指向首页（无渲染版热榜页）
     sourceWeibo: '微博热搜',
-    sourceZhihu: '知乎热榜',
-    sourceToutiao: '头条热榜',
+    sourceBaidu: '百度热搜',
+    sourceToutiao: '今日头条',
     platformSourceTabTitle: (ctx) => ctx.named('platform') + ' 素材来源',
     tabRecords: '文案库',
     recordsTitle: '文案库',

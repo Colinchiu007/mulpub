@@ -1,3 +1,36 @@
+# [未发布] fix(collection): 采集页「知乎热榜」「头条热榜」两张卡改为免登录可浏览的渲染页（fix-hot-source-links）
+
+- 现象：采集页底部三张「素材来源」卡里，**知乎热榜**点开落到登录/安全验证页，**头条热榜**点开是一屏 JSON
+  文本（用户贴出的 `{"data":[{"ClusterId":...}]}` 就是 `hot-event/hot-board/` 的响应体）。微博热搜那张正常。
+- 根因（两件不同的事，不是"链接旧了"）：
+  1. **带不上登录态是设计使然**：采集页走 `tabStore.createTab({url, platform, title})`，不带 `accountId`，
+     主进程落 `persist:browse-<tabId>`（`webview-manager/tab-lifecycle.js:35-38`）——全新空分区、不注入凭证。
+     知乎 `/hot` 对匿名访客强制登录（真人浏览器最终 URL `/account/unhuman?...&need_login=true&next=%2Fsignin`），
+     所以必然跳登录页。要带登录态需传已登录知乎账号（`persist:account-<id>` + 凭证注入），仅在应用内已添加
+     该账号时成立，且会让采集页耦合账号系统 ⇒ 产品选择换免登录平台。
+  2. **头条那条是分类错误**：`hot-event/hot-board/?origin=toutiao_pc` 是**数据接口**，浏览器直接打开只有 JSON；
+     官方没有渲染版热榜页（`/hot/`、`/trending/` 均 404）。
+- 修法（`PLATFORM_SOURCE_URLS`，CJS + browser 孪生同步）：
+  | 卡片 | 旧值 | 新值 |
+  |---|---|---|
+  | 知乎热榜 | `https://www.zhihu.com/hot` | （撤下，无卡） |
+  | — | — | `baidu: https://top.baidu.com/board?tab=realtime`（百度热搜，接替知乎位） |
+  | 头条热榜 | `https://www.toutiao.com/hot-event/hot-board/?origin=toutiao_pc` | `https://www.toutiao.com/`（首页右侧「头条热榜」模块即榜单） |
+  | 微博热搜 | `https://s.weibo.com/top/summary` | 不变（2026-10-17 实测匿名可浏览，推翻 10-12 纯 HTTP 抓取的登录墙结论） |
+  同时新增 `SOURCE_LABEL_KEYS`（来源 id → 卡片文案键）与显示名解析：素材来源 id 与「可发布平台 id」不是
+  同一套（`baidu` 没有发布链路），此前提示直接拼原始 id（用户会看到「已打开 zhihu 采集页面」）。
+- 取证（2026-10-17，Playwright Chromium，逐页独立无 Cookie context，读最终 URL + 可见文本）：
+  知乎 → `/account/unhuman?need_login=true`（可见文本仅 28 字登录提示）；头条 JSON 接口 200 但为接口；
+  `www.toutiao.com` 渲染 2911 字并命中 `ttp-hot-board` 模块（1-50 名 + `/trending/<id>/?rank=N` 链接）；
+  `top.baidu.com/board?tab=realtime` 200 且服务端直出榜单；`s.weibo.com/top/summary` 200 且榜单渲染。
+- 回归锁：`useSourceEntry.test.js` 10 例（含「三入口不得指向 JSON 接口」「知乎不得回流」「显示名进提示」）；
+  `Collection.test.js` 新增模板↔来源表结构锁（`openCollection('<id>')` 三处对齐、无 `openCollection('zhihu')`
+  与 `sourceZhihu`）；`Collection.vue` 内联注释写死「不得改回数据接口」。视觉基线 `collection(-dark).png`
+  按仓库纪律以**本 PR CI 的同源渲染**回填（Gate 7b 判 0 px，禁止拿本机截图当基线）。
+- 影响面：仅采集页三张卡与 `PLATFORM_SOURCE_URLS`/locale 文案；不触碰 `PLATFORM_DASHBOARD_URLS`
+  （创作者中心、登录态校验仍按原表）。
+- 遗留：头条卡打开的是首页而非独立热榜页（官方无此页）；百度热搜只是素材来源，不是发布平台。
+
 # [未发布] test(gates): 把「深度审查必然落在 self-play」变成可复跑读数（ccg-convergence-exit）
 
 - **动因是否证出来的**：#3724 收尾时我写过「大概是 stall 判据误触」。实测直接否证——验证层只跑一轮，而 `isStalled` 要求 `rounds.length >= stallRounds + 1`，单轮恒不成立。真正结论是引擎的三个停止出口里**只剩 ③ 可达**（① 从不进第 2 轮、② 轮次不足、③ `status=self_play reason=selfPlay stop=true`），而 ③ 对 `highRiskDomains` 非空的条目无条件计阻断 ⇒ 含 crypto 发现的 diff 上「闭环可达」不是待达成的目标，是结构上到不了的终点。本 PR 交付的是**测量与报警**，不声称让闭环可达。
