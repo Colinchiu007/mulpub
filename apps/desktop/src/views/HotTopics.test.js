@@ -39,6 +39,8 @@ vi.mock('@/api/publisher', () => ({
   pipelineGetRunContext: vi.fn(),
   pipelineCancelRun: vi.fn(),
   onPipelineUpdate: vi.fn(() => vi.fn()),
+  modelProviderGetDefault: vi.fn(),
+  aiGenerateGenVideoTitle: vi.fn(),
 }))
 
 vi.mock('@/composables/useNotify', () => ({
@@ -54,7 +56,7 @@ import i18n from '@/i18n'
 import { hotTopicsFetch } from '@/api/hot-topics'
 import { hotTopicsGetCache } from '@/api/hot-topics'
 import { hotTopicsFavoriteList, hotTopicsFavoriteRemove } from '@/api/hot-topics'
-import { aiRewrite, draftSave, storeGetSetting, pipelineList, pipelineStartOrchestrated, pipelineGetRunContext, pipelineCancelRun } from '@/api/publisher'
+import { aiRewrite, draftSave, storeGetSetting, pipelineList, pipelineStartOrchestrated, pipelineGetRunContext, pipelineCancelRun, modelProviderGetDefault, aiGenerateGenVideoTitle } from '@/api/publisher'
 import { pipelineBackgroundToastVisible, hidePipelineBackgroundToast } from '@/stores/pipeline-background-toast'
 import { readFileSync } from 'node:fs'
 
@@ -91,6 +93,10 @@ describe('HotTopics.vue', () => {
     hotTopicsFavoriteList.mockResolvedValue({ code: 0, data: [] })
     // 默认流水线清单（选择器用例按需覆盖失败/空清单分支）
     pipelineList.mockResolvedValue({ code: 0, data: mockPipelineList })
+    // fix-hot-topics-genvideo-title：默认有可用文字推理模型 + AI 标题成功
+    // （无模型/失败分支由专用用例覆盖）
+    modelProviderGetDefault.mockResolvedValue({ code: 0, data: { id: 'openai', name: 'OpenAI' } })
+    aiGenerateGenVideoTitle.mockResolvedValue({ code: 0, data: { success: true, title: '打工人醒醒！AI又抢活了' } })
     document.body.innerHTML = '' // 清理 Teleport 到 body 的弹窗/按钮残留，隔离用例
   })
 
@@ -645,7 +651,9 @@ describe('HotTopics.vue', () => {
     await flushPromises()
     expect(wrapper.vm.genVideoPhase).toBe('completed')
 
-    // 【去发布】→ /publish 视频模式预填充（title/content/tags 来自 publish 配置）
+    // 【去发布】→ /publish 视频模式预填充（content/tags 来自 publish 配置）
+    // fix-hot-topics-genvideo-title：title 现由 AI 爆款标题覆盖（不再是 publish.title/正文切片），
+    // content/tags 仍走 buildPublishFromProject 的既有提取语义。
     pushSpy.mockClear()
     document.body.querySelector('[data-testid="hot-topics-gen-video-publish"]').dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await flushPromises()
@@ -653,7 +661,7 @@ describe('HotTopics.vue', () => {
     expect(publishTarget).toBeTruthy()
     expect(publishTarget.query.type).toBe('video')
     expect(decodeURIComponent(String(publishTarget.query.video_path))).toBe('D:/videos/out.mp4')
-    expect(decodeURIComponent(String(publishTarget.query.title))).toBe('发布标题')
+    expect(decodeURIComponent(String(publishTarget.query.title))).toBe('打工人醒醒！AI又抢活了')
     expect(decodeURIComponent(String(publishTarget.query.content))).toBe('发布正文')
     expect(decodeURIComponent(String(publishTarget.query.tags))).toBe('AI')
 
@@ -699,11 +707,256 @@ describe('HotTopics.vue', () => {
     expect(publishTarget).toBeTruthy()
     expect(publishTarget.query.type).toBe('video')
     expect(decodeURIComponent(String(publishTarget.query.video_path))).toBe('D:/videos/out.mp4')
-    // 关键：不携带空标题/空正文（否则等于伪造了一个"有标题但为空"的项目）
-    expect(publishTarget.query.title).toBeUndefined()
+    // 关键：不携带空正文/空标签（否则等于伪造了一个"有正文但为空"的项目）
     expect(publishTarget.query.content).toBeUndefined()
     expect(publishTarget.query.tags).toBeUndefined()
+    // fix-hot-topics-genvideo-title：run-only 也带标题（AI 标题成功时来自 AI）
+    expect(decodeURIComponent(String(publishTarget.query.title))).toBe('打工人醒醒！AI又抢活了')
+    expect(publishTarget.query.title_source).toBe('ai')
+    expect(publishTarget.query.title_reason).toBeUndefined()
 
+    wrapper.unmount()
+    el.remove()
+  })
+
+  // ─── fix-hot-topics-genvideo-title：【去发布】标题由 AI 按爆款元素生成 + 三级降级 ───
+  // 修复前：标题落到 buildPublishFromProject 回退链末端（project.title ← sourceText），
+  // 用户看到的是「改写正文前 100 字」。修复后：AI 标题 → 原始选题 → （无模型）原始选题。
+
+  /**
+   * 起一个已完成的 run，返回 wrapper。
+   * @param {{withProject?: boolean, videoPath?: string, topic?: string}} [opts]
+   *   withProject=false → 模拟非 S2V 流水线的 run-only 终态（无 story2videoProject）
+   */
+  async function mountCompletedRun (opts = {}) {
+    const withProject = opts.withProject !== false
+    const videoPath = opts.videoPath || 'D:/videos/out.mp4'
+    const topic = opts.topic || mockTopics[0].topic
+    hotTopicsFetch.mockResolvedValue({ code: 0, data: { topics: mockTopics, fetchedAt: Date.now(), channelStats: {} } })
+    aiRewrite.mockResolvedValue({ code: 0, data: { success: true, result: '完整流程文案' } })
+    draftSave.mockResolvedValue({ code: 0 })
+    storeGetSetting.mockResolvedValue(null)
+    pipelineStartOrchestrated.mockResolvedValue({ code: 0, data: { success: true, runId: 'run-title-1' } })
+    pipelineGetRunContext.mockResolvedValue({ code: 0, data: {
+      runId: 'run-title-1',
+      status: { status: 'completed', progress: 100, stages: [
+        { name: 'split', status: 'completed' }, { name: 'compose', status: 'completed' },
+      ] },
+      context: withProject
+        ? {
+            compose: { data: { videoPath } },
+            story2videoProject: {
+              projectId: 'p1', title: '成片标题', sourceText: '成片正文', videoPath,
+              story2videoTextConfig: { config: { publish: { title: '', content: '发布正文', tags: ['AI'] } } },
+            },
+          }
+        : { compose: { data: { videoPath } } },
+    } })
+    const el = document.createElement('div')
+    document.body.appendChild(el)
+    const wrapper = mount(HotTopics, {
+      attachTo: el,
+      global: { plugins: [i18n], stubs: { 'el-alert': true, 'el-select': true, 'el-option': true, 'el-progress': true, 'el-skeleton': true } },
+    })
+    await flushPromises()
+    await wrapper.find('[data-testid="hot-topic-generate-video-zhihu:1"]').trigger('click')
+    await flushPromises()
+    await new Promise(r => setTimeout(r, 50))
+    await flushPromises()
+    expect(wrapper.vm.genVideoPhase).toBe('completed')
+    return wrapper
+  }
+
+  function clickPublish () {
+    document.body.querySelector('[data-testid="hot-topics-gen-video-publish"]').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  }
+
+  function lastPublishTarget () {
+    return pushSpy.mock.calls.map(c => c[0]).find(v => v && v.path === '/publish')
+  }
+
+  it('C1 AI 标题成功：title 来自 AI 且 title_source=ai（不是正文切片）', async () => {
+    const el = document.createElement('div')
+    document.body.appendChild(el)
+    const wrapper = await mountCompletedRun()
+
+    pushSpy.mockClear()
+    clickPublish()
+    await flushPromises()
+    const target = lastPublishTarget()
+    expect(target).toBeTruthy()
+    expect(decodeURIComponent(String(target.query.title))).toBe('打工人醒醒！AI又抢活了')
+    expect(target.query.title_source).toBe('ai')
+    expect(target.query.title_reason).toBeUndefined()
+    // AI 标题生成带上了本次原始选题与改写正文
+    expect(aiGenerateGenVideoTitle).toHaveBeenCalledTimes(1)
+    const payload = aiGenerateGenVideoTitle.mock.calls[0][0]
+    expect(payload.topicText).toBe('AI大模型最新突破进展')
+    expect(payload.bodyText).toBe('完整流程文案')
+
+    wrapper.unmount()
+    el.remove()
+  })
+
+  it('C2 无默认文字推理模型：不调 AI，标题 = 原始选题 + no-model', async () => {
+    modelProviderGetDefault.mockResolvedValue({ code: 0, data: null })
+    const el = document.createElement('div')
+    document.body.appendChild(el)
+    const wrapper = await mountCompletedRun()
+
+    pushSpy.mockClear()
+    clickPublish()
+    await flushPromises()
+    const target = lastPublishTarget()
+    expect(target).toBeTruthy()
+    expect(decodeURIComponent(String(target.query.title))).toBe('AI大模型最新突破进展')
+    expect(target.query.title_source).toBe('topic')
+    expect(target.query.title_reason).toBe('no-model')
+    expect(aiGenerateGenVideoTitle).not.toHaveBeenCalled()
+
+    wrapper.unmount()
+    el.remove()
+  })
+
+  it('C2b modelProviderGetDefault 抛错时也降级为原始选题', async () => {
+    modelProviderGetDefault.mockRejectedValue(new Error('ipc down'))
+    const el = document.createElement('div')
+    document.body.appendChild(el)
+    const wrapper = await mountCompletedRun()
+
+    pushSpy.mockClear()
+    clickPublish()
+    await flushPromises()
+    const target = lastPublishTarget()
+    expect(decodeURIComponent(String(target.query.title))).toBe('AI大模型最新突破进展')
+    expect(target.query.title_reason).toBe('no-model')
+    expect(aiGenerateGenVideoTitle).not.toHaveBeenCalled()
+
+    wrapper.unmount()
+    el.remove()
+  })
+
+  it('C3 LLM 返回空：标题 = 原始选题 + failed', async () => {
+    aiGenerateGenVideoTitle.mockResolvedValue({ code: 0, data: { success: false, reason: 'failed', message: 'x' } })
+    const el = document.createElement('div')
+    document.body.appendChild(el)
+    const wrapper = await mountCompletedRun()
+
+    pushSpy.mockClear()
+    clickPublish()
+    await flushPromises()
+    const target = lastPublishTarget()
+    expect(decodeURIComponent(String(target.query.title))).toBe('AI大模型最新突破进展')
+    expect(target.query.title_source).toBe('topic')
+    expect(target.query.title_reason).toBe('failed')
+
+    wrapper.unmount()
+    el.remove()
+  })
+
+  it('C3b LLM 调用抛错：标题 = 原始选题 + failed，且仍然跳转', async () => {
+    aiGenerateGenVideoTitle.mockRejectedValue(new Error('boom'))
+    const el = document.createElement('div')
+    document.body.appendChild(el)
+    const wrapper = await mountCompletedRun()
+
+    pushSpy.mockClear()
+    clickPublish()
+    await flushPromises()
+    const target = lastPublishTarget()
+    expect(target).toBeTruthy()
+    expect(decodeURIComponent(String(target.query.title))).toBe('AI大模型最新突破进展')
+    expect(target.query.title_reason).toBe('failed')
+
+    wrapper.unmount()
+    el.remove()
+  })
+
+  it('C4 run-only（无项目）也带标题；content/tags 仍不注入', async () => {
+    const el = document.createElement('div')
+    document.body.appendChild(el)
+    // 非 S2V 流水线终态：无 story2videoProject
+    const wrapper = await mountCompletedRun({ withProject: false })
+
+    pushSpy.mockClear()
+    clickPublish()
+    await flushPromises()
+    const target = lastPublishTarget()
+    expect(decodeURIComponent(String(target.query.video_path))).toBe('D:/videos/out.mp4')
+    expect(decodeURIComponent(String(target.query.title))).toBe('打工人醒醒！AI又抢活了')
+    expect(target.query.title_source).toBe('ai')
+    expect(target.query.content).toBeUndefined()
+    expect(target.query.tags).toBeUndefined()
+
+    wrapper.unmount()
+    el.remove()
+  })
+
+  it('C5 标题取自原始选题，不被改写文案污染', async () => {
+    const el = document.createElement('div')
+    document.body.appendChild(el)
+    const wrapper = await mountCompletedRun()
+
+    pushSpy.mockClear()
+    clickPublish()
+    await flushPromises()
+    // 断言：送进标题生成的 topicText 是选题原文，不是改写正文
+    expect(aiGenerateGenVideoTitle).toHaveBeenCalledTimes(1)
+    const payload = aiGenerateGenVideoTitle.mock.calls[0][0]
+    expect(payload.topicText).toBe('AI大模型最新突破进展')
+    expect(payload.topicText).not.toContain('完整流程文案')
+    // 正文摘要来自改写产物（给 AI 做参考），但与 topicText 是不同字段
+    expect(payload.bodyText).toBe('完整流程文案')
+
+    wrapper.unmount()
+    el.remove()
+  })
+
+  it('C6 标题生成期间重复点击只发起一次 LLM 调用、只跳转一次', async () => {
+    // 让标题生成挂起，模拟慢模型
+    let resolveTitle
+    aiGenerateGenVideoTitle.mockImplementation(() => new Promise((resolve) => { resolveTitle = resolve }))
+    const el = document.createElement('div')
+    document.body.appendChild(el)
+    const wrapper = await mountCompletedRun()
+
+    pushSpy.mockClear()
+    clickPublish()
+    await flushPromises()
+    clickPublish()
+    await flushPromises()
+    expect(aiGenerateGenVideoTitle).toHaveBeenCalledTimes(1)
+    expect(pushSpy).not.toHaveBeenCalled()
+
+    resolveTitle({ code: 0, data: { success: true, title: '慢模型标题' } })
+    await flushPromises()
+    expect(pushSpy).toHaveBeenCalledTimes(1)
+    const target = lastPublishTarget()
+    expect(decodeURIComponent(String(target.query.title))).toBe('慢模型标题')
+
+    wrapper.unmount()
+    el.remove()
+  })
+
+  it('C7 完成态显示标题来源说明；生成中显示「正在生成标题…」', async () => {
+    let resolveTitle
+    aiGenerateGenVideoTitle.mockImplementation(() => new Promise((resolve) => { resolveTitle = resolve }))
+    const el = document.createElement('div')
+    document.body.appendChild(el)
+    const wrapper = await mountCompletedRun()
+
+    // 完成未点击：静态说明
+    expect(document.body.querySelector('[data-testid="hot-topics-gen-video-title-hint"]')).toBeTruthy()
+    expect(document.body.querySelector('[data-testid="hot-topics-gen-video-title-generating"]')).toBeFalsy()
+
+    // 点击后（生成中）：生成中文案
+    clickPublish()
+    await flushPromises()
+    expect(document.body.querySelector('[data-testid="hot-topics-gen-video-title-generating"]')).toBeTruthy()
+    expect(document.body.querySelector('[data-testid="hot-topics-gen-video-title-hint"]')).toBeFalsy()
+
+    resolveTitle({ code: 0, data: { success: true, title: 'x' } })
+    await flushPromises()
     wrapper.unmount()
     el.remove()
   })
@@ -1163,9 +1416,11 @@ describe('HotTopics.vue', () => {
     expect(publishTarget).toBeTruthy()
     expect(publishTarget.query.type).toBe('video')
     expect(decodeURIComponent(String(publishTarget.query.video_path))).toBe('D:/videos/animated.mp4')
-    // run-only：不得注入空 title/content
-    expect(publishTarget.query.title).toBeUndefined()
+    // fix-hot-topics-genvideo-title：run-only 仍不得注入空 content/tags，
+    // 但标题必须有值（AI 标题优先，失败降级原始选题）。
     expect(publishTarget.query.content).toBeUndefined()
+    expect(decodeURIComponent(String(publishTarget.query.title))).toBe('打工人醒醒！AI又抢活了')
+    expect(publishTarget.query.title_source).toBe('ai')
 
     wrapper.unmount()
     el.remove()

@@ -36,6 +36,17 @@
   color: var(--color-text-muted);
 }
 .gen-video-error-text { margin-right: auto; font-size: var(--font-size-sm); color: var(--color-danger); align-self: center; }
+/* fix-hot-topics-genvideo-title（2026-10-17）：完成态的标题来源说明 / 生成中提示 */
+.gen-video-title-hint {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+  color: var(--color-text-muted);
+  background: var(--color-bg-inset);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+}
 .publish-progress { padding: 12px 14px; background: var(--color-bg-inset); border: 1px solid var(--color-border); border-radius: 8px; margin-bottom: 12px; }
 .progress-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; font-size: var(--font-size-sm); color: var(--color-primary-dark-tint, var(--color-primary)); }
 .progress-items { margin-top: 10px; max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }

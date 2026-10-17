@@ -104,6 +104,10 @@ export default {
     genVideoCancel: '取消',
     genVideoClose: '关闭',
     genVideoDone: '视频已生成，正在打开结果…',
+    // fix-hot-topics-genvideo-title（2026-10-17）：【去发布】的标题来源说明。
+    // 标题由默认文字推理模型按爆款元素生成；未配置模型或生成失败时降级为原始选题。
+    genVideoTitleHint: '点击「去发布」时，标题将由 AI 按爆款元素生成；若未配置文字推理模型或生成失败，将使用原始选题作为标题',
+    genVideoTitleGenerating: '正在生成标题…',
     // 收藏与标签页
     tabHot: '热门选题',
     tabFavorites: '收藏选题',

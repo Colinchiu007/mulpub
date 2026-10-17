@@ -194,6 +194,39 @@ CI 只读检出、别的 worktree（各自 node_modules 不同）等场景，sha
   CI 侧 `debt-guard.yml` 跑这条检查但没有构建步骤，所以暂不产生新红。收窄判据域属"改谁来守门"，另片处理。
 - 本 PR **不能自证 push 侧转绿**：那条步骤在 PR 事件上不跑。验收判据是合并后 main push 的那一次运行，
   已在执行记录里写成收尾必查项。
+# [未发布] fix(hot-topics): 「去发布」标题改为 AI 爆款标题，三级降级到原始选题（fix-hot-topics-genvideo-title）
+
+- **动因（用户原话）**：热门选题页选题生成视频成功后点「去发布」，进入发布页带入的标题是**正文的前多少字**，而不是 AI 按照爆款元素来生成标题。同时要求降级方案：没有保存的文字推理模型设置、或 AI 生成没成功时，使用生成视频的**原始选题**作为标题。
+- **根因（四级静默回退链的末端）**：标题在链路上从来不是一个独立生成物。① `buildGenVideoStartParams`（`features/hot-topics/gen-video-pipelines.js`）构造的启动参数**不含 `title`**；② `buildStory2VideoTextConfigFromSnapshot` 的 `publish.title = config.title || ''`，而 `S2V_CONFIG_DEFAULTS.title = ''` 且热门选题链路从不写该字段；③ 主进程 `story2video-project-service.js` 的 `project.title = safeText(run.params?.title || publish.title || sourceText, 160)` ⇒ 落到 `sourceText`（改写全文，上限 100000）；④ `buildPublishFromProject` 取 `project.title` 后被 `truncateTitle(rawTitle, 100)` 截断 ⇒ **标题 = 正文前 100 字**。第二形态：非 S2V 流水线无 `story2videoProject`，走 run-only 分支只带 `video_path`，**标题为空**。
+- **改动一：标题生成与三级降级**（`useHotTopicsGenVideo.publishGenVideoResult` 改 async）。点击【去发布】时：① `modelProviderGetDefault('llm')` 查默认文字推理模型，不可用则**不发起调用**；② 可用则调 `aiGenerateGenVideoTitle({ topicText, bodyText, max:100 })`；③ `resolveGenVideoTitle` 纯函数决策（唯一真源）；④ 拼 query（有项目沿用 `publishDataToQuery`，`content/tags` 语义不变；run-only 只带 `video_path`），用决策结果覆盖 `title` 并写 `title_source` / `title_reason`。降级表：AI 成功 → `title_source=ai`；无模型 → `topic` + `no-model`；LLM 失败/空/清洗后为空 → `topic` + `failed`；选题为空 → 不注入。**降级不阻断跳转**；**busy 守卫**保证重复点击不发起第二次 LLM 调用、不发生第二次跳转。
+- **改动二：新增 IPC `ai:generate-gen-video-title`**（`electron/ipc-handlers/gen-video-title.js` + preload + `api/publisher.js` 封装）。复用 `aiGenerator.generateWithDefault('llm', …)`（与 `videogen-stages.callDefaultLlm` 同一通道），双默认语义解析模型，推理型模型 `max_tokens` 放大到 5000；**「无模型」返回 `reason:'no-model'` 而非 error**，让渲染层走降级而不弹错误框；API Key 只在主进程边界读取、不落日志；`withSenderCheck` 拒绝外部网页。
+- **改动三：LLM 输出清洗 10 条规则**（主进程 `normalizeGeneratedTitle`）：思维链（`<think>` 闭合块 + **未闭合尾部**，对应 `finish_reason=length` 截断形态）、markdown 围栏、取首个非空行、控制字符、「标题：/Title:」前缀、列表编号（`1.`/`1、`/`1)`/`-`/`*`）、**成对**引号与书名号（单边保留，可能是标题内容）、尾部标点、Unicode 码点截断、空结果降级。规则顺序有意义：先剥可能包住整段的思维链/围栏，再取首行防多候选，最后才是行内清洗与长度截断。
+- **改动四：用户可见反馈**。热门选题弹窗完成态新增标题来源说明（`hotTopics.genVideoTitleHint`）与生成中提示（`hotTopics.genVideoTitleGenerating`）；发布页视频模式在标题输入框下方渲染**三态**来源提示（`publishPage.videoTitleFromAi` / `videoTitleFromTopicNoModel` / `videoTitleFromTopicFailed`），无 `title_source` 不渲染、图文模式忽略、`topic` 缺 `title_reason` 按失败态提示（不静默）。区分「未配置模型」与「生成失败」是因为前者该去补配置、后者是偶发。
+- **分层决策：prompt 为什么在主进程**。渲染层 `apps/desktop/src/` 受 `--cjk` 门禁全量字符串扫描（基线 1374 条），中文 prompt 指令放渲染层会撞门禁；且全仓渲染层此前**没有任何 LLM prompt 构造先例**（都在 `electron/services/*-stages.js`）。故主进程放 prompt 构造 + 输出清洗 + 模型解析，渲染层只留降级链决策纯函数。**不动 `buildPublishFromProject` 的回退链**——那是历史记录/结果页/播客三条入口共用的标题提取真源。
+- **为什么不放在改写阶段或 run 完成时**：改写与标题是两种任务，混在一个 prompt 会互相污染（改写引擎 2026-09-18 已因「create 模式注入爆款要素诱导模型把要素名写成小节标题」踩过同类坑）；run 完成时自动生成则会为只想【查看】的用户浪费一次 LLM 调用。点击【去发布】时用户意图最明确，且失败只影响标题不影响跳转。
+- **测试**：纯函数 15 例（降级链六格、空/纯空白/非字符串 AI 标题、选题与 AI 标题双向截断、max 非法回退、`aiAvailable` 非 `true` 保守降级、emoji 码点截断、无参调用）；IPC 31 例（正常/无默认 LLM/无可用模型/抛错/空 content/参数非法/空 topicText/max 非法/推理与普通模型预算/sender 校验/输出清洗/prompt 构造含爆款元素与摘要截断）；`HotTopics.test.js` +8 例（AI 成功、无模型不调 AI、查询抛错、LLM 空、LLM 抛错仍跳转、run-only 带标题、标题取自原始选题、重复点击幂等、完成态提示行）；`Publish.test.js` +6 例（三态来源提示、无 `title_source` 不渲染、图文模式不渲染、缺 `title_reason` 按失败态）。既有 3 例【去发布】断言按新语义更新（AI 标题优先于 `publish.title`）。
+- **变异反证 6 条全部指名红**（QM-6 外部评审本机不可用，以变异反证替代自审）：M1 删 busy 守卫 → C6 红；M2 `aiAvailable` 恒 true → C2+C2b 双红；M3 `=== true` 改 truthy → 纯函数保守降级例红；M4 去掉 run-only title 注入 → **10 例红**；M5 去掉 `activeMode` 判据 → P5 红；M6 成对引号改无条件剥 → T6 红。**其中 M5 第一轮实测未红（假绿）**：P5 只断言 DOM 无提示节点，而标题输入区在图文模式下模板本就不渲染——「删判据」与「模板不渲染」产生同样可观测结果，测试对变异免疫。补 `expect(w.vm.videoTitleSourceHint).toBe('')` 直接断言 computed 后才真正变红。**教训：「DOM 不存在」类断言分不清不存在来自判据还是模板结构，前者才是要测的。**
+- **逃逸分析（QM-5 ②）**：旧测试把缺陷路径伪装成正确行为——`publish-from-project.test.js` 的夹具让 `project.title` 与 `sourceText` **取同值且都只有 38 字**，「title 回退到 sourceText」这条生产缺陷在测试中表现为「正确行为」；`HotTopics.test.js` 的【去发布】夹具直接给定 `publish.title = '发布标题'`，而真实链路该字段**恒为空串**。评审层面：`hot-topics-pipeline-picker` 评审记录了「run-only 发布只能交接成片路径」，把「不伪造标题」当成合规终态，**没有继续问「那标题应该是什么」**——规则写的是「不得注入空标题」，没人验证「注入的标题从哪来」。本期 `mountCompletedRun` 夹具显式把 `publish.title` 置为空串以对齐真实链路。
+- **计数棘轮同步（本次引入的合理棘轮）**：新增 `aiGenerateGenVideoTitle` 使 `preload.test.js` 两条计数断言红
+  （`expected 147 to be 146`、`expected 345 to be 344`）。已把 system 模块 146→147、聚合 api 344→345 更新基线，
+  并补 `expect(Object.keys(api)).toContain('aiGenerateGenVideoTitle')` —— 只改数字而不接方法会被这条抓住。现 382/382 绿。
+- **i18n glossary 成对门禁抓到的真实缺陷（本次引入，已修）**：我在 `01-docs/i18n-glossary.md` 登记的
+  「文字推理模型 / `Text reasoning model (LLM)`」被 `src/i18n/glossary.test.js` 判红 —— zh 文案含该词但
+  en 文案不含（判据是「locale 值**包含**登记串」）。`(LLM)` 只是术语注解，不是文案内容，
+  **正解是把登记串收敛为 `text reasoning model`（与英文文案实际用词一致），而不是往英文文案里硬塞 `(LLM)`**
+  —— 后者会让用户读到 `No text reasoning model (LLM) configured…` 这种带技术括号的怪文案。现 2/2 绿。
+- **全量套件 7 个失败文件全部 `git stash` A/B 实证定性（不靠推断）**：
+  - **本次引入 2 个，均已修**：`preload.test.js`（计数棘轮）、`src/i18n/glossary.test.js`（上面那条）。
+  - **存量 5 个，不在爆炸半径**：`preload-variant.test.js` 4 例 + `preload-path.test.js` 2 例 +
+    `podcast-plan-preview-ipc.test.js` 1 例 + `podcast-script-ipc.test.js` 1 例（同因：本 worktree
+    **缺预构建 bundle 产物** `stealth-preload-*.bundle.js`）；`bundled-font-packaging.test.js` 1 例
+    （`dist/fonts` 不存在，未跑 Vite build，即打包时已打印的 `file source doesn't exist ... dist/fonts`）；
+    `tests/gui-ci-exit-contract.test.js` 1 例（真起 git 仓库跑 CLI 的端到端，约 16 秒）。
+    移开我全部改动后这 5 个**仍红**。
+- **取证教训（独立记录）**：首轮全量跑误用 `--reporter=basic`（vitest 无此 reporter），
+  **一个测试都没跑**却返回 exit 1 —— 若信该 rc 会得出完全相反的结论。且我从日志尾部只看到 3 个失败文件，
+  读到完整汇总行才是 7 个。判据一律取**日志产物**而非退出码，且**必须读到最终汇总行**再下结论。
+- 判据：`check-locale-sync --pair-base origin/main` / `--cjk`（基线 1374，无新增）/ `--keys`（2105 key 全存在）PASS；ESLint 对改动文件 exit 0（3 条 warning 经 stash A/B 实证为存量）；`HotTopics.test.js` 65/65、`Publish.test.js` 117/117、`preload.test.js` 382/382 全绿。执行记录见 `openspec/records/fix-hot-topics-genvideo-title.md`。
 
 # [未发布] feat(observability): history:list 补耗时读数与 >300ms 阈值告警（obs-history-timing）
 

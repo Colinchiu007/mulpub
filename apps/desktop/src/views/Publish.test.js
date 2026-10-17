@@ -318,6 +318,68 @@ describe("PublishView", () => {
     expect(w.vm.article.video_path).toBe(realPath)
     expect(w.vm.article.title).toBe(realTitle)
   })
+
+  // ─── 标题来源提示（fix-hot-topics-genvideo-title，2026-10-17）─────────────
+  // 热门选题「生成视频 → 去发布」带入标题时，query 带 title_source/title_reason 说明标题怎么来的。
+  // 三态：ai / topic+no-model / topic+failed；无 title_source 一律不渲染（不污染其它入口）。
+  it("P1 title_source=ai → 标题下方显示 AI 来源提示", async () => {
+    await router.push('/?type=video&video_path=' + encodeURIComponent('D:/v/a.mp4') +
+      '&title=' + encodeURIComponent('打工人醒醒！AI又抢活了') + '&title_source=ai')
+    const w = await createWrapper()
+    await flushPromises()
+    const hint = w.find('[data-testid="video-title-source-hint"]')
+    expect(hint.exists()).toBe(true)
+    expect(hint.text()).toBe('标题由 AI 按爆款元素生成')
+  })
+
+  it("P2 title_source=topic&title_reason=no-model → 显示未配置模型提示", async () => {
+    await router.push('/?type=video&video_path=' + encodeURIComponent('D:/v/b.mp4') +
+      '&title=' + encodeURIComponent('AI大模型最新突破进展') + '&title_source=topic&title_reason=no-model')
+    const w = await createWrapper()
+    await flushPromises()
+    const hint = w.find('[data-testid="video-title-source-hint"]')
+    expect(hint.exists()).toBe(true)
+    expect(hint.text()).toBe('未配置文字推理模型，标题已使用原始选题')
+  })
+
+  it("P3 title_source=topic&title_reason=failed → 显示生成失败提示", async () => {
+    await router.push('/?type=video&video_path=' + encodeURIComponent('D:/v/c.mp4') +
+      '&title=' + encodeURIComponent('AI大模型最新突破进展') + '&title_source=topic&title_reason=failed')
+    const w = await createWrapper()
+    await flushPromises()
+    const hint = w.find('[data-testid="video-title-source-hint"]')
+    expect(hint.exists()).toBe(true)
+    expect(hint.text()).toBe('AI 标题生成失败，标题已使用原始选题')
+  })
+
+  it("P4 无 title_source → 不渲染任何来源提示（不污染既有入口）", async () => {
+    await router.push('/?type=video&video_path=' + encodeURIComponent('D:/v/d.mp4') +
+      '&title=' + encodeURIComponent('普通标题'))
+    const w = await createWrapper()
+    await flushPromises()
+    expect(w.find('[data-testid="video-title-source-hint"]').exists()).toBe(false)
+  })
+
+  it("P5 图文模式带 title_source 也不渲染（防御性）", async () => {
+    await router.push('/?type=article&title=' + encodeURIComponent('图文标题') + '&title_source=ai')
+    const w = await createWrapper()
+    await flushPromises()
+    expect(w.vm.activeMode).toBe('article')
+    expect(w.find('[data-testid="video-title-source-hint"]').exists()).toBe(false)
+    // 变异反证：直接断言 computed 值 —— 否则「模板本就不渲染」会让这条对
+    // 「删掉 activeMode 判据」的变异免疫（实测 M5 删判据后 DOM 断言仍绿）。
+    expect(w.vm.videoTitleSourceHint).toBe('')
+  })
+
+  it("P6 title_source=topic 但缺 title_reason → 按失败态提示，不静默", async () => {
+    await router.push('/?type=video&video_path=' + encodeURIComponent('D:/v/e.mp4') +
+      '&title=' + encodeURIComponent('原始选题') + '&title_source=topic')
+    const w = await createWrapper()
+    await flushPromises()
+    const hint = w.find('[data-testid="video-title-source-hint"]')
+    expect(hint.exists()).toBe(true)
+    expect(hint.text()).toBe('AI 标题生成失败，标题已使用原始选题')
+  })
   it("handlePublish warns when title empty", async () => {
     const w = await createWrapper();
     await w.vm.handlePublish();
