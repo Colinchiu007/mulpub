@@ -214,27 +214,12 @@ export default {
       configDenied: '暂不可读',
       configUnreadable: '已保存的密钥无法读取，请到设置中重新保存',
       configLegacy: '检测到旧版明文密钥，建议到设置中重新保存以完成加密迁移',
-      // 「采集」按钮不可点时的原因（zhihu-fav-buttons-dead）：disabled 的按钮不派发 click，
-      // 没有这行提示，用户看到的就是「点了没反应」
-      pickFavlistFirst: '请先点「获取收藏夹」，或在范围里选「全部收藏」',
-      // 「改写」按钮不可点时的原因：改写不依赖收藏夹，只依赖已有可改写内容
-      rewriteNeedsSource: '还没有可改写的内容，请先用「采集并改写」采集一批',
       loadBtn: '获取收藏夹',
       loading: '获取中...',
       loadFailed: '获取收藏夹失败',
       empty: '未找到收藏夹（官方 API 仅返回公开收藏夹）',
-      emptyFavlist: '该收藏夹内没有内容',
-      collectBtn: '批量采集',
-      collecting: '采集中...',
-      rewriteBtn: '批量改写',
-      rewriting: '改写中...',
-      fetchingContents: '正在获取收藏夹内容列表...',
-      collectingProgress: '批量采集中（共 {count} 条，串行 + 间隔防封）...',
-      rewritingProgress: '批量改写中（共 {count} 条）...',
-      batchDone: '完成：成功 {completed} 条，失败 {failed} 条',
       batchDoneCancelledSuffix: '（已取消）',
       batchDoneCircuitBrokenSuffix: '（熔断停止）',
-      noRewritable: '没有可改写的内容（需先采集到正文）',
       hint: '通过知乎官方 API 获取您的收藏夹。批量操作采用串行 + 随机间隔（约 8-12 秒/条）+ 指数退避 + 熔断保护，最大限度降低反爬风险。官方 API 无法区分自建与关注的收藏夹，列表显示全部公开收藏夹。',
       // ── 2026-10-03 批量升级（PRD-ZHIHU-FAV-BATCH）──
       scopeFavlist: '指定收藏夹',

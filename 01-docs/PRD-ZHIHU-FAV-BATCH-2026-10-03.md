@@ -231,7 +231,7 @@
 | 结果多选 | 采集结果卡片列表头部新增全选 checkbox + 计数；卡片左侧 checkbox；勾选后底部浮出批量操作条（三个按钮 + 已选计数） |
 | 确认框 | 三个批量动作统一 ElMessageBox.confirm：列出「将处理 N 条 × 平台 M 个 × 账号 K 个」+（发布图文时）「其中 X 条将使用原文」+（生成视频时）「M 条视频型内容将跳过」；无任何版权/出处文案（Q5C） |
 | 批量发布视频入口 | 仅当本批存在已完成视频时可用；显示「本批已生成 N 个视频」清单供勾选 |
-| 旧入口兼容 | 现有「批量采集」（按收藏夹整夹直采）与「批量改写」按钮保留，与本新流程并存；新旧互斥由任务互斥码保证。**⛔ 可用性契约（2026-10-16 补，zhihu-fav-buttons-dead）**：见下方「§4.1 旧整夹直采按钮的可用性契约」——原版本只写「按钮保留」而未定义「何时可点 / 不可点时怎么提示」，实现因此写出了恒灰死键（用户报障「点了没反应」） |
+| 旧入口 | **⛔ 已下线（2026-10-17，change: zhihu-fav-entries-consolidate）**：原「批量采集」（按收藏夹整夹直采）与「批量改写」两个按钮已删除；采集 + 改写统一由「采集并改写」（IPC `zhihu-fav-batch:run`）承担。**决策依据、删除清单、迁移路径与验收见 §4.2**。<br>历史记录：2026-10-16 的 `zhihu-fav-buttons-dead` 曾修过这两个按钮的「恒灰死键」并补 §4.1 可用性契约——那份契约里「禁用必须配可见原因」「判据单一真源」「每个按钮只依赖它真正需要的东西」三条**已被新入口继承**，本节的删除即建立在该契约之上 |
 
 ### 4.1 旧整夹直采按钮的可用性契约（2026-10-16 补，zhihu-fav-buttons-dead）
 
@@ -307,6 +307,79 @@
 | A7 | 无可改写来源时改写按钮置灰且**有可见原因** |
 
 完整取证、逃逸分析与回归锁见 `BUGFIX-ZHIHU-FAV-BUTTONS-DEAD-2026-10-16.md`。
+
+### 4.2 入口收敛：删除旧整夹直采（2026-10-17，change: zhihu-fav-entries-consolidate）
+
+#### 4.2.1 决策与依据
+
+| 项 | 内容 |
+|---|---|
+| 决策 | **删除旧入口**（「批量采集」「批量改写」两个按钮及其专用 handler、进度行、取消按钮），只保留「采集并改写」 |
+| 决策人 | 项目负责人（2026-10-17 明确选择） |
+| 依据 1 | **双真源风险**：两条入口在同一面板并存，同一件事（采集收藏夹内容 + 改写）却有两套判据各自演化。旧入口在 2026-10-16 刚修过「恒灰死键」（`zhihu-fav-buttons-dead`）——**每多一条入口，就多一处需要独立维护的可用性契约** |
+| 依据 2 | 新入口 `zhihu-fav-batch:run` 已覆盖旧入口的全部能力（采集 + 改写一步完成），且是 2026-10-03 升级后的主路径 |
+| 代价 | 旧入口「按收藏夹整夹直采（不勾选、全夹一次采完）」这一操作形态不再直接可用；用户需先「加载内容」勾选清单再执行 |
+
+#### 4.2.2 删除清单（renderer 层）
+
+| 层 | 删除项 |
+|---|---|
+| 模板 | 「旧整夹直采」整块：两个按钮（`data-testid="zhihu-favlist-collect"` / `zhihu-favlist-rewrite`）、两条不可点提示（`...-target-hint` / `...-rewrite-hint`）、旧进度行、旧取消按钮 |
+| 脚本 | `zhihuFavlistBatchCollect` / `zhihuFavlistBatchRewrite` / `cancelZhihuFavlistBatch` 三个 handler（约 99 行） |
+| 状态 | `zhihuFavlistBatching` / `zhihuFavlistProgress` / `zhihuFavlistResults`（删 handler 后均无消费者） |
+| 派生 | `zhihuFavTargetReady` / `zhihuFavRewriteSource` / `zhihuFavRewriteReady` 三个 computed |
+| Props | `rewriteFallbackItems`（父级 `Collection.vue` 同步删除该传参） |
+| i18n | `zhihuFavlist` 下 12 个 key（zh/en 成对）：`pickFavlistFirst` `rewriteNeedsSource` `emptyFavlist` `collectBtn` `collecting` `rewriteBtn` `rewriting` `fetchingContents` `collectingProgress` `rewritingProgress` `batchDone` `noRewritable` |
+
+#### 4.2.3 明确**不删**的部分（避免误删与越界）
+
+| 保留项 | 理由 |
+|---|---|
+| 新入口全部逻辑（`loadZhihuFavItems` / `runZhihuFavCollectRewrite` / `cancelZhihuFavBatch` / 进度块 / 勾选清单） | 收敛后的唯一入口 |
+| 父级结果落地链路（`onBatchCollected` / `onBatchCollectedRewrites` / `CollectedResultsList`） | 与新入口共用 |
+| i18n `zhihuFavlist` 下 `loadBtn` / `loading` / `loadFailed` / `empty` / `hint` / `batchDoneCancelledSuffix` / `batchDoneCircuitBrokenSuffix` | 新入口仍在用 |
+| IPC 通道 `zhihu-favlist:batch-collect` / `batch-rewrite` 及其 preload 封装 | **后端能力未下线**，本次只移除 UI 消费者；删除属「功能下线」，需单独评审（涉 `license-access-control.js` 白名单与后端测试） |
+| i18n `zhihuFav.collecting`（注意**不是** `zhihuFavlist.collecting`） | 新入口进度文案在用。两区块是**同级**且内层 key 同为 6 空格缩进 ⇒ **同名 key 极易误删**（本次实操中确实误删过一次并已补回） |
+
+#### 4.2.4 迁移路径（用户视角）
+
+| 旧操作 | 新操作 |
+|---|---|
+| 选收藏夹 → 点「批量采集」 | 选范围/收藏夹 → 点「加载内容」→ 全选（或勾选）→ 点「采集并改写」 |
+| 点「批量改写」（改写上一次整夹采集结果） | 「采集并改写」一步完成采集与改写；若只想改写已有条目，走采集页既有的单条改写链路 |
+
+#### 4.2.5 显示项与提示文字
+
+| 变化 | 内容 |
+|---|---|
+| 删除的显示项 | 「批量采集」按钮、「批量改写」按钮、旧进度行（`正在获取收藏夹内容列表...` / `批量采集中（共 N 条…）` / `完成：成功 N 条，失败 M 条`）、旧取消按钮、两条「不可点原因」提示 |
+| 保留的显示项 | 「采集并改写」按钮与勾选清单、「已选 N 条」、进度块（成功/失败/跳过/改写失败汇总）、错误横幅、说明文案（`zhihuFavlist.hint`） |
+| 提示文字变化 | 旧入口 12 个 key 随 UI 一并移除；**新入口提示全部保留且本次未新增任何 key**（纯删除，无新文案） |
+
+#### 4.2.6 数据校验与功能逻辑（不变量）
+
+| 不变量 | 说明 |
+|---|---|
+| 单入口 | 组件内**不得**再出现 `zhihu-favlist-collect` / `zhihu-favlist-rewrite` 两个 `data-testid`，也不得存在旧 handler |
+| 判据唯一 | 采集/改写可用性判据只存在于新入口（勾选数 + 批量中状态），旧三 computed 已删 |
+| 契约不退化 | 父级只传 3 个 props（`collectedUrlSet` / `categoryTagCtx` / `rewriteStyle`）+ 监听 2 个事件（`collected` / `collected-rewrites`） |
+| locale 成对 | 12 个 key 在 zh/en 同步删除；`zhihuFav.*` 与 `zhihuFavlist.*` 的同名 key 必须区分 |
+
+#### 4.2.7 验收标准
+
+| 编号 | 标准 |
+|---|---|
+| C1 | 旧「采集」「改写」按钮及两条提示**均不再渲染** |
+| C2 | 旧三个 handler 在组件实例上**不可访问**（`undefined`） |
+| C3 | 旧三个 computed 与 `rewriteFallbackItems` prop **均不存在** |
+| C4 | 新入口（加载清单 → 勾选 → 采集并改写）**功能不变**（新入口既有用例全绿） |
+| C5 | `locale-sync --keys` PASS（2065 个使用中 key 均存在）、`--pair-base` PASS、`--cjk` PASS |
+
+#### 4.2.8 遗留（不假装闭合）
+
+1. **后端 IPC 通道保留**：无 UI 消费者但仍注册；删除属功能下线，需单独评审。
+2. **视觉回归不覆盖该改动**：被删 UI 在「知乎收藏文章」折叠组内，采集页默认态像素截图看不到 ⇒ `collection` 像素 0 回归（1/1 PASS）**不能**当作「删除正确」的证据，正确性由组件锁守。
+3. **无真机验证**：需在真实应用里确认「加载内容 → 勾选 → 采集并改写」可用，且旧按钮确实消失。
 
 ## 5. 显示项与提示文字（locale zh/en 成对）
 
