@@ -3,9 +3,7 @@ record: ccg-convergence-exit
 task: 把「CCG 深度审查为什么必然落在 self-play」从形容词变成可复跑读数，并把这条读数接进 CI
 date: 2026-10-17
 branch: ccg-convergence-exit
-sync_status: PENDING
-sync_reason: 本 PR 合并后由后续 docs PR 回填 PASS + merge SHA，并在同一次提交删除本 frontmatter 的 sync_* 三字段
-sync_backfill_owner: 本会话（合并后立即回填）
+
 ---
 
 # 执行记录：CCG 收敛出口可达性探针（ccg-convergence-exit，2026-10-17）
@@ -79,9 +77,9 @@ sync_backfill_owner: 本会话（合并后立即回填）
 | QM-1 打包 | N/A | 未触 `apps/desktop/electron/` 与 `packages/rpa-engine/` |
 | QM-4 视觉回归 | N/A | 无 UI 文件改动 |
 | QM-6 双模型评审 | 见第 7 节 | 变更规模判定 |
-| 远程同步 | PENDING | 合并后回填 PASS + merge SHA，并同次删除本 frontmatter 的 `sync_*` 三字段 |
+| 远程同步 | PASS | squash 合并为 862425eb2bc3c8f561bd3c3bfa410fb4c3fc2823（`git log origin/main --grep='(#3830)$'` 恰好 1 行，2026-10-18T00:55:38+08:00）；远端分支 `ccg-convergence-exit` 经 `git ls-remote --heads origin` 取到 0 行（已删）。回填与销账在同一次提交内完成：本行改写 + frontmatter 的 `sync_*` 三字段删除（旧载体不动、不插块、不加 ledger 键） |
 
-- 保留门禁：变更类型与隔离 ✅ | TDD ✅ | 变异反证 ✅ | 接线三守卫 ✅ | gitignore ✅ | 行尾对账 ✅ | 文档同步 ✅ | 远程同步 PENDING
+- 保留门禁：变更类型与隔离 ✅ | TDD ✅ | 变异反证 ✅ | 接线三守卫 ✅ | gitignore ✅ | 行尾对账 ✅ | 文档同步 ✅ | 远程同步 PASS
 
 ## 7. QM-6：真实双模型评审的逐条处置
 
@@ -138,3 +136,9 @@ PR #3830 开出来之后 `gh pr checks` 报 **no checks reported**、`api .../co
 解法按 PR 自动合并判据 1：`git fetch` → `git rebase origin/main` → 冲突按「main blob 为底 + 只把我的块插回去」重建（**不是**并集硬合，也不是「后推覆盖」）：脚本先断言 `theirs.endsWith(base)`，据此算出我的顶部块，再拼到 main 的 blob 之前；两份 blob 都是纯 LF，因此逐行原样保留等于写 LF。收尾读数：`check-changelog-growth` base 493 → head 494 PASS、`check-changelog-duplicate-entries` 冗余 0、`git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径同为 `20/0`。
 
 rebase 后 `mergeable=MERGEABLE / mergeStateStatus=BLOCKED`（BLOCKED 来自 required checks 尚未跑完 + 上面 §7.1 与 §7.3 记的那条 self_play_blocked 欠账，属预期），`pull_request` 事件立刻排上 4 条 workflow：quality-gate / 债务熔断门禁 / Build & Release / GUI Tests。另注意 rebase 改写了本分支的 sha。**本 PR 因此被自己的原则反噬了一次**：第一次 rebase 后我把文档标题里的 sha 标注成「rebase 前 653f24bfe」，紧接着第二次 rebase 让那个新 sha 也失效了 —— 说明 sha 根本不是可引用的坐标。正解已落进这两处标题：引用一律用**内容寻址的判定记录文件名**（跨 rebase 稳定，`git diff` 里它就是那个名字）或 commit subject，**不用 sha**；sha 只保留在「当场取证」的位置（如用 `git log --grep` 现取的那笔 merge SHA），且用完即随回填改写。
+
+## 10. 合并后回读（按「(merge SHA, workflow)」这一格判）
+
+- 承载本判据的 workflow ＝ `quality-gate.yml`；merge SHA `862425eb2bc3c8f561bd3c3bfa410fb4c3fc2823` 上该 workflow 的 push run ＝ **39051525917**（取证：`gh run list --workflow=quality-gate.yml --commit 862425eb2… --json databaseId,status,conclusion,event`）。
+- **本次提交时的读数：`status=queued`，还没有 conclusion**。同批 push run：`债务熔断门禁=success`，`Build & Release` / `Electron CI` 排队中。
+- 纪律：这一格不能预先写成 success —— 「PR 侧全绿」不是「main 侧全绿」的证据（#3652 实测过 squash 把差量落到更新的 main tip 上、当场红 `Gate 12c`）。收工判据是等这个 run 出 `conclusion=success`；若红，按本轮口径补一轮 follow-up PR，不把 main 的红留给下一个会话。
