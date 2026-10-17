@@ -39,7 +39,29 @@ export function opsDevCspMeta() {
   }
 }
 
+/**
+ * 部署 base 路径（2026-10-17，fix: ops-center-ops-path）
+ *
+ * 为什么需要它：运营中心经 https://www.iart.work/ops/ 子路径对外服务。vite 未配 base 时
+ * 默认 '/'，产物 index.html 里的资源是**根相对路径**：
+ *
+ *     <script src="/assets/index-xxx.js">
+ *
+ * nginx 的 `location /ops/` 只能取到 HTML，而 /assets/* 会落到主站 root
+ * （/var/www/iart.work/ 下没有 assets 目录）⇒ 404 ⇒ 页面白屏。这是「nginx 配了但页面打不开」
+ * 的典型形态：location 判据只看到 200，没验证产物资源路径与挂载路径是否匹配。
+ *
+ * 为什么按 NODE_ENV 分流而不是统一改：
+ *   - 生产：base 必须在**构建时**静态注入产物（运行时改不了），故取 '/ops/'；
+ *   - dev：本地 `npm run dev` 跑在 127.0.0.1:5173 根下，若也改成 '/ops/'，
+ *     所有本地开发者的入口会变成 http://127.0.0.1:5173/ops/，无谓的破坏面。
+ *
+ * 判据：ops-center/frontend/tests/vite-base-path.test.js（5 例，含 dev 入口不变这条）。
+ */
+const isProduction = process.env.NODE_ENV === 'production'
+
 export default defineConfig({
+  base: isProduction ? '/ops/' : '/',
   build: {
     rollupOptions: {
       output: {
