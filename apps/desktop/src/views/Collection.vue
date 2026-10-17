@@ -197,7 +197,8 @@
              头条热榜改为今日头条首页（官方无渲染版热榜页，热榜 JSON 接口直接打开是一屏文本）。
              依据与不可回退约束见 features/collection/useSourceEntry.js 的文件头表。 -->
         <div class="cohere-stat-card col-stat-card-click" @click="openCollection('baidu')">
-          <div class="stat-value">🔍</div>
+          <!-- 图标用 el-icon 而非 emoji：放大镜 emoji 命中 icon-usage.test.js 的功能图标位黑名单（T1-5） -->
+          <div class="stat-value"><el-icon><Search /></el-icon></div>
           <div class="stat-label">{{ $t('collection.sourceBaidu') }}</div>
         </div>
         <div class="cohere-stat-card col-stat-card-click" @click="openCollection('toutiao')">
