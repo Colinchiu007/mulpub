@@ -2,9 +2,6 @@
 record: max-lines-git-domain
 task: 把 check-max-lines 的扫描域从「磁盘全量」改成「git 的域」，修掉本机构建产物造成的 NEW_OVER_LIMIT 假红
 date: 2026-10-18
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（按 AGENTS「PR 自动合并」收尾链回填并删除本三字段）
 ---
 
 ## 本次执行记录：行数门禁的扫描域改成 git 的域（max-lines-git-domain，2026-10-18）
@@ -20,9 +17,10 @@ sync_backfill_owner: 下一个会话（按 AGENTS「PR 自动合并」收尾链�
 | 接线棘轮 | PASS | 未新增测试**文件**（10 条锁追加进已被 `debt-guard.yml` 显式点名的 `check-max-lines.test.js`）；`node scripts/check-unwired-tests.js` rc=0（检查域 97 个测试文件，「全部测试均已接线或按欠账登记」） |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触碰 `apps/desktop/electron/**` 运行时代码与任何 UI 文件；改动面 = `.github/scripts/check-max-lines.js` + 其测试 + 两份评审原件 + 本记录 + CHANGELOG |
 | QM-6 CCG 双模型外部评审 | PASS（双轴，规定通道） | `ccg-review-decider` 判 `mode=DUAL`。CC Switch `:15721` 实测 **open** ⇒ 按 AGENTS 原文走 `codeagent-wrapper`，两轴并行派发（未降级到替代通道）。**前端/可维护性轴**（`claude`）：`VERDICT: PASS`，Critical 0 / Warning 2 / Info 4。**后端/逻辑轴**（`codex`）：第一次 `AXIS_RC=0` 却**零结论**（stdout 只有进度行 + 它自己的 `image path ... is not a file`，无产物）⇒ 按「文件落盘或 stdout 有完整正文」判为未跑成，**不计入已审**；关掉 stdin（`</dev/null`）重投后交付，`VERDICT: NEEDS_REVISION`，Critical 1 / Warning 3 / Info 3。三份原件入库：`.ccg/reviews/max-lines-git-domain-review-{backend,frontend}.md` 与任务书 `…-review-brief.md`（路径全部相对仓库根，两轴各问各的、互不复述）。<br>**逐条处置**：后端 C1「被跟踪但命中 `.gitignore` 的产物缺回归锁」**成立**（它自己也写明"不是本提交引入的错误，是锁缺这一格"）⇒ 采纳，补锁 + docblock 语义 ④，变异 M7 证明其有牙；后端 W1「`readFileSync` 静默 skip 让幽灵路径无声放过」**机理部分不成立**——磁盘已删的文件根本进不了 `readdirSync`，不走那条 catch；真正静默的是读失败那一格 ⇒ 采纳为「读失败出声」+ 另补一条 STALE 锁钉住可达那一格，并如实登记"出声分支本机无锁"（M8 实测 MISSED）；后端 W2/W3（`--root` 子目录坐标系、嵌套仓、探针只覆盖默认 ROOT）**采纳为文档**（语义 ⑤），不改分档、不加断言，上限写进本记录遗留 4/5；后端 Info 四条全部接受为已登记（rc=2 属合理 fail-closed、64MB 够用、收窄到 `SCAN_DIRS` 是可做但须同步缩小账本断言、探针 tracked 半边与实现同命令）。前端 W2「`delete GIT_CONFIG_SYSTEM` 不关 system 档，唯一开关是 `GIT_CONFIG_NOSYSTEM`」**成立**⇒ 采纳，并**另做一次独立实验**（在仓库外的临时目录造一份 system 档，不碰被审工作树）实测：带该配置时产物被藏出域（`domainSize` 少 1），置 `NOSYSTEM=1` 后回到域内 ⇒ 新增两档 A/B 锁 + 夹具隔离自检。前端 W1（同根因第二处）**成立但登记已过时**——它看到的是**第一次 re-sync 之前的实现快照**（当时 sha `1aecfedeb`；该对象已随两次 rebase 在分支上不可达，此处只作历程记号，现势一律按 commit 主题 `fix(gate): check-max-lines 的扫描域改成 git 的域` 定位），本记录的遗留第 1 条在采纳提交里才存在；已另开任务 #82。前端 I1/I2/I3（临时 gitconfig 不清理、同一集合两个函数分别叫 `domain`/`set`、「受管/域」双术语且该注明相对扫描根）**全部采纳**。采纳后重跑：36/36 绿 + 上述 10 道反证 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin max-lines-git-domain` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | merge SHA `042ff08cb`（2026-10-17T19:03:09Z，squash 合并）；`git ls-remote --heads origin max-lines-git-domain` 返回 0 行（远端分支已删）。回填与销账同一次提交 |
+| 合并后 main push 回读（收尾第 7 条） | PASS | 该 merge SHA 上三条 push run 全 completed/success：`quality-gate` run 39060771241（11 作业全 success）、`债务熔断门禁` run 39060771227（1 作业 success，即承载 check-max-lines 的那条）、`Electron CI` run 39060771245（2 作业 success） |
 
-- 保留门禁：变更类型与隔离 ✅ | 行尾对账 ✅ | 品牌残留 PASS | 文档同步 PASS | 远程同步 PENDING
+- 保留门禁：变更类型与隔离 ✅ | 行尾对账 ✅ | 品牌残留 PASS | 文档同步 PASS | 远程同步 PASS
 
 ### 本机 A/B（本片真正的验收）与 CI 的判据边界
 
