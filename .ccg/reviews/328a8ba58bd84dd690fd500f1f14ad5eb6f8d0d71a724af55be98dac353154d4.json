@@ -1,0 +1,28 @@
+{
+  "sha": "f859f05cb37a2ebc2f267aa929d9016841d05bd5",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 1,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "- **fact · CCG 深度评审的「高危域」是硬性规则，自扮演无权豁免**：`blockingFromAdjudication()` 里，只要条目的 `highRiskDomains` **非空**就一律阻断并要求外部复核，**与 verdict 无关**（写成 dismissed 也照样红）。本轮 critic 把两条与加密/迁移毫无关系的指控标成 `crypto` / `datamigration`（关键词误命中：本 PR diff 对 crypto/migration 命中 0），仍然必须走外部复核。**判据**：遇到 `high_risk_requires_external` ⇒ 老实去请跨家族第二模型（本机 `codex` 可用：`codex exec \"<prompt>\" -C <repo> -s read-only --json`）做独立裁定，把结论落进 `.ccg/reviews/<sha>.json` 的 `deepReview.externalReview` 字段并置 `status: self_play_resolved`；**不要用 dismissed 绕过**——那等于把硬性规则当成可协商项。顺带记下：这种误标签值得反馈给判据改进（按改动面关键词打域标签会误伤），但在判据改之前先遵守它。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "328a8ba58bd84dd690fd500f1f14ad5eb6f8d0d71a724af55be98dac353154d4",
+  "decidedAt": "2026-10-17T16:31:42.179Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}
