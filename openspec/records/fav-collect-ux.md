@@ -3,9 +3,6 @@ record: fav-collect-ux
 task: 知乎收藏批量三件：①主按钮文案「采集并改写」→「采集&改写」②去重跳过的进度行不再显示「完成」而显示跳过说明+指路强制重采（修「进度全完成但结果区 0 新增」的可归因性）③按钮名同步锁升级（区块限定 key，修同名 key 跨区块取错值的假绿）
 date: 2026-10-17
 branch: fav-collect-ux
-sync_status: PENDING
-sync_reason: PR 尚未合并（记录随代码 PR 落地，合并后回填 merge SHA）
-sync_backfill_owner: fav-collect-ux 会话（回填 PR）
 ---
 
 # 执行记录：fav-collect-ux（2026-10-17）
@@ -63,9 +60,9 @@ sync_backfill_owner: fav-collect-ux 会话（回填 PR）
 | QM-4 | PASS（盲区同前） | 折叠组内文案，像素不覆盖 |
 | 行尾两口径对账 | PASS | commit 后取证 |
 | 文档同步 | PASS | PRD §4.3.6 登记表更新 + §4.3.7 新增（去重呈现）+ 本记录 |
-| 远程同步 | PENDING | 合并后同一次提交回填 |
+| 远程同步 | PASS | PR **#3848** 已 squash 合并，merge SHA `b7c618d9c285ea6815cb9fde1390efc4cb083eef`；远端分支已删（ls-remote 0 行）。main push run `39041205223` 回读 **completed / success**。回填与销账同一次提交（本行 + bullet + 删 `sync_*` 三字段） |
 
-- 保留门禁：变更类型与隔离 ✅ | TDD ✅ | 同步锁 ✅ | i18n ✅ | eslint ✅ | 文档同步 ✅ | 行尾对账 ✅ | 远程同步 PENDING
+- 保留门禁：变更类型与隔离 ✅ | TDD ✅ | 同步锁 ✅ | i18n ✅ | eslint ✅ | 文档同步 ✅ | 行尾对账 ✅ | 远程同步 PASS
 
 ## 5. QM-6 判定
 
