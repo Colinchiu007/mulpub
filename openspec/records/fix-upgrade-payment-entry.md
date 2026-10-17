@@ -1,7 +1,5 @@
 ---
 
-sync_reason: PR 刚开、尚未合并，远程同步状态待回填
-sync_backfill_owner: Colinchiu007（本分支作者，合并后同一次提交内删除本两字段）
 
 record: fix-upgrade-payment-entry
 task: 升级入口指向修正——从死胡同弹窗改为会员中心（含清掉三处死代码）
@@ -78,7 +76,7 @@ date: 2026-10-17
 
 ## 远程同步
 
-| 远程同步 | PENDING |
+| 远程同步 | PASS | 已合并：PR #3798，merge `b5ff39b16f4942bcbb1742e24718395d7243b635`（2026-10-17T19:51:59+08:00，squash）。远端分支已删 `git ls-remote --heads origin` 返回 0 行 |
 | --- | --- |
 
-- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 绝对路径 ✅ | 文档同步 ✅ | 远程同步 PENDING
+- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 绝对路径 ✅ | 文档同步 ✅ | 远程同步 PASS

@@ -1,7 +1,5 @@
 ---
 
-sync_reason: PR 刚开、尚未合并，远程同步状态待回填
-sync_backfill_owner: Colinchiu007（本分支作者，合并后同一次提交内删除本两字段）
 
 record: docs-preserve-account-interval-ghost-wait
 task: 代为提交共享根遗留的「账号间隔幽灵等待」计划与 pitfall（清干净共享根以解除 worktree 创建阻塞）
@@ -76,9 +74,9 @@ node scripts/classify-docs-only.js --base=origin/main --head=HEAD
 - 品牌残留：`node scripts/check-no-brand-residue.js` ✅
 - 文档同步（doc-gate）✅
 - 本机绝对路径：`node scripts/check-doc-abs-paths.js --all` ✅
-- 远程同步：PENDING
+- 远程同步：PASS
 
-| 远程同步 | PENDING |
+| 远程同步 | PASS | 已合并：PR #3795，merge `a1503148b0a4902dc369b7ba51e07bfc47069c90`（2026-10-17T13:29:22+08:00，squash）。远端分支已删 `git ls-remote --heads origin` 返回 0 行 |
 | --- | --- |
 
 ## 4. 范围声明（本 PR 只做搬砖，内容仅一处合规性改写）
