@@ -911,6 +911,15 @@ jobs:
       - name: Ensure Electron binary
         run: node scripts/ensure-electron.js
 
+      # 构建产物不进版本控制（change: bundle-untrack）⇒ 跑测试前必须先重建它们。
+      # 本 job 里的「产物契约锁」直接读这些文件（锁名含「已重打包」/「tracked bundle」/
+      # 「路径真实存在」），它们守的性质由「提交的产物与源码一致」变成「构建出的产物与
+      # 源码一致」——仍然完全有效，且不再需要人肉记得重建。
+      - name: Build preload bundles
+        run: |
+          pnpm --filter @multi-publish/desktop run build:preload
+          pnpm --filter @multi-publish/desktop run build:paginator
+
       # --- Gate 4: 全工作区单元测试（含 Vitest 和 Node 测试）---
 
       - name: "Set test mode"
@@ -1097,6 +1106,15 @@ jobs:
       - name: Ensure Electron binary
         run: node scripts/ensure-electron.js
 
+      # 构建产物不进版本控制（change: bundle-untrack）⇒ 跑测试前必须先重建它们。
+      # 本 job 里的「产物契约锁」直接读这些文件（锁名含「已重打包」/「tracked bundle」/
+      # 「路径真实存在」），它们守的性质由「提交的产物与源码一致」变成「构建出的产物与
+      # 源码一致」——仍然完全有效，且不再需要人肉记得重建。
+      - name: Build preload bundles
+        run: |
+          pnpm --filter @multi-publish/desktop run build:preload
+          pnpm --filter @multi-publish/desktop run build:paginator
+
 
       # --- 桌面 vitest 分片（跨 runner 并行；进程内保持串行确定性契约）---
       # 环境契约：本 job 有意不继承 electron-ci.yml 的 NODE_ENV=test + SKIP_NATIVE_MEDIA_TOOL_TESTS=1，
@@ -1222,6 +1240,15 @@ jobs:
       # （#2783 实测：15700ms 撞 vitest testTimeout=10000，而该用例本身只要几毫秒）。
       - name: Ensure Electron binary
         run: node scripts/ensure-electron.js
+
+      # 构建产物不进版本控制（change: bundle-untrack）⇒ 跑测试前必须先重建它们。
+      # 本 job 里的「产物契约锁」直接读这些文件（锁名含「已重打包」/「tracked bundle」/
+      # 「路径真实存在」），它们守的性质由「提交的产物与源码一致」变成「构建出的产物与
+      # 源码一致」——仍然完全有效，且不再需要人肉记得重建。
+      - name: Build preload bundles
+        run: |
+          pnpm --filter @multi-publish/desktop run build:preload
+          pnpm --filter @multi-publish/desktop run build:paginator
 
       # --- Gate 5: Coverage 检查（单 worker 串行，独立 job 避免与 Gate 4 争资源）---
       - name: "Gate 5 - Test coverage check"
