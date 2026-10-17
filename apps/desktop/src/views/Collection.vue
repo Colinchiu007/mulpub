@@ -193,9 +193,13 @@
           <div class="stat-value">✧</div>
           <div class="stat-label">{{ $t('collection.sourceWeibo') }}</div>
         </div>
-        <div class="cohere-stat-card col-stat-card-click" @click="openCollection('zhihu')">
-          <div class="stat-value">❓</div>
-          <div class="stat-label">{{ $t('collection.sourceZhihu') }}</div>
+        <!-- 知乎热榜已撤下（/hot 强制登录，匿名点开只会落到安全验证页）→ 百度热搜；
+             头条热榜改为今日头条首页（官方无渲染版热榜页，热榜 JSON 接口直接打开是一屏文本）。
+             依据与不可回退约束见 features/collection/useSourceEntry.js 的文件头表。 -->
+        <div class="cohere-stat-card col-stat-card-click" @click="openCollection('baidu')">
+          <!-- 图标用 el-icon 而非 emoji：放大镜 emoji 命中 icon-usage.test.js 的功能图标位黑名单（T1-5） -->
+          <div class="stat-value"><el-icon><Search /></el-icon></div>
+          <div class="stat-label">{{ $t('collection.sourceBaidu') }}</div>
         </div>
         <div class="cohere-stat-card col-stat-card-click" @click="openCollection('toutiao')">
           <div class="stat-value">📰</div>
@@ -948,7 +952,8 @@ async function importFromClipboard () {
 
 // 素材来源快捷入口：语义是「去哪找素材」，走 PLATFORM_SOURCE_URLS，
 // 不用 PLATFORM_DASHBOARD_URLS（那是创作者后台/发布目的地，且被登录态校验复用）。
-// 实现与实测口径见 features/collection/useSourceEntry.js。
+// 入参是**来源 id**（weibo/baidu/toutiao），不是可发布平台 id —— 百度只是素材来源。
+// 实现、显示名表与 2026-10-17 实测口径见 features/collection/useSourceEntry.js。
 const openCollection = createOpenSourceHandler({
   createTab: (payload) => tabStore.createTab(payload),
   notifyWarning,
