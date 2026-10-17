@@ -1,57 +1,47 @@
-# [未发布] docs(skill): start-app 入口选择硬路由 + preload 排查 + 结构锁（startapp-skill-harden）
+# [未发布] fix(scripts): fragileFor 的 root 改为必传——堵住「缺参调用点静默按脚本所在目录降级」（fix-ensure-deps-root-required）
 
-## 动因（2026-10-17 实测事故，非 hypothetical）
+## 背景（#3829 的遗留，本轮在临时 worktree 验证 main 时当场抓住）
 
-用户说「重启应用」，agent 走错入口：读了 SKILL.md 的「流程（备选长流程）」一节，用
-`start-desktop.ps1 -Worktree … -Profile '<debug-profile>'` 手工包了一层 WMI
-启动器。两个后果：
+`#3829` 给 `fragileFor(platform, arch, root = DEFAULT_ROOT)` 加 `root` 参数时设了**默认值**，
+本意是兼容旧调用。但 `root` 的语义是「要检查哪棵树的依赖」——它**没有**安全的默认值：
 
-1. **`-Profile` 盖掉 `shared-user-data` 锚点** ⇒ 应用起来了、6 服务全 running，但
-   `listAccounts` 返回 `AUTH_REQUIRED`(code -3) —— 用户视角「我的账号没了」。
-2. **重复实现**：一键启动（`mp-applive-launcher.ps1`）内部已用 WMI 脱离 agent 会话，
-   手工外壳是多余的，还容易漏 env。
+- 传了 root ⇒ 检查指定树（正确）
+- 不传 root ⇒ 检查**脚本自己所在的仓库**（`DEFAULT_ROOT = path.resolve(__dirname, '..')`）
 
-**同场第二坑**：`electron/preload/index.bundle.js`（gitignored 构建产物）缺失
-=> `window.electronAPI` undefined。一度被误判成"登录态丢了"——**极具误导性**：
-`servicesGetStatus()` 走主进程 IPC，仍报全 running。
+于是任何「忘记传 root」的调用点都会**静默**去检查脚本所在树。在临时目录里的 worktree、
+CI 只读检出、别的 worktree（各自 node_modules 不同）等场景，sharp 条目会因为
+「脚本所在树没有 node_modules/sharp」而**凭空缺席** ⇒ 平台过滤判据退化为**永远通过**。
 
-## 改动（SKILL.md v1.7.0 -> v1.8.0，未动任何启动脚本逻辑）
+## 修复
 
-| # | 改动 | 解决什么 |
-|---|------|---------|
-| 1 | 「三种场景」节新增 **入口选择铁律**：无特殊 worktree/环境要求 => 一键启动是唯一入口，并写明判定顺序与「不要再往下读长流程」 | 首选写成"优先"不够硬，agent 仍会去读长流程 |
-| 2 | 「关键事实」节把"首选"改为"硬路由"；新增 `-Profile` 警告条目 | 关键事实里仍是"首选"软措辞 |
-| 3 | 「一键启动 → 验证」节新增第 5 条（`electronAPI` 必须存在）+ 「窗口在但 electronAPI 缺失」独立排查小节（含反误判说明） | preload 断点被误判成登录态问题 |
-| 4 | 「失败处理」表补 3 行（electronAPI 缺失 / AUTH_REQUIRED 但用户说登录过 / agent 会话内被连带杀） | 现象到处理的检索路径 |
-| 5 | 删除把读者导向长流程的旧措辞 | 与第 1 条重复的路标 |
+- `root` 改为**必传、无默认值**；缺参当场 `throw new Error('fragileFor: root 必传…')`。
+  缺参数必须炸在现场，而不是降级。
+- 同步更新唯一涉及 `fragileFor` 的测试用例：改为传测试 root（使它不再依赖「脚本所在树有依赖」），
+  并增加 `assert.throws(() => lib.fragileFor('win32','x64'), /root 必传/)` 反向锁。
 
-## 回归保护（新增结构锁，3 个探针全部咬人）
+## 验证
 
-新增 `apps/desktop/electron/tests/start-app-skill-harden.test.js`（7 例，落在 vitest include 内）：
+- TDD 先红后绿：先改测试 ⇒ `# fail 1`；实现后 `19 passed / 0 failed`。
+- **真实树**：新建 worktree（`git worktree add` + `pnpm install` + `ensure-electron` + `verify-worktree-deps` OK）
+  上跑 `--check` ⇒ `DESKTOP_DEPS_OK`（rc=0）。这正是上一版会降级失效的场景。
+- **变异反证 2/2**：F 把 root 必传递回有默认值 ⇒ 红；G 把 throw 改成静默 `return []` ⇒ 红。
+  逐字节还原（SHA-256 一致）。
+- 门禁：混合 PR（改 `scripts/` 自身）；行尾两口径一致、品牌残留、doc-abs-paths、行数门禁全 PASS。
 
-- ① 铁律存在且点名 `sync-app.ps1` 为「默认且几乎唯一入口」
-- ② 场景表不得再把读者指向长流程
-- ③ 「不得手动传 `-Profile`」警告必须存在（判据取警告句式本身，不取散落词）
-- ④ preload 排查必须存在（`build:preload` + 「不是登录问题」反误判锚点）
-- ⑤ 铁律必须记录事故日期 `2026-10-17`（可追溯，防被当泛泛最佳实践删掉）
-- ⑥ 不得出现教人主动手工包 WMI 的措辞
+## 为什么 #3829 的 6 条变异没抓住这个缺陷
 
-探针反证：A 铁律改回软措辞 => 1 failed；B 整段删除 `-Profile` 警告 => 1 failed；
-C 删 preload 排查关键句 => 1 failed；还原后 => 7/7 passed。
+#3829 的变异全部作用在**函数体内**，而缺陷在**函数签名**（默认值）。
+其变异 C「`fragileFor` 忽略 root 参数」改的是体内 `root = DEFAULT_ROOT`，与签名默认值是两条不同路径。
+本次直接把「缺参必须抛错」写成断言，默认值无论藏在签名还是体内都会红。
 
-## 判据宽度的教训（写进测试注释）
+## 顺带核实（结论：无需改动）
 
-③ 最初只匹配 `-Profile` / `AUTH_REQUIRED` 这些**词**，探针 B 删掉整段警告后仍全绿
-——事故描述句里就含同批词，`toMatch` 全文匹配抓到了残留 => 锁假绿。
-改为锁**警告句式本身**后才咬人。
-
-## 边界（不假装闭合）
-
-- 本 PR 只改 skill 文档 + 结构锁，不改任何启动脚本逻辑。
-- 「入口铁律」约束的是未来 agent 的行为，挡不住有人绕过 skill 直接跑命令。
-- `.agents/` 被 `.gitignore:310` 忽略，但 `SKILL.md` 是已跟踪文件故仍受版本管理；
-  测试文件因此按惯例落在 `electron/tests/`。
-- 结构锁只覆盖本次 6 条判据，未来新增入口/新坑仍需人工补锁。
+1. **共享根 sharp 混版是否复发**：开场查到 `index.cjs` 指向 `0.35.1.node`，收尾复核**已自愈**
+   （其他会话修好，`require('sharp')` ⇒ `sharp OK 0.35.5`）。
+2. **新版判据能否识别「内容级混版」**：不能——`isInstalled` 只查文件存在性，
+   文件在但 `index.cjs` 内容错时仍判 `true`。这是**已知边界**（已登记遗留），
+   不做内容校验：解析 index.cjs 的 require 目标超出「依赖健康检查」的职责，
+   那种混版只能靠 restore 或重装解决。
 
 # [未发布] fix(ci): Electron CI 的 push-only 桌面全量测试补上「先重建构建产物」，并把这条配对关系做成跨 workflow 的锁（electron-ci-preload-build-step）
 

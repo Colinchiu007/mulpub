@@ -20223,12 +20223,9 @@ CI 把 `QG Static` 钉红在 Gate 2c，红的是 `check-unwired-tests.test.js` �
 - **fact · 共享根 Write Guard 也会隔离根级新建临时脚本**：不限于 `apps/` `packages/` 等运行时路径——根级未跟踪 `.js`（实测 `.replay-learnings.js`）会被移入 quarantine，随后 `node <该脚本>` 报 MODULE_NOT_FOUND，而报错信息完全指向不了真因。一次性脚本写在仓库外（`%TEMP%`）+ 绝对路径操作仓库文件。
 - **fact · `QG Coverage` 的 40 分钟红先按「runner 竞争」判，别急着改 timeout**：`timeout-minutes: 40`，同一份代码首轮 40m04s 被 `cancelled`、重跑 24m21s `success`（对比 #3761 时代 23m28s）。判据：`conclusion=cancelled` 且 `completed_at − started_at ≈ timeout-minutes` ⇒ 超时而非测试失败；只有 `conclusion=failure` 且日志有具体断言才判代码缺陷。放宽 timeout 属「改判据消化问题」。
 - **fact · Browser E2E 的红可用「两轮差异只含测试文件」快速归因**：本轮两轮之间只改了单元测试文件（E2E 不加载它），据此判定为抖动、重跑即绿，避免去翻 7m41s 的日志。
+## 2026-10-17 · fix-ensure-deps-root-required：给「必须由调用方决定」的参数设默认值，就是把显式决策降级成隐式猜测
 
-## 2026-10-17 同型风险三批落锁（8 条静态锁 + 共享 mask 库）
-
-- **pattern｜竞品缺陷→同型风险锁**：红夹具/绿夹具/真实仓覆盖下界三层纪律；8 条锁统一 Gate 2c6（PR #3812/#3827/#3845）。
-- **pitfall｜scripts/ 不进 asar**：运行时真源必须放 packages/shared-utils/src（R7 image-mime 选址实测）。
-- **pitfall｜node --check 不执行模块**：数据来源替换类改动必须 require 实跑取证（迁移后缺 require 被评审抓出）。
-- **pattern｜CCG 循环收敛**：填裁决后同 SHA 复跑、不提交；历史判定 upheld 如实置 needs_revision 写修复去向。
-- **pitfall｜mime 映射抄 N 份**：已收单一真源（image-mime.js），归一/不猜/别名三纪律；api-publish-engine 零依赖豁免显式登记。
-- **pitfall｜共享根被并发会话占用时不在其上 commit**：其本地未推提交 + 脏项会被一起推走；正确做法是核出自己的改动、搬进 git worktree add -b <分支> origin/main 单独走 PR，共享根保持原样并如实登记。
+- **pitfall · 给语义上必须显式的参数设默认值，会制造「静默降级」路径**：`fragileFor(platform, arch, root = DEFAULT_ROOT)` 的 `root` 语义是「检查哪棵树的依赖」，**没有**安全默认值。不传 root 时会静默去检查**脚本自己所在的仓库**——在临时 worktree / CI 只读检出 / 别的 worktree 里，`node_modules/sharp` 不存在 ⇒ sharp 条目凭空缺席 ⇒ 平台过滤判据退化为「永远通过」，而且**不报错**。对照：`platform`/`arch` 设默认值是合理的（`process.platform` 普适），`root` 不是。**判据**：加参数时先问「这个参数的哪一侧是普适真相」——只有普适的那侧才配做默认值。
+- **pattern · 变异测试必须覆盖「签名层」而不只是「函数体」**：#3829 的 6 条变异全作用在函数体内（含一条「忽略 root」改的是体内赋值），而缺陷在**签名默认值**里 ⇒ 6/6 全捕获却漏掉真 bug。补法：把「缺参必须抛错」写成 `assert.throws`，这样默认值藏在签名还是体内都会红。**判据**：凡是「参数有无默认值」会改变行为的函数，必须有一条「不传该参数 ⇒ 抛错/可见失败」的反向锁。
+- **pitfall · 测试与缺陷共享同一个盲区时，测试全绿毫无意义**：#3829 那条 `fragileFor('win32','x64')` 用例不传 root ⇒ 走 DEFAULT_ROOT = 该 worktree（有完整依赖）⇒ 断言通过。它只在「脚本所在树有依赖」时有效。**判据**：测试造境时必须显式指定它要检查的那棵树（`makeRoot` + 传 root），不要隐式依赖脚本所在仓库的状态。
+- **preference · 「依赖健康检查」的边界要写清：查文件存在性，不查文件内容**：新版判据下共享根 `isInstalled: true` 但 `index.cjs` 内容仍错（指向旧版本 .node）——这是已知边界。解析 index.cjs 的 require 目标超出健康检查职责；那种内容级混版只能靠 restore 或重装。写进 CHANGELOG 与 record，不假装能查。

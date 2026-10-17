@@ -65,8 +65,16 @@ function resolveSharpPlatform(root) {
   }
 }
 
-/** 平台相关清单：sharp 平台包只在本平台/架构上校验，避免 mac/linux 误报 */
-function fragileFor(platform = process.platform, arch = process.arch, root = DEFAULT_ROOT) {
+/**
+ * 平台相关清单：sharp 平台包只在本平台/架构上校验，避免 mac/linux 误报。
+ *
+ * ⚠️ `root` **必传、无默认值**（fix-ensure-deps-root-required，2026-10-17）：
+ * 上一版给 `root` 设了默认值 `DEFAULT_ROOT`，导致「不传 root」的调用点静默按**脚本所在目录**
+ * 解析 sharp 版本——在无 node_modules 的临时目录 / 新建 worktree 里，sharp 条目会凭空缺席，
+ * 平台过滤判据失效（旧测试就是这样红的）。缺参数必须**炸在现场**而不是降级。
+ */
+function fragileFor(platform, arch, root) {
+  if (!root) throw new Error('fragileFor: root 必传（不得依赖默认值；缺 root 时应炸在现场而非降级）')
   const tag = `${platform}-${arch}`
   const list = []
   for (const p of FRAGILE) {

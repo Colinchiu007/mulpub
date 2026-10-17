@@ -105,12 +105,20 @@ test('buildCmdLine 对 range/元字符参数加引号（防 cmd ^ 转义与重�
   assert.ok(line.startsWith('pack '), '命令名不带引号，避免 cmd /s 残留引号')
 })
 
-test('fragileFor 平台过滤：非 win32-x64 不检查 sharp 平台包', () => {
-  const win = lib.fragileFor('win32', 'x64').map((p) => p.name)
+// root 必传（无默认值）——fix-ensure-deps-root-required。
+// 动因：上一版给 root 设了默认值 DEFAULT_ROOT，「不传 root」的调用点会静默按**脚本所在目录**
+// 解析 sharp 版本；在无 node_modules 的临时目录/worktree 里，sharp 条目凭空缺席 ⇒ 平台过滤判据失效。
+// 缺参数必须炸在现场，而不是降级。
+test('fragileFor 平台过滤：非 win32-x64 不检查 sharp 平台包', (t) => {
+  const root = makeRoot(t)
+  writeJson(path.join(root, 'node_modules', 'sharp', 'package.json'), { name: 'sharp', version: '0.35.5' })
+  const win = lib.fragileFor('win32', 'x64', root).map((p) => p.name)
   assert.ok(win.includes('@img/sharp-win32-x64'))
-  const mac = lib.fragileFor('darwin', 'arm64').map((p) => p.name)
+  const mac = lib.fragileFor('darwin', 'arm64', root).map((p) => p.name)
   assert.ok(!mac.includes('@img/sharp-win32-x64'))
   assert.ok(mac.includes('@img/colour'))
+  assert.throws(() => lib.fragileFor('win32', 'x64'), /root 必传/,
+    '不传 root 必须当场抛错，不得静默按脚本所在目录降级')
 })
 
 test('collectMissing 平台感知', (t) => {
