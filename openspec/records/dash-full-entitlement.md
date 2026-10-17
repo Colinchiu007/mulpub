@@ -1,8 +1,5 @@
 ---
 
-sync_reason: PR 刚开、尚未合并，远程同步状态待回填
-sync_backfill_owner: Colinchiu007（本分支作者，合并后同一次提交内删除本两字段）
-
 record: dash-full-entitlement
 task: 数据看板套餐分级（dashboard_full 落地）+ 撤下误导横幅 + 三个新内容区块
 date: 2026-10-17
@@ -104,4 +101,21 @@ CI 精确报出 `fg`/`bg`/`ratio`，两处都在 `DashboardLockedPanel.vue`：
 
 ## 远程同步
 
-| 远程同步 | PENDING |
+| 远程同步 | PASS | 已合并：PR #3761，merge `1c1f6bd4d2d0628c33945ff8f8faddea4783a4d7`（2026-10-17T11:21:24+08:00，squash）。取证：`git log origin/main --grep='(#3761)$' --format=%H\|%cI`；远端分支已删（`git ls-remote --heads origin dash-full-entitlement` 返回 0 行） |
+
+## CCG 深度审查（合并前闭环）
+
+`scripts/ccg-review.ps1 -Mode Deep`（critic=claude）出 **8 条问题**，收敛判定 `self_play`，逐条裁决后：
+
+| 裁决 | 条目 | 处置 |
+| --- | --- | --- |
+| upheld（已修） | i3 测试路径数层级 | 改以 `pnpm-workspace.yaml` 为锚向上递归，加前置锚点断言 |
+| upheld（已修） | i6 过度 JSON 序列化 | `JSON.parse(JSON.stringify())` → `[...]`（元素是原始字符串） |
+| upheld（已修） | i7 位置守卫真空 | 补「DashboardExtraPanels 必须在 .cohere-content 内」+ 变异验证 |
+| upheld（文档化） | i1 / i4 renderer-only 非访问控制 | 在 `entitlement-gate.js` 文件头新增警示块（指控技术成立，故不辩称"不成立"） |
+| dismissed | i2 称伪造评审统计 | 系 rebase 冲突取对侧；该 JSON 是 #3752 的 pre-commit 真实产物，可在 origin/main 验证 |
+| dismissed | i5 硬编码色值 | 改 token 会让已修缺陷复活（暗色 3.04 贴阈值）；采其合理内核：提为组件级变量 |
+| info | i8 zero-change 仍 required | pre-commit 工具行为，非本次代码 |
+
+裁决全文：`.adversarial/ccg-deep-6f9a9d71/adjudication.json`（本地产物，不入库）。
+三条 `deepReview.status` 已回填为 `self_play_resolved`，`check-pr-exec-record.js` 校验 OK。
