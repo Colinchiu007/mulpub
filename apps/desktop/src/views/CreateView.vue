@@ -921,6 +921,7 @@ import UiModal from '@/components/UiModal.vue'
 import UiSelect from '@/components/UiSelect.vue'
 import CreateViewHistory from './CreateViewHistory.vue'
 import { buildPublishFromProject, publishDataToQuery } from '@/features/publish/publish-from-project'
+import { extractRunContextVideoPath } from '@/features/pipeline/run-context-video-path'
 import PodcastPublishAction from '@/components/PodcastPublishAction.vue'
 import { story2videoSaveAs, story2videoGetProject, draftList } from '@/api/publisher'
 import { PipelineSelector, StageProgress, SceneAssetSelection, S2vConfigPanels } from './video-creation'
@@ -3701,16 +3702,10 @@ export default {
         // 埋点失败不影响用户操作
       }
     },
+    // 成片提取统一走共享纯函数（2026-10-17 抽出）：热门选题一键生成视频支持多流水线后，
+    // 两条链路必须共用同一 publish/compose/export/render/report 判据，避免一侧取不到路径。
     extractOrchestrationVideoPath(context) {
-      const publish = context?.publish?.data || context?.publish
-      const compose = context?.compose?.data || context?.compose
-      const clipExport = context?.export?.data || context?.export
-      const cinematicRender = context?.render?.data || context?.render
-      const smokeReport = context?.report?.data || context?.report
-      return publish?.videoPath || publish?.path || compose?.videoPath || compose?.path ||
-        clipExport?.videoPath || clipExport?.path ||
-        cinematicRender?.videoPath || cinematicRender?.path ||
-        smokeReport?.videoPath || smokeReport?.path || null
+      return extractRunContextVideoPath(context)
     },
     applyOrchestrationOutcome(outcome, expectedRunId = null, expectedActionRequestId = null) {
       // 卸载后残留响应不得写状态或触发跳转（2026-08-21 unmount 竞态守卫）

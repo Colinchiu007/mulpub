@@ -518,7 +518,7 @@ fetchTopics({ force, boostCategories })
 | 单条收藏 | ♡ / ♥ 按钮；`toggleFavorite(topic)`；IPC `hotTopicsFavoriteAdd` / `Remove` |
 | 收藏列表 | 独立组件 `HotTopicsFavorites`（减少 `HotTopics.vue` 行数），行结构与热门行一致 |
 | 空态 | `favoritesEmptyTitle` / `favoritesEmptyDesc` |
-| 收藏条目能力 | 取消收藏 / 创作文案 / 生成视频（与热门行一致） |
+| 收藏条目能力 | 取消收藏 / 创作文案 / 生成视频（与热门行一致；2026-10-17 起含下箭头流水线选择器） |
 | 损坏条目 | 保留行、允许清理、禁用依赖 topic 的动作 |
 | 按用户隔离 | 收藏落 `hot_topics_favorites`，`owner` 取当前 identity 的 `sub` |
 | 时间展示 | `favoritedAt`（收藏于 <时间>） |
@@ -545,13 +545,13 @@ fetchTopics({ force, boostCategories })
 | 热度值 | `formatHotValue(hotValue)`（万缩写） | `topics[].hotValue` | 缺失（RSS / 内联凤凰网）→ 不渲染 |
 | 更新时间 | `HH:mm` | `topics[].fetchedAt` 或 `lastRefresh` | 均为 0 → 空 |
 | 收藏按钮 | ♡ / ♥ | `useHotTopicsFavorites` | — |
-| 条目操作按钮 | 创作文案 / 爆款分析（带 `topic` 跳 `/viral-analysis`，预填不自动发起）/ 生成视频（`genVideoBusy` 时禁用） | — | — |
+| 条目操作按钮 | 创作文案 / 爆款分析（带 `topic` 跳 `/viral-analysis`，预填不自动发起）/ 生成视频（`genVideoBusy` 时禁用）+ **下箭头流水线选择器**（2026-10-17；`hot-topic-gen-video-picker-{id}`，打开后列出 `pipelineList` 全量流水线，可执行项在前、禁用项附原因；点击流水线即以该流水线启动生成） | — | — |
 | 空态（全局） | `emptyTitle` / `emptyDesc` / `emptyAction` | — | 触发条件：`filteredTopics.length === 0 && !loading` 且非 `categoryEmpty` |
 | 空态（分类） | `emptyCategoryTitle` / `emptyCategoryDesc` / `boostAction` | — | 触发条件：`categoryEmpty` |
 | 加载更多行 | `shownTruncated` + `loadMoreTopics` | `filteredTopics.length` vs `renderedTopics.length` | 未截断 → 不渲染 |
 | 中央加载提示 | `refreshLoadingTitle` / `refreshLoadingDesc` | 组件状态 | `showCentralLoading === false` → 不渲染 |
 | 收藏空态 | `favoritesEmptyTitle` / `favoritesEmptyDesc` | — | 收藏 tab 且 `favorites.length === 0` |
-| 生成视频进度弹窗 | 阶段进度 / 错误文案 / 查看（完成后解锁）/ 去发布（完成后解锁）/ 重试 / 后台运行 / 取消 / 关闭；footer 统一 `UiButton`，成功后弹窗保持打开、不自动跳结果页（2026-10-17） | `useHotTopicsGenVideo` | 无任务 → 不渲染 |
+| 生成视频进度弹窗 | 阶段进度 / 错误文案 / 查看（完成后解锁）/ 去发布（完成后解锁）/ 重试 / 后台运行 / 取消 / 关闭；footer 统一 `UiButton`，成功后弹窗保持打开、不自动跳结果页（2026-10-17）；**弹窗顶部显示「流水线：{名称}」，阶段集合与总进度按所选流水线动态生成**（2026-10-17 hot-topics-pipeline-picker） | `useHotTopicsGenVideo` | 无任务 → 不渲染 |
 
 ---
 

@@ -911,8 +911,8 @@ CI 立刻抓出 2 处遗漏：`electron/preload.test.js` 的**方法数计数锁
    副产物：改完行数后 **`.github/scripts/check-max-lines.test.js` 里那两条「真实仓现状」用例会一起变红**（它们断言挂账清单与扫描结果一致）——所以「本地只跑 `scripts/check-debt-budget.js` 就以为绿了」是典型的**跑错门禁**。
 
 2. **⛔ rebase 的冲突标记必须在每次重放后自检，否则会「行数虚高 + 把标记提交进分支」两连击。**
-   本轮有一次自愈重放未清干净 `<<<<<<< HEAD` 就 `git rebase --continue`，后果两层：①行数因此虚高（768 → 771）**再次顶破行数门禁**，pre-commit 钩子在 rebase 中直接拒绝提交（报 `Could not apply <sha>` + `error: could not commit staged changes`，**这不是矛盾**：rebase 已完成、卡住的是随后的 hook）；②**冲突标记被提交进分支**并推上远端。
-   **判据**：自动重放脚本在 `rebase --continue` 之后必须断言三件事 —— 「无 `^(<<<<<<<|=======|>>>>>>>)` 标记」+「行数在限内」+「`git diff --name-only origin/main HEAD` 恰好等于意图文件集（排除 `.ccg/reviews/*`）」，任一不过就**停止重放并报告**，不要继续 push。恢复手段：`git checkout <已知干净的那个 sha> -- <文件>`（不要手工编辑大文件）。
+   本轮有一次自愈重放未清干净 `` 就 `git rebase --continue`，后果两层：①行数因此虚高（768 → 771）**再次顶破行数门禁**，pre-commit 钩子在 rebase 中直接拒绝提交（报 `Could not apply <sha>` + `error: could not commit staged changes`，**这不是矛盾**：rebase 已完成、卡住的是随后的 hook）；②**冲突标记被提交进分支**并推上远端。
+   **判据**：自动重放脚本在 `rebase --continue` 之后必须断言三件事 —— 「无 `^(<<<<<<<||>>>>>>>)` 标记」+「行数在限内」+「`git diff --name-only origin/main HEAD` 恰好等于意图文件集（排除 `.ccg/reviews/*`）」，任一不过就**停止重放并报告**，不要继续 push。恢复手段：`git checkout <已知干净的那个 sha> -- <文件>`（不要手工编辑大文件）。
 
 3. **判据的「登记字段」是两条 OR 路径：ledger 登记 **或** frontmatter `sync_*` 三字段。**
    带 `| 远程同步 | PENDING |` 表格行的记录，**要么**在 `scripts/gate-record-debt-ledger.json` 登记，**要么**在 frontmatter 写 `sync_status` / `sync_reason` / `sync_backfill_owner`。本轮我先只写了 PENDING 行（漏三字段）⇒ `check-gate-record-debt.test.js` 报
@@ -1731,7 +1731,7 @@ CI 立刻抓出 2 处遗漏：`electron/preload.test.js` 的**方法数计数锁
 - **像素基线判读先于像素基线重建**：跑 `test:visual:pixel` 前先确认「本次改动区域是否在基线截图视野内」。本刀改的是面板**结果态**（内容>3 字符才渲染），而 publish-form 基线用空 profile 拍空态首屏，两次 0.627% PASSED——结果态改动对这种基线是天然不可见的，不需要也无法通过重建基线来「验证」。同轮 collection 1.62% 失败，溯源 = #2792 改采集页没刷基线（基线停在 #2714），与本分支无关——失败先归因再动手，别把别人的欠账刷成自己的基线。
 - **Playwright 拦截 IPC 取证范式**（`capture-tag-tabs-proof.js`）：hash 路由 URL 必须写 `/#/publish`（`/publish` 会落首页）；`electronAPI` stub 放 `addInitScript` **带 mock 参数内嵌**（先 goto 再 evaluate 再 reload 会把注入值随 reload 清掉）；UiInput 是包裹 div，fill 要打内部 `input`；面板卡用 testid 的 `xpath=ancestor::div[contains(@class,"cohere-card")][1]` 定位（外层表单卡同名 class，hasText 会误匹配）。
 - **QG Changes 的账本登记是硬拦门禁**：`.quality-gates.md` 新增带「远程同步 | PENDING」的执行记录，必须与 `scripts/gate-record-debt-ledger.json` 登记项**同一次提交**落盘，否则 PR CI 的 quality-gate 直接红（「存在未登记的欠账」）；账本键 = 记录标题去掉 `## `、值含 `reason/status/line`。本地 `node scripts/check-gate-record-debt.js` rc=0 再 push 能省一轮 CI 往返。
-- **prepend 型文档的 rebase 冲突是机械题**：CHANGELOG / .quality-gates.md 每次都在头部撞车，regex 一段式拼接（`(?s)<<<<<<< HEAD\r?\n(.*?)=======\r?\n(.*?)>>>>>>> origin/main\r?\n`，ours+theirs 顺序保留双方条目）比手工编辑可靠，处理后 `Select-String` 扫残留标记数应为 0。
+- **prepend 型文档的 rebase 冲突是机械题**：CHANGELOG / .quality-gates.md 每次都在头部撞车，regex 一段式拼接（`(?s)\r?\n(.*?)\r?\n(.*?)>>>>>>> origin/main\r?\n`，ours+theirs 顺序保留双方条目）比手工编辑可靠，处理后 `Select-String` 扫残留标记数应为 0。
 ## 本机跑像素门禁的红不等于回归：先验「登录态/数据依赖 + 动画抑制」再下结论（visual-local-triage，2026-10-03）
 
 - **现场**：本机跑 `test:visual:pixel` 报 collection 视图 1.62%（阈值 1%）。逐层归因后定性为**本机渲染状态依赖**，不是 CI 渲染回归：① 裸截图 vs 基线差 1.159%；② 与 runner 同参（`reducedMotion:'reduce'` + 注入 `animation:0s!important` CSS + `setFixedTime` + settle）后降到 0.620%；③ 差异带剖面锁定 `col-panel::before` 的 **3s 无限橙渐变动画**（`Collection.vue` `.col-panel-ribbon`）——动画帧不同 ⇒ 顶部 4px 横幅整带红；④ 剩余差异带集中在草稿箱区（y=960-1079）：基线里有 5 张测试草稿卡，本机渲染是「暂无草稿」空态 ⇒ **登录态/本地数据依赖**改变了渲染内容。
@@ -4731,7 +4731,7 @@ apt-get install -y \
 2. 判断哪个版本更完整（HEAD 的静态方法含 setTaskQueue + resolvePlatform，本地只有 resolvePlatform）
 3. 保留 HEAD 版本，移除本地冲突标记
 4. `node -c <file>` 语法检查
-5. `grep -E '^(<<<<<<<|=======|>>>>>>>)'` 确认无残留标记
+5. `grep -E '^(<<<<<<<||>>>>>>>)'` 确认无残留标记
 6. `git add` + `GIT_EDITOR=true git rebase --continue`（非交互模式）
 7. `git config user.email/user.name`（首次需设置）
 8. `git push origin main`
@@ -10850,7 +10850,7 @@ apt-get install -y \
 2. 判断哪个版本更完整（HEAD 的静态方法含 setTaskQueue + resolvePlatform，本地只有 resolvePlatform）
 3. 保留 HEAD 版本，移除本地冲突标记
 4. `node -c <file>` 语法检查
-5. `grep -E '^(<<<<<<<|=======|>>>>>>>)'` 确认无残留标记
+5. `grep -E '^(<<<<<<<||>>>>>>>)'` 确认无残留标记
 6. `git add` + `GIT_EDITOR=true git rebase --continue`（非交互模式）
 7. `git config user.email/user.name`（首次需设置）
 8. `git push origin main`
@@ -16397,7 +16397,7 @@ commit `941b17f1`（feat: browser-style tab bar）在 `webview-manager.js` `crea
   - **主机 PS 工具 stdout 恒为空**：本机 PS 工具执行成功但 stdout 完全不回传（连 `Write-Output` 都拿不到，只返回 "Command completed with exit code 0"），但命令**确实执行了**（新建 junction 后经 Bash 验证成功）。诊断范式改为「PS 执行 → Bash 验证」，不要反复重试 PS。
   - **从 Bash 调用 `cmd` 无效**：`cmd //c "mklink /J ..."` 只会启动交互式 shell 后立即退出，即使加 `MSYS2_ARG_CONV_EXCL='*'` 也一样。创建 junction 走 PS `New-Item -ItemType Junction`。
   - **本地 `origin/main` 引用陈旧且 fetch 不更新**：`git fetch origin main` 输出 `530e8d22..ae72841a main -> origin/main`，但 `git rev-parse origin/main` 仍返回旧值（同 ref 写盘问题）→ 改用 `git ls-remote origin refs/heads/main` 取真实 SHA 再 `git merge <SHA>`。
-  - **多 agent 并发文档冲突**：CHANGELOG / PRD.md / .quality-gates.md 的冲突均为「顶部或末尾追加」型。用 Python **二进制**模式按行扫描，只删除 `<<<<<<<` / `=======` / `>>>>>>>` 三行标记（每文件恰好 1 个冲突块），保留两侧内容原顺序即可；比手工合并安全，尤其 PRD.md 含 NUL + 混合行尾，文本模式编辑会引发整文件 diff。
+  - **多 agent 并发文档冲突**：CHANGELOG / PRD.md / .quality-gates.md 的冲突均为「顶部或末尾追加」型。用 Python **二进制**模式按行扫描，只删除 `<<<<<<<` / `` / `>>>>>>>` 三行标记（每文件恰好 1 个冲突块），保留两侧内容原顺序即可；比手工合并安全，尤其 PRD.md 含 NUL + 混合行尾，文本模式编辑会引发整文件 diff。
 - **经验修正（推翻旧结论）**：
   - **worktree 内可以跑单测**：用 PS junction 把兄弟 worktree 的 `node_modules`、`apps/desktop/node_modules`、`apps/node_modules` 链接过来后，`vitest` 可正常实跑（本次 12 项测试本地通过）。旧结论「worktree 内只做 `node --check`、单测交给 CI」不再成立——不必再盲推 CI 反复试错。命令：`cd apps/desktop && ../../node_modules/.bin/vitest run <file> --pool=threads --no-file-parallelism`。
   - **`01-docs/PRD.md` 二进制追加可复现**：追加 183 行后 `git diff --numstat` = `183 0`，行尾未被破坏。
@@ -18349,7 +18349,7 @@ PR #3124 被 `check-max-lines` 拦下（`LEDGER_GREW: Collection.vue 膨胀 212 
 
 ## 置顶型/追加型共享文件的 rebase 冲突：先判别「并集」还是「重建」，判据一律用删除数（2026-10-10）
 
-- **事故**：PR #3208 rebase 时 `.quality-gates.md` 顶部记录块与 `CHANGELOG.md`、`scripts/gate-record-debt-ledger.json` 同时冲突。用「删掉 `<<<<<<< / ======= / >>>>>>>` 三种标记行、保留两侧内容」的脚本消解，`--numstat` 只报 2 行删除，看着像正常收敛；实际那 2 行是 main 已回填的**远程同步 PASS + merge SHA** 证据，被我们自己记录里的 `PENDING` 顶掉了。这类文件是「追加型 + 状态列」结构，两侧都有同名键，摘标记会按块序随机取胜。
+- **事故**：PR #3208 rebase 时 `.quality-gates.md` 顶部记录块与 `CHANGELOG.md`、`scripts/gate-record-debt-ledger.json` 同时冲突。用「删掉 `<<<<<<< /  / >>>>>>>` 三种标记行、保留两侧内容」的脚本消解，`--numstat` 只报 2 行删除，看着像正常收敛；实际那 2 行是 main 已回填的**远程同步 PASS + merge SHA** 证据，被我们自己记录里的 `PENDING` 顶掉了。这类文件是「追加型 + 状态列」结构，两侧都有同名键，摘标记会按块序随机取胜。
 - **本质**：`git checkout --theirs/--ours` 与「摘标记硬合」对**同一条记录的不同状态列**都无解——两侧不是一边对一边错，而是 main 那侧的 PASS 是本 PR 合并**之后**才成立的事实，本 PR 那侧的 PENDING 是合并**之前**的事实。任何以「保留两侧」为目标的机械合并都必然留下一个说谎的状态列。
 - **判别（先问这一条，再选修法）**：看冲突两侧承载的是「**不同记录**」还是「**同一记录的不同状态**」。
   - 不同记录 ⇒ **并集合法**。同日 `01-docs/PRD.md` 的 EOF 冲突即此类：main 侧是「locales 结构拆分」附录、本侧是「快手图文封面 tofu」附录，两份各自完整、互不覆盖，删标记保两侧是正确解（实得 8/0 纯插入，两个 `## 附录：` 标题各出现一次）。
@@ -20168,9 +20168,23 @@ CI 把 `QG Static` 钉红在 Gate 2c，红的是 `check-unwired-tests.test.js` �
 - **pattern · 「平台提示」要过两道守卫**：可见性守卫（#3445，防隐藏节点）之后还有**错误内容守卫**——`[class*="tips"]` 宽选择器会命中可见的常驻设置文案（本次用户水印名「水印：数字生命丘丘」）。判据：不含错误信号关键词（错误/失败/重试/请/无法…）的提示一律退回兜底文案。
 - **pitfall · 外部评审后端三连不可用要当场降级并留痕**：claude 403 额度 / codex 401 代理 / opencode 挂起 30 分钟——按「子代理降级」纪律降级为内联对抗评审，`deepReview.status` 置 `self_play_resolved` + 原因落盘，不得静默跳过 QM-6。
 - **preference · CI 门禁判红的根因优先怀疑「本 PR 改动改变了判据输入」**：QG Changes（缺 sync 登记字段）、Gate 12c（记录文件新增本机绝对路径）、Desktop Shards（H10 正则锁）三连红全是本 PR 改动的连带，A/B 对照（main 基线跑同测试）可快速二分「存量 vs 连带」。
+
 ## 2026-10-17 · fix-clock-anomaly-copy：时钟倒挂的处置口径与「排障动作 ≠ 用户步骤」
 
 - **pattern · 处置建议必须按角色分层，且先分情形再给动作**：同一个判据（`now − ts < 0`）对应两种同形成因——①「戳是未来值」（校时**无效**，只能等或用紧急放行）、②「本机时间落后」（校时立刻有效）。把「校准系统时间」写成用户第①条处置，会让用户对自己情形执行一个无效动作。正确形态：**用户＝无需处理**（钳位后自愈）；**排障者＝先判 ①/② 再选动作**，判别靠「`ts` 是否等于某个已知真实发布时刻」。判据：任何写进 PRD/文案的「修复建议」，都要能回答「它在哪些成因下无效」。
 - **pattern · 用户可见文案的三条机械纪律**：① 不用故障词（异常/损坏/故障）——它暗示用户有义务去修；② 不露内部术语（钳位/时序/单调钟）；③ 后果已自愈时必须显式写「无需处理」。三条都要落成断言，其中 ①③ 用 `not.toContain` / `toContain` 双向锁，否则下次改文案很容易只剩「读起来通顺」这一条标准。
 - **preference · 共享根里未提交的文档随时会被别人的整树重写清掉**：本次 `01-docs/learnings.md` 的沉淀与一份未跟踪的 PLAN 文档，在共享根被其他会话的 `checkout -f origin/main` + `clean -fd`（`sync-app.ps1` 完整模式）一并清除，`git stash list` 里也没有残留。教训：**有价值的沉淀不要停在共享根的未提交状态**——要么立刻随 PR 落地，要么先 `git stash push -- <精确路径>` 并记下 `stash@{n}`，不要指望「下次一起提」。
+
+
+
+## 2026-10-17 · hot-topics-pipeline-picker：把「写死一条流水线」改成「全量可选 + 分类可执行」
+
+- **pattern · 前端不得为后端清单另造枚举**：下拉数据源只走 `pipelineList()`；本地模块只做「可执行性分类」（story2video / text-auto / needs-media / dedicated / internal / unavailable / unsupported 七类，未知 fail-closed）。「列出全部」与「可点击」分开：禁用项保留可见 + 原因文案，比隐藏更能解释为什么点了没用。
+- **pattern · 同一时刻只开一个面板的共享状态必须放模块作用域**：`<script setup>` 顶层 `ref` 是**每实例一份**，用它会两行同时打开（实测）。把 `activePickerUid` 抽到 `features/hot-topics/gen-video-picker-state.js` 才是单例；组件只读 `activePickerUid === uid`。
+- **pitfall · 改「写死常量」型入口时，弹窗阶段/进度分母也要一起动态化**：只换 `pipelineStartOrchestrated` 的 name、仍用常量 8 阶段，会让非 S2V 流水的阶段名与推送错位。正确做法：`rewrite_copy + Registry stages` 动态创建，启动/失败标注第一个非改写阶段（不再写死 `split`），进度分母 = 阶段数组长度。
+- **pattern · 成片提取是跨页面判据，必须单一实现**：`publish → compose → export → render → report`（兼容 `{data}` 包裹）抽成 `extractRunContextVideoPath`，CreateView 一行委托；否则非 S2V 流水线（终态在 `render`）的【查看】【去发布】永远取不到路径。入口文件覆盖的既有测试（296 例）就是委托不改行为的证据。
+- **pitfall · 行数债务是「新代码不得越线」而非「老文件豁免」**：composable 从 498 行到 559 行即触发 `NEW_OVER_LIMIT`。正解是把阶段操作/展示派生/启动参数拆成纯函数模块（各带单测），不是往 `debt-baseline` 加登记；拆完 494 行，且新增逻辑全部可脱离 Vue 测试。
+- **preference · 用户要求「列表里所有流水线都列出来」时，先判哪些能由当前输入启动**：热门选题只有一段文本，媒体型（需视频/音频）从选题直接启动必然失败；这类项应保留可见但 disabled + 原因，而不是从清单里删掉（删掉会被读成「功能没做全」）。
+- **gate · 像素门禁不在覆盖面时如实登记盲区**：`pixelTests` 不含 `hot-topics`（外部热搜导致 CI 基线不稳定），本次 UI 用组件/集成锁 + 真实实例截图取证，PRD §9.2 写明「不要把 QG Visual 绿当本改动视觉证据」。
+- **pitfall · 「下拉菜单 clip 了」只有真实渲染能发现**：单测全部绿（jsdom 无布局），首轮 Playwright 截图却显示 14 项面板只露 4 项——页面滚动容器 `.cohere-content` 只有 342px 高，绝对定位面板向下展开被裁。把「展开方向 + 可用高度」抽成纯函数（`computeGenVideoPickerPlacement` / `computeGenVideoPickerMenuSize`：下方不足翻上、仍不足压缩到 160–320px 内部滚动）并在滚动时关闭面板；截图复测通过。教训：行内浮层类 UI 的「能不能完整看到」必须在真实布局里验证，组件测试只能锁结构与事件。
 
