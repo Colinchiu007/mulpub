@@ -2,9 +2,6 @@
 record: everos-mcp-cross-app-grids
 task: 把本机 EverOS 记忆服务接入 DSH（MCP 注册 + 跨 app 检索面修复 + 探测残留清理）
 date: 2026-10-17
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 不存在
-sync_backfill_owner: 下一个会话（合并后回填 PASS + merge SHA 并删除本段三个 sync_* 字段）
 ---
 
 ## 本次执行记录：EverOS MCP 接入 DSH + 跨 app 检索面修复 + 探测残留清理（everos-mcp-cross-app-grids，2026-10-17）
@@ -17,9 +14,9 @@ sync_backfill_owner: 下一个会话（合并后回填 PASS + merge SHA 并删�
 | QM-6 CCG 双模型外部评审 | 未执行 | 本机 `codeagent-wrapper` 不可用；本片为文档沉淀 + 外部服务配置，无本仓代码可评审。如实登记为**未执行** |
 | 行尾与 diff 对账 | ✅ | 追加式写入，两口径 `--numstat` 与 `--ignore-cr-at-eol --numstat` 一致（无行尾改写） |
 | 品牌残留 | ✅ | 无竞品品牌词；EverOS 是自有开源组件名，非门禁对象 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin everos-mcp-cross-app-grids` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | PR #3808 已 squash 合并，merge SHA `838a0baa367871368992c025ce89181df213f002`（`2026-10-17T15:03:35+08:00`，`git log origin/main --grep='(#3808)$'` 恰好 1 行）；`git ls-remote --heads origin everos-mcp-cross-app-grids` 返回 0 行证远端分支已删。main push 侧：`quality-gate.yml` 在该 merge SHA 上**无 push run**（该 workflow 对纯记录类改动按 `paths-ignore` 设计不跑）⇒ 记 `NO_RUN(by design)`，转去核该判据最近一次在 main 上的读数 —— Gate 12c（`check-doc-abs-paths.js --all`）在 main tip `838a0baa3` 上实测 PASS（counts=1185 = 基线，无超出）；`债务熔断门禁` 在同一 merge SHA 上有 push run 且 `conclusion=success` |
 
-- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PENDING
+- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PASS（merge SHA `838a0baa3`）
 
 ### 交付物与判据
 
