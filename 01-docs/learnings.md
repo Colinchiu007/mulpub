@@ -20232,3 +20232,33 @@ CI 把 `QG Static` 钉红在 Gate 2c，红的是 `check-unwired-tests.test.js` �
 - **pattern｜CCG 循环收敛**：填裁决后同 SHA 复跑、不提交；历史判定 upheld 如实置 needs_revision 写修复去向。
 - **pitfall｜mime 映射抄 N 份**：已收单一真源（image-mime.js），归一/不猜/别名三纪律；api-publish-engine 零依赖豁免显式登记。
 - **pitfall｜共享根被并发会话占用时不在其上 commit**：其本地未推提交 + 脏项会被一起推走；正确做法是核出自己的改动、搬进 git worktree add -b <分支> origin/main 单独走 PR，共享根保持原样并如实登记。
+
+## 2026-10-18 ops-center 上线部署复盘（子路径托管 + fail-closed 辨识 + 断言写法）
+
+- **pitfall｜nginx 子路径托管 SPA：`try_files` 的 fallback 是 URI，不是文件路径**：把它写成 `/ops/index.html` ⇒ 该 URI 仍以 `/ops/` 开头 ⇒ 再次进入同一 location ⇒ `rewrite or internal redirection cycle` ⇒ 500（error log 实证）。改成 `/index.html` 后又因它**不以 `/ops/` 开头**而重新走 location 匹配，落到 `location /`（主站 root）⇒ 返回**主站 HTML**（实测 `/ops/` 与 `/ops/assets/*.js` 都返回 67787 字节的「汤姆鱼」页）。正解是**拆两个 location**：`^~ /ops/assets/` 用 `root` 取真文件、`^~ /ops/` 用 `alias` 直指 `index.html`。判据必须取「字节数 == dist 下文件」而非「HTTP 200」，200 + 主站字节数是**白屏的完美伪装**。
+
+- **pitfall｜`alias` 与 `try_files` 混用会静默失效**：实测 `alias .../dist/` + `try_files $uri $uri/ ...` 下 `/ops/assets/*.js` 落到了 SPA fallback（返回 480 字节 HTML），而该文件在 `dist/assets/` 下确实存在（83077 字节）。结论：静态资源**不要**和 SPA fallback 挤在同一个 `alias` location 里，按前缀拆开各自用最朴素的写法。
+
+- **pitfall｜`^`~` 在有静态资源正则 location 时是必需的，不是可选优化**：目标 server 块已有 `location ~* \.(js|css|...)$`。nginx 的「最长前缀命中后正则优先」会让 `/ops/assets/*.js` 被正则块抢走，走到主站 root（那里没有 `assets/`）⇒ 404 ⇒ 白屏。只有 `^`~` 能明确「这个前缀下不再试正则」。
+
+- **pitfall｜把 404 读成「路由不存在」之前，先看它是不是 fail-closed**：`GET /api/v1/runtime/bootstrap` 恒 404，而 openapi 里该路由**明确存在**且同 router 的 `/runtime/rollout` 返回 401。根因在代码注释里写着：`if signing_key is None: raise HTTPException(404, "运行时签名未启用")`——**未配置就 404 是刻意设计**。辨识方法：① 看 body 是 FastAPI 默认 `{"detail":"Not found"}` 还是业务文案；② 看同 router 的兄弟路由是否可达；③ 查代码里的 fail-closed 分支。本次连中两格（签名私钥 + `OPS_CATALOG_API_KEY` 都缺）。
+
+- **pitfall｜判定「URL 是否真的到了后端」要取「返回 JSON 而非 HTML」**：桌面端 base 直接拼路径，三个候选实测 `/api/ops`→401 JSON（对）、`/ops`→200 HTML（SPA 兜底）、根→200 HTML（主站）。**HTML 会让应用验签失败**，所以「200」在这里是失败信号而非成功信号。
+
+- **pattern｜多页共用一句提示文案时，拆成语义段再拼接**：首版把「何时生效」与「如何立刻生效」挤在一句里，变异 MR2 抓到——删掉前半句的「生效」后后半句仍含「生效」⇒ `toMatch(/生效/)` **抓不到**。MR3 同源：把「重启」换成「查看」得到「如需立即查看请重启桌面应用」，`toMatch(/重启/)` 照绿。**教训：用「子串存在」断言语义，子串会被同词掩盖** ⇒ 文案拆成 `WHEN`/`HOW` 两段、各自用**精确等值**断言。
+
+- **pitfall｜断言里的兜底会把「接线锁」降级成「常量锁」**：`expect(opts.duration ?? RESTART_HINT_DURATION).toBeGreaterThanOrEqual(6000)` —— 「不传 duration」被兜底掩盖，断言照绿（MR14/MR19 实测红 0）。正解：要求第二参**必须存在**再断其字段。同类：只对 success 路径断 duration、warning 分支漏断（MR14）。
+
+- **pitfall｜结构锁扫全文会被自己文件的注释判红**：「字面量在 src 下只出现一次」这条，JSDoc 里引用该字面量是合理说明 ⇒ 首版恒红。正解：**只扫代码**（剥 `//` 与 `/* */` 两种注释），且**收窄到常量定义文件 + 其它文件 0 次**两步，别手写逐字符状态机去处理字符串/正则（会引入新的误判面）。
+
+- **pitfall｜`git diff --cached origin/main` 会把上游并发提交算成「我的差异」**：共享根 behind=7 时，这条命令列出上百个文件（含 `.ccg/reviews/*.json` 删除与他人的 `01-docs/``apps/` 改动），看起来像「我的改动集炸了」。正确口径是 `git diff --cached`（index vs HEAD），它只显示我 add 的文件。
+
+- **pitfall｜`nginx -t -c <conf.d 片段>` 必然失败**：`-c` 需要完整配置上下文，单测一个片段会得到 `[emerg] "server" directive is not allowed here`。正解：`cp -a /etc/nginx/. $TMP/` 后用 `nginx -t -p $TMP -c $TMP/nginx.conf`（全量副本 + 前缀隔离）。改完再 `nginx -t` + `systemctl reload`，失败即 `cp -a` 回滚。
+
+- **pitfall｜`systemctl restart` 后用 `nginx -p <临时目录> -c ... -s stop`，会把生产 master 停掉**：`-s stop` 读的是 pid 文件而临时副本与生产同路径 ⇒ 生产 80/443 立刻全断（本次真实发生，`systemctl start` 已恢复）。临时实例**不要**用 `-s stop` 收尾。
+
+- **pitfall｜`git archive` 解包必须用 `-C`**：`cd / && tar -xf ops.tar` 会解到 `/ops-center/`（tar 内路径的前缀），而不是 `/srv/projects/ops-center/`。正确：`cd /srv/projects && tar -xf ops.tar`。同步策略本身也有讲究：用 `git archive`（只增不删）而非 `rsync --delete`，后者会删掉部署期产生的独有文件（`.env`、日志、`__pycache__`）。
+
+- **pattern｜服务启动慢时 `/health` 返回 000 不等于挂了**：后端启动会逐个拉各模型商的 models URL（大量 401/403/ConnectError 告警），期间 `/health` 连不上。判据要**轮询等待**（本次 16s 就绪）而不是一次读数就判失败。
+
+- **fact｜「改了没反应」先查同步机制再改代码**：运营中心改完桌面端不变，根因是 `OpsCenterSync` **只在应用启动时同步一次**（`autoSyncOnStart` 的 `setTimeout 3000`，全文件无 `setInterval`）。这是**预期行为**（组件注释写明「下次启动同步后自动可见」），但界面没告知运营者 ⇒ 反复保存、甚至回滚正确配置。修的是「告知」不是「即时生效」，两者不要混为一个问题。
