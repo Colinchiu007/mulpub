@@ -1,0 +1,26 @@
+{
+  "sha": "a699ef8257ab403b7bc8f1d3fc5376c9c02e297d",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 4480 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 4480,
+    "fileCount": 7,
+    "codeFileCount": 5,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 55,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "852c0cd0346d1af90897b9f5f7f8c4c72883ecdb868f07fc75b19f24736c9f44",
+  "decidedAt": "2026-10-17T03:18:36.658Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "findings": "外部评审侧调用失败（CLI 报模型不可识别且输出被截断，仅在尾部留下「补充处理遗漏文件」的线索）⇒ 按 SOP 的降级条款改由主代理执行实质核验。核验结论：仓库中共 7 个同类候选，只有 5 个该移出——另两个分别是「被 esbuild 内联的输入源」（移出会导致构建直接失败）与「无生成脚本但运行时优先加载的孤儿产物」（移出会触发不可用的回退分支，而沙箱预加载无法解析相对路径）。已把「5 而非 7」的逐条理由写进执行记录第 6 节并登记孤儿产物为遗留。待人工复核的点：孤儿产物的生成链应补上还是该删除，超出本次范围。"
+  }
+}

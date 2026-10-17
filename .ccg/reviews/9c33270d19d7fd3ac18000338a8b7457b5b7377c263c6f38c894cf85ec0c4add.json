@@ -1,0 +1,28 @@
+{
+  "sha": "a699ef8257ab403b7bc8f1d3fc5376c9c02e297d",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 4480 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 4480,
+    "fileCount": 7,
+    "codeFileCount": 5,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 55,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "| QM-1 打包 + 产物抽查 | PASS | `pnpm run build:dir` **rc=0**（`.playwright-browsers` 缺失提示不影响 dir 打包）。`asar list` 实测**含全部 5 个 bundle**：`\\electron\\preload\\index.bundle.js` / `\\electron\\home-shell-preload.bundle.js` / `\\electron\\monitor-preload.bundle.js` / `\\electron\\services\\generated\\card-paginator.iife.js` / `\\electron\\services\\stealth\\stealth-preload-enhanced.bundle.js`。**过程记录**：首次抽查 5/5 报「缺失」是**假阴性** —— 匹配模式写成了字面双反斜杠（`electron\\\\preload\\\\...`），而 `asar list` 输出是单反斜杠；改用 `asar list \\| Select-String \"bundle\"` 复核后确认全部在场。这是一次「**判据写法错误伪装成产品缺陷**」的实例，值得记入：报红/报绿都要先问「判据本身写对了吗」 |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "9c33270d19d7fd3ac18000338a8b7457b5b7377c263c6f38c894cf85ec0c4add",
+  "decidedAt": "2026-10-17T03:31:24.955Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}
