@@ -1,3 +1,77 @@
+## 三条「看起来是我引入的 CI 红 / 提交污染」其实都有固定归因路径（startapp-skill-harden + flake-coverage-timeout，2026-10-18）
+
+### lesson:judge-ci-red-by-timeout-frequency-and-change-scope
+
+**判「CI 红是不是我引入的」必须走三步，不能凭"我刚合了 PR"就认领。**
+
+① **先看该 job 的 `timeout-minutes` 与实际耗时**：用 `gh run view <run> --json jobs`
+取 `startedAt/completedAt` 算分钟数。实测 QG Coverage 声明 40、跑到 40.1 分钟被掐，
+覆盖率表**已完整打印**、死在 `Post job cleanup` 的 `##[error]The operation was canceled.`
+——这是"时长抖动撞上限"，不是用例失败。日志尾部若是覆盖率表+Post cleanup，即可定性为超时。
+
+② **再做频率统计**：拉最近 N 次同 workflow 同 job 的结论。本次 8 次 main push 中
+2 次 cancelled（40.0/40.1 分钟，含他人 PR）、6 次 success（最快 24.2 分钟）
+⇒ 独立于任何单次改动的系统性 flake。别人也红就不是你的回归。
+
+③ **最后看改动集是否覆盖该 job 的统计域**：本次改动只含 skill 文档 + 1 个测试文件
++ 记录文件，不含任何被 coverage 统计的运行时代码 ⇒ 无因果路径。
+补充佐证：PR 侧同一 job 显示 `pass 38m35s`（险过未红）。
+
+**处置边界**：动 `timeout-minutes` 是改 `.github/workflows/`，属"改谁来守门"，
+须人工过目（AGENTS.md 明列）。默认动作是**沉淀证据 + 给出 flake 定性**，不动 workflow，
+真修法（放宽超时 / coverage 采集提速）留待人工决策。
+
+### lesson:rebuild-commit-on-fresh-main-not-on-stale-base
+
+**在 detach 到旧 base 上重建提交，会让 `git diff origin/main HEAD` 把主干新增全算成你的改动。**
+
+现场：为绕开 CHANGELOG 冲突，我在 `--detach cHEAD（旧 base）` 上重建提交并推送，
+结果 diff 出 **25 个非 .ccg 文件**（主干在他处前进的并发提交全被算进来），
+而我的真实改动只有 4 个。判据：变更集文件数是否等于你自己的改动数——
+**不等就是基点错了**，此时任何"看起来合了"的自测都是在两棵不同的树上比较。
+
+正解：`git switch --detach origin/main`（**先 fetch**）→ 只恢复自己的 N 个文件 →
+`git add -- <精确路径>` → commit。绝不用 `git add -A`（会把工作区他人残留一并收进 index）。
+
+### lesson:amend-and-add-all-are-pollution-traps
+
+**`git commit --amend` 与 `git add -A` 在共享 worktree 里是提交污染的两大入口**（本仓各踩两次）。
+
+- `--amend` 会把**整个 index + 工作区**收进提交，别人遗留在同目录的文件被静默带入；
+- `git add -A` 同理，且被 gitignore 的临时产物也可能进 index。
+
+规范：一律 `git add -- <精确路径>`；需要 amend 时先确认 `git status` 只有你自己的条目。
+判据：**提交后立刻 `git diff origin/main HEAD --name-status` 数文件数**，
+与预期不符就 `git reset --soft HEAD~` 重来，不要带着污染往下走。
+
+### lesson:shared-root-switch-and-msys-redirect-are-traps
+
+**在共享根上做 docs 提交有两个必踩的坑（本次两版 PR 因此作废）。**
+
+① **不得在共享根 `git switch` 到 feature 分支**——`[shared-root-guard]` 会写违规标记，
+且共享根必须保持 main-only。文档类提交的正确姿势（AGENTS.md）：
+本地 main 上 commit → `git branch <name>` 保住 → `git reset --keep origin/main` → 推 `<name>` 开 PR。
+**更稳的做法是直接在隔离 worktree 里做**，根本不碰共享根分支。
+
+② **取主干 blob 不要用 `git cat-file blob origin/main:<path> > file` 重定向**——
+MSYS 会把 `origin/main:CHANGELOG.md` 里的冒号当路径分隔符转换，只写出 1 行（实测），
+后果是分支被强推成 origin/main 本身、内容全丢。用 PowerShell 原生
+`git show 'origin/main:CHANGELOG.md'`（配合 `$env:MSYS_NO_PATHCONV=1`）读，再字节级写入。
+
+### lesson:changelog-append-must-be-byte-exact
+
+**CHANGELOG 是追加/置顶型热写面，拼接必须字节级，否则门禁读出的不是你的语义。**
+
+- 用文本拼接（`myBlock + "\n" + baseText`）会**吞掉 base 末尾换行**，
+  `git diff --numstat` 因此多算 `1 deletion`，且 `--numstat` 与
+  `--ignore-cr-at-eol --numstat` 两口径不一致 ⇒ 行尾门禁红。
+- 正解：**字节级**拼接（`[Array]::Copy`），保住 base 最后 1 字节（实测应为 10=LF）。
+  修好后 `numstat = 30 0` 与 `igcr = 30 0` 完全一致。
+- 判据：`git diff <base> <head> --numstat` 与 `--ignore-cr-at-eol --numstat` **两口径必须相等**；
+  不等就是行尾/末尾换行出了问题，不是"差不多就行"。
+- 另：`check-changelog-growth.js` 要求**只增不减**（base 498 种标题 ⊆ head 499 种），
+  基于旧 base 拼接会被判"少 N 种条目"。冲突解决按"两侧都保留"：用**最新 base 全文 + 我的块置顶**重建。
+
 ## 把一个量从「派生」改成「逐实体真源」时，牵动的不止数值（publish-frequency-per-platform-intervals，2026-10-16）
 
 v5 把「同账号最小发布间隔」从档位派生改为逐平台表（只有视频号收紧）。数值只动一行，

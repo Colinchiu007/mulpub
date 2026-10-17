@@ -1,3 +1,33 @@
+# [未发布] docs(CI): 沉淀 QG Coverage 40 分钟超时 flake（归因证据 + 不动 workflow）
+
+## 现象
+main push 的 `quality-gate` run 中，`QG Coverage` job 偶发 `cancelled`，连带
+`Gate Result` failure。2026-10-17 #3838 的 merge SHA `3a941d311` 上即触发一次。
+
+## 归因（A/B 对照，非"我的改动引入"）
+- `quality-gate.yml` 中 QG Coverage 声明 `timeout-minutes: 40`。
+- 实测三组（用 `gh run view <run> --json jobs` 取 startedAt/completedAt）：
+  | run | QG Coverage 结论 | 耗时 |
+  |---|---|---|
+  | 39044716962（#3838） | cancelled | **40.1 分钟** |
+  | 39037127191（他人） | cancelled | **40.0 分钟** |
+  | 39041205223（他人） | success | 24.2 分钟 |
+- 日志显示覆盖率表**已完整打印**，死在 `Post job cleanup` 的
+  `##[error]The operation was canceled.` ⇒ 是"时长抖动撞上限"，不是用例失败。
+- 最近 8 次 main push 中 2 次踩线（约 25%）：独立于任何单次改动。
+- #3838 只含 skill 文档 + 1 个测试文件 + 记录文件，不含被 coverage 统计的运行时代码；
+  且 PR 侧同一 job 显示 `pass 38m35s`（险过但未红），佐证与改动无关。
+
+## 处置（本 PR 只沉淀，不动 workflow）
+- 不调 `timeout-minutes`：`.github/workflows/` 属"改谁来守门"，须人工过目。
+- 留给后续的真修法二选一：① 放宽 QG Coverage 超时；② 给 coverage 采集降本提速。
+- 在此之前，该 run 的 `cancelled` 应读作 **flake**，需重跑确认，不得直接判回归。
+
+## 方法论（可复用）
+判「CI 红是不是我引入的」三步：① 取该 job 的 `timeout-minutes` 与实际耗时对照（卡上限=超时）；
+② 拉最近 N 次同 workflow 同 job 的结论做频率统计（别人也红=系统性）；
+③ 看改动集是否覆盖该 job 的统计域（不覆盖=无因果路径）。
+
 # [未发布] test(gates): 把「深度审查必然落在 self-play」变成可复跑读数（ccg-convergence-exit）
 
 - **动因是否证出来的**：#3724 收尾时我写过「大概是 stall 判据误触」。实测直接否证——验证层只跑一轮，而 `isStalled` 要求 `rounds.length >= stallRounds + 1`，单轮恒不成立。真正结论是引擎的三个停止出口里**只剩 ③ 可达**（① 从不进第 2 轮、② 轮次不足、③ `status=self_play reason=selfPlay stop=true`），而 ③ 对 `highRiskDomains` 非空的条目无条件计阻断 ⇒ 含 crypto 发现的 diff 上「闭环可达」不是待达成的目标，是结构上到不了的终点。本 PR 交付的是**测量与报警**，不声称让闭环可达。
