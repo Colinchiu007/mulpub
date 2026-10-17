@@ -2,10 +2,6 @@
 record: branch-merged-against-main
 task: 修 check-branch-merged.js 的判定域与差量口径（re-sync 型分支大面积假报 LOST）+ 顺带抓到并修掉逐行归因的编码盲区
 date: 2026-10-17
-# ↓ 下面三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 本会话（合并后同一次提交内改 PASS 并删除这三个字段）
 ---
 
 ## 本次执行记录：给落地判据换判定域（branch-merged-against-main，2026-10-17）
@@ -21,7 +17,7 @@ sync_backfill_owner: 本会话（合并后同一次提交内改 PASS 并删除�
 | 接线棘轮 | ✅ | 测试文件未改名，Gate 2b4 已在 #3749 接进 `changes` job（`node --test scripts/check-branch-merged.test.js`），本切片不动接线；`check-unwired-tests.js` 实跑 rc=0。 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/`、`packages/rpa-engine/`，也未触任何前端视觉文件；改动面只有 `scripts/` 工具脚本 + 文档。 |
 | QM-6 CCG 双模型外部评审 | 见下 | 见「QM-6」一节，如实记录跑成/没跑成，不以自审冒充 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin <分支>` 返回 0 行证远端分支已删；回填后删除上方三个 `sync_*` 字段 |
+| 远程同步 | PASS | 本 PR 即 **#3836**，`state=MERGED`，merge SHA `2618909dcf378077d3028b56d3415c923b6bec41`，merge 时间 2026-10-17T13:34:31Z。取证三条：main 主题尾 `(#3836)$` 检索**恰好 1 行**；远端分支 ref 查询 **0 行**（随 squash 删除）；落地判据由本片自己修好的工具跑出——`node scripts/check-branch-merged.js --ref f4648eb3b --merge 2618909dc` ⇒ 5 个文件全 `IDENTICAL`、`lost=0 unattributed=0 judge_error=0`、退出码 0（这次跑的是**已落到 main 的 v2 实现**，即它以自己的落地为第一次真实输入）。PR 侧 CI：`21 pass / 0 fail / 0 pending / 2 skipping`，且按两处守门清单逐条核过——ruleset `main-ci-gate` 要求 7 条、classic protection 要求 4 条、并集 10 条**全部 pass**，跳过的 `release` / `gui-test` 都不在 required 内（required 里是聚合作业 `GUI Gate Result`，它过了）。合并经人工授权：QM-6 前端轴未跑成（见上），故按 #3749 同形交回人工，用户答复「合」。同一次提交内删除 frontmatter 的三个 `sync_*` 字段（新载体不进 JSON ledger）。两条如实保留的过程账：① 我推第二个提交时，旧 head 那轮 CI 只差 1 项就绿（已跑约 37 分钟），被这次推送作废——评审的 Critical 该修，但顺序上应等那一轮收口再推；② 本次 main push 的 `quality-gate.yml` 回读结果记在本条下方「遗留」里，不在此预填。 |
 
 ### 变异反证（9 条，逐条实跑；红集见表，M3/M5 相同处已在下方注明）
 
