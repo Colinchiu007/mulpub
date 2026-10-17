@@ -3,9 +3,6 @@ record: fav-force-recollect
 task: 勾「包含已采集（强制重采）」仍无结果：①forceRecollect 未穿透到 L6 内容缓存 ②采集失败被渲染成「完成」③收尾通知无条件报成功
 date: 2026-10-18
 branch: fav-force-recollect
-sync_status: PENDING
-sync_reason: PR 尚未合并（记录随代码 PR 落地，合并后回填 merge SHA）
-sync_backfill_owner: fav-force-recollect 会话（回填 PR）
 ---
 
 # 执行记录：fav-force-recollect（2026-10-18）
@@ -32,9 +29,9 @@ sync_backfill_owner: fav-force-recollect 会话（回填 PR）
 | 行尾两口径对账 | PASS | commit 后取证 |
 | QM-6 双模型评审 | 见第 4 节 | 按 decider 判定 |
 | 文档同步 | PASS | PRD §4.3.8（含合同/显示项/校验/验收）+ BUGFIX 文档 + 本记录 |
-| 远程同步 | PENDING | 合并后同一次提交回填 |
+| 远程同步 | PASS | PR **#3880** 已 squash 合并，merge SHA `e47e646ea582b1ff6581d87dcc1e057dbef89128`；远端分支已删（ls-remote 0 行）。main push 触发 quality-gate / GUI Tests / Electron CI / autonomous-loop / Build & Release / 债务熔断门禁 / Visual Tests 共 7 个 workflow，回读 **全部 success**（quality-gate / GUI Tests / Visual Tests / Build & Release / 债务熔断门禁 / Electron CI / autonomous-loop）。回填与销账同一次提交（本行 + bullet + 删 `sync_*` 三字段） |
 
-- 保留门禁：变更类型与隔离 ✅ | TDD ✅ | QM-1 ✅ | QM-2 ✅ | i18n ✅ | QM-4 ✅ | eslint ✅ | 文档同步 ✅ | 行尾对账 ✅ | 远程同步 PENDING
+- 保留门禁：变更类型与隔离 ✅ | TDD ✅ | QM-1 ✅ | QM-2 ✅ | i18n ✅ | QM-4 ✅ | eslint ✅ | 文档同步 ✅ | 行尾对账 ✅ | 远程同步 PASS
 
 ## 2. 三个缺陷（同一现象的三个来源）
 
