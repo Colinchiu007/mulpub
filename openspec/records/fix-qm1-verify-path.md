@@ -2,9 +2,6 @@
 record: fix-qm1-verify-path
 task: 修 QM-1 打包验证脚本的路径解析——脚本住在仓库根 scripts/ 却把 __dirname 当 apps/desktop，自 #2985 引入起从未跑通
 date: 2026-10-17
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并；merge SHA 还不存在
-sync_backfill_owner: 下一个会话
 ---
 
 ## 本次执行记录：QM-1 打包验证脚本的路径解析缺陷（fix-qm1-verify-path，2026-10-17）
@@ -24,7 +21,7 @@ sync_backfill_owner: 下一个会话
 | QM-1 打包 / 端到端实证 | ✅ | 本 PR **未改运行面**，按规则 QM-1 非必需；但修复的正是 QM-1 脚本本身，故做了自有 worktree 的真实打包 + 端到端实跑（这是「脚本终于能跑」的唯一硬证据）：`apps/desktop` 下 `pnpm run build:vue` rc=0（vite `✓ built in 56.09s`）→ `pnpm exec electron-builder --win --dir --publish never` rc=0（`win-unpacked/Multi-Publish.exe` 239,075,328 B；`resources/app.asar` 153,625,149 B；`.playwright-browsers` 缺失仅告警不失败）→ `node scripts/qm1-scheduled-publish-verify.cjs` **rc=0**：验证 0 打印 `PASS 桌面应用目录：<worktree>/apps/desktop` 且两产物路径均指向该目录；验证 1 六个模块全部命中 asar；验证 2 `resumeGuardExports=createResumeGuard`、`schedulerInstanceApi=cancel,create,list,rearm,restore,setOwnerSubjectProvider,setTaskQueue,stopAll`；验证 3 存活 8 秒 + `stderr 长度=0` ⇒ 走三层判据第③层 PASS；汇总 `QM-1 全部通过`。同一次运行里 `ELECTRON_RUN_AS_NODE=1` 告警被打印并剔除，证明前一片（#3648）的修复与本片共存。**评审加固后复跑**（仓库根边界 + 不变量锁落地之后）同一构建再次 rc=0、`stderr 长度=0`（stdout 20,371 B），证明边界收紧没有破坏真实解析 |
 | QM-4 视觉 | N/A | 未触 `apps/desktop/src/**`，无渲染层改动；默认像素态不变，未使用 `--update-baseline` |
 | QM-6 CCG 双模型外部评审 | ✅（降级 · 如实披露） | 判定器判 **DUAL**（代码变更 303 行 / 4 源文件，>200 行阈值），产物 `.ccg/reviews/141798725f49c61123e9cbb36439760b8ec224b23af1e7b47fe84ccd5b818c9f.json`。**引擎双模型通道失败**：`sh scripts/deep-review.sh` → `spawnSync <HOME>/.claude/bin/codeagent-wrapper.exe ETIMEDOUT`（claude 后端 600s 超时；engine 记录 `status=error`，原始 error 保留在产物里，绝对用户路径已占位符化）。**降级通道**：直调跨家族外部评审 codex（`codex exec -s read-only`，diff 全量 33 KB / 420 行输入）产出 **3 条 findings**，逐条裁决：**F1 MAJOR（upheld）** 接线锁负向正则锚 `const`、且只认单参数 `path.resolve(__dirname)`，而脚本声明是 `let DESKTOP` ⇒ 平凡绕过 —— 已改为「每处 `DESKTOP =` 右值必须恰好是解析器调用」的不变量（M4 变异证）；**F2 MINOR（upheld）** 剥注释正则吞码风险 —— 已弃用剥注释（本 PR 无残留）；**F3 MINOR（upheld-as-hardening，原标 requires verification）** 向上查找可越界命中父目录 checkout —— 已加仓库根边界（测试 5 + M5 钉住）。处置后外部评审原文结论：「修复方向正确……三条均可小改收敛，不阻塞修复本身的有效性」。**披露边界**：这是**单后端**外部评审（claude 超时），不等同 DUAL 的双后端口径；产物 `status` 由人工置 `cleared` 并保留 `error` 与 findings，`closedBy=manual-adjudication`；门禁对闭环的信任边界是「记录自称闭环」，此处如实登记，不以「引擎跑过」冒充双模型通过。外部评审原文（gitignored 本地证据）：`.adversarial/manual-review/codex-out.txt` |
-| 远程同步 | PENDING | 本 PR 尚未合并；合并后按同一提交完成「表格行改 PASS + merge SHA + 删 frontmatter 三个 `sync_*` 字段」 |
+| 远程同步 | PASS | 已合并：`7481df9b5482c2035f79b171d05490b4215c3de4`（2026-10-18T01:13:16+08:00，PR #3869）；远端分支 `fix-qm1-verify-path` 已删除（`git ls-remote --heads origin` 返回 0 行）；回填前后续核对记录文件已随 squash 合并落到 `origin/main` |
 
 ### 关键决策（design 摘要）
 
