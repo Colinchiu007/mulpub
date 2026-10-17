@@ -1,0 +1,223 @@
+{
+  "review_target": "openspec/changes/gate-record-sync-derived-status/design.md",
+  "companion_files_read": [
+    "proposal.md",
+    "specs/quality-gate-execution-record/spec.md",
+    "specs/openspec-integration/spec.md",
+    "tasks.md",
+    "scripts/check-gate-record-debt.js",
+    "scripts/check-pr-exec-record.js"
+  ],
+  "mode": "read-only",
+  "findings": [
+    {
+      "id": "D3-1",
+      "severity": "Critical",
+      "file": "design.md:31-42",
+      "line_anchor": 42,
+      "summary": "D3 分类表缺少 'derivedClosed + 状态列写 PASS 但文件无归属提交（归属解析失败/rename 丢失）' 的混合态，导致 fail-closed 退化为绿而非红",
+      "failure_scenario": "文件存在、状态 PASS、--diff-filter=A 因 rename / 非 ASCII / 多次加删同名文件而解析不到归属（addedBy=null），按表应落 debt（红）；但若实现把 addedBy=null 当作 '无派生证据' 而直接走 blobClosed（PASS→绿），则缺行/无归属的红被静默抹掉",
+      "falsifiable_proof": "在临时分支做 git mv 记录文件并提交（rename），再运行 'git log origin/main --diff-filter=A --no-renames --name-only --format=\"%H %s\" -- <新名>' → 无输出；再构造一条新名状态 PASS 的记录，用修改后的 check-gate-record-debt（若把 null addedBy 当无派生证据）→ 应输出 rc=0 而非 1，证明空隙存在"
+    },
+    {
+      "id": "D3-2",
+      "severity": "Warning",
+      "file": "design.md:57-58",
+      "line_anchor": 57,
+      "summary": "inThisChangeset 与 prematureClaim 之间缺少 '文件在 base 上存在但当前 PR 又修改了它（非新增）且状态 PASS' 的分支，可能误判为 prematureClaim",
+      "failure_scenario": "文件已在 base 上（所以不是 inThisChangeset），但 PR 修改了内容（不是新增），状态列写 PASS；按表应走 derivedClosed 或 blobClosed（绿）；若实现把 '本次变化集包含该文件' 误等同于 inThisChangeset，则会触发 prematureClaim（红），把正常修改判成预写",
+      "falsifiable_proof": "在 PR 里修改现有 openspec/records/*.md（不新增文件），把状态行改成 PASS，运行修改后的判据（若 inThisChangeset 计算只看文件在 diff 中而非 base 上无此文件）→ 应输出 prematureClaim 红，证明分类边界模糊"
+    },
+    {
+      "id": "D3-3",
+      "severity": "Info",
+      "file": "design.md:41",
+      "line_anchor": 41,
+      "summary": "ledgerUnavailable 定义了 '账本不可用 = 派生停用'，但未定义 '账本可解析但为空（0 个已合并 PR 的 PR）' 是否等同 ledgerUnavailable；0 ≠ 不可解析，可能被当作可解析→派生绿",
+      "failure_scenario": "仓库刚初始化或 main 上无 squash 合并时账本解析成功但 Map 为空（0 条）；按表应走 ledgerUnavailable（停派生、退断言）；若实现把空 Map 当成可解析（所有文件 addBy=null → 无派生证据 → 走 blobClosed），则 PASS 记录全绿，PENDING 全红（正确方向），但缺行记录若无 PASS 也红（正确）；真正风险是若实现把空账本当作 '没有已合并 PR' 而静默跳过派生档而不出声，违反 'MUST 出声'",
+      "falsifiable_proof": "在临时分支运行 'node -e \"require(\"./scripts/lib/merge-ledger.js\").buildMergeLedger({baseRef:\"HEAD\"})\"'（若存在）并传入一个无合并提交的 ref → 观察是否返回空对象且无 'ledgerUnavailable' 信号；若无信号则空隙成立"
+    },
+    {
+      "id": "D2-1",
+      "severity": "Critical",
+      "file": "design.md:27-29",
+      "line_anchor": 29,
+      "summary": "D2 '缺行仍然即红' 的口径在 check-gate-record-debt.js:165-179（listRecordFiles）是唯一扫描源，但派生档（新增 scripts/lib/merge-ledger.js）的扫描域若另写文件清单，可绕过 listRecordFiles 的 _exempt 排除",
+      "failure_scenario": "若 merge-ledger.js 或其上层实现直接用 'git ls-tree -r' 或递归 readdir 读取 openspec/records，包括 _exempt/ 目录，则 _exempt/backfill-2939-record.md 会被当成正常记录；若该文件缺远程同步行，则被判成缺行红（实际应豁免），反之若有 PASS 行则被当成已合并（实际不应被派生收口），绕过了 D2 的 '缺行不豁免' 保护边界",
+      "falsifiable_proof": "在临时目录执行 'node -e \"const fs=require(\"fs\"); const d=fs.readdirSync(\"openspec/records\",{withFileTypes:true}).filter(x=>x.isFile()&&x.name.endsWith(\".md\")); console.log(d.map(x=>x.name).join(\"\\n\"))\"' → 包含 _exempt/ 下的文件名（若递归）；再检查 design.md:29 是否明确禁止递归——未禁止递归，只说 '复用 listRecordFiles'；若实现未复用则绕过成立"
+    },
+    {
+      "id": "D2-2",
+      "severity": "Warning",
+      "file": "scripts/check-pr-exec-record.js:36-43",
+      "line_anchor": 36,
+      "summary": "D2 要求缺行不豁免，但 check-pr-exec-record.js 的 RECORDS_RE 只匹配 openspec/records/[^_][^/]*.md，与 listRecordFiles 逻辑一致；无第二处绕过实现，但若未来新增另一份 '记录存在性' 判据（如新脚本检查 PR 是否携带记录文件），未复用 listRecordFiles 则绕过",
+      "failure_scenario": "新增脚本（如未来任务 5.9 的回填检查脚本）若直接遍历 openspec/records 目录而不调用 listRecordFiles，则缺行判定与派生判定的扫描域不一致，可导致同一文件在两个判据中状态不同（如派生说收口、缺行说缺行），违反 D2 '解耦但不豁免'",
+      "falsifiable_proof": "grep -rn 'readdirSync.*records' scripts/ → 当前只有 check-gate-record-debt.js 使用；若新增脚本出现第二份则绕过成立；当前无第二份，但无机械锁阻止新增"
+    },
+    {
+      "id": "D5-1",
+      "severity": "Critical",
+      "file": "design.md:78-83",
+      "line_anchor": 82,
+      "summary": "D5 把 staleRecordFields 收窄到 'blob 做过闭合断言的记录（blobClosed，以及 derivedClosed ∧ 状态列写了闭合词 那一格）'，这给 '提前写 PASS' 留下新通道：若有人在新记录（inThisChangeset）状态列预写 PASS，同时也写 sync_* 字段，则按 D3 应判 prematureClaim（红）；但若实现把 '状态列写 PASS' 当作 blobClosed 而忽略 inThisChangeset 条件（或优先级反转），则 prematureClaim 永远不会触发，提前写 PASS 永远绿",
+      "failure_scenario": "实现把求值顺序写成 blobClosed 先于 inThisChangeset/prematureClaim（与 design.md:67 相反）：文件存在、状态 PASS → 先判 blobClosed（绿）→ 跳过 prematureClaim 检查 → 提前写 PASS 永远绿；同时 staleRecordFields 仍对 blobClosed 生效（若有 sync_* 字段则红），所以提前写 PASS + 不写 sync_* → 完全绿，无任何拦截",
+      "falsifiable_proof": "在临时分支新增 openspec/records/test-premature.md，内容包含 '远程同步 | PASS' 行和无 sync_* 字段，运行修改后的 check-gate-record-debt（若把 blobClosed 优先级提到 derivedClosed 之前）→ 应输出 rc=0（绿）而非 prematureClaim 红，证明优先级反转会打开提前写 PASS 通道"
+    },
+    {
+      "id": "D5-2",
+      "severity": "Warning",
+      "file": "design.md:78-83",
+      "line_anchor": 82,
+      "summary": "D5 收窄后的 staleRecordFields 仍对 'derivedClosed ∧ 状态列写闭合词' 生效，这意味着派生收口的记录若仍保留 PASS 断言，其 sync_* 字段仍会被拦（红），与 '纯派生收口、状态列未写闭合词' 的豁免形成两档行为；若实现把 derivedClosed 的 staleRecordFields 豁免扩展到所有 derivedClosed（包括状态列 PASS 的），则提前写 PASS + sync_* 字段的记录：prematureClaim 仍红（若优先级正确），但若优先级反转则完全绿；若优先级正确但 staleRecordFields 全豁免，则提前写 PASS + sync_* 字段 → 仍绿（只缺 prematureClaim 一道拦），通道部分打开",
+      "failure_scenario": "实现把 derivedClosed 的 staleRecordFields 豁免扩展到所有 derivedClosed（包括状态列 PASS 的），则提前写 PASS + sync_* 字段的记录：prematureClaim 仍红（若优先级正确），但若优先级反转则完全绿；若优先级正确但 staleRecordFields 全豁免，则提前写 PASS + sync_* 字段 → 仍绿（只缺 prematureClaim 一道拦），通道部分打开",
+      "falsifiable_proof": "修改 check-gate-record-debt.js 把 staleRecordFields 条件从 'blobClosed' 改为 'blobClosed || derivedClosed'，再运行同一测试记录（状态 PASS、有 sync_* 字段、在基线存在）→ 应无 staleRecordFields 红（原应有），证明收窄范围直接控制提前写 PASS 的残余拦截强度"
+    },
+    {
+      "id": "D6-1",
+      "severity": "Critical",
+      "file": "design.md:86-91",
+      "line_anchor": 86,
+      "summary": "D6 明确把跨源比对拦截面维持在 blobClosed（派生矛盾转可见项），这把真实矛盾（derivedClosed 文件在旧载体仍为 PENDING）变成永久非拦截可见项；若可见项打印被忽略或未被 CI 捕获（如只在 stdout 打印、无非零退出、无结构化输出），则矛盾永远静默，不触发任何修复行动",
+      "failure_scenario": "2 篇已知矛盾（mime-stock-freeze、ops-ingress-correct）在派生收口后，旧载体 .quality-gates.md 的同 slug 块仍未收口（PENDING）；按 D6 这 2 条只打印可见条数、不进 crossSrcViolations → hasBlocking() 不包含它们 → rc 始终 0；若 CI 日志解析只检查 rc 而不解析可见项文本，则矛盾永远不被发现、永远不修复",
+      "falsifiable_proof": "在真仓运行 'node scripts/check-gate-record-debt.js' 并手动检查输出中 '配对 X 组 / 违例 Y / 承认 Z' 行：当前违例计数为 0（因为 derivedClosed 记录不参与）；手动在 .quality-gates.md 添加同 slug 的 PENDING 块（模拟旧载体未修复）→ 再次运行，违例计数仍为 0（因为 derivedClosed 不参与），可见项条数应增加（若实现正确）；若可见项未增加或未打印，则矛盾完全静默"
+    },
+    {
+      "id": "D6-2",
+      "severity": "Info",
+      "file": "design.md:86-91",
+      "line_anchor": 89,
+      "summary": "D6 的 '派生矛盾转可见项' 依赖实现把 derivedClosed × 旧载体未收口的配对显式打印在可见区（非拦截）；若实现遗漏该打印（只在注释提到但未在 format() 输出），则矛盾完全静默",
+      "failure_scenario": "若 check-gate-record-debt.js 的 format() 函数未增加一条打印 derivedClosed 与旧载体矛盾配对数的行（如设计 D6 所要求的 '单列可见项并打印条数'），则运行时无任何可见输出指向这 2 条矛盾 → 完全静默",
+      "falsifiable_proof": "检查 format() 函数（line 448-538）的输出字符串：搜索 'derivedClosed' 或 '派生矛盾' 或类似可见项标签 → 当前无此输出行；若未来实现添加了该行，则 'grep -n \"派生矛盾\" scripts/check-gate-record-debt.js' 应命中；当前无命中，证明可见项未实现，矛盾静默风险存在"
+    },
+    {
+      "id": "GIT-1",
+      "severity": "Critical",
+      "file": "design.md:63",
+      "line_anchor": 63,
+      "summary": "--no-renames 使 rename 事件被拆为 D + A，归属解析（--diff-filter=A）会把新名文件归到 rename 提交，而非原始交付提交；若 rename 提交无 (#NNNN) 尾注，则文件被误判为无归属（debt），而非 '未派生但正确归属原交付 PR'",
+      "failure_scenario": "文件原名 a.md 由 PR#100 交付（带 #100 尾注），后由 PR#200 rename 为 b.md（无尾注）；--no-renames 下 git log 显示 A b.md（PR#200），--diff-filter=A 解析归属为 PR#200（无尾注 → 不在账本）；按表应落 debt（红），但实际该文件内容由 PR#100 交付，判 debt 是假阳性（误判已交付为未交付）；反之若 rename 提交带 #200 尾注，则归属解析为 #200（交付 PR），但内容实际由 #100 交付，派生收口指向错误 PR → 归属不符但未被 intentMismatch 捕获（无 sync_pr 字段时）",
+      "falsifiable_proof": "在临时 git 仓库执行：echo 'test' > a.md; git add .; git commit -m 'add a.md (#100)'; git mv a.md b.md; git commit -m 'rename b.md (#200)'; 再运行 'git log --diff-filter=A --no-renames --name-only --format=\"%H %s\" -- b.md' → 输出 #200 提交（rename）；运行 'node -e \"// 模拟归属解析：取 #200 提交，无 #NNNN → 不在账本 → debt\"' → 证明 rename 下归属解析指向错误提交，且无机制自动回溯到原提交 #100"
+    },
+    {
+      "id": "GIT-2",
+      "severity": "Critical",
+      "file": "design.md:63",
+      "line_anchor": 63,
+      "summary": "core.quotepath=off 缺失时，非 ASCII 路径（如含中文、emoji、空格）的文件名在 git log 输出中被引号转义（\"...\" 或 \\342\\200\\234 等），解析映射的正则（只认行尾 (#NNNN) 且路径直接匹配）无法匹配转义路径 → 归属解析静默丢失（addedBy=null），文件被误判为无归属（debt）或未派生（若状态 PASS 则 blobClosed 绿），而非正确派生",
+      "failure_scenario": "记录文件名为 '远程同步-测试-✅.md'（含 emoji）；git 默认 core.quotepath=on 时，'git log --name-only' 输出为 \"远程同步-测试-✅.md\"（引号包裹）；解析代码若直接用路径字符串匹配（无引号剥离），则无法在文件系统找到该文件 → readFileSync 抛 ENOENT → 判据整体失败或静默跳过；若解析代码只匹配 basename 而不处理引号，则归属映射中该文件的键为带引号的字符串，与真实文件名不匹配 → addedBy 永远 null → derivedClosed 永不成立 → 所有非 ASCII 记录永远走 blobClosed（PASS→绿正常、PENDING→红正常），但派生收口永远无法生效 → 非 ASCII 记录永远无法被派生收口，形成静默降级",
+      "falsifiable_proof": "在临时目录创建 'openspec/records/远程同步-测试.md'（含中文），运行 'git -c core.quotepath=on log --name-only --format=\"%H\" -- \"远程同步-测试.md\"' → 输出包含引号；再运行 'git -c core.quotepath=off log ...' → 无引号；若解析代码未处理引号，则 'node -e \"const fs=require(\"fs\"); const name=fs.readFileSync(\"test.log\",\"utf8\").trim(); console.log(name.includes(\"\\\\\"\"))\"' → true，证明引号存在；再模拟解析代码取 basename 时若不剥离引号 → 映射键错误"
+    },
+    {
+      "id": "GIT-3",
+      "severity": "Critical",
+      "file": "design.md:63",
+      "line_anchor": 63,
+      "summary": "同一尾注 (#NNNN) 出现在多个提交（实测 4 次重复命中）时，--diff-filter=A 只保留首个新增提交（按 git 历史顺序）；但若重复命中发生在不同文件（同一 PR 交付多个记录文件）而非同一文件，则首个新增提交规则无歧义；真正风险是同一文件被同一 PR 在不同提交中重复添加（如 cherry-pick、rebase 后重复合并到 main，产生新 merge SHA 但同一尾注），此时首个提交可能不是内容交付提交，而解析仍指向首个 → 归属解析与内容交付可能脱钩（但无机制检测内容是否匹配）",
+      "failure_scenario": "同一文件由同一 PR 在不同提交中重复添加（如合并冲突后重新提交同一文件名），首个 A 提交的内容可能与当前内容不同（若后续修改了内容但未改文件名）；解析指向首个提交（归属正确但内容已变），派生收口成立（正确方向），但内容真实性无法验证（设计 D9 残留风险 3 已提及）；无假绿假红，只是归属解析与内容真实性分离",
+      "falsifiable_proof": "在临时 git 仓库执行：git init; echo 'a' > a.md; git add .; git commit -m 'add (#500)'; 修改 a.md 内容; git commit -am 'update (#500)'; 解析归属仍指向首个提交（#500 在账本中）→ derivedClosed 绿；内容已变但归属未变 → 无机制检测内容变化与归属一致性（设计已接受此限制）"
+    },
+    {
+      "id": "GIT-4",
+      "severity": "Warning",
+      "file": "design.md:63",
+      "line_anchor": 63,
+      "summary": "--no-renames 配合 --diff-filter=A 处理多次加删同名文件时，若文件被删除后由同一 PR 重新添加（如 PR 先删后加同名文件），git 记录为 D + A，解析取首个 A → 归属为原交付 PR；但若删除发生在不同 PR、重新添加发生在当前 PR（新 PR 交付同名文件），解析仍取首个 A（旧 PR）→ 当前 PR 的交付被忽略，派生收口指向旧 PR（若旧 PR 在账本中则绿，若不在则红），无法反映当前 PR 的实际交付",
+      "failure_scenario": "旧文件 a.md 由 PR#100 交付（账本中有 #100），后被 PR#300 删除；当前 PR#400 重新创建 a.md（无尾注，因为新 PR 未写 #400）；--diff-filter=A 解析归属为 #100（首个 A）→ #100 在账本 → derivedClosed 绿（按表应收口）；但实际文件内容由 PR#400 交付（无尾注 → 实际不应被派生收口），若 #400 是纯回填 PR（只改内容无行为变更）则不应被派生收口，但解析仍指向 #100 → 假绿（内容由未登记 PR 交付却被派生收口）",
+      "falsifiable_proof": "临时仓库：git init; echo 'old' > a.md; git add .; git commit -m 'add (#100)'; git rm a.md; git commit -m 'del'; echo 'new' > a.md; git add .; git commit -m 're-add (no footnote)'; 模拟解析：git log --diff-filter=A --no-renames --format='%H %s' -- a.md → 输出 #100 提交（无 #400）；若账本包含 #100 → derivedClosed 绿，证明多次加删同名文件下归属解析无法反映当前交付"
+    },
+    {
+      "id": "GIT-5",
+      "severity": "Info",
+      "file": "design.md:63",
+      "line_anchor": 63,
+      "summary": "rebase 合并（无 (#NNNN) 尾注）的文件永远无法被派生收口（账本无该 PR），只能走 blobClosed；若状态为 PENDING 则 debt（红），若为 PASS 则 blobClosed（绿）。这不是解析失败，而是契约缺失（无尾注 = 无派生入口）；设计已在 D8（line 123）说明并接受",
+      "failure_scenario": "主干使用 rebase-merge（平台默认）合并 PR → merge commit 无 (#NNNN)；该 PR 交付的记录文件在派生解析中无法找到归属 PR → derivedClosed 永远不成立；若文件状态为 PENDING → debt 红（正确，未收口）；若状态为 PASS → blobClosed 绿（兼容）；无假绿或假红，只是派生档退化为断言档，符合设计预期（D8 实测 2 篇即此类）",
+      "falsifiable_proof": "在临时仓库执行普通 merge（非 squash）并提交记录文件，状态 PENDING：git merge --no-ff feature --no-edit; 再运行模拟解析（无 #NNNN 尾注 → 账本不含该 PR）→ derivedClosed 不成立 → 走 blobClosed → PENDING → debt 红，证明无假绿"
+    },
+    {
+      "id": "GIT-6",
+      "severity": "Info",
+      "file": "design.md:9",
+      "line_anchor": 9,
+      "summary": "探针基线（line 9）的 '407/407 篇记录文件都能唯一解析到归属提交，歧义 0' 是在特定时间点（main tip 44054389e）的实测；若未来主干新增 rename、删除重建、非 ASCII 文件，则该断言不再成立，但设计 D9（line 74-76）已要求用下界（>=400、>=1500）而非常数，避免焊死",
+      "failure_scenario": "无具体假阳性，只是基线读数随时间漂移（设计已预见并要求下界断言）；若实现仍用常数 407 则会在未来新增文件时假绿（断言通过但实际扫描域变化），但 D9 已禁止常数断言",
+      "falsifiable_proof": "运行 'node -e \"console.log(\"当前记录文件数：\" + require(\"fs\").readdirSync(\"openspec/records\").filter(f=>f.endsWith(\".md\")&&!f.startsWith(\"_\")).length)\"' → 当前应为 405（设计 line 9 提到门禁域 405 篇）；若实现测试用常数 407 则在文件数变化时假绿"
+    },
+    {
+      "id": "GIT-7",
+      "severity": "Warning",
+      "file": "design.md:89-91",
+      "line_anchor": 89,
+      "summary": "同一尾注出现在多个提交（实测 4 次重复命中）时，设计要求 '只保留首个新增提交'（按 --diff-filter=A 自然按文件首加）；但若重复命中发生在不同文件（同一 PR 交付多个记录文件）而非同一文件，则首个新增提交规则无歧义；真正风险是同一文件被同一 PR 在不同提交中重复添加（如 cherry-pick、rebase 后重复合并到 main，产生新 merge SHA 但同一尾注），此时首个提交可能不是内容交付提交，而解析仍指向首个 → 归属解析与内容交付可能脱钩（但无机制检测内容是否匹配）",
+      "failure_scenario": "同一文件由同一 PR 在不同提交中重复添加（如合并冲突后重新提交同一文件名），首个 A 提交的内容可能与当前内容不同（若后续修改了内容但未改文件名）；解析指向首个提交（归属正确但内容已变），派生收口成立（正确方向），但内容真实性无法验证（设计 D9 残留风险 3 已提及）；无假绿假红，只是归属解析与内容真实性分离",
+      "falsifiable_proof": "在临时 git 仓库执行：git init; echo 'a' > a.md; git add .; git commit -m 'add (#500)'; 修改 a.md 内容; git commit -am 'update (#500)'; 解析归属仍指向首个提交（#500 在账本中）→ derivedClosed 绿；内容已变但归属未变 → 无机制检测内容变化与归属一致性（设计已接受此限制）"
+    },
+    {
+      "id": "LEDGER-1",
+      "severity": "Critical",
+      "file": "design.md:121-123",
+      "line_anchor": 122,
+      "summary": "账本不可用（ledgerUnavailable）退回断言档（blobClosed）时，若状态列为 PASS 则绿、PENDING 则红（fail-closed）；这不是恒绿通道（PASS 才绿，PENDING 仍红），但若状态列为空或未知写法，则 blobClosed 的 CLOSED_RE 不匹配 → debt 红（正确）；真正风险是：若实现把 ledgerUnavailable 退化为 '跳过派生档检查' 而非 '退回断言档'（即不检查 blobClosed 只跳过），则所有状态（包括 PENDING）都被静默放过 → 恒绿通道",
+      "failure_scenario": "CI 浅检出（fetch-depth: 1 或无 origin/main 引用）时，若实现未正确捕获 ledgerUnavailable 信号（如把空账本或解析失败当成 '无 PR' 而不是 '不可用'），则派生档被静默跳过；同时若缺行检查（missingRow）和断言检查（blobClosed）也被跳过（如整个判据被条件跳过），则所有记录（PASS/PENDING/缺行）都绿 → 恒绿通道；设计要求 '派生整体停用并出声' 且 '退回纯 blobClosed 口径'，若实现未执行退回则恒绿",
+      "falsifiable_proof": "在 CI 环境模拟浅检出：git clone --depth=1 <repo> → 运行修改后的判据（若把 ledgerUnavailable 处理为跳过而非退回断言）：若状态为 PENDING 的记录仍输出 rc=0 → 恒绿通道成立；正确行为应为 rc=1（blobClosed 红）；再检查是否打印 'MERGE-LEDGER prs=0' → 若无打印则出声机制失效"
+    },
+    {
+      "id": "LEDGER-2",
+      "severity": "Critical",
+      "file": "design.md:98-100",
+      "line_anchor": 98,
+      "summary": "设计要求 buildMergeLedger 在账本为空（可解析但无已合并 PR）时 MUST 产出 '账本不可用' 信号而非返回空 Map；若实现返回空 Map（而非信号），上层会把空账本当作 '无已合并 PR'（方向安全但无出声），派生档静默退化为装饰（无红无绿变化），违反 '不可用不得被读成已合并' 和 '必须出声'",
+      "failure_scenario": "仓库刚初始化或 main 上无 squash 合并时，buildMergeLedger 解析成功（baseRef 可解析）但账本为空（无 (#NNNN) 尾注）；若实现返回 {}（空对象）而非抛错或返回特殊信号，则 check-gate-record-debt 上层无法区分 '账本不可用' 与 '账本为空但可解析' → 可能把所有文件的 addedBy 解析为 null（无归属）→ 所有文件走 debt（若 PENDING）或 blobClosed（若 PASS）；这不是恒绿（PENDING 仍红），但派生档完全无效（永远无法派生成立），且无 'ledgerUnavailable' 出声 → 静默退化为装饰",
+      "falsifiable_proof": "在临时分支运行修改后的 buildMergeLedger（若存在）并传入无合并提交的 baseRef → 观察返回值：若返回 {} 且无 'ledgerUnavailable' 信号，则证明空账本被静默接受；若正确实现应抛出或返回包含 'unavailable' 标志的对象"
+    },
+    {
+      "id": "TASKS-1",
+      "severity": "Warning",
+      "file": "tasks.md:5.4",
+      "line_anchor": 46,
+      "summary": "任务 5.4（QM-6 双模型外部评审，Critical 清零后才继续）无法完全机械执行：'双模型外部评审' 依赖人工评审（后端 + 前端打在设计文档与实现 diff 上），'Critical 清零' 是主观判定（评审者认为无 Critical 级缺陷）",
+      "failure_scenario": "即使自动化脚本可以运行评审流程（如调用外部评审 API），'Critical 清零' 的判定标准（什么算 Critical、是否已修复、是否可接受残留风险）无法由脚本独立决定，必须人工确认 → 该任务条目不能完全机械执行，存在人工依赖",
+      "falsifiable_proof": "检查 tasks.md:46 行内容：'QM-6 双模型外部评审（后端 + 前端，打在设计文档与实现 diff 上），Critical 清零后才继续' → 无脚本名、无自动化判据、无机械可验证的 '清零' 断言；对比 5.1（变异反证 M1-M8，有具体用例名和互不重叠要求）→ 5.4 缺少机械可执行的判据"
+    },
+    {
+      "id": "TASKS-2",
+      "severity": "Info",
+      "file": "tasks.md:5.7",
+      "line_anchor": 49,
+      "summary": "任务 5.7（开 PR；按自动合并判据自查后 squash 合并并删远端分支）的 '按判据 1-5 自查' 部分可机械化（检查 PR 状态、分支删除、git log 行数），但 '自查' 本身隐含人工确认（检查内容是否正确完成所有任务），无脚本可完全替代人工确认",
+      "failure_scenario": "脚本可自动检查 'state=MERGED'（GitHub API）、'远端分支 0 行'（git ls-remote）、'git log 恰 1 行'（git rev-list），但无法自动判断 '内容是否正确完成所有任务'、'是否遗漏 D2/D3/D5 实现'、'是否满足 5.4 的评审要求' → 仍需人工确认",
+      "falsifiable_proof": "检查 tasks.md:49 行内容：'按「PR 自动合并」判据 1-5 自查后 squash 合并并删远端分支（判据取产物：state=MERGED + mergeCommit.oid、远端分支 0 行、git log 恰 1 行；rc 不作判据）' → 明确列出可机械检查的产物（状态、分支行数、git 行数），但 '自查' 前无机械断言；若实现脚本只检查这三个产物而不检查任务完成状态，则任务可机械执行部分完成，但整体任务仍需人工确认前置完成"
+    },
+    {
+      "id": "TASKS-3",
+      "severity": "Warning",
+      "file": "tasks.md:1.6",
+      "line_anchor": 12,
+      "summary": "任务 1.6（判据接线锁：check-gate-record-debt.js 必须从模块取值且无第二份 git 解析）的验收判据 '把接线摘掉必须红' 可机械执行（修改代码删除 require 或直接解析 git），但 '必须红' 的红集互不重叠要求（见 5.1）需要人工确认红的是接线用例而非其他用例",
+      "failure_scenario": "脚本可机械执行：修改 check-gate-record-debt.js 删除 'require(\"./lib/merge-ledger\")' 并运行测试 → 应红；但判断 '红的是接线用例而非全量用例' 需要检查测试输出中是否包含特定错误信息（如 'merge ledger 不可用' 或 '派生档未接线'），这可以机械化（grep 测试输出）；若测试框架只报告整体 FAIL 而无详细错误，则无法机械区分 → 需要人工检查或增强测试输出",
+      "falsifiable_proof": "检查 scripts/check-gate-record-debt.test.js（若存在）是否包含接线相关测试用例名（如 'derivedClosed'、'mergeLedger'）；若无，则 '把接线摘掉必须红' 的判据无法机械验证是哪一条用例红 → 任务 1.6 的机械可执行性依赖测试文件的存在与命名"
+    },
+    {
+      "id": "TASKS-4",
+      "severity": "Info",
+      "file": "tasks.md:2.6",
+      "line_anchor": 21,
+      "summary": "任务 2.6（真仓改前/改后对账行为锁：同一 main tip 上改造前后拦截集合逐篇相同、文件字节零改动）的 '逐篇相同' 和 '字节零改动' 可机械执行（运行脚本前后对比输出文件和 git diff --stat），但 '同一 main tip' 在并发主干（line 75-76 提到 main 高频并发、记录数 406→407）下难以保证：测量期间 main 仍在前移，改前读数与改后读数的 main tip 不同，无法在同一 tip 上执行前后对比 → 该任务在并发环境下不可完全机械执行（需要冻结 main 或使用固定 base ref）",
+      "failure_scenario": "在 main 前移期间（如设计 line 75 提到测量期间 tip 从 28f37b794 走到 44054389e，记录数 406→407），若先运行改造前脚本（基于旧 main tip），再运行改造后脚本（基于新 main tip），则两次扫描的文件集合不同（新增/删除文件）、内容不同（其他 PR 的修改），无法证明 '同一 main tip' → 对账行为锁失效；若固定 baseRef（如 origin/main 在某一固定 SHA），则可机械执行，但任务描述未明确要求固定 baseRef",
+      "falsifiable_proof": "运行 'git log --oneline origin/main | wc -l' → 当前应为 5202（设计 line 10）；再运行 'node scripts/check-gate-record-debt.js > before.txt'；等待一段时间（或模拟新提交）后再运行同脚本 → 输出文件不同（若有新提交）；证明 '同一 main tip' 在并发环境下不可机械保证，任务 2.6 需要固定 baseRef 才可完全机械执行"
+    }
+  ],
+  "adversarial_notes": {
+    "D3_exhaustiveness": "D3 表（line 33-42）覆盖了 7 种状态（missingRow、derivedClosed、blobClosed、inThisChangeset、prematureClaim、debt、ledgerUnavailable）。评估链（line 64-67）明确了优先级：missingRow → (inThisChangeset / prematureClaim) → derivedClosed → blobClosed → debt。该链在逻辑上穷尽（每条记录必落入其中一类），但实现必须严格遵循此顺序（评审意见 i2 已要求）。若实现反转顺序（如 blobClosed 先于 derivedClosed），则 derivedClosed 记录若状态 PASS 会被误判为 blobClosed（仍绿，无假阳性），但若状态非 PASS 且在账本中，应走 derivedClosed（绿）；反转顺序不会产生假阳性（因为 blobClosed 条件包含 '无派生证据'，derivedClosed 的存在意味着 '有派生证据'，所以反转顺序下 derivedClosed 不会被误判为 blobClosed），但反转顺序可能导致 prematureClaim 被漏判（若 blobClosed 先判断并跳过后续检查）。设计已要求 '声明式的一条链'（line 64），所以 D3 在规范层面穷尽，但实现顺序错误会打开 prematureClaim 漏判通道（见 D3-2）。",
+    "D2_bypass": "D2（line 27-29）的缺行豁免由 listRecordFiles（line 165-179）的非递归实现保证。当前无第二份文件清单实现（check-pr-exec-record.js 的 RECORDS_RE 与 listRecordFiles 逻辑一致，排除 _exempt 目录和 _ 前缀）。潜在绕过路径：若未来新增脚本直接递归读取 openspec/records/（包含 _exempt/），则缺行检查会被绕过（_exempt/ 文件被误读为正常记录，缺行不被拦截）。当前无此绕过，但无机械锁（如测试断言扫描域逐等于 listRecordFiles 返回值）阻止未来新增。建议增加任务 2.7 的机械锁（已列入 tasks.md:22，但依赖实现）。",
+    "D5_premature_claim": "D5（line 78-83）的 staleRecordFields 收窄到 blobClosed + derivedClosed∧状态列闭合词。这不会打开提前写 PASS 通道：prematureClaim（line 58）要求 inThisChangeset + 状态列闭合词 → 红，无论 staleRecordFields 如何收窄，prematureClaim 仍独立存在。但若实现反转评估顺序（blobClosed 先于 prematureClaim），则 inThisChangeset + PASS 会被先判为 blobClosed（绿），再跳过 prematureClaim 检查 → 提前写 PASS 永远绿（见 D5-1）。设计已要求评估链顺序（line 64-67），所以 D5 在正确实现下无新通道；在顺序错误实现下有严重通道（Critical）。",
+    "D6_cross_source_silence": "D6（line 86-91）的派生矛盾转可见项是设计选择，不是缺陷。2 篇已知矛盾（mime-stock-freeze、ops-ingress-correct）在派生收口后，旧载体仍未修复；按设计它们不进 crossSrcViolations（拦截面），只打印可见条数。若实现遗漏可见项打印（见 D6-2），则矛盾完全静默（无输出、无拦截）。当前设计要求打印条数（line 90），但未要求结构化输出或非零退出（只是可见项），因此在 CI 自动解析中仍可能被忽略（若解析只检查 rc）。这不是技术漏洞，而是可见性与可操作性之间的设计权衡。",
+    "git_forensics": "--diff-filter=A + --no-renames（line 63）的组合在 rename（GIT-1）、非 ASCII（GIT-2）、同名重复提交（GIT-3）、多次加删（GIT-4）、rebase 合并（GIT-5）下各有明确失败模式：rename 导致归属解析指向 rename 提交而非原交付提交（若 rename 提交无尾注则 debt，若有尾注则错误派生）；非 ASCII 导致路径解析静默失败（addedBy=null → debt 或静默跳过）；同名重复提交导致归属歧义（首个提交规则）；多次加删导致归属与内容脱钩；rebase 合并无尾注导致永远无法派生（只能走 blobClosed）。这些失败模式已在设计失败模式表（line 89-92、122-126）中描述，并要求对应处理（如 rename → debt、非 ASCII → core.quotepath=off、rebase → blobClosed 兼容层）。没有未描述的隐藏失败模式。",
+    "ledger_fallback": "ledgerUnavailable（line 41、122-123）的退回断言档不是恒绿通道：PASS → blobClosed 绿（正确）、PENDING → debt 红（正确）、缺行 → missingRow 红（正确）。恒绿通道只有在实现把 ledgerUnavailable 处理为 '跳过所有检查'（包括缺行和断言）时才成立（见 LEDGER-1）。设计已要求 '派生整体停用并出声，退回纯 blobClosed 口径'（line 41）和 'prs=0 视同不可用'（line 122），并要求 CI 打印 MERGE-LEDGER prs=（line 63、98-100），所以恒绿通道在规范层面被阻止。但若 CI 浅检出（fetch-depth 不足）且实现未正确捕获不可用信号（如返回空账本而非信号），则派生档静默退化为装饰（无红无绿变化，但无出声），违反 '不可用不得被读成已合并'（见 LEDGER-2）。",
+    "tasks_mechanical": "大部分任务（1.1-1.6、2.1-2.7、3.1-3.5、4.1、4.3-4.6、5.1-5.3、5.5-5.11）可机械执行（有具体脚本名、具体断言、具体文件操作）。不可完全机械执行的条目：5.4（QM-6 外部评审依赖人工）、5.7（自查含人工确认）、5.9（回填 PR 检查可机械化但依赖前置任务完成状态的人工确认）、2.6（同一 main tip 对账在并发主干下需固定 baseRef，否则不可机械保证）。任务描述已在 D9（line 74-76）承认活数漂移问题，但 2.6 未明确要求固定 baseRef，存在并发环境下机械执行失败的风险（见 TASKS-4）。"
+  },
+  "verdict_summary": "设计文档 D1-D10 及配套规格、任务在规范层面完整，没有未被拦截或未被证的状态空隙（D3-1 至 D3-3 仅在实现顺序错误时出现漏洞，规范层面已封死）；D2 无第二处绕过实现（当前无第二份文件清单，但缺乏机械锁防止未来新增）；D5 不给提前写 PASS 留新通道（prematureClaim 独立存在，优先级正确时通道封死）；D6 把真实矛盾转为可见非拦截（设计选择，非缺陷）；git 取证口径的失败模式已全部列出并有对应处理；账本不可用退回断言档在规范层面阻止恒绿通道（实现层面需严格捕获空账本信号）；任务大部分可机械执行（5.4、5.7、5.9、2.6 存在人工依赖或并发风险）。",
+  "no_files_modified": true
+}

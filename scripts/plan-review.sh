@@ -38,6 +38,56 @@ done
 say() { printf '%s\n' "$1"; }
 
 # ==========================================================================
+#  产物目录碰撞拦截（仓侧守卫；根因在仓外引擎）
+# ==========================================================================
+# 引擎（用户级技能 ~/.claude/skills/adversarial-review-loop/scripts/ccg-deep-review.js）
+# 把决策层产物写到 .adversarial/ccg-plan-<slug>/，而 slug = "ccg-plan-" + basename(方案文件去扩展名)
+# + "-" + critic —— **只用文件名，不带所在目录**。两个 change 的规划文件都叫 design.md ⇒ 同一 slug
+# ⇒ 后跑的静默覆盖先跑的评审现场（critique-v1.md / proposal-v1.md / adjudication.json 全没）。
+#
+# 实测事故（2026-10-17）：本会话评审 gate-record-sync-derived-status/design.md 时，覆盖了
+# commit f66081aec 中另一会话 B1 RPA 反检测评审的 critique-v1.md；那份产物是 tracked 的，
+# 靠 git restore 精确路径才救回。引擎住在 git 之外（改它=影响所有会话且下次技能升级会漂移），
+# 所以守卫装在仓侧调用点：**先看目的地有没有别人的东西**，有就拒绝运行并给出路。
+#
+# MP_ARTIFACT_ROOT 仅供回归测试与例外场景覆盖，默认仓库根（与引擎的 REPO 同义）。
+ART_ROOT="${MP_ARTIFACT_ROOT:-$ROOT}"
+# 覆盖时必须出声（评审 F5）：把 MP_ARTIFACT_ROOT 指到一个空目录就能让守卫看不见任何东西，
+# 静默覆盖等于把守卫改成"愿意被摘的锁"。默认路径不打印，避免每次跑都刷一行噪声。
+if [ -n "${MP_ARTIFACT_ROOT:-}" ] && [ "$MP_ARTIFACT_ROOT" != "$ROOT" ]; then
+  echo "plan-review: 产物根被 MP_ARTIFACT_ROOT 覆盖为 $MP_ARTIFACT_ROOT（碰撞守卫只在被覆盖后的目录里检查；仅供测试）" >&2
+fi
+# 方案文件不可达时守卫整块被跳过——那正是一条"愿意被摘的锁"。本脚本在第 21 行就
+# cd 到 $ROOT，所以从子目录传进来的相对路径到此处已解不进原文件（外部评审 F5 命中，
+# 本机实测：守卫一声不吭地放行）。判据不看 rc 也不看内容，只看这一行有没有出声。
+if [ -n "$PROPOSAL" ] && [ ! -f "$PROPOSAL" ]; then
+  echo "plan-review: 方案文件在仓库根下不可达（$PROPOSAL）⇒ 产物目录碰撞守卫已跳过，请改传绝对路径" >&2
+fi
+if [ -n "$PROPOSAL" ] && [ -f "$PROPOSAL" ] && [ -d "$ART_ROOT/.adversarial" ]; then
+  _pb=$(basename -- "$PROPOSAL"); _pb=${_pb%.*}
+  _pb=$(printf '%s' "$_pb" | tr 'A-Z' 'a-z')
+  _collide=""
+  for _d in "$ART_ROOT/.adversarial/ccg-plan-$_pb-"*; do
+    [ -d "$_d" ] || continue
+    _stored="$_d/proposal-v1.md"
+    [ -f "$_stored" ] || continue
+    # 同一份方案（重跑/续跑）不算碰撞；内容不同才是别人的东西。
+    cmp -s "$_stored" "$PROPOSAL" || _collide="$_collide ${_d#$ART_ROOT/}"
+  done
+  if [ -n "$_collide" ]; then
+    say "✗ 产物目录碰撞：${_collide# }（方案名「$_pb」在别的方案里已被用过）"
+    say "  那些目录里的 proposal-v1.md 与本次方案不是同一份 ⇒ 引擎会按同一个 slug 覆盖别人的评审现场。"
+    say "  根因：引擎 slug 只用方案文件名、不带所在目录（2026-10-10 那次修复加了 critic，没加目录维度）。"
+    say "  出路：①方案文件起唯一名（推荐，如 design-<change>.md 或直接用 change 目录里的路径名）；"
+    say "        ②确属同一方案 ⇒ 先把旧产物目录归档再重跑；"
+    say "        ③知情放行：MP_ALLOW_PLAN_COLLISION=1（会在 stderr 留痕，不会静默）。"
+    echo "plan-review: 拒绝运行，产物目录碰撞:$_collide" >&2
+    [ "${MP_ALLOW_PLAN_COLLISION:-}" = "1" ] || exit 2
+    echo "plan-review: 已按 MP_ALLOW_PLAN_COLLISION=1 放行，将覆盖:$_collide" >&2
+  fi
+fi
+
+# ==========================================================================
 #  环境闸：拒绝 WSL
 # ==========================================================================
 # 与 deep-review.sh 同源的一道闸，防的是**报错文案把人带偏**：

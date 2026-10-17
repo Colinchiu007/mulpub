@@ -288,9 +288,11 @@ function evaluate({
   // resolveHeadBranch「宁可判没带记录，也不猜分支」的 fail-closed 设计被静默吞掉。
   // 因此分支名不可解析时出路④不适用，并出专用理由（区别于泛泛的"未携带记录"）。
   //
-  // 信任边界（QM-6 后端 I4-info，文档化不改码）：出路④只校验文件/状态形态，不校验 M 内容
-  // 是否真是回填凭据 —— PENDING→PASS 的真实性依赖人工 review 与 check-gate-record-debt.js
-  // 的结构检查，这是文档门禁的固有信任边界。
+  // 信任边界（QM-6 后端 I4-info 起于"文档化不改码"，change: gate-record-sync-derived-status 之后口径变了）：
+  // 出路④本身仍只校验文件/状态形态，不校验 M 的内容。但原先那句"PENDING→PASS 的真实性依赖人工 review"
+  // 已经不成立也不需要了——新形态记录根本不写 PASS，收口由 check-gate-record-debt.js 按主干历史
+  // （哪个带 (#NNNN) 尾注的已合并提交最近一次把这文件带进 main）**推导**，谎写在合并前会被判 prematureClaim。
+  // 遗留的未校验面只剩旧形态（blob 里手写的 PASS），随存量顺路清理收敛，不再为它新建豁免。
   const backfillShaped = isPureBackfillChangeSet(statuses)
   const isPureBackfill = backfillShaped && headBranch !== ''
   const backfillRevised = isPureBackfill
@@ -328,8 +330,9 @@ function evaluate({
   if (!submitted && statuses.length > 0) {
     reasons.push('本 PR 未携带执行记录。四条合法出路任选其一：'
       + `①新增 openspec/records/<分支名>.md（按 _TEMPLATE.md，含门禁表与「远程同步」行；`
-      + '尚无法收口时在该文件 frontmatter 里写 sync_reason 与 sync_backfill_owner）；'
-      + '②修订本分支自己那篇 openspec/records/<分支名>.md（回填证据走这条）；'
+      + '该行**不需要事后回填**——收口由门禁按主干历史推导，合并前判 byDesign 不红；'
+      + '可选写 delivered_by_pr 作意图声明，与主干事实不符会判红。别再写 sync_* 三字段）；'
+      + '②修订本分支自己那篇 openspec/records/<分支名>.md（旧形态记录的收口改写走这条）；'
       + '③确属无需记录 ⇒ 新增 openspec/records/_exempt/<分支名>.md 并写明非空原因；'
       + '④纯回填（定义）：变更集全部是既有记录/台账载体（openspec/records/*.md、.quality-gates.md、'
       + 'scripts/gate-record-debt-ledger.json）的 M（允许 .ccg/reviews/' + describeAuditWidths()
