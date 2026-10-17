@@ -1,6 +1,6 @@
 ---
 name: start-app
-version: 1.7.0
+version: 1.8.0
 description: >
   用当前项目最新代码 + 共享数据（shared-user-data 锚点）启动/重启 Multi-Publish
   桌面应用。支持 Windows 与 WSL（Ubuntu-E）双环境：默认启动 Windows 环境的应用，
@@ -47,8 +47,8 @@ tags: [launch, desktop, electron, dev, sync, profile, restart, wsl, windows]
 
 | 场景 | 触发词 | 处理 |
 |------|--------|------|
-| **A. 未运行** | `启动应用` / `start-app` | 正常走完整启动流程（见下）|
-| **B. 已在运行 + 想重启** | `重启应用` / `restart-app` | 明确接受丢失当前会话状态 → 先停旧实例再启动（脚本已内置清旧实例）|
+| **A. 未运行** | `启动应用` / `start-app` | 走「一键启动工作流」|
+| **B. 已在运行 + 想重启** | `重启应用` / `restart-app` | 明确接受丢失当前会话状态 → 先停旧实例再启动（**仍走一键启动**，它内置清旧实例 + foreign profile 审计）|
 | **C. 已在运行 + 只想确认/复用** | `应用在跑吗` / `app status` | 只检查进程+端口，**不重启**，避免丢失正在编辑的草稿/未保存操作 |
 
 **探测方法**（只读，不杀进程）：
@@ -61,8 +61,29 @@ Get-NetTCPConnection -LocalPort <cdpPort> -State Listen -ErrorAction SilentlyCon
 
 **关键规则：**
 - 用户说「**启动**」但发现已在运行 → **先询问**是否要重启，不要默默杀掉（可能丢失会话状态）。
-- 用户说「**重启**」→ 明确接受重启，直接执行（`start-desktop.ps1` 第 4 步会自动停掉同 worktree 的旧 Electron/Vite 再启动新的）。
+- 用户说「**重启**」→ 明确接受重启，直接执行（一键启动内部会停旧实例）。
 - 用户只问「在跑吗」→ 只报告状态，不执行任何停止/启动动作。
+
+### ⛔ 入口选择铁律（2026-10-17 复盘新增，曾真实走错）
+
+**「启动/重启应用」的默认且几乎唯一入口 = 一键启动工作流（`scripts/sync-app.ps1`）。**
+
+2026-10-17 实测事故：agent 面对「重启应用」时去读了本文件的「流程（备选长流程）」一节，用
+`start-desktop.ps1 -Worktree … -Profile '<debug-profile>'` 手工包了一层 WMI
+启动器，结果 ① **`-Profile` 把 `shared-user-data` 锚点盖掉** ⇒ 应用起来了但 `listAccounts` 返回
+`AUTH_REQUIRED`（用户视角"我的账号没了"）；② 额外写的 WMI 外壳是**重复实现**（一键启动内部
+已经用 WMI 脱离会话）。
+
+**判定顺序（不得跳过）：**
+
+1. 用户有无特殊 worktree / 环境要求（点名某个 worktree、要 WSL）？
+   - **没有** ⇒ 一键启动。**结束，不要再往下读长流程。**
+   - **有** ⇒ 才允许进入「流程（备选长流程）」。
+2. 一键启动不可用（脚本缺失/报错）时，才允许手工包 WMI 外壳，且**必须**在回复里说明"这是降级路径"。
+
+**⛔ 不得手动传 `-Profile`**：长流程里的 `-Profile '<debug-profile>'` 是历史遗留示例，
+它会绕过 `shared-user-data` 锚点造成数据分裂（账号/登录态消失）。确需独立 profile 时，先明确告知用户
+"这将看不到你已登录的账号"，并由用户确认。
 
 ## 核心目标
 
@@ -76,7 +97,8 @@ Get-NetTCPConnection -LocalPort <cdpPort> -State Listen -ErrorAction SilentlyCon
 
 - **双环境**：Windows（`start-desktop.ps1`，PowerShell 7）与 WSL Ubuntu-E（`start-desktop-wsl.sh`，bash）。**默认 Windows**。
 - **共享数据锚点**：仓库根 `shared-user-data/.shared-data-anchor`（已创建）。`startup-compat.js` 自动检测并启用共享 userData，WSL/Windows 数据一致。**⚠️ 显式设 `ELECTRON_USER_DATA_DIR` / `--user-data-dir=` 会绕过锚点 → 数据分裂**，默认不要设。
-- **一键启动（v1.6.0 起首选）**：`scripts/sync-app.ps1`（同步 + 依赖门禁 + electron 校验 + 启动编排）+ `scripts/mp-applive-launcher.ps1`（WMI `Invoke-CimMethod Win32_Process.Create` 脱离 agent job 拉起 electron，WMI 不可用回退 `Start-Process`）。持久运行 worktree = `mp-worktrees/mp-app-live2`（保留 node_modules，避免每次重装依赖）。详见下方「一键启动工作流」。
+- **一键启动（v1.6.0 起首选，2026-10-17 起为硬路由）**：`scripts/sync-app.ps1`（同步 + 依赖门禁 + electron 校验 + 启动编排）+ `scripts/mp-applive-launcher.ps1`（WMI `Invoke-CimMethod Win32_Process.Create` 脱离 agent job 拉起 electron，WMI 不可用回退 `Start-Process`）。持久运行 worktree = `mp-worktrees/mp-app-live2`（保留 node_modules，避免每次重装依赖）。**用户无特殊 worktree/环境要求时，这是唯一入口**（入口选择铁律见「三种场景」节）。详见下方「一键启动工作流」。
+- **⚠️ `-Profile` 会盖掉共享数据锚点（2026-10-17 实测）**：`start-desktop.ps1 -Profile '<debug-profile>'` 会绕过 `shared-user-data` ⇒ 应用能起但 `listAccounts` 返回 `AUTH_REQUIRED`（看不到已登录账号）。**默认不要传 `-Profile`**；确需独立 profile 必须先告知用户并取得确认。
 - **Windows 启动契约（备选）**：`scripts/start-desktop.ps1`（同步 + 依赖 + 端口 + 单实例锁 + 启动 + 验证）。
 - **WSL 启动契约**：`scripts/start-desktop-wsl.sh`（bash 版；依赖 Linux 版 node_modules + `LD_LIBRARY_PATH` 指向 `~/mp-wsl-deps/electron-libs`）。
 - **WSL 依赖**：项目 node_modules 是 Windows 版（缺 `@rollup/rollup-linux-x64-gnu` 等 Linux 可选依赖），WSL 端须用**独立 Linux 依赖树**（`~/mp-wsl-deps/mp-wsl` worktree 内 `pnpm install --frozen-lockfile`）。
@@ -124,8 +146,36 @@ powershell -ExecutionPolicy Bypass -File D:/Data/projects/mulpub/scripts/sync-ap
 
 1. `Get-Process electron` 的 MainWindowHandle 非 0（或 `tasklist /v` 见窗口标题）。
 2. `curl http://127.0.0.1:<vitePort>/` 与 `http://127.0.0.1:<cdpPort>/json/version` 均 200（mp-app-live2 → vite 5231 / cdp 9279）。
-3. CDP `listAccounts()` 返回 7 平台账号、`identityGetState()` authenticated（见「CDP 完整服务清单核验」节）。
+3. CDP `listAccounts()` 返回平台账号、`identityGetState()` 有值（见「CDP 完整服务清单核验」节）。
 4. 窗口属于本次启动的新进程：`Get-Process electron` 主进程的 `StartTime` 晚于本次 launcher 执行时刻（防旧窗口被误认为新应用，v1.7.0）。
+5. **`window.electronAPI` 必须存在**（2026-10-17 复盘新增）：CDP `Runtime.evaluate` 读
+   `window.electronAPI.listAccounts` 若抛 `TypeError: Cannot read properties of undefined`，
+   **不是登录问题，是 preload 没构建** ⇒ 见下方「窗口在但 electronAPI 缺失」排查表。
+
+#### 窗口在但 `electronAPI` 缺失（2026-10-17 实测，曾被误判成"登录态丢了"）
+
+**症状**：窗口正常、vite 200、6 服务全 running，但 CDP 里 `window.electronAPI` 是 undefined，
+`listAccounts()` 直接抛 TypeError。
+
+**根因**：`apps/desktop/electron/preload/index.bundle.js` 是 **gitignored 构建产物**
+（`window.js` 的 `preload:` 指向它）。持久运行 worktree 若是新克隆/被 clean 过，该文件不存在 ⇒
+preload 空跑 ⇒ `contextBridge` 什么都没暴露。**它与登录态、与本次代码改动都无关。**
+
+**判读与修复（按序）：**
+
+```powershell
+# 1) 判读：产物在不在（秒级）
+Test-Path <worktree>\apps\desktop\electron\preload\index.bundle.js
+
+# 2) 修复：构建它（约 10s）
+cd <worktree>\apps\desktop; pnpm run build:preload
+
+# 3) 重启窗口让新 preload 生效（preload 只在窗口创建时加载，HMR 不热更新它）
+```
+
+**为何容易误判**：`servicesGetStatus()` 走的是**主进程** IPC（不经过 preload）所以返回
+`code:0` 全 running；只有渲染进程侧的 API 才挂。于是"服务全绿 + 账号读不到"这组合看起来像
+登录态问题，实际是 preload 断点。**先查产物文件，再查登录态。**
 
 ## 流程（备选长流程，特殊 worktree/环境要求时用）
 
@@ -238,7 +288,7 @@ node scripts/verify-worktree-deps.js
 
 ```powershell
 # 重启场景：必须加 -StopForeignProfile，因为其他 worktree 可能留有旧 Electron 进程占用 profile
-pwsh -File scripts/start-desktop.ps1 -Worktree "D:\Data\projects\mp-worktrees\mp-<task>" -Profile 'D:\tmp\Multi-Publish-debug-profile' -CheckIdentity -Json -StopForeignProfile
+pwsh -File scripts/start-desktop.ps1 -Worktree "D:\Data\projects\mp-worktrees\mp-<task>" -Profile '<debug-profile>' -CheckIdentity -Json -StopForeignProfile
 ```
 
 > **⚠️ 核心教训（曾因没加 -StopForeignProfile 白跑一轮）**：
@@ -303,7 +353,7 @@ git log --oneline -1 HEAD                              # 本地 HEAD，应 >= �
 ```powershell
 pwsh -File scripts/start-desktop.ps1 `
   -Worktree <目标工作区绝对路径> `
-  -Profile 'D:\tmp\Multi-Publish-debug-profile' `
+  -Profile '<debug-profile>' `
   -CheckIdentity `
   -Json
 ```
@@ -412,6 +462,9 @@ const page = targets.find((t) => t.type === 'page' && t.url.startsWith('http://1
 | 启动器 WMI 拉起但无 electron、CDP 连不上、毫无报错 | worktree git 注册失效 → `start-desktop.ps1` 在 `git -C $repoRoot log -1` 返回空时 fail-closed「非 git 工作区」，根本没启动 electron；WMI 脱离会话又把 stderr 吞掉。诊断：`git -C <wt> rev-parse --git-dir` 确认失联；改用直启 `node apps/desktop/scripts/dev.js` + 设 MP_VITE_PORT/MP_CDP_PORT/ELECTRON_USER_DATA_DIR/MP_PYTHON/MP_CDP_ALLOW_ALL_ORIGINS=1（见 Pitfalls「worktree 注册失效致 start-desktop.ps1 不可用」） |
 | servicesGetStatus 主服务 not_started / listAccounts 报 "Python backend is not running" | 账号缺失表象=主 Python 后端没起。根因二选一或叠加：① 孤儿 Python 后端占端口（强杀 electron 不杀孙进程）；② `PYTHON_PATH` 误当解释器（PR #1866，bridge spawn 目录→ENOENT）。先级联清理本 worktree 后端 python 进程，再确认 bridge 仅用 `MP_PYTHON` 覆盖（见 Pitfalls 两条对应坑） |
 | CDP WebSocket 返回 403 | 外部 CDP 客户端缺 `--remote-allow-origins=*`。启动器必须设 `MP_CDP_ALLOW_ALL_ORIGINS=1`（dev-launcher.js 已支持，默认关），否则只能连本机页面 target、拿不到 `servicesGetStatus` 等 API |
+| **窗口正常但 CDP 里 `window.electronAPI` 为 undefined**（2026-10-17 实测） | **preload 产物缺失**，不是登录问题：`electron/preload/index.bundle.js` 是 gitignored 构建产物，新克隆/被 clean 过的 worktree 没有它 ⇒ preload 空跑。修复：`pnpm run build:preload` 后重启窗口。**先查产物文件，再查登录态**（服务走主进程 IPC，仍会报全 running，极具误导性） |
+| **`listAccounts` 返回 `AUTH_REQUIRED`(code -3) 但用户说"我登录过"** | 先用「一键启动工作流」核对是否误传 `-Profile`（绕过 `shared-user-data` 锚点）。确认启动命令里没有 `-Profile` 后，才按登录态排查走 |
+| **agent 会话内应用被连带杀掉 / 写了临时 WMI 启动器** | 一键启动内部已用 WMI 脱离会话，**不要**再手工包一层（重复实现且易漏 env）。确需手工时必须在回复中声明"降级路径" |
 
 ## Pitfalls
 
