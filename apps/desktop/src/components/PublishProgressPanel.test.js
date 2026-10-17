@@ -720,8 +720,8 @@ describe('PublishProgressPanel.vue — 完成自动收敛（publish-progress-pan
     expect(storeStateRaw.minimizePanel).not.toHaveBeenCalled()
   })
 
-  // ── fix-account-interval-ghost-wait：时钟异常归因标签 ─────────────────────────
-  it('U1 clockAnomaly=true 的 blocked 行渲染「时钟异常」标签；缺席/为假不渲染', async () => {
+  // ── fix-account-interval-ghost-wait：时钟倒挂归因标签（文案 fix-clock-anomaly-copy 重写）──
+  it('U1 clockAnomaly=true 的 blocked 行渲染「本机时间跳变」标签；缺席/为假不渲染', async () => {
     storeStateRaw.panelVisible = true
     storeStateRaw.hasRunning = true
     storeStateRaw.sessions = [makeSession({
@@ -736,7 +736,10 @@ describe('PublishProgressPanel.vue — 完成自动收敛（publish-progress-pan
     const rows = body().querySelectorAll('[data-testid="publish-progress-task"]')
     expect(rows).toHaveLength(2)
     expect(rows[0].querySelector('[data-testid="publish-progress-task-clock-anomaly"]')).not.toBe(null)
-    expect(rows[0].textContent).toContain('（时钟异常，等待已钳位）')
+    expect(rows[0].textContent).toContain('（本机时间跳变，已自动缩短等待，无需处理）')
+    // 文案纪律（本 PR 的验收点）：不得用「异常」暗示用户要去修故障，不得露内部术语「钳位」
+    expect(rows[0].textContent).not.toContain('时钟异常')
+    expect(rows[0].textContent).not.toContain('钳位')
     expect(rows[1].querySelector('[data-testid="publish-progress-task-clock-anomaly"]')).toBe(null)
   })
 
@@ -745,7 +748,7 @@ describe('PublishProgressPanel.vue — 完成自动收敛（publish-progress-pan
     const en = fs.readFileSync(path.resolve(__dirname, '../locales/publish-page/en.js'), 'utf8')
     expect(zh).toContain('blockedClockAnomaly')
     expect(en).toContain('blockedClockAnomaly')
-    expect(zh).toContain('（时钟异常，等待已钳位）')
-    expect(en).toContain('(clock anomaly, wait capped)')
+    expect(zh).toContain('（本机时间跳变，已自动缩短等待，无需处理）')
+    expect(en).toContain('(local clock jump — wait shortened automatically, no action needed)')
   })
 })

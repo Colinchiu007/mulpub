@@ -53,6 +53,24 @@ describe('时钟倒挂守卫（future timestamp in interval store）', () => {
     expect(warns.filter((m) => m.includes('未来') && m.includes('wechat_mp:acc1'))).toHaveLength(1)
   })
 
+  // C2b（fix-clock-anomaly-copy）：日志是**给排障者**的，不是给用户的动作指令。
+  // 三种情形必须能在同一行里区分：① 用户无需操作；② 校时只对「本机时间落后」有效；
+  // ③ 未来戳情形下校时无效（只能等真实时间越过或用紧急放行）。
+  // 反证点：旧的「请校准系统时间」把用户引向一个对 ③ 完全无效的动作。
+  test('C2b 告警措辞：声明用户无需操作 + 校时仅对「本机时间落后」有效 + 不得要求用户校准', () => {
+    const warns = []
+    const guard = makeGuard({ now: () => T0, warn: (m) => warns.push(m) })
+    guard._store.set('wechat_mp:acc1', FUTURE)
+    guard.check('wechat_mp', 'acc1')
+    expect(warns).toHaveLength(1)
+    const msg = warns[0]
+    expect(msg).toContain('用户无需操作')
+    expect(msg).toContain('仅对「本机时间落后」有效')
+    expect(msg).toContain('紧急放行')
+    // 旧措辞必须消失：它把「用户」当成了该校时的人，且对「未来戳」情形无效
+    expect(msg).not.toContain('请校准系统时间')
+  })
+
   test('C3 注入时钟越过未来时间戳后窗口自然过期（无粘滞）', () => {
     let now = T0
     const guard = makeGuard({ now: () => now })

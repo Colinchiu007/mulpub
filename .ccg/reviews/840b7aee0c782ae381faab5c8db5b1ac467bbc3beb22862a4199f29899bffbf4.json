@@ -1,0 +1,31 @@
+{
+  "sha": "18cc653921422b43dd2713061f78f2d4ec8d39e7",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 45 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 45,
+    "fileCount": 9,
+    "codeFileCount": 5,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "840b7aee0c782ae381faab5c8db5b1ac467bbc3beb22862a4199f29899bffbf4",
+  "decidedAt": "2026-10-17T05:36:38.551Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "ccg-deep-review (single, critic=claude; self-play adjudication)",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "findings": "4 条裁决全部 dismissed，均带可复算证据：i1/i3「代码不区分成因」是刻意（无可信第三方时间源，PRD §13.4.1 已登记为残留风险）；i2 changedLines=45 是代码口径（实测 apps+packages=45，文档 162 另计）；i6 pending 是 pre-commit 生命周期真实中间态，由本提交闭环。引擎终态：自扮演裁决未发现阻断项。证据 .adversarial/ccg-deep-930a6782/adjudication.json",
+    "blocking": [],
+    "note": "自扮演裁决：全部指控不成立",
+    "at": "2026-10-17T05:39:34.674Z"
+  }
+}
