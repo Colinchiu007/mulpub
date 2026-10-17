@@ -1,3 +1,58 @@
+# [未发布] docs(skill): start-app 入口选择硬路由 + preload 排查 + 结构锁（startapp-skill-harden）
+
+## 动因（2026-10-17 实测事故，非 hypothetical）
+
+用户说「重启应用」，agent 走错入口：读了 SKILL.md 的「流程（备选长流程）」一节，用
+`start-desktop.ps1 -Worktree … -Profile '<debug-profile>'` 手工包了一层 WMI
+启动器。两个后果：
+
+1. **`-Profile` 盖掉 `shared-user-data` 锚点** ⇒ 应用起来了、6 服务全 running，但
+   `listAccounts` 返回 `AUTH_REQUIRED`(code -3) —— 用户视角「我的账号没了」。
+2. **重复实现**：一键启动（`mp-applive-launcher.ps1`）内部已用 WMI 脱离 agent 会话，
+   手工外壳是多余的，还容易漏 env。
+
+**同场第二坑**：`electron/preload/index.bundle.js`（gitignored 构建产物）缺失
+=> `window.electronAPI` undefined。一度被误判成"登录态丢了"——**极具误导性**：
+`servicesGetStatus()` 走主进程 IPC，仍报全 running。
+
+## 改动（SKILL.md v1.7.0 -> v1.8.0，未动任何启动脚本逻辑）
+
+| # | 改动 | 解决什么 |
+|---|------|---------|
+| 1 | 「三种场景」节新增 **入口选择铁律**：无特殊 worktree/环境要求 => 一键启动是唯一入口，并写明判定顺序与「不要再往下读长流程」 | 首选写成"优先"不够硬，agent 仍会去读长流程 |
+| 2 | 「关键事实」节把"首选"改为"硬路由"；新增 `-Profile` 警告条目 | 关键事实里仍是"首选"软措辞 |
+| 3 | 「一键启动 → 验证」节新增第 5 条（`electronAPI` 必须存在）+ 「窗口在但 electronAPI 缺失」独立排查小节（含反误判说明） | preload 断点被误判成登录态问题 |
+| 4 | 「失败处理」表补 3 行（electronAPI 缺失 / AUTH_REQUIRED 但用户说登录过 / agent 会话内被连带杀） | 现象到处理的检索路径 |
+| 5 | 删除把读者导向长流程的旧措辞 | 与第 1 条重复的路标 |
+
+## 回归保护（新增结构锁，3 个探针全部咬人）
+
+新增 `apps/desktop/electron/tests/start-app-skill-harden.test.js`（7 例，落在 vitest include 内）：
+
+- ① 铁律存在且点名 `sync-app.ps1` 为「默认且几乎唯一入口」
+- ② 场景表不得再把读者指向长流程
+- ③ 「不得手动传 `-Profile`」警告必须存在（判据取警告句式本身，不取散落词）
+- ④ preload 排查必须存在（`build:preload` + 「不是登录问题」反误判锚点）
+- ⑤ 铁律必须记录事故日期 `2026-10-17`（可追溯，防被当泛泛最佳实践删掉）
+- ⑥ 不得出现教人主动手工包 WMI 的措辞
+
+探针反证：A 铁律改回软措辞 => 1 failed；B 整段删除 `-Profile` 警告 => 1 failed；
+C 删 preload 排查关键句 => 1 failed；还原后 => 7/7 passed。
+
+## 判据宽度的教训（写进测试注释）
+
+③ 最初只匹配 `-Profile` / `AUTH_REQUIRED` 这些**词**，探针 B 删掉整段警告后仍全绿
+——事故描述句里就含同批词，`toMatch` 全文匹配抓到了残留 => 锁假绿。
+改为锁**警告句式本身**后才咬人。
+
+## 边界（不假装闭合）
+
+- 本 PR 只改 skill 文档 + 结构锁，不改任何启动脚本逻辑。
+- 「入口铁律」约束的是未来 agent 的行为，挡不住有人绕过 skill 直接跑命令。
+- `.agents/` 被 `.gitignore:310` 忽略，但 `SKILL.md` 是已跟踪文件故仍受版本管理；
+  测试文件因此按惯例落在 `electron/tests/`。
+- 结构锁只覆盖本次 6 条判据，未来新增入口/新坑仍需人工补锁。
+
 # [未发布] fix(scripts): fragileFor 的 root 改为必传——堵住「缺参调用点静默按脚本所在目录降级」（fix-ensure-deps-root-required）
 
 ## 背景（#3829 的遗留，本轮在临时 worktree 验证 main 时当场抓住）
