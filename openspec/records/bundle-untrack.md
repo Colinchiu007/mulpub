@@ -114,7 +114,38 @@ CI 的 **`债务熔断检查` workflow**（`node .github/scripts/check-max-lines
 
 **另一条环境差异**：`--prune` 第一次被拒（`仍超限…不得发墓碑`），因为脚本**扫工作区**看到文件还在（`git rm --cached` 只取消跟踪）。而 **CI 按 git 索引判**，所以 CI 报 STALE、本地报一致。⇒ 先真正删掉物理产物，`--prune` 才成立。**同一判据在「工作区视角」与「索引视角」下结论相反**，是这次最值得记的一条。
 
-## 8. 未闭合（不假装闭合）
+## 8. 最容易被低估的一点：这次改动的真正代价是**推翻一整套产物契约锁的前提**
+
+第一次推送后 `QG Desktop Shards (1/2)` **红**（18m45s）。本地复现后确认：**删掉产物会让 6 个测试文件红**，而且它们的锁名把设计意图写得明明白白：
+
+| 测试文件 | 失败用例（摘要） | 它守的性质 |
+|---|---|---|
+| `electron/tests/build-preload.test.js` | 提交的 bundle 与源码暴露完全相同的 API 路径 | 改了 preload 源码就必须让产物跟上 |
+| `electron/tests/ipc-contract.test.js` | 每个 preload invoke 通道都应有主进程 handler | 产物里必须有对应通道 |
+| `src/overlay-view-suspension.test.js` | preload index.bundle.js **已重打包**（含挂起/恢复通道） | 同上 |
+| `src/shell-mode-6b.test.js` | preload index.bundle.js **已重打包**（含 setShellMode） | 同上 |
+| `electron/ipc-handlers/podcast-plan-preview-ipc.test.js` | 两个 **tracked** bundle 必须含这条通道名 | 同上 |
+| `electron/services/stealth/preload-variant.test.js` | enhanced bundle（**路径真实存在**——QM-6 Critical 回归锁） | 产物必须在 |
+
+**这不是「漏改若干测试」，而是这些锁的前提（产物已入库）被本次改动取消了。** 只删文件而不处理它们，等于把 6 道回归锁一起废掉。
+
+**处置：CI 前置构建（最小且保住全部锁）**
+
+在 `quality-gate.yml` 的 **3 个跑桌面测试的 job**（`unit-tests` / `desktop-shards` / `coverage`）里，`Ensure Electron binary` 之后插入：
+
+```yaml
+      - name: Build preload bundles
+        run: |
+          pnpm --filter @multi-publish/desktop run build:preload
+          pnpm --filter @multi-publish/desktop run build:paginator
+```
+
+锁守的性质由「**提交的**产物与源码一致」变成「**构建出的**产物与源码一致」——**仍然完全有效**，而且不再依赖「人肉记得重建产物」（这恰恰是原来那套锁要防的事，现在由 CI 机械保证）。
+另把 `build-preload.test.js` 的用例名从「提交的 bundle…」改为「构建产物…」，使名字与语义一致。
+
+**决定性验证（模拟 CI 全流程）**：删掉 5 个产物 → 跑上面两条构建（4ms + 4ms）→ 跑之前红的 6 个测试 ⇒ **6 文件 / 55 用例全绿**。
+
+## 9. 未闭合（不假装闭合）
 
 1. **`git clone` 后首次使用必须先构建**：若有人跳过 `dev:electron`/`build*` 直接 `electron .`，preload 会缺失。这属「构建产物不入库」的固有代价，已写进 `.gitignore` 内联注释与 PR 正文。
 2. **`stealth-preload.bundle.js` 的「无生成脚本」状态待单独处理**：它可能是 #3635 之后生成链被重构时遗漏的孤儿产物。正确处理是「补上生成脚本」或「确认不再使用后删除并让 `preload-path` 永久走源文件」，两者都超出「移出版本控制」的范围，需单独评审。

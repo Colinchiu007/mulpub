@@ -47,7 +47,11 @@ describe('preload 单文件构建', () => {
     expect(code).not.toMatch(/require\(["']\.{1,2}[\\/]/)
   })
 
-  it('提交的 bundle 与源码暴露完全相同的 API 路径', () => {
+  // 2026-10-17（change: bundle-untrack）：产物移出版本控制后，本用例的语义由
+  // 「**提交的** bundle 与源码一致」变成「**构建出的** bundle 与源码一致」——
+  // 它守的性质没变（改了 preload 源码就必须让产物跟上），只是产物来源从 git 换成构建。
+  // CI 的 unit-tests / desktop-shards / coverage 三个 job 已在跑测试前执行 build:preload。
+  it('构建产物与源码暴露完全相同的 API 路径', () => {
     const { OUTPUT_FILE } = require('../../scripts/build-preload')
     expect(path.basename(OUTPUT_FILE)).toBe('index.bundle.js')
     const sourceApi = loadExposedApi(path.resolve(__dirname, '../preload/index.js'))
