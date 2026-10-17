@@ -439,3 +439,21 @@ test('§7-T5【配方同源·结构锁】：内容键的 diff 旗标必须与判
   assert.ok(!/:\(exclude\)\.ccg\/reviews/.test(RECORD_PATHSPEC.join(' ')),
     '不得只排除 .ccg/reviews —— 判定器排的是整个 .ccg，收窄一侧就回到自指')
 })
+
+test('§8-T7：新建脚本必须真的没被 .gitignore 吞掉（`!scripts/*.js` 那条例外一旦漂走，CI 是 MODULE_NOT_FOUND 而本机全绿）', () => {
+  // 现场依据：`.gitignore` 第 106 行 `scripts/*.js` 会静默忽略新建脚本，本 PR 的
+  // scripts/ccg-record-ledger.js 靠一条 `!scripts/ccg-record-ledger.js` 例外才入得了库。
+  // 例外按**文件名**写，所以任何一次重排/改写 `.gitignore` 都可能让它失效，而失效的症状
+  // 只在 CI 上出现（文件没入库 ⇒ require 直接 MODULE_NOT_FOUND）。这里用 git 自己的
+  // 判定当判据，不自己重实现一遍 glob 语义。
+  const { spawnSync } = require('node:child_process')
+  const ROOT_DIR = path.resolve(__dirname, '..')
+  for (const rel of ['scripts/ccg-record-ledger.js', 'scripts/lib/ccg-evidence-hash.js']) {
+    const r = spawnSync('git', ['check-ignore', '--no-index', '-q', rel], { cwd: ROOT_DIR, encoding: 'utf8' })
+    assert.notStrictEqual(r.status, 0,
+      rel + ' 被 .gitignore 命中 ⇒ 它不会随 PR 入库，CI 上表现为 MODULE_NOT_FOUND（本机全绿）。'
+      + ' git status=' + r.status + ' stderr=' + String(r.stderr || '').slice(0, 120))
+    const t = spawnSync('git', ['ls-files', '--error-unmatch', rel], { cwd: ROOT_DIR, encoding: 'utf8' })
+    assert.strictEqual(t.status, 0, rel + ' 必须是受管文件（判据与它要求的行为同源）：' + String(t.stderr || ''))
+  }
+})

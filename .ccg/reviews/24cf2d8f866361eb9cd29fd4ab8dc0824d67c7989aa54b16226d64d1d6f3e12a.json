@@ -23,8 +23,116 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "self_play_blocked",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "domains": [
+          "crypto"
+        ]
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "domains": [
+          "crypto"
+        ]
+      }
+    ],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": ".gitignore line-106 exception `!scripts/*.js` is fragile; if line order/count shifts, `ccg-record-ledger.js` is silently ignored, causing `MODULE_NOT_FOUND` in CI while local passes.",
+        "highRiskDomains": [],
+        "prosecution": ".gitignore 里 `!scripts/ccg-record-ledger.js` 这条例外按文件名写，任何一次重排/改写都可能让它失效；失效时文件不入库，CI 报 MODULE_NOT_FOUND 而本机全绿（本机工作副本还在）。",
+        "defense": "被评审的那笔提交里确实**没有**机械防护 —— 只有我上一轮手工跑过一次 `git check-ignore` 的一次性证据。",
+        "verdict": "upheld",
+        "rationale": "补成常驻锁：§8-T7 用 git 自己的判定（check-ignore --no-index 必须非 0 + ls-files --error-unmatch 必须 0）逐文件核两个新脚本，且不自建 glob 语义。变异 N5（把例外注释掉）实测让 §8-T7 指名红，还原 md5 对账通过。",
+        "action": "已在本轮处置：补成常驻锁：§8-T7 用 git 自己的判定（check-ignore --no-index 必须非 0 + ls-files --error-unmatch 必须 0）逐文件核两个新脚本，且不自建 glob 语义。变异 N5（把例外注释掉）实测让 §8-T7 指名红，还原 md5 对账通过。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "Proposal admits manual `.md` edits forge `ccg_evidence`/`ccg_payload_sha256`; defense is only local two-source comparison (`deepReview` + `ledger`), both writable in working tree. No cryptographic binding.",
+        "highRiskDomains": [
+          "crypto"
+        ],
+        "prosecution": "台账 md 手改即可伪造 ccg_evidence/ccg_payload_sha256，两源比较也只是两份仓内文本，没有密码学绑定。",
+        "defense": "同 round1 i2 的外部读码结论（判据与代码未变）：载荷是**实算比对**（:672-677），base/head 必须 40hex 且 head 落在本次线上，ccg_written_by 参与否决；sha256 无密钥确是事实，design D9 已把它写成边界而非证明。",
+        "verdict": "dismissed",
+        "rationale": "不重开：把形状判据升级成真联网核验属 tasks §8.4，须先决定\"核验失败\"算红还是算跳过，后者就是把洞换个写法。"
+      },
+      {
+        "id": "i3",
+        "severity": "Critical",
+        "finding": "Base resolution uses `resolveBaseSha` accepting `origin/main` (moving pointer); proposal notes concurrent merge creates false-negative (`假红`) that will be treated as noise and relaxed.",
+        "highRiskDomains": [],
+        "prosecution": "resolveBaseSha 接受 origin/main 这种移动指针，并发合并会造出「假红」，而提案自己说假红会被当噪声放宽。",
+        "defense": "提案写的是**风险**，实现写的是对策：锚里存的从来不是 ref 名 —— resolveBaseSha 只返回 40hex 或抛错（HEX40_RE 校验，取不到即抛，绝不返回空串），判据一律按锚里那个 sha 重算，不看调用方的 base。锁在 刀1「ccg_payload_base 写成 ref 名 ⇒ 必须红」与变异 M2/M3（重算退回调用方 base / base 形状放宽成空即算过）实测指名红。",
+        "verdict": "dismissed",
+        "rationale": "「假红会被放宽」这句是对人类行为的提醒，不是代码缺口；实现侧的对策是可重算的 sha，不是信任 ref。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "Shared `scripts/lib/ccg-evidence-hash.js` serves writer and judge; proposal explicitly warns divergence (`漂移`) will cause false failures. No interface contract enforced.",
+        "highRiskDomains": [
+          "crypto"
+        ],
+        "prosecution": "写入侧与判据共用 scripts/lib/ccg-evidence-hash.js，提案警告\"两份实现必然漂移\"，但没有接口契约强制。",
+        "defense": "契约是被强制的，且在两侧：nextLedgerFields 拿 lib.LEDGER_FIELDS 做**双向**对账（缺字段或多字段当场抛），W11 锁这一条并验证「临时给 lib 加一个字段 ⇒ 写入侧必须抛」（防恒真）；参数构造由 lib 单点导出 payloadArgs（两侧都不再手拼数组），参数位置错序另有「payloadArgs 的钉参数位置必须对」锁；变异 M20b/M21（摘掉钉参/摘掉子命令后置旗标）各自指名红。",
+        "verdict": "dismissed",
+        "rationale": "主张的担忧成立但已被机械覆盖，且覆盖方式正是\"不各存一份\"：判据与写入侧 require 同一模块。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "`git diff` payload SHA computation with pinned flags (`-c diff.noprefix=false`, etc.) is CPU-heavy; 733 `.ccg/reviews` files across 38 worktrees multiply cost.",
+        "highRiskDomains": [],
+        "prosecution": "载荷 sha 计算钉了多个 -c 参数，CPU 开销大；733 份 .ccg/reviews × 38 个 worktree 会放大成本。",
+        "defense": "成本模型不对：判据只读**本次变更集里**那些 .ccg 文件（statuses 过滤，不是目录遍历），载荷 diff 每轮**只算一次**（memoSha 备忘录，且有专门用例断言两条 dual 记录共用一次取证 calls===1）；-c 参数不改变 diff 体量。钩子侧的 spawn 风暴是另一件事，已由 pre-commit 批量暂存把 2N→常数（本仓既有回归锁）。",
+        "verdict": "dismissed",
+        "rationale": "可复核点：备忘录失效时那条 calls===1 断言立刻红（它是行为断言，不是读代码）。"
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "finding": "External dual-model review (`§8`) shows `opencode` delivered zero results (`零交付`) then backend switched; gate relies on non-deterministic external evaluation (`critic=claude`).",
+        "highRiskDomains": [],
+        "prosecution": "§8 这一轮显示 opencode 会零交付后换后端，判据链条依赖非确定的外部评审（critic=claude）。",
+        "defense": "外部评审的可用性确实非确定，但**判据不依赖它放行**：拿不到外部裁决时引擎落 self_play_pending / 台账不落锚 ⇒ PR 侧记欠账（fail-closed）。零交付的处置也如实记进执行记录（第一次只回「请提供需要审查的主张内容」，重问而非默认通过）。",
+        "verdict": "dismissed",
+        "rationale": "把「外部不可用」读成「静默通过」才是缺口，现状相反：它读成红。真正没闭合的是锚的联网核验，记在 tasks §8.4。"
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "reason": "high_risk_requires_external",
+        "domains": [
+          "crypto"
+        ]
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "reason": "high_risk_requires_external",
+        "domains": [
+          "crypto"
+        ]
+      }
+    ],
+    "note": "自扮演裁决：3 条指控成立或需外部复核",
+    "at": "2026-10-17T08:14:10.906Z"
   }
 }

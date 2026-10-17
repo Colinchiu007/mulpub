@@ -19,8 +19,8 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "self_play_pending",
-    "performedBy": "self-play(pending)",
+    "status": "self_play_blocked",
+    "performedBy": "self-play",
     "confidenceWeight": 0.6,
     "requiresExternalReview": [
       {
@@ -38,9 +38,88 @@
         ]
       }
     ],
-    "findings": null,
-    "template": ".adversarial\\ccg-deep-d5934759\\adjudication.json",
-    "note": "裁决尚未填写：5/5 条未定（i1, i2, i3, i4, i5）",
-    "at": "2026-10-17T07:11:13.225Z"
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "Anti-forgery uses only URL regex, not GitHub verification. A forged `#issuecomment-\\d+` URL clears all gates with zero external proof, defeating the anchor.",
+        "highRiskDomains": [],
+        "prosecution": "URL 判据只校验形状（EVIDENCE_URL_RE），判据跑在 CI 的 changes 作业：无 gh 认证、无依赖安装 ⇒ 任何形状合法的 `#issuecomment-\\d+` 都能填进去。若同时伪造引擎 json（同为仓内文本），机械层无人能发现。",
+        "defense": "这一格不是本 PR 引入的缺口，而是被明确归类的强度边界：design D9 原文写明「它不是密码学签名……能证明的是裁决与代码同源，不是裁决可信；真实性仍靠人抽查」，评论正文也逐字带这句。且\"改一行仓内文本\"已不成立：要过判据必须同时满足 台账 4 个被判值 + 引擎 json 状态在白名单 + 载荷按锚里的 base 实算相等（check-pr-exec-record.js:672-677）+ base/head 均为 40hex + head 落在本次线上 + ccg_written_by=deep-review。变异 M14（摘两源一致）/M15（摘 provenance 否决）各自指名红。",
+        "verdict": "dismissed",
+        "rationale": "可证伪点：只有让判据联网核验评论存在性才能把这一格变机械；那会新增「核验失败算红还是算跳过」两档，后者等于把洞换个写法。已作为 tasks §8.4 显式留人工裁决，不是没看见。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "Evidence URL and hash are written into excluded `openspec/records/`. A forged record can reference any payload hash; format-only verification makes forgery trivial.",
+        "highRiskDomains": [
+          "crypto"
+        ],
+        "prosecution": "证据 URL 与载荷哈希写在被载荷排除的 openspec/records/ 里 ⇒ 伪造的记录可以声称描述任意载荷，而格式判据放行。",
+        "defense": "同一主张交给**外部模型读码**复核（claude，crypto 域不允许自扮演豁免），其逐行结论：不成立 —— check-pr-exec-record.js:672-677 会按锚里记录的 base 重算 diff 并比对，「引用任意载荷哈希」必出「载荷不符」；主张里唯一成立的部分是 `ccg_evidence` 只按形状判，而那与 D9 写下的边界一致（见 i1）。",
+        "verdict": "dismissed",
+        "rationale": "结论来源是外部模型的行号级读码，不是我背书：伪造者现在要同时改对两份仓内文本、复现一个真实 diff 的 sha256，并往公开 PR 贴一条内容自洽的假评论 —— 机械上挡不住的只剩「评论内容是否可信」，那一格 D9 已声明交给人抽查。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "Upsert splits on `\\n`, keeps `\\r` via regex. Mixed line-ending files risk corruption or phantom diffs, as noted in proposal's own CRLF correction.",
+        "highRiskDomains": [],
+        "prosecution": "upsertFrontmatterFields 先 split(\\n) 再用正则处理 \\r，混合行尾文件可能被改坏或造出幽灵 diff。",
+        "defense": "该描述对应的是修复**之前**的形态。现实现逐行 splice、只对被判定的那一行替换，行内 \\r 一律不碰；夹具里有一条混合行尾用例断言「未被点名的行逐字节不变」，另有一条 CRLF 用例断言 cr===lf===crlf 且 LF 文件不得被引入 CR。变异 M19（退回「探测多数派后统一回写」）实测指名红。",
+        "verdict": "dismissed",
+        "rationale": "判据是写盘后重新读回数字节三元组，不是注释承诺；M19 证明它在承重。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "Deep-review script parses `LOCATE` output with fragile `case` statement. Unexpected node output can misparse `MODE` or `SHA`, breaking shell-to-JS contract silently.",
+        "highRiskDomains": [],
+        "prosecution": "deep-review.sh 的 --locate 分支把 $REC 的 basename（64hex 内容键）赋给 $SHA 再交给引擎；引擎用 $SHA 执行 git diff <sha>^ <sha>（ccg-deep-review.js:146）与 <base>...<sha>（:226），两者都不是提交 ⇒ 取不到 diff，深度审查静默降级为「跑完了但什么都没审」，而 shell 还打印「命中」。",
+        "defense": "无有效辩护。结构上看不出问题（那行字面像在\"对齐记录名\"），且它只在 shell 三条路径都落空、只有 node 命中的分支上生效 —— 也就是我为多提交分支新增的那条路；纯文本 grep 类结构锁对它是免疫的。",
+        "verdict": "upheld",
+        "rationale": "先写锁再修：§7-T6 首跑红在「实得 aa64f478…（64hex）」，去掉 $SHA 赋值后绿；锁是行为锁 —— 临时仓真跑 deep-review.sh --dry-run，用一个打印自身 argv 的桩引擎取证 --sha 实参。变异 N4 把坏行加回 ⇒ §7-T6 指名红。",
+        "action": "已在本轮处置：先写锁再修：§7-T6 首跑红在「实得 aa64f478…（64hex）」，去掉 $SHA 赋值后绿；锁是行为锁 —— 临时仓真跑 deep-review.sh --dry-run，用一个打印自身 argv 的桩引擎取证 --sha 实参。变异 N4 把坏行加回 ⇒ §7-T6 指名红。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "Payload excludes `openspec/records` and `.ccg/reviews`. Legitimate doc/review changes are invisible to hash audit, reducing audit completeness by design.",
+        "highRiskDomains": [
+          "crypto"
+        ],
+        "prosecution": "载荷排除 openspec/records 与 .ccg/reviews ⇒ 合法的文档/评审改动对哈希审计不可见，按设计降低了审计完整性。",
+        "defense": "该主张交给**外部模型**复核（第一次 opencode 跑完零交付，只回一句「请提供需要审查的主张内容」；换单行 argv 重问后给出结论）：前半成立（排除是自指防护的必要条件，否则「写下哈希」这一步本身改变被哈希内容 ⇒ 判据恒红 = 没有判据），后半「降低审计完整性」方向对但幅度被夸大 —— 这两条路径仍被台账逐字段核对、两源一致、Gate 2c2 记录存在性、doc 系列判据覆盖，且这些判据都住在无条件的 changes 作业里。外部评审真正的可执行结论是：现状问题是**归类错误**，注释把它写成\"设计必需\"而没写推论。",
+        "verdict": "upheld",
+        "rationale": "采纳其可执行部分：已在 scripts/lib/ccg-evidence-hash.js 的 PAYLOAD_EXCLUDES 注释里把「排除面的代价」明写成残留风险，并如实指出未被机械覆盖的只剩「正文内容是否如实」这一格。不把它记成已闭合。",
+        "action": "已在本轮处置：采纳其可执行部分：已在 scripts/lib/ccg-evidence-hash.js 的 PAYLOAD_EXCLUDES 注释里把「排除面的代价」明写成残留风险，并如实指出未被机械覆盖的只剩「正文内容是否如实」这一格。不把它记成已闭合。"
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "reason": "high_risk_requires_external",
+        "domains": [
+          "crypto"
+        ]
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "reason": "high_risk_requires_external",
+        "domains": [
+          "crypto"
+        ]
+      }
+    ],
+    "note": "自扮演裁决：3 条指控成立或需外部复核",
+    "at": "2026-10-17T08:13:25.711Z"
   }
 }

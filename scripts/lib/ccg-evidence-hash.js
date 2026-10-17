@@ -12,6 +12,12 @@ const crypto = require('crypto');
 /**
  * 载荷 = `git diff <base> <head> -- . :(exclude)openspec/records :(exclude).ccg/reviews`
  *
+ * 代价（**残留风险，未闭合**，2026-10-17 外部评审 i5 明写）：排除是自指防护的必要条件，
+ * 但它同时把 `openspec/records/` 与 `.ccg/reviews/` 推到**哈希锚的承重面之外**。这两条路径仍被
+ * 别的门禁覆盖（台账逐字段核对、两源一致、执行记录存在性 Gate 2c2、doc 系列判据都住在无条件的
+ * changes 作业里），**没有被机械覆盖的只剩一格：正文内容本身是否如实**（例如把裁决理由写反）。
+ * 那一格只能靠 `ccg_evidence` 指向的公开评论 + 人工抽查，本模块不假装它能被哈希锁住。
+ *
  * 排除那两条是**自指防护**：证据 URL 与哈希本身要写进 `openspec/records/<分支>.md` 的 frontmatter，
  * 而钩子每笔提交还会重写 `.ccg/reviews/**`。若把它们算进载荷，「写下哈希」这一步就会改变载荷
  * ⇒ 校验必红（一次的哈希永远不等于写完之后的重算），结果是一条永远绿不了的判据 —— 那等于没有判据。
