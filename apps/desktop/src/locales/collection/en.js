@@ -260,6 +260,7 @@ export default {
       doneNote: 'Done',
       registerOnlyNote: 'Registered (body not supported yet)',
       collectOkRewriteFailNote: 'Collected, rewrite failed (using original)',
+      duplicateNote: 'Already collected — skipped this run (tick "Include collected" to force re-collection)',
       fallbackSuffix: ', {count} images fell back to original URLs',
       // collection-ui-refinement: 12 keys surfaced when BatchCollectPanel entered the scan scope
       scopeFavlist: 'Specific favlist',

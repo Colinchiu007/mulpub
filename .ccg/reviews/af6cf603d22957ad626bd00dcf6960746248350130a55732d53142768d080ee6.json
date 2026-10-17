@@ -1,0 +1,26 @@
+{
+  "sha": "9bb7a6e52775f5f08e13593b2b3e5ce16ae388d8",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 139 行（≤ 200）但命中 auth/数据库/加密：敏感内容 1 处",
+  "stats": {
+    "changedLines": 139,
+    "fileCount": 8,
+    "codeFileCount": 6,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 1,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "af6cf603d22957ad626bd00dcf6960746248350130a55732d53142768d080ee6",
+  "decidedAt": "2026-10-17T13:40:19.016Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "findings": "判定理由为「139 行（≤200）但命中敏感内容 1 处」。逐字核对本次 diff：改动为渲染层文案替换、进度行分支、多语言条目与判据脚本健壮性修复，未触及任何凭据读取、加解密或持久化代码；那 1 处命中是**既有引导/提示文案里的配置指引字样**（指向设置页的既有文案被本次 diff 上下文带入），属字面匹配 ⇒ 假阳性。实质风险面：判据脚本的区块限定取值逻辑由 6 例自测覆盖，并对真实仓库做了「改前应红 / 改后应绿」的双态验证；呈现层行为由 3 条新组件锁覆盖。无待人工裁决争议。"
+  }
+}

@@ -247,7 +247,7 @@ export default {
     },
     zhihuFav: {
       stepHintNoFavlists: '下一步：点「获取收藏夹」拉取收藏夹列表，才能选择要采集的范围。',
-      stepHintNeedContents: '下一步：选好范围与数量后点「加载收藏内容」——加载出来的条目才能勾选并「采集并改写」。',
+      stepHintNeedContents: '下一步：选好范围与数量后点「加载收藏内容」——加载出来的条目才能勾选并「采集&改写」。',
       kindAnswer: '回答', kindArticle: '文章', kindColumn: '专栏', kindPin: '想法', kindVideo: '视频', kindUnknown: '链接',
       rewriteFailedBadge: '改写失败用原文',
       imageFallbackBadge: '{count} 张图片回退原链',
@@ -256,6 +256,7 @@ export default {
       doneNote: '完成',
       registerOnlyNote: '已登记（暂不支持正文采集）',
       collectOkRewriteFailNote: '采集成功，改写失败用原文',
+      duplicateNote: '已采集过，本次跳过（勾选「包含已采集」可强制重采）',
       fallbackSuffix: '，{count} 张图片回退原链',
       // ── collection-ui-refinement：BatchCollectPanel 迁入扫描视野后补齐的 12 个既有用法 key ──
       scopeFavlist: '指定收藏夹',
@@ -268,7 +269,7 @@ export default {
       selectAll: '全选',
       selectedCount: '已选 {count} 条',
       collecting: '采集中...',
-      collectAndRewrite: '采集并改写',
+      collectAndRewrite: '采集&改写',
       markCollected: '已采集',
     },
     batch: {

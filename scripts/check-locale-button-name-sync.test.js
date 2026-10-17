@@ -46,7 +46,10 @@ test('文案与被引用按钮名逐字一致 → PASS', () => {
   const dir = tmpLocale([
     'export default {',
     '  zhihuFav: {',
-    "    loadBtn: '获取收藏夹',",
+    '  zhihuFavlist: {',
+    "loadBtn: '获取收藏夹',",
+    '  },',
+    '  zhihuFav: {',
     "    loadContents: '加载收藏内容',",
     "    collectAndRewrite: '采集并改写',",
     "    stepHintNoFavlists: \"下一步：点「获取收藏夹」拉取列表。\",",
@@ -62,7 +65,10 @@ test('按钮文案改了、引导没跟 → FAIL 且点名两侧现值', () => {
   const dir = tmpLocale([
     'export default {',
     '  zhihuFav: {',
-    "    loadBtn: '拉取收藏夹',", // 按钮改名了
+    '  zhihuFavlist: {',
+    "loadBtn: '拉取收藏夹',",
+    '  },',
+    '  zhihuFav: {',
     "    loadContents: '加载收藏内容',",
     "    collectAndRewrite: '采集并改写',",
     "    stepHintNoFavlists: \"下一步：点「获取收藏夹」拉取列表。\",", // 引导还是旧名
@@ -81,7 +87,10 @@ test('引导里出现未被登记引用的旧按钮名不算红（只管登记�
   const dir = tmpLocale([
     'export default {',
     '  zhihuFav: {',
-    "    loadBtn: '获取收藏夹',",
+    '  zhihuFavlist: {',
+    "loadBtn: '获取收藏夹',",
+    '  },',
+    '  zhihuFav: {',
     "    loadContents: '加载收藏内容',",
     "    collectAndRewrite: '采集并改写',",
     '    // 这条文案提到别的按钮名（未登记），不该被本判据拦',
@@ -98,7 +107,10 @@ test('登记的 localeKey 在 locale 里缺失 → FAIL（key 被删而登记没
   const dir = tmpLocale([
     'export default {',
     '  zhihuFav: {',
-    "    loadBtn: '获取收藏夹',",
+    '  zhihuFavlist: {',
+    "loadBtn: '获取收藏夹',",
+    '  },',
+    '  zhihuFav: {',
     "    loadContents: '加载收藏内容',",
     '  },',
     '}',
@@ -112,7 +124,10 @@ test('zh 与 en 都要过（任一语言不一致即红）', () => {
   const zhOk = [
     'export default {',
     '  zhihuFav: {',
-    "    loadBtn: '获取收藏夹',",
+    '  zhihuFavlist: {',
+    "loadBtn: '获取收藏夹',",
+    '  },',
+    '  zhihuFav: {',
     "    loadContents: '加载收藏内容',",
     "    collectAndRewrite: '采集并改写',",
     "    stepHintNoFavlists: \"下一步：点「获取收藏夹」拉取列表。\",",
@@ -123,7 +138,10 @@ test('zh 与 en 都要过（任一语言不一致即红）', () => {
   const enBad = [
     'export default {',
     '  zhihuFav: {',
-    "    loadBtn: 'Load Favorites',",
+    '  zhihuFavlist: {',
+    "loadBtn: 'Load Favorites',",
+    '  },',
+    '  zhihuFav: {',
     "    loadContents: 'Load items',",
     '    stepHintNoFavlists: \'Next: click "Fetch Favorites" first.\',', // 引导与按钮名不一致
     '    stepHintNeedContents: \'Next: click "Load items".\',',
