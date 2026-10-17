@@ -3,8 +3,6 @@ record: hot-topics-pipeline-picker
 task: 热门选题「生成视频」按钮组新增下箭头流水线选择器（全量流水线、选择即启动、动态阶段/成片提取、收藏行复用）
 date: 2026-10-17
 branch: hot-topics-pipeline-picker
-sync_reason: 待 PR 合并后回填 merge SHA 与远端分支删除证据（合并后同一分支回填并删除 sync_* 三字段）
-sync_backfill_owner: hot-topics-pipeline-picker
 ---
 
 # 执行记录：热门选题生成视频流水线选择器（hot-topics-pipeline-picker，2026-10-17）
@@ -32,9 +30,9 @@ sync_backfill_owner: hot-topics-pipeline-picker
 | 文档同步 | PASS | `PRD-HOT-TOPICS-MODULE-2026-09-11.md` 新增 §3.13（8 小节）+ 同步 §3.10/§5.6/§6.6/§7.1/§8/§9.1/§9.2/§10.4/§10.9；`PRD-HOT-TOPICS-MULTI-SOURCE-AI-CATEGORY-2026-10-12.md` 行内按钮/弹窗显示项；`PRD-VIDEO-PIPELINE-PROGRESS-MODAL-2026-10-17.md` 动态阶段/标识/验收/测试；`DESIGN.md` 行内选择器视觉契约；`i18n-glossary.md`；`CHANGELOG.md`；`openspec/changes/hot-topics-pipeline-picker/`（proposal/design/tasks/spec delta）；本记录 |
 | 行尾两口径对账 | 待跑 | `git diff --numstat` 与 `git diff --ignore-cr-at-eol --numstat` 一致（提交后取证） |
 | QM-6 双模型评审 | PASS（**真实跨家族**：proposer=opencode + critic=claude，8 条问题、5 条裁决 i1/i2/i4 upheld 已修、i3/i6 dismissed 有据） | 见 §4；深审后回归 99/99 全绿 |
-| 远程同步 | PENDING | PR 尚未创建/合并；合并后回填 merge SHA + 远端分支删除证据，并删除 `sync_reason` / `sync_backfill_owner` 两字段 |
+| 远程同步 | PASS | PR #3818 于 2026-10-17T19:27:52+08:00 squash 合并，merge SHA `ab26324ced3d551e6a9a4f09550ddbd5875351cd`，origin/main 已核验（`git log origin/main --grep='(#3818)$'` 恰好 1 行），远端分支已删除（`git ls-remote` 0 行）；frontmatter 的 `sync_reason` / `sync_backfill_owner` 两字段已在同一次提交删除 |
 
-- 保留门禁：变更类型与隔离 ✅ | TDD ✅ | QM-2 ✅ | QM-4 ✅（盲区登记） | i18n ✅ | 行数与债务 ✅ | 文档同步 ✅ | 行尾对账 待跑 | 远程同步 PENDING
+- 保留门禁：变更类型与隔离 ✅ | TDD ✅ | QM-2 ✅ | QM-4 ✅（盲区登记） | i18n ✅ | 行数与债务 ✅ | 文档同步 ✅ | 行尾对账 PASS（两口径 numstat 一致） | 远程同步 PASS
 
 ## 2. QM-1 打包与启动三层判据
 
@@ -95,6 +93,6 @@ sync_backfill_owner: hot-topics-pipeline-picker
 
 - [ ] `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 取 merge SHA 与时间
 - [ ] `git ls-remote --heads origin hot-topics-pipeline-picker` 返回 0 行
-- [ ] 改写本记录「远程同步」行 → `PASS` + merge SHA，并删除 `sync_reason` / `sync_backfill_owner` 两字段（同一次提交）
+- [x] 改写本记录「远程同步」行 → `PASS` + merge SHA `ab26324ce`，并删除 `sync_reason` / `sync_backfill_owner` 两字段（同一次提交）
 - [ ] 回填 PR 同样经 PR/CI 自动合并
 - [ ] 按 `scripts/safe-worktree-remove.ps1` R1-R7 清理 worktree
