@@ -381,6 +381,59 @@
 2. **视觉回归不覆盖该改动**：被删 UI 在「知乎收藏文章」折叠组内，采集页默认态像素截图看不到 ⇒ `collection` 像素 0 回归（1/1 PASS）**不能**当作「删除正确」的证据，正确性由组件锁守。
 3. **无真机验证**：需在真实应用里确认「加载内容 → 勾选 → 采集并改写」可用，且旧按钮确实消失。
 
+### 4.3 阶段引导：加载出条目之前必须有路标（2026-10-17，change: zhihu-fav-step-hint）
+
+#### 4.3.1 问题（用户实测反馈触发）
+
+§4.2 删掉旧入口的两个**常驻**按钮后，出现了一个当时没预见的可用性空洞：
+
+> 用户原话：「在知乎收藏文章区域，没有「采集并改写」按钮啊，怎么操作？」
+
+**核因（代码位置，非猜测）**：「采集并改写」按钮位于 `v-if="zhihuFavItems.length"` 容器内（`BatchCollectPanel.vue` 模板块），而 `zhihuFavItems` 初始为 `ref([])`、**只在 `loadZhihuFavItems()` 成功后**才被填充。也就是说：
+
+- **加载收藏内容之前，那个按钮在 DOM 里根本不存在**（不是禁用、不是灰色，是没渲染）
+- 而在这一步之前，界面上**没有任何一个字**告诉用户「下一步该点『加载收藏内容』」
+
+**旧入口为什么没有这个问题**：它的两个按钮是**常驻**的（虽然一直不可点），旁边还配着两条提示，其中一条正是「请先获取收藏夹并选择要采集的收藏夹」。删按钮是对的，**把"路标"一起拆了是过头**。
+
+**同型性提醒**：2026-10-16 修的那个「按钮恒灰、点击无反应」故障，根因同样是**判据与引导缺失**。区别只是那次表现为「有按钮但不知道为何不能点」，这次表现为「按钮压根不出现且不知下一步」。
+
+#### 4.3.2 方案：只补纯文案路标，不恢复旧按钮
+
+| 阶段 | 判定条件 | 引导文案（zh） |
+|---|---|---|
+| A | 凭据可用 且 `zhihuFavlists.length === 0` | 下一步：点「获取收藏夹」拉取收藏夹列表，才能选择要采集的范围。 |
+| B | 凭据可用 且 有收藏夹 且 `zhihuFavItems.length === 0` | 下一步：选好范围与数量后点「加载收藏内容」——加载出来的条目才能勾选并「采集并改写」。 |
+| C | `zhihuFavItems.length > 0` | **不显示**（按钮已出现，不打扰） |
+| — | 凭据不可用（`!zhihuSecretAvailable`） | **不显示**（此时 `zhihuConfigHint` 已在讲「请先配置」，再叠一条会变成两条互相抢注意力的话） |
+
+**实现**：`zhihuFavStepHint` computed + 模板块 `<div v-if="zhihuFavStepHint" class="col-hint zb-mt6" data-testid="zhihu-fav-step-hint">`（纯文案，**内部不得有任何 button/a/input**）。文案 key `collection.zhihuFav.stepHintNoFavlists` / `stepHintNeedContents`（zh/en 成对）。
+
+#### 4.3.3 显示项与提示文字（locale 成对）
+
+| key（`collection.zhihuFav.*`） | zh | en |
+|---|---|---|
+| `stepHintNoFavlists` | 下一步：点「获取收藏夹」拉取收藏夹列表，才能选择要采集的范围。 | Next: click "Load Favorites" to fetch your favourites list — you need it before choosing a scope. |
+| `stepHintNeedContents` | 下一步：选好范围与数量后点「加载收藏内容」——加载出来的条目才能勾选并「采集并改写」。 | Next: pick a scope and count, then click "Load items" — only loaded items can be selected and collected & rewritten. |
+
+**文案约束**：文案中引用的按钮名**必须与 locale 里对应按钮逐字一致**（zh `loadBtn=获取收藏夹` / `loadContents=加载收藏内容`；en `Load Favorites` / `Load items`），否则用户会去找一个不存在的按钮。
+
+#### 4.3.4 验收标准
+
+| 编号 | 判据 |
+|---|---|
+| S1 | 阶段 A：`data-testid="zhihu-fav-step-hint"` 存在，文案含「获取收藏夹」；此时「采集并改写」不渲染 |
+| S2 | 阶段 B：文案含「加载收藏内容」；「采集并改写」仍不渲染 |
+| S3 | 阶段 C：路标消失，且「采集并改写」渲染 |
+| S4 | 凭据未配置：路标**不显示**，只留 `zhihu-config-hint` 一条 |
+| S5 | 路标是纯文案（内部 `button/a/input` 数量为 0），旧入口 testid 仍然一个都不出现 |
+
+#### 4.3.5 遗留
+
+1. **仍无真机验证**：路标出现/消失的逻辑由组件锁覆盖（5 条），但真实窗口里的**视觉位置**（是否紧跟在对应按钮下方）未截图确认。
+2. **像素门禁仍不覆盖**：路标同样在折叠组内，`collection` 默认态截图看不到 ⇒ 像素 PASS 不能证明路标位置合理。
+3. **文案里的按钮名与 locale 的耦合未做机械校验**（S1/S2 只断言包含关键词）：若将来改 `loadContents` 的文案而忘了改路标，锁不会红。列入 §9 范围外（代价大于收益：需要跨 key 的引用校验机制）。
+
 ## 5. 显示项与提示文字（locale zh/en 成对）
 
 ### 5.1 显示项

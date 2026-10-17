@@ -34,6 +34,36 @@ v5 把「同账号最小发布间隔」从档位派生改为逐平台表（只�
    实跑该测试文件 → `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 对账 → 才允许勾 tasks。
    本片 TDD 顺序因此可复核：策略层实测 9 条红→转绿，设置页实测 6 条红→23/23 绿，
    两次红的条数与"我写了哪几条锁"逐条对得上（不是"跑绿了就说红过"）。
+## 外部记忆服务「写入成功 ≠ 落盘 ≠ 可检索」三层判据；EverOS 清理探测残留时 CRLF 必须显式保真（everos-mcp-cross-app-grids，2026-10-17）
+
+### lesson:everos-write-success-is-not-persisted-nor-retrievable
+
+给 EverOS（本机记忆服务，v1.4.1 @ `127.0.0.1:8000`，HTTP API `/api/v1/memory/{add,flush,get,search}`）接 MCP 时，验证链路必须走满三层，**任一层单独达标都会得出假结论**：
+
+| 层 | 判据 | 不做的后果 |
+|---|---|---|
+| ① 接口回显 | `POST /add` 回 `status=accumulated`、`/flush` 回 `status=extracted` | 只看这层会把「仍在会话缓冲」读成「已落盘」 |
+| ② 落盘产物 | `~/.everos/<app>/<project>/users/<owner>/episodes/<date>.md` 里 grep 到**内容级独特子串** | 只看这层会漏掉「文件变了但没进检索索引」 |
+| ③ 检索读回 | `POST /search` 真能命中该条目 | 只看这层无法区分「写入失败」与「索引未同步」 |
+
+本轮三层都做了，且第③层暴露了前两层看不见的问题：服务端 cascade 曾长期 `pending>0 / healthy=false`，此时 `add+flush` 全部回 `extracted`、md 也确实在写，但 `search` 全空。**cascade 恢复后索引才自动追上**（实测删条目后索引同步刷新，无需手动 rebuild）。
+
+清理探测残留（自己写入的验证用记忆）时另外两条：
+
+- **CRLF 必须显式保真**。`~/.everos/*.md` 是 CRLF 行尾，用 `io.open(newline="")` 读入后 `$` **不匹配 `\r`**，`^entry_count: (\d+)$` 会静默返回 None；若此时按「没匹配到就跳过」处理，`entry_count` 就不回写，文件头与真实条目数从此分叉。正则是 `^entry_count: (\d+)\r?$`，且**只替换数字本身**（`m.start(1)`/`m.end(1)`），保住原行尾。清理后校验：CRLF 数 == LF 数（0 裸 LF）、无 BOM、条目编号连续无空洞、`get` 读回的 `total_count` 与文件一致。
+- **删除数与预期不符就不写盘**。本轮预期「episode 删 1 + atomic_fact 删 3」，脚本把这两个数与「哨兵串已彻底消失」都做成写盘前置条件，任一不满足即 `ABORT`。删记忆这类不可逆操作，判据必须前置而非事后检查。
+
+### lesson:mcp-grid-enumeration-must-cover-every-dimension
+
+给外部记忆服务写 MCP 封装时，寻址维度要**逐维枚举**，且**每补一维都要单独实测**。EverOS 的寻址是 `(app_id × project_id × owner_id)` 三维，而 v1.8 只枚举了 `project × owner`，`app_id` 写死 —— 结果 `default_app/`、`dsh/`、`qoder/` 三个 app 下的记忆整批在检索面外，**且无任何提示**。这与该脚本自己在 v1.6 修过的「project 漏枚举」是同一类错误，只是在另一维上复发：**修过一维不等于其它维没问题**。
+
+更值得记的是**测量错误会伪装成「无数据」**：`app_id="default"` 被服务端映射到 `default_app/default_project`，而该分区下没有 `me` 名下的数据，于是「查 `default/default@me` 得 0 命中」被读成「这个 project 是空的」。正确做法是**先摸清维度语义再下结论**——本轮重测 31 个候选格后发现 27 格有命中、11 格 score≥0.25，其中 `dsh/Mulpub-17875af60fc6@to_co` 一条 0.40 的真实命中此前完全不可见。
+
+两条工程判据：
+
+- **写入格与检索格必须解耦**。扩大检索面时若顺手把 `app_id` 也改成可配置，写入落点会跟着漂移，旧记忆从此读不到。正解是写死 `WRITE_APP_ID`/`WRITE_PROJECT_ID`，检索侧单独维护一份 `READ_GRIDS` 清单。注释里要写明「往清单加格 = 安全；删格 = 危险」。
+- **IO 密集的多格检索要并发**。实测单格 min/avg/max = 625/1001/2363ms，12 格串行 12.0s，扩到 27 格 ≈ 27s（不可接受）。用标准库 `ThreadPoolExecutor(max_workers=8)` 后同样 12 格降到 **3.08s**（含进程启动），无需引入新依赖。
+
 ## 「两处写同一组约束 + 加锁交叉核对」是错的修法；正解是让一处**生成**另一处（判据文案同步片）（2026-10-17）
 
 ### lesson:single-source-by-construction-not-by-lock

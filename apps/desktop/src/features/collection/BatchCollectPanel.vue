@@ -117,6 +117,11 @@
         <div v-if="zhihuFavScopeHint" class="col-hint zb-mt6" data-testid="zhihu-fav-scope-hint">
           {{ zhihuFavScopeHint }}
         </div>
+        <!-- 阶段路标：加载出条目之前告诉用户下一步点哪个按钮（纯文案，不含任何可点控件）。
+             这是删掉旧整夹直采两个常驻按钮后补的引导，见 zhihuFavStepHint 的注释。 -->
+        <div v-if="zhihuFavStepHint" class="col-hint zb-mt6" data-testid="zhihu-fav-step-hint">
+          {{ zhihuFavStepHint }}
+        </div>
         <!-- 收藏夹清单（直选） -->
         <div v-if="zhihuFavItems.length" class="zb-list" data-testid="zhihu-fav-items">
           <div class="zb-list-head">
@@ -460,6 +465,29 @@ const zhihuFavProgressPercent = computed(() => {
   return Math.round((zhihuFavProgressDone.value / zhihuFavProgressTotal.value) * 100)
 })
 const zhihuFavScopeHint = computed(() => zhihuFavScopeNote.value || '')
+
+/**
+ * 阶段引导（2026-10-17，change: zhihu-fav-step-hint）
+ *
+ * 动因：zhihu-fav-entries-consolidate 删掉旧整夹直采的两个**常驻**按钮后，
+ * 在「加载收藏内容」之前界面上没有任何「下一步做什么」的路标 —— 而「采集并改写」
+ * 按钮位于 `v-if="zhihuFavItems.length"` 内，未加载内容时根本不存在。用户看到的是一个
+ * 会「沉默」的界面（旧入口虽然不可点，但配着「请先获取收藏夹…」的提示，路标是常驻的）。
+ *
+ * 这里只补**纯文案路标**，不恢复旧按钮（旧入口下线仍是既定结论）：
+ *   ① 还没有收藏夹列表 → 指向「获取收藏夹」
+ *   ② 有收藏夹但没有条目 → 指向「加载收藏内容」
+ *   ③ 已有条目 → 返回空（按钮已出现，不打扰）
+ * 凭据未配置时也返回空：那种情况下 zhihuConfigHint 已经在讲「请先配置」，
+ * 再叠一条会让用户面对两条互相抢注意力的话。
+ */
+const zhihuFavStepHint = computed(() => {
+  if (zhihuFavItems.value.length) return ''
+  if (!zhihuSecretAvailable.value) return ''
+  return zhihuFavlists.value.length
+    ? resolveNotifyText('collection.zhihuFav.stepHintNeedContents').text
+    : resolveNotifyText('collection.zhihuFav.stepHintNoFavlists').text
+})
 
 function zhihuKindLabel (kind) {
   const keyMap = { answer: 'kindAnswer', article: 'kindArticle', column: 'kindColumn', pin: 'kindPin', video: 'kindVideo', unknown: 'kindUnknown' }

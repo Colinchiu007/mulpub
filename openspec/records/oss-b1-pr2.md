@@ -2,9 +2,6 @@
 record: oss-b1-pr2
 task: B1 PR-2 第一批——sidecar-host 基建（§6 全部）+ F3 camofox 四项（§7.2/7.3/7.4/7.5）
 date: 2026-10-16
-sync_status: PENDING
-sync_reason: 本 PR（#3677）尚未合并，merge SHA 不存在
-sync_backfill_owner: 下一个会话（合并后回填 PASS + merge SHA 并删除本段三个 sync_* 字段）
 ---
 
 ## 本次执行记录：B1 PR-2 第一批 sidecar-host + camofox 驱动 + 通道路由 + 构建期断言（oss-b1-pr2，2026-10-16）
@@ -20,9 +17,9 @@ sync_backfill_owner: 下一个会话（合并后回填 PASS + merge SHA 并删�
 | 接线棘轮 | ✅（已订正） | 4 个 vitest 测试文件落在 `vitest.config.js` 既有 include 域内（`electron/services/**`、`electron/services/stealth/**`、`packages/shared-utils/src/__tests__/**`）；`apps/desktop/scripts/` 下两个 `node:test` 文件**原先对棘轮结构性隐形**（`vitest.config.js` 的 include 白名单不含 `scripts/**`，而 `check-unwired-tests.js` 的 `WORKSPACE_COVERED` 又跳过整棵 `apps/` 子树）⇒ 本行早先写的「由 CI 点名链执行」**是假结论**，本轮已显式点名进 Gate 2b，详见下方「接线补课」节 |
 | QM-1 打包 / QM-4 视觉 | N/A / N/A | 未触 `apps/desktop/electron/` 打包面（本批新增 `electron/services/` 与 `scripts/`、`packages/shared-utils/`，未改主进程入口/preload），无 UI 可见变更 |
 | QM-6 CCG 双模型外部评审 | 未执行 | 本机 `codeagent-wrapper` 不可用（前端轴历史三次失败、后端轴在 PR-1 已跑过；本批为 PR-1 同 change 的延续，未重新发起双模型评审）。如实登记为**未执行**，不以自审冒充通过 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#3677)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin oss-b1-pr2` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | PR #3677 已 squash 合并：merge SHA `f818c214e0df595e354f75bf39e1137862316b03`，提交时间 `2026-10-17T14:44:08+08:00`（= `2026-10-17T06:44:09Z`）；取证用 AGENTS.md 原式 `git log origin/main --grep='(#3677)$' --format=%H\|%cI`（恰命中 1 行，不带反斜杠）；`git ls-remote --heads origin oss-b1-pr2` 返回 0 行证远端分支已删；本 PR 属「旧载体冻结」之后的新 PR ⇒ 未向 `.quality-gates.md` 插块、未向 `scripts/gate-record-debt-ledger.json` 加键，回填只发生在本文档内；表行 / bullet / frontmatter 三个 `sync_*` 字段这三处改写与新增「CI 终态」节在**同一次提交**内完成 |
 
-- 保留门禁：不适用（本 PR 为混合变更，非 docs-only） | 远程同步 PENDING
+- 保留门禁：不适用（本 PR 为混合变更，非 docs-only）| merge `f818c214e0df595e354f75bf39e1137862316b03`（2026-10-17T06:44:09Z）| 远端分支已删（`git ls-remote --heads origin oss-b1-pr2` 0 行）| 远程同步 PASS
 
 ### 交付物与判据
 
@@ -106,6 +103,46 @@ sync_backfill_owner: 下一个会话（合并后回填 PASS + merge SHA 并删�
 **推前门禁同口径复跑全绿**（`node <scratch>/p2-gates.js`，逐条落盘 `gate-<id>.txt`）：carrier(PR 档 `visible`) / 记录 QM-5 行 19/19 / `pr-exec-record` 锁 48/48 + `--mode=enforce` OK / brand-residue 6/6 / text-encoding 5/5 / no-conflict-markers 20/20 / ci-pr-changeset 11/11 / classify-docs-only 锁 27/27 / workflow-structure 锁 6/6 + 脚本 violations=0 / unwired-tests 锁 30/30 / step-failfast OK / workflow-contract 无 `not ok` / **Gate 2b 同形两文件 21 tests / 21 pass** / `check:deps` No depcheck issue；**Gate 11**（`pnpm exec eslint electron/ src/ --quiet`，cwd `apps/desktop`）rc=0，stdout/stderr 均空。
 
 **为什么第一轮没拦住这件事**：已装好依赖的 worktree 上 `pnpm install --frozen-lockfile` 会**跳过构建检查**（实测 rc=0）——只有**全新 node_modules**（runner 的常态）才复现 `ERR_PNPM_IGNORED_BUILDS`。⇒ 凡改 `allowBuilds` / 依赖声明，本机自检必须用一次性空 store 口径复现一次，不能只看「本机能装」。
+
+### CI 终态：attempt 2 全绿 + attempt 1 的抖动定性（2026-10-17）
+
+PR head `d322cd46c` 的 run `38932245217`：attempt 1 只有 1 个作业失败，**同 SHA 重跑（attempt 2）后 run 终态 `completed/success`**；PR head 23 条 check-runs **零 fail / 零 pending**（其中 `release` = skipped，按设计），required 并集 10/10。
+
+| attempt | `QG Browser E2E` job | 作业起止（UTC） | step 7 `Gate 8 - Browser E2E` | 结果 |
+|---|---|---|---|---|
+| 1 | `117080401765` | 2026-10-16T16:44:13Z → 16:50:55Z | 298s | failure（路由检查 `251/252`、总计 `294/295`、0 console errors / 0 page errors） |
+| 2 | `117278206231` | 2026-10-17T01:52:19Z → 01:57:56Z | 231s | **success**（路由检查 `261/261`、总计 `304/304`、0 errors） |
+
+`Gate Result` 在 attempt 1 连坐失败（job `117096544330`，2026-10-16T17:23:01Z → 17:23:05Z），attempt 2 由 e2e 完成**自动补入**（job `117279346379`，2026-10-17T01:58:10Z → 01:58:13Z，success）—— `gh run rerun --failed` **只重跑失败作业本体、不连带重跑其依赖**，这是本轮实测到的重跑语义，不是推断。
+
+**attempt 1 的失败点是一次 `locator.click` 超时，不是断言失败**：`apps/desktop/tests/e2e/helpers/route-functional-suite.js` 的 `clickText` 在 `:73` 的 `locator.click({ timeout: 3000 })` 抛 `Timeout 3000ms exceeded`（call log 停在 `performing click action`），而 `exerciseCollection`（`:240-249`）所点的 `[data-testid="collection-collect-btn"]` 当时已 `resolved / visible / enabled / stable`；同页 `consoleErrors=[]`、`pageErrors=[]`；**本 PR 渲染端改动 0 文件**（改动集不含 `apps/desktop/src/**`）。
+
+**判为抖动、不判回归的三条证据**：① 同 SHA 重跑即全绿（上表两行同 head）；② **逐路由对照**（留档 `<scratch>/p2-e2e-attempt-compare.txt`）：23 行（17 路由 + 6 集成流）中 **22 行两轮检查数逐字相同**，唯一差异是 `/collection`（`3/4 → 13/13`），且「路由检查 `252 → 261`」与「总计 `295 → 304`」两处差额**都是 +9** ⇒ 差异全部落在 `/collection` 这一行，其余 22 行没有代码签名；③ **主干基线**：同窗口 main 上 `QG Browser E2E` / `Gate Result` / `QG Visual` 共 12 条 run 全 success（2026-10-16T14:42:15Z → 19:41:28Z）⇒ 不是主干既有红。step 时长 `298s → 231s`（+29%）只作**并行负载线索**，不作结论；`/collection` 那一行的检查数为何在两次 attempt 间不同，只有 1 次失败样本，**未继续深挖** —— 本条只主张上述事实，不主张机制。
+
+**主干既有红：如实披露、本 PR 不代修** —— `visual-test.yml` 在 main 上连续 15 条 run **全 failure**（2026-10-16T08:18:47Z → 19:41:28Z，他人会话存量），而本 PR head 的 23 条 check-runs 里**没有该 workflow 的检查**（不在本 PR required 集内）⇒ 不构成阻塞，也不是本 PR 引入。
+
+### 合并后 main push 回读：按「(merge SHA, workflow)」逐格（2026-10-17）
+
+本合并 push（`f818c214e0df595e354f75bf39e1137862316b03`，2026-10-17T06:44:11Z，已按 `git log origin/main --grep='(#3677)$'` 取证）触发的 6 条 workflow 读数：
+
+| workflow | run id | 结论 |
+|---|---|---|
+| `quality-gate`（本 PR 唯一改动的那条 workflow） | `39011008215` | **success** |
+| `Visual Tests` | `39011008185` | success |
+| `GUI Tests` | `39011008181` | success |
+| `Build & Release` | `39011008180` | success |
+| `债务熔断门禁` | `39011008210` | success |
+| `Electron CI` | `39011008179` | **failure**（非本次合并引入，见下） |
+
+**`Electron CI` 的红是他人会话存量、起始早于本合并 2 小时以上，本 PR 不代修** —— 该 workflow 在 main 上自 `826fa7e13`（2026-10-17T04:42:04Z，run `39003545976`，PR #3782「把 5 个受管构建产物移出版本控制」）起连续 6 条 run 全 failure，本合并是这条链的**第 6 条**（前 5 条提交为 `826fa7e13` / `036a98176` / `150ee1c1b` / `c120b5a06` / `96ed81711`，均早于本 PR 合并）；此前的 `0a0d3581b`（04:15:58Z）为 success。
+
+**根因已定位到行**：PR #3782 为消除 `build:vue` 后的 stat-dirty，把 `apps/desktop/electron/preload/index.bundle.js`、`apps/desktop/electron/monitor-preload.bundle.js`、`apps/desktop/electron/home-shell-preload.bundle.js`、`apps/desktop/electron/services/generated/card-paginator.iife.js`、`apps/desktop/electron/services/stealth/stealth-preload-enhanced.bundle.js` 移出版本控制，并在 `.github/workflows/quality-gate.yml` 的**三个 job**里补了「Build preload bundles」/「Build paginator」步骤（改动面实测：`modified|.github/workflows/quality-gate.yml`），**唯独漏了 `electron-ci.yml`**。该 job 的失败步骤是 `Unit tests (Vitest, non-Electron, single-worker deterministic)`（第 9 步），失败形态是 `Error: ENOENT: no such file or directory, open '<…>/apps/desktop/electron/preload/index.bundle.js'` 与 `AssertionError: 缺少 monitor-preload.bundle.js`，涉及 10 个用例文件（`src/overlay-view-suspension` / `src/shell-mode-6b` / `electron/core/preload-path` / `electron/ipc-handlers/podcast-plan-preview-ipc` / `electron/ipc-handlers/podcast-script-ipc` / `electron/tests/build-preload` / `electron/tests/ipc-contract` / `electron/tests/viral-pr2-preload` / `electron/services/stealth/preload-variant` …）。
+
+**它不阻塞任何 PR（决定性证据，非推断）**：该步骤带 `if: github.event_name != 'pull_request'` ⇒ PR 侧一律 `skipped`；现场取证：PR #3753 的 `electron-tests`（job `117335198916`）步骤 9/10 均 `skipped` 而整个 job `success`（`gh pr checks 3753` 亦为 `pass`）⇒ required 由 PR 侧那次判定，main push 的红不影响任何 PR 的合并。修法是给 `electron-ci.yml` 补同一段构建步骤；由于该步骤是 push-only，**修复 PR 在 PR 侧无法自证**（步骤被 skip），必须在 `workflow_dispatch` 上先验、合并后再回读 main push。该修复属改他人 feature 的 workflow，本 PR 不代修，作为残留风险移交。
+
+**同一节前一版本里「`visual-test.yml` 连续 15 条全 failure」的现状态更正**：那 15 条是 2026-10-16T08:18:47Z → 19:41:28Z 窗口内的**历史读数**；自 2026-10-17T02:45:10Z（`d68696798`）起该 workflow 在 main 上连续 11 条 **success**（含本合并 push 的 `39011008185`）⇒ 该存量红已被他人修复、当前不存在，勿据前文判断主干现状。
+
+**回填取证的自我纠错（一次，勿复述成「中文标题不可锚定」）**：AGENTS.md 原式是 `git log origin/main --grep='(#NNNN)$'`（**不带反斜杠**）。本轮我先写成 `--grep='\(#3677\)$'` 读到 **0 行**，那是**我的转义错**：git `--grep` 默认 **BRE**，`\(…\)` 是**捕获组**，该式等价于「行尾前还有一个 `)`」，对 `…（依赖接入方案 A）(#3677)` 这种以 `)` 收尾的标题必然打不中；去掉反斜杠立即命中 `f818c214`。同一形态在英文收尾标题 `(#3805)` 上复验，同样是「转义式 0 行 / 不转义命中」⇒ **与语言无关，照原式执行即可**。
 
 ### 两条本机红：pristine 对照实测定性（一条 stale base、一条非本分支引入）
 

@@ -2,9 +2,6 @@
 record: visual-gate-full-coverage
 task: 把 49 例视觉用例补进 QG Visual——workflows / supplementary-workflows 此前在 PR 侧零覆盖，并统一四套的两轮甄别阻断
 date: 2026-10-17
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；且本 PR 属「改谁来守门」，按 AGENTS.md 需人工过目后才合并
-sync_backfill_owner: visual-gate-full-coverage 会话（本节作者）
 ---
 
 ## 本次执行记录：补齐 QG Visual 的 49 例覆盖缺口（visual-gate-full-coverage，2026-10-17）【混合 PR · 改守门面】
@@ -23,7 +20,7 @@ sync_backfill_owner: visual-gate-full-coverage 会话（本节作者）
 | QM-1 打包 | N/A | 未触碰 `apps/desktop/electron/` 与 `packages/rpa-engine/` |
 | QM-4 视觉 | N/A（不新增判据/不改基线） | 本 PR 只改「哪些套件在 PR 侧被执行」，不改任何用例、基线或阈值；**未使用 `--update-baseline`** |
 | QM-6 CCG 双模型外部评审 | 见判定器 | 以 `.ccg/reviews/<sha>.json` 产物为准 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin visual-gate-full-coverage` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | PR #3800 已 squash 合并，merge SHA `96ed8171139706364699673cb37c6e3f009cb8f8`（2026-10-17T14:06:16+08:00）；远端分支 `visual-gate-full-coverage` 已删（`git ls-remote --heads` 0 行）；`git log origin/main --grep='(#3800)$'` 恰好 1 行；frontmatter 的 `sync_*` 三字段已在本次提交删除（本记录无 ledger 登记项） |
 
 ### 遗留（不假装已闭合）
 
