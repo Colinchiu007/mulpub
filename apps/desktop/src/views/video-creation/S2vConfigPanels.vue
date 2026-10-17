@@ -141,29 +141,8 @@
                   <option :value="false">关闭</option>
                 </UiSelect>
               </UiField>
-              <UiField class="config-item" option-key="voice.bgm" label="背景音乐">
-                <div class="inline-file-control">
-                  <UiSelect v-model="s2vConfig.bgmPath" testid="s2v-bgm-select">
-                    <option value="">{{ translateWithLocaleFallback('create.story2video.bgmLibrary.noBgm', '不使用背景音乐', 'No background music') }}</option>
-                    <option v-for="item in s2vBgmLibrary" :key="item.id" :value="item.path">{{ item.name }}</option>
-                    <option v-if="s2vLegacyBgmPath" :value="s2vLegacyBgmPath">{{ translateWithLocaleFallback('create.story2video.bgmLibrary.legacyBgm', '已选音频（未入库）', 'Selected audio (not in library)') }}</option>
-                  </UiSelect>
-                  <button type="button" class="s2v-btn-secondary" data-testid="s2v-bgm-manage-button" @click="openBgmLibraryDialog">{{ translateWithLocaleFallback('create.story2video.bgmLibrary.manage', '管理背景音乐', 'Manage music') }}</button>
-                </div>
-                <p class="config-hint">{{ mediaRequirementsBgmText }}</p>
-              </UiField>
-              <div class="config-item" v-if="s2vOptionVisible('voice.bgmVolume')">
-                <UiSlider
-                  v-model="s2vConfig.bgmVolume"
-                  :min="0"
-                  :max="10"
-                  :step="1"
-                  :default-value="5"
-                  testid="s2v-bgm-volume"
-                  :label="$t('create.story2video.ui.bgmVolumeLabel')"
-                  :hint="$t('create.story2video.ui.doubleResetHint')"
-                />
-              </div>
+              <!-- 背景音乐与音量已归位「声音」分组（s2v-bgm-legacy-repair，2026-10-17）：
+                   二者 optionKey 本就是 voice.*，模板留在「画面」属实现与目录不一致。 -->
               <div class="config-item" v-if="s2vOptionVisible('visual.watermarkText')">
                 <label>{{ translateWithLocaleFallback('create.story2video.watermark.label', 'Watermark text', 'Watermark text') }}</label>
                 <input v-model.trim="s2vConfig.watermarkText" class="form-input" :placeholder="translateWithLocaleFallback('create.story2video.watermark.placeholder', 'Optional', 'Optional')" />
@@ -401,6 +380,65 @@
                 >刷新音色列表</button>
                 <span v-else-if="s2vVoiceOptions.length === 0" class="config-hint">当前模型没有可用音色。</span>
               </UiField>
+              <!-- 背景音乐与音量（自「画面」移入「声音」，s2v-bgm-legacy-repair）：
+                   历史路径不再只有「未入库」一词，而是按主进程只读核验结果区分为
+                   可用/已丢失/不可用/未知，并给出【加入素材库】/【清除】一次性修复动作。 -->
+              <UiField class="config-item" option-key="voice.bgm" label="背景音乐">
+                <div class="inline-file-control">
+                  <UiSelect v-model="s2vConfig.bgmPath" testid="s2v-bgm-select">
+                    <option value="">{{ $t('create.story2video.bgmLibrary.noBgm') }}</option>
+                    <option v-for="item in s2vBgmLibrary" :key="item.id" :value="item.path">{{ item.name }}</option>
+                    <option v-if="s2vLegacyBgmPath" :value="s2vLegacyBgmPath">{{ $t(legacyBgmOptionKey) }}</option>
+                  </UiSelect>
+                  <button type="button" class="s2v-btn-secondary" data-testid="s2v-bgm-manage-button" @click="openBgmLibraryDialog">{{ $t('create.story2video.bgmLibrary.manage') }}</button>
+                </div>
+                <p class="config-hint">{{ mediaRequirementsBgmText }}</p>
+                <div
+                  v-if="s2vLegacyBgmPath"
+                  class="s2v-bgm-legacy-status"
+                  :data-state="s2vLegacyBgmStatus.state"
+                  data-testid="s2v-bgm-legacy-status"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <p v-if="legacyBgmStatusHintKey" class="config-hint" :class="{ 'inline-error': legacyBgmStatusNeedsAction }">{{ $t(legacyBgmStatusHintKey) }}</p>
+                  <div v-if="legacyBgmStatusNeedsAction || s2vLegacyBgmStatus.state === 'available' || s2vLegacyBgmStatus.state === 'unknown'" class="s2v-bgm-legacy-actions">
+                    <button
+                      v-if="s2vLegacyBgmStatus.state === 'available'"
+                      type="button"
+                      class="s2v-btn-secondary s2v-btn-sm"
+                      data-testid="s2v-bgm-adopt"
+                      @click="adoptS2VLegacyBgm"
+                    >{{ $t('create.story2video.bgmLibrary.adoptAction') }}</button>
+                    <button
+                      v-if="legacyBgmStatusNeedsAction"
+                      type="button"
+                      class="s2v-btn-secondary s2v-btn-sm"
+                      data-testid="s2v-bgm-clear"
+                      @click="clearS2VLegacyBgm"
+                    >{{ $t('create.story2video.bgmLibrary.clearAction') }}</button>
+                    <button
+                      v-if="s2vLegacyBgmStatus.state === 'unknown'"
+                      type="button"
+                      class="s2v-btn-secondary s2v-btn-sm"
+                      data-testid="s2v-bgm-recheck"
+                      @click="verifyS2VLegacyBgm(s2vLegacyBgmPath)"
+                    >{{ $t('create.story2video.bgmLibrary.verifyRetry') }}</button>
+                  </div>
+                </div>
+              </UiField>
+              <div class="config-item" v-if="s2vOptionVisible('voice.bgmVolume')">
+                <UiSlider
+                  v-model="s2vConfig.bgmVolume"
+                  :min="0"
+                  :max="10"
+                  :step="1"
+                  :default-value="5"
+                  testid="s2v-bgm-volume"
+                  :label="$t('create.story2video.ui.bgmVolumeLabel')"
+                  :hint="$t('create.story2video.ui.doubleResetHint')"
+                />
+              </div>
               <div v-if="s2vVoiceCapability?.type === 'provider_personal_slot'" class="config-item config-span-2 voice-slot-hint">
                 <label>个人音色槽位</label>
                 <p class="config-hint">请先在服务商官方控制台创建或管理个人音色，再刷新本地目录并在上方下拉列表中选择。当前页面不会伪造或复制服务商槽位。</p>
@@ -677,6 +715,29 @@ const s2vCustomTemplateName = computed({ get: () => state.s2vCustomTemplateName,
 const s2vImageProviderOptions = computed(() => state.s2vImageProviderOptions);
 const s2vImageProviders = computed(() => state.s2vImageProviders);
 const s2vLegacyBgmPath = computed(() => state.s2vLegacyBgmPath);
+// 历史路径核验状态（idle/checking/available/missing/unusable/unknown）：
+// 缺省按 idle 兜底，保证父级旧快照/测试夹具未提供该键时面板不炸。
+const s2vLegacyBgmStatus = computed(() => state.s2vLegacyBgmStatus || { state: 'idle', path: '', reason: '', exists: false });
+// 选项文案与提示文案只返回 locale key，由模板 $t 解析：
+// 避免在 src 非 locales 文件新增中文字面量（CI locale CJK 基线增量扫描）。
+const legacyBgmOptionKey = computed(() => {
+  const status = s2vLegacyBgmStatus.value.state;
+  if (status === 'missing') return 'create.story2video.bgmLibrary.legacyMissing';
+  if (status === 'unusable') return 'create.story2video.bgmLibrary.legacyUnusable';
+  if (status === 'available') return 'create.story2video.bgmLibrary.legacyAvailable';
+  return 'create.story2video.bgmLibrary.legacyBgm';
+});
+const legacyBgmStatusHintKey = computed(() => {
+  const status = s2vLegacyBgmStatus.value.state;
+  if (status === 'checking') return 'create.story2video.bgmLibrary.legacyHintChecking';
+  if (status === 'available') return 'create.story2video.bgmLibrary.legacyHintAvailable';
+  if (status === 'missing') return 'create.story2video.bgmLibrary.legacyHintMissing';
+  if (status === 'unusable') return 'create.story2video.bgmLibrary.legacyHintUnusable';
+  if (status === 'unknown') return 'create.story2video.bgmLibrary.legacyHintUnknown';
+  return '';
+});
+// 需要用户处理的两种状态（丢失/不可用）：提示转错误色并出现【清除】按钮。
+const legacyBgmStatusNeedsAction = computed(() => ['missing', 'unusable'].includes(s2vLegacyBgmStatus.value.state));
 const s2vMaxPromptLengthHint = computed(() => state.s2vMaxPromptLengthHint);
 const s2vMaxPromptLengthLabel = computed(() => state.s2vMaxPromptLengthLabel);
 const s2vMaxPromptLengthOptions = computed(() => state.s2vMaxPromptLengthOptions);
@@ -722,9 +783,11 @@ const story2videoImageStyleHint = computed(() => state.story2videoImageStyleHint
 const story2videoPromptStyleHint = computed(() => state.story2videoPromptStyleHint);
 
 // ---- 方法转发 ----
+const adoptS2VLegacyBgm = (...args) => fns.adoptS2VLegacyBgm(...args);
 const applyS2VTemplate = (...args) => fns.applyS2VTemplate(...args);
 const cancelS2VVoiceCloneRename = (...args) => fns.cancelS2VVoiceCloneRename(...args);
 const chooseS2VVoiceCloneSamples = (...args) => fns.chooseS2VVoiceCloneSamples(...args);
+const clearS2VLegacyBgm = (...args) => fns.clearS2VLegacyBgm(...args);
 const deleteS2VVoiceClone = (...args) => fns.deleteS2VVoiceClone(...args);
 const handleS2VVideoProviderChange = (...args) => fns.handleS2VVideoProviderChange(...args);
 const handleS2VVoiceModelChange = (...args) => fns.handleS2VVoiceModelChange(...args);
@@ -749,4 +812,5 @@ const selectS2VVoice = (...args) => fns.selectS2VVoice(...args);
 const setS2VSectionOpen = (...args) => fns.setS2VSectionOpen(...args);
 const startS2VVoiceCloneRename = (...args) => fns.startS2VVoiceCloneRename(...args);
 const translateWithLocaleFallback = (...args) => fns.translateWithLocaleFallback(...args);
+const verifyS2VLegacyBgm = (...args) => fns.verifyS2VLegacyBgm(...args);
 </script>

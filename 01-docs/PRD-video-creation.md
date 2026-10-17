@@ -1873,11 +1873,18 @@ SettingsDialog 关闭（App.vue @close）
 **合同**：
 
 1. **库存储**：主进程 `services/story2video-bgm-library.js`，库目录 `userData/story2video-bgm/`，索引 `library.json` 临时文件 + rename 原子写；条目字段 `{ id, name, path, createdAt }`；该目录加入 `getAllowedMediaRoots()` 白名单（`story2video-paths.js`），compose 的 `resolveReadableMediaFile(path, { kind: 'bgm' })` 校验可过。
-2. **IPC**：`story2video:bgm-library-list / add / rename / delete` 四个通道，均走 `withSenderCheck` + 参数校验（id/name 空串拒绝）；`add` 复用媒体导入的路径解析与受控目录复制语义（Windows 占用 ≤3 次有界重试），失败透传细分提示（格式 / 大小 / 不可读 / 路径未解析）。
-3. **权限**：四通道加入 PUBLIC_CHANNELS（未登录可用，与媒体导入一致）；preload 暴露 `story2videoBgmLibraryList/Add/Rename/Delete`，`Add` 复用 `resolveFilePath`。
-4. **UI（CreateView.vue）**：BGM 配置区改为 `<select data-testid="s2v-bgm-select">`——空选项「不使用背景音乐」+ 素材库条目 + 历史路径兼容选项（未入库时显示「已选音频（未入库）」）；「管理背景音乐」按钮打开素材库弹窗（UiModal，Teleport to body）：添加（隐藏 file input，成功后自动选中并清空 input 支持连续选择）、行内重命名（Enter 保存 / Esc 取消）、删除（二次确认弹窗，删除当前选中项时回退为「不使用背景音乐」）。
+2. **IPC**：`story2video:bgm-library-list / add / rename / delete` 四个通道，均走 `withSenderCheck` + 参数校验（id/name 空串拒绝）；`add` 复用媒体导入的路径解析与受控目录复制语义（Windows 占用 ≤3 次有界重试），失败透传细分提示（格式 / 大小 / 不可读 / 路径未解析）。**2026-10-17 增补**：新增只读核验通道 `story2video:bgm-library-status`（入参 `{ filePath }`，非空且 ≤4096），返回 `{ path, exists, readable, size, extension, inLibrary, libraryItemId, reason }`；判定顺序为入参 → 绝对路径 → 扩展名（stat 之前拒绝）→ `lstat` → 类型 → 空文件/超 15MB → 允许媒体根 → `resolveReadableMediaFile` 复核 → 库内命中，`reason ∈ ok|invalid_argument|format_unsupported|missing|not_a_file|size_exceeded|not_allowed|unreadable`。
+3. **权限**：五通道（含 status）加入 PUBLIC_CHANNELS（未登录可用，与媒体导入一致）；preload 暴露 `story2videoBgmLibraryList/Add/Rename/Delete/Status`，`Add` 复用 `resolveFilePath`。
+4. **UI（CreateView.vue / S2vConfigPanels.vue）**：BGM 配置区位于「声音」折叠分组（2026-10-17 自「画面」归位），为 `<select data-testid="s2v-bgm-select">`——空选项「不使用背景音乐」+ 素材库条目 + 历史路径兼容选项；历史选项按主进程只读核验结果切换文案（未入库/未入库但文件可用/文件已丢失/无法使用），下方状态区提供【加入素材库】（可用时）/【清除背景音乐选择】（丢失或不可用时）/【重新检查】（无法核验时）；「管理背景音乐」按钮打开素材库弹窗（UiModal，Teleport to body）：添加（隐藏 file input，成功后自动选中并清空 input 支持连续选择）、行内重命名（Enter 保存 / Esc 取消）、删除（二次确认弹窗，删除当前选中项时回退为「不使用背景音乐」）。
 5. **i18n**：所有用户可见文案 zh/en 成对新增 `create.story2video.bgmLibrary.*` 与 `story2video.bgm_library_*`。
 6. **验收**：添加 → 列表 +1 且自动选中；重命名 → 列表刷新且退出编辑态；删除 → 列表 -1，删除选中项时 `bgmPath` 回退空；历史 BGM 路径不在库时保留为独立选项、入库后不再显示；服务层单测（16 例）+ 渲染端用例 + preload/IPC 测试全部通过。
+
+**2026-10-17 增补（s2v-bgm-legacy-repair：分组归位 + 历史音频存在性修复）**
+
+7. **分组归属**：「背景音乐」与「背景音乐音量」必须位于「声音」折叠区（音色 ID 之后、音色克隆面板之前），「画面」折叠区不得再包含二者；optionKey `voice.bgm` / `voice.bgmVolume` 与 `data-testid` 保持不变；`S2V_SUMMARY_FIELDS.voice` 纳入 `bgmPath` / `bgmVolume`，`s2vSectionSummary('voice')` 追加背景音乐片段（库内曲名 / 历史音频 / 文件已丢失 / 不可用 / 无背景音乐）。
+8. **历史路径状态与修复**：渲染层状态机 `idle/checking/available/missing/unusable/unknown`；`available` 提供【加入素材库】（复用 `bgm-library-add`，成功后自动选中库内新路径并复位状态）；`missing`/`unusable` 提供【清除背景音乐选择】（`bgmPath=''` 并复位）；`unknown` 提供【重新检查】且失败开放。历史 `bgmPath` 在用户显式操作前不清空、不改写；核验请求带代际，旧响应不得覆盖新路径。
+9. **启动门禁**：`missing`/`unusable` 时 `canStartPipeline=false`，`pipelineBlockedReason` 依次给 `blockedReason.bgmLost` / `bgmUnusable`；`handleStartPipeline` 在有历史路径时先 `await` 一次核验；`unknown` 永不阻断。compose 的 `bgmSkipped` 降级语义保留为最后防线。
+10. **验收增补**：面板测试断言分组归属与三种状态渲染；壳测试断言 missing 阻断+清除恢复、adopt 后自动选中、unknown 不阻断、声音摘要含 BGM；服务层 `inspectPath` 判定矩阵 8 例、IPC 2 例、preload/权限 1 例、composable 6 例；locale zh/en 成对且无新增硬编码中文。完整合同见 `01-docs/PRD-S2V-BGM-VOICE-SECTION-LEGACY-REPAIR-2026-10-17.md`。
 
 ### 3.1.26 视频任务编辑页场景多素材选择与再次合成（2026-08-14；2026-08-20 布局与交互修订）
 

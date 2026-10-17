@@ -700,6 +700,16 @@ describe('Story2Video BGM 素材库 IPC', () => {
         items.delete(id)
         return { deleted: true, id }
       }),
+      inspectPath: vi.fn((filePath) => ({
+        path: String(filePath),
+        exists: true,
+        readable: true,
+        size: 4,
+        extension: path.extname(String(filePath)).toLowerCase(),
+        inLibrary: false,
+        libraryItemId: null,
+        reason: 'ok',
+      })),
     }
   }
 
@@ -805,6 +815,32 @@ describe('Story2Video BGM 素材库 IPC', () => {
 
     expect(result.code).toBeLessThan(0)
     expect(bgmLibrary.delete).not.toHaveBeenCalled()
+  })
+
+  it('历史 BGM 路径核验透传 inspectPath 结果（只读）', async () => {
+    const bgmLibrary = createBgmLibraryMock()
+    const ipcMain = createIpcMain()
+    registerHandlers(ipcMain, { ...createDeps(), story2videoBgmLibrary: bgmLibrary })
+
+    const result = await ipcMain.get('story2video:bgm-library-status')(TRUSTED_EVENT, {
+      filePath: 'C:/Users/user/AppData/Local/Temp/story2video/selected-media/bgm-old.mp3',
+    })
+
+    expect(result.code).toBe(0)
+    expect(result.data).toMatchObject({ readable: true, reason: 'ok', extension: '.mp3' })
+    expect(bgmLibrary.inspectPath).toHaveBeenCalledTimes(1)
+  })
+
+  it('历史 BGM 路径核验参数非法时返回校验错误且不触盘', async () => {
+    const bgmLibrary = createBgmLibraryMock()
+    const ipcMain = createIpcMain()
+    registerHandlers(ipcMain, { ...createDeps(), story2videoBgmLibrary: bgmLibrary })
+
+    for (const request of [undefined, null, [], {}, { filePath: '' }, { filePath: '   ' }, { filePath: 'x'.repeat(4097) }]) {
+      const result = await ipcMain.get('story2video:bgm-library-status')(TRUSTED_EVENT, request)
+      expect(result.code).toBeLessThan(0)
+    }
+    expect(bgmLibrary.inspectPath).not.toHaveBeenCalled()
   })
 
   // ─── 流水线「保存配置」IPC（s2v-pipeline-config-profiles）───

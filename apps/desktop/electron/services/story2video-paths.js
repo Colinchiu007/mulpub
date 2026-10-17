@@ -353,6 +353,10 @@ module.exports = {
   getElectronMediaRoots,
   getAllowedMediaRoots,
   isPathWithin,
+  // 供 BGM 素材库 inspectPath 复用同一套输入规范化与媒体规则（行为不变，仅开放导出）：
+  // 避免在库服务里抄第二份扩展名/大小常量，形成双源真相。
+  toLocalPath,
+  getMediaRule,
   resolveReadableFile,
   resolveReadableMediaFile,
   copyImportedMedia,

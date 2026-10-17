@@ -196,10 +196,10 @@ describe('preload 子模块工厂函数', () => {
 
 // === 总方法数验证（防止漏迁移或重复）===
 describe('preload 子模块方法数', () => {
-  it('publish 模块应导出 130 个键（W1 §5 enforcement：+onRiskSuspended/listSuspendedRisk/resumeRisk/isSuspendedRisk；2026-10-06 定时派发失败信号 +onSchedulerDispatchFailed；2026-10-10 发布频率策略 v2 +getPublishFrequencyPolicy/setPublishFrequencyPolicy/emergencyReleasePublishWait/getPublishEmergencyStatus/onPublishEmergencyReleased；2026-10-15 「再次发布」+historyGetRepublishSnapshot）', () => {
+  it('publish 模块应导出 131 个键（W1 §5 enforcement：+onRiskSuspended/listSuspendedRisk/resumeRisk/isSuspendedRisk；2026-10-06 定时派发失败信号 +onSchedulerDispatchFailed；2026-10-10 发布频率策略 v2 +getPublishFrequencyPolicy/setPublishFrequencyPolicy/emergencyReleasePublishWait/getPublishEmergencyStatus/onPublishEmergencyReleased；2026-10-15 「再次发布」+historyGetRepublishSnapshot；2026-10-17 历史 BGM 路径核验 +story2videoBgmLibraryStatus）', () => {
     const { createPublishApi } = require('./preload/publish')
     const r = createPublishApi(ipcRenderer)
-    expect(Object.keys(r).length).toBe(130)
+    expect(Object.keys(r).length).toBe(131)
   })
 
   it('account 模块应导出 52 个方法（51 + accountGetProxy，2026-10-15 账号页列表零解密——代理状态改为打开弹窗时经 account:get-proxy 按需读取；50 + probeXiaohongshuDraftChain，2026-10-08 小红书 API 草稿链受控调试通道；49 + accountCredentialNames，2026-10-07 小红书 AT 凭据诊断；52 - 3 个 scheduled_tasks 死桥接，2026-10-02 死路径清理）', () => {
@@ -229,12 +229,13 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(146)
   })
 
-  it('合并后 api 总键数应为 343（2026-10-15：342 + accountGetProxy，账号页列表零解密后代理状态改由 account:get-proxy 按需读取；342 = 344 − 3 条死通道 + 1 个「再次发布」快照读口 historyGetRepublishSnapshot；344 = 343 + 1 个激活码核销键 identityRedeemCode → identity:redeem-code）', () => {
-    expect(Object.keys(api).length).toBe(343)
+  it('合并后 api 总键数应为 344（2026-10-17：343 + story2videoBgmLibraryStatus 历史 BGM 路径核验；2026-10-15：342 + accountGetProxy，账号页列表零解密后代理状态改由 account:get-proxy 按需读取；342 = 344 − 3 条死通道 + 1 个「再次发布」快照读口 historyGetRepublishSnapshot；344 = 343 + 1 个激活码核销键 identityRedeemCode → identity:redeem-code）', () => {
+    expect(Object.keys(api).length).toBe(344)
     // 新键必须真实存在于聚合入口，防止「改了数字但方法没接上」
     expect(Object.keys(api)).toContain('identityRedeemCode')
     expect(Object.keys(api)).toContain('historyGetRepublishSnapshot')
     expect(Object.keys(api)).toContain('accountGetProxy')
+    expect(Object.keys(api)).toContain('story2videoBgmLibraryStatus')
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {
@@ -437,6 +438,13 @@ describe('Story2Video 媒体导入桥接', () => {
     for (const channel of ['story2video:config-profile-list', 'story2video:config-profile-create', 'story2video:config-profile-rename', 'story2video:config-profile-delete']) {
       expect(requiredLevelForChannel(channel)).toBe('public')
     }
+  })
+
+  it('BGM 历史路径核验为公开方法且主进程通道公开（纯本地只读）', () => {
+    const { PUBLIC_METHODS } = require('./preload/access-control')
+    const { requiredLevelForChannel } = require('./ipc-handlers/license-access-control')
+    expect(PUBLIC_METHODS).toContain('story2videoBgmLibraryStatus')
+    expect(requiredLevelForChannel('story2video:bgm-library-status')).toBe('public')
   })
 })
 

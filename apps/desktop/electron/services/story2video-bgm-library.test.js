@@ -158,3 +158,94 @@ describe('Story2Video BGM 素材库', () => {
     expect(isSafeFileName('dir/file.mp3')).toBe(false)
   })
 })
+
+// 历史背景音乐存在性核验（s2v-bgm-legacy-repair）：
+// 判定合同必须与 compose 的 resolveReadableMediaFile 同源，否则会出现
+// “界面说可用、合成却跳过”的双源真相。
+describe('Story2Video BGM 素材库 · inspectPath 历史路径核验', () => {
+  let root
+  let allowedDir
+  let library
+
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-bgm-inspect-'))
+    allowedDir = path.join(root, 'allowed')
+    fs.mkdirSync(allowedDir, { recursive: true })
+    library = new Story2VideoBgmLibrary({
+      libraryDir: path.join(root, 'library'),
+      // 生产默认取 getAllowedMediaRoots()（userData/story2video-bgm 等）；
+      // 纯 Node 测试无 electron.app，故显式注入等价的允许根，避免依赖机器路径。
+      allowedRoots: [allowedDir, path.join(root, 'library')],
+      now: () => 1,
+      idFactory: () => 'item-00000000000000000001',
+    })
+  })
+
+  afterEach(() => {
+    fs.rmSync(root, { recursive: true, force: true })
+  })
+
+  function writeAllowed (name, size = 8) {
+    const file = path.join(allowedDir, name)
+    fs.writeFileSync(file, Buffer.alloc(size))
+    return file
+  }
+
+  it('库内条目：exists/readable/inLibrary/libraryItemId 全命中', () => {
+    const item = library.add(writeAllowed('song.mp3'))
+    const status = library.inspectPath(item.path)
+    expect(status).toMatchObject({
+      exists: true,
+      readable: true,
+      inLibrary: true,
+      libraryItemId: item.id,
+      reason: 'ok',
+      extension: '.mp3',
+    })
+    // 回显请求路径，不回传 canonical 绝对路径
+    expect(status.path).toBe(item.path)
+  })
+
+  it('文件缺失 → missing（不抛错）', () => {
+    const status = library.inspectPath(path.join(allowedDir, 'gone.mp3'))
+    expect(status).toMatchObject({ exists: false, readable: false, reason: 'missing' })
+  })
+
+  it('不支持的扩展名 → format_unsupported 且不触盘探测', () => {
+    // 路径本身不存在：若实现先 stat 会得到 missing；正确实现必须在 stat 之前按扩展名拒绝。
+    const status = library.inspectPath(path.join(root, 'tool.exe'))
+    expect(status.reason).toBe('format_unsupported')
+    expect(status.exists).toBe(false)
+  })
+
+  it('超过 15MB → size_exceeded', () => {
+    const big = writeAllowed('big.mp3', 15 * 1024 * 1024 + 1)
+    expect(library.inspectPath(big).reason).toBe('size_exceeded')
+  })
+
+  it('允许根之外 → not_allowed（与 compose 的 diagnoseBgmSkipReason 同码）', () => {
+    const outside = path.join(root, 'outside.mp3')
+    fs.writeFileSync(outside, 'x')
+    const status = library.inspectPath(outside)
+    expect(status).toMatchObject({ exists: true, readable: false, reason: 'not_allowed' })
+  })
+
+  it('符号链接 → not_a_file', () => {
+    const target = writeAllowed('real.mp3')
+    const link = path.join(allowedDir, 'link.mp3')
+    try { fs.symlinkSync(target, link, 'file') } catch { return } // Windows 无符号链接权限时跳过
+    expect(library.inspectPath(link).reason).toBe('not_a_file')
+  })
+
+  it('目录 → not_a_file', () => {
+    const dir = path.join(allowedDir, 'music.mp3')
+    fs.mkdirSync(dir)
+    expect(library.inspectPath(dir).reason).toBe('not_a_file')
+  })
+
+  it('非法入参 → invalid_argument（不抛错、不探测）', () => {
+    for (const bad of [null, undefined, 42, '', '   ', 'relative/song.mp3', 'x'.repeat(4097) + '.mp3']) {
+      expect(library.inspectPath(bad).reason).toBe('invalid_argument')
+    }
+  })
+})

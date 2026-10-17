@@ -16,6 +16,7 @@ import {
   story2videoBgmLibraryAdd,
   story2videoBgmLibraryRename,
   story2videoBgmLibraryDelete,
+  story2videoBgmLibraryStatus,
 } from '@/api/publisher'
 import { STORY2VIDEO_NOTIFICATION_KEYS } from '@/story2video/story2video-notifications'
 import {
@@ -27,6 +28,30 @@ import {
 export const BGM_LIBRARY_OVERLAY_OWNER = 'create-bgm-library-dialog'
 export const BGM_LIBRARY_DELETE_OVERLAY_OWNER = 'create-bgm-library-delete-dialog'
 
+/**
+ * 历史 BGM 路径状态（s2v-bgm-legacy-repair）：
+ * 「已选音频（未入库）」原先把三种本质不同的状态混为一谈，现细分为：
+ *   idle      = 无历史路径 / 已命中库条目
+ *   checking  = 已发起主进程只读核验
+ *   available = 文件仍可用，但不在素材库
+ *   missing   = 文件已丢失（临时目录老化回收 / 手动删除）
+ *   unusable  = 文件存在但不可用于合成（格式/大小/位置/类型）
+ *   unknown   = 核验通道不可用（浏览器态/旧主进程）——失败开放，不阻断启动
+ */
+export const LEGACY_BGM_STATUS = Object.freeze({
+  IDLE: 'idle',
+  CHECKING: 'checking',
+  AVAILABLE: 'available',
+  MISSING: 'missing',
+  UNUSABLE: 'unusable',
+  UNKNOWN: 'unknown',
+})
+
+/** 需要启动前阻断的状态（未知不阻断，避免把“无法核验”误判成“文件已丢失”） */
+export const LEGACY_BGM_BLOCKING_STATES = Object.freeze([LEGACY_BGM_STATUS.MISSING, LEGACY_BGM_STATUS.UNUSABLE])
+
+const USABLE_INSPECT_REASON = 'ok'
+
 /** 模块级状态（单例：BGM 素材库为设备级资源，跨组件共享同一份） */
 const state = reactive({
   s2vBgmLibrary: [],
@@ -36,7 +61,12 @@ const state = reactive({
   s2vBgmLibraryRenameDraft: '',
   s2vBgmLibraryDeleteDialogOpen: false,
   s2vBgmLibraryDeleteTargetId: null,
+  // 历史路径核验状态：{ state, path, reason, exists }
+  s2vLegacyBgmStatus: { state: LEGACY_BGM_STATUS.IDLE, path: '', reason: '', exists: false },
 })
+
+/** 核验请求代际：只有最新请求的响应可以落地（防旧路径响应覆盖新选择） */
+let legacyBgmVerifySeq = 0
 
 /** 壳注入的跨域依赖（setupBgmLibraryDeps 一次性注入；window 兜底防测试/早调用时序） */
 let deps = typeof window !== 'undefined' ? (window.__bgmLibraryDeps || null) : null
@@ -202,6 +232,95 @@ async function releaseAllOverlays () {
   await releaseEmbeddedViewsForOverlay(BGM_LIBRARY_DELETE_OVERLAY_OWNER)
 }
 
+/** 复位历史路径状态（路径清空 / 已入库 / 用户显式修复后调用；同时使在途响应失效） */
+function resetLegacyBgmLibraryStatus () {
+  legacyBgmVerifySeq += 1
+  state.s2vLegacyBgmStatus = { state: LEGACY_BGM_STATUS.IDLE, path: '', reason: '', exists: false }
+}
+
+/** 把主进程 inspect 结果映射为 UI 状态（唯一映射点，面板不自行解释 reason） */
+function mapInspectResultToLegacyStatus (path, data) {
+  if (!data || typeof data !== 'object') {
+    return { state: LEGACY_BGM_STATUS.UNKNOWN, path, reason: '', exists: false }
+  }
+  const reason = String(data.reason || '')
+  const exists = data.exists === true
+  if (reason === USABLE_INSPECT_REASON) {
+    // 已命中库条目：不再是“历史未入库”，复位为常规选择
+    if (data.inLibrary === true) return { state: LEGACY_BGM_STATUS.IDLE, path: '', reason, exists }
+    return { state: LEGACY_BGM_STATUS.AVAILABLE, path, reason, exists }
+  }
+  if (reason === 'missing') return { state: LEGACY_BGM_STATUS.MISSING, path, reason, exists }
+  if (reason === 'invalid_argument') {
+    // 历史配置理论上都是绝对路径；出现非法入参说明数据异常，按未知处理（不阻断）。
+    return { state: LEGACY_BGM_STATUS.UNKNOWN, path, reason, exists }
+  }
+  return { state: LEGACY_BGM_STATUS.UNUSABLE, path, reason, exists }
+}
+
+/**
+ * 只读核验历史 BGM 路径（同一路径单请求；旧响应按代际丢弃）。
+ * @param {string} rawPath
+ */
+async function verifyLegacyBgmLibraryPath (rawPath) {
+  const path = String(rawPath || '').trim()
+  const seq = ++legacyBgmVerifySeq
+  if (!path) {
+    state.s2vLegacyBgmStatus = { state: LEGACY_BGM_STATUS.IDLE, path: '', reason: '', exists: false }
+    return
+  }
+  state.s2vLegacyBgmStatus = { state: LEGACY_BGM_STATUS.CHECKING, path, reason: '', exists: false }
+  let result
+  try {
+    result = await story2videoBgmLibraryStatus(path)
+  } catch (_) {
+    result = null
+  }
+  if (seq !== legacyBgmVerifySeq) return // 已被更新的路径/复位取代
+  if (!result || result.code !== 0) {
+    state.s2vLegacyBgmStatus = { state: LEGACY_BGM_STATUS.UNKNOWN, path, reason: '', exists: false }
+    return
+  }
+  state.s2vLegacyBgmStatus = mapInspectResultToLegacyStatus(path, result.data)
+}
+
+/**
+ * 把当前历史 BGM 加入素材库：成功后自动选中库内新路径（持久目录，不再受临时目录老化影响）。
+ * 仅当状态为 available（已确认文件可用）才执行，避免把丢失/不可用文件复制入库。
+ * @returns {Promise<object|null>} 新库条目，失败返回 null
+ */
+async function adoptLegacyBgmLibrary () {
+  if (state.s2vLegacyBgmStatus.state !== LEGACY_BGM_STATUS.AVAILABLE) return null
+  const s2vConfig = requireDeps().getS2vConfig()
+  const current = String(s2vConfig.bgmPath || '').trim()
+  if (!current) return null
+  const kindLabel = requireDeps().story2videoKindLabel('bgm')
+  try {
+    const result = await story2videoBgmLibraryAdd(current)
+    if (result?.code === 0 && result.data?.path) {
+      await loadS2VBgmLibrary({ silent: true })
+      s2vConfig.bgmPath = result.data.path
+      resetLegacyBgmLibraryStatus()
+      return result.data
+    }
+    requireDeps().showStory2VideoErrorDialog(requireDeps().resolveMediaImportFailure(result, kindLabel))
+    return null
+  } catch (_) {
+    requireDeps().showStory2VideoErrorDialog({
+      messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_UNREADABLE,
+      messageParams: { kindLabel },
+    })
+    return null
+  }
+}
+
+/** 清除历史 BGM 选择（=「不使用背景音乐」），解除启动门禁并复位状态。 */
+async function clearLegacyBgmLibrarySelection () {
+  const s2vConfig = requireDeps().getS2vConfig()
+  s2vConfig.bgmPath = ''
+  resetLegacyBgmLibraryStatus()
+}
+
 /** 测试复位（模块级单例状态跨用例泄漏防护）：仅测试环境使用 */
 export function resetBgmLibraryForTest () {
   state.s2vBgmLibrary = []
@@ -211,6 +330,8 @@ export function resetBgmLibraryForTest () {
   state.s2vBgmLibraryRenameDraft = ''
   state.s2vBgmLibraryDeleteDialogOpen = false
   state.s2vBgmLibraryDeleteTargetId = null
+  legacyBgmVerifySeq += 1
+  state.s2vLegacyBgmStatus = { state: LEGACY_BGM_STATUS.IDLE, path: '', reason: '', exists: false }
   deps = typeof window !== 'undefined' ? (window.__bgmLibraryDeps || null) : null
 }
 
@@ -230,4 +351,8 @@ export const bgmLibraryMethods = {
   closeBgmDeleteDialog,
   confirmBgmDelete,
   releaseAllOverlays,
+  verifyLegacyBgmLibraryPath,
+  adoptLegacyBgmLibrary,
+  clearLegacyBgmLibrarySelection,
+  resetLegacyBgmLibraryStatus,
 }

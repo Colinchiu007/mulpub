@@ -51,6 +51,14 @@
 - TDD 先红后绿：新增 `C2b`（告警必须含「用户无需操作」+「仅对『本机时间落后』有效」，且**不得**含旧措辞「请校准系统时间」）——实现前 1 failed，实现后 64 passed；
   `U1/U2` 改为断言新文案 + 两条反向断言（不得出现「时钟异常」「钳位」）——实现前 2 failed，实现后 32 passed。
 - 门禁：`check-locale-sync --keys`、doc-abs-paths、no-brand-residue、行数门禁、CCG 5 项全部按 PR 内记录取证。
+# [未发布] fix(video-creation): 背景音乐归位「声音」分组 + 历史音频存在性核验与一键修复（s2v-bgm-legacy-repair）
+
+- **两个用户问题一次收口**：①「背景音乐 / 背景音乐音量」原在「画面」折叠区，而 optionKey 早已是 `voice.bgm*`（`PRD-S2V-PIPELINE-PAGE-UX.md` §11.4 早于实现登记），模板位置与运营目录不一致 → 迁移到「声音」分组（音色 ID 之后、音色克隆之前），`data-testid`、optionKey、持久化字段全部不变；`S2V_SUMMARY_FIELDS.voice` 纳入 `bgmPath`/`bgmVolume`，声音摘要在**已选背景音乐时**追加背景音乐片段（未选不追加，默认折叠态摘要与视觉基线逐字节不变）。②「已选音频（未入库）」只回答“在不在素材库”，不回答“文件还在不在/还能不能用”，用户无法判断该清、该重选还是可以继续；点启动后 compose 按 `bgmSkipped` 静默丢 BGM。
+- **根因**：2026-08-14 前 BGM 走 `%TEMP%/story2video/selected-media`（7 天惰性老化 + 系统临时目录清理），旧快照/配置/历史持久化了该绝对路径；素材库只迁移“新选择”未校验旧路径；renderer 无文件系统可见性，主进程也没有“该路径能否被 compose 读取”的只读通道。
+- **机制优化**：新增只读 IPC `story2video:bgm-library-status` + `Story2VideoBgmLibrary.inspectPath`，判定顺序与 compose 的 `resolveReadableMediaFile` 同源（入参 → 绝对路径 → 扩展名 stat 前拒绝 → `lstat` → 类型 → 空/超 15MB → 允许媒体根 → 复核 → 库内命中），`reason ∈ ok|invalid_argument|format_unsupported|missing|not_a_file|size_exceeded|not_allowed|unreadable`；只对音频扩展名触盘，避免成为任意路径探测口。
+- **渲染层状态机**：`idle/checking/available/missing/unusable/unknown`，请求代际防旧响应覆盖；`available` →【加入素材库】（复用 `bgm-library-add`，成功后自动选中库内新路径）；`missing`/`unusable` →【清除背景音乐选择】并**阻断启动**（`blockedReason.bgmLost`/`bgmUnusable`，`handleStartPipeline` 有历史路径时先 await 核验）；`unknown` **失败开放**（浏览器/旧主进程不阻断、不弹错）。历史 `bgmPath` 在用户显式操作前不清空、不改写；compose `bgmSkipped` 保留为最后防线。
+- **测试**：服务层 `inspectPath` 8 例（库内/缺失/格式/超限/越界/符号链接/目录/非法入参，含“非音频扩展名不得先 stat”的探针）、IPC 2 例、preload/权限 1 例（键数锁 131/344 同步）、composable 6 例（含请求代际与 adopt 失败保留原路径）、面板 4 例（分组归属 + 三状态渲染 + 按钮转发）、壳 4 例（阻断/清除/adopt/unknown/摘要），`CreateView` 全量 300 例、locale 三口径、ESLint 全绿。
+- **文档与记忆**：`01-docs/PRD-S2V-BGM-VOICE-SECTION-LEGACY-REPAIR-2026-10-17.md`（数据校验/流程/功能/交互/显示项/提示文字/测试/验收/风险）+ `PRD-S2V-PIPELINE-PAGE-UX.md` §9/§11/§12 + `PRD-video-creation.md` §3.1.25 增补 + OpenSpec change `s2v-bgm-legacy-repair` + learnings + 三路记忆。
 
 # [未发布] feat(gates): 登录态隐藏窗口兜底加「准入登记表 + 配对锁」——把准入纪律变成机械拦截（dom-login-check-registry）
 
