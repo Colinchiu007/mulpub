@@ -306,6 +306,7 @@ function scanCatchRecursion (sources) {
       while ((c = callRe.exec(body)) !== null) {
         const before = body.slice(0, c.index).trimEnd()
         if (before.endsWith('.')) continue        // 属性访问同名方法，不算自调用
+        if (/\bnew$/.test(before)) continue      // 构造调用 new NAME( 不是重调自身（CCG 评审 73742862-i4）
         hit = true
         break
       }

@@ -122,6 +122,7 @@ test('L3 绿夹具：属性访问同名方法 / 调用别的函数 / 相邻 if( 
     "    this._logger.warn('failed', e)",     // 属性访问同名方法：不算自调用
     "    console.warn('x')",                  // 同样不算
     '    if (e) { retryOnce() }',             // 相邻 if(：不许把 if 当函数名
+    '    const fallback = new outer()',     // 构造调用不算自调用（CCG 评审 i4）
     '  }',
     '}',
     'function retryOnce () { return 1 }',

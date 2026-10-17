@@ -19,13 +19,95 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "self_play_pending",
-    "performedBy": "self-play(pending)",
+    "status": "self_play_blocked",
+    "performedBy": "self-play",
     "confidenceWeight": 0.6,
     "requiresExternalReview": [],
-    "findings": null,
-    "template": ".adversarial\\ccg-deep-73742862\\adjudication.json",
-    "note": "裁决尚未填写：7/7 条未定（i1, i2, i3, i4, i5, i6, i8）",
-    "at": "2026-10-17T06:15:26.969Z"
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "JSON metadata uses wrong SHA (`c120b5a`) vs head (`7374286`), and stats (`changedLines`:598, `fileCount`:4) do not match the 5-file diff (758 lines) shown.",
+        "highRiskDomains": [],
+        "prosecution": "记录 JSON 的 sha 是 c120b5a0 而非 head，stats（598 行/4 文件）与实际 5 文件 758 行不符。",
+        "defense": "判定器在 pre-commit 时只能按「父 sha + 暂存差量」落记录 —— 那时 CLI 文件还没暂存（4 文件/598 行是当时的真实状态）。数字不符恰恰是 i3 属实的旁证：CLI 被 .gitignore 吞了。修复提交 a72ddf697 已把 CLI 纳入版本控制（.gitignore negation），i1 的口径差随之消失。",
+        "verdict": "dismissed",
+        "rationale": "口径不符的根因是 i3（已修），记录机制本身（pre-commit 按父 sha 落盘）无缺陷。与 i3 合并处置。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "`findCharMaps` regex excludes quote keys (`\"`/`'`) via `(?!\\1)`, exactly the characters L1 must guard; comments claim backreference fix but code doesn't allow them.",
+        "highRiskDomains": [],
+        "prosecution": "findCharMaps 的 (?!\\1) 使引号键永远匹配不到，而这正是 L1 要守的字符。",
+        "defense": "实测否证：绿夹具含键 '\"' 与 \"'\" 两条引号键，scanEscapeMapCoverage 返回 ok=true；真实仓 sanitize.ts 的 5 键表也被识别（mapsFound=2）。(?!\\1) 只禁止键内容与定界引号相同（如空键），不禁止「键是另一种引号」。",
+        "verdict": "dismissed",
+        "rationale": "指控对正则语义的解读有误，且已被夹具级测试与真实仓扫描双重否证。"
+      },
+      {
+        "id": "i3",
+        "severity": "Critical",
+        "finding": "`scripts/check-same-type-risk-locks.js` (required by test CLI and `require` guard) is absent from diff; end-to-end and CLI tests will fail at runtime.",
+        "highRiskDomains": [],
+        "prosecution": "CLI（scripts/check-same-type-risk-locks.js，被测试 require 且被 workflow 点名）不在 diff 里，端到端与 CLI 用例在 CI 上会 MODULE_NOT_FOUND。",
+        "defense": "完全属实，且比指控更严重：.gitignore:106 的 scripts/*.js 把它静默忽略 —— 本地全绿（文件在磁盘上），CI 必然红。这正是本仓已记录三次的同族陷阱（#3011 / Gate 2c3 / precommit-spawn-budget），注释里写着「漏这条 negation 的症状是本地全绿、CI 上 Cannot find module」。我是第 4 次。",
+        "verdict": "upheld",
+        "rationale": "已修：a72ddf697 加 !scripts/check-same-type-risk-locks.js（沿既有范式 + 写明动因），验证 check-ignore 命中的是 negation 行本身、git show --stat 包含该文件。评审抓到一个自查两轮都没抓到的阻断级缺陷。"
+      },
+      {
+        "id": "i4",
+        "severity": "Critical",
+        "finding": "`scanCatchRecursion` misses `.catch(...)` promise chains (needs `{` immediately) and doesn't exclude `new NAME()` constructor calls, causing false negatives/positives.",
+        "highRiskDomains": [],
+        "prosecution": "scanCatchRecursion 漏 .catch(...) 链；new NAME() 未排除会造成假阳。",
+        "defense": "前半在红夹具上被否证（catch((error) => { 的竞品 X-C1 原形已被判红，判据为 catch 后括号可选 + 箭头可选 + 必须跟花括号）；后半属实：catch 体内的 new OwnerName( 会因「前缀不是点号」而误判自调用。",
+        "verdict": "upheld",
+        "rationale": "已修：调用点前缀以 new 结尾（裸 new NAME(）不算自调用（与属性访问同待遇），并补绿夹具断言。.catch 链支持本就有红夹具守着。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "`unescapeClassChars` treats any `-` as unsupported range; literal `-` (e.g. `[\\-]`) is wrongly skipped, reducing L1 coverage.",
+        "highRiskDomains": [],
+        "prosecution": "unescapeClassChars 把任何 - 当区间 ⇒ 字面量 -（如 [\\-]）被错误跳过，降低 L1 覆盖。",
+        "defense": "实测：[\\-] 走转义分支按字面量收；[a-]（末位）因条件 i < body.length - 1 不成立也按字面量收。只有真区间（两侧都有字符）才进 unsupported，且跳过是显式计数（stats.skippedNonLiteralClasses），不是静默。",
+        "verdict": "dismissed",
+        "rationale": "边界实现正确且有夹具级语义；指控未区分三种 - 位置。"
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "finding": "`maskNonCode` uses `split('')` and char-loop; high constant factor on 2861 files.",
+        "highRiskDomains": [],
+        "prosecution": "maskNonCode 用 split 加逐字符循环，2861 文件上常数因子大。",
+        "defense": "实测整跑（CLI 含读盘 + 四锁）约 5.0-5.7 秒，瓶颈是读约 30MB 源码，不是屏蔽。本锁在 CI changes job 上跑一次，5 秒量级可接受；无测量驱动的改写属于无谓复杂度。",
+        "verdict": "dismissed",
+        "rationale": "有测量结论支持：无观察到的性能问题，不为不存在的瓶颈付复杂度。"
+      },
+      {
+        "id": "i8",
+        "severity": "Warning",
+        "finding": "Locks are text-level heuristics (not AST); L3 covers only 4 function patterns, missing arrow arguments and class methods, so real recursive catches may go undetected.",
+        "highRiskDomains": [],
+        "prosecution": "四条锁是文本级启发式，L3 只认 4 种函数形态，会漏真实递归 catch。",
+        "defense": "属实，但这不是遗漏而是显式登记的边界：执行记录「未闭合」表第 1 条原文即此（含 Promise 链传参形态不覆盖的具体例子）。上 AST 是另一个量级的工程（依赖解析器选型），文本级判据已把四类高危形状钉住且红夹具守着。",
+        "verdict": "dismissed",
+        "rationale": "已披露的限制不构成缺陷；升级路径已写进未闭合表，由后续 PR 决策。"
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i3",
+        "severity": "Critical",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i4",
+        "severity": "Critical",
+        "reason": "self_play_upheld"
+      }
+    ],
+    "note": "自扮演裁决：2 条指控成立或需外部复核",
+    "at": "2026-10-17T07:19:51.113Z"
   }
 }
