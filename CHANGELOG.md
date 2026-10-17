@@ -1,3 +1,12 @@
+# [未发布] feat(gates): 登录态隐藏窗口兜底加「准入登记表 + 配对锁」——把准入纪律变成机械拦截（dom-login-check-registry）
+
+- **问题**：`DOM_LOGIN_CHECK_ALLOWED_PLATFORMS` 默认空集（#3759 落地）挡住了崩溃路径，但**没有任何机械判据**阻止"只加一行平台名、不交真机证据"的提交。而隐藏窗口崩不崩**只有真机能验证**（真实平台页面 + 真实账号 Cookie + 隐藏窗口渲染），CI 永远凑不齐 ⇒ 四例事故（toutiao → wechat_mp → 知乎 → kuaishou）的共同形态都是「CI 全绿、用户机器上崩」。
+- **改动**：新增 `scripts/dom-login-check-registry.json`（今日 `platforms: {}`，与空集一一对应），每行须带 7 个证据字段（`accessedAt` / `operator` / `realMachineRounds`≥2 / `realMachineMinutes`≥60 / `loginPageShape` / `loggedInPageShape` / `evidenceRef`）；`account-manager-http-only-policy.test.js` 增第 5 例「准入配对锁」做**双向**判定：允许集 ⊆ 登记表（缺登记即红）、登记表 ⊆ 允许集（装饰性登记即红）、`requiredEvidenceFields` 缺项即红。
+- **探针实测**（证明锁会咬人，不是装饰）：A 允许集加 `weibo` 而不登记 → RED；B 登记表加 `weibo` 而代码不接 → RED；C 两侧都加但 `realMachineRounds=1 / realMachineMinutes=30` → RED；还原后 **5/5 GREEN**。
+- **顺带修掉一处上一轮合并残留**：`checkLoginStatus` 函数内重复声明了 `RENDER_CRASH_PRONE_OPEN_PLATFORMS`（遮蔽模块级那份，属 rebase 解冲突时的重复；同内容故无行为差异，但属死代码），已删除；允许集旁补 3 行准入指针，让下一个人改这里时先看到规则。
+- **文档**：`01-docs/BUGFIX-LOGIN-CHECK-HTTP-ONLY-2026-10-16.md` 新增 §13（为什么需要机械准入 / 登记表 schema / 双向判据 / 探针证据 / 准入操作清单）；`01-docs/PRD-ACCOUNT-LOGIN-STATUS-CHECK.md` §18.6 回退通道同步要求登记表。
+- **边界**：这是**流程闸门**而非崩溃修复——它不改变运行时行为（允许集仍为空集），只保证"将来若有人开窗，必须带真机证据进场"。
+
 # [未发布] refactor(video-creation): 流水线进度浮层统一为四按钮 + 成功后浮层保留并做完成出口（unify-video-pipeline-progress-modal）
 
 - **统一的是契约，不只是样式**：视频创作页 `s2v-progress-modal` 与热门选题页 `hot-topics-gen-video-modal` 此前 footer 各写一套——前者只有 `UiButton`【后台运行】，后者是裸 `<button class="cohere-btn-primary/secondary">`【重试】【后台运行】【取消】【关闭】。现在两页 footer 一律 `UiButton`，从左到右固定 **【查看】【去发布】【后台运行】【取消】**（重试仍为 `primary`，其余 `secondary`）。锁法是把「集合 + 顺序 + 门控」当契约断言：`footer.findAll("button").map(data-testid)` 逐项等于预期数组，且每个按钮 `className` 含 `ui-btn-`、不含 `cohere-btn-`。

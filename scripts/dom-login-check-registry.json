@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "_why": "登录态判定的隐藏窗口兜底**默认关闭**（allowlist 空集）。要恢复某平台的 DOM 判定，必须把它加进 account-manager.js 的 DOM_LOGIN_CHECK_ALLOWED_PLATFORMS，并**在同一次提交**把该平台登记到本表且证据齐备。原因：隐藏窗口崩不崩只有真机能验证（真实平台页面 + 真实账号 Cookie + 隐藏窗口渲染），CI 永远凑不齐 —— 2026-09 至 10 月的四例（toutiao → wechat_mp → 知乎 → kuaishou）都是「CI 全绿、用户机器上崩」。",
+  "allowlistSource": "apps/desktop/electron/publishers/account-manager.js",
+  "enforcedBy": "apps/desktop/electron/publishers/account-manager-http-only-policy.test.js 的「准入配对锁」用例（双向：允许集 ⊆ 登记表、登记表 ⊆ 允许集）",
+  "requiredEvidenceFields": [
+    "accessedAt",
+    "operator",
+    "realMachineRounds",
+    "realMachineMinutes",
+    "loginPageShape",
+    "loggedInPageShape",
+    "evidenceRef"
+  ],
+  "_fieldMeaning": {
+    "accessedAt": "YYYY-MM-DD，真机复测日期",
+    "operator": "执行复测的人/会话标识",
+    "realMachineRounds": "≥2：LoginMonitor 一轮 30 分钟，一轮不足以下结论（2026-10-16 实测：第一轮通过、30 分钟后第二轮仍崩）",
+    "realMachineMinutes": "≥60：观测窗口须覆盖至少两轮",
+    "loginPageShape": "未登录页面的可判定形态（选择器或 URL 特征），证明该平台 DOM 判定可行",
+    "loggedInPageShape": "已登录页面的可判定形态",
+    "evidenceRef": "证据载体：日志路径 / 记录文件路径 / PR 链接（须可复核）"
+  },
+  "_fallback": "若某平台无法给出页面形态证据 ⇒ 不要开窗，改为补 HTTP 侧能力（HTTP_CHECK_APIS[platform].checkHtml，参照知乎那一路）。",
+  "platforms": {}
+}
