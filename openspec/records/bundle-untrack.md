@@ -3,9 +3,6 @@ record: bundle-untrack
 task: 把 5 个受管构建产物（preload/paginator bundle）移出版本控制，消除 build:vue 后的 stat-dirty
 date: 2026-10-17
 branch: bundle-untrack
-sync_status: PENDING
-sync_reason: PR 尚未合并（记录随代码 PR 落地，合并后回填 merge SHA）
-sync_backfill_owner: bundle-untrack 会话（回填 PR）
 ---
 
 # 执行记录：构建产物移出版本控制（bundle-untrack，2026-10-17）
@@ -84,9 +81,9 @@ sync_backfill_owner: bundle-untrack 会话（回填 PR）
 | 测试 | PASS | `electron/ipc-handlers/zhihu-favlist.test.js` 12 用例通过（bundle 取消跟踪不影响测试：文件物理存在） |
 | 文档同步 | PASS | 本文档 + PR 正文 + `.gitignore` 内联说明 |
 | 行尾两口径对账 | PASS | 仅 `.gitignore` 一个文本文件，新增行 LF |
-| 远程同步 | PENDING | PR 未开。合并后同一次提交改写为 `PASS` + merge SHA 并删除 `sync_*` 三字段 |
+| 远程同步 | PASS | PR **#3782** 已 squash 合并，merge SHA `826fa7e130a4ab868049903492f54ab9374c06f2`；远端分支 `git ls-remote --heads origin bundle-untrack` ⇒ 0 行（已删）。回填与销账同一次提交（本行 + bullet + 删 `sync_*` 三字段）。**如实记一笔**：本 PR 合并时判据 4（`check-pr-exec-record --mode=enforce`）**实际未通过**——rebase 期间生成的第二份 CCG 判定记录 `9c33270d` 状态仍是 `pending`，而我在同一条命令里串行执行了 enforce 与 merge、未检查前者结果；已由 follow-up PR `fix-ccg-record-bundle-untrack` 闭合该记录并留痕 |
 
-- 保留门禁：变更类型与隔离 ✅ | 决定性验证 ✅ | QM-1 ✅ | 测试 ✅ | 文档同步 ✅ | 行尾对账 ✅ | 远程同步 PENDING
+- 保留门禁：变更类型与隔离 ✅ | 决定性验证 ✅ | QM-1 ✅ | 测试 ✅ | 文档同步 ✅ | 行尾对账 ✅ | 远程同步 PASS
 
 ## 6. 为什么是 **5 个**而不是 7 个（两个同类文件被**有意保留**）
 
