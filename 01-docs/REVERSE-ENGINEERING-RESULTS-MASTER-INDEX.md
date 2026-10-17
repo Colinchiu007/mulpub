@@ -177,7 +177,7 @@
 
 | 位置 | 内容 |
 | --- | --- |
-| `<REA_WORKSPACE>/analysis/` | 报告与脚本工作副本、`mtm-strings-all.json`（1.5 MB）、`yixiaoer-asar-evidence.json`（172 MB 原始证据）、asar 解出源码 44 文件 |
+| `<REA_WORKSPACE>/analysis/` | 报告与脚本工作副本、`mtm-strings-all.json`（1.5 MB）、**asar 原始证据导出**（`*-asar-evidence.json`，172 MB，一般不必读）、asar 解出源码 44 文件 |
 | `<REA_WORKSPACE>/使用手册.md`（28.7 KB）| REA 173 工具分类、Ghidra 12.1.4 + JDK 21 配置、实战流程、故障排查 |
 
 > **合规说明**：竞品 asar 解出源码**刻意不入库** —— 报告本身就把「原样搬平台混淆产物」判为高风险不学，竞品源码同理，只作只读比对。
