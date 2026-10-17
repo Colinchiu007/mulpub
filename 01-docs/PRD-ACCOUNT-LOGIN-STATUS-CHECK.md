@@ -499,4 +499,308 @@ IPC 口径（7+1）、定期检测（新建 10 例）、渲染层（3 改写 + 3
 2. **它同样区分"失效"与"不确定"**：查询结果分 `suc` / `logout` / `fail` 三桶，UI 文案分别为「查询成功」/「查询失败 账号登录失效」/「查询失败」——与本 PRD §17.4 的「正常 / 失效 / 未确认」三态**同构**。
 3. **它把失败原因翻译成可执行提示**：平台错误码 `2190008` → 「授权失效,请重新授权」、`100437` → 「无法获取私密账号数据」。这一点强于我们现状（`reason` 仅内部可见、UI 统一显示「未确认」），已列为后续改进项（`PLATFORM_LOGIN_ERROR_HINTS`）。
 
+## 19. 2026-10-17 变更：登录态提示可执行化 + 能力级授权 + DOM 判定进程隔离
+
+> 对应执行记录：`openspec/records/account-login-ux.md`。三件事互为配套：
+> **提示**让"未确认"不再是一句废话；**能力**把账号从一维变二维；**隔离**给"将来若必须开窗"上最后一道保险。
+
+### 19.1 背景与第一性原因
+
+1. **提示层缺口**：主进程的 `checkLoginStatus` 一直带细到原因的 `reason`（9 种），
+   但渲染端只拿到 `code`，未确认时一律显示「未能确认登录状态：本轮检测未取到定论」——
+   "该重试"还是"该重新登录"全靠用户猜。参考产品B 把平台错误码翻译成可执行提示（§18.7 第 3 条）。
+2. **账号模型一维**：我们只回答"登录了吗"，回答不了"能读它的数据吗 / 能自动评论吗"。
+   参考产品B 的账号是**两维**：登录态 × 能力授权（`im_flag` / `sp_flag` / `open_id`）。
+3. **崩溃收场缺口**：隐藏窗口判定跑在主进程浏览上下文里，原生渲染崩溃时**主进程自己没了**，
+   连"降级未确认"都来不及返回。#3759 已让默认路径不触碰它，但**没有进程隔离这最后一道保险**。
+
+### 19.2 功能逻辑（主进程）
+
+| 模块 | 职责 | 关键约束 |
+|------|------|---------|
+| `electron/publishers/login-status-hints.js`（新） | `reason`/`code` → `{locales 键, 兜底文案, action}` | **只解释、不改判**；未知码回落 `null`（调用方用通用文案）；**不登记** `CHECK_LOGIN_INVALID_PARAMS`（那是开发缺陷，配提示等于把 bug 包装成产品文案） |
+| `electron/publishers/login-check-capabilities.js`（新） | `dataRead` / `commentInteract` 两能力，状态 `unknown`/`granted`/`revoked` | **缺证据一律 unknown**；只有平台明确拒绝（错误码，如 `100437`）才判 `revoked`；未授权 ≠ 未登录 |
+| `electron/publishers/dom-login-check-runner.js`（新） | 隐藏页面判定的隔离运行器 | 子进程死亡/异常/空结果一律降级 `CHECK_LOGIN_INCONCLUSIVE` + `reason=dom-check-process-died`；**默认仍在主进程内执行**（允许集为空 ⇒ 生产走不到） |
+| `electron/publishers/account-manager.js` | 判定链**保持纯净**；新增 `loginStatusHint` / `loginStatusCapabilities` 两个只读包装器供 IPC 调用 | ⚠️ 决策记录：曾把 hint/capabilities 装饰到判定返回值上，**实测打破 13 个 `toEqual` 精确断言**，故改为 IPC 层显式挂载 |
+
+### 19.3 数据流与 IPC 合同
+
+```
+渲染端 → accounts:batch-check-login / account:check-login
+主进程 AccountManager.checkLoginStatus(platform, id)   ← 只返回三态（合同不变）
+        ↓
+   IPC 层显式取展示语义（缺内容不挂键）：
+     item.hint         = AccountManager.loginStatusHint(status)        // 有才挂
+     item.capabilities = AccountManager.loginStatusCapabilities(status) // 有才挂
+```
+
+`item` 的键集合被测试锁定（多一个键就红）：`platform / accountId / valid / code / loginStatus /
+statusChanged / last_validated / persisted` + 可选的 `hint` / `capabilities` / `error`。
+
+### 19.4 交互逻辑与显示项
+
+**单账号「验证」**（`src/views/Accounts.vue` → `checkLogin`）：
+
+| 判定 | 反馈 |
+|------|------|
+| `valid === true` | 成功提示「登录状态正常」 |
+| `valid === undefined` | 信息提示：**平台名 + hint 的具体原因与下一步**（例："哔哩哔哩：平台接口未给出明确结论（可能正在风控或改版），请稍后重试"）；`hint` 缺失时回落既有通用文案 |
+| `valid === false` | 既有确认框（错误码 → 文案映射不变），确认后走 `reloginAccount` |
+
+**一键检测汇总**（`batchCheckAllLogins`）：在既有"X 正常 / Y 失效 / Z 未确认"之外**追加一条
+「后续操作建议」**，把未确认/失败账号按 `hint.action` 分成两半说：
+`N 个账号需要重新登录`、`M 个账号请稍后重试`（两者处置不同，不得混成一句）。
+
+**账号卡片能力行**：仅当某能力为 `granted`/`revoked` 时才渲染（全 `unknown` 不渲染，避免满屏噪声）；
+`revoked` 时给出该能力的后果说明（"数据读取未授权 ⇒ 统计与素材同步不可用"）。
+
+### 19.5 提示文案（zh/en 成对，键名与主进程一一对应）
+
+`accountsPage.checkHints.*` 共 17 条，覆盖 8 种 `reason` + 9 种 `code`。示例：
+
+| 场景 | zh | en |
+|------|----|----|
+| 接口无定论（可重试） | 平台接口未给出明确结论（可能正在风控或改版），请稍后重试 | The platform API gave no clear verdict (possibly rate-limited or redesigned). Please try again later. |
+| 无 Cookie（要重登） | 未检测到已保存的登录凭证，请重新登录该平台账号 | No saved login credential found. Please log in to this platform account again. |
+| 页面检测进程退出 | 页面检测进程已退出，本次未取到定论，请稍后重试 | The page check process exited, so no verdict was reached this round. Please try again later. |
+| 崩溃高危平台 | 该平台无法用接口判定且不能开窗检测，请重新登录以恢复确定结论 | This platform cannot be judged via API and window-based checks are disabled. Please log in again for a definite result. |
+
+### 19.6 进程隔离的工作方式（P2 落地）
+
+```
+主进程 ──IPC──▶ 子进程（utilityProcess）
+   ▲                  │
+   │                  └─ 只在这里开隐藏窗口抓 DOM
+   └─ 收到 exit ──────▶ 判 INCONCLUSIVE + reason=dom-check-process-died，应用不死
+```
+
+- 运行器 `runHiddenPageCheck(req, runners, options)`：`options.isolated` 为真且注入了
+  `spawnIsolated` 时走子进程；否则走 `runners.runInProcess`（默认路径）。
+- **子进程死亡不是失败，是"本次无定论"**：无论退出码/信号/超时，一律降级，绝不抛给调用方、
+  绝不判失效。测试用 `createDeadProcessRunner` 注入"必死子进程"验证该契约。
+- 注入必须是显式参数，**不得**用环境变量切换（改契约必须同批改锁）。
+
+### 19.7 回归保护与验证证据
+
+| 层 | 锁 |
+|----|----|
+| 新模块单测 | `login-status-hints.test.js`（5 例：reason 优先于 code / 未知回落 null / 键与动作三要素齐全 / 开发缺陷不给提示 / 聚合计数）、`login-check-capabilities.test.js`（8 例：缺证据 unknown / 显式判定优先 / 错误码 revoked / granted 不被降级 / 展示门槛 / 清单与信号表双向对齐）、`dom-login-check-runner.test.js`（7 例：默认透传 / 异常降级 / **子进程死亡降级** / 无 spawnIsolated 回落 / 空结果降级 / 合同守卫 / diedResult 形状） |
+| IPC 透传 | `account.test.js` 新增 5 例：hint 透传且**键集合精确** / 有定论不挂 hint / capabilities 透传 / 单账号同口径 / 旧注入无该方法不炸 |
+| 既有回归 | `account-manager.test.js` 89 例、4 个 `*-render-crash.test.js`、`account-manager-http-only-policy.test.js` 5 例、`playwright-manager.test.js`、渲染端账号 16 文件 296 例、`check-locale-sync.js --cjk` |
+| 变异反证 | 三个探针均当场红：让未知 reason 也返提示 → 1 failed；把子进程死亡改成抛出 → 2 failed；缺证据猜 granted → 4 failed；还原后全绿 |
+| 行数闸 | `account-manager.js` 1260 行（登记 1061 + 容差 200 = 1261）；按门禁意图**压缩崩溃史注释**（65 行 → 18 行，细节移入 BUGFIX 文档并留指针），**未抬登记值** |
+
+### 19.8 边界（不假装闭合）
+
+1. `hint` 只覆盖**已登记**的 reason/code；新平台新码要先补映射，否则回落通用文案。
+2. 能力状态**不会主动请求平台**：当前只从检测结果与已知错误码推导；真实能力接口接入前，
+   多数账号会长期是 `unknown`（不渲染，属预期）。
+3. 进程隔离的**默认路径仍在主进程内**：它保护的是"经准入登记、确需 DOM 兜底"的将来场景；
+   生产上允许集为空，这条路径今天走不到。
+4. 文案里"可能正在风控或改版"是**推测性说明**，不是平台确认的原因；我们无法从一次失败区分两者。
+
+## 19. 2026-10-17 变更：登录态提示可执行化 + 能力级授权 + DOM 判定进程隔离
+
+> 对应执行记录：`openspec/records/account-login-ux.md`。三件事互为配套：
+> **提示**让"未确认"不再是一句废话；**能力**把账号从一维变二维；**隔离**给"将来若必须开窗"上最后一道保险。
+
+### 19.1 背景与第一性原因
+
+1. **提示层缺口**：主进程的 `checkLoginStatus` 一直带细到原因的 `reason`（9 种），
+   但渲染端只拿到 `code`，未确认时一律显示「未能确认登录状态：本轮检测未取到定论」——
+   "该重试"还是"该重新登录"全靠用户猜。参考产品B 把平台错误码翻译成可执行提示（§18.7 第 3 条）。
+2. **账号模型一维**：我们只回答"登录了吗"，回答不了"能读它的数据吗 / 能自动评论吗"。
+   参考产品B 的账号是**两维**：登录态 × 能力授权（`im_flag` / `sp_flag` / `open_id`）。
+3. **崩溃收场缺口**：隐藏窗口判定跑在主进程浏览上下文里，原生渲染崩溃时**主进程自己没了**，
+   连"降级未确认"都来不及返回。#3759 已让默认路径不触碰它，但**没有进程隔离这最后一道保险**。
+
+### 19.2 功能逻辑（主进程）
+
+| 模块 | 职责 | 关键约束 |
+|------|------|---------|
+| `electron/publishers/login-status-hints.js`（新） | `reason`/`code` → `{locales 键, 兜底文案, action}` | **只解释、不改判**；未知码回落 `null`（调用方用通用文案）；**不登记** `CHECK_LOGIN_INVALID_PARAMS`（那是开发缺陷，配提示等于把 bug 包装成产品文案） |
+| `electron/publishers/login-check-capabilities.js`（新） | `dataRead` / `commentInteract` 两能力，状态 `unknown`/`granted`/`revoked` | **缺证据一律 unknown**；只有平台明确拒绝（错误码，如 `100437`）才判 `revoked`；未授权 ≠ 未登录 |
+| `electron/publishers/dom-login-check-runner.js`（新） | 隐藏页面判定的隔离运行器 | 子进程死亡/异常/空结果一律降级 `CHECK_LOGIN_INCONCLUSIVE` + `reason=dom-check-process-died`；**默认仍在主进程内执行**（允许集为空 ⇒ 生产走不到） |
+| `electron/publishers/account-manager.js` | 判定链**保持纯净**；新增 `loginStatusHint` / `loginStatusCapabilities` 两个只读包装器供 IPC 调用 | ⚠️ 决策记录：曾把 hint/capabilities 装饰到判定返回值上，**实测打破 13 个 `toEqual` 精确断言**，故改为 IPC 层显式挂载 |
+
+### 19.3 数据流与 IPC 合同
+
+```
+渲染端 → accounts:batch-check-login / account:check-login
+主进程 AccountManager.checkLoginStatus(platform, id)   ← 只返回三态（合同不变）
+        ↓
+   IPC 层显式取展示语义（缺内容不挂键）：
+     item.hint         = AccountManager.loginStatusHint(status)        // 有才挂
+     item.capabilities = AccountManager.loginStatusCapabilities(status) // 有才挂
+```
+
+`item` 的键集合被测试锁定（多一个键就红）：`platform / accountId / valid / code / loginStatus /
+statusChanged / last_validated / persisted` + 可选的 `hint` / `capabilities` / `error`。
+
+### 19.4 交互逻辑与显示项
+
+**单账号「验证」**（`src/views/Accounts.vue` → `checkLogin`）：
+
+| 判定 | 反馈 |
+|------|------|
+| `valid === true` | 成功提示「登录状态正常」 |
+| `valid === undefined` | 信息提示：**平台名 + hint 的具体原因与下一步**（例："哔哩哔哩：平台接口未给出明确结论（可能正在风控或改版），请稍后重试"）；`hint` 缺失时回落既有通用文案 |
+| `valid === false` | 既有确认框（错误码 → 文案映射不变），确认后走 `reloginAccount` |
+
+**一键检测汇总**（`batchCheckAllLogins`）：在既有"X 正常 / Y 失效 / Z 未确认"之外**追加一条
+「后续操作建议」**，把未确认/失败账号按 `hint.action` 分成两半说：
+`N 个账号需要重新登录`、`M 个账号请稍后重试`（两者处置不同，不得混成一句）。
+
+**账号卡片能力行**：仅当某能力为 `granted`/`revoked` 时才渲染（全 `unknown` 不渲染，避免满屏噪声）；
+`revoked` 时给出该能力的后果说明（"数据读取未授权 ⇒ 统计与素材同步不可用"）。
+
+### 19.5 提示文案（zh/en 成对，键名与主进程一一对应）
+
+`accountsPage.checkHints.*` 共 17 条，覆盖 8 种 `reason` + 9 种 `code`。示例：
+
+| 场景 | zh | en |
+|------|----|----|
+| 接口无定论（可重试） | 平台接口未给出明确结论（可能正在风控或改版），请稍后重试 | The platform API gave no clear verdict (possibly rate-limited or redesigned). Please try again later. |
+| 无 Cookie（要重登） | 未检测到已保存的登录凭证，请重新登录该平台账号 | No saved login credential found. Please log in to this platform account again. |
+| 页面检测进程退出 | 页面检测进程已退出，本次未取到定论，请稍后重试 | The page check process exited, so no verdict was reached this round. Please try again later. |
+| 崩溃高危平台 | 该平台无法用接口判定且不能开窗检测，请重新登录以恢复确定结论 | This platform cannot be judged via API and window-based checks are disabled. Please log in again for a definite result. |
+
+### 19.6 进程隔离的工作方式（P2 落地）
+
+```
+主进程 ──IPC──▶ 子进程（utilityProcess）
+   ▲                  │
+   │                  └─ 只在这里开隐藏窗口抓 DOM
+   └─ 收到 exit ──────▶ 判 INCONCLUSIVE + reason=dom-check-process-died，应用不死
+```
+
+- 运行器 `runHiddenPageCheck(req, runners, options)`：`options.isolated` 为真且注入了
+  `spawnIsolated` 时走子进程；否则走 `runners.runInProcess`（默认路径）。
+- **子进程死亡不是失败，是"本次无定论"**：无论退出码/信号/超时，一律降级，绝不抛给调用方、
+  绝不判失效。测试用 `createDeadProcessRunner` 注入"必死子进程"验证该契约。
+- 注入必须是显式参数，**不得**用环境变量切换（改契约必须同批改锁）。
+
+### 19.7 回归保护与验证证据
+
+| 层 | 锁 |
+|----|----|
+| 新模块单测 | `login-status-hints.test.js`（5 例：reason 优先于 code / 未知回落 null / 键与动作三要素齐全 / 开发缺陷不给提示 / 聚合计数）、`login-check-capabilities.test.js`（8 例：缺证据 unknown / 显式判定优先 / 错误码 revoked / granted 不被降级 / 展示门槛 / 清单与信号表双向对齐）、`dom-login-check-runner.test.js`（7 例：默认透传 / 异常降级 / **子进程死亡降级** / 无 spawnIsolated 回落 / 空结果降级 / 合同守卫 / diedResult 形状） |
+| IPC 透传 | `account.test.js` 新增 5 例：hint 透传且**键集合精确** / 有定论不挂 hint / capabilities 透传 / 单账号同口径 / 旧注入无该方法不炸 |
+| 既有回归 | `account-manager.test.js` 89 例、4 个 `*-render-crash.test.js`、`account-manager-http-only-policy.test.js` 5 例、`playwright-manager.test.js`、渲染端账号 16 文件 296 例、`check-locale-sync.js --cjk` |
+| 变异反证 | 三个探针均当场红：让未知 reason 也返提示 → 1 failed；把子进程死亡改成抛出 → 2 failed；缺证据猜 granted → 4 failed；还原后全绿 |
+| 行数闸 | `account-manager.js` 1260 行（登记 1061 + 容差 200 = 1261）；按门禁意图**压缩崩溃史注释**（65 行 → 18 行，细节移入 BUGFIX 文档并留指针），**未抬登记值** |
+
+### 19.8 边界（不假装闭合）
+
+1. `hint` 只覆盖**已登记**的 reason/code；新平台新码要先补映射，否则回落通用文案。
+2. 能力状态**不会主动请求平台**：当前只从检测结果与已知错误码推导；真实能力接口接入前，
+   多数账号会长期是 `unknown`（不渲染，属预期）。
+3. 进程隔离的**默认路径仍在主进程内**：它保护的是"经准入登记、确需 DOM 兜底"的将来场景；
+   生产上允许集为空，这条路径今天走不到。
+4. 文案里"可能正在风控或改版"是**推测性说明**，不是平台确认的原因；我们无法从一次失败区分两者。
+
+
+> 同时如实记录其**与我们不同**的选择：参考产品B 保留了「后台自动重登窗口」（`backgroundautoreloginwnd`），并把用户账号密码注入平台登录页模拟点击。我们**不采用**这两条（安全 / 合规 / 风控三重风险），维持"默认关闭 + 用户手动重新登录"的口径。
+
+---
+
+## 19. 2026-10-17 变更：登录态提示可执行化 + 能力级授权 + DOM 判定进程隔离
+
+> 对应执行记录：`openspec/records/account-login-ux.md`。三件事互为配套：
+> **提示**让"未确认"不再是一句废话；**能力**把账号从一维变二维；**隔离**给"将来若必须开窗"上最后一道保险。
+
+### 19.1 背景与第一性原因
+
+1. **提示层缺口**：主进程的 `checkLoginStatus` 一直带细到原因的 `reason`（9 种），
+   但渲染端只拿到 `code`，未确认时一律显示「未能确认登录状态：本轮检测未取到定论」——
+   "该重试"还是"该重新登录"全靠用户猜。参考产品B 把平台错误码翻译成可执行提示（§18.7 第 3 条）。
+2. **账号模型一维**：我们只回答"登录了吗"，回答不了"能读它的数据吗 / 能自动评论吗"。
+   参考产品B 的账号是**两维**：登录态 × 能力授权（`im_flag` / `sp_flag` / `open_id`）。
+3. **崩溃收场缺口**：隐藏窗口判定跑在主进程浏览上下文里，原生渲染崩溃时**主进程自己没了**，
+   连"降级未确认"都来不及返回。#3759 已让默认路径不触碰它，但**没有进程隔离这最后一道保险**。
+
+### 19.2 功能逻辑（主进程）
+
+| 模块 | 职责 | 关键约束 |
+|------|------|---------|
+| `electron/publishers/login-status-hints.js`（新） | `reason`/`code` → `{locales 键, 兜底文案, action}` | **只解释、不改判**；未知码回落 `null`（调用方用通用文案）；**不登记** `CHECK_LOGIN_INVALID_PARAMS`（那是开发缺陷，配提示等于把 bug 包装成产品文案） |
+| `electron/publishers/login-check-capabilities.js`（新） | `dataRead` / `commentInteract` 两能力，状态 `unknown`/`granted`/`revoked` | **缺证据一律 unknown**；只有平台明确拒绝（错误码，如 `100437`）才判 `revoked`；未授权 ≠ 未登录 |
+| `electron/publishers/dom-login-check-runner.js`（新） | 隐藏页面判定的隔离运行器 | 子进程死亡/异常/空结果一律降级 `CHECK_LOGIN_INCONCLUSIVE` + `reason=dom-check-process-died`；**默认仍在主进程内执行**（允许集为空 ⇒ 生产走不到） |
+| `electron/publishers/account-manager.js` | 判定链**保持纯净**；新增 `loginStatusHint` / `loginStatusCapabilities` 两个只读包装器供 IPC 调用 | ⚠️ 决策记录：曾把 hint/capabilities 装饰到判定返回值上，**实测打破 13 个 `toEqual` 精确断言**，故改为 IPC 层显式挂载 |
+
+### 19.3 数据流与 IPC 合同
+
+```
+渲染端 → accounts:batch-check-login / account:check-login
+主进程 AccountManager.checkLoginStatus(platform, id)   ← 只返回三态（合同不变）
+        ↓
+   IPC 层显式取展示语义（缺内容不挂键）：
+     item.hint         = AccountManager.loginStatusHint(status)        // 有才挂
+     item.capabilities = AccountManager.loginStatusCapabilities(status) // 有才挂
+```
+
+`item` 的键集合被测试锁定（多一个键就红）：`platform / accountId / valid / code / loginStatus /
+statusChanged / last_validated / persisted` + 可选的 `hint` / `capabilities` / `error`。
+
+### 19.4 交互逻辑与显示项
+
+**单账号「验证」**（`src/views/Accounts.vue` → `checkLogin`）：
+
+| 判定 | 反馈 |
+|------|------|
+| `valid === true` | 成功提示「登录状态正常」 |
+| `valid === undefined` | 信息提示：**平台名 + hint 的具体原因与下一步**（例："哔哩哔哩：平台接口未给出明确结论（可能正在风控或改版），请稍后重试"）；`hint` 缺失时回落既有通用文案 |
+| `valid === false` | 既有确认框（错误码 → 文案映射不变），确认后走 `reloginAccount` |
+
+**一键检测汇总**（`batchCheckAllLogins`）：在既有"X 正常 / Y 失效 / Z 未确认"之外**追加一条
+「后续操作建议」**，把未确认/失败账号按 `hint.action` 分成两半说：
+`N 个账号需要重新登录`、`M 个账号请稍后重试`（两者处置不同，不得混成一句）。
+
+**账号卡片能力行**：仅当某能力为 `granted`/`revoked` 时才渲染（全 `unknown` 不渲染，避免满屏噪声）；
+`revoked` 时给出该能力的后果说明（"数据读取未授权 ⇒ 统计与素材同步不可用"）。
+
+### 19.5 提示文案（zh/en 成对，键名与主进程一一对应）
+
+`accountsPage.checkHints.*` 共 17 条，覆盖 8 种 `reason` + 9 种 `code`。示例：
+
+| 场景 | zh | en |
+|------|----|----|
+| 接口无定论（可重试） | 平台接口未给出明确结论（可能正在风控或改版），请稍后重试 | The platform API gave no clear verdict (possibly rate-limited or redesigned). Please try again later. |
+| 无 Cookie（要重登） | 未检测到已保存的登录凭证，请重新登录该平台账号 | No saved login credential found. Please log in to this platform account again. |
+| 页面检测进程退出 | 页面检测进程已退出，本次未取到定论，请稍后重试 | The page check process exited, so no verdict was reached this round. Please try again later. |
+| 崩溃高危平台 | 该平台无法用接口判定且不能开窗检测，请重新登录以恢复确定结论 | This platform cannot be judged via API and window-based checks are disabled. Please log in again for a definite result. |
+
+### 19.6 进程隔离的工作方式（P2 落地）
+
+```
+主进程 ──IPC──▶ 子进程（utilityProcess）
+   ▲                  │
+   │                  └─ 只在这里开隐藏窗口抓 DOM
+   └─ 收到 exit ──────▶ 判 INCONCLUSIVE + reason=dom-check-process-died，应用不死
+```
+
+- 运行器 `runHiddenPageCheck(req, runners, options)`：`options.isolated` 为真且注入了
+  `spawnIsolated` 时走子进程；否则走 `runners.runInProcess`（默认路径）。
+- **子进程死亡不是失败，是"本次无定论"**：无论退出码/信号/超时，一律降级，绝不抛给调用方、
+  绝不判失效。测试用 `createDeadProcessRunner` 注入"必死子进程"验证该契约。
+- 注入必须是显式参数，**不得**用环境变量切换（改契约必须同批改锁）。
+
+### 19.7 回归保护与验证证据
+
+| 层 | 锁 |
+|----|----|
+| 新模块单测 | `login-status-hints.test.js`（5 例：reason 优先于 code / 未知回落 null / 键与动作三要素齐全 / 开发缺陷不给提示 / 聚合计数）、`login-check-capabilities.test.js`（8 例：缺证据 unknown / 显式判定优先 / 错误码 revoked / granted 不被降级 / 展示门槛 / 清单与信号表双向对齐）、`dom-login-check-runner.test.js`（7 例：默认透传 / 异常降级 / **子进程死亡降级** / 无 spawnIsolated 回落 / 空结果降级 / 合同守卫 / diedResult 形状） |
+| IPC 透传 | `account.test.js` 新增 5 例：hint 透传且**键集合精确** / 有定论不挂 hint / capabilities 透传 / 单账号同口径 / 旧注入无该方法不炸 |
+| 既有回归 | `account-manager.test.js` 89 例、4 个 `*-render-crash.test.js`、`account-manager-http-only-policy.test.js` 5 例、`playwright-manager.test.js`、渲染端账号 16 文件 296 例、`check-locale-sync.js --cjk` |
+| 变异反证 | 三个探针均当场红：让未知 reason 也返提示 → 1 failed；把子进程死亡改成抛出 → 2 failed；缺证据猜 granted → 4 failed；还原后全绿 |
+| 行数闸 | `account-manager.js` 1260 行（登记 1061 + 容差 200 = 1261）；按门禁意图**压缩崩溃史注释**（65 行 → 18 行，细节移入 BUGFIX 文档并留指针），**未抬登记值** |
+
+### 19.8 边界（不假装闭合）
+
+1. `hint` 只覆盖**已登记**的 reason/code；新平台新码要先补映射，否则回落通用文案。
+2. 能力状态**不会主动请求平台**：当前只从检测结果与已知错误码推导；真实能力接口接入前，
+   多数账号会长期是 `unknown`（不渲染，属预期）。
+3. 进程隔离的**默认路径仍在主进程内**：它保护的是"经准入登记、确需 DOM 兜底"的将来场景；
+   生产上允许集为空，这条路径今天走不到。
+4. 文案里"可能正在风控或改版"是**推测性说明**，不是平台确认的原因；我们无法从一次失败区分两者。
 > 同时如实记录其**与我们不同**的选择：参考产品B 保留了「后台自动重登窗口」（`backgroundautoreloginwnd`），并把用户账号密码注入平台登录页模拟点击。我们**不采用**这两条（安全 / 合规 / 风控三重风险），维持"默认关闭 + 用户手动重新登录"的口径。

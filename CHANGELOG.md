@@ -1,3 +1,37 @@
+# [未发布] feat(accounts): 登录态提示可执行化 + 能力级授权 + DOM 判定进程隔离（account-login-ux）
+
+三件配套改动，共同把「未确认」从一句废话变成用户知道该怎么做的状态：
+
+- **提示可执行化（P1）**：新增 `electron/publishers/login-status-hints.js`，把主进程既有的 9 种 `reason` 与 9 种 `code`
+  映射成「为什么 + 下一步」的 locales 键（`accountsPage.checkHints.*`，zh/en 成对 17 条）与动作分类
+  （`relogin` / `retry` / `none`）。动因：参考产品B 把平台错误码翻译成可执行提示
+  （2190008→「授权失效,请重新授权」），而我们未确认时只显示「未取到定论」。
+  ⚠️ **不登记** `CHECK_LOGIN_INVALID_PARAMS`：那是开发缺陷，配产品提示等于把 bug 包装成文案。
+- **能力级授权（P1）**：新增 `electron/publishers/login-check-capabilities.js`，账号从一维（登录态）变二维
+  （登录态 × 能力：`dataRead` 数据读取 / `commentInteract` 评论互动）。三条不可破：
+  缺证据一律 `unknown`（绝不猜）、只有平台明确拒绝（错误码如 `100437`）才 `revoked`、
+  未授权 ≠ 未登录（两者分开展示）。UI 只在有确定结论时渲染能力行，避免满屏 unknown 噪声。
+- **DOM 判定进程隔离（P2）**：新增 `electron/publishers/dom-login-check-runner.js`，把隐藏页面判定搬进可隔离的
+  运行器：子进程死亡/异常/空结果一律降级 `CHECK_LOGIN_INCONCLUSIVE` + `reason=dom-check-process-died`，
+  **绝不抛给调用方、绝不判失效**。默认仍在主进程内执行（允许集默认为空 ⇒ 生产走不到），
+  真隔离经显式参数 `options.isolated` + 注入的 `spawnIsolated` 开启（不得用环境变量）。
+
+**架构决策（写进代码注释防止回退）**：曾把 `hint`/`capabilities` 直接装饰到 `checkLoginStatus` 返回值上，
+**实测打破 13 个既有 `toEqual` 精确断言**（判定本体被加上两个键），且让判定与展示语义耦合。
+现改为**判定链保持纯净**，展示语义由 IPC 层显式调用 `loginStatusHint` / `loginStatusCapabilities` 挂载，
+缺内容不挂键。`item` 的键集合由测试逐键锁定。
+
+**顺带**：`account-manager.js` 按行数闸意图压缩崩溃史注释（65 行 → 18 行，细节移入
+`01-docs/BUGFIX-LOGIN-CHECK-HTTP-ONLY-2026-10-16.md` 并留指针），**未抬登记值**（1260 ≤ 1061+200）。
+
+**验证**：新增 3 个测试文件 20 例 + IPC 透传 5 例；变异反证三探针全红（未知 reason 也返提示 1 failed /
+子进程死亡改抛出 2 failed / 缺证据猜 granted 4 failed）后还原全绿；主进程相关 134/134、渲染端账号 296/298、
+locale 成对 246:246 且 CJK 基线 PASS；QM-1 `vite build` + `electron-builder` rc=0、asar 15033 条、
+启动 `alive=true` + stderr 0 字节 PASS；品牌/文档路径/未接线/记录债务/行数闸全 rc=0。
+
+**文档**：`01-docs/PRD-ACCOUNT-LOGIN-STATUS-CHECK.md` 新增 §19（背景与第一性原因 / 功能逻辑表 /
+数据流与 IPC 合同 / 交互逻辑与显示项 / 提示文案表 / 隔离工作方式 / 回归保护 / 4 条边界）。
+
 # [未发布] feat(frequency): 同账号发布间隔改为逐平台真源——视频号收紧到 60 分钟，其余 14 平台行为零变化（publish-frequency-per-platform-intervals）
 
 - 为什么不是"加一档"也不是"给视频号写 if"：档位是**分类器**，为一个平台开第四档会牵动 `TIER_ENV`（日配额按三档 env）、设置页按档分组文案、「档间单调」锁的语义，且下次任何平台要调又得开第五档；`if (platform === 'tencent_video')` 则是把策略塞进控制流，合法域/env/覆盖/UI 各读各的——正是策略模块立项要消灭的"同一个量抄成多份"。差异化从此只落在**一张逐平台表** `PLATFORM_ACCOUNT_MIN_INTERVAL_MS` 里：以后任何平台收紧或放宽＝改一行数据，不动分类器、不动控制流、不动守卫算法。
