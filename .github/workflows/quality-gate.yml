@@ -157,6 +157,19 @@ jobs:
         shell: bash
         run: node --test scripts/lib/ccg-gate-security-filter.test.js
 
+      # --- Gate 2c6：竞品缺陷「同型风险」四条静态锁 ---
+      # 动因（2026-10-17）：逆向衍生文档 `derived/竞品缺陷同型风险清单.md` 从竞品 8 个 CRITICAL 抽出 12 类
+      # 同型风险，核到本仓后发现「当前是对的，但没有测试会阻止后来者把它改坏」：
+      #   L1 转义表完整性（竞品 C1：字符类含 `/` 但 map 无 `/` ⇒ 静默替换成 "undefined"）
+      #   L2 while(true) 必有出口（竞品 C2：无界重试 ⇒ Promise 永不 settle）
+      #   L3 catch 不得重调被包裹函数（竞品 X-C1：Promise 永不 settle ⇒ 流程死锁）
+      #   L4 组件内 setInterval 必须配 clearInterval（竞品 X-20 型：定时器不 dispose）
+      # 落点必须在 changes 作业：docs-only PR 会把 static-gates 整个短路（与 Gate 2c2/2c3/2c4/2c5 同一先例）。
+      # 被测模块与测试只 require node 内置，符合本作业无 Install deps 的约束。
+      - name: "Gate 2c6 - Same-type risk locks (changes job)"
+        shell: bash
+        run: node --test scripts/same-type-risk-locks.test.js
+
       # --- Gate 2c4：CCG 判定器（ccg-review-decider）的判据回归锁 ---
       # 动因（2026-10-15）：该脚本此前**零测试覆盖**（grep 只命中一条注释），
       # 于是两个判据缺陷长期无人发现：
@@ -335,13 +348,24 @@ jobs:
           node scripts/check-precommit-spawn-budget.js scripts/hooks/pre-commit
           node --test scripts/check-precommit-spawn-budget.test.js
 
-      # --- Gate 2b4：CCG 评审证据锚（载荷哈希定义 + 台账 frontmatter 写入）---
+      # --- Gate 2b4：「分支内容已进主干」的机械判据回归锁 ---
+      # 动因（2026-10-16 实测）：这条判据此前只以 AGENTS.md 的散文存在，每轮清理由会话临时手写探针执行；
+      # 本轮真实发生过一次「按旧文字判出差量 52/10/5 行，仍把分支删了」——散文挡不住临场自觉，所以给它执行体。
+      # 落点必须是 changes 作业（同 Gate 2b2/2b3 口径：static-gates 带 docs-only 门槛，守门判据落在会被自己
+      # 防的那道短路里的作业，等于给自己关掉校验）。本作业没有 Install deps ⇒ 判据只能 require node 内置模块。
+      - name: "Gate 2b4 - Branch-merged criterion (changes job)"
+        shell: bash
+        run: |
+          node --test scripts/check-branch-merged.test.js
+      # --- Gate 2b5：CCG 评审证据锚（载荷哈希定义 + 台账 frontmatter 写入）---
       # 为什么单独一条：deep-review 写证据、check-pr-exec-record 验证据，两侧共用本 lib 的一份实现；
       # 两份实现必然在 exclude 面/行尾/base 解析上漂移，而漂移的表现是「裁决不是这份代码」的假红 ——
       # 那种红会被当噪声，然后被人放宽。锁住在「排除 openspec/records 与 .ccg/reviews」这一条：
       # 不排除就形成自指（写下哈希的那一刻改变被哈希内容），判据将永远红、等价于没有判据。
+      # 编号让位：上游 #3815 与本 PR 同日都选了 "Gate 2b4"（两边各自看自己那版，谁也看不到谁）。
+      #   改谁都不该改上游那块（它已在主干、required 清单与文档都按 2b4 指它），所以本块改 2b5。
       # 落点与理由同 Gate 2b3：changes 作业无 Install deps ⇒ lib 只能 require node 内置模块。
-      - name: "Gate 2b4 - CCG evidence anchor (changes job)"
+      - name: "Gate 2b5 - CCG evidence anchor (changes job)"
         shell: bash
         run: |
           node --test scripts/lib/ccg-evidence-hash.test.js
@@ -444,6 +468,13 @@ jobs:
           # 01-docs 忽略规则回归锁（#2792 复盘：「01-docs 递归 .md」全量忽略曾让正式文档
           # 静默不入库，PRD 链接 404；见 apps/desktop/scripts/gitignore-docs.test.js 头注释）
           node --test apps/desktop/scripts/gitignore-docs.test.js
+          # PR-2 §7.1（camofox 依赖接入）与 §7.5（构建期非回环监听断言）各有一个测试文件，
+          # 此前**从未被 CI 执行**：vitest 的 include 是白名单、不含 scripts/**（见
+          # apps/desktop/vitest.config.js 注释"未登记的测试文件一个都不会跑"），而
+          # scripts/check-unwired-tests.js 的 WORKSPACE_COVERED 在遍历时跳过整个 apps/ 子树
+          # ⇒ 既不被执行、也不被接线棘轮发现（2026-10-16 实测；本目录 7 个兄弟文件都是逐个
+          # 点名接线的，故这里同样显式点名，不做通配）。
+          node --test apps/desktop/scripts/fetch-camofox.test.js apps/desktop/scripts/check-camofox-listen.test.js
           node --test scripts/sync-platform-config.test.js
           node --test scripts/compare-scheduler-models.test.js
           # 会话隔离入口脚本的结构锁：native stderr 捕获不得处在 EAP=Stop 作用域内
@@ -1394,7 +1425,23 @@ jobs:
               Write-Host "Running dark pixel suite (to produce the dark renders for Gate 7b)..."
               pnpm.cmd run test:visual:pixel:dark
               $darkExit = $LASTEXITCODE
-              Write-Host "[GATE-7] suite exits: pixel=$pixelExit views=$viewsExit views-supplement=$viewsSuppExit dark=$darkExit"
+
+              # ⛔ 补齐 PR 侧覆盖缺口（2026-10-17，visual-gate-full-coverage）。
+              # 105 例视觉用例的分布是：views 37 + supplementary-views 19 在**本 job** 跑；
+              # workflows 31 + supplementary-workflows 18（合计 **49 例**）此前**只**在
+              # `visual-test.yml` 的 `run-all-visual` 里跑，而那个 workflow 不在 PR 上触发
+              # ⇒ 这 49 例在 PR 侧**完全没有覆盖**（不是"被吞"，是根本没跑）。
+              # 为什么不直接把 `run-all-visual` 整只搬进来：会把已跑过的 56 例再跑一遍、
+              # 且重复付 Playwright 安装 / build:vue / 起 Vite 的准备成本。本 job 这三样都已就绪，
+              # 只补跑缺的两套是成本最低、覆盖最全的接法（CI 侧新增耗时以实跑为准，未预先声称）。
+              # 退出码照旧两条都打出来：「套件崩了」不得伪装成「本次没产图」。
+              Write-Host "Running workflow suites (to cover the 49 cases only visual-test.yml used to run)..."
+              pnpm.cmd run test:workflow
+              $workflowsExit = $LASTEXITCODE
+              pnpm.cmd run test:workflow:supplement
+              $workflowsSuppExit = $LASTEXITCODE
+
+              Write-Host "[GATE-7] suite exits: pixel=$pixelExit views=$viewsExit views-supplement=$viewsSuppExit dark=$darkExit workflows=$workflowsExit workflows-supplement=$workflowsSuppExit"
 
               # ⛔ 校验型失败必须阻断（2026-10-17，visual-checks-must-block）。
               # 上面 1334-1342 的注释说「views 两套的比较结果不另设门禁」，理由是 Gate 7b 的
@@ -1421,6 +1468,22 @@ jobs:
                 $viewsSuppRetryExit = $LASTEXITCODE
                 Write-Host "[GATE-7] views-supplement 重跑 rc=$viewsSuppRetryExit"
                 if ($viewsSuppRetryExit -ne 0) { $checksFailSuites += 'views-supplement' }
+              }
+              # 2026-10-17 补齐的两套同样走「两轮甄别再阻断」——它们是同一类确定性断言
+              #（`runWorkflowTest`：截图 + checks），此前在 PR 侧**根本没跑**，谈不上拦不拦。
+              if ($workflowsExit -ne 0) {
+                Write-Host "[GATE-7] workflows 套件 rc=$workflowsExit —— 按两轮甄别重跑一次"
+                pnpm.cmd run test:workflow
+                $workflowsRetryExit = $LASTEXITCODE
+                Write-Host "[GATE-7] workflows 重跑 rc=$workflowsRetryExit"
+                if ($workflowsRetryExit -ne 0) { $checksFailSuites += 'workflows' }
+              }
+              if ($workflowsSuppExit -ne 0) {
+                Write-Host "[GATE-7] workflows-supplement 套件 rc=$workflowsSuppExit —— 按两轮甄别重跑一次"
+                pnpm.cmd run test:workflow:supplement
+                $workflowsSuppRetryExit = $LASTEXITCODE
+                Write-Host "[GATE-7] workflows-supplement 重跑 rc=$workflowsSuppRetryExit"
+                if ($workflowsSuppRetryExit -ne 0) { $checksFailSuites += 'workflows-supplement' }
               }
 
               # 退出码 3 = 有视图**从未渲染出来**（就绪超时）：确定性的路由/选择器故障，

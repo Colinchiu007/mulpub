@@ -2,7 +2,7 @@
 /**
  * scripts/ccg-record-ledger.js（写入侧）的回归锁。
  * 跑法：node --test scripts/ccg-record-ledger.test.js
- * 接线：quality-gate.yml 的 changes 作业 Gate 2b4（与 lib 同步点名）。
+ * 接线：quality-gate.yml 的 changes 作业 Gate 2b5（与 lib 同步点名）。
  *
  * 分两类夹具，理由是内部评审点名过的两个假绿形态：
  *   - 纯逻辑（runLedger / shouldWriteLedger / nextLedgerFields / pickRecord）走注入 deps，不碰 gh/网络；

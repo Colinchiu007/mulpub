@@ -29,7 +29,7 @@
 - 新增 `scripts/ccg-record-ledger.js`：深度评审收口后贴一条 PR 证据评论（并从 GitHub 读回确认），成功后才回写 `openspec/records/<分支>.md` 的 `ccg_*` 字段。
 - `scripts/deep-review.sh`：引擎跑完后调用上述收口；收口失败只出声不改判（强制力在判据那一侧）。
 - `scripts/check-pr-exec-record.js`：`evaluateDeepReviewDebt` 改为**新源优先 + 旧源兜底**，并复核证据锚（状态词 ∈ 闭环白名单、URL 指向具体 PR 评论、载荷哈希与锚记录的 base 重算一致）。
-- `quality-gate.yml` 新增 Gate 2b4（`changes` 作业，`shell: bash`）点名两份新测试。
+- `quality-gate.yml` 新增 Gate 2b5（`changes` 作业，`shell: bash`）点名两份新测试。
 
 **不在本 PR**（明确记为欠账，见 tasks「刀 2/刀 3」）：`.gitignore` 排除 `.ccg/reviews/**`、一次性 `git rm --cached`、常驻清理节拍与保留窗口、引用面解析门禁。这两刀是在改「谁来守门」，按 AGENTS.md 必须人工过目，不由 agent 自动合并。
 

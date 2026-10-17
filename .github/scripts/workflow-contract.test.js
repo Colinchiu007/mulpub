@@ -1114,21 +1114,38 @@ test('Gate 7 必须按退出码 3 阻断就绪故障（捕获而不判定的回�
 //
 // 本锁钉住三件事：① 非零必须当场重跑一次（两轮甄别，避免把偶发采集抖动变成所有 PR 的常量红）；
 // ② 两轮都非零必须 exit 非零；③ 该判定必须排在「All visual tests passed」之前。
-test('QG Visual 的校验域套件（views / views-supplement）失败必须阻断', () => {
+test('QG Visual 的校验域套件（views / views-supplement / workflows / workflows-supplement）失败必须阻断', () => {
   const wf = yaml.load(fs.readFileSync(qualityGatePath, 'utf8'));
   const step = wf.jobs.visual.steps.find(s => /Gate 7 - Visual regression/.test(String(s.name || '')));
   assert.ok(step, 'quality-gate.yml 的 visual job 必须有「Gate 7 - Visual regression」步骤');
   const body = String(step.run || '');
 
-  // ① 两套各自：非零分支之后必须紧跟同一套件的重跑
+  // ① 四套各自：非零分支之后必须紧跟同一套件的重跑。
+  // workflows 两套是 2026-10-17（visual-gate-full-coverage）补进来的——它们此前**只**在
+  // `visual-test.yml` 的 run-all-visual 里跑，而那个 workflow 不在 PR 上触发 ⇒ PR 侧零覆盖。
   for (const [guard, rerun, label] of [
     ['if ($viewsExit -ne 0)', 'pnpm.cmd run test:visual', 'views'],
     ['if ($viewsSuppExit -ne 0)', 'pnpm.cmd run test:visual:supplement', 'views-supplement'],
+    ['if ($workflowsExit -ne 0)', 'pnpm.cmd run test:workflow', 'workflows'],
+    ['if ($workflowsSuppExit -ne 0)', 'pnpm.cmd run test:workflow:supplement', 'workflows-supplement'],
   ]) {
     const iGuard = body.indexOf(guard);
     assert.ok(iGuard >= 0, `${label} 必须有「非零 ⇒ 重跑」的两轮甄别分支（判据：${guard}）`);
     const iRerun = body.indexOf(rerun, iGuard);
     assert.ok(iRerun > iGuard, `${label} 的重跑调用必须在该分支内（判据：${rerun}）`);
+    // 每一套都必须**真的跑过**（guard 存在也可能是从没执行过的死分支）
+    assert.ok(
+      body.indexOf(`${rerun}`) >= 0,
+      `${label} 的套件命令必须在 Gate 7 里出现（否则守卫是死代码）`,
+    );
+  }
+  // 每条重跑都必须是「两次都非零才收进名单」的形态，不得写成一次就阻断
+  for (const label of ['views', 'views-supplement', 'workflows', 'workflows-supplement']) {
+    assert.match(
+      body,
+      new RegExp(`\\$checksFailSuites \\+= '${label}'`),
+      `${label} 两轮均失败时必须收进 \$checksFailSuites`,
+    );
   }
 
   // ② 两轮均失败必须阻断，且必须点名"校验型"（与像素抖动分流，便于排障）
@@ -1146,4 +1163,53 @@ test('QG Visual 的校验域套件（views / views-supplement）失败必须阻�
   assert.ok(iBlock >= 0, '未找到校验域阻断块');
   assert.ok(iPassed >= 0, '未找到 Gate 7 的通过收尾');
   assert.ok(iBlock < iPassed, '校验域阻断必须排在「All visual tests passed」之前');
+})
+
+// ⛔ 覆盖面平价锁（2026-10-17，visual-gate-full-coverage 的续做）。
+//
+// **它替谁守**：`tests/visual-testing/scripts/run-all-visual.js` 是四套 registry 的**单一真源**，
+// 但它只输出 0/1（源码 `process.exitCode = failed>0||aborted>0 ? 1 : 0`），**丢掉了每个套件的
+// 退出码语义**（3=视图从未渲染出来 / 1=断言或像素失败）。而 Gate 7 必须保住这个区分（就绪超时
+// 要当场 `exit 3`），也要保住「只重跑失败那一套」的粒度。
+//
+// 所以 QG Visual 选择**逐套单独调用**，而不是把 `run-all-visual` 整只搬进来。代价是两条路并存：
+// 有人给注册表加了第 5 套却忘了接进 QG Visual，那套会在 PR 侧**静默零覆盖**——2026-10-17 之前
+// 的 49 例（workflows / supplementary-workflows）正是这样漏的。
+//
+// 本锁把「注册表」与「QG Visual 的接法表」绑成一对：注册表多一套而接法表没跟上 ⇒ 当场红。
+// 这样既拿到 `run-all-visual` 唯一能给的额外收益（新增套件自动被追责），又不用付
+// 「重复跑 56 例 + 丢退出码语义 + 失败时重跑整套」的代价。
+test('QG Visual 的套件接法表必须与 run-all-visual 的注册表平价', () => {
+  const runnerPath = path.join(
+    __dirname, '..', '..', 'apps', 'desktop', 'tests', 'visual-testing', 'scripts', 'run-all-visual.js',
+  );
+  const runnerSrc = fs.readFileSync(runnerPath, 'utf8');
+  const suites = [...runnerSrc.matchAll(/require\('\.\.\/(views|workflows)\/([a-z-]+)\.visual\.test'\)/g)]
+    .map(m => `${m[1]}/${m[2]}`);
+  // 命中数下界：解析式判据必须先证明自己看得见东西，否则"0 条 ⇒ 全通过"是假绿
+  assert.ok(suites.length >= 4,
+    `run-all-visual 的注册表解析命中 ${suites.length} 条（期望 ≥4）—— 解析式或文件结构变了，本锁已失明`);
+
+  // 注册表模块 → QG Visual 里对应的 package 脚本。改映射必须两边同改，靠这条锁强制。
+  const SCRIPT_OF = {
+    'views/all-views': 'test:visual',
+    'views/supplementary-views': 'test:visual:supplement',
+    'workflows/all-workflows': 'test:workflow',
+    'workflows/supplementary-workflows': 'test:workflow:supplement',
+  };
+
+  const wf = yaml.load(fs.readFileSync(qualityGatePath, 'utf8'));
+  const step = wf.jobs.visual.steps.find(s => /Gate 7 - Visual regression/.test(String(s.name || '')));
+  assert.ok(step, 'quality-gate.yml 的 visual job 必须有「Gate 7 - Visual regression」步骤');
+  const body = String(step.run || '');
+
+  for (const suite of suites) {
+    const script = SCRIPT_OF[suite];
+    assert.ok(script,
+      `run-all-visual 注册了套件「${suite}」，但 QG Visual 的接法表没有它 —— ` +
+      `该套件在 PR 侧会静默零覆盖。请同时在 quality-gate.yml 接上、并在此登记映射。`);
+    // 词边界匹配：`test:visual` 是 `test:visual:supplement` 的前缀，裸 includes 会假绿
+    const re = new RegExp(`pnpm\\.cmd run ${script.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=\\s|$)`);
+    assert.match(body, re, `QG Visual 必须执行 ${script}（对应 run-all-visual 的 ${suite}）`);
+  }
 })

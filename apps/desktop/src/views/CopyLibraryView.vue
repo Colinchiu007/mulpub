@@ -64,6 +64,14 @@
         @keydown.space.prevent="openDetail(entry)"
       >
         <div class="copy-library-card-top">
+        <!-- 与改写区那枚入口的**刻意差异**（QM-6 前端轴 QM6-3807-1 点名 Warning，判不阻塞；已核实成立但不本片收口）：
+             这里只按「有没有默认频道」门控，正文缺席留到点击后早退；改写区那枚是渲染期就判掉。
+             原因在来源映射里（`useCopyLibrarySources.js` 的 video 分支：`content = sourceText 的前 N 字`，
+             而过滤器只要求 `sourceText || title` 非空）：一个**有标题没正文预览**的视频项，列表态 content 就是空串，
+             而点击时 `resolveCopyBody` 回源能拿到全文 ⇒ 若在这里按 `entry.content` 收，会把**可用入口**一起藏掉，
+             比留一个空正文的改写条目按钮更糟。
+             残留：`origin=rewrite` 且 content 为空的条目会显示一个点了没反应的按钮（四层来源里只有它没做 `|| title` 兜底）。
+             收口条件是「按来源分档判 + 给那一档配用例」，已登记为 tasks 4.3②-b 收尾②，不得顺手放宽成恒显示。 -->
         <button
           v-if="podcast.activeChannelId.value"
           type="button"

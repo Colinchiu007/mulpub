@@ -2,7 +2,7 @@
 /**
  * scripts/lib/ccg-evidence-hash.js 的回归锁。
  * 跑法：node --test scripts/lib/ccg-evidence-hash.test.js
- * 接线：quality-gate.yml 的 changes 作业 Gate 2b4（与写入侧 ccg-record-ledger.test.js 同步点名）。
+ * 接线：quality-gate.yml 的 changes 作业 Gate 2b5（与写入侧 ccg-record-ledger.test.js 同步点名）。
  */
 const test = require('node:test');
 const assert = require('node:assert');

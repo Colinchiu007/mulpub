@@ -113,6 +113,10 @@ scripts/*.js
 # pre-commit 进程创建预算锁本体：第 106 行 scripts/*.js 会把判据本体静默忽略（CI 上 Cannot find module）。
 # 测试文件不单独反选 —— 第 204 行 !scripts/*.test.js 的通用例外已兜住（同上方各条注释口径）。
 !scripts/check-precommit-spawn-budget.js
+# 同型风险四锁 CLI 本体：第 106 行 scripts/*.js 会把它静默忽略，而 Gate 2c6 与
+# scripts/same-type-risk-locks.test.js 都按路径点名它 —— 漏这条 negation 的症状是
+# 本地全绿、CI 上 Cannot find module（#3011 / Gate 2c3 / precommit-spawn-budget 同族，第 4 次）。
+!scripts/check-same-type-risk-locks.js
 !scripts/quality-rhythm-wrapper.js
 !scripts/ccg-gate.js
 !scripts/ccg-deep-review.js
@@ -215,6 +219,10 @@ scripts/*.js
 # 漏这条 negation 的后果不是报错，而是 `git status` 里它根本不存在：本地在盘、跑得通，
 # 而 Gate 2c3 在 CI 上 Cannot find module。判据一律用 `git check-ignore --no-index` 量，不用 status。
 !scripts/check-record-qm5-rows.js
+# 「分支内容已进主干」的机械判据本体（PR #3741 那条 AGENTS 散文的执行体）。
+# 第 106 行 `scripts/*.js` 同样会把它静默忽略 —— 漏 negation 时 `git status` 里它根本不存在，
+# 本地在盘跑得通，而 changes 作业的 Gate 2b5 在 CI 上 Cannot find module。
+!scripts/check-branch-merged.js
 # scripts/*.js is ignored wholesale above, so every tracked script needs its own
 # negation. That per-file allowlist silently loses NEW test files (git add won't
 # warn). Test files must always be tracked, so un-ignore them by pattern instead.

@@ -40,7 +40,7 @@
 
 ## 4. 接线与自证
 
-- [x] 4.1 Gate 2b4（`changes` 作业，`shell: bash`）点名两份新测试
+- [x] 4.1 Gate 2b5（`changes` 作业，`shell: bash`）点名两份新测试
   证据：`node .github/scripts/check-workflow-structure.js` → files=14 violations=0；`node scripts/check-step-failfast.js` → 38 个多命令步骤全 fail-fast；`node scripts/check-unwired-tests.js` → 域内 92 个测试文件全接线
 - [x] 4.2 `.gitignore` negation（第 106 行 `scripts/*.js` 会静默忽略新建脚本本体）
   证据：`git check-ignore --no-index -v scripts/ccg-record-ledger.js` → 改前命中 106、改后 rc=1

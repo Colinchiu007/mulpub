@@ -2,9 +2,6 @@
 record: ccg-record-width-message
 task: 收口 #3772 登记的遗留 —— check-pr-exec-record.js 的提示文案位宽与判据不同步（40 vs 40|64 + alt 形态），并加派生锁防再漂移
 date: 2026-10-17
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；远程同步这一行只能在合并后取
-sync_backfill_owner: 下一个会话（按 AGENTS.md「合并后收尾清单」回填并删除本段三个字段）
 ---
 
 ## 本次执行记录：提示文案位宽与判据同步 + 派生锁（ccg-record-width-message，2026-10-17）【混合 PR（门禁代码）】
@@ -85,7 +82,7 @@ sync_backfill_owner: 下一个会话（按 AGENTS.md「合并后收尾清单」�
 | 接线棘轮 | ✅ | 未新增 `*.test.js` 文件（只在既有 `check-pr-exec-record.test.js` 内加锁，该文件已在 `quality-gate.yml` Gate 2b 显式点名） |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/`、`packages/` 任何运行面 |
 | QM-6 CCG 双模型外部评审 | 见下 | 评审结论与处置见「QM-6 评审」节 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin <branch>` 返回 0 行证远端分支已删；回填后删除上方三个 `sync_*` 字段 |
+| 远程同步 | PASS | 已合并：`c120b5a060160a1235b0d750ec3611dcc1aae550`（PR #3792，squash，2026-10-17T13:36:36+08:00）；远端分支已删除（`git ls-remote --heads origin ccg-record-width-message` 返回 0 行）；main push `quality-gate` run **39006890856 = success**（含 `Gate Result`/`QG Changes`/`QG Static`/`QG Coverage`/`QG Unit Tests` 全绿） |
 
 ### QM-6 CCG 双模型外部评审（三轮，18 条，全部裁决）
 
@@ -138,6 +135,21 @@ correctness 类问题从「机制缺陷」降级为「可修的小项」。
    若只能交叉核对，就必须把说明的每个可变维度（宽度、后缀、格式）都由探测得出，不得留硬编码字面量。
 4. **接线的判据要锁「值被使用」而非「函数存在」**：`+ describeAuditWidths()`（拼接形式）
    而不是 `/describeAuditWidths\(`（后者被函数定义与导出行满足 —— 这是 M32 暴露的真缺陷）。
+
+### main push 回读（合并后必做，AGENTS.md 收尾清单第 7 条）
+
+判据按「(merge SHA, workflow)」这一格取：
+
+| 项 | 读数 |
+|---|---|
+| merge SHA | `c120b5a060160a1235b0d750ec3611dcc1aae550`（PR #3792，squash，2026-10-17T13:36:36+08:00） |
+| 远端分支 | `git ls-remote --heads origin ccg-record-width-message` → **0 行**（已删） |
+| `债务熔断门禁`（push） | run 39006890920 → **success** |
+| `quality-gate`（push） | run **39006890856 → success**。11 个 job 全部 success，含本 PR 直接影响的 `Gate Result` / `QG Changes` / `QG Static` / `QG Coverage` / `QG Unit Tests` |
+
+**为什么这一格必须回读**：本次改的是 `scripts/check-pr-exec-record.js`（门禁判据本体），而 squash 会把我的**差量**落到**更新的 main tip** 上 —— PR 侧全绿**不构成** main 会绿的证据（AGENTS.md 记录过 #3652 的实例：PR 侧全绿，main push 的 `Gate 12c` 当场红）。本次实测 main push 全绿，故无需 follow-up PR。
+
+**另记一次本 PR 期间自己造成的 CI 红与修法**：首次推送时 `QG Changes` 的 `Gate 12c - Doc abs-path validity` 红，报「超出存量基线 1 个文件」，定位到本记录 L79 写了本机绝对路径 `D:\Data\projects\...`。按判据给的正解改写成占位符形态（`<仓库父目录>/mp-worktrees/...`），**没有**跑 `--write-baseline` 把新增记进账本（那正是这条判据要拦的形状）。
 
 ### 遗留（不假装已闭合）
 

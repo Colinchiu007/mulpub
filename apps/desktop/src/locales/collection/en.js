@@ -250,6 +250,8 @@ export default {
       mappingMismatch: 'Result mapping mismatch (main process reported success but produced no items); check logs or report feedback',
     },
     zhihuFav: {
+      stepHintNoFavlists: 'Next: click "Load Favorites" to fetch your favourites list — you need it before choosing a scope.',
+      stepHintNeedContents: 'Next: pick a scope and count, then click "Load items" — only loaded items can be selected and collected & rewritten.',
       kindAnswer: 'Answer', kindArticle: 'Article', kindColumn: 'Column', kindPin: 'Pin', kindVideo: 'Video', kindUnknown: 'Link',
       rewriteFailedBadge: 'Rewrite failed, using original',
       imageFallbackBadge: '{count} images fell back to original URLs',
