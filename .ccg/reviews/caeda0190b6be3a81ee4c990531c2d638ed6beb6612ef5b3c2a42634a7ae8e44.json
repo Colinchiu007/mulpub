@@ -19,8 +19,75 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "self_play_blocked",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "loading-machine-exemptions.js 中缺失 pending_signoff 属性时，x.pending_signoff !== true 为 true，登记项被默认为已签核通过（豁免生效），违反「agent 起草 / 人类生效」的机械分界。",
+        "highRiskDomains": [],
+        "prosecution": "pending_signoff 属性缺失时 x.pending_signoff !== true 为 true ⇒ 缺字段的登记项默认已签核（豁免生效），违反 agent 起草/人类生效分界。",
+        "defense": "属实 —— 当前登记项**恰好**显式写了 pending_signoff: true 所以行为正确，但机制默认值是错的：未来任何人手写一条不带该字段的登记项就会被静默豁免。默认值方向应反过来。",
+        "verdict": "upheld",
+        "rationale": "已修：判据改为「x.pending_signoff === false 才豁免」（显式签核才生效，缺字段=未签核=照红）；一致性用例同步断言。这是把安全默认值放对的 1 行修改。"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": ".ccg/reviews/caeda019...json (sha 13fc9740) 的 deepReview 缺失 confidenceWeight、template、note、at 字段，status 为 pending 而非 self_play_pending，与同批次其他 3 个 JSON 模式不一致。",
+        "highRiskDomains": [],
+        "prosecution": "某个评审 JSON 缺 confidenceWeight/template/note 字段且 status 是 pending 而非 self_play_pending，与同批不一致。",
+        "defense": "该 JSON 是 pre-commit 判定器在**不同阶段**写的快照（判定阶段 vs 引擎运行后），字段集随阶段不同是判定器自己的输出形态，不是本 PR 代码能控制的；且这些文件是过程存档，判据只读 status 字段。",
+        "verdict": "dismissed",
+        "rationale": "对判定器产物存储形态的口径误读；非本 PR 变更面。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "loading-machine-exemptions.js 注释声称判据会核对「登记的文件+状态名真实存在」，但 scanLoadingReset 仅做 path#name 字符串匹配，未读文件内容验证状态名存在。",
+        "highRiskDomains": [],
+        "prosecution": "注释声称判据会核对「登记的文件+状态名真实存在」，但 scanLoadingReset 只做 path#name 字符串匹配，未读文件验证状态名存在。",
+        "defense": "一半属实：**存在性核对**在测试里（一致性用例读文件断言 `\\bNAME\\s*=\\s*true\\b` 匹配），不在判据运行时 —— 注释把「测试核对」写成了「判据核对」，文档与实现不符。运行时做文件读会破坏「纯函数不读盘」的边界。",
+        "verdict": "upheld",
+        "rationale": "已修：注释改为「存在性由测试核对（same-type-risk-locks-r2.test.js 的一致性用例），判据运行时不读盘」。机制本身有效（重命名/搬文件 ⇒ 一致性用例红 ⇒ CI 红）。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "same-type-risk-locks-r2.js 重复实现 maskNonCode、matchBrace、FN_RE，与第一批 same-type-risk-locks.js 完全重复，后续修改易产生分歧（如 FN_RE 词边界修复只改一处）。",
+        "highRiskDomains": [],
+        "prosecution": "第二批重复实现 maskNonCode/matchBrace/FN_RE，修改易分歧（如 FN_RE 词边界修复只改一处）。",
+        "defense": "与前两轮同口径：有意识解耦（两批判据屏蔽语义需独立演进）。但「FN_RE 分歧」这条有增量信息 —— 本轮 i2 修复（补箭头形态）确实只改了第二批。处置：把「第三批加锁前必须抽共享 mask/FN 库 + 各判据声明语义」登记为未闭合第 5 条，作为对这条批评的采纳承诺，而不是现在重构（现在改会把 13+16 个测试的基线全部重置）。",
+        "verdict": "dismissed",
+        "rationale": "批评方向成立，处置时机未到；登记为显式待办而非忽略。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": ".ccg/reviews 的 4 个新文件均标记 deepReview.required=true 但 findings=null、status=self_play_pending/pending，裁决未填写（如 5/5、6/6 条未定），却作为变更的一部分提交。",
+        "highRiskDomains": [],
+        "prosecution": "4 个评审 JSON findings=null/待填却被作为变更提交。",
+        "defense": "同前三轮：判定记录是每 commit 的过程快照，随提交留档是判定器设计（审计要看到「谁在哪个 sha 裁决了什么」）；本分支头部的裁决在本轮已填，复跑即 self_play_resolved（填完**不再提交**即可收敛 —— 这个循环根因本轮已识别）。",
+        "verdict": "dismissed",
+        "rationale": "过程快照 ≠ 未完成却打包；收口机制在正常工作。"
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      }
+    ],
+    "note": "自扮演裁决：2 条指控成立或需外部复核",
+    "at": "2026-10-17T09:53:11.341Z"
   }
 }
