@@ -3,16 +3,12 @@ record: learnings-batch3
 task: 把「同型风险三批落锁」的经验沉淀落盘到 01-docs/learnings.md（此前只是共享根工作区脏项，未随任何 PR 入库）
 date: 2026-10-17
 branch: learnings-batch3
-# ↓ 下面三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在，无法取证收口
-sync_backfill_owner: 下一个会话（三形态同改：表格行 + bullet + 删除本段三字段，同一次提交）
 ---
 
 ## 本次执行记录：同型风险三批经验落盘（learnings-batch3，2026-10-17）
 
 - 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD` → `docs-only=true`（files=2：`01-docs/learnings.md`、`openspec/records/learnings-batch3.md`）
-- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PENDING
+- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PASS（`d643efce3433a7b66bfafbfaf6cd2368e63fe604`）
 
 ### 为什么单独开这条 PR
 
@@ -38,7 +34,7 @@ sync_backfill_owner: 下一个会话（三形态同改：表格行 + bullet + �
 | QM-2 代码必检项 | **N/A** | 同上 |
 | QM-4 视觉 | **N/A** | 无 UI 变更 |
 | QM-6 双模型评审 | **N/A** | docs-only 通道跳过；本 PR 变更 1 个文档文件 + 1 条记录 |
-| 远程同步 | PENDING | 待合并后回填 merge SHA |
+| 远程同步 | PASS | PR #3857 已合并，merge SHA `d643efce3433a7b66bfafbfaf6cd2368e63fe604`（2026-10-18 00:04 +08:00）|
 
 ### 证据
 
