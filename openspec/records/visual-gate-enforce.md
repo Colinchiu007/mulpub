@@ -2,9 +2,6 @@
 record: visual-gate-enforce
 task: 修复 QG Visual 的「校验域失败被静默吞掉」——views / views-supplement 的退出码 1 从此阻断（两轮甄别）
 date: 2026-10-17
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；且本 PR 属「改谁来守门」，按 AGENTS.md 需人工过目后才合并
-sync_backfill_owner: visual-gate-enforce 会话（本节作者）
 ---
 
 ## 本次执行记录：QG Visual 校验域阻断面（visual-gate-enforce，2026-10-17）【混合 PR · 改守门面】
@@ -23,7 +20,7 @@ sync_backfill_owner: visual-gate-enforce 会话（本节作者）
 | QM-1 打包 | N/A | 未触碰 `apps/desktop/electron/` 与 `packages/rpa-engine/` |
 | QM-4 视觉 | N/A（本 PR 不产生新的视觉判据） | 本 PR 改的是「视觉判据的消费方式」，不改任何用例、基线或阈值；**未使用 `--update-baseline`** |
 | QM-6 CCG 双模型外部评审 | 见判定器 | 以 `.ccg/reviews/<sha>.json` 产物为准 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin visual-gate-enforce` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | PR #3787 已 squash 合并，merge SHA `150ee1c1b2d49a4c2d666029f77cc2fa63775f04`（2026-10-17T13:24:01+08:00）；远端分支 `visual-gate-enforce` 已删（`git ls-remote --heads` 0 行）；`git log origin/main --grep='(#3787)$'` 恰好 1 行；**合并前经用户明确批准**（本 PR 属「改谁来守门」，按 AGENTS.md 不得自动合并）；frontmatter 的 `sync_*` 三字段已在本次提交删除 |
 
 ### 遗留（不假装已闭合）
 
