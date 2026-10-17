@@ -652,8 +652,13 @@ function subscribeZhihuFavProgress () {
         const res = p.result || {}
         let note = resolveNotifyText('collection.zhihuFav.doneNote').text
         if (res.registerOnly) note = resolveNotifyText('collection.zhihuFav.registerOnlyNote').text
-        else if (res.rewriteFailed) note = resolveNotifyText('collection.zhihuFav.collectOkRewriteFailNote').text
-        else if (res.fallbacks) note += resolveNotifyText('collection.zhihuFav.fallbackSuffix', { count: String(res.fallbacks) }).text
+        else if (res.rewriteFailed) {
+          note = resolveNotifyText('collection.zhihuFav.collectOkRewriteFailNote').text
+          // 失败原因可诊断（2026-10-17，change: collected-results-fix）：
+          // 后端把真实异常摘要（≤200 字符）放进 rewriteError；没有原因就保持原文案，
+          // 有原因就追加，让用户分清「后端没起 / 接口报错 / 空结果」三种该做不同事的情况。
+          if (res.rewriteError) note += '：' + String(res.rewriteError)
+        } else if (res.fallbacks) note += resolveNotifyText('collection.zhihuFav.fallbackSuffix', { count: String(res.fallbacks) }).text
         zhihuFavProgressLines.value.push(`[${(p.index ?? 0) + 1}/${p.total}] ${note}`)
       } else if (p.phase === 'summary') {
         zhihuFavProgressTotal.value = p.total || zhihuFavProgressTotal.value

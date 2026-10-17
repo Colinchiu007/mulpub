@@ -326,6 +326,45 @@ describe('BatchCollectPanel 知乎收藏夹批量行为锁', () => {
     expect(window.electronAPI.zhihuFavlistContents).toHaveBeenCalled()
   })
 
+  // ── 改写失败可诊断（2026-10-17，change: collected-results-fix）──
+  // 用户实测：进度行只显示「改写失败用原文」，看不到是后端没起还是接口报错。
+  // 后端现已把原因摘要放进 done 事件的 result.rewriteError；进度行必须把它显示出来。
+  it('done 事件带 rewriteError → 进度行追加原因摘要（不再是只有「改写失败用原文」）', async () => {
+    let progressHandler = null
+    window.electronAPI = {
+      onZhihuFavBatchProgress: vi.fn((cb) => { progressHandler = cb; return vi.fn() }),
+      zhihuFavBatchRun: vi.fn().mockResolvedValue({ code: 0, data: {
+        completed: 1, failed: 0, duplicateSkipped: 0, rewriteFailed: 1,
+        cancelled: false, circuitBroken: false,
+        results: [{ index: 0, ok: true, duplicate: false, data: {
+          id: 'fb_1', title: '标题甲', content: '正文甲', coverImage: '',
+          sourceUrl: 'https://zhuanlan.zhihu.com/p/1', kind: 'article', favTime: 1,
+          images: [], imageFallbacks: [], rewriteFailed: true,
+          rewriteError: 'connect ECONNREFUSED 127.0.0.1:8010',
+        } }],
+      } }),
+      zhihuFavlistContents: vi.fn().mockResolvedValue({ code: 0, data: { items: [], totals: 0 } }),
+    }
+    const w = mountPanel()
+    w.vm.zhihuFavlists = [{ urlToken: '111', title: '夹' }]
+    w.vm.zhihuSelectedFavlist = '111'
+    w.vm.zhihuFavItems = [{ url: 'https://zhuanlan.zhihu.com/p/1', title: '甲', kind: 'article', favTime: 1, collected: false }]
+    w.vm.zhihuFavChecked = new Set(['https://zhuanlan.zhihu.com/p/1'])
+    await w.vm.runZhihuFavCollectRewrite()
+    // 组件挂载时已订阅进度；直接喂 done 事件（与后端 sendProgress 同形）
+    expect(progressHandler).toBeTypeOf('function')
+    progressHandler({ phase: 'start', index: 0, total: 1, url: 'https://zhuanlan.zhihu.com/p/1' })
+    progressHandler({ phase: 'done', index: 0, total: 1, url: 'https://zhuanlan.zhihu.com/p/1', result: { ok: true, rewriteFailed: true, rewriteError: 'connect ECONNREFUSED 127.0.0.1:8010' } })
+    await flushPromises()
+    const lines = w.vm.zhihuFavProgressLines
+    const doneLine = lines.find((l) => l.includes('ECONNREFUSED'))
+    expect(doneLine, '进度行必须包含失败原因摘要').toBeTruthy()
+    expect(doneLine).toContain('改写失败用原文')
+    // 对比锁：没有原因时保持原文案、不得追加 undefined/"null" 等脏尾
+    const clean = lines.find((l) => l.includes('改写失败用原文') && !l.includes('ECONNREFUSED'))
+    expect(clean === undefined || !/(undefined|null)：/.test(clean)).toBe(true)
+  })
+
   it('runZhihuFavCollectRewrite 未勾选 → 提示', async () => {
     window.electronAPI = { onZhihuFavBatchProgress: vi.fn(() => vi.fn()) }
     const w = mountPanel()

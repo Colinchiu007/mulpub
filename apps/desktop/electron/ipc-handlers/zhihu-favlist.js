@@ -215,14 +215,44 @@ function registerHandlers (ipcMain, deps) {
   }
 
   /**
-   * 单条改写：成功返回改写稿字符串；失败/空返回 null（调用方回退原文）。
+   * 单条改写：成功返回改写稿字符串；失败返回 { error }（调用方回退原文）。
+   *
+   * 失败原因可诊断（2026-10-17，change: collected-results-fix）：
+   * 旧版调用方 `catch {}` 把真实异常吞掉，用户只看到「改写失败用原文」却不知道是
+   * Python 后端没起（ECONNREFUSED）、接口 500 还是返回了空结果 —— 三种情况对应三种
+   * 用户该做的事（起后端 / 看日志 / 换风格重试）。因此把失败原因以字符串形式抛给调用方：
+   *   - 成功：返回改写稿（error 为 undefined）
+   *   - 接口异常：error = 异常 message（截断 200 字符）
+   *   - 返回空 result_content：error = 明确的「空结果」说明
+   *
+   * 两道护栏（QM-6 评审 #1/#6，2026-10-17）：
+   *   ① 非 Error 抛出值（字符串/对象）也要有可读摘要，不能产出 "[object Object]"；
+   *   ② 摘要里的内网端点（127.* / localhost / 内网 IP:端口）替换为通用说法 ——
+   *      完整原文仍在 log.warn，UI 不暴露内部拓扑。
    */
+  function summarizeRewriteError (e) {
+    let msg
+    if (e && typeof e === 'object' && typeof e.message === 'string' && e.message) msg = e.message
+    else if (typeof e === 'string') msg = e
+    else { try { msg = JSON.stringify(e) } catch { msg = String(e) } }
+    // 内网端点脱敏（QM-6 #1）：UI 只说「连不上后端」，地址细节留在日志
+    msg = msg
+      .replace(/\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?/g, '后端服务')
+      .replace(/\blocalhost(?::\d+)?/gi, '后端服务')
+    return msg.slice(0, 200)
+  }
+
   async function rewriteOne (pythonBridge, content, style) {
-    const res = await pythonBridge.requestBackend('POST', '/aggregation/rewrite', {
-      content, style: style || '轻松易懂', length: 'keep',
-    })
+    let res
+    try {
+      res = await pythonBridge.requestBackend('POST', '/aggregation/rewrite', {
+        content, style: style || '轻松易懂', length: 'keep',
+      })
+    } catch (e) {
+      return { error: summarizeRewriteError(e) }
+    }
     const out = res && typeof res.result_content === 'string' ? res.result_content.trim() : ''
-    return out || null
+    return out || { error: '改写接口返回空结果（result_content 为空），请查看后端日志或换个改写风格重试' }
   }
 
   ipcMain.handle('zhihu-fav-batch:run', async (event, arg) => {
@@ -316,11 +346,17 @@ function registerHandlers (ipcMain, deps) {
           }
         }
         // ── 自动改写（D2：失败/空结果回退原文，条目标注）──
-        let rewritten
+        // 失败原因不再吞掉（2026-10-17）：rewriteOne 以 { error } 形态带出原因摘要，
+        // 落条目 rewriteError + done 事件，进度行与结果区才能显示「为什么失败」。
+        let rewritten = null
+        let rewriteError
         try {
-          rewritten = await rewriteOne(pythonBridge, result.content, arg.rewriteStyle)
-        } catch {
-          rewritten = null
+          const r1 = await rewriteOne(pythonBridge, result.content, arg.rewriteStyle)
+          if (r1 && r1.error) rewriteError = r1.error
+          else if (typeof r1 === 'string' && r1) rewritten = r1
+        } catch (e) {
+          // 兜底：rewriteOne 自身不该抛，但真抛了也不能让整条采集挂掉（同 summarize 规则）
+          rewriteError = summarizeRewriteError(e)
         }
         let rewrittenContent
         let rewriteFailed = false
@@ -329,6 +365,7 @@ function registerHandlers (ipcMain, deps) {
         } else {
           rewriteFailed = true
           stats.rewriteFailed++
+          if (rewriteError) log.warn('[zhihu-fav-batch] rewrite failed for ' + url + ': ' + rewriteError)
         }
         // ── 入库（forceRecollect 覆盖保留原 id/createdAt）──
         const prev = knownEntryMeta.get(url)
@@ -352,13 +389,14 @@ function registerHandlers (ipcMain, deps) {
           imageFallbacks,
           rewrittenContent,
           rewriteFailed,
+          rewriteError: rewriteError || undefined,
           batchId: typeof arg.batchId === 'string' ? arg.batchId : undefined,
         })
         stats.completed++
         // ── done 边界 ──
         sendProgress(event, {
           phase: 'done', index: idx, total, url, kind,
-          result: { ok: true, rewriteFailed, images: images.length, fallbacks: imageFallbacks.length },
+          result: { ok: true, rewriteFailed, rewriteError: rewriteError || undefined, images: images.length, fallbacks: imageFallbacks.length },
         })
         return { ok: true, data: items[items.length - 1], rewriteFailed }
       }, {
