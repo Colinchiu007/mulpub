@@ -75,3 +75,23 @@
 - [ ] 5.9 **本 change 自身不得留下回填 PR**：收口由片 2 的推导得出，若仍需人工补写，说明判据没接上，回到 2.1 重做。
 - [ ] 5.10 worktree 按 R1–R7 走 `scripts/safe-worktree-remove.ps1`（先 `-WhatIf`）；删前先删本任务遗留的两个一次性探针 `.tmp-*.cjs` / `.tmp-*.out`（走 `node scripts/safe-delete.js`，禁止递归删除）。
 - [ ] 5.11 归档执行（判定已在**片 0** 做完）：按片 0 的结论归档本 change；归档后回读 `openspec/specs/` 是否收敛到预期文本，并核对 `enforce-gate-record-presence` / `freeze-legacy-gate-carrier` / `hot-carrier-atomic-landing` 三份未归档件在本 change 归档后仍能 validate。禁止在这一步临时改判据形态。
+
+## 6. 片 2 / 片 3 实现现场与偏差（回填，非计划）
+
+判据接入完成：`node --test scripts/check-gate-record-debt.test.js` ⇒ `# tests 73 / pass 73 / fail 0`（既有 58 条 + 本轮 15 条）。邻居判据未被打断：`check-pr-exec-record.test.js` 57/57、`check-record-qm5-rows.test.js` 19/19。
+真仓 CLI 现场（本机 base=origin/main）：`MERGE-LEDGER prs=1936 归属可解析记录=424 派生收口=403 byDesign=0`，rc=0（改前也是 rc=0 ⇒ 总判定同向）；旧键歧义 6 篇进可见项。
+
+| 任务 | 状态 | 证据 / 偏差 |
+|---|---|---|
+| 2.1–2.3 | 完成 | 用例「派生通道收口」「缺行仍然即红」「账本不可用必须退回断言档并 fail-closed」；变异 N1/N4/N2 CAUGHT |
+| 2.4–2.5 | 完成 | 用例「字段卫生只约束做过闭合断言的记录」「谁做断言谁受约束」「跨源拦截面保持 blob」；N7 CAUGHT（把旧键算进拦截面即红） |
+| 2.6 | 完成，且**比计划更严** | 真仓对账锁把 `baseRef` 钉成 `git rev-parse origin/main` 的**显式 SHA** 再两侧同 SHA 跑；变异 N8a/N8b/N8c 全部 CAUGHT（N8 最初 PASSED，暴露出"collect 默认分支永不被走"的死路径，已改为只能注入，见 D4b） |
+| 2.7 / 2.8 / 2.12 | 完成 | 派生档输入 = `listRecordFiles` 结果（同一次循环）；`merge-ledger` 源码禁 `readdirSync/ls-tree/globSync`；判据源码禁第二份 `git log` 与 `execFileSync('git'` |
+| 2.9 | 部分完成 | 优先级写成声明式链并有 N3/N4 反证；**M9（把 blobClosed 提到派生之前的严格 reorder 变异）留到片 5 与 M1–M13 一并实跑**，现未跑 |
+| 2.10 / 2.11 | 完成 | 在 `merge-ledger.test.js`：改名重指（MU-B）、newest-wins（MU-C） |
+| 2.13 | 完成 | 用例「CI 档账本不可用必须非零退出」真起子进程，断言 rc=2 且本机不套用；顺带测出并修掉 `parseFlags` 白名单前缀 bug（CI 下发 `--carrier-mode=visible` 原本会抛未捕获异常） |
+| 3.1 / 3.2 / 3.4 / 3.5 | 完成 | 用例「byDesign / prematureClaim」「声明不符判红；缺省不判；一致不判」「规范键读不出整数即红；旧键只可见」 |
+| **3.3 偏差** | **未按计划实现** | 计划要求"本次变更集"复用 `classify-docs-only.changedFileStatuses`。实现改为**「该路径不在 base 的归属映射里」= 本次新增**，理由：判据已经必须读 `addedBy`，用它作判据不引入第二个取源，也不依赖 merge-base 参数在 push 事件下的形态；`changedFileStatuses` 反而会把 CI 的 base/head 事件差异引入本判据。**代价如实记**：本地在陈旧 baseRef 上跑时，"别人已合并但我没 fetch"的记录会被判 byDesign 而非派生收口——这只会少拦不会多拦，且 CI 档 fetch-depth 0 下不存在该形态。若片 5 双模型评审认为须换回，改判据为注入 changeset 即可，位置已在 D3 标注。 |
+
+新增产物：`scripts/lib/merge-ledger.js`、`scripts/lib/merge-ledger.test.js`（片 1）；判据与 CLI 改动在 `scripts/check-gate-record-debt.js` / `.test.js`；CI 接线一行在 `quality-gate.yml` 的 `changes` job。
+一次性工具（收尾删除）：`.tmp-mutate.cjs`、`.tmp-mutate2.cjs`、`.tmp-mutate3.cjs`、`.tmp-*.out`、`.tmp-*.cjs` 探针若干、`.tmp-commit*.txt`。
