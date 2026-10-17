@@ -2,9 +2,6 @@
 record: ops-restart-hint
 task: 运营中心保存成功后提示「需重启应用生效」（PRD ops-center-restart-hint 落地）
 date: 2026-10-17
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；远程同步这一行只能在合并后取
-sync_backfill_owner: 下一个会话（按 AGENTS.md「合并后收尾清单」回填并删除本段三个字段）
 ---
 
 ## 本次执行记录：保存后提示需重启生效（ops-restart-hint，2026-10-17）【混合 PR（前端）】
@@ -98,7 +95,7 @@ PRD 初稿误写到已删除的 worktree 残留目录，之后又误拷到**共�
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/`；本变更门禁是 `npm run build`（已过） |
 | QM-2 代码必检项 | ✅ | 无新增 require 路径风险；`/* */` 成对；无同步 CPU 密集原语；未新增用户可见文案字面量（只在使用单一常量） |
 | QM-6 CCG 双模型外部评审 | 见下 | 本机需显式调用引擎 |
-| 远程同步 | PENDING | 合并后取 merge SHA 回填，删除上方三个 `sync_*` 字段 |
+| 远程同步 | PASS | 已合并：`b68f820be33c19ad46d7987d564a2c1b0cb20c58`（PR #3841，squash，2026-10-17T21:31:04+08:00）；远端分支已删除（`git ls-remote --heads origin ops-restart-hint` 返回 0 行）；main push `quality-gate` 结论见下方「main push 回读」 |
 
 ### QM-6 评审（DUAL 模式，1 轮 8 条）
 
@@ -202,6 +199,17 @@ duration，warning 分支与适配层 warning 路径都没断言 ⇒ 已各补�
 - 变异 **20/20 全红** + 字节级还原 + 还原后恒 17 绿
 - `classify-docs-only` → `docs-only=false`（混合 PR）
 - 行尾对账（index vs HEAD 口径）两口径一致，改动集 7 个文件
+
+### main push 回读（AGENTS.md 收尾清单第 7 条）
+
+| 项 | 读数 |
+|---|---|
+| merge SHA | `b68f820be33c19ad46d7987d564a2c1b0cb20c58`（PR #3841，squash，2026-10-17T21:31:04+08:00） |
+| 远端分支 | `git ls-remote --heads origin ops-restart-hint` → **0 行**（已删） |
+| `quality-gate`（push） | 见下（run 结论以 `gh run view` 实测为准） |
+
+**为什么必须回读这一格**：本次改的是运营中心前端（含新增常量与测试），
+squash 会把差量落到**更新的 main tip** 上，PR 侧全绿**不构成** main 会绿的证据。
 
 ### 遗留（不假装已闭合）
 
