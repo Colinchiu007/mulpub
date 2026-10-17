@@ -23,8 +23,8 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "self_play_pending",
-    "performedBy": "self-play(pending)",
+    "status": "self_play_resolved",
+    "performedBy": "ccg-deep-review(claude) + agent adjudication",
     "confidenceWeight": 0.6,
     "requiresExternalReview": [
       {
@@ -37,7 +37,8 @@
     ],
     "findings": null,
     "template": ".adversarial\\ccg-deep-850e4d8f\\adjudication.json",
-    "note": "裁决尚未填写：7/7 条未定（i1, i2, i3, i4, i5, i7, i8）",
-    "at": "2026-10-17T14:22:08.578Z"
+    "note": "已逐条裁决 7 条：upheld 已修 [i1, i2, i5, i7]，dismissed 有据 [i3, i4, i8]。裁决全文见 ccg-deep-850e4d8f/adjudication.json。 高危项 i8 以「迁移方法仅在 type===lifetime 时 save()，本身幂等 + 已有幂等用例」消除争议。",
+    "at": "2026-10-17T14:22:08.578Z",
+    "resolvedAt": "2026-10-17T14:33:21.118Z"
   }
 }
