@@ -34,6 +34,62 @@ v5 把「同账号最小发布间隔」从档位派生改为逐平台表（只�
    实跑该测试文件 → `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 对账 → 才允许勾 tasks。
    本片 TDD 顺序因此可复核：策略层实测 9 条红→转绿，设置页实测 6 条红→23/23 绿，
    两次红的条数与"我写了哪几条锁"逐条对得上（不是"跑绿了就说红过"）。
+## 「批量选择」类控件的三条 UE 判断 + 实现期三条坑（publish-target-select-all，2026-10-17）
+
+发布页「发布目标」区加「全选 / 清空」+ 分组选择回视。功能不大，但每一条都踩到了具体的坑。
+
+### UE 判断（每条都有反例支撑，不是审美选择）
+
+1. **「全选」必须定义成「全选可发布的」，不是"全选所有条目」。** 平台目录里大量平台当前
+   没有可用账号，全选它们后提交会被 `validatePublishTargets` 以「请为<平台>选择至少一个账号」
+   阻断 —— 用户点了全选反而发不出去。**这是"全选"这类控件最常见的自伤**：它把「可见的」
+   当成了「可用的」。被跳过的平台还必须在提示里点名（前 3 个 + 「等 N 个」），否则用户
+   看到 15 个平台只勾了 8 个，下一次点击发布时的阻断文案才是第一次通知。
+2. **批量选择是增量，逆操作只给「清空」，不给「反选」。** 反选在当前集合里语义自相矛盾：
+   反选后选中的恰好是"没有账号的平台"那部分，用户得到一个必然被提交校验拒绝的状态。
+   「全选/清空」这对操作互逆且各自无歧义，比「全选/反选」安全得多。
+   （同源：`P2-8b` 已论证过"按组替换"是破坏性动作，不能被当成便利性顺手加进来。）
+3. **空态不渲染，而不是渲染 disabled 控件。** 一个点了没反应的控件是坏的；但"渲染一个
+   disabled 按钮"和用户预期的"没有这个按钮"相比，后者更诚实，也顺带保持了
+   CI 空 profile 下 `publish-form` 的视觉中性（与 `P2-8b`「无组不渲染」同型 ——
+   空态若也渲染，就是给像素基线制造一次确定性漂移）。
+
+### lesson:computed-over-non-reactive-source-evaluates-once
+
+**依赖非响应式源的派生值不能写成 computed。** `publishableCount` 一度写成 computed，
+内部读 `getAvailableAccountIds`（`usePlatformSelection` 的普通函数）。测试替身的
+`byPlatform` 不是响应式源 ⇒ 它在账号目录就绪前求值一次即被缓存，之后永不重算，
+表现是"平台列表里账号明明在，全选按钮永远不出现"。
+修法：改成 `watch` 订阅三个**确实响应式**的源（`flatPlatforms` / `selectedPlatforms` /
+`selectedAccounts`，deep）后重算 —— `reconcileSelectedAccounts` 正是在这些源变化时
+补齐/剔除账号键，它跑完那一刻就是重算的正确时机。
+**判据**：一个 computed 读的东西里只要有非响应式的，它就只在第一次求值。
+（type=pitfall）
+
+### lesson:test-double-must-reproduce-reactivity-not-only-shape
+
+**测试替身比真身弱出来的缺陷没人见过（Mock 边界漏洞，本仓第 N 次同族）。**
+`Publish.test.js` 的 `useAccountStore` mock 用"普通对象 + getter"给 `byPlatform`；
+而真实 Pinia store 的 `byPlatform` 是对 `accounts` 派生的 computed —— "账号到了 ⇒
+界面跟着变"是响应式保证的。替身把这条保证抹掉了，于是整类"依赖 byPlatform 的 computed
+不重算"的缺陷**只在测试里成立**，真机不存在，反过来又会让人误判实现有问题。
+修法：容器改成 `ref`，getter 读 `.value`。调用方拿到的仍是普通对象（与 Pinia 自动解包
+同形），但这次读发生在响应式 Effect 里，依赖可被追踪。
+**判据**：替身要复现真身的**响应式语义**，不只是数据形状 —— 形状对了而语义弱了，
+比形状不对更难发现。（type=pitfall）
+
+### lesson:pure-function-chinese-literal-fails-cjk-gate
+
+**纯函数里出现中文就是 Gate 7 红：文案走回调注入，而不是在纯函数里拼。**
+清单截断的上限 `MAX_LISTED_PLATFORMS=3` 是纯函数常量，没问题；但「等 N 个」这个
+**后缀本身是中文** —— 写在 `usePublishTargetBulk.js` 里就是"渲染层非 locales 文件的
+硬编码中文"，`check-locale-sync --cjk` 当场判 4 处红。
+修法：纯函数只做"取前 N 个 + 调 `restLabel` 回调"，后缀由接线层从 locale 注入；
+不注入时返回完整清单而不自行拼中文（纯函数的边界，不是"降级后照旧"）。
+**判据**：判据本体要的是"无框架依赖"（可在无 Vue 环境单测），不是"无外部输入" ——
+文案走回调注入即可两全，别为了"纯"把 i18n 引进来，也别为了"方便"把中文字面量写进去。
+（type=pitfall）
+
 ## 外部记忆服务「写入成功 ≠ 落盘 ≠ 可检索」三层判据；EverOS 清理探测残留时 CRLF 必须显式保真（everos-mcp-cross-app-grids，2026-10-17）
 
 ### lesson:everos-write-success-is-not-persisted-nor-retrievable

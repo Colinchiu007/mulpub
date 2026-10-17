@@ -1,0 +1,30 @@
+{
+  "sha": "426e2350b7e43eea0985fbf3fc1c313f68e79ad1",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 1215 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 1215,
+    "fileCount": 19,
+    "codeFileCount": 13,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 46,
+    "docSensitiveContentHits": 23,
+    "docSensitiveContentSample": [
+      "> **下游（2026-10-17）**：`01-docs/PRD-PUBLISH-TARGET-SELECT-ALL-2026-10-17.md`（第三刀）在同一个「发布目标」区加了「全选 / 清空」，并给本刀的 chip 补了\"已选/成员\"回视与点击前预告 tooltip。第三刀**未改本刀的任何结论**：additive 语义、不做按组替换、无组不渲染三条全部沿用。",
+      "| 8 | 账号分组/矩阵管理 | 账号分组、团队/子账号 | ~~无分组~~ → **已实现三刀**：P2-8a 分组持久化（#2756）+ P2-8b 发布页「按组添加」（#2817）+ **P2-8c「全选/清空 + 分组回视」（2026-10-17，见 [PRD-PUBLISH-TARGET-SELECT-ALL-2026-10-17.md](./PRD-PUBLISH-TARGET-SELECT-ALL-2026-10-17.md)）** | 🟡 P2-8 ✅ |",
+      "# PRD：发布页「发布目标」区增加「全选」与「分组选择」（publish-target-select-all，2026-10-17）"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "42352b89ddad9e006ab9a46104f496f854d30d2ff04a6ae24e46f01c7969ffc6",
+  "decidedAt": "2026-10-17T16:00:50.218Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}
