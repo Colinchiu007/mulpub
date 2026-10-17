@@ -67,6 +67,8 @@ const state = reactive({
 
 /** 核验请求代际：只有最新请求的响应可以落地（防旧路径响应覆盖新选择） */
 let legacyBgmVerifySeq = 0
+/** 同一路径的在途核验 Promise（i2/i5 修复：并发去重；null=无在途） */
+let legacyBgmInFlight = null
 
 /** 壳注入的跨域依赖（setupBgmLibraryDeps 一次性注入；window 兜底防测试/早调用时序） */
 let deps = typeof window !== 'undefined' ? (window.__bgmLibraryDeps || null) : null
@@ -260,28 +262,47 @@ function mapInspectResultToLegacyStatus (path, data) {
 
 /**
  * 只读核验历史 BGM 路径（同一路径单请求；旧响应按代际丢弃）。
+ * 并发收敛：同一历史路径的在途请求命中时直接复用其 Promise（CCG 评审 i2/i5 修复），
+ * 避免 watch 抖动 / 用户快速切换 / 自动选中连发 IPC 造成请求风暴与状态竞写。
  * @param {string} rawPath
  */
 async function verifyLegacyBgmLibraryPath (rawPath) {
   const path = String(rawPath || '').trim()
-  const seq = ++legacyBgmVerifySeq
   if (!path) {
+    // 路径清空必须作废在途请求并复位（旧响应按代际丢弃）
+    legacyBgmVerifySeq += 1
     state.s2vLegacyBgmStatus = { state: LEGACY_BGM_STATUS.IDLE, path: '', reason: '', exists: false }
     return
   }
+  // 相同路径且已有在途请求：直接复用该 Promise，不重复发 IPC（序列号不变，
+  // 在途响应返回时仍可按代际落地 —— 天然消除并发请求）。
+  if (state.s2vLegacyBgmStatus.state === LEGACY_BGM_STATUS.CHECKING &&
+      state.s2vLegacyBgmStatus.path === path &&
+      legacyBgmInFlight) {
+    return legacyBgmInFlight
+  }
+  const seq = ++legacyBgmVerifySeq
   state.s2vLegacyBgmStatus = { state: LEGACY_BGM_STATUS.CHECKING, path, reason: '', exists: false }
-  let result
+  const inFlight = (async () => {
+    let result
+    try {
+      result = await story2videoBgmLibraryStatus(path)
+    } catch (_) {
+      result = null
+    }
+    if (seq !== legacyBgmVerifySeq) return // 已被更新的路径/复位取代
+    if (!result || result.code !== 0) {
+      state.s2vLegacyBgmStatus = { state: LEGACY_BGM_STATUS.UNKNOWN, path, reason: '', exists: false }
+      return
+    }
+    state.s2vLegacyBgmStatus = mapInspectResultToLegacyStatus(path, result.data)
+  })()
+  legacyBgmInFlight = inFlight
   try {
-    result = await story2videoBgmLibraryStatus(path)
-  } catch (_) {
-    result = null
+    await inFlight
+  } finally {
+    if (legacyBgmInFlight === inFlight) legacyBgmInFlight = null
   }
-  if (seq !== legacyBgmVerifySeq) return // 已被更新的路径/复位取代
-  if (!result || result.code !== 0) {
-    state.s2vLegacyBgmStatus = { state: LEGACY_BGM_STATUS.UNKNOWN, path, reason: '', exists: false }
-    return
-  }
-  state.s2vLegacyBgmStatus = mapInspectResultToLegacyStatus(path, result.data)
 }
 
 /**
@@ -331,6 +352,7 @@ export function resetBgmLibraryForTest () {
   state.s2vBgmLibraryDeleteDialogOpen = false
   state.s2vBgmLibraryDeleteTargetId = null
   legacyBgmVerifySeq += 1
+  legacyBgmInFlight = null
   state.s2vLegacyBgmStatus = { state: LEGACY_BGM_STATUS.IDLE, path: '', reason: '', exists: false }
   deps = typeof window !== 'undefined' ? (window.__bgmLibraryDeps || null) : null
 }

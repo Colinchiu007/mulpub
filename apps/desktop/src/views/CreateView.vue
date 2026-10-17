@@ -4836,8 +4836,11 @@ export default {
     // 历史 BGM 核验与修复（s2v-bgm-legacy-repair）：实现落在 composable，壳只做同名代理。
     async verifyS2VLegacyBgm(path) { return bgmLibraryMethods.verifyLegacyBgmLibraryPath(path === undefined ? this.s2vLegacyBgmPath : path) },
     async ensureS2VLegacyBgmVerified() {
+      // CCG 评审 i4 修复：不只在 checking 时等待。快照恢复与 watch 触发之间存在
+      // 微任务窗口（状态仍为 idle 但尚未核验），直接启动会绕过门禁 ——
+      // 这里对「存在历史路径」一律补一次核验并等待其落地（同路径在途请求被
+      // composable 去重复用，不会放大 IPC）。
       if (!this.s2vLegacyBgmPath) return
-      if (this.s2vLegacyBgmStatus?.state !== 'checking') return
       await this.verifyS2VLegacyBgm(this.s2vLegacyBgmPath)
     },
     async adoptS2VLegacyBgm() {

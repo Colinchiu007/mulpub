@@ -248,4 +248,32 @@ describe('useBgmLibrary 历史路径核验与修复', () => {
     expect(deps.s2vConfig.bgmPath).toBe('')
     expect(bgmLibraryRefs.s2vLegacyBgmStatus.value.state).toBe('idle')
   })
+
+  it('并发去重：同一历史路径的在途核验复用同一 Promise，不重发 IPC（CCG 评审 i2/i5）', async () => {
+    makeLegacyDeps()
+    let resolveFirst
+    story2videoBgmLibraryStatus.mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve }))
+
+    const first = bgmLibraryMethods.verifyLegacyBgmLibraryPath('C:/old-import/legacy.mp3')
+    const second = bgmLibraryMethods.verifyLegacyBgmLibraryPath('C:/old-import/legacy.mp3')
+
+    resolveFirst({ code: 0, data: { path: 'C:/old-import/legacy.mp3', exists: true, readable: true, size: 4, extension: '.mp3', inLibrary: false, libraryItemId: null, reason: 'ok' } })
+    await Promise.all([first, second])
+
+    expect(story2videoBgmLibraryStatus).toHaveBeenCalledTimes(1)
+    expect(bgmLibraryRefs.s2vLegacyBgmStatus.value.state).toBe('available')
+  })
+
+  it('空路径作废在途请求：旧响应不得落地为 missing（CCG 评审 i2）', async () => {
+    makeLegacyDeps()
+    let resolveFirst
+    story2videoBgmLibraryStatus.mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve }))
+
+    const first = bgmLibraryMethods.verifyLegacyBgmLibraryPath('C:/old-import/legacy.mp3')
+    await bgmLibraryMethods.verifyLegacyBgmLibraryPath('   ')
+    resolveFirst({ code: 0, data: { path: 'C:/old-import/legacy.mp3', exists: false, readable: false, size: 0, extension: '.mp3', inLibrary: false, libraryItemId: null, reason: 'missing' } })
+    await first
+
+    expect(bgmLibraryRefs.s2vLegacyBgmStatus.value).toMatchObject({ state: 'idle', path: '' })
+  })
 })

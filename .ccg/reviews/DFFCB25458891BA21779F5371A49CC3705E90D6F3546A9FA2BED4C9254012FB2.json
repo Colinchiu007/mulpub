@@ -1,0 +1,29 @@
+{
+  "sha": "a6ebe694078e1bc3a9320fd8aa95f40f251685ea",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 993 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 993,
+    "fileCount": 33,
+    "codeFileCount": 23,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 10,
+    "docSensitiveContentHits": 12,
+    "docSensitiveContentSample": [
+      "- 所有既有 `data-testid`（`s2v-bgm-select` / `s2v-bgm-volume` / `s2v-bgm-manage-button`）保持不变；运营后台 `voice.bgm` / `voice.bgmVolume` 显隐立即与分组归属一致。",
+      "| 背景音乐 label + 下拉 | 声音分组，音色 ID 之后 | 「不使用背景音乐」+ 库条目 + 历史路径选项 | `s2v-bgm-select` |",
+      "- `data-testid`（`s2v-bgm-select` / `s2v-bgm-volume` / `s2v-bgm-manage-button`）**不得**因迁移改名；运营 optionKey 与显隐语义不变。"
+    ],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-17T07:41:35.101Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}
