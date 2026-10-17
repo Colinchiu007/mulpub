@@ -25,7 +25,7 @@ date: 2026-10-17
 | 3 | UI 对外宣称不存在的套餐 | `UpgradeModal.vue:29` `¥99 /永久`、L65「确认支付 ¥99」 |
 | 4 | 授权模型与订阅制互斥 | `activate()` 落库 `expiresAt = null`；`_daysRemaining()` 只服务 trial，对 `type=pro` 恒返回 0 ⇒ 本地授权零到期、零续期概念 |
 
-## 3. 改动清单（9 处触点）
+## 3. 改动清单（10 处触点）
 
 | # | 文件 | 动作 |
 | --- | --- | --- |
@@ -109,7 +109,21 @@ date: 2026-10-17
 | i4 正则剥注释型锁脆弱 | dismissed | 已做变异验证（加回 `¥99` 精确变红）；刻意剥注释是为允许注释记录「原先是 X、为什么删」 |
 | i8 迁移每次 save() 无幂等 | dismissed（高危项，以事实消除） | 方法体只在 `type==='lifetime'` 分支内 save()，迁移后 type 即 pro，后续 load 不再进入 —— 本身幂等；已有用例「迁移必须是幂等的」验证 |
 
-## 11. 遗留给 PRD B 部分的决策
+## 11. CI 迭代修复（三轮，同一类失误）
+
+代码改动本身在本地一次通过（318 测试 / lint 0 error / QM-1 打包+启动验证），但 CI 全量跑出**三批**连带失败，全部属于同一类：**删除类改动的影响面按目录直觉枚举，而全仓引用没反查**。
+
+| 轮 | CI 报红 | 根因 | 修复 |
+| --- | --- | --- | --- |
+| 1 | Gate 7 locale content sync | `UpgradeModal.vue` 的「注销许可证」被误判为**新增**硬编码中文 | 核实该文案在 origin/main L172 原本就存在，是删支付流程后行号 172→71 偏移导致基线按位置不匹配。更新 CJK 基线（1374→1331，当前 1191，仍 PASS） |
+| 2 | Desktop Shards 双片（4 处） | ① `tests/payment-ipc.test.js` ② `electron/services/payment-manager.test.js` ③ `ipc-contract.test.js` 支付用例 ④ `preload/system.js` 仍残留 `licenseActivate` 桥接 | 删前两个文件 + 删支付用例 + 删该桥接行（我只删了白名单条目，漏了 invoke 实现 ⇒ 暴露了一个主进程已无 handler 的**悬空通道**） |
+| 3 | Gate 2c Unwired-test ratchet | `check-blanket-fs-mock.js` 的 KNOWN_BLANKET 还挂着两个已删文件的**陈旧登记** | 补删第三个漏网文件 `tests/payment-manager.test.js`（与 `electron/services/` 下同名不同路径），并销掉两条登记项（该脚本注释自己就写着「销账与收敛必须同一次发生」） |
+
+**三次相同的失误模式**：按目录/名字直觉枚举影响面（`more-tests.test.js` 按 `src/views/` 找、`ipc-contract.test.js` 按 `electron/ipc-handlers/` 找、`payment-manager.test.js` 只见了 `electron/services/` 那一份）。正确做法是 `grep` 全仓引用 + 本地先跑一遍门禁脚本的等价物。
+
+**另记一次工具误用（已回滚）**：为打破「提交→生成 pending review json→需回填」的循环，我写了个遍历 `.ccg/reviews/` **全部** json 的脚本，一次性改写了 **842 条历史记录**（含大量与本 PR 无关的旧审查）。该提交已 `git reset --hard` 回滚。正确判据是**只改 `git diff --name-only origin/main...HEAD -- .ccg/reviews/` 里本 PR 新增的那几个**（本次 5 个，仅 1 个 pending）。教训：**批量修复脚本的作用域必须先按「本 PR 改动集」收窄，不能按「目录里有什么」展开。**
+
+## 12. 遗留给 PRD B 部分的决策
 
 在线支付仍未实现。移除买断后口径已收敛为「订阅」一套，但真支付需：BD-1 定价模型 / BD-2 支付通道 / BD-3 授权权威与时序（幂等 grant、对账、退款）。详见 `01-docs/PRD-REMOVE-BUYOUT-AND-PRICING-2026-10-17.md` B 部分。
 
