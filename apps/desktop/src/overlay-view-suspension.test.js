@@ -81,9 +81,23 @@ describe('弹窗互斥：静态链路完整性', () => {
     expect(src).toMatch(/finally \{[\s\S]*?await releaseEmbeddedViewsForOverlay\('tab-close-confirm'\)/)
   })
 
-  it('MpSidebar：升级 Pro 弹窗打开期间挂起内嵌视图', () => {
+  // fix-upgrade-payment-entry：升级入口从「打开 UpgradeModal」改为「路由跳会员中心」。
+  //
+  // 原断言锁的是「升级弹窗打开期间挂起内嵌视图」。那个弹窗已从 MpSidebar 移除
+  // （正式包里它只有「付费通道筹备中」，是死胡同；会员中心才有真实价目与兑换码
+  // 核销），没有弹窗自然不需要针对它的 suspend/release —— 所以这里不是「放宽断言」，
+  // 而是把一个**已经失去对象**的断言换成当前正确的不变量。
+  //
+  // 本文件的目的没变：全屏浮层必须处理内嵌 WebContentsView 遮挡。只是 MpSidebar
+  // 这一处不再是浮层。
+  it('MpSidebar：升级入口走路由跳转，不再有升级弹窗需要挂起内嵌视图', () => {
     const src = fs.readFileSync(path.join(ROOT, 'src/layouts/MpSidebar.vue'), 'utf8')
-    expect(src).toMatch(/watch\(showUpgradeModal, \(open\) => \{[\s\S]*?suspendEmbeddedViewsForOverlay\('upgrade-modal'\)[\s\S]*?releaseEmbeddedViewsForOverlay\('upgrade-modal'\)/)
+    // ① 正向锁：必须真的走路由跳转（防「既没弹窗也没跳转」的空洞）
+    expect(src).toMatch(/@upgrade="router\.push\('\/member-center'\)"/)
+    // ② 弹窗已移除 ⇒ 不得再有针对它的挂起/释放
+    expect(src).not.toMatch(/watch\(showUpgradeModal/)
+    expect(src).not.toMatch(/suspendEmbeddedViewsForOverlay\('upgrade-modal'\)/)
+    expect(src).not.toMatch(/releaseEmbeddedViewsForOverlay\('upgrade-modal'\)/)
   })
 
   // owner 登记表：AccountCloudSyncDialog（账号云镜像同步弹窗，PRD-CLOUD-ACCOUNT-SYNC-2026-09-27 §10.1）

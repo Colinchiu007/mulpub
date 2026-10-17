@@ -78,9 +78,13 @@
       <!-- 登录区 banner：收起时只显示这一条，点击向上展开菜单（账号操作 / 设置 / 升级 Pro） -->
       <ProfileMenu
         @open-settings="emit('open-settings')"
-        @upgrade="showUpgradeModal = true"
+        @upgrade="router.push('/member-center')"
       />
-      <UpgradeModal v-if="showUpgradeModal" @close="showUpgradeModal = false" />
+      <!-- 升级入口跳会员中心，不再渲染 UpgradeModal：
+           正式包里那个弹窗只有「付费通道筹备中」，是死胡同；会员中心才有真实档位、
+           真实价格与服务端兑换码核销（当前唯一真实可用的开通渠道）。
+           原先这里开着弹窗，还配了一个 watch 去挂起内嵌 WebContentsView 以防被原生
+           图层压住 —— 没有弹窗后这套互斥机制随之不需要（函数本身其它 7 处在用）。 -->
     </footer>
   </aside>
 </template>
@@ -92,7 +96,6 @@ import { useI18n } from 'vue-i18n'
 import { ArrowDown, MoreFilled, Plus } from '@element-plus/icons-vue'
 import { SIDEBAR_MENU_DEFINITION } from '@/config/sidebar-menu'
 import { resolveSidebarMenu } from '@/config/sidebar-menu-merge'
-import UpgradeModal from '@/components/UpgradeModal.vue'
 import ProfileMenu from '@/components/ProfileMenu.vue'
 import SidebarServiceStatus from '@/components/SidebarServiceStatus.vue'
 import SidebarUpdateButton from '@/components/SidebarUpdateButton.vue'
@@ -100,7 +103,6 @@ import { invokePageManager, getApi } from '@/api/electron-bridge'
 import { useTabStore } from '@/stores/tab'
 import { opsCenterSyncAppMenu, onOpsCenterRuntimeUpdated } from '@/api/ops-center-sync'
 import { useAppVersion } from '@/composables/useAppVersion'
-import { suspendEmbeddedViewsForOverlay, releaseEmbeddedViewsForOverlay } from '@/composables/useEmbeddedViewSuspension'
 import brandLogoUrl from '@/assets/brand/tom-fish-logo.png'
 
 const route = useRoute()
@@ -108,7 +110,6 @@ const router = useRouter()
 const tabStore = useTabStore()
 const { t } = useI18n()
 const moreOpen = ref(false)
-const showUpgradeModal = ref(false)
 // 左上角品牌区展示的应用版本号（非 Electron 环境取不到时保持为空，不渲染该节点）
 const { version, loadVersion } = useAppVersion()
 
@@ -203,13 +204,6 @@ const hasActiveMoreItem = computed(() => moreItems.value.some((item) => isActive
 // 硬刷新深链时 onMounted 早于 route.path 就绪，需路由解析后再展开（2026-09-21）。
 watch(navPath, () => {
   if (hasActiveMoreItem.value) moreOpen.value = true
-})
-
-// 弹窗互斥（2026-09-23 Bug 修复）：升级弹窗是渲染层全屏遮罩浮层，浏览器标签
-// （外部网页 WebContentsView）活动时会被原生图层整个压住；打开期间挂起内嵌视图。
-watch(showUpgradeModal, (open) => {
-  if (open) suspendEmbeddedViewsForOverlay('upgrade-modal')
-  else releaseEmbeddedViewsForOverlay('upgrade-modal')
 })
 
 // ── 左侧导航栏宽度同步到主进程（避免 WebContentsView 遮挡侧边栏）──

@@ -722,7 +722,6 @@ import TemplatePicker from '@/components/TemplatePicker.vue'
 import { useTemplateStore } from '@/stores/templates'
 import { useLicenseStore } from '@/stores/license'
 // eslint-disable-next-line no-unused-vars
-import UpgradeModal from '@/components/UpgradeModal.vue'
 import AiWriterPanel from '@/components/AiWriterPanel.vue'
 import CoverCropDialog from '@/components/CoverCropDialog.vue'
 import CoverThumbnail from '@/components/CoverThumbnail.vue'
@@ -1154,7 +1153,6 @@ watch([showTagPanel, showTitlePanel], ([tagVisible, titleVisible]) => {
   writePanelVisibilityPrefs({ tagSuggester: tagVisible, titleAssistant: titleVisible })
 })
 const showAiWriter = ref(false)
-const showUpgradeModal = ref(false)
 const combinedContent = computed(() => article.title + ' ' + article.content)
 
 // 标签建议点击填入：追加进标签输入去重，经追加管道带入描述（多入口统一）。
@@ -1444,7 +1442,6 @@ defineExpose({
   loadingDrafts,
   showTemplatePicker,
   showAiWriter,
-  showUpgradeModal,
   imageFileList,
   coverFileList,
   tagsText,

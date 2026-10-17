@@ -259,4 +259,34 @@ describe("Dashboard 样式源码守卫（PR #2075/#2114 事故回归保护）", 
       "<DashboardExtraPanels> 越过了 .cohere-content 的闭合标签（同层而非嵌套 → padding 不生效）"
     ).toBeLessThan(closeIdx);
   });
+
+  // CCG 深度审查 i3 提出：上一次的修法只靠人工删掉死代码，没有任何机器守卫，
+  // 同类问题可以静默长回来。这里补一条源码级锁，锁的正是本次那个失效模式：
+  //
+  // 事故形态（fix-upgrade-payment-entry）：Dashboard.vue 曾同时具备
+  //   import UpgradeModal + const showUpgradeModal = ref(false) + 4 处
+  //   @upgrade="showUpgradeModal = true"，**但模板从未渲染 <UpgradeModal>**。
+  //   ref 被设置却无消费方 ⇒ 用户点「升级解锁」毫无反应。
+  //   lint 当时已报 no-unused-vars，却被 eslint-disable 掩盖 —— 于是真 bug 被永久藏住。
+  //
+  // 为什么锁在源码层而不是行为层：行为测试（Dashboard.test.js）能证明「现在点下去
+  // 会跳转」，但证明不了「没人把弹窗路径加回来」。而这三者同时存在时，行为测试
+  // 依然可能通过（跳转和死绑定可以并存），只有源码不变量能拦住。
+  it("升级入口必须走路由跳转，不得回潮为「设置 ref 但模板不渲染」的死绑定", () => {
+    const tpl = descriptor.template.content;
+    // ① 模板里不得再出现升级弹窗标签
+    expect(tpl, "模板又渲染了 <UpgradeModal>：正式包中该弹窗只有「筹备中」，是死胡同").not.toContain(
+      "<UpgradeModal"
+    );
+    // ② 不得再出现「设置一个只给弹窗用的 ref」这种死绑定
+    expect(tpl, "模板又出现 showUpgradeModal 死绑定（点了不会有任何反应）").not.toContain(
+      "showUpgradeModal"
+    );
+    // ③ 正向锁：四个锁区块的 CTA 必须都接到 goToMemberCenter
+    const ctaBindings = tpl.match(/@upgrade="goToMemberCenter"/g) || [];
+    expect(
+      ctaBindings.length,
+      `升级 CTA 的绑定数应为 4（trend / perf / platform / pattern 四个锁区块），实际 ${ctaBindings.length}`
+    ).toBe(4);
+  });
 });
