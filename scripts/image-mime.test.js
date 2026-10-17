@@ -1,6 +1,8 @@
 /**
  * image-mime.test.js — R7 单一真源表自身的行为锁
  *
+ * 本文件即 FORMATS 与派生映射的**自动一致性校验**（i3，CCG 020ff510）：改 FORMATS 必须同跑本文件。
+ *
  * 锁三件事：
  * ① 映射正确性（jpg/jpeg 同 mime、往返一致）—— 真源表错了，所有换算一起错；
  * ② 「不猜」纪律：未知 ext/mime 返回 null 而不是默认值（宁可失败不把 webp 发成 jpeg）；
@@ -12,7 +14,7 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 
-const { EXT_TO_MIME, MIME_TO_EXT, extToMime, mimeToExt, mimeOfDataUrl } = require('./lib/image-mime')
+const { EXT_TO_MIME, MIME_TO_EXT, LEGACY_MIME_ALIASES, extToMime, mimeToExt, mimeOfDataUrl } = require('./lib/image-mime')
 
 test('映射正确性：jpg 与 jpeg 同 mime（历史四表一致的语义）', () => {
   assert.equal(EXT_TO_MIME['.jpg'], 'image/jpeg')
@@ -51,6 +53,13 @@ test('dataUrl 前缀解析（cover 链路的 dataUrl 形态）', () => {
   assert.equal(mimeOfDataUrl('data:image/jpeg;base64,AA'), 'image/jpeg')
   assert.equal(mimeOfDataUrl('data:image/png;base64,AA'), 'image/png')
 })
+
+test('i5：非规范别名在真源显式登记，且归一后仍落规范 ext', () => {
+  assert.equal(LEGACY_MIME_ALIASES['image/jpg'], 'image/jpeg', '别名登记必须指向规范 mime')
+  assert.equal(mimeToExt(LEGACY_MIME_ALIASES['image/jpg']), '.jpg', '别名归一后与规范路径一致')
+  assert.equal(mimeToExt('image/jpg'), null, 'mimeToExt 本体不认非规范 mime（不猜纪律不被别名破坏）')
+})
+
 
 test('R7 结构锁的自检素材：本仓四个历史映射点在真源里都有一致语义', () => {
   // 与四份历史字面量逐项对账（若历史表彼此矛盾，此用例先红）

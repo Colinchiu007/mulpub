@@ -66,4 +66,11 @@ function mimeOfDataUrl (dataUrl) {
   return m ? m[1].toLowerCase() : null
 }
 
-module.exports = { FORMATS, EXT_TO_MIME, MIME_TO_EXT, extToMime, mimeToExt, mimeOfDataUrl }
+/**
+ * 历史非规范 mime 别名（真实平台回包出现过）→ 规范 mime。
+ * i5（CCG 020ff510）：兼容例外必须登记在真源，而不是散落在消费文件里只靠行内注释 ——
+ *   「历史兼容」是显式概念，不是隐藏例外。消费方展开方式：
+ *   `{ ...MIME_TO_EXT, ...LEGACY_MIME_ALIASES 的 ext 映射 }`（见 media-downloader）。
+ */
+const LEGACY_MIME_ALIASES = Object.freeze({ 'image/jpg': 'image/jpeg' })
+module.exports = { FORMATS, EXT_TO_MIME, MIME_TO_EXT, LEGACY_MIME_ALIASES, extToMime, mimeToExt, mimeOfDataUrl }
