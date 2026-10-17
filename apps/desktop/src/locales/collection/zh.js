@@ -257,6 +257,13 @@ export default {
       registerOnlyNote: '已登记（暂不支持正文采集）',
       collectOkRewriteFailNote: '采集成功，改写失败用原文',
       duplicateNote: '已采集过，本次跳过（勾选「包含已采集」可强制重采）',
+      failedNote: '采集失败：{reason}',
+      failedNoReason: '采集失败（无详情，请查看日志）',
+      allFailedNote: '全部采集失败（{failed} 条），详情见进度明细与日志',
+      allSkippedNote: '这 {skipped} 条都已采集过，本次全部跳过（勾选「包含已采集」可强制重采）',
+      cancelledNote: '已取消采集',
+      circuitBrokenNote: '已触发平台限流保护（熔断），本轮中止，请稍后重试',
+      nothingCollectedNote: '本轮没有采集到内容',
       fallbackSuffix: '，{count} 张图片回退原链',
       // ── collection-ui-refinement：BatchCollectPanel 迁入扫描视野后补齐的 12 个既有用法 key ──
       scopeFavlist: '指定收藏夹',

@@ -90,6 +90,8 @@ class UrlCollector {
    * @param {boolean} [opts.manual] - 用户手动单次采集（采集页点击）。手动模式豁免
    *   weekend-throttle 随机拒绝（用户周六想采一篇文章被 40% 概率拦截不合理），
    *   但保留 interval 限流与熔断（防连点滥用）。
+   * @param {boolean} [opts.forceRefresh] - 强制重采：跳过内容缓存直采（「包含已采集」语义；
+   *   2026-10-18 fav-force-recollect：此前仅绕 duplicate 名单，缓存空壳仍被上层判 unsubstantive）。
    * @returns {Promise<object>} { title, content, coverImage, description, publishTime, source, success }
    */
   async collect (url, opts = {}) {
@@ -158,7 +160,8 @@ class UrlCollector {
       return { success: false, error, reason: rateCheck.reason, waitMs: rateCheck.waitMs }
     }
 
-    if (this._contentCache.hasUrl(url)) {
+    // forceRefresh 跳过内容缓存（「包含已采集」意图=真去采；缓存空壳会被上层判 unsubstantive 失败）
+    if (!opts.forceRefresh && this._contentCache.hasUrl(url)) {
       this._log.notify('url-collect', 'collect-cache-hit', { params: { url, platform, reason: 'cache_hit' } })
       return { success: true, reason: 'cache_hit', title: '', content: '' }
     }

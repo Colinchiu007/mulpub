@@ -598,6 +598,33 @@ describe("UrlCollector 日志覆盖（P0-P2）+ 手动采集周末豁免", () =>
     expect(JSON.stringify(logger.notify.mock.calls)).toContain("cache_hit");
   });
 
+  // ── forceRefresh：强制重采必须真去采（2026-10-18，change: fav-force-recollect）──
+  // 「包含已采集（强制重采）」在批量通道里传下来，语义是「不要拿缓存/旧结果糊弄我」。
+  // 此前 forceRecollect 只绕过了 duplicate 名单，缓存仍会命中并返回空壳 ⇒ 用户勾了也白勾。
+  it("forceRefresh: true 绕过内容缓存（hasUrl 为 true 也走真实采集）", async () => {
+    collector._rateLimiter = { evaluate: () => ({ allowed: true }), recordRequest: () => {} };
+    collector._contentCache.hasUrl = () => true;
+    collector._needsBrowser = () => false;
+    collector._getAxios = () => ({
+      get: vi.fn().mockResolvedValue({
+        data: "<html><head><title>强制重采标题</title></head><body><article><p>这是强制重采拿到的正文内容，长度足够。</p></article></body></html>",
+      }),
+    });
+    const r = await collector.collect("https://example.com/forced", { forceRefresh: true });
+    expect(r.reason).not.toBe("cache_hit");
+    expect(r.success).toBe(true);
+    expect(r.title).toContain("强制重采标题");
+  });
+
+  it("forceRefresh 缺省（未传/false）时缓存照旧生效", async () => {
+    collector._rateLimiter = { evaluate: () => ({ allowed: true }), recordRequest: () => {} };
+    collector._contentCache.hasUrl = () => true;
+    const r1 = await collector.collect("https://example.com/c1");
+    expect(r1.reason).toBe("cache_hit");
+    const r2 = await collector.collect("https://example.com/c2", { forceRefresh: false });
+    expect(r2.reason).toBe("cache_hit");
+  });
+
   it("P2: 采集成功写 info 日志（含标题/正文长度）", async () => {
     collector._rateLimiter = { evaluate: () => ({ allowed: true }), recordRequest: () => {} };
     collector._needsBrowser = () => false;
