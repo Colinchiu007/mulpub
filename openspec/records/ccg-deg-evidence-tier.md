@@ -34,3 +34,17 @@ sync_backfill_owner: 下一个会话（按「PR 自动合并」收尾清单 1–
 
 - 普查工具未接进任何 CI job，数字要靠人现跑；是否值得每次跑（约 800 份 `git show`，本机能跑完）待裁决。
 - §9.0 那条"闭环可以零出处"在裁决前不会有任何机械拦截——它现在只是**被记录下来了**，这一点必须说明白，否则下一个人会以为已经有人在看。
+
+## 切片B 实现补记：`tier` 结构化字段 + 覆盖率可见不拦（2026-10-17，同分支后续提交）
+
+| 项 | 读数 |
+|---|---|
+| 落码 | `ccg-review-decider.js`：`buildDeepReviewInit(mode)` 导出并在 `saveRecord` 里替换手写字面量（新记录天生带 `tier:"unknown"` / `evidence:null`）；`check-pr-exec-record.js`：`classifyEvidenceTier` / `summarizeTierCoverage` / `dualClosedDeepReviews` + `main` 打印 `TIER-COVERAGE` 行 |
+| 外部档成立条件 | `tier==='external'` **合取** `evidence` 为非空字符串（`typeof==='string'` 且 `trim()!==''`）；只声明不附证据 ⇒ `external-unverified`，不享受外部放行 |
+| 不读散文 | `performedBy` 完全不进判据；取值不在闭集 / 带前后空格 / 大小写不符一律 `unknown`（fail-closed，与「状态列只认闭合词表」同口径） |
+| 测试 | 两文件合计 **108 passed / 0 failed**（gate 70、decider 38）；新用例含真跑 CLI 的行为锁（临时 git 仓库 + `--no-remote`，断言 `rc=0` 且 stdout 含 `TIER-COVERAGE`） |
+| 变异 | 本片 5 条（M-T1 摘 tier 初始化 / M-T2 放宽闭集 / M-T3 evidence 判据退化 / M-T4 空集不打印 / M-T5 接入拦截）全部指名红；与切片A 合计 **12/12 CAUGHT、escaped=0、anchorfail=0**、每条还原 md5 一致 |
+| 现场读数 | 本分支实跑 `node scripts/check-pr-exec-record.js --base=origin/main --mode=enforce` ⇒ `TIER-COVERAGE dual-closed total=0 …`（**0 是诚实值**：本分支的判定产物都是 `single`/`skip`，再次印证已知缺口「真缺口在被判 single 的产物」） |
+| 未做（不假装） | 转拦（`unknown` 占比到阈值后让门禁生效）另起一片；高危面清单与 `HIGH_RISK_SURFACES` 机械实现、`backendAvailability` 落盘、`fallback_closed` 欠账棘轮（tasks 2.x/3.x/5.x）仍未开始 |
+
+- 一条同族小缺陷登记（未夹带修）：`check-pr-exec-record.js` 的参数解析只认 `--repo=<dir>`，写成 `--repo <dir>` 会得到 `args.repo===true` 并抛出 `options.cwd ... type boolean (true)`，报错文案是「git 取证失败」——与 AGENTS.md 已点名的「`--limit 4` 被静默丢弃」同型。本片实测踩到（我的夹具先写错形式），修法应是未知/裸旗标一律非零码出声，另起一片。

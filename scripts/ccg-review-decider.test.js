@@ -913,3 +913,29 @@ test('QM-6 第四轮自查：git 调用失败时不得把 null 当成 diff 内�
     fs.rmSync(dir, { recursive: true, force: true })
   }
 })
+function toLfLocal (s) { return s.replace(/\r\n/g, '\n') }
+
+
+// ── QM-6 丙：来源意图必须是结构化字段（不靠 performedBy 散文）────────────────
+// 实测主干 827 份产物里 performedBy 有 34 种自由写法，其中 12 条以 "self-play" 开头
+// 却同时声明做过外部复核 ⇒ 任何按前缀分级的判据都会当场误判那 12 份。
+// 判据只能读 tier（闭集）+ evidence（出处），二者合取才算外部证据。
+test('丙：判定记录初始化必须带 tier=unknown 与 evidence=null（新记录天生带字段，不留空让人猜）', () => {
+  const init = decider.buildDeepReviewInit
+  assert.strictEqual(typeof init, 'function', '必须导出纯函数 buildDeepReviewInit（只 grep 源码的结构锁会被 if(false&&) 绕过，本仓已踩过）')
+  for (const m of ['dual', 'single']) {
+    const dr = init(m)
+    assert.strictEqual(dr.tier, 'unknown', 'mode=' + m + ' 的初始来源档必须是 unknown')
+    assert.strictEqual(dr.evidence, null, 'evidence 初始必须是 null，不得是空串（空串会被误当"已填")')
+    assert.strictEqual(dr.status, 'pending')
+    assert.strictEqual(dr.required, true)
+  }
+  assert.strictEqual(init('skip').required, false, 'skip 仍不得置 required（缺陷G 口径不变）')
+  assert.strictEqual(init('skip').tier, 'unknown', 'skip 也要有 tier 字段，否则下游要处理两种形状')
+})
+
+test('丙：saveRecord 必须真的用初始化函数（接线锁，防"字段定义了但没人写")', () => {
+  const src = toLfLocal(fs.readFileSync(path.join(__dirname, 'ccg-review-decider.js'), 'utf8'))
+  assert.match(src, /deepReview:\s*buildDeepReviewInit\(result\.mode\)/,
+    'saveRecord 必须调用 buildDeepReviewInit —— 手写字面量的话新增字段会在下一次被漏掉')
+})

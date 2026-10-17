@@ -1321,3 +1321,79 @@ test('接线锁：main() 必须把 base 读取器传给 evaluateDeepReviewDebt�
   assert.match(src, /evaluateDeepReviewDebt\(statuses, repo, [A-Za-z_$]/,
     '只补判据不接线等于没修 —— 调用点必须显式传第三个参数')
 })
+
+// ── QM-6 丙：分级与覆盖率读数（先可见不拦）──────────────────────────────────
+test('丙 classifyEvidenceTier：闭集四档 + 其余一律 unknown（大小写/空格都不放过）', () => {
+  const c = mod.classifyEvidenceTier
+  assert.strictEqual(typeof c, 'function', '必须导出 classifyEvidenceTier')
+  assert.strictEqual(c({ tier: 'external', evidence: 'D:/Temp/x.log#ses_1' }), 'external')
+  assert.strictEqual(c({ tier: 'external' }), 'external-unverified', '只有声明没有出处 ⇒ 不算外部证据')
+  assert.strictEqual(c({ tier: 'external', evidence: '   ' }), 'external-unverified', '空白 evidence 等于没填')
+  assert.strictEqual(c({ tier: 'external', evidence: 42 }), 'external-unverified', '非字符串 evidence 不得被 String() 蒙过去')
+  assert.strictEqual(c({ tier: 'self-play' }), 'self-play')
+  assert.strictEqual(c({ tier: 'none' }), 'none')
+  for (const bad of [undefined, null, {}, { tier: null }, { tier: '' }, { tier: 'External' }, { tier: ' external ' }, { tier: 'claude' }, { tier: '自扮演' }]) {
+    assert.strictEqual(c(bad), 'unknown', '取值不在闭集内一律 unknown：' + JSON.stringify(bad))
+  }
+})
+
+test('丙 summarizeTierCoverage：五档计数 + 空集也必须给读数（反失明）', () => {
+  const s = mod.summarizeTierCoverage
+  const r = s([
+    { tier: 'external', evidence: 'p' }, { tier: 'external', evidence: 'p' },
+    { tier: 'external' }, { tier: 'self-play' }, { tier: 'none' }, {}, { tier: 'CLAUDE' }
+  ])
+  assert.strictEqual(r.total, 7)
+  assert.strictEqual(r.by.external, 2)
+  assert.strictEqual(r.by['external-unverified'], 1)
+  assert.strictEqual(r.by['self-play'], 1)
+  assert.strictEqual(r.by.none, 1)
+  assert.strictEqual(r.by.unknown, 2)
+  assert.match(r.line, /TIER-COVERAGE/, '读数行必须有固定前缀，否则没人能在 CI 日志里 grep 到它')
+  assert.match(r.line, /total=7/)
+  const e = s([])
+  assert.strictEqual(e.total, 0)
+  assert.match(e.line, /TIER-COVERAGE .*total=0/, '空集不得"什么都不打印"——那与"没接这条锁"逐字同形')
+})
+
+test('丙：覆盖率**先可见不拦**——tier 缺失不得让 PR 变红（转拦另起一片）', () => {
+  const repo = withReviewRecords({
+    [SHA64 + '.json']: { mode: 'dual', deepReview: { required: true, status: 'cleared', performedBy: 'claude', findings: null } },
+  })
+  try {
+    const r = mod.evaluateDeepReviewDebt(st([['A', '.ccg/reviews/' + SHA64 + '.json']]), repo)
+    assert.deepStrictEqual(r.reasons, [], '已闭环记录缺 tier 时只该出现在覆盖率读数里，不该在此刻判红（一上线红两百条＝逼人把门削宽）')
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('丙：main 必须打印覆盖率行（接线锁，防"函数导出了但没人调"）', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'check-pr-exec-record.js'), 'utf8')
+  assert.match(src, /summarizeTierCoverage\(/, 'main 里必须真的调用它')
+  assert.match(src, /TIER-COVERAGE/, '读数行前缀必须出现在源码里（不是只存在于测试）')
+})
+// 升级：「先可见不拦」原来只断言纯函数 reasons 为空 ⇒ 把 ok=false 写进 applyDeepDebt
+// 时全量 0 红（M-T5 实测），等于没锁。改成真跑一次 CLI：rc 与 stdout 都是产物。
+test('丙：真跑 CLI —— dual+cleared 但无 tier 的记录必须 rc=0 且打印覆盖率行（可见不拦）', () => {
+  const cp = require("child_process");const os = require("os");const path2 = require("path");
+  const repo = fs.mkdtempSync(path2.join(os.tmpdir(), "tier-cli-"));
+  const RUN = (a) => cp.execFileSync(process.execPath, a, { cwd: repo, encoding: 'utf8' });
+  const RUNx = (a) => { try { const o = cp.execFileSync(process.execPath, a, { cwd: repo, encoding: 'utf8', stdio: ['ignore','pipe','pipe'] }); return { rc: 0, out: o } } catch (e) { return { rc: (e && e.status) || 1, out: String((e && e.stdout) || '') + String((e && e.stderr) || '') } } };
+  const git = (a) => cp.execFileSync('git', a, { cwd: repo, encoding: 'utf8' });
+  try {
+    git(['init', '-q', '-b', 'main', repo]);
+    git(['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'base']);
+    git(['checkout', '-q', '-b', 'pr']);
+    const HEATH = 'f'.repeat(64);
+    fs.mkdirSync(path2.join(repo, '.ccg', 'reviews'), { recursive: true });
+    fs.writeFileSync(path2.join(repo, '.ccg', 'reviews', HEATH + '.json'),
+      JSON.stringify({ mode: 'dual', deepReview: { required: true, status: 'cleared', performedBy: 'claude', findings: null } }, null, 2), 'utf8');
+    fs.mkdirSync(path2.join(repo, 'openspec', 'records'), { recursive: true });
+    fs.writeFileSync(path2.join(repo, 'openspec', 'records', 'pr.md'), '---\nrecord: pr\n---\n\n## 记录\n', 'utf8');
+    git(['add', '-A']);
+    git(['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'add artifact without tier']);
+    const script = path2.join(__dirname, 'check-pr-exec-record.js');
+    const res = RUNx([script, `--repo=${repo}`, '--base=main', '--head=pr', '--mode=enforce', '--no-remote']);
+    assert.ok(/TIER-COVERAGE/.test(res.out), `stdout 必须含覆盖率行，实际 rc=${res.rc} 输出开头=${JSON.stringify(res.out.slice(0, 200))}`);
+    assert.strictEqual(res.rc, 0, `覆盖率不得把 PR 判红（先可见不拦）。rc=${res.rc} out=${JSON.stringify(res.out.slice(0, 300))}`);
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})

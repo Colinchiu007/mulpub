@@ -5,9 +5,9 @@
 ## 1. 证据分级判据（示踪弹，先让它红）
 - [x] 1.0 普查主干 827 份产物形态（performedBy 34 种散文取值 / status×mode 交叉 / findings 形状），结论写进 design §9 与 §9.1。普查脚本**已入库**：`node scripts/ccg-artifact-shape-survey.js [--ref=origin/main]`（覆盖面数字必须能在仓库里一句话重取，不得留成孤立读数；数字随主干增长漂移，引用时现跑）
 
-- [ ] 1.1 **判据落点已更正**：分级 MUST NOT 读 `performedBy`（实测 34 种散文取值，其中两条以 `self-play` 开头却声明做过外部复核）。改为读结构化来源字段 `deepReview.tier`，佐证走既有口径「`findings` 是非空数组」（`shouldPreserveClosedRecord` 主判据）。合同形态待 §9.1 三选一裁决 ⇒ 本条 blocked on decision
-- [ ] 1.2 单测：三档各正反例（含 `performedBy: null` 不得被读成 external 的负控）
-- [ ] 1.3 变异 M1（`null` 读成 `external` 必须指名红）
+- [x] 1.1 分级读结构化 `deepReview.tier`（闭集 `external|self-play|none`，其余一律 `unknown`），MUST NOT 读 `performedBy` 散文。外部档成立 = `tier===external` **合取** `evidence` 非空串；`findings` 为空不影响成立。**已落码**：`check-pr-exec-record.js` 的 `classifyEvidenceTier` + `ccg-review-decider.js` 的 `buildDeepReviewInit`（新记录初始化 `tier:"unknown"` / `evidence:null`）。反证 M-T1/M-T2/M-T3 各自指名红
+- [x] 1.2 覆盖率只可见不拦：`summarizeTierCoverage()` 出 `TIER-COVERAGE dual-closed total=…` 行，空集也打印；`main()` 经 `dualClosedDeepReviews()` 接线。反证 M-T4（空集不打印）与 M-T5（接入拦截）各自指名红
+- [x] 1.3 变异反证：本片新增 5 条（M-T1…M-T5），与切片A 的 7 条合计 **12/12 CAUGHT、escaped=0、anchorfail=0**，基线 108 passed / 0 failed。M-T5 首版探针扎错位置（`ok=false` 塞在 `if(!tierLinePrinted)` 内，而 `--no-remote` 路径返回的是 `r2`）⇒ 实测红=0；改探针到"每次调用都置 ok"后才指名红 —— 记这条是因为**"NOT CAUGHT"有两种含义**：锁无牙，或探针没扎到判据生效的那一支
 - [ ] 1.4 判据本体改为 `(status, tier)` 二元组：`external` 走现状、`self-play`/`unknown` 走新前提
 
 ## 1bis. 扫描域完整性（评审命中后追加，已落码 = PR #3777）
