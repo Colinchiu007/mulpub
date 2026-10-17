@@ -677,3 +677,74 @@ testNeedsEngine('QM-6 第五轮 i4 反向：纯 .ccg 提交无记录不得判故
     } finally { fsB.rmSync(dir, { recursive: true, force: true }) }
   } catch (e) { throw e }
 })
+
+// ═══════════════════════════════════════════════════════════════════
+// §7.3 外部评审 i4 的行为锁（真跑 deep-review.sh + 桩引擎，形态由 argv 取证）
+//
+// 场景：多提交分支上，记录属于**较早那笔自有提交**（内容寻址名），shell 自己的三条路径
+// 都够不到 ⇒ 只有写入侧的 `--locate` 能命中。命中之后的契约是「REC/MODE 换，HEAD 不换」——
+// 把 64hex 内容键当 `--sha` 交给引擎，引擎会去做 `git diff <key>^ <key>` 与
+// `git diff <base>...<key>`（实测引擎 ccg-deep-review.js:146 / :226），两者都不是提交 ⇒
+// 取不到 diff，评审静默降级。i4 就是这一格。
+//
+// 判据取**产物**而不是文本：桩引擎把自己的 argv 打出来，断言 `--sha` 等于 HEAD 的 40hex。
+// ═══════════════════════════════════════════════════════════════════
+
+test('§7-T6 行为锁：--locate 命中时交给引擎的 --sha 必须仍是 HEAD（不得换成 64hex 内容键）', () => {
+  const bash = resolveGitBashB()
+  assert.ok(bash !== null, '解析不到 bash ⇒ 这条锁不会真的跑到（与 QM-6 i3 同一条纪律）')
+  const crypto = require('node:crypto')
+  const dir = fsB.mkdtempSync(pathB.join(osB.tmpdir(), 'dr-locate-'))
+  const run = (cmd, args) => execB(cmd, args, { cwd: dir, encoding: 'utf8', stdio: 'pipe' })
+  try {
+    run('git', ['init', '-q'])
+    run('git', ['config', 'user.email', 't@t']); run('git', ['config', 'user.name', 't'])
+    fsB.writeFileSync(pathB.join(dir, 'seed.txt'), 'seed\n')
+    run('git', ['add', '-A']); run('git', ['commit', '-q', '-m', 'B'])
+    const B = run('git', ['rev-parse', 'HEAD']).trim()
+    fsB.writeFileSync(pathB.join(dir, 'a.txt'), 'a1\n')
+    run('git', ['add', '-A']); run('git', ['commit', '-q', '-m', 'C1'])
+    fsB.writeFileSync(pathB.join(dir, 'b.txt'), 'b1\n')
+    run('git', ['add', '-A']); run('git', ['commit', '-q', '-m', 'C2'])
+    const C1 = run('git', ['rev-parse', 'HEAD~1']).trim()
+    const HEAD = run('git', ['rev-parse', 'HEAD']).trim()
+    // 让 `--base=origin/main` 在这座孤立临时仓里解析得出来（否则写入侧按纪律一律不猜，
+    // 这条锁就永远走不到 locate 命中分支）
+    run('git', ['update-ref', 'refs/remotes/origin/main', B])
+
+    // 记录落在**较早那笔自有提交**的内容键名下 —— 这正是 shell 三条路径够不到的形态
+    const diffBytes = execB('git', ['-C', dir, 'diff', '--no-textconv', '--no-ext-diff', '--no-renames',
+      B, C1, '--', '.', ':(exclude).ccg'], { maxBuffer: 1 << 24 })
+    const key = crypto.createHash('sha256').update(diffBytes).digest('hex')
+    fsB.mkdirSync(pathB.join(dir, '.ccg', 'reviews'), { recursive: true })
+    fsB.writeFileSync(pathB.join(dir, '.ccg', 'reviews', key + '.json'),
+      JSON.stringify({ sha: B, mode: 'dual', stagedDiffHash: key,
+        deepReview: { required: true, status: 'cleared' } }), 'utf8')
+
+    // 脚本 + 写入侧四件套 + **桩引擎**都只复制到工作区并 exclude（不提交，避免污染 diff 判据）
+    fsB.mkdirSync(pathB.join(dir, 'scripts', 'lib'), { recursive: true })
+    for (const rel of ['deep-review.sh', 'ccg-record-ledger.js', 'check-pr-exec-record.js',
+      'ccg-review-decider.js', 'classify-docs-only.js', 'lib/ccg-evidence-hash.js']) {
+      fsB.copyFileSync(pathB.join(ROOT, 'scripts', rel), pathB.join(dir, 'scripts', rel))
+    }
+    // 桩引擎：把自己的 argv 原样打出来 —— 断言取的是"引擎实际收到了什么"，不是脚本写了什么
+    fsB.writeFileSync(pathB.join(dir, 'scripts', 'ccg-deep-review.js'),
+      'process.stdout.write("STUB_ARGV " + JSON.stringify(process.argv.slice(2)) + "\\n")\n', 'utf8')
+    const excl = pathB.join(dir, '.git', 'info', 'exclude')
+    fsB.appendFileSync(excl, '\nscripts/\n.ccg/\n', 'utf8')
+
+    const r = spawnB(bash, ['scripts/deep-review.sh', '--dry-run'],
+      { cwd: dir, encoding: 'utf8', maxBuffer: 1 << 24, env: Object.assign({}, process.env, { MP_CCG_LEDGER_BASE: 'origin/main' }) })
+    const out = (r.stdout || '') + (r.stderr || '')
+    const m = /STUB_ARGV (\[.*\])/.exec(out)
+    assert.ok(m, '桩引擎没被调用到，这条锁什么都没测：' + out.slice(-500))
+    const argv = JSON.parse(m[1])
+    const shaArg = argv[argv.indexOf('--sha') + 1]
+    assert.ok(/^[0-9a-f]{40}$/.test(String(shaArg)),
+      '交给引擎的 --sha 必须是 40 位提交 sha（引擎拿它做 `git diff <sha>^ <sha>` 与 `<base>...<sha>`，'
+      + '把 64hex 内容键传进去会取不到 diff 而静默降级）；实得 ' + shaArg + '，argv=' + m[1])
+    assert.strictEqual(shaArg, HEAD, '--sha 必须仍是 HEAD；实得 ' + shaArg)
+    assert.ok(out.includes('判定记录按统一寻址命中：.ccg/reviews/' + key + '.json'),
+      '前提：本场景必须是 --locate 命中（否则上面那条断言在测别的路径）：' + out.slice(0, 900))
+  } finally { fsB.rmSync(dir, { recursive: true, force: true }) }
+})

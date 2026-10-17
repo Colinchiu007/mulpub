@@ -357,6 +357,19 @@ jobs:
         shell: bash
         run: |
           node --test scripts/check-branch-merged.test.js
+      # --- Gate 2b5：CCG 评审证据锚（载荷哈希定义 + 台账 frontmatter 写入）---
+      # 为什么单独一条：deep-review 写证据、check-pr-exec-record 验证据，两侧共用本 lib 的一份实现；
+      # 两份实现必然在 exclude 面/行尾/base 解析上漂移，而漂移的表现是「裁决不是这份代码」的假红 ——
+      # 那种红会被当噪声，然后被人放宽。锁住在「排除 openspec/records 与 .ccg/reviews」这一条：
+      # 不排除就形成自指（写下哈希的那一刻改变被哈希内容），判据将永远红、等价于没有判据。
+      # 编号让位：上游 #3815 与本 PR 同日都选了 "Gate 2b4"（两边各自看自己那版，谁也看不到谁）。
+      #   改谁都不该改上游那块（它已在主干、required 清单与文档都按 2b4 指它），所以本块改 2b5。
+      # 落点与理由同 Gate 2b3：changes 作业无 Install deps ⇒ lib 只能 require node 内置模块。
+      - name: "Gate 2b5 - CCG evidence anchor (changes job)"
+        shell: bash
+        run: |
+          node --test scripts/lib/ccg-evidence-hash.test.js
+          node --test scripts/ccg-record-ledger.test.js
 
       # --- Gate 2c3：CHANGELOG.md「只可增长」棘轮 ---
       # 动因（实测）：b531bdfe7（PR #2884，一个 ai-taste 功能 PR）把 CHANGELOG.md 从

@@ -993,6 +993,166 @@ test('口径不倒退：64 位命名的 single+pending 不得判欠账（缺陷G
     assert.deepStrictEqual(r.reasons, [], 'single 不得因改名而开始要求闭环（那是已被修掉的不收敛循环）')
   } finally { fs.rmSync(repo, { recursive: true, force: true }) }
 })
+// ── 刀1（change: ccg-reviews-governance）：dual 判据从 .ccg/reviews json 换源到
+//    openspec/records/<分支>.md 的 frontmatter，并带防伪锚（外部证据 URL + 载荷哈希）。
+//    双读一周期的理由：实测 15 个在飞 open PR 里有 13 个的变更集（读数会自增）带着 .ccg/reviews 文件，
+//    硬切会把这些 PR 的 dual 守卫静默撤掉（它们不可能有尚不存在的字段）。
+function withLedger (repo, rel, fields) {
+  const p = path.join(repo, rel)
+  fs.mkdirSync(path.dirname(p), { recursive: true })
+  const recKey = (rel.match(/records\/([^/]+)\.md$/) || [])[1] || 'fixture'
+  const body = ['---', 'record: ' + recKey]
+  for (const [k, v] of Object.entries(fields)) body.push(k + ': ' + v)
+  body.push('---', '', '## 本次执行记录', '')
+  fs.writeFileSync(p, body.join('\r\n'), 'utf8')
+}
+
+const PAYLOAD_SHA = 'ab'.repeat(32)
+const EVIDENCE_URL = 'https://github.com/o/r/pull/1234#discussion_r9876543210'
+const BASE40 = 'cd'.repeat(20)
+const HEAD40 = 'ef'.repeat(20)
+function ledgerClosed (over) {
+  return Object.assign({
+    ccg_mode: 'dual',
+    ccg_status: 'self_play_resolved',
+    ccg_evidence: EVIDENCE_URL,
+    ccg_written_by: 'deep-review',
+    ccg_payload_sha256: PAYLOAD_SHA,
+    ccg_payload_base: BASE40,
+    ccg_payload_head: HEAD40,
+  }, over || {})
+}
+const DUAL_PENDING = { mode: 'dual', deepReview: { required: true, status: 'pending', performedBy: null } }
+const BR = 'some-branch'
+
+test('刀1（F4 反转）：台账声称闭环而引擎记录仍 pending ⇒ 必须红（这条我曾钉成「预期行为」，实为伪造通道）', () => {
+  const repo = withReviewRecords({ [`${SHA40}.json`]: DUAL_PENDING })
+  try {
+    withLedger(repo, `openspec/records/${BR}.md`, ledgerClosed())
+    const r = mod.evaluateDeepReviewDebt(
+      st([['A', `.ccg/reviews/${SHA40}.json`], ['A', `openspec/records/${BR}.md`]]),
+      repo,
+      { headBranch: BR, headSha: HEAD40, payloadSha: () => PAYLOAD_SHA },
+    )
+    assert.strictEqual(r.reasons.length, 1, '两源不一致必须计欠账：台账四值全部可离线导出，单靠仓内文本就能凑出合法闭环')
+    assert.match(r.reasons[0], /两源不一致/, '理由必须同时点名两源读数：' + r.reasons[0])
+    assert.strictEqual(r.source, "ledger", "仍要出声说明取的是哪个源")
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+test('刀1 正控：json 已闭环 + 台账自洽 ⇒ 0 欠账（F4 不是恒红判据）', () => {
+  const repo = withReviewRecords({ [`${SHA40}.json`]: { mode: "dual", deepReview: { required: true, status: "cleared" } } })
+  try {
+    withLedger(repo, `openspec/records/${BR}.md`, ledgerClosed())
+    const r = mod.evaluateDeepReviewDebt(
+      st([['A', `.ccg/reviews/${SHA40}.json`], ['A', `openspec/records/${BR}.md`]]),
+      repo,
+      { headBranch: BR, headSha: HEAD40, payloadSha: () => PAYLOAD_SHA },
+    )
+    assert.deepStrictEqual(r.reasons, [], '两源一致且锚自洽就不该有欠账：' + JSON.stringify(r.reasons))
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('刀1：证据锚的载荷哈希与本次 diff 不符 ⇒ 必须红并点名「裁决不是这份代码」', () => {
+  const repo = withReviewRecords({ [`${SHA40}.json`]: { mode: 'dual', deepReview: { required: true, status: 'self_play_resolved' } } })
+  try {
+    withLedger(repo, `openspec/records/${BR}.md`, ledgerClosed())
+    const r = mod.evaluateDeepReviewDebt(
+      st([['A', `.ccg/reviews/${SHA40}.json`], ['A', `openspec/records/${BR}.md`]]),
+      repo,
+      { headBranch: BR, payloadSha: () => 'ff'.repeat(32) },
+    )
+    assert.strictEqual(r.reasons.length, 1, 'rebase/改动之后沿用旧裁决必须被抓住')
+    assert.match(r.reasons[0], /不是这份代码|载荷不符/, '理由必须给归因方向: ' + r.reasons[0])
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('刀1：缺外部证据锚 ⇒ 不得算闭环（本地字段自填不构成证据）', () => {
+  const repo = withReviewRecords({ [`${SHA40}.json`]: DUAL_PENDING })
+  try {
+    withLedger(repo, `openspec/records/${BR}.md`, ledgerClosed({ ccg_evidence: '' }))
+    const r = mod.evaluateDeepReviewDebt(
+      st([['A', `.ccg/reviews/${SHA40}.json`], ['A', `openspec/records/${BR}.md`]]),
+      repo,
+      { headBranch: BR, payloadSha: () => PAYLOAD_SHA },
+    )
+    assert.strictEqual(r.reasons.length, 1)
+    assert.match(r.reasons[0], /证据锚|evidence/, '理由必须点名缺的是证据锚而不是泛泛「未闭环」: ' + r.reasons[0])
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('刀1 兼容：无记录文件的存量 PR 仍按旧 json 判（5 个在飞 PR 不得被静默撤守卫）', () => {
+  const repo = withReviewRecords({ [`${SHA40}.json`]: DUAL_PENDING })
+  try {
+    const r = mod.evaluateDeepReviewDebt(st([['A', `.ccg/reviews/${SHA40}.json`]]), repo, { headBranch: BR })
+    assert.strictEqual(r.reasons.length, 1, '存量形态必须仍报欠账')
+    assert.strictEqual(r.source, 'json', '必须出声说明用的是旧源')
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('刀1 兼容：存量 PR 的 json 已闭环 ⇒ 0 欠账（不得反向制造新红）', () => {
+  const repo = withReviewRecords({ [`${SHA40}.json`]: { mode: 'dual', deepReview: { required: true, status: 'cleared' } } })
+  try {
+    const r = mod.evaluateDeepReviewDebt(st([['A', `.ccg/reviews/${SHA40}.json`]]), repo, { headBranch: BR })
+    assert.deepStrictEqual(r.reasons, [])
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('刀1：新源优先 —— json 已 cleared 但记录文件未闭环 ⇒ 必须红（不得被旧源掩盖）', () => {
+  const repo = withReviewRecords({ [`${SHA40}.json`]: { mode: 'dual', deepReview: { required: true, status: 'cleared' } } })
+  try {
+    withLedger(repo, `openspec/records/${BR}.md`, ledgerClosed({ ccg_status: 'self_play_pending' }))
+    const r = mod.evaluateDeepReviewDebt(
+      st([['A', `.ccg/reviews/${SHA40}.json`], ['M', `openspec/records/${BR}.md`]]),
+      repo,
+      { headBranch: BR, payloadSha: () => PAYLOAD_SHA },
+    )
+    assert.strictEqual(r.reasons.length, 1, '两源冲突时必须取新源，否则换一个已闭环的 json 就能绕过')
+    assert.match(r.reasons[0], /self_play_pending/)
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('刀1：fail-closed —— 记录文件里的未知状态词与非法证据 URL 一律算欠账', () => {
+  const cases = [
+    { name: '词表外状态', over: { ccg_status: 'cleared_by_hand' }, want: /cleared_by_hand/ },
+    { name: '状态缺失', over: { ccg_status: null }, want: /缺失/ },
+    { name: '证据 URL 非 GitHub 域', over: { ccg_evidence: 'https://evil.example/x' }, want: /证据锚/ },
+    { name: '载荷哈希缺失', over: { ccg_payload_sha256: '' }, want: /载荷/ },
+  ]
+  for (const c of cases) {
+    const fields = ledgerClosed(c.over)
+    if (c.over && c.over.ccg_status === null) delete fields.ccg_status
+    const repo = withReviewRecords({ [`${SHA40}.json`]: DUAL_PENDING })
+    try {
+      withLedger(repo, `openspec/records/${BR}.md`, fields)
+      const r = mod.evaluateDeepReviewDebt(
+        st([['A', `.ccg/reviews/${SHA40}.json`], ['A', `openspec/records/${BR}.md`]]),
+        repo,
+        { headBranch: BR, payloadSha: () => PAYLOAD_SHA },
+      )
+      assert.strictEqual(r.reasons.length, 1, c.name + ' 必须判欠账: ' + JSON.stringify(r.reasons))
+      assert.match(r.reasons[0], c.want, c.name + ' 的理由必须点名实际取值')
+    } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+  }
+})
+
+test('刀1：payloadSha 是注入参数、默认实现不联网，且备忘录生效（两条记录只算一次）', () => {
+  const closedRec = { mode: "dual", deepReview: { required: true, status: "cleared" } }
+  const repo = withReviewRecords({
+    [`${SHA40}.json`]: closedRec,
+    ['b'.repeat(40) + '.json']: closedRec,
+  })
+  try {
+    let calls = 0
+    withLedger(repo, `openspec/records/${BR}.md`, ledgerClosed())
+    const r = mod.evaluateDeepReviewDebt(
+      st([['A', `.ccg/reviews/${SHA40}.json`], ['A', '.ccg/reviews/' + 'b'.repeat(40) + '.json'], ['A', 'openspec/records/' + BR + '.md']]),
+      repo,
+      { headBranch: BR, headSha: HEAD40, payloadSha: () => { calls++; return PAYLOAD_SHA } },
+    )
+    assert.strictEqual(r.reasons.length, 0, '两源都闭环且锚自洽 ⇒ 不得有欠账：' + JSON.stringify(r.reasons))
+    assert.strictEqual(calls, 1, '两条 dual 记录必须共用一次载荷取证；实得 ' + calls + '（=2 说明备忘录被摘掉，断言才有意义）')
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1208,4 +1368,323 @@ test('遗留收口：提示文案必须**由判据生成**，且源码里不得�
     gate.stripCommentsForScan('const a = 1 // x\n// y\nconst b = 2'),
     'CRLF 与 LF 必须剥出相同结果（规范化 \\r\\n 那一步不能省）')
 
+})
+// ── 刀1 补：载荷锚的 base 口径与证据 URL 形状（2026-10-16 自引入缺陷纠正）──
+// 动因（实测 CI 取源链）：quality-gate.yml:133 把 `--base` 设为 steps.classify.outputs.pr-base，
+// 而 classify 内部算的是 `git merge-base base head`（scripts/classify-docs-only.js:93）⇒
+// **CI 拿到的是一个具体 sha**；本地评审当时手上只有 `origin/main` 这个会移动的指针。
+// 锚若记 ref 名，任何一笔并发合并落进主干，判据重算的 diff 就与写入侧不同 ⇒
+// 每条正常 PR 都报「裁决不是这份代码」。本仓既有口径：假红的去向是「被当噪声，然后被放宽」。
+test('刀1：重算载荷必须用锚里记录的 base，不得用调用方传进来的 base（两者会因并发合并而不同）', () => {
+  const repo = withReviewRecords({ [`${SHA40}.json`]: { mode: 'dual', deepReview: { required: true, status: 'cleared' } } })
+  try {
+    withLedger(repo, `openspec/records/${BR}.md`, ledgerClosed())
+    const seen = []
+    const r = mod.evaluateDeepReviewDebt(
+      st([['A', `.ccg/reviews/${SHA40}.json`], ['A', `openspec/records/${BR}.md`]]),
+      repo,
+      { headBranch: BR, payloadSha: (b) => { seen.push(b); return PAYLOAD_SHA } },
+    )
+    assert.deepStrictEqual(seen, [BASE40], '必须把**锚记录的** base 交给重算，且只交一次（备忘录生效）：' + JSON.stringify(seen))
+    assert.deepStrictEqual(r.reasons, [], 'base 对上了就不该有欠账：' + JSON.stringify(r.reasons))
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('刀1：台账缺 ccg_payload_base ⇒ 必须红并点名（没有可复核的 base，锚就是装饰）', () => {
+  const repo = withReviewRecords({ [`${SHA40}.json`]: { mode: 'dual', deepReview: { required: true, status: 'cleared' } } })
+  try {
+    const f = ledgerClosed()
+    delete f.ccg_payload_base
+    withLedger(repo, `openspec/records/${BR}.md`, f)
+    const r = mod.evaluateDeepReviewDebt(
+      st([['A', `.ccg/reviews/${SHA40}.json`], ['A', `openspec/records/${BR}.md`]]),
+      repo,
+      { headBranch: BR, payloadSha: () => PAYLOAD_SHA },
+    )
+    assert.strictEqual(r.reasons.length, 1, '缺 base 必须报一条')
+    assert.match(r.reasons[0], /ccg_payload_base/, '必须点名是哪个字段缺：' + r.reasons[0])
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('刀1：ccg_payload_base 写成 ref 名（origin/main）⇒ 必须红，不接受移动指针', () => {
+  const repo = withReviewRecords({ [`${SHA40}.json`]: { mode: 'dual', deepReview: { required: true, status: 'cleared' } } })
+  try {
+    withLedger(repo, `openspec/records/${BR}.md`, ledgerClosed({ ccg_payload_base: 'origin/main' }))
+    const r = mod.evaluateDeepReviewDebt(
+      st([['A', `.ccg/reviews/${SHA40}.json`], ['A', `openspec/records/${BR}.md`]]),
+      repo,
+      { headBranch: BR, payloadSha: () => PAYLOAD_SHA },
+    )
+    assert.strictEqual(r.reasons.length, 1, 'ref 名不是 sha，必须红')
+    assert.match(r.reasons[0], /ccg_payload_base.*40hex/, '理由要指到形状：' + r.reasons[0])
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('刀1：证据锚必须认 gh pr comment 的真实产出形态（#issuecomment-<id>），否则每条 PR 都假红', () => {
+  const repo = withReviewRecords({ [`${SHA40}.json`]: { mode: 'dual', deepReview: { required: true, status: 'cleared' } } })
+  try {
+    withLedger(repo, `openspec/records/${BR}.md`,
+      ledgerClosed({ ccg_evidence: 'https://github.com/o/r/pull/1234#issuecomment-5474171300' }))
+    const r = mod.evaluateDeepReviewDebt(
+      st([['A', `.ccg/reviews/${SHA40}.json`], ['A', `openspec/records/${BR}.md`]]),
+      repo,
+      { headBranch: BR, payloadSha: () => PAYLOAD_SHA },
+    )
+    assert.deepStrictEqual(r.reasons, [], 'gh 贴出的就是 issuecomment 形态，不认等于把自己判红：' + JSON.stringify(r.reasons))
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('刀1：证据锚只写裸 PR URL（不指向具体评论）⇒ 必须红，否则任何人都能填一个存在的 PR 号自证', () => {
+  const repo = withReviewRecords({ [`${SHA40}.json`]: { mode: 'dual', deepReview: { required: true, status: 'cleared' } } })
+  try {
+    withLedger(repo, `openspec/records/${BR}.md`, ledgerClosed({ ccg_evidence: 'https://github.com/o/r/pull/1234' }))
+    const r = mod.evaluateDeepReviewDebt(
+      st([['A', `.ccg/reviews/${SHA40}.json`], ['A', `openspec/records/${BR}.md`]]),
+      repo,
+      { headBranch: BR, payloadSha: () => PAYLOAD_SHA },
+    )
+    assert.strictEqual(r.reasons.length, 1, '裸 PR 链接不构成外部证据')
+    assert.match(r.reasons[0], /证据锚/, '理由必须指到证据面：' + r.reasons[0])
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+
+// ── 刀1 第二轮（内部评审处置）：把「手改 md 就能判绿」那一格真正关掉 ──
+// 背景：两份独立评审都实测复现了同一条伪造路径 —— 台账里 ccg_status / ccg_evidence /
+// ccg_payload_base / ccg_payload_sha256 四个被判值**全部可离线导出**，判据又只看 URL 形状、
+// 不看评论是否真的存在。我自己的「现场自证」跑出来的那个 OK，正确的读法就是伪造成功。
+test('刀1-R2：ccg_written_by 不是 deep-review（手填值）⇒ 必须红并点名 provenance', () => {
+  const repo = withReviewRecords({ [`${SHA40}.json`]: { mode: 'dual', deepReview: { required: true, status: 'cleared' } } })
+  try {
+    withLedger(repo, `openspec/records/${BR}.md`, ledgerClosed({ ccg_written_by: 'me' }))
+    const r = mod.evaluateDeepReviewDebt(
+      st([['A', `.ccg/reviews/${SHA40}.json`], ['A', `openspec/records/${BR}.md`]]),
+      repo,
+      { headBranch: BR, headSha: HEAD40, payloadSha: () => PAYLOAD_SHA },
+    )
+    assert.strictEqual(r.reasons.length, 1, '手填闭环值必须红：' + JSON.stringify(r.reasons))
+    assert.match(r.reasons[0], /ccg_written_by/, '必须点名 provenance 字段：' + r.reasons[0])
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('刀1-R2：锚签在与本次无关的提交上（既非本次 head 也非其祖先）⇒ 必须红', () => {
+  const repo = withReviewRecords({ [`${SHA40}.json`]: { mode: 'dual', deepReview: { required: true, status: 'cleared' } } })
+  try {
+    withLedger(repo, `openspec/records/${BR}.md`, ledgerClosed())
+    const r = mod.evaluateDeepReviewDebt(
+      st([['A', `.ccg/reviews/${SHA40}.json`], ['A', `openspec/records/${BR}.md`]]),
+      repo,
+      { headBranch: BR, headSha: '01'.repeat(20), payloadSha: () => PAYLOAD_SHA },
+    )
+    assert.strictEqual(r.reasons.length, 1, '签错提交的锚不构成闭环')
+    assert.match(r.reasons[0], /不在本次评审对象的历史上|payload_head/, '理由要指到 head 这一维：' + r.reasons[0])
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('§8 正控：台账锚字段那笔提交推进 head 但不改载荷 ⇒ 锚签在祖先上必须判闭环（否则本判据不可满足）', () => {
+  const { execFileSync, spawnSync } = require('node:child_process')
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'ccg-head-anc-'))
+  const git = (a) => execFileSync('git', a, { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+  try {
+    git(['init', '-q', '-b', 'main', '.'])
+    git(['config', 'user.email', 't@t']); git(['config', 'user.name', 't'])
+    fs.mkdirSync(path.join(repo, 'openspec/records'), { recursive: true })
+    fs.mkdirSync(path.join(repo, '.ccg/reviews'), { recursive: true })
+    fs.writeFileSync(path.join(repo, 'src.js'), 'export const a = 1\n')
+    fs.writeFileSync(path.join(repo, '.ccg/reviews/' + SHA40 + '.json'),
+      JSON.stringify({ mode: 'dual', deepReview: { required: true, status: 'cleared' } }), 'utf8')
+    git(['add', '-A']); git(['commit', '-q', '-m', 'H1 代码 + 判定记录'])
+    const H1 = git(['rev-parse', 'HEAD']).trim()
+    // 收口把 ccg_* 写进台账并落成第二笔 —— 该目录被载荷排除，所以载荷不变而 head 前移
+    withLedger(repo, 'openspec/records/' + BR + '.md', ledgerClosed({ ccg_payload_head: H1, ccg_payload_sha256: PAYLOAD_SHA }))
+    git(['add', 'openspec/records/' + BR + '.md']); git(['commit', '-q', '-m', '回填台账锚字段'])
+    const H2 = git(['rev-parse', 'HEAD']).trim()
+    assert.notStrictEqual(H1, H2, '夹具必须真的让 head 前移')
+    const r = mod.evaluateDeepReviewDebt(
+      st([['A', '.ccg/reviews/' + SHA40 + '.json'], ['A', 'openspec/records/' + BR + '.md']]),
+      repo,
+      { headBranch: BR, headSha: H2, payloadSha: () => PAYLOAD_SHA },
+    )
+    assert.deepStrictEqual(r.reasons, [],
+      '逐字相等会把正常流程判成永远红 —— 落锚那笔必然推进 head 又必然不改载荷：' + JSON.stringify(r.reasons))
+    assert.ok(mod.headIsAncestorOf(repo, H1, H2), 'helper 本身在真仓库上必须给出 true（否则上面那条绿的成因是探针失灵）')
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('§8 负控：锚签在旁支提交上（同源但不是祖先）⇒ 仍必须红', () => {
+  const { execFileSync } = require('node:child_process')
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'ccg-head-sib-'))
+  const git = (a) => execFileSync('git', a, { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+  try {
+    git(['init', '-q', '-b', 'main', '.'])
+    git(['config', 'user.email', 't@t']); git(['config', 'user.name', 't'])
+    fs.mkdirSync(path.join(repo, 'openspec/records'), { recursive: true })
+    fs.mkdirSync(path.join(repo, '.ccg/reviews'), { recursive: true })
+    fs.writeFileSync(path.join(repo, 'seed.js'), 'export const s = 1\n')
+    git(['add', '-A']); git(['commit', '-q', '-m', 'base'])
+    fs.writeFileSync(path.join(repo, 'x.js'), 'export const x = 1\n')
+    git(['add', '-A']); git(['commit', '-q', '-m', '旁支 SIDE'])
+    const SIDE = git(['rev-parse', 'HEAD']).trim()
+    git(['checkout', '-q', '-b', 'main2', 'HEAD~1'])
+    fs.writeFileSync(path.join(repo, 'y.js'), 'export const y = 1\n')
+    git(['add', '-A']); git(['commit', '-q', '-m', '本次 HEAD'])
+    const CUR = git(['rev-parse', 'HEAD']).trim()
+    // 判定记录必须在分叉造好**之后**再写，且**不提交**：
+    //   提交进 SIDE 再 checkout 回 base，git 会把这份 SIDE 才有的受管文件从工作树删掉，
+    //   判据在 catch 里 continue ⇒ reasons 恒空，这条锁当时测的是"文件不存在"而不是"旁支不得借"。
+    fs.writeFileSync(path.join(repo, '.ccg/reviews/' + SHA40 + '.json'),
+      JSON.stringify({ mode: 'dual', deepReview: { required: true, status: 'cleared' } }), 'utf8')
+    assert.ok(fs.existsSync(path.join(repo, '.ccg/reviews/' + SHA40 + '.json')),
+      '夹具自证：被检的判定记录必须真的在工作树里（否则 0 条理由来自探针失明）')
+    assert.ok(!mod.headIsAncestorOf(repo, SIDE, CUR), '夹具必须是真旁支（否则这条负控什么都没测）')
+    withLedger(repo, 'openspec/records/' + BR + '.md', ledgerClosed({ ccg_payload_head: SIDE, ccg_payload_sha256: PAYLOAD_SHA }))
+    const r = mod.evaluateDeepReviewDebt(
+      st([['A', '.ccg/reviews/' + SHA40 + '.json'], ['A', 'openspec/records/' + BR + '.md']]),
+      repo,
+      { headBranch: BR, headSha: CUR, payloadSha: () => PAYLOAD_SHA },
+    )
+    assert.strictEqual(r.reasons.length, 1, '放宽只放宽"线上"这一维，旁支仍不得借：' + JSON.stringify(r.reasons))
+    assert.match(r.reasons[0], /不在本次评审对象的历史上/)
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('§8 放宽不得连坐：锚与本次之间若夹了**非排除面**改动 ⇒ 载荷哈希那一格必须红', () => {
+  const repo = withReviewRecords({ [`${SHA40}.json`]: { mode: 'dual', deepReview: { required: true, status: 'cleared' } } })
+  try {
+    withLedger(repo, `openspec/records/${BR}.md`, ledgerClosed())
+    const r = mod.evaluateDeepReviewDebt(
+      st([['A', `.ccg/reviews/${SHA40}.json`], ['A', `openspec/records/${BR}.md`]]),
+      repo,
+      { headBranch: BR, headSha: HEAD40, isAncestor: () => true, payloadSha: () => 'ff'.repeat(32) },
+    )
+    assert.strictEqual(r.reasons.length, 1, '把 isAncestor 交成恒真时，载荷那一格必须独自挡住：' + JSON.stringify(r.reasons))
+    assert.match(r.reasons[0], /载荷不符/)
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('刀1-R2：载荷哈希等于空 diff 常量 ⇒ 必须红（否则记录-only 变更集里任何锚都自动同源）', () => {
+  const repo = withReviewRecords({ [`${SHA40}.json`]: { mode: 'dual', deepReview: { required: true, status: 'cleared' } } })
+  try {
+    // sha256('') —— 复取：node -e "console.log(require('crypto').createHash('sha256').update(Buffer.alloc(0)).digest('hex'))"
+    const EMPTY = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
+    withLedger(repo, `openspec/records/${BR}.md`, ledgerClosed({ ccg_payload_sha256: EMPTY }))
+    const r = mod.evaluateDeepReviewDebt(
+      st([['A', `.ccg/reviews/${SHA40}.json`], ['A', `openspec/records/${BR}.md`]]),
+      repo,
+      { headBranch: BR, headSha: HEAD40, payloadSha: () => EMPTY },
+    )
+    assert.strictEqual(r.reasons.length, 1, '空 diff 的哈希必须被拒')
+    assert.match(r.reasons[0], /空 diff/, '理由必须说清为什么拒：' + r.reasons[0])
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('刀1-R2：台账寻址只认本分支那篇（回填 PR 不得借用别人的台账）', () => {
+  const repo = withReviewRecords({ [`${SHA40}.json`]: DUAL_PENDING })
+  try {
+    // 变更集里同时出现「别的分支那篇带 ccg_* 的记录」—— 旧实现会把它当取值源
+    withLedger(repo, 'openspec/records/other-branch.md', ledgerClosed())
+    const r = mod.evaluateDeepReviewDebt(
+      st([['A', `.ccg/reviews/${SHA40}.json`], ['M', 'openspec/records/other-branch.md']]),
+      repo,
+      { headBranch: BR, headSha: HEAD40, payloadSha: () => PAYLOAD_SHA },
+    )
+    assert.strictEqual(r.reasons.length, 1, '本分支没有台账 ⇒ 必须退回 json 源并按 json 判（json 还是 pending）')
+    assert.match(r.reasons[0], /取值源=json/, '必须如实说明取的是 json 源，而不是悄悄用别人的台账：' + r.reasons[0])
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('刀1-R2：键清单由 lib 派生 —— 只有 ccg_written_by 一个键时也必须被认作台账', () => {
+  const repo = withReviewRecords({ [`${SHA40}.json`]: { mode: 'dual', deepReview: { required: true, status: 'cleared' } } })
+  try {
+    // 旧实现的手抄名单里没有 ccg_written_by ⇒ 这种台账会被当成「不存在」而退回 json，
+    // 于是 json closed + 台账残缺 = 静默判绿（漏检方向）。派生之后必须红。
+    withLedger(repo, `openspec/records/${BR}.md`, { ccg_written_by: 'deep-review' })
+    const r = mod.evaluateDeepReviewDebt(
+      st([['A', `.ccg/reviews/${SHA40}.json`], ['A', `openspec/records/${BR}.md`]]),
+      repo,
+      { headBranch: BR, headSha: HEAD40, payloadSha: () => PAYLOAD_SHA },
+    )
+    assert.strictEqual(r.reasons.length, 1, '残缺台账必须红，不得退回旧源判绿')
+    assert.strictEqual(r.source, 'ledger', '必须确实取的是台账源：' + r.source)
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+// ═══════════════════════════════════════════════════════════════════
+// §7.4（2026-10-17，吸收上游 ccg-record-content-addressing 后现场量出的第二格）
+//
+// 现场读数（origin/main，852 份 .ccg/reviews 记录）：770 份 40hex、68 份 64hex、
+// 1 份 alt 形态 `b844cdf…-again-25d9f75…-2026-10-17T025039620Z.json`。
+// 那一份 alt **不被 AUDIT_ARTIFACT_RE 接受** —— 上游 i2 的放宽是按「想象中的 ISO 段」
+// （20261017T120000Z）写的，而生产方用的是 `toISOString().replace(/[:.]/g,'')`，
+// 得到的是带连字符的日期 + 九位毫秒。探测表 AUDIT_ALT_ISO_CANDS 里也只有那两种想象形态，
+// 于是「行为探测 ⇒ 认为已覆盖」全程自洽地错着：探针与判据共用同一个错误假设。
+//
+// 这一组的存在理由：alt 名由**生产方**决定，消费方必须接受生产方真写出来的那串字。
+// 所以这里一律真调 saveRecord 走到拒写分支拿返回路径，不手写任何时间戳字面量。
+// ═══════════════════════════════════════════════════════════════════
+
+function sec74Repo () {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'ccg-alt-'))
+  const git = (a) => execFileSync('git', a, { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+  git(['init', '-q', '-b', 'main', '.'])
+  git(['config', 'user.email', 't@t']); git(['config', 'user.name', 't'])
+  fs.mkdirSync(path.join(repo, 'src'), { recursive: true })
+  fs.writeFileSync(path.join(repo, 'src', 'a.js'), 'export const a = 1\n')
+  git(['add', '-A']); git(['commit', '-q', '-m', 'seed'])
+  return { repo, git, parent: git(['rev-parse', 'HEAD']).trim() }
+}
+
+/** 让判定器真跑一次「同名且已闭环 ⇒ 另存 alt」分支，返回它写出的文件名（不是我们猜的） */
+function sec74ProduceAlt (f, { withStagedChange }) {
+  const dec = require('./ccg-review-decider.js')
+  const orig = process.cwd()
+  try {
+    process.chdir(f.repo)
+    if (withStagedChange) {
+      fs.writeFileSync(path.join(f.repo, 'src', 'a.js'), 'export const a = 2\n')
+      f.git(['add', '-A'])
+    }
+    const first = dec.saveRecord({ mode: 'dual', reason: 'alt-lock-first', stats: {} }, f.parent, 'diff', undefined)
+    assert.ok(first && fs.existsSync(first), '第一次应当正常落盘：' + first)
+    const j = JSON.parse(fs.readFileSync(first, 'utf8'))
+    j.deepReview = { required: true, status: 'cleared', performedBy: 'x', findings: [{ id: 'i1' }] }
+    fs.writeFileSync(first, JSON.stringify(j), 'utf8')
+    const alt = dec.saveRecord({ mode: 'dual', reason: 'alt-lock-second', stats: {} }, f.parent, 'diff', undefined)
+    assert.notStrictEqual(String(alt), String(first), '已闭环 ⇒ 第二次必须另存 alt，而不是覆盖')
+    return { first: path.basename(String(first)), alt: path.basename(String(alt)) }
+  } finally { process.chdir(orig) }
+}
+
+test('§7.4-A【跨实现形态锁】：判定器真写出的 alt 记录名，审计产物白名单必须接受', () => {
+  for (const withStagedChange of [true, false]) {
+    // true ⇒ 目标名是 64hex 内容键（pre-commit 全量 add 的常态）
+    // false ⇒ 暂存 diff 为空 ⇒ 目标名回落 40hex，alt 前缀也随之是 40hex
+    const f = sec74Repo()
+    try {
+      const got = sec74ProduceAlt(f, { withStagedChange })
+      assert.match(got.alt, /-again-[0-9a-f]{40}-\d{4}-\d{2}-\d{2}T\d{9}Z\.json$/,
+        '生产方形态变了，这条锁要当场红（它同时是下面那句"白名单必须接受"的前提）：' + got.alt)
+      assert.ok(mod.AUDIT_ARTIFACT_RE.test('.ccg/reviews/' + got.alt),
+        '钩子把这份 alt stage 进提交后，出路④会把它读成「夹带功能新增」⇒ 纯回填假红。白名单必须认它：'
+          + got.alt + '（目标名 ' + got.first + '）')
+    } finally { fs.rmSync(f.repo, { recursive: true, force: true }) }
+  }
+})
+
+test('§7.4-B【放宽不得退化成正则通配】：alt 的时间戳段仍要逐位判，坏形态一律不收', () => {
+  const H64 = 'a'.repeat(64), H40 = 'b'.repeat(40)
+  const GOOD = H64 + '-again-' + H40 + '-2026-10-17T025039620Z'
+  assert.ok(mod.AUDIT_ARTIFACT_RE.test('.ccg/reviews/' + GOOD + '.json'), '真形态必须收（正控）')
+  const bad = [
+    GOOD.replace(/Z$/, ''),                 // 没有 Z
+    GOOD.replace('2026-10-17', '20261017'), // 想象形态与真实形态混写
+    GOOD.replace(/T\d{9}Z/, 'T12000Z'),     // 位数不足
+    H64 + '-again-' + H40 + '-whatever.json',
+    H64 + '-again-' + 'c'.repeat(41) + '-2026-10-17T025039620Z.json',
+    H64 + '.json.json',
+    'notes-' + GOOD + '.json',
+  ];
+  for (const b of bad) {
+    assert.ok(!mod.AUDIT_ARTIFACT_RE.test('.ccg/reviews/' + b), '邻近形态不得被放宽吃掉：' + b)
+  }
 })
