@@ -1,0 +1,30 @@
+{
+  "sha": "3a941d311b603b462d9002df2e4c3613cca19a3c",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 1599 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 1599,
+    "fileCount": 26,
+    "codeFileCount": 14,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 13,
+    "docSensitiveContentHits": 10,
+    "docSensitiveContentSample": [
+      "| P11 | **控件尺寸不统一**：`col-select` padding 8px、`zb-select` padding 8px 10px、`batch-bar` 内 select padding 6px 8px、`col-select-sm` padding 4px 8px、`qc-input` 6px 8px —— 五种 select/input 高度在 28–36px 间跳动 | `Collection.vue:2176/2177/2178`、`BatchCollectPanel.vue:743`、`CollectedResultsList.vue:178`、`QuickCollectPanel.vue:444` | 视觉 |",
+      "| P15 | **`col-toolbar-icon`（🔗 图标）与 select/input 混排在一行**，图标无功能（纯装饰）却占据视觉焦点；输入框 placeholder 以 `...` 结尾而非 `…` | `Collection.vue:24/32` | 视觉 |",
+      "│  ├─ ① URL 单条采集面板（常驻，col-panel：来源 select + 输入 + 采集/一键改写）"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "079f09fa7f85e45de15bb4a240e0e021c8522aa1700276724014df3ce1366c30",
+  "decidedAt": "2026-10-17T16:24:21.712Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

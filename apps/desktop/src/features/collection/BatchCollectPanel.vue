@@ -19,7 +19,7 @@
             :placeholder="$t('collection.rssPlaceholder')"
             class="col-input col-input--grow"
           />
-          <button class="cohere-btn-primary" @click="collectBatch('rss')" :disabled="batchCollecting">
+          <button class="col-btn col-btn--primary" @click="collectBatch('rss')" :disabled="batchCollecting">
             {{ batchCollecting ? $t('collection.batchCollecting') : $t('collection.batchCollect') }}
           </button>
         </div>
@@ -44,7 +44,7 @@
           class="col-input col-input--block col-textarea"
         ></textarea>
         <div class="col-url-actions">
-          <button class="cohere-btn-primary" @click="collectBatch('batch')" :disabled="batchCollecting || !urlListInput.trim()">
+          <button class="col-btn col-btn--primary" @click="collectBatch('batch')" :disabled="batchCollecting || !urlListInput.trim()">
             {{ batchCollecting ? $t('collection.batchCollecting') : $t('collection.batchCollect') }}
           </button>
           <span class="col-hint">{{ $t('collection.urlListHint') }}</span>
@@ -76,10 +76,10 @@
             class="col-hint"
             data-testid="zhihu-config-masked"
           >{{ zhihuConfig.maskedSecret }}</span>
-          <button class="cohere-btn-secondary" @click="loadZhihuFavlists" :disabled="zhihuFavlistLoading || !zhihuSecretAvailable">
+          <button class="col-btn col-btn--secondary" @click="loadZhihuFavlists" :disabled="zhihuFavlistLoading || !zhihuSecretAvailable">
             {{ zhihuFavlistLoading ? $t('collection.zhihuFavlist.loading') : $t('collection.zhihuFavlist.loadBtn') }}
           </button>
-          <button class="cohere-btn-ghost" data-testid="zhihu-go-settings" @click="openZhihuSettings">
+          <button class="col-btn col-btn--ghost" data-testid="zhihu-go-settings" @click="openZhihuSettings">
             {{ $t('collection.zhihuFavlist.goSettings') }}
           </button>
         </div>
@@ -110,7 +110,7 @@
           />
           <label class="zb-check"><input v-model="zhihuFavFullMode" type="checkbox" data-testid="zhihu-fav-fullmode" />{{ $t('collection.zhihuFav.fullMode') }}</label>
           <label class="zb-check"><input v-model="zhihuFavIncludeCollected" type="checkbox" data-testid="zhihu-fav-include-collected" />{{ $t('collection.zhihuFav.includeCollected') }}</label>
-          <button class="cohere-btn-secondary" @click="loadZhihuFavItems" :disabled="zhihuFavListLoading || (zhihuFavScope === 'favlist' && !zhihuSelectedFavlist)">
+          <button class="col-btn col-btn--secondary" @click="loadZhihuFavItems" :disabled="zhihuFavListLoading || (zhihuFavScope === 'favlist' && !zhihuSelectedFavlist)">
             {{ zhihuFavListLoading ? $t('collection.zhihuFav.loadingContents') : $t('collection.zhihuFav.loadContents') }}
           </button>
         </div>
@@ -128,10 +128,10 @@
             <label class="zb-check"><input type="checkbox" :checked="zhihuFavAllSelected" @change="toggleZhihuFavAll($event.target.checked)" />{{ $t('collection.zhihuFav.selectAll') }}</label>
             <span class="col-hint">{{ $t('collection.zhihuFav.selectedCount', { count: String(zhihuFavSelectedItems.length) }) }}</span>
             <span class="zb-flex1"></span>
-            <button class="cohere-btn-primary" @click="runZhihuFavCollectRewrite" :disabled="zhihuFavBatching || !zhihuFavSelectedItems.length" data-testid="zhihu-fav-collect-rewrite">
+            <button class="col-btn col-btn--primary" @click="runZhihuFavCollectRewrite" :disabled="zhihuFavBatching || !zhihuFavSelectedItems.length" data-testid="zhihu-fav-collect-rewrite">
               {{ zhihuFavBatching ? $t('collection.zhihuFav.collecting') : $t('collection.zhihuFav.collectAndRewrite') }}
             </button>
-            <button v-if="zhihuFavBatching" class="cohere-btn-secondary" @click="cancelZhihuFavBatch">{{ $t('collection.cancelBatch') }}</button>
+            <button v-if="zhihuFavBatching" class="col-btn col-btn--secondary" @click="cancelZhihuFavBatch">{{ $t('collection.cancelBatch') }}</button>
           </div>
           <div v-for="(it, idx) in zhihuFavItems" :key="it.url + idx" class="zb-list-row">
             <input
@@ -693,66 +693,59 @@ defineExpose({ expandBatch })
 </script>
 
 <style scoped>
+/* 采集页控件规范层（collection-page-ui-ue-refine）：按钮三档/输入控件一档/
+   徽标一档/间距阶梯（zb-mt* 已收敛为 spacing 阶梯）统一在那里持有。 */
+@import './collection-page.css';
+
 /* 折叠组标题（互斥手风琴，Q10-b） */
 .col-group-title {
-  display: flex; align-items: center; gap: 6px;
+  display: flex; align-items: center; gap: var(--spacing-2);
   width: 100%;
-  padding: 8px 10px;
+  min-height: var(--col-btn-h);
+  padding: 0 var(--spacing-3);
   border: 1px solid var(--color-border);
-  border-radius: var(--r-xs, 6px);
+  border-radius: var(--radius-xs);
   background: var(--color-bg-inset);
+  font-family: inherit;
   font-size: var(--font-size-sm);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   color: var(--color-text-primary);
   cursor: pointer;
   text-align: left;
+  transition: border-color var(--duration-fast) var(--ease-default), color var(--duration-fast) var(--ease-default);
 }
 .col-group-title:hover { border-color: var(--color-primary); }
 .col-group-title[aria-expanded="true"] { border-color: var(--color-primary); color: var(--color-primary); }
-.zb-panel { padding-top: 8px; }
+.zb-panel { padding-top: var(--spacing-2); margin-bottom: var(--spacing-3); }
 
-/* 知乎区块内联样式类化（zb-* 前缀，T1-3d 先例延续） */
-.zb-row { display: flex; gap: var(--space-sm); align-items: center; flex-wrap: wrap; }
-.zb-panel { margin-bottom: var(--space-sm); }
-.zb-mt4 { margin-top: 4px; }
-.zb-mt6 { margin-top: 6px; }
-.zb-mt8 { margin-top: 8px; }
+/* 知乎区块行布局钩子（zb-* 前缀，T1-3d 先例延续；间距已收敛为 spacing 阶梯） */
+.zb-row { display: flex; gap: var(--spacing-2); align-items: center; flex-wrap: wrap; }
 .zb-flex1 { flex: 1; }
 /* 凭据状态徽标（zhihu-api-settings）：中性=未配置、成功色=可用；旧版明文态由下方 hint 说明。
    色值一律走语义令牌（collection-tokens.test.js 禁止本区块出现 hex 字面量）。 */
 .zb-config-badge {
-  padding: 2px 8px;
-  border-radius: 10px;
+  padding: 1px var(--spacing-2);
+  border-radius: var(--radius-xs);
   background: var(--color-bg-inset);
   border: 1px solid var(--color-border);
   color: var(--color-text-secondary);
   font-size: var(--font-size-xs);
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
 }
 .zb-config-badge.ok {
   border-color: var(--color-success);
   color: var(--color-success);
   background: var(--color-success-soft);
 }
-/* ghost 按钮在本仓是各组件自带的局部类（见 components/PersonalKnowledgePanel.vue），
-   这里显式自带一份，避免「引用了不存在的全局类」导致的裸样式按钮 */
-.cohere-btn-ghost {
-  padding: 6px 10px;
-  background: none;
-  border: 1px solid var(--color-border);
-  border-radius: var(--r-xs, 6px);
-  cursor: pointer;
-  font-size: var(--font-size-xs);
-  color: var(--color-text-primary);
-}
-.cohere-btn-ghost:hover { border-color: var(--color-primary); color: var(--color-primary); }
-.zb-select { border: 1px solid var(--color-border); border-radius: var(--r-xs, 6px); padding: 8px 10px; font-size: var(--font-size-sm); }
+/* ghost 按钮：统一走规范层 col-btn--ghost（原 cohere-btn-ghost 是各组件自带的
+   局部副本，本仓至少有 3 份同语义定义——PRD §4.1 收敛为一档）。 */
+.zb-select { height: var(--col-field-h); padding: var(--col-field-pad); border: 1px solid var(--color-border); border-radius: var(--radius-xs); background: var(--color-bg-card); color: var(--color-text-primary); font-family: inherit; font-size: var(--font-size-sm); }
 .zb-select-grow { flex: 1; min-width: 200px; }
-.zb-count { width: 130px; }
-.zb-check { display: flex; align-items: center; gap: 4px; font-size: var(--font-size-xs); }
-.zb-list { margin-top: 10px; border: 1px solid var(--color-border); border-radius: 8px; max-height: 320px; overflow-y: auto; }
-.zb-list-head { display: flex; gap: 8px; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--color-border); font-size: var(--font-size-xs); }
-.zb-list-row { display: flex; gap: 8px; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--color-border-soft, var(--color-border)); font-size: var(--font-size-xs); }
+.zb-count { width: 130px; height: var(--col-field-h); padding: var(--col-field-pad); border: 1px solid var(--color-border); border-radius: var(--radius-xs); background: var(--color-bg-card); color: var(--color-text-primary); font-family: inherit; font-size: var(--font-size-sm); }
+.zb-check { display: flex; align-items: center; gap: var(--spacing-1); font-size: var(--font-size-xs); color: var(--color-text-primary); }
+.zb-list { margin-top: var(--spacing-3); border: 1px solid var(--color-border); border-radius: var(--radius-sm); max-height: 320px; overflow-y: auto; }
+.zb-list-head { display: flex; gap: var(--spacing-2); align-items: center; padding: var(--spacing-2) var(--spacing-3); border-bottom: 1px solid var(--color-border); font-size: var(--font-size-xs); }
+.zb-list-row { display: flex; gap: var(--spacing-2); align-items: center; padding: var(--spacing-2) var(--spacing-3); border-bottom: 1px solid var(--color-border); font-size: var(--font-size-xs); }
 .zb-item-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .zb-kind { font-size: var(--font-size-xs); }
 </style>
