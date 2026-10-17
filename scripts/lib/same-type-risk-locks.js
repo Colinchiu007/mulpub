@@ -30,66 +30,17 @@
 
 'use strict'
 
+// ⚠ 屏蔽/配对已抽至共享库 scripts/lib/code-mask.js（第三批，兑现 CCG 评审承诺）。
+// 旧选项签名保留为薄包装，16 例测试基线不动；matchBrace 原实现与共享库逐字节相同，直接复用。
+const { maskNonCode: sharedMask, matchBrace } = require('./code-mask')
+
 /**
- * 把注释与字符串内容替换成等长空白，保留所有下标。
- * 目的：后续所有正则都在「只剩代码」的文本上跑，注释里的字样不会误命中。
+ * 兼容包装：maskStrings=false 等价于共享库 strings:'keep'。
  * @param {string} src
- * @returns {string} 与 src 等长
+ * @param {{maskStrings?: boolean}} [opts]
  */
 function maskNonCode (src, opts) {
-  const maskStrings = !opts || opts.maskStrings !== false
-  const out = src.split('')
-  let i = 0
-  const n = src.length
-  const blank = (from, to) => { for (let k = from; k < to && k < n; k++) if (out[k] !== '\n') out[k] = ' ' }
-  while (i < n) {
-    const c = src[i]
-    const d = src[i + 1]
-    // 行注释
-    if (c === '/' && d === '/') {
-      let j = i
-      while (j < n && src[j] !== '\n') j++
-      blank(i, j)
-      i = j
-      continue
-    }
-    // 块注释
-    if (c === '/' && d === '*') {
-      let j = i + 2
-      while (j < n && !(src[j] === '*' && src[j + 1] === '/')) j++
-      blank(i, Math.min(j + 2, n))
-      i = Math.min(j + 2, n)
-      continue
-    }
-    // 字符串 / 模板串（模板串里的 ${} 当字符串内容处理：本扫描器不追求对模板求值）
-    if (maskStrings && (c === "'" || c === '"' || c === '`')) {
-      const quote = c
-      let j = i + 1
-      while (j < n) {
-        if (src[j] === '\\') { j += 2; continue }
-        if (src[j] === quote) { j++; break }
-        j++
-      }
-      blank(i + 1, j - 1)
-      i = j
-      continue
-    }
-    i++
-  }
-  return out.join('')
-}
-
-/** 从 openIdx（必须是 `{`）开始做括号配对，返回闭合 `}` 的下标；找不到返回 -1。 */
-function matchBrace (masked, openIdx) {
-  let depth = 0
-  for (let i = openIdx; i < masked.length; i++) {
-    if (masked[i] === '{') depth++
-    else if (masked[i] === '}') {
-      depth--
-      if (depth === 0) return i
-    }
-  }
-  return -1
+  return sharedMask(src, { strings: opts && opts.maskStrings === false ? 'keep' : 'mask' })
 }
 
 /**

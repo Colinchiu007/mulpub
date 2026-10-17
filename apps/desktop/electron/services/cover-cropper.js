@@ -192,8 +192,9 @@ function readImageAsDataUrl(imagePath) {
     if (typeof imagePath !== 'string' || !imagePath) return { ok: false, error: 'imagePath 必须为非空字符串' }
     if (!fs.existsSync(imagePath)) return { ok: false, error: '图片文件不存在' }
     const ext = path.extname(imagePath).toLowerCase()
-    const mimeMap = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp' }
-    const mime = mimeMap[ext]
+    // R7（竞品 X-C2 同型防回归）：ext→mime 一律走单一真源 image-mime；
+    //   未知格式返回 null（下方 !mime 分支语义不变），不再各自维护字面量映射。
+    const mime = extToMime(ext)
     if (!mime) return { ok: false, error: '不支持的图片格式: ' + ext }
     const buf = fs.readFileSync(imagePath)
     return { ok: true, dataUrl: 'data:' + mime + ';base64,' + buf.toString('base64'), sizeBytes: buf.length }

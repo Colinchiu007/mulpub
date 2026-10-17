@@ -177,6 +177,8 @@ jobs:
         run: |
           node --test scripts/same-type-risk-locks.test.js
           node --test scripts/same-type-risk-locks-r2.test.js
+          node --test scripts/same-type-risk-locks-r3.test.js
+          node --test scripts/image-mime.test.js
 
       # --- Gate 2c4：CCG 判定器（ccg-review-decider）的判据回归锁 ---
       # 动因（2026-10-15）：该脚本此前**零测试覆盖**（grep 只命中一条注释），

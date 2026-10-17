@@ -60,11 +60,10 @@ const CONTENT_TYPE_MAP = {
   "video/quicktime": ".mov",
   "video/x-matroska": ".mkv",
   "video/ogg": ".ogv",
-  "image/jpeg": ".jpg",
+  // R7：图片三族引自单一真源（@multi-publish/shared-utils/image-mime 的 MIME_TO_EXT）；
+  //   保留历史兼容条目 "image/jpg"（非规范 mime，真实平台回包出现过，删了会落 .bin）。
+  ...IMAGE_MIME_TO_EXT,
   "image/jpg": ".jpg",
-  "image/png": ".png",
-  "image/gif": ".gif",
-  "image/webp": ".webp",
   "image/svg+xml": ".svg",
   "audio/mpeg": ".mp3",
   "audio/ogg": ".ogg",

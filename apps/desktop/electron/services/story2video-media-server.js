@@ -24,10 +24,8 @@ const CONTENT_TYPES = Object.freeze({
   '.webm': 'video/webm',
   // 图片类型缺失会导致响应带 X-Content-Type-Options: nosniff 时
   // <img> 拒绝渲染 octet-stream 内容（分段编辑区图片显示不出来的根因）
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.webp': 'image/webp',
+  // R7：图片三族引自单一真源（@multi-publish/shared-utils/image-mime）；audio/video/gif 保持本表
+  ...IMAGE_EXT_TO_MIME,
   '.gif': 'image/gif',
 })
 

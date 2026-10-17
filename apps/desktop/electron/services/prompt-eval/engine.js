@@ -127,7 +127,8 @@ function validateRequest (request) {
 }
 
 function readImage (imagePath) {
-  const mimeByExt = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.bmp': 'image/bmp' }
+  // R7：图片三族引自单一真源；gif/bmp 超出真源范围（image-mime 只登记桌面链落盘格式），保持字面量
+  const mimeByExt = { ...IMAGE_EXT_TO_MIME, '.gif': 'image/gif', '.bmp': 'image/bmp' }
   const ext = path.extname(imagePath).toLowerCase()
   const mimeType = mimeByExt[ext] || 'image/png'
   const base64 = fs.readFileSync(imagePath).toString('base64')

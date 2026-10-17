@@ -1,0 +1,28 @@
+{
+  "sha": "c2367d62671bcd5133f360d9459b3a193e253d9c",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 692 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 692,
+    "fileCount": 16,
+    "codeFileCount": 14,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": [
+      "\"01-docs/research/competitor-reverse-2026-10-13/derived/\\347\\253\\236\\345\\223\\201\\347\\274\\272\\351\\231\\267\\345\\220\\214\\345\\236\\213\\351\\243\\216\\351\\231\\251\\346\\270\\205\\345\\215\\225.md\""
+    ]
+  },
+  "stagedDiffHash": "ca05b8ab1d7e6b30a9de98bda75c0e99569ff8238e899e1485aceb3945eb84a8",
+  "decidedAt": "2026-10-17T12:36:16.775Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}
