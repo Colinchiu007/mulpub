@@ -67,6 +67,37 @@ sharp 条目会因为「脚本所在树没有 node_modules/sharp」而**凭空�
 **为什么这次能抓住而 #3829 抓不住**：#3829 的变异都作用在**函数体内**，
 而缺陷在**函数签名**。本次直接把「缺参必须抛错」写成断言，默认值无论藏在签名还是体内都会红。
 
+## 五之二、深度评审（QM-6）3 条裁决 + 高危域外部复核
+
+critic 给出 4 条问题，其中 3 条进入自扮演裁决；这 3 条里 **i1 被标 `crypto`、i2 被标 `datamigration`**。
+按引擎规则（`blockingFromAdjudication`）：**只要 `highRiskDomains` 非空即阻断，且自扮演无权豁免，必须外部复核**。
+
+| # | 域标签 | 指控 | 处置 |
+| --- | --- | --- | --- |
+| i1 | `crypto`（Critical） | 签名把 platform/arch 默认值也删了，超出声明范围、与文档矛盾；旧调用点会断 | **采纳并已修**：恢复 platform/arch 默认值，只让 root 必传；新增「默认值不对称」测试。域标签**误分类**（本 PR 无加密/凭据/哈希，见下取证） |
+| i2 | `datamigration`（Warning） | record 里的 sync_* 临时字段易忘清理 | **驳回**：这是 AGENTS.md 规定的既有工作流，且由 `check-gate-record-debt.js` Gate 2c **机械兜底**（PENDING 未收口即判红），不存在「易遗忘」。域标签**误分类**（不涉及库表/迁移/持久化用户数据） |
+| i3 | 无域标签 | learnings 写「platform/arch 默认值合理」但代码已删，文字与实现矛盾 | **采纳并已修**：改写该条 pitfall，明确「只有有普适真相的参数才配做默认值」，并记下我这次「多删的那半刀」 |
+
+**i1 被判成立是本次最有价值的一条**：它抓到我「改动范围 > 声明范围」——我只声明要动 root，却顺手删了 platform/arch 的默认值，
+同时制造了「行为回归」和「文档说谎」两个后果。已在 learnings 沉淀为通用纪律。
+
+**高危域误分类的取证**（供后续改进判据）：本 PR 改动 6 个文件（脚本 + 测试 + 3 份文档 + 1 个评审产物），
+`git diff origin/main...HEAD` 对 `crypto|cipher|hash(|secret|credential|migrat|ALTER TABLE|schema` 的命中数为 **0**。
+即 critic 给这两条打的域标签是关键词误命中，与本 PR 实际改动面无关。
+但**引擎规则不可绕过**：域标签存在即必须外部复核，故走 codex 独立复核（见下）。
+
+**外部复核（codex 0.144.6，read-only，跨家族第二模型）结论**——逐问裁定：
+
+| 复核问题 | codex 裁定 |
+| --- | --- |
+| Q1：i1 的 `crypto` 标签正确吗？ | **错误**。`fragileFor` 的参数是依赖树健康检查的路径/平台参数，不涉及加密、凭据、机密或哈希；且该发现已过时（默认值已恢复 + 测试已加） |
+| Q2：i2 的 `datamigration` 标签正确吗？ | **错误**。`openspec/records/` 的 `sync_*` 属 PR 流程元数据，不涉及库表结构、数据迁移或持久化用户数据 |
+| Q3：i1 还需改代码吗？ | **不需要**。默认值已恢复，生产调用点三参全传，「省略 platform/arch 仍工作」与「缺 root 抛错」均有测试锁定 |
+| Q4：i2 还需改吗？ | **不需要**。`sync_*` 生命周期由 AGENTS.md 强制，Gate 2c 机械阻塞 PENDING；回填前保留属正常流程 |
+| 总结 | 两个高风险域标签都误读了无关代码；本 PR **安全可合并**（前提是其余质量门禁通过） |
+
+落盘位置：`.ccg/reviews/<sha>.json` 的 `deepReview.externalReview` 字段；`status` 置 `self_play_resolved`、`confidenceWeight` 升为 `1.0`（真跨家族）。
+
 ## 六、顺带核实的两件事（结论：无需改动）
 
 1. **共享根 `node_modules/@img/sharp-win32-x64` 混版是否复发**：本轮开场查到 `index.cjs` 指向 `0.35.1.node`，

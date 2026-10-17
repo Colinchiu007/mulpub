@@ -16,16 +16,25 @@ CI 只读检出、别的 worktree（各自 node_modules 不同）等场景，sha
 
 - `root` 改为**必传、无默认值**；缺参当场 `throw new Error('fragileFor: root 必传…')`。
   缺参数必须炸在现场，而不是降级。
-- 同步更新唯一涉及 `fragileFor` 的测试用例：改为传测试 root（使它不再依赖「脚本所在树有依赖」），
-  并增加 `assert.throws(() => lib.fragileFor('win32','x64'), /root 必传/)` 反向锁。
+- `platform` / `arch` **保留**默认值 `process.platform` / `process.arch`——它们是普适真相，
+  与 `root` 不同。⚠️ 这里踩过一个坑：我最初把三个参数的默认值**一起删了**，超出「只动 root」的声明范围，
+  且让 learnings 里「platform/arch 默认值合理」的表述变成假话（深度评审 i1 当场抓住，已改回）。
 
 ## 验证
 
-- TDD 先红后绿：先改测试 ⇒ `# fail 1`；实现后 `19 passed / 0 failed`。
+- TDD 先红后绿：先改测试 ⇒ `# fail 1`；实现后 `20 passed / 0 failed`（含新增的「默认值不对称」用例）。
 - **真实树**：新建 worktree（`git worktree add` + `pnpm install` + `ensure-electron` + `verify-worktree-deps` OK）
   上跑 `--check` ⇒ `DESKTOP_DEPS_OK`（rc=0）。这正是上一版会降级失效的场景。
 - **变异反证 2/2**：F 把 root 必传递回有默认值 ⇒ 红；G 把 throw 改成静默 `return []` ⇒ 红。
   逐字节还原（SHA-256 一致）。
+- **深度评审（QM-6）4 条 → 3 条自扮演裁决**：
+  - i1（标 `crypto`，Critical）**成立并已修**：我顺手把 platform/arch 默认值也删了，超出声明范围
+    + 让文档变成假话。已恢复默认值、只让 root 必传，并补「默认值不对称」测试。**本轮最有价值的一条**。
+  - i2（标 `datamigration`）**驳回**：`sync_*` 是 AGENTS.md 既有工作流，Gate 2c 机械阻塞 PENDING，不存在「易遗忘」。
+  - i3 **成立并已修**：改写 learnings 中自相矛盾的表述。
+  - 两个高危域标签经取证**误分类**（本 PR diff 对 crypto/migration 关键词命中 0）；但引擎规则
+    「域标签非空即阻断、自扮演无权豁免」，故由 **codex 跨家族外部复核**：裁定两标签均错误、
+    两条无需进一步改动、**PR 安全可合并**。结论落盘 `.ccg/reviews/<sha>.json` 的 `externalReview`。
 - 门禁：混合 PR（改 `scripts/` 自身）；行尾两口径一致、品牌残留、doc-abs-paths、行数门禁全 PASS。
 
 ## 为什么 #3829 的 6 条变异没抓住这个缺陷

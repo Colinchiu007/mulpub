@@ -18,9 +18,58 @@
   "decidedAt": "2026-10-17T14:40:44.328Z",
   "decidedBy": "ccg-review-decider",
   "deepReview": {
+    "blocking": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "reason": "high_risk_requires_external",
+        "domains": [
+          "crypto"
+        ]
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "reason": "high_risk_requires_external",
+        "domains": [
+          "datamigration"
+        ]
+      }
+    ],
+    "findings": "4 条问题 → 3 条自扮演裁决；i1(crypto)/i2(datamigration) 因域标签非空触发引擎硬性外部复核。i1 指控成立并已修（恢复 platform/arch 默认值，仅 root 必传 + 新增「默认值不对称」测试）；i2 驳回（AGENTS.md 既有工作流 + Gate 2c 机械兜底，不存在易遗忘）；i3 成立并已修（learnings 表述与实现一致）。外部复核结论：两个域标签均误分类，两条无需进一步改动，PR 安全可合并。",
+    "status": "self_play_resolved",
+    "confidenceWeight": 1.0,
+    "at": "2026-10-17T16:19:46.581Z",
+    "note": "引擎规则：highRiskDomains 非空即阻断且自扮演无权豁免，必须外部复核。已由 codex 完成跨家族外部复核，结论落盘于 externalReview 字段。",
+    "requiresExternalReview": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "domains": [
+          "crypto"
+        ]
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "domains": [
+          "datamigration"
+        ]
+      }
+    ],
+    "performedBy": "self-play adjudication + EXTERNAL REVIEW (codex 0.144.6, read-only, cross-family)",
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "externalReview": {
+      "at": "2026-10-17T16:26:14Z",
+      "reviewer": "codex (cross-family second model)",
+      "verdicts": {
+        "Q1": "WRONG (crypto tag): fragileFor params are path/platform args of a dependency-tree health check; no crypto/credentials/secrets/hashing. Finding stale — platform/arch defaults restored + test added.",
+        "Q3": "No further change needed: defaults restored, both production call sites pass all three args, omit-platform/arch and root-throws contracts locked by tests.",
+        "Q2": "WRONG (datamigration tag): sync_* in openspec/records is PR workflow metadata; no DB schema, no migration, no persisted user data.",
+        "Q4": "No change: sync field lifecycle mandated by AGENTS.md and Gate 2c mechanically blocks PENDING; leftovers are normal until backfill PR."
+      },
+      "mode": "consult, read-only sandbox",
+      "conclusion": "Both high-risk domain tags misread unrelated code (this PR diff has 0 hits for crypto/migration keywords). PR safe to merge provided remaining quality gates pass."
+    }
   }
 }

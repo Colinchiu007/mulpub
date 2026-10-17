@@ -121,6 +121,24 @@ test('fragileFor 平台过滤：非 win32-x64 不检查 sharp 平台包', (t) =>
     '不传 root 必须当场抛错，不得静默按脚本所在目录降级')
 })
 
+// 默认值策略**不对称**（fix-ensure-deps-root-required，深度评审 i1 采纳）：
+// platform/arch 有默认值（普适真相），root 没有（无普适答案）。
+// 这条锁防两种回退：① 给 root 加回默认值；② 顺手把 platform/arch 的默认值也删掉。
+test('fragileFor 默认值不对称：platform/arch 可省略，root 必传', (t) => {
+  const root = makeRoot(t)
+  writeJson(path.join(root, 'node_modules', 'sharp', 'package.json'), { name: 'sharp', version: '0.35.5' })
+
+  // 省略 platform/arch ⇒ 走 process.platform / process.arch，不得抛错
+  const byDefault = lib.fragileFor(undefined, undefined, root)
+  assert.ok(Array.isArray(byDefault) && byDefault.length > 0, '省略 platform/arch 应正常返回清单')
+  const explicit = lib.fragileFor(process.platform, process.arch, root)
+  assert.deepEqual(byDefault.map((p) => p.name), explicit.map((p) => p.name),
+    '省略 platform/arch 应与显式传入当前平台等价')
+
+  // 只传 platform/arch 不传 root ⇒ 仍然必须抛错
+  assert.throws(() => lib.fragileFor('win32', 'x64'), /root 必传/)
+})
+
 test('collectMissing 平台感知', (t) => {
   const root = makeRoot(t)
   writeJson(path.join(root, 'apps', 'desktop', 'package.json'), { name: '@multi-publish/desktop', dependencies: {} })
