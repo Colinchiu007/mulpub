@@ -98,6 +98,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { listAppMenu, saveAppMenu, resetAppMenu } from '../api/appMenu'
+import { saveMessageFor } from './AppMenu.save-message'
 
 const GROUP_META = [
   {
@@ -266,14 +267,15 @@ async function saveAll() {
     const result = await saveAppMenu(payload)
     items.value = (result.items || []).map((item) => ({ ...item }))
     dirty.value = false
-    const corrected = result.corrections || []
-    if (corrected.length) {
-      ElMessage.warning('已保存。以下核心入口被系统纠正为「显示在一级导航」：' + corrected.join('、'))
-    } else {
-      ElMessage.success('已保存 ' + (result.count ?? payload.length) + ' 项')
-    }
+    // 提示措辞与分支抽到 AppMenu.save-message.js（纯函数可单测）；
+    // 「需重启应用才生效」由 RESTART_HINT 单一真源提供，见 PRD ops-center-restart-hint。
+    saveMessageFor({
+      ok: true,
+      count: result.count ?? payload.length,
+      corrections: result.corrections || [],
+    }, ElMessage)
   } catch (e) {
-    ElMessage.error(e.response?.data?.detail || '保存失败')
+    saveMessageFor({ ok: false, detail: e.response?.data?.detail }, ElMessage)
   } finally {
     saving.value = false
   }
@@ -294,9 +296,9 @@ async function resetAll() {
     const result = await resetAppMenu()
     items.value = (result.items || []).map((item) => ({ ...item }))
     dirty.value = false
-    ElMessage.success('已恢复默认')
+    saveMessageFor({ ok: true, count: result.count, corrections: [] }, ElMessage, '已恢复默认')
   } catch (e) {
-    ElMessage.error(e.response?.data?.detail || '恢复默认失败')
+    saveMessageFor({ ok: false, detail: e.response?.data?.detail }, ElMessage, '恢复默认失败')
   } finally {
     resetting.value = false
   }
