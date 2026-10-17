@@ -17,7 +17,7 @@ sync_backfill_owner: visual-gate-enforce 会话（本节作者）
 | 修复 + 回归保护（QM-5 ④） | ✅ | ①`quality-gate.yml` Gate 7：`views` / `views-supplement` 非零时**当场重跑一次**，两轮都非零才把套件名收进 `$checksFailSuites`；像素判定之后新增阻断分支点名「校验型断言两次均失败」并 `exit 1`。②像素域（`pixel` / `dark`）**保持原状**——它们的采集抖动真实存在（#2914 同 sha 两 attempt 一红一绿），仍走 Gate 7b 两轮甄别，不在本次动它。③旧注释同步改写为「按套件类别分流」，避免注释与代码相反。④新增结构锁 `.github/scripts/workflow-contract.test.js` 的「QG Visual 的校验域套件失败必须阻断」（钉三件事：非零必重跑、两轮必阻断、阻断必须排在 `All visual tests passed` 之前） |
 | 变异反证 | ✅ **1/1 CAUGHT**（正控 GREEN、还原逐字节 IDENTICAL） | M1：从 `quality-gate.yml` 删掉校验域阻断块 ⇒ 新锁**当场红**（`not ok 38 - QG Visual 的校验域套件（views / views-supplement）失败必须阻断`，37 pass / 1 fail），指名即该条；还原后复跑 38/38 |
 | 相关域全量 | ✅ | `node --test .github/scripts/workflow-contract.test.js` → **38 pass / 0 fail**（含新锁；该测试用 `js-yaml` 解析两份 workflow，等于顺带验证 YAML 合法） |
-| 行尾与 diff 对账 | ✅ | 待提交前按 `git diff --cached --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径核对并写入本条（提交时补齐） |
+| 行尾与 diff 对账 | ✅ | `git diff --cached --numstat` 与 `--ignore-cr-at-eol --numstat` **两口径逐值相等**：`workflow-contract.test.js` **47/0**、`quality-gate.yml` **43/3**、`openspec/records/visual-gate-enforce.md` **32/0**。`quality-gate.yml` 删除的 3 行是原「退出码 1 一律只留痕」的注释（被「按套件类别分流」的新注释取代），无代码删除 |
 | 接线棘轮 | ✅ | 改的是既有测试文件（非新增），仍在原接线面上；`workflow-contract.test.js` 由 `quality-gate.yml` 显式点名执行 |
 | QM-1 打包 | N/A | 未触碰 `apps/desktop/electron/` 与 `packages/rpa-engine/` |
 | QM-4 视觉 | N/A（本 PR 不产生新的视觉判据） | 本 PR 改的是「视觉判据的消费方式」，不改任何用例、基线或阈值；**未使用 `--update-baseline`** |
