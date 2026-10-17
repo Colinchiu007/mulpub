@@ -19,8 +19,34 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "cleared",
+    "performedBy": "外部双模型（两个后端都交付了判定，非自扮演豁免）：后端 claude session 13f47a85-4796-4a04-9f1f-ffea7f53f959；前端 opencode session ses_eb76add23ffe49dQ7gwh8Jsdkl",
+    "backendFindings": {
+      "total": 8,
+      "critical": 0,
+      "low": 2,
+      "info": 3,
+      "none": 3
+    },
+    "frontendFindings": {
+      "total": 5,
+      "warning": 1,
+      "info": 4,
+      "attempts": 4,
+      "note": "前三次零交付且成因不同；第四次把规格节选+完整 diff 合成一份工作区内文件后才交付（opencode 拒读工作区外路径）"
+    },
+    "adopted": [
+      "后端 F5：改写区那枚只锁到预览入参、未锁出期载荷 ⇒ 本 PR 补第 2 条用例（copy.content 逐字 + billingConfirmed===true + runId 形态）并配 RW-M7/M9/M10 三条反证",
+      "前端 QM6-3：结构锁相对 PRD 字面的收窄未记录 ⇒ 已写进注释（FORBIDDEN 字面量自举，按字面 git grep 必非 0）",
+      "前端 QM6-4 / QM6-5：函数声明空格对齐同文件多数写法；import 挪到顶部 import 区；补文件末行换行"
+    ],
+    "declinedWithReason": [
+      "前端 QM6-1（Warning，两枚入口在空正文维度不同形、文案库留一个点了没反应的按钮）：核实成立但不本片收口——按 entry.content 收会把「列表态预览为空、点击回源后有全文」的视频项一起藏掉，那是藏掉可用入口；已在实现处注明成因与收口条件，并登记为 tasks 4.3②-b 收尾②",
+      "前端 QM6-2（Info，|| ensureChannel() 回退分支不可达）：不删——只删一枚会让两入口分叉，而 §7.10.3.4 要求三条不变量逐字同源；收口须两片同删并配用例，留给 ②-b③"
+    ],
+    "equivalentMutantsNotCounted": [
+      "RW-M8（billingConfirmed 改成 publishing.value === true）与 RW-M11（摘掉 JSON 脱壳）都是等价变异、不会变红；已改用 RW-M9/M10 这两个语义真不同的形态来证牙。本文件里 Object.getPrototypeOf(payload) === Object.prototype 那条断言在本夹具不承重（props 本就是 plain object），真正的脱壳锁在 ②-b 的 PodcastScriptEntry.test.js"
+    ],
+    "evidenceDoc": "openspec/records/podcast-episode-rewrite-entry.md（QM-6 行含两轴 session、逐条处置与偏离 AGENTS 重试次数的说明）"
   }
 }

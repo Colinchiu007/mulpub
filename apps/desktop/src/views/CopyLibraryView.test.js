@@ -65,6 +65,7 @@ vi.mock('@/composables/useCopyLibrarySources', async (importOriginal) => {
 })
 
 import CopyLibraryView from './CopyLibraryView.vue'
+import PodcastScriptEntry from '@/components/PodcastScriptEntry.vue'
 import { takeCopyDetailHandoff, clearCopyDetailHandoff } from '@/utils/copy-detail-handoff'
 
 async function mountView() {
@@ -152,8 +153,6 @@ describe('CopyLibraryView — 文案库卡片点击进入文案详情（发布�
     expect(mockPush).toHaveBeenCalledTimes(1)
   })
 })
-
-import PodcastScriptEntry from '@/components/PodcastScriptEntry.vue'
 
 const PLAN_OK = { ok: true, plan: { totalBlocks: 7, totalCodepoints: 12345 }, voice: { providerId: 'prov_x', model: 'mdl_y', voiceId: 'voice_z', origin: 'preference', resolvedBy: 'capability' } }
 const avail = (result) => ({ available: true, result })

@@ -747,7 +747,7 @@ async function copyResult() {
 }
 
 /** 改写稿的标题取法只留这一份（§7.10.3.4：入口与存草稿共用同一个提取点，各写一份必然漂移） */
-function resolveRewriteTitle () {
+function resolveRewriteTitle() {
   return rewriteTitle.value || content.value.trim().slice(0, 64) || t('rewritePage.title')
 }
 

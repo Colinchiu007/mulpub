@@ -159,6 +159,10 @@ describe('PodcastScriptEntry · 浮层互斥合同', () => {
 // §7.10.3.4 验收判据 3 的机械版：入口越多，越容易有人在前端「顺手」算一份块数或音色
 //（那正是本 PRD 反复禁止的两份口径必然漂移）。这条锁覆盖整个渲染层，
 // 所以新加一枚入口不需要动它 —— 但把分块逻辑抄进渲染层会当场变红。
+// ⚠️ 判据范围相对 PRD 字面**刻意收窄**（QM-6 评审 QM6-3807-3 点名未记录，现补）：
+//   PRD 写的是 `git grep -c planChunks|resolveEpisodeVoice -- apps/desktop/src` 必须为 0，
+//   但那条按字面永远不可能成立 —— 本锁自己的 FORBIDDEN 数组就含这两个字面量。
+//   要防的是**渲染层生产代码**里的第二份实现，所以这里只扫非测试的 .vue/.js。
 describe('PodcastScriptEntry · 渲染层不得出现第二份分块/音色实现', () => {
   const SRC_ROOT = path.resolve(__dirname, '..')
   const FORBIDDEN = ['planChunks', 'resolveEpisodeVoice']

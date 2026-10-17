@@ -862,7 +862,7 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 
 | 维度 | 规定 | 现场依据（当场读码） |
 | --- | --- | --- |
-| 数据校验（正文） | 正文 = `rewriteResult.value` 的当前串，**不得**从草稿/历史反查再拼；空白串视为「无正文」，动作不出现 | `rewriteResult.value` 已在三处以 `content: rewriteResult.value` 被消费（`RewriteView.vue:395` / `:424` / `:738`），它是改写结果的唯一持有者 |
+| 数据校验（正文） | 正文 = `rewriteResult.value` 的当前串，**不得**从草稿/历史反查再拼；空白串视为「无正文」，动作不出现 | `rewriteResult.value` 已在三处以 `content: rewriteResult.value` 被消费（`RewriteView.vue:414` / `:443` / `:777`，2026-10-17 随 PR #3807 落地后行号已前移，原记 `:395` / `:424` / `:738`），它是改写结果的唯一持有者 |
 | 数据校验（标题） | 取该页既有的标题来源，与「去发布」共用同一个提取点；不得在入口里另写一份标题拼装（②-b 的教训：`buildPublishFromProject` 是唯一提取点） | 该页保存草稿走 `saveToDraft()`，标题字段在草稿快照内，入口只读不造 |
 | 流程 | 点击 → 解析默认频道 → 取 `rewriteResult.value`（空则不出现）→ 打开浮层 → 浮层调预览 → 用户确认计费 → `episodePublishFromScript`（键 `copy.content`） | 与 §7.10.2 同一条 `runChain`，不为文本链另开流程 |
 | 交互 | 浮层按需挂载、常驻不卸载（关闭不取消发布）；挂起 owner 沿用 `podcast-script-entry-overlay`，**不新增第二个 owner** | AGENTS「应用级浮层弹窗互斥合同」+ `overlay-view-suspension.test.js` 已登记该 owner |

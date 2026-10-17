@@ -1724,6 +1724,33 @@ describe('RewriteView — 文本出期入口的合同（§7.10.3.4 ②-b②）',
     expect(call[0]).toMatchObject({ channelId: 'ch_a', script: SENTINEL })
   })
 
+  // §7.10.3.4 验收判据 4 的完整落点：入口侧的「这一页当时那份正文」不能只停在预览入参上，
+  // 必须一路带到真正出期的载荷里（billingConfirmed 由浮层的确认动作置真，runId 由浮层生成）。
+  it('从这枚入口点确认：出期载荷的 copy.content 逐字等于当时那份正文，且 billingConfirmed 为真', async () => {
+    channelState.activeChannelId.value = 'ch_a'
+    podcastApi.episodePublishFromScript.mockResolvedValue(avail({ state: 'success', feedUrl: 'https://example.com/feed.xml' }))
+    podcastApi.onEpisodePublishProgress.mockReturnValue(avail(() => {}))
+    const wrapper = await rewriteOnce()
+    await wrapper.find('textarea.result-textarea').setValue(SENTINEL)
+    await nextTick()
+    await openOverlay(wrapper)
+
+    await wrapper.find('[data-testid="podcast-script-confirm"]').trigger('click')
+    await nextTick()
+    await Promise.resolve()
+    await nextTick()
+
+    const sent = podcastApi.episodePublishFromScript.mock.calls[0]
+    expect(sent, '确认按钮没把出期请求发出去 ⇒ 这条链是断的').toBeTruthy()
+    const payload = sent[0]
+    expect(payload.channelId).toBe('ch_a')
+    expect(payload.copy.content).toBe(SENTINEL)
+    expect(payload.billingConfirmed, 'billingConfirmed 只能是用户按了确认的产物').toBe(true)
+    expect(payload.runId).toMatch(/^[A-Za-z0-9_-]{8,64}$/)
+    // 脱壳：传给 IPC 的必须是 plain object（reactive 包装会让结构化克隆抛 "could not be cloned"）
+    expect(Object.getPrototypeOf(payload)).toBe(Object.prototype)
+  })
+
   it('入口标题与「存入草稿」共用同一个提取点（不得各写一份拼装）', async () => {
     channelState.activeChannelId.value = 'ch_a'
     const wrapper = await rewriteOnce()
