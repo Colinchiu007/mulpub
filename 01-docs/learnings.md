@@ -20223,3 +20223,11 @@ CI 把 `QG Static` 钉红在 Gate 2c，红的是 `check-unwired-tests.test.js` �
 - **fact · 共享根 Write Guard 也会隔离根级新建临时脚本**：不限于 `apps/` `packages/` 等运行时路径——根级未跟踪 `.js`（实测 `.replay-learnings.js`）会被移入 quarantine，随后 `node <该脚本>` 报 MODULE_NOT_FOUND，而报错信息完全指向不了真因。一次性脚本写在仓库外（`%TEMP%`）+ 绝对路径操作仓库文件。
 - **fact · `QG Coverage` 的 40 分钟红先按「runner 竞争」判，别急着改 timeout**：`timeout-minutes: 40`，同一份代码首轮 40m04s 被 `cancelled`、重跑 24m21s `success`（对比 #3761 时代 23m28s）。判据：`conclusion=cancelled` 且 `completed_at − started_at ≈ timeout-minutes` ⇒ 超时而非测试失败；只有 `conclusion=failure` 且日志有具体断言才判代码缺陷。放宽 timeout 属「改判据消化问题」。
 - **fact · Browser E2E 的红可用「两轮差异只含测试文件」快速归因**：本轮两轮之间只改了单元测试文件（E2E 不加载它），据此判定为抖动、重跑即绿，避免去翻 7m41s 的日志。
+
+## 2026-10-17 同型风险三批落锁（8 条静态锁 + 共享 mask 库）
+
+- **pattern｜竞品缺陷→同型风险锁**：红夹具/绿夹具/真实仓覆盖下界三层纪律；8 条锁统一 Gate 2c6（PR #3812/#3827/#3845）。
+- **pitfall｜scripts/ 不进 asar**：运行时真源必须放 packages/shared-utils/src（R7 image-mime 选址实测）。
+- **pitfall｜node --check 不执行模块**：数据来源替换类改动必须 require 实跑取证（迁移后缺 require 被评审抓出）。
+- **pattern｜CCG 循环收敛**：填裁决后同 SHA 复跑、不提交；历史判定 upheld 如实置 needs_revision 写修复去向。
+- **pitfall｜mime 映射抄 N 份**：已收单一真源（image-mime.js），归一/不猜/别名三纪律；api-publish-engine 零依赖豁免显式登记。

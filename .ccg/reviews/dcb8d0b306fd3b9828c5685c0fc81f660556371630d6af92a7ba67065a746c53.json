@@ -1,0 +1,28 @@
+{
+  "sha": "a986b22ecb6d1a58962cadcd43bd050bd4acd485",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 1,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "- 主干 `01-docs/learnings.md` 不含该段落（落盘前核实 `Select-String -Quiet` = False），追加为纯新增、无删除。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "dcb8d0b306fd3b9828c5685c0fc81f660556371630d6af92a7ba67065a746c53",
+  "decidedAt": "2026-10-17T16:01:24.464Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}
