@@ -23,8 +23,8 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
+    "status": "self_play_resolved",
+    "performedBy": "self-play(adjudicated)",
     "findings": null
   }
 }

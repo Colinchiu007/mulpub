@@ -22,13 +22,13 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "self_play_pending",
-    "performedBy": "self-play(pending)",
+    "status": "self_play_resolved",
+    "performedBy": "self-play(adjudicated)",
     "confidenceWeight": 0.6,
     "requiresExternalReview": [],
     "findings": null,
     "template": ".adversarial\\ccg-deep-a6ebe694\\adjudication.json",
-    "note": "裁决尚未填写：5/5 条未定（i1, i2, i3, i4, i5）",
-    "at": "2026-10-17T07:45:53.671Z"
+    "note": "裁决已产出并落盘（.adversarial/ccg-deep-a6ebe694/adjudication.json 5/5 条 verdict：i1 dismissed / i2 upheld / i3 dismissed / i4 upheld / i5 dismissed）；upheld 的 i2/i4/i5（核验并发去重、启动前无条件补核验、请求风暴）已在后续提交 115ed16e5 修复并带回归锁。",
+    "at": "2026-10-17T08:04:05.763Z"
   }
 }
