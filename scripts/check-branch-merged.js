@@ -185,22 +185,55 @@ function attributionsForRoot(root, base, against, file, excludeShas) {
     .map((e) => ({ sha: e.sha, subject: e.subject }));
 }
 
-// 逐行归因：这一行是在哪笔提交里进出该文件的（只在 latin1 字节空间比 key，不经 argv 编码）。
-function findLineCommit(entries, line) {
+// 逐行归因（方向敏感，且必须绑在本次合并上）：
+//   want='removed' —— 这行为什么现在不在主干：必须有一笔提交把它**净删掉**了；
+//   want='added'   —— 我删的这行为什么又回来了：必须有一笔提交把它**净加回**了。
+// "净"是同一次提交内 +/- 两侧计数相减，于是"同一笔里挪了个位置"（net=0）不算证据。
+// 单看这个还不够（QM-6 后端轴命中的正是这里）：调用方必须另外证明**这一行随本次合并进过主干**，
+// 否则"别人加过又撤的同文行"会把"我的行从未落地"洗成 DRIFT-ATTRIBUTED。
+function findLineCommit(entries, line, want) {
   const k = key(line);
   if (k === '') return null;
   for (const e of entries) {
+    let added = 0;
+    let removed = 0;
     for (const raw of e.patch.split('\n')) {
       const t = raw.replace(/[\r\n]+$/, '');
       if (t.startsWith('+++') || t.startsWith('---')) continue;
-      if ((t.startsWith('+') || t.startsWith('-')) && key(t.slice(1)) === k) return { sha: e.sha, subject: e.subject };
+      if (!(t.startsWith('+') || t.startsWith('-'))) continue;
+      if (key(t.slice(1)) !== k) continue;
+      if (t.startsWith('+')) added++; else removed++;
     }
+    const net = added - removed;
+    if (want === 'removed' && net < 0) return { sha: e.sha, subject: e.subject };
+    if (want === 'added' && net > 0) return { sha: e.sha, subject: e.subject };
   }
   return null;
 }
 
+// 本次合并（们）里该文件的行集合 —— "我的行到底落地过没有"的唯一凭据。
+// landedMax: 该行在任一份合并产物里的最大出现次数（证明"我的新增行随合并进过主干"）。
+// absentInAny(k): 该行在**至少一份**合并产物里不存在（证明"我的删除确实在那次合并里生效过"）。
+function mergedLineState(root, mergedShas, file) {
+  const landedMax = new Map();
+  const perMerge = [];
+  for (const sha of mergedShas || []) {
+    if (!sha) { perMerge.push(null); continue; }
+    const blob = blobOid(root, sha, file);
+    if (blob === null) { perMerge.push(null); continue; }
+    const m = multisetOf(splitLines(blobText(root, blob)));
+    perMerge.push(m);
+    for (const [k, n] of m) landedMax.set(k, Math.max(landedMax.get(k) || 0, n));
+  }
+  return {
+    landedMax,
+    landedCount: (k) => landedMax.get(k) || 0,
+    absentInAny: (k) => perMerge.some((m) => m === null || !m.has(k)),
+  };
+}
+
 // ---------------------------------------------------------------- 单文件判定
-function classifyFile(root, { ref, against, base, file, excludeShas }) {
+function classifyFile(root, { ref, against, base, file, excludeShas, mergedShas }) {
   const tipBlob = blobOid(root, ref, file);
   const againstBlob = blobOid(root, against, file);
   if (tipBlob !== null && tipBlob === againstBlob) {
@@ -213,6 +246,7 @@ function classifyFile(root, { ref, against, base, file, excludeShas }) {
   const mainLines = splitLines(mainText);
   const entries = patchesFor(root, base, against, file, excludeShas);
   const attributions = entries.map((e) => ({ sha: e.sha, subject: e.subject }));
+  const merged = mergedLineState(root, mergedShas || excludeShas, file);
   // 整份文件不在主干 ⇒ MISSING_FILE。它必须与"某行被主干扩写/改掉"分开计：前者删分支就是真丢工作，
   // 所以这条路上**不做任何行级救走**（一救就把"整份缺席"稀释成"一些行没对上"）。
   if (fileAbsentOnMain) {
@@ -227,14 +261,18 @@ function classifyFile(root, { ref, against, base, file, excludeShas }) {
   const missingAdded = [];
   const reappearedRemoved = [];
   const lineAttributions = [];
-  // 违规行逐行找**具名提交**：只有那笔提交的补丁里**确实动过这一行**才作数。
-  // 于是"从未出现在主干的行"救不走（T15 钉这条），"曾进主干又被具名提交改掉/删掉"才放行（T14/T17）。
+  // 违规行要能被**指认**才放行，指认有两道前提，缺一不可：
+  //   ① 这一行确实随本次合并（们）进过主干 / 我的这次删除确实在某次合并里生效过；
+  //   ② 范围内有一笔具名提交把它**净删掉**（新增行缺失方向）或**净加回**（删除行复现方向）。
+  // 只留 ② 会被"别人加过又撤的同文行"洗白（QM-6 后端轴命中，T18 钉住）；只留 ① 则说不清是谁改的。
   for (const ln of missingRaw) {
-    const who = findLineCommit(entries, ln);
+    const landed = merged.landedCount(key(ln)) > 0;
+    const who = landed ? findLineCommit(entries, ln, 'removed') : null;
     if (who) lineAttributions.push(who); else missingAdded.push(ln);
   }
   for (const ln of reappearedRaw) {
-    const who = findLineCommit(entries, ln);
+    const mineLanded = merged.absentInAny(key(ln));
+    const who = mineLanded ? findLineCommit(entries, ln, 'added') : null;
     if (who) lineAttributions.push(who); else reappearedRemoved.push(ln);
   }
   if (missingAdded.length > 0 || reappearedRemoved.length > 0) {
@@ -286,12 +324,16 @@ function collect(opts) {
     res.againstSha = againstSha;
 
     const base = opts.base ? verifyRef(root, opts.base) : mergeBase(root, refSha, againstSha);
+    const mergedShas = opts.merges.map((x) => verifyRef(root, x));
     const d = git(root, ['diff', '--name-only', base, refSha], true);
     if (!d.ok) throw new JudgeError('取改动集失败：' + base.slice(0, 8) + '..' + refSha.slice(0, 8));
     const files = splitLines(d.out).map((l) => l.replace(/[\r\n]+$/, '')).filter((l) => l !== '');
     for (const f of files) {
       res.files.push(Object.assign({ file: f },
-        classifyFile(root, { ref: refSha, against: againstSha, base, file: f, excludeShas: opts.merges.map((x) => verifyRef(root, x)) })));
+        classifyFile(root, {
+          ref: refSha, against: againstSha, base, file: f,
+          excludeShas: mergedShas, mergedShas,
+        })));
     }
     // 反失明分两种，方向相反，不得合并：
     //  ① ref 与 against 同指一处 ⇒ 参数误用（把主干自己当成分支传进来了）⇒ 判据故障；

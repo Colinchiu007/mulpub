@@ -418,3 +418,29 @@ test('T17 中文行同样必须能逐行归因（判据内部按 latin1 保字�
   assert.equal(mod.main(['--ref=' + tip, '--merge=' + merge1, '--root=' + r.dir]), 0);
   r.rm();
 });
+
+// QM-6 后端轴（codex，HEAD 9c808465a）命中的实质缺陷：逐行救走只看"范围内有提交动过同样文本"，
+// 不看"这一行是不是随**本次合并**进过主干"。于是别人先加后撤的同文行，会把"我的行从未落地"洗成 DRIFT-ATTRIBUTED。
+test('T18 救走必须以"该行随本次合并进过主干"为前提：别人加过又撤的同文行，不得替我的未落地行作保', () => {
+  const r = baseRepo({ 'code.txt': 'X\n' });
+  r.w('code.txt', 'MY LINE\nX\n');
+  r.w('dummy.txt', 'keep the merge non-empty\n');
+  const tip = r.addCommit('mine');
+  // 合并产物漏掉 MY LINE（我的行从未落地）
+  land(r, tip, ['code.txt', 'dummy.txt'], 'feat: mine (#9001)', { 'code.txt': 'X\n' });
+  const merge1 = r.merge;
+  // 之后别人在主干把同样文本加进来、又撤走 —— 与我的落地无关
+  r.g(['checkout', '-q', 'main']);
+  r.w('code.txt', 'MY LINE\nX\n');
+  r.addCommit('someone else adds the same text (#9002)');
+  r.g(['checkout', '-q', 'main']);
+  r.w('code.txt', 'X\n');
+  r.addCommit('someone else removes it again (#9003)');
+  const out = mod.collect({ ref: tip, merges: [merge1], root: r.dir });
+  const f = out.files.find((x) => x.file === 'code.txt');
+  assert.equal(f.verdict, 'LOST',
+    '分支是这行文本唯一的携带者 ⇒ 删了就真丢，无论这段文本是否曾以别人的身份出现在主干：' + JSON.stringify(f));
+  assert.ok(f.missingAdded.some((l) => /MY LINE/.test(l)), '那一行必须仍留在违规清单里：' + JSON.stringify(f.missingAdded));
+  assert.equal(mod.main(['--ref=' + tip, '--merge=' + merge1, '--root=' + r.dir]), 1);
+  r.rm();
+});
