@@ -2,9 +2,6 @@
 record: visual-gate-single-entry
 task: 视觉覆盖面平价锁——run-all-visual 的注册表与 QG Visual 的接法表绑成一对，新增套件漏接当场红
 date: 2026-10-17
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由本会话开回填 PR 改 PASS 并删本段三个字段
-sync_backfill_owner: visual-gate-single-entry 会话（本节作者）
 ---
 
 ## 本次执行记录：视觉覆盖面平价锁（visual-gate-single-entry，2026-10-17）【混合 PR · 只加锁】
@@ -24,7 +21,7 @@ sync_backfill_owner: visual-gate-single-entry 会话（本节作者）
 | QM-1 打包 | N/A | 未触碰 `apps/desktop/electron/` 与 `packages/rpa-engine/` |
 | QM-4 视觉 | N/A（不改判据/不改基线） | 本 PR 只加一条结构锁，**不改任何 workflow 行为、不新增执行步骤**；未使用 `--update-baseline` |
 | QM-6 CCG 双模型外部评审 | 见判定器 | 以 `.ccg/reviews/<sha>.json` 产物为准 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin visual-gate-single-entry` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | PR #3804 已 squash 合并，merge SHA `ce3f25cdf8d0deb166d9ec445902c386f1d1a3d4`（2026-10-17T15:16:27+08:00）；远端分支 `visual-gate-single-entry` 已删（`git ls-remote --heads` 0 行）；`git log origin/main --grep='(#3804)$'` 恰好 1 行；frontmatter 的 `sync_*` 三字段已在本次提交删除（本记录无 ledger 登记项） |
 
 ### 遗留（不假装已闭合）
 
