@@ -1,3 +1,13 @@
+# [未发布] fix(ci): GUI 相关性 CLI 端到端用例改用例级预算，并落一条可重跑的实测出处（gui-cli-e2e-timeout）
+
+- **动因是一次 main push 回读**：PR #3807 合入后 main 的 `QG Desktop Shards (1/2)` 判红，唯一红点 `tests/gui-ci-exit-contract.test.js:220` 报 `Test timed out in 10000ms`。对照跑证明它不是那片引入的——同一形态在我合并前 57 分钟的 main push `ce3f25cdf` 上逐字复现，而含我内容的后续 main tip `3f5f9da38` 判 success。归因完不放着，是因为这条 required check 会砸到每一个碰到 `apps/desktop/**` 的 PR。
+- **根因是预算倒挂不是"偶发超时"**：该用例要真起 17 个子进程（12 次 `git.exe` + 5 次 `node.exe`），却没有用例级预算，继承 `vitest.config.js` 与 CI 命令行两处的 `--testTimeout=10000`。CI 实测：空闲 1059/1326/1453/1466/1495/1657ms，负载 11097/12744ms——8 倍摆动全来自 runner 负载，与被测语义无关。讽刺点：同一个文件里就有一条用例在锁"串行单测预算挂实测、超时可自证、且不与 job 级倒挂"。
+- **修法**：预算常量单点落 `apps/desktop/tests/gui-cli-e2e-budget.js`（60000ms = 实测长尾 12744 × 安全系数 4），与它的 provenance、耗时探针、真跑台账同处一模块，被测试文件与复测脚本共读——不放测试文件里，因为那份是 vitest 用例、普通 `node` require 会因 `describe` 未定义而崩。用例记账挂在既有 `finally` 的首位（先记账再清理，`rmSync` 抛错吞不掉样本）。
+- **三条锁 + 八条变异**：声明锁（必须引用单点常量、引用必须落在**这一条**用例之内、禁裸数字、禁出现旧预算 10000）、出处锁（预算 ≥ max × multiplier、样本量下界、复测脚本必须存在于仓库且被 provenance 点名）、台账锁（本次真跑必须留样本、观测值 ×2 不得超预算）。`M1`–`M8` 各自让**指名**那条红且 `failedCount=1`，含 `M8`「把预算挪到下一条用例」专测归属维度；跑完按字节还原（`restore:true` ×8）。
+- **新增复测入口 `scripts/case-timeout-audit.js`**：从已结束的 main push run 取 `QG Desktop Shards` 作业日志、剥 ANSI 后用共享探针汇总耗时分布。退出码 `0/3/4/5` 分档，其中 3 = 零样本 ⇒ 探针失明绝不判"没问题"。当场实跑 `--runs=8 --json` ⇒ `samples=8 max=12744 headroom=4.71× OK`，provenance 里的数就是这条命令现在能重出来的数。新踩的一条采集坑：vitest 的 verbose 行自带 ANSI 且会把文件名拦腰截断，同一份日志未剥 ANSI `rawHits=0`、剥后 `cleanHits=1`。
+- **两条自己的假绿如实记**：变异驱动第一版把「跑了 0 条测试」读成"全绿"，8 条变异齐报 NOT_CAUGHT（驱动产物，不是锁没牙）；第二版把仓库根相对路径当位置过滤器喂给 cwd 在 `apps/desktop` 的进程，同样 0 收集——规模下界两次都拦住了。另有一次禁词锁被自己的注释判红，处置是收紧判据（先剥注释、区间终点取预算引用位置）而不是删注释。
+- **测试与门禁**：`gui-ci-exit-contract.test.js` 40 → **43 passed**；QM-1 不触发（零 `electron/`、零 `packages/rpa-engine/`）；QM-4 棘轮改动前后逐字相同（判定域 112 / 基线 43 / 缺 69 上界 69 / 无主 0）；品牌残留 PASS（9803 个 tracked 文件）；行尾两口径 numstat 相同。
+
 # [未发布] fix(gate): 行数门禁的扫描域改成 git 的域 —— 本机跑过构建就报 NEW_OVER_LIMIT 的假红（max-lines-git-domain）
 
 ## 症状与根因
@@ -29,6 +39,7 @@
   9 道 CAUGHT 且红集互不相同，M8（摘掉读失败出声）实测 MISSED —— 那一格本机造不出确定性读失败，
   如实登记为无锁。同根因第二处 `scripts/check-debt-budget.js`（本机 filesOver500=97 vs CI 95、基线 101，
   靠余量没红）另开任务，不在本片顺手改第二个门禁的判定域。
+
 # [未发布] docs(CI): 沉淀 QG Coverage 40 分钟超时 flake（归因证据 + 不动 workflow）
 
 ## 现象
@@ -21981,3 +21992,4 @@ Desktop Shards + Coverage 门禁（实测 3 项重型 job 跑 15+ 分钟未完�
 （mock 契约问题，非修复问题）。入库一个红的测试比没有测试更糟，故本次不提交。
 
 ---
+
