@@ -975,6 +975,10 @@ test('谁做断言谁受约束：派生命中但状态列仍写 PASS 时，字�
     mergeLedger: mkML({ merged: [780], added: [['openspec/records/derived-and-claims.md', 780]] }),
   })
   assert.strictEqual(r.staleRecordFields.length, 1, JSON.stringify(r.staleRecordFields))
+  // 这一格是反证 M9 的指名落点：把 blob 闭合提到派生之前（"blob 占了这条记录，派生档就不必再记"）
+  // 必须在这里变红——优先级链是"两条都记账、由谁定身"，不是"先到者独吞"。
+  assert.strictEqual(r.derivedClosed.length, 1,
+    '派生与断言同时成立时，派生档仍必须记账（自证行与跨源可见档都消费它，独吞会让读数说谎）')
 })
 
 test('本次变更集新增的记录判 byDesign，不红；预写 PASS 判 prematureClaim', () => {
@@ -1096,6 +1100,10 @@ test('真仓改前/改后对账：派生接入不新增任何红，只把已合�
   const frozen = execFileSync('git', ['rev-parse', 'origin/main'], { encoding: 'utf8' }).trim()
   const ml = buildLedger({ baseRef: frozen, cwd: root })
   assert.equal(ml.ok, true, `真仓账本必须可用：${ml.reason}`)
+  // 反证 M13 的落点：对账必须站在**同一个钉死 SHA** 上。去掉 `baseRef: frozen` 的钉死
+  // （退回默认值或改写当前 HEAD）时，这一格立刻红——主干在会话进行中会前进，
+  // 不钉 SHA 的改前/改后对账不可复现（评审 TASKS-4 实测：同一会话内 406→407 篇）。
+  assert.strictEqual(ml.baseSha, frozen, '账本必须由显式钉死的 SHA 构建，不得由默认值另行解析')
   const unavailable = { ok: false, reason: 'forced-unavailable' }
   const before = checker.collect({ root, ledger: checker.loadLedger(), mergeLedger: unavailable })
   const after = checker.collect({ root, ledger: checker.loadLedger(), mergeLedger: ml })
@@ -1233,4 +1241,24 @@ test('账本不可用时，新形态「由门禁推导」判未证实而非判�
   const r2 = checker.collect({ root: dir, ledger: {}, mergeLedger: okLedger })
   assert.strictEqual(r2.unprovenDerived.length, 0)
   assert.strictEqual(r2.derivedClosed.length, 1)
+})
+
+test('域一致锁：派生档实际处理过的文件集合必须逐等于 listRecordFiles 的返回值（评审 i8 / 反证 M10）', () => {
+  // 这条锁防的不是"清单写错"，而是"循环换了输入源"：把 for 的文件集合换成一份额外的
+  // readdirSync（不过 `_` 前缀、或递归进子目录）时，两份集合立刻不等。
+  // 探针曾真实把 _exempt/ 读进门禁域并误判出"1 篇缺行"，所以判据必须是集合相等，不是计数。
+  const dir = fixture([{ head: '老记录（legacy，2026-09-28）', status: 'PASS' }])
+  recFile(dir, 'domain-a', { row: 'PENDING' })
+  recFile(dir, 'domain-b', { withRow: false })
+  recFile(dir, 'domain-c', { row: '由门禁推导' })
+  fs.writeFileSync(path.join(dir, 'openspec', 'records', '_TEMPLATE.md'), '# 模板自带一行 远程同步\n', 'utf8')
+  const recordsRoot = path.join(dir, 'openspec', 'records')
+  const ml = mkML({ merged: [5001], added: [['openspec/records/domain-a.md', 5001]] })
+  const r = checker.collect({ root: dir, ledger: {}, mergeLedger: ml })
+
+  const expected = checker.listRecordFiles(recordsRoot).slice().sort()
+  assert.ok(expected.length >= 3, `夹具必须真的有内容可扫，实测 ${expected.length}`)
+  assert.ok(!expected.includes('_TEMPLATE.md'), 'listRecordFiles 自己就该排除模板与 `_` 前缀')
+  assert.deepStrictEqual(r.recordsClassified.slice().sort(), expected,
+    '派生档的遍历域与唯一枚举实现不一致 ⇒ 存在第二份文件清单')
 })

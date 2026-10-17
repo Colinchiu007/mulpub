@@ -8,7 +8,7 @@ date: 2026-10-17
 
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
-| 变更类型与隔离 | ✅ | 运行时代码变更（`scripts/` 工具 + `.github/workflows/` + CI 判据）⇒ 走隔离 worktree `D:/Data/projects/mp-worktrees/mp-gate-record-sync-derived-status`，裸分支 `gate-record-sync-derived-status`，经 PR 落地。入口 `scripts/start-mp-task.ps1`，依赖三件套实跑：`pnpm install --frozen-lockfile`（56.6s）+ `ensure-electron`（v43.7.7）+ `verify-worktree-deps`（11 个消费方解析通过）。分支/基线以产物核：`rev-parse --abbrev-ref HEAD` = 任务分支、`HEAD..origin/main` = 0、dirty=0 |
+| 变更类型与隔离 | ✅ | 运行时代码变更（`scripts/` 工具 + `.github/workflows/` + CI 判据）⇒ 走隔离 worktree（默认 `<仓库父目录>/mp-worktrees/mp-gate-record-sync-derived-status`），裸分支 `gate-record-sync-derived-status`，经 PR 落地。入口 `scripts/start-mp-task.ps1`，依赖三件套实跑：`pnpm install --frozen-lockfile`（56.6s）+ `ensure-electron`（v43.7.7）+ `verify-worktree-deps`（11 个消费包解析到本工作树）。分支/基线以产物核：`rev-parse --abbrev-ref HEAD` = 任务分支、`HEAD..origin/main` = 0、dirty=0 |
 | 本仓运行时代码 | ✅ 仅 `scripts/` 与 `.github/` | 未触 `apps/desktop/`、`packages/`、`ops-center/` ⇒ 无产品运行面变更 |
 | QM-1 打包 / QM-4 视觉 | N/A / N/A | 未触 electron 主进程与渲染层，无打包面、无 UI 变更 |
 | QM-6 CCG 双模型外部评审 | 见下 | 决策层（plan-review，critic=claude）+ QM-6 后端（claude）+ 前端（opencode）共 3 轴 36 条 findings 已逐条处置；验证层 deep-review（DUAL）见本表末段与 `reviews/` |
