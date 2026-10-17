@@ -241,6 +241,28 @@ test('purgeStaleBinaries 在没有 lib 目录时返回空数组（不抛错）',
   assert.deepEqual(lib.purgeStaleBinaries(root, '@img/sharp-win32-x64', '0.35.5'), [])
 })
 
+// 深度评审 i2（upheld）的回归锁：只删**本包前缀**的 .node，外来文件一律不碰。
+// 上游 files 只声明 index.cjs/lib/versions.json，但目录内容不保证，宽判据会误伤。
+test('findStalePlatformBinaries 只认本包前缀，非本包 .node 不得判为 stale', (t) => {
+  const root = makeRoot(t)
+  const libDir = path.join(root, 'node_modules', '@img', 'sharp-win32-x64', 'lib')
+  fs.mkdirSync(libDir, { recursive: true })
+  const mine = path.join(libDir, 'sharp-win32-x64-0.35.1.node') // 本包旧版本 ⇒ stale
+  const foreign = path.join(libDir, 'other-vendor-9.9.9.node') // 外来 ⇒ 不碰
+  const keep = path.join(libDir, 'sharp-win32-x64-0.35.5.node') // 本包当前版本 ⇒ 保留
+  for (const f of [mine, foreign, keep]) fs.writeFileSync(f, 'x')
+
+  const found = lib.findStalePlatformBinaries(root, '@img/sharp-win32-x64', '0.35.5')
+  assert.deepEqual(found.map((f) => path.basename(f)), ['sharp-win32-x64-0.35.1.node'],
+    '只有本包前缀且非当前版本的文件可以判 stale')
+
+  const purged = lib.purgeStaleBinaries(root, '@img/sharp-win32-x64', '0.35.5')
+  assert.deepEqual(purged, ['sharp-win32-x64-0.35.1.node'])
+  assert.equal(fs.existsSync(foreign), true, '外来 .node 必须原样保留（不得误删）')
+  assert.equal(fs.existsSync(keep), true, '当前版本必须保留')
+  assert.equal(fs.existsSync(mine), false, '本包旧版本必须被删')
+})
+
 // 接线锁（结构级）：purgeStaleBinaries 有行为测试，但 restorePackage 是否**真的调用它**
 // 无法用行为测试覆盖（那条路要 npm pack，联网）。变异实测：把 restorePackage 里的调用
 // 整段删掉，行为测试全绿 ⇒ 「判据正确、动作正确、但没人接」这种装饰性防护会漏过去。

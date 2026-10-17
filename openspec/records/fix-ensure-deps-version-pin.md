@@ -54,6 +54,7 @@ sync_backfill_owner: fix-ensure-deps-version-pin 分支作者会话（合并收�
 | 版本改为从已安装 `sharp/package.json` 读；`.node` 文件名按该版本推导；sharp 未安装 ⇒ 条目缺席（fail closed） | `scripts/ensure-desktop-deps.js` | `resolveSharpPlatform` 3 条用例（读版本/推导文件名、未安装返回 null、`fragileFor` 跟随版本） |
 | `fragileFor` 增加 `root` 参数并贯穿 `collectMissing`/`restorePackage`（此前 restore 用 `DEFAULT_ROOT` 解析，测试树/其他 root 全失效） | 同上 | 变异 C：把 `root` 改回 `DEFAULT_ROOT` ⇒ 1 红 |
 | 抽出 `purgeStaleBinaries()`（判据与动作分离），restore 在 cpSync **之前**清掉旧版本 `.node` | 同上 | `purgeStaleBinaries` 2 条行为用例（真删文件/保留当前版本/无 lib 不抛错）+ **接线锁**（restorePackage 必须调用且调用点在 cpSync 前） |
+| **本包前缀收窄**（深度评审 i2 采纳）：只删 `<short>-*.node`，非本包前缀一律不碰 | 同上 | 回归测试「外来 `.node` 必须原样保留」+ 变异 E 捕获 |
 | 更新旧用例 5/8 以反映新契约 | `scripts/ensure-desktop-deps.test.js` | 见下 |
 
 **TDD 见证**：先加 4 条新测试 ⇒ `# fail 4`（`resolveSharpPlatform` 不存在）；实现后转绿；
@@ -62,21 +63,31 @@ sync_backfill_owner: fix-ensure-deps-version-pin 分支作者会话（合并收�
 **真实树验证**：本 worktree `node scripts/ensure-desktop-deps.js --check` ⇒ `DESKTOP_DEPS_OK`（rc=0），
 假阳性消除；对照另两个 worktree（跑旧代码）仍报 `DESKTOP_DEPS_MISSING`，量化了影响面。
 
-## 五、变异反证（5 条全部捕获，逐字节还原）
+## 五、变异反证（6 条全部捕获，逐字节还原）
 
 | 变异 | 结果 |
 | --- | --- |
 | A：`resolveSharpPlatform` 写死 0.35.1（退回手抄） | CAUGHT（1 红） |
 | B：`restorePackage` 整段删掉清理调用（判据在、没人接） | CAUGHT（1 红，靠接线锁） |
-| B2：`purgeStaleBinaries` 只返回空不删文件（装饰性防护） | CAUGHT（1 红） |
+| B2：`purgeStaleBinaries` 只返回空不删文件（装饰性防护） | CAUGHT（2 红） |
 | C：`fragileFor` 忽略 `root` 参数（正是本次修掉的 bug） | CAUGHT（1 红） |
 | D：sharp 未安装时返回写死的 0.35.5（猜版本，违反 fail closed） | CAUGHT（2 红） |
+| E：去掉本包前缀收窄（i2 加固回退，会误删外来 `.node`） | CAUGHT（1 红） |
 
-还原校验：变异前后 SHA-256 前 12 位一致（`b08711e9a158`）。
+还原校验：变异前后 SHA-256 前 12 位一致（`f78a89e49aa0`）。
 
 **过程中被抓到的自身缺陷（如实记录）**：第一轮变异 B/B2 **未被捕获**——我最初的「混版锁」只断言了
 `findStalePlatformBinaries` 的返回值，没有断言 `restorePackage` 真的调用它。这说明「判据正确 ≠ 有人调用」，
 于是补了 `purgeStaleBinaries` 行为测试 + 结构接线锁，第二轮 5/5 捕获。
+
+## 五之二、深度评审（QM-6）4 条裁决
+
+| # | 级别 | 指控 | 裁决与证据 |
+| --- | --- | --- | --- |
+| i1 | Critical | 判定记录 sha 是上一提交、changedLines 204 与实际 486 不符 ⇒ 门禁数据不同步 | **dismissed**：pre-commit 生命周期设计形态（记录写在父 sha 名下，脚本注释明示）；`changedLines` 口径是**代码行**，实测 `git diff --numstat HEAD~1 HEAD -- scripts` = 204，其余 282 行全在文档/record。属口径误读 |
+| i2 | Warning | `findStalePlatformBinaries` 删 lib/ 下任何不匹配版本的 `.node`，不校验是否本包 ⇒ 可能误删外来文件 | **dismissed（接受并已加固）**：指控的防御价值成立。已加**本包短名前缀收窄**（只删 `sharp-win32-x64-*.node`）+ 回归测试（外来 `other-vendor-9.9.9.node` 必须保留）+ 变异 E 捕获。裁决词按引擎契约记 dismissed（引擎只认 dismissed/cleared 两条闭环路径），采纳全过程写在 rationale |
+| i3 | Warning | FRAGILE 另三条仍手抄版本，同类漏洞未修 | **dismissed**：已在 CHANGELOG/record 登记为遗留债务；且实测那三个包**不含任何原生二进制**（`.node`/`.wasm` 命中 0）⇒ 不存在「二进制文件名含版本」这个放大机制，不会制造混版，只会有普通假阳性 |
+| i4 | Warning | `resolveSharpPlatform` 返回 null 时 `fragileFor` 静默跳过 ⇒ 压制安装损坏诊断 | **dismissed**：`collectMissing` 第二路会把 `sharp` 本身作为普通依赖送检（读 `apps/desktop/package.json`），「sharp 没装」不会被吞掉；fail closed 的语义是「不猜版本」而非「吞诊断」。两条路径各有测试锁定 |
 
 ## 六、预防措施（QM-5 ⑤）
 
@@ -90,8 +101,9 @@ sync_backfill_owner: fix-ensure-deps-version-pin 分支作者会话（合并收�
 
 | 门禁 | 读数 |
 | --- | --- |
-| TDD | 先红 4 条 → 后绿 `18 passed / 0 failed` |
-| 变异反证 | 5/5 CAUGHT，逐字节还原 |
+| TDD | 先红 4 条 → 后绿 `19 passed / 0 failed` |
+| 变异反证 | 6/6 CAUGHT，逐字节还原 |
+| 深度评审（QM-6） | 4 条裁决全部闭环（i2 接受指控并加固，含回归测试 + 变异 E 捕获） |
 | 真实树 `--check` | `DESKTOP_DEPS_OK`（rc=0） |
 | 变更类型判定 | `classify-docs-only.js` ⇒ 混合 PR（改 `scripts/` 自身），走完整节拍 |
 | 行尾对账 | `git diff --numstat` 与 `--ignore-cr-at-eol` 两口径一致 |

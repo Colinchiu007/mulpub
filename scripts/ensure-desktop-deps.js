@@ -85,6 +85,10 @@ function fragileFor(platform = process.platform, arch = process.arch, root = DEF
 /**
  * 列出目标目录下**不属于当前版本**的平台二进制（混版残留）。
  * restore 走 cpSync 合并而非替换，旧版本 .node 会被留下来 ⇒ 必须先删再写。
+ *
+ * 只删 basename 以本包短名开头的 .node（`<short>-<version>.node`）。这是必要的收窄：
+ * lib/ 私有目录理论上可能出现非本包的 .node（上游 files 只声明 index.cjs/lib/versions.json，
+ * 但目录内容不保证），一律按「不匹配当前版本」删会误伤外来文件。
  * @param {string} root 仓库根
  * @param {string} name 平台包名
  * @param {string} version 当前（要恢复成的）版本
@@ -94,9 +98,11 @@ function findStalePlatformBinaries(root, name, version) {
   const libDir = path.join(nodeModulesPath(root, name), 'lib')
   let entries = []
   try { entries = fs.readdirSync(libDir) } catch { return [] }
-  const keep = `${name.split('/')[1]}-${version}.node`
+  const short = name.split('/')[1]
+  const prefix = `${short}-`
+  const keep = `${prefix}${version}.node`
   return entries
-    .filter((f) => f.endsWith('.node') && f !== keep)
+    .filter((f) => f.endsWith('.node') && f.startsWith(prefix) && f !== keep)
     .map((f) => path.join(libDir, f))
 }
 
