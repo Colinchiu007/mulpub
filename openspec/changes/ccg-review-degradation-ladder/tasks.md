@@ -26,10 +26,10 @@
 
 ## 3. 降级资格以物证为准（接线已经在算的东西）
 
-- [ ] 3.1 `ccg-review-decider.js` 把 `detectBackends()` 结果写入记录新字段 `backendAvailability`（现于 `:459-470` 已算出但未落盘）
-- [ ] 3.2 判据只读 `backendAvailability` 判"不可用"，**不读 rc**、不读自述
-- [ ] 3.3 接线锁：改回不落盘必须红（变异 M6）
-- [ ] 3.4 计数分档：`0/1/2` 三档语义分离（1/2 与 2/2 不得长成一个样，沿用 `deep-review.sh:373-375` 的既有口径）
+- [x] 3.1 `ccg-review-decider.js` 把 `detectBackends()` 结果写入记录新字段 `backendAvailability`（现于 `:641` 已算出但未落盘）⇒ 已落 `summarizeBackendAvailability()`，`saveRecord` 第 5 参数可注入（默认自探）
+- [ ] 3.2 **未做，别当成已闭环**：判据侧还没消费 `backendAvailability` —— 现在它只是"被记录",不构成降级资格判据。落盘≠接线到判据，这一格留给「高危面矩阵」那片一起落（tasks 2.x）
+- [x] 3.3 接线锁与反证：改回不落盘必须红 ⇒ 变异 M-B1（摘掉落盘字段）指名红；另有 M-B2 计数塌成布尔、M-B3 摘掉缺省探测、M-B4 调用点漏传 backends，四条各自指名红、escaped=0
+- [x] 3.4 计数分档：`count` 为 0/1/2 且 `partial=(count===1)`，`notDeepStrictEqual(two, one)` 钉死「1/2 与 2/2 不得同形」（沿用 `deep-review.sh:373-375` 既有口径，不另造词汇）
 
 - [ ] 3.5 失败形态分档：`不可达`（wrapper/后端解析失败）／`可达但交付无效`（rc=0 且 findings 数组解析不出或条数为 0）／`证据不足`（评审自述被截断）三档各给不同出口，**一律不得取 rc 判**（2026-10-17 实测：同一轴三次 rc 全 0、载荷全非 findings）
 
