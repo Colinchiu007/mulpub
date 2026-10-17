@@ -17,8 +17,6 @@
  *   - 离线模式：offlineStatus / offlineIsOffline / offlineCachedTasks / offlineAddToCache
  *               offlineClearCache / onOfflineRestored
  *   - 引导：onboardingComplete / onboardingGetSteps / onboardingStatus
- *   - 支付：paymentCreateOrder / paymentListOrders / paymentGetOrder / paymentComplete
- *           paymentSimulate / paymentCancel
  *   - 全局导航：onNavigate
  *   - 数据分析：analyticsOverview / analyticsPlatform / analyticsPlatforms
  *   - 快捷键：hotkeysList
@@ -118,13 +116,9 @@ function createSystemApi(ipcRenderer) {
     onboardingGetSteps: () => ipcRenderer.invoke('onboarding:get-steps'),
     onboardingStatus: () => ipcRenderer.invoke('onboarding:status'),
 
-    // 支付 API
-    paymentCreateOrder: (options) => ipcRenderer.invoke('payment:create-order', options),
-    paymentListOrders: () => ipcRenderer.invoke('payment:list-orders'),
-    paymentGetOrder: (orderId) => ipcRenderer.invoke('payment:get-order', orderId),
-    paymentComplete: (orderId, txnId) => ipcRenderer.invoke('payment:complete', { orderId, txnId }),
-    paymentSimulate: (orderId) => ipcRenderer.invoke('payment:simulate', { orderId }),
-    paymentCancel: (orderId) => ipcRenderer.invoke('payment:cancel', orderId),
+    // 支付 API 已于 2026-10-17 remove-buyout-license 移除：
+    // 本地下单链路（payment-manager）在 S1 修复后已无法授予任何授权，且 ¥99
+    // 一次性买断与服务端三档订阅互斥。在线支付需接支付平台 + 回调 + 对账，属独立立项。
 
     // 全局导航 API（快捷键触发）
     onNavigate: (cb) => {

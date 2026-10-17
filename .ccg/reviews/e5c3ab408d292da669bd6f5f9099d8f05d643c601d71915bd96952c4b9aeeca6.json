@@ -1,0 +1,30 @@
+{
+  "sha": "d9ebb5c5c3b83c31c10c57761f27a31eb9cb83c4",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 1283 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 1283,
+    "fileCount": 16,
+    "codeFileCount": 14,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 59,
+    "docSensitiveContentHits": 20,
+    "docSensitiveContentSample": [
+      "# PRD：移除买断授权模型 + 定价统一与支付接入方案（2026-10-17）",
+      "# A 部分：移除买断授权模型",
+      "| 2 | **下单链路已断，但骨架还在** | `payment-manager.js:138-146` 的 S1 修复（2026-10-09）把 `activate('PAY-PRO-<uuid>')` 判死：`license-manager.activate()` 现在只接受 4-4-4 兑换码格式，订单号 UUID 必不匹配 ⇒ **用户「支付成功」后拿不到任何授权**。链路是死的，代码还在跑。 |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "e5c3ab408d292da669bd6f5f9099d8f05d643c601d71915bd96952c4b9aeeca6",
+  "decidedAt": "2026-10-17T14:15:34.214Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

@@ -366,16 +366,13 @@ export async function batchCancel(id) { return invokeWithFallback("batchCancel",
 
 export function onBatchProgress(callback) { return bridgeOn("BatchProgress", callback) }
 
-// ─── 支付 API ─────────────────────────────
-export async function paymentCreateOrder(options) { return invokeWithFallback("paymentCreateOrder", {  code: -1  }, options) }
-
-export async function paymentListOrders() { return invokeWithFallback("paymentListOrders", {  code: 0, data: []  }) }
-
-export async function paymentGetOrder(orderId) { return invokeWithFallback("paymentGetOrder", {  code: -1  }, orderId) }
-
-export async function paymentSimulate(orderId) { return invokeWithFallback("paymentSimulate", {  code: -1  }, orderId) }
-
-export async function paymentCancel(orderId) { return invokeWithFallback("paymentCancel", {  code: -1  }, orderId) }
+// ─── 支付 API 已移除（2026-10-17 remove-buyout-license）─────────────────
+// 原先这里封装了 paymentCreateOrder / paymentListOrders / paymentGetOrder /
+// paymentSimulate / paymentCancel。整条本地下单链路已随买断授权模型移除：
+// 它在 S1 修复后已经断了（activate 只认 4-4-4 兑换码，订单 UUID 必不匹配 ⇒
+// 支付成功也拿不到授权），且 ¥99 一次性买断与服务端 plan-matrix 的三档订阅互斥。
+// 授权唯一入口是服务端：POST /api/v1/redeem + entitlement 下发。
+// 若要做在线支付，需接支付平台 + 回调 + 对账，是独立立项，不要在这里"恢复"封装。
 
 
 // ─── 首次运行引导 API ──────────────────────

@@ -28,7 +28,11 @@ function registerAllHandlers(ipcMain, deps) {
   require('./license')(ipcMain, deps)
   require('./ai')(ipcMain, deps)
   require('./offline')(ipcMain, deps)
-  require('./payment')(ipcMain, deps)
+  // 注意：这里**不要**再注册 `./payment`。
+  // 买断授权模型已于 2026-10-17 移除（remove-buyout-license）：那条本地下单链路
+  // 在 S1 修复后已经断了（activate 只认 4-4-4 兑换码，订单 UUID 必不匹配 ⇒
+  // 支付成功也拿不到授权），且 ¥99 一次性买断与服务端 plan-matrix 的三档订阅互斥。
+  // 在线支付若要做，需接支付平台 + 回调 + 对账，是独立立项，不是恢复这个文件。
   require('./pipeline')(ipcMain, deps)
   // runImportedMediaGc 仅生产接线开启：selected-media 老化回收（>7 天）在注册时执行一次；
   // 测试环境不传该标记，避免 registerHandlers 触碰真实临时目录。

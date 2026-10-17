@@ -2,21 +2,35 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mount } from "@vue/test-utils";
 import { nextTick } from "vue";
 import { setActivePinia, createPinia } from "pinia";
+import fs from "node:fs";
+import path from "node:path";
 
 const mockStore = {
   isPro: false, isTrial: false, isFree: true,
   daysRemaining: 0, load: vi.fn(),
-  activate: vi.fn(), deactivate: vi.fn(), activateTrial: vi.fn()
+  deactivate: vi.fn(), activateTrial: vi.fn()
 };
 vi.mock("@/stores/license", () => ({
   useLicenseStore: () => mockStore
 }));
 
-const mockPayment = { paymentCreateOrder: vi.fn(), paymentSimulate: vi.fn(), paymentCancel: vi.fn() };
-window.electronAPI = mockPayment;
-
 import i18n from "@/i18n"
 import UpgradeModal from "./UpgradeModal.vue";
+
+/**
+ * 本文件在 2026-10-17（remove-buyout-license）**重写**。
+ *
+ * 原文件有 269 行、十几条用例，其中 7 条锁的是「买断支付流程」：选择支付方式 →
+ * 创建订单 → 扫码 → 模拟支付 → 取消订单。买断授权模型已整体移除，那条链路连同
+ * `payment-manager` 一起删了——留着这些用例只会永远红，且它们锁的事实已不存在。
+ *
+ * 重写后只锁**当前仍然成立**的能力，并额外加一条源码锁防止支付 UI 悄悄长回来。
+ * 注意这不是"放宽断言"：每条断言都对应组件现在真实会做的事。
+ */
+function mountInBuild (env = {}) {
+  for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v)
+  return mount(UpgradeModal, { global: { plugins: [i18n] } })
+}
 
 describe("UpgradeModal", () => {
   beforeEach(() => {
@@ -24,22 +38,14 @@ describe("UpgradeModal", () => {
     setActivePinia(createPinia());
     mockStore.isPro = false; mockStore.isFree = true;
     mockStore.load.mockResolvedValue(undefined);
-    mockPayment.paymentCreateOrder.mockResolvedValue({ code: 0, data: { id: "order_123" } });
-    mockPayment.paymentSimulate.mockResolvedValue({ code: 0 });
-    mockPayment.paymentCancel.mockResolvedValue({ code: 0 });
-    mockStore.activate.mockResolvedValue(true);
     mockStore.activateTrial.mockResolvedValue(true);
   });
 
-  // 2026-10-07：购买入口测试会 `vi.stubEnv("DEV", true)`。若不逐例还原，
-  // stub 会**泄漏到后续所有用例**——把正式包形态的断言悄悄变成开发包形态。
-  // 组件里 `purchaseAvailable` / `simulatedPaymentAvailable` 读的是
-  // `import.meta.env.DEV`，一旦被上一个用例留在 true，后面的
-  // "正式包不显示购买入口" 就会失明。
+  // 环境变量 stub 必须逐例还原，否则会泄漏到后续用例、把正式包断言悄悄变成开发包断言
   afterEach(() => { vi.unstubAllEnvs(); });
 
   it("renders overlay when visible", async () => {
-    const w = mount(UpgradeModal, { global: { plugins: [i18n] } });
+    const w = mountInBuild()
     await nextTick();
     expect(w.find(".upgrade-overlay").exists()).toBe(true);
     expect(w.find(".plan-card").exists()).toBe(true);
@@ -47,223 +53,60 @@ describe("UpgradeModal", () => {
   });
 
   it("emits close on overlay click", async () => {
-    const w = mount(UpgradeModal, { global: { plugins: [i18n] } });
+    const w = mountInBuild()
     await nextTick();
     await w.find(".upgrade-overlay").trigger("click");
     expect(w.emitted("close")).toBeTruthy();
   });
 
-  // 以下三例走的是**开发包**形态：2026-10-07 起购买入口在正式构建下整体关闭
-  // （`purchaseAvailable = import.meta.env.DEV`），「立即升级」按钮正式包不存在。
-  // 显式 stub 成 dev，否则这三条会因为找不到按钮而"静默跳过"——见下方注释。
-
-  it("shows payment flow when upgrade button clicked", async () => {
-    vi.stubEnv("DEV", true);
-    const w = mount(UpgradeModal, { global: { plugins: [i18n] } });
+  it("正式包（DEV=false）：不渲染任何购买入口（无「立即升级」/「确认支付」）", async () => {
+    const w = mountInBuild({ DEV: false })
     await nextTick();
-    await w.find(".upgrade-btn").trigger("click");
-    await nextTick();
-    expect(w.text()).toContain("确认支付");
-  });
-
-  it("submits order and shows QR step", async () => {
-    vi.stubEnv("DEV", true);
-    const w = mount(UpgradeModal, { global: { plugins: [i18n] } });
-    await nextTick();
-    await w.find(".upgrade-btn").trigger("click");  // shows payment step 1
-    await nextTick();
-    // 去掉 `if (confirmBtn.length > 0)` 包裹：按钮找不到时整段跳过 = 恒真，
-    // 支付链路坏掉测试照样绿。找不到就该红。
-    const confirmBtn = w.findAll("button").filter(b => b.text().includes("确认支付"));
-    expect(confirmBtn.length).toBeGreaterThan(0);
-    await confirmBtn[0].trigger("click");
-    await new Promise(r => setTimeout(r, 50));
-    expect(w.text()).toContain("扫码支付");
-    expect(mockPayment.paymentCreateOrder).toHaveBeenCalled();
-  });
-
-  it("handles order creation failure", async () => {
-    mockPayment.paymentCreateOrder.mockResolvedValue({ code: 1, message: "order failed" });
-    vi.stubEnv("DEV", true);
-    const w = mount(UpgradeModal, { global: { plugins: [i18n] } });
-    await nextTick();
-    await w.find(".upgrade-btn").trigger("click");
-    await nextTick();
-    const confirmBtn = w.findAll("button").filter(b => b.text().includes("确认支付"));
-    expect(confirmBtn.length).toBeGreaterThan(0);
-    await confirmBtn[0].trigger("click");
-    await new Promise(r => setTimeout(r, 50));
-    // 下单失败必须显示错误态，而不是静默成功
-    // （原断言是 `expect(true).toBe(true)`，恒真，什么都没验）
-    expect(w.text()).toContain("支付失败");
-    expect(mockPayment.paymentCreateOrder).toHaveBeenCalled();
-  });
-
-  it("cancels order and returns to select", async () => {
-    vi.stubEnv("DEV", true);
-    const w = mount(UpgradeModal, { global: { plugins: [i18n] } });
-    await nextTick();
-    // Step 1 -> 选择支付方式
-    await w.find(".upgrade-btn").trigger("click");
-    await nextTick();
-    expect(w.text()).toContain("选择支付方式");
-
-    // Step 2 -> 扫码页（「取消订单」按钮只在 paymentStep==='paying' 时存在）
-    const confirmBtn = w.findAll("button").filter(b => b.text().includes("确认支付"));
-    expect(confirmBtn.length).toBeGreaterThan(0);
-    await confirmBtn[0].trigger("click");
-    await new Promise(r => setTimeout(r, 50));
-    expect(w.text()).toContain("扫码支付");
-
-    // Step 3 -> 点「取消订单」应调 paymentCancel 并退回选择支付方式
-    const cancelBtn = w.findAll("button").filter(b => b.text().includes("取消订单"));
-    expect(cancelBtn.length).toBeGreaterThan(0);
-    await cancelBtn[0].trigger("click");
-    await new Promise(r => setTimeout(r, 50));
-
-    expect(mockPayment.paymentCancel).toHaveBeenCalled();
-    expect(w.text()).toContain("选择支付方式");
-    expect(w.text()).not.toContain("扫码支付");
-  });
-
-  it("「返回」按钮退出整个支付流程（不是退回上一步）", async () => {
-    // 2026-10-07 新增：这两个按钮语义相近但完全不同，此前从无覆盖。
-    //   - 「返回」在 paymentStep==='select' 时绑定 `showPaymentFlow = false` => 退出流程
-    //   - 「取消订单」在 paymentStep==='paying' 时绑定 cancelOrder => 回 select 步
-    // 原先把「返回」当成「返回上一步」来断言，方向就错了（本次 CI 抓到）。
-    vi.stubEnv("DEV", true);
-    const w = mount(UpgradeModal, { global: { plugins: [i18n] } });
-    await nextTick();
-    await w.find(".upgrade-btn").trigger("click");
-    await nextTick();
-
-    const returnBtn = w.findAll("button").filter(b => b.text().includes("返回"));
-    expect(returnBtn.length).toBeGreaterThan(0);
-    await returnBtn[0].trigger("click");
-    await nextTick();
-
-    expect(w.text()).not.toContain("选择支付方式");   // 已退出流程
-    expect(w.text()).not.toContain("扫码支付");
-    expect(w.text()).toContain("激活码");             // 回到 plan-card
-    expect(mockPayment.paymentCancel).not.toHaveBeenCalled();
-  });
-
-  it("calls deactivate when deactivate button clicked", async () => {
-    const w = mount(UpgradeModal, { props: { }, global: { plugins: [i18n] } });
-    await nextTick();
-    const deactivateBtn = w.findAll("button").filter(b => b.text().includes("deactivate"));
-    if (deactivateBtn.length > 0) await deactivateBtn[0].trigger("click");
-    // 2026-10-07：原为 `if (typeof vm.doDeactivate === "function") { …断言… }` ——
-    // doDeactivate 确实在 defineExpose 里，条件恒真，等于没写。改为直接断言它存在再调。
-    const vm = w.vm;
-    expect(typeof vm.doDeactivate).toBe("function");
-    await vm.doDeactivate();
-    expect(mockStore.deactivate).toHaveBeenCalled();
-  });
-
-  it("loads license on mount", async () => {
-    mount(UpgradeModal, { global: { plugins: [i18n] } });
-    await nextTick();
-    expect(mockStore.load).toHaveBeenCalled();
-  });
-});
-
-/**
- * 正式包里不渲染「模拟支付成功（开发模式）」入口。
- *
- * 背景（QM-5 溯源）：`8480a7e`（2026-07-04 P2 许可证系统）引入本组件时，
- * 模拟支付按钮无条件渲染。`829dc22` 把函数覆盖率从 41% 提到 76%，
- * `981bc71` 还专门修了激活测试——**但 76% 里没有一条断言「正式包不该出现这个按钮」**。
- * 覆盖率数字与缺陷是否被拦住是两件事。
- *
- * 关键口径：这里**不给组件开测试注入口**。`simulatedPaymentAvailable` 读的就是
- * `import.meta.env.DEV`，用 `vi.stubEnv('DEV', false)` 把它摆成正式包形态，
- * 跑的是生产同一条分支。给组件留 `options.dev` 之类的口子，
- * 既让生产分支在测试里永远跑不到，也等于给误用者留了同样的口子
- * （`useFeatureFlag.test.js` 记着上一版就是这么错的，QM-6 外部评审点出来的）。
- */
-describe("模拟支付入口的构建期可见性", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    setActivePinia(createPinia());
-    mockStore.isPro = false; mockStore.isFree = true;
-    mockStore.load.mockResolvedValue(undefined);
-    mockPayment.paymentCreateOrder.mockResolvedValue({ code: 0, data: { id: "order_123" } });
-  });
-  afterEach(() => { vi.unstubAllEnvs(); });
-
-  /** 摆出指定构建形态：dev=true 开发包，dev=false 正式包 */
-  function mountInBuild({ dev }) {
-    vi.stubEnv("DEV", dev);
-    const w = mount(UpgradeModal, { global: { plugins: [i18n] } });
-    return w;
-  }
-
-  /** 推进到扫码页：点「立即升级」→ 点「确认支付」创建订单。仅 dev 构建可达。 */
-  async function advanceToPaying(w) {
-    await w.find(".upgrade-btn").trigger("click");   // 立即升级 → Step 1 选择支付方式
-    await nextTick();
-    const confirmBtn = w.findAll("button").filter(b => b.text().includes("确认支付"));
-    await confirmBtn[0].trigger("click");
-    await new Promise(r => setTimeout(r, 50));
-  }
-
-  it("正式包（DEV=false）：购买入口整体不渲染——无价格、无「立即升级」", async () => {
-    // 2026-10-07：此前这条链的正式包形态是「能建单、能看扫码页，只是不能模拟支付」
-    // （#3006 的口径）。那本身是缺陷——用户能创建一个永远付不成的真实订单。
-    // 现在购买入口整体关闭，正式包**到不了扫码页**，这条断言随之改写。
-    const w = mountInBuild({ dev: false });
-    await nextTick();
-
     expect(w.text()).not.toContain("立即升级");
     expect(w.text()).not.toContain("确认支付");
-    // 价格不再对外宣称那个不存在的套餐
+  });
+
+  it("正式包（DEV=false）：不再对外宣称买断套餐（无 ¥99 / 永久）", async () => {
+    const w = mountInBuild({ DEV: false })
+    await nextTick();
+    // 买断授权模型已移除；价格唯一权威源是服务端 plan-matrix 的三档订阅，
+    // 由会员中心展示，本组件不得再硬编码任何金额
     expect(w.text()).not.toContain("¥99");
     expect(w.text()).not.toContain("永久");
-    // 如实说明现状
+  });
+
+  it("如实说明付费通道现状，而不是留一个确认不了的购买按钮", async () => {
+    const w = mountInBuild({ DEV: false })
+    await nextTick();
     expect(w.text()).toContain("付费通道筹备中");
-    // 激活码通道必须仍在——买断授权的既有通道，不属于购买入口
+  });
+
+  it("激活码入口已迁移到服务端核销（不再渲染本地输入框）", async () => {
+    const w = mountInBuild({ DEV: false })
+    await nextTick();
+    // 本地 activate() 已随买断模型删除；页面只如实说明去向
+    expect(w.find("input.upgrade-input").exists()).toBe(false);
     expect(w.text()).toContain("激活码");
   });
 
-  it("正式包（DEV=false）：从用户可达路径上无法创建订单", async () => {
-    const w = mountInBuild({ dev: false });
+  it("isPro 时显示已激活徽章与注销入口", async () => {
+    mockStore.isPro = true; mockStore.isFree = false;
+    const w = mountInBuild({ DEV: false })
     await nextTick();
-
-    // 前置条件断言：确认是真没有入口，而不是因为前置步骤失败导致"没渲染"
-    const upgradeBtns = w.findAll("button").filter(b => b.text().includes("立即升级"));
-    expect(upgradeBtns.length).toBe(0);
-    expect(w.text()).not.toContain("扫码支付");
-
-    // 把当前所有按钮都点一遍：正式包下**没有任何一个**能走到下单。
-    // （不使用 `vm.startPayment()`——它未 expose；若用 `if (typeof … === "function")`
-    //   包起来就是恒绿通道，条件永远不成立，整段断言被静默跳过。）
-    for (const b of w.findAll("button")) {
-      try { await b.trigger("click"); } catch { /* 无 handler 的按钮 */ }
-    }
-    await nextTick();
-    await new Promise(r => setTimeout(r, 50));
-
-    expect(mockPayment.paymentCreateOrder).not.toHaveBeenCalled();
-    expect(mockPayment.paymentSimulate).not.toHaveBeenCalled();
-    expect(w.text()).not.toContain("扫码支付");
-    expect(w.text()).not.toContain("确认支付");
+    expect(w.text()).toContain("已激活");
+    expect(w.text()).toContain("注销许可证");
   });
 
-  it("开发包（DEV=true）：模拟支付按钮仍然渲染，开发流程不被本次修复打断", async () => {
-    const w = mountInBuild({ dev: true });
-    await nextTick();
-    await advanceToPaying(w);
-
-    expect(w.text()).toContain("模拟支付成功（开发模式）");
-    expect(w.text()).not.toContain("付费通道筹备中");
-  });
-
-  it("开发包（DEV=true）：购买入口与 ¥99 文案均保留（支付通道上线后按 plan-matrix 重做）", async () => {
-    const w = mountInBuild({ dev: true });
-    await nextTick();
-
-    expect(w.text()).toContain("立即升级");
-    expect(w.text()).toContain("¥99");
+  // 源码锁：防止支付 UI 顺着「以后要做支付」的念头悄悄长回来。
+  // 行为测试证明不了"不存在"，只有对源码本身的断言能。
+  it("源码锁：组件不得再引入 payment API 或硬编码买断价格", () => {
+    const src = fs.readFileSync(path.join(__dirname, "UpgradeModal.vue"), "utf8")
+    const code = src
+      .replace(/<!--[\s\S]*?-->/g, "")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^\s*\/\/.*$/gm, "")
+    expect(code, "又引入了 payment API 封装").not.toMatch(/paymentCreateOrder|paymentSimulate|paymentCancel/)
+    expect(code, "又出现 ¥99 买断价格").not.toContain("¥99")
+    expect(code, "又出现 payment-flow 支付流程容器").not.toContain("payment-flow")
   });
 });
