@@ -9,16 +9,21 @@
 - [x] 0.3 结论已回写 design D10 与规格：**两侧都只用 ADDED**；MODIFY 假设被实测否证，规格正文加了"取代关系"声明与并存消歧说明（S3 暴露的 Purpose 只认第一份，也如实记进 D10）。
 - [x] 0.4 `分层分支策略` 保持不碰：本 change 在 `openspec-integration` 侧只 ADDED 一条，未新增第三条 MODIFY（实测该条已被 `freeze-legacy-gate-carrier` 与 `hot-carrier-atomic-landing` 两条未归档 MODIFY 占用）。
 
-## 1. 共享实现：合并账本与记录归属（scripts/lib/merge-ledger.js）
+## 1. 共享实现：合并账本与记录归属（scripts/lib/merge-ledger.js）——已完成
 
-- [ ] 1.1 写红测：一次遍历产出 `mergeLedger: Map<pr,{sha,iso}>` 与 `addedBy: Map<path,pr|null>`，断言只认行尾 `(#NNNN)$`（正文中间的 `#123` 不算）。
-- [ ] 1.2 写红测：`--no-renames` 行为锁——把记录文件改名的提交 MUST NOT 被当成它的归属提交。
-- [ ] 1.3 写红测：`core.quotepath=off` 行为锁——含非 ASCII 的路径 MUST 能解析（否则归属静默丢失）。
-- [ ] 1.4 写红测：ref 取不到 / git 失败 / 账本规模为 0 三种输入都返回"不可用"信号且不抛裸栈；**不可用不得被读成已合并**。
-- [ ] 1.4b **归属三态不得塌成两态**（评审 i1）：`ABSENT`（路径不在映射里）、`NO_FOOTER`（在映射里但归属提交无 `(#NNNN)`）、`PR(n)` 三种输入各有一条用例，且 `NO_FOOTER` 与 `ABSENT` 的下游归类不同（前者落兼容档/欠账，后者落 byDesign）。把两态合并成一个出口必须红（M2b）。
-- [ ] 1.5 实现；真仓规模下界锁（`mergedPrs >= 1500`、`recordFiles >= 400`，禁止焊死某次读数）。
-- [ ] 1.6 判据接线锁：`check-gate-record-debt.js` MUST 从该模块取值且自身不含第二份 `git log` 解析；把接线摘掉必须红。
-- [ ] 1.7 隔离测试（评审 i3）：把 `buildMergeLedger` 改成恒返回空 Map ⇒ 必须红且**只红派生档用例**；空 Map 在 CI 环境还必须触发 `prs=0` 非零出口（见 4.7），两个方向分开测。
+跑法与 CI 同：`node --test scripts/lib/merge-ledger.test.js`，本轮实测 `# tests 10 / pass 10 / fail 0 / skipped 0`。
+接线落点：`.github/workflows/quality-gate.yml` 的 `changes` job「Detect docs-only changes」步骤内、**非 PR 早退之前**（⇒ PR 与 push 两档都跑，且该 job 无 job 级 `if:` 不会被 docs-only 短路）。三条自检本机实跑 rc=0：`check-workflow-structure.js` / `check-unwired-tests.js` / `check-step-failfast.js`。
+
+- [x] 1.1 红测：一次遍历产出 `mergedPrs` 与 `addedBy`，只认行尾 `(#NNNN)`。证据：用例「合并账本只认行尾 (#NNNN) 尾注，同一标题里靠前的编号不算」——夹具标题写 `docs: fix (#999) then ship (#101)`，断言 101 入账、999 不入账。原任务写的"正文中间的 `#123` 不算"是**假测**：`%s` 只取标题行，中段编号若落在正文根本测不到，必须同行才成立。
+- [x] 1.2 红测：`--no-renames` 行为锁。证据：用例「改名会把归属重指到改名那次提交」+ 变异 MU-B **CAUGHT**（红集恰为该条指名用例）。本条同时否证了设计原文两处措辞并已回改 design D3 与 spec：旧路径 `alpha.md` 的创建提交本身就是一次 `A`，**永远留在映射里**（实测 `addedBy(alpha.md)=100`），所以 `NOT_IN_BASE` 的唯一真实来源是"本次变更集新增"，不含改名旧路径；把它写成"改名⇒失去收口能力"方向恰好相反。
+- [x] 1.3 红测：`core.quotepath=off` 行为锁。证据：用例「非 ASCII 路径必须解析成字面键」+ MU-A **CAUGHT**。
+- [x] 1.4 红测：ref 取不到 / 非仓库 / 空账本三种输入各返回不可用信号且不抛裸栈。证据：用例「三种取不到读数各自出声，且绝不返回空 Map 冒充"没有已合并 PR"」+ MU-D **CAUGHT**。实现用 `--is-inside-work-tree` 与 `rev-parse --verify` 两步区分"跑错目录"与"分支不存在"——两者 git 都只回 128，混成一个码就把"判据装错了地方"报成"分支还没建好"。
+- [x] 1.4b 归属三态不塌（`NOT_IN_BASE` / `NO_FOOTER` / `PR(n)`，各一条用例；另加「PR 解析出来了但不在账本 = 取证不一致」一条）。证据：MU-F **CAUGHT**（删掉 NO_FOOTER 出口即红在该条指名用例）。
+- [x] 1.5 实现 + 真仓规模下界锁（`mergedPrs >= 1500`、`addedRecordPaths >= 400`，未焊死某次读数）。证据：用例「真仓 origin/main 上账本与归属都读出非零规模」实跑未 skip（`skipped 0` 即"这条真的跑了"的现场，写成 `t.skip` 就会把洞伪装成按设计跳过）。
+- [ ] 1.6 判据接线锁（`check-gate-record-debt.js` 从本模块取值、自身不含第二份 `git log` 解析）——**留给片 2**：判据尚未接入，现在写这条锁等于锁一个还不存在的调用点（装饰性断言的已知形态）。
+- [ ] 1.7 隔离测试的派生档一半——模块侧已具备（MU-D 红在指名用例）；「恒空 Map 时只红派生档、兼容档仍绿」要等片 2 出现派生档用例后才能测，届时与 M2 分别验。
+
+变异反证 6 条（MU-A…MU-F）全部 CAUGHT 且红集互不相同、还原后 md5 一致；一次性工具 `.tmp-mutate.cjs` 收尾时删除，结论以本节为现场记录。
 
 ## 2. 判据接入：三态收口 + 两处收窄（存量零漂移）
 
@@ -30,9 +35,9 @@
 - [ ] 2.6 **真仓改前/改后对账行为锁**：改造前后拦截集合逐篇相同、记录文件字节零改动。这是"存量不动"的唯一机械证据。**`baseRef` 必须钉死为显式传入的 SHA 并回写进执行记录**（评审 `TASKS-4`：实测同一会话内 main 从 406 走到 407 篇，取"当前 HEAD"的对账不可复现）；不传参即判"未证实"并出声，禁止默认值蒙混（反证 M13）。
 - [ ] 2.7 扫描域复用 `listRecordFiles`，禁止新写文件清单（探针曾把 `_exempt/` 读进门禁域，导致误判"1 篇缺行"；已核实该函数是**非递归** readdirSync + `isFile() && .md && !_前缀`，`_exempt/` 因是目录被排除）。
 - [ ] 2.8 **域一致锁**（评审 i8）：派生档遍历的文件集合 MUST 逐等于 `listRecordFiles(recordsRoot)` 的返回值；MUST NOT 有任何额外排除/包含。自建清单当输入 ⇒ 当场红（M10）。
-- [ ] 2.9 **优先级锁**（评审 i2）：`missingRow → ABSENT(inThisChangeset/prematureClaim) → derivedClosed → blobClosed → debt` 这条链必须是声明式实现；组合用例「派生成立 ∧ 状态列写了闭合词 ∧ 仍带 legacy 字段」MUST 受字段卫生约束（谁做断言谁受约束），换优先级顺序必须红（M9）。
+- [ ] 2.9 **优先级锁**（评审 i2）：`missingRow → NOT_IN_BASE(inThisChangeset/prematureClaim) → derivedClosed → blobClosed → debt` 这条链必须是声明式实现；组合用例「派生成立 ∧ 状态列写了闭合词 ∧ 仍带 legacy 字段」MUST 受字段卫生约束（谁做断言谁受约束），换优先级顺序必须红（M9）。
 
-- [ ] 2.10 **改名重指锁**（评审 `GIT-1`，本设计原写反了）：临时仓库造 `a.md (#100)` → `git mv` → `b.md (#200)`，断言 `addedBy(b.md) === 200` 且 `addedBy(a.md)` 为 `ABSENT`；并断言重指事实被打印（有声明 PR 时 `intentMismatch` 红，无声明时只出声不拦）。**禁止**把这行改回"改名 ⇒ 解析不到"（反证 M12 专守这个回退）。
+- [ ] 2.10 **改名重指锁**（评审 `GIT-1`，本设计原写反了）：临时仓库造 `a.md (#100)` → `git mv` → `b.md (#200)`，断言 `addedBy(b.md) === 200` 且 `addedBy(a.md)` 为 `NOT_IN_BASE`；并断言重指事实被打印（有声明 PR 时 `intentMismatch` 红，无声明时只出声不拦）。**禁止**把这行改回"改名 ⇒ 解析不到"（反证 M12 专守这个回退）。
 - [ ] 2.11 **归属候选取向锁**（`GIT-3/GIT-4`）：造"加入→删除→由另一 PR 重新加入"的三段历史，断言取**最近一次 A**（newest-wins）；实现改成取首次 A 必须红（反证 M11）。
 - [ ] 2.12 **枚举来源锁**（`D2-1`）：`merge-ledger` 内 MUST NOT 出现 `readdirSync` / `ls-tree` 等自建目录扫描，文件集合只接受调用方传入；测试构造"递归枚举会把 `_exempt/` 纳进来"的反例并断言被拒（反证 M10 的第二落点）。
 - [ ] 2.13 **浅检出模拟**（`LEDGER-1`）：给定不可解析的 `baseRef`，断言两件事同时成立——未闭合记录仍判红（不得因派生不可用而放行）且 `MERGE-LEDGER prs=0` 出现在输出里。两条各自独立成用例：实现把"不可用"做成"跳过检查"时只有分开的断言能指出哪一半先烂。

@@ -88,6 +88,12 @@ jobs:
           # CCG 安全扫描器自身的回归保护：扫描器一旦回退成「静默 0 文件绿灯」
           # 或把 fixtures 当真实高危，verify-security 的结论就不可信了。
           node --test .ccg/skills/tools/verify-security/scripts/security_scanner.test.js
+          # 合并账本单一取源的回归锁（change: gate-record-sync-derived-status）。
+          # 为什么放这里：本 job 无 job 级 if（docs-only 不短路），且这段在非 PR 早退之前 ⇒ PR 与 push 两档都跑。
+          # 派生收口全部依赖这个模块，它错一次影响的是**所有**记录的收口结论，而且失败形态多为静默
+          # （quotepath 开着 ⇒ 非 ASCII 路径键对不上 ⇒ 那条记录永远派生不出；rename 被检测 ⇒ 归属指错提交）。
+          # 6 条变异反证已实测各自红在指名用例（MU-A…MU-F），摘掉任一条口径都不是"少测一项"而是"测了个错的"。
+          node --test scripts/lib/merge-ledger.test.js
           if [ "${{ github.event_name }}" != "pull_request" ]; then
             echo "docs-only=false" >> "$GITHUB_OUTPUT"
             echo "docs-only=false (non-PR event: full run)"
