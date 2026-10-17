@@ -1,0 +1,30 @@
+{
+  "sha": "3a941d311b603b462d9002df2e4c3613cca19a3c",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 303 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 303,
+    "fileCount": 6,
+    "codeFileCount": 4,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 3,
+    "docSensitiveContentSample": [
+      "| 变更类型与隔离 | ✅ | 工具脚本（`scripts/`）+ CI 接线（`.github/workflows/quality-gate.yml`）+ 流程文档（AGENTS）+ 执行记录，**未触运行时代码**（`apps/desktop/**`、`packages/**` 零改动），仍按混合 PR 走完整质量节拍。worktree：`<仓库父目录>/mp-worktrees/mp-fix-qm1-verify-path`（D 盘），裸分支 `fix-qm1-verify-path`，起点 `origin/main` `3a941d311`；`pre-code-edit-guard` rc=0；依赖 `pnpm install --frozen-lockfile` rc=0 + `ensure-electron` v43.7.7 + `verify-worktree-deps` 11 项 OK；Write Guard 计划任务状态 Running。**偏离与授权**：共享根 main 上有另一会话的未提交跟踪文件（`01-docs/learnings.md`、`openspec/records/hot-topics-viral-item-sources.md`），`session-init.sh`/`gwm-task.sh` 按设计 fail-closed 拒绝建 worktree；等待约 50 分钟（其间对方 `gh run watch` 已结束、文件自 22:36 起无写入）后仍被挡，**经用户明确授权**改用 PowerShell 原生 `D:\\` 路径手工 `git worktree add`（只写 git 元数据，未触碰对方工作树/索引/HEAD；按铁律 B 不在 Git Bash 下用 `/d/` 路径做 git 写）。共享根始终保持 main、对方文件原样 |",
+      "| QM-4 视觉 | N/A | 未触 `apps/desktop/src/**`，无渲染层改动；默认像素态不变，未使用 `--update-baseline` |",
+      "4. **共享根并发**：另一会话的未提交文件在整个执行窗口内一直存在（本 PR 未触碰、未提交、未回滚）；worktree 经用户授权手工创建，若后续有会话复用本记录作为「可以手工建 worktree」的先例，须同样先取证「入口为何被挡 + 授权来源」。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "141798725f49c61123e9cbb36439760b8ec224b23af1e7b47fe84ccd5b818c9f",
+  "decidedAt": "2026-10-17T15:40:34.883Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

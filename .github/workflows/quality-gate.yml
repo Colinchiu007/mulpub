@@ -554,6 +554,10 @@ jobs:
           # 用户三次看不到应用，根因是启动链被 agent 会话连坐杀）
           node --test scripts/sync-app.test.js
           node --test scripts/qm1-child-env.test.js
+          # QM-1 打包验证脚本的路径解析锁（fix-qm1-verify-path）：脚本住在仓库根 scripts/，
+          # 产物不在脚本目录。#2985 引入起把 __dirname 当应用目录 ⇒ 脚本从未跑通，
+          # 而 AGENTS 把它当判据真源引用（装饰性门禁同型）。接线锁断言真机脚本必须用解析器。
+          node --test scripts/qm1-paths.test.js
           node --test .github/scripts/check-ipc-bridge.test.js
           node --test scripts/detect-unwired-exports.test.js
           node --test scripts/ensure-desktop-deps.test.js

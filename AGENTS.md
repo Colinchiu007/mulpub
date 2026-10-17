@@ -455,6 +455,11 @@ sleep 8 && kill $!
   2026-10-14 实测：stderr 里躺着 `bad option: --user-data-dir=...`（隔离实例参数被应用拒绝），
   它不在名单里，判据便打印「未命中红线」⇒ **把未知故障判成通过**。
   脚本侧同源实现见 `scripts/qm1-scheduled-publish-verify.cjs`；改一处必须同改另一处。
+  该脚本**自身可运行**由两条机械约束锁住（fix-qm1-verify-path，2026-10-17）：① 应用目录不得再假设「脚本就在 `apps/desktop`」，
+  而由 `scripts/lib/qm1-paths.js` 从脚本位置向上定位 `<repo>/apps/desktop`，找不到即 fail closed（**不退回脚本目录**）；
+  ② `scripts/qm1-paths.test.js` 含接线锁，改回 `path.resolve(__dirname)` 当场红。**动因**：该脚本自 #2985 引入起就把
+  `__dirname` 当 `apps/desktop`，产物路径落在 `<repo>/scripts/dist-electron/...`，**一次都没跑通过**；
+  而本文把它写成「判据的脚本侧同源实现」——引用一个从不执行的判据等于没有判据。
 
 - ⛔ **存活是三层判据的隐含前提，必须单独断言；且子进程 env 必须显式剔除 `ELECTRON_RUN_AS_NODE`（fix-qm1-electron-run-as-node，2026-10-15）**：
   上面那三层判据只规定「stderr 内容怎么判」，它**默认「进程确实起来了」**。前提本身要单独断言 ——
