@@ -2,9 +2,6 @@
 record: ops-center-ops-path
 task: 运营中心子路径部署打通——前端构建 base 条件化为 /ops/（修复「nginx 配了但页面白屏」）
 date: 2026-10-17
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；远程同步这一行只能在合并后取
-sync_backfill_owner: 下一个会话（按 AGENTS.md「合并后收尾清单」回填并删除本段三个字段）
 ---
 
 ## 本次执行记录：ops-center 前端 base 路径修复（ops-center-ops-path，2026-10-17）【混合 PR（前端构建配置）】
@@ -95,7 +92,7 @@ export default defineConfig({
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/` 与 `packages/rpa-engine/`；本变更为运营中心前端，门禁是 `npm run build`（已过） |
 | QM-2 代码必检项 | ✅ | 见下 |
 | QM-6 CCG 双模型外部评审 | 见下 | 本次变更 1 行逻辑 + 注释，`docs-only=false` 但属极小 delta |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin <branch>` 返回 0 行证远端分支已删；回填后删除上方三个 `sync_*` 字段 |
+| 远程同步 | PASS | 已合并：`b2d90685afa88126832065a52da6d3db1fbabe79`（PR #3824，squash，2026-10-17T18:24:34+08:00）；远端分支已删除（`git ls-remote --heads origin ops-center-ops-path` 返回 0 行）；main push `quality-gate` run 39024781046 = **success**（11 job 全绿，含 `Gate Result`/`QG Changes`/`QG Static`/`QG Coverage`/`QG Unit Tests`） |
 
 ### QM-2 代码必检项
 
@@ -110,6 +107,18 @@ export default defineConfig({
 本次 delta 为 1 行逻辑（`base: isProduction ? '/ops/' : '/'`）+ 注释 + 1 个测试文件。
 按 `docs-only=false` 需走完整节拍，但引擎 `ccg-deep-review.js` 不在 CI 可见面且本机需显式调用。
 **本轮未调用引擎**，如实记录；替代判据是 6 条变异反证 + 产物级验证 + 93 条既有测试无回归。
+
+### main push 回读（AGENTS.md 收尾清单第 7 条）
+
+| 项 | 读数 |
+|---|---|
+| merge SHA | `b2d90685afa88126832065a52da6d3db1fbabe79`（PR #3824，squash，2026-10-17T18:24:34+08:00） |
+| 远端分支 | `git ls-remote --heads origin ops-center-ops-path` → **0 行**（已删） |
+| `quality-gate`（push） | run **39024781046 = success**，11 个 job 全部 success |
+
+**为什么必须回读这一格**：本次改的是前端构建配置（`base`），会影响产物；
+squash 会把差量落到**更新的 main tip** 上，PR 侧全绿**不构成** main 会绿的证据。
+本次实测 main push 全绿，无需 follow-up PR。
 
 ### 遗留（不假装已闭合）
 
