@@ -736,8 +736,11 @@ function parseFlags(argv) {
   // 白名单存的是**剥掉前导 -- 的参数名**：上一版把 '--carrier-mode' 整串放进来，
   // 而比较用的是 a.slice(2).split('=')[0] ⇒ 永不等于 ⇒ CI 里的 --carrier-mode=visible 直接抛
   // "未知旗标"（本机 CI 探针实测撞到，rc=1 且是未捕获异常）。这条注释就是那次事故的落点。
-  const allowed = ['carrier-mode', 'base-ref', 'current-pr']
-  const needValue = ['base-ref', 'current-pr']
+  // `--current-pr` 曾在此列但**没有任何消费者**（byDesign 的判据是"该路径不在 base 归属映射里"，
+  // 不需要 PR 号）。接受一个不生效的旗标与"拼错被静默忽略"是同一条反模式的两个方向
+  // （外部评审 F5 家族的 F2），已删；CI 若真要下发就会在这里当场红，而不是"看起来生效"。
+  const allowed = ['carrier-mode', 'base-ref']
+  const needValue = ['base-ref']
   for (const a of argv) {
     if (!a.startsWith('--')) continue
     const name = a.slice(2).split('=')[0]

@@ -1146,7 +1146,10 @@ test('parseFlags 必须接受 CI 实际下发的旗标形态，并对未知值�
   assert.doesNotThrow(() => checker.parseFlags(['--carrier-mode=block']))
   assert.doesNotThrow(() => checker.parseFlags(['--base-ref=origin/main']))
   assert.doesNotThrow(() => checker.parseFlags(['--base-ref=' + 'f'.repeat(40)]))
-  assert.doesNotThrow(() => checker.parseFlags(['--current-pr=3810', '--carrier-mode=block']))
+  // `--current-pr` 曾被白名单接受却没有任何消费者（外部评审 F2）。"接受一个不生效的旗标"
+  // 与"拼错了被静默忽略"是同一条反模式的两端 ⇒ 现在必须当场抛，而不是"收下再说"。
+  assert.throws(() => checker.parseFlags(['--current-pr=3810']), /未知旗标/,
+    '无人消费的旗标必须被拒绝，否则 CI 里它会读起来像"某一档生效了"')
   for (const bad of ['--json', '--Base-Ref=x', '--carriermode=visible', '--base-ref', '--current-pr']) {
     assert.throws(() => checker.parseFlags([bad]), /未知旗标|必须写成/, `未出声的参数形态：${bad}`)
   }
