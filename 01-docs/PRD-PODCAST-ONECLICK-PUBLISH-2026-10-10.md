@@ -862,7 +862,7 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 
 | 维度 | 规定 | 现场依据（当场读码） |
 | --- | --- | --- |
-| 数据校验（正文） | 正文 = `rewriteResult.value` 的当前串，**不得**从草稿/历史反查再拼；空白串视为「无正文」，动作不出现 | `rewriteResult.value` 已在三处以 `content: rewriteResult.value` 被消费（`RewriteView.vue:395` / `:424` / `:738`），它是改写结果的唯一持有者 |
+| 数据校验（正文） | 正文 = `rewriteResult.value` 的当前串，**不得**从草稿/历史反查再拼；空白串视为「无正文」，动作不出现 | `rewriteResult.value` 已在三处以 `content: rewriteResult.value` 被消费（`RewriteView.vue:414` / `:443` / `:777`，2026-10-17 随 PR #3807 落地后行号已前移，原记 `:395` / `:424` / `:738`），它是改写结果的唯一持有者 |
 | 数据校验（标题） | 取该页既有的标题来源，与「去发布」共用同一个提取点；不得在入口里另写一份标题拼装（②-b 的教训：`buildPublishFromProject` 是唯一提取点） | 该页保存草稿走 `saveToDraft()`，标题字段在草稿快照内，入口只读不造 |
 | 流程 | 点击 → 解析默认频道 → 取 `rewriteResult.value`（空则不出现）→ 打开浮层 → 浮层调预览 → 用户确认计费 → `episodePublishFromScript`（键 `copy.content`） | 与 §7.10.2 同一条 `runChain`，不为文本链另开流程 |
 | 交互 | 浮层按需挂载、常驻不卸载（关闭不取消发布）；挂起 owner 沿用 `podcast-script-entry-overlay`，**不新增第二个 owner** | AGENTS「应用级浮层弹窗互斥合同」+ `overlay-view-suspension.test.js` 已登记该 owner |
@@ -888,6 +888,15 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 5. 关闭浮层不取消发布（取消只在 §6.4.2 的 `cancellable` 窗口内由「取消出期」触发）。
 
 **故意不做**：不在发布页放「播客频道」选择器（§7.10.3.2 已裁定浮层不放下拉，入口页同样不放，否则出现两套选择口径）；不为这两枚新增任何 locale 键；不在前端算块数/码点/音色。
+
+**落地状态（2026-10-17，②-b② 已落；②-b③ 仍待落）**
+
+- ②-b② 的落点：`src/views/RewriteView.vue` 的动作行 `.rewrite-result-actions` 内新增 `data-testid="btn-podcast-script-entry"`，`v-if="podcast.activeChannelId.value && rewriteResult.trim()"`（**两个缺席都让动作整块不出现**：这一枚的正文本来就躺在内存里，所以「空白即无正文」落在**动作是否出现**上，而不是点击后被拒——这是它与 ②-b 文案库那一枚在判据 2 上的唯一形态差）；`openScriptEntry()` 只读 `rewriteResult.value`，经 `scriptEntry.openedOnce` 按需挂载 `PodcastScriptEntry.vue`（同一浮层、同一 owner、同一预览通道）。
+- **标题提取点已收敛为一份**：原表达式 `rewriteTitle.value || content.value.trim().slice(0, 64) || t('rewritePage.title')` 内联在 `saveToDraft` 里，现提出为 `resolveRewriteTitle()`，由「存入草稿」与本入口共用（上表「数据校验（标题）」那行的要求；留两份拼装就会在下次改标题规则时漂移）。
+- 判据落点：1、2 由 `src/views/RewriteView.test.js` 的 `RewriteView — 文本出期入口的合同（§7.10.3.4 ②-b②）` 里那两条负向用例覆盖（各自带反向正控，避免负向断言空转）；**判据 4 由两条用例分工**——「预览入参逐字带出哨兵正文」锁入口到预览这一段，「从这枚入口点确认 ⇒ 出期载荷 `copy.content` 逐字等于那份正文 + `billingConfirmed === true` + `runId` 形态合规」锁入口到宿主那一段（**后一条是 QM-6 后端轴 F5 逼出来的**：只有前一条时，「确认按钮发的其实不是这页那份正文」这件事无人可看）；判据 3 由 `src/components/PodcastScriptEntry.test.js` 的 `渲染层不得出现第二份分块/音色实现` 结构锁覆盖（**扫描域非空**是独立一条，空集合读起来完全像通过）。十条变异反证与现场读数记在 `openspec/records/podcast-episode-rewrite-entry.md`，其中 `RW-M11`（摘掉 IPC 脱壳）**实测未捕获**，当场归因为等价变异——本夹具里 props 本就是 plain object，所以那条 `Object.getPrototypeOf(payload) === Object.prototype` 断言**在这枚入口不承重**，承重的脱壳锁在 ②-b 的 `PodcastScriptEntry.test.js`（那里才有 reactive 源）。
+- ⚠️ 判据 2 的字面口径「用『挂载钩子 0 次』断言」在两枚入口落成**实例层级**（`findComponent(PodcastScriptEntry).exists()` 为 false，且预览 IPC 一次都没被调用）。理由：门控浮层的 `v-if` 判的就是组件实例本身，实例不在 vnode 树里即等价于挂载钩子 0 次；再加一条「预览 0 次」的行为观测，是为了让「没显示」不可能冒充「没挂载」。此处记为**有意的表述偏差**，不是放松判据。
+- ⚠️ 两枚入口在判据 2 上的**形态差异是刻意的，且残留一处已知坏味道**（QM-6 前端轴 QM6-1 点名，判 Warning 不阻塞）：改写区那枚在渲染期就把动作藏掉（正文就在内存里，判据当场可得）；文案库那枚只按「有没有默认频道」门控，正文缺席留到点击后早退。原因是 `useCopyLibrarySources.js` 的 video 分支写的是 `content = sourceText 的前 N 字`，而过滤器只要求 `sourceText || title` 非空 —— **一个有标题、没正文预览的视频项，列表态 content 就是空串，而点击回源能拿到全文**，在这里按 `entry.content` 收会把可用入口一起藏掉，比留一个空转按钮更糟。残留：四层来源里只有 `rewrite` 那层没做 `|| title` 兜底（`useCopyLibrarySources.js:82`），所以一条空正文的改写条目会显示一个点了没反应的按钮。收口条件是**按来源分档**判可见性并为「列表态为空、回源有全文」那一支配一条用例，已登记为 `tasks 4.3②-b 收尾②`；不得简化成恒显示或恒隐藏。
+- ②-b③（`Publish.vue`）未落：它需要先回答「`article.content` 是在途状态，出期要不要固化一版草稿」；若要固化，必须另立切片并先补发布链幂等判据（上表最后一行）。
 
 ### 7.10.4 显示项
 
@@ -1487,7 +1496,7 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 | `ResultView.vue:726` | 成片（视频出期） | 上下文频道 | 已落（刀 3 第 4 片） |
 | `CreateView.vue:4519` | 项目成片 | 项目绑定频道 | 已落（刀 3 第 4 片） |
 | `CopyLibraryView.vue`（卡片内独立按钮，`@click.stop`） | 文案库单条口播稿 | **默认频道**（§7.10.3.2 裁定：入口侧解析，浮层内不放下拉；无默认频道 ⇒ 动作不出现） | 已落（tasks 4.3②-b） |
-| `RewriteView.vue`（改写结果区，见 §7.10.3.4） | 改写结果区口播稿 | **默认频道**（§7.10.3.2 同一解析；原文写「当场选」与那条裁定冲突，已收敛） | 待落（tasks 4.3②-b②） |
+| `RewriteView.vue`（改写结果区，见 §7.10.3.4） | 改写结果区口播稿 | **默认频道**（§7.10.3.2 同一解析；原文写「当场选」与那条裁定冲突，已收敛） | 已落（tasks 4.3②-b②，2026-10-17） |
 | `Publish.vue`（文本类分支，见 §7.10.3.4） | `article.content` 当前稿 | **默认频道**（§7.10.3.2 同一解析。原文写「上下文频道」是**空头支票**：本播客频道体系里没有「发布页上下文频道」这个东西——发布页的上下文是平台/账号，与 RSS 频道不同源，照抄会把入口接到一个不存在的键上） | 待落（tasks 4.3②-b③） |
 
 
