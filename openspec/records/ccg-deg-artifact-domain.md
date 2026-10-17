@@ -21,10 +21,10 @@ sync_backfill_owner: 下一个会话（按「PR 自动合并」收尾清单 1–
 | 接线棘轮 | N/A | 未新增测试文件；新用例全部落在已接进 CI 的 `scripts/check-pr-exec-record.test.js` 内（Gate 2c 点名，无需登记） |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/`、`packages/rpa-engine/` 与渲染层 |
 | QM-6 CCG 双模型外部评审 | PENDING | 后端可达性以产物为准：`sh scripts/deep-review.sh --check-deps` ⇒ claude/opencode **双双 ABS**、`体检通过`、rc=0（2/2 可用 ⇒ 按本片自己立的规格，本 PR **不得**走 self-play 出口）。模型名取自 `~/.claude/.ccg/config.toml` 的 `[routing]`（backend=claude / frontend=opencode），非文档抄值。两路审查已并行派发，findings 到齐前不合并 |
-| 记录欠账 | PENDING | commit 后跑 `check-gate-record-debt.js` / `check-record-qm5-rows.js` / `check-pr-exec-record.js --mode=enforce` 并补读数 |
+| 记录欠账 | PASS | commit 后实测：`check-gate-record-debt.js` ⇒ rc=0；`check-record-qm5-rows.js` ⇒ rc=0（必需步骤 ① ② ④ ⑤ 齐全）；`check-pr-exec-record.js --base=origin/main --mode=enforce` ⇒ OK（变更 4 个，A=2 M=2，新增记录 1 篇）；`check-no-brand-residue.js` ⇒ PASS；`openspec-sync-check.js` ⇒ OK（387 tasks / 55 active changes / 231 archives） |
 | 远程同步 | PENDING | 合并后按收尾清单取 merge SHA 并回读 `(merge SHA, workflow)` 的 main push 读数，同次删除本三字段 |
 
-- 保留门禁：变更类型与隔离 ✅ | 行尾对账 ✅ | TDD 两段实跑 ✅ | 变异反证 3 条指名 ✅ | 消费者并集全跑 ✅ | 品牌残留 PENDING | 文档同步 PENDING | 记录欠账 PENDING | QM-6 PENDING | 远程同步 PENDING
+- 保留门禁：变更类型与隔离 ✅ | 行尾对账 ✅ | TDD 两段实跑 ✅（1 条指名红 → 59 pass 0 fail）| 变异反证 3 条指名 ✅（escaped=0 anchorfail=0，还原 md5 一致）| 消费者并集全跑 ✅（36/19/27，均 0 fail）| 品牌残留 ✅ | 文档同步 ✅ | 记录欠账 ✅ | QM-6 PENDING（两路外部评审已派发，findings 到齐前不合并）| 远程同步 PENDING
 
 ### 两处自我更正（不留到下一个会话去发现）
 
