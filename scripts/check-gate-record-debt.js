@@ -370,6 +370,10 @@ function collect({ root = process.cwd(), ledger = loadLedger(), duplicatesAllowe
   const inconsistentAttribution = []
   const ambiguousPrKeys = []
   const unprovenDerived = []
+  // 域一致锁（评审 i8 / 反证 M10）的测量对象：主循环**实际处理过**的文件名。
+  // 它必须逐等于 listRecordFiles 的返回值——把循环输入换成第二份自建清单
+  // （readdirSync 不过 `_` 前缀、或递归进子目录）时，两份集合立刻不等。
+  const recordsClassified = []
   let recordsFromFiles = 0
   const closedRecordSlugs = []
   for (const fn of fileNames) {
@@ -382,6 +386,7 @@ function collect({ root = process.cwd(), ledger = loadLedger(), duplicatesAllowe
     //   missingRow → NOT_IN_BASE(byDesign / prematureClaim) → derivedClosed → blobClosed → debt
     // 谁先命中谁定身，实现不得把 blobClosed 提到前面——那样"合并前预写 PASS"又会变绿。
     const attr = classifyAttribution(ml, rec.relPath)
+    recordsClassified.push(fn)
     if (rec.declaredPrBad !== null) {
       // 声明了却读不出：按未核对判红，不许静默当成"没声明"放过（参数不得静默忽略，同族纪律）。
       intentMismatch.push({ file: rec.fileName, declared: rec.declaredPrBad, actual: '<unreadable>' })
@@ -527,6 +532,7 @@ function collect({ root = process.cwd(), ledger = loadLedger(), duplicatesAllowe
     topRecordMissingRow,
     carrierDrift,
     recordsFromFiles,
+    recordsClassified,
     missingRecordRows,
     ledger: { ok: ml.ok === true, reason: ml.reason || null, stats: ml.stats || null, baseRef: ml.baseRef || null },
     derivedClosed,
