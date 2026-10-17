@@ -116,12 +116,14 @@ function scanLoadingReset (sources) {
         visible.push({ path, name, kind: 'manual-reset', detail: '复位在 finally 之外（×' + resets.length + '）；合法写法多，出声不拦截' })
         continue
       }
-      stats.noReset++
       const key = path + '#' + name
       if (exempt.has(key)) {
         visible.push({ path, name, kind: 'cross-method-machine', detail: '跨方法状态机（已人工登记豁免，见 scripts/lib/loading-machine-exemptions.js）' })
         continue
       }
+      // i1（CCG 03daf453）：noReset 必须在豁免之后计数 —— 否则「无复位」指标混入已豁免的
+      // 跨方法状态机，监控读数与「无复位=0（豁免后）」的宣称不一致。
+      stats.noReset++
       findings.push({
         rule: 'R5-loading-no-reset',
         path,
