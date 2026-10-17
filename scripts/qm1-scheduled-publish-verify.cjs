@@ -5,23 +5,39 @@ const { execSync, spawn } = require('child_process')
 // 只放行白名单里的若干文件，放同级会被静默忽略（症状：本地全绿、CI 上
 // Cannot find module；见 .gitignore:109-111 的同族记载）。
 const { ELECTRON_RUN_AS_NODE, buildChildEnv, envDefectNotice } = require('./lib/qm1-child-env.js')
+// QM-1 路径解析（fix-qm1-verify-path，2026-10-17）：脚本住在仓库根 `scripts/`，产物在
+// `<repo>/apps/desktop`。2026-10-17 前这里是 `const DESKTOP = path.resolve(__dirname)` ——
+// 于是四个验证步骤全在 `<repo>/scripts/dist-electron/...` 找产物，脚本自 #2985 引入起
+// 一次都没跑通过（首步报「产物缺失」，第二步 `asar list` 直接 ENOENT）。
+// 解析器 fail closed（找错目录直接报错，不退回脚本目录）；回归锁 scripts/qm1-paths.test.js。
+const { resolveDesktopDir, artifactPaths, assertDesktopDir } = require('./lib/qm1-paths.js')
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
 
-const DESKTOP = path.resolve(__dirname)
-const ASAR = path.join(DESKTOP, 'dist-electron', 'win-unpacked', 'resources', 'app.asar')
-const EXE = path.join(DESKTOP, 'dist-electron', 'win-unpacked', 'Multi-Publish.exe')
 const LAUNCH_WINDOW_MS = 8000
 
 function step (name) { console.log(`\n=== ${name} ===`) }
 function ok (msg) { console.log(`  PASS ${msg}`) }
 function bad (msg) { console.log(`  FAIL ${msg}`); process.exitCode = 1 }
 
-step('验证 0：产物存在')
+step('验证 0：产物存在（应用目录由 scripts/lib/qm1-paths.js 从脚本位置向上解析）')
+let DESKTOP
+try {
+  DESKTOP = assertDesktopDir(resolveDesktopDir(__dirname))
+  ok(`桌面应用目录：${DESKTOP}`)
+} catch (e) {
+  // 目录都错了，后续 asar/pnpm exec 只会给出更难读的二手错误（本缺陷起初正是被读成
+  // 「产物没打包」）。所以这里直接停，不继续跑。
+  bad(`应用目录解析失败：${e.message}`)
+  console.log('\n=== QM-1 汇总 ===')
+  console.log('QM-1 存在 FAIL 项')
+  process.exit(1)
+}
+const { asar: ASAR, exe: EXE } = artifactPaths(DESKTOP)
 for (const [label, p] of [['app.asar', ASAR], ['Multi-Publish.exe', EXE]]) {
-  if (fs.existsSync(p)) ok(`${label} 存在（${Math.round(fs.statSync(p).size / 1024)} KB）`)
-  else bad(`${label} 缺失`)
+  if (fs.existsSync(p)) ok(`${label} 存在（${Math.round(fs.statSync(p).size / 1024)} KB）：${p}`)
+  else bad(`${label} 缺失：${p}`)
 }
 
 step('验证 1：asar 文件清单（定时发布相关模块必须打包进去）')
@@ -90,19 +106,24 @@ try {
   bad(`require 链验证失败：${e.stdout || ''} ${e.stderr || e.message}`)
 }
 
-// rearm 的权威校验：直接查 asar 内 scheduler.js 源码是否含 rearm 定义与导出
-const schedulerSrc = fs.readFileSync(
-  path.join(extractDir, 'node_modules', '@multi-publish', 'shared-utils', 'src', 'scheduler.js'),
-  'utf8'
-)
-if (/function rearm\s*\(/.test(schedulerSrc) && /rearm/.test(schedulerSrc.match(/return \{[^}]*\}/g)?.slice(-1)[0] || '')) {
-  ok('打包产物内 scheduler 定义并导出了 rearm')
+// rearm 的权威校验：直接查 asar 内 scheduler.js 源码是否含 rearm 定义与导出。
+// 先探存在性再读：node_modules 被 external 化时直接 readFileSync 会抛未捕获异常，
+// 把「产物缺模块」伪装成脚本崩溃（验证 1 已就同一缺失报红，这里补一句可读的 FAIL）。
+const schedulerRel = path.join('node_modules', '@multi-publish', 'shared-utils', 'src', 'scheduler.js')
+const schedulerPath = path.join(extractDir, schedulerRel)
+if (!fs.existsSync(schedulerPath)) {
+  bad(`产物内缺少 ${schedulerRel}：rearm 源码校验无法执行（验证 1 已就同一缺失报红）`)
 } else {
-  const hasFn = /function rearm\s*\(/.test(schedulerSrc)
-  const hasExport = /cancel, restore, rearm, stopAll/.test(schedulerSrc)
-  console.log(`  rearm 定义=${hasFn} 导出=${hasExport}`)
-  if (hasFn && hasExport) ok('打包产物内 scheduler 定义并导出了 rearm')
-  else bad('打包产物内 scheduler 缺少 rearm')
+  const schedulerSrc = fs.readFileSync(schedulerPath, 'utf8')
+  if (/function rearm\s*\(/.test(schedulerSrc) && /rearm/.test(schedulerSrc.match(/return \{[^}]*\}/g)?.slice(-1)[0] || '')) {
+    ok('打包产物内 scheduler 定义并导出了 rearm')
+  } else {
+    const hasFn = /function rearm\s*\(/.test(schedulerSrc)
+    const hasExport = /cancel, restore, rearm, stopAll/.test(schedulerSrc)
+    console.log(`  rearm 定义=${hasFn} 导出=${hasExport}`)
+    if (hasFn && hasExport) ok('打包产物内 scheduler 定义并导出了 rearm')
+    else bad('打包产物内 scheduler 缺少 rearm')
+  }
 }
 
 step(`验证 3：启动 ${LAUNCH_WINDOW_MS / 1000} 秒不崩溃 + 捕获 stderr`)
