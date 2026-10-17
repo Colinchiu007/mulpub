@@ -75,6 +75,33 @@ date: 2026-10-17
 1. **题材榜 IPC 被调 5 次**：`onMounted` + `watch(identityAuthenticated)` + `watch(hasDashboardFull)` 三个入口叠加，且权益异步到位会连开两轮。修法：把题材榜从 `loadNewPanels` 拆出成 `loadPatternBoard`（只有它受门控），并加 seq 防乱序写回。
 2. **`toAccountHealthModel(null)` 判成 error**：IPC 不可用（浏览器环境/preload 未就绪）是合法降级，不是取数失败。判成 error 会让用户在降级场景看到「账号状态暂时无法获取」—— 那是谎。改为 empty。
 
+## CI 抓出的两个真实缺陷（合并前修掉）
+
+### 1. Gate 7c 暗色文本对比度：两处不达标
+
+CI 精确报出 `fg`/`bg`/`ratio`，两处都在 `DashboardLockedPanel.vue`：
+
+| 元素 | fg | bg | ratio | 根因与修法 |
+| --- | --- | --- | --- | --- |
+| `.dash-locked-title` | `#1e1b4b` | `#26262d` | **1.06** | 用了 `var(--deep-purple)` —— 它是 Dashboard.vue 在 `:global(:root)` 里写死的**亮色值**，暗色下不切换 ⇒ 标题几乎隐形。改语义 token `var(--color-text-primary)`（tokens.css 亮 `#1e1b4b` / 暗 `#e8e8ed` 双档都有） |
+| `.dash-locked-cta` | `#7c5cbf` | `#26262d` | **2.96** | 描边式（透明底 + 彩字）差 0.04。改**实底 + 白字**，色值固定 `#7c5cbf` ⇒ 对比度恒 5.07，与主题无关（同 TrialBanner 第 3 轮的结论：白字对「主题是否覆盖了某 token」免疫） |
+
+顺手排查了 CI 未报但同类的隐患：`.dash-health-chip`（基础 + `.run`/`.pending`）也用了 `--lavender-light`/`--deep-purple`，暗色下会放出浅紫亮斑。改「半透明主色叠色 + 语义文字色」，无需主题分支。
+
+本地按 WCAG 公式逐项核验（全部 ≥3:1）：锁区块标题 亮 14.92 / 暗 12.30；CTA 5.07（两档恒定）；chip 亮 13.54 / 暗 11.23；说明文字 亮 4.86 / 暗 7.24。CI 实测值（2.96）与本地算式吻合，证明底色取值正确。
+
+### 2. 债务熔断 LEDGER_GREW：Dashboard.vue 膨胀超容差
+
+```
+❌ Dashboard.vue 较登记值 796 膨胀 222 行（容差 200），请拆分或经审阅后 --update
+```
+
+正解是**拆分**而不是 `--update` 抬高上限（后者违反「债务只能缩小」纪律）。抽成 `features/dashboard/DashboardExtraPanels.vue`（三个附加区块 + 自包含样式），Dashboard.vue 926 → 802 行，门禁 exit 0。
+
+两处踩坑记下：
+- **`.dash-panel` / `.dash-panel-title` 是 Dashboard.vue 的 scoped 类**，子组件拿不到 ⇒ 新组件样式必须自包含（`.dash-extra-*`），只依赖全局的 `.cohere-card`。
+- **`--color-bg-surface` 在本仓根本不存在**：照猜写 `var(--color-bg-surface, #fff)` 会让暗色主题 fallback 成白卡片。正解是直接复用全局 `.cohere-card`（背景走 `var(--canvas)`），组件只补 `padding`/`margin`。教训：**写 `var(--x, fallback)` 前必须先查该 token 是否真实存在**，否则 fallback 会变成暗色主题下的显性 bug。
+
 ## 远程同步
 
 | 远程同步 | PENDING |
