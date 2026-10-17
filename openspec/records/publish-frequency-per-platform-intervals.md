@@ -2,9 +2,6 @@
 record: publish-frequency-per-platform-intervals
 task: 同账号发布间隔改为逐平台真源（视频号 3′→60′，其余 14 平台零变化）+ 五级优先级链 + 一条 JSON env + 设置页逐平台覆盖
 date: 2026-10-16
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由后续 docs-only 回填 PR 写 PASS + merge SHA 并删除本三字段
-sync_backfill_owner: 下一个会话（按 #3672 的冻结口径：只改本记录这一行 + 删 sync_*，不回写 .quality-gates.md 与 ledger）
 ---
 
 ## 本次执行记录：逐平台同账号发布间隔（publish-frequency-per-platform-intervals，2026-10-16）
@@ -20,8 +17,7 @@ sync_backfill_owner: 下一个会话（按 #3672 的冻结口径：只改本记�
 | 接线棘轮 | PASS | 新增 `packages/shared-utils/tests/publish-frequency-account-interval.test.js` 由 `packages/shared-utils` 的 vitest workspace 收集（实测 `Test Files 1 passed`，在 52 文件全量里出现），非"写了没跑"；入库的 `.ccg/reviews/freq-v5-mutate.driver.js` 不是测试文件名形态。实测 `node scripts/check-unwired-tests.js` 见下方"本地门禁"行 |
 | QM-1 打包 / QM-4 视觉 | PASS / N/A | QM-1（触 `apps/desktop/electron/ipc-handlers/` ⇒ 必跑）：`pnpm run build:dir` rc=0（两条 `file source doesn't exist`＝`dist/fonts`、`.playwright-browsers`，与既有记录同形态、非本次引入）。产物内容判据经 `@electron/asar` 的 `extractFile`：`entries=15022（拆分后重跑那一轮）；三个模块 16135/8476/5190 B 全在 asar 内且判据串齐`（过规模下界）、`dist/` 125 条含 `index.html`、打包后的策略文件内**逐平台表 + 视频号 60′ + env 名 + 解析函数**四项全命中、IPC 内含 `accountMinDefaults`、渲染端 chunk 内 `perPlatformTitle`/`pubfreq-per-platform`/中文标题各命中 1 个文件。启动第③层：12 秒**存活**、**stderr 0 字节**、本 worktree `electron`/`Multi-Publish` 计数 **0→0**（无残留）。两处探针自纠写进判据本体：① `extractFile` 的键必须是**清单原形态（反斜杠）**——归一成斜杠会让 64 个 js 全部取不到，而"新串 0 命中"读起来完全像"没打进产物"，故同一段代码必须先能在**既有** testid 上命中（正控）；② `asar.listPackage` 返回值带前导 `\`，不去前导则 `dist/` 计数为 0。QM-4 视觉 N/A：变更集不含 `.css/.less/.scss` 与基线 PNG；`.vue` 新增的是一个 `div` 区块与 15 行既有 `el-input-number`（沿用已登记的组件与样式，不引入新 `el-*` 类型 ⇒ 不需改 `element-plus.js` 清单），像素门禁对该类"新增一列行"的改动双向失明，故判据走组件断言 + 结构锁 |
 | QM-6 CCG 双模型外部评审 | **未跑成**（如实登记，不以自审冒充） | 本会话开工前已实测三条通道同日不可用（CC Switch `127.0.0.1:15721` CLOSED、`opencode` `-free` 通道对长任务零产物、第三通道同），且本片未获得新的通道可用性证据。按既有口径**登记为未建立**，不以本会话自审替代；同时按用户此前指示做了**一次双轴自审**（后端＝正确性/边界/规格合规，前端＝模式/可维护性/集成风险），其发现与处置见下表——**这条自审不等价于独立模型交叉审查**，合并决定仍按 AGENTS「禁止自动合并的情形」第 5 条处理 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin publish-frequency-per-platform-intervals` 返回 0 行证远端分支已删；回填时删除上方三个 `sync_*` 字段。按 #3672 冻结口径：**不回写 `.quality-gates.md`、不动 ledger** |
-
+| 远程同步 | PASS | PR #3753 已 squash 合并为 29e5a60cdcedec8eadeccb3ad1f14061b6010e73（2026-10-17T09:40:33Z）；双源同 SHA：`git log origin/main --grep='(#3753)$' --format=%H|%cI` 与 `gh pr view 3753 --json state,mergeCommit,mergedAt`；远端分支 `publish-frequency-per-platform-intervals` 经 `git ls-remote --heads origin` 返回 0 行（`--delete-branch` 已生效）。合并判定只认产物，不采信 `gh pr merge` 的返回信息（本仓有已登记的假失败先例）。 |
 ### QM-6 自审发现处置（非独立模型；外部通道未跑成）
 
 | # | 轴 | 严重度 | 发现 | 判据（当场取证） | 处置 |
@@ -42,4 +38,6 @@ sync_backfill_owner: 下一个会话（按 #3672 的冻结口径：只改本记�
 - **吞吐影响未实测**：批量发布在视频号通道会显著变慢；回退成本是一行数据。
 - **渲染层仍有 `0.4` 抖动字面量**（S-4，既有）：真源应是 `DEFAULT_JITTER_RATIO` 经 `getPolicy` 下发，另片处理。
 
-- 保留门禁：变更类型与隔离 ✅ | 行尾对账 ✅ | 品牌残留 待跑 | 文档同步 待跑 | 远程同步 PENDING
+- 保留门禁：变更类型与隔离 ✅ | 行尾对账 ✅ | 品牌残留 PASS（6a2ea303e 上 `node scripts/check-no-brand-residue.js` rc=0，扫描 9806 个 tracked 文件无残留） | 文档同步 PASS（6a2ea303e 上 `node scripts/openspec-sync-check.js` rc=0：387 tasks / 57 active changes / 231 archives） | 远程同步 PASS
+
+| 合并后 main push 回读（收尾第 7 条） | PASS | run `39022030228`（event=push, workflow=quality-gate.yml, head=29e5a60cd）conclusion=`success`，取证命令 `gh run list -R Colinchiu007/mulpub --workflow=quality-gate.yml --commit 29e5a60cdcedec8eadeccb3ad1f14061b6010e73 --json databaseId,conclusion,event`。PR 侧全绿不等于改动在 main 上成立，故本行只认该 merge SHA 上的 push run 实测结论。 |
