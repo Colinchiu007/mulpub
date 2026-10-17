@@ -217,3 +217,97 @@ describe('Account IPC 日志增强', () => {
     expect(notifyMeta[2].level).toBe('INFO')
   })
 })
+
+/**
+ * history:list 耗时可观测性（obs-history-timing，2026-10-17）
+ *
+ * 动因：用户报「点左侧菜单『发布』慢 1–2 秒」，而 `history:list` 的日志只打
+ * `owner/total/records/page/pageSize`，**没有耗时**（对比 `accounts:list` 有 `耗时=`）
+ * ⇒ 主进程侧拿不到读数，只能推理不能证实。
+ *
+ * 判据形状（为什么这么写）：
+ * - **成功与失败都要有耗时**：慢请求常常最终报错，只在 ok 分支打读数会漏掉一半现场。
+ * - **阈值告警必须双向锁**：只测「>300ms 打 warn」证不出「≤300ms 不打 warn」，
+ *   而后者才是防刷屏的那一半。两条一起才锁住「只有真的慢才出声」。
+ * - **时钟注入而非真实等待**：靠 `Date.now` 可变实现推进，避免测试引入真实 sleep
+ *   （既慢又不稳），也不用 fakeTimers 污染其它用例。
+ */
+describe('history:list 耗时可观测性', () => {
+  const SLOW_THRESHOLD_MS = 300
+  let clock
+  let dateSpy
+
+  beforeEach(() => {
+    clock = 1_000_000
+    dateSpy = vi.spyOn(Date, 'now').mockImplementation(() => clock)
+  })
+
+  afterEach(() => {
+    dateSpy.mockRestore()
+  })
+
+  /** 组装 registerHistoryHandlers 的最小依赖；listRecords 用 overrides 替换 */
+  function historyDeps (log, overrides = {}) {
+    return {
+      EC: { AUTH_ERROR: -401, REQUEST_ERROR: -500, VALIDATION_ERROR: -400 },
+      // 真实实现是 sender 校验包装器；本测试只关心日志，包装退化为一层透传
+      withSenderCheck: (fn) => fn,
+      getOwnerSubject: () => 'owner-test',
+      ipcLog: (level, channel, stage, detail) => log[level](channel, stage, detail),
+      history: { listRecords: vi.fn(() => ({ total: 0, records: [] })), ...overrides },
+      store: {},
+    }
+  }
+
+  async function register (log, overrides) {
+    vi.resetModules()
+    const { registerHistoryHandlers } = await import('./publish-history-ipc')
+    const ipcMain = createMockIpcMain()
+    registerHistoryHandlers(ipcMain, historyDeps(log, overrides))
+    return ipcMain
+  }
+
+  it('成功路径的 ok 日志含 耗时=Nms', async () => {
+    const log = createLogRecorder()
+    const ipcMain = await register(log, {
+      listRecords: vi.fn(() => { clock += 12; return { total: 3, records: [] } }),
+    })
+    const result = await ipcMain._get('history:list')(TRUSTED_EVENT, { page: 1, pageSize: 20 })
+    expect(result.code).toBe(0)
+    const okCalls = log.info.mock.calls.map((c) => c.join(' '))
+    expect(okCalls.some((c) => c.includes('history:list') && c.includes('ok') && /耗时=\d+ms/.test(c))).toBe(true)
+  })
+
+  it('失败路径的 error 日志同样含 耗时=Nms（慢请求常常最终报错，只打 ok 会漏一半现场）', async () => {
+    const log = createLogRecorder()
+    const ipcMain = await register(log, {
+      listRecords: vi.fn(() => { clock += 40; throw new Error('db locked') }),
+    })
+    const result = await ipcMain._get('history:list')(TRUSTED_EVENT, {})
+    expect(result.code).not.toBe(0)
+    const errCalls = log.error.mock.calls.map((c) => c.join(' '))
+    expect(errCalls.some((c) => c.includes('history:list') && /耗时=\d+ms/.test(c))).toBe(true)
+  })
+
+  it(`耗时超过 ${SLOW_THRESHOLD_MS}ms 时额外打一条 warn 阈值告警`, async () => {
+    const log = createLogRecorder()
+    const ipcMain = await register(log, {
+      listRecords: vi.fn(() => { clock += SLOW_THRESHOLD_MS + 200; return { total: 1, records: [] } }),
+    })
+    const result = await ipcMain._get('history:list')(TRUSTED_EVENT, {})
+    expect(result.code).toBe(0)
+    const warnCalls = log.warn.mock.calls.map((c) => c.join(' '))
+    expect(warnCalls.some((c) => c.includes('history:list') && c.includes(String(SLOW_THRESHOLD_MS)))).toBe(true)
+  })
+
+  it(`耗时不超过 ${SLOW_THRESHOLD_MS}ms 时不得打阈值告警（反向锁：防告警刷屏）`, async () => {
+    const log = createLogRecorder()
+    const ipcMain = await register(log, {
+      listRecords: vi.fn(() => { clock += SLOW_THRESHOLD_MS; return { total: 1, records: [] } }),
+    })
+    const result = await ipcMain._get('history:list')(TRUSTED_EVENT, {})
+    expect(result.code).toBe(0)
+    const warnCalls = log.warn.mock.calls.map((c) => c.join(' '))
+    expect(warnCalls.some((c) => c.includes('history:list'))).toBe(false)
+  })
+})

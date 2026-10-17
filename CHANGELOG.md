@@ -1,3 +1,15 @@
+# [未发布] feat(observability): history:list 补耗时读数与 >300ms 阈值告警（obs-history-timing）
+
+- **动因**：用户报「点左侧菜单『发布链接』慢 1–2 秒」。上一轮只读排查已定位该页（`/publish/history` → `PublishHistory.vue`）并实测其**唯一同步阻塞原语**（全量 `readFileSync` 读 JSONL）用真实数据仅 **4ms**（71 行 / 178,720 B）⇒ 慢不在读文件这一层。但 `history:list` 的日志只打 `owner/total/records/page/pageSize`、**没有耗时**（对比 `accounts:list` 有 `耗时=`）⇒ 主进程侧拿不到读数，**只能推理不能证实**。本条补的就是这个读数缺口。
+- **改动**（`electron/ipc-handlers/publish-history-ipc.js`，+23/−2）：① 入口取 `startedAt`，成功日志尾追 `耗时=Nms`（与 `accounts:list` **同口径**，使两页可在同一份日志里对时间）；② 耗时 **>300ms** 时额外打一条 `warn`（stage=`slow`）阈值告警，把「有读数」升级为「自动出声」；③ **失败路径也带耗时**——慢请求常常最终报错，只打 ok 会漏掉一半现场。阈值提为模块级常量 `SLOW_THRESHOLD_MS` 并注明「为什么是 300ms」，不留魔法数字。
+- **为什么计时范围是「取归属 + 读记录 + 追加再次发布标记」这一段**：不含 IPC 传输与渲染端排队，这样读数的语义是「主进程在这个 handler 里花了多久」。若该读数很小而用户仍觉得慢，结论就是「慢在渲染端」——这正是把无法证实的猜测切成可判定两半的关键。
+- **回归锁 4 条**（追加进已接线的 `publish-account-logging.test.js`，**未新增测试文件**、无接线棘轮）：L1 成功含耗时 / L2 **失败也含耗时** / L3 超阈值打 warn / L4 **不超过阈值不得打 warn（反向锁）**。时钟用 `vi.spyOn(Date,'now')` + 可变 `clock` 注入，**不引入真实 sleep**。
+- **TDD 实测**：先红 `3 failed | 10 passed (13)`（反向锁如预期已绿、旧 9 条仍绿）→ 实现后 `13/13`；`electron/ipc-handlers` **全量 61 文件 / 1062 用例全绿**。
+- **变异反证 4 条，各自指名红**：M-A 去掉 ok 耗时 → 红 L1；M-B 去掉 error 耗时 → 红 L2；M-C 告警短路 → 红 L3；**M-D 阈值条件写反（`>`→`<`）→ 同时红 L3 与 L4**。M-D 是这条判据「有牙」的决定性证据：若只写 L3，条件写反会让「301ms 打告警」仍然成立，而「5ms 也打告警」悄悄溜过，告警即退化为噪声。每条变异注入后立即还原，末尾核对**还原后逐字节相同 + 回绿**。
+- **QM-1 三层判据实跑（本轮含一次自我纠偏）**：`build:vue` + `electron-builder --win --dir` 均 **exit 0**，asar 含目标文件。① **存活断言 = true**（8000ms 窗口内未退出，单独断言不只依赖 stderr）；② 父环境**确实带着** `ELECTRON_RUN_AS_NODE=1`，`buildChildEnv()` 剔除后断言 `hasOwnProperty=false` 并显式传 env；③ **首轮 stderr 290 B**（`app.asar/dist/index.html ERR_FILE_NOT_FOUND`，因本 worktree 未跑 renderer build）⇒ 按第②层判 **NEEDS_REVIEW，未判通过**；补跑 `build:vue` 重打包后复验 **stderr = 0 字节** ⇒ 第③层 PASS。另 `envDefectNotice()` 确实出声，未静默剔除。
+- 判据：`check-max-lines` exit 0（改后 121 / 313 行，远低于 500 / 1500，且该文件不在挂账清单）、ESLint exit 0、`electron/ipc-handlers` 1062 用例全绿；执行记录见 `openspec/records/obs-history-timing.md`。
+- **诚实边界**：本条只提供**读数**，不提供**归因**。需用户在真机复现一次后用日志判定慢在主进程还是渲染端；`history:get`/`history:delete` 与 `accounts:list` 的阈值告警仍未做（已登记为遗留）。
+
 # [未发布] feat(accounts): 登录态提示可执行化 + 能力级授权 + DOM 判定进程隔离（account-login-ux）
 
 三件配套改动，共同把「未确认」从一句废话变成用户知道该怎么做的状态：
@@ -31,6 +43,7 @@ locale 成对 246:246 且 CJK 基线 PASS；QM-1 `vite build` + `electron-builde
 
 **文档**：`01-docs/PRD-ACCOUNT-LOGIN-STATUS-CHECK.md` 新增 §19（背景与第一性原因 / 功能逻辑表 /
 数据流与 IPC 合同 / 交互逻辑与显示项 / 提示文案表 / 隔离工作方式 / 回归保护 / 4 条边界）。
+
 
 # [未发布] feat(frequency): 同账号发布间隔改为逐平台真源——视频号收紧到 60 分钟，其余 14 平台行为零变化（publish-frequency-per-platform-intervals）
 
