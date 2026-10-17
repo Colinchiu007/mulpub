@@ -258,8 +258,14 @@ class PublishIntervalGuard {
     if (!(elapsed >= 0)) {
       if (!this._futureTimestampKeys.has(key)) {
         this._futureTimestampKeys.add(key)
+        // 措辞纪律（fix-clock-anomaly-copy）：这一行是**给排障者**的，不是用户的动作指令。
+        // 两种成因必须能被区分，因为「校时」只对后一种有效：
+        //   ① 记录本身是被快进写坏的未来值 ⇒ 校时无效，只能等真实时间越过它或用紧急放行；
+        //   ② 本机时间落后于真实时间      ⇒ 校时立刻生效。
+        // 旧文案「请校准系统时间」把用户引向一个对 ① 完全无效的动作，故删除。
         this._warn(`[PublishFrequency] 间隔键 ${key} 的时间戳 ${lastTime} 落在未来（当前 ${now}），` +
-          '本机时钟疑似快进/回拨；等待钳位到单个间隔，请校准系统时间或使用紧急放行')
+          '本机时钟疑似快进/回拨；等待已钳位到单个间隔（用户无需操作）。' +
+          '排障：校时仅对「本机时间落后」有效，若该记录是快进期间写入的未来值，需等真实时间越过它或用紧急放行')
       }
       return minInterval
     }

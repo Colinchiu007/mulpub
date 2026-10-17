@@ -170,7 +170,8 @@ export default {
       blockedBucketAccount: '（本账号间隔）',
       blockedBucketPlatform: '（同平台其他账号间隔）',
       blockedBucketDaily: '（本账号每日上限）',
-      blockedClockAnomaly: '（时钟异常，等待已钳位）',
+      // 文案纪律（fix-clock-anomaly-copy）：用户侧不出现「异常/钳位」，且明确「无需处理」
+      blockedClockAnomaly: '（本机时间跳变，已自动缩短等待，无需处理）',
       blockedDailyQuota: (ctx) => '今日已达上限（' + ctx.named('used') + '/' + ctx.named('max') + '），将于明日 00:00 后自动继续',
       releasedNotSubmitted: '未提交到平台，已恢复可发布',
     },

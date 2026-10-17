@@ -169,7 +169,8 @@ export default {
       blockedBucketAccount: '(account interval)',
       blockedBucketPlatform: '(same-platform interval)',
       blockedBucketDaily: '(account daily limit)',
-      blockedClockAnomaly: '(clock anomaly, wait capped)',
+      // Copy discipline (fix-clock-anomaly-copy): no "anomaly/capped" wording, state "no action needed"
+      blockedClockAnomaly: '(local clock jump — wait shortened automatically, no action needed)',
       blockedDailyQuota: (ctx) => 'Daily limit reached (' + ctx.named('used') + '/' + ctx.named('max') + '); resumes after 00:00 tomorrow',
       releasedNotSubmitted: 'Not submitted; publish window restored',
     },
