@@ -2,9 +2,6 @@
 record: electron-ci-preload-build-step
 task: 给 Electron CI 的 push-only 桌面全量测试补「先重建构建产物」步骤，并把这条配对关系做成跨 workflow 的锁
 date: 2026-10-17
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（按 AGENTS「PR 自动合并」收尾链回填并删除本三字段）
 ---
 
 ## 本次执行记录：Electron CI push 连红的根因修复与配对锁（electron-ci-preload-build-step，2026-10-17）
@@ -20,9 +17,10 @@ sync_backfill_owner: 下一个会话（按 AGENTS「PR 自动合并」收尾链�
 | 接线棘轮 | PASS | 未新增测试**文件**（三条测试追加在已接线的 `workflow-contract.test.js` 内）；`check-unwired-tests.js` OK |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触碰 `apps/desktop/electron/**` 运行时代码与任何 UI 文件；改动面 = `.github/workflows/electron-ci.yml` + `.github/scripts/workflow-contract.test.js` + 两份 `.ccg/reviews` 原件 + 本记录 + CHANGELOG |
 | QM-6 CCG 外部评审 | PASS（单模型，替代通道） | `scripts/ccg-review-decider.js` 判 `mode=SINGLE`（98 行 / 2 个源文件 / 无敏感命中）⇒ 不属双模型强制范围。实跑一路外部模型：`opencode-cli run --agent general --model opencode/big-pickle`，驱动 rc=0、结论进 stdout（判定口径 =「产物落盘 **或** stdout 有结论」）。原件与任务书均入库：`.ccg/reviews/electron-ci-preload-build-step-review-single.md`、`…-review-brief.md`。claude 通道同日三次 `status 1` + wrapper 自删日志 + 零产物，而同通道短探针 rc=0 ⇒ 登记为「该通道本次不可用于长任务」，不以自审冒充。**逐条处置**：C1 成立（同意根因与修法）；C3(b) 成立并已采纳（关系型 `if` 相等判据挡不住"两处一起漏写" ⇒ 补绝对值门槛锁）；C2 不采纳其修法、接受为已登记遗留（详见下方遗留第 1 条，含当场做掉的"按产物反查读取方"10 文件清单）；C3(a)、C4 否证（C4 前提"存在先构建后跑 check-max-lines 的 job"实测不成立：该检查只在 `debt-guard.yml` 被调用且该 workflow 无构建步骤，`electron-ci.yml` 内出现 0 次） |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin electron-ci-preload-build-step` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | PR #3837 已 squash 合并为 `1bed4ad2c96e8bb6ac71e252f950d462843a9666`（2026-10-17T13:41:22Z）；`git log origin/main --grep='(#3837)$' --format=%H` 与 `gh pr view 3837 --json state,mergeCommit` 两源同 sha；`git ls-remote --heads origin electron-ci-preload-build-step` 返回 0 行证远端分支已删
+| 合并后 main push 回读（收尾第 7 条） | PASS | 承载本次判据的 workflow 是 `Electron CI`（改动面在 `electron-ci.yml`）：run 39037598404 读数 `event=push / status=completed / conclusion=success，作业 Changes 与 electron-tests 均 success；逐步读数：新增步 Build preload bundles 于 13:43:05Z 执行两条 pnpm 命令后 success，其后 Unit tests (Vitest, non-Electron, single-worker deterministic) 于 14:04:38Z 打出摘要 Test Files 983 passed \| 3 skipped (986) 与 Tests 17438 passed \| 15 skipped (17453)，fail=0；Electron smoke test 亦 success`——被判修的那一步 `if: github.event_name != 'pull_request'` 只在 push 上跑，这一次运行才是本片的真验收；同 SHA 的 `quality-gate` run 39037598174 读数 `status=completed / conclusion=success，11 个作业全部 completed（含 Gate Result 聚合作业）`。连红就此结束：`gh run list --workflow=electron-ci.yml --event push --limit 30` 重测读数为 **连续 24 次 failure**（首红 04:42:04Z `826fa7e13`、末红 13:34:33Z `2618909dc`），此前一次 success 为 04:15:58Z `0a0d3581b`。⚠️ 纠数：诊断当时报的是「连续 15 次」，那是 `--limit` 窗口内的条数而非连红全程的真实计数——窗口不是事实，收口一律重测。首红 `826fa7e13` 正是引入缺陷的那次 push（把 5 个产物移出版本控制），根因与连红起点同格
 
-- 保留门禁：变更类型与隔离 ✅ | 行尾对账 ✅ | 品牌残留 PASS（本 worktree `node scripts/check-no-brand-residue.js` rc=0，扫描 9832 个 tracked 文件） | 文档同步 PASS（`node scripts/openspec-sync-check.js` rc=0：387 tasks / 57 active changes / 231 archives） | 远程同步 PENDING
+- 保留门禁：变更类型与隔离 ✅ | 行尾对账 ✅ | 品牌残留 PASS（本 worktree `node scripts/check-no-brand-residue.js` rc=0，扫描 9832 个 tracked 文件） | 文档同步 PASS（`node scripts/openspec-sync-check.js` rc=0：387 tasks / 57 active changes / 231 archives） | 远程同步 PASS
 
 ### 本机 A/B 与验收边界（不假装已闭合）
 
