@@ -76,7 +76,7 @@ sync_backfill_owner: 下一个会话（按 AGENTS.md「合并后收尾清单」�
 
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
-| 变更类型与隔离 | ✅ | 运行时代码（`scripts/` 门禁脚本）：worktree `D:\Data\projects\mp-worktrees\mp-ccg-record-width-message` + 裸分支 `ccg-record-width-message` |
+| 变更类型与隔离 | ✅ | 运行时代码（`scripts/` 门禁脚本）：worktree `<仓库父目录>/mp-worktrees/mp-ccg-record-width-message` + 裸分支 `ccg-record-width-message` |
 | 第一性原因（QM-5 ①） | ✅ | 见上：判据放宽时只改了正则与代码注释，漏改用户可见文案 |
 | 逃逸分析（QM-5 ②） | ✅ | 见上表：测试只测行为、变异只覆盖逻辑、评审只看 diff、人工把它当语气 |
 | 修复 + 回归保护（QM-5 ④） | ✅ | 文案 3 行 + 1 条**派生锁**（含行为核对） |
