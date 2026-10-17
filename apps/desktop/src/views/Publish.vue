@@ -530,7 +530,9 @@
                 @toggle-account="toggleAccount"
                 :account-groups="groupPickerItems"
                 @apply-group="applyGroupById"
-                v-bind="addAccountBindings"
+                v-bind="targetBindings"
+                @select-all="selectAllTargets"
+                @clear-all="clearAllTargets"
               />
               <!-- 小红书仅存草稿（用户硬约束）：必须在勾选后当场说清，避免用户以为已经公开发布 -->
               <p v-if="selectedPlatforms.includes('xiaohongshu')" class="no-title-hint" data-testid="xhs-draft-only-hint">
@@ -732,6 +734,7 @@ import { releaseEmbeddedViewsForOverlay, suspendEmbeddedViewsForOverlay } from '
 import { usePlatformSelection } from '@/composables/usePlatformSelection'
 import { usePublishGroupTargets } from '@/composables/usePublishGroupTargets'
 import { usePublishAddAccountTargets } from '@/composables/usePublishAddAccountTargets'
+import { usePublishTargetBulkTargets } from '@/composables/usePublishTargetBulkTargets'
 import { usePublishFlow } from '@/composables/usePublishFlow'
 import { useBatchPublish } from '@/composables/useBatchPublish'
 import { useHotTopicsDraftHandoff } from '@/composables/useHotTopicsDraftHandoff'
@@ -1176,8 +1179,10 @@ const {
   toggleAccount,
   isAccountSelected,
   isAccountAvailable,
+  getAvailableAccountIds,
   selectPlatform,
   selectAccount,
+  clearPlatforms,
 } = usePlatformSelection(accountStore, platformStore)
 
 // P2-8b「按组添加」：判据本体在 features/publish/usePublishGroupApply（纯函数、可单测），
@@ -1188,6 +1193,20 @@ const { groupPickerItems, applyGroupById } = usePublishGroupTargets({
   selection: { selectedPlatforms, selectPlatform, selectAccount, isAccountSelected, isAccountAvailable },
   notifyInfo,
   notifyWarning,
+})
+
+// 「全选 / 清空」（publish-target-select-all，2026-10-17）：与上一段同一范式——
+// 判据本体在 features/publish/usePublishTargetBulk（纯函数），这里只做 store ↔ 视图的桥。
+// 本文件被 max-lines-baseline 的 targets 点名（容差 0），故接线与播报一律下沉。
+// siblingBindings 与 addAccountBindings 合成同一个 v-bind 对象：Vue 模板不允许
+// 同一元素两个 v-bind（编译期 "Duplicate attribute"）；合成逻辑在 composable 内。
+const { selectAll: selectAllTargets, clearAll: clearAllTargets, targetBindings } = usePublishTargetBulkTargets({
+  selection: { selectedPlatforms, getAvailableAccountIds, selectPlatform, clearPlatforms },
+  platforms: groupedPlatforms,
+  riskSuspended: computed(() => riskStore.suspended || []),
+  notifyInfo,
+  notifyWarning,
+  siblingBindings: addAccountBindings,
 })
 
 // ── 字段面判据（P2-7 下沉为共用实现 usePublishFieldSurface，单篇与批量同一份真源）──
@@ -1500,8 +1519,9 @@ defineExpose({
   // 热门选题批量交接（hot-topics-publish-handoff）暴露面
   handoffAppliedKey, batchTargetPlatforms, handoffPlatformOptions, applyBatchTargetsToAll,
   applyDraftHandoff, parseHandoffDraftIds,
-})
-</script>
+  // 发布目标批量选择（publish-target-select-all）
+  targetBindings, selectAllTargets, clearAllTargets,
+})</script>
 
 <style scoped>
 /* —— 语义化 class（原 inline style 迁移，2026-08-10） —— */

@@ -103,6 +103,27 @@ export default {
       alreadySelected: 'All {count} accounts in this group are already selected',
       emptyGroup: 'This group has no members yet',
       nothingToAdd: 'No account in "{name}" is available right now (removed or disabled)',
+      selectedCount: '{selected}/{total} selected',
+      },
+      // Select all / Clear (publish-target-select-all, 2026-10-17):
+      // "Select all" means "all publishable" — many platforms in the catalog currently have
+      // no available account (not logged in / all disabled). Selecting them would make the
+      // submit validation fail with "choose at least one account for <platform>", i.e. the
+      // user clicks Select all and then cannot publish. Contract:
+      // 01-docs/PRD-PUBLISH-TARGET-SELECT-ALL-2026-10-17.md
+      targetBulk: {
+      selectAll: 'Select all',
+      clearAll: 'Clear',
+      groupAria: 'Bulk publish target selection',
+      selectAllAria: 'Select all publishable platforms ({count})',
+      selectAllDisabledTitle: 'No publishable platform yet, add an account first',
+      clearDisabledTitle: 'No publish target is selected',
+      listRest: ' and {rest} more',
+      added: 'Selected {added} platform(s){skippedText}',
+      skipped: ', {count} platform(s) have no available account and were skipped: {platforms}',
+      riskIncluded: '; {count} of them are suspended for risk control and will be blocked at publish time',
+      alreadyAll: 'All {count} platform(s) already selected',
+      cleared: 'Publish targets cleared',
       },
     accountSuffix: 'Account',
     addArticle: '+ Add Article',

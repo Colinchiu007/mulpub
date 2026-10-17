@@ -14,9 +14,9 @@
       :key="item.id"
       type="button"
       class="group-picker__chip"
-      :class="{ 'is-empty': item.total === 0 }"
+      :class="{ 'is-empty': item.total === 0, 'is-all-selected': isAllSelected(item) }"
       :disabled="disabled"
-      :title="item.name"
+      :title="chipTitle(item)"
       :data-testid="`group-apply-${item.id}`"
       :aria-label="applyLabel(item)"
       @click="$emit('apply-group', item.id)"
@@ -32,7 +32,9 @@ import { computed } from 'vue'
 import i18n from '@/i18n'
 
 defineProps({
-  /** `buildGroupPickerItems` 的产物：[{id,name,applicable,total}]。组件保持哑组件，不碰 store。 */
+  /** `buildGroupPickerItems` 的产物：[{id,name,applicable,total,selected?}]。
+   *  `selected`（publish-target-select-all）是该组当前已选中成员数，供 tooltip 做
+   *  点击前预告；缺省时 tooltip 只显示组名与可添加数（与 P2-8b 行为一致）。 */
   items: { type: Array, default: () => [] },
   disabled: { type: Boolean, default: false },
 })
@@ -47,6 +49,28 @@ const labelText = computed(() => i18n.global.t('publishPage.groupPicker.label'))
 function applyLabel (item) {
   return i18n.global.t('publishPage.groupPicker.applyAria', { name: item.name })
 }
+
+// 点击前预告（publish-target-select-all §2.3）：把 P2-8b 的播报文案前移到 hover。
+// 「已选/成员」只有在上游真的给了 selected 时才出现——没有就不编一个 0，
+// 那会把"没统计"显示成"一个都没选"。
+function chipTitle (item) {
+  const parts = [item.name]
+  if (typeof item.selected === 'number') {
+    parts.push(i18n.global.t('publishPage.groupPicker.selectedCount', {
+      selected: item.selected,
+      total: item.total,
+    }))
+  }
+  return parts.join(' · ')
+}
+
+// 已全选的 chip 用视觉态标示，但**不禁用**：再点是幂等 no-op，
+// 禁用会把"已经加过了"伪装成"按钮坏了"（P2-8b §七 同源理由）。
+function isAllSelected (item) {
+  return typeof item.selected === 'number'
+    && item.total > 0
+    && item.selected >= item.total
+}
 </script>
 
 <style scoped>
@@ -56,6 +80,8 @@ function applyLabel (item) {
 .group-picker__chip:hover:not(:disabled) { border-color: var(--action-blue, #1890ff); }
 .group-picker__chip:disabled { cursor: not-allowed; opacity: 0.6; }
 .group-picker__chip.is-empty { border-style: dashed; }
+/* 已全选：只改边框色不改尺寸/不改布局（视觉态不是禁用态）。 */
+.group-picker__chip.is-all-selected { border-color: var(--action-blue, #1890ff); background: color-mix(in srgb, var(--action-blue, #1890ff) 8%, var(--surface, #fff)); }
 .group-picker__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .group-picker__count { color: var(--muted, #8a8f98); }
 </style>

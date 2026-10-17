@@ -1,12 +1,9 @@
 # [未发布] docs(openspec): 归档 gate-record-sync-derived-status，主规格 quality-gate-execution-record 落地
-
 - **动作**：`openspec archive gate-record-sync-derived-status -y` ⇒ `specsUpdated=true / added=3`，change 落为 `openspec/changes/archive/2026-10-18-gate-record-sync-derived-status/`，并创建主规格 `openspec/specs/quality-gate-execution-record/spec.md`；`openspec/specs/openspec-integration/spec.md` 纯插入一条 Requirement（+21 −0，不动既有行）。
 - **CLI 留下的占位必须当场还**：`openspec archive` 往新主规格写 `TBD - created by archiving change …`，本仓历史上这条账**没人还过**（2026-10-07 清点 151 份主规格里 43 份如此）。本次把 Purpose 写实。
 - **三条核验**：① 移动按 `git diff --cached -M` 判 **13 个 R100**（逐字节相同）而非"删+加"；② `openspec validate --all --strict` 前后失败集**逐字相同**（17 条，全是既有、不含本 PR 任何条目）；③ 三份未归档件（`enforce-gate-record-presence` / `freeze-legacy-gate-carrier` / `hot-carrier-atomic-landing`）归档后仍各自 validate 通过。
 - **边界**：不往旧载体 `.quality-gates.md` 插块、不往 ledger 加键（`carrierDrift` 会拦）；ledger 里 23 条历史欠账原样不动。执行记录 `openspec/records/archive-gate-record-derived.md` 按新形态写（状态列「由门禁推导」，不带 `sync_*`）——这是新机制上线后第一篇走推导收口的归档记录。
-
 # [未发布] fix(ci): GUI 相关性 CLI 端到端用例改用例级预算，并落一条可重跑的实测出处（gui-cli-e2e-timeout）
-
 - **动因是一次 main push 回读**：PR #3807 合入后 main 的 `QG Desktop Shards (1/2)` 判红，唯一红点 `tests/gui-ci-exit-contract.test.js:220` 报 `Test timed out in 10000ms`。对照跑证明它不是那片引入的——同一形态在我合并前 57 分钟的 main push `ce3f25cdf` 上逐字复现，而含我内容的后续 main tip `3f5f9da38` 判 success。归因完不放着，是因为这条 required check 会砸到每一个碰到 `apps/desktop/**` 的 PR。
 - **根因是预算倒挂不是"偶发超时"**：该用例要真起 17 个子进程（12 次 `git.exe` + 5 次 `node.exe`），却没有用例级预算，继承 `vitest.config.js` 与 CI 命令行两处的 `--testTimeout=10000`。CI 实测：空闲 1059/1326/1453/1466/1495/1657ms，负载 11097/12744ms——8 倍摆动全来自 runner 负载，与被测语义无关。讽刺点：同一个文件里就有一条用例在锁"串行单测预算挂实测、超时可自证、且不与 job 级倒挂"。
 - **修法**：预算常量单点落 `apps/desktop/tests/gui-cli-e2e-budget.js`（60000ms ≥ 实测长尾下限 12744 × 安全系数 4 = 50976），与它的 provenance、耗时探针、真跑台账同处一模块，被测试文件与复测脚本共读——不放测试文件里，因为那份是 vitest 用例、普通 `node` require 会因 `describe` 未定义而崩。用例记账挂在既有 `finally` 的首位（先记账再清理，`rmSync` 抛错吞不掉样本）。
@@ -15,10 +12,7 @@
 - **自己的三处假绿如实记**：① 变异驱动第一版把「跑了 0 条测试」读成"全绿"，8 条变异齐报 NOT_CAUGHT（驱动产物，不是锁没牙）；② 第二版把仓库根相对路径当位置过滤器喂给 cwd 在 `apps/desktop` 的进程，同样 0 收集——两处都由规模下界（`total < 43` 即拒）拦住；③ 一条锚点恒 0 命中，根因是用测试文件的 CRLF 档去锚我新写的 LF 文件 ⇒ 行尾必须按**该文件自己**的档位判。另有两次归因错被实测纠正：禁词锁被自己的注释判红（处置是收紧判据而非删注释）、以及我把 `M2` 的红记成"禁裸数字断言"抓的（实为 marker 存在性；那条断言永不命中，已删——QM-6 前端轴 G7）。
 - **测试与门禁**：`gui-ci-exit-contract.test.js` **39 → 43 passed**（+4 条锁）；QM-1 不触发（零 `electron/`、零 `packages/rpa-engine/`）；QM-4 棘轮改动前后逐字相同（判定域 112 / 基线 43 / 缺 69 上界 69 / 无主 0）；品牌残留 PASS（9803 个 tracked 文件）；行尾两口径 numstat 相同。
 - **QM-6 双模型评审（394 行 ⇒ mode=dual）**：后端轴 claude 交付 13 条（载荷是第三种形态——markdown 的 severity/file/issue/fix 条目，既不是 stream-json 也不是纯 JSON 数组）；前端轴 opencode 第 1 次只交过程快照、零 verdict（不计成立），按重试预算补跑第 2 次交付 9 条 JSON findings（成立）。22 条里采纳 12 条并落码/落文档，**其中两条抓的是我自己的产出**：记录声称的耗时口径与代码不一致（G4，改为内层 finally，令"含清理"与"不吞样本"同时成立）、记录的算术错 `40 → 43` 实为 `39 → 43`（F7）。拒绝 4 条并给可证伪理由（B2 被 `M8` 现场否证、B10 属响亮红、F3 会让本地跑出一个与 CI 不同口径的通过、F8 的失效方向已 fail-closed）。**一条采纳被实测否证后改道**：G5 建议统一两档安全系数，我照做后本机一次高负载量到单样本 21678ms ⇒ `×4` 判红，而同一时刻 CI 分布 max 仍是 12744ms——那次红报的是"这台机器今天忙"，于是改回"两档各乘各自的量 + 共用同一条不等式实现 + 钉住系数大小关系"。
-
-
 # [未发布] fix(gate): 行数门禁的扫描域改成 git 的域 —— 本机跑过构建就报 NEW_OVER_LIMIT 的假红（max-lines-git-domain）
-
 ## 症状与根因
 - 症状：在跑过 `pnpm run build:preload` 的工作树里执行 `node .github/scripts/check-max-lines.js` 报两条
   `NEW_OVER_LIMIT`（`apps/desktop/electron/preload/index.bundle.js 1752 行`、`home-shell-preload.bundle.js 1803 行`），
@@ -27,7 +21,6 @@
   补了「先重建再测」，**没改行数门禁自己的扫描域** —— `walkDir` 一直按 `fs.readdirSync` 走磁盘、从不问 `.gitignore`，
   而这两个产物恰好落在 `SCAN_DIRS` 内、扩展名又是 `.js`。于是「本机域」比「CI 域」多出若干不受管的生成物，
   两边却比同一份挂账账本。它们在账本里是 `pruned` 墓碑，所以症状是"重新欠债"而不是"存量膨胀"。
-
 ## 修复
 - 扫描域交给 git：`gitDomain` = `git ls-files -z` ∪ `git ls-files -z --others --exclude-standard`
   （即 `git status` 与 CI 检出共同看的集合），`walkDir` / `scanTestFiles` 在读文件之前按域过滤。
@@ -38,7 +31,6 @@
 - 顺带采纳两轴评审：被跟踪但同时命中 `.gitignore` 的文件**仍在域内**（并集，不是 check-ignore）并补锁；
   读文件失败从静默 `continue` 改成出声登记；测试夹具另关 `GIT_CONFIG_NOSYSTEM`（实测 system 档里的
   `core.excludesFile` 能把文件整批藏出域，`delete GIT_CONFIG_SYSTEM` 挡不住）。
-
 ## 验收（注意域）
 - **真实验收是本机同树 A/B**，不是 CI 绿：同一份工作树 + 同一份账本，修复前实现 rc=1 报那两条假红，
   修复后 rc=0 且 `domain=9996`（该数随仓库增长、每次 re-sync 重取，不是基线）；干净检出下修复前后判定逐字不变（超限文件=95 挂账=95 墓碑=5 点名还账=20，
@@ -48,13 +40,10 @@
   9 道 CAUGHT 且红集互不相同，M8（摘掉读失败出声）实测 MISSED —— 那一格本机造不出确定性读失败，
   如实登记为无锁。同根因第二处 `scripts/check-debt-budget.js`（本机 filesOver500=97 vs CI 95、基线 101，
   靠余量没红）另开任务，不在本片顺手改第二个门禁的判定域。
-
 # [未发布] docs(CI): 沉淀 QG Coverage 40 分钟超时 flake（归因证据 + 不动 workflow）
-
 ## 现象
 main push 的 `quality-gate` run 中，`QG Coverage` job 偶发 `cancelled`，连带
 `Gate Result` failure。2026-10-17 #3838 的 merge SHA `3a941d311` 上即触发一次。
-
 ## 归因（A/B 对照，非"我的改动引入"）
 - `quality-gate.yml` 中 QG Coverage 声明 `timeout-minutes: 40`。
 - 实测三组（用 `gh run view <run> --json jobs` 取 startedAt/completedAt）：
@@ -68,36 +57,38 @@ main push 的 `quality-gate` run 中，`QG Coverage` job 偶发 `cancelled`，�
 - 最近 8 次 main push 中 2 次踩线（约 25%）：独立于任何单次改动。
 - #3838 只含 skill 文档 + 1 个测试文件 + 记录文件，不含被 coverage 统计的运行时代码；
   且 PR 侧同一 job 显示 `pass 38m35s`（险过但未红），佐证与改动无关。
-
 ## 处置（本 PR 只沉淀，不动 workflow）
 - 不调 `timeout-minutes`：`.github/workflows/` 属"改谁来守门"，须人工过目。
 - 留给后续的真修法二选一：① 放宽 QG Coverage 超时；② 给 coverage 采集降本提速。
 - 在此之前，该 run 的 `cancelled` 应读作 **flake**，需重跑确认，不得直接判回归。
-
 ## 方法论（可复用）
 判「CI 红是不是我引入的」三步：① 取该 job 的 `timeout-minutes` 与实际耗时对照（卡上限=超时）；
 ② 拉最近 N 次同 workflow 同 job 的结论做频率统计（别人也红=系统性）；
 ③ 看改动集是否覆盖该 job 的统计域（不覆盖=无因果路径）。
-
 # [未发布] test(gates): 把「深度审查必然落在 self-play」变成可复跑读数（ccg-convergence-exit）
-
 - **动因是否证出来的**：#3724 收尾时我写过「大概是 stall 判据误触」。实测直接否证——验证层只跑一轮，而 `isStalled` 要求 `rounds.length >= stallRounds + 1`，单轮恒不成立。真正结论是引擎的三个停止出口里**只剩 ③ 可达**（① 从不进第 2 轮、② 轮次不足、③ `status=self_play reason=selfPlay stop=true`），而 ③ 对 `highRiskDomains` 非空的条目无条件计阻断 ⇒ 含 crypto 发现的 diff 上「闭环可达」不是待达成的目标，是结构上到不了的终点。本 PR 交付的是**测量与报警**，不声称让闭环可达。
-
 - **所有参数现读自上游源码，本仓不留第二份数**：`maxRounds=3 / scoreThreshold=8.0 / stallRounds=2 / stallScoreDelta=0.5` 只在 `engine.js`，`confidenceWeight=0.6 / selfPlay.enabled=true` 只在 `ccg-deep-review.js`。第一版的测试只喂了 engine 那一份 ⇒ 两键恒 `null`，「探针读不出参数」被读成「判据是硬的」。正解是把「读哪两份」收敛成单点 `readVendorSources()`，main 与测试同源，并加**反向**断言（只喂一份必须读不出对应键）—— 抄一份默认值就是下一个「上游改了而这里恒绿」的漂移源。
-
 - **三档退出码 + 机器档纯度**：`0` 读数符合 / `1` 读数偏离（上游行为或驱动形状变了）/ `2` 探针自身取不到数；混档等于把「探针瞎了」读成「引擎没问题」。`--json` 档的 stdout 只准放 JSON，人读行改道 stderr——第一版在 JSON 后面继续写结论，测试的 `JSON.parse` 抛 `Unexpected non-whitespace character after JSON at position 1117`，那条红读起来像「探针坏了」而不是「它多嘴了」。
-
 - **漂移报警带行为锁，不留注释**：P3 在临时目录放原样复制的真引擎 + 把轮次字段改回被禁形态的驱动，要求探针 `rc=1` 且偏离清单点名 `currentRound`，再在同目录换回真驱动要求 `rc=0`（A/B 缺一即红不能归因）。这里另踩一格：`CCG_ARL_DIR` 的语义是**技能根**（探针自己再拼 `scripts/`），传了已含 `scripts` 的路径会让探针静默回落真 vendor、夹具根本没被用上 ⇒ 补一条正控「JSON 里的 vendor 路径必须命中临时目录名」。
-
 - **夹具是真产物逐字摘录，计数差异就地解释**：样本取自 `.ccg/reviews/24cf2d8f…json`（PR #3724，被审 commit `5d660809a`），6 条 finding 逐字段核对全部 `fieldDiff=none`；`deepReview.status=self_play_blocked / performedBy=self-play / blocking=3 条（i1 自扮演维持 + i2/i4 高危需外部复核）`。引擎 stdout 写「8 条问题」而记录里 6 条，前者是 critic 当轮原始产出、后者是裁决后留存 —— 不写这句，下一个会话会把 8/6 读成摘录漏抄。
-
 - **变异 5 咬 1 逃，逃的那条如实记账**：MP1（json 档多嘴加回）/MP2（`readDefaults` 无视源码回传常量）/MP3（摘掉驱动形状自评）/MP4（找不到引擎返 0）/MP5（读法退回只喂 engine）均**指名变红**，还原 `md5 ok=true`；MP6（把 `shipped.status !== self_play` 摘成恒假）**实测 ESCAPED**——因为 P1 直接断言 ladder **读数本身**而不信探针自评，属防御重叠，写成设计属性而不是「锁已验证」。
-
 - **接线与白名单**：`quality-gate.yml` changes 作业新增 `Gate 2b6 - CCG convergence-exit probe`（编号避开 2b5：#3724 已占用 `Gate 2b5 - CCG evidence anchor` 且未合并，同号会在任一条先合时撞成两步同名）；`.gitignore` 补 `!scripts/ccg-convergence-probe.js`，判据用 `git check-ignore --no-index -v` 量（改前命中 `106:scripts/*.js`、改后命中放行规则，`git status` 里文件从「根本不存在」变为 `??`）。三条既有守卫实跑：`check-unwired-tests`（94 个测试文件 OK）、`check-step-failfast`（37 步 OK）、`check-workflow-structure`（files=14 violations=0）。
-
 - **诚实边界**：CI runner 上没有上游技能目录，所以 CI 那一格守的是「缺引擎 ⇒ rc=2 且点名探针失明」，ladder 读数断言在本机那一格跑 —— 两档都必须有产物，不 skip、不把「找不到」判成「通过」。三条出路（真跑多轮抬分 / 改上游引擎 / 人工放宽 `check-pr-exec-record` 闭合词表）全部登记在 `tasks.md` §7 且**本 PR 一条都不做**：前两条分别要用户拍板成本、要动跨项目共用的上游制品，第三条按 AGENTS.md 属改「谁来守门」，必须人工过目。
 - **真实双模型评审（proposer=opencode / critic=claude）打回 2 条 Critical，两条都是真的**：`i2` —— `locateVendor()` 的第三个候选是仓库自身目录，而探针会 `require()` 命中的文件，于是**普通 PR 内容就能换到 CI 里的代码执行，且不需要任何写权限**（可照抄的具体落点与步骤号不放在前页索引，见 `design.md` 与本 PR 执行记录 §7）（另两个候选需要仓库变量或 runner 本机写权限，权限前提完全不同级，这条是本 PR 新造的威胁面）。已删该回落，并加 P7 结构锁 + 变异 MP7 实测指名变红。`i1` —— 漂移报警的临时夹具原先只复制 engine.js 与驱动，若上游引擎将来 require 同目录兄弟模块，那份缺失会把「读数偏离(1)」伪装成「探针失明(2)」，正是本篇自己三档判据要防的形态；已改为整目录复制并加「夹具文件数 == vendor 文件数」下界断言。
 - **评审顺手把本篇结论跑宽了，原表述已收窄**：跑本 PR 时日志写着 `待裁决 6 条；其中高危域必须外部复核 0 条`，引擎照旧落在 ③（`status=self_play reason=selfPlay minScore=4`），最终 2 条阻断的原因是 `self_play_upheld` 而非高危域 ⇒ ③ 不可闭合与 crypto 无关，高危域只是两种子形态之一。更硬的是现场本身：i1/i2 已修且各带锁，记录却仍带 `self_play_blocked` 留在变更集里 —— 引擎没有一格能表达「已在其后提交修复」，而该记录按父提交入库、`deep-review` 只服务当前 HEAD ⇒ 永久无法回补。这正是 D8 拒绝在本 PR 放宽闭合词表的原因，也因此**本 PR 需人工合并**（`check-pr-exec-record --mode=enforce` 按设计判不可自动合并）。另有 3 条 Warning（i3/i5/i6）按实测证据否证：既有 489 个标题块同体例且 Gate 2c3 只判集合单调性、8 条用例总耗时约 1.5 秒而加缓存会合并「读不到/读到旧值」两态、被指缺失的 tasks §7 引用其实逐字在同一块内。第二轮评审还量到更宽的一格：改动集里没有任何加解密代码，某条却被打了 `crypto` 域标签 —— 标签来源是**文案里出现了那个字样**，于是「高危域必须外部复核」这道闸可被散文触发；同轮另两条已按 Upheld 处置（CHANGELOG 前页降低披露等级、`.gitignore` 注释去掉会腐烂的行号）。
+
+# [未发布] feat(publish): 发布目标区增加「全选 / 清空」与分组选择回视（publish-target-select-all）
+- **动因**：用户反馈「图片和视频发布页，右侧『发布目标』区域，增加『全选』选项，和分组选择的选项」。真实痛点是 15+ 平台逐个勾选；而分组选择（P2-8b「按组添加」）虽已存在，加完之后没有任何回视，用户要滚列表核对。
+- **UE 上的三条判断（不是"加两个按钮"这么简单）**：① **全选必须定义成「全选可发布的」**——平台目录里大量平台当前没有可用账号，全选它们会让 `validatePublishTargets` 以「请为<平台>选择至少一个账号」阻断，等于用户点了全选反而发不出去；判据复用 `usePlatformSelection.getAvailableAccountIds`（内含 `isAccountActive`），被跳过的平台必须在提示里点名（前 3 个 + 「等 N 个」）。② **全选是增量不是替换**，且提供「清空」作为唯一无歧义的逆向操作（**不做反选**：反选后选中的恰是无账号平台集合）。③ **不新增第二行常驻块**，批量操作与分组 chip 同处一行，且**无可发布平台时整行不渲染**——既不给死控件，也保持 CI 空 profile 下 `publish-form` 的视觉中性。
+- **判据与接线分层**（`Publish.vue` 被 `max-lines-baseline` 的 `targets` 点名、容差 0，故一律下沉）：判据本体 `features/publish/usePublishTargetBulk.js`（纯函数、依赖注入、无 Vue 无 IPC 可单测）；接线层 `composables/usePublishTargetBulkTargets.js`（store ↔ 视图 + 播报 + 与 `addAccountBindings` 合成同一个 v-bind 对象——**Vue 模板不允许同一元素两个 v-bind**，编译期 `Duplicate attribute`）。视图净 +4 行，仍在 1773 之下（现 1770）。
+- **顺序约束与既有同源**：全选沿用 P2-8b 的「先平台、后由 `reconcileSelectedAccounts` 回填默认账号、同一同步段」；源码锁断言剥离注释后不得出现 `await` / `nextTick`（拆帧会让默认账号回填插在中间）。新增 `usePlatformSelection.clearPlatforms()`，只动 `selectedPlatforms`，账号键由既有的 reconcile 清理，不写第二份。
+- **分组选择（既有 chip 的增强，未改其结论）**：chip 增加「已选/成员」tooltip（点击前预告）与已全选视觉态（**不禁用**——禁用会把"已经加过了"伪装成"按钮坏了"，沿用 P2-8b §七 理由）。仍不做按组替换/整组取消（破坏性语义，P2-8b §一.2 已论证）。
+- **测试 34 例 + 既有 110 条零回归**：`usePublishTargetBulk.test.js` 12 例（分类穷尽 / 可发布判据必须问注入函数 / 空目录 no-targets / 幂等 / 同段源码锁）、`usePublishTargetBulkTargets.test.js` 9 例（播报数字同源 / 清单截断 / 风控点名 / added=0 分岔）、`publish-target-bulk.component.test.js` 7 例（视觉中性 DOM 锁 / 哑组件 / 禁用态 / v-bind 合同）、`publish-target-select-all.test.js` 6 例（视图层接线：点了真的改选中集）。**变异反证**：把可发布判据改回读 `platform.accounts.length` ⇒ 12 例中 9 例当场红。
+- **实现期实测到的两条坑（已写进 PRD §九之二）**：① `publishableCount` 不能写成 computed——测试替身的 `byPlatform` 非响应式时它在目录就绪前求值一次即缓存，表现是"按钮永远不出现"；改为 watch 订阅三个确实响应式的源。② 测试替身的 `byPlatform` 本身必须是 ref（真实 Pinia store 的 `byPlatform` 是对 `accounts` 派生的 computed），否则"账号到了 ⇒ 界面跟着变"这条保证被替身抹掉，整类缺陷只在测试里成立（Mock 边界漏洞）。
+- **Gate 7 实测红过一次并已修**：清单截断后缀「等 N 个」最初写在纯函数里 ⇒ `check-locale-sync --cjk` 判 4 处硬编码中文。改为纯函数只做"取前 N 个 + 调 `restLabel` 回调"，后缀由接线层从 locale 注入；纯函数因此仍可在无 Vue 环境单测。
+- **门禁**：`check-max-lines` ✅（Publish.vue 1770 ≤ 1773；Publish.test.js 拆出 `publish-target-select-all.test.js` 后回到容差内）、`check-locale-sync` pair ✅ + CJK ✅、ESLint exit 0（仅 2 处既有 warning，均不在本刀 diff）、受影响 25 文件 422 用例全绿。
+- **诚实边界**：真机行为验证需已登录 profile（本机不做端到端，牵动共享 userData）；`QG Visual` 以 CI 为准，本刀的构造性论证是「空 profile 下零 DOM 新增」，非空 profile 下的预期界面变化若需重建基线应由 CI 同源产出。
+- 契约：`01-docs/PRD-PUBLISH-TARGET-SELECT-ALL-2026-10-17.md`；交叉更新 `UI-INVENTORY.md` §7.2、P2-8 路线图第三刀标记、`PRD-PUBLISH-GROUP-PICKER-2026-10-03.md` 下游说明。
 
 # [未发布] docs(skill): start-app 入口选择硬路由 + preload 排查 + 结构锁（startapp-skill-harden）
 
@@ -245,6 +236,8 @@ CI 只读检出、别的 worktree（各自 node_modules 不同）等场景，sha
   CI 侧 `debt-guard.yml` 跑这条检查但没有构建步骤，所以暂不产生新红。收窄判据域属"改谁来守门"，另片处理。
 - 本 PR **不能自证 push 侧转绿**：那条步骤在 PR 事件上不跑。验收判据是合并后 main push 的那一次运行，
   已在执行记录里写成收尾必查项。
+
+
 
 # [未发布] feat(observability): history:list 补耗时读数与 >300ms 阈值告警（obs-history-timing）
 

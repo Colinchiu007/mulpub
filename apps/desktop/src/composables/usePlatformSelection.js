@@ -86,6 +86,21 @@ export function usePlatformSelection(accountStore, platformCatalog = null) {
     }
   }
 
+  /**
+   * 清空全部发布目标（publish-target-select-all 的「清空」按钮）。
+   *
+   * 刻意**不**提供"反选"：反选后选中的恰是"没有可用账号的平台"集合，
+   * 用户得到的是一个必然被 validatePublishTargets 拒绝的状态（见 PRD §2.2）。
+   * 清空是唯一无歧义的逆向操作，且与"再点一次全选即恢复"的撤销路径天然配对。
+   *
+   * 只动 selectedPlatforms：selectedAccounts 由 reconcileSelectedAccounts 的
+   * deep watch 自动清理（凡不在 selectedPlatforms 里的平台键直接 delete），
+   * 不在这里手写第二份清理逻辑。
+   */
+  function clearPlatforms() {
+    selectedPlatforms.value = []
+  }
+
   function getAccounts(platformId) {
     const byPlatform = accountStore.byPlatform?.value || accountStore.byPlatform
     const list = (byPlatform && byPlatform[platformId]) || []
@@ -174,6 +189,7 @@ export function usePlatformSelection(accountStore, platformCatalog = null) {
     togglePlatform,
     selectPlatform,
     selectAccount,
+    clearPlatforms,
     getAccounts,
     getDefaultAccount,
     getSelectedAccountIds,
