@@ -480,4 +480,113 @@ describe('TaskQueue + PublishIntervalGuard 集成', () => {
     expect(blockedEvents[0].remainingWait).toBeGreaterThan(30000)
     queue.shutdown()
   })
+
+  // ── fix-release-window-taken-type-mismatch：生产型 store（TEXT 列 ⇒ 读回字符串）────────
+  // 现场：视频号 60 分钟账号档，一次「登录失效」尝试把窗口占住且从未真正回滚，
+  // 下次提交显示「等待 59 分钟后重试（本账号间隔）」，而该账号并未发出任何内容。
+  describe('生产型 store（string 读回）下的回滚与可观测性', () => {
+    /** 与桌面 SQLite 同形：写入 number，读回 string；NULL 读回 null */
+    function makeTextStore () {
+      const map = new Map()
+      return {
+        get: (k) => {
+          if (!map.has(k)) return null
+          const v = map.get(k)
+          return v === null || v === undefined ? null : String(v)
+        },
+        set: (k, v) => { map.set(k, v) },
+      }
+    }
+
+    test('W1 string 读回的 store：登录失效失败必须真正回滚窗口（现场缺陷的端到端锁）', async () => {
+      const guard = new PublishIntervalGuard({
+        minInterval: 60 * 60 * 1000, // 视频号 60 分钟
+        jitterRatio: 0,
+        store: makeTextStore(),
+      })
+      const queue = new TaskQueue({ defaultRetry: 0, publishIntervalGuard: guard })
+
+      const released = []
+      queue.on('publish:released', (p) => released.push(p))
+
+      let attempts = 0
+      queue.setExecutor(async (task) => {
+        attempts += 1
+        if (attempts === 1) {
+          // 传输层判定「可确证未送出」的失败形态（publish-not-submitted.js 词表）
+          const err = new Error('tencent_video not logged in')
+          err.definitelyNotSent = true
+          throw err
+        }
+        // 成功路径自证（不变量 I4）：不打点会让队列判「该平台接线不可信」并停用回滚
+        queue.markSubmitted(task.id)
+        return { success: true }
+      })
+
+      queue.add({ platform: 'tencent_video', article: { title: 'V', accountId: 'b1e05ac2' } })
+      await new Promise(r => setTimeout(r, 80))
+
+      expect(attempts).toBe(1)
+      expect(released).toHaveLength(1)
+      // 关键判据：窗口必须真的回到「可立即发布」；修复前这里是 false ⇒ 下一条被挡 59 分钟
+      expect(guard.check('tencent_video', 'b1e05ac2').allowed).toBe(true)
+
+      // 立即再发不得被间隔挡住（进 blocked 即为缺陷复现）
+      const blocked = []
+      queue.on('publish:blocked', (p) => blocked.push(p))
+      queue.add({ platform: 'tencent_video', article: { title: 'V2', accountId: 'b1e05ac2' } })
+      await new Promise(r => setTimeout(r, 80))
+      expect(blocked).toHaveLength(0)
+      expect(attempts).toBe(2)
+      queue.shutdown()
+    })
+
+    test('W2 回滚失败必须出声（releaseFailed 此前零消费者、零日志）', async () => {
+      // store.get 恒返回一个与 hold.at 不同的值 ⇒ release 判 window_taken
+      const store = { get: () => 1, set: () => {} }
+      const guard = new PublishIntervalGuard({ minInterval: MIN_INTERVAL, jitterRatio: 0, store })
+      const queue = new TaskQueue({ defaultRetry: 0, publishIntervalGuard: guard })
+
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const errors = []
+      queue.on('task:failed', (t) => errors.push(t))
+
+      queue.setExecutor(async () => {
+        const err = new Error('登录态失效')
+        err.definitelyNotSent = true
+        throw err
+      })
+
+      queue.add({ platform: 'douyin', article: { title: 'T', accountId: 'acc_1' } })
+      await new Promise(r => setTimeout(r, 60))
+
+      const windowWarns = warnSpy.mock.calls.map((c) => String(c[0])).filter((m) => m.includes('未能回滚间隔窗口'))
+      expect(windowWarns).toHaveLength(1)
+      expect(windowWarns[0]).toContain('window_taken')
+      expect(queue.getProbeCounts().releaseFailed).toBe(1)
+      warnSpy.mockRestore()
+      queue.shutdown()
+    })
+
+    test('W3 回滚成功时不得出现「未能回滚」告警（反向锁，防告警退化为噪声）', async () => {
+      const guard = new PublishIntervalGuard({ minInterval: MIN_INTERVAL, jitterRatio: 0 })
+      const queue = new TaskQueue({ defaultRetry: 0, publishIntervalGuard: guard })
+
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      queue.setExecutor(async () => {
+        const err = new Error('登录态失效')
+        err.definitelyNotSent = true
+        throw err
+      })
+
+      queue.add({ platform: 'douyin', article: { title: 'T', accountId: 'acc_1' } })
+      await new Promise(r => setTimeout(r, 60))
+
+      const windowWarns = warnSpy.mock.calls.map((c) => String(c[0])).filter((m) => m.includes('未能回滚间隔窗口'))
+      expect(windowWarns).toHaveLength(0)
+      expect(guard.check('douyin', 'acc_1').allowed).toBe(true)
+      warnSpy.mockRestore()
+      queue.shutdown()
+    })
+  })
 })
