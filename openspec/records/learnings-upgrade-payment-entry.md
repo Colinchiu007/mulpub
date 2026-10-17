@@ -1,7 +1,5 @@
 ---
 
-sync_reason: PR 刚开、尚未合并，远程同步状态待回填
-sync_backfill_owner: Colinchiu007（本分支作者，合并后同一次提交内删除本两字段）
 
 record: learnings-upgrade-payment-entry
 task: 沉淀 fix-upgrade-payment-entry 及其收尾环节的 7 条经验
@@ -42,7 +40,7 @@ date: 2026-10-17
 
 ## 远程同步
 
-| 远程同步 | PENDING |
+| 远程同步 | PASS | 已合并：PR #3842，merge `426e2350b7e43eea0985fbf3fc1c313f68e79ad1`（2026-10-17T20:56:16+08:00，squash）。远端分支已删 |
 | --- | --- |
 
-- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 绝对路径 ✅ | 文档同步 ✅ | 远程同步 PENDING
+- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 绝对路径 ✅ | 文档同步 ✅ | 远程同步 PASS
