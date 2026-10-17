@@ -82,6 +82,13 @@ const DEFAULT_THRESHOLD = 3
 // 于是锁变红却**分不清是文案错了还是正则重构了**。行为探测对等价改写免疫。
 const AUDIT_NAME_WIDTH_MIN = 8
 const AUDIT_NAME_WIDTH_MAX = 200
+// alt 形态的 sha 段探测范围与 ISO 段候选（同样只用于**探测**，不用于断言形状）
+const AUDIT_ALT_SHA_MIN = 4
+const AUDIT_ALT_SHA_MAX = 80
+const AUDIT_ALT_ISO_CANDS = [
+  { text: '-20261017T120000Z', label: 'ISO 时间戳' },
+  { text: '-20261017T120000.123Z', label: 'ISO 时间戳（含毫秒）' },
+]
 function auditArtifactName (width, suffix) {
   return '.ccg/reviews/' + 'a'.repeat(width) + (suffix || '') + '.json'
 }
@@ -93,20 +100,72 @@ function auditAcceptedWidths () {
   }
   return out
 }
-/** 判据**实际接受**的 alt 后缀样例；不接受则返回 null（同样是行为探测） */
-const AUDIT_ALT_PROBE = auditArtifactName(64, '-again-' + 'b'.repeat(40) + '-20261017T120000Z')
+/**
+ * 判据**实际接受**的 alt 形态（按行为探测得出），形如：
+ *   { shaWidths: [40], isos: ['ISO 时间戳'] }
+ * 不接受 alt 形态时返回 null。
+ *
+ * ★ QM-6 第二轮 i1/i3：首版把 alt 描述**硬编码**成 `-again-<40 位 sha>-<ISO 时间戳>`。
+ *   于是若判据把 alt 的 sha 宽度改成 `[0-9a-f]{32}`，探针（固定 `'b'.repeat(40)`）仍会失败、
+ *   看起来「一切正常」，但真实行为已变、描述却还写着 40 位 ⇒ **文案又说谎了，只是这次
+ *   没有探针能发现**。所以 alt 的 sha 宽度与 ISO 段都必须由探测得出，描述再由探测结果拼出。
+ */
+let _altFormCache
 function auditAcceptedAltForm () {
-  const ok = AUDIT_ARTIFACT_RE.test(AUDIT_ALT_PROBE)
-  return ok ? '-again-<40 位 sha>-<ISO 时间戳>' : null
+  if (_altFormCache !== undefined) return _altFormCache
+  const mainW = auditAcceptedWidths()[0]
+  if (!mainW) { _altFormCache = null; return null }
+  const shaWidths = []
+  for (let w = AUDIT_ALT_SHA_MIN; w <= AUDIT_ALT_SHA_MAX; w++) {
+    if (AUDIT_ARTIFACT_RE.test(auditArtifactName(mainW, '-again-' + 'b'.repeat(w) + AUDIT_ALT_ISO_CANDS[0].text))) {
+      shaWidths.push(w)
+    }
+  }
+  if (shaWidths.length === 0) { _altFormCache = null; return null }
+  // 在已确认的 sha 宽度里，逐个试 ISO 段候选，收集被接受的那些
+  const isos = AUDIT_ALT_ISO_CANDS
+    .filter((c) => AUDIT_ARTIFACT_RE.test(auditArtifactName(mainW, '-again-' + 'b'.repeat(shaWidths[0]) + c.text)))
+    .map((c) => c.label)
+  _altFormCache = {
+    shaWidths,
+    isos,
+    description: '-again-<' + shaWidths.join(' 或 ') + ' 位 sha>-<' + isos.join(' 或 ') + '>',
+  }
+  return _altFormCache
 }
+/**
+ * 把源码削成「只含代码行」的视图：剥行内注释 + 剥全行注释。
+ * 供派生锁扫描「文案里有没有手写的第二处说明」使用。
+ *
+ * ★ 为什么必须先规范化 \r\n（QM-6 第二轮 i2，真踩过）：
+ *   JS 的 `.` **不匹配 \r**、`$` 也不在 \r 之前匹配 ⇒ 对 CRLF 文本用 `/\/\/.*$/`
+ *   会**整体匹配失败**，行内注释剥离静默失效；而一旦不再用 `startsWith('//')` 兜底，
+ *   全行注释也会漏掉 ⇒ 注释被当成代码，派生锁反向误伤自己的文档。
+ *   本仓是 CRLF 工作副本，这个坑一定会踩到。
+ */
+function stripCommentsForScan (text) {
+  return String(text)
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((l) => l.replace(/\/\/.*$/, ''))          // 行内注释
+    .filter((l) => {
+      const s = l.trim()
+      return Boolean(s) && !s.startsWith('*') && !s.startsWith('/*')   // 块注释续行/起始行
+    })
+    .join('\n')
+}
+
 /** 生成「<N 或 M 位小写十六进制>」这段说明；判据被改成无法探测的形状时 fail-closed 出声 */
 function describeAuditWidths () {
   const ws = auditAcceptedWidths()
   if (ws.length === 0) {
-    throw new Error('[check-pr-exec-record] AUDIT_ARTIFACT_RE 不接受 '
-      + AUDIT_NAME_WIDTH_MIN + '..' + AUDIT_NAME_WIDTH_MAX
-      + ' 位之间的任何十六进制名 —— 正则可能被改写成了行为探测覆盖不到的形态，'
-      + '请同步 auditAcceptedWidths() 的探测范围（这是 fail-closed，不是文案错）')
+    // QM-6 第二轮 i5：错误信息必须能区分「正则被重构」与「文案写错」，
+    // 所以把正则字面量与探测范围一并打出来，让人一眼知道该改哪边。
+    throw new Error('[check-pr-exec-record] 行为探测覆盖不到任何位宽：'
+      + 'AUDIT_ARTIFACT_RE = ' + String(AUDIT_ARTIFACT_RE)
+      + '；探测范围 ' + AUDIT_NAME_WIDTH_MIN + '..' + AUDIT_NAME_WIDTH_MAX + ' 位小写十六进制 + .json，全部不匹配。'
+      + '这**不是**文案写错，而是判据形状超出了探测范围 —— 请同步 auditAcceptedWidths() 的探测方式'
+      + '（fail-closed：宁可红，也不让文案与行为脱钩）')
   }
   return '<' + ws.join(' 或 ') + ' 位小写十六进制>'
 }
@@ -212,7 +271,7 @@ function evaluate({
       + '④纯回填（定义）：变更集全部是既有记录/台账载体（openspec/records/*.md、.quality-gates.md、'
       + 'scripts/gate-record-debt-ledger.json）的 M（允许 .ccg/reviews/' + describeAuditWidths()
       + '.json 形态的 A'
-      + (auditAcceptedAltForm() ? '，可带 ' + auditAcceptedAltForm() + ' 后缀' : '')
+      + (auditAcceptedAltForm() ? '，可带 ' + auditAcceptedAltForm().description + ' 后缀' : '')
       + '——那是 #3396 的 pre-commit 自动 stage 的判定记录，不承载门禁语义），且至少含一篇 '
       + 'openspec/records/*.md 的 M ⇒ 满足此定义者直接放行（夹带其它新增、任何删除、任何非载体文件，'
       + '或只改门禁清单/账本而无记录文件，即不符合此定义）。')
@@ -502,6 +561,6 @@ function report(r, mode) {
 // AUDIT_ARTIFACT_RE / auditAcceptedWidths / auditAcceptedAltForm / describeAuditWidths 一并导出：
 // 提示文案由判据**生成**，测试必须能拿到同一组派生值来核验「文案 == 生成结果」，
 // 而不是在测试里再抄一遍位宽（抄一遍就是第三处漂移源）。
-module.exports = { evaluate, resolveHeadBranch, readExemptsOnDisk, remoteBranchSet, isPureBackfillChangeSet, evaluateDeepReviewDebt, CLOSED_DEEP_REVIEW_STATUSES, RECORDS_RE, EXEMPT_RE, CARRIER_RE, DEFAULT_THRESHOLD, AUDIT_ARTIFACT_RE, auditAcceptedWidths, auditAcceptedAltForm, describeAuditWidths, AUDIT_NAME_WIDTH_MIN, AUDIT_NAME_WIDTH_MAX }
+module.exports = { evaluate, resolveHeadBranch, readExemptsOnDisk, remoteBranchSet, isPureBackfillChangeSet, evaluateDeepReviewDebt, CLOSED_DEEP_REVIEW_STATUSES, RECORDS_RE, EXEMPT_RE, CARRIER_RE, DEFAULT_THRESHOLD, AUDIT_ARTIFACT_RE, auditAcceptedWidths, auditAcceptedAltForm, describeAuditWidths, stripCommentsForScan, AUDIT_NAME_WIDTH_MIN, AUDIT_NAME_WIDTH_MAX }
 
 if (require.main === module) main(process.argv.slice(2))
