@@ -1,12 +1,12 @@
 <template>
-  <div class="cohere-content" role="tabpanel" :aria-label="$t('collection.draftsTitle')" data-testid="collection-drafts-panel">
+  <div class="cohere-content" id="collection-tabpanel-drafts" role="tabpanel" :aria-labelledby="'collection-tab-btn-drafts'" data-testid="collection-drafts-panel">
     <div class="cohere-section-title col-section-title col-section-title--flex">
       <span>{{ $t('collection.draftsTitle') }} · {{ $t('collection.draftsCount', { count: String(draftCount) }) }}</span>
-      <span style="flex:1"></span>
-      <button class="cohere-btn-secondary col-btn-clear" :disabled="loading" data-testid="drafts-refresh" @click="onRefresh">
+      <span class="zb-flex1"></span>
+      <button class="col-btn col-btn--secondary col-btn-clear" :disabled="loading" data-testid="drafts-refresh" @click="onRefresh">
         {{ $t('collection.draftsRefresh') }}
       </button>
-      <button class="cohere-btn-primary" data-testid="drafts-create" @click="emit('create')">
+      <button class="col-btn col-btn--primary" data-testid="drafts-create" @click="emit('create')">
         {{ $t('collection.draftsEmptyAction') }}
       </button>
     </div>
@@ -51,10 +51,10 @@
             <div v-if="resolveSummary(d)" class="card-summary" :title="d.content">{{ resolveSummary(d) }}</div>
           </div>
         </div>
-        <div class="card-actions">
-          <button data-testid="draft-edit" @click="emit('edit', d)">{{ $t('collection.recordsEdit') }}</button>
-          <button class="primary" data-testid="draft-publish" @click="emit('publish', d)">{{ $t('collection.recordsPublish') }}</button>
-          <button class="danger" data-testid="draft-delete" @click="onDelete(d)">{{ $t('collection.recordsDelete') }}</button>
+        <div class="col-card-actions">
+          <button class="col-btn col-btn--primary" data-testid="draft-publish" @click="emit('publish', d)">{{ $t('collection.recordsPublish') }}</button>
+          <button class="col-btn col-btn--secondary" data-testid="draft-edit" @click="emit('edit', d)">{{ $t('collection.recordsEdit') }}</button>
+          <button class="col-btn col-btn--danger" data-testid="draft-delete" @click="onDelete(d)">{{ $t('collection.recordsDelete') }}</button>
         </div>
       </div>
     </div>
@@ -120,9 +120,12 @@ defineExpose({ loadDrafts })
 </script>
 
 <style scoped>
+/* 采集页控件规范层（collection-page-ui-ue-refine） */
+@import './collection-page.css';
+
 /* 摘要单行截断：长正文不得撑破卡片网格 */
 .card-summary {
-  margin-top: 2px;
+  margin-top: var(--spacing-1);
   overflow: hidden;
   color: var(--color-text-secondary);
   font-size: var(--font-size-xs);
