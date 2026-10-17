@@ -1,0 +1,34 @@
+{
+  "sha": "70ca0c3985810704b9d326f70d8cade601aaed30",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 437 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 437,
+    "fileCount": 5,
+    "codeFileCount": 3,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "3a356dbe54e1f024b9ed0a77aaf7589c97146c05bf6ee539a6a6ce033b953889",
+  "decidedAt": "2026-10-17T13:38:06.496Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "cleared",
+    "performedBy": [
+      "第二轮·后端轴 claude（复核上一轮修复本身）：会话见 qm6-round2-backend.log",
+      "第二轮·前端轴 opencode（复核上一轮修复本身）：会话见 qm6-round2-frontend.log"
+    ],
+    "findings": {
+      "round": 2,
+      "scope": "git diff origin/main...HEAD（分支 gui-cli-e2e-timeout，含第一笔实现与第二笔评审处置）",
+      "note": "第二轮两轴的交付与处置见 openspec/records/gui-cli-e2e-timeout.md 第二节末尾",
+      "round1Ref": "ce79d0cc….json（第一笔提交的判定产物，22 条 findings 的逐条处置见 openspec/records/gui-cli-e2e-timeout.md 第二节）"
+    }
+  }
+}

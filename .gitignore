@@ -207,6 +207,8 @@ scripts/*.js
 !scripts/check-baseline-freshness.js
 !scripts/classify-docs-only.js
 !scripts/lock-timing-audit.js
+# 用例级预算的 CI 复测入口（change: gui-cli-e2e-case-timeout）；被忽略则 provenance 变成"量过一次没人能再量"
+!scripts/case-timeout-audit.js
 # 执行记录存在性判据（change: enforce-gate-record-presence）；其 .test.js 由下面
 # !scripts/*.test.js
 !scripts/lib/ 兜住，但脚本本体必须逐条放行，否则 git add 当场报错、CI 永远看不见它
