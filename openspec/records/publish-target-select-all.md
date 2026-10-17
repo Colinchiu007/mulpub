@@ -2,7 +2,7 @@
 record: publish-target-select-all
 task: 发布页「发布目标」区增加「全选 / 清空」与分组选择回视
 branch: publish-target-select-all
-worktree: D:\Data\projects\mp-worktrees\mp-publish-target-select-all
+worktree: <worktreeRoot>/mp-publish-target-select-all
 contract: 01-docs/PRD-PUBLISH-TARGET-SELECT-ALL-2026-10-17.md
 sync_status: PENDING
 sync_reason: 本 PR（publish-target-select-all，#3861）的远程同步待合并后由后续 docs PR 回填 PASS + merge SHA，并同步删除本条登记字段
