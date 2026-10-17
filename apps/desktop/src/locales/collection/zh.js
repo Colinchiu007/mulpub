@@ -246,6 +246,8 @@ export default {
       mappingMismatch: '采集结果映射异常（主进程报告成功但无条目产出），请查看日志或反馈',
     },
     zhihuFav: {
+      stepHintNoFavlists: '下一步：点「获取收藏夹」拉取收藏夹列表，才能选择要采集的范围。',
+      stepHintNeedContents: '下一步：选好范围与数量后点「加载收藏内容」——加载出来的条目才能勾选并「采集并改写」。',
       kindAnswer: '回答', kindArticle: '文章', kindColumn: '专栏', kindPin: '想法', kindVideo: '视频', kindUnknown: '链接',
       rewriteFailedBadge: '改写失败用原文',
       imageFallbackBadge: '{count} 张图片回退原链',

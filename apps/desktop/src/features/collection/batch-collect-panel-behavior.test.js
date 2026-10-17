@@ -408,3 +408,89 @@ describe('旧整夹直采入口已下线（zhihu-fav-entries-consolidate）', ()
     expect(Object.keys(BatchCollectPanel.props || {})).not.toContain('rewriteFallbackItems')
   })
 })
+
+// ── 阶段引导（zhihu-fav-step-hint，2026-10-17）────────────────────────────
+// 动因：删掉旧整夹直采两个**常驻**按钮后，第 5 步（点「加载收藏内容」）之前，
+// 界面上没有任何「下一步该做什么」的引导 —— 用户看不到「采集并改写」也不知道要先加载。
+// 这批锁要求：三个阶段的引导**必须按阶段出现/消失**，且不得以任何形式复活旧入口。
+describe('阶段引导：加载收藏内容之前必须有路标（zhihu-fav-step-hint）', () => {
+  const HINT = '[data-testid="zhihu-fav-step-hint"]'
+  const REWRITE_BTN = '[data-testid="zhihu-fav-collect-rewrite"]'
+
+  /**
+   * 挂载一个「凭据已配置且可读」的面板。
+   *
+   * 注意**必须挂载前**就把桩放好：`onMounted` 会异步 `loadZhihuConfig()`，
+   * 它返回后会**覆盖**组件里的 zhihuConfig —— 若事后用 state() 改，会被这次异步写回冲掉
+   * （实测：单跑通过、全量顺序下失败，就是这个覆盖造成的）。
+   */
+  function mountWithSecret () {
+    window.electronAPI = {
+      zhihuGetConfig: vi.fn().mockResolvedValue({
+        code: 0,
+        data: secretConfig({ configured: true, readable: true, maskedSecret: 'ab****yz', source: 'encrypted' }),
+      }),
+    }
+    return mountPanel()
+  }
+
+  function favlist () {
+    return [{ urlToken: 'tok-1', title: '我的收藏夹', isPublic: true }]
+  }
+
+  it('阶段 A（已配凭据、还没拉收藏夹）→ 指向「获取收藏夹」', async () => {
+    const w = mountWithSecret()
+    await flushPromises()
+    const hint = w.find(HINT)
+    expect(hint.exists()).toBe(true)
+    expect(hint.text()).toContain('获取收藏夹')
+    // 阶段 A 不该出现「采集并改写」（它在清单区内，未加载即不存在）
+    expect(w.find(REWRITE_BTN).exists()).toBe(false)
+  })
+
+  it('阶段 B（已有收藏夹、还没加载内容）→ 指向「加载收藏内容」', async () => {
+    const w = mountWithSecret()
+    state(w, 'zhihuFavlists', favlist())
+    await flushPromises()
+    const hint = w.find(HINT)
+    expect(hint.exists()).toBe(true)
+    expect(hint.text()).toContain('加载收藏内容')
+    expect(w.find(REWRITE_BTN).exists()).toBe(false)
+  })
+
+  it('阶段 C（已加载出清单）→ 路标消失、按钮出现（不打扰）', async () => {
+    const w = mountWithSecret()
+    state(w, 'zhihuFavlists', favlist())
+    state(w, 'zhihuFavItems', [{ url: 'https://www.zhihu.com/question/1/answer/2', title: 'A', kind: 'answer', collected: false }])
+    await flushPromises()
+    expect(w.find(HINT).exists()).toBe(false)
+    expect(w.find(REWRITE_BTN).exists()).toBe(true)
+  })
+
+  it('凭据未配置时不与 configMissing 重复（只留凭据引导一条）', async () => {
+    // 显式桩「未配置」而不是靠 `window.electronAPI = {}` 的默认：
+    // 全量顺序下，前面用例泄漏的旧实例会用**当前的** window.electronAPI 再拉一次配置
+    // （本文件 L96 已记过这个污染形态），靠默认值会得到与单跑不同的结果。
+    window.electronAPI = {
+      zhihuGetConfig: vi.fn().mockResolvedValue({ code: 0, data: secretConfig({ configured: false, readable: false, maskedSecret: '', source: 'none' }) }),
+    }
+    const w = mountPanel()
+    await flushPromises()
+    expect(w.vm.zhihuSecretAvailable).toBe(false)
+    expect(w.find(HINT).exists()).toBe(false)
+    expect(w.find('[data-testid="zhihu-config-hint"]').exists()).toBe(true)
+  })
+
+  it('引导只解释下一步，不夹带旧入口的任何可点控件（不复活旧入口）', async () => {
+    const w = mountWithSecret()
+    state(w, 'zhihuFavlists', favlist())
+    await flushPromises()
+    const hint = w.find(HINT)
+    expect(hint.exists()).toBe(true)
+    // 引导是纯文案：内部不得有 button / a / input
+    expect(hint.element.querySelectorAll('button, a, input').length).toBe(0)
+    // 旧入口的 testid 仍然一个都不许出现
+    expect(w.find('[data-testid="zhihu-favlist-collect"]').exists()).toBe(false)
+    expect(w.find('[data-testid="zhihu-favlist-rewrite"]').exists()).toBe(false)
+  })
+})

@@ -1,0 +1,30 @@
+{
+  "sha": "c120b5a060160a1235b0d750ec3611dcc1aae550",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 118 行（≤ 200）但命中 auth/数据库/加密：敏感内容 7 处",
+  "stats": {
+    "changedLines": 118,
+    "fileCount": 7,
+    "codeFileCount": 4,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 7,
+    "docSensitiveContentHits": 5,
+    "docSensitiveContentSample": [
+      "| A | 凭据可用 且 `zhihuFavlists.length === 0` | 下一步：点「获取收藏夹」拉取收藏夹列表，才能选择要采集的范围。 |",
+      "| B | 凭据可用 且 有收藏夹 且 `zhihuFavItems.length === 0` | 下一步：选好范围与数量后点「加载收藏内容」——加载出来的条目才能勾选并「采集并改写」。 |",
+      "| — | 凭据不可用（`!zhihuSecretAvailable`） | **不显示**（此时 `zhihuConfigHint` 已在讲「请先配置」，再叠一条会变成两条互相抢注意力的话） |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "58c37bf289a8062302170b89e14dffa81c37062cefd33691fc05136b75bffba3",
+  "decidedAt": "2026-10-17T06:00:43.252Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "findings": "本次改动是渲染层新增一段**只读**的下一步说明文案、两条成对的多语言条目、5 条组件行为锁与三份文档，没有修改任何访问控制、存储或持久化代码。判定器报告的 7 处命中经逐条核对，全部来自**测试替身里既有的遮罩样例串**与**既有变量名**的字面匹配，与本次改动无因果关系 ⇒ 判为假阳性，已在执行记录第 6 节写明。实质风险面已由组件锁覆盖：三阶段（无列表 / 有列表无条目 / 有条目）各自的出现与消失、未就绪状态下不与既有引导重复、以及\"不得以任何形式复活已下线入口\"。变更规模 118 行，单文件最大增量 86 行（测试），均低于阈值。无待人工裁决争议。"
+  }
+}
