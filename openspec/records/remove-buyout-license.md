@@ -94,7 +94,22 @@ date: 2026-10-17
 - `licenseStore.isPro` 的**读取**（`ProfileMenu` / `useBatchPublish` 仍依赖它；删除会让已购用户失去能力）—— 登记为已知债：长期应迁移到 `hasFeatureOf(entitlement, feature)`
 - `PRO_FEATURES` 与 `plan-matrix` 的 features 双清单问题（属定价统一，PRD B 部分）
 
-## 10. 遗留给 PRD B 部分的决策
+## 10. CCG 深度审查处置（dual，8 条 → 4 upheld 已修 / 4 dismissed）
+
+`ccg-review.ps1 -Mode Deep`：proposer=opencode critic=claude（跨家族通过），8 条问题、
+最低分 6。裁决全文见 `.adversarial/ccg-deep-850e4d8f/adjudication.json`。
+
+| 条目 | 裁决 | 处置 |
+| --- | --- | --- |
+| i1 `doActivate` 删除可能有父组件调用 | **upheld（测试部分）** | 无父组件 ref 调用；但 `src/components/more-tests.test.js` 有 3 条 `w.vm.doActivate()` 必红 —— 且我先前按 `src/views/` 找错路径**漏跑了该文件**，是评审提醒才发现。已删该文件 8 个 UpgradeModal* describe（278 行） |
+| i2 `isPro()` 不校验 pro 的 expiresAt | **upheld，已修** | 订阅到期本地会拦不住。`isPro()` 增加到期校验（null=永不过期不误伤存量 / 有效日期=未到期才算 / 无效=非 Pro），补 4 条测试 |
+| i5 preload 与白名单无一致性检查 | **upheld，已修** | 新增双向一致性用例 + **正向对照**（`license:deactivate` 两侧都必须还在，防止「为过断言把两侧一起删空」） |
+| i7 重写后覆盖减少 | **upheld，已确认覆盖** | 由三处叠加覆盖：行为断言（`input.upgrade-input` 不存在）+ 契约锁（`activate`/`expiresAt=null`/`license:activate` 三处）+ 源码锁（无 payment API / 无 payment-flow） |
+| i3 契约锁依赖白名单，重命名会静默不跑 | dismissed | 当前已执行（20 passed 可证）；扩展 `check-unwired-tests.js` 属独立任务。**但笔录在案**：实施中确实踩过（放 `electron/` 根时 vitest 报 No test files found） |
+| i4 正则剥注释型锁脆弱 | dismissed | 已做变异验证（加回 `¥99` 精确变红）；刻意剥注释是为允许注释记录「原先是 X、为什么删」 |
+| i8 迁移每次 save() 无幂等 | dismissed（高危项，以事实消除） | 方法体只在 `type==='lifetime'` 分支内 save()，迁移后 type 即 pro，后续 load 不再进入 —— 本身幂等；已有用例「迁移必须是幂等的」验证 |
+
+## 11. 遗留给 PRD B 部分的决策
 
 在线支付仍未实现。移除买断后口径已收敛为「订阅」一套，但真支付需：BD-1 定价模型 / BD-2 支付通道 / BD-3 授权权威与时序（幂等 grant、对账、退款）。详见 `01-docs/PRD-REMOVE-BUYOUT-AND-PRICING-2026-10-17.md` B 部分。
 

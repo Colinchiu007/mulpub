@@ -93,6 +93,26 @@ describe('买断授权模型移除契约锁', () => {
       expect(hits, 'publisher.js 仍导出 payment API：' + hits.join(', ')).toEqual([])
     })
 
+    // CCG 深度审查 i5（security）：preload 暴露面与 IPC 白名单必须**双向**同步。
+    // 只查一侧是「单向证明」：preload 删了、白名单漏删，就留下一条悬空权限；
+    // 反过来白名单删了、preload 还暴露，用户点了会拿到未处理通道的错误。
+    it('preload 暴露面与 IPC 白名单必须同步（i5）：payment 与 license:activate 两侧都不得残留', () => {
+      const preload = stripComments(read('../preload/access-control.js'))
+      const acl = stripComments(read('../ipc-handlers/license-access-control.js'))
+
+      // payment：两侧都必须为零
+      expect(preload.match(/\bpayment[A-Z]\w+/g) || [], 'preload 仍暴露 payment 方法').toEqual([])
+      expect(acl.match(/['"]payment:[a-z-]+['"]/g) || [], '白名单仍登记 payment 通道').toEqual([])
+
+      // license:activate：两侧都必须为零（本地不再有写入授权的入口）
+      expect(acl, '白名单仍登记 license:activate').not.toMatch(/['"]license:activate['"]/)
+      expect(preload, 'preload 仍暴露 licenseActivate').not.toMatch(/['"]licenseActivate['"]/)
+
+      // 正向对照：trial / deactivate 两侧都还在（防止「为了过断言把两侧一起删空」）
+      expect(acl).toMatch(/['"]license:deactivate['"]/)
+      expect(preload).toMatch(/['"]licenseDeactivate['"]/)
+    })
+
     it('UpgradeModal 不得再出现买断价格文案与支付调用', () => {
       const src = read(path.join('..', '..', 'src', 'components', 'UpgradeModal.vue'))
       // 只允许出现在注释里的历史说明，不允许出现在模板/逻辑里
@@ -168,6 +188,36 @@ describe('买断授权模型移除契约锁', () => {
       lm._data = { type: 'pro', licenseKey: 'K', expiresAt: null, features: ['ai_write'] }
       lm._migrateLegacyLicenseType()
       expect(lm._data.type).toBe('pro')
+    })
+
+    // CCG 深度审查 i2（Critical）：`pro` 必须看到期时间。
+    // 买断移除后本地不再产生新授权，存量 pro 都是终身买断（expiresAt=null），
+    // 这条校验对它们恒真、不误伤；但订阅制把带到期时间的授权落到本地后，
+    // 没有这层校验就会「订阅已到期、本地仍当 Pro 用」。
+    describe('isPro() 对 pro 的到期校验（i2）', () => {
+      const make = (expiresAt) => {
+        const lm = new LicenseManager(path.join(os.tmpdir(), 'lic-exp-' + process.pid + '-' + Math.random().toString(36).slice(2) + '.json'))
+        lm._data = { type: 'pro', licenseKey: 'K', expiresAt, features: [] }
+        return lm
+      }
+
+      it('expiresAt 为 null ⇒ 仍算 Pro（存量终身买断，不得误伤）', () => {
+        expect(make(null).isPro()).toBe(true)
+      })
+
+      it('expiresAt 是未来时间 ⇒ 算 Pro（订阅未到期）', () => {
+        const future = new Date(Date.now() + 24 * 3600 * 1000).toISOString()
+        expect(make(future).isPro()).toBe(true)
+      })
+
+      it('expiresAt 是过去时间 ⇒ 不算 Pro（订阅已到期，本地必须拦住）', () => {
+        const past = new Date(Date.now() - 24 * 3600 * 1000).toISOString()
+        expect(make(past).isPro(), '订阅到期后本地仍判为 Pro —— 到期形同虚设').toBe(false)
+      })
+
+      it('expiresAt 无法解析 ⇒ 不算 Pro（fail-safe，与 trial 的 R29 口径一致）', () => {
+        expect(make('not-a-date').isPro()).toBe(false)
+      })
     })
 
     it('load() 的两条成功分支都必须接入迁移（否则存量用户读盘即降级）', () => {

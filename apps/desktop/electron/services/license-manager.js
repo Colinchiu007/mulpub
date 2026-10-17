@@ -210,7 +210,21 @@ class LicenseManager {
   }
 
   isPro() {
-    if (this._data.type === "pro") return true
+    if (this._data.type === "pro") {
+      // 2026-10-17（CCG 深度审查 i2）：`pro` 也要看到期时间。
+      //
+      // 背景：买断模型移除后本地不再产生新授权，存量 `pro` 都来自终身买断
+      // （`expiresAt === null`），所以这条校验对它们恒为真、不会误伤。
+      // 但订阅制一旦把**带到期时间的授权**落到本地（服务端下发），没有这层校验
+      // 就会「订阅已到期、本地仍当 Pro 用」。故按 fail-safe 口径：
+      //   expiresAt 为 null      → 永不过期（存量买断语义）
+      //   expiresAt 是有效日期    → 未到期才算 Pro
+      //   expiresAt 是无法解析的值 → 视为非 Pro（与 trial 分支的 R29 口径一致）
+      if (this._data.expiresAt === null || this._data.expiresAt === undefined) return true
+      const proExpires = new Date(this._data.expiresAt)
+      if (!Number.isFinite(proExpires.getTime())) return false
+      return new Date() < proExpires
+    }
     if (this._data.type === "trial") {
       if (!this._data.expiresAt) return false
       const now = new Date()

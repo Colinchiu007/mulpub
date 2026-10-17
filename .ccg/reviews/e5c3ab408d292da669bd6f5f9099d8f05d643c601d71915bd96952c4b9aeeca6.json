@@ -23,8 +23,21 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "self_play_pending",
+    "performedBy": "self-play(pending)",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i8",
+        "severity": "Warning",
+        "domains": [
+          "datamigration"
+        ]
+      }
+    ],
+    "findings": null,
+    "template": ".adversarial\\ccg-deep-850e4d8f\\adjudication.json",
+    "note": "裁决尚未填写：7/7 条未定（i1, i2, i3, i4, i5, i7, i8）",
+    "at": "2026-10-17T14:22:08.578Z"
   }
 }
