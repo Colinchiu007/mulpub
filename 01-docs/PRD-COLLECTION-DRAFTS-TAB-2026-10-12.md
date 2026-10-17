@@ -3,6 +3,9 @@
 > 变更日期：2026-10-12　分支：`collection-drafts-tab`
 > 范围：① 采集页新增「草稿箱」标签页；② 底部快捷区新增「草稿箱」按钮；
 > ③ 微博/知乎/今日头条三个快捷按钮的目标页修正；④ 采集页草稿写入统一到发布页真源。
+> **修订 2026-10-17（分支 `fix-hot-source-links`）**：③ 的目标页按真机复核重定 ——
+> 知乎（强制登录）撤下、百度热搜接位；头条由 JSON 接口改为首页（无官方渲染热榜页）。
+> 详见 §2.5「2026-10-17 修订」与 §6 R1-R3 的闭合记录。
 
 ---
 
@@ -173,16 +176,31 @@
 改这张表会连带改变登录态判定与创作者中心入口。「找素材」与「发内容」语义相反，
 共用一张表必然有一边错。
 
-**取值**
+**取值（2026-10-17 修订后）**
 
-| 平台 | 新值 | 说明 |
+| 来源 id | 当前值 | 说明 |
 |---|---|---|
-| weibo | `https://s.weibo.com/top/summary` | 微博热搜榜 |
-| zhihu | `https://www.zhihu.com/hot` | 知乎热榜 |
-| toutiao | `https://www.toutiao.com/hot-event/hot-board/?origin=toutiao_pc` | 头条热榜（`origin` 参数必带） |
+| weibo | `https://s.weibo.com/top/summary` | 微博热搜榜（匿名可浏览） |
+| baidu | `https://top.baidu.com/board?tab=realtime` | 百度热搜（接替知乎位，匿名可浏览） |
+| toutiao | `https://www.toutiao.com/` | 今日头条首页；右侧「头条热榜」模块渲染完整榜单 |
 
-**按钮文案同步改为**：微博热搜 / 知乎热榜 / 头条热榜（en: Weibo Hot Search / Zhihu Hot / Toutiao Hot）。
-理由：按钮目标变了，文案必须跟着变，否则用户点「微博」却被带到热搜榜会困惑。
+**2026-10-17 修订（相对 2026-10-12 初版的变化）**
+
+- **知乎 `https://www.zhihu.com/hot` 撤下**：真实 Chromium、独立无 Cookie context 实测，最终 URL 跳到
+  `/account/unhuman?...&need_login=true&next=%2Fsignin`（安全验证页），可见文本只有
+  「请您登录后查看更多专业优质内容」。本入口建的是**匿名浏览标签**（主进程
+  `persist:browse-<tabId>`，不带 `accountId` ⇒ 不做凭证恢复），因此不可能带登录态。
+  要带登录态必须把 `accountId` 一并传下去（落 `persist:account-<id>` + 凭证注入），
+  仅在「应用内已添加知乎账号且其登录态仍有效」时成立，且会让采集页耦合账号系统；
+  产品决策是**换免登录平台**，故撤下知乎、由百度热搜接位。
+- **头条 `hot-event/hot-board/?origin=toutiao_pc` 撤下**：它是数据接口，浏览器直接打开是一屏 JSON 文本
+  （用户 2026-10-17 实测即此形态）；`/hot/`、`/trending/` 均 404，官方没有渲染版热榜页。
+  改为首页：右侧 `ttp-hot-board` 模块渲染 1-50 名与 `/trending/<id>/?rank=N` 链接，可匿名浏览。
+- **微博结论更正**：2026-10-12 的「`s.weibo.com/**` 全系 302 登录」来自纯 HTTP 抓取；
+  2026-10-17 真实浏览器无 Cookie 实测**可匿名浏览**榜单（页头仍有登录入口，但不拦内容）。
+
+**按钮文案同步改为**：微博热搜 / 百度热搜 / 今日头条（en: Weibo Hot Search / Baidu Hot Search / Toutiao）。
+理由：按钮目标变了，文案必须跟着变，否则用户点开的页面与标签对不上。
 
 **打开行为**（`createOpenSourceHandler`）
 - 无 URL 的平台 → `notifyWarning('collection.platformUnsupported')`，**不发 IPC**
@@ -215,8 +233,8 @@
 | 来源：RSS | `collection.draftsSource_rss` | RSS | RSS |
 | 标签标题 | `collection.platformSourceTabTitle` | {platform} 素材来源 | {platform} source |
 | 按钮：微博 | `collection.sourceWeibo` | 微博热搜 | Weibo Hot Search |
-| 按钮：知乎 | `collection.sourceZhihu` | 知乎热榜 | Zhihu Hot |
-| 按钮：头条 | `collection.sourceToutiao` | 头条热榜 | Toutiao Hot |
+| 按钮：百度 | `collection.sourceBaidu` | 百度热搜 | Baidu Hot Search |
+| 按钮：头条 | `collection.sourceToutiao` | 今日头条 | Toutiao |
 | 删除确认 | `collection.confirmDeleteDraft` | 确定删除这篇草稿吗？ | （既有） |
 | 不支持 | `collection.platformUnsupported` | 该平台暂不支持网页查看 | （既有） |
 
@@ -261,7 +279,8 @@
 | A7 | 空列表显示 EmptyState | `collection-drafts-empty` 存在 |
 | A8 | 角标条数正确，0 时不渲染 | badge 断言 |
 | A9 | 微博按钮打开热搜榜 URL | `PLATFORM_SOURCE_URLS.weibo` |
-| A10 | 头条按钮**不再**指向头条号后台 | `SOURCE.toutiao !== DASHBOARD.toutiao` |
+| A9b | 百度按钮打开百度热搜页 | `PLATFORM_SOURCE_URLS.baidu` |
+| A10 | 头条按钮**不再**指向头条号后台，也**不再是 JSON 接口** | `SOURCE.toutiao !== DASHBOARD.toutiao` 且不含 `hot-event` |
 | A11 | 未知平台告警且不发 IPC | `notifyWarning` + `createTab` 未调用 |
 | A12 | 新建空白草稿能跳发布页 | `allowEmpty` 路径 |
 | A13 | 采集/剪贴板/改写产物写入走 `draftSave` | `draftSave` 被调用 |
@@ -274,8 +293,8 @@
 
 | # | 风险 | 说明 |
 |---|---|---|
-| R1 | 知乎 `/hot` 免登录性未证实 | 抓取器 403 是反爬；真人浏览器是否免登录需上线前人工开一次确认 |
-| R2 | 微博登录墙不可绕过 | `s.weibo.com/**` 全系 302 到登录。换 URL 只改语义，不改登录要求。已写进代码注释，不得后续误判为「链接配错」 |
-| R3 | 头条热榜为数据接口形态 | `hot-event/hot-board/?origin=toutiao_pc` 返回 JSON 榜单，在浏览器里呈现的是 JSON 而非渲染页。若用户期望的是可视化热榜页，需后续另找页面（`/hot/` 已实测 404） |
+| R1 | ~~知乎 `/hot` 免登录性未证实~~ **已闭合（2026-10-17）** | 真人浏览器实测：`/hot` 强制登录（跳 `need_login=true` 安全验证页）⇒ 知乎入口已撤下，不可能再落空 |
+| R2 | ~~微博登录墙不可绕过~~ **已更正（2026-10-17）** | 无 Cookie 真实浏览器实测榜单可匿名浏览；此前的「全系 302」是纯 HTTP 抓取口径。已写进代码注释，防后续误判为「链接配错」 |
+| R3 | ~~头条热榜为数据接口形态~~ **已闭合（2026-10-17）** | 官方无渲染版热榜页（`/hot/`、`/trending/` 均 404）⇒ 入口改为首页，右侧模块即热榜；JSON 接口不再作为入口 |
 | R4 | 编辑与发布跳同一路由 | 当前语义重叠，是否拆分为「编辑」直达表单、「发布」直达选平台步骤，待定 |
 | R5 | `Collection.vue` 零容差 | 2920 行天花板，任何后续新增都必须走 `features/collection/*` 独立组件，不得内联 |

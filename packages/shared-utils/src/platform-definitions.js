@@ -420,22 +420,25 @@ const QR_CODE_PLATFORMS = ['wechat_mp', 'tencent_video', 'zhihu', 'weibo', 'tout
 // 取值口径：这里是「热门选题素材来源」，即用户在浏览器里能浏览别人内容、
 // 挑选题的地方；不是自己发内容的地方。
 //
-// 2026-10-12 实测（web_fetch 纯 HTTP，无 UA/无 Cookie/不执行 JS）：
-//   · 微博：weibo.com/ 与 s.weibo.com/** 一律 302 → passport.weibo.com →
-//     login.sina.com.cn，属**服务端强制登录墙**。s.weibo.com/top/summary 相对
-//     裸首页语义正确（热搜榜 vs 消费端信息流），但**登录墙不变** —— 用户点开
-//     仍会被要求登录。不要以为换 URL 能绕过登录。
-//   · 知乎：www.zhihu.com/hot 返回 403（反爬拦截，裸首页同样 403，故 403 ≠ 失效）；
-//     www.zhihu.com/creator 已确证强制登录（302 → /signin?next=%2Fcreator）。
-//     取 /hot 是因为它是热榜，语义远优于首页推荐流。
-//   · 今日头条：mp.toutiao.com 实测 200 → 重定向 profile_v4，是**头条号创作后台**
-//     （发布目的地），放在「素材来源」里属分类错误，故改为消费端热榜页。
-//     www.toutiao.com/hot/ 实测 404（不可用）；hot-event/hot-board 需带
-//     origin 参数才返回数据，缺参则 {"status":"fail","message":"parameter err"}。
+// 2026-10-17 复核（真实 Chromium，独立无 Cookie context，逐页记录最终 URL 与可见文本）：
+//   · 微博 s.weibo.com/top/summary：**可匿名浏览**（列表中 30 条关键词与热度均渲染，
+//     仅页头显示「登录/注册」入口）。2026-10-12 那条「一律 302 → passport.weibo.com」
+//     的结论来自纯 HTTP 抓取，本次真机浏览器实测不复现 —— 保留本页。
+//   · 知乎 www.zhihu.com/hot：**强制登录**。最终 URL 跳到
+//     /account/unhuman?...&need_login=true&next=%2Fsignin（安全验证页），可见文本只有
+//     「请您登录后查看更多专业优质内容」。因此本表**不再登记知乎**；采集页也没有它的卡。
+//   · 今日头条：热榜只有数据接口 hot-event/hot-board/（浏览器直接打开是一屏 JSON 文本，
+//     2026-10-17 用户实测即此形态），/hot/ 与 /trending/ 均 404（无官方渲染热榜页）。
+//     改为消费端首页：右侧「头条热榜」模块渲染完整 1-50 名与 trending 链接（同一份榜单），
+//     且首页可匿名浏览。
+//   · 百度热搜 top.baidu.com/board?tab=realtime：服务端直出榜单（非 SPA），
+//     无 Cookie 可浏览，作为知乎卡位的替代入口。
+//
+// ⚠ 任何一项都不得改回「数据接口」形态：接口在浏览器里渲染成文本，用户看到的是一屏 JSON。
 const PLATFORM_SOURCE_URLS = {
   weibo: 'https://s.weibo.com/top/summary',
-  zhihu: 'https://www.zhihu.com/hot',
-  toutiao: 'https://www.toutiao.com/hot-event/hot-board/?origin=toutiao_pc',
+  baidu: 'https://top.baidu.com/board?tab=realtime',
+  toutiao: 'https://www.toutiao.com/',
 }
 
 // ─── 已登录创作者首页（账号标签「创作者中心」开卡入口专用）─────────────────
