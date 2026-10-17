@@ -1,3 +1,41 @@
+# [未发布] fix(ci): Electron CI 的 push-only 桌面全量测试补上「先重建构建产物」，并把这条配对关系做成跨 workflow 的锁（electron-ci-preload-build-step）
+
+- 现场与归属：`Electron CI` 的 **push** 事件自 2026-10-17T05:36:40Z 起连续 15 次 failure（最后一条 success 是
+  04:15:58Z / `0a0d3581b`），同一条 workflow 在 **pull_request** 事件全绿。红点固定在一个作业一步：
+  `electron-tests` 的 `Unit tests (Vitest, non-Electron, single-worker deterministic)`，9 个测试文件报
+  `ENOENT` / `Cannot find module`，逐个取证都指向同样 5 个路径。**不对称的根因**就在 YAML 里：那一步带
+  `if: github.event_name != 'pull_request'`（2026-09-17 为省 PR 时间把桌面全量收敛到 main push），
+  所以 required check 永远看不到它。
+- 引入点是上游 `826fa7e13`（PR #3782，change `bundle-untrack`）：它把 5 个受管构建产物移出版本控制
+  （`.gitignore` +11 行、删文件），并给 `quality-gate.yml` 的三个消费 job 各补了「先重建再测」，
+  **漏了 `electron-ci.yml`**。这条漏之所以能长期存在，是因为仓里已有那条同族配对锁
+  （`workflow-contract.test.js` 的「跑桌面测试的作业必须先备好 Electron 二进制」）**把判定域写死成
+  `quality-gate.yml` 一个文件** —— 守门的锁自己有个看不见的洞，这是「装饰性门禁」的又一落点：
+  锁是对的，域窄了。
+- 修法按 QM-5 五步走：① 归因到具体提交与具体机制（不是"CI 抖了"）；② 逃逸链写到"为什么四层都没拦住"
+  —— 断言其实**响了**，响在没人必需看的那条 push 上；③ 系统性漏洞 = 配对锁的扫描域按文件写死；
+  ④ 修复 = 测试步之前插入 `Build preload bundles`（`build:preload` + `build:paginator`，`if` 与测试步逐字相同），
+  回归保护 = 新增一条**跨全部 workflow** 的扫描锁（消费者覆盖面下界 3、缺重建 / 重建排在测试之后 /
+  两条 `if` 漂移各判一格，承认清单初始为空只能缩小）+ 一条**行为锁**（合成 steps 直接喂判据函数，
+  证明 `BUILD_AFTER_TEST` 那一支可达而不是写了点不到火的装饰判据）；⑤ 预防即上述两条锁随 PR 接进 CI。
+- 因果故事的交叉检验（"若根因成立，还有什么必须为真"）：全仓 `apps/desktop` 里**提到**这 5 个文件名的测试有
+  10 个，但只有**真去读盘**的 9 个红；另两个（`webview-manager.test.js:1155`、`webview-manager/home-shell-title.test.js:90`）
+  只是拿名字做形状断言（`toMatch(/monitor-preload(\.bundle)?\.js$/)`）或喂一个 `/fake/...` 的 mock 路径，
+  不接触文件系统 ⇒ 未红。这既排除了"产物缺席就会全域红"的过度陈述，也说明红名单是**读盘行为**的代理而非文件名的代理。
+- 本机 A/B 实测（不是"应该能过"）：产物缺席时抽测 3 个文件 = 3 failed files / 4 failed tests；
+
+  跑完两步构建后同样的 9 个文件 = 9 passed / 72 tests。既有消费者的并集全跑：
+  `workflow-contract` 41/41、`classify-ci-failure` + `check-step-failfast` 42/42、`gui-ci-exit-contract` 39/39。
+- 反证 5 道 + 正控 1 道，红集互不相同：A1 摘掉整步、A2 让重建步的 `if` 与测试步漂移、
+  A3 漏掉 `build:paginator`、A4 把消费者谓词改成永不命中（这一道专门证明"覆盖面下界"不是摆设）、
+  A5 把顺序那一支改成永不成立（证明该支可达）；A0 未变异必须全绿。每道跑完按 md5 校验逐字节还原。
+- 顺带抓出但**不在本 PR 修**的一条：`.github/scripts/check-max-lines.js` 用 `readdirSync` 遍历工作树且
+  不 consult `.gitignore`，于是任何本地跑过 `build:preload` 的人都会因为 `home-shell-preload.bundle.js`(1795 行)
+  与 `preload/index.bundle.js`(1744 行) 得到一条与自己改动无关的 `NEW_OVER_LIMIT`（把产物挪开后 rc=0）。
+  CI 侧 `debt-guard.yml` 跑这条检查但没有构建步骤，所以暂不产生新红。收窄判据域属"改谁来守门"，另片处理。
+- 本 PR **不能自证 push 侧转绿**：那条步骤在 PR 事件上不跑。验收判据是合并后 main push 的那一次运行，
+  已在执行记录里写成收尾必查项。
+
 # [未发布] feat(frequency): 同账号发布间隔改为逐平台真源——视频号收紧到 60 分钟，其余 14 平台行为零变化（publish-frequency-per-platform-intervals）
 
 - 为什么不是"加一档"也不是"给视频号写 if"：档位是**分类器**，为一个平台开第四档会牵动 `TIER_ENV`（日配额按三档 env）、设置页按档分组文案、「档间单调」锁的语义，且下次任何平台要调又得开第五档；`if (platform === 'tencent_video')` 则是把策略塞进控制流，合法域/env/覆盖/UI 各读各的——正是策略模块立项要消灭的"同一个量抄成多份"。差异化从此只落在**一张逐平台表** `PLATFORM_ACCOUNT_MIN_INTERVAL_MS` 里：以后任何平台收紧或放宽＝改一行数据，不动分类器、不动控制流、不动守卫算法。
