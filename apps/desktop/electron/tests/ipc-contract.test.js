@@ -175,38 +175,4 @@ describe('IPC 来源与错误合同', () => {
       message: '词库不可用',
     })
   })
-
-  it('支付 handler 应拒绝非应用窗口，并在可信来源缺参时返回校验错误', async () => {
-    const createOrder = vi.fn()
-    __registerMock('../services/payment-manager', function MockPaymentManager() {
-      return {
-        createOrder,
-        listOrders: vi.fn(),
-        getOrder: vi.fn(),
-        completePayment: vi.fn(),
-        simulatePayment: vi.fn(),
-        cancelPayment: vi.fn(),
-      }
-    })
-    delete require.cache[require.resolve('../ipc-handlers/payment')]
-    const handlers = {}
-    require('../ipc-handlers/payment')(
-      { handle: (channel, handler) => { handlers[channel] = handler } },
-      {},
-    )
-
-    // 不可信来源（外部网页）应被 withSenderCheck 拦截
-    await expect(handlers['payment:create-order'](
-      { senderFrame: { url: 'https://evil.example/' } },
-      { plan: 'pro' },
-    )).resolves.toEqual({ code: -3, message: '未授权的调用来源' })
-    expect(createOrder).not.toHaveBeenCalled()
-
-    // 可信来源（dev localhost）但缺参应返回校验错误
-    await expect(handlers['payment:create-order'](
-      { senderFrame: { url: 'http://localhost:5174/' } },
-      undefined,
-    )).resolves.toEqual({ code: -2, message: '缺少 plan 参数' })
-    expect(createOrder).not.toHaveBeenCalled()
-  })
 })

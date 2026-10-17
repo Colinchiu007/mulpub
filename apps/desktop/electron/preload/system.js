@@ -26,7 +26,7 @@
  *   - 上传：uploadChunked / uploadCancel
  *   - 模板：templateList / templateGet / templateAdd / templateUpdate / templateDelete
  *           templateListByCategory / templateGetPresets
- *   - 许可证：licenseInfo / licenseActivate / licenseDeactivate / licenseActivateTrial
+ *   - 许可证：licenseInfo / licenseDeactivate / licenseActivateTrial
  *             licenseHasFeature / licenseFeatures
  *   - Provider：providerList / providerCreate / providerUpdate / providerDelete / providerTest
  *               providerListUser / providerGetUser / providerSetUserKey / providerDeleteUserKey
@@ -178,8 +178,12 @@ function createSystemApi(ipcRenderer) {
     templateGetPresets: () => ipcRenderer.invoke('template:get-presets'),
 
     // 许可证 API
+    // 2026-10-17 remove-buyout-license：`licenseActivate` 已移除。
+    // 买断授权模型不再提供，主进程 `license:activate` handler 与
+    // `license-manager.activate()` 一并删除；兑换码核销只走服务端
+    // `POST /api/v1/redeem`（会员中心）。保留一个打不通的桥接只会让
+    // 用户拿到未处理通道的错误。
     licenseInfo: () => ipcRenderer.invoke('license:info'),
-    licenseActivate: (key) => ipcRenderer.invoke('license:activate', key),
     licenseDeactivate: () => ipcRenderer.invoke('license:deactivate'),
     licenseActivateTrial: () => ipcRenderer.invoke('license:activate-trial'),
     licenseHasFeature: (name) => ipcRenderer.invoke('license:has-feature', name),
