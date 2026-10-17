@@ -3,9 +3,6 @@ record: fix-ccg-record-bundle-untrack
 task: 补救 PR #3782 合并前的一项判据失守——rebase 期间生成的第二份 CCG 判定记录未闭合，且我在同一条命令里串行执行了 enforce 与 merge，未检查前者结果
 date: 2026-10-17
 branch: fix-ccg-record-bundle-untrack
-sync_status: PENDING
-sync_reason: PR 尚未合并（记录随本补救 PR 落地，合并后回填 merge SHA）
-sync_backfill_owner: fix-ccg-record-bundle-untrack 会话（回填 PR）
 ---
 
 # 执行记录：CCG 判定记录漏闭合的补救（fix-ccg-record-bundle-untrack，2026-10-17）
@@ -65,9 +62,9 @@ git show --stat HEAD | grep 'ccg/reviews'          # 本次提交到底带了哪
 | `check-pr-exec-record --mode=enforce` | 待本 PR 自身判定 | 提交后跑，见第 5 节 |
 | 文档同步 | PASS | 本记录 |
 | 行尾两口径对账 | PASS | 2 个文本文件，改动 4 行 |
-| 远程同步 | PENDING | PR 未开。合并后同一次提交改写为 `PASS` + merge SHA 并删除 `sync_*` 三字段 |
+| 远程同步 | PASS | PR **#3790** 已 squash 合并，merge SHA `fb64be63c05da7638b303db3c0eef2b4a9f0d6ec`；远端分支已删。合并前**先跑 enforce 并确认 rc=0 才执行合并**（与 #3782 那次串行盲合的做法相反）。回填与销账同一次提交 |
 
-- 保留门禁：变更类型与隔离 ✅ | 文档同步 ✅ | 行尾对账 ✅ | 远程同步 PENDING
+- 保留门禁：变更类型与隔离 ✅ | 文档同步 ✅ | 行尾对账 ✅ | 远程同步 PASS
 
 ## 5. 验证（提交后本 PR 自身）
 
