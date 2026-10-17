@@ -1,0 +1,29 @@
+{
+  "sha": "862425eb2bc3c8f561bd3c3bfa410fb4c3fc2823",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 543 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 543,
+    "fileCount": 11,
+    "codeFileCount": 5,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "1. 查窗口占用：`SELECT key, last_publish_at FROM publish_timeline WHERE key LIKE 'tencent_video:%';`",
+      "2. 查是否回滚过：`SELECT count, rollback_count FROM publish_daily_count WHERE day_key = '<今天>';`"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "bf8e686beba9d9ff6568c89f548e874fc0d6c38afaf647311552e72b057b8601",
+  "decidedAt": "2026-10-17T17:03:15.875Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

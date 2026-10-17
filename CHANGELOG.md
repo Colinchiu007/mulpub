@@ -1,3 +1,35 @@
+# [未发布] fix(publish): 「未提交失败」从不回滚间隔窗口——严格相等判据在 SQLite TEXT 列上恒为 false（fix-release-window-taken-type-mismatch）
+
+- 现场（用户原话）：「发布一条视频内容到多个平台时，其他平台都正常发布或是排队 1、2 分钟。
+  而视频号则显示『等待间隔 等待 59 分钟后重试（本账号间隔）』。可是视频号本账号，短期时间内并没有发布内容。」
+- 根因（**不是**间隔配得太长，也不是时钟跳变）：`guard-release.js` 的 `release()` 用
+  `store.get(key) === hold.at` 做乐观并发判据，而桌面 store 的 `publish_timeline.last_publish_at`
+  列声明为 **TEXT**（`store-schema.js`），sqlite-wrapper 读回 **string**（活库实测 `"1792241248768.0"`），
+  `hold.at` 是 **number** ⇒ 严格相等**恒为 false** ⇒ P0-1「可确证未送出就回滚窗口」
+  **从 v2（#3260，2026-10-10）上线起一次都没生效过**，`publish_daily_count.rollback_count` 全库恒为 0 即为证据。
+- 为什么只有视频号显眼：缺陷平台无关，可见度由账号档长度决定——微博/X 1′（看着像正常排队）、
+  抖音/快手/小红书/B站 3′、公众号/知乎 5′，**视频号 60′**，于是「一次登录失效的尝试」把窗口占满，
+  下一次提交显示「等待 59 分钟」。图文与视频走同一把 `(platform, accountId)` 键，受影响面完全相同。
+- 修复：新增 `isSameWindow(stored, expected)` 作为窗口归属的**唯一判据**，按数值比较且方向**收窄**
+  （`null`/非数字/`NaN`/**数值不等** 一律 false，fail-closed）；账号键与平台键两个判定都改用它。
+  同时补上可观测性——回滚失败此前只 `releaseFailed += 1`（零消费者、零日志），
+  现按 warn 记录 `未能回滚间隔窗口（reason=…）`，这正是该缺陷能藏一版的原因。
+- TDD：新增 `guard-release-store-type.test.js`（9 例，string 读回 / `.0` 尾缀 / 覆盖者窗口不被吞 /
+  配额回补 / 缺 hold fail-closed）、`publish-interval-guard-store-integration.test.js`（5 例，
+  **真实 sql.js + 真实 Store**，先断言「写 number 读 string」类型事实再断言业务结果）、
+  `task-queue-guard-integration.test.js` 增 3 例（队列层端到端 W1 + 告警出声 W2 + 告警不噪声 W3）。
+  修复前 5 红，修复后全绿。
+- 变异反证（逐条实跑）：M1 把判据改回 `===` ⇒ shared-utils 6 红 / 集成 3 红 / 队列 W1 红；
+  M2 删掉 warn ⇒ W2 红。两次均逐字节还原并复跑回绿。
+- 门禁：shared-utils 全量 **1093 passed / 10 skipped**；桌面受影响面 48 passed；
+  `check-max-lines` rc=0；ESLint rc=0；QM-1 打包 + 启动验证 PASS
+  （存活 + stderr **0 字节**，父环境 `ELECTRON_RUN_AS_NODE=1` 经 `buildChildEnv()` 剔除并出声告警）。
+- 明确**不改**的三处：视频号 60′ 是 v5 产品决策、乐观记账（提交前记账）是防重复发布的关键、
+  `publish_timeline` 列类型改动需要库迁移且治不了「读回类型漂移」——正解是判据不吃类型。
+- 文档：新增 `01-docs/BUGFIX-RELEASE-WINDOW-TAKEN-TYPE-MISMATCH-2026-10-17.md`（取证 / 根因 /
+  五层逃逸 / 数据校验 V1–V7 / 流程 / 显示项与提示文字 / 排查手册 / 残留风险），
+  `ARCH-PUBLISH-FREQUENCY-AND-QUEUE-2026-10-16.md` 增 §5.5.1 与 §9 两条残留登记。
+
 # [未发布] test(gates): 把「深度审查必然落在 self-play」变成可复跑读数（ccg-convergence-exit）
 
 - **动因是否证出来的**：#3724 收尾时我写过「大概是 stall 判据误触」。实测直接否证——验证层只跑一轮，而 `isStalled` 要求 `rounds.length >= stallRounds + 1`，单轮恒不成立。真正结论是引擎的三个停止出口里**只剩 ③ 可达**（① 从不进第 2 轮、② 轮次不足、③ `status=self_play reason=selfPlay stop=true`），而 ③ 对 `highRiskDomains` 非空的条目无条件计阻断 ⇒ 含 crypto 发现的 diff 上「闭环可达」不是待达成的目标，是结构上到不了的终点。本 PR 交付的是**测量与报警**，不声称让闭环可达。
@@ -17,6 +49,7 @@
 - **诚实边界**：CI runner 上没有上游技能目录，所以 CI 那一格守的是「缺引擎 ⇒ rc=2 且点名探针失明」，ladder 读数断言在本机那一格跑 —— 两档都必须有产物，不 skip、不把「找不到」判成「通过」。三条出路（真跑多轮抬分 / 改上游引擎 / 人工放宽 `check-pr-exec-record` 闭合词表）全部登记在 `tasks.md` §7 且**本 PR 一条都不做**：前两条分别要用户拍板成本、要动跨项目共用的上游制品，第三条按 AGENTS.md 属改「谁来守门」，必须人工过目。
 - **真实双模型评审（proposer=opencode / critic=claude）打回 2 条 Critical，两条都是真的**：`i2` —— `locateVendor()` 的第三个候选是仓库自身目录，而探针会 `require()` 命中的文件，于是**普通 PR 内容就能换到 CI 里的代码执行，且不需要任何写权限**（可照抄的具体落点与步骤号不放在前页索引，见 `design.md` 与本 PR 执行记录 §7）（另两个候选需要仓库变量或 runner 本机写权限，权限前提完全不同级，这条是本 PR 新造的威胁面）。已删该回落，并加 P7 结构锁 + 变异 MP7 实测指名变红。`i1` —— 漂移报警的临时夹具原先只复制 engine.js 与驱动，若上游引擎将来 require 同目录兄弟模块，那份缺失会把「读数偏离(1)」伪装成「探针失明(2)」，正是本篇自己三档判据要防的形态；已改为整目录复制并加「夹具文件数 == vendor 文件数」下界断言。
 - **评审顺手把本篇结论跑宽了，原表述已收窄**：跑本 PR 时日志写着 `待裁决 6 条；其中高危域必须外部复核 0 条`，引擎照旧落在 ③（`status=self_play reason=selfPlay minScore=4`），最终 2 条阻断的原因是 `self_play_upheld` 而非高危域 ⇒ ③ 不可闭合与 crypto 无关，高危域只是两种子形态之一。更硬的是现场本身：i1/i2 已修且各带锁，记录却仍带 `self_play_blocked` 留在变更集里 —— 引擎没有一格能表达「已在其后提交修复」，而该记录按父提交入库、`deep-review` 只服务当前 HEAD ⇒ 永久无法回补。这正是 D8 拒绝在本 PR 放宽闭合词表的原因，也因此**本 PR 需人工合并**（`check-pr-exec-record --mode=enforce` 按设计判不可自动合并）。另有 3 条 Warning（i3/i5/i6）按实测证据否证：既有 489 个标题块同体例且 Gate 2c3 只判集合单调性、8 条用例总耗时约 1.5 秒而加缓存会合并「读不到/读到旧值」两态、被指缺失的 tasks §7 引用其实逐字在同一块内。第二轮评审还量到更宽的一格：改动集里没有任何加解密代码，某条却被打了 `crypto` 域标签 —— 标签来源是**文案里出现了那个字样**，于是「高危域必须外部复核」这道闸可被散文触发；同轮另两条已按 Upheld 处置（CHANGELOG 前页降低披露等级、`.gitignore` 注释去掉会腐烂的行号）。
+
 
 # [未发布] docs(skill): start-app 入口选择硬路由 + preload 排查 + 结构锁（startapp-skill-harden）
 
@@ -72,6 +105,7 @@ C 删 preload 排查关键句 => 1 failed；还原后 => 7/7 passed。
 - `.agents/` 被 `.gitignore:310` 忽略，但 `SKILL.md` 是已跟踪文件故仍受版本管理；
   测试文件因此按惯例落在 `electron/tests/`。
 - 结构锁只覆盖本次 6 条判据，未来新增入口/新坑仍需人工补锁。
+
 
 # [未发布] fix(ci): Electron CI 的 push-only 桌面全量测试补上「先重建构建产物」，并把这条配对关系做成跨 workflow 的锁（electron-ci-preload-build-step）
 

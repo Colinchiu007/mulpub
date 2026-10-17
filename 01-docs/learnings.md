@@ -1,3 +1,38 @@
+## 「写入值 === 读回值」这类乐观并发判据，必须跨**存储类型**测，不能只跨逻辑（fix-release-window-taken-type-mismatch，2026-10-17）
+
+`guard-release.js` 的 `release()` 用 `store.get(key) === hold.at` 判「这个窗口是不是我占的」。
+`hold.at` 是 `Date.now()` 的 **number**，而桌面 store 的 `publish_timeline.last_publish_at` 列
+声明为 **TEXT**，`sqlite-wrapper` 读回 **string**（活库实测 `"1792241248768.0"`）。
+`"1792241248768.0" === 1792241248768` 恒为 `false` ⇒ **P0-1「可确证未送出就回滚窗口」自 v2 上线起
+一次都没生效过**（`publish_daily_count.rollback_count` 全库恒 0 即是证据），
+代价是每次「登录失效 / Cookie 缺失」的失败都白等满整个账号档——视频号 60′ 因此显示「等待 59 分钟」。
+
+四条可迁移的判据：
+
+1. **「相等」在跨存储边界上不是相等，是「同一类型的相等」。** 凡是把某个值写进存储、
+   之后又拿它跟自己写过的东西做 `===` / `Map.get() === x` 的地方，都要问一句
+   「读回来还是同一个类型吗？」。SQLite 的列亲和性（TEXT 列存 number ⇒ 读回 string）
+   是这台机器上最常见的转换器。
+2. **单测夹具用内存 Map 时，类型漂移在结构上不可见。** 写 number 读 number ⇒ 判据在测试那一侧
+   成立而在生产那一侧不成立。正解不是「再加一条断言」，而是**让至少一条锁穿过真实存储**
+   （本片：`publish-interval-guard-store-integration.test.js` 用真实 sql.js + 真实 Store，
+   **先断言「写 number 读 string」这个类型事实**，再断言业务结果）。先断言类型事实这一步很关键：
+   否则下一个人把生产 store 换成另一种类型时，集成锁会跟着静默适应。
+3. **归一方向必须收窄，不能放宽。** 跨类型比较的诱人写法是 `Number(a) == Number(b)`——
+   它会把 `null`（`Number(null) === 0`）、`''`、`'0'` 全拉进同一个数域。
+   本片的判据是：`null`/`undefined`/非数字/`NaN`/`Infinity` **一律 false**，
+   只接受「同数值的不同表示形态」。理由是该判据的错向代价不对称：
+   把「已送出」误判成「未送出」⇒ 回滚 ⇒ **早于窗口的重复发布**（危险侧）；
+   漏判 ⇒ 多等一个窗口（安全侧）。
+4. **静默的失败计数器等于没有计数器。** `_maybeRollback()` 里回滚失败只做
+   `this._probeCounts.releaseFailed += 1`，**零消费者、零日志**——这就是缺陷能藏一版的原因。
+   「加一个计数以便将来排查」不成立：没有消费者的计数在事故现场读不到。
+   凡是「本不该发生」的失败分支，必须有一条 warn（含 reason）与一条断言它出现的测试。
+
+同族但不同形的先例：`pitfall:future-timestamp-in-interval-store-becomes-ghost-wait`（#3795）
+是「store 里的值在**语义**上不可信」，本条是「store 里的值在**类型**上不可直接比较」——
+两者都落在同一处 `_remaining`/`release` 读写边界上，说明这条边界值得当成一个独立的关注点。
+
 ## 把一个量从「派生」改成「逐实体真源」时，牵动的不止数值（publish-frequency-per-platform-intervals，2026-10-16）
 
 v5 把「同账号最小发布间隔」从档位派生改为逐平台表（只有视频号收紧）。数值只动一行，
