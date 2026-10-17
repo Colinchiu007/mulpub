@@ -49,8 +49,8 @@
 
 - [ ] 4.1 `quality-gate.yml` 的 `changes` job（无 job 级 `if:`、`shell: bash`）内传 `--current-pr=${{ github.event.pull_request.number }}`，并强制打印 `MERGE-LEDGER prs=<n>`；**不得**放进 `static-gates`（`check-unwired-tests.js` 的 `TEST_ONLY_IN_SKIPPABLE_JOB` 会拦）。
 - [ ] 4.2 回读一次真 CI 日志取 `MERGE-LEDGER prs=` 读数：这是"GitHub runner 上 origin/main 真取得到"的唯一证据，本机读数不算（design 残留风险 1）。
-- [ ] 4.3 `openspec/records/_TEMPLATE.md`：新记录不再写 `sync_status/sync_reason/sync_backfill_owner`，状态列改为"由门禁按主干历史推导"，并删掉"合并后回填并删除三字段"那句指令。
-- [ ] 4.4 `AGENTS.md`：改写 docs-only 快速通道的回填 SOP 与「PR 自动合并」合并后收尾清单第 3–6 步（不再开回填 PR）；保留"必须经 PR 落地""禁止直推 main""禁止 `--no-verify`"。旧载体冻结段原样保留（存量）。
+- [ ] 4.3 `openspec/records/_TEMPLATE.md`：新记录不再写 `sync_status/sync_reason/sync_backfill_owner`（第 6–13 行那块），状态列（第 28 行）改为"由门禁按主干历史推导"，并删掉"合并后回填并删除三字段"那句指令。**已实测无冲突**：`scripts/check-record-qm5-rows.js` 的 `OUT_OF_DOMAIN` 明确排除 `_TEMPLATE.md`，且它只从带 `（QM-5 ①…⑤）` 标记的行题派生，第 28 行不带该标记 ⇒ 改它不断 QM-5 棘轮。**反向警告**：模板第 20–23 行是 `requiredStepsFromTemplate()` 的派生来源，动这四行才会打断棘轮，本任务禁止触碰。
+- [ ] 4.4 `AGENTS.md`：**禁止按行号改**（本轮实测该文件是热点载体：本会话进行期间另一会话给它「合并后收尾清单」新增了第 5 步 `check-branch-merged.js`，行号已整体下移）。改前必须先 rebase 到当时 origin/main，再按**章节锚点**定位：docs-only 快速通道的「两种形态必须同写」「远程同步状态列只认闭合词表」两段、「PR 自动合并」的禁止项「合并后不回填远程同步」与合并后收尾清单第 1–4 步、QM-2 的「执行记录里的待办状态必须有东西在检测」整条。保留不动：历史叙述（GH011 直推被拒、#2411、旧载体冻结动因）与"必须经 PR 落地/禁止直推 main/禁止 `--no-verify`"三条硬约束。
 - [ ] 4.5 `scripts/check-pr-exec-record.js` 的"出路④不校验 PENDING→PASS 真实性、信任边界交给 gate-record-debt"注释同步更新——本 change 之后那道信任边界真的存在了，留着旧注释就是装饰性注释。
 - [ ] 4.6 workflow 结构自检：`node .github/scripts/check-workflow-structure.js` rc=0，且改过的 `run:` 块喂真解释器做一次 ParseInput（仓规：js-yaml 绿 ≠ PowerShell 能解析）。
 - [ ] 4.7 **打印即门禁**（评审 i4）：判据在 CI 环境下 `prs=0` MUST 非零退出并点名"派生档未生效"；`workflow-contract.test.js` 加一条结构锁——该步骤 MUST 在 `changes` job、MUST NOT 在任何带 job 级 `if:` 的 job。把步骤挪进 `static-gates` 必须红（与 5.1 的 M8 配对，一条行为锁一条结构锁，各测各的）。
