@@ -1,0 +1,29 @@
+{
+  "sha": "b9c1963d3b735fe00941a7754074f06907e829da",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 4 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 4,
+    "fileCount": 2,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "4. **启用运行时签名**：生成 Ed25519 密钥对，私钥入 systemd drop-in。",
+      "2. **`X-Catalog-Key` 未配进桌面端**：bootstrap 走 `verify_bearer_or_catalog_key`，无 key 时匿名仍是 404。该 key 属**运行时凭据**，按设计不入库——需要在应用「运营中心」设置里填一次。这是让菜单真正可见的最后一步。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "9efe203f64f0e4d1c7bcf99458920ac9cc5a6d5c21e3d89d487a41c93badfefc",
+  "decidedAt": "2026-10-17T16:21:35.364Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}
