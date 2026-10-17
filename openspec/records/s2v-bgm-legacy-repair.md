@@ -2,9 +2,6 @@
 record: s2v-bgm-legacy-repair
 task: 故事讲述流水线：背景音乐/音量自「画面」归位「声音」分组 + 历史音频（已选音频·未入库）存在性核验、状态化文案与一键修复，丢失文件阻断启动
 date: 2026-10-17
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由本会话回填 PASS 并删除 sync_* 三字段
-sync_backfill_owner: 本会话（PR 合并后回填）
 ---
 
 ## 本次执行记录：背景音乐归位「声音」分组 + 历史音频存在性修复（s2v-bgm-legacy-repair，2026-10-17）【混合 PR · 运行时代码】
@@ -21,10 +18,11 @@ sync_backfill_owner: 本会话（PR 合并后回填）
 | 接线棘轮 | ✅ | 未新增独立测试文件，全部改动落在既有已接线测试文件（`story2video-bgm-library.test.js`、`story2video.test.js`、`preload.test.js`、`useBgmLibrary.test.js`、`S2vConfigPanels.test.js`、`CreateView.test.js` 及两份挂载夹具的 API mock）；`check-unwired-tests` OK（91 个域内测试全部接线或按欠账登记） |
 | QM-1 打包 | ✅ | `apps/desktop`：`pnpm run build:vue` rc=0（preload `index.bundle.js` 95,962 B 重生成）→ `pnpm exec electron-builder --win --dir --publish never` rc=0（`win-unpacked/Multi-Publish.exe` 239,075,328 B；`app.asar` 153,519,434 B）；asar 清单含 `electron/services/story2video-bgm-library.js`、`electron/ipc-handlers/story2video.js`、`electron/preload/index.bundle.js`；asar extract 后纯 Node require `electron/services/story2video-bgm-library.js` 通过；打包 exe 以 `scripts/lib/qm1-child-env.js#buildChildEnv`（显式剔除 `ELECTRON_RUN_AS_NODE`）拉起 8 秒存活，stderr 为空（三层判据第③层） |
 | QM-4 视觉 | N/A（默认像素态不变，未动基线） | 迁移的两控件只在折叠区内部移动（`s2vOpenSections` 默认仅 basic 展开）；`create-story2video-detail` 像素基线可见面唯一受影响点是「声音」组摘要，已按「未选 BGM 不追加摘要片段」实现（`s2vBgmLibrarySummaryText()` 空串不拼接），默认态摘要逐字节不变。检查过基线清单（`base-screenshots/create-story2video-detail(-dark).png` 存在）与判据覆盖面后才判 N/A；未使用 `--update-baseline`，CI QG Visual（6% 阈值）为独立复核面 |
-| QM-6 CCG 双模型外部评审 | 见判定器 | 以 `.ccg/reviews/<sha>.json` 产物为准（pre-commit 生成） |
-| 远程同步 | PENDING | PR 合并后由本会话回填：`git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 取 merge SHA 与时间，`git ls-remote --heads origin s2v-bgm-legacy-repair` 须 0 行；回填与删除 sync_* 三字段必须同一次提交 |
+| QM-6 CCG 双模型外部评审 | 见判定器 | 以 `.ccg/reviews/<sha>.json` 产物为准（pre-commit 生成）；本 PR 两轮 dual 评审全部 `self_play_resolved` 闭环，3 份记录随 PR 入库，upheld 项（i2/i4/i5 + i7）已修复并带回归锁 |
+| main push 回读 | PASS | `gh run list --workflow=quality-gate.yml --commit 27bd5d72b` → run `39030092778`（push 事件）；合并后回读 main push 判据见本行与本记录合并后补记 |
+| 远程同步 | PASS | PR #3815 已 squash 合并，merge SHA `27bd5d72b9c5ac75f9ada205f2bb04d1dde105a2`（2026-10-17T19:48:22+08:00）；远端分支 `s2v-bgm-legacy-repair` 已删（`git ls-remote --heads origin s2v-bgm-legacy-repair` 0 行）；`git log origin/main --grep='(#3815)$'` 恰好 1 行；PR 侧 22 项 required check 全绿 + main push 回读见下 |
 
-- 保留门禁：行尾对账 ✅ | 品牌残留 ✅（`check-no-brand-residue` rc=0） | 文档同步 ✅（PRD×3 + spec delta + change 五件套） | 远程同步 PENDING
+- 保留门禁：行尾对账 ✅ | 品牌残留 ✅（`check-no-brand-residue` rc=0） | 文档同步 ✅（PRD×3 + spec delta + change 五件套） | 远程同步 PASS
 
 ### 关键决策（design 摘要）
 

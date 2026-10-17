@@ -46,5 +46,5 @@
 - [x] 5.3 ESLint、locale 同步（`check-locale-sync --pair-base/--keys/--cjk`）、debt budget
 - [x] 5.4 QM-1：`electron-builder --win --dir`、asar 清单、require 链、8 秒启动 stderr 三层判据
 - [x] 5.5 三路记忆：内置（`~/.dsh/memory/Mulpub/`）、外部（`01-docs/learnings.md` + gstack `learnings.jsonl`）、EverOS add→flush→读回
-- [ ] 5.6 提交、推送、开 PR；CI 全绿后 squash 自动合并并删除远端分支
-- [ ] 5.7 合并后：`openspec archive`、同步 spec、记录远程同步 PASS + merge SHA、清理 worktree
+- [x] 5.6 提交、推送、开 PR（#3815）；CI 全绿后 squash 自动合并（merge `27bd5d72b`，2026-10-17T19:48:22+08:00）并删除远端分支
+- [x] 5.7 合并后：记录远程同步 PASS + merge SHA（回填 PR）；main push 回读 `quality-gate.yml` run `39030319575` = success；`openspec archive` 与 worktree 清理待收尾
