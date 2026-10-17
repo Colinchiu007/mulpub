@@ -220,4 +220,43 @@ describe("Dashboard 样式源码守卫（PR #2075/#2114 事故回归保护）", 
     // 连带断言：组件导入也一并移除，避免留下死引用
     expect(tpl).not.toContain("trial-banner");
   });
+
+  // CCG i7 指出：反转 TrialBanner 位置守卫后，新加的附加区块**没有**同等的
+  // 位置锁 —— 上一版那条「必须在 .cohere-content 内部」的守护面就此空了。
+  // 这里给它补上，锁的是同一个失效模式（放在 content 外 ⇒ 丢水平 padding、
+  // 与下方卡片左右不对齐），只不过对象换成了 DashboardExtraPanels。
+  it("DashboardExtraPanels 必须位于 .cohere-content 内部（丢 padding 回归保护）", () => {
+    const tpl = descriptor.template.content;
+    const contentIdx = tpl.indexOf('class="cohere-content"');
+    const panelsIdx = tpl.indexOf("<DashboardExtraPanels");
+    expect(contentIdx, "模板缺少 .cohere-content 容器").toBeGreaterThan(-1);
+    expect(panelsIdx, "模板缺少 <DashboardExtraPanels>").toBeGreaterThan(-1);
+    expect(
+      panelsIdx,
+      "<DashboardExtraPanels> 必须放在 .cohere-content 内部：放在外侧它会成为全页" +
+        "唯一没有水平 padding（--space-xxl）的元素，背景块左边缘贴容器边、与下方卡片不对齐" +
+        "（该失效模式在 TrialBanner 上真实发生过，见上一条注释第 1 版）"
+    ).toBeGreaterThan(contentIdx);
+
+    // 且必须在 .cohere-content 的**闭合**之前：证明是嵌套而非同层后置。
+    // 用 div 深度计数定位与开头匹配的闭合标签，避免被内层嵌套 div 误导。
+    const tags = [];
+    for (const m of tpl.matchAll(/<div\b/g)) tags.push({ i: m.index, t: "o" });
+    for (const m of tpl.matchAll(/<\/div>/g)) tags.push({ i: m.index, t: "c" });
+    tags.sort((a, b) => a.i - b.i || (a.t === "o" ? -1 : 1));
+    let depth = 0;
+    let closeIdx = -1;
+    for (const tag of tags) {
+      if (tag.t === "o") depth += 1;
+      else {
+        depth -= 1;
+        if (depth === 0 && tag.i > contentIdx) { closeIdx = tag.i; break; }
+      }
+    }
+    expect(closeIdx, "未找到 .cohere-content 的闭合标签").toBeGreaterThan(-1);
+    expect(
+      panelsIdx,
+      "<DashboardExtraPanels> 越过了 .cohere-content 的闭合标签（同层而非嵌套 → padding 不生效）"
+    ).toBeLessThan(closeIdx);
+  });
 });

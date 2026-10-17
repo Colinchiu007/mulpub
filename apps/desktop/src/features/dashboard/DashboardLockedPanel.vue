@@ -49,13 +49,21 @@ const { t } = useI18n()
  *      (#1e1b4b) 暗 (#e8e8ed) 双档都有定义，随主题自动切换。
  *   ② .dash-locked-cta 用描边式（透明底 + var(--lavender-primary) 紫字）⇒
  *      #7c5cbf 压 #26262d 只有 **2.96**，差 0.04 不达标。
- *      修法：改**实底 + 白字**，色值固定 #7c5cbf。这样对比度恒为 5.07，
- *      与主题无关 —— 同 TrialBanner 第 3 轮的结论：白字在固定底色下对
- *      「暗色主题是否覆盖了某个 token」完全免疫，描边式做不到这点。
+ *      修法：改**实底 + 白字**。这样对比度恒为 5.07，与主题无关 ——
+ *      同 TrialBanner 第 3 轮的结论：白字在固定底色下对「暗色主题是否覆盖了
+ *      某个 token」完全免疫，描边式做不到这点。
  *
- * 判据：正文/UI 文本 ≥ 3:1（与 contrast-audit.js 阈值一致）。
+ * 关于 CTA 底色为何是字面量而非 token（CCG i5 提出，已评估）：
+ *   · `--lavender-primary`（#7c5cbf）**只在 Dashboard.vue 的 scoped :global(:root) 里**，
+ *     不是全局 token，子组件取不到（会 fallback 到 --color-primary，暗色下 = #8b85ff，
+ *     白字仅 3.04:1，离阈值太近）。
+ *   · `--color-primary` 随主题切换（亮 #5048E5 / 暗 #8b85ff），白字对比度 6.29 / 3.04 —— 
+ *     暗色档太贴阈值，任何调色都会翻车。
+ *   折中：提为**组件级变量**集中管理（下方 --dash-cta-bg），既不改全局 token，
+ *   也不让字面量散落在规则里。改色只需改这一处。
  */
 .dash-locked {
+  --dash-cta-bg: #7c5cbf;
   margin-bottom: var(--space-md);
   padding: 16px;
   border: 1px dashed var(--color-border-strong);
@@ -79,9 +87,9 @@ const { t } = useI18n()
 .dash-locked-cta {
   appearance: none;
   -webkit-appearance: none;
-  border: 1px solid #7c5cbf;
+  border: 1px solid var(--dash-cta-bg);
   /* 实底 + 白字：对比度恒 5.07，对主题覆盖免疫（见文件头说明） */
-  background: #7c5cbf;
+  background: var(--dash-cta-bg);
   color: #fff;
   cursor: pointer;
   padding: 6px 14px;
@@ -91,7 +99,6 @@ const { t } = useI18n()
   transition: background 0.15s ease, border-color 0.15s ease;
 }
 .dash-locked-cta:hover {
-  background: #6d28d9;
-  border-color: #6d28d9;
+  filter: brightness(0.88);
 }
 </style>

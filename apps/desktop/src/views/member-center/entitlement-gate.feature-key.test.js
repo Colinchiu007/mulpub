@@ -11,18 +11,44 @@
  * 任一侧改名而另一侧没跟，这里就红。
  */
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'fs'
+import { readFileSync, existsSync } from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { DASHBOARD_FULL_FEATURE } from './entitlement-gate'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 
-// 从渲染层 src 反推仓库根：apps/desktop/src/views/member-center → 上溯 5 层
-const repoRoot = path.resolve(here, '..', '..', '..', '..', '..')
-const PLAN_MATRIX = path.join(repoRoot, 'packages', 'api-publish-engine', 'src', 'auth', 'plan-matrix.js')
+/**
+ * 从当前测试文件向上逐级找仓库根（以 pnpm-workspace.yaml 为锚）。
+ *
+ * 为什么不用 `path.resolve(here, '..', '..', '..', '..', '..')`（CCG i3 提出，已采纳）：
+ * 数层级会把「目录结构调整」变成静默失效 —— 少算或多算一层，readFileSync 直接 ENOENT，
+ * 而失败信息只会说「文件不存在」，看不出是路径算错了。锚点查找对目录搬家免疫。
+ */
+function findRepoRoot (start) {
+  let dir = start
+  for (let i = 0; i < 12; i++) {
+    if (existsSync(path.join(dir, 'pnpm-workspace.yaml'))) return dir
+    const parent = path.dirname(dir)
+    if (parent === dir) break
+    dir = parent
+  }
+  return null
+}
+
+const repoRoot = findRepoRoot(here)
+const PLAN_MATRIX = repoRoot
+  ? path.join(repoRoot, 'packages', 'api-publish-engine', 'src', 'auth', 'plan-matrix.js')
+  : null
 
 describe('dashboard_full feature 键名一致性（防无声降级）', () => {
+  it('能定位仓库根与服务端真源文件', () => {
+    // 先断锚点本身：路径算错时这条给的是「找不到仓库根」，
+    // 而不是下游三条各报一次 ENOENT —— 定位成本差一个量级。
+    expect(repoRoot, '未找到 pnpm-workspace.yaml，无法定位仓库根').toBeTruthy()
+    expect(existsSync(PLAN_MATRIX), '服务端真源不存在：' + PLAN_MATRIX).toBe(true)
+  })
+
   it('服务端真源 plan-matrix.js 确实派生了这个 feature', () => {
     const src = readFileSync(PLAN_MATRIX, 'utf8')
     // 形如：if (matrix.dashboard === 'full') features.push('dashboard_full')

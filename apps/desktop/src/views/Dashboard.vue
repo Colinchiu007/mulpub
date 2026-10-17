@@ -399,7 +399,12 @@ let newPanelsSeq = 0
 async function loadNewPanels () {
   const seq = ++newPanelsSeq
   const [accountRes, statusRes, historyRes] = await Promise.allSettled([
-    accountBatchCheckLogin(JSON.parse(JSON.stringify(accountIdsForCheck.value))),
+    // 展开运算符已足够脱壳：accountIdsForCheck 是 string[]，元素是**原始值**，
+    // 不是被 reactive 包装的对象。原写法 JSON.parse(JSON.stringify(...)) 属过度，
+    // 且每次 auth/entitlement 变化都跑一遍完整序列化（CCG i6 提出，已采纳）。
+    // 注意：若将来元素变成对象，必须换回深拷贝 —— reactive proxy 传 IPC 会抛
+    // "An object could not be cloned"（QM-2 明文纪律）。
+    accountBatchCheckLogin([...accountIdsForCheck.value]),
     getQueueStatus(),
     getQueueHistory(),
   ])
