@@ -123,6 +123,19 @@ jobs:
           unset electron_use_remote_checksums npm_config_electron_use_remote_checksums
           node node_modules/electron/install.js
 
+      # 这 5 个受管构建产物已于 #3782 移出版本控制（.gitignore 吞掉），于是"干净检出里没有它们"。
+      # 下面那步桌面全量测试里有 9 个文件是**拿真实产物对账**的（preload-path / ipc-contract /
+      # build-preload / viral-pr2-preload / preload-variant / overlay-view-suspension / shell-mode-6b /
+      # podcast-plan-preview-ipc / podcast-script-ipc），缺这两步就 ENOENT 红。
+      # #3782 当时只给 quality-gate.yml 的三个消费 job 补了重建，漏了这里 —— 而本步 `if` 排除了
+      # pull_request，所以症状是"PR 全绿、main push 连红"，红只在 main 显形。
+      # `if` 与被配对的测试步**逐字相同**：不跑测试时也不白跑构建。
+      - name: Build preload bundles
+        if: github.event_name != 'pull_request'
+        run: |
+          pnpm --filter @multi-publish/desktop run build:preload
+          pnpm --filter @multi-publish/desktop run build:paginator
+
       # 2026-09-17：PR 上跳过本步（同一批桌面测试已由 QG desktop-shards 分片执行），
       # 仅在 main push / workflow_dispatch 运行，保留「单 worker 串行确定性模式」的 CI 覆盖与第二次独立运行的 flake 检出。
       - name: Unit tests (Vitest, non-Electron, single-worker deterministic)

@@ -1213,3 +1213,108 @@ test('QG Visual 的套件接法表必须与 run-all-visual 的注册表平价', 
     assert.match(body, re, `QG Visual 必须执行 ${script}（对应 run-all-visual 的 ${suite}）`);
   }
 })
+
+// ===== 桌面测试与「不再受版本控制的构建产物」的配对锁（change: electron-ci-preload-build-step）=====
+// 背景（实测，不是推测）：#3782 把 5 个受管构建产物移出版本控制后，"干净检出里没有它们"成为新前提；
+// 而 Electron CI 里跑桌面全量的那一步带 `if: github.event_name != 'pull_request'`（只在 main push 跑），
+// 于是 push 连红 15 次、PR 全绿，9 个"与真实产物对账"的测试文件报 ENOENT / Cannot find module。
+// 当时 #3782 只给 quality-gate.yml 的三个消费 job 补了重建，漏了 electron-ci.yml —— 本锁守的是**配对关系**，
+// 不是那一次修复：任何 job 只要跑桌面全量，就必须有一步**同时**重建这两个脚本，且排在测试之前。
+const DESKTOP_SUITE_BUILD_SCRIPTS = ['build:preload', 'build:paginator'];
+// 消费者谓词由现场两条真实命令行形态推导（见 .tools 清点，不是凭 API 名字猜）：
+//   单行：`pnpm --filter @multi-publish/desktop test -- \` / `... desktop test:coverage -- ...`；
+//   PowerShell 参数数组：`"@multi-publish/desktop",` 换行 `"test",`（desktop-shards 用这种）。
+// `test:startup` 刻意排除：build.yml 的 build job 没有重建步骤而 push 实测 success，
+// 说明该入口不读这 5 个产物；把它纳进来就是拿没验过的因果当判据。
+const DESKTOP_SUITE_ONE_LINE_RE = /--filter @multi-publish\/desktop\s+(?:test(?![\w:-])|test:all(?![\w:-])|test:coverage(?![\w:-]))/;
+const DESKTOP_SUITE_ARRAY_RE = /"@multi-publish\/desktop",\s*\n\s*"test(?![\w:-])"/;
+const DESKTOP_SUITE_NO_BUILD_ACK = []; // 承认清单：起始为空、只能缩小；新增必须带原因
+
+function desktopStepsRunSuite(steps) {
+  return steps.some(step => {
+    const run = String(step.run || '');
+    return DESKTOP_SUITE_ONE_LINE_RE.test(run) || DESKTOP_SUITE_ARRAY_RE.test(run);
+  });
+}
+
+// 判据函数与"从盘上取 job"分离：顺序这一支必须由合成 steps 直接喂，否则收集器只扫 testIdx 之前的步骤，
+// `buildIdx > testIdx` 永不可达 —— 那就是又一道装饰性判据（写得出、点不到火）。
+function judgeDesktopSuiteJob(steps) {
+  const isSuite = step => {
+    const run = String(step.run || '');
+    return DESKTOP_SUITE_ONE_LINE_RE.test(run) || DESKTOP_SUITE_ARRAY_RE.test(run);
+  };
+  const hasBothBuilds = step => DESKTOP_SUITE_BUILD_SCRIPTS.every(script => String(step.run || '').includes(script));
+  const testIdx = steps.findIndex(isSuite);
+  const buildIdx = steps.findIndex(hasBothBuilds);
+  if (testIdx < 0) return { verdict: 'NOT_A_CONSUMER', testIdx, buildIdx };
+  if (buildIdx < 0) return { verdict: 'MISSING_BUILD', testIdx, buildIdx };
+  if (buildIdx > testIdx) return { verdict: 'BUILD_AFTER_TEST', testIdx, buildIdx };
+  return { verdict: 'OK', testIdx, buildIdx };
+}
+
+test('跑桌面 vitest 全量的每个 job 都必须在测试前重建那 5 个不再受版本控制的产物', () => {
+  const wfDir = path.join(__dirname, '..', 'workflows');
+  const rows = [];
+  for (const name of fs.readdirSync(wfDir).filter(n => /\.ya?ml$/.test(n)).sort()) {
+    const wf = yaml.load(fs.readFileSync(path.join(wfDir, name), 'utf8'));
+    for (const [jobName, job] of Object.entries(wf.jobs || {})) {
+      const steps = job.steps || [];
+      if (!desktopStepsRunSuite(steps)) continue;
+      rows.push({ key: `${name}:${jobName}`, judge: judgeDesktopSuiteJob(steps), steps });
+    }
+  }
+  // 反失明：谓词被改窄/解析退化会让 rows 变空，而"全部合规"读起来完全像通过
+  assert.ok(rows.length >= 3, `消费者覆盖面下界 3，实测 ${rows.length} ⇒ 谓词或扫描域退化：` +
+    JSON.stringify(rows.map(r => r.key)));
+  const offenders = rows.filter(r => r.judge.verdict !== 'OK' && !DESKTOP_SUITE_NO_BUILD_ACK.includes(r.key));
+  assert.deepEqual(
+    offenders.map(r => `${r.key} ⇒ ${r.judge.verdict}（test@${r.judge.testIdx} build@${r.judge.buildIdx}）`),
+    [],
+    '构建产物已移出版本控制 ⇒ 跑桌面全量的 job 必须有一步同时重建 build:preload 与 build:paginator 且排在测试之前',
+  );
+  const electronCi = rows.find(r => r.key === 'electron-ci.yml:electron-tests');
+  assert.ok(electronCi, 'electron-ci.yml:electron-tests 必须仍落在本锁覆盖面内（整片删掉测试步来"修好"本锁不算修）');
+  const buildStep = electronCi.steps[electronCi.judge.buildIdx];
+  const testStep = electronCi.steps[electronCi.judge.testIdx];
+  // 配对锁：两条 if 必须逐字相同，否则"只在 push 跑测试 / 两种事件都跑构建"这类漂移会悄悄发生
+  assert.equal(String(buildStep.if), String(testStep.if),
+    `electron-ci.yml 重建步与测试步的 if 必须一致（实测 build=${buildStep.if} test=${testStep.if}）`);
+});
+
+test('顺序判据可达：重建排在测试之后必须判 BUILD_AFTER_TEST', () => {
+  const suite = { name: 'Unit tests', if: 'github.event_name != \'pull_request\'',
+    run: 'pnpm --filter @multi-publish/desktop test -- --maxWorkers=1' };
+  const build = { name: 'Build preload bundles', if: 'github.event_name != \'pull_request\'',
+    run: 'pnpm --filter @multi-publish/desktop run build:preload\npnpm --filter @multi-publish/desktop run build:paginator' };
+  const ok = judgeDesktopSuiteJob([build, suite]);
+  const bad = judgeDesktopSuiteJob([suite, build]);
+  const missing = judgeDesktopSuiteJob([suite]);
+  const nonConsumer = judgeDesktopSuiteJob([{ name: 'startup', run: 'pnpm --filter @multi-publish/desktop test:startup' }]);
+  assert.equal(ok.verdict, 'OK', '正确顺序必须判 OK（合规形态必须能绿）');
+  assert.equal(bad.verdict, 'BUILD_AFTER_TEST', '顺序反过来必须红——这条若抓不到就是装饰判据');
+  assert.equal(missing.verdict, 'MISSING_BUILD', '完全没重建必须红');
+  assert.equal(nonConsumer.verdict, 'NOT_A_CONSUMER', 'test:startup 不得被算进消费者（它不读那 5 个产物，build.yml 无重建步仍 push 实测 success）');
+  assert.equal(judgeDesktopSuiteJob([{ name: 'x', run: 'node --test scripts/foo.test.js' }]).verdict, 'NOT_A_CONSUMER',
+    '主进程侧 node --test 不属于本锁的范围');
+});
+
+// 外部评审（opencode/big-pickle，2026-10-17）C3(b) 命中：上一条锁只断言"两步的 if 相等"，
+// 于是"两步都漏写 if"（隐式全事件跑）也判绿 —— 而那恰好把这条 job 从「只在 main push 跑」变成
+// 「PR 上也跑一次 30 分钟全量」，即 #3782 之后我们想避免的重复执行。关系型判据挡不住"一起漏"，
+// 所以这里补一条**绝对值**判据：门槛必须由 YAML 里写出来的字面量表达。
+const ELECTRON_CI_PUSH_ONLY_IF = "github.event_name != 'pull_request'";
+
+test('electron-ci 的重建步与测试步必须把「只在非 PR 事件跑」写成字面量', () => {
+  const wf = yaml.load(fs.readFileSync(path.join(__dirname, '..', 'workflows', 'electron-ci.yml'), 'utf8'));
+  const j = judgeDesktopSuiteJob((wf.jobs['electron-tests'] || {}).steps || []);
+  const steps = (wf.jobs['electron-tests'] || {}).steps || [];
+  assert.equal(j.verdict, 'OK', `electron-ci 的配对状态被破坏：${JSON.stringify(j)}`);
+  const buildIf = steps[j.buildIdx] && steps[j.buildIdx].if;
+  const testIf = steps[j.testIdx] && steps[j.testIdx].if;
+  assert.equal(String(testIf), ELECTRON_CI_PUSH_ONLY_IF,
+    `桌面全量测试步的事件门槛必须是字面量 ${ELECTRON_CI_PUSH_ONLY_IF}，实测=${JSON.stringify(String(testIf))}` +
+    '（缺省=两种事件都跑，PR 上会重复跑整轮）');
+  assert.equal(String(buildIf), ELECTRON_CI_PUSH_ONLY_IF,
+    `重建步的门槛必须与测试步同字面量，实测=${JSON.stringify(String(buildIf))}`);
+});
