@@ -1,3 +1,10 @@
+# [未发布] docs(openspec): 归档 gate-record-sync-derived-status，主规格 quality-gate-execution-record 落地
+
+- **动作**：`openspec archive gate-record-sync-derived-status -y` ⇒ `specsUpdated=true / added=3`，change 落为 `openspec/changes/archive/2026-10-18-gate-record-sync-derived-status/`，并创建主规格 `openspec/specs/quality-gate-execution-record/spec.md`；`openspec/specs/openspec-integration/spec.md` 纯插入一条 Requirement（+21 −0，不动既有行）。
+- **CLI 留下的占位必须当场还**：`openspec archive` 往新主规格写 `TBD - created by archiving change …`，本仓历史上这条账**没人还过**（2026-10-07 清点 151 份主规格里 43 份如此）。本次把 Purpose 写实。
+- **三条核验**：① 移动按 `git diff --cached -M` 判 **13 个 R100**（逐字节相同）而非"删+加"；② `openspec validate --all --strict` 前后失败集**逐字相同**（17 条，全是既有、不含本 PR 任何条目）；③ 三份未归档件（`enforce-gate-record-presence` / `freeze-legacy-gate-carrier` / `hot-carrier-atomic-landing`）归档后仍各自 validate 通过。
+- **边界**：不往旧载体 `.quality-gates.md` 插块、不往 ledger 加键（`carrierDrift` 会拦）；ledger 里 23 条历史欠账原样不动。执行记录 `openspec/records/archive-gate-record-derived.md` 按新形态写（状态列「由门禁推导」，不带 `sync_*`）——这是新机制上线后第一篇走推导收口的归档记录。
+
 # [未发布] fix(ci): GUI 相关性 CLI 端到端用例改用例级预算，并落一条可重跑的实测出处（gui-cli-e2e-timeout）
 
 - **动因是一次 main push 回读**：PR #3807 合入后 main 的 `QG Desktop Shards (1/2)` 判红，唯一红点 `tests/gui-ci-exit-contract.test.js:220` 报 `Test timed out in 10000ms`。对照跑证明它不是那片引入的——同一形态在我合并前 57 分钟的 main push `ce3f25cdf` 上逐字复现，而含我内容的后续 main tip `3f5f9da38` 判 success。归因完不放着，是因为这条 required check 会砸到每一个碰到 `apps/desktop/**` 的 PR。
