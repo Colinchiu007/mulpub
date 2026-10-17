@@ -335,6 +335,16 @@ jobs:
           node scripts/check-precommit-spawn-budget.js scripts/hooks/pre-commit
           node --test scripts/check-precommit-spawn-budget.test.js
 
+      # --- Gate 2b4：「分支内容已进主干」的机械判据回归锁 ---
+      # 动因（2026-10-16 实测）：这条判据此前只以 AGENTS.md 的散文存在，每轮清理由会话临时手写探针执行；
+      # 本轮真实发生过一次「按旧文字判出差量 52/10/5 行，仍把分支删了」——散文挡不住临场自觉，所以给它执行体。
+      # 落点必须是 changes 作业（同 Gate 2b2/2b3 口径：static-gates 带 docs-only 门槛，守门判据落在会被自己
+      # 防的那道短路里的作业，等于给自己关掉校验）。本作业没有 Install deps ⇒ 判据只能 require node 内置模块。
+      - name: "Gate 2b4 - Branch-merged criterion (changes job)"
+        shell: bash
+        run: |
+          node --test scripts/check-branch-merged.test.js
+
       # --- Gate 2c3：CHANGELOG.md「只可增长」棘轮 ---
       # 动因（实测）：b531bdfe7（PR #2884，一个 ai-taste 功能 PR）把 CHANGELOG.md 从
       # 7,474,293 B / 1,133 条整份替换成 9,155 B / 2 条，**丢掉 1,131 条并全绿合入**。
