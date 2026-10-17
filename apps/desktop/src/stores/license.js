@@ -26,20 +26,11 @@ export const useLicenseStore = defineStore("license", () => {
     }
   }
 
-  async function activate(key) {
-    const api = getApi()
-    if (!api) return null
-    try {
-      const res = await api.licenseActivate(key)
-      if (res && res.code === 0) {
-        await load()
-        return true
-      }
-      return false
-    } catch (e) {
-      return false
-    }
-  }
+  // 2026-10-17 remove-buyout-license：`activate(key)` 已移除。
+  // 它调 `window.electronAPI.licenseActivate`，而该桥接与主进程 `license:activate`
+  // handler、`licenseManager.activate()` 一并随买断授权模型删除。渲染层不再有
+  // 任何「本地写授权」的入口 —— 兑换码核销只走服务端 POST /api/v1/redeem（会员中心）。
+  // 全仓已确认无调用方（本文件外零命中）。
 
   async function deactivate() {
     const api = getApi()
@@ -70,7 +61,7 @@ export const useLicenseStore = defineStore("license", () => {
   const daysRemaining = computed(() => info.value.daysRemaining || 0)
 
   return {
-    info, loading, load, activate, deactivate, activateTrial,
+    info, loading, load, deactivate, activateTrial,
     isPro, isTrial, isFree, licenseType, daysRemaining,
   }
 })

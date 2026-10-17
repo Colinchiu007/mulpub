@@ -17,8 +17,6 @@
  *   - 离线模式：offlineStatus / offlineIsOffline / offlineCachedTasks / offlineAddToCache
  *               offlineClearCache / onOfflineRestored
  *   - 引导：onboardingComplete / onboardingGetSteps / onboardingStatus
- *   - 支付：paymentCreateOrder / paymentListOrders / paymentGetOrder / paymentComplete
- *           paymentSimulate / paymentCancel
  *   - 全局导航：onNavigate
  *   - 数据分析：analyticsOverview / analyticsPlatform / analyticsPlatforms
  *   - 快捷键：hotkeysList
@@ -28,7 +26,7 @@
  *   - 上传：uploadChunked / uploadCancel
  *   - 模板：templateList / templateGet / templateAdd / templateUpdate / templateDelete
  *           templateListByCategory / templateGetPresets
- *   - 许可证：licenseInfo / licenseActivate / licenseDeactivate / licenseActivateTrial
+ *   - 许可证：licenseInfo / licenseDeactivate / licenseActivateTrial
  *             licenseHasFeature / licenseFeatures
  *   - Provider：providerList / providerCreate / providerUpdate / providerDelete / providerTest
  *               providerListUser / providerGetUser / providerSetUserKey / providerDeleteUserKey
@@ -118,13 +116,9 @@ function createSystemApi(ipcRenderer) {
     onboardingGetSteps: () => ipcRenderer.invoke('onboarding:get-steps'),
     onboardingStatus: () => ipcRenderer.invoke('onboarding:status'),
 
-    // 支付 API
-    paymentCreateOrder: (options) => ipcRenderer.invoke('payment:create-order', options),
-    paymentListOrders: () => ipcRenderer.invoke('payment:list-orders'),
-    paymentGetOrder: (orderId) => ipcRenderer.invoke('payment:get-order', orderId),
-    paymentComplete: (orderId, txnId) => ipcRenderer.invoke('payment:complete', { orderId, txnId }),
-    paymentSimulate: (orderId) => ipcRenderer.invoke('payment:simulate', { orderId }),
-    paymentCancel: (orderId) => ipcRenderer.invoke('payment:cancel', orderId),
+    // 支付 API 已于 2026-10-17 remove-buyout-license 移除：
+    // 本地下单链路（payment-manager）在 S1 修复后已无法授予任何授权，且 ¥99
+    // 一次性买断与服务端三档订阅互斥。在线支付需接支付平台 + 回调 + 对账，属独立立项。
 
     // 全局导航 API（快捷键触发）
     onNavigate: (cb) => {
@@ -184,8 +178,12 @@ function createSystemApi(ipcRenderer) {
     templateGetPresets: () => ipcRenderer.invoke('template:get-presets'),
 
     // 许可证 API
+    // 2026-10-17 remove-buyout-license：`licenseActivate` 已移除。
+    // 买断授权模型不再提供，主进程 `license:activate` handler 与
+    // `license-manager.activate()` 一并删除；兑换码核销只走服务端
+    // `POST /api/v1/redeem`（会员中心）。保留一个打不通的桥接只会让
+    // 用户拿到未处理通道的错误。
     licenseInfo: () => ipcRenderer.invoke('license:info'),
-    licenseActivate: (key) => ipcRenderer.invoke('license:activate', key),
     licenseDeactivate: () => ipcRenderer.invoke('license:deactivate'),
     licenseActivateTrial: () => ipcRenderer.invoke('license:activate-trial'),
     licenseHasFeature: (name) => ipcRenderer.invoke('license:has-feature', name),

@@ -8,9 +8,11 @@ const PUBLIC_CHANNELS = new Set([
   'update:check', 'update:download', 'update:install', 'update:install-now',
   'first-run:check', 'show-notification',
   'onboarding:complete', 'onboarding:get-steps', 'onboarding:status',
-  'license:info', 'license:activate', 'license:deactivate',
+  'license:info', 'license:deactivate',
   'license:activate-trial', 'license:has-feature', 'license:features',
-  'payment:create-order', 'payment:list-orders', 'payment:get-order', 'payment:cancel',
+  // 2026-10-17 remove-buyout-license：`license:activate` 与 6 条 `payment:*` 通道
+  // 已随买断授权模型一并移除。授权只由服务端授予（POST /api/v1/redeem + entitlement
+  // 下发），本地不再有任何「写入 pro 授权」的入口。
   'auth:open-login', 'auth:complete-login', 'auth:close', 'auth:login-silent',
   'auth:open-qrcode-login', 'auth:qrcode-close',
   'oauth:start', 'oauth:close', 'oauth:get-configs',
@@ -97,8 +99,10 @@ const PUBLIC_CHANNELS = new Set([
   'viral:analyze', 'viral:generate', 'viral:trending',
 ])
 
+// 管理员专属通道：仅开发态 + 显式管理入口可达。
+// `payment:complete` / `payment:simulate` 已随买断模型移除（2026-10-17），
+// 不再有需要二次加固的支付通道。
 const ADMIN_ONLY_CHANNELS = new Set([
-  'payment:complete', 'payment:simulate',
   'proxy:test', 'proxy:test-all', 'proxy:reset',
 ])
 

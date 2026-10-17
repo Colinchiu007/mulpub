@@ -48,37 +48,6 @@ describe("useLicenseStore", () => {
     });
   });
 
-  describe("activate(key)", () => {
-    it("activates and reloads on success", async () => {
-      window.electronAPI = {
-        licenseActivate: vi.fn().mockResolvedValue({ code: 0 }),
-        licenseInfo: vi.fn().mockResolvedValue({ code: 0, data: { type: "pro", isPro: true, features: [], daysRemaining: 365 } }),
-      };
-      const store = useLicenseStore();
-      const result = await store.activate("PRO-KEY-123");
-      expect(window.electronAPI.licenseActivate).toHaveBeenCalledWith("PRO-KEY-123");
-      expect(result).toBe(true);
-      expect(store.isPro).toBe(true);
-    });
-    it("returns false when activation fails", async () => {
-      window.electronAPI = { licenseActivate: vi.fn().mockResolvedValue({ code: 1, message: "invalid" }) };
-      const store = useLicenseStore();
-      const result = await store.activate("BAD-KEY");
-      expect(result).toBe(false);
-    });
-    it("returns null when electronAPI unavailable", async () => {
-      const store = useLicenseStore();
-      const result = await store.activate("KEY");
-      expect(result).toBeNull();
-    });
-    it("handles exception returns false", async () => {
-      window.electronAPI = { licenseActivate: vi.fn().mockRejectedValue(new Error("err")) };
-      const store = useLicenseStore();
-      const result = await store.activate("KEY");
-      expect(result).toBe(false);
-    });
-  });
-
   describe("deactivate()", () => {
     it("deactivates and reloads", async () => {
       window.electronAPI = {

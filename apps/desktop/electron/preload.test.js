@@ -111,7 +111,7 @@ const SYSTEM_METHODS = [
   'onCallbackReceived',
   'offlineStatus', 'offlineIsOffline', 'offlineCachedTasks', 'offlineAddToCache', 'offlineClearCache', 'onOfflineRestored',
   'onboardingComplete', 'onboardingGetSteps', 'onboardingStatus',
-  'paymentCreateOrder', 'paymentListOrders', 'paymentGetOrder', 'paymentComplete', 'paymentSimulate', 'paymentCancel',
+  // 2026-10-17 remove-buyout-license：6 个 payment* 桥接已随买断模型移除
   'onNavigate',
   'analyticsOverview', 'analyticsPlatform', 'analyticsPlatforms',
   'hotkeysList',
@@ -121,7 +121,8 @@ const SYSTEM_METHODS = [
   'uploadChunked', 'uploadCancel', 'onUploadProgress',
   'templateList', 'templateGet', 'templateAdd', 'templateUpdate', 'templateDelete',
   'templateListByCategory', 'templateGetPresets',
-  'licenseInfo', 'licenseActivate', 'licenseDeactivate', 'licenseActivateTrial',
+  // 2026-10-17 remove-buyout-license：licenseActivate 已移除（本地不再有写授权入口）
+  'licenseInfo', 'licenseDeactivate', 'licenseActivateTrial',
   'licenseHasFeature', 'licenseFeatures',
   'providerList', 'providerCreate', 'providerUpdate', 'providerDelete', 'providerTest',
   'providerListUser', 'providerGetUser', 'providerSetUserKey', 'providerDeleteUserKey',
@@ -226,11 +227,11 @@ describe('preload 子模块方法数', () => {
     // + batchCancel（2026-10-02 批量排期取消：清定时器 + 状态置 cancelled，与 batch:delete 区分）
     // - 10（分屏监控 webview:* API 随监控功能移除，网页查看统一走 pageManager）
     // - 3（2026-10-15：ops-center-sync:get/save/now 三条 IPC 在渲染端零调用，随别名一并移除）
-    expect(Object.keys(r).length).toBe(146)
+    expect(Object.keys(r).length).toBe(139)
   })
 
   it('合并后 api 总键数应为 344（2026-10-17：343 + story2videoBgmLibraryStatus 历史 BGM 路径核验；2026-10-15：342 + accountGetProxy，账号页列表零解密后代理状态改由 account:get-proxy 按需读取；342 = 344 − 3 条死通道 + 1 个「再次发布」快照读口 historyGetRepublishSnapshot；344 = 343 + 1 个激活码核销键 identityRedeemCode → identity:redeem-code）', () => {
-    expect(Object.keys(api).length).toBe(344)
+    expect(Object.keys(api).length).toBe(337)
     // 新键必须真实存在于聚合入口，防止「改了数字但方法没接上」
     expect(Object.keys(api)).toContain('identityRedeemCode')
     expect(Object.keys(api)).toContain('historyGetRepublishSnapshot')
@@ -253,7 +254,7 @@ describe('preload 子模块方法数', () => {
   })
 
   it('SYSTEM_METHODS 常量长度应为 134', () => {
-    expect(SYSTEM_METHODS.length).toBe(134)
+    expect(SYSTEM_METHODS.length).toBe(127)
   })
 
   it('IDENTITY_METHODS 常量长度应为 5', () => {
@@ -350,7 +351,7 @@ describe('invoke 类方法转发到 ipcRenderer.invoke', () => {
     ['storeGetSetting', 'store:get-setting', ['theme']],
     ['oauthStart', 'oauth:start', [{ platform: 'youtube' }]],
     ['videoStatus', 'video:status', []],
-    ['paymentCreateOrder', 'payment:create-order', [{ amount: 100 }]],
+    ['proxyReset', 'proxy:reset', []],
     ['templateList', 'template:list', []],
     ['proxyAdd', 'proxy:add', [{ host: '127.0.0.1' }]],
     ['modelProviderLogs', 'model-provider:logs', [{ category: 'llm' }]],
@@ -544,12 +545,12 @@ describe('preload 动态许可证权限', () => {
     const { createDynamicAccessApi } = require('./preload/access-control')
     const getVersion = vi.fn(() => '1.0.0')
     const dynamicApi = createDynamicAccessApi(
-      { getVersion, paymentComplete: vi.fn() },
+      { getVersion, proxyReset: vi.fn() },
       () => 'public',
     )
 
     expect(dynamicApi.getVersion()).toBe('1.0.0')
-    expect(dynamicApi.paymentComplete).toBeUndefined()
+    expect(dynamicApi.proxyReset).toBeUndefined()
   })
 
   it('调用参数不能伪造访问级别', () => {
@@ -624,7 +625,7 @@ describe('preload 动态许可证权限', () => {
       expect(worldName).toBe('electronAPI')
       expect(exposedApi).toHaveProperty('getVersion')
       expect(exposedApi).toHaveProperty('publishWechat')
-      expect(exposedApi.paymentComplete).toBeUndefined()
+      expect(exposedApi.proxyReset).toBeUndefined()
 
       expect(() => exposedApi.publishWechat({ title: '免费版' }))
         .toThrow(/许可证权限不足/)

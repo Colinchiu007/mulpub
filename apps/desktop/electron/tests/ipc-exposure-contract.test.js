@@ -401,7 +401,7 @@ describe('判据矩阵（2.2：先证明判据本身正确，再谈用它守别�
   // 不能用 toBeTruthy —— 空数组同样 truthy，会让判据对"恒返回空数组"的 no-op 完全免疫。
   const mustExtract = [
     'invokeWithFallback("filmEngineeringRetryShot", { code: -1 }, payload)',
-    "invokeWithFallback('paymentSimulate', { code: -1 }, orderId)",
+    "invokeWithFallback('proxyTest', { code: -1 }, proxyId)",
     'invoke(`accountList`)',
     'invoke(\n  "accountDelete",\n  id\n)',
     'invokeWithFallback("batchExecute", { code: -1 }, { a: "b,c", d: [1, 2] })',
