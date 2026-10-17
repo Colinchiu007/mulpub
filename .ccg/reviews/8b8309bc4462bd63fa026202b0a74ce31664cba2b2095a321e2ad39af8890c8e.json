@@ -19,8 +19,108 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "self_play_blocked",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "domains": [
+          "crypto"
+        ]
+      }
+    ],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "新加 .ccg/reviews/db3c...json 记录 i2 (upheld/blocking) 描述 __dirname RCE。方案正文说 i2 已修（删回落+P7），但该新增制品未标注已解决，若门禁自动读取会造成假阻断。",
+        "highRiskDomains": [],
+        "prosecution": "新增制品 db3c1d29…json 把 i2 记成 upheld/blocking，而方案正文说该条已修；制品本身没有「已解决」这一格，任何自动读取它的门禁都会拿到一个假阻断。",
+        "defense": "本 PR 的交付物就是这个现象：`check-pr-exec-record` 的闭合白名单里没有能表达「已在其后提交修复」的值，记录按父提交入库后 deep-review 只服务当前 HEAD ⇒ 不可回补。design D8 与 tasks §7 已把它写成三条出路并明确\"本 PR 一条都不做\"，PR 正文与执行记录 §7.1 直接声明\"本 PR 需人工合并\"。",
+        "verdict": "dismissed",
+        "rationale": "指控描述的是**被测对象**，不是本 PR 引入的缺陷；而\"假阻断\"的后果已被如实交出去（不自动合并、不手写 status、不放宽词表）。若在仓侧自造一个\"已修\"标记，等于再造一份与引擎漂移的口径 —— 那正是本仓「装饰性门禁」的成因。判 dismissed 的理由仅此一条：本 PR 无可改动之处；现象本身按 D8 出路②留给上游。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "CHANGELOG.md 变更内容直接写入 i2 完整攻击路径（__dirname → require 执行 PR 作者代码、crypto 域名）和审计结论，用户可见文件泄露内部漏洞评估。",
+        "highRiskDomains": [
+          "crypto"
+        ],
+        "prosecution": "CHANGELOG.md 是公开仓库的前页索引，本 PR 把攻击路径逐字写入其中（候选面含仓库目录 ⇒ 放入两个与上游同名的文件 ⇒ 该 CI 步骤执行 PR 作者代码），还并列了审计结论与域名标签，等于给出一份可照抄的配方。",
+        "defense": "该面只存在于本 PR 自己引入、且在同一 PR 内已删除的代码路径里，从未进主干、从未发布；把修复讲清楚是仓库既有体例（既有 489 个标题块普遍带根因与复现条件）。",
+        "verdict": "upheld",
+        "rationale": "两条都真，但代价不对称：讲清\"修了什么\"不需要给出**具体落点文件名与步骤号**，而这两项恰恰是配方的可照抄部分。判 upheld 并当场降披露等级：CHANGELOG 只保留缺陷**类别**与判据名（P7 / MP7），把两个同名文件、Gate 编号等可照抄细节收回 `design.md` 与执行记录 §7 —— 那两处同样是公开文件，但不是被人和机器人当索引读的前页。附带一条实测：本条被打了 `crypto` 域标签，而改动集里没有任何加解密代码（`git diff --name-only origin/main..HEAD` 无相关路径），标签来源是文案里出现的该字样 ⇒ ③ 的「高危域必须外部复核」可被**散文**触发，这是比 #3724 更宽的一格。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": ".ccg/reviews/8b8309bc...json (sha 4eb697ac) 仍为 pending/required=true，方案 QM-6 宣称已完成真实双模型评审，但无当前 head (653f24b) 的已完成评审制品。",
+        "highRiskDomains": [],
+        "prosecution": "本 PR 宣称\"已跑真实双模型评审\"，但当前 HEAD 的判定记录 8b8309bc…json 仍是 status=self_play_pending、required=true，没有任何已完成的评审制品落在 HEAD 上。",
+        "defense": "pending 是引擎在\"critique 已跑完、agent 尚未填裁决\"这一中间态的**规定读数**（日志原文：裁决未填写 —— 本次不判定阻断，状态记为 self_play_pending），不是评审没跑。",
+        "verdict": "upheld",
+        "rationale": "中间态不等于完成态，宣称\"已完成\"必须带终值读数 —— 这条按表述判 upheld。处置即本次动作：填完裁决后走 resume 路径（零模型调用）把 status 收敛为终值，并把读数写进执行记录；证据是记录文件的 status 从 self_play_pending 变为引擎算出的终值，而不是我在文字里说它完成了。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "P8 依赖 .gitignore 最后命中规则顺序（git check-ignore 打印规则命中行），但同 PR 也在修改 .gitignore；若后续 PR 改动顺序，P8 会静默失效。",
+        "highRiskDomains": [],
+        "prosecution": "P8 的判据是 `git check-ignore` 的最后命中规则，而同一个 PR 正在改 .gitignore；后续 PR 若调整规则顺序，P8 会静默失效。",
+        "defense": "P8 存在的全部理由就是\"顺序会变\"，且已做负控：在 .gitignore 末尾追加一条同名忽略规则后 `node --test` 的 P8 **实测 CAUGHT**（failing=P8），还原后 `md5 ok=true`。",
+        "verdict": "dismissed",
+        "rationale": "\"静默失效\"与实测相反：改变顺序正是该锁的检测目标，负控把它从断言变成了证据。另注：check-ignore 的 rc 对反选也返回 0 这一族坑已在仓内记录，P8 因此按\"最后命中的必须是 ! 放行规则\"判，而不是按 rc 判；未命中任何规则（rc=1）视为合规并打印读数，避免把\"没有规则\"读成\"被忽略\"。"
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "finding": ".gitignore 新增放行规则依赖精确行号注释（第 106 行 scripts/*.js）。上游调整行号后注释失效，规则本身仍有效，但注释误导维护者。",
+        "highRiskDomains": [],
+        "prosecution": ".gitignore 新增的注释写着\"第 106 行 scripts/*.js\"。行号会随上游增删漂移，漂移后注释指向不存在的位置，规则本身仍生效 —— 注释误导维护者。",
+        "defense": "该行号在本次改动集内准确（实测 `git check-ignore --no-index -v` 命中 `.gitignore:106:scripts/*.js`），且该文件里既有的同类注释全都按行号写。",
+        "verdict": "upheld",
+        "rationale": "准确是一次性事实，漂移是常态。判 upheld 并把注释改成**按内容指向**（\"上面的 `scripts/*.js` 通配规则\"），去掉会腐烂的行号；同时不动 P8 的判据 —— 它测的是规则命中，与注释无关。这条与 i4 不矛盾：i4 否证的是\"放行依赖行号\"（机制不成立），本条成立的是\"注释里的行号会腐烂\"（文档质量）。"
+      },
+      {
+        "id": "i8",
+        "severity": "Warning",
+        "finding": "P3 测试创建临时目录后用 CCG_ARL_DIR 指向根目录（探针自己再拼 scripts/），但测试中同时断言 vendor 路径命中临时目录名。若未来 locateVendor 改变拼接逻辑，P3 的两条断言可能不一致。",
+        "highRiskDomains": [],
+        "prosecution": "P3 用 CCG_ARL_DIR 指技能根、由探针自己再拼 scripts/，同时又断言 JSON 里的 vendor 路径命中临时目录名。两条前提若被将来的拼接逻辑改动拆开，夹具可能指向别处而断言仍通过。",
+        "defense": "现有形态下若拼接逻辑变了，探针取不到夹具会走失明档（rc=2），P3 第一条 strictEqual(rc,1) 立刻红，不会静默。",
+        "verdict": "upheld",
+        "rationale": "\"会红\"不等于\"红得可归因\"（本 PR 对 i1 用的就是这条口径，不能双标）。判 upheld 并加一条形状断言：JSON 里的 `vendor.engine` 必须以 `scripts/engine.js` 结尾，把\"根 + 自己拼 scripts\"这一组合关系钉住，使拼接语义变化时红在**这一格**而不是笼统的 rc。"
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "reason": "high_risk_requires_external",
+        "domains": [
+          "crypto"
+        ]
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i8",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      }
+    ],
+    "note": "自扮演裁决：4 条指控成立或需外部复核",
+    "at": "2026-10-17T11:01:01.854Z"
   }
 }

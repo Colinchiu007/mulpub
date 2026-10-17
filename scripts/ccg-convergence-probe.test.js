@@ -112,6 +112,11 @@ test('P3 漂移报警有牙：把驱动的 currentRound 改回 1（就是那个�
     // 会让探针回落到真 vendor，于是这条"改了驱动"的断言量的根本不是那份夹具。
     const r = runProbe({ CCG_ARL_DIR: dir }, ['--json']);
     assert.match(r.out, new RegExp('ccg-probe-doctor'), '夹具必须真的被用上（vendor 路径应指向临时目录）：' + r.out);
+    // 「传技能根 + 探针自己再拼 scripts/」是这一格成立的前提。只断言路径里含临时目录名，拼接语义
+    // 将来变了仍可能通过 ⇒ 补形状断言，让变化红在**这一格**而不是笼统的 rc（QM-6 第二轮 i8）。
+    const shape = JSON.parse(r.out);
+    assert.ok(/scripts[\\/]engine\.js$/.test(shape.vendor.engine),
+      'vendor.engine 必须是「根 + scripts/engine.js」的形状，否则 CCG_ARL_DIR 的语义已变：' + shape.vendor.engine);
     assert.strictEqual(r.rc, 1, '驱动退回 currentRound: 1 ⇒ 必须 rc=1（读数偏离），不得仍是 0：' + r.out + r.err);
     const j = JSON.parse(r.out);
     assert.strictEqual(j.verdict, 'DRIFT');

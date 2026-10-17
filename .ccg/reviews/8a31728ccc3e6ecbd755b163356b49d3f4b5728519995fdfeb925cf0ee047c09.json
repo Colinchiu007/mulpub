@@ -1,0 +1,30 @@
+{
+  "sha": "653f24bfefbd6fb0a20f38eb461ea325db210159",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 5 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 5,
+    "fileCount": 5,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 3,
+    "docSensitiveContentSample": [
+      "- **评审顺手把本篇结论跑宽了，原表述已收窄**：跑本 PR 时日志写着 `待裁决 6 条；其中高危域必须外部复核 0 条`，引擎照旧落在 ③（`status=self_play reason=selfPlay minScore=4`），最终 2 条阻断的原因是 `self_play_upheld` 而非高危域 ⇒ ③ 不可闭合与 crypto 无关，高危域只是两种子形态之一。更硬的是现场本身：i1/i2 已修且各带锁，记录却仍带 `self_play_blocked` 留在变更集里 —— 引擎没有一格能表达「已在其后提交修复」，而该记录按父提交入库、`deep-review` 只服务当前 HEAD ⇒ 永久无法回补。这正是 D8 拒绝在本 PR 放宽闭合词表的原因，也因此**本 PR 需人工合并**（`check-pr-exec-record --mode=enforce` 按设计判不可自动合并）。另有 3 条 Warning（i3/i5/i6）按实测证据否证：既有 489 个标题块同体例且 Gate 2c3 只判集合单调性、8 条用例总耗时约 1.5 秒而加缓存会合并「读不到/读到旧值」两态、被指缺失的 tasks §7 引用其实逐字在同一块内。第二轮评审还量到更宽的一格：改动集里没有任何加解密代码，某条却被打了 `crypto` 域标签 —— 标签来源是**文案里出现了那个字样**，于是「高危域必须外部复核」这道闸可被散文触发；同轮另两条已按 Upheld 处置（CHANGELOG 前页降低披露等级、`.gitignore` 注释去掉会腐烂的行号）。",
+      "- [x] 9.2 **新量到比 #3724 更宽的一格**：本 PR 改动集里没有任何加解密代码（`git diff --name-only origin/main..HEAD` 无相关路径），某条却被打了 `crypto` 域标签 —— 标签来源是**文案里出现了那个字样** ⇒ ③ 的「高危域必须外部复核」这道闸可由**散文**触发，不是只有真写加密才会中",
+      "**本轮新增的现场结论（比 #3724 更宽）**：改动集里没有任何加解密代码，`i2` 却被打了 `crypto` 域标签 —— 标签来源是文案里出现了那个字样。于是「高危域必须外部复核」这道闸**可被散文触发**：它问的不是「这次改动碰没碰加密」，而是「critic 这次有没有把某个词读成加密」。这一格比 proposal 里原来那条更硬，也更难闭合（本轮 `ext=1` 使记录必然停在 blocked）。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "8a31728ccc3e6ecbd755b163356b49d3f4b5728519995fdfeb925cf0ee047c09",
+  "decidedAt": "2026-10-17T11:15:07.697Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}
