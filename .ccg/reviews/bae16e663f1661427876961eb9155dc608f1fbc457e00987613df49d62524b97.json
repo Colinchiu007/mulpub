@@ -19,8 +19,10 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "needs_revision",
+    "performedBy": "codeagent-wrapper --backend codex（后端/逻辑轴，第二次投递）+ codeagent-wrapper --backend claude（前端/可维护性轴），CC Switch :15721 实测 open ⇒ 未降级替代通道",
+    "findings": "backend VERDICT=NEEDS_REVISION（Critical 1 / Warning 3 / Info 3）；frontend VERDICT=PASS（Critical 0 / Warning 2 / Info 4）。原件与任务书入库：.ccg/reviews/max-lines-git-domain-review-backend.md、…-frontend.md、…-brief.md。处置：采纳 8 条（后端 C1、前端 W2 两条有牙并各配变异 M7/M9/M10），机理否证 1 条（后端 W1 的 readFileSync 归因），按设计登记无锁 1 条（M8 实测 MISSED）。逐条理由见 openspec/records/max-lines-git-domain.md 的 QM-6 行。采纳落在 7fdf1defb：套件 36/36 绿，反证 10 道（9 CAUGHT、红集互不相同），两文件按 md5 还原。",
+    "closedAt": "2026-10-17T17:04:34.893Z",
+    "closureNote": "本 status 由会话手工回填而非再跑 deep-review.sh：两个后端各需重起 5-15 分钟，而原件已在库、结论已逐条处置并落码；第一次 codex 投递 AXIS_RC=0 却零结论（无产物、stdout 只有进度行），按「文件落盘或 stdout 有完整正文」判为未跑成，未计入本条。"
   }
 }
