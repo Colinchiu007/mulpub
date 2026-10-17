@@ -101,6 +101,12 @@ function auditArtifactName (width, suffix) {
  *   ② alt 探测以 `auditAcceptedWidths()[0]` 为基准宽度。不缓存的话两处各算一次，
  *      任何一次内部状态变化都可能让两者读到不同结果（审阅者 i5 指出的不一致）；
  *      缓存后两个派生函数共用**同一次快照**，一致性由构造保证。
+ *
+ * 冷路径预算（QM-6 第四轮 i5 要求写明）：首次调用做 (MAX-MIN+1) 次 `RegExp.test`，
+ * 在 V8 上是微秒级；且本函数**只在生成提示文案时**被调到 —— 判据通过（`submitted === true`）
+ * 的路径上完全不执行。**故意不缩小扫描窗口**：把 8..200 收窄成 8..96 能省一半探测，
+ * 但会让「未来出现 100 位记录名」从「被正确采纳」变成「fail-closed 报错」——
+ * 那是拿正确性换微秒，方向错了。
  */
 let _widthsCache
 function auditAcceptedWidths () {
