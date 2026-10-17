@@ -18569,6 +18569,14 @@ CI `check-locale-sync.js --cjk` 会判为「渲染端新增硬编码中文」而
 （标题多重集只可增长）当场 FAIL 并**点名**缺失的那一条，按原文插回后 amend 通过。
 
 纪律：凡 `old_string` 是「一行标题 / 一条记录」的插入，`new_string` 必须以「新增内容 + 原文」的成对形态收尾；
+⚠️ **rebase 解 CHANGELOG 冲突时，禁用「跳过 `<<<<<<<` 到 `=======` 整段」的做法**（2026-10-17/18 我连续两次栽在这）：
+冲突块里 `=======` 之前是**主干的条目们**（往往不止一条），整段跳过会把它们一起删掉，
+`check-changelog-growth` 于是报「少了 1 种条目」并点名。正解：**两侧都保留**——
+遇到 `=======` 时把 `$skip` 置回 false（继续收集其后的 mine 侧），只丢弃三个标记行本身；
+遇到 `>>>>>>>` 也只丢标记。解完立刻本地跑 `check-changelog-growth --base=$(git merge-base HEAD origin/main) --head=HEAD`。
+⚠️ 另一半坑：判据的 `--head=HEAD` 读的是 **HEAD blob** 不是工作树——工作树改对了但没 commit，一样判红；
+且工作树 CRLF 而 blob 是 LF 时条目文本比对不逐字节相同，也得先把工作树归一成 LF（`git ls-files --eol` 看 `w/lf`）。
+三条都满足（两侧保留 + 已提交 + w/lf）才 PASS。
 改完立刻跑 `check-changelog-growth` / `check-gate-record-debt` 各自取证，不要等 CI 告诉你。
 这是「门禁抓到返工」的正样本，也是标题多重集判据比字节数判据更可归因的实例（字节数是涨的，条数才露馅）。
 
