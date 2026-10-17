@@ -2,14 +2,12 @@
 record: podcast-entry-contracts-432b23
 task: 为 tasks 4.3②-b②/③（RewriteView / Publish.vue 两枚入口）补齐它们缺的正文来源与频道来源合同，并就地收敛 §15.2 两行的冲突措辞
 date: 2026-10-17
-sync_reason: 本 PR 合并后由同线程回填 PR 收口（回填与销账同一次提交，并删除本 frontmatter 登记字段）
-sync_backfill_owner: 本会话（podcast-entry-contracts-432b23 线程）
 ---
 
 ## 本次执行记录：②-b②/③ 入口合同（podcast-entry-contracts-432b23，2026-10-17）【docs-only】
 
 - 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD` → 见下方 CI 现场（变更集只有 PRD 与本篇记录，无代码/依赖/CI 路径）。
-- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 PENDING | 远程同步 PENDING
+- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 PASS | 远程同步 PASS
 
 | 门禁 | 状态 | Fresh 证据（当场实测） |
 |------|------|-----------|
@@ -24,7 +22,7 @@ sync_backfill_owner: 本会话（podcast-entry-contracts-432b23 线程）
 | 逐字文案表漂移锁 | ✅ | `node scripts/gen-prd-copy-table.js --check` 两份 PRD 均 `OK`（本节不新增 locale 键，故表内容不变；锁仍跑） |
 | 与旧载体冻结的关系 | ✅ | 未写 `.quality-gates.md`、未加 `scripts/gate-record-debt-ledger.json` 键；本篇是唯一载体 |
 | QM-1 / QM-4 / QM-6 | N/A | 纯文档变更：不涉运行时产物与像素面；QM-6 对 docs-only 不强制（AGENTS：纯文档/流程变更不强制 QM-6） |
-| 远程同步 | PENDING | 由本线程回填：`git log origin/main --grep='(#PR)$'` 现取 merge SHA，`git ls-remote --heads` 证远端分支已删，回填与删除登记字段在同一次提交内完成 |
+| 远程同步 | PASS | 已合并，merge SHA a440966595e6b37e30b44cad46a80818ef8e6fc9（2026-10-17T12:12:21+08:00）；取证自 `git log origin/main --grep=(#3784)$` 恰 1 行，`git ls-remote --heads origin podcast-entry-contracts-432b23` 返回 0 行 |
 
 ## 一、这一节解决的不是「少一段文档」，而是「少一次静默错误实现」
 
