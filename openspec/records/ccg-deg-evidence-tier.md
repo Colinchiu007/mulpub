@@ -61,3 +61,12 @@ sync_backfill_owner: 下一个会话（按「PR 自动合并」收尾清单 1–
 | 明确未做 | **3.2 判据侧尚未消费 `backendAvailability`**：目前它只是被记录，不构成降级资格判据。落盘≠接线到判据，这一格留给高危面矩阵那片（tasks 2.x）一起落。3.5 失败形态三档分档同样未做 |
 
 - 一条同族小缺陷仍挂账未修：`check-pr-exec-record.js` 的参数解析只认 `--repo=<dir>`，写成 `--repo <dir>` 会得到 `args.repo===true` 并抛「git 取证失败（…options.cwd…type boolean (true)）」——与 AGENTS.md 点名的「`--limit 4` 被静默丢弃」同型；本片夹具踩过一次，改的是**夹具**不是判据。
+
+## 追加一格：高危轴取证（design §9.2），并把读数搬进入库工具
+
+- 动机：tasks 2.x 要把「高危面」实现成判据。先量了主干产物的两个候选字段，结论是**都不能直接当 §3 的实现**——`stats.sensitivePathHits` 非空仅 **2/877**（构造性零，用它当判据等于 `self-play` 在几乎所有产物上都能闭环），`sensitiveContentHits` 非空 **217/877** 会真触发，但它答的是「改了加密内容」而不是「改了守门人」，两条轴合成一条就会互相遮蔽。落点：清单由判据对 `changedFileStatuses` **现算**，内容命中轴只作旁证出声。
+- **读数不再是我在会话里报的一次性数字**：把这三条读数做进入库普查工具 `scripts/ccg-artifact-shape-survey.js`（新增高危轴分布 + 三条结论锚点 + tier 缺席计数），任何会话一句话 `node scripts/ccg-artifact-shape-survey.js` 可重取。当场实跑输出：`pathHits 非空=2/877  contentHits 非空=217/877  content 最大值=217`、`deepReview.tier 缺席=877/877`。
+- 顺带证实丙的前提：`tier` 在 877 份历史产物里**全部缺席** ⇒ 结构化分级只能对新记录生效，历史无源可回填；覆盖率棘轮的起点必须是「当前 dual 未闭环数」而不是「有 tier 的记录数」。
+- 踩到并修掉的一条自家陷阱：追加脚本的**分隔空行**没补 CR ⇒ 两个文件各出 1 条裸 LF（`loneLF=1`）。先定位到「不接 CR 的行」逐条核是我的插入行还是他人既有混行尾（本仓这些文档历史上就是混行尾，禁止"探测多数派后统一回写"），确认是自己的产物才补 CR。修后 `loneLF=0 dblCR=0`，两口径 numstat 逐文件同数（design 12/0、tasks 1/0、工具 12/1）。
+- `openspec validate ccg-review-degradation-ladder --strict` = valid；`check-no-brand-residue` PASS；受管文档内**未新增任何本机绝对路径**（取证命令一律写成仓内可重取的形式）。
+

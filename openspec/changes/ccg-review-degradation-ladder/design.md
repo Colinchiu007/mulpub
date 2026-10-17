@@ -115,3 +115,15 @@ outstanding 棘轮：仓内 `fallback_closed` 计数**只能缩小**，且新增
   优点：内容而非声明；缺点：**干净通过的外部评审往往 findings 为空**（实测 16 份数组 vs 18 份 dual/cleared），会把真评审判成没评审 ⇒ 误红面需要估算。
 - 丙（我的倾向）：**甲 + 乙合取，但只在"新记录"上生效**——`tier=external` 必须带 `evidence`，且当 `findings` 为空数组/null 时**不拦只点名**（因为"无发现"是合法结论，"没跑"不是）。
   代价：判据仍依赖写入方诚实，真正的牙在"覆盖率棘轮 + 事后抽查"，不在字段本身。
+
+## 9.2 高危轴的取证：产物里那两个字段都不能当 §3 的实现（2026-10-17）
+
+读数由入库工具现取（`node scripts/ccg-artifact-shape-survey.js`，只读 git 对象、不碰工作树；数字随主干漂移，引用时重跑）：
+
+- 现场：`json=879 / 参与统计=877`；**`stats.sensitivePathHits` 非空的只有 2 份**（`ops-center/backend/middleware/auth.py`、`packages/api-publish-engine/src/auth/publish-api-capabilities.js`）；`sensitiveContentHits` 非空 **217** 份、最大 **217**。
+- **结论一（先否证一条会被误走的修法）**：把 §3 的「高危面」实现成「回读产物里已落盘的 `sensitivePathHits`」会得到一条**构造性零**判据——2/877 意味着它几乎永不触发，`self-play` 在几乎所有产物上都能合法闭环，而文案读起来像「有高危险查」。§3 的清单必须由判据**当场对 `changedFileStatuses` 求前缀命中**，不从产物字段回读。
+- **结论二（两条轴不得合并）**：`sensitiveContentHits`（217/877）是真会触发的轴，但它答的是「这次改了加密/凭证/SQL 一类的**内容**」；§3 答的是「这次改了**守门人本身**（判据本体、decider、workflows、`classify-docs-only`、白名单归属文件）」。后者今天没有任何产物记录，只能现算。合成一条就会互相遮蔽：高危内容改动被「没碰判据文件」放行，或反之。故本轴**只作旁证出声，不作闭环资格**。
+- **结论三（证实丙的前提）**：`deepReview.tier` 在 877 份里**全部缺席**。结构化分级只能对**新记录**生效，历史产物无源可回填——这不是实现偷懒，是数据形态决定的。覆盖率棘轮的起点因此必须是「当前 dual 未闭环数」，不是「有 tier 的记录数」。
+- **结论四（缺口主体在 single）**：`mode` 分布 `single=339 / dual=284 / skip=242 / 无 mode=12`。真正没被任何闭环要求覆盖的是被判成 `single` 的那批（339 > 284）；tasks 2.2 的自指前缀清单正是把「改了判据本体却因行数 < 200 判 single」从侥幸变成必拦。
+
+判据落点收敛：`HIGH_RISK_SURFACES` 现算（§3）+ `tier` 闭集（§9.1 丙）+ 内容命中轴只旁证（本节的结论二）。
