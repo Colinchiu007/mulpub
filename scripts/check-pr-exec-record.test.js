@@ -659,7 +659,9 @@ test('结构锁的匹配域必须剥离 YAML 注释（把真步骤改成注释�
 // ── 出路④ × #3396 自动 stage：审计产物（.ccg/reviews/<40hex>.json）的新增不算夹带 ──
 // 动因（实测 PR #3432）：#3396 让 pre-commit 把本次提交产生的判定记录一并 stage 进同一个提交，
 // 于是「在任何跑过门禁的 worktree 里做纯回填」必然被④判成夹带新增 ⇒ 本地 enforce 恒红。
-// 放宽只允许发生在**一个维度**上：状态必须是 A、文件名必须是 .ccg/reviews/<40 位小写十六进制>.json。
+// 放宽只允许发生在**一个维度**上：状态必须是 A、文件名必须是 .ccg/reviews/<40 或 64 位小写十六进制>.json
+// （2026-10-17 更正：原注释写「<40 位小写十六进制>」，与已放宽的 AUDIT_ARTIFACT_RE 不同步；
+//  位宽与 alt 形态的**机器可验**口径见文件末尾「遗留收口」那条派生锁）。
 // 其余形态（大写、短 sha、别的后缀、M、D、别的目录、非载体文件）一律仍不算纯回填，
 // 且 C2 收紧（至少一篇记录 M）不得被这些新增一起绕过。
 const HEX40 = '0123456789abcdef0123456789abcdef01234567'
@@ -1036,4 +1038,174 @@ test('QM-6 i2：decider 的行数统计与 hash 必须同一口径（都排除 .
     'numstat 必须排除 .ccg —— 与 stagedDiffHash 同口径；否则同一份 diff 判出不同 mode 与不同名字')
   assert.match(body, /diff", "--cached", "-U0", "--", "\.", ":\(exclude\)\.ccg/,
     '-U0 也必须排除 .ccg（口径要对齐的是**两条**命令，不是只改第一条）')
+})
+
+test('遗留收口：提示文案必须**由判据生成**，且源码里不得再出现手写的位宽说明', () => {
+  // 动因（2026-10-17，收口 #3772 登记的遗留）：出路④的提示文案原先**手写**了
+  // `<40 位小写十六进制>`。判据在 #3755 放宽为「40 或 64 位 + alt 形态」时漏改这条文案
+  // ⇒ 按提示排障的人会把 64 位记录误判成「不算纯回填」，于是给一个真实满足④的 PR
+  // 硬加一份本不需要的记录文件（#3772 上实际踩到）。
+  //
+  // ★ 本锁针对的**不是**「两处写一样」，而是「只剩一处」：
+  //   实现已把文案改成由 `describeAuditWidths()` 生成（位宽由正则**行为**推出）。
+  //   所以这里核两件事：
+  //     ① 生成结果与判据行为一致（生成器本身没写错）；
+  //     ② 源码里**所有**形如 `<N [或 M] 位小写十六进制>` 的短语都必须**逐字等于**生成结果
+  //        —— 有人手写第二处，当场红。
+  //
+  // ★ QM-6 评审 6 条全部指向上一版锁的脆弱性，本版逐条收口：
+  //   i1 只按正则字面形状抠 `\{(\d+)\}` ⇒ 改成**行为探测**（等价改写 `{40,64}`/`.{40}`/大写 都不受影响）
+  //   i2/i5/i6 靠硬编码中文锚点切片 ⇒ **不再切片**，改为全源码逐处核对短语
+  //   i3 `new RegExp` 丢 flags ⇒ 不再从源码重建正则，直接用模块导出的常量
+  //   i4 只探全 a 串与相邻宽度 ⇒ 补 alt 形态、非十六进制拒绝、前后缀拒绝
+  const gate = require('./check-pr-exec-record.js')
+  const src = fs.readFileSync(path.join(__dirname, 'check-pr-exec-record.js'), 'utf8')
+  // ★ 只扫**代码行**，剥掉纯注释行：注释不面向用户，且禁止注释引用形态会让这把锁敌视文档
+  //   （本仓已确立同型做法：结构类判据必须先剥注释行再断言，否则会被「字面在注释里」骗过或反向误伤）。
+  // ★ QM-6 第二轮 i2：只剥**全行**注释不够 —— 行尾注释（`const x = 1 // <40 位…>`）会留在 code 里，
+  //   于是被 matchAll 当成「手写第二处」，或者反过来让真正的第二处藏进注释而漏检。
+  //   所以先剥行内 `//...` 再剥全行注释。
+  //   已知代价：字符串里的 `//`（如 URL）会被一并截断 —— 但那只会让**注释后半段**不参与扫描，
+  //   真实字符串里的手写短语在 `//` 之前就完整保留，方向安全（宁可漏掉注释，不可漏掉代码）。
+  // 剥注释的实现已抽成 gate 的纯函数 stripCommentsForScan()（可单独单测，见本条末尾的 i2 行为用例），
+  // 这里只消费它 —— 判据本体与「给判据看的代码视图」共用同一实现，避免两处各写一份再漂移。
+  const code = gate.stripCommentsForScan(src)
+
+  // ① 生成结果与判据行为一致
+  const widths = gate.auditAcceptedWidths()
+  assert.ok(widths.length > 0,
+    'AUDIT_ARTIFACT_RE 在探测范围 ' + gate.AUDIT_NAME_WIDTH_MIN + '..' + gate.AUDIT_NAME_WIDTH_MAX
+    + ' 内不接受任何十六进制名 —— 判据可能被改写成行为探测覆盖不到的形态（fail-closed）')
+  for (const w of widths) {
+    assert.ok(gate.AUDIT_ARTIFACT_RE.test('.ccg/reviews/' + 'a'.repeat(w) + '.json'),
+      `声明的 ${w} 位记录名必须真的能通过 AUDIT_ARTIFACT_RE`)
+  }
+  // 相邻（未被接受的）位宽必须真的过不了 —— 防止「声明 N 位但正则实际是别的宽度」
+  for (const off of [-1, 1]) {
+    const probe = widths[0] + off
+    if (probe <= 0 || widths.includes(probe)) continue
+    assert.ok(!gate.AUDIT_ARTIFACT_RE.test('.ccg/reviews/' + 'a'.repeat(probe) + '.json'),
+      `${probe} 位记录名不得通过（否则「${widths[0]} 位」这个声明是假的）`)
+  }
+  // 非十六进制必须被拒（QM-6 i4：此前只探全 a 串，锚定/字符类坏了可能探不出）
+  for (const bad of ['g', 'A', '-', '_', ' ']) {
+    const w = widths[0]
+    assert.ok(!gate.AUDIT_ARTIFACT_RE.test('.ccg/reviews/' + bad.repeat(w) + '.json'),
+      `${JSON.stringify(bad)} 不是小写十六进制，重复 ${w} 次必须被拒`)
+  }
+  // 路径外的同形名字必须被拒（锚定检查）
+  assert.ok(!gate.AUDIT_ARTIFACT_RE.test('x/.ccg/reviews/' + 'a'.repeat(widths[0]) + '.json'),
+    '前导路径必须被拒（^ 锚定）')
+  assert.ok(!gate.AUDIT_ARTIFACT_RE.test('.ccg/reviews/' + 'a'.repeat(widths[0]) + '.json.bak'),
+    '多余后缀必须被拒（$ 锚定）')
+
+  const expected = gate.describeAuditWidths()
+  assert.strictEqual(expected, '<' + widths.join(' 或 ') + ' 位小写十六进制>',
+    '生成器必须把**全部**被接受的位宽都写出来（少写会误导，多写会让人以为存在那种形态）')
+
+  // ② 源码里所有手写形态的位宽短语，都必须逐字等于生成结果（不得有第二处真源）
+  const found = [...code.matchAll(/<\s*\d+(?:\s*或\s*\d+)*\s*位小写十六进制\s*>/g)].map((m) => m[0])
+  for (const phrase of found) {
+    assert.strictEqual(phrase, expected,
+      '源码里出现了手写的位宽说明 ' + JSON.stringify(phrase)
+      + '，但判据生成的是 ' + JSON.stringify(expected)
+      + ' —— 文案必须由 describeAuditWidths() 生成，不得另外手写一处（那正是本次要修的遗留）')
+  }
+  // 接线锁：生成器必须真的被**调用**进文案里。
+  // 不写成「源码里必须出现 expected 这个字面量」——因为 expected 是运行时生成的，
+  // 要求它出现在源码里等于要求手写一份，与本次修法自相矛盾。
+  // ★ 必须是**拼接形式** `+ describeAuditWidths()`，不能只出现标识符：
+  //   M32 变异实测过「只查 /describeAuditWidths\(/」会被**函数定义与导出**那一行满足，
+  //   于是把文案改回纯手写也照样绿 —— 接线锁必须锁「返回值被拼进文案」，而不是「函数存在」。
+  assert.ok(/\+\s*describeAuditWidths\s*\(\s*\)/.test(code),
+    '出路④的提示文案必须以拼接形式使用 describeAuditWidths()（+ describeAuditWidths()）生成位宽说明，'
+    + '不得手写（手写即第二处真源；函数"存在"不算接线）')
+
+  // ③ alt 形态同源：判据接受 ⇒ 文案由同一个探测结果拼出；不接受 ⇒ 文案不得声称
+  const alt = gate.auditAcceptedAltForm()
+  // 反向锁（QM-6 第二轮 i1/i3）：判据**明明接受**一个真实 alt 形态时，探测不得报 null。
+  // 否则一旦探测范围塌缩（例如把 AUDIT_ALT_SHA_MAX 改小），alt 相关的断言整段被跳过 ⇒ 静默失效。
+  const realisticAlt = '.ccg/reviews/' + 'a'.repeat(widths[0]) + '-again-' + 'b'.repeat(40) + '-20261017T120000Z.json'
+  if (gate.AUDIT_ARTIFACT_RE.test(realisticAlt)) {
+    assert.ok(alt !== null,
+      '判据接受 ' + realisticAlt + ' ⇒ auditAcceptedAltForm() 必须报出 alt 形态，不得返回 null'
+      + '（返回 null 会让 alt 相关断言整段静默跳过）')
+  }
+  if (alt) {
+    assert.ok(gate.AUDIT_ARTIFACT_RE.test(
+      '.ccg/reviews/' + 'a'.repeat(64) + '-again-' + 'b'.repeat(40) + '-20261017T120000Z.json'),
+    '探测说接受 alt 形态，实际必须真能过')
+    assert.ok(/\+\s*auditAcceptedAltForm\s*\(\s*\)/.test(code),
+      'alt 形态说明必须以拼接形式使用 auditAcceptedAltForm()（+ auditAcceptedAltForm()），不得手写')
+    // QM-6 第二轮 i1/i3 后，alt 的 sha 宽度与 ISO 段也由**探测**得出，不再是硬编码字面量。
+    // 所以这里核三件事，且都不依赖「某段字面量恰好长什么样」：
+    //  a) 探测出的每个 sha 宽度都真能过、且紧邻宽度真过不了（行为自洽）
+    //  b) 描述由探测结果拼出（shaWidths 与 isos 都出现在 description 里）
+    //  c) 代码行里不得出现第二处 \`-again-<\` 字面量（唯一真源仍只有生成器）
+    for (const w of alt.shaWidths) {
+      assert.ok(gate.AUDIT_ARTIFACT_RE.test(
+        '.ccg/reviews/' + 'a'.repeat(widths[0]) + '-again-' + 'b'.repeat(w) + '-20261017T120000Z.json'),
+      '探测出的 alt sha 宽度 ' + w + ' 必须真能过判据')
+    }
+    for (const off of [-1, 1]) {
+      const probe = alt.shaWidths[0] + off
+      if (probe < 1 || alt.shaWidths.includes(probe)) continue
+      assert.ok(!gate.AUDIT_ARTIFACT_RE.test(
+        '.ccg/reviews/' + 'a'.repeat(widths[0]) + '-again-' + 'b'.repeat(probe) + '-20261017T120000Z.json'),
+      'alt sha 宽度 ' + probe + ' 必须被拒（否则「' + alt.shaWidths[0] + ' 位」是假声明）')
+    }
+    assert.ok(alt.description.includes('<' + alt.shaWidths.join(' 或 ') + ' 位 sha>'),
+      'alt 描述里的 sha 宽度必须由探测结果拼出，实际描述 = ' + JSON.stringify(alt.description))
+    for (const iso of alt.isos) {
+      assert.ok(alt.description.includes(iso),
+        'alt 描述必须包含探测到的 ISO 形态 ' + JSON.stringify(iso) + '，实际 = ' + JSON.stringify(alt.description))
+    }
+    // 接线锁（QM-6 第二轮 i1/i3 的**残余**，必须单独锁）：
+    // 光"描述里出现了正确宽度"不够 —— 硬编码的 `-again-<40 位 sha>` 在 sha 宽度恰好是 40 时
+    // 会**碰巧**通过。所以要锁「描述是**拼**出来的」：代码行里必须出现 shaWidths.join / isos.join。
+    assert.ok(/shaWidths\.join\s*\(/.test(code),
+      'alt 描述里的 sha 宽度必须由 shaWidths.join() 拼出，不得硬编码（硬编码在数值恰好相同时会假绿）')
+    assert.ok(/isos\.join\s*\(/.test(code),
+      'alt 描述里的 ISO 段必须由 isos.join() 拼出，不得硬编码')
+    const altLiteralCount = (code.match(/-again-</g) || []).length
+    assert.strictEqual(altLiteralCount, 1,
+      'alt 形态说明在代码行里只允许出现 1 处（生成器拼接的那处）；实际 ' + altLiteralCount
+      + ' 处 ⇒ 有人手写了第二处，或生成器被拆散')
+  }
+  // ★ QM-6 第二轮 i2 的**行为用例**：注释剥离必须同时覆盖「全行注释」与「行尾注释」，
+  //   且不得把真实字符串里的短语一起吃掉。三条一起才能证明这个是判据，不是巧合。
+  const PH = '<40 位小写十六进制>'
+  assert.ok(!gate.stripCommentsForScan('// 说明 ' + PH).includes(PH),
+    '全行注释里的位宽短语必须被剥掉（否则派生锁会反向误伤自己的文档）')
+  assert.ok(!gate.stripCommentsForScan('const x = 1 // 说明 ' + PH).includes(PH),
+    '**行尾注释**里的位宽短语也必须被剥掉（只剥全行注释不够 —— 这正是 i2 指出的）')
+  assert.ok(gate.stripCommentsForScan("msg = '允许 ' + " + JSON.stringify(PH)).includes(PH),
+    '真实字符串里的位宽短语**不得**被剥掉（剥过头就再也发现不了手写第二处）')
+  assert.ok(!gate.stripCommentsForScan(' * 块注释续行 ' + PH).includes(PH),
+    '块注释续行（* 开头）必须被剥掉')
+  // ★ QM-6 第三轮 i3 的行为用例：`//` 在**字符串里**时不得被当成注释起点。
+  //   首版无条件 /\/\/.*$/ 会把 "http://x" 之后整段截掉 —— 方向是「少扫」，
+  //   但藏在被截断区段里的手写短语就会**假绿**。引号感知版必须保住它。
+  assert.ok(gate.stripCommentsForScan("const u = 'http://x/' + " + JSON.stringify(PH)).includes(PH),
+    '字符串里的 // （URL）不得触发截断 —— 否则它后面的手写短语会被静默漏检')
+  assert.ok(!gate.stripCommentsForScan("const u = 1 // " + PH).includes(PH),
+    '真正在引号外的 // 之后必须被剥掉')
+  assert.ok(gate.stripCommentsForScan('const s = "a\\"b//c" + ' + JSON.stringify(PH)).includes(PH),
+    '转义引号内的 // 也不得触发截断')
+
+  // ★ QM-6 第三轮 i2/i5 的行为用例：位宽探测必须**缓存且冻结**，
+  //   两次调用返回同一个对象 ⇒ alt 探测与主探测共用同一次快照，不可能读到不一致结果。
+  const w1 = gate.auditAcceptedWidths()
+  const w2 = gate.auditAcceptedWidths()
+  assert.strictEqual(w1, w2,
+    'auditAcceptedWidths() 必须缓存（同一数组身份）——否则 193 次探测每次重跑，且与 alt 探测可能不同步')
+  assert.ok(Object.isFrozen(w1),
+    'auditAcceptedWidths() 的结果必须冻结 —— 调用方（含测试）不得就地改动这份「唯一真源」')
+
+  // CRLF 回归锁：CRLF 文本与 LF 文本必须得到同样的结果（否则 `.` 不匹配 \r 的坑会重现）
+  assert.deepStrictEqual(
+    gate.stripCommentsForScan('const a = 1 // x\r\n// y\r\nconst b = 2'),
+    gate.stripCommentsForScan('const a = 1 // x\n// y\nconst b = 2'),
+    'CRLF 与 LF 必须剥出相同结果（规范化 \\r\\n 那一步不能省）')
+
 })
