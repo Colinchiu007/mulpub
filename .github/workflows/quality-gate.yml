@@ -157,6 +157,19 @@ jobs:
         shell: bash
         run: node --test scripts/lib/ccg-gate-security-filter.test.js
 
+      # --- Gate 2c6：竞品缺陷「同型风险」四条静态锁 ---
+      # 动因（2026-10-17）：逆向衍生文档 `derived/竞品缺陷同型风险清单.md` 从竞品 8 个 CRITICAL 抽出 12 类
+      # 同型风险，核到本仓后发现「当前是对的，但没有测试会阻止后来者把它改坏」：
+      #   L1 转义表完整性（竞品 C1：字符类含 `/` 但 map 无 `/` ⇒ 静默替换成 "undefined"）
+      #   L2 while(true) 必有出口（竞品 C2：无界重试 ⇒ Promise 永不 settle）
+      #   L3 catch 不得重调被包裹函数（竞品 X-C1：Promise 永不 settle ⇒ 流程死锁）
+      #   L4 组件内 setInterval 必须配 clearInterval（竞品 X-20 型：定时器不 dispose）
+      # 落点必须在 changes 作业：docs-only PR 会把 static-gates 整个短路（与 Gate 2c2/2c3/2c4/2c5 同一先例）。
+      # 被测模块与测试只 require node 内置，符合本作业无 Install deps 的约束。
+      - name: "Gate 2c6 - Same-type risk locks (changes job)"
+        shell: bash
+        run: node --test scripts/same-type-risk-locks.test.js
+
       # --- Gate 2c4：CCG 判定器（ccg-review-decider）的判据回归锁 ---
       # 动因（2026-10-15）：该脚本此前**零测试覆盖**（grep 只命中一条注释），
       # 于是两个判据缺陷长期无人发现：
@@ -334,6 +347,16 @@ jobs:
         run: |
           node scripts/check-precommit-spawn-budget.js scripts/hooks/pre-commit
           node --test scripts/check-precommit-spawn-budget.test.js
+
+      # --- Gate 2b4：「分支内容已进主干」的机械判据回归锁 ---
+      # 动因（2026-10-16 实测）：这条判据此前只以 AGENTS.md 的散文存在，每轮清理由会话临时手写探针执行；
+      # 本轮真实发生过一次「按旧文字判出差量 52/10/5 行，仍把分支删了」——散文挡不住临场自觉，所以给它执行体。
+      # 落点必须是 changes 作业（同 Gate 2b2/2b3 口径：static-gates 带 docs-only 门槛，守门判据落在会被自己
+      # 防的那道短路里的作业，等于给自己关掉校验）。本作业没有 Install deps ⇒ 判据只能 require node 内置模块。
+      - name: "Gate 2b4 - Branch-merged criterion (changes job)"
+        shell: bash
+        run: |
+          node --test scripts/check-branch-merged.test.js
 
       # --- Gate 2c3：CHANGELOG.md「只可增长」棘轮 ---
       # 动因（实测）：b531bdfe7（PR #2884，一个 ai-taste 功能 PR）把 CHANGELOG.md 从
