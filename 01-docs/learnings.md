@@ -20208,3 +20208,12 @@ CI 把 `QG Static` 钉红在 Gate 2c，红的是 `check-unwired-tests.test.js` �
 - **gate · 像素门禁不在覆盖面时如实登记盲区**：`pixelTests` 不含 `hot-topics`（外部热搜导致 CI 基线不稳定），本次 UI 用组件/集成锁 + 真实实例截图取证，PRD §9.2 写明「不要把 QG Visual 绿当本改动视觉证据」。
 - **pitfall · 「下拉菜单 clip 了」只有真实渲染能发现**：单测全部绿（jsdom 无布局），首轮 Playwright 截图却显示 14 项面板只露 4 项——页面滚动容器 `.cohere-content` 只有 342px 高，绝对定位面板向下展开被裁。把「展开方向 + 可用高度」抽成纯函数（`computeGenVideoPickerPlacement` / `computeGenVideoPickerMenuSize`：下方不足翻上、仍不足压缩到 160–320px 内部滚动）并在滚动时关闭面板；截图复测通过。教训：行内浮层类 UI 的「能不能完整看到」必须在真实布局里验证，组件测试只能锁结构与事件。
 
+## 2026-10-17 · fix-upgrade-payment-entry：死代码、源码级守卫与「超时」归因
+
+- **pitfall · `eslint-disable-next-line no-unused-vars` 挂在 import 上时，它是诊断不是消音器**：本轮实测链条——给看板加了 `import UpgradeModal` + `const showUpgradeModal = ref(false)` + 4 处 `@upgrade="showUpgradeModal = true"`，**但模板里从未渲染 `<UpgradeModal>`** ⇒ ref 被设置却无消费方，用户点「升级解锁」界面上什么都不会发生。当时 lint 已报 no-unused-vars，却被 disable 掩盖，真 bug 被藏了一整轮。判据：见到该组合必须先回答「为什么这个 import 没被使用」，答不上来就不许 disable。
+- **pattern · 交互测试必须断言「点下去发生什么」，不能只断言「按钮存在」**：两个锁区块 CTA 的存在性一直有测试守着，但没有任何用例走到点击之后，空洞正是这么形成的。配套：组件级防回潮要锁在**源码层**——行为测试能证明「现在点下去会跳转」，证明不了「没人把死绑定加回来」，因为跳转与死绑定可以**并存**、此时行为测试照样通过。
+- **pitfall · 删组件/删 watch 时必须 grep「源码级断言」，行为测试全绿不代表没破坏**：本仓有一类守卫不读 mount 路径，而是 `readFileSync('某个.vue') + 正则匹配实现细节`（如 `overlay-view-suspension.test.js` 断言 MpSidebar 必须有 `watch(showUpgradeModal, …)` 做内嵌视图挂起）。移除弹窗后本地行为测试全绿，CI Desktop Shards 却红。判据：触及「组件被移除 / watch 被移除 / 导出项被删」时，除跑行为测试外必须 grep 全部 `readFileSync` + 目标文件名的测试；删掉被断言的实现后，正确做法是把断言**换成当前正确的不变量**（本例：由「必须有该 watch」改为「必须 router.push + 不得再有该 watch」），而不是删测试。
+- **pitfall · 共享根落后于 origin/main 时提交文档会反向撤销已合并的行**：本轮实测共享根落后 **33 个提交**，其中 **4 个**（#3775/#3772/#3733/#3742）改过同一个 `01-docs/learnings.md`；直接提交那 11 行未提交改动会抹掉这 4 处。正解顺序：备份到 `%TEMP%` → `git checkout -- <文件>` → `git merge --ff-only origin/main` → 按**锚点**重放（不要按行号，快进后行号必偏移：本轮原 19881 行 → 现 19966 行；脚本需幂等 + 锚点缺失 fail-closed）→ 复核插入位置。判据：`git log HEAD..origin/main -- <目标文件>` 有输出 ⇒ 必须先快进。
+- **fact · 共享根 Write Guard 也会隔离根级新建临时脚本**：不限于 `apps/` `packages/` 等运行时路径——根级未跟踪 `.js`（实测 `.replay-learnings.js`）会被移入 quarantine，随后 `node <该脚本>` 报 MODULE_NOT_FOUND，而报错信息完全指向不了真因。一次性脚本写在仓库外（`%TEMP%`）+ 绝对路径操作仓库文件。
+- **fact · `QG Coverage` 的 40 分钟红先按「runner 竞争」判，别急着改 timeout**：`timeout-minutes: 40`，同一份代码首轮 40m04s 被 `cancelled`、重跑 24m21s `success`（对比 #3761 时代 23m28s）。判据：`conclusion=cancelled` 且 `completed_at − started_at ≈ timeout-minutes` ⇒ 超时而非测试失败；只有 `conclusion=failure` 且日志有具体断言才判代码缺陷。放宽 timeout 属「改判据消化问题」。
+- **fact · Browser E2E 的红可用「两轮差异只含测试文件」快速归因**：本轮两轮之间只改了单元测试文件（E2E 不加载它），据此判定为抖动、重跑即绿，避免去翻 7m41s 的日志。
