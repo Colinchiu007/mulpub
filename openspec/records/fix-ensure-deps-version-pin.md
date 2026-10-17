@@ -1,8 +1,6 @@
 ---
 branch: fix-ensure-deps-version-pin
 date: 2026-10-17
-sync_reason: 本 PR（fix-ensure-deps-version-pin）的远程同步待合并后由后续 docs PR 就地改写为 PASS 并删除本登记字段
-sync_backfill_owner: fix-ensure-deps-version-pin 分支作者会话（合并收尾时回填）
 ---
 
 # 本次执行记录：ensure-desktop-deps 的 sharp 版本硬编码假阳性 + restore 混版（fix-ensure-deps-version-pin，2026-10-17）【混合 PR】
@@ -115,5 +113,8 @@ sync_backfill_owner: fix-ensure-deps-version-pin 分支作者会话（合并收�
 | CCG 提交门禁 | pre-commit 5 项 |
 | QM-1 打包 | 本 PR 未改 `apps/desktop/electron/`，不适用 |
 | QM-6 深度评审 | 见 `.ccg/reviews/<sha>.json` 与 `.adversarial/` 产物 |
+| 回填型补充 | 混合 PR 走全量模板，为满足「两形态同写」补声明式 bullet |
 
-| 远程同步 | PENDING |
+- 远程同步 PASS（PR #3829 → `d962ae11`，回填与 sync_* 删除同一次提交）
+
+| 远程同步 | PASS（PR #3829 squash 合并 → `d962ae117545a794b0959c89f38bc62fd97c9a21`，2026-10-17T21:56 前后；回填与本删除同一次提交） |
