@@ -21,6 +21,11 @@
 //   ③ 「多会话共用写面」不再靠手抄文件名名单，也不再按文件类别分两支 —— 份数口径对普通文件与热写面是同一条规则。
 //   ④ 二进制文件没有行级判据可用（git 不给补丁，份数无从数）：退回到"我那份字节是否随本次合并进过主干"，并在输出里点名这次降级。
 //   ⑤ 判据自己取不到读数一律按「未证实」处理并走独立退出码 2 —— 把工具的失明读成结论，是本仓「装饰性门禁」的同型。
+//   ⑥ `violations[]` 逐键字段的读法（QM-6 前端轴提示 `dir` 之名易被读成"目录"，故在此写明，不改字段名）：
+//        `dir` 是**缺口方向**三态（`short` / `over-deleted` / `over-extra`），与目录无关；`by` 是要解释的份数差；
+//        `capacity` 是该键上他人净增/净减的**合计**（逐笔贡献者由 `lineAttributions` 点名，不在这里重复）；
+//        `landedWithMerge` 是**跨多个 merge 取最大**份数，不是逐 merge 明细 —— 同分支多 PR 改同一文件时它偏宽松，
+//        这条遗留已登记在 PRD §9「遗留」，读数时须知道它是上界而非分解。
 //
 // 参考系（2026-10-17 v2 修正，`--against`，默认 origin/main → 回落 main 并打印落点）：
 //   判定域是「**主干现在**有没有这份内容」，`--merge` 只用来做归因排除（哪笔是本次合并自身）。
@@ -649,7 +654,7 @@ function main(argv) {
         (f.unexplainedOver && f.unexplainedOver.length ? ' 多余内容未归因=' + f.unexplainedOver.map(show).slice(0, 3).join(' | ') : '') +
         (f.violations && f.violations.length ? ' 份数=' + f.violations.slice(0, 2).map((v) =>
           v.dir + ' ' + v.by + '(base=' + v.base + ' tip=' + v.tip + ' main=' + v.main +
-          ' 可解释容量=' + v.capacity + ' 随合并落地过=' + v.landedWithMerge + ')').join(' ; ') : ''));
+          ' 可解释容量=' + v.capacity + ' 随合并落地过(跨 PR 取最大)=' + v.landedWithMerge + ')').join(' ; ') : ''));
     }
   }
   console.log('[BRANCH-MERGED] ref=' + String(o.ref).slice(0, 12) + ' ' + againstNote +
