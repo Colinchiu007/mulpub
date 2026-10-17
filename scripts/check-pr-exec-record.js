@@ -92,13 +92,25 @@ const AUDIT_ALT_ISO_CANDS = [
 function auditArtifactName (width, suffix) {
   return '.ccg/reviews/' + 'a'.repeat(width) + (suffix || '') + '.json'
 }
-/** 判据**实际接受**的位宽集合（按行为探测得出，是文案的唯一真源） */
+/**
+ * 判据**实际接受**的位宽集合（按行为探测得出，是文案的唯一真源）。
+ *
+ * QM-6 第三轮 i2/i5：结果**模块级缓存**并冻结。两条理由：
+ *   ① 每次调用要跑 (MAX-MIN+1)=193 次正则探测，而它位于 evaluate() 的出错分支上；
+ *      虽然只在要生成提示时触发，但没有理由每次都重算。
+ *   ② alt 探测以 `auditAcceptedWidths()[0]` 为基准宽度。不缓存的话两处各算一次，
+ *      任何一次内部状态变化都可能让两者读到不同结果（审阅者 i5 指出的不一致）；
+ *      缓存后两个派生函数共用**同一次快照**，一致性由构造保证。
+ */
+let _widthsCache
 function auditAcceptedWidths () {
+  if (_widthsCache !== undefined) return _widthsCache
   const out = []
   for (let w = AUDIT_NAME_WIDTH_MIN; w <= AUDIT_NAME_WIDTH_MAX; w++) {
     if (AUDIT_ARTIFACT_RE.test(auditArtifactName(w))) out.push(w)
   }
-  return out
+  _widthsCache = Object.freeze(out)
+  return _widthsCache
 }
 /**
  * 判据**实际接受**的 alt 形态（按行为探测得出），形如：
@@ -147,12 +159,39 @@ function stripCommentsForScan (text) {
   return String(text)
     .replace(/\r\n/g, '\n')
     .split('\n')
-    .map((l) => l.replace(/\/\/.*$/, ''))          // 行内注释
+    .map(stripTrailingComment)
     .filter((l) => {
       const s = l.trim()
       return Boolean(s) && !s.startsWith('*') && !s.startsWith('/*')   // 块注释续行/起始行
     })
     .join('\n')
+}
+
+/**
+ * 剥掉一行末尾的 `// 注释`，**引号感知**。
+ *
+ * QM-6 第三轮 i3：首版无条件 `/\/\/.*$/` 截断 —— 字符串里的 `//`（URL、正则字面量）
+ * 会被当成注释起点，把该行后半段**截掉**。方向是「少扫」不是「误报」，但仍会让派生锁
+ * 漏掉藏在被截断区段里的手写短语（假绿）。真正的修法是语法分析器，可这个文件被
+ * `changes` job 直接 require，**只能 require node 内置模块**（见 AGENTS.md 前提锁），
+ * 引不进 acorn。所以退而求其次做**最小状态机**：只认引号外的 `//`。
+ * 覆盖 `'`、`"`、```、`\` 转义；模板字符串里的 ${} 不细究（写门禁源码时不会用）。
+ * 已知边界：正则字面量里的 `//`（如 /a\/\/b/）仍可能被误判为注释起点；
+ * 该类字面量在本文件只出现在 stripTrailingComment 自身，且方向仍是「少扫」。
+ */
+function stripTrailingComment (line) {
+  let quote = null
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i]
+    if (quote) {
+      if (c === '\\') { i++; continue }
+      if (c === quote) quote = null
+      continue
+    }
+    if (c === "'" || c === '"' || c === '`') { quote = c; continue }
+    if (c === '/' && line[i + 1] === '/') return line.slice(0, i)
+  }
+  return line
 }
 
 /** 生成「<N 或 M 位小写十六进制>」这段说明；判据被改成无法探测的形状时 fail-closed 出声 */
@@ -558,9 +597,16 @@ function report(r, mode) {
   process.exit(r.ok ? 0 : 1)
 }
 
-// AUDIT_ARTIFACT_RE / auditAcceptedWidths / auditAcceptedAltForm / describeAuditWidths 一并导出：
-// 提示文案由判据**生成**，测试必须能拿到同一组派生值来核验「文案 == 生成结果」，
-// 而不是在测试里再抄一遍位宽（抄一遍就是第三处漂移源）。
+// ── 派生说明的公开接口（2026-10-17，ccg-record-width-message） ──────────────────
+// 这组导出的用途**只有一个**：让测试能核验「提示文案 == 由判据生成的结果」，
+// 从而不必在测试或文案里再抄一遍位宽（抄一遍就是第三处漂移源）。
+//   AUDIT_ARTIFACT_RE    判据本体（测试直接用它做行为断言，不从源码重建，避免丢 flags）
+//   auditAcceptedWidths  判据**实际接受**的位宽集合（行为探测 + 模块级缓存/冻结）
+//   auditAcceptedAltForm 判据**实际接受**的 alt 形态（sha 宽度 + ISO 段，行为探测）
+//   describeAuditWidths  由 auditAcceptedWidths 拼出的 `<N 或 M 位小写十六进制>`
+//   stripCommentsForScan 把源码削成「只含代码行」的视图（引号感知剥注释 + 规范化 CRLF）
+// 生产路径只用 describeAuditWidths / auditAcceptedAltForm().description；
+// 其余导出不改变判据行为，仅为可测性存在。
 module.exports = { evaluate, resolveHeadBranch, readExemptsOnDisk, remoteBranchSet, isPureBackfillChangeSet, evaluateDeepReviewDebt, CLOSED_DEEP_REVIEW_STATUSES, RECORDS_RE, EXEMPT_RE, CARRIER_RE, DEFAULT_THRESHOLD, AUDIT_ARTIFACT_RE, auditAcceptedWidths, auditAcceptedAltForm, describeAuditWidths, stripCommentsForScan, AUDIT_NAME_WIDTH_MIN, AUDIT_NAME_WIDTH_MAX }
 
 if (require.main === module) main(process.argv.slice(2))

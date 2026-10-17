@@ -1183,6 +1183,25 @@ test('遗留收口：提示文案必须**由判据生成**，且源码里不得�
     '真实字符串里的位宽短语**不得**被剥掉（剥过头就再也发现不了手写第二处）')
   assert.ok(!gate.stripCommentsForScan(' * 块注释续行 ' + PH).includes(PH),
     '块注释续行（* 开头）必须被剥掉')
+  // ★ QM-6 第三轮 i3 的行为用例：`//` 在**字符串里**时不得被当成注释起点。
+  //   首版无条件 /\/\/.*$/ 会把 "http://x" 之后整段截掉 —— 方向是「少扫」，
+  //   但藏在被截断区段里的手写短语就会**假绿**。引号感知版必须保住它。
+  assert.ok(gate.stripCommentsForScan("const u = 'http://x/' + " + JSON.stringify(PH)).includes(PH),
+    '字符串里的 // （URL）不得触发截断 —— 否则它后面的手写短语会被静默漏检')
+  assert.ok(!gate.stripCommentsForScan("const u = 1 // " + PH).includes(PH),
+    '真正在引号外的 // 之后必须被剥掉')
+  assert.ok(gate.stripCommentsForScan('const s = "a\\"b//c" + ' + JSON.stringify(PH)).includes(PH),
+    '转义引号内的 // 也不得触发截断')
+
+  // ★ QM-6 第三轮 i2/i5 的行为用例：位宽探测必须**缓存且冻结**，
+  //   两次调用返回同一个对象 ⇒ alt 探测与主探测共用同一次快照，不可能读到不一致结果。
+  const w1 = gate.auditAcceptedWidths()
+  const w2 = gate.auditAcceptedWidths()
+  assert.strictEqual(w1, w2,
+    'auditAcceptedWidths() 必须缓存（同一数组身份）——否则 193 次探测每次重跑，且与 alt 探测可能不同步')
+  assert.ok(Object.isFrozen(w1),
+    'auditAcceptedWidths() 的结果必须冻结 —— 调用方（含测试）不得就地改动这份「唯一真源」')
+
   // CRLF 回归锁：CRLF 文本与 LF 文本必须得到同样的结果（否则 `.` 不匹配 \r 的坑会重现）
   assert.deepStrictEqual(
     gate.stripCommentsForScan('const a = 1 // x\r\n// y\r\nconst b = 2'),
