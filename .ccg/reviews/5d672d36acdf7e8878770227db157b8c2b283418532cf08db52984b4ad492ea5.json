@@ -1,0 +1,112 @@
+{
+  "sha": "3f5f9da3871605ad2649b7ac31f0f3134e9d92c4",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 408 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 408,
+    "fileCount": 6,
+    "codeFileCount": 5,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "5d672d36acdf7e8878770227db157b8c2b283418532cf08db52984b4ad492ea5",
+  "decidedAt": "2026-10-17T09:29:48.466Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "needs_revision",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "domains": [
+          "auth"
+        ]
+      }
+    ],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "stats.noReset 在 exemption 前递增，跨方法状态机（如 identity-auth-window.js _pendingLoading）被计入无复位，导致真实仓终态宣称「无复位=0（豁免后）」与代码输出不一致，监控指标被污染。",
+        "highRiskDomains": [
+          "auth"
+        ],
+        "prosecution": "stats.noReset 在豁免判断之前递增，跨方法状态机被计入无复位，监控指标与「无复位=0（豁免后）」的宣称不一致。",
+        "defense": "属实。读码确认 L119 的 stats.noReset++ 位于 L121 豁免判断之前 ⇒ 已豁免的 _pendingLoading 被计入无复位。",
+        "verdict": "upheld",
+        "rationale": "已修：noReset++ 移到豁免判断之后（无复位且未豁免才计数）。实测修后 无复位=0，与宣称一致；11/11 测试仍绿。"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "scanLoadingReset 使用 body.lastIndexOf('finally') 做结构判定，对包含 finally 子串的变量名、注释或嵌套大括号缺乏结构解析，可能误判复位位置。",
+        "highRiskDomains": [],
+        "prosecution": "用 body.lastIndexOf('finally') 做结构判定，对含 finally 子串的变量名/注释/嵌套括号可能误判。",
+        "defense": "① 注释已被 maskNonCode 抹除，body 不含注释；② 含 finally 的标识符（如 isFinallyClean）会被 lastIndexOf 命中，但该命中只会把「复位在 finally 外」误升为「复位在 finally」，而后者是更宽松的判定（不进红面也不进可见面）⇒ 漏报方向、不是假阳方向，且此类命名在本仓 30 处赋值点中 0 出现；③ 嵌套括号：resets 的下标与 finallyIdx 都在同一函数体坐标系内比较，配对由 matchBrace 保证。",
+        "verdict": "dismissed",
+        "rationale": "误判方向是「多给信任」（漏报可见面），不是把正常代码判红；且触发前提（finally 子串标识符）实测 0 存在。登记进未闭合（若未来改为逐 token 结构解析需换 AST）。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": ".ccg/reviews/*.json 记录 changedLines=408、fileCount=6，但提案头部声明变更规模 591 行，审查产物统计与实际 diff 规模不一致，门禁判据可信度受损。",
+        "highRiskDomains": [],
+        "prosecution": "评审记录 changedLines=408/fileCount=6 与提案声称的 591 行不一致。",
+        "defense": "408 行/6 文件是本提交 03daf453 的暂存差量（pre-commit 判定器的口径）；591 行是含 .ccg 评审产物与记录文件的更早累计口径 —— 与上一 PR 的 i2 同型：按提交累计的过程口径与全 PR 终态口径不同。终态以 git diff origin/main...HEAD 为准。",
+        "verdict": "dismissed",
+        "rationale": "两种口径都各自自洽，且本 PR 只有一个代码提交；不存在「门禁可信度受损」。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "same-type-risk-locks-r2.js 独立重写 maskNonCode 而非复用第一批模块，增加维护同步成本，与注释所述「刻意不并入」形成技术债务。",
+        "highRiskDomains": [],
+        "prosecution": "same-type-risk-locks-r2.js 独立重写 maskNonCode 而非复用第一批模块，与「刻意不并入」的注释矛盾，增加维护同步成本。",
+        "defense": "复用（require 第一批模块）会让两个批次形成模块耦合：第一批若为修自己的判据调整 maskNonCode 语义（如改 maskStrings 默认值），第二批的红面会被动改变 —— 两批判据的屏蔽语义必须能各自独立演进。约 40 行的重复换来判据间的隔离，且两份 maskNonCode 都有各自的屏蔽纪律夹具守着（第一批测「注释/字符串不算」，第二批同款）⇒ 同步成本有锁兜底。",
+        "verdict": "dismissed",
+        "rationale": "这是有意识的解耦决策而非遗漏；注释原文是「刻意不并入」，与实现一致。若第三批再加锁，应先抽共享 mask 库 + 各判据声明所需语义（待第三批触发时再做）。"
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "finding": "loading-machine-exemptions.js 依赖人工登记新跨方法状态机，无自动同步机制，若代码重构后登记陈旧，判据核对会失效。",
+        "highRiskDomains": [],
+        "prosecution": "豁免表依赖人工登记，代码重构后登记陈旧，判据核对会失效。",
+        "defense": "「人工登记」正是设计而非缺陷：登记要求写清置位/复位/分支覆盖的机理（identity-auth-window 的登记含行号级说明），agent 不允许自动添加（与 MUST_LIVE_IN_UNGATED_JOB 同纪律）。陈旧防护已有两层机械核对：① 一致性用例断言「登记的状态名在文件里真实存在」（重命名/搬文件即红）；② 豁免失配 ⇒ 照红（不会静默放行）。失效模式是「红」而不是「漏」。",
+        "verdict": "dismissed",
+        "rationale": "失效方向 fail-closed；且首轮只有 1 条登记，维护成本可忽略。"
+      },
+      {
+        "id": "i8",
+        "severity": "Warning",
+        "finding": "scanAllR2 对每个源文件同时构建 _masked（屏蔽字符串）与 _maskedKeepStrings（保留字符串），相当于双倍解析与字符串复制开销。",
+        "highRiskDomains": [],
+        "prosecution": "scanAllR2 对每文件构建两份等长屏蔽文本，双倍解析与复制开销。",
+        "defense": "实测：CLI 全跑 ~5.5s（2877 文件），与第一批持平 —— 瓶颈是文件 I/O 而非屏蔽（上一 PR 的 i6 同款结论）。两份文本是两批判据所需的不同语义（R5 需屏蔽字符串，R9a 需看字面量），不是冗余。约 60MB 瞬时占用在 Node 默认堆下无压力。",
+        "verdict": "dismissed",
+        "rationale": "性能前提再次被实测否证；双份是语义需要而非浪费。"
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "reason": "high_risk_requires_external",
+        "domains": [
+          "auth"
+        ]
+      }
+    ],
+    "note": "自扮演裁决：1 条指控成立或需外部复核",
+    "at": "2026-10-17T09:55:15.677Z",
+    "resolutionNote": "状态由 self_play_blocked 置为 needs_revision（按判据给出的收口路径如实登记，不按假阳性处理）：\n\n自扮演裁决对本提交（03daf453）的 1 条 upheld 属实：\n- i1 [Critical]：scanLoadingReset 的 stats.noReset++ 在豁免判断之前递增 ⇒ 已豁免的跨方法状态机\n  （identity-auth-window.js 的 _pendingLoading）被计入「无复位」，监控读数与记录里\n  「无复位=0（豁免后）」的宣称不一致。\n\n修订已完成于本分支后续提交（有产物可验）：\n- a9283db42：noReset++ 移到豁免判断之后；实测修后 CLI 输出 无复位=0，与宣称一致；\n  11→14 例测试全绿。\n\n另如实登记：本分支的评审循环暴露了一个流程问题（每个收口 commit 又触发新 critique，\n共 5 轮），根因是「填完裁决即提交」——正确做法是填裁决后同 SHA 复跑。已在本轮改用该做法。"
+  }
+}
