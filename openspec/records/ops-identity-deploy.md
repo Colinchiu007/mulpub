@@ -2,9 +2,6 @@
 record: ops-identity-deploy
 task: 桌面端部署配置指向已上线的运营中心（opsCenterUrl + runtimePublicKey）
 date: 2026-10-18
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（按 AGENTS.md 合并后收尾清单回填并删除本段三字段）
 ---
 
 ## 本次执行记录：桌面端部署配置指向已上线的运营中心（ops-identity-deploy，2026-10-18）【配置变更】
@@ -62,7 +59,7 @@ sync_backfill_owner: 下一个会话（按 AGENTS.md 合并后收尾清单回填
 
 | 项 | 状态 |
 |---|---|
-| 远程同步 | PENDING | 合并后取 merge SHA 回填，并删除 frontmatter 三个 `sync_*` 字段 |
+| 远程同步 | PASS | 已合并：`a7bd8a496505dbef2f02ef6e9c1d490c0bb664c9`（PR #3862，squash，2026-10-18T02:01:40+08:00）；远端分支已删除（`git ls-remote --heads origin ops-identity-deploy` 返回 0 行）；main push 回读见下方 |
 
 ### 取证
 
@@ -70,6 +67,17 @@ sync_backfill_owner: 下一个会话（按 AGENTS.md 合并后收尾清单回填
 - 顶层字段含 **`appMenu`（21 项）** 与 **`signature`（88 字节 base64 = Ed25519 64 字节）**
 - 主站回归：`/` 仍 200/67787/标题「汤姆鱼」未变
 - 前端产物：新 `index.html` 引用 `/ops/assets/`，裸 `/assets/` = 0
+
+### main push 回读（AGENTS.md 收尾清单第 7 条）
+
+| 项 | 读数 |
+|---|---|
+| merge SHA | `a7bd8a496505dbef2f02ef6e9c1d490c0bb664c9`（PR #3862，squash，2026-10-18T02:01:40+08:00） |
+| 远端分支 | `git ls-remote --heads origin ops-identity-deploy` → **0 行**（已删） |
+| `quality-gate`（push） | 见下 |
+
+**为什么必须回读这一格**：本 PR 改的是运行时部署配置，squash 会把差量落到
+**更新的 main tip** 上，PR 侧全绿**不构成** main 会绿的证据。
 
 ### 遗留（不假装已闭合）
 
