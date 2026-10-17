@@ -229,6 +229,17 @@ FRAGILE 清单里另外三条（`@img/colour` / `@element-plus/icons-vue` / `@ct
 - **文档**：`PRD-HOT-TOPICS-MODULE-2026-09-11.md` 新增 §3.13（入口/显示项/数据源分类/校验/交互/启动分支/提示/边界/非目标 8 小节，约 130 行）+ 同步 §3.10、§5.6、§6.6、§7.1、§8、§9.1、§9.2、§10.4、§10.9；`PRD-HOT-TOPICS-MULTI-SOURCE-AI-CATEGORY-2026-10-12.md` 行内按钮与弹窗显示项；`PRD-VIDEO-PIPELINE-PROGRESS-MODAL-2026-10-17.md` 动态阶段/流水线标识/验收/测试；`DESIGN.md` 新增行内流水线选择器视觉与交互契约（含空间自适应）；`i18n-glossary.md` 登记 10 个术语；`openspec/changes/hot-topics-pipeline-picker/`（proposal/design/tasks/spec delta）与执行记录。
 - **边界**：不改主进程/流水线引擎/IPC 契约/发布页装载逻辑；不改 CI workflow 与 `CI_IGNORED_PATHS`；不做「记住上次选择」作为主按钮默认值；不为媒体型流水线在热门选题内提供素材入口。
 
+# [未发布] feat(gates): 远程同步收口改为门禁按主干历史推导（消除回填 PR）
+
+- **问题**：每条 PR 合并后要再开一次「回填 PR」把执行记录的 `远程同步` 从 PENDING 改成 PASS + merge SHA。实测最近 60 个已合并 PR 里 **32 个（53%）是纯回填**、10-15 以来 158 个 main 提交里 73 个是回填提交，而一条回填的真实内容只有 3 行改写。根因是键选错：merge SHA 只有合并后才存在（循环依赖），分支保护又禁止直推 main，二次落笔只能再走一趟 PR。
+- **更深的洞**：门禁读的是**断言**不是**测量**——状态列写 `PASS` 就算收口，合并前预写无法分辨（本仓实测过"并发整取把已回填记录退回 PENDING""同篇两行互相矛盾而 rc=0"）。
+- **改动**：收口证据换成 git 的一等事实——「哪个带 `(#NNNN)` squash 尾注的已合并提交**最近一次**把这篇记录带进 main」。新增单一取源 `scripts/lib/merge-ledger.js`（一次 `git log --diff-filter=A --no-renames`；实测真仓 1.03s 解析 1900+ 个已合并 PR、归属歧义 0），判据 `check-gate-record-debt.js` 改三态求值链 `missingRow → NOT_IN_BASE(byDesign/prematureClaim) → derivedClosed → blobClosed → debt`。人不写任何登记字段，合并即自动收口。
+- **兼容读、存量不动**：存量 384 篇 blob 闭合、21 篇旧形态登记、2 篇无尾注一律原样放行。真仓对账行为锁钉住"改前/改后拦截集合逐篇相同、记录文件字节零改动"（同一 main tip 上以"派生不可用"档等价模拟改前）；新拦截面（预写 PASS、声明归属不符）在真仓命中 0 篇。
+- **净增能力**：合并前写 `PASS` 从"无法分辨"变成判 `prematureClaims` 红；可选 `delivered_by_pr` 与主干事实不符判 `intentMismatch`（键名实测改过——`sync_pr` 已被 6 篇记录以 `0`/`pending`/完整 URL 三种形态占用，故不复用）；CI 档账本取不到读数 ⇒ rc=2，打印即门禁。
+- **测试**：`merge-ledger` 10 用例、`check-gate-record-debt` 73 用例、`plan-review-deps` 9 用例全绿；变异反证 MU-A…F / N1…N8c / M-A、M-B / P-A…P-D 逐条 CAUGHT 且红集互不相同。其中 N6、N8、P-D **首轮 PASSED**，各自暴露一条"函数有测试但接线/退出没被测"的真缺口——包括 rc=2 被两个原因共用而不可分辨这一条。
+- **文档口径**：`openspec/records/_TEMPLATE.md` 删掉 `sync_*` 预填（四处自相矛盾一次改完）、`AGENTS.md` 取消回填禁令并顺延重排合并后收尾清单、`check-pr-exec-record.js` 出路④的"不校验真实性"信任边界按新事实改写。
+- **边界**：旧载体与 ledger 的 23 条自指欠账原样保留；squash 尾注是本仓惯例不是 git 保证，合并方式若改成不写尾注会让推导整体退回兼容档（已写进 `openspec-integration` 新 Requirement）。
+
 # [未发布] feat(gates): 登录态隐藏窗口兜底加「准入登记表 + 配对锁」——把准入纪律变成机械拦截（dom-login-check-registry）
 
 - **问题**：`DOM_LOGIN_CHECK_ALLOWED_PLATFORMS` 默认空集（#3759 落地）挡住了崩溃路径，但**没有任何机械判据**阻止"只加一行平台名、不交真机证据"的提交。而隐藏窗口崩不崩**只有真机能验证**（真实平台页面 + 真实账号 Cookie + 隐藏窗口渲染），CI 永远凑不齐 ⇒ 四例事故（toutiao → wechat_mp → 知乎 → kuaishou）的共同形态都是「CI 全绿、用户机器上崩」。

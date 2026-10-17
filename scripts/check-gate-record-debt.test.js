@@ -1188,3 +1188,49 @@ test('接线锁：CLI 必须真的调用 parseFlags 并注入可用账本（函�
     `默认 baseRef 必须真读到账本；实际首行：${String(ok.stdout).split('\n')[0]}`)
   assert.doesNotMatch(String(ok.stdout), /MERGE-LEDGER prs=n\/a/, '默认档读出"不可用"说明取源接线坏了，不是通过')
 })
+
+test('账本不可用的出声必须点名"一起熄灯的三道能力"（评审 F1/F3）', () => {
+  // 只说"派生档停用"是不够的：读的人会以为只是少一条收口通道，
+  // 实际是"预写 PASS 不再被看见"和"归属谎报不再被核对"一起没了。
+  const dir = fixture([{ head: '老记录（legacy，2026-09-28）', status: 'PASS' }])
+  recFile(dir, 'open-no-reg', { row: 'PENDING' })
+  const r = checker.collect({ root: dir, ledger: {}, mergeLedger: mkML({ ok: false, reason: 'git-failed' }) })
+  const text = checker.format(r)
+  assert.match(text, /prematureClaims/, '必须点名预写拦截一起停用')
+  assert.match(text, /delivered_by_pr/, '必须点名归属交叉核对一起停用')
+  assert.match(text, /rc=2|CI 档/, '必须说明 CI 档这属于门禁故障而非降级')
+})
+
+test('规范键与旧键并存且取值不一致时，旧键不得被静默吞掉（评审 F4）', () => {
+  const dir = fixture([{ head: '老记录（legacy，2026-09-28）', status: 'PASS' }])
+  recFile(dir, 'both-keys', { row: 'PENDING', fm: { delivered_by_pr: '3810', sync_pr: '3999' } })
+  const r = checker.collect({
+    root: dir, ledger: {},
+    mergeLedger: mkML({ merged: [3810], added: [['openspec/records/both-keys.md', 3810]] }),
+  })
+  assert.strictEqual(r.ambiguousPrKeys.length, 1, JSON.stringify(r.ambiguousPrKeys))
+  assert.match(r.ambiguousPrKeys[0].value, /并存且不一致/, '必须说明是两键冲突，而不是只回显旧值')
+  // 规范键与主干事实一致 ⇒ 不因旧键冲突而误判 intentMismatch
+  assert.strictEqual(r.intentMismatch.length, 0, JSON.stringify(r.intentMismatch))
+  assert.strictEqual(r.derivedClosed.length, 1, '收口仍按规范键与主干事实得出，旧键只制造可见歧义')
+})
+
+test('账本不可用时，新形态「由门禁推导」判未证实而非判忘了登记', () => {
+  // 新模板要求：状态列只写「由门禁推导」、不再预填任何登记字段。
+  // 若账本不可用还按旧口径追问"你的 sync_reason 呢"，就是把我测不了说成你没做（假指控），
+  // 而且会诱导作者去补写登记字段——那正是本 change 要淘汰的形态。
+  const dir = fixture([{ head: '老记录（legacy，2026-09-28）', status: 'PASS' }])
+  recFile(dir, 'new-form', { row: '由门禁推导' })
+  const r = checker.collect({ root: dir, ledger: {}, mergeLedger: mkML({ ok: false, reason: 'not-injected' }) })
+  assert.strictEqual(r.open.filter((o) => o.source === 'records').length, 0, JSON.stringify(r.open))
+  assert.strictEqual(r.unprovenDerived.length, 1, JSON.stringify(r.unprovenDerived))
+  assert.strictEqual(r.derivedClosed.length, 0, '未证实不等于已收口（fail-closed 的方向不许反过来）')
+  assert.strictEqual(checker.hasBlocking(r), false, '未证实只出声，不把整条门禁钉红（CI 档由 rc=2 单独拦）')
+  assert.match(checker.format(r), /未证实/)
+
+  // 同一篇在账本可用时必须被派生收口，而不是继续挂"未证实"
+  const okLedger = mkML({ merged: [4001], added: [['openspec/records/new-form.md', 4001]] })
+  const r2 = checker.collect({ root: dir, ledger: {}, mergeLedger: okLedger })
+  assert.strictEqual(r2.unprovenDerived.length, 0)
+  assert.strictEqual(r2.derivedClosed.length, 1)
+})
