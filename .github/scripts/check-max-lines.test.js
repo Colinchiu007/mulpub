@@ -408,13 +408,23 @@ const IMPL = path.join(__dirname, 'check-max-lines.js')
 // 否则同一条用例在装了全局 gitignore 的机器上会多/少排几个文件（本仓 runner-only 红的同型教训）。
 // 这份空 gitconfig 必须落在被测目录**之外**：写进 root 就会被 git 当成一个未跟踪文件，
 // 于是「空仓库」夹具其实非空，空域判据点不到火（T6 首跑失败的真实原因）。
+function gitcfgPathFor(root) { return path.join(os.tmpdir(), 'maxlines-gitcfg-' + process.pid + '-' + path.basename(root) + '.txt') }
 function gitEnv(root) {
   const env = Object.assign({}, process.env)
-  const empty = path.join(os.tmpdir(), 'maxlines-gitcfg-' + process.pid + '-' + path.basename(root) + '.txt')
+  const empty = gitcfgPathFor(root)
   if (!fs.existsSync(empty)) fs.writeFileSync(empty, '')
   env.GIT_CONFIG_GLOBAL = empty
-  delete env.GIT_CONFIG_SYSTEM
+  // delete GIT_CONFIG_SYSTEM 不关 system 档（只是不重定向）。实测：system 档里的
+  // core.excludesFile 会把文件从 --exclude-standard 里藏掉 ⇒ 域随机器态漂移。唯一开关是 NOSYSTEM。
+  env.GIT_CONFIG_NOSYSTEM = '1'
   return env
+}
+// 隔离必须由代码证明，不能靠"这台机器大概没配"：读到 excludesFile 就说明夹具不再只有一个变量。
+function assertConfigIsolated(root, env) {
+  const r = spawnSync('git', ['-C', root, 'config', '--get', 'core.excludesFile'], { encoding: 'utf8', env: env })
+  if (r.status === 0 && String(r.stdout || '').trim()) {
+    throw new Error('夹具配置隔离未生效：core.excludesFile 仍被读到 ⇒ 扫描域会随机器态漂移，实测值=' + String(r.stdout).trim())
+  }
 }
 
 function gitRun(root, args, env) {
@@ -445,11 +455,15 @@ function mkGitRoot(prefix, layout, gitignore) {
 function gitify(root) {
   const env = gitEnv(root)
   gitRun(root, ['init', '-q'], env)
+  assertConfigIsolated(root, env)
   gitRun(root, ['add', '-A'], env)
   return root
 }
 
-function rmRf(p) { fs.rmSync(p, { recursive: true, force: true }) }
+function rmRf(p) {
+  fs.rmSync(p, { recursive: true, force: true })
+  fs.rmSync(gitcfgPathFor(p), { force: true }) // 不留碎片：每跑一次会落一个空 gitconfig
+}
 
 test('扫描域回归：gitignored 的构建产物不得进 NEW_OVER_LIMIT（本机假红的根因）', () => {
   const root = mkGitRoot('maxlines-ignored-', {
@@ -532,4 +546,77 @@ test("现场留痕：plain 模式打印 domain= 且与 gitDomain().size 一致�
   assert.ok(!/^\[max-lines\]/m.test(String(j.stdout)), "--json 模式混入非 JSON 行会让消费方解析失败")
   const parsed = JSON.parse(String(j.stdout))
   assert.equal(parsed.domainSize, G.gitDomain().size, '--json 必须把域规模放进对象里')
+})
+
+// ── QM-6 两轴采纳后补的三格锁（被审快照 1aecfedeb → 采纳提交见 PR）─────────────
+test("被跟踪但同时命中 .gitignore 的文件必须仍在域内（并集语义，不得改成只取非忽略项）", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'maxlines-forced-'));
+  try {
+    fs.writeFileSync(path.join(root, '.gitignore'), 'apps/desktop/electron/preload/*.bundle.js\n')
+    fs.mkdirSync(path.join(root, 'apps', 'desktop', 'electron', 'preload'), { recursive: true })
+    fs.writeFileSync(path.join(root, 'apps', 'desktop', 'electron', 'keep.js'), mk(10))
+    fs.writeFileSync(path.join(root, 'apps', 'desktop', 'electron', 'preload', 'forced.bundle.js'), mk(900))
+    const env = gitEnv(root)
+    gitRun(root, ['init', '-q'], env)
+    assertConfigIsolated(root, env)
+    gitRun(root, ['add', '-A'], env)
+    gitRun(root, ['add', '-f', '--', 'apps/desktop/electron/preload/forced.bundle.js'], env) // 历史上 git add -f 过的产物
+    const got = Object.keys(G.collectOverLimit(root, 500)).sort()
+    assert.ok(got.indexOf('apps/desktop/electron/preload/forced.bundle.js') >= 0,
+      '域判据必须是「索引 ∪ 未忽略的未跟踪」而非 check-ignore；后者会让被跟踪的生成物静默不再被量')
+  } finally { rmRf(root) }
+})
+
+test("索引里有、磁盘上没有：不被测量，但也不能被当成「查过了没问题」——挂账条目必须报 STALE", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'maxlines-ghost-'));
+  try {
+    fs.mkdirSync(path.join(root, 'packages', 'demo'), { recursive: true })
+    fs.writeFileSync(path.join(root, 'packages', 'demo', 'ghost.js'), mk(600))
+    gitify(root)
+    fs.rmSync(path.join(root, 'packages', 'demo', 'ghost.js')) // 暂存删除：索引仍列它
+    const env = gitEnv(root)
+    assert.ok(G.gitDomain(root).has('packages/demo/ghost.js'), '域按 git 判，不该随磁盘删除而缩小（否则 STALE 判据失去对象）')
+    assert.ok(!Object.keys(G.scanAllLines(root, G.gitDomain(root))).some((k) => k.endsWith('ghost.js')), '读不到内容就不入表')
+    const base = { limit: 500, growthAllowance: 200, files: { 'packages/demo/ghost.js': 600 } }
+    const r = G.evaluate(base, {}, G.scanAllLines(root, G.gitDomain(root)))
+    assert.match(r.violations.join(' | '), /^STALE_LEDGER_ENTRY: packages\/demo\/ghost\.js/,
+      '幽灵路径必须由挂账清单的 STALE 判据出声，不得静默消失（评审后端轴 W1 的可达那一格）')
+  } finally { rmRf(root) }
+})
+
+test("system 档的 core.excludesFile 真能改域：夹具的 NOSYSTEM 是承重的（A/B 两档 + 与 gitEnv 对齐）", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'maxlines-syscfg-'));
+  try {
+    fs.mkdirSync(path.join(root, 'packages', 'demo'), { recursive: true })
+    fs.writeFileSync(path.join(root, 'packages', 'demo', 'a.js'), mk(10))
+    fs.writeFileSync(path.join(root, 'packages', 'demo', 'hidden.bundle.js'), mk(10))
+    const ign = path.join(root, '..', 'maxlines-hidden-' + path.basename(root) + '.ign')
+    fs.writeFileSync(ign, 'hidden.bundle.js\n')
+    const sys = path.join(root, '..', 'maxlines-system-' + path.basename(root) + '.gitconfig')
+    fs.writeFileSync(sys, '[core]\n\texcludesFile = ' + ign.replace(/\\/g, '/') + '\n')
+    const bp = path.join(root, '..', 'maxlines-baseline-' + path.basename(root) + '.json')
+    fs.writeFileSync(bp, JSON.stringify({ limit: 500, growthAllowance: 200, files: {} }))
+    gitRun(root, ['init', '-q'], gitEnv(root))
+    const domSize = (env) => {
+      const r = spawnSync(process.execPath, [IMPL, '--root', root, '--baseline', bp, '--json'], { cwd: root, encoding: 'utf8', env: env })
+      assert.equal(r.status, 0, '门禁应正常出结论（夹具文件都远未到 limit）；实测：' + String(r.stdout) + String(r.stderr))
+      return JSON.parse(String(r.stdout)).domainSize
+    }
+    const withSystem = domSize(Object.assign({}, process.env, { GIT_CONFIG_SYSTEM: sys }))
+    const noSystem = domSize(Object.assign({}, process.env, { GIT_CONFIG_SYSTEM: sys, GIT_CONFIG_NOSYSTEM: '1' }))
+    assert.ok(noSystem > withSystem, 'system 档里的 excludesFile 确实会把文件藏出域：带档 ' + withSystem + ' vs 关档 ' + noSystem)
+    // 关键：把 system 档叠到 gitEnv 之上再比。干净机器上「摘掉开关」与「留着开关」同形，
+    // 只有让 system 档真的在场，gitEnv 里那行 NOSYSTEM 才是可测变量。
+    const stacked = Object.assign({}, gitEnv(root), { GIT_CONFIG_SYSTEM: sys })
+    assert.equal(domSize(stacked), noSystem, 'gitEnv 必须在 system 档存在时依然关得掉它，否则那行是装饰')
+    // 守卫自己也得有牙：真出现 excludesFile 时必须当场炸，而不是只打印漂亮话。
+    assert.throws(() => assertConfigIsolated(root, Object.assign({}, process.env, {
+      GIT_CONFIG_SYSTEM: sys, GIT_CONFIG_GLOBAL: gitcfgPathFor(root)
+    })), /夹具配置隔离未生效/)
+  } finally {
+    fs.rmSync(path.join(root, '..', 'maxlines-hidden-' + path.basename(root) + '.ign'), { force: true })
+    fs.rmSync(path.join(root, '..', 'maxlines-system-' + path.basename(root) + '.gitconfig'), { force: true })
+    fs.rmSync(path.join(root, '..', 'maxlines-baseline-' + path.basename(root) + '.json'), { force: true })
+    rmRf(root)
+  }
 })

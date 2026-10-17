@@ -113,6 +113,14 @@ const DEFAULT_TEST_GROWTH_ALLOWANCE = 200;
  *     按磁盘扫就成了「本机跑过 build:preload 就 NEW_OVER_LIMIT、CI 永远看不见」——两个域比一份账；
  *  ② 不收窄成「只看索引」：未提交但未被忽略的新文件仍是新增债，必须可见；
  *  ③ 取不到读数（非工作树 / git 缺失 / 空集合）一律抛错，由 main() 转退出码 2 出声。
+ * 另有三条语义（评审两轴各命中一处，写在这里免得下一个人当"顺手改宽/改窄"）：
+ *  ④ 并集不是 check-ignore：被跟踪但同时命中 .gitignore 的文件（历史上 git add -f 过的产物）**仍在域内**
+ *     ——「被跟踪就该被量」。改成"只取非忽略项"会静默停止测量这类文件，比假红更糟。
+ *  ⑤ 集合里的路径一律**相对扫描根**（git ls-files 按 cwd 输出）；因此 --root 只能指向
+ *     「另一个仓库根」（如另一个 worktree），指到本仓子目录会让账本坐标系整体错位（存量行为，未改）。
+ *  ⑥ 机器态会改域：system/global 档里的 core.excludesFile 能把文件从 --exclude-standard 里藏掉
+ *     （实测：同一夹具，带该配置时产物不在域内，置 GIT_CONFIG_NOSYSTEM=1 后回到域内）。
+ *     测试夹具因此必须两向屏蔽，判据本体则按"仓库当前 git 配置"如实取域。
  */
 function gitDomain(rootDir) {
   const root = rootDir || ROOT;
@@ -142,13 +150,15 @@ function walkDir(absDir, baseDir, out, domain) {
     const fp = path.join(absDir, e.name);
     const rel = path.relative(baseDir, fp).replace(/\\/g, '/');
     if (EXCLUDE.some((x) => rel.includes(x))) continue;
-    // 目录照常递归（子目录里可能有受管文件）；只有「文件入不入表」受域约束，
+    // 目录照常递归（子目录里可能有域内文件）；只有「文件入不入表」受域约束，
     // 且判据放在读文件之前——不为被排除的产物付一次全文读取。
     if (e.isDirectory()) { walkDir(fp, baseDir, out, domain); continue; }
     if (!SOURCE_EXTS.includes(path.extname(e.name))) continue;
     if (!domain.has(rel)) continue;
     let lines = 0;
-    try { lines = fs.readFileSync(fp, 'utf8').split('\n').length; } catch (_) { continue; }
+    // 读不到不等于「没有债」：登记 lines:null，由 main() 出声。原样 continue 会让
+    // 「索引里有、磁盘已删」这一格完全静默（评审后端轴 W1 命中）。
+    try { lines = fs.readFileSync(fp, 'utf8').split('\n').length; } catch (_) { out.push({ path: rel, lines: null }); continue; }
     out.push({ path: rel, lines });
   }
   return out;
@@ -157,9 +167,9 @@ function walkDir(absDir, baseDir, out, domain) {
 /** 扫描测试文件（.test.* / .spec.*）。与源码扫描**并列而非替换**：源码侧的
  *  EXCLUDE 子串匹配保持原样，本函数只走 TEST_SCAN_DIR_EXCLUDE，
  *  因此不会把任何原先没被扫到的源码文件带进视野。 */
-function scanTestFiles(rootDir, domain) {
+function scanTestFiles(rootDir, domainArg) {
   const root = rootDir || ROOT;
-  const set = domain || gitDomain(root);
+  const domain = domainArg || gitDomain(root);
   const out = {};
   const walk = (absDir) => {
     let entries;
@@ -174,7 +184,7 @@ function scanTestFiles(rootDir, domain) {
       if (!e.isFile()) continue;
       if (!TEST_FILE_RE.test(e.name)) continue;
       const rel = path.relative(root, fp).replace(/\\/g, '/');
-      if (!set.has(rel)) continue;
+      if (!domain.has(rel)) continue;
       let lines = 0;
       try { lines = fs.readFileSync(fp, 'utf8').split('\n').length; } catch (_) { continue; }
       out[rel] = lines;
@@ -186,19 +196,19 @@ function scanTestFiles(rootDir, domain) {
 
 const hasKey = (obj, k) => Object.prototype.hasOwnProperty.call(obj, k);
 
-/** 扫描全部受管源文件，返回相对扫描根的路径 → 行数 */
+/** 扫描全部域内源文件，返回相对扫描根的路径 → 行数（读不到的不入表，由 main() 出声） */
 function scanAllLines(rootDir, domain) {
   const out = {};
-  for (const f of scanFiles(rootDir, domain)) out[f.path] = f.lines;
+  for (const f of scanFiles(rootDir, domain)) if (f.lines !== null) out[f.path] = f.lines;
   return out;
 }
 
-/** 扫描全部受管源文件 → [{path, lines}]（内部原语，两个对外视图都基于它） */
-function scanFiles(rootDir, domain) {
+/** 扫描全部域内源文件 → [{path, lines}]（内部原语，两个对外视图都基于它；读不到 = lines:null） */
+function scanFiles(rootDir, domainArg) {
   const root = rootDir || ROOT;
-  const set = domain || gitDomain(root);
+  const domain = domainArg || gitDomain(root);
   const out = [];
-  for (const d of SCAN_DIRS) walkDir(path.join(root, d), root, out, set);
+  for (const d of SCAN_DIRS) walkDir(path.join(root, d), root, out, domain);
   return out;
 }
 
@@ -207,7 +217,7 @@ function collectOverLimit(rootDir, limit, domain) {
   const max = limit || DEFAULT_LIMIT;
   const files = {};
   for (const f of scanFiles(rootDir, domain)) {
-    if (f.lines >= max) files[f.path] = f.lines;
+    if (Number.isFinite(f.lines) && f.lines >= max) files[f.path] = f.lines;
   }
   return files;
 }
@@ -466,7 +476,17 @@ function main() {
     process.exit(2);
   }
   if (!isJson) console.log('[max-lines] domain=' + domain.size + ' (git 索引 ∪ 未忽略的未跟踪文件)');
-  const all = scanAllLines(rootDir, domain);
+  // 一次扫描出两个视图：域内但读不到内容的路径（索引有、磁盘无，或读失败）必须点名，
+  // 不能让它和「扫过了且没问题」在同一段输出里同形。
+  const scanList = scanFiles(rootDir, domain);
+  const all = {};
+  for (const f of scanList) if (f.lines !== null) all[f.path] = f.lines;
+  const unreadable = scanList.filter((f) => f.lines === null);
+  // 只在 plain 档出声：--json 档里任何非 JSON 行都会把消费方炸掉（留痕锁只管第一行，挡不住这种）。
+  if (unreadable.length && !isJson) {
+    console.log('⚠️ 域内但读不到内容 ' + unreadable.length + ' 个（索引里有、磁盘上没有，或读失败）：'
+      + unreadable.slice(0, 5).map((f) => f.path).join(', ') + (unreadable.length > 5 ? ' …' : ''));
+  }
   const scanned = Object.keys(all).sort().reduce((acc, k) => { if (all[k] >= limit) acc[k] = all[k]; return acc; }, {});
 
   // M-7：测试文件走独立通道与独立上限，与源码扫描并列而非替换。
