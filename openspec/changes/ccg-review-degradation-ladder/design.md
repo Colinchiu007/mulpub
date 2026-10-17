@@ -102,7 +102,12 @@ outstanding 棘轮：仓内 `fallback_closed` 计数**只能缩小**，且新增
 - 以 `self-play` 开头、同时又在同字段里声明做过外部复核的记录 = **12 条** ⇒ 前缀分级会**当场误判 12 份真外部证据**，这不是理论风险。
 - 存在 `status=cleared / needs_revision` 而 `performedBy=null`、`findings=null` 的产物（实测 `needs_revision pb=null f=null` ×3、`cleared pb=lead-self-assessment… f=null` ×4 等）⇒ **今天的"闭环"可以完全无出处**；只补 `tier` 字段而不要求 `evidence`，等于把同一个洞换个名字。
 
-### 9.1 待裁决的合同岔口（两条候选，差别在"外部证据由谁声明、拿什么佐证"）
+### 9.1 合同岔口——**裁决：取丙**（2026-10-17 由使用者定）
+
+**已定的实现规则（四条，缺一不可）**：① `tier` 是结构化闭集字段（`external|self-play|none|unknown`），门禁 MUST NOT 读 `performedBy` 散文；② 外部档成立 = `tier==='external'` **合取** `evidence` 为非空字符串（声明 + 出处两者都要）；③ `findings` 为空**不影响**成立（"无发现"是合法结论，"没跑"不是），只在覆盖率读数里并列打印以便日后估算；④ **只对新记录生效，先可见不拦**——打印覆盖率读数（`total/covered/unsupported/missing/invalid` 逐档 + 点名文件），转拦需另起一片且前提是覆盖率读数上来。
+被否决的两条保持原样记录在此：甲（只认声明）放水在"路径存在不等于内容真"；乙（只认 findings 非空）误伤在"干净通过的外部评审往往就是空清单"——实测 827 份里只有 16 份是数组，而 `dual/cleared` 有 18 份，按乙会把多数真评审判成没评审。
+
+### 9.1bis 原始候选（保留供后人复算，不是现状）
 
 - **甲：来源意图字段**——闭环时由写入方（引擎或处置人）写 `deepReview.tier = external|self-play|none` + `evidence`（wrapper stdout 路径或 session id）。
   优点：判据零猜测；缺点：`evidence` 是自报的路径，门禁只能验"路径存在且非空"，不能验内容真伪 ⇒ 与既有「声明与字节不同源」的坑同源。
