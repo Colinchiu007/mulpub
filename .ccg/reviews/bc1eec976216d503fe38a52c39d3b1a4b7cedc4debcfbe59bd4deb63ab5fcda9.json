@@ -1,0 +1,28 @@
+{
+  "sha": "0a0d3581b9cd5dc180bd62d363b8b1de4ab9c505",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 93 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 93,
+    "fileCount": 3,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "| QM-4 视觉 | N/A（本 PR 不产生新的视觉判据） | 本 PR 改的是「视觉判据的消费方式」，不改任何用例、基线或阈值；**未使用 `--update-baseline`** |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "bc1eec976216d503fe38a52c39d3b1a4b7cedc4debcfbe59bd4deb63ab5fcda9",
+  "decidedAt": "2026-10-17T04:20:15.772Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}
