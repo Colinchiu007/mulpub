@@ -3,9 +3,6 @@ record: zhihu-fav-step-hint
 task: 补「阶段引导」——在「加载收藏内容」之前告诉用户下一步点哪个按钮，修复删旧入口时把路标一起拆掉造成的可用性回归
 date: 2026-10-17
 branch: zhihu-fav-step-hint
-sync_status: PENDING
-sync_reason: PR 尚未合并（记录随代码 PR 落地，合并后回填 merge SHA）
-sync_backfill_owner: zhihu-fav-step-hint 会话（回填 PR）
 ---
 
 # 执行记录：知乎收藏批量「阶段引导」（zhihu-fav-step-hint，2026-10-17）
@@ -61,9 +58,9 @@ sync_backfill_owner: zhihu-fav-step-hint 会话（回填 PR）
 | QM-6 双模型评审 | 见第 6 节 | 变更规模判定 |
 | 文档同步 | PASS | PRD §4.3（5 小节：问题/方案/显示项/验收/遗留）+ BUGFIX §9 第 6 条 + 本记录 |
 | 行尾两口径对账 | PASS | 见提交前读数 |
-| 远程同步 | PENDING | PR 未开。合并后同一次提交改写为 `PASS` + merge SHA 并删除 `sync_*` 三字段 |
+| 远程同步 | PASS | PR **#3802** 已 squash 合并，merge SHA `ea257dd991b13320f4f376a5effc2dad10acb9d4`（`gh pr list --state merged --search 3802` 取到，mergedAt `2026-10-17T07:18:01Z`）；远端分支 `git ls-remote --heads origin zhihu-fav-step-hint` ⇒ 0 行（已删）。main push run `39013118257` 回读 **completed / success**（按「(merge SHA, workflow)」这一格判）。回填与销账同一次提交（本行 + bullet + 删 `sync_*` 三字段） |
 
-- 保留门禁：变更类型与隔离 ✅ | TDD ✅ | eslint ✅ | i18n ✅ | QM-4 ✅ | QM-2 ✅ | 文档同步 ✅ | 行尾对账 ✅ | 远程同步 PENDING
+- 保留门禁：变更类型与隔离 ✅ | TDD ✅ | eslint ✅ | i18n ✅ | QM-4 ✅ | QM-2 ✅ | 文档同步 ✅ | 行尾对账 ✅ | 远程同步 PASS
 
 ## 5. 事故：停止 dev server 时误杀了其他会话的进程（必须留痕）
 
