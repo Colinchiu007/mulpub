@@ -1,0 +1,83 @@
+{
+  "sha": "acefedf13bc102513de54c0e19fc2d283bd63458",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 19 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 19,
+    "fileCount": 2,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "6ea4128572549de488da59bb5590e73014c5907ba182b71847a5c9bd4e07d690",
+  "decidedAt": "2026-10-17T13:11:20.917Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "needs_revision",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": ".ccg/reviews/*.json 有 findings:null 且 status:self_play_pending；裁决未填写（note 明确列出未定条目），却被作为已完成变更提交。下游自动化若依赖 filled adjudication 会读到空壳状态。",
+        "highRiskDomains": [],
+        "prosecution": "评审 JSON findings:null/self_play_pending 被提交；下游自动化若依赖 filled adjudication 会读空壳。",
+        "defense": "第九次同款：过程快照是判定器设计；「下游自动化依赖 filled adjudication」的场景不存在——闭环读数只来自判据 4（check-pr-exec-record），它读 status 字段而非 findings 内容。",
+        "verdict": "dismissed",
+        "rationale": "假设的下游不存在；收口凭证链（判据 4 → 回填 PR）已两批先例完整运行。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "r3.js 在 scanAllR3 中把 prepared 源的 _masked 覆盖成 keep 版（_masked: s._maskedKeep），而 scanIndependentMimeMaps 又从 src._maskedKeep 计算 maskedKeep，形成双重屏蔽源；若未来调用方跳过 mapping，_maskedKeep 缺失会导致配对语义漂移。",
+        "highRiskDomains": [],
+        "prosecution": "scanAllR3 覆盖 _masked 为 keep 版而 R7 又从 _maskedKeep 算，双重屏蔽源；调用方跳过 mapping 时语义漂移。",
+        "defense": "i1（15e5134a）修复后 R7 **不再信任**任何传入的 _masked/_maskedKeep —— maskedPair = maskNonCode(text) 自算、maskedKeep = src._maskedKeep || 自算（有 fallback）。调用方跳过 mapping 时 R7 仍正确（两值都自算）。「语义漂移」的前提已被上一轮修复消除。",
+        "verdict": "dismissed",
+        "rationale": "指控针对的正是上一轮已修的形态；修复后的代码对「跳过 mapping」免疫（fallback 自算）。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "FORMATS 只登记 .jpg/.jpeg/.png/.webp，但 prompt-eval/engine 手动追加 .gif/.bmp，media-downloader 追加非规范别名。单一真源承诺对这些格式不成立，新增格式需改两处。",
+        "highRiskDomains": [],
+        "prosecution": "FORMATS 只登记四格式，prompt-eval 追加 gif/bmp、media-downloader 追加别名 ⇒ 单一真源承诺不成立。",
+        "defense": "真源的职责边界在头注释写明：「桌面链落盘的图片格式」——gif/bmp 是 prompt-eval 的**评估输入**扩展格式（不落盘为封面/媒体），别名是**历史兼容**（i5/020ff510 已登记进真源 LEGACY_MIME_ALIASES，不再散落）。三类各有归属：真源（落盘四格式）/ 消费方扩展（评估输入）/ 真源别名表（兼容）。",
+        "verdict": "dismissed",
+        "rationale": "「单一真源」的承诺范围是真源头注释声明的语义（落盘格式），不是「全仓一切 mime 常量」。三类各归其位且有锁。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "media-downloader 通过 Object.keys(LEGACY_MIME_ALIASES).find(...) 动态解析 IMAGE_LEGACY_ALIAS_MIME，运行时计算依赖真源结构；若 LEGACY_MIME_ALIASES 重构，解析可能返回错误 mime 或回退到 'image/jpg'。",
+        "highRiskDomains": [],
+        "prosecution": "Object.keys(LEGACY_MIME_ALIASES).find 动态解析，真源重构后可能错或回退 image/jpg。",
+        "defense": "上一轮（i3/c98b127b）已把 [0] 位置取改为**按语义查找**（归一目标 ext === '.jpg' 的别名）；重构后即使表结构变化，find 的判据（IMAGE_MIME_TO_EXT[别名值] === '.jpg'）仍表达真实意图；fallback 'image/jpg' 与现状一致（不是行为回归）。且有行为锁（别名归一→.jpg）。",
+        "verdict": "dismissed",
+        "rationale": "上一轮已按此建议修复；本轮无新信息。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "quality-gate.yml 在 changes job 直接追加 node --test r3 和 image-mime 测试，但未保证 workspace 依赖已安装（npm ci）；若运行环境缺 node_modules，require('@multi-publish/shared-utils/src/image-mime') 会 ENOENT。",
+        "highRiskDomains": [],
+        "prosecution": "changes job 无 npm ci，r3/image-mime 测试 require shared-utils 会 ENOENT。",
+        "defense": "实测证据链：① image-mime.test.js require 的是 `./lib/image-mime`（re-export 桥）→ 桥 require `../../packages/shared-utils/src/image-mime`——**相对路径文件引用，不经 node_modules**；② 该链路在本 worktree 无依赖时（首轮接线期）已实跑成功；③ changes job 的 checkout 含全仓文件（packages/ 在内）。require 相对路径文件不依赖 workspace 安装。",
+        "verdict": "dismissed",
+        "rationale": "对 require 解析的误判：相对路径文件引用 ≠ 包名解析，node_modules 不参与。且该测试已在changes job 语境等价环境（无 install 的 worktree）跑通过。"
+      }
+    ],
+    "blocking": [],
+    "note": "自扮演裁决：全部指控不成立",
+    "at": "2026-10-17T13:23:09.414Z",
+    "resolutionNote": "状态由 self_play_blocked 置为 needs_revision（2 条 upheld 均已修，如实登记）：\n\n- i4：MODULE_SET_RE 只认 const ⇒ let/var 模块级集合被静默漏掉。已修：扩 (?:const|let|var)\n  + 夹具（let 只增集合出声）；真实仓 11 集合/2 出声不变（7f762a2a7）。\n- i5：等价锁夹具缺 UTF-8/嵌套花括号。已修：夹具补中文注释/中文字符串/三层嵌套（10→12 例，\n  同提交）。\n\n本提交头自身的评审（ccg-deep-211937f7，single）已收敛 self_play_resolved，无未处置发现。"
+  }
+}

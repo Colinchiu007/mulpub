@@ -1,0 +1,34 @@
+{
+  "sha": "c2367d62671bcd5133f360d9459b3a193e253d9c",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 692 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 692,
+    "fileCount": 16,
+    "codeFileCount": 14,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": [
+      "\"01-docs/research/competitor-reverse-2026-10-13/derived/\\347\\253\\236\\345\\223\\201\\347\\274\\272\\351\\231\\267\\345\\220\\214\\345\\236\\213\\351\\243\\216\\351\\231\\251\\346\\270\\205\\345\\215\\225.md\""
+    ]
+  },
+  "stagedDiffHash": "ca05b8ab1d7e6b30a9de98bda75c0e99569ff8238e899e1485aceb3945eb84a8",
+  "decidedAt": "2026-10-17T12:36:16.775Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "needs_revision",
+    "performedBy": "self-play(pending)",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "findings": null,
+    "template": ".adversarial\\ccg-deep-416338fc\\adjudication.json",
+    "note": "裁决尚未填写：4/4 条未定（i1, i2, i3, i4）",
+    "at": "2026-10-17T12:39:35.794Z",
+    "resolutionNote": "状态由 self_play_pending 置为 needs_revision（按判据收口路径如实登记）：\n\n自扮演裁决对本提交（416338fc 差量，即本 PR 首提交）的 3 条 upheld 全部属实：\n- i1（阻断）：4 个迁移文件的 image-mime require 被「注释已含字样」误判跳过 ⇒ 模块加载即\n  ReferenceError（node --check 不执行模块所以没抓到）——AGENTS.md 10.9 同型。\n- i3：R7 配对错用 keep 掩码（字符串花括号让 matchBrace 错位）。\n- i4：清写检测整文件盲搜（局部同名 Map 的 delete 误判为模块级清理，假阴）。\n\n修订均已完成于本分支后续提交（有产物）：\n- 020ff510：4 文件补 require + 实跑「模块可加载: true」验证；R7 改双掩码（配对 mask 版 /\n  体内容 keep 版）；清写检测改成员级精确匹配（修后夹具 writeOnly=1 正确进审计面）。\n\n流程根因（已纠正）：评审循环曾因「填完裁决即提交」滚出多轮；本轮起改为同 SHA 复跑收敛。"
+  }
+}

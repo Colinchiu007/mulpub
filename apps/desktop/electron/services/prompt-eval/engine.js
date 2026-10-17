@@ -4,6 +4,7 @@
  * 输入校验（fail closed）→ 读图 → 构造提示词 → 调用评估器 → 解析校验 → 报告 → 持久化
  */
 const fs = require('fs')
+const { extToMime, IMAGE_EXT_TO_MIME } = require('@multi-publish/shared-utils/src/image-mime')
 const path = require('path')
 const crypto = require('crypto')
 const { buildImageEvaluationPrompt, buildVideoEvaluationPrompt, normalizeContextSnapshot } = require('./prompt-builder')
@@ -127,7 +128,8 @@ function validateRequest (request) {
 }
 
 function readImage (imagePath) {
-  const mimeByExt = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.bmp': 'image/bmp' }
+  // R7：图片三族引自单一真源；gif/bmp 超出真源范围（image-mime 只登记桌面链落盘格式），保持字面量
+  const mimeByExt = { ...IMAGE_EXT_TO_MIME, '.gif': 'image/gif', '.bmp': 'image/bmp' }
   const ext = path.extname(imagePath).toLowerCase()
   const mimeType = mimeByExt[ext] || 'image/png'
   const base64 = fs.readFileSync(imagePath).toString('base64')

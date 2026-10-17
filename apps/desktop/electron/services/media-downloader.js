@@ -14,6 +14,11 @@
  */
 
 const fs = require("fs");
+const { MIME_TO_EXT: IMAGE_MIME_TO_EXT, LEGACY_MIME_ALIASES: IMAGE_LEGACY_ALIASES } = require('@multi-publish/shared-utils/src/image-mime')
+// i3（CCG c98b127b）：别名条目按「归一目标 ext」显式查找，不依赖对象插入顺序
+//   （Object.keys(...)[0] 在别名表扩展后行为不可预测）。找归一到 .jpg 的非规范 mime。
+const IMAGE_LEGACY_ALIAS_MIME = Object.keys(IMAGE_LEGACY_ALIASES)
+  .find((m) => IMAGE_MIME_TO_EXT[IMAGE_LEGACY_ALIASES[m]] === '.jpg') || 'image/jpg'
 const path = require("path");
 const { pipeline: streamPipeline } = require("stream");
 const { promisify } = require("util");
@@ -60,11 +65,10 @@ const CONTENT_TYPE_MAP = {
   "video/quicktime": ".mov",
   "video/x-matroska": ".mkv",
   "video/ogg": ".ogv",
-  "image/jpeg": ".jpg",
-  "image/jpg": ".jpg",
-  "image/png": ".png",
-  "image/gif": ".gif",
-  "image/webp": ".webp",
+  // R7：图片三族引自单一真源；「image/jpg」历史兼容条目亦来自真源 LEGACY_MIME_ALIASES 的规范 mime
+  //   （别名登记见 image-mime.js —— 兼容例外是真源显式概念，不是散落的隐藏例外）。
+  ...IMAGE_MIME_TO_EXT,
+  [IMAGE_LEGACY_ALIAS_MIME]: '.jpg',
   "image/svg+xml": ".svg",
   "audio/mpeg": ".mp3",
   "audio/ogg": ".ogg",

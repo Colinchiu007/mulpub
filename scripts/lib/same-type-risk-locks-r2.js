@@ -26,48 +26,17 @@
 
 const { CROSS_METHOD_LOADING_MACHINES } = require('./loading-machine-exemptions')
 
+// ⚠ 屏蔽/配对已抽至共享库 scripts/lib/code-mask.js（第三批）。
+// 旧选项签名保留为薄包装，14 例测试基线不动；matchBrace 直接复用共享库（原实现逐字节相同）。
+const { maskNonCode: sharedMask, matchBrace } = require('./code-mask')
+
 /**
- * 屏蔽注释与字符串（与第一批同语义，独立实现以保持本模块零依赖自洽）。
- * opts.keepStrings 为 true 时保留字符串内容（供需要看字面量的判据用）。
+ * 兼容包装：keepStrings=true 等价于共享库 strings:'keep'。
+ * @param {string} src
+ * @param {{keepStrings?: boolean}} [opts]
  */
 function maskNonCode (src, opts) {
-  const keepStrings = !!(opts && opts.keepStrings)
-  const out = src.split('')
-  let i = 0
-  const n = src.length
-  const blank = (a, b) => { for (let k = a; k < b && k < n; k++) if (out[k] !== '\n') out[k] = ' ' }
-  while (i < n) {
-    const c = src[i]
-    const d = src[i + 1]
-    if (c === '/' && d === '/') { let j = i; while (j < n && src[j] !== '\n') j++; blank(i, j); i = j; continue }
-    if (c === '/' && d === '*') { let j = i + 2; while (j < n && !(src[j] === '*' && src[j + 1] === '/')) j++; blank(i, Math.min(j + 2, n)); i = Math.min(j + 2, n); continue }
-    if (!keepStrings && (c === "'" || c === '"' || c === '`')) {
-      const q = c
-      let j = i + 1
-      while (j < n) {
-        if (src[j] === '\\') { j += 2; continue }
-        if (src[j] === q) { j++; break }
-        j++
-      }
-      blank(i + 1, j - 1)
-      i = j
-      continue
-    }
-    i++
-  }
-  return out.join('')
-}
-
-function matchBrace (masked, openIdx) {
-  let depth = 0
-  for (let i = openIdx; i < masked.length; i++) {
-    if (masked[i] === '{') depth++
-    else if (masked[i] === '}') {
-      depth--
-      if (depth === 0) return i
-    }
-  }
-  return -1
+  return sharedMask(src, { strings: opts && opts.keepStrings ? 'keep' : 'mask' })
 }
 
 const FN_RE = /(?:function\s+[A-Za-z_$][\w$]*\s*\([^)]*\)\s*\{|(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=\s*(?:async\s*)?\([^)]*\)\s*=>\s*\{|(?:^|\n)[ \t]*(?:async\s+)?[A-Za-z_$][\w$]*\s*\([^)]*\)\s*\{)/g

@@ -1,0 +1,31 @@
+{
+  "sha": "416338fcc7cdaf14aee5a2258f72ddc56250a3f6",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 27 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 27,
+    "fileCount": 5,
+    "codeFileCount": 5,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "bb6037f7bb52b56522cf45f57eb09f7c5d940f706902045da918ccbe295d5620",
+  "decidedAt": "2026-10-17T12:45:14.552Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "self_play_pending",
+    "performedBy": "self-play(pending)",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "findings": null,
+    "template": ".adversarial\\ccg-deep-020ff510\\adjudication.json",
+    "note": "裁决尚未填写：6/6 条未定（i1, i2, i3, i4, i5, i6）",
+    "at": "2026-10-17T12:46:38.889Z"
+  }
+}
