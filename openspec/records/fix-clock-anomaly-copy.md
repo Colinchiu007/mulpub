@@ -1,8 +1,6 @@
 ---
 branch: fix-clock-anomaly-copy
 date: 2026-10-17
-sync_reason: 本 PR（fix-clock-anomaly-copy）的远程同步待合并后由后续 docs PR 就地改写为 PASS 并删除本登记字段
-sync_backfill_owner: fix-clock-anomaly-copy 分支作者会话（合并收尾时回填）
 ---
 
 # 本次执行记录：时钟倒挂处置口径修正——用户「无需处理」+ 区分「校时只对本机时间落后有效」（fix-clock-anomaly-copy，2026-10-17）【混合 PR】
@@ -82,5 +80,8 @@ sync_backfill_owner: fix-clock-anomaly-copy 分支作者会话（合并收尾时
 | CCG 提交门禁 | pre-commit 5 项（结果见提交输出） |
 | QM-1 打包 | 本 PR **未改** `apps/desktop/electron/`（改的是 `packages/shared-utils` + `apps/desktop/src/locales`），按 QM-1 触发条件不适用；`apps/desktop/src`（渲染端）由 `PublishProgressPanel.test.js` 覆盖 |
 | QM-6 深度评审 | 见 `.ccg/reviews/<sha>.json` 与 `.adversarial/` 产物 |
+| 回填型补充 | 混合 PR 走全量模板，但为满足「两形态同写」仍补声明式 bullet |
 
-| 远程同步 | PENDING |
+- 远程同步 PASS（PR #3801 → `befa196c`，回填与 sync_* 删除同一次提交）
+
+| 远程同步 | PASS（PR #3801 squash 合并 → `befa196c79340bcd2d2f5a88643988fd8f9d5bd3`，2026-10-17T17:33:35+08:00；回填与本删除同一次提交） |
