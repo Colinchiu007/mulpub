@@ -15,7 +15,10 @@
 
 const fs = require("fs");
 const { MIME_TO_EXT: IMAGE_MIME_TO_EXT, LEGACY_MIME_ALIASES: IMAGE_LEGACY_ALIASES } = require('@multi-publish/shared-utils/src/image-mime')
-const IMAGE_LEGACY_ALIAS_MIME = Object.keys(IMAGE_LEGACY_ALIASES)[0] // 'image/jpg'
+// i3（CCG c98b127b）：别名条目按「归一目标 ext」显式查找，不依赖对象插入顺序
+//   （Object.keys(...)[0] 在别名表扩展后行为不可预测）。找归一到 .jpg 的非规范 mime。
+const IMAGE_LEGACY_ALIAS_MIME = Object.keys(IMAGE_LEGACY_ALIASES)
+  .find((m) => IMAGE_MIME_TO_EXT[IMAGE_LEGACY_ALIASES[m]] === '.jpg') || 'image/jpg'
 const path = require("path");
 const { pipeline: streamPipeline } = require("stream");
 const { promisify } = require("util");
