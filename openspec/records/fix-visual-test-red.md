@@ -2,9 +2,6 @@
 record: fix-visual-test-red
 task: 修复 main 上长期常红的视觉门禁——用例 collection-confirm-dialog 自 2026-10-12 页签重构起漂移，补契约锁防再犯
 date: 2026-10-17
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；合并后由本会话开回填 PR，把表格行的「远程同步」改成 PASS + merge SHA，并在同一次提交删除本段三个 sync_* 字段
-sync_backfill_owner: fix-visual-test-red 会话（本节作者）
 ---
 
 ## 本次执行记录：视觉门禁常红修复 —— 用例漂移一个月 + 契约锁（fix-visual-test-red，2026-10-17）【混合 PR】
@@ -23,10 +20,10 @@ sync_backfill_owner: fix-visual-test-red 会话（本节作者）
 | QM-1 打包 | N/A | 未触碰 `apps/desktop/electron/` 与 `packages/rpa-engine/`，无主进程/打包面变化 |
 | QM-4 视觉 | ✅ | 本轮**就是**视觉门禁本体：`run-all-visual` 四套 105/105 通过（`suites=4 total=105 passed=105 failed=0 aborted=0`，rc=0），逐套 `views 37/37`、`supplementary-views 19/19`、`workflows 31/31`、`supplementary-workflows 18/18`。本地口径 `PIXEL_THRESHOLD=0.06` 与 CI 一致 |
 | QM-6 CCG 双模型外部评审 | 见判定器 | 提交时由 `scripts/ccg-review-decider.js` 按改动量与敏感面判定 single/dual；结果以 `.ccg/reviews/<sha>.json` 产物为准（不在本文手写结论） |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin fix-visual-test-red` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | PR #3773 已 squash 合并，merge SHA `d68696798342a32e1ad97987e15fd58d54300984`（2026-10-17T10:45:07+08:00）；远端分支 `fix-visual-test-red` 已删（`git ls-remote --heads` 0 行）；**合并后回读实测**：该 merge SHA 上 `visual-test.yml` 的 push run `38996150400` **conclusion=success**，日志 `[VISUAL-ALL-SUMMARY] suites=4 total=105 passed=105 failed=0 aborted=0`、`[GATE-7b] run-all-visual rc=0` —— 连红 60+ 次的 main 侧视觉门禁已被打破；frontmatter 的 `sync_*` 三字段已在本次提交删除（本记录无 ledger 登记项） |
 
 ### 遗留（不假装已闭合）
 
-1. **系统性缺口未修，只登记**：105 例视觉用例中约 85 例的 `checks`/聚合套件只跑在**非 required** 的 `Visual Tests` workflow 上；`quality-gate` 的 `QG Visual` 只覆盖 pixelTests 20 例 + 静态判据。**让这些用例进入 required 面属于「改谁来守门」**（改 `.github/workflows/` 的分支保护/required 集合），按 AGENTS.md「禁止自动合并的情形」必须人工过目，本会话不擅自实施。**需要用户决策：是否把 `Visual Tests` 提为 required check，或把 `run-all-visual` 接进 `quality-gate`。**
-2. **本条修复的实际效力有前提**：只有在 `Visual Tests` workflow 本体重跑并绿之后，main 的这条红才会消失。PR 合并后须回读该 merge SHA 上 `visual-test.yml` 的 push run 结论（不得只看 PR 侧）。
+1. **系统性缺口未修，只登记（且比初诊更尖锐）**：`visual-test.yml` 自 **2026-09-17「CI 提速」起移除了 `pull_request` 触发**，只保留 `push: branches: [main]` ⇒ 105 例视觉套件**在 PR 上根本不执行**，唯一信号是合并后 main 上的 run；而它又**不在分支保护 required 集合**里（required 只有 `Gate Result`/`build`/`QG Unit Tests`/`QG Coverage`）。两者叠加 = 「PR 上不跑 + main 上跑了红也不阻塞合并」⇒ 长期常红无人发现。**让这些用例进入 required 面或接进 `quality-gate` 属于「改谁来守门」**（改 `.github/workflows/` 与分支保护），按 AGENTS.md「禁止自动合并的情形」必须人工过目，本会话不擅自实施。**需用户决策。**
+2. **修复效力已回读证实（不是"PR 绿了"推断）**：因为该 workflow 不在 PR 上跑，PR 侧全绿**不构成**修复生效的证据；本记录取的是**合并后 main push** 的产物 —— merge SHA `d68696798342a32e1ad97987e15fd58d54300984` 上 `visual-test.yml` run `38996150400`：`conclusion=success`、`105/105`。
 3. **未做的事**：没有用 `--update-baseline` 刷新任何基线（禁止掩盖）；105 例里其余 104 例本轮一次通过，说明基线本身没坏，坏的只有这一条用例的选择器。
