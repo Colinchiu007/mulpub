@@ -57,6 +57,12 @@ ART_ROOT="${MP_ARTIFACT_ROOT:-$ROOT}"
 if [ -n "${MP_ARTIFACT_ROOT:-}" ] && [ "$MP_ARTIFACT_ROOT" != "$ROOT" ]; then
   echo "plan-review: 产物根被 MP_ARTIFACT_ROOT 覆盖为 $MP_ARTIFACT_ROOT（碰撞守卫只在被覆盖后的目录里检查；仅供测试）" >&2
 fi
+# 方案文件不可达时守卫整块被跳过——那正是一条"愿意被摘的锁"。本脚本在第 21 行就
+# cd 到 $ROOT，所以从子目录传进来的相对路径到此处已解不进原文件（外部评审 F5 命中，
+# 本机实测：守卫一声不吭地放行）。判据不看 rc 也不看内容，只看这一行有没有出声。
+if [ -n "$PROPOSAL" ] && [ ! -f "$PROPOSAL" ]; then
+  echo "plan-review: 方案文件在仓库根下不可达（$PROPOSAL）⇒ 产物目录碰撞守卫已跳过，请改传绝对路径" >&2
+fi
 if [ -n "$PROPOSAL" ] && [ -f "$PROPOSAL" ] && [ -d "$ART_ROOT/.adversarial" ]; then
   _pb=$(basename -- "$PROPOSAL"); _pb=${_pb%.*}
   _pb=$(printf '%s' "$_pb" | tr 'A-Z' 'a-z')

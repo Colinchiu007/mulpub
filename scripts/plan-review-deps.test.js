@@ -291,3 +291,15 @@ test('plan-review.sh：碰撞守卫必须在环境闸之前（否则缺后端时
   assert.ok(iGuard < iEnvGate, '守卫必须早于环境闸')
   assert.ok(iGuard < iDriverSearch, '守卫必须早于驱动搜索/调用')
 })
+
+test('plan-review.sh：方案文件不可达时守卫必须出声"已跳过"（外部评审 F5）', () => {
+  // 守卫的条件是 [ -n "$PROPOSAL" ] && [ -f "$PROPOSAL" ]，而脚本开头就 cd 到 $ROOT，
+  // 所以从子目录传的相对路径到此解不进原文件 ⇒ 整块守卫被静默跳过 = 一条愿意被摘的锁。
+  // 判据不看 rc（跳过时脚本照样往下走），只看这一行有没有出声并点名 PROPOSAL。
+  const missing = path.join(os.tmpdir(), `no-such-proposal-${process.pid}.md`)
+  const r = run([missing, '--dry-run'], {})
+  assert.match(r.out, /守卫已跳过/,
+    `方案不可达必须出声，实际：${r.out.slice(0, 260)}`)
+  assert.match(r.out, /绝对路径/, '必须给出修法，否则下一个人只会换个相对路径再试一次')
+  assert.ok(r.out.includes('no-such-proposal'), '必须点名那个解不进的路径，否则等于打印一句通用安慰')
+})

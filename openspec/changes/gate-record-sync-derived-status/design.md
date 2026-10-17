@@ -99,11 +99,11 @@ missingRow → (NOT_IN_BASE ? inThisChangeset / prematureClaim : —) → derive
 
 ## D7 单一实现与落点
 
-- `scripts/lib/merge-ledger.js`（新）导出 `buildMergeLedger({baseRef})` 与 `buildAddedByMap({baseRef})`，**两个判据（状态、归属）都从这里取**，禁止第二份 git 解析。`-c core.quotepath=off`、`--no-renames`、只认 `(#NNNN)$` 尾注三条口径都写进注释并各配一条测试（rename 检测会把 `A` 报成 `R`，导致归属解析不出）。
+- `scripts/lib/merge-ledger.js`（新）导出 `buildLedger({baseRef, cwd})` 与 `classifyAttribution(ledger, relPath)`（名字以实现为准，本节旧稿写的 `buildMergeLedger` / `buildAddedByMap` 从未存在过），**两个判据（状态、归属）都从这里取**，禁止第二份 git 解析。`-c core.quotepath=off`、`--no-renames`、只认 `(#NNNN)$` 尾注三条口径都写进注释并各配一条测试（打开 rename 检测会把归属**重指**到改名提交，而不是"解析不出"——见 D3 与 tasks 2.10）。
 - 落点必须是 `quality-gate.yml` 的 `changes` job（无 job 级 `if:`，docs-only 不短路，`shell: bash` fail-fast）。**不得**放 `static-gates`：该 job 有 `if: needs.changes.outputs.docs-only != 'true'`，判据一旦进可跳过的 job，docs-only PR 就永远不跑它——本仓已有 `TEST_ONLY_IN_SKIPPABLE_JOB` 机械锁（`scripts/check-unwired-tests.js`）会直接拦。
-- `--current-pr` 由 CI 注入 `github.event.pull_request.number`；本地跑不传 ⇒ `inThisChangeset` 改由"文件不在 base 上"单独判定，不依赖 PR 号（缺一会本地恒判 `debt`）。
+- `--current-pr` **不实现**（落片 5 外部评审 F2 的裁决）：`inThisChangeset` 的判据是"该路径不在 base 的归属映射里"，不需要 PR 号；而旗标一旦被白名单接受又没有消费者，在 CI 日志里就读起来像"某一档生效了"——与"拼错了被静默忽略"是同一条反模式的两端。因此 `parseFlags` 现在对它**抛未知旗标**，并有用例钉住这条抛错。同一评审还确认：本文件原先写的导出名 `buildMergeLedger` / `buildAddedByMap` 与实现不符，实际是 `buildLedger`（返回 `{ok, mergedPrs, addedBy, stats}`）与 `classifyAttribution`，已按实现改名本节。
 
-**共享实现必须自带自检，且自检要能被证明在跑**（评审意见 i3）：`buildMergeLedger` 在 baseRef 可解析而账本为空时 MUST 产出"账本不可用"信号，而不是返回空 Map（空 Map 会被上层读成"一个已合并 PR 都没有"，方向上安全但会让派生档静默退化成装饰）；解析中途抛错 MUST 被捕获并落 `ledgerUnavailable` 出声。配一条**隔离测试**：把 `buildMergeLedger` 改成恒返回空 Map ⇒ 必须红，且红的是派生档用例而非全量（证明派生档不是搭在断言档上的顺风车）。
+**共享实现必须自带自检，且自检要能被证明在跑**（评审意见 i3）：`buildLedger` 在 baseRef 可解析而账本为空时 MUST 产出"账本不可用"信号，而不是返回空 Map（空 Map 会被上层读成"一个已合并 PR 都没有"，方向上安全但会让派生档静默退化成装饰）；解析中途抛错 MUST 被捕获并落 `unavailable()` 出声。配一条**隔离测试**：把归属解析改成恒读不出 PR ⇒ 必须红，且红的是派生档用例而非全量（证明派生档不是搭在断言档上的顺风车）——这条就是变异反证 M2 的实跑形态。
 
 **CI 打印必须自证，不能靠人事后 grep**（评审意见 i4）：`MERGE-LEDGER prs=<n>` 不是日志装饰。判据在 CI 环境（`process.env.CI` 为真）下若 `n === 0` ⇒ MUST 非零退出并点名"派生档未生效"；本地非 CI 允许打印 `n/a` 后按 `ledgerUnavailable` 出声降级。另配 `workflow-contract.test.js` 结构锁：该步骤 MUST 存在于 `changes` job，且 MUST NOT 出现在任何带 job 级 `if:` 的 job 里。
 
