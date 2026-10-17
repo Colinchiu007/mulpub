@@ -3,9 +3,6 @@ record: collected-results-fix
 task: 三合一：①引导文案按钮名与 locale 机械同步锁（闭 PRD §4.3.5-3 遗留）②「改写失败用原文」可诊断化（后端吞错 → 带出原因）③结果区「编辑/点内容没反应」（滚动反馈 + 假可点光标）
 date: 2026-10-17
 branch: collected-results-fix
-sync_status: PENDING
-sync_reason: PR 尚未合并（记录随代码 PR 落地，合并后回填 merge SHA）
-sync_backfill_owner: collected-results-fix 会话（回填 PR）
 ---
 
 # 执行记录：collected-results-fix（2026-10-17）
@@ -33,9 +30,9 @@ sync_backfill_owner: collected-results-fix 会话（回填 PR）
 | 行尾两口径对账 | PASS | 见提交前读数（`--head=HEAD` 判据**在 commit 之后**取证——上轮踩过的坑本轮未再踩） |
 | QM-6 双模型评审 | 见第 4 节 | 按 decider 判定 |
 | 文档同步 | PASS | PRD §4.3.5-3 改判已闭环 + 新增 §4.3.6；新增 BUGFIX 文档（根因/逃逸/修复/回归锁/遗留）；本记录 |
-| 远程同步 | PENDING | PR 未开。合并后同一次提交改写为 `PASS` + merge SHA 并删除 `sync_*` 三字段 |
+| 远程同步 | PASS | PR **#3823** 已 squash 合并，merge SHA `c2bd36d1e53912e88972f70210b123a3987053ee`；远端分支已删（ls-remote 0 行）。main push 回读见本行合并时读数（该回填 PR 与代码 PR 分属两次推送，代码 PR 的 main push 读数以其记录为准）。回填与销账同一次提交 |
 
-- 保留门禁：变更类型与隔离 ✅ | TDD ✅ | QM-1 ✅ | QM-2 ✅ | i18n ✅ | QM-4 ✅ | 新判据 ✅ | eslint ✅ | 文档同步 ✅ | 行尾对账 ✅ | 远程同步 PENDING
+- 保留门禁：变更类型与隔离 ✅ | TDD ✅ | QM-1 ✅ | QM-2 ✅ | i18n ✅ | QM-4 ✅ | 新判据 ✅ | eslint ✅ | 文档同步 ✅ | 行尾对账 ✅ | 远程同步 PASS
 
 ## 2. 三个修复的要点（详见 BUGFIX 文档）
 
