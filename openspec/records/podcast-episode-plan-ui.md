@@ -8,7 +8,7 @@ sync_backfill_owner: 本会话（podcast-episode-plan-ui 线程）
 
 # 本次执行记录：播客文本出期 ②-b（podcast-episode-plan-ui，2026-10-17）【完整流程】
 
-> 分支 `podcast-episode-plan-ui`，worktree `D:/Data/projects/mp-worktrees/mp-podcast-episode-plan-ui`（非 C 盘），起点 `origin/main` `3ff90dfcc`。
+> 分支 `podcast-episode-plan-ui`，worktree `<仓库父目录>/mp-worktrees/mp-podcast-episode-plan-ui`（非 C 盘），起点 `origin/main` `3ff90dfcc`。
 > 载体冻结已生效 ⇒ **未写** `.quality-gates.md`、**未加** ledger 键；本篇是本 PR 记录的唯一载体。
 > 保留门禁：变更类型与隔离 ✅ | 行尾对账 ✅ | 品牌残留 ✅ | 文档同步 PENDING | 远程同步 PENDING
 
