@@ -19,8 +19,16 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "self_play_resolved",
+    "performedBy": "ccg-deep-review(claude) + agent adjudication",
+    "findings": {
+      "reviewer": "claude",
+      "issueCount": 8,
+      "upheld": 3,
+      "dismissed": 4,
+      "info": 1,
+      "adjudication": ".adversarial/ccg-deep-6f9a9d71/adjudication.json",
+      "summary": "upheld 已修：i3 测试路径锚点化、i6 去掉过度 JSON 序列化、i7 补布局回归锁（含变异验证）。dismissed 附证据：i2 系 rebase 冲突取对侧真实产物非伪造、i5 硬编码色值有 CI 双轮对比度实测支撑。i1/i4 指控技术成立但采评审给出的「显式文档化」选项（entitlement-gate.js 文件头警示块）。"
+    }
   }
 }
