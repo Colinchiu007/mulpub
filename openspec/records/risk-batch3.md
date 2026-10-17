@@ -3,15 +3,11 @@ record: risk-batch3
 task: 第三批同型风险锁：R7（mime↔后缀单一真源 + 独立映射表结构锁）+ R11（模块级状态只增审计面）+ 兑现共享 mask/FN 库抽取承诺（code-mask.js）+ EverOS/gstack/仓内三层记忆沉淀 + 文档同步
 date: 2026-10-17
 branch: risk-batch3
-# ↓ 下面三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在，无法取证收口
-sync_backfill_owner: 下一个会话（三形态同改：表格行 + bullet + 删除本段三字段，同一次提交）
 ---
 
 ## 本次执行记录：同型风险第三批（risk-batch3，2026-10-17）
 
-- 保留门禁：QM-1 打包 **N/A**（image-mime 进 shared-utils 但仅新增数据模块，未改 `apps/desktop/electron/` 既有代码逻辑——4 个消费文件的映射来源替换见下）｜ 行数门禁 ✅ ｜ 品牌残留 ✅ ｜ 远程同步 PENDING
+- 保留门禁：QM-1 打包 **N/A**（image-mime 进 shared-utils 但仅新增数据模块，未改 `apps/desktop/electron/` 既有代码逻辑——4 个消费文件的映射来源替换见下）｜ 行数门禁 ✅ ｜ 品牌残留 ✅ ｜ 远程同步 PASS（c8a3ea408e320f694b7d5767be62db25773d1535）
 
 ### 做了什么（三件事）
 
@@ -87,7 +83,7 @@ PASS（八条锁全部通过：L1-L4 + R5/R9a + R7/R11）
 | QM-2 代码必检项 | ✅ | 新模块纯数据/纯函数；require 路径已核（shared-utils 在 asar node_modules 内）；无同步 CPU 密集、无网络、无写盘 |
 | QM-4 视觉 | **N/A** | 无 UI 变更 |
 | QM-6 双模型评审 | 见下 | diff > 200 行 ⇒ dual，走引擎 |
-| 远程同步 | PENDING | 待合并后回填 |
+| 远程同步 | PASS | PR #3845 已合并，merge SHA c8a3ea408e320f694b7d5767be62db25773d1535（2026-10-17 22:06 +08:00）|
 
 ### 未闭合（不假装已闭合）
 
