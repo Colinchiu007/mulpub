@@ -1114,21 +1114,38 @@ test('Gate 7 必须按退出码 3 阻断就绪故障（捕获而不判定的回�
 //
 // 本锁钉住三件事：① 非零必须当场重跑一次（两轮甄别，避免把偶发采集抖动变成所有 PR 的常量红）；
 // ② 两轮都非零必须 exit 非零；③ 该判定必须排在「All visual tests passed」之前。
-test('QG Visual 的校验域套件（views / views-supplement）失败必须阻断', () => {
+test('QG Visual 的校验域套件（views / views-supplement / workflows / workflows-supplement）失败必须阻断', () => {
   const wf = yaml.load(fs.readFileSync(qualityGatePath, 'utf8'));
   const step = wf.jobs.visual.steps.find(s => /Gate 7 - Visual regression/.test(String(s.name || '')));
   assert.ok(step, 'quality-gate.yml 的 visual job 必须有「Gate 7 - Visual regression」步骤');
   const body = String(step.run || '');
 
-  // ① 两套各自：非零分支之后必须紧跟同一套件的重跑
+  // ① 四套各自：非零分支之后必须紧跟同一套件的重跑。
+  // workflows 两套是 2026-10-17（visual-gate-full-coverage）补进来的——它们此前**只**在
+  // `visual-test.yml` 的 run-all-visual 里跑，而那个 workflow 不在 PR 上触发 ⇒ PR 侧零覆盖。
   for (const [guard, rerun, label] of [
     ['if ($viewsExit -ne 0)', 'pnpm.cmd run test:visual', 'views'],
     ['if ($viewsSuppExit -ne 0)', 'pnpm.cmd run test:visual:supplement', 'views-supplement'],
+    ['if ($workflowsExit -ne 0)', 'pnpm.cmd run test:workflow', 'workflows'],
+    ['if ($workflowsSuppExit -ne 0)', 'pnpm.cmd run test:workflow:supplement', 'workflows-supplement'],
   ]) {
     const iGuard = body.indexOf(guard);
     assert.ok(iGuard >= 0, `${label} 必须有「非零 ⇒ 重跑」的两轮甄别分支（判据：${guard}）`);
     const iRerun = body.indexOf(rerun, iGuard);
     assert.ok(iRerun > iGuard, `${label} 的重跑调用必须在该分支内（判据：${rerun}）`);
+    // 每一套都必须**真的跑过**（guard 存在也可能是从没执行过的死分支）
+    assert.ok(
+      body.indexOf(`${rerun}`) >= 0,
+      `${label} 的套件命令必须在 Gate 7 里出现（否则守卫是死代码）`,
+    );
+  }
+  // 每条重跑都必须是「两次都非零才收进名单」的形态，不得写成一次就阻断
+  for (const label of ['views', 'views-supplement', 'workflows', 'workflows-supplement']) {
+    assert.match(
+      body,
+      new RegExp(`\\$checksFailSuites \\+= '${label}'`),
+      `${label} 两轮均失败时必须收进 \$checksFailSuites`,
+    );
   }
 
   // ② 两轮均失败必须阻断，且必须点名"校验型"（与像素抖动分流，便于排障）

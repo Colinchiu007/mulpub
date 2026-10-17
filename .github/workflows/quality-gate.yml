@@ -1382,7 +1382,23 @@ jobs:
               Write-Host "Running dark pixel suite (to produce the dark renders for Gate 7b)..."
               pnpm.cmd run test:visual:pixel:dark
               $darkExit = $LASTEXITCODE
-              Write-Host "[GATE-7] suite exits: pixel=$pixelExit views=$viewsExit views-supplement=$viewsSuppExit dark=$darkExit"
+
+              # ⛔ 补齐 PR 侧覆盖缺口（2026-10-17，visual-gate-full-coverage）。
+              # 105 例视觉用例的分布是：views 37 + supplementary-views 19 在**本 job** 跑；
+              # workflows 31 + supplementary-workflows 18（合计 **49 例**）此前**只**在
+              # `visual-test.yml` 的 `run-all-visual` 里跑，而那个 workflow 不在 PR 上触发
+              # ⇒ 这 49 例在 PR 侧**完全没有覆盖**（不是"被吞"，是根本没跑）。
+              # 为什么不直接把 `run-all-visual` 整只搬进来：会把已跑过的 56 例再跑一遍、
+              # 且重复付 Playwright 安装 / build:vue / 起 Vite 的准备成本。本 job 这三样都已就绪，
+              # 只补跑缺的两套是成本最低、覆盖最全的接法（CI 侧新增耗时以实跑为准，未预先声称）。
+              # 退出码照旧两条都打出来：「套件崩了」不得伪装成「本次没产图」。
+              Write-Host "Running workflow suites (to cover the 49 cases only visual-test.yml used to run)..."
+              pnpm.cmd run test:workflow
+              $workflowsExit = $LASTEXITCODE
+              pnpm.cmd run test:workflow:supplement
+              $workflowsSuppExit = $LASTEXITCODE
+
+              Write-Host "[GATE-7] suite exits: pixel=$pixelExit views=$viewsExit views-supplement=$viewsSuppExit dark=$darkExit workflows=$workflowsExit workflows-supplement=$workflowsSuppExit"
 
               # ⛔ 校验型失败必须阻断（2026-10-17，visual-checks-must-block）。
               # 上面 1334-1342 的注释说「views 两套的比较结果不另设门禁」，理由是 Gate 7b 的
@@ -1409,6 +1425,22 @@ jobs:
                 $viewsSuppRetryExit = $LASTEXITCODE
                 Write-Host "[GATE-7] views-supplement 重跑 rc=$viewsSuppRetryExit"
                 if ($viewsSuppRetryExit -ne 0) { $checksFailSuites += 'views-supplement' }
+              }
+              # 2026-10-17 补齐的两套同样走「两轮甄别再阻断」——它们是同一类确定性断言
+              #（`runWorkflowTest`：截图 + checks），此前在 PR 侧**根本没跑**，谈不上拦不拦。
+              if ($workflowsExit -ne 0) {
+                Write-Host "[GATE-7] workflows 套件 rc=$workflowsExit —— 按两轮甄别重跑一次"
+                pnpm.cmd run test:workflow
+                $workflowsRetryExit = $LASTEXITCODE
+                Write-Host "[GATE-7] workflows 重跑 rc=$workflowsRetryExit"
+                if ($workflowsRetryExit -ne 0) { $checksFailSuites += 'workflows' }
+              }
+              if ($workflowsSuppExit -ne 0) {
+                Write-Host "[GATE-7] workflows-supplement 套件 rc=$workflowsSuppExit —— 按两轮甄别重跑一次"
+                pnpm.cmd run test:workflow:supplement
+                $workflowsSuppRetryExit = $LASTEXITCODE
+                Write-Host "[GATE-7] workflows-supplement 重跑 rc=$workflowsSuppRetryExit"
+                if ($workflowsSuppRetryExit -ne 0) { $checksFailSuites += 'workflows-supplement' }
               }
 
               # 退出码 3 = 有视图**从未渲染出来**（就绪超时）：确定性的路由/选择器故障，
