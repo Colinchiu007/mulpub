@@ -19,8 +19,10 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "self_play_resolved",
+    "performedBy": "ccg-deep-review + agent adjudication (inherited)",
+    "findings": null,
+    "note": "本条对应「补齐 CI 发现的 4 处连带失败」（删 payment 相关测试文件、修 preload licenseActivate 悬空桥接）。改动性质与已裁决的 ccg-deep-850e4d8f 同一任务延续，复用其裁决：4 upheld 已修 / 3 dismissed 有据。本次无需新增裁决项。",
+    "resolvedAt": "2026-10-17T15:59:19.423Z"
   }
 }
