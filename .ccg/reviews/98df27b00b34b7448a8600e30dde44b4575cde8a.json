@@ -1,0 +1,37 @@
+{
+  "sha": "98df27b00b34b7448a8600e30dde44b4575cde8a",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 2506 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 2506,
+    "fileCount": 39,
+    "codeFileCount": 24,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 7,
+    "docSensitiveContentHits": 5,
+    "docSensitiveContentSample": [
+      "- **prepend 型文档的 rebase 冲突是机械题**：CHANGELOG / .quality-gates.md 每次都在头部撞车，regex 一段式拼接（`(?s)<<<<<<< HEAD\\r?\\n(.*?)=======\\r?\\n(.*?)>>>>>>> origin/main\\r?\\n`，ours+theirs 顺序保留双方条目）比手工编辑可靠，处理后 `Select-String` 扫残留标记数应为 0。",
+      "- **prepend 型文档的 rebase 冲突是机械题**：CHANGELOG / .quality-gates.md 每次都在头部撞车，regex 一段式拼接（`(?s)\\r?\\n(.*?)\\r?\\n(.*?)>>>>>>> origin/main\\r?\\n`，ours+theirs 顺序保留双方条目）比手工编辑可靠，处理后 `Select-String` 扫残留标记数应为 0。",
+      "### 方案 B：原生 `<select>`（或 UiSelect）直接放在行内"
+    ],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-17T10:02:15.703Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "opencode(proposer) + claude(critic) + self-play adjudication (5 items, all adjudicated)",
+    "findings": {
+      "note": "i1/i2/i4 upheld 均已修复（删未闭合过程记录、新增 resize 重算、截图配方+哈希入记录）；i3/i6 dismissed 附依据；记录于 openspec/records/hot-topics-pipeline-picker.md §4",
+      "total": 8,
+      "upheld": 3,
+      "postFixRegression": "99/99 green; eslint rc=0",
+      "resolved": 5,
+      "dismissed": 2,
+      "adjudication": ".adversarial/ccg-deep-339fdd9d/adjudication.json"
+    }
+  }
+}

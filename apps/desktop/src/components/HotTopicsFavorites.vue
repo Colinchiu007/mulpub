@@ -38,12 +38,16 @@
           :data-testid="'hot-topic-favorite-create-copy-' + favKey(fav)"
           @click="onCreateCopy(fav)"
         >{{ t('hotTopics.createCopy') }}</button>
-        <button
-          class="cohere-btn-primary item-gen-video-btn"
-          :disabled="!fav.topic || genVideoBusy"
-          :data-testid="'hot-topic-favorite-generate-video-' + favKey(fav)"
-          @click="onGenerateVideo(fav)"
-        >{{ t('hotTopics.generateVideo') }}</button>
+        <!-- hot-topics-pipeline-picker（2026-10-17）：收藏行与热门行共用同一按钮组；
+             选中流水线后 emit 带 topic + pipelineName，父级直接 startGenerateVideo(topic, pipeline) -->
+        <HotTopicsGenVideoPicker
+          :topic-id="favKey(fav)"
+          :favorite="true"
+          :busy="genVideoBusy"
+          :disabled="!fav.topic"
+          @generate="onGenerateVideo(fav)"
+          @pick="(pipelineName) => onPickPipeline(fav, pipelineName)"
+        />
       </div>
     </div>
   </div>
@@ -52,6 +56,7 @@
 <script setup>
 import { useI18n } from 'vue-i18n'
 import EmptyState from '@/components/EmptyState.vue'
+import HotTopicsGenVideoPicker from '@/components/HotTopicsGenVideoPicker.vue'
 
 const { t } = useI18n()
 
@@ -86,6 +91,12 @@ function onCreateCopy(fav) {
 function onGenerateVideo(fav) {
   if (!fav.topic || props.genVideoBusy) return
   emit('generate-video', fav.topic)
+}
+
+/** 选择器选中某条流水线：把 topic + pipelineName 一起交给父级编排 */
+function onPickPipeline(fav, pipelineName) {
+  if (!fav.topic || props.genVideoBusy) return
+  emit('generate-video', fav.topic, pipelineName)
 }
 </script>
 

@@ -198,6 +198,45 @@ export default {
       CHECK_LOGIN_COOKIE_EXPIRED: '登录已失效，Cookie 已过期，请重新登录',
       CHECK_LOGIN_FAILED: '登录状态检查失败，请稍后重试',
     },
+    // 2026-10-17：登录态「未确认/失败」的可执行提示（与主进程 login-status-hints.js 的键一一对应）。
+    // 只解释"为什么 + 下一步"，不改变三态判定本身。
+    checkHints: {
+      noCookie: '未检测到已保存的登录凭证，请重新登录该平台账号',
+      credentialFileOnly: '只找到历史凭证文件、没有可用 Cookie，登录状态无法确认，请重新登录',
+      httpCheckInconclusive: '平台接口未给出明确结论（可能正在风控或改版），请稍后重试',
+      renderCrashProne: '该平台无法用接口判定且不能开窗检测，请重新登录以恢复确定结论',
+      hiddenBrowserDisabled: '该平台当前只用接口判定登录态，未取到定论，请重新登录',
+      noPositiveEvidence: '页面既没有登录特征也没有登出特征，无法判定，请重新登录',
+      browserCheckFailed: '页面检测自身失败（超时或被拦截），请稍后重试',
+      domCheckProcessDied: '页面检测进程已退出，本次未取到定论，请稍后重试',
+      noCredential: '没有可用登录凭证，请添加或重新登录该账号',
+      cookieExpired: '登录已失效（Cookie 过期或被平台踢下线），请重新登录',
+      httpTimeout: '平台接口响应超时，请稍后重试',
+      httpError: '平台接口返回异常，请稍后重试',
+      timeout: '检测超时，请稍后重试',
+      lockTimeout: '上一次检测仍在进行，本次未执行，请稍后重试',
+      error: '检测过程出错，请稍后重试',
+      failed: '登录状态检查失败，请稍后重试',
+      unsupportedPlatform: '该平台暂不支持登录态检测，请手动打开平台确认',
+    },
+    // 2026-10-17：能力级授权（登录态之外的第二个维度）
+    capabilityLabels: {
+      dataRead: '数据读取',
+      commentInteract: '评论互动',
+    },
+    capabilityStates: {
+      granted: '已授权',
+      revoked: '未授权',
+      unknown: '未确认',
+    },
+    capabilityHintRevoked: {
+      dataRead: '该平台未授权读取数据，相关统计与素材同步不可用',
+      commentInteract: '该平台未授权评论互动，自动回复与批量评论不可用',
+    },
+    capabilityRow: '能力授权',
+    checkHintsSummary: '后续操作建议',
+    checkHintsSummaryRelogin: (ctx) => ctx.named('count') + ' 个账号需要重新登录',
+    checkHintsSummaryRetry: (ctx) => ctx.named('count') + ' 个账号请稍后重试',
     // 账号卡片标签（AccountManagementCard 使用）
     accountCardLabels: {
       favoriteAdd: '收藏账号',

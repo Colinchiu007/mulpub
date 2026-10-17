@@ -3,15 +3,11 @@ record: loading-progress-locks
 task: 第二批同型风险锁：R5（loading 置 true 后函数内无复位 ⇒ 红；finally 外复位与跨方法状态机出声）+ R9a（定时器窗口内对进度赋字面量）
 date: 2026-10-17
 branch: loading-progress-locks
-# ↓ 下面三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在，无法取证收口
-sync_backfill_owner: 下一个会话（三形态同改：表格行 + bullet + 删除本段三字段，同一次提交）
 ---
 
 ## 本次执行记录：同型风险第二批 R5/R9a（loading-progress-locks，2026-10-17）
 
-- 保留门禁：QM-1 打包 **N/A**（未改 `apps/desktop/electron/` 与 `packages/rpa-engine/`）｜ 行数门禁 ✅ ｜ 品牌残留 ✅ ｜ 远程同步 PENDING
+- 保留门禁：QM-1 打包 **N/A**（未改 `apps/desktop/electron/` 与 `packages/rpa-engine/`）｜ 行数门禁 ✅ ｜ 品牌残留 ✅ ｜ 远程同步 PASS（`2154e2da18b00ad416e7eeed43b47189120871c7`）
 
 ### 做了什么
 
@@ -70,7 +66,7 @@ R5 可见面 8 条（跨方法状态机 ×2、finally 外复位 ×4、函数体�
 | QM-2 代码必检项 | ✅ | 纯函数 + 只读 CLI；豁免表是数据文件（require 即用，无副作用）|
 | QM-4 视觉 | **N/A** | 无 UI 变更 |
 | QM-6 双模型评审 | 见下 | diff > 200 行 ⇒ CCG 判 dual，走引擎 |
-| 远程同步 | PENDING | 待合并后回填 |
+| 远程同步 | PASS | PR #3827 已合并，merge SHA `2154e2da18b00ad416e7eeed43b47189120871c7`（2026-10-17 19:04 +08:00）|
 
 ### 未闭合（不假装已闭合）
 

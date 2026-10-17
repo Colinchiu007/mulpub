@@ -946,7 +946,15 @@ async function checkLogin (account) {
     } else if (verdict === undefined) {
       // 三态契约：既非有效也非失效 = 本轮未取到定论。不得冒充「已失效」弹出去登录引导，
       // 也不得反向清除既有的会话失效标记 —— 与批量侧同一口径，证据缺席时什么都不改。
-      notifyInfo('accountsPage.loginUnconfirmed', { params: { platform: platformName } })
+      // 2026-10-17：把主进程给的 hint（为什么 + 下一步）拼进提示，用户才知道该重试还是该重新登录。
+      const hintKey = result?.data?.hint?.key
+      const detail = (hintKey && te(hintKey)) ? t(hintKey) : ''
+      notifyInfo('accountsPage.loginUnconfirmed', {
+        params: { platform: platformName },
+        message: detail
+          ? platformName + '：' + detail
+          : t('accountsPage.loginUnconfirmed', { platform: platformName }),
+      })
     } else {
       checkedExpiredIds.value.add(id)
       // 使用错误码映射到 i18n 文案，避免后端硬编码消息直接展示
@@ -1031,6 +1039,11 @@ async function batchCheckAllLogins () {
     const invalidIds = []
     let unconfirmedCount = 0
     const persistFailedIds = []
+    // 2026-10-17：未确认/失败账号的「下一步动作」聚合。参考产品B 把平台错误码翻译成
+    // 可执行提示（2190008→重新授权），我们这里把 reason 翻译成"重试 or 重新登录"，
+    // 让汇总行不只是报数，而是告诉用户接下来该做什么。
+    const reloginIds = []
+    const retryIds = []
     const checkedAt = result.data?.checkedAt || new Date().toISOString()
     for (const item of results) {
       if (!item?.accountId) continue
@@ -1047,6 +1060,9 @@ async function batchCheckAllLogins () {
         unconfirmedCount++
         checkedExpiredIds.value.delete(item.accountId)
       }
+      // hint.action：relogin=要重新登录 / retry=稍后重试；两者处置不同，不能混在一句里
+      if (item.hint && item.hint.action === 'relogin') reloginIds.push(item.accountId)
+      else if (item.hint && item.hint.action === 'retry') retryIds.push(item.accountId)
       const account = accounts.find(a => a.id === item.accountId)
       if (account) {
         // 这里只做本次会话的乐观展示。持久化由主进程在 accounts:batch-check-login
@@ -1066,6 +1082,14 @@ async function batchCheckAllLogins () {
       notifySuccess('accountsPage.batchCheckAllAllValid', { params: { count: validCount } })
     } else {
       notifyWarning('accountsPage.batchCheckAllDone', { params: { valid: validCount, invalid: invalidIds.length, unconfirmed: unconfirmedCount } })
+    }
+    // 未确认/失败的「下一步」单独一条：把"该重新登录"与"该稍后重试"分开说，
+    // 否则用户只看到数字、不知道哪些账号要自己动手。
+    if (reloginIds.length > 0 || retryIds.length > 0) {
+      const parts = []
+      if (reloginIds.length > 0) parts.push(t('accountsPage.checkHintsSummaryRelogin', { count: reloginIds.length }))
+      if (retryIds.length > 0) parts.push(t('accountsPage.checkHintsSummaryRetry', { count: retryIds.length }))
+      notifyInfo('accountsPage.checkHintsSummary', { message: parts.join('；') })
     }
     if (persistFailedIds.length > 0) {
       // 固化失败必须可见，否则用户会再次遇到「检测过了但重进又变回去」。

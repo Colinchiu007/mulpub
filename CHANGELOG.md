@@ -36,6 +36,40 @@
 - 本 PR **不能自证 push 侧转绿**：那条步骤在 PR 事件上不跑。验收判据是合并后 main push 的那一次运行，
   已在执行记录里写成收尾必查项。
 
+# [未发布] feat(accounts): 登录态提示可执行化 + 能力级授权 + DOM 判定进程隔离（account-login-ux）
+
+三件配套改动，共同把「未确认」从一句废话变成用户知道该怎么做的状态：
+
+- **提示可执行化（P1）**：新增 `electron/publishers/login-status-hints.js`，把主进程既有的 9 种 `reason` 与 9 种 `code`
+  映射成「为什么 + 下一步」的 locales 键（`accountsPage.checkHints.*`，zh/en 成对 17 条）与动作分类
+  （`relogin` / `retry` / `none`）。动因：参考产品B 把平台错误码翻译成可执行提示
+  （2190008→「授权失效,请重新授权」），而我们未确认时只显示「未取到定论」。
+  ⚠️ **不登记** `CHECK_LOGIN_INVALID_PARAMS`：那是开发缺陷，配产品提示等于把 bug 包装成文案。
+- **能力级授权（P1）**：新增 `electron/publishers/login-check-capabilities.js`，账号从一维（登录态）变二维
+  （登录态 × 能力：`dataRead` 数据读取 / `commentInteract` 评论互动）。三条不可破：
+  缺证据一律 `unknown`（绝不猜）、只有平台明确拒绝（错误码如 `100437`）才 `revoked`、
+  未授权 ≠ 未登录（两者分开展示）。UI 只在有确定结论时渲染能力行，避免满屏 unknown 噪声。
+- **DOM 判定进程隔离（P2）**：新增 `electron/publishers/dom-login-check-runner.js`，把隐藏页面判定搬进可隔离的
+  运行器：子进程死亡/异常/空结果一律降级 `CHECK_LOGIN_INCONCLUSIVE` + `reason=dom-check-process-died`，
+  **绝不抛给调用方、绝不判失效**。默认仍在主进程内执行（允许集默认为空 ⇒ 生产走不到），
+  真隔离经显式参数 `options.isolated` + 注入的 `spawnIsolated` 开启（不得用环境变量）。
+
+**架构决策（写进代码注释防止回退）**：曾把 `hint`/`capabilities` 直接装饰到 `checkLoginStatus` 返回值上，
+**实测打破 13 个既有 `toEqual` 精确断言**（判定本体被加上两个键），且让判定与展示语义耦合。
+现改为**判定链保持纯净**，展示语义由 IPC 层显式调用 `loginStatusHint` / `loginStatusCapabilities` 挂载，
+缺内容不挂键。`item` 的键集合由测试逐键锁定。
+
+**顺带**：`account-manager.js` 按行数闸意图压缩崩溃史注释（65 行 → 18 行，细节移入
+`01-docs/BUGFIX-LOGIN-CHECK-HTTP-ONLY-2026-10-16.md` 并留指针），**未抬登记值**（1260 ≤ 1061+200）。
+
+**验证**：新增 3 个测试文件 20 例 + IPC 透传 5 例；变异反证三探针全红（未知 reason 也返提示 1 failed /
+子进程死亡改抛出 2 failed / 缺证据猜 granted 4 failed）后还原全绿；主进程相关 134/134、渲染端账号 296/298、
+locale 成对 246:246 且 CJK 基线 PASS；QM-1 `vite build` + `electron-builder` rc=0、asar 15033 条、
+启动 `alive=true` + stderr 0 字节 PASS；品牌/文档路径/未接线/记录债务/行数闸全 rc=0。
+
+**文档**：`01-docs/PRD-ACCOUNT-LOGIN-STATUS-CHECK.md` 新增 §19（背景与第一性原因 / 功能逻辑表 /
+数据流与 IPC 合同 / 交互逻辑与显示项 / 提示文案表 / 隔离工作方式 / 回归保护 / 4 条边界）。
+
 # [未发布] feat(frequency): 同账号发布间隔改为逐平台真源——视频号收紧到 60 分钟，其余 14 平台行为零变化（publish-frequency-per-platform-intervals）
 
 - 为什么不是"加一档"也不是"给视频号写 if"：档位是**分类器**，为一个平台开第四档会牵动 `TIER_ENV`（日配额按三档 env）、设置页按档分组文案、「档间单调」锁的语义，且下次任何平台要调又得开第五档；`if (platform === 'tencent_video')` 则是把策略塞进控制流，合法域/env/覆盖/UI 各读各的——正是策略模块立项要消灭的"同一个量抄成多份"。差异化从此只落在**一张逐平台表** `PLATFORM_ACCOUNT_MIN_INTERVAL_MS` 里：以后任何平台收紧或放宽＝改一行数据，不动分类器、不动控制流、不动守卫算法。
@@ -89,6 +123,31 @@
 - TDD 先红后绿：新增 `C2b`（告警必须含「用户无需操作」+「仅对『本机时间落后』有效」，且**不得**含旧措辞「请校准系统时间」）——实现前 1 failed，实现后 64 passed；
   `U1/U2` 改为断言新文案 + 两条反向断言（不得出现「时钟异常」「钳位」）——实现前 2 failed，实现后 32 passed。
 - 门禁：`check-locale-sync --keys`、doc-abs-paths、no-brand-residue、行数门禁、CCG 5 项全部按 PR 内记录取证。
+# [未发布] fix(video-creation): 背景音乐归位「声音」分组 + 历史音频存在性核验与一键修复（s2v-bgm-legacy-repair）
+
+- **两个用户问题一次收口**：①「背景音乐 / 背景音乐音量」原在「画面」折叠区，而 optionKey 早已是 `voice.bgm*`（`PRD-S2V-PIPELINE-PAGE-UX.md` §11.4 早于实现登记），模板位置与运营目录不一致 → 迁移到「声音」分组（音色 ID 之后、音色克隆之前），`data-testid`、optionKey、持久化字段全部不变；`S2V_SUMMARY_FIELDS.voice` 纳入 `bgmPath`/`bgmVolume`，声音摘要在**已选背景音乐时**追加背景音乐片段（未选不追加，默认折叠态摘要与视觉基线逐字节不变）。②「已选音频（未入库）」只回答“在不在素材库”，不回答“文件还在不在/还能不能用”，用户无法判断该清、该重选还是可以继续；点启动后 compose 按 `bgmSkipped` 静默丢 BGM。
+- **根因**：2026-08-14 前 BGM 走 `%TEMP%/story2video/selected-media`（7 天惰性老化 + 系统临时目录清理），旧快照/配置/历史持久化了该绝对路径；素材库只迁移“新选择”未校验旧路径；renderer 无文件系统可见性，主进程也没有“该路径能否被 compose 读取”的只读通道。
+- **机制优化**：新增只读 IPC `story2video:bgm-library-status` + `Story2VideoBgmLibrary.inspectPath`，判定顺序与 compose 的 `resolveReadableMediaFile` 同源（入参 → 绝对路径 → 扩展名 stat 前拒绝 → `lstat` → 类型 → 空/超 15MB → 允许媒体根 → 复核 → 库内命中），`reason ∈ ok|invalid_argument|format_unsupported|missing|not_a_file|size_exceeded|not_allowed|unreadable`；只对音频扩展名触盘，避免成为任意路径探测口。
+- **渲染层状态机**：`idle/checking/available/missing/unusable/unknown`，请求代际防旧响应覆盖；`available` →【加入素材库】（复用 `bgm-library-add`，成功后自动选中库内新路径）；`missing`/`unusable` →【清除背景音乐选择】并**阻断启动**（`blockedReason.bgmLost`/`bgmUnusable`，`handleStartPipeline` 有历史路径时先 await 核验）；`unknown` **失败开放**（浏览器/旧主进程不阻断、不弹错）。历史 `bgmPath` 在用户显式操作前不清空、不改写；compose `bgmSkipped` 保留为最后防线。
+- **测试**：服务层 `inspectPath` 8 例（库内/缺失/格式/超限/越界/符号链接/目录/非法入参，含“非音频扩展名不得先 stat”的探针）、IPC 2 例、preload/权限 1 例（键数锁 131/344 同步）、composable 6 例（含请求代际与 adopt 失败保留原路径）、面板 4 例（分组归属 + 三状态渲染 + 按钮转发）、壳 4 例（阻断/清除/adopt/unknown/摘要），`CreateView` 全量 300 例、locale 三口径、ESLint 全绿。
+- **文档与记忆**：`01-docs/PRD-S2V-BGM-VOICE-SECTION-LEGACY-REPAIR-2026-10-17.md`（数据校验/流程/功能/交互/显示项/提示文字/测试/验收/风险）+ `PRD-S2V-PIPELINE-PAGE-UX.md` §9/§11/§12 + `PRD-video-creation.md` §3.1.25 增补 + OpenSpec change `s2v-bgm-legacy-repair` + learnings + 三路记忆。
+
+
+# [未发布] feat(hot-topics): 生成视频旁新增下箭头——全流水线选择层，点击即以所选流水线启动（hot-topics-pipeline-picker）
+
+- **问题**：热门选题行的【生成视频】把流水线写死为 `story2video-compose`（故事讲述）。视频创作页由主进程 `pipelineList` 下发 15 条流水线，但最快的创作入口只能跑默认那一条；换流水线要跳视频创作页重选、重填文案，选题上下文（改写产物）丢失。
+- **改动（UI）**：新增 `components/HotTopicsGenVideoPicker.vue`——行内【生成视频】主按钮 + 紧邻的小下箭头（▾）；点击打开行内下拉面板，**全量列出** `pipelineList` 返回的流水线：可执行项在前（`story2video-compose` 带「默认」徽标），媒体型/专属页/内部调试/未实现/未知项在后且 disabled + 原因文案。热门行 testid `hot-topic-gen-video-picker-{id}`、收藏行 `hot-topic-favorite-gen-video-picker-{key}`；主按钮语义不变（默认流水线）。选择面板首开懒加载、组件内缓存；加载失败显示错误 +【重试】+ 回退项「故事讲述（默认）」；主按钮不依赖该 IPC。交互：外点/Esc 关闭（Esc 焦点回下箭头）、↑/↓/Home/End 在可执行项间移动、同一时刻只开一个面板、busy 时主按钮与箭头一起禁用。
+- **改动（数据/编排）**：新增五个纯函数模块（`features/hot-topics/` 下 `gen-video-pipelines.js` / `gen-video-stage-tracking.js` / `gen-video-view-model.js` / `gen-video-picker-state.js`）与共享成片提取 `features/pipeline/run-context-video-path.js`。`useHotTopicsGenVideo` 改为 `startGenerateVideo(topic, pipelineName = default)`：`story2video-compose` 走既有完整 `story2videoTextConfig`；文本驱动自动流水线（animated-explainer / documentary-montage / animation / avatar-spokesperson / character-animation / hybrid）用同一改写产物作为 `params.text`，参数对齐创作页 `startExplainerPipeline`（`inputMode/checkpointPolicy/autoAdvance/background/uiLocale/storyboardMode/style/resolution/aspectRatio/fps/format`，分辨率等取上次保存的 S2V 输出配置）。弹窗阶段改为 `rewrite_copy + 所选流水线真实阶段`（动态总数），启动/失败标注第一个非改写阶段（不再写死 `split`）。弹窗顶部显示「流水线：{名称}」。
+- **面板空间自适应（QM-4 截图复核后补）**：真实渲染取证发现 `.cohere-content`（页面滚动容器）只有 342px 高，14 项面板（320px）向下展开被裁到 139px、翻转向上又被裁掉前 4 项。修法：新增纯函数 `computeGenVideoPickerPlacement` / `computeGenVideoPickerMenuSize`，下方空间不足时翻转向上；翻转仍不足时把面板压缩到可用高度（下限 160px，内部滚动），并在页面滚动时自动关闭面板。6 例纯函数测试 + 1 例组件滚动关闭测试锁定。
+- **可执行性分类（fail-closed）**：媒体型（talking-head/cinematic/clip-factory/localization-dub/podcast-repurpose）→「需先导入视频/音频素材」；film-engineering →「需在专属页面使用」；framework-smoke →「内部调试流水线」；`available === false` →「尚未实现执行引擎」；未知/动态注册 →「暂不支持从选题直接生成」。三层防线：菜单 `disabled`、点击处理函数复判、`startGenerateVideo` 再用 `isPipelineRunnableFromTopic` 拒绝。
+- **成片出口**：`extractRunContextVideoPath` 是 `CreateView.extractOrchestrationVideoPath` 的原样搬出（publish → compose → export → render → report，兼容 `{data}` 包裹），`CreateView` 改为一行委托（296 例仍全绿）。非 S2V 流水线无 `story2videoProject` 时【去发布】只带 `{type:'video', video_path}`（既有 run-only 语义，不注入空标题正文），【查看】仍跳历史「已完成」。
+- **测试（TDD）**：先写 7 条集成用例 + 13 条组件用例 ⇒ RED（`HotTopics.test.js` 7 failed / 49 passed；picker 套件因模块缺失整包失败），实现后 **103/103 GREEN**（HotTopics 56 + Picker 13 + 纯函数 34）；`CreateView.test.js` 296/296 全绿。新增用例：全量清单与禁用原因、选择 animated-explainer 的动态 9 阶段与弹窗标识、主按钮默认 S2V 8 阶段、禁用项无副作用、清单失败回退、非 S2V `context.render` 成片提取 + run-only 去发布、收藏行选择流水线；纯函数覆盖分类/排序/去重/启动参数/阶段跟踪/进度公式/展开方向与高度夹取/成片提取。
+- **变异反证**：把 `startGenerateVideo` 里的流水线选择临时改回写死 `DEFAULT_GEN_VIDEO_PIPELINE`（模拟改造前行为）⇒ `HotTopics.test.js` 2 例变红（选择 animated-explainer、收藏行选择流水线）；还原后文件 SHA-256 与改前一致、103 例全绿。
+- **门禁读数**：`eslint --quiet` rc=0；`check-locale-sync --keys/--pair/--cjk` 全 PASS（2087 key；CJK 基线 1374 / 当前 1221）；`check-debt-budget` / `check-color-literals` / `check-css-var-defined` / `check-font-size-scale` / `check-frontend-consistency` / `check-vue-style-parse` / `check-unwired-tests` / `check-no-brand-residue` / `check-gate-record-debt` / `check-doc-abs-paths` / `check-spec-purpose` / `check-text-encoding-integrity` 全 PASS；`glossary.test.js` 2/2；行尾两口径对账一致。`check-max-lines` 首版因 composable 559 行触发 `NEW_OVER_LIMIT`，拆纯函数后 494 行通过；**如实记**：QM-1 打包后本地复跑会扫到两个 gitignored 生成物（`home-shell-preload.bundle.js` / `preload/index.bundle.js`，`git check-ignore` 证明被忽略），移开后干净扫描 PASS、移回哈希不变，CI 不含这些产物。
+- **QM-1**：`pnpm run build:dir` rc=0；asar 含 `\dist\index.html` 与 HotTopics chunk（chunk 内含 `hot-topic-gen-video-pipeline-option` 字面量）；打包产物隔离 userData 启动 8s 存活、stderr 0 字节、无红线 → PASS。父环境带 `ELECTRON_RUN_AS_NODE=1`，已按 `scripts/lib/qm1-child-env.js` 剔除并告警。
+- **QM-4 视觉**：CI 像素门禁的 `pixelTests` **不包含 hot-topics**（该页在 CI 取不到外部热搜，基线不稳定）⇒ 本次新 UI 属**既有盲区**，已在 PRD §9.2 登记；正确性由 13 例组件锁 + 7 例集成锁保证，另用 Vite dev 实例 + fixtures 截图取证（14 项全列出、默认徽标「默认」、cinematic 等禁用项、翻转压缩后面板完整可见、0 console error），截图随 PR 提交到 `01-docs/assets/hot-topics-pipeline-picker/`。不把「像素门禁绿」当本改动视觉证据。
+- **文档**：`PRD-HOT-TOPICS-MODULE-2026-09-11.md` 新增 §3.13（入口/显示项/数据源分类/校验/交互/启动分支/提示/边界/非目标 8 小节，约 130 行）+ 同步 §3.10、§5.6、§6.6、§7.1、§8、§9.1、§9.2、§10.4、§10.9；`PRD-HOT-TOPICS-MULTI-SOURCE-AI-CATEGORY-2026-10-12.md` 行内按钮与弹窗显示项；`PRD-VIDEO-PIPELINE-PROGRESS-MODAL-2026-10-17.md` 动态阶段/流水线标识/验收/测试；`DESIGN.md` 新增行内流水线选择器视觉与交互契约（含空间自适应）；`i18n-glossary.md` 登记 10 个术语；`openspec/changes/hot-topics-pipeline-picker/`（proposal/design/tasks/spec delta）与执行记录。
+- **边界**：不改主进程/流水线引擎/IPC 契约/发布页装载逻辑；不改 CI workflow 与 `CI_IGNORED_PATHS`；不做「记住上次选择」作为主按钮默认值；不为媒体型流水线在热门选题内提供素材入口。
 
 # [未发布] feat(gates): 登录态隐藏窗口兜底加「准入登记表 + 配对锁」——把准入纪律变成机械拦截（dom-login-check-registry）
 

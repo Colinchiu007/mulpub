@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mount } from '@vue/test-utils';
 import { reactive } from 'vue';
 import S2vConfigPanels from './S2vConfigPanels.vue';
@@ -69,18 +69,23 @@ const mountPanel = (vm) => mount(S2vConfigPanels, {
   },
 });
 
+// 面板默认使用真实父级语义的桩：所有选项可见、分组标签/摘要可读。
+// 单独 makeVm 只会得到方法桩返回值 ''，导致 UiField 的 optionKey 守卫把控件隐藏。
+const makeBoundVm = (overrides = {}) => makeVm({
+  isOrchestratedPipeline: () => true,
+  s2vOptionVisible: () => true,
+  s2vSectionLabel: (section) => section,
+  s2vSectionSummary: () => 'summary',
+  s2vSectionAtDefault: () => false,
+  translateWithLocaleFallback: (_key, zh) => zh,
+  ...overrides,
+});
+
 describe('S2vConfigPanels', () => {
   let vm;
 
   beforeEach(() => {
-    vm = makeVm({
-      isOrchestratedPipeline: () => true,
-      s2vOptionVisible: () => true,
-      s2vSectionLabel: (section) => section,
-      s2vSectionSummary: () => 'summary',
-      s2vSectionAtDefault: () => false,
-      translateWithLocaleFallback: (_key, zh) => zh,
-    });
+    vm = makeBoundVm();
   });
 
   it('renders all six collapsible groups in the §9 order', () => {
@@ -129,5 +134,69 @@ describe('S2vConfigPanels', () => {
 
   it('is fail-closed when mounted outside the CreateView provider', () => {
     expect(() => mount(S2vConfigPanels)).toThrow(/s2vPanel/);
+  });
+
+  // ── 背景音乐分组归属与历史路径状态（s2v-bgm-legacy-repair，2026-10-17）──
+  it('「背景音乐」与「背景音乐音量」归属「声音」分组，「画面」分组不再包含', () => {
+    const w = mountPanel(vm);
+    const voice = w.get('[data-testid="s2v-section-voice"]');
+    expect(voice.find('[data-testid="s2v-bgm-select"]').exists()).toBe(true);
+    expect(voice.find('[data-testid="s2v-bgm-volume"]').exists()).toBe(true);
+    expect(voice.find('[data-testid="s2v-bgm-manage-button"]').exists()).toBe(true);
+
+    const appearance = w.get('[data-testid="s2v-section-appearance"]');
+    expect(appearance.find('[data-testid="s2v-bgm-select"]').exists()).toBe(false);
+    expect(appearance.find('[data-testid="s2v-bgm-volume"]').exists()).toBe(false);
+    expect(appearance.find('[data-testid="s2v-bgm-manage-button"]').exists()).toBe(false);
+  });
+
+  it('历史 BGM 可用：显示可用提示与「加入素材库」，不出现清除按钮', async () => {
+    const adoptS2VLegacyBgm = vi.fn();
+    vm = makeBoundVm({
+      s2vLegacyBgmPath: 'C:/old.mp3',
+      s2vLegacyBgmStatus: { state: 'available', path: 'C:/old.mp3', reason: 'ok', exists: true },
+      adoptS2VLegacyBgm,
+    });
+    const w = mountPanel(vm);
+    const status = w.get('[data-testid="s2v-bgm-legacy-status"]');
+    expect(status.attributes('data-state')).toBe('available');
+    expect(status.attributes('role')).toBe('status');
+    expect(status.attributes('aria-live')).toBe('polite');
+    expect(status.text()).toContain('create.story2video.bgmLibrary.legacyHintAvailable');
+    expect(w.find('[data-testid="s2v-bgm-clear"]').exists()).toBe(false);
+    await w.get('[data-testid="s2v-bgm-adopt"]').trigger('click');
+    expect(adoptS2VLegacyBgm).toHaveBeenCalledTimes(1);
+  });
+
+  it('历史 BGM 已丢失：错误态提示 + 清除按钮，下拉选项文案切换为「文件已丢失」', async () => {
+    const clearS2VLegacyBgm = vi.fn();
+    vm = makeBoundVm({
+      s2vLegacyBgmPath: 'C:/old.mp3',
+      s2vLegacyBgmStatus: { state: 'missing', path: 'C:/old.mp3', reason: 'missing', exists: false },
+      clearS2VLegacyBgm,
+    });
+    const w = mountPanel(vm);
+    const status = w.get('[data-testid="s2v-bgm-legacy-status"]');
+    expect(status.attributes('data-state')).toBe('missing');
+    expect(status.text()).toContain('create.story2video.bgmLibrary.legacyHintMissing');
+    expect(status.find('.inline-error').exists()).toBe(true);
+    expect(w.find('[data-testid="s2v-bgm-adopt"]').exists()).toBe(false);
+    const options = w.get('[data-testid="s2v-bgm-select"]').findAll('option');
+    expect(options.some((option) => option.text() === 'create.story2video.bgmLibrary.legacyMissing')).toBe(true);
+    await w.get('[data-testid="s2v-bgm-clear"]').trigger('click');
+    expect(clearS2VLegacyBgm).toHaveBeenCalledTimes(1);
+  });
+
+  it('历史 BGM 核验中：显示检查提示，不提供修复动作', () => {
+    vm = makeBoundVm({
+      s2vLegacyBgmPath: 'C:/old.mp3',
+      s2vLegacyBgmStatus: { state: 'checking', path: 'C:/old.mp3', reason: '', exists: false },
+    });
+    const w = mountPanel(vm);
+    const status = w.get('[data-testid="s2v-bgm-legacy-status"]');
+    expect(status.attributes('data-state')).toBe('checking');
+    expect(status.text()).toContain('create.story2video.bgmLibrary.legacyHintChecking');
+    expect(w.find('[data-testid="s2v-bgm-adopt"]').exists()).toBe(false);
+    expect(w.find('[data-testid="s2v-bgm-clear"]').exists()).toBe(false);
   });
 });

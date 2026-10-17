@@ -57,6 +57,8 @@ vi.mock("@/api/publisher", () => ({
   story2videoBgmLibraryAdd: vi.fn(),
   story2videoBgmLibraryRename: vi.fn(),
   story2videoBgmLibraryDelete: vi.fn(),
+  // 历史 BGM 路径核验（s2v-bgm-legacy-repair）：默认返回 code -1 → unknown（失败开放，不阻断旧用例）。
+  story2videoBgmLibraryStatus: vi.fn().mockResolvedValue({ code: -1, message: "electronAPI not available" }),
   // 流水线「保存配置」（2026-08-28 s2v-pipeline-config-profiles）
   story2videoConfigProfileList: vi.fn().mockResolvedValue({ code: 0, data: [] }),
   story2videoConfigProfileCreate: vi.fn().mockResolvedValue({ code: -1, message: "electronAPI not available" }),
@@ -2518,6 +2520,115 @@ describe("CreateView - S2V orchestration", () => {
     expect(w.vm.s2vLegacyBgmPath).toBe("C:/old-import/legacy.mp3");
 
     w.vm.s2vConfig.bgmPath = "C:/lib/dawn.mp3";
+    expect(w.vm.s2vLegacyBgmPath).toBe("");
+    w.unmount();
+  });
+
+  // === 历史 BGM 存在性核验与修复（s2v-bgm-legacy-repair，2026-10-17）===
+  // 「已选音频（未入库）」不再只靠索引成员判定：主进程只读核验区分可用/已丢失/不可用/未知。
+  const settleAsync = async () => {
+    await nextTick();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await nextTick();
+  };
+
+  const mountS2VWithText = async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await nextTick();
+    w.vm.selectPipeline({ name: "story2video-compose", available: true, stages: [] });
+    await nextTick();
+    w.vm.inputMode = "text";
+    w.vm.pipelineText = "一段用于验证启动门禁的测试文案";
+    await w.vm.loadS2VBgmLibrary({ silent: true });
+    return w;
+  };
+
+  it("历史 BGM 文件已丢失：核验为 missing、阻断启动并给可修复原因，清除后恢复可启动", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoBgmLibraryList.mockResolvedValue({ code: 0, data: [] });
+    mocks.story2videoBgmLibraryStatus.mockResolvedValue({
+      code: 0,
+      data: { path: "C:/old-import/legacy.mp3", exists: false, readable: false, size: 0, extension: ".mp3", inLibrary: false, libraryItemId: null, reason: "missing" },
+    });
+    const w = await mountS2VWithText();
+    w.vm.s2vConfig.bgmPath = "C:/old-import/legacy.mp3";
+    await settleAsync();
+
+    expect(mocks.story2videoBgmLibraryStatus).toHaveBeenCalledWith("C:/old-import/legacy.mp3");
+    expect(w.vm.s2vLegacyBgmStatus.state).toBe("missing");
+    expect(w.vm.s2vLegacyBgmBlockedState).toBe("missing");
+    expect(w.vm.canStartPipeline).toBe(false);
+    expect(w.vm.pipelineBlockedReason).toContain("已丢失");
+
+    w.vm.clearS2VLegacyBgm();
+    await nextTick();
+    expect(w.vm.s2vConfig.bgmPath).toBe("");
+    expect(w.vm.canStartPipeline).toBe(true);
+    w.unmount();
+  });
+
+  it("历史 BGM 仍可用：提供加入素材库并自动选中库内新路径，状态复位", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoBgmLibraryList.mockResolvedValue({
+      code: 0,
+      data: [{ id: "bgm-9", name: "legacy", path: "C:/lib/legacy.mp3" }],
+    });
+    mocks.story2videoBgmLibraryStatus.mockResolvedValue({
+      code: 0,
+      data: { path: "C:/old-import/legacy.mp3", exists: true, readable: true, size: 4, extension: ".mp3", inLibrary: false, libraryItemId: null, reason: "ok" },
+    });
+    mocks.story2videoBgmLibraryAdd.mockResolvedValue({
+      code: 0,
+      data: { id: "bgm-9", name: "legacy", path: "C:/lib/legacy.mp3" },
+    });
+    const w = await mountS2VWithText();
+    w.vm.s2vConfig.bgmPath = "C:/old-import/legacy.mp3";
+    await settleAsync();
+
+    expect(w.vm.s2vLegacyBgmStatus.state).toBe("available");
+    expect(w.vm.canStartPipeline).toBe(true);
+
+    const adopted = await w.vm.adoptS2VLegacyBgm();
+
+    expect(adopted.path).toBe("C:/lib/legacy.mp3");
+    expect(mocks.story2videoBgmLibraryAdd).toHaveBeenCalledWith("C:/old-import/legacy.mp3");
+    expect(w.vm.s2vConfig.bgmPath).toBe("C:/lib/legacy.mp3");
+    expect(w.vm.s2vLegacyBgmPath).toBe("");
+    expect(w.vm.s2vLegacyBgmStatus.state).toBe("idle");
+    w.unmount();
+  });
+
+  it("核验通道不可用（unknown）不阻断启动：失败开放", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoBgmLibraryList.mockResolvedValue({ code: 0, data: [] });
+    mocks.story2videoBgmLibraryStatus.mockResolvedValue({ code: -1, message: "electronAPI not available" });
+    const w = await mountS2VWithText();
+    w.vm.s2vConfig.bgmPath = "C:/old-import/legacy.mp3";
+    await settleAsync();
+
+    expect(w.vm.s2vLegacyBgmStatus.state).toBe("unknown");
+    expect(w.vm.s2vLegacyBgmBlockedState).toBe("");
+    expect(w.vm.canStartPipeline).toBe(true);
+    w.unmount();
+  });
+
+  it("「声音」分组摘要包含背景音乐状态（默认不追加 / 库内曲名）", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoBgmLibraryList.mockResolvedValue({
+      code: 0,
+      data: [{ id: "bgm-1", name: "清晨旋律", path: "C:/lib/dawn.mp3" }],
+    });
+    const w = await mountS2VWithText();
+
+    // 未选背景音乐：不追加片段（保持默认折叠态摘要与像素基线不变）
+    expect(w.vm.s2vBgmLibrarySummaryText()).toBe("");
+    expect(w.vm.s2vSectionSummary("voice")).not.toContain("无背景音乐");
+
+    w.vm.s2vConfig.bgmPath = "C:/lib/dawn.mp3";
+    await nextTick();
+    expect(w.vm.s2vSectionSummary("voice")).toContain("清晨旋律");
     expect(w.vm.s2vLegacyBgmPath).toBe("");
     w.unmount();
   });

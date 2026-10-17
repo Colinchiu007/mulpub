@@ -502,6 +502,45 @@ Primary CTAs and pills meet comfortable touch sizing through 12px-24px padding a
 
 该统一壳只覆盖编排流水线、历史续跑等“有可观察流水线阶段状态”的路径；快速渲染 loading、发布 timeline、独立分析状态保持各自轻量展示。已废弃的 `CreateHistory.vue` 不再提供内嵌进度卡片，历史入口统一为 `CreateViewHistory.vue` 的摘要与恢复。
 
+## 热门选题行内流水线选择器（2026-10-17）
+
+### 结构与层级
+
+- 每条选题行（热门 tab 与收藏 tab）的右侧按钮区是一个**按钮组**：主按钮【生成视频】+ 紧邻的小下箭头按钮（▾）。两者同用 `cohere-btn-primary`（主色实心、小尺寸），间距 2px；下箭头内边距 4px 6px、行高 1，视觉上是主按钮的“分段”而非并列的第二个主操作。
+- 下箭头点击后打开**行内下拉面板**：`position: absolute; right: 0; top: calc(100% + 6px)`，`z-index: 60`；绝对定位不参与行 flex 布局 ⇒ 列表行高不变、不产生跳动。
+- 面板尺寸：`min-width: 260px; max-width: 340px; max-height: 320px`（超出纵向滚动）；圆角 10px、1px 边框、`box-shadow 0 10px 28px` 低透明度；内部 `padding: 6px`，菜单项圆角 7px。
+- 面板结构：标题行（`hotTopics.genVideoPipelinePickTitle`）→ 状态区（加载中/加载失败+重试/空）或菜单项列表 → 底部操作提示（仅存在可执行项时）。菜单项名称左对齐、默认徽标/禁用原因右对齐（`flex-shrink: 0`），长名称省略号截断。
+- 不引入 `el-dropdown` / `el-popover`：与 Element Plus 按需注册的机械锁（组件清单 + 样式闭包）保持零变更，避免为一个行内菜单扩大全局组件面。样式全部 scoped 在该组件内，禁止放到全局 `styles/`。
+
+### 视觉令牌
+
+- 面板底色 `--color-bg-card`、边框 `--color-border`、标题/原因文字 `--color-text-muted`、正文 `--color-text-primary`；hover/焦点底色 `color-mix(in srgb, var(--color-primary) 8%, var(--color-bg-card))`。
+- 默认徽标：主色淡底 + `--color-primary-dark-tint` 文字（与列表其它主色徽标同源）；禁用项整体 `opacity: .66` + `cursor: not-allowed`。
+- 主色禁用态由 `cohere-btn-primary:disabled` 统一提供，不在组件内重定义语义色。
+
+### 交互与动效
+
+- 下箭头 → 面板：0.15s 箭头 180° 旋转；面板无入场动画（避免在长列表中出现多个浮动动画体）。
+- 关闭路径：再次点击下箭头、点击面板外（document `pointerdown` capture）、Esc；Esc 关闭后焦点回到下箭头。
+- 面板打开时焦点进入第一个可执行项；↑/↓ 在可执行项间循环、Home/End 到首/末项、禁用项不可聚焦；回车 = 点击（原生 button）。
+- 同一时刻只允许一个面板打开（跨行单例指针）；busy（编排在途）时主按钮与下箭头一起禁用，面板强制关闭。
+- **空间自适应（2026-10-17 视觉取证后补）**：面板下方可用高度 < 面板理想高度（320px）+ 6px 时翻转到按钮上方；翻转后仍不足则按可用空间压缩面板高度（下限 160px，内部滚动），避免被页面滚动容器（`.cohere-content`，实测仅 342px 高）裁掉前几项。
+- **滚动即关闭**：捕获阶段监听 `window` 的 scroll（能收到滚动容器的事件），面板一滚动就收起，避免面板与按钮脱位或被裁切。
+- 加载中显示「正在加载流水线…」；加载失败显示错误 +【重试】+ 回退项「故事讲述（默认）」；空清单显示提示，不渲染空菜单。
+
+### 内容与数据表现
+
+- 菜单项 = 本地化流水线名 + 类型徽标（可省略）+ 默认徽标 / 禁用原因。默认项固定 `story2video-compose`；可执行项在前、禁用项在后，顺序保持主进程返回顺序。
+- 禁用原因四类文案：需先导入视频/音频素材、需在专属页面使用、内部调试流水线、尚未实现执行引擎；未知条目统一“暂不支持从选题直接生成”。
+- 弹窗内显示当前流水线名称（`hotTopics.genVideoPipelineLabel`），与阶段清单一起构成“我点了哪条流水线、它跑到哪了”的完整上下文。
+
+### 范围边界
+
+- 该选择器只负责“选哪条流水线并立即开始”，不承载流水线参数编辑（参数仍在视频创作页配置）。
+- 不做“记住上次选择”作为主按钮默认值；主按钮固定默认流水线，避免隐式状态。
+- 像素门禁当前不覆盖 `hot-topics`（见 PRD §9.2 盲区登记），视觉正确性由组件/集成测试 + 人工截图取证保证。
+
+
 ## Known Gaps
 
 - Exact proprietary font files are not bundled; use the documented fallbacks when implementing externally.

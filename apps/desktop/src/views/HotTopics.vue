@@ -186,14 +186,14 @@
             :data-testid="'hot-topic-analyze-' + topic.id"
             @click="analyzeSingle(topic)"
           >{{ t('hotTopics.analyzeAction') }}</button>
-          <button
-            class="cohere-btn-primary item-gen-video-btn"
-            :data-testid="'hot-topic-generate-video-' + topic.id"
-            :disabled="genVideoBusy"
-            @click="startGenerateVideo(topic)"
-          >
-            {{ t('hotTopics.generateVideo') }}
-          </button>
+          <!-- hot-topics-pipeline-picker（2026-10-17）：主按钮保持默认流水线，
+               右侧下箭头打开全流水线选择层；点某条流水线即以该流水线启动生成流程 -->
+          <HotTopicsGenVideoPicker
+            :topic-id="topic.id"
+            :busy="genVideoBusy"
+            @generate="startGenerateVideo(topic)"
+            @pick="(pipelineName) => startGenerateVideo(topic, pipelineName)"
+          />
           <!-- hot-topics-publish-ux（2026-10-12）：单条「发布」= 单篇一键改写（队列长度 1，不弹目标弹窗） -->
           <button
             class="cohere-btn-primary item-publish-btn"
@@ -256,6 +256,10 @@
       @close="handleGenVideoClose"
     >
       <div class="gen-video-modal-content" data-testid="hot-topics-gen-video-content">
+        <!-- hot-topics-pipeline-picker：明确当前跑的是哪条流水线（非默认流水线时尤其重要） -->
+        <div v-if="genVideoPipelineLabel" class="gen-video-pipeline-line" data-testid="hot-topics-gen-video-pipeline">
+          {{ t('hotTopics.genVideoPipelineLabel', { pipeline: genVideoPipelineLabel }) }}
+        </div>
         <StageProgress
           v-if="genVideoStages.length"
           :stages="genVideoStages"
@@ -318,6 +322,7 @@ import { hotTopicsFetch, hotTopicsGetCache } from '@/api/hot-topics'
 import { aiRewrite, draftSave } from '@/api/publisher'
 import { useNotify } from '@/composables/useNotify'
 import PublishDestinationModal from '@/components/PublishDestinationModal.vue'
+import HotTopicsGenVideoPicker from '@/components/HotTopicsGenVideoPicker.vue'
 import UiModal from '@/components/UiModal.vue'
 import UiButton from '@/components/UiButton.vue'
 import HotTopicsCentralLoading from '@/components/HotTopicsCentralLoading.vue'
@@ -377,18 +382,21 @@ let disposed = false // 组件卸载标记：in-flight 改写/草稿保存不再
 // 一键生成视频（编排状态/计算/方法整体抽到 composable，与收藏逻辑同法）
 const {
   genVideoModalOpen, genVideoBusy, genVideoStages, genVideoErrorText,
-  genVideoModalTitle, genVideoProgressPercent, genVideoElapsedMs, genVideoSummary,
+  genVideoModalTitle, genVideoPipelineLabel, genVideoProgressPercent, genVideoElapsedMs, genVideoSummary,
   genVideoTerminal, genVideoCanRetry, genVideoCanCancel, genVideoCanBackground, genVideoResultReady,
   startGenerateVideo, retryGenVideo, cancelGenVideo, handleGenVideoClose, detachGenVideoToBackground,
   viewGenVideoInHistory, publishGenVideoResult,
   closeGenVideoModal, disposeGenVideo,
-  // 以下四项只被单测断言编排内部态、不参与模板渲染，故下方 defineExpose 显式声明为组件契约
-  genVideoPhase, genVideoRunId, genVideoTopic, mergeGenStages,
+  // 以下项只被单测断言编排内部态、不参与模板渲染，故下方 defineExpose 显式声明为组件契约
+  genVideoPhase, genVideoRunId, genVideoTopic, genVideoPipelineName, mergeGenStages,
   // unify-video-pipeline-progress-modal：终态产物也只被单测断言（模板经 genVideoResultReady 消费）
   genVideoCompletedVideoPath, genVideoCompletedProjectId,
 } = useHotTopicsGenVideo({ buildRewriteInput, hotUseViral, isDisposed: () => disposed })
 
-defineExpose({ genVideoPhase, genVideoRunId, genVideoTopic, mergeGenStages, genVideoCompletedVideoPath, genVideoCompletedProjectId })
+defineExpose({
+  genVideoPhase, genVideoRunId, genVideoTopic, genVideoPipelineName, mergeGenStages,
+  genVideoCompletedVideoPath, genVideoCompletedProjectId,
+})
 
 // ── 常量 ──
 const CATEGORY_KEYS = ['general', 'society', 'finance', 'tech', 'ai', 'entertainment', 'sports', 'emotion', 'education', 'health', 'international']

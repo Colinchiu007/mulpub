@@ -4,10 +4,18 @@
 const crypto = require('crypto')
 const fs = require('fs')
 const path = require('path')
-const { importUserSelectedMedia } = require('./story2video-paths')
+const {
+  getAllowedMediaRoots,
+  getMediaRule,
+  importUserSelectedMedia,
+  isPathWithin,
+  resolveReadableMediaFile,
+  toLocalPath,
+} = require('./story2video-paths')
 
 const LIBRARY_INDEX_VERSION = 1
 const MAX_DISPLAY_NAME_LENGTH = 60
+const MAX_PATH_LENGTH = 4096
 const RETRYABLE_CODES = new Set(['EPERM', 'EACCES', 'EBUSY'])
 const MAX_WRITE_ATTEMPTS = 3
 const RETRY_DELAY_MS = 150
@@ -98,6 +106,11 @@ class Story2VideoBgmLibrary {
     this.indexPath = path.join(this.libraryDir, INDEX_FILE_NAME)
     this.now = typeof options.now === 'function' ? options.now : () => Date.now()
     this.idFactory = typeof options.idFactory === 'function' ? options.idFactory : () => crypto.randomUUID()
+    // 允许媒体根：生产取 getAllowedMediaRoots()（临时受控目录 + 素材库 + 项目目录）；
+    // 纯 Node 测试无 electron.app，允许显式注入等价根，避免测试依赖机器上不存在的 userData。
+    this.allowedRoots = Array.isArray(options.allowedRoots) && options.allowedRoots.length > 0
+      ? options.allowedRoots.map(root => path.resolve(root))
+      : getAllowedMediaRoots()
   }
 
   _readIndex () {
@@ -177,6 +190,70 @@ class Story2VideoBgmLibrary {
       try { this._writeIndex(cleaned) } catch (_) { /* 自愈写失败不阻塞读取 */ }
     }
     return kept.map(entry => this._toPublicItem(entry))
+  }
+
+  /**
+   * 在库索引中查找某个 canonical 路径对应的条目（只读索引，不触发自愈写）。
+   * 磁盘文件名 bgm-<token><ext> 唯一，故按 basename（Windows 忽略大小写）匹配即可，
+   * 且比对前先用 isPathWithin 确认该文件确实位于库目录内，避免同名文件误命中。
+   */
+  _findLibraryEntryForPath (canonicalPath) {
+    if (!isPathWithin(canonicalPath, [this.libraryDir])) return null
+    const basename = path.basename(canonicalPath).toLowerCase()
+    const index = this._readIndex()
+    return index.items.find(entry => String(entry.fileName).toLowerCase() === basename) || null
+  }
+
+  /**
+   * 只读核验一个 BGM 路径（历史引用 / 素材库条目 / 用户新选路径）。
+   * 判定顺序与 compose 的 resolveReadableMediaFile 同源，避免“界面说可用、合成却跳过”的双源真相：
+   *   入参 → 扩展名（触盘前拒绝，防任意路径探测）→ lstat → 类型/大小 → 允许根 → canonical 可读。
+   * @param {unknown} candidate
+   * @returns {{path: string, exists: boolean, readable: boolean, size: number, extension: string,
+   *   inLibrary: boolean, libraryItemId: string|null, reason: string}}
+   */
+  inspectPath (candidate) {
+    const requested = typeof candidate === 'string' ? candidate.trim() : ''
+    const result = {
+      path: requested,
+      exists: false,
+      readable: false,
+      size: 0,
+      extension: '',
+      inLibrary: false,
+      libraryItemId: null,
+      reason: 'invalid_argument',
+    }
+    if (!requested || requested.length > MAX_PATH_LENGTH) return result
+    const localPath = toLocalPath(requested)
+    if (!localPath || !path.isAbsolute(localPath)) return result
+    const extension = path.extname(localPath).toLowerCase()
+    result.extension = extension
+    const rule = getMediaRule('bgm')
+    if (!rule || !rule.extensions.has(extension)) return { ...result, reason: 'format_unsupported' }
+
+    let linkStat
+    try {
+      linkStat = fs.lstatSync(localPath)
+    } catch (error) {
+      return { ...result, reason: error && error.code === 'ENOENT' ? 'missing' : 'unreadable' }
+    }
+    result.exists = true
+    if (linkStat.isSymbolicLink() || !linkStat.isFile()) return { ...result, reason: 'not_a_file' }
+    result.size = linkStat.size
+    if (linkStat.size <= 0) return { ...result, reason: 'unreadable' }
+    if (linkStat.size > rule.maxBytes) return { ...result, reason: 'size_exceeded' }
+    if (!isPathWithin(localPath, this.allowedRoots)) return { ...result, reason: 'not_allowed' }
+    const canonicalReadablePath = resolveReadableMediaFile(localPath, { kind: 'bgm', allowedRoots: this.allowedRoots })
+    if (!canonicalReadablePath) return { ...result, reason: 'unreadable' }
+    const entry = this._findLibraryEntryForPath(canonicalReadablePath)
+    return {
+      ...result,
+      readable: true,
+      inLibrary: Boolean(entry),
+      libraryItemId: entry ? entry.id : null,
+      reason: 'ok',
+    }
   }
 
   /**

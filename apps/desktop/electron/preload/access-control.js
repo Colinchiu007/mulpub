@@ -55,9 +55,10 @@ const PUBLIC_METHODS = [
   // Story2Video 本地历史读取与缩略图查询：项目数据按 owner 隔离，未登录也可查看本机历史。
   'story2videoListProjects', 'story2videoGetProject', 'story2videoGetThumbnail',
   // BGM 素材库（与主进程 PUBLIC_CHANNELS 的 story2video:bgm-library-* 对齐）：
-  // 设备级本地素材库管理（列表/添加/改名/删除），未登录可用。
+  // 设备级本地素材库管理（列表/添加/改名/删除/历史路径只读核验），未登录可用。
   'story2videoBgmLibraryList', 'story2videoBgmLibraryAdd',
   'story2videoBgmLibraryRename', 'story2videoBgmLibraryDelete',
+  'story2videoBgmLibraryStatus',
   // 流水线「保存配置」（与主进程 story2video:config-profile-* 对齐）：设备级本地配置管理，未登录可用。
   'story2videoConfigProfileList', 'story2videoConfigProfileCreate',
   'story2videoConfigProfileRename', 'story2videoConfigProfileDelete',

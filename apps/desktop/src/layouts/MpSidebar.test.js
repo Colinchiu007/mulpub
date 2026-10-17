@@ -261,14 +261,24 @@ describe('MpSidebar', () => {
     expect(sidebar.emitted('open-settings')).toBeTruthy()
   })
 
-  it('opens the upgrade modal when the bottom login menu requests an upgrade', async () => {
+  // fix-upgrade-payment-entry：升级入口从「打开 UpgradeModal」改为「跳会员中心」。
+  //
+  // 改动理由（不是口味问题）：正式包里 UpgradeModal 只有「付费通道筹备中」，
+  // 点开是死胡同；会员中心有真实档位/价格与服务端兑换码核销，是当前唯一
+  // 真实可用的开通渠道。原断言（弹窗出现）锁的是一个**错误的**行为，
+  // 因此这里不是"放宽断言"，而是换成锁正确行为。
+  it('routes the bottom login menu upgrade entry to the member center', async () => {
+    push.mockClear()
     const sidebar = mountSidebar('/accounts')
 
+    // 不再渲染升级弹窗（组件已从模板移除）
     expect(sidebar.find('[data-testid="upgrade-modal-stub"]').exists()).toBe(false)
 
     await sidebar.get('[data-testid="profile-menu-stub-upgrade"]').trigger('click')
 
-    expect(sidebar.find('[data-testid="upgrade-modal-stub"]').exists()).toBe(true)
+    expect(push).toHaveBeenCalledWith('/member-center')
+    // 跳转后仍不该出现弹窗（防止有人把模板加回来）
+    expect(sidebar.find('[data-testid="upgrade-modal-stub"]').exists()).toBe(false)
   })
 
   it('routes the add button to the publish editor', async () => {

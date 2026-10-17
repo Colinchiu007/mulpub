@@ -198,6 +198,45 @@ export default {
       CHECK_LOGIN_COOKIE_EXPIRED: 'Session expired, cookie has expired, please log in again',
       CHECK_LOGIN_FAILED: 'Login status check failed, please try again later',
     },
+    // 2026-10-17: actionable hints for inconclusive/failed login checks
+    // (keys mirror login-status-hints.js in the main process).
+    checkHints: {
+      noCookie: 'No saved login credential found. Please log in to this platform account again.',
+      credentialFileOnly: 'Only a legacy credential file was found with no usable cookie, so the login state cannot be confirmed. Please log in again.',
+      httpCheckInconclusive: 'The platform API gave no clear verdict (possibly rate-limited or redesigned). Please try again later.',
+      renderCrashProne: 'This platform cannot be judged via API and window-based checks are disabled. Please log in again for a definite result.',
+      hiddenBrowserDisabled: 'This platform currently relies on API-only login detection and no verdict was reached. Please log in again.',
+      noPositiveEvidence: 'The page shows neither login nor logout markers, so the state cannot be determined. Please log in again.',
+      browserCheckFailed: 'The page check itself failed (timeout or blocked). Please try again later.',
+      domCheckProcessDied: 'The page check process exited, so no verdict was reached this round. Please try again later.',
+      noCredential: 'No usable login credential. Please add the account or log in again.',
+      cookieExpired: 'Session expired (cookie expired or kicked offline by the platform). Please log in again.',
+      httpTimeout: 'The platform API timed out. Please try again later.',
+      httpError: 'The platform API returned an error. Please try again later.',
+      timeout: 'The check timed out. Please try again later.',
+      lockTimeout: 'A previous check is still running, so this round was skipped. Please try again later.',
+      error: 'The check process errored. Please try again later.',
+      failed: 'Login status check failed. Please try again later.',
+      unsupportedPlatform: 'This platform does not support login status checks yet. Please open the platform manually to confirm.',
+    },
+    // 2026-10-17: capability-level authorization (a second axis beyond login state)
+    capabilityLabels: {
+      dataRead: 'Data read',
+      commentInteract: 'Comment & interaction',
+    },
+    capabilityStates: {
+      granted: 'Granted',
+      revoked: 'Not granted',
+      unknown: 'Unconfirmed',
+    },
+    capabilityHintRevoked: {
+      dataRead: 'Data read is not authorized for this platform, so statistics and asset sync are unavailable.',
+      commentInteract: 'Comment & interaction is not authorized for this platform, so auto-reply and batch comments are unavailable.',
+    },
+    capabilityRow: 'Capability authorization',
+    checkHintsSummary: 'Suggested next steps',
+    checkHintsSummaryRelogin: (ctx) => ctx.named('count') + ' account(s) need to log in again',
+    checkHintsSummaryRetry: (ctx) => ctx.named('count') + ' account(s) should be retried later',
     // Account card labels (used by AccountManagementCard)
     accountCardLabels: {
       favoriteAdd: 'Add to favorites',

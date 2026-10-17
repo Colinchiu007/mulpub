@@ -165,7 +165,7 @@ resultReady = (status === 'completed') && (videoPath 非空字符串)
 | 区域 | 内容 |
 | --- | --- |
 | 标题 | `create.story2video.progressTitle` =「{流水线名} 进度」；热门选题 =「一键生成视频 · {选题}」 |
-| 内容 | `StageProgress`：阶段清单、总进度百分比、已用时、完成汇总；检查点提示、错误提示、供应商告警、BGM 跳过提示（沿用既有） |
+| 内容 | `StageProgress`：阶段清单、总进度百分比、已用时、完成汇总；检查点提示、错误提示、供应商告警、BGM 跳过提示（沿用既有）。**热门选题（2026-10-17 hot-topics-pipeline-picker）**：内容区顶部增加一行 `hotTopics.genVideoPipelineLabel` =「流水线：{名称}」；阶段清单 = `rewrite_copy` + 所选流水线的真实阶段（动态数量，如 AI 讲解 9 个、动画 5 个），总进度分母随阶段数变化 |
 | footer 左 | 人工检查点提示文字（仅检查点态） |
 | footer 按钮 | 【查看】【去发布】【后台运行】【取消】（终态时仅前两个） |
 | 右上角 | 关闭（×）：普通运行态=后台脱离；人工检查点=禁用；终态=收起浮层 |
@@ -181,6 +181,8 @@ resultReady = (status === 'completed') && (videoPath 非空字符串)
 | `create.story2video.progressCancel` | 取消 | Cancel |
 | `hotTopics.genVideoView` | 查看 | View |
 | `hotTopics.genVideoPublish` | 去发布 | Publish |
+| `hotTopics.genVideoPipelineLabel` | 流水线：{pipeline} | Pipeline: {pipeline} |
+| `hotTopics.genVideoPipelineFailed`（既有） | 视频流水线启动失败，请点击重试 | Failed to start the video pipeline, please retry |
 
 既有沿用：`create.story2video.backgroundRun`（后台运行 / Run in background）、`hotTopics.genVideoBackgroundRun`、`hotTopics.genVideoCancel`（取消 / Cancel）、`hotTopics.genVideoRetry`（重试 / Retry）、`hotTopics.genVideoClose`（关闭 / Close）。
 
@@ -199,6 +201,8 @@ resultReady = (status === 'completed') && (videoPath 非空字符串)
 7. 失败/取消态：两按钮保持灰显；无成片路径时同样灰显，且完成态且无成片时**不得**打开浮层（走错误对话框）。
 8. 后台运行语义不回退：不调 `pipelineCancel`、检查点禁止后台化、并发槽位语义不变。
 9. 既有取消/脱离/并发/检查点回归全绿；两页测试文件全量通过（CreateView 296 + HotTopics 49 = 345；为满足测试账本行数容差，把 12 个用例合并为 8 个，断言项一条未减）。
+10. **多流水线扩展（2026-10-17 hot-topics-pipeline-picker）**：热门选题弹窗阶段数 = `1 + 所选流水线真实阶段数`（故事讲述 8、AI 讲解 9、动画 5）；启动前第一个非改写阶段为 `running`、启动失败为 `failed`；内容区显示「流水线：{名称}」；非 S2V 流水线成片从 `context.render` 提取后【查看】【去发布】正常解锁。CreateView 既有 296 例仍全绿（成片提取改为共享纯函数委托）。
+
 
 ---
 
@@ -209,6 +213,8 @@ resultReady = (status === 'completed') && (videoPath 非空字符串)
 | `apps/desktop/src/views/CreateView.test.js` | 四按钮组成与顺序；灰显/解锁；成功后保留浮层；查看/去发布路由与参数；run-only 退化；无成片不解锁且不打开浮层；`openPipelineProgressModal` 终态门禁（含「completed 但无成片 → false」）；`?filter=` 深链消费；既有「完成即跳转」断言改写为「浮层保留」 |
 | `apps/desktop/src/views/HotTopics.test.js` | footer 无 `cohere-btn-*`、四按钮顺序；运行中灰显；成功后弹窗保留+解锁；查看/去发布路由与参数；**run-only 发布 query 只含 type+video_path**；改写阶段灰显 |
 | 变异反证 | ① 恢复「完成即关闭浮层」→ CreateView 3 例变红；② 恢复「完成后关闭弹窗」→ HotTopics 3 例变红 |
+| `HotTopics.test.js`（2026-10-17 追加） | 流水线选择器 7 例：下箭头/全量清单与禁用原因、选择 `animated-explainer` 的动态 9 阶段 + 弹窗流水线标识、主按钮默认 S2V 8 阶段、禁用项无副作用、清单失败回退、非 S2V 成片从 `context.render` 提取并 run-only 去发布、收藏行选择流水线 |
+| `HotTopicsGenVideoPicker.test.js` / `gen-video-*.test.js` / `run-context-video-path.test.js` | 选择器组件 13 例 + 纯函数 23 例（详见 `PRD-HOT-TOPICS-MODULE-2026-09-11.md` §9.1） |
 | QM-6 双模型深度评审 | claude 作 critic 出 8 条意见 → 自扮演逐条裁决：**i3（run-only 发布 query 注入空 title/content）、i4（completed 无成片仍可开浮层）指控成立并已修**；i1/i2/i5/i6 判不成立（i2 指出的 PRD 重复块为插入误命中，已按行锚定重做，现为精确增量） |
 
 ---

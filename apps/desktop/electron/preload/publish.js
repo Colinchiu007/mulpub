@@ -216,6 +216,13 @@ function createPublishApi(ipcRenderer, options = {}) {
     },
     story2videoBgmLibraryRename: (id, name) => ipcRenderer.invoke('story2video:bgm-library-rename', { id, name }),
     story2videoBgmLibraryDelete: (id) => ipcRenderer.invoke('story2video:bgm-library-delete', { id }),
+    // 历史 BGM 路径只读核验：渲染层无文件系统可见性，传入持久化路径换回存在性/可用性事实。
+    // 只读、不修改库或文件；未登录可用（与 bgm-library-list 同级）。
+    story2videoBgmLibraryStatus: (filePath) => {
+      const normalized = String(filePath || '').trim()
+      if (!normalized) return Promise.resolve({ code: -1, message: '背景音乐文件路径无效' })
+      return ipcRenderer.invoke('story2video:bgm-library-status', { filePath: normalized })
+    },
     // 流水线「保存配置」（与主进程 PUBLIC_CHANNELS 的 story2video:config-profile-* 对齐）：
     // 设备级命名组合配置管理（列表/保存/改名/删除），未登录可用。
     story2videoConfigProfileList: () => ipcRenderer.invoke('story2video:config-profile-list'),

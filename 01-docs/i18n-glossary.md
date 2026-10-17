@@ -86,6 +86,16 @@
 | 分发端目录 | Distribution endpoint catalog | podcast.endpoint |
 | 提交指引 | Submission guide | podcast.endpoint.steps |
 | 汤姆鱼 | Tomfish | tabs.brandTitle |
+| 选择视频创作流水线 | Choose a video creation pipeline | hotTopics.genVideoPipelinePickTitle |
+| 正在加载流水线… | Loading pipelines… | hotTopics.genVideoPipelineLoading |
+| 流水线列表加载失败 | Failed to load pipelines | hotTopics.genVideoPipelineLoadFailed |
+| 暂无可用的视频创作流水线 | No video creation pipelines available | hotTopics.genVideoPipelineEmpty |
+| 需先导入视频/音频素材 | Requires video/audio input | hotTopics.genVideoPipelineNeedsMedia |
+| 需在专属页面使用 | Use its dedicated page | hotTopics.genVideoPipelineDedicated |
+| 内部调试流水线 | Internal diagnostic pipeline | hotTopics.genVideoPipelineInternal |
+| 尚未实现执行引擎 | Execution engine not available yet | hotTopics.genVideoPipelineUnavailable |
+| 暂不支持从选题直接生成 | Not supported from a topic yet | hotTopics.genVideoPipelineUnsupported |
+| 流水线：{pipeline} | Pipeline: {pipeline} | hotTopics.genVideoPipelineLabel |
 
 ## 维护规则
 

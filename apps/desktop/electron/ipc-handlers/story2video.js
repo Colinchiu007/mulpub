@@ -400,6 +400,21 @@ function registerHandlers (ipcMain, deps = {}) {
     }
   }))
 
+  // 历史背景音乐存在性核验（s2v-bgm-legacy-repair）：只读、纯本地，未登录可用。
+  // 解决「已选音频（未入库）」把“文件仍可用 / 已被临时目录清理 / 已不可用”混为一谈的问题；
+  // 判定合同与 compose 的 resolveReadableMediaFile 同源，避免界面与合成双源真相。
+  ipcMain.handle('story2video:bgm-library-status', withSenderCheck(async (_event, request) => {
+    if (!request || typeof request !== 'object' || Array.isArray(request) ||
+      typeof request.filePath !== 'string' || !request.filePath.trim() || request.filePath.length > 4096) {
+      return { code: EC.VALIDATION_ERROR, message: '背景音乐文件路径无效' }
+    }
+    try {
+      return { code: 0, data: requireBgmLibrary().inspectPath(request.filePath) }
+    } catch (error) {
+      return { code: EC.REQUEST_ERROR, message: error.message }
+    }
+  }))
+
   // 流水线「保存配置」：设备级命名组合配置（userData/story2video-config-profiles），
   // 本地操作未登录可用（与 bgm-library 同安全白名单）。
   ipcMain.handle('story2video:config-profile-list', withSenderCheck(async () => {

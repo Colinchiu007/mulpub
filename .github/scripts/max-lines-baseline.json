@@ -138,7 +138,7 @@
     "apps/desktop/electron/tests/stage-executor.test.js": 1516,
     "apps/desktop/src/views/Accounts.test.js": 2029,
     "apps/desktop/src/views/Collection.test.js": 1687,
-    "apps/desktop/src/views/CreateView.test.js": 6574,
+    "apps/desktop/src/views/CreateView.test.js": 6884,
     "apps/desktop/src/views/Publish.test.js": 1735,
     "apps/desktop/src/views/ResultView.test.js": 2175,
     "apps/desktop/src/views/RewriteView.test.js": 1649

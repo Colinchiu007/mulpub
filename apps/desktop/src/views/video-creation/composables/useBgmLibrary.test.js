@@ -11,6 +11,7 @@ vi.mock('@/api/publisher', () => ({
   story2videoBgmLibraryAdd: vi.fn(),
   story2videoBgmLibraryRename: vi.fn(),
   story2videoBgmLibraryDelete: vi.fn(),
+  story2videoBgmLibraryStatus: vi.fn(),
 }))
 vi.mock('@/composables/useEmbeddedViewSuspension', () => ({
   suspendEmbeddedViewsForOverlay: vi.fn().mockResolvedValue(true),
@@ -25,7 +26,7 @@ import {
   BGM_LIBRARY_OVERLAY_OWNER,
   BGM_LIBRARY_DELETE_OVERLAY_OWNER,
 } from './useBgmLibrary'
-import { story2videoBgmLibraryList, story2videoBgmLibraryAdd, story2videoBgmLibraryDelete } from '@/api/publisher'
+import { story2videoBgmLibraryList, story2videoBgmLibraryAdd, story2videoBgmLibraryDelete, story2videoBgmLibraryStatus } from '@/api/publisher'
 import { suspendEmbeddedViewsForOverlay, releaseEmbeddedViewsForOverlay } from '@/composables/useEmbeddedViewSuspension'
 
 function makeDeps (overrides = {}) {
@@ -123,5 +124,156 @@ describe('useBgmLibrary', () => {
     resetBgmLibraryForTest()
     expect(bgmLibraryRefs.s2vBgmLibrary.value).toHaveLength(0)
     expect(bgmLibraryRefs.s2vBgmLibraryDialogOpen.value).toBe(false)
+  })
+})
+
+// 历史背景音乐状态机（s2v-bgm-legacy-repair）：
+// 「未入库」必须细分为 可用 / 已丢失 / 不可用 / 未知，未知不得阻断（失败开放）。
+describe('useBgmLibrary 历史路径核验与修复', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    resetBgmLibraryForTest()
+    if (typeof window !== 'undefined') delete window.__bgmLibraryDeps
+  })
+
+  function makeLegacyDeps (bgmPath = 'C:/old-import/legacy.mp3') {
+    const deps = makeDeps()
+    deps.s2vConfig.bgmPath = bgmPath
+    setupBgmLibraryDeps(deps)
+    return deps
+  }
+
+  const inspectData = (overrides = {}) => ({
+    path: 'C:/old-import/legacy.mp3',
+    exists: true,
+    readable: true,
+    size: 4,
+    extension: '.mp3',
+    inLibrary: false,
+    libraryItemId: null,
+    reason: 'ok',
+    ...overrides,
+  })
+
+  it('可用未入库 → available（exists/readable 透传）', async () => {
+    makeLegacyDeps()
+    story2videoBgmLibraryStatus.mockResolvedValue({ code: 0, data: inspectData() })
+
+    await bgmLibraryMethods.verifyLegacyBgmLibraryPath('C:/old-import/legacy.mp3')
+
+    expect(story2videoBgmLibraryStatus).toHaveBeenCalledWith('C:/old-import/legacy.mp3')
+    expect(bgmLibraryRefs.s2vLegacyBgmStatus.value).toMatchObject({
+      state: 'available',
+      path: 'C:/old-import/legacy.mp3',
+      reason: 'ok',
+      exists: true,
+    })
+  })
+
+  it('文件缺失 → missing；不可用原因 → unusable；通道失败 → unknown', async () => {
+    makeLegacyDeps()
+
+    story2videoBgmLibraryStatus.mockResolvedValueOnce({ code: 0, data: inspectData({ exists: false, readable: false, reason: 'missing' }) })
+    await bgmLibraryMethods.verifyLegacyBgmLibraryPath('C:/old-import/legacy.mp3')
+    expect(bgmLibraryRefs.s2vLegacyBgmStatus.value.state).toBe('missing')
+
+    story2videoBgmLibraryStatus.mockResolvedValueOnce({ code: 0, data: inspectData({ readable: false, reason: 'size_exceeded' }) })
+    await bgmLibraryMethods.verifyLegacyBgmLibraryPath('C:/old-import/legacy.mp3')
+    expect(bgmLibraryRefs.s2vLegacyBgmStatus.value.state).toBe('unusable')
+
+    story2videoBgmLibraryStatus.mockResolvedValueOnce({ code: -1, message: 'electronAPI not available' })
+    await bgmLibraryMethods.verifyLegacyBgmLibraryPath('C:/old-import/legacy.mp3')
+    expect(bgmLibraryRefs.s2vLegacyBgmStatus.value.state).toBe('unknown')
+
+    story2videoBgmLibraryStatus.mockRejectedValueOnce(new Error('boom'))
+    await bgmLibraryMethods.verifyLegacyBgmLibraryPath('C:/old-import/legacy.mp3')
+    expect(bgmLibraryRefs.s2vLegacyBgmStatus.value.state).toBe('unknown')
+  })
+
+  it('请求代际：过期响应不得覆盖最新路径的状态', async () => {
+    makeLegacyDeps()
+    let resolveFirst
+    story2videoBgmLibraryStatus
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve }))
+      .mockResolvedValueOnce({ code: 0, data: inspectData({ path: 'C:/new.mp3', inLibrary: false }) })
+
+    const first = bgmLibraryMethods.verifyLegacyBgmLibraryPath('C:/old-import/legacy.mp3')
+    await bgmLibraryMethods.verifyLegacyBgmLibraryPath('C:/new.mp3')
+    resolveFirst({ code: 0, data: inspectData({ exists: false, readable: false, reason: 'missing' }) })
+    await first
+
+    expect(bgmLibraryRefs.s2vLegacyBgmStatus.value).toMatchObject({ state: 'available', path: 'C:/new.mp3' })
+  })
+
+  it('空路径 → idle 且不发请求', async () => {
+    makeLegacyDeps()
+    await bgmLibraryMethods.verifyLegacyBgmLibraryPath('   ')
+    expect(story2videoBgmLibraryStatus).not.toHaveBeenCalled()
+    expect(bgmLibraryRefs.s2vLegacyBgmStatus.value.state).toBe('idle')
+  })
+
+  it('加入素材库成功：自动选中库内新路径并复位状态', async () => {
+    const deps = makeLegacyDeps()
+    story2videoBgmLibraryStatus.mockResolvedValue({ code: 0, data: inspectData() })
+    await bgmLibraryMethods.verifyLegacyBgmLibraryPath('C:/old-import/legacy.mp3')
+    story2videoBgmLibraryAdd.mockResolvedValue({ code: 0, data: { id: 'b9', name: 'legacy', path: 'C:/lib/legacy.mp3' } })
+    story2videoBgmLibraryList.mockResolvedValue({ code: 0, data: [{ id: 'b9', name: 'legacy', path: 'C:/lib/legacy.mp3' }] })
+
+    const adopted = await bgmLibraryMethods.adoptLegacyBgmLibrary()
+
+    expect(adopted.path).toBe('C:/lib/legacy.mp3')
+    expect(story2videoBgmLibraryAdd).toHaveBeenCalledWith('C:/old-import/legacy.mp3')
+    expect(deps.s2vConfig.bgmPath).toBe('C:/lib/legacy.mp3')
+    expect(bgmLibraryRefs.s2vLegacyBgmStatus.value.state).toBe('idle')
+    expect(bgmLibraryRefs.s2vBgmLibrary.value).toHaveLength(1)
+  })
+
+  it('加入素材库失败：不改写 bgmPath，走细分错误提示，状态保留可重试', async () => {
+    const deps = makeLegacyDeps()
+    story2videoBgmLibraryStatus.mockResolvedValue({ code: 0, data: inspectData() })
+    await bgmLibraryMethods.verifyLegacyBgmLibraryPath('C:/old-import/legacy.mp3')
+    story2videoBgmLibraryAdd.mockResolvedValue({ code: -1, message: '媒体文件不存在或不可读' })
+
+    const adopted = await bgmLibraryMethods.adoptLegacyBgmLibrary()
+
+    expect(adopted).toBeNull()
+    expect(deps.s2vConfig.bgmPath).toBe('C:/old-import/legacy.mp3')
+    expect(bgmLibraryRefs.s2vLegacyBgmStatus.value.state).toBe('available')
+    expect(deps.resolveMediaImportFailure).toHaveBeenCalled()
+  })
+
+  it('清除选择：bgmPath 置空并复位状态', async () => {
+    const deps = makeLegacyDeps()
+    await bgmLibraryMethods.clearLegacyBgmLibrarySelection()
+    expect(deps.s2vConfig.bgmPath).toBe('')
+    expect(bgmLibraryRefs.s2vLegacyBgmStatus.value.state).toBe('idle')
+  })
+
+  it('并发去重：同一历史路径的在途核验复用同一 Promise，不重发 IPC（CCG 评审 i2/i5）', async () => {
+    makeLegacyDeps()
+    let resolveFirst
+    story2videoBgmLibraryStatus.mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve }))
+
+    const first = bgmLibraryMethods.verifyLegacyBgmLibraryPath('C:/old-import/legacy.mp3')
+    const second = bgmLibraryMethods.verifyLegacyBgmLibraryPath('C:/old-import/legacy.mp3')
+
+    resolveFirst({ code: 0, data: { path: 'C:/old-import/legacy.mp3', exists: true, readable: true, size: 4, extension: '.mp3', inLibrary: false, libraryItemId: null, reason: 'ok' } })
+    await Promise.all([first, second])
+
+    expect(story2videoBgmLibraryStatus).toHaveBeenCalledTimes(1)
+    expect(bgmLibraryRefs.s2vLegacyBgmStatus.value.state).toBe('available')
+  })
+
+  it('空路径作废在途请求：旧响应不得落地为 missing（CCG 评审 i2）', async () => {
+    makeLegacyDeps()
+    let resolveFirst
+    story2videoBgmLibraryStatus.mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve }))
+
+    const first = bgmLibraryMethods.verifyLegacyBgmLibraryPath('C:/old-import/legacy.mp3')
+    await bgmLibraryMethods.verifyLegacyBgmLibraryPath('   ')
+    resolveFirst({ code: 0, data: { path: 'C:/old-import/legacy.mp3', exists: false, readable: false, size: 0, extension: '.mp3', inLibrary: false, libraryItemId: null, reason: 'missing' } })
+    await first
+
+    expect(bgmLibraryRefs.s2vLegacyBgmStatus.value).toMatchObject({ state: 'idle', path: '' })
   })
 })

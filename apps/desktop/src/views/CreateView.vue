@@ -921,6 +921,7 @@ import UiModal from '@/components/UiModal.vue'
 import UiSelect from '@/components/UiSelect.vue'
 import CreateViewHistory from './CreateViewHistory.vue'
 import { buildPublishFromProject, publishDataToQuery } from '@/features/publish/publish-from-project'
+import { extractRunContextVideoPath } from '@/features/pipeline/run-context-video-path'
 import PodcastPublishAction from '@/components/PodcastPublishAction.vue'
 import { story2videoSaveAs, story2videoGetProject, draftList } from '@/api/publisher'
 import { PipelineSelector, StageProgress, SceneAssetSelection, S2vConfigPanels } from './video-creation'
@@ -1038,7 +1039,8 @@ const S2V_SUMMARY_FIELDS = {
   basic: ['output.resolution', 'voiceSpeed', 'voiceVolume'],
   appearance: ['imageStyle', 'imageEffect'],
   videoEnhance: ['videoMode', 'videoFixedRatio', 'videoMinRatio', 'videoMaxRatio', 'shortVideoHandling'],
-  voice: ['voiceProvider', 'voiceModel', 'voiceId'],
+  // 背景音乐与音量归属「声音」分组（s2v-bgm-legacy-repair）：改动它们同样意味着该组已非默认。
+  voice: ['voiceProvider', 'voiceModel', 'voiceId', 'bgmPath', 'bgmVolume'],
   advanced: ['splitLanguage', 'splitMode'],
   publish: ['platforms'],
 }
@@ -1447,6 +1449,10 @@ export default {
       // （运行/暂停/检查点）时同样禁用「启动流水线」，防止连点起出重复后台任务。
       if (this.startingPipeline) return false
       if (this.isOrchestratedPipeline(this.selectedPipeline.name) && this.orchestrationRunId) return false
+      // 历史背景音乐已确认丢失/不可用时阻断启动（s2v-bgm-legacy-repair）：
+      // 否则 compose 会按 bgmSkipped 静默跳过背景音乐，用户花完额度才发现成片没有音乐。
+      // unknown（核验通道不可用）不阻断，保持失败开放。
+      if (this.s2vLegacyBgmBlockedState) return false
       if (this.isOrchestratedPipeline(this.selectedPipeline.name)) {
         return this.inputMode === 'text' && this.pipelineText.trim().length > 0
       }
@@ -1493,6 +1499,8 @@ export default {
       if (this.startingPipeline) return this.translateWithLocaleFallback('create.story2video.ui.blockedReason.starting', '启动请求处理中，请稍候', 'Start request is in flight, please wait')
       if (this.isOrchestratedPipeline(this.selectedPipeline.name) && this.orchestrationRunId) return this.translateWithLocaleFallback('create.story2video.ui.blockedReason.running', '已有流水线任务在运行中', 'A pipeline run is already active')
       if (this.s2vConfigRangeInvalid) return this.translateWithLocaleFallback('create.story2video.ui.blockedReason.invalidRange', '部分数值参数超出允许范围，请检查语速、音量与分镜长度', 'Some numeric options are out of range; check speed, volume and scene length')
+      if (this.s2vLegacyBgmBlockedState === 'missing') return this.$t('create.story2video.ui.blockedReason.bgmLost')
+      if (this.s2vLegacyBgmBlockedState === 'unusable') return this.$t('create.story2video.ui.blockedReason.bgmUnusable')
       if (this.inputMode !== 'text') return this.translateWithLocaleFallback('create.story2video.ui.blockedReason.noAsset', '请先添加素材文件', 'Add the required material first')
       return this.translateWithLocaleFallback('create.story2video.ui.blockedReason.noText', '请先输入视频文案', 'Enter the script text first')
     },
@@ -1533,12 +1541,26 @@ export default {
     historyLocalModeText() {
       return formatStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.HISTORY_LOCAL_MODE }).message
     },
-    // 历史/模板导入的 BGM 路径不在素材库时保留为独立选项，避免静默丢失已有配置
+    // 历史/模板导入的 BGM 路径不在素材库时保留为独立选项，避免静默丢失已有配置。
+    // 注意：这只回答“在不在库里”，不回答“文件还在不在”——后者由 s2vLegacyBgmStatus 承载。
     s2vLegacyBgmPath() {
       const current = String(this.s2vConfig.bgmPath || '').trim()
       if (!current) return ''
       if (this.s2vBgmLibrary.some(item => String(item.path) === current)) return ''
       return current
+    },
+    // 历史 BGM 状态桥接：get/set 双向委托 composable 单例（与 s2vBgmLibrary* 七元组同模式）。
+    s2vLegacyBgmStatus: {
+      get() { return bgmLibraryRefs.s2vLegacyBgmStatus.value },
+      set(v) { bgmLibraryRefs.s2vLegacyBgmStatus.value = v },
+    },
+    // 启动门禁只认「已确认」的丢失/不可用；checking/unknown/idle 均不阻断（失败开放）。
+    s2vLegacyBgmBlockedState() {
+      if (!this.s2vLegacyBgmPath) return ''
+      const state = this.s2vLegacyBgmStatus?.state
+      if (state === 'missing') return 'missing'
+      if (state === 'unusable') return 'unusable'
+      return ''
     },
     story2videoBgmLibraryDeleteConfirmMessage() {
       const target = this.s2vBgmLibrary.find(item => item.id === this.s2vBgmLibraryDeleteTargetId)
@@ -1871,6 +1893,11 @@ export default {
         this.$nextTick(() => this.scrollToSceneAssetPanel())
       }
     },
+    // 历史 BGM 路径变化（恢复快照/模板/配置、切换选择、清空）时触发一次只读核验。
+    // 核验只回答“文件还在不在/还能不能用”，不改写 bgmPath；旧响应由 composable 按代际丢弃。
+    s2vLegacyBgmPath(value) {
+      void this.verifyS2VLegacyBgm(value)
+    },
   },
   methods: {
     // ── 批量创作域方法代理（同名转发到 useBatchCreate）──────────────────
@@ -2013,6 +2040,9 @@ export default {
       return this.translateWithLocaleFallback(key, fallback, english)
     },
     s2vSectionSummary(section) {
+      // 既有声音摘要模板字面量保持逐字节不变（CJK 基线按「文件+文案内容」对账），
+      // 背景音乐片段在字面量之外用 ASCII 连接符拼接。
+      const voiceSummary = `${this.s2vConfig.voiceProvider || this.$t('create.story2video.voice.autoEdgeProvider')}${this.s2vConfig.voiceModel ? ` · ${this.s2vConfig.voiceModel}` : ''}${this.s2vConfig.voiceId ? ' · 已选音色' : ''}`
       const summaries = {
         basic: `${this.activeOutputConfig.resolution || '720x1280'} · 语速 ${Number(this.s2vConfig.voiceSpeed).toFixed(1)}x · 音量 ${Number(this.s2vConfig.voiceVolume).toFixed(2)}`,
         appearance: `${this.s2vConfig.imageStyle || this.$t('create.story2video.ui.imageStyleDefault')} · ${this.s2vConfig.imageEffect || this.$t('create.story2video.ui.imageEffectNone')}`,
@@ -2021,11 +2051,25 @@ export default {
           : (this.s2vConfig.videoMode === 'fixed'
             ? `固定 ${this.s2vConfig.videoFixedRatio}%` + (this.s2vConfig.shortVideoHandling === 'stop-at-end' ? ' · 播完停止' : '')
             : `AI 判断 ${this.s2vConfig.videoMinRatio}%-${this.s2vConfig.videoMaxRatio}%` + (this.s2vConfig.shortVideoHandling === 'stop-at-end' ? ' · 播完停止' : '')),
-        voice: `${this.s2vConfig.voiceProvider || this.$t('create.story2video.voice.autoEdgeProvider')}${this.s2vConfig.voiceModel ? ` · ${this.s2vConfig.voiceModel}` : ''}${this.s2vConfig.voiceId ? ' · 已选音色' : ''}`,
+        // 声音分组摘要含背景音乐（s2v-bgm-legacy-repair）：BGM 已从「画面」归位到「声音」。
+        // 仅在已选背景音乐时追加片段——默认态摘要与折叠行保持逐像素不变（像素基线不重取证）。
+        voice: this.s2vBgmLibrarySummaryText() ? [voiceSummary, this.s2vBgmLibrarySummaryText()].join(' · ') : voiceSummary,
         advanced: `${this.s2vConfig.splitLanguage === 'auto' ? this.$t('create.story2video.ui.splitLanguageAuto') : this.s2vConfig.splitLanguage} · ${this.s2vConfig.splitMode || this.$t('create.story2video.ui.splitModeBalanced')}`,
         publish: this.s2vConfig.platforms?.length ? this.$t('create.story2video.ui.summaryPlatforms', { count: this.s2vConfig.platforms.length }) : this.$t('create.story2video.ui.summaryNoPlatform'),
       }
       return summaries[section] || ''
+    },
+    // 「声音」分组摘要里的背景音乐片段：库内曲名 > 历史可用 > 已丢失/不可用；未选 BGM 返回空串
+    // （空串不参与拼接，保证默认折叠态摘要与像素基线逐字节一致）。
+    s2vBgmLibrarySummaryText() {
+      const path = String(this.s2vConfig.bgmPath || '').trim()
+      if (!path) return ''
+      const item = (this.s2vBgmLibrary || []).find(entry => String(entry.path) === path)
+      if (item) return this.$t('create.story2video.ui.summaryBgmLibrary', { name: item.name })
+      const state = this.s2vLegacyBgmStatus?.state
+      if (state === 'missing') return this.$t('create.story2video.ui.summaryBgmLegacyMissing')
+      if (state === 'unusable') return this.$t('create.story2video.ui.summaryBgmLegacyUnusable')
+      return this.$t('create.story2video.ui.summaryBgmLegacyAvailable')
     },
     // 该组摘要对应的字段全部等于初始默认值 → 视为未改动（供「（默认）」后缀使用）。
     // 基线取 $options.data()，与“保存配置”的默认值口径一致，不另起一份真相。
@@ -2206,6 +2250,12 @@ export default {
       // 与 startPipeline 内部 startingPipeline 守卫构成双重防线：登录门在途也拦截连点，
       // 防止绕过登录门直接调用 startPipeline 的入口跳过 busy 检查。
       if (this.startingPipeline) return false
+      // 历史 BGM 核验可能存在竞态（用户点得快时仍在 checking）：启动前 await 一次，
+      // 确保「已丢失/不可用」不会因为核验未返回而静默进入合成。
+      // 无历史路径时不额外 await，保持既有启动时序（等待点数量不变）。
+      if (this.s2vLegacyBgmPath) {
+        await this.ensureS2VLegacyBgmVerified()
+      }
       if (!(await this.ensureLoginForStart())) return false
       await this.startPipeline()
       return true
@@ -3701,16 +3751,10 @@ export default {
         // 埋点失败不影响用户操作
       }
     },
+    // 成片提取统一走共享纯函数（2026-10-17 抽出）：热门选题一键生成视频支持多流水线后，
+    // 两条链路必须共用同一 publish/compose/export/render/report 判据，避免一侧取不到路径。
     extractOrchestrationVideoPath(context) {
-      const publish = context?.publish?.data || context?.publish
-      const compose = context?.compose?.data || context?.compose
-      const clipExport = context?.export?.data || context?.export
-      const cinematicRender = context?.render?.data || context?.render
-      const smokeReport = context?.report?.data || context?.report
-      return publish?.videoPath || publish?.path || compose?.videoPath || compose?.path ||
-        clipExport?.videoPath || clipExport?.path ||
-        cinematicRender?.videoPath || cinematicRender?.path ||
-        smokeReport?.videoPath || smokeReport?.path || null
+      return extractRunContextVideoPath(context)
     },
     applyOrchestrationOutcome(outcome, expectedRunId = null, expectedActionRequestId = null) {
       // 卸载后残留响应不得写状态或触发跳转（2026-08-21 unmount 竞态守卫）
@@ -4784,6 +4828,25 @@ export default {
     //    壳保留同名代理维持旧测试/模板触点不变；代理删除计划见方案 §2.3 映射表 ──
     async addFileToBgmLibrary(file) { return bgmLibraryMethods.addFileToBgmLibrary(file) },
     async loadS2VBgmLibrary(options = {}) { return bgmLibraryMethods.loadS2VBgmLibrary(options) },
+    // 历史 BGM 核验与修复（s2v-bgm-legacy-repair）：实现落在 composable，壳只做同名代理。
+    async verifyS2VLegacyBgm(path) { return bgmLibraryMethods.verifyLegacyBgmLibraryPath(path === undefined ? this.s2vLegacyBgmPath : path) },
+    async ensureS2VLegacyBgmVerified() {
+      // CCG 评审 i4 修复：不只在 checking 时等待。快照恢复与 watch 触发之间存在
+      // 微任务窗口（状态仍为 idle 但尚未核验），直接启动会绕过门禁 ——
+      // 这里对「存在历史路径」一律补一次核验并等待其落地（同路径在途请求被
+      // composable 去重复用，不会放大 IPC）。
+      if (!this.s2vLegacyBgmPath) return
+      await this.verifyS2VLegacyBgm(this.s2vLegacyBgmPath)
+    },
+    async adoptS2VLegacyBgm() {
+      const adopted = await bgmLibraryMethods.adoptLegacyBgmLibrary()
+      if (adopted) this.showS2VOptionsToast(this.$t('create.story2video.bgmLibrary.adoptSuccess'))
+      return adopted
+    },
+    clearS2VLegacyBgm() {
+      void bgmLibraryMethods.clearLegacyBgmLibrarySelection()
+      this.showS2VOptionsToast(this.$t('create.story2video.bgmLibrary.clearedToast'))
+    },
     async openBgmLibraryDialog() { return bgmLibraryMethods.openBgmLibraryDialog() },
     closeBgmLibraryDialog() { return bgmLibraryMethods.closeBgmLibraryDialog() },
     async handleBgmLibraryAddFile(e) { return bgmLibraryMethods.handleBgmLibraryAddFile(e, this.$refs.s2vBgmLibraryInput) },

@@ -93,7 +93,7 @@
       <!-- 发布趋势（最近 14 天） -->
       <!-- 权益门控：未解锁时渲染占位（不发 IPC、不渲染真实数据），
            见 PRD §3.2.1 —— 这是体验分级，不是访问控制。 -->
-      <DashboardLockedPanel v-if="!hasDashboardFull" name="trend" :title="$t('dashboard.trendTitle')" @upgrade="showUpgradeModal = true" />
+      <DashboardLockedPanel v-if="!hasDashboardFull" name="trend" :title="$t('dashboard.trendTitle')" @upgrade="goToMemberCenter" />
       <div v-else-if="statsData && statsData.daily && statsData.daily.length > 0" class="cohere-card dash-panel trend-panel">
         <div class="dash-panel-title">
           <el-icon><TrendCharts /></el-icon> 
@@ -119,11 +119,11 @@
       </div>
 
       <!-- 作品互动回流（P2-6c）：数字一律来自 performance_snapshot 聚合 -->
-      <DashboardLockedPanel v-if="!hasDashboardFull" name="perf" :title="$t('dashboard.metrics.title')" @upgrade="showUpgradeModal = true" />
+      <DashboardLockedPanel v-if="!hasDashboardFull" name="perf" :title="$t('dashboard.metrics.title')" @upgrade="goToMemberCenter" />
       <PerformanceFlowPanel v-else class="dash-mt-xl" :reload-token="metricsReloadToken" />
 
       <!-- 平台分布 -->
-      <DashboardLockedPanel v-if="!hasDashboardFull" name="platform" :title="$t('dashboard.platformDistTitle')" @upgrade="showUpgradeModal = true" />
+      <DashboardLockedPanel v-if="!hasDashboardFull" name="platform" :title="$t('dashboard.platformDistTitle')" @upgrade="goToMemberCenter" />
       <div v-else-if="statsData && platformStats.length > 0" class="cohere-card dash-panel platform-panel">
         <div class="dash-panel-title">
           <el-icon><DataLine /></el-icon> 
@@ -165,7 +165,7 @@
         :queue="queue"
         :pattern-board="patternBoard"
         :has-full="hasDashboardFull"
-        @upgrade="showUpgradeModal = true"
+        @upgrade="goToMemberCenter"
       />
 
       <!-- 各平台数据 -->
@@ -235,8 +235,13 @@ import BenchmarkChart from '@/components/BenchmarkChart.vue'
 import PerformanceFlowPanel from '@/features/dashboard/PerformanceFlowPanel.vue'
 import DashboardLockedPanel from '@/features/dashboard/DashboardLockedPanel.vue'
 import DashboardExtraPanels from '@/features/dashboard/DashboardExtraPanels.vue'
-// eslint-disable-next-line no-unused-vars
-import UpgradeModal from '@/components/UpgradeModal.vue'
+// 注意：这里**不要**再 import UpgradeModal。
+// 历史教训（fix-upgrade-payment-entry）：曾 import 它、也写了 4 处
+// @upgrade="showUpgradeModal = true"，但模板里从未渲染 <UpgradeModal>，
+// 于是「升级解锁」点下去毫无反应；当时 lint 报了 no-unused-vars，
+// 却用 eslint-disable 掩盖过去，而不是去查「为什么 import 了却没用」。
+// 升级入口现在跳会员中心（有真实价目与兑换码核销），不需要这个弹窗。
+import { useRouter } from 'vue-router'
 import { useIdentityStore } from '@/stores/identity'
 import { hasFeatureOf, DASHBOARD_FULL_FEATURE } from '@/views/member-center/entitlement-gate'
 import { accountBatchCheckLogin, getQueueStatus, getQueueHistory } from '@/api/publisher'
@@ -251,7 +256,22 @@ import {
 const syncing = ref(false)
 const dismissBanner = ref(false)
 const { t } = useI18n()
-const showUpgradeModal = ref(false)
+const router = useRouter()
+
+/**
+ * 升级入口 → 会员中心。
+ *
+ * 为什么不是打开 UpgradeModal：正式包里那里只有「付费通道筹备中」，是死胡同；
+ * 而会员中心有真实档位、真实价格（来自服务端 GET /api/v1/plans，与 plan-matrix.js
+ * 同源）以及**服务端兑换码核销**（POST /api/v1/redeem）——那是当前唯一真实可用的
+ * 开通渠道。用户点「升级解锁」应当到达能做事的地方。
+ *
+ * 在线支付仍未实现（需接支付平台 + 回调 + 商户资质），属独立立项，见
+ * 01-docs/PRD-FIX-UPGRADE-PAYMENT-ENTRY-2026-10-17.md §5。
+ */
+function goToMemberCenter () {
+  router.push('/member-center')
+}
 const platformData = ref([])
 const statsData = ref(null)
 const recentPublishes = ref([])

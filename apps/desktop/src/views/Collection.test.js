@@ -301,6 +301,38 @@ describe("CollectionView", () => {
     expect(ElMessage.error).toHaveBeenCalledWith("collection failed");
   });
 
+  // ── 结果区「点了没反应」修复（2026-10-17，change: collected-results-fix）──
+  it("selectCollectedItem 选中该条并把详情框滚进视口（scrollIntoView + 高亮类）", async () => {
+    window.electronAPI = {};
+    const w = mountCollection();
+    await nextTick();
+    // 桩详情框锚（组件按 id 找；jsdom 无真实布局，断言 scrollIntoView 被调 + flash 类被加）
+    const scrollSpy = vi.fn();
+    const box = document.createElement("div");
+    box.id = "collected-result-box";
+    Object.defineProperty(box, "offsetWidth", { value: 10 });
+    box.scrollIntoView = scrollSpy;
+    document.body.appendChild(box);
+    const item = { id: "x", title: "T", content: "c" };
+    w.vm.selectCollectedItem(item);
+    await nextTick();
+    await nextTick();
+    expect(w.vm.collectedResult).toStrictEqual(item);
+    expect(scrollSpy).toHaveBeenCalled();
+    expect(box.classList.contains("col-result-box--flash")).toBe(true);
+    box.remove();
+  });
+
+  it("CollectedResultsList 的 @select 绑定的是 selectCollectedItem（不只是赋值）", async () => {
+    // 结构锁：防止将来有人把 @select 改回 "collectedResult = $event" 而失去滚动反馈
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const src = readFileSync(join(process.cwd(), "src/views/Collection.vue"), "utf8");
+    expect(src).toContain('@select="selectCollectedItem"');
+    expect(src).not.toContain('@select="collectedResult = $event"');
+    expect(src).toContain('data-testid="collected-result-box"');
+  });
+
   it("collectUrl 反爬安全验证页 → 回退 urlCollectFetch 而非误报成功", async () => {
     // 2026-09-29 起百家号链接先走视频通道（无视频回退 stealth），不再经聚合层；
     // 本回归用通用文章站点验证「安全验证页不得当成功」的语义仍然成立

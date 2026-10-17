@@ -11,6 +11,9 @@ const { app } = require('electron')
 const log = require('../services/logger')
 const playwrightManager = require('../services/playwright-manager')
 const { tryHttpLoginCheck } = require('./http-login-checker')
+const { hintForLoginStatus } = require('./login-status-hints')
+const { deriveCapabilities } = require('./login-check-capabilities')
+const { runHiddenPageCheck } = require('./dom-login-check-runner')
 const profileRefresh = require('./account-profile-refresh')
 const pythonBridge = require('../services/python-bridge')
 const accountStateRestorer = require('../services/account-state-restorer')
@@ -582,7 +585,8 @@ const RENDER_CRASH_PRONE_OPEN_PLATFORMS = new Set(['toutiao', 'wechat_mp', 'baij
 Object.freeze(DOM_LOGIN_CHECK_ALLOWED_PLATFORMS)
 Object.freeze(RENDER_CRASH_PRONE_OPEN_PLATFORMS)
 
-async function checkLoginStatus (platform, accountId, options = {}) {
+
+async function checkLoginStatusRaw (platform, accountId, options = {}) {
   // 测试注入缝（2026-10-16，外部复核 i1/i3 的整改）：允许集**不再**以可变全局 +
   // `_internals` 导出的方式暴露——那条路要求「调用方记得删 require 缓存」才能隔离，
   // 且给生产代码留了无留痕改判定策略的口子。现在改为**显式参数**：不传就永远走模块
@@ -674,58 +678,21 @@ async function checkLoginStatus (platform, accountId, options = {}) {
 
     log.info('AccountManager', 'checkLoginStatus: start ' + platform + ':' + accountId + ' url=' + loginUrl + ' cookies=' + cookies.length + ' lsKeys=' + Object.keys(localStorageData).length + ' selectors=' + (Array.isArray(successSelector) ? '[' + successSelector.length + ' candidates]' : (successSelector ? '1' : '0')))
 
-    // 渲染崩溃保护（2026-09 今日头条事故）：toutiao 等平台在隐藏 sandbox 窗口加载页面时触发
-    // 原生渲染崩溃（crashpad not connected，主进程 exit code 0xFFFF7003）导致整个应用退出。
-    // 走到此处说明 HTTP 检测不确定；此前会降级开隐藏浏览器 -> 崩溃。改判未确认（与 tencent_video
-    // 早期分支同语义），绝不再开这个会崩的窗口。toutiao 的无 Cookie 快速路径等分类仍在上游保留。
-
-    // ⚠️ 与函数上方 RENDER_CRASH_PRONE_PLATFORMS（前置 HTTP/本地分类，命中 tencent_video）是
-    // 不同插入点、不同语义：那个自己走 HTTP 早返回，这个只切断 getContext 前的浏览器降级。
-    // 二者切勿合并——并入前置会绕过 toutiao 的无 Cookie 快速路径（回归既有测试）。
-    //
-    // 2026-10-06 实测追加 wechat_mp：mp.weixin.qq.com 在隐藏 sandbox 窗口加载时同样触发
-    // 原生渲染崩溃（Electron 主进程 exit code 0xC0000005 ACCESS_VIOLATION，日志末行恒为
-    // "checkLoginStatus: start wechat_mp ... url=https://mp.weixin.qq.com/"）。该平台登录态
-    // 只有 24h，HTTP 检测对重定向到 /cgi-bin/home?token= 的形态恒判 inconclusive，
-    // 于是每次启动批量校验都会走到这里开窗口 → 崩 → 整个应用退出（连带所有 CDP E2E 失败）。
-    //
-    // 同日追加 baijiahao：受控实验（并发 1/3、--no-sandbox、swiftshader、sandbox:false、
-    // show:true、复用 partition 共 24 次对照）证明以上均非触发条件；真因是 baijiahao
-    // **未注册 HTTP_CHECK_APIS**（http-login-checker.js 的登记表里没有该键），
-    // tryHttpLoginCheck 恒返回 null → 浏览器降级是它唯一检测路径 → 每次启动必开隐藏窗口。
-    // ⚠️ 2026-10-16 更正：此处原写「同配置窗口加载 kuaishou/douyin 均成功返回
-    // CHECK_LOGIN_SUCCESS，故为站点特定」。该结论对 kuaishou 已不再成立（见下方第五例）；
-    // douyin 本轮未复测，不得再被当作免检依据引用。
-    // 与上面两平台同类同机制，按既有白名单处置。
-    // 2026-10-16 追加 zhihu（同族第四例）：知乎有 Cookie 但 HTTP 检测恒 inconclusive
-    // ⇒ 每次启动批量校验必然走到这里开隐藏 sandbox 窗口加载 https://www.zhihu.com/signin
-    // ⇒ 原生渲染崩溃（主进程 exit 4294930435 = 0xC0000409 STATUS_STACK_BUFFER_OVERRUN，
-    // crashpad not connected），vite 连带被杀 ⇒ 应用空白。日志取证：
-    // 08:47:13.465Z start zhihu:e10a1715 → 08:47:22.379Z electron-exit code=4294930435。
-    // 处置与 toutiao/wechat_mp/baijiahao 同：HTTP 不确定 ⇒ 判未确认，绝不开窗；确定结论
-    // 由 zhihu 条目新增的 checkHtml（登录页/已登录页黑名单语义）在 HTTP 快速路径给出。
-    // 2026-10-16 追加 kuaishou（同族第五例）：同一实例的两轮检测断在同一处 ——
-    // 21:29:58.632Z start kuaishou:a4505f45 → 无后续行；22:20:58.567Z 同一条 →
-    // 22:21:00.504Z electron-exit code=4294930435（0xC0000135 STATUS_DLL_NOT_FOUND，
-    // crashpad not connected）。第二轮尤其关键：该实例**已带** fix-hidden-window-render-crash
-    // 的成因侧修复（不再下发 --no-sandbox，见 apps/desktop/scripts/dev-launcher.js），
-    // 第一轮 kuaishou 通过、30 分钟后的第二轮仍崩 ⇒ 「隐藏窗口加载该站点」这条路径本身
-    // 必须切断，启动参数只能调概率。故 kuaishou 纳入白名单：HTTP 不确定 ⇒ 判未确认。
-    // 边界（如实）：本轮**不**给 kuaishou 补 checkHtml（zhihu 那例的第二半）——没有
-    // cp.kuaishou.com 真机登录页/已登录页形态证据就不许凭空写判据，故其登录态在 HTTP
-    // 判定不足时会显示「未确认」。要恢复确定性结论，先取证再按 zhihu 模式补。
-    //
-    //
-    // ===== 2026-10-16 策略翻转：登录态判定收敛到 HTTP 单轨（细节见 
-    // 01-docs/BUGFIX-LOGIN-CHECK-HTTP-ONLY-2026-10-16.md；此处只留契约）=====
-    // 旧写法是**枚举式**黑名单：把已知会崩的平台挑出来禁掉 ⇒ 默认值始终留在崩的那一侧，
-    // 于是按平台逐个复发（toutiao → wechat_mp → 知乎 → kuaishou，日志戛然而止 + crashpad
-    // not connected + 主进程退出 0xC0000135 ⇒ 用户视角「应用突然关闭」）。
-    // 新契约：只有显式登记在 DOM_LOGIN_CHECK_ALLOWED_PLATFORMS 的平台才允许开隐藏窗口，
-    // 该集合**默认为空**；RENDER_CRASH_PRONE_OPEN_PLATFORMS 保留为**硬否决**且**先于**
-    // 允许集判定（否决永远赢）。要放开某平台：加进允许集并在同一次提交附**真机复测证据**，
-    // 不得用环境变量临时开启。代价：更多账号显示「未确认」（不计入失效、不触发失效横幅）；
-    // 正解是给平台补 HTTP 侧能力（HTTP_CHECK_APIS[p].checkHtml），而不是重开隐藏窗口。
+// 渲染崩溃保护（2026-09 今日头条事故起，共五例）：toutiao / wechat_mp / baijiahao /
+// zhihu / kuaishou 在隐藏 sandbox 窗口加载时触发**原生渲染崩溃**（crashpad not connected、
+// 主进程 exit 0xC0000135 等）⇒ 整个应用退出。走到此处说明 HTTP 检测不确定，绝不再开窗。
+// ⚠️ 与函数上方 RENDER_CRASH_PRONE_PLATFORMS（前置 HTTP/本地分类，命中 tencent_video）是
+// 不同插入点、不同语义，二者切勿合并——并入前置会绕过 toutiao 的无 Cookie 快速路径。
+// 📌 五例的逐平台取证（日志末行、退出码、受控实验结论、2026-10-16 的结论更正）全部在
+// 01-docs/BUGFIX-LOGIN-CHECK-HTTP-ONLY-2026-10-16.md，此处只留结论，避免重复两处漂移。
+//
+// ===== 2026-10-16 策略翻转：登录态判定收敛到 HTTP 单轨 =====
+// 旧写法是枚举式黑名单 ⇒ 默认值始终留在崩的那一侧，于是按平台逐个复发。
+// 新契约：只有显式登记在 DOM_LOGIN_CHECK_ALLOWED_PLATFORMS 的平台才允许开隐藏窗口，
+// 该集合**默认为空**；RENDER_CRASH_PRONE_OPEN_PLATFORMS 保留为**硬否决**且**先于**允许集
+// （否决永远赢）。要放开某平台：加进允许集并在同一次提交附**真机复测证据**，不得用环境变量
+// 临时开启。代价：更多账号显示「未确认」（不计入失效、不触发失效横幅）；正解是给平台补
+// HTTP 侧能力（HTTP_CHECK_APIS[p].checkHtml），而不是重开隐藏窗口。
     if (RENDER_CRASH_PRONE_OPEN_PLATFORMS.has(platform)) {
       log.warn('AccountManager', 'checkLoginStatus: INCONCLUSIVE render-crash-prone, skip hidden browser ' + platform + ':' + accountId + ' cookies=' + cookies.length + ' lsKeys=' + lsKeys)
       return { valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE', reason: 'render-crash-prone-http-inconclusive' }
@@ -734,90 +701,134 @@ async function checkLoginStatus (platform, accountId, options = {}) {
       log.warn('AccountManager', 'checkLoginStatus: INCONCLUSIVE hidden-browser-disabled-default, skip hidden browser ' + platform + ':' + accountId + ' cookies=' + cookies.length + ' lsKeys=' + lsKeys + ' allowed=' + DOM_LOGIN_CHECK_ALLOWED_PLATFORMS.has(platform))
       return { valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE', reason: 'hidden-browser-disabled-default' }
     }
-    // 创建临时 context 加载 Cookie 进行验证
-    const browser = await playwrightManager.getContext({ show: false })
-    const page = await browser.newPage()
+//
+// 2026-10-17：隐藏页面判定改走隔离运行器（dom-login-check-runner）——原生崩溃时主进程
+// 自己没了，连"降级未确认"都来不及返回；子进程跑则只收到 exit ⇒ 降级，应用不退出。
+    // 运行器内部已把一切异常（含子进程死亡）收成未确认，外层 catch 是纵深兜底。
+    return await runHiddenPageCheck(
+      { platform, accountId, url: loginUrl, successSelector, cookies, localStorage: localStorageData, dashboardUrl },
+      {
+        runInProcess: async () => {
+          // 创建临时 context 加载 Cookie 进行验证
+          const browser = await playwrightManager.getContext({ show: false })
+          const page = await browser.newPage()
 
-    try {
-      // 注入 Cookie
-      if (cookies.length > 0) await page.context().addCookies(cookies)
-      if (Object.keys(localStorageData).length > 0) {
-        await page.addInitScript(sessionRestore.buildLocalStorageRestoreScript(localStorageData))
+          try {
+    // 注入 Cookie
+    if (cookies.length > 0) await page.context().addCookies(cookies)
+    if (Object.keys(localStorageData).length > 0) {
+      await page.addInitScript(sessionRestore.buildLocalStorageRestoreScript(localStorageData))
+    }
+  
+    // 访问平台页面 — 使用 domcontentloaded 代替 networkidle 以显著提速。
+    // 15s→8s：登录检测只需要重定向链完成后的最终 URL 和基本 DOM，
+    // 不需要完整加载页面资源。B 站等重定向链长的平台 8s 足够。
+    await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 8000 })
+  
+    // 额外等待页面 JS 完成初始渲染（SPA 可能需要额外时间加载组件）。
+    // 2s→500ms：domcontentloaded 后 SPA 框架通常已挂载，选择器等待本身
+    // 有轮询重试，过长固定 sleep 是批量检测耗时主因（B 站 12.7s 中占 2s）。
+    await new Promise(resolve => setTimeout(resolve, 500))
+  
+    // 检查登录状态选择器（支持数组选择器：PLATFORM_LOGIN_SUCCESS_SELECTORS 配置
+    // 每个平台多个备选 CSS 选择器，playwright-manager 的 waitForSelector 会逐一尝试）
+    let selectorMatched = false
+    if (successSelector) {
+      try {
+        // 10s→3s：选择器不匹配时等满超时才降级 URL 检查，是批量检测
+        // 耗时主因（B 站选择器全部过时，10s 全浪费）。3s 足够 SPA 渲染。
+        await page.waitForSelector(successSelector, { timeout: 3000 })
+        selectorMatched = true
+        // 登录态确认后顺带回填账号资料（昵称/头像/平台ID）：内部全捕获，失败只 warn，
+        // 不影响登录态判定结果（资料回填是旁路，绝不能把检测主链路搞挂）。
+        await refreshProfileFromPage(page, platform, accountId)
+        return { valid: true, code: "CHECK_LOGIN_SUCCESS" }
+      } catch {
+        // 选择器超时不一定意味着失效：某些平台的选择器可能因 DOM 变更而失效
+        // 不立即判为过期，继续走 URL 检查逻辑
+        log.info('AccountManager', 'checkLoginStatus: selector timeout ' + platform + ':' + accountId + ' selector=' + (Array.isArray(successSelector) ? successSelector.join(',').slice(0, 200) : String(successSelector).slice(0, 200)) + ' — 降级 URL 检查')
       }
-
-      // 访问平台页面 — 使用 domcontentloaded 代替 networkidle 以显著提速。
-      // 15s→8s：登录检测只需要重定向链完成后的最终 URL 和基本 DOM，
-      // 不需要完整加载页面资源。B 站等重定向链长的平台 8s 足够。
-      await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 8000 })
-
-      // 额外等待页面 JS 完成初始渲染（SPA 可能需要额外时间加载组件）。
-      // 2s→500ms：domcontentloaded 后 SPA 框架通常已挂载，选择器等待本身
-      // 有轮询重试，过长固定 sleep 是批量检测耗时主因（B 站 12.7s 中占 2s）。
-      await new Promise(resolve => setTimeout(resolve, 500))
-
-      // 检查登录状态选择器（支持数组选择器：PLATFORM_LOGIN_SUCCESS_SELECTORS 配置
-      // 每个平台多个备选 CSS 选择器，playwright-manager 的 waitForSelector 会逐一尝试）
-      let selectorMatched = false
-      if (successSelector) {
-        try {
-          // 10s→3s：选择器不匹配时等满超时才降级 URL 检查，是批量检测
-          // 耗时主因（B 站选择器全部过时，10s 全浪费）。3s 足够 SPA 渲染。
-          await page.waitForSelector(successSelector, { timeout: 3000 })
-          selectorMatched = true
-          // 登录态确认后顺带回填账号资料（昵称/头像/平台ID）：内部全捕获，失败只 warn，
-          // 不影响登录态判定结果（资料回填是旁路，绝不能把检测主链路搞挂）。
+    }
+  
+    // 检查 URL 是否跳离登录页
+    const currentUrl = page.url()
+  
+    // 登录页 URL 特征检查必须先于仪表盘域名兜底：
+    // 微信公众号等平台的登录页与后台同域（mp.weixin.qq.com/cgi-bin/loginpage
+    // 与 mp.weixin.qq.com/ 同 host），若先做域名兜底会恒真，把已登出账号
+    // 误判为已登录（公众号会话仅 24h，登出后 30 分钟定时检测也永远报 valid）。
+    if (currentUrl.includes('login') || currentUrl.includes('signin')) {
+      log.info('AccountManager', 'checkLoginStatus: URL hit login/signin marker ' + platform + ':' + accountId + ' url=' + currentUrl)
+      return { valid: false, code: "CHECK_LOGIN_COOKIE_EXPIRED" }
+    }
+  
+    // 选择器超时但 URL 不含登录特征，且在仪表盘/创作者中心域名下，
+    // 说明实际上已登录（平台选择器因 DOM 变更而过时，但 Cookie 有效）
+    if (successSelector && !selectorMatched && dashboardUrl) {
+      try {
+        const dashboardHost = new URL(dashboardUrl).hostname
+        const currentHost = new URL(currentUrl).hostname
+        if (currentHost === dashboardHost || currentHost.endsWith('.' + dashboardHost)) {
+          log.info('AccountManager', 'checkLoginStatus: dashboard-host fallback valid ' + platform + ':' + accountId + ' currentHost=' + currentHost + ' dashboardHost=' + dashboardHost + ' selectorMatched=false')
+          // 同上：仪表盘域名兜底判定为已登录时，也回填一次账号资料
           await refreshProfileFromPage(page, platform, accountId)
           return { valid: true, code: "CHECK_LOGIN_SUCCESS" }
-        } catch {
-          // 选择器超时不一定意味着失效：某些平台的选择器可能因 DOM 变更而失效
-          // 不立即判为过期，继续走 URL 检查逻辑
-          log.info('AccountManager', 'checkLoginStatus: selector timeout ' + platform + ':' + accountId + ' selector=' + (Array.isArray(successSelector) ? successSelector.join(',').slice(0, 200) : String(successSelector).slice(0, 200)) + ' — 降级 URL 检查')
         }
-      }
-
-      // 检查 URL 是否跳离登录页
-      const currentUrl = page.url()
-
-      // 登录页 URL 特征检查必须先于仪表盘域名兜底：
-      // 微信公众号等平台的登录页与后台同域（mp.weixin.qq.com/cgi-bin/loginpage
-      // 与 mp.weixin.qq.com/ 同 host），若先做域名兜底会恒真，把已登出账号
-      // 误判为已登录（公众号会话仅 24h，登出后 30 分钟定时检测也永远报 valid）。
-      if (currentUrl.includes('login') || currentUrl.includes('signin')) {
-        log.info('AccountManager', 'checkLoginStatus: URL hit login/signin marker ' + platform + ':' + accountId + ' url=' + currentUrl)
-        return { valid: false, code: "CHECK_LOGIN_COOKIE_EXPIRED" }
-      }
-
-      // 选择器超时但 URL 不含登录特征，且在仪表盘/创作者中心域名下，
-      // 说明实际上已登录（平台选择器因 DOM 变更而过时，但 Cookie 有效）
-      if (successSelector && !selectorMatched && dashboardUrl) {
-        try {
-          const dashboardHost = new URL(dashboardUrl).hostname
-          const currentHost = new URL(currentUrl).hostname
-          if (currentHost === dashboardHost || currentHost.endsWith('.' + dashboardHost)) {
-            log.info('AccountManager', 'checkLoginStatus: dashboard-host fallback valid ' + platform + ':' + accountId + ' currentHost=' + currentHost + ' dashboardHost=' + dashboardHost + ' selectorMatched=false')
-            // 同上：仪表盘域名兜底判定为已登录时，也回填一次账号资料
-            await refreshProfileFromPage(page, platform, accountId)
-            return { valid: true, code: "CHECK_LOGIN_SUCCESS" }
-          }
-        } catch (_) { /* URL 解析失败时继续走原有逻辑 */ }
-      }
-
-      // 兜底判定：选择器超时 + URL 无登录特征 + 非仪表盘域名 = 没有任何证据。
-      // 过去无条件判 valid 是已知假阳性盲区（logging-coverage-audit），改为未确认。
-      log.warn('AccountManager', 'checkLoginStatus: fallback inconclusive (no selector match, no login URL marker, no dashboard host) ' + platform + ':' + accountId + ' url=' + currentUrl + ' selectorMatched=' + selectorMatched)
-      return { valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE', reason: 'no-positive-evidence' }
-   } finally {
-     await page.close().catch(() => {})
-   }
+      } catch (_) { /* URL 解析失败时继续走原有逻辑 */ }
+    }
+  
+    // 兜底判定：选择器超时 + URL 无登录特征 + 非仪表盘域名 = 没有任何证据。
+    // 过去无条件判 valid 是已知假阳性盲区（logging-coverage-audit），改为未确认。
+    log.warn('AccountManager', 'checkLoginStatus: fallback inconclusive (no selector match, no login URL marker, no dashboard host) ' + platform + ':' + accountId + ' url=' + currentUrl + ' selectorMatched=' + selectorMatched)
+    return { valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE', reason: 'no-positive-evidence' }
+  } finally {
+    await page.close().catch(() => {})
+  }
+        },
+        spawnIsolated: options.spawnIsolated
+      },
+      { isolated: Boolean(options.isolated) }
+    )
   } catch (e) {
-   // 隐藏浏览器检测失败时（平台反爬超时/阻断/导航失败），回退到本地凭证
-   // 检测。对齐 toPublicAccount 的 checkLocalCredentials 逻辑，避免
-   // 有效 session cookie 因浏览器检测不稳定而被误判过期。
-   const hasLocal = checkLocalCredentials(platform, accountId)
-   log.warn('AccountManager', 'checkLoginStatus: browser-check failed for ' + platform + ':' + accountId + ' error=' + (e && e.message ? e.message : String(e)) + ' hasLocalCred=' + hasLocal + ' — 证据不足，判未确认')
-   if (!hasLocal) return { valid: false, code: "CHECK_LOGIN_FAILED", error: e.message }
-   // 检测手段自身失败 + 只是「有凭证文件」→ 既不能证明有效也不能证明失效。
-   return { valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE', reason: 'browser-check-failed', error: e.message }
+    // 隐藏浏览器检测失败时（平台反爬超时/阻断/导航失败），回退到本地凭证
+    // 检测。对齐 toPublicAccount 的 checkLocalCredentials 逻辑，避免
+    // 有效 session cookie 因浏览器检测不稳定而被误判过期。
+    const hasLocal = checkLocalCredentials(platform, accountId)
+    log.warn('AccountManager', 'checkLoginStatus: browser-check failed for ' + platform + ':' + accountId + ' error=' + (e && e.message ? e.message : String(e)) + ' hasLocalCred=' + hasLocal + ' — 证据不足，判未确认')
+    if (!hasLocal) return { valid: false, code: "CHECK_LOGIN_FAILED", error: e.message }
+    // 检测手段自身失败 + 只是「有凭证文件」→ 既不能证明有效也不能证明失效。
+    return { valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE', reason: 'browser-check-failed', error: e.message }
+  }
+}
+
+
+/**
+ * 登录态判定对外入口（三态判定，一个键都不多）。
+ * ⚠️ 2026-10-17 决策记录（防止下一个人再踩）：曾把 hint/capabilities 直接装饰到返回值上，
+ * **实测打破 13 个既有 toEqual 精确断言**，且让判定与展示语义耦合。现判定链保持纯净，
+ * 展示语义由 IPC 层显式调用 loginStatusHint / loginStatusCapabilities 获取。
+ */
+async function checkLoginStatus (platform, accountId, options = {}) {
+  return checkLoginStatusRaw(platform, accountId, options)
+}
+
+/** 取登录态提示（IPC 层用；只解释、不改判）。@returns {{key,fallback,action}|null} */
+function loginStatusHint (status) {
+  try {
+    return hintForLoginStatus(status)
+  } catch (e) {
+    log.warn('AccountManager', 'loginStatusHint failed err=' + (e && e.message ? e.message : String(e)))
+    return null
+  }
+}
+
+/** 取能力级授权状态（IPC 层用；缺证据一律 unknown，绝不猜）。 */
+function loginStatusCapabilities (status) {
+  try {
+    return deriveCapabilities(status)
+  } catch (e) {
+    log.warn('AccountManager', 'loginStatusCapabilities failed err=' + (e && e.message ? e.message : String(e)))
+    return {}
   }
 }
 
@@ -1212,6 +1223,8 @@ module.exports = {
   deleteAccount,
   listAccounts,
   checkLoginStatus,
+  loginStatusHint,
+  loginStatusCapabilities,
   captureCookies,
   PLATFORM_LOGIN_URLS,
   PLATFORM_NAMES,

@@ -1,0 +1,34 @@
+{
+  "sha": "135f22353d08d6e32992ea1b1610d5ba58830165",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 113 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 113,
+    "fileCount": 7,
+    "codeFileCount": 5,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "在线支付的真实前置条件：接入支付平台（支付宝/微信）+ 支付回调 → `SubscriptionService.grant({durationDays, providerReference})` + 对账/退款。这涉及真实商户号、密钥、回调服务器与资金安全，**必须独立立项并由人决策定价模型**，不得由本 PR 顺手实现。",
+      "在线支付真实前置：接支付平台 + 支付回调 → `SubscriptionService.grant({durationDays, providerReference})` + 对账/退款，涉及商户号、密钥、回调服务器与资金安全，**须独立立项并由人决策定价模型**。详见 `01-docs/PRD-FIX-UPGRADE-PAYMENT-ENTRY-2026-10-17.md` §5。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "b9e13bf7cd0cd40cc05260c84646fe5175d7303b5c9c453de307108a578b2b35",
+  "decidedAt": "2026-10-17T05:27:03.487Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "self_play_pending",
+    "performedBy": "self-play(pending)",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "findings": null,
+    "template": ".adversarial\\ccg-deep-0c6ff870\\adjudication.json",
+    "note": "裁决尚未填写：4/4 条未定（i1, i2, i3, i4）",
+    "at": "2026-10-17T05:33:33.744Z"
+  }
+}

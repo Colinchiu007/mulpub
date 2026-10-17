@@ -29,6 +29,12 @@
 .selected-count { font-size: var(--font-size-sm); color: var(--color-primary-dark-tint, var(--color-primary)); }
 .batch-actions { margin-left: auto; display: flex; gap: 8px; }
 .gen-video-modal-content { min-height: 200px; }
+/* hot-topics-pipeline-picker（2026-10-17）：弹窗顶部标识本次所跑流水线 */
+.gen-video-pipeline-line {
+  margin: 0 0 10px;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
 .gen-video-error-text { margin-right: auto; font-size: var(--font-size-sm); color: var(--color-danger); align-self: center; }
 .publish-progress { padding: 12px 14px; background: var(--color-bg-inset); border: 1px solid var(--color-border); border-radius: 8px; margin-bottom: 12px; }
 .progress-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; font-size: var(--font-size-sm); color: var(--color-primary-dark-tint, var(--color-primary)); }

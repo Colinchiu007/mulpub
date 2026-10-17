@@ -1,0 +1,30 @@
+{
+  "sha": "e379b2a73054f0524fdbd3fd0de48a43dcbc5113",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 517 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 517,
+    "fileCount": 15,
+    "codeFileCount": 11,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 15,
+    "docSensitiveContentHits": 7,
+    "docSensitiveContentSample": [
+      "「编辑」按钮（`data-testid=\"result-view-*\"`，文案 key `recordsEdit`，中文显示为「编辑」）emit `select` → 父级 `@select=\"collectedResult = $event\"` → 页面上方的 **结果详情框**（`col-result-box`）出现/更新。",
+      "| `CollectedResultsList` | `card-info` / `card-icon` 绑定 `@select`（与「查看」按钮同语义）并显式 `cursor:pointer`——**看着能点就真能点**；hover 时标题变主色 |",
+      "| 父级绑定 | `@select=\"selectCollectedItem\"`（原来是裸赋值），结构锁防止改回去 |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "2417a8bd81d2f1b19af8adc43ebce2e014d07bdf039dbdc4c844e3ea91521e11",
+  "decidedAt": "2026-10-17T09:18:05.630Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "findings": "挑刺侧出 7 条：3 条采纳（内网端点脱敏并留日志原文、非异常抛出值改可读摘要、注释与实现不一致修正）+ 判据脚本补「格式契约」明文声明；4 条经核验无需改动（其中一条由挑刺侧自证安全）。采纳项各有回归锁或明文契约。无待人工裁决争议，产物见 .adversarial/ccg-deep-collected-results-fix/（该目录不入库）。"
+  }
+}
