@@ -113,10 +113,7 @@ sync_backfill_owner: 本会话（合并后立即回填）
 | P8 负控（`.gitignore` 末尾追加同名忽略规则） | CAUGHT，failing=P8；还原 `md5 ok=true` |
 | `scripts/openspec-sync-check.js` | OK |
 
-## 8. 与 #3724 的关系
-
-两条 PR 判据互不依赖，可任意顺序合并。步骤编号上：#3724 占用 `Gate 2b5 - CCG evidence anchor`，本篇取 `Gate 2b6`，避免 squash 后两步同名被读成一条。
-### 7.3 QM-6 第二轮（修复提交 41b87a6db，rebase 前为 653f24bfe；裁决模板目录 `.adversarial\ccg-deep-653f24bf` 仍指旧 sha）的真实双模型评审
+### 7.3 QM-6 第二轮（判定记录 `8b8309bc4462bd63fa026202b0a74ce31664cba2b2095a321e2ad39af8890c8e.json`；其裁决模板目录 `.adversarial\ccg-deep-<旧sha>` 按当时的 HEAD 命名）的真实双模型评审
 
 | 项 | 严重度 | 域 | 裁决 | 处置 |
 | --- | --- | --- | --- | --- |
@@ -129,6 +126,9 @@ sync_backfill_owner: 本会话（合并后立即回填）
 
 **本轮新增的现场结论（比 #3724 更宽）**：改动集里没有任何加解密代码，`i2` 却被打了 `crypto` 域标签 —— 标签来源是文案里出现了那个字样。于是「高危域必须外部复核」这道闸**可被散文触发**：它问的不是「这次改动碰没碰加密」，而是「critic 这次有没有把某个词读成加密」。这一格比 proposal 里原来那条更硬，也更难闭合（本轮 `ext=1` 使记录必然停在 blocked）。
 
+## 8. 与 #3724 的关系
+
+两条 PR 判据互不依赖，可任意顺序合并。步骤编号上：#3724 占用 `Gate 2b5 - CCG evidence anchor`，本篇取 `Gate 2b6`，避免 squash 后两步同名被读成一条。
 ## 9. rebase 到 origin/main 与「PR 侧一条 check 都没有」的归因
 
 PR #3830 开出来之后 `gh pr checks` 报 **no checks reported**、`api .../commits/<sha>/check-runs` 的 `total_count=0`，而同期别的 PR 的 quality-gate / GUI Tests 都在跑。第一反应会是「我改坏了 workflow 编译」（本仓有这条先例：`defaults:` 下挂空 `run:` 会让 GitHub 在排队前拒绝整份文件，PR 侧连 run 都不生成），但当场把这条否证了：js-yaml 解析通过、`on` 键含 `pull_request`、我插入的块内**无 tab**、`check-workflow-structure.js` 报 violations=0，且 changes 作业的 steps 里 `Gate 2b6` 确实在位（20 步）。
@@ -137,4 +137,4 @@ PR #3830 开出来之后 `gh pr checks` 报 **no checks reported**、`api .../co
 
 解法按 PR 自动合并判据 1：`git fetch` → `git rebase origin/main` → 冲突按「main blob 为底 + 只把我的块插回去」重建（**不是**并集硬合，也不是「后推覆盖」）：脚本先断言 `theirs.endsWith(base)`，据此算出我的顶部块，再拼到 main 的 blob 之前；两份 blob 都是纯 LF，因此逐行原样保留等于写 LF。收尾读数：`check-changelog-growth` base 493 → head 494 PASS、`check-changelog-duplicate-entries` 冗余 0、`git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径同为 `20/0`。
 
-rebase 后 `mergeable=MERGEABLE / mergeStateStatus=BLOCKED`（BLOCKED 来自 required checks 尚未跑完 + 下面第 10 节的 CCG 欠账，属预期），`pull_request` 事件立刻排上 4 条 workflow：quality-gate / 债务熔断门禁 / Build & Release / GUI Tests。另注意 rebase 改写了本分支的 sha，文档里出现的旧 sha 一律就地标注为「rebase 前」而不是删掉 —— 引擎产物的目录名与 `sha` 字段仍指旧提交，那是审计事实，不改写。
+rebase 后 `mergeable=MERGEABLE / mergeStateStatus=BLOCKED`（BLOCKED 来自 required checks 尚未跑完 + 上面 §7.1 与 §7.3 记的那条 self_play_blocked 欠账，属预期），`pull_request` 事件立刻排上 4 条 workflow：quality-gate / 债务熔断门禁 / Build & Release / GUI Tests。另注意 rebase 改写了本分支的 sha。**本 PR 因此被自己的原则反噬了一次**：第一次 rebase 后我把文档标题里的 sha 标注成「rebase 前 653f24bfe」，紧接着第二次 rebase 让那个新 sha 也失效了 —— 说明 sha 根本不是可引用的坐标。正解已落进这两处标题：引用一律用**内容寻址的判定记录文件名**（跨 rebase 稳定，`git diff` 里它就是那个名字）或 commit subject，**不用 sha**；sha 只保留在「当场取证」的位置（如用 `git log --grep` 现取的那笔 merge SHA），且用完即随回填改写。
