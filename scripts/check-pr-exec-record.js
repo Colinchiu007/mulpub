@@ -162,7 +162,9 @@ function evaluate({
       + '②修订本分支自己那篇 openspec/records/<分支名>.md（回填证据走这条）；'
       + '③确属无需记录 ⇒ 新增 openspec/records/_exempt/<分支名>.md 并写明非空原因；'
       + '④纯回填（定义）：变更集全部是既有记录/台账载体（openspec/records/*.md、.quality-gates.md、'
-      + 'scripts/gate-record-debt-ledger.json）的 M（允许 .ccg/reviews/<40 位小写十六进制>.json 形态的 A——'
+      + 'scripts/gate-record-debt-ledger.json）的 M（允许 .ccg/reviews/<40 或 64 位小写十六进制>.json'
+      + '形态的 A，可带 -again-<40 位 sha>-<ISO 时间戳> 后缀——'
+      + '40 位是历史形态（父 sha），64 位是内容寻址键（stagedDiffHash）——'
       + '那是 #3396 的 pre-commit 自动 stage 的判定记录，不承载门禁语义），且至少含一篇 '
       + 'openspec/records/*.md 的 M ⇒ 满足此定义者直接放行（夹带其它新增、任何删除、任何非载体文件，'
       + '或只改门禁清单/账本而无记录文件，即不符合此定义）。')

@@ -659,7 +659,9 @@ test('结构锁的匹配域必须剥离 YAML 注释（把真步骤改成注释�
 // ── 出路④ × #3396 自动 stage：审计产物（.ccg/reviews/<40hex>.json）的新增不算夹带 ──
 // 动因（实测 PR #3432）：#3396 让 pre-commit 把本次提交产生的判定记录一并 stage 进同一个提交，
 // 于是「在任何跑过门禁的 worktree 里做纯回填」必然被④判成夹带新增 ⇒ 本地 enforce 恒红。
-// 放宽只允许发生在**一个维度**上：状态必须是 A、文件名必须是 .ccg/reviews/<40 位小写十六进制>.json。
+// 放宽只允许发生在**一个维度**上：状态必须是 A、文件名必须是 .ccg/reviews/<40 或 64 位小写十六进制>.json
+// （2026-10-17 更正：原注释写「<40 位小写十六进制>」，与已放宽的 AUDIT_ARTIFACT_RE 不同步；
+//  位宽与 alt 形态的**机器可验**口径见文件末尾「遗留收口」那条派生锁）。
 // 其余形态（大写、短 sha、别的后缀、M、D、别的目录、非载体文件）一律仍不算纯回填，
 // 且 C2 收紧（至少一篇记录 M）不得被这些新增一起绕过。
 const HEX40 = '0123456789abcdef0123456789abcdef01234567'
@@ -1036,4 +1038,57 @@ test('QM-6 i2：decider 的行数统计与 hash 必须同一口径（都排除 .
     'numstat 必须排除 .ccg —— 与 stagedDiffHash 同口径；否则同一份 diff 判出不同 mode 与不同名字')
   assert.match(body, /diff", "--cached", "-U0", "--", "\.", ":\(exclude\)\.ccg/,
     '-U0 也必须排除 .ccg（口径要对齐的是**两条**命令，不是只改第一条）')
+})
+
+test('遗留收口：提示文案声称的位宽/形态必须与 AUDIT_ARTIFACT_RE 实际接受的完全一致', () => {
+  // 动因（2026-10-17，收口 PR #3755 登记的遗留）：记录名由「只认 40 位」放宽为「40 或 64 位」、
+  // 并新增 `-again-<40sha>-<ISO>` alt 形态，但「四条合法出路」的提示文案仍写
+  // `<40 位小写十六进制>` ⇒ 按提示排障的人会以为 64 位记录**不算**纯回填，于是把
+  // 真实满足 ④ 的 PR 判成「未携带执行记录」并去乱加记录文件。
+  //
+  // ★ 判据必须**派生**、不得在文案里再抄一遍数字：文案与正则已是两处独立可漂移的真源，
+  //   再抄一遍就是第三处。所以本锁从正则的字面量里**算出**它接受什么，再核文案说的是不是同一组。
+  const src = fs.readFileSync(path.join(__dirname, 'check-pr-exec-record.js'), 'utf8')
+
+  // 1) 取正则字面量并编译（不 eval，避免引入执行面）
+  const litMatch = src.match(/const AUDIT_ARTIFACT_RE = \/(.+)\/;?\s*$/m)
+  assert.ok(litMatch, '必须能从源码取出 AUDIT_ARTIFACT_RE 的字面量（判据改了名字就同步改本锁）')
+  const RE_SRC = litMatch[1]
+  const re = new RegExp(RE_SRC)
+
+  // 2) 从正则声明里推出它接受哪些位宽
+  const declared = [...new Set([...RE_SRC.matchAll(/\[0-9a-f\]\{(\d+)\}/g)].map((x) => Number(x[1])))].sort((a, b) => a - b)
+  assert.ok(declared.length > 0, '正则里应当至少声明一个十六进制位宽')
+
+  // 3) 行为核对：声明的位宽真的能过，且紧邻位宽真的过不了
+  //    （防止「声明了 64 但正则实际写成 [0-9a-f]{6}4」这类字面对、语义错）
+  for (const w of declared) {
+    assert.ok(re.test('.ccg/reviews/' + 'a'.repeat(w) + '.json'),
+      `声明的 ${w} 位记录名必须真的能通过 AUDIT_ARTIFACT_RE`)
+    for (const off of [-1, 1]) {
+      const probe = w + off
+      if (probe <= 0 || declared.includes(probe)) continue
+      assert.ok(!re.test('.ccg/reviews/' + 'a'.repeat(probe) + '.json'),
+        `${probe} 位记录名不得通过（否则「${w} 位」这个声明是假的）`)
+    }
+  }
+
+  // 4) 从提示文案里取它**声称**的位宽
+  const msgStart = src.indexOf('本 PR 未携带执行记录')
+  assert.ok(msgStart > 0, '未找到「四条合法出路」提示文案（改名了就同步改本锁）')
+  const msgEnd = src.indexOf('即不符合此定义', msgStart)
+  const msg = src.slice(msgStart, msgEnd > 0 ? msgEnd : msgStart + 1200)
+  const claimMatch = msg.match(/<\s*(\d+(?:\s*或\s*\d+)*)\s*位小写十六进制>/)
+  assert.ok(claimMatch, '提示文案里必须显式写出位宽（否则排障者无从判断）')
+  const claimed = [...new Set(claimMatch[1].split('或').map((s) => Number(s.trim())))].sort((a, b) => a - b)
+
+  // 5) 两组必须完全相等 —— 双向：文案少了位宽会误导，文案多了位宽会让人以为存在这种形态
+  assert.deepStrictEqual(claimed, declared,
+    '提示文案声称的位宽 ' + JSON.stringify(claimed) + ' 必须与正则实际接受的 ' + JSON.stringify(declared) + ' 完全一致')
+
+  // 6) alt 形态同源：正则认 `-again-` 时文案必须也提到，否则同样误导
+  if (RE_SRC.includes('-again-')) {
+    assert.match(msg, /-again-/,
+      '正则接受 -again- alt 形态 ⇒ 提示文案必须提到它，否则排障者会把被拒的 alt 记录当成判据缺陷')
+  }
 })
