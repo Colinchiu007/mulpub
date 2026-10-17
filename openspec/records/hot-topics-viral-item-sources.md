@@ -10,8 +10,8 @@ sync_backfill_owner: 下一个会话（同一次提交内改写表格行 + 删�
 
 ## 本次执行记录：热门选题短视频爆款数据源调研 + PRD（hot-topics-viral-item-sources，2026-10-17）【docs-only】
 
-- 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD` → 结果与本记录同批取证（新增文件仅 `01-docs/PRD-HOT-TOPICS-SHORTVID-VIRAL-ITEMS-2026-10-17.md` 与本记录文件，均属文档白名单目录）
-- 保留门禁：变更类型与隔离 ✅ | 行尾对账 PENDING | 品牌残留 PENDING | 文档同步 PENDING | 远程同步 PENDING
+- 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD` → **docs-only=true（files=3）**：`01-docs/PRD-HOT-TOPICS-SHORTVID-VIRAL-ITEMS-2026-10-17.md`、本记录文件、以及 pre-commit 自动落盘的 CCG 判定产物 `.ccg/reviews/aad6b377…json`（三份均命中文档白名单）
+- 保留门禁：变更类型与隔离 ✅ | 行尾对账 ✅ | 品牌残留 ✅ | Gate 12c 绝对路径 ✅ | 文档同步 ✅ | 执行记录取证 ✅ | 旧载体冻结 ✅ | 远程同步 PENDING
 
 ## 0. 变更类型与隔离声明
 
@@ -34,11 +34,11 @@ sync_backfill_owner: 下一个会话（同一次提交内改写表格行 + 删�
 | QM-4 视觉 | N/A | 同上：未触碰 `apps/desktop/src/**` |
 | TDD | N/A | 本次无代码变更；测试计划在 PRD §8 以验收表形式先行落盘（A1–A10 + 三条变异反证要求） |
 | QM-6 双模型评审 | N/A | docs-only 通道不强制（AGENTS.md：纯文档/流程变更不强制 QM-6） |
-| 行尾两口径对账 | PENDING | 提交后取 `git diff --numstat` 与 `git diff --ignore-cr-at-eol --numstat` 两口径读数；两份新增文件均为 LF 新建，预期两口径一致 |
-| 品牌残留 `check-no-brand-residue.js` | PENDING | 文档含多个 GitHub 开源项目名（参照系），提交前实跑该脚本确认未命中竞品品牌词；如命中按门禁改写为「参考产品」 |
-| 受管文档绝对路径 `check-doc-abs-paths.js`（Gate 12c） | PENDING | 本记录与 PRD 一律用相对路径与占位符（`<仓库父目录>`、`userData/...`），实跑判据要求计数不增 |
-| 文档同步（doc-gate） | PENDING | 新增的是**尚未实现的 PRD**，不改任何既有行为描述；`01-docs/PRD.md` 与 README 未动。提交前跑同步判据取证 |
-| 执行记录取证 `check-pr-exec-record.js --mode=enforce` | PENDING | 本文件即载体（2026-10-15 起唯一强制载体是 `openspec/records/<分支名>.md`） |
+| 行尾两口径对账 | PASS | `git diff --numstat origin/main HEAD` 与 `git diff --ignore-cr-at-eol --numstat origin/main HEAD` 的改动行合计**均为 4088** ⇒ 无行尾被改写。两份新文件为 LF 新建（`git add` 时的 `LF will be replaced by CRLF` 告警是 checkout 转换，不是内容改动） |
+| 品牌残留 `check-no-brand-residue.js` | PASS | 实跑输出 `PASS（扫描 9904 个 tracked 文件，无品牌残留）` rc=0。文档里的 GitHub 项目名属开源参照系、非竞品品牌；PRD §4.3 对付费数据服务一律以能力名表述 |
+| 受管文档绝对路径 `check-doc-abs-paths.js`（Gate 12c） | PASS | 实跑输出 `counts=1185 domain=3794 files=564 canJudge=true` + `PASS … 无新增本机绝对路径`，账本未放宽 ⇒ PRD 与本记录只用相对路径与占位符（`<仓库父目录>` 形态未出现、`userData/...` 为逻辑路径） |
+| 文档同步（doc-gate） | PASS | `bash scripts/check-docs-sync.sh --base=main --head=HEAD` → `✅ 文档同步检查通过！` rc=0。注意该脚本的 `--base` 取**分支名**（内部自行前缀 `origin/`），传 `origin/main` 会变成 `refs/heads/origin/main` 而 fetch 失败——那是用法错，不是门禁红 |
+| 执行记录取证 `check-pr-exec-record.js --mode=enforce` | PASS | 输出 `本 PR 变更文件 3 个（A=3 M=0 D=0）｜新增记录 1 篇 … OK: 本 PR 携带执行记录或带原因的豁免` rc=0 |
 | 旧载体冻结 | PASS（按规执行） | **未**往 `.quality-gates.md` 插块、**未**往 `scripts/gate-record-debt-ledger.json` 加键 ⇒ `carrierDrift` 不应触发 |
 | CHANGELOG 收口 | N/A（如实登记） | 本 PR 只新增未实现的 PRD，用户可见行为零变化；按 docs-only 通道「CHANGELOG 收口（如适用）」判定为不适用。真正适用的是实现那一刀（届时随 §8 的验收项一并写） |
 | 远程同步 | PENDING | 本 PR 尚未合并；合并后由回填会话在同一次提交内改写 PASS + merge SHA 并删除上方 `sync_*` 三字段 |
