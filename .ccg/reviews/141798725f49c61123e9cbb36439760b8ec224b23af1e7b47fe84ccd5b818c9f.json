@@ -48,7 +48,7 @@
         "status": "fixed"
       }
     ],
-    "error": "spawnSync C:/Users/邱领/.claude/bin/codeagent-wrapper.exe ETIMEDOUT（保留原始失败证据；降级通道与逐条裁决依据见执行记录 QM-6 行）",
+    "error": "spawnSync <HOME>/.claude/bin/codeagent-wrapper.exe ETIMEDOUT（原始绝对用户路径已占位符化，避免把本机用户目录写进仓库；降级通道与逐条裁决依据见执行记录 QM-6 行）",
     "validationErrors": null,
     "at": "2026-10-18T00:34:00.000Z",
     "closedBy": "manual-adjudication"
