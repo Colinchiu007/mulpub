@@ -52,6 +52,11 @@ say() { printf '%s\n' "$1"; }
 #
 # MP_ARTIFACT_ROOT 仅供回归测试与例外场景覆盖，默认仓库根（与引擎的 REPO 同义）。
 ART_ROOT="${MP_ARTIFACT_ROOT:-$ROOT}"
+# 覆盖时必须出声（评审 F5）：把 MP_ARTIFACT_ROOT 指到一个空目录就能让守卫看不见任何东西，
+# 静默覆盖等于把守卫改成"愿意被摘的锁"。默认路径不打印，避免每次跑都刷一行噪声。
+if [ -n "${MP_ARTIFACT_ROOT:-}" ] && [ "$MP_ARTIFACT_ROOT" != "$ROOT" ]; then
+  echo "plan-review: 产物根被 MP_ARTIFACT_ROOT 覆盖为 $MP_ARTIFACT_ROOT（碰撞守卫只在被覆盖后的目录里检查；仅供测试）" >&2
+fi
 if [ -n "$PROPOSAL" ] && [ -f "$PROPOSAL" ] && [ -d "$ART_ROOT/.adversarial" ]; then
   _pb=$(basename -- "$PROPOSAL"); _pb=${_pb%.*}
   _pb=$(printf '%s' "$_pb" | tr 'A-Z' 'a-z')

@@ -43,6 +43,10 @@ const RECORD_FIELD_STATUS = 'sync_status'
 // 旧键不参与判定、只作可见项（既不误红存量，也不让"两个键表达同一意图"这件事静默长存）。
 const RECORD_FIELD_PR = 'delivered_by_pr'
 const RECORD_FIELD_PR_LEGACY = 'sync_pr'
+// 新形态记录在状态列写的标记（见 openspec/records/_TEMPLATE.md）。判据用它区分
+// "作者按新规范留空待推导" 与 "旧形态忘了登记"——两者在账本不可用时必须给出不同的话。
+const DERIVED_MARKER = '由门禁推导'
+const DERIVED_MARKER_RE = new RegExp('^\\s*' + DERIVED_MARKER)
 
 // 已收口的写法。只允许这一侧扩张，新增未收口写法必须走 gate-record-debt-ledger.json。
 const CLOSED_RE = /^(PASS|N\/A|✅|已)/
@@ -221,10 +225,15 @@ function readRecord(recordsRoot, fileName) {
     if (pm) declaredPr = Number(pm[1])
     else declaredPrBad = String(declaredRaw).trim()
   }
-  // 旧键只在"规范键缺席"时记为可见歧义：两键并存时以规范键为准，不重复出声。
-  const legacyPr = declaredRaw === undefined || String(declaredRaw).trim() === ''
-    ? (fm[RECORD_FIELD_PR_LEGACY] === undefined ? null : String(fm[RECORD_FIELD_PR_LEGACY]).trim())
-    : null
+  // 旧键在两种情况下都要出声：①规范键缺席（歧义本身）；②规范键也在但两者取值不同
+  // （评审 F4：只在前一种出声，等于让"两键并存且互斥"这条最该看见的形态静默通过）。
+  const legacyRaw = fm[RECORD_FIELD_PR_LEGACY]
+  let legacyPr = null
+  if (legacyRaw !== undefined && String(legacyRaw).trim() !== '') {
+    const lv = String(legacyRaw).trim()
+    if (declaredPr === null && declaredPrBad === null) legacyPr = lv
+    else if (`${declaredPr}` !== lv.replace(/^#?/, '').replace(/^['"]|['"]$/g, '')) legacyPr = `${lv}（与 ${RECORD_FIELD_PR} 并存且不一致）`
+  }
   const declared = statusDeclarations(text)
   // 「残留」按三字段判（回填即整段删）；「未收口必须登记」仍只要求 reason+owner，
   // 把 sync_status 算进那一侧等于让「只写 sync_status」就能冒充已登记。
@@ -360,6 +369,7 @@ function collect({ root = process.cwd(), ledger = loadLedger(), duplicatesAllowe
   const intentMismatch = []
   const inconsistentAttribution = []
   const ambiguousPrKeys = []
+  const unprovenDerived = []
   let recordsFromFiles = 0
   const closedRecordSlugs = []
   for (const fn of fileNames) {
@@ -395,6 +405,13 @@ function collect({ root = process.cwd(), ledger = loadLedger(), duplicatesAllowe
       continue
     }
     const derived = ml.ok === true && attr.state === 'PR' && attr.merged === true
+    if (!ml.ok && DERIVED_MARKER_RE.test(rec.status || '')) {
+      // 新形态记录（状态列只写「由门禁推导」，按模板不再带登记字段）在账本不可用时**既没被误判收口，
+      // 也不该被指控"忘了登记"**——那是"我测不了"，不是"你没做"。判成可见的未证实，
+      // 且 CI 档由 rc=2 先行拦停（本机浅克隆/无 origin/main 才是这一档的真实场景）。
+      unprovenDerived.push({ file: rec.fileName, status: rec.status, reason: ml.reason || 'not-built' })
+      continue
+    }
     if (derived) derivedClosed.push({ file: rec.fileName, pr: attr.pr, status: rec.status })
     if (rec.closed) {
       closedRecordSlugs.push({ slug: rec.fileName.replace(/\.md$/, ''), status: rec.status })
@@ -518,6 +535,7 @@ function collect({ root = process.cwd(), ledger = loadLedger(), duplicatesAllowe
     intentMismatch,
     inconsistentAttribution,
     ambiguousPrKeys,
+    unprovenDerived,
     derivedCrossVisible,
     statusContradictions,
     crossSrcViolations,
@@ -543,7 +561,10 @@ function format(r, opt = {}) {
   if (r.ledger && r.ledger.ok) {
     out.push(`MERGE-LEDGER prs=${r.ledger.stats.mergedPrs} base=${r.ledger.baseRef} 归属可解析记录=${r.ledger.stats.addedRecordPaths} 派生收口=${r.derivedClosed.length} byDesign=${r.byDesign.length}`)
   } else {
-    out.push(`MERGE-LEDGER prs=n/a (unavailable: ${r.ledger ? r.ledger.reason : 'not-built'}) ⇒ 派生档停用，收口只认状态列的闭合词表（fail-closed，绝不把"看不见账本"读成"已合并"）`)
+    out.push(`MERGE-LEDGER prs=n/a (unavailable: ${r.ledger ? r.ledger.reason : 'not-built'}) ⇒ 派生档停用，收口只认状态列的闭合词表（fail-closed，绝不把"看不见账本"读成"已合并"）；`
+      // 评审 F1/F3：停用不只意味着"少一条收口通道"，还意味着下面两道净增拦截同时熄灯。
+      // 不点名就会让人以为"只是派生不出来而已"，而实际是"预写 PASS 与归属谎报都不再被看见"。
+      + '同时停用的还有 prematureClaims（合并前预写 PASS）与 delivered_by_pr 交叉核对两道拦截；CI 档这属于门禁自身故障，rc=2。')
   }
   out.push(`远程同步行 ${r.rowCount} 条 / 执行记录 ${r.recordCount} 篇（全部 ## 标题 ${r.headingCount} 个）/ 已登记欠账 ${r.registered.length} 条 / 记录文件 ${r.recordsFromFiles} 篇（两源分列，不可合并成一个趋势数）`)
   if (r.byDesign.length) {
@@ -565,6 +586,10 @@ function format(r, opt = {}) {
     out.push(`（可见项，不拦截：${r.ambiguousPrKeys.length} 篇用旧键 sync_pr 表达意图声明，形态互不相通（0 / pending / 完整 URL），`
       + '本判据只认 delivered_by_pr；旧键不得新增，随顺路清理收敛）：')
     for (const a of r.ambiguousPrKeys) out.push(`  ${a.file} —— sync_pr: ${a.value}`)
+  }
+  if (r.unprovenDerived && r.unprovenDerived.length) {
+    out.push(`（可见项，不拦截：${r.unprovenDerived.length} 篇按新形态写「${DERIVED_MARKER}」，而账本不可用 ⇒ 判为**未证实**，不是"忘了登记"：`
+      + `${r.unprovenDerived.map((u) => `${u.file}(${u.reason})`).join('、')}）`)
   }
   if (r.derivedCrossVisible.length) {
     out.push(`（可见项，不拦截：派生收口 × 旧载体未收口 ${r.derivedCrossVisible.length} 组，别人会话的旧行本仓不代改）：`)
@@ -747,7 +772,7 @@ module.exports = {
   listRecordFiles, readRecord, readFrontmatter,
   CROSS_SLUG_RE, CROSS_BACKFILL_RE, CROSS_SRC_ALLOWED,
   RECORDS_REL, RECORD_FIELD_REASON, RECORD_FIELD_OWNER, RECORD_FIELD_STATUS, RECORD_FIELD_PR,
-  RECORD_FIELD_PR_LEGACY,
+  RECORD_FIELD_PR_LEGACY, DERIVED_MARKER, DERIVED_MARKER_RE,
   GATE_FILE, LEDGER_FILE, DUPLICATE_HEADINGS_ALLOWED, HEADING_RE, headingTitle,
   CARRIER_FREEZE_FILE, loadCarrierFreeze, carrierSignature, parseCarrierMode,
   parseBaseRef, parseFlags,
