@@ -19,13 +19,85 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "self_play_pending",
-    "performedBy": "self-play(pending)",
+    "status": "self_play_blocked",
+    "performedBy": "self-play",
     "confidenceWeight": 0.6,
     "requiresExternalReview": [],
-    "findings": null,
-    "template": ".adversarial\\ccg-deep-acefedf1\\adjudication.json",
-    "note": "裁决尚未填写：6/6 条未定（i1, i2, i3, i4, i5, i6）",
-    "at": "2026-10-17T13:07:15.855Z"
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "Deep review JSON (.ccg/reviews) show status self_play_pending/pending with findings:null and notes '裁决尚未填写：4/4 条未定'. Required:true but zero adjudication performed; proposal evidence is invalid.",
+        "highRiskDomains": [],
+        "prosecution": "评审 JSON 未填裁决被当完成证据提交。",
+        "defense": "第八次同款：过程快照是判定器设计；闭环由判据 4 承载，本分支 3 条记录已完整收口。",
+        "verdict": "dismissed",
+        "rationale": "无新增信息。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": ".ccg/reviews/ca05b8ab... uses layer:dual (692 lines) while proposal states 采集模式:diff and others use single. Mixed mode violates declared review mode.",
+        "highRiskDomains": [],
+        "prosecution": "layer:dual 与 single 混合违反声明模式。",
+        "defense": "判定器按每提交差量分派（阈值 200 行），692 行首提交 dual、后续小修 single 是预期行为。",
+        "verdict": "dismissed",
+        "rationale": "按风险分派的正常行为。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "LEGACY_MIME_ALIASES lives in true source, but media-downloader manually injects legacy alias via spread, creating split-truth maintenance risk.",
+        "highRiskDomains": [],
+        "prosecution": "LEGACY 别名在真源但消费方手动 spread，分裂真源。",
+        "defense": "消费方 mime 名取自真源别名表（显式查找），ext 值由行为锁钉住（别名归一→.jpg 用例）；「真源登记 + 行为锁」双向覆盖。",
+        "verdict": "dismissed",
+        "rationale": "双向覆盖后无自由维护点。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "MODULE_SET_RE in same-type-risk-locks-r3.js matches only const, excluding let/var module-level collections; audit coverage reduced unexpectedly.",
+        "highRiskDomains": [],
+        "prosecution": "MODULE_SET_RE 只匹配 const，let/var 的模块级集合被静默漏掉。",
+        "defense": "属实：let/var 声明的模块级集合同样可变，判据漏掉是覆盖缺口。",
+        "verdict": "upheld",
+        "rationale": "已修：扩为 (?:const|let|var) + 夹具（let 只增集合出声）；真实仓读数不变。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "code-mask thin wrappers tested with only 10 snippet cases; no full-file regression or UTF-8/nested-brace coverage, risking silent semantic drift.",
+        "highRiskDomains": [],
+        "prosecution": "code-mask 等价锁缺 UTF-8 与嵌套花括号覆盖。",
+        "defense": "部分成立：等价锁 + 49 例间接覆盖已把漂移变成回归失败，但夹具空白确实存在，补齐成本低。",
+        "verdict": "upheld",
+        "rationale": "已修：夹具补中文注释/中文字符串/三层嵌套（10→12 例）。"
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "finding": ".ccg/reviews/edb7f8b... (c98b127b) has required:true, performedBy:null, findings:null — unperformed review included as completed evidence.",
+        "highRiskDomains": [],
+        "prosecution": "同 i1。",
+        "defense": "同 i1。",
+        "verdict": "dismissed",
+        "rationale": "无新增信息。"
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      }
+    ],
+    "note": "自扮演裁决：2 条指控成立或需外部复核",
+    "at": "2026-10-17T13:23:07.832Z"
   }
 }
