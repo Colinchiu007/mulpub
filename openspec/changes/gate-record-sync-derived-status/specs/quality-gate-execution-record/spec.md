@@ -1,8 +1,11 @@
 # 执行记录门禁 —— 规格变更（delta）
 
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: 每篇记录必须含门禁表与「远程同步」行，状态按闭合词表判定或按 git 现场推导收口
+
+> **本条取代的关系必须写明**：`enforce-gate-record-presence`（未归档）里有一条「每篇记录必须含门禁表与『远程同步』行，状态按闭合词表判定」。本条沿用同一 concern，**取代其中"状态如何算收口"这一半**；该行「必须存在」的结构要求原样保留。两条 Requirement 会在基线里并存，读到的先后顺序不确定，因此本条正文自带优先级声明。
+> 本条写成 ADDED 而非 MODIFIED 是**实测决定**，不是风格选择：对着不存在的基线写 MODIFIED 会被 `openspec archive` 硬拒（`code=archive_spec_update_failed`，原文 `target spec does not exist; only ADDED requirements are allowed for new specs`），详见 design.md D10。
 
 系统 SHALL 要求每篇记录文件包含一张门禁表与一行 `远程同步` 状态。**行是否存在**属结构要求，SHALL 独立判定，任何推导档 MUST NOT 豁免缺行。**行是否收口** SHALL 依次尝试两条通道：
 

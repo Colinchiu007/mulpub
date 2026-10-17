@@ -8,6 +8,17 @@
 - 真门禁改前权威读数：`node scripts/check-gate-record-debt.js` ⇒ **rc=0 / OK**，打印 `远程同步行 400 条 / 执行记录 605 篇 / 已登记欠账 23 条 / 记录文件 405 篇`，可见项 `213 篇旧载体执行记录整块没有 远程同步 行`、`跨源比对现场：配对 131 组 / 违例 0 / 承认 1`。
 - 派生前置可行性探针：一次 `git log origin/main --diff-filter=A --name-only --no-renames --format=%H<TAB>%cI<TAB>%s` 扫 17217 行，**407/407 篇记录文件都能唯一解析到"哪次提交把它加进 main"**，歧义 0；端到端 **1.03 秒**（两次 git 调用 727ms）。
 - 合并账本规模：origin/main 5202 个提交里可解析 **1926 个已合并 PR** 的 squash 尾注 `(#NNNN)$`，同尾注重复命中 4 次。
+- 门禁域（本轮核实，非推断）：`scripts/check-gate-record-debt.js:165-179` 的 `listRecordFiles` 是**非递归** `readdirSync` + `isFile() && endsWith('.md') && !name.startsWith('_')`。⇒ `openspec/records/_exempt/` 因是**目录**被排除，`_TEMPLATE.md` 因下划线前缀被排除。本设计改前用了 `git ls-tree -r` + 只看 basename 的自建过滤，误把 `_exempt/backfill-2939-record.md` 读成"1 篇缺行"，真门禁 rc=0 才是权威——见 D2。
+
+**每条读数的复现命令**（评审意见 i5：不能只给数字。所有命令在本 worktree 根执行；`44054389e` 之后 main 仍在前移，命令重跑得到的是"当时值"，故一律按下界断言，见 D9）：
+
+| 读数 | 复现命令 |
+|---|---|
+| 改前权威读数 rc=0 | `node scripts/check-gate-record-debt.js` |
+| 归属唯一可解析 / 端到端 1.03s | `node .tmp-addby-probe.cjs`（探针，实现期由 tasks 2.6 的行为锁取代并入 CI） |
+| 1926 个已合并 PR、5202 提交 | `git log origin/main --format=%s \| grep -cE '\(\#[0-9]{3,}\)$'`；`git rev-list --count origin/main` |
+| 回填 PR 占 53%、lead time | `gh pr list --state merged --limit 60 --json number,title,mergedAt,createdAt` 后按标题正则筛（探针脚本，同上交 CI） |
+| `fetch-depth: 0` 落点 | `sed -n '45,60p' .github/workflows/quality-gate.yml` |
 
 ## D1 键换成「记录文件自己被哪次合并带进 main」，而不是让人写 PR 号
 
@@ -28,7 +39,15 @@
 
 **证据**：探针曾把 `openspec/records/_exempt/backfill-2939-record.md` 读成"缺行 ⇒ 改前红、改后绿"，而真门禁 rc=0——该文件在 `_exempt/` 豁免目录内，不在门禁域。两条结论：① 派生判据的扫描域**必须复用 `listRecordFiles` 这一份实现**，禁止另写文件清单；② "缺行"绝不能被派生放过，否则把 Requirement「缺行即红」整条作废。
 
+**域一致必须是可执行断言**（评审意见 i8）：加一条锁——派生档遍历的文件集合 SHALL **逐等于** `listRecordFiles(recordsRoot)` 的返回值，不得有任何额外排除或包含（改名过滤、`_exempt` 过滤、子目录过滤都必须来自那一份实现）。把 `derivedClosed` 的输入换成第二份清单，本条当场红。
+
 ## D3 分类状态表（唯一判定口径）
+
+**先定义归属取值本身是三态，不是布尔**（评审意见 i1：`addedBy` 为 null 与"文件不在映射里"是两回事，混写会让状态表不自洽）：
+
+- `ABSENT` —— 该路径不在 `addedBy` 映射里 ⇒ 文件不在基线上（本次变更集新增，或改名后旧路径消失）。
+- `NO_FOOTER` —— 在映射里但归属提交没有 `(#NNNN)` 尾注 ⇒ 派生不可用（实测 2 篇，D8）。
+- `PR(n)` —— 在映射里且解析出 PR 号；`n ∈ mergeLedger` 时派生成立。`PR(n)` 但 `n` 不在账本（异常态）按未收口处理，**不**算 `ledgerUnavailable`。
 
 | 状态 | 条件 | 判定 | 备注 |
 |---|---|---|---|
@@ -42,6 +61,16 @@
 
 `ledgerUnavailable` 与"账本里没有这个 PR"是两回事：后者是真未收口。
 
+**求值优先级必须是声明式的一条链**（评审意见 i2：原表并列写 `derivedClosed` 与 `prematureClaim`，没说谁先，实现会各自默认）：
+
+```
+missingRow → (ABSENT ? inThisChangeset / prematureClaim : —) → derivedClosed → blobClosed → debt
+```
+
+即：缺行先判；不在基线上的记录只可能是 byDesign 或预写红；在基线上的先看派生，派生不成立才看断言词表，都不成立才是欠账。
+
+**卫生约束跟"是否做了断言"走，不跟最终归类走**（i2 的派生问题，本条把它关死）：一条记录若**同时**满足 `derivedClosed` 与"状态列写了闭合词"，它仍受 `staleRecordFields` 与跨源比对约束——因为 blob 里那句 `PASS` 是一次人工断言，断言就得自洽。只有"状态列没写闭合词、纯靠派生收口"的记录才豁免字段卫生（D5）。判据口径：**谁做了断言，谁受断言档的卫生约束**。
+
 ## D4 意图声明 `sync_pr`（可选，存在即交叉核对）
 
 若记录写了 `sync_pr: N` 而 `addedBy ≠ N` ⇒ **红 `intentMismatch`**。这条专门抓"把别人的记录夹带进我的 PR"：文件确实进了 main，但带它进来的 PR 与它声称的那次交付不是同一个。实测当前 0 篇写了该字段，故本判据上线时命中集合为空，属**新增防线而非存量清理**。
@@ -50,7 +79,9 @@
 
 实测：被派生收口的 22 篇里有 **21 篇仍带 legacy `sync_*` 字段**。若沿用既有 `staleRecordFields`（"已收口却仍留登记字段"）口径，这 21 篇当场变红 ⇒ 直接违反「存量不动」。
 
-**决策**：`staleRecordFields` 的适用范围收窄为 `blobClosed`；`derivedClosed` 记录带 legacy 字段属兼容态，计入可见数并挂**只能缩小**的棘轮清单。新记录一律不写 `sync_status/sync_reason/sync_backfill_owner`。
+**决策**：`staleRecordFields` 的适用范围 = **blob 做过闭合断言的记录**（`blobClosed`，以及 `derivedClosed ∧ 状态列写了闭合词` 那一格，见 D3 末段），不含"纯派生收口、状态列没写闭合词"的记录。后者带 legacy 字段属兼容态，计入可见数并挂**只能缩小**的棘轮清单。新记录一律不写 `sync_status/sync_reason/sync_backfill_owner`。
+
+**这 21 篇由谁清理**（评审意见 i7，原设计只说了不红，没说尽头）：不专门开 PR 清（那正是本 change 要消灭的形态）。规则定为——**任何 PR 本来就要改到某篇记录时，顺手删掉它的三个 legacy 字段**；可见数字段只允许因这类顺路清理而下降，判据用「可见数不得上升」拦（上升说明有新记录写了 legacy 字段，即新形态被写旧了），不拦"存量还挂着"。彻底清零属后续独立 change，本 change 显式不做。
 
 ## D6 跨源比对范围保持 `blobClosed`，派生矛盾改为可见项
 
@@ -64,6 +95,10 @@
 - 落点必须是 `quality-gate.yml` 的 `changes` job（无 job 级 `if:`，docs-only 不短路，`shell: bash` fail-fast）。**不得**放 `static-gates`：该 job 有 `if: needs.changes.outputs.docs-only != 'true'`，判据一旦进可跳过的 job，docs-only PR 就永远不跑它——本仓已有 `TEST_ONLY_IN_SKIPPABLE_JOB` 机械锁（`scripts/check-unwired-tests.js`）会直接拦。
 - `--current-pr` 由 CI 注入 `github.event.pull_request.number`；本地跑不传 ⇒ `inThisChangeset` 改由"文件不在 base 上"单独判定，不依赖 PR 号（缺一会本地恒判 `debt`）。
 
+**共享实现必须自带自检，且自检要能被证明在跑**（评审意见 i3）：`buildMergeLedger` 在 baseRef 可解析而账本为空时 MUST 产出"账本不可用"信号，而不是返回空 Map（空 Map 会被上层读成"一个已合并 PR 都没有"，方向上安全但会让派生档静默退化成装饰）；解析中途抛错 MUST 被捕获并落 `ledgerUnavailable` 出声。配一条**隔离测试**：把 `buildMergeLedger` 改成恒返回空 Map ⇒ 必须红，且红的是派生档用例而非全量（证明派生档不是搭在断言档上的顺风车）。
+
+**CI 打印必须自证，不能靠人事后 grep**（评审意见 i4）：`MERGE-LEDGER prs=<n>` 不是日志装饰。判据在 CI 环境（`process.env.CI` 为真）下若 `n === 0` ⇒ MUST 非零退出并点名"派生档未生效"；本地非 CI 允许打印 `n/a` 后按 `ledgerUnavailable` 出声降级。另配 `workflow-contract.test.js` 结构锁：该步骤 MUST 存在于 `changes` job，且 MUST NOT 出现在任何带 job 级 `if:` 的 job 里。
+
 ## D8 存量与迁移：判据兼容读，文件一个字都不改
 
 实测改前：`rc=0 / 0 拦截 / 23 条已登记欠账 / 21 篇未闭合记录全部带 legacy 登记字段`。
@@ -75,10 +110,19 @@
 
 本仓 main 高频并发（测量期间 tip 从 `28f37b794` 走到 `44054389e`，记录数 406→407）。所有规模断言按**下界**写（`mergedPrs >= 1500`、`recordFiles >= 400`），禁止 `toEqual(407)` 这种把某次读数焊死的断言。
 
-## D10 规格落点：一侧 MODIFY，一侧只用 ADDED
+## D10 规格落点：两侧都只能用 ADDED（结论由 spike 决定，不是推理）
 
-- `quality-gate-execution-record`：该 capability 的基线**尚未归档**（`grep -rl 远程同步 openspec/specs/` 为空，正文只在未归档 change `enforce-gate-record-presence` 里，剩 8 项未勾）。本 change 仍按 MODIFY 写它（要改的正是那条「状态按闭合词表判定」），但 **delta 自带完整 Requirement 正文**而非只写差异，使两种归档顺序下 `openspec/specs/` 都收敛到同一文本；顺序结论由 tasks 5.11 实跑 `openspec validate` 取证。
-- `openspec-integration`：**只用 ADDED**。原因实测：`分层分支策略` 这一条 Requirement 已被 `freeze-legacy-gate-carrier` 与 `hot-carrier-atomic-landing` 两个未归档 change 同时 MODIFY（前者的 spec 里已自带一条"归档顺序依赖"警告）。再写第三条 MODIFY 会形成三方覆盖——`openspec archive` 以后归档的静默盖掉先归档的，正是那份警告描述的事故。新增一条独立 Requirement 承载"收口证据来自主干历史 + squash 尾注是契约"，与那两条不冲突。
+`quality-gate-execution-record`：**已实测否证"写 MODIFY"这条路**。该 capability 的基线尚未归档（`grep -rl 远程同步 openspec/specs/` 为空，正文只在未归档 change `enforce-gate-record-presence` 里，且它那一条本身是 `## ADDED Requirements` 下的一条，不是已存在的基线 Requirement）。在临时副本 `D:/Temp/osx-spike-b` 里跑的三条读数：
+
+| # | 动作 | 实测结果 |
+|---|---|---|
+| S1 | 本 change 以 MODIFIED 归档 | **失败**：`code=archive_spec_update_failed`，`target spec does not exist; only ADDED requirements are allowed for new specs`，`"archive": null`、`No files were changed` |
+| S2 | 同一 delta 改成 ADDED 后归档 | **成功**：`archivedAs=2026-10-17-gate-record-sync-derived-status`、`specsUpdated=true`、`totals.added=3`，`openspec/specs/quality-gate-execution-record/spec.md` 被创建 |
+| S3 | 在 S2 之后归档 `enforce-gate-record-presence` | **成功**：`totals.added=5`，仅一条 warning：`delta Purpose ignored; … already has one`（⇒ Purpose 只认第一份，后归档那方的 Purpose 被丢弃，属已知无害行为，但要如实记） |
+
+**结论**：本 change 该条写成 **ADDED**，并在正文里显式声明它取代旧条的"状态如何算收口"那一半（缺行的结构要求不变）。**遗留的语义重复**（如实记，不假装已闭合）：若 `enforce-gate-record-presence` 后归档，基线里会同时存在「状态按闭合词表判定」与本条「派生通道优先、断言通道兜底」，先后顺序不确定、靠本条正文的取代声明消歧。彻底收敛要求对方那条 Requirement 改写，属**别人的未归档工件**，本 change 不代改；后续独立 change 处理，编号在此留空待补。
+
+`openspec-integration`：**只用 ADDED**。原因实测：`分层分支策略` 这一条 Requirement 已被 `freeze-legacy-gate-carrier` 与 `hot-carrier-atomic-landing` 两个未归档 change 同时 MODIFY（前者的 spec 里已自带一条"归档顺序依赖"警告）。再写第三条 MODIFY 会形成三方覆盖——`openspec archive` 以后归档的静默盖掉先归档的，正是那份警告描述的事故。新增一条独立 Requirement 承载"收口证据来自主干历史 + squash 尾注是契约"，与那两条不冲突。
 
 ## 失败模式与处置（逐条可执行）
 
@@ -94,7 +138,10 @@
 ## 反证计划（每条都必须实测变红，红集互不相同）
 
 M1 摘掉 `derivedClosed` 分支 ⇒ 点名"未闭合记录应被派生收口"的用例变红。
-M2 `addedBy` 恒返回 `null` ⇒ 派生全灭，兼容层用例仍绿、派生用例红（证明两档各测各的）。
+M2 `addedBy` 恒返回 `null`（即所有文件都解析不到归属 PR）⇒ 派生档全灭；**预期红的是"状态列未闭合、原本靠派生收口"那批用例（它们落到 `debt`），预期仍绿的是"状态列写了闭合词"的兼容档用例**（i1 的口径修正：`null ∉ mergeLedger` 走的是欠账分支，不是"派生分支自己红"，措辞必须点名落点）。
+M2b 把 `addedBy` 从 `ABSENT` 与 `NO_FOOTER` 混成同一个值 ⇒ 必须红（i1 的第二半：三态塌两态会让"改名导致归属丢失"被读成"本次新增"，方向相反的两种误判共用一个出口）。
+M9 把求值优先级改成 `blobClosed` 先于 `derivedClosed`（或反过来不做约束）⇒ 必须红在"派生与断言同时成立 + 带 legacy 字段"那条组合用例（i2：不写优先级，实现会各自默认，测试也就各测各的）。
+M10 把派生档的输入文件集合换成自建清单（不再调用 `listRecordFiles`）⇒ 必须红在域一致锁（i8）。
 M3 把 `ledgerUnavailable` 的 fail-closed 改成"当已合并放行" ⇒ 必须红（这条是在拆最危险的洞）。
 M4 打开 rename 检测 / 去掉 `core.quotepath=off` ⇒ 归属解析用例红。
 M5 把 `staleRecordFields` 作用域改回全量 ⇒ 21 篇真仓对账锁红（D5 的代价可见化）。
