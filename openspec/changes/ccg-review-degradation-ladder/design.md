@@ -77,3 +77,36 @@ outstanding 棘轮：仓内 `fallback_closed` 计数**只能缩小**，且新增
 - 变异驱动：本仓实测 10–35 分钟（`scripts/*` 变更属混合 PR，不得借 docs-only 通道）。
 - pre-commit 带代码 DUAL：实测 23–40 分钟（records 已两次撞上，**不得按时长判失败**，判据看产物）。
 - 外部 CLI 不可用时的等待：一次真实 timeout 是 80 分钟——降级的收益基准就是这个数，不虚构。
+## 9. 实测推翻 §1/§2 的判据落点（2026-10-17 普查主干 827 份 `.ccg/reviews/*.json`）
+
+**`performedBy` 是散文，不是枚举**：去重后 34 种取值，代表样本（原样，含大小写与中英混排）：
+`null` ×744、`"self-play(pending)"` ×14、`"self-play"` ×13、`absent` ×10、`"claude"` ×7、
+`"self-play → external-review(claude) 已通过，agent 按 (a) 口径置 cleared"`、
+`"dual (critic=claude, proposer=opencode) + self-play adjudication + external cross-family recheck (claude)"`、
+`"lead-self-assessment (docs-only commit inside nav-perf-ux PR #3742)"`、
+`"not-applicable (foreign commit record)"`、`"analyst-triage（关键词误报确认；非模型评审）"`、`"false-positive-adjudication"`。
+
+**⇒ 以 `performedBy` 前缀分级的规则会把"真做过外部复核"的记录判成自扮演**（上列第 6、7 条都以 `self-play` 开头却声明做过 external review）。
+这正撞上 AGENTS.md 两条既有纪律：「合法性/噪声类守卫的判据不得用文本形态猜，必须记录来源意图」与「枚举式判据必须配结构化正向契约」。
+
+**`findings` 也不能独立当佐证**：`null` ×767、string ×17、absent ×16、数组仅 16 份（`arr/6` ×8、`arr/8` ×5、`arr/4` ×3）、object ×3。
+但本仓已有一条**可复用的既有口径**：`ccg-review-decider.js` 的 `shouldPreserveClosedRecord` 以「`findings` 是非空数组 ⇒ 有实质内容」为**主判据**
+（其注释 435-439 行记录了反面现场：`self_play_pending + findings:null` 等于什么都没产出）。新判据应接这条，而不是再造一套词汇。
+
+**`mode/status` 分布**（前几位）：`single/pending` 305、`dual/pending` 220、`skip/pending` 212、`dual/self_play_resolved` 22、
+`dual/cleared` 18、`single/needs_revision` 9、`dual/needs_revision` 8、`dual/error` 6。
+⇒ 主干上 `dual+pending` 存量 220 条，**任何"要求 dual 必须带结构化 tier 否则红"的规则一上线就红两百条**，
+正是 `check-pr-exec-record.js` 头部注释第 3 条（forward-only）点名的失败形态。所以本合同必须分两步：先**可见不拦**并打印覆盖率，再在覆盖率起来后转拦。
+
+### 9.0 两条更硬的现场数字（`node scripts/ccg-artifact-shape-survey.js` 现场重取，2026-10-17）
+- 以 `self-play` 开头、同时又在同字段里声明做过外部复核的记录 = **12 条** ⇒ 前缀分级会**当场误判 12 份真外部证据**，这不是理论风险。
+- 存在 `status=cleared / needs_revision` 而 `performedBy=null`、`findings=null` 的产物（实测 `needs_revision pb=null f=null` ×3、`cleared pb=lead-self-assessment… f=null` ×4 等）⇒ **今天的"闭环"可以完全无出处**；只补 `tier` 字段而不要求 `evidence`，等于把同一个洞换个名字。
+
+### 9.1 待裁决的合同岔口（两条候选，差别在"外部证据由谁声明、拿什么佐证"）
+
+- **甲：来源意图字段**——闭环时由写入方（引擎或处置人）写 `deepReview.tier = external|self-play|none` + `evidence`（wrapper stdout 路径或 session id）。
+  优点：判据零猜测；缺点：`evidence` 是自报的路径，门禁只能验"路径存在且非空"，不能验内容真伪 ⇒ 与既有「声明与字节不同源」的坑同源。
+- **乙：产物内容判据**——沿用 `shouldPreserveClosedRecord` 的既有主判据「`findings` 是非空数组」当外部佐证，`tier` 缺省时按它推。
+  优点：内容而非声明；缺点：**干净通过的外部评审往往 findings 为空**（实测 16 份数组 vs 18 份 dual/cleared），会把真评审判成没评审 ⇒ 误红面需要估算。
+- 丙（我的倾向）：**甲 + 乙合取，但只在"新记录"上生效**——`tier=external` 必须带 `evidence`，且当 `findings` 为空数组/null 时**不拦只点名**（因为"无发现"是合法结论，"没跑"不是）。
+  代价：判据仍依赖写入方诚实，真正的牙在"覆盖率棘轮 + 事后抽查"，不在字段本身。

@@ -3,8 +3,9 @@
 > 垂直切片，每片可独立验收；勾选项必须同条附证据（PR 号 + 文件名/命令读数），未开始的一律留空。
 
 ## 1. 证据分级判据（示踪弹，先让它红）
+- [x] 1.0 普查主干 827 份产物形态（performedBy 34 种散文取值 / status×mode 交叉 / findings 形状），结论写进 design §9 与 §9.1。普查脚本**已入库**：`node scripts/ccg-artifact-shape-survey.js [--ref=origin/main]`（覆盖面数字必须能在仓库里一句话重取，不得留成孤立读数；数字随主干增长漂移，引用时现跑）
 
-- [ ] 1.1 `check-pr-exec-record.js` 新增 `classifyEvidenceTier(deepReview)`：命名后端 ⇒ `external`；`self-play` 前缀 ⇒ `self-play`；`null`/缺失/未知形态 ⇒ `unknown`
+- [ ] 1.1 **判据落点已更正**：分级 MUST NOT 读 `performedBy`（实测 34 种散文取值，其中两条以 `self-play` 开头却声明做过外部复核）。改为读结构化来源字段 `deepReview.tier`，佐证走既有口径「`findings` 是非空数组」（`shouldPreserveClosedRecord` 主判据）。合同形态待 §9.1 三选一裁决 ⇒ 本条 blocked on decision
 - [ ] 1.2 单测：三档各正反例（含 `performedBy: null` 不得被读成 external 的负控）
 - [ ] 1.3 变异 M1（`null` 读成 `external` 必须指名红）
 - [ ] 1.4 判据本体改为 `(status, tier)` 二元组：`external` 走现状、`self-play`/`unknown` 走新前提
