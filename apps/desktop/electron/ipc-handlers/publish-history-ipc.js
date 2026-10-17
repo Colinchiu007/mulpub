@@ -13,6 +13,18 @@
 const { createRepublishSnapshotHandlers } = require('./publish-republish-ipc')
 
 /**
+ * `history:list` 耗时告警阈值（毫秒）。
+ *
+ * 为什么要有：用户报「点左侧菜单『发布』慢 1–2 秒」，而该页唯一同步原语（全量读 JSONL）
+ * 用真实数据实测只有 4ms ⇒ 慢不在读文件这一层，但**日志里没有耗时读数**就无从定位。
+ * 与 `accounts:list` 的 `耗时=` 同口径，让两页可以在同一份日志里对时间。
+ *
+ * 为什么是 300ms：人感知「明显卡顿」的下限约 100–200ms，取 300ms 留出正常抖动余量，
+ * 避免日志被无害的慢请求刷屏（反向锁见 publish-account-logging.test.js 的同名用例）。
+ */
+const SLOW_THRESHOLD_MS = 300
+
+/**
  * @param {import('electron').IpcMain} ipcMain
  * @param {object} ctx
  * @param {Record<string, number>} ctx.EC error-codes
@@ -28,6 +40,8 @@ function registerHistoryHandlers (ipcMain, ctx) {
     createRepublishSnapshotHandlers({ store, ipcLog })
 
   ipcMain.handle('history:list', withSenderCheck(async (event, opts) => {
+    // 耗时起点：只罩住「取归属 + 读记录 + 追加再次发布标记」这段，不含 IPC 传输
+    const startedAt = Date.now()
     try {
       const owner = getOwnerSubject()
       if (owner === null) {
@@ -36,10 +50,15 @@ function registerHistoryHandlers (ipcMain, ctx) {
       }
       const result = history.listRecords(opts, owner)
       const enriched = { ...result, records: withRepublishFlag(result && result.records, owner) }
-      ipcLog('info', 'history:list', 'ok', `owner=${owner} total=${result?.total} records=${Array.isArray(result?.records) ? result.records.length : '?'} page=${opts?.page} pageSize=${opts?.pageSize}`)
+      const elapsedMs = Date.now() - startedAt
+      ipcLog('info', 'history:list', 'ok', `owner=${owner} total=${result?.total} records=${Array.isArray(result?.records) ? result.records.length : '?'} page=${opts?.page} pageSize=${opts?.pageSize} 耗时=${elapsedMs}ms`)
+      if (elapsedMs > SLOW_THRESHOLD_MS) {
+        ipcLog('warn', 'history:list', 'slow', `耗时=${elapsedMs}ms 超过 ${SLOW_THRESHOLD_MS}ms 阈值 —— 发布记录页卡顿排查入口（同页同步原语实测仅 4ms，慢处不在读文件这一层）`)
+      }
       return { code: 0, data: enriched }
     } catch (e) {
-      ipcLog('error', 'history:list', 'error', `message=${e.message}`)
+      // 失败路径也带耗时：慢请求常常最终报错，只打 ok 会漏掉一半现场
+      ipcLog('error', 'history:list', 'error', `message=${e.message} 耗时=${Date.now() - startedAt}ms`)
       return { code: EC.REQUEST_ERROR, message: e.message, data: { total: 0, records: [] } }
     }
   }))
