@@ -3,10 +3,6 @@ record: reverse-derived-docs-2026-10-17
 task: 把 REA 逆向后三项未落地成果做成项目文档（DLL 接口契约 / 平台能力矩阵 / 竞品缺陷同型风险清单）+ 完整成果清单大全集
 date: 2026-10-17
 branch: reverse-derived-docs-2026-10-17
-# ↓ 下面三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在，无法取证收口
-sync_backfill_owner: 下一个会话（按三形态同改纪律：表格行 + bullet + 删除本段三字段，同一次提交）
 ---
 
 ## 本次执行记录：逆向衍生文档三件套 + 成果大全集（reverse-derived-docs-2026-10-17，2026-10-17）【docs-only】
@@ -15,7 +11,7 @@ sync_backfill_owner: 下一个会话（按三形态同改纪律：表格行 + bu
   `01-docs/REVERSE-ENGINEERING-RESULTS-MASTER-INDEX.md`、
   `01-docs/research/competitor-reverse-2026-10-13/derived/` 下 3 份、
   `openspec/records/reverse-derived-docs-2026-10-17.md`、`.ccg/reviews/*.json`）
-- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PENDING
+- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PASS（`076f3df53756b8343182836459668678a58dbc39`）
 ### 写了什么
 
 | 文档 | 内容 | 为什么值得单独成文 |
@@ -51,4 +47,4 @@ sync_backfill_owner: 下一个会话（按三形态同改纪律：表格行 + bu
 | QM-2 代码必检项 | **N/A** | 无代码变更（docs-only 已判）|
 | QM-4 视觉 | **N/A** | 无 UI 变更 |
 | QM-6 双模型评审 | 未执行（如实登记）| docs-only 通道按 `AGENTS.md` 跳过；本机亦无 `codeagent-wrapper` |
-| 远程同步 | PENDING | 待本 PR 合并后回填 merge SHA 与时间 |
+| 远程同步 | PASS | PR #3796 已合并，merge SHA `076f3df53756b8343182836459668678a58dbc39`（2026-10-17 13:29 +08:00）|
