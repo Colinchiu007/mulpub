@@ -103,6 +103,60 @@ C 删 preload 排查关键句 => 1 failed；还原后 => 7/7 passed。
   测试文件因此按惯例落在 `electron/tests/`。
 - 结构锁只覆盖本次 6 条判据，未来新增入口/新坑仍需人工补锁。
 
+# [未发布] fix(scripts): fragileFor 的 root 改为必传——堵住「缺参调用点静默按脚本所在目录降级」（fix-ensure-deps-root-required）
+
+## 背景（#3829 的遗留，本轮在临时 worktree 验证 main 时当场抓住）
+
+`#3829` 给 `fragileFor(platform, arch, root = DEFAULT_ROOT)` 加 `root` 参数时设了**默认值**，
+本意是兼容旧调用。但 `root` 的语义是「要检查哪棵树的依赖」——它**没有**安全的默认值：
+
+- 传了 root ⇒ 检查指定树（正确）
+- 不传 root ⇒ 检查**脚本自己所在的仓库**（`DEFAULT_ROOT = path.resolve(__dirname, '..')`）
+
+于是任何「忘记传 root」的调用点都会**静默**去检查脚本所在树。在临时目录里的 worktree、
+CI 只读检出、别的 worktree（各自 node_modules 不同）等场景，sharp 条目会因为
+「脚本所在树没有 node_modules/sharp」而**凭空缺席** ⇒ 平台过滤判据退化为**永远通过**。
+
+## 修复
+
+- `root` 改为**必传、无默认值**；缺参当场 `throw new Error('fragileFor: root 必传…')`。
+  缺参数必须炸在现场，而不是降级。
+- `platform` / `arch` **保留**默认值 `process.platform` / `process.arch`——它们是普适真相，
+  与 `root` 不同。⚠️ 这里踩过一个坑：我最初把三个参数的默认值**一起删了**，超出「只动 root」的声明范围，
+  且让 learnings 里「platform/arch 默认值合理」的表述变成假话（深度评审 i1 当场抓住，已改回）。
+
+## 验证
+
+- TDD 先红后绿：先改测试 ⇒ `# fail 1`；实现后 `20 passed / 0 failed`（含新增的「默认值不对称」用例）。
+- **真实树**：新建 worktree（`git worktree add` + `pnpm install` + `ensure-electron` + `verify-worktree-deps` OK）
+  上跑 `--check` ⇒ `DESKTOP_DEPS_OK`（rc=0）。这正是上一版会降级失效的场景。
+- **变异反证 2/2**：F 把 root 必传递回有默认值 ⇒ 红；G 把 throw 改成静默 `return []` ⇒ 红。
+  逐字节还原（SHA-256 一致）。
+- **深度评审（QM-6）4 条 → 3 条自扮演裁决**：
+  - i1（标 `crypto`，Critical）**成立并已修**：我顺手把 platform/arch 默认值也删了，超出声明范围
+    + 让文档变成假话。已恢复默认值、只让 root 必传，并补「默认值不对称」测试。**本轮最有价值的一条**。
+  - i2（标 `datamigration`）**驳回**：`sync_*` 是 AGENTS.md 既有工作流，Gate 2c 机械阻塞 PENDING，不存在「易遗忘」。
+  - i3 **成立并已修**：改写 learnings 中自相矛盾的表述。
+  - 两个高危域标签经取证**误分类**（本 PR diff 对 crypto/migration 关键词命中 0）；但引擎规则
+    「域标签非空即阻断、自扮演无权豁免」，故由 **codex 跨家族外部复核**：裁定两标签均错误、
+    两条无需进一步改动、**PR 安全可合并**。结论落盘 `.ccg/reviews/<sha>.json` 的 `externalReview`。
+- 门禁：混合 PR（改 `scripts/` 自身）；行尾两口径一致、品牌残留、doc-abs-paths、行数门禁全 PASS。
+
+## 为什么 #3829 的 6 条变异没抓住这个缺陷
+
+#3829 的变异全部作用在**函数体内**，而缺陷在**函数签名**（默认值）。
+其变异 C「`fragileFor` 忽略 root 参数」改的是体内 `root = DEFAULT_ROOT`，与签名默认值是两条不同路径。
+本次直接把「缺参必须抛错」写成断言，默认值无论藏在签名还是体内都会红。
+
+## 顺带核实（结论：无需改动）
+
+1. **共享根 sharp 混版是否复发**：开场查到 `index.cjs` 指向 `0.35.1.node`，收尾复核**已自愈**
+   （其他会话修好，`require('sharp')` ⇒ `sharp OK 0.35.5`）。
+2. **新版判据能否识别「内容级混版」**：不能——`isInstalled` 只查文件存在性，
+   文件在但 `index.cjs` 内容错时仍判 `true`。这是**已知边界**（已登记遗留），
+   不做内容校验：解析 index.cjs 的 require 目标超出「依赖健康检查」的职责，
+   那种混版只能靠 restore 或重装解决。
+
 # [未发布] fix(ci): Electron CI 的 push-only 桌面全量测试补上「先重建构建产物」，并把这条配对关系做成跨 workflow 的锁（electron-ci-preload-build-step）
 
 - 现场与归属：`Electron CI` 的 **push** 事件自 2026-10-17T05:36:40Z 起连续 15 次 failure（最后一条 success 是

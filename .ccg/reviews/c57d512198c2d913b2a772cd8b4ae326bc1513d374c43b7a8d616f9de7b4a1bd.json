@@ -1,0 +1,30 @@
+{
+  "sha": "946c689127a01f2265aaa596b5a508b98c4addcf",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 32 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 32,
+    "fileCount": 5,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 3,
+    "docSensitiveContentSample": [
+      "| i1 | `crypto`（Critical） | 签名把 platform/arch 默认值也删了，超出声明范围、与文档矛盾；旧调用点会断 | **采纳并已修**：恢复 platform/arch 默认值，只让 root 必传；新增「默认值不对称」测试。域标签**误分类**（本 PR 无加密/凭据/哈希，见下取证） |",
+      "`git diff origin/main...HEAD` 对 `crypto|cipher|hash(|secret|credential|migrat|ALTER TABLE|schema` 的命中数为 **0**。",
+      "| Q1：i1 的 `crypto` 标签正确吗？ | **错误**。`fragileFor` 的参数是依赖树健康检查的路径/平台参数，不涉及加密、凭据、机密或哈希；且该发现已过时（默认值已恢复 + 测试已加） |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "c57d512198c2d913b2a772cd8b4ae326bc1513d374c43b7a8d616f9de7b4a1bd",
+  "decidedAt": "2026-10-17T16:29:31.107Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}
