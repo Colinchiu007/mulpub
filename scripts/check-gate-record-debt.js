@@ -15,12 +15,14 @@
 //   3) 该文件 blob 是 LF、工作区是 CRLF（`i/lf w/crlf attr/text=auto`）⇒ 键必须先去尾部 CR，
 //      否则同一内容在两种检出下判成两回事。
 //
-// 用法：node scripts/check-gate-record-debt.js [--json]
+// 用法：node scripts/check-gate-record-debt.js [--carrier-mode=block|visible] [--base-ref=<rev>]
 // 回归：node --test scripts/check-gate-record-debt.test.js
 
 const fs = require('fs')
 const path = require('path')
 const crypto = require('crypto')
+// 单一取源：合并账本与记录归属。判据内不得再出现第二份 git 解析（口径一漂移，所有记录的收口结论一起错）。
+const { buildLedger, classifyAttribution } = require('./lib/merge-ledger.js')
 
 const GATE_FILE = '.quality-gates.md'
 const ROW_RE = /^\|\s*远程同步\s*\|/
@@ -35,6 +37,16 @@ const RECORD_FIELD_OWNER = 'sync_backfill_owner'
 // 第三个登记字段。AGENTS.md 要求回填时删「sync_* 三字段」，但门禁此前只看两个，
 // 于是 11 篇把 `sync_status: PASS` 留在原地还能打印「登记字段无残留」——自述比判据宽。
 const RECORD_FIELD_STATUS = 'sync_status'
+// 规范键：可选的意图声明（change: gate-record-sync-derived-status）。
+// **为什么不用 sync_pr**：真仓实测 6 篇记录已经写了 `sync_pr`，形态是 `0`(×2) / `pending`(×3) /
+// 完整 URL(×1)，没有一篇是本设计假设的整数。同名两义必然漂移，所以新判据换用一个零存量用户的键名，
+// 旧键不参与判定、只作可见项（既不误红存量，也不让"两个键表达同一意图"这件事静默长存）。
+const RECORD_FIELD_PR = 'delivered_by_pr'
+const RECORD_FIELD_PR_LEGACY = 'sync_pr'
+// 新形态记录在状态列写的标记（见 openspec/records/_TEMPLATE.md）。判据用它区分
+// "作者按新规范留空待推导" 与 "旧形态忘了登记"——两者在账本不可用时必须给出不同的话。
+const DERIVED_MARKER = '由门禁推导'
+const DERIVED_MARKER_RE = new RegExp('^\\s*' + DERIVED_MARKER)
 
 // 已收口的写法。只允许这一侧扩张，新增未收口写法必须走 gate-record-debt-ledger.json。
 const CLOSED_RE = /^(PASS|N\/A|✅|已)/
@@ -203,6 +215,25 @@ function readRecord(recordsRoot, fileName) {
   const status = rowLine ? (rowLine.split('|').map(normalize)[2] || '') : null
   const reason = fm[RECORD_FIELD_REASON]
   const owner = fm[RECORD_FIELD_OWNER]
+  // 可选的意图声明：它**不作为收口依据**，只用于与主干事实交叉核对（抓"把别人的记录夹带进我的 PR"）。
+  // 非数字一律按"声明了但读不出"出声，不让一个手滑的 `sync_pr: PR-123` 变成静默不判。
+  const declaredRaw = fm[RECORD_FIELD_PR]
+  let declaredPr = null
+  let declaredPrBad = null
+  if (declaredRaw !== undefined && String(declaredRaw).trim() !== '') {
+    const pm = /^#?(\d{2,})$/.exec(String(declaredRaw).trim())
+    if (pm) declaredPr = Number(pm[1])
+    else declaredPrBad = String(declaredRaw).trim()
+  }
+  // 旧键在两种情况下都要出声：①规范键缺席（歧义本身）；②规范键也在但两者取值不同
+  // （评审 F4：只在前一种出声，等于让"两键并存且互斥"这条最该看见的形态静默通过）。
+  const legacyRaw = fm[RECORD_FIELD_PR_LEGACY]
+  let legacyPr = null
+  if (legacyRaw !== undefined && String(legacyRaw).trim() !== '') {
+    const lv = String(legacyRaw).trim()
+    if (declaredPr === null && declaredPrBad === null) legacyPr = lv
+    else if (`${declaredPr}` !== lv.replace(/^#?/, '').replace(/^['"]|['"]$/g, '')) legacyPr = `${lv}（与 ${RECORD_FIELD_PR} 并存且不一致）`
+  }
   const declared = statusDeclarations(text)
   // 「残留」按三字段判（回填即整段删）；「未收口必须登记」仍只要求 reason+owner，
   // 把 sync_status 算进那一侧等于让「只写 sync_status」就能冒充已登记。
@@ -211,18 +242,29 @@ function readRecord(recordsRoot, fileName) {
   return {
     name,
     fileName,
+    // git 输出的键永远是正斜杠；这里若用 path.join，Windows 上会得到反斜杠键 ⇒ 归属永远查不到、
+    // 派生恒不成立、且一声不响（与 quotepath 同一类静默失效）。
+    relPath: `${RECORDS_REL.split(path.sep).join('/')}/${fileName}`,
     rowPresent: !!rowLine,
     rowLineNo: rowLineIdx + 1,
     declared,
     status,
     closed: !!rowLine && CLOSED_RE.test(status),
     hasRegistration: hasAnyRegistration,
+    declaredPr,
+    declaredPrBad,
+    legacyPr,
     reasonMissing: !reason || !String(reason).trim(),
     ownerMissing: !owner || !String(owner).trim(),
   }
 }
 
-function collect({ root = process.cwd(), ledger = loadLedger(), duplicatesAllowed = DUPLICATE_HEADINGS_ALLOWED, crossSrcAllowed = CROSS_SRC_ALLOWED, recordsRoot = path.join(root, RECORDS_REL), carrierFreeze = null } = {}) {
+function collect({ root = process.cwd(), ledger = loadLedger(), duplicatesAllowed = DUPLICATE_HEADINGS_ALLOWED, crossSrcAllowed = CROSS_SRC_ALLOWED, recordsRoot = path.join(root, RECORDS_REL), carrierFreeze = null, mergeLedger = null } = {}) {
+  // 账本**只能由调用方注入**，与 carrierFreeze 同规：原先这里留了一条"默认去 buildLedger"的尾巴，
+  // 实测它是一个永不被走到的分支（main 自己构造后注入、所有用例也注入），
+  // 于是变异"把默认值写成坏 baseRef"全绿——未走过的分支不是备用路径，是藏起来的第二口径（N8 实测）。
+  // 现在缺注入就明说 not-injected：派生档停用、CLI 在 CI 档会因为它非零退出。
+  const ml = mergeLedger || { ok: false, reason: 'not-injected', detail: 'collect() 不再默认读生产仓库' }
   const file = path.join(root, GATE_FILE)
   if (!fs.existsSync(file)) throw new Error(`${GATE_FILE} 不存在：${file}`)
   const lines = fs.readFileSync(file, 'utf8').split('\n')
@@ -320,15 +362,62 @@ function collect({ root = process.cwd(), ledger = loadLedger(), duplicatesAllowe
   const statusContradictions = []
   const statusMismatchVisible = []
   const staleRecordFields = []
+  // ── 派生收口（change: gate-record-sync-derived-status）──
+  const derivedClosed = []
+  const byDesign = []
+  const prematureClaims = []
+  const intentMismatch = []
+  const inconsistentAttribution = []
+  const ambiguousPrKeys = []
+  const unprovenDerived = []
+  // 域一致锁（评审 i8 / 反证 M10）的测量对象：主循环**实际处理过**的文件名。
+  // 它必须逐等于 listRecordFiles 的返回值——把循环输入换成第二份自建清单
+  // （readdirSync 不过 `_` 前缀、或递归进子目录）时，两份集合立刻不等。
+  const recordsClassified = []
   let recordsFromFiles = 0
   const closedRecordSlugs = []
   for (const fn of fileNames) {
     const rec = readRecord(recordsRoot, fn)
     recordsFromFiles++
+    if (rec.legacyPr !== null && rec.legacyPr !== undefined) {
+      ambiguousPrKeys.push({ file: rec.fileName, value: rec.legacyPr.slice(0, 60) })
+    }
+    // 求值优先级是声明式的一条链，不是并列的条件集合（评审 i2/F5）：
+    //   missingRow → NOT_IN_BASE(byDesign / prematureClaim) → derivedClosed → blobClosed → debt
+    // 谁先命中谁定身，实现不得把 blobClosed 提到前面——那样"合并前预写 PASS"又会变绿。
+    const attr = classifyAttribution(ml, rec.relPath)
+    recordsClassified.push(fn)
+    if (rec.declaredPrBad !== null) {
+      // 声明了却读不出：按未核对判红，不许静默当成"没声明"放过（参数不得静默忽略，同族纪律）。
+      intentMismatch.push({ file: rec.fileName, declared: rec.declaredPrBad, actual: '<unreadable>' })
+    } else if (ml.ok === true && rec.declaredPr !== null && attr.state === 'PR' && attr.pr !== rec.declaredPr) {
+      intentMismatch.push({ file: rec.fileName, declared: rec.declaredPr, actual: attr.pr })
+    }
+    if (ml.ok === true && attr.state === 'PR' && attr.merged === false) {
+      // 解析出了 PR 号但账本里没有 ⇒ 两个同源遍历对不上，属取证不一致；
+      // 它**不是**"账本不可用"，因此继续走断言档（存量零漂移的一部分）。
+      inconsistentAttribution.push({ file: rec.fileName, pr: attr.pr })
+    }
     if (!rec.rowPresent) {
       missingRecordRows.push({ file: rec.fileName, reason: '整块缺 远程同步 行' })
       continue
     }
+    if (ml.ok === true && attr.state === 'NOT_IN_BASE') {
+      // 这篇还没进基线：只可能是本次变更集新增的活。自己不能证明自己已合并 ⇒
+      // 未闭合就是 byDesign（不红，也不需要登记字段）；而闭合词是**预写不存在的证据** ⇒ 判红。
+      if (rec.closed) prematureClaims.push({ file: rec.fileName, status: rec.status })
+      else byDesign.push(rec.fileName)
+      continue
+    }
+    const derived = ml.ok === true && attr.state === 'PR' && attr.merged === true
+    if (!ml.ok && DERIVED_MARKER_RE.test(rec.status || '')) {
+      // 新形态记录（状态列只写「由门禁推导」，按模板不再带登记字段）在账本不可用时**既没被误判收口，
+      // 也不该被指控"忘了登记"**——那是"我测不了"，不是"你没做"。判成可见的未证实，
+      // 且 CI 档由 rc=2 先行拦停（本机浅克隆/无 origin/main 才是这一档的真实场景）。
+      unprovenDerived.push({ file: rec.fileName, status: rec.status, reason: ml.reason || 'not-built' })
+      continue
+    }
+    if (derived) derivedClosed.push({ file: rec.fileName, pr: attr.pr, status: rec.status })
     if (rec.closed) {
       closedRecordSlugs.push({ slug: rec.fileName.replace(/\.md$/, ''), status: rec.status })
       // 表格行已收口，同篇的声明式 bullet 却仍写着未收口词 ⇒ 门禁只看得见前者、谎话无人检测
@@ -338,10 +427,13 @@ function collect({ root = process.cwd(), ledger = loadLedger(), duplicatesAllowe
           bulletLine: d.line, bulletStatus: d.status, text: d.text,
         })
       }
-      // 回填后必须删掉登记字段：允许两者共存就等于把"记得删登记项"这条人工耦合原样搬进新载体
+      // 回填后必须删掉登记字段：允许两者共存就等于把"记得删登记项"这条人工耦合原样搬进新载体。
+      // 作用域是"blob 做过闭合断言"的记录——纯派生收口的记录不带这层义务（实测覆盖 21 篇存量，
+      // 若把它们一起判红，本 change 自己就违反了「存量不动」）。
       if (rec.hasRegistration) staleRecordFields.push(`${rec.fileName}（已 ${rec.status} 却仍留 ${RECORD_FIELD_REASON}/${RECORD_FIELD_OWNER}/${RECORD_FIELD_STATUS}）`)
       continue
     }
+    if (derived) continue
     // 反向（行未收口、bullet 宣称完成）实测 0 篇 ⇒ 只可见、不进拦截面：该方向无法区分
     // 「预写尚不存在的证据」与「措辞笔误」，而前者归取证纪律管，不该由本判据扩拦截面。
     for (const d of rec.declared.filter(x => x.closed)) {
@@ -387,6 +479,19 @@ function collect({ root = process.cwd(), ledger = loadLedger(), duplicatesAllowe
       crossSrcViolations.push({ slug: rec.slug, recordStatus: rec.status, line: b.line, text: b.text, status: b.status })
     }
   }
+  // 纯派生收口 × 旧载体未收口：不并进拦截面（评审 D6 实测会新增 2 条红，而本仓纪律是不代他人
+  // 改写其旧载体执行记录），但必须出声——否则"记录已收口、旧行还写着 PENDING"这种真矛盾
+  // 就从可见变永久静默。条数进 format，且由用例钉住"必须被打印"。
+  const derivedCrossVisible = []
+  for (const d of derivedClosed.filter((x) => x.status === null || !CLOSED_RE.test(x.status))) {
+    const bs = legacyBySlug.get(d.file.replace(/\.md$/, '')) || []
+    for (const b of bs) {
+      if (!b.status || CLOSED_RE.test(b.status) || CROSS_BACKFILL_RE.test(b.text)) continue
+      if (crossSrcAllowed.has(d.file.replace(/\.md$/, ''))) continue
+      derivedCrossVisible.push({ slug: d.file.replace(/\.md$/, ''), line: b.line, status: b.status, pr: d.pr })
+    }
+  }
+
   // 承认清单不得变垃圾桶：清单里的 slug 若**本次仍读到它那条已收口记录**却不再构成矛盾 ⇒ 陈旧红。
   // 范围必须限定在本次可比记录内：实测不加这层限定，任何不含该 slug 的夹具仓库都会让
   // hasBlocking 恒真、既有 8 条测试集体红——判据越权不是夹具的错。
@@ -427,7 +532,17 @@ function collect({ root = process.cwd(), ledger = loadLedger(), duplicatesAllowe
     topRecordMissingRow,
     carrierDrift,
     recordsFromFiles,
+    recordsClassified,
     missingRecordRows,
+    ledger: { ok: ml.ok === true, reason: ml.reason || null, stats: ml.stats || null, baseRef: ml.baseRef || null },
+    derivedClosed,
+    byDesign,
+    prematureClaims,
+    intentMismatch,
+    inconsistentAttribution,
+    ambiguousPrKeys,
+    unprovenDerived,
+    derivedCrossVisible,
     statusContradictions,
     crossSrcViolations,
     crossSrcBackfillVisible,
@@ -447,7 +562,45 @@ function collect({ root = process.cwd(), ledger = loadLedger(), duplicatesAllowe
 
 function format(r, opt = {}) {
   const out = []
+  // 派生档自证行：这一趟到底测没测，看这行就知道。prs=0 / n/a 都是"派生档未生效"的现场，
+  // CLI 在 CI 环境下会因为它不是数字而以非零码退出（打印即门禁，不靠人事后 grep）。
+  if (r.ledger && r.ledger.ok) {
+    out.push(`MERGE-LEDGER prs=${r.ledger.stats.mergedPrs} base=${r.ledger.baseRef} 归属可解析记录=${r.ledger.stats.addedRecordPaths} 派生收口=${r.derivedClosed.length} byDesign=${r.byDesign.length}`)
+  } else {
+    out.push(`MERGE-LEDGER prs=n/a (unavailable: ${r.ledger ? r.ledger.reason : 'not-built'}) ⇒ 派生档停用，收口只认状态列的闭合词表（fail-closed，绝不把"看不见账本"读成"已合并"）；`
+      // 评审 F1/F3：停用不只意味着"少一条收口通道"，还意味着下面两道净增拦截同时熄灯。
+      // 不点名就会让人以为"只是派生不出来而已"，而实际是"预写 PASS 与归属谎报都不再被看见"。
+      + '同时停用的还有 prematureClaims（合并前预写 PASS）与 delivered_by_pr 交叉核对两道拦截；CI 档这属于门禁自身故障，rc=2。')
+  }
   out.push(`远程同步行 ${r.rowCount} 条 / 执行记录 ${r.recordCount} 篇（全部 ## 标题 ${r.headingCount} 个）/ 已登记欠账 ${r.registered.length} 条 / 记录文件 ${r.recordsFromFiles} 篇（两源分列，不可合并成一个趋势数）`)
+  if (r.byDesign.length) {
+    out.push(`（可见项，不拦截：${r.byDesign.length} 篇是本次变更集新增、尚未进基线的记录，合并后自动转派生收口，无需任何写回）`)
+  }
+  if (r.prematureClaims.length) {
+    out.push(`❌ 合并前预写"已收口"的记录 ${r.prematureClaims.length} 篇（该文件还不在基线上，不可能已经远程同步）：`)
+    for (const p of r.prematureClaims) out.push(`  ${p.file} —— 状态列写着「${p.status}」`)
+  }
+  if (r.intentMismatch.length) {
+    out.push(`❌ 声明的来源 PR 与主干事实不符 ${r.intentMismatch.length} 篇（夹带记录或声明笔误，两者都必须当场看见）：`)
+    for (const m of r.intentMismatch) out.push(`  ${m.file} —— 声明 ${m.declared} / 实际带入 ${m.actual}`)
+  }
+  if (r.inconsistentAttribution.length) {
+    out.push(`（可见项，不拦截：${r.inconsistentAttribution.length} 篇解析出了归属 PR 但账本里没有该项 = 同源取证不一致，收口仍按状态列判定）：`)
+    for (const c of r.inconsistentAttribution) out.push(`  ${c.file} —— 归属 PR ${c.pr} 不在账本`)
+  }
+  if (r.ambiguousPrKeys && r.ambiguousPrKeys.length) {
+    out.push(`（可见项，不拦截：${r.ambiguousPrKeys.length} 篇用旧键 sync_pr 表达意图声明，形态互不相通（0 / pending / 完整 URL），`
+      + '本判据只认 delivered_by_pr；旧键不得新增，随顺路清理收敛）：')
+    for (const a of r.ambiguousPrKeys) out.push(`  ${a.file} —— sync_pr: ${a.value}`)
+  }
+  if (r.unprovenDerived && r.unprovenDerived.length) {
+    out.push(`（可见项，不拦截：${r.unprovenDerived.length} 篇按新形态写「${DERIVED_MARKER}」，而账本不可用 ⇒ 判为**未证实**，不是"忘了登记"：`
+      + `${r.unprovenDerived.map((u) => `${u.file}(${u.reason})`).join('、')}）`)
+  }
+  if (r.derivedCrossVisible.length) {
+    out.push(`（可见项，不拦截：派生收口 × 旧载体未收口 ${r.derivedCrossVisible.length} 组，别人会话的旧行本仓不代改）：`)
+    for (const v of r.derivedCrossVisible) out.push(`  ${v.slug} —— 旧载体 L${v.line} [${v.status}]，派生归属 PR ${v.pr}`)
+  }
   out.push(`（可见项，不拦截：其中 ${r.recordsWithoutRow.length} 篇执行记录整块没有 远程同步 行，属历史缺口）`)
   if (r.missingRecordRows.length) {
     out.push(`❌ 记录文件整块缺 远程同步 行 ${r.missingRecordRows.length} 篇（每篇都必须独立可查，不再只查最顶部一篇）：`)
@@ -546,6 +699,10 @@ function hasBlocking(r, opt = {}) {
   return !!(r.open.length || r.stale.length || r.duplicates.length
     || r.missingRecordRows.length || r.staleRecordFields.length || r.statusContradictions.length
     || r.crossSrcViolations.length || r.crossSrcStaleAck.length
+    // 派生档新增的两类拦截：预写不存在的证据、声明的归属与主干事实不符。
+    // 用 `|| []` 兜住手写夹具（本文件既有测试里存在手搓结果对象喂 hasBlocking 的用例），
+    // 不是给生产代码加防御——缺字段在生产路径不可能出现。
+    || (r.prematureClaims || []).length || (r.intentMismatch || []).length
     // carrierVisible：PR 档把冻结降成可见项。动因是 2026-10-16 实测 CI —— pull_request 事件检出的是
     // main⊕本分支的合并预览，主干每几分钟长一块，"状态等于冻结基线"在 PR 档结构上必红（写在今天、
     // 红在明天的引信）。main 档仍拦，所以这条不是把锁拆松，是把锁装回它真能成立的那一档。
@@ -568,12 +725,53 @@ function parseCarrierMode(argv) {
   return v
 }
 
+function parseBaseRef(argv) {
+  const hit = argv.find((a) => a.startsWith('--base-ref='))
+  return hit ? hit.slice('--base-ref='.length) : 'origin/main'
+}
+
+function parseFlags(argv) {
+  // 参数不得静默忽略：拼错的旗标读起来像"某一档生效了"，实际命令行什么都没改。
+  // 原文件头宣传的 [--json] 从未被实现过——那是一个承诺了但不会出现的形态，已如实删掉。
+  // 白名单存的是**剥掉前导 -- 的参数名**：上一版把 '--carrier-mode' 整串放进来，
+  // 而比较用的是 a.slice(2).split('=')[0] ⇒ 永不等于 ⇒ CI 里的 --carrier-mode=visible 直接抛
+  // "未知旗标"（本机 CI 探针实测撞到，rc=1 且是未捕获异常）。这条注释就是那次事故的落点。
+  // `--current-pr` 曾在此列但**没有任何消费者**（byDesign 的判据是"该路径不在 base 归属映射里"，
+  // 不需要 PR 号）。接受一个不生效的旗标与"拼错被静默忽略"是同一条反模式的两个方向
+  // （外部评审 F5 家族的 F2），已删；CI 若真要下发就会在这里当场红，而不是"看起来生效"。
+  const allowed = ['carrier-mode', 'base-ref']
+  const needValue = ['base-ref']
+  for (const a of argv) {
+    if (!a.startsWith('--')) continue
+    const name = a.slice(2).split('=')[0]
+    if (!allowed.includes(name)) {
+      throw new Error(`未知旗标 ${a}（本判据只认 --${allowed.join(' / --')}；把它当"已生效"读就是静默失效）`)
+    }
+    // 裸旗标（不带 =值）同样禁止：`--base-ref` 会被静默忽略成默认值，读起来像"指定过某个 rev"。
+    if (needValue.includes(name) && !a.includes('=')) {
+      throw new Error(`${a} 必须写成 --${name}=<值>（裸旗标会被静默忽略成默认值，等于守门随命令行抖动）`)
+    }
+  }
+}
+
 function main() {
   const root = path.resolve(__dirname, '..')
-  // 冻结基线只在 CLI 侧读生产文件；collect() 保持可注入，避免测试静流量到真仓基线。
-  const mode = parseCarrierMode(process.argv.slice(2))
-  const r = collect({ root, carrierFreeze: loadCarrierFreeze() })
+  const argv = process.argv.slice(2)
+  parseFlags(argv)
+  // 冻结基线与合并账本都只在 CLI 侧读生产仓库；collect() 保持可注入，
+  // 否则夹具会静默量到真仓状态（carrierFreeze 同款教训，实测冲掉过 8 条合法测试）。
+  const mode = parseCarrierMode(argv)
+  const baseRef = parseBaseRef(argv)
+  const ml = buildLedger({ baseRef, cwd: root })
+  const r = collect({ root, carrierFreeze: loadCarrierFreeze(), mergeLedger: ml })
   console.log(format(r, { carrierBlocking: mode === "block" }))
+  // 打印即门禁：CI 上账本不可用（浅检出、ref 没取到、仓库态异常）意味着派生档整体停用。
+  // 停用不是"通过"——留在 CI 里就是一条随时会烂成装饰的分支，必须当场红并给出原因。
+  // 本机不强制：本地跑常常在 detached worktree 或没有 origin/main 的克隆里，那是合法使用形态。
+  if (!ml.ok && String(process.env.CI || '') !== '') {
+    console.error(`[gate-record-debt] 派生档在 CI 上不可用（reason=${ml.reason}），判为门禁自身故障而非通过`)
+    process.exit(2)
+  }
   if (hasBlocking(r, { carrierVisible: mode === "visible" })) process.exit(1)
 }
 
@@ -582,9 +780,11 @@ module.exports = {
   UNCLOSED_DECL_RE, CLOSED_DECL_RE,
   listRecordFiles, readRecord, readFrontmatter,
   CROSS_SLUG_RE, CROSS_BACKFILL_RE, CROSS_SRC_ALLOWED,
-  RECORDS_REL, RECORD_FIELD_REASON, RECORD_FIELD_OWNER, RECORD_FIELD_STATUS,
+  RECORDS_REL, RECORD_FIELD_REASON, RECORD_FIELD_OWNER, RECORD_FIELD_STATUS, RECORD_FIELD_PR,
+  RECORD_FIELD_PR_LEGACY, DERIVED_MARKER, DERIVED_MARKER_RE,
   GATE_FILE, LEDGER_FILE, DUPLICATE_HEADINGS_ALLOWED, HEADING_RE, headingTitle,
   CARRIER_FREEZE_FILE, loadCarrierFreeze, carrierSignature, parseCarrierMode,
+  parseBaseRef, parseFlags,
 }
 
 if (require.main === module) main()

@@ -1,0 +1,56 @@
+[
+  {
+    "id": "F1",
+    "severity": "critical",
+    "where": "spec Requirement 2 + 两个 Scenario vs design D11/失败模式表（归属取「首次」还是「最近一次」）",
+    "file": "openspec/changes/gate-record-sync-derived-status/specs/quality-gate-execution-record/spec.md",
+    "line": 46,
+    "finding": "spec 三处把归属定义为「首次把它加入基线」，与 design 已按临时仓库实验改定的「取最近一次 A（newest-wins）」相反；按 spec 实现即 first-wins，正是 D11 记为「已改」的 GIT-3/4 错误形态从规格侧复活，删后重新加入的记录会被归给已不存在于主干历史的交付。",
+    "falsifiable_proof": "`grep -n 首次 <spec路径>` 命中 3 处：:24「确由某个已合并 PR 首次带入基线」、:46「记录文件路径 → 首次把它加入基线的提交」、:91「首次新增该文件的提交尾注为 #B」；`grep -n 最近一次 design.md` 命中 :133「取『最近一次新增』而非『首次新增』」与 :142「原文写『保留首个新增』…已改为显式声明取最近一次 A」。若 spec 这三处原文实为「最近一次」，本条不成立。"
+  },
+  {
+    "id": "F2",
+    "severity": "critical",
+    "where": "spec Scenario「未收口必须自带登记」vs design D5 vs _TEMPLATE.md frontmatter（登记字段口径）",
+    "file": "openspec/changes/gate-record-sync-derived-status/specs/quality-gate-execution-record/spec.md",
+    "line": 39,
+    "finding": "「登记字段」三方冲突：spec 要求未收口记录必须携带登记字段且不得为空，design D5 明令新记录一律不得写这三个字段，模板又默认预填 sync_status: PENDING——下一个会话照 spec 填就违反 D5，照 D5 不填就触碰 spec 的硬性要求，两条都是可引原文的违规。",
+    "falsifiable_proof": "三段原文并列即矛盾：spec.md:39-40「既无派生证据、状态列又未闭合 → 同一文件内必须写明登记原因与回填责任人，登记字段不得为空」；design.md:82「新记录一律不写 `sync_status/sync_reason/sync_backfill_owner`」；_TEMPLATE.md:8「只在『远程同步』尚无法收口时填写」+ :10 `sync_status: PENDING`。构造场景「本 PR 新增记录、状态列 PENDING」：spec 判必须填、D5 判禁填，两者可同时引用即证伪失败。"
+  },
+  {
+    "id": "F3",
+    "severity": "high",
+    "where": "design D5 字段卫生作用域收缩未进入 delta spec",
+    "file": "openspec/changes/gate-record-sync-derived-status/specs/quality-gate-execution-record/spec.md",
+    "line": 35,
+    "finding": "D5 把 staleRecordFields 收缩到「blob 做过闭合断言」的记录，但 delta spec 全文没有任何字段卫生条款；只读 spec 的实现会按仓规全量执行「已回填却仍留登记字段 = 红」，D5 实测的 21 篇存量当场变红，直接违反本 change 自己的「存量不动」与 spec Scenario「存量零漂移」。",
+    "falsifiable_proof": "`grep -c -E 'staleRecordFields|字段卫生|留下不删' <spec路径>` = 0（spec 仅 :25/:35 出现「不要求登记字段」，语义是『无需携带』而非『允许残留』，拦不住残留判红）；design.md:80-82「若沿用既有 staleRecordFields…这 21 篇当场变红 ⇒ 直接违反『存量不动』」。若 spec 中存在限定 staleRecordFields 适用范围的条款，本条不成立。"
+  },
+  {
+    "id": "F4",
+    "severity": "high",
+    "where": "_TEMPLATE.md 第 28 行改「由门禁推导」后与第 8/9/10-12/28 行自身的指令互相矛盾",
+    "file": "openspec/records/_TEMPLATE.md",
+    "line": 28,
+    "finding": "第 28 行改「由门禁推导」后模板有四处自相矛盾：①第 8 行的删除触发器「回填成 PASS 后必须整段删除」不再可能触发（人不再写 PASS），第 9 行「留下不删 = 门禁报已回填却仍留登记字段」对纯派生记录也不成立（D5 明确豁免该格）→ sync_* 滞留且模板里没有任何句子说明何时删；②第 10-12 行默认交付 sync_* 与 D5「新记录一律不写」正相反；③第 28 行 Fresh 证据列仍保留「合并后取 git log …回填 merge SHA 与时间 …回填后删除上方三个 sync_* 字段」的人工回填指令，与 D1「人不写任何状态字段」冲突；④「由门禁推导」既不在闭合词表、也不是「当下状态」，按 D3 求值链不命中 blobClosed，读者从记录本身读不出当下收口与否。",
+    "falsifiable_proof": "逐行取原文：_TEMPLATE.md:8「回填成 PASS 后必须整段删除」、:9「留下不删 = 门禁报…」、:10 `sync_status: PENDING`、:28 证据列「合并后取 `git log origin/main --grep='(#NNNN)$'` 回填 merge SHA…」；对照 design.md:25「人不写任何状态字段」与 design.md:82「新记录一律不写」。用例：复制模板、把 28 行状态改为「由门禁推导」——按第 8 行永远等不到「回填成 PASS」，按第 28 行证据列仍被要求手工回填 SHA，两条指令指向不同动作；把「由门禁推导」代入 design.md:67 求值链，五格无一命中。"
+  },
+  {
+    "id": "F5",
+    "severity": "high",
+    "where": "spec 断言通道触发条件「派生不可用」vs design 求值链「派生不成立即落 blobClosed」",
+    "file": "openspec/changes/gate-record-sync-derived-status/specs/quality-gate-execution-record/spec.md",
+    "line": 13,
+    "finding": "断言通道的触发条件两处口径不一：spec 写「派生不可用时」才走词表，design 求值链是「派生不成立即落 blobClosed」。NO_FOOTER（design 称「派生不可用」）与「PR 不在账本」（design 明说不算 ledgerUnavailable）在 spec 措辞下两通道皆不适用——通道 1 失败、通道 2 前提「不可用」为假，判定悬空；design:50 的「按未收口处理」还可能被读成连词表兜底都跳过。",
+    "falsifiable_proof": "spec.md:13「断言通道（兼容读）——派生不可用时，状态列 SHALL 按既有闭合词表判定」；design.md:50「`PR(n)` 但 `n` 不在账本（异常态）按未收口处理，**不**算 `ledgerUnavailable`」；design.md:67 链「derivedClosed → blobClosed → debt」。同一场景「归属 PR 不在账本、状态列 = PASS」按链判收口、按 design:50 字面判未收口、按 spec:13 因派生可用而无通道——三种读法三个结论，给出任一相反读法即可证伪本条。"
+  },
+  {
+    "id": "F6",
+    "severity": "medium",
+    "where": "design D1/D3 新词系与仓规既有词系（状态列/登记字段/缺行）字面撞车，且 spec 零提及三态",
+    "file": "openspec/changes/gate-record-sync-derived-status/design.md",
+    "line": 25,
+    "finding": "新词只存在于 design，spec 与模板零出现，且两组词与既有说法字面冲突：D1「人不写任何状态字段」中「状态字段」实指 sync_* 登记字段，但仓规里「状态」指远程同步行的状态列——照字面读会以为不写状态列（与 D2 缺行仍红、模板 :28 直接冲突）；`ABSENT`（「在 addedBy 映射里没有」）与 `missingRow`（「行不存在」）同用「不存在」字面却指两个不同对象，易被读成「文件不在=缺行」；spec 完全没有 ABSENT/NO_FOOTER 三态定义，按 spec 实现就是 M2b 担心的「三态塌两态」。",
+    "falsifiable_proof": "`grep -c -E 'derivedClosed|blobClosed|prematureClaim|ABSENT|NO_FOOTER' <spec路径>` = 0；design.md:25「人不写任何状态字段」vs design.md:38「缺 `远程同步` 行 ⇒ 仍进 missingRecordRows」；design.md:48「`ABSENT`——该路径在 `addedBy` 映射里没有」vs :54「`missingRow` | 行不存在」；design.md:153 M2b「三态塌两态…必须红」。若 spec 含三态定义或 D1 原文用「登记字段」而非「状态字段」，本条相应半句不成立。"
+  }
+]
