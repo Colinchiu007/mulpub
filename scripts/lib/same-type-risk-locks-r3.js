@@ -57,13 +57,16 @@ function scanIndependentMimeMaps (sources) {
   for (const src of sources) {
     const { path, text } = src
     if (R7_EXEMPT(path)) continue
-    const masked = src._masked || maskNonCode(text, { strings: 'keep' })
+    // i3（CCG 416338fc）：配对必须在 mask 版文本上做（字符串内的花括号会让配对错位，
+    //   实测夹具 matchBrace 返回 -1）；keep 版只用于对象体内容匹配。
+    const maskedPair = src._masked || maskNonCode(text)
+    const maskedKeep = src._maskedKeep || maskNonCode(text, { strings: 'keep' })
     const objRe = /\{/g
     let m
-    while ((m = objRe.exec(masked)) !== null) {
-      const close = matchBrace(masked, m.index)
+    while ((m = objRe.exec(maskedPair)) !== null) {
+      const close = matchBrace(maskedPair, m.index)
       if (close === -1 || close - m.index > 2000) continue
-      const body = masked.slice(m.index, close + 1)
+      const body = maskedKeep.slice(m.index, close + 1)
       stats.objectsScanned++
       // image/jpg 是 media-downloader 的历史兼容条目（非规范 mime，真实平台回包出现过），
       //   单独出现不构成「独立映射表」信号 —— 判据只认规范名 image/jpeg（jpe?g 会在 jpg 处误命中）。
@@ -108,8 +111,16 @@ function scanModuleStateGrowth (sources) {
       //   声明结尾是 `)`，从那里配对会把「下一个函数体」当范围，把文件里后面的 delete 全截掉
       //   （夹具当场抓出：写清配对完整的集合被误报为只写）。
       const tail = masked.slice(m.index)
-      const writes = /\.(set|add)\(/.test(tail)
-      const clears = /\.(delete|clear)\(/.test(tail)
+      // i4（CCG 416338fc）：清写检测按「模块级名字」的成员调用精确匹配 ——
+      //   整文件盲搜会把「局部同名 Map 的 tmp.delete()」误判为模块级清理（实测假阴成立）。
+      const memberRe = new RegExp('\\b' + name + '\\.(set|add|delete|clear)\\(', 'g')
+      let mm3
+      let writes = false
+      let clears = false
+      while ((mm3 = memberRe.exec(tail)) !== null) {
+        if (mm3[1] === 'set' || mm3[1] === 'add') writes = true
+        else clears = true
+      }
       if (writes && !clears) {
         stats.writeOnly++
         visible.push({

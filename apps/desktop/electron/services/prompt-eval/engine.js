@@ -4,6 +4,7 @@
  * 输入校验（fail closed）→ 读图 → 构造提示词 → 调用评估器 → 解析校验 → 报告 → 持久化
  */
 const fs = require('fs')
+const { extToMime, IMAGE_EXT_TO_MIME } = require('@multi-publish/shared-utils/src/image-mime')
 const path = require('path')
 const crypto = require('crypto')
 const { buildImageEvaluationPrompt, buildVideoEvaluationPrompt, normalizeContextSnapshot } = require('./prompt-builder')

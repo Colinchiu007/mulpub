@@ -10,6 +10,7 @@
  * 与 BrowserWindow 裁剪（cropImageFile）分离，纯函数可单测。
  */
 const { BrowserWindow } = require('electron')
+const { extToMime, IMAGE_EXT_TO_MIME } = require('@multi-publish/shared-utils/src/image-mime')
 const path = require('path')
 const fs = require('fs')
 const os = require('os')

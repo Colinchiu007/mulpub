@@ -14,6 +14,7 @@
  */
 
 const fs = require("fs");
+const { MIME_TO_EXT: IMAGE_MIME_TO_EXT, EXT_TO_MIME: IMAGE_EXT_TO_MIME } = require('@multi-publish/shared-utils/src/image-mime')
 const path = require("path");
 const { pipeline: streamPipeline } = require("stream");
 const { promisify } = require("util");

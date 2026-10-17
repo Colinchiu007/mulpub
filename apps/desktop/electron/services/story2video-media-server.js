@@ -2,6 +2,7 @@
 'use strict'
 
 const crypto = require('crypto')
+const { MIME_TO_EXT: IMAGE_MIME_TO_EXT, EXT_TO_MIME: IMAGE_EXT_TO_MIME } = require('@multi-publish/shared-utils/src/image-mime')
 const fs = require('fs')
 const http = require('http')
 const path = require('path')
