@@ -1,0 +1,42 @@
+{
+  "sha": "339fdd9df478dcdfe285f04a149194f1870cab75",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 2438 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 2438,
+    "fileCount": 38,
+    "codeFileCount": 23,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 7,
+    "docSensitiveContentHits": 3,
+    "docSensitiveContentSample": [
+      "### 方案 B：原生 `<select>`（或 UiSelect）直接放在行内",
+      "- 拒绝原因：① 行内右侧按钮区空间很窄，原生 select 会把行撑高、破坏列表节奏；② 无法在选项内表达「默认/禁用原因」这类富信息；③ 用户明确要求「下箭头图标按钮 + 下拉选择层」的形态。保留为备选（若后续要求键盘原生行为可降级）。",
+      "- **下拉选择层（不是浏览器原生 select，也不是 Element Plus 下拉）**：点击下箭头打开一个轻量浮层："
+    ],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-17T08:35:46.996Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "opencode(proposer) + claude(critic) + self-play adjudication",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "findings": {
+      "upheld": 3,
+      "total": 8,
+      "note": "i1/i2/i4 upheld（均已修复：删除未闭合过程记录、新增 resize 重算、截图配方+哈希入记录）；i3/i6 dismissed（附依据：既有测试清理范式、max-lines 红线强制的拆分）",
+      "dismissed": 2,
+      "postFixRegression": "99/99 tests green; eslint rc=0",
+      "adjudication": ".adversarial/ccg-deep-339fdd9d/adjudication.json",
+      "resolved": 5
+    },
+    "template": ".adversarial\\ccg-deep-339fdd9d\\adjudication.json",
+    "note": "裁决尚未填写：5/5 条未定（i1, i2, i3, i4, i6）",
+    "at": "2026-10-17T08:38:34.349Z"
+  }
+}
