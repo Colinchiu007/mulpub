@@ -62,6 +62,14 @@ vi.mock("@/composables/useIdentity", () => ({
   }),
 }));
 
+// 升级 CTA 的目标是路由跳转（会员中心），需 mock useRouter。
+// 用 vi.hoisted 暴露 push 引用：vi.mock 的工厂会被提升到文件顶部执行，
+// 普通外层变量此时尚未初始化（本仓已踩过这个坑，见文件顶部 newPanelApis 的注释）。
+const { routerPushMock } = vi.hoisted(() => ({ routerPushMock: vi.fn() }));
+vi.mock("vue-router", () => ({
+  useRouter: () => ({ push: routerPushMock }),
+}));
+
 import DashboardView from "./Dashboard.vue";
 
 describe("DashboardView", () => {
@@ -427,6 +435,42 @@ describe("DashboardView 套餐分级（dash-full-entitlement）", () => {
     }
     expect(w.find('[data-testid="perf-flow-panel"]').exists()).toBe(false)
     expect(w.text()).toContain(i18n.global.t("dashboard.lockedCta"))
+    w.unmount()
+  })
+
+  // 验收 1（fix-upgrade-payment-entry）：点升级 CTA 必须真的去到「能做事」的地方。
+  //
+  // 修的是本仓实测到的一个真 bug：Dashboard.vue 曾有 showUpgradeModal ref 与
+  // 4 处 @upgrade="showUpgradeModal = true"，也 import 了 UpgradeModal，
+  // **但模板里从未渲染 <UpgradeModal>** —— 用户点了「升级解锁」什么都不会发生
+  // （ref 变了却没有消费方）。上一版的测试只断言「锁区块渲染出来了」，
+  // 没有任何用例走到"点一下之后发生什么"，所以这个空洞完整逃逸。
+  //
+  // 现在改成跳会员中心：那里有真实档位、真实价格与服务端兑换码核销（唯一
+  // 真实可用的开通渠道），而不是一个只显示「付费通道筹备中」的弹窗。
+  it("free 档：点击升级 CTA 跳转会员中心（不留『点了没反应』的空洞）", async () => {
+    const w = await settle(mountWith(FREE))
+    const cta = w.find('[data-testid="dashboard-locked-trend"] .dash-locked-cta')
+    expect(cta.exists(), "锁区块里应有一个升级 CTA").toBe(true)
+    routerPushMock.mockClear()
+    await cta.trigger('click')
+    expect(
+      routerPushMock,
+      "升级 CTA 必须路由到 /member-center：那里才有真实价目与兑换码核销，" +
+        "而 UpgradeModal 在正式包只有「筹备中」"
+    ).toHaveBeenCalledWith('/member-center')
+    w.unmount()
+  })
+
+  // 四个锁区块用的是同一个处理函数，任取一个之外的再验一条，
+  // 防止"只给 trend 接了线、其余三个还挂着旧写法"这种半修复。
+  it("free 档：pattern 锁区块的 CTA 同样跳会员中心", async () => {
+    const w = await settle(mountWith(FREE))
+    const cta = w.find('[data-testid="dashboard-locked-pattern"] .dash-locked-cta')
+    expect(cta.exists()).toBe(true)
+    routerPushMock.mockClear()
+    await cta.trigger('click')
+    expect(routerPushMock).toHaveBeenCalledWith('/member-center')
     w.unmount()
   })
 
