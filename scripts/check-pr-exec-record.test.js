@@ -1209,3 +1209,52 @@ test('遗留收口：提示文案必须**由判据生成**，且源码里不得�
     'CRLF 与 LF 必须剥出相同结果（规范化 \\r\\n 那一步不能省）')
 
 })
+
+// ── 扫描域 × 命名形态演进（0386afdfc = #3755 内容寻址命名）────────────────────
+// 该次改动把判定记录改名成 .ccg/reviews/<stagedDiffHash>.json（64 位十六进制，见
+// ccg-review-decider.js:496-500 的 recordFileName：拿到 64 位哈希就用它，否则退回 40 位），
+// 并在**同一个 PR** 里放宽了 AUDIT_ARTIFACT_RE（现认 40hex / 64hex / -again-<40hex>-<时间戳>），
+// 还自带一条「fail-open 反向锁：64 位命名的 dual+pending 记录仍必须判欠账」（见本文件 970 行附近）。
+// ⚠ 本节初稿写的是「新产物对扫描完全隐形」——那是**误判**：取证读的是共享根工作副本里
+//   #3755 之前的旧行号，把快照当成了现状。实测主干 845 个产物（761 个 40 位 + 17 个 64 位）
+//   全部参与判定，且那 17 个正是改名之后的新产物。
+// 真正没被覆盖的是「下一次再改命名」：那时若没人同步放宽形态表，involved 会静默缩到 0，
+// 而 `involved.length === 0` 的早退让「扫到 0 条」与「没有欠账」逐字同形。
+// 下面三条锁守的是这一格（前瞻 + 不过宽），不是已修好的那一格；
+// 另记一条方法论：新写锁之前先 grep 同名/同格既有锁——本节初稿的 57 号用例就与 970 行逐字同格，已删。
+const SHA64 = 'b'.repeat(64)
+const SHA56 = 'c'.repeat(56) // 假想的「下一次改名」——出声判据必须接住它，而不是只补今天这一格
+
+test('扫描域正控：64 位命名 + 外部轴闭环 ⇒ 不得报欠账（防「多扫一点就全红」）', () => {
+  const repo = withReviewRecords({
+    [`${SHA64}.json`]: { mode: 'dual', deepReview: { required: true, status: 'cleared', performedBy: 'claude' } },
+  })
+  try {
+    const r = mod.evaluateDeepReviewDebt(st([['A', `.ccg/reviews/${SHA64}.json`]]), repo)
+    assert.strictEqual(r.checked, 1)
+    assert.deepStrictEqual(r.reasons, [], '已闭环不得因命名形态变化而误报')
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('扫描域不得静默收窄：形态不认识但确实是评审记录 ⇒ 必须出声（而不是当作没扫到）', () => {
+  const repo = withReviewRecords({
+    [`${SHA56}.json`]: { mode: 'dual', deepReview: { required: true, status: 'pending', performedBy: null } },
+  })
+  try {
+    const r = mod.evaluateDeepReviewDebt(st([['A', `.ccg/reviews/${SHA56}.json`]]), repo)
+    assert.strictEqual(r.reasons.length, 1, `不认识形态必须报 1 条，实际 ${r.reasons.length}`)
+    assert.match(r.reasons[0], /扫描域形态不认识|形态不认识/)
+    assert.ok(r.reasons[0].includes(SHA56), '必须点名是哪个文件，否则下一次没人能归因')
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('扫描域不得过宽：同目录里的非评审 json 不得触发上述出声', () => {
+  // 主干 .ccg/reviews 下另有 67 个非 sha 命名的入库原件（workflowstructure-* 等），
+  // 若把"目录里有 json"一律当失明来喊，会让正常文档 PR 无故变红——那是把一条锁换成噪音。
+  const repo = withReviewRecords({ 'workflowstructure-notes.json': { hello: 1 } })
+  try {
+    const r = mod.evaluateDeepReviewDebt(st([['A', '.ccg/reviews/workflowstructure-notes.json']]), repo)
+    assert.deepStrictEqual(r.reasons, [])
+    assert.strictEqual(r.checked, 0)
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})

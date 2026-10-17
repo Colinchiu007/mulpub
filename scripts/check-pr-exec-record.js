@@ -61,6 +61,24 @@ const CARRIER_RE = /^(?:openspec\/records\/[^_][^/]*\.md|\.quality-gates\.md|scr
 //   不 stage 则审查结论与门禁脱钩。属「声称同源的三处漏了第四处」。
 //   形态收得很紧：后缀必须形如 `-again-<40hex>_<14位T时间戳>`，且必须带 T 与 Z。
 const AUDIT_ARTIFACT_RE = /^\.ccg\/reviews\/(?:[0-9a-f]{40}|[0-9a-f]{64})(?:-again-[0-9a-f]{40}-\d{8}T\d{6}(?:\.\d{1,3})?Z)?\.json$/
+// 目录级判据：落在 .ccg/reviews/ 且是 .json 就进入「该不该被扫」的讨论范围。
+// 与 AUDIT_ARTIFACT_RE（已知形态）刻意分开，是为了让「命名又变了一次」这件事可被察觉：
+// 2026-10-17 实测，0386afdfc（#3755）把判定记录从 <40hex> 换成 <stagedDiffHash=64hex>，
+// 那次顺手把形态表也放宽了——但没有任何东西保证下一次改名还会管这里。
+const REVIEWS_DIR_RE = /^\.ccg\/reviews\/[^/]+\.json$/
+
+/**
+ * 这份 json 是否确实是一条评审记录 —— 按内容判，不按文件名猜。
+ * 只看 mode / deepReview / decidedBy 三个键：同目录下另有 workflowstructure-* 一类入库原件，
+ * 把「目录里有 json」一律当失明来喊会让正常文档 PR 无故变红 —— 那是把锁换成噪音。
+ */
+function isReviewRecord (repo, rel) {
+  try {
+    const rec = JSON.parse(fs.readFileSync(path.join(repo, rel), 'utf8'))
+    if (!rec || typeof rec !== 'object') return false
+    return rec.mode !== undefined || rec.deepReview !== undefined || rec.decidedBy !== undefined
+  } catch { return false } // 损坏/非 JSON 由别的门禁负责，这里不重复报
+}
 const DEFAULT_THRESHOLD = 3
 
 // ---------- 位宽/形态说明的**单一真源**（2026-10-17，ccg-record-width-message） ----------
@@ -550,10 +568,25 @@ const CLOSED_DEEP_REVIEW_STATUSES = new Set([
  */
 function evaluateDeepReviewDebt (statuses, repo) {
   const reasons = []
-  const involved = statuses
-    .filter((e) => (e.status === 'A' || e.status === 'M') && AUDIT_ARTIFACT_RE.test(e.file))
+  const changedInDir = statuses
+    .filter((e) => (e.status === 'A' || e.status === 'M') && REVIEWS_DIR_RE.test(e.file))
     .map((e) => e.file)
-  if (involved.length === 0) return { reasons, checked: 0 }
+  const involved = changedInDir.filter((f) => AUDIT_ARTIFACT_RE.test(f))
+
+  // ★ 扫描域不得静默收窄：形态不认识、但内容确实是评审记录 ⇒ 必须点名出声。
+  //   否则「involved 为空」与「没有欠账」逐字同形，而本函数正是靠这个 return 早退的。
+  const escaped = changedInDir.filter((f) => !AUDIT_ARTIFACT_RE.test(f) && isReviewRecord(repo, f))
+  if (escaped.length > 0) {
+    reasons.push(
+      `扫描域形态不认识 ${escaped.length} 条 —— 这些文件在 .ccg/reviews/ 下、内容带 mode/deepReview/decidedBy`
+      + `（确实是评审记录），但文件名不匹配 AUDIT_ARTIFACT_RE 的已知形态，故未参与欠账判定：\n`
+      + escaped.slice(0, 8).map((p) => `    - ${p}`).join('\n')
+      + '\n    正解：把新形态登记进 AUDIT_ARTIFACT_RE 并补一条该形态的用例；'
+      + '     不得反过来改判据去忽略它 —— 那等于给下一批产物集体装上隐形。'
+    )
+  }
+
+  if (involved.length === 0 && escaped.length === 0) return { reasons, checked: 0 }
 
   const unresolved = []
   for (const rel of involved) {
