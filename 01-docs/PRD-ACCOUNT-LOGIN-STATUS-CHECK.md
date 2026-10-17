@@ -479,7 +479,7 @@ IPC 口径（7+1）、定期检测（新建 10 例）、渲染层（3 改写 + 3
 
 ### 18.6 回退通道与边界
 
-- 恢复某平台的 DOM 兜底：把它加入 `DOM_LOGIN_CHECK_ALLOWED_PLATFORMS`，并在同一次提交附上
+- 恢复某平台的 DOM 兜底：把它加入 `DOM_LOGIN_CHECK_ALLOWED_PLATFORMS`，**并在同一次提交**把它登记到 `scripts/dom-login-check-registry.json`（≥2 轮 / ≥60 分钟 / 登录页与已登录页形态 / 证据载体，7 字段齐备），否则 `account-manager-http-only-policy.test.js` 的「准入配对锁」当场红；并附上
   **真机复测证据**（该平台隐藏窗口加载不再崩溃）；**不得**用环境变量临时开启（避免线上出现无留痕的崩溃面）。
 - 本变更**不修 Chromium 缺陷**，也不声称消除该类崩溃；任何对允许集的追加都必须重新评估风险。
 - 更彻底的解法（把 DOM 判定搬进独立进程、崩溃不回传主进程）列为后续工作。

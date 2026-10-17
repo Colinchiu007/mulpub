@@ -217,3 +217,52 @@ checkLoginStatus(platform, accountId)
 - 需求侧：`01-docs/PRD.md`（§"三种认证模式"）、`01-docs/PRD-ACCOUNT-LOGIN-STATUS-CHECK.md`
 - 执行记录：`openspec/records/fix-login-check-http-only.md`
 - 同族先例：`01-docs/BUGFIX-ZHIHU-LOGIN-CHECK-2026-10-16.md`
+
+---
+
+## 13. 准入登记表与配对锁（2026-10-17 追加）
+
+### 13.1 为什么需要"机械准入"
+
+隐藏窗口崩不崩**只有真机能验证**：真实平台页面 + 真实账号 Cookie + 隐藏窗口渲染，三者 CI 永远凑不齐。所以过去四例（toutiao → wechat_mp → 知乎 → kuaishou）的共同形态是「**CI 全绿、用户机器上崩**」。仅把纪律写进文档不够——本仓已有先例（写进记忆与文档都没拦住同类失误）。因此把准入做成**双向配对锁**。
+
+### 13.2 登记表（`scripts/dom-login-check-registry.json`）
+
+今日为空表（`platforms: {}`），与 `DOM_LOGIN_CHECK_ALLOWED_PLATFORMS = new Set([])` 一一对应。每行必须携带：
+
+| 字段 | 要求 | 含义 |
+|---|---|---|
+| `accessedAt` | YYYY-MM-DD | 真机复测日期 |
+| `operator` | 非空 | 执行复测的人/会话 |
+| `realMachineRounds` | **≥2** | `LoginMonitor` 一轮 30 分钟；一轮不足以下结论（2026-10-16 实测：第一轮通过、30 分钟后第二轮仍崩） |
+| `realMachineMinutes` | **≥60** | 观测窗口须覆盖至少两轮 |
+| `loginPageShape` | 非空 | 未登录页面的可判定形态（选择器或 URL 特征） |
+| `loggedInPageShape` | 非空 | 已登录页面的可判定形态 |
+| `evidenceRef` | 非空 | 证据载体（日志路径 / 记录文件 / PR 链接，须可复核） |
+
+字段清单本身也受锁保护：`requiredEvidenceFields` 缺一项即红（防止把纪律写成空壳）。
+
+### 13.3 配对锁的判据（`account-manager-http-only-policy.test.js` 第 5 例）
+
+| 方向 | 判据 | 失败含义 |
+|---|---|---|
+| 正向 | 允许集 ⊆ 登记表，且每行证据齐备 | "代码开了窗但没交证据" ⇒ 红 |
+| 反向 | 登记表 ⊆ 允许集 | "登记了但代码没接" ⇒ 红（装饰性登记） |
+| 结构 | `requiredEvidenceFields` 含全部 7 项 | 登记表被改空壳 ⇒ 红 |
+
+### 13.4 探针证据（本轮实测，证明锁会咬人）
+
+| 探针 | 注入 | 结果 |
+|---|---|---|
+| A | 允许集加 `weibo`，登记表不登记 | **RED**（配对锁 + 结构锁同时红） |
+| B | 登记表加一条 `weibo`，代码不接 | **RED**（装饰性登记） |
+| C | 两侧都加 `weibo`，但 `realMachineRounds=1 / realMachineMinutes=30` | **RED**（证据不足） |
+| 还原 | — | **5/5 GREEN** |
+
+### 13.5 准入操作清单（照做即可）
+
+1. 真机复测：该平台隐藏窗口加载 **≥2 轮 / ≥60 分钟**无崩溃，留日志；
+2. 取登录页与已登录页的**可判定形态**（选择器或 URL 特征）；
+3. **同一次提交**内：`DOM_LOGIN_CHECK_ALLOWED_PLATFORMS` 加平台 + 登记表加行（7 字段齐备）+ 记录写明证据路径；
+4. 跑 `account-manager-http-only-policy.test.js` 应绿；
+5. 若第 2 步取不到形态 ⇒ **不要开窗**，改补 `HTTP_CHECK_APIS[platform].checkHtml`（知乎那一路）。

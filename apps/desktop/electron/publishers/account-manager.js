@@ -574,6 +574,9 @@ async function getAccountProxyStatusLazy (accountId, platform, options = {}) {
 // 放在模块级而非函数内，是为了让测试能注入「允许集」：默认空集本身是产品不变量
 // （由 account-manager-http-only-policy.test.js 的结构锁守），但被它门控的子行为
 // （数组选择器逐个尝试、仪表盘域名兜底）仍必须可测，否则会退化成无人覆盖的死代码。
+// 准入纪律（机械拦截，2026-10-17）：往上面这个空集里加平台，必须**同一次提交**在
+// scripts/dom-login-check-registry.json 登记真机复测证据（≥2 轮 / ≥60 分钟 / 登录页与已登录页形态 /
+// 证据载体），否则 account-manager-http-only-policy.test.js 的「准入配对锁」当场红。
 const DOM_LOGIN_CHECK_ALLOWED_PLATFORMS = new Set([])
 const RENDER_CRASH_PRONE_OPEN_PLATFORMS = new Set(['toutiao', 'wechat_mp', 'baijiahao', 'zhihu', 'kuaishou'])
 Object.freeze(DOM_LOGIN_CHECK_ALLOWED_PLATFORMS)
@@ -711,7 +714,6 @@ async function checkLoginStatus (platform, accountId, options = {}) {
     // 边界（如实）：本轮**不**给 kuaishou 补 checkHtml（zhihu 那例的第二半）——没有
     // cp.kuaishou.com 真机登录页/已登录页形态证据就不许凭空写判据，故其登录态在 HTTP
     // 判定不足时会显示「未确认」。要恢复确定性结论，先取证再按 zhihu 模式补。
-    const RENDER_CRASH_PRONE_OPEN_PLATFORMS = new Set(['toutiao', 'wechat_mp', 'baijiahao', 'zhihu', 'kuaishou'])
     //
     //
     // ===== 2026-10-16 策略翻转：登录态判定收敛到 HTTP 单轨（细节见 

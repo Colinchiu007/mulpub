@@ -152,4 +152,54 @@ describe('checkLoginStatus：隐藏窗口兜底默认关闭（HTTP 单轨）', (
     walk(electronRoot)
     expect(offenders).toEqual([])
   })
+  it('准入配对锁：允许集必须与登记表双向一致，且每行真机证据齐备', () => {
+    // 2026-10-17：把「准入纪律」从口头变成机械判据。
+    // 为什么必须绑真机证据：隐藏窗口崩不崩只有真机能验证（真实平台页面 + 真实账号 Cookie +
+    // 隐藏窗口渲染），CI 永远凑不齐 —— 过去四例（toutiao → wechat_mp → 知乎 → kuaishou）都是
+    // "CI 全绿、用户机器上崩"。所以往允许集里加平台，必须同批带上真机复测证据，否则只是赌。
+    const fs = require('fs')
+    const path = require('path')
+    const moduleDir = path.dirname(require.resolve('./account-manager.js'))
+    const src = fs.readFileSync(path.join(moduleDir, 'account-manager.js'), 'utf8')
+    const registryPath = path.resolve(moduleDir, '../../../../scripts/dom-login-check-registry.json')
+    expect(fs.existsSync(registryPath), 'scripts/dom-login-check-registry.json 必须存在（准入登记表）').toBe(true)
+    const registry = JSON.parse(fs.readFileSync(registryPath, 'utf8'))
+
+    // ① 从源码字面量解析允许集（与结构锁同源：不读运行时对象，避免被注入污染）
+    const m = src.match(/const DOM_LOGIN_CHECK_ALLOWED_PLATFORMS = new Set\(\[([^\]]*)\]\)/)
+    expect(m).not.toBeNull()
+    const allowlist = (m[1].match(/'[^']+'/g) || []).map((s) => s.slice(1, -1))
+
+    // ② 登记表自身必须"能承载证据"（缺字段等于把纪律写成了空壳）
+    const required = registry.requiredEvidenceFields
+    expect(Array.isArray(required)).toBe(true)
+    for (const field of [
+      'accessedAt',
+      'operator',
+      'realMachineRounds',
+      'realMachineMinutes',
+      'loginPageShape',
+      'loggedInPageShape',
+      'evidenceRef'
+    ]) {
+      expect(required).toContain(field)
+    }
+    expect(registry.platforms && typeof registry.platforms).toBe('object')
+
+    // ③ 正向：允许集 ⊆ 登记表，且每行证据齐备（≥2 轮 / ≥60 分钟）
+    for (const platform of allowlist) {
+      const entry = registry.platforms[platform]
+      expect(entry, '允许集里的 ' + platform + ' 未登记（准入须同批提交真机复测证据）').toBeTruthy()
+      for (const field of required) {
+        expect(String(entry[field] === undefined ? '' : entry[field]).trim().length, platform + '.' + field + ' 不能为空').toBeGreaterThan(0)
+      }
+      expect(Number(entry.realMachineRounds), platform + ' 真机复测轮数须 ≥2（LoginMonitor 一轮 30 分钟，一轮不足以覆盖）').toBeGreaterThanOrEqual(2)
+      expect(Number(entry.realMachineMinutes), platform + ' 真机观测分钟数须 ≥60').toBeGreaterThanOrEqual(60)
+    }
+
+    // ④ 反向：登记表 ⊆ 允许集（登记了但代码没接 = 装饰性登记，红）
+    for (const platform of Object.keys(registry.platforms)) {
+      expect(allowlist, '登记表里的 ' + platform + ' 不在允许集（装饰性登记：删掉或接上）').toContain(platform)
+    }
+  })
 })
