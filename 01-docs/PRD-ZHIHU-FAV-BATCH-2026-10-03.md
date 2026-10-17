@@ -451,10 +451,26 @@
 
 | localeKey | refKeys（zh / en 相异处已按语言覆盖） |
 |---|---|
-| `zhihuFav.stepHintNoFavlists` | `zhihuFav.loadBtn`（zh+en 同） |
-| `zhihuFav.stepHintNeedContents` | zh：`loadContents` + `collectAndRewrite`；en：仅 `loadContents`（en 里"采集并改写"以普通短语 `collected & rewritten` 出现，不构成按钮名引用，不做逐字核对） |
+| `zhihuFav.stepHintNoFavlists` | `zhihuFavlist.loadBtn`（zh+en 同；**获取收藏夹按钮的 key 在 zhihuFavlist 区块**，2026-10-17 修正归属） |
+| `zhihuFav.stepHintNeedContents` | zh：`zhihuFav.loadContents` + `zhihuFav.collectAndRewrite`；en：仅 `zhihuFav.loadContents`（en 里"采集并改写"以普通短语 `collected & rewritten` 出现，不构成按钮名引用，不做逐字核对） |
 
 **扩展规约**：将来**新增**任何引用按钮名的引导文案，必须同时把 `(localeKey, refKeys)` 登记进来；改按钮文案时判据会当场点名「引导现值 vs 按钮现值」两侧。
+
+#### 4.3.7 区块限定 key（同步锁的假绿修复）+ 主按钮改名 + 去重进度行（2026-10-17，change: fav-collect-ux）
+
+**同步锁的假绿（当日真实发生）**：主按钮改名「采集并改写」→「采集&改写」时，同步锁**应当红却 PASS**。追因：判据 `extractValue` 用**裸 key** 取值，而 `zhihuFavlist` 与 `zhihuFav` 是**同级**区块、内层同名 key 各一份——裸 key 恒取第一个匹配（旧区块的旧值），引导（旧名）vs 按钮（旧值）比对永远相等。**修法**：`extractValue` 支持区块限定（`zhihuFav.collectAndRewrite` = 先定位 `zhihuFav: {` 再找叶子），`text` 与 `refKey` 两处都传完整 key。**修后对真实仓库立刻 RED**（引导还引用旧名）⇒ 同步改引导文案 ⇒ PASS。登记表的 `loadBtn` 归属同步修正（它在 zhihuFavlist 区块）。
+
+**主按钮改名**：`collection.zhihuFav.collectAndRewrite` = `采集&改写`（zh）。en 维持 `Collect & rewrite`。`zhihuFavlist` 旧区块的未消费 key 保持原值不动（不扩大清理面）。
+
+**去重进度行（修「进度全完成但结果区 0 新增」的可归因性）**：C2 合同下已采集过的 URL 默认跳过是**正确行为**，此前缺陷在呈现——duplicate 与正常完成共用「完成」。现 done 事件 `res.duplicate` 分支显示：
+
+| key（`collection.zhihuFav.*`） | zh | en |
+|---|---|---|
+| `duplicateNote` | 已采集过，本次跳过（勾选「包含已采集」可强制重采） | Already collected — skipped this run (tick "Include collected" to force re-collection) |
+
+**用户指引**（对应「结果存哪去了」的疑问）：跳过的条目**上一轮已在采集结果里**（结果区按标题可查到）；本轮 0 新增是去重生效。要强制重采：勾选「包含已采集（强制重采）」。
+
+**验收**：done `duplicate:true` ⇒ 进度行含「已采集过」且不含「包含已采集」之外的旧「完成」尾缀；正常完成仍显示「完成」；按钮文字 = `采集&改写`；同步锁对真实仓库 PASS。
 
 ## 5. 显示项与提示文字（locale zh/en 成对）
 

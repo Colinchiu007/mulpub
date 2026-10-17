@@ -652,6 +652,12 @@ function subscribeZhihuFavProgress () {
         const res = p.result || {}
         let note = resolveNotifyText('collection.zhihuFav.doneNote').text
         if (res.registerOnly) note = resolveNotifyText('collection.zhihuFav.registerOnlyNote').text
+        else if (res.duplicate) {
+          // 去重跳过（2026-10-17，change: fav-collect-ux）：C2 合同下已采集过的 URL 默认跳过，
+          // 这是正确行为；缺陷在呈现——此前与正常完成一样显示「完成」，用户面对
+          // 「进度 2/2 全完成、结果区 0 新增」完全无法归因。明确说跳过 + 指路强制重采。
+          note = resolveNotifyText('collection.zhihuFav.duplicateNote').text
+        }
         else if (res.rewriteFailed) {
           note = resolveNotifyText('collection.zhihuFav.collectOkRewriteFailNote').text
           // 失败原因可诊断（2026-10-17，change: collected-results-fix）：

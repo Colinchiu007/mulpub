@@ -36,17 +36,17 @@ const path = require('node:path')
 const REGISTRY = [
   {
     // 「下一步：点「获取收藏夹」拉取收藏夹列表…」/ 'Next: click "Load Favorites" …'
-    // 只引用了 1 个按钮名（首个「」/"…" 段 = loadBtn）。改 loadBtn 文案必须同步改它。
+    // 只引用了 1 个按钮名（首个「」/"…" 段）。注意：获取收藏夹按钮的 key 在
+    // **zhihuFavlist** 区块（loadBtn），不在 zhihuFav —— 登记必须按真实归属。
     localeKey: 'zhihuFav.stepHintNoFavlists',
-    refKeys: ['zhihuFav.loadBtn'],
+    refKeys: ['zhihuFavlist.loadBtn'],
   },
   {
     // 「…点「加载收藏内容」…并「采集并改写」」/ '…click "Load items" … collected & rewritten.'
-    // en 的第 2 个引用是 **后缀描述**（collected & rewritten），不是按钮名 —— 见 REGISTRY2 特例。
-    // zh 恰好两个都取得到；en 只取得到第 1 个。因此本条按语言给 refKeys。
+    // zh 恰好两个都取得到；en 里「采集并改写」是作为普通短语出现的（"collected & rewritten"），
+    // 不做逐字核对 —— 因此按语言给 refKeys。
     localeKey: 'zhihuFav.stepHintNeedContents',
     refKeys: ['zhihuFav.loadContents', 'zhihuFav.collectAndRewrite'],
-    // en 里「采集并改写」是作为普通短语出现的（"collected & rewritten"），不做逐字核对
     locales: { zh: ['zhihuFav.loadContents', 'zhihuFav.collectAndRewrite'], en: ['zhihuFav.loadContents'] },
   },
 ]
@@ -54,9 +54,32 @@ const REGISTRY = [
 /** 从 locale 源码里抽出 `key: 'value'` 的值（单/双引号都支持；值内转义按字面保留）。
  *  不做 JS 求值 —— locale 文件是 ESM，eval 有副作用风险；正则提取对本用途足够，
  *  且失败时 fail-closed。 */
+/**
+ * 从 locale 源码抽 `key: 'value'` 的值。
+ *
+ * 支持区块限定（2026-10-17 修，change: fav-collect-ux）：key 可写 `区块.key`
+ * （如 `zhihuFav.collectAndRewrite`）——本仓 `zhihuFavlist` 与 `zhihuFav` 是**同级**区块，
+ * 内层同名 key 各有一份，裸 key 恒取第一个匹配 ⇒ 当两个区块同名 key 的值不同时
+ * （本次实况：zhihuFavlist 仍是旧值「采集并改写」，zhihuFav 已改「采集&改写」），
+ * 裸 key 会比对到错误的值。fail-closed：带前缀但找不到该区块/该 key 时返回 undefined。
+ */
 function extractValue (src, key) {
-  const re = new RegExp("(?:^|\\n)\\s*(?://[^\\n]*\\n\\s*)*" + key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ":\\s*('(?:[^'\\\\]|\\\\.)*'|\"(?:[^\"\\\\]|\\\\.)*\")")
-  const m = src.match(re)
+  const dot = key.indexOf('.')
+  let block = null
+  let leaf = key
+  if (dot > 0) {
+    block = key.slice(0, dot)
+    leaf = key.slice(dot + 1)
+  }
+  const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  let scope = src
+  if (block) {
+    const bm = src.match(new RegExp("(?:^|\\n)\\s*" + esc(block) + ":\\s*\\{"))
+    if (!bm) return undefined
+    scope = src.slice(bm.index + bm[0].length)
+  }
+  const re = new RegExp("(?:^|\\n)\\s*(?://[^\\n]*\\n\\s*)*" + esc(leaf) + ":\\s*('(?:[^'\\\\]|\\\\.)*'|\"(?:[^\"\\\\]|\\\\.)*\")")
+  const m = scope.match(re)
   if (!m) return undefined
   return m[1].slice(1, -1)
 }
@@ -80,7 +103,9 @@ function checkOneLocale (localesDir, locale, registry) {
   for (const entry of registry) {
     // 按语言覆盖 refKeys（en/zh 文案结构不同时用；未给 locales 时两边都用 entry.refKeys）
     const refKeys = (entry.locales && entry.locales[locale]) || entry.refKeys
-    const text = extractValue(src, entry.localeKey.split('.').pop())
+    // 传完整 key（含区块前缀）：同名 key 分属两个同级区块时，裸 key 恒取第一个匹配，
+    // 会比对到另一个区块的值（本次实况：zhihuFavlist 旧值 vs zhihuFav 新值 ⇒ 永远 PASS 的假绿）。
+    const text = extractValue(src, entry.localeKey)
     if (text === undefined) {
       findings.push({ kind: 'missing-key', locale, localeKey: entry.localeKey, detail: entry.localeKey + ' 在 ' + locale + '.js 缺失' })
       continue
@@ -88,7 +113,8 @@ function checkOneLocale (localesDir, locale, registry) {
     const names = referencedNames(text, refKeys.length)
     for (let i = 0; i < refKeys.length; i++) {
       const refKey = refKeys[i]
-      const expected = extractValue(src, refKey.split('.').pop())
+      // 同样传完整 key（同 text 的修复理由：同名 key 跨区块时裸 key 取错值）
+      const expected = extractValue(src, refKey)
       if (expected === undefined) {
         findings.push({ kind: 'missing-ref', locale, localeKey: entry.localeKey, refKey, detail: refKey + ' 在 ' + locale + '.js 缺失（登记表指向了不存在的按钮 key）' })
         continue

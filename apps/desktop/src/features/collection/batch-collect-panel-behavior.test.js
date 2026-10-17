@@ -80,10 +80,11 @@ const i18n = createI18n({
         zhihuFav: {
           scopeFavlist: '指定收藏夹', scopeAll: '全部收藏', countPlaceholder: '数量', fullMode: '全量',
           includeCollected: '包含已采集', loadContents: '加载内容', loadingContents: '加载中',
-          selectAll: '全选', selectedCount: '已选 {count} 条', collectAndRewrite: '采集并改写',
+          selectAll: '全选', selectedCount: '已选 {count} 条', collectAndRewrite: '采集&改写',
           collecting: '采集中', markCollected: '已采集',
           progressSummary: '成功 {success} 失败 {failed} 跳过 {skipped} 改写失败 {rewriteFailed}',
           collectingNote: '采集 {url}', doneNote: '完成', registerOnlyNote: '仅登记',
+          duplicateNote: '已采集过，本次跳过（勾选「包含已采集」可强制重采）',
           collectOkRewriteFailNote: '采集成功但改写失败', fallbackSuffix: '（{count} 张图片降级）',
           kindAnswer: '回答', kindArticle: '文章', kindColumn: '专栏', kindPin: '想法', kindVideo: '视频', kindUnknown: '未知',
         },
@@ -363,6 +364,56 @@ describe('BatchCollectPanel 知乎收藏夹批量行为锁', () => {
     // 对比锁：没有原因时保持原文案、不得追加 undefined/"null" 等脏尾
     const clean = lines.find((l) => l.includes('改写失败用原文') && !l.includes('ECONNREFUSED'))
     expect(clean === undefined || !/(undefined|null)：/.test(clean)).toBe(true)
+  })
+
+  // ── 去重条目的呈现（2026-10-17，用户实测：进度「完成 2/2」但结果区 0 新增，不明所以）──
+  // 后端 C2 合同：已采集过的 URL 默认跳过（duplicate: true），这是正确行为；
+  // 缺陷在呈现——done 事件里 duplicate 与正常完成都显示「完成」，用户无法区分
+  //「采集成功」与「早采过被跳过」，也不知道「包含已采集」可强制重采。
+  it('done 事件 duplicate: true → 进度行显示跳过说明而非「完成」', async () => {
+    let progressHandler = null
+    window.electronAPI = {
+      onZhihuFavBatchProgress: vi.fn((cb) => { progressHandler = cb; return vi.fn() }),
+    }
+    const w = mountPanel()
+    expect(progressHandler).toBeTypeOf('function')
+    progressHandler({ phase: 'start', index: 0, total: 1, url: 'https://www.zhihu.com/answer/1' })
+    progressHandler({ phase: 'done', index: 0, total: 1, url: 'https://www.zhihu.com/answer/1', result: { ok: true, duplicate: true } })
+    await flushPromises()
+    const lines = w.vm.zhihuFavProgressLines
+    // done 行不含 URL（note 无 url），特征是含跳过说明
+    const dupLine = lines.find((l) => l.includes('已采集过'))
+    expect(dupLine, 'duplicate 条目的 done 行必须有跳过说明').toBeTruthy()
+    expect(dupLine).toContain('包含已采集')
+    // 不得与正常完成的「完成」混同
+    expect(dupLine).not.toMatch(/完成$/)
+  })
+
+  it('正常完成（无 duplicate/registerOnly/rewriteFailed）仍显示「完成」', async () => {
+    let progressHandler = null
+    window.electronAPI = {
+      onZhihuFavBatchProgress: vi.fn((cb) => { progressHandler = cb; return vi.fn() }),
+    }
+    const w = mountPanel()
+    progressHandler({ phase: 'start', index: 0, total: 1, url: 'https://www.zhihu.com/answer/2' })
+    progressHandler({ phase: 'done', index: 0, total: 1, url: 'https://www.zhihu.com/answer/2', result: { ok: true } })
+    await flushPromises()
+    // done 行是第二条（note 不含 URL；start 行含「采集中：URL」，done 行只有 note）
+    const line = w.vm.zhihuFavProgressLines.find((l) => !l.includes('采集中'))
+    expect(line, '正常完成必须有「完成」进度行').toBeTruthy()
+    expect(line).toContain('完成')
+    expect(line).not.toContain('已采集过')
+  })
+
+  it('主按钮文案 = locale 的 collectAndRewrite（采集&改写）', async () => {
+    // 按钮在 v-if="zhihuFavItems.length" 容器内 ⇒ 须先有清单才渲染
+    const w = mountPanel()
+    state(w, 'zhihuFavlists', [{ urlToken: 't', title: '夹', isPublic: true }])
+    state(w, 'zhihuFavItems', [{ url: 'https://www.zhihu.com/answer/9', title: 'T', kind: 'answer', collected: false }])
+    await flushPromises()
+    const btn = w.find('[data-testid="zhihu-fav-collect-rewrite"]')
+    expect(btn.exists()).toBe(true)
+    expect(btn.text()).toBe('采集&改写')
   })
 
   it('runZhihuFavCollectRewrite 未勾选 → 提示', async () => {
