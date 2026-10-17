@@ -80,19 +80,40 @@
 
 对本篇的三处直接影响（逐条都是前提级，不是行级）：
 
-- [ ] 7.1 `ccg-record-ledger.js` 的 `pickRecord`（HEAD / HEAD^ / merge-base 三候选按 **sha 文件名** 找）
+- [x] 7.1 `ccg-record-ledger.js` 的 `pickRecord`（HEAD / HEAD^ / merge-base 三候选按 **sha 文件名** 找）
   对新提交**永远找不到记录** —— 名字已经不是 sha 了。必须改成先算本次变更集的内容键、再按键取文件，
   且哈希配方 MUST 与 decider **逐字同源**（`git diff … --no-textconv --no-ext-diff --no-renames -- . ':(exclude).ccg'`）；
   直接 require `ccg-review-decider.js` 导出的 `recordFileName`，不要在写入侧再抄一份判据。
   sha 命名那三条候选只作为**存量记录的回落档**保留（与判据的双读同一逻辑）。
-- [ ] 7.2 D13「借用他人裁决」这格**大部分被上游天然消解**：内容键由本次 diff 决定，
+  **已落（2026-10-17）**：`pickRecord({repo, commits})` 按 `base..HEAD` 自有提交展开，每个提交探三种名
+  （内容键名 / `<c>.json` / `<parent>.json`），取名直接 require `ccg-review-decider.js` 的 `recordFileName`；
+  键配方 = `git diff --no-textconv --no-ext-diff --no-renames <parent> <c> -- . ':(exclude).ccg'`（**父在前**），
+  无父提交时改 `git show --format=`。证据：`scripts/ccg-record-ledger.test.js` 的 §7-T1…T5；
+  先见证红实录 —— T1/T3/T5 三条在旧实现上红（T1 现场输出 `LOCATE none missing`），改完 180 passed / 0 failed。
+- [x] 7.2 D13「借用他人裁决」这格**大部分被上游天然消解**：内容键由本次 diff 决定，
   重提交/amend 收敛到同一个名字 ⇒ 不再是"跨会话撞名"。`stagedDiffHash` 同源校验降级为
   「键算不出来时不得猜」的兜底，而不是主判据。设计文档 D13 与失败模式表要按这个口径改，
   不得留着"我发明了这道校验"的叙述。
-- [ ] 7.3 我在 `deep-review.sh` 里加的 `--locate` 早退接管段与上游的 fail-closed 段**语义重叠**：
+  **已落**：design.md 的 D13 改为「候选只走自有提交 + 记录自报 sha 核对 + 算不出键就不猜」，原口径连同
+  那版实现的**两处错误**（rev 写成反序、缺三个 diff 行为旗标 ⇒ 校验恒判不同源，而 175 条用例全绿因为
+  夹具把 claimed 哈希喂成实现自己算出的值）一起写进「曾被否证」第 6 条；新增 D14（形态定义权在生产方）；
+  失败模式表改 1 行、加 2 行；spec.md 那条 Scenario 换成两条（自有提交集合 + 生产方文件名双侧共认）。
+- [x] 7.3 我在 `deep-review.sh` 里加的 `--locate` 早退接管段与上游的 fail-closed 段**语义重叠**：
   解冲突时必须保留上游那一档（含 `_DIFFLINES > 0 ⇒ exit 1`）并把 `--locate` 接在它之前，
   两者并存；**不得**用我这版整块替换掉上游的 exit 1 逻辑 —— 那会把一个已修掉的 fail-open
   重新放回生产路径（上游注释里写明了它是怎么被发现和修掉的）。
+  **已落**：上游的 A/B 自检文案、三条查找路径与 `_DIFFLINES > 0 ⇒ exit 1` 全部保留；`--locate` 接在它们之前，
+  命中即设 MODE、拒绝借用则置 `_LOC_REJECTED` 并在诊断块里分流文案 —— 不让「有一份记录但核不上」与
+  「从没跑过判定器」共用一句话（与上游 `_READ_FAILED` 跳过诊断块是同一条纪律）。dry-run 分支同时保留上游
+  新增的 `DRY_NO_DRIVER` 早退。`bash -n scripts/deep-review.sh` 通过，行尾仍纯 LF（cr=0）。
 
-- [ ] 7.4 待复算的数：origin/main 上 `.ccg/reviews` 现在同时存在 `<64hex>.json` 与 `<sha>.json` 两种命名，
-  刀 2 的"一次性 `git rm --cached` + 引用面解析门禁"必须两种都覆盖（`AUDIT_ARTIFACT_RE` 是否已放宽到 64hex 要先量）。
+- [x] 7.4 待复算的数：origin/main 上 `.ccg/reviews` 现在同时存在 `<64hex>.json` 与 `<sha>.json` 两种命名，
+  刀 2 的"一次性 `git rm --cached` + 引用面解析门禁"必须两种都覆盖（`AUDIT_ARTIFACT_RE` 是否已放宽到 64hex 要先量）。
+  **已量（2026-10-17，origin/main）**：853 份 = 40hex 770 + 64hex 69 + alt（64hex 前缀）1 + 手工命名 13。
+  `AUDIT_ARTIFACT_RE` 已放宽到 40|64 ✅，**但 alt 的时间戳段与生产方不同源** —— 上游按想象的
+  `\d{8}T\d{6}(\.\d{1,3})?Z` 写，而 `saveRecord` 用的是 `toISOString().replace(/[:.]/g,"")`，真形态是
+  `2026-10-17T025039620Z` ⇒ 现场那唯一 1 份 alt **不被接受**，钩子把它 stage 进纯回填提交就会判「夹带」假红；
+  它的行为探测（`auditAcceptedAltForm`）与正则共用同一张想象候选表，所以探测自洽地报「已覆盖」。
+  本 PR 一并修（放宽 + 候选表登记真形态），锁 §7.4-A（真调 saveRecord 取返回名）+ §7.4-B（六条逐位负控）。
+  刀 2 的范围据此扩写：引用面必须覆盖**四种**形态（40hex / 64hex / 64 前缀 alt / 40 前缀 alt —— 后者由空 diff
+  的回落名经同一分支产出，现场 0 份但生产方可达），且 13 份手工命名不属于钩子产物、不得收进白名单。

@@ -59,8 +59,18 @@ const CARRIER_RE = /^(?:openspec\/records\/[^_][^/]*\.md|\.quality-gates\.md|scr
 //   `<64hex>-again-<40sha>-<ISO时间戳>.json`（见 ccg-review-decider.js 的拒写分支）。
 //   首版**没认这个形态** ⇒ 钩子若把它 stage 进同一次提交，出路④判「非纯回填」而假红；
 //   不 stage 则审查结论与门禁脱钩。属「声称同源的三处漏了第四处」。
-//   形态收得很紧：后缀必须形如 `-again-<40hex>_<14位T时间戳>`，且必须带 T 与 Z。
-const AUDIT_ARTIFACT_RE = /^\.ccg\/reviews\/(?:[0-9a-f]{40}|[0-9a-f]{64})(?:-again-[0-9a-f]{40}-\d{8}T\d{6}(?:\.\d{1,3})?Z)?\.json$/
+//   形态收得很紧：后缀必须形如 `-again-<40hex>-<时间戳>`，且必须带 T 与 Z。
+//
+// ★★★ 2026-10-17（§7.4，本 PR 现场量出并已证伪）：上面那条放宽**当时就写错了形态**。
+//   生产方是 `new Date().toISOString().replace(/[:.]/g, "")`（见 ccg-review-decider.js 的拒写分支），
+//   冒号与点被删掉、日期里的连字符留着 ⇒ 真实时间戳是 `2026-10-17T025039620Z`（YYYY-MM-DDTHHMMSSmmmZ），
+//   而不是 `\d{8}T\d{6}(\.\d{1,3})?Z`。origin/main 上那唯一一份 alt 记录实测**不被旧判据接受**。
+//   更值得记的是"为什么没被发现"：auditAcceptedAltForm 是**行为探测**，但它喂的候选表
+//   AUDIT_ALT_ISO_CANDS 与正则同源于同一个想象，探针与判据共用一个错误假设时，探测必然自洽地错。
+//   所以 §7.4-A 那条锁不给字面量，而是真调 saveRecord 拿它写出的文件名 —— 形态由生产方决定。
+//   两种时间戳写法都留着（前者是想象形态但无生产方，删掉会让"曾经接受过"的历史 alt 变夹带；
+//   保留的代价只是白名单多一种位数，负控 §7.4-B 逐位钉住它没有退化成通配）。
+const AUDIT_ARTIFACT_RE = /^\.ccg\/reviews\/(?:[0-9a-f]{40}|[0-9a-f]{64})(?:-again-[0-9a-f]{40}-(?:\d{8}T\d{6}(?:\.\d{1,3})?Z|\d{4}-\d{2}-\d{2}T\d{9}Z))?\.json$/
 const DEFAULT_THRESHOLD = 3
 
 // ---------- 位宽/形态说明的**单一真源**（2026-10-17，ccg-record-width-message） ----------
@@ -88,6 +98,8 @@ const AUDIT_ALT_SHA_MAX = 80
 const AUDIT_ALT_ISO_CANDS = [
   { text: '-20261017T120000Z', label: 'ISO 时间戳' },
   { text: '-20261017T120000.123Z', label: 'ISO 时间戳（含毫秒）' },
+  // ★ §7.4：这一条不是又一种猜测，而是**生产方当下的写法**（由 §7.4-A 真跑 saveRecord 钉住）。
+  { text: '-2026-10-17T025039620Z', label: 'ISO 时间戳（判定器实际写法：冒号与点被删、日期连字符保留）' },
 ]
 function auditArtifactName (width, suffix) {
   return '.ccg/reviews/' + 'a'.repeat(width) + (suffix || '') + '.json'

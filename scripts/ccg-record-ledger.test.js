@@ -19,6 +19,7 @@ const cp = require('node:child_process');
 const ROOT = path.resolve(__dirname, '..');
 const {
   runLedger, shouldWriteLedger, nextLedgerFields, pickRecord, parseArgs, ghRepoSlug,
+  RECORD_DIFF_FLAGS, RECORD_PATHSPEC, branchCommitView, recordKeyAtCommit,
 } = require('./ccg-record-ledger.js');
 const lib = require('./lib/ccg-evidence-hash.js');
 
@@ -152,76 +153,107 @@ test('W11：nextLedgerFields 与 lib 的清单双向对账；ref 名 / 裸 PR UR
 
 // ───────── 寻址（含「别借用陌生裁决」）─────────
 
+/** 寻址单测夹具：只喂 commits 清单（真实仓库形态由 §7-T1…T4 用真判定器覆盖，这里不重复） */
 function addrFixture () {
   const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'ccg-addr-'))
   fs.mkdirSync(path.join(repo, '.ccg', 'reviews'), { recursive: true })
   const head = 'a'.repeat(40), parent = 'b'.repeat(40), start = 'c'.repeat(40)
-  const revParse = (r) => {
-    if (r === 'HEAD') return head
-    if (r === 'HEAD^') return parent
-    throw new Error('no such ref: ' + r)
-  }
-  const write = (sha, obj) => fs.writeFileSync(path.join(repo, '.ccg', 'reviews', sha + '.json'), JSON.stringify(obj), 'utf8')
+  const KEY = 'd'.repeat(64)
+  const write = (name, obj) => fs.writeFileSync(path.join(repo, '.ccg', 'reviews', name), JSON.stringify(obj), 'utf8')
   const wipe = () => { for (const f of fs.readdirSync(path.join(repo, '.ccg', 'reviews'))) fs.rmSync(path.join(repo, '.ccg', 'reviews', f), { force: true }) }
-  return { repo, head, parent, start, revParse, write, wipe }
+  return { repo, head, parent, start, KEY, write, wipe }
 }
 
-test('W12：三个候选各自命中；HEAD 优先；非 40hex 的 base 不当候选', () => {
+test('W12：一个提交三种取名各有命中；内容键名优先；非 40hex 不进候选', () => {
   const f = addrFixture()
   try {
-    const P = (baseSha, sameAsDecider) => pickRecord({ repo: f.repo, revParse: f.revParse, baseSha, sameAsDecider })
-    f.write(f.start, { ...CLOSED_REC, stagedDiffHash: 'd'.repeat(64) })
-    assert.strictEqual(P(f.start, () => 'd'.repeat(64)).sha, f.start, '起点候选须过同源校验后才命中')
-    assert.strictEqual(P(undefined, () => '').file, null, 'HEAD/HEAD^ 单独不该命中')
-    assert.strictEqual(P('origin/main', () => '').file, null, 'ref 名不得被拼进路径当候选')
+    const P = (commits) => pickRecord({ repo: f.repo, commits })
 
-    f.wipe(); f.write(f.parent, CLOSED_REC)
-    assert.strictEqual(P(f.start, () => '').sha, f.parent, 'pre-commit 形态（写在父提交）必须命中，且优先于起点')
+    f.write(f.KEY + '.json', { sha: f.parent, mode: 'dual', stagedDiffHash: f.KEY })
+    const h1 = P([{ sha: f.head, parent: f.parent, key: f.KEY }])
+    assert.strictEqual(h1.file, '.ccg/reviews/' + f.KEY + '.json', '内容键名必须命中（这是 pre-commit 全量 add 的常态）')
+    assert.strictEqual(h1.sha, f.parent, '内容键名那份记录的所有者是父提交（pre-commit 时的 HEAD）')
 
-    f.wipe(); f.write(f.head, { mode: 'skip' }); f.write(f.parent, CLOSED_REC)
-    assert.strictEqual(P(f.start, () => '').sha, f.head, 'HEAD 必须优先')
+    f.wipe(); f.write(f.head + '.json', { sha: f.head, mode: 'skip' })
+    assert.strictEqual(P([{ sha: f.head, parent: f.parent, key: '' }]).sha, f.head, '手工在提交后跑判定器的形态要认')
+
+    f.wipe(); f.write(f.parent + '.json', { sha: f.parent, mode: 'dual' })
+    assert.strictEqual(P([{ sha: f.head, parent: f.parent, key: '' }]).sha, f.parent, '空 diff 的回落名要认')
+
+    // 优先级：三种名同时在场时取内容键那一份 —— 它是唯一「由本次变更内容决定」的凭据
+    f.wipe()
+    f.write(f.head + '.json', { sha: f.head, mode: 'skip' })
+    f.write(f.parent + '.json', { sha: f.parent, mode: 'single' })
+    f.write(f.KEY + '.json', { sha: f.parent, mode: 'dual', stagedDiffHash: f.KEY })
+    assert.strictEqual(P([{ sha: f.head, parent: f.parent, key: f.KEY }]).json.mode, 'dual', '内容键名优先于两种 sha 名')
+
+    // parentInSet 的两条支路各测一次（只测一边，另一边就是没牙的装饰分支）
+    f.wipe(); f.write(f.parent + '.json', { sha: f.parent, mode: 'dual' })
+    const alone = P([{ sha: f.head, parent: f.parent, key: f.KEY }])
+    assert.strictEqual(alone.file, null, '本次有真实变更（key 非空）而父提交不在自有集合内 ⇒ <parent>.json 不得采纳')
+    const two = P([{ sha: f.head, parent: f.parent, key: f.KEY }, { sha: f.parent, parent: f.start, key: '' }])
+    assert.strictEqual(two.file, '.ccg/reviews/' + f.parent + '.json',
+      '同一份记录，父提交本身是自有提交时应当采纳 —— 它要么是本提交的改名前记录，要么是同分支上一条，两者都属本 PR')
+    assert.deepStrictEqual(two.tried, ['.ccg/reviews/' + f.parent + '.json'], 'tried 要如实列出探到过的文件：' + JSON.stringify(two.tried))
 
     f.wipe()
-    const none = P(f.start, () => '')
+    const none = P([{ sha: f.head, parent: f.parent, key: f.KEY }])
     assert.strictEqual(none.file, null)
-    assert.deepStrictEqual(none.tried, [f.head, f.parent, f.start], '必须如实列出找过哪几处：' + JSON.stringify(none.tried))
+    assert.deepStrictEqual(none.tried, [], '一条都没探到时 tried 必须是空数组（与「探到但读坏了」可区分）')
+    assert.strictEqual(P([{ sha: 'HEAD', parent: '', key: '' }]).file, null, '非 40hex 的 sha 不得被拼进路径当候选')
   } finally { fs.rmSync(f.repo, { recursive: true, force: true }) }
 })
 
-test('W13【借用防护】：分支起点那份记录必须过 stagedDiffHash 同源校验，否则宁缺不借', () => {
-  // 现场依据：origin/main 的 16 份 dual+closed 记录里，有 3 份本身就是 main 的祖先 ——
-  // 起点候选完全可能拿到**别的会话**的裁决，而 payload sha 是按本分支 diff 算的，
-  // 于是伪造成的锚能通过判据的全部检查。这一格就是关那条路。
+test('W13【归属核对】：自报 sha 不符或 stagedDiffHash 核不上 ⇒ 宁缺不借；相符时确实采用（正控）', () => {
+  // 现场依据：34 个 worktree 共享一份对象库，sha 名那条记录完全可能属于别的提交。
+  // 内容寻址消掉了「按名字猜归属」这一格，但 <c>.json / <parent>.json 两种回落名仍只有
+  // sha 一条凭据，所以那两条必须逐字核对 —— 缺字段不等于放行。
   const f = addrFixture()
   try {
-    const P = (baseSha, sameAsDecider) => pickRecord({ repo: f.repo, revParse: f.revParse, baseSha, sameAsDecider })
-    f.write(f.start, { ...CLOSED_REC, stagedDiffHash: 'd'.repeat(64) })
-    const bad = P(f.start, () => '9'.repeat(64))
-    assert.strictEqual(bad.file, null, '哈希不符 ⇒ 不得借用')
-    assert.strictEqual(bad.skippedForeign, true)
-    assert.match(bad.why, /stagedDiffHash/, '理由必须点名是哪一维不符：' + bad.why)
+    const P = (commits) => pickRecord({ repo: f.repo, commits })
 
-    f.wipe(); f.write(f.start, { mode: 'dual', deepReview: { required: true, status: 'cleared' } })
-    const noHash = P(f.start, () => 'x')
-    assert.strictEqual(noHash.file, null, '无可核的 stagedDiffHash ⇒ 不借（缺字段不等于放行）')
-    assert.strictEqual(noHash.skippedForeign, true)
+    f.write(f.parent + '.json', { sha: 'e'.repeat(40), mode: 'dual' })
+    const a = P([{ sha: f.head, parent: f.parent, key: '' }])
+    assert.strictEqual(a.file, null, '所有者不符 ⇒ 不得借用')
+    assert.strictEqual(a.skippedForeign, true)
+    assert.match(a.why, /记录自报 sha/, '理由必须点名是哪一维不符：' + a.why)
 
-    // 同一份记录，校验通过时才真的被采用（正控，否则上面两条是「恒不借」的假锁）
-    f.wipe(); f.write(f.start, { ...CLOSED_REC, stagedDiffHash: 'd'.repeat(64) })
-    assert.strictEqual(P(f.start, () => 'd'.repeat(64)).file, '.ccg/reviews/' + f.start + '.json')
+    f.wipe(); f.write(f.head + '.json', { mode: 'dual' })
+    const noClaim = P([{ sha: f.head, parent: f.parent, key: '' }])
+    assert.strictEqual(noClaim.file, null, 'sha 名探针而记录没自报 sha ⇒ 不借（缺证据不等于放行）')
+    assert.match(noClaim.why, /记录自报 sha=\(缺失\)/, noClaim.why)
+
+    f.wipe(); f.write(f.KEY + '.json', { sha: f.parent, mode: 'dual', stagedDiffHash: '9'.repeat(64) })
+    const b = P([{ sha: f.head, parent: f.parent, key: f.KEY }])
+    assert.strictEqual(b.file, null, '记录里的键与本次实算不符 ⇒ 那份描述的是另一个变更集')
+    assert.match(b.why, /stagedDiffHash/, b.why)
+
+    f.wipe(); f.write(f.KEY + '.json', { sha: f.parent, mode: 'dual', stagedDiffHash: f.KEY })
+    assert.strictEqual(P([{ sha: f.head, parent: f.parent, key: f.KEY }]).file, '.ccg/reviews/' + f.KEY + '.json',
+      '正控：归属与键都相符时必须采用（否则上面三条是「恒不借」的假锁）')
+
+    f.wipe(); f.write(f.KEY + '.json', { mode: 'dual' })
+    assert.strictEqual(P([{ sha: f.head, parent: f.parent, key: f.KEY }]).file, '.ccg/reviews/' + f.KEY + '.json',
+      '内容键名那份即便没自报 sha 也可采用 —— 名字本身就是凭据（首提交无父可对齐）')
   } finally { fs.rmSync(f.repo, { recursive: true, force: true }) }
 })
 
-test('W14：损坏的判定记录不得抛穿（判据侧同形态是有 try 的，写入侧必须一致）', () => {
+test('W14：损坏的判定记录不得抛穿，且要被记进 tried（与「根本没探到」可区分）', () => {
   const f = addrFixture()
   try {
+    // 内容键名那一份是**合法 JSON 但不是对象** —— 只有形状守卫能挡住它（byKey 探针不核对自报 sha，
+    // 因为名字本身就是凭据）。父名那一份是真·损坏字节，走的是 parse 抛错那一条路。
+    fs.writeFileSync(path.join(f.repo, '.ccg', 'reviews', f.KEY + '.json'), '"只是一串合法 JSON 文本"', 'utf8')
     fs.writeFileSync(path.join(f.repo, '.ccg', 'reviews', f.head + '.json'), '{ 不是 JSON', 'utf8')
-    assert.doesNotThrow(() => pickRecord({ repo: f.repo, revParse: f.revParse, baseSha: f.start }),
+    const commits = [{ sha: f.head, parent: f.parent, key: f.KEY }]
+    assert.doesNotThrow(() => pickRecord({ repo: f.repo, commits }),
       'JSON.parse 抛穿会让 runLedger/main 崩栈，违背「失败只出声」')
+    const r = pickRecord({ repo: f.repo, commits })
+    assert.strictEqual(r.file, null)
+    assert.deepStrictEqual(r.tried, ['.ccg/reviews/' + f.KEY + '.json', '.ccg/reviews/' + f.head + '.json'],
+      '探到过但读坏了/不是对象的，都要留在 tried 里（与「根本没探到文件」可区分）：' + JSON.stringify(r.tried))
   } finally { fs.rmSync(f.repo, { recursive: true, force: true }) }
 })
-
-// ───────── shell→node 参数契约（C1 的落点）─────────
 
 test('W15：parseArgs 必须同时吃 `--k=v` 与 `--k v`（真实调用方用的是空格形）', () => {
   assert.deepStrictEqual(parseArgs(['--base', 'origin/main', '--dry-run']), { base: 'origin/main', 'dry-run': true })
@@ -278,4 +310,132 @@ test('W19：借用被拒时的文案必须与「没找到记录」区分开（�
 test('W18：ghRepoSlug 只从 remote 取 owner/repo（不从子进程输出反推）', () => {
   assert.strictEqual(ghRepoSlug({ repo: ROOT }), 'Colinchiu007/mulpub', '本仓 remote 解析必须可用：' + ghRepoSlug({ repo: ROOT }))
   assert.strictEqual(ghRepoSlug({ repo: os.tmpdir() }), '', '取不出时必须返回空串，由调用方判失败（不得猜一个）')
+})
+
+// ═══════════════════════════════════════════════════════════════════
+// §7（2026-10-17，ccg-record-content-addressing 吸收轮）：跨实现契约锁
+//
+// 这一组的存在理由：上游把判定记录名从「父提交 sha」改成「暂存 diff 的内容键」之后，
+// 写入侧原来的三候选（HEAD / HEAD^ / 分支起点）全部按 sha 取名，一次都命中不了。
+// 而**当时 175 条用例全绿** —— 因为既有夹具把「claimed 哈希」直接喂成实现自己算出的值，
+// 夹具与实现同源性为零（仓规里的「契约夹具不得替对方剥壳」）。所以这一组一律：
+//   真调 decider.saveRecord 让**它**决定文件名 ⇒ 再要求 pickRecord/--locate 命中同一个文件。
+// 两侧同结论才是锁；任何一侧单独改名都会红。
+// ═══════════════════════════════════════════════════════════════════
+
+const DECIDER = require('./ccg-review-decider.js')
+const LEDGER_CLI = path.join(__dirname, 'ccg-record-ledger.js')
+
+/** 真 git 仓库：seed 提交（= 分支起点）→ 一次带真实变更的提交 */
+function sec7Repo (tag, changeContent) {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), tag + '-'))
+  const git = (a) => cp.execFileSync('git', a, { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+  git(['init', '-q', '-b', 'main', '.'])
+  git(['config', 'user.email', 't@t']); git(['config', 'user.name', 't'])
+  fs.mkdirSync(path.join(repo, 'src'), { recursive: true })
+  fs.writeFileSync(path.join(repo, 'src/a.js'), 'export const a = 1\n')
+  git(['add', '-A']); git(['commit', '-q', '-m', 'seed'])
+  const base = git(['rev-parse', 'HEAD']).trim()
+  fs.writeFileSync(path.join(repo, 'src/a.js'), changeContent || 'export const a = 2\n')
+  git(['add', '-A'])
+  return { repo, git, base }
+}
+
+/** 在给定 cwd 下真调判定器落记录（saveRecord 用 process.cwd() 定位 .ccg/reviews） */
+function sec7SaveRecord (repo, sha, result) {
+  const orig = process.cwd()
+  try { process.chdir(repo); return DECIDER.saveRecord(result || { mode: 'dual', reason: 'sec7', stats: {} }, sha, 'diff', undefined) }
+  finally { process.chdir(orig) }
+}
+
+function sec7Locate (repo, base) {
+  const r = cp.spawnSync(process.execPath, [LEDGER_CLI, '--locate', '--repo', repo, '--base', base],
+    { cwd: repo, encoding: 'utf8' })
+  return { rc: r.status, out: String(r.stdout || '') + String(r.stderr || '') }
+}
+
+test('§7-T1【跨实现契约·承重】：判定器真落盘的文件名，--locate 必须命中同一个文件', () => {
+  const f = sec7Repo('ccg-sec7-t1-')
+  try {
+    const parent = f.base                       // pre-commit 时 HEAD 就是父提交
+    const written = sec7SaveRecord(f.repo, parent)
+    assert.ok(written && /[/\\][0-9a-f]{64}\.json$/.test(String(written)),
+      '判定器这次应当按内容键落盘（若这里就是 40hex 名，说明上游回落路径生效，本用例的前提不成立）：' + written)
+    f.git(['commit', '-q', '-m', 'c1'])
+    const onDisk = fs.readdirSync(path.join(f.repo, '.ccg', 'reviews')).filter(n => n.endsWith('.json'))
+    assert.strictEqual(onDisk.length, 1, '现场应当只有一条记录：' + onDisk.join(','))
+    const l = sec7Locate(f.repo, f.base)
+    assert.strictEqual(l.rc, 0, '--locate 必须命中（rc=1 意味着内容寻址没打通）：' + l.out)
+    assert.ok(l.out.startsWith('LOCATE .ccg/reviews/' + onDisk[0] + ' mode=dual'),
+      '命中的文件名必须与磁盘上那条逐字相同，mode 必须读出来：' + l.out)
+  } finally { fs.rmSync(f.repo, { recursive: true, force: true }) }
+})
+
+test('§7-T2【正控·手工形态】：提交后手工跑判定器（空暂存 diff ⇒ 回落父名=HEAD），--locate 也要命中', () => {
+  // 没有这一条，T1 的绿可能只是「只认新形态」—— 寻址退化成单一命名的死路也算通过。
+  const f = sec7Repo('ccg-sec7-t2-')
+  try {
+    f.git(['commit', '-q', '-m', 'c1'])
+    const head = f.git(['rev-parse', 'HEAD']).trim()
+    const written = sec7SaveRecord(f.repo, head)   // index 干净 ⇒ 空 diff ⇒ 回落 <HEAD>.json
+    assert.match(String(written), new RegExp(head + '\\.json$'), '手工形态应落在 HEAD 名下：' + written)
+    const l = sec7Locate(f.repo, f.base)
+    assert.strictEqual(l.rc, 0, '手工落盘的记录必须仍然寻得到：' + l.out)
+    assert.ok(l.out.startsWith('LOCATE .ccg/reviews/' + head + '.json mode=dual'), l.out)
+  } finally { fs.rmSync(f.repo, { recursive: true, force: true }) }
+})
+
+test('§7-T3【借用防护·内容寻址版】：起点提交那条记录不得被本分支收口借用', () => {
+  // base 是**上游提交**，它自己的判定记录描述的是别人的变更集。
+  // 旧实现靠「事后比对 stagedDiffHash」甄别；新实现干脆不把 <base>.json 当候选（除非本次 diff 本来就空）。
+  const f = sec7Repo('ccg-sec7-t3-')
+  try {
+    fs.mkdirSync(path.join(f.repo, '.ccg', 'reviews'), { recursive: true })
+    fs.writeFileSync(path.join(f.repo, '.ccg', 'reviews', f.base + '.json'),
+      JSON.stringify({ sha: f.base, mode: 'dual', deepReview: { required: true, status: 'cleared' } }), 'utf8')
+    f.git(['commit', '-q', '-m', 'c1'])
+    const l = sec7Locate(f.repo, f.base)
+    assert.strictEqual(l.rc, 1, '本次有真实改动却没有自己的记录 ⇒ 必须报「找不到」，不得借上游那份：' + l.out)
+    assert.match(l.out, /LOCATE none missing/, l.out)
+  } finally { fs.rmSync(f.repo, { recursive: true, force: true }) }
+})
+
+test('§7-T4【正控·回落名仍可用】：纯 .ccg 提交（内容键为空）时允许认 <父>.json', () => {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'ccg-sec7-t4-'))
+  const git = (a) => cp.execFileSync('git', a, { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+  try {
+    git(['init', '-q', '-b', 'main', '.'])
+    git(['config', 'user.email', 't@t']); git(['config', 'user.name', 't'])
+    fs.mkdirSync(path.join(repo, '.ccg', 'reviews'), { recursive: true })
+    fs.writeFileSync(path.join(repo, '.ccg', 'reviews', 'keep.txt'), '占位，让 seed 提交非空\n')
+    git(['add', '-A']); git(['commit', '-q', '-m', 'seed'])
+    const base = git(['rev-parse', 'HEAD']).trim()
+    // 起点上留一条 sha 名记录（改名之前的历史形态 / 纯 .ccg 提交的回落名都长这样）
+    fs.writeFileSync(path.join(repo, '.ccg', 'reviews', base + '.json'),
+      JSON.stringify({ sha: base, mode: 'dual', deepReview: { required: true, status: 'cleared' } }), 'utf8')
+    // 本分支这一笔只动 .ccg ⇒ 排除 .ccg 的 diff 为空 ⇒ 判定器自己也会回落父 sha 命名
+    fs.writeFileSync(path.join(repo, '.ccg', 'reviews', 'note.json'), JSON.stringify({ x: 1 }))
+    git(['add', '-A']); git(['commit', '-q', '-m', 'ccg-only'])
+    const l = cp.spawnSync(process.execPath, [LEDGER_CLI, '--locate', '--repo', repo, '--base', base],
+      { cwd: repo, encoding: 'utf8' })
+    const out = String(l.stdout || '') + String(l.stderr || '')
+    assert.strictEqual(l.status, 0, '纯 .ccg 提交必须能按回落名命中（否则 T3 的严格就是把路走死）：' + out)
+    assert.match(out, /LOCATE \.ccg\/reviews\/[0-9a-f]{40}\.json mode=dual/, out)
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('§7-T5【配方同源·结构锁】：内容键的 diff 旗标必须与判定器源码逐项相等', () => {
+  // 行为锁（T1）只能证明「此刻两侧同结论」；配方是两份源码里的两串字面量，
+  // 谁被"顺手优化"掉一个旗标都要等到下次真实提交才显形。这一条把它变成当场红。
+  const src = fs.readFileSync(path.join(__dirname, 'ccg-review-decider.js'), 'utf8')
+  const codeLines = src.split('\n').filter(l => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n')
+  for (const flag of ['--no-textconv', '--no-ext-diff', '--no-renames']) {
+    assert.ok(codeLines.includes(flag), '判定器源码必须出现 ' + flag + '（它改了配方，本锁要当场红）')
+    assert.ok(RECORD_DIFF_FLAGS.includes(flag), '写入侧配方缺 ' + flag + ' ⇒ 同一变更会算出不同键')
+  }
+  assert.deepStrictEqual(RECORD_DIFF_FLAGS, ['--no-textconv', '--no-ext-diff', '--no-renames'],
+    '旗标清单与判定器逐项相等（只准同步移动，不准单侧增删）')
+  assert.deepStrictEqual(RECORD_PATHSPEC, ['--', '.', ':(exclude).ccg'], 'pathspec 必须同源：排除 .ccg 是内容键能对齐的前提')
+  assert.ok(!/:\(exclude\)\.ccg\/reviews/.test(RECORD_PATHSPEC.join(' ')),
+    '不得只排除 .ccg/reviews —— 判定器排的是整个 .ccg，收窄一侧就回到自指')
 })
