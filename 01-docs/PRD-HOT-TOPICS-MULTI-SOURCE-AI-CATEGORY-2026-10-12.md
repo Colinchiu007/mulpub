@@ -551,7 +551,7 @@ fetchTopics({ force, boostCategories })
 | 加载更多行 | `shownTruncated` + `loadMoreTopics` | `filteredTopics.length` vs `renderedTopics.length` | 未截断 → 不渲染 |
 | 中央加载提示 | `refreshLoadingTitle` / `refreshLoadingDesc` | 组件状态 | `showCentralLoading === false` → 不渲染 |
 | 收藏空态 | `favoritesEmptyTitle` / `favoritesEmptyDesc` | — | 收藏 tab 且 `favorites.length === 0` |
-| 生成视频进度弹窗 | 阶段进度 / 错误文案 / 重试 / 后台运行 / 取消 / 关闭 | `useHotTopicsGenVideo` | 无任务 → 不渲染 |
+| 生成视频进度弹窗 | 阶段进度 / 错误文案 / 查看（完成后解锁）/ 去发布（完成后解锁）/ 重试 / 后台运行 / 取消 / 关闭；footer 统一 `UiButton`，成功后弹窗保持打开、不自动跳结果页（2026-10-17） | `useHotTopicsGenVideo` | 无任务 → 不渲染 |
 
 ---
 

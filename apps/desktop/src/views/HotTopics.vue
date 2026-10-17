@@ -267,30 +267,44 @@
       </div>
       <template #footer>
         <span v-if="genVideoErrorText" class="gen-video-error-text" data-testid="hot-topics-gen-video-error">{{ genVideoErrorText }}</span>
-        <button
+        <!-- unify-video-pipeline-progress-modal：底部按钮与视频创作页进度浮层统一（UiButton + 四按钮契约）。
+             查看/去发布初始灰显，仅 run 成功并取得成片后解锁；成功后弹窗保留、不自动跳结果页。 -->
+        <UiButton
+          variant="secondary"
+          data-testid="hot-topics-gen-video-view"
+          :disabled="!genVideoResultReady"
+          @click="viewGenVideoInHistory"
+        >{{ t('hotTopics.genVideoView') }}</UiButton>
+        <UiButton
+          variant="secondary"
+          data-testid="hot-topics-gen-video-publish"
+          :disabled="!genVideoResultReady"
+          @click="publishGenVideoResult"
+        >{{ t('hotTopics.genVideoPublish') }}</UiButton>
+        <UiButton
           v-if="genVideoCanRetry"
-          class="cohere-btn-primary"
+          variant="primary"
           data-testid="hot-topics-gen-video-retry"
           @click="retryGenVideo"
-        >{{ t('hotTopics.genVideoRetry') }}</button>
-        <button
+        >{{ t('hotTopics.genVideoRetry') }}</UiButton>
+        <UiButton
           v-if="genVideoCanBackground"
-          class="cohere-btn-secondary"
+          variant="secondary"
           data-testid="hot-topics-gen-video-background"
           @click="detachGenVideoToBackground"
-        >{{ t('hotTopics.genVideoBackgroundRun') }}</button>
-        <button
+        >{{ t('hotTopics.genVideoBackgroundRun') }}</UiButton>
+        <UiButton
           v-if="genVideoCanCancel"
-          class="cohere-btn-secondary"
+          variant="secondary"
           data-testid="hot-topics-gen-video-cancel"
           @click="cancelGenVideo"
-        >{{ t('hotTopics.genVideoCancel') }}</button>
-        <button
+        >{{ t('hotTopics.genVideoCancel') }}</UiButton>
+        <UiButton
           v-if="genVideoTerminal"
-          class="cohere-btn-secondary"
+          variant="secondary"
           data-testid="hot-topics-gen-video-close"
           @click="closeGenVideoModal"
-        >{{ t('hotTopics.genVideoClose') }}</button>
+        >{{ t('hotTopics.genVideoClose') }}</UiButton>
       </template>
     </UiModal>
   </div>
@@ -305,6 +319,7 @@ import { aiRewrite, draftSave } from '@/api/publisher'
 import { useNotify } from '@/composables/useNotify'
 import PublishDestinationModal from '@/components/PublishDestinationModal.vue'
 import UiModal from '@/components/UiModal.vue'
+import UiButton from '@/components/UiButton.vue'
 import HotTopicsCentralLoading from '@/components/HotTopicsCentralLoading.vue'
 import { StageProgress } from './video-creation'
 import HotTopicsFavorites from '@/components/HotTopicsFavorites.vue'
@@ -363,14 +378,17 @@ let disposed = false // 组件卸载标记：in-flight 改写/草稿保存不再
 const {
   genVideoModalOpen, genVideoBusy, genVideoStages, genVideoErrorText,
   genVideoModalTitle, genVideoProgressPercent, genVideoElapsedMs, genVideoSummary,
-  genVideoTerminal, genVideoCanRetry, genVideoCanCancel, genVideoCanBackground,
+  genVideoTerminal, genVideoCanRetry, genVideoCanCancel, genVideoCanBackground, genVideoResultReady,
   startGenerateVideo, retryGenVideo, cancelGenVideo, handleGenVideoClose, detachGenVideoToBackground,
+  viewGenVideoInHistory, publishGenVideoResult,
   closeGenVideoModal, disposeGenVideo,
   // 以下四项只被单测断言编排内部态、不参与模板渲染，故下方 defineExpose 显式声明为组件契约
   genVideoPhase, genVideoRunId, genVideoTopic, mergeGenStages,
+  // unify-video-pipeline-progress-modal：终态产物也只被单测断言（模板经 genVideoResultReady 消费）
+  genVideoCompletedVideoPath, genVideoCompletedProjectId,
 } = useHotTopicsGenVideo({ buildRewriteInput, hotUseViral, isDisposed: () => disposed })
 
-defineExpose({ genVideoPhase, genVideoRunId, genVideoTopic, mergeGenStages })
+defineExpose({ genVideoPhase, genVideoRunId, genVideoTopic, mergeGenStages, genVideoCompletedVideoPath, genVideoCompletedProjectId })
 
 // ── 常量 ──
 const CATEGORY_KEYS = ['general', 'society', 'finance', 'tech', 'ai', 'entertainment', 'sports', 'emotion', 'education', 'health', 'international']

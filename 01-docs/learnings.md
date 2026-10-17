@@ -1,3 +1,32 @@
+## 「完成即跳转」这类默认行为一旦要改，先问「同一份承诺还写在几个地方」（进度浮层四按钮片）（2026-10-17）
+
+### lesson:changing-a-default-behavior-must-sweep-its-promises
+
+本轮把流水线进度浮层的"成功后自动跳结果页"改成"浮层保留、用户选出口"。代码改动只有两处（`CreateView.applyOrchestrationOutcome`、`useHotTopicsGenVideo.finishGenVideoCompleted`），但**同一份承诺在四处被写死**：
+
+1. 两条代码路径（两处 `router.push('/create/result')`）；
+2. PRD 正文（`PRD.md` §3a.2 产品原则「并在完成时自动跳转结果页」）；
+3. PRD 修订表（`PRD-video-creation.md` §1.6 里 2026-08-21 那行"恢复「完成即跳转」"）；
+4. 测试断言（`CreateView.test.js` 4 处、`HotTopics.test.js` 1 处，且其中两条把 `durationMs` 口径**寄生在结果页 query 上**）。
+
+只改第 1 处 → 测试红；只改 1+4 → 文档与实现相反，下一个会话会照着 PRD 把行为改回去。**正解是把第 2/3 处当成"承诺"而不是"文档"来扫**：改写正文口径，并在旧修订行上留「该口径已由 2026-10-17 行取代」的标注（保留历史事实，不改写历史）。
+
+两条附带判据：
+
+- **口径不能随着载体一起被删**。`durationMs`（= 步骤执行耗时累计 `activeMs`）原来只能通过结果页 query 断言；浮层保留后这条断言没有载体了。做法不是删掉它，而是把它搬到浮层的完成汇总（`orchestrationSummary` 含「2 分 5 秒」）——**换个观测点，别丢观测面**。
+- **"打开了一整类门禁"要用逐项映射锁住**。`openPipelineProgressModal` 原先对全部终态返回 false，为保留完成态必须放开 `completed`。断言写成 `{completed:true, running:true, paused:true, failed:false, cancelled:false, idle:false}` 的对象相等，而不是写一条 `expect(...).toBe(true)`——后者对被放开成"整类终态"完全免疫。
+
+## 两个测试陷阱：`vi.spyOn` 是幂等的、testid 会跨面板重名（进度浮层四按钮片）（2026-10-17）
+
+### lesson:spy-is-idempotent-and-testids-collide-across-panels
+
+两处都是"全绿之后才暴露"的真缺陷，且都不是产品代码的错：
+
+1. **`vi.spyOn(obj, 'method')` 对同一对象同一方法返回同一个 spy**。文件里多个用例各自 `vi.spyOn(router,'push').mockResolvedValue()` 时，`mockResolvedValue` 只换实现、**不清 `mock.calls`**；若某个用例失败跳过 `mockRestore()`，后续用例读到的 `pushSpy.mock.calls` 里躺着上一个用例的调用。表现极具误导性：`run-only（无 projectId）退化为只带 video_path` 这条断言拿到的是**上一条用例**的 `title='发布标题'`，看起来像产品代码"伪造了标题"。修法：每个 spy 创建后立刻 `mockClear()`；跨用例共享的 spy 一律在 `finally`/用例末 `mockRestore()`。
+2. **同一个 testid 同时挂在"页面底部操作条"和"浮层 footer"上**（既有 `s2v-cancel-trigger` 就是）。`w.find()` 取 DOM 首个 ⇒ 浮层内的断言被操作条顶替，"终态不该有取消按钮"永远测不出来。修法：新面板用**独立 testid**（`s2v-progress-cancel`），查询限定在面板根节点内（`[data-testid="s2v-progress-modal"] .ui-modal-footer`）。**判断"这个 testid 是否唯一"应当在提交前 `grep` 一次，而不是等断言变绿**。
+
+另外记一条同步失败的排错线索：这两个用例单跑通过、全量跑失败（共享 router 的跨用例状态），最终靠**独立 router 实例**把该用例隔离出来才稳定 —— 单测里凡是"改共享单例再断言"的写法，都该先问"它是不是应该有自己的实例"。
+
 ## 「手段合格」的锁锁不住「目标是否达成」；视觉基线没查过就不能判 N/A（nav-perf-ux，2026-10-15）
 
 ### lesson:parallelism-lock-is-not-a-cost-lock

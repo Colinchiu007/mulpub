@@ -83,6 +83,11 @@ export default {
       backgroundDetachedToast: '任务已转入后台运行，在历史记录中可查看',
       backgroundStartedWithoutTracking: '任务已启动并在后台运行，但当前无法实时跟踪进度，请在历史记录中查看。',
       progressTitle: (ctx) => ctx.named('name') + ' 进度',
+      // unify-video-pipeline-progress-modal：进度浮层底部固定四按钮。
+      // 查看/去发布初始灰显，仅本次 run 成功并取得成片后解锁；成功后浮层保留、不自动跳结果页。
+      progressView: '查看',
+      progressPublish: '去发布',
+      progressCancel: '取消',
       progressCloseLabel: '关闭进度并转入后台运行',
       progressManualCloseLabel: '当前任务需要完成用户操作，暂不能关闭或转入后台运行',
       progressManualHint: '当前任务需要完成用户操作后才能继续。',

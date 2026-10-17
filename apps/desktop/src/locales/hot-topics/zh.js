@@ -80,6 +80,10 @@ export default {
     genVideoCancelled: '已取消生成视频',
     genVideoBackgroundHint: '任务已转入后台，可在视频创作页「历史记录」中查看进度',
     genVideoBackgroundRun: '后台运行',
+    // unify-video-pipeline-progress-modal：一键生成视频弹窗底部与视频创作页统一的四按钮。
+    // 查看/去发布初始灰显，run 成功并取得成片后解锁；成功后弹窗保留、不自动跳结果页。
+    genVideoView: '查看',
+    genVideoPublish: '去发布',
     genVideoRetry: '重试',
     genVideoCancel: '取消',
     genVideoClose: '关闭',
