@@ -477,6 +477,24 @@
 
       <template #footer>
         <span v-if="pipelineProgressCloseDisabled" class="pipeline-progress-manual-hint" data-testid="pipeline-progress-manual-hint">{{ pipelineProgressManualHint }}</span>
+        <!-- unify-video-pipeline-progress-modal：footer 固定四按钮【查看】【去发布】【后台运行】【取消】。
+             前两者初始灰显，仅本次 run 成功并取得成片后解锁（成功后浮层保留，不再自动跳结果页）。 -->
+        <UiButton
+          variant="secondary"
+          data-testid="s2v-progress-view"
+          :disabled="!pipelineProgressResultReady"
+          @click="viewPipelineResultInHistory"
+        >
+          {{ translateWithLocaleFallback('create.story2video.progressView', '查看', 'View') }}
+        </UiButton>
+        <UiButton
+          variant="secondary"
+          data-testid="s2v-progress-publish"
+          :disabled="!pipelineProgressResultReady"
+          @click="publishPipelineResult"
+        >
+          {{ translateWithLocaleFallback('create.story2video.progressPublish', '去发布', 'Publish') }}
+        </UiButton>
         <UiButton
           v-if="canDetachPipelineToBackground"
           variant="secondary"
@@ -484,6 +502,14 @@
           @click="detachPipelineToBackground"
         >
           {{ translateWithLocaleFallback('create.story2video.backgroundRun', '后台运行', 'Run in background') }}
+        </UiButton>
+        <UiButton
+          v-if="canCancelFromProgressModal"
+          variant="secondary"
+          data-testid="s2v-progress-cancel"
+          @click="requestCancelPipeline"
+        >
+          {{ translateWithLocaleFallback('create.story2video.progressCancel', '取消', 'Cancel') }}
         </UiButton>
       </template>
     </UiModal>
@@ -939,7 +965,7 @@ import {
   isTextBasedPipeline,
 } from '@/i18n/pipeline-labels'
 import { getAppLocale } from '@/i18n'
-import { RESUME_BLOCKING_ERROR_PATTERN, filterHistoryByStatus, latestHistoryTimestamp, markStaleRunningAsInterrupted, fillFailedPausedStage, policySceneQuery, sortHistoryByEffectiveTime } from './history-utils'
+import { RESUME_BLOCKING_ERROR_PATTERN, HISTORY_STATUSES, filterHistoryByStatus, latestHistoryTimestamp, markStaleRunningAsInterrupted, fillFailedPausedStage, policySceneQuery, sortHistoryByEffectiveTime } from './history-utils'
 import {
   MAX_STORY2VIDEO_TEXT_CHARACTERS,
   STORY2VIDEO_NOTIFICATION_KEYS,
@@ -1037,6 +1063,11 @@ export default {
       pipelineRunStatus: null, needsCheckpoint: false, pollTimer: null, orchestrationStages: [], orchestrationStatusRequestId: 0,
       // 统一流水线进度弹窗：弹窗只承载观察内容，关闭/后台运行会使 renderer 脱离而不取消主进程任务。
       pipelineProgressModalOpen: false,
+      // unify-video-pipeline-progress-modal：本次 run 成功后的终态产物（videoPath / projectId）。
+      // 浮层底部【查看】【去发布】的解锁判据；由 applyOrchestrationOutcome 完成分支写入，
+      // 不从历史列表反查（多 run 并行时避免取错记录）。
+      pipelineProgressCompletedVideoPath: '',
+      pipelineProgressCompletedProjectId: '',
       // 单次状态请求失败时保留最近一次合法进度，并在弹窗内提示可恢复状态。
       pipelineProgressStatusError: '',
       // 普通流水线按名称查询状态，没有 runId；请求代际仍必须隔离切换/后台化后的旧响应。
@@ -1652,6 +1683,25 @@ export default {
       const status = this.pipelineRunStatus?.status
       return Boolean(this.pipelineRunStatus && status && !['idle', 'completed', 'failed', 'cancelled'].includes(status))
     },
+    // unify-video-pipeline-progress-modal：浮层底部【取消】按钮。
+    // 终态（completed/failed/cancelled）后由右上角关闭承接，取消按钮不再渲染。
+    canCancelFromProgressModal() {
+      if (this._s2vAlive === false) return false
+      const status = this.pipelineRunStatus?.status
+      if (!status) return false
+      return !['completed', 'failed', 'cancelled', 'idle'].includes(status)
+    },
+    // 【查看】【去发布】的解锁判据：**状态已完成** 且 **成片路径非空**（与 PRD §3 一致）。
+    // 只判路径会在「上一次 run 的路径残留 + 新 run 仍在跑」时提前解锁，故状态必须一起判。
+    // projectId 缺失（run-only 记录）不影响解锁——去发布退化为只带 video_path，与结果页同语义。
+    pipelineProgressResultReady() {
+      const status = this.pipelineRunStatus && this.pipelineRunStatus.status
+      if (status !== 'completed') return false
+      const videoPath = typeof this.pipelineProgressCompletedVideoPath === 'string'
+        ? this.pipelineProgressCompletedVideoPath.trim()
+        : ''
+      return Boolean(videoPath)
+    },
     // 内容政策检查点（2026-08-30）：图片提示词被判定敏感且重试耗尽，run 暂停于 needs_user_input。
     // 该任务不能断点续跑，必须修改受影响场景文案后重新生成；提供「编辑场景」直达入口。
     isContentPolicyCheckpoint() {
@@ -1790,8 +1840,14 @@ export default {
       if (value === 'history' && this.view !== 'history') {
         this.detachPipelineView('history')
         this.view = 'history'
+        this.applyHistoryFilterFromRoute()
         this.loadHistory()
       }
+    },
+    // unify-video-pipeline-progress-modal：进度浮层【查看】带 ?filter=completed 跳转后，
+    // 路由 query 变化要把历史筛选态落到「已完成」标签（非法值忽略，不污染既有筛选）。
+    '$route.query.filter'(value) {
+      this.applyHistoryFilterFromRoute(value)
     },
     // M-12：监听上面的 computed 快照（浅层比较）替代两条 deep watch。
     // ★ 这里的键必须是 computed 里的名字 ★ —— Options API 的 watch 块中方法名即
@@ -1893,6 +1949,15 @@ export default {
     },
     // 返回历史记录页
     goToHistory() { this.detachPipelineView('history'); this.selectedPipeline = null; this.view = 'history'; this.loadHistory(); this.pushViewState({ view: 'history' }); },
+    // unify-video-pipeline-progress-modal：把 URL 上的 ?filter= 落到历史筛选态。
+    // 单一入口供 mounted 与 $route.query.filter watch 共用；非法值静默忽略（保持当前筛选）。
+    applyHistoryFilterFromRoute(value) {
+      const raw = value === undefined ? this.$route?.query?.filter : value
+      if (typeof raw !== 'string') return
+      const next = raw.trim()
+      if (!next || !HISTORY_STATUSES.includes(next)) return
+      this.historyFilter = next
+    },
     translateWithLocaleFallback(key, zhFallback, enFallback, params) {
       const translated = typeof this.$t === 'function' ? this.$t(key, params) : key
       if (typeof translated === 'string' && translated !== key) return translated
@@ -3695,7 +3760,8 @@ export default {
       const videoPath = this.extractOrchestrationVideoPath(context)
       const projectId = context?.story2videoProject?.projectId || null
       this.stopPipelinePolling()
-      this.closePipelineProgressModal()
+      // unify-video-pipeline-progress-modal：成功后浮层保留（不再自动跳结果页），
+      // 完成态阶段 + 100% + 汇总在浮层内展示，出口由用户显式选择。
       this.pipelineRunStatus = {
         ...(this.pipelineRunStatus || {}),
         status: 'completed',
@@ -3704,33 +3770,16 @@ export default {
       }
       this.needsCheckpoint = false
       this.orchestrationRunId = null
+      // 终态产物落进浮层态：【查看】/【去发布】的解锁判据与数据来源。
+      this.pipelineProgressCompletedVideoPath = videoPath || ''
+      this.pipelineProgressCompletedProjectId = projectId || ''
+      // 无成片路径：保持既有「成片缺失」错误提示，两个出口按钮保持灰显（不伪造可点击）。
       if (!videoPath) {
         this.setOrchestrationError({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.PREVIEW_MISSING })
         return true
       }
-      if (this.orchestrationResultPath === videoPath) return true
       this.orchestrationResultPath = videoPath
-      const meta = this.story2videoRunMeta || {}
-      const query = { path: videoPath }
-      if (projectId) query.project = projectId
-      if (runId) query.runId = runId
-      // 新口径：结果页时长 = 步骤执行耗时累计，不含暂停/断点恢复空闲时间
-      // 存在性守卫：显式排除 null/undefined（Number(null)===0 陷阱）
-      if (meta.activeMs !== null && meta.activeMs !== undefined && Number.isFinite(Number(meta.activeMs)) && Number(meta.activeMs) >= 0) {
-        query.durationMs = Number(meta.activeMs)
-      } else if (meta.createdAt && meta.endedAt) {
-        const start = Date.parse(meta.createdAt)
-        const end = Date.parse(meta.endedAt)
-        if (Number.isFinite(start) && Number.isFinite(end) && end >= start) query.durationMs = end - start
-      }
-      if (Number.isFinite(Number(meta.outputSizeBytes)) && Number(meta.outputSizeBytes) > 0) query.sizeBytes = Number(meta.outputSizeBytes)
-      // BGM 跳过信息透传到结果页（结果页展示同一 i18n 提示，避免「完成即跳转」时提示不可见）
-      const composeOut = (context.compose && context.compose.data) || context.compose || null
-      if (composeOut && composeOut.bgmSkipped === true) {
-        query.bgmSkipped = '1'
-        if (composeOut.bgmSkippedReason) query.bgmReason = composeOut.bgmSkippedReason
-      }
-      this.$router.push({ path: '/create/result', query })
+      this.openPipelineProgressModal()
       return true
     },
     applyOrchestrationTerminalStatus(status, snapshot = {}) {
@@ -3963,6 +4012,8 @@ export default {
       this.story2videoResuming = false
       this.dismissedProviderWarnings = false
       this.orchestrationResultPath = null
+      this.pipelineProgressCompletedVideoPath = ''
+      this.pipelineProgressCompletedProjectId = ''
       this.story2videoRunMeta = null
       this.sceneAssetSelectionActive = false; this.sceneAssetCandidates = []; this.sceneAssetSelectionError = ''; this.sceneAssetConfirming = false
       this.selectionGuided = false; this.sceneAssetAttention = false; this.cancelConfirmDialog.visible = false
@@ -3983,7 +4034,13 @@ export default {
     openPipelineProgressModal() {
       if (this._s2vAlive === false || !this.selectedPipeline || !this.pipelineRunStatus) return false
       const status = this.pipelineRunStatus.status
-      if (!PIPELINE_RUN_STATUSES.includes(status) || PIPELINE_TERMINAL_STATUSES.includes(status)) return false
+      if (!PIPELINE_RUN_STATUSES.includes(status)) return false
+      // unify-video-pipeline-progress-modal：completed 放开为「可保留」——成功后浮层不再自动关闭，
+      // 由用户在浮层内显式选择【查看】/【去发布】。failed/cancelled/idle 仍拒绝（走错误对话框/关闭）。
+      if (PIPELINE_TERMINAL_STATUSES.includes(status) && status !== 'completed') return false
+      // 完成态还要求**已取得成片**：不变量写成显式门禁，而不是依赖调用方"先写产物再 open"的顺序。
+      // 无成片的 completed 走 setOrchestrationError(PREVIEW_MISSING)，不得停在「浮层全灰显」的死态。
+      if (status === 'completed' && !this.pipelineProgressResultReady) return false
       this.pipelineProgressModalOpen = true
       return true
     },
@@ -4026,12 +4083,45 @@ export default {
     // - 内容政策检查点：关闭=取消任务并关闭弹窗（内容政策任务不能后台化，否则会静默卡在
     //   needs_user_input；关闭即放弃本次运行，作为已取消/失败处理）。
     // - 其他人工检查点（scene_asset_selection 等）：closeDisabled 为 true，不会触发本方法。
+    // - unify-video-pipeline-progress-modal：completed 终态关闭=关闭浮层回到新建态（run 已收尾，
+    //   无「后台脱离」语义，也不得再调取消）。
     async handlePipelineProgressClose() {
       if (this._s2vAlive === false) return false
+      if (this.pipelineRunStatus?.status === 'completed') {
+        await this.resetPipelineToNewTaskState()
+        return true
+      }
       if (this.isContentPolicyCheckpoint) {
         return this.cancelContentPolicyTask()
       }
       return this.detachPipelineToBackground()
+    },
+    // unify-video-pipeline-progress-modal：【查看】= 跳视频创作历史记录「已完成」标签。
+    // 先脱离 renderer 跟踪（终态 run 已在主进程收尾，不调 pipelineCancel、不涉及并发槽位），
+    // 再带 view/filter 路由；筛选态同时就地写入（路由 query 供刷新/深链复现）。
+    async viewPipelineResultInHistory() {
+      if (!this.pipelineProgressResultReady) return false
+      await this.resetPipelineToNewTaskState()
+      this.view = 'history'
+      this.historyFilter = 'completed'
+      this.$router.push({ path: '/create', query: { view: 'history', filter: 'completed' } })
+      return true
+    },
+    // unify-video-pipeline-progress-modal：【去发布】= 跳视频内容发布页（视频模式预填充）。
+    // 数据契约与 CreateViewHistory「发布历史视频」/ ResultView「去发布」同源：
+    // buildPublishFromProject 提取 + publishDataToQuery 编码；无 projectId 的 run-only 记录
+    // 退化为只带 video_path（与 ResultView 的纯文件路径模式一致），不伪造标题正文。
+    async publishPipelineResult() {
+      if (!this.pipelineProgressResultReady) return false
+      const videoPath = String(this.pipelineProgressCompletedVideoPath || '')
+      const project = this.orchestrationContext?.story2videoProject
+      const query = (project && typeof project === 'object')
+        ? publishDataToQuery(buildPublishFromProject({ ...project, videoPath }))
+        // run-only 记录：只交接成片路径，不注入空标题/空正文（发布页按「纯文件路径模式」装载）
+        : { type: 'video', video_path: encodeURIComponent(videoPath) }
+      await this.resetPipelineToNewTaskState()
+      this.$router.push({ path: '/publish', query })
+      return true
     },
     // 内容政策任务取消：调用 pipelineCancel 取消主进程 run，并复位前端跟踪态。
     // 返回 true 表示已成功取消并复位；false 表示取消失败（保留当前运行态，避免静默失败）。
@@ -4906,6 +4996,8 @@ export default {
     if (this.$route?.query?.view === 'history') {
       this.detachPipelineView('history')
       this.view = 'history'
+      // unify-video-pipeline-progress-modal：浮层【查看】带 ?filter=completed 直达时消费筛选态
+      this.applyHistoryFilterFromRoute()
       this.loadHistory()
     }
     this.restoreS2VLastOptions()
