@@ -19,6 +19,30 @@ export default {
     publishStatsTitle: '发布统计',
     last14DaysHint: '最近 14 天',
     countUnit: (ctx) => ctx.named('count') + ' 篇',
+    // ─── 套餐分级（dash-full-entitlement）─────────────────────────
+    // 文案口径：CTA 只说「升级解锁」，不承诺「立即开通/立即支付」——
+    // 升级弹窗的支付入口在正式包里是关闭的（既有技术债），承诺会落空。
+    lockedHint: (ctx) => '升级后查看' + ctx.named('name'),
+    lockedCta: '升级解锁',
+    // ─── 账号健康度 ────────────────────────────────────────────
+    accountHealthTitle: '账号状态',
+    accountHealthOk: (ctx) => ctx.named('count') + ' 个正常',
+    accountHealthBad: (ctx) => ctx.named('count') + ' 个异常',
+    accountHealthUnknown: (ctx) => ctx.named('count') + ' 个未检测',
+    accountHealthEmpty: '还没有授权账号',
+    accountHealthMore: (ctx) => '还有 ' + ctx.named('count') + ' 个',
+    accountHealthLoadFailed: '账号状态暂时无法获取',
+    // ─── 发布队列 ──────────────────────────────────────────────
+    queueTitle: '发布队列',
+    queueRunning: (ctx) => '运行中 ' + ctx.named('count'),
+    queuePending: (ctx) => '排队中 ' + ctx.named('count'),
+    queueFailed: (ctx) => '最近失败 ' + ctx.named('count'),
+    queueEmpty: '当前没有进行中的发布任务',
+    queueLoadFailed: '队列状态暂时无法获取',
+    // ─── 题材表现榜（full 专属）──────────────────────────────────
+    patternTitle: '题材表现榜',
+    patternEmpty: '暂无题材表现数据（需先发布并回采内容）',
+    patternLoadFailed: '题材表现暂时无法获取',
     metrics: {
       title: '作品互动回流',
       subtitle: '来自发布后自动回采的作品级数据（每篇取最近一次采集）',

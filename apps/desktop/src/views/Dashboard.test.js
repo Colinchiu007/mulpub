@@ -14,9 +14,41 @@ vi.mock("@/stores/platforms", () => ({
   })
 }));
 
+// 三个新区块的 API（dash-full-entitlement）。用 vi.hoisted 声明，
+// 才能被上面的 vi.mock 工厂引用（vi.mock 会被提升到文件顶部提升执行）。
+const newPanelApis = vi.hoisted(() => ({
+  accountBatchCheckLogin: vi.fn(),
+  getQueueStatus: vi.fn(),
+  getQueueHistory: vi.fn(),
+  listPatternPerformance: vi.fn(),
+}));
+
 vi.mock("@/api/publisher", () => ({
   syncAll: vi.fn().mockResolvedValue(undefined),
   syncPlatform: vi.fn(),
+  accountBatchCheckLogin: newPanelApis.accountBatchCheckLogin,
+  getQueueStatus: newPanelApis.getQueueStatus,
+  getQueueHistory: newPanelApis.getQueueHistory,
+}));
+
+// 只覆盖题材榜这一个函数，**保留**模块其余导出 ——
+// PerformanceFlowPanel 也要从这个模块取 performanceOverview，整模块替换会把它遮掉
+// （实测症状：回流面板取数全部报 "No performanceOverview export is defined"）。
+vi.mock("@/api/knowledge-library", async (importOriginal) => {
+  const actual = await importOriginal()
+  return { ...actual, listPatternPerformance: newPanelApis.listPatternPerformance }
+});
+
+// 权益分级走 useIdentityStore（不是 useIdentity —— 后者不导出 entitlement）。
+// 默认 null（未登录/未取到），个别用例覆写为含 dashboard_full 的快照。
+const entitlementRef = ref(null);
+vi.mock("@/stores/identity", () => ({
+  useIdentityStore: () => ({ entitlement: entitlementRef.value }),
+}));
+
+// accountStore：提供账号 id 列表供批量检测
+vi.mock("@/stores/accounts", () => ({
+  useAccountStore: () => ({ accounts: [{ id: "acc-1" }, { id: "acc-2" }] }),
 }));
 
 // Dashboard 自 2026-09-15 起消费 useIdentity（登录门禁范式）；
@@ -36,6 +68,13 @@ describe("DashboardView", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     identityAuthenticatedRef.value = false;
+    // 默认未取到权益（null）→ 锁区块；需要完整看板的用例自行覆写
+    entitlementRef.value = null;
+    // 默认无数据，个别用例覆写
+    newPanelApis.accountBatchCheckLogin.mockResolvedValue({ code: 0, data: [] });
+    newPanelApis.getQueueStatus.mockResolvedValue({ code: 0, data: { running: 0, pending: 0 } });
+    newPanelApis.getQueueHistory.mockResolvedValue({ code: 0, data: [] });
+    newPanelApis.listPatternPerformance.mockResolvedValue({ code: 0, data: { items: [] } });
     setActivePinia(createPinia());
     window.electronAPI = {
       dashboardStats: vi.fn().mockResolvedValue({
@@ -82,10 +121,16 @@ describe("DashboardView", () => {
     expect(w.vm.benchmarkActiveTitle).toBe("My Article");
   });
 
-  it("shows TrialBanner component", async () => {
+  // 2026-10-17（dash-full-entitlement，用户决策方案 C）：横幅**已撤下**。
+  // 原断言「存在 TrialBanner」被反转，理由写在 Dashboard.vue 模板注释里：
+  // 该横幅文案「当前为免费版，部分功能受限」在本页是误导 —— 本页三个数据源
+  // 的门禁都是登录而非套餐，没有任何一项内容因套餐受限。
+  // 套餐差异改由「锁区块占位」真实体现（见下方分级用例）。
+  it("no longer shows TrialBanner（误导文案已撤下）", async () => {
     const w = mount(DashboardView, { global: { plugins: [createPinia(), i18n] } });
     await nextTick();
-    expect(w.findComponent({ name: "TrialBanner" }).exists()).toBe(true);
+    expect(w.findComponent({ name: "TrialBanner" }).exists()).toBe(false);
+    expect(w.find(".trial-banner").exists()).toBe(false);
   });
 
   it("refresh button calls syncAll and updates data", async () => {
@@ -239,6 +284,18 @@ describe("DashboardView 作品互动回流（P2-6c）", () => {
     }
   }
 
+  // 这三条既有用例断言的是「回流面板渲染出真实数字」，而该面板自
+  // dash-full-entitlement 起受 dashboard_full 门控，因此必须显式给一份
+  // 含该 feature 的权益快照，否则渲染的是锁区块占位（下方另有分级用例覆盖）。
+  // entitlement 按 plan-matrix.js 真源写（不沿用 e2e 里已漂移的旧键名）。
+  function grantFullDashboard () {
+    entitlementRef.value = {
+      plan: "standard",
+      features: ["cloud_publish", "ai_write", "video_create", "schedule_batch", "dashboard_full"],
+      source: "online",
+    }
+  }
+
   async function settle (w) {
     for (let i = 0; i < 4; i++) {
       await nextTick()
@@ -249,6 +306,7 @@ describe("DashboardView 作品互动回流（P2-6c）", () => {
   }
 
   function mountDashboard () {
+    grantFullDashboard()
     setActivePinia(createPinia())
     window.electronAPI = {
       dashboardStats: vi.fn().mockResolvedValue({ code: 0, data: { total: 4, success: 3, failed: 1, successRate: 75, perPlatform: {}, daily: [] } }),
@@ -270,6 +328,7 @@ describe("DashboardView 作品互动回流（P2-6c）", () => {
   })
 
   it("未登录时面板显示登录引导，而不是渲染一排 0", async () => {
+    grantFullDashboard()
     setActivePinia(createPinia())
     window.electronAPI = {
       dashboardStats: vi.fn().mockResolvedValue({ code: -3, errorCode: "AUTH_REQUIRED" }),
@@ -315,6 +374,142 @@ describe("DashboardView 作品互动回流（P2-6c）", () => {
     expect(visible.match(/[\u4e00-\u9fa5]/g) || [], "模板内残留中文字面量").toEqual([])
     for (const key of ["title", "views", "likes", "comments", "favorites", "shares", "trendTitle", "platformTitle", "healthTitle", "loginRequired", "emptyTitle"]) {
       expect(i18n.global.te("dashboard.metrics." + key), "缺键 dashboard.metrics." + key).toBe(true)
+    }
+  })
+})
+
+// ──────────────────────────────────────────────────────────────────────
+// 套餐分级（dash-full-entitlement）验收用例，对应 PRD §八 验收标准
+// ──────────────────────────────────────────────────────────────────────
+describe("DashboardView 套餐分级（dash-full-entitlement）", () => {
+  const FREE = { plan: "free", features: ["cloud_publish", "ai_write"], source: "online" }
+  // standard 不是 pro，但**有** dashboard_full —— 这条正是防 isPro 二值误判的用例
+  const STANDARD = { plan: "standard", features: ["cloud_publish", "ai_write", "dashboard_full"], source: "online" }
+
+  function baseElectronApi (overrides = {}) {
+    return {
+      dashboardStats: vi.fn().mockResolvedValue({
+        code: 0,
+        data: { total: 4, success: 3, failed: 1, successRate: 75, perPlatform: { wechat_mp: { total: 4 } }, daily: [{ date: "2026-10-01", total: 2 }] },
+      }),
+      historyList: vi.fn().mockResolvedValue({ code: 0, data: { records: [] } }),
+      syncCached: vi.fn().mockResolvedValue({ code: 0, data: [] }),
+      syncAll: vi.fn().mockResolvedValue({ code: 0 }),
+      performanceOverview: vi.fn().mockResolvedValue({ code: 0, data: { totals: {}, trend: [], byPlatform: [], health: { trackedTotal: 0, covered: 0, coverage: 0, byStatus: {}, lastCapturedAt: null } } }),
+      ...overrides,
+    }
+  }
+
+  async function settle (w) {
+    for (let i = 0; i < 4; i++) {
+      await nextTick()
+      await new Promise(r => setTimeout(r, 5))
+    }
+    await nextTick()
+    return w
+  }
+
+  function mountWith (entitlement) {
+    // 必须在此清空计数：外层 beforeEach 的 clearAllMocks 属于另一个 describe，
+    // 而本块的用例各自断言调用次数，跨用例累积会让"零调用"恒假（实测 5 次）。
+    vi.clearAllMocks()
+    entitlementRef.value = entitlement
+    setActivePinia(createPinia())
+    window.electronAPI = baseElectronApi()
+    return mount(DashboardView, { global: { plugins: [createPinia(), i18n] } })
+  }
+
+  // 验收 2：free → 四个锁区块占位 + 升级 CTA
+  it("free 档：四个锁区块渲染占位，且不渲染真实内容", async () => {
+    const w = await settle(mountWith(FREE))
+    for (const name of ["trend", "platform", "perf", "pattern"]) {
+      expect(w.find(`[data-testid="dashboard-locked-${name}"]`).exists(), `缺锁区块 ${name}`).toBe(true)
+    }
+    expect(w.find('[data-testid="perf-flow-panel"]').exists()).toBe(false)
+    expect(w.text()).toContain(i18n.global.t("dashboard.lockedCta"))
+    w.unmount()
+  })
+
+  // 验收 3：full → 锁区块消失，真实面板渲染
+  it("full 档：锁区块消失，回流面板真实渲染", async () => {
+    const w = await settle(mountWith(STANDARD))
+    for (const name of ["trend", "platform", "perf", "pattern"]) {
+      expect(w.find(`[data-testid="dashboard-locked-${name}"]`).exists(), `锁区块未消失 ${name}`).toBe(false)
+    }
+    expect(w.find('[data-testid="perf-flow-panel"]').exists()).toBe(true)
+    w.unmount()
+  })
+
+  // 验收 5：standard 不得被误判为 free（licenseStore.isPro 二值陷阱的回归）
+  it("standard 档（非 pro）不被误判为免费", async () => {
+    const w = await settle(mountWith(STANDARD))
+    expect(w.find('[data-testid="dashboard-locked-trend"]').exists()).toBe(false)
+    w.unmount()
+  })
+
+  // 验收 4：entitlement 为 null（未登录/未取到）不崩，降级为 basic
+  it("entitlement 为 null 时不崩，降级 basic", async () => {
+    const w = await settle(mountWith(null))
+    expect(w.find('[data-testid="dashboard-locked-trend"]').exists()).toBe(true)
+    expect(w.text()).toContain("数据看板")
+    w.unmount()
+  })
+
+  // 验收 10：未解锁时题材榜**根本不发请求**（PRD §3.2.1）
+  it("未解锁时题材榜 IPC 零调用", async () => {
+    const w = await settle(mountWith(FREE))
+    expect(newPanelApis.listPatternPerformance).not.toHaveBeenCalled()
+    w.unmount()
+  })
+
+  // 反向：解锁后才发请求
+  it("解锁后题材榜发起一次请求", async () => {
+    const w = await settle(mountWith(STANDARD))
+    expect(newPanelApis.listPatternPerformance).toHaveBeenCalled()
+    w.unmount()
+  })
+
+  // 验收 6：三新区块 ready 态渲染真实数字
+  it("三新区块 ready 态渲染真实数字", async () => {
+    newPanelApis.accountBatchCheckLogin.mockResolvedValue({
+      code: 0,
+      data: [{ accountId: "acc-1", status: "ok" }, { accountId: "acc-2", status: "failed" }],
+    })
+    newPanelApis.getQueueStatus.mockResolvedValue({ code: 0, data: { running: 1, pending: 2 } })
+    newPanelApis.getQueueHistory.mockResolvedValue({ code: 0, data: [{ id: 1, status: "failed", title: "崩了的一篇" }] })
+    newPanelApis.listPatternPerformance.mockResolvedValue({ code: 0, data: { items: [{ value: "悬念开头", engagement_score: 88 }] } })
+    const w = await settle(mountWith(STANDARD))
+    expect(w.find('[data-testid="dashboard-account-health"]').exists()).toBe(true)
+    expect(w.find('[data-testid="dashboard-queue-status"]').exists()).toBe(true)
+    expect(w.text()).toContain("崩了的一篇")
+    expect(w.text()).toContain("悬念开头")
+    w.unmount()
+  })
+
+  // 验收 6：错误态不得渲染成 0（否则用户读成"全都正常"）
+  it("账号健康度取数失败显示失败文案，不渲染成全正常", async () => {
+    newPanelApis.accountBatchCheckLogin.mockResolvedValue({ code: -1, message: "boom" })
+    const w = await settle(mountWith(FREE))
+    expect(w.find('[data-testid="account-health-error"]').exists()).toBe(true)
+    expect(w.find('[data-testid="account-health-error"]').text()).toBe(i18n.global.t("dashboard.accountHealthLoadFailed"))
+    w.unmount()
+  })
+
+  // 未登录门禁不得渲染成 0
+  it("账号健康度未登录显示登录引导，不显示计数", async () => {
+    newPanelApis.accountBatchCheckLogin.mockResolvedValue({ code: -3, errorCode: "AUTH_REQUIRED" })
+    const w = await settle(mountWith(FREE))
+    expect(w.find('[data-testid="account-health-auth"]').exists()).toBe(true)
+    w.unmount()
+  })
+
+  // 新增文案键必须在 zh/en 都成对存在（CI Gate 7 --keys 的前端侧）
+  it("新增文案键 zh/en 成对存在", () => {
+    for (const key of [
+      "lockedCta", "accountHealthTitle", "accountHealthEmpty", "accountHealthMore", "accountHealthLoadFailed",
+      "queueTitle", "queueEmpty", "queueLoadFailed", "patternTitle", "patternEmpty", "patternLoadFailed",
+    ]) {
+      expect(i18n.global.te("dashboard." + key), "缺键 dashboard." + key).toBe(true)
     }
   })
 })
