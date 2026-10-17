@@ -64,6 +64,8 @@
 
 - [ ] ②-a-l **三把 `podcast.episode.plan*` 键 zh/en 成对**（随 ②-b 的浮层同 PR 落地，理由见上一条括号内的偏差声明）：`planBlocks` / `planCodepoints` / `planVoice` 逐字文案见 PRD §7.10.4.1；加键必须同 PR 把新渲染层文件加进 `podcast-error-codes.test.js` 的死键扫描域（加键不加域比漏判更糟，PR #3332 的既有口径）。
 - [ ] 4.3②-b **出期通道 + 浮层 + 入口**：`podcast:episode:publishFromScript` 的 IPC/preload/桥接 + §7.10.3 计费二次确认浮层（显示 ②-a 的数，取不到就整块不显示、绝不回落 0）+ 三枚入口。**按枚切**：先 `CopyLibraryView.vue`，`RewriteView.vue` / `Publish.vue` 各留一条新的未勾子项——「不得先开通道再补入口」的判据是**通道与至少一枚真实消费者同 PR**，不是「三枚必须同 PR」。同 PR 按 5.1b 把 PRD §15.2 该页状态列改「已落」。
+- [ ] 4.3②-b② **改写结果区入口**（`RewriteView.vue`）：与 ②-b 同一浮层与同一通道，正文来源是改写结果而非文案库条目；**判据不变**——无可用正文/无默认频道则动作不出现，浮层显示值只来自 ②-a 的只读预览。落点与状态列同批改（§15.2 该行仍「待落」）。
+- [ ] 4.3②-b③ **发布页文本类分支入口**（`Publish.vue`）：频道来源按 §15.2 为上下文频道（不是默认频道解析），因此它**必须先回答「上下文频道从哪来、缺席时怎么办」**再落实现；同批改状态列。
 - [x] 4.4 存量 `mime` 一次性固化（`stockStamp` 标记），不得把存量整体打成 blocked
   - 证据（2026-10-12）：判据与锁落 `apps/desktop/electron/services/podcast-episode-stock-mime.js`（12 条锁实跑；变异 M1 两条指名红）；规格与落地状态见 PRD §7.9.1-§7.9.7
 - [x] 4.4b **4.4 的剩余落点（拆出来才看得见没做完的部分）**：① 宿主接线——`podcast-channel-service.js` 构造 `listChannels/readEpisodes/writeEpisodes/readIndex/writeIndex` 并在首个需要频道数据的调用处触发一次；② `compliance` 增设 `stock` 档（合同 §7.9.5 第 4 条，本片未做）；③ 频道页摘要「扫描 N · 补齐 M · 待人工 K」与 locale 三对键 `podcast.stock.*` zh/en 成对；④ 给「缺失即填默认值」补一条**真的落进文件**的变异反证（**2026-10-15 四个子项全部落地**：① #3387、② #3589、③ 本 PR、④ #3595；行内那句「本片未做」是 ② 落地前的原文，保留只作现场）
