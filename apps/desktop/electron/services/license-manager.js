@@ -33,11 +33,9 @@ const PRO_FEATURES = [
 
 const TRIAL_DAYS = 7
 
-// S1（2026-10-09）：本地激活码格式守卫——与服务端兑换码格式对齐
-// （packages/api-publish-engine/src/auth/subscription-service.js 的 REDEEM_CODE_PATTERN：
-//   4-4-4 段、大写字母+数字、字母表无易混淆 0/O/1/I/L；允许有/无连字符，便于测试与
-//   payment-manager 构造的键通过格式层）。这不是「码有效」的证明——真实核销在服务端。
-const LICENSE_KEY_PATTERN = /^[A-HJ-NP-Z2-9]{4}-?[A-HJ-NP-Z2-9]{4}-?[A-HJ-NP-Z2-9]{4}$/
+// 2026-10-17 remove-buyout-license：原 `LICENSE_KEY_PATTERN`（本地激活码 4-4-4 格式守卫）
+// 已随 `activate()` 一并移除 —— 本地不再有写入 pro 授权的路径，兑换码核销只发生在
+// 服务端（POST /api/v1/redeem，权威格式见 subscription-service.js 的 REDEEM_CODE_PATTERN）。
 
 function getDataPath(dataPath) {
   return dataPath || path.join(app.getPath("userData"), "license.json")
@@ -120,6 +118,7 @@ class LicenseManager {
           const parsed = JSON.parse(decoded)
           if (parsed && parsed.type) {
             this._data = parsed
+            this._migrateLegacyLicenseType()
             log.info("LicenseManager", "License loaded: " + this._data.type)
             return
           }
@@ -139,6 +138,7 @@ class LicenseManager {
             const parsedBak = JSON.parse(decodedBak)
             if (parsedBak && parsedBak.type) {
               this._data = parsedBak
+              this._migrateLegacyLicenseType()
               log.info("LicenseManager", "License restored from backup: " + this._data.type)
               return
             }
@@ -165,42 +165,10 @@ class LicenseManager {
       try {
         const bakPath = this._dataPath + ".bak"
         fs.writeFileSync(bakPath, encoded, "utf-8")
-      } catch (e2) { /* best-effort backup */ }
+      } catch { /* best-effort backup：失败不影响主文件已写入 */ }
     } catch (e) {
       log.warn("LicenseManager", "Failed to save: " + e.message)
     }
-  }
-
-  activate(licenseKey) {
-    if (!licenseKey) return false
-    // Don't re-activate if already activated with same or different key
-    if (this._data.type === "pro" || this._data.type === "lifetime") return false
-    // 2026-10-07：这里原本只 `trim()` 后就写库，**没有任何有效性校验**。
-    // 实测（node 直驱本类）：输入 `a` / `x` / `随便什么字符串` / `"   "` / `!!!`
-    // 一律返回 true，并写入 type=pro + expiresAt=null（永不过期）+ 8 项 PRO_FEATURES。
-    // 叠加 #3064 保留的正式包激活码入口 ⇒ 任意非空字符串即可获得永久 Pro。
-    //
-    // 最小止血（第 1 步，#3085）：正式包在 IPC 层拒收本地激活码（license.js:47），
-    // 开发构建保留本路径。
-    // 最小止血（第 2 步，2026-10-09 S1）：开发构建里本方法仍可达，故补**格式守卫**——
-    // 只接受服务端 `subscription-service.js` REDEEM_CODE_PATTERN 同款格式
-    // （4-4-4 段，大写字母+数字，无易混淆 0/O/1/I/L，可带连字符）。垃圾字符串
-    // 一律拒绝且不写库。格式通过 ≠ 码有效：真实核销仍必须走服务端 /api/v1/redeem，
-    // 客户端校验本质可绕过，本守卫只封「手滑/瞎猜都能激活」的面。
-    const key = String(licenseKey).trim()
-    if (!key) return false
-    if (!LICENSE_KEY_PATTERN.test(key)) {
-      log.warn("LicenseManager", "Activate rejected: key does not match redemption code format")
-      return false
-    }
-    this._data.type = "pro"
-    this._data.licenseKey = key
-    this._data.activatedAt = new Date().toISOString()
-    this._data.expiresAt = null
-    this._data.features = PRO_FEATURES.slice()
-    this.save()
-    log.info("LicenseManager", "Activated with key: " + key.slice(0, 8) + "...")
-    return true
   }
 
   activateTrial() {
@@ -222,8 +190,41 @@ class LicenseManager {
     log.info("LicenseManager", "Deactivated")
   }
 
+  /**
+   * 存量类型规范化（remove-buyout-license，2026-10-17）。
+   *
+   * 买断授权模型已移除，`lifetime` 类型不再产生。但历史版本写过这种数据，
+   * 直接删判断会让那批已付费用户静默降级为免费 —— 所以在加载期把它规范化为
+   * `pro`（能力不变、仍然是永不过期的存量授权），并立即落盘，使之后的启动
+   * 不再依赖迁移逻辑。
+   *
+   * 注意：这里**只读** legacy 值用于识别，不再对外暴露该类型。
+   */
+  _migrateLegacyLicenseType() {
+    if (this._data.type === "lifetime") {
+      this._data.type = "pro"
+      this._data.expiresAt = null
+      this.save()
+      log.info("LicenseManager", "Migrated legacy lifetime license to pro")
+    }
+  }
+
   isPro() {
-    if (this._data.type === "pro" || this._data.type === "lifetime") return true
+    if (this._data.type === "pro") {
+      // 2026-10-17（CCG 深度审查 i2）：`pro` 也要看到期时间。
+      //
+      // 背景：买断模型移除后本地不再产生新授权，存量 `pro` 都来自终身买断
+      // （`expiresAt === null`），所以这条校验对它们恒为真、不会误伤。
+      // 但订阅制一旦把**带到期时间的授权**落到本地（服务端下发），没有这层校验
+      // 就会「订阅已到期、本地仍当 Pro 用」。故按 fail-safe 口径：
+      //   expiresAt 为 null      → 永不过期（存量买断语义）
+      //   expiresAt 是有效日期    → 未到期才算 Pro
+      //   expiresAt 是无法解析的值 → 视为非 Pro（与 trial 分支的 R29 口径一致）
+      if (this._data.expiresAt === null || this._data.expiresAt === undefined) return true
+      const proExpires = new Date(this._data.expiresAt)
+      if (!Number.isFinite(proExpires.getTime())) return false
+      return new Date() < proExpires
+    }
     if (this._data.type === "trial") {
       if (!this._data.expiresAt) return false
       const now = new Date()

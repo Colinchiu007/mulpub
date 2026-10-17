@@ -238,14 +238,17 @@ describe('主进程许可证动态鉴权', () => {
       licenseManager,
       { NODE_ENV: 'production' },
     )
-    const completePayment = vi.fn(async () => ({ code: 0 }))
+    // 2026-10-17 remove-buyout-license：原本这里用 `payment:complete` 作例子，
+    // 该通道已随买断模型移除。本用例要验证的是「pro 许可证不能提权到 admin」，
+    // 与具体是哪个通道无关，故改用仍在 ADMIN_ONLY_CHANNELS 里的 `proxy:test`。
+    const proxyTest = vi.fn(async () => ({ code: 0 }))
 
-    controlledIpcMain.handle('payment:complete', completePayment)
+    controlledIpcMain.handle('proxy:test', proxyTest)
 
-    await expect(handlers['payment:complete'](trustedEvent, {
+    await expect(handlers['proxy:test'](trustedEvent, {
       accessLevel: 'admin',
     })).resolves.toMatchObject({ code: -3 })
-    expect(completePayment).not.toHaveBeenCalled()
+    expect(proxyTest).not.toHaveBeenCalled()
   })
 
   it('拒绝未登录时返回结构化 errorCode，message 不含内部通道名', async () => {
@@ -293,20 +296,16 @@ describe('主进程许可证动态鉴权', () => {
     expect(publish).not.toHaveBeenCalled()
   })
 
-  it.each([
-    'payment:create-order',
-    'payment:list-orders',
-    'payment:get-order',
-    'payment:cancel',
-  ])('免费用户可调用升级订单通道 %s', (channel) => {
-    expect(requiredLevelForChannel(channel)).toBe('public')
-  })
-
-  it.each([
-    'payment:complete',
-    'payment:simulate',
-  ])('完成支付能力 %s 仍仅限管理员', (channel) => {
-    expect(requiredLevelForChannel(channel)).toBe('admin')
+  // 2026-10-17 remove-buyout-license：6 条 payment:* 通道已随买断授权模型移除
+  // （本地下单链路在 S1 修复后已无法授予任何授权，且 ¥99 一次性买断与服务端
+  // 三档订阅互斥）。原来这里有两个 it.each 断言这些通道的访问级别；
+  // 现在改为锁它们的**缺席** —— 通道删了却还留在权限集合里，就是一条悬空权限。
+  it('6 条 payment:* 通道不得再登记于任何权限集合', () => {
+    const src = fs.readFileSync(path.join(__dirname, 'license-access-control.js'), 'utf8')
+    const code = src
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '')
+    expect(code.match(/['"]payment:[a-z-]+['"]/g) || []).toEqual([])
   })
 
   it.each([
@@ -355,59 +354,6 @@ describe('主进程许可证动态鉴权', () => {
     await expect(handlers['publish:recursion-contract'](trustedEvent))
       .resolves.toMatchObject({ code: -3 })
     expect(publish).toHaveBeenCalledTimes(1)
-  })
-
-  it('免费用户可通过真实支付依赖创建、查询并取消升级订单', async () => {
-    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'multi-publish-payment-'))
-    const originalGetPath = __electronMock.app.getPath
-    __electronMock.app.getPath = () => dataDir
-    __enableElectronMock()
-
-    try {
-      delete require.cache[require.resolve('../services/payment-manager')]
-      delete require.cache[require.resolve('./payment')]
-
-      const { ipcMain, handlers } = createIpcMainHarness()
-      const controlledIpcMain = createAccessControlledIpcMain(
-        ipcMain,
-        { isPro: () => false },
-        { NODE_ENV: 'production' },
-        { isPackaged: true },
-      )
-      require('./payment')(controlledIpcMain, {})
-
-      const created = await handlers['payment:create-order'](trustedEvent, {
-        plan: 'pro',
-        method: 'alipay',
-      })
-      expect(created).toMatchObject({
-        code: 0,
-        data: { amount: 99, method: 'alipay', status: 'pending' },
-      })
-
-      await expect(handlers['payment:list-orders'](trustedEvent))
-        .resolves.toMatchObject({ code: 0, data: [{ id: created.data.id }] })
-      await expect(handlers['payment:get-order'](trustedEvent, created.data.id))
-        .resolves.toMatchObject({ code: 0, data: { status: 'pending' } })
-      await expect(handlers['payment:cancel'](trustedEvent, created.data.id))
-        .resolves.toMatchObject({ code: 0, data: true })
-      await expect(handlers['payment:get-order'](trustedEvent, created.data.id))
-        .resolves.toMatchObject({ code: 0, data: { status: 'cancelled' } })
-
-      await expect(handlers['payment:complete'](trustedEvent, {
-        orderId: created.data.id,
-        txnId: 'forged',
-      })).resolves.toMatchObject({ code: -3 })
-      await expect(handlers['payment:simulate'](trustedEvent, {
-        orderId: created.data.id,
-      })).resolves.toMatchObject({ code: -3 })
-    } finally {
-      __electronMock.app.getPath = originalGetPath
-      __disableElectronMock()
-      fs.rmSync(dataDir, { recursive: true, force: true })
-      delete require.cache[require.resolve('../services/payment-manager')]
-      delete require.cache[require.resolve('./payment')]
-    }
   })
 
   it('拒绝不可信来源，即使许可证有效或通道公开', async () => {

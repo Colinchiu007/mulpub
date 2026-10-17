@@ -54,9 +54,6 @@ const exportedNames = [
   "batchCreate", "batchExecute", "batchSchedule", "batchGet", "batchList", "batchDelete", "onBatchProgress",
   // 二维码登录与账号状态事件
   "authOpenQrCodeLogin", "authQrCodeClose", "onQrCodeOpened", "onQrCodeDetected", "onQrCodeCompleted", "onQrCodeClosed", "onAccountStatusChanged",
-  // 支付
-  "paymentCreateOrder", "paymentListOrders", "paymentGetOrder",
-  "paymentSimulate", "paymentCancel",
   // 首次运行
   "firstRunCheck", "onFirstRunStatus",
   // 离线
@@ -175,11 +172,6 @@ publishWechat: { args: [{ title: "t", content: "c" }], fallback: undefined, retu
   onQrCodeCompleted: { args: [vi.fn()], fallback: undefined, returns: "function" },
   onQrCodeClosed: { args: [vi.fn()], fallback: undefined, returns: "function" },
   onAccountStatusChanged: { args: [vi.fn()], fallback: undefined, returns: "function" },
-  paymentCreateOrder: { args: [{ amount: 100 }], fallback: { code: -1 }, returns: "object" },
-  paymentListOrders: { args: [], fallback: { code: 0, data: [] }, returns: "object" },
-  paymentGetOrder: { args: ["ord-1"], fallback: { code: -1 }, returns: "object" },
-  paymentSimulate: { args: ["ord-1"], fallback: { code: -1 }, returns: "object" },
-  paymentCancel: { args: ["ord-1"], fallback: { code: -1 }, returns: "object" },
   firstRunCheck: { args: [], fallback: { code: 0, data: { setupDone: false } }, returns: "object" },
   onFirstRunStatus: { args: [vi.fn()], fallback: undefined, returns: "function" },
   offlineStatus: { args: [], fallback: { code: -1, data: { offline: false, cachedCount: 0, cachedTasks: [] } }, returns: "object" },

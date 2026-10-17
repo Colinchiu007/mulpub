@@ -23,38 +23,6 @@ function registerHandlers(ipcMain, deps) {
     } catch (e) { log.warn('[ipc:license]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message } }
   })
 
-  ipcMain.handle("license:activate", withSenderCheck(async (event, licenseKey) => {
-    // 2026-10-07 修复 P0 权限泄漏。
-    //
-    // 实测：`licenseManager.activate(key)` 原本**只对 key 做 trim()**，没有任何
-    // 有效性校验，输入 `a` / `随便什么字符串` / `"   "` 一律返回 true，并写入
-    // type=pro + expiresAt=null（**永不过期**）+ 8 项 PRO_FEATURES。
-    // 而 preload 通过 contextBridge 把 licenseActivate 暴露给了渲染层，
-    // `UpgradeModal` 的激活码输入框在正式包里也可见 ⇒ 任意字符串即可白嫖永久 Pro。
-    //
-    // 根因不在"少了个校验"，而是**本地存在一条不经服务端核销的授权路径**。
-    // 服务端 `POST /api/v1/redeem` 已经带 `durationDays` 与事务化到期结算
-    // （subscription-service.js，注释明写「防止订阅已 expired + 快照仍为 pro
-    // 的永久权限泄漏」），本条路径把它绕开了。
-    //
-    // 因此按「业务权益是服务端权威」的口径（见 license-access-control.js 顶部
-    // 注释），**正式构建一律拒收本地激活码**，激活码改走服务端核销。
-    // 开发构建保留：未上线、无真实用户，local 调试需要这条路径。
-    //
-    // 口径与 `payment:simulate`（#3006）/ `payment:create-order`（#3075）一致：
-    // 只认 `app.isPackaged !== false`，环境变量不能覆盖打包事实。
-    const { app } = require('electron')
-    if (!app || app.isPackaged !== false) {
-      return { code: EC.REQUEST_ERROR, data: false, message: '激活码已迁移至账号核销，本地激活在正式版停用' }
-    }
-    try {
-      const ok = licenseManager.activate(licenseKey)
-      // 审计 P2·性能税：preload 的级别缓存必须在此失效，否则升级最长要等一个 TTL 才生效
-      if (ok) emitAccessLevelInvalidated('license-activate')
-      return ok ? { code: 0, data: true, message: "激活成功" } : { code: EC.REQUEST_ERROR, data: false, message: "激活失败，许可证可能已被使用" }
-    } catch (e) { log.warn('[ipc:license]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message } }
-  }))
-
   ipcMain.handle("license:deactivate", withSenderCheck(async (event) => {
     try {
       licenseManager.deactivate()

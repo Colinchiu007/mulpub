@@ -3,8 +3,9 @@
 const AUTH_ERROR = -3
 
 // 仅开发模式允许暴露的敏感方法。
+// 2026-10-17 remove-buyout-license：paymentComplete / paymentSimulate 已随买断
+// 授权模型移除（本地下单链路在 S1 修复后已无法授予任何授权）。
 const ADMIN_ONLY_METHODS = [
-  'paymentComplete', 'paymentSimulate',
   'proxyTest', 'proxyTestAll', 'proxyReset',
 ]
 
@@ -16,9 +17,8 @@ const PUBLIC_METHODS = [
   'showNotification', 'onNotification',
   'onNavigate',
   'onboardingComplete', 'onboardingGetSteps', 'onboardingStatus',
-  'licenseInfo', 'licenseActivate', 'licenseDeactivate', 'licenseActivateTrial',
+  'licenseInfo', 'licenseDeactivate', 'licenseActivateTrial',
   'licenseHasFeature', 'licenseFeatures',
-  'paymentCreateOrder', 'paymentListOrders', 'paymentGetOrder', 'paymentCancel',
   'authOpenLogin', 'authClose', 'onAuthViewOpened', 'onAuthCompleted', 'onAuthViewClosed',
   'authLoginSilent',
   'authOpenQrCodeLogin', 'authQrCodeClose',

@@ -1,0 +1,28 @@
+{
+  "sha": "2f18cd8fb64d91295c6af7c94c6a79d8434d721b",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 482 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 482,
+    "fileCount": 9,
+    "codeFileCount": 9,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 7,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "3b7c2be6fa5828bf731929450e0de27c86df50fff7d8c914ed0e5dd8adad164b",
+  "decidedAt": "2026-10-17T17:17:39.596Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "ccg-deep-review(claude) + agent adjudication",
+    "findings": null,
+    "note": "延续 ccg-deep-850e4d8f 裁决（4 upheld 已修 / 3 dismissed 有据）。本条对应「清理全部引用已删 payment/license:activate 的测试」：3 整删 + 6 改，均为上轮审查 i1（doActivate 删除的连带影响）的完整收口。",
+    "resolvedAt": "2026-10-17T17:18:00.037Z"
+  }
+}
