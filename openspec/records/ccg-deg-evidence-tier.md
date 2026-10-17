@@ -12,7 +12,7 @@ sync_backfill_owner: 下一个会话（按「PR 自动合并」收尾清单 1–
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
 | 变更类型与隔离 | PASS | worktree `mp-ccg-review-degradation`，裸分支 `ccg-deg-evidence-tier`（**叠加在 #3777 之上**，同一文件 `check-pr-exec-record.js` 不能并行改）。Step ⓪ 守卫：`pre-code-edit-guard.ps1` 在本 worktree 内未阻断（共享根才拒）。内容＝规格更正 + 普查工具入库 + `.gitignore` negation，**未动任何判据代码** |
-| 判定（docs-only） | **false（不走快速通道）** | commit 后实测：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD` ⇒ `docs-only=false files=14`。成因不是本片自己——它叠在**未合并的 #3777** 之上，变更集含 #3777 的代码提交与 5 份 CCG 判定产物。本行初稿写的是 PENDING 并预期走 docs-only 快速通道，与实测相反 ⇒ 按事实改登记：**本分支不借快速通道豁免任何门禁**。待 #3777 合并后 rebase 到主干，本判据应重取一次（届时若转 true，说明叠加已解除，届时读数另记） |
+| 判定（docs-only） | **false（不走快速通道）** | commit 后实测：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD` ⇒ `docs-only=false files=14`（写在 #3777 首次推送后的基线上）→ **rebase 两轮后在 `1291614ff` 重取为 `docs-only=false files=21`**。成因不是本片自己——它叠在**未合并的 #3777** 之上，变更集含 #3777 的代码提交与 5 份 CCG 判定产物。本行初稿写的是 PENDING 并预期走 docs-only 快速通道，与实测相反 ⇒ 按事实改登记：**本分支不借快速通道豁免任何门禁**。待 #3777 合并后 rebase 到主干，本判据应重取一次（届时若转 true，说明叠加已解除，届时读数另记） |
 | 第一性原因（QM-5 ①） | PASS | 规格里我原先写的分级判据是 `(status, performedBy)` 二元组、按 `self-play` 前缀分档。引入点＝我自己 2026-10-17 写的 `openspec/changes/ccg-review-degradation-ladder/design.md` §1——**错因不是抄错代码，是没普查就用**：动手前我只读了 decider 的初始化（`performedBy: null`）就假设它是枚举 |
 | 逃逸分析（QM-5 ②） | PASS | 单元/集成/视觉层无关（这是规格判据）。逃逸在规格审查层：`design.md` 的 §1 当时读起来"有实测出处（`:444`/`:312-313`）"因而显得可信——**引用两处行号不等于量过全量分布**，而前缀判据的失败恰好只在分布里才看得见（`null` ×744 谁都过，问题在那 12 条散文） |
 | 修复 + 回归保护（QM-5 ④） | PASS | ① `spec.md` 的判据句改写：`tier` 必须是**结构化来源字段**，MUST NOT 从 `performedBy` 自由文本推断，佐证复用既有口径「`findings` 是非空数组」（`shouldPreserveClosedRecord` 主判据同源，不造第二套词汇）。② `design.md` 新增 §9/§9.0，把普查数字与两条更硬的现场（12 条 self-play 开头却声明外部复核；`cleared`/`needs_revision` 配 `pb=null f=null` 的零出处闭环）写进去。③ 普查工具**入库** `scripts/ccg-artifact-shape-survey.js` + `.gitignore` 补 `!scripts/…` negation（实测 `check-ignore` 现命中 negation 行 117）⇒ 覆盖面数字可在仓库内一句话重取，不留孤立读数。④ `tasks.md` 1.1 改为 **blocked on decision**，并新增 1.0 已勾项 |
@@ -24,7 +24,7 @@ sync_backfill_owner: 下一个会话（按「PR 自动合并」收尾清单 1–
 | 记录欠账 | PENDING | commit 后跑 `check-gate-record-debt.js` / `check-record-qm5-rows.js` / `check-pr-exec-record.js --mode=enforce` / `openspec validate --strict` 并补读数 |
 | 远程同步 | PENDING | 合并后取 merge SHA 与 `(merge SHA, workflow)` 的 main push 读数（纯规格/工具改动预计 `NO_RUN(by design)`，须如实记而非当免检），同次删除本三字段 |
 
-- 保留门禁：判定 docs-only **false（叠加所致）** ✅ | 行尾对账 ✅（两口径逐文件同数） | 品牌残留 ✅（9650 个 tracked 文件，计数随每笔提交自增故不作现状引用） | 文档同步 ✅（`openspec validate ccg-review-degradation-ladder --strict` = valid；`check-pr-exec-record --mode=enforce` OK：14 文件、新增记录 2 篇） | 记录欠账 ✅（debt rc=0、qm5-rows rc=0） | QM-6 未执行（不豁免、不顶替）| 远程同步 PENDING
+- 保留门禁：判定 docs-only **false（叠加所致）** ✅ | 行尾对账 ✅（两口径逐文件同数） | 品牌残留 ✅（9650 个 tracked 文件，计数随每笔提交自增故不作现状引用） | 文档同步 ✅（`openspec validate ccg-review-degradation-ladder --strict` = valid；`check-pr-exec-record --mode=enforce` OK：21 文件（构成 = 本片真实改动 + 未合并的 #3777 代码提交 + 各笔提交的 CCG 判定产物，产物数按笔数自增故不写死）、新增记录 2 篇） | 记录欠账 ✅（debt rc=0、qm5-rows rc=0） | QM-6 未执行（不豁免、不顶替）| 远程同步 PENDING
 
 ### 待你裁决（本片的唯一阻塞点）
 
@@ -55,7 +55,7 @@ sync_backfill_owner: 下一个会话（按「PR 自动合并」收尾清单 1–
 |---|---|
 | 落码 | `summarizeBackendAvailability(backends)` 纯函数（`count` 0/1/2 + `partial` + `wrapperReady` + 原样 `backends`）；`saveRecord` 第 5 参数可注入、缺省自探；`main` 把**判定时那一份** `backends` 传下去（不传则第二次探测与判定现场不是同一份） |
 | 为什么现在做 | `detectBackends()`（`:641`）一直在算 `{wrapperExists, claude, opencode}` 却从不落盘 ⇒ 「CLI 不可用」只能靠自述。规格里 D6 的落点就是把这份现场钉进产物 |
-| 测试 | `ccg-review-decider.test.js` **42 passed / 0 failed**（新增 4 条）；与 gate 侧合计 **112 passed / 0 failed** |
+| 测试 | `ccg-review-decider.test.js` **42 passed / 0 failed**（新增 4 条）；与 gate 侧合计 **112 passed**（旧基线 `72a8639cd`）→ **113 passed / 0 failed**（最终基线 `1291614ff` 重跑：gate 侧 71、decider 侧 42）。增量 1 条来自 main 侧 #3792 新增的派生锁用例，**不是**本片新增用例 |
 | 变异 | 本片 4 条 M-B1…M-B4 全部指名红，`escaped=0 anchorfail=0`，逐条还原 md5 一致；累计 16 条（切片A 7 + B 5 + C 4）|
 | 反真空留痕 | 丙3.3 断言默认路径等于**当场再探测一次**的结果，并打印现场：本轮 `count=2 wrapperReady=true claude=true opencode=true`。为什么必须打印：若某台机器两个后端都没装，该断言两边同为全 false ⇒ 恒真，锁会变真空 —— 打印是为了让读者看见它这一趟到底测到了什么 |
 | 明确未做 | **3.2 判据侧尚未消费 `backendAvailability`**：目前它只是被记录，不构成降级资格判据。落盘≠接线到判据，这一格留给高危面矩阵那片（tasks 2.x）一起落。3.5 失败形态三档分档同样未做 |
