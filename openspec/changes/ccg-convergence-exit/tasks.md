@@ -45,6 +45,15 @@
 - [x] 6.2 `.gitignore` 补 `!scripts/ccg-convergence-probe.js`。判据用 `git check-ignore --no-index -v`：改前命中 `106:scripts/*.js`，改后命中 `224:!scripts/ccg-convergence-probe.js`，且 `git status` 里文件从「不存在」变为 `??`
 - [x] 6.3 三条既有守卫实跑通过：`check-unwired-tests.js`（94 个测试文件，OK）、`check-step-failfast.js`（37 个多命令步骤，OK）、`.github/scripts/check-workflow-structure.js`（files=14 violations=0）
 
+## 8. QM-6 真实双模型评审与逐条处置
+
+- [x] 8.1 真实跑通（proposer=opencode / critic=claude，跨家族校验通过），critic 出 8 条、进裁决 6 条，`高危域必须外部复核 0 条`；日志两行 `收敛判定: status=self_play reason=selfPlay minScore=4` 与探针 ladder 逐字同形 ⇒ 探针测的是真路径
+- [x] 8.2 **i1（Critical）upheld**：P3 夹具只复制 engine.js + 驱动 ⇒ 引擎若新增同目录兄弟模块，`require` 失败会把「偏离(rc=1)」伪装成「失明(rc=2)」，与本篇自己的「三档不混档」判据自相矛盾。修：整目录复制 + 「夹具文件数 == vendor 文件数 且 ≥2」下界断言
+- [x] 8.3 **i2（Critical）upheld，且是真代码执行面**：`locateVendor` 第三个候选是仓库自身 `__dirname`，而 main 会 `require()` 命中文件 ⇒ 任何 PR 只要提交 `scripts/engine.js` + `scripts/ccg-deep-review.js`，Gate 2b6 就执行该 PR 作者写的代码。另两个候选需要写权限（仓库变量 / runner 本机文件），这一个不需要 ⇒ 威胁面是本 PR 新造。修：候选面删到只剩显式环境变量 + 用户技能目录，新增 P7 结构锁；变异 **MP7（把回落加回来）实测指名让 P7 变红**
+- [x] 8.4 **i4（Warning）按原表述 dismiss、按修正表述换判据接住**：「依赖注释里的行号」机制不成立（生效的是路径规则，实测 `git check-ignore --no-index -v` 打印规则命中行）；但同一风险换成**规则顺序**就有牙（gitignore 后命中覆盖前者）。新增 P8，并做负控：末尾追加一条同名忽略规则 ⇒ **P8 CAUGHT**，还原后 `md5 ok=true`
+- [x] 8.5 **i3 / i5 / i6（Warning）dismissed，每条给可核对证据**：i3 指「CHANGELOG 不该写工程细节」——实测既有 489 个标题块同体例、Gate 2c3 只判集合单调性（489→490 PASS），而 `远程同步 PENDING` 是协议规定的中间态；i5 指「正则无缓存浪费 CPU」——实测 8 条用例约 1.5 秒，且加缓存会把「读不到」与「读到旧值」合并，削弱 D2 的现读前提；i6 指「未引用 tasks §7」——同块「诚实边界」原文已逐字引用三条出路
+- [x] 8.6 裁决按引擎模板逐条填 `prosecution/defense/verdict/rationale`（写前校验：每格非空、verdict 只取 upheld/dismissed、`critiqueFingerprint` 不碰）；**status 一律由引擎算，仓侧不手写**。复用存档 critique 的 resume 路径零模型调用即完成判定：`status=self_play_blocked`、`blocking=[i1,i2 self_play_upheld]`
+- [x] 8.7 全量重跑：`node --test scripts/ccg-convergence-probe.test.js` ⇒ **tests 8 / pass 8 / fail 0**（P1–P8）；`openspec-sync-check` OK；`check-unwired-tests` / `check-step-failfast` / `check-workflow-structure` 全 OK
 ## 7. 故意不做（写成欠账而不是写成已完成）
 
 - [ ] 7.1 出路①「真跑多轮抬分」：成本由用户拍板，不在本 PR 决定（#3724 单轮实测 23–40 分钟）

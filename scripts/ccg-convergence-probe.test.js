@@ -96,7 +96,17 @@ test('P3 漂移报警有牙：把驱动的 currentRound 改回 1（就是那个�
   try {
     const scripts = path.join(dir, 'scripts');
     fs.mkdirSync(scripts, { recursive: true });
-    fs.copyFileSync(probe.locateVendor().engine, path.join(scripts, 'engine.js'));
+    // QM-6 外部评审 i1（upheld）：原来只复制 engine.js + 驱动。若引擎将来 require 同目录的
+    // 兄弟模块，那份缺失会让探针报 rc=2（失明）而不是 rc=1（偏离）——两档混掉，行为锁就退化成
+    // "看起来在测、实际在误诊"。正解是**整目录复制**，让夹具与 vendor 的文件集同源。
+    const vendorDir = path.dirname(probe.locateVendor().engine);
+    for (const f of fs.readdirSync(vendorDir)) {
+      const src = path.join(vendorDir, f);
+      if (fs.statSync(src).isFile()) fs.copyFileSync(src, path.join(scripts, f));
+    }
+    assert.ok(fs.readdirSync(scripts).length >= 2, '临时目录必须带齐 vendor 的兄弟模块（否则 i1 那格重新出现）');
+    assert.ok(fs.readdirSync(scripts).length === fs.readdirSync(vendorDir).length,
+      '夹具文件集必须与 vendor 文件集同数，复制漏了就是把它测窄了');
     fs.writeFileSync(path.join(scripts, 'ccg-deep-review.js'), doctored, 'utf8');
     // CCG_ARL_DIR 指的是**技能根**（locateVendor 自己再拼 scripts/），传已含 scripts 的路径
     // 会让探针回落到真 vendor，于是这条"改了驱动"的断言量的根本不是那份夹具。
@@ -161,4 +171,42 @@ test('P6 探针只能 require node 内置模块（Gate 2b5 所在的 changes 作
     if (!id.startsWith('node:') && !['fs', 'path', 'os', 'child_process', 'crypto'].includes(id)) bad.push(id);
   }
   assert.deepStrictEqual(bad, [], '探针引入了第三方依赖，CI 上会是 Cannot find module：' + bad.join(','));
+});
+
+test('P7 候选面 MUST NOT 含仓库自身（i2：否则任何 PR 放两个同名文件就能让 CI 执行它的代码）', () => {
+  const src = fs.readFileSync(PROBE, 'utf8');
+  const body = src.slice(src.indexOf('function locateVendor'), src.indexOf('function readDefaults'));
+  assert.ok(body.length > 40, 'locateVendor 函数体必须被截到（锚点失效时不得让本条静默通过）：' + body.length);
+  assert.ok(!/__dirname/.test(body), '候选面里出现 __dirname 就等于把仓库目录当 vendor —— 探针会 require() 一份由 PR 作者控制的代码');
+  assert.match(body, /process\.env\.CCG_ARL_DIR/, '候选必须来自显式环境变量');
+  assert.match(body, /USERPROFILE/, '候选必须来自用户技能目录（HOME 或 USERPROFILE）');
+  // 反向实测：仓库 scripts/ 里若真躺着同名文件，探针也不得用它（本条只在现场存在时校验"没用它"）
+  const repoEngine = path.join(__dirname, 'engine.js');
+  const repoDriver = path.join(__dirname, 'ccg-deep-review.js');
+  if (fs.existsSync(repoEngine) && fs.existsSync(repoDriver)) {
+    const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'ccg-probe-repo-'));
+    const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ccg-probe-repo-home-'));
+    try {
+      const r = runProbe({ CCG_ARL_DIR: empty, HOME: fakeHome, USERPROFILE: fakeHome }, []);
+      assert.strictEqual(r.rc, 2, '仓库里有同名 engine.js 时探针必须仍判失明，不得回落执行仓库副本：' + r.out + r.err);
+    } finally {
+      fs.rmSync(empty, { recursive: true, force: true });
+      fs.rmSync(fakeHome, { recursive: true, force: true });
+    }
+  } else {
+    console.log('[ccg-probe-test] P7 行为档：仓库内无同名 engine.js（正常），只跑结构锁');
+  }
+});
+
+test('P8 判据本体的 gitignore 放行必须是"最后命中的那条规则"（i4：规则顺序会变，注释里的行号不会替它守）', () => {
+  const r = cp.spawnSync('git', ['check-ignore', '--no-index', '-v', 'scripts/ccg-convergence-probe.js'],
+    { cwd: path.resolve(__dirname, '..'), encoding: 'utf8' });
+  const out = String(r.stdout || '').trim();
+  if (r.status === 1) {
+    console.log('[ccg-probe-test] P8：该文件不被任何规则命中（rc=1）⇒ 未被忽略，合规');
+    return;
+  }
+  assert.strictEqual(r.status, 0, 'check-ignore 取不到读数（rc=' + r.status + '）⇒ 判据失明，不得当成通过：' + r.stderr);
+  assert.ok(out.includes(':!scripts/ccg-convergence-probe.js'),
+    '最后命中的规则必须是放行规则；命中 scripts/*.js 说明有人把忽略规则挪到了放行规则之后，本体将不会入库：' + out);
 });

@@ -28,13 +28,18 @@ const path = require('path');
 
 const SAMPLE = path.join(__dirname, '..', 'openspec', 'changes', 'ccg-convergence-exit', 'artifacts', 'verification-layer-sample.json');
 
-/** 引擎与驱动都在 vendor 目录里；候选顺序与 deep-review.sh 的驱动定位一致。 */
+/**
+ * 引擎与驱动都在 vendor 目录里。
+ * ⛔ 候选面**只准**来自环境变量与用户技能目录，不得回落到 `__dirname`（QM-6 外部评审 i2 命中后收紧）：
+ * 一旦把仓库自身列进候选，任何 PR 只要往 `scripts/` 放一份 `engine.js` + `ccg-deep-review.js`，
+ * 本探针就会在 CI 里 `require()` 并**执行**那份由 PR 作者控制的代码 —— 探针的目的是测量上游引擎，
+ * 仓库内那份同名文件本来就不是它的对象，留这个回落等于自己开一条代码执行面。
+ */
 function locateVendor () {
   const dirs = [];
   if (process.env.CCG_ARL_DIR) dirs.push(path.join(process.env.CCG_ARL_DIR, 'scripts'));
   const home = process.env.HOME || process.env.USERPROFILE || '';
   if (home) dirs.push(path.join(home, '.claude', 'skills', 'adversarial-review-loop', 'scripts'));
-  dirs.push(path.join(__dirname));
   for (const d of dirs) {
     const engine = path.join(d, 'engine.js');
     const driver = path.join(d, 'ccg-deep-review.js');

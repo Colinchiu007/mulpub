@@ -46,6 +46,25 @@ P3 除了「读得出形状」，还**真跑一次探针**：临时目录里放�
 | 给引擎加「已外部复核」字段，让 ③ 不再对它无条件计阻断 | 改上游共享制品，且改动面在「谁来守门」之内 | 不在本仓私改 vendor |
 | 人工批准把 `check-pr-exec-record` 的闭合词表扩到 `self_play_blocked`（附外部评审证据） | 直接削弱唯一那条机械闸门 | AGENTS.md：改「谁来守门」须人工过目，禁止 agent 自动合并 |
 
+### 现场复现（本 PR 自己撞上了所描述的结构）
+
+给本 change 跑真实双模型评审（proposer=opencode / critic=claude）时，日志原文两行就是本篇结论的现场证据：
+
+```
+收敛判定: status=self_play reason=selfPlay minScore=4
+待裁决 6 条；其中高危域必须外部复核 0 条
+```
+
+**这把 proposal 里那句「含 crypto 发现的 diff 上不可达」收窄了**：高危域只是 ③ 阻断的第一种子形态，且不是必要条件。当场实测到的第二种子形态是 `self_play_upheld` —— 0 条高危域项，critic 的 8 条里 6 条进裁决，2 条被判维持即计阻断。两种子形态的差别值得写清，因为修法不同：
+
+| 子形态 | 能否在 ③ 内解决 | 出口 |
+| --- | --- | --- |
+| 高危域条目（`high_risk_requires_external`） | **永不能** —— 自扮演无权裁决 crypto 类指控 | 只能真跑外部模型（出路①）或上游加字段（出路②） |
+| 自扮演维持的 Critical（`self_play_upheld`） | 能 —— 判 `dismissed` 即不阻断 | 但判 `upheld` 且随后修掉时，**没有任何字段表达「已在其后提交修复」** |
+
+第二行这一格本 PR 现场演示了一次：i1/i2 两条都成立、都已修并各带锁（MP7 变异、P8 负控），而记录 `db3c1d29…json` 的 status 仍是 `self_play_blocked`，且它按父提交入库、`deep-review` 只服务当前 HEAD ⇒ **永久无法回补**。这正是 D8 说「不在本 PR 做放宽闭合词表」的原因：能表达「已修」的字段本来就该由引擎持有，仓侧硬凑等于再造一份口径。
+
+另记一条与探针读数的对账：`minScore=4` 与 `scoreThreshold=8` 的差距（4 < 8）使 ① 在这一轮直接不可能；驱动把 `currentRound` 报成 `cfg.maxRounds` 后 ③ 命中 —— 与 `node scripts/ccg-convergence-probe.js` 的 ladder 读数**逐字同形**。这是「探针测的是真路径」而不是「夹具自证」的唯一现场证据。
 ## 否证与残留（不假装已闭合）
 
 - **被否证的初判**：「大概是 stall 判据误触」。实测 `isStalled([单轮]) ⇒ stalled=false（轮次不足）`，stall 出口在验证层**根本不可能触发**；真正的落点是 ③。原表述已作废。

@@ -83,11 +83,35 @@ sync_backfill_owner: 本会话（合并后立即回填）
 
 - 保留门禁：变更类型与隔离 ✅ | TDD ✅ | 变异反证 ✅ | 接线三守卫 ✅ | gitignore ✅ | 行尾对账 ✅ | 文档同步 ✅ | 远程同步 PENDING
 
-## 7. QM-6 判定
+## 7. QM-6：真实双模型评审的逐条处置
 
-`scripts/ccg-review-decider.js` 对本 PR 的规模判定与产物随提交入库（`.ccg/reviews/<key>.json`，pre-commit 自动暂存）。判定为 **dual** 时，本轮按用户先前指令以真实双模型执行为准；判定为 **single** 时不强制跨模型。
+`scripts/ccg-review-decider.js` 判 **DUAL**（变更 416 行 > 200 行阈值、5 个源文件、无敏感命中）。按用户指令**真跑**双模型（proposer=opencode / critic=claude，跨家族校验通过），不是内部模拟。
 
-**不假装闭合的部分**：本 PR 让「闭环不可达」这件事**可测、可报警**，它本身**不使闭环可达**。三条出路（真跑多轮 / 改上游引擎 / 人工放宽闭合词表）全部列在 `tasks.md` §7，其中第三条按 AGENTS.md 明文须人工过目，agent 不得自动合并。
+| 项 | 严重度 | 裁决 | 处置与证据 |
+| --- | --- | --- | --- |
+| i1 夹具只复制 engine.js+驱动 | Critical | **upheld** | 会让 `require` 失败把「偏离(1)」伪装成「失明(2)」，与本篇「三档不混档」自相矛盾 ⇒ P3 改整目录复制 + 文件数下界断言 |
+| i2 `locateVendor` 回落仓库自身目录后 `require()` | Critical | **upheld** | **真代码执行面**：任何 PR 提交 `scripts/engine.js` + `scripts/ccg-deep-review.js` 即可让 Gate 2b6 执行该 PR 的代码；其余两个候选都需写权限 ⇒ 威胁面为本 PR 新造。删回落 + 新增 P7 结构锁；变异 **MP7 实测指名让 P7 变红** |
+| i3 CHANGELOG 含工程细节 / 写着 PENDING | Warning | dismissed | 既有 489 个标题块同体例，Gate 2c3 只判集合单调性（实测 489→490 PASS）；PENDING 是协议规定的中间态，当缺陷处理会诱导未合并先写 PASS |
+| i4 放行依赖注释里的行号 | Warning | dismissed（换判据接住） | 机制不成立：生效的是路径规则（`git check-ignore --no-index -v` 打印规则命中行）。但换成**规则顺序**就有牙 ⇒ 新增 P8，负控「末尾追加同名忽略规则」**实测 CAUGHT**，还原 `md5 ok=true` |
+| i5 正则无缓存 | Warning | dismissed | 实测 8 条用例约 1.5 秒；加缓存会把「读不到」与「读到旧值」合并，削弱 D2 的现读前提 |
+| i6 未引用 tasks §7 三条出路 | Warning | dismissed | 同块「诚实边界」原文逐字已引用，指控的事实前提不成立 |
+
+裁决按引擎模板逐条填 `prosecution / defense / verdict / rationale`，**写前校验**每格非空、verdict 只取 `upheld|dismissed`、`critiqueFingerprint` 不碰；**status 一律由引擎算，仓侧不手写**。复用存档 critique 的 resume 路径零模型调用完成判定：`status=self_play_blocked`，`blocking=[i1 i2 self_play_upheld]`。
+
+### 7.1 本 PR 自己就是所描述结构的一个实例（不是修辞）
+
+评审日志两行 —— `收敛判定: status=self_play reason=selfPlay minScore=4`、`待裁决 6 条；其中高危域必须外部复核 0 条` —— 与探针 ladder 读数逐字同形，同时**收窄了本篇原来的表述**：③ 的阻断不只在 crypto 域，`self_play_upheld` 与域无关。两种子形态修法不同（高危域在 ③ 内永解不开；upheld 项能判 `dismissed` 但判对了就不能撤）。
+
+更硬的一条现场：i1/i2 **都已修并各带锁**，而记录 `db3c1d29…json` 仍带 `self_play_blocked` 留在变更集里 —— 引擎没有任何字段表达「已在其后提交修复」，且该记录按父提交入库、`deep-review` 只服务当前 HEAD ⇒ 永久无法回补。这就是 D8 里「不在本 PR 放宽闭合词表」的原因：仓侧硬凑等于再造一份口径。**因此本 PR 由 `check-pr-exec-record --mode=enforce` 判不可自动合并，需人工合并。**
+
+### 7.2 修复后的复跑读数
+
+| 判据 | 读数 |
+| --- | --- |
+| `node --test scripts/ccg-convergence-probe.test.js` | **tests 8 / pass 8 / fail 0**（P1–P8），rc=0 |
+| 变异 MP7（把 `__dirname` 回落加回来） | CAUGHT，failing=P7 指名；还原 `md5 ok=true` |
+| P8 负控（`.gitignore` 末尾追加同名忽略规则） | CAUGHT，failing=P8；还原 `md5 ok=true` |
+| `scripts/openspec-sync-check.js` | OK |
 
 ## 8. 与 #3724 的关系
 
