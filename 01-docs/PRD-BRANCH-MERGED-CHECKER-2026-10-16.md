@@ -46,6 +46,7 @@ AGENTS.md 把「多会话共用写面」列成 5 个文件名（`CHANGELOG.md`�
 2. 不等时**既不得直接判丢失，也不得直接放行**，必须同时成立两条才判 `DRIFT-ATTRIBUTED`：
    - **(a) 双向行级多重集**：
      我的**新增行**（`git diff --unified=0 <base> <tip> -- <f>` 的 `+` 侧）逐条要求在 `<mergeSHA>:<f>` 中出现次数 ≥ 我给的次数；
+     **（⚠️ v2 修正：这里的 `<mergeSHA>` 应为 `--against`（默认 `origin/main`）——参考系钉在 merge 快照会在 re-sync 型分支上大面积假报丢失，机制与读数见 §8）**
      我的**删除行**（去重、去空白、`trim` 后）逐条要求在 `<mergeSHA>:<f>` 中出现次数 **恰为 0**。
      单向只证「我的东西都在」，证不出「我删掉的那一行被后续合并带回来了」。
    - **(b) 具名归因提交**：`<mergeSHA> -- <f>` 的历史里，除本次合并自身外**至少还有 1 个提交**碰过该文件，并把它的
@@ -59,14 +60,19 @@ AGENTS.md 把「多会话共用写面」列成 5 个文件名（`CHANGELOG.md`�
 ## 4. CLI 合同
 
 ```
-node scripts/check-branch-merged.js --ref <branch|sha|retire/tag> [--merge <sha>[,<sha>...]] [--json] [--repo <path>]
+node scripts/check-branch-merged.js --ref <branch|sha|retire/tag> --merge <sha>[,<sha>...] [--against origin/main] [--base <ref>] [--json] [--root <path>]
 ```
 
 - `--ref` 必填；缺省、未知旗标、非法取值一律退出码 2（参数不得静默忽略）。
-- `--merge` 缺省时按 `git log origin/main --grep='(#NNNN)$' --format=%H` 从分支名反查；**一个分支被两个 PR 用过时必须传两个**
-  （先例：`bf-3458-clock-rot` #3458/#3462）。文件集按每个 merge SHA 各自的差量分别取、分别判，最后汇总。
+- `--merge` **必填**，但 v2 起它只是**归因排除集**（告诉判据"哪几笔是这些 PR 自己"，别把它们当他人差异）。
+  上一版这里写的「缺省时按 `git log origin/main --grep='(#NNNN)$'` 从分支名反查」**从未实现**——反查要引入 `gh`
+  依赖与网络调用，与本片"离线可跑"的约束冲突；实现与文档在 #3749 的记录里已按"仍由人传"承认过一次，
+  本次把这句不实的 CLI 描述一并改掉，不留第二处。
+- `--against`（v2 新增）= **判定域**。默认按 `origin/main` → `main` 解析；显式传入而取不到 ⇒ 退出码 2（不得静默退回 merge 快照，
+  那等于把"判据没跑"伪装成"分支干净"）。回落是允许的，但每次运行都在末行打印 `against=<name>@<sha>`，让落点可核对。
 - 逐项输出 `<f> IDENTICAL | DRIFT-ATTRIBUTED(<归因提交>) | LOST | UNATTRIBUTED | JUDGE_ERROR`，
-  末行 `[BRANCH-MERGED] ref= merges= files= identical= drift= lost= unattributed= judge_error=`。
+  末行 `[BRANCH-MERGED] ref= against=<name>@<sha> merges= files= identical= drift= lost= unattributed= judge_error=`。
+- 差量为空分两档，方向相反，不得合并：`ref == against` ⇒ 参数误用 ⇒ **2**；差量为空而两者不同 ⇒ **通过**并打印明说（见 §8）。
 - 退出码：**0** 全部落地（可删）/ **1** 存在 `LOST` 或 `UNATTRIBUTED`（禁止删）/ **2** 判据自身故障（fail-closed，同样禁止据此删）。
 - 只读：本工具**不**执行任何 git 写、不删分支、不建标签；它只回答「删之前该不该停」。
 
@@ -102,3 +108,33 @@ M5 把改动集取成「不带 merge-base 的两点差」（T2/T3 的计数会�
 - **不**改 `scripts/safe-worktree-remove.ps1`、**不**在这里执行分支删除（删除仍按 R1–R7 与 `retire/` 标签走）。
 - **不**把本脚本接成 required check：它是**删除前的本地闸门**，不是 PR 闸门；接进 CI 的只有它自己的测试。
 - **不**动 `.github/workflows/` 的分支保护规则、**不**动 `CI_IGNORED_PATHS` 白名单（这两类属「改谁来守门」，须人工过目）。
+
+## 8. 上线当天被自己的清理任务否证 —— 判定域必须从 merge 快照换成「主干现在」（2026-10-17 v2）
+
+第 3 节写的 (a) 半句「要求在 `<mergeSHA>:<f>` 中出现次数 ≥ 我给的次数」是**错的参考系**，本确整片把它改成 `--against`（默认 `origin/main`）。
+上面 2–3 节的口径保留不改写，因为「双向行级 + 具名归因」这套机制本身是对的，错的只是它比的是哪棵树。
+
+**否证读数（当场，非推算）**：`toutiao-ms-token`（tip `b0df701cf`，7 个已合并 PR）被 v1 报 `lost=65 files=66`，耗时 48 s。
+拿判据本体自己的导出函数（`compareAddedLines` / `splitLines`）逐行问「那些被点名缺失的行在不在当前 `origin/main`」得：
+**`named_lines=3628 present_on_current_main=3369 ABSENT=259`** —— 93% 的"丢失"是判据自己造出来的。
+
+**机制（两个缺陷叠在一起，缺一不可解释现场）**：
+
+| 缺陷 | 形状 | 为什么必然逐份红 |
+|---|---|---|
+| D1 差量口径 | 分支 re-sync 过 main ⇒ `merge-base(ref, merge)` 退化成 **merge 自己** | `diff base..ref` 于是包含**别人后来合进主干的行**，而那份快照按定义还没有它们 |
+| D2 多 PR 聚合 | 一个文件被同分支的多个 PR 分别改 | 每份快照只含其中一部分 ⇒ **逐份 LOST** ⇒ 跨 merge 取 best 仍是 LOST |
+
+**修法（v2）**：判定域 = `--against`（默认 `origin/main`，取不到回落 `main`，落点一律打印，显式传入取不到即退出码 2）；
+差量起点 = `merge-base(ref, against)`，别人的行天然进不了判定域；`--merge` 降级为**归因排除集**（哪笔是本次合并自身）。
+删除行的复现改为按主干现状判，并新增**逐行**归因：一条又出现在主干上的删除行，必须由 `base..against` 里某笔具体提交
+`git log -S<该行>` 指认出来才放行，指认不到仍算 `LOST`（把「归因类别」当放行依据是本仓的老错型）。
+
+**顺带纠正的一条自伤**：v1 把「改动集为空」一律判成判据故障。在 v2 的参考系下，一个已完全落地（且 re-sync 吸收了后续 main）
+的分支相对主干就是**无差量**——那是通过态。把它做成红灯，等于每清一个干净分支都要先撞一次闸门，而"红了就停手"这条规矩本身是对的，
+于是训练出来的行为是绕过闸门。v2 分成两档：`ref == against` ⇒ 参数误用 ⇒ 退出码 2；差量为空而两者不同 ⇒ 通过并打印明说。
+
+**T6 的契约随之改变**（原先断言「漏传第二个 merge 必须红」）：那条断言测的是判据参考系太窄，不是"内容没进主干"。
+v2 起 `--merge` 少传只影响归因，不影响放行，故把它改写为显式的新契约（少传**不得**造假红）。这是一次**放宽**，
+但放宽的是判据自己的参数耦合，不是判定强度：判定域从"几份快照"扩到"主干"，可证明的内容反而变多了。
+
