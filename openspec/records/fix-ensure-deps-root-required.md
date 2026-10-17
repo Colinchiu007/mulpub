@@ -1,8 +1,6 @@
 ---
 branch: fix-ensure-deps-root-required
 date: 2026-10-17
-sync_reason: 本 PR（fix-ensure-deps-root-required）的远程同步待合并后由后续 docs PR 就地改写为 PASS 并删除本登记字段
-sync_backfill_owner: fix-ensure-deps-root-required 分支作者会话（合并收尾时回填）
 ---
 
 # 本次执行记录：fragileFor 的 root 必传化——堵住「缺参调用点静默降级」（fix-ensure-deps-root-required，2026-10-17）【混合 PR】
@@ -122,5 +120,8 @@ critic 给出 4 条问题，其中 3 条进入自扮演裁决；这 3 条里 **i
 | CCG 提交门禁 | pre-commit 5 项 |
 | QM-1 打包 | 未改 `apps/desktop/electron/`，不适用 |
 | QM-6 深度评审 | 见 `.ccg/reviews/<sha>.json` 与 `.adversarial/` 产物 |
+| 回填型补充 | 混合 PR 走全量模板，为满足「两形态同写」补声明式 bullet |
 
-| 远程同步 | PENDING |
+- 远程同步 PASS（PR #3853 → `6e4bf010`，回填与 sync_* 删除同一次提交）
+
+| 远程同步 | PASS（PR #3853 squash 合并 → `6e4bf010c0f14955594b44e10d20a85d9c9434ca`，2026-10-18T01:52 前后；回填与 sync_* 删除同一次提交） |
