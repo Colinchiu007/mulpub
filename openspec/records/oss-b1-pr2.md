@@ -121,6 +121,27 @@ PR head `d322cd46c` 的 run `38932245217`：attempt 1 只有 1 个作业失败�
 
 **主干既有红：如实披露、本 PR 不代修** —— `visual-test.yml` 在 main 上连续 15 条 run **全 failure**（2026-10-16T08:18:47Z → 19:41:28Z，他人会话存量），而本 PR head 的 23 条 check-runs 里**没有该 workflow 的检查**（不在本 PR required 集内）⇒ 不构成阻塞，也不是本 PR 引入。
 
+### 合并后 main push 回读：按「(merge SHA, workflow)」逐格（2026-10-17）
+
+本合并 push（`f818c214e0df595e354f75bf39e1137862316b03`，2026-10-17T06:44:11Z，已按 `git log origin/main --grep='(#3677)$'` 取证）触发的 6 条 workflow 读数：
+
+| workflow | run id | 结论 |
+|---|---|---|
+| `quality-gate`（本 PR 唯一改动的那条 workflow） | `39011008215` | **success** |
+| `Visual Tests` | `39011008185` | success |
+| `GUI Tests` | `39011008181` | success |
+| `Build & Release` | `39011008180` | success |
+| `债务熔断门禁` | `39011008210` | success |
+| `Electron CI` | `39011008179` | **failure**（非本次合并引入，见下） |
+
+**`Electron CI` 的红是他人会话存量、起始早于本合并 2 小时以上，本 PR 不代修** —— 该 workflow 在 main 上自 `826fa7e13`（2026-10-17T04:42:04Z，run `39003545976`，PR #3782「把 5 个受管构建产物移出版本控制」）起连续 6 条 run 全 failure，本合并是这条链的**第 6 条**（前 5 条提交为 `826fa7e13` / `036a98176` / `150ee1c1b` / `c120b5a06` / `96ed81711`，均早于本 PR 合并）；此前的 `0a0d3581b`（04:15:58Z）为 success。
+
+**根因已定位到行**：PR #3782 为消除 `build:vue` 后的 stat-dirty，把 `apps/desktop/electron/preload/index.bundle.js`、`apps/desktop/electron/monitor-preload.bundle.js`、`apps/desktop/electron/home-shell-preload.bundle.js`、`apps/desktop/electron/services/generated/card-paginator.iife.js`、`apps/desktop/electron/services/stealth/stealth-preload-enhanced.bundle.js` 移出版本控制，并在 `.github/workflows/quality-gate.yml` 的**三个 job**里补了「Build preload bundles」/「Build paginator」步骤（改动面实测：`modified|.github/workflows/quality-gate.yml`），**唯独漏了 `electron-ci.yml`**。该 job 的失败步骤是 `Unit tests (Vitest, non-Electron, single-worker deterministic)`（第 9 步），失败形态是 `Error: ENOENT: no such file or directory, open '<…>/apps/desktop/electron/preload/index.bundle.js'` 与 `AssertionError: 缺少 monitor-preload.bundle.js`，涉及 10 个用例文件（`src/overlay-view-suspension` / `src/shell-mode-6b` / `electron/core/preload-path` / `electron/ipc-handlers/podcast-plan-preview-ipc` / `electron/ipc-handlers/podcast-script-ipc` / `electron/tests/build-preload` / `electron/tests/ipc-contract` / `electron/tests/viral-pr2-preload` / `electron/services/stealth/preload-variant` …）。
+
+**它不阻塞任何 PR（决定性证据，非推断）**：该步骤带 `if: github.event_name != 'pull_request'` ⇒ PR 侧一律 `skipped`；现场取证：PR #3753 的 `electron-tests`（job `117335198916`）步骤 9/10 均 `skipped` 而整个 job `success`（`gh pr checks 3753` 亦为 `pass`）⇒ required 由 PR 侧那次判定，main push 的红不影响任何 PR 的合并。修法是给 `electron-ci.yml` 补同一段构建步骤；由于该步骤是 push-only，**修复 PR 在 PR 侧无法自证**（步骤被 skip），必须在 `workflow_dispatch` 上先验、合并后再回读 main push。该修复属改他人 feature 的 workflow，本 PR 不代修，作为残留风险移交。
+
+**同一节前一版本里「`visual-test.yml` 连续 15 条全 failure」的现状态更正**：那 15 条是 2026-10-16T08:18:47Z → 19:41:28Z 窗口内的**历史读数**；自 2026-10-17T02:45:10Z（`d68696798`）起该 workflow 在 main 上连续 11 条 **success**（含本合并 push 的 `39011008185`）⇒ 该存量红已被他人修复、当前不存在，勿据前文判断主干现状。
+
 **回填取证的自我纠错（一次，勿复述成「中文标题不可锚定」）**：AGENTS.md 原式是 `git log origin/main --grep='(#NNNN)$'`（**不带反斜杠**）。本轮我先写成 `--grep='\(#3677\)$'` 读到 **0 行**，那是**我的转义错**：git `--grep` 默认 **BRE**，`\(…\)` 是**捕获组**，该式等价于「行尾前还有一个 `)`」，对 `…（依赖接入方案 A）(#3677)` 这种以 `)` 收尾的标题必然打不中；去掉反斜杠立即命中 `f818c214`。同一形态在英文收尾标题 `(#3805)` 上复验，同样是「转义式 0 行 / 不转义命中」⇒ **与语言无关，照原式执行即可**。
 
 ### 两条本机红：pristine 对照实测定性（一条 stale base、一条非本分支引入）
