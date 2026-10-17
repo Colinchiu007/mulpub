@@ -19,8 +19,10 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "self_play_resolved",
+    "performedBy": "ccg-deep-review(claude) + agent adjudication",
+    "findings": null,
+    "note": "已逐条裁决 7 条：upheld 已修 [i1, i2, i5, i7]，dismissed 有据 [i3, i4, i8]。裁决全文见 ccg-deep-850e4d8f/adjudication.json。 高危项 i8 以「迁移方法仅在 type===lifetime 时 save()，本身幂等 + 已有幂等用例」消除争议。",
+    "resolvedAt": "2026-10-17T14:36:07.726Z"
   }
 }
