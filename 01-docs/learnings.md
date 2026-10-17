@@ -20231,3 +20231,4 @@ CI 把 `QG Static` 钉红在 Gate 2c，红的是 `check-unwired-tests.test.js` �
 - **pitfall｜node --check 不执行模块**：数据来源替换类改动必须 require 实跑取证（迁移后缺 require 被评审抓出）。
 - **pattern｜CCG 循环收敛**：填裁决后同 SHA 复跑、不提交；历史判定 upheld 如实置 needs_revision 写修复去向。
 - **pitfall｜mime 映射抄 N 份**：已收单一真源（image-mime.js），归一/不猜/别名三纪律；api-publish-engine 零依赖豁免显式登记。
+- **pitfall｜共享根被并发会话占用时不在其上 commit**：其本地未推提交 + 脏项会被一起推走；正确做法是核出自己的改动、搬进 git worktree add -b <分支> origin/main 单独走 PR，共享根保持原样并如实登记。
