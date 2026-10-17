@@ -237,6 +237,7 @@ partial 含「这一期已登记到本地频道」+ 一个只重试 feed 的出�
 | 键路径 | zh（用户可见，逐字） | en（用户可见，逐字） |
 | --- | --- | --- |
 | `podcast.episode.audioDegraded` | 检测到静音占位旁白，已阻止上传——这不是生成失败，是素材本身不可用。 | Silent placeholder narration detected, so the upload was blocked. This is unusable source material, not a generation failure. |
+| `podcast.episode.billingNotice` | 文本出期会逐块调用 TTS 服务商并产生计费，请先确认用量与费用 | Publishing from text calls the TTS provider per chunk and incurs charges. Confirm usage and cost first. |
 | `podcast.episode.cancel` | 取消出期 | Cancel this episode |
 | `podcast.episode.cancelAccepted` | 取消请求已登记，链会在下一个采样点停下；最终状态以下方结果为准。 | Cancel request recorded. The chain stops at the next sampling point; the result below is the authoritative state. |
 | `podcast.episode.cancelDisabled` | 本次发布未回传「是否还可取消」，取消按钮暂不可用（关闭本浮层同样不会停止发布）。 | This publish did not report whether it can still be cancelled, so the cancel button is unavailable (closing this dialog does not stop the publish either). |
@@ -254,6 +255,9 @@ partial 含「这一期已登记到本地频道」+ 一个只重试 feed 的出�
 | `podcast.episode.invalid` | 单集字段不合格，已停止出期，请按下方逐条修正。 | The episode fields are not valid, so the publish stopped. Fix each issue listed below. |
 | `podcast.episode.measureFailed` | 无法实测音频的时长或字节，已停止出期（不得用申报值代替）。 | The audio duration or size could not be measured, so the episode publish stopped (declared values are not accepted instead). |
 | `podcast.episode.measured` | 实测：时长 {duration} 秒 · 字节 {bytes} · 类型 {mime} | Measured: {duration}s duration · {bytes} bytes · {mime} |
+| `podcast.episode.originChannel` | 来自频道设置 | from channel settings |
+| `podcast.episode.originPreference` | 来自你的音色偏好 | from your voice preference |
+| `podcast.episode.originProviderDefault` | 来自服务商默认 | from provider default |
 | `podcast.episode.partial` | 这一期已登记到本地播客频道，公网 feed 尚未更新。 | This episode is registered on the local podcast channel; the public feed is not updated yet. |
 | `podcast.episode.phase.attach` | 登记单集 | Attach episode |
 | `podcast.episode.phase.buildFeed` | 重建 feed | Rebuild feed |
@@ -263,6 +267,9 @@ partial 含「这一期已登记到本地频道」+ 一个只重试 feed 的出�
 | `podcast.episode.phase.probe` | 实测时长与字节 | Measure duration and size |
 | `podcast.episode.phase.uploadAudio` | 上传音频 | Upload audio |
 | `podcast.episode.phase.uploadFeed` | 上传 feed | Upload feed |
+| `podcast.episode.planBlocks` | 将切成 {n} 块 | Will be split into {n} chunks |
+| `podcast.episode.planCodepoints` | 合计 {n} 码点 | {n} code points in total |
+| `podcast.episode.planVoice` | 服务商 {provider} · 模型 {model} · 音色 {voice} | Provider {provider} · Model {model} · Voice {voice} |
 | `podcast.episode.progressUnavailable` | 本次发布未提供逐相位实时进度，进度条只在本次结束后按轨迹回看；这不表示卡住。 | No per-phase live progress is provided for this publish; the bar is only a trail you can read after it finishes. That does not mean it is stuck. |
 | `podcast.episode.running` | 发布进行中… | Publishing… |
 | `podcast.episode.sizeMismatch` | 上传回来的字节与本地实测不一致，这一期没有挂上。 | The bytes returned by the upload do not match the local measurement, so this episode was not attached. |
@@ -365,10 +372,14 @@ partial 含「这一期已登记到本地频道」+ 一个只重试 feed 的出�
 | `podcast.errors.PODCAST_STORE_CORRUPT` | 播客数据文件读不出来（可能已损坏），已停止写入以免扩大损坏 | The podcast data file cannot be read (it may be corrupted). Writing stopped to avoid making it worse. |
 | `podcast.errors.PODCAST_STORE_UNAVAILABLE` | 播客数据目录当前不可用（权限或磁盘问题），请稍后重试 | The podcast data directory is unavailable right now (permissions or disk). Try again later. |
 | `podcast.errors.PODCAST_TTS_BILLING_UNCONFIRMED` | 文本出期会逐块调用语音合成服务并产生费用，请先确认用量与费用 | Publishing from text calls the speech synthesis service per chunk and incurs cost. Confirm usage and fees first. |
+| `podcast.errors.PODCAST_TTS_CHUNK_UNSAFE` | 稿件含无法安全切分的块，本期不发布 | Script contains a chunk that cannot be split safely |
+| `podcast.errors.PODCAST_TTS_COPY_TOO_SHORT` | 正文少于一期口播的下限 80 码点 | Text is shorter than the 80 code point minimum for one episode |
+| `podcast.errors.PODCAST_TTS_TITLE_INVALID` | 标题为空或过长，无法出期 | Title is empty or too long for one episode |
+| `podcast.errors.PODCAST_TTS_VOICE_UNRESOLVED` | 未解析到可用音色，请检查服务商与音色设置 | No usable voice resolved; check provider and voice settings |
 | `podcast.errors.PODCAST_VIDEO_NOT_FOUND` | 找不到成片文件，请回结果页重新生成或重选路径 | The final video file cannot be found; regenerate it on the result page or pick the file again |
 | `podcast.errors.fallback` | 发生未知问题（{code}） | Unknown issue ({code}) |
 
-共 131 键；逐键 zh/en 成对且均为非空串。
+共 142 键；逐键 zh/en 成对且均为非空串。
 
 ## 7. 功能逻辑（按刀次）
 
