@@ -467,6 +467,13 @@ describe('GUI/CI 工作流门禁契约', () => {
     expect(cliE2eBudget.findNextCaseIndex('\n  describe("x", () => {});', 0)).toBe(-1);
     expect(cliE2eBudget.findNextCaseIndex('', 0)).toBe(-1);
 
+    // 套件名必须承重（QM-6 前端轴 R2-6）：探针按「文件 + 用例名」匹配，套件名原先只是个被拼进
+    // 样本行的常量——它漂移时拼出来的行照样能被解析，等于不承重。这里反过来要求**真实源文件里
+    // 的 describe 字面串必须等于该常量**，于是改名要么两处一起改、要么这条红。
+    const rawSelf = fs.readFileSync(__filename, 'utf8');
+    expect(rawSelf, '套件名常量与真实 describe 字面串脱钩 ⇒ 拼样本行的常量不承重')
+      .toContain("describe('" + cliE2eBudget.GUI_CLI_E2E_SUITE_NAME + "'");
+
     // 剥注释这条本身也要有正负控（后端轴 #1）：块注释里的病灶引用必须被剥，
     // 而 URL 里的 `//` 不许被误剥（误剥会把真违规洗白）。
     expect(cliE2eBudget.stripComments('a /* 旧预算 10000ms 的说明 */ b')).not.toContain('10000');
