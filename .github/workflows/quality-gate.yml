@@ -157,6 +157,19 @@ jobs:
         shell: bash
         run: node --test scripts/lib/ccg-gate-security-filter.test.js
 
+      # --- Gate 2c6：竞品缺陷「同型风险」四条静态锁 ---
+      # 动因（2026-10-17）：逆向衍生文档 `derived/竞品缺陷同型风险清单.md` 从竞品 8 个 CRITICAL 抽出 12 类
+      # 同型风险，核到本仓后发现「当前是对的，但没有测试会阻止后来者把它改坏」：
+      #   L1 转义表完整性（竞品 C1：字符类含 `/` 但 map 无 `/` ⇒ 静默替换成 "undefined"）
+      #   L2 while(true) 必有出口（竞品 C2：无界重试 ⇒ Promise 永不 settle）
+      #   L3 catch 不得重调被包裹函数（竞品 X-C1：Promise 永不 settle ⇒ 流程死锁）
+      #   L4 组件内 setInterval 必须配 clearInterval（竞品 X-20 型：定时器不 dispose）
+      # 落点必须在 changes 作业：docs-only PR 会把 static-gates 整个短路（与 Gate 2c2/2c3/2c4/2c5 同一先例）。
+      # 被测模块与测试只 require node 内置，符合本作业无 Install deps 的约束。
+      - name: "Gate 2c6 - Same-type risk locks (changes job)"
+        shell: bash
+        run: node --test scripts/same-type-risk-locks.test.js
+
       # --- Gate 2c4：CCG 判定器（ccg-review-decider）的判据回归锁 ---
       # 动因（2026-10-15）：该脚本此前**零测试覆盖**（grep 只命中一条注释），
       # 于是两个判据缺陷长期无人发现：
