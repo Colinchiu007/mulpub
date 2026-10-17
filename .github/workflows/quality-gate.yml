@@ -1384,11 +1384,42 @@ jobs:
               $darkExit = $LASTEXITCODE
               Write-Host "[GATE-7] suite exits: pixel=$pixelExit views=$viewsExit views-supplement=$viewsSuppExit dark=$darkExit"
 
+              # ⛔ 校验型失败必须阻断（2026-10-17，visual-checks-must-block）。
+              # 上面 1334-1342 的注释说「views 两套的比较结果不另设门禁」，理由是 Gate 7b 的
+              # 「基线 == 本次渲染，0 px」严格强于它们自己的 6% 阈值 —— 但那**只对像素域成立**。
+              # 这两套实际跑的是 runViewTest：截图 + 逐条 `checks` 选择器断言，**不做像素比对**，
+              # 所以 Gate 7b 对它们**没有任何判定面**。
+              # 实测后果（判据取产物，非推断）：main 上 `collection-confirm-dialog` 断言失败
+              #（页面区块标题 / 删除入口消失）在 Gate 7 里只留一行日志
+              # `suite exits: ... views-supplement=1`，QG Visual 照常 pass；唯一红的地方是
+              # `visual-test.yml` —— 而它不在 PR 上跑、也不是 required 上下文，于是连红 60+ 次。
+              # 判据取「两轮都红」：选择器断言本身是确定性的，但为不让偶发采集抖动变成所有 PR 的
+              # 常量红，非零就当场重跑一次，两次都非零才阻断（与 Gate 7b 的两轮甄别同一哲学）。
+              $checksFailSuites = @()
+              if ($viewsExit -ne 0) {
+                Write-Host "[GATE-7] views 套件 rc=$viewsExit —— 按两轮甄别重跑一次"
+                pnpm.cmd run test:visual
+                $viewsRetryExit = $LASTEXITCODE
+                Write-Host "[GATE-7] views 重跑 rc=$viewsRetryExit"
+                if ($viewsRetryExit -ne 0) { $checksFailSuites += 'views' }
+              }
+              if ($viewsSuppExit -ne 0) {
+                Write-Host "[GATE-7] views-supplement 套件 rc=$viewsSuppExit —— 按两轮甄别重跑一次"
+                pnpm.cmd run test:visual:supplement
+                $viewsSuppRetryExit = $LASTEXITCODE
+                Write-Host "[GATE-7] views-supplement 重跑 rc=$viewsSuppRetryExit"
+                if ($viewsSuppRetryExit -ne 0) { $checksFailSuites += 'views-supplement' }
+              }
+
               # 退出码 3 = 有视图**从未渲染出来**（就绪超时）：确定性的路由/选择器故障，
               # Gate 7b 的两轮 flake 甄别对它不适用，必须在本步骤当场拦。
-              # 退出码 1 = 像素/校验类失败，照旧只留痕、交给 Gate 7b —— 把它也接成阻断，
-              # 会把历史上确实存在的采集抖动变成所有 PR 的常量红（#2914 同 sha 两次 attempt
-              # 一档红一档绿即现场；Gate 7b 的两轮机制正是为此而生）。
+              # 退出码 1 的处置按**套件类别**分流（2026-10-17 修正，原先一律"只留痕"是漏判）：
+              #   · `pixel` / `dark`（像素域）→ 只留痕，交给 Gate 7b 的两轮甄别。理由成立：
+              #     Gate 7b 判「基线 == 本次渲染，0 px」严格强于 6% 阈值，且像素采集确有抖动
+              #     （#2914 同 sha 两次 attempt 一档红一档绿即现场）。
+              #   · `views` / `views-supplement`（**校验域**：runViewTest 的 checks 断言，不做像素比对）
+              #     → 上面已按两轮甄别接成阻断。Gate 7b 对它们**没有任何判定面**，
+              #     一律"只留痕"等于这两个套件的失败永远没有阻断面。
               $notReadySuites = @()
               if ($pixelExit -eq 3) { $notReadySuites += 'pixel' }
               if ($viewsExit -eq 3) { $notReadySuites += 'views' }
@@ -1422,6 +1453,15 @@ jobs:
           if ($pixelExit -ne 0) {
             Write-Host "[GATE-7] Pixel diff failed - see artifacts for details"
             exit $pixelExit
+          }
+          # 校验型断言两轮均失败 ⇒ 阻断。这一格是 2026-10-17 之前**完全缺失**的判定面
+          #（详见上面 $checksFailSuites 处的注释）：页面区块 / 删除入口这类 UI 契约破坏
+          # 既不进像素域、也就不会被 Gate 7b 判到，只能靠这里拦。
+          if ($checksFailSuites -and $checksFailSuites.Count -gt 0) {
+            Write-Host "[GATE-7] FATAL: 校验型断言两次均失败 — 套件: $($checksFailSuites -join ',')"
+            Write-Host "[GATE-7] 这不是像素抖动：runViewTest 的 checks 是「页面区块/入口是否存在」的确定性断言。"
+            Write-Host "[GATE-7] 排障入口：该套件日志里点名了失败用例与缺失的 check 名。"
+            exit 1
           }
           if ($judgeExit -ne 0) {
             Write-Host "[GATE-7] Agent visual report generation failed"
