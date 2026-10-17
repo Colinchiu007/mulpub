@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "issues": [
+    {
+      "id": "i1",
+      "severity": "Critical",
+      "dimension": "feasibility",
+      "finding": "M2 states `addedBy` null → derived cases red, compatible green; but `null ∈ mergeLedger` is false, so all become `debt`, not selective. Adversarial expectation contradicts D3 logic.",
+      "suggestion": "Explicitly define `addedBy` null mapping (e.g., `debt`) and align M2 expectation; add separate adversarial case for partial-ledger failure."
+    },
+    {
+      "id": "i2",
+      "severity": "Critical",
+      "dimension": "consistency",
+      "finding": "D3 table lists `derivedClosed` and `prematureClaim` separately but never defines evaluation priority. If a file is in `mergeLedger` (derived) and also has premature `PASS` text, which wins? Ambiguity creates misclassification risk.",
+      "suggestion": "Specify strict evaluation order: `missingRow` → `inThisChangeset` → `prematureClaim` → `derivedClosed` → `blobClosed` → `debt`; document precedence explicitly."
+    },
+    {
+      "id": "i3",
+      "severity": "Warning",
+      "dimension": "completeness",
+      "finding": "D7 mandates `scripts/lib/merge-ledger.js` as the sole git parser (single point of failure) but provides no rollback or fallback mechanism beyond `ledgerUnavailable`. No isolation test for module corruption.",
+      "suggestion": "Add module-level self-check (e.g., validate `mergeLedger` non-empty when `baseRef` reachable) and explicit fallback to `blobClosed` if parser throws; document in D7."
+    },
+    {
+      "id": "i4",
+      "severity": "Warning",
+      "dimension": "clarity",
+      "finding": "D1 requires CI log verification via `MERGE-LEDGER prs=` print, but design never defines how log extraction works in `quality-gate.yml`, who verifies it, or failure action when line missing.",
+      "suggestion": "Add explicit CI step contract: print format, exit code behavior when `prs=0`, and verification mechanism (e.g., grep in same job or downstream check)."
+    },
+    {
+      "id": "i5",
+      "severity": "Critical",
+      "dimension": "security",
+      "finding": "Proposal cites specific paths (`.github/workflows/quality-gate.yml:52-54`, `scripts/check-unwired-tests.js`) and numbers (`407/407`, `1.03s`) as verified without showing verification command or audit trail; unverified claims treated as ground truth risk fabricated evidence.",
+      "suggestion": "Separate verified claims (with reproducible command) from design assumptions; mark unverified line references as `assumed, not audited` or provide verification snippet."
+    },
+    {
+      "id": "i6",
+      "severity": "Warning",
+      "dimension": "completeness",
+      "finding": "D10 relies on `quality-gate-execution-record` capability that is explicitly `not yet archived` (`grep` empty). Writing `MODIFY` against an undefined spec creates circular dependency: the change depends on a spec that may converge differently.",
+      "suggestion": "Confirm the unarchived change's spec text matches the delta before committing; if divergent, switch `quality-gate-execution-record` to `ADDED` like `openspec-integration`."
+    },
+    {
+      "id": "i7",
+      "severity": "Info",
+      "dimension": "consistency",
+      "finding": "D5 states `staleRecordFields` scope narrows to `blobClosed`, but migration for existing 21 legacy-field pieces is undefined. Design says `derivedClosed` ignores fields (`ratchet` list), yet doesn't specify who cleans those 21 pieces or when.",
+      "suggestion": "Add migration rule: 21 pieces stay `derivedClosed` with legacy fields visible but not red; define cleanup owner (e.g., next PR touching file) and ratchet shrink condition."
+    },
+    {
+      "id": "i8",
+      "severity": "Warning",
+      "dimension": "feasibility",
+      "finding": "D2 requires `derivedClosed` scan domain to reuse `listRecordFiles`, but `listRecordFiles` behavior (basename exclusions, `_exempt/` handling) isn't shown. If `listRecordFiles` and adversarial probe domain differ (as noted in D8), derived results may miss files or include exemptions incorrectly.",
+      "suggestion": "Explicitly bind `derivedClosed` to `listRecordFiles` return value in code; add unit test asserting `derivedClosed` set equals `listRecordFiles` intersect `mergeLedger`, no extra exclusions."
+    }
+  ],
+  "dimensionScores": {
+    "completeness": 6,
+    "consistency": 5,
+    "clarity": 7,
+    "feasibility": 5,
+    "security": 4
+  }
+}

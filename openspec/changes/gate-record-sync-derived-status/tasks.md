@@ -50,6 +50,8 @@
 - [ ] 4.6 workflow 结构自检：`node .github/scripts/check-workflow-structure.js` rc=0，且改过的 `run:` 块喂真解释器做一次 ParseInput（仓规：js-yaml 绿 ≠ PowerShell 能解析）。
 - [ ] 4.7 **打印即门禁**（评审 i4）：判据在 CI 环境下 `prs=0` MUST 非零退出并点名"派生档未生效"；`workflow-contract.test.js` 加一条结构锁——该步骤 MUST 在 `changes` job、MUST NOT 在任何带 job 级 `if:` 的 job。把步骤挪进 `static-gates` 必须红（与 5.1 的 M8 配对，一条行为锁一条结构锁，各测各的）。
 
+- [ ] 4.8 **相邻缺陷登记，不隐身**：`scripts/plan-review.sh` 把评审产物写到**固定目录名** `.adversarial/ccg-plan-design-<critic>/`，不含被评方案的标识 ⇒ 两个会话评不同方案必然互覆盖。本轮实测：本会话跑 plan-review 时覆盖了 commit `f66081aec`（2026-10-15 的 B1 RPA 反检测评审）的 `critique-v1.md`，靠 `git restore` 精确路径救回（恢复后与 HEAD 逐字节相同），本会话产物改存唯一路径 `.adversarial/gate-record-plan-r1/`，并因该目录被 .gitignore 忽略（worktree 收尾即消失）而把原件入库到 `openspec/changes/gate-record-sync-derived-status/reviews/`。修法：目录名带上方案 slug 或内容 hash（与本仓「追加型共用写面会丢工」同族，见旧载体冻结的动因）。是否并入本 PR 由 QM-6 裁定；若不并入，本条转为独立欠账登记，**不得删条目装作没看见**。
+
 ## 5. 验证与收尾
 
 - [ ] 5.1 变异反证 M1–M10（含 M2b/M9/M10）逐条实跑，要求**红集互不相同**且各自指名（不得用"整体 LOADFAIL 一片红"充当证据）。
