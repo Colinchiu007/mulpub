@@ -19963,6 +19963,16 @@ mock 之后测试 realm 里一次 PBKDF2 都没真跑过，于是 `listAccounts(
 第②条是本案的修法，也是 D3 决策的来源：不去修打点管道，而是改判据方向 —— 修管道等于赌
 "迟到打点总在读判据之前到"，那是把竞态换成另一个竞态。
 
+### pitfall:future-timestamp-in-interval-store-becomes-ghost-wait
+
+【陷阱】「间隔 = minInterval − (now − lastTime)」这类时间差判定，若**无条件信任**持久化 store 里的时间戳，
+本机时钟快进/回拨（实测先例：`INVESTIGATE-LOGIN-QR-SLOW-2026-09-25.md` 记录过共享时钟被快进约 7 小时）
+会把「故障时写的未来时间戳」变成 `now − lastTime < 0` ⇒ `remaining = minInterval + |倒挂差|`，
+表现为**远超正常间隔、且随倒挂时长线性放大的幽灵等待**（现场：微信公众号账号 10+ 小时未发布
+仍被「（本账号间隔）」阻塞）。修法：elapsed < 0 视为时钟域损坏，等待钳位到**最多一个完整间隔**
+并出声 + 暴露诊断标记；写入侧同批加「拒绝落盘未来时间戳」闸（容差 60s）。
+**判据**：任何「时间差判定」的单元测试必须含 elapsed<0（未来时间戳）**反向样本**——
+只测过去侧，时钟故障这一侧永远测不出来（本次逃逸链主环）。
 ### pitfall:mutation-driver-zero-hits-first-prove-the-probe-can-see-red
 
 【陷阱】变异驱动报「9 条 MISSED」，实际是**驱动自己叫不出红的是哪几条**：
