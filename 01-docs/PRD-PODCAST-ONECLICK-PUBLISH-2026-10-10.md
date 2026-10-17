@@ -845,6 +845,50 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 
 **验收判据**：① 入口点击后 `story2videoGetProject`（或该页既有取回出口）**至多一次**，且浮层拿到的 `script` 与之逐字相等；② 取回失败时浮层**不挂载**（断言 `openedOnce` 仍为 false 或组件未出现），不得先挂再报错；③ 空正文不得进入 `planPreview`（否则预览会以 `PODCAST_TTS_COPY_TOO_SHORT` 拒绝，用户看到的是一句与「我刚点的这篇」无关的原因句）；④ 文案必须来自既有键，本片**不得**新增失败文案键（新增即须 zh/en 成对并进 §11.5 逐字表）。
 
+#### 7.10.3.4 剩余两枚入口（②-b② / ②-b③）的逐字段合同（2026-10-17 补，docs-only 切片）
+
+> 补这一节的直接原因：②-b 只落了文案库一枚入口（PR #3776）。剩下两枚在 §15.2 里各留一行，但**没有任何一节规定它们的正文从哪取、频道从哪来**。
+> 按 §7.10.4.1 那条已被验证的判据——「实现者能否不问就知道这个值从哪来」——这两枚当时都**不可实现**：
+> 硬接的结果必然是在前端另写一份分块/取文/选频道逻辑，而那正是本 PRD 反复禁止的「两份口径必然漂移」。
+> 本节的定位是**合同先行**：下面的字段与行号均来自当场读码（`RewriteView.vue` / `Publish.vue`，非记忆），实现切片照此落地即可，不再需要重新裁决。
+
+**两枚共用的三条不变量（与 ②-b 已落地那枚逐字同源，不得各写一份）**
+
+1. **浮层不新建**：一律复用 `PodcastScriptEntry.vue`（②-b 已落）与只读预览 `podcast:episode:planPreview`；显示值只来自预览，取不到就整块不显示、绝不回落 `0`。
+2. **频道解析只有一份**：取 `usePodcastChannel()` 的 `activeChannelId` / `ensureChannel()`（§7.10.3.2）。**无默认频道 ⇒ 动作不出现**，而不是弹一个必被宿主①层拒掉的框。
+3. **正文缺席 ⇒ 不挂浮层**：与 ②-b 同判据（先取正文、非空才置 `visible`），否则预览会拿空正文白跑一趟并弹一句无关原因。
+
+**②-b② `RewriteView.vue`（改写结果区）**
+
+| 维度 | 规定 | 现场依据（当场读码） |
+| --- | --- | --- |
+| 数据校验（正文） | 正文 = `rewriteResult.value` 的当前串，**不得**从草稿/历史反查再拼；空白串视为「无正文」，动作不出现 | `rewriteResult.value` 已在三处以 `content: rewriteResult.value` 被消费（`RewriteView.vue:395` / `:424` / `:738`），它是改写结果的唯一持有者 |
+| 数据校验（标题） | 取该页既有的标题来源，与「去发布」共用同一个提取点；不得在入口里另写一份标题拼装（②-b 的教训：`buildPublishFromProject` 是唯一提取点） | 该页保存草稿走 `saveToDraft()`，标题字段在草稿快照内，入口只读不造 |
+| 流程 | 点击 → 解析默认频道 → 取 `rewriteResult.value`（空则不出现）→ 打开浮层 → 浮层调预览 → 用户确认计费 → `episodePublishFromScript`（键 `copy.content`） | 与 §7.10.2 同一条 `runChain`，不为文本链另开流程 |
+| 交互 | 浮层按需挂载、常驻不卸载（关闭不取消发布）；挂起 owner 沿用 `podcast-script-entry-overlay`，**不新增第二个 owner** | AGENTS「应用级浮层弹窗互斥合同」+ `overlay-view-suspension.test.js` 已登记该 owner |
+| 显示项 | 与 §7.10.4 完全一致（块数 / 总码点 / 服务商·模型·音色三段 + 来源标注），复用七把已落键，**不新增 locale 键** | `podcast.episode.plan*` 与 `podcast.voice.origin*` 已在 zh/en 成对落地 |
+| 提示文字 | 复用 §7.10.5 的既有文案与错误码键；改写稿过短同样走 `PODCAST_TTS_COPY_TOO_SHORT`（其 locale 文案自带下限 80，见 §7.10.5 第 2 条） | 带数值的码其文案必须自带那个数——②-b 实测：locale 命中即不再回落主进程 message |
+
+**②-b③ `Publish.vue`（文本类分支）**
+
+| 维度 | 规定 | 现场依据 |
+| --- | --- | --- |
+| 频道来源 | **裁定为默认频道**（同 §7.10.3.2）。§15.2 原文「上下文频道」作废：发布页的上下文是**平台与账号**，与 RSS 频道不同源，不存在可继承的播客频道 | `Publish.vue` 的选择态是平台/账号多选；本仓播客频道只在 `usePodcastChannel` 一处解析 |
+| 正文来源 | `article.content` 的当前值，**含用户在编辑器里的未保存改动**（这是它与文案库那枚的关键差异：文案库要回源取全文，这里就在内存里） | `ArticleEditor` 的 `v-model="article.content"`（`Publish.vue:403`），另有 `:375` 传给 AI 写作面板、`:378` 回写、`:228` 描述框 |
+| 数据校验 | 与 §7.10.1 三层一致：①层 `billingConfirmed === true` 由浮层置真；②层 `copy.content ≥ 80 码点` 等**逐字转发** `validateComposeInput` 的码，宿主不得重映射；③层注入实现齐备 | 唯一实现仍在 `podcast-episode-host.publishFromScript` + `podcast-tts-compose.validateComposeInput` |
+| 一条必须显式回答的副作用 | 发布页的 `article.content` 会被**发布动作本身**与改写面板双向改写。入口只**读**它，不得为出期做任何归一化/落盘/追加（那是 §7.6 与发布链的事）；若将来要「出期即固化一版草稿」，必须另立切片并先补发布链的幂等判据 | `:378` 的 `@apply-content` 会写 `article.content` 并带 `rewriteHistoryId`，说明该字段是在途状态而非快照 |
+| 交互 / 显示项 / 提示文字 | 与 ②-b② 三行逐字相同（复用同一浮层、同一预览、同一组键） | 同上 |
+
+**验收判据（两枚各一份，缺一不可）**
+
+1. 无默认频道 ⇒ 该入口在 DOM 中**不存在**（不是 disabled、不是点击后报错）。
+2. 正文空白 ⇒ 浮层**未被挂载**（`openedOnce` 仍为 false）；用「挂载钩子 0 次」断言，不是用「没显示」断言。
+3. 浮层显示值逐字等于预览返回：两枚都不许出现第二个分块/音色实现（结构锁：`git grep -c planChunks\|resolveEpisodeVoice -- apps/desktop/src` 必须为 0）。
+4. 发出的载荷含 `billingConfirmed: true` 与合法 `runId`，且 `copy.content` 就是该页当时那份正文（行为锁：把正文改成含哨兵串，断言出参逐字带出）。
+5. 关闭浮层不取消发布（取消只在 §6.4.2 的 `cancellable` 窗口内由「取消出期」触发）。
+
+**故意不做**：不在发布页放「播客频道」选择器（§7.10.3.2 已裁定浮层不放下拉，入口页同样不放，否则出现两套选择口径）；不为这两枚新增任何 locale 键；不在前端算块数/码点/音色。
+
 ### 7.10.4 显示项
 
 | 位置 | 显示内容 | 数据来源 |
@@ -1443,8 +1487,8 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 | `ResultView.vue:726` | 成片（视频出期） | 上下文频道 | 已落（刀 3 第 4 片） |
 | `CreateView.vue:4519` | 项目成片 | 项目绑定频道 | 已落（刀 3 第 4 片） |
 | `CopyLibraryView.vue`（卡片内独立按钮，`@click.stop`） | 文案库单条口播稿 | **默认频道**（§7.10.3.2 裁定：入口侧解析，浮层内不放下拉；无默认频道 ⇒ 动作不出现） | 已落（tasks 4.3②-b） |
-| `RewriteView.vue:812` | 改写结果区口播稿 | 当场选 | 待落（tasks 4.3②） |
-| `Publish.vue:358` | 文本类分支的当前稿 | 上下文频道 | 待落（tasks 4.3②） |
+| `RewriteView.vue`（改写结果区，见 §7.10.3.4） | 改写结果区口播稿 | **默认频道**（§7.10.3.2 同一解析；原文写「当场选」与那条裁定冲突，已收敛） | 待落（tasks 4.3②-b②） |
+| `Publish.vue`（文本类分支，见 §7.10.3.4） | `article.content` 当前稿 | **默认频道**（§7.10.3.2 同一解析。原文写「上下文频道」是**空头支票**：本播客频道体系里没有「发布页上下文频道」这个东西——发布页的上下文是平台/账号，与 RSS 频道不同源，照抄会把入口接到一个不存在的键上） | 待落（tasks 4.3②-b③） |
 
 
 > **口径收敛（2026-10-17，tasks 4.3②-b）**：上表原先把文案库/改写两行的频道来源写成「当场选」，与 §7.10.3.2
