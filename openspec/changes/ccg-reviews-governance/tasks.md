@@ -71,3 +71,28 @@
 - [x] 6.8 台账只认本分支（接受）：三层独立守卫；**如实标注**单退一行的变异 NOT-CAUGHT（防御重叠不可分辨），三行同退才由 M18c 指名变红。
 - [ ] 6.9 **仍未闭合**：跨家族外部双模型评审（`claude` 未登录）。内部模拟替代的是第二双眼睛，不是跨家族独立性 —— 待 `/login` 后补跑，逐条处置回填 QM-6 格。
 - [ ] 6.10 集成轴列为 Minor 但未做的三项：评论正文与台账 sha 的 GH 侧存在性核验（判据不联网，属刀 2 之后的增强）、`--no-verify` 之外对 hook 失败路径的可视化、`CCG_LEDGER_KEYS` 与 `LEDGER_FIELDS` 的显式 parity 用例（现由派生实现保证，行为面缺一条独立断言）。
+
+## 7. 合并前必须先吸收的上游变更（2026-10-17 rebase 实测，**不得按文本冲突挑一边解**）
+
+上游 `ccg-record-content-addressing` 已落地：判定记录文件名从 `<父sha>.json` 改成
+**`<stagedDiffHash 64hex>.json`**（暂存 diff 排除 `.ccg` 的 sha256；为空时才回落 `<sha>.json`），
+且 `deep-review.sh` 在「按内容寻址没命中」时改为 **fail-closed exit 1**（旧版是无条件 exit 0）。
+
+对本篇的三处直接影响（逐条都是前提级，不是行级）：
+
+- [ ] 7.1 `ccg-record-ledger.js` 的 `pickRecord`（HEAD / HEAD^ / merge-base 三候选按 **sha 文件名** 找）
+  对新提交**永远找不到记录** —— 名字已经不是 sha 了。必须改成先算本次变更集的内容键、再按键取文件，
+  且哈希配方 MUST 与 decider **逐字同源**（`git diff … --no-textconv --no-ext-diff --no-renames -- . ':(exclude).ccg'`）；
+  直接 require `ccg-review-decider.js` 导出的 `recordFileName`，不要在写入侧再抄一份判据。
+  sha 命名那三条候选只作为**存量记录的回落档**保留（与判据的双读同一逻辑）。
+- [ ] 7.2 D13「借用他人裁决」这格**大部分被上游天然消解**：内容键由本次 diff 决定，
+  重提交/amend 收敛到同一个名字 ⇒ 不再是"跨会话撞名"。`stagedDiffHash` 同源校验降级为
+  「键算不出来时不得猜」的兜底，而不是主判据。设计文档 D13 与失败模式表要按这个口径改，
+  不得留着"我发明了这道校验"的叙述。
+- [ ] 7.3 我在 `deep-review.sh` 里加的 `--locate` 早退接管段与上游的 fail-closed 段**语义重叠**：
+  解冲突时必须保留上游那一档（含 `_DIFFLINES > 0 ⇒ exit 1`）并把 `--locate` 接在它之前，
+  两者并存；**不得**用我这版整块替换掉上游的 exit 1 逻辑 —— 那会把一个已修掉的 fail-open
+  重新放回生产路径（上游注释里写明了它是怎么被发现和修掉的）。
+
+- [ ] 7.4 待复算的数：origin/main 上 `.ccg/reviews` 现在同时存在 `<64hex>.json` 与 `<sha>.json` 两种命名，
+  刀 2 的"一次性 `git rm --cached` + 引用面解析门禁"必须两种都覆盖（`AUDIT_ARTIFACT_RE` 是否已放宽到 64hex 要先量）。
