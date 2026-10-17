@@ -3,9 +3,6 @@ record: zhihu-fav-entries-consolidate
 task: 知乎收藏批量「入口收敛」——删除旧整夹直采（采集/改写两个按钮及其专用 handler、进度行、取消按钮、3 个 computed、1 个 prop、12 个 locale key），只保留「采集并改写」；并纠正上一轮「多一次清单请求」的错误登记
 date: 2026-10-17
 branch: zhihu-fav-entries-consolidate
-sync_status: PENDING
-sync_reason: PR 尚未合并（记录随代码 PR 落地，合并后回填 merge SHA）
-sync_backfill_owner: zhihu-fav-entries-consolidate 会话（回填 PR）
 ---
 
 # 执行记录：知乎收藏批量入口收敛（zhihu-fav-entries-consolidate，2026-10-17）
@@ -31,9 +28,9 @@ sync_backfill_owner: zhihu-fav-entries-consolidate 会话（回填 PR）
 | QM-6 双模型评审 | PASS | 见第 3 节 |
 | 文档同步 | PASS | PRD 补 **§4.2**（决策/删除清单/不删清单/迁移路径/显示项与提示/校验不变量/验收/遗留 8 小节）+ §4 表格「旧入口兼容」改为「已下线」；BUGFIX §9 三项未闭合逐一标注处理结果（含第 3 项**前提推翻纠正**）；本记录 |
 | 行尾两口径对账 | PASS | `git diff --numstat` 与 `git diff --ignore-cr-at-eol --numstat` 一致（仓库 `core.autocrlf=true`，新增内容为 LF，git 归一后无差异） |
-| 远程同步 | PENDING | PR 未开。合并后**同一次提交**改写为 `PASS` + merge SHA 并删除 frontmatter `sync_*` 三字段 |
+| 远程同步 | PASS | PR **#3779** 已 squash 合并，merge SHA `d68663f3b3c546dde9e8c7ab91dd19a2e3ccad87`（`git log origin/main --grep='(#3779)$' --format=%H\|%cI` ⇒ 恰好 1 行，时间 `2026-10-17T11:42:30+08:00`）；远端分支 `git ls-remote --heads origin zhihu-fav-entries-consolidate` ⇒ 0 行（已删）。主 push 回读按「(merge SHA, workflow)」口径执行。回填与销账同一次提交（本行 + bullet + 删 `sync_*` 三字段） |
 
-- 保留门禁：变更类型与隔离 ✅ | TDD ✅ | QM-1 ✅ | QM-2 ✅ | QM-4 ✅ | i18n ✅ | QM-6 ✅ | 文档同步 ✅ | 行尾对账 ✅ | 远程同步 PENDING
+- 保留门禁：变更类型与隔离 ✅ | TDD ✅ | QM-1 ✅ | QM-2 ✅ | QM-4 ✅ | i18n ✅ | QM-6 ✅ | 文档同步 ✅ | 行尾对账 ✅ | 远程同步 PASS
 
 ## 2. 三项「未闭合」的处理结果
 
