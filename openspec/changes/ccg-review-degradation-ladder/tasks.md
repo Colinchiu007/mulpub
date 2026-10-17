@@ -19,6 +19,7 @@
 ## 2. 高危面清单与收口矩阵
 
 - [ ] 2.1 `HIGH_RISK_SURFACES` 路径前缀清单（design §3 六类），每项**带实测出处**，清单只能缩小
+     - **前置取证已完成（design §9.2）**：清单**不得**实现成回读产物的 `stats.sensitivePathHits`（主干实测非空仅 2/877 ⇒ 构造性零），必须对 `changedFileStatuses` 现算；内容命中轴（217/877）只作旁证出声、不作闭环资格。
 - [ ] 2.2 判据本体自指：`scripts/check-*.js` + `.github/workflows/*` 命中即禁 `self-play` 收口
 - [ ] 2.3 行为锁：非高危面 self-play+双前提 ⇒ 闭环；高危面 ⇒ 欠账；`unknown` ⇒ 一律欠账
 - [ ] 2.4 变异 M2（摘掉自指前缀必须红）

@@ -32,7 +32,7 @@ for (const n of names) {
     : (dr.performedBy === undefined ? 'absent' : String(dr.performedBy))
   const f = dr.findings === null ? 'null'
     : (Array.isArray(dr.findings) ? `arr/${dr.findings.length}` : (dr.findings === undefined ? 'absent' : typeof dr.findings))
-  rows.push({ mode: String(j.mode), status: String(dr.status), pb, f })
+  rows.push({ mode: String(j.mode), status: String(dr.status), pb, f, sp: Array.isArray((j.stats || {}).sensitivePathHits) ? j.stats.sensitivePathHits.length : -1, sc: typeof (j.stats || {}).sensitiveContentHits === 'number' ? j.stats.sensitiveContentHits : -1, tier: dr.tier === undefined ? 'absent' : String(dr.tier) })
 }
 
 function tally (key) {
@@ -55,3 +55,14 @@ show('闭环态下 performedBy 的形态（分级判据的正反样本）',
 const selfPlayPrefixButClaimsExternal = rows.filter((r) => /^self-play/.test(r.pb) && /external|claude|opencode/i.test(r.pb))
 console.log(`\n[结论锚点] 以 "self-play" 开头却同时声明做过外部复核的记录条数 = ${selfPlayPrefixButClaimsExternal.length}`)
 console.log('[结论锚点] ⇒ 前缀分级会把这类记录误判成自扮演，故 tier 必须是结构化字段，MUST NOT 从 performedBy 推断')
+
+show('高危轴：sensitivePathHits 命中条数分布（-1 = 字段缺席）', tally((r) => String(r.sp)), 12)
+const spNonEmpty = rows.filter((r) => r.sp > 0).length
+const scNonEmpty = rows.filter((r) => r.sc > 0).length
+const scMax = rows.reduce((a, r) => Math.max(a, r.sc), 0)
+console.log(`\n[高危轴读数] pathHits 非空=${spNonEmpty}/${rows.length}  contentHits 非空=${scNonEmpty}/${rows.length}  content 最大值=${scMax}`)
+console.log('[高危轴结论] pathHits 近零 ⇒ 高危面清单不得回读该字段（构造性零，design §9.2 结论一），必须对变更集现算')
+console.log('[高危轴结论] contentHits 会触发，但它答的是「改了加密/凭证内容」，不答「改了守门人」⇒ 只作旁证出声，不作闭环资格（结论二）')
+const tierAbsent = rows.filter((r) => r.tier === 'absent').length
+console.log(`[丙的前提] deepReview.tier 缺席=${tierAbsent}/${rows.length} ⇒ 结构化分级只能对新记录生效，历史产物无源可回填（结论三）`)
+console.log(`[缺口主体] mode 分布见上表 ⇒ 若 single 多于 dual，则真正没被闭环要求覆盖的是被判 single 的那批（结论四）`)
