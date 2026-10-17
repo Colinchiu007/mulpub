@@ -11,38 +11,45 @@
 - **诚实边界**：本条只提供**读数**，不提供**归因**。需用户在真机复现一次后用日志判定慢在主进程还是渲染端；`history:get`/`history:delete` 与 `accounts:list` 的阈值告警仍未做（已登记为遗留）。
 
 # [未发布] feat(accounts): 登录态提示可执行化 + 能力级授权 + DOM 判定进程隔离（account-login-ux）
+# [未发布] fix(scripts): ensure-desktop-deps 不再手抄 sharp 平台包版本——消掉恒红假阳性，并堵住 restore 制造混版这条应用起不来的路（fix-ensure-deps-version-pin）
 
-三件配套改动，共同把「未确认」从一句废话变成用户知道该怎么做的状态：
+## 背景（两个真实故障，同根）
 
-- **提示可执行化（P1）**：新增 `electron/publishers/login-status-hints.js`，把主进程既有的 9 种 `reason` 与 9 种 `code`
-  映射成「为什么 + 下一步」的 locales 键（`accountsPage.checkHints.*`，zh/en 成对 17 条）与动作分类
-  （`relogin` / `retry` / `none`）。动因：参考产品B 把平台错误码翻译成可执行提示
-  （2190008→「授权失效,请重新授权」），而我们未确认时只显示「未取到定论」。
-  ⚠️ **不登记** `CHECK_LOGIN_INVALID_PARAMS`：那是开发缺陷，配产品提示等于把 bug 包装成文案。
-- **能力级授权（P1）**：新增 `electron/publishers/login-check-capabilities.js`，账号从一维（登录态）变二维
-  （登录态 × 能力：`dataRead` 数据读取 / `commentInteract` 评论互动）。三条不可破：
-  缺证据一律 `unknown`（绝不猜）、只有平台明确拒绝（错误码如 `100437`）才 `revoked`、
-  未授权 ≠ 未登录（两者分开展示）。UI 只在有确定结论时渲染能力行，避免满屏 unknown 噪声。
-- **DOM 判定进程隔离（P2）**：新增 `electron/publishers/dom-login-check-runner.js`，把隐藏页面判定搬进可隔离的
-  运行器：子进程死亡/异常/空结果一律降级 `CHECK_LOGIN_INCONCLUSIVE` + `reason=dom-check-process-died`，
-  **绝不抛给调用方、绝不判失效**。默认仍在主进程内执行（允许集默认为空 ⇒ 生产走不到），
-  真隔离经显式参数 `options.isolated` + 注入的 `spawnIsolated` 开启（不得用环境变量）。
+`scripts/ensure-desktop-deps.js` 把 `@img/sharp-win32-x64` 的版本与关键文件名**写死**成 `0.35.1`，
+而仓库的 sharp 早已升到 `0.35.5`：
 
-**架构决策（写进代码注释防止回退）**：曾把 `hint`/`capabilities` 直接装饰到 `checkLoginStatus` 返回值上，
-**实测打破 13 个既有 `toEqual` 精确断言**（判定本体被加上两个键），且让判定与展示语义耦合。
-现改为**判定链保持纯净**，展示语义由 IPC 层显式调用 `loginStatusHint` / `loginStatusCapabilities` 挂载，
-缺内容不挂键。`item` 的键集合由测试逐键锁定。
+1. **恒红假阳性**：`--check` 按 `0.35.1.node` 找文件，实际只有 `0.35.5.node` ⇒ 每个 win32 worktree 都报
+   `DESKTOP_DEPS_MISSING`（本机依赖其实完全健康）。实测：`mp-app-live2` / `mp-hidden-window-crash` 两个
+   worktree 均中招——噪音之外，它让这条依赖自愈判据彻底失去可信度。
+2. **更严重：restore 会制造混版，直接把应用搞到起不来**。restore 分支按 0.35.1 走
+   `npm pack` → `fs.cpSync(..., { force: true })`，而 cpSync 是**合并**而非替换 ⇒ 0.35.1 的 `index.cjs`
+   被覆盖进来，原有的 0.35.5 `.node` 却被留下 ⇒ `index.cjs` 指向一个不存在的文件 ⇒
+   `Could not load the "sharp" module using the win32-x64 runtime` ⇒ 主进程加载即抛异常 ⇒
+   窗口只剩一个标题为 `Error` 的弹窗、没有 renderer 进程（2026-10-17 本机实测复现）。
 
-**顺带**：`account-manager.js` 按行数闸意图压缩崩溃史注释（65 行 → 18 行，细节移入
-`01-docs/BUGFIX-LOGIN-CHECK-HTTP-ONLY-2026-10-16.md` 并留指针），**未抬登记值**（1260 ≤ 1061+200）。
+## 修复
 
-**验证**：新增 3 个测试文件 20 例 + IPC 透传 5 例；变异反证三探针全红（未知 reason 也返提示 1 failed /
-子进程死亡改抛出 2 failed / 缺证据猜 granted 4 failed）后还原全绿；主进程相关 134/134、渲染端账号 296/298、
-locale 成对 246:246 且 CJK 基线 PASS；QM-1 `vite build` + `electron-builder` rc=0、asar 15033 条、
-启动 `alive=true` + stderr 0 字节 PASS；品牌/文档路径/未接线/记录债务/行数闸全 rc=0。
+- **版本改为单一来源**：从已安装 `node_modules/sharp/package.json` 读版本（npm 发布模型里 sharp 与平台包
+  严格同版本，实测 `0.35.5 ↔ 0.35.5`），`.node` 关键文件名按该版本推导，不再手抄。
+- **fail closed**：sharp 未安装 ⇒ 该条目不参与判据（不猜版本、不伪造文件名）。
+- **`fragileFor` 增加 `root` 参数并贯穿 `collectMissing` / `restorePackage`**：此前 restore 内部用
+  `DEFAULT_ROOT` 解析版本，任何非默认 root（含测试树）都失效——这是顺带修掉的真 bug。
+- **防混版动作**：抽出 `purgeStaleBinaries()`（判据与动作分离），restore 在 `cpSync` **之前**清掉
+  不属于目标版本的 `.node`，恢复动作不再自己制造故障。
 
-**文档**：`01-docs/PRD-ACCOUNT-LOGIN-STATUS-CHECK.md` 新增 §19（背景与第一性原因 / 功能逻辑表 /
-数据流与 IPC 合同 / 交互逻辑与显示项 / 提示文案表 / 隔离工作方式 / 回归保护 / 4 条边界）。
+## 验证
+
+- TDD 先红后绿：新增 4 条（读版本/推导文件名、未安装返回 null、版本跟随、混版判据）⇒ 实现前 `# fail 4`；
+  补行为测试与接线锁后 `# tests 18 / # pass 18 / # fail 0`。
+- **真实树**：本 worktree `--check` ⇒ `DESKTOP_DEPS_OK`（rc=0），假阳性消除。
+- **变异反证 5/5 全部捕获**（逐字节还原，SHA-256 一致）：A 写死版本 / B 删掉清理调用（靠接线锁捕获）/
+  B2 只返回空不删文件 / C 忽略 root 参数 / D sharp 未安装时猜版本。
+- 门禁：混合 PR（改 `scripts/` 自身）走完整节拍；行尾两口径一致、品牌残留、doc-abs-paths、行数门禁全 PASS。
+
+## 登记债务
+
+FRAGILE 清单里另外三条（`@img/colour` / `@element-plus/icons-vue` / `@ctrl/tinycolor`）**仍是手抄版本**，
+本次不顺手改（扩大改动面需重新评审）。建议后续单独做「整单改为从 lockfile / 已安装包解析」。
 
 
 # [未发布] feat(frequency): 同账号发布间隔改为逐平台真源——视频号收紧到 60 分钟，其余 14 平台行为零变化（publish-frequency-per-platform-intervals）

@@ -20194,6 +20194,12 @@ CI 把 `QG Static` 钉红在 Gate 2c，红的是 `check-unwired-tests.test.js` �
 - **pattern · 处置建议必须按角色分层，且先分情形再给动作**：同一个判据（`now − ts < 0`）对应两种同形成因——①「戳是未来值」（校时**无效**，只能等或用紧急放行）、②「本机时间落后」（校时立刻有效）。把「校准系统时间」写成用户第①条处置，会让用户对自己情形执行一个无效动作。正确形态：**用户＝无需处理**（钳位后自愈）；**排障者＝先判 ①/② 再选动作**，判别靠「`ts` 是否等于某个已知真实发布时刻」。判据：任何写进 PRD/文案的「修复建议」，都要能回答「它在哪些成因下无效」。
 - **pattern · 用户可见文案的三条机械纪律**：① 不用故障词（异常/损坏/故障）——它暗示用户有义务去修；② 不露内部术语（钳位/时序/单调钟）；③ 后果已自愈时必须显式写「无需处理」。三条都要落成断言，其中 ①③ 用 `not.toContain` / `toContain` 双向锁，否则下次改文案很容易只剩「读起来通顺」这一条标准。
 - **preference · 共享根里未提交的文档随时会被别人的整树重写清掉**：本次 `01-docs/learnings.md` 的沉淀与一份未跟踪的 PLAN 文档，在共享根被其他会话的 `checkout -f origin/main` + `clean -fd`（`sync-app.ps1` 完整模式）一并清除，`git stash list` 里也没有残留。教训：**有价值的沉淀不要停在共享根的未提交状态**——要么立刻随 PR 落地，要么先 `git stash push -- <精确路径>` 并记下 `stash@{n}`，不要指望「下次一起提」。
+## 2026-10-17 · fix-ensure-deps-version-pin：判据里的版本号不得手抄，且「判据正确 ≠ 有人调用」
+
+- **pitfall · 判据脚本把依赖版本写死 = 给未来的升级埋两颗雷**：`ensure-desktop-deps.js` 的 FRAGILE 清单手抄 `sharp-win32-x64@0.35.1`，仓库升到 0.35.5 后 ① `--check` 恒报缺失（假阳性，噪音之外让判据彻底失去可信度——实测两个 worktree 全中招）；② 更毒的是 restore 分支按旧版本 `npm pack` + `cpSync` **合并**写入，把旧 `index.cjs` 覆盖进来却留下新 `.node` ⇒ `index.cjs` 指向不存在的文件 ⇒ `Could not load the "sharp" module` ⇒ 主进程加载即抛异常、应用只剩一个 `Error` 标题弹窗且无 renderer。**判据**：任何「校验某依赖」的脚本，版本必须从**已安装的 package.json**（或 lockfile）读，不得手抄；写死版本的判据在升级那天同时变成「恒红」和「恢复动作会制造故障」。
+- **pitfall · cpSync / rsync --inplace 这类「合并式写入」会留下旧产物**：修复后仍要显式删 stale。本次把判据（`findStalePlatformBinaries`）与动作（`purgeStaleBinaries`）拆开，正因二者混在一个函数里时，「判据对但没人调」这种装饰性防护测不出来。
+- **pattern · 「判据正确 ≠ 有人调用」必须用接线锁补**：第一轮变异实测——把 `restorePackage` 里的清理整段删掉，行为测试**全绿**（因为测试直接调 `purgeStaleBinaries`，不经过 `restorePackage`）。补法：结构锁断言源码里「调用点存在 + 调用点在 cpSync 之前」。**判据**：凡「A 函数产出的判据要被 B 函数消费」，除了 A/B 各自的行为测试，必须再有一条「B 里出现了对 A 的调用」的结构锁；否则 B 里的调用被删时不会有任何测试红。
+- **preference · 升级依赖的 PR 要顺手 grep 判据里的手抄版本**：本次升级 sharp 的 PR 没有任何机制提示「FRAGILE 里也有一份版本号」。同类风险仍在该清单另外三条（`@img/colour` / `@element-plus/icons-vue` / `@ctrl/tinycolor`）——只是尚未撞上「平台包二进制文件名含版本」这个放大机制。已登记为遗留，建议后续整单改为从 lockfile 解析。
 
 
 
