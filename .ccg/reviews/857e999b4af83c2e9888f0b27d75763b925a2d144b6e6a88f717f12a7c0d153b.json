@@ -1,0 +1,30 @@
+{
+  "sha": "725f87a0b41ff20f41d7db5dd2a04e2ea1a20277",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 968 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 968,
+    "fileCount": 15,
+    "codeFileCount": 12,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 19,
+    "docSensitiveContentHits": 22,
+    "docSensitiveContentSample": [
+      "## 19. 2026-10-17 变更：登录态提示可执行化 + 能力级授权 + DOM 判定进程隔离",
+      "   参考产品B 的账号是**两维**：登录态 × 能力授权（`im_flag` / `sp_flag` / `open_id`）。",
+      "| `electron/publishers/login-check-capabilities.js`（新） | `dataRead` / `commentInteract` 两能力，状态 `unknown`/`granted`/`revoked` | **缺证据一律 unknown**；只有平台明确拒绝（错误码，如 `100437`）才判 `revoked`；未授权 ≠ 未登录 |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "857e999b4af83c2e9888f0b27d75763b925a2d144b6e6a88f717f12a7c0d153b",
+  "decidedAt": "2026-10-17T10:29:25.089Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

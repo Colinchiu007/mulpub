@@ -1335,3 +1335,97 @@ describe('登录态单向证据规则（IPC 层接入）', () => {
     expect(result.data.results[0].last_validated).toBe(result.data.checkedAt)
   })
 })
+
+describe('登录态提示与能力授权透传（IPC 层接入，2026-10-17）', () => {
+  // 契约：判定链保持纯净（三态一个键都不多），展示语义由 IPC 层显式挂载。
+  // 上一条 PR 曾把 hint/capabilities 直接装饰到 checkLoginStatus 返回值上，
+  // 实测打破 13 个 toEqual 精确断言；故这里锁住"IPC 层才挂、且缺内容时不挂键"。
+  const iso = (msAgo) => new Date(Date.now() - msAgo).toISOString()
+  const DAY = 24 * 60 * 60 * 1000
+
+  it('批量：未确认且带 reason => 透传 hint（含 key/fallback/action）', async () => {
+    const deps = createMockDeps()
+    deps.AccountManager.listAccounts.mockResolvedValue([
+      { id: 'a-hint', platform: 'bilibili', status: 'active', last_validated: iso(DAY) },
+    ])
+    deps.AccountManager.checkLoginStatus.mockResolvedValue({
+      valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE', reason: 'http-check-inconclusive'
+    })
+    deps.AccountManager.loginStatusHint = (s) => {
+      if (s && s.reason === 'http-check-inconclusive') {
+        return { key: 'accountsPage.checkHints.httpCheckInconclusive', fallback: '平台接口未给出明确结论', action: 'retry' }
+      }
+      return null
+    }
+    deps.AccountManager.loginStatusCapabilities = () => ({ dataRead: 'unknown', commentInteract: 'unknown' })
+
+    const result = await ipcMain_and_call(deps, 'accounts:batch-check-login', {})
+    const item = result.data.results[0]
+
+    expect(item.hint).toMatchObject({ action: 'retry' })
+    expect(item.hint.key).toMatch(/^accountsPage\.checkHints\./)
+    expect(Object.keys(item).sort()).toEqual(
+      ['accountId', 'capabilities', 'code', 'hint', 'last_validated', 'loginStatus', 'persisted', 'platform', 'statusChanged', 'valid'].sort()
+    )
+  })
+
+  it('批量：有确定结论（无 hint 可给）=> 不挂 hint 键', async () => {
+    const deps = createMockDeps()
+    deps.AccountManager.listAccounts.mockResolvedValue([
+      { id: 'a-ok', platform: 'douyin', status: 'active', last_validated: iso(DAY) },
+    ])
+    deps.AccountManager.checkLoginStatus.mockResolvedValue({ valid: true, code: 'CHECK_LOGIN_SUCCESS' })
+    deps.AccountManager.loginStatusHint = () => null
+    deps.AccountManager.loginStatusCapabilities = () => ({ dataRead: 'unknown', commentInteract: 'unknown' })
+
+    const result = await ipcMain_and_call(deps, 'accounts:batch-check-login', {})
+    const item = result.data.results[0]
+
+    expect(item.valid).toBe(true)
+    expect('hint' in item).toBe(false)
+  })
+
+  it('批量：能力有确定结论 => 透传 capabilities', async () => {
+    const deps = createMockDeps()
+    deps.AccountManager.listAccounts.mockResolvedValue([
+      { id: 'a-cap', platform: 'douyin', status: 'active', last_validated: iso(DAY) },
+    ])
+    deps.AccountManager.checkLoginStatus.mockResolvedValue({ valid: true, code: 'CHECK_LOGIN_SUCCESS' })
+    deps.AccountManager.loginStatusHint = () => null
+    deps.AccountManager.loginStatusCapabilities = () => ({ dataRead: 'granted', commentInteract: 'revoked' })
+
+    const result = await ipcMain_and_call(deps, 'accounts:batch-check-login', {})
+    expect(result.data.results[0].capabilities).toEqual({ dataRead: 'granted', commentInteract: 'revoked' })
+  })
+
+  it('单账号：account:check-login 同样挂 hint（与批量同一口径）', async () => {
+    const deps = createMockDeps()
+    deps.AccountManager.checkLoginStatus.mockResolvedValue({
+      valid: undefined, code: 'CHECK_LOGIN_INCONCLUSIVE', reason: 'no-cookie'
+    })
+    deps.AccountManager.loginStatusHint = () => ({ key: 'accountsPage.checkHints.noCookie', fallback: '请重新登录', action: 'relogin' })
+    deps.AccountManager.loginStatusCapabilities = () => ({ dataRead: 'unknown', commentInteract: 'unknown' })
+
+    const result = await ipcMain_and_call(deps, 'account:check-login', { platform: 'toutiao', accountId: 'acc-1' })
+
+    expect(result.data.hint).toMatchObject({ action: 'relogin' })
+    expect(result.data.valid).toBeUndefined()
+  })
+
+  it('旧注入没实现这两个函数时不得炸（兼容既有 mock）', async () => {
+    const deps = createMockDeps()
+    deps.AccountManager.listAccounts.mockResolvedValue([
+      { id: 'a-legacy', platform: 'douyin', status: 'active', last_validated: iso(DAY) },
+    ])
+    deps.AccountManager.checkLoginStatus.mockResolvedValue({ valid: true, code: 'CHECK_LOGIN_SUCCESS' })
+    delete deps.AccountManager.loginStatusHint
+    delete deps.AccountManager.loginStatusCapabilities
+
+    const result = await ipcMain_and_call(deps, 'accounts:batch-check-login', {})
+    const item = result.data.results[0]
+
+    expect(item.valid).toBe(true)
+    expect('hint' in item).toBe(false)
+    expect('capabilities' in item).toBe(false)
+  })
+})

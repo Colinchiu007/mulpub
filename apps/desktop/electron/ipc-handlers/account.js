@@ -598,7 +598,20 @@ function registerHandlers(ipcMain, deps) {
       })
       ipcLog('info', 'account:check-login', 'ok', `platform=${platform} accountId=${accountId} valid=${status?.valid} loginStatus=${outcome.status || outcome.keptStatus} changed=${outcome.changed} persisted=${outcome.ok} 耗时=${Date.now() - startedAt}ms`)
       // data 仍是检测三态原样返回（向后兼容）；是否改写了真源由 statusChanged 表达
-      return { code: 0, data: { ...status, loginStatus: outcome.status || outcome.keptStatus, statusChanged: outcome.changed } }
+      // 2026-10-17 追加 hint / capabilities：**展示语义单独给**，不污染三态本身
+      // （曾直接装饰到 status 上，实测打破 13 个 toEqual 精确断言，故改为 IPC 层显式取）。
+      const hint = AccountManager.loginStatusHint ? AccountManager.loginStatusHint(status) : null
+      const capabilities = AccountManager.loginStatusCapabilities ? AccountManager.loginStatusCapabilities(status) : {}
+      return {
+        code: 0,
+        data: {
+          ...status,
+          loginStatus: outcome.status || outcome.keptStatus,
+          statusChanged: outcome.changed,
+          ...(hint ? { hint } : {}),
+          ...(capabilities && Object.keys(capabilities).length ? { capabilities } : {})
+        }
+      }
     } catch (e) { ipcLog('error', 'account:check-login', 'error', `platform=${arg?.platform} accountId=${arg?.accountId} message=${e instanceof Error ? e.message : String(e)}`); return { code: EC.REQUEST_ERROR, message: e instanceof Error ? e.message : String(e), data: { valid: false } } }
   }))
 
@@ -724,6 +737,12 @@ function registerHandlers(ipcMain, deps) {
           last_validated: outcome.changed ? checkedAt : (account && account.last_validated),
           persisted,
         }
+        // 2026-10-17：提示与能力状态单独挂（与单账号检测同一口径）。
+        // 缺提示/缺能力时**不挂键**，避免把"没有可说的"渲染成一行空白。
+        const hint = AccountManager.loginStatusHint ? AccountManager.loginStatusHint(status) : null
+        const capabilities = AccountManager.loginStatusCapabilities ? AccountManager.loginStatusCapabilities(status) : {}
+        if (hint) item.hint = hint
+        if (capabilities && Object.keys(capabilities).length) item.capabilities = capabilities
         if (checkError) item.error = checkError
         else if (status && status.error) item.error = status.error
         slots[index] = item
