@@ -82,7 +82,9 @@ test('invalidateViteCache 将 deps 缓存改名', (t) => {
 test('--check 在健康树返回 0', (t) => {
   const root = makeRoot(t)
   writeJson(path.join(root, 'apps', 'desktop', 'package.json'), { name: '@multi-publish/desktop', dependencies: {} })
-  for (const p of lib.FRAGILE) {
+  // 走 fragileFor 解析后的清单（sharp 的版本/文件名由已安装 sharp 推导，见 fix-ensure-deps-version-pin）
+  writeJson(path.join(root, 'node_modules', 'sharp', 'package.json'), { name: 'sharp', version: '9.9.9' })
+  for (const p of lib.fragileFor('win32', 'x64', root)) {
     const dir = path.join(root, 'node_modules', ...p.name.split('/'))
     fs.mkdirSync(dir, { recursive: true })
     for (const f of p.files) {
@@ -114,13 +116,24 @@ test('fragileFor 平台过滤：非 win32-x64 不检查 sharp 平台包', () => 
 test('collectMissing 平台感知', (t) => {
   const root = makeRoot(t)
   writeJson(path.join(root, 'apps', 'desktop', 'package.json'), { name: '@multi-publish/desktop', dependencies: {} })
-  // 仅放 cross-platform 包，win32 缺失 sharp
+  // 仅放 cross-platform 包；sharp **未安装** ⇒ 平台包条目缺席（fail closed：不猜版本）
   fs.mkdirSync(path.join(root, 'node_modules', '@img', 'colour'), { recursive: true })
   fs.writeFileSync(path.join(root, 'node_modules', '@img', 'colour', 'index.cjs'), 'x')
   const winMissing = lib.collectMissing(root, 'win32', 'x64').map((m) => m.name)
-  assert.ok(winMissing.includes('@img/sharp-win32-x64'))
+  assert.ok(!winMissing.includes('@img/sharp-win32-x64'),
+    'sharp 未安装时不得对该平台包妄下缺失结论（fail closed，fix-ensure-deps-version-pin）')
   const macMissing = lib.collectMissing(root, 'darwin', 'arm64').map((m) => m.name)
   assert.ok(!macMissing.includes('@img/sharp-win32-x64'))
+})
+
+test('collectMissing：sharp 已装而平台包缺失 ⇒ 按已安装版本报缺失（正向仍成立）', (t) => {
+  const root = makeRoot(t)
+  writeJson(path.join(root, 'apps', 'desktop', 'package.json'), { name: '@multi-publish/desktop', dependencies: {} })
+  writeJson(path.join(root, 'node_modules', 'sharp', 'package.json'), { name: 'sharp', version: '0.35.5' })
+  fs.mkdirSync(path.join(root, 'node_modules', '@img', 'colour'), { recursive: true })
+  fs.writeFileSync(path.join(root, 'node_modules', '@img', 'colour', 'index.cjs'), 'x')
+  const missing = lib.collectMissing(root, 'win32', 'x64').map((m) => m.name)
+  assert.ok(missing.includes('@img/sharp-win32-x64'), '平台包确实缺失时必须报出来')
 })
 
 
@@ -148,4 +161,118 @@ test('findTgz 发现 npm 实际产物名（range 解析后为具体版本）', (
   fs.writeFileSync(path.join(work, 'other.tgz'), 'x')
   assert.equal(lib.findTgz(work, 'picocolors'), 'picocolors-1.1.1.tgz')
   assert.equal(lib.findTgz(work, '@ctrl/tinycolor'.split('/').slice(1).join('-')), null)
+})
+
+// ── fix-ensure-deps-version-pin：sharp 平台包版本不得手抄 ────────────────────
+// 事故：FRAGILE 把版本写死 0.35.1，仓库升到 0.35.5 后
+//   ① --check 恒红（假阳性，本机依赖其实健康）；
+//   ② restore 分支按 0.35.1 往 node_modules 里 cpSync 合并 —— 把 0.35.1 的 index.cjs
+//      写进来、同时留下 0.35.5 的 .node，制造「index.cjs 指向不存在的 .node」混版，
+//      直接导致 sharp 加载失败、应用起不来（2026-10-17 实测）。
+// 正解：版本从已安装的 sharp/package.json 读（sharp 与平台包严格同版本发布），
+//       并让关键文件名按该版本推导。
+test('resolveSharpPlatform 从已安装 sharp 读版本，且 .node 文件名按版本推导', (t) => {
+  const root = makeRoot(t)
+  // 模拟 sharp 0.35.5 已安装
+  writeJson(path.join(root, 'node_modules', 'sharp', 'package.json'), { name: 'sharp', version: '0.35.5' })
+  const resolved = lib.resolveSharpPlatform(root)
+  assert.equal(resolved.version, '0.35.5', '版本必须来自 sharp 已安装版本，不得手抄')
+  assert.deepEqual(resolved.files, ['index.cjs', 'lib/sharp-win32-x64-0.35.5.node'],
+    '关键文件名必须按解析出的版本推导')
+})
+
+test('sharp 未安装时 resolveSharpPlatform 返回 null（fail closed，不猜版本）', (t) => {
+  const root = makeRoot(t)
+  assert.equal(lib.resolveSharpPlatform(root), null)
+})
+
+test('fragileFor 的 sharp 条目版本跟随已安装 sharp（不再返回 0.35.1）', (t) => {
+  const root = makeRoot(t)
+  writeJson(path.join(root, 'node_modules', 'sharp', 'package.json'), { name: 'sharp', version: '0.35.5' })
+  writeJson(path.join(root, 'apps', 'desktop', 'package.json'), { name: '@multi-publish/desktop', dependencies: {} })
+  // 平台包完整 => 不应判缺失
+  const pdir = path.join(root, 'node_modules', '@img', 'sharp-win32-x64')
+  fs.mkdirSync(path.join(pdir, 'lib'), { recursive: true })
+  fs.writeFileSync(path.join(pdir, 'index.cjs'), 'x')
+  fs.writeFileSync(path.join(pdir, 'lib', 'sharp-win32-x64-0.35.5.node'), 'x')
+  const missing = lib.collectMissing(root, 'win32', 'x64').map((m) => m.name)
+  assert.ok(!missing.includes('@img/sharp-win32-x64'),
+    '版本跟随后，0.35.5 的完整平台包不得再被判缺失（这正是现场假阳性）')
+})
+
+// 混版锁：restore 后目标目录不得残留旧版本 .node。
+// 这条锁的是「restore 分支本身会制造混版」这个事故机制，而不是版本号本身。
+test('restorePackage 清理旧版本 .node 后才写入（防混版）', (t) => {
+  const root = makeRoot(t)
+  const pdir = path.join(root, 'node_modules', '@img', 'sharp-win32-x64')
+  fs.mkdirSync(path.join(pdir, 'lib'), { recursive: true })
+  // 现场形态：index.cjs 指向 0.35.1，而 lib 里只有 0.35.5
+  fs.writeFileSync(path.join(pdir, 'index.cjs'), "module.exports = require('./lib/sharp-win32-x64-0.35.1.node')")
+  fs.writeFileSync(path.join(pdir, 'lib', 'sharp-win32-x64-0.35.5.node'), 'x')
+
+  const stale = lib.findStalePlatformBinaries(root, '@img/sharp-win32-x64', '0.35.5')
+  assert.deepEqual(stale.map((f) => path.basename(f)), [],
+    '0.35.5 的 .node 是当前版本，不得被判为 stale')
+
+  const stale2 = lib.findStalePlatformBinaries(root, '@img/sharp-win32-x64', '0.35.1')
+  assert.deepEqual(stale2.map((f) => path.basename(f)), ['sharp-win32-x64-0.35.5.node'],
+    '按 0.35.1 恢复时，0.35.5 的 .node 必须被识别为 stale（待清理）')
+})
+
+// 行为级副作用锁：判据正确 ≠ 有人调用。变异 B/B2 实测正是漏在这——
+// 把 restorePackage 里的清理整段删掉（或只 log 不删），上面那条判据测试全绿。
+test('purgeStaleBinaries 真的删除 stale 文件（行为级副作用）', (t) => {
+  const root = makeRoot(t)
+  const pdir = path.join(root, 'node_modules', '@img', 'sharp-win32-x64')
+  fs.mkdirSync(path.join(pdir, 'lib'), { recursive: true })
+  const staleFile = path.join(pdir, 'lib', 'sharp-win32-x64-0.35.5.node')
+  const keepFile = path.join(pdir, 'lib', 'sharp-win32-x64-0.35.1.node')
+  fs.writeFileSync(staleFile, 'x')
+  fs.writeFileSync(keepFile, 'x')
+
+  const removed = lib.purgeStaleBinaries(root, '@img/sharp-win32-x64', '0.35.1')
+  assert.deepEqual(removed, ['sharp-win32-x64-0.35.5.node'])
+  assert.equal(fs.existsSync(staleFile), false, 'stale 文件必须真的从磁盘消失')
+  assert.equal(fs.existsSync(keepFile), true, '当前版本文件必须保留')
+})
+
+test('purgeStaleBinaries 在没有 lib 目录时返回空数组（不抛错）', (t) => {
+  const root = makeRoot(t)
+  assert.deepEqual(lib.purgeStaleBinaries(root, '@img/sharp-win32-x64', '0.35.5'), [])
+})
+
+// 深度评审 i2（upheld）的回归锁：只删**本包前缀**的 .node，外来文件一律不碰。
+// 上游 files 只声明 index.cjs/lib/versions.json，但目录内容不保证，宽判据会误伤。
+test('findStalePlatformBinaries 只认本包前缀，非本包 .node 不得判为 stale', (t) => {
+  const root = makeRoot(t)
+  const libDir = path.join(root, 'node_modules', '@img', 'sharp-win32-x64', 'lib')
+  fs.mkdirSync(libDir, { recursive: true })
+  const mine = path.join(libDir, 'sharp-win32-x64-0.35.1.node') // 本包旧版本 ⇒ stale
+  const foreign = path.join(libDir, 'other-vendor-9.9.9.node') // 外来 ⇒ 不碰
+  const keep = path.join(libDir, 'sharp-win32-x64-0.35.5.node') // 本包当前版本 ⇒ 保留
+  for (const f of [mine, foreign, keep]) fs.writeFileSync(f, 'x')
+
+  const found = lib.findStalePlatformBinaries(root, '@img/sharp-win32-x64', '0.35.5')
+  assert.deepEqual(found.map((f) => path.basename(f)), ['sharp-win32-x64-0.35.1.node'],
+    '只有本包前缀且非当前版本的文件可以判 stale')
+
+  const purged = lib.purgeStaleBinaries(root, '@img/sharp-win32-x64', '0.35.5')
+  assert.deepEqual(purged, ['sharp-win32-x64-0.35.1.node'])
+  assert.equal(fs.existsSync(foreign), true, '外来 .node 必须原样保留（不得误删）')
+  assert.equal(fs.existsSync(keep), true, '当前版本必须保留')
+  assert.equal(fs.existsSync(mine), false, '本包旧版本必须被删')
+})
+
+// 接线锁（结构级）：purgeStaleBinaries 有行为测试，但 restorePackage 是否**真的调用它**
+// 无法用行为测试覆盖（那条路要 npm pack，联网）。变异实测：把 restorePackage 里的调用
+// 整段删掉，行为测试全绿 ⇒ 「判据正确、动作正确、但没人接」这种装饰性防护会漏过去。
+// 故用结构锁钉住接线；同时钉住它必须在 cpSync **之前**（先删后写才有意义）。
+test('restorePackage 必须调用 purgeStaleBinaries，且调用点在 cpSync 之前（接线锁）', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'ensure-desktop-deps.js'), 'utf8')
+  const body = src.slice(src.indexOf('function restorePackage('))
+  const purgeAt = body.indexOf('purgeStaleBinaries(root, item.name, version)')
+  const cpAt = body.indexOf("fs.cpSync(path.join(extractDir, 'package')")
+  assert.ok(purgeAt >= 0, 'restorePackage 必须调用 purgeStaleBinaries（防混版接线）')
+  assert.ok(cpAt >= 0, '应能找到 cpSync 写入点')
+  assert.ok(purgeAt < cpAt, '必须先清 stale 再 cpSync，顺序反了等于没清')
 })

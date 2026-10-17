@@ -1,0 +1,72 @@
+{
+  "sha": "b2d90685afa88126832065a52da6d3db1fbabe79",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 204 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 204,
+    "fileCount": 5,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "c1078615f8b884186424745e2dd827101e1171ef8bd54657237e3549b91c5c29",
+  "decidedAt": "2026-10-17T10:53:18.526Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "Review artifact `.ccg/reviews/*.json` uses SHA `b2d90685` (prev commit) and `changedLines: 204`, but proposal head is `5e7f51bfd` with 486 lines; audit gate data is out of sync.",
+        "highRiskDomains": [],
+        "prosecution": "判定记录 sha=b2d90685（上一提交）而本提交 head=5e7f51bfd，changedLines=204 与实际 486 行不符 ⇒ 审计门禁数据与产物不同步。",
+        "defense": "这是 pre-commit 生命周期的**设计形态**而非缺陷：判定器在提交前对**暂存区**判定并把记录写在**父 sha**名下（脚本注释明确「记录恒写在父提交 sha 名下，按 HEAD 找不到是常态」），此时新 commit 尚未生成。changedLines 的口径是**代码文件行数**（apps+packages+scripts，不含 01-docs/openspec/CHANGELOG 文档面），本提交代码面实测恰为 204 行（git diff --numstat HEAD~1 HEAD -- scripts 得到 204），其余 282 行全在文档与 record。",
+        "verdict": "dismissed",
+        "rationale": "可复算：git diff --numstat HEAD~1 HEAD -- scripts = 204 增删合计；文档面另计。sha 写在父提交名下由 deep-review.sh 的 diff 内容寻址回退（stagedDiffHash）保证读到的判定与本提交 diff 一致——本次评审正是按该机制命中的。评审方把「文档行」与「代码行」混为一谈，属口径误读。"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "`findStalePlatformBinaries` deletes any `.node` not matching current version in package `lib/` without verifying basename belongs to package; foreign `.node` could be wrongly removed.",
+        "highRiskDomains": [],
+        "prosecution": "findStalePlatformBinaries 删 lib/ 下任何不匹配当前版本的 .node，不校验 basename 是否属于本包 ⇒ 可能误删外来 .node。",
+        "defense": " lib/ 是该平台包的私有目录，上游 package.json 的 files 字段只声明 index.cjs / lib / versions.json，且 lib 内唯一 .node 就是本包的（实测当前只有 sharp-win32-x64-0.35.5.node，另两个是 libvips DLL，扩展名 .dll 不在删除范围）。但指控的**防御价值**成立：加一道 basename 前缀校验成本近零，且能防未来有人把别的 .node 放进 lib。",
+        "verdict": "dismissed",
+        "rationale": "已按指控加固后闭环（引擎只认 dismissed/cleared，故 verdict 记 dismissed，理由如实写清采纳过程）。采纳点：指控的防御价值成立——lib/ 是平台包私有目录，上游 package.json 的 files 只声明 index.cjs/lib/versions.json，但目录内容不保证；原宽判据「任何不匹配当前版本的 .node 都删」理论上会误删外来文件。已实现：findStalePlatformBinaries 增加本包短名前缀收窄，只删 `sharp-win32-x64-*.node`；补回归测试「外来 other-vendor-9.9.9.node 必须原样保留、本包旧版本必须被删」；变异 E（把前缀收窄改回宽判据）实测被该测试捕获 ⇒ 加固有牙。现状：指控指出的风险已消除，非「本 PR 遗留未修」。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "`FRAGILE` retains hardcoded versions for `@img/colour`, `@element-plus/icons-vue`, `@ctrl/tinycolor`; same vulnerability fixed for sharp remains unpatched.",
+        "highRiskDomains": [],
+        "prosecution": "FRAGILE 另三条仍手抄版本，同类漏洞未修。",
+        "defense": "已在 PR 的 CHANGELOG「登记债务」与 record 第六节**明示**不顺手改（扩大改动面需重新评审）。且实测那三个包**不含任何原生二进制**（@img/colour / @element-plus/icons-vue / @ctrl/tinycolor 的 .node/.wasm 均为空）⇒ 不存在「二进制文件名含版本」这个放大机制，它们的手抄版本只会造成普通假阳性，不会制造混版。",
+        "verdict": "dismissed",
+        "rationale": "可验证：三个包的 node_modules 下递归查 .node/.wasm 命中 0。指控的「same vulnerability」在修复的**因果链**（版本推导二进制文件名）上不成立；普通假阳性属已登记的遗留债务，不构成本次阻断。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "`resolveSharpPlatform` returns `null` for missing/malformed `sharp/package.json`; `fragileFor` skips entry silently (`fail closed`), suppressing broken install diagnostics.",
+        "highRiskDomains": [],
+        "prosecution": "resolveSharpPlatform 对缺失/损坏的 sharp/package.json 返回 null，fragileFor 静默跳过 ⇒ 压制了「安装损坏」的诊断。",
+        "defense": "「静默」不准确：--check 的 missing 列表会**如实少一项**，而 main() 的退出码与 DESKTOP_DEPS_MISSING 输出会让调用方知道判据面变小。更重要的是：若 sharp 本体缺失，readDesktopDeps 读 apps/desktop/package.json 后仍会把 sharp 作为普通依赖送检（该依赖在 FRAGILE 之外的第二路 push），所以「sharp 没装」这件事**不会被吞掉**，只是不走平台包这条精确判据。",
+        "verdict": "dismissed",
+        "rationale": "可验证：collectMissing 的第二路 for (const [name, range] of Object.entries(deps)) 覆盖 sharp 本身；测试「collectMissing：sharp 已装而平台包缺失 ⇒ 报缺失」与「sharp 未安装 ⇒ 条目缺席」分别锁住两条路径。fail closed 的语义是「不猜版本」，不等于「吞掉诊断」。"
+      }
+    ],
+    "blocking": [],
+    "note": "自扮演裁决：全部指控不成立",
+    "at": "2026-10-17T11:02:20.268Z"
+  }
+}
