@@ -120,7 +120,7 @@ missingRow → (NOT_IN_BASE ? inThisChangeset / prematureClaim : —) → derive
 
 ## D10 规格落点：两侧都只能用 ADDED（结论由 spike 决定，不是推理）
 
-`quality-gate-execution-record`：**已实测否证"写 MODIFY"这条路**。该 capability 的基线尚未归档（`grep -rl 远程同步 openspec/specs/` 为空，正文只在未归档 change `enforce-gate-record-presence` 里，且它那一条本身是 `## ADDED Requirements` 下的一条，不是已存在的基线 Requirement）。在临时副本 `D:/Temp/osx-spike-b` 里跑的三条读数：
+`quality-gate-execution-record`：**已实测否证"写 MODIFY"这条路**。该 capability 的基线尚未归档（`grep -rl 远程同步 openspec/specs/` 为空，正文只在未归档 change `enforce-gate-record-presence` 里，且它那一条本身是 `## ADDED Requirements` 下的一条，不是已存在的基线 Requirement）。在临时副本 `<os.tmpdir>/osx-spike-b` 里跑的三条读数：
 
 | # | 动作 | 实测结果 |
 |---|---|---|

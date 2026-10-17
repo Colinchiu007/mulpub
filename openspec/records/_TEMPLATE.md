@@ -5,11 +5,13 @@
 record: <slug>
 task: <一句话说明这次干了什么>
 date: <YYYY-MM-DD>
-# ↓ 下面三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
-#   留下不删 = 门禁报「已回填却仍留登记字段」。登记随文件走，不存在外部清单要记得同步删条目。
-sync_status: PENDING
-sync_reason: <为什么现在收不了口（例如：本 PR 尚未合并，merge SHA 还不存在）>
-sync_backfill_owner: <谁来回填（例如：下一个会话）>
+# 「远程同步」不再需要任何事后回填字段（change: gate-record-sync-derived-status）。
+# 收口由门禁按主干历史推导：这篇文件被哪个带 (#NNNN) 尾注的已合并提交最近一次带入 main，即算收口。
+# 可选：delivered_by_pr: <PR 号> —— 只用于与主干事实交叉核对（抓"把别人的记录夹进我的 PR"），
+#       它不参与收口判定；写了就必须与 git 推出的归属一致，否则判红。
+# ⛔ 不要再写 sync_status / sync_reason / sync_backfill_owner：那是旧形态的登记字段，
+#    只服务于旧载体与存量 21 篇历史记录；新记录写了它们不会被判红，但会被记为歧义可见项。
+# ⛔ 也不要复用键名 sync_pr —— 真仓已有 6 篇用它，形态是 0 / pending / 完整 URL，语义是"回填状态"。
 ---
 
 ## 本次执行记录：<标题>（<slug>，<YYYY-MM-DD>）
@@ -25,7 +27,7 @@ sync_backfill_owner: <谁来回填（例如：下一个会话）>
 | 接线棘轮 |  | 新增 `*.test.js` 必须被 workflow 显式点名，否则等于没写 |
 | QM-1 打包 / QM-4 视觉 |  | 未触运行面时写 N/A |
 | QM-6 CCG 双模型外部评审 |  | 本机无 `codeagent-wrapper` 时如实写「未执行」，不得以自审冒充通过 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin <branch>` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | 由门禁推导 | 本行**不需要事后改写**：合并后门禁按主干历史推导归属（`scripts/lib/merge-ledger.js`，只认 squash 尾注 `(#NNNN)`）；现场读数看 CI 步骤首行 `MERGE-LEDGER prs=<n>`。合并前这篇文件还不在基线上，判 byDesign 不红；把本行状态列写成 `PASS` 会被判「预写不存在的证据」而红 |
 
 ### 遗留（不假装已闭合）
 -

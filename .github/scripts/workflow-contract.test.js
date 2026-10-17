@@ -1318,3 +1318,34 @@ test('electron-ci 的重建步与测试步必须把「只在非 PR 事件跑」�
   assert.equal(String(buildIf), ELECTRON_CI_PUSH_ONLY_IF,
     `重建步的门槛必须与测试步同字面量，实测=${JSON.stringify(String(buildIf))}`);
 });
+
+test('派生收口的账本锁必须接在 changes job 且在非 PR 早退之前（落点错了就等于不跑）', () => {
+  // change: gate-record-sync-derived-status。落点是这条判据的生死位置：
+  // static-gates 等重型 job 都挂 `if: needs.changes.outputs.docs-only != 'true'`，
+  // 把账本锁放进去，docs-only PR（也就是这条判据主要服务的那类 PR）会整 job 被短路 ⇒ 锁恒不跑。
+  const wf = yaml.load(fs.readFileSync(qualityGatePath, 'utf8'));
+  const changes = wf.jobs.changes;
+  assert.ok(changes, 'changes job 必须存在');
+  assert.equal(changes.if, undefined, 'changes job 自身不得有 job 级 if（有就等于可被跳过，判据随命令行抖动）');
+
+  const step = (changes.steps || []).find((s) => /Detect docs-only changes/.test(s.name || ''));
+  assert.ok(step, '「Detect docs-only changes」步骤必须存在（账本锁的宿主步骤）');
+  assert.equal(step.shell, 'bash', '必须是 bash：一个 run 块里塞多条命令时，pwsh 不会在中间某条非零时中止');
+  const body = step.run;
+  const iLedger = body.indexOf('node --test scripts/lib/merge-ledger.test.js');
+  assert.ok(iLedger >= 0, '账本回归锁必须接线在此——没接线的新测试永远不会执行、也没有任何东西会因此变红');
+
+  // 位置必须早于非 PR 早退那段，否则 push 事件档根本不跑
+  const iEarlyExit = body.search(/if \[\s*"\$\{\{\s*github\.event_name\s*\}\}"\s*!=\s*"pull_request"/);
+  assert.ok(iEarlyExit >= 0, '该步骤里应仍存在"非 PR 早退"分支（本断言钉的是它还在，不是它该在）');
+  assert.ok(iLedger < iEarlyExit, '账本锁必须排在非 PR 早退之前，否则 main push 那一档不跑它');
+
+  // 反向：这条锁绝不允许被"顺手"复制进任何带 job 级 if 的 job（两处各跑一遍会给出两套读数）
+  for (const [name, job] of Object.entries(wf.jobs)) {
+    if (name === 'changes') continue;
+    if (!job || typeof job !== 'object' || job.if === undefined) continue;
+    const text = JSON.stringify(job.steps || []);
+    assert.doesNotMatch(text, /merge-ledger\.test\.js/,
+      `${name} 有 job 级 if，账本锁不得出现在那里（docs-only 时会整 job 被短路）`);
+  }
+});
