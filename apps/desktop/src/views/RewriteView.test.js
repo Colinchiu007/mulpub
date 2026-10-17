@@ -89,7 +89,37 @@ vi.mock('@element-plus/icons-vue', () => {
   const __icon = { template: "<span />" }; const __guard = ["__esModule", "then", "catch", "default", "Symbol(Symbol.toStringTag)"]; return new Proxy({}, { has: () => true, get: (t, p) => (typeof p === "string" && !__guard.includes(p) ? __icon : undefined) });
 })
 
+// 文本出期入口（PRD §7.10.3.4 ②-b②）的三条依赖。频道必须能从用例里拨值：
+// 真实 usePodcastChannel 会去拉全量频道列表，而这里要锁的是「有没有默认频道」这一渲染条件的两个分支。
+const podcastApi = vi.hoisted(() => ({
+  episodePlanPreview: vi.fn(),
+  episodePublishFromScript: vi.fn(),
+  onEpisodePublishProgress: vi.fn(),
+}))
+vi.mock('@/api/podcast-channel', async (importOriginal) => Object.assign({}, await importOriginal(), podcastApi))
+
+const suspension = vi.hoisted(() => ({ suspend: vi.fn(), release: vi.fn() }))
+vi.mock('@/composables/useEmbeddedViewSuspension', () => ({
+  suspendEmbeddedViewsForOverlay: suspension.suspend,
+  releaseEmbeddedViewsForOverlay: suspension.release,
+}))
+
+const channelState = vi.hoisted(() => ({}))
+vi.mock('@/composables/usePodcastChannel', async (importOriginal) => {
+  const { ref } = await import('vue')
+  const original = await importOriginal()
+  const activeChannelId = ref('')
+  const ensureChannel = vi.fn(async () => {
+    activeChannelId.value = 'ch_from_ensure'
+    return activeChannelId.value
+  })
+  channelState.activeChannelId = activeChannelId
+  channelState.ensureChannel = ensureChannel
+  return { ...original, usePodcastChannel: () => ({ activeChannelId, ensureChannel }) }
+})
+
 import RewriteView from './RewriteView.vue'
+import PodcastScriptEntry from '@/components/PodcastScriptEntry.vue'
 
 function factory(pinia) {
   setActivePinia(pinia || createPinia())
@@ -1643,6 +1673,90 @@ describe('RewriteView — 归因链：rewriteHistoryId 随草稿落盘', () => {
     expect(snapshot.content).toContain('手动重写了这一段')
     expect(Object.prototype.hasOwnProperty.call(snapshot, 'rewriteHistoryId'),
       '手改后的正文携带上一次改写的 id ⇒ 归因榜把新文案的表现算给旧的爆款引用组合').toBe(false)
+  })
+})
+
+// ── 文本出期入口（PRD §7.10.3.4 ②-b②，验收判据 1 / 2 / 4）────────────────
+// 本文件前面一百多条用例没有一条引用过 activeChannelId / PodcastScriptEntry，
+// 所以这一段入口代码整块坏掉也不会变红 —— 下面四条锁的就是这件事。
+describe('RewriteView — 文本出期入口的合同（§7.10.3.4 ②-b②）', () => {
+  const PLAN_OK = { ok: true, plan: { totalBlocks: 7, totalCodepoints: 12345 }, voice: { providerId: 'prov_x', model: 'mdl_y', voiceId: 'voice_z', origin: 'preference', resolvedBy: 'capability' } }
+  const avail = (result) => ({ available: true, result })
+  const SENTINEL = '哨兵正文' + '补'.repeat(90)
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockRouteQuery.value = {}
+    channelState.activeChannelId.value = ''
+    podcastApi.episodePlanPreview.mockResolvedValue(avail(PLAN_OK))
+  })
+
+  /** 跑一次改写到「结果区已有正文」为止（结果卡片是 v-if，必须先有正文才谈得上入口） */
+  async function rewriteOnce () {
+    const wrapper = factory()
+    await wrapper.find('textarea.rewrite-textarea').setValue('这是一段足够长的测试文案内容，超过二十个字，测试改写功能。')
+    await nextTick()
+    await wrapper.find('.rewrite-start-btn').trigger('click')
+    await nextTick()
+    await nextTick()
+    return wrapper
+  }
+
+  async function openOverlay (wrapper) {
+    await wrapper.find('[data-testid="btn-podcast-script-entry"]').trigger('click')
+    await nextTick()
+    await Promise.resolve()
+    await nextTick()
+  }
+
+  it('有默认频道且有正文：动作出现，预览带的就是这一页当时那份正文（含哨兵串）', async () => {
+    channelState.activeChannelId.value = 'ch_a'
+    const wrapper = await rewriteOnce()
+    await wrapper.find('textarea.result-textarea').setValue(SENTINEL)
+    await nextTick()
+
+    expect(wrapper.find('[data-testid="btn-podcast-script-entry"]').exists()).toBe(true)
+    await openOverlay(wrapper)
+
+    expect(wrapper.findComponent(PodcastScriptEntry).exists()).toBe(true)
+    const call = podcastApi.episodePlanPreview.mock.calls[0]
+    expect(call, '预览没被调用 ⇒ 浮层根本没挂载，这条正控不能省').toBeTruthy()
+    expect(call[0]).toMatchObject({ channelId: 'ch_a', script: SENTINEL })
+  })
+
+  it('入口标题与「存入草稿」共用同一个提取点（不得各写一份拼装）', async () => {
+    channelState.activeChannelId.value = 'ch_a'
+    const wrapper = await rewriteOnce()
+    const { draftSave } = await import('@/api/publisher')
+    draftSave.mockClear()
+    const saveBtn = wrapper.findAll('.rewrite-result-actions button').find((b) => b.text().includes('存入草稿'))
+    await saveBtn.trigger('click')
+    await nextTick()
+    await nextTick()
+    const draftTitle = draftSave.mock.calls[0][0].title
+    // 正控：提取点若退化成空串，下面那句「两边相等」就成了 vacuous 相等
+    expect(draftTitle).toBe('这是改写后的标题')
+
+    await openOverlay(wrapper)
+    expect(wrapper.findComponent(PodcastScriptEntry).props('title')).toBe(draftTitle)
+  })
+
+  it('无默认频道：动作根本不出现（不是 disabled、不是点了才报）', async () => {
+    channelState.activeChannelId.value = ''
+    const wrapper = await rewriteOnce()
+    expect(wrapper.find('[data-testid="btn-podcast-script-entry"]').exists()).toBe(false)
+    // 反向正控：同一动作行里别的按钮在位 ⇒ 「不出现」不是整行没渲染
+    expect(wrapper.find('[data-testid="btn-video-create"]').exists()).toBe(true)
+  })
+
+  it('正文空白：动作不出现、浮层一次都不挂载、预览一次都不发', async () => {
+    channelState.activeChannelId.value = 'ch_a'
+    const wrapper = await rewriteOnce()
+    await wrapper.find('textarea.result-textarea').setValue('   ')
+    await nextTick()
+    expect(wrapper.find('[data-testid="btn-podcast-script-entry"]').exists()).toBe(false)
+    expect(wrapper.findComponent(PodcastScriptEntry).exists()).toBe(false)
+    expect(podcastApi.episodePlanPreview).not.toHaveBeenCalled()
   })
 })
 

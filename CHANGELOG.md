@@ -1,3 +1,13 @@
+# [未发布] feat(podcast): 文本出期第二枚入口落地，并补回上一枚入口缺失的三条渲染层锁（podcast-episode-rewrite-entry）
+
+- **先还债再推进**：合并后的只读审计发现 `CopyLibraryView` 那枚入口的行为合同在主干**一条锁都没有**——旧夹具的频道值从未被置过，那块 DOM 从来就不渲染，于是「动作不出现」这种负向断言恒真，入口代码整块坏掉 CI 照绿。本次补三条锁（无默认频道 ⇒ 动作根本不出现 / 正文取不到 ⇒ 浮层一次都不挂载且预览一次都不发 / 次级动作必须 `@click.stop` 不得走进整卡的详情跳转），并各做一次「摘掉对应守卫必须**指名**变红」的变异，三条 `escaped=0`。
+- **tasks 4.3②-b②（改写结果区入口）落地**：`RewriteView.vue` 动作行新增 `btn-podcast-script-entry`，正文取 `rewriteResult.value` 当前串、标题与「存入草稿」**收敛为同一个提取点** `resolveRewriteTitle()`（原来那份表达式内联在 `saveToDraft` 里，留两份拼装下次改标题规则只会改一处）；浮层沿用 `PodcastScriptEntry.vue` 与 owner `podcast-script-entry-overlay`，**未新建组件、未新增任何 locale 键、未新增第二个挂起 owner**。
+- **两枚入口在判据 2 上形态不同，且这是合同要求的**：文案库那枚必须先异步取文 ⇒ 判据落在「取到才挂浮层」（点击后早退）；改写区这枚正文就在内存里 ⇒ 同一件事的正解是**动作根本不出现**（渲染层就判掉）。差异写进 PRD §7.10.3.4 的落地状态段，避免下一个会话把它读成「两枚实现不一致」。
+- **把 PRD 的一句口头判据变成机械锁**：§7.10.3.4 验收判据 3 原文只写着 `git grep` 口径、没有任何东西在跑它。新增 `PodcastScriptEntry.test.js` 的结构锁逐个扫 `apps/desktop/src/**` 的非测试 `.vue/.js` 是否出现 `planChunks` / `resolveEpisodeVoice`（前端自算块数＝两份口径必然漂移），并配一条**扫描域规模下界**——域塌成空集合时「零命中」读起来完全像通过。变异 `RW-M6`（往 `src/` 放一个自算块数的文件）实测指名变红。
+- **测试**：`RewriteView.test.js` 88 → 92 passed（四条新锁，其中两条负向各带同源正控）、`CopyLibraryView.test.js` 9 → 12 passed、`PodcastScriptEntry.test.js` 11 → 13 passed；五个受影响文件合跑 **143 passed / 5 files**。变异六条（RW-M1…M6）全部 CAUGHT；`RW-M5`（存草稿侧标题发散）红 2 条属**防御重叠**而非逃逸——两条锁在看同一个提取点，恰是「共用一份」应有的样子。
+- **既有红不认领**：`overlay-view-suspension.test.js` 那条 `preload index.bundle.js 已重打包` 在**未改动的 HEAD** 上同样红（新 worktree 缺 gitignored 构建产物，`SAME_FAILURE_SET=true` 的对照跑取证），`pnpm run build:preload` 后 22 passed；未把别人的红认领成本 PR，也未反向放行。
+- **边界**：QM-1 记 N/A（改动集全在 `apps/desktop/src/`，未碰主进程 / preload / IPC 通道 / 任何 bundle，不借上一片的打包读数顶替）；QM-4 记 N/A 且**当场量过**——`rewrite` 在采集注册表但不在像素比对域、`base-screenshots/` 无该视图基线，「注册即判定域」棘轮改动前后逐字相同（`缺 69（已登记 69，上界 69）`）。②-b③（`Publish.vue`）仍未落：它要先回答「在途正文要不要固化一版草稿」，那需要发布链的幂等判据。
+
 # [未发布] feat(gates): 登录态隐藏窗口兜底加「准入登记表 + 配对锁」——把准入纪律变成机械拦截（dom-login-check-registry）
 
 - **问题**：`DOM_LOGIN_CHECK_ALLOWED_PLATFORMS` 默认空集（#3759 落地）挡住了崩溃路径，但**没有任何机械判据**阻止"只加一行平台名、不交真机证据"的提交。而隐藏窗口崩不崩**只有真机能验证**（真实平台页面 + 真实账号 Cookie + 隐藏窗口渲染），CI 永远凑不齐 ⇒ 四例事故（toutiao → wechat_mp → 知乎 → kuaishou）的共同形态都是「CI 全绿、用户机器上崩」。

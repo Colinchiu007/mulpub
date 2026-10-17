@@ -11,6 +11,9 @@
  * owner 的挂起/释放登记在 src/overlay-view-suspension.test.js；本文件另测两条现场行为。
  */
 import { mount } from '@vue/test-utils'
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 
@@ -150,5 +153,45 @@ describe('PodcastScriptEntry · 浮层互斥合同', () => {
     w.unmount()
     await Promise.resolve()
     expect(suspension.release).toHaveBeenCalledWith('podcast-script-entry-overlay')
+  })
+})
+
+// §7.10.3.4 验收判据 3 的机械版：入口越多，越容易有人在前端「顺手」算一份块数或音色
+//（那正是本 PRD 反复禁止的两份口径必然漂移）。这条锁覆盖整个渲染层，
+// 所以新加一枚入口不需要动它 —— 但把分块逻辑抄进渲染层会当场变红。
+describe('PodcastScriptEntry · 渲染层不得出现第二份分块/音色实现', () => {
+  const SRC_ROOT = path.resolve(__dirname, '..')
+  const FORBIDDEN = ['planChunks', 'resolveEpisodeVoice']
+
+  const collect = () => {
+    const acc = []
+    const walk = (dir) => {
+      for (const name of fs.readdirSync(dir)) {
+        const full = path.join(dir, name)
+        if (fs.statSync(full).isDirectory()) walk(full)
+        else if (/\.(vue|js)$/.test(name) && !/\.test\.js$/.test(name)) acc.push(full)
+      }
+      return acc
+    }
+    return walk(SRC_ROOT)
+  }
+
+  const scan = () => {
+    const hits = []
+    for (const f of collect()) {
+      const text = fs.readFileSync(f, 'utf8')
+      for (const sym of FORBIDDEN) if (text.includes(sym)) hits.push(path.relative(SRC_ROOT, f) + ':' + sym)
+    }
+    return hits
+  }
+
+  it('扫描域非空（域塌成空集合时「零命中」读起来完全像通过）', () => {
+    expect(collect().length).toBeGreaterThan(200)
+  })
+
+  it('src 下没有任何渲染层文件引用主进程的分块/音色实现', () => {
+    const hits = scan()
+    console.log(`[second-impl-guard] domain=${collect().length} hits=${hits.length}`)
+    expect(hits).toEqual([])
   })
 })

@@ -237,6 +237,14 @@
           <button class="cohere-btn-secondary" data-testid="btn-video-create" @click="goToVideoCreate">
             {{ t('rewritePage.goVideo') }}
           </button>
+          <button
+            v-if="podcast.activeChannelId.value && rewriteResult.trim()"
+            class="cohere-btn-secondary"
+            data-testid="btn-podcast-script-entry"
+            @click="openScriptEntry"
+          >
+            {{ t('podcast.episode.entry') }}
+          </button>
           <button class="cohere-btn-primary" @click="goToPublish">
             {{ t('rewritePage.goPublish') }}
           </button>
@@ -251,6 +259,15 @@
       @close="showPublishModal = false"
       @publish-article="onPublishArticle"
       @publish-video="onPublishVideo"
+    />
+
+    <!-- 文本出期浮层：按需挂载、常驻不卸载（关闭不取消发布，§7.10.3.4 交互行） -->
+    <PodcastScriptEntry
+      v-if="scriptEntry.openedOnce"
+      v-model:visible="scriptEntry.visible"
+      :channel-id="podcast.activeChannelId.value"
+      :script="scriptEntry.script"
+      :title="scriptEntry.title"
     />
   </div>
 </template>
@@ -272,6 +289,8 @@ import { takeViralSignalHandoff, hasActionableEngagement } from '@/utils/viral-s
 import { writeClipboard } from '@/utils/clipboard'
 import { extractRewriteHistoryId, attachRewriteLineage } from '@/utils/rewrite-lineage'
 import PublishDestinationModal from '@/components/PublishDestinationModal.vue'
+import PodcastScriptEntry from '@/components/PodcastScriptEntry.vue'
+import { usePodcastChannel } from '@/composables/usePodcastChannel'
 import RewriteStrategyPicker from '@/components/RewriteStrategyPicker.vue'
 import WordCountRangeInput from '@/components/WordCountRangeInput.vue'
 
@@ -727,6 +746,26 @@ async function copyResult() {
   }, 1500)
 }
 
+/** 改写稿的标题取法只留这一份（§7.10.3.4：入口与存草稿共用同一个提取点，各写一份必然漂移） */
+function resolveRewriteTitle () {
+  return rewriteTitle.value || content.value.trim().slice(0, 64) || t('rewritePage.title')
+}
+
+/**
+ * 文本出期入口（PRD §7.10.3.4 ②-b②）。与文案库那枚（§7.10.3.2）的差别只在正文来源：
+ * 这里的正文本来就躺在内存里，所以「空白即无正文」落在**动作是否出现**上，而不是点击后被拒；
+ * 频道一律取 usePodcastChannel 的既有解析，本视图不解析第二份、也不放下拉选择器。
+ */
+const podcast = usePodcastChannel()
+const scriptEntry = ref({ visible: false, openedOnce: false, script: '', title: '' })
+async function openScriptEntry () {
+  const channelId = podcast.activeChannelId.value || await podcast.ensureChannel()
+  if (!channelId) return
+  const body = rewriteResult.value
+  if (!body || !body.trim()) return
+  scriptEntry.value = { visible: true, openedOnce: true, script: body, title: resolveRewriteTitle() }
+}
+
 /** 存入草稿 */
 async function saveToDraft() {
   if (!rewriteResult.value.trim()) return
@@ -734,7 +773,7 @@ async function saveToDraft() {
     const saved = {
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
       // 标题优先用改写结果标题（≤20 字，2026-09-18）；缺失时回退原文前 64 字
-      title: rewriteTitle.value || content.value.trim().slice(0, 64) || t('rewritePage.title'),
+      title: resolveRewriteTitle(),
       content: rewriteResult.value,
       source: 'rewrite',
       createdAt: new Date().toISOString(),
