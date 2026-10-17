@@ -2,9 +2,6 @@
 record: ccg-deg-artifact-domain
 task: QM-6 降级梯 切片A——评审产物「扫描域不得静默收窄」的出声判据（形态不认识但确是评审记录 ⇒ 必须点名）
 date: 2026-10-17
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（按「PR 自动合并」收尾清单 1–4 条回填，并整段删除本三个 sync_* 字段）
 ---
 
 ## 本次执行记录：CCG 降级梯 切片A 扫描域出声（ccg-deg-artifact-domain，2026-10-17）
@@ -22,9 +19,9 @@ sync_backfill_owner: 下一个会话（按「PR 自动合并」收尾清单 1–
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/`、`packages/rpa-engine/` 与渲染层 |
 | QM-6 CCG 双模型外部评审 | 后端交付 / 前端未交付（如实记，不写成双模型通过） | 可达性以产物为准：`deep-review.sh --check-deps` ⇒ claude/opencode 双双 ABS、rc=0（2/2 可用 ⇒ 按本片规格不得走 self-play 出口）。模型名取自 `~/.claude/.ccg/config.toml` 的 `[routing]`。**后端 claude 交付**（载荷是散文不是 JSON 数组，按内容取四条并逐条重放）：① **「D 方向不扫 ⇒ 删掉未闭环 dual 产物即静默逃逸」成立且已落码** —— 它比评审自己说的更要命：并行会话 #3776 的现场就是「中途提交被判 dual+pending 挡住 PR」，门禁给的合规出口是「写明原因并把 status 置成闭环值」，而删除是同一条出口的**免审计版本**；且本文件头部不变量 2 早就写着「必须区分 A/M/D」，判据一直在违反自己的注释。② 「`fs.readFileSync` 无大小上限 ⇒ 大文件内存压力」**不成立**：实测主干 792 个 json 最大 **14,875 B**、中位 642 B、超过 100KB 的**一个都没有**，该风险在本仓不可达（不为不可达场景加边界处理）。③ 「规格高级项（证据分级/高危面/backendAvailability/棘轮）未实现」**属实但非缺陷** —— 与本 change「先文档再代码」的约定一致，tasks 1.x/2.x/3.x/5.x 仍空勾。④ 通道健康度如实记：其输出首行含 `[claude-code:unrecognized_model] model=thinkingmachines/inkling:free[1m]`（子 agent 解析到一个不认识的 free 模型），不改判据、不因此否定其结论，但下一次引用该轴结论时应先复跑。**前端 opencode 三试全败（第 1 次 + 2 次重试，协议用满）⇒ 本 PR 按「后端单轴交付 + 主代理逐条处置」记账，不写成"双模型通过"、不自扮演豁免**。第 3 次带回一条**归因**：其自述「两个 diff 均被工具输出截断 ⇒ 证据不足 ⇒ 停在交接文本」——所以这不是「CLI 不可达」，而是「跑完了但没取到证据」，两种形态在降级判据里必须分开计（已登记进 tasks 3.5）。三次均 rc=0，退出码零语义 |
 | 记录欠账 | PASS | commit 后实测：`check-gate-record-debt.js` ⇒ rc=0；`check-record-qm5-rows.js` ⇒ rc=0（必需步骤 ① ② ④ ⑤ 齐全）；`check-pr-exec-record.js --base=origin/main --mode=enforce` ⇒ OK（**这一项不写死总数**：变更集由「真实改动 4 项 = 判据本体 / 其测试 / 本记录 / `tasks.md`」加「每笔提交各 1 份 pre-commit 判定产物 `.ccg/reviews/*.json`」构成，后者按笔数自增——实测演进 4（首跑）→ 8（rebase 后）→ 9（本条落账后，A=6 M=3）。判据结论稳定：新增记录 1 篇 / 修订 0 / 新增豁免 0）；`check-no-brand-residue.js` ⇒ PASS；`openspec-sync-check.js` ⇒ OK（387 tasks / 55 active changes / 231 archives） |
-| 远程同步 | PENDING | 合并后按收尾清单取 merge SHA 并回读 `(merge SHA, workflow)` 的 main push 读数，同次删除本三字段 |
+| 远程同步 | PASS | merge `3f5f9da3871605ad2649b7ac31f0f3134e9d92c4`（2026-10-17T17:02:46+08:00）；远端分支 `git ls-remote --heads origin ccg-deg-artifact-domain` = 0 行；main push 回读 `quality-gate.yml` @ 该 SHA ⇒ run 39019636102 conclusion=success。本行收口与 frontmatter 三字段删除发生在同一次提交 |
 
-- 保留门禁：变更类型与隔离 ✅ | 行尾对账 ✅ | TDD 两段实跑 ✅（3 条指名红 → 65 pass 0 fail）| 变异反证 7 条指名 ✅（escaped=0 anchorfail=0，还原 md5 一致）| 消费者并集全跑 ✅（36/19/27）| 品牌残留 ✅ | 文档同步 ✅ | 记录欠账 ✅ | QM-6 后端单轴已交付、前端三试全败（不按 self-play 收口）| 远程同步 PENDING
+- 保留门禁：变更类型与隔离 ✅ | 行尾对账 ✅ | TDD 两段实跑 ✅（3 条指名红 → 65 pass 0 fail）| 变异反证 7 条指名 ✅（escaped=0 anchorfail=0，还原 md5 一致）| 消费者并集全跑 ✅（36/19/27）| 品牌残留 ✅ | 文档同步 ✅ | 记录欠账 ✅ | QM-6 后端单轴已交付、前端三试全败（不按 self-play 收口）| 远程同步 PASS
 
 ### 两处自我更正（不留到下一个会话去发现）
 
