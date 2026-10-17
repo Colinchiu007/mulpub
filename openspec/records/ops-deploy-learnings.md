@@ -53,6 +53,12 @@ sync_backfill_owner: 下一个会话（按 AGENTS.md 合并后收尾清单回填
    后半句仍有 ⇒ 断言抓不到（变异 MR2/MR3 实证）。正解：拆 WHEN/HOW 两段 + 精确等值断言。
    同类：断言里的兜底（`opts.duration ?? CONST`）会把「接线锁」降级成「常量锁」。
 
+### 交付状态
+
+| 项 | 状态 |
+|---|---|
+| 远程同步 | PENDING | 合并后取 merge SHA 回填，并删除 frontmatter 三个 `sync_*` 字段 |
+
 ### 数据校验
 
 | # | 校验 | 判据 | 结果 |

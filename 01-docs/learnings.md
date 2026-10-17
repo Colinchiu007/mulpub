@@ -20262,3 +20262,5 @@ CI 把 `QG Static` 钉红在 Gate 2c，红的是 `check-unwired-tests.test.js` �
 - **pattern｜服务启动慢时 `/health` 返回 000 不等于挂了**：后端启动会逐个拉各模型商的 models URL（大量 401/403/ConnectError 告警），期间 `/health` 连不上。判据要**轮询等待**（本次 16s 就绪）而不是一次读数就判失败。
 
 - **fact｜「改了没反应」先查同步机制再改代码**：运营中心改完桌面端不变，根因是 `OpsCenterSync` **只在应用启动时同步一次**（`autoSyncOnStart` 的 `setTimeout 3000`，全文件无 `setInterval`）。这是**预期行为**（组件注释写明「下次启动同步后自动可见」），但界面没告知运营者 ⇒ 反复保存、甚至回滚正确配置。修的是「告知」不是「即时生效」，两者不要混为一个问题。
+
+- **pitfall｜新执行记录必须同时写「frontmatter 的 `sync_status`」与「正文的 `| 远程同步 |` 表格行」**：只写前者，`check-gate-record-debt.js` 判「整块缺 远程同步 行」⇒ `QG Changes` 红（27s 即失败，属门禁判据而非测试）。**我在同一天连续两篇记录上踩了同一格**（`ops-identity-deploy` 与 `ops-deploy-learnings`），第一次靠 CI 红才发现、第二次又犯 ⇒ 靠自觉不可靠。正解：写完记录立刻本机跑 `node scripts/check-gate-record-debt.js` 确认 rc=0 再提交，不要等 CI 教。
