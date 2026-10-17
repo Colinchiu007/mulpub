@@ -56,6 +56,7 @@ test('回归①生产路径可达性：已还债必须报 DEBT_REPAID_LEDGER 并
     fs.mkdirSync(path.join(root, 'packages', 'demo'), { recursive: true });
     fs.writeFileSync(path.join(root, 'packages', 'demo', 'big.py'), mk(600));
     fs.writeFileSync(path.join(root, 'packages', 'demo', 'repaid.vue'), mk(420));
+    gitify(root);
     const base = {
       limit: 500, growthAllowance: 200,
       files: { 'packages/demo/big.py': 600, 'packages/demo/repaid.vue': 598 },
@@ -191,6 +192,7 @@ test('扫描口径：受管目录/后缀/排除项按预期生效', () => {
     fs.writeFileSync(path.join(root, 'packages', 'demo', 'small.js'), mk(120));
     fs.writeFileSync(path.join(root, 'packages', 'demo', 'spec.md'), mk(900));
     fs.writeFileSync(path.join(root, 'packages', 'demo', 'tests', 'huge.test.js'), mk(900));
+    gitify(root);
     const got = G.collectOverLimit(root, 500);
     assert.deepEqual(Object.keys(got), ['packages/demo/big.py'], '只有受管目录内的超限源文件入表（.md 与 tests/ 排除）');
     assert.equal(got['packages/demo/big.py'], 600, '行数按 split(\\n) 口径（无尾换行的 600 行文本）');
@@ -324,6 +326,7 @@ test('M-7 测试通道：scanTestFiles 真的扫得到 .test/.spec（含 tests/ 
     put('apps/desktop/tests/e2e/C.test.js', 900);
     put('apps/desktop/src/views/plain.js', 700);
     put('apps/desktop/src/views/data.ts', 800);
+    gitify(dir); // 域由 git 判定：夹具必须是工作树，否则本用例测的是「夹具不像真实仓」
     const keys = Object.keys(G.scanTestFiles(dir)).sort();
     assert.deepEqual(keys, [
       'apps/desktop/src/views/A.test.js',
@@ -390,3 +393,143 @@ test('M-7 CRITICAL：writeBaseline 同样不得丢四个新键', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// ── 扫描域 = git 的域（#80 回归保护，2026-10-18）─────────────────────────────
+// 动因（实测）：#3782（change bundle-untrack）把 5 个构建产物移出版本控制（.gitignore 点名
+// apps/desktop/electron/preload/index.bundle.js 与 home-shell-preload.bundle.js），而这两个路径
+// 既落在 SCAN_DIRS 内、扩展名又是 .js。旧实现按 fs.readdirSync 走**磁盘**，于是「本机刚跑过
+// build:preload」就等于两个 gitignored 产物进视野 ⇒ NEW_OVER_LIMIT 假红；CI 的检出里根本没有
+// 它们 ⇒ 本机与 CI 量的不是同一棵树。修法：把「该不该被量」交给 git 判，
+// 域 = 索引内文件 ∪ 未被忽略的未跟踪文件（正是 git status 的口径，也是 CI 检出的口径）。
+const { spawnSync } = require('node:child_process')
+const IMPL = path.join(__dirname, 'check-max-lines.js')
+
+// 夹具必须自己决定「唯一变量是这份 .gitignore」：屏蔽全局 excludesFile 与机器态配置，
+// 否则同一条用例在装了全局 gitignore 的机器上会多/少排几个文件（本仓 runner-only 红的同型教训）。
+// 这份空 gitconfig 必须落在被测目录**之外**：写进 root 就会被 git 当成一个未跟踪文件，
+// 于是「空仓库」夹具其实非空，空域判据点不到火（T6 首跑失败的真实原因）。
+function gitEnv(root) {
+  const env = Object.assign({}, process.env)
+  const empty = path.join(os.tmpdir(), 'maxlines-gitcfg-' + process.pid + '-' + path.basename(root) + '.txt')
+  if (!fs.existsSync(empty)) fs.writeFileSync(empty, '')
+  env.GIT_CONFIG_GLOBAL = empty
+  delete env.GIT_CONFIG_SYSTEM
+  return env
+}
+
+function gitRun(root, args, env) {
+  const r = spawnSync('git', args, { cwd: root, encoding: 'utf8', env: env || process.env })
+  if (r.status !== 0) throw new Error('git ' + args.join(' ') + ' rc=' + r.status + ' ' + String(r.stderr || '').trim())
+  return String(r.stdout || '')
+}
+
+/** 造一个'像真实仓'的临时工作树：写文件 → git init → git add（进索引即算受管，不需要 commit） */
+function mkGitRoot(prefix, layout, gitignore) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix + '-'))
+  if (gitignore) fs.writeFileSync(path.join(root, '.gitignore'), gitignore)
+  for (const rel of Object.keys(layout)) {
+    const abs = path.join(root, rel)
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    fs.writeFileSync(abs, layout[rel])
+  }
+  const env = gitEnv(root)
+  gitRun(root, ['init', '-q'], env)
+  gitRun(root, ['add', '-A'], env)
+  return root
+}
+
+/** 把已写好文件的临时目录变成受管状态。
+ * 域改由 git 判定后，非工作树的临时目录不再可扫——那正是本次要拦的形态，
+ * 所以既有夹具必须迁成真实 git 工作树（把环境造成那个形态，而不是放宽断言）。
+ */
+function gitify(root) {
+  const env = gitEnv(root)
+  gitRun(root, ['init', '-q'], env)
+  gitRun(root, ['add', '-A'], env)
+  return root
+}
+
+function rmRf(p) { fs.rmSync(p, { recursive: true, force: true }) }
+
+test('扫描域回归：gitignored 的构建产物不得进 NEW_OVER_LIMIT（本机假红的根因）', () => {
+  const root = mkGitRoot('maxlines-ignored-', {
+    'apps/desktop/electron/keep.js': mk(10),                    // 受管小文件，保证仓库非空
+    'apps/desktop/electron/preload/index.bundle.js': mk(900),   // 磁盘在、git 不认（构建产物）
+    'packages/demo/handwritten.js': mk(900),                    // 真手写超限，必须仍然拦
+  }, 'apps/desktop/electron/preload/*.bundle.js\n')
+  try {
+    const got = Object.keys(G.collectOverLimit(root, 500)).sort()
+    assert.deepEqual(got, ['packages/demo/handwritten.js'],
+      'gitignored 产物出现在扫描结果里 = 旧的磁盘域回来了（本机红 / CI 绿的分裂）')
+  } finally { rmRf(root) }
+})
+
+test('收窄不得过头：未跟踪但未被忽略的新文件必须仍被计入（否则门禁对还没 git add 的新债失明）', () => {
+  const root = mkGitRoot('maxlines-others-', { 'apps/desktop/electron/keep.js': mk(10) }, null)
+  try {
+    fs.writeFileSync(path.join(root, 'apps', 'desktop', 'electron', 'brandnew.js'), mk(900))
+    const got = Object.keys(G.collectOverLimit(root, 500))
+    assert.ok(got.indexOf('apps/desktop/electron/brandnew.js') >= 0,
+      '域退化成只看索引，会把未提交的新债整类漏掉；正解是 tracked 并 others-not-ignored')
+  } finally { rmRf(root) }
+})
+
+test('取不到 git 读数必须 fail closed：不得退回磁盘全量，也不得把空域读成没有债', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'maxlines-nogit-'))
+  const bp = path.join(root, 'baseline.json')
+  try {
+    fs.mkdirSync(path.join(root, 'packages', 'demo'), { recursive: true })
+    fs.writeFileSync(path.join(root, 'packages', 'demo', 'big.js'), mk(900))
+    fs.writeFileSync(bp, JSON.stringify({ limit: 500, growthAllowance: 200, files: {} }))
+    const env = gitEnv(root)
+    assert.throws(() => G.collectOverLimit(root, 500), /git/,
+      '扫描根不是 git 工作树时必须出声，而不是静按磁盘扫（那正是被修的假红来源）')
+    const r = spawnSync(process.execPath, [IMPL, '--root', root, '--baseline', bp],
+      { encoding: 'utf8', env: env })
+    const out = String(r.stdout) + String(r.stderr)
+    assert.equal(r.status, 2, '判据自身故障走退出码 2（与发现违规的 1 分开）；实测输出：' + out)
+    assert.match(out, /无法从 git 取得扫描域/)
+  } finally { rmRf(root) }
+})
+
+test('真实仓交叉探针：域必须等于 git status 口径、规模非退化，且账本每个键都可被量到', () => {
+  const root = path.resolve(__dirname, '..', '..')
+  const domain = G.gitDomain()
+  assert.ok(domain instanceof Set && domain.size > 5000,
+    '真实仓域规模下界（解析退化=空集合，读起来完全像通过）；实测 domain=' + domain.size)
+  // 独立探针：git status --porcelain=v1 -z -uall 的 ?? 记录，并上 git ls-files -z。
+  // 探针必须与实现同环境（同读机器 git 配置），否则比的是配置差异不是口径差异；
+  // 且不得复用 G.gitDomain 自己作对照（同源判据不能自证，本仓「装饰性门禁」同型）。
+  const probe = new Set(gitRun(root, ['ls-files', '-z']).split('\0').filter(Boolean))
+  for (const rec of gitRun(root, ['status', '--porcelain=v1', '-z', '-uall', '--no-renames']).split('\0')) {
+    if (rec.startsWith('?? ')) probe.add(rec.slice(3))
+  }
+  assert.deepEqual(Array.from(domain).sort(), Array.from(probe).sort(),
+    '域与 git status 口径不一致（两把探针对同一主张给出不同答案，必须先解释再收口）')
+  const base = G.readBaseline()
+  const missing = []
+  for (const sec of ['files', 'testFiles', 'targets']) {
+    for (const k of Object.keys((base && base[sec]) || {})) if (!domain.has(k)) missing.push(sec + ':' + k)
+  }
+  assert.deepEqual(missing, [], '挂账清单里出现不受管的路径 = 账本与现实脱钩')
+})
+
+test("git 可用但报告零文件也必须 fail closed：空域不等于「没有超限文件」", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'maxlines-emptyrepo-'));
+  try {
+    gitRun(root, ['init', '-q'], gitEnv(root)) // 干净空仓库：ls-files rc=0 且输出为空
+    assert.throws(() => G.gitDomain(root), /0 个文件/, '空索引必须抛错，不得当成「全仓无债」——那正是把工具的失明读成结论')
+  } finally { rmRf(root) }
+})
+
+test("现场留痕：plain 模式打印 domain= 且与 gitDomain().size 一致；--json 模式不得打印（会污染 JSON）", () => {
+  const plain = spawnSync(process.execPath, [IMPL], { cwd: path.resolve(__dirname, '..', '..'), encoding: 'utf8' })
+  const out = String(plain.stdout)
+  const m = out.match(/^\[max-lines\] domain=(\d+) /m)
+  assert.ok(m, 'plain 模式必须打印域规模留痕，否则下次没人知道它测的是哪个集合；实测首行：' + out.split('\n')[0])
+  assert.equal(Number(m[1]), G.gitDomain().size, '打印的数必须就是判据实际用的域大小（同源，不是另算一遍）')
+  const j = spawnSync(process.execPath, [IMPL, '--json'], { cwd: path.resolve(__dirname, '..', '..'), encoding: 'utf8' })
+  assert.ok(!/^\[max-lines\]/m.test(String(j.stdout)), "--json 模式混入非 JSON 行会让消费方解析失败")
+  const parsed = JSON.parse(String(j.stdout))
+  assert.equal(parsed.domainSize, G.gitDomain().size, '--json 必须把域规模放进对象里')
+})
