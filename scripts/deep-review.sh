@@ -675,9 +675,11 @@ if [ -z "$MODE" ]; then
       REC="${LOC_OUT#LOCATE }"
       REC="${REC%% mode=*}"
       MODE="${LOC_OUT##* mode=}"
-      _b="${REC##*/}"
-      SHA="${_b%.json}"
-      say "判定记录按统一寻址命中：$REC（mode=$MODE；提交时 HEAD 即该 sha）" ;;
+      # ⛔ 这里**不得**改 $SHA。$REC 的文件名是内容键（64hex），不是提交；把它当 --sha 交给引擎后，
+      #   引擎会去做 `git diff <sha>^ <sha>` 与 `<base>...<sha>`（ccg-deep-review.js:146/:226），
+      #   两者都不是提交 ⇒ 取不到 diff，深度审查静默降级成"跑完了但什么都没审"。
+      #   HEAD 才是引擎评审的对象，记录名只是"裁决存在"的凭据。（外部评审 i4，锁 §7-T6）
+      say "判定记录按统一寻址命中：$REC（mode=$MODE）" ;;
     *) : ;;
   esac
 fi

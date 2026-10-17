@@ -613,6 +613,28 @@ function findCcgLedger ({ statuses, repo, headBranch, readFile }) {
  * - 新源闭环需同时满足四件事：状态在闭环词表 + ccg_mode 与判定模式一致 + 证据锚是 GitHub PR 面 +
  *   载荷哈希能重算且相等（哈希定义见 scripts/lib/ccg-evidence-hash.js，两侧共用一份）。
  */
+/**
+ * 锚签的那一笔是否落在本次评审对象的历史上（祖先或自身）。
+ *
+ * 为什么不能要求逐字等于当前 head（2026-10-17 实测，外部评审之后自己撞上的第二格）：
+ *   收口把 `ccg_*` 写进 `openspec/records/`，而那两条路径**被载荷排除**（自指防护）。于是
+ *   「把锚字段落进台账」这一笔提交必然推进 head、又必然不改变载荷 —— 逐字相等因此是
+ *   **不可满足**的判据：正常流程走完也永远红。而"永远绿不了的门禁等于没有门禁"是本仓反复
+ *   记过的同一条教训（它还会诱导人去放宽一条本来正确的判据）。
+ * 放宽只发生在一维上，且承重面没有变松：载荷哈希仍按**当前** head 重算并比对（见下面那段），
+ *   锚与本次之间只要夹了任何非排除面的改动，sha 就先红。所以这一格真正问的是
+ *   「裁决有没有落在这条线上」，而不是「裁决是不是恰好签在最新一笔」。
+ * 取不到读数（假 sha / 非 git 目录 / 两串不同根）一律按**不是祖先**处理 —— 这一格的方向必须是严的。
+ */
+function headIsAncestorOf (repo, declared, current) {
+  if (!HEX40_RE.test(declared) || !HEX40_RE.test(current)) return false
+  try {
+    execFileSync('git', ['-C', repo, 'merge-base', '--is-ancestor', declared, current],
+      { stdio: ['ignore', 'ignore', 'ignore'] })
+    return true
+  } catch { return false }
+}
+
 function evaluateDeepReviewDebt (statuses, repo, opts) {
   const o = opts || {}
   const readFile = o.readFile || ((p) => fs.readFileSync(p, 'utf8'))
@@ -656,11 +678,14 @@ function evaluateDeepReviewDebt (statuses, repo, opts) {
     // F6 provenance：ccg_written_by 此前只被写出、无人读 ⇒ 装饰字段。现在参与否决。
     const by = typeof f.ccg_written_by === 'string' ? f.ccg_written_by.trim() : ''
     if (by !== 'deep-review') bad.push('ccg_written_by=' + (by || '(空)') + ' ≠ deep-review ⇒ 台账值是手填的，手填不构成闭环')
-    // F7 锚签在哪一笔：head 侧也必须是完整 sha 且等于本次评审对象（与 base 同一条理由）
+    // F7 锚签在哪一笔：必须是完整 sha（不得写会移动的 ref 名），且必须落在本次评审对象的历史上。
+    // 「历史之上」而不是「逐字等于」—— 理由与承重面见 headIsAncestorOf 的注释（§8）。
     const hdr = typeof f.ccg_payload_head === 'string' ? f.ccg_payload_head.trim() : ''
     if (!HEX40_RE.test(hdr)) bad.push('ccg_payload_head 缺失或非 40hex（不得写 ref 名）：' + (hdr || '(空)'))
-    else if (typeof o.headSha === 'string' && HEX40_RE.test(o.headSha) && hdr !== o.headSha) {
-      bad.push('锚签在别的提交上：声明 head ' + hdr.slice(0, 12) + '… 本次 head ' + o.headSha.slice(0, 12) + '…')
+    else if (typeof o.headSha === 'string' && HEX40_RE.test(o.headSha) && hdr !== o.headSha
+      && !(o.isAncestor || headIsAncestorOf)(repo, hdr, o.headSha)) {
+      bad.push('锚签不在本次评审对象的历史上：声明 head ' + hdr.slice(0, 12) + '… 本次 head ' + o.headSha.slice(0, 12)
+        + '… ⇒ 该裁决签在另一条线上（既不是这笔提交，也不是它的祖先）')
     }
     if (!GITHUB_EVIDENCE_RE.test(ev)) bad.push('ccg_evidence 证据锚缺失或非 GitHub PR 面（' + (ev || '(空)') + '）')
     const rb = typeof f.ccg_payload_base === 'string' ? f.ccg_payload_base.trim() : ''
@@ -736,6 +761,6 @@ function report(r, mode) {
 // 本行同时是两份清单的**并集**（另一组来自 ccg-reviews-governance：parseFrontmatterFields /
 // findCcgLedger / GITHUB_EVIDENCE_RE / makePayloadSha，由 scripts/ccg-record-ledger.js 直接消费）。
 // 并集只准加不准减：删掉任一组的名字，会让那一组的消费者 require 到 undefined。
-module.exports = { evaluate, resolveHeadBranch, readExemptsOnDisk, remoteBranchSet, isPureBackfillChangeSet, evaluateDeepReviewDebt, CLOSED_DEEP_REVIEW_STATUSES, parseFrontmatterFields, findCcgLedger, GITHUB_EVIDENCE_RE, makePayloadSha, RECORDS_RE, EXEMPT_RE, CARRIER_RE, DEFAULT_THRESHOLD, AUDIT_ARTIFACT_RE, auditAcceptedWidths, auditAcceptedAltForm, describeAuditWidths, stripCommentsForScan, AUDIT_NAME_WIDTH_MIN, AUDIT_NAME_WIDTH_MAX }
+module.exports = { evaluate, resolveHeadBranch, readExemptsOnDisk, remoteBranchSet, isPureBackfillChangeSet, evaluateDeepReviewDebt, CLOSED_DEEP_REVIEW_STATUSES, headIsAncestorOf, parseFrontmatterFields, findCcgLedger, GITHUB_EVIDENCE_RE, makePayloadSha, RECORDS_RE, EXEMPT_RE, CARRIER_RE, DEFAULT_THRESHOLD, AUDIT_ARTIFACT_RE, auditAcceptedWidths, auditAcceptedAltForm, describeAuditWidths, stripCommentsForScan, AUDIT_NAME_WIDTH_MIN, AUDIT_NAME_WIDTH_MAX }
 
 if (require.main === module) main(process.argv.slice(2))

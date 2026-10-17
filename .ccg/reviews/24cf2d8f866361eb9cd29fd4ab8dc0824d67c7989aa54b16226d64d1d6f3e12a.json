@@ -1,0 +1,30 @@
+{
+  "sha": "d5934759af2fff45ec973f24c20e66354683d766",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 197 行（≤ 200）但命中 auth/数据库/加密：敏感内容 3 处",
+  "stats": {
+    "changedLines": 197,
+    "fileCount": 8,
+    "codeFileCount": 4,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 3,
+    "docSensitiveContentHits": 3,
+    "docSensitiveContentSample": [
+      "- **§8 外部双模型评审补跑（凭据恢复后，非内部模拟）**：`critic=claude` 实跑 8 条问题、四维最低分 4。**i4 upheld 并修** —— `--locate` 命中时不得改写 `$SHA`（把 64hex 内容键当 `--sha` 交给引擎，引擎的 `git diff <sha>^ <sha>` 与 `<base>...<sha>` 都不是提交 ⇒ 深度审查静默不审）；锁 §7-T6 是**行为锁**：临时仓真跑 `deep-review.sh --dry-run`，用打印自身 argv 的桩引擎取证 `--sha` 实参，结构锁 grep 那行字面看不出问题。i1/i2/i5 复核后 dismissed，其中 i2 的结论由外部模型读码给出（点名载荷实算比对在判据里已经挡住「引用任意哈希」），i5 的第一次外部探针 opencode 跑完零交付，换后端重问而不是把沉默读成通过。",
+      "## 8. 外部双模型评审的处置（2026-10-17，凭据恢复后补跑，非内部模拟）",
+      "| §8 外部双模型评审（2026-10-17 凭据恢复后真跑，非内部模拟）+ 逐条处置 | ✅ | `critic=claude` 实跑产出 8 条问题、四维最低分 4，引擎走 `self_play` 出口并要求「crypto 域 2 条不得自扮演豁免」。逐条：**i4 upheld 并修**（`--locate` 命中时不得改写 `$SHA`，把 64hex 内容键当 `--sha` 会让引擎的 `git diff <sha>^ <sha>` / `<base>...<sha>` 双双取不到提交 ⇒ 深度审查静默不审；先写行为锁 §7-T6 见红「实得 aa64f478…」再修，变异 N4 把坏行加回必须指名红）；**i1/i2/i5 dismissed**，且 i2 的结论由**外部模型读码给出**（claude 指到 check-pr-exec-record.js:672-677 的载荷实算比对，判「引用任意哈希很容易伪造」不成立、但确认 `ccg_evidence` 确实只按形状判 —— 这条与 D9 写的强度边界一致，不是新缺口）；i3 是对**已被上一轮修掉**的行为的描述（混合行尾夹具 + 变异 M19 在）。i5 的第一次外部探针 opencode **跑完零交付**（只回「请提供需要审查的主张内容」）⇒ 属本仓记过的\"跑完但没交付\"又一形态，处置是换后端重问，不是把沉默读成通过 |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "24cf2d8f866361eb9cd29fd4ab8dc0824d67c7989aa54b16226d64d1d6f3e12a",
+  "decidedAt": "2026-10-17T08:01:20.554Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

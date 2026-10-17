@@ -1467,7 +1467,7 @@ test('刀1-R2：ccg_written_by 不是 deep-review（手填值）⇒ 必须红并
   } finally { fs.rmSync(repo, { recursive: true, force: true }) }
 })
 
-test('刀1-R2：锚签在别的提交上（head 与本次评审对象不符）⇒ 必须红', () => {
+test('刀1-R2：锚签在与本次无关的提交上（既非本次 head 也非其祖先）⇒ 必须红', () => {
   const repo = withReviewRecords({ [`${SHA40}.json`]: { mode: 'dual', deepReview: { required: true, status: 'cleared' } } })
   try {
     withLedger(repo, `openspec/records/${BR}.md`, ledgerClosed())
@@ -1477,7 +1477,88 @@ test('刀1-R2：锚签在别的提交上（head 与本次评审对象不符）�
       { headBranch: BR, headSha: '01'.repeat(20), payloadSha: () => PAYLOAD_SHA },
     )
     assert.strictEqual(r.reasons.length, 1, '签错提交的锚不构成闭环')
-    assert.match(r.reasons[0], /签在别的提交|payload_head/, '理由要指到 head 这一维：' + r.reasons[0])
+    assert.match(r.reasons[0], /不在本次评审对象的历史上|payload_head/, '理由要指到 head 这一维：' + r.reasons[0])
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('§8 正控：台账锚字段那笔提交推进 head 但不改载荷 ⇒ 锚签在祖先上必须判闭环（否则本判据不可满足）', () => {
+  const { execFileSync, spawnSync } = require('node:child_process')
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'ccg-head-anc-'))
+  const git = (a) => execFileSync('git', a, { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+  try {
+    git(['init', '-q', '-b', 'main', '.'])
+    git(['config', 'user.email', 't@t']); git(['config', 'user.name', 't'])
+    fs.mkdirSync(path.join(repo, 'openspec/records'), { recursive: true })
+    fs.mkdirSync(path.join(repo, '.ccg/reviews'), { recursive: true })
+    fs.writeFileSync(path.join(repo, 'src.js'), 'export const a = 1\n')
+    fs.writeFileSync(path.join(repo, '.ccg/reviews/' + SHA40 + '.json'),
+      JSON.stringify({ mode: 'dual', deepReview: { required: true, status: 'cleared' } }), 'utf8')
+    git(['add', '-A']); git(['commit', '-q', '-m', 'H1 代码 + 判定记录'])
+    const H1 = git(['rev-parse', 'HEAD']).trim()
+    // 收口把 ccg_* 写进台账并落成第二笔 —— 该目录被载荷排除，所以载荷不变而 head 前移
+    withLedger(repo, 'openspec/records/' + BR + '.md', ledgerClosed({ ccg_payload_head: H1, ccg_payload_sha256: PAYLOAD_SHA }))
+    git(['add', 'openspec/records/' + BR + '.md']); git(['commit', '-q', '-m', '回填台账锚字段'])
+    const H2 = git(['rev-parse', 'HEAD']).trim()
+    assert.notStrictEqual(H1, H2, '夹具必须真的让 head 前移')
+    const r = mod.evaluateDeepReviewDebt(
+      st([['A', '.ccg/reviews/' + SHA40 + '.json'], ['A', 'openspec/records/' + BR + '.md']]),
+      repo,
+      { headBranch: BR, headSha: H2, payloadSha: () => PAYLOAD_SHA },
+    )
+    assert.deepStrictEqual(r.reasons, [],
+      '逐字相等会把正常流程判成永远红 —— 落锚那笔必然推进 head 又必然不改载荷：' + JSON.stringify(r.reasons))
+    assert.ok(mod.headIsAncestorOf(repo, H1, H2), 'helper 本身在真仓库上必须给出 true（否则上面那条绿的成因是探针失灵）')
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('§8 负控：锚签在旁支提交上（同源但不是祖先）⇒ 仍必须红', () => {
+  const { execFileSync } = require('node:child_process')
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'ccg-head-sib-'))
+  const git = (a) => execFileSync('git', a, { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+  try {
+    git(['init', '-q', '-b', 'main', '.'])
+    git(['config', 'user.email', 't@t']); git(['config', 'user.name', 't'])
+    fs.mkdirSync(path.join(repo, 'openspec/records'), { recursive: true })
+    fs.mkdirSync(path.join(repo, '.ccg/reviews'), { recursive: true })
+    fs.writeFileSync(path.join(repo, 'seed.js'), 'export const s = 1\n')
+    git(['add', '-A']); git(['commit', '-q', '-m', 'base'])
+    fs.writeFileSync(path.join(repo, 'x.js'), 'export const x = 1\n')
+    git(['add', '-A']); git(['commit', '-q', '-m', '旁支 SIDE'])
+    const SIDE = git(['rev-parse', 'HEAD']).trim()
+    git(['checkout', '-q', '-b', 'main2', 'HEAD~1'])
+    fs.writeFileSync(path.join(repo, 'y.js'), 'export const y = 1\n')
+    git(['add', '-A']); git(['commit', '-q', '-m', '本次 HEAD'])
+    const CUR = git(['rev-parse', 'HEAD']).trim()
+    // 判定记录必须在分叉造好**之后**再写，且**不提交**：
+    //   提交进 SIDE 再 checkout 回 base，git 会把这份 SIDE 才有的受管文件从工作树删掉，
+    //   判据在 catch 里 continue ⇒ reasons 恒空，这条锁当时测的是"文件不存在"而不是"旁支不得借"。
+    fs.writeFileSync(path.join(repo, '.ccg/reviews/' + SHA40 + '.json'),
+      JSON.stringify({ mode: 'dual', deepReview: { required: true, status: 'cleared' } }), 'utf8')
+    assert.ok(fs.existsSync(path.join(repo, '.ccg/reviews/' + SHA40 + '.json')),
+      '夹具自证：被检的判定记录必须真的在工作树里（否则 0 条理由来自探针失明）')
+    assert.ok(!mod.headIsAncestorOf(repo, SIDE, CUR), '夹具必须是真旁支（否则这条负控什么都没测）')
+    withLedger(repo, 'openspec/records/' + BR + '.md', ledgerClosed({ ccg_payload_head: SIDE, ccg_payload_sha256: PAYLOAD_SHA }))
+    const r = mod.evaluateDeepReviewDebt(
+      st([['A', '.ccg/reviews/' + SHA40 + '.json'], ['A', 'openspec/records/' + BR + '.md']]),
+      repo,
+      { headBranch: BR, headSha: CUR, payloadSha: () => PAYLOAD_SHA },
+    )
+    assert.strictEqual(r.reasons.length, 1, '放宽只放宽"线上"这一维，旁支仍不得借：' + JSON.stringify(r.reasons))
+    assert.match(r.reasons[0], /不在本次评审对象的历史上/)
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('§8 放宽不得连坐：锚与本次之间若夹了**非排除面**改动 ⇒ 载荷哈希那一格必须红', () => {
+  const repo = withReviewRecords({ [`${SHA40}.json`]: { mode: 'dual', deepReview: { required: true, status: 'cleared' } } })
+  try {
+    withLedger(repo, `openspec/records/${BR}.md`, ledgerClosed())
+    const r = mod.evaluateDeepReviewDebt(
+      st([['A', `.ccg/reviews/${SHA40}.json`], ['A', `openspec/records/${BR}.md`]]),
+      repo,
+      { headBranch: BR, headSha: HEAD40, isAncestor: () => true, payloadSha: () => 'ff'.repeat(32) },
+    )
+    assert.strictEqual(r.reasons.length, 1, '把 isAncestor 交成恒真时，载荷那一格必须独自挡住：' + JSON.stringify(r.reasons))
+    assert.match(r.reasons[0], /载荷不符/)
   } finally { fs.rmSync(repo, { recursive: true, force: true }) }
 })
 
