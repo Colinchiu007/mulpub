@@ -1,0 +1,10 @@
+fix(records): 执行记录里的 worktree 路径改占位符（Gate 12c 实测红）
+
+QG Changes 的「Gate 12c - Doc abs-path validity」判红：
+openspec/records/publish-target-select-all.md 第 5 行写了本机绝对路径
+`D:\Data\projects\mp-worktrees\mp-publish-target-select-all` —— worktree 是本机
+临时目录，路径不该进受管文档（换机即失效，且泄漏个人文件系统布局）。
+按该判据给出的正解改成占位符形态 `<worktreeRoot>/mp-publish-target-select-all`。
+
+本地复跑 `node scripts/check-doc-abs-paths.js --all` → PASS
+（counts=1185 / files=564，无新增本机绝对路径）。
