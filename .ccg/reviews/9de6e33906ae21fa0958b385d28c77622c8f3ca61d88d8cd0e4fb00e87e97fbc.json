@@ -1,0 +1,30 @@
+{
+  "sha": "50d2d428dbccca30fc9528e27b69e6511d85c076",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 2,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 5,
+    "docSensitiveContentSample": [
+      "## 「批量选择」类控件的三条 UE 判断 + 实现期三条坑（publish-target-select-all，2026-10-17）",
+      "sync_reason: 本 PR（publish-target-select-all，#3861）的远程同步待合并后由后续 docs PR 回填 PASS + merge SHA，并同步删除本条登记字段",
+      "sync_backfill_owner: 本记录作者（publish-target-select-all 会话）或其后续 docs PR；回填时须一并删除 sync_* 三字段（登记随文件走，回填后不得残留）"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "9de6e33906ae21fa0958b385d28c77622c8f3ca61d88d8cd0e4fb00e87e97fbc",
+  "decidedAt": "2026-10-17T16:29:27.259Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

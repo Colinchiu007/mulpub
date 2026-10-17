@@ -4,6 +4,9 @@ task: 发布页「发布目标」区增加「全选 / 清空」与分组选择�
 branch: publish-target-select-all
 worktree: D:\Data\projects\mp-worktrees\mp-publish-target-select-all
 contract: 01-docs/PRD-PUBLISH-TARGET-SELECT-ALL-2026-10-17.md
+sync_status: PENDING
+sync_reason: 本 PR（publish-target-select-all，#3861）的远程同步待合并后由后续 docs PR 回填 PASS + merge SHA，并同步删除本条登记字段
+sync_backfill_owner: 本记录作者（publish-target-select-all 会话）或其后续 docs PR；回填时须一并删除 sync_* 三字段（登记随文件走，回填后不得残留）
 ---
 
 ## 本次执行记录：发布目标「全选 / 清空」+ 分组选择回视（publish-target-select-all，2026-10-17）
@@ -21,8 +24,8 @@ contract: 01-docs/PRD-PUBLISH-TARGET-SELECT-ALL-2026-10-17.md
 | `check-max-lines` | ✅ | `Publish.vue` 1770 ≤ targets 1773；`Publish.test.js` 拆出视图层测试后回容差内 |
 | `check-locale-sync` | ✅ pair + ✅ CJK | pair PASS（zh/en 变更均=true 且成对覆盖）；CJK 基线 1374 → 1217，无新增硬编码 |
 | ESLint | ✅ exit 0 | 仅 2 处 warning（`Publish.vue:726` 未用 disable 指令、`:1253` `copyDetailMeta`），经 `git diff origin/main` 核对**均不在本刀 diff 内** |
-| 测试 | ✅ 25 文件 422 用例全绿 | 受影响全量：`src/features/publish` + `usePlatformSelection` + `usePublishTargetBulkTargets` + `Publish.test.js` + `publish-target-select-all.test.js` |
-| 远程同步 | PENDING | 合并后回填 |
+| 测试 | ✅ 25 文件 422 用例全绿（含新 4 文件 34 例）；宽扫 76 文件 1379 用例全绿 | 受影响全量：`src/features/publish` + `usePlatformSelection` + `usePublishTargetBulkTargets` + `Publish.test.js` + `publish-target-select-all.test.js` |
+| 远程同步 | PENDING | 待 PR #3861 合并后回填 PASS + merge SHA，并删除 frontmatter 的 `sync_*` 三字段 |
 
 ### 反证（每条都实跑并指名红）
 
