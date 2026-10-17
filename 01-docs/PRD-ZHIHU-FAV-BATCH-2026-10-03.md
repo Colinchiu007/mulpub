@@ -472,6 +472,65 @@
 
 **验收**：done `duplicate:true` ⇒ 进度行含「已采集过」且不含「包含已采集」之外的旧「完成」尾缀；正常完成仍显示「完成」；按钮文字 = `采集&改写`；同步锁对真实仓库 PASS。
 
+#### 4.3.8 强制重采的语义穿透 + 采集失败可归因 + 收尾通知分级（2026-10-18，change: fav-force-recollect）
+
+§4.3.7 让「已采集被跳过」可见之后，用户按提示勾选 **「包含已采集（强制重采）」** 重试，**仍然全部显示「完成」且结果区 0 新增**。根因是三个独立缺陷叠加：
+
+**① 强制重采没有穿透到内容缓存（最核心）**
+
+`forceRecollect` 当时只被两处消费：跳过 duplicate 判断、覆盖时保留原 `id`/`createdAt`。但采集器 `UrlCollector.collect()` 还有一道 **L6 内容缓存**（`ContentCache`，内存 LRU），命中即返回空壳：
+
+```
+{ success: true, reason: 'cache_hit', title: '', content: '' }
+```
+
+该空壳被 `isSubstantive()` 判为不可采（防空壳合同 PRD §3.3.4）⇒ 计失败。于是「强制重采」名义生效、实际拿不到内容。
+
+**合同（新增，不可破）**：任何「强制刷新 / 强制重采 / 忽略缓存」类开关，必须逐层核对它是否真的穿透到每一处复用点——去重名单、内容缓存、进程内记忆（`knownEntryMeta`）、跨会话防线（`collectedUrls`）、磁盘快照。**只堵一层就会出现「勾了没反应」**，且这种失效在进度与结果上都与「正常执行」同形，极难自证。
+
+实现：`UrlCollector.collect(url, opts)` 新增 `opts.forceRefresh`；`zhihu-fav-batch:run` 在 `forceRecollect === true` 时传 `{ manual: false, forceRefresh: true }`（`manual` 语义不变，仍不豁免限流策略）。
+
+**② 采集失败在进度明细里被画成「完成」**
+
+后端的失败 done 事件只有 code（`unsubstantive` / `collect-throw` / `missing-url`），渲染层 done 分支又只处理 `registerOnly` / `duplicate` / `rewriteFailed` 三种，其余一律落到默认「完成」⇒ **失败与成功同形**。
+
+实现：
+- 后端 done 事件新增 `reason`（可读摘要，优先级：缓存命中说明 > 采集器自带 `error` > 兜底「内容不可提取」），并同步进 `results[].reason` 便于追溯；
+- 渲染层 done 分支新增**最高优先级** `res.ok === false` 判定：有 reason 显示「采集失败：{reason}」，无 reason 显示兜底话术（不得出现 `undefined`）。
+
+**③ 收尾通知无条件报成功**
+
+收尾原本是 `notifySuccess('collection.collectSuccess')` 一行，**不论结果**。整批全失败也弹「内容采集成功」——比进度明细更醒目，是同一误感知的第二个来源。
+
+**分级合同（新增）**：
+
+| 条件（优先级由高到低） | 通知 | 文案 key |
+|---|---|---|
+| `cancelled` | info | `collection.zhihuFav.cancelledNote` |
+| `completed > 0` | success | `collection.collectSuccess`（既有） |
+| `completed === 0 && failed > 0` | **warning** | `collection.zhihuFav.allFailedNote` |
+| `completed === 0 && failed === 0 && duplicateSkipped > 0` | info | `collection.zhihuFav.allSkippedNote` |
+| 其余（空批次兜底） | info | `collection.zhihuFav.allSkippedNote`（skipped=0） |
+
+**新增显示项与提示文字（zh/en 成对）**
+
+| key（`collection.zhihuFav.*`） | zh | en |
+|---|---|---|
+| `failedNote` | 采集失败：{reason} | Collection failed: {reason} |
+| `failedNoReason` | 采集失败（无详情，请查看日志） | Collection failed (no details; check the logs) |
+| `allFailedNote` | 全部采集失败（{failed} 条），详情见进度明细与日志 | All {failed} item(s) failed to collect — see the progress details and logs |
+| `allSkippedNote` | 这 {skipped} 条都已采集过，本次全部跳过（勾选「包含已采集」可强制重采） | All {skipped} item(s) were already collected — skipped this run (tick "Include collected" to force re-collection) |
+| `cancelledNote` | 已取消采集 | Collection cancelled |
+
+**交互与数据校验**
+
+- 勾选「包含已采集（强制重采）」⇒ 清单里已采集条目变为可选（既有）+ 采集时 `forceRefresh: true`（新增）；
+- 未勾选 ⇒ 缓存与去重名单照旧生效（`forceRefresh` 必须为假值，回归锁覆盖）；
+- 失败条目不进入 `collected_items`（既有合同不变），但**必须在进度明细与收尾通知上同时可见**；
+- `reason` 截断 ≤200 字符（与 `rewriteError` 同口径），不透传堆栈。
+
+**验收**：全失败批次 ⇒ 进度明细逐条含「采集失败」+ 原因、收尾弹 warning（`allFailedNote`）、**绝不弹 success**；全跳过批次 ⇒ 明细含「已采集过」、收尾 info（`allSkippedNote`）；勾强制重采 ⇒ `collect` 收到 `forceRefresh:true` 且缓存不再拦截；未勾 ⇒ 缓存照旧。
+
 ## 5. 显示项与提示文字（locale zh/en 成对）
 
 ### 5.1 显示项

@@ -261,6 +261,13 @@ export default {
       registerOnlyNote: 'Registered (body not supported yet)',
       collectOkRewriteFailNote: 'Collected, rewrite failed (using original)',
       duplicateNote: 'Already collected — skipped this run (tick "Include collected" to force re-collection)',
+      failedNote: 'Collection failed: {reason}',
+      failedNoReason: 'Collection failed (no details; check the logs)',
+      allFailedNote: 'All {failed} item(s) failed to collect — see the progress details and logs',
+      allSkippedNote: 'All {skipped} item(s) were already collected — skipped this run (tick "Include collected" to force re-collection)',
+      cancelledNote: 'Collection cancelled',
+      circuitBrokenNote: 'Platform rate-limit circuit breaker tripped — this run stopped; please retry later',
+      nothingCollectedNote: 'Nothing was collected this run',
       fallbackSuffix: ', {count} images fell back to original URLs',
       // collection-ui-refinement: 12 keys surfaced when BatchCollectPanel entered the scan scope
       scopeFavlist: 'Specific favlist',

@@ -229,17 +229,29 @@ function registerHandlers (ipcMain, deps) {
    *   ① 非 Error 抛出值（字符串/对象）也要有可读摘要，不能产出 "[object Object]"；
    *   ② 摘要里的内网端点（127.* / localhost / 内网 IP:端口）替换为通用说法 ——
    *      完整原文仍在 log.warn，UI 不暴露内部拓扑。
+   *
+   * 2026-10-18（fav-force-recollect 自评）：脱敏逻辑抽成 sanitizeDiagText 供采集失败
+   * 的 reason 复用 —— reason 同样直传 UI（进度行 + 结果徽标），暴露面与 rewriteError 同级。
    */
+  /**
+   * 诊断文本脱敏 + 截断：内网 IP/localhost 端点替换为通用说法，保留可读性。
+   * @param {string} text
+   * @returns {string} ≤200 字符
+   */
+  function sanitizeDiagText (text) {
+    return String(text)
+      .replace(/\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?/g, '后端服务')
+      .replace(/\blocalhost(?::\d+)?/gi, '后端服务')
+      .slice(0, 200)
+  }
+
   function summarizeRewriteError (e) {
     let msg
     if (e && typeof e === 'object' && typeof e.message === 'string' && e.message) msg = e.message
     else if (typeof e === 'string') msg = e
     else { try { msg = JSON.stringify(e) } catch { msg = String(e) } }
-    // 内网端点脱敏（QM-6 #1）：UI 只说「连不上后端」，地址细节留在日志
-    msg = msg
-      .replace(/\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?/g, '后端服务')
-      .replace(/\blocalhost(?::\d+)?/gi, '后端服务')
-    return msg.slice(0, 200)
+    // 内网端点脱敏 + 截断（单一实现见 sanitizeDiagText）
+    return sanitizeDiagText(msg)
   }
 
   async function rewriteOne (pythonBridge, content, style) {
@@ -319,20 +331,30 @@ function registerHandlers (ipcMain, deps) {
           return { ok: true, duplicate: true }
         }
         // ── 采集 ──
+        // forceRefresh：勾「包含已采集（强制重采）」时必须绕过 L6 内容缓存，否则缓存命中返回
+        // 空壳 → 下层判 unsubstantive → 表现为「勾了也没用」（2026-10-18，fav-force-recollect）。
         let result
         try {
-          result = await urlCollector.collect(url, { manual: false })
+          result = await urlCollector.collect(url, { manual: false, forceRefresh: forceRecollect })
         } catch (e) {
           stats.failed++
-          sendProgress(event, { phase: 'done', index: idx, total, url, kind, result: { ok: false, error: 'collect-throw' } })
+          const throwReason = e && e.message ? sanitizeDiagText(e.message) : '采集过程抛出异常'
+          sendProgress(event, { phase: 'done', index: idx, total, url, kind, result: { ok: false, error: 'collect-throw', reason: throwReason } })
           return { ok: false, error: e && e.message ? e.message : String(e), retryable: false }
         }
         if (!result || result.success !== true || !isSubstantive(result)) {
           // cache_hit 返回 {success:true, title:'', content:''} 也在此判失败（防空壳，PRD §3.3.4）
           stats.failed++
-          const reason = result && result.reason === 'cache_hit' ? '重复缓存命中' : '内容不可提取'
-          sendProgress(event, { phase: 'done', index: idx, total, url, kind, result: { ok: false, error: 'unsubstantive' } })
-          return { ok: false, error: reason, retryable: false }
+          // 失败原因必须可归因（2026-10-18，fav-force-recollect）：done 事件此前只有 code
+          // （unsubstantive），渲染层无从解释，用户只看到「完成」却没有结果。
+          // 优先级：缓存命中说明 > 采集器自带 error > 泛化兜底。
+          const reason = result && result.reason === 'cache_hit'
+            ? '重复缓存命中（内容缓存已有该 URL；勾「包含已采集（强制重采）」可绕缓存重采）'
+            : (result && typeof result.error === 'string' && result.error.trim()
+                ? sanitizeDiagText(result.error.trim())
+                : '内容不可提取')
+          sendProgress(event, { phase: 'done', index: idx, total, url, kind, result: { ok: false, error: 'unsubstantive', reason } })
+          return { ok: false, error: reason, reason, retryable: false }
         }
         // ── 图片本地化（C1：注入 localizer 且 imageLocalization!==false 时启用；失败回退原链）──
         const images = []

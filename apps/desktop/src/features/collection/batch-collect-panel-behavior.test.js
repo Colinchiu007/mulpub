@@ -29,6 +29,14 @@ vi.mock('@/stores/settings-dialog', async () => {
   }
 })
 
+// 通知通道桩（2026-10-18，change: fav-force-recollect）：要断言「整批失败不得弹采集成功」，
+// 必须让 useNotify 返回可观测 spy。vi.hoisted 保证 mock 工厂早于 import 生效。
+const notifySpies = vi.hoisted(() => ({
+  notify: vi.fn(), notifySuccess: vi.fn(), notifyError: vi.fn(),
+  notifyWarning: vi.fn(), notifyInfo: vi.fn(), notifyConfirm: vi.fn(),
+}))
+vi.mock('@/composables/useNotify', () => ({ useNotify: () => notifySpies }))
+
 const BatchCollectPanel = (await import('./BatchCollectPanel.vue')).default
 const { settingsDialogRevision, requestSettingsDialog } = await import('@/stores/settings-dialog')
 
@@ -85,6 +93,12 @@ const i18n = createI18n({
           progressSummary: '成功 {success} 失败 {failed} 跳过 {skipped} 改写失败 {rewriteFailed}',
           collectingNote: '采集 {url}', doneNote: '完成', registerOnlyNote: '仅登记',
           duplicateNote: '已采集过，本次跳过（勾选「包含已采集」可强制重采）',
+          failedNote: '采集失败：{reason}',
+          failedNoReason: '采集失败（无详情，请查看日志）',
+          allFailedNote: '全部采集失败（{failed} 条），详情见进度明细与日志',
+          allSkippedNote: '这 {skipped} 条都已采集过，本次全部跳过（勾选「包含已采集」可强制重采）',
+          circuitBrokenNote: '已触发平台限流保护（熔断），本轮中止，请稍后重试',
+          nothingCollectedNote: '本轮没有采集到内容',
           collectOkRewriteFailNote: '采集成功但改写失败', fallbackSuffix: '（{count} 张图片降级）',
           kindAnswer: '回答', kindArticle: '文章', kindColumn: '专栏', kindPin: '想法', kindVideo: '视频', kindUnknown: '未知',
         },
@@ -403,6 +417,143 @@ describe('BatchCollectPanel 知乎收藏夹批量行为锁', () => {
     expect(line, '正常完成必须有「完成」进度行').toBeTruthy()
     expect(line).toContain('完成')
     expect(line).not.toContain('已采集过')
+  })
+
+  // ── 采集失败必须可归因（2026-10-18，change: fav-force-recollect）──
+  // 用户实测：勾「包含已采集（强制重采）」后进度明细仍显示「完成」，结果区 0 新增。
+  // 根因之一：done 事件 ok:false 时渲染层没有对应分支，失败被渲染成「完成」。
+  it('done 事件 ok:false → 进度行显示「采集失败」+ 原因，绝不显示「完成」', async () => {
+    let progressHandler = null
+    window.electronAPI = {
+      onZhihuFavBatchProgress: vi.fn((cb) => { progressHandler = cb; return vi.fn() }),
+    }
+    const w = mountPanel()
+    progressHandler({ phase: 'start', index: 0, total: 1, url: 'https://www.zhihu.com/answer/3' })
+    progressHandler({
+      phase: 'done', index: 0, total: 1, url: 'https://www.zhihu.com/answer/3',
+      result: { ok: false, error: 'unsubstantive', reason: '内容不可提取' },
+    })
+    await flushPromises()
+    const line = w.vm.zhihuFavProgressLines.find((l) => !l.includes('采集中'))
+    expect(line, '失败必须有进度行').toBeTruthy()
+    expect(line).toContain('采集失败')
+    expect(line).toContain('内容不可提取')
+    expect(line).not.toMatch(/完成$/) // 关键：不得把失败画成「完成」
+  })
+
+  it('done 事件 ok:false 且无 reason → 显示兜底话术（不出现 undefined）', async () => {
+    let progressHandler = null
+    window.electronAPI = {
+      onZhihuFavBatchProgress: vi.fn((cb) => { progressHandler = cb; return vi.fn() }),
+    }
+    const w = mountPanel()
+    progressHandler({ phase: 'start', index: 0, total: 1, url: 'https://www.zhihu.com/answer/4' })
+    progressHandler({ phase: 'done', index: 0, total: 1, url: 'https://www.zhihu.com/answer/4', result: { ok: false } })
+    await flushPromises()
+    const line = w.vm.zhihuFavProgressLines.find((l) => !l.includes('采集中'))
+    expect(line).toContain('采集失败')
+    expect(line).toContain('请查看日志')
+    expect(line).not.toContain('undefined')
+  })
+
+  // ── 收尾通知必须与实际结果一致（2026-10-18，change: fav-force-recollect）──
+  // 原实现收尾**无条件** notifySuccess('collection.collectSuccess')：即使 2 条全部失败，
+  // 也弹「内容采集成功」。这是用户「显示完成但没结果」感知的第二个来源。
+  function clearNotifySpies () {
+    for (const s of Object.values(notifySpies)) s.mockClear()
+  }
+
+  it('整批全部失败 → 不得弹「采集成功」，改弹警告/错误', async () => {
+    clearNotifySpies()
+    window.electronAPI = {
+      onZhihuFavBatchProgress: vi.fn(() => vi.fn()),
+      zhihuFavBatchRun: vi.fn().mockResolvedValue({ code: 0, data: {
+        completed: 0, failed: 2, duplicateSkipped: 0, rewriteFailed: 0,
+        cancelled: false, circuitBroken: false, items: [],
+        results: [
+          { index: 0, ok: false, error: 'unsubstantive', reason: '内容不可提取' },
+          { index: 1, ok: false, error: 'unsubstantive', reason: '内容不可提取' },
+        ],
+      } }),
+      zhihuFavlistContents: vi.fn().mockResolvedValue({ code: 0, data: { items: [], totals: 0 } }),
+    }
+    const w = mountPanel()
+    state(w, 'zhihuFavlists', [{ urlToken: 't', title: '夹' }])
+    state(w, 'zhihuFavItems', [
+      { url: 'https://www.zhihu.com/answer/1', title: 'A', kind: 'answer', collected: true },
+      { url: 'https://www.zhihu.com/answer/2', title: 'B', kind: 'answer', collected: true },
+    ])
+    state(w, 'zhihuSelectedFavlist', 't')
+    state(w, 'zhihuFavIncludeCollected', true)
+    state(w, 'zhihuFavChecked', new Set(['https://www.zhihu.com/answer/1', 'https://www.zhihu.com/answer/2']))
+    await w.vm.runZhihuFavCollectRewrite()
+    await flushPromises()
+    expect(notifySpies.notifySuccess, '全部失败绝不能报成功').not.toHaveBeenCalled()
+    const warned = notifySpies.notifyWarning.mock.calls.length + notifySpies.notifyError.mock.calls.length
+    expect(warned, '全部失败必须给出警告/错误提示').toBeGreaterThan(0)
+  })
+
+  it('整批全部被去重跳过 → 不弹「采集成功」，且说明全部已采集', async () => {
+    clearNotifySpies()
+    window.electronAPI = {
+      onZhihuFavBatchProgress: vi.fn(() => vi.fn()),
+      zhihuFavBatchRun: vi.fn().mockResolvedValue({ code: 0, data: {
+        completed: 0, failed: 0, duplicateSkipped: 2, rewriteFailed: 0,
+        cancelled: false, circuitBroken: false, items: [],
+        results: [
+          { index: 0, ok: true, duplicate: true },
+          { index: 1, ok: true, duplicate: true },
+        ],
+      } }),
+      zhihuFavlistContents: vi.fn().mockResolvedValue({ code: 0, data: { items: [], totals: 0 } }),
+    }
+    const w = mountPanel()
+    state(w, 'zhihuFavlists', [{ urlToken: 't', title: '夹' }])
+    state(w, 'zhihuFavItems', [
+      { url: 'https://www.zhihu.com/answer/1', title: 'A', kind: 'answer', collected: true },
+      { url: 'https://www.zhihu.com/answer/2', title: 'B', kind: 'answer', collected: true },
+    ])
+    state(w, 'zhihuSelectedFavlist', 't')
+    state(w, 'zhihuFavChecked', new Set(['https://www.zhihu.com/answer/1', 'https://www.zhihu.com/answer/2']))
+    await w.vm.runZhihuFavCollectRewrite()
+    await flushPromises()
+    expect(notifySpies.notifySuccess, '全部跳过不是成功').not.toHaveBeenCalled()
+    const spoken = [
+      ...notifySpies.notifyInfo.mock.calls,
+      ...notifySpies.notifyWarning.mock.calls,
+    ].map((c) => String(c[0]))
+    expect(spoken.length, '全部跳过必须给出提示').toBeGreaterThan(0)
+    expect(spoken.join(' ')).toContain('allSkippedNote')
+  })
+
+  // ── 熔断 / 空批次不得落入「全部已采集」分支（2026-10-18，QM-6 自评发现）──
+  // 上一版四级分流的 else 兜底给 allSkippedNote(skipped=0)，熔断与空批次会显示
+  // 「这 0 条都已采集过」——语义完全错误。熔断必须有自己的文案。
+  it('circuitBroken 批次 → 提示熔断，绝不说「这 0 条都已采集过」', async () => {
+    clearNotifySpies()
+    window.electronAPI = {
+      onZhihuFavBatchProgress: vi.fn(() => vi.fn()),
+      zhihuFavBatchRun: vi.fn().mockResolvedValue({ code: 0, data: {
+        completed: 0, failed: 0, duplicateSkipped: 0, rewriteFailed: 0,
+        cancelled: false, circuitBroken: true, items: [], results: [],
+      } }),
+      zhihuFavlistContents: vi.fn().mockResolvedValue({ code: 0, data: { items: [], totals: 0 } }),
+    }
+    const w = mountPanel()
+    state(w, 'zhihuFavlists', [{ urlToken: 't', title: '夹' }])
+    state(w, 'zhihuFavItems', [{ url: 'https://www.zhihu.com/answer/1', title: 'A', kind: 'answer', collected: false }])
+    state(w, 'zhihuSelectedFavlist', 't')
+    state(w, 'zhihuFavChecked', new Set(['https://www.zhihu.com/answer/1']))
+    await w.vm.runZhihuFavCollectRewrite()
+    await flushPromises()
+    expect(notifySpies.notifySuccess).not.toHaveBeenCalled()
+    const allCalls = [
+      ...notifySpies.notifyInfo.mock.calls,
+      ...notifySpies.notifyWarning.mock.calls,
+      ...notifySpies.notifyError.mock.calls,
+    ].map((c) => String(c[0]))
+    expect(allCalls.join(' '), '熔断必须有专属提示').toContain('circuitBrokenNote')
+    expect(allCalls.join(' '), '不得落进「全部已采集」分支').not.toContain('allSkippedNote')
   })
 
   it('主按钮文案 = locale 的 collectAndRewrite（采集&改写）', async () => {

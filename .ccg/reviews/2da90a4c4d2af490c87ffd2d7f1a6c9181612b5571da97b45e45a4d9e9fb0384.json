@@ -1,0 +1,26 @@
+{
+  "sha": "436f6745ce4d3fd5cd0e50406e8735fb4604695c",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 269 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 269,
+    "fileCount": 11,
+    "codeFileCount": 8,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 2,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "2da90a4c4d2af490c87ffd2d7f1a6c9181612b5571da97b45e45a4d9e9fb0384",
+  "decidedAt": "2026-10-17T16:34:22.539Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "findings": "外部挑刺侧两次 502 不可用，按「子代理降级」纪律降级为 self-play 并如实标注。六个追问：Q1 反爬保护未削弱（熔断/限流在缓存检查之前，已实证行号顺序）；Q3 与 Q4 各命中一处真问题并已修 —— Q4 最严重：熔断与空批次原先落入「全部已跳过」分支会显示「这 0 条都已采集过」，语义错误且掩盖正确动作，已拆出 circuitBrokenNote 与 nothingCollectedNote 并加双向断言；Q3 采集失败原因原先只截断未脱敏，可能把内网端点带到进度行与徽标，已抽公共 sanitizeDiagText 复用并加断言。Q2 登记为遗留（手动单次采集路径本轮不改）；Q5 已加前提注释防将来遮蔽；Q6 测试经双向复核可抓回归。采纳项均带回归锁，无待人工裁决争议。"
+  }
+}
