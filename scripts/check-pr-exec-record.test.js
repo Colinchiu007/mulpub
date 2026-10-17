@@ -1040,55 +1040,99 @@ test('QM-6 i2：decider 的行数统计与 hash 必须同一口径（都排除 .
     '-U0 也必须排除 .ccg（口径要对齐的是**两条**命令，不是只改第一条）')
 })
 
-test('遗留收口：提示文案声称的位宽/形态必须与 AUDIT_ARTIFACT_RE 实际接受的完全一致', () => {
-  // 动因（2026-10-17，收口 PR #3755 登记的遗留）：记录名由「只认 40 位」放宽为「40 或 64 位」、
-  // 并新增 `-again-<40sha>-<ISO>` alt 形态，但「四条合法出路」的提示文案仍写
-  // `<40 位小写十六进制>` ⇒ 按提示排障的人会以为 64 位记录**不算**纯回填，于是把
-  // 真实满足 ④ 的 PR 判成「未携带执行记录」并去乱加记录文件。
+test('遗留收口：提示文案必须**由判据生成**，且源码里不得再出现手写的位宽说明', () => {
+  // 动因（2026-10-17，收口 #3772 登记的遗留）：出路④的提示文案原先**手写**了
+  // `<40 位小写十六进制>`。判据在 #3755 放宽为「40 或 64 位 + alt 形态」时漏改这条文案
+  // ⇒ 按提示排障的人会把 64 位记录误判成「不算纯回填」，于是给一个真实满足④的 PR
+  // 硬加一份本不需要的记录文件（#3772 上实际踩到）。
   //
-  // ★ 判据必须**派生**、不得在文案里再抄一遍数字：文案与正则已是两处独立可漂移的真源，
-  //   再抄一遍就是第三处。所以本锁从正则的字面量里**算出**它接受什么，再核文案说的是不是同一组。
+  // ★ 本锁针对的**不是**「两处写一样」，而是「只剩一处」：
+  //   实现已把文案改成由 `describeAuditWidths()` 生成（位宽由正则**行为**推出）。
+  //   所以这里核两件事：
+  //     ① 生成结果与判据行为一致（生成器本身没写错）；
+  //     ② 源码里**所有**形如 `<N [或 M] 位小写十六进制>` 的短语都必须**逐字等于**生成结果
+  //        —— 有人手写第二处，当场红。
+  //
+  // ★ QM-6 评审 6 条全部指向上一版锁的脆弱性，本版逐条收口：
+  //   i1 只按正则字面形状抠 `\{(\d+)\}` ⇒ 改成**行为探测**（等价改写 `{40,64}`/`.{40}`/大写 都不受影响）
+  //   i2/i5/i6 靠硬编码中文锚点切片 ⇒ **不再切片**，改为全源码逐处核对短语
+  //   i3 `new RegExp` 丢 flags ⇒ 不再从源码重建正则，直接用模块导出的常量
+  //   i4 只探全 a 串与相邻宽度 ⇒ 补 alt 形态、非十六进制拒绝、前后缀拒绝
+  const gate = require('./check-pr-exec-record.js')
   const src = fs.readFileSync(path.join(__dirname, 'check-pr-exec-record.js'), 'utf8')
+  // ★ 只扫**代码行**，剥掉纯注释行：注释不面向用户，且禁止注释引用形态会让这把锁敌视文档
+  //   （本仓已确立同型做法：结构类判据必须先剥注释行再断言，否则会被「字面在注释里」骗过或反向误伤）。
+  const code = src.split('\n').filter((l) => {
+    const s = l.trim()
+    return s && !s.startsWith('//') && !s.startsWith('*') && !s.startsWith('/*')
+  }).join('\n')
 
-  // 1) 取正则字面量并编译（不 eval，避免引入执行面）
-  const litMatch = src.match(/const AUDIT_ARTIFACT_RE = \/(.+)\/;?\s*$/m)
-  assert.ok(litMatch, '必须能从源码取出 AUDIT_ARTIFACT_RE 的字面量（判据改了名字就同步改本锁）')
-  const RE_SRC = litMatch[1]
-  const re = new RegExp(RE_SRC)
-
-  // 2) 从正则声明里推出它接受哪些位宽
-  const declared = [...new Set([...RE_SRC.matchAll(/\[0-9a-f\]\{(\d+)\}/g)].map((x) => Number(x[1])))].sort((a, b) => a - b)
-  assert.ok(declared.length > 0, '正则里应当至少声明一个十六进制位宽')
-
-  // 3) 行为核对：声明的位宽真的能过，且紧邻位宽真的过不了
-  //    （防止「声明了 64 但正则实际写成 [0-9a-f]{6}4」这类字面对、语义错）
-  for (const w of declared) {
-    assert.ok(re.test('.ccg/reviews/' + 'a'.repeat(w) + '.json'),
+  // ① 生成结果与判据行为一致
+  const widths = gate.auditAcceptedWidths()
+  assert.ok(widths.length > 0,
+    'AUDIT_ARTIFACT_RE 在探测范围 ' + gate.AUDIT_NAME_WIDTH_MIN + '..' + gate.AUDIT_NAME_WIDTH_MAX
+    + ' 内不接受任何十六进制名 —— 判据可能被改写成行为探测覆盖不到的形态（fail-closed）')
+  for (const w of widths) {
+    assert.ok(gate.AUDIT_ARTIFACT_RE.test('.ccg/reviews/' + 'a'.repeat(w) + '.json'),
       `声明的 ${w} 位记录名必须真的能通过 AUDIT_ARTIFACT_RE`)
-    for (const off of [-1, 1]) {
-      const probe = w + off
-      if (probe <= 0 || declared.includes(probe)) continue
-      assert.ok(!re.test('.ccg/reviews/' + 'a'.repeat(probe) + '.json'),
-        `${probe} 位记录名不得通过（否则「${w} 位」这个声明是假的）`)
-    }
   }
+  // 相邻（未被接受的）位宽必须真的过不了 —— 防止「声明 N 位但正则实际是别的宽度」
+  for (const off of [-1, 1]) {
+    const probe = widths[0] + off
+    if (probe <= 0 || widths.includes(probe)) continue
+    assert.ok(!gate.AUDIT_ARTIFACT_RE.test('.ccg/reviews/' + 'a'.repeat(probe) + '.json'),
+      `${probe} 位记录名不得通过（否则「${widths[0]} 位」这个声明是假的）`)
+  }
+  // 非十六进制必须被拒（QM-6 i4：此前只探全 a 串，锚定/字符类坏了可能探不出）
+  for (const bad of ['g', 'A', '-', '_', ' ']) {
+    const w = widths[0]
+    assert.ok(!gate.AUDIT_ARTIFACT_RE.test('.ccg/reviews/' + bad.repeat(w) + '.json'),
+      `${JSON.stringify(bad)} 不是小写十六进制，重复 ${w} 次必须被拒`)
+  }
+  // 路径外的同形名字必须被拒（锚定检查）
+  assert.ok(!gate.AUDIT_ARTIFACT_RE.test('x/.ccg/reviews/' + 'a'.repeat(widths[0]) + '.json'),
+    '前导路径必须被拒（^ 锚定）')
+  assert.ok(!gate.AUDIT_ARTIFACT_RE.test('.ccg/reviews/' + 'a'.repeat(widths[0]) + '.json.bak'),
+    '多余后缀必须被拒（$ 锚定）')
 
-  // 4) 从提示文案里取它**声称**的位宽
-  const msgStart = src.indexOf('本 PR 未携带执行记录')
-  assert.ok(msgStart > 0, '未找到「四条合法出路」提示文案（改名了就同步改本锁）')
-  const msgEnd = src.indexOf('即不符合此定义', msgStart)
-  const msg = src.slice(msgStart, msgEnd > 0 ? msgEnd : msgStart + 1200)
-  const claimMatch = msg.match(/<\s*(\d+(?:\s*或\s*\d+)*)\s*位小写十六进制>/)
-  assert.ok(claimMatch, '提示文案里必须显式写出位宽（否则排障者无从判断）')
-  const claimed = [...new Set(claimMatch[1].split('或').map((s) => Number(s.trim())))].sort((a, b) => a - b)
+  const expected = gate.describeAuditWidths()
+  assert.strictEqual(expected, '<' + widths.join(' 或 ') + ' 位小写十六进制>',
+    '生成器必须把**全部**被接受的位宽都写出来（少写会误导，多写会让人以为存在那种形态）')
 
-  // 5) 两组必须完全相等 —— 双向：文案少了位宽会误导，文案多了位宽会让人以为存在这种形态
-  assert.deepStrictEqual(claimed, declared,
-    '提示文案声称的位宽 ' + JSON.stringify(claimed) + ' 必须与正则实际接受的 ' + JSON.stringify(declared) + ' 完全一致')
+  // ② 源码里所有手写形态的位宽短语，都必须逐字等于生成结果（不得有第二处真源）
+  const found = [...code.matchAll(/<\s*\d+(?:\s*或\s*\d+)*\s*位小写十六进制\s*>/g)].map((m) => m[0])
+  for (const phrase of found) {
+    assert.strictEqual(phrase, expected,
+      '源码里出现了手写的位宽说明 ' + JSON.stringify(phrase)
+      + '，但判据生成的是 ' + JSON.stringify(expected)
+      + ' —— 文案必须由 describeAuditWidths() 生成，不得另外手写一处（那正是本次要修的遗留）')
+  }
+  // 接线锁：生成器必须真的被**调用**进文案里。
+  // 不写成「源码里必须出现 expected 这个字面量」——因为 expected 是运行时生成的，
+  // 要求它出现在源码里等于要求手写一份，与本次修法自相矛盾。
+  // ★ 必须是**拼接形式** `+ describeAuditWidths()`，不能只出现标识符：
+  //   M32 变异实测过「只查 /describeAuditWidths\(/」会被**函数定义与导出**那一行满足，
+  //   于是把文案改回纯手写也照样绿 —— 接线锁必须锁「返回值被拼进文案」，而不是「函数存在」。
+  assert.ok(/\+\s*describeAuditWidths\s*\(\s*\)/.test(code),
+    '出路④的提示文案必须以拼接形式使用 describeAuditWidths()（+ describeAuditWidths()）生成位宽说明，'
+    + '不得手写（手写即第二处真源；函数"存在"不算接线）')
 
-  // 6) alt 形态同源：正则认 `-again-` 时文案必须也提到，否则同样误导
-  if (RE_SRC.includes('-again-')) {
-    assert.match(msg, /-again-/,
-      '正则接受 -again- alt 形态 ⇒ 提示文案必须提到它，否则排障者会把被拒的 alt 记录当成判据缺陷')
+  // ③ alt 形态同源：判据接受 ⇒ 文案由同一个探测结果拼出；不接受 ⇒ 文案不得声称
+  const alt = gate.auditAcceptedAltForm()
+  if (alt) {
+    assert.ok(gate.AUDIT_ARTIFACT_RE.test(
+      '.ccg/reviews/' + 'a'.repeat(64) + '-again-' + 'b'.repeat(40) + '-20261017T120000Z.json'),
+    '探测说接受 alt 形态，实际必须真能过')
+    assert.ok(/\+\s*auditAcceptedAltForm\s*\(\s*\)/.test(code),
+      'alt 形态说明必须以拼接形式使用 auditAcceptedAltForm()（+ auditAcceptedAltForm()），不得手写')
+    // 计数判据（而不是逐条比对形态）：alt 说明只允许**唯一一处**字面量，就是生成器的返回值。
+    // 不写成 `/-again-<[^>]*>/` 逐条比对，因为该形态本身含两个 `<...>` 段
+    // （`-again-<40 位 sha>-<ISO 时间戳>`），`[^>]*` 只截到第一个 `>` ⇒ 会拿半截去比全长、恒假红。
+    const altLiteralCount = (code.match(/-again-</g) || []).length
+    assert.strictEqual(altLiteralCount, 1,
+      'alt 形态说明在代码行里只允许出现 1 处（生成器的返回值）；实际 ' + altLiteralCount
+      + ' 处 ⇒ 有人手写了第二处，或生成器被拆散')
+    assert.ok(code.includes("'" + alt + "'"),
+      '生成器必须原样返回 ' + JSON.stringify(alt) + '（文案与探测结果同一个值）')
   }
 })

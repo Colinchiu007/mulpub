@@ -63,6 +63,54 @@ const CARRIER_RE = /^(?:openspec\/records\/[^_][^/]*\.md|\.quality-gates\.md|scr
 const AUDIT_ARTIFACT_RE = /^\.ccg\/reviews\/(?:[0-9a-f]{40}|[0-9a-f]{64})(?:-again-[0-9a-f]{40}-\d{8}T\d{6}(?:\.\d{1,3})?Z)?\.json$/
 const DEFAULT_THRESHOLD = 3
 
+// ---------- 位宽/形态说明的**单一真源**（2026-10-17，ccg-record-width-message） ----------
+//
+// 为什么要有这一段：出路④的提示文案原先**手写**了位宽说明（`<40 位…>` 那种写法）。
+// （此处**不复述**旧全句：本文件末尾的派生锁要求「源码里不得出现手写的位宽短语」，
+//   若在此处完整引用一遍旧文案，就会与那条判据自相冲突 —— 复述历史不构成豁免。）
+// 判据在 #3755 被放宽为「40 或 64 位 + alt 形态」时，只改了正则与上方注释，漏改这条用户可见文案
+// ⇒ 两处独立可漂移的真源，且按提示排障的人会把 **64 位记录误判成不算纯回填**，
+// 进而给一个真实满足④的 PR 硬加一份本不需要的记录文件（PR #3772 上实际踩到）。
+//
+// 修法不是「再写一遍 + 交叉核对」（那只是把第二处真源保留下来、加一把锁看着它），
+// 而是**让文案由判据生成**：位宽集合从 `AUDIT_ARTIFACT_RE` 的**行为**推出，文案片段由该结果拼出。
+// 这样「文案说的」与「判据做的」结构上是同一个值，不存在漂移的余地。
+//
+// 关键决定：**按行为探测、不按正则字面形状解析**。
+// 理由是 QM-6 i1 指出的假阳性：若将来把正则改写成等价但不同形状的写法
+// （`[0-9a-f]{40,64}`、`.{40}`、加 `/i` 等），任何「从字面里抠 `\{(\d+)\}`」的做法都会取空或取错，
+// 于是锁变红却**分不清是文案错了还是正则重构了**。行为探测对等价改写免疫。
+const AUDIT_NAME_WIDTH_MIN = 8
+const AUDIT_NAME_WIDTH_MAX = 200
+function auditArtifactName (width, suffix) {
+  return '.ccg/reviews/' + 'a'.repeat(width) + (suffix || '') + '.json'
+}
+/** 判据**实际接受**的位宽集合（按行为探测得出，是文案的唯一真源） */
+function auditAcceptedWidths () {
+  const out = []
+  for (let w = AUDIT_NAME_WIDTH_MIN; w <= AUDIT_NAME_WIDTH_MAX; w++) {
+    if (AUDIT_ARTIFACT_RE.test(auditArtifactName(w))) out.push(w)
+  }
+  return out
+}
+/** 判据**实际接受**的 alt 后缀样例；不接受则返回 null（同样是行为探测） */
+const AUDIT_ALT_PROBE = auditArtifactName(64, '-again-' + 'b'.repeat(40) + '-20261017T120000Z')
+function auditAcceptedAltForm () {
+  const ok = AUDIT_ARTIFACT_RE.test(AUDIT_ALT_PROBE)
+  return ok ? '-again-<40 位 sha>-<ISO 时间戳>' : null
+}
+/** 生成「<N 或 M 位小写十六进制>」这段说明；判据被改成无法探测的形状时 fail-closed 出声 */
+function describeAuditWidths () {
+  const ws = auditAcceptedWidths()
+  if (ws.length === 0) {
+    throw new Error('[check-pr-exec-record] AUDIT_ARTIFACT_RE 不接受 '
+      + AUDIT_NAME_WIDTH_MIN + '..' + AUDIT_NAME_WIDTH_MAX
+      + ' 位之间的任何十六进制名 —— 正则可能被改写成了行为探测覆盖不到的形态，'
+      + '请同步 auditAcceptedWidths() 的探测范围（这是 fail-closed，不是文案错）')
+  }
+  return '<' + ws.join(' 或 ') + ' 位小写十六进制>'
+}
+
 // 出路④的判据核心（独立成纯函数以便直接单测，QM-6 前端 I1）：变更集非空、每条都是载体的 M
 // （或精确形态的审计产物 A）、且至少一篇是记录文件（C2 收紧，理由见 evaluate 内注释）。
 function isPureBackfillChangeSet (statuses) {
@@ -162,10 +210,10 @@ function evaluate({
       + '②修订本分支自己那篇 openspec/records/<分支名>.md（回填证据走这条）；'
       + '③确属无需记录 ⇒ 新增 openspec/records/_exempt/<分支名>.md 并写明非空原因；'
       + '④纯回填（定义）：变更集全部是既有记录/台账载体（openspec/records/*.md、.quality-gates.md、'
-      + 'scripts/gate-record-debt-ledger.json）的 M（允许 .ccg/reviews/<40 或 64 位小写十六进制>.json'
-      + '形态的 A，可带 -again-<40 位 sha>-<ISO 时间戳> 后缀——'
-      + '40 位是历史形态（父 sha），64 位是内容寻址键（stagedDiffHash）——'
-      + '那是 #3396 的 pre-commit 自动 stage 的判定记录，不承载门禁语义），且至少含一篇 '
+      + 'scripts/gate-record-debt-ledger.json）的 M（允许 .ccg/reviews/' + describeAuditWidths()
+      + '.json 形态的 A'
+      + (auditAcceptedAltForm() ? '，可带 ' + auditAcceptedAltForm() + ' 后缀' : '')
+      + '——那是 #3396 的 pre-commit 自动 stage 的判定记录，不承载门禁语义），且至少含一篇 '
       + 'openspec/records/*.md 的 M ⇒ 满足此定义者直接放行（夹带其它新增、任何删除、任何非载体文件，'
       + '或只改门禁清单/账本而无记录文件，即不符合此定义）。')
   }
@@ -451,6 +499,9 @@ function report(r, mode) {
   process.exit(r.ok ? 0 : 1)
 }
 
-module.exports = { evaluate, resolveHeadBranch, readExemptsOnDisk, remoteBranchSet, isPureBackfillChangeSet, evaluateDeepReviewDebt, CLOSED_DEEP_REVIEW_STATUSES, RECORDS_RE, EXEMPT_RE, CARRIER_RE, DEFAULT_THRESHOLD }
+// AUDIT_ARTIFACT_RE / auditAcceptedWidths / auditAcceptedAltForm / describeAuditWidths 一并导出：
+// 提示文案由判据**生成**，测试必须能拿到同一组派生值来核验「文案 == 生成结果」，
+// 而不是在测试里再抄一遍位宽（抄一遍就是第三处漂移源）。
+module.exports = { evaluate, resolveHeadBranch, readExemptsOnDisk, remoteBranchSet, isPureBackfillChangeSet, evaluateDeepReviewDebt, CLOSED_DEEP_REVIEW_STATUSES, RECORDS_RE, EXEMPT_RE, CARRIER_RE, DEFAULT_THRESHOLD, AUDIT_ARTIFACT_RE, auditAcceptedWidths, auditAcceptedAltForm, describeAuditWidths, AUDIT_NAME_WIDTH_MIN, AUDIT_NAME_WIDTH_MAX }
 
 if (require.main === module) main(process.argv.slice(2))
