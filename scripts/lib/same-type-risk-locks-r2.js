@@ -70,7 +70,7 @@ function matchBrace (masked, openIdx) {
   return -1
 }
 
-const FN_RE = /(?:function\s+[A-Za-z_$][\w$]*\s*\([^)]*\)\s*\{|(?:^|\n)[ \t]*(?:async\s+)?[A-Za-z_$][\w$]*\s*\([^)]*\)\s*\{)/g
+const FN_RE = /(?:function\s+[A-Za-z_$][\w$]*\s*\([^)]*\)\s*\{|(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=\s*(?:async\s*)?\([^)]*\)\s*=>\s*\{|(?:^|\n)[ \t]*(?:async\s+)?[A-Za-z_$][\w$]*\s*\([^)]*\)\s*\{)/g
 const LOADING_SET_RE = /\b([A-Za-z_$][\w$]*[Ll]oading|[Ll]oading[\w$]*)\s*=\s*true\b/g
 
 /** 找包住 at 的最内层函数体。 */
@@ -108,7 +108,11 @@ function scanLoadingReset (sources) {
       if (!fn) { stats.outsideFn++; visible.push({ path, name, kind: 'outside-fn', detail: '函数体外的 loading 赋值（组合式函数顶层），交人工确认' }); continue }
       stats.setTrue++
       const body = masked.slice(fn.b, fn.e)
-      const finallyIdx = body.lastIndexOf('finally')
+      // w4（CCG a9283db4）：lastIndexOf('finally') 会被含 finally 的标识符命中 ⇒ 用词边界正则取最后一个
+      let finallyIdx = -1
+      let fm2
+      const finRe = /\bfinally\b/g
+      while ((fm2 = finRe.exec(body)) !== null) finallyIdx = fm2.index
       const resets = [...body.matchAll(new RegExp('\\b' + name + '\\s*=\\s*false\\b', 'g'))].map((x) => x.index + fn.b)
       if (finallyIdx >= 0 && resets.some((r) => r > fn.b + finallyIdx)) { stats.finallyReset++; continue }
       if (resets.length > 0) {

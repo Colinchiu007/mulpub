@@ -122,6 +122,36 @@ test('R5：跨方法状态机（人工登记豁免）不进红面，但必须出
 })
 
 
+test('R5 红（评审驱动 a9283db4-i2）：箭头函数体内的 loading 无复位 ⇒ 必须报，不得漏成 outsideFn', () => {
+  // 首版 FN_RE 只认 function 声明与行首方法简写，箭头函数体内的赋值被判成「函数体外」⇒ 漏审计面。
+  const code = [
+    'const useThing = () => {',
+    '  const load = async () => {',
+    '    state.loading = true',
+    "    await fetch('/x')",
+    '  }',
+    '}',
+  ].join('\n')
+  const r = scanLoadingReset(src('fixture.js', code))
+  assert.equal(r.stats.noReset, 1, '必须进红面（无复位）')
+  assert.equal(r.stats.outsideFn, 0, '不得再漏判成函数体外')
+  assert.equal(r.findings[0].rule, 'R5-loading-no-reset')
+})
+
+test('w4：finally 判定必须用词边界（含 finally 子串的标识符不得算复位点）', () => {
+  // 复位必须在真正的 finally 块里；标识符 isFinallyClean 里混进 false 不得让锁认为有 finally 复位
+  const code = [
+    'async load () {',
+    '  const isFinallyClean = false',
+    '  this.loading = true',
+    '  await work() /* finally 字样在注释里 */',
+    '}',
+  ].join('\n')
+  const r = scanLoadingReset(src('fixture.js', code))
+  assert.equal(r.stats.noReset, 1, '无真正 finally ⇒ 仍应判无复位')
+})
+
+
 // ── 真实仓：覆盖下界（防空转） ──
 
 test('真实仓：R5 命中数 ≥ 侦察实测下界；R9a 结构被真实统计', () => {
