@@ -167,6 +167,8 @@ describe("CollectionView", () => {
 
   // 2026-10-12：素材来源入口改走 PLATFORM_SOURCE_URLS（语义「去哪找素材」），
   // 不再用 PLATFORM_DASHBOARD_URLS（创作者后台/发布目的地，且被登录态校验复用）。
+  // 2026-10-17：知乎（强制登录）/ 头条（JSON 接口）两个入口换为免登录渲染页，
+  // 断言改为对 baidu 取证，避免只测一条仍然通过而漏掉另一条的退化。
   it("openCollection opens a tab via pageManager with the SOURCE url", async () => {
     const { PLATFORM_SOURCE_URLS, PLATFORM_DASHBOARD_URLS } = await import("@multi-publish/shared-utils/src/platform-definitions");
     window.electronAPI = {
@@ -176,14 +178,27 @@ describe("CollectionView", () => {
     };
     const w = mountCollection();
     await nextTick();
-    await w.vm.openCollection("weibo");
+    await w.vm.openCollection("baidu");
     expect(window.electronAPI.pageManager.createNewTabPage).toHaveBeenCalledWith(
-      expect.objectContaining({ url: PLATFORM_SOURCE_URLS.weibo, platform: "weibo" })
+      expect.objectContaining({ url: PLATFORM_SOURCE_URLS.baidu, platform: "baidu" })
     );
     const { ElMessage } = await import("element-plus");
     expect(ElMessage.success).toHaveBeenCalled();
     // 语义独立锁：素材来源不得再指向创作者后台（头条那条曾是明确的分类错误）
     expect(PLATFORM_SOURCE_URLS.toutiao).not.toBe(PLATFORM_DASHBOARD_URLS.toutiao);
+  });
+
+  // 结构锁（2026-10-17）：模板里三张卡的来源 id 必须与 PLATFORM_SOURCE_URLS 的键逐一对齐。
+  // 只改字典不改模板 = 死按钮；只改模板不改字典 = 点开即告警。两边一起看才锁得住。
+  it("素材来源卡片与来源表逐一对齐（无知乎、无 JSON 入口）", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const src = readFileSync(join(process.cwd(), "src/views/Collection.vue"), "utf8");
+    for (const id of ["weibo", "baidu", "toutiao"]) {
+      expect(src).toContain(`openCollection('${id}')`);
+    }
+    expect(src).not.toContain("openCollection('zhihu')");
+    expect(src).not.toContain("sourceZhihu");
   });
 
   it("openCollection warns and skips when platform has no source URL", async () => {

@@ -1,13 +1,23 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { createOpenSourceHandler, PLATFORM_SOURCE_URLS } from './useSourceEntry'
+import { createOpenSourceHandler, PLATFORM_SOURCE_URLS, SOURCE_LABEL_KEYS } from './useSourceEntry'
 import { PLATFORM_DASHBOARD_URLS } from '@multi-publish/shared-utils/src/platform-definitions'
+
+/** 卡片显示名（与 locales/collection 的四个键同值）；t 在测试里只负责取值 */
+const LABELS = {
+  'collection.sourceWeibo': '微博热搜',
+  'collection.sourceBaidu': '百度热搜',
+  'collection.sourceToutiao': '今日头条',
+}
 
 function makeDeps (overrides = {}) {
   return {
     createTab: vi.fn().mockResolvedValue('tab-1'),
     notifyWarning: vi.fn(),
     notifySuccess: vi.fn(),
-    t: (key, params) => key + ':' + ((params && params.platform) || ''),
+    t: (key, params) => {
+      if (params && params.platform) return '素材来源：' + params.platform
+      return LABELS[key] || key
+    },
     ...overrides,
   }
 }
@@ -29,32 +39,51 @@ describe('useSourceEntry（采集页素材来源快捷入口）', () => {
     expect(PLATFORM_SOURCE_URLS.weibo).toContain('s.weibo.com')
   })
 
-  it('知乎指向热榜而非消费端首页 / 创作中心', () => {
-    expect(PLATFORM_SOURCE_URLS.zhihu).not.toBe(PLATFORM_DASHBOARD_URLS.zhihu)
-    expect(PLATFORM_SOURCE_URLS.zhihu).toContain('zhihu.com/hot')
-    // /creator 已确证强制登录（302 → /signin），不能当素材来源
-    expect(PLATFORM_SOURCE_URLS.zhihu).not.toContain('/creator')
-  })
-
-  it('头条热榜 URL 必须带 origin 参数（缺参返回 parameter err）', () => {
-    expect(PLATFORM_SOURCE_URLS.toutiao).toContain('origin=')
-  })
-
-  it('三个快捷入口都在表内（缺一个按钮就是死按钮）', () => {
-    for (const p of ['weibo', 'zhihu', 'toutiao']) {
-      expect(PLATFORM_SOURCE_URLS[p]).toBeTruthy()
+  // 2026-10-17 回归锁（本刀主因）：三张卡必须落在「免登录可匿名浏览的渲染页」上。
+  // 判据刻意写成黑名单 + 协议白名单两条，而不是只列具体 URL：
+  // 只要有人把某个入口改回数据接口（如头条 hot-event/hot-board），黑色正则当场红。
+  it('三个入口都是渲染页，不得指向 JSON 数据接口', () => {
+    const entries = Object.entries(PLATFORM_SOURCE_URLS)
+    expect(entries.length).toBe(3)
+    for (const [id, url] of entries) {
+      expect(url, id).toMatch(/^https:\/\//)
+      expect(url, id).not.toMatch(/hot-event|\.json(\?|$)|^https:\/\/api\./i)
     }
   })
 
-  it('打开已配置平台 → createTab 带素材来源 URL', async () => {
+  it('头条入口是渲染页而不是热榜 JSON 接口（本次缺陷原始形态）', () => {
+    expect(PLATFORM_SOURCE_URLS.toutiao).not.toContain('hot-event/hot-board')
+    expect(PLATFORM_SOURCE_URLS.toutiao).toContain('toutiao.com')
+  })
+
+  it('知乎已从素材来源表移除（/hot 强制登录，匿名无法浏览）', () => {
+    expect(PLATFORM_SOURCE_URLS.zhihu).toBeUndefined()
+    expect(SOURCE_LABEL_KEYS.zhihu).toBeUndefined()
+  })
+
+  it('百度热搜以榜单页登记（2026-10-17 实测免登录可浏览）', () => {
+    expect(PLATFORM_SOURCE_URLS.baidu).toContain('top.baidu.com/board')
+  })
+
+  it('三张卡都在表内且有显示名（缺一个按钮就是死按钮）', () => {
+    for (const p of ['weibo', 'baidu', 'toutiao']) {
+      expect(PLATFORM_SOURCE_URLS[p]).toBeTruthy()
+      expect(SOURCE_LABEL_KEYS[p]).toBeTruthy()
+    }
+  })
+
+  it('打开已配置来源 → createTab 带素材来源 URL、来源 id 与显示名标题', async () => {
     const deps = makeDeps()
     const open = createOpenSourceHandler(deps)
-    await open('zhihu')
+    await open('baidu')
     expect(deps.createTab).toHaveBeenCalledWith(expect.objectContaining({
-      url: PLATFORM_SOURCE_URLS.zhihu,
-      platform: 'zhihu',
+      url: PLATFORM_SOURCE_URLS.baidu,
+      platform: 'baidu',
+      title: '素材来源：百度热搜',
     }))
-    expect(deps.notifySuccess).toHaveBeenCalled()
+    expect(deps.notifySuccess).toHaveBeenCalledTimes(1)
+    // 提示里的平台名必须是显示名（此前传的是原始 id，用户看到「已打开 zhihu 采集页面」）
+    expect(deps.notifySuccess.mock.calls[0][1].params.platform).toBe('百度热搜')
   })
 
   // 无 URL 的平台必须告警，不得静默什么都不做（此前 openCollection 的行为）

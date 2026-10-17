@@ -36,10 +36,13 @@ export const PLATFORM_ICONS = {
   facebook: '👍',
 }
 
+// 素材来源 URL（采集页「去哪找素材」快捷入口专用）。
+// 与 CJS 孪生 platform-definitions.js 的 PLATFORM_SOURCE_URLS **逐字一致**；
+// 2026-10-17 的实测依据与「不得改回数据接口」约束写在该文件同名段注释里。
 export const PLATFORM_SOURCE_URLS = {
   weibo: 'https://s.weibo.com/top/summary',
-  zhihu: 'https://www.zhihu.com/hot',
-  toutiao: 'https://www.toutiao.com/hot-event/hot-board/?origin=toutiao_pc',
+  baidu: 'https://top.baidu.com/board?tab=realtime',
+  toutiao: 'https://www.toutiao.com/',
 }
 
 /**
