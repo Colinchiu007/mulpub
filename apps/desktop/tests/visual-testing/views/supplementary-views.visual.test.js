@@ -177,9 +177,23 @@ const supplementaryViewTests = [
     name: 'collection-confirm-dialog',
     route: '/collection',
     waitFor: '.collection-tab-btn.active',
+    // ⛔ 2026-10-12 #3395 起「草稿箱」是**独立页签**，而 /collection 的默认页签是
+    //   `collect`（Collection.vue: `const activeTab = ref('collect')`）。
+    //   本条用例写于 2026-09-10（d74115388），此后一直断言**默认页签上**的
+    //   「草稿箱」区块标题 ⇒ 从那次重构起恒定失败；而它只跑在**非 required** 的
+    //   `Visual Tests` workflow 里，红了 60+ 次没人发现。
+    //   修法：先切到草稿箱页签，再用 `data-testid`（而不是随文案变的 `:has-text`
+    //   与 `.cohere-card-grid`）断言。选择器契约由 src/views/Collection.test.js 的
+    //   「视觉用例选择器契约」锁住，防止再次静默漂移。
+    trigger: '[data-testid="collection-tab-drafts"]',
+    afterTrigger: '[data-testid="collection-drafts-panel"]',
     checks: [
-      check('收藏列表', '.cohere-section-title:has-text("草稿箱")', '显示草稿列表'),
-      check('删除入口', '.cohere-card-grid button:has-text("删除"), .cohere-empty', '显示删除入口或明确空状态'),
+      check('草稿箱区块标题', '[data-testid="collection-drafts-panel"] .cohere-section-title', '显示草稿箱区块标题'),
+      check(
+        '删除入口',
+        '[data-testid="collection-drafts-list"] [data-testid="draft-delete"], [data-testid="collection-drafts-empty"]',
+        '显示删除入口或明确空状态',
+      ),
     ],
   },
   {
