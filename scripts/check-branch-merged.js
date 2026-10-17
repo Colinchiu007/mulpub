@@ -13,6 +13,16 @@
 //      —— 「共用写面」不再靠手抄文件名名单；名单第 6 个热写面一出现就会被当普通文件比、当场复刻假阳性。
 //   ③ 判据自己取不到读数一律按「未证实」处理并走独立退出码 2 —— 把工具的失明读成结论，是本仓「装饰性门禁」的同型。
 //
+// 参考系（2026-10-17 v2 修正，`--against`，默认 origin/main → 回落 main 并打印落点）：
+//   判定域是「**主干现在**有没有这份内容」，`--merge` 只用来做归因排除（哪笔是本次合并自身）。
+//   上一版把判定域钉在 merge 快照上，上线当天就被自己的清理任务否证：`toutiao-ms-token`
+//   （tip b0df701cf，7 个已合并 PR）报 `lost=65 files=66`，而点名的 3628 行里 **3369 行就在当时的
+//   origin/main 上**。机制不是主干丢了东西，而是分支 re-sync 过 main 之后 `merge-base(ref, merge)`
+//   退化成 merge 本身 ⇒ 差量里混进**别人后来合进主干的行**，而那份快照按定义还没有它们 ⇒ 逐份 LOST ⇒
+//   跨 merge 取 best 仍是 LOST。改为对 `against` 取 merge-base 之后，别人的行天然进不了判定域。
+//   顺带把「空差量」从判据故障里分出来：内容与主干一致时"无差量"就是**通过态**（只在 ref 与 against
+//   同指一处时才按参数误用报 2）——否则每次清理一个已完全落地的分支都要先撞一次红灯。
+//
 // 退出码：0 全部落地（可删）/ 1 存在 LOST 或 UNATTRIBUTED（禁止删）/ 2 判据自身故障（fail-closed，同样禁止据此删）。
 // 依赖：只用 node 内置模块 —— 本文件被 quality-gate.yml 的 changes job 点名，而那个 job 没有 Install deps。
 'use strict';
@@ -23,9 +33,6 @@ const VERDICTS = ['IDENTICAL', 'DRIFT-ATTRIBUTED', 'LOST', 'UNATTRIBUTED', 'JUDG
 const EXIT_OK = 0;
 const EXIT_LOST = 1;
 const EXIT_JUDGE_ERROR = 2;
-
-// 好判据优先级：同一文件对多个 merge SHA 分别判时取最好的那个（一个分支被两个 PR 用过的情形）。
-const RANK = { 'IDENTICAL': 0, 'DRIFT-ATTRIBUTED': 1, 'UNATTRIBUTED': 2, 'LOST': 3, 'JUDGE_ERROR': 4 };
 
 // 行切分：保留每个换行符属于上一行（lookbehind split），CRLF/LF 混存文件不得被统一行尾。
 function splitLines(s) {
@@ -102,6 +109,15 @@ function verifyRef(root, ref) {
   return r.out.trim();
 }
 
+// 差量的起点：分支与**参考系**的分叉点。取不到即判据故障 —— 没有 base 就什么都判不了，
+// 不得退化成"整棵树都比一遍"或"当作没有差异"。
+function mergeBase(root, a, b) {
+  const mb = git(root, ['merge-base', a, b], true);
+  const out = mb.ok ? mb.out.trim() : '';
+  if (out === '') throw new JudgeError('取不到 merge-base：' + String(a).slice(0, 8) + ' / ' + String(b).slice(0, 8));
+  return out;
+}
+
 // 某 ref 的树里该文件是否存在及其 blob oid；不存在返回 null，ref 坏由调用方先挡掉。
 function blobOid(root, ref, file) {
   const r = git(root, ['ls-tree', ref, '--', file], true);
@@ -135,54 +151,154 @@ function myLineDelta(root, base, ref, file) {
   return { added, removed };
 }
 
-// 差异归因：base..merge 里除本次合并自身外，还有谁碰过这个文件。
-function attributionsFor(root, base, merge, file, mergeSha) {
-  const l = git(root, ['log', '--format=%H%x09%h %s', base + '..' + merge, '--', file], true);
-  if (!l.ok) throw new JudgeError('log 归因失败：' + file);
+// 差异归因 + 逐行归因共用同一次 `git log -p` 读数。
+// ⛔ 这里**不能**用 `git log -S<行>`：判据内部把 blob 按 latin1 读以保字节，而 execFileSync 会把字符串
+//   参数按 **UTF-8** 编码送出 ⇒ 中文行在 argv 上变成 mojibake（æ → c3 a6），与 blob 的真实字节永远对不上。
+//   实测后果（2026-10-17，真实仓 gate4-desktop-exclusion 的记录文件）：同一文件里纯 ASCII 的
+//   `sync_status: PENDING` 归因命中，紧随其后的两条中文行全部救不走 —— 即"判据对非 ASCII 行永久失明"，
+//   而本仓入库文档绝大多数是中文。改为在**同一字节空间**里比对补丁行。
+function patchesFor(root, base, against, file, excludeShas) {
+  // 分隔符放在 %H **之前**：git 会在每条记录的格式化行后接换行再接补丁，
+  // 若把 %x00 放在 %H 之后，split 出来的分片就会"上一段的尾巴带着下一段的 sha"，
+  // 于是 sha 与 patch 错位配对 —— 实测这样构造出的归因列表 sha 全错（T2 当场抓住）。
+  const l = git(root, ['log', '--format=%x00%H%x09%h%x09%s', '-p', base + '..' + against, '--', file], true);
+  if (!l.ok) throw new JudgeError('log -p 归因失败：' + file);
+  const skip = new Set(excludeShas || []);
   const out = [];
-  for (const line of splitLines(l.out)) {
-    const body = line.replace(/[\r\n]+$/, '');
-    if (!body) continue;
-    const [sha, rest] = body.split('\t');
-    if (sha === mergeSha) continue;                 // 本次合并自身不算他人
-    if (!/^[0-9a-f]{40}$/.test(sha)) continue;      // 形状断言：解析退化不得当"有归因"
-    out.push({ sha, subject: rest });
+  const chunks = l.out.split('\0');
+  for (let i = 1; i < chunks.length; i++) {
+    const body = chunks[i].replace(/^\n/, '');
+    const nl = body.indexOf('\n');
+    const head = nl < 0 ? body : body.slice(0, nl);
+    const patch = nl < 0 ? '' : body.slice(nl + 1);
+    const [sha, abbrev, subject] = head.split('\t');
+    if (!/^[0-9a-f]{40}$/.test(sha)) continue;     // 形状断言：解析退化不得当"有归因"
+    if (skip.has(sha)) continue;                   // 本次合并自身不算他人
+    out.push({ sha, subject: (abbrev || '') + ' ' + (subject || ''), patch });
   }
   return out;
 }
 
+// 文件级归因：base..against 里除本次合并之外，还有谁碰过这个文件。
+function attributionsForRoot(root, base, against, file, excludeShas) {
+  return patchesFor(root, base, against, file, excludeShas)
+    .map((e) => ({ sha: e.sha, subject: e.subject }));
+}
+
+// 逐行归因（方向敏感，且必须绑在本次合并上）：
+//   want='removed' —— 这行为什么现在不在主干：必须有一笔提交把它**净删掉**了；
+//   want='added'   —— 我删的这行为什么又回来了：必须有一笔提交把它**净加回**了。
+// "净"是同一次提交内 +/- 两侧计数相减，于是"同一笔里挪了个位置"（net=0）不算证据。
+// 单看这个还不够（QM-6 后端轴命中的正是这里）：调用方必须另外证明**这一行随本次合并进过主干**，
+// 否则"别人加过又撤的同文行"会把"我的行从未落地"洗成 DRIFT-ATTRIBUTED。
+function findLineCommit(entries, line, want) {
+  const k = key(line);
+  if (k === '') return null;
+  for (const e of entries) {
+    let added = 0;
+    let removed = 0;
+    for (const raw of e.patch.split('\n')) {
+      const t = raw.replace(/[\r\n]+$/, '');
+      if (t.startsWith('+++') || t.startsWith('---')) continue;
+      if (!(t.startsWith('+') || t.startsWith('-'))) continue;
+      if (key(t.slice(1)) !== k) continue;
+      if (t.startsWith('+')) added++; else removed++;
+    }
+    const net = added - removed;
+    if (want === 'removed' && net < 0) return { sha: e.sha, subject: e.subject };
+    if (want === 'added' && net > 0) return { sha: e.sha, subject: e.subject };
+  }
+  return null;
+}
+
+// 本次合并（们）里该文件的行集合 —— "我的行到底落地过没有"的唯一凭据。
+// landedMax: 该行在任一份合并产物里的最大出现次数（证明"我的新增行随合并进过主干"）。
+// absentInAny(k): 该行在**至少一份**合并产物里不存在（证明"我的删除确实在那次合并里生效过"）。
+function mergedLineState(root, mergedShas, file) {
+  const landedMax = new Map();
+  const perMerge = [];
+  for (const sha of mergedShas || []) {
+    if (!sha) { perMerge.push(null); continue; }
+    const blob = blobOid(root, sha, file);
+    if (blob === null) { perMerge.push(null); continue; }
+    const m = multisetOf(splitLines(blobText(root, blob)));
+    perMerge.push(m);
+    for (const [k, n] of m) landedMax.set(k, Math.max(landedMax.get(k) || 0, n));
+  }
+  return {
+    landedMax,
+    landedCount: (k) => landedMax.get(k) || 0,
+    absentInAny: (k) => perMerge.some((m) => m === null || !m.has(k)),
+  };
+}
+
 // ---------------------------------------------------------------- 单文件判定
-function classifyFile(root, { ref, merge, base, file }) {
-  const mergeSha = verifyRef(root, merge);
-  if (!mergeSha) throw new JudgeError('merge SHA 取不到 commit：' + merge);
+function classifyFile(root, { ref, against, base, file, excludeShas, mergedShas }) {
   const tipBlob = blobOid(root, ref, file);
-  const mergeBlob = blobOid(root, mergeSha, file);
-  if (tipBlob !== null && tipBlob === mergeBlob) {
-    return { verdict: 'IDENTICAL', attributions: [], missingAdded: [], reappearedRemoved: [] };
+  const againstBlob = blobOid(root, against, file);
+  if (tipBlob !== null && tipBlob === againstBlob) {
+    return { verdict: 'IDENTICAL', attributions: [], lineAttributions: [], missingAdded: [], reappearedRemoved: [] };
   }
-  // blob 不等（含"我有它没有"与"它有我没了"两种）—— 降级到行级，但必须能归因
+  // blob 不等 —— 降级到行级，但必须能归因
   const delta = myLineDelta(root, base, ref, file);
-  const mainText = mergeBlob === null ? '' : blobText(root, mergeBlob);
-  const missingAdded = compareAddedLines(delta.added, splitLines(mainText));
-  const reappearedRemoved = compareRemovedLines(delta.removed, splitLines(mainText));
-  const attributions = attributionsFor(root, base, mergeSha, file, mergeSha);
+  const fileAbsentOnMain = againstBlob === null;
+  const mainText = fileAbsentOnMain ? '' : blobText(root, againstBlob);
+  const mainLines = splitLines(mainText);
+  const entries = patchesFor(root, base, against, file, excludeShas);
+  const attributions = entries.map((e) => ({ sha: e.sha, subject: e.subject }));
+  const merged = mergedLineState(root, mergedShas || excludeShas, file);
+  // 整份文件不在主干 ⇒ MISSING_FILE。它必须与"某行被主干扩写/改掉"分开计：前者删分支就是真丢工作，
+  // 所以这条路上**不做任何行级救走**（一救就把"整份缺席"稀释成"一些行没对上"）。
+  if (fileAbsentOnMain) {
+    return {
+      verdict: 'LOST', fileAbsentOnMain: true, attributions, lineAttributions: [],
+      missingAdded: [...representatives(delta.added).values()],
+      reappearedRemoved: [],
+    };
+  }
+  const missingRaw = compareAddedLines(delta.added, mainLines);
+  const reappearedRaw = compareRemovedLines(delta.removed, mainLines);
+  const missingAdded = [];
+  const reappearedRemoved = [];
+  const lineAttributions = [];
+  // 违规行要能被**指认**才放行，指认有两道前提，缺一不可：
+  //   ① 这一行确实随本次合并（们）进过主干 / 我的这次删除确实在某次合并里生效过；
+  //   ② 范围内有一笔具名提交把它**净删掉**（新增行缺失方向）或**净加回**（删除行复现方向）。
+  // 只留 ② 会被"别人加过又撤的同文行"洗白（QM-6 后端轴命中，T18 钉住）；只留 ① 则说不清是谁改的。
+  for (const ln of missingRaw) {
+    const landed = merged.landedCount(key(ln)) > 0;
+    const who = landed ? findLineCommit(entries, ln, 'removed') : null;
+    if (who) lineAttributions.push(who); else missingAdded.push(ln);
+  }
+  for (const ln of reappearedRaw) {
+    const mineLanded = merged.absentInAny(key(ln));
+    const who = mineLanded ? findLineCommit(entries, ln, 'added') : null;
+    if (who) lineAttributions.push(who); else reappearedRemoved.push(ln);
+  }
   if (missingAdded.length > 0 || reappearedRemoved.length > 0) {
-    return { verdict: 'LOST', attributions, missingAdded, reappearedRemoved };
+    return { verdict: 'LOST', fileAbsentOnMain: false, attributions, lineAttributions, missingAdded, reappearedRemoved };
   }
-  if (attributions.length === 0) {
-    return { verdict: 'UNATTRIBUTED', attributions: [], missingAdded: [], reappearedRemoved: [] };
+  if (attributions.length === 0 && lineAttributions.length === 0) {
+    return { verdict: 'UNATTRIBUTED', attributions: [], lineAttributions: [], missingAdded: [], reappearedRemoved: [] };
   }
-  return { verdict: 'DRIFT-ATTRIBUTED', attributions, missingAdded: [], reappearedRemoved: [] };
+  return {
+    verdict: 'DRIFT-ATTRIBUTED',
+    attributions: attributions.concat(lineAttributions),
+    lineAttributions,
+    missingAdded: [], reappearedRemoved: [],
+  };
 }
 
 /**
  * 对 (ref, merges[]) 跑判据，返回结构化结果。不打印、不决定退出码。
+ * 判定域 = `--against`（默认 origin/main，取不到回落 main）；merges 仅用于归因排除。
  * 任何"判据自己没读到数"的情形置 judgeError=true 并附原因 —— 调用方必须走 2，不得读成 0 或 1。
  */
 function collect(opts) {
   const root = opts.root || process.cwd();
   const res = {
     ref: opts.ref, merges: opts.merges || [], files: [], judgeError: false, reasons: [],
+    against: null, againstSha: null, emptyDelta: false,
   };
   try {
     if (!opts.ref || !verifyRef(root, opts.ref)) throw new JudgeError('--ref 取不到提交：' + opts.ref);
@@ -191,28 +307,43 @@ function collect(opts) {
     if (opts.base && !verifyRef(root, opts.base)) throw new JudgeError('--base 取不到提交：' + opts.base);
     for (const m of opts.merges) if (!verifyRef(root, m)) throw new JudgeError('--merge 取不到提交：' + m);
 
-    // 逐个 merge 各取自己的 merge-base 与差量文件集，最后按文件取"最好的那个结论"。
-    const perFile = new Map();
-    for (const merge of opts.merges) {
-      const mergeSha = verifyRef(root, merge);
-      const mb = git(root, ['merge-base', refSha, mergeSha], true);
-      if (!mb.ok || mb.out.trim() === '') throw new JudgeError('取不到 merge-base：' + refSha.slice(0, 8) + ' / ' + mergeSha.slice(0, 8));
-      const base = mb.out.trim();
-      const d = git(root, ['diff', '--name-only', base, refSha], true);
-      if (!d.ok) throw new JudgeError('取改动集失败：' + base.slice(0, 8) + '..' + refSha.slice(0, 8));
-      const files = splitLines(d.out).map((l) => l.replace(/[\r\n]+$/, '')).filter((l) => l !== '');
-      for (const f of files) {
-        const one = classifyFile(root, { ref: refSha, merge: mergeSha, base, file: f });
-        const prev = perFile.get(f);
-        if (!prev || RANK[one.verdict] < RANK[prev.verdict]) {
-          perFile.set(f, Object.assign({ file: f, merge: mergeSha }, one));
-        }
+    // 参考系解析：显式传入必须可解析；默认档按 origin/main → main 回落，落点一律打印（回落不得静默）。
+    let againstName = opts.against;
+    let againstSha = null;
+    if (againstName) {
+      againstSha = verifyRef(root, againstName);
+      if (!againstSha) throw new JudgeError('--against 取不到提交：' + againstName);
+    } else {
+      for (const cand of ['origin/main', 'main']) {
+        againstSha = verifyRef(root, cand);
+        if (againstSha) { againstName = cand; break; }
       }
+      if (!againstSha) throw new JudgeError('默认参考系 origin/main 与 main 都取不到 —— 先 git fetch，或显式传 --against');
     }
-    res.files = [...perFile.values()];
-    // 反失明：改动集为空一律算判据故障。"零个文件 ⇒ 零个问题"读起来完全像通过，
-    // 而真实清理场景里它只会发生在 ref/base 取错（本文档 §1 的第 ① 类事故）。
-    if (res.files.length === 0) throw new JudgeError('改动集为空（ref 与 base 同指一处？请核对 --ref/--base/--merge）');
+    res.against = againstName;
+    res.againstSha = againstSha;
+
+    const base = opts.base ? verifyRef(root, opts.base) : mergeBase(root, refSha, againstSha);
+    const mergedShas = opts.merges.map((x) => verifyRef(root, x));
+    const d = git(root, ['diff', '--name-only', base, refSha], true);
+    if (!d.ok) throw new JudgeError('取改动集失败：' + base.slice(0, 8) + '..' + refSha.slice(0, 8));
+    const files = splitLines(d.out).map((l) => l.replace(/[\r\n]+$/, '')).filter((l) => l !== '');
+    for (const f of files) {
+      res.files.push(Object.assign({ file: f },
+        classifyFile(root, {
+          ref: refSha, against: againstSha, base, file: f,
+          excludeShas: mergedShas, mergedShas,
+        })));
+    }
+    // 反失明分两种，方向相反，不得合并：
+    //  ① ref 与 against 同指一处 ⇒ 参数误用（把主干自己当成分支传进来了）⇒ 判据故障；
+    //  ② 差量为空而两者不同 ⇒ 该分支相对主干已无独有内容 ⇒ **合法通过态**（上一版把它当 ①，
+    //     于是每清一个"已完全落地"的分支都要先撞一次红灯，而红了就停手这条规矩本身是对的——
+    //     把一个正常状态做成故障，等于训练使用者绕过闸门）。
+    if (res.files.length === 0) {
+      if (refSha === againstSha) throw new JudgeError('改动集为空且 ref 与 against 同指一处（请核对 --ref/--against/--merge）');
+      res.emptyDelta = true;
+    }
     for (const f of res.files) {
       if (f.verdict === 'JUDGE_ERROR') throw new JudgeError('文件判定异常：' + f.file);
     }
@@ -228,7 +359,7 @@ function collect(opts) {
 }
 
 // ---------------------------------------------------------------- CLI
-const KNOWN_FLAGS = ['--ref', '--merge', '--base', '--root', '--json', '--help'];
+const KNOWN_FLAGS = ['--ref', '--merge', '--base', '--against', '--root', '--json', '--help'];
 const BOOL_FLAGS = ['--json', '--help'];
 
 function parseArgv(argv) {
@@ -246,6 +377,7 @@ function parseArgv(argv) {
     if (name === '--ref') o.ref = val;
     else if (name === '--merge') o.merges = String(val).split(',').map((s) => s.trim()).filter(Boolean);
     else if (name === '--base') o.base = val;
+    else if (name === '--against') o.against = val;
     else if (name === '--root') o.root = val;
   }
   return o;
@@ -265,28 +397,35 @@ function main(argv) {
     return EXIT_JUDGE_ERROR;
   }
   if (o.help) {
-    console.log('用法：node scripts/check-branch-merged.js --ref <branch|sha|tag> --merge <sha>[,<sha>...] [--base main] [--root <repo>] [--json]');
+    console.log('用法：node scripts/check-branch-merged.js --ref <branch|sha|tag> --merge <sha>[,<sha>...] [--against origin/main] [--base <ref>] [--root <repo>] [--json]');
+    console.log('  判定域 = --against（默认 origin/main，取不到回落 main 并打印落点）；--merge 仅用于归因排除。');
     console.log('退出码：0 内容已完整进主干（可删分支）/ 1 存在 LOST 或 UNATTRIBUTED（禁止删）/ 2 判据自身故障（同样禁止据此删）');
     return EXIT_OK;
   }
   if (!o.ref) { console.error('[BRANCH-MERGED] 缺 --ref（不得当成"没有问题"）'); return EXIT_JUDGE_ERROR; }
-  if (o.merges.length === 0) { console.error('[BRANCH-MERGED] 缺 --merge（一个分支被两个 PR 用过时必须传两个）'); return EXIT_JUDGE_ERROR; }
+  if (o.merges.length === 0) { console.error('[BRANCH-MERGED] 缺 --merge（归因排除要用）'); return EXIT_JUDGE_ERROR; }
 
-  const r = collect({ ref: o.ref, merges: o.merges, base: o.base, root: o.root || process.cwd() });
+  const r = collect({ ref: o.ref, merges: o.merges, base: o.base, against: o.against, root: o.root || process.cwd() });
   const counts = { IDENTICAL: 0, 'DRIFT-ATTRIBUTED': 0, LOST: 0, UNATTRIBUTED: 0, JUDGE_ERROR: 0 };
   for (const f of r.files) counts[f.verdict] = (counts[f.verdict] || 0) + 1;
+  const againstNote = r.against ? 'against=' + r.against + '@' + String(r.againstSha).slice(0, 9) : 'against=<未解析>';
 
   if (o.json) {
     console.log(JSON.stringify(Object.assign({}, r, { counts: counts }), null, 2));
   } else {
+    if (r.emptyDelta) {
+      console.log('[BRANCH-MERGED] ref 相对 ' + againstNote + ' 无差量 ⇒ 该分支已无独有内容（这是通过态，不是判据失明）');
+    }
     for (const f of r.files) {
+      const who = (f.attributions || []).map((a) => show(a.subject).slice(0, 60));
       console.log(f.file + ' ' + f.verdict +
-        (f.attributions && f.attributions.length ? ' ←归因: ' + f.attributions.map((a) => a.subject.slice(0, 60)).join(' / ') : '') +
+        ((f.fileAbsentOnMain ? 1 : 0) ? '(整份文件不在主干)' : '') +
+        (who.length ? ' ←归因: ' + who.join(' / ') : '') +
         (f.missingAdded && f.missingAdded.length ? ' 缺失新增行=' + f.missingAdded.map(show).slice(0, 3).join(' | ') : '') +
         (f.reappearedRemoved && f.reappearedRemoved.length ? ' 删除行复现=' + f.reappearedRemoved.map(show).slice(0, 3).join(' | ') : ''));
     }
   }
-  console.log('[BRANCH-MERGED] ref=' + String(o.ref).slice(0, 12) +
+  console.log('[BRANCH-MERGED] ref=' + String(o.ref).slice(0, 12) + ' ' + againstNote +
     ' merges=' + r.merges.length + ' files=' + r.files.length +
     ' identical=' + counts.IDENTICAL + ' drift=' + counts['DRIFT-ATTRIBUTED'] +
     ' lost=' + counts.LOST + ' unattributed=' + counts.UNATTRIBUTED +
