@@ -286,7 +286,9 @@ function main() {
 
   let c;
   if (opts.maxObserved !== null) {
-    c = { values: [opts.maxObserved], runCount: opts.runs, jobs: opts.jobs, pages: 1, errors: [] };
+    // 手工档不采集 ⇒ runCount/jobs 必须是 null，不许拿 opts 的默认值冒充"已采到 8 个 run"
+    //（QM-6 前端轴 R2-8：非 --json 那一行会打印 runs=8 jobs=1，读起来像真采过）
+    c = { values: [opts.maxObserved], runCount: null, jobs: null, pages: null, errors: [], manual: true };
   } else {
     c = collect(b, opts);
     // 覆盖度不足 ⇒ 与零样本同一档出口：不出 JSON、不判 OK。"只 warn 一下继续"会让粘走 JSON 的人
@@ -315,6 +317,10 @@ function main() {
 
   if (opts.json) {
     console.log(JSON.stringify(prov, null, 2));
+  } else if (c.manual) {
+    console.log('[case-timeout-audit] mode=MANUAL max=' + prov.maxObservedMs + 'ms（未采集，runs/jobs 不适用）');
+    console.log('当前 GUI_CLI_E2E_CASE_TIMEOUT_MS=' + b.GUI_CLI_E2E_CASE_TIMEOUT_MS
+      + '，要求 ≥ max×' + multiplier + '=' + prov.maxObservedMs * multiplier);
   } else {
     const p50 = c.values[Math.floor(c.values.length / 2)];
     console.log('[case-timeout-audit] pages=' + c.pages + ' runs=' + c.runCount + ' jobs=' + c.jobs
@@ -324,6 +330,13 @@ function main() {
       + '，要求 ≥ max×' + multiplier + '=' + prov.maxObservedMs * multiplier);
   }
 
+  // 出处漂移先判（QM-6 前端轴 R2-10）：原先"余量不足"挡在前，两个条件同时成立时 STALE 被掩盖，
+  // 读到的只有 rc=4，而真正要先修的是**出处没回写**。现在两条都打印，退出码取更紧急的那一档。
+  const drift = judgeDrift(b.GUI_CLI_E2E_BUDGET_PROVENANCE.maxObservedMs, prov.maxObservedMs);
+  if (drift === 'STALE') {
+    console.error('PROVENANCE_STALE: 模块记的 maxObservedMs=' + b.GUI_CLI_E2E_BUDGET_PROVENANCE.maxObservedMs
+      + ' 低于本次实测 ' + prov.maxObservedMs + ' ⇒ 出处过期，把本次 --json 输出整份粘回预算模块再来判余量');
+  }
   if (b.GUI_CLI_E2E_CASE_TIMEOUT_MS < prov.maxObservedMs * multiplier) {
     console.error('BUDGET_TOO_TIGHT: 用例预算 ' + b.GUI_CLI_E2E_CASE_TIMEOUT_MS + 'ms < 实测最大 '
       + prov.maxObservedMs + 'ms × ' + multiplier
@@ -331,16 +344,7 @@ function main() {
     process.exitCode = 4;
     return;
   }
-
-  // 出处漂移（QM-6 后端轴 #4）：脚本算出的 max 高于模块里记的 max ⇒ 记的数已过期，
-  // 光判"余量成立"会把"改了常量没重测"读成"重测过并回了写"。
-  const drift = judgeDrift(b.GUI_CLI_E2E_BUDGET_PROVENANCE.maxObservedMs, prov.maxObservedMs);
-  if (drift === 'STALE') {
-    console.error('PROVENANCE_STALE: 模块记的 maxObservedMs=' + b.GUI_CLI_E2E_BUDGET_PROVENANCE.maxObservedMs
-      + ' 低于本次实测 ' + prov.maxObservedMs + ' ⇒ 出处过期，把本次 --json 输出整份粘回预算模块再来判余量');
-    process.exitCode = 6;
-    return;
-  }
+  if (drift === 'STALE') { process.exitCode = 6; return; }
   console.log('OK: 预算余量成立（headroom='
     + (b.GUI_CLI_E2E_CASE_TIMEOUT_MS / prov.maxObservedMs).toFixed(2) + '×，drift=' + drift + '）');
 }
