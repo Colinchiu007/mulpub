@@ -87,6 +87,17 @@ test('R11 绿：函数内局部集合不在审计面（只看模块顶层）', (
   assert.equal(r.stats.moduleSets, 0)
 })
 
+test('R11（评审驱动 acefedf1-i4）：let/var 声明的模块级集合也在审计面', () => {
+  // 首版 MODULE_SET_RE 只认 const ⇒ let/var 的模块级集合被静默漏掉（覆盖缺口）。
+  const code = [
+    'let cache = new Map()',
+    'cache.set(1, 1)',
+  ].join('\n')
+  const r = scanModuleStateGrowth(src('svc.js', code))
+  assert.equal(r.stats.writeOnly, 1, 'let 声明的只增集合必须出声')
+})
+
+
 // ── 共享库抽取的行为等价锁（本批工程主体） ──
 
 const EQUIV_CASES = [
@@ -100,9 +111,12 @@ const EQUIV_CASES = [
   'x = 1; // y = 2',
   "str = \"it's\"",
   '`multi\nline`',
+  '// 中文注释 this.loading = true 「引号」',
+  'const zh = "中文字符串"',
+  'const nested = { a: { b: { c: 1 } } }',
 ]
 
-test('code-mask：与第一批 maskNonCode 行为逐字节等价（10/10 夹具）', () => {
+test('code-mask：与第一批 maskNonCode 行为逐字节等价（12/12 夹具）', () => {
   for (const code of EQUIV_CASES) {
     assert.equal(
       shared.maskNonCode(code),

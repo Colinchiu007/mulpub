@@ -92,7 +92,8 @@ function scanIndependentMimeMaps (sources) {
 }
 
 /** 模块级可变集合声明（顶层 const NAME = new Map/Set）。 */
-const MODULE_SET_RE = /(?:^|\n)const\s+([A-Za-z_$][\w$]*)\s*=\s*new\s+(Map|Set)\s*\(\s*\)/g
+// i4（CCG acefedf1）：let/var 的模块级集合同样可变，必须进审计面（此前只认 const 是覆盖缺口）。
+const MODULE_SET_RE = /(?:^|\n)(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*new\s+(Map|Set)\s*\(\s*\)/g
 
 /**
  * R11：模块级 Map/Set 有写（.set(/.add() 无清（.delete(/.clear()）⇒ 出声不拦截（审计面）。
