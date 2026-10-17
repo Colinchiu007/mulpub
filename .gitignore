@@ -222,6 +222,10 @@ scripts/*.js
 # 第 106 行 `scripts/*.js` 同样会把它静默忽略 —— 漏 negation 时 `git status` 里它根本不存在，
 # 本地在盘跑得通，而 changes 作业的 Gate 2b5 在 CI 上 Cannot find module。
 !scripts/check-branch-merged.js
+# CCG 收敛出口探针本体（change: ccg-convergence-exit）。上方那条 `scripts/*.js` 通配规则同样
+# 会把它静默忽略 —— 漏 negation 时 `git status` 里它根本不存在：本地在盘、`node --test` 跑得通，
+# 而 Gate 2b6 在 CI 上以 MODULE_NOT_FOUND 红在**别人的**文件上，读起来像"探针坏了"。
+!scripts/ccg-convergence-probe.js
 # scripts/*.js is ignored wholesale above, so every tracked script needs its own
 # negation. That per-file allowlist silently loses NEW test files (git add won't
 # warn). Test files must always be tracked, so un-ignore them by pattern instead.

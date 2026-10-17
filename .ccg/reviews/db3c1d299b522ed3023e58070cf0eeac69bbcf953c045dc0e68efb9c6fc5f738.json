@@ -1,0 +1,103 @@
+{
+  "sha": "3f5f9da3871605ad2649b7ac31f0f3134e9d92c4",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 416 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 416,
+    "fileCount": 12,
+    "codeFileCount": 5,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "db3c1d299b522ed3023e58070cf0eeac69bbcf953c045dc0e68efb9c6fc5f738",
+  "decidedAt": "2026-10-17T09:57:48.993Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "self_play_blocked",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "P3 临时引擎只复制 engine.js 与驱动，未同步引擎的本地依赖；若引擎依赖同目录其他模块或相对 __dirname 路径，require 失败会将 rc=1（行为偏离）误判为 rc=2（探针失明），行为锁失效。",
+        "highRiskDomains": [],
+        "prosecution": "P3 的临时夹具只复制 engine.js 与驱动两份文件。若上游引擎将来 require 同目录的兄弟模块、或按 __dirname 解析随包资源，那份缺失会让子进程在 require 期抛错，探针走的是 rc=2（探针失明）而不是 rc=1（读数偏离）。",
+        "defense": "当场实测：现版 engine.js 只 require fs 与 path（grep 命中 L9/L10，无第三条），今天的夹具确实是完整的；并且 rc=2 会让 P3 的 strictEqual(rc,1) 失败，属\"响亮地红\"，不是静默通过。",
+        "verdict": "upheld",
+        "rationale": "\"会红\"不等于\"红得可归因\"。本 PR 自己的立身判据就是三档退出码互不混档（0 符合 / 1 偏离 / 2 取不到数），而这份夹具恰好有一格能把「偏离」伪装成「失明」——下一个会话读到的会是\"引擎没装\"，实际要表达的是\"驱动形状变了\"。修复成本为零（整目录复制），没有理由留这一格。处置：P3 改为复制 vendor 整个 scripts 目录，并加「夹具文件数 == vendor 文件数 且 >= 2」的下界断言，使复制漏项当场可见。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "locateVendor() 解析用户控制路径（CCG_ARL_DIR、HOME/.claude/skills/）并直接 require() 执行，无完整性校验或沙箱；CI 环境被注入恶意路径可执行任意代码。",
+        "highRiskDomains": [],
+        "prosecution": "locateVendor() 的候选面第三个是仓库自身（path.join(__dirname)），而 main() 会对命中的 engine.js 执行 require()。CI runner 上没有 ~/.claude 技能目录，于是任何 PR 只要提交 scripts/engine.js + scripts/ccg-deep-review.js 两份文件，Gate 2b6 这一步就会 require 并执行由该 PR 作者控制的代码 —— 普通 PR 内容直接换到 CI 代码执行，无完整性校验、无沙箱。",
+        "defense": "前两个候选（CCG_ARL_DIR、HOME/USERPROFILE）同样是\"外部可控路径\"，而 PR 作者控制不了 runner 的 HOME 与仓库变量；scripts/deep-review.sh 的驱动定位也带仓库回落，属既有惯例而非本 PR 新造。",
+        "verdict": "upheld",
+        "rationale": "两个候选的权限前提不同，不能合并评价：CCG_ARL_DIR 需要仓库变量/密钥写权限（已在授权面内），~/.claude 需要 runner 本机文件写权限（PR 拿不到）；而 __dirname 候选不需要任何权限，一次普通 PR 即可。探针的对象是上游引擎，仓库里那份同名文件本来就不是它要测的东西 —— 删掉这个回落是零代价收敛攻击面，保留它等于给 Gate 2b6 自己开一条 PR→RCE 的路径。处置：候选面只留 CCG_ARL_DIR + 用户技能目录，新增 P7 结构锁（断言 locateVendor 函数体内不得出现 __dirname，且必须出现两个显式候选），并在仓库真存在同名文件时行为级要求 rc=2。变异 MP7（把回落加回来）实测指名让 P7 变红。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "CHANGELOG.md 混入 21 行内部调试日志（被否证猜测、字节修复、8/6 计数），违反 changelog 用户面向简洁约定，且标记未发布却包含 PENDING 同步状态。",
+        "highRiskDomains": [],
+        "prosecution": "CHANGELOG 顶部新块含被否证的猜测、字节级修复过程、8/6 计数说明等工程细节，不像面向使用者的发布说明；且状态列写着 PENDING。",
+        "defense": "实测本仓 CHANGELOG 既有 489 个标题块长期就是这一体例（同批 check-changelog-growth 读数 489 条 -> 490 条 PASS）；该门禁只判条目集合的单调性，全仓没有任何判据要求 CHANGELOG 面向终端用户简洁。远程同步 PENDING 则是 AGENTS.md 明文规定的\"开 PR 时写 PENDING、合并后同次提交回填 PASS 并销账\"。",
+        "verdict": "dismissed",
+        "rationale": "指控若成立，修法只能是改写整份历史台账，那不是本 PR 的范围也不是任何门禁的要求；而 PENDING 按协议就是中间态 —— 把它当缺陷会在 PR 未合并时先写 PASS，那正是 check-gate-record-debt 要抓的假闭合形态。故按本仓现行判据与体例否证此条。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": ".gitignore 放行规则依赖精确行号注释（# 106 行 scripts/*.js）；若上游 .gitignore 调整行号，新脚本将被静默忽略，CI 报 MODULE_NOT_FOUND 而非缺引擎。",
+        "highRiskDomains": [],
+        "prosecution": ".gitignore 的放行依赖注释里写的\"第 106 行 scripts/*.js\"；上游调整行号后新脚本会被静默忽略，CI 报 MODULE_NOT_FOUND 而不是缺引擎。",
+        "defense": "生效的是路径规则 !scripts/ccg-convergence-probe.js，注释不参与 gitignore 匹配；实测 git check-ignore --no-index -v 打印的是**规则命中行**（改前 .gitignore:106:scripts/*.js，改后指向放行规则本身）。",
+        "verdict": "dismissed",
+        "rationale": "按原表述否证：机制不成立，注释不是判据输入。但同一指控换成**规则顺序**就有牙 —— gitignore 后命中者覆盖前者，任何人把 scripts/*.js 挪到放行规则之后即静默失效。这一格已按\"顺序\"重新落判据 P8（要求最后命中的必须是 ! 放行规则；未命中任何规则也算合规并打印），负控实跑：在 .gitignore 末尾追加一条同名忽略规则 => P8 CAUGHT，还原后 md5 相符。结论：原表述 dismissed，修正后的风险由 P8 承接。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "readDefaults() 对 combinedSrc 执行多次正则扫描（[\\s\\S]{0,600}），无缓存；主函数与每条测试重复解析同一份源码，增加无谓 CPU 开销。",
+        "highRiskDomains": [],
+        "prosecution": "readDefaults() 对合并后的源码串多次执行正则扫描（含 [\\s\\S]{0,600} 形态），无缓存；main 与每条测试重复解析同一份源码，增加无谓 CPU。",
+        "defense": "实测整个测试文件 8 条用例总耗时约 1.5 秒（其中 4 条各起一次子进程跑探针），远低于 CI 步骤预算；缓存/复用属于没有度量支撑的优化。",
+        "verdict": "dismissed",
+        "rationale": "更要紧的是这里加缓存会把两种状态合并成一种：「这一轮读不到」与「读到的是上一轮的旧值」。本探针的设计前提就是不持有第二份数（design D2：抄一份就是下一个漂移源），现读是功能而不是开销。按\"无实测收益 + 会削弱 fail-closed\"否证。"
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "finding": "CHANGELOG.md 宣称探针不改审查判据，但未在用户可见位置显式引用 tasks.md §7 三条未做出路（多轮、改引擎、放宽词表）；后续维护易误读为闭环已解决。",
+        "highRiskDomains": [],
+        "prosecution": "CHANGELOG 宣称探针不改审查判据，但未在用户可见位置显式引用 tasks.md 7 的三条未做出路（多轮、改引擎、放宽词表），后续维护易误读为闭环已解决。",
+        "defense": "同一标题块的最后一条「诚实边界」原文即写着：三条出路（真跑多轮抬分 / 改上游引擎 / 人工放宽 check-pr-exec-record 闭合词表）全部登记在 tasks.md 7 且本 PR 一条都不做，并点名第三条按 AGENTS.md 须人工过目。",
+        "verdict": "dismissed",
+        "rationale": "引用与被指缺失在同一处，指控的事实前提不成立。若要更硬，可加\"CHANGELOG 必须含 §7 指针\"的结构判据 —— 那是给散文加锁，收益低于它带来的维护面；本 PR 已把三条出路的代价与不选理由落在 design D8 的表格里，属可核对的结构化位置。"
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "reason": "self_play_upheld"
+      }
+    ],
+    "note": "自扮演裁决：2 条指控成立或需外部复核",
+    "at": "2026-10-17T10:19:58.008Z"
+  }
+}

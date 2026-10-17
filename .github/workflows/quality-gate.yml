@@ -368,6 +368,19 @@ jobs:
         run: |
           node --test scripts/check-branch-merged.test.js
 
+      # --- Gate 2b6：CCG 收敛出口可达性探针 ---
+      # 编 2b6 而不是 2b5：#3724（未合并）已占用 "Gate 2b5 - CCG evidence anchor"，
+      # 两条合并顺序未知，同号会在 squash 后撞成两步同名（同名 basename 判据会读成一条）。
+      # 落点必须是 changes 作业：它防的是"vendor 引擎行为漂移"，与运行时代码无关，
+      # 放 static-gates 会被 docs-only=true 短路 ⇒ 判据本体对自己的载体关掉校验。
+      # 诚实边界：GitHub runner 上没有 ~/.claude/skills/adversarial-review-loop，
+      # 所以 CI 跑的是「缺引擎 ⇒ rc=2 且点名探针失明」那一档；ladder 读数断言在本机那一档执行。
+      # 两档都必须有产物 —— 缺引擎不 skip、不判绿（见 scripts/ccg-convergence-probe.test.js 头注）。
+      - name: "Gate 2b6 - CCG convergence-exit probe (changes job)"
+        shell: bash
+        run: |
+          node --test scripts/ccg-convergence-probe.test.js
+
       # --- Gate 2c3：CHANGELOG.md「只可增长」棘轮 ---
       # 动因（实测）：b531bdfe7（PR #2884，一个 ai-taste 功能 PR）把 CHANGELOG.md 从
       # 7,474,293 B / 1,133 条整份替换成 9,155 B / 2 条，**丢掉 1,131 条并全绿合入**。

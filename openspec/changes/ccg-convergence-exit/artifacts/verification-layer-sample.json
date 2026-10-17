@@ -1,0 +1,33 @@
+{
+  "kind": "ccg-verification-layer-sample",
+  "provenance": {
+    "what": "本文件是**真跑产物**的逐字摘录，不是为通过而构造的夹具。",
+    "recordFile": ".ccg/reviews/24cf2d8f866361eb9cd29fd4ab8dc0824d67c7989aa54b16226d64d1d6f3e12a.json",
+    "reviewedCommit": "5d660809a",
+    "pr": "#3724",
+    "capturedAt": "2026-10-17",
+    "logLine": "[轮 1/3] 调用 critic=claude 评审... 评审完成：8 条问题，维度分 4 个（correctness/security/performance/maintainability），最低分 3",
+    "note": "判定记录本身不落维度分，所以 minScore 取自引擎当轮 stdout（上面那行 logLine 原文）；findings 与 requiresExternalReview 逐字取自记录 deepReview 段。两处计数不同的原因：logLine 的『8 条问题』是 critic 当轮**原始产出**条数，而记录里 deepReview.findings 是**裁决后**留下的 6 条（i1..i6，逐字段与真记录相同，实测 fieldDiff=none）—— 不是摘录漏了 2 条。observedStatus/self_play 与 confidenceWeight 同取自该记录（status=self_play_blocked, performedBy=self-play, confidenceWeight=0.6, blocking=3 条：i1 self_play_upheld + i2/i4 high_risk_requires_external）。"
+  },
+  "critique": {
+    "roundsObserved": 1,
+    "minScore": 3,
+    "issueCount": 8,
+    "dimensions": ["correctness", "security", "performance", "maintainability"],
+    "findings": [
+      { "id": "i1", "severity": "Critical", "highRiskDomains": [] },
+      { "id": "i2", "severity": "Critical", "highRiskDomains": ["crypto"] },
+      { "id": "i3", "severity": "Critical", "highRiskDomains": [] },
+      { "id": "i4", "severity": "Warning", "highRiskDomains": ["crypto"] },
+      { "id": "i5", "severity": "Warning", "highRiskDomains": [] },
+      { "id": "i6", "severity": "Warning", "highRiskDomains": [] }
+    ],
+    "requiresExternalReview": [
+      { "id": "i2", "severity": "Critical", "domains": ["crypto"] },
+      { "id": "i4", "severity": "Warning", "domains": ["crypto"] }
+    ],
+    "observedStatus": "self_play_blocked",
+    "observedPerformedBy": "self-play",
+    "observedConfidenceWeight": 0.6
+  }
+}
