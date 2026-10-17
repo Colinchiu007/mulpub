@@ -92,7 +92,11 @@ function enclosingFn (masked, at) {
  * @returns {{ok:boolean, findings:Array, visible:Array, stats:Object}}
  */
 function scanLoadingReset (sources) {
-  const exempt = new Set(CROSS_METHOD_LOADING_MACHINES.map((x) => x.path + '#' + x.name))
+  // i7（CCG 13fc9740）：只有**已签核**（pending_signoff 非 true）的登记项才豁免；
+  // 未签核的照红 —— agent 起草 / 人类生效的机械分界。
+  const exempt = new Set(CROSS_METHOD_LOADING_MACHINES
+    .filter((x) => x.pending_signoff !== true)
+    .map((x) => x.path + '#' + x.name))
   const findings = []
   const visible = []
   const stats = { setTrue: 0, finallyReset: 0, manualResetNoFinally: 0, noReset: 0, outsideFn: 0 }

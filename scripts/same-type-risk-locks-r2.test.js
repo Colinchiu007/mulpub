@@ -116,9 +116,14 @@ test('R5：跨方法状态机（人工登记豁免）不进红面，但必须出
   const e = CROSS_METHOD_LOADING_MACHINES[0]
   const text = fs.readFileSync(path.join(REPO, e.path), 'utf8')
   assert.match(text, new RegExp('\\b' + e.name + '\\s*=\\s*true\\b'), '登记的状态名在文件里必须真实存在（防登记陈旧）')
+  const isPending = e.pending_signoff === true
   const r = scanLoadingReset(src(e.path, text))
-  assert.equal(r.ok, true, '已登记的跨方法状态机不得进红面')
-  assert.ok(r.visible.some((v) => v.kind === 'cross-method-machine'), '但必须出声交后续审计')
+  if (isPending) {
+    assert.equal(r.ok, false, '未签核 ⇒ 照红（生效要等人工把 pending_signoff 改 false）')
+  } else {
+    assert.equal(r.ok, true, '已签核 ⇒ 不进红面')
+    assert.ok(r.visible.some((v) => v.kind === 'cross-method-machine'), '但必须出声交后续审计')
+  }
 })
 
 
@@ -149,6 +154,18 @@ test('w4：finally 判定必须用词边界（含 finally 子串的标识符不�
   ].join('\n')
   const r = scanLoadingReset(src('fixture.js', code))
   assert.equal(r.stats.noReset, 1, '无真正 finally ⇒ 仍应判无复位')
+})
+
+
+test('i7：未签核（pending_signoff:true）的豁免登记不生效 —— 照红且出声', () => {
+  // agent 起草 / 人类生效的机械分界：登记项在人工签核前必须仍进红面。
+  const { CROSS_METHOD_LOADING_MACHINES } = require('./lib/loading-machine-exemptions')
+  const draft = CROSS_METHOD_LOADING_MACHINES.find((x) => x.pending_signoff === true)
+  assert.ok(draft, '登记表应有待签核项（否则本用例退化为空转，需同步更新）')
+  const text = fs.readFileSync(path.join(REPO, draft.path), 'utf8')
+  const r = scanLoadingReset(src(draft.path, text))
+  assert.equal(r.findings.length >= 1, true, '未签核 ⇒ 必须照红')
+  assert.equal(r.ok, false, '未签核 ⇒ PR 必须红，逼出人工签核动作')
 })
 
 

@@ -9,7 +9,9 @@
  * ⚠ 登记要求：
  * 1. 必须写清「谁置位、谁复位、复位路径是否覆盖所有分支」；
  * 2. 登记项是**文件+状态名**粒度；状态名换了文件/名字，登记立即失效（判据核对 path+name 存在性）；
- * 3. 新增登记 = 人工过目项，不得由 agent 自动添加（与 MUST_LIVE_IN_UNGATED_JOB 同纪律）。
+ * 3. **agent 可以起草登记项，但必须带 pending_signoff: true；未签核的项不生效**（判据按未豁免照红）。
+ *    签核 = 人工把该字段改为 false（或删除）—— 这是「agent 起草 / 人类生效」的机械分界。
+ *    本表的现存登记项自创建起即为 pending_signoff: true，待用户签核（见 PR 描述）。
  *
  * 本轮首轮审计（2026-10-17）：全仓 27 处 loading=true 中仅此 1 处为跨方法状态机，
  * 已人工核对其复位路径（identity-auth-window.js open() L222-229 覆盖成功/销毁两分支）。
@@ -19,6 +21,7 @@ module.exports = {
     {
       path: 'apps/desktop/electron/services/identity/identity-auth-window.js',
       name: '_pendingLoading',
+      pending_signoff: true, // agent 起草；人工核对 open() 的复位分支覆盖后改为 false 才生效
       mechanism: 'openLoading() 置位（L202 复用分支提前 return / L206 创建后置位）；open() 在 L222-229 复位（窗口存活复用与销毁重建两分支都覆盖）；reset() 的 L47/L75 亦复位',
     },
   ],
