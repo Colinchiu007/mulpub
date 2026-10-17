@@ -1,6 +1,34 @@
 <template>
   <section class="target-selector" data-testid="publish-target-selector" aria-label="发布目标">
     <input v-model="search" class="target-selector__search" type="search" aria-label="搜索发布平台或账号" placeholder="搜索平台或账号" />
+    <!-- 全选 / 清空（publish-target-select-all，2026-10-17）：
+         整行由 canSelectAll 决定是否渲染。canSelectAll=false（CI 空 profile、刚装好未登录）
+         时必须**整行缺席**，否则 section 的直接子节点从 [input, div] 变成三个，
+         publish-form 像素基线必然漂移——那不是可以事后补基线的变化，而是确定性红。
+         契约见 01-docs/PRD-PUBLISH-TARGET-SELECT-ALL-2026-10-17.md §六。 -->
+    <div
+      v-if="canSelectAll"
+      class="target-selector__bulk"
+      data-testid="target-bulk-toolbar"
+      role="group"
+      :aria-label="bulkGroupAriaLabel"
+    >
+      <button
+        type="button"
+        class="target-selector__bulk-btn"
+        data-testid="target-select-all"
+        :disabled="disabled"
+        :aria-label="selectAllAriaLabel"
+        @click="$emit('select-all')"
+      >{{ selectAllLabel }}</button>
+      <button
+        type="button"
+        class="target-selector__bulk-btn"
+        data-testid="target-clear-all"
+        :disabled="disabled || selectedPlatforms.length === 0"
+        @click="$emit('clear-all')"
+      >{{ clearAllLabel }}</button>
+    </div>
     <PublishGroupPicker
       :items="accountGroups"
       :disabled="disabled"
@@ -119,11 +147,19 @@ const props = defineProps({
    *  数据源是 useRiskStore（Publish.vue 注入），组件保持哑组件不直接耦合 store。 */
   riskSuspended: { type: Array, default: () => [] },
   /** 「按组添加」的可操作分组（`buildGroupPickerItems` 的产物，空数组即整块不渲染）。
-   *  由上层算好再传：本组件保持哑组件，不碰 accountStore，也不自己判 groupsStatus。 */
+   *  由上层算好再传：本组件保持哑组件，不碰 accountStore，也不自己判 groupsStatus。
+   *  每项可带 `selected`（该组当前已选中成员数）供 tooltip 做点击前预告。 */
   accountGroups: { type: Array, default: () => [] },
+  /** 全选/清空行的渲染开关与可发布平台数（publish-target-select-all）。
+   *  由上层（usePublishTargetBulkTargets）算好再传：可发布 = 该平台当前至少有一个
+   *  可勾选账号（经 getAvailableAccountIds → isAccountActive）。一个都选不了时
+   *  整行不渲染——既不给死控件，也保持 CI 空 profile 下的视觉中性。 */
+  canSelectAll: { type: Boolean, default: false },
+  publishableCount: { type: Number, default: 0 },
+  selectAllAriaLabel: { type: String, default: '' },
 })
 
-defineEmits(['toggle-platform', 'toggle-account', 'apply-group', 'add-account', 'refresh-accounts'])
+defineEmits(['toggle-platform', 'toggle-account', 'apply-group', 'add-account', 'refresh-accounts', 'select-all', 'clear-all'])
 
 const search = ref('')
 const filteredGroups = computed(() => {
@@ -149,6 +185,12 @@ const disabledFlagText = computed(() => i18n.global.t('accountsPage.accountCardL
 const addAccountLabel = computed(() => i18n.global.t('publishPage.addAccount.label'))
 const refreshLabel = computed(() => i18n.global.t('publishPage.addAccount.refreshLabel'))
 const refreshingLabel = computed(() => i18n.global.t('publishPage.addAccount.refreshing'))
+
+// 全选/清空文案（publish-target-select-all，2026-10-17；契约见 PRD §八）。
+// 一律走 locale：渲染层非 locales 文件不得新增中文字符串字面量（CI Gate 7 --cjk）。
+const selectAllLabel = computed(() => i18n.global.t('publishPage.targetBulk.selectAll'))
+const clearAllLabel = computed(() => i18n.global.t('publishPage.targetBulk.clearAll'))
+const bulkGroupAriaLabel = computed(() => i18n.global.t('publishPage.targetBulk.groupAria'))
 function addAccountAriaLabel (platformLabel) {
   return i18n.global.t('publishPage.addAccount.ariaLabel', { platform: platformLabel })
 }
@@ -182,6 +224,12 @@ function isAccountSelected (platformId, accountId) {
 .target-selector { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
 .target-selector__search { width: 100%; box-sizing: border-box; border: 1px solid var(--border-light, #e0e0e0); border-radius: 6px; padding: 8px 10px; color: var(--text-primary, #202124); background: var(--surface, #fff); font-size: var(--font-size-sm); }
 .target-selector__search:focus { outline: 2px solid color-mix(in srgb, var(--action-blue, #1890ff) 25%, transparent); border-color: var(--action-blue, #1890ff); }
+/* 全选/清空行（publish-target-select-all）：刻意用小号文字按钮（非实心大按钮）——
+   它活在平台列表上方，不能抢「一键发布」主行动的焦点。与分组 chip 同一视觉层级。 */
+.target-selector__bulk { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.target-selector__bulk-btn { padding: 3px 10px; border: 1px solid var(--border-light, #e0e0e0); border-radius: 999px; background: var(--surface, #fff); color: var(--action-blue, #1890ff); font-size: var(--font-size-xs); line-height: 1.6; cursor: pointer; }
+.target-selector__bulk-btn:hover:not(:disabled) { border-color: var(--action-blue, #1890ff); }
+.target-selector__bulk-btn:disabled { cursor: not-allowed; opacity: .6; }
 .target-selector__list { min-height: 0; max-height: clamp(220px, 38vh, 430px); overflow-y: auto; padding-right: 4px; scrollbar-gutter: stable; }
 .target-selector__empty, .target-accounts__empty { color: var(--muted, #8a8f98); font-size: var(--font-size-xs); }
 /* 空态出口（publish-add-account-entry）：提示文字与「添加」同一行，刷新链接单独一行。

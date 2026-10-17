@@ -1,3 +1,17 @@
+# [未发布] feat(publish): 发布目标区增加「全选 / 清空」与分组选择回视（publish-target-select-all）
+
+- **动因**：用户反馈「图片和视频发布页，右侧『发布目标』区域，增加『全选』选项，和分组选择的选项」。真实痛点是 15+ 平台逐个勾选；而分组选择（P2-8b「按组添加」）虽已存在，加完之后没有任何回视，用户要滚列表核对。
+- **UE 上的三条判断（不是"加两个按钮"这么简单）**：① **全选必须定义成「全选可发布的」**——平台目录里大量平台当前没有可用账号，全选它们会让 `validatePublishTargets` 以「请为<平台>选择至少一个账号」阻断，等于用户点了全选反而发不出去；判据复用 `usePlatformSelection.getAvailableAccountIds`（内含 `isAccountActive`），被跳过的平台必须在提示里点名（前 3 个 + 「等 N 个」）。② **全选是增量不是替换**，且提供「清空」作为唯一无歧义的逆向操作（**不做反选**：反选后选中的恰是无账号平台集合）。③ **不新增第二行常驻块**，批量操作与分组 chip 同处一行，且**无可发布平台时整行不渲染**——既不给死控件，也保持 CI 空 profile 下 `publish-form` 的视觉中性。
+- **判据与接线分层**（`Publish.vue` 被 `max-lines-baseline` 的 `targets` 点名、容差 0，故一律下沉）：判据本体 `features/publish/usePublishTargetBulk.js`（纯函数、依赖注入、无 Vue 无 IPC 可单测）；接线层 `composables/usePublishTargetBulkTargets.js`（store ↔ 视图 + 播报 + 与 `addAccountBindings` 合成同一个 v-bind 对象——**Vue 模板不允许同一元素两个 v-bind**，编译期 `Duplicate attribute`）。视图净 +4 行，仍在 1773 之下（现 1770）。
+- **顺序约束与既有同源**：全选沿用 P2-8b 的「先平台、后由 `reconcileSelectedAccounts` 回填默认账号、同一同步段」；源码锁断言剥离注释后不得出现 `await` / `nextTick`（拆帧会让默认账号回填插在中间）。新增 `usePlatformSelection.clearPlatforms()`，只动 `selectedPlatforms`，账号键由既有的 reconcile 清理，不写第二份。
+- **分组选择（既有 chip 的增强，未改其结论）**：chip 增加「已选/成员」tooltip（点击前预告）与已全选视觉态（**不禁用**——禁用会把"已经加过了"伪装成"按钮坏了"，沿用 P2-8b §七 理由）。仍不做按组替换/整组取消（破坏性语义，P2-8b §一.2 已论证）。
+- **测试 34 例 + 既有 110 条零回归**：`usePublishTargetBulk.test.js` 12 例（分类穷尽 / 可发布判据必须问注入函数 / 空目录 no-targets / 幂等 / 同段源码锁）、`usePublishTargetBulkTargets.test.js` 9 例（播报数字同源 / 清单截断 / 风控点名 / added=0 分岔）、`publish-target-bulk.component.test.js` 7 例（视觉中性 DOM 锁 / 哑组件 / 禁用态 / v-bind 合同）、`publish-target-select-all.test.js` 6 例（视图层接线：点了真的改选中集）。**变异反证**：把可发布判据改回读 `platform.accounts.length` ⇒ 12 例中 9 例当场红。
+- **实现期实测到的两条坑（已写进 PRD §九之二）**：① `publishableCount` 不能写成 computed——测试替身的 `byPlatform` 非响应式时它在目录就绪前求值一次即缓存，表现是"按钮永远不出现"；改为 watch 订阅三个确实响应式的源。② 测试替身的 `byPlatform` 本身必须是 ref（真实 Pinia store 的 `byPlatform` 是对 `accounts` 派生的 computed），否则"账号到了 ⇒ 界面跟着变"这条保证被替身抹掉，整类缺陷只在测试里成立（Mock 边界漏洞）。
+- **Gate 7 实测红过一次并已修**：清单截断后缀「等 N 个」最初写在纯函数里 ⇒ `check-locale-sync --cjk` 判 4 处硬编码中文。改为纯函数只做"取前 N 个 + 调 `restLabel` 回调"，后缀由接线层从 locale 注入；纯函数因此仍可在无 Vue 环境单测。
+- **门禁**：`check-max-lines` ✅（Publish.vue 1770 ≤ 1773；Publish.test.js 拆出 `publish-target-select-all.test.js` 后回到容差内）、`check-locale-sync` pair ✅ + CJK ✅、ESLint exit 0（仅 2 处既有 warning，均不在本刀 diff）、受影响 25 文件 422 用例全绿。
+- **诚实边界**：真机行为验证需已登录 profile（本机不做端到端，牵动共享 userData）；`QG Visual` 以 CI 为准，本刀的构造性论证是「空 profile 下零 DOM 新增」，非空 profile 下的预期界面变化若需重建基线应由 CI 同源产出。
+- 契约：`01-docs/PRD-PUBLISH-TARGET-SELECT-ALL-2026-10-17.md`；交叉更新 `UI-INVENTORY.md` §7.2、P2-8 路线图第三刀标记、`PRD-PUBLISH-GROUP-PICKER-2026-10-03.md` 下游说明。
+
 # [未发布] docs(skill): start-app 入口选择硬路由 + preload 排查 + 结构锁（startapp-skill-harden）
 
 ## 动因（2026-10-17 实测事故，非 hypothetical）
@@ -90,6 +104,8 @@ C 删 preload 排查关键句 => 1 failed；还原后 => 7/7 passed。
   CI 侧 `debt-guard.yml` 跑这条检查但没有构建步骤，所以暂不产生新红。收窄判据域属"改谁来守门"，另片处理。
 - 本 PR **不能自证 push 侧转绿**：那条步骤在 PR 事件上不跑。验收判据是合并后 main push 的那一次运行，
   已在执行记录里写成收尾必查项。
+
+
 
 # [未发布] feat(observability): history:list 补耗时读数与 >300ms 阈值告警（obs-history-timing）
 

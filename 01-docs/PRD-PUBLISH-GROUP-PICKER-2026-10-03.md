@@ -3,6 +3,8 @@
 > 上游：`01-docs/PRD-ACCOUNT-GROUPS-PERSISTENCE-2026-10-01.md`（P2-8a，已合并 #2756）——分组真源已从 `localStorage` 迁到按用户命名空间隔离的 settings 面。
 > 立项：`01-docs/PRD-PUBLISH-PAGE-OPTIMIZATION-2026-10-08.md` 差距表 P2-8 的第二刀。
 > 本刀只解决一件事：**分组在账号页能建、在发布页用不上**。用户建组的动机就是"发布时一键选这组号"，P2-8a 之后这个动机没有出口。
+>
+> **下游（2026-10-17）**：`01-docs/PRD-PUBLISH-TARGET-SELECT-ALL-2026-10-17.md`（第三刀）在同一个「发布目标」区加了「全选 / 清空」，并给本刀的 chip 补了"已选/成员"回视与点击前预告 tooltip。第三刀**未改本刀的任何结论**：additive 语义、不做按组替换、无组不渲染三条全部沿用。
 
 ## 一、目标与范围
 
