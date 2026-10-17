@@ -58,6 +58,7 @@
 
 - [ ] 7.1 出路①「真跑多轮抬分」：成本由用户拍板，不在本 PR 决定（#3724 单轮实测 23–40 分钟）
 - [ ] 7.2 出路②「给引擎加『已外部复核』表达」：属改上游共享制品，须先在上游立 issue；本仓不得私改 vendor 副本
+  - [x] 7.2a 上游 issue 草稿已写并**实跑校验过复现步骤**：`artifacts/upstream-issue-external-review-field.md`。三条归属当场纠正（`blockingFromAdjudication` 在**驱动**不在 engine 导出表；`classifyHighRisk` 收的是**字符串**不是条目对象；调用方显式给的 `highRiskDomains` 会被文本重算覆盖 —— 实测传 `['crypto']` 回来 `[]`）。投递交付渠道待维护者指定（制品内无版本号/repository 字段，不猜 URL）
 - [ ] 7.3 出路③「放宽 `check-pr-exec-record` 闭合词表」：属改「谁来守门」，AGENTS.md 明文禁止 agent 自动合并这类 PR，须人工过目
 - [ ] 7.4 与 #3724 的关系：两条 PR 判据互不依赖，可任意顺序合并；合并后若 `Gate 2b5/2b6` 编号读起来别扭，属命名整洁问题，不影响执行
 
