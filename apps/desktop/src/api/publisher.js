@@ -521,6 +521,11 @@ export async function story2videoBgmLibraryRename(id, name) {
 export async function story2videoBgmLibraryDelete(id) {
   return invokeWithFallback("story2videoBgmLibraryDelete", { code: -1, message: 'electronAPI not available' }, id)
 }
+// 历史 BGM 路径只读核验（存在性/可读性/是否在库）。失败返回 code -1，
+// 调用方必须按「未知」处理（失败开放），不得当作“文件已丢失”。
+export async function story2videoBgmLibraryStatus(filePath) {
+  return invokeWithFallback("story2videoBgmLibraryStatus", { code: -1, message: 'electronAPI not available' }, filePath)
+}
 // ─── 流水线「保存配置」API（openspec s2v-pipeline-config-profiles） ───
 export async function story2videoConfigProfileList() {
   return invokeWithFallback("story2videoConfigProfileList", { code: -1, message: 'electronAPI not available', data: [] })

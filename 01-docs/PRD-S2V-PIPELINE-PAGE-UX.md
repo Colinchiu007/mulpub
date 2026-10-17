@@ -431,7 +431,7 @@
 | `basic` | 基础 | 分辨率、旁白语速、旁白音量 |
 | `visual` | 画面 | 字幕样式、视觉风格、图片生成器、内容类型 |
 | `videoEnhance` | 视频增强 | AI 视频增强、视频模式、动态强度 |
-| `voice` | 声音 | 音色、音色克隆/复制、配音员 |
+| `voice` | 声音 | 音色、音色克隆/复制、配音员、背景音乐、背景音乐音量 |
 | `advanced` | 高级 | 优化风格、分段模式、检测场景切换 |
 | `publish` | 发布 | 仅整组控制，无独立选项显隐 |
 
@@ -636,6 +636,7 @@ loadPipelineOptions():
 | 分组摘要 | 折叠状态下的副标题 | 显示当前关键配置值（如"16:9横屏 1920x1080 / 语速 1.0x / 音量 100%"） |
 | 选项标签 | 各选项左侧 | 中文标签（如"比例与分辨率"） |
 | 选项控件 | 各选项右侧 | 下拉/输入框/滑条/开关 |
+| 历史背景音乐状态 | 声音分组「背景音乐」下方 | 按主进程只读核验结果显示可用/已丢失/不可用/未知，并给出【加入素材库】/【清除背景音乐选择】/【重新检查】 |
 | 试听按钮 | 旁白语速/旁白音量旁 | 按当前语速+音量播放试听音频 |
 | 空态提示 | 分组完全隐藏时 | 不显示该分组（整组从 DOM 移除） |
 
@@ -764,7 +765,7 @@ loadPipelineOptions():
 | 图片动效 | `s2vConfig.imageEffect` | `visual.imageEffect` | `none` + 8 种运镜；`none` 时不产生动效提示 |
 | 转场 | `s2vConfig.transition` | `visual.transition` | `none/fade/slide-left/right/up/down` |
 | 字幕 / 字幕字号 / 字幕样式 | `subtitleEnabled` / `subtitleSize` / `subtitleStyleName` | `visual.subtitle*` | 关闭字幕时下游不渲染字幕轨 |
-| 背景音乐 | `s2vConfig.bgmPath` | `voice.bgm` | 允许「不使用背景音乐」+ 曲库项 + 未入库历史值 |
+| 背景音乐 | `s2vConfig.bgmPath` | `voice.bgm` | 「不使用背景音乐」+ 曲库项 + 历史路径（按核验结果区分可用/已丢失/不可用/未知；丢失或不可用时阻断启动并可一键清除） |
 | 水印位置 / 字号 / 透明度 | `s2vConfig.watermarkConfig.*` | `visual.watermark*` | 字号 ∈ {16,24,32,40,48}；透明度 ∈ 0.1–1.0（步 0.1）；`moving` 为平滑循环漂移 |
 | 图片生成器 / 视频生成器 / 语音生成器 | `imageProvider` / `videoProvider` / `voiceProvider` | `visual.imageProvider` / — / `voice.voiceProvider` | 由模型能力目录驱动；变更触发 `@change` 能力联动 |
 | 视频增强模式 / 短视频处理 | `videoMode` / `shortVideoHandling` | `videoEnhance.videoMode` / — | 枚举受 `videoMode` 条件约束 |
@@ -790,6 +791,7 @@ loadPipelineOptions():
 4. **字符计数上限**：`MAX_STORY2VIDEO_TEXT_CHARACTERS = 6000`；`textarea` 设 `maxlength` 禁止粘贴溢出；计数为**实时 `length`**，无 debounce。
 5. **写路径唯一**：详情页子组件（`S2vConfigPanels.vue`）与父组件共享同一 `s2vConfig` / `s2vOutputConfig` 响应式对象引用，写操作全部经 `v-model` 直绑；**不新增第二数据源、不新建 store、不整体替换对象**（引用稳定性由 `cloneForIpc` / `applyS2VPipelineDefaults` / `pickS2VConfigProfileFields` 三处消费点依赖）。`s2vConfig` 的 `deep: true` watcher 与 `scheduleS2VLastOptionsSave()` 节流语义**逐字节保持不变**。
 6. **折叠面板展开态**：走既有 `ui.expandedGroups` 持久化通道，读取失败 → 回落该组默认展开；不因持久化异常阻塞渲染。
+7. **历史背景音乐存在性门禁（2026-10-17）**：历史路径（`bgmPath` 非空且不在素材库）必须经主进程 `story2video:bgm-library-status` 只读核验；`missing` / `unusable` 时 `canStartPipeline=false` 且 `pipelineBlockedReason` 给出 `bgmLost` / `bgmUnusable`；`unknown`（通道不可用/浏览器态）**不得阻断**（失败开放）。核验合同与 compose 的 `resolveReadableMediaFile(path,{kind:'bgm'})` 同源，禁止渲染层自行猜测文件状态。详见 `PRD-S2V-BGM-VOICE-SECTION-LEGACY-REPAIR-2026-10-17.md`。
 
 ### 11.6 交互逻辑（状态机与反馈）
 
@@ -804,6 +806,7 @@ loadPipelineOptions():
 | 卡片悬停 | `.s2v-card:hover` → `translateY(-1px)` + 阴影抬升；`prefers-reduced-motion` 下 `transform: none; box-shadow: none` |
 | 主 CTA 流光 | `.s2v-cta-shimmer::after` 2.6s 循环 `translateX`；`:disabled` 与 `prefers-reduced-motion` 下 `animation: none; opacity: 0`；`pointer-events: none`（不拦截点击） |
 | 焦点 | 所有新增交互元素统一 `:focus-visible` outline；**禁止无替代的 `outline: none`** |
+| 历史背景音乐核验 | 下拉下方状态区（`role="status"` + `aria-live="polite"`）按状态显示提示：`checking` 检查中；`available` 提示可用 +【加入素材库】；`missing`/`unusable` 错误态 +【清除背景音乐选择】并阻断启动；`unknown` 中性提示 +【重新检查】且不阻断。加入素材库成功后自动选中库内新路径，历史提示消失 |
 
 ### 11.7 令牌与视觉一致性（D2 决策与其完成态）
 
@@ -841,6 +844,11 @@ loadPipelineOptions():
 | `flowGuide` | 配置好参数后点击「启动流水线」，各阶段将自动串联执行，无需逐步确认。 | Once configured, clicking Start Pipeline runs all stages automatically — no step-by-step confirmation needed. |
 | `voiceSpeedLabel` / `voiceVolumeLabel` | 旁白语速 / 旁白音量 | Narration speed / Narration volume |
 | `bgmVolumeLabel` | 背景音乐音量 | Background music volume |
+| `bgmLibrary.legacyBgm` / `legacyAvailable` / `legacyMissing` / `legacyUnusable` | 已选音频（未入库）/（未入库，文件可用）/（文件已丢失）/（无法使用） | Selected audio (not in library)/(not in library, file available)/(file missing)/(unusable) |
+| `bgmLibrary.legacyHintChecking` / `legacyHintAvailable` / `legacyHintMissing` / `legacyHintUnusable` / `legacyHintUnknown` | 检查中 / 可用但未入库 / 文件已丢失 / 无法使用 / 无法核验 | Checking / available but not in library / file missing / unusable / cannot verify |
+| `bgmLibrary.adoptAction` / `clearAction` / `verifyRetry` / `adoptSuccess` / `clearedToast` | 加入素材库 / 清除背景音乐选择 / 重新检查 / 已将历史背景音乐保存到素材库 / 已清除背景音乐选择 | Add to library / Clear background music selection / Check again / Saved the earlier background music to the library / Background music selection cleared |
+| `blockedReason.bgmLost` / `bgmUnusable` | 所选背景音乐文件已丢失… / 所选背景音乐无法使用… | The selected background music file is missing… / The selected background music cannot be used… |
+| `ui.summaryBgmLibrary` / `summaryBgmLegacyAvailable` / `summaryBgmLegacyMissing` / `summaryBgmLegacyUnusable` | 背景音乐 {name} / 背景音乐（历史音频）/ 背景音乐文件已丢失 / 背景音乐不可用 | Music: {name} / Music (legacy audio) / Music file missing / Music unavailable |
 | `videoFixedRatioLabel` / `videoMinRatioLabel` / `videoMaxRatioLabel` | AI 视频占比（前段）/ AI 视频占比下限 / AI 视频占比上限 | AI video share (opening) / Minimum AI video share / Maximum AI video share |
 | `blockedReason.noText` | 请先输入视频文案 | Enter the script text first |
 | `blockedReason.noPipeline` | 请先选择一条流水线 | Select a pipeline first |
@@ -914,3 +922,36 @@ loadPipelineOptions():
 6. `prefers-reduced-motion` 下无位移与循环动画。
 7. §2.1.6 滚动合同不回退：详情页整体不出现整页滚动条，`.pipeline-detail-scroll` 内层独立滚动，`.action-bar` 固定底部。
 8. 单元 329 例、像素 18/18、上述 9 项门禁全绿；locale zh/en 成对、无新增中文字面量。
+
+## 12. 背景音乐分组归位与历史路径修复契约（2026-10-17）
+
+> 本章与 §9、§11 同级，是该能力的**实现合同**；完整 PRD（数据校验/流程/提示文字/测试/验收）见
+> `01-docs/PRD-S2V-BGM-VOICE-SECTION-LEGACY-REPAIR-2026-10-17.md`。
+
+### 12.1 分组归属
+
+- 「背景音乐」`UiField`（`option-key="voice.bgm"`）与「背景音乐音量」`UiSlider`（`voice.bgmVolume`）**必须**位于 `voice` 折叠区，顺序为「语音 / 音色 ID」之后、音色克隆面板之前；`appearance` 折叠区**不得**再包含二者。
+- `data-testid`（`s2v-bgm-select` / `s2v-bgm-volume` / `s2v-bgm-manage-button`）**不得**因迁移改名；运营 optionKey 与显隐语义不变。
+- `S2V_SUMMARY_FIELDS.voice` 必须含 `bgmPath` / `bgmVolume`；`s2vSectionSummary('voice')` 在已选背景音乐时追加片段（库内曲名 / 历史音频 / 文件已丢失 / 不可用），未选时不追加（保持默认折叠态摘要与像素基线不变）。既有声音摘要模板字面量按 CJK 基线口径逐字节保留，片段用 ASCII ` · ` 拼接。
+
+### 12.2 只读核验通道
+
+- 通道：`story2video:bgm-library-status`，入参 `{ filePath }`（非空、≤4096），主进程 `withSenderCheck`，未登录可用，只读、不写索引。
+- 判定顺序：入参 → 绝对路径 → 扩展名（**stat 之前**）→ `lstat`（ENOENT=`missing`）→ 符号链接/非普通文件 → 空文件 → >15MB → 允许媒体根 → `resolveReadableMediaFile` 复核 → 库内命中。
+- `reason` 机器码：`ok | invalid_argument | format_unsupported | missing | not_a_file | size_exceeded | not_allowed | unreadable`；渲染层状态映射 `available / missing / unusable / unknown / idle`，映射只允许发生在 `useBgmLibrary.mapInspectResultToLegacyStatus` 一处。
+
+### 12.3 启动门禁与修复动作
+
+- `missing` / `unusable`：`canStartPipeline=false` + 首条阻塞原因（`bgmLost` / `bgmUnusable`）；`handleStartPipeline` 在有历史路径时先 `await` 一次核验再决定是否进入登录门。
+- `available`：【加入素材库】→ 复用 `bgm-library-add` → 成功刷新列表并把 `bgmPath` 改写为库内新路径 → 状态复位 `idle` → toast `adoptSuccess`；失败保留原路径与状态，走 `resolveMediaImportFailure`。
+- `missing` / `unusable`：【清除背景音乐选择】→ `bgmPath=''` → 状态 `idle` → toast `clearedToast`。
+- `unknown`：【重新检查】；**不得阻断启动**，不得弹错误弹窗。
+- 历史路径在用户显式操作前不得清空或改写；compose 的 `bgmSkipped` 降级保留为最后防线。
+
+### 12.4 验收
+
+1. 分组归属断言：`[data-testid="s2v-section-voice"]` 内存在 `s2v-bgm-select`/`s2v-bgm-volume`，`[data-testid="s2v-section-appearance"]` 内不存在。
+2. 状态渲染断言：`available` → 提示 + `s2v-bgm-adopt`；`missing` → 错误态 + `s2v-bgm-clear`；`checking` → 提示无按钮；`unknown` → `s2v-bgm-recheck`。
+3. 门禁断言：`missing` 时 `canStartPipeline=false` 且阻断原因含“已丢失”；清除后恢复；`unknown` 不阻断。
+4. 修复断言：加入素材库成功后 `bgmPath` 为库内新路径、`s2vLegacyBgmPath===''`、状态 `idle`。
+5. 服务层 `inspectPath` 判定矩阵 8 例、IPC 2 例、preload/权限 1 例、composable 6 例全部通过。
