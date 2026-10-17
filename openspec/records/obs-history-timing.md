@@ -2,9 +2,6 @@
 record: obs-history-timing
 task: history:list 补耗时读数与 >300ms 阈值告警——把「发布记录页慢 1–2 秒」从推理变成读数
 date: 2026-10-17
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（合并后在本文件内收口：远程同步行改 PASS + merge SHA，并删除上方三个 sync_* 字段）
 ---
 
 ## 本次执行记录：history:list 补耗时读数与 >300ms 阈值告警（obs-history-timing，2026-10-17）
@@ -33,9 +30,13 @@ sync_backfill_owner: 下一个会话（合并后在本文件内收口：远程�
 | QM-1 ③ stderr 三层 | **PASS（第③层）** | 首轮 stderr 290 B：`Failed to load URL: .../app.asar/dist/index.html ERR_FILE_NOT_FOUND` ⇒ 判 **NEEDS_REVIEW（第②层，不得判通过）**。根因是本 worktree 未跑 renderer build、包内缺 `dist/index.html`。补跑 `build:vue` + 重打包后**复验 stderr = 0 字节** ⇒ 第③层 PASS。**没有把第②层当通过** |
 | QM-1 附：env 缺陷出声 | PASS | `envDefectNotice()` 确实打印告警（父环境带 `ELECTRON_RUN_AS_NODE=1`）——**未静默剔除**。这条对本机有实际意义：该变量会让任何 Electron 可执行文件以纯 Node 模式启动并静默退出，与「启动干净」完全同形 |
 | QM-4 视觉 | N/A（有据，非免检） | 本次改动**零渲染端变更**（只改主进程一个 handler 的日志字符串与一个阈值分支），`src/` 下无任何文件被改。账号页/发布页像素基线不受影响 ⇒ 不重采基线。**判 N/A 的依据是 diff 文件集为空集，不是「我没查」**（上一轮曾把「没查」写成「不适用」，这是本仓已登记的教训） |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间；`git ls-remote --heads origin obs-history-timing` 返回 0 行证远端分支已删 |
+| 远程同步 | PASS | 已合并（PR #3831，squash）
 
-- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PENDING
+**merge SHA**：`c812bd7b9d5e94ed583a8b1e71e53e76a410c259`
+**合并时间**：`2026-10-17T12:28:16Z`（UTC）
+**远端分支**：`git ls-remote --heads origin obs-history-timing` 返回 **0 行** ⇒ 已删除。
+
+- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PASS
 
 ## 实现（+23/−2，一个文件）
 
