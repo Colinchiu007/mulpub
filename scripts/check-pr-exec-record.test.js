@@ -1258,3 +1258,66 @@ test('扫描域不得过宽：同目录里的非评审 json 不得触发上述�
     assert.strictEqual(r.checked, 0)
   } finally { fs.rmSync(repo, { recursive: true, force: true }) }
 })
+
+// ── 删除方向不得逃逸：changedInDir 原先只筛 A/M，于是 `git rm` 一条 pending 的 dual 产物
+// 就等于把欠账连记录一起抹掉，而且不报错。这不是假想场景：并行会话 #3776 现场正是
+// 「中途提交被判 dual+pending、永久挡住 PR」，其合规出口写的是「把 status 改成闭环值」；
+// 而删除是同一条出口的免审计版本。修法是读 base blob 判内容，读不到必须出声而不是静默。
+const SHA64B = 'd'.repeat(64)
+const SHA64C = 'e'.repeat(64)
+
+test('删除方向不得逃逸：D 掉的是一条未闭环 dual 记录 ⇒ 必须报欠账并点名', () => {
+  const repo = withReviewRecords({}) // 工作树里已经没有它了（这正是 D 的含义）
+  const baseContent = JSON.stringify({ mode: 'dual', deepReview: { required: true, status: 'pending', performedBy: null } })
+  try {
+    const r = mod.evaluateDeepReviewDebt(st([['D', `.ccg/reviews/${SHA64B}.json`]]), repo, () => baseContent)
+    assert.strictEqual(r.reasons.length, 1, `删除未闭环 dual 记录必须报 1 条，实际 ${r.reasons.length}`)
+    assert.match(r.reasons[0], /删除/)
+    assert.match(r.reasons[0], /深度审查欠账|未闭环/)
+    assert.ok(r.reasons[0].includes(SHA64B), '必须点名是哪条记录')
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('删除方向不得误喊①：D 掉的是已闭环 dual 记录 ⇒ 正常清理，不得出声', () => {
+  const repo = withReviewRecords({})
+  const baseContent = JSON.stringify({ mode: 'dual', deepReview: { required: true, status: 'cleared', performedBy: 'claude' } })
+  try {
+    const r = mod.evaluateDeepReviewDebt(st([['D', `.ccg/reviews/${SHA64B}.json`]]), repo, () => baseContent)
+    assert.deepStrictEqual(r.reasons, [])
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('删除方向不得误喊②：D 掉的是 single 记录 ⇒ 与缺陷G 口径一致，不得报（否则把噪音当防线）', () => {
+  const repo = withReviewRecords({})
+  const baseContent = JSON.stringify({ mode: 'single', deepReview: { required: true, status: 'pending', performedBy: null } })
+  try {
+    const r = mod.evaluateDeepReviewDebt(st([['D', `.ccg/reviews/${SHA64B}.json`]]), repo, () => baseContent)
+    assert.deepStrictEqual(r.reasons, [])
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('删除方向不得误喊③：D 掉的非评审 json ⇒ 不得报', () => {
+  const repo = withReviewRecords({})
+  try {
+    const r = mod.evaluateDeepReviewDebt(st([['D', '.ccg/reviews/workflowstructure-notes.json']]), repo, () => JSON.stringify({ hello: 1 }))
+    assert.deepStrictEqual(r.reasons, [])
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('删除方向不得把「读不到 base」读成「没欠账」：取不到内容必须出声（未证实 ≠ 已通过）', () => {
+  const repo = withReviewRecords({})
+  try {
+    // 浅克隆 / base ref 解不出来 / 没注入第三个参数，三种情况都必须落在这条出口上
+    const r1 = mod.evaluateDeepReviewDebt(st([['D', `.ccg/reviews/${SHA64B}.json`]]), repo, () => { throw new Error('fatal: bad object') })
+    assert.strictEqual(r1.reasons.length, 1, `读不到 base 必须出声，实际 ${r1.reasons.length}`)
+    assert.match(r1.reasons[0], /读不到|未证实|无法取证/)
+    const r2 = mod.evaluateDeepReviewDebt(st([['D', `.ccg/reviews/${SHA64C}.json`]]), repo)
+    assert.strictEqual(r2.reasons.length, 1, '未注入 readAtBase（第三个参数缺失）同样必须出声')
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('接线锁：main() 必须把 base 读取器传给 evaluateDeepReviewDebt（三参数调用）', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'check-pr-exec-record.js'), 'utf8')
+  assert.match(src, /evaluateDeepReviewDebt\(statuses, repo, [A-Za-z_$]/,
+    '只补判据不接线等于没修 —— 调用点必须显式传第三个参数')
+})

@@ -9,6 +9,12 @@
 - [ ] 1.3 变异 M1（`null` 读成 `external` 必须指名红）
 - [ ] 1.4 判据本体改为 `(status, tier)` 二元组：`external` 走现状、`self-play`/`unknown` 走新前提
 
+## 1bis. 扫描域完整性（评审命中后追加，已落码 = PR #3777）
+
+- [x] 1.5 `evaluateDeepReviewDebt` 纳入 D 方向：读 base blob 判被删记录当时是否已闭环；未闭环 dual ⇒ 欠账；取不到 base ⇒ 按「未证实」出声（不得读成通过）
+- [x] 1.6 目录级判据 `REVIEWS_DIR_RE` + 内容谓词 `isReviewRecord()`：形态不认识但确是评审记录 ⇒ 点名出声（防下一次改名时扫描域静默缩到 0）
+- [x] 1.7 接线锁：`main()` 必须三参数调用（M-G 反证）；`single`/已闭环/非记录三档不得误喊（M-C/M-F 反证）
+
 ## 2. 高危面清单与收口矩阵
 
 - [ ] 2.1 `HIGH_RISK_SURFACES` 路径前缀清单（design §3 六类），每项**带实测出处**，清单只能缩小

@@ -501,8 +501,18 @@ function main(argv) {
   //
   //   ⚠️ 必须同时应用到下面的 `r2` 分支：`--no-remote` 时 remoteBranches 为 null，
   //   控制流会重新 evaluate 出 r2 并 return report(r2) —— 若只改 r，欠账会被静默丢弃。
+  // base 与变更集同源：--statuses 外部注入时可能没有可用 base，readAtBase 会返回 null 走未证实出口
+  const baseRef = typeof args.base === 'string' ? args.base.trim() : ''
   const applyDeepDebt = (target) => {
-    const deepDebt = evaluateDeepReviewDebt(statuses, repo)
+    // D 方向需要 base 的 blob 才能判「删掉的那条当时是否已闭环」；取不到就返回 null，
+    // 由判据按「未证实」出声，而不是静默放行。变更集本身仍只有 changedFileStatuses 一个取源。
+    const readAtBase = (rel) => {
+      if (typeof baseRef !== 'string' || !baseRef.trim()) return null
+      try {
+        return execFileSync('git', ['-C', repo, 'show', `${baseRef}:${rel}`], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 })
+      } catch { return null }
+    }
+    const deepDebt = evaluateDeepReviewDebt(statuses, repo, readAtBase)
     if (deepDebt.reasons.length > 0) {
       target.ok = false
       target.reasons.push(...deepDebt.reasons)
@@ -566,7 +576,7 @@ const CLOSED_DEEP_REVIEW_STATUSES = new Set([
  *     HEAD 不同，所以按「本次改动是否带上它」判定，不按 sha 反查。
  *   - `status` 缺失/非字符串一律算欠账（fail-closed），不给「字段被删」留后门。
  */
-function evaluateDeepReviewDebt (statuses, repo) {
+function evaluateDeepReviewDebt (statuses, repo, readAtBase) {
   const reasons = []
   const changedInDir = statuses
     .filter((e) => (e.status === 'A' || e.status === 'M') && REVIEWS_DIR_RE.test(e.file))
@@ -586,7 +596,49 @@ function evaluateDeepReviewDebt (statuses, repo) {
     )
   }
 
-  if (involved.length === 0 && escaped.length === 0) return { reasons, checked: 0 }
+
+  // ★ 删除方向不得逃逸（对齐本文件头部不变量 2「必须区分 A/M/D」——那条要求早就写在注释里，
+  //   但欠账扫描只筛 A/M，等于自己违反自己的不变量）：D 掉的若是一条未闭环的 dual 产物，
+  //   欠账就连同记录一起消失且不报错。现场不是假想：#3776 的处境正是「中途提交被判 dual+pending
+  //   挡住 PR」，门禁给的合规出口是「写明原因并把 status 置为闭环值」，而删除是同一条出口的
+  //   **免审计版本**。内容只能从 base 的 blob 读，工作树里已经没有这个文件了。
+  const removedUnclosed = []
+  const unreadable = []
+  for (const e of statuses) {
+    if (e.status !== 'D' || !REVIEWS_DIR_RE.test(e.file)) continue
+    const rel = e.file
+    let txt = null
+    try {
+      txt = typeof readAtBase === 'function' ? readAtBase(rel) : null
+    } catch { txt = null }
+    if (txt === null || txt === undefined) { unreadable.push(rel); continue } // 未证实 ≠ 已通过
+    let rec = null
+    try { rec = JSON.parse(txt) } catch { continue } // 非评审记录/损坏由别的门禁负责
+    if (!rec || typeof rec !== 'object') continue
+    if (rec.mode === undefined && rec.deepReview === undefined && rec.decidedBy === undefined) continue
+    if (rec.mode !== 'dual') continue // single 不在本判据范围（缺陷G 口径，不得改成噪音）
+    const st = rec.deepReview && typeof rec.deepReview.status === 'string' ? rec.deepReview.status : '(缺失)'
+    if (!CLOSED_DEEP_REVIEW_STATUSES.has(st)) removedUnclosed.push(`${rel}（mode=dual，status=${st}，decidedAt=${rec.decidedAt || '?'}）`)
+  }
+  if (removedUnclosed.length > 0) {
+    reasons.push(
+      `CCG 深度审查欠账：本次变更集删除了 ${removedUnclosed.length} 条未闭环的 dual 判定记录 —— `
+      + `删除产物不等于完成评审。若判定确属假阳性，走门禁的合规出口（在记录里写明原因并把 status 置为闭环值），`
+      + `而不是删文件：\n`
+      + removedUnclosed.slice(0, 8).map((p) => `    - ${p}`).join('\n')
+      + '\n    补跑：sh scripts/deep-review.sh'
+    )
+  }
+  if (unreadable.length > 0) {
+    reasons.push(
+      `扫描域无法取证 ${unreadable.length} 条：这些 .ccg/reviews 记录在本次变更集里被删除，但读不到 base 版本，`
+      + `因此无法判定删除前是否已闭环 —— 「读不到」不得读成「没欠账」：\n`
+      + unreadable.slice(0, 8).map((p) => `    - ${p}`).join('\n')
+      + '\n    常见成因：浅克隆解不出 merge-base、调用方未注入 readAtBase、base ref 已被回收。'
+    )
+  }
+
+  if (involved.length === 0) return { reasons, checked: 0 }
 
   const unresolved = []
   for (const rel of involved) {
