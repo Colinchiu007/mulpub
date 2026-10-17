@@ -47,6 +47,10 @@ function registerPublishFrequencyHandlers (ipcMain, deps) {
           //  :max="10080"，与主进程 env / 覆盖两条路径的实际合法域不同步）
           dailyMaxUpperBound: policyModule.MAX_DAILY_QUOTA,
           intervalMaxMinutes: policyModule.MAX_INTERVAL_MS / 60000,
+          // v5 逐平台账号间隔的**默认表**（未叠加覆盖）。设置页要同屏显示「默认 / 生效」，
+          // 而生效值来自 guard._intervals（含覆盖）——若渲染层自带一份默认值，
+          // 策略表一改界面就变成可见的假陈述（QM-2「渲染层不得有第二份数字」）。
+          accountMinDefaults: policyModule.PLATFORM_ACCOUNT_MIN_INTERVAL_MS,
         },
       }
     } catch (e) { ipcLog('error', 'publishFreq:getPolicy', 'error', `message=${e.message}`); return { code: EC.REQUEST_ERROR, message: e.message } }

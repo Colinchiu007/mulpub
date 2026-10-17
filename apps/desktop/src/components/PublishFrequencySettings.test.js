@@ -32,6 +32,14 @@ const POLICY_RES = {
       weibo: { tier: 'short', accountMinMs: 1 * 60000, platformMinMs: 1 * 60000, accountDailyMax: 500 },
     },
     overrides: null,
+    // v5 逐平台账号间隔的**默认表**由 getPolicy 下发（真源是策略模块的
+    // PLATFORM_ACCOUNT_MIN_INTERVAL_MS）。夹具与生产同形：这里只是其子集，
+    // 组件不得自带第二份数字 —— 缺字段时清单必须显示占位而不是猜一个值。
+    accountMinDefaults: {
+      wechat_mp: 5 * 60000,
+      douyin: 3 * 60000,
+      weibo: 1 * 60000,
+    },
     jitterRatio: 0.4,
     releaseGraceMs: 60000,
     // 合法域上界由主进程下发（change: publish-frequency-unwired-surfaces）。
@@ -151,6 +159,99 @@ describe('PublishFrequencySettings（发布频率设置页；刻意不带档位�
     expect(wrapper.find('[data-testid="pubfreq-platform-min"]').attributes('data-max')).toBe('3210')
   })
 
+  it('v5 档位摘要仍按档位分组：同档内账号间隔不同时给区间，不得出现两条同名档位', async () => {
+    // v5 把账号档改成逐平台后，摘要若继续按「三维元组」分组，视频号会自成第二条 clip 行
+    // ——「clip（1 个平台，如 tencent_video）」对用户是假陈述（clip 档实际有 9 个平台）。
+    const payload = {
+      ...POLICY_RES,
+      data: {
+        ...POLICY_RES.data,
+        platforms: {
+          douyin: { tier: 'clip', accountMinMs: 3 * 60000, platformMinMs: 1 * 60000, accountDailyMax: 350 },
+          tencent_video: { tier: 'clip', accountMinMs: 60 * 60000, platformMinMs: 1 * 60000, accountDailyMax: 350 },
+        },
+      },
+    }
+    api.getPublishFrequencyPolicy.mockResolvedValue(payload)
+    const wrapper = await mountPage()
+    const text = wrapper.find('[data-testid="pubfreq-current"]').text()
+    expect((text.match(/clip/g) || []).length, `clip 档只应有一行摘要：${text}`).toBe(1)
+    expect(text).toContain('2 个平台')
+    expect(text).toContain('3–60 min')
+  })
+
+  // ── v5：逐平台同账号间隔（change: publish-frequency-per-platform-intervals）──────
+  it('v5 逐平台清单：默认值与生效值都来自下发载荷，未覆盖时不打「已覆盖」标记', async () => {
+    const wrapper = await mountPage()
+    const row = wrapper.find('[data-testid="pubfreq-row-wechat_mp"]').text()
+    expect(row).toContain('wechat_mp')
+    expect(row).toContain('默认 5 min')
+    expect(row).toContain('生效 5 min')
+    expect(wrapper.findAll('[data-testid="pubfreq-overridden"]'), '无覆盖时不得凭空打标').toHaveLength(0)
+  })
+
+  it('v5 逐平台覆盖：该行显示生效≠默认并打标，输入框回填覆盖值；未覆盖平台必须留空', async () => {
+    const payload = {
+      ...POLICY_RES,
+      data: {
+        ...POLICY_RES.data,
+        overrides: { accountMinMsByPlatform: { douyin: 30 * 60000 } },
+        platforms: {
+          ...POLICY_RES.data.platforms,
+          douyin: { tier: 'clip', accountMinMs: 30 * 60000, platformMinMs: 1 * 60000, accountDailyMax: 350 },
+        },
+      },
+    }
+    api.getPublishFrequencyPolicy.mockResolvedValue(payload)
+    const wrapper = await mountPage()
+    const row = wrapper.find('[data-testid="pubfreq-row-douyin"]')
+    expect(row.text()).toContain('默认 3 min')
+    expect(row.text()).toContain('生效 30 min')
+    expect(row.find('[data-testid="pubfreq-overridden"]').exists()).toBe(true)
+    expect(wrapper.vm.form.accountByPlatform.douyin).toBe(30)
+    // i3 同族：未覆盖的平台**不得**被回填成它的默认值 —— 预填等于下次保存时静默压平。
+    // 判据写成"取出来要么没有、要么是 null"：组件只在有覆盖时才建键，二者都不构成回填。
+    expect(wrapper.vm.form.accountByPlatform.wechat_mp ?? null).toBe(null)
+    expect(wrapper.vm.form.accountByPlatform.weibo ?? null).toBe(null)
+  })
+
+  it('v5 提交：全部留空 ⇒ 不产生 accountMinMsByPlatform 键（未填 = 不覆盖，不是提交一份默认值）', async () => {
+    const wrapper = await mountPage()
+    await wrapper.find('[data-testid="pubfreq-save"]').trigger('click')
+    await new Promise((r) => setTimeout(r, 0))
+    expect(api.setPublishFrequencyPolicy).toHaveBeenCalledWith(null)
+  })
+
+  it('v5 提交：只提交填了的那几个平台，分钟按 60000 换算成毫秒', async () => {
+    const wrapper = await mountPage()
+    wrapper.vm.form.accountByPlatform.douyin = 7
+    wrapper.vm.form.accountByPlatform.tencent_video = 90
+    await nextTick()
+    await wrapper.find('[data-testid="pubfreq-save"]').trigger('click')
+    await new Promise((r) => setTimeout(r, 0))
+    const payload = api.setPublishFrequencyPolicy.mock.calls[0][0]
+    expect(Object.keys(payload).sort()).toEqual(['accountMinMsByPlatform'])
+    expect(payload.accountMinMsByPlatform).toEqual({ douyin: 7 * 60000, tencent_video: 90 * 60000 })
+  })
+
+  it('v5 清单：载荷缺 accountMinDefaults 时显示占位 —，渲染层不得自带第二份数字', async () => {
+    const payload = { ...POLICY_RES, data: { ...POLICY_RES.data } }
+    delete payload.data.accountMinDefaults
+    api.getPublishFrequencyPolicy.mockResolvedValue(payload)
+    const wrapper = await mountPage()
+    expect(wrapper.find('[data-testid="pubfreq-row-wechat_mp"]').text()).toContain('默认 —')
+    // 结构锁：逐平台数值只住策略模块；**代码行**里出现平台名或 60 分钟字面量即为第二份真源。
+    // 只扫代码行（沿用同文件「:max=」那条锁的既有教训：修动的注释里会引用被禁写法本身）。
+    const allLines = require('fs').readFileSync(require.resolve('./PublishFrequencySettings.vue'), 'utf8').split(/\r?\n/)
+    const code = allLines.filter((l) => !/^\s*(\/\/|\*|<!--)/.test(l)).join('\n')
+    expect(code).not.toMatch(/tencent_video/)
+    expect(code).not.toMatch(/60 \* 60000/)
+    // 反失明：过滤后的扫描域必须**非空且真含代码**（否则"把代码全滤掉"会让两条 not.toMatch 恒真）
+    expect(code).toContain('platformRows')
+    expect(code).toContain('accountByPlatform')
+    expect(code.length).toBeGreaterThan(3000)
+  })
+
   it('读失败时显示错误且不渲染表单（不静默降级成默认值糊弄用户）', async () => {
     api.getPublishFrequencyPolicy.mockResolvedValue({ code: -1, message: '守卫未初始化' })
     const wrapper = await mountPage()
@@ -193,15 +294,17 @@ describe('PublishFrequencySettings（发布频率设置页；刻意不带档位�
     wrapper.vm.form.dailyClip = 5
     wrapper.vm.form.dailyShort = 20
     wrapper.vm.form.jitterOn = true
+    wrapper.vm.form.accountByPlatform.tencent_video = 12
     await nextTick()
     await wrapper.find('[data-testid="pubfreq-save"]').trigger('click')
     await new Promise((r) => setTimeout(r, 0))
 
     expect(api.setPublishFrequencyPolicy).toHaveBeenCalledTimes(1)
     const payload = api.setPublishFrequencyPolicy.mock.calls[0][0]
-    expect(Object.keys(payload).sort()).toEqual(['accountMinMs', 'dailyMax', 'jitterRatio', 'platformMinMs'])
+    expect(Object.keys(payload).sort()).toEqual(['accountMinMs', 'accountMinMsByPlatform', 'dailyMax', 'jitterRatio', 'platformMinMs'])
     expect(payload).toMatchObject({ accountMinMs: 20 * 60000, platformMinMs: 2 * 60000, jitterRatio: 0.4 })
     expect(payload.dailyMax).toEqual({ long: 3, clip: 5, short: 20 })
+    expect(payload.accountMinMsByPlatform).toEqual({ tencent_video: 12 * 60000 })
   })
 
   it('保存被主进程拒绝（全有或全无）⇒ 报错且**不报成功**', async () => {

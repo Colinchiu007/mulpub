@@ -27,29 +27,41 @@
 
 ---
 
-## 2. 现行数值（v4）
+## 2. 现行数值（v5）
 
 三个维度。**"更严"的方向在两个维度上相反**，这是回归锁必须分维度取界的原因：
 
-- `accountMinMs`：同平台同账号两次提交的最小间隔 —— 越大越严
-- `platformMinMs`：同平台**任意**两次提交的最小间隔 —— 越大越严
-- `accountDailyMax`：同平台同账号的当日提交上限 —— **越小越严**
+- `accountMinMs`：同平台同账号两次提交的最小间隔 —— 越大越严。**v5 起这一维是逐平台的**（真源 `PLATFORM_ACCOUNT_MIN_INTERVAL_MS`），不再由档位派生
+- `platformMinMs`：同平台**任意**两次提交的最小间隔 —— 越大越严（仍按档，v4 起三档统一 1′）
+- `accountDailyMax`：同平台同账号的当日提交上限 —— **越小越严**（仍按档）
 
 ```
-档位      代表平台                              账号档   平台档   日配额
-long      wechat_mp zhihu baijiahao toutiao      5 分钟   1 分钟    200
-clip      douyin kuaishou tencent_video          3 分钟   1 分钟    350
+档位      代表平台                              账号档（v5 见下表）  平台档   日配额
+long      wechat_mp zhihu baijiahao toutiao          5 分钟         1 分钟    200
+clip      douyin kuaishou tencent_video              3 分钟         1 分钟    350
           xiaohongshu bilibili youtube
-          tiktok instagram facebook
-short     weibo twitter                          1 分钟   1 分钟    500
-未登记    任何不在表内（含非字符串）的 platform    5 分钟   1 分钟    200   + fallback:true
+          tiktok instagram facebook        ← 其中 tencent_video 单独 60 分钟
+short     weibo twitter                              1 分钟         1 分钟    500
+未登记    任何不在表内（含非字符串）的 platform      60 分钟        1 分钟    200   + fallback:true
 ```
+
+`accountMinMs` 的逐平台默认表（唯一数值真源，`publish-frequency-account-interval.js`；策略模块同名再导出）：
+
+| 平台 | 账号间隔默认 | 相对档位 | 性质与依据 |
+|---|---|---|---|
+| `tencent_video` 视频号 | **60 分钟** | 由 clip 3′ **收紧** | **暂定 / 产品决策**。公开渠道没有任何平台公布量化间隔；依据是运营口径的"日发上限按粉丝量分级（千粉 1 条／万粉 2 条／万粉以上 ≤5 条）、超出限制直接限流" |
+| `wechat_mp` `zhihu` `baijiahao` `toutiao` | 5 分钟 | 不变 | 未取证，沿用档位现行值 |
+| `douyin` `kuaishou` `xiaohongshu` `bilibili` `youtube` `tiktok` `instagram` `facebook` | 3 分钟 | 不变 | 未取证，沿用档位现行值 |
+| `weibo` `twitter` | 1 分钟 | 不变 | 未取证，沿用档位现行值 |
+
+> **行为变化面只有视频号一个平台**（3′→60′）。其余 14 个平台的生效值逐字节不变，由回归锁
+> 「偏离集合恰好等于 `[tencent_video]`」钉住 —— 它挡的是"顺手调数值混进结构变更"。
 
 三条不可破的形状不变量（各由行为锁实测，不是从公式推的）：
 
 1. `platformMinMs ≤ accountMinMs` 对每个已登记平台成立 ⇒ **同账号永远由账号档决定，平台档只在跨账号时兜底**。v4 把平台档三档统一成 1′ 是"分级撤掉、机制保留"：这条档是唯一约束"同一台机器、同一出口 IP 下多个号在同一平台并行"的机制，而它失效的后果（平台侧把多号关联成矩阵行为）在本地**没有任何可观测信号**。
-2. 账号档严格单调 `long > clip > short`；日配额严格单调 `long < clip < short`（长文日配额最少）。v4 把长文配额从 30 抬到 200（6.7×）之后，**"节奏仍分档"这件事只由 `accountMinMs` 承载**，配额不再参与表达节奏。
-3. 回落基线 `BASELINE_INTERVALS` 是**独立常量，故意不从 `TIER_PRESETS` 派生**——改档不应静默改变回落实质。它逐维度不弱于任何已登记平台（间隔取全域最大、配额取全域最小），并由 `checkBaselineStrength()` 在**模块加载时**再自检一次：违规只 `console.warn` 不抛错（属"配置写错"级别，不该让整条发布链起不来）。空表会让"零个违规"读起来像通过，所以自检**必须报告自己没测到东西**。
+2. **账号档的档间单调只对"未偏离档位默认"的平台成立**（v5 起）：代表平台 wechat_mp 5′ > douyin 3′ > weibo 1′ 仍严格单调，锁就按这三个代表值钉；而视频号是**显式偏离**，它比 long 档还严，属产品决策不是回归。日配额仍严格单调 `long < clip < short`。v4 把长文配额从 30 抬到 200（6.7×）之后，**"节奏分档"这件事只由 `accountMinMs` 承载**，配额不再参与表达节奏；v5 进一步把它下沉到逐平台。
+3. 回落基线 `BASELINE_INTERVALS` 是**独立常量，故意不从 `TIER_PRESETS` 派生**——改档不应静默改变回落实质。但 v5 起它的 `accountMinMs` **引用逐平台表**（`= PLATFORM_ACCOUNT_MIN_INTERVAL_MS.tencent_video`）而不是另写一个数字：回落的定义是"人为想清楚过的最严值"，而已登记里最严的值改了，基线必须跟着走，两个数字各写一份必然有一天漂移。它逐维度不弱于任何已登记平台（间隔取全域最大、配额取全域最小），并由 `checkBaselineStrength()` 在**模块加载时**再自检一次：违规只 `console.warn` 不抛错（属"配置写错"级别，不该让整条发布链起不来）。空表会让"零个违规"读起来像通过，所以自检**必须报告自己没测到东西**。
 
 ---
 
@@ -59,7 +71,8 @@ short     weibo twitter                          1 分钟   1 分钟    500
 
 | 量 | env 名 | 默认 | 合法域 | 非法值语义 | 超界语义 |
 |---|---|---|---|---|---|
-| `accountMinMs` | `MP_PUBLISH_MIN_INTERVAL_MS` | 按档 | `[0, MAX_INTERVAL_MS]` | 回落默认**并出声** | 钳位并出声 |
+| `accountMinMs`（全局） | `MP_PUBLISH_MIN_INTERVAL_MS` | **逐平台表** | `[0, MAX_INTERVAL_MS]` | 回落默认**并出声** | 钳位并出声 |
+| `accountMinMs`（逐平台） | `MP_PUBLISH_ACCOUNT_MIN_INTERVAL_MS_JSON` | — | 对象 `{"<platform>": ms}`，值 `[0, MAX_INTERVAL_MS]` | **值非法 ⇒ 整条作废**并出声；**未知平台键 ⇒ 只忽略该键**并点名 | 钳位并出声 |
 | `platformMinMs` | `MP_PUBLISH_PLATFORM_MIN_INTERVAL_MS` | 按档 | 同上 | 同上 | 同上 |
 | `accountDailyMax`（分档） | `MP_PUBLISH_DAILY_MAX_LONG / _CLIP / _SHORT` | 200/350/500 | `[0, MAX_DAILY_QUOTA]` 整数 | 回落默认并出声 | 钳位并出声 |
 | `accountDailyMax`（三档同值） | `MP_PUBLISH_ACCOUNT_DAILY_MAX` | — | 同上 | 同上 | 同上 |
@@ -78,6 +91,32 @@ short     weibo twitter                          1 分钟   1 分钟    500
 ### 3.1 设置页覆盖是全有或全无
 
 `resolvePolicyOverrides(raw)` 的语义是**任一字段非法 ⇒ 整个覆盖对象作废**（返回 `null`）并出声。半生效态会让"我改了 A 却影响了 B"变成不可解释的行为。未知字段一律忽略（前向兼容）。间隔类字段进对象前按 `Math.floor` 并钳到 `MAX_INTERVAL_MS`；配额类要求整数且 `[0, MAX_DAILY_QUOTA]`。
+
+v5 新增字段 `accountMinMsByPlatform`（对象，键 ∈ 15 平台，值 `[0, MAX_INTERVAL_MS]` 的**整数毫秒**）在同一条纪律下多了一个例外口径：
+
+- **值非法**（非整数 / `<0` / 超上界 / 非数）⇒ 整个覆盖对象作废，与其余字段同口径；
+- **未知平台键** ⇒ 只忽略该键并 `warn` 点名，**不作废整体**（拼错一个平台名不该抹掉用户其余 14 个平台的配置）；
+- **全部键都未知** ⇒ 视为无效（不得留下空 map 被下游读成"覆盖了但值为空"）；
+- 值为 `null` / `undefined` 的项跳过；整个字段为 `null` ⇒ 该维度清空覆盖（与既有 `accountMinMs` 的 null 语义一致）。
+
+### 3.2 `accountMinMs` 的五级优先级链（v5）
+
+```
+1. 设置页平台专属   overrides.accountMinMsByPlatform[platform]
+2. 设置页全局       overrides.accountMinMs
+3. env 平台专属     MP_PUBLISH_ACCOUNT_MIN_INTERVAL_MS_JSON[platform]
+4. env 全局         MP_PUBLISH_MIN_INTERVAL_MS
+5. 逐平台表默认     PLATFORM_ACCOUNT_MIN_INTERVAL_MS[platform]（未登记平台回落 BASELINE_INTERVALS）
+```
+
+两条硬约束：
+
+- **细粒度必须赢粗粒度**。若 2 赢 1，"给视频号单独设 60 分钟"会被一个全局值静默抹掉。
+- **env 与设置页的关系保持不变**（env 只在无覆盖时生效，`pick(ov.x, env[k])`），本片不新发明第二套优先级。env 内部则是"平台专属赢全局"。
+
+实现落点是 `resolveAccountMinIntervalMs(platform, { env, warn, overrides })`，由 `resolveIntervals` 调用。
+⛔ 它**不得**反过来调 `resolveIntervals`（账号档正是由它提供，互调即无限递归）——未知平台那一支最容易写成
+"表里没有它，那就问 resolveIntervals 要基线"，回归锁「两个解析函数不得互相调用」以 `RangeError` 形式抓住这一格。
 
 写入走 `publishFreq:setPolicy`：校验在**写库之前**，非法直接回 `VALIDATION_ERROR`「已整体拒绝（未保存任何字段）」——否则界面显示"已保存"而策略没变。
 
@@ -271,12 +310,21 @@ else: status='failed'; emit('task:failed')
 
 设置页（`PublishFrequencySettings.vue`，testid 前缀 `pubfreq-`）：
 
-- 只读区：`pubfreq-current` 显示**当前生效策略**（按档分组，含档位名与"该档 N 个平台"），来自 `getPolicy` 下发的每平台 `_intervals()`。
+- 只读区：`pubfreq-current` 显示**当前生效策略**（按档分组：账号间隔给**区间**、平台间隔与日配额给单值），来自 `getPolicy` 下发的每平台 `_intervals()`。
   ⚠️ `_intervals()` 必须回传 `tier`：缺键时屏幕上每组都是 `undefined（4 个平台…）`（QM-6 前端轴实测的用户可见缺陷）。
-- 覆盖区：`pubfreq-override-scope` 提示覆盖是**全局单值**语义（一填就抹平分档，见 §9）；
+  ⚠️ v5 起**分组键必须是 `tier` 而不是「三维元组」**：账号档逐平台后，按元组分组会让视频号自成第二条
+  `clip（1 个平台，如 …）` 行 —— 那是假陈述（clip 档实际有 9 个平台），正解是给区间 `3–60 min`。
+- 覆盖区：`pubfreq-override-scope` 提示全局覆盖的语义（一填就抹平分档）；
   `pubfreq-account-min` / `pubfreq-platform-min` / `pubfreq-daily-long|clip|short` / `pubfreq-jitter`。
-  五个输入框的 `:max` **绑 `getPolicy` 下发值**（`dailyMaxUpperBound` / `intervalMaxMinutes`），
+  输入框的 `:max` **绑 `getPolicy` 下发值**（`dailyMaxUpperBound` / `intervalMaxMinutes`），
   渲染层不再持有数字；载荷缺字段时取"不设上界"，**不回落自造数字**。
+- **逐平台区（v5）**：`pubfreq-per-platform` 内每个平台一行 `pubfreq-row-<platform>`，
+  行内含「默认 X」（来自 `getPolicy.accountMinDefaults`，即策略表原样下发）、「生效 Y」（来自 `_intervals()`，已叠加覆盖）、
+  可选的 `pubfreq-overridden` 标记，以及输入框 `pubfreq-account-min-<platform>`。
+  三条纪律：① **默认值只能来自下发**，载荷缺 `accountMinDefaults` 时显示 `—`，绝不猜；
+  ② **未覆盖的平台必须留空**，不得用它的默认值预填（预填 = 下一次保存把每个平台钉成一份"默认值覆盖"，
+  此后策略表再改永不生效 —— 与评审 i3 同族）；③ 一个都没填 ⇒ **省略 `accountMinMsByPlatform` 键**，
+  而不是提交空 map（"清空覆盖"的既有语义是提交 `null`）。
 - 待确认态：`pubfreq-pending-confirm` / `pubfreq-save` / `pubfreq-reset`。
 - 紧急放行区：`pubfreq-emergency-quota`（当日额度读数）/ `-platform` / `-account` / `-reason` / `-submit` / `-result`。
   结果区必须区分四种：成功清窗、`no_waiting_window`（正常结果不是错误）、`no_guard`、策略闸拒绝（含 `retryAfterMs`）。
@@ -305,7 +353,13 @@ else: status='failed'; emit('task:failed')
 1. **`full-auto-pipeline.js` 绕过队列与守卫**：它直接 `createPublisher().publish()`，自带 `PUBLISH_INTERVAL_MS = 5000`，
    不经 `TaskQueue` 也不经 `guard.check()/recordPublish()`。这违反策略头注释"禁止在调用方另抄一份"，
    是全仓唯一的快速通道。收编方式只有两种：接进队列，或在发布循环内显式过守卫。未做，属独立一片。
-2. **设置页覆盖是全局单值**：账号档/平台档一填就把分档语义抹平（所有平台同值）。正解是把输入改成分档输入。
+2. **设置页的「平台档」覆盖仍是全局单值**：填一次 `platformMinMs` 对所有平台生效。
+   账号档在 v5 已补上逐平台覆盖（`accountMinMsByPlatform`，见 §3.2 / §7），平台档没有这个需求（v4 起三档本来就是同一个 1′）。
+2a. **定时发布表单的间隔校验仍是 5 分钟输入期校验**（`publish-schedule-contract.js`）：v5 把视频号钉到 60′ 后，
+   用户仍可对视频号排两条相隔 5 分钟的定时任务——表单放行、发布时由守卫排队推迟。属"能提交但会等"，
+   不是数据错误；本片不改它，因为把表单校验改成逐平台要同时决定"冲突时是拒填还是自动顺延"，那是产品口径问题。
+2b. **视频号的间隔与日配额不对称**：60′ 间隔 ⇒ 单账号一天理论上限 24 条，而该档日配额是 350。
+   真正卡住视频号连发的是间隔而不是配额；运营口径的"日发 1–5 条"两者都还没覆盖。留给用户拍板取值（PRD v5 §9）。
 3. **平台级日配额不存在**：日计数只在 `if (accountKey)` 分支里写，`platform:*` 没有配额维度。
    曾经那个常量 `PLATFORM_BUCKET_DAILY_KEY_PREFIX` 从未被任何代码路径产出，已随实现删除。
 4. **裁剪只在启动跑一次**：长驻进程跨月不会自动裁。行数量级是"账号数 × 天数"，据此不加定时器；
@@ -320,6 +374,7 @@ else: status='failed'; emit('task:failed')
 | 改动面 | 必跑 |
 |---|---|
 | 策略数值 / 合法域 | `packages/shared-utils/tests/publish-frequency-policy.test.js`（含逐平台数据表、档间单调、回落逐维度不弱于、`MAX_DAILY_QUOTA` 单点三路径） |
+| **逐平台账号间隔 / 优先级链** | `packages/shared-utils/tests/publish-frequency-account-interval.test.js`（表覆盖与偏离集合、五级链逐条、env JSON 两档严格度、设置页校验、兜底不绕过解析器、**两解析函数不得互调**） |
 | 守卫判据 | `packages/shared-utils/tests/publish-interval-guard.test.js`（含日键形态锁、导出面无死常量、抖动确定性扫描） |
 | 队列 race / 记账 / 回滚 | `task-queue.test.js` + `task-queue-guard-integration.test.js` + `task-queue-timeout-keeps-window.test.js` + `task-queue-delayed-observability.test.js` **全量** |
 | 打点管道（executor / publisher-router / rpa-view-manager） | 上述四个 + bootstrap 侧行为锁 |
@@ -350,6 +405,7 @@ else: status='failed'; emit('task:failed')
 | "重启后排队中的任务少了" | 是否处在 grace 退避期 | 该期任务应在 `_delayed` 且已进快照；不在就是回归 |
 | "改了设置没生效" | 覆盖是否被整体作废 | `publishFreq:setPolicy` 的 `VALIDATION_ERROR`；`[PublishFrequency] 设置页策略覆盖…已整体丢弃` |
 | "新登记的平台没节奏" | 是否忘了登记进策略表 | `resolveIntervals` 回 `fallback:true` + 守卫那条去重告警 |
+| "给某个平台单独设的间隔没生效"（v5） | 是不是被**更粗粒度**的值盖住了：优先级是 平台专属 > 全局（设置页），env 同理 | `getPolicy` 的 `overrides.accountMinMsByPlatform` 是否真有该键；env `MP_PUBLISH_ACCOUNT_MIN_INTERVAL_MS_JSON` 是否**整条作废**（值非法会连带好键一起失效，日志点名 `整条作废`） |
 
 ---
 
@@ -362,3 +418,4 @@ else: status='failed'; emit('task:failed')
 | v3（`publish-frequency-policy-v3`） | 账号档 → 5/3/1′；平台档分级 3/2/1′；日配额 ×10 → 30/50/200 | **D1**：间隔收到分钟级后触发窗口提前一个量级；**回滚许可硬顶**：许可数不再随日配额放大。数值落点从 15 行手抄收敛为 `TIER_PRESETS + PLATFORM_TIER` 派生，但基线**故意仍独立** |
 | v4（`publish-frequency-policy-v4`） | 平台档三档**统一 1′**（分级撤、机制留）；日配额 200/350/500 | 节奏此后只由 `accountMinMs` 表达；`platformMinMs` 归零即视为门禁缺失（回归锁 + 运行期判据） |
 | 本片（`publish-frequency-unwired-surfaces`） | 四个"声明了没人接"的面逐条定夺；`MAX_DAILY_QUOTA` 单点化；启动期裁剪接上；日键双校验 | 幽灵声明删除 + **反向**声明锁；notify 诊断值必须进 `meta.params`（否则被 logger 静默丢弃） |
+| v5（`publish-frequency-per-platform-intervals`） | **实现按行数门禁拆成三个文件**：`publish-frequency-policy.js`（档位/基线/解析入口）、`publish-frequency-account-interval.js`（逐平台表 + env JSON + 五级链 + 覆盖校验器）、`publish-frequency-overrides.js`（设置页"全有或全无"校验）；策略模块同名再导出，公开面与调用点零变化，依赖经工厂注入且新模块不反向 require 策略模块。 | **账号档从"按档位派生"改为逐平台表** `PLATFORM_ACCOUNT_MIN_INTERVAL_MS`；视频号 3′→60′（唯一行为变化）；新增设置页 `accountMinMsByPlatform` 与 env `MP_PUBLISH_ACCOUNT_MIN_INTERVAL_MS_JSON`；档位只管 `platformMinMs` 与 `accountDailyMax` | ① 回落基线的账号档**改为引用逐平台表**（两个数字必漂移）；② `PLATFORM_FREQUENCY_POLICY` 的账号档随之变逐平台值，`checkBaselineStrength` 与"档间单调"锁的口径要同时改（否则把产品决策读成回归）；③ 设置页档位摘要的分组键从「三维元组」改成 `tier` + 账号给区间；④ 新增 `resolveAccountMinIntervalMs`，`resolveIntervals` 的账号档经它取值 ⇒ 必须锁"不得互相递归"；⑤ d.ts 三个新导出（双向声明锁当场抓到） |

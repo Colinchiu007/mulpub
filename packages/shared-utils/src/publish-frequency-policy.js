@@ -13,7 +13,16 @@
  * 平台若调整节奏，改这一处；禁止在调用方另抄一份。
  * 未登记的平台回落 BASELINE_INTERVALS（最严档），不得回落 0。
  *
- * v4 相对 v3 的变更（change: publish-frequency-policy-v4）：
+ * v5 相对 v4 的变更（change: publish-frequency-per-platform-intervals）：
+ *   - **账号档改为逐平台**：新增 PLATFORM_ACCOUNT_MIN_INTERVAL_MS 作为该维度唯一数值真源，
+ *     档位只管 platformMinMs 与 accountDailyMax。动机是各平台对连发的容忍度不同（视频号最严），
+ *     而「为一个平台开第四档 / 写 if 分支」都会把差异化从数据面赶进控制流。
+ *   - 视频号 3′ → **60′**（产品决策，非平台公布值；公开渠道没有任何平台给出量化间隔）。
+ *     其余 14 个平台生效值逐字节不变，由「偏离集合 == [tencent_video]」锁钉住。
+ *   - 新增覆盖入口：设置页 accountMinMsByPlatform（对象）与 env
+ *     MP_PUBLISH_ACCOUNT_MIN_INTERVAL_MS_JSON（一条 JSON，不设 15 个变量）。
+ *     优先级：设置页平台专属 > 设置页全局 > env 平台专属 > env 全局 > 逐平台表默认。
+ * * v4 相对 v3 的变更（change: publish-frequency-policy-v4）：
  *   - 平台档三级 **统一成 1′**（3′/2′/1′ → 1′）：分级撤掉，机制保留 —— 删掉整条会撤掉
  *     唯一防"同机多号被平台关联"的闸，而那种故障本地无任何信号（表现为莫名掉登录/发不出去）。
  *   - 日配额 30/50/200 → **200/350/500**（用户口径"最低 200、最高 500"，档间单调保持）。
@@ -46,6 +55,15 @@
 const MIN = 60 * 1000
 const HOUR = 60 * MIN
 const DAY = 24 * HOUR
+
+// v5 逐平台账号间隔的实现住在 ./publish-frequency-account-interval（拆文件是被逐文件行数门禁点名的
+// 正解，不是分层：该维度的数值真源仍只有一份，本模块**同名再导出**，调用面零变化）。
+// 依赖由下面的工厂注入，新模块不反向 require 本模块 ⇒ 不成环。
+const accountIntervalModule = require('./publish-frequency-account-interval')
+const overridesModule = require('./publish-frequency-overrides')
+const PLATFORM_ACCOUNT_MIN_INTERVAL_MS = accountIntervalModule.PLATFORM_ACCOUNT_MIN_INTERVAL_MS
+const ENV_ACCOUNT_MIN_INTERVAL_JSON = accountIntervalModule.ENV_ACCOUNT_MIN_INTERVAL_JSON
+const validateAccountMinMsOverride = accountIntervalModule.validateAccountMinMsOverride
 
 /** 间隔源上界：7 天。超过它会让 wait × (1 + jitterRatio) 逼近 2^31-1（setTimeout 上限） */
 const MAX_INTERVAL_MS = 7 * DAY
@@ -117,7 +135,8 @@ const PLATFORM_FREQUENCY_POLICY = Object.freeze(
   Object.fromEntries(
     Object.entries(PLATFORM_TIER).map(([platform, tier]) => [
       platform,
-      Object.freeze({ tier, ...TIER_PRESETS[tier] }),
+      // 账号档自 v5 起取逐平台表；档位值只作为「表里没登记该平台」时的兜底来源。
+      Object.freeze({ tier, ...TIER_PRESETS[tier], accountMinMs: PLATFORM_ACCOUNT_MIN_INTERVAL_MS[platform] }),
     ])
   )
 )
@@ -130,7 +149,9 @@ const PLATFORM_FREQUENCY_POLICY = Object.freeze(
  */
 const BASELINE_INTERVALS = Object.freeze({
   tier: TIER_LONG,
-  accountMinMs: 5 * MIN,
+  // 基线的定义是「人为想清楚过的最严值」。v5 起已登记里最严的是视频号 60 分钟，
+  // 故账号档**引用逐平台表**而不是另写一个数字——两个数字必然有一天漂移。
+  accountMinMs: PLATFORM_ACCOUNT_MIN_INTERVAL_MS.tencent_video,
   platformMinMs: 1 * MIN,
   accountDailyMax: 200,
 })
@@ -145,6 +166,24 @@ const ENV_ACCOUNT_DAILY_MAX = 'MP_PUBLISH_ACCOUNT_DAILY_MAX'
 const ENV_JITTER_RATIO = 'MP_PUBLISH_JITTER_RATIO'
 const ENV_RELEASE_GRACE_MS = 'MP_PUBLISH_RELEASE_GRACE_MS'
 const ENV_EMERGENCY_MAX_PER_DAY = 'MP_PUBLISH_EMERGENCY_MAX_PER_DAY'
+
+// 账号间隔解析器：函数依赖靠声明提升可先于定义注入；基线值用 getter 传，避开加载期的暂时性死区。
+const accountIntervalApi = accountIntervalModule.createAccountIntervalApi({
+  isKnownPlatform,
+  pick,
+  parseEnvInterval,
+  warnSink,
+  MAX_INTERVAL_MS,
+  ENV_ACCOUNT_MIN_INTERVAL,
+  getBaselineAccountMinMs: () => BASELINE_INTERVALS.accountMinMs,
+})
+const resolveAccountMinIntervalMs = accountIntervalApi.resolveAccountMinIntervalMs
+
+// 设置页覆盖校验的实现住在 ./publish-frequency-overrides；本模块同名再导出，公开面与调用点零变化。
+const resolvePolicyOverrides = overridesModule.createOverridesApi({
+  warnSink, MAX_INTERVAL_MS, MAX_DAILY_QUOTA, MAX_EMERGENCY_MAX_PER_DAY, MIN_RELEASE_GRACE_MS,
+  TIER_LONG, TIER_CLIP, TIER_SHORT, isKnownPlatform, validateAccountMinMsOverride,
+}).resolvePolicyOverrides
 
 const TIER_ENV = Object.freeze({
   [TIER_LONG]: ENV_DAILY_MAX_LONG,
@@ -252,7 +291,6 @@ function parseEnvNumber (raw, envName, fallback, warn, bounds = {}) {
 function parseEnvInterval (raw, envName, fallback, warn) {
   return parseEnvNumber(raw, envName, fallback, warn, { max: MAX_INTERVAL_MS })
 }
-
 /**
  * 解析某平台的完整策略。
  *
@@ -270,9 +308,9 @@ function resolveIntervals (platform, options = {}) {
   const base = fallback ? BASELINE_INTERVALS : PLATFORM_FREQUENCY_POLICY[platform]
   const ov = options.overrides || {}
 
-  const accountMinMs = parseEnvInterval(
-    pick(ov.accountMinMs, env[ENV_ACCOUNT_MIN_INTERVAL]), ENV_ACCOUNT_MIN_INTERVAL, base.accountMinMs, warn
-  )
+  // 账号档不再由档位派生：真源是 PLATFORM_ACCOUNT_MIN_INTERVAL_MS（逐平台表），
+  // 优先级链与 env JSON 覆盖一并交给 resolveAccountMinIntervalMs（它不会回调本函数）。
+  const accountMinMs = resolveAccountMinIntervalMs(platform, { overrides: ov, env, warn })
   const platformMinMs = parseEnvInterval(
     pick(ov.platformMinMs, env[ENV_PLATFORM_MIN_INTERVAL]), ENV_PLATFORM_MIN_INTERVAL, base.platformMinMs, warn
   )
@@ -359,97 +397,6 @@ function resolveEmergencyMaxPerDay (options = {}) {
   })
 }
 
-/**
- * 校验设置页下发的策略覆盖对象（PRD §7.2）。
- *
- * 语义是**全有或全无**：任一字段非法 ⇒ **整个覆盖对象作废**（返回 null）并出声，
- * 不允许部分生效 —— 半生效态会让「我改了 A 却影响了 B」变成不可解释的行为。
- * 未知字段一律忽略（前向兼容：旧版本读到新字段不应整体作废）。
- *
- * @param {unknown} raw - 从 store 读回的对象（可能是 null / 字符串 / 数组 / 损坏值）
- * @param {{warn?: (msg: string) => void}} [options]
- * @returns {{accountMinMs?: number, platformMinMs?: number, accountDailyMax?: number,
- *            dailyMax?: {long?: number, clip?: number, short?: number},
- *            jitterRatio?: number, releaseGraceMs?: number, emergencyMaxPerDay?: number} | null}
- */
-function resolvePolicyOverrides (raw, options = {}) {
-  const warn = warnSink(options)
-  if (raw === undefined || raw === null) return null
-  if (typeof raw !== 'object' || Array.isArray(raw)) {
-    warn(`[PublishFrequency] 设置页策略覆盖不是对象（${typeof raw}），已整体丢弃`)
-    return null
-  }
-
-  const out = {}
-  const bad = (name, value, why) => {
-    warn(`[PublishFrequency] 设置页策略覆盖字段 ${name}=${JSON.stringify(value)} 非法（${why}），已整体丢弃`)
-  }
-
-  const intervalKeys = ['accountMinMs', 'platformMinMs']
-  for (const key of intervalKeys) {
-    if (raw[key] === undefined || raw[key] === null) continue
-    const n = Number(raw[key])
-    if (!Number.isFinite(n) || n < 0) {
-      bad(key, raw[key], '需 >=0 的有限数')
-      return null
-    }
-    out[key] = Math.min(Math.floor(n), MAX_INTERVAL_MS)
-  }
-
-  const intKeys = [
-    ['accountDailyMax', 0, MAX_DAILY_QUOTA],
-    ['emergencyMaxPerDay', 0, MAX_EMERGENCY_MAX_PER_DAY],
-  ]
-  for (const [key, min, max] of intKeys) {
-    if (raw[key] === undefined || raw[key] === null) continue
-    const n = Number(raw[key])
-    if (!Number.isInteger(n) || n < min || (max !== undefined && n > max)) {
-      bad(key, raw[key], max === undefined ? `需 >=${min} 的整数` : `需 [${min},${max}] 的整数`)
-      return null
-    }
-    out[key] = n
-  }
-
-  if (raw.dailyMax !== undefined && raw.dailyMax !== null) {
-    if (typeof raw.dailyMax !== 'object' || Array.isArray(raw.dailyMax)) {
-      bad('dailyMax', raw.dailyMax, '需对象 {long, clip, short}')
-      return null
-    }
-    const daily = {}
-    for (const tier of [TIER_LONG, TIER_CLIP, TIER_SHORT]) {
-      const v = raw.dailyMax[tier]
-      if (v === undefined || v === null) continue
-      const n = Number(v)
-      if (!Number.isInteger(n) || n < 0 || n > MAX_DAILY_QUOTA) {
-        bad(`dailyMax.${tier}`, v, `需 [0,${MAX_DAILY_QUOTA}] 的整数`)
-        return null
-      }
-      daily[tier] = n
-    }
-    if (Object.keys(daily).length > 0) out.dailyMax = daily
-  }
-
-  if (raw.jitterRatio !== undefined && raw.jitterRatio !== null) {
-    const n = Number(raw.jitterRatio)
-    if (!Number.isFinite(n) || n < 0 || n >= 1) {
-      bad('jitterRatio', raw.jitterRatio, '需 [0,1) 的有限数')
-      return null
-    }
-    out.jitterRatio = n
-  }
-
-  if (raw.releaseGraceMs !== undefined && raw.releaseGraceMs !== null) {
-    const n = Number(raw.releaseGraceMs)
-    if (!Number.isInteger(n) || n < MIN_RELEASE_GRACE_MS) {
-      bad('releaseGraceMs', raw.releaseGraceMs, `需 >=${MIN_RELEASE_GRACE_MS} 的整数`)
-      return null
-    }
-    out.releaseGraceMs = n
-  }
-
-  return Object.keys(out).length > 0 ? out : null
-}
-
 module.exports = {
   resolveIntervals,
   resolveJitterRatio,
@@ -473,6 +420,9 @@ module.exports = {
   TIER_CLIP,
   TIER_SHORT,
   ENV_ACCOUNT_MIN_INTERVAL,
+  ENV_ACCOUNT_MIN_INTERVAL_JSON,
+  PLATFORM_ACCOUNT_MIN_INTERVAL_MS,
+  resolveAccountMinIntervalMs,
   ENV_PLATFORM_MIN_INTERVAL,
   ENV_DAILY_MAX_LONG,
   ENV_DAILY_MAX_CLIP,

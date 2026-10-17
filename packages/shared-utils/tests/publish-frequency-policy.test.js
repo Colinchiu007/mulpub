@@ -37,9 +37,17 @@ const {
   TIER_LONG,
   TIER_CLIP,
   TIER_SHORT,
+  PLATFORM_ACCOUNT_MIN_INTERVAL_MS,
 } = require('../src/publish-frequency-policy')
 
 const MIN = 60 * 1000
+
+/**
+ * 档位账号档代表值——**由测试自己写出**，不从实现导入。
+ * 从实现里读 `TIER_PRESETS` 来验"逐平台值等于档位值"等于让实现自己证明我没抄错，
+ * 那不是判据（本仓把这类锁叫装饰性断言）。数值出处：PRD v4 §2 数值表。
+ */
+const TIER_PRESET_ACCOUNT = { long: 5 * MIN, clip: 3 * MIN, short: 1 * MIN }
 
 describe('publish-frequency-policy v3', () => {
   describe('平台覆盖', () => {
@@ -74,22 +82,36 @@ describe('publish-frequency-policy v3', () => {
       })
     })
 
-    it('v3 账号档已再下调：全域不得超过 5 分钟（v2 的 20 分钟不得残留）', () => {
+    it('账号档：v3 的"全域不超过 5 分钟"自 v5 起只对未偏离平台成立（视频号 60′ 是显式决策）', () => {
+      // 这条锁原先写的是"全域 <= 5 分钟 + 三维度全按档塌缩"。v5 把账号档改成逐平台后，
+      // 那句全域上界会把视频号 60′ 判成回归——而它是**产品决策**不是回归。
+      // 因此改写而不是删除：偏离集合必须显式枚举，多一个偏离平台就红在这里。
+      const DEVIATIONS = { tencent_video: 60 * MIN }
       for (const platform of SUPPORTED_PLATFORMS) {
         const { accountMinMs } = resolveIntervals(platform, { env: {} })
-        expect(accountMinMs, `${platform} 应为 v3 值`).toBeLessThanOrEqual(5 * MIN)
+        if (DEVIATIONS[platform] !== undefined) {
+          expect(accountMinMs, `${platform} 的偏离值`).toBe(DEVIATIONS[platform])
+        } else {
+          expect(accountMinMs, `${platform} 应为 v3/v5 值（不得残留 v2 的 20 分钟）`).toBeLessThanOrEqual(5 * MIN)
+        }
       }
-      // 逐档核对，防止"只改了代表平台"：整张表按 tier 收敛
+      // 逐档核对，防止"只改了代表平台"：v5 起**只有平台档与日配额**按 tier 塌缩，
+      // 账号档改由逐平台表决定（塌缩断言若继续带上它，等于把 v5 的结构变化判成回归）。
       const byTier = {}
       for (const platform of SUPPORTED_PLATFORMS) {
         const r = resolveIntervals(platform, { env: {} })
-        byTier[r.tier] = { account: r.accountMinMs, platform: r.platformMinMs, daily: r.accountDailyMax }
+        byTier[r.tier] = { platform: r.platformMinMs, daily: r.accountDailyMax }
       }
       expect(byTier).toEqual({
-        [TIER_LONG]: { account: 5 * MIN, platform: 1 * MIN, daily: 200 },
-        [TIER_CLIP]: { account: 3 * MIN, platform: 1 * MIN, daily: 350 },
-        [TIER_SHORT]: { account: 1 * MIN, platform: 1 * MIN, daily: 500 },
+        [TIER_LONG]: { platform: 1 * MIN, daily: 200 },
+        [TIER_CLIP]: { platform: 1 * MIN, daily: 350 },
+        [TIER_SHORT]: { platform: 1 * MIN, daily: 500 },
       })
+      // 偏离集合钉死：新增偏离必须同时在这里与 PRD v5 §2 登记依据
+      const actualDeviations = SUPPORTED_PLATFORMS
+        .filter((p) => resolveIntervals(p, { env: {} }).accountMinMs !== TIER_PRESET_ACCOUNT[PLATFORM_FREQUENCY_POLICY[p].tier])
+        .sort()
+      expect(actualDeviations).toEqual(Object.keys(DEVIATIONS).sort())
     })
 
     it('v4：平台间隔三档统一 1′（机制在、分级撤了）', () => {
@@ -201,9 +223,14 @@ describe('publish-frequency-policy v3', () => {
         const r = resolveIntervals(platform, { env: {} })
         const expectSame = rep[r.tier]
         expect(expectSame, `${platform} 所属档 ${r.tier} 必须有代表平台`).toBeTruthy()
-        for (const key of ['accountMinMs', 'platformMinMs', 'accountDailyMax']) {
+        for (const key of ['platformMinMs', 'accountDailyMax']) {
           expect(r[key], `${platform}.${key} 应等于 ${r.tier} 档代表平台`).toBe(expectSame[key])
         }
+        // 账号档 v5 起不比档位、改比**逐平台表默认**——这条断言的存在正是"真源换了，锁也要换参照物"：
+        // 继续比档位会让视频号 60′ 假红，而直接删掉这条又会让"某平台账号档被局部篡改"无人看见。
+        expect(r.accountMinMs, `${platform}.accountMinMs 应等于逐平台表默认`)
+          .toBe(PLATFORM_ACCOUNT_MIN_INTERVAL_MS[platform])
+
         compared++
       }
       // 规模下界：解析退化（表空/字段丢）会让"零个不一致"读起来像通过
@@ -218,10 +245,13 @@ describe('publish-frequency-policy v3', () => {
       expect(real).toEqual([])
 
       // ① 基线配额比最严平台还宽
+      // accountMinMs 取 60′：v5 起已登记平台里最严的账号档就是视频号 60′，
+      // 这里若仍写 5′ 会连带触发「间隔维度过短」那条，本用例就变成"两条红里挑一条"，
+      // 而它要单独表示的只有配额那一格。
       const wide = []
       expect(checkBaselineStrength({
         warn: (m) => wide.push(m),
-        baseline: { tier: 'long', accountMinMs: 5 * MIN, platformMinMs: 1 * MIN, accountDailyMax: 600 },
+        baseline: { tier: 'long', accountMinMs: 60 * MIN, platformMinMs: 1 * MIN, accountDailyMax: 600 },
       })).toHaveLength(1)
       expect(wide[0]).toContain('accountDailyMax')
 

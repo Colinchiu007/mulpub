@@ -37,6 +37,32 @@
           <label class="pubfreq__label">{{ t('settings.publishFrequency.accountInterval') }}</label>
           <el-input-number v-model="form.accountMinutes" :min="0" :max="bounds.intervalMinutes" :step="1" :placeholder="t('settings.publishFrequency.unset')" data-testid="pubfreq-account-min" />
         </div>
+        <!-- v5：逐平台同账号间隔（默认值与生效值都来自 getPolicy 下发，渲染层不写数字） -->
+        <div class="pubfreq__group" data-testid="pubfreq-per-platform">
+          <h4 class="pubfreq__subtitle">{{ t('settings.publishFrequency.perPlatformTitle') }}</h4>
+          <p class="pubfreq__hint">{{ t('settings.publishFrequency.perPlatformHint') }}</p>
+          <div
+            v-for="row in platformRows"
+            :key="row.key"
+            class="pubfreq__field"
+            :data-testid="'pubfreq-row-' + row.key"
+          >
+            <label class="pubfreq__label">{{ row.key }}</label>
+            <span class="pubfreq__value">{{ t('settings.publishFrequency.perPlatformDefault', { value: row.defaultText }) }}</span>
+            <span class="pubfreq__value">{{ t('settings.publishFrequency.perPlatformEffective', { value: row.effectiveText }) }}</span>
+            <span v-if="row.overridden" class="pubfreq__tag" data-testid="pubfreq-overridden">
+              {{ t('settings.publishFrequency.perPlatformOverridden') }}
+            </span>
+            <el-input-number
+              v-model="form.accountByPlatform[row.key]"
+              :min="0"
+              :max="bounds.intervalMinutes"
+              :step="1"
+              :placeholder="t('settings.publishFrequency.unset')"
+              :data-testid="'pubfreq-account-min-' + row.key"
+            />
+          </div>
+        </div>
         <div class="pubfreq__field">
           <label class="pubfreq__label">{{ t('settings.publishFrequency.platformInterval') }}</label>
           <el-input-number v-model="form.platformMinutes" :min="0" :max="bounds.intervalMinutes" :step="1" data-testid="pubfreq-platform-min" />
@@ -150,6 +176,9 @@ const form = reactive({
   dailyClip: null,
   dailyShort: null,
   jitterOn: null,
+  // v5 逐平台覆盖：键 = 平台标识，值 = 分钟（null / 缺席 = 不覆盖该平台）。
+  // 同样**不得用默认值预填**（评审 i3 同族：预填会让"什么都不改直接保存"把差异化压平）。
+  accountByPlatform: {},
 })
 
 const emergency = reactive({ platform: '', accountId: '', reason: '' })
@@ -158,7 +187,10 @@ const emergencyResultClass = ref('')
 
 const platformKeys = computed(() => Object.keys((raw.value && raw.value.platforms) || {}).sort())
 
-/** 当前档位文案：按平台档位分组给出代表性取值（不逐平台罗列，避免 15 行噪音） */
+/** 当前档位文案：按**档位**分组给出账号间隔区间 / 平台间隔 / 日配额。
+ * v5 起账号档是逐平台的，若继续按「三维元组」分组，视频号会自成第二条 clip 行
+ * ——「clip（1 个平台，如 …）」对用户是假陈述（clip 档实际有 9 个平台）。
+ * 因此同档内账号间隔不同时给区间（3–60 min），其余两维仍按档统一。 */
 const currentTierText = computed(() => {
   const platforms = (raw.value && raw.value.platforms) || {}
   const keys = Object.keys(platforms)
@@ -166,20 +198,44 @@ const currentTierText = computed(() => {
   const byTier = new Map()
   for (const k of keys) {
     const v = platforms[k] || {}
-    const sig = `${v.accountMinMs}/${v.platformMinMs}/${v.accountDailyMax}`
-    if (!byTier.has(sig)) byTier.set(sig, { tier: v.tier, sample: k, v, count: 0 })
-    byTier.get(sig).count += 1
+    const tier = v.tier
+    if (!byTier.has(tier)) {
+      byTier.set(tier, { tier, count: 0, names: [], accounts: [], platformMinMs: v.platformMinMs, daily: v.accountDailyMax })
+    }
+    const g = byTier.get(tier)
+    g.count += 1
+    g.names.push(k)
+    g.accounts.push(Number(v.accountMinMs) || 0)
   }
   return [...byTier.values()]
     .map((g) => t('settings.publishFrequency.tierSummary', {
       tier: g.tier,
       count: g.count,
-      sample: g.sample,
-      account: fmtMin(g.v.accountMinMs),
-      platform: fmtMin(g.v.platformMinMs),
-      daily: g.v.accountDailyMax,
+      // sample 取字典序首个，保证同一份数据每次渲染同一行文字（否则"如 X"会随对象键序漂）
+      sample: [...g.names].sort()[0],
+      account: fmtMinSpan(Math.min(...g.accounts), Math.max(...g.accounts)),
+      platform: fmtMin(g.platformMinMs),
+      daily: g.daily,
     }))
     .join(t('settings.publishFrequency.tierSeparator'))
+})
+
+/** v5 逐平台清单：默认值来自 accountMinDefaults（策略表原样下发），生效值来自 platforms
+ * （守卫按覆盖链解析后的结果），覆盖标记只认覆盖对象里**真的有这个键**。 */
+const platformRows = computed(() => {
+  const platforms = (raw.value && raw.value.platforms) || {}
+  const defaults = (raw.value && raw.value.accountMinDefaults) || {}
+  const ovMap = (raw.value && raw.value.overrides && raw.value.overrides.accountMinMsByPlatform) || {}
+  return Object.keys(platforms).sort().map((key) => {
+    const overridden = Object.prototype.hasOwnProperty.call(ovMap, key)
+      && ovMap[key] !== undefined && ovMap[key] !== null
+    return {
+      key,
+      defaultText: fmtMinOrDash(defaults[key]),
+      effectiveText: fmtMinOrDash((platforms[key] || {}).accountMinMs),
+      overridden,
+    }
+  })
 })
 
 /** 实际等待区间 = [账号档, 账号档 × (1 + 抖动比例)) */
@@ -203,6 +259,20 @@ const emergencyQuotaText = computed(() => {
 function fmtMin (ms) {
   const n = Math.round((Number(ms) || 0) / 60000)
   return `${n} min`
+}
+
+/** 区间文案：同档内账号间隔一致时只给单值，不一致时给「lo–hi」（与既有实际等待区间同形） */
+function fmtMinSpan (lo, hi) {
+  const a = Math.round((Number(lo) || 0) / 60000)
+  const b = Math.round((Number(hi) || 0) / 60000)
+  return a === b ? `${a} min` : `${a}–${b} min`
+}
+
+/** 载荷缺字段时给占位而不是猜一个数（0 是合法值"关闭该档"，不能用 || 0 兜底）。 */
+function fmtMinOrDash (ms) {
+  const n = Number(ms)
+  if (!Number.isFinite(n) || n < 0) return '—'
+  return fmtMin(n)
 }
 
 async function load () {
@@ -262,6 +332,17 @@ function applyOverridesToForm (data) {
   form.dailyClip = toNumOrNull(dm.clip)
   form.dailyShort = toNumOrNull(dm.short)
   form.jitterOn = ov.jitterRatio === undefined || ov.jitterRatio === null ? null : ov.jitterRatio > 0
+  // v5 逐平台覆盖：只回填**用户真的填过**的那些键；其余留 null。
+  // 把 defaults 回填进来等于下一次保存把每个平台都钉成一份"默认值覆盖"，
+  // 之后策略表再改就永远不再生效（评审 i3 的逐平台版本）。
+  const byPlatform = ov.accountMinMsByPlatform && typeof ov.accountMinMsByPlatform === 'object'
+    ? ov.accountMinMsByPlatform : {}
+  const filled = {}
+  for (const key of Object.keys(byPlatform)) {
+    const mins = toMin(byPlatform[key])
+    if (mins !== null) filled[key] = mins
+  }
+  form.accountByPlatform = filled
 }
 
 /**
@@ -283,6 +364,15 @@ function buildPolicy () {
   const ds = toNumOrNull(form.dailyShort)
   if (ds !== null) daily.short = Math.round(ds)
   if (Object.keys(daily).length > 0) policy.dailyMax = daily
+  // v5 逐平台覆盖：只提交用户真填了的平台；一个都没填 ⇒ **省略整个键**
+  // （提交空 map 会被主进程读成"覆盖了但值为空"，而"清空覆盖"的语义是提交 null）。
+  const byPlatform = {}
+  const formByPlatform = form.accountByPlatform || {}
+  for (const key of Object.keys(formByPlatform).sort()) {
+    const mins = toNumOrNull(formByPlatform[key])
+    if (mins !== null) byPlatform[key] = Math.round(mins * 60000)
+  }
+  if (Object.keys(byPlatform).length > 0) policy.accountMinMsByPlatform = byPlatform
   if (form.jitterOn !== null && form.jitterOn !== undefined) policy.jitterRatio = form.jitterOn ? 0.4 : 0
   return Object.keys(policy).length > 0 ? policy : null
 }
@@ -395,6 +485,8 @@ defineExpose({ load, buildPolicy, emergency, form })
 .pubfreq__value { font-size: var(--font-size-sm); color: var(--el-text-color-primary); }
 .pubfreq__field { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .pubfreq__field-hint { font-size: var(--font-size-xs); color: var(--el-text-color-secondary); }
+.pubfreq__group { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px dashed var(--el-border-color-lighter); border-radius: 6px; }
+.pubfreq__tag { padding: 0 6px; font-size: var(--font-size-xs); color: var(--el-color-warning); border: 1px solid var(--el-color-warning-light-5); border-radius: 4px; }
 .pubfreq__actions { display: flex; gap: 10px; }
 .pubfreq__result { margin: 0; font-size: var(--font-size-sm); }
 .pubfreq__result.is-ok { color: var(--el-color-success); }

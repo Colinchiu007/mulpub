@@ -28,6 +28,12 @@ export default {
       currentTier: 'Current tiers (account / platform / daily limit)',
       effectiveRange: 'Effective wait range (with jitter)',
       accountInterval: 'Min interval per account (minutes)',
+      // v5 per-platform same-account interval (change: publish-frequency-per-platform-intervals)
+      perPlatformTitle: 'Per-platform account interval (minutes)',
+      perPlatformHint: 'Defaults come from the policy table (WeChat Channels is tightened on its own). Leave a field blank to keep that platform default; a filled value wins over the global account interval above.',
+      perPlatformDefault: 'default {value}',
+      perPlatformEffective: 'effective {value}',
+      perPlatformOverridden: 'overridden',
       unset: 'Not overridden',
       overrideScopeHint: 'These fields apply to **all platforms**; leaving one empty means that dimension is not overridden (each platform keeps its own default tier). Fill in only what you want to change — untouched fields are not cleared.',
       platformInterval: 'Cross-account platform interval (minutes, 0 = off)',

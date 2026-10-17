@@ -809,6 +809,11 @@ describe('publishFreq IPC（策略与紧急放行）', () => {
     // 下发值必须是**可用**的界（否则输入框永远填不进合法值）
     expect(result.data.dailyMaxUpperBound).toBeGreaterThan(500)
     expect(result.data.intervalMaxMinutes).toBeGreaterThan(1000)
+    // v5：逐平台账号间隔的默认表同样只能来自策略模块（设置页要同屏显示「默认 / 生效」，
+    // 渲染层自带一份 = 策略表一改，界面就变成可见的假陈述）
+    expect(result.data.accountMinDefaults).toEqual(policyModule.PLATFORM_ACCOUNT_MIN_INTERVAL_MS)
+    expect(Object.keys(result.data.accountMinDefaults).length)
+      .toBe(policyModule.SUPPORTED_PLATFORMS.length)
   })
 
   it('守卫未初始化时 getPolicy/setPolicy 如实回报，不抛', async () => {
