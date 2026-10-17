@@ -43,11 +43,9 @@ const MIN_TEST_FILES = 800;
  * 收敛一个文件 = 删掉它的登记项（销账与收敛必须同一次发生，否则报"陈旧登记"）。
  */
 const KNOWN_BLANKET = {
-  'apps/desktop/electron/services/payment-manager.test.js': '被测模块 payment-manager.js:30 确实 require("electron")，但本文件顶部 vi.mock("electron")（含 app.getPath）已被 vitest 提升到文件体之前 ⇒ 真 electron/index.js 不进本 realm；fs 谎报只落在被测模块自身的"首启无配置文件"分支',
   'apps/desktop/tests/license-manager.test.js': '本文件第一行即 __enableElectronMock() ⇒ require("electron") 命中 mock，真 index.js 不进本 realm；fs 谎报只影响本文件的被测模块',
   'apps/desktop/tests/offline-manager.test.js': '同上：__enableElectronMock() 已开，electron 真入口不在本 realm',
   'apps/desktop/tests/onboarding.test.js': '同上：__enableElectronMock() 已开',
-  'apps/desktop/tests/payment-manager.test.js': '同上：__enableElectronMock() 已开',
   'apps/desktop/tests/publish-alert.test.js': '文件内 3 处 require("electron") 全部落在 __enableElectronMock() 之后 ⇒ 走 mock；本文件的 fs 谎报未触达真 electron 探测路径',
   'apps/desktop/tests/publish-poller.test.js': '未开 electron mock，但本文件不 require 任何读 fs 的同 realm 第三方（sharp/sql.js/electron 计数均为 0，见 scripts/check-blanket-fs-mock.test.js 的真实仓库那条）',
   'apps/desktop/tests/rewrite-strategy-manager.test.js': '同上：__enableElectronMock() 已开',
