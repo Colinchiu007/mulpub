@@ -19,8 +19,10 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "self_play_resolved",
+    "performedBy": "ccg-deep-review(claude) + agent adjudication",
+    "findings": null,
+    "note": "延续 ccg-deep-850e4d8f 的裁决（4 upheld 已修 / 3 dismissed 有据）。本条对应 Gate 2c 修复：删除第三个测已删模块的测试文件 + 销掉 blanket-fs-mock 两条陈旧登记。",
+    "resolvedAt": "2026-10-17T16:16:14.787Z"
   }
 }
