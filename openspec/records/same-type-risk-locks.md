@@ -3,15 +3,11 @@ record: same-type-risk-locks
 task: 把逆向衍生清单里的 4 条「竞品缺陷同型风险」做成静态锁并接进 CI（L1 转义表完整性 / L2 while(true) 必有出口 / L3 catch 不得自递归 / L4 组件定时器必须清理）
 date: 2026-10-17
 branch: same-type-risk-locks
-# ↓ 下面三个字段只在「远程同步」尚无法收口时填写；回填成 PASS 后必须整段删除。
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在，无法取证收口
-sync_backfill_owner: 下一个会话（按三形态同改纪律：表格行 + bullet + 删除本段三字段，同一次提交）
 ---
 
 ## 本次执行记录：竞品缺陷同型风险四锁（same-type-risk-locks，2026-10-17）
 
-- 保留门禁：QM-1 打包 **N/A**（未改 `apps/desktop/electron` / `packages/rpa-engine`）｜ 行数门禁 ✅ ｜ 品牌残留 ✅ ｜ 绝对路径 ✅ ｜ 远程同步 PENDING
+- 保留门禁：QM-1 打包 **N/A**（未改 `apps/desktop/electron` / `packages/rpa-engine`）｜ 行数门禁 ✅ ｜ 品牌残留 ✅ ｜ 绝对路径 ✅ ｜ 远程同步 PASS（`354c4183b5efe81b71dba3d1ff43ba7680932ab9`）
 ### 做了什么
 
 来源：`01-docs/research/competitor-reverse-2026-10-13/derived/竞品缺陷同型风险清单.md`（同批 PR #3796）。
@@ -76,7 +72,7 @@ PASS（四条锁全部通过）
 | QM-2 代码必检项 | ✅ | 新增代码为纯函数 + 只读 CLI；无同步 CPU 密集原语、无网络、无文件写（CLI 只读；测试只在内存夹具上跑）|
 | QM-4 视觉 | **N/A** | 无 UI 变更 |
 | QM-6 双模型评审 | 见下 | 本次 diff 规模触发 dual（>200 行）⇒ 走 CCG 引擎 |
-| 远程同步 | PENDING | 待合并后回填 merge SHA |
+| 远程同步 | PASS | PR #3812 已合并，merge SHA `354c4183b5efe81b71dba3d1ff43ba7680932ab9`（2026-10-17 16:07 +08:00）|
 
 ### 一处需要人过目的邻界面（如实登记）
 
