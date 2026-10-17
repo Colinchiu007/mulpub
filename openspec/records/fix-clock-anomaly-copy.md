@@ -65,6 +65,8 @@ sync_backfill_owner: fix-clock-anomaly-copy 分支作者会话（合并收尾时
 4. **learnings 沉淀**（`01-docs/learnings.md` 2026-10-17 节）：pitfall「未来时间戳进间隔库会变成幽灵等待」、
    pattern「处置建议必须按角色分层且先分情形再给动作」、pattern「用户可见文案三条机械纪律」、
    preference「共享根未提交的文档随时会被别人的整树重写清掉」。
+   本 bug 的 pitfall（`future-timestamp-in-interval-store-becomes-ghost-wait`）已由 **#3795** 代提交进 main，
+   本 PR 不重复沉淀（原先那段与主干内容重复，已在提交前删除，避免同一教训两份口径）。
 
 ## 六、门禁与取证
 
