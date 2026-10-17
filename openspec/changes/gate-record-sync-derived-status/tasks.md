@@ -27,10 +27,15 @@
 - [ ] 2.3 红测：账本不可用时退回断言通道，未闭合且无登记 ⇒ 仍红（fail-closed）。
 - [ ] 2.4 收窄 `staleRecordFields`：作用域限 `blobClosed`。真仓锁：按改造前口径 21 篇会红，改造后必须 0 红（D5）。
 - [ ] 2.5 收窄跨源比对：拦截面保持 `blobClosed`；`derivedClosed × 旧载体未收口` 转可见并打印条数（实测 2 篇，D6）。
-- [ ] 2.6 **真仓改前/改后对账行为锁**：同一 main tip 上，改造前后拦截集合逐篇相同、记录文件字节零改动。这是"存量不动"的唯一机械证据。
+- [ ] 2.6 **真仓改前/改后对账行为锁**：改造前后拦截集合逐篇相同、记录文件字节零改动。这是"存量不动"的唯一机械证据。**`baseRef` 必须钉死为显式传入的 SHA 并回写进执行记录**（评审 `TASKS-4`：实测同一会话内 main 从 406 走到 407 篇，取"当前 HEAD"的对账不可复现）；不传参即判"未证实"并出声，禁止默认值蒙混（反证 M13）。
 - [ ] 2.7 扫描域复用 `listRecordFiles`，禁止新写文件清单（探针曾把 `_exempt/` 读进门禁域，导致误判"1 篇缺行"；已核实该函数是**非递归** readdirSync + `isFile() && .md && !_前缀`，`_exempt/` 因是目录被排除）。
 - [ ] 2.8 **域一致锁**（评审 i8）：派生档遍历的文件集合 MUST 逐等于 `listRecordFiles(recordsRoot)` 的返回值；MUST NOT 有任何额外排除/包含。自建清单当输入 ⇒ 当场红（M10）。
 - [ ] 2.9 **优先级锁**（评审 i2）：`missingRow → ABSENT(inThisChangeset/prematureClaim) → derivedClosed → blobClosed → debt` 这条链必须是声明式实现；组合用例「派生成立 ∧ 状态列写了闭合词 ∧ 仍带 legacy 字段」MUST 受字段卫生约束（谁做断言谁受约束），换优先级顺序必须红（M9）。
+
+- [ ] 2.10 **改名重指锁**（评审 `GIT-1`，本设计原写反了）：临时仓库造 `a.md (#100)` → `git mv` → `b.md (#200)`，断言 `addedBy(b.md) === 200` 且 `addedBy(a.md)` 为 `ABSENT`；并断言重指事实被打印（有声明 PR 时 `intentMismatch` 红，无声明时只出声不拦）。**禁止**把这行改回"改名 ⇒ 解析不到"（反证 M12 专守这个回退）。
+- [ ] 2.11 **归属候选取向锁**（`GIT-3/GIT-4`）：造"加入→删除→由另一 PR 重新加入"的三段历史，断言取**最近一次 A**（newest-wins）；实现改成取首次 A 必须红（反证 M11）。
+- [ ] 2.12 **枚举来源锁**（`D2-1`）：`merge-ledger` 内 MUST NOT 出现 `readdirSync` / `ls-tree` 等自建目录扫描，文件集合只接受调用方传入；测试构造"递归枚举会把 `_exempt/` 纳进来"的反例并断言被拒（反证 M10 的第二落点）。
+- [ ] 2.13 **浅检出模拟**（`LEDGER-1`）：给定不可解析的 `baseRef`，断言两件事同时成立——未闭合记录仍判红（不得因派生不可用而放行）且 `MERGE-LEDGER prs=0` 出现在输出里。两条各自独立成用例：实现把"不可用"做成"跳过检查"时只有分开的断言能指出哪一半先烂。
 
 ## 3. 净增拦截：预写证据与归属不符
 
@@ -54,7 +59,7 @@
 
 ## 5. 验证与收尾
 
-- [ ] 5.1 变异反证 M1–M10（含 M2b/M9/M10）逐条实跑，要求**红集互不相同**且各自指名（不得用"整体 LOADFAIL 一片红"充当证据）。
+- [ ] 5.1 变异反证 M1–M13（含 M2b/M9/M10/M11/M12/M13）逐条实跑，要求**红集互不相同**且各自指名（不得用"整体 LOADFAIL 一片红"充当证据）。
 - [ ] 5.2 静态门禁本机点名跑（本机 pre-commit 不覆盖 CI 静态项）：`check-gate-record-debt.test.js`、`check-pr-exec-record.test.js`、`workflow-contract.test.js`、`check-unwired-tests.js`、`check-step-failfast.js`、`check-workflow-structure.js`、`check-doc-abs-paths.js`、`check-changelog-growth.js`。
 - [ ] 5.3 `node scripts/classify-docs-only.js --base=origin/main --head=HEAD` 在 **commit 之后**取证；本 PR 含 `scripts/` 工具脚本 + workflow 正文 ⇒ 预期 `docs-only=false`（混合 PR），走完整质量节拍，不得借道快速通道。
 - [ ] 5.4 QM-6 双模型外部评审（后端 + 前端，打在设计文档与实现 diff 上），Critical 清零后才继续。
