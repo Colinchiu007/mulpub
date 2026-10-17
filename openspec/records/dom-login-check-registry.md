@@ -2,10 +2,7 @@
 record: dom-login-check-registry
 task: 登录态隐藏窗口兜底加「准入登记表 + 配对锁」——把准入纪律从口头变成机械拦截（不改变运行时行为）
 date: 2026-10-17
-# ↓ 三字段只在「远程同步」无法收口时填写；回填成 PASS 后必须整段删除。
-sync_status: PENDING
-sync_reason: 本 PR（dom-login-check-registry）尚未合并，merge SHA 尚不存在，无法取证收口
-sync_backfill_owner: 下一个会话（同一次提交内改表格行 + 删这三个字段）
+
 ---
 
 ## 本次执行记录：准入登记表 + 配对锁（dom-login-check-registry，2026-10-17）
@@ -31,7 +28,7 @@ sync_backfill_owner: 下一个会话（同一次提交内改表格行 + 删这�
 | 文档门禁 | ✅ | `check-doc-abs-paths.js`：新增/改写文档全部用相对路径引用 |
 | 接线棘轮 | ✅ | 新测试落在已登记的 `electron/publishers/**` 通配内，无需新增接线 |
 | 已知边界（不假装闭合） | ✅ | ① 这是**流程闸门**，不是崩溃修复：不改变运行时行为（允许集仍空），只保证"将来谁开窗谁必须带真机证据进场"。② 证据**字段齐备 ≠ 证据质量**：`loginPageShape` 写得敷衍（如 `"x"`）仍能过锁——探针 C 正是用这种敷衍值证明"数值门槛能拦，语义质量拦不住"，那一层仍需人工评审。③ 锁读的是**源码字面量**，若将来允许集改成从别处装配（如从 env/JSON 读），本锁会因解析不到字面量而红——那是**预期**行为（改契约必须同时改锁）。④ 未做：把 DOM 判定搬进独立进程的隔离方案（#3759 已让默认路径不触碰它，等真需求再上） |
-| 远程同步 | PENDING | 本 PR 尚未合并；合并后由回填会话同一次提交改写 PASS + merge SHA 并删除上方 sync_* 三字段 |
+| 远程同步 | PASS | 已合并：merge SHA `036a98176ba8805982520f7890881088ffad6cee`（squash）；远端分支已删（`git ls-remote --heads origin dom-login-check-registry` 返回 0 行）；`git log origin/main --grep='(#3789)$'` 恰 1 行；CI 全绿（QG 10/10，含 `QG Changes`） |
 
 ## 关联
 
