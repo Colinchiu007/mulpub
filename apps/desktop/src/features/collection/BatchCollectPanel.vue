@@ -631,7 +631,33 @@ async function runZhihuFavCollectRewrite () {
     }).text
       + (data.cancelled ? resolveNotifyText('collection.zhihuFavlist.batchDoneCancelledSuffix').text : '')
       + (data.circuitBroken ? resolveNotifyText('collection.zhihuFavlist.batchDoneCircuitBrokenSuffix').text : '')
-    notifySuccess('collection.collectSuccess')
+    // 收尾通知必须与实际结果一致（2026-10-18，change: fav-force-recollect）：
+    // 原实现**无条件** notifySuccess('collection.collectSuccess')，即使整批采集失败或全部被
+    // 去重跳过也弹「内容采集成功」——这是用户「显示完成但结果区 0 新增」感知的第二个来源。
+    // 分级：取消 > 有成功 > 全失败 > 全跳过（最后的兜底不给成功语）。
+    const completedN = data.completed || 0
+    const failedN = data.failed || 0
+    const skippedN = data.duplicateSkipped || 0
+    if (data.cancelled) {
+      notifyInfo('collection.zhihuFav.cancelledNote')
+    } else if (completedN > 0) {
+      notifySuccess('collection.collectSuccess')
+    } else if (failedN > 0) {
+      notifyWarning('collection.zhihuFav.allFailedNote', {
+        params: { failed: String(failedN) },
+        fallback: zhihuFavSummary.value,
+      })
+    } else if (skippedN > 0) {
+      notifyInfo('collection.zhihuFav.allSkippedNote', { params: { skipped: String(skippedN) } })
+    } else if (data.circuitBroken) {
+      // 熔断与「全部已采集」是两件事（2026-10-18 自评发现）：上一版把它们并进同一个
+      // else 兜底，熔断批次会显示「这 0 条都已采集过」——语义完全错误，且掩盖了
+      // 真正该做的动作（等限流窗口过去再试）。
+      notifyWarning('collection.zhihuFav.circuitBrokenNote')
+    } else {
+      // 真·空批次（清单为空/全部被跳过而未计 skipped）：给中性说明，不给成功语。
+      notifyInfo('collection.zhihuFav.nothingCollectedNote')
+    }
     loadZhihuFavItems().catch(() => {})
   } catch (e) {
     zhihuFavlistError.value = String(e && e.message || e)
@@ -651,7 +677,17 @@ function subscribeZhihuFavProgress () {
         zhihuFavProgressDone.value = Math.min((p.index ?? 0) + 1, p.total || zhihuFavProgressTotal.value)
         const res = p.result || {}
         let note = resolveNotifyText('collection.zhihuFav.doneNote').text
-        if (res.registerOnly) note = resolveNotifyText('collection.zhihuFav.registerOnlyNote').text
+        if (res.ok === false) {
+          // 采集失败必须可归因（2026-10-18，change: fav-force-recollect）：
+          // 后端 done 事件在失败时是 { ok:false, error:'unsubstantive'|'collect-throw', reason }，
+          // 而本分支此前**完全没有 ok:false 处理** ⇒ 失败被渲染成「完成」，
+          // 用户勾了「包含已采集（强制重采）」后看到「完成」却 0 新增，无从判断。
+          // 优先级最高：失败时不可能同时是 registerOnly/duplicate/成功改写。
+          note = res.reason
+            ? resolveNotifyText('collection.zhihuFav.failedNote', { reason: String(res.reason) }).text
+            : resolveNotifyText('collection.zhihuFav.failedNoReason').text
+        }
+        else if (res.registerOnly) note = resolveNotifyText('collection.zhihuFav.registerOnlyNote').text
         else if (res.duplicate) {
           // 去重跳过（2026-10-17，change: fav-collect-ux）：C2 合同下已采集过的 URL 默认跳过，
           // 这是正确行为；缺陷在呈现——此前与正常完成一样显示「完成」，用户面对
