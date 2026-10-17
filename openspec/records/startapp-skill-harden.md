@@ -2,10 +2,7 @@
 record: startapp-skill-harden
 task: start-app skill 入口选择硬路由 + preload 缺失排查 + 结构锁（防"重启应用"走错入口盖掉共享数据锚点）
 date: 2026-10-17
-# ↓ 三字段只在「远程同步」无法收口时填写；回填成 PASS 后必须整段删除。
-sync_status: PENDING
-sync_reason: 本 PR（startapp-skill-harden）尚未合并，merge SHA 尚不存在，无法取证收口
-sync_backfill_owner: 下一个会话（同一次提交内改表格行 + 删这三个字段）
+
 ---
 
 ## 本次执行记录：start-app skill 入口选择硬路由 + preload 排查 + 结构锁（startapp-skill-harden，2026-10-17）
@@ -29,7 +26,15 @@ sync_backfill_owner: 下一个会话（同一次提交内改表格行 + 删这�
 | 品牌残留 | ✅ | 未引入竞品实名（全文用 `shared-user-data` / `Multi-Publish-debug-profile` 等本仓路径名） |
 | 文档门禁 | ✅ | `check-doc-abs-paths.js` PASS；`check-unwired-tests.js` OK（新测试落在已登记的 `electron/tests/**` 通配内）；`check-gate-record-debt.js` OK（本记录带 `sync_*` 登记字段） |
 | 已知边界（不假装闭合） | ✅ | ① 本 PR **不改启动脚本逻辑**，只改 skill 文档与加锁；② 「入口铁律」约束的是**未来 agent 的行为**，挡不住有人绕过 skill 直接跑命令；③ `.agents/` 被 `.gitignore:310` 忽略，但 `SKILL.md` 是已跟踪文件故仍受版本管理（测试文件因此按惯例落在 `electron/tests/`）；④ 结构锁只覆盖本次 6 条判据，未来新增入口/新坑仍需人工补锁 |
-| 远程同步 | PENDING | 本 PR 尚未合并；合并后由回填会话同一次提交改写 PASS + merge SHA 并删除上方 sync_* 三字段 |
+| 远程同步 | PASS | merge SHA 3a941d311（git log origin/main --grep="(#3838)"; 取证时间 2026-10-17T15:21:52Z） |
+
+## 关联
+
+- 事故现场：2026-10-17 「重启应用」→ 走 `start-desktop.ps1 -Profile …` 长流程 → 锚点被盖 → `listAccounts` 报 `AUTH_REQUIRED`
+- 同场第二坑：preload 产物缺失 → `window.electronAPI` undefined → 一度误判为登录态问题
+- 一键启动（本 PR 未改）：`scripts/sync-app.ps1` + `scripts/mp-applive-launcher.ps1`
+- skill-repo 同步目标：`<external-sync>\100-Agent-data\skill-repo\start-app\SKILL.md`
+ 取证，2026-10-17T15:21:52Z） |
 
 ## 关联
 
