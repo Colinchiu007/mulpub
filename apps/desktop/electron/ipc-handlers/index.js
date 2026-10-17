@@ -27,6 +27,9 @@ function registerAllHandlers(ipcMain, deps) {
   require('./templates')(ipcMain, deps)
   require('./license')(ipcMain, deps)
   require('./ai')(ipcMain, deps)
+  // 热门选题「生成视频 → 去发布」的爆款标题生成（fix-hot-topics-genvideo-title）。
+  // 必须注册：缺了它渲染层【去发布】拿不到 AI 标题，只能降级为原始选题。
+  require('./gen-video-title')(ipcMain, deps)
   require('./offline')(ipcMain, deps)
   require('./payment')(ipcMain, deps)
   require('./pipeline')(ipcMain, deps)

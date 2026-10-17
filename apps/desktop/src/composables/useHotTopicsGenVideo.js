@@ -9,7 +9,7 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { aiRewrite, draftSave, storeGetSetting, pipelineStartOrchestrated, pipelineGetRunContext, pipelineCancelRun, onPipelineUpdate } from '@/api/publisher'
+import { aiRewrite, draftSave, storeGetSetting, pipelineStartOrchestrated, pipelineGetRunContext, pipelineCancelRun, onPipelineUpdate, modelProviderGetDefault, aiGenerateGenVideoTitle } from '@/api/publisher'
 import { useNotify } from '@/composables/useNotify'
 import {
   DEFAULT_GEN_VIDEO_PIPELINE,
@@ -43,6 +43,7 @@ import {
 import { getAppLocale } from '@/i18n'
 import { showPipelineBackgroundToast } from '@/stores/pipeline-background-toast'
 import { buildPublishFromProject, publishDataToQuery } from '@/features/publish/publish-from-project'
+import { resolveGenVideoTitle, GEN_VIDEO_TITLE_MAX } from '@/features/publish/gen-video-title'
 import { extractRewriteHistoryId, attachRewriteLineage } from '@/utils/rewrite-lineage'
 
 const GEN_VIDEO_POLL_INTERVAL_MS = 3000
@@ -362,16 +363,64 @@ export function useHotTopicsGenVideo({ buildRewriteInput, hotUseViral, isDispose
   }
 
   // 四按钮片：【去发布】= 与视频创作页/结果页同源（buildPublishFromProject + publishDataToQuery）；
-  // run-only（无项目对象）退化为只带 type + video_path，不注入空 title/content。
-  function publishGenVideoResult() {
+  // run-only（无项目对象）退化为只带 type + video_path + 标题，不注入空 title/content。
+  //
+  // fix-hot-topics-genvideo-title（2026-10-17）：标题此前落到 buildPublishFromProject 回退链末端
+  // （project.title ← sourceText），结果是「正文前 100 字」。现在标题由 AI 按爆款元素独立生成，
+  // 三级降级：无默认文字推理模型 / 生成失败 → 原始选题文本。
+  async function publishGenVideoResult() {
     if (!genVideoResultReady.value) return
-    const videoPath = String(genVideoCompletedVideoPath.value || '')
-    const project = genVideoCompletedProject.value
-    const query = (project && typeof project === 'object')
-      ? publishDataToQuery(buildPublishFromProject({ ...project, videoPath }))
-      : { type: 'video', video_path: encodeURIComponent(videoPath) }
-    resetGenVideoFrontendState()
-    router.push({ path: '/publish', query })
+    // busy 守卫：标题生成期间禁止重复点击（否则会发起第二次 LLM 调用与第二次跳转）
+    if (genVideoBusy.value) return
+    genVideoBusy.value = true
+    try {
+      const videoPath = String(genVideoCompletedVideoPath.value || '')
+      const project = genVideoCompletedProject.value
+      const topicText = String(genVideoTopic.value?.topic || '')
+
+      // ① 模型就绪性前置查询：无默认 LLM 时根本不发起标题生成调用
+      let aiAvailable = false
+      try {
+        const def = await modelProviderGetDefault('llm')
+        aiAvailable = def?.code === 0 && Boolean(def?.data?.id)
+      } catch (_) { aiAvailable = false }
+
+      // ② 按需生成 AI 标题（无模型时跳过）
+      let aiTitle = ''
+      if (aiAvailable) {
+        try {
+          const res = await aiGenerateGenVideoTitle({
+            topicText,
+            bodyText: String(genVideoRewrittenContent.value || ''),
+            max: GEN_VIDEO_TITLE_MAX,
+          })
+          if (res?.code === 0 && res?.data?.success) aiTitle = String(res.data.title || '')
+        } catch (_) { aiTitle = '' }
+      }
+
+      // ③ 降级链决策（纯函数，单一真源）
+      const { title, source } = resolveGenVideoTitle({ topicText, aiTitle, aiAvailable, max: GEN_VIDEO_TITLE_MAX })
+
+      // ④ 拼 query：有项目时沿用 publishDataToQuery（content/tags 语义不变），否则只带 video_path
+      let query
+      if (project && typeof project === 'object') {
+        query = publishDataToQuery(buildPublishFromProject({ ...project, videoPath }))
+      } else {
+        query = { type: 'video', video_path: encodeURIComponent(videoPath) }
+      }
+      // ⑤ 标题覆盖 + 来源标注（发布页据此显示来源提示）
+      if (title) {
+        query.title = encodeURIComponent(title)
+        query.title_source = source
+        if (source === 'topic') query.title_reason = aiAvailable ? 'failed' : 'no-model'
+      } else {
+        delete query.title
+      }
+      resetGenVideoFrontendState()
+      router.push({ path: '/publish', query })
+    } finally {
+      genVideoBusy.value = false
+    }
   }
 
   /** 终态：failed / cancelled */

@@ -202,6 +202,12 @@ export default {
     videoDescLabel: '视频描述',
     videoDescPlaceholder: '输入视频描述，简要介绍视频内容...',
     videoTitlePlaceholder: '输入视频标题',
+    // fix-hot-topics-genvideo-title（2026-10-17）：视频模式标题来源提示（三态）。
+    // 热门选题「生成视频 → 去发布」带入标题时，query 带 title_source/title_reason 说明来源；
+    // 无 title_source 时不渲染，图文模式忽略。
+    videoTitleFromAi: '标题由 AI 按爆款元素生成',
+    videoTitleFromTopicNoModel: '未配置文字推理模型，标题已使用原始选题',
+    videoTitleFromTopicFailed: 'AI 标题生成失败，标题已使用原始选题',
     extractCover: '从视频提取封面',
     aiGenerateCover: 'AI 生成封面',
     aiCoverPromptLabel: '封面描述',
