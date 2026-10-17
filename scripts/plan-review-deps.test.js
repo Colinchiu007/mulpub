@@ -226,3 +226,68 @@ test("候选目录命中后不得早退：双后端齐备必须继续走完主�
   assert.match(out, /体检通过|只剩单后端|开始跨家族对抗评审/, "双后端齐备必须继续主流程（不得 rc=2 早退）")
   cleanup([proposal], [home])
 })
+
+// ── 产物目录碰撞拦截（change: gate-record-sync-derived-status，tasks 4.8）──────────────
+// 引擎住在 git 之外（用户级技能），它用 basename(方案文件) 拼 slug ⇒ 两个 change 的 design.md
+// 撞同一个产物目录、后跑的静默覆盖先跑的评审现场。实测本会话就覆盖了 commit f66081aec 里
+// 另一会话的 critique-v1.md。修法选仓侧守卫：不动共享技能文件，改动可测、可变异、随 PR 走 CI。
+test('plan-review.sh：方案名撞上别人的产物目录时必须拒绝运行并给出路', () => {
+  const art = fs.mkdtempSync(path.join(os.tmpdir(), `plan-collide-${process.pid}-`))
+  const dir = path.join(art, '.adversarial', 'ccg-plan-design-claude')
+  fs.mkdirSync(dir, { recursive: true })
+  // 已存在的产物属于**另一份**方案（内容不同）
+  fs.writeFileSync(path.join(dir, 'proposal-v1.md'), 'B1 RPA 反检测方案\n不同的方案\n', 'utf8')
+  const proposal = path.join(art, 'design.md')
+  fs.writeFileSync(proposal, '远程同步派生收口方案\n本次的方案\n', 'utf8')
+
+  const r = run([proposal, '--dry-run'], { MP_ARTIFACT_ROOT: art })
+  assert.match(r.out, /产物目录碰撞/, `必须点名碰撞，实际：${r.out.slice(0, 240)}`)
+  assert.match(r.out, /ccg-plan-design-claude/, '必须点出会被覆盖的具体目录')
+  assert.match(r.out, /只用方案文件名|不带所在目录/, '必须说明根因，否则下一个人只会改文件名试')
+  assert.strictEqual(r.rc, 2, `碰撞时不得继续跑引擎（rc=${r.rc}，out=${r.out.slice(0, 200)}）`)
+  // rc=2 单独不构成证据：环境闸/驱动搜索缺后端时同样是 rc=2，两个原因共用一个读数就分辨不出来
+  // （变异 P-D 摘掉守卫里的 exit 2 后本用例照样绿，就是这个缺口被实测抓到的）。
+  // 判据改成形状断言：碰撞时守卫必须是**最后**一段输出——摘掉 exit 后必然还有后续阶段的打印。
+  const lastLine = String(r.out).trim().split('\n').pop()
+  assert.match(lastLine, /拒绝运行/,
+    `守卫退出后不得再有后续输出（末行实为「${lastLine}」⇒ 摘掉 exit 2 仍会继续往下跑）`)
+
+  fs.rmSync(art, { recursive: true, force: true })
+})
+
+test('plan-review.sh：同一份方案重跑不算碰撞；知情放行必须留痕', () => {
+  const mk = (storedText) => {
+    const art = fs.mkdtempSync(path.join(os.tmpdir(), `plan-same-${process.pid}-`))
+    const dir = path.join(art, '.adversarial', 'ccg-plan-design-claude')
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, 'proposal-v1.md'), storedText, 'utf8')
+    const proposal = path.join(art, 'design.md')
+    fs.writeFileSync(proposal, '同一份方案的内容\n', 'utf8')
+    return { art, proposal }
+  }
+
+  // ① 内容逐字相同 ⇒ 是自己的续跑，不得报碰撞
+  const a = mk('同一份方案的内容\n')
+  const r1 = run([a.proposal, '--dry-run'], { MP_ARTIFACT_ROOT: a.art })
+  assert.doesNotMatch(r1.out, /产物目录碰撞/, `续跑被误判为碰撞：${r1.out.slice(0, 240)}`)
+  fs.rmSync(a.art, { recursive: true, force: true })
+
+  // ② 显式放行 ⇒ 必须留痕，且不得静默
+  const b = mk('别人的方案\n')
+  const r2 = run([b.proposal, '--dry-run'], { MP_ARTIFACT_ROOT: b.art, MP_ALLOW_PLAN_COLLISION: '1' })
+  assert.match(r2.out, /MP_ALLOW_PLAN_COLLISION=1 放行/, `放行必须留痕：${r2.out.slice(0, 240)}`)
+  assert.match(r2.out, /将覆盖/, '放行必须点名将被覆盖的目录')
+  fs.rmSync(b.art, { recursive: true, force: true })
+})
+
+test('plan-review.sh：碰撞守卫必须在环境闸之前（否则缺后端时恒不可测）', () => {
+  // 守卫若排在后端体检之后，测试环境（PATH 里没有后端）会在撞到守卫之前就退出，
+  // 这条锁就退化成"只在有后端时才跑"的装饰——本仓吃过多次同款。
+  const src = fs.readFileSync(PLAN_REVIEW, 'utf8')
+  const iGuard = src.indexOf('产物目录碰撞拦截')
+  const iEnvGate = src.indexOf('环境闸：拒绝 WSL')
+  const iDriverSearch = src.indexOf('DRIVER=""')
+  assert.ok(iGuard > 0, '守卫必须存在于 plan-review.sh')
+  assert.ok(iGuard < iEnvGate, '守卫必须早于环境闸')
+  assert.ok(iGuard < iDriverSearch, '守卫必须早于驱动搜索/调用')
+})

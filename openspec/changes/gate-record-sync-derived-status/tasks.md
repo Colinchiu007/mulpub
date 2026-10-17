@@ -60,7 +60,9 @@
 - [ ] 4.6 workflow 结构自检：`node .github/scripts/check-workflow-structure.js` rc=0，且改过的 `run:` 块喂真解释器做一次 ParseInput（仓规：js-yaml 绿 ≠ PowerShell 能解析）。
 - [ ] 4.7 **打印即门禁**（评审 i4）：判据在 CI 环境下 `prs=0` MUST 非零退出并点名"派生档未生效"；`workflow-contract.test.js` 加一条结构锁——该步骤 MUST 在 `changes` job、MUST NOT 在任何带 job 级 `if:` 的 job。把步骤挪进 `static-gates` 必须红（与 5.1 的 M8 配对，一条行为锁一条结构锁，各测各的）。
 
-- [ ] 4.8 **相邻缺陷登记，不隐身**：`scripts/plan-review.sh` 把评审产物写到**固定目录名** `.adversarial/ccg-plan-design-<critic>/`，不含被评方案的标识 ⇒ 两个会话评不同方案必然互覆盖。本轮实测：本会话跑 plan-review 时覆盖了 commit `f66081aec`（2026-10-15 的 B1 RPA 反检测评审）的 `critique-v1.md`，靠 `git restore` 精确路径救回（恢复后与 HEAD 逐字节相同），本会话产物改存唯一路径 `.adversarial/gate-record-plan-r1/`，并因该目录被 .gitignore 忽略（worktree 收尾即消失）而把原件入库到 `openspec/changes/gate-record-sync-derived-status/reviews/`。修法：目录名带上方案 slug 或内容 hash（与本仓「追加型共用写面会丢工」同族，见旧载体冻结的动因）。**已由用户拍板：并入本 PR 修**（2026-10-17）。落点：`scripts/plan-review.sh` 生成产物目录时带上被评方案的 slug（取方案文件名去扩展名，非 ASCII/空格按既有规则规范化），使两个会话评不同方案写到不同目录；同名方案再评则按轮次或时间戳追加，不覆盖。配套：① 一条结构锁断言路径里含方案标识（写死 `ccg-plan-design-` 前缀即红）；② 一条行为用例：两个不同 slug 的方案各跑一次，产物目录必须不同、两份 critique 均存在且互不覆盖；③ 现有依赖该固定路径的调用点/文档一并检索并同步（`grep -rn "ccg-plan-design" scripts .github docs 01-docs`），漏改即为把缺陷换了个位置。**不得**顺手把 `.adversarial/` 从 .gitignore 里放出来（那是另一条决定，且会改变所有会话的产物入库形态）。
+- [x] 4.8 **相邻缺陷：已按用户拍板在仓侧修**（落点与我最初的判断不同，如实纠正）。真正缺陷住在**仓外**用户级技能 `~/.claude/skills/adversarial-review-loop/scripts/ccg-deep-review.js:541`：slug = `"ccg-plan-" + basename(方案文件去扩展名) + "-" + critic`，**只用文件名、不带所在目录** ⇒ 两个 change 里都叫 `design.md` 的规划文件撞进同一产物目录，后跑静默覆盖先跑（2026-10-10 那次修复加了 critic 维度，没加目录维度）。仓内没有 vendored 驱动可改（`scripts/ccg-deep-review.js` 不存在，`plan-review.sh` 回落到用户级）。用户选定：**不动共享技能文件**，改在仓侧调用点加碰撞守卫。
+      落点 `scripts/plan-review.sh`（环境闸之前）：同名 slug 目录里 `proposal-v1.md` 与本次方案逐字不同 ⇒ 打印根因 + 三条出路 + rc=2 拒绝；`MP_ALLOW_PLAN_COLLISION=1` 知情放行但必须留痕；`MP_ARTIFACT_ROOT` 仅供测试覆盖。回归锁在 `scripts/plan-review-deps.test.js`（9/9），含一条"守卫必须早于环境闸与驱动搜索"的结构锁。变异反证 P-A/P-B/P-C/P-D 各自 CAUGHT：其中 **P-D 起初 PASSED**，暴露我 `rc===2` 断言不可分辨（环境闸也退 2）——本仓第三次踩到"两个原因共用一个读数"，改成"守卫必须是最后一段输出"的形状断言才咬住。
+      仍待上游处理（不在本 PR）：技能侧把目录维度并进 slug。本条**不**删，作为指针留着。
 
 ## 5. 验证与收尾
 
@@ -95,3 +97,14 @@
 
 新增产物：`scripts/lib/merge-ledger.js`、`scripts/lib/merge-ledger.test.js`（片 1）；判据与 CLI 改动在 `scripts/check-gate-record-debt.js` / `.test.js`；CI 接线一行在 `quality-gate.yml` 的 `changes` job。
 一次性工具（收尾删除）：`.tmp-mutate.cjs`、`.tmp-mutate2.cjs`、`.tmp-mutate3.cjs`、`.tmp-*.out`、`.tmp-*.cjs` 探针若干、`.tmp-commit*.txt`。
+
+## 7. 片 4 完成现场（口径与接线）
+
+- [x] 4.3 `_TEMPLATE.md` 四处矛盾一次改完（删第 8-13 行整块、第 28 行改「由门禁推导」并删人工回填指令；第 20-23 行 QM-5 派生来源未触碰）。实测 `check-record-qm5-rows.test.js` 19/19 仍绿。
+- [x] 4.4 `AGENTS.md` 四处按章节锚点改写：取消「合并后必须回填远程同步」禁止项并写替代；收尾清单第 3-4 步合并成「不再需要回填动作」并顺延重编号（5/6/7→4/5/6）；docs-only 快速通道两条收窄为只约束旧载体与存量；QM-2「待办状态必须有东西在检测」补"推导比回填更强"。
+  **事故如实记**：第一次替换我把收尾清单第 5 步（`check-branch-merged.js`）的行首吞进了 new_string，导致该项与第 3 步粘连；当场核对 `sed -n '116,117p'` 发现并补回、重排后续号。教训：改**有序列表**时 old_string 不得跨到下一条目的开头。
+- [x] 4.5 `check-pr-exec-record.js` 出路④信任边界注释按新事实改写；①号出路不再教作者写 `sync_*` 三字段。`check-pr-exec-record.test.js` 57/57。
+- [x] 4.6 workflow 结构自检 `check-workflow-structure.js` rc=0；`workflow-contract.test.js` 新增落点锁后 40/40，且变异 M-A（整行摘掉）/M-B（挪到非 PR 早退之后）各自 CAUGHT、`check-unwired-tests` 同步点名（两把锁各测各的）。
+- [x] 4.7 打印即门禁：CI 档账本不可用 ⇒ rc=2（真起子进程断言，另断言本机不套用）；`MERGE-LEDGER prs=<n>` 必须在输出首行，默认 baseRef 由 CLI 测试自己证明读得到（变异 N8a/b/c 因此 CAUGHT）。
+- [ ] 4.1 **部分完成（偏差如实记）**：`--current-pr` **没有**注入 workflow。理由：byDesign 的判据是"该路径不在 base 归属映射里"，不需要 PR 号；注入反而引入一个无人消费的参数（AGENTS「不为不存在的路径加键」的同族）。后果：`parseFlags` 仍接受 `--current-pr` 但生产路径没人传——若片 5 双模型评审认为应删该旗标，删之即可，不影响判据语义。
+- [ ] 4.2 **留到 PR 之后**：`MERGE-LEDGER prs=` 在 GitHub runner 上的真实读数只能等这次 CI 跑完取日志（本机读数不算证据，见 design 残留风险 1）。
