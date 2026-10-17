@@ -1,0 +1,26 @@
+{
+  "sha": "25d9f75fa0bb831d74ef2bfdf019194061a0c0fd",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 379 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 379,
+    "fileCount": 9,
+    "codeFileCount": 6,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 3,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "b844cdf0e5c0356dcc9bbfe24ef41ba575467e7517d5eeba7ecdc6cf446f2f79",
+  "decidedAt": "2026-10-17T02:49:55.560Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "findings": "两家族评审已完成：出方案侧做全仓旧符号引用排查（结论：无代码层残留，仅有文档历史记录），挑刺侧出 4 条 Info。逐条裁决 2 采纳 / 1 延后登记 / 1 驳回：采纳「清理测试替身中已废弃的界面文案键」与「为仍注册但无界面消费方的后端入口补保留说明」；延后「父级联合运行用例」并登记为未闭合（该层需真机）；驳回「进度提示需补主提示」——后缀拼接设计已自洽。无 Critical/Warning 遗留，无待人工裁决争议。"
+  }
+}
