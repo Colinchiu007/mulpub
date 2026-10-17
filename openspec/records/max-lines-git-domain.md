@@ -28,8 +28,8 @@ sync_backfill_owner: 下一个会话（按 AGENTS「PR 自动合并」收尾链�
 
 - **同树对照，只换实现**：在含构建产物的工作树里，用 `git show 1aecfedeb^:.github/scripts/check-max-lines.js` 逐字节取出修复前实现，配 `--root`（同一棵树）+ 同一份账本跑：
   **修复前 rc=1**，两条 `NEW_OVER_LIMIT`（`home-shell-preload.bundle.js 1803 行`、`preload/index.bundle.js 1752 行`，均带墓碑文案）；
-  **修复后 rc=0**，`[max-lines] domain=9943`。产物在场性另用 `git check-ignore -v` 逐个核（4 个 bundle 全部 PRESENT + ignored=YES）。
-- **零回归控制**：干净检出（无产物）下修复前后判定**逐字相同** —— `limit=500 growthAllowance=200 超限文件=95 挂账=95 墓碑=5 点名还账=20` 与 `testLimit=1500 测试超限=12 测试挂账=12`；账本 127 个键（`files` 95 + `testFiles` 12 + `targets` 20）逐个 `git ls-files --error-unmatch` 全部受管 ⇒ 收窄不会把任何存量键弹出判定域。
+  **修复后 rc=0**，`[max-lines] domain=9976`（本记录首次取证时为 9943，re-sync 到 origin/main 后同一棵树重跑，域随仓库增长到 9976，A/B 两条结论不变：修复前 rc=1 报那两条假红、修复后 rc=0）。产物在场性另用 `git check-ignore -v` 逐个核（4 个 bundle 全部 PRESENT + ignored=YES）。
+- **零回归控制**：干净检出（无产物）下修复前后判定**逐字相同** —— `limit=500 growthAllowance=200 超限文件=95 挂账=95 墓碑=5 点名还账=20` 与 `testLimit=1500 测试超限=12 测试挂账=12`；账本 127 个键（`files` 95 + `testFiles` 12 + `targets` 20）逐个 `git ls-files --error-unmatch` 全部受管且全部在域内（re-sync 后重测：UNMANAGED=0、LEDGER_KEYS_NOT_IN_DOMAIN=0、DOMAIN=9976） ⇒ 收窄不会把任何存量键弹出判定域。
 - **必须如实说的边界**：这条假红**只在开发机存在**，CI 的检出里从来没有这些产物，所以 CI 全绿**不是**本片的验收证据；CI 侧要证明的只是"没把别的搞坏"。真实验收 = 上面那组同树 A/B。
 - **夹具的一条反直觉实测**（写下来省得下次重踩）：夹具那份空 gitconfig 若写进被测目录，会被 `git ls-files --others` 当成 1 个未跟踪文件 ⇒ "空仓库"夹具其实非空 ⇒ `set.size === 0` 那道守卫点不到火。T6 首跑失败的真实原因即此；修夹具，不改断言。
 
