@@ -17,91 +17,90 @@
  *
  * 契约
  ----
- * C1 文案单一真源：字面量「重启桌面应用」在整个 src 下**只出现一次**（常量定义处）。
- *    六个页面共用同一常量；各写一遍必然漂移，且无法统一测试。
- * C2 成功路径必现：saveAll 成功后 success/warning 必须含 RESTART_HINT。
- * C3 失败路径不现：API 抛错时 success/warning **都不得**被调用。
- * C4 不遮挡保存结果：提示不得取代项数（N 项）与 corrections 列表。
- * C5 时长可读：duration 必须 >= 6000ms（约 40 汉字，默认 3000ms 读不完）。
+ * C1 文案单一真源：字面量「重启桌面应用」在**常量定义文件的代码里**只出现一次。
+ * C2 成功路径必现：composeSaveMessage 的 text 必含 RESTART_HINT。
+ * C3 失败路径不现：ok=false 时 kind 必为 error，text 不含 RESTART_HINT。
+ * C4 不遮挡保存结果：提示不得取代项数与 corrections 列表。
+ * C5 时长可读：duration >= 6000ms（约 40 汉字，默认 3000ms 读不完）。
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+// 静态 import（QM-6 评审 i3：原用顶层 await import()，依赖 vitest 的 ESM/顶层 await
+// 配置，配置不匹配整个测试文件无法加载。静态 import 无此依赖）。
+import {
+  RESTART_HINT,
+  RESTART_HINT_WHEN,
+  RESTART_HINT_HOW,
+  RESTART_HINT_DURATION,
+  shouldShowRestartHint,
+} from '../src/constants/runtime-delivery'
+import { composeSaveMessage, emitSaveMessage } from '../src/views/AppMenu.save-message'
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const SRC = path.resolve(__dirname, '..', 'src')
 
-const { RESTART_HINT, RESTART_HINT_WHEN, RESTART_HINT_HOW, RESTART_HINT_DURATION, shouldShowRestartHint } =
-  await import('../src/constants/runtime-delivery.js')
-
-describe('RESTART_HINT 常量（C1 单一真源）', () => {
+describe('RESTART_HINT 常量', () => {
   it('「何时生效」段是精确等值', () => {
-    // 同 MR3 教训：子串匹配会被同词掩盖，故用精确等值。
+    // MR2 教训：子串匹配会被同词掩盖（删掉本段「生效」后 HOW 段仍有「生效」），
+    // 故用精确等值。文案是契约一部分，改一个字都要显式过测试。
     expect(RESTART_HINT_WHEN).toBe('将在应用下次启动时生效')
   })
 
   it('「如何立刻生效」段是精确等值（含「重启」动作词与「桌面应用」宾语）', () => {
-    // ★ MR3 变异暴露：写成 toMatch(/重启/) 时，把「重启」换成「查看」会得到
-    // 「如需立即查看请重启桌面应用」—— 句子后半仍有「重启」，断言照绿。
-    // 即「动作词是否在正确位置」这个语义被子串匹配掩盖了。
-    // 与 MR2 同源：**用「子串存在」断言语义，子串会被同词掩盖**。
-    // 故这里改为精确等值：文案是契约的一部分，改一个字都要显式过测试。
+    // MR3 教训：toMatch(/重启/) 会把「重启」换成「查看」的变异放过去
+    // （得到「如需立即查看请重启桌面应用」，后半仍有「重启」）。
     expect(RESTART_HINT_HOW).toBe('如需立即生效请重启桌面应用')
   })
 
   it('完整提示 = 两段拼接（任一段被删都能被上面两条分别抓到）', () => {
-    // MR2 变异暴露的缺口：两个语义挤在一句里时，删掉前半句的「生效」
-    // 会被后半句的「生效」掩盖，断言抓不到。拆段后各自独立可断言。
     expect(RESTART_HINT).toBe(RESTART_HINT_WHEN + '；' + RESTART_HINT_HOW)
   })
 
-  it('字面量「重启桌面应用」在整个 src 的**代码**里只出现一次（C1 结构锁）', () => {
-    // 判据必须只扫代码、不扫注释：JSDoc 里引用该字面量是合理的说明性文字
-    // （首版扫全文，结果被自己文件里的注释判红 —— 那是判据过宽，不是代码有问题）。
-    // 剥注释用最朴素的「逐字符状态机」：跟踪单/双/反引号与块注释，
-    // 与 ops-center 无三方解析依赖的约束一致（该目录只能 require node 内置模块）。
-    const strip = (s) => {
-      let out = ''
-      let st = 'code'
-      for (let i = 0; i < s.length; i++) {
-        const c = s[i]
-        const n = s[i + 1]
-        if (st === 'code') {
-          if (c === '/' && n === '/') { st = 'line'; i++; continue }
-          if (c === '/' && n === '*') { st = 'block'; i++; continue }
-          if (c === "'" || c === '"' || c === '`') { st = c; out += c; continue }
-          out += c; continue
-        }
-        if (st === 'line') { if (c === '\n') { st = 'code'; out += c } ; continue }
-        if (st === 'block') { if (c === '*' && n === '/') { st = 'code'; i++ } ; continue }
-        // 引号内
-        if (c === '\\') { out += c + (n ?? ''); i++; continue }
-        if (c === st) { st = 'code' }
-        out += c
-      }
-      return out
-    }
+  it('duration >= 6000ms（约 40 汉字，默认 3000ms 读不完）', () => {
+    expect(RESTART_HINT_DURATION).toBeGreaterThanOrEqual(6000)
+  })
+})
 
-    const hits = []
+describe('C1 单一真源（结构锁）', () => {
+  it('「重启桌面应用」在常量定义文件的**代码**里只出现一次', () => {
+    // QM-6 评审 i4：首版扫整个 src 并手写逐字符状态机剥注释，对正则字面量、
+    // 含引号的模板字符串会误判，元测试脆弱。现收窄为只扫常量定义文件，
+    // 且该文件刻意保持「无行内 // 注释」——剥注释只需处理 // 行注释与 /** */ 块注释
+    // 两种形态，不碰字符串与正则，状态机不会误判。
+    const file = path.resolve(__dirname, '..', 'src', 'constants', 'runtime-delivery.js')
+    const code = fs.readFileSync(file, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
+      .split('\n')
+      .map((l) => l.replace(/\/\/.*$/, ''))
+      .join('\n')
+    const n = (code.match(/重启桌面应用/g) || []).length
+    expect(n).toBe(1)
+  })
+
+  it('其它源码文件不得出现该字面量（防绕过常量直接写死）', () => {
+    const SRC = path.resolve(__dirname, '..', 'src')
+    const offenders = []
     const walk = (dir) => {
       for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
         const p = path.join(dir, e.name)
         if (e.isDirectory()) { if (e.name !== 'node_modules') walk(p) }
         else if (/\.(vue|js)$/.test(e.name)) {
-          const n = (strip(fs.readFileSync(p, 'utf8')).match(/重启桌面应用/g) || []).length
-          if (n) hits.push([path.relative(SRC, p), n])
+          if (p.includes('constants' + path.sep + 'runtime-delivery.js')) continue
+          const code = fs.readFileSync(p, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
+            .split('\n')
+            .map((l) => l.replace(/\/\/.*$/, ''))
+            .join('\n')
+          if (/重启桌面应用/.test(code)) offenders.push(path.relative(SRC, p))
         }
       }
     }
     walk(SRC)
-    // 路径分隔符随平台（Windows 为 '\'），故只比「文件名」与次数，不比分隔符形态。
-    const normalized = hits.map(([f, n]) => [f.split(path.sep).join('/'), n])
-    expect(normalized).toEqual([['constants/runtime-delivery.js', 1]])
+    expect(offenders).toEqual([])
   })
 })
 
-describe('shouldShowRestartHint（C3 失败路径不现）', () => {
+describe('shouldShowRestartHint（C3 fail-closed）', () => {
   it('保存成功 ⇒ 要提示', () => {
     expect(shouldShowRestartHint({ ok: true })).toBe(true)
   })
@@ -116,71 +115,81 @@ describe('shouldShowRestartHint（C3 失败路径不现）', () => {
   })
 })
 
-describe('时长（C5）', () => {
-  it('duration >= 6000ms（约 40 汉字，默认 3000ms 读不完）', () => {
-    expect(RESTART_HINT_DURATION).toBeGreaterThanOrEqual(6000)
+describe('composeSaveMessage —— 纯函数（C2/C3/C4/C5）', () => {
+  it('保存成功（无纠正）→ success，含项数 + RESTART_HINT，duration 达下界', () => {
+    const m = composeSaveMessage({ ok: true, count: 21, corrections: [] })
+    expect(m.kind).toBe('success')
+    expect(m.text).toMatch(/21 项/)        // C4 不遮挡项数
+    expect(m.text).toContain(RESTART_HINT) // C2
+    expect(m.duration).toBeGreaterThanOrEqual(6000) // C5
+  })
+
+  it('保存成功（有纠正）→ warning，含 key 列表 + RESTART_HINT，duration 达下界', () => {
+    const m = composeSaveMessage({ ok: true, count: 21, corrections: ['publish', 'accounts'] })
+    expect(m.kind).toBe('warning')
+    expect(m.text).toMatch(/publish/)      // C4 不遮挡纠正列表
+    expect(m.text).toContain(RESTART_HINT)
+    // MR14 变异暴露：原只对 success 分支断言 duration，warning 分支的
+    // duration 被改成 3000 也照绿 ⇒ 每条成功路径都要单独断时长。
+    expect(m.duration).toBeGreaterThanOrEqual(6000)
+  })
+
+  it('保存失败 → error，用调用方 detail，且**不含** RESTART_HINT', () => {
+    const m = composeSaveMessage({ ok: false, detail: '保存失败' })
+    expect(m.kind).toBe('error')
+    expect(m.text).toBe('保存失败')
+    expect(m.text).not.toContain(RESTART_HINT) // C3 失败路径不得出现重启提示
+  })
+
+  it('保存失败且无 detail → 兜底文案，仍不含 RESTART_HINT', () => {
+    const m = composeSaveMessage({ ok: false })
+    expect(m.kind).toBe('error')
+    expect(m.text).toBe('保存失败')
+    expect(m.text).not.toContain(RESTART_HINT)
+  })
+
+  it('reset 路径（带 prefix）→ 前缀为动作名，仍含 RESTART_HINT', () => {
+    const m = composeSaveMessage({ ok: true, count: 21, corrections: [] }, '已恢复默认')
+    expect(m.kind).toBe('success')
+    expect(m.text).toMatch(/^已恢复默认；/)
+    expect(m.text).toContain(RESTART_HINT)
   })
 })
 
-describe('AppMenu.vue 保存路径（C2/C4）', () => {
-  beforeEach(() => { vi.resetModules() })
-
-  it('保存成功（无纠正）→ success 含项数 + RESTART_HINT', async () => {
+describe('emitSaveMessage —— 适配层（kind → ElMessage 方法映射）', () => {
+  it('成功 → 调 ElMessage.success，且第二参 duration 显式达下界', () => {
     const ElMessage = { success: vi.fn(), warning: vi.fn(), error: vi.fn() }
-    const { saveMessageFor } = await import('../src/views/AppMenu.save-message.js')
-    const r = saveMessageFor({ ok: true, count: 21, corrections: [] }, ElMessage)
+    const kind = emitSaveMessage({ ok: true, count: 21, corrections: [] }, ElMessage)
+    expect(kind).toBe('success')
     expect(ElMessage.success).toHaveBeenCalledTimes(1)
-    const msg = ElMessage.success.mock.calls[0][0]
-    expect(msg).toMatch(/21 项/)          // C4 不遮挡项数
-    expect(msg).toContain(RESTART_HINT)   // C2
-  })
-
-  it('保存成功（有纠正）→ warning 含 key 列表 + RESTART_HINT', async () => {
-    const ElMessage = { success: vi.fn(), warning: vi.fn(), error: vi.fn() }
-    const { saveMessageFor } = await import('../src/views/AppMenu.save-message.js')
-    saveMessageFor({ ok: true, count: 21, corrections: ['publish', 'accounts'] }, ElMessage)
-    expect(ElMessage.warning).toHaveBeenCalledTimes(1)
-    const msg = ElMessage.warning.mock.calls[0][0]
-    expect(msg).toMatch(/publish/)        // C4 不遮挡纠正列表
-    expect(msg).toContain(RESTART_HINT)
-  })
-
-  it('保存失败 → success/warning 都不得被调用（C3）', async () => {
-    const ElMessage = { success: vi.fn(), warning: vi.fn(), error: vi.fn() }
-    const { saveMessageFor } = await import('../src/views/AppMenu.save-message.js')
-    saveMessageFor({ ok: false, detail: '保存失败' }, ElMessage)
-    expect(ElMessage.success).not.toHaveBeenCalled()
-    expect(ElMessage.warning).not.toHaveBeenCalled()
-    expect(ElMessage.error).toHaveBeenCalledTimes(1)
-  })
-
-  it('duration 必须显式传入且 >= 6000（C5 接线）', async () => {
-    const ElMessage = { success: vi.fn(), warning: vi.fn(), error: vi.fn() }
-    const { saveMessageFor } = await import('../src/views/AppMenu.save-message.js')
-    saveMessageFor({ ok: true, count: 21, corrections: [] }, ElMessage)
-    // MR11 变异暴露的缺口：这里原写成 `opts.duration ?? RESTART_HINT_DURATION`，
-    // 于是「不传 duration」会被兜底掩盖、断言照绿。现在要求第二参**必须存在**，
-    // 且其 duration 必须达到下界 —— 兜底等于把接线锁降级成常量锁。
+    // MR14 教训：原断言写 `opts.duration ?? RESTART_HINT_DURATION`，兜底会把
+    // 「不传 duration」掩盖 ⇒ 接线锁被降级成常量锁。现要求第二参必须存在。
     const opts = ElMessage.success.mock.calls[0][1]
+    expect(opts).toBeTruthy()
+    expect(opts.duration).toBeGreaterThanOrEqual(6000)
+    expect(ElMessage.warning).not.toHaveBeenCalled()
+    expect(ElMessage.error).not.toHaveBeenCalled()
+  })
+
+  it('有纠正 → 调 ElMessage.warning，且第二参 duration 显式达下界', () => {
+    const ElMessage = { success: vi.fn(), warning: vi.fn(), error: vi.fn() }
+    const kind = emitSaveMessage({ ok: true, count: 21, corrections: ['publish'] }, ElMessage)
+    expect(kind).toBe('warning')
+    expect(ElMessage.warning).toHaveBeenCalledTimes(1)
+    expect(ElMessage.success).not.toHaveBeenCalled()
+    // MR19 变异暴露：适配层 warning 路径原先没断言 duration，
+    // 把 { duration } 去掉也照绿 ⇒ 接线锁要覆盖每一条派发路径。
+    const opts = ElMessage.warning.mock.calls[0][1]
     expect(opts).toBeTruthy()
     expect(opts.duration).toBeGreaterThanOrEqual(6000)
   })
 
-  it('reset 路径（带 prefix）同样含 RESTART_HINT', async () => {
+  it('失败 → 只调 ElMessage.error，success/warning 都不得被调用', () => {
     const ElMessage = { success: vi.fn(), warning: vi.fn(), error: vi.fn() }
-    const { saveMessageFor } = await import('../src/views/AppMenu.save-message.js')
-    saveMessageFor({ ok: true, count: 21, corrections: [] }, ElMessage, '已恢复默认')
-    const msg = ElMessage.success.mock.calls[0][0]
-    expect(msg).toMatch(/^已恢复默认；/)
-    expect(msg).toContain(RESTART_HINT)
-  })
-
-  it('reset 失败路径：不提示重启，走 error 且用调用方 detail', async () => {
-    const ElMessage = { success: vi.fn(), warning: vi.fn(), error: vi.fn() }
-    const { saveMessageFor } = await import('../src/views/AppMenu.save-message.js')
-    saveMessageFor({ ok: false, detail: '恢复默认失败' }, ElMessage, '恢复默认失败')
+    const kind = emitSaveMessage({ ok: false, detail: '保存失败' }, ElMessage)
+    expect(kind).toBe('error')
+    expect(ElMessage.error).toHaveBeenCalledWith('保存失败')
     expect(ElMessage.success).not.toHaveBeenCalled()
     expect(ElMessage.warning).not.toHaveBeenCalled()
-    expect(ElMessage.error).toHaveBeenCalledWith('恢复默认失败')
   })
 })
