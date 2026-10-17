@@ -19,8 +19,8 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
+    "status": "cleared",
+    "performedBy": "claude(backend, 决策层+验证层) + codex(跨家族第三轴, 验证层)",
     "findings": null
   }
 }

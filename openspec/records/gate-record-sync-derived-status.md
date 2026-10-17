@@ -34,7 +34,9 @@ date: 2026-10-17
 1. **CI 上的 `MERGE-LEDGER prs=` 真实读数未取**。本机已证 git 侧可行，GitHub runner 的 `changes` job 是否真能解析 `origin/main` 只能等本 PR 的 CI 日志（design 残留风险 1）。取不到就记"派生档未在 CI 生效"，不得拿本机数当成功证据。
 2. **旧载体的 23 条 ledger 自指欠账原样保留**（存量不动）。回填 PR 消失后它们应自然消化；本 change 不碰 `.quality-gates.md` 与 `gate-carrier-debt-ledger.json`。
 3. **`byDesign` 判定未复用 `changedFileStatuses`**（tasks §6 记为 3.3 偏差）：改用"路径不在 base 归属映射里"，代价是本地陈旧 baseRef 下会把他人已合并的记录判成 byDesign（只少拦不多拦）。评审若否决，换回注入 changeset 即可。
-4. **`--current-pr` 旗标已实现但生产无人传**（tasks 4.1 偏差）：byDesign 不依赖它。留着是为将来要把"本次 PR"与"base 缺失"区分开时不必改判据；若被评审判为死参数，删之。
+4. **`--current-pr` 已按第三轴评审 F2 删除**（不是"留着没人传"）：被白名单接受却没有消费者的旗标，在 CI 日志里读起来就像"某一档生效了"，与"拼错了被静默忽略"是同一条反模式的两端。`parseFlags` 现在对它抛未知旗标，并有用例钉住这条抛错。tasks §10 有处置链。
 5. **squash 尾注 `(#NNNN)` 是本仓惯例不是 git 保证**：改用不写尾注的合并方式会让派生档整体退回兼容层。该依赖已写进 `openspec-integration` 的新 Requirement，但"谁来守这条"仍靠人工自觉——没有机械锁能看见未来改了合并方式。
 6. **归档顺序**：本 change 的 delta 两侧都只能 ADDED（实测 MODIFIED 对不存在基线被 `archive_spec_update_failed` 硬拒）。若 `enforce-gate-record-presence` 后归档，基线里会并存两条描述同一 concern 的 Requirement，靠本 change 正文里的取代声明消歧；彻底收敛需改写对方那条，属他人未归档工件，不在本 PR 动。
-7. **M9（严格 reorder 变异）与 2.9 的完整反证**留待片 5 与 M1–M13 一并实跑；未跑就是未跑。
+7. **M1–M13 已全部实跑**（tasks §9/§10）：15 条变异（M4 拆 a/b、含 M2b）全部 CAUGHT、还原后 md5 一致；M9 起初与 M13 同红在真仓对账锁，给「谁做断言谁受约束」补了 `derivedClosed.length === 1` 才拿到指名红。唯一红集重合是 M4b/M12——M12 是测试文本变异，按设计必须红在它自己那条断言上。
+8. **CCG 深度审查欠账 4 条按「范围覆盖」闭环，不是假阳性豁免**：pre-commit 把变更规模判定写成**按父提交/stagedDiffHash 命名**的产物（`.ccg/reviews/<hash>.json`），而 PR 级门禁`check-pr-exec-record.js` 的 `evaluateDeepReviewDebt` 要求**变更集内每条 `mode=dual` 产物**的`deepReview.status` ∈ 闭环白名单。于是分支里那几个**中途提交**（334 / 223 / 464 行超阈值 + 1 条因敏感内容 1 处命中）各留下一条 `pending`，而外部评审的判据范围是**整条分支** `git diff origin/main...HEAD`——**评审粒度与产物粒度不同源**，不是"没评审"。闭环的正面依据：后端轴 claude（决策层 + 验证层，6 条逐条处置）+ 跨家族第三轴 codex（验证层，Critical 0 / High 1 / Medium 3，3 条成立已修），配置里的前端轴 opencode**两次零交付，如实记为未执行**、以 codex 顶替其"第二双眼睛"的位置。三条口径：① 本节写的是范围覆盖关系而不是笼统"已评审"；② 改产物只做定点字符串替换（自检：行数不变、`mode`/`sha` 不变、替换后仍可 `JSON.parse`），不重排 JSON；③ 这不是把 `mode` 降级、也不是假阳性豁免——`mode` 原样是 `dual`。另记一条诚实边界：产物里的 `findings` 字段不由本次落账维护（保持 `null`），**读到 `null` 不得当成"无发现"**，发现数与处置一律以本 PR 的 `openspec/changes/gate-record-sync-derived-status/tasks.md` §8/§10 为准。
+
