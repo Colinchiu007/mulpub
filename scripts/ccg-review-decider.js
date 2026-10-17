@@ -581,12 +581,7 @@ function saveRecord(result, sha, layer, plannedFiles) {
     // 不把这个字段落进记录，「换后端」就只是终端上滚过的一行字，机器无从追责 ——
     // 这正是 2026-10-18 三种旋钮全部静默失效没被任何门禁发现的原因。
     reviewBackends: RB.resolveBackends(),
-    deepReview: {
-      required: result.mode !== "skip",
-      status: "pending",
-      performedBy: null,
-      findings: null,
-    },
+    deepReview: buildDeepReviewInit(result.mode),
   };
   // ★ 2026-10-16（QM-6 i3，成立并已修）：内容寻址让「同一变更反复提交/amend」落到**同一个文件**，
   // 这正是收敛性的来源；但副作用是**后写会静默覆盖先写**。若先写那份的 deepReview 已经闭环
@@ -631,6 +626,22 @@ function saveRecord(result, sha, layer, plannedFiles) {
   }
   fs.writeFileSync(file, JSON.stringify(record, null, 2), "utf8");
   return file;
+}
+
+/**
+ * QM-6 丙：来源意图必须是结构化字段。
+ * 实测主干 827 份产物里 performedBy 有 34 种自由写法（12 条以 "self-play" 开头却声明做过外部复核），
+ * 所以分级只能读 tier（闭集）+ evidence（出处），二者合取才算外部证据。
+ */
+function buildDeepReviewInit(mode) {
+  return {
+    required: mode !== "skip",
+    status: "pending",
+    tier: "unknown",
+    performedBy: null,
+    evidence: null,
+    findings: null,
+  };
 }
 
 function currentSha() {
@@ -853,6 +864,7 @@ if (require.main === module) {
 
 module.exports = {
   RULES,
+  buildDeepReviewInit,
   judge,
   collectStaged,
   collectFromDiff,
