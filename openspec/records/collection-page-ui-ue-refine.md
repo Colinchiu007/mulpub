@@ -1,0 +1,122 @@
+---
+record: collection-page-ui-ue-refine
+task: 采集页整体 UI/UE 统一与精致化——控件规范层 / 死类清零 / 页面级统一 / hex 收编 / 文案迁 locale
+date: 2026-10-17
+branch: collection-page-ui-ue-refine
+sync_status: PENDING
+sync_reason: PR 尚未合并（记录随代码 PR 落地，合并后回填 merge SHA）
+sync_backfill_owner: collection-page-ui-ue-refine 会话（回填 PR）
+---
+
+# 执行记录：collection-page-ui-ue-refine（2026-10-17）
+
+## 0. 变更类型与隔离
+
+| 项 | 内容 |
+|---|---|
+| 变更类型 | 运行时代码（renderer CSS/模板/locale）+ 新判据测试 + 文档 |
+| 隔离方式 | 独立 worktree `D:\Data\projects\mp-worktrees\mp-collection-page-ui-ue-refine`（**D 盘**），裸分支 `collection-page-ui-ue-refine`，基线 `origin/main` |
+| 动因 | 用户真机走查采集页：「整体布局和细节元素和用户交互体验，视觉上都很散乱，不够统一和清晰，也不够精致高级」 |
+| 入口 | `scripts/session-init.sh collection-page-ui-ue-refine`（rc=0）；`pre-code-edit-guard.ps1` 在 worktree 内 exit 0；`verify-worktree-deps.js` OK（11 消费方解析到本 worktree） |
+
+## 1. 问题清单（逐条 file:line 取证，共 15 项，详见 PRD §1）
+
+最关键的三项：
+
+| # | 问题 | 证据 | 为什么测试没发现 |
+|---|---|---|---|
+| P3 | `is-primary` 死类 | `CollectedResultsList.vue:99/100` 消费，**全 src 检索 0 处定义** | 既有测试只断言 `classes()` 含 `is-primary`，**不断言该类有样式** ⇒ 分级失效三年没人发现 |
+| P3 | `class="primary"` 死类 | `Collection.vue:328`、`CollectionDraftsPanel.vue:56` | 同上 |
+| P14 | `collection-tab-badge` 无定义 | 两个页签组件渲染它，0 处定义 | 角标是裸文本，无底色无圆角 |
+
+## 2. 门禁结果
+
+| 门禁 | 状态 | 证据 |
+|---|---|---|
+| 变更类型与隔离 | PASS | 独立 worktree（D 盘），`pre-code-edit-guard` exit 0 |
+| TDD | PASS | 先 RED：CSS 契约 17 例红 + 页面结构 5 例红（aria/三组/99+/locale/primary 分档）；实现后 48 例全绿 |
+| 全量测试 | PASS | 采集域 + `Collection.test.js` + `src/styles/` + `src/components/` = **83 文件 / 1081 用例全绿** |
+| eslint（apps/desktop） | PASS | 改动文件 `--quiet` rc=0 |
+| locale 成对与使用性 | PASS | `--pair-base origin/main` PASS / `--keys` PASS（2112 key）/ `--cjk` PASS（基线 1374 → 当前 1208，**净减 166，零新增**） |
+| check-max-lines | PASS | 规范层初版 648 行撞 500 硬限 ⇒ **按门禁处方拆为两个文件**（collection-page.css 360 + collection-page-legacy.css 246），未挂账、未抬登记值 |
+| 品牌残留 | PASS | `check-no-brand-residue.js` rc=0 |
+| QM-4 视觉 | **未本机取证** | 本机 Chromium 未安装（`apps/desktop/.playwright-browsers` 不存在）；像素归因与基线重建以 CI `QG Visual` 结论为准。如实登记，不当成通过 |
+| QM-1 打包 | **未执行** | 本轮未改 `electron/` 主进程代码（仅 renderer），按 QM-1 触发条件（改 `apps/desktop/electron/` 或 `packages/rpa-engine/`）不强制；如实登记 |
+| QM-6 双模型评审 | 见第 4 节 | 按 decider 判定 |
+
+- 保留门禁：变更类型与隔离 ✅ | TDD ✅ | 全量测试 ✅ | eslint ✅ | locale 三项 ✅ | max-lines ✅ | 品牌 ✅ | QM-4 未本机取证 | 远程同步 PENDING
+
+## 3. 本轮最关键的增量：「消费⇒有定义」判据
+
+### 3.1 缺陷形态
+
+`is-primary` 这个 class 在**全仓没有任何样式定义**，却被两个组件当作「主操作」标记使用。后果：
+
+- 「创建草稿/发布」与「查看/视频创作」**视觉上完全相同**，PRD 里写的分级是一纸空文；
+- 而 `CollectedResultsList.test.js:77-80` 断言的正是 `expect(cls('draft')).toContain('is-primary')`——
+  **测试全绿**。因为它只验证「class 名挂上去了」，不验证「class 名有样式」。
+
+这与本仓反复出现的「装饰性门禁」同型：**判据看着在守某个东西，实际守的是它的影子**。
+
+### 3.2 判据实现
+
+`features/collection/collection-page-css-contract.test.js`：
+
+```
+遍历 SCOPE_VUE（9 个采集域渲染层文件）
+  抽取 <template> 里 class="..." 的**静态** token（:class 动态部分不进判据）
+  对每个域内命名空间前缀的 token（col-/zb-/qc-/card-/batch-/stat-/copy-/tag-/library-/asr-/creator-）
+    ⇒ 必须在 collection-page.css 或 collection-page-legacy.css 或该组件自身 <style> 中找到 .token { 规则
+反向：is-primary / primary 两个死类 ⇒ 域内 0 消费
+```
+
+三条工程细节（都踩过）：
+
+1. **`findRule` 必须按逗号切选择器**：初版用整体正则，`.col-btn-cancel, .col-btn-clear {` 这种选择器列表
+   只认第一个成员 ⇒ 漏判第二个。实测 `col-btn-cancel` 返回 true 而 `col-btn-clear` 返回 false。
+2. **必须打印命中条数并对下界断言**（AGENTS QM-2）：`collectStaticClassTokens()` 返回后断言
+   `tokens.length >= 20`。否则正则改坏导致匹配 0 条时，下面所有「必须有定义」都会**恒真**。
+3. **判据自反锁**：显式断言 `findRule(pageCss, 'col-btn--primary') === true`，防止「判据本身失效但全绿」。
+
+### 3.3 判据当场抓到的真实问题（不只是防假设）
+
+跑第一轮就抓到 6 类「消费了但没定义」的类——它们**此前都在生产里**：
+
+- `col-section-title` / `col-section-title--flex` / `col-error-banner`：定义在 `Collection.vue` 的
+  **scoped** style 里，却被 `BatchCollectPanel` / `QuickCollectPanel` / `CollectionDraftsPanel` /
+  `CollectedResultsList` 消费。scoped 样式出不了组件 ⇒ **消费方实际拿不到这些样式**，
+  四个组件的区块标题/错误横幅一直在用继承值渲染。
+- `col-btn-clear`：三处消费、定义在与 `.col-btn-cancel` 同一条规则里（见 3.2-1）。
+
+## 4. 实操缺陷（发生在自己身上，留痕）
+
+1. **`new URL('.', import.meta.url)` 抛 `The URL must be of scheme file`**——`.`, `..` 这类相对标识符
+   在 `new URL()` 的第二个参数位置不合法。删掉即可（本来也没用到）。
+2. **块注释里写 `--space-*/--radius-*` 提前闭合注释**：`*/` 出现在 CSS 注释里，把后面整段变成
+   「注释外的内容」⇒ tokens.css 的 `--col-*` 槽全部读不到，契约测试 9 连红。
+   修法：注释里禁用该字样（已在 tokens.css 与 collection-page.css 两处显式立规）。
+3. **`readVarBlock` 的 `depth` 初值 0 + 循环条件 `depth > 0` ⇒ 一次都不进循环，返回空串**：
+   经典 off-by-one。修为 `depth = 1` 且从 `indexOf('{') + 1` 起。
+4. **规范层拆文件时丢了内容**：用 PowerShell 按行号切分后，`part1` 尾部三个「历史类名收编」规则
+   （`col-btn-clear`/`col-btn-retry`/`col-btn-retry-sm`）没写进新主文件 ⇒ 契约测试立刻红。
+   这正是「拆文件必须靠判据复核」的实例——**没有判据，这次丢失会静默进入生产**。
+5. **测试里 mock 了 element-plus 但 el-icon 是全局组件**：`<el-icon>` 走 global stubs 而非
+   `vi.mock('element-plus')` 的导出。改用 `global.stubs`。
+
+## 5. QM-6 判定
+
+变更集中在 renderer 的 CSS/模板/locale + 两个新判据测试，无 IPC/主进程/数据模型改动。
+按 `ccg-review-decider` 判定（提交时落盘）。评审焦点应是「CSS 契约判据会不会误报」——
+答复：判据只覆盖**静态** class token（`:class` 动态部分不进），域内命名空间白名单前置，
+且有自反锁（命中数下界 + 已知类必须命中）防「判据失效但全绿」。
+
+## 6. 未闭合（不假装闭合）
+
+1. **像素视觉未本机取证**：本机无 Chromium。`collection` / `collection-dark` 基线必漂移
+   （页头底色/页签/快捷卡三组/卡片内边距/按钮五带），需在 CI `QG Visual` 归因后重建。
+2. **`:class` 动态部分的类名未进判据**：如 `:class="{ 'is-disabled': ... }"` 里的 `is-disabled`
+   是靠组件测试断言的，CSS 契约只覆盖静态 token。属刻意收窄（动态部分要求值，是行为测试的面）。
+3. **`QuickCollectCommandDialog` 仍是手写 mask 而非 el-dialog**：本轮只把它的视觉对齐 el-dialog
+   （mask 底色/圆角/标题分隔），**未改形态**——改它牵动 `QuickCollectPanel.test.js` 的挂载断言，超出本轮范围。
+4. **快捷区平台首字徽标**（`$t('collection.sourceWeibo').slice(0, 1)`）是文字而非图标组件：
+   去 emoji 的过渡方案，非最终形态（最终应是平台品牌图标，需设计侧定稿）。
