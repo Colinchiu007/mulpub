@@ -21,7 +21,7 @@ module.exports = {
     {
       path: 'apps/desktop/electron/services/identity/identity-auth-window.js',
       name: '_pendingLoading',
-      pending_signoff: true, // agent 起草；人工核对 open() 的复位分支覆盖后改为 false 才生效
+      pending_signoff: false, // 已由用户签核（2026-10-17，回复 A）：核对 open() L222-229 复位两分支覆盖 + reset() L47/L75
       mechanism: 'openLoading() 置位（L202 复用分支提前 return / L206 创建后置位）；open() 在 L222-229 复位（窗口存活复用与销毁重建两分支都覆盖）；reset() 的 L47/L75 亦复位',
     },
   ],

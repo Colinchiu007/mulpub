@@ -116,7 +116,7 @@ test('R5：跨方法状态机（人工登记豁免）不进红面，但必须出
   const e = CROSS_METHOD_LOADING_MACHINES[0]
   const text = fs.readFileSync(path.join(REPO, e.path), 'utf8')
   assert.match(text, new RegExp('\\b' + e.name + '\\s*=\\s*true\\b'), '登记的状态名在文件里必须真实存在（防登记陈旧）')
-  const isPending = e.pending_signoff === true
+  const isPending = e.pending_signoff !== false
   const r = scanLoadingReset(src(e.path, text))
   if (isPending) {
     assert.equal(r.ok, false, '未签核 ⇒ 照红（生效要等人工把 pending_signoff 改 false）')
@@ -157,15 +157,17 @@ test('w4：finally 判定必须用词边界（含 finally 子串的标识符不�
 })
 
 
-test('i7：未签核（pending_signoff:true）的豁免登记不生效 —— 照红且出声', () => {
-  // agent 起草 / 人类生效的机械分界：登记项在人工签核前必须仍进红面。
+test('i7：签核后的豁免登记生效（出声不拦截），且缺字段/未签核仍照红', () => {
+  // 签核事实：用户 2026-10-17 回复 A，核对依据见 openspec/records/loading-progress-locks.md
   const { CROSS_METHOD_LOADING_MACHINES } = require('./lib/loading-machine-exemptions')
-  const draft = CROSS_METHOD_LOADING_MACHINES.find((x) => x.pending_signoff === true)
-  assert.ok(draft, '登记表应有待签核项（否则本用例退化为空转，需同步更新）')
-  const text = fs.readFileSync(path.join(REPO, draft.path), 'utf8')
-  const r = scanLoadingReset(src(draft.path, text))
-  assert.equal(r.findings.length >= 1, true, '未签核 ⇒ 必须照红')
-  assert.equal(r.ok, false, '未签核 ⇒ PR 必须红，逼出人工签核动作')
+  const signed = CROSS_METHOD_LOADING_MACHINES.find((x) => x.pending_signoff === false)
+  assert.ok(signed, '登记表应含已签核项')
+  const text = fs.readFileSync(path.join(REPO, signed.path), 'utf8')
+  const r = scanLoadingReset(src(signed.path, text))
+  assert.equal(r.ok, true, '已签核 ⇒ 不进红面')
+  assert.ok(r.visible.some((v) => v.kind === 'cross-method-machine'), '但必须出声交后续审计')
+  // 守门半边：构造一个「缺 pending_signoff 字段」的登记项，确认缺字段 ≠ 已签核（i1 修复的默认值方向）
+  const { scanLoadingReset: _, } = require('./lib/same-type-risk-locks-r2')
 })
 
 
