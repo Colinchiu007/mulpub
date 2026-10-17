@@ -490,3 +490,13 @@ IPC 口径（7+1）、定期检测（新建 10 例）、渲染层（3 改写 + 3
 `CHECK_LOGIN_INCONCLUSIVE`；允许集**默认空**；否决集优先于允许集；判定顺序（先否决后允许）。
 既有回归同跑：`account-manager.test.js` 全量、四个 `*-render-crash.test.js`（同族先例）、
 `playwright-manager.test.js`、`useExpiredAccountsBanner.test.js`。
+
+### 18.7 外部互证：参考产品B（CEF 壳）的账号逻辑（2026-10-17 逆向补证）
+
+对参考产品B 的**静态逆向**（详见 `01-docs/REVERSE-REFERENCE-PRODUCT-B-CEF-ACCOUNT-2026-10-17.md`）给出三条与本变更一致的证据：
+
+1. **它也不用浏览器判定登录态**：宿主二进制里 `windowless` / `offscreen` / `OSR` 命中均为 **0**；平台账号态由原生 HTTP 引擎（`MediaTaskMgr.dll`，1337 条平台 URL、显式 `Cookie:` 头、WinHttp/libcurl）调用各平台"当前账号/用户信息"接口得出（如 `.../aweme/v1/creator/user/info/`、`.../rest/v2/creator/pc/authority/account/current`、`.../api/galaxy/user/info`）。
+2. **它同样区分"失效"与"不确定"**：查询结果分 `suc` / `logout` / `fail` 三桶，UI 文案分别为「查询成功」/「查询失败 账号登录失效」/「查询失败」——与本 PRD §17.4 的「正常 / 失效 / 未确认」三态**同构**。
+3. **它把失败原因翻译成可执行提示**：平台错误码 `2190008` → 「授权失效,请重新授权」、`100437` → 「无法获取私密账号数据」。这一点强于我们现状（`reason` 仅内部可见、UI 统一显示「未确认」），已列为后续改进项（`PLATFORM_LOGIN_ERROR_HINTS`）。
+
+> 同时如实记录其**与我们不同**的选择：参考产品B 保留了「后台自动重登窗口」（`backgroundautoreloginwnd`），并把用户账号密码注入平台登录页模拟点击。我们**不采用**这两条（安全 / 合规 / 风控三重风险），维持"默认关闭 + 用户手动重新登录"的口径。
