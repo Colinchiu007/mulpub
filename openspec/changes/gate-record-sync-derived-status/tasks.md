@@ -5,7 +5,7 @@
 ## 0. 前置 spike：归档顺序（评审意见 i6，实现前必须做完，因为它决定规格怎么写）——已完成
 
 - [x] 0.1 事实核实：`grep -rl 远程同步 openspec/specs/` 为空；`enforce-gate-record-presence/specs/quality-gate-execution-record/spec.md:5` 是 `## ADDED Requirements`，那条 Requirement 从未进过基线 ⇒ 对它写 MODIFIED 在法律上就不成立。
-- [x] 0.2 在临时副本 `D:/Temp/osx-spike-b`（`cp -r openspec` 后独立操作，不碰本仓）跑三条：S1 以 MODIFIED 归档 ⇒ `severity=error / code=archive_spec_update_failed / "archive": null / No files were changed`；S2 改 ADDED 归档 ⇒ `specsUpdated=true, added=3`，基线文件被创建；S3 随后归档 `enforce-gate-record-presence` ⇒ `added=5` + 一条 `delta Purpose ignored` warning。
+- [x] 0.2 在临时副本 `<os.tmpdir>/osx-spike-b`（`cp -r openspec` 后独立操作，不碰本仓）跑三条：S1 以 MODIFIED 归档 ⇒ `severity=error / code=archive_spec_update_failed / "archive": null / No files were changed`；S2 改 ADDED 归档 ⇒ `specsUpdated=true, added=3`，基线文件被创建；S3 随后归档 `enforce-gate-record-presence` ⇒ `added=5` + 一条 `delta Purpose ignored` warning。
 - [x] 0.3 结论已回写 design D10 与规格：**两侧都只用 ADDED**；MODIFY 假设被实测否证，规格正文加了"取代关系"声明与并存消歧说明（S3 暴露的 Purpose 只认第一份，也如实记进 D10）。
 - [x] 0.4 `分层分支策略` 保持不碰：本 change 在 `openspec-integration` 侧只 ADDED 一条，未新增第三条 MODIFY（实测该条已被 `freeze-legacy-gate-carrier` 与 `hot-carrier-atomic-landing` 两条未归档 MODIFY 占用）。
 
