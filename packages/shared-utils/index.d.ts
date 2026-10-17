@@ -101,6 +101,8 @@ export interface PublishIntervalVerdict {
   bucket: 'account' | 'platform' | 'daily' | null;
   reason?: 'interval' | 'daily_quota' | null;
   daily?: { used: number; max: number; dayKey: string } | null;
+  /** 时钟倒挂命中（时间戳落在未来 ⇒ 本机时钟域损坏；fix-account-interval-ghost-wait） */
+  clockAnomaly: boolean;
 }
 
 export class PublishIntervalGuard {
@@ -159,6 +161,8 @@ export class PublishIntervalGuard {
   setJitterRatio(ratio: number): void;
   /** 运行期调整回滚后退避（下界 MIN_RELEASE_GRACE_MS 由策略模块钳位） */
   setReleaseGraceMs(ms: number): void;
+  /** 命中「未来时间戳」判定的间隔键（诊断用；写入侧闸在桌面 store 层） */
+  futureTimestampKeys: string[];
   static PLATFORM_BUCKET_ACCOUNT_ID: string;
   /** 「未提交失败回滚」每账号每日许可数的硬顶；与日配额解耦（v3） */
   static MAX_ROLLBACK_PER_DAY: number;

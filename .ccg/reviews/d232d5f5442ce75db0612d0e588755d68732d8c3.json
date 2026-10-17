@@ -1,0 +1,92 @@
+{
+  "sha": "d232d5f5442ce75db0612d0e588755d68732d8c3",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 1398 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 1398,
+    "fileCount": 22,
+    "codeFileCount": 11,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 3,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "1696fe58d486e1bb89f90c186ccb252ec33397acfc1a49b06358fa7d1748e549",
+  "decidedAt": "2026-10-16T15:40:30.704Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "package.json diff only adds worker file; no extraResources update shown. Font-bundle fix claim unverified in this patch.",
+        "highRiskDomains": [],
+        "prosecution": "若 `build.extraResources` 真的没有 `dist/fonts → fonts` 条目，字体就进不了安装包，整个自包含方案在打包态归零 —— 而这正是本 PR 曾经踩过的坑（`dist/fonts` 曾是**死配置**：文件早已被删，只剩一个指向空目录的 extraResources，每次打包只打印一行 `file source doesn't exist` 而无人察觉）。本轮 diff 里 package.json 只多了一行 worker 条目，确实**看不出** extraResources 的状态。",
+        "defense": "`extraResources` 条目**一直存在且未被本 PR 改动**（所以不出现在 diff 里），这正是「旧配置已正确、本 PR 只需供给真实文件」的预期形态：① 实测 `node -e \"require('./apps/desktop/package.json').build.extraResources\"` 首项即 `{from:'dist/fonts', to:'fonts'}`；② 契约③（bundled-font-packaging.test.js）断言存在 `to === 'fonts'` 的条目且 `from` 指向 `dist/fonts`；③ 契约② 断言该 `from` 有**真实来源**（Vite publicDir = src/public，构建时把字体拷到 dist/fonts）；④ 真实产物复核：`dist-electron/win-unpacked/resources/fonts/SmileySans-Oblique.otf` 存在，且与源、与 dist/fonts 三处 SHA256 全等（139B5DCB…）。",
+        "verdict": "dismissed",
+        "rationale": "指控基于「diff 里没看到」推断「配置不存在」，属**取证方式错误**（只看差量、未看全量）。可验证反证三条：① package.json 现状含 `{\"from\":\"dist/fonts\",\"to\":\"fonts\"}`（本 PR 未改动它）；② 契约③ 与契约② 分别锁定该条目的存在与来源真实性；③ 打包产物实测存在 `resources/fonts/SmileySans-Oblique.otf` 且三处 sha 全等。评审建议「Confirm build.extraResources includes dist/fonts→fonts」—— **已确认，且是自动化的**（契约③ + 契约⑫ 的真实产物断言）。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "resolveContentCjkFont accepts bundledFontPath and systemCandidates without sanitization, enabling arbitrary file read and copy.",
+        "highRiskDomains": [],
+        "prosecution": "两个覆盖选项出现在模块的公开 API 上。若未来有人把 IPC 的用户输入接到 `bundledFontPath`，`copyToAsciiSafe` 会把它复制到 tmp —— 构成任意文件复制面；`systemCandidates` 虽不复制，但会 stat 任意路径。",
+        "defense": "① **复制侧只接受常规文件**：`copyToAsciiSafe` 先判存在，再要求 `stat.isFile() && size>0`，目录/设备/管道一律返回 ''（既有用例「源路径是目录（statSync 抛错）时返回空而非抛异常」覆盖该分支）。② **`systemCandidates` 不做任何写入**：只进 `existsSync`/`statSync`/`isFfmpegFontPathSafe`，最坏是「多 stat 一个路径」。③ **可达性被结构锁掐住**：契约⑧ 遍历 `apps/desktop/electron` 下全部生产 js（排除 `*.test.js` 与 `font-resolver.js` 自身），出现 `bundledFontPath` **或 `systemCandidates`** 即判红 —— 本轮已把 `systemCandidates` 一并纳入该锁（先前只锁前者）。④ 生产三个消费方（asset-generator / local-cover-generator / story2video-compose-engine）全部**无参调用**，实测零传参。",
+        "verdict": "dismissed",
+        "rationale": "指控描述的是**假设性未来误用**，当前可达面为零，且被两条可执行锁掐死：非文件源在复制侧即被拒（有既有用例）；两个标识符出现在生产代码里即被契约⑧ 判红（本轮已扩展覆盖 systemCandidates）。评审建议的「Restrict paths to app directories; reject user-supplied values in production」在**可达性层面已达成**（生产代码根本不传这两个选项，且由结构锁保证）。不采纳「NODE_ENV=test 门禁」的理由：那会把「有锁的可达性断言」换成「靠环境变量的隐式开关」，更难机械验证，与本仓判据纪律相悖。"
+      },
+      {
+        "id": "i3",
+        "severity": "Critical",
+        "finding": ".cover-rasterize-worker.js reads svgFile from argv directly; no validation allows arbitrary file read.",
+        "highRiskDomains": [],
+        "prosecution": "worker 是独立可执行的脚本，直接把 `--svg-file` 当路径读取，不校验存在性、不限制目录。若有人能控制该参数，就能让它读任意文件。",
+        "defense": "① **worker 的参数来自本进程自己生成的路径**：`writeTempSvg()` 写 `os.tmpdir()/mp-cover-svg/cover-<ts>-<rand>.svg` 后把该路径作为 argv 传给 `execFileSync(process.execPath, ...)`，全程无外部输入参与（可验证：`local-cover-generator.js` 内 `writeTempSvg` 的实现与唯一调用点）。② **没有跨越任何权限边界**：攻击者若要能控制该 argv，必须已经能在本机以当前用户身份执行代码 —— 那种前提下他直接读目标文件即可，无需经过 worker。③ **worker 没有数据外泄通道**：它读 SVG（文本）、写 PNG（图像），不把读到的内容回传给调用方，也不写日志。④ worker 的失败路径已断言非零退出码（契约⑦），不会把失败伪装成成功。",
+        "verdict": "dismissed",
+        "rationale": "以**威胁模型**为判据，指控不成立：`--svg-file` 的值由本进程生成的 `os.tmpdir()/mp-cover-svg/cover-*.svg` 决定（唯一调用点可查），不存在用户可控入口；且即使被直接调用，也不跨越权限边界、无外泄通道（只读文本、只写图像）。评审建议的「Validate argument exists and restrict to allowed temp directories」属**卫生改进**（非安全缺陷）：worker 已在失败时非零退出（契约⑦ 断言），路径不可读时会走该路径而非静默成功。故本条不作为阻断项；如后续需要更严的进程内卫生，可作为独立切片登记。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "font-resolver relies on external escapeFontFilePath for colon; contract not enforced inside resolver exports.",
+        "highRiskDomains": [],
+        "prosecution": "`isFfmpegFontPathSafe` 刻意放行 `:`，其安全性完全依赖**另一个模块**（compose-engine 的 `escapeFontFilePath`）把 `:` 转义成 `\\:`。这是一个没有判据的跨模块口头契约：任一侧改动都会让它静默失效，而后果是 ffmpeg 静默用错字体（本 PR 已实测的形态）。",
+        "defense": "本轮已把它锁成**可执行判据**（契约⑪，font-resolver.test.js，3 例）：① 断言 `escapeFontFilePath('C:\\\\Windows\\\\Fonts\\\\msyh.ttc') === 'C\\\\:/Windows/Fonts/msyh.ttc'` 且转义后**不含裸冒号**（正则 `/[^\\\\]:/`）；② 对三个真实样本断言「resolver 放行 ⇒ 转义后无裸冒号」的**一致性**；③ 断言引号路径被 resolver 拒绝、且引擎转义**不处理引号**（反向证据说明为何必须由 resolver 拦）。这使跨模块契约从「注释里的口头约定」变成「一侧改动静默失效即变红」。",
+        "verdict": "dismissed",
+        "rationale": "指控在本轮**已被实际修复**：契约⑪ 三个用例把该跨模块契约锁成可执行判据（含「放行 ⇒ 转义后无裸冒号」的一致性断言，以及引号不可由引擎兜住的反向证据）。评审建议「Document contract explicitly or enforce escaping in module」—— 两种都做了：`isFfmpegFontPathSafe` 的 JSDoc 写明「刻意不拒 `:`，因为它由 escapeFontFilePath 转义，且正控实测可渲染」，并附契约⑪ 的行为锁。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "buildFontconfigForSharp writes temp XML/files with no cleanup mechanism.",
+        "highRiskDomains": [],
+        "prosecution": "每次解析都会写 `fonts.conf`；若不清理，长期运行会堆积垃圾文件。",
+        "defense": "① **文件名是确定性的，不是每次随机**：`<tmpRoot>/mp-fonts/fonts.conf`（模块常量 ASCII_SAFE_DIR_NAME='mp-fonts'，契约② 写死字面量锁定）⇒ 每次写入是**覆盖同一文件**，不累积；② cachedir 也固定在 `mp-fonts/fontconfig-cache`，由 fontconfig 自管；③ 与字体副本共用同一目录，副本本身也是固定名 + 幂等（mtime 不变的幂等性有专门用例，刻意不用时间型断言）；④ 真正**随机命名**的那处（`writeTempSvg` 的 `cover-<ts>-<rand>.svg`）已在上一轮由 `try/finally` 回收，并有用例「栅格化后不残留临时 SVG」锁定。",
+        "verdict": "dismissed",
+        "rationale": "指控的「无清理机制 ⇒ 堆积」前提在**确定性文件名**下不成立：`fonts.conf` 与字体副本都是固定路径、逐次覆盖（契约② 以字面量锁定 `mp-fonts` 与 `SmileySans-Oblique.otf`），实测同一 tmpRoot 下反复解析只有一个 fontconfig 文件与一个字体副本。评审建议的两条出路中，「use deterministic filenames with overwrite」**就是当前实现**；「Add cleanup」对固定文件无意义（删了下次还要重建）。唯一随机命名的临时 SVG 已回收并有用例锁定。"
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "finding": "Large 1.9MB binary copied to shared os.tmpdir() without concurrency control.",
+        "highRiskDomains": [],
+        "prosecution": "`copyFileSync` 写固定目标路径、无文件锁。若同机有第二个进程并发走到这里，一方可能读到**半写状态**的文件（`copyFileSync` 非原子），后果是字体加载失败或渲染异常，而这类失败在 API 层可能与成功同形。",
+        "defense": "① **复制后有大小校验**：`copyFileSync` 之后立即 `if (!existsSync(dest) || statSync(dest).size !== stat.size) return ''` —— 大小不符即判定失败并如实回落系统字体，不会把半截文件当成可用字体交出去；② **降级方向安全**：最坏结果是该次调用回落到系统字体（本 PR 已登记的既有取舍），不会产生损坏的封面/字幕文件，也不会崩溃；③ **写者只有本应用自己的进程**，且目标在带权限约束（0o700，本轮已加）的 per-user tmp 子目录内；④ 首次调用后每进程只做 stat 短路（幂等用例锁定 mtime 不变）。",
+        "verdict": "dismissed",
+        "rationale": "指控的竞态**真实存在但影响被现有判据兜住**：复制后的大小校验使「半写文件被当可用字体」这一最坏形态不可能发生 —— 大小不符即返回 ''，走已登记的「回落系统字体」路径（安全方向，且 Windows 英文版自带 CJK 字体，中文仍可渲染）。评审建议「Use atomic move or file-lock before writing」属**更优实现**，但不构成本 PR 的阻断项：实测并发窗口极窄（仅进程首次解析时的 1.9MB 拷贝），且失败是**可检测、可降级**的（非静默假成功）。作为已登记局限保留：若后续要在多实例场景下彻底消除该窗口，可用 `write to dest.tmp-<pid> + rename` 的原子写法，属独立切片。"
+      }
+    ],
+    "blocking": [],
+    "note": "自扮演裁决：全部指控不成立",
+    "at": "2026-10-16T15:46:42.021Z"
+  }
+}

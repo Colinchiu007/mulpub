@@ -1,0 +1,346 @@
+---
+record: ccg-record-content-addressing
+task: 判定记录改用内容寻址命名，消除同基线分叉的 add/add 撞名与 amend 孤儿
+date: 2026-10-16
+---
+
+## 本次执行记录：判定记录改用内容寻址命名（ccg-record-content-addressing，2026-10-16）【混合 PR（门禁代码）】
+
+### 问题（三个症状，同一根因）
+
+CCG 判定记录写在 `.ccg/reviews/<sha>.json`，其中 `<sha>` 是 **pre-commit 时的 HEAD**，即**新提交的父提交**。
+由此产生三个症状，本轮**各实测到**：
+
+1. **同基线分叉必然撞名（实测 3 次）**：父 sha 被同基线的所有分支共享。两个从同一基线分叉的会话，
+   各自提交**不同**变更，却写到**同一个文件名** ⇒ rebase 时 add/add 冲突。而冲突的任何单侧取法都有损失
+   （取 ours 丢掉本 PR 的记录，取 theirs 覆盖他人产物 —— 仓规明令禁止「后推覆盖」）。
+   本轮三次现场：`2bcce6833….json`（与另一会话 add/add）、`5c7b3c127….json`、`56e34b56b….json`。
+2. **amend 产生孤儿**：名字指向父提交，`amend` 后该父提交可能不再是历史中的任何提交 ⇒ 键悬空。
+3. **不收敛倾向**：闭环需再提交、再提交又按新父 sha 生成新名字。
+
+> ⚠️ **自我更正（重要）**：上一轮我在 `learnings.md` 与 `harden-runtime-endpoints-auth.md` 里把症状 3
+> 写成「本笔靠最后一次提交只动文档路径被判 skip **侥幸**越过」。**这个归因是错的。**
+> 实测 `check-pr-exec-record.js:398-407`：门禁**只看 `mode === 'dual'`**，且注释里已记载该收窄正是
+> 2026-10-15 为修掉「初版对 single 也要求闭环 ⇒ 每次提交都要跑 15 分钟双模型审查，而写完审查结果
+> 再提交时又生成新的 single 记录 ⇒ 无法闭合的循环」（缺陷 G）而做的。**所以「single 被判 skip 而不欠账」
+> 是既有设计，不是侥幸。** 本 PR 只修正我自己的错误陈述，不改门禁那段判据。
+
+### 方案
+
+记录名由 `${sha}.json` 改为 **`${stagedDiffHash}.json`**（sha256 ⇒ 64 位小写十六进制）。
+`stagedDiffHash` 是**排除 `.ccg` 的暂存 diff** 的哈希 —— 这个键判定器本来就在记录里存着，
+且引擎 `ccg-deep-review.js::readDecision()` 的内容寻址兜底**用的就是同一个键**，所以改名对引擎透明。
+
+| 症状 | 改名后 |
+|---|---|
+| 撞名 | 变更不同 ⇒ 哈希不同 ⇒ 文件名不同 |
+| 孤儿 | 同一变更 amend ⇒ 哈希相同 ⇒ 同名覆盖，不产生悬空键 |
+| 不收敛 | 同上，同一变更反复提交覆盖同一个文件 |
+
+边界：`stagedDiffHash` 为空（例如只改 `.ccg/` 的提交，diff 排除 `.ccg` 后为空）时**回落**到
+既有的 40 位父 sha 形态 —— 保持门禁 `AUDIT_ARTIFACT_RE` 可识别，且不产生空名。
+
+### 改动清单（6 个源文件 + 1 个新记录 + 1 篇执行记录）
+
+| 文件 | 改动 |
+|---|---|
+| `scripts/ccg-review-decider.js` | ① 新增纯函数 `recordFileName(stagedDiffHash, sha)` 并导出；`saveRecord` 把 `stagedDiffHash` 从内联 IIFE 提为变量（**名字与键同源**，避免两处各算一次而漂移），再由它取名 ② **QM-6 i2**：`collectStaged` 的两条命令（`--numstat` 与 `-U0`）都加 `-- . :(exclude).ccg`，与 hash 同口径 ③ **QM-6 i3**：`saveRecord` 写前检查同名文件，若其 `deepReview.status` 在闭环白名单内则拒写并另存 `<name>-again-<sha8>.json` ④ 导出 `CLOSED_DEEP_REVIEW_STATUSES`（与门禁同源，有等价锁） |
+| `scripts/check-pr-exec-record.js` | `AUDIT_ARTIFACT_RE` 由只认 40 位放宽为 **40 或 64** 位 |
+| `scripts/deep-review.sh` | ① 新增内容寻址查找段，位置在早退**之前** ② **QM-6 i1**：早退前新增告警段，点名 `git commit -a` 这一实测故障形态并给出两条口径的自检命令 ③ **QM-6 i7**：抽出 `_read_mode`，记录存在但读不出 mode 时显式告警，不再与「没跑判定器」混为一谈 |
+| `scripts/ccg-review-decider.test.js` | +7 条：命名契约、收敛、撞名反向锁、空 diff 回落、结构锁、白名单同源锁、已闭环不覆盖锁 |
+| `scripts/check-pr-exec-record.test.js` | +7 条：新形态放行、邻近形态仍拒、fail-open 反向锁、口径不倒退、i1 告警锁、i2 口径锁、i7 解析锁 |
+| `scripts/deep-review-deps.test.js` | +4 条：存在哈希计算、查找早于早退、配方同源、`_read_mode` 定义唯一 |
+
+### 为什么必须同时改三处（漏一处就失效或 fail-open）
+
+- 只改判定器不改门禁：新名字**不被** `AUDIT_ARTIFACT_RE` 认 ⇒ 被判「夹带」，每次提交恒红。
+- 只改门禁正则不改判定器：40 位仍然工作，撞名依旧。
+- 只改前两处不改 `deep-review.sh`：脚本按 `<HEAD>.json` / `<HEAD^>.json` 找 ⇒ 双双落空 ⇒
+  **早退 exit 0**，深度审查永远不跑。这正是 2026-10-15「缺陷 E」修过一次的同型失效
+  （引擎本有内容寻址兜底，却被脚本里一行早退挡在门外，兜底成了死代码）。
+
+### QM-6 双模型评审（两轮）
+
+**第一轮**（变更 241 行）：DUAL，7 条问题，最低分 correctness 5。引擎对 i1（Critical upheld）与
+i2/i3（高危域 crypto/auth）判阻断 ⇒ 按用户已批准的 **(a) 口径**委托**外部复核**，
+三条修复均已落实。逐条裁定见 `.adversarial/ccg-deep-ae83768d/adjudication.json`：
+
+| id | 严重度 | 裁决 | 处置 |
+|---|---|---|---|
+| i1 | Critical | **upheld** | 已修：早退前加告警段（点名 `git commit -a` + 两条自检命令）。**受控实验证实**：`commit -a` 时 A(--cached)=`8b02f61d34a9e858` ≠ B(HEAD^..HEAD)=`29140567e3fb2604`；`commit --only` 时 A==B |
+| i2 | Warning(crypto) | **upheld** | 已修：`collectStaged` 两条命令都排除 `.ccg`（首版只改一条，锁的文案即写明「口径要对齐的是两条」） |
+| i3 | Warning(auth) | **upheld** | 已修：写前检查已闭环 ⇒ 拒写并另存 `-again-`，闭环状态不被抹掉 |
+| i4 | Warning | dismissed | plan 层记录是方案期快照，不参与提交后闭环；i1 告警已覆盖「找不到记录」表象。登记为残留风险 |
+| i5 | Warning | dismissed | 「配方等价」已由端到端实证钉住（A==B 逐字节相同、两层寻址命中同一文件），非仅靠字符串互锁 |
+| i6 | Info | — | 40/64 位形态判据重复定义；已抽出 `CLOSED_DEEP_REVIEW_STATUSES` 等价锁 |
+| i7 | Info | **upheld** | 已修：`_read_mode` 抽出，解析失败显式告警（同型于 i1 的 fail-open 收口） |
+
+**外部复核结论**（第一轮）：三条 upheld 全部 **fix_verified=true / confidence=high**。
+复核者逐段核对了源码位置与语义，并独立指出一条**残余**（已登记为残留风险第 6 条）。
+局限：复核者与提出者同为 claude 家族（非跨家族）、未运行本仓测试（测试命令需授权，改为逐行核读源码）。
+
+**第二轮**（变更 296 行）：DUAL，5 条问题，最低分 correctness 5，**高危域 0 条** ⇒ 引擎可自扮演闭环，
+无需外部复核。5 条全部 upheld 且已修（`.adversarial/ccg-deep-108da798/adjudication.json`）：
+
+| id | 严重度 | 处置 |
+|---|---|---|
+| i1 | Critical | 已修：三条查找路径全落空时，用「非 .ccg diff 行数」区分「本就不该有记录」与「记录丢了」，后者明确判**故障**并要求按欠账处理 |
+| i2 | Warning | 已修：保留集从「闭环白名单」扩为**并集**（∪ `self_play_blocked`/`self_play_pending`），并加一层与状态无关的判据——**只要 `findings` 非空就保留**（未来态也受益） |
+| i3 | Warning | 已修：`resolveGitBashB` 补 3 条 POSIX 路径 + `which bash` 兜底，并新增「必须解析到 bash」测试——**解析不到就失败，不 skip**（否则行为锁在 CI 上静默跳过） |
+| i4 | Info | 已修：`_read_mode` 改经 argv 传路径 + `path.resolve`，shell 引号与 node 脚本解耦 |
+| i5 | Info | 已修：alt 名改用**完整 sha + ISO 时间戳**（首版只用 `slice(0,8)`，同前缀会互覆盖） |
+
+**锁的形态升级（本轮自查抓到，早于评审）**：首版 i1/i3/i7 用的是「grep 源码字面」的**结构锁**，
+变异反证立即抓到缺口 —— 把 `if (cond)` 改成 `if (false && cond)`、把 say 内容换掉（字面仍在注释里）、
+把 `process.exit(3)` 改成 `exit(0)`，三种变异下**结构锁全绿而行为已失效**。故升级为**行为锁**：
+
+- i3/i2：纯函数 `shouldPreserveClosedRecord(prev)`，测试直接调用它对 12+ 种输入断言；
+- i1/i7：在**临时 git 仓库**里造场景真跑 `deep-review.sh --dry-run`，断言 stdout
+  （无记录 ⇒ `commit -a` 告警；记录损坏 ⇒ 「读不出 mode」；有改动却无记录 ⇒ 判故障）。
+
+升级后再跑同三条变异，**全部变红**（见变异表 M7/M8/M9/M10-M14）。
+
+**第二轮自查抓到的假阳（比评审更早，值得单独记）**：i1 的故障判据首版**没有先看工作区是否干净**，
+实测立即假阳 —— HEAD 是旧提交、工作区有 589 行未提交改动 ⇒ 判据报「这是故障」，
+而那是「改到一半就跑 deep-review」的**正常工作流**。判据会把最常见的工作流判红，**比不报更糟**。
+已修：先查 `git status --porcelain` 排除「未提交」这一档，并补一条**反向行为锁**钉住它。
+
+**第三轮**（变更 239 行）：DUAL，8 条问题，最低分 correctness 6，其中 i1/i4 为**高危域** ⇒ 按 (a) 口径
+委托外部复核。8 条全部 upheld 且已修：
+
+| id | 严重度 | 处置 |
+|---|---|---|
+| i1 | Warning（高危） | 已修：把「工作区脏」拆成**未暂存**与**已暂存未提交**两档 —— 后者正是 `commit --only` 部分提交导致 A≠B 的真分叉形态（第二轮只用合并判据，恰好把它漏进「非故障」分支） |
+| i2 | Warning | 已修：`AUDIT_ARTIFACT_RE` 扩为认 `-again-<sha>-<ISO时间戳>` alt 形态（首版漏了这第四种文件名 ⇒ amend 提交会被假判非纯回填） |
+| i3 | Warning | 已修：保留集改回只含闭环白名单，blocked/pending **一律由 findings 判据兜**（首版按状态名无条件保留，会把 `findings:null` 的无内容记录冻结 + alt 累积 —— 证据就是本 PR 自带的 `5e658b47`） |
+| i4 | Warning（高危） | 已修：哈希配方固定 `--no-textconv --no-ext-diff --no-renames`（残余：`autocrlf` 不固定，见残留风险） |
+| i5 | Warning | 已修：哈希算失败显式告警并点明后果是「仍可能撞名」，不再静默回落 |
+| i6 | Info | **登记**：`.ccg` 排除后「只改记录语料且超 200 行」不再判 dual ⇒ 对已有记录的篡改性编辑免深度审查。属 i2 修复的必要代价，机械防护属扩大范围。**已受控实验证实**（见下） |
+| i7 | Info | 已修：deep-review.sh 内三份 diff 合并为一份（落临时文件，哈希与行数都从它读） |
+| i8 | Info | 已修：`_READ_FAILED` 置位，记录损坏时只报一种诊断 |
+
+**本轮自查抓到 10 个自身缺陷**（全部记入裁决表 `selfCaughtBeforeReview`）：
+① i1 故障判据首版没看工作区是否干净，把「改到一半跑 deep-review」判成故障（**比不报更糟**）；
+② i4 的 argv 修复引入下标 bug（`node -e` 的脚本**不占** argv ⇒ arg 在 `argv[1]`），**靠真跑一次抓到**；
+③ i7 用 `printf '%s'` 复用命令替换结果 ⇒ 尾随换行被吃 ⇒ 哈希与 decider 对不上（4 条行为锁同时红）；
+④ i8 的 `_READ_FAILED` 在 `set -u` 下未预声明 ⇒ 脚本直接退出；
+⑤ i5 误用 decider 里不存在的 `say()` ⇒ ReferenceError（被「残余 2 接线锁」抓到）；
+⑥ **结构锁五次被字面注释/路径分隔符骗过**（M8 / M18 / decider-28 / lock-24 / M22）
+   ⇒ 判据必须先剥注释行、只取代码行，且**取路径前缀必须用 `path.basename`**（Windows 是 `\`）；
+⑦ **`String(git())` 把 null 变成 `"null"`** ⇒ 对 "null" 算 sha256 得无意义哈希 ⇒ 记录落假名字且永远找不到；
+⑧ **A/B 两侧配方不一致**（decider 固定了 flag 而 `deep-review.sh` 仍是裸 `git diff`）——
+   由外部复核指出，已统一并加锁（M21）；
+⑨ **i4 fail-closed 首版用了不存在的变量名 `DRY_RUN`**（实际是 `DRY`）⇒ `set -u` 下直接
+   `unbound variable` 退出 ⇒ 靠真跑一次抓到（结构锁抓不到：字面对）。
+⑩ **第三轮 i3 修「锁依赖环境」修在了错误的层**：当时只补了 bash 的 POSIX 路径探测，
+   没意识到 CI 上真正缺的是**引擎本身** ⇒ 8 条 behavior 锁在 CI 全红（QG Static 挂）。
+   已改为 dry-run 不因缺引擎退出 + 锁显式跳过。教训：**修「锁依赖环境」必须先问
+   「CI 上到底有什么」，而不是只补本机的候选路径**。
+
+**外部复核结论**（第三轮，针对 i1/i4 高危域 + 全 8 条；第一次委托因输出截断失败，已重试）：
+**7 条 upheld + fix_verified=true；i6 dismissed（认可「不修」）；`adjudications_sound=true`；
+`remaining_blocking: 无 Critical`。**
+
+复核者还提出一条**有价值的异议并已修**：A 侧（decider 的 `stagedDiffHash`）固定了
+`--no-textconv --no-ext-diff --no-renames`，但 **B 侧（`deep-review.sh`）与给用户照抄的自检命令
+首版仍是裸 `git diff`** ⇒ 两边配方不一致时，同一变更会算出不同哈希 ⇒ 内容寻址失效。
+而这正是整套方案的承重墙（A == B），故已把 B 侧真实调用 + 全部自检命令提示统一为同参数，
+并新增一条「A/B 两侧配方逐项一致」的锁（变异 **M21** 打它，红）。
+
+复核者的三项明确判断（已记入裁决表）：
+① **i6「不修」可接受** —— 内容寻址需要权限边界，「改动记录语料」到不了 A=B 的 B 侧，
+只能靠 findings 判据覆盖；证据链（受控实验 0/261 行对照）且无误报，登记即闭环。
+② **i4 的 `autocrlf` 残余可接受** —— 它不影响 diff 输出文本；真正需要修的是 B 侧缺 flag（已修）。
+③ **未发现我为过门禁而削弱判据** —— mode 判定未放宽，`PRESERVE` 判据反而变严；
+测试由结构锁升级为行为锁，变异 21/21 全红佐证无放松。
+
+**第四轮**（变更 421 行）：DUAL，7 条问题，最低分 correctness 6，i1/i4 高危域 ⇒ 按 (a) 口径
+委托外部复核。5 条 upheld（其中 i3 修了一半）、2 条 dismissed：
+
+| id | 严重度 | 处置 |
+|---|---|---|
+| i1 | Critical（高危） | 已修：写 alt 前按前缀删掉同变更旧 alt（同 sha 只留一份）。**行为锁**：真 git 仓库连写两次，断言同前缀 alt 只有 1 份且原闭环记录未被覆盖 |
+| i2 | Critical | 已修：补 else 分支，无 `HEAD^` 时用 `git show --format=` 取首个提交的 diff（这正是残留风险里「未实测无 HEAD^ 场景」那条 —— 评审替我校验了） |
+| i3 | Warning | **修了一半**：补正例锁（真 alt + M 载体 ⇒ 纯回填）+ 8 条负向锁，但**正则不再收窄** —— 收窄会让真 alt 被拒 ⇒ 回到第二类假红。伪装风险的机械防护未做 |
+| i4 | Warning（高危） | dismissed：`collectRange`/`collectProposal` 是决策层/补跑路径，不写验证层记录（`saveRecord` 只由验证层调用）；`recordFileName` 只认 64 位是特性不是缺陷 |
+| i6 | Warning | 已修：`hashResult` error 分支 **return null 不写记录** —— 不写只让门禁报「缺记录」（可见、可定位），写父 sha 名则产生会与他人冲突的文件（不可见、难定位） |
+| i5 | Warning | dismissed：白名单同源锁已存在（直接读 gate 源码断言两处集合相等） |
+| i7 | Info | dismissed：`--numstat` 与 `-U0` 服务不同目的（规模统计 / 内容行敏感命中），合并会丢信息 |
+
+**第四轮自查抓到 4 个自身缺陷**（全部记入裁决表 `selfCaughtBeforeReview`）：
+① **alt 去重首版完全失效** —— 用 `altPrefix.split("/").pop()` 取路径前缀，而 **Windows 分隔符是 `\`**，
+   `split("/")` 不拆分 ⇒ `pop()` 返回整条路径 ⇒ `startsWith` 恒 false（实证：两次 amend 留两份 alt）。已改 `path.basename`。
+② **`String(git())` 把 null 变成 `"null"`** —— `git()` 失败返回 null，`String(null)` 是字符串 `"null"`（非空）
+   ⇒ 旧版 `if (!d.trim())` 判不出空 ⇒ 对 `"null"` 算 sha256 得到 `74234e98…`（= sha256("null")）这个
+   **稳定但无意义**的哈希 ⇒ 记录落在假名字下且永远找不到。已改为先判 null/undefined。
+③ **i1 行为锁夹具错** —— 首版造在非 git 目录 ⇒ `saveRecord` 走 error 分支 return null ⇒ 压根没进拒写分支
+   ⇒ 断言 0 份 alt（夹具错，不是实现错；但也因此暴露了缺陷 ②）。
+④ **i6 的 error 分支首版仍写记录** ⇒ 正是本轮要消灭的撞名源。已改不写。
+
+**外部复核结论**（第四轮）：见裁决表 `externalReviewSummary` 段。
+
+**第五轮（最终轮）**（变更 167 行但命中敏感词 ⇒ DUAL，8 条问题，最低分 correctness 4 / maintainability 3）：
+**i4 完全修复**（fail-open ⇒ fail-closed）；i1/i2/i3/i6/i8 部分修复；i7 未修（属机制层）；i5 dismissed。
+
+| id | 严重度 | 处置 |
+|---|---|---|
+| i1 | Critical（高危） | **部分修复**：循环验证（审计记录与被审计代码同 PR、status 由 agent 手工置）在本 PR 内**无法消除**。已做：四处机制披露 + 保留 `engineStatusBeforeClear` 原值 + 不删 `highRiskDomains` + 本分支 5 个裁决文件 sha256 绑定。用户已按 (a) 口径显式裁决 |
+| i2 | Critical | **部分修复**：补正例锁 + 8 条负向锁；正则**不再收窄**（收窄会让真 alt 被拒 ⇒ 回到第四轮 i2 的假红）。恶意文件名空间无法穷举 ⇒ 需人工抽查 |
+| i3 | Warning | **部分修复**：已把多条锁从结构锁升级为**行为锁**（纯函数直调 / 真 git 仓库跑脚本断言 exit code / 真调 `saveRecord` 断言 alt 份数）；剩余 grep 锁均由变异 25/25 逐个验证非恒真 |
+| i4 | Warning | **已完全修复**：fail-open ⇒ **fail-closed**。本该有记录（非 `.ccg` diff 行数 > 0）却缺失 ⇒ 输出 🔴 并 `exit 1`，不再静默 `exit 0`；`--dry-run` 仍 `exit 0`（只预览，不承担门禁职责） |
+| i5 | Warning | dismissed：进程派生已从 ≥5 次降到 2 次，且该脚本不在每次提交的热路径上 |
+| i6 | Info | **部分修复**：裁决文件不进主干是 `.gitignore:380` 的**有意设计**（注释明写「判定记录 `.ccg/reviews/*.json` 才是留痕」）；已把本分支 5 个裁决文件 sha256 绑定进判定记录。文档未拆分 |
+| i7 | Info | **未修**：判定记录无加密签名/无外部存证。加签名需引入密钥管理与验签入口，属「改谁来守门」，需人工决策 |
+| i8 | Info | **部分修复**：本分支全部 5 个裁决文件的 sha256 已绑定进判定记录（`externalAdjudicationDigests`），事后可验证未被篡改 |
+
+**第五轮自查抓到 1 个自身缺陷**：i4 的 fail-closed 首版用了不存在的变量名 `DRY_RUN`（实际是 `DRY`），
+`set -u` 下直接 `unbound variable` 退出 —— 靠「真跑一次」抓到（结构锁抓不到：字面对）。
+
+**外部复核结论**（第五轮）：见裁决表 `externalReviewSummary` 段。
+
+**第六轮：CI 实证修复（PR #3755 的 QG Static / Gate 2b 在 CI 上失败后追加）**
+
+CI 报 `QG Static` fail，步骤定位到 `Gate 2b - Desktop dev scripts (node --test)`。
+逐层取证后确认根因：**CI runner 上没有 `ccg-deep-review.js`**（它只在 `~/.claude/skills/adversarial-review-loop/`，
+不受 git 跟踪）也没有 `codeagent-wrapper`，而 `deep-review.sh` 在「定位驱动」阶段就 `exit 2`
+⇒ **判定记录查找压根没走到** ⇒ 我新增的 8 条 behavior 锁（真跑脚本断言记录查找/故障判据/exit code）
+在 CI 上全部拿到 exit 2 ⇒ 同时红。**本地全绿只因本机有引擎。**
+
+这是「锁依赖了 CI 没有的东西」的典型缺陷，也是第三轮 i3 已预警但**只修了 bash 一层**的残留
+（当时补了 POSIX 路径探测，没想到真正缺的是引擎本身）。
+
+修复（两处）：
+1. `deep-review.sh`：**`--dry-run` 不因缺引擎/缺后端而退出** —— dry-run 的职责是预览，
+   缺工具时明确标注 + 继续完成「判定记录 + 模式判定」预览并 exit 0；非 dry-run 仍 fail-closed exit 2
+   （那才是该拦的地方）。语义上也更对：`--dry-run` 本就不该要求生产依赖就绪。
+2. behavior 锁：新增 `HAS_ENGINE` 探测 + `testNeedsEngine` 包装 —— 无引擎时**显式跳过并打印原因**
+   （非静默 skip，同型于本仓 `TEST_ONLY_IN_SKIPPABLE_JOB` 的教训）。
+
+取证：
+- 本地（有引擎）：decider 36 / gate 56 / deps 28 全绿，0 skip；
+- **CI 模拟**（`HOME` 指向空目录 + 清空 `CCG_ARL_DIR`）：`status=0`、8 条锁显式 `SKIP(no engine)`、0 失败；
+- Gate 2b 全 21 条命令本地 0 失败；
+- 变异 M25 + 第四轮 3 条 + 第三轮 6 条复跑**全部仍红**（无回归）。
+
+**本轮自查抓到 1 个自身缺陷**：第三轮 i3 修「行为锁依赖 bash」时**只补了路径探测、
+没意识到真正缺的是引擎**——判据修在了错误的层。教训：**修「锁依赖环境」时必须先问
+「CI 上到底有什么」，而不是只补本机的候选路径**。
+
+### 风险与防线（**这是本 PR 最需要人看的点**）
+
+改 `AUDIT_ARTIFACT_RE` 是**放宽门禁的识别面**：若放宽过宽，`scripts/evil.js` 一类真·功能新增
+就能借「审计产物」这条白名单混进纯回填变更集。因此：
+
+1. 形态收得很紧：`/^\.ccg\/reviews\/(?:[0-9a-f]{40}|[0-9a-f]{64})\.json$/` —— 只多认一种位宽，
+   大写/短/长/多后缀/子目录/换目录一律仍拒（既有负例锁 + 本次新增负例锁双重覆盖）。
+2. **fail-open 反向锁**：64 位命名的 `mode: dual` + `pending` 记录**仍必须**判欠账
+   （`check-pr-exec-record.test.js` 的「fail-open 反向锁」）。若无此锁，放宽正则最坏会让新记录
+   **对门禁隐形** —— 从「看得见但撞名」退化成「完全看不见」。
+3. 变异反证 5/5 全红（见下）。
+
+### 质量节拍取证
+
+**TDD**：先写测试 ⇒ RED ⇒ 实现 ⇒ 全绿。RED 的预测与实测逐条吻合（四轮分别预测/实测
+decider 5:5、gate 3:3；QM-6 复审 decider 2:2、gate 1:1；第二轮 decider 2:2；
+第三轮 decider 2:2）。其中 gate 的「邻近形态仍被拒」**原本就绿**，作为负向对照证明当前正则确实不收 64 位。
+终态：decider 36/36、gate 56/56、deps 28/28。
+
+**变异反证（25/25 RED + 字节级还原 + 还原后复验 0 红）**：
+
+| # | 变异 | 指名的红 |
+|---|---|---|
+| M1 | 记录名改回父 sha | 命名契约 3 条红 |
+| M2 | 门禁正则退回只认 40 位 | fail-open 反向锁等 3 条红 |
+| M3 | 门禁正则放宽成「任意 .json」 | 邻近形态仍拒 2 条红 |
+| M4 | 整体删掉 `deep-review.sh` 内容寻址段 | 存在性锁 2 条红 |
+| M5 | 在查找段**之前**插一个早退 | 位置锁红 |
+| M6 | 删掉 `collectStaged` 的 `.ccg` 排除（i2） | 口径锁红 |
+| M7 | 把 `shouldPreserveClosedRecord` 改成恒 false（i3） | 已闭环不覆盖锁红 |
+| M8 | 删掉早退前的 `commit -a` 告警段（i1） | i1 告警锁红 |
+| M9 | 把 `_read_mode` 的解析失败改回静默吞掉（i7） | i7 解析锁红 |
+| M10 | 删掉「有改动却无记录 ⇒ 报故障」段（i1 二轮） | 故障判据锁红 |
+| M11 | 保留集退回只用闭环白名单（i2 二轮） | 保留集锁红 |
+| M12 | 去掉「已有 findings 也保留」判据（i2 二轮） | 同上（打中第二层） |
+| M13 | alt 名退回 sha 前缀 8 位（i5 二轮） | 唯一性锁红 |
+| M14 | 把路径重新内插进 `node -e`（i4 二轮） | argv 锁红 |
+| M15 | 删掉「部分提交」档（i1 三轮） | 部分提交锁红 |
+| M16 | 门禁正则退回不认 alt 形态（i2 三轮） | alt 正向锁红 |
+| M17 | 保留判据退回按状态名含 pending/blocked（i3 三轮） | 保留集锁红 |
+| M18 | 哈希配方去掉三个固定 flag（i4 三轮） | 配方锁红 |
+| M19 | 哈希失败改回静默（i5 三轮） | 告警锁红 |
+| M20 | 去掉 `_READ_FAILED` 守卫（i8 三轮） | 单诊断锁红 |
+| M21 | B 侧 diff 去掉固定 flag（外部异议：A/B 配方不一致） | 配方一致锁红 |
+| M22 | 去掉 alt 去重（i1 四轮） | alt 去重锁红 |
+| M23 | 去掉首提交（无 HEAD^）路径（i2 四轮） | 首提交锁红 |
+| M24 | error 分支改回仍写记录（i6 四轮） | 不落盘锁红（3 条） |
+| M25 | 去掉 fail-closed 分支（i4 五轮） | fail-closed 锁红 |
+
+（M4/M5 共同证明「位置本身就是判据」：早退在查找之前 ⇒ 兜底变死代码。
+M7/M9 证明**结构锁不够**——必须行为锁才抓得到「字面都在但行为已失效」的变异。
+M13/M14 是第二轮 Info 级指控，同样配了指名变异。）
+
+**端到端实证（本 PR 的决定性取证）**：
+
+| 步 | 实测 |
+|---|---|
+| 提交前算 A = `git diff --cached -- . ':(exclude).ccg' \| sha256sum` | `0ca96713…5ea320` |
+| 钩子写出的记录名 | `.ccg/reviews/0ca96713…5ea320.json` —— **与 A 逐字节相同** |
+| 提交后算 B = `git diff HEAD^ HEAD -- . ':(exclude).ccg' \| sha256sum` | `0ca96713…5ea320` —— **A == B 逐字节相等** |
+| `deep-review.sh` | 「判定记录按内容寻址命中：0ca96713」 |
+| 引擎 `readDecision` | 「判定记录按 diff 内容寻址命中」**同一个文件** |
+
+⇒ **负载假设成立**：提交前的暂存 diff 与提交后的 `parent..HEAD` diff 哈希相同（这正是判定器与引擎
+两侧内容寻址能对上的前提）；且两层寻址命中同一文件，说明 `deep-review.sh` 的改动与引擎既有兜底
+**口径一致**，不是我单方面的假设。
+
+**i1 的分叉实验（QM-6 复审补做，证明指控而非推测）**：
+
+| 提交形态 | A(--cached) | B(HEAD^..HEAD) | 相等 |
+|---|---|---|---|
+| `git commit --only <单文件>` | `771a37953cfb79c9` | `771a37953cfb79c9` | ✅ |
+| `git commit -a` | `8b02f61d34a9e858` | `29140567e3fb2604` | ❌ **分叉** |
+
+⇒ 分叉**确实存在**，且只发生在「提交内容超出 pre-commit 时所见暂存区」的形态。
+这正是 i1 判 upheld 的实验依据，也是告警段点名 `git commit -a` 的原因。
+
+**引擎不在 CI 内**（`ccg-deep-review.js` 位于 `~/.claude/skills/adversarial-review-loop/`，不受 git 跟踪），
+故端到端只能在**本地**取证；CI 覆盖的是判定器、门禁与脚本三处及其回归锁。
+
+### 残留风险（不假装已闭合）
+
+1. **历史 40 位记录仍会 64 位并存一段时间**（回填/审计 PR 会携带旧记录）。已按「两种位宽都认」处理，
+   但 `AUDIT_ARTIFACT_RE` 的形态集合因此变大 —— 负例锁（大写/短/长/子目录/多后缀）是唯一防线。
+2. **空 diff 回落仍走父 sha 命名** ⇒ 纯 `.ccg/` 提交之间若同基线，理论上仍会撞名。此类提交多为
+   `mode: skip`（不参与 `mode === 'dual'` 的欠账判据），但**未做机械证明**。
+3. **未覆盖「两个分支提交完全相同的变更」**：内容相同 ⇒ 哈希相同 ⇒ 仍会同名。语义上这属于
+   「同一份工作的两个副本」，判为撞名是否可接受，**未与用户确认**。
+4. `deep-review.sh` 的内容寻址段依赖 `HEAD^` 存在（首个提交时会取空）——已加空值守卫，
+   但**未实测**「仓库只有一笔提交」的场景。
+5. 本 PR 改的是**门禁识别面**（`AUDIT_ARTIFACT_RE`）。虽不属于 AGENTS.md 点名的两类
+   「必须人工过目」（`.github/workflows/` 分支保护规则本身、`CI_IGNORED_PATHS` 白名单），
+   但性质接近，**已提请用户明确授权后才动手**（用户原话：「修。应用质量节拍」）。
+6. **i6 副作用已实验证实、未做机械防护**：只改 `.ccg/reviews/*.json` 语料时，`collectStaged` 因排除 `.ccg`
+   而统计到 **0 行** ⇒ mode 判 `single`，**不触发 dual 深度审查**。实测（临时仓库对照）：
+   同体量（264 行）改 `.ccg/reviews/*.json` ⇒ `changedLines:0` / `mode:single`；
+   改 `.js` 文件（261 行）⇒ `changedLines:261` / `mode:dual`。
+   ⇒ 对**已有记录**的 `status`/`findings` 做篡改性编辑不会触发审查。这是 i2 口径统一修复的必要代价
+   （判定器自己的输出不该影响对它的判定），但意味着「记录即账本」这条信任链少了一道机械防护。
+   未修的原因：要区分「写本次审查结论」与「篡改历史结论」需要另一套判据，属扩大范围。
+   **建议后续单独处理**（如：记录文件从 pending→closed 的状态变更由 `check-pr-exec-record` 单独校验）。
+7. **行为锁依赖 bash**：CI 是 ubuntu，已补 POSIX 探测路径 + 「解析不到就失败」的显式断言；
+   但若某天 CI 镜像连 bash 都没有，这条会**失败而非跳过**（这是有意的——宁可红也不静默失守）。
+8. **i1 的根因仍未完全消除（三轮评审 + 两次外部复核都指出）**：记录仍会落空、深度审查仍会被跳过；
+   已从「只告警」推进到「能判故障 + 能区分部分提交形态并要求按欠账处理」，但**没有**让 decider 在提交后
+   自校验 A==B 并不一致时拒绝收口（那要动 pre-commit 与提交的时序，属扩大范围）。
+   当前防线：① 告警（点名 `commit -a` + 两条口径自检）② 故障判据（区分「没跑」「未提交」「部分提交」「记录丢了」四档）
+   ③ 门禁照旧只扫本次变更集 ⇒ **第三层仍是缺口**，靠前两层把人引到正确处置。
+9. **i4 的 `autocrlf` 未固定**：`--no-autocrlf` 会与仓库 `.gitattributes` 冲突，故只固定了
+   `--no-textconv` / `--no-ext-diff` / `--no-renames`。若某台机器 `autocrlf` 配置不同且
+   `.gitattributes` 未覆盖相关路径，理论上仍可能算出不同键。未验证（本机无此配置）。
+10. **behavior 锁依赖引擎（第六轮 CI 实证后新增登记）**：8 条真跑 `deep-review.sh` 的锁需要
+    `ccg-deep-review.js` 与评审后端就绪；CI 上二者皆无 ⇒ 已改为「显式跳过并打印原因」。
+    残余：**这 8 条锁在 CI 上等于不跑**，只在本机跑。要真正做到 CI 可验，需把引擎
+    vendor 进仓库（`deep-review.sh` 的解法 a）或让 CI 安装技能（解法 b）—— 两者都属
+    「改谁来守门 / 改 CI 依赖」，未擅动。
+
+| 远程同步 | PASS | 已合并：`0386afdfcf739fbb39cca4bf05f56cd7732d4654`（PR #3755，squash，2026-10-17T02:33:48+08:00）；远端分支已删除（0 行）；main push run 38948303355 conclusion=success |

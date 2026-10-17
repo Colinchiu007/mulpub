@@ -139,7 +139,6 @@
         :collected-url-set="collectedUrlSet"
         :category-tag-ctx="categoryTagCtx"
         :rewrite-style="rewriteStyle"
-        :rewrite-fallback-items="collectedItems"
         @collected="onBatchCollected"
         @collected-rewrites="onBatchCollectedRewrites"
       />

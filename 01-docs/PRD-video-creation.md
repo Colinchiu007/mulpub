@@ -1,4 +1,4 @@
-﻿# PROJECT-003 Multi-Publish — 视频创作模块 PRD
+# PROJECT-003 Multi-Publish — 视频创作模块 PRD
 
 > **版本**: v1.10
 > **日期**: 2026-08-24
@@ -130,10 +130,11 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 
 | 日期 | 范围 | 核心内容 | 主文档 |
 |------|------|----------|--------|
+| 2026-10-17 | 流水线进度浮层统一 + 四按钮完成出口 | 视频创作页与热门选题页的流水线进度浮层改成同一套 footer（`UiButton` 单一来源），固定【查看】【去发布】【后台运行】【取消】四个按钮；【查看】【去发布】初始灰显，仅本次 run 成功并取得成片后解锁；**成功后浮层保持打开、不再自动跳转结果页**（取代 2026-08-21 的「完成即跳转」口径），由用户显式选择出口：【查看】→ `/create?view=history` 并定位「已完成」标签，【去发布】→ `/publish` 视频模式预填充（`buildPublishFromProject` + `publishDataToQuery`，run-only 记录退化为只带 `video_path`）。后台运行/取消语义不变（不调 `pipelineCancel`、检查点禁止后台化）。详见 `01-docs/PRD-VIDEO-PIPELINE-PROGRESS-MODAL-2026-10-17.md` | PRD-PIPELINE-MODAL / OpenSpec unify-video-pipeline-progress-modal |
 | 2026-08-24 | 克隆音色跨运行恢复 + 图片轮播编码预算 | 供应商侧失效克隆音色重克隆成功后，只在当前用户、当前 provider/model 的本地目录中以新 ID 替换旧 ID；仍指向旧 ID 的偏好同步迁移，迁移故障不阻断本次旁白重试。图片轮播 zoompan 单段编码预算纳入 workScale² 工作画布成本，2x→1.5x→1x 每次降档独立重算。PR #1143。详见本节 3.1.4.2、3.1.36 | PRD 3.1.4.2 / 3.1.36 / story2video-voice-recovery |
 | 2026-08-21 | 流水线启动前台跟踪 + 独立历史页「已中断」对齐 |
 | 2026-09-04 | 历史记录下载视频 + 6 种排序方式 + 重复标题提示 | 详见 `01-docs/PRD-STORY2VIDEO-HISTORY-DOWNLOAD-SORT-DUPLICATE.md`。已完成任务卡片增加【下载视频】按钮（复用 `story2videoSaveAs` IPC）；工具栏增加排序下拉（更新时间/创建时间/视频时长 × 正/倒序，默认更新时间倒序）；相同显式标题的任务在标题右侧显示「有重复标题」标签（renderer 纯函数检测，完整列表范围）。 | 启动流水线后创作页实时轮询展示阶段进度；离开页面自动转后台运行、仅历史可见；重新进入创作页回到全新新建状态（并发门禁不变）。启动/续跑前台语义统一，移除旧「启动即后台」监听机器。独立历史页 CreateHistory.vue 同步「已中断」标签、stale running 规则与紫色样式。详见本节 3.1.35 | PRD 3.1.35 / S2V-PIPELINE-PAGE-UX §5 |
-| 2026-08-21 | 发布跳过状态与完成跳转修复 | 未选择任何发布平台时，发布阶段以 `skipped` 收尾（不再误标 `completed`），流水线进度显示「未选发布，跳过」，完成态进度仍为 100%；自动后台运行的任务在创作页仍监听终态，执行完成后自动跳转视频预览/结果页（恢复「完成即跳转」）。回归覆盖引擎快照/进度、StageProgress skipped 渲染、历史卡片阶段状态与结果页跳转 | PRD-video-creation §1.6 / OpenSpec s2v-publish-skip-jump |
+| 2026-08-21 | 发布跳过状态与完成跳转修复 | 未选择任何发布平台时，发布阶段以 `skipped` 收尾（不再误标 `completed`），流水线进度显示「未选发布，跳过」，完成态进度仍为 100%；自动后台运行的任务在创作页仍监听终态，执行完成后自动跳转视频预览/结果页（恢复「完成即跳转」）。**⚠️ 该「完成即跳转」口径已由 2026-10-17 行取代：成功后浮层保持打开，不再自动跳转。** 回归覆盖引擎快照/进度、StageProgress skipped 渲染、历史卡片阶段状态与结果页跳转 | PRD-video-creation §1.6 / OpenSpec s2v-publish-skip-jump |
 | 2026-08-20 | 历史状态语义修订：新增「已中断」状态 | 运行残留 running 快照（应用退出/崩溃/强杀）与 stale-running（>30 分钟无更新）归一化为「已中断（interrupted）」，不再误归「已暂停」；「已暂停」仅保留用户手动暂停与 scene_asset_selection 检查点；run-only 失败记录用快照 params 回填标题与原文案（卡片不再显示流水线名 +「未生成」）；筛选器 7 标签、↯ 图标、紫色系色条/徽章、中断环节提示。详见本节 3.1.34 | PRD 3.1.34 / S2V-PIPELINE-PAGE-UX §5 |
 | 2026-08-15 | 长成片合成超时与错误提示 | 下游 ffmpeg concat/xfade/旁白/BGM/WebM/输出校验预算按对应媒体时长动态缩放并设最小值/硬上限；execFile 的 killed + SIGTERM/ETIMEDOUT 归一为阶段超时；新增中英文合成超时、成片总时长和单段时长稳定通知键，错误只展示可操作建议。回归覆盖短片、50 分钟、非法时长、上限和实际阶段传参 | PRD §7.1.25a / 本节 3.1.4.2 / OpenSpec s2v-timeout-notifications |
 | 2026-08-14 | 水印四角边距调远 | 用户反馈左上/左下/右上/右下四角距边过近；水平/底部边距 20px→40px、顶部边距 40px→60px（center/moving 不受影响）；`buildWatermarkFilter` 坐标表达式与测试断言同步更新，真实 ffmpeg 渲染回归确认不越界。详见本节 3.1.24 | PRD 3.1.24 |

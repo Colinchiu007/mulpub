@@ -83,6 +83,12 @@ export default {
       backgroundDetachedToast: 'The task is now running in the background. You can view it in History.',
       backgroundStartedWithoutTracking: 'The task started and is running in the background, but live progress is unavailable. View it in History.',
       progressTitle: (ctx) => ctx.named('name') + ' progress',
+      // unify-video-pipeline-progress-modal: fixed four-button footer on the progress overlay.
+      // View/Publish start disabled and unlock only after this run succeeds with a video file;
+      // the overlay stays open after success instead of jumping to the result page automatically.
+      progressView: 'View',
+      progressPublish: 'Publish',
+      progressCancel: 'Cancel',
       progressCloseLabel: 'Close progress and run in background',
       progressManualCloseLabel: 'This task needs your input and cannot be closed or moved to the background',
       progressManualHint: 'This task needs your input before it can continue.',

@@ -2,9 +2,6 @@
 record: fix-sidebar-nav-slow
 task: 修复点左侧菜单「账号」反应特别慢——listAccounts 的 PBKDF2 同步串行改异步并行
 date: 2026-10-14
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（合并后按 .quality-gates.md 同篇记录一并回填）
 ---
 
 ## 本次执行记录：修复点左侧菜单「账号」反应特别慢（fix-sidebar-nav-slow，2026-10-14）
@@ -21,7 +18,11 @@ sync_backfill_owner: 下一个会话（合并后按 .quality-gates.md 同篇记�
 | QM-1 打包 / QM-4 视觉 | PASS / N/A | QM-1：`electron-builder --win --dir` **exit 0**；asar 清单含 `electron/services/credential-store.js`、`electron/services/credential-proxy-status.js` 与 `electron/services/proxy-config.js`；**从真实打包产物 require 并成功调用** `loadProxyStatuses(['nope-1','nope-2'], tmp, {})` → `{"nope-1":{"configured":false},"nope-2":{"configured":false}}`，旧 API（`loadCredential`/`decryptData`）未破坏；`configureUserDataPath` 在打包产物内对 `ELECTRON_USER_DATA_DIR` 行为正确（`explicit:true`）。**完整 8 秒启动测试未完成**：本机有用户的应用实例在运行，单实例锁使隔离实例 rc=0 提前退出（stderr 为空＝三层判据的层③，非产品缺陷）；已用「真实产物 require + 实际调用」与「configureUserDataPath 行为验证」两项替代取证。依赖门禁 `node scripts/verify-worktree-deps.js` OK。QM-4：N/A（无前端视觉变更，账号页最终画面不变） |
 | 逐文件行数门禁（催生模块拆分） | PASS | 首轮 CI 打红：`❌ NEW_OVER_LIMIT: apps/desktop/electron/services/credential-store.js 632 行 >= 500`（`债务熔断检查` job）。**这是正当门禁**：本片把该文件从 ~450 行推到 632 行，等于新引入超大文件。按门禁提示的既有范式拆分：把「列表场景的批量读取」独立为 `apps/desktop/electron/services/credential-proxy-status.js`（`deriveKeyAsync` / `decryptDataAsync` / `loadProxyStatuses` / `toPublicProxyStatus`，**191 行**），`credential-store.js` 回落到 **470 行**。依赖方向单向（新模块 require credential-store，后者不反向 require），**无循环依赖**；KDF 参数经新增的 `credentialStore.CRYPTO_PARAMS` 单一来源取用，**不复制字面量**。本地实跑 `node .github/scripts/check-max-lines.js` → **exit 0**（`✅ 无新增超大文件，挂账清单与现实一致`）。拆分后 109/109 测试仍全绿 |
 | QM-6 CCG 双模型外部评审 | PASS | 判定器给 `mode=dual`（526 行 > 200 阈值）。跨家族对抗实跑：proposer=opencode / critic=claude。**轮 1 产出 6 条**（`critique-v1.md`，维度分 correctness=6 security=7 performance=5 maintainability=6）。**i1/i2 被标 crypto 高危域 ⇒ 引擎硬要求外部复核**（自扮演不得豁免），已用 `claude -p`（**不同模型家族**，consult 模式只读 Read/Grep/Glob、禁 Bash/Edit/Write）独立**读码**复核：i2 驳回「CONFIRMED，前提为假」、i1 事实「CONFIRMED」处置「部分可辩护」并指出我两处不准确（「用户显式否决方案 B」夸大记录；遗留项措辞弱化欠账性质）——**两条更正均已落实**。裁决全文 `.adversarial/ccg-deep-f177a00a/adjudication.json`（i1 upheld / i2 dismissed / i3 upheld 且已修复 / i4–i6 Info 已处置） |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin fix-sidebar-nav-slow` 返回 0 行证远端分支已删；回填后删除上方三个 `sync_*` 字段，并同次删除 `scripts/gate-record-debt-ledger.json` 登记项 |
+| 远程同步 | PASS | 已合并（PR #3591，squash）
+
+**merge SHA**：`b84e67e7203da69b2122250709f046df78a63b26`
+**合并时间**：`2026-10-14T16:34:24Z`（UTC）
+**远端分支**：`git ls-remote --heads origin fix-sidebar-nav-slow` 返回 **0 行** ⇒ 已删除。
 
 ### 实测性能数据（本机 12 核，PBKDF2 10 万次迭代 SHA-512）
 

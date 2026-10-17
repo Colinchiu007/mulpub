@@ -719,4 +719,33 @@ describe('PublishProgressPanel.vue — 完成自动收敛（publish-progress-pan
     vi.advanceTimersByTime(10000)
     expect(storeStateRaw.minimizePanel).not.toHaveBeenCalled()
   })
+
+  // ── fix-account-interval-ghost-wait：时钟异常归因标签 ─────────────────────────
+  it('U1 clockAnomaly=true 的 blocked 行渲染「时钟异常」标签；缺席/为假不渲染', async () => {
+    storeStateRaw.panelVisible = true
+    storeStateRaw.hasRunning = true
+    storeStateRaw.sessions = [makeSession({
+      tasks: {
+        't-a': makeTask({ taskId: 't-a', phase: 'blocked', stageKey: 'waiting', percent: null, remainingWait: 300000, bucket: 'account', clockAnomaly: true }),
+        't-b': makeTask({ taskId: 't-b', phase: 'blocked', stageKey: 'waiting', percent: null, remainingWait: 300000, bucket: 'account', clockAnomaly: false }),
+      },
+      taskOrder: ['t-a', 't-b'],
+    })]
+    wrapper = mountPanel()
+    await nextTick()
+    const rows = body().querySelectorAll('[data-testid="publish-progress-task"]')
+    expect(rows).toHaveLength(2)
+    expect(rows[0].querySelector('[data-testid="publish-progress-task-clock-anomaly"]')).not.toBe(null)
+    expect(rows[0].textContent).toContain('（时钟异常，等待已钳位）')
+    expect(rows[1].querySelector('[data-testid="publish-progress-task-clock-anomaly"]')).toBe(null)
+  })
+
+  it('U2 locales zh/en 成对存在 blockedClockAnomaly 键（防露出 key）', () => {
+    const zh = fs.readFileSync(path.resolve(__dirname, '../locales/publish-page/zh.js'), 'utf8')
+    const en = fs.readFileSync(path.resolve(__dirname, '../locales/publish-page/en.js'), 'utf8')
+    expect(zh).toContain('blockedClockAnomaly')
+    expect(en).toContain('blockedClockAnomaly')
+    expect(zh).toContain('（时钟异常，等待已钳位）')
+    expect(en).toContain('(clock anomaly, wait capped)')
+  })
 })

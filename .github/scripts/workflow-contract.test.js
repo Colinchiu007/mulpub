@@ -1100,3 +1100,67 @@ test('Gate 7 必须按退出码 3 阻断就绪故障（捕获而不判定的回�
   const assigns = (body.match(/\$LASTEXITCODE/g) || []).length
   assert.ok(assigns >= 7, 'Gate 7 每个套件都必须显式取 $LASTEXITCODE（当前 ' + assigns + ' 处，不得退回 || x=$?）')
 })
+
+// ⛔ 视觉**校验域**的阻断面锁（2026-10-17，visual-checks-must-block）。
+//
+// 事故（判据取产物，非推断）：main 上 `collection-confirm-dialog` 断言失败（页面区块标题 /
+// 删除入口消失）在 Gate 7 里只留一行 `suite exits: ... views-supplement=1`，**QG Visual 照常
+// pass**；唯一红的地方是 `visual-test.yml`，而它自 2026-09-17 起不在 PR 上跑、也不是 required
+// 上下文 ⇒ 连红 60+ 次无人发现。
+//
+// 根因：`views` / `views-supplement` 跑的是 runViewTest（截图 + 逐条 `checks` 断言，**不做像素
+// 比对**），而 Gate 7b 的判据是「基线 == 本次渲染 0 px」—— 对校验域**没有判定面**。于是这两个
+// 套件的退出码 1 在设计上"只留痕"，等于**永远没有阻断面**。
+//
+// 本锁钉住三件事：① 非零必须当场重跑一次（两轮甄别，避免把偶发采集抖动变成所有 PR 的常量红）；
+// ② 两轮都非零必须 exit 非零；③ 该判定必须排在「All visual tests passed」之前。
+test('QG Visual 的校验域套件（views / views-supplement / workflows / workflows-supplement）失败必须阻断', () => {
+  const wf = yaml.load(fs.readFileSync(qualityGatePath, 'utf8'));
+  const step = wf.jobs.visual.steps.find(s => /Gate 7 - Visual regression/.test(String(s.name || '')));
+  assert.ok(step, 'quality-gate.yml 的 visual job 必须有「Gate 7 - Visual regression」步骤');
+  const body = String(step.run || '');
+
+  // ① 四套各自：非零分支之后必须紧跟同一套件的重跑。
+  // workflows 两套是 2026-10-17（visual-gate-full-coverage）补进来的——它们此前**只**在
+  // `visual-test.yml` 的 run-all-visual 里跑，而那个 workflow 不在 PR 上触发 ⇒ PR 侧零覆盖。
+  for (const [guard, rerun, label] of [
+    ['if ($viewsExit -ne 0)', 'pnpm.cmd run test:visual', 'views'],
+    ['if ($viewsSuppExit -ne 0)', 'pnpm.cmd run test:visual:supplement', 'views-supplement'],
+    ['if ($workflowsExit -ne 0)', 'pnpm.cmd run test:workflow', 'workflows'],
+    ['if ($workflowsSuppExit -ne 0)', 'pnpm.cmd run test:workflow:supplement', 'workflows-supplement'],
+  ]) {
+    const iGuard = body.indexOf(guard);
+    assert.ok(iGuard >= 0, `${label} 必须有「非零 ⇒ 重跑」的两轮甄别分支（判据：${guard}）`);
+    const iRerun = body.indexOf(rerun, iGuard);
+    assert.ok(iRerun > iGuard, `${label} 的重跑调用必须在该分支内（判据：${rerun}）`);
+    // 每一套都必须**真的跑过**（guard 存在也可能是从没执行过的死分支）
+    assert.ok(
+      body.indexOf(`${rerun}`) >= 0,
+      `${label} 的套件命令必须在 Gate 7 里出现（否则守卫是死代码）`,
+    );
+  }
+  // 每条重跑都必须是「两次都非零才收进名单」的形态，不得写成一次就阻断
+  for (const label of ['views', 'views-supplement', 'workflows', 'workflows-supplement']) {
+    assert.match(
+      body,
+      new RegExp(`\\$checksFailSuites \\+= '${label}'`),
+      `${label} 两轮均失败时必须收进 \$checksFailSuites`,
+    );
+  }
+
+  // ② 两轮均失败必须阻断，且必须点名"校验型"（与像素抖动分流，便于排障）
+  assert.match(body, /\$checksFailSuites = @\(\)/, '名单必须显式初始化为空数组（$null 与 @() 的 .Count 行为不同）');
+  assert.match(
+    body,
+    /if \(\$checksFailSuites -and \$checksFailSuites\.Count -gt 0\)/,
+    '两轮均失败必须进入阻断分支（缺这一格 = 校验域失败仍然只留痕）',
+  );
+  assert.match(body, /\[GATE-7\] FATAL.*校验型断言/, '阻断输出必须点名这是校验型故障');
+
+  // ③ 顺序：阻断必须排在通过收尾之前（否则"pass"先命中，阻断成死代码）
+  const iBlock = body.indexOf('$checksFailSuites -and $checksFailSuites.Count -gt 0');
+  const iPassed = body.indexOf('All visual tests passed');
+  assert.ok(iBlock >= 0, '未找到校验域阻断块');
+  assert.ok(iPassed >= 0, '未找到 Gate 7 的通过收尾');
+  assert.ok(iBlock < iPassed, '校验域阻断必须排在「All visual tests passed」之前');
+})

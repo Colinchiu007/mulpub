@@ -2,7 +2,6 @@
 record: podcast-episode-plan-preview
 task: 落地 tasks 4.3②-a —— 出期前计费二次确认框的只读预览接口（PRD §7.10.4.1 的唯一读路径）
 date: 2026-10-16
-# ↓ 远程同步尚未收口 ⇒ 按 scripts/check-gate-record-debt.js 的第二源判据必须显式登记原因与回填责任人；回填时整段删除。
 ---
 
 ## 本次执行记录：出期前只读预览接口（podcast-episode-plan-preview，2026-10-16）

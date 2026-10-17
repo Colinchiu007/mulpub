@@ -202,13 +202,14 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(130)
   })
 
-  it('account 模块应导出 51 个方法（50 + probeXiaohongshuDraftChain，2026-10-08 小红书 API 草稿链受控调试通道；49 + accountCredentialNames，2026-10-07 小红书 AT 凭据诊断；52 - 3 个 scheduled_tasks 死桥接，2026-10-02 死路径清理）', () => {
+  it('account 模块应导出 52 个方法（51 + accountGetProxy，2026-10-15 账号页列表零解密——代理状态改为打开弹窗时经 account:get-proxy 按需读取；50 + probeXiaohongshuDraftChain，2026-10-08 小红书 API 草稿链受控调试通道；49 + accountCredentialNames，2026-10-07 小红书 AT 凭据诊断；52 - 3 个 scheduled_tasks 死桥接，2026-10-02 死路径清理）', () => {
     const { createAccountApi } = require('./preload/account')
     const r = createAccountApi(ipcRenderer)
-    expect(Object.keys(r).length).toBe(51)
+    expect(Object.keys(r).length).toBe(52)
     // 新增方法必须真实存在于聚合入口，防止「改了数字但方法没接上」
     expect(Object.keys(r)).toContain('accountCredentialNames')
     expect(Object.keys(r)).toContain('probeXiaohongshuDraftChain')
+    expect(Object.keys(r)).toContain('accountGetProxy')
   })
 
   it('system 模块应导出 146 个方法（2026-10-15：149 − 3，删 opsCenterSyncGet/Save/Now 三条死通道）', () => {
@@ -228,11 +229,12 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(146)
   })
 
-  it('合并后 api 总键数应为 342（2026-10-15：344 − 3 条死通道 + 1 个「再次发布」快照读口 historyGetRepublishSnapshot；344 = 343 + 1 个激活码核销键 identityRedeemCode → identity:redeem-code）', () => {
-    expect(Object.keys(api).length).toBe(342)
+  it('合并后 api 总键数应为 343（2026-10-15：342 + accountGetProxy，账号页列表零解密后代理状态改由 account:get-proxy 按需读取；342 = 344 − 3 条死通道 + 1 个「再次发布」快照读口 historyGetRepublishSnapshot；344 = 343 + 1 个激活码核销键 identityRedeemCode → identity:redeem-code）', () => {
+    expect(Object.keys(api).length).toBe(343)
     // 新键必须真实存在于聚合入口，防止「改了数字但方法没接上」
     expect(Object.keys(api)).toContain('identityRedeemCode')
     expect(Object.keys(api)).toContain('historyGetRepublishSnapshot')
+    expect(Object.keys(api)).toContain('accountGetProxy')
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {

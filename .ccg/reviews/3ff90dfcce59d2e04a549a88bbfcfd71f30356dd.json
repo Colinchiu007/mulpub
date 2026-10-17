@@ -1,0 +1,34 @@
+{
+  "sha": "3ff90dfcce59d2e04a549a88bbfcfd71f30356dd",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 1067 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 1067,
+    "fileCount": 14,
+    "codeFileCount": 11,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 4,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "e2d2f18b834e602d62edfe1949425a085d21f487acb2f91ac26770bbae171937",
+  "decidedAt": "2026-10-16T17:29:14.115Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "ccg-deep-review(claude) + agent adjudication",
+    "findings": {
+      "reviewer": "claude",
+      "issueCount": 8,
+      "upheld": 3,
+      "dismissed": 4,
+      "info": 1,
+      "adjudication": ".adversarial/ccg-deep-6f9a9d71/adjudication.json",
+      "summary": "upheld 已修：i3 测试路径锚点化、i6 去掉过度 JSON 序列化、i7 补布局回归锁（含变异验证）。dismissed 附证据：i2 系 rebase 冲突取对侧真实产物非伪造、i5 硬编码色值有 CI 双轮对比度实测支撑。i1/i4 指控技术成立但采评审给出的「显式文档化」选项（entitlement-gate.js 文件头警示块）。"
+    }
+  }
+}

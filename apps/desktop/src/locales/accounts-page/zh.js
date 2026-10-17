@@ -142,6 +142,12 @@ export default {
     proxyCleared: '账号代理已清除',
     saveProxyFailed: '保存代理失败',
     clearProxyFailed: '清除代理失败',
+    // 代理状态改为惰性读取（列表不再返回 proxy）后新增的三个交互态文案。
+    // 之所以必须有：读取有一次异步解密往返，少了这三个态用户会先看到
+    // 「当前未配置代理」的假象，再被到达的数据填上。
+    proxyLoading: '正在读取当前代理配置...',
+    proxyLoadFailed: '读取当前代理配置失败',
+    proxyRetry: '重试',
     verifyingLogin: (ctx) => '正在验证 ' + ctx.named('platform') + ' 登录状态...',
     loginValid: '登录状态正常',
     loginExpired: '登录已失效',
@@ -206,7 +212,6 @@ export default {
       followers: '粉丝：',
       ownerLabel: '负责人',
       publisherLabel: '运营人',
-      proxyLabel: '代理',
       notSet: '未设置',
       noData: '暂无数据',
       unnamedAccount: '未命名账号',

@@ -217,25 +217,13 @@ export default {
       configLegacy: 'A legacy plaintext secret was detected; save it again in Settings to migrate it to encrypted storage',
       // Reason the Collect button is disabled (zhihu-fav-buttons-dead): a disabled button fires no
       // click event, so without this hint the user's experience is simply "nothing happens"
-      pickFavlistFirst: 'Load your favorites first, or choose "All favorites" as the scope',
       // Reason the Rewrite button is disabled: rewriting depends on existing content, not on a favlist
-      rewriteNeedsSource: 'Nothing to rewrite yet — collect a batch with "Collect & rewrite" first',
       loadBtn: 'Load Favorites',
       loading: 'Loading...',
       loadFailed: 'Failed to load favorites',
       empty: 'No favorites found (official API returns public favorites only)',
-      emptyFavlist: 'This favorites list is empty',
-      collectBtn: 'Batch Collect',
-      collecting: 'Collecting...',
-      rewriteBtn: 'Batch Rewrite',
-      rewriting: 'Rewriting...',
-      fetchingContents: 'Fetching favorites contents...',
-      collectingProgress: 'Batch collecting ({count} items, serial + interval anti-ban)...',
-      rewritingProgress: 'Batch rewriting ({count} items)...',
-      batchDone: 'Done: {completed} succeeded, {failed} failed',
       batchDoneCancelledSuffix: ' (cancelled)',
       batchDoneCircuitBrokenSuffix: ' (circuit broken)',
-      noRewritable: 'No rewritable content (collect articles first)',
       hint: 'Uses the official Zhihu API. Batch operations use serial execution + random intervals (~8-12s/item) + exponential backoff + circuit breaker to minimize anti-crawling risk. The official API cannot distinguish created vs followed favorites; all public favorites are listed.',
       // ── 2026-10-03 batch upgrade (PRD-ZHIHU-FAV-BATCH) ──
       scopeFavlist: 'Specific favlist',

@@ -34,14 +34,41 @@ test('buildElectronArgs 透传 userData/cache 并默认 CDP 端口 9222', () => 
   assert.equal(args[args.length - 1], 'D:\\app')
 })
 
-test('buildElectronArgs 默认带 --no-sandbox（保持既有 dev 行为）', () => {
-  const args = buildElectronArgs({
+// 2026-10-16 契约变更：旧锁写的是「默认带 --no-sandbox（保持既有 dev 行为）」，而默认
+// softwareGpu 也为真 ⇒ 默认配置恰好就是 2026-10-06 记下的崩溃组合，于是「登录检测
+// 拉起的隐藏 BrowserWindow 触发原生渲染崩溃」按平台逐个复发（toutiao → wechat_mp →
+// 知乎 → kuaishou），白名单（RENDER_CRASH_PRONE_OPEN_PLATFORMS）只能打地鼠。
+// 本锁改成对**整个参数空间**断言：崩溃组合不可达。
+test('buildElectronArgs 不得同时下发 --no-sandbox 与 swiftshader（崩溃组合不可达）', () => {
+  const base = {
     electronUserDataDir: 'D:/tmp/profile',
     electronCacheDir: 'D:/tmp/profile/cache',
     desktopDir: 'D:/app',
     platform: 'win32',
-  })
-  assert.ok(args.includes('--no-sandbox'))
+  }
+  const hasSwiftshader = args => args.some(a => a.includes('swiftshader'))
+
+  // 默认：软件光栅化在（无 GPU 的机器要画得出窗口），--no-sandbox 不在
+  const def = buildElectronArgs(base)
+  assert.equal(hasSwiftshader(def), true, '默认仍走软件光栅化')
+  assert.equal(def.includes('--no-sandbox'), false, '软件光栅化开启时不得同时下发 --no-sandbox')
+
+  // 全组合性质锁：任一 (noSandbox, softwareGpu) 取值都不得产回崩溃组合
+  for (const noSandbox of [true, false]) {
+    for (const softwareGpu of [true, false]) {
+      const args = buildElectronArgs({ ...base, noSandbox, softwareGpu })
+      assert.equal(
+        args.includes('--no-sandbox') && hasSwiftshader(args),
+        false,
+        `崩溃组合不可达（noSandbox=${noSandbox} softwareGpu=${softwareGpu}）`,
+      )
+    }
+  }
+
+  // 显式换取路径仍在：关掉软件光栅化后可用 --no-sandbox（该组合不崩）
+  const swapped = buildElectronArgs({ ...base, softwareGpu: false, noSandbox: true })
+  assert.equal(swapped.includes('--no-sandbox'), true)
+  assert.equal(hasSwiftshader(swapped), false)
 })
 
 test('buildElectronArgs 显式关闭 sandbox 时不得再带 --no-sandbox（2026-10-06 崩溃规避）', () => {

@@ -123,6 +123,14 @@ function createPage (
       nodeIntegration: false,
       sandbox: true,
       backgroundThrottling: false,
+      // 一个永不显示的窗口不需要合成表面。隐藏窗口加载平台页面时触发原生渲染崩溃
+      // （2026-09-16 toutiao / 2026-10-06 wechat_mp / 2026-10-16 kuaishou），既有对策是
+      // 逐平台加进 account-manager 的 RENDER_CRASH_PRONE_OPEN_PLATFORMS 白名单（第四例 =
+      // 知乎 #3726）——那是打地鼠：名单外的平台一开隐藏窗就再崩一次（2026-10-16 现场：
+      // 应用日志停在 `checkLoginStatus: start kuaishou`，随后 crashpad not connected，
+      // 全部 electron 进程消失）。这里从成因侧拆掉「隐藏窗口仍建表面、仍走合成」，
+      // 隐藏上下文不产生可绘制表面；可见窗口保持默认 true，否则主界面画不出来。
+      paintWhenInitiallyHidden: show,
     }
   })
 
@@ -130,11 +138,27 @@ function createPage (
   let _closed = false
   win.on('closed', () => { _closed = true })
 
+  // 渲染崩溃证据：隐藏窗口崩溃时旧行为是「日志戛然而止 + 全部 electron 进程消失」，
+  // 无 minidump、crashpad 也连不上，现场无法归因。这里把事件登记下来：
+  // ① 打日志（原因 / 退出码）② 让调用方 fail-fast，而不是在已死的 renderer 上继续
+  // 轮询到超时——那会把「崩溃」伪装成「登录态不确定」，属同一族假绿。
+  let _rendererGone = null
+  function assertRendererAlive () {
+    if (_rendererGone) {
+      throw new Error('Renderer gone (' + _rendererGone + '): hidden window unusable')
+    }
+  }
+
   // 存储待注入的 Cookie
   const _initScripts = []
   const contextAdapter = createContextAdapter(isolatedSession, () => win.webContents.getURL())
 
   if (typeof win.webContents.on === 'function') {
+    win.webContents.on('render-process-gone', (_event, details) => {
+      _rendererGone = (details && details.reason) || 'unknown'
+      const exitCode = (details && details.exitCode !== undefined) ? details.exitCode : 'n/a'
+      log.error('playwright-manager', 'renderer gone: reason=' + _rendererGone + ' exitCode=' + exitCode)
+    })
     win.webContents.on('dom-ready', () => {
       for (const code of _initScripts) {
         win.webContents.executeJavaScript(code).catch(e => {
@@ -156,6 +180,7 @@ function createPage (
       // eslint-disable-next-line no-unused-vars
       const { timeout = 30000 } = options
       if (_closed) throw new Error('Page already closed')
+      assertRendererAlive()
       await win.loadURL(url)
     },
 
@@ -171,6 +196,7 @@ function createPage (
       const start = Date.now()
       while (Date.now() - start < timeout) {
         if (_closed) throw new Error('Page closed while waiting')
+        assertRendererAlive()
         try {
           const found = await win.webContents.executeJavaScript(
             `(function(){var s=${JSON.stringify(selectors)};for(var i=0;i<s.length;i++){if(document.querySelector(s[i]))return true;}return false;})()`
@@ -208,6 +234,7 @@ function createPage (
       const start = Date.now()
       while (Date.now() - start < timeout) {
         if (_closed) throw new Error('Page closed while waiting')
+        assertRendererAlive()
         try {
           if (await win.webContents.executeJavaScript(buildEvaluationScript(fn, [arg]))) return true
         } catch (_e) {

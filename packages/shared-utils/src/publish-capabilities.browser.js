@@ -243,3 +243,26 @@ export function isCaptchaAutoSolveEnabled (platformId) {
   const wl = rc.captchaAutoSolveWhitelist || []
   return !!(platformId && wl.includes(platformId))
 }
+
+// PR-2 §7.3：平台是否应走 F3 camofox stealth 通道（白名单缺省为空 ⇒ 默认全走 Electron）
+export function isStealthChannelPlatform (platformId) {
+  const rc = registryData.riskControl || {}
+  const list = rc.stealthChannelPlatforms || []
+  return !!(platformId && list.includes(String(platformId)))
+}
+
+// PR-2 §7.3/§7.4 通道路由判定（纯函数；与 CJS 版逐字对齐，漂移由 parity 测试拦截）
+export function resolvePublishChannel (platformId, options = {}) {
+  const registered = isStealthChannelPlatform(platformId)
+  if (!registered) {
+    return { channel: 'electron', registered: false, fallbackReason: null }
+  }
+  if (options && options.hostIsUsable === false) {
+    return {
+      channel: 'electron',
+      registered: true,
+      fallbackReason: 'stealth-channel-unavailable',
+    }
+  }
+  return { channel: 'stealth', registered: true, fallbackReason: null }
+}

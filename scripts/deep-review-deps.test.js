@@ -359,3 +359,321 @@ test("PATH 分支：相对 PATH 条目命中必须 MISS（相对路径 prepend �
 
 // process.execPath 是 Windows 形态；Git Bash 需要 /c/... 形态。
 // CI（ubuntu）上 execPath 本身就是 POSIX 形态，原样拼即可。
+
+
+// ═══════════════════════════════════════════════════════════════════
+// 记录名内容寻址：deep-review.sh 必须能按新名字找到记录
+// （ccg-record-content-addressing，2026-10-16）
+// ═══════════════════════════════════════════════════════════════════
+
+const fsRec = require('node:fs')
+
+function shSrc () {
+  return fsRec.readFileSync(SCRIPT, 'utf8')
+}
+
+test('内容寻址：deep-review.sh 必须按 stagedDiffHash 找记录（否则新命名下永远找不到）', () => {
+  const src = shSrc()
+  assert.match(src, /sha256sum/, '脚本里必须有内容寻址的哈希计算；记录改名后按 sha 找必然落空')
+})
+
+test('内容寻址：查找必须**早于**早退 exit 0（否则又成死代码）', () => {
+  // 这是 2026-10-15「缺陷 E」的同型失效：引擎本有内容寻址兜底，
+  // 却被脚本里一行早退 exit 0 挡在门外，兜底成了死代码、深度审查一次没跑起来。
+  // 所以位置本身就是判据：查找段必须在早退**之前**。
+  //
+  // ★ 锚点必须用**行首代码形态** /^ {2}exit 0$/m，不能用自然语言：
+  //   首版用 indexOf('判定记录: 无') 做锚，而该串会出现在告警文案与注释里
+  //   （实测多个位置）⇒ 取到更早的那个 ⇒ 判据假红。
+  //   另 indexOf('exit 0') 也会命中 L523 注释里的「静默 exit 0」。
+  const src = shSrc()
+  const codeExits = [...src.matchAll(/^ {2}exit 0$/gm)].map((m) => m.index)
+  const iHash = src.indexOf('sha256sum')
+  assert.ok(iHash > 0, '找不到内容寻址段')
+  assert.ok(codeExits.length > 0, '找不到任何行首 exit 0')
+  const iExit = codeExits.find((p) => p > iHash)
+  assert.ok(iExit !== undefined, '内容寻址段之后必须有 exit 0（早退点）')
+  assert.ok(iHash < iExit, '内容寻址查找必须在早退 exit 0 之前 —— 否则永远执行不到')
+})
+
+test('内容寻址：配方必须与判定器同源（同一 pathspec :(exclude).ccg）', () => {
+  const src = shSrc()
+  assert.match(src, /:\(exclude\)\.ccg/, '哈希配方必须排除 .ccg，与 ccg-review-decider.js 的 stagedDiffHash 同源；否则算出的名字永远对不上')
+})
+/**
+ * 把 i1 / i7 的锁从「grep 字面」升级为行为锁（真跑 deep-review.sh）。
+ * 追加到已接线的 deep-review-deps.test.js，不新建文件（避免 check-unwired-tests 门禁）。
+ *
+ * 背景：首版用 grep 字面做结构锁，变异反证抓到缺口 ——
+ *   M8 把 say 内容换掉，但 git commit -a 仍在注释里 ⇒ 结构锁全绿而告警已消失；
+ *   M9 把 node 内 process.exit(3) 改成 exit(0)，字面全在 ⇒ 同样假绿。
+ * 故改为：临时 git 仓库里造场景，真跑脚本，断言 stdout。
+ */
+const fsB = require('node:fs')
+const osB = require('node:os')
+const pathB = require('node:path')
+const { execFileSync: execB, spawnSync: spawnB } = require('node:child_process')
+
+function resolveGitBashB () {
+  const cands = [
+    process.env.MP_GIT_BASH,
+    'C:\\Program Files\\Git\\bin\\bash.exe',
+    'C:\\Program Files (x86)\\Git\\bin\\bash.exe',
+    // ★ QM-6 第二轮 i3：CI 是 ubuntu，上面两条 Windows 路径都不存在 ⇒ bashB=null
+    //   ⇒ 行为锁整段 test.skip ⇒ 「在 CI 里静默跳过」。必须补 POSIX 路径，
+    //   并断言「真的找到了 bash」而不是找不到就跳过。
+    '/bin/bash',
+    '/usr/bin/bash',
+  ].filter(Boolean)
+  for (const c of cands) { if (fsB.existsSync(c)) return c }
+  // 最后手段：问 PATH
+  try {
+    const r = spawnB('which', ['bash'], { encoding: 'utf8' })
+    if (r.status === 0 && r.stdout.trim()) return r.stdout.trim()
+  } catch (_) { /* ignore */ }
+  return null
+}
+
+/**
+ * 造一个「有 1 笔提交、.ccg/reviews 里没有任何记录」的临时仓库，并把脚本复制进去。
+ *
+ * ★ 脚本**不提交**（只复制到工作区）：若把脚本一起提交，它自身的 20K 行就成了
+ *   「非 .ccg 改动」，导致「有改动却无记录 ⇒ 报故障」这条判据在**每一个**场景里都命中
+ *   （首版正栽在这里：正向场景没报故障、反向场景反而报了）。夹具必须只含被测对象。
+ */
+function makeRepoWithoutRecordB () {
+  const dir = fsB.mkdtempSync(pathB.join(osB.tmpdir(), 'dr-behav-'))
+  const run = (cmd, args) => execB(cmd, args, { cwd: dir, encoding: 'utf8', stdio: 'pipe' })
+  run('git', ['init', '-q'])
+  run('git', ['config', 'user.email', 't@t'])
+  run('git', ['config', 'user.name', 't'])
+  // 第一笔：空（或最小）提交，作为 HEAD^
+  fsB.writeFileSync(pathB.join(dir, 'seed.txt'), 'seed\n')
+  run('git', ['add', '-A'])
+  run('git', ['commit', '-q', '-m', 'seed'])
+  // 第二笔：一笔**已提交的**非 .ccg 业务改动 —— 这才是「本该有判定记录」的那笔
+  fsB.writeFileSync(pathB.join(dir, 'a.txt'), 'hello\nworld\n')
+  run('git', ['add', '-A'])
+  run('git', ['commit', '-q', '-m', 'biz change'])
+  // 脚本只复制到工作区、**不提交**：否则它自身的体量会污染 diff 行数判据。
+  // 用 .git/info/exclude 让它对 git 彻底隐形（本地生效、不入库、不污染被测仓库）。
+  fsB.mkdirSync(pathB.join(dir, 'scripts'), { recursive: true })
+  fsB.copyFileSync(SCRIPT, pathB.join(dir, 'scripts', 'deep-review.sh'))
+  const infoExclude = pathB.join(dir, '.git', 'info', 'exclude')
+  fsB.mkdirSync(pathB.dirname(infoExclude), { recursive: true })
+  fsB.appendFileSync(infoExclude, '\nscripts/deep-review.sh\n')
+  fsB.mkdirSync(pathB.join(dir, '.ccg', 'reviews'), { recursive: true })
+  return dir
+}
+
+
+// ★ 2026-10-17（CI 实证修复）：behavior 锁依赖**引擎与本机后端**，而 CI runner 上没有
+//   ccg-deep-review.js（只在 ~/.claude/skills/...）也没有 codeagent-wrapper。
+//   首版锁在 CI 上 8 条全红（脚本在「定位驱动」阶段 exit 2，压根没走到被断言那段）
+//   ⇒ QG Static 挂掉。已修 deep-review.sh（dry-run 不因缺引擎/缺后端而退出），
+//   但**真跑路径**仍要引擎 ⇒ 断言 exit 1 的锁必须能在无引擎时**显式跳过**。
+//   ⛔ 不得静默 skip：要打印原因，否则「CI 上这条锁一次都没跑」没人知道
+//   （同型于本仓 check-unwired-tests 的 TEST_ONLY_IN_SKIPPABLE_JOB 教训）。
+const ENGINE_PATH_CANDS = [
+  process.env.CCG_ARL_DIR ? path.join(process.env.CCG_ARL_DIR, 'ccg-deep-review.js') : null,
+  path.join(process.cwd(), 'scripts', 'ccg-deep-review.js'),
+  path.join(process.env.HOME || process.env.USERPROFILE || '', '.claude', 'skills', 'adversarial-review-loop', 'scripts', 'ccg-deep-review.js'),
+].filter(Boolean)
+const HAS_ENGINE = ENGINE_PATH_CANDS.some((p) => fsB.existsSync(p))
+
+/** 真跑路径的锁：无引擎时显式跳过（打印原因），而不是失败或静默跳过 */
+function testNeedsEngine (name, fn) {
+  if (!HAS_ENGINE) {
+    console.log('# SKIP(no engine): ' + name + ' —— CI/无引擎环境下不适用（已显式记录，非静默跳过）')
+    return
+  }
+  test(name, fn)
+}
+
+const bashB = resolveGitBashB()
+const descB = bashB ? test : test.skip
+
+// ★ QM-6 第二轮 i3：找不到 bash 时**不许静默跳过** —— 要显式失败，
+//   否则「CI 上行为锁一次都没跑」这件事永远没人知道（同型于本仓多次踩过的
+//   「找不到就 return 跳过 ⇒ 通配锁永久静默跳过」）。
+test('QM-6 i3：必须能解析到 bash（否则行为锁在 CI 上被静默跳过）', () => {
+  assert.ok(bashB !== null,
+    '解析不到 bash：行为锁会被 skip，等于 CI 上没有 i1/i7 行为锁。请检查 resolveGitBashB 的候选路径')
+})
+
+testNeedsEngine('QM-6 i1 行为锁：无记录时必须输出 commit -a 告警与两条自检命令', () => {
+  const dir = makeRepoWithoutRecordB()
+  try {
+    const r = spawnB(bashB, ['scripts/deep-review.sh', '--dry-run'], { cwd: dir, encoding: 'utf8', maxBuffer: 1 << 24 })
+    const out = (r.stdout || '') + (r.stderr || '')
+    assert.match(out, /git commit -a/, '必须点名实测故障形态 git commit -a')
+    assert.match(out, /git diff --cached --no-textconv --no-ext-diff --no-renames -- \. ':\(exclude\)\.ccg'/, '必须给出提交前口径的自检命令（与实现同参数）')
+    assert.match(out, /git diff HEAD\^ HEAD --no-textconv --no-ext-diff --no-renames -- \. ':\(exclude\)\.ccg'/, '必须给出提交后口径的自检命令（与实现同参数）')
+  } finally { fsB.rmSync(dir, { recursive: true, force: true }) }
+})
+
+testNeedsEngine('QM-6 i7 行为锁：记录损坏时必须输出「读不出 mode」告警', () => {
+  const dir = makeRepoWithoutRecordB()
+  try {
+    const head = execB('git', ['rev-parse', 'HEAD'], { cwd: dir, encoding: 'utf8' }).trim()
+    fsB.writeFileSync(pathB.join(dir, '.ccg', 'reviews', head + '.json'), '{ this is not json')
+    const r = spawnB(bashB, ['scripts/deep-review.sh', '--dry-run'], { cwd: dir, encoding: 'utf8', maxBuffer: 1 << 24 })
+    const out = (r.stdout || '') + (r.stderr || '')
+    assert.match(out, /读不出 mode/, '记录损坏必须显式告警，不得静默走「无记录」分支')
+    assert.match(out, /可能损坏|BOM|尾逗号/, '告警必须指出可能原因，否则读者无从下手')
+  } finally { fsB.rmSync(dir, { recursive: true, force: true }) }
+})
+
+testNeedsEngine('QM-6 第二轮 i1 行为锁：有改动却无记录必须判为「故障」', () => {
+  // 场景：仓库有 1 笔**含非 .ccg 改动**的提交，但 .ccg/reviews 空 ⇒ 三条路径全落空。
+  // 此时必须报「这是故障，不是没跑判定器」——首版只会笼统说「没跑判定器」，
+  // 把「记录丢了/分叉了」读成正常状态（fail-open 的第二层）。
+  const dir = makeRepoWithoutRecordB()
+  try {
+    const r = spawnB(bashB, ['scripts/deep-review.sh', '--dry-run'], { cwd: dir, encoding: 'utf8', maxBuffer: 1 << 24 })
+    const out = (r.stdout || '') + (r.stderr || '')
+    assert.match(out, /这是\*\*故障\*\*/, '有非 .ccg 改动却无记录 ⇒ 必须判为故障')
+    assert.match(out, /行非 \.ccg 改动/, '必须报出实测的 diff 行数，让读者知道判据是什么')
+    assert.match(out, /按欠账处理/, '必须给出「按欠账处理」的处置，否则读者不知道后果')
+  } finally { fsB.rmSync(dir, { recursive: true, force: true }) }
+})
+
+descB('QM-6 第二轮 i1 反向：纯 .ccg 提交（无其他改动）不得误报故障', () => {
+  // 反向对照：若这笔提交**只有 .ccg 改动**，则「无记录」是正确状态，不得报故障。
+  // 没有这一条，「有改动即报故障」会把正常的 .ccg-only 提交全判红（假阳）。
+  const dir = makeRepoWithoutRecordB()
+  try {
+    // 再造一笔只改 .ccg/ 的提交（HEAD 变成它，HEAD^..HEAD 排除 .ccg 后为空）
+    fsB.writeFileSync(pathB.join(dir, '.ccg', 'reviews', 'note.txt'), 'x')
+    execB('git', ['add', '-A'], { cwd: dir, stdio: 'pipe' })
+    execB('git', ['commit', '-q', '-m', 'ccg only'], { cwd: dir, stdio: 'pipe' })
+    const r = spawnB(bashB, ['scripts/deep-review.sh', '--dry-run'], { cwd: dir, encoding: 'utf8', maxBuffer: 1 << 24 })
+    const out = (r.stdout || '') + (r.stderr || '')
+    assert.doesNotMatch(out, /这是\*\*故障\*\*/, '纯 .ccg 提交不得误报故障（否则假阳）')
+  } finally { fsB.rmSync(dir, { recursive: true, force: true }) }
+})
+
+testNeedsEngine('QM-6 第三轮 i1：部分提交（索引有已暂存改动）必须报「分叉」而非「非故障」', () => {
+  // 场景：HEAD 是一笔只含部分改动的提交，而**索引里还有已暂存的改动**。
+  //   git status --porcelain 会显示有未提交改动 ⇒ 若只用「工作区脏 ⇒ 非故障」的合并判据，
+  //   这种真分叉会被漏进「非故障」分支、深度审查被跳过（第三轮 i1 的指控）。
+  // 正确行为：识别出「已暂存未提交」这一档，明确报部分提交导致的 A != B。
+  const dir = makeRepoWithoutRecordB()
+  try {
+    fsB.writeFileSync(pathB.join(dir, 'staged.txt'), 'staged but not committed\n')
+    execB('git', ['add', 'staged.txt'], { cwd: dir, stdio: 'pipe' })
+    const r = spawnB(bashB, ['scripts/deep-review.sh', '--dry-run'], { cwd: dir, encoding: 'utf8', maxBuffer: 1 << 24 })
+    const out = (r.stdout || '') + (r.stderr || '')
+    assert.match(out, /部分提交/, '索引有已暂存改动时必须点名「部分提交」这一形态')
+    assert.match(out, /A != B/, '必须说明分叉机理（判定器按全量暂存取哈希，提交只含一部分）')
+    assert.doesNotMatch(out, /这是\*\*故障\*\*/, '这一档报的是「部分提交」，不是「记录丢了」—— 两者根因不同')
+  } finally { fsB.rmSync(dir, { recursive: true, force: true }) }
+})
+
+testNeedsEngine('QM-6 第三轮 i8：记录损坏时不得再报「这是故障」（避免两条诊断互相误导）', () => {
+  // 同一屏输出「读不出 mode」和「这是故障」会让读者无法判断根因归属。
+  // 损坏时应只有一条诊断。
+  const dir = makeRepoWithoutRecordB()
+  try {
+    const head = execB('git', ['rev-parse', 'HEAD'], { cwd: dir, encoding: 'utf8' }).trim()
+    fsB.writeFileSync(pathB.join(dir, '.ccg', 'reviews', head + '.json'), '{ broken')
+    const r = spawnB(bashB, ['scripts/deep-review.sh', '--dry-run'], { cwd: dir, encoding: 'utf8', maxBuffer: 1 << 24 })
+    const out = (r.stdout || '') + (r.stderr || '')
+    assert.match(out, /读不出 mode/, '损坏必须报「读不出 mode」')
+    assert.doesNotMatch(out, /这是\*\*故障\*\*/, '损坏时不得再报「这是故障」—— 只能有一条诊断')
+  } finally { fsB.rmSync(dir, { recursive: true, force: true }) }
+})
+
+descB('QM-6 第三轮外部异议：B 侧 diff 配方必须与 A 侧（decider）逐项一致', () => {
+  // 外部复核第三轮指出：A 侧（decider 的 stagedDiffHash）固定了
+  // --no-textconv --no-ext-diff --no-renames，而 B 侧（本脚本）首版是**裸 git diff**
+  // ⇒ 两边配方不一致时同一变更算出不同哈希 ⇒ 内容寻址失效。
+  // 而这正是整套方案的承重墙（A == B），故必须钉住。
+  const sh = fsB.readFileSync(SCRIPT, 'utf8')
+  const dec = fsB.readFileSync(pathB.join(__dirname, 'ccg-review-decider.js'), 'utf8')
+  const FLAGS = ['--no-textconv', '--no-ext-diff', '--no-renames']
+  // B 侧真实调用
+  const callLine = sh.split('\n').find((l) => l.includes('git diff') && l.includes('_DIFF_TMP'))
+  assert.ok(callLine, '必须找到落临时文件的那次 git diff 调用')
+  for (const f of FLAGS) {
+    assert.ok(callLine.includes(f), `B 侧调用必须含 ${f}（与 A 侧同配方）`)
+  }
+  // A 侧（decider 的哈希配方）
+  for (const f of FLAGS) {
+    assert.ok(dec.includes('"' + f + '"'), `A 侧 decider 必须含 ${f}`)
+  }
+  // 给用户照抄的自检命令也必须同参数（否则用户按提示跑出的哈希与实现对不上）。
+  // ★ 只取 **say 行**（代码），不取所有含 sha256sum 的行 —— 注释里也有 sha256sum
+  //   （解释 printf 坑那段），首版把它当命令 ⇒ 恒假红（「注释骗过锁」第四次）。
+  const selfCheck = sh.split('\n').filter((l) => /^\s*say /.test(l) && l.includes('sha256sum'))
+  assert.ok(selfCheck.length >= 2, '至少应有两条自检命令（提交前口径 + 提交后口径）')
+  for (const l of selfCheck) {
+    for (const f of FLAGS) {
+      assert.ok(l.includes(f), `自检命令也必须含 ${f}：${l.trim()}`)
+    }
+  }
+})
+
+descB('QM-6 第三轮 i7：deep-review.sh 不得对同一份 diff 重复物化', () => {
+  // 首版把同一份 diff 物化三次（查找哈希、_DIFFLINES、commit -a 自检），大变更下 O(n)×3。
+  // 用 includes 逐项点，不用一条大正则 —— 正则转义在跨 shell/node 两层时极易写错
+  // （本轮实测：一条「看起来对」的正则匹配 0 次，而 includes 同为 true）。
+  const sh = fsB.readFileSync(SCRIPT, 'utf8')
+  const nDiff = sh.split('git diff --no-textconv --no-ext-diff --no-renames "$_PARENT2" "$SHA"').length - 1
+  assert.strictEqual(nDiff, 1, '内容寻址段对同一份 diff 只应调用一次 git diff（哈希与行数复用）')
+  // ★★ 关键：不得用 `$(...)` + `printf '%s'` 复用 —— 命令替换吃掉尾随换行，
+  //   会使 sha256 与 decider 的 `git diff | sha256sum` 逐字节不同 ⇒ 内容寻址失效。
+  assert.strictEqual(sh.includes("printf '%s' \"$_DIFF_OUT\""), false,
+    '不得用 printf 复用命令替换的结果 —— 尾随换行被吃，哈希与 decider 对不上')
+  assert.strictEqual(sh.includes('_DIFF_TMP='), true, '必须落临时文件，两处从同一份字节读')
+  assert.strictEqual(sh.includes('sha256sum < "$_DIFF_TMP"'), true,
+    '哈希必须从临时文件读（保留尾随换行），而不是从管道重读')
+})
+
+testNeedsEngine('QM-6 第二轮自查：工作区有未提交改动时不得误报故障（最常见工作流）', () => {
+  // ★ 这条锁来自**我自己引入又自查抓到的假阳**：
+  //   首版故障判据只看「HEAD^..HEAD 的非 .ccg diff 行数 > 0」，没有先看工作区是否干净。
+  //   实测：HEAD 是旧提交、工作区有 589 行未提交改动 ⇒ 判据报「这是故障」，
+  //   而那是「改到一半就跑 deep-review」的正常工作流 —— 判据会把最常见的工作流判红，
+  //   **比不报更糟**。故补此反向锁：工作区脏 ⇒ 只提示「请先提交」，不得判故障。
+  const dir = makeRepoWithoutRecordB()
+  try {
+    fsB.writeFileSync(pathB.join(dir, 'dirty.txt'), 'work in progress\n')
+    const r = spawnB(bashB, ['scripts/deep-review.sh', '--dry-run'], { cwd: dir, encoding: 'utf8', maxBuffer: 1 << 24 })
+    const out = (r.stdout || '') + (r.stderr || '')
+    assert.doesNotMatch(out, /这是\*\*故障\*\*/, '工作区有未提交改动时不得判故障（正常工作中）')
+    assert.match(out, /工作区有 \d+ 个未提交/, '必须明说「未提交改动」这一档，并提示先提交')
+  } finally { fsB.rmSync(dir, { recursive: true, force: true }) }
+})
+
+testNeedsEngine('QM-6 第五轮 i4：dual 提交缺记录必须 fail-closed（exit 1），不得静默 exit 0', () => {
+  // 旧版「判定记录: 无」分支无条件 exit 0 ⇒ 记录缺失时深度审查被静默跳过 ⇒ fail-open。
+  // 判据：本提交**本该有**记录吗（非 .ccg diff 行数 > 0）？本该有却缺失 ⇒ exit 1。
+  // --dry-run 仍 exit 0（只预览，不承担门禁职责）。
+  const dir = makeRepoWithoutRecordB()
+  try {
+    const r = spawnB(bashB, ['scripts/deep-review.sh'], { cwd: dir, encoding: 'utf8', maxBuffer: 1 << 24 })
+    const out = (r.stdout || '') + (r.stderr || '')
+    assert.strictEqual(r.status, 1,
+      '有非 .ccg 改动却无判定记录 ⇒ 必须 exit 1（fail-closed）；实际 status=' + r.status)
+    assert.match(out, /fail-closed/, '必须明说这是 fail-closed，而不是含糊的「跳过」')
+    // --dry-run 仍应为 0
+    const r2 = spawnB(bashB, ['scripts/deep-review.sh', '--dry-run'], { cwd: dir, encoding: 'utf8', maxBuffer: 1 << 24 })
+    assert.strictEqual(r2.status, 0, '--dry-run 只预览 ⇒ 仍应 exit 0')
+  } finally { fsB.rmSync(dir, { recursive: true, force: true }) }
+})
+
+testNeedsEngine('QM-6 第五轮 i4 反向：纯 .ccg 提交无记录不得判故障（应 exit 0）', () => {
+  // 反向对照：这本就不该有记录，exit 1 会造成假阳。
+  try {
+    const dir = makeRepoWithoutRecordB()
+    try {
+      fsB.writeFileSync(pathB.join(dir, '.ccg', 'reviews', 'note.txt'), 'x')
+      execB('git', ['add', '-A'], { cwd: dir, stdio: 'pipe' })
+      execB('git', ['commit', '-q', '-m', 'ccg only'], { cwd: dir, stdio: 'pipe' })
+      const r = spawnB(bashB, ['scripts/deep-review.sh'], { cwd: dir, encoding: 'utf8', maxBuffer: 1 << 24 })
+      assert.strictEqual(r.status, 0,
+        '纯 .ccg 提交本就不该有记录 ⇒ 必须 exit 0（否则假阳）；实际 status=' + r.status)
+    } finally { fsB.rmSync(dir, { recursive: true, force: true }) }
+  } catch (e) { throw e }
+})

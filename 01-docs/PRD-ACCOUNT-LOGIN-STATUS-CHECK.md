@@ -424,3 +424,79 @@ IPC 口径（7+1）、定期检测（新建 10 例）、渲染层（3 改写 + 3
 `stores/accounts.batchSetStatus('active'|'inactive')`（账号页「批量启用/停用」）仍走
 `accountUpdate` → Electron 本地 SQLite，且复用了登录态词表 `status`，因此对展示实际无效。
 应改为写 `is_active` 并接入后端 PATCH。本 PR 不动它，以免混淆"登录态"与"启用状态"两个正交概念。
+
+---
+
+## 18. 2026-10-16 变更：登录态判定收敛到 HTTP 单轨（隐藏窗口兜底默认关闭）
+
+> 详细版见 `01-docs/BUGFIX-LOGIN-CHECK-HTTP-ONLY-2026-10-16.md`。本节只记**需求侧契约的变化**。
+
+### 18.1 动机（真实事故）
+
+`checkLoginStatus` 在 HTTP/本地证据不足时会**开隐藏 sandbox 窗口**加载平台页面抓 DOM 判状态。
+该支路自 2026-09 起按平台逐个触发**原生渲染崩溃**：toutiao（09-16）→ wechat_mp（10-06）→
+知乎（10-14，PR #3726）→ kuaishou（10-16）。现场三条判据同时成立：应用日志**戛然而止**（停在
+`checkLoginStatus: start <platform>`）、`crashpad_client_win.cc: not connected`（无 minidump）、
+主进程退出（`0xC0000135` / `0xC0000409` 等同族码），随后**全部 electron 进程消失、窗口空白**——
+用户视角就是"应用突然关闭"。2026-10-16 实测：kuaishou 检测在**同一实例的两轮**（间隔 30 分钟的
+`LoginMonitor`）中，第一轮通过、第二轮仍崩，说明"只调启动参数"不足以收敛。
+
+### 18.2 需求契约变化（默认翻转）
+
+| 项 | 变更前 | 变更后 |
+|---|---|---|
+| 证据不足时的默认动作 | 开隐藏窗口做 DOM 判定（除白名单外） | **判「未确认」，不开窗** |
+| 白名单语义 | `RENDER_CRASH_PRONE_OPEN_PLATFORMS` = "不开窗"的名单（枚举式打地鼠） | 保留为**硬否决**；新增 `DOM_LOGIN_CHECK_ALLOWED_PLATFORMS` = "**允许**开窗"的名单，**默认空集** |
+| 判定顺序 | 仅一次白名单判断 | **先否决、后允许**（否决永远赢） |
+| 影响面 | — | 「未确认」账号数量上升；**应用不再因某平台页面整体消失** |
+
+### 18.3 数据校验与判定优先级（需求口径）
+
+1. 凭证与分区 Cookie 皆无 ⇒ 确定失效（不检测）。
+2. HTTP 检测给出确定结论 ⇒ 采纳（含 `checkHtml` 黑名单语义的平台）。
+3. HTTP 明确失效证据（302 登录页 / Cookie 过期）⇒ 判失效。
+4. HTTP 不确定且平台**不在允许集**（或在否决集）⇒ **判未确认**（本次核心变更），返回
+   `CHECK_LOGIN_INCONCLUSIVE`，`reason ∈ {hidden-browser-disabled-default, render-crash-prone-http-inconclusive}`。
+5. 仅当平台**既在允许集又不在否决集**时才允许 DOM 兜底（默认无人命中）。
+6. 任何解析/配置/网络异常一律按"不确定"处理，**绝不**按"已登录"处理（fail closed）。
+
+### 18.4 流程影响
+
+- **启动批量检测**与账号页「一键检测」：单账号最坏耗时下降（不再有 8s 导航 + 3s 选择器 + 500ms 固定等待）。
+- **`LoginMonitor` 周期检测（30 分钟一轮）**：结论分布变化同 18.3 第 4 条。
+- ⚠️ **验证口径（写给未来的自己）**：判断"崩溃已修"时，观测窗口**必须覆盖至少两轮（≥60 分钟）**。
+  本轮曾以"240 秒稳定"误判"已修复"，而第二轮仍在同一处崩溃。
+- 单账号「重新登录」仍走**可见**窗口（`AuthViewManager`），不属本次变更范围。
+
+### 18.5 交互与显示影响（复用既有第三态，**不新增文案**）
+
+- 受影响的是**既有**第三态 `unverified`：徽章「未确认」/ `Unconfirmed`，琥珀底 `#fffaf0` + 字 `#974706`，
+  与「从未检测」`unknown`（灰底）**刻意区分**（§17.4 已定义，本次沿用，不新增 locales 条目）。
+- `unverified` **不计入**失效数量、**不显示**「去登录」按钮、**不触发**主页失效横幅
+  （既有测试 `src/composables/useExpiredAccountsBanner.test.js` 已锁定该行为）。
+- 账号页「一键检测」汇总里的 `Z 个未确认` 计数会上升，属预期。
+- 若将来要为「未确认」补原因提示文案，必须 zh/en **成对**提交（否则 CI Gate 7 `check-locale-sync.js` 判红）。
+
+### 18.6 回退通道与边界
+
+- 恢复某平台的 DOM 兜底：把它加入 `DOM_LOGIN_CHECK_ALLOWED_PLATFORMS`，**并在同一次提交**把它登记到 `scripts/dom-login-check-registry.json`（≥2 轮 / ≥60 分钟 / 登录页与已登录页形态 / 证据载体，7 字段齐备），否则 `account-manager-http-only-policy.test.js` 的「准入配对锁」当场红；并附上
+  **真机复测证据**（该平台隐藏窗口加载不再崩溃）；**不得**用环境变量临时开启（避免线上出现无留痕的崩溃面）。
+- 本变更**不修 Chromium 缺陷**，也不声称消除该类崩溃；任何对允许集的追加都必须重新评估风险。
+- 更彻底的解法（把 DOM 判定搬进独立进程、崩溃不回传主进程）列为后续工作。
+
+### 18.7 回归保护
+
+新增行为锁：非允许集平台 + HTTP 不确定 ⇒ `playwrightManager.getContext` **零调用**且返回
+`CHECK_LOGIN_INCONCLUSIVE`；允许集**默认空**；否决集优先于允许集；判定顺序（先否决后允许）。
+既有回归同跑：`account-manager.test.js` 全量、四个 `*-render-crash.test.js`（同族先例）、
+`playwright-manager.test.js`、`useExpiredAccountsBanner.test.js`。
+
+### 18.7 外部互证：参考产品B（CEF 壳）的账号逻辑（2026-10-17 逆向补证）
+
+对参考产品B 的**静态逆向**（详见 `01-docs/REVERSE-REFERENCE-PRODUCT-B-CEF-ACCOUNT-2026-10-17.md`）给出三条与本变更一致的证据：
+
+1. **它也不用浏览器判定登录态**：宿主二进制里 `windowless` / `offscreen` / `OSR` 命中均为 **0**；平台账号态由原生 HTTP 引擎（`MediaTaskMgr.dll`，1337 条平台 URL、显式 `Cookie:` 头、WinHttp/libcurl）调用各平台"当前账号/用户信息"接口得出（如 `.../aweme/v1/creator/user/info/`、`.../rest/v2/creator/pc/authority/account/current`、`.../api/galaxy/user/info`）。
+2. **它同样区分"失效"与"不确定"**：查询结果分 `suc` / `logout` / `fail` 三桶，UI 文案分别为「查询成功」/「查询失败 账号登录失效」/「查询失败」——与本 PRD §17.4 的「正常 / 失效 / 未确认」三态**同构**。
+3. **它把失败原因翻译成可执行提示**：平台错误码 `2190008` → 「授权失效,请重新授权」、`100437` → 「无法获取私密账号数据」。这一点强于我们现状（`reason` 仅内部可见、UI 统一显示「未确认」），已列为后续改进项（`PLATFORM_LOGIN_ERROR_HINTS`）。
+
+> 同时如实记录其**与我们不同**的选择：参考产品B 保留了「后台自动重登窗口」（`backgroundautoreloginwnd`），并把用户账号密码注入平台登录页模拟点击。我们**不采用**这两条（安全 / 合规 / 风控三重风险），维持"默认关闭 + 用户手动重新登录"的口径。

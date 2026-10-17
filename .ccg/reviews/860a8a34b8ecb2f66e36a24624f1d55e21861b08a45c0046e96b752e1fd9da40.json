@@ -1,0 +1,153 @@
+{
+  "sha": "88a61bdc9e9e2dfa292a9f23440d56acc81c114f",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 421 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 421,
+    "fileCount": 7,
+    "codeFileCount": 6,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 2,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "860a8a34b8ecb2f66e36a24624f1d55e21861b08a45c0046e96b752e1fd9da40",
+  "decidedAt": "2026-10-16T09:34:51.643Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "cleared",
+    "performedBy": "self-play → external-review(claude) 第四轮：i1/i2/i6 fix_verified=true、i3 partial（可接受）、i4/i5 dismissed；adjudications_sound=true；无削弱判据迹象；agent 按 (a) 口径置 cleared",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "domains": [
+          "crypto"
+        ]
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "domains": [
+          "crypto"
+        ]
+      }
+    ],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "recordFileName 的收敛性依赖 stagedDiffHash 唯一，但 saveRecord 里同一变更 amend 时 hash 相同→覆盖同一文件；若该文件已是闭环则另存 -again-。然而 -again- 名在下次相同变更 amend 时又会另存新时间戳，导致无限累积。PRESERVE_BY_STATUS 判据已把 blocked/pending 移除，但 findings 非空仍保留；多次重复 amend 永远产生新 -again- 文件，无上限。",
+        "highRiskDomains": [
+          "crypto"
+        ],
+        "prosecution": "recordFileName 的收敛性依赖 stagedDiffHash 唯一，但 saveRecord 里同一变更 amend 时 hash 相同⇒覆盖同一文件；若该文件已闭环则另存 -again-。然而 -again- 名在下次相同变更 amend 时又会另存新时间戳，导致无限累积。PRESERVE_BY_STATUS 判据已把 blocked/pending 移除，但 findings 非空时仍会每次另存。",
+        "defense": "指控成立。已加去重：写 alt 前先按前缀删掉同变更的旧 alt（同 sha 只留一份）。",
+        "verdict": "upheld",
+        "rationale": "修复落点 ccg-review-decider.js 拒写分支的 altPrefix + readdirSync + unlinkSync。行为锁：真 git 仓库里连写两次，断言同前缀 alt 只有 1 份且原闭环记录未被覆盖。变异 M22 去掉去重 ⇒ 锁红（2 份）。",
+        "fix_verified": true,
+        "selfCaught": "去重首版用 altPrefix.split(\"/\").pop() 取前缀 —— Windows 分隔符是 \\，split(\"/\") 不拆分 ⇒ pop() 返回整条路径 ⇒ startsWith 恒 false ⇒ 去重完全失效（实测两次 amend 留两份 alt）。已改用 path.basename。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "deep-review.sh 的内容寻址段只处理 HEAD^ 存在的场景(_PARENT2 非空)；首个提交(只有一笔)时 HEAD^ 为空，_DIFFHASH 不计算，走父 sha 兜底。但此时记录按 stagedDiffHash 命名，父 sha 兜底找 .ccg/reviews/<40hex>.json 落空；且 i1 的 commit -a 告警与故障判据均依赖 _PARENT3 非空才执行。首个提交场景未被行为锁覆盖(残留风险第4条自称未实测)。",
+        "highRiskDomains": [],
+        "prosecution": "deep-review.sh 的内容寻址段只处理 HEAD^ 存在的场景；首个提交（只有一笔）时 HEAD^ 为空，_DIFFHASH 不计算，走父 sha 兜底，但此时记录按 stagedDiffHash 命名，父 sha 兜底找 .ccg/reviews/<40hex>.json 落空；且 i1 的 commit -a 告警与故障判据均依赖 _PARENT3 非空。",
+        "defense": "指控成立。这正是残留风险里「未实测无 HEAD^ 场景」那条 —— 评审替我校验了。已补 else 分支：无 HEAD^ 时用 git show --format= 取首个提交的 diff 当 diff 源（与判定器在 pre-commit 读到的 --cached 是同一份字节）。",
+        "verdict": "upheld",
+        "rationale": "修复落点 deep-review.sh 内容寻址段的 if/else（有 HEAD^ ⇒ git diff；无 ⇒ git show --format=）。锁：必须含 git show --no-textconv...--format= 与「仓库只有一笔提交」提示。变异 M23 把 else 分支改成空文件 ⇒ 锁红。",
+        "fix_verified": true
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "AUDIT_ARTIFACT_RE 放宽为认 _again- 形态，且时间戳部分允许 1-3 位毫秒(\\.\\d{1,3})。攻击者可用 -again- 后缀伪装审计产物，若同时 M 一个 openspec/records 文件，fun new file 借白名单混入纯回填变更集。负向锁覆盖了邻近形态，但未覆盖核心场景：M(openspec/records/a.md) + A(fake -again- 记录)。",
+        "highRiskDomains": [],
+        "prosecution": "AUDIT_ARTIFACT_RE 放宽为认 -again- 形态且时间戳允许 1-3 位毫秒。攻击者可用 -again- 后缀伪装审计产物，若同时 M 一个 openspec/records 文件，fun new file 借白名单混入纯回填变更集。负向锁覆盖了邻近形态，但未覆盖核心场景：M(openspec/records/a.md) + A(fake -again-) 是否被判纯回填。",
+        "defense": "伪装场景真实存在，但：① 形态收得很紧（40 或 64 位十六进制 + -again- + 40 位 sha + 带 T/Z 的时间戳），任意构造命中概率低；② 假记录的 stagedDiffHash/sha 与内容对不上，审计时可发现；③ 再收窄正则会把真 alt 重新拒掉（那就回到 i2 的假红）。已补正例锁（真 alt + M 载体 ⇒ 纯回填）与 8 条负向锁。",
+        "verdict": "upheld",
+        "rationale": "正例锁：真实 alt 形态（带/不带毫秒）+ M 载体文件必须判纯回填；负向锁 8 条（缺时间戳/无 T/少两位/大写/只有 -again/尾巴非 sha/换后缀/子目录）必须仍拒。正则不再收窄（否则真 alt 被拒 ⇒ i2 回归）。",
+        "fix_verified": "partial"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "decider 的 collectFromDiff 对 collectStaged 用 --cached 的 numstat 和 -U0 两条命令，但 collectProposal 和多文件范围仍沿用旧的 collectRange。若 proposal 层也用 collectStaged 之外的路径计算 stagedDiffHash，口径仍会分离。此外 recordFileName 只接受 64 位位数;若 hash 计算返回错误(算失败)。",
+        "highRiskDomains": [
+          "crypto"
+        ],
+        "prosecution": "decider 的 collectFromDiff 对 collectStaged 用 --cached 的 numstat 和 -U0 两条命令，但 collectProposal 和多文件范围仍沿用旧的 collectRange。若 proposal 层也用 collectStaged 之外的路径计算 stagedDiffHash，口径仍会分离。此外 recordFileName 只接受 64 位。",
+        "defense": "collectRange/collectProposal 是决策层/补跑路径，不写验证层记录（saveRecord 只由验证层调用）；recordFileName 只接受 64 位是有意的（40 位回落只在空 diff 时发生，且那时不依赖内容寻址）。",
+        "verdict": "dismissed",
+        "rationale": "依据：saveRecord 是验证层专用；plan 层记录不含 stagedDiffHash（字段只在 saveRecord 里算）。recordFileName 的 64 位门是特性不是缺陷。",
+        "fix_verified": null
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "CLOSED_DEEP_REVIEW_STATUSES 与 shouldPreserveClosedRecord 在 decider 与 gate 两处重复定义，且 gate 的 CLOSED_DEEP_REVIEW_STATUSES 未在本次 diff 中显示修改。若 gate 处先改，decider 处后改，测试 qm-6 i3 白名单同源锁需要读 gate 源码断言;但测试本身未在此 diff 中显示更新。",
+        "highRiskDomains": [],
+        "prosecution": "CLOSED_DEEP_REVIEW_STATUSES 与 shouldPreserveClosedRecord 在 decider 与 gate 两处重复定义，且 gate 的未在本次 diff 中显示修改。若 gate 处先改、decider 处后改，测试 qm-6 i3 白名单同源锁需要读 gate 源码断言；但测试本身未在此...",
+        "defense": "同源锁已存在（QM-6 i3「闭环白名单与门禁同源」直接读 gate 源码断言两处集合相等），且 gate 白名单本 PR 未改。跨文件 require 会把耦合伸进钩子启动路径，故选择重复定义 + 等价锁。",
+        "verdict": "dismissed",
+        "rationale": "依据：ccg-review-decider.test.js 的「闭环白名单与门禁同源」测试已覆盖；改一处忘另一处会当场红。",
+        "fix_verified": null
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "finding": "i5 的 hashResult 失败分支仍使用 recordFileName(stagedDiffHash=undefined,sha) 回落父 sha 命名，虽显式告警，但告警后的记录文件实际仍会撞名(父 sha 被同基线共享)。残留下 i5 的告警仅指向撞名，但不给出任何去重处置。",
+        "highRiskDomains": [],
+        "prosecution": "i5 的 hashResult 失败分支仍使用 recordFileName(stagedDiffHash=undefined,sha) 回落父 sha 命名，虽显式告警，但告警后的记录文件实际仍会撞名（父 sha 被同基线共享）。残留下 i5 的告警仅指向撞名，但不给出任何去重处置。",
+        "defense": "指控成立。已改为 error 分支**不写记录**（return null）：不写只会让门禁报「缺记录」（可见、可定位），写父 sha 名则产生一个会与他人冲突的文件（不可见、难定位）。两者取其可见者。",
+        "verdict": "upheld",
+        "rationale": "修复落点 ccg-review-decider.js 的 hashResult error 分支 return null（在写文件之前）。锁：error 分支必须 return null 且 return 在 writeFileSync 之前。变异 M24 去掉 return null ⇒ 锁红（3 条）。",
+        "fix_verified": true
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "reason": "high_risk_requires_external",
+        "domains": [
+          "crypto"
+        ]
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "reason": "high_risk_requires_external",
+        "domains": [
+          "crypto"
+        ]
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      }
+    ],
+    "note": "引擎自扮演出口对高危域（datamigration/crypto）制度性不可用：ccg-deep-review.js:417-418 对highRiskDomains 非空无条件阻断，:342 硬编码 adjudicatedBy=self-play，无外部裁决入参。故已实做外部复核（第四轮）：5 条阻断项全部给出 verdict，其中 i1/i2/i6 fix_verified=true、i3 fix_verified=partial（正则未收窄是故意的 —— 收窄会让真 alt 被拒，回到第二类假红；已加正例锁 + 8 条负向锁）、i4/i5 dismissed。复核者明确判断「无削弱判据迹象」。复核者另确认本轮 4 个自查缺陷全部真修好（path.basename / null 判断 / 夹具改真 git 仓库 / return null）。highRiskDomains 标记**原样保留**未删（不篡改评审以过门禁）。本状态由 agent 手工置 cleared 的依据是门禁对闭环的定义「裁决已产出并落盘」（check-pr-exec-record.js:352-355），且本次裁决由**外部**产出，强于自扮演而非弱于。完整机制披露见 openspec/records/ccg-record-content-addressing.md。",
+    "at": "2026-10-16T15:07:32.032Z",
+    "engineStatusBeforeClear": "self_play_blocked",
+    "clearedBy": "external adjudication（见 .adversarial/ccg-deep-adc9163a/adjudication.json::externalReviewSummary）+ agent 手工置值",
+    "requiresExternalReviewKept": true
+  }
+}

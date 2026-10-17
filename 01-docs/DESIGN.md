@@ -485,12 +485,18 @@ Primary CTAs and pills meet comfortable touch sizing through 12px-24px padding a
 
 - 进度弹窗是 modeless 观察窗：遮罩点击和 Escape 不关闭，只有右上角关闭按钮可触发 detach。关闭按钮带可访问 label 和稳定 test id。
 - 离场使用 opacity + `scale(0.96) translateY(4px)`，让用户明确看到观察窗被收起，而不是任务被取消。
-- 普通 running 编排任务 footer 提供【后台运行】；右上角关闭和该按钮走同一 detach handler。toast 为“任务已转入后台运行，在历史记录中可查看”。
-- 人工 checkpoint（素材选择/内容策略/等待用户输入）关闭按钮 disabled，footer 不显示后台按钮，保留确认、修改、取消动作。
+- **footer 四按钮契约（2026-10-17）**：所有视频流水线进度浮层（视频创作页与热门选题页）footer 从左到右固定为 **【查看】【去发布】【后台运行】【取消】**，且一律用 `UiButton` 渲染（`secondary` 变体；重试用 `primary`）。任何页面 SHALL NOT 在 footer 用小节私有按钮类（如 `cohere-btn-*`）承载流水线动作 —— 与弹窗内 `StageProgress` 同源，保证圆角、内边距、禁用态、主次色一致。
+- 【查看】【去发布】在任何状态都渲染，但初始 `disabled` + `aria-disabled="true"` 并保留可见文案（不用 tooltip 替代）；仅本次 run `completed` 且取得成片后转为可点。
+- 运行中 footer 提供【后台运行】；右上角关闭和该按钮走同一 detach handler。toast 为“任务已转入后台运行，在历史记录中可查看”。
+- 终态（`completed`）后【后台运行】【取消】不再渲染（无运行中任务可脱离/可取消），由右上角关闭承接收起；关闭动作改为复位前端态并收起浮层，不调用 `pipelineCancel`。
+- 人工 checkpoint（素材选择/内容策略/等待用户输入）关闭按钮 disabled，footer 不显示后台按钮，保留确认、修改、取消动作；【查看】【去发布】此时保持灰显。
+- footer 中的长文案（错误提示、人工检查点提示）以 `flex: 1` / `margin-right: auto` 占位在左，按钮组靠右，避免错误文字被挤到按钮之间。
 
 ### 内容与数据表现
 
 总进度、已用时、终态摘要、所有阶段、状态、详情、阶段耗时、子进度、合成时间参考、provider warning、BGM 跳过、加载/不可用提示和素材选择面板都属于弹窗内容。数组、对象和进度范围先归一化，错误字段只隐藏或走既有 fallback，不使 renderer 崩溃。
+
+**完成态即决策中枢（2026-10-17）**：run 成功后弹窗**保持打开**，内容区定格为「阶段全完成 + 进度 100% + 完成汇总」，footer 的【查看】【去发布】同帧解锁。不再自动跳转结果页 —— 成功瞬间用户要的是"下一步做什么"，而不是被动离开当前上下文。
 
 ### 范围边界与废弃组件
 

@@ -1,4 +1,4 @@
-﻿// @ts-check
+// @ts-check
 /**
  * AssetGenerator - 资源生成服务
  *
@@ -556,13 +556,13 @@ class AssetGenerator {
     }
     const bgColor = styleColors[opts?.style] || '0x1a1a2e'
 
-    // 截取前 30 个字符作为图片文字
     const displayText = escapeDrawtextText((prompt || '').slice(0, 30))
+    const fontOption = require('./font-resolver').buildDrawtextFontOption() // 须显式注入 CJK fontfile，否则中文豆腐块
 
     const args = [
       '-y',
       '-f', 'lavfi', '-i', 'color=c=' + bgColor + ':s=' + width + 'x' + height + ':d=1',
-       '-vf', "drawtext=text='" + displayText + "':fontcolor=white:fontsize=36:" +
+       '-vf', "drawtext=text='" + displayText + "'" + fontOption + ":fontcolor=white:fontsize=36:" +
         'x=(w-text_w)/2:y=(h-text_h)/2:borderw=2:bordercolor=black',
       '-frames:v', '1',
       imgPath,

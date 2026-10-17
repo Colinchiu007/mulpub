@@ -192,4 +192,71 @@ describe("Dashboard 样式源码守卫（PR #2075/#2114 事故回归保护）", 
     });
     expect(hasRule, "scoped 样式缺少 .stat-decor 规则").toBe(true);
   });
+
+  // 本条经历了两次反转，两次都是产品决策变化，不是判据失效 —— 历史一并留在此处，
+  // 免得后人看到"先加后删"以为是无谓反复：
+  //
+  // 【第 1 版｜2026-10-16】断言 TrialBanner **必须在 .cohere-content 内部**。
+  //   事故：横幅曾挂在外面，成为全页唯一没有水平 padding（--space-xxl）的元素 ——
+  //   背景块左边缘贴容器边、与卡片不对齐，且被 .banner-text 的 flex:1 拉满整页宽度。
+  //   该缺陷无法被挂载断言发现（vitest 不注入 CSS，DOM 查询照样通过），
+  //   故只能在模板层锁位置关系。
+  //
+  // 【第 2 版｜2026-10-17，当前】断言 **不得再出现 TrialBanner**。
+  //   用户决策方案 C：撤下。理由是横幅文案「当前为免费版，部分功能受限」在本页
+  //   是误导 —— 本页三个数据源门禁都是登录而非套餐，没有任何一项内容因套餐受限。
+  //   套餐差异改由各区块的「锁区块占位」真实体现（PRD §3.2）。
+  //
+  // 反转后的守护点：防止有人把横幅加回来。若将来确有理由恢复，请连同
+  // 「必须放在 .cohere-content 内部」这条一起恢复（见 Dashboard.vue 模板注释）。
+  it("看板页不得再出现 TrialBanner（误导文案已撤，防回潮）", () => {
+    const tpl = descriptor.template.content;
+    const bannerIdx = tpl.indexOf("<TrialBanner");
+    expect(
+      bannerIdx,
+      "模板又出现了 <TrialBanner>：该横幅已因文案误导撤下（用户决策方案 C）。" +
+        "若确需恢复，必须同时恢复「位于 .cohere-content 内部」的位置约束"
+    ).toBe(-1);
+    // 连带断言：组件导入也一并移除，避免留下死引用
+    expect(tpl).not.toContain("trial-banner");
+  });
+
+  // CCG i7 指出：反转 TrialBanner 位置守卫后，新加的附加区块**没有**同等的
+  // 位置锁 —— 上一版那条「必须在 .cohere-content 内部」的守护面就此空了。
+  // 这里给它补上，锁的是同一个失效模式（放在 content 外 ⇒ 丢水平 padding、
+  // 与下方卡片左右不对齐），只不过对象换成了 DashboardExtraPanels。
+  it("DashboardExtraPanels 必须位于 .cohere-content 内部（丢 padding 回归保护）", () => {
+    const tpl = descriptor.template.content;
+    const contentIdx = tpl.indexOf('class="cohere-content"');
+    const panelsIdx = tpl.indexOf("<DashboardExtraPanels");
+    expect(contentIdx, "模板缺少 .cohere-content 容器").toBeGreaterThan(-1);
+    expect(panelsIdx, "模板缺少 <DashboardExtraPanels>").toBeGreaterThan(-1);
+    expect(
+      panelsIdx,
+      "<DashboardExtraPanels> 必须放在 .cohere-content 内部：放在外侧它会成为全页" +
+        "唯一没有水平 padding（--space-xxl）的元素，背景块左边缘贴容器边、与下方卡片不对齐" +
+        "（该失效模式在 TrialBanner 上真实发生过，见上一条注释第 1 版）"
+    ).toBeGreaterThan(contentIdx);
+
+    // 且必须在 .cohere-content 的**闭合**之前：证明是嵌套而非同层后置。
+    // 用 div 深度计数定位与开头匹配的闭合标签，避免被内层嵌套 div 误导。
+    const tags = [];
+    for (const m of tpl.matchAll(/<div\b/g)) tags.push({ i: m.index, t: "o" });
+    for (const m of tpl.matchAll(/<\/div>/g)) tags.push({ i: m.index, t: "c" });
+    tags.sort((a, b) => a.i - b.i || (a.t === "o" ? -1 : 1));
+    let depth = 0;
+    let closeIdx = -1;
+    for (const tag of tags) {
+      if (tag.t === "o") depth += 1;
+      else {
+        depth -= 1;
+        if (depth === 0 && tag.i > contentIdx) { closeIdx = tag.i; break; }
+      }
+    }
+    expect(closeIdx, "未找到 .cohere-content 的闭合标签").toBeGreaterThan(-1);
+    expect(
+      panelsIdx,
+      "<DashboardExtraPanels> 越过了 .cohere-content 的闭合标签（同层而非嵌套 → padding 不生效）"
+    ).toBeLessThan(closeIdx);
+  });
 });

@@ -631,6 +631,10 @@ enclosure 解析序（`resolveEnclosure`）：`audioUrl` → `resolvedAudioUrl` 
 | `podcast.errors.PODCAST_STORE_CORRUPT` | 播客数据文件读不出来（可能已损坏），已停止写入以免扩大损坏 | The podcast data file cannot be read (it may be corrupted). Writing stopped to avoid making it worse. |
 | `podcast.errors.PODCAST_STORE_UNAVAILABLE` | 播客数据目录当前不可用（权限或磁盘问题），请稍后重试 | The podcast data directory is unavailable right now (permissions or disk). Try again later. |
 | `podcast.errors.PODCAST_TTS_BILLING_UNCONFIRMED` | 文本出期会逐块调用语音合成服务并产生费用，请先确认用量与费用 | Publishing from text calls the speech synthesis service per chunk and incurs cost. Confirm usage and fees first. |
+| `podcast.errors.PODCAST_TTS_CHUNK_UNSAFE` | 稿件含无法安全切分的块，本期不发布 | Script contains a chunk that cannot be split safely |
+| `podcast.errors.PODCAST_TTS_COPY_TOO_SHORT` | 正文少于一期口播的下限 80 码点 | Text is shorter than the 80 code point minimum for one episode |
+| `podcast.errors.PODCAST_TTS_TITLE_INVALID` | 标题为空或过长，无法出期 | Title is empty or too long for one episode |
+| `podcast.errors.PODCAST_TTS_VOICE_UNRESOLVED` | 未解析到可用音色，请检查服务商与音色设置 | No usable voice resolved; check provider and voice settings |
 | `podcast.errors.PODCAST_VIDEO_NOT_FOUND` | 找不到成片文件，请回结果页重新生成或重选路径 | The final video file cannot be found; regenerate it on the result page or pick the file again |
 | `podcast.errors.fallback` | 发生未知问题（{code}） | Unknown issue ({code}) |
 | `podcast.explicit.clean` | Clean（干净版） | Clean |
@@ -704,7 +708,7 @@ enclosure 解析序（`resolveEnclosure`）：`audioUrl` → `resolvedAudioUrl` 
 | `podcast.stock.skippedChannels` | {count} 个频道未能固化，需重试 | {count} channels could not be frozen; retry required |
 | `podcast.stock.unresolved` | {count} 期无法判定音频类型，需重新生成 | {count} episodes could not be typed; regenerate to resolve |
 
-共 235 键；逐键 zh/en 成对且均为非空串。
+共 239 键；逐键 zh/en 成对且均为非空串。
 
 ## 十二、验收标准（整体验收）
 

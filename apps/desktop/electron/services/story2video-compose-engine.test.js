@@ -228,6 +228,49 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     expect(buildScaleFilter(1920, 1080)).toContain('pad=1920:1080')
   })
 
+  describe('自包含中文字体接入（2026-10-16，cjk-font-selfcontained）', () => {
+    // 契约：字幕与水印的 drawtext 必须注入 fontfile，且该路径 ASCII 安全。
+    // 为什么两条链都要锁：它们各自调用 resolveCjkFont()，历史上只有字幕侧有断言，
+    // 水印侧长期无覆盖（变异"删掉水印的 fontFile 注入"不会被发现）。
+    const ASCII_SAFE = /^[\x20-\x7E]+$/
+
+    it('字幕 filter 注入的 fontfile 是 ASCII 安全路径', () => {
+      const resolvedFont = resolveCjkFont()
+      if (!resolvedFont) return // 无字体环境（如无系统字体且无自包含）时不注入亦合法
+      const filter = buildSubtitleFilter('中文字幕实测', { size: 'md' })
+      const m = filter.match(/fontfile='([^']*)'/)
+      expect(m, '字幕 filter 未注入 fontfile').toBeTruthy()
+      expect(ASCII_SAFE.test(m[1]), `fontfile 含非 ASCII 字符，ffmpeg 会静默渲染成豆腐块: ${m[1]}`).toBe(true)
+    })
+
+    it('水印 filter 注入的 fontfile 与字幕一致（同一字体源）', () => {
+      const resolvedFont = resolveCjkFont()
+      if (!resolvedFont) return
+      const sub = buildSubtitleFilter('字幕', { size: 'md' }).match(/fontfile='([^']*)'/)
+      const wm = buildWatermarkFilter({
+        watermark: { enabled: true, text: '品牌水印' },
+      }).match(/fontfile='([^']*)'/)
+      expect(wm, '水印 filter 未注入 fontfile').toBeTruthy()
+      expect(sub).toBeTruthy()
+      expect(wm[1]).toBe(sub[1])
+    })
+
+    it('ASCII 副本落点固定（ffmpeg fontfile 依赖稳定名）', () => {
+      const resolvedFont = resolveCjkFont()
+      if (!resolvedFont) return
+      expect(ASCII_SAFE.test(resolvedFont)).toBe(true)
+      expect(resolvedFont).toContain('mp-fonts')
+      expect(resolvedFont).not.toContain('src\\public') // 副本，不是 public 源目录
+      expect(fs.existsSync(resolvedFont), `ASCII 副本不存在: ${resolvedFont}`).toBe(true)
+    })
+
+    it('resolveCjkFont 结果被缓存（同进程内稳定，不会每次重拷 1.9MB）', () => {
+      const a = resolveCjkFont()
+      const b = resolveCjkFont()
+      expect(b).toBe(a)
+    })
+  })
+
   describe('buildWatermarkFilter — 水印位置/透明度/字号契约（2026-08-14）', () => {
     const base = { watermark: { enabled: true, text: '品牌' } }
 

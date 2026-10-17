@@ -40,16 +40,24 @@
 ## PR-2：camofox 通道 + ddddocr sidecar（F3+F4，依赖 PR-1 合并）
 
 ### 6. sidecar-host 基建
-- [ ] 6.1 `electron/services/sidecar-host.js`：start(manifest)/health()/stop()/onExit；下载后 sha256 强制校验（拒落地）+ spawn 前完整性复检；Windows 受控路径复制后 spawn
-- [ ] 6.2 RED：spawn 失败/端口冲突/异常退出清理/sha256 不符拒落地/篡改拒 spawn 五态
-- [ ] 6.3 manifest 建表：camoufox（npm 版本→BUNDLED_CAMOUFOX_RELEASE+sha256）与 ddddocr（requirements 版本+模型 sha256）落 media-tools-lock 同级 speech-sidecar-lock.json
+- [x] 6.1 `electron/services/sidecar-host.js`：start(manifest)/health()/stop()/onExit；下载后 sha256 强制校验（拒落地）+ spawn 前完整性复检；Windows 受控路径复制后 spawn —— 181 行 + 测试 8 例，变异 5/5 CAUGHT；目录布局 `<workDir>/stage/<id>-<version>.bin`（下载后校验）与 `<workDir>/bin/<id>`（spawn 前复检 + spawn 目标）
+- [x] 6.2 RED：spawn 失败/端口冲突/异常退出清理/sha256 不符拒落地/篡改拒 spawn 五态 —— 五态全落；另锁 token 经 env 注入不经 argv（D4）与子进程 env 显式剔除 `ELECTRON_RUN_AS_NODE`
+- [x] 6.3 manifest 建表：camoufox（npm 版本→BUNDLED_CAMOUFOX_RELEASE+sha256）与 ddddocr（requirements 版本+模型 sha256）落 media-tools-lock 同级 speech-sidecar-lock.json —— 落 `apps/desktop/sidecar-lock.json`（按内容命名，未用 tasks 里的 speech- 前缀，理由已写入 lock `_doc` 段）+ 校验器 122 行 + 测试 13 例，变异 6/6 CAUGHT。**两源真实取证**：npm registry `@askjo/camofox-browser@1.18.1`（SRI+shasum）与 GitHub Releases `daijro/camoufox` tag `v152.0.4-beta.30` 六平台官方 sha256/size；`BUNDLED_CAMOUFOX_RELEASE=152.0.4-beta.30` 取自 wrapper 源码常量。**审包发现**：wrapper 下载链路不做任何 sha256 校验（`checkAsset` 只匹配资源名前缀，失败走 `process.exit(0)`）⇒ 首下无 hash 保障，只有 spawn 前复检，即 PRD §3.4 ③ 的真实边界。**ddddocr 显式 `status=pending`**（onnx 权重 hash 未取证），`resolveAsset` fail-closed 拒绝启动——留洞比留假 hash 安全
 
 ### 7. F3 camofox 通道
-- [ ] 7.1 `@askjo/camofox-browser@<pinned>` 依赖 + postinstall 下载路径适配（fail=warn→手动 fetch-bin→通道降级三级）
-- [ ] 7.2 `stealth-channel-camofox.js`：CDP-WebSocket 驱动，复用行为层接口（第二个 driver）；仅绑 127.0.0.1+一次性 token
-- [ ] 7.3 rpa-view-manager `channel:'stealth'` 路由 + 映射表（publish-capabilities.json）
-- [ ] 7.4 RED：路由映射/缺省/sidecar 不可用回落 Electron 通道+warn（禁静默）
-- [ ] 7.5 构建期断言：无 `--remote-debugging-port` 非回环监听
+- [x] 7.1 `@askjo/camofox-browser@<pinned>` 依赖 + postinstall 下载路径适配（fail=warn→手动 fetch-bin→通道降级三级）—— **方案 A**：
+  - `package.json` pin 精确 `1.18.1`（不用 ^，避免 lock 漂移）
+  - **在 `pnpm-workspace.yaml` 的 `allowBuilds` 里显式写 `false`**（本节原名「不加进 `allowBuilds`」，**pnpm 11 下已不成立**：键**缺席** = *ignored build* ⇒ `ERR_PNPM_IGNORED_BUILDS` 且 install rc=1；`true` ⇒ 真跑 postinstall 拉 ~500MB；只有 `false` ⇒ 不构建且 rc=0），并补注释防后人「顺手补全」或「顺手改成 true」
+  - `pnpm run fetch:camofox` 手动拉，自带 `sidecar-lock.json` 的 GitHub Releases 官方 sha256 校验（camofox 自身不校验）
+  - 实证：`node_modules/@askjo/camofox-browser` 存在而 `%LOCALAPPDATA%\camoufox\...\Cache` 不存在
+  - **删掉一度加的 `package.json` `pnpm.neverBuiltDependencies`**：pnpm 11 已废弃该字段（`pnpm config get` 报 WARN "no longer read by pnpm ... ignored"），新家在 `pnpm-workspace.yaml`
+  - **CI 硬阻塞与修法（2026-10-16，第二轮 13 连红）**：本 pin 的传递依赖 `better-sqlite3`（有 `binding.gyp`、无 install 脚本）被 pnpm 自动注入 `node-gyp rebuild`，而 `allowBuilds` 里它是 `true` ⇒ runner 的 `node-gyp@9.4.1` 认不出 VS 18 ⇒ install rc=1 ⇒ 13 个下游作业连红。修为 **`better-sqlite3: false` + 11 行注释**（**删掉该行反而更糟**：退回缺省 = 允许）；隔离 A/B 探针两档对照与取证落 `openspec/records/oss-b1-pr2.md`，回归锁 `fetch-camofox.test.js` #3/#4
+  - **接线补课**：`apps/desktop/scripts/{fetch-camofox,check-camofox-listen}.test.js` 此前**从未在 CI 执行** —— `vitest.config.js` 的 include 白名单不含 `scripts/**`，而 `check-unwired-tests.js` 的 `WORKSPACE_COVERED` 又跳过整棵 `apps/` 子树 ⇒ 棘轮对它们结构性失明。本轮在 `quality-gate.yml` 的 Gate 2b 显式点名（同目录 7 个兄弟文件先例，不做通配）
+  - **CI 硬阻塞与修法（2026-10-16，第四轮：`ERR_PNPM_IGNORED_BUILDS` 单一根因连红 12 个作业，head `c90a72a1d`）**：三 workflow（quality-gate 9 作业 + `Gate Result` 连坐、Build & Release `build`、GUI Tests `gui-test` + `GUI Gate Result`）的失败作业**全部停在安装步骤**，剥 ANSI 后逐字同一行 `[ERR_PNPM_IGNORED_BUILDS] Ignored build scripts: @askjo/camofox-browser@1.18.1` ⇒ 单一根因。修为 **`'@askjo/camofox-browser': false`**（`@` 不能作 plain scalar 首字符，**必须加引号**；三档语义见上一条），并修掉**解析器陷阱** —— `readAllowBuilds` 原为「遇 0 缩进即 break」，而新条目上方是 0 缩进注释 ⇒ 条目静默不可见、旧锁「该键不存在」恒真（装饰性门禁）。证据：三档语义探针表、可复跑 A/B（`p2-ab-driver.js`）、7 条变异（含 M7 成对反证）、推前门禁同口径全绿 —— 全落 `openspec/records/oss-b1-pr2.md`「CI 第四轮」节
+- [x] 7.2 `stealth-channel-camofox.js`：CDP-WebSocket 驱动，复用行为层接口（第二个 driver）；仅绑 127.0.0.1+一次性 token —— 234 行 + 测试 17 例，变异 8/8 CAUGHT。与 `cdp-input.js` 同接口同返回语义（D2）；`assertLoopbackEndpoint` 构造时即拒非回环；合成事件走 `Runtime.evaluate`（camoufox 无 executeJavaScript）。**按变异结果删掉一处冗余防御**（`close()` 的 `if(closed) return` 与 `ws=null` 叠加，摘掉无可观测差异）
+- [x] 7.3 rpa-view-manager `channel:'stealth'` 路由 + 映射表（publish-capabilities.json）—— **判定层已落、manager 薄接线待 7.1**：`resolvePublishChannel(platformId,{hostIsUsable})` 纯函数已入 `publish-capabilities.{js,browser.js}` 两侧（含 parity 锁），配置面 `riskControl.stealthChannelPlatforms` 已随 PR-1 落地。抽成纯函数正是为了与 7.1 的依赖决策解耦
+- [x] 7.4 RED：路由映射/缺省/sidecar 不可用回落 Electron 通道+warn（禁静默）—— 三态全落 + parity 3 条，变异 5/5 CAUGHT。回落必带 `fallbackReason='stealth-channel-unavailable'`（禁静默，供调用方 warn 并写入发布结果，PRD §3.4 评审 FE3 留痕）
+- [x] 7.5 构建期断言：无 `--remote-debugging-port` 非回环监听 —— `scripts/check-camofox-listen.{js,test.js}`（node:test，同 build-paginator 先例），10 例，变异 5/5 CAUGHT。实现中两个真实缺陷由测试当场抓住：**IPv6 逃逸口**（方括号 `[2001:db8::1]` 被「变量形态」判据放过 ⇒ isBracketV6 必须前置于变量判定，变异 M1 专锁）与**回环误报**（裸 `::1` 按第一个冒号切得 `''`）。**本轮补**：该 `.test.js` 此前对 CI 接线棘轮隐形（`apps/` 子树被整棵跳过），已在 Gate 2b 显式接线，见 §7.1 末条
 
 ### 8. F4 ddddocr
 - [ ] 8.1 python-backend captcha 托管路由（ddddocr api/server.py 子进程，拓扑=桌面端 python-backend）

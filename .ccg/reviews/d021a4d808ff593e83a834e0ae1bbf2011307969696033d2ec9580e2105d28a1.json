@@ -1,0 +1,29 @@
+{
+  "sha": "b8e98f1c5d5e8bbdc49c9eb7b2bff0e081209746",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 1,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "❌ Dashboard.vue 较登记值 796 膨胀 222 行（容差 200），请拆分或经审阅后 --update",
+      "正解是**拆分**而不是 `--update` 抬高上限（后者违反「债务只能缩小」纪律）。抽成 `features/dashboard/DashboardExtraPanels.vue`（三个附加区块 + 自包含样式），Dashboard.vue 926 → 802 行，门禁 exit 0。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "d021a4d808ff593e83a834e0ae1bbf2011307969696033d2ec9580e2105d28a1",
+  "decidedAt": "2026-10-17T01:56:16.417Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

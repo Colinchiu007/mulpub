@@ -44,11 +44,176 @@ const CARRIER_RE = /^(?:openspec\/records\/[^_][^/]*\.md|\.quality-gates\.md|scr
 // 审计产物：#3396 的 pre-commit 会在每次提交后把本次产生的判定记录（.ccg/reviews/<pre-commit HEAD sha>.json）
 // 自动 stage 进同一个提交。它们不承载门禁语义、不是功能改动，却会让「在任何跑过门禁的 worktree 里做
 // 纯回填」被④判成夹带新增（实测 PR #3432：本地 enforce 红，而 CI 的 Gate Result 因 docs-only 通道照过）。
-// 放宽只发生在一个维度上：状态必须是 A，且文件名必须精确匹配 .ccg/reviews/<40 位小写十六进制>.json。
+// 放宽只发生在一个维度上：状态必须是 A，且文件名必须精确匹配 .ccg/reviews/<小写十六进制>.json。
 // M/D、短 sha、大写、多一段目录或后缀、别的目录、任何非载体文件 —— 一律仍不算纯回填；
 // 且 C2 收紧（至少一篇记录 M）不因这些新增而被绕过。
-const AUDIT_ARTIFACT_RE = /^\.ccg\/reviews\/[0-9a-f]{40}\.json$/
+//
+// ★ 2026-10-16（ccg-record-content-addressing）：位宽由「只认 40」放宽为「**40 或 64**」。
+//   40 位 = 历史形态（父 sha）；64 位 = 新形态（内容寻址键 stagedDiffHash，sha256）。
+//   两种必须同时认：只认 64 会让全部历史记录被判夹带；而**不加约束**地放宽成任意 .json
+//   会让 `scripts/evil.js` 一类真·功能新增借道这条白名单（既有负例锁见
+//   check-pr-exec-record.test.js 的「审计产物白名单不得被形态邻近的写法穿过」）。
+//
+// ★★ 第三轮 i2 修正：必须**同时认 alt 形态**。
+//   同名记录已有实质内容（findings 非空或已闭环）时，判定器把本次判定另存为
+//   `<64hex>-again-<40sha>-<ISO时间戳>.json`（见 ccg-review-decider.js 的拒写分支）。
+//   首版**没认这个形态** ⇒ 钩子若把它 stage 进同一次提交，出路④判「非纯回填」而假红；
+//   不 stage 则审查结论与门禁脱钩。属「声称同源的三处漏了第四处」。
+//   形态收得很紧：后缀必须形如 `-again-<40hex>_<14位T时间戳>`，且必须带 T 与 Z。
+const AUDIT_ARTIFACT_RE = /^\.ccg\/reviews\/(?:[0-9a-f]{40}|[0-9a-f]{64})(?:-again-[0-9a-f]{40}-\d{8}T\d{6}(?:\.\d{1,3})?Z)?\.json$/
 const DEFAULT_THRESHOLD = 3
+
+// ---------- 位宽/形态说明的**单一真源**（2026-10-17，ccg-record-width-message） ----------
+//
+// 为什么要有这一段：出路④的提示文案原先**手写**了位宽说明（`<40 位…>` 那种写法）。
+// （此处**不复述**旧全句：本文件末尾的派生锁要求「源码里不得出现手写的位宽短语」，
+//   若在此处完整引用一遍旧文案，就会与那条判据自相冲突 —— 复述历史不构成豁免。）
+// 判据在 #3755 被放宽为「40 或 64 位 + alt 形态」时，只改了正则与上方注释，漏改这条用户可见文案
+// ⇒ 两处独立可漂移的真源，且按提示排障的人会把 **64 位记录误判成不算纯回填**，
+// 进而给一个真实满足④的 PR 硬加一份本不需要的记录文件（PR #3772 上实际踩到）。
+//
+// 修法不是「再写一遍 + 交叉核对」（那只是把第二处真源保留下来、加一把锁看着它），
+// 而是**让文案由判据生成**：位宽集合从 `AUDIT_ARTIFACT_RE` 的**行为**推出，文案片段由该结果拼出。
+// 这样「文案说的」与「判据做的」结构上是同一个值，不存在漂移的余地。
+//
+// 关键决定：**按行为探测、不按正则字面形状解析**。
+// 理由是 QM-6 i1 指出的假阳性：若将来把正则改写成等价但不同形状的写法
+// （`[0-9a-f]{40,64}`、`.{40}`、加 `/i` 等），任何「从字面里抠 `\{(\d+)\}`」的做法都会取空或取错，
+// 于是锁变红却**分不清是文案错了还是正则重构了**。行为探测对等价改写免疫。
+const AUDIT_NAME_WIDTH_MIN = 8
+const AUDIT_NAME_WIDTH_MAX = 200
+// alt 形态的 sha 段探测范围与 ISO 段候选（同样只用于**探测**，不用于断言形状）
+const AUDIT_ALT_SHA_MIN = 4
+const AUDIT_ALT_SHA_MAX = 80
+const AUDIT_ALT_ISO_CANDS = [
+  { text: '-20261017T120000Z', label: 'ISO 时间戳' },
+  { text: '-20261017T120000.123Z', label: 'ISO 时间戳（含毫秒）' },
+]
+function auditArtifactName (width, suffix) {
+  return '.ccg/reviews/' + 'a'.repeat(width) + (suffix || '') + '.json'
+}
+/**
+ * 判据**实际接受**的位宽集合（按行为探测得出，是文案的唯一真源）。
+ *
+ * QM-6 第三轮 i2/i5：结果**模块级缓存**并冻结。两条理由：
+ *   ① 每次调用要跑 (MAX-MIN+1)=193 次正则探测，而它位于 evaluate() 的出错分支上；
+ *      虽然只在要生成提示时触发，但没有理由每次都重算。
+ *   ② alt 探测以 `auditAcceptedWidths()[0]` 为基准宽度。不缓存的话两处各算一次，
+ *      任何一次内部状态变化都可能让两者读到不同结果（审阅者 i5 指出的不一致）；
+ *      缓存后两个派生函数共用**同一次快照**，一致性由构造保证。
+ *
+ * 冷路径预算（QM-6 第四轮 i5 要求写明）：首次调用做 (MAX-MIN+1) 次 `RegExp.test`，
+ * 在 V8 上是微秒级；且本函数**只在生成提示文案时**被调到 —— 判据通过（`submitted === true`）
+ * 的路径上完全不执行。**故意不缩小扫描窗口**：把 8..200 收窄成 8..96 能省一半探测，
+ * 但会让「未来出现 100 位记录名」从「被正确采纳」变成「fail-closed 报错」——
+ * 那是拿正确性换微秒，方向错了。
+ */
+let _widthsCache
+function auditAcceptedWidths () {
+  if (_widthsCache !== undefined) return _widthsCache
+  const out = []
+  for (let w = AUDIT_NAME_WIDTH_MIN; w <= AUDIT_NAME_WIDTH_MAX; w++) {
+    if (AUDIT_ARTIFACT_RE.test(auditArtifactName(w))) out.push(w)
+  }
+  _widthsCache = Object.freeze(out)
+  return _widthsCache
+}
+/**
+ * 判据**实际接受**的 alt 形态（按行为探测得出），形如：
+ *   { shaWidths: [40], isos: ['ISO 时间戳'] }
+ * 不接受 alt 形态时返回 null。
+ *
+ * ★ QM-6 第二轮 i1/i3：首版把 alt 描述**硬编码**成 `-again-<40 位 sha>-<ISO 时间戳>`。
+ *   于是若判据把 alt 的 sha 宽度改成 `[0-9a-f]{32}`，探针（固定 `'b'.repeat(40)`）仍会失败、
+ *   看起来「一切正常」，但真实行为已变、描述却还写着 40 位 ⇒ **文案又说谎了，只是这次
+ *   没有探针能发现**。所以 alt 的 sha 宽度与 ISO 段都必须由探测得出，描述再由探测结果拼出。
+ */
+let _altFormCache
+function auditAcceptedAltForm () {
+  if (_altFormCache !== undefined) return _altFormCache
+  const mainW = auditAcceptedWidths()[0]
+  if (!mainW) { _altFormCache = null; return null }
+  const shaWidths = []
+  for (let w = AUDIT_ALT_SHA_MIN; w <= AUDIT_ALT_SHA_MAX; w++) {
+    if (AUDIT_ARTIFACT_RE.test(auditArtifactName(mainW, '-again-' + 'b'.repeat(w) + AUDIT_ALT_ISO_CANDS[0].text))) {
+      shaWidths.push(w)
+    }
+  }
+  if (shaWidths.length === 0) { _altFormCache = null; return null }
+  // 在已确认的 sha 宽度里，逐个试 ISO 段候选，收集被接受的那些
+  const isos = AUDIT_ALT_ISO_CANDS
+    .filter((c) => AUDIT_ARTIFACT_RE.test(auditArtifactName(mainW, '-again-' + 'b'.repeat(shaWidths[0]) + c.text)))
+    .map((c) => c.label)
+  _altFormCache = {
+    shaWidths,
+    isos,
+    description: '-again-<' + shaWidths.join(' 或 ') + ' 位 sha>-<' + isos.join(' 或 ') + '>',
+  }
+  return _altFormCache
+}
+/**
+ * 把源码削成「只含代码行」的视图：剥行内注释 + 剥全行注释。
+ * 供派生锁扫描「文案里有没有手写的第二处说明」使用。
+ *
+ * ★ 为什么必须先规范化 \r\n（QM-6 第二轮 i2，真踩过）：
+ *   JS 的 `.` **不匹配 \r**、`$` 也不在 \r 之前匹配 ⇒ 对 CRLF 文本用 `/\/\/.*$/`
+ *   会**整体匹配失败**，行内注释剥离静默失效；而一旦不再用 `startsWith('//')` 兜底，
+ *   全行注释也会漏掉 ⇒ 注释被当成代码，派生锁反向误伤自己的文档。
+ *   本仓是 CRLF 工作副本，这个坑一定会踩到。
+ */
+function stripCommentsForScan (text) {
+  return String(text)
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map(stripTrailingComment)
+    .filter((l) => {
+      const s = l.trim()
+      return Boolean(s) && !s.startsWith('*') && !s.startsWith('/*')   // 块注释续行/起始行
+    })
+    .join('\n')
+}
+
+/**
+ * 剥掉一行末尾的 `// 注释`，**引号感知**。
+ *
+ * QM-6 第三轮 i3：首版无条件 `/\/\/.*$/` 截断 —— 字符串里的 `//`（URL、正则字面量）
+ * 会被当成注释起点，把该行后半段**截掉**。方向是「少扫」不是「误报」，但仍会让派生锁
+ * 漏掉藏在被截断区段里的手写短语（假绿）。真正的修法是语法分析器，可这个文件被
+ * `changes` job 直接 require，**只能 require node 内置模块**（见 AGENTS.md 前提锁），
+ * 引不进 acorn。所以退而求其次做**最小状态机**：只认引号外的 `//`。
+ * 覆盖 `'`、`"`、```、`\` 转义；模板字符串里的 ${} 不细究（写门禁源码时不会用）。
+ * 已知边界：正则字面量里的 `//`（如 /a\/\/b/）仍可能被误判为注释起点；
+ * 该类字面量在本文件只出现在 stripTrailingComment 自身，且方向仍是「少扫」。
+ */
+function stripTrailingComment (line) {
+  let quote = null
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i]
+    if (quote) {
+      if (c === '\\') { i++; continue }
+      if (c === quote) quote = null
+      continue
+    }
+    if (c === "'" || c === '"' || c === '`') { quote = c; continue }
+    if (c === '/' && line[i + 1] === '/') return line.slice(0, i)
+  }
+  return line
+}
+
+/** 生成「<N 或 M 位小写十六进制>」这段说明；判据被改成无法探测的形状时 fail-closed 出声 */
+function describeAuditWidths () {
+  const ws = auditAcceptedWidths()
+  if (ws.length === 0) {
+    // QM-6 第二轮 i5：错误信息必须能区分「正则被重构」与「文案写错」，
+    // 所以把正则字面量与探测范围一并打出来，让人一眼知道该改哪边。
+    throw new Error('[check-pr-exec-record] 行为探测覆盖不到任何位宽：'
+      + 'AUDIT_ARTIFACT_RE = ' + String(AUDIT_ARTIFACT_RE)
+      + '；探测范围 ' + AUDIT_NAME_WIDTH_MIN + '..' + AUDIT_NAME_WIDTH_MAX + ' 位小写十六进制 + .json，全部不匹配。'
+      + '这**不是**文案写错，而是判据形状超出了探测范围 —— 请同步 auditAcceptedWidths() 的探测方式'
+      + '（fail-closed：宁可红，也不让文案与行为脱钩）')
+  }
+  return '<' + ws.join(' 或 ') + ' 位小写十六进制>'
+}
 
 // 出路④的判据核心（独立成纯函数以便直接单测，QM-6 前端 I1）：变更集非空、每条都是载体的 M
 // （或精确形态的审计产物 A）、且至少一篇是记录文件（C2 收紧，理由见 evaluate 内注释）。
@@ -149,8 +314,10 @@ function evaluate({
       + '②修订本分支自己那篇 openspec/records/<分支名>.md（回填证据走这条）；'
       + '③确属无需记录 ⇒ 新增 openspec/records/_exempt/<分支名>.md 并写明非空原因；'
       + '④纯回填（定义）：变更集全部是既有记录/台账载体（openspec/records/*.md、.quality-gates.md、'
-      + 'scripts/gate-record-debt-ledger.json）的 M（允许 .ccg/reviews/<40 位小写十六进制>.json 形态的 A——'
-      + '那是 #3396 的 pre-commit 自动 stage 的判定记录，不承载门禁语义），且至少含一篇 '
+      + 'scripts/gate-record-debt-ledger.json）的 M（允许 .ccg/reviews/' + describeAuditWidths()
+      + '.json 形态的 A'
+      + (auditAcceptedAltForm() ? '，可带 ' + auditAcceptedAltForm().description + ' 后缀' : '')
+      + '——那是 #3396 的 pre-commit 自动 stage 的判定记录，不承载门禁语义），且至少含一篇 '
       + 'openspec/records/*.md 的 M ⇒ 满足此定义者直接放行（夹带其它新增、任何删除、任何非载体文件，'
       + '或只改门禁清单/账本而无记录文件，即不符合此定义）。')
   }
@@ -436,6 +603,16 @@ function report(r, mode) {
   process.exit(r.ok ? 0 : 1)
 }
 
-module.exports = { evaluate, resolveHeadBranch, readExemptsOnDisk, remoteBranchSet, isPureBackfillChangeSet, evaluateDeepReviewDebt, CLOSED_DEEP_REVIEW_STATUSES, RECORDS_RE, EXEMPT_RE, CARRIER_RE, DEFAULT_THRESHOLD }
+// ── 派生说明的公开接口（2026-10-17，ccg-record-width-message） ──────────────────
+// 这组导出的用途**只有一个**：让测试能核验「提示文案 == 由判据生成的结果」，
+// 从而不必在测试或文案里再抄一遍位宽（抄一遍就是第三处漂移源）。
+//   AUDIT_ARTIFACT_RE    判据本体（测试直接用它做行为断言，不从源码重建，避免丢 flags）
+//   auditAcceptedWidths  判据**实际接受**的位宽集合（行为探测 + 模块级缓存/冻结）
+//   auditAcceptedAltForm 判据**实际接受**的 alt 形态（sha 宽度 + ISO 段，行为探测）
+//   describeAuditWidths  由 auditAcceptedWidths 拼出的 `<N 或 M 位小写十六进制>`
+//   stripCommentsForScan 把源码削成「只含代码行」的视图（引号感知剥注释 + 规范化 CRLF）
+// 生产路径只用 describeAuditWidths / auditAcceptedAltForm().description；
+// 其余导出不改变判据行为，仅为可测性存在。
+module.exports = { evaluate, resolveHeadBranch, readExemptsOnDisk, remoteBranchSet, isPureBackfillChangeSet, evaluateDeepReviewDebt, CLOSED_DEEP_REVIEW_STATUSES, RECORDS_RE, EXEMPT_RE, CARRIER_RE, DEFAULT_THRESHOLD, AUDIT_ARTIFACT_RE, auditAcceptedWidths, auditAcceptedAltForm, describeAuditWidths, stripCommentsForScan, AUDIT_NAME_WIDTH_MIN, AUDIT_NAME_WIDTH_MAX }
 
 if (require.main === module) main(process.argv.slice(2))

@@ -614,3 +614,302 @@ test("i6 锁：CCG_DECIDER_BASE 是坏值时必须被拒并告警，不得先印
     try { fs.rmSync(repo, { recursive: true, force: true }) } catch { /* 夹具 */ }
   }
 });
+
+
+// ═══════════════════════════════════════════════════════════════════
+// 记录名内容寻址（ccg-record-content-addressing，2026-10-16）
+// ═══════════════════════════════════════════════════════════════════
+
+const HEX64 = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'.replace(/^0/, 'a')
+const PARENT40 = 'b'.repeat(40)
+
+test('recordFileName：暂存 diff 非空 ⇒ 用内容寻址名（不再用父 sha）', () => {
+  assert.strictEqual(decider.recordFileName(HEX64, PARENT40), `${HEX64}.json`)
+})
+
+test('recordFileName：同一变更 ⇒ 同名（收敛，不再因 amend 产生孤儿）', () => {
+  assert.strictEqual(
+    decider.recordFileName(HEX64, PARENT40),
+    decider.recordFileName(HEX64, 'c'.repeat(40)),
+    '父 sha 变了但变更相同 ⇒ 必须仍是同一个文件，否则「闭环需再提交、再提交又生成新名」不收敛'
+  )
+})
+
+test('recordFileName：不同变更 ⇒ 不同名（撞名的反向锁）', () => {
+  const other = 'f'.repeat(64)
+  assert.notStrictEqual(
+    decider.recordFileName(HEX64, PARENT40),
+    decider.recordFileName(other, PARENT40),
+    '同一父 sha 下的不同变更必须写到不同文件 —— 这正是本轮三次 add/add 冲突的根因'
+  )
+})
+
+test('recordFileName：暂存 diff 为空（纯 .ccg 提交）⇒ 回落父 sha 名，且不得返回空名', () => {
+  const n = decider.recordFileName('', PARENT40)
+  assert.strictEqual(n, `${PARENT40}.json`, '空 diff（如只改 .ccg）必须回落到既有 40 位形态，保持门禁可识别')
+  for (const bad of [undefined, null, '   ']) {
+    assert.match(decider.recordFileName(bad, PARENT40), /^[0-9a-f]{40}\.json$/, `非内容寻址输入必须回落，实际 ${bad}`)
+  }
+})
+
+test('结构锁：saveRecord 必须经由 recordFileName 取名（防纯函数被测而调用点漂移）', () => {
+  // 读源码后**先归一化行尾**：本仓源码是 CRLF，直接找 '\n}\n' 会匹配不到
+  // （同一坑在本轮变异脚本上已踩过一次）。归一化只影响本测试内的字符串，不改文件。
+  const src = fs.readFileSync(SRC, 'utf8').replace(/\r\n/g, '\n')
+  // 切片边界用**顶层函数收尾**（列 0 的 `}`），不用 `\n  }`：
+  // 后者会被函数体内部的 `  })();` 之类缩进误命中，导致切片在调用点之前就截断
+  // —— 本测试首版正栽在这里（假红）。修的是**判据脆弱**，不是放松断言。
+  const start = src.indexOf('function saveRecord')
+  assert.ok(start > 0, '找不到 saveRecord 定义')
+  const end = src.indexOf('\n}\n', start)
+  assert.ok(end > start, 'saveRecord 的顶层收尾定位失败')
+  const body = src.slice(start, end + 3)
+  assert.match(body, /recordFileName\s*\(/, 'saveRecord 内必须调用 recordFileName；否则本文件的纯函数测试与实际落盘脱钩')
+  assert.doesNotMatch(body, /\`\$\{sha\}\.json\`/, 'saveRecord 不得再直接拼模板 `${sha}.json`')
+})
+
+
+// ═══════════════════════════════════════════════════════════════════
+// QM-6 复审追加（2026-10-16）
+// ═══════════════════════════════════════════════════════════════════
+
+test('QM-6 i3：闭环白名单与门禁同源（改一处忘另一处必须当场红）', () => {
+  // 重复定义的风险只能用等价锁兜底：直接读门禁源码断言两处集合相等。
+  const gate = fs.readFileSync(path.join(__dirname, 'check-pr-exec-record.js'), 'utf8')
+  const m = gate.match(/CLOSED_DEEP_REVIEW_STATUSES = new Set\(\[([^\]]*)\]\)/)
+  assert.ok(m, '门禁侧的白名单定义形态变了，本锁需同步更新（不允许静默失配）')
+  const fromGate = [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]).sort()
+  const fromDecider = [...decider.CLOSED_DEEP_REVIEW_STATUSES].sort()
+  assert.deepStrictEqual(fromDecider, fromGate,
+    'decider 与门禁的闭环白名单必须一致；否则「已闭环」在两处判定不同 ⇒ 要么丢结论要么误红')
+})
+
+test('QM-6 i3：已闭环的同名记录不得被静默覆盖（否则 amend 抹掉审查结论）', () => {
+  // 内容寻址让同一变更落到同一文件（这是收敛性的来源），副作用是后写覆盖先写。
+  //
+  // ★ 行为锁（不是结构锁）：直接调用 shouldPreserveClosedRecord。
+  //   首版只用「grep saveRecord 源码字面」的结构锁，变异反证立即抓到缺口 ——
+  //   把 `if (cond)` 改成 `if (false && cond)` 后所有字面仍在、结构锁全绿，
+  //   而行为已失效。故抽纯函数 + 用行为锁守它。
+  const f = decider.shouldPreserveClosedRecord
+  assert.strictEqual(typeof f, 'function', 'shouldPreserveClosedRecord 必须导出（否则本锁退化成结构锁）')
+
+  // 已闭环 ⇒ 必须保留（不覆盖）
+  for (const st of ['cleared', 'needs_revision', 'self_play_resolved']) {
+    assert.strictEqual(f({ deepReview: { status: st } }), true,
+      `status=${st} 是闭环态 ⇒ 必须保留旧记录`)
+  }
+  // ★ 第三轮 i3：blocked/pending **不按状态名无条件保留** ——
+  //   第二轮我把它们直接加进保留集，但实测本 PR 自带的 5e658b47….json 就是
+  //   self_play_pending + findings:null：那种记录没有任何实质内容，
+  //   保留它只会让同内容 amend 每次另存 alt、无限累积，且与「保留=有实质内容」自相矛盾。
+  for (const st of ['self_play_blocked', 'self_play_pending']) {
+    assert.strictEqual(f({ deepReview: { status: st, findings: null } }), false,
+      `status=${st} 且 findings:null ⇒ 无实质内容 ⇒ 必须允许覆盖（否则冻结 + alt 累积）`)
+    assert.strictEqual(f({ deepReview: { status: st, findings: [] } }), false,
+      `status=${st} 且 findings 空数组 ⇒ 同样无实质内容 ⇒ 必须允许覆盖`)
+    assert.strictEqual(f({ deepReview: { status: st, findings: [{ id: 'i1' }] } }), true,
+      `status=${st} 但 findings 非空 ⇒ 有实质内容 ⇒ 必须保留`)
+  }
+  // 未闭环且无 findings ⇒ 必须允许覆盖（否则同一变更永远无法更新自己的 pending）
+  for (const st of ['pending', '']) {
+    assert.strictEqual(f({ deepReview: { status: st } }), false,
+      `status=${st} 无 findings ⇒ 必须允许覆盖`)
+  }
+  // 字段缺失/畸形 ⇒ 一律允许覆盖（fail-open 于「写」，而不是 fail-open 于「丢结论」）
+  for (const bad of [null, undefined, {}, { deepReview: null }, { deepReview: {} }, { deepReview: { status: 123 } }]) {
+    assert.strictEqual(f(bad), false, `畸形输入必须允许覆盖，实际 ${JSON.stringify(bad)}`)
+  }
+  // 白名单/保留集外的自造值，且无 findings ⇒ 允许覆盖
+  assert.strictEqual(f({ deepReview: { status: 'done' } }), false, '集外的 done 且无 findings 不得保留')
+  // ★ 状态是未来新态、但已有 findings ⇒ 仍保留（判据是「有实质内容」，不是枚举状态）
+  assert.strictEqual(f({ deepReview: { status: 'some_future_state', findings: [{ id: 'i1' }] } }), true,
+    '任何状态只要已有 findings 就必须保留 —— 枚举追不上未来态')
+  // 有 findings 但为空数组 ⇒ 不算实质内容
+  assert.strictEqual(f({ deepReview: { status: 'pending', findings: [] } }), false,
+    'findings 为空数组不算实质内容，应允许覆盖')
+})
+
+test('QM-6 第二轮 i5：另存名必须全局唯一（同 sha 前缀不得互相覆盖）', () => {
+  const src = fs.readFileSync(SRC, 'utf8').replace(/\r\n/g, '\n')
+  assert.match(src, /-again-\$\{sha\}-/, 'alt 名必须含**完整** sha（首版只用 slice(0,8)，同前缀会互覆盖）')
+  assert.match(src, /toISOString\(\)\.replace\(\/\[:\.\]\/g, ""\)/, 'alt 名必须含时间戳，保证同一 sha 内也唯一')
+})
+
+test('QM-6 第三轮 i5：哈希算失败时不得静默回落父 sha（那正是要消灭的撞名）', () => {
+  // saveRecord 的 try/catch 若把哈希失败吞成 undefined ⇒ recordFileName 回落父 sha
+  // saveRecord 的 try/catch 若把哈希失败吞成 undefined ⇒ recordFileName 回落父 sha
+  // ⇒ 恰好回到本次要消灭的跨分支撞名，且无任何告警。必须显式出声。
+  const src = fs.readFileSync(SRC, 'utf8').replace(/\r\n/g, '\n')
+  const s = src.indexOf('function saveRecord')
+  const e = src.indexOf('\n}\n', s)
+  const body = src.slice(s, e + 3)
+  assert.match(body, /无法计算 stagedDiffHash/, '哈希失败必须显式告警，不得静默')
+  assert.match(body, /不写判定记录/, '告警必须点明处置是「不写记录」—— 写父 sha 名会撞名，比不写更糟')
+  assert.match(body, /return null/, 'error 分支必须 return null 不落盘，否则仍会写出撞名的父 sha 记录')
+  assert.match(body, /console\.error/, '告警必须走 stderr（decider 无 shell 的 say()；且不得污染 stdout）')
+  // 不得调用不存在的 say()（它是 deep-review.sh 的函数，decider 里会直接抛 ReferenceError）。
+  // ★ 必须**先剥掉注释行**再查 —— 首版用 /\bsay\(/ 直接查全 body，
+  //   结果匹配到我自己写的注释「没有 shell 的 say()」⇒ 恒假红（判据错，不是实现错）。
+  const codeOnly = body.split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n')
+  assert.doesNotMatch(codeOnly, /\bsay\(/, '不得调用不存在的 say() —— 它是 deep-review.sh 的函数')
+  // 告警后仍用父 sha（无替代命名），但记录里必须写 null 让「无键」可见
+  assert.match(body, /hashResult\.empty/, '必须区分「空 diff」与「算失败」—— 前者回落是设计，后者是故障')
+})
+
+test('QM-6 第三轮 i4：哈希配方必须固定 diff 行为（跨机器/换配置要对得上）', () => {
+  // diff 文本的 sha256 受 diff.external / noprefix / textconv / autocrlf / renames 等
+  // 用户配置影响；不固定的话同一个变更在不同机器会算出不同键 ⇒ 记录找不到。
+  //
+  // ★ 必须**剥掉注释行**再查：这三个 flag 会出现在解释性注释里（本 PR 就有），
+  //   直接查全 body 会匹配到注释 ⇒ 把真实调用删掉后断言仍绿（变异 M18 实测踩过）。
+  const src = fs.readFileSync(SRC, 'utf8').replace(/\r\n/g, '\n')
+  const s = src.indexOf('function saveRecord')
+  const e = src.indexOf('\n}\n', s)
+  const body = src.slice(s, e + 3)
+  const codeOnly = body.split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n')
+  for (const flag of ['--no-textconv', '--no-ext-diff', '--no-renames']) {
+    assert.ok(codeOnly.includes(flag), `哈希配方必须含 ${flag}（在**代码**里，不是注释里）`)
+  }
+  // 且必须是 git 调用参数的一部分（形如 "diff", "--cached", ...）
+  assert.match(codeOnly, /"diff",\s*"--cached",\s*"--no-textconv",\s*"--no-ext-diff",\s*"--no-renames"/,
+    '三个 flag 必须紧跟 --cached 出现在同一次 git 调用里')
+})
+
+test('QM-6 第二轮 i1：三条路径全落空且有改动时必须报「故障」而非「没跑判定器」', () => {
+  const sh = fs.readFileSync(path.join(__dirname, 'deep-review.sh'), 'utf8')
+  // 判据：用「非 .ccg diff 行数 > 0」区分「本就不该有记录」与「记录丢了」
+  assert.match(sh, /这是\*\*故障\*\*，不是/, '必须明确判为故障，而不是笼统的「没跑判定器」')
+  assert.match(sh, /_DIFFLINES/, '必须实测 diff 行数作为判据')
+  assert.match(sh, /git diff --cached --no-textconv --no-ext-diff --no-renames -- \. ':\(exclude\)\.ccg'/, '必须给出两条口径的自检命令（与实现同参数）')
+})
+
+test('QM-6 第二轮 i4：_read_mode 必须经 argv 传路径（不得内插进 -e 字符串）', () => {
+  const sh = fs.readFileSync(path.join(__dirname, 'deep-review.sh'), 'utf8')
+  assert.doesNotMatch(sh, /require\('\.\/\$f'\)/, '不得把 $f 内插进 node -e 的单引号串（引号/换行会注入或错位）')
+  assert.match(sh, /path\.resolve\(process\.argv\[1\]\)/, '必须经 argv 取路径并 resolve 成绝对路径')
+  assert.match(sh, /"\$f" 2>\/dev\/null/, '必须把 $f 作为独立 argv 传给 node')
+  // ★ 下标必须是 argv[1]：`node -e <script> <arg>` 中 -e 的脚本不占 argv ⇒ arg 在 argv[1]。
+  //   写成 argv[2] 会得到 undefined ⇒ path.resolve 抛 ERR_INVALID_ARG_TYPE
+  //   ⇒ 记录明明存在却读不出 ⇒ 被误判「无记录」。这个 bug 真实发生过一轮。
+  assert.doesNotMatch(sh, /process\.argv\[2\]/, '不得用 argv[2] —— node -e 的脚本不占 argv，arg 在 argv[1]')
+})
+
+test('QM-6 第二轮 i4 行为锁：真跑一次，记录存在就必须真的读到 mode', () => {
+  // 纯结构锁抓不到 argv 下标的 bug（字面确实在），必须真跑。
+  // 这条锁直接复现当时的故障形态：构造一条合法记录，用与脚本相同的调用方式读它。
+  const os = require('node:os')
+  const { spawnSync } = require('node:child_process')
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'argv-lock-'))
+  try {
+    fs.writeFileSync(path.join(dir, 'r.json'), JSON.stringify({ mode: 'dual' }))
+    const code = `
+      const path = require('path');
+      const f = path.resolve(process.argv[1]);
+      let r;
+      try { r = require(f); } catch (e) { process.exit(4); }
+      const m = r && typeof r.mode === 'string' ? r.mode : '';
+      if (!m) process.exit(3);
+      process.stdout.write(m);
+    `
+    const r = spawnSync(process.execPath, ['-e', code, path.join(dir, 'r.json')], { encoding: 'utf8' })
+    assert.strictEqual(r.status, 0, '调用必须成功（status=0）；非 0 说明 argv 下标又错了')
+    assert.strictEqual(r.stdout.trim(), 'dual', '必须真的读到 mode')
+  } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+})
+
+
+test('QM-6 第四轮 i1 行为锁：同变更反复 amend 不得累积多份 alt', () => {
+  // 同变更 amend 时 stagedDiffHash 相同 ⇒ 每次都走到「拒写并另存」分支 ⇒
+  // 每次都新时间戳 ⇒ 反复 amend 会产生一堆 <64hex>-again-<sha>-<ts>.json。
+  //
+  // ★ 行为锁（不是结构锁）：首版用「grep altPrefix / readdirSync / unlinkSync 字面」，
+  //   变异把 altPrefix 改成 null 后字面全在 ⇒ 锁不红，而去重已失效（M22 实测踩过）。
+  //   故改为：真调 saveRecord 两次，数同前缀 alt 的份数。
+  const os = require('node:os')
+  const { execFileSync } = require('node:child_process')
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'alt-lock-'))
+  const origCwd = process.cwd()  // 先取字符串（未绑定的方法引用调用会出问题）
+  try {
+    // ★ 必须是**真 git 仓库**且 index 干净：这样 git diff --cached 返回空串
+    //   ⇒ hashResult.empty=true ⇒ 走「空 diff 回落父 sha」路径。
+    //   （非 git 目录会走 error 分支 return null，压根到不了拒写分支 —— 首版正栽在这里。）
+    execFileSync('git', ['init', '-q'], { cwd: dir, stdio: 'pipe' })
+    execFileSync('git', ['config', 'user.email', 't@t'], { cwd: dir, stdio: 'pipe' })
+    execFileSync('git', ['config', 'user.name', 't'], { cwd: dir, stdio: 'pipe' })
+    fs.writeFileSync(path.join(dir, 'seed.txt'), 'seed\n')
+    execFileSync('git', ['add', '-A'], { cwd: dir, stdio: 'pipe' })
+    execFileSync('git', ['commit', '-q', '-m', 'seed'], { cwd: dir, stdio: 'pipe' })
+    process.chdir(dir)
+    // 造一份「已闭环」的既有记录。文件名用**父 sha 名**（回落路径找的就是它）。
+    const SHA = 'b'.repeat(40)
+    const reviewsDir = path.join(dir, '.ccg', 'reviews')
+    fs.mkdirSync(reviewsDir, { recursive: true })
+    const first = path.join(reviewsDir, SHA + '.json')
+    fs.writeFileSync(first, JSON.stringify({
+      sha: SHA, mode: 'dual',
+      deepReview: { required: true, status: 'cleared', performedBy: 'x', findings: [{ id: 'i1' }] },
+    }))
+    // 连写两次（模拟 amend 后又 amend）：都应走拒写分支
+    decider.saveRecord({ mode: 'dual', reason: 'probe', stats: {} }, SHA, 'diff', undefined)
+    decider.saveRecord({ mode: 'dual', reason: 'probe2', stats: {} }, SHA, 'diff', undefined)
+    const alts = fs.readdirSync(reviewsDir).filter((n) => n.startsWith(SHA + '-again-') && n.endsWith('.json'))
+    assert.strictEqual(alts.length, 1,
+      '同变更两次写入必须只留一份 alt（去重生效）；实际 ' + alts.length + ' 份：' + alts.join(', '))
+    // 原有闭环记录不得被覆盖
+    const kept = JSON.parse(fs.readFileSync(first, 'utf8'))
+    assert.strictEqual(kept.deepReview.status, 'cleared', '已闭环记录不得被覆盖')
+  } finally {
+    process.chdir(origCwd)
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('QM-6 第四轮 i2：首个提交（无 HEAD^）也必须能命中记录', () => {
+  // 残留风险里「未实测无 HEAD^ 场景」那条 —— 首版整个内容寻址段被 _PARENT2 非空守卫挡掉，
+  // 于是按 stagedDiffHash 命名的记录在首提交里永远找不到。
+  const sh = fs.readFileSync(path.join(__dirname, 'deep-review.sh'), 'utf8')
+  assert.match(sh, /git show --no-textconv --no-ext-diff --no-renames --format=/, '无 HEAD^ 时必须改用 git show 取首个提交的 diff')
+  assert.match(sh, /仓库只有一笔提交/, '必须明示走了首提交路径')
+})
+
+test('QM-6 第四轮 i6：哈希算失败必须不写记录（写则撞名，比不写更糟）', () => {
+  // 不写只会让门禁报「缺记录」（可见、可定位）；写父 sha 名则产生一个会与他人冲突的文件。
+  const src = fs.readFileSync(SRC, 'utf8').replace(/\r\n/g, '\n')
+  const s = src.indexOf('function saveRecord')
+  const e = src.indexOf('\n}\n', s)
+  const body = src.slice(s, e + 3)
+  const iRet = body.indexOf('return null')
+  const iWrite = body.indexOf('fs.writeFileSync(file')
+  assert.ok(iRet > 0, 'error 分支必须 return null')
+  assert.ok(iRet < iWrite, 'return null 必须在写文件之前，否则仍然落盘')
+})
+
+test('QM-6 第四轮自查：git 调用失败时不得把 null 当成 diff 内容算哈希', () => {
+  // 实测踩到（为 i1 行为锁造夹具时发现）：git() 失败返回 null，
+  // 而 String(null) 是字符串 "null"（非空）⇒ 旧版 if (!d.trim()) 判不出空
+  // ⇒ 对 "null" 算 sha256 得到 74234e98…（sha256("null")）这个稳定但无意义的哈希
+  // ⇒ 记录落在假名字下且永远找不到。症状：非 git 目录里 saveRecord 也「成功」写 64 位记录。
+  const src = fs.readFileSync(SRC, 'utf8').replace(/\r\n/g, '\n')
+  // 必须先判 null/undefined，再判空串
+  assert.match(src, /d === null \|\| d === undefined/,
+    '必须先判 git() 的 null 返回；否则 String(null)="null" 会被当成有内容')
+  assert.doesNotMatch(src, /String\(git\(\[/,
+    '不得对 git() 的返回值直接 String() —— 那正是把 null 变成 "null" 的一步')
+  // 行为证：在非 git 目录里调用，必须 return null 且不写文件
+  const os = require('node:os')
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nullhash-'))
+  const origCwd = process.cwd()
+  try {
+    process.chdir(dir)
+    const out = decider.saveRecord({ mode: 'dual', reason: 'p', stats: {} }, 'c'.repeat(40), 'diff', undefined)
+    assert.strictEqual(out, null, '非 git 目录必须 return null 不落盘（写则产出无意义哈希的记录）')
+    const files = fs.existsSync(path.join(dir, '.ccg', 'reviews'))
+      ? fs.readdirSync(path.join(dir, '.ccg', 'reviews'))
+      : []
+    assert.strictEqual(files.length, 0, '不得写出任何记录文件')
+  } finally {
+    process.chdir(origCwd)
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})

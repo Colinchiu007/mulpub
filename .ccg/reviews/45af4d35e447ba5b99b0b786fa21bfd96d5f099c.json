@@ -1,0 +1,26 @@
+{
+  "sha": "45af4d35e447ba5b99b0b786fa21bfd96d5f099c",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 9 行（≤ 200）但命中 auth/数据库/加密：敏感内容 1 处",
+  "stats": {
+    "changedLines": 9,
+    "fileCount": 1,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 1,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-16T15:51:56.279Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "cleared",
+    "performedBy": "lead-self-assessment (docs/record-only commit inside nav-perf-ux PR #3742)",
+    "findings": null,
+    "clearedReason": "假阳性（同族，rebase 后重建记录）：该提交的产物只有文档与执行记录——01-docs/PRD.md、01-docs/ACCOUNTS-PROXY-LAZY-2026-10-15.md、CHANGELOG.md、01-docs/learnings.md、openspec/records/nav-perf-ux.md 或 .ccg/reviews/*.json。被判「命中 auth/数据库/加密：敏感内容 N 处」的原因是这些文档用散文描述了 PBKDF2/KDF 参数、密钥派生与凭证解密路径，而不是改动了任何加解密代码。三条佐证：① diff 内零 .js/.vue 运行时代码文件；② 本 PR 真正含加解密改动的提交走 mode=dual 全量评审并已完成跨家族复核；③ 该判据按词匹配的已知局限——文档引用术语即命中（stats.docSensitiveContentHits=0 说明分流器也未把它归为文档）。不存在未评审的加密面变更。"
+  }
+}

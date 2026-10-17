@@ -237,6 +237,7 @@ partial 含「这一期已登记到本地频道」+ 一个只重试 feed 的出�
 | 键路径 | zh（用户可见，逐字） | en（用户可见，逐字） |
 | --- | --- | --- |
 | `podcast.episode.audioDegraded` | 检测到静音占位旁白，已阻止上传——这不是生成失败，是素材本身不可用。 | Silent placeholder narration detected, so the upload was blocked. This is unusable source material, not a generation failure. |
+| `podcast.episode.billingNotice` | 文本出期会逐块调用 TTS 服务商并产生计费，请先确认用量与费用 | Publishing from text calls the TTS provider per chunk and incurs charges. Confirm usage and cost first. |
 | `podcast.episode.cancel` | 取消出期 | Cancel this episode |
 | `podcast.episode.cancelAccepted` | 取消请求已登记，链会在下一个采样点停下；最终状态以下方结果为准。 | Cancel request recorded. The chain stops at the next sampling point; the result below is the authoritative state. |
 | `podcast.episode.cancelDisabled` | 本次发布未回传「是否还可取消」，取消按钮暂不可用（关闭本浮层同样不会停止发布）。 | This publish did not report whether it can still be cancelled, so the cancel button is unavailable (closing this dialog does not stop the publish either). |
@@ -254,6 +255,9 @@ partial 含「这一期已登记到本地频道」+ 一个只重试 feed 的出�
 | `podcast.episode.invalid` | 单集字段不合格，已停止出期，请按下方逐条修正。 | The episode fields are not valid, so the publish stopped. Fix each issue listed below. |
 | `podcast.episode.measureFailed` | 无法实测音频的时长或字节，已停止出期（不得用申报值代替）。 | The audio duration or size could not be measured, so the episode publish stopped (declared values are not accepted instead). |
 | `podcast.episode.measured` | 实测：时长 {duration} 秒 · 字节 {bytes} · 类型 {mime} | Measured: {duration}s duration · {bytes} bytes · {mime} |
+| `podcast.episode.originChannel` | 来自频道设置 | from channel settings |
+| `podcast.episode.originPreference` | 来自你的音色偏好 | from your voice preference |
+| `podcast.episode.originProviderDefault` | 来自服务商默认 | from provider default |
 | `podcast.episode.partial` | 这一期已登记到本地播客频道，公网 feed 尚未更新。 | This episode is registered on the local podcast channel; the public feed is not updated yet. |
 | `podcast.episode.phase.attach` | 登记单集 | Attach episode |
 | `podcast.episode.phase.buildFeed` | 重建 feed | Rebuild feed |
@@ -263,6 +267,9 @@ partial 含「这一期已登记到本地频道」+ 一个只重试 feed 的出�
 | `podcast.episode.phase.probe` | 实测时长与字节 | Measure duration and size |
 | `podcast.episode.phase.uploadAudio` | 上传音频 | Upload audio |
 | `podcast.episode.phase.uploadFeed` | 上传 feed | Upload feed |
+| `podcast.episode.planBlocks` | 将切成 {n} 块 | Will be split into {n} chunks |
+| `podcast.episode.planCodepoints` | 合计 {n} 码点 | {n} code points in total |
+| `podcast.episode.planVoice` | 服务商 {provider} · 模型 {model} · 音色 {voice} | Provider {provider} · Model {model} · Voice {voice} |
 | `podcast.episode.progressUnavailable` | 本次发布未提供逐相位实时进度，进度条只在本次结束后按轨迹回看；这不表示卡住。 | No per-phase live progress is provided for this publish; the bar is only a trail you can read after it finishes. That does not mean it is stuck. |
 | `podcast.episode.running` | 发布进行中… | Publishing… |
 | `podcast.episode.sizeMismatch` | 上传回来的字节与本地实测不一致，这一期没有挂上。 | The bytes returned by the upload do not match the local measurement, so this episode was not attached. |
@@ -365,10 +372,14 @@ partial 含「这一期已登记到本地频道」+ 一个只重试 feed 的出�
 | `podcast.errors.PODCAST_STORE_CORRUPT` | 播客数据文件读不出来（可能已损坏），已停止写入以免扩大损坏 | The podcast data file cannot be read (it may be corrupted). Writing stopped to avoid making it worse. |
 | `podcast.errors.PODCAST_STORE_UNAVAILABLE` | 播客数据目录当前不可用（权限或磁盘问题），请稍后重试 | The podcast data directory is unavailable right now (permissions or disk). Try again later. |
 | `podcast.errors.PODCAST_TTS_BILLING_UNCONFIRMED` | 文本出期会逐块调用语音合成服务并产生费用，请先确认用量与费用 | Publishing from text calls the speech synthesis service per chunk and incurs cost. Confirm usage and fees first. |
+| `podcast.errors.PODCAST_TTS_CHUNK_UNSAFE` | 稿件含无法安全切分的块，本期不发布 | Script contains a chunk that cannot be split safely |
+| `podcast.errors.PODCAST_TTS_COPY_TOO_SHORT` | 正文少于一期口播的下限 80 码点 | Text is shorter than the 80 code point minimum for one episode |
+| `podcast.errors.PODCAST_TTS_TITLE_INVALID` | 标题为空或过长，无法出期 | Title is empty or too long for one episode |
+| `podcast.errors.PODCAST_TTS_VOICE_UNRESOLVED` | 未解析到可用音色，请检查服务商与音色设置 | No usable voice resolved; check provider and voice settings |
 | `podcast.errors.PODCAST_VIDEO_NOT_FOUND` | 找不到成片文件，请回结果页重新生成或重选路径 | The final video file cannot be found; regenerate it on the result page or pick the file again |
 | `podcast.errors.fallback` | 发生未知问题（{code}） | Unknown issue ({code}) |
 
-共 131 键；逐键 zh/en 成对且均为非空串。
+共 142 键；逐键 zh/en 成对且均为非空串。
 
 ## 7. 功能逻辑（按刀次）
 
@@ -776,15 +787,117 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 - 进度遮罩沿用 §6.4.2 的七相位与 `cancellable` 位（由主进程算，前端不得抄相位表）。
 - 出错时逐条展示 `issues`（按码取 locale 文案），不得只弹「失败」。
 
+### 7.10.3.1 文本出期浮层的组件合同（2026-10-17 补；**合同先于实现**，实现偏离本节必须先改本节）
+
+> 为什么现在写这一节：机械半边（通道 / preload / 桥接 / bundle / 三处清点式守卫）已在分支 `podcast-episode-plan-ui`（commit 见 `openspec/records/podcast-tasks-reconcile-41-42.md` 的姊妹记录）以标好的 WIP 提交，实测 131 passed 含 `ipc-contract` 双向对账；但它按 §7.10.6 **不能单独合并**。会话额度不足以把浮层与入口做完并跑完 QM-1，所以先把合同钉死，避免下一个实现者凭组件名猜落点。
+
+**落点必须是「扩展既有成对装配」，不是新建同名文件**（2026-10-17 实测踩坑）：`apps/desktop/src/components/PodcastEpisodeEntry.vue` **已存在**（80 行、已入库、由 `CreateView.vue` 消费），它是**成片链**的「入口按钮 + 浮层」成对装配，内部挂 `PodcastPublishAction.vue`。本片的文本出期浮层要么在该族上扩一个 `mode`（`video | script`），要么新建**另一个名字**（建议 `PodcastScriptEntry.vue` + `PodcastScriptPublishAction.vue`）——「PRD 写了落点 X」不等于「X 不存在」，实现前必须先 `git ls-files` 查该路径。
+
+**组件接口合同**（两种落点共用形状，字段不得增删而不改本节）：
+
+| 项 | 合同 | 唯一来源 |
+| --- | --- | --- |
+| props | `visible: Boolean`、`channelId: String`、`script: String`（正文，**不是**音频路径）、`title: String`、`gapSec?: Number` | §7.10.1 |
+| emits | `update:visible`、`published`（载荷为编排层信封的 `data`，含 `state`） | §6.4 |
+| 打开时 | 必须**现取**只读预览 `episodePlanPreview({ channelId, script })`；每次打开都取，不得缓存（音色偏好可能在别处改过） | §7.10.4.1 判据 6 |
+| 显示项 | 块数 / 总码点 / 音色三段，全部取自预览返回，**前端不得自己算任何一个数**；任一缺失则整块不显示，绝不回落 `0` | §7.10.4.1 判据 2、§7.9.6 口径 |
+| 来源标注 | 复用 §8.2.9 的三把 `podcast.voice.origin*` 键，不另写一份 | §7.10.4.1 |
+| 预览被拒 | 显示**原因句**（`data.message` 或领域码对应的 locale 文案），不得显示空数；但**发起按钮仍可用**——同意闸门在主进程①层 | §7.10.4.1 判据 3、4 |
+| 预览失败 | 整段 `try/catch`，只降级为「不显示计数」，禁止把按钮锁死或把失败当成功 | §7.10.4.1 判据 4 |
+| 确认动作 | 发 `episodePublishFromScript`，载荷须 `billingConfirmed: true`（**这是用户刚刚做的事，不是前端默认值**），并经 `JSON.parse(JSON.stringify(x))` 脱壳 | §7.10.1 ①、AGENTS「IPC 参数序列化安全」 |
+| 取消确认框 | 只关窗，**不发** publish：此时主进程一次磁盘写都没有，所以不存在半成品可清 | §7.10.3 |
+| 进度 | 沿用既有 `onEpisodePublishProgress` 的七相位与 `cancellable`（由主进程算，前端不抄相位表）；退订必须在关闭与卸载两处各调一次 | §6.4.2 |
+
+**浮层互斥登记（AGENTS「应用级浮层弹窗互斥合同」，不可省）**：新 owner 名建议 `podcast-episode-entry-overlay` / `podcast-script-publish-overlay`；`suspend`/`release` 必须成对且**释放穷尽**——本组件的释放由 `visible` 驱动，因此走 `watch(visible)` 的 false 分支**并另加 `onBeforeUnmount` 兜底**（父组件直接 `v-if` 掉浮层时 `visible` 不经过 `false`，少了兜底就是残留挂起计数）。owner 必须同 PR 登记进 `apps/desktop/src/overlay-view-suspension.test.js` 的接入断言。
+
+**文案键**（zh/en 成对，Gate 7 + `src/i18n/glossary.test.js` 各跑一次；插值是具名形态 `{n}` / `{provider}`）：`podcast.episode.planBlocks` / `planCodepoints` / `planVoice`，逐字文案见 §7.10.4.1。**加键的时机只能是浮层真的引用它们的那一次**——提前加就是死键，AGENTS 明令禁止为不存在的反馈路径建 locale 键。新组件若引用错误码文案，必须把路径追加进 `src/locales/podcast-error-codes.test.js` 的扫描域清单（该清单逐条 `fs.existsSync` 守卫）。
+
+**入口判据**：`CopyLibraryView.vue` 的整卡本身就是 `role="button"` + `@click="openDetail(entry)"`，本仓该文件**没有** dropdown／次级菜单先例；加「发布为播客单集」必须在卡内放独立按钮并 `@click.stop`，否则一次点击走进整卡处理、浮层永不出现（这条属「被绑定物不存在」全绿缺陷族，视觉层对 <0.1% 面积也失明）。按枚切：先 `CopyLibraryView`，`RewriteView` / `Publish` 各留一条新的未勾子项。
+
+**本片合并前必须闭合的验收清单**：① 浮层与入口同 PR（§7.10.6）；② 三把 plan* 键随浮层落地并进扫描域；③ overlay owner 登记 + 释放穷尽；④ QM-1 打包三层 stderr 判据（第③层必须是「读到的空」，且存活单独断言）；⑤ QM-6 双模型外部评审或用户逐片点名豁免；⑥ PRD §15.2 该页状态列改「已落」（tasks 5.1b）。
+
+### 7.10.3.2 浮层的 channelId 来源合同（2026-10-17 补；写实现时发现的规格空洞，先钉再写代码）
+
+> 空洞怎么暴露的：§7.10.1 把 `channelId` 列为必填、§7.10.4.1 让浮层显示块数与音色，但**没有任何一节说这个 channelId 由谁解析**。机械半边与浮层（`PodcastScriptEntry.vue`，11 passed）都已实现，轮到入口时才发现无从下手——这正是「合同看起来完整」与「实现者能不问就知道」之间的差。
+
+| 项 | 合同 | 理由 |
+| --- | --- | --- |
+| 解析者 | **入口侧**（`CopyLibraryView` / `RewriteView` / `Publish` 各自的宿主 composable），不在浮层内 | 浮层自己拉频道列表就会出现第二套频道解析；本仓对「同一个决策抄两份」的复发代价已记多次 |
+| 取值来源 | 既有 `channelList()` 返回的 `defaultChannelId`（运营中心之外唯一的频道真源），**一次读取**，随入口既有列表加载并行，不新增独立请求轮次 | 频道默认值只有一个真源；AGENTS 首屏口径禁止为它新增串行 await |
+| 无频道时 | 入口**不显示**该动作（而不是显示后报错、也不是弹一个必然被宿主拒掉的确认框） | 「有问题才可见」的空态原则；宿主侧仍保留 `出期必须指定频道` 的拒绝作为兜底，但不得把它当交互设计 |
+| 多频道时 | 本期只发默认频道；切换频道沿用频道页既有入口，浮层内**不放**频道下拉 | 浮层的职责是「让用户在花钱前看清要花多少」，不是第二个频道管理界面 |
+| 校验归属 | `channelId` 的形态与存在性判据**只在主进程**②层（`validateComposeInput`）一份；入口与浮层都不得预校验后自行决定禁用条件 | 前端多抄一份判据就会与宿主漂移，用户看到的是「按钮时有时无」 |
+
+**验收判据（补进 §7.10.3.1 的清单，同为合并前必须闭合项）**：① 入口读默认频道的那次调用必须复用既有 `channelList` 出口，禁止新增第二处频道读取；② 无默认频道时动作不出现，且这条要有**渲染层断言**（不是只读源码的结构锁）；③ 宿主 `PODCAST_EPISODE_INVALID`「出期必须指定频道」在入口正常路径上永不被触发，一旦被触发即为回归，须有声援示例覆盖「入口拿到空 defaultChannelId 时不发请求」。
+
+### 7.10.3.3 入口的正文来源与时机合同（2026-10-17 补；与 §7.10.3.2 同一类空洞的第二处）
+
+> 触发原因：接入口时发现「文案库卡片的列表项里到底有没有正文」没有规定。`CopyLibraryView.vue` 的列表项只有标题与摘要，**正文是在 `openDetail()` 里按需取回**的（成片链的入口之所以简单，是因为宿主页面本来就把 project/segments 全量握在手里）。如果不先定这条，入口实现只有两种错法：把摘要当正文发出去（静默发出错误内容），或给浮层挂一个 `fetchScript` 回调（把宿主状态抄进第二个地方）。
+
+| 项 | 合同 | 理由 |
+| --- | --- | --- |
+| 唯一出口 | 入口必须走**既有的按需取正文实现**（`openDetail()` 里那条 `story2videoGetProject` / `useCopyLibrary` 的取回路径），复用它的结果，禁止在浮层或入口里新写一次拉取 | 同一份正文两个取法必然在分页/草稿态上漂移 |
+| 时机 | **点击「发布为播客单集」时**取一次；取到才打开浮层，取不到或为空则不开浮层、给一句失败提示 | 先开浮层再取会让预览用空正文跑一趟（既报错又烧一次 IPC），而预览是唯一计数来源 |
+| 内容判据 | 长度/形态一律由宿主②层判（`validateComposeInput`）。浮层**不得**因为「看起来太短」自己禁用按钮；`planPreview` 拒绝时显示原因句（§7.10.4.1 判据 3、4 不变） | 前端多判一份就会与 80 码点下限漂移 |
+| 传给浮层的形状 | `script` 就是取回的正文**字符串**（`episodePlanPreview` 收 `{channelId, script}`）；确认时浮层再按 §7.10.1 的 `{copy:{content}}` 组装。两个键名**故意不同**，中间层不得做名称统一 | 上一刀已实测：预览收 `script`、出期收 `copy.content`，在中间层合并会让某一侧静默拿到 undefined |
+| 浮层的取数归属 | 入口把已取到的正文交给浮层，**不**给浮层传回调让它自己取 | 与「入口与浮层成对、宿主不持有第二份状态」同条纪律的镜像面：浮层也不得持有第二份取数 |
+| 失败提示 | 取正文失败复用该页既有失败文案键，不新增同义文案 | 避免同一动作两套话术 |
+
+**验收判据**：① 入口点击后 `story2videoGetProject`（或该页既有取回出口）**至多一次**，且浮层拿到的 `script` 与之逐字相等；② 取回失败时浮层**不挂载**（断言 `openedOnce` 仍为 false 或组件未出现），不得先挂再报错；③ 空正文不得进入 `planPreview`（否则预览会以 `PODCAST_TTS_COPY_TOO_SHORT` 拒绝，用户看到的是一句与「我刚点的这篇」无关的原因句）；④ 文案必须来自既有键，本片**不得**新增失败文案键（新增即须 zh/en 成对并进 §11.5 逐字表）。
+
+#### 7.10.3.4 剩余两枚入口（②-b② / ②-b③）的逐字段合同（2026-10-17 补，docs-only 切片）
+
+> 补这一节的直接原因：②-b 只落了文案库一枚入口（PR #3776）。剩下两枚在 §15.2 里各留一行，但**没有任何一节规定它们的正文从哪取、频道从哪来**。
+> 按 §7.10.4.1 那条已被验证的判据——「实现者能否不问就知道这个值从哪来」——这两枚当时都**不可实现**：
+> 硬接的结果必然是在前端另写一份分块/取文/选频道逻辑，而那正是本 PRD 反复禁止的「两份口径必然漂移」。
+> 本节的定位是**合同先行**：下面的字段与行号均来自当场读码（`RewriteView.vue` / `Publish.vue`，非记忆），实现切片照此落地即可，不再需要重新裁决。
+
+**两枚共用的三条不变量（与 ②-b 已落地那枚逐字同源，不得各写一份）**
+
+1. **浮层不新建**：一律复用 `PodcastScriptEntry.vue`（②-b 已落）与只读预览 `podcast:episode:planPreview`；显示值只来自预览，取不到就整块不显示、绝不回落 `0`。
+2. **频道解析只有一份**：取 `usePodcastChannel()` 的 `activeChannelId` / `ensureChannel()`（§7.10.3.2）。**无默认频道 ⇒ 动作不出现**，而不是弹一个必被宿主①层拒掉的框。
+3. **正文缺席 ⇒ 不挂浮层**：与 ②-b 同判据（先取正文、非空才置 `visible`），否则预览会拿空正文白跑一趟并弹一句无关原因。
+
+**②-b② `RewriteView.vue`（改写结果区）**
+
+| 维度 | 规定 | 现场依据（当场读码） |
+| --- | --- | --- |
+| 数据校验（正文） | 正文 = `rewriteResult.value` 的当前串，**不得**从草稿/历史反查再拼；空白串视为「无正文」，动作不出现 | `rewriteResult.value` 已在三处以 `content: rewriteResult.value` 被消费（`RewriteView.vue:395` / `:424` / `:738`），它是改写结果的唯一持有者 |
+| 数据校验（标题） | 取该页既有的标题来源，与「去发布」共用同一个提取点；不得在入口里另写一份标题拼装（②-b 的教训：`buildPublishFromProject` 是唯一提取点） | 该页保存草稿走 `saveToDraft()`，标题字段在草稿快照内，入口只读不造 |
+| 流程 | 点击 → 解析默认频道 → 取 `rewriteResult.value`（空则不出现）→ 打开浮层 → 浮层调预览 → 用户确认计费 → `episodePublishFromScript`（键 `copy.content`） | 与 §7.10.2 同一条 `runChain`，不为文本链另开流程 |
+| 交互 | 浮层按需挂载、常驻不卸载（关闭不取消发布）；挂起 owner 沿用 `podcast-script-entry-overlay`，**不新增第二个 owner** | AGENTS「应用级浮层弹窗互斥合同」+ `overlay-view-suspension.test.js` 已登记该 owner |
+| 显示项 | 与 §7.10.4 完全一致（块数 / 总码点 / 服务商·模型·音色三段 + 来源标注），复用七把已落键，**不新增 locale 键** | `podcast.episode.plan*` 与 `podcast.voice.origin*` 已在 zh/en 成对落地 |
+| 提示文字 | 复用 §7.10.5 的既有文案与错误码键；改写稿过短同样走 `PODCAST_TTS_COPY_TOO_SHORT`（其 locale 文案自带下限 80，见 §7.10.5 第 2 条） | 带数值的码其文案必须自带那个数——②-b 实测：locale 命中即不再回落主进程 message |
+
+**②-b③ `Publish.vue`（文本类分支）**
+
+| 维度 | 规定 | 现场依据 |
+| --- | --- | --- |
+| 频道来源 | **裁定为默认频道**（同 §7.10.3.2）。§15.2 原文「上下文频道」作废：发布页的上下文是**平台与账号**，与 RSS 频道不同源，不存在可继承的播客频道 | `Publish.vue` 的选择态是平台/账号多选；本仓播客频道只在 `usePodcastChannel` 一处解析 |
+| 正文来源 | `article.content` 的当前值，**含用户在编辑器里的未保存改动**（这是它与文案库那枚的关键差异：文案库要回源取全文，这里就在内存里） | `ArticleEditor` 的 `v-model="article.content"`（`Publish.vue:403`），另有 `:375` 传给 AI 写作面板、`:378` 回写、`:228` 描述框 |
+| 数据校验 | 与 §7.10.1 三层一致：①层 `billingConfirmed === true` 由浮层置真；②层 `copy.content ≥ 80 码点` 等**逐字转发** `validateComposeInput` 的码，宿主不得重映射；③层注入实现齐备 | 唯一实现仍在 `podcast-episode-host.publishFromScript` + `podcast-tts-compose.validateComposeInput` |
+| 一条必须显式回答的副作用 | 发布页的 `article.content` 会被**发布动作本身**与改写面板双向改写。入口只**读**它，不得为出期做任何归一化/落盘/追加（那是 §7.6 与发布链的事）；若将来要「出期即固化一版草稿」，必须另立切片并先补发布链的幂等判据 | `:378` 的 `@apply-content` 会写 `article.content` 并带 `rewriteHistoryId`，说明该字段是在途状态而非快照 |
+| 交互 / 显示项 / 提示文字 | 与 ②-b② 三行逐字相同（复用同一浮层、同一预览、同一组键） | 同上 |
+
+**验收判据（两枚各一份，缺一不可）**
+
+1. 无默认频道 ⇒ 该入口在 DOM 中**不存在**（不是 disabled、不是点击后报错）。
+2. 正文空白 ⇒ 浮层**未被挂载**（`openedOnce` 仍为 false）；用「挂载钩子 0 次」断言，不是用「没显示」断言。
+3. 浮层显示值逐字等于预览返回：两枚都不许出现第二个分块/音色实现（结构锁：`git grep -c planChunks\|resolveEpisodeVoice -- apps/desktop/src` 必须为 0）。
+4. 发出的载荷含 `billingConfirmed: true` 与合法 `runId`，且 `copy.content` 就是该页当时那份正文（行为锁：把正文改成含哨兵串，断言出参逐字带出）。
+5. 关闭浮层不取消发布（取消只在 §6.4.2 的 `cancellable` 窗口内由「取消出期」触发）。
+
+**故意不做**：不在发布页放「播客频道」选择器（§7.10.3.2 已裁定浮层不放下拉，入口页同样不放，否则出现两套选择口径）；不为这两枚新增任何 locale 键；不在前端算块数/码点/音色。
+
 ### 7.10.4 显示项
 
 | 位置 | 显示内容 | 数据来源 |
 | --- | --- | --- |
-| 二次确认框 | 块数、总码点、服务商/模型/音色三段 | **只读 IPC `podcast:episode:planPreview`**（§7.10.4.1，2026-10-16 主进程侧已落）：`plan.totalBlocks/totalCodepoints` 由 `planChunks` 同一实现产出、`voice` 五段由 `resolveEpisodeVoice` 产出，本层只转发不加工；⚠️ 浮层尚未消费（②-b），三把 `podcast.episode.plan*` 键也未落（②-a-l） |
+| 二次确认框 | 块数、总码点、服务商/模型/音色三段 | **只读 IPC `podcast:episode:planPreview`**（§7.10.4.1，2026-10-16 主进程侧已落）：`plan.totalBlocks/totalCodepoints` 由 `planChunks` 同一实现产出、`voice` 五段由 `resolveEpisodeVoice` 产出，本层只转发不加工；浮层已消费（②-b）；三把 `podcast.episode.plan*` 键与 §8.2.9 的 origin 三把均已落（②-a-l 的欠账在 ②-b 同 PR 清偿，共七把 zh/en 成对键） |
 | 进度遮罩 | 当前相位 + `durationSec` / `sizeBytes` / `mime` 实测值 | `publish:progress` 富化事件（§6.4.2） |
 | 结果 | 成功给 `feedUrl`；partial 明示「公网 feed 未更新」；cancelled 明示「已回滚，未产生远端对象」 | 编排层信封 |
 
-#### 7.10.4.1 二次确认框的数据源合同（2026-10-16 补；**主进程与 preload 已落地，浮层与文案键未落地**）
+#### 7.10.4.1 二次确认框的数据源合同（2026-10-16 补；**主进程与 preload 已落地；**浮层与文案键已于 2026-10-17 随 tasks 4.3②-b 落地（PR #3776）****）
 
 > 补这一节的直接原因：上表把「块数 / 总码点 / 音色三段」写成已有事实，但**这三个数在渲染端一个都取不到**（`origin/main` 实测）：
 > `planChunks` 只存在于 `apps/desktop/electron/services/`（`src` 命中 **0**、`preload` 命中 **0**）；
@@ -824,7 +937,7 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 
 > **落地现场（2026-10-16，tasks 4.3②-a）**：主进程侧已按本节落地——`apps/desktop/electron/services/podcast-episode-plan-preview.js`（分块与音色**只转发不加工**，缺注入实现即 fail closed）+ IPC 通道 `podcast:episode:planPreview` + preload 键 `episodePlanPreview` + 两个 tracked bundle 已重生。
 
-> 验收判据的处置：**1 / 2 / 5 / 6 / 7 已闭合**（判据之家 `podcast-episode-plan-preview.test.js` 17 例 + `podcast-plan-preview-ipc.test.js` 9 条，后者含「副作用缺席」三件同时断言：目录未建 + `tryBeginPublish`/`endPublish` 0 次 + 宿主两个入口 0 次）；**3 / 4 未闭合**——那两条量的是浮层怎么显示拒绝态与降级态，落点是 `PodcastEpisodeEntry.vue`，属 ②-b 的判据范围，本片不冒充已交付。
+> 验收判据的处置：**1 / 2 / 5 / 6 / 7 已闭合**（判据之家 `podcast-episode-plan-preview.test.js` 17 例 + `podcast-plan-preview-ipc.test.js` 9 条，后者含「副作用缺席」三件同时断言：目录未建 + `tryBeginPublish`/`endPublish` 0 次 + 宿主两个入口 0 次）；**3 / 4 已闭合（2026-10-17，tasks 4.3②-b，PR #3776）**——那两条量的是浮层怎么显示拒绝态与降级态；**判据之家 `src/components/PodcastScriptEntry.test.js` 的「缺失与拒绝的形状」describe**（拒绝态显示原因句且发起按钮仍可用；预览整段抛错只降级为不显示计数）。⚠️ 原句把落点写成 `PodcastEpisodeEntry.vue` 是**错的**：那是成片链（视频出期）的入口，文本出期的浮层是同族新建组件 `PodcastScriptEntry.vue`。
 
 > 频道级音色**至今没有落点**：`voiceRef` 在 `podcast-channel-registry.js` / `podcast-channel-service.js` / `channel.json` 的 meta 里命中 **0**（`git grep` 实测），所以生产路径上 `origin` 只会是 `preference` 或 `providerDefault`，① 层恒空。接线按「存在则取」写（`getService(channelId).getChannel().voiceRef`），**不新造字段**——把频道音色落进真源是 4.5 那一刀的范围，届时 ① 层自动生效，本预览不需要改一行。
 
@@ -843,6 +956,27 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 > 码一出现在生产者里，就该文件所要求的 zh/en 成对文案立刻生效，缺一条即 CI 红。
 > 原先写的「入口没做、现在写是死键」不成立——那条豁免只适用于**没有任何收割判据的**展示文案。
 > 4.3② 只补 `episode.*` 那批浮层显示项键。落点：`src/locales/podcast/zh.js` / `en.js` 的 `podcast.errors.*`。
+
+> **口径回写（2026-10-17，4.3②-b 接线实测）**：上面四条是**主进程侧的提示文字**，本片把它们落成渲染端
+> locale 键，并新增两条此前无人写的现场，逐字生效：
+>
+> 1. **收割扫描域已按预告扩回**：`podcast-error-codes.test.js` 的 `PRODUCERS` 现含
+>    `electron/services/podcast-tts-compose.js`，其产出的 `PODCAST_TTS_COPY_TOO_SHORT` /
+>    `PODCAST_TTS_TITLE_INVALID` / `PODCAST_TTS_CHUNK_UNSAFE` / `PODCAST_TTS_VOICE_UNRESOLVED`
+>    四个码必须当场配 zh/en 成对文案。**取证顺序不可颠倒**：先只扩域 ⇒ 守卫红并点名四个码；再补文案 ⇒ 转绿。
+>    少了第一步，「补了文案」与「守卫其实没在看」在产物上完全同形。
+> 2. **拒绝态文案的来源优先级是「locale 命中优先于主进程 message」**（`PodcastScriptEntry.vue` 的
+>    `previewReason`：`subCode` 存在即取 `podcast.errors.<subCode>`，缺席才回落 `message`）。
+>    这条不是风格选择：补上泛型文案后，原先那句**带数字**的 `正文 12 码点，短于一期口播的下限 80`
+>    被顶掉，用户只剩「正文太短」——丢掉的是「差多少」这一条可行动信息，实测由回归用例
+>    （断言原因句含 `80`）当场变红抓到。**因此凡是主进程 message 里带具体数值的领域码，其 locale 文案必须自带那个数**，
+>    不得把数值留给 message 兜底（兜底在该码有文案时永远走不到）。
+> 3. 落地的 zh 文案逐字：`正文少于一期口播的下限 80 码点` / `标题为空或过长，无法出期` /
+>    `稿件含无法安全切分的块，本期不发布` / `未解析到可用音色，请检查服务商与音色设置`；
+>    en 同形成对。**与上面第 2 条的历史条目（`正文 <N> 码点…`）刻意不同**：locale 侧不做插值
+>    （调用点 `t(key)` 不传参），写成 `<N>` 会把占位符原样显示给用户，因此把下限写死在文案里；
+>    若将来要把实到码点数带进界面，必须同时给 `previewReason` 传插值参数并改回带 `{n}` 的文案，
+>    不得只改一侧。
 
 ### 7.10.6 本节故意不做的
 
@@ -1352,9 +1486,15 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 | --- | --- | --- | --- |
 | `ResultView.vue:726` | 成片（视频出期） | 上下文频道 | 已落（刀 3 第 4 片） |
 | `CreateView.vue:4519` | 项目成片 | 项目绑定频道 | 已落（刀 3 第 4 片） |
-| `CopyLibraryView.vue:174` | 文案库单条口播稿 | 当场选 | 待落（tasks 4.3②） |
-| `RewriteView.vue:812` | 改写结果区口播稿 | 当场选 | 待落（tasks 4.3②） |
-| `Publish.vue:358` | 文本类分支的当前稿 | 上下文频道 | 待落（tasks 4.3②） |
+| `CopyLibraryView.vue`（卡片内独立按钮，`@click.stop`） | 文案库单条口播稿 | **默认频道**（§7.10.3.2 裁定：入口侧解析，浮层内不放下拉；无默认频道 ⇒ 动作不出现） | 已落（tasks 4.3②-b） |
+| `RewriteView.vue`（改写结果区，见 §7.10.3.4） | 改写结果区口播稿 | **默认频道**（§7.10.3.2 同一解析；原文写「当场选」与那条裁定冲突，已收敛） | 待落（tasks 4.3②-b②） |
+| `Publish.vue`（文本类分支，见 §7.10.3.4） | `article.content` 当前稿 | **默认频道**（§7.10.3.2 同一解析。原文写「上下文频道」是**空头支票**：本播客频道体系里没有「发布页上下文频道」这个东西——发布页的上下文是平台/账号，与 RSS 频道不同源，照抄会把入口接到一个不存在的键上） | 待落（tasks 4.3②-b③） |
+
+
+> **口径收敛（2026-10-17，tasks 4.3②-b）**：上表原先把文案库/改写两行的频道来源写成「当场选」，与 §7.10.3.2
+> 已合入主干的裁定冲突（那条裁定是：入口侧解析一次默认频道、浮层内**不放下拉**、无默认频道时**动作不出现**）。
+> 留两处不同口径必然漂移，故本行按 §7.10.3.2 改定。另记一条实现侧的必要细节：该页整卡是 `role="button"` +
+> `@click="openDetail(entry)"`，所以入口必须是卡内**独立按钮并 `@click.stop`**，否则一次点击会先走进详情交接。
 
 ### 15.3 不放的位置与理由（同样全量，避免下个会话重新讨论）
 

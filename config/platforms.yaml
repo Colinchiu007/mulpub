@@ -257,6 +257,14 @@ platforms:
     cover_size: 1200x630
     max_title: 63206
     max_content: 63206
-    has_api: true
+    # 2026-10-16 修正（p3-residual-criteria）：原为 true，但 facebook 在本仓**没有任何 API 实现**
+    # （`src/adapters/facebook.js` 不存在、`src/publish/platforms/facebook-*.js` 不存在），
+    # 而 `api-router.js` 的 `supportsApi()` 就是 `!!cfg.has_api` ⇒ 原值让 `supportsApi('facebook')`
+    # 恒返回 true，**谎称支持 API 轨**（真去走 API 时无实现可依）。
+    # 对照：youtube / twitter 同为 dom-only，但它们**有完整 API 适配器**
+    # （`adapters/youtube.js` = YouTube Data API v3 + OAuth2；`adapters/twitter.js` 同构），
+    # 故那两个平台的 has_api:true 是诚实的，本处不动。
+    # 两轴语义：`has_api` = 「该平台**有** API 发布实现」；`publishMode` = 「当前走哪条轨」。
+    has_api: false
     publishMode: dom-only   # W1 §5.1 三态总闸：api-only|api-then-dom|dom-only
     enabled: true

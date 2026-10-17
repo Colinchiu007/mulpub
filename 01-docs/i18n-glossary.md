@@ -38,6 +38,9 @@
 | 启动流水线 | Start pipeline | — |
 | 启动即前台跟踪 | Start & foreground tracking | create.story2video.startForegroundToast |
 | 后台运行 | Run in background | create.story2video.backgroundResumeToast |
+| 查看 | View | create.story2video.progressView / hotTopics.genVideoView（流水线进度浮层完成出口） |
+| 去发布 | Publish | create.story2video.progressPublish / hotTopics.genVideoPublish（流水线进度浮层完成出口） |
+| 取消 | Cancel | create.story2video.progressCancel / hotTopics.genVideoCancel |
 | 关闭进度并转入后台运行 | Close progress and run in background | create.story2video.progressCloseLabel |
 | 任务已转入后台运行，在历史记录中可查看 | The task is now running in the background. You can view it in History. | create.story2video.backgroundDetachedToast |
 | 已中断 | Interrupted | create.history.tabs.interrupted / create.history.statuses.interrupted / stageProgress.interruptedStage / stageProgress.interruptedHint |

@@ -67,8 +67,13 @@ class RpaViewManager {
     // shouldUseApi。两者不一致的平台实测存在：youtube / twitter / facebook 配了
     // publishMode=dom-only 却 has_api=true，此前本路径仍会进 API 轨——配置写的
     // 「只用 DOM」被完全绕过。getMode 不可用时退回 shouldUseApi（老行为）。
+    // ★ CCG 第八轮 i2（upheld）复审：必须传 { safe: true }。
+    //   默认（不带 safe）对非法 publishMode 是 **fail-closed 抛错**的，会让整条发布中止；
+    //   而同一份坏配置下 shouldUseApi 走的是 fail-safe（告警 + false ⇒ DOM 轨）——
+    //   不传 safe 就是「同一份配置两个读者结论相反」，正是本 PR 要消灭的判据分叉。
+    //   传 safe 后坏配置 ⇒ 告警 + 'dom-only'，与 shouldUseApi 的 false 同结论。
     const mode = !hasAccountProxy && apiRouter && typeof apiRouter.getPublishMode === 'function'
-      ? apiRouter.getPublishMode(platform)
+      ? apiRouter.getPublishMode(platform, { safe: true })
       : null
     const apiEnabled = !hasAccountProxy && apiRouter && typeof apiRouter.shouldUseApi === 'function'
       ? (mode != null ? mode !== 'dom-only' : apiRouter.shouldUseApi(platform))
