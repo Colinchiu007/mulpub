@@ -904,3 +904,287 @@ test('carrier-mode：visible 档只可见不阻断，block 档照拦，非法取
     assert.throws(() => checker.parseCarrierMode([bad]), /carrier-mode/, `非法取值未抛错：${bad}`)
   }
 })
+
+// ── change: gate-record-sync-derived-status ──────────────────────────────────
+// 「远程同步」收口从人工断言改为 git 现场推导。以下用例是新增判据的契约，
+// 每条都对应 design.md D3 的某一格；ledger 一律注入，绝不允许判据默认去读生产仓库
+// （carrierFreeze 同款教训：夹具静默量到真仓基线，判据就成了装饰）。
+
+function mkML({ merged = [], added = [], ok = true, reason } = {}) {
+  if (!ok) return { ok: false, reason }
+  return {
+    ok: true,
+    mergedPrs: new Map(merged.map((n) => [n, { sha: 'f'.repeat(40), iso: '2026-10-17T00:00:00+08:00' }])),
+    addedBy: new Map(added.map(([p, n]) => [p, n])),
+    stats: { commits: 10, mergedPrs: merged.length, dupFooters: 0, addedPaths: added.length, addedRecordPaths: added.length },
+  }
+}
+
+test('派生通道收口：状态列写 PENDING，但记录确由已合并 PR 带入基线 ⇒ 不得进欠账', () => {
+  const dir = fixture([{ head: '老记录（legacy，2026-09-28）', status: 'PASS' }])
+  recFile(dir, 'derived-ok', { row: 'PENDING' })
+  const r = checker.collect({
+    root: dir, ledger: {},
+    mergeLedger: mkML({ merged: [777], added: [['openspec/records/derived-ok.md', 777]] }),
+  })
+  assert.strictEqual(r.open.filter((o) => o.source === 'records').length, 0, JSON.stringify(r.open))
+  assert.strictEqual(r.derivedClosed.length, 1, JSON.stringify(r.derivedClosed))
+  assert.strictEqual(r.derivedClosed[0].pr, 777)
+})
+
+test('缺行仍然即红：派生证据不得豁免「这一行必须存在」', () => {
+  const dir = fixture([{ head: '老记录（legacy，2026-09-28）', status: 'PASS' }])
+  recFile(dir, 'norow-derived', { withRow: false })
+  const r = checker.collect({
+    root: dir, ledger: {},
+    mergeLedger: mkML({ merged: [778], added: [['openspec/records/norow-derived.md', 778]] }),
+  })
+  assert.strictEqual(r.missingRecordRows.length, 1, JSON.stringify(r.missingRecordRows))
+  assert.strictEqual(r.derivedClosed.length, 0, '缺行的记录绝不能被派生算成收口')
+  assert.strictEqual(checker.hasBlocking(r), true)
+})
+
+test('账本不可用必须退回断言档并 fail-closed：未闭合且无登记仍是欠账', () => {
+  const dir = fixture([{ head: '老记录（legacy，2026-09-28）', status: 'PASS' }])
+  recFile(dir, 'open-no-reg', { row: 'PENDING' })
+  const r = checker.collect({ root: dir, ledger: {}, mergeLedger: mkML({ ok: false, reason: 'git-failed' }) })
+  assert.strictEqual(r.open.filter((o) => o.source === 'records').length, 1, JSON.stringify(r.open))
+  assert.strictEqual(r.ledger.ok, false)
+  assert.strictEqual(r.derivedClosed.length, 0)
+  assert.match(checker.format(r), /MERGE-LEDGER prs=n\/a/, '不可用必须出声，不得静默降级')
+})
+
+test('字段卫生只约束「做过闭合断言」的记录：纯派生收口带 legacy 字段不得判红', () => {
+  const dir = fixture([{ head: '老记录（legacy，2026-09-28）', status: 'PASS' }])
+  recFile(dir, 'derived-with-fields', {
+    row: 'PENDING',
+    fm: { sync_status: 'PENDING', sync_reason: '存量旧形态', sync_backfill_owner: '顺路清理' },
+  })
+  const r = checker.collect({
+    root: dir, ledger: {},
+    mergeLedger: mkML({ merged: [779], added: [['openspec/records/derived-with-fields.md', 779]] }),
+  })
+  assert.strictEqual(r.staleRecordFields.length, 0, JSON.stringify(r.staleRecordFields))
+})
+
+test('谁做断言谁受约束：派生命中但状态列仍写 PASS 时，字段卫生必须照常生效', () => {
+  const dir = fixture([{ head: '老记录（legacy，2026-09-28）', status: 'PASS' }])
+  recFile(dir, 'derived-and-claims', { row: 'PASS', fm: { sync_status: 'PASS' } })
+  const r = checker.collect({
+    root: dir, ledger: {},
+    mergeLedger: mkML({ merged: [780], added: [['openspec/records/derived-and-claims.md', 780]] }),
+  })
+  assert.strictEqual(r.staleRecordFields.length, 1, JSON.stringify(r.staleRecordFields))
+})
+
+test('本次变更集新增的记录判 byDesign，不红；预写 PASS 判 prematureClaim', () => {
+  const dir = fixture([{ head: '老记录（legacy，2026-09-28）', status: 'PASS' }])
+  recFile(dir, 'brand-new-open', { row: 'PENDING' })
+  recFile(dir, 'brand-new-claims', { row: 'PASS' })
+  const r = checker.collect({
+    root: dir, ledger: {},
+    mergeLedger: mkML({ merged: [781], added: [['openspec/records/unrelated.md', 781]] }),
+  })
+  assert.strictEqual(r.open.filter((o) => o.source === 'records').length, 0, JSON.stringify(r.open))
+  assert.deepStrictEqual(r.byDesign.sort(), ['brand-new-open.md'])
+  assert.strictEqual(r.prematureClaims.length, 1, JSON.stringify(r.prematureClaims))
+  assert.match(r.prematureClaims[0].file, /brand-new-claims/)
+  assert.strictEqual(checker.hasBlocking(r), true, '预写不存在的证据必须拦')
+  assert.match(checker.format(r), /预写/)
+})
+
+test('声明的来源 PR 与主干事实不符必须判红；缺省不判；一致不判', () => {
+  const dir = fixture([{ head: '老记录（legacy，2026-09-28）', status: 'PASS' }])
+  recFile(dir, 'liar', { row: 'PENDING', fm: { delivered_by_pr: '111' } })
+  recFile(dir, 'honest', { row: 'PENDING', fm: { delivered_by_pr: '222' } })
+  recFile(dir, 'silent', { row: 'PENDING' })
+  const r = checker.collect({
+    root: dir, ledger: {},
+    mergeLedger: mkML({
+      merged: [222, 333],
+      added: [['openspec/records/liar.md', 333], ['openspec/records/honest.md', 222], ['openspec/records/silent.md', 333]],
+    }),
+  })
+  assert.strictEqual(r.intentMismatch.length, 1, JSON.stringify(r.intentMismatch))
+  assert.match(r.intentMismatch[0].file, /liar/)
+  assert.strictEqual(r.intentMismatch[0].declared, 111)
+  assert.strictEqual(r.intentMismatch[0].actual, 333)
+  assert.strictEqual(checker.hasBlocking(r), true)
+})
+
+test('跨源比对拦截面保持「blob 做过断言」；纯派生收口与旧载体的矛盾转可见并打印条数', () => {
+  const dir = fixture([
+    { head: '本次执行记录：甲（cross-legacy-claims，2026-09-28）', status: 'PENDING' },
+    { head: '本次执行记录：乙（cross-derived-only，2026-09-28）', status: 'PENDING' },
+  ])
+  recFile(dir, 'cross-legacy-claims', { row: 'PASS' })
+  recFile(dir, 'cross-derived-only', { row: 'PENDING' })
+  const r = checker.collect({
+    root: dir, ledger: {}, crossSrcAllowed: new Set(),
+    mergeLedger: mkML({
+      merged: [900],
+      added: [['openspec/records/cross-derived-only.md', 900], ['openspec/records/cross-legacy-claims.md', 900]],
+    }),
+  })
+  // blob 声称 PASS 的那篇：与旧载体同 slug 的 PENDING 构成矛盾 ⇒ 仍拦（既有行为不变）
+  assert.strictEqual(r.crossSrcViolations.length, 1, JSON.stringify(r.crossSrcViolations))
+  assert.match(r.crossSrcViolations[0].slug, /cross-legacy-claims/)
+  // 纯派生收口的那篇：不拦，但必须可见并出声，否则"一个会话改写了别人的旧行"这种真矛盾永久沉默
+  assert.strictEqual(r.derivedCrossVisible.length, 1, JSON.stringify(r.derivedCrossVisible))
+  assert.match(checker.format(r), /派生.*旧载体.*1/)
+})
+
+test('归属三态在判据侧各有落点：NO_FOOTER 落兼容档，PR 不在账本出声后仍落兼容档', () => {
+  const dir = fixture([{ head: '老记录（legacy，2026-09-28）', status: 'PASS' }])
+  recFile(dir, 'no-footer', { row: 'PASS' })
+  recFile(dir, 'pr-missing', { row: 'PASS' })
+  const r = checker.collect({
+    root: dir, ledger: {},
+    mergeLedger: mkML({
+      merged: [901],
+      added: [['openspec/records/no-footer.md', null], ['openspec/records/pr-missing.md', 999]],
+    }),
+  })
+  assert.strictEqual(r.derivedClosed.length, 0, JSON.stringify(r.derivedClosed))
+  assert.strictEqual(r.open.length, 0, '两篇状态列都写了 PASS，兼容档必须放行（存量零漂移的构成部分）')
+  assert.deepStrictEqual(r.inconsistentAttribution.map((x) => x.file).sort(), ['pr-missing.md'],
+    'PR 解析出来了但账本里没有 = 取证不一致，必须单列出声')
+})
+
+test('接线锁：判据从 merge-ledger 取值，自身不得再写第二份 git 解析', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'check-gate-record-debt.js'), 'utf8')
+  assert.match(src, /require\(['"]\.\/lib\/merge-ledger\.js['"]\)/, '判据必须复用单一取源')
+  const body = src.replace(/^\s*\/\/.*$/gm, '')
+  assert.strictEqual(/'log'|"log"/.test(body), false, '判据内出现第二份 git log 解析就会与账本口径漂移')
+  assert.strictEqual(/execFileSync\(\s*'git'/.test(body), false, '判据不得自己 spawn git')
+})
+
+test('规范键写了但读不出数字必须判红；旧键 sync_pr 自由文本只可见不误红存量', () => {
+  const dir = fixture([{ head: '老记录（legacy，2026-09-28）', status: 'PASS' }])
+  // 实测：真仓 6 篇的 sync_pr 形态是 0 / pending / 完整 URL，没有一篇是整数 ⇒ 旧键绝不能当判据输入
+  recFile(dir, 'legacy-zero', { row: 'PASS', fm: { sync_pr: '0' } })
+  recFile(dir, 'legacy-url', { row: 'PENDING', fm: { sync_pr: "'https://github.com/x/y/pull/3738'" } })
+  recFile(dir, 'bad-canonical', { row: 'PENDING', fm: { delivered_by_pr: 'PR-123' } })
+  const r = checker.collect({
+    root: dir, ledger: {},
+    mergeLedger: mkML({ merged: [500], added: [['openspec/records/legacy-zero.md', 500], ['openspec/records/legacy-url.md', 500]] }),
+  })
+  assert.strictEqual(r.ambiguousPrKeys.length, 2, JSON.stringify(r.ambiguousPrKeys))
+  assert.match(checker.format(r), /sync_pr/, '歧义键必须出声，否则两个键名会永久并存')
+  // 旧键不进拦截面：把它算成红，等于让 6 篇存量记录把之后每个 PR 都钉红（本仓"常量红"的已知形态）
+  const onlyLegacy = r.intentMismatch.filter((m) => /legacy-/.test(m.file))
+  assert.strictEqual(onlyLegacy.length, 0, JSON.stringify(r.intentMismatch))
+  // 规范键写了却读不出数字：按未核对判红，不许静默当成"没声明"
+  assert.strictEqual(r.intentMismatch.filter((m) => /bad-canonical/.test(m.file)).length, 1)
+  assert.strictEqual(checker.hasBlocking(r), true)
+})
+
+// 真仓锁：接入派生档前后，拦截集合必须逐篇相同（"存量不动"的唯一机械证据）。
+// 编码方式不需要两个代码版本——把"派生不可用"当改前口径跑一次，把真账本当改后口径跑一次：
+// 前者走的正是改造前唯一存在的那条通道。baseRef 钉死为显式参数，不取当前 HEAD（并发主干不可复现）。
+test('真仓改前/改后对账：派生接入不新增任何红，只把已合并的欠账转为收口', (t) => {
+  const { execFileSync } = require('node:child_process')
+  const { buildLedger } = require('./lib/merge-ledger.js')
+  let root
+  try {
+    root = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim()
+    execFileSync('git', ['rev-parse', '--verify', 'origin/main'], { encoding: 'utf8' })
+  } catch (e) {
+    t.skip('取不到 origin/main：' + e.message)
+    return
+  }
+  const frozen = execFileSync('git', ['rev-parse', 'origin/main'], { encoding: 'utf8' }).trim()
+  const ml = buildLedger({ baseRef: frozen, cwd: root })
+  assert.equal(ml.ok, true, `真仓账本必须可用：${ml.reason}`)
+  const unavailable = { ok: false, reason: 'forced-unavailable' }
+  const before = checker.collect({ root, ledger: checker.loadLedger(), mergeLedger: unavailable })
+  const after = checker.collect({ root, ledger: checker.loadLedger(), mergeLedger: ml })
+  const key = (r) => ({
+    open: r.open.map((o) => `${o.source}|${o.heading}`).sort(),
+    missing: r.missingRecordRows.map((m) => m.file).sort(),
+    fields: r.staleRecordFields.slice().sort(),
+    contradictions: r.statusContradictions.map((c) => `${c.file}|${c.bulletLine}`).sort(),
+    cross: r.crossSrcViolations.map((c) => c.slug).sort(),
+    premature: r.prematureClaims.map((c) => c.file).sort(),
+    mismatch: r.intentMismatch.map((c) => c.file).sort(),
+  })
+  const b = key(before)
+  const a = key(after)
+  assert.deepStrictEqual(a.premature, [], '真仓上不得出现预写证据')
+  assert.deepStrictEqual(a.mismatch.filter((x) => !/unreadable/.test(x)), [],
+    '真仓上不得出现"规范键与主干事实不符"（规范键 delivered_by_pr 尚无用户）')
+  // 这条断言是本轮实测揪出来的：`sync_pr` 这个键名已被 6 篇记录占用且形态互不相通
+  // （0 ×2 / pending ×3 / URL ×1）。写下它，下一个会话才不会又把规范键起成同一个名字。
+  assert.ok(before.ambiguousPrKeys.length >= 6,
+    `旧键歧义必须可见（下界 6，实测改前 ${before.ambiguousPrKeys.length}）`)
+  assert.deepStrictEqual(after.ambiguousPrKeys.map((x) => x.file).sort(),
+    before.ambiguousPrKeys.map((x) => x.file).sort(), '歧义集合不得因派生接入而变化')
+  for (const f of ['open', 'missing', 'fields', 'contradictions', 'cross']) {
+    assert.deepStrictEqual(a[f], b[f], `拦截集合的 ${f} 维度必须逐篇相同，实测差异即存量被动过`)
+  }
+  assert.ok(after.derivedClosed.length >= 300,
+    `派生收口必须真的覆盖存量（下界 300，实测 ${after.derivedClosed.length}）`)
+  assert.strictEqual(checker.hasBlocking(before), checker.hasBlocking(after), '两档的总判定必须同向')
+})
+
+test('parseFlags 必须接受 CI 实际下发的旗标形态，并对未知值与裸旗标抛错', () => {
+  // 动因（本机实测两次）：
+  //  ① 白名单曾写成带前导 -- 的整串，而比较用的是剥掉 -- 后的名字 ⇒ 永不相等 ⇒
+  //     quality-gate.yml 里那句 --carrier-mode=$CARRIER_MODE 展开后会让判据在未捕获异常中退出（rc=1）。
+  //     既有测试抓不到，因为它们直接喂 parseCarrierMode，绕过了 parseFlags 这一层。
+  //  ② CI 下发的是**展开后**的值，所以锁必须按展开形态写，不能只测字面量。
+  assert.doesNotThrow(() => checker.parseFlags([]))
+  assert.doesNotThrow(() => checker.parseFlags(['--carrier-mode=visible']))
+  assert.doesNotThrow(() => checker.parseFlags(['--carrier-mode=block']))
+  assert.doesNotThrow(() => checker.parseFlags(['--base-ref=origin/main']))
+  assert.doesNotThrow(() => checker.parseFlags(['--base-ref=' + 'f'.repeat(40)]))
+  assert.doesNotThrow(() => checker.parseFlags(['--current-pr=3810', '--carrier-mode=block']))
+  for (const bad of ['--json', '--Base-Ref=x', '--carriermode=visible', '--base-ref', '--current-pr']) {
+    assert.throws(() => checker.parseFlags([bad]), /未知旗标|必须写成/, `未出声的参数形态：${bad}`)
+  }
+  // base-ref 的取值必须真的被用上（不是收下就丢）
+  assert.strictEqual(checker.parseBaseRef(['--base-ref=refs/heads/x']), 'refs/heads/x')
+  assert.strictEqual(checker.parseBaseRef([]), 'origin/main')
+})
+
+test('CI 档账本不可用必须非零退出：判据停用不是通过', async () => {
+  const { spawnSync } = require('node:child_process')
+  const root = process.cwd()
+  const r = spawnSync(process.execPath, [
+    path.join(__dirname, 'check-gate-record-debt.js'),
+    '--base-ref=nope/nope',
+  ], { encoding: 'utf8', cwd: root, env: { ...process.env, CI: 'true' } })
+  assert.strictEqual(r.status, 2, `CI 下派生档停用应退 2，实际 ${r.status}；stderr=${String(r.stderr).slice(0, 200)}`)
+  assert.match(String(r.stderr) + String(r.stdout), /派生档在 CI 上不可用/)
+  assert.match(String(r.stdout), /MERGE-LEDGER prs=n\/a/)
+  // 同一命令在本机（CI 未设）不得因为"本地没有 origin/main"就判故障——那是合法使用形态
+  const local = spawnSync(process.execPath, [
+    path.join(__dirname, 'check-gate-record-debt.js'),
+    '--base-ref=nope/nope',
+  ], { encoding: 'utf8', cwd: root, env: { ...process.env, CI: '' } })
+  assert.notStrictEqual(local.status, 2, '本机跑不得套用 CI 档的强制退出')
+})
+
+test('接线锁：CLI 必须真的调用 parseFlags 并注入可用账本（函数有测试不等于被接上）', () => {
+  // 动因：变异 N6 实测——把 main() 里的 parseFlags(argv) 整行摘掉，72 条用例全绿。
+  // 那就是"既精确又无用"的锁：它测的是函数本体，而缺陷住在调用点上。
+  const { spawnSync } = require('node:child_process')
+  const cli = path.join(__dirname, 'check-gate-record-debt.js')
+  const cwd = process.cwd()
+
+  const bad = spawnSync(process.execPath, [cli, '--json'], { encoding: 'utf8', cwd })
+  assert.notStrictEqual(bad.status, 0, `未知旗标必须让 CLI 失败，实际 rc=${bad.status}`)
+  assert.match(String(bad.stderr) + String(bad.stdout), /未知旗标/)
+
+  // CI 实际下发的形态必须能跑通：上一版白名单写成带 -- 前缀的整串，比较用的是剥掉 -- 的名字，
+  // 于是 --carrier-mode=visible 也被判"未知"，判据在未捕获异常里退出（本机实测 rc=1）。
+  const ok = spawnSync(process.execPath, [cli, '--carrier-mode=visible'], { encoding: 'utf8', cwd })
+  assert.ok(ok.status === 0 || ok.status === 1,
+    `合法旗标必须只产生判定结果（0/1），实际 rc=${ok.status}；stderr=${String(ok.stderr).slice(0, 200)}`)
+  assert.doesNotMatch(String(ok.stderr), /未知旗标|必须写成/, '合法旗标被拒 = 判据在 CI 上恒红')
+  // 变异 N8 实测：把 collect() 的默认账本构造写成坏 baseRef，72 条全绿——因为所有用例都注入 mergeLedger，
+  // "默认那条路"从没被走过。CLI 的默认档必须自己证明真的读到了账本。
+  assert.match(String(ok.stdout), /MERGE-LEDGER prs=\d+[^\n]*归属可解析记录=\d+/,
+    `默认 baseRef 必须真读到账本；实际首行：${String(ok.stdout).split('\n')[0]}`)
+  assert.doesNotMatch(String(ok.stdout), /MERGE-LEDGER prs=n\/a/, '默认档读出"不可用"说明取源接线坏了，不是通过')
+})
