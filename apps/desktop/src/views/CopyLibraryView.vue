@@ -64,6 +64,14 @@
         @keydown.space.prevent="openDetail(entry)"
       >
         <div class="copy-library-card-top">
+        <button
+          v-if="podcast.activeChannelId.value"
+          type="button"
+          class="copy-library-podcast-entry"
+          :data-testid="'podcast-script-entry-' + entry.id"
+          :aria-label="t('podcast.episode.entry')"
+          @click.stop="openScriptEntry(entry)"
+        >{{ t('podcast.episode.entry') }}</button>
           <span class="copy-library-origin-badge" :class="'is-' + entry.origin">{{ originLabel(entry.origin) }}</span>
           <span class="copy-library-title">{{ entry.title || t('copyLibrary.untitled') }}</span>
           <el-icon class="copy-library-view-icon" aria-hidden="true"><View /></el-icon>
@@ -83,6 +91,14 @@
       :button-text="t('copyLibrary.loadMoreCopies')"
       @more="copyRenderLimit += 35" />
   </div>
+  <PodcastScriptEntry
+    v-if="scriptEntry.openedOnce"
+    v-model:visible="scriptEntry.visible"
+    :channel-id="podcast.activeChannelId.value"
+    :script="scriptEntry.script"
+    :title="scriptEntry.title"
+  />
+
 </template>
 
 <script setup>
@@ -97,8 +113,23 @@ import { story2videoGetProject } from '@/api/publisher'
 import { setCopyDetailHandoff } from '@/utils/copy-detail-handoff'
 import { useCopyLibrarySources, ORIGIN_DRAFT, ORIGIN_VIDEO } from '@/composables/useCopyLibrarySources'
 import { ORIGIN_COLLECT, ORIGIN_REWRITE } from '@/composables/useCopyLibrary'
+import PodcastScriptEntry from '@/components/PodcastScriptEntry.vue'
+import { usePodcastChannel } from '@/composables/usePodcastChannel'
 
 const { t } = useI18n()
+
+// 文本出期入口（PRD §7.10.3.2 / §7.10.3.3）：频道用 usePodcastChannel 的既有解析（本视图不再解析第二份），
+// 正文用 resolveCopyBody 的唯一取法；**取到才挂浮层**，先挂再取会让预览拿空正文白跑一趟并弹一句无关原因。
+const podcast = usePodcastChannel()
+const scriptEntry = ref({ visible: false, openedOnce: false, script: '', title: '' })
+async function openScriptEntry (entry) {
+  if (!entry || !entry.id) return
+  const channelId = podcast.activeChannelId.value || await podcast.ensureChannel()
+  if (!channelId) return
+  const content = await resolveCopyBody(entry)
+  if (!content || !content.trim()) return
+  scriptEntry.value = { visible: true, openedOnce: true, script: content, title: entry.title || '' }
+}
 const router = useRouter()
 const { notifyWarning } = useNotify()
 const { items, loading, loadAll } = useCopyLibrarySources()
@@ -138,20 +169,22 @@ const itemsTruncated = computed(() => filteredItems.value.length > renderedItems
  * @param {object} entry 文案库统一条目（UNIFIED_ITEM）
  */
 let openingDetail = false
-async function openDetail (entry) {
-  if (!entry || !entry.id || openingDetail) return
-  openingDetail = true
-  try {
-  const sep = entry.id.indexOf(':')
-  const origin = sep > 0 ? entry.id.slice(0, sep) : entry.origin
-  const sourceId = sep > 0 ? entry.id.slice(sep + 1) : ''
-  let content = entry.content || ''
-  if (origin === ORIGIN_VIDEO && entry.metadata && entry.metadata.videoProjectId) {
+/**
+ * 文案库条目的「完整正文」唯一取法（PRD §7.10.3.3）。
+ *
+ * 列表态对视频来源只有截断预览，必须回源取全文；**详情跳转与播客出期共用这一份**，
+ * 各自再写一次拉取就会在分页/草稿态上漂移。origin 在这里再解析一遍是**有意的**：
+ * 把 openDetail 里的 sourceId 派生一并搬走会改动它的行为，那需要独立的用例先覆盖，
+ * 不为「少三行重复」而静默换语义。
+ */
+async function resolveCopyBody (entry) {
+  let body = entry.content || ''
+  if (copyEntryOrigin(entry) === ORIGIN_VIDEO && entry.metadata && entry.metadata.videoProjectId) {
     try {
       const res = await story2videoGetProject(entry.metadata.videoProjectId)
       const fullText = res && res.code === 0 && res.data && typeof res.data.sourceText === 'string' ? res.data.sourceText : ''
       if (fullText.trim()) {
-        content = fullText
+        body = fullText
       } else {
         notifyWarning('copyLibrary.videoFullTextFailed')
       }
@@ -159,6 +192,23 @@ async function openDetail (entry) {
       notifyWarning('copyLibrary.videoFullTextFailed')
     }
   }
+  return body
+}
+
+// 条目 id 形如 `<origin>:<sourceId>`；origin 的取法只留这一份
+function copyEntryOrigin (entry) {
+  const sep = entry.id.indexOf(':')
+  return sep > 0 ? entry.id.slice(0, sep) : entry.origin
+}
+
+async function openDetail (entry) {
+  if (!entry || !entry.id || openingDetail) return
+  openingDetail = true
+  try {
+  const sep = entry.id.indexOf(':')
+  const origin = sep > 0 ? entry.id.slice(0, sep) : entry.origin
+  const sourceId = sep > 0 ? entry.id.slice(sep + 1) : ''
+  const content = await resolveCopyBody(entry)
   const ok = setCopyDetailHandoff({
     content,
     title: entry.title || '',

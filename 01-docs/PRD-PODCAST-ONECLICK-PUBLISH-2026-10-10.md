@@ -237,6 +237,7 @@ partial 含「这一期已登记到本地频道」+ 一个只重试 feed 的出�
 | 键路径 | zh（用户可见，逐字） | en（用户可见，逐字） |
 | --- | --- | --- |
 | `podcast.episode.audioDegraded` | 检测到静音占位旁白，已阻止上传——这不是生成失败，是素材本身不可用。 | Silent placeholder narration detected, so the upload was blocked. This is unusable source material, not a generation failure. |
+| `podcast.episode.billingNotice` | 文本出期会逐块调用 TTS 服务商并产生计费，请先确认用量与费用 | Publishing from text calls the TTS provider per chunk and incurs charges. Confirm usage and cost first. |
 | `podcast.episode.cancel` | 取消出期 | Cancel this episode |
 | `podcast.episode.cancelAccepted` | 取消请求已登记，链会在下一个采样点停下；最终状态以下方结果为准。 | Cancel request recorded. The chain stops at the next sampling point; the result below is the authoritative state. |
 | `podcast.episode.cancelDisabled` | 本次发布未回传「是否还可取消」，取消按钮暂不可用（关闭本浮层同样不会停止发布）。 | This publish did not report whether it can still be cancelled, so the cancel button is unavailable (closing this dialog does not stop the publish either). |
@@ -254,6 +255,9 @@ partial 含「这一期已登记到本地频道」+ 一个只重试 feed 的出�
 | `podcast.episode.invalid` | 单集字段不合格，已停止出期，请按下方逐条修正。 | The episode fields are not valid, so the publish stopped. Fix each issue listed below. |
 | `podcast.episode.measureFailed` | 无法实测音频的时长或字节，已停止出期（不得用申报值代替）。 | The audio duration or size could not be measured, so the episode publish stopped (declared values are not accepted instead). |
 | `podcast.episode.measured` | 实测：时长 {duration} 秒 · 字节 {bytes} · 类型 {mime} | Measured: {duration}s duration · {bytes} bytes · {mime} |
+| `podcast.episode.originChannel` | 来自频道设置 | from channel settings |
+| `podcast.episode.originPreference` | 来自你的音色偏好 | from your voice preference |
+| `podcast.episode.originProviderDefault` | 来自服务商默认 | from provider default |
 | `podcast.episode.partial` | 这一期已登记到本地播客频道，公网 feed 尚未更新。 | This episode is registered on the local podcast channel; the public feed is not updated yet. |
 | `podcast.episode.phase.attach` | 登记单集 | Attach episode |
 | `podcast.episode.phase.buildFeed` | 重建 feed | Rebuild feed |
@@ -263,6 +267,9 @@ partial 含「这一期已登记到本地频道」+ 一个只重试 feed 的出�
 | `podcast.episode.phase.probe` | 实测时长与字节 | Measure duration and size |
 | `podcast.episode.phase.uploadAudio` | 上传音频 | Upload audio |
 | `podcast.episode.phase.uploadFeed` | 上传 feed | Upload feed |
+| `podcast.episode.planBlocks` | 将切成 {n} 块 | Will be split into {n} chunks |
+| `podcast.episode.planCodepoints` | 合计 {n} 码点 | {n} code points in total |
+| `podcast.episode.planVoice` | 服务商 {provider} · 模型 {model} · 音色 {voice} | Provider {provider} · Model {model} · Voice {voice} |
 | `podcast.episode.progressUnavailable` | 本次发布未提供逐相位实时进度，进度条只在本次结束后按轨迹回看；这不表示卡住。 | No per-phase live progress is provided for this publish; the bar is only a trail you can read after it finishes. That does not mean it is stuck. |
 | `podcast.episode.running` | 发布进行中… | Publishing… |
 | `podcast.episode.sizeMismatch` | 上传回来的字节与本地实测不一致，这一期没有挂上。 | The bytes returned by the upload do not match the local measurement, so this episode was not attached. |
@@ -365,10 +372,14 @@ partial 含「这一期已登记到本地频道」+ 一个只重试 feed 的出�
 | `podcast.errors.PODCAST_STORE_CORRUPT` | 播客数据文件读不出来（可能已损坏），已停止写入以免扩大损坏 | The podcast data file cannot be read (it may be corrupted). Writing stopped to avoid making it worse. |
 | `podcast.errors.PODCAST_STORE_UNAVAILABLE` | 播客数据目录当前不可用（权限或磁盘问题），请稍后重试 | The podcast data directory is unavailable right now (permissions or disk). Try again later. |
 | `podcast.errors.PODCAST_TTS_BILLING_UNCONFIRMED` | 文本出期会逐块调用语音合成服务并产生费用，请先确认用量与费用 | Publishing from text calls the speech synthesis service per chunk and incurs cost. Confirm usage and fees first. |
+| `podcast.errors.PODCAST_TTS_CHUNK_UNSAFE` | 稿件含无法安全切分的块，本期不发布 | Script contains a chunk that cannot be split safely |
+| `podcast.errors.PODCAST_TTS_COPY_TOO_SHORT` | 正文少于一期口播的下限 80 码点 | Text is shorter than the 80 code point minimum for one episode |
+| `podcast.errors.PODCAST_TTS_TITLE_INVALID` | 标题为空或过长，无法出期 | Title is empty or too long for one episode |
+| `podcast.errors.PODCAST_TTS_VOICE_UNRESOLVED` | 未解析到可用音色，请检查服务商与音色设置 | No usable voice resolved; check provider and voice settings |
 | `podcast.errors.PODCAST_VIDEO_NOT_FOUND` | 找不到成片文件，请回结果页重新生成或重选路径 | The final video file cannot be found; regenerate it on the result page or pick the file again |
 | `podcast.errors.fallback` | 发生未知问题（{code}） | Unknown issue ({code}) |
 
-共 131 键；逐键 zh/en 成对且均为非空串。
+共 142 键；逐键 zh/en 成对且均为非空串。
 
 ## 7. 功能逻辑（按刀次）
 
@@ -838,11 +849,11 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 
 | 位置 | 显示内容 | 数据来源 |
 | --- | --- | --- |
-| 二次确认框 | 块数、总码点、服务商/模型/音色三段 | **只读 IPC `podcast:episode:planPreview`**（§7.10.4.1，2026-10-16 主进程侧已落）：`plan.totalBlocks/totalCodepoints` 由 `planChunks` 同一实现产出、`voice` 五段由 `resolveEpisodeVoice` 产出，本层只转发不加工；⚠️ 浮层尚未消费（②-b），三把 `podcast.episode.plan*` 键也未落（②-a-l） |
+| 二次确认框 | 块数、总码点、服务商/模型/音色三段 | **只读 IPC `podcast:episode:planPreview`**（§7.10.4.1，2026-10-16 主进程侧已落）：`plan.totalBlocks/totalCodepoints` 由 `planChunks` 同一实现产出、`voice` 五段由 `resolveEpisodeVoice` 产出，本层只转发不加工；浮层已消费（②-b）；三把 `podcast.episode.plan*` 键与 §8.2.9 的 origin 三把均已落（②-a-l 的欠账在 ②-b 同 PR 清偿，共七把 zh/en 成对键） |
 | 进度遮罩 | 当前相位 + `durationSec` / `sizeBytes` / `mime` 实测值 | `publish:progress` 富化事件（§6.4.2） |
 | 结果 | 成功给 `feedUrl`；partial 明示「公网 feed 未更新」；cancelled 明示「已回滚，未产生远端对象」 | 编排层信封 |
 
-#### 7.10.4.1 二次确认框的数据源合同（2026-10-16 补；**主进程与 preload 已落地，浮层与文案键未落地**）
+#### 7.10.4.1 二次确认框的数据源合同（2026-10-16 补；**主进程与 preload 已落地；**浮层与文案键已于 2026-10-17 随 tasks 4.3②-b 落地（PR #3776）****）
 
 > 补这一节的直接原因：上表把「块数 / 总码点 / 音色三段」写成已有事实，但**这三个数在渲染端一个都取不到**（`origin/main` 实测）：
 > `planChunks` 只存在于 `apps/desktop/electron/services/`（`src` 命中 **0**、`preload` 命中 **0**）；
@@ -882,7 +893,7 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 
 > **落地现场（2026-10-16，tasks 4.3②-a）**：主进程侧已按本节落地——`apps/desktop/electron/services/podcast-episode-plan-preview.js`（分块与音色**只转发不加工**，缺注入实现即 fail closed）+ IPC 通道 `podcast:episode:planPreview` + preload 键 `episodePlanPreview` + 两个 tracked bundle 已重生。
 
-> 验收判据的处置：**1 / 2 / 5 / 6 / 7 已闭合**（判据之家 `podcast-episode-plan-preview.test.js` 17 例 + `podcast-plan-preview-ipc.test.js` 9 条，后者含「副作用缺席」三件同时断言：目录未建 + `tryBeginPublish`/`endPublish` 0 次 + 宿主两个入口 0 次）；**3 / 4 未闭合**——那两条量的是浮层怎么显示拒绝态与降级态，落点是 `PodcastEpisodeEntry.vue`，属 ②-b 的判据范围，本片不冒充已交付。
+> 验收判据的处置：**1 / 2 / 5 / 6 / 7 已闭合**（判据之家 `podcast-episode-plan-preview.test.js` 17 例 + `podcast-plan-preview-ipc.test.js` 9 条，后者含「副作用缺席」三件同时断言：目录未建 + `tryBeginPublish`/`endPublish` 0 次 + 宿主两个入口 0 次）；**3 / 4 已闭合（2026-10-17，tasks 4.3②-b，PR #3776）**——那两条量的是浮层怎么显示拒绝态与降级态；**判据之家 `src/components/PodcastScriptEntry.test.js` 的「缺失与拒绝的形状」describe**（拒绝态显示原因句且发起按钮仍可用；预览整段抛错只降级为不显示计数）。⚠️ 原句把落点写成 `PodcastEpisodeEntry.vue` 是**错的**：那是成片链（视频出期）的入口，文本出期的浮层是同族新建组件 `PodcastScriptEntry.vue`。
 
 > 频道级音色**至今没有落点**：`voiceRef` 在 `podcast-channel-registry.js` / `podcast-channel-service.js` / `channel.json` 的 meta 里命中 **0**（`git grep` 实测），所以生产路径上 `origin` 只会是 `preference` 或 `providerDefault`，① 层恒空。接线按「存在则取」写（`getService(channelId).getChannel().voiceRef`），**不新造字段**——把频道音色落进真源是 4.5 那一刀的范围，届时 ① 层自动生效，本预览不需要改一行。
 
@@ -901,6 +912,27 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 > 码一出现在生产者里，就该文件所要求的 zh/en 成对文案立刻生效，缺一条即 CI 红。
 > 原先写的「入口没做、现在写是死键」不成立——那条豁免只适用于**没有任何收割判据的**展示文案。
 > 4.3② 只补 `episode.*` 那批浮层显示项键。落点：`src/locales/podcast/zh.js` / `en.js` 的 `podcast.errors.*`。
+
+> **口径回写（2026-10-17，4.3②-b 接线实测）**：上面四条是**主进程侧的提示文字**，本片把它们落成渲染端
+> locale 键，并新增两条此前无人写的现场，逐字生效：
+>
+> 1. **收割扫描域已按预告扩回**：`podcast-error-codes.test.js` 的 `PRODUCERS` 现含
+>    `electron/services/podcast-tts-compose.js`，其产出的 `PODCAST_TTS_COPY_TOO_SHORT` /
+>    `PODCAST_TTS_TITLE_INVALID` / `PODCAST_TTS_CHUNK_UNSAFE` / `PODCAST_TTS_VOICE_UNRESOLVED`
+>    四个码必须当场配 zh/en 成对文案。**取证顺序不可颠倒**：先只扩域 ⇒ 守卫红并点名四个码；再补文案 ⇒ 转绿。
+>    少了第一步，「补了文案」与「守卫其实没在看」在产物上完全同形。
+> 2. **拒绝态文案的来源优先级是「locale 命中优先于主进程 message」**（`PodcastScriptEntry.vue` 的
+>    `previewReason`：`subCode` 存在即取 `podcast.errors.<subCode>`，缺席才回落 `message`）。
+>    这条不是风格选择：补上泛型文案后，原先那句**带数字**的 `正文 12 码点，短于一期口播的下限 80`
+>    被顶掉，用户只剩「正文太短」——丢掉的是「差多少」这一条可行动信息，实测由回归用例
+>    （断言原因句含 `80`）当场变红抓到。**因此凡是主进程 message 里带具体数值的领域码，其 locale 文案必须自带那个数**，
+>    不得把数值留给 message 兜底（兜底在该码有文案时永远走不到）。
+> 3. 落地的 zh 文案逐字：`正文少于一期口播的下限 80 码点` / `标题为空或过长，无法出期` /
+>    `稿件含无法安全切分的块，本期不发布` / `未解析到可用音色，请检查服务商与音色设置`；
+>    en 同形成对。**与上面第 2 条的历史条目（`正文 <N> 码点…`）刻意不同**：locale 侧不做插值
+>    （调用点 `t(key)` 不传参），写成 `<N>` 会把占位符原样显示给用户，因此把下限写死在文案里；
+>    若将来要把实到码点数带进界面，必须同时给 `previewReason` 传插值参数并改回带 `{n}` 的文案，
+>    不得只改一侧。
 
 ### 7.10.6 本节故意不做的
 
@@ -1410,9 +1442,15 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 | --- | --- | --- | --- |
 | `ResultView.vue:726` | 成片（视频出期） | 上下文频道 | 已落（刀 3 第 4 片） |
 | `CreateView.vue:4519` | 项目成片 | 项目绑定频道 | 已落（刀 3 第 4 片） |
-| `CopyLibraryView.vue:174` | 文案库单条口播稿 | 当场选 | 待落（tasks 4.3②） |
+| `CopyLibraryView.vue`（卡片内独立按钮，`@click.stop`） | 文案库单条口播稿 | **默认频道**（§7.10.3.2 裁定：入口侧解析，浮层内不放下拉；无默认频道 ⇒ 动作不出现） | 已落（tasks 4.3②-b） |
 | `RewriteView.vue:812` | 改写结果区口播稿 | 当场选 | 待落（tasks 4.3②） |
 | `Publish.vue:358` | 文本类分支的当前稿 | 上下文频道 | 待落（tasks 4.3②） |
+
+
+> **口径收敛（2026-10-17，tasks 4.3②-b）**：上表原先把文案库/改写两行的频道来源写成「当场选」，与 §7.10.3.2
+> 已合入主干的裁定冲突（那条裁定是：入口侧解析一次默认频道、浮层内**不放下拉**、无默认频道时**动作不出现**）。
+> 留两处不同口径必然漂移，故本行按 §7.10.3.2 改定。另记一条实现侧的必要细节：该页整卡是 `role="button"` +
+> `@click="openDetail(entry)"`，所以入口必须是卡内**独立按钮并 `@click.stop`**，否则一次点击会先走进详情交接。
 
 ### 15.3 不放的位置与理由（同样全量，避免下个会话重新讨论）
 

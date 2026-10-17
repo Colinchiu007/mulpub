@@ -28,6 +28,7 @@
  *   podcast:episode:publishFromVideo → { code, data: { state, phases, audioUrl, episodeId, itemCount, feedUrl, message, errorCode, errorMessage } }
  *   podcast:episode:publish:cancel   → { code, data: { outcome, phase } }   // outcome ∈ accepted|too_late|unknown
  * 出期前的只读预览（4.3②-a；完整合同见 PRD §7.10.4.1）：
+ *   podcast:episode:publishFromScript → { code, data: { state, phases, audioUrl, episodeId, itemCount, feedUrl, message, errorCode, errorMessage } }
  *   podcast:episode:planPreview → { code, data: { ok, plan: { totalBlocks, totalCodepoints }, voice|null } }
  *   // 这条通道不写任何东西；voice 为 null 表示「来源不显示」而不是「没解析出来」，计数缺失一律整块不显示
  * 校验失败：{ code: EC.VALIDATION_ERROR, message, issues }——issues 是引擎的结构化码数组，
@@ -431,6 +432,19 @@ function registerHandlers (ipcMain, deps) {
     const p = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {}
     const script = typeof p.script === 'string' ? p.script : (typeof p.content === 'string' ? p.content : '')
     return getPlanPreview().previewEpisodePlan({ channelId: channelOf(payload), script })
+  })))
+
+  // 文本出期（tasks 4.3②-b，PRD §7.10.1–§7.10.3）。⛔ 通道名必须是字面量：ipc-contract 按字面量双向对账。
+  // 计费同意闸门、内容判据、注入齐备检查全在宿主的①②③层——本层既不得预置 billingConfirmed，
+  // 也不得把它缺省成 false：那会把「用户没确认」伪装成「宿主检查过且未通过」，渲染层就分不清
+  // 该弹确认框还是该报错误。进度沿用**同一条** sender 级通道（§6.4.2 七相位由主进程算）。
+  ipcMain.handle('podcast:episode:publishFromScript', withSenderCheck(handlerFor('episode:publishFromScript', async (payload, event) => {
+    const sender = event && event.sender
+    const emitProgress = (evt) => {
+      if (!sender || typeof sender.isDestroyed === 'function' && sender.isDestroyed()) return
+      sender.send('podcast:episode:publish:progress', evt)
+    }
+    return await getEpisodeHost().publishFromScript(payload || {}, { emitProgress })
   })))
 }
 

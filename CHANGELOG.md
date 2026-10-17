@@ -1,3 +1,10 @@
+# [未发布] feat(podcast): 文本出期 ②-b —— 通道 podcast:episode:publishFromScript + 计费二次确认浮层 + 文案库入口接线
+
+- **机械半边**：主进程注册 `podcast:episode:publishFromScript`（含 `withSenderCheck`）+ preload 键 `episodePublishFromScript` + 桥接层 `episodePublishFromScript(payload)`，两个 tracked bundle 同 PR 重生；三处清点式守卫（IPC 通道清单与 `handlers.size`、preload 方法名清单、桥接导出面 ≡ preload 暴露面的逐键对账）全部同步喂齐，`electron/tests/ipc-contract.test.js` 双向对账通过。
+- **浮层半边** `src/components/PodcastScriptEntry.vue`：显示值只来自只读预览 `podcast:episode:planPreview`（块数 / 总码点 / 服务商·模型·音色三段 + 命中来源标注），预览缺席**整块不显示**且不回落成 `0`；拒绝态显示原因句而**发起按钮仍可用**（计费闸门在主进程①层）；确认载荷必须含 `billingConfirmed: true` 与 `/^[A-Za-z0-9_-]{8,64}$/` 的 `runId`；关闭浮层不取消发布，故挂起 owner `podcast-script-entry-overlay` 的释放在 `visible` false 分支与 `onBeforeUnmount` 两处都走。
+- **入口半边** `src/views/CopyLibraryView.vue`：卡片内独立按钮（整卡是 `role="button"`，故 `@click.stop`）仅在存在默认播客频道时出现；正文取法收敛为唯一实现 `resolveCopyBody`，**取到正文才挂浮层**；`openDetail` 的 `sourceId` 派生刻意留在原位（搬走会改动未覆盖分支的行为）。
+- **错误码文案清偿**：`podcast-tts-compose.js` 按预告加回 `podcast-error-codes.test.js` 的收割扫描域，4 个 `PODCAST_TTS_*` 码补齐 zh/en 成对文案；取证顺序为「先扩域 ⇒ 守卫红并点名 4 码，再补文案 ⇒ 转绿」。
+- **一条被实测纠正的口径**（写入 PRD §7.10.5）：拒绝态取词优先级是「locale 命中即不再回落主进程 message」，因此**带数值的领域码其 locale 文案必须自带那个数**——否则补文案会把「正文 12 码点，短于一期口播的下限 80」降级成「正文太短」。
 # [未发布] fix(accounts): 登录态判定收敛到 HTTP 单轨——隐藏窗口兜底默认关闭（fix-login-check-http-only）
 
 - **问题**：`checkLoginStatus` 在 HTTP/本地证据不足时开**隐藏 sandbox 窗口**加载平台页面抓 DOM 判登录态。该支路自 2026-09 起按平台逐个触发**原生渲染崩溃**：toutiao（09-16）→ wechat_mp（10-06）→ 知乎（10-14 #3726）→ kuaishou（10-16）。现场三条判据同时成立：应用日志**戛然而止**（停在 `checkLoginStatus: start <platform>`）、`crashpad_client_win.cc: not connected`（无 minidump）、主进程退出（`0xC0000135` 同族码），随后全部 electron 进程消失、窗口空白——用户视角即"应用突然关闭"。
