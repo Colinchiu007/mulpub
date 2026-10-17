@@ -14,7 +14,7 @@ date: 2026-10-17
 | QM-6 CCG 双模型外部评审 | 见下 | 决策层（plan-review，critic=claude）+ QM-6 后端（claude）+ 前端（opencode）共 3 轴 36 条 findings 已逐条处置；验证层 deep-review（DUAL）见本表末段与 `reviews/` |
 | 行尾与 diff 对账 | ✅ | `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 逐文件相等（31/0、9/10、8/6、8/5），无行尾改写；工作副本 `i/lf w/crlf` 的既有文件一律保留原行尾（一次变异工具因锚点含 `\n` 未命中，就是这条差异暴露的，已改按 `\r?\n` 匹配） |
 | 接线棘轮 | ✅ | 新增 `scripts/lib/merge-ledger.test.js` 已在本 PR 内接进 `quality-gate.yml` 的 `changes` job（无 job 级 `if:`、非 PR 早退之前）；`check-unwired-tests.js` rc=0 且把它摘掉会同时被它与新增的 `workflow-contract` 落点锁点名（变异 M-A/M-B 各红） |
-| 存量零漂移 | ✅ | 真仓对账行为锁：同一 main tip 上「派生不可用（= 改前口径）」与「派生可用」两档跑，`open / missingRecordRows / staleRecordFields / statusContradictions / crossSrcViolations` 五个维度逐篇相同，且记录文件字节零改动。对账的 baseRef **钉死为显式 SHA** `c57616b6100792d950c3a717775d8aab4362c383`，并由 `ml.baseSha === frozen` 断言守住（变异 M13：去掉钉死即红）。最终基线现读：记录文件 429 篇 / 派生收口 426 / byDesign 1 / 旧键歧义 6 / 拦截面 0 红。演进链如实记：同一判据在片 2 落地时读到 `派生收口=403 byDesign=0`，rebase 到本次最终基线后为 `426 / 1`——差值是期间他人会话合入的记录，不是判据漂移 |
+| 存量零漂移 | ✅ | 真仓对账行为锁：同一 main tip 上「派生不可用（= 改前口径）」与「派生可用」两档跑，`open / missingRecordRows / staleRecordFields / statusContradictions / crossSrcViolations` 五个维度逐篇相同，且记录文件字节零改动。**机制**是"跑之前先 `git rev-parse origin/main` 取一个 SHA，两侧都用它跑，并由 `ml.baseSha === frozen` 断言守住"（变异 M13：改成默认值或 `HEAD` 即红）——所以钉死的是**当次运行的那一个** SHA，不是一个可以照抄的常数。本会话实测读数链（每个数只对它那一行的基线有效）：片 2 落地时基线上 `派生收口=403 byDesign=0` → `c57616b61` 上 `记录文件 429 / 派生收口 426 / byDesign 1 / 拦截面 0 红` → 最后一次 rebase 后 `e47e646ea` 上 `437 / 434 / 1 / 0 红`（`skipped 0`，真仓规模那条没被跳过）。差值全部来自期间他人会话合入的记录，不是判据漂移；旧数不删、按演进链写，就是为了下一个读者能分辨这两件事 |
 | 远程同步 | 由门禁推导 | 本行不需要事后改写：合并后由 `scripts/lib/merge-ledger.js` 按主干历史推导（只认 squash 尾注 `(#NNNN)`，取最近一次新增）。本次交付自身即被该判据覆盖 |
 
 ### 交付物与判据
@@ -25,7 +25,7 @@ date: 2026-10-17
 | 派生收口三态 | `NOT_IN_BASE / NO_FOOTER / PR(n)` 不塌态；优先级链 `missingRow → NOT_IN_BASE → derivedClosed → blobClosed → debt` | `check-gate-record-debt.test.js` 73/73（既有 58 + 新增 15）；N1/N2/N3/N4 变异各红在指名用例 |
 | 取不到读数不得判绿 | 三种不可用（ref / 非仓库 / 空账本）退回断言档并出声；CI 档 rc=2 | 真起子进程断言 rc=2 且本机不套用；N5 CAUGHT |
 | 净增拦截 | 合并前预写 `PASS` ⇒ `prematureClaims` 红；`delivered_by_pr` 与主干事实不符或读不出整数 ⇒ `intentMismatch` 红 | N3/N7 CAUGHT；真仓两集合均为空（新增防线，不动存量） |
-| 兼容读 | 最终基线 `c57616b61` 现测：408 篇 blob 闭合、20 篇旧形态登记未收口、2 篇无尾注、1 篇本次变更集新增 ⇒ 全部原样放行（片 2 落地时读的是 384 / 21 / 2，差值来自期间他人合入） | 真仓对账锁 + `ambiguousPrKeys >= 6` 下界断言 |
+| 兼容读 | 基线 `e47e646ea` 现测：414 篇 blob 闭合、22 篇旧形态登记未收口、2 篇无尾注、1 篇本次变更集新增 ⇒ 全部原样放行。读数链：片 2 落地时 384 / 21 / 2，`c57616b61` 上 408 / 20 / 2，`e47e646ea` 上 414 / 22 / 2（差值来自期间他人合入与新记录进入"未收口"态；无尾注那一档两轮都是 2 篇，说明它是存量固有形态而非新增漂移） | 真仓对账锁 + `ambiguousPrKeys >= 6` 下界断言 |
 | 口径同步 | `_TEMPLATE.md` 四处矛盾一次改完；`AGENTS.md` 取消回填禁令分支、收尾清单重编号；`check-pr-exec-record` 出路④注释不再声称"真实性无人校验" | 邻居套件 19/19、57/57；`check-workflow-structure` rc=0 |
 | 相邻缺陷守卫 | 仓侧碰撞拦截（根因在仓外技能的 slug 只用文件名）：同名 slug 且内容不同 ⇒ 拒绝并给出路，知情放行必留痕 | `plan-review-deps.test.js` 9/9；P-A/P-B/P-C/P-D 四条变异各自 CAUGHT |
 
