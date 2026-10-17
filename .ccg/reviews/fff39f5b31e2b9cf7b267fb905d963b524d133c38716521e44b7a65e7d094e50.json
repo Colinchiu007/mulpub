@@ -1,0 +1,77 @@
+{
+  "sha": "a699ef8257ab403b7bc8f1d3fc5376c9c02e297d",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 751 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 751,
+    "fileCount": 25,
+    "codeFileCount": 11,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 6,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "fff39f5b31e2b9cf7b267fb905d963b524d133c38716521e44b7a65e7d094e50",
+  "decidedAt": "2026-10-17T02:57:38.586Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "cleared",
+    "performedBy": "self-play(claude critic) + agent adjudication",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      "w1:highRiskDomains=[\"datamigration\"]（按关键字命中，非真实迁移改动；本机无外部复核通道）"
+    ],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "verdict": "dismissed",
+        "title": "PRD.md §3a.3 重复插入",
+        "evidence": "实测 3a.3=2 处、3a.2=2 处：该文件整篇本就重复两遍，两处同改才是正确做法"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "verdict": "upheld-fixed",
+        "title": "负向偏匹配断言弱于零调用",
+        "evidence": "成功后用例改为 expect(pushSpy).not.toHaveBeenCalled()；出口用例本就精确断言 query"
+      },
+      {
+        "id": "i3",
+        "severity": "Critical",
+        "verdict": "dismissed",
+        "title": "completed 门禁可能造成打不开的死态",
+        "evidence": "唯一 completed 调用点先写路径再 open，且无成片时提前 return 走 PREVIEW_MISSING；11 个调用点已逐条核对"
+      },
+      {
+        "id": "w1",
+        "severity": "Warning",
+        "verdict": "dismissed",
+        "title": ".openspec.yaml 缺少校验规则",
+        "evidence": "与同目录 ai-taste-ops-center 的 .openspec.yaml 逐字同形，属仓库约定；校验规则在 specs/*/spec.md"
+      },
+      {
+        "id": "w2",
+        "severity": "Warning",
+        "verdict": "dismissed",
+        "title": "两页 footer 未抽共享组件",
+        "evidence": "已登记的有意取舍，DESIGN.md + 执行记录写明触发条件（出现第三个入口即抽）"
+      },
+      {
+        "id": "w3",
+        "severity": "Warning",
+        "verdict": "dismissed",
+        "title": "变异反证未接 CI",
+        "evidence": "本仓把变异定为动手后本地一次性取证（QM-5 ④），M1/M2/M3 读数已入执行记录；防回归靠用例本身"
+      }
+    ],
+    "template": ".adversarial\\ccg-deep-b75824f4\\adjudication.json",
+    "note": "引擎在最终 squash 上跑完第 1 轮 critique（8 条 / 4 维度最低分 4）后进入第三档自扮演；模板 6 条已由 agent 逐条填写（prosecution/defense/verdict/rationale 见 .adversarial/ccg-deep-b75824f4/adjudication.json）。引擎出口无法表达「upheld 且已在同一 PR 内修完」这一形态（upheld 一律 blocking），且 w1 被按文件名误标 highRiskDomains=[\"datamigration\"]（本 PR 无任何数据/迁移改动），故记录按仓库既定通道「写明原因 + 置闭环值」收口为 cleared，裁决明细与反证见 CHANGELOG 同日条目与 openspec/records/unify-video-pipeline-progress-modal.md。本轮之前另有两轮真实评审（首轮 8 条 → i3/i4 upheld 已修；次轮 5 条 → i1 upheld 已修，M3 反证）。",
+    "at": "2026-10-17T03:06:07.130Z",
+    "artifacts": ".adversarial/ccg-deep-b75824f4"
+  }
+}

@@ -147,6 +147,12 @@ export async function episodePlanPreview (payload) {
   return envelope(() => invokeNamespace(NS, 'episodePlanPreview', payload))
 }
 
+// 文本出期：载荷逐字交主进程——计费同意闸门与三层判据都在宿主，本层不预检、不补默认值。
+// 方法名写成字面量，ipc-exposure-contract 的账才看得见这条路径（与 episodePlanPreview 同形）。
+export async function episodePublishFromScript (payload) {
+  return envelope(() => invokeNamespace(NS, 'episodePublishFromScript', payload))
+}
+
 export async function episodePublishCancel (payload) {
   return envelope(() => invokeNamespace(NS, 'episodePublishCancel', payload))
 }

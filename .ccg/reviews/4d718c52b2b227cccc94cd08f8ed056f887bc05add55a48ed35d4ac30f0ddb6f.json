@@ -1,0 +1,28 @@
+{
+  "sha": "18cc653921422b43dd2713061f78f2d4ec8d39e7",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 55 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 55,
+    "fileCount": 3,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "| QM-4 视觉 | N/A（不新增判据/不改基线） | 本 PR 只改「哪些套件在 PR 侧被执行」，不改任何用例、基线或阈值；**未使用 `--update-baseline`** |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "4d718c52b2b227cccc94cd08f8ed056f887bc05add55a48ed35d4ac30f0ddb6f",
+  "decidedAt": "2026-10-17T05:31:45.481Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

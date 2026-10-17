@@ -2621,7 +2621,9 @@ describe("CreateView - S2V orchestration", () => {
     w.unmount();
   });
 
-  it("编排完成后携带 compose 视频路径进入结果页", async () => {
+  // unify-video-pipeline-progress-modal：启动即完成的 run 不再自动跳结果页，
+  // 改为在浮层内落终态产物并解锁【查看】【去发布】，由用户显式选择出口。
+  it("编排启动即完成：浮层保留并解锁查看/去发布，不自动跳结果页", async () => {
     const mocks = await import("@/api/publisher");
     mocks.pipelineStartOrchestrated.mockResolvedValueOnce({
       code: 0,
@@ -2632,20 +2634,22 @@ describe("CreateView - S2V orchestration", () => {
         context: { compose: { videoPath: "C:/media/output.mp4" } },
       },
     });
-    const pushSpy = vi.spyOn(router, "push");
+    const pushSpy = vi.spyOn(router, "push").mockResolvedValue();
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress }, stubs: { teleport: true } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
     w.vm.pipelineText = "测试文案";
 
     await w.vm.startPipeline();
+    await nextTick();
 
-    expect(pushSpy).toHaveBeenCalledWith({
-      path: "/create/result",
-      query: { path: "C:/media/output.mp4", runId: "run-completed" },
-    });
+    expect(pushSpy).not.toHaveBeenCalledWith(expect.objectContaining({ path: "/create/result" }));
+    expect(w.vm.pipelineProgressModalOpen).toBe(true);
+    expect(w.vm.pipelineProgressCompletedVideoPath).toBe("C:/media/output.mp4");
+    expect(w.find('[data-testid="s2v-progress-view"]').attributes("disabled")).toBeUndefined();
+    expect(w.find('[data-testid="s2v-progress-publish"]').attributes("disabled")).toBeUndefined();
     pushSpy.mockRestore();
     w.unmount();
   });
@@ -4504,12 +4508,19 @@ describe("视频创作流水线「已用时」步骤执行耗时口径", () => {
     w.unmount();
   });
 
-  it("结果页 durationMs 使用 activeMs（步骤执行耗时累计）", async () => {
+  // unify-video-pipeline-progress-modal：applyOrchestrationOutcome 完成分支不再自动跳结果页，
+  // 改为在浮层内保留完成态并解锁出口按钮。durationMs 口径改由浮层完成汇总（orchestrationSummary）承载。
+  it("applyOrchestrationOutcome 完成：浮层保留 + 终态产物落态，不跳结果页", async () => {
     const pushSpy = vi.spyOn(router, "push").mockResolvedValue();
+    pushSpy.mockClear();
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress }, stubs: { teleport: true } }
     });
     await nextTick();
+    // 真实运行态下必然有选中流水线（openPipelineProgressModal 的门禁之一）
+    w.vm.selectedPipeline = { name: "story2video-compose", available: true, stages: ["split", "compose"] };
+    w.vm.pipelineRunStatus = { status: "running", progress: 50, stages: [] };
+    w.vm.orchestrationRunId = "run-duration-1";
     w.vm.story2videoRunMeta = {
       createdAt: new Date(Date.now() - 20 * 3600 * 1000).toISOString(),
       endedAt: new Date().toISOString(),
@@ -4522,9 +4533,12 @@ describe("视频创作流水线「已用时」步骤执行耗时口径", () => {
       context: { compose: { data: { videoPath: "C:/tmp/x.mp4" } } },
     });
     expect(handled).toBe(true);
-    const pushCall = [...pushSpy.mock.calls].reverse().find((args) => args[0] && args[0].path === "/create/result");
-    expect(pushCall).toBeTruthy();
-    expect(pushCall[0].query.durationMs).toBe(125000);
+    expect(pushSpy).not.toHaveBeenCalledWith(expect.objectContaining({ path: "/create/result" }));
+    expect(w.vm.pipelineProgressModalOpen).toBe(true);
+    expect(w.vm.pipelineRunStatus?.status).toBe("completed");
+    expect(w.vm.pipelineProgressCompletedVideoPath).toBe("C:/tmp/x.mp4");
+    // 完成汇总仍读 activeMs（125000ms），信息量在浮层内不失真
+    expect(w.vm.orchestrationSummary).toContain("2 分 5 秒");
     pushSpy.mockRestore();
     w.unmount();
   });
@@ -4575,9 +4589,12 @@ describe("视频创作「已用时」审查闭环回归（C1/W2）", () => {
       context: { publish: { data: { videoPath: "C:/tmp/y.mp4" } } },
     });
     expect(handled).toBe(true);
-    const pushCall = [...pushSpy.mock.calls].reverse().find((args) => args[0] && args[0].path === "/create/result");
-    expect(pushCall).toBeTruthy();
-    expect(pushCall[0].query.durationMs).toBe(125000);
+    // unify-video-pipeline-progress-modal：终态 activeMs 仍优先覆盖轮询缓存（口径不变），
+    // 只是不再转换为结果页 query.durationMs，而是保留在浮层完成汇总里。
+    expect(w.vm.story2videoRunMeta.activeMs).toBe(125000);
+    expect(pushSpy).not.toHaveBeenCalledWith(expect.objectContaining({ path: "/create/result" }));
+    expect(w.vm.pipelineProgressCompletedVideoPath).toBe("C:/tmp/y.mp4");
+    expect(w.vm.orchestrationSummary).toContain("2 分 5 秒");
     pushSpy.mockRestore();
     w.unmount();
   });
@@ -5504,7 +5521,9 @@ describe("流水线启动前台跟踪与离开转后台（2026-08-21）", () => 
     w.unmount();
   });
 
-  it("后台 run 完成后自动跳转结果页（恢复「完成即跳转」）", async () => {
+  // unify-video-pipeline-progress-modal：后台 run 完成后不再自动跳结果页，
+  // 改为保留浮层完成态并解锁【查看】【去发布】（终态产物来自本次 run 的 context）。
+  it("后台 run 完成后浮层保留完成态并解锁出口按钮，不自动跳结果页", async () => {
     const mocks = await import("@/api/publisher");
     const pushSpy = vi.spyOn(router, "push").mockResolvedValue();
     const w = await mountRunning();
@@ -5519,11 +5538,12 @@ describe("流水线启动前台跟踪与离开转后台（2026-08-21）", () => 
       },
     });
     await w.vm.updateOrchestrationStatus();
-    expect(w.vm.orchestrationRunId).toBeNull();
-    const pushCall = [...pushSpy.mock.calls].reverse().find((args) => args[0] && args[0].path === "/create/result");
-    expect(pushCall).toBeTruthy();
-    expect(pushCall[0].query.path).toBe("C:/tmp/bg.mp4");
-    expect(pushCall[0].query.durationMs).toBe(2500);
+    expect(pushSpy).not.toHaveBeenCalledWith(expect.objectContaining({ path: "/create/result" }));
+    expect(w.vm.pipelineProgressModalOpen).toBe(true);
+    expect(w.vm.pipelineRunStatus?.status).toBe("completed");
+    expect(w.vm.pipelineProgressCompletedVideoPath).toBe("C:/tmp/bg.mp4");
+    expect(w.find('[data-testid="s2v-progress-view"]').attributes("disabled")).toBeUndefined();
+    expect(w.find('[data-testid="s2v-progress-publish"]').attributes("disabled")).toBeUndefined();
     pushSpy.mockRestore();
     w.unmount();
   });
@@ -5574,6 +5594,158 @@ describe("流水线启动前台跟踪与离开转后台（2026-08-21）", () => 
     expect(mocks.pipelineCancel).toHaveBeenCalled();
     expect(w.vm.orchestrationRunId).toBeNull();
     expect(w.vm.pipelineRunStatus).toBeNull();
+    w.unmount();
+  });
+});
+
+// ── 流水线进度浮层四按钮与完成出口（unify-video-pipeline-progress-modal） ──
+// 契约：footer 固定【查看】【去发布】【后台运行】【取消】；前两者初始灰显，run 成功且有成片后解锁；
+//       成功后浮层保持打开、不自动跳结果页；查看→历史「已完成」；去发布→发布页视频模式预填充。
+describe("流水线进度浮层四按钮与完成出口（unify-video-pipeline-progress-modal）", () => {
+  const FOOTER = '[data-testid="s2v-progress-modal"] .ui-modal-footer';
+  const q = (id) => `[data-testid="${id}"]`;
+  const MOUNT = { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress }, stubs: { teleport: true } } };
+  const mountRunning = async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineStatus.mockResolvedValue({ code: 0, data: null });
+    mocks.pipelineGetRunContext.mockResolvedValue({ code: 0, data: { status: { status: "running" }, stages: [], context: {}, checkpoint: null } });
+    mocks.pipelineCancel.mockResolvedValue({ code: 0, data: true });
+    const w = mount(CreateView, MOUNT);
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", available: true, stages: ["split", "optimize", "generate_assets", "compose"] };
+    w.vm.pipelineRunStatus = { status: "running", progress: 30, stages: [{ name: "split", status: "completed" }, { name: "optimize", status: "running" }] };
+    Object.assign(w.vm, {
+      orchestrationStages: w.vm.pipelineRunStatus.stages, orchestrationRunId: "run-bg-1", pipelineProgressModalOpen: true,
+      orchestrationContext: { split: { scenes: [{}, {}] } }, story2videoRunMeta: { createdAt: new Date().toISOString(), endedAt: null },
+    });
+    await nextTick();
+    return w;
+  };
+  // 直接推到「已成功且有成片」态（不经轮询，隔离出口行为本身）；与真实收尾一致：完成后不再持有 runId
+  const completeRun = async (w, projectId = "proj-done-1") => {
+    w.vm.pipelineRunStatus = { status: "completed", progress: 100, stages: [{ name: "split", status: "completed" }, { name: "optimize", status: "completed" }] };
+    Object.assign(w.vm, {
+      orchestrationStages: w.vm.pipelineRunStatus.stages, orchestrationRunId: null, pipelineRunId: null,
+      pipelineProgressCompletedVideoPath: "C:/tmp/done.mp4", pipelineProgressCompletedProjectId: projectId || "", pipelineProgressModalOpen: true,
+    });
+    await nextTick();
+  };
+  const spyPush = () => { const s = vi.spyOn(router, "push").mockResolvedValue(); s.mockClear(); return s };
+  const pushedTo = (spy, path) => spy.mock.calls.map(c => c[0]).find(v => v && v.path === path);
+  it("运行中：四按钮顺序固定，查看/去发布灰显但文案可读，后台运行可点", async () => {
+    const w = await mountRunning();
+    expect(w.find(FOOTER).findAll("button").map(b => b.attributes("data-testid")))
+      .toEqual(["s2v-progress-view", "s2v-progress-publish", "s2v-background-trigger", "s2v-progress-cancel"]);
+    const view = w.find(q("s2v-progress-view")); const pub = w.find(q("s2v-progress-publish"));
+    expect([view.attributes("disabled"), view.attributes("aria-disabled"), pub.attributes("disabled"), pub.attributes("aria-disabled")]).toEqual([expect.anything(), "true", expect.anything(), "true"]);
+    // 灰显保留可见文案（不用 title 代替）；运行态仍可后台化
+    expect([view.text(), pub.text(), w.find(q("s2v-background-trigger")).attributes("disabled")])
+      .toEqual([expect.stringContaining("查看"), expect.stringContaining("去发布"), undefined]);
+    w.unmount();
+  });
+  it("无 runId（改写/启动阶段）：只渲染查看/去发布（灰）与取消，后台运行不渲染", async () => {
+    const w = mount(CreateView, MOUNT);
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", available: true, stages: ["split"] };
+    w.vm.pipelineRunStatus = { status: "pending", progress: 0, stages: [] };
+    Object.assign(w.vm, { orchestrationRunId: null, pipelineProgressModalOpen: true });
+    await nextTick();
+    const footer = w.find(FOOTER);
+    expect([footer.findAll(q("s2v-background-trigger")).length, footer.findAll(q("s2v-progress-cancel")).length]).toEqual([0, 1]);
+    expect(footer.findAll(q("s2v-progress-view"))[0].attributes("disabled")).toBeDefined();
+    w.unmount();
+  });
+  it("成功后浮层保持打开、两按钮解锁、后台/取消消失，且不自动跳结果页", async () => {
+    const pushSpy = spyPush();
+    const w = await mountRunning(); await completeRun(w);
+    // 强断言（不是「没有跳结果页」，而是「一次都没跳」）：成功瞬间不得发生任何导航
+    expect(pushSpy).not.toHaveBeenCalled();
+    expect(w.vm.pipelineProgressModalOpen).toBe(true);
+    expect([w.find(q("s2v-progress-view")).attributes("disabled"), w.find(q("s2v-progress-publish")).attributes("disabled")]).toEqual([undefined, undefined]);
+    // 终态无运行中任务可脱离/可取消；浮层用独立 testid（页面底部操作条另有 s2v-cancel-trigger）
+    expect([w.find(FOOTER).find(q("s2v-background-trigger")).exists(), w.find(FOOTER).find(q("s2v-progress-cancel")).exists()]).toEqual([false, false]);
+    pushSpy.mockRestore(); w.unmount();
+  });
+  it("失败态与「完成但无成片」都保持灰显；灰显点击无任何副作用", async () => {
+    const mocks = await import("@/api/publisher"); mocks.pipelineCancel.mockClear();
+    const pushSpy = spyPush();
+    const w = await mountRunning();
+    await w.find(q("s2v-progress-view")).trigger("click");
+    await w.find(q("s2v-progress-publish")).trigger("click");
+    await nextTick();
+    expect([pushSpy.mock.calls.length, mocks.pipelineCancel.mock.calls.length, w.vm.pipelineProgressModalOpen, w.vm.orchestrationRunId]).toEqual([0, 0, true, "run-bg-1"]);
+    w.vm.pipelineRunStatus = { ...w.vm.pipelineRunStatus, status: "failed" }; await nextTick();
+    expect(w.find(q("s2v-progress-view")).attributes("disabled")).toBeDefined();
+    // 旧成片路径残留 + 非完成态，不得提前解锁（解锁判据 = 状态已完成 且 成片非空）
+    w.vm.pipelineProgressCompletedVideoPath = "C:/tmp/stale.mp4"; await nextTick();
+    expect(w.find(q("s2v-progress-view")).attributes("disabled")).toBeDefined();
+    w.vm.pipelineRunStatus = { ...w.vm.pipelineRunStatus, status: "completed", progress: 100 }; w.vm.pipelineProgressCompletedVideoPath = ""; await nextTick();
+    expect(w.find(q("s2v-progress-publish")).attributes("disabled")).toBeDefined();
+    pushSpy.mockRestore(); w.unmount();
+  });
+  it("查看：跳 /create?view=history&filter=completed，筛选落位，且不取消 run、不释放并发槽位", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineCancel.mockClear(); mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [] }); mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [] });
+    const pushSpy = spyPush();
+    const w = await mountRunning(); await completeRun(w);
+    await w.find(q("s2v-progress-view")).trigger("click"); // 动作方法 await「脱离 + 刷新历史」，需等 push 真正发生
+    await vi.waitFor(() => { expect(pushedTo(pushSpy, "/create")).toBeTruthy(); });
+    expect(pushedTo(pushSpy, "/create").query).toEqual({ view: "history", filter: "completed" });
+    expect([w.vm.historyFilter, w.vm.pollTimer, w.vm.orchestrationRunId]).toEqual(["completed", null, null]);
+    expect(mocks.pipelineCancel).not.toHaveBeenCalled();
+    pushSpy.mockRestore(); w.unmount();
+  });
+  it("去发布：有项目对象时视频模式预填充；run-only 时只带 type + video_path", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineCancel.mockClear(); mocks.pipelineCancel.mockResolvedValue({ code: 0, data: true });
+    const pushSpy = spyPush(); const w = await mountRunning();
+    w.vm.orchestrationContext = {
+      compose: { data: { videoPath: "C:/tmp/done.mp4" } },
+      story2videoProject: { projectId: "proj-done-1", title: "成片标题", sourceText: "成片正文", videoPath: "C:/tmp/done.mp4", story2videoTextConfig: { config: { publish: { title: "发布标题", content: "发布正文", tags: ["AI", "视频"] } } } },
+    };
+    await completeRun(w);
+    await w.find(q("s2v-progress-publish")).trigger("click");
+    await vi.waitFor(() => { expect(pushedTo(pushSpy, "/publish")).toBeTruthy(); });
+    const withProject = pushedTo(pushSpy, "/publish");
+    expect([withProject.query.type, decodeURIComponent(String(withProject.query.video_path)),
+      decodeURIComponent(String(withProject.query.title)), decodeURIComponent(String(withProject.query.content))])
+      .toEqual(["video", "C:/tmp/done.mp4", "发布标题", "发布正文"]);
+    expect(mocks.pipelineCancel).not.toHaveBeenCalled();
+    // run-only：无 story2videoProject ⇒ 纯文件路径模式，不伪造 title/content
+    pushSpy.mockClear();
+    const w2 = await mountRunning(); await completeRun(w2, null);
+    await w2.find(q("s2v-progress-publish")).trigger("click");
+    await vi.waitFor(() => { expect(pushedTo(pushSpy, "/publish")).toBeTruthy(); });
+    const runOnly = pushedTo(pushSpy, "/publish");
+    expect([runOnly.query.type, decodeURIComponent(String(runOnly.query.video_path)), runOnly.query.title, runOnly.query.content])
+      .toEqual(["video", "C:/tmp/done.mp4", undefined, undefined]);
+    pushSpy.mockRestore(); w.unmount(); w2.unmount();
+  });
+  it("openPipelineProgressModal 仅对「已完成且有成片」放开终态保留", async () => {
+    const w = await mountRunning();
+    w.vm.pipelineProgressCompletedVideoPath = "C:/tmp/done.mp4";
+    const results = {};
+    for (const status of ["completed", "failed", "cancelled", "idle", "running", "paused"]) {
+      w.vm.pipelineRunStatus = { ...w.vm.pipelineRunStatus, status }; w.vm.pipelineProgressModalOpen = false;
+      results[status] = w.vm.openPipelineProgressModal();
+    }
+    expect(results).toEqual({ completed: true, failed: false, cancelled: false, idle: false, running: true, paused: true });
+    // 关键不变量：completed 但无成片不得进「全灰显」死态（应走 PREVIEW_MISSING 错误对话框）
+    w.vm.pipelineRunStatus = { ...w.vm.pipelineRunStatus, status: "completed" };
+    Object.assign(w.vm, { pipelineProgressCompletedVideoPath: "", pipelineProgressModalOpen: false });
+    expect([w.vm.openPipelineProgressModal(), w.vm.pipelineProgressModalOpen]).toEqual([false, false]);
+    w.unmount();
+  });
+  it("从 URL 带 filter=completed 进入历史视图时筛选态被消费", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [] }); mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [] }); // 独立 router 隔离：本用例验证「刷新/深链」路径，不受文件内共享 router 的跨用例状态影响
+    const deepLinkRouter = createRouter({ history: createWebHistory(), routes: [
+      { path: "/create", name: "create", component: { template: "<div>create</div>" } },
+      { path: "/create/result", name: "result", component: { template: "<div>result</div>" } },
+    ] });
+    await deepLinkRouter.push({ path: "/create", query: { view: "history", filter: "completed" } });
+    const w = mount(CreateView, { global: { plugins: [deepLinkRouter, i18n], components: MOUNT.global.components } });
+    await vi.waitFor(() => { expect(w.vm.view).toBe("history"); expect(w.vm.historyFilter).toBe("completed"); }); // mounted 为 async
     w.unmount();
   });
 });

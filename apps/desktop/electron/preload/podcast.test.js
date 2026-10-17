@@ -34,7 +34,7 @@ function makeIpc (responsesByChannel) {
 }
 
 describe('podcast preload · 通道与命名空间', () => {
-  it('暴露 podcast.* 二十一个方法，通道名逐字对齐主进程合同', () => {
+  it('暴露 podcast.* 二十二个方法，通道名逐字对齐主进程合同', () => {
     // 其中 20 个是 invoke 型，onEpisodePublishProgress 是**推送订阅**型（§6.4.2 第三条通道），
     // 它不 invoke 任何通道，返回的是注销函数——所以它不进 CHANNELS 那份双向对账。
     const api = createPodcastApi(makeIpc({}))
@@ -42,7 +42,7 @@ describe('podcast preload · 通道与命名空间', () => {
       'channelCreate', 'channelGet', 'channelList', 'channelMigrateResolve',
       'channelRename', 'channelSave', 'channelSetDefault',
       'endpointList', 'episodeList',
-      'episodePlanPreview', 'episodePublishCancel', 'episodePublishFromVideo', 'episodeRemove', 'episodeSave', 'feedBuild', 'feedPublish', 'feedVerify',
+      'episodePlanPreview', 'episodePublishCancel', 'episodePublishFromScript', 'episodePublishFromVideo', 'episodeRemove', 'episodeSave', 'feedBuild', 'feedPublish', 'feedVerify',
       'hostingCheck', 'hostingGet', 'hostingSave', 'onEpisodePublishProgress',
     ])
     for (const channel of CHANNELS) {

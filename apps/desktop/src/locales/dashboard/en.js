@@ -19,6 +19,31 @@ export default {
     publishStatsTitle: 'Publishing stats',
     last14DaysHint: 'Last 14 days',
     countUnit: (ctx) => ctx.named('count') + ' posts',
+    // ─── Plan gating (dash-full-entitlement) ──────────────────────
+    // Copy rule: the CTA says "Upgrade", never "Subscribe now" — the purchase
+    // entry inside the upgrade modal is compiled out of production builds
+    // (pre-existing tech debt), so promising an immediate action would be a lie.
+    lockedHint: (ctx) => 'Upgrade to view ' + ctx.named('name'),
+    lockedCta: 'Upgrade',
+    // ─── Account health ────────────────────────────────────────
+    accountHealthTitle: 'Account status',
+    accountHealthOk: (ctx) => ctx.named('count') + ' healthy',
+    accountHealthBad: (ctx) => ctx.named('count') + ' failed',
+    accountHealthUnknown: (ctx) => ctx.named('count') + ' unchecked',
+    accountHealthEmpty: 'No authorized accounts yet',
+    accountHealthMore: (ctx) => ctx.named('count') + ' more',
+    accountHealthLoadFailed: 'Account status unavailable',
+    // ─── Publish queue ─────────────────────────────────────────
+    queueTitle: 'Publish queue',
+    queueRunning: (ctx) => 'Running ' + ctx.named('count'),
+    queuePending: (ctx) => 'Queued ' + ctx.named('count'),
+    queueFailed: (ctx) => 'Recent failures ' + ctx.named('count'),
+    queueEmpty: 'No publish tasks in progress',
+    queueLoadFailed: 'Queue status unavailable',
+    // ─── Topic performance board (full only) ────────────────────
+    patternTitle: 'Topic performance',
+    patternEmpty: 'No topic data yet (publish and let metrics sync)',
+    patternLoadFailed: 'Topic performance unavailable',
     metrics: {
       title: 'Content performance feedback',
       subtitle: 'Post-publish metrics collected per piece (latest capture per piece)',

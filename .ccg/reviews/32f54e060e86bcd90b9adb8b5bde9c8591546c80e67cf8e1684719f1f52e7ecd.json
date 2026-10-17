@@ -1,0 +1,135 @@
+{
+  "sha": "2731258e8598cad884a94caa4683e98ec6101280",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 153 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 153,
+    "fileCount": 2,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "32f54e060e86bcd90b9adb8b5bde9c8591546c80e67cf8e1684719f1f52e7ecd",
+  "decidedAt": "2026-10-17T04:46:41.631Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "self_play_blocked",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "新 .ccg/reviews/*.json 文件 SHA（2731258e、6174c3f2、0a0d358）与提案 head 447278d2 不匹配，且 findings: null / 裁决尚未填写，添加未完成的审裁 artifacts。",
+        "highRiskDomains": [],
+        "prosecution": "新 .ccg/reviews/*.json 文件 SHA 与提案 head 不匹配，且 findings: null / 裁决尚未填写，添加未完成的审裁 artifacts。",
+        "defense": "一半成立，一半不成立。不成立的一半：记录名不是提交 sha，而是**暂存 diff 内容哈希**（#3755 的方案），所以「记录里出现的 sha 与 head 不同」是设计的必然形态，不是错配；每条记录对应它自己那次提交的变更集，属审计留痕。成立的一半：最终提交的记录不应停在 self_play_pending，应由裁决填完并解析成已闭环状态。",
+        "verdict": "upheld",
+        "rationale": "落点：本轮裁决填完后重跑 deep-review，让最终记录的 deepReview 从 self_play_pending 变为已解析状态；早前两次提交的记录保留其当时的真实状态（那是留痕，不是腐坏）。",
+        "fix_verified": true
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "describeAuditWidths() 每次在 evaluate() 热路径执行 193 次 regex 探测且无缓存，造成不必要的运行时开销。",
+        "highRiskDomains": [],
+        "prosecution": "describeAuditWidths() 每次在 evaluate() 热路径执行 193 次 regex 探测且无缓存，造成不必要的运行时开销。",
+        "defense": "成立（开销真实存在，虽然该函数只在「要生成提示文案」的出错分支上被调到，不在通过路径上）。已改为模块级缓存 + Object.freeze；并顺带解决 i5。",
+        "verdict": "upheld",
+        "rationale": "落点 auditAcceptedWidths()：加 _widthsCache 与 Object.freeze。行为锁：两次调用必须返回同一数组身份、且必须 isFrozen。变异 M37（去缓存）与 M39（去冻结）实测均红。",
+        "fix_verified": true
+      },
+      {
+        "id": "i3",
+        "severity": "Critical",
+        "finding": "stripCommentsForScan() 在 // 后无条件截断，字符串内含 //（如 URL）会被错误截断，导致派生锁漏检或误伤。",
+        "highRiskDomains": [],
+        "prosecution": "stripCommentsForScan() 在 // 后无条件截断，字符串内含 //（如 URL）会被错误截断，导致派生锁漏检或误伤。",
+        "defense": "成立。已把行内注释剥离改为**引号感知的最小状态机** stripTrailingComment()，只认引号外（含转义处理）的 //。选择状态机而非 acorn 的理由：这个文件被 changes job 直接 require，按 AGENTS.md 前提锁**只能 require node 内置模块**，引不进解析器依赖。残余边界（正则字面量里的 //）已在代码注释里写明，且方向仍是「少扫而非误报」。",
+        "verdict": "upheld",
+        "rationale": "落点 stripTrailingComment()。行为用例 3 条：字符串里 URL 的 // 不得截断、引号外的 // 必须剥掉、转义引号内的 // 不得截断。变异 M38（退回无条件截断）实测红。",
+        "fix_verified": true
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "新增测试直接 fs.readFileSync 扫描自身源码，并用 /\\+\\s*describeAuditWidths\\s*\\(\\s*\\)/ 做结构断言，格式重构即静默失效。",
+        "highRiskDomains": [],
+        "prosecution": "新增测试直接 fs.readFileSync 扫描自身源码，并用 /\\+\\s*describeAuditWidths\\s*\\(\\s*\\)/ 做结构断言，格式重构即静默失效。",
+        "defense": "不成立。该断言的方向是**反的**：把接线改写成别的形式会让正则**匹配不到**，于是 assert.ok 变红（大声失败），而不是「静默失效」。静默失效只会在断言写成 `if (x) assert(...)` 这类条件短路时发生，而本断言没有短路。审查者担心的「格式重构」——正则已允许 `\\s*` 任意空白，且断言的是 `+ <fn>()` 这个语义形态（返回值被拼进文案），换行/缩进不影响。",
+        "verdict": "dismissed",
+        "rationale": "证据：变异 M32 把文案改回纯手写（不再调用生成器）→ 该断言**红**（实测 1 条失败），证明它是拦截面而非装饰。若坚持去掉结构断言，就只剩行为断言，而「文案来自生成器」这一维度无法从行为侧观测（生成结果与手写常量在数值相同时不可区分），故必须保留。",
+        "fix_verified": null
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "auditAcceptedAltForm() 依赖 auditAcceptedWidths()[0]，但后者无缓存；若正则运行时被篡改，两函数状态可短暂不一致，alt 探测失真。",
+        "highRiskDomains": [],
+        "prosecution": "auditAcceptedAltForm() 依赖 auditAcceptedWidths()[0]，但后者无缓存；若正则运行时被篡改，两函数状态可短暂不一致，alt 探测失真。",
+        "defense": "成立（一致性论证正确）。已随 i2 一并修复：位宽集合模块级缓存并冻结 ⇒ 两个派生函数共用同一次快照，一致性由构造保证。",
+        "verdict": "upheld",
+        "rationale": "落点 _widthsCache + Object.freeze。行为锁断言同一身份 + isFrozen。",
+        "fix_verified": true
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "finding": "evaluate() 把运行时生成的位宽字符串拼入用户提示，出错信息还暴露完整正则字面量（String(AUDIT_ARTIFACT_RE)），难读且泄露内部形状。",
+        "highRiskDomains": [],
+        "prosecution": "evaluate() 把运行时生成的位宽字符串拼入用户提示，出错信息还暴露完整正则字面量，难读且泄露内部形状。",
+        "defense": "不成立（前提误读）。这不是「面向用户的提示」，而是**门禁 CLI 的 fail-closed 诊断**，读者是维护者与 CI 日志；面向用户的四条出路文案本身只含生成出的位宽说明，不含正则字面量。把正则打印在诊断里是**故意的**：它回答「该改正则还是该改文案」这个唯一有用的排障问题。",
+        "verdict": "dismissed",
+        "rationale": "证据：正则字面量只出现在 describeAuditWidths() 的 throw 分支，该分支仅在「行为探测覆盖不到任何位宽」（判据被改坏）时触发；正常路径的四条出路文案里没有 String(AUDIT_ARTIFACT_RE)。",
+        "fix_verified": null
+      },
+      {
+        "id": "i8",
+        "severity": "Warning",
+        "finding": "新增 5 个导出函数及常量（auditAcceptedWidths、auditAcceptedAltForm、describeAuditWidths、stripCommentsForScan 等）无模块级文档，module.exports 仅追加无说明。",
+        "highRiskDomains": [],
+        "prosecution": "新增 5 个导出函数及常量无模块级文档，module.exports 仅追加无说明。",
+        "defense": "成立。已为这组导出补一份分组说明（每个导出的用途一行）并注明「生产路径只用其中两个，其余为可测性存在」。stripCommentsForScan 与 auditAcceptedWidths 已有各自的 JSDoc。",
+        "verdict": "upheld",
+        "rationale": "落点 module.exports 上方的「派生说明的公开接口」注释块。",
+        "fix_verified": true
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i3",
+        "severity": "Critical",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i8",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      }
+    ],
+    "note": "自扮演裁决：5 条指控成立或需外部复核",
+    "at": "2026-10-17T04:53:42.945Z"
+  }
+}

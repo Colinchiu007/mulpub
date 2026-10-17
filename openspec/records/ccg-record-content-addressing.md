@@ -2,9 +2,6 @@
 record: ccg-record-content-addressing
 task: 判定记录改用内容寻址命名，消除同基线分叉的 add/add 撞名与 amend 孤儿
 date: 2026-10-16
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在；远程同步这一行的证据只能在合并后取
-sync_backfill_owner: 下一个会话（按 AGENTS.md「合并后收尾清单」回填并删除本段三个字段）
 ---
 
 ## 本次执行记录：判定记录改用内容寻址命名（ccg-record-content-addressing，2026-10-16）【混合 PR（门禁代码）】
@@ -122,7 +119,7 @@ i2/i3（高危域 crypto/auth）判阻断 ⇒ 按用户已批准的 **(a) 口径
 | i7 | Info | 已修：deep-review.sh 内三份 diff 合并为一份（落临时文件，哈希与行数都从它读） |
 | i8 | Info | 已修：`_READ_FAILED` 置位，记录损坏时只报一种诊断 |
 
-**本轮自查抓到 9 个自身缺陷**（全部记入裁决表 `selfCaughtBeforeReview`）：
+**本轮自查抓到 10 个自身缺陷**（全部记入裁决表 `selfCaughtBeforeReview`）：
 ① i1 故障判据首版没看工作区是否干净，把「改到一半跑 deep-review」判成故障（**比不报更糟**）；
 ② i4 的 argv 修复引入下标 bug（`node -e` 的脚本**不占** argv ⇒ arg 在 `argv[1]`），**靠真跑一次抓到**；
 ③ i7 用 `printf '%s'` 复用命令替换结果 ⇒ 尾随换行被吃 ⇒ 哈希与 decider 对不上（4 条行为锁同时红）；
@@ -135,6 +132,10 @@ i2/i3（高危域 crypto/auth）判阻断 ⇒ 按用户已批准的 **(a) 口径
    由外部复核指出，已统一并加锁（M21）；
 ⑨ **i4 fail-closed 首版用了不存在的变量名 `DRY_RUN`**（实际是 `DRY`）⇒ `set -u` 下直接
    `unbound variable` 退出 ⇒ 靠真跑一次抓到（结构锁抓不到：字面对）。
+⑩ **第三轮 i3 修「锁依赖环境」修在了错误的层**：当时只补了 bash 的 POSIX 路径探测，
+   没意识到 CI 上真正缺的是**引擎本身** ⇒ 8 条 behavior 锁在 CI 全红（QG Static 挂）。
+   已改为 dry-run 不因缺引擎退出 + 锁显式跳过。教训：**修「锁依赖环境」必须先问
+   「CI 上到底有什么」，而不是只补本机的候选路径**。
 
 **外部复核结论**（第三轮，针对 i1/i4 高危域 + 全 8 条；第一次委托因输出截断失败，已重试）：
 **7 条 upheld + fix_verified=true；i6 dismissed（认可「不修」）；`adjudications_sound=true`；
@@ -196,6 +197,34 @@ i2/i3（高危域 crypto/auth）判阻断 ⇒ 按用户已批准的 **(a) 口径
 `set -u` 下直接 `unbound variable` 退出 —— 靠「真跑一次」抓到（结构锁抓不到：字面对）。
 
 **外部复核结论**（第五轮）：见裁决表 `externalReviewSummary` 段。
+
+**第六轮：CI 实证修复（PR #3755 的 QG Static / Gate 2b 在 CI 上失败后追加）**
+
+CI 报 `QG Static` fail，步骤定位到 `Gate 2b - Desktop dev scripts (node --test)`。
+逐层取证后确认根因：**CI runner 上没有 `ccg-deep-review.js`**（它只在 `~/.claude/skills/adversarial-review-loop/`，
+不受 git 跟踪）也没有 `codeagent-wrapper`，而 `deep-review.sh` 在「定位驱动」阶段就 `exit 2`
+⇒ **判定记录查找压根没走到** ⇒ 我新增的 8 条 behavior 锁（真跑脚本断言记录查找/故障判据/exit code）
+在 CI 上全部拿到 exit 2 ⇒ 同时红。**本地全绿只因本机有引擎。**
+
+这是「锁依赖了 CI 没有的东西」的典型缺陷，也是第三轮 i3 已预警但**只修了 bash 一层**的残留
+（当时补了 POSIX 路径探测，没想到真正缺的是引擎本身）。
+
+修复（两处）：
+1. `deep-review.sh`：**`--dry-run` 不因缺引擎/缺后端而退出** —— dry-run 的职责是预览，
+   缺工具时明确标注 + 继续完成「判定记录 + 模式判定」预览并 exit 0；非 dry-run 仍 fail-closed exit 2
+   （那才是该拦的地方）。语义上也更对：`--dry-run` 本就不该要求生产依赖就绪。
+2. behavior 锁：新增 `HAS_ENGINE` 探测 + `testNeedsEngine` 包装 —— 无引擎时**显式跳过并打印原因**
+   （非静默 skip，同型于本仓 `TEST_ONLY_IN_SKIPPABLE_JOB` 的教训）。
+
+取证：
+- 本地（有引擎）：decider 36 / gate 56 / deps 28 全绿，0 skip；
+- **CI 模拟**（`HOME` 指向空目录 + 清空 `CCG_ARL_DIR`）：`status=0`、8 条锁显式 `SKIP(no engine)`、0 失败；
+- Gate 2b 全 21 条命令本地 0 失败；
+- 变异 M25 + 第四轮 3 条 + 第三轮 6 条复跑**全部仍红**（无回归）。
+
+**本轮自查抓到 1 个自身缺陷**：第三轮 i3 修「行为锁依赖 bash」时**只补了路径探测、
+没意识到真正缺的是引擎**——判据修在了错误的层。教训：**修「锁依赖环境」时必须先问
+「CI 上到底有什么」，而不是只补本机的候选路径**。
 
 ### 风险与防线（**这是本 PR 最需要人看的点**）
 
@@ -308,5 +337,10 @@ M13/M14 是第二轮 Info 级指控，同样配了指名变异。）
 9. **i4 的 `autocrlf` 未固定**：`--no-autocrlf` 会与仓库 `.gitattributes` 冲突，故只固定了
    `--no-textconv` / `--no-ext-diff` / `--no-renames`。若某台机器 `autocrlf` 配置不同且
    `.gitattributes` 未覆盖相关路径，理论上仍可能算出不同键。未验证（本机无此配置）。
+10. **behavior 锁依赖引擎（第六轮 CI 实证后新增登记）**：8 条真跑 `deep-review.sh` 的锁需要
+    `ccg-deep-review.js` 与评审后端就绪；CI 上二者皆无 ⇒ 已改为「显式跳过并打印原因」。
+    残余：**这 8 条锁在 CI 上等于不跑**，只在本机跑。要真正做到 CI 可验，需把引擎
+    vendor 进仓库（`deep-review.sh` 的解法 a）或让 CI 安装技能（解法 b）—— 两者都属
+    「改谁来守门 / 改 CI 依赖」，未擅动。
 
-| 远程同步 | PENDING | 开 PR 时登记；合并后就地改写为 `PASS` + merge SHA（回填 PR 完成，含销账） |
+| 远程同步 | PASS | 已合并：`0386afdfcf739fbb39cca4bf05f56cd7732d4654`（PR #3755，squash，2026-10-17T02:33:48+08:00）；远端分支已删除（0 行）；main push run 38948303355 conclusion=success |

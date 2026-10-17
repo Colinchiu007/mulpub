@@ -8,7 +8,7 @@
 const log = require('../logger')
 const { buildResolveElementCode } = require('../rpa-selector-utils')
 const { planClickSequence, planType } = require('./behavior-engine')
-const { createCdpInput } = require('./cdp-input')
+const { resolveInputDriver } = require('./input-driver')
 const { createIsolatedEvaluator } = require('./isolated-world')
 
 /**
@@ -73,7 +73,7 @@ const behaviorMixin = {
    */
   async _behaviorClick(win, sel) {
     try {
-      const input = createCdpInput(win)
+      const input = resolveInputDriver(win, this._sidecarEndpoint)
       const bounds = await input.getBounds(sel)
       if (!bounds) return null
       const seed = (Date.now() ^ Math.floor(Math.random() * 0x7fffffff)) >>> 0
@@ -113,7 +113,7 @@ const behaviorMixin = {
     try {
       const focused = await this._isoEval(win, '(function(){var _fn=new Function("return " + ' + JSON.stringify(resolveJs) + ');var el=_fn();if(!el)return false;try{el.focus()}catch(e){return false};if(el.getAttribute("contenteditable")==="true"){try{var r=document.createRange();r.selectNodeContents(el);var s=window.getSelection();s.removeAllRanges();s.addRange(r)}catch(e){return false}}else if(typeof el.select==="function"){el.select()}return true})()')
       if (focused !== true) return null
-      const input = createCdpInput(win)
+      const input = resolveInputDriver(win, this._sidecarEndpoint)
       const plan = planType(text, { seed: (Date.now() ^ Math.floor(Math.random() * 0x7fffffff)) >>> 0 })
       for (const ev of plan.events) {
         if (ev.delayMs) await this._sleep(ev.delayMs)

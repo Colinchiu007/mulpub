@@ -1,0 +1,26 @@
+{
+  "sha": "9fdec1fd2555b7e994fcf3e06c3895fd7d3fa885",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 346 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 346,
+    "fileCount": 4,
+    "codeFileCount": 4,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 3,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "197697da3fb7f6a51e4b6755117377749df24de224dacb16f05404f67f5c172f",
+  "decidedAt": "2026-10-16T17:59:50.709Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "cleared",
+    "performedBy": "claude（CCG 后端轴，--backend claude --lite，session 372ecbfd-a97f-4f3d-96c1-3490758267d5，2026-10-17 02:07 CST 发起；判据范围 git diff origin/main...HEAD，覆盖本提交的 346 行）",
+    "findings": "无偏差，全部通过。逐项对应本片五个焦点：① `billingConfirmed` 只在用户点确认时出现、IPC 层不预置不缺省 false；② 预览只读（只调 episodePlanPreview，纯对象入参，无 runId/磁盘路径）；③ 拒绝态不暴露内部键名（`t(podcast.errors.<subCode>)`，第 97 行还有一道缺键回落 `data.message`，该陈述已当场读码确认为真）；④ `runId` 纯字母数字约 20 字符，落在 [8,64]，仍是 `episode-<runId>` 的穿越边界；⑤ 挂起/释放成对（watch immediate + false 分支释放 + onBeforeUnmount 兜底，owner 为字面量常量）。另确认两个 tracked bundle 均含新通道、`resolveCopyBody` 为唯一正文取法、错误码扫描域已恢复包含 podcast-tts-compose.js。"
+  }
+}

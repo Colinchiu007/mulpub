@@ -100,6 +100,11 @@ function registerHandlers (ipcMain, deps) {
     }
   })
 
+  // ⚠️ 消费方已下线但仍保留（2026-10-17，change: zhihu-fav-entries-consolidate）：
+  // 采集页「旧整夹直采」的「批量采集」按钮已随入口收敛删除，本通道**当前没有 UI 消费者**。
+  // 之所以不一起删：删除后端能力属「功能下线」，需单独评审（涉 license-access-control.js
+  // 的白名单与 zhihu-favlist.test.js 的后端测试），且未来入口/脚本可能复用。
+  // 若确认再无任何消费方，请按功能下线流程处理——不要在重构时顺手删掉。
   ipcMain.handle('zhihu-favlist:batch-collect', async (_event, arg) => {
     try {
       if (!arg || !Array.isArray(arg.urls)) return { code: -2, message: '缺少 URL 列表' }
@@ -131,6 +136,8 @@ function registerHandlers (ipcMain, deps) {
     }
   })
 
+  // ⚠️ 同上：采集页「批量改写」按钮已随入口收敛删除，本通道当前无 UI 消费者但仍保留。
+  // 改写能力现由 zhihu-fav-batch:run 的编排路径承担；删除本通道属功能下线，需单独评审。
   ipcMain.handle('zhihu-favlist:batch-rewrite', async (_event, arg) => {
     try {
       if (!arg || !Array.isArray(arg.contents)) return { code: -2, message: '缺少内容列表' }

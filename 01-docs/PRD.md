@@ -6384,7 +6384,7 @@ Vue 展示组件
 
 ### 3a.2 现行合同：启动前台跟踪 + 离开转后台 + 重进初始态（2026-08-21）
 
-**产品原则**：视频创作编排流水线启动成功后，创作页即成为该任务的「前台跟踪页」——实时展示阶段进度、暂停/取消控制，并在完成时自动跳转结果页；用户离开页面后任务自动转后台运行，仅在历史记录可见；再次进入创作页回到全新新建状态。启动与历史续跑前台语义统一。
+**产品原则**：视频创作编排流水线启动成功后，创作页即成为该任务的「前台跟踪页」——实时展示阶段进度、暂停/取消控制；**完成后浮层保持打开并成为成功后的决策中枢（2026-10-17 起，不再自动跳转结果页）**；用户离开页面后任务自动转后台运行，仅在历史记录可见；再次进入创作页回到全新新建状态。启动与历史续跑前台语义统一。
 
 **启动流程与数据校验**
 1. 用户点击【启动流水线】后，renderer 依次校验登录状态、流水线可用性、输入模式、文案 Unicode 字符数、媒体路径、模型/音色能力和版本化配置（同 3a.1 第 1 步）。
@@ -6423,6 +6423,42 @@ Vue 展示组件
 - 主进程 pipeline-engine / resume-orchestration：异步推进、持久化快照、幂等 alreadyRunning、并发槽位不回归。
 - locale/CJK：zh/en 成对（startForegroundToast 新增、backgroundResumeToast 修订、backgroundRunToast 删除）；渲染端不新增硬编码中文。
 
+### 3a.3 进度浮层四按钮与完成出口（2026-10-17）
+
+**产品原则**：视频流水线的阶段进度浮层（视频创作页 `s2v-progress-modal`、热门选题页 `hot-topics-gen-video-modal`）是两个入口**唯一**的完成确认面。两页 footer 必须同源（`UiButton`），固定四个按钮 **【查看】【去发布】【后台运行】【取消】**；前两者初始灰显，**仅本次 run 成功并取得成片后解锁**；成功后浮层保持打开，由用户显式选择出口。详细交互与文案见 `01-docs/PRD-VIDEO-PIPELINE-PROGRESS-MODAL-2026-10-17.md`。
+
+**功能逻辑**
+
+| # | 按钮 | 渲染条件 | 可用条件 | 点击行为 |
+|---|------|---------|---------|---------|
+| 1 | 【查看】 | 始终渲染 | run `completed` 且成片路径非空 | 脱离 renderer tracking（**不调 `pipelineCancel`**）→ 切历史视图 → 筛选置「已完成」→ 路由 `/create?view=history&filter=completed` |
+| 2 | 【去发布】 | 始终渲染 | 同上 | 脱离 tracking → `/publish` + 视频模式预填充（`buildPublishFromProject` + `publishDataToQuery`）；无项目（run-only）退化为只带 `type=video` 与 `video_path` |
+| 3 | 【后台运行】 | 运行中且持有 runId，且非人工检查点 | 始终可点 | 既有语义：停轮询 + 复位前端，**不取消** run，仍占用并发槽位 |
+| 4 | 【取消】 | 非终态 | 始终可点 | 既有语义：`requestCancelPipeline()`（素材选择中先弹二次确认） |
+
+终态（`completed`）下【后台运行】【取消】不再渲染；右上角关闭在完成态改为「收起浮层并回到新建态」。
+
+**数据校验**
+- 解锁判据唯一真源：`status === 'completed'` 且 `videoPath`（trim 后）非空；不得用「历史列表能否查到」代替（多 run 并行会取错记录），也不得要求 projectId（run-only 记录同样可去发布）。
+- 终态产物只从**本次 runId** 的 context 提取（沿用既有 runId 快照守卫）。
+- 路由 `filter` 入参必须是 `HISTORY_STATUSES` 之一，非法值静默忽略。
+- 灰显按钮再点击无副作用（方法首行重校验）。
+
+**显示项与提示文字**
+
+| 场景 | 中文 | English |
+|------|------|---------|
+| 浮层底部按钮 | 查看 / 去发布 / 后台运行 / 取消 | View / Publish / Run in background / Cancel |
+| 人工检查点提示（仅检查点态，footer 左侧） | 当前任务需要完成用户操作后才能继续。 | This task needs your input before it can continue. |
+| 完成态内容区 | 阶段全完成 + 100% + 完成汇总（完成时间共 X · 文件大小 Y M） | All stages completed, 100%, and completion summary |
+
+**验收与测试**
+- footer 四按钮组成与顺序（两页一致，`UiButton` 渲染、无 `cohere-btn-*`）。
+- 运行中【查看】【去发布】`disabled`；成功后解锁；失败/取消/无成片保持灰显。
+- 成功后**不**跳 `/create/result`，浮层仍在。
+- 【查看】路由与筛选态；【去发布】路由与 query（含 run-only 退化）。
+- 【后台运行】不调 `pipelineCancel`；检查点禁止后台化；卸载后终态响应不跳转。
+- 变异反证：恢复「完成即关闭浮层/关闭弹窗」后对应用例必须变红。
 ### 4. 验收标准
 - 引擎单测：`getHistory` 含运行中且无重复；上限 2 拒绝第 3 条；注入 1 时第 2 条拒绝、取消后释放；`resumeOrchestration` 超限拒绝；`computeDefaultMaxConcurrentRuns` 覆盖 1/2/3/4 资源档位与注入覆盖。
 - 前端单测：CreateHistory 运行中任务显示 + 5s 轮询 + 结束后停止 + 点击跳 `/create`；notifications 并发文案解析（zh/en/errorCode/正则）。
@@ -15210,7 +15246,7 @@ Vue 展示组件
 
 ### 3a.2 现行合同：启动前台跟踪 + 离开转后台 + 重进初始态（2026-08-21）
 
-**产品原则**：视频创作编排流水线启动成功后，创作页即成为该任务的「前台跟踪页」——实时展示阶段进度、暂停/取消控制，并在完成时自动跳转结果页；用户离开页面后任务自动转后台运行，仅在历史记录可见；再次进入创作页回到全新新建状态。启动与历史续跑前台语义统一。
+**产品原则**：视频创作编排流水线启动成功后，创作页即成为该任务的「前台跟踪页」——实时展示阶段进度、暂停/取消控制；**完成后浮层保持打开并成为成功后的决策中枢（2026-10-17 起，不再自动跳转结果页）**；用户离开页面后任务自动转后台运行，仅在历史记录可见；再次进入创作页回到全新新建状态。启动与历史续跑前台语义统一。
 
 **启动流程与数据校验**
 1. 用户点击【启动流水线】后，renderer 依次校验登录状态、流水线可用性、输入模式、文案 Unicode 字符数、媒体路径、模型/音色能力和版本化配置（同 3a.1 第 1 步）。
@@ -15249,6 +15285,42 @@ Vue 展示组件
 - 主进程 pipeline-engine / resume-orchestration：异步推进、持久化快照、幂等 alreadyRunning、并发槽位不回归。
 - locale/CJK：zh/en 成对（startForegroundToast 新增、backgroundResumeToast 修订、backgroundRunToast 删除）；渲染端不新增硬编码中文。
 
+### 3a.3 进度浮层四按钮与完成出口（2026-10-17）
+
+**产品原则**：视频流水线的阶段进度浮层（视频创作页 `s2v-progress-modal`、热门选题页 `hot-topics-gen-video-modal`）是两个入口**唯一**的完成确认面。两页 footer 必须同源（`UiButton`），固定四个按钮 **【查看】【去发布】【后台运行】【取消】**；前两者初始灰显，**仅本次 run 成功并取得成片后解锁**；成功后浮层保持打开，由用户显式选择出口。详细交互与文案见 `01-docs/PRD-VIDEO-PIPELINE-PROGRESS-MODAL-2026-10-17.md`。
+
+**功能逻辑**
+
+| # | 按钮 | 渲染条件 | 可用条件 | 点击行为 |
+|---|------|---------|---------|---------|
+| 1 | 【查看】 | 始终渲染 | run `completed` 且成片路径非空 | 脱离 renderer tracking（**不调 `pipelineCancel`**）→ 切历史视图 → 筛选置「已完成」→ 路由 `/create?view=history&filter=completed` |
+| 2 | 【去发布】 | 始终渲染 | 同上 | 脱离 tracking → `/publish` + 视频模式预填充（`buildPublishFromProject` + `publishDataToQuery`）；无项目（run-only）退化为只带 `type=video` 与 `video_path` |
+| 3 | 【后台运行】 | 运行中且持有 runId，且非人工检查点 | 始终可点 | 既有语义：停轮询 + 复位前端，**不取消** run，仍占用并发槽位 |
+| 4 | 【取消】 | 非终态 | 始终可点 | 既有语义：`requestCancelPipeline()`（素材选择中先弹二次确认） |
+
+终态（`completed`）下【后台运行】【取消】不再渲染；右上角关闭在完成态改为「收起浮层并回到新建态」。
+
+**数据校验**
+- 解锁判据唯一真源：`status === 'completed'` 且 `videoPath`（trim 后）非空；不得用「历史列表能否查到」代替（多 run 并行会取错记录），也不得要求 projectId（run-only 记录同样可去发布）。
+- 终态产物只从**本次 runId** 的 context 提取（沿用既有 runId 快照守卫）。
+- 路由 `filter` 入参必须是 `HISTORY_STATUSES` 之一，非法值静默忽略。
+- 灰显按钮再点击无副作用（方法首行重校验）。
+
+**显示项与提示文字**
+
+| 场景 | 中文 | English |
+|------|------|---------|
+| 浮层底部按钮 | 查看 / 去发布 / 后台运行 / 取消 | View / Publish / Run in background / Cancel |
+| 人工检查点提示（仅检查点态，footer 左侧） | 当前任务需要完成用户操作后才能继续。 | This task needs your input before it can continue. |
+| 完成态内容区 | 阶段全完成 + 100% + 完成汇总（完成时间共 X · 文件大小 Y M） | All stages completed, 100%, and completion summary |
+
+**验收与测试**
+- footer 四按钮组成与顺序（两页一致，`UiButton` 渲染、无 `cohere-btn-*`）。
+- 运行中【查看】【去发布】`disabled`；成功后解锁；失败/取消/无成片保持灰显。
+- 成功后**不**跳 `/create/result`，浮层仍在。
+- 【查看】路由与筛选态；【去发布】路由与 query（含 run-only 退化）。
+- 【后台运行】不调 `pipelineCancel`；检查点禁止后台化；卸载后终态响应不跳转。
+- 变异反证：恢复「完成即关闭浮层/关闭弹窗」后对应用例必须变红。
 ### 4. 验收标准
 - 引擎单测：`getHistory` 含运行中且无重复；上限 2 拒绝第 3 条；注入 1 时第 2 条拒绝、取消后释放；`resumeOrchestration` 超限拒绝；`computeDefaultMaxConcurrentRuns` 覆盖 1/2/3/4 资源档位与注入覆盖。
 - 前端单测：CreateHistory 运行中任务显示 + 5s 轮询 + 结束后停止 + 点击跳 `/create`；notifications 并发文案解析（zh/en/errorCode/正则）。

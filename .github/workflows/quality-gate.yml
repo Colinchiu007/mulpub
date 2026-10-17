@@ -432,6 +432,13 @@ jobs:
           # 01-docs 忽略规则回归锁（#2792 复盘：「01-docs 递归 .md」全量忽略曾让正式文档
           # 静默不入库，PRD 链接 404；见 apps/desktop/scripts/gitignore-docs.test.js 头注释）
           node --test apps/desktop/scripts/gitignore-docs.test.js
+          # PR-2 §7.1（camofox 依赖接入）与 §7.5（构建期非回环监听断言）各有一个测试文件，
+          # 此前**从未被 CI 执行**：vitest 的 include 是白名单、不含 scripts/**（见
+          # apps/desktop/vitest.config.js 注释"未登记的测试文件一个都不会跑"），而
+          # scripts/check-unwired-tests.js 的 WORKSPACE_COVERED 在遍历时跳过整个 apps/ 子树
+          # ⇒ 既不被执行、也不被接线棘轮发现（2026-10-16 实测；本目录 7 个兄弟文件都是逐个
+          # 点名接线的，故这里同样显式点名，不做通配）。
+          node --test apps/desktop/scripts/fetch-camofox.test.js apps/desktop/scripts/check-camofox-listen.test.js
           node --test scripts/sync-platform-config.test.js
           node --test scripts/compare-scheduler-models.test.js
           # 会话隔离入口脚本的结构锁：native stderr 捕获不得处在 EAP=Stop 作用域内
@@ -911,6 +918,15 @@ jobs:
       - name: Ensure Electron binary
         run: node scripts/ensure-electron.js
 
+      # 构建产物不进版本控制（change: bundle-untrack）⇒ 跑测试前必须先重建它们。
+      # 本 job 里的「产物契约锁」直接读这些文件（锁名含「已重打包」/「tracked bundle」/
+      # 「路径真实存在」），它们守的性质由「提交的产物与源码一致」变成「构建出的产物与
+      # 源码一致」——仍然完全有效，且不再需要人肉记得重建。
+      - name: Build preload bundles
+        run: |
+          pnpm --filter @multi-publish/desktop run build:preload
+          pnpm --filter @multi-publish/desktop run build:paginator
+
       # --- Gate 4: 全工作区单元测试（含 Vitest 和 Node 测试）---
 
       - name: "Set test mode"
@@ -1097,6 +1113,15 @@ jobs:
       - name: Ensure Electron binary
         run: node scripts/ensure-electron.js
 
+      # 构建产物不进版本控制（change: bundle-untrack）⇒ 跑测试前必须先重建它们。
+      # 本 job 里的「产物契约锁」直接读这些文件（锁名含「已重打包」/「tracked bundle」/
+      # 「路径真实存在」），它们守的性质由「提交的产物与源码一致」变成「构建出的产物与
+      # 源码一致」——仍然完全有效，且不再需要人肉记得重建。
+      - name: Build preload bundles
+        run: |
+          pnpm --filter @multi-publish/desktop run build:preload
+          pnpm --filter @multi-publish/desktop run build:paginator
+
 
       # --- 桌面 vitest 分片（跨 runner 并行；进程内保持串行确定性契约）---
       # 环境契约：本 job 有意不继承 electron-ci.yml 的 NODE_ENV=test + SKIP_NATIVE_MEDIA_TOOL_TESTS=1，
@@ -1222,6 +1247,15 @@ jobs:
       # （#2783 实测：15700ms 撞 vitest testTimeout=10000，而该用例本身只要几毫秒）。
       - name: Ensure Electron binary
         run: node scripts/ensure-electron.js
+
+      # 构建产物不进版本控制（change: bundle-untrack）⇒ 跑测试前必须先重建它们。
+      # 本 job 里的「产物契约锁」直接读这些文件（锁名含「已重打包」/「tracked bundle」/
+      # 「路径真实存在」），它们守的性质由「提交的产物与源码一致」变成「构建出的产物与
+      # 源码一致」——仍然完全有效，且不再需要人肉记得重建。
+      - name: Build preload bundles
+        run: |
+          pnpm --filter @multi-publish/desktop run build:preload
+          pnpm --filter @multi-publish/desktop run build:paginator
 
       # --- Gate 5: Coverage 检查（单 worker 串行，独立 job 避免与 Gate 4 争资源）---
       - name: "Gate 5 - Test coverage check"
@@ -1355,13 +1389,76 @@ jobs:
               Write-Host "Running dark pixel suite (to produce the dark renders for Gate 7b)..."
               pnpm.cmd run test:visual:pixel:dark
               $darkExit = $LASTEXITCODE
-              Write-Host "[GATE-7] suite exits: pixel=$pixelExit views=$viewsExit views-supplement=$viewsSuppExit dark=$darkExit"
+
+              # ⛔ 补齐 PR 侧覆盖缺口（2026-10-17，visual-gate-full-coverage）。
+              # 105 例视觉用例的分布是：views 37 + supplementary-views 19 在**本 job** 跑；
+              # workflows 31 + supplementary-workflows 18（合计 **49 例**）此前**只**在
+              # `visual-test.yml` 的 `run-all-visual` 里跑，而那个 workflow 不在 PR 上触发
+              # ⇒ 这 49 例在 PR 侧**完全没有覆盖**（不是"被吞"，是根本没跑）。
+              # 为什么不直接把 `run-all-visual` 整只搬进来：会把已跑过的 56 例再跑一遍、
+              # 且重复付 Playwright 安装 / build:vue / 起 Vite 的准备成本。本 job 这三样都已就绪，
+              # 只补跑缺的两套是成本最低、覆盖最全的接法（CI 侧新增耗时以实跑为准，未预先声称）。
+              # 退出码照旧两条都打出来：「套件崩了」不得伪装成「本次没产图」。
+              Write-Host "Running workflow suites (to cover the 49 cases only visual-test.yml used to run)..."
+              pnpm.cmd run test:workflow
+              $workflowsExit = $LASTEXITCODE
+              pnpm.cmd run test:workflow:supplement
+              $workflowsSuppExit = $LASTEXITCODE
+
+              Write-Host "[GATE-7] suite exits: pixel=$pixelExit views=$viewsExit views-supplement=$viewsSuppExit dark=$darkExit workflows=$workflowsExit workflows-supplement=$workflowsSuppExit"
+
+              # ⛔ 校验型失败必须阻断（2026-10-17，visual-checks-must-block）。
+              # 上面 1334-1342 的注释说「views 两套的比较结果不另设门禁」，理由是 Gate 7b 的
+              # 「基线 == 本次渲染，0 px」严格强于它们自己的 6% 阈值 —— 但那**只对像素域成立**。
+              # 这两套实际跑的是 runViewTest：截图 + 逐条 `checks` 选择器断言，**不做像素比对**，
+              # 所以 Gate 7b 对它们**没有任何判定面**。
+              # 实测后果（判据取产物，非推断）：main 上 `collection-confirm-dialog` 断言失败
+              #（页面区块标题 / 删除入口消失）在 Gate 7 里只留一行日志
+              # `suite exits: ... views-supplement=1`，QG Visual 照常 pass；唯一红的地方是
+              # `visual-test.yml` —— 而它不在 PR 上跑、也不是 required 上下文，于是连红 60+ 次。
+              # 判据取「两轮都红」：选择器断言本身是确定性的，但为不让偶发采集抖动变成所有 PR 的
+              # 常量红，非零就当场重跑一次，两次都非零才阻断（与 Gate 7b 的两轮甄别同一哲学）。
+              $checksFailSuites = @()
+              if ($viewsExit -ne 0) {
+                Write-Host "[GATE-7] views 套件 rc=$viewsExit —— 按两轮甄别重跑一次"
+                pnpm.cmd run test:visual
+                $viewsRetryExit = $LASTEXITCODE
+                Write-Host "[GATE-7] views 重跑 rc=$viewsRetryExit"
+                if ($viewsRetryExit -ne 0) { $checksFailSuites += 'views' }
+              }
+              if ($viewsSuppExit -ne 0) {
+                Write-Host "[GATE-7] views-supplement 套件 rc=$viewsSuppExit —— 按两轮甄别重跑一次"
+                pnpm.cmd run test:visual:supplement
+                $viewsSuppRetryExit = $LASTEXITCODE
+                Write-Host "[GATE-7] views-supplement 重跑 rc=$viewsSuppRetryExit"
+                if ($viewsSuppRetryExit -ne 0) { $checksFailSuites += 'views-supplement' }
+              }
+              # 2026-10-17 补齐的两套同样走「两轮甄别再阻断」——它们是同一类确定性断言
+              #（`runWorkflowTest`：截图 + checks），此前在 PR 侧**根本没跑**，谈不上拦不拦。
+              if ($workflowsExit -ne 0) {
+                Write-Host "[GATE-7] workflows 套件 rc=$workflowsExit —— 按两轮甄别重跑一次"
+                pnpm.cmd run test:workflow
+                $workflowsRetryExit = $LASTEXITCODE
+                Write-Host "[GATE-7] workflows 重跑 rc=$workflowsRetryExit"
+                if ($workflowsRetryExit -ne 0) { $checksFailSuites += 'workflows' }
+              }
+              if ($workflowsSuppExit -ne 0) {
+                Write-Host "[GATE-7] workflows-supplement 套件 rc=$workflowsSuppExit —— 按两轮甄别重跑一次"
+                pnpm.cmd run test:workflow:supplement
+                $workflowsSuppRetryExit = $LASTEXITCODE
+                Write-Host "[GATE-7] workflows-supplement 重跑 rc=$workflowsSuppRetryExit"
+                if ($workflowsSuppRetryExit -ne 0) { $checksFailSuites += 'workflows-supplement' }
+              }
 
               # 退出码 3 = 有视图**从未渲染出来**（就绪超时）：确定性的路由/选择器故障，
               # Gate 7b 的两轮 flake 甄别对它不适用，必须在本步骤当场拦。
-              # 退出码 1 = 像素/校验类失败，照旧只留痕、交给 Gate 7b —— 把它也接成阻断，
-              # 会把历史上确实存在的采集抖动变成所有 PR 的常量红（#2914 同 sha 两次 attempt
-              # 一档红一档绿即现场；Gate 7b 的两轮机制正是为此而生）。
+              # 退出码 1 的处置按**套件类别**分流（2026-10-17 修正，原先一律"只留痕"是漏判）：
+              #   · `pixel` / `dark`（像素域）→ 只留痕，交给 Gate 7b 的两轮甄别。理由成立：
+              #     Gate 7b 判「基线 == 本次渲染，0 px」严格强于 6% 阈值，且像素采集确有抖动
+              #     （#2914 同 sha 两次 attempt 一档红一档绿即现场）。
+              #   · `views` / `views-supplement`（**校验域**：runViewTest 的 checks 断言，不做像素比对）
+              #     → 上面已按两轮甄别接成阻断。Gate 7b 对它们**没有任何判定面**，
+              #     一律"只留痕"等于这两个套件的失败永远没有阻断面。
               $notReadySuites = @()
               if ($pixelExit -eq 3) { $notReadySuites += 'pixel' }
               if ($viewsExit -eq 3) { $notReadySuites += 'views' }
@@ -1395,6 +1492,15 @@ jobs:
           if ($pixelExit -ne 0) {
             Write-Host "[GATE-7] Pixel diff failed - see artifacts for details"
             exit $pixelExit
+          }
+          # 校验型断言两轮均失败 ⇒ 阻断。这一格是 2026-10-17 之前**完全缺失**的判定面
+          #（详见上面 $checksFailSuites 处的注释）：页面区块 / 删除入口这类 UI 契约破坏
+          # 既不进像素域、也就不会被 Gate 7b 判到，只能靠这里拦。
+          if ($checksFailSuites -and $checksFailSuites.Count -gt 0) {
+            Write-Host "[GATE-7] FATAL: 校验型断言两次均失败 — 套件: $($checksFailSuites -join ',')"
+            Write-Host "[GATE-7] 这不是像素抖动：runViewTest 的 checks 是「页面区块/入口是否存在」的确定性断言。"
+            Write-Host "[GATE-7] 排障入口：该套件日志里点名了失败用例与缺失的 check 名。"
+            exit 1
           }
           if ($judgeExit -ne 0) {
             Write-Host "[GATE-7] Agent visual report generation failed"

@@ -79,6 +79,11 @@ export default {
     genVideoCancelled: 'Video generation cancelled',
     genVideoBackgroundHint: 'Task moved to background. Track progress in Video Creation → History',
     genVideoBackgroundRun: 'Run in background',
+    // unify-video-pipeline-progress-modal: same four-button footer as the video creation page.
+    // View/Publish start disabled and unlock after the run succeeds with a video file;
+    // the modal stays open after success instead of jumping to the result page automatically.
+    genVideoView: 'View',
+    genVideoPublish: 'Publish',
     genVideoRetry: 'Retry',
     genVideoCancel: 'Cancel',
     genVideoClose: 'Close',

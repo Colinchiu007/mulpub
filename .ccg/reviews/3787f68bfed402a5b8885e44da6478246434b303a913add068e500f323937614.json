@@ -1,0 +1,28 @@
+{
+  "sha": "791c9bc182b57fa2ace7f3c4e34eb68c8af3167d",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 92 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 92,
+    "fileCount": 3,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "3. **未做的事**：没有用 `--update-baseline` 刷新任何基线（禁止掩盖）；105 例里其余 104 例本轮一次通过，说明基线本身没坏，坏的只有这一条用例的选择器。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "3787f68bfed402a5b8885e44da6478246434b303a913add068e500f323937614",
+  "decidedAt": "2026-10-17T02:03:59.665Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

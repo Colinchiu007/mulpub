@@ -451,7 +451,9 @@ describe('HotTopics.vue', () => {
     expect(pipelineStartOrchestrated).toHaveBeenCalledTimes(1)
   })
 
-  it('generate-video completes and navigates to result page with videoPath', async () => {
+  // unify-video-pipeline-progress-modal：run 成功后弹窗保留、不自动跳结果页，
+  // 改由用户显式点【查看】（历史已完成标签）或【去发布】（发布页视频模式预填充）。
+  it('generate-video completes: modal stays open with view/publish enabled, no auto jump', async () => {
     hotTopicsFetch.mockResolvedValue({ code: 0, data: { topics: mockTopics, fetchedAt: Date.now(), channelStats: {} } })
     aiRewrite.mockResolvedValue({ code: 0, data: { success: true, result: '完整流程文案' } })
     draftSave.mockResolvedValue({ code: 0 })
@@ -468,7 +470,12 @@ describe('HotTopics.vue', () => {
       context: { compose: { data: { videoPath: 'D:/videos/out.mp4' } }, story2videoProject: { projectId: 'p1' } },
     } })
 
-    const wrapper = mountPage()
+    const el = document.createElement('div')
+    document.body.appendChild(el)
+    const wrapper = mount(HotTopics, {
+      attachTo: el,
+      global: { plugins: [i18n], stubs: { 'el-alert': true, 'el-select': true, 'el-option': true, 'el-progress': true, 'el-skeleton': true } },
+    })
     await flushPromises()
     await wrapper.find('[data-testid="hot-topic-generate-video-zhihu:1"]').trigger('click')
     await flushPromises()
@@ -476,8 +483,243 @@ describe('HotTopics.vue', () => {
     await flushPromises()
 
     expect(wrapper.vm.genVideoPhase).toBe('completed')
+    // 成功后弹窗保留（不再自动关闭并跳结果页）
+    expect(wrapper.vm.genVideoModalOpen).toBe(true)
+    expect(pushSpy).not.toHaveBeenCalled()
+    // 终态产物已落态，供两个出口按钮使用
+    expect(wrapper.vm.genVideoCompletedVideoPath).toBe('D:/videos/out.mp4')
+    expect(wrapper.vm.genVideoCompletedProjectId).toBe('p1')
+
+    const viewBtn = document.body.querySelector('[data-testid="hot-topics-gen-video-view"]')
+    const publishBtn = document.body.querySelector('[data-testid="hot-topics-gen-video-publish"]')
+    expect(viewBtn).toBeTruthy()
+    expect(publishBtn).toBeTruthy()
+    expect(viewBtn.disabled).toBe(false)
+    expect(publishBtn.disabled).toBe(false)
+    // 终态后后台运行/取消不再渲染
+    expect(document.body.querySelector('[data-testid="hot-topics-gen-video-background"]')).toBeNull()
+    expect(document.body.querySelector('[data-testid="hot-topics-gen-video-cancel"]')).toBeNull()
+
+    wrapper.unmount()
+    el.remove()
+  })
+
+  // ─── unify-video-pipeline-progress-modal：浮层 footer 统一样式 + 四按钮契约 ───
+
+  it('gen-video modal footer uses UiButton (no cohere-btn-*) and renders the four-button set', async () => {
+    hotTopicsFetch.mockResolvedValue({ code: 0, data: { topics: mockTopics, fetchedAt: Date.now(), channelStats: {} } })
+    aiRewrite.mockResolvedValue({ code: 0, data: { success: true, result: '运行中文案' } })
+    draftSave.mockResolvedValue({ code: 0 })
+    storeGetSetting.mockResolvedValue(null)
+    pipelineStartOrchestrated.mockResolvedValue({ code: 0, data: { success: true, runId: 'run-footer-1' } })
+    pipelineGetRunContext.mockResolvedValue({ code: 0, data: { runId: 'run-footer-1', status: { status: 'running', progress: 20 } } })
+
+    const el = document.createElement('div')
+    document.body.appendChild(el)
+    const wrapper = mount(HotTopics, {
+      attachTo: el,
+      global: { plugins: [i18n], stubs: { 'el-alert': true, 'el-select': true, 'el-option': true, 'el-progress': true, 'el-skeleton': true } },
+    })
+    await flushPromises()
+    await wrapper.find('[data-testid="hot-topic-generate-video-zhihu:1"]').trigger('click')
+    await flushPromises()
+    await new Promise(r => setTimeout(r, 50))
+
+    const footer = document.body.querySelector('[data-testid="hot-topics-gen-video-modal"] .ui-modal-footer')
+    expect(footer).toBeTruthy()
+    const buttons = Array.from(footer.querySelectorAll('button'))
+    // 四按钮顺序：查看 → 去发布 → 后台运行 → 取消
+    expect(buttons.map(b => b.getAttribute('data-testid'))).toEqual([
+      'hot-topics-gen-video-view',
+      'hot-topics-gen-video-publish',
+      'hot-topics-gen-video-background',
+      'hot-topics-gen-video-cancel',
+    ])
+    // 统一样式：全部为 UiButton（ui-btn-*），不得残留页面私有 cohere-btn-*
+    buttons.forEach(b => {
+      expect(b.className).toContain('ui-btn-')
+      expect(b.className).not.toContain('cohere-btn-')
+    })
+    // 运行中：查看/去发布灰显，后台运行/取消可点
+    expect(buttons[0].disabled).toBe(true)
+    expect(buttons[1].disabled).toBe(true)
+    expect(buttons[2].disabled).toBe(false)
+    expect(buttons[3].disabled).toBe(false)
+
+    wrapper.unmount()
+    el.remove()
+  })
+
+  it('gen-video view button navigates to history completed tab; publish button prefills /publish', async () => {
+    hotTopicsFetch.mockResolvedValue({ code: 0, data: { topics: mockTopics, fetchedAt: Date.now(), channelStats: {} } })
+    aiRewrite.mockResolvedValue({ code: 0, data: { success: true, result: '完整流程文案' } })
+    draftSave.mockResolvedValue({ code: 0 })
+    storeGetSetting.mockResolvedValue(null)
+    pipelineStartOrchestrated.mockResolvedValue({ code: 0, data: { success: true, runId: 'run-exit-1' } })
+    pipelineGetRunContext.mockResolvedValue({ code: 0, data: {
+      runId: 'run-exit-1',
+      status: { status: 'completed', progress: 100, stages: [
+        { name: 'split', status: 'completed' }, { name: 'compose', status: 'completed' },
+      ] },
+      context: {
+        compose: { data: { videoPath: 'D:/videos/out.mp4' } },
+        story2videoProject: {
+          projectId: 'p1', title: '成片标题', sourceText: '成片正文', videoPath: 'D:/videos/out.mp4',
+          story2videoTextConfig: { config: { publish: { title: '发布标题', content: '发布正文', tags: ['AI'] } } },
+        },
+      },
+    } })
+
+    const el = document.createElement('div')
+    document.body.appendChild(el)
+    const wrapper = mount(HotTopics, {
+      attachTo: el,
+      global: { plugins: [i18n], stubs: { 'el-alert': true, 'el-select': true, 'el-option': true, 'el-progress': true, 'el-skeleton': true } },
+    })
+    await flushPromises()
+    await wrapper.find('[data-testid="hot-topic-generate-video-zhihu:1"]').trigger('click')
+    await flushPromises()
+    await new Promise(r => setTimeout(r, 50))
+    await flushPromises()
+    expect(wrapper.vm.genVideoPhase).toBe('completed')
+
+    // 【查看】→ /create?view=history&filter=completed
+    pushSpy.mockClear()
+    document.body.querySelector('[data-testid="hot-topics-gen-video-view"]').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await flushPromises()
+    const viewTarget = pushSpy.mock.calls.map(c => c[0]).find(v => v && v.path === '/create')
+    expect(viewTarget).toBeTruthy()
+    expect(viewTarget.query).toEqual({ view: 'history', filter: 'completed' })
+    // 跳转后弹窗关闭、前端态复位（终态 run 不取消）
     expect(wrapper.vm.genVideoModalOpen).toBe(false)
-    expect(pushSpy).toHaveBeenCalledWith({ path: '/create/result', query: { path: 'D:/videos/out.mp4', project: 'p1', runId: 'run-done-1' } })
+    expect(pipelineCancelRun).not.toHaveBeenCalled()
+
+    wrapper.unmount()
+    el.remove()
+  })
+
+  it('gen-video publish button prefills /publish with the finished video (video mode)', async () => {
+    hotTopicsFetch.mockResolvedValue({ code: 0, data: { topics: mockTopics, fetchedAt: Date.now(), channelStats: {} } })
+    aiRewrite.mockResolvedValue({ code: 0, data: { success: true, result: '完整流程文案' } })
+    draftSave.mockResolvedValue({ code: 0 })
+    storeGetSetting.mockResolvedValue(null)
+    pipelineStartOrchestrated.mockResolvedValue({ code: 0, data: { success: true, runId: 'run-exit-2' } })
+    pipelineGetRunContext.mockResolvedValue({ code: 0, data: {
+      runId: 'run-exit-2',
+      status: { status: 'completed', progress: 100, stages: [
+        { name: 'split', status: 'completed' }, { name: 'compose', status: 'completed' },
+      ] },
+      context: {
+        compose: { data: { videoPath: 'D:/videos/out.mp4' } },
+        story2videoProject: {
+          projectId: 'p1', title: '成片标题', sourceText: '成片正文', videoPath: 'D:/videos/out.mp4',
+          story2videoTextConfig: { config: { publish: { title: '发布标题', content: '发布正文', tags: ['AI'] } } },
+        },
+      },
+    } })
+
+    const el = document.createElement('div')
+    document.body.appendChild(el)
+    const wrapper = mount(HotTopics, {
+      attachTo: el,
+      global: { plugins: [i18n], stubs: { 'el-alert': true, 'el-select': true, 'el-option': true, 'el-progress': true, 'el-skeleton': true } },
+    })
+    await flushPromises()
+    await wrapper.find('[data-testid="hot-topic-generate-video-zhihu:1"]').trigger('click')
+    await flushPromises()
+    await new Promise(r => setTimeout(r, 50))
+    await flushPromises()
+    expect(wrapper.vm.genVideoPhase).toBe('completed')
+
+    // 【去发布】→ /publish 视频模式预填充（title/content/tags 来自 publish 配置）
+    pushSpy.mockClear()
+    document.body.querySelector('[data-testid="hot-topics-gen-video-publish"]').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await flushPromises()
+    const publishTarget = pushSpy.mock.calls.map(c => c[0]).find(v => v && v.path === '/publish')
+    expect(publishTarget).toBeTruthy()
+    expect(publishTarget.query.type).toBe('video')
+    expect(decodeURIComponent(String(publishTarget.query.video_path))).toBe('D:/videos/out.mp4')
+    expect(decodeURIComponent(String(publishTarget.query.title))).toBe('发布标题')
+    expect(decodeURIComponent(String(publishTarget.query.content))).toBe('发布正文')
+    expect(decodeURIComponent(String(publishTarget.query.tags))).toBe('AI')
+
+    wrapper.unmount()
+    el.remove()
+  })
+
+  // 无项目对象的 run-only 记录：只交接成片路径，**不得注入空 title/content**
+  // （与 CreateView.publishPipelineResult 及 ResultView.goPublish 的纯文件路径模式一致）
+  it('gen-video publish run-only (no project) emits only type + video_path', async () => {
+    hotTopicsFetch.mockResolvedValue({ code: 0, data: { topics: mockTopics, fetchedAt: Date.now(), channelStats: {} } })
+    aiRewrite.mockResolvedValue({ code: 0, data: { success: true, result: '完整流程文案' } })
+    draftSave.mockResolvedValue({ code: 0 })
+    storeGetSetting.mockResolvedValue(null)
+    pipelineStartOrchestrated.mockResolvedValue({ code: 0, data: { success: true, runId: 'run-exit-3' } })
+    pipelineGetRunContext.mockResolvedValue({ code: 0, data: {
+      runId: 'run-exit-3',
+      status: { status: 'completed', progress: 100, stages: [
+        { name: 'split', status: 'completed' }, { name: 'compose', status: 'completed' },
+      ] },
+      // 只有成片路径，没有 story2videoProject（run-only）
+      context: { compose: { data: { videoPath: 'D:/videos/out.mp4' } } },
+    } })
+
+    const el = document.createElement('div')
+    document.body.appendChild(el)
+    const wrapper = mount(HotTopics, {
+      attachTo: el,
+      global: { plugins: [i18n], stubs: { 'el-alert': true, 'el-select': true, 'el-option': true, 'el-progress': true, 'el-skeleton': true } },
+    })
+    await flushPromises()
+    await wrapper.find('[data-testid="hot-topic-generate-video-zhihu:1"]').trigger('click')
+    await flushPromises()
+    await new Promise(r => setTimeout(r, 50))
+    await flushPromises()
+    expect(wrapper.vm.genVideoPhase).toBe('completed')
+    expect(wrapper.vm.genVideoCompletedProjectId).toBe('')
+
+    pushSpy.mockClear()
+    document.body.querySelector('[data-testid="hot-topics-gen-video-publish"]').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await flushPromises()
+    const publishTarget = pushSpy.mock.calls.map(c => c[0]).find(v => v && v.path === '/publish')
+    expect(publishTarget).toBeTruthy()
+    expect(publishTarget.query.type).toBe('video')
+    expect(decodeURIComponent(String(publishTarget.query.video_path))).toBe('D:/videos/out.mp4')
+    // 关键：不携带空标题/空正文（否则等于伪造了一个"有标题但为空"的项目）
+    expect(publishTarget.query.title).toBeUndefined()
+    expect(publishTarget.query.content).toBeUndefined()
+    expect(publishTarget.query.tags).toBeUndefined()
+
+    wrapper.unmount()
+    el.remove()
+  })
+
+  it('gen-video view/publish buttons stay disabled during rewrite (no run yet)', async () => {
+    hotTopicsFetch.mockResolvedValue({ code: 0, data: { topics: mockTopics, fetchedAt: Date.now(), channelStats: {} } })
+    aiRewrite.mockImplementation(() => new Promise(() => {}))
+
+    const el = document.createElement('div')
+    document.body.appendChild(el)
+    const wrapper = mount(HotTopics, {
+      attachTo: el,
+      global: { plugins: [i18n], stubs: { 'el-alert': true, 'el-select': true, 'el-option': true, 'el-progress': true, 'el-skeleton': true } },
+    })
+    await flushPromises()
+    await wrapper.find('[data-testid="hot-topic-generate-video-zhihu:1"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.vm.genVideoPhase).toBe('rewriting')
+    const viewBtn = document.body.querySelector('[data-testid="hot-topics-gen-video-view"]')
+    const publishBtn = document.body.querySelector('[data-testid="hot-topics-gen-video-publish"]')
+    expect(viewBtn).toBeTruthy()
+    expect(viewBtn.disabled).toBe(true)
+    expect(publishBtn.disabled).toBe(true)
+    // 改写阶段无 run：后台运行不渲染，取消可点
+    expect(document.body.querySelector('[data-testid="hot-topics-gen-video-background"]')).toBeNull()
+    expect(document.body.querySelector('[data-testid="hot-topics-gen-video-cancel"]').disabled).toBe(false)
+
+    wrapper.unmount()
+    el.remove()
   })
 
   it('generate-video cancel during rewrite aborts orchestration without pipeline call', async () => {

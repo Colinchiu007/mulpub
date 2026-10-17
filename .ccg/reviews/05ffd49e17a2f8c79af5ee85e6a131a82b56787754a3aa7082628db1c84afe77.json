@@ -1,0 +1,26 @@
+{
+  "sha": "791c9bc182b57fa2ace7f3c4e34eb68c8af3167d",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 353 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 353,
+    "fileCount": 8,
+    "codeFileCount": 5,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 3,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "05ffd49e17a2f8c79af5ee85e6a131a82b56787754a3aa7082628db1c84afe77",
+  "decidedAt": "2026-10-17T02:22:39.727Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "findings": "跨家族双模型评审已完成（出方案侧=opencode 1.18.34 做全仓旧符号引用调查；挑刺侧=claude 2.1.301 出 4 条 Info）。逐条裁决：①测试 mock 里残留 8 个已删的旧界面文案键 —— 采纳并已清理；②新通道缺父级联合集成用例 —— 已登记为未闭合（本仓无该层夹具）；③后端两条旧通道无界面消费方却仍注册，缺防误删说明 —— 采纳并为两处注册点补了保留原因注释；④进度提示只用后缀拼接、无完整提示主键 —— 判为设计合理，无需改动。无 Critical/Warning 遗留，无待人工裁决争议。"
+  }
+}

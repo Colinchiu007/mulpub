@@ -1,7 +1,7 @@
 # PRD — 「更多」菜单新增「热门选题」功能模块
 
 - 文档编号：PRD-HOT-TOPICS-MODULE-2026-09-11
-- 状态：已合并（PR #1701，squash 提交 76e555bf，2026-09-11）；2026-09-12 追加「一键生成视频」（§3.10/§5.6）；2026-09-13 修正「后台运行后的并发语义」（前端不再自设单任务锁，支持多任务并行，§3.10/§5.6/§6.6/§6.7）；2026-09-19 修正「收藏列表 UI 与行样式作用域缺陷」并补齐创作/生成视频入口（§10.7.6）
+- 状态：已合并（PR #1701，squash 提交 76e555bf，2026-09-11）；2026-09-12 追加「一键生成视频」（§3.10/§5.6）；2026-09-13 修正「后台运行后的并发语义」（前端不再自设单任务锁，支持多任务并行，§3.10/§5.6/§6.6/§6.7）；2026-09-19 修正「收藏列表 UI 与行样式作用域缺陷」并补齐创作/生成视频入口（§10.7.6）；2026-10-17 弹窗 footer 统一为 `UiButton` 四按钮并新增完成出口【查看】【去发布】，成功后弹窗保持打开、不再自动跳转结果页（§6.6，详见 `01-docs/PRD-VIDEO-PIPELINE-PROGRESS-MODAL-2026-10-17.md`）
 - 关联分支：`codex/hot-topics-module`
 - 关联模块：`apps/desktop/src/views/HotTopics.vue`、`apps/desktop/electron/services/hot-topics-service.js`
 - 创建日期：2026-09-11
@@ -660,19 +660,26 @@ fetchTopics({ force })
 - 菜单高亮：`isActive` 沿用现有前缀匹配（`/hot-topics` 精确匹配）。
 - 页面离开时清理定时器（interval）与 in-flight 请求（AbortController.abort）。
 
-### 6.6 一键生成视频弹窗操作与全局居中提示（2026-09-13 新增）
+### 6.6 一键生成视频弹窗操作与全局居中提示（2026-09-13 新增；2026-10-17 四按钮与完成出口修订）
 
-**弹窗 footer 按钮矩阵**（按 phase 状态机渲染）：
+**弹窗 footer 按钮矩阵**（按 phase 状态机渲染；2026-10-17 起 footer 全部由 `UiButton` 渲染，与视频创作页进度浮层同源，不再使用 `cohere-btn-*`）：
 
-| phase | 重试 | 后台运行 | 取消 | 关闭 | 错误文本 |
-|-------|------|---------|------|------|---------|
-| rewriting（改写中） | ✗ | ✗（无 run，脱离无意义） | ✓ | ✗ | ✗ |
-| starting（流水线启动中） | ✗ | ✗（run 未确认） | ✓ | ✗ | ✗ |
-| running（流水线运行中） | ✗ | ✓ | ✓ | ✗（右上角 × 等价后台运行） | ✗ |
-| background（后台脱离；弹窗已关，前端态已复位为 idle） | ✗ | ✗（已脱离） | ✗ | ✗（弹窗已关） | ✗ |
-| failed（失败终态） | ✓ | ✗ | ✗ | ✓ | ✓ |
-| cancelled（取消终态） | ✗ | ✗ | ✗ | ✓ | ✓ |
-| completed（完成） | 弹窗已关闭并跳转结果页 | — | — | — | — |
+| phase | 查看 | 去发布 | 重试 | 后台运行 | 取消 | 关闭 | 错误文本 |
+|-------|------|--------|------|---------|------|------|---------|
+| rewriting（改写中） | 灰显 | 灰显 | ✗ | ✗（无 run，脱离无意义） | ✓ | ✗ | ✗ |
+| starting（流水线启动中） | 灰显 | 灰显 | ✗ | ✗（run 未确认） | ✓ | ✗ | ✗ |
+| running（流水线运行中） | 灰显 | 灰显 | ✗ | ✓ | ✓ | ✗（右上角 × 等价后台运行） | ✗ |
+| failed（失败终态） | 灰显 | 灰显 | ✓ | ✗ | ✗ | ✓ | ✓ |
+| cancelled（取消终态） | 灰显 | 灰显 | ✗ | ✗ | ✗ | ✓ | ✓ |
+| completed（完成） | ✓ | ✓ | ✗ | ✗ | ✗ | ✓ | ✗ |
+
+**完成出口（2026-10-17 修订，取代「完成即关闭弹窗并跳转结果页」）**：
+
+- 成功后**弹窗保持打开**，不自动跳转 `/create/result`；阶段全绿、进度 100%。
+- 【查看】（`data-testid="hot-topics-gen-video-view"`，文案 `hotTopics.genVideoView`）→ 复位前端跟踪态后跳 `/create?view=history&filter=completed`（视频创作-历史记录「已完成」标签），不调用 `pipelineCancelRun`。
+- 【去发布】（`data-testid="hot-topics-gen-video-publish"`，文案 `hotTopics.genVideoPublish`）→ 跳 `/publish`，用 `buildPublishFromProject` + `publishDataToQuery` 构造视频模式预填充；终态 context 无 `story2videoProject` 时退化为只带 `type=video` 与 `video_path`，不注入空标题/正文。
+- 解锁判据：`genVideoResultReady = genVideoPhase === 'completed' && genVideoCompletedVideoPath.trim() 非空`；成片缺失时置 failed 并保持灰显。
+- 新编排（`startGenerateVideo`）与重试（`retryGenVideo`）必须清零 `genVideoCompletedVideoPath/ProjectId/Project`，避免新 run 未完成时误解锁。
 
 **【后台运行】按钮交互逻辑**：
 
@@ -844,6 +851,8 @@ fetchTopics({ force })
 | hotTopics.genVideoCancelled | 已取消生成视频 | Video generation cancelled |
 | hotTopics.genVideoBackgroundHint | 任务已转入后台，可在视频创作页「历史记录」中查看进度 | Task moved to background. Track progress in Video Creation → History |
 | hotTopics.genVideoBackgroundRun | 后台运行 | Run in background |
+| hotTopics.genVideoView | 查看（2026-10-17 新增，完成出口） | View |
+| hotTopics.genVideoPublish | 去发布（2026-10-17 新增，完成出口） | Publish |
 | hotTopics.genVideoRetry | 重试 | Retry |
 | hotTopics.genVideoCancel | 取消 | Cancel |
 | hotTopics.genVideoClose | 关闭 | Close |
@@ -906,7 +915,7 @@ fetchTopics({ force })
 7. 缓存与定时刷新：10 分钟缓存、30 分钟自动刷新、document.hidden 暂停。
 8. 防反爬组件接入（rate-limiter/circuit-breaker/cache 有测试断言）。
 9. i18n zh/en 成对 + Message Function + 无硬编码中文泄漏到模板。
-10. 【生成视频】按钮渲染于每条选题行；点击后弹窗打开、改写执行、流水线按用户默认选项自动启动；进度实时更新；完成跳转结果页；失败可重试（流水线失败重试不重复改写）；取消/后台运行语义正确（2026-09-12）。
+10. 【生成视频】按钮渲染于每条选题行；点击后弹窗打开、改写执行、流水线按用户默认选项自动启动；进度实时更新；成功后弹窗保持打开、【查看】【去发布】解锁（2026-10-17 修订，原为「完成跳转结果页」）；失败可重试（流水线失败重试不重复改写）；取消/后台运行语义正确（2026-09-12）。
 11. 流水线运行中弹窗 footer 显示【后台运行】按钮；点击后弹窗关闭、run 继续后台执行、前端态复位（phase='idle'、runId/stages 清空、**busy 释放**），不调用 pipelineCancelRun；应用正中央显示「如果想查看该任务，请进入视频创作的历史记录」4 秒后消失；改写/启动/终态不显示该按钮；视频创作页进度弹窗【后台运行】同样触发全局居中提示（2026-09-13）。
 12. **多任务并行**（2026-09-13 修正）：【后台运行】脱离（或终态关闭）后，所有选题的【生成视频】按钮立即可用，对另一条选题点击后能正常打开弹窗、改写并启动**第二条**并行流水线（两条 runId 互不干扰、互不覆盖进度）；并发上限由主进程门禁判定，超限时提示「视频流水线启动失败，请点击重试」并保留【重试】。
 13. **改写/启动阶段关闭弹窗**（2026-09-13 修正）：点击右上角 × 应中止前端编排——弹窗关闭、前端态复位、不调用 pipelineStartOrchestrated、不调用 pipelineCancelRun、不出现「任务已转入后台」提示。

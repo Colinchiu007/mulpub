@@ -59,7 +59,7 @@ const i18n = createI18n({
         cancelBatch: '取消',
         zhihuFavlist: {
           title: '知乎收藏夹', loadBtn: '加载收藏夹', loading: '加载中',
-          collectBtn: '采集', collecting: '采集中', rewriteBtn: '改写', rewriting: '改写中', hint: '提示',
+          hint: '提示',
           progressTitle: '采集并改写进度', progressText: '{done} / {total}',
           configMissing: '请先在「设置 → 知乎 API」中配置 Access Secret',
           configBadge: '已配置',
@@ -68,14 +68,9 @@ const i18n = createI18n({
           configUnreadable: '已保存的密钥无法读取，请到设置中重新保存',
           configLegacy: '检测到旧版明文密钥，建议到设置中重新保存以完成加密迁移',
           goSettings: '前往设置',
-          loadFailed: '加载失败', empty: '没有收藏夹', emptyFavlist: '收藏夹没有内容',
-          fetchingContents: '获取收藏内容...', collectingProgress: '共 {count} 条，采集中...',
-          batchDone: '完成，成功 {completed} 失败 {failed}',
+          loadFailed: '加载失败', empty: '没有收藏夹',
           batchDoneCancelledSuffix: '（已取消）', batchDoneCircuitBrokenSuffix: '（熔断）',
-          noRewritable: '没有可改写的内容', rewritingProgress: '改写 {count} 条...',
           noSelection: '请先勾选要采集的内容',
-          pickFavlistFirst: '请先获取收藏夹并选择要采集的收藏夹',
-          rewriteNeedsSource: '没有可改写的内容，请先采集',
           emptyItems: '收藏夹清单为空',
           fewerThanRequested: '实际获取 {actual} 条，少于申请的 {requested} 条',
           favlistsCapped: '收藏夹数量已达上限', fullModeCap: '全量模式单次最多 200 条',
@@ -253,41 +248,6 @@ describe('BatchCollectPanel 知乎收藏夹批量行为锁', () => {
     expect(w.vm.zhihuFavlistError).toContain('网络连接失败')
   })
 
-  it('zhihuFavlistBatchCollect 空收藏夹 → 提示无内容', async () => {
-    window.electronAPI = {
-      zhihuFavlistContents: vi.fn().mockResolvedValue({ code: 0, data: { items: [], totals: 0 } }),
-    }
-    const w = mountPanel()
-    w.vm.zhihuSelectedFavlist = '111'
-    await w.vm.zhihuFavlistBatchCollect()
-    await flushPromises()
-    expect(w.vm.zhihuFavlistError).toContain('没有内容')
-  })
-
-  it('zhihuFavlistBatchCollect 成功 → 结果 emit（P0 回归锁：字段不得丢失）', async () => {
-    window.electronAPI = {
-      zhihuFavlistContents: vi.fn().mockResolvedValue({ code: 0, data: { items: [
-        { url: 'https://zhuanlan.zhihu.com/p/1', title: '文章1' },
-      ], totals: 1 } }),
-      zhihuFavlistBatchCollect: vi.fn().mockResolvedValue({ code: 0, data: {
-        completed: 1, failed: 0, cancelled: false, circuitBroken: false,
-        results: [{ index: 0, ok: true, data: { success: true, title: '文章1', content: '正文内容' } }],
-      } }),
-    }
-    const w = mountPanel()
-    w.vm.zhihuSelectedFavlist = '111'
-    await w.vm.zhihuFavlistBatchCollect()
-    await flushPromises()
-    expect(w.vm.zhihuFavlistResults).toHaveLength(1)
-    expect(w.vm.zhihuFavlistProgress).toContain('成功 1')
-    // P0 回归锁原样保留：emit 出的条目逐字段断言（父级原样入列表）
-    const emitted = w.emitted('collected')[0][0]
-    expect(emitted).toHaveLength(1)
-    expect(emitted[0].title).toBe('文章1')
-    expect(emitted[0].content).toBe('正文内容')
-    expect(emitted[0].sourceUrl).toBe('https://zhuanlan.zhihu.com/p/1')
-  })
-
   it('loadZhihuFavItems 指定收藏夹 → 清单渲染 + 已采集标记（C2）', async () => {
     window.electronAPI = {
       zhihuFavlistContents: vi.fn().mockResolvedValue({ code: 0, data: { items: [
@@ -384,139 +344,67 @@ describe('BatchCollectPanel 知乎收藏夹批量行为锁', () => {
     expect(cancelSpy).toHaveBeenCalled()
   })
 
-  it('zhihuFavlistBatchRewrite 无可改写内容 → 提示', async () => {
-    window.electronAPI = {}
-    const w = mountPanel()
-    w.vm.zhihuFavlistResults = []
-    await w.vm.zhihuFavlistBatchRewrite()
-    expect(w.vm.zhihuFavlistError).toContain('可改写')
-  })
 })
 
-describe('知乎整夹直采按钮可点性（zhihu-fav-buttons-dead，2026-10-16）', () => {
-  // 用户报障：采集 → 知乎收藏文章 → 点「采集」「改写」按钮**没有任何反应**。
-  //
-  // 第一性原因（取证）：这两个按钮的 disabled 判据是 `!zhihuSelectedFavlist`，而该 ref
-  //   初始为 '' 且**代码从不自动赋值**（只有用户手动点下拉框才会变）；下拉框本身又在
-  //   `v-if="zhihuFavlists.length"` 内 ⇒ 未加载清单时用户根本看不到下拉框、无从选择
-  //   ⇒ 按钮恒灰 ⇒ 点击零事件、零提示（disabled 的 button 不派发 click 事件）。
-  // 第二个：**改写根本不需要收藏夹选择**（它改写的是已采集结果/父级传入条目），却共用同一判据。
-  // 第三个：scope='all'（全部收藏）时下拉框被 disabled，用户永远无法满足该判据 ⇒ 该模式死锁。
-  //
-  // 逃逸原因：旧用例 `w.vm.zhihuSelectedFavlist = '111'` 手动塞值后**直接调方法**，
-  //   既绕过了「这个值在真实使用中从何而来」，也绕过了「按钮到底能不能点」这一 UI 契约。
-  beforeEach(() => {
-    vi.clearAllMocks()
-    window.electronAPI = {}
-    settingsDialogRevision.value = 0
-  })
-
-  it('未加载清单：采集按钮 disabled 且给出可见原因（不得静默）', async () => {
-    window.electronAPI = {
-      zhihuGetConfig: vi.fn().mockResolvedValue({ code: 0, data: secretConfig() }),
-    }
-    const w = mountPanel()
-    await flushPromises()
-    expect(w.vm.zhihuSelectedFavlist).toBe('')
-    expect(w.get('[data-testid="zhihu-favlist-collect"]').attributes('disabled')).toBeDefined()
-    expect(w.get('[data-testid="zhihu-favlist-target-hint"]').text()).toContain('获取收藏夹')
-  })
-
-  it('加载清单成功 → 自动选中第一个收藏夹（用户无需手动点下拉框）', async () => {
-    window.electronAPI = {
-      zhihuGetConfig: vi.fn().mockResolvedValue({ code: 0, data: secretConfig() }),
-      zhihuFavlistList: vi.fn().mockResolvedValue({
-        code: 0,
-        data: [{ urlToken: '111', title: '夹一' }, { urlToken: '222', title: '夹二' }],
-      }),
-    }
-    const w = mountPanel()
-    await flushPromises()
-    await w.vm.loadZhihuFavlists()
-    await flushPromises()
-    expect(w.vm.zhihuSelectedFavlist).toBe('111')
-    expect(w.get('[data-testid="zhihu-favlist-collect"]').attributes('disabled')).toBeUndefined()
-  })
-
-  it('scope=全部收藏 → 采集按钮可点（该模式不需要选具体收藏夹）', async () => {
-    window.electronAPI = {
-      zhihuGetConfig: vi.fn().mockResolvedValue({ code: 0, data: secretConfig() }),
-    }
-    const w = mountPanel()
-    await flushPromises()
-    w.vm.zhihuFavScope = 'all'
-    await nextTick()
-    expect(w.vm.zhihuSelectedFavlist).toBe('')
-    expect(w.get('[data-testid="zhihu-favlist-collect"]').attributes('disabled')).toBeUndefined()
-  })
-
-  it('全部收藏模式采集 → 走 unified-contents 通道（与 loadZhihuFavItems 同语义）', async () => {
-    const unified = vi.fn().mockResolvedValue({
-      code: 0,
-      data: { items: [{ url: 'https://zhuanlan.zhihu.com/p/9', title: '九' }] },
-    })
-    window.electronAPI = {
-      zhihuGetConfig: vi.fn().mockResolvedValue({ code: 0, data: secretConfig() }),
-      zhihuFavlistUnifiedContents: unified,
-      zhihuFavlistBatchCollect: vi.fn().mockResolvedValue({
-        code: 0,
-        data: {
-          completed: 1, failed: 0, cancelled: false, circuitBroken: false,
-          results: [{ index: 0, ok: true, data: { success: true, title: '九', content: '正文' } }],
-        },
-      }),
-    }
-    const w = mountPanel()
-    await flushPromises()
-    w.vm.zhihuFavScope = 'all'
-    await w.vm.zhihuFavlistBatchCollect()
-    await flushPromises()
-    expect(unified).toHaveBeenCalled()
-    const emitted = w.emitted('collected')[0][0]
-    expect(emitted[0].sourceUrl).toBe('https://zhuanlan.zhihu.com/p/9')
-  })
-
-  it('无目标时调采集 → 出声提示，不得静默 return', async () => {
-    window.electronAPI = {
-      zhihuGetConfig: vi.fn().mockResolvedValue({ code: 0, data: secretConfig() }),
-    }
-    const w = mountPanel()
-    await flushPromises()
-    await w.vm.zhihuFavlistBatchCollect()
-    expect(w.vm.zhihuFavlistError).not.toBe('')
-    expect(w.vm.zhihuFavlistError).toContain('获取收藏夹')
-  })
-
-  it('改写按钮的可点性只看「有无可改写来源」，与是否选收藏夹无关', async () => {
-    window.electronAPI = {
-      zhihuGetConfig: vi.fn().mockResolvedValue({ code: 0, data: secretConfig() }),
-    }
-    const w = mountPanel({ rewriteFallbackItems: [{ content: '这是一段足够长的可改写正文内容，用于触发改写可用性。' }] })
-    await flushPromises()
-    expect(w.vm.zhihuSelectedFavlist).toBe('')
-    expect(w.get('[data-testid="zhihu-favlist-rewrite"]').attributes('disabled')).toBeUndefined()
-  })
-
-  it('改写按钮：无任何可改写来源 → disabled 且给出原因', async () => {
-    window.electronAPI = {
-      zhihuGetConfig: vi.fn().mockResolvedValue({ code: 0, data: secretConfig() }),
-    }
-    const w = mountPanel({ rewriteFallbackItems: [] })
-    await flushPromises()
-    expect(w.get('[data-testid="zhihu-favlist-rewrite"]').attributes('disabled')).toBeDefined()
-    expect(w.get('[data-testid="zhihu-favlist-rewrite-hint"]').text()).toContain('可改写')
-  })
-
-  // 结构锁（QM-6 评审 i5 的采纳项）：`zhihuFavTargetReady` 依赖 `zhihuFavScope`，
-  // 而后者不在本次 diff 里 —— 评审据此担心「默认值不确定会让 computed 落在意外状态」。
-  // 事实是源码已有显式默认值 `ref('favlist')`；这条锁把它固定下来，
-  // 避免将来有人去掉默认值（那时 A3 的 scope 分支判据会静默改变语义）。
-  it('结构锁：zhihuFavScope 默认必须是 favlist（zhihuFavTargetReady 的依赖前提）', async () => {
+// ─── 旧整夹直采入口已下线（zhihu-fav-entries-consolidate，2026-10-17） ───
+// 决策：删除旧入口（「采集」「改写」两个按钮 + 其进度行/取消按钮），只保留「采集并改写」。
+// 理由：两条入口在同一面板并存，同一件事却有两套判据各自演化（旧入口上一轮刚修过
+// 「恒灰死键」），双真源风险随每次改动复利。删除后「采集 + 改写」由 zhihu-fav-batch:run
+// 单通道承担，判据只剩一份。
+describe('旧整夹直采入口已下线（zhihu-fav-entries-consolidate）', () => {
+  // 结构锁（原 QM-6 评审 i5 采纳项，2026-10-17 移入此处）：zhihuFavScope 是 scope 分支
+  // 判据的依赖前提，锁住默认值以防有人改动后判据静默改变语义。
+  it('结构锁：zhihuFavScope 默认必须是 favlist（scope 分支判据的依赖前提）', async () => {
     window.electronAPI = {
       zhihuGetConfig: vi.fn().mockResolvedValue({ code: 0, data: secretConfig() }),
     }
     const w = mountPanel()
     await flushPromises()
     expect(w.vm.zhihuFavScope).toBe('favlist')
+  })
+
+  beforeEach(() => {
+    window.electronAPI = {
+      zhihuGetConfig: vi.fn().mockResolvedValue({ code: 0, data: secretConfig() }),
+      zhihuFavlistList: vi.fn().mockResolvedValue({ code: 0, data: [{ urlToken: 't1', title: '夹一' }] }),
+    }
+  })
+
+  it('旧「采集」按钮不再渲染（入口唯一性）', async () => {
+    const w = mountPanel()
+    await flushPromises()
+    expect(w.find('[data-testid="zhihu-favlist-collect"]').exists()).toBe(false)
+  })
+
+  it('旧「改写」按钮不再渲染', async () => {
+    const w = mountPanel()
+    await flushPromises()
+    expect(w.find('[data-testid="zhihu-favlist-rewrite"]').exists()).toBe(false)
+  })
+
+  it('旧两条不可点提示一并移除（不留孤儿 DOM）', async () => {
+    const w = mountPanel()
+    await flushPromises()
+    expect(w.find('[data-testid="zhihu-favlist-target-hint"]').exists()).toBe(false)
+    expect(w.find('[data-testid="zhihu-favlist-rewrite-hint"]').exists()).toBe(false)
+  })
+
+  it('旧 handler 已从组件移除（不得留死代码）', async () => {
+    const w = mountPanel()
+    await flushPromises()
+    expect(w.vm.zhihuFavlistBatchCollect).toBeUndefined()
+    expect(w.vm.zhihuFavlistBatchRewrite).toBeUndefined()
+  })
+
+  it('旧按钮可用性 computed 已移除（双真源消除）', async () => {
+    const w = mountPanel()
+    await flushPromises()
+    expect(w.vm.zhihuFavTargetReady).toBeUndefined()
+    expect(w.vm.zhihuFavRewriteReady).toBeUndefined()
+    expect(w.vm.zhihuFavRewriteSource).toBeUndefined()
+  })
+
+  it('rewriteFallbackItems prop 已移除（父级不再需要为旧改写喂来源）', () => {
+    expect(Object.keys(BatchCollectPanel.props || {})).not.toContain('rewriteFallbackItems')
   })
 })
