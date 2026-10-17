@@ -2,16 +2,12 @@
 record: hot-topics-viral-item-sources
 task: 热门选题短视频平台「近期爆款」数据源调研 + PRD 落盘（开源参照系实测、许可证门禁判定、第一刀归档方案合同）
 date: 2026-10-17
-# ↓ 三字段只在「远程同步」无法收口时填写；回填成 PASS 后必须整段删除。
-sync_status: PENDING
-sync_reason: 本 PR（hot-topics-viral-item-sources）尚未合并，merge SHA 尚不存在，无法取证收口
-sync_backfill_owner: 下一个会话（同一次提交内改写表格行 + 删这三个字段）
 ---
 
 ## 本次执行记录：热门选题短视频爆款数据源调研 + PRD（hot-topics-viral-item-sources，2026-10-17）【docs-only】
 
 - 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD` → **docs-only=true（files=3）**：`01-docs/PRD-HOT-TOPICS-SHORTVID-VIRAL-ITEMS-2026-10-17.md`、本记录文件、以及 pre-commit 自动落盘的 CCG 判定产物 `.ccg/reviews/aad6b377…json`（三份均命中文档白名单）
-- 保留门禁：变更类型与隔离 ✅ | 行尾对账 ✅ | 品牌残留 ✅ | Gate 12c 绝对路径 ✅ | 文档同步 ✅ | 执行记录取证 ✅ | 旧载体冻结 ✅ | 远程同步 PENDING
+- 保留门禁：变更类型与隔离 ✅ | 行尾对账 ✅ | 品牌残留 ✅ | Gate 12c 绝对路径 ✅ | 文档同步 ✅ | 执行记录取证 ✅ | 旧载体冻结 ✅ | 远程同步 PASS
 
 ## 0. 变更类型与隔离声明
 
@@ -41,8 +37,7 @@ sync_backfill_owner: 下一个会话（同一次提交内改写表格行 + 删�
 | 执行记录取证 `check-pr-exec-record.js --mode=enforce` | PASS | 输出 `本 PR 变更文件 3 个（A=3 M=0 D=0）｜新增记录 1 篇 … OK: 本 PR 携带执行记录或带原因的豁免` rc=0 |
 | 旧载体冻结 | PASS（按规执行） | **未**往 `.quality-gates.md` 插块、**未**往 `scripts/gate-record-debt-ledger.json` 加键 ⇒ `carrierDrift` 不应触发 |
 | CHANGELOG 收口 | N/A（如实登记） | 本 PR 只新增未实现的 PRD，用户可见行为零变化；按 docs-only 通道「CHANGELOG 收口（如适用）」判定为不适用。真正适用的是实现那一刀（届时随 §8 的验收项一并写） |
-| 远程同步 | PENDING | 本 PR 尚未合并；合并后由回填会话在同一次提交内改写 PASS + merge SHA 并删除上方 `sync_*` 三字段 |
-
+| 远程同步 | PASS | 已合并：PR #3866 于 2026-10-18T00:36:35+08:00 squash 进 main，merge SHA `95142a64d8906f27b3984afba4145cb56522c2c1`（取证 `git log origin/main --grep'(#3866)$' --format=%H|%cI` 恰好 1 行）；`git ls-remote --heads origin hot-topics-viral-item-sources` 返回 **0 行**（远端分支随合并删除）。main push 回读：`quality-gate.yml` 的 push 触发层 `paths-ignore` 覆盖本次全部三类落点（`01-docs/**`、`openspec/**`、`.ccg/**`），故该 merge SHA 上 **NO_RUN(by design)**（`gh run list --workflow=quality-gate.yml --commit 95142a64d…` 返回 `[]`）；改判据未动，转核该 workflow 最近一次 main push 读数 = **success**（`b7c618d9c`，2026-10-17T15:00:27Z）。本回填与删除上方 `sync_*` 三字段发生在**同一次提交**内 |
 ## 2. 本次产出物
 
 | 文件 | 内容 |
