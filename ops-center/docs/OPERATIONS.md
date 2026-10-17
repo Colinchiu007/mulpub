@@ -343,3 +343,162 @@ unit 内已显式设 `OPS_FEEDBACK_MEDIA_DIR=/data/ops-center/feedback-media`。
 ### 12.6 部署脚本冒烟
 
 `deploy/smoke-deploy.sh` 离线验证三件事（不联网、不碰 systemd/nginx）：来源缺失时 fail-closed、`feature_gates` 缺失时告警并置空、`scripts.seed` 与 `database.init_db` 可导入。改动 `deploy/` 后应重跑。
+
+## 13. 子路径托管（/ops/）与运行时签名（2026-10-18 修订）
+
+> 本章记录「同一域名下用子路径托管运营中心」这一部署形态的**全部必改项**。
+> 之所以单独成章：这一形态有三个**症状相同、根因不同**的坑，
+> 而它们的共同伪装是「HTTP 200 但页面白屏」，看状态码完全查不出来。
+
+### 13.1 部署拓扑
+
+```
+浏览器 / 桌面端
+   │
+   ├─ https://www.iart.work/ops/          → nginx ^~ /ops/      → dist/index.html（Vue SPA）
+   ├─ https://www.iart.work/ops/assets/*  → nginx ^~ /ops/assets/ → dist/assets/*（真文件）
+   └─ https://www.iart.work/api/ops/*     → nginx ^~ /api/ops/  → rewrite 剥前缀 → :8010
+                                                                     │
+                                                              FastAPI（127.0.0.1:8010）
+```
+
+**桌面端 `opsCenterUrl` 必须填 `https://www.iart.work/api/ops`**（不是 `/ops`，也不是根）。
+判据：桌面端是 `base` 直接拼路径，三个候选实测 ——
+
+| base | 拼出的 URL | 实测结果 | 判定 |
+|---|---|---|---|
+| `/api/ops` | `/api/ops/api/v1/app-menu` | **401 JSON**「未提供认证令牌」 | ✅ 已到后端 |
+| `/ops` | `/ops/api/v1/app-menu` | 200 **HTML**（SPA 兜底） | ❌ 落在前端页面 |
+| （根） | `/api/v1/app-menu` | 200 **HTML**（主站） | ❌ 落到主站 |
+
+**取「返回 JSON 而非 HTML」当判据**：HTML 会让应用验签失败，所以这里 200 是**失败信号**。
+
+### 13.2 坑一：`try_files` 的 fallback 是 URI，不是文件路径
+
+这是最隐蔽的一个。`try_files` 的最后一个参数会被当成 **URI** 触发一次新的 location 匹配：
+
+| fallback 写法 | 后果 | 实证 |
+|---|---|---|
+| `/ops/index.html` | 该 URI 仍以 `/ops/` 开头 ⇒ 再次进入同一 location ⇒ 无限内部重定向 | error log：`rewrite or internal redirection cycle while internally redirecting to "/ops/index.html"`（500） |
+| `/index.html` | 不以 `/ops/` 开头 ⇒ 重新走 location 匹配，落到 `location /`（主站 root）⇒ 返回**主站 HTML** | `/ops/` 与 `/ops/assets/*.js` 都返回 67787 字节主站页，标题「汤姆鱼」 |
+
+**正解：拆两个 location**，各用最朴素的写法：
+
+```nginx
+# 静态资源：root + try_files，取真文件
+location ^~ /ops/assets/ {
+    root /srv/projects/ops-center/frontend/dist;
+    try_files $uri =404;
+    add_header Cache-Control "public, immutable";
+    ...安全响应头...
+}
+
+# 页面与 SPA 兜底：alias 直接指向 index.html 文件本身
+location ^~ /ops/ {
+    alias /srv/projects/ops-center/frontend/dist/index.html;
+    ...安全响应头...
+}
+```
+
+**不要**把静态资源和 SPA fallback 挤在同一个 `alias` location 里：`alias` 与 `try_files`
+混用时 `$uri` 的解析语义与预期不符，实测 `/ops/assets/*.js` 会落到 fallback
+（返回 480 字节 HTML，而真文件是 83077 字节）。
+
+### 13.3 坑二：`^~` 是必需的，不是可选优化
+
+若所在 server 块已有静态资源正则 location（如 `location ~* \.(js|css|png|...)$`），
+nginx 的「最长前缀命中后**正则优先**」会让 `/ops/assets/*.js` 被正则块抢走，
+走到主站 root（那里没有 `assets/`）⇒ 404 ⇒ 白屏。
+只有 `^~` 能明确声明「这个前缀下不再试正则」。
+
+另一条同源规则：**`add_header` 的继承是「下级出现自己的 `add_header` 就完全不再继承上级」**。
+所以安全响应头必须在每个 location 内**重复写**，只写在 server 级会全部丢失。
+
+### 13.4 坑三：`/api/v1/runtime/bootstrap` 的 404 是刻意 fail-closed
+
+桌面端拉配置走这个端点。它返回 404 **不等于路由不存在** —— openapi 里明确有，
+且同 router 的 `/api/v1/runtime/rollout` 能返回 401。根因写在代码注释里：
+
+```python
+if signing_key is None:
+    raise HTTPException(404, "运行时签名未启用（未配置 OPS_RUNTIME_SIGNING_PRIVATE_KEY）")
+```
+
+**辨识三招**（顺序执行）：
+
+1. 看 body：FastAPI 默认 `{"detail":"Not found"}` ⇒ 路由没匹配；业务中文文案 ⇒ fail-closed。
+2. 看兄弟路由：同 router 的其它路由是否可达（`rollout` → 401 说明 router 已挂载）。
+3. 查代码里的 fail-closed 分支（签名私钥 + `OPS_CATALOG_API_KEY` **两处**都要配）。
+
+**必配项**（两者缺一，bootstrap 恒 404）：
+
+| 变量 | 作用 | 生成方式 |
+|---|---|---|
+| `OPS_RUNTIME_SIGNING_KEY_PATH` | Ed25519 私钥路径，对响应签名 | `Ed25519PrivateKey.generate()` → PEM（600） |
+| `OPS_CATALOG_API_KEY` | 桌面端拉 bootstrap 的长期凭据 | `secrets.token_urlsafe(32)` |
+
+算法必须两端对齐：后端 `config.py` 用 `load_pem_private_key` 且要求 **Ed25519 PEM**；
+桌面端 `verifyRuntimeSignature` 要求签名 **64 字节** —— 正是 Ed25519 的签名长度。
+公钥填进桌面端 `config/identity-public.json` 的 `runtimePublicKey`（缺失会在打包版
+命中 `NO_PRODUCTION_TRUST_ANCHOR`）。
+
+配置方式用 **systemd drop-in**，不改动原 unit：
+
+```ini
+# /etc/systemd/system/ops-center.service.d/runtime-signing.conf
+[Service]
+Environment=OPS_RUNTIME_SIGNING_KEY_PATH=/etc/ops-center/runtime-signing-private.pem
+Environment=OPS_CATALOG_API_KEY=<32 字节随机串>
+```
+
+### 13.5 前端产物必须重新构建
+
+Vite 的 `base` 是**构建期**静态注入的，运行时改不了。服务器上的旧产物仍引用裸 `/assets/`，
+在 `/ops/` 子路径下必然 404 ⇒ 白屏。
+必须 `NODE_ENV=production npm run build` 重新构建，
+并验证产物：`index.html` 应引用 `/ops/assets/`，且裸 `"/assets/` 出现 **0** 次。
+
+### 13.6 验收判据（缺一不可）
+
+| # | 判据 | 期望 |
+|---|---|---|
+| 1 | `/ops/` 字节数 == `dist/index.html` | 相等（**不是**「200 就行」） |
+| 2 | `/ops/index.html` 标题 | `OpsCenter — 运营配置中心` |
+| 3 | `/ops/assets/*.js` 的 `content-type` + 字节数 | `application/javascript` 且字节数 == 服务器文件 |
+| 4 | 页面引用的每个 `/ops/assets/*` | 全部 200 |
+| 5 | `/ops/<深层路由>` | 回 `index.html`（SPA fallback） |
+| 6 | `/api/ops/health` | 200 JSON |
+| 7 | `/api/ops/api/v1/app-menu` | 401 JSON（路由存在） |
+| 8 | `/api/ops/openapi.json` | 200 JSON |
+| 9 | `/ops/` 的响应头 | CSP + nosniff + no-referrer + `X-Frame-Options: DENY` 四项齐全 |
+| 10 | 主站 `/` | 字节数与标题**未变**（回归） |
+
+> **第 1、3 条最关键**：判据必须取字节数而非状态码。
+> 「200 + 主站字节数」是白屏的完美伪装 —— 状态码看着全绿，页面却是主站内容。
+
+### 13.7 回归：这些操作会停掉生产 nginx
+
+| 误操作 | 后果 | 正解 |
+|---|---|---|
+| `nginx -t -c <conf.d 片段>` | 必报 `[emerg] "server" directive is not allowed here` | `cp -a /etc/nginx/. $TMP/` 后 `nginx -t -p $TMP -c $TMP/nginx.conf` |
+| 临时实例用 `nginx -p $TMP -c ... -s stop` 收尾 | **停掉生产 master**（`-s stop` 读 pid 文件而两者同路径） | 不要对临时实例用 `-s stop`；真停了就 `systemctl start nginx` |
+| `cd / && tar -xf ops.tar` | 解到 `/ops-center/` 而非 `/srv/projects/ops-center/` | `cd /srv/projects && tar -xf` |
+| `rsync --delete` 同步代码 | 删掉部署期独有文件（`.env`、日志、`__pycache__`） | 用 `git archive`（只增不删） |
+| `systemctl reload` 后立刻测 | 旧 worker 仍处理存量连接，读到旧响应 | 等待或完整 `restart` |
+
+### 13.8 「改了没反应」不是 bug，是同步机制
+
+桌面端 `OpsCenterSync` **只在应用启动时同步一次**（`autoSyncOnStart` 的 `setTimeout 3000`，
+全文件无 `setInterval`）。所以运营中心改完，已启动的应用**不会**重拉 —— 这是**预期行为**
+（组件注释写明「下次启动同步后自动可见」）。
+
+运营侧保存成功后会提示：
+
+> 已保存 N 项；将在应用下次启动时生效；如需立即生效请重启桌面应用
+
+**注意区分两件事**：
+
+- **「告知」**（已做）：让运营者知道要重启，避免反复保存或误回滚；
+- **「即时生效」**（未做，需另立议题）：要长连接或轮询，属不同问题。
+
+把两者混成一个问题会导致范围膨胀，且任一出问题都难定位。
