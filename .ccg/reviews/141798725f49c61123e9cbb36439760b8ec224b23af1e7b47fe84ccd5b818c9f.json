@@ -23,8 +23,34 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "cleared",
+    "performedBy": "codex（跨家族外部评审；引擎 DUAL 的 claude 后端 spawnSync ETIMEDOUT 后降级为单后端 + 人工裁决，依据见 openspec/records/fix-qm1-verify-path.md 的 QM-6 行）",
+    "findings": [
+      {
+        "severity": "MAJOR",
+        "file": "scripts/qm1-paths.test.js",
+        "claim": "接线锁的否定断言锚死在 const 关键字、且只匹配 path.resolve(__dirname) 单参数形态；被锁脚本实际声明是 let DESKTOP，写 let DESKTOP = path.resolve(__dirname) 或 path.resolve(__dirname, '') 均可绕过。",
+        "adjudication": "upheld（成立）。初版确为 const 锚定负则；已改为不变量：每一处 DESKTOP 赋值右值必须恰好是 assertDesktopDir(resolveDesktopDir(__dirname))，不再锚关键字。M4 变异（改成 path.resolve(__dirname, '')）实测红。",
+        "status": "fixed"
+      },
+      {
+        "severity": "MINOR",
+        "file": "scripts/qm1-paths.test.js",
+        "claim": "codeOnly 先剥行注释再剥块注释：块注释里含 // 时会先删掉终止符并让块注释正则吞掉真实代码，负向断言可假绿。",
+        "adjudication": "upheld（成立）。复核阶段已弃用 codeOnly（改为行首锚定 + 逐条赋值白名单，完全不剥注释），本 PR 无残留。",
+        "status": "fixed"
+      },
+      {
+        "severity": "MINOR",
+        "file": "scripts/lib/qm1-paths.js",
+        "claim": "向上查找只认 apps/desktop/package.json 存在性；本仓根缺 apps/desktop 时会越界命中父目录里的另一份 checkout（requires verification）。",
+        "adjudication": "upheld-as-hardening（前提未在本机复现，但属于本 PR 要消灭的『找错目录却不报错』同型）。已加仓库根标记（package.json + pnpm-workspace.yaml）边界：遇到第一个仓库根即停，其下没有 apps/desktop 就 fail closed；测试 5 + M5 变异钉住。",
+        "status": "fixed"
+      }
+    ],
+    "error": "spawnSync C:/Users/邱领/.claude/bin/codeagent-wrapper.exe ETIMEDOUT（保留原始失败证据；降级通道与逐条裁决依据见执行记录 QM-6 行）",
+    "validationErrors": null,
+    "at": "2026-10-18T00:34:00.000Z",
+    "closedBy": "manual-adjudication"
   }
 }

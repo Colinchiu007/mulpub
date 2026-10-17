@@ -29,10 +29,22 @@ const path = require('node:path')
 const DESKTOP_SEGMENTS = ['apps', 'desktop']
 /** 桌面应用 package.json 的 name —— 用来把「找错目录」与「产物缺失」分开报。 */
 const DESKTOP_PACKAGE_NAME = '@multi-publish/desktop'
+/**
+ * 仓库根标记：两者同时存在即判定为仓库根。**向上查找到此必须停**，不得继续越过本仓
+ * 去父目录里找 —— 本仓的 worktree 布局是 `<父目录>/mp-worktrees/<name>`，若本仓自身
+ * 的 `apps/desktop` 缺失（被清理的 worktree / 稀疏 checkout），继续向上会命中父目录里
+ * 的另一份 Multi-Publish checkout，量的是别人的产物树却不报错（外部评审 finding 3）。
+ */
+const ROOT_MARKERS = ['package.json', 'pnpm-workspace.yaml']
+
+function looksLikeRepoRoot (dir) {
+  return ROOT_MARKERS.every((m) => fs.existsSync(path.join(dir, m)))
+}
 
 /**
  * 从 `startDir` 向上找仓库根（判据：某级祖先下存在 `apps/desktop/package.json`），
- * 再返回该桌面应用目录。
+ * 再返回该桌面应用目录。遇到第一个仓库根标记就停止：该根下没有 `apps/desktop`
+ * 时直接抛错（fail closed），绝不越过本仓继续向上。
  *
  * @param {string} startDir 起始目录；真机脚本传 `__dirname`
  * @returns {string} 绝对路径 `<repo>/apps/desktop`
@@ -45,6 +57,13 @@ function resolveDesktopDir (startDir) {
   for (;;) {
     const candidate = path.join(dir, ...DESKTOP_SEGMENTS)
     if (fs.existsSync(path.join(candidate, 'package.json'))) return candidate
+    if (looksLikeRepoRoot(dir)) {
+      throw new Error(
+        `在 ${dir} 判定为仓库根（${ROOT_MARKERS.join(' + ')} 均在），但其下不存在 `
+        + `${DESKTOP_SEGMENTS.join('/')}/package.json —— fail closed：不再向上越界查找`
+        + '（越界会命中父目录里的另一份 checkout，把别人的产物树当成本仓的）。',
+      )
+    }
     const parent = path.dirname(dir)
     if (parent === dir) break
     dir = parent
