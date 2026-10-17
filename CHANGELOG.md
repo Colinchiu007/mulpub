@@ -1,3 +1,21 @@
+# [未发布] test(gates): 把「深度审查必然落在 self-play」变成可复跑读数（ccg-convergence-exit）
+
+- **动因是否证出来的**：#3724 收尾时我写过「大概是 stall 判据误触」。实测直接否证——验证层只跑一轮，而 `isStalled` 要求 `rounds.length >= stallRounds + 1`，单轮恒不成立。真正结论是引擎的三个停止出口里**只剩 ③ 可达**（① 从不进第 2 轮、② 轮次不足、③ `status=self_play reason=selfPlay stop=true`），而 ③ 对 `highRiskDomains` 非空的条目无条件计阻断 ⇒ 含 crypto 发现的 diff 上「闭环可达」不是待达成的目标，是结构上到不了的终点。本 PR 交付的是**测量与报警**，不声称让闭环可达。
+
+- **所有参数现读自上游源码，本仓不留第二份数**：`maxRounds=3 / scoreThreshold=8.0 / stallRounds=2 / stallScoreDelta=0.5` 只在 `engine.js`，`confidenceWeight=0.6 / selfPlay.enabled=true` 只在 `ccg-deep-review.js`。第一版的测试只喂了 engine 那一份 ⇒ 两键恒 `null`，「探针读不出参数」被读成「判据是硬的」。正解是把「读哪两份」收敛成单点 `readVendorSources()`，main 与测试同源，并加**反向**断言（只喂一份必须读不出对应键）—— 抄一份默认值就是下一个「上游改了而这里恒绿」的漂移源。
+
+- **三档退出码 + 机器档纯度**：`0` 读数符合 / `1` 读数偏离（上游行为或驱动形状变了）/ `2` 探针自身取不到数；混档等于把「探针瞎了」读成「引擎没问题」。`--json` 档的 stdout 只准放 JSON，人读行改道 stderr——第一版在 JSON 后面继续写结论，测试的 `JSON.parse` 抛 `Unexpected non-whitespace character after JSON at position 1117`，那条红读起来像「探针坏了」而不是「它多嘴了」。
+
+- **漂移报警带行为锁，不留注释**：P3 在临时目录放原样复制的真引擎 + 把轮次字段改回被禁形态的驱动，要求探针 `rc=1` 且偏离清单点名 `currentRound`，再在同目录换回真驱动要求 `rc=0`（A/B 缺一即红不能归因）。这里另踩一格：`CCG_ARL_DIR` 的语义是**技能根**（探针自己再拼 `scripts/`），传了已含 `scripts` 的路径会让探针静默回落真 vendor、夹具根本没被用上 ⇒ 补一条正控「JSON 里的 vendor 路径必须命中临时目录名」。
+
+- **夹具是真产物逐字摘录，计数差异就地解释**：样本取自 `.ccg/reviews/24cf2d8f…json`（PR #3724，被审 commit `5d660809a`），6 条 finding 逐字段核对全部 `fieldDiff=none`；`deepReview.status=self_play_blocked / performedBy=self-play / blocking=3 条（i1 自扮演维持 + i2/i4 高危需外部复核）`。引擎 stdout 写「8 条问题」而记录里 6 条，前者是 critic 当轮原始产出、后者是裁决后留存 —— 不写这句，下一个会话会把 8/6 读成摘录漏抄。
+
+- **变异 5 咬 1 逃，逃的那条如实记账**：MP1（json 档多嘴加回）/MP2（`readDefaults` 无视源码回传常量）/MP3（摘掉驱动形状自评）/MP4（找不到引擎返 0）/MP5（读法退回只喂 engine）均**指名变红**，还原 `md5 ok=true`；MP6（把 `shipped.status !== self_play` 摘成恒假）**实测 ESCAPED**——因为 P1 直接断言 ladder **读数本身**而不信探针自评，属防御重叠，写成设计属性而不是「锁已验证」。
+
+- **接线与白名单**：`quality-gate.yml` changes 作业新增 `Gate 2b6 - CCG convergence-exit probe`（编号避开 2b5：#3724 已占用 `Gate 2b5 - CCG evidence anchor` 且未合并，同号会在任一条先合时撞成两步同名）；`.gitignore` 补 `!scripts/ccg-convergence-probe.js`，判据用 `git check-ignore --no-index -v` 量（改前命中 `106:scripts/*.js`、改后命中放行规则，`git status` 里文件从「根本不存在」变为 `??`）。三条既有守卫实跑：`check-unwired-tests`（94 个测试文件 OK）、`check-step-failfast`（37 步 OK）、`check-workflow-structure`（files=14 violations=0）。
+
+- **诚实边界**：CI runner 上没有上游技能目录，所以 CI 那一格守的是「缺引擎 ⇒ rc=2 且点名探针失明」，ladder 读数断言在本机那一格跑 —— 两档都必须有产物，不 skip、不把「找不到」判成「通过」。三条出路（真跑多轮抬分 / 改上游引擎 / 人工放宽 `check-pr-exec-record` 闭合词表）全部登记在 `tasks.md` §7 且**本 PR 一条都不做**：前两条分别要用户拍板成本、要动跨项目共用的上游制品，第三条按 AGENTS.md 属改「谁来守门」，必须人工过目。
+
 # [未发布] docs(skill): start-app 入口选择硬路由 + preload 排查 + 结构锁（startapp-skill-harden）
 
 ## 动因（2026-10-17 实测事故，非 hypothetical）
