@@ -19,7 +19,7 @@ sync_backfill_owner: 下一个会话
 | 行尾与 diff 对账 | ✅ | `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径一致（无纯行尾变更）；无删除行（纯新增/修改） |
 | 接线棘轮 | ✅ | 新增 2 个测试文件均为**既有测试文件的同目录邻居**，由既有 workflow 的 `apps/desktop` vitest 全量入口覆盖（非孤儿文件）；无新增 workflow 点名需求 |
 | QM-1 打包 / QM-4 视觉 | ✅ / N/A | 改动含 `apps/desktop/electron/ipc-handlers/` ⇒ 必跑 QM-1（见下方证据节）。视觉：本轮未改既有页面 DOM 结构（新增提示为条件渲染，无 `title_source` 时不渲染节点），未触发像素门禁路径；Publish 视觉基线路径 query 不含 `title_source` ⇒ DOM 不变 |
-| QM-6 CCG 双模型外部评审 | 未执行 | 本机无 `codeagent-wrapper`，如实登记；改以 6 大专项自审 + 变异反证替代（见下） |
+| QM-6 CCG 双模型外部评审 | ⚠️ 跑不起来（工具链既有缺陷，非本次改动） | **更正**：初稿写「本机无 `codeagent-wrapper` ⇒ 未执行」是**错误陈述**——实测 `sh scripts/deep-review.sh --check-deps` 体检通过（`codeagent-wrapper` + `claude` + `opencode` 三后端均可用）。实跑 `sh scripts/deep-review.sh` 时失败：`spawnSync codeagent-wrapper.exe ETIMEDOUT`（exit 2 = 环境/配置问题，非评审否决）。**根因**：`scripts/deep-review.sh:445` 调用的驱动 `scripts/ccg-deep-review.js` **在仓库中不存在**——它被 commit `5592a54b6「chore(gate): 移除不该 vendor 的引擎驱动 ccg-deep-review.js」` 有意删除，但 `deep-review.sh` 未同步更新，且 `--check-deps` 只体检 `codeagent-wrapper`/`claude`/`opencode`，**漏检驱动脚本本身**，于是报「体检通过」后去调不存在的文件并 hang 至超时。**未把「评审跑不起来」记为「评审通过」**，也未自行补写引擎驱动（那是改「谁来守门」）。已按 AGENTS.md 停下来报告用户 |
 | 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填 merge SHA 与时间，`git ls-remote --heads origin fix-hot-topics-genvideo-title` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
 
 ### 质量门禁读数（fresh）
