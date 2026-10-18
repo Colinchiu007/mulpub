@@ -2,9 +2,6 @@
 record: flake-coverage-timeout
 task: 归因并沉淀 QG Coverage 40 分钟超时 flake（PR #3873 已合并，本记录为其补开的执行记录）
 date: 2026-10-18
-sync_status: PENDING
-sync_reason: 本记录为 #3873 合并后的补开记录；其补记 PR 尚未合并，merge SHA 尚不存在
-sync_backfill_owner: 下一个会话（同一次提交内改表格行 + 删这三个字段）
 ---
 
 ## 本次执行记录：沉淀 QG Coverage 40 分钟超时 flake（flake-coverage-timeout，2026-10-18）
@@ -20,7 +17,7 @@ sync_backfill_owner: 下一个会话（同一次提交内改表格行 + 删这�
 | 接线棘轮 | N/A | 本次未新增 `*.test.js` |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触运行面；`check-changelog-growth` rc=0（base 499 种标题 ⊆ head 500 种） |
 | QM-6 CCG 双模型外部评审 | 未执行 | 本机无 `codeagent-wrapper`，如实记录，不以自审冒充通过 |
-| 远程同步 | PENDING | 待本补记 PR 合并后回填 merge SHA（#3873 的 merge SHA 为 `466cf0349`，已于 2026-10-18T01:44:00+08:00 合并，远端分支 0 行） |
+| 远程同步 | PASS | merge SHA e57ff1379（git log origin/main --grep="(#3881)"; 取证时间 2026-10-18T02:06:32+08:00；远端分支 flake-record-followup 已删，ls-remote 0 行） |
 
 ### 遗留（不假装已闭合）
 - QG Coverage 的 40 分钟超时**未解决**，仍是约 25% 的 flake 概率；真修法（放宽超时 / 采集提速）待人工决策。
