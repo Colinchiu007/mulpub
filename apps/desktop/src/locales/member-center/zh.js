@@ -130,5 +130,20 @@ export default {
     ordersTitle: '订单与账单',
     ordersEmptyHint: '订单功能即将上线，敬请期待。',
     helpTitle: '帮助与支持',
-    helpHint: '如需帮助，请联系支持团队或查阅使用文档。'
+    helpHint: '以下入口都在应用内，点了就能到。',
+    helpFeedback: '提交问题反馈',
+    helpFeedbackHint: '在「设置 - 通用」填写问题描述，可勾选同时上传应用日志。',
+    helpModelConfig: '配置 AI 服务',
+    helpModelConfigHint: 'AI 改写与生图需要先填服务商 API Key。',
+    helpAccounts: '管理社媒账号',
+    helpAccountsHint: '登录态、代理与分组在此维护。',
+    helpLogsTitle: '应用日志',
+    helpLogsLoading: '正在读取日志信息…',
+    helpLogsUnavailable: '未能读取日志信息。',
+    helpLogsRetry: '重试',
+    helpLogsSummary: '{files} 个日志文件 · 共 {size}',
+    helpLogsDirLabel: '日志目录',
+    helpCopyDir: '复制日志目录路径',
+    helpCopied: '日志目录路径已复制',
+    helpCopyFailed: '复制失败，请手动打开日志目录'
   }

@@ -75,7 +75,9 @@ export const ROUTE_REGISTRY = Object.freeze([
     entryFrom: null,
   },
   {
-    // 暗路由：全仓库无跳转来源，只能靠 URL 直达（引导流程疑已下线，入口待确认）
+    // 暗路由：不在菜单里，由 App.vue 的 useFirstRunGate 在「首次运行标记未落」时
+    // router.replace 进来（阶段 1.4 接回启动判定；此前长期无跳转来源，
+    // 因为旧 runSetup 每次启动就把 first-run-done 写了）。
     path: '/first-run',
     name: 'FirstRun',
     view: 'FirstRun.vue',

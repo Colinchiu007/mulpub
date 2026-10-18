@@ -21,7 +21,6 @@ import { createFailureDraftSaver } from './services/publish-failure-draft-saver'
 import { useRiskStore } from './stores/risk'
 import { useNotify } from './composables/useNotify'
 import EmptyState from './components/EmptyState.vue'
-import LoadingState from './components/LoadingState.vue'
 import UiSkeleton from './components/UiSkeleton.vue'
 
 const app = createApp(App)
@@ -55,7 +54,6 @@ app.use(i18n)
 // 而本仓只用 36 个。清单与理由见 ./plugins/element-plus.js。
 app.use(elementPlusOnDemand)
 app.component('EmptyState', EmptyState)
-app.component('LoadingState', LoadingState)
 app.component('UiSkeleton', UiSkeleton)
 app.mount('#app')
 

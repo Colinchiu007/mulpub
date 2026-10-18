@@ -25,7 +25,7 @@ const t = (key, params) => i18n.global.t(key, params)
 export function useUnsavedLeaveGuard (options) {
   const { isDirty, subject } = options || {}
   if (typeof isDirty !== 'function') {
-    throw new Error('useUnsavedLeaveGuard: isDirty 必须是函数')
+    throw new Error('useUnsavedLeaveGuard: isDirty must be a function')
   }
 
   const onBeforeUnload = (event) => {

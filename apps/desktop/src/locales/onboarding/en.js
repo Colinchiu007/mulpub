@@ -4,6 +4,10 @@
  */
 export default {
     welcome: 'Welcome to Tomfish',
+    stepsIntro: 'Two steps to set up, then publish to every platform at once',
+    step1Desc: 'Sign in to your social media accounts',
+    step2Desc: 'Write one post and send it to all platforms',
+    markDoneFailed: 'Could not save the guide status; the wizard may appear again next launch',
     step1: 'Add Accounts',
     step2: 'Publish Content',
     step3: 'Complete Setup',

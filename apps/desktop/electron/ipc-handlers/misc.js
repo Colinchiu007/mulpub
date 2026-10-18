@@ -29,6 +29,19 @@ function registerHandlers(ipcMain, deps) {
     } catch (e) { log.warn('[ipc:misc]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message } }
   })
 
+  // 引导退出确认（阶段 1.4）：完成标记只有这一条写入路径。
+  // 写盘失败必须如实回错误码——若吞掉并返回成功，下次启动依旧不进向导，
+  // 而渲染层会以为"用户已看过引导"，等于把标记写入的失败伪装成用户主动跳过。
+  ipcMain.handle('first-run:complete', async () => {
+    try {
+      const res = firstRun.markDone()
+      if (!res || res.done !== true) {
+        return { code: EC.REQUEST_ERROR, message: (res && res.error) || 'MARKER_WRITE_FAILED' }
+      }
+      return { code: 0, data: { setupDone: true } }
+    } catch (e) { log.warn('[ipc:misc]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message } }
+  })
+
   ipcMain.handle('show-notification', async (_, data) => {
     try {
       const win = BrowserWindow.getAllWindows()[0]

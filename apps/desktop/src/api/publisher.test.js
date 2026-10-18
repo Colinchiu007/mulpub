@@ -55,7 +55,7 @@ const exportedNames = [
   // 二维码登录与账号状态事件
   "authOpenQrCodeLogin", "authQrCodeClose", "onQrCodeOpened", "onQrCodeDetected", "onQrCodeCompleted", "onQrCodeClosed", "onAccountStatusChanged",
   // 首次运行
-  "firstRunCheck", "onFirstRunStatus",
+  "firstRunCheck", "firstRunComplete",
   // 离线
   "offlineStatus", "offlineAddToCache", "offlineClearCache", "onOfflineRestored",
   // 通知
@@ -173,7 +173,9 @@ publishWechat: { args: [{ title: "t", content: "c" }], fallback: undefined, retu
   onQrCodeClosed: { args: [vi.fn()], fallback: undefined, returns: "function" },
   onAccountStatusChanged: { args: [vi.fn()], fallback: undefined, returns: "function" },
   firstRunCheck: { args: [], fallback: { code: 0, data: { setupDone: false } }, returns: "object" },
-  onFirstRunStatus: { args: [vi.fn()], fallback: undefined, returns: "function" },
+  // firstRunComplete 故意不走 invokeWithFallback：桥接缺席必须回非 0 码，
+  // 否则调用方会把「写不了」读成「用户已确认引导」（阶段 1.4）。
+  firstRunComplete: { args: [], fallback: { code: -1, message: "BRIDGE_UNAVAILABLE" }, returns: "object" },
   offlineStatus: { args: [], fallback: { code: -1, data: { offline: false, cachedCount: 0, cachedTasks: [] } }, returns: "object" },
   offlineAddToCache: { args: [{ task: "x" }], fallback: { code: -1 }, returns: "object" },
   offlineClearCache: { args: [], fallback: { code: -1 }, returns: "object" },

@@ -194,4 +194,49 @@ describe('MemberCenter', () => {
     await wrapper.vm.$nextTick()
     expect(wrapper.find('[data-testid="identity-diagnostics-toggle"]').exists()).toBe(false)
   })
+
+  // ─── audit-6：TrialBanner 挂载（组件建好但全仓零消费，用户看不到试用倒计时）───
+  async function mountFreeMember () {
+    const mounted = await mountMemberCenter()
+    const store = (await import('@/stores/identity')).useIdentityStore()
+    store.status = 'authenticated'
+    store.user = { sub: 'sub-1', name: '用户甲', username: 'user-a', picture: '' }
+    store.entitlement = { plan: 'free', features: [], source: 'online' }
+    const { useLicenseStore } = await import('@/stores/license')
+    const licenseStore = useLicenseStore()
+    licenseStore.info = { type: 'trial', isPro: false, isTrial: true, features: [], daysRemaining: 3 }
+    await mounted.wrapper.vm.$nextTick()
+    return mounted
+  }
+
+  it('试用态挂载试用横幅，倒计时取本地 license（不再只是测试里的组件）', async () => {
+    const { wrapper } = await mountFreeMember()
+    const banner = wrapper.find('.trial-banner')
+    expect(banner.exists(), 'TrialBanner 必须真实挂载在会员中心').toBe(true)
+    expect(banner.classes()).toContain('trial')
+    expect(banner.text()).toContain('3')
+  })
+
+  it('横幅「立即购买」按钮打开升级弹窗（emit 必须有父绑定，否则点击无反应）', async () => {
+    const { wrapper } = await mountFreeMember()
+    expect(wrapper.find('[data-testid="upgrade-modal-stub"]').exists()).toBe(false)
+    await wrapper.get('.trial-banner .banner-btn').trigger('click')
+    expect(wrapper.find('[data-testid="upgrade-modal-stub"]').exists()).toBe(true)
+  })
+
+  it('关闭横幅只影响横幅本身，页头升级入口仍可用', async () => {
+    const { wrapper } = await mountFreeMember()
+    await wrapper.get('.trial-banner .banner-close').trigger('click')
+    expect(wrapper.find('.trial-banner').exists(), '本次会话内不得再出现').toBe(false)
+    await wrapper.get('[data-testid="member-center-upgrade"]').trigger('click')
+    expect(wrapper.find('[data-testid="upgrade-modal-stub"]').exists()).toBe(true)
+  })
+
+  it('服务端权益为 pro 时不得出现横幅，即使本地 license 仍是默认 free（A2 单一真源）', async () => {
+    const { wrapper } = await mountFreeMember()
+    const store = (await import('@/stores/identity')).useIdentityStore()
+    store.entitlement = { plan: 'pro', features: [], source: 'online' }
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('.trial-banner').exists(), '本地 store 未就位不得把 pro 用户判成免费版').toBe(false)
+  })
 })

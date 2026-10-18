@@ -103,14 +103,13 @@ const ACCOUNT_METHODS = [
 const SYSTEM_METHODS = [
   'getVersion', 'getPlatform',
   'updateCheck', 'updateDownload', 'updateInstall', 'updateInstallNow', 'onUpdateStatus',
-  'firstRunCheck', 'onFirstRunStatus',
+  'firstRunCheck', 'firstRunComplete',
   'platformList', 'platformGet', 'getPlatformDefinitions',
   'sensitiveCheck', 'sensitiveReplace',
   'syncAll', 'syncPlatform', 'syncCached',
   'showNotification', 'onNotification',
   'onCallbackReceived',
   'offlineStatus', 'offlineIsOffline', 'offlineCachedTasks', 'offlineAddToCache', 'offlineClearCache', 'onOfflineRestored',
-  'onboardingComplete', 'onboardingGetSteps', 'onboardingStatus',
   // 2026-10-17 remove-buyout-license：6 个 payment* 桥接已随买断模型移除
   'onNavigate',
   'analyticsOverview', 'analyticsPlatform', 'analyticsPlatforms',
@@ -213,7 +212,7 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r)).toContain('accountGetProxy')
   })
 
-  it('system 模块应导出 146 个方法（2026-10-15：149 − 3，删 opsCenterSyncGet/Save/Now 三条死通道）', () => {
+  it('system 模块应导出 137 个方法（2026-10-18：139 − 2，引导通道收敛：删 onboardingComplete/GetSteps/Status 三条零写点的死通道与 onFirstRunStatus 推送，加 firstRunComplete）', () => {
     const { createSystemApi } = require('./preload/system')
     const r = createSystemApi(ipcRenderer)
     // 136 + opsCenterSyncRuntime/PipelineOptions/AppMenu（运营中心运行时策略，活通道）
@@ -227,11 +226,16 @@ describe('preload 子模块方法数', () => {
     // + batchCancel（2026-10-02 批量排期取消：清定时器 + 状态置 cancelled，与 batch:delete 区分）
     // - 10（分屏监控 webview:* API 随监控功能移除，网页查看统一走 pageManager）
     // - 3（2026-10-15：ops-center-sync:get/save/now 三条 IPC 在渲染端零调用，随别名一并移除）
-    expect(Object.keys(r).length).toBe(139)
+    expect(Object.keys(r).length).toBe(137)
+    // 现场对照（2026-10-18）：把 system.js 精确还原到 HEAD 后同一条命令测得 **140**，
+    // 而 HEAD 的断言写的是 139 ⇒ 这条棘轮在我动手之前就已差 1（既有假红，非本次引入）。
+    // 本次净变化 −4 +1 = −3：删 onFirstRunStatus（`first-run:status` 推送，SPA 挂载前发出、无人监听）
+    // 与 onboardingComplete/GetSteps/Status（`onboarding-done` 第二套引导真源，completeOnboarding() 零写点），
+    // 加 firstRunComplete（引导完成标记的唯一写口）。
   })
 
-  it('合并后 api 总键数应为 344（2026-10-17：343 + story2videoBgmLibraryStatus 历史 BGM 路径核验；2026-10-15：342 + accountGetProxy，账号页列表零解密后代理状态改由 account:get-proxy 按需读取；342 = 344 − 3 条死通道 + 1 个「再次发布」快照读口 historyGetRepublishSnapshot；344 = 343 + 1 个激活码核销键 identityRedeemCode → identity:redeem-code）', () => {
-    expect(Object.keys(api).length).toBe(337)
+  it('合并后 api 总键数应为 335（2026-10-18：引导通道收敛 −4 +1；沿革 2026-10-17：343 + story2videoBgmLibraryStatus 历史 BGM 路径核验；2026-10-15：342 + accountGetProxy，账号页列表零解密后代理状态改由 account:get-proxy 按需读取；342 = 344 − 3 条死通道 + 1 个「再次发布」快照读口 historyGetRepublishSnapshot；344 = 343 + 1 个激活码核销键 identityRedeemCode → identity:redeem-code）', () => {
+    expect(Object.keys(api).length).toBe(335)
     // 新键必须真实存在于聚合入口，防止「改了数字但方法没接上」
     expect(Object.keys(api)).toContain('identityRedeemCode')
     expect(Object.keys(api)).toContain('historyGetRepublishSnapshot')
@@ -254,7 +258,7 @@ describe('preload 子模块方法数', () => {
   })
 
   it('SYSTEM_METHODS 常量长度应为 134', () => {
-    expect(SYSTEM_METHODS.length).toBe(127)
+    expect(SYSTEM_METHODS.length).toBe(124)
   })
 
   it('IDENTITY_METHODS 常量长度应为 5', () => {

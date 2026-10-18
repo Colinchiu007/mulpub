@@ -376,8 +376,20 @@ export function onBatchProgress(callback) { return bridgeOn("BatchProgress", cal
 
 
 // ─── 首次运行引导 API ──────────────────────
+// 判定只走拉取（阶段 1.4 删掉了 `first-run:status` 推送：主进程在窗口创建时就发，
+// SPA 挂载前无人监听，是"写了没人读"的第二套真相）。
 export async function firstRunCheck() { return invokeWithFallback("firstRunCheck", {  code: 0, data: { setupDone: false }  }) }
-export function onFirstRunStatus(callback) { return bridgeOn("FirstRunStatus", callback) }
+// 引导退出回执（阶段 1.4）。**故意不返回假成功**：桥接不可用时回非 0 码，
+// 否则调用方会把「写不了」伪装成「用户已看过引导」。
+// 只用 electron-bridge 的原语（`ipc-exposure-contract` 的 M-9：直访 getApi 的文件清单只能为 0）。
+export async function firstRunComplete() {
+  try {
+    const res = await invokeWithFallback("firstRunComplete", null)
+    return res || { code: -1, message: "BRIDGE_UNAVAILABLE" }
+  } catch (e) {
+    return { code: -1, message: (e && e.message) || "FIRST_RUN_COMPLETE_FAILED" }
+  }
+}
 
 // ─── 通知 API ────────────────────────────
 

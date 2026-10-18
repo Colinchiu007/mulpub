@@ -27,6 +27,20 @@
       </div>
     </div>
 
+    <!--
+      试用/免费版横幅（audit-6：TrialBanner 自 2026-10-16 精致化后一直零挂载）。
+      可见资格取 `showUpgradeCta`（A2 单一真源，服务端 entitlement.plan），
+      不由组件自己的本地 license store 判——否则 pro 用户在 identityStore 尚未就位时
+      会因 `isFree = !isPro` 的默认值闪一次「当前为免费版」。倒计时文案仍取本地 store，
+      因为 expiresAt→天数换算只有 `license-manager._daysRemaining()` 一份实现。
+    -->
+    <TrialBanner
+      v-if="hasSessionIdentity && showUpgradeCta"
+      :dismissed="trialBannerDismissed"
+      @upgrade="showUpgrade = true"
+      @dismiss="trialBannerDismissed = true"
+    />
+
     <!-- 身份服务未启用 -->
     <div v-if="status === 'disabled'" class="cohere-content member-center-single">
       <section class="member-center-card">
@@ -169,6 +183,7 @@ import { useLicenseStore } from '@/stores/license'
 import { useMemberStore } from '@/stores/member'
 import { resolveIdentityErrorMessageKey } from '@/utils/identity-error-messages'
 import IdentityDiagnostics from '@/components/IdentityDiagnostics.vue'
+import TrialBanner from '@/components/TrialBanner.vue'
 import UpgradeModal from '@/components/UpgradeModal.vue'
 import { MEMBER_VIEWS } from './member-center/views'
 
@@ -191,6 +206,10 @@ const memberStore = useMemberStore()
 const { status, user, loading, error, signIn, switchAccount, signOut } = useIdentity()
 
 const showUpgrade = ref(false)
+// 关闭只在本次会话内生效：横幅正文是「还剩 N 天」这类随时间变化的事实，
+// 持久化压制会让下次进入会员中心时倒计时永久消失（与 AnnouncementBanner 的
+// 一次性运营公告不同——公告不随时间自证过期）。
+const trialBannerDismissed = ref(false)
 const activeKey = ref('overview')
 
 const hasSessionIdentity = computed(() => Boolean(user.value?.sub) && !['disabled', 'signed_out', 'expired'].includes(status.value))

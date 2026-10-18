@@ -1,3 +1,63 @@
+## 「我的测试全绿」这句话在本仓有两种读数，只读一行会骗人（ux-audit 阶段 1 批次 B，2026-10-18）
+
+### lesson:collect-error-invisible-in-tests-line-and-hoisting-tdz
+
+**判据：`vitest` 的通过证据必须同时看 `Test Files` 与 `Tests` 两行。**
+一个测试文件如果在**收集期**抛错（不是某条用例失败），它贡献 **0 条测试数**：
+`Tests 5677 passed | 2 skipped` 读起来完全像通过，而 `Test Files 2 failed | 356 passed` 才是现场。
+
+本案的收集期错误来自一条我自己写的锁：`vi.hoisted` 的工厂会被**提升到本文件所有 `import` 之前**执行，
+所以工厂里绝不能引用顶部 import 进来的绑定：
+
+```js
+import { ref } from 'vue'                                   // ← 这行在 hoisted 之后才生效
+const identity = vi.hoisted(() => ({ status: ref('x') }))   // ReferenceError: Cannot access '__vi_import_1__'
+```
+
+正解是 vitest 明示支持的异步形态，在工厂内部自己取宿主导出：
+`const identity = await vi.hoisted(async () => { const { ref } = await import('vue'); return { status: ref('x') } })`。
+
+**为什么它能在四层证据下活了一整轮**：①上面那条 Tests 行失明；②我只读了 Tests 行；
+③`scripts/check-unwired-tests.js` 的域只含 `scripts/` 与 `.github/scripts/`（`src/**` 由 vitest workspace 收集），
+所以"文件在收集期死亡"没有任何门禁在看；④CI 侧承载它的 `QG Desktop Shards` 在我盯的那轮仍 pending。
+
+**改完立刻掉出两个真实缺陷**（这就是"0 条用例被执行"的代价）：
+
+1. **判据方向写反**：`AccountSecurity.vue` 两个按钮 `:disabled="loading || pending !== 'switch'"`，
+   而 `pending` 初值是 `null` ⇒ **空闲态恒禁用**，用户从会员中心点不动「切换账号 / 退出登录」。
+   同文件下方 `revoke-others` 的 `:disabled="memberStore.loading || revoking || !sessions.length"` 就是正确范式 ——
+   写「禁用态」判据时必须先问"空闲态这条表达式求值出什么"，而不是只看"进行中是否被禁"。
+2. **夹具替对方解包**：`useMemberStore` 的 mock 给 `{ loading: ref(false), sessions: ref([...]) }`，
+   而组件按 **Pinia store** 的用法读 `memberStore.sessions.length` ⇒ 取到 `undefined` ⇒ 按钮又禁用，
+   于是 `confirmDanger`"没被调用"看起来像守卫没生效。mock 的形态必须按**消费者的读法**造
+   （store 用 `reactive({…})`，composable 返回 refs 由 setup 解包）。这是 AGENTS.md
+   「契约夹具不得替对方剥壳」的第三种落点：**替对方解包**。
+
+### lesson:duplicate-guide-source-survivor-is-whatever-installs-already-have
+
+本仓有两条并行的"用户是否见过引导"真源：`services/first-run.js`（标记 `first-run-done`，每次启动被无条件写）
+与 `services/onboarding.js`（标记 `onboarding-done`，`completeOnboarding()` 全仓**零写点**、三条 IPC 零消费方）。
+收敛时**保留哪一个的判据不是"哪个设计更完整"**，而是"存量安装里已经有哪一个"：
+换成 `onboarding-done` 会让每个老用户下次启动都被推进新手向导 —— 那是升级面上全员可见的回归，
+而它永远不出现在任何单测里（测试恒从干净 fixture 起步）。
+同一处的第二个形状：推送与拉取并存也是双真源（`first-run:status` 在窗口创建即发、SPA 挂载前无人监听），
+判定统一走 `first-run:check` 拉取。
+
+### lesson:count-ratchet-needs-single-file-control-restore
+
+改"导出方法数 = 139"这类计数棘轮前，先做**单文件控制对照**：
+`cp 目标文件 /tmp/x` → `git checkout HEAD -- <精确单文件路径>`（禁宽目录）→ 跑**同一条**命令 → 从备份还原并 `md5sum` 两侧相等。
+本案实测：还原到 HEAD 后同一测量给出 **140**，而断言写 139 ⇒ 这条棘轮在我动手前就已差 1（既有假红）。
+另外：推导与实测不符时（我按 `337−3=334` 预估，实测 335），注释只写**测得值**与增减名称，
+不把未取证的机制写进文档 —— 写进去的猜测会被下一个会话当成已验证的事实。
+
+### 收口口径
+
+- 本机 `EPERM: operation not permitted, symlink` 属 Windows 非特权进程不能建符号链接（CI runner 可以），
+  登记本机读数、不放宽断言、不记成"只有 runner 知道"。
+- 新增全局注册组件/门禁前，先跑一次「它能不能让自己变红」的变异；`vi.hoisted` 探针已做过正控与负控，
+  接进 CI 属新增"谁来守门"，与阶段 5 的 `check-ui-wired.js` 同批处理，未接成之前不写成已落地。
+
 ## 三条「看起来是我引入的 CI 红 / 提交污染」其实都有固定归因路径（startapp-skill-harden + flake-coverage-timeout，2026-10-18）
 
 ### lesson:judge-ci-red-by-timeout-frequency-and-change-scope

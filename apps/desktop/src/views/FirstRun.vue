@@ -9,62 +9,23 @@
           <div class="fr-step-icon-lg"><el-icon><Promotion /></el-icon></div>
           <h2 class="fr-step-title">{{ $t('onboarding.welcome') }}</h2>
           <p class="fr-step-desc">
-            三步完成配置，即可开始多平台一键发布
+            {{ $t('onboarding.stepsIntro') }}
           </p>
           <div class="fr-step-list">
             <div class="fr-step-item">
               <span class="fr-step-num">①</span>
-              <div><strong>环境检测</strong><br><span class="fr-step-item-desc">自动安装 Python 依赖和 Playwright</span></div>
+              <div><strong>{{ $t('onboarding.step1') }}</strong><br><span class="fr-step-item-desc">{{ $t('onboarding.step1Desc') }}</span></div>
             </div>
             <div class="fr-step-item">
               <span class="fr-step-num">②</span>
-              <div><strong>添加账号</strong><br><span class="fr-step-item-desc">登录你的社交媒体平台账号</span></div>
-            </div>
-            <div class="fr-step-item">
-              <span class="fr-step-num">③</span>
-              <div><strong>首次发布</strong><br><span class="fr-step-item-desc">写一篇文章发布到各平台</span></div>
+              <div><strong>{{ $t('onboarding.step2') }}</strong><br><span class="fr-step-item-desc">{{ $t('onboarding.step2Desc') }}</span></div>
             </div>
           </div>
           <button class="cohere-btn-primary" @click="currentStep = 1">开始配置 →</button>
         </div>
 
-        <!-- Step 1: Dependencies -->
+        <!-- Step 1: Add Account -->
         <div v-else-if="currentStep === 1" class="fr-step">
-          <div class="fr-step-icon"><el-icon><Setting /></el-icon></div>
-          <h2 class="fr-step-title-sm">环境检测</h2>
-          <p class="fr-step-desc">自动安装依赖，可能需要几分钟</p>
-
-          <div class="fr-dep-list">
-            <div v-for="(step, idx) in depSteps" :key="idx"
-              class="fr-dep-item"
-              :class="'fr-dep-item--' + step.status"
-            >
-              <span class="fr-dep-icon">
-                <span v-if="step.status === 'done'">✅</span>
-                <span v-else-if="step.status === 'active'">⏳</span>
-                <span v-else-if="step.status === 'error'">❌</span>
-                <span v-else>⬜</span>
-              </span>
-              <div class="fr-dep-body">
-                <div class="fr-dep-label">{{ step.label }}</div>
-                <div v-if="step.message" class="fr-dep-msg">{{ step.message }}</div>
-              </div>
-            </div>
-          </div>
-
-          <div v-if="allDepsDone" class="fr-step-actions">
-            <p class="fr-ready-text">✅ 环境就绪</p>
-            <button class="cohere-btn-primary" @click="currentStep = 2">下一步：添加账号 →</button>
-          </div>
-          <div v-if="depError" class="fr-step-actions">
-            <p class="fr-error-text">❌ 安装出错：{{ depErrorMessage }}</p>
-            <button class="cohere-btn-secondary" @click="retryDeps">重试</button>
-            <button class="cohere-btn-primary fr-btn-skip" @click="currentStep = 2">跳过</button>
-          </div>
-        </div>
-
-        <!-- Step 2: Add Account -->
-        <div v-else-if="currentStep === 2" class="fr-step">
           <div class="fr-step-icon"><el-icon><Key /></el-icon></div>
           <h2 class="fr-step-title-sm">添加你的第一个账号</h2>
           <p class="fr-step-desc">
@@ -83,12 +44,16 @@
           </div>
 
           <div class="fr-step-next">
-            <button class="cohere-btn-secondary" @click="currentStep = 3">已添加账号，下一步 →</button>
+            <button class="cohere-btn-secondary" @click="currentStep = 2">已添加账号，下一步 →</button>
+            <!-- 兜底出口：没加成账号也必须能离开全屏向导，否则用户被关在没有导航栏的 /first-run 里 -->
+            <button class="cohere-btn-secondary fr-btn-skip" data-testid="fr-skip" @click="leaveWizard('/')">
+              {{ $t('onboarding.skip') }}
+            </button>
           </div>
         </div>
 
-        <!-- Step 3: Quick Publish Tutorial -->
-        <div v-else-if="currentStep === 3" class="fr-step">
+        <!-- Step 2: Quick Publish Tutorial -->
+        <div v-else-if="currentStep === 2" class="fr-step">
           <div class="fr-step-icon">✍️</div>
           <h2 class="fr-step-title-sm">准备完毕！</h2>
           <p class="fr-step-desc">
@@ -111,14 +76,14 @@
           </div>
 
           <div class="fr-final-actions">
-            <button class="cohere-btn-secondary" @click="$router.push('/accounts')">管理账号</button>
-            <button class="cohere-btn-primary" @click="$router.push('/publish')">开始发布 →</button>
+            <button class="cohere-btn-secondary" @click="leaveWizard('/accounts')">管理账号</button>
+            <button class="cohere-btn-primary" @click="leaveWizard('/publish')">开始发布 →</button>
           </div>
         </div>
 
         <!-- Step progress dots -->
         <div class="fr-dots">
-          <div v-for="i in 4" :key="i" class="fr-dot" :class="{ 'fr-dot--active': currentStep >= i-1 }"></div>
+          <div v-for="i in 3" :key="i" class="fr-dot" :class="{ 'fr-dot--active': currentStep >= i-1 }"></div>
         </div>
       </div>
     </div>
@@ -127,18 +92,20 @@
 
 <script setup>
 // eslint-disable-next-line no-unused-vars
-import { Aim, EditPen, Key, Promotion, Setting } from '@element-plus/icons-vue'
+import { Aim, EditPen, Key, Promotion } from '@element-plus/icons-vue'
 import UiButton from "../components/UiButton.vue";
 import { getApi } from '@/api/electron-bridge'
 // eslint-disable-next-line no-unused-vars
 import UiInput from "../components/UiInput.vue";
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 
 // 欢迎语文案走 locale 单一来源（onboarding.welcome，zh/en 成对）：
 // 曾在此处硬编码欢迎语，改名时漏改即造成「一个产品两个名字」，
 // 且硬编码中文会被 check-locale-sync --cjk 判为新增硬编码。改由 locale 承担。
 const { t: $t } = useI18n()
+const router = useRouter()
 // 简单通知
 const notificationMsg = ref('')
 const notificationType = ref('success')
@@ -151,19 +118,11 @@ function notify(msg, type = 'success') {
   showNotification.value = true
   setTimeout(() => { showNotification.value = false }, 3000)
 }
-import { onFirstRunStatus, firstRunCheck, authOpenLogin, accountAdd } from '@/api/publisher'
+import { accountAdd, authOpenLogin, firstRunComplete } from '@/api/publisher'
 import { getPlatformIconUrl } from '@/composables/usePlatformIconUrl'
 
 const currentStep = ref(0)
 const addingPlatform = ref('')
-const allDepsDone = ref(false)
-const depError = ref(false)
-const depErrorMessage = ref('')
-
-const depSteps = ref([
-  { label: 'Python 依赖', status: 'pending', message: '' },
-  { label: 'Playwright 浏览器', status: 'pending', message: '' },
-])
 
 const quickPlatforms = [
   { id: 'wechat_mp', label: '微信公众号', icon: '💬', iconUrl: getPlatformIconUrl('wechat_mp') },
@@ -174,40 +133,21 @@ const quickPlatforms = [
   { id: 'youtube', label: 'YouTube', icon: '▶', iconUrl: getPlatformIconUrl('youtube') },
 ]
 
-let cancelListen = null
-
-const stepIndex = { python: 0, playwright: 1 }
-
-onMounted(async () => {
-  const checkResult = await firstRunCheck()
-  if (checkResult?.code === 0 && checkResult.data?.setupDone) {
-    allDepsDone.value = true
-    depSteps.value.forEach(s => { s.status = 'done' })
-    currentStep.value = 1  // skip deps
+/**
+ * 离开向导（阶段 1.4 的完成信号唯一来源）。
+ *
+ * 「用户退出了全屏引导」= 引导已被处理，因此写完成标记必须发生在这条路径上；
+ * 而写失败**必须出声**：静默失败会让下次启动再次进向导，而用户刚才明明点了「开始发布」，
+ * 表现为「跳不出去/反复被拉回引导」且日志里一条痕迹都没有。
+ * 即便如此仍要放行导航——把用户关在没有导航栏的全屏路由里更糟。
+ */
+async function leaveWizard (path) {
+  const res = await firstRunComplete()
+  if (!res || res.code !== 0 || res.data?.setupDone !== true) {
+    notify($t('onboarding.markDoneFailed'), 'error')
   }
-  cancelListen = onFirstRunStatus((payload) => {
-    if (!payload) return
-    if (payload.type === 'step' && stepIndex[payload.data?.step] !== undefined) {
-      depSteps.value[stepIndex[payload.data.step]].status = 'active'
-      depSteps.value[stepIndex[payload.data.step]].message = payload.data.message || ''
-    } else if (payload.type === 'done') {
-      depSteps.value.forEach(s => { s.status = 'done' })
-      allDepsDone.value = true
-    } else if (payload.type === 'error') {
-      const idx = depSteps.value.findIndex(s => s.status === 'active')
-      if (idx >= 0) {
-        depSteps.value[idx].status = 'error'
-        depSteps.value[idx].message = payload.data?.data || '未知错误'
-      }
-      depError.value = true
-      depErrorMessage.value = payload.data?.data || '安装失败'
-    }
-  })
-})
-
-onBeforeUnmount(() => {
-  if (cancelListen) cancelListen()
-})
+  await router.push(path)
+}
 
 async function addAccount (platform) {
   addingPlatform.value = platform
@@ -225,13 +165,6 @@ async function addAccount (platform) {
     }
   } catch (e) { window.alert(e.message) }
   finally { addingPlatform.value = '' }
-}
-
-function retryDeps () {
-  depError.value = false
-  depSteps.value.forEach(s => { if (s.status === 'error') s.status = 'pending'; s.message = '' })
-  // Re-trigger setup
-  firstRunCheck()
 }
 </script>
 <style scoped>

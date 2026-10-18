@@ -6,7 +6,7 @@
  * 通过 contextBridge.exposeInMainWorld 暴露给渲染进程。
  *
  * 三级分离设计：
- *   - public: 未登录可用（系统信息/登录入口/许可证激活/通知/onboarding）
+ *   - public: 未登录可用（系统信息/登录入口/许可证激活/通知/首运引导）
  *   - authenticated: 登录后可用（业务 API：发布/流水线/账号/渲染等）
  *   - admin: 仅开发模式（敏感操作：paymentComplete/proxyTest 等）
  *

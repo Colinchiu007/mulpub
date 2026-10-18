@@ -1,6 +1,6 @@
 ---
 record: ux-audit-impl
-task: 按 UX-AUDIT-2026-10-17 §5 落地阶段 0 全部 + 阶段 1 批次 A（导航/快捷键/404/离线/陈旧看门狗/两条新门禁）
+task: 按 UX-AUDIT-2026-10-17 §5 落地阶段 0 全部 + 阶段 1 批次 A（导航/快捷键/404/离线/陈旧看门狗/两条新门禁）+ 批次 B（暗色入口除外：试用横幅挂载、死全局注册清理、首运向导接回启动判定、帮助页可用化）
 date: 2026-10-18
 sync_status: PENDING
 sync_reason: 本片为混合 PR（运行时代码 + 门禁 + 文档），合并后收口由 merge-ledger 按主干历史推导，不另开回填 PR（2026-10-17 起回填通道已取消）
@@ -35,6 +35,20 @@ sync_backfill_owner: none-derived-from-trunk
 1. **`audit-29` 的"点遮罩即消失＝默认同意"不成立**：逐点核查三处承载破坏性动作的 `UiModal`（`AccountGroupManager`、`AccountProxyDialog`、`CreateView` 项目删除对话框），其遮罩/Esc/X 三条关闭路径全部路由到 cancel，不触发破坏动作。因此 `closeOnOverlay` 默认值**不翻**（与评审 w7 一致），判据改写为"破坏性动作不得绑在关闭路径上"的逐点结构锁。
 2. **阶段 0.5 写「CreateView/Publish/RewriteView 三页挂离开拦截」与其自身 finding 矛盾**：`audit-3` 已把 Publish 从范围里撤回（`keep-alive` 保活）。本批按 finding 级结论执行 —— Publish **不**挂拦截，并把"哪些编辑视图在范围内"交扫描锁枚举（实测 8 个视图，本批挂 1 个，7 个带逐条实测理由登记）。
 3. **畸形 CSS 实测是 4 处不是 3 处**：漏计的是 `components/OptimalTimeTip.vue:42`（内联 `style` 里的 `linear-gradient(...,var(--surface)3e0,...)`），说明既有扫描只看了 `<style>` 块。新锁因此把内联 `style="..."` 属性纳入域，并做引号感知抽取（值里的 `>` 会截断朴素正则）。
+
+## 阶段 1 批次 B 追加记录（ux-audit-impl-b，2026-10-18）
+
+| 门禁 | 状态 | Fresh 证据 |
+|------|------|-----------|
+| 本批范围 | 1.3 / 1.4 / 1.10 + 三条 CI 收红 | `TrialBanner` 挂载、`LoadingState` 删除、首运向导接回启动判定、帮助页可用化；另修 `QG Static` 的 Gate 7（两处开发者诊断文案改英文）、`Gate 12e`（tasks 编号断档）、`check-max-lines`（`publishProgress.js` 557→498，看门狗抽 `publish-progress-stall.js`） |
+| 第一性原因（QM-5 ①） | ✅ | 首运向导不可达的第一性原因是**写侧**：`first-run.js:34` 在每次启动无条件 `writeFileSync('first-run-done')`，使 `first-run:check` 恒真，而非"少写一行跳转"。审计稿 §audit-4 的更正（"疑似已被有意退役"）成立，故本批按"重新设计引导并接回"实施，未按"接一行跳转"估算 |
+| 逃逸分析（QM-5 ②） | ✅ | **本批最重要的逃逸**：阶段 0 的 `member-center/AccountSecurity.test.js` 因 `vi.hoisted` 工厂内引用顶部 `import { ref }` 触发 TDZ ⇒ 整文件集合失败 ⇒ **0 条用例被执行**。它在四层证据里全部隐身：①`Tests 5677 passed` 不含任何计数（集合错误不贡献测试数）；②我看的是 Tests 行而不是 `Test Files` 行；③`check-unwired-tests.js` 只扫 `scripts/`、`.github/scripts/`，`src/**` 由 vitest workspace 收集，因此"文件在收集期死亡"无人看；④CI 侧 `QG Desktop Shards` 当时仍 pending。**这次是它自己变红才被抓到**（改判据方向后跑出 6 条），不是自审想到 |
+| 连带暴露的两个真实缺陷 | ✅ | ①`AccountSecurity.vue:14,17` 判据方向写反：`pending` 初值 `null` 而按钮 `:disabled="loading \|\| pending !== 'switch'"` ⇒ **空闲态恒禁用**，用户从会员中心点不动「切换账号 / 退出登录」。改为与同文件 `revoking` 同向（只在自己那次请求进行中禁用），并补一条"空闲必须可点 + 加载中必须禁用"的行为锁。②夹具同形性：`useMemberStore` 的 mock 给裸 `ref`，组件按 Pinia 解包语义读 `memberStore.sessions.length` ⇒ 取到 `undefined` ⇒ 按钮再被禁用，`confirmDanger` "没被调用"看起来像守卫失效（AGENTS.md「契约夹具不得替对方剥壳」的第三种落点：**替对方解包**） |
+| 防再犯（QM-5 ⑤） | ⚠️ 部分 | 已落地：把"集合失败"变成可见判据（本记录与 PRD §11.6 均要求以 `Test Files` 行而非 `Tests` 行为通过证据）。**未落地**：`scripts/` 域外没有一条静态门禁检测「`vi.hoisted` 同步工厂引用顶部 import」；本批已验证过一条可用探针（正控命中坏形态、负控放过异步 hoisted 修复形态，全仓实测命中数 0），但把它接成 CI 门禁属新增"谁来守门"，留待阶段 5 一并处理，不在此预写达成 |
+| 引导真源收敛 | ✅ | 删除 `electron/services/onboarding.js` 与 `onboarding:complete/get-steps/status` 三条通道、preload 三方法、两处白名单、`ipc-handlers/index` 注册及其测试。保留 `first-run` 的判据是**存量数据事实**：`first-run-done` 每次启动都在写（所有老安装都有），若换成 `onboarding-done` 则每个老用户下次启动都被推进向导 —— 升级面全员可见回归且不会出现在任何单测里。同时删除 `first-run:status` 推送（窗口创建即发、SPA 挂载前无人监听，状态可由 `first-run:check` 随时读） |
+| 门禁与棘轮的如实改数 | ✅ | `preload.test.js` 三条计数：`check-danger-confirm` `files=372 … unregistered=0 missing_evidence=0 stale=0`；`check-css-var-concat files=201 violations=0`；`openspec-sync-check OK: 387 tasks`；`check-route-registry 37/37`；`check-locale-sync --cjk` 1175（删向导死文案与 LoadingState 后下降）、`--keys` 2156 全部存在。**既有假红记录**：把 `system.js` 精确还原到 HEAD 后同一测量得 **140** 而断言写 139 ⇒ 该棘轮在本批动手前已差 1，控制对照与逐字节还原（md5 相等）过程见 PRD §11.6 |
+| QM-1 打包 | 本批收尾重跑 | 本批改了 `electron/{window.js,ipc-handlers/*,preload/*,services/first-run.js}` ⇒ 属 QM-1 触发面；批次 A 的打包证据（`build:vue` rc=0 → `electron-builder --dir` rc=0 → asar `extractFile` 三查 → 隔离 userData 启动 10s 存活且 stderr 0 字节）已在上方表格登记，本批推送前按同三层判据重跑并回读 |
+| 本批未做（不冒充已做） | ⚠️ | 1.1（暗色入口，单独成包）与 1.2（`AnnouncementBanner` 挂载）未包含在本批：1.2 的正确实现需要先给内嵌 `WebContentsView` 加 top-inset 通道（`view-bounds.js` + `webview-manager/layout.js` + `webview-manager/ipc-handlers.js:246` + `preload/page-manager.js:40` 四处同步，仿 `setSidebarWidth`），否则原生图层会盖住横幅；本批不把它伪装成"挂一行" |
 
 ## 关联
 

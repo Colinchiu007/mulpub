@@ -208,7 +208,8 @@ function finishWindowInitialization(context, mainWindow) {
   } catch (e) {
     log.notify('window', 'autoupdater-init-failed', { level: 'WARN', error: String(e && e.message) })
   }
-  firstRun.runSetup(mainWindow)
+  // 首运引导不再在此落完成标记（阶段 1.4）：标记只由用户退出向导时的
+  // `first-run:complete` 写；渲染侧判定走 useFirstRunGate 的拉取。
   return mainWindow
 }
 

@@ -340,16 +340,16 @@ global.__resetElectronMock = resetElectronMock
 // 不在此处自动调用 reset，避免干扰测试文件自己的 beforeEach 顺序
 
 // ─── 全局组件注册（镜像 main.js 的全局注册） ───
-// 确保 <EmptyState>/<LoadingState>/<UiSkeleton> 在单测中可被解析，与运行态一致。
+// 确保 <EmptyState>/<UiSkeleton> 在单测中可被解析，与运行态一致。
 // 否则 3.3 收编的视图测试会因组件无法解析而断言失败。
+// 两份清单的一致性由 src/global-components-contract.test.js 逐字对账（只镜像不校验过，
+// 曾让零消费的 LoadingState 在 main.js 与这里同时"被注册"，单测全绿而运行态无人渲染）。
 import { config as vtConfig } from '@vue/test-utils'
 import EmptyState from './src/components/EmptyState.vue'
-import LoadingState from './src/components/LoadingState.vue'
 import UiSkeleton from './src/components/UiSkeleton.vue'
 vtConfig.global.components = {
   ...(vtConfig.global.components || {}),
   EmptyState,
-  LoadingState,
   UiSkeleton,
 }
 

@@ -8,7 +8,7 @@
  * 涵盖方法（与原 preload.js 完全一致，不改变方法名/IPC 通道/参数顺序）：
  *   - 系统：getVersion / getPlatform
  *   - 自动更新：updateCheck / updateDownload / updateInstall / updateInstallNow / onUpdateStatus
- *   - 首次运行引导：firstRunCheck / onFirstRunStatus
+ *   - 首次运行引导：firstRunCheck / firstRunComplete
  *   - 平台配置：platformList / platformGet / getPlatformDefinitions
  *   - 敏感词预检：sensitiveCheck / sensitiveReplace
  *   - 数据同步：syncAll / syncPlatform / syncCached
@@ -16,7 +16,6 @@
  *   - 回调服务器：onCallbackReceived
  *   - 离线模式：offlineStatus / offlineIsOffline / offlineCachedTasks / offlineAddToCache
  *               offlineClearCache / onOfflineRestored
- *   - 引导：onboardingComplete / onboardingGetSteps / onboardingStatus
  *   - 全局导航：onNavigate
  *   - 数据分析：analyticsOverview / analyticsPlatform / analyticsPlatforms
  *   - 快捷键：hotkeysList
@@ -66,13 +65,8 @@ function createSystemApi(ipcRenderer) {
       return () => ipcRenderer.removeListener('update:status', handler)
     },
 
-    // 首次运行引导 API
+    // 首次运行引导 API（判定走拉取，见 src/composables/useFirstRunGate.js）
     firstRunCheck: () => ipcRenderer.invoke('first-run:check'),
-    onFirstRunStatus: (callback) => {
-      const handler = (_event, payload) => callback(payload)
-      ipcRenderer.on('first-run:status', handler)
-      return () => ipcRenderer.removeListener('first-run:status', handler)
-    },
 
     // 平台配置 API
     platformList: () => ipcRenderer.invoke('platform:list'),
@@ -116,10 +110,15 @@ function createSystemApi(ipcRenderer) {
       const h = (_, d) => cb(d); ipcRenderer.on('offline:lost', h); return () => ipcRenderer.removeListener('offline:lost', h)
     },
 
-    // Onboarding API
-    onboardingComplete: () => ipcRenderer.invoke('onboarding:complete'),
-    onboardingGetSteps: () => ipcRenderer.invoke('onboarding:get-steps'),
-    onboardingStatus: () => ipcRenderer.invoke('onboarding:status'),
+    // 首运引导完成回执（阶段 1.4）：完成标记只有这一条写入路径。
+    firstRunComplete: () => ipcRenderer.invoke('first-run:complete'),
+
+    // Onboarding API 已删除（2026-10-18，UX-AUDIT 阶段 1.4 真源收敛）：
+    // `services/onboarding.js` 用第二个标记文件 `onboarding-done` 表达同一件事
+    // （「用户是否见过引导」），且 completeOnboarding() 在全仓**没有任何写点**——
+    // 于是它永远是"未完成"，三条 IPC 零消费方。保留它会把引导做成两套真源：
+    // 门户 `first-run-done` 每次启动由 window.js 写、用户永远看不到向导，
+    // 而 `onboarding-done` 谁都不读。收敛到 first-run 一份，见 electron/services/first-run.js。
 
     // 支付 API 已于 2026-10-17 remove-buyout-license 移除：
     // 本地下单链路（payment-manager）在 S1 修复后已无法授予任何授权，且 ¥99

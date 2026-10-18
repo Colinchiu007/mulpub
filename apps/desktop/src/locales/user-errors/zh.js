@@ -20,7 +20,7 @@ export default {
     PROVIDER_NOT_FOUND: '未找到该服务商，可能已被删除。请刷新列表后重试。',
     API_KEY_NOT_CONFIGURED: '该服务商尚未配置 API Key。请在「模型设置」中填写对应服务商的 API Key 后重试。',
     API_KEY_REQUIRED: '远程服务商必须配置 API Key。请在「模型设置」中填写后重试。',
-    LLM_KEY_MISSING: 'AI 改写功能需要连接智能写作服务，但尚未完成服务配置。请在应用的「模型设置」中配置 AI 服务商的 API Key（支持 OpenAI 兼容接口），保存后重新点击改写；若不清楚如何配置，请参考使用说明或联系支持获取帮助。',
+    LLM_KEY_MISSING: 'AI 改写功能需要连接智能写作服务，但尚未完成服务配置。请在应用的「模型设置」中配置 AI 服务商的 API Key（支持 OpenAI 兼容接口），保存后重新点击改写；不知道在哪里配置时，打开「会员中心 - 帮助与支持」，点「配置 AI 服务」可直接跳到该设置页。',
     AGGREGATION_CONTENT_EMPTY: '请先输入或采集要改写的内容，再点击改写。',
     AGGREGATION_URL_EMPTY: '请先输入要采集的链接，链接不能为空。',
     AGGREGATION_URL_INVALID: '链接格式不正确：仅支持以 http:// 或 https:// 开头的网页链接。请检查后重新输入。',

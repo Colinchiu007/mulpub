@@ -24,10 +24,11 @@
 - [x] 1.8 `lastEventAt` 陈旧看门狗（3 分钟阈值 / 15 秒采样 / 三个"不谎报"边界 / interval 幂等），面板停滞徽标与关闭解禁；6 条锁
 - [ ] 1.1 暗色主题入口（**单独成包**，评审 c2）：`useTheme` 改模块级单例 + 设置页「外观」分组（跟随系统/浅色/深色）+ `test-runner.js:511` 注释更正；合并后暗档像素门禁起算，暗色基线重建须人工审核
 - [ ] 1.2 `AnnouncementBanner` 挂载（数据链已备，零引用）；与内嵌视图重叠时按浮层互斥合同登记 owner
-- [ ] 1.3 `TrialBanner` 接进 MemberCenter 或删除；`LoadingState`（全局注册、模板零使用）删除或接上
-- [ ] 1.4 `/first-run` 接回启动判定（完成标记是 `userData/first-run-done` 磁盘文件，非 store 键）
+- [x] 1.3 `TrialBanner` 挂进 `MemberCenter`（可见资格取服务端 `entitlement.plan`，倒计时取本地 license；关闭只会话内生效）；`LoadingState` 与其测试、两处全局注册一并删除（实测全仓模板零消费）；新增 `src/global-components-contract.test.js`（注册↔消费 + 两份清单对账 + 反失明 + 墓碑，6 条，变异"加一条假注册"实测双红）
+- [x] 1.4 `/first-run` 接回启动判定：写标记从启动流程摘除（`runSetup` 与 `first-run:status` 推送通道删除），新增 `first-run:complete` IPC + preload + 两处白名单；`useFirstRunGate` 只在读到 `code===0 && setupDone===false` 时 `replace`（6 条判据锁 + 4 条 App 装配锁，装配锁变异"摘掉调用"实测变红）；向导由四步改三步并补「跳过引导」出口；顺带删除第二套引导真源 `services/onboarding.js`（`onboarding-done` 全仓零写点）
 - [ ] 1.9 已在 1.7 落地（catch-all 即本项）
-- [ ] 1.10 「帮助与支持」改可用：复用既有受控外链通道（`window.open → setWindowOpenHandler → isAllowedExternalUrl`），禁新写第二份协议判据；文案 zh/en 同批
+- [x] 1.10 「帮助与支持」改可用：三个入口全部指向应用内真实落点（`requestSettingsDialog('general'|'model')`、`router.push('/accounts')`），日志区块取 `logs:info` 真源三态 + `writeClipboard`；**未新增任何外链与第二份协议判据**（本仓无文档站地址，故不写 URL）；`userErrors.LLM_KEY_MISSING` 的"参考使用说明"改为具名可落路径；8 条行为锁
+- [x] 0.2 补做：阶段 0 的 `member-center/AccountSecurity.test.js` 因 `vi.hoisted` 工厂内引用顶部 `import { ref }` 触发 TDZ，**整文件 0 条用例被执行**（集合失败不贡献测试数，只看 `Tests N passed` 完全看不出）→ 改异步 hoisted 形态后跑出 6 条，并暴露两个真实缺陷：`AccountSecurity.vue` 两个按钮 `pending !== 动作名` 判据方向写反（空闲态恒禁用 ⇒ 用户点不动「切换/退出登录」），以及 store 夹具须用 `reactive` 才与 Pinia 解包语义同形
 
 ## 阶段 2：发布主流程确定性
 

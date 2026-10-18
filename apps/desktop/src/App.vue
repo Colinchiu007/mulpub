@@ -114,6 +114,7 @@ import { useLicenseStore } from '@/stores/license'
 import { useIdentityStore } from '@/stores/identity'
 import { useTabStore } from '@/stores/tab'
 import { useHomeShellNavigation } from '@/composables/useHomeShellNavigation'
+import { useFirstRunGate } from '@/composables/useFirstRunGate'
 import { notifySettingsDialogClosed, settingsDialogRequest } from '@/stores/settings-dialog'
 import { isHomeShellSearch } from '@/utils/home-shell'
 import { suspendEmbeddedViewsForOverlay, releaseEmbeddedViewsForOverlay } from '@/composables/useEmbeddedViewSuspension'
@@ -137,6 +138,9 @@ const isHomeTab = computed(() => isHomeShell || isHomeTabFromStore.value)
 // home-shell 实例的页面标题同步（2026-10-03 Bug 修复）：路由变化 → document.title +
 // IPC 上报主进程，驱动 TabBar 标签标题与 NavBar 地址栏占位符实时跟随当前页面。
 const tabTitleReporter = isHomeShell ? useTabDocumentTitle() : null
+// 首运向导判定（阶段 1.4）：只在主窗口实例跑。home-shell 实例本身就是浏览器标签的
+// WebContentsView，让它跳 /first-run 会把用户正在看的网页换成向导。
+if (!isHomeShell) useFirstRunGate()
 const accountActions = useAccountActions()
 const { t } = useI18n()
 const { notifyError } = useNotify()

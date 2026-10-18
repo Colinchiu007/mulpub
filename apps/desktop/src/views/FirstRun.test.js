@@ -7,23 +7,49 @@ vi.mock("@/stores/license", () => ({
   useLicenseStore: () => ({ isPro: true })
 }));
 
+const routerPush = vi.fn();
+vi.mock("vue-router", async (importOriginal) => ({
+  ...(await importOriginal()),
+  useRouter: () => ({ push: routerPush }),
+}));
+
 vi.mock("@/api/publisher", () => ({
-  onFirstRunStatus: vi.fn(() => vi.fn()),
-  firstRunCheck: vi.fn().mockResolvedValue({ code: 0, data: { setupDone: false } }),
+  firstRunComplete: vi.fn(),
   authOpenLogin: vi.fn(),
   accountAdd: vi.fn(),
 }));
 
 import FirstRunView from "./FirstRun.vue";
-import { authOpenLogin, accountAdd } from "@/api/publisher";
+import { authOpenLogin, accountAdd, firstRunComplete } from "@/api/publisher";
 import i18n from "@/i18n";
 
-/** 统一挂载入口：FirstRun.vue 用 useI18n() 读 onboarding.welcome（品牌名单一来源），
+/** 统一挂载入口：FirstRun.vue 用 useI18n() 读 onboarding.*（品牌名单一来源），
  *  与 Home/Accounts 等同构——mount 必须装真实 i18n 插件，否则 useI18n 抛
- *  createI18nError（19 例全挂）。locale 固定 zh 以保证断言稳定。 */
+ *  createI18nError。locale 固定 zh 以保证断言稳定。 */
 function createView() {
   i18n.global.locale.value = "zh";
   return mount(FirstRunView, { global: { plugins: [createPinia(), i18n] } });
+}
+
+/** 走完「欢迎 → 添加账号」：欢迎页唯一的按钮就是「开始配置」 */
+async function toAccountStep() {
+  const w = createView();
+  await nextTick();
+  await w.get("button").trigger("click");
+  await nextTick();
+  return w;
+}
+
+async function toTutorialStep() {
+  const w = createView();
+  await nextTick();
+  w.vm.currentStep = 2;
+  await nextTick();
+  return w;
+}
+
+function ackOk() {
+  firstRunComplete.mockResolvedValue({ code: 0, data: { setupDone: true } });
 }
 
 describe("FirstRunView", () => {
@@ -31,6 +57,7 @@ describe("FirstRunView", () => {
     vi.clearAllMocks();
     setActivePinia(createPinia());
     window.electronAPI = {};
+    ackOk();
   });
 
   it("shows welcome step initially", async () => {
@@ -41,17 +68,20 @@ describe("FirstRunView", () => {
     expect(w.text()).toContain("欢迎使用汤姆鱼");
   });
 
-  it("advances to next step on click", async () => {
+  it("欢迎页只列两步：不再声称会自动安装 Python/Playwright（P2-E 已移除该检查）", async () => {
     const w = createView();
     await nextTick();
-    await new Promise(r => setTimeout(r, 0));
-    await nextTick();
-    const btn = w.find("button");
-    if (btn.exists()) {
-      await btn.trigger("click");
-      await nextTick();
-      expect(w.vm.currentStep).toBe(1);
-    }
+    const text = w.text();
+    expect(text).toContain("添加账号");
+    expect(text).toContain("发布内容");
+    expect(text).not.toContain("环境检测");
+    expect(text).not.toContain("Playwright");
+    expect(w.findAll(".fr-step-item")).toHaveLength(2);
+  });
+
+  it("advances to next step on click", async () => {
+    const w = await toAccountStep();
+    expect(w.vm.currentStep).toBe(1);
   });
 
   it("notify shows notification and auto-hides", async () => {
@@ -133,32 +163,17 @@ describe("FirstRunView", () => {
     spy.mockRestore();
   });
 
-  it("retryDeps resets error state", async () => {
-    const w = createView();
-    await nextTick();
-    w.vm.depError = true;
-    w.vm.depErrorMessage = "Some error";
-    w.vm.depSteps.value = [
-      { label: "Python", status: "error", message: "fail" },
-    ];
-    w.vm.retryDeps();
-    expect(w.vm.depError).toBe(false);
-    expect(w.vm.depSteps[0].status).toBe("pending");
-  });
-
-  it("currentStep advances through all steps", async () => {
+  it("引导收敛为三步，第 1 步必须有离开出口", async () => {
     const w = createView();
     await nextTick();
     expect(w.vm.currentStep).toBe(0);
     w.vm.currentStep = 1;
     await nextTick();
-    expect(w.vm.currentStep).toBe(1);
+    // /first-run 是全屏路由（无侧栏无导航），没有出口就等于把人关在里面
+    expect(w.find('[data-testid="fr-skip"]').exists()).toBe(true);
     w.vm.currentStep = 2;
     await nextTick();
-    expect(w.vm.currentStep).toBe(2);
-    w.vm.currentStep = 3;
-    await nextTick();
-    expect(w.vm.currentStep).toBe(3);
+    expect(w.text()).toContain("准备完毕");
   });
 
   it("quickPlatforms has 6 platforms", async () => {
@@ -167,86 +182,59 @@ describe("FirstRunView", () => {
     expect(w.vm.quickPlatforms.length).toBe(6);
   });
 
-  it("allDepsDone allows step advance", async () => {
-    const w = createView();
+  // ─── 阶段 1.4：完成标记只由退出动作写（旧实现每次启动无条件写 ⇒ 向导永不可达）───
+  it("退出向导会写完成标记并跳转", async () => {
+    const w = await toTutorialStep();
+    await w.get(".fr-final-actions .cohere-btn-primary").trigger("click");
     await nextTick();
-    w.vm.allDepsDone = true;
+    expect(firstRunComplete).toHaveBeenCalledTimes(1);
+    expect(routerPush).toHaveBeenCalledWith("/publish");
+  });
+
+  it("写标记失败仍放行导航，但必须出声（不得静默把用户下次再拉回向导）", async () => {
+    firstRunComplete.mockResolvedValue({ code: -1, message: "BRIDGE_UNAVAILABLE" });
+    const w = await toTutorialStep();
+    await w.get(".fr-final-actions .cohere-btn-primary").trigger("click");
     await nextTick();
-    expect(w.vm.allDepsDone).toBe(true);
+    expect(routerPush).toHaveBeenCalledWith("/publish");
+    expect(w.vm.showNotification).toBe(true);
+    expect(w.vm.notificationType).toBe("error");
+  });
+
+  it("「跳过引导」同样记录完成状态", async () => {
+    const w = await toAccountStep();
+    await w.get('[data-testid="fr-skip"]').trigger("click");
+    await nextTick();
+    expect(firstRunComplete).toHaveBeenCalledTimes(1);
+    expect(routerPush).toHaveBeenCalledWith("/");
   });
 });
 
-describe("FirstRunView — extra coverage", () => {
+describe("FirstRunView — 步骤渲染", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     setActivePinia(createPinia());
     window.electronAPI = {};
+    ackOk();
   });
 
-  it("onFirstRunStatus step type updates depStep", async () => {
-    const mocks = await import("@/api/publisher");
-    var cb = null;
-    mocks.onFirstRunStatus.mockImplementation(callback => { cb = callback; return vi.fn(); });
+  it("renders account step (step 1)", async () => {
     const w = createView();
     await nextTick();
-    cb({ type: "step", data: { step: "python", message: "installing..." } });
+    w.vm.currentStep = 1;
     await nextTick();
-    expect(w.vm.depSteps[0].status).toBe("active");
-    expect(w.vm.depSteps[0].message).toBe("installing...");
+    expect(w.text()).toContain("添加你的第一个账号");
   });
 
-  it("onFirstRunStatus done type marks all done", async () => {
-    const mocks = await import("@/api/publisher");
-    var cb = null;
-    mocks.onFirstRunStatus.mockImplementation(callback => { cb = callback; return vi.fn(); });
-    const w = createView();
-    await nextTick();
-    cb({ type: "done" });
-    await nextTick();
-    expect(w.vm.allDepsDone).toBe(true);
-    expect(w.vm.depSteps.every(s => s.status === "done")).toBe(true);
-  });
-
-  it("onFirstRunStatus error type sets depError", async () => {
-    const mocks = await import("@/api/publisher");
-    var cb = null;
-    mocks.onFirstRunStatus.mockImplementation(callback => { cb = callback; return vi.fn(); });
-    mocks.firstRunCheck.mockResolvedValue({ code: 0, data: { setupDone: false } });
-    const w = createView();
-    await nextTick();
-    // Set a step as active first so error handler finds it
-    w.vm.depSteps[0].status = "active";
-    cb({ type: "error", data: { data: "Connection failed" } });
-    await nextTick();
-    expect(w.vm.depError).toBe(true);
-    expect(w.vm.depErrorMessage).toBe("Connection failed");
-  });
-
-  it("firstRunCheck setupDone skips deps step", async () => {
-    const mocks = await import("@/api/publisher");
-    mocks.firstRunCheck.mockResolvedValue({ code: 0, data: { setupDone: true } });
-    const w = createView();
-    await nextTick();
-    await new Promise(r => setTimeout(r, 0));
-    await nextTick();
-    expect(w.vm.allDepsDone).toBe(true);
-    expect(w.vm.currentStep).toBe(1);
-  });
-
-  it("renders account step (step 2)", async () => {
+  it("renders quick publish tutorial step (step 2)", async () => {
     const w = createView();
     await nextTick();
     w.vm.currentStep = 2;
     await nextTick();
-    expect(w.text()).toContain("添加账号");
-  });
-
-  it("renders quick publish tutorial step (step 3)", async () => {
-    const w = createView();
-    await nextTick();
-    w.vm.currentStep = 3;
-    await nextTick();
     expect(w.text()).toContain("准备完毕");
   });
-});
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+});

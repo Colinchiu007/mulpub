@@ -134,3 +134,94 @@
 
 - **WHEN** 某视图 import 了宿主图标包中不存在的名字
 - **THEN** 存在性锁 MUST 变红并点名文件与符号
+
+### Requirement: 首运引导只有一个真源且完成标记只由用户动作写入
+
+引导完成状态 MUST 由单一存储持有（`userData/first-run-done`）。启动流程 MUST NOT 写该标记；
+MUST 只有「用户退出或跳过引导」这一动作能写。任何第二条表达同一语义的通道
+（第二个标记文件、第二个 IPC 面、推送与拉取并存的双真相）MUST 被移除而非并存。
+
+#### Scenario: 全新用户首次启动进入向导
+
+- **WHEN** `first-run:check` 成功返回 `setupDone === false` 且当前不在 `/first-run`
+- **THEN** App 挂载后 MUST `router.replace('/first-run')`
+
+#### Scenario: 没有证据时不得把用户推进向导
+
+- **WHEN** 桥接缺席、IPC 抛错、响应 `code !== 0`、`data` 缺失或 `setupDone` 字段不是布尔 `false`
+- **THEN** MUST 保持当前路由不动，且 MUST NOT 写入完成标记
+
+#### Scenario: 写盘失败不得伪装成用户已确认
+
+- **WHEN** `first-run:complete` 的落盘动作失败或桥接不可用
+- **THEN** IPC MUST 返回非 0 码，渲染层 MUST 出声提示，同时仍放行导航
+
+#### Scenario: 第二个引导真源回归即红
+
+- **WHEN** `first-run.js` 重新导出 `runSetup`，或导出面出现 `{checkDeps,isSetupDone,markDone,reset}` 之外的成员
+- **THEN** `electron/services/first-run.test.js` MUST 变红
+
+### Requirement: 全局注册组件必须被模板消费，两份注册清单必须同源
+
+`app.component(...)` 注册的每个组件 MUST 在至少一个 `.vue` 模板中被使用。
+运行时清单（`main.js`）与单测镜像清单（`test-setup.js`）MUST 逐字相同，
+且该一致性 MUST 由机械锁核对（镜像注释不构成证据）。
+
+#### Scenario: 零消费的全局注册变红
+
+- **WHEN** 某个全局注册组件在全仓 `.vue` 模板中零消费
+- **THEN** `src/global-components-contract.test.js` MUST 变红并点名该组件
+
+#### Scenario: 清单漂移变红
+
+- **WHEN** `main.js` 与 `test-setup.js` 的注册集合不一致
+- **THEN** 同一把锁 MUST 变红，MUST NOT 靠"两边各自都绿"放行
+
+#### Scenario: 扫描域退化不得读成通过
+
+- **WHEN** 解析器取到 0 个注册项或 `.vue` 扫描域为空
+- **THEN** 锁 MUST 变红（反失明断言），MUST NOT 因"没有注册 ⇒ 没有违规"而绿
+
+### Requirement: 已建成的反馈与权益组件必须挂载或移除
+
+反馈、权益、公告这类**已实现且自带测试**的组件 MUST NOT 长期处于"存在但无人渲染"状态。
+处置只有两种：接入真实消费路径，或连同其测试一并删除。MUST NOT 以"留着以后用"并存死码。
+
+#### Scenario: 试用横幅在会员中心可见且按钮有动作
+
+- **WHEN** 已登录用户的服务端权益不是 `pro`
+- **THEN** `.trial-banner` MUST 渲染；点「立即购买」MUST 打开 `UpgradeModal`；点「✕」MUST 只影响横幅本身
+
+#### Scenario: 权益未就位不得把付费用户判成免费版
+
+- **WHEN** `entitlement.plan === 'pro'` 而本地 `licenseStore.info.isPro` 仍为默认 `false`
+- **THEN** MUST NOT 渲染免费版横幅
+
+#### Scenario: 全局注册但零消费的原语被删除而非留着
+
+- **WHEN** 某原语（如 `LoadingState`）在全仓模板零消费
+- **THEN** MUST 删除其组件、测试与两处注册，并由墓碑断言防止原形态回归
+
+### Requirement: 帮助与支持页的每条指引必须有可达落点
+
+用户可见的"去看文档/联系客服"类文案 MUST 指向确实存在的落点。本仓不存在文档站地址，
+因此帮助页 MUST 只指向应用内入口（设置弹窗的具体 Tab、账号页、日志真源），
+MUST NOT 写入未经取证的 URL。外链需求出现时 MUST 复用既有受控通道
+（`window.open → setWindowOpenHandler → isAllowedExternalUrl`），MUST NOT 新写第二份协议判据。
+
+#### Scenario: 每个入口点击都产生真实动作
+
+- **WHEN** 用户点击帮助页任一入口按钮
+- **THEN** MUST 分别触发 `requestSettingsDialog('general'|'model')` 与 `router.push('/accounts')`，
+  测试 MUST 断言到具体调用而非"按钮存在"
+
+#### Scenario: 日志读取失败不得显示为没有日志
+
+- **WHEN** `logs:info` 返回非成功码或抛错
+- **THEN** MUST 进入 `role="alert"` 的失败态并提供重试；MUST NOT 渲染「0 个日志文件」
+
+#### Scenario: 复制失败不得谎称成功
+
+- **WHEN** `writeClipboard` 返回 `false` 或抛错
+- **THEN** MUST 报失败提示且 MUST NOT 报「已复制」；目录为空时复制按钮 MUST 禁用
+

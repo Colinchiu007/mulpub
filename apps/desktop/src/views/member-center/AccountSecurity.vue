@@ -11,10 +11,14 @@
         <span class="member-center-status-badge" :class="`status-${status}`">{{ statusLabel }}</span>
       </div>
       <div class="member-center-card-actions">
-        <button class="cohere-btn-secondary" data-testid="member-center-switch" :disabled="loading || pending !== 'switch'" @click="handleSwitch">
+        <!-- ⚠️ 判据方向：`pending` 初值是 null，且只在请求进行中等于本按钮的动作名。
+             旧写法 `pending !== 'switch'` / `pending !== 'sign-out'` 把「空闲」当成「禁用」，
+             于是这两个按钮在页面上永远是灰的（用户从会员中心根本点不动「切换账号 / 退出登录」）。
+             方向与同文件 revoke-others 的 `revoking` 一致：只在自己那次请求进行中禁用。 -->
+        <button class="cohere-btn-secondary" data-testid="member-center-switch" :disabled="loading || pending === 'switch'" @click="handleSwitch">
           {{ pending === 'switch' ? t('memberCenter.switchingAccount') : t('memberCenter.switchAccount') }}
         </button>
-        <button class="cohere-btn-secondary" data-testid="member-center-signout" :disabled="loading || pending !== 'sign-out'" @click="handleSignOut">
+        <button class="cohere-btn-secondary" data-testid="member-center-signout" :disabled="loading || pending === 'sign-out'" @click="handleSignOut">
           {{ pending === 'sign-out' ? t('memberCenter.signingOut') : t('memberCenter.signOut') }}
         </button>
       </div>

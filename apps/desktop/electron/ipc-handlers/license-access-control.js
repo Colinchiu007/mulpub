@@ -6,8 +6,7 @@ const { isTrustedSender } = require('../core/ipc-security')
 const PUBLIC_CHANNELS = new Set([
   'app:get-version', 'app:get-platform',
   'update:check', 'update:download', 'update:install', 'update:install-now',
-  'first-run:check', 'show-notification',
-  'onboarding:complete', 'onboarding:get-steps', 'onboarding:status',
+  'first-run:check', 'first-run:complete', 'show-notification',
   'license:info', 'license:deactivate',
   'license:activate-trial', 'license:has-feature', 'license:features',
   // 2026-10-17 remove-buyout-license：`license:activate` 与 6 条 `payment:*` 通道

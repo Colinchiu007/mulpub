@@ -130,5 +130,20 @@ export default {
     ordersTitle: 'Orders & Billing',
     ordersEmptyHint: 'Order history is coming soon.',
     helpTitle: 'Help & Support',
-    helpHint: 'Need help? Contact support or browse the docs.'
+    helpHint: 'Every entry below lands somewhere inside the app.',
+    helpFeedback: 'Send problem feedback',
+    helpFeedbackHint: 'Describe the issue under Settings - General; app logs can be attached.',
+    helpModelConfig: 'Configure AI services',
+    helpModelConfigHint: 'AI rewrite and image generation need a provider API key first.',
+    helpAccounts: 'Manage social accounts',
+    helpAccountsHint: 'Login state, proxy and groups live here.',
+    helpLogsTitle: 'App logs',
+    helpLogsLoading: 'Reading log information…',
+    helpLogsUnavailable: 'Could not read log information.',
+    helpLogsRetry: 'Retry',
+    helpLogsSummary: '{files} log files · {size} total',
+    helpLogsDirLabel: 'Log folder',
+    helpCopyDir: 'Copy log folder path',
+    helpCopied: 'Log folder path copied',
+    helpCopyFailed: 'Copy failed; open the log folder manually'
   }

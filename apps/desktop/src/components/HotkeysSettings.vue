@@ -74,7 +74,7 @@ const rows = computed(() => items.value.map(item => ({
 
 function actionOf (item) {
   if (item && typeof item.labelKey === 'string' && item.labelKey) return t(item.labelKey)
-  console.warn('[hotkeys] 缺少 labelKey，退回主进程中文标签：', item && item.accelerator)
+  console.warn('[hotkeys] missing labelKey, falling back to main-process label:', item && item.accelerator)
   return item ? item.label : ''
 }
 

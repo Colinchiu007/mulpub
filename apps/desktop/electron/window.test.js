@@ -47,7 +47,7 @@ function buildMockContext(overrides) {
     systemTray: { init: vi.fn() },
     hotkeys: { register: vi.fn() },
     autoUpdater: { init: vi.fn() },
-    firstRun: { runSetup: vi.fn() },
+    firstRun: { checkDeps: vi.fn(), markDone: vi.fn() },
   }, overrides)
 }
 
@@ -726,9 +726,9 @@ describe('window — createWindow', () => {
     expect(context.autoUpdater.init).toHaveBeenCalledTimes(1)
   })
 
-  it('调用 firstRun.runSetup', () => {
+  it('启动不得写首运完成标记（阶段 1.4：旧实现在这里调 runSetup 无条件落盘 ⇒ 向导永不可达）', () => {
     createWindow(context)
-    expect(context.firstRun.runSetup).toHaveBeenCalledTimes(1)
+    expect(context.firstRun.markDone).not.toHaveBeenCalled()
   })
 
   it('返回 mainWindow 实例', () => {

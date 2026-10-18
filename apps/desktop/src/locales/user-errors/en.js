@@ -20,7 +20,7 @@ export default {
     PROVIDER_NOT_FOUND: 'The provider was not found and may have been deleted. Please refresh the list and try again.',
     API_KEY_NOT_CONFIGURED: 'This provider does not have an API key configured. Add the key in Model Settings and try again.',
     API_KEY_REQUIRED: 'Remote providers require an API key. Add it in Model Settings and try again.',
-    LLM_KEY_MISSING: 'AI rewriting needs to connect to a writing service, but that service has not been configured yet. Please go to Model Settings in the app and add the API key for your AI provider (OpenAI-compatible endpoints are supported), save it, then click Rewrite again. If you are not sure how to configure it, see the user guide or contact support.',
+    LLM_KEY_MISSING: 'AI rewriting needs to connect to a writing service, but that service has not been configured yet. Please go to Model Settings in the app and add the API key for your AI provider (OpenAI-compatible endpoints are supported), save it, then click Rewrite again. Not sure where that is? Open Member Center - Help & Support and click "Configure AI services" to jump straight to that page.',
     AGGREGATION_CONTENT_EMPTY: 'Please enter or collect some content to rewrite first, then click Rewrite.',
     AGGREGATION_URL_EMPTY: 'Please enter the link to collect first; the link cannot be empty.',
     AGGREGATION_URL_INVALID: 'The link format is incorrect: only web links starting with http:// or https:// are supported. Please check and try again.',
