@@ -24,7 +24,7 @@ const os = require('os')
 const path = require('path')
 const { startFakeServer, methodPathList } = require('./helpers/fake-http')
 const { createHttpClient } = require('../src/publish/core/http-base')
-const { ToutiaoVideoChain, ToutiaoVideoError, TT_APP_ID, TT_SPACE_NAME_FALLBACK, PUBLISH_TYPE } = require('../src/publish/platforms/toutiao-video')
+const { ToutiaoVideoChain, ToutiaoVideoError, TT_APP_ID, TT_SPACE_NAME_FALLBACK, PUBLISH_TYPE, parsePosterListResponse, pickPosterUri } = require('../src/publish/platforms/toutiao-video')
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
 
@@ -314,13 +314,79 @@ describe('ToutiaoVideoChain — 头条视频 API 轨', () => {
     } finally { fs.unlinkSync(f) }
   })
 
-  it('run：缺封面 ⇒ 本地 fail-closed，零请求（平台要求封面必填）', async () => {
-    await bootChain()
+  // —— 封面来源：平台推荐封面优先（bundle 实证：GetPosterList 按 vid 自动生成）——
+  //
+  // 语义变更（toutiao-poster-cover）：封面闸门从「上传前本地拦」改为「上传后向平台要推荐封面」。
+  // 依据 bundle 原文 UI 文案「视频上传完毕后才能生成推荐封面，你可上传或自定义截取封面」——
+  // 推荐封面依赖 vid，所以必须在上传之后；这也解掉了「先要封面才能上传、上传完才有封面」的死锁。
+
+  it('parsePosterListResponse / pickPosterUri：候选键探测（Posters[] 项字段名未取证，故多键兜底）', () => {
+    const parsed = parsePosterListResponse({ code: 0, data: { Posters: [{ Uri: 'u1' }, { Url: 'u2' }] } })
+    expect(parsed.posters.length).toBe(2)
+    expect(pickPosterUri(parsed.posters)).toMatchObject({ uri: 'u1', key: 'Uri' })
+
+    // 只有 Url 的形态
+    expect(pickPosterUri([{ Url: 'only-url' }])).toMatchObject({ uri: 'only-url', key: 'Url' })
+    // 空/非法输入不抛
+    expect(pickPosterUri([])).toMatchObject({ uri: '', key: null })
+    expect(pickPosterUri(null)).toMatchObject({ uri: '', key: null })
+    expect(pickPosterUri([null, {}, { Uri: '' }])).toMatchObject({ uri: '', key: null })
+    // data.Posters 缺失也退化成空数组，不抛
+    expect(parsePosterListResponse({}).posters).toEqual([])
+  })
+
+  it('run：无调用方封面时自动选用平台推荐封面（GET poster 用 vid，落进 VideoInfo.ThumbUri）', async () => {
+    const all = await startFakeServer([
+      { method: 'GET', match: /GetPublishAuth/, body: { status: 0, data: { authorPermission: { DisablePublish: false } } } },
+      { method: 'GET', match: /GetPublishPageReviewLatency/, body: { status: 0, data: {} } },
+      { method: 'GET', match: /^\/xigua\/api\/upload\/getAuthKey\//, body: authKeyResp({}) },
+      { method: 'GET', match: /Action=ApplyUploadInner/, body: null },
+      { method: 'POST', match: /\/upload\/v1\//, body: 'ok', raw: true },
+      { method: 'POST', match: /Action=CommitUploadInner/, body: commitResp('VID_POSTER') },
+      // 推荐封面：刻意用 Url 键，验证候选探测
+      { method: 'POST', match: /GetPosterList/, body: { code: 0, data: { Posters: [{ Url: 'poster-from-platform' }] } } },
+      { method: 'POST', match: /PublishVideo/, body: { status: 0, data: { Code: 0, ItemId: 'ITEM_POSTER' } } },
+    ])
+    all.replaceRouteBody(/Action=ApplyUploadInner/, applyResp(all.url.replace(/^http:\/\//, '')))
+    const c = new ToutiaoVideoChain({
+      cookie: makeCookie(), mpBase: all.url, vodBase: all.url,
+      userAgent: UA, uid: '1342958645023752', uploadScheme: 'http:',
+    })
     const f = tmpVideo(1024)
     try {
-      await expect(chain.run({ title: 't', video: { path: f } })).rejects.toBeInstanceOf(ToutiaoVideoError)
-      expect(srv.requests.length).toBe(0)
-    } finally { fs.unlinkSync(f) }
+      const r = await c.run({ title: 't', video: { path: f } })
+      expect(r).toMatchObject({ success: true, publishId: 'ITEM_POSTER' })
+      // 封面确实走了平台推荐，且如实标出来源
+      expect(r.cover).toMatchObject({ source: 'platform-poster', pickedKey: 'Url', posterCount: 1 })
+      const posterReq = all.requests.find((x) => /GetPosterList/.test(x.url))
+      expect(posterReq.body).toEqual({ vid: 'VID_POSTER' })
+      const pub = all.requests.find((x) => /PublishVideo/.test(x.url))
+      expect(pub.body.VideoInfo.ThumbUri).toBe('poster-from-platform')
+    } finally { fs.unlinkSync(f); await all.close() }
+  })
+
+  it('run：平台无推荐封面且调用方未给封面 ⇒ 上传后 fail-closed，不谎报成功', async () => {
+    const all = await startFakeServer([
+      { method: 'GET', match: /GetPublishAuth/, body: { status: 0, data: {} } },
+      { method: 'GET', match: /GetPublishPageReviewLatency/, body: { status: 0, data: {} } },
+      { method: 'GET', match: /^\/xigua\/api\/upload\/getAuthKey\//, body: authKeyResp({}) },
+      { method: 'GET', match: /Action=ApplyUploadInner/, body: null },
+      { method: 'POST', match: /\/upload\/v1\//, body: 'ok', raw: true },
+      { method: 'POST', match: /Action=CommitUploadInner/, body: commitResp('VID_NOPOSTER') },
+      { method: 'POST', match: /GetPosterList/, body: { code: 0, data: { Posters: [] } } },
+      { method: 'POST', match: /PublishVideo/, body: { status: 0, data: { Code: 0, ItemId: 'SHOULD_NOT_HAPPEN' } } },
+    ])
+    all.replaceRouteBody(/Action=ApplyUploadInner/, applyResp(all.url.replace(/^http:\/\//, '')))
+    const c = new ToutiaoVideoChain({
+      cookie: makeCookie(), mpBase: all.url, vodBase: all.url,
+      userAgent: UA, uid: '1342958645023752', uploadScheme: 'http:',
+    })
+    const f = tmpVideo(1024)
+    try {
+      await expect(c.run({ title: 't', video: { path: f } })).rejects.toBeInstanceOf(ToutiaoVideoError)
+      // 关键：绝不能发出 PublishVideo（否则就是无视封面必填硬发）
+      expect(all.requests.some((x) => /PublishVideo/.test(x.url))).toBe(false)
+    } finally { fs.unlinkSync(f); await all.close() }
   })
 
   it('run：封面闸门与 body 构造接受的来源必须一致 —— 只给 thumbUri 也要放行', async () => {
@@ -402,6 +468,7 @@ describe('ToutiaoVideoChain — 头条视频 API 轨', () => {
       { method: 'GET', match: /Action=ApplyUploadInner/, body: null }, // 先占位，稍后用真实 host
       { method: 'POST', match: /\/upload\/v1\//, body: 'ok', raw: true },
       { method: 'POST', match: /Action=CommitUploadInner/, body: commitResp('VID_RUN') },
+      { method: 'POST', match: /GetPosterList/, body: { code: 0, data: { Posters: [{ Uri: 'poster-run' }] } } },
       { method: 'POST', match: /^\/xigua\/api\/upload\/PublishVideo/, body: { status: 0, data: { Code: 0, ItemId: 'ITEM_RUN' } } },
     ])
     const host = all.url.replace(/^http:\/\//, '')
@@ -415,8 +482,8 @@ describe('ToutiaoVideoChain — 头条视频 API 轨', () => {
 
     const f = tmpVideo(2048)
     try {
-      // coverPath 必填（平台要求封面）；skipCoverCheck 会让链路在无封面时也继续，这里刻意**不**跳，
-      // 以便同时钉住「封面闸门在上传之前」这一行为。
+      // 刻意只给 coverPath（本地文件，给不出平台侧 URI）⇒ 链路必须回落「平台推荐封面」。
+      // 这同时钉住了两件事：封面闸门在**上传之后**、且本地封面文件不能替代平台侧 URI。
       const r = await c.run({ title: 'T标题', content: '正文内容', coverPath: 'D:/fake/cover.jpg', video: { path: f } })
       expect(r).toMatchObject({ success: true, platform: 'toutiao', publishId: 'ITEM_RUN' })
 
@@ -427,16 +494,18 @@ describe('ToutiaoVideoChain — 头条视频 API 轨', () => {
       const iApply = raws.findIndex((p) => /Action=ApplyUploadInner/.test(p))
       const iUpload = raws.findIndex((p) => /^POST \/upload\/v1\//.test(p))
       const iCommit = raws.findIndex((p) => /Action=CommitUploadInner/.test(p))
+      const iPoster = raws.findIndex((p) => /GetPosterList/.test(p))
       const iPublish = raws.findIndex((p) => /PublishVideo/.test(p))
       // 顺序不变量：闸门 < auth < apply < 二进制上传 < commit < publish，且每一步都真实发生
-      for (const [name, i] of [['gate', iGate], ['auth', iAuth], ['apply', iApply], ['upload', iUpload], ['commit', iCommit], ['publish', iPublish]]) {
+      for (const [name, i] of [['gate', iGate], ['auth', iAuth], ['apply', iApply], ['upload', iUpload], ['commit', iCommit], ['poster', iPoster], ['publish', iPublish]]) {
         expect(i, name + ' 必须发生').toBeGreaterThan(-1)
       }
       expect(iGate).toBeLessThan(iAuth)
       expect(iAuth).toBeLessThan(iApply)
       expect(iApply).toBeLessThan(iUpload)
       expect(iUpload).toBeLessThan(iCommit)
-      expect(iCommit).toBeLessThan(iPublish)
+      expect(iCommit).toBeLessThan(iPoster)
+      expect(iPoster).toBeLessThan(iPublish)
 
       // PublishVideo 的 body 必须是 bundle 取证的真实形状，且带 apply 阶段拿到的 Vid
       const pub = all.requests.find((x) => /PublishVideo/.test(x.url))
