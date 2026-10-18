@@ -467,6 +467,64 @@ describe("CollectionView", () => {
       expect(pushSpy).not.toHaveBeenCalled();
     });
 
+    // ─── 2026-10-18 空正文改写守卫（fix-collect-rewrite-empty-content）───
+    // 事故链：内容缓存命中返回空壳 {title:'',content:''}（url-collector.js cache_hit），
+    // 「一键改写」拿空串当改写入参 → 旧后端 min_length=1 报 422「Python backend request
+    // failed」，文案毫无指向性；新代码走桌面引擎虽不会 422，但同样会把空内容发出去。
+    // 判据：改写漏斗 rewriteViaEngine 一律判空（trim），空内容返回稳定错误码
+    // AGGREGATION_CONTENT_EMPTY，且绝不调用 aiRewrite。
+    describe("空正文改写守卫（rewriteViaEngine 漏斗判空）", () => {
+      it("空串 → 不调 aiRewrite，返回 AGGREGATION_CONTENT_EMPTY 错误信封", async () => {
+        window.electronAPI = mockStealthApi();
+        const w = mountCollection();
+        await nextTick();
+        const r = await w.vm.rewriteViaEngine("");
+        expect(window.electronAPI.aiRewrite).not.toHaveBeenCalled();
+        expect(r).not.toBe(null);
+        expect(r.__error).toBeTruthy();
+        expect(r.__error.errorCode).toBe("AGGREGATION_CONTENT_EMPTY");
+        expect(r.__error.code).toBe(-400);
+      });
+
+      it("纯空白（空格/换行/制表）同样拦截 —— 不得把不可见字符当正文", async () => {
+        window.electronAPI = mockStealthApi();
+        const w = mountCollection();
+        await nextTick();
+        const r = await w.vm.rewriteViaEngine("  \n\t  ");
+        expect(window.electronAPI.aiRewrite).not.toHaveBeenCalled();
+        expect(r.__error.errorCode).toBe("AGGREGATION_CONTENT_EMPTY");
+      });
+
+      it("collectAndRewrite：缓存空壳（content 为空）→ 提示空内容文案，不改写", async () => {
+        const api = mockStealthApi();
+        // 复现事故形态：cache_hit 空壳 —— title/content 均为空串
+        api.urlCollectFetch = vi.fn().mockResolvedValue({
+          code: 0,
+          data: { success: true, reason: "cache_hit", title: "", content: "" },
+        });
+        window.electronAPI = api;
+        const w = mountCollection();
+        await nextTick();
+        w.vm.linkUrl = ZHIHU_ANSWER_URL;
+        await w.vm.collectAndRewrite();
+        expect(api.aiRewrite).not.toHaveBeenCalled();
+        expect(api.aggregationRewrite).not.toHaveBeenCalled();
+        expect(w.vm.rewriteResult).toBe("");
+        expect(w.vm.rewriteError).toBeTruthy();
+        expect(w.vm.rewriteError.message).toContain("采集");
+        expect(w.vm.rewriteErrorDetail || w.vm.rewriteError.message).toContain("改写");
+      });
+
+      it("正常内容不受影响（回归：守卫不得误杀）", async () => {
+        window.electronAPI = mockStealthApi();
+        const w = mountCollection();
+        await nextTick();
+        const r = await w.vm.rewriteViaEngine("这是一段长度足够的正常正文内容。");
+        expect(window.electronAPI.aiRewrite).toHaveBeenCalled();
+        expect(r.result_content).toBe("改写后的内容。");
+      });
+    });
+
     // QM-6 外部评审 P3（2026-10-18）：abortIfVerificationPage 写入的 `reason` 必须被
     // collectErrorDetail/collectErrorRetryable 消费；否则分类器只拿到 message 字符串，
     // en 文案不含中文关键词时会退化为 collectErrors.unknown。

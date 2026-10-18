@@ -1,3 +1,37 @@
+## 缓存空壳与漏斗守卫：空正文不得进改写链路（fix-collect-rewrite-empty-content，2026-10-18）
+
+### lesson:success-shape-is-not-content-shape
+
+**「采集成功」是一个信封状态，不是「拿到了文章」；把它当内容用，就会把空壳喂给下游。**
+
+现场：内容缓存命中（`url-collector.js` 的 `cache_hit` 分支）返回的是**有意的成功形态**
+`{success:true, title:'', content:''}`——它表达的是「这个 URL 采过，直接复用」，
+而不是「正文在这里」。而 `collectAndRewrite` 的改写入参是
+`stealthItem.content || stealthItem.description || ''`：空壳进来，`||` 一路兜底成空串，
+直送改写引擎。旧后端 `content` 字段有 `min_length=1`，于是 FastAPI 报 422，
+用户看到「Python backend request failed (422)」——既不知道发生了什么，也不知道该干什么。
+判据：凡是以「成功信封」为输入的下一步，先问「这个信封成功时**内容一定非空吗**」；
+`cache_hit` / 降级 / 回退形态的成功，天然允许空内容。
+
+### lesson:guard-at-the-funnel-not-at-each-call-site
+
+**同类守卫要放在漏斗入口，不要放在每个调用点——调用点会加，漏斗只有一个。**
+
+现场：`rewriteViaEngine` 有四个调用点（视频转写 / stealth 自动改写 / 聚合回退 / 手动改写），
+事故只暴露了其中一条，但空串可以沿任意一条进来。在漏斗入口加一道 trim 判空，
+四条路径同时被覆盖，而且新增第五条调用点时自动继承守卫（在调用点各写一遍必然漏——
+这与上一刀「守卫挂在一条会退役的分支上」是同一族错误：**分散 = 会漏**）。
+判据：给「进入引擎/后端前的参数校验」找漏斗；找不到漏斗（说明同类调用太分散）本身就是信号。
+
+### lesson:reuse-the-error-code-table-before-adding-one
+
+**稳定错误码表先搜后用——`AGGREGATION_CONTENT_EMPTY` 早就存在，只是采集页没人用。**
+
+现场：`user-facing-error.js` 里 `AGGREGATION_CONTENT_EMPTY`（zh/en 文案齐备）自 RewriteView
+时代就在，采集页改写链路却自己拼错误。新码会让用户看到两套说辞，也会让错误码表持续膨胀。
+判据：新增用户可见错误前先 grep `USER_ERROR_CODES` / `userErrors.*`；复用不丢信息，
+新增必须成对（zh/en）且带可操作文案。
+
 ## 反爬验证页与双份配置源：五条可复用教训（fix-collect-antibot-rewrite，2026-10-18）
 
 ### lesson:guard-on-a-retired-path-is-no-guard
