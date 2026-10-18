@@ -1,0 +1,30 @@
+{
+  "sha": "c29ef1acf161fefdaf341801562b760b23da7ef0",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 0 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 9,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 6,
+    "docSensitiveContentSample": [
+      "- **做了什么**：`openspec archive ban-record-closure-backfill-pr -y` ⇒ `quality-gate-execution-record: update，+1 added`，主规格需求数 2 → 3；change 落 `openspec/changes/archive/2026-10-18-ban-record-closure-backfill-pr/`。移动形态按 `git diff --cached -M` 判 **5 个 R100**（逐字节相同）而非\"删 + 加\"。",
+      "- [x] 4.1 `AGENTS.md`：「不再需要回填动作」那段补执行体说明 + 复现命令（`node scripts/check-gate-record-debt.js`），并写明本条红的授权来源（用户拍板，属\"改谁来守门\"）。**按章节锚点改，禁止按行号**（该文件是热点载体，本轮实测其「合并后收尾清单」又被别的会话加过条目）。 **→ 实测落点：AGENTS「不再需要回填动作」那条已补执行体说明（判据名、三档、打印面读数、三条正解、fail-closed 档），当场 grep 可取**",
+      "- [x] 5.8 开 PR **已开** #3911（`mergeable=MERGEABLE`，`headRefOid=f7c5ef6f8`，15 文件 / +1373 −8）。**按 AGENTS「禁止自动合并的情形」第 1 与第 5 条停手**：`check-pr-exec-record.js --mode=enforce` 当场判红「CCG 深度审查欠账 1 条（mode=dual，status=pending→error）」，且 QM-6 后端轴缺失属待人工裁决争议 ⇒ 不 arm squash，把三条走法交人定（等 claude 恢复补跑 / 逐条点名豁免 / 授权按单轴闭包并如实记账）。CI 侧 `QG Changes` 已 pass，其 **advisory** 档不拦（`quality-gate.yml:157` 用 `--mode=advisory`），所以\"CI 绿\"与\"enforce 绿\"本轮是分开的两件事，不得拿前者当后者。 **→ 实测落点：已合：squash `d6a7bd760`（2026-10-18T15:20:15+08:00）。`gh pr merge` rc=1 是 AGENTS 记过的假失败（`main is already used by worktree`），一律取产物：`state=MERGED` + `mergeCommit.oid`、远端分支 `ls-remote` 0 行、main 上 `(#3911)` 恰 1 行；删分支前 `check-branch-merged.js` ⇒ `lost=0 unattributed=0 judge_error=0`**"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "fafbfca4d0b8d2e0764de7f2a213e8c348a4f6baee6e161f06555f8a878bab05",
+  "decidedAt": "2026-10-18T10:09:46.863Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

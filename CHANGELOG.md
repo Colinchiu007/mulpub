@@ -1,3 +1,12 @@
+# [未发布] docs(openspec): 归档 ban-record-closure-backfill-pr —— 新需求进主规格，并当场核"镜像会不会联动"（archive-gate-record-closure-backfill）
+
+- **做了什么**：`openspec archive ban-record-closure-backfill-pr -y` ⇒ `quality-gate-execution-record: update，+1 added`，主规格需求数 2 → 3；change 落 `openspec/changes/archive/2026-10-18-ban-record-closure-backfill-pr/`。移动形态按 `git diff --cached -M` 判 **5 个 R100**（逐字节相同）而非"删 + 加"。
+- **镜像联动这次是量出来的，不是推断的**：上一刀的教训是"归档会改镜像的真源"，但那只对 `openspec-integration` 成立。当场读锁本体第一行——`scripts/quality-rhythm-spec-mirror.test.js:4` 写死比对对象是 `openspec/specs/openspec-integration/spec.md`，本刀只动 `quality-gate-execution-record` ⇒ **不联动**。归档前后各跑一次 `node --test scripts/quality-rhythm-spec-mirror.test.js`，两次都 8 passed / 0 failed。口径：**"要不要同步镜像"取决于归档落进哪个 capability，先读锁的比对目标再决定动不改**，不得把上一刀的条件当成长期规则照抄。
+- **既有失败不认领、也不误报"全绿"**：归档前后 `openspec validate --all --strict` 的失败集**逐字相同**（18 条，全是既有的 `ccg-convergence-exit` 一类）；Totals 从 `198 passed / 18 failed / 216 items` 变到 `197 / 18 / 215`，净少的 1 项正是本 change 离开 `changes` 域——这是预期形态，不是新增失败。
+- **Purpose 占位这条账这次不需要还**：`openspec archive` 只在**新建**主规格文件时写 `TBD - created by archiving …`；本刀目标文件本就存在（上一刀建的），当场 `grep TBD` 该文件 = 0 命中。上一刀的还账纪律保留，但不适用于"往已有规格追加需求"这一形态。
+- **顺手把勾账补齐**：上一刀的 `tasks.md` 有 38 条实现项从未勾（实现与用例都落了，只是没回头勾），本次逐条绑定"当场可重取的落点"（用例名 + 行号 / 判据读数 / 变异编号）后勾上，勾完 `[ ]` 残留 0；勾账是就地改行，脚本断言行数与 CR 数逐字不变。两处**有意不写成完成**：1.8 明确标"撤销，不实现"（`--unified=0` 与默认上下文在本判据上红集逐字相同，测不出差异的形态不许写成锁）；2.3 标"被实测否证并已改口径"（空差量是每个代码 PR 与每次 main push 的常态，判它未证实会让 CI 每个代码 PR 退 2）。
+- **保留项**：`.quality-gates.md` 与 `scripts/gate-record-debt-ledger.json` 不插块、不加键（`carrierDrift` 会拦），ledger 里 23 条历史欠账原样不动。执行记录 `openspec/records/archive-gate-record-closure-backfill.md` 按新形态写（状态列「由门禁推导」，无 `sync_*`）——归档类 PR 也是同一口径，收口由主干历史推导，不开回填。
+
 # [未发布] fix(collect): 采集内容为空时不再把空串发往改写引擎（缓存空壳 + 一键改写守卫，fix-collect-rewrite-empty-content）
 
 ## 问题
