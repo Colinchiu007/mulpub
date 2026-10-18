@@ -49,10 +49,43 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "self_play_resolved",
+    "performedBy": "self-play(agent)",
+    "fallbackReason": "跨家族对抗后端超时（本会话第 11 次同型 ETIMEDOUT），按引擎第三档出口 self_play 自查。本条 20 行，性质是**订正自己上一提交的未证实断言**。",
+    "evidenceInRepo": "openspec/records/douyin-material-diagnosis.md §2.2（含订正块）+ PRD §14.3/§14.5/§14.7",
+    "confidenceWeight": 0.7,
+    "adjudication": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "finding": "订正只改了「文案与文档」，代码行为没变——那这个提交是不是可以省掉？把未证实的断言留在用户文案里不行吗？",
+        "verdict": "upheld_verified",
+        "rationale": "不能省。那条文案是**用户可见**的，它把未证实的机制（「私钥在 IndexedDB 中不可导出」）当成事实告诉操作者，会让人以为「这是安全设计、无解」，从而放弃「换会话重试 / 走页面内」等真正可行的排查方向。本仓已多次栽在「把推断当证据」上（头条端点套语料那轮），**发现即订正**是必须的动作，不是洁癖。",
+        "fixCommit": null
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "测试断言从 `toContain(\"IndexedDB\")` 反转成 `not.toContain(\"IndexedDB\")` —— 这是把测试改成迁就实现，属于反模式吗？",
+        "verdict": "upheld_verified",
+        "rationale": "这次不是「改测试迁就 bug」，而是**把锁钉在正确的不变量上**：旧断言锁的是「文案里必须出现某机制」，而该机制未被证实 ⇒ 断言本身是错的；新断言锁的是「文案里**不得**出现未证实的机制」，并带注释说明来路 —— 这是**更强的**约束（防止未来有人再把猜测写回文案）。同时保留了 `toContain(\"key id\")` 与 `toContain(\"RPA/DOM\")` 这两条真正有效的行为断言。",
+        "fixCommit": null
+      },
+      {
+        "id": "i3",
+        "severity": "Info",
+        "finding": "弃用「页面内签名」这条建议后，§14.6 的可行路线是否也应删掉其第 1 条？",
+        "verdict": "upheld_fixed",
+        "rationale": "如实在文案里收回了「欢迎走页面内签名」的明确推荐（文案已改为只指 RPA/DOM），但 §14.6 仍保留「页面内签名」作为**待验证方向**，理由：实测已证页面内 fetch 会被 secsdk 自动补 `x-secsdk-csrf-token`，这条路并非空想，只是本轮没验成。保留为方向、不写进用户文案，是恰当的分层。",
+        "fixCommit": null
+      }
+    ],
+    "summary": {
+      "total": 3,
+      "upheldVerified": 2,
+      "upheldFixed": 1,
+      "note": "本提交是「订正自己上一提交」的自查闭环：把未经证实的机制从用户文案与文档里撤下，并把测试锁改钉在「不得出现未证实机制」这个更强的不变量上。"
+    },
+    "at": "2026-10-18T21:42:33.081Z"
   }
 }
