@@ -346,9 +346,11 @@
   --color-ribbon-soft: #3b2a1e;
 
   /* 采集页控件规范槽暗色覆盖（collection-page-ui-ue-refine 2026-10-17）：
-   * 尺寸类槽不随主题变（与 --space-*/--radius-* 同理，故不在暗色重复声明）；
+   * 尺寸类槽不随主题变（与间距槽、圆角槽同理，故不在暗色重复声明）；
    * active 底色改深一档表面（#2d2d35 与 cohere-design-system 暗色 soft-stone 同值），
-   * 投影加深，保证「active 比容器亮」的层级语义在暗色下仍成立。 */
+   * 投影加深，保证「active 比容器亮」的层级语义在暗色下仍成立。
+   * ⚠ 本注释内不得出现「星号加斜杠」的字样 —— 它会提前闭合块注释，
+   *   把后面的变量声明变成孤立文本（同源事故见 tests/styles-comment-closure.test.js）。 */
   --color-tab-active-bg: #2d2d35;
   --shadow-tab-active: 0 1px 3px rgba(0, 0, 0, 0.4);
 }
