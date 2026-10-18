@@ -477,6 +477,52 @@ export class SubtitleSegmenter {
   // v1.2.3：成词保护（兼容字段名 no_cut_bigrams）——项目可以是任意长度短语，
   // 切点不得落在任一短语内部（如 "蒙古"、"江南"、"包税人"）。
   private static WORD_NO_CUT_PHRASES = new Set(subtitleRules.word_split.no_cut_bigrams ?? []);
+  // v1.3 短语边界：显式成对短语表（phrase_pairs）。
+  // 块以某短语结尾、且紧随其后的字符命中该短语登记的后续首字时，构成短语右边界。
+  // 用成对登记而非单侧字符集，避免把 "某|些"、"票仓的|无奈" 这类假边界放进来。
+  private static PHRASE_BOUNDARY_PAIRS: ReadonlyArray<readonly [string, string]> =
+    subtitleRules.word_split.phrase_boundary?.pairs ?? [];
+  // v1.3：短语边界路径允许头块放宽到 min_chars - relax（与既有 tailMin 软约束对齐）。
+  private static PHRASE_BOUNDARY_MIN_HEAD_RELAX = subtitleRules.word_split.phrase_boundary?.min_head_relax ?? 0;
+  /** v1.3：短语边界切分的头块下限（实例无关，由规则表 relax 派生）。 */
+  private static PHRASE_BOUNDARY_MIN_HEAD = Math.max(
+    1,
+    DEFAULT_CONFIG.subtitle.minCharsPerBlock - (subtitleRules.word_split.phrase_boundary?.min_head_relax ?? 0),
+  );
+
+  /** v1.3 短语边界判定：切点落在某显式短语对的右端，且下一字符命中登记的后续首字。 */
+  private static isPhraseBoundary(text: string, i: number): boolean {
+    if (i <= 0 || i >= text.length) return false;
+    for (const [left, next] of SubtitleSegmenter.PHRASE_BOUNDARY_PAIRS) {
+      if (i < left.length) continue;
+      if (text.slice(i - left.length, i) !== left) continue;
+      if (next && !next.includes(text[i])) continue;
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * v1.3：在 [lo, hi] 内从后往前找短语右边界切点（切后索引；无则 -1）。
+   * 命中条件：isPhraseBoundary 且通过全部安全守卫（保护短语/代理对/小数点/"了"后宾语）。
+   * 头块下限放宽到 minChars - relax，尾块仍要求 >= minChars，避免产生过短尾块。
+   */
+  private findPhraseBoundaryPos(text: string, lo: number, hi: number): number {
+    const lower = Math.max(1, lo);
+    const upper = Math.min(text.length - 1, hi);
+    if (lower > upper) return -1;
+    const minHead = Math.max(1, this.config.minCharsPerBlock - SubtitleSegmenter.PHRASE_BOUNDARY_MIN_HEAD_RELAX);
+    for (let i = upper; i >= lower; i--) {
+      if (i < minHead) continue;
+      if (text.length - i < this.config.minCharsPerBlock) continue;
+      if (!SubtitleSegmenter.isPhraseBoundary(text, i)) continue;
+      if (!this.isSafeCutPosition(text, i)) continue;
+      if (this.protectedPhraseSpanAtBoundary(text, i)) continue;
+      if (!SubtitleSegmenter.isLeBoundaryAllowed(text, i)) continue;
+      return i;
+    }
+    return -1;
+  }
 
   constructor(
     config?: Partial<SubtitleSegmentationConfig>,
@@ -631,6 +677,15 @@ export class SubtitleSegmenter {
         blocks.push(cur);
         cur = '';
         lastHardCut = false;
+      } else if (stack.length === 0 && cur.length >= SubtitleSegmenter.PHRASE_BOUNDARY_MIN_HEAD
+        && SubtitleSegmenter.isPhraseBoundary(text, sourceIndex + 1)) {
+        // v1.3 短语边界提前切分：短语右边界与标点等价，在累积阶段就兑现，
+        // 不等 MAX 分支的裸切兜底（那里窗口已错过最佳切点）。
+        // 头块允许放宽到 minChars - relax（如 "去理解那段历史|对今天…" 7+8）；
+        // 尾块至少留 1 字，由后续 merge/enforce 步骤补齐到 minChars。
+        blocks.push(cur);
+        cur = '';
+        lastHardCut = false;
       } else if (cur.length === this.config.maxCharsPerBlock
         && stack.length === 0 && cur.endsWith('了')) {
         // 满块刚好停在“了”时，先兑现已经可见的强语义边界（如“提前”），
@@ -673,6 +728,19 @@ export class SubtitleSegmenter {
           cur = cur.slice(pos);
           lastHardCut = false;
         } else {
+          // v1.3 短语边界优先：在 [min, max] 窗口内从后往前找短语右边界
+          // （块尾短语末字 + 块首短语首字），命中即主动切分，不等 MAX+1 的裸切兜底。
+          const phrasePos = this.findPhraseBoundaryPos(
+            cur,
+            1,
+            Math.min(this.config.maxCharsPerBlock, cur.length - 1),
+          );
+          if (phrasePos > 0) {
+            blocks.push(cur.slice(0, phrasePos));
+            cur = cur.slice(phrasePos);
+            lastHardCut = false;
+            continue;
+          }
           // v1.2 词边界感知：无标点硬切时优先不劈词（区间内找好切点/非黏着切点）
           const ws = this.wordSafeSplit(
             cur,
@@ -1093,6 +1161,8 @@ export class SubtitleSegmenter {
     if (!this.isSafeCutPosition(text, i)) return false;
     if (this.isSemanticLeadAt(text, i)) return true;
     if (SubtitleSegmenter.WORD_GOOD_LEAD.has(text[i])) return true;
+    // v1.3：短语右边界（块尾短语末字 + 块首短语首字同时命中）。
+    if (SubtitleSegmenter.isPhraseBoundary(text, i)) return true;
     // v1.2.2：块尾收束路径额外要求切点后首字符非强黏着后缀（good_tail_blockers），
     // 避免 "…保持个|性独立" 类劈词（"个" 入 good_tail 后 "个性" 被拆）。
     return i > 0
@@ -1111,14 +1181,30 @@ export class SubtitleSegmenter {
   private wordSafeSplit(text: string, lo: number, hi: number, minHead = 1, tailMin = 0): number {
     let fallback = -1;
     let tailFallback = -1;
+    // v1.3：短语边界路径的头块下限放宽（与既有 minHead-2 软约束同源）。
+    const phraseMinHead = Math.max(1, minHead - SubtitleSegmenter.PHRASE_BOUNDARY_MIN_HEAD_RELAX);
     for (let i = hi; i >= lo; i--) {
       const tail = text.length - i;
       if (!(i >= minHead || (tailMin > 0 && i >= minHead - 2 && tail >= tailMin))) continue;
       if (!this.isGoodCut(text, i)) continue;
       const isSemanticLead = this.isSemanticLeadAt(text, i);
+      // v1.3：短语边界允许头块放宽到 phraseMinHead（如 "去理解那段历史|对今天…" 7+8）。
+      const isPhraseBoundary = SubtitleSegmenter.isPhraseBoundary(text, i);
+      if (isPhraseBoundary && i >= phraseMinHead) {
+        if (tail > 3 && (tailMin === 0 || tail >= tailMin || tail >= 5)) return i;
+        if (tailFallback < 0) tailFallback = i;
+        continue;
+      }
       // 语义引导允许短一字（如“他们甚至嚣张到｜把…”），但不再放宽到 min-2，
       // 避免在“成了”前形成 6 字头块。
       if (isSemanticLead && i < Math.max(1, minHead - 1)) continue;
+      // v1.3：短语边界允许头块放宽到 phraseMinHead（如 "去理解那段历史|对今天…" 7+8）。
+      const isPhraseBoundaryCut = SubtitleSegmenter.isPhraseBoundary(text, i);
+      if (isPhraseBoundaryCut && i >= phraseMinHead) {
+        if (tail > 3 && (tailMin === 0 || tail >= tailMin || tail >= 5)) return i;
+        if (tailFallback < 0) tailFallback = i;
+        continue;
+      }
       // “成了”是谓语起点，但不接受欠长头块；否则“硬生生让蒙元｜成了…”会只剩 6 字。
       if (text[i] === '成' && i < minHead) continue;
       if (tail > 3 && (tailMin === 0 || tail >= tailMin || tail >= 5 || SubtitleSegmenter.WORD_GOOD_LEAD.has(text[i]) || isSemanticLead)) {
