@@ -86,11 +86,17 @@ PR #3910 打开后主干又前进了 4 个提交（`307d05225` / `7ac37d016` / `
 
 ### re-sync 后重跑的门禁（当场读数，不沿用 re-sync 前）
 
-- `classify-docs-only.js --base=5573c5df5 --head=<合并后 head>` → rc=0（`docs-only=true`，改动集含 `scripts/doc-abs-paths-baseline.json`，在白名单内）
+- `classify-docs-only.js --base=5573c5df5 --head=<合并后 head>` → rc=0 但判定是 **`docs-only=false`**（files=19）。
+  未命中的只有一项：`scripts/doc-abs-paths-baseline.json` —— 白名单里只有 `scripts/gate-record-debt-ledger.json` 这一份 JSON，
+  `scripts/` **整目录不在** `CI_IGNORED_PATHS`（`openspec/**` 与根级 `*.md` 都在，所以其余 18 个文件全部命中）。
+  两条推论都按 false 走：① 本批**不是** docs-only 快速通道，重型 job（Desktop Shards / Coverage / electron-tests / QG Visual）照常全跑，
+  所以 CI 里出现 `skipping` 只允许是 `release`（tag 触发）与 `gui-test` 作业级 `if` 这类「按设计不跑」，不得拿「docs-only 短路」解释；
+  ② 把这份账本 JSON 加进白名单属「改谁来守门」，AGENTS 明文要求人工过目，且必须先证明 Gate 12c 住在不被短路的 job —— 本批不做，
+  如实按全量 PR 交付。本记录第一批那处「【docs-only】」字样属**第一批**的判定（那一批没碰账本），不代本批改写。
 - `check-no-brand-residue.js` → PASS（扫描 10125 个 tracked 文件）｜`check-doc-abs-paths.js`（Gate 12c）→ PASS
 - `check-gate-record-debt.js` → OK ｜ `check-pr-exec-record.js --mode=enforce` → OK ｜ `check-debt-budget.js` → ✅ 基线内 ｜ `.github/scripts/check-max-lines.js` → ✅
 - `check-no-conflict-markers.js` → OK（4 个文件全部带原因登记且不超基线，域=10125，标记行=8）——顺带澄清：主干上那 4 篇**他人会话**的记录自带 git 冲突标记，是 `KNOWN_CONFLICT_MARKERS` 里带计数的既承认欠账，本批不代其裁决
-- `bash scripts/check-docs-sync.test.sh` → PASS: 8 docs-sync gate checks ｜ `check-docs-sync.sh --base=<merge-base> --head=<head>` → rc=0（第一次传 sha 时它去 `git fetch origin/<sha>` 报 rc=128：该脚本的 `--base` 要**引用名**不是任意 sha，属用法错误不是判据红）
+- `bash scripts/check-docs-sync.test.sh` → PASS: 8 docs-sync gate checks ｜ `check-docs-sync.sh --base=main --head=openspec-archive-frequency` → rc=0。**参数形态记一条**：该脚本把 `--base` 的值拼成 `refs/heads/<值>` 去 fetch（`scripts/check-docs-sync.sh:43`），所以传 sha 或传 `origin/main` 都会 `rc=128 couldn't find remote ref`——那是用法错误，不是判据红，也不是门禁坏了
 - `openspec validate publish-frequency-control --strict` → is valid；`openspec validate --all --strict` → rc=1，**17 个 change 不合格**（`ccg-convergence-exit` / `collect-video-platforms` / … ），逐个对照改动集：本批**一个都不碰**，且一个 change 的校验只依赖它自己的文件 ⇒ 这是主干既有积压，不认领。另记一条：`grep -rn 'openspec.*validate' .github/workflows/*.yml` = **0 命中** ⇒ 这 17 条没有任何 CI 判据在看，规格质量门禁存在真实空档（本批不扩面，登记为遗留）
 
 ### 过程瑕疵（写明，不藏）
