@@ -306,13 +306,82 @@ voiceOverflow = false
 `mount(CreateView, { global: {...} })` 样板，收敛成一个顶层 helper 后净减约 290 行，
 既化解了本次超限，也把存量欠账还成了负数。
 
-### 9.5 收敛 mount 样板时踩的范围错误（留证）
+### 9.5 本轮两次真实返工（留证，不掩饰）
+
+#### 返工 A：批量替换的 helper 定义在错误作用域（254 例 ReferenceError）
 
 第一轮把 `mountCreateView` 定义在 `describe("CreateView", ...)` **内部**，而该文件有 20+ 个
 describe 块共用。单跑 `-t "renders page header"` 是通过的（那个用例正好在同一个 describe 内），
 全文件跑则 254 例报 `mountCreateView is not defined`。
 **教训：批量文本替换后，验证必须在「定义的作用域」之外做**——单跑一个用例证明不了
 其他 describe 块能不能看到这个符号。修法：helper 提升到模块顶层。
+
+#### 返工 B：DOM 层级错位——克隆子分区被嵌进背景音乐子分区（CRITICAL）
+
+**这个缺陷在提交后、CI 之前由跨家族评审（子代理）指出「DOM 嵌套有问题」**，随后用
+`@vue/compiler-sfc` 解析模板 AST 机械取证，确认：
+
+```
+details #s2v-section-voice
+  ├─ summary
+  ├─ div #s2v-subgroup-voiceNarration .s2v-subgroup
+  └─ div #s2v-subgroup-voiceBgm .s2v-subgroup
+       ├─ h4
+       ├─ div .s2v-field-grid（背景音乐 + 音量）
+       └─ div #s2v-subgroup-voiceClone .s2v-subgroup   ← 嵌在 voiceBgm 内部
+```
+
+**成因**：`voiceBgm` 子分区（L392）打开后，关闭 `.s2v-field-grid` 时只写了一个 `</div>`，
+漏掉了关闭子分区本身的那一个；而文件末尾（原 L541）恰好多出一个 `</div>` 把这个缺口补上，
+于是**整体 div 配平、Vue 编译器不报错**，但 `voiceClone` 被推深了一层。
+缩进也误导了排查：L453/L454 当时是 14 空格（应在 16 空格，即 grid 内部），肉眼看着像是
+「子分区已经在 L391 收尾了」。
+
+**后果**：用户诉求 4「三个区域从 UE 角度视觉上分开」不但没达成，还变成「卡片里套卡片」；
+克隆区实际宽度 920px 而非 982px（差的正是父级 padding），**这个宽度差在早先探针里出现过，
+但我当时误当成「内容宽度差异」没追**——那其实是嵌套的指纹。
+
+**修法**：在关闭 `.s2v-field-grid` 之后补一个 `</div>` 关闭 `voiceBgm`，并删掉末尾多余的
+`</div>`（净 0 行）；同时把 L453/L454 缩进纠正为 16 空格。
+
+**为什么既有测试没拦住（关键的测试盲区）**：
+`findAll('.s2v-subgroup')` 是**深度优先**遍历，嵌套时 document order 依然是
+`narration → bgm → clone` —— 顺序断言**全绿**。归属断言（`clone.find('[data-testid=s2v-bgm-volume]')`）
+也只查「克隆区里没有 BGM 控件」，而嵌套时 voiceBgm 的内容在**父级**而非子级，同样不触发。
+**结论：顺序与归属都测不出嵌套，判据必须落在层级上。**
+
+**补的机械锁**（`S2vConfigPanels.test.js`「三个子分区必须是「声音」分区的一级子节点（互不嵌套）」）：
+1. `voice.element.children` 里直接含 `.s2v-subgroup` 的**恰好是三个**且顺序一致；
+2. 每个子分区的祖先链上不得再出现 `.s2v-subgroup`。
+
+**变异反证**：把修复还原成 bug 形态（删掉 L455 的 `</div>`、在末尾补回）后，该用例当场红
+（`expected [narration, …(1)] to deeply equal [narration, …(2)]`，即直接子节点只有 2 个）；
+还原后 23/23 复绿。**同一次变异里，旧的「顺序」断言依然通过** —— 实证了盲区。
+
+**浏览器实测复核**（修复后）：
+
+```json
+{
+  "directSubgroupIds": ["s2v-subgroup-voiceNarration","s2v-subgroup-voiceBgm","s2v-subgroup-voiceClone"],
+  "parents": [{"parent":"s2v-section-voice","width":982,"nestedIn":null},
+              {"parent":"s2v-section-voice","width":982,"nestedIn":null},
+              {"parent":"s2v-section-voice","width":982,"nestedIn":null}],
+  "widthSet": [982],
+  "overflow": false
+}
+```
+
+三个子分区父节点全为 `s2v-section-voice`、`nestedIn` 全 `null`、**宽度集合只有一个值 982**
+（修复前 clone 是 920）。
+
+### 9.6 这条缺陷的元教训
+
+**「结构正确」和「标签配平」是两件事。** 标签配平只保证模板能编译，不保证语义层级正确——
+一个 `</div>` 的错位可以被另一处的多余 `</div>` 静默吸收，编译器与 lint 都不会出声。
+
+**验证层级类缺陷，只能用层级判据**：AST（`@vue/compiler-sfc` 的 `parse`）或浏览器里的
+`parentElement` 链。`findAll` / `querySelectorAll` 给的 document order 在嵌套形态下
+与兄弟形态**完全相同**，是最容易上当的「看起来对」。
 
 ### 9.2 不受影响（已核验）
 

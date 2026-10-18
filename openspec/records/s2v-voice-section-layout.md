@@ -12,7 +12,9 @@ date: 2026-10-18
 | 第一性原因（QM-5 ①） | ✅ | `.config-span-2` = `grid-column: span 2`，而 `.s2v-field-grid` = `repeat(auto-fit, minmax(min(280px,100%),1fr))` ⇒ 列数是容器宽度的函数：2 列时 span2=满宽（巧合）、3 列时 2/3、4 列时半行宽——用户看到的正是 4 列那一格。**用列数相关的量表达列数无关的意图**。次要根因：声音区四类控件平铺同一扁平栅格，无二级容器；栅格分列是纯几何行为，不反映语义，于是语义无关的「背景音乐音量」与「音色复制 / 克隆」被排到同一行 |
 | 逃逸分析（QM-5 ②） | ✅ | 单元测试：`S2vConfigPanels.test.js` 只断言「控件在哪个折叠区」（BGM 归位，2026-10-17），零断言涉及栅格内排列或子分区结构；视觉回归：`create-story2video-detail` 走默认收缩路径，声音区控件根本不渲染 ⇒ 像素基线对展开态完全失明；审查：`.config-span-2` 自 2026-08-09 防撑宽修复引入，焦点在「长内容不溢出」，未追问「满宽语义是否依赖列数」 |
 | 修复 + 回归保护（QM-5 ④） | ✅ | ①`S2vConfigPanels.vue`：声音区拆 `voiceNarration`/`voiceBgm`/`voiceClone` 三个子分区，各带独立 `.s2v-field-grid` + `data-testid`；`s2vVoiceCapability` 三分支全部归克隆子分区。②`video-creation-forms.css`：`.s2v-subgroup` 卡片化（背景+边框+圆角+padding）+ 标题间距 + 卡片内栅格去 padding + 窄屏收紧；「高级」区两个既有子分组共用同类名一并升级。③`CreateView.vue`：`s2vSubgroupLabel` 补三键；`s2vOpenSections` 默认态注释显式化；快照恢复改「先显式复位默认态再只打开 expandedGroups 列出的分组」。④locale zh/en 各 +3 键。⑤回归锁 7 例新 + 1 处既有断言范围收紧（跨文件影响）|
-| 变异反证 | ✅ 1/1 CAUGHT | M1：把 `S2vConfigPanels.vue` 里 `voiceClone` 子分区的 `<div class="s2v-subgroup" data-testid="s2v-subgroup-voiceClone">` 改回扁平结构（去掉子分区包裹，克隆面板直接回到 `s2v-field-grid`）→ `vitest run -t "音色复制 / 克隆"独占满宽子分区` 当场红（找不到 `s2v-subgroup-voiceClone`）；还原后复绿，`git diff --numstat` 复核仅含本 PR 预期改动 |
+| 变异反证 | ✅ 2/2 CAUGHT | M1（用户症状锁）：把 `voiceClone` 子分区改回扁平结构 ⇒「独占满宽子分区」用例红。M2（层级锁，本轮新增）：把修复还原成 bug 形态（删掉 L455 关闭 `voiceBgm` 的 `</div>`、在末尾补回多余的 `</div>`）⇒「三个子分区必须是一级子节点」用例当场红（`expected [narration, …(1)] to deeply equal [narration, …(2)]`，直接子节点只有 2 个）；还原后 23/23 复绿。**同一次变异里旧的「顺序」断言依然通过**，实证了层级盲区 |
+| QM-6 跨家族评审（本轮真实产出） | ✅ 抓到 1 个 CRITICAL | 外部 CLI 评审后端超时（`codeagent-wrapper.exe ETIMEDOUT`），按「子代理降级」纪律改用会话内独立评审子代理。**它报出「DOM 嵌套有重要问题」后自身失败、未给结论**，我按纪律不盲信也不丢弃，改用 `@vue/compiler-sfc` 解析模板 AST 机械取证，确认：`voiceClone` 子分区被嵌在 `voiceBgm` 内部（`details` 直接子节点只有 2 个）。成因是一个 `</div>` 错位被末尾的多余 `</div>` 静默吸收 ⇒ 整体配平、编译器不报错。已在提交后、合并前修复 |
+| 评审发现的缺陷（CRITICAL，已修） | ✅ 已修 + 已锁 | **现象**：用户诉求「三区视觉分开」落空，变成卡片套卡片；克隆区实测宽 920 而非 982（差的正是父级 padding —— 这个宽度差在早先探针里出现过，当时误判成「内容宽度差异」没追，事后看正是嵌套指纹）。**修法**：关闭 `.s2v-field-grid` 后补一个 `</div>` 关闭 `voiceBgm`，删掉末尾多余 `</div>`（净 0 行），并把 L453/L454 缩进由 14 空格纠正为 16 空格（缩进误导正是排查成本高的原因）。**为什么既有测试没拦住**：`findAll('.s2v-subgroup')` 深度优先，嵌套时 document order 与兄弟形态完全相同 ⇒ 顺序断言全绿；归属断言查的是「克隆区里没有 BGM 控件」，嵌套时 BGM 内容在父级也不触发。**补锁**：见 M2。**浏览器复核**：三个子分区父节点全为 `s2v-section-voice`、`nestedIn` 全 null、宽度集合 `[982]`（修复前含 920） |
 | 防止再次发生（QM-5 ⑤） | ✅ | ①机械锁：7 例面板结构断言锁死子分区顺序/testid/归属，其中「克隆分区内不得出现 `s2v-bgm-volume`」直接对应用户报告的原始症状；跨文件影响（全页面 `findAll('.s2v-subgroup-title')` 会算进声音区三个子分区）以既有 `CreateView.test.js` 用例范围收紧承接。②learnings 置顶四条：`span N` 不是满宽 / 扁平栅格无语义 / 恢复默认态必须显式 / 像素基线对折叠内容失明。③EverOS 独立知识条目。④PRD §13 写成实现合同（DOM 结构/视觉分隔/默认收缩/数据校验/测试合同/验收 8 条）|
 | 行尾与 diff 对账 | ✅ | 提交后以 `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径逐值相等复核；`S2vConfigPanels.vue` / `create-view.css` / `video-creation-forms.css` / `CreateView.vue` / `CreateView.test.js` / locale 均未出现全文件重写形态（CRLF 保留） |
 | 行数门禁（本轮两次真红，均已修） | ✅ | ①`create-view.css` 在 origin/main 上 494 行，加 14 行样式 → `check-max-lines` 报 `NEW_OVER_LIMIT: 506 行 >= 500`。正解**不是抬基线**，而是把样式落到 `video-creation-forms.css`（该文件头注释声明的存在理由即「不把 create-view.css 推过 500 行预算线」），`create-view.css` 只留原两行 + 指路注释（净增 0 行样式）。②`CreateView.test.js` 在 origin/main 上已超挂账登记值 **199 行**（容差 200），本次新增 2 行断言刚好推到 201。按「存量膨胀应拆分，不应改基线」，正解是**减行数**：214 处逐处复制的 `mount(CreateView, {global:{...}})` 样板收敛为顶层 helper，净减约 290 行。终态 `check-max-lines` rc=0（`filesOver500` 96→95）、`check-debt-budget` rc=0 |
@@ -38,12 +40,32 @@ date: 2026-10-18
 
 ### 本轮真实返工（留证，不掩饰）
 
+**返工 A —— 批量替换的 helper 定义在错误作用域（254 例 ReferenceError）**
+
 214 处 mount 样板收敛后，helper 一度定义在 `describe("CreateView", ...)` **内部**，而该文件有 20+ 个
 describe 块共用。单跑 `-t "renders page header"` 通过（那个用例恰好在同一 describe 内），
 全文件跑则 **254 例报 `mountCreateView is not defined`**。修法：helper 提升到模块顶层，307/307 复绿。
+教训：批量文本替换后，验证必须在「定义的作用域」之外做——单跑一个用例证明不了其他 describe
+能不能看到这个符号。
 
-**教训**：批量文本替换后，验证必须在「定义的作用域」之外做——单跑一个用例证明不了其他 describe
-能不能看到这个符号。已写入 `.agent_context/memory-s2v-voice-section-layout.md` 与 PRD §9.5。
+**返工 B —— DOM 层级错位：克隆子分区被嵌进背景音乐子分区（CRITICAL，评审抓出）**
+
+提交后、CI 之前，跨家族评审（子代理）报出「DOM 嵌套有重要问题」但自身随即失败、未给结论。
+按「不盲信也不丢弃」处理，用 `@vue/compiler-sfc` 解析模板 AST 机械取证，确认
+`voiceClone` 子分区**不是 `details` 的直接子节点**，而是嵌在 `voiceBgm` 内部。
+
+- **成因**：`voiceBgm`（L392）打开后，关闭 `.s2v-field-grid` 时漏写关闭子分区的那一个 `</div>`；
+  文件末尾（原 L541）恰好多出一个把它补上 ⇒ **整体 div 配平，Vue 编译器不报错**，但克隆区被推深一层。
+  缩进也误导排查：L453/L454 当时是 14 空格（应在 16 空格），肉眼看着像「子分区已在 L391 收尾」。
+- **后果**：用户诉求「三区视觉上分开」变成卡片套卡片；克隆区实测 920px 而非 982px。
+  ⚠️ 这个宽度差在早先探针里**出现过**，我当时误判成「内容宽度差异」没追，事后看正是嵌套指纹。
+- **修法**：补一个 `</div>` 关闭 `voiceBgm` + 删掉末尾多余的 `</div>`（净 0 行）+ 缩进纠正。
+- **测试盲区（关键）**：`findAll('.s2v-subgroup')` 是深度优先，嵌套时 document order 依然是
+  `narration → bgm → clone` ⇒ 顺序断言**全绿**；归属断言查的是「克隆区里没有 BGM 控件」，
+  嵌套时 BGM 内容在**父级**也不触发。**顺序与归属都测不出嵌套，判据必须落在层级上。**
+- **补的机械锁**：`voice.element.children` 里直接含 `.s2v-subgroup` 的恰好三个且顺序一致；
+  每个子分区祖先链上不得再出现 `.s2v-subgroup`。变异反证见上表 M2。
+- **浏览器复核**：父节点全为 `s2v-section-voice`、`nestedIn` 全 `null`、宽度集合 `[982]`。
 
 ### 遗留（不假装已闭合）
 

@@ -1151,6 +1151,7 @@ loadS2VProviders()
 ### 13.7 测试合同
 
 - 面板结构：`S2vConfigPanels.test.js` 断言三个子分区的**顺序 + testid + 归属**（`voiceNarration` 含语音生成器/音色ID、`voiceBgm` 含 bgm 三件套、`voiceClone` 含克隆 toggle 且**不含** `s2v-bgm-volume`）。
+- **层级（防嵌套）**：另有一条独立断言——三个子分区必须是 `details` 的**直接子节点**，且任一子分区的祖先链上不得再出现 `.s2v-subgroup`。**这条不可省**：`findAll('.s2v-subgroup')` 是深度优先，嵌套时顺序断言依然全绿（2026-10-18 实测：克隆区被嵌进背景音乐区，顺序与归属断言全过，只有层级断言抓到）。
 - 三分支归属：`provider_personal_slot` / `user_clone+enabled` / `user_clone+未启用` 均归克隆子分区。
 - 收缩态：`s2v-section-voice` 的 `open` 属性缺省。
 - 跨文件影响：`CreateView.test.js` 中「高级区两个子组」用例的标题断言须**限定在 `s2v-section-advanced` 内**（全页面 `findAll` 会把声音区三个子分区算进来）。
@@ -1158,9 +1159,10 @@ loadS2VProviders()
 
 ### 13.8 验收标准
 
-1. 展开「声音」区：三个子分区自上而下排列，各自为独立卡片（有底色 + 边框），整行满宽；「音色复制 / 克隆」不再与「背景音乐音量」并排。
+1. 展开「声音」区：三个子分区自上而下排列，各自为独立卡片（有底色 + 边框），**同宽满宽**（浏览器实测三者宽度集合只有一个值）；「音色复制 / 克隆」不再与「背景音乐音量」并排。
 2. 「高级」区两个子分区同样呈卡片态（统一优化生效）。
 3. 除「基础」外，五个折叠区默认全部收缩；恢复上次选项后仅快照列出的分组展开。
 4. 全部既有 `data-testid` / `optionKey` 可用，视觉回归 0 差异。
 5. locale zh/en 成对（`check-locale-sync --pair-base` + `--cjk` rc=0），无新增中文字面量。
+6. 三个子分区是同级的直接子节点（层级断言 + 浏览器 `parentElement` 链双重取证）。
 

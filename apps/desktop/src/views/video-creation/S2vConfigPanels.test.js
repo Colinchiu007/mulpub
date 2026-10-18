@@ -226,6 +226,30 @@ describe('S2vConfigPanels', () => {
     );
   });
 
+  it('三个子分区必须是「声音」分区的一级子节点（互不嵌套）', () => {
+    // 2026-10-18 回归锁：本次实现期间曾因少写一个 </div>（末尾又恰好多一个，整体仍配平）
+    // 使 voiceClone 被嵌进 voiceBgm 内部 —— 视觉上成了「卡片里套卡片」，
+    // 用户要的「三个区域视觉上分开」直接落空。
+    // ⚠️ 这个形态**测不出来**于「顺序 + testid」断言：findAll('.s2v-subgroup') 是深度优先，
+    //    嵌套时 document order 依然是 narration → bgm → clone，全绿。
+    //    所以判据必须落在**层级**上，不能落在顺序上。
+    const w = mountPanel(vm);
+    const voice = w.get('[data-testid="s2v-section-voice"]');
+    // ① details 的直接元素子节点 = summary + 三个 .s2v-subgroup，顺序与集合一致
+    const directSubgroups = [...voice.element.children]
+      .filter((el) => el.classList && el.classList.contains('s2v-subgroup'))
+      .map((el) => el.getAttribute('data-testid'));
+    expect(directSubgroups).toEqual(SUBGROUPS.map((s) => `s2v-subgroup-${s}`));
+    // ② 互不嵌套：任一子分区的祖先链上不得再出现 .s2v-subgroup
+    for (const s of SUBGROUPS) {
+      let el = w.get(`[data-testid="s2v-subgroup-${s}"]`).element.parentElement;
+      while (el && el !== voice.element) {
+        expect(el.classList.contains('s2v-subgroup')).toBe(false);
+        el = el.parentElement;
+      }
+    }
+  });
+
   it('「语音生成器」与「语音 / 音色 ID」同在「旁白设置」子分区', () => {
     // 「语音 / 音色 ID」仅在已选语音模型（或模型下拉被隐藏）时渲染，故显式给模型值。
     vm = makeBoundVm({ s2vConfig: s2vConfigFixture() });

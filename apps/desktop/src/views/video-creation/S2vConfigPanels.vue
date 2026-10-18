@@ -450,8 +450,9 @@
                   :label="$t('create.story2video.ui.bgmVolumeLabel')"
                   :hint="$t('create.story2video.ui.doubleResetHint')"
                 />
-              </div>
-              </div>
+                </div>
+                </div>
+            </div>
               <div class="s2v-subgroup" data-testid="s2v-subgroup-voiceClone">
                 <h4 class="s2v-subgroup-title">{{ s2vSubgroupLabel('voiceClone') }}</h4>
                 <div v-if="s2vVoiceCapability?.type === 'provider_personal_slot'" class="config-item config-span-2 voice-slot-hint">
@@ -538,7 +539,6 @@
                   <p class="config-hint">当前服务商尚未接入可用的音色克隆能力。</p>
                 </div>
               </div>
-            </div>
           </details>
 
           <details
