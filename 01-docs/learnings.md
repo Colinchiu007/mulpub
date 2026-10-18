@@ -1,3 +1,29 @@
+## 一条新判据的绕行面必须在建实现之前逐条证活；而变异反证会抓到你自己的接线断线（ban-record-closure-backfill-pr，2026-10-18）
+
+### lesson:prove-the-bypass-is-alive-before-plugging-it
+
+**给判据加"堵绕行"的档之前，先写一条证明"不堵就真的能过"的用例。** 本次 F1 那条落成的形态是：断言 `parseClosureTransitions` 对「只追加一行 PASS、首行不动」这份差量**应当返回空**。它不是在测实现，是在证明绕道是活的——只测"加锁后红"，得到的证据只覆盖夹具里那几格，真实绕行面在夹具之外（本仓把这种锁记作装饰性门禁）。同理 F2/F3 各配一条"该形态真造出来也不误红"的负控：把围栏里的示例行、把 `已由门禁推导` 这种自然中文措辞真写进差量，断言判据不咬。
+
+**配套一条纪律：反向的"存量本来就如此"必须单独钉。** 重复行档若写成"存在重复即红"，会把 10 篇历史上就写了两行的记录在每个无关 PR 上钉红；判据形态必须是"本次动作造成的状态"（`本 PR 新增了那一行 ∧ 结果仍 >1 行`），配套用例是"存量两行、本 PR 没加行 ⇒ 不红"。
+
+### lesson:every-case-injects-its-own-dependency-means-the-default-path-is-untestable
+
+**所有用例都自己注入依赖去调纯函数时，"入口有没有真的注入"这一格在测试面上不可表示。** 现场：M2 把 `main()` 里 `collect({ ... closureDiff: closure })` 的注入整条摘掉，104 条用例全绿——判据的"人工改写"档在 CLI 上从此恒不测，而打印面只换成 `prs=n/a`，读起来像"这台机器取不到差量"而不是"没人改写"，缺陷伪装成常态。
+
+**口径**：入口侧的注入参数必须有一条"跑真入口、断言产物线打了**数字**而不是 n/a"的锁，且这条锁不读源码字面量（读源码只能证明字在，不能证明跑）。本仓这是第二次撞同一形态（既有接线锁的 N6/N8：摘掉 `parseFlags(argv)`、把默认账本构造写坏，72 条全绿），所以它是结构性盲区而非偶发遗漏——新写判据时把"CLI 默认档必须自己出声证明读到了真数据"当固定项。补的第二条是端到端：拿真历史里一笔货真价实的回填 PR（`99f463121`，PR #3889）跑真 CLI，要求 rc=1 ∧ 点名那篇记录 ∧ 同趟账本首行照出数；最后那半句是防止把 rc=1 归因到别处。
+
+### lesson:常态与失明不得同形，也不可互判故障
+
+**"取不到读数"和"取到但是空"是两件事，任何一侧写错都会逼人拆锁。** spec 初稿把「diff 为空」列进未证实三形态之一；实测 main push 上 `base==head`、以及任何不碰 `openspec/records/` 的 PR 差量都为空——照那句话实现，CI 会在每一个代码 PR 上退 2，而唯一的自救路径是加 skip 开关，那条锁就死了。反过来，若空差量与"取不到"在打印面上同形，接线断了没人看得见。落成的形态是三档分形：`触碰记录=0` / `触碰记录=N` / `触碰记录=n/a`，并配一条"取不到时不得打数字"的用例。
+
+### lesson:grounded-probes-and-wrapper-argv-sniffing
+
+**按形态量的误报率必须先自证探针通路。** 第一版扫描脚本把 `git rev-parse` 的返回值带着尾换行喂给 `buildClosureDiff`，于是 120 笔全部 `ref-unresolvable`、"命中 0 笔"读起来像"零误报"——这是探针失明不是结论。处置：`.trim()` + 内建正控（已知那笔回填必须在样本内且必须被 flag），正控失守就 exit 3。另记一次同类：判"某锁有没有牙"时先看它**当场打了什么数**，不要只看 rc。
+
+**经 `codeagent-wrapper` 起第三方 CLI 时，额外 argv 会被转交给后端 CLI；prompt 含换行/引号或长度>800 时它会改走 stdin 模式。** 现场一：`node .tools/review.cjs opencode <out> <prompt-file>` 里那个 prompt-file 变成 opencode 的 `unexpected argument` 并回显自身 usage（rc=78）⇒ 一次性工具的参数一律走环境变量、不落命令行。现场二：wrapper 回显 `Using stdin mode for task due to: piped input, newline, length>800`，调用方不喂 stdin 就直接 status 1。
+
+**后端轴零交付要归因到后端本体：wrapper 的报错只能当线索，不能当归因；而探针自己也不得用管道取 rc。** 本轮 claude 轴四次零交付（三次 wrapper 报 status 1，第四次已喂 stdin 仍 1）。我先写成"少喂 stdin"——只对了一半：把 prompt 送进 stdin 后同一条命令仍然失败。绕开 wrapper 直连 `printf reply-OK | claude -p --output-format text` 才拿到定性读数：150s 不返回、rc=124、stdout 0 字节 ⇒ 该 CLI 此刻对本机不可用（短 prompt 同样超时，所以也不是"太长"）。**而第一版探针本身就是错的**：写成 `claude ... | head -5` 并读 `$?`，拿到的是 head 的 0，"rc=0 且无输出"被误读成可用——改成 stdout/stderr 各自落文件、再单独取被诊断命令的 rc。判"某工具链可用不可用"之前，先证明自己的取数姿势量得到东西（本仓同族记录：`cmd | tail` 吃 rc、「零命中＝探针失明」）。
+
 ## 「尽力继续」会把真因换成症状：发布链的上游失败必须 fail-fast，且「收集了证据但没有消费者」等价于没收集（publish-failures-6，2026-10-18）
 
 用户报「一条视频发 9 平台，6 个失败」，浮层文案分别是 `publish btn not found` / `publish timeout` / `publish verification timeout` / `缺少媒体 ID` / `not logged in` / 「视频草稿链尚未实现」。逐条取证后发现**六条里四条同源**：上游关键步骤失败后没有 fail-fast，而是「best-effort 继续」，最终在「发布/验证」阶段以一条与根因无关的错误收尾。
