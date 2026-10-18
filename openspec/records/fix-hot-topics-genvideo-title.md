@@ -16,7 +16,7 @@ date: 2026-10-17
 | 行尾与 diff 对账 | ✅ | `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径一致（无纯行尾变更）；无删除行（纯新增/修改） |
 | 接线棘轮 | ✅ | 新增 2 个测试文件均为**既有测试文件的同目录邻居**，由既有 workflow 的 `apps/desktop` vitest 全量入口覆盖（非孤儿文件）；无新增 workflow 点名需求 |
 | QM-1 打包 / QM-4 视觉 | ✅ / N/A | 改动含 `apps/desktop/electron/ipc-handlers/` ⇒ 必跑 QM-1（见下方证据节）。视觉：本轮未改既有页面 DOM 结构（新增提示为条件渲染，无 `title_source` 时不渲染节点），未触发像素门禁路径；Publish 视觉基线路径 query 不含 `title_source` ⇒ DOM 不变 |
-| QM-6 CCG 双模型外部评审 | ⛔ 未能完成（**四次实测**，环境限制） | **本条经三次更正，前两稿归因都是错的，如实保留错误轨迹**：<br>① 初稿「本机无 `codeagent-wrapper` ⇒ 未执行」——**错**：`--check-deps` 实测三后端均可用。<br>② 二稿「驱动 `scripts/ccg-deep-review.js` 在仓库中不存在」——**错**：它有意不 vendor，但 `deep-review.sh:446-447` 的 HOME 兜底命中 `~/.claude/skills/adversarial-review-loop/scripts/ccg-deep-review.js`（`Test-Path` 为 True）；rebase 后重新提交已成功生成新 DUAL 记录 `a4e95405`，引擎正确读到 `判定: DUAL / 变更 1790 行`。<br>③ **A/B 实证**：`codeagent-wrapper.exe` 非 `--lite` 单次调用固定开销 **70s**（同一极小任务 `--lite` **4s** vs 非 lite **70s**，17.5×，开销来自 skill 加载）。<br>④ **最终归因**：即使把启动开销压掉（第 4 次实跑加 `CODEAGENT_LITE_MODE=true`，wrapper 官方 env，非放宽判据），仍在**同一位置** `[轮 1/3] 调用 critic=claude` 报 `spawnSync ... ETIMEDOUT` ⇒ 瓶颈是**评审本身耗时**超过引擎 `ccgForMode` 里 **硬编码的 `timeoutMs: 600000`**（无 CLI/env 覆盖入口，仅 `--rounds`/`--base`/`--critic` 可调），而非启动开销。**拆 PR 也无法规避**：实测代码 diff 1801 行 / 文档 1414 行，把文档全拆出去代码侧仍是 1801 行，量级不变。<br>**未做的事**：没有把「评审跑不起来」写成 `cleared`/`needs_revision`/`self_play_resolved`（三者都表示评审有结论），也没有改 `~/.claude/skills/` 的引擎超时硬凑（属「改谁来守门」，须人工过目）。<br>**因此 `check-pr-exec-record --mode=enforce` 判红 1 条**（CI 侧跑的是 `--mode=advisory`，故 CI 绿）。按 AGENTS.md「禁止自动合并：拿不准的争议一律停下来报告用户」⇒ **本 PR 停在待人工裁决，未自动合并**。替代证据：6 条变异反证全指名红 + 625 例自动化测试全绿 |
+| QM-6 CCG 双模型外部评审 | ⛔ 未能完成（**五次实测 / 两条判定记录**，环境限制） | **本条经三次更正，前两稿归因都是错的，如实保留错误轨迹**：<br>① 初稿「本机无 `codeagent-wrapper` ⇒ 未执行」——**错**：`--check-deps` 实测三后端均可用。<br>② 二稿「驱动 `scripts/ccg-deep-review.js` 在仓库中不存在」——**错**：它有意不 vendor，但 `deep-review.sh:446-447` 的 HOME 兜底命中 `~/.claude/skills/adversarial-review-loop/scripts/ccg-deep-review.js`（`Test-Path` 为 True）；rebase 后重新提交已成功生成新 DUAL 记录 `a4e95405`，引擎正确读到 `判定: DUAL / 变更 1790 行`。<br>③ **A/B 实证**：`codeagent-wrapper.exe` 非 `--lite` 单次调用固定开销 **70s**（同一极小任务 `--lite` **4s** vs 非 lite **70s**，17.5×，开销来自 skill 加载）。<br>④ **最终归因**：即使把启动开销压掉（第 4 次实跑加 `CODEAGENT_LITE_MODE=true`，wrapper 官方 env，非放宽判据），仍在**同一位置** `[轮 1/3] 调用 critic=claude` 报 `spawnSync ... ETIMEDOUT` ⇒ 瓶颈是**评审本身耗时**超过引擎 `ccgForMode` 里 **硬编码的 `timeoutMs: 600000`**（无 CLI/env 覆盖入口，仅 `--rounds`/`--base`/`--critic` 可调），而非启动开销。**拆 PR 也无法规避**：实测代码 diff 1801 行 / 文档 1414 行，把文档全拆出去代码侧仍是 1801 行，量级不变。<br>**未做的事**：没有把「评审跑不起来」写成 `cleared`/`needs_revision`/`self_play_resolved`（三者都表示评审有结论），也没有改 `~/.claude/skills/` 的引擎超时硬凑（属「改谁来守门」，须人工过目）。<br>**因此 `check-pr-exec-record --mode=enforce` 判红 1 条**（CI 侧跑的是 `--mode=advisory`，故 CI 绿）。按 AGENTS.md「禁止自动合并：拿不准的争议一律停下来报告用户」⇒ **本 PR 停在待人工裁决，未自动合并**。替代证据：6 条变异反证全指名红 + 625 例自动化测试全绿 |
 | 远程同步 | 由门禁推导 | 按 2026-10-17 change `gate-record-sync-derived-status`：新 PR 不手写同步状态词，收口由 `scripts/lib/merge-ledger.js` 依主干历史自动推导（找出带 `(#NNNN)` 尾注且最近一次把本记录带进 main 的已合并提交）。合并前写 PASS 反而会被判 `prematureClaim` 红，故本行刻意不写状态词 |
 
 ### 质量门禁读数（fresh）
@@ -80,6 +80,42 @@ date: 2026-10-17
 的 A/B 实证，未使用「看起来不相关就判存量」的推断。另有一条独立的取证教训：首轮全量跑误用了
 `--reporter=basic`（vitest 无此 reporter），导致**一个测试都没跑**却返回 exit 1 —— 若信该 rc 会得出
 完全错误的结论。判据一律取**日志产物**，不取退出码。
+
+### QM-1 打包证据（增量轮 fresh，2026-10-18 12:51–12:55）
+
+> ⚠️ **本轮实测到一个流程缺陷，必须写下来**：AGENTS.md 的 QM-1 命令是
+> `pnpm exec electron-builder --win --x64`，但它**不构建渲染层**（`dist/` 由 `build:vue` 产出）。
+> 我按该命令跑第一次时 `exit=0`、产物齐全（`Multi-Publish.exe` 228MB / `app.asar` 140.3MB），
+> 但启动后 stderr 报 `Failed to load URL: …app.asar/dist/index.html … ERR_FILE_NOT_FOUND` —— 因为 asar 里**根本没有 `dist/`**。
+> **只看 `exit=0` 与产物存在，会把一个启动即白屏的包判成通过**；这正是 QM-1「三层判据必须看 stderr」存在的原因，
+> 也是本轮它真正拦下的东西。正确命令是 `pnpm run build:win`（= `pnpm run build:vue && electron-builder --win --x64`）。
+
+| 项 | 读数 |
+|---|---|
+| 构建命令 | `pnpm run build:win`（vite build + electron-builder），随后因安装包写入被占再跑一次 `pnpm exec electron-builder --win --x64` ⇒ **exit 0** |
+| 渲染层 dist | `dist/index.html` 存在；asar 内含 `\dist\assets\*.js|*.css` |
+| 新代码入包 | `asar list` 命中 `\electron\ipc-handlers\gen-video-title.js`（本轮改了该 handler 的 prompt 与默认上限） |
+| 产物 | `win-unpacked/Multi-Publish.exe` 228MB @12:51:40；`resources/app.asar` 146.5MB @12:51:39；`Multi-Publish.Setup.0.2.0.exe` 258.4MB @12:55:20 |
+| 第 0 层（存活） | **9 秒后仍存活 = True**（硬性剔除 `ELECTRON_RUN_AS_NODE`；该变量会让 Electron 以纯 Node 模式静默退出，与「启动干净」完全同形） |
+| 第 ③ 层（stderr） | **stderr 长度 = 0 ⇒ PASS** |
+
+**错误命令那次的排除性证据**：`exit=0` + `asar` 无 `\dist` + 启动 stderr `ERR_FILE_NOT_FOUND` ⇒ 判 FAIL 并重跑，未把「打包成功」当通过。
+
+### QM-6 增量的补充实测（与 diff 体量无单调关系）
+
+本轮增量提交的 CCG 判定同样是 **DUAL（559 行）**，据此新生成判定记录 `e9274a02`。
+原以为「559 行只有上一轮 1790 行的 1/3，或许能在 600s 内跑完」，实跑结果：
+
+```
+提交判定: DUAL  (变更 559 行 > 200 行阈值)
+[轮 1/3] 调用 critic=claude 评审...
+评审失败: spawnSync <user-home>/.claude/bin/codeagent-wrapper.exe ETIMEDOUT
+```
+
+**这条数据把归因又收窄一格**：1790 行超时、559 行也超时 ⇒ 在可行区间内**与 diff 体量没有单调关系**，
+故「把 diff 拆小就能跑完」这条路被实测否掉（上一轮「拆 PR 无法规避」的判断由此得到二次印证）。
+剩下的可能只有两种，均不在本仓代码内：① 该后端单次评审调用耗时远超引擎硬编码的 600s；② 大 prompt 经 argv 传给 wrapper 后卡住。
+**处置与上一轮一致**：不写闭环状态、不改引擎超时，按用户授权登记为环境限制。
 
 ### QM-1 打包证据
 
