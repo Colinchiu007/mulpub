@@ -648,6 +648,13 @@ function evaluateDeepReviewDebt (statuses, repo, readAtBase) {
   if (involved.length === 0) return { reasons, checked: 0 }
 
   const unresolved = []
+  const backendMismatch = []
+  // ⚠ 刻意**不**要求「本次新增的 dual 产物必须带 reviewBackends」（QM-6 评审 i4 提的那条更严的口径）。
+  //   试做并实测过：它会把所有**在本刀之前**生成的在飞 PR 产物判红（他们的记录里没有这个字段，
+  //   而他们没做错任何事）——一条 required check 因别人的落地而红，正是本仓反复记过的爆炸半径。
+  //   于是 i4 按 dismissed 处置，代价如实登记在下面那条「遗留」里：
+  //   绕过通道是「生成后手动删掉 reviewBackends」，那需要改动一个已入库的 JSON，
+  //   而现存的锁（判定器必写该字段 + 请求值 × performedBy 对账）把它限制在"刻意伪造"范围内。
   for (const rel of involved) {
     let rec = null
     try {
@@ -657,7 +664,8 @@ function evaluateDeepReviewDebt (statuses, repo, readAtBase) {
     // ★ 2026-10-15 实测补正（缺陷 G）：只看 mode === 'dual'。
     //   引擎对 mode !== 'skip' 一律置 required=true —— 那是「是否需要评审」，
     //   不是「是否需要**双模型深度**评审」。判定器自己的输出分得很清楚：
-    //     dual   → 「要求 双模型(claude + opencode) 深度审查」
+    //     dual   → 「要求 双模型(<critic> + <proposer>) 深度审查」（后端对由
+    //               scripts/ccg-review-backends.list 派生，本文件不得再抄具体名字）
     //     single → 「常规专家分派」（§12.6）
     //   初版对 single 也要求闭环 ⇒ 每次提交都要跑 15 分钟双模型审查，
     //   而写完审查结果再提交时又生成新的 single 记录 ⇒ **无法闭合的循环**。
@@ -668,6 +676,10 @@ function evaluateDeepReviewDebt (statuses, repo, readAtBase) {
     if (!CLOSED_DEEP_REVIEW_STATUSES.has(st)) {
       unresolved.push(`${rel}（mode=${rec.mode || '?'}，status=${st}，decidedAt=${rec.decidedAt || '?'}）`)
     }
+    // 闭环了，但**执行者不是被请求的那个后端** ⇒ 仍然不闭合。
+    // 这一格是本刀的全部理由：status 是"有人写了个词"，performedBy 才是"谁真的跑了"。
+    const mismatch = judgeBackendMismatch(rec)
+    if (mismatch) backendMismatch.push(`${rel}（请求 ${mismatch}）`)
   }
   if (unresolved.length > 0) {
     reasons.push(
@@ -677,7 +689,77 @@ function evaluateDeepReviewDebt (statuses, repo, readAtBase) {
       + `\n    补跑：sh scripts/deep-review.sh（或确认该判定是假阳性后，在记录里写明原因并把 status 置为闭环值）`
     )
   }
+  if (backendMismatch.length > 0) {
+    reasons.push(
+      `CCG 深度审查欠账（后端不符）${backendMismatch.length} 条 —— 记录已闭环，但 deepReview.performedBy `
+      + `与本次判定**请求**的评审后端对不上。「设了后端却没生效」不是"换个名字照样过"，而是这次评审`
+      + `根本不是你要的那一路（跨家族对照缺席 / 模型能力假设不成立）：\n`
+      + backendMismatch.slice(0, 8).map((p) => `    - ${p}`).join('\n')
+      + '\n    正解：按记录里的请求值重跑一次（sh scripts/deep-review.sh --critic <名>）；'
+      + '\n    若确实要让驱动接受覆盖，见 openspec change qm6-review-backend-config 的两条出口'
+      + '（修上游驱动的验证层分支 / 把驱动 vendor 进本仓 scripts/）。'
+      + '\n    不得反向处置：把 reviewBackends 字段删掉会让本判据整体失效（历史产物按"不适用"跳过），'
+      + '那是拆锁不是还账。'
+    )
+  }
   return { reasons, checked: involved.length }
+}
+
+/**
+ * 「**请求**的后端」与「**实际**执行评审的后端」对账（change: qm6-review-backend-config）。
+ *
+ * 为什么必须有这一条：2026-10-18 实测三种「换 critic」的旋钮全部静默失效
+ * ——改 config.toml（驱动不读它）、给入口传 --critic（当时入口只转发 --sha）、
+ * 直连驱动传 --critic（驱动**验证层**不应用覆盖，覆盖块只挂在决策层分支）。
+ * 三种情况下评审照跑、结论照出、status 照闭环，而**没有任何东西知道评审者是谁**。
+ * 「设了没生效」如果只能靠人盯终端，它就等价于没有这条判据。
+ *
+ * 返回 null 表示不适用（不判、不拦），四种不适用都如实写明理由，不假装已核验：
+ *   ① 记录里没有 reviewBackends —— 本字段之前的历史产物一律不受影响（**不得追溯变红**）；
+ *   ② `overridden !== true` —— 没人改过后端时，驱动自己的默认值就是权威，两侧本来就可能
+ *      不同（上游改了默认 ≠ 本仓失守）。本判据要抓的是**「我指定了，却没人按我指定的跑」**；
+ *   ③ status === self_play_resolved —— 自扮演是既有门禁显式承认的出口，不属于"换了后端"，
+ *      归「高危域不得自扮演豁免」那条管（本判据不得顺手把它判红，否则等于在仓侧偷改豁免政策）；
+ *   ④ performedBy 为空 —— 状态已是闭环词表内 ⇒ 判「无署名执行者的闭环不成立」（评审 i1/i4 后改）；
+ * ⚠ 曾经用「performedBy 里读不出后端名」当第 ③ 档的判据，被自己的用例否证了：
+ *   `self-play` 按非字母切分会得到 ['self','play'] 两个**看起来完全像后端名**的记号，
+ *   于是"读不出名字"永远不成立。凡是靠"这个名字长得像不像后端"做判据的地方都会踩同一条，
+ *   所以这里改成按**显式字段**判（overridden / status），不按形态猜。
+ * 判据用**记号集**而不是字符串相等：performedBy 可能是 `claude+opencode` 这类复合值，
+ * 拿全等比会把合规判成违规；而"再按 - . _ 拆词族判成员"会把 claude-opencode 与无关请求误合
+ * （假绿）。两头都对的口径是**有界子串**：由外部模型复核后采纳，见 change 的 design.md D5′。
+ */
+function judgeBackendMismatch (rec) {
+  if (!rec || typeof rec !== 'object') return null
+  const req = rec.reviewBackends
+  if (!req || typeof req !== 'object' || typeof req.critic !== 'string' || !req.critic) return null
+  const dr = rec.deepReview
+  if (!dr || typeof dr !== 'object') return null
+  // ② 自扮演闭合走它自己的审计路径，本判据不插手（收紧它属改豁免政策，须人工过目）
+  if (dr.status === 'self_play_resolved') return null
+  const performed = typeof dr.performedBy === 'string' ? dr.performedBy.trim() : ''
+  const closed = CLOSED_DEEP_REVIEW_STATUSES.has(dr.status)
+  // 署名义务**不分是否覆盖**（QM-6 评审 i1/i4）：带着 reviewBackends 的记录是本轮之后的新产物，
+  // 状态写成闭环而 performedBy 为空 = 没有署名执行者的闭环，默认路径也拦。
+  if (!performed) {
+    return closed
+      ? `闭环状态 ${dr.status} 却无 deepReview.performedBy —— 没有署名执行者的闭环不成立`
+      : null
+  }
+  // ③ 等值比对只在显式覆盖过时判：没人指定后端时，驱动自己的默认值就是权威
+  if (req.overridden !== true) return null
+  // 记号化：按非 [A-Za-z0-9._-] 切（`+` / 空格 / 逗号都是分隔），但**不**拆 - . _
+  const tokens = performed.split(/[^A-Za-z0-9._-]+/).filter(Boolean).map((t) => t.toLowerCase())
+  if (tokens.length === 0) return null
+  const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  // 有界子串（评审 i5，经外部模型复核后采纳其第三种口径）：请求名两侧必须是边界。
+  // claude-agent 认得 claude（修假红）；claude 认不出 claude-agent（不引入假绿）；
+  // 也不会让 clau 这类碎片把 claude 误配。
+  const contains = (t, w) =>
+    t === w || new RegExp('(?:^|[^A-Za-z0-9])' + esc(w) + '(?:$|[^A-Za-z0-9])').test(t)
+  const wanted = [req.critic, req.proposer].filter((x) => typeof x === 'string' && x).map((x) => x.toLowerCase())
+  if (tokens.some((t) => wanted.some((w) => contains(t, w)))) return null
+  return `${req.critic}${req.proposer && req.proposer !== req.critic ? '/' + req.proposer : ''} ≠ ${performed}`
 }
 
 function report(r, mode) {
@@ -705,6 +787,6 @@ function report(r, mode) {
 //   stripCommentsForScan 把源码削成「只含代码行」的视图（引号感知剥注释 + 规范化 CRLF）
 // 生产路径只用 describeAuditWidths / auditAcceptedAltForm().description；
 // 其余导出不改变判据行为，仅为可测性存在。
-module.exports = { evaluate, resolveHeadBranch, readExemptsOnDisk, remoteBranchSet, isPureBackfillChangeSet, evaluateDeepReviewDebt, CLOSED_DEEP_REVIEW_STATUSES, RECORDS_RE, EXEMPT_RE, CARRIER_RE, DEFAULT_THRESHOLD, AUDIT_ARTIFACT_RE, auditAcceptedWidths, auditAcceptedAltForm, describeAuditWidths, stripCommentsForScan, AUDIT_NAME_WIDTH_MIN, AUDIT_NAME_WIDTH_MAX }
+module.exports = { evaluate, resolveHeadBranch, readExemptsOnDisk, remoteBranchSet, isPureBackfillChangeSet, evaluateDeepReviewDebt, judgeBackendMismatch, CLOSED_DEEP_REVIEW_STATUSES, RECORDS_RE, EXEMPT_RE, CARRIER_RE, DEFAULT_THRESHOLD, AUDIT_ARTIFACT_RE, auditAcceptedWidths, auditAcceptedAltForm, describeAuditWidths, stripCommentsForScan, AUDIT_NAME_WIDTH_MIN, AUDIT_NAME_WIDTH_MAX }
 
 if (require.main === module) main(process.argv.slice(2))
