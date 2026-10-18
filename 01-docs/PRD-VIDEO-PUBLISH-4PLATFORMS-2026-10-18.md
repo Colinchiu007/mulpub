@@ -412,3 +412,74 @@ var a = { publish: 1, timer: 2, draft: 0 }   // PublishType（草稿是 0！）
 | 无发布权限 | `该头条号当前无发布权限（GetPublishAuth.DisablePublish=true）。平台侧原文：请完善账号信息，解锁发布文章、视频等权益功能。` |
 | 上传授权失败 | `toutiao-video: 未获取上传授权(code=…): <平台 msg>` |
 | 发稿失败 | 优先透出平台 `data.Message`，否则 `头条发布失败(status=…, code=…)` |
+
+---
+
+## 13. 小红书视频「草稿」真实通路（R5，2026-10-19 真机取证成功）
+
+### 13.1 结论
+
+**小红书视频「发布到草稿箱」已真机跑通**：上传视频 → 点「暂存离开」→ `草稿箱(+1)`。
+取证明细见 `openspec/records/xhs-draft-findings.md`。
+
+| 取证点 | 值 |
+| --- | --- |
+| 操作前草稿箱 | 无计数 |
+| 操作后草稿箱 | **`草稿箱(1)`**，面板「视频笔记(1) 图文笔记(0)」 |
+| 草稿条目 | 标题 / 保存时间 / 时长 3:11 / 缩略图 / 编辑·删除 |
+
+### 13.2 三条决定性认知（推翻此前路线判断）
+
+1. **草稿不是服务端资源。** 平台原文：「草稿存储于**当前使用的浏览器本地**，在清除浏览器数据时会被删除」。
+   ⇒ `web_api/sns/v2/note`（此前恒 406）即使打通也**不会**产生草稿，那条路的方向本身是错的。
+   **小红书只能走 RPA/DOM 轨**；`xiaohongshu-draft.js` 长期「不通」的真正原因在此。
+2. **必须用用户自己的浏览器 profile 操作**。草稿落在该 profile 的本地存储里；
+   把分区拷到临时目录去操作，草稿会留在副本里（用户看不到）。
+3. **上限 100 篇，超额静默删一篇**（平台原文）。
+   ⇒ 需要「发布后清理草稿」或「提交前查重」，否则会**无声丢草稿**。
+
+### 13.3 登录态与上传链路
+
+| 项 | 结论 |
+| --- | --- |
+| 判据 cookie | `galaxy_creator_session_id` + `access-token-creator.xiaohongshu.com` + `customerClientId` 齐全即可；**`web_session` 缺失不影响 DOM 轨** |
+| 有效性探测 | `api/galaxy/user/info`、`api/galaxy/v2/creator/datacenter/account/base`、`api/galaxy/creator/home/personal_info` 均 200 |
+| 上传链 | `GET api/media/v1/upload/creator/permit?biz_name=spectrum&scene=image` → `PUT ros-upload.xiaohongshu.com/spectrum/<key>?partNumber=N&uploadId=…`（多分片并发）→ `POST …?uploadId=…`（complete）；59 MB/20 分片约 50 s，全 200 |
+
+**cookie 提取的正确与错误做法**（踩坑已固化）：
+
+| 做法 | 结果 |
+| --- | --- |
+| 拷 `Partitions/<p>/Network/Cookies` → 临时 profile 的 `Default/Network/Cookies`，**并同时拷** `shared-user-data/Local State` | ✅ Chromium 用同一 Windows 用户 DPAPI 自解密 |
+| 直接以 `Partitions/<p>` 作 user-data-dir 启动 | ❌ 分区目录**无 `Local State`**（DPAPI `encrypted_key` 在那）⇒ cookie 解不开 ⇒ 跳登录、`input[type=file]` 为 0，**表象是「未登录」，实为解密失败** |
+
+### 13.4 页面结构与交互逻辑（DOM 轨实现依据）
+
+| 事实 | 细节 |
+| --- | --- |
+| 空发布页只有 2 个 button | `chat-fab`、「上传视频」 |
+| 「暂存离开」「发布」**上传完成后才渲染** | 空页扫不到，**不得误判为「平台无草稿入口」** |
+| footer 为 fixed 定高 | 1600×1000 下「暂存离开」约 `(683, 955)`，「发布」约 `(821, 955)` |
+| 元素不可枚举 | `body.innerText` 含「暂存」但 `querySelectorAll('*')` 与 `getByText('暂存离开')` 均 count=0 ⇒ 当前只能用坐标 + 截图核对 |
+| 上传完成判据 | 进度百分比**与**「取消上传」同时消失 |
+| 标题 / 正文 | `input[placeholder*="标题"]` / `div[contenteditable="true"]` |
+| 正文会自动插入话题标签 | 属平台行为，无需处理 |
+
+### 13.5 我方显示项与提示文字（小红书轨，待实现）
+
+| 场景 | 提示（拟定） |
+| --- | --- |
+| 登录态缺失/失效 | `小红书登录态已失效，请重新授权此账号再试` |
+| 上传超时 | `视频上传超时（已 N 秒），请检查网络后重试` |
+| 找不到草稿入口 | `未找到「暂存离开」按钮：平台页面结构可能已变更，请反馈` |
+| 草稿保存成功 | `已存入小红书草稿箱（当前 N 篇）` |
+| 草稿将超上限（≥95 篇） | `小红书草稿箱已有 N 篇（上限 100），超出后平台会自动删除一篇，建议先清理` |
+| 草稿内容未核对 | `草稿已创建，但标题/正文/封面完整性未逐项校验` |
+
+### 13.6 未闭合
+
+1. **草稿落在用户分区**尚未复验（当前成功是在拷贝出的 profile 上）—— 需在应用关闭时用
+   `--user-data-dir=shared-user-data --profile-directory=session` 复验。
+2. 100 篇上限的清理/去重策略未实现。
+3. 坐标点击需替代为更稳的定位（换分辨率/缩放会失效），并补「草稿箱计数 +1」断言。
+4. 草稿**内容完整性**（标题/正文/封面是否都存住）未逐项核对。
