@@ -220,6 +220,16 @@ resolveCapabilityDefaultModel(provider, capabilityType):
 
 **移除项**：「语音模型」下拉整块（`S2vConfigPanels.vue:348-358`）。
 
+**「语音 / 音色 ID」的显示条件（2026-10-19 回补）**：`已选提供方` **且**（`s2vVoiceContextModel` **或** `s2vConfig.voiceModel`）。
+两者含义不同，缺一不可：
+
+| 来源 | 何时有值 | 缺了会怎样 |
+| --- | --- | --- |
+| `s2vVoiceContextModel`（程序解析） | 正常路径：提供方已注册且运营配置了该能力默许模型 | 字段隐藏（正确：不知道用哪个模型就不该给空下拉） |
+| `s2vConfig.voiceModel`（既有配置值） | 历史快照 / 配置档案回填后尚未重算；分发夹具显式给值 | 字段隐藏（**错误**：模型其实是已知的，只是还没走重算） |
+
+两来源皆空才算「模型未知」，此时整项不渲染。`#3946` 首版只认第一个来源，导致 main 侧布局契约红（见 PR follow-up `s2v-tone-field-guard`）。
+
 **折叠区摘要**（`CreateView.vue:2058`）：**保持逐字节不变**，仍为
 
 ```
