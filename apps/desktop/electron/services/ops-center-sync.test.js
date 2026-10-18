@@ -1132,7 +1132,10 @@ describe('OpsCenterSync appMenu（应用菜单配置）', () => {
     const store = makeStore()
     const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
     svc.applyRuntime(payload([]))
-    expect(svc.getAppMenu()).toEqual({ items: [], syncedAt: '' })
+    // config-hash-purity（2026-10-18）：时间戳不再来自 appMenu 块内 synced_at
+    // （块内该键已从服务端移除，否则它参与 config_hash、每次请求都会变），
+    // 改由 bootstrap 信封顶层 synced_at 承载 —— 本夹具顶层为 't'，故 syncedAt === 't'。
+    expect(svc.getAppMenu()).toEqual({ items: [], syncedAt: 't' })
   })
 
   it('重启后从 settings 恢复 appMenu', () => {

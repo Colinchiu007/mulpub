@@ -340,7 +340,12 @@ async def get_bootstrap_content_categories(db: AsyncSession) -> dict:
         for r in rows
         if r.enabled
     ]
-    return {"items": items, "count": len(items), "synced_at": _now()}
+    # ⛔ 载荷内**不得**再带 synced_at（config-hash-purity，2026-10-18）：
+    # 本块在 `config_fingerprint.RUNTIME_BLOCKS` 白名单内，参与 config_hash 计算。
+    # 曾经这里返回 {"items", "count", "synced_at": _now()}，于是每请求 hash 都变
+    # ⇒ config_version 每次 +1、生效看板「已确认率」永远上不去、版本表无限增长。
+    # count 是内容的纯函数（len(items)），保留；时间戳由 bootstrap 信封顶层承载。
+    return {"items": items, "count": len(items)}
 
 
 async def ensure_content_categories_seeded(db: AsyncSession) -> None:

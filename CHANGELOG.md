@@ -32,6 +32,27 @@
 - **视觉基线影响（不声称视觉中性）**：按钮是全局可见 UI，`apps/desktop/tests/visual-testing/base-screenshots/` 中**含 TabBar 的基线**都会变化（最终变化清单以 CI `Gate 7b` 点名为准）；基线由 CI 同源渲染重建并逐张审核，禁止在本机用 `--update-baseline` 掩盖。
 - **非目标**：不做动画过渡（避免与原生 WebContentsView 边界不同步）、不做拖拽调宽、不做窄屏 68px 图标栏的第二种折叠形态、不做快捷键、不改 OAuth 内嵌视图（`oauth-manager.js:86` 既有实现不跟随侧栏宽度，登记为已知限制）。
 - **文档**：专项 PRD `01-docs/PRD-SIDEBAR-COLLAPSE-TOGGLE-2026-10-18.md`、OpenSpec change `openspec/changes/sidebar-collapse-toggle/`、执行记录 `openspec/records/sidebar-collapse-toggle.md`，并同步 `01-docs/PRD.md` F8、`01-docs/DESIGN.md`「全局壳层」、`01-docs/i18n-glossary.md` 术语与 `01-docs/learnings.md` 沉淀。
+# [未发布] fix(ops): config_hash 白名单内两个块自带 synced_at，导致「内容没变、指纹每次都变」（config-hash-purity）
+
+## 问题
+- 运营中心「生效看板」的已确认率长期上不去、未确认客户端明细里挂着一堆设备，`RuntimeConfigVersion` 表每次 bootstrap 都新增一行——而运营其实什么都没改。
+- 根因：`appMenu` 与 `contentCategories` 两个**都在** `config_hash` 白名单内的块，各自在下发载荷里带了 `synced_at: _now()`。顶层挡住 ≠ 块内干净：`compute_config_hash` 的注释第 1 条早就写着「synced_at 纳入则 hash 永远变」，但只约束了顶层，块内那两份没人管。
+- 实测（修复前，同库连构两次）：`config_hash` `f8a5b99df879ac71` → `dd3dfca7ccd2e587`，`config_version` 1 → 2，业务数据一个字节没改。
+
+## 修复
+- 两个 service 的下发载荷删除块内 `synced_at`：`appMenu` → `{items}`、`contentCategories` → `{items, count}`（`count` 是 `len(items)` 的纯函数，保留）。时间戳只留在 bootstrap 信封顶层——那里本来就不参与 hash。
+- 桌面端 `normalizeAppMenu(raw, fallbackSyncedAt)` 改从信封顶层取时间戳，同时**向后兼容**旧形态（块内若还带着就优先用它），保证新旧服务端混跑期间时间戳不会突然变空。
+- `config_fingerprint.compute_config_hash` 的约束从 3 条扩到 **4 条**，新增「白名单内每个块的载荷本身也不得含每请求变化的字段」，并点名这次事故的文件与行号。
+- `test_app_menu_api.py` 里那条 `assert isinstance(app_menu.get("synced_at"), str)`（**把缺陷当期望行为**）改为反向断言。
+
+## 回归保护
+- 新增 `ops-center/backend/tests/test_config_hash_stability.py`：判据刻意不枚举字段名，而是断言不变量「同库连构两次 bootstrap，`config_hash` 与 `config_version` 逐字相等」；外加静态锁「白名单内任何对象形态块都不得含 `synced_at` 键」。**变异反证实测**：注回缺陷当场红（`6f384242bb0386f9 != c3f0a53f660d6043`），还原后全绿。
+- 桌面端 `ops-runtime-snapshot.test.js` 新增 4 条：真实种子无 `synced_at` / 掺入即改变 hash / 顶层变化不改变 hash / `updated_at` 等内容属性字段**必须**改变 hash（防止后人把判据写宽，把「内容变更升版」这条正确语义一起判死——这条是实测踩出来的，初版判据就被 `content_policy.updated_at` 当场判红）。
+
+## 影响面
+- 不损坏任何配置内容，菜单/类别/文案照常渲染；修的是整条「配置生效链路」的观测面。
+- 无 schema 变更、无数据迁移、无新增 UI、无新增提示文字。
+- 文档：`01-docs/BUGFIX-CONFIG-HASH-SYNCED-AT-2026-10-18.md`（含根因溯源、逃逸分析、方案对比、数据校验表、流程、边界 9 条、验收 7 条、风险 5 条）。
 
 # [未发布] fix(collect): 百家号采集不再把「百度安全验证」页当正文，采集页改写改走桌面模型设置（fix-collect-antibot-rewrite）
 

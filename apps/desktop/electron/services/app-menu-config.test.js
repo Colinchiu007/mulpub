@@ -64,3 +64,40 @@ describe('normalizeAppMenu — group 字段透传（跨组配置契约）', () =
     expect(normalizeAppMenu({ items: Array.from({ length: 201 }, (_, i) => ({ key: 'k' + i })) })).toBeNull()
   })
 })
+
+describe('normalizeAppMenu — 时间戳来源（config-hash-purity，2026-10-18）', () => {
+  /**
+   * 背景：appMenu 在 RUNTIME_BLOCKS 白名单内、参与 config_hash 计算。
+   * 服务端曾下发块内 synced_at: _now()，导致「运营没改菜单，hash 也每次都在变」
+   * ⇒ config_version 每次 +1、生效看板「已确认率」永远上不去、版本表无限增长。
+   * 修复后服务端只在 bootstrap 信封顶层带 synced_at，块内不再有该键。
+   * 回归锁在服务端 tests/test_config_hash_stability.py（不变量：同库连构两次 hash 相等）。
+   */
+  const ITEMS = [{ key: 'home', visible: true, sort_order: 0, group: 'primary' }]
+
+  it('新形态：块内无 synced_at ⇒ 从信封顶层 fallbackSyncedAt 取', () => {
+    const out = normalizeAppMenu({ items: ITEMS }, '2026-10-18T09:00:00Z')
+    expect(out.syncedAt).toBe('2026-10-18T09:00:00Z')
+    expect(out.items).toEqual([{ key: 'home', visible: true, sort_order: 0, group: 'primary' }])
+  })
+
+  it('新形态且信封顶层也没有 ⇒ 空串（不得凭空造时间，渲染端仅用于展示）', () => {
+    const out = normalizeAppMenu({ items: ITEMS })
+    expect(out.syncedAt).toBe('')
+    const out2 = normalizeAppMenu({ items: ITEMS }, undefined)
+    expect(out2.syncedAt).toBe('')
+    const out3 = normalizeAppMenu({ items: ITEMS }, 12345)
+    expect(out3.syncedAt).toBe('')
+  })
+
+  it('向后兼容：旧形态块内仍带 synced_at ⇒ 优先用它（新旧服务端混跑不出现空时间戳）', () => {
+    const out = normalizeAppMenu({ items: ITEMS, synced_at: '2026-09-21T00:00:00Z' }, '2026-10-18T09:00:00Z')
+    expect(out.syncedAt).toBe('2026-09-21T00:00:00Z')
+  })
+
+  it('块内 synced_at 不是字符串时不得透传（回落顶层或空串）', () => {
+    expect(normalizeAppMenu({ items: ITEMS, synced_at: 123 }, '2026-10-18T09:00:00Z').syncedAt)
+      .toBe('2026-10-18T09:00:00Z')
+    expect(normalizeAppMenu({ items: ITEMS, synced_at: null }).syncedAt).toBe('')
+  })
+})

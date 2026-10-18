@@ -304,7 +304,14 @@ async def test_bootstrap_app_menu_payload_is_signed_and_complete():
         assert "appMenu" in data
 
         app_menu = data["appMenu"]
-        assert isinstance(app_menu.get("synced_at"), str)
+        # config-hash-purity（2026-10-18）：appMenu 在 RUNTIME_BLOCKS 白名单内、参与 config_hash，
+        # 因此**块内不得带 synced_at**——曾经这里返回块内 _now()，导致「内容没变 hash 也变」：
+        # 每次 bootstrap 的 config_hash 都不同、config_version 每次 +1、
+        # 生效看板「已确认率」永远上不去、RuntimeConfigVersion 表随请求数无限增长。
+        # 时间戳改由信封顶层 synced_at 承载（顶层字段不参与 hash，回归锁见
+        # tests/test_config_hash_stability.py）。
+        assert "synced_at" not in app_menu, "appMenu 块内不得再带 synced_at（会污染 config_hash）"
+        assert isinstance(data.get("synced_at"), str) and data["synced_at"], "时间戳必须留在信封顶层"
         by_key = {i["key"]: i for i in app_menu["items"]}
         assert len(app_menu["items"]) == CATALOG_SIZE
         assert by_key["home"]["visible"] is False
