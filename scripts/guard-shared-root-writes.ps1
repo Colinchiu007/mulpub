@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Multi-Publish 共享主目录实时写保护。
 .DESCRIPTION
