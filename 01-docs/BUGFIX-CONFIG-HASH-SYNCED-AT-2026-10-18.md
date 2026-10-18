@@ -169,6 +169,21 @@ E       AssertionError: assert '6f384242bb0386f9' == 'c3f0a53f660d6043'
 当场判红。`synced_at` 是「每次请求现生成」的时钟产物，`updated_at` 是「内容何时被改」——
 只有前者有害。
 
+### 4.4 QM-6 外部评审三条发现及处置
+
+深度审查（`sh scripts/deep-review.sh`，`mode=dual`，变更 327 行 > 200 阈值）产出 5 条问题、
+4 个维度评分（correctness/security/performance/maintainability，最低 7 分），
+收敛后进入自扮演裁决，逐条填 verdict：
+
+| # | 发现 | 裁决 | 处置 |
+|---|---|---|---|
+| i1（Warning / **crypto 高危域**） | `config_fingerprint.py` 第 4 条约束把 `updated_at` 与 `synced_at` 并列称为 volatile，与桌面端回归锁「`updated_at` 变化必须改变 hash」**直接矛盾**——后人照它扩 `VOLATILE_KEYS` 就会把「内容变更升版」这条正确语义一起判死 | **upheld（已修）** | 第 4 条改为「不得含每请求变化的**时钟产物**（`synced_at` / `syncedAt` / 任何 `_now()` 产物）」，并新增一段明确区分「时钟产物」与「内容属性」：`updated_at` / `created_at` 属内容属性，运营改配置时它跟着变、hash 随之变化是**正确**行为 |
+| i2（Warning） | `test_config_hash_stability` 原断言两次请求的顶层 `synced_at` **必须不同**；同毫秒执行会造成偶发假失败（flake CI），且失败信息与真实缺陷无关、会误导排查方向 | **upheld（已修）** | 删掉该前置断言，改为注释说明「真正要守的是 hash 与 version 相同；`synced_at` 相同只说明时钟刻度没跨过，不影响断言有效性」——既消 flake 又不削弱判据强度 |
+| i3（Warning） | 测试模块改全局 `os.environ` + `sys.path.insert`，被指污染 pytest 套件 | **dismissed** | ① 这是**照抄 `test_runtime_resilience_api.py` 的既有约定**（同一批变量名、同一路径插入方式）；② `tests/conftest.py` 已用 `setdefault` 对同一批变量做会话级兜底，设计上就允许多模块设置；③ 后端全量 pytest **676 passed / 0 failed** 即无污染的经验证据。已在测试文件 docstring 写明该约定来历，避免后人重复质疑 |
+
+裁决全文：`.adversarial/ccg-deep-<sha>/adjudication.json`（含每条的最强指控 / 最强辩护 / 裁决 / 可验证理由）。
+
+
 ---
 
 ## 5. ⑤ 预防措施（落地到具体文件）

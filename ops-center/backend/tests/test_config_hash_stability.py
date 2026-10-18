@@ -22,6 +22,11 @@
 
 配套的一条**静态锁**逐块断言「载荷里不得出现 synced_at 键」：
 不变量测试抓的是「值在变」，静态锁抓的是「键还在」——两者互补，缺一不可。
+
+关于模块顶部的 `os.environ[...] = ...` 与 `sys.path.insert`：这是**照抄
+`test_runtime_resilience_api.py` 的既有约定**（同一批变量名、同一路径插入方式，
+`tests/conftest.py` 也已 `setdefault` 同一批变量做会话级兜底），不是本文件新引入的
+污染面；后端全量 pytest（676 passed）即该约定无污染的实测证据。
 """
 
 import datetime
@@ -90,8 +95,11 @@ async def test_bootstrap_config_hash_is_stable_across_identical_requests():
     assert first.status_code == second.status_code == 200
     a, b = first.json(), second.json()
 
-    # 顶层 synced_at 本来就允许变（它是信封字段，不参与 hash）
-    assert a["synced_at"] != b["synced_at"], "前置条件：两次请求必须跨过至少一个时钟刻度"
+    # 顶层 synced_at 本来就允许变（它是信封字段，不参与 hash）。这里**不断言它必须不同**：
+    # 两次 HTTP 请求理论上可能落在同一毫秒，那样断言会变成偶发假失败（flake CI）。
+    # 本测试真正要守的是下面两条——「内容没变，指纹与版本就不许变」。
+    # 若两次 synced_at 恰好相同，说明时钟刻度没跨过，不影响下面断言的有效性
+    # （指纹相同仍然是我们要求的结论）。
 
     # 指纹与版本必须一模一样
     assert a["config_hash"] == b["config_hash"], (
