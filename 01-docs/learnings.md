@@ -16296,6 +16296,62 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 ### 经验沉淀（审查清单更新点）
 - **新增「控制信号 vs 业务数据」审查项**：任何 `Promise.resolve` 值被透传给下一层时，先确认 resolve 值集合里是否存在非业务数据的控制信号（cancel/timeout/close），若有必须在消费边界拦截并规格化（OpenSpec 场景）。
 - **IPC 返回契约测试**：主进程 IPC handler 的返回形状（含取消/超时分支）必须有契约测试钉死，渲染层的 mock 不能替代主进程侧断言。
+## 增量轮（标题 20 字上限 + 实时字数）教训（2026-10-18，fix-hot-topics-genvideo-title）
+
+### lesson:zero-growth-file-extract-before-adding
+
+**`check-max-lines` 的「点名还账、零增长容差」不是「这个文件不能改」，是「改动必须自带还债」。**
+给 `Publish.vue`（target 钉 1773、容差 0）加标题 20 字上限与实时字数，第一版直接写进视图 ⇒ `TARGET_GREW` 超 21 行。
+正解是把**自己的债务也算进去**：上一轮我在同一文件加的 12 行 `videoTitleSourceHint` 三态映射也是新债，一起下沉成
+`usePublishVideoTitleHint` 后视图只剩两行调用 ⇒ 最终 1768 行，比改前基线还少 5。
+判据是「我要加的这 N 行，从这个文件的哪些既有 BLOCK 里省出来」。测试文件同样适用。
+
+### lesson:rebase-before-claiming-headroom
+
+**行数读数必须在 rebase 之后取。** 按 rebase 前基线算出「还了 5 行」以为稳，`git rebase origin/main` 后才看到
+主干自己已把该文件收到 1770、把 `Publish.test.js` 堆到正好 1935（容差顶格）—— 同一改动瞬间从「还 5 行」变成「超 2 行 + 测试顶格」。
+
+### lesson:label-merge-is-legitimate-for-line-budget
+
+**零增长文件里，模板排版合并是合法手段，语义改写不是。** 相邻 `<p>` 并一行、`</label>` 与紧随的输入框并一行 = 等价；
+把两个不同提示合成一句、删掉条件渲染 = 行为漂移。前者只是让声明式模板更紧凑，后者会让测试与行为一起漂。
+
+### lesson:test-migration-not-deletion-when-contract-changes
+
+**契约变了的用例要「迁移并改写」，不是删掉。** 20 字上限让「百家号按字节截断到 49 字」不可达，原用例必然红；
+但它守的是「提交前的平台级校验仍然生效」—— 删掉就没覆盖了。做法是搬到标题专项测试文件并按新契约重写
+（断言「20 码点标题的 UTF-8 字节数 ≤ 149 且发布照常继续」）。判据：删一条用例前先问「它守的是什么不变量」。
+
+### lesson:multilevel-fallback-needs-empty-chain-fixture
+
+**多级回退链 + 夹具填满前几级 = 缺陷路径在测试里表现为「正确行为」。** 本轮审计发现 4 条标题链路里 3 条同缺陷，
+而 `publish-from-project.test.js` 的旧夹具让 `title === sourceText` 且只有 38 字，于是「标题回退到正文」这条生产缺陷
+在测试里看起来完全正常。纪律：多级回退的纯函数**必须有一例「前几级全空」的生产形态夹具**；
+「不得注入空 X」的规则必须同时回答「X 非空时从哪来」。
+
+### lesson:electron-builder-alone-ships-white-screen-package
+
+**QM-1 的官方命令本身不足以产生可用包。** `pnpm exec electron-builder --win --x64` 不构建渲染层（`dist/` 由 `build:vue` 产出），
+干净工作区里照它跑会得到 `exit=0` + `Multi-Publish.exe` 228MB + `app.asar` 140MB 全在，但 asar 里**根本没有 `dist/`**，
+启动后 stderr 报 `Failed to load URL: …app.asar/dist/index.html … ERR_FILE_NOT_FOUND` —— 一个启动即白屏的包。
+正确命令是 `pnpm run build:win`。三条判据必须同时看：`exit=0`（不够）、产物存在（不够）、**启动后 stderr**（唯一拦下它的）；
+判 stderr 前还要硬性剔除 `ELECTRON_RUN_AS_NODE`（带上它 Electron 以纯 Node 模式静默退出，与「启动干净」完全同形）并单独断言存活。
+元教训：**规范里写的命令是「当时那次能跑通的那个写法」，不是「能产生可用产物的那个写法」**。
+
+### lesson:deep-review-timeout-not-proportional-to-diff-size
+
+**「把 diff 拆小，深度审查就能跑完」是未经验证的假设，实测被否。** 1790 行连续四次 `spawnSync codeagent-wrapper.exe ETIMEDOUT`；
+本轮增量 559 行（约 1/3）同样在**同一位置**超时 ⇒ 在可行区间内超时与 diff 体量没有单调关系，拆 PR 不是解法。
+剩余可能均指向环境：① 后端单次评审耗时远超引擎硬编码 `timeoutMs: 600000`（`cfgForMode`，无 CLI/env 覆盖入口）；
+② 大 prompt 经 argv 传给 wrapper 后卡住（Windows 命令行 ~32KB 量级）。处置纪律：闭环状态只有
+`{cleared, needs_revision, self_play_resolved}`，三者都表示「评审有结论」；没跑成时写任何一个是伪造，只能是停下来报告用户。
+
+### lesson:hot-append-surface-put-new-block-at-tail
+
+**顶部追加型热点文件（CHANGELOG / learnings）在本仓会制造循环冲突。** 主干每十几分钟合一个 PR，每个 PR 都在同一位置
+（文件顶部）插入自己的块；CI 一轮 40 分钟，期间主干必然再前进 ⇒ rebase 完再推、推完又被判 DIRTY，形成活锁。
+本轮实测连续三轮都是这两个文件冲突。破法：把新增块追加到**文件末尾**（增长门禁判标题多重集、对账判 preamble 逐字节，
+都与位置无关），冲突面立刻消失。代价是条目不在「最新在前」的阅读位置，需在条目里注明原因。
 # 历史记录状态标签与统一排序复盘（2026-08-15）
 
 ## QM-5
