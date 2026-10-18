@@ -510,7 +510,13 @@ function main(argv) {
   //   控制流会重新 evaluate 出 r2 并 return report(r2) —— 若只改 r，欠账会被静默丢弃。
   // base 与变更集同源：--statuses 外部注入时可能没有可用 base，readAtBase 会返回 null 走未证实出口
   const baseRef = typeof args.base === 'string' ? args.base.trim() : ''
+  // 丙：覆盖率读数。不参与判定 —— 一上线红两百条会逼人把门削宽（本仓点名的失败形态）。
+  let tierLinePrinted = false
   const applyDeepDebt = (target) => {
+    if (!tierLinePrinted) {
+      tierLinePrinted = true
+      process.stdout.write(summarizeTierCoverage(dualClosedDeepReviews(statuses, repo)).line + String.fromCharCode(10))
+    }
     // D 方向需要 base 的 blob 才能判「删掉的那条当时是否已闭环」；取不到就返回 null，
     // 由判据按「未证实」出声，而不是静默放行。变更集本身仍只有 changedFileStatuses 一个取源。
     const readAtBase = (rel) => {
@@ -562,6 +568,64 @@ const CLOSED_DEEP_REVIEW_STATUSES = new Set([
   'self_play_resolved',
 ])
 
+// ── QM-6 丙：来源分档与覆盖率读数（先可见不拦，见 design §9.1）────────────
+// 分级只读结构化 tier（闭集）+ evidence；MUST NOT 读 performedBy 散文
+//（实测 34 种取值、12 条以 self-play 开头却声明做过外部复核 ⇒ 前缀判据会误判真外部证据）。
+const EVIDENCE_TIERS = new Set(['external', 'self-play', 'none'])
+
+/**
+ * 出处必须是「可复核的指针」，不是「非空字符串」。
+ * 动因（2026-10-17 外部评审命中 + 本机探针实测）：把 evidence 写成单个字符 x 就能被判成
+ * external —— 非空判据对「凭空造一条已评审」没有任何抵抗力。这里只认三种可事后核的形态：
+ * PR 引用（# + 3 位以上数字）、评审会话 id（ses_ 前缀）、UUID 形态的 session/trace id。
+ * 刻意不清洗、不猜、不接受自由文本：形状不对就降 external-unverified（可见不拦，转拦另片）。
+ */
+function isResolvableEvidence (ev) {
+  const s = String(ev).trim()
+  if (/#\d{3,}/.test(s)) return true
+  if (/ses_[0-9A-Za-z]{6,}/.test(s)) return true
+  if (/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(s)) return true
+  if (/[0-9a-f]{40}/.test(s)) return true
+  if (/\.(?:log|json|md|txt)(\b|[#/])/.test(s)) return true
+  return false
+}
+
+function classifyEvidenceTier (dr) {
+  if (!dr || typeof dr !== 'object') return 'unknown'
+  const t = dr.tier
+  if (typeof t !== 'string' || t !== t.trim() || !EVIDENCE_TIERS.has(t)) return 'unknown'
+  if (t === 'external') {
+    const ev = dr.evidence
+    return (typeof ev === 'string' && ev.trim() !== '' && isResolvableEvidence(ev)) ? 'external' : 'external-unverified'
+  }
+  return t
+}
+
+/** 空集也必须出行：否则"这条锁没跑"与"没有记录"在日志里逐字同形。 */
+function summarizeTierCoverage (records) {
+  const by = { external: 0, 'external-unverified': 0, 'self-play': 0, none: 0, unknown: 0 }
+  for (const dr of records) by[classifyEvidenceTier(dr)]++
+  const total = records.length
+  const line = 'TIER-COVERAGE dual-closed total=' + total +
+    ' external=' + by.external + ' external-unverified=' + by['external-unverified'] +
+    ' self-play=' + by['self-play'] + ' none=' + by.none + ' unknown=' + by.unknown +
+    '（可见不拦；转拦前提：unknown 占比降下来 —— design §9.1 丙）'
+  return { total, by, line }
+}
+
+/** 变更集里「dual 且已闭环」的记录 —— 覆盖率只统计这一批（新记录天生带 tier）。 */
+function dualClosedDeepReviews (statuses, repo) {
+  const out = []
+  for (const e of statuses) {
+    if ((e.status !== 'A' && e.status !== 'M') || !AUDIT_ARTIFACT_RE.test(e.file)) continue
+    let rec = null
+    try { rec = JSON.parse(fs.readFileSync(path.join(repo, e.file), 'utf8')) } catch { continue }
+    if (!rec || rec.mode !== 'dual' || !rec.deepReview) continue
+    if (CLOSED_DEEP_REVIEW_STATUSES.has(rec.deepReview.status)) out.push(rec.deepReview)
+  }
+  return out
+}
+
 /**
  * ★ 2026-10-15 增（缺陷 D）：检查 `.ccg/reviews/*.json` 里被判定需要深度审查
  * （`deepReview.required === true`）但**状态不在闭环白名单里**的记录。
@@ -611,6 +675,7 @@ function evaluateDeepReviewDebt (statuses, repo, readAtBase) {
   //   **免审计版本**。内容只能从 base 的 blob 读，工作树里已经没有这个文件了。
   const removedUnclosed = []
   const unreadable = []
+  const unparsed = []
   for (const e of statuses) {
     if (e.status !== 'D' || !REVIEWS_DIR_RE.test(e.file)) continue
     const rel = e.file
@@ -620,7 +685,7 @@ function evaluateDeepReviewDebt (statuses, repo, readAtBase) {
     } catch { txt = null }
     if (txt === null || txt === undefined) { unreadable.push(rel); continue } // 未证实 ≠ 已通过
     let rec = null
-    try { rec = JSON.parse(txt) } catch { continue } // 非评审记录/损坏由别的门禁负责
+    try { rec = JSON.parse(txt) } catch { unreadable.push(rel + '（base 内容解析不动）'); continue }
     if (!rec || typeof rec !== 'object') continue
     if (rec.mode === undefined && rec.deepReview === undefined && rec.decidedBy === undefined) continue
     if (rec.mode !== 'dual') continue // single 不在本判据范围（缺陷G 口径，不得改成噪音）
@@ -638,7 +703,7 @@ function evaluateDeepReviewDebt (statuses, repo, readAtBase) {
   }
   if (unreadable.length > 0) {
     reasons.push(
-      `扫描域无法取证 ${unreadable.length} 条：这些 .ccg/reviews 记录在本次变更集里被删除，但读不到 base 版本，`
+      `扫描域无法取证 ${unreadable.length} 条：这些 .ccg/reviews 记录在本次变更集里被删除，而 base 版本读不到或读不动，`
       + `因此无法判定删除前是否已闭环 —— 「读不到」不得读成「没欠账」：\n`
       + unreadable.slice(0, 8).map((p) => `    - ${p}`).join('\n')
       + '\n    常见成因：浅克隆解不出 merge-base、调用方未注入 readAtBase、base ref 已被回收。'
@@ -659,7 +724,7 @@ function evaluateDeepReviewDebt (statuses, repo, readAtBase) {
     let rec = null
     try {
       rec = JSON.parse(fs.readFileSync(path.join(repo, rel), 'utf8'))
-    } catch { continue } // 损坏记录由别的门禁负责，这里不重复报
+    } catch { unparsed.push(rel); continue } // 实测没有任何门禁在校验它可解析（ccg-gate.js 同目录也是跳过）⇒ 只能在这里出声
     if (!rec || !rec.deepReview || rec.deepReview.required !== true) continue
     // ★ 2026-10-15 实测补正（缺陷 G）：只看 mode === 'dual'。
     //   引擎对 mode !== 'skip' 一律置 required=true —— 那是「是否需要评审」，
@@ -700,6 +765,16 @@ function evaluateDeepReviewDebt (statuses, repo, readAtBase) {
       + '（修上游驱动的验证层分支 / 把驱动 vendor 进本仓 scripts/）。'
       + '\n    不得反向处置：把 reviewBackends 字段删掉会让本判据整体失效（历史产物按"不适用"跳过），'
       + '那是拆锁不是还账。'
+    )
+  }
+
+
+  if (unparsed.length > 0) {
+    reasons.push(
+      `变更集里有 ${unparsed.length} 条 .ccg/reviews 产物解析不动 —— 它们既不参与欠账判定、也不参与覆盖率统计，`
+      + `而「读不动」不等于「没欠账」：把 status 写坏或把文件截断，正是本判据要消灭的逃逸形态。\n`
+      + unparsed.slice(0, 8).map((p) => `    - ${p}`).join('\n')
+      + '\n    正解：让 pre-commit 重新生成该产物（或 sh scripts/deep-review.sh 补跑），不要手工修补 JSON。'
     )
   }
   return { reasons, checked: involved.length }
@@ -787,6 +862,6 @@ function report(r, mode) {
 //   stripCommentsForScan 把源码削成「只含代码行」的视图（引号感知剥注释 + 规范化 CRLF）
 // 生产路径只用 describeAuditWidths / auditAcceptedAltForm().description；
 // 其余导出不改变判据行为，仅为可测性存在。
-module.exports = { evaluate, resolveHeadBranch, readExemptsOnDisk, remoteBranchSet, isPureBackfillChangeSet, evaluateDeepReviewDebt, judgeBackendMismatch, CLOSED_DEEP_REVIEW_STATUSES, RECORDS_RE, EXEMPT_RE, CARRIER_RE, DEFAULT_THRESHOLD, AUDIT_ARTIFACT_RE, auditAcceptedWidths, auditAcceptedAltForm, describeAuditWidths, stripCommentsForScan, AUDIT_NAME_WIDTH_MIN, AUDIT_NAME_WIDTH_MAX }
+module.exports = { isResolvableEvidence, classifyEvidenceTier, summarizeTierCoverage, evaluate, resolveHeadBranch, readExemptsOnDisk, remoteBranchSet, isPureBackfillChangeSet, evaluateDeepReviewDebt, judgeBackendMismatch, CLOSED_DEEP_REVIEW_STATUSES, RECORDS_RE, EXEMPT_RE, CARRIER_RE, DEFAULT_THRESHOLD, AUDIT_ARTIFACT_RE, auditAcceptedWidths, auditAcceptedAltForm, describeAuditWidths, stripCommentsForScan, AUDIT_NAME_WIDTH_MIN, AUDIT_NAME_WIDTH_MAX }
 
 if (require.main === module) main(process.argv.slice(2))

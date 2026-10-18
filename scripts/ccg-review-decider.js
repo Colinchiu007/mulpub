@@ -503,7 +503,7 @@ function recordFileName(stagedDiffHash, sha) {
   return `${sha}.json`;
 }
 
-function saveRecord(result, sha, layer, plannedFiles) {
+function saveRecord(result, sha, layer, plannedFiles, backends) {
   const dir = path.join(process.cwd(), ".ccg", "reviews");
   fs.mkdirSync(dir, { recursive: true });
   // 内容寻址键：暂存区 diff 的哈希，且排除 .ccg 自身。
@@ -581,12 +581,8 @@ function saveRecord(result, sha, layer, plannedFiles) {
     // 不把这个字段落进记录，「换后端」就只是终端上滚过的一行字，机器无从追责 ——
     // 这正是 2026-10-18 三种旋钮全部静默失效没被任何门禁发现的原因。
     reviewBackends: RB.resolveBackends(),
-    deepReview: {
-      required: result.mode !== "skip",
-      status: "pending",
-      performedBy: null,
-      findings: null,
-    },
+    backendAvailability: summarizeBackendAvailability(backends === undefined ? detectBackends() : backends),
+    deepReview: buildDeepReviewInit(result.mode),
   };
   // ★ 2026-10-16（QM-6 i3，成立并已修）：内容寻址让「同一变更反复提交/amend」落到**同一个文件**，
   // 这正是收敛性的来源；但副作用是**后写会静默覆盖先写**。若先写那份的 deepReview 已经闭环
@@ -596,9 +592,13 @@ function saveRecord(result, sha, layer, plannedFiles) {
   // sha256 抗碰撞 ⇒ 「同名而内容不同」只可能来自回落路径或哈希碰撞，无需防；
   // 真正要防的就是这一种：同名 + 已闭环。故写前检查，命中则拒写并保留原文件。
   if (fs.existsSync(file)) {
-    let prev = null;
-    try { prev = JSON.parse(fs.readFileSync(file, "utf8")); } catch (_) { prev = null; }
-    if (shouldPreserveClosedRecord(prev)) {
+    let prev = null; let unreadablePrev = false;
+    try { prev = JSON.parse(fs.readFileSync(file, "utf8")); } catch (_) { prev = null; unreadablePrev = true; }
+    if (unreadablePrev || shouldPreserveClosedRecord(prev)) {
+      if (unreadablePrev) {
+        console.log("   [CCG] ⚠ 同名判定记录已存在但**解析不动** ⇒ 不覆盖它，本次判定另存为 alt。");
+        console.log("         覆盖等于销毁既有评审证据（status/findings 可能都在那份里），而「读不动」不等于「没有」。");
+      }
       // 不覆盖已有实质内容的记录；把本次判定另存，避免两份都丢失。
       //
       // ★ 第四轮 i1/i6（Critical）：alt 名不得无限累积。
@@ -631,6 +631,48 @@ function saveRecord(result, sha, layer, plannedFiles) {
   }
   fs.writeFileSync(file, JSON.stringify(record, null, 2), "utf8");
   return file;
+}
+
+/**
+ * QM-6 丙：来源意图必须是结构化字段。
+ * 实测主干 827 份产物里 performedBy 有 34 种自由写法（12 条以 "self-play" 开头却声明做过外部复核），
+ * 所以分级只能读 tier（闭集）+ evidence（出处），二者合取才算外部证据。
+ */
+function buildDeepReviewInit(mode) {
+  return {
+    required: mode !== "skip",
+    status: "pending",
+    tier: "unknown",
+    performedBy: null,
+    evidence: null,
+    findings: null,
+  };
+}
+
+/**
+ * 后端可用性以**计数**分档，不是布尔「有没有」。
+ * 沿用 deep-review.sh:373-375 的既有口径：只看 0/1 标志时，2/2 可用与 1/2 可用长成一个样，
+ * 于是「双模型齐备」也会打印「只剩单后端」。降级资格的判据要能区分这两档。
+ */
+function summarizeBackendAvailability(backends) {
+  const b = backends || {};
+  const wrapperExists = b.wrapperExists === true;
+  // 形状由 detectBackends() 持有：names = 本轮**真要用**的后端名单（单一真源 list），byName = 逐个 PATH 探测结果。
+  // 这里原先读的是 b.claude / b.opencode —— 那两个键在 change qm6-review-backend-config 之后已不存在，
+  // 于是现场「两个后端都可用」被报成 count=0，而单测因注入的是旧形状夹具，对这个漂移完全免疫
+  // （同仓教训：契约夹具不得替对方把数算好）。现只认新形状，不留双读兼容层。
+  const names = Array.isArray(b.names) ? b.names : [];
+  const byName = b.byName && typeof b.byName === "object" ? b.byName : {};
+  const onPath = names.filter((n) => byName[n] === true);
+  const count = onPath.length;
+  const total = names.length;
+  return {
+    count,
+    total,
+    partial: count > 0 && count < total,
+    wrapperReady: wrapperExists,
+    backends: { wrapperExists, names: names.slice(), onPath: onPath.slice() },
+  };
 }
 
 function currentSha() {
@@ -829,7 +871,8 @@ function main() {
       result,
       sha,
       staged.proposal ? "plan" : "diff",
-      staged.plannedFiles
+      staged.plannedFiles,
+      backends
     );
     console.log(`          判定已落盘: ${path.relative(process.cwd(), f)}`);
     if (staged.proposal && staged.plannedFiles && staged.plannedFiles.length) {
@@ -853,6 +896,9 @@ if (require.main === module) {
 
 module.exports = {
   RULES,
+  buildDeepReviewInit,
+  detectBackends,
+  summarizeBackendAvailability,
   judge,
   collectStaged,
   collectFromDiff,
