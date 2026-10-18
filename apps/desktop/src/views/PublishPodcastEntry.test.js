@@ -6,7 +6,7 @@ import { createRouter, createWebHistory } from 'vue-router';
 import i18n from '@/i18n';
 
 // Publish.vue 用 useRoute()，它要真实 router 插件才能拿到 route——只 mock $route 会让
-// setup 里的 computed 在 route.query 上抛错，七条用例一起挂在夹具上（那种红没有归因价值）。
+// setup 里的 computed 在 route.query 上抛错，全部用例一起挂在夹具上（那种红没有归因价值）。
 const router = createRouter({
   history: createWebHistory(),
   routes: [
@@ -20,8 +20,14 @@ const router = createRouter({
  *
  * 为什么要单开这份文件：Publish.test.js 那 1900 行没有一条用例引用过
  * activeChannelId / PodcastScriptEntry，这一枚入口在主干上处于「合同已写、零验收」的状态。
- * 下面的判据逐条对应 §7.10.3.4 的验收 1 / 2 / 4，外加这一枚独有的一条：
- * article.content 是**在途状态**（发布动作与改写面板双向改写它），入口必须只读。
+ *
+ * 下面的判据逐条对应 §7.10.3.4 的验收 1 / 2 / 4，外加这一枚独有的两条：
+ * ① article.content 是**在途状态**（发布动作与改写面板双向改写它），入口必须只读；
+ * ② 入口打开后用的是**点击那一刻的快照**，不再跟随在途正文。
+ *
+ * 跑的是「从 Publish.vue 这一侧把入口走通」，所以断言穿过视图树找到浮层本体，
+ * 而不是直接测组件——入口的可见性判据、快照时机、常驻挂载这三件事只有在整链上跑一次
+ * 才是这一枚入口的验收（launcher 只是它们现在的住处，见 components/PodcastScriptEntryLauncher.vue）。
  */
 
 const podcastApi = vi.hoisted(() => ({
@@ -89,6 +95,14 @@ async function openEntry(w) {
   await nextTick();
 }
 
+/** 点确认并冲刷在途 Promise（出期链里 planPreview / publishFromScript 都是异步） */
+async function clickConfirm(w) {
+  await w.find('[data-testid="podcast-script-confirm"]').trigger('click');
+  await nextTick();
+  await Promise.resolve();
+  await nextTick();
+}
+
 describe('PublishView — 文本出期入口的合同（§7.10.3.4 ②-b③）', () => {
   beforeEach(() => {
     podcastApi.episodePlanPreview.mockReset();
@@ -96,10 +110,11 @@ describe('PublishView — 文本出期入口的合同（§7.10.3.4 ②-b③）',
     podcastApi.onEpisodePublishProgress.mockReset();
     suspension.suspend.mockClear();
     suspension.release.mockClear();
-    // 夹具自证：这份 mock 的工厂只有被测模块真的 import 了 usePodcastChannel 才会跑。
+    // 夹具自证：这份 mock 的工厂只有被测链里真的有模块 import 了 usePodcastChannel 才会跑。
     // 缺这一句时「入口不存在」这类负向断言会对着未装配的夹具空转，读起来完全像通过。
+    // 落点从 Publish.vue 移到 launcher 后，这条哨兵的意义不变——它测的是「整链是否接上」。
     if (!channelState.activeChannelId) {
-      throw new Error('夹具未装配：Publish.vue 没有 import usePodcastChannel ⇒ 本文件的负向断言全部无意义');
+      throw new Error('夹具未装配：Publish.vue → launcher 这条链没有 import usePodcastChannel ⇒ 本文件的负向断言全部无意义');
     }
     channelState.activeChannelId.value = '';
     channelState.ensureChannel.mockClear();
@@ -133,6 +148,19 @@ describe('PublishView — 文本出期入口的合同（§7.10.3.4 ②-b③）',
     expect(w.find(ENTRY_TESTID).exists()).toBe(true);
   });
 
+  it('判据 1 的实时档：正文从有变空 ⇒ 入口当场消失（判据读的是现值，不是挂载那一刻的快照）', async () => {
+    channelState.activeChannelId.value = 'ch_a';
+    const w = await factory();
+    w.vm.article.content = SENTINEL;
+    await nextTick();
+    expect(w.find(ENTRY_TESTID).exists(), '夹具前提：有正文时入口在').toBe(true);
+    // launcher 用 :script="article.content" 接现值；谁把它改成挂载时取一次的本地副本，
+    // 这条就红——那时「清空正文」不会再收起按钮，用户点开的是一张没有正文的框。
+    w.vm.article.content = '   \n ';
+    await nextTick();
+    expect(w.find(ENTRY_TESTID).exists(), '正文清空后入口应随之消失').toBe(false);
+  });
+
   it('判据 2：正文只有空白 ⇒ 入口不出现，且浮层实例根本没被挂载（挂载钩子 0 次的实例级写法）', async () => {
     channelState.activeChannelId.value = 'ch_a';
     const w = await factory();
@@ -164,10 +192,7 @@ describe('PublishView — 文本出期入口的合同（§7.10.3.4 ②-b③）',
     w.vm.article.title = '发布页当前标题';
     await nextTick();
     await openEntry(w);
-    await w.find('[data-testid="podcast-script-confirm"]').trigger('click');
-    await nextTick();
-    await Promise.resolve();
-    await nextTick();
+    await clickConfirm(w);
 
     const sent = podcastApi.episodePublishFromScript.mock.calls[0];
     expect(sent, '确认按钮没把出期请求发出去 ⇒ 这条链是断的').toBeTruthy();
@@ -179,16 +204,32 @@ describe('PublishView — 文本出期入口的合同（§7.10.3.4 ②-b③）',
     expect(payload.channelId).toBe('ch_a');
   });
 
+  it('快照时机：点开浮层之后再改正文/标题，出期用的仍是点开那一刻那一份（浮层不跟随在途编辑）', async () => {
+    channelState.activeChannelId.value = 'ch_a';
+    const w = await factory();
+    w.vm.article.content = SENTINEL;
+    w.vm.article.title = '点开那一刻的标题';
+    await nextTick();
+    await openEntry(w);
+    // 浮层已经开着，此时用户在编辑器里继续改正文（或在改写面板里点了改写）。
+    // 出期必须按「点开那一刻」发，否则一次正在编辑的半截稿会被送进付费链路。
+    w.vm.article.content = '打开之后才改的正文，不该被这次出期带走';
+    w.vm.article.title = '打开之后才改的标题，同样不该被这次出期带走';
+    await nextTick();
+    await clickConfirm(w);
+    const sent = podcastApi.episodePublishFromScript.mock.calls[0];
+    expect(sent, '确认没发出请求 ⇒ 前置条件不成立').toBeTruthy();
+    expect(sent[0].copy.content, '浮层打开后不得跟随在途正文').toBe(SENTINEL);
+    expect(sent[0].title, '标题同理：浮层打开后不得跟随在途改名').toBe('点开那一刻的标题');
+  });
+
   it('这一枚独有的副作用判据：入口全程只读，打开并确认后 article.content 逐字未变', async () => {
     channelState.activeChannelId.value = 'ch_a';
     const w = await factory();
     w.vm.article.content = SENTINEL;
     await nextTick();
     await openEntry(w);
-    await w.find('[data-testid="podcast-script-confirm"]').trigger('click');
-    await nextTick();
-    await Promise.resolve();
-    await nextTick();
+    await clickConfirm(w);
     expect(w.vm.article.content, '出期不得为固化草稿而改写/归一化在途正文（§7.10.3.4 最后一行）').toBe(SENTINEL);
   });
 
@@ -201,10 +242,7 @@ describe('PublishView — 文本出期入口的合同（§7.10.3.4 ②-b③）',
     // 先真的发起一次出期，再点关闭——"不发第二次"只有在存在第一次时才是判据；
     // 原来的写法从没点过确认，not.toHaveBeenCalled() 量的其实是"关闭本身不发起出期"，
     // 名字说的却是"第二次"（前端轴 QM6 线索 L3 验真后改正，判据条数不变）。
-    await w.find('[data-testid="podcast-script-confirm"]').trigger('click');
-    await nextTick();
-    await Promise.resolve();
-    await nextTick();
+    await clickConfirm(w);
     expect(podcastApi.episodePublishFromScript, '前置条件：确实发起过一次出期').toHaveBeenCalledTimes(1);
 
     await w.find('[data-testid="podcast-script-cancel"]').trigger('click');

@@ -355,15 +355,7 @@
                   >
                     {{ showAiWriter ? t('publishPage.close') : t('publishPage.aiWriter') }}
                   </button>
-                  <button
-                    v-if="podcastEntryAvailable"
-                    type="button"
-                    class="cohere-btn-ghost template-pick-button"
-                    data-testid="btn-podcast-script-entry"
-                    @click="openScriptEntry"
-                  >
-                    {{ t('podcast.episode.entry') }}
-                  </button>
+                  <PodcastScriptEntryLauncher :script="article.content" :title="article.title" />
                 </div>
                 <UiInput data-testid="publish-title" v-model="article.title" :placeholder="t('publishPage.titlePlaceholder')" :maxlength="titleMaxLength" :hint="titleHint" />
                 <p v-if="noTitleHint" class="no-title-hint" data-testid="no-title-hint">{{ noTitleHint }}</p>
@@ -665,15 +657,6 @@
     :path="batchCoverPreview ? batchCoverPreview.path : article.cover_path"
     @close="closeCoverPreview"
   />
-  <!-- 文本出期浮层（tasks 4.3②-b③ / PRD §7.10.3.4）：按需挂载、常驻不卸载；
-       复用 ②-b 的同一组件与同一挂起 owner，不新增第二个浮层，也不在此算任何显示值 -->
-  <PodcastScriptEntry
-    v-if="scriptEntry.openedOnce"
-    v-model:visible="scriptEntry.visible"
-    :channel-id="scriptEntry.channelId"
-    :script="scriptEntry.script"
-    :title="scriptEntry.title"
-  />
   <!-- P2-2：AI 封面生成对话框（复用 asset-generator 生图引擎） -->
   <div v-if="showAiCoverDialog" class="ai-cover-overlay" data-testid="ai-cover-dialog">
     <div class="ai-cover-modal">
@@ -728,8 +711,7 @@ import { getApi } from '@/api/electron-bridge'
 import { useNotify } from '@/composables/useNotify'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import PodcastScriptEntry from '@/components/PodcastScriptEntry.vue'
-import { usePodcastChannel } from '@/composables/usePodcastChannel'
+import PodcastScriptEntryLauncher from '@/components/PodcastScriptEntryLauncher.vue'
 import { getAppLocale } from '@/i18n'
 import { usePlatformStore } from '@/stores/platforms'
 import { useRiskStore } from '@/stores/risk'
@@ -1273,23 +1255,6 @@ const {
 })
 
 const { copyDetailMeta, showCopyDetailBanner, applyCopyDetailHandoff, syncCopyDetailToLibrary, handleCreateVideo, onSaveDraft } = useCopyDetailMode({ article, activeMode, route, t, notifyInfo, saveDraft, router })
-// ── 文本出期入口（tasks 4.3②-b③，PRD §7.10.3.4 ②-b③）
-// 频道一律取 usePodcastChannel 的既有解析（§7.10.3.2）：没有默认频道时动作整块不出现，
-// 而不是弹一个必被宿主①层拒掉的框；正文取 article.content 的**当前值**（含编辑器里未保存的改动），
-// 且全程只读——该字段被发布动作与改写面板双向改写，是在途状态；出期不为它做归一化、不固化草稿
-// （要固化必须另立切片并先补发布链幂等判据）。标题与「去发布」同源，这里不写第二套拼装。
-const podcast = usePodcastChannel();
-const scriptEntry = ref({ visible: false, openedOnce: false, script: '', title: '', channelId: '' });
-const episodeSourceText = computed(() => String(article.content || ''));
-const podcastEntryAvailable = computed(() =>
-  Boolean(podcast.activeChannelId.value) && episodeSourceText.value.trim().length > 0);
-function openScriptEntry() {
-  // 复用模板同一个谓词：判据只写一处。另起一份 trim 逻辑就是给下一次改口径留两条腿。
-  if (!podcastEntryAvailable.value) return;
-  const body = episodeSourceText.value;
-  scriptEntry.value = { visible: true, openedOnce: true, script: body, title: article.title, channelId: podcast.activeChannelId.value };
-}
-
 
 const precheckEnabled = ref(false)
 
