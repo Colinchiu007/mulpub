@@ -236,6 +236,13 @@ const routes = [
     meta: { requiresAuth: true, adminOnly: true },
   },
   {
+    path: '/story-text-limit',
+    name: 'StoryTextLimit',
+    component: () => import('../views/StoryTextLimit.vue'),
+    // 配置下发类页面，与「选项控制」同口径限定 adminOnly（菜单与路由两道锁一致）
+    meta: { requiresAuth: true, adminOnly: true },
+  },
+  {
     path: '/app-menu',
     name: 'AppMenu',
     component: () => import('../views/AppMenu.vue'),

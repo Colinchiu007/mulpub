@@ -12,8 +12,10 @@ import math
 
 from models import RuntimeConfigVersion  # noqa: F401  （保持与 models 的导入时序一致）
 
-#: 参与内容指纹计算的 13 个下发数据块。新增下发块时 MUST 同步加入此处，
+#: 参与内容指纹计算的 14 个下发数据块。新增下发块时 MUST 同步加入此处，
 #: 否则该块变更不会体现在 config_hash 上 → 客户端不会收到 ACK → 看板显示「未生效」。
+#: ⚠️ 这份白名单与桌面端 `ops-runtime-snapshot.js` 的 `RUNTIME_BLOCKS` **必须成对改**：
+#: 只改一端 ⇒ 两端 canonical 输入不同 ⇒ config_hash 不同 ⇒ 客户端 ACK 永不被认可。
 RUNTIME_BLOCKS = (
     "announcements",
     "update_policy",
@@ -28,6 +30,7 @@ RUNTIME_BLOCKS = (
     "pipelineOptions",
     "appMenu",
     "contentCategories",
+    "storyTextLimit",
 )
 
 #: JS 侧 Number 能精确表示的最大整数。超过则 JS 丢精度、Python 不丢 ⇒ 两端 hash 必不同。
@@ -35,7 +38,7 @@ MAX_SAFE_INTEGER = 9007199254740992
 
 
 def compute_config_hash(payload: dict, canonical_json) -> str:
-    """13 个下发数据块 canonical JSON 的 SHA-256 前 16 位。
+    """14 个下发数据块 canonical JSON 的 SHA-256 前 16 位。
 
     参数 ``canonical_json`` 由调用方注入（复用 runtime_service 那个与桌面端逐字节对齐的
     实现，避免在这里复制第二份序列化器 —— 那正是两端漂移的来源）。

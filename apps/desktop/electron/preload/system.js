@@ -212,6 +212,8 @@ function createSystemApi(ipcRenderer) {
     aiEnhanceContent: (content, style) => ipcRenderer.invoke('ai:enhance-content', content, style),
     aiGenerateSummary: (content) => ipcRenderer.invoke('ai:generate-summary', content),
     aiRewrite: (params) => ipcRenderer.invoke('ai:rewrite', params),
+    // 热门选题「生成视频 → 去发布」的爆款标题生成（fix-hot-topics-genvideo-title）
+    aiGenerateGenVideoTitle: (payload) => ipcRenderer.invoke('ai:generate-gen-video-title', payload),
     aiListRewriteStrategies: () => ipcRenderer.invoke('ai:list-rewrite-strategies'),
     aiGetRecommendedStrategies: (userSettings) => ipcRenderer.invoke('ai:get-recommended-strategies', userSettings),
     onAIProgress: (callback) => { const h = (_e, p) => callback(p); ipcRenderer.on('ai:progress', h); return () => ipcRenderer.removeListener('ai:progress', h); },

@@ -815,7 +815,7 @@
   "apps/desktop/src/views/CreateView.vue||:placeholder=\"'输入或识别第 ' + (i + 1) + ' 段旁白文字'\"",
   "apps/desktop/src/views/CreateView.vue||:title=\"story2videoTextCountLevel === 'is-warning' ? transla",
   "apps/desktop/src/views/CreateView.vue||>{{ audio.transcribing ? '识别中...' : '识别旁白' }}",
-  "apps/desktop/src/views/CreateView.vue||>{{ story2videoTextCharacterCount }}/{{ MAX_STORY2VIDEO_TEXT",
+  "apps/desktop/src/views/CreateView.vue||>{{ story2videoTextCharacterCount }}/{{ story2videoTextMaxCh",
   "apps/desktop/src/views/CreateView.vue||AI 写稿失败: ",
   "apps/desktop/src/views/CreateView.vue||AI 判断 ${this.s2vConfig.videoMinRatio}%-${this.s2vConfig.vide",
   "apps/desktop/src/views/CreateView.vue||IPC 调用失败",

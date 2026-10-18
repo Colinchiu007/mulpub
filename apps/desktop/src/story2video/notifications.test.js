@@ -29,11 +29,17 @@ describe('Story2Video 通知模型', () => {
   it('使用稳定消息键翻译中文和英文，并忽略未知技术错误文本', () => {
     expect(resolveStory2VideoNotification({
       messageKey: STORY2VIDEO_NOTIFICATION_KEYS.TEXT_TOO_LONG,
-      messageParams: { max: 6000 },
+      messageParams: { max: 10000 },
     }, { locale: 'en-US' })).toMatchObject({
       key: STORY2VIDEO_NOTIFICATION_KEYS.TEXT_TOO_LONG,
-      message: 'Your script can contain up to 6,000 characters. Please shorten it and try again.',
+      message: 'Your script can contain up to 10,000 characters. Please shorten it and try again.',
     })
+
+    // 历史默认值 6000 的格式化仍然正确（运营可把上限调回任意合法值）
+    expect(resolveStory2VideoNotification({
+      messageKey: STORY2VIDEO_NOTIFICATION_KEYS.TEXT_TOO_LONG,
+      messageParams: { max: 6000 },
+    }, { locale: 'en-US' }).message).toContain('6,000')
 
     expect(resolveStory2VideoNotification({
       error: 'Story2Video optimize scene count exceeds the allowed limit: 60',
@@ -227,11 +233,14 @@ describe('Story2Video 通知模型', () => {
     expect(en.message).toContain('format not supported')
   })
 
-  it('按 Unicode code point 计算 6000 个中文、英文和 emoji 字符', () => {
-    expect(MAX_STORY2VIDEO_TEXT_CHARACTERS).toBe(6000)
-    expect(countStory2VideoTextCharacters('中'.repeat(6000))).toBe(6000)
-    expect(countStory2VideoTextCharacters('a'.repeat(6000))).toBe(6000)
-    expect(countStory2VideoTextCharacters('😀'.repeat(6000))).toBe(6000)
+  it('按 Unicode code point 计算 6000 / 10000 两档中文、英文和 emoji 字符', () => {
+    // 内置默认值 10000（story-text-limit-control）；6000 是历史默认值，计数口径两档都必须正确
+    expect(MAX_STORY2VIDEO_TEXT_CHARACTERS).toBe(10000)
+    for (const size of [6000, 10000]) {
+      expect(countStory2VideoTextCharacters('中'.repeat(size))).toBe(size)
+      expect(countStory2VideoTextCharacters('a'.repeat(size))).toBe(size)
+      expect(countStory2VideoTextCharacters('😀'.repeat(size))).toBe(size)
+    }
   })
   it('localizes approved notification parameters and drops unapproved technical fields', () => {
     expect(resolveStory2VideoNotification({

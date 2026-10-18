@@ -34,6 +34,10 @@ const RUNTIME_BLOCKS = [
   'platform_defs', 'content_templates', 'keyword_watchlist',
   'rewrite_strategies', 'rewrite_hard_constraints', 'rewrite_ai_taste_map',
   'pipelineOptions', 'appMenu', 'contentCategories',
+  // 字数控制（story-text-limit-control，2026-10-18）：13 → 14。服务端
+  // ops-center/backend/services/config_fingerprint.py 的 RUNTIME_BLOCKS 必须同笔 +1，
+  // 漏一侧 → 两端 config_hash 不同 → 客户端 ACK 永不被认可。
+  'storyTextLimit',
 ]
 
 /** L2 快照的 settings 键（design §4.1） */
@@ -73,6 +77,9 @@ const SEED_BLOCK_TYPES = {
   pipelineOptions: 'object-or-null',
   appMenu: 'object-or-null',
   contentCategories: 'array-or-object',
+  // 字数控制（story-text-limit-control）：契约允许整块下发 null（enabled=false 或读库异常），
+  // 桌面端据此 fail-open 回落内置默认 10000 / 90%。
+  storyTextLimit: 'object-or-null',
 }
 
 /**
@@ -97,7 +104,7 @@ function canonicalJson (value) {
 }
 
 /**
- * config_hash：13 个数据块 canonical JSON 的 SHA-256 前 16 位（design §1.2）。
+ * config_hash：14 个数据块 canonical JSON 的 SHA-256 前 16 位（design §1.2）。
  * 三条不可违背的约束在这里落地：不含 synced_at / config_version / config_hash / signature；
  * 缺失键补 null 而非跳过（否则「删掉一个数据块」与「该键本来不存在」不可区分）。
  */
@@ -115,7 +122,7 @@ function computeConfigHash (payload) {
   // （与 ops-center 后端 canonical_json 逐字节对齐），改它的数字格式会让**已部署客户端的
   // 验签全部失败**。收紧序列化是破坏性变更，不属于本次韧性范围。
   //
-  // 为什么当前是安全的：bootstrap 的 13 个数据块实测**零浮点**（全是 int/bool/string），
+  // 为什么当前是安全的：bootstrap 的 14 个数据块实测**零浮点**（全是 int/bool/string），
   // 平台元数据等只有整数阈值。但那是**数据现状**不是**机制保证** —— 一旦运营在配置里
   // 填了个 0.5 的限流阈值，这里就必须炸出来，而不是静默算出两个 hash。
   assertNoFractionalNumbers(subset)
@@ -182,6 +189,26 @@ function isPlainObject (v) {
   return Boolean(v) && typeof v === 'object' && !Array.isArray(v)
 }
 
+/**
+ * 运行时「字数控制」块归一化（story-text-limit-control）：契约类型 object-or-null。
+ *
+ * 只做**形态**归一化：非普通对象 → null（渲染端据此回落内置默认）；内层只保留普通对象
+ * 作用域并浅拷贝，丢弃 __proto__ 这类原型污染键。数值区间校验不在这里做 ——
+ * 它由消费侧（渲染端 src/story2video/story-text-limit.js 与主进程
+ * story2video-text-config.js 的 provider）按同一套闭区间判据执行，两处都必须能单独回落。
+ * 注意：config_hash 用的是**原始 payload**，与本函数无关（归一化不得改变哈希输入）。
+ */
+function normalizeStoryTextLimit (raw) {
+  if (!isPlainObject(raw)) return null
+  const out = {}
+  for (const scope of Object.keys(raw)) {
+    if (scope === '__proto__' || scope === 'constructor' || scope === 'prototype') continue
+    const value = raw[scope]
+    if (isPlainObject(value)) out[scope] = { ...value }
+  }
+  return Object.keys(out).length > 0 ? out : null
+}
+
 /** 种子文件年龄（天）；exported_at 非法时返回 null（无法判定新鲜度，不臆造） */
 function seedAgeDays (exportedAt, now) {
   const at = Date.parse(String(exportedAt || ''))
@@ -213,7 +240,7 @@ function validateSeedPayload (raw, opts = {}) {
   }
   const meta = isPlainObject(raw._meta) ? raw._meta : null
   if (!meta) errors.push(`SEED_META_MISSING: ${file} 缺少 _meta`)
-  // 第 1 条 + 第 2 条：13 个数据块键齐全且类型与运行时一致
+  // 第 1 条 + 第 2 条：14 个数据块键齐全且类型与运行时一致
   for (const block of RUNTIME_BLOCKS) {
     if (!Object.prototype.hasOwnProperty.call(raw, block)) {
       errors.push(`SEED_BLOCK_MISSING: ${file} 缺少数据块 ${block}`)
@@ -440,6 +467,7 @@ module.exports = {
   MAX_SNAPSHOT_BYTES,
   canonicalJson,
   computeConfigHash,
+  normalizeStoryTextLimit,
   resolveSeedPaths,
   replayLateBlock,
   seedAgeDays,

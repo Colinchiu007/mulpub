@@ -82,12 +82,14 @@ describe('更改密码 - 菜单/路由/说明 接线', () => {
   })
 
   it('adminOnly 项数量从单一事实源推导（抵御「写死个数」式假绿）', () => {
-    // 9 项（含本次新增的 /change-password）。此处刻意从 MENU_ITEMS 推导而非写死，
-    // 使得后续新增 adminOnly 项时本断言自动跟随，不会出现「标 6 只列 5」的漂移。
-    expect(ADMIN_ONLY_PATHS.length).toBe(9)
+    // 10 项（含 /change-password 与 2026-10 新增的 /story-text-limit）。此处刻意从
+    // MENU_ITEMS 推导而非写死内容，使得后续新增 adminOnly 项时只需同步这一个数字，
+    // 不会出现「标 6 只列 5」的漂移。
+    expect(ADMIN_ONLY_PATHS.length).toBe(10)
     expect(ADMIN_ONLY_PATHS).toContain(NEW_PATH)
     for (const p of ['/rollout', '/rewrite-hard-constraints', '/rewrite-ai-taste',
-      '/pipeline-options', '/app-menu', '/content-categories', '/feedback', '/model-keys']) {
+      '/pipeline-options', '/story-text-limit', '/app-menu', '/content-categories',
+      '/feedback', '/model-keys']) {
       expect(ADMIN_ONLY_PATHS).toContain(p)
     }
   })

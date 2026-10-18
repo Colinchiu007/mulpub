@@ -575,11 +575,11 @@ describe('story2video 编排契约', () => {
     expect(engine._runs.size).toBe(0)
   })
 
-  it('主进程直调在创建运行前拒绝 6001 个 Unicode code point 文案', async () => {
+  it('主进程直调在创建运行前拒绝 10001 个 Unicode code point 文案', async () => {
     const { engine } = createEngine()
-    const text = '😀'.repeat(6001)
+    const text = '😀'.repeat(10001)
 
-    expect(Array.from(text)).toHaveLength(6001)
+    expect(Array.from(text)).toHaveLength(10001)
 
     const started = await engine.startOrchestrated('story2video-compose', {
       text,
@@ -587,7 +587,7 @@ describe('story2video 编排契约', () => {
     })
 
     expect(started).toMatchObject({ success: false })
-    expect(started.error).toMatch(/6000.*Unicode/i)
+    expect(started.error).toMatch(/10000.*Unicode/i)
     expect(engine._runs.size).toBe(0)
   })
 

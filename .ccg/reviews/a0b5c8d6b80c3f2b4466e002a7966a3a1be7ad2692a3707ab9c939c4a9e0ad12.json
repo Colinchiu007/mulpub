@@ -1,0 +1,28 @@
+{
+  "sha": "edf98d9b66eaa24d341329e79bec2ca934bf5146",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 0 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 3,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "| QM-4 视觉 | ✅ 已重捕 2 张基线 | 桌面端未新增视觉组件，但**确实改变了可见渲染**：计数行由 `1234/ 字符`（旧代码渲染成 `undefined`）变为 `1234/10000 字符`。CI `QG Visual` 的 **Gate 7b 基线新鲜度**（0 px 不变量）判红 2 张：`create-story2video-detail.png` 差 **121 px / 0.006%**、`create-story2video-detail-dark.png` 差 **136 px / 0.007%**（round-1 报告实测；round-2 复采后仅暗色仍存在，属确定性差异而非 flake）。**未用本机 `--update-baseline`**（QM-4 第 7 条禁止：本机渲染与 CI 渲染不是同一张图）——改为从该 run 的 `quality-gate-visual-reports` 工件取**同 run CI 渲染**（`tests/visual-testing/screenshots-round1/create-story2video-detail-current.png` 92875 B / `…-dark-current.png` 97827 B）直接提升为基线；本机复跑 `check-baseline-freshness.js --renders=<工件目录> --partial` ⇒ **违规 0 / 检查 43**。运营端新增页面沿用既有 `el-card`/`el-table` 版式，无新主题色/新字号 |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "a0b5c8d6b80c3f2b4466e002a7966a3a1be7ad2692a3707ab9c939c4a9e0ad12",
+  "decidedAt": "2026-10-18T02:56:28.874Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}
