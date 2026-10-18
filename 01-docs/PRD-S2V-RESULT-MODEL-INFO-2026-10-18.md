@@ -41,7 +41,9 @@
 | **文本模型** | `run.context.optimize[i].model_used`（prompt-engine 返回，已存在于 run context） | ⚠️ **未透传到项目**：`story2video-stages.js` 的 `pairedScenes` 构造处（约 L3500）未携带 `promptOptimizationMeta`，`Story2VideoProjectService._persistComposeArtifacts`（L949）虽已定义 `promptOptimizationMeta` 白名单字段，但上游从不填值 | **本期补落盘**（见 §3.1） |
 | **语音模型** | `project.options.voiceProvider` / `project.options.voiceModel` | ✅ 已固化（`_safeOptions` 白名单，`saveRun` → `_safeOptions(run.params, projectId)`） | 直接消费 |
 | **图片模型** | `project.options.imageProvider` / `project.options.imageModel`；补充 `segments[].imageMeta.provider` / `.model`（provider 实际返回值） | ✅ 已固化 | 直接消费 |
-| **视频模型** | `project.options.videoMode` / `videoProvider` / `videoModel`；补充 `segments[].videoMeta.provider` / `.model` | ✅ 已固化 | 直接消费 |
+| **视频模型** | `project.story2videoTextConfig.config.video.mode` / `.provider` / `.model`；补充 `segments[].videoMeta.provider` / `.model`（provider 实际返回值，`safeAssetMeta` 保留这两个字段） | ✅ 已固化（`normalizeStory2VideoTextParams` → `story2videoTextConfig.config.video`）。⚠️ **不在 `options`**：`_safeOptions` 白名单不含任何 video 字段 | 直接消费（v2 修正，见 §3.2.3） |
+
+> **v2 修正（change: `s2v-video-model-source`）**：首版把视频配置的数据源写成 `project.options.videoMode/videoProvider/videoModel` 并标注「✅ 已固化」，这是**错的前提**——`story2video-project-service.js` 的 `_safeOptions` 白名单（`transition`…`sceneDurationMode`，共 25 个键）只收 image/voice，**一个 video 键都没有**。后果是视频模型项在生产环境**恒不显示**（门控字段恒 `undefined`），而单测全绿只因为夹具把 `videoMode` 塞进了 `options`（虚构位置）。v2 把数据源改到真实落点并加了按真实清单形状写的回归锁。
 
 **关键判断**：文本模型是唯一没有现成落盘的字段。若不做落盘改造，本次需求只能显示 3/4 项，且"文本模型"会恒为空——那等于交付一个残缺功能。因此本期把「补文本模型落盘」纳入同一变更，作为需求成立的前置条件。
 
@@ -187,13 +189,13 @@ resolveModelSummaryText(project, segments, label)  // => '文本模型: deepseek
 | 文本模型 | ① `segments[].promptOptimizationMeta.model_used`（首个非空） | 整项不渲染 |
 | 语音模型 | ① `project.options.voiceModel` ② `segments[].audioMeta.model` ③ `project.options.voiceProvider` | 整项不渲染 |
 | 图片模型 | ① `segments[].imageMeta.model` ② `project.options.imageModel` ③ `project.options.imageProvider` | 整项不渲染 |
-| 视频模型 | ① `segments[].videoMeta.model` ② `project.options.videoModel` ③ `project.options.videoProvider` | 整项不渲染 |
+| 视频模型 | ① `segments[].videoMeta.model` ② `segments[].videoMeta.provider` ③ `project.story2videoTextConfig.config.video.model` ④ `.provider` ⑤ `project.options.videoModel` ⑥ `project.options.videoProvider`（⑤⑥ 仅为历史清单兼容兜底，真实清单里不存在） | 整项不渲染 |
 
 **取值口径说明（为什么这么排）**：
 
-- **segments 的 meta 优先于 options**：`options` 是**用户在下拉里选的**（提交时的意图），`segments[].imageMeta.model` 是 **provider 实际返回的**（真实执行的模型）。两者在"provider 把 model 参数忽略/改写"或"多模态 provider 内部路由到别的模型"时会不一致，展示真实执行的更有诊断价值。
+- **segments 的 meta 优先于配置**：`options` / `textConfig` 是**用户在下拉里选的**（提交时的意图），`segments[].*Meta` 是 **provider 实际返回的**（真实执行的模型）。两者在"provider 把 model 参数忽略/改写"或"多模态 provider 内部路由到别的模型"时会不一致，展示真实执行的更有诊断价值。
 - **model 优先于 provider**：用户问的是"用了什么模型"，不是"接了哪家"。`provider` 只在 `model` 缺失时兜底（老项目、provider 未返回 model 的场景）。
-- **视频模型的显隐门控**（见 §3.2.3）：即使 `videoProvider` 有值，`videoMode=off` 也不显示。
+- **视频模型的显隐门控**（见 §3.2.3）：即使 provider 有值，`videoMode=off` 也不显示。
 
 #### 3.2.3 视频模型显隐门控（需求的硬性条款）
 
@@ -202,21 +204,29 @@ resolveModelSummaryText(project, segments, label)  // => '文本模型: deepseek
 实现为**双重门控**，满足任一即不显示：
 
 ```js
-// useResultModelInfo.js · resolveModelSummaryParts 内
+// useResultModelInfo.js · resolveModelSummaryParts 内（v2：数据源改为真实落点）
 const VIDEO_ENABLED_MODES = new Set(['fixed', 'ai-judged'])
-const videoMode = cleanText(options.videoMode).toLowerCase()
+// 真实落点：story2videoTextConfig.config.video（options 里没有 video 字段）
+const videoConfig = project.story2videoTextConfig?.config?.video ?? {}
+const videoText = (key) => cleanText(videoConfig[key])
+const videoMode = (videoText('mode') || cleanText(options.videoMode)).toLowerCase()
 if (VIDEO_ENABLED_MODES.has(videoMode)) {
-  const videoModel = resolveModel('videoMeta', 'videoModel', 'videoProvider')
+  const videoModel = firstSegmentValue(segments, s => s?.videoMeta?.model) ||
+    firstSegmentValue(segments, s => s?.videoMeta?.provider) ||
+    videoText('model') || videoText('provider') ||
+    optionText('videoModel') || optionText('videoProvider')
   if (videoModel) parts.push(label('videoModel') + ': ' + videoModel)
 }
 ```
 
-| `videoMode` | 表现 |
+| `videoMode`（取自 `story2videoTextConfig.config.video.mode`） | 表现 |
 |---|---|
 | `'off'` / `''` / `undefined` | 不显示视频模型项（未启用视频增强） |
-| `'fixed'` / `'ai-judged'` | 显示（取 videoModel → videoProvider） |
+| `'fixed'` / `'ai-judged'` | 显示（取 videoMeta.model → videoMeta.provider → config.video.model → config.video.provider → options 兼容兜底） |
 
-**为什么门控 `videoMode` 而不是只看 `videoProvider` 有没有值**：`story2video-text-config.js` 的 `videoConfig` 会把 `provider` 归一为 `''` 当未选，但**兼容旧扁平参数**路径（`params.videoProvider`）与「用户曾选过 provider 后又把 mode 切回 off」都会留下非空 `videoProvider`。只按 provider 有无判断会把"没启用"误显示成"启用了"。`videoMode` 才是用户意图的权威字段（与 `pipeline-model-preflight.js` 的 `video` 能力需求判定同源：`off` 或其他模式不要求视频模型）。
+**为什么门控 `videoMode` 而不是只看 provider 有没有值**：`story2video-text-config.js` 的 `videoConfig` 会把 `provider` 归一为 `''` 当未选，但**兼容旧扁平参数**路径（`params.videoProvider`）与「用户曾选过 provider 后又把 mode 切回 off」都会留下非空 `videoProvider`。只按 provider 有无判断会把"没启用"误显示成"启用了"。`videoMode` 才是用户意图的权威字段（与 `pipeline-model-preflight.js` 的 `video` 能力需求判定同源：`off` 或其他模式不要求视频模型）。
+
+**为什么门控字段不在 `options`（v2 关键修正）**：`_safeOptions` 的白名单只收 `transition`/`resolution`/`image*`/`voice*` 等 25 个键，**没有任何 video 键**；视频配置的唯一落盘点是 `normalizeStory2VideoTextParams` 产出的 `story2videoTextConfig.config.video`（`{ mode, provider, model, fixedRatio, minRatio, maxRatio, maxScenes, shortVideoHandling }`）。读 `options.videoMode` 会恒得 `undefined` ⇒ 本项恒不显示。`options.videoMode/videoModel/videoProvider` 仅保留为历史清单的兼容兜底。
 
 **反向边界**：`videoMode='fixed'` 但 `videoProvider`/`videoModel` 都为空（配置了模式但没选 provider，主进程会 fail-closed 阻断启动）——此时显示空壳。实现上取值为空串时同样不渲染该项，不留「视频模型: 」这种残缺文本。
 
@@ -254,8 +264,10 @@ if (VIDEO_ENABLED_MODES.has(videoMode)) {
 |---|---|
 | `project` | 非空对象才进入解析；`null`/`undefined`/非对象 → 返回全空摘要 |
 | `project.options` | 非对象 → 当 `{}` 处理 |
-| `project.options.videoMode` | `String(...).trim().toLowerCase()`，仅 `'fixed'` / `'ai-judged'` 视为启用 |
-| `project.options.*Model` / `*Provider` | 非字符串或空串 → 视为缺失；`.trim()` 后使用 |
+| `project.story2videoTextConfig` | 非对象 / `config` 非对象 / `config.video` 非对象 → 当缺失处理（不抛错） |
+| `project.story2videoTextConfig.config.video.mode` | `String(...).trim().toLowerCase()`，仅 `'fixed'` / `'ai-judged'` 视为启用 |
+| `project.options.videoMode` | 历史兼容回退：`config.video.mode` 缺失时才读；归一规则同上 |
+| `project.options.*Model` / `*Provider` / `config.video.model` / `config.video.provider` | 非字符串或空串 → 视为缺失；`.trim()` 后使用 |
 | `segments` | 非数组 → 当 `[]` 处理 |
 | `segments[i].imageMeta` / `.audioMeta` / `.videoMeta` | 非对象 → 当 `null`（与 `safeAssetMeta` 的返回契约一致） |
 | `segments[i].promptOptimizationMeta.model_used` | 非字符串或空串 → 视为缺失 |
@@ -339,6 +351,14 @@ if (VIDEO_ENABLED_MODES.has(videoMode)) {
 | `videoMode='fixed'` 渲染视频模型 | 文本含「视频模型: MiniMax Hailuo」 |
 | `videoMode` 大写/带空白归一 | `'  AI-Judged '` 同样视为启用 |
 | `videoMode` 启用但 provider/model 空 | 文本不含「视频模型」，且无「视频模型:」空壳 |
+| **（v2 回归锁）mode 取自 `config.video.mode` 时渲染视频模型** | `story2videoTextConfig.config.video.mode='fixed'` + `options` 无 video 字段 → 含「视频模型: MiniMax Hailuo」，且其余三项不受影响 |
+| **（v2）`config.video.mode='off'` 不渲染** | 文本不含「视频模型」 |
+| **（v2）`config.video.mode` 缺省不渲染** | 文本不含「视频模型」 |
+| **（v2）model 取自 `config.video.model`** | segments 无 `videoMeta` → 含「视频模型: Hailuo-Pro」 |
+| **（v2）model 缺失回退 `config.video.provider`** | 含「视频模型: minimax-video」 |
+| **（v2）`segments[].videoMeta.model` 优先于 `config.video.model`** | 显示 `actual-video-model`，不含 `configured-model` |
+| **（v2）`options.videoMode` 历史兼容回退** | 无 `story2videoTextConfig` 时仍按 options 渲染 |
+| **（v2）`story2videoTextConfig` 畸形不崩** | `null`/`'x'`/`42`/`{}`/`{config:null}`/`{config:{video:null}}` 六种 → 返回字符串且不含「视频模型」 |
 | 无 `promptOptimizationMeta` 不渲染文本模型 | 文本不含「文本模型」 |
 | segments meta 优先于 options | options `imageModel: 'opt-model'`、segments `imageMeta.model: 'seg-model'` → 显示 `seg-model` |
 | segments 的 provider 优先于 options 的 model | 显示 segments 的 provider |

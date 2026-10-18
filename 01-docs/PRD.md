@@ -2939,7 +2939,8 @@ videogen 系列（animation AI 讲解动画 / avatar-spokesperson 数字人口�
 | 显示位置 | 视频预览下方视频信息区，与「格式：MP4」**同一行**（同一 `<p>` 内联分隔符连接），容器宽度不足时由浏览器自然折行；不得用 JS 测宽或 CSS 媒体查询决定换行。 |
 | 显示项 | 文本模型、语音模型、图片模型、视频模型，固定顺序，` · ` 分隔。文案 zh/en 成对（`create.story2video.modelInfo.{textModel,voiceModel,imageModel,videoModel}`）。 |
 | 「格式」标签 locale 化 | 原 `ResultView.vue` 里硬编码的「格式: 」随本次抽组件一并收口为 `create.story2video.modelInfo.format`。**动因是 CJK 基线按文件路径匹配**：含中文的代码从一个文件搬到另一个文件会凭空造出「新增硬编码」红（代码一字未改）。不得为它去改 CJK 基线。 |
-| 视频模型显隐 | 双重门控：`project.options.videoMode` ∈ {`fixed`,`ai-judged`} **且** 解析值非空才显示；`off`/缺省一律不显示（不是显示"未使用"）。门控字段与 `pipeline-model-preflight` 的 video 能力需求判定同源。 |
+| 视频模型显隐 | 双重门控：`project.story2videoTextConfig.config.video.mode` ∈ {`fixed`,`ai-judged`} **且** 解析值非空才显示；`off`/缺省一律不显示（不是显示"未使用"）。门控字段与 `pipeline-model-preflight` 的 video 能力需求判定同源。**门控字段不在 `options`**：`_safeOptions` 白名单不含任何 video 键，读 `options.videoMode` 会恒得 `undefined` ⇒ 本项恒不显示（2026-10-19 change `s2v-video-model-source` 修正；`options.videoMode/videoModel/videoProvider` 仅作历史清单兼容兜底）。 |
+| 视频模型取值 | `segments[].videoMeta.model` → `.provider` → `story2videoTextConfig.config.video.model` → `.provider` → `options.videoModel` → `options.videoProvider`。`safeAssetMeta` 落盘时保留 `videoMeta` 的 `provider`/`model`，故「实际执行 > 配置」口径在视频侧同样成立。 |
 | 取值优先级 | `segments[].*Meta`（provider 实际返回值）优先于 `project.options`（用户提交意图）；`model` 优先于 `provider`，provider 仅在 model 缺失时兜底。文本模型取 `segments[].promptOptimizationMeta.model_used`。 |
 | 落盘链路 | `optimize` 阶段的 `model_used` 等白名单 meta 由 `story2video-stages.js` 的 `generate_assets` 透传到 `scene.promptOptimizationMeta`，经 `Story2VideoProjectService._persistComposeArtifacts` 的既有 `safePromptOptimizationMeta` 白名单落盘；service 侧不新增字段。 |
 | 白名单字段 | `strategy_used` / `key_source` / `cache_hit` / `model_used` / `caller` / `platform` / `style`；`optimized_prompt`、`truncated`、`optimize_note`、`degraded` 等流水线内部状态**不得**透传。 |

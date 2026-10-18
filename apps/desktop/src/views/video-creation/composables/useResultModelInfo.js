@@ -8,10 +8,12 @@
  * 而模型信息的取值口径（优先级 / 门控 / 脏数据防御）本身是可独立测的逻辑面。
  * 抽走后宿主只留 2 行 computed 接线，逻辑与测试都不必挤进 1900 行的视图文件。
  *
- * 取值口径（两条易错，均有测试锁）：
- *   ① segments[].*Meta（provider 实际执行）优先于 project.options（用户提交意图）；
+ * 取值口径（三条易错，均有测试锁）：
+ *   ① segments[].*Meta（provider 实际执行）优先于配置（用户提交意图）；
  *      多模态 provider 内部路由到别的模型、provider 忽略 model 参数时两者会不一致。
  *   ② model 优先于 provider；provider 仅在 model 缺失时兜底。
+ *   ③ video 的配置与门控字段**不在 options**：`_safeOptions` 白名单不收 video 字段，
+ *      真实落点是 `story2videoTextConfig.config.video`（见下方 resolveModelSummaryParts 内注释）。
  */
 
 /** 视频增强模式枚举中视为「启用了视频模型」的值（与 pipeline-model-preflight 的 video 能力需求同源）。 */
@@ -67,9 +69,28 @@ function resolveModelSummaryParts (project, segments, label) {
 
   // 视频模型双重门控：videoMode 为 fixed/ai-judged 才算启用视频增强；off/缺省一律不显示。
   // 只按 videoProvider 有无判断会把「曾选过 provider 后又把 mode 切回 off」误显示成启用。
-  const videoMode = cleanText(options.videoMode).toLowerCase();
+  //
+  // ⚠ 门控字段的**真实落点不是 options**（change: s2v-video-model-source）：
+  //   story2video-project-service.js 的 `_safeOptions` 白名单只收 transition/resolution/
+  //   image*/voice* 等，**不含任何 video 字段** ⇒ 持久化清单的 project.options 里永远没有
+  //   videoMode/videoProvider/videoModel。视频配置由 normalizeStory2VideoTextParams 落盘到
+  //   story2videoTextConfig.config.video（{ mode, provider, model, ... }）。
+  //   首版只读 options，导致本项在生产环境恒不显示；options 一路保留为历史清单的兼容回退。
+  const textConfig = isPlainObject(project.story2videoTextConfig) ? project.story2videoTextConfig : null;
+  const textConfigBody = textConfig && isPlainObject(textConfig.config) ? textConfig.config : null;
+  const videoConfig = textConfigBody && isPlainObject(textConfigBody.video) ? textConfigBody.video : {};
+  const videoText = (key) => cleanText(videoConfig[key]);
+
+  const videoMode = (videoText('mode') || cleanText(options.videoMode)).toLowerCase();
   if (VIDEO_ENABLED_MODES.has(videoMode)) {
-    const videoModel = resolveModel('videoMeta', 'videoModel', 'videoProvider');
+    // 取值优先级：segments 的 videoMeta（provider 实际返回，落盘时 safeAssetMeta 保留
+    // provider/model）> story2videoTextConfig.config.video（本次生成时的配置）> options（兼容）
+    const videoModel = firstSegmentValue(segments, segment => segment?.videoMeta?.model) ||
+      firstSegmentValue(segments, segment => segment?.videoMeta?.provider) ||
+      videoText('model') ||
+      videoText('provider') ||
+      optionText('videoModel') ||
+      optionText('videoProvider');
     if (videoModel) parts.push(label('videoModel') + ': ' + videoModel);
   }
 

@@ -128,7 +128,6 @@ describe("ResultView 模型信息（s2v-result-model-info）", () => {
       expect(text).not.toContain("视频模型");
       expect(text).not.toMatch(/视频模型\s*:/);
     });
-
     it("无 promptOptimizationMeta 时不渲染文本模型项", () => {
       const segments = [{ id: "s0", imageMeta: { model: "MiniMax Image" }, audioMeta: { model: "speech-02-hd" } }];
       const text = resolveModelSummaryText(FULL_PROJECT, segments, label);
@@ -209,6 +208,123 @@ describe("ResultView 模型信息（s2v-result-model-info）", () => {
 
     it("VIDEO_ENABLED_MODES 只含 fixed 与 ai-judged", () => {
       expect([...VIDEO_ENABLED_MODES].sort()).toEqual(["ai-judged", "fixed"]);
+    });
+  });
+
+  // ── 回归锁：视频配置的真实落点不是 options，是 story2videoTextConfig.config.video ──
+  //
+  // 缺陷根因（change: s2v-video-model-source）：story2video-project-service.js 的
+  // `_safeOptions` 白名单（keys 数组）**不含任何 video 字段**，所以持久化清单里
+  // `project.options` 永远没有 videoMode / videoProvider / videoModel；真实落盘点是
+  // `normalizeStory2VideoTextParams` 产出的 `story2videoTextConfig.config.video`
+  // （{ mode, provider, model, ... }，见 story2video-text-config.js）。
+  // 首版只读 options ⇒ 视频模型项在生产环境**恒不显示**；上方那批用例之所以全绿，
+  // 是因为夹具把 videoMode 塞进了 options（虚构位置），绕过了真实数据路径。
+  describe("视频模型：真实落盘字段（story2videoTextConfig.config.video）", () => {
+    const REAL_PROJECT = {
+      projectId: "p-real",
+      // 真实形状：options 里没有任何 video 字段
+      options: {
+        voiceProvider: "minimax-tts",
+        voiceModel: "speech-02-hd",
+        imageProvider: "minimax-image",
+        imageModel: "MiniMax Image",
+      },
+      story2videoTextConfig: {
+        version: 1,
+        config: {
+          video: { mode: "fixed", provider: "minimax-video", model: "MiniMax Hailuo" },
+        },
+      },
+      segments: [
+        {
+          id: "s0",
+          promptOptimizationMeta: { model_used: "deepseek" },
+          imageMeta: { provider: "minimax-image", model: "MiniMax Image" },
+          audioMeta: { provider: "minimax-tts", model: "speech-02-hd" },
+        },
+      ],
+    };
+
+    it("mode 取自 config.video.mode 时渲染视频模型项（缺陷主锁）", () => {
+      const text = resolveModelSummaryText(REAL_PROJECT, REAL_PROJECT.segments, label);
+      expect(text).toContain("视频模型: MiniMax Hailuo");
+      // 其余三项不受影响，确认不是「整行变宽」掩盖了问题
+      expect(text).toContain("文本模型: deepseek");
+      expect(text).toContain("图片模型: MiniMax Image");
+    });
+
+    it("config.video.mode=off 时不渲染视频模型项", () => {
+      const project = {
+        ...REAL_PROJECT,
+        story2videoTextConfig: {
+          version: 1,
+          config: { video: { ...REAL_PROJECT.story2videoTextConfig.config.video, mode: "off" } },
+        },
+      };
+      expect(resolveModelSummaryText(project, project.segments, label)).not.toContain("视频模型");
+    });
+
+    it("config.video.mode 缺省时不渲染视频模型项", () => {
+      const project = {
+        ...REAL_PROJECT,
+        story2videoTextConfig: { version: 1, config: { video: { provider: "minimax-video", model: "MiniMax Hailuo" } } },
+      };
+      expect(resolveModelSummaryText(project, project.segments, label)).not.toContain("视频模型");
+    });
+
+    it("model 取自 config.video.model（segments 无 videoMeta 时）", () => {
+      const project = {
+        ...REAL_PROJECT,
+        story2videoTextConfig: {
+          version: 1,
+          config: { video: { mode: "ai-judged", provider: "minimax-video", model: "Hailuo-Pro" } },
+        },
+      };
+      expect(resolveModelSummaryText(project, project.segments, label)).toContain("视频模型: Hailuo-Pro");
+    });
+
+    it("model 缺失时回退 config.video.provider", () => {
+      const project = {
+        ...REAL_PROJECT,
+        story2videoTextConfig: {
+          version: 1,
+          config: { video: { mode: "fixed", provider: "minimax-video", model: "" } },
+        },
+      };
+      expect(resolveModelSummaryText(project, project.segments, label)).toContain("视频模型: minimax-video");
+    });
+
+    it("segments[].videoMeta.model 优先于 config.video.model（实际执行 > 配置）", () => {
+      const segments = [{ id: "s0", videoMeta: { provider: "p-actual", model: "actual-video-model" } }];
+      const project = {
+        ...REAL_PROJECT,
+        story2videoTextConfig: {
+          version: 1,
+          config: { video: { mode: "fixed", provider: "minimax-video", model: "configured-model" } },
+        },
+      };
+      const text = resolveModelSummaryText(project, segments, label);
+      expect(text).toContain("视频模型: actual-video-model");
+      expect(text).not.toContain("configured-model");
+    });
+
+    it("options.videoMode 作为历史兼容回退仍生效（旧夹具/旧清单）", () => {
+      const project = {
+        ...REAL_PROJECT,
+        options: { ...REAL_PROJECT.options, videoMode: "fixed", videoModel: "Legacy-Video" },
+        story2videoTextConfig: undefined,
+      };
+      expect(resolveModelSummaryText(project, project.segments, label)).toContain("视频模型: Legacy-Video");
+    });
+
+    it("story2videoTextConfig 畸形（null/非对象/config 缺失）时不崩且不渲染视频模型", () => {
+      for (const bad of [null, "x", 42, {}, { config: null }, { config: { video: null } }]) {
+        const project = { ...REAL_PROJECT, story2videoTextConfig: bad };
+        const text = resolveModelSummaryText(project, project.segments, label);
+        expect(typeof text).toBe("string");
+        expect(text).not.toContain("视频模型");
+      }
     });
   });
 
