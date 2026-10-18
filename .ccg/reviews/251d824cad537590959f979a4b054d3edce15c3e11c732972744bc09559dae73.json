@@ -1,0 +1,28 @@
+{
+  "sha": "7c6a4bc39f7ce844752591ea814c7789d63fa3af",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 1,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "Chromium 用**同一 Windows 用户**的 DPAPI 密钥自行解密 ⇒ Playwright 以真实登录态打开创作页。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "251d824cad537590959f979a4b054d3edce15c3e11c732972744bc09559dae73",
+  "decidedAt": "2026-10-18T12:09:52.364Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

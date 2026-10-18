@@ -44,11 +44,16 @@ const COLLECT_SCRIPT = 'function(){' +
   'var editables=[].slice.call(document.querySelectorAll(\'[contenteditable=""],[contenteditable="true"],[contenteditable="plaintext-only"]\')).map(function(e){return{' +
   'tag:e.tagName.toLowerCase(),cls:cls(e),id:cut(e.id,60),placeholder:cut(e.getAttribute("data-placeholder")||e.getAttribute("placeholder"),80),' +
   'visible:vis(e),textBucket:bucket(String(e.innerText||"").length)}});' +
-  // 控件词表（i3）：只对「像发布控件」的按钮保留文案预览；其余元素只留长度。
-  // 为什么：`a` 的内联文本可能是作品标题等**用户内容**，整段 dump 到磁盘即为内容外泄。
-  'var VOCAB=/发表|发布|上传|投稿|存草稿|草稿|确定|提交|下一步|完成|保存|预览|视频|图文|立即/;' +
+  // 控件词表（i3，2026-10-18 第三轮收紧）：只对「整串**就是**发布控件标签」的按钮保留
+  // 文案预览，其余只留长度分档。
+  // 为什么必须收紧到「整串相等」而不是「包含」：`a` 的内联文本可能是作品标题等用户内容
+  // （例如「提交个人信息：13800138000」含「提交」二字），用包含匹配会把用户内容带进落盘 JSON。
+  // 因此 preview 只在去空白后的文本**恰好等于**词表里某个词时才非空 —— 那种情况下
+  // 该文本本身就是控件标签（「发布」「存草稿」「上传视频」…），不携带任何用户信息。
+  'var VOCAB=["发表","发布","上传","投稿","存草稿","草稿","确定","提交","下一步","完成","保存","预览","视频","图文","立即","上传视频","发布视频","发表视频","定时发布","存草稿并发布"];' +
+  'var vocabHas=function(t){for(var i=0;i<VOCAB.length;i++){if(VOCAB[i]===t)return true}return false};' +
   'var buttons=[].slice.call(document.querySelectorAll(\'button,[role="button"],a\')).map(function(e){' +
-  'var t=cut(e.innerText,40);return{textBucket:bucket(t.length),preview:VOCAB.test(t)?t:null,disabled:!!e.disabled,' +
+  'var t=cut(e.innerText,20);return{textBucket:bucket(t.length),preview:vocabHas(t)?t:null,disabled:!!e.disabled,' +
   'visible:vis(e),cls:cls(e),tag:e.tagName.toLowerCase()}})' +
   '.filter(function(b){return b.textBucket!=="0"});' +
   'var uploadish=[].slice.call(document.querySelectorAll(\'[class*="upload"],[class*="Upload"],[class*="drag"],[class*="Drag"]\')).slice(0,20).map(function(e){return{' +

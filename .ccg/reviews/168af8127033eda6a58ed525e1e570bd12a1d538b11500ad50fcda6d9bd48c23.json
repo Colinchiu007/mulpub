@@ -1,0 +1,28 @@
+{
+  "sha": "48c48093ff1f822311b5d56ff2bc123d640f9086",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 1,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "今日日志：`API publish douyin: 账号信息缺失，请重新授权此账号再试`，且**没有**"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "168af8127033eda6a58ed525e1e570bd12a1d538b11500ad50fcda6d9bd48c23",
+  "decidedAt": "2026-10-18T12:35:01.097Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}
