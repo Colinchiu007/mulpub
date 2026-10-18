@@ -298,6 +298,11 @@ Chromium 用**同一 Windows 用户**的 DPAPI 密钥自行解密 ⇒ Playwright
 1. **视频号正文选择器仍未命中**：真机 `title input selectorCount=3` 但
    `no dedicated title field, title falls back to editor sel=none`。发布被 60′ 账号间隔
    挡住，且 `emergencyReleasePublishWait` 每日仅 1 次已用尽。
-2. **抖音**：API 轨仍缺 `__security_mc_*_s_sdk_sign_data_key_web_protect` 签名 cookie。
+2. ~~**抖音**：API 轨仍缺 `__security_mc_*_s_sdk_sign_data_key_web_protect` 签名 cookie~~
+   **根因已定位并修复（R2 追加，D2）**：store 里 19 条 cookie 非空 ⇒ 旧兜底判据
+   `if (!cookie)` 永不触发；缺的两条是安全 SDK 在**页面 JS 运行时**才写进 Electron 分区的，
+   是登录快照**之后**才出现，store 里永远没有。修法：判据升级为「cookie 为空 **或**
+   （douyin 且签名材料不齐）」，命中后把分区 cookie **合并**进 store（分区优先、store 兜底）。
+   **待真机验证**：需一次真实抖音发布确认 `create_v2` 能过（当前被 3 分钟账号间隔挡住）。
 3. **头条视频 API 轨**未实现（`xigua/api/upload/getAuthKey/` → 上传 → `PublishVideo`）。
 4. **头条/小红书真实发布未验证**：本轮止于「真实上传成功 + 选择器登记」。

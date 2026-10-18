@@ -19,8 +19,20 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "error",
+    "performedBy": "claude",
+    "findings": null,
+    "error": "spawnSync C:/Users/邱领/.claude/bin/codeagent-wrapper.exe ETIMEDOUT",
+    "validationErrors": null,
+    "at": "2026-10-18T12:58:14.890Z",
+    "reason": "判据引擎本机后端超时（spawnSync codeagent-wrapper.exe ETIMEDOUT），跨家族对抗未能执行；与本会话前三轮同一环境阻塞（前三轮走 self_play 出口并已逐条裁决整改）",
+    "environmentBlocker": {
+      "tool": "codeagent-wrapper.exe",
+      "error": "ETIMEDOUT",
+      "firstSeen": "2026-10-18",
+      "rounds": 4,
+      "priorRoundsResolved": "round1-3 走 self_play 出口，18 条成立项全部整改"
+    },
+    "evidenceInRepo": "openspec/records/video-publish-4.md §八 + video-publish-4-r2.md §十"
   }
 }
