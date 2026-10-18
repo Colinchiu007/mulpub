@@ -4,7 +4,7 @@
 
 **`pip install -e .` 装出来的包指向的是「装的那一刻那个目录」，不是「你当前所在的 worktree」——在新 worktree 里跑测试，测的是旧代码。**
 
-现场：`smart-sentence-splitter` 是本机 editable install（`pip show` 报 `Editable project location: D:\Data\projects\smart-sentence-splitter`）。按规范建了隔离 worktree `sss-subtitle-phrase-boundary` 后，在 worktree 里改 `subtitle_segmenter.py` 并跑 `pytest`，结果是「改动好像没生效」——因为 `import splitter` 解析到的是**原仓库**的 `src/`。更隐蔽的是：我先跑了 176 个用例全是绿的，很容易把「绿」读成「改对了」；直到用 `python -c "import splitter...; print(m.__file__)"` 才看见真相。
+现场：`smart-sentence-splitter` 是本机 editable install（`pip show` 报 `Editable project location: <原仓库绝对路径>`）。按规范建了隔离 worktree `sss-subtitle-phrase-boundary` 后，在 worktree 里改 `subtitle_segmenter.py` 并跑 `pytest`，结果是「改动好像没生效」——因为 `import splitter` 解析到的是**原仓库**的 `src/`。更隐蔽的是：我先跑了 176 个用例全是绿的，很容易把「绿」读成「改对了」；直到用 `python -c "import splitter...; print(m.__file__)"` 才看见真相。
 
 判据与解法：① 在非安装目录（worktree / 临时克隆）里跑 Python 测试前，**必须**先确认 `import <pkg>` 的 `__file__` 落在当前工作树，而不是凭「测试绿了」推断；② 覆盖用 `PYTHONPATH=<worktree>/src` 前置（`sys.path` 里 `PYTHONPATH` 优先于 site-packages 的 `.pth` 重定向）；③ 更根本的判据：**任何「改了代码但行为没变」的第一嫌疑是加载路径，不是逻辑**——先去证 `__file__`，再去看算法。
 

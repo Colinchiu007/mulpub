@@ -40,7 +40,7 @@
     "performedBy": "claude",
     "objectType": "plan",
     "rounds": [],
-    "error": "spawnSync C:/Users/邱领/.claude/bin/codeagent-wrapper.exe ENOENT",
+    "error": "spawnSync <codeagent-wrapper> ENOENT",
     "validationErrors": null,
     "note": "第 1 轮评审失败",
     "artifacts": ".adversarial\\ccg-plan-prd-ci-blindspot-seal-2026-10-09",

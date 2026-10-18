@@ -31,7 +31,7 @@
 
 ## 5. Python sidecar 实现（跨仓 worktree）
 
-- [x] 5.1 建隔离 worktree `D:/Data/projects/mp-worktrees/sss-subtitle-phrase-boundary`（分支 `subtitle-phrase-boundary-v1.3`，基线 `origin/main`）
+- [x] 5.1 建隔离 worktree `<worktrees>/sss-subtitle-phrase-boundary`（分支 `subtitle-phrase-boundary-v1.3`，基线 `origin/main`）
 - [x] 5.2 `subtitle_segmenter.py` 新增 `PHRASE_BOUNDARY_PAIRS` / `PHRASE_BOUNDARY_MIN_HEAD_RELAX` / `_is_phrase_boundary`
 - [x] 5.3 `_length_split` / `_is_good_cut` 接入；删除冗余的 `_word_safe_split` 短语分支（与 TS/JS 对齐）
 - [x] 5.4 `pytest tests/` → 577 passed, 9 skipped
