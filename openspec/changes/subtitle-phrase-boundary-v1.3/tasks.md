@@ -15,32 +15,34 @@
 
 ## 3. TS 权威版实现
 
-- [x] 3.1 `text-segmentation.ts` 新增 `PHRASE_BOUNDARY_PAIRS` / `PHRASE_BOUNDARY_MIN_HEAD_RELAX` / `PHRASE_BOUNDARY_MIN_HEAD` 常量与 `isPhraseBoundary` static 方法
-- [x] 3.2 `lengthSplit` 新增短语边界提前切分分支（接入点 A）
+- [x] 3.1 新增 `subtitle-phrase-boundary.ts` 模块（成对短语表加载、`PHRASE_BOUNDARY_MIN_HEAD_RELAX`、`isPhraseBoundary`、`findPhraseBoundaryPos`）—— 由债务门禁驱动抽取
+- [x] 3.2 `lengthSplit` 新增短语边界提前切分分支（接入点 A，承重）
 - [x] 3.3 `isGoodCut` 接入短语边界（接入点 B）
-- [x] 3.4 `wordSafeSplit` 新增短语分支 + 头块放宽（接入点 C）
-- [x] 3.5 `pnpm --filter @multi-publish/story2video-engine test` → 219 passed
+- [x] 3.4 **反证删冗余**：`wordSafeSplit` 短语分支与 MAX 分支 `findPhraseBoundaryPos` 各自「删掉看 216 条测试」，两次均全绿 ⇒ 删除
+- [x] 3.5 `pnpm --filter @multi-publish/story2video-engine test` → 216 passed
 
 ## 4. JS 镜像实现（逐行对齐 TS）
 
-- [x] 4.1 `story2video-segmentation-engine.js` 新增 `PHRASE_BOUNDARY_PAIRS` / `PHRASE_BOUNDARY_MIN_HEAD` / `isPhraseBoundary`
+- [x] 4.1 `story2video-segmentation-engine.js` 新增 `PHRASE_BOUNDARY_PAIRS` / `isPhraseBoundary`
 - [x] 4.2 `subtitleLengthSplit` 新增提前切分分支
-- [x] 4.3 `isGoodCut` / `wordSafeSplit` 接入
-- [x] 4.4 `apps/desktop` 三测试文件全绿：`story2video-segmentation-vectors.test.js` + `story2video-segmentation-parity.test.js` + `story2video-segmentation.test.js` → 168 passed
+- [x] 4.3 `isGoodCut` 接入；删除与 TS 对称的两处冗余分支
+- [x] 4.4 **修正初版自造分歧**：头块下限从 `subtitleRules.defaults.min_chars_per_block` 改为运行时 `config.minCharsPerBlock`（默认配置下 parity 测不出）
+- [x] 4.5 `apps/desktop` 三测试文件全绿：168 passed
 
 ## 5. Python sidecar 实现（跨仓 worktree）
 
 - [x] 5.1 建隔离 worktree `D:/Data/projects/mp-worktrees/sss-subtitle-phrase-boundary`（分支 `subtitle-phrase-boundary-v1.3`，基线 `origin/main`）
 - [x] 5.2 `subtitle_segmenter.py` 新增 `PHRASE_BOUNDARY_PAIRS` / `PHRASE_BOUNDARY_MIN_HEAD_RELAX` / `_is_phrase_boundary`
-- [x] 5.3 `_length_split` / `_is_good_cut` / `_word_safe_split` 接入
+- [x] 5.3 `_length_split` / `_is_good_cut` 接入；删除冗余的 `_word_safe_split` 短语分支（与 TS/JS 对齐）
 - [x] 5.4 `pytest tests/` → 577 passed, 9 skipped
-- [x] 5.5 **踩坑记录**：`splitter` 包是 editable install 指向原仓库，worktree 内跑测试必须 `PYTHONPATH=<worktree>/src`，否则测的是旧代码
+- [x] 5.5 **踩坑记录**：`splitter` 包是 editable install 指向原仓库，worktree 内跑测试必须 `PYTHONPATH=<worktree>/src`，否则测的是旧代码（而且会全绿地骗人）
 
 ## 6. 真实链路验证
 
 - [x] 6.1 起 8002（worktree Python 代码）→ POST `/v1/split` → `normalizeServiceSplitResult`
 - [x] 6.2 结果：`subtitleSource = smart-sentence-splitter`、`degraded = false`、14/14 场景采纳、0 回退、99 块
 - [x] 6.3 11 处坏切全部修复，0 回归
+- [x] 6.4 删冗余分支后**重跑同一链路**：仍 99 块 / 14 场景 / 0 回退，6 项正向断言（`是选举年为了`、`拉拢某些特定票仓的无奈之举`、`我们常常会被宏大的`、`地缘政治术语淹没`、`最终会体现为`、`轻描淡写地说出了那句`）全部 OK ⇒ 行为未变
 
 ## 7. 文档
 

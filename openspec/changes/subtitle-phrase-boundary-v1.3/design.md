@@ -70,18 +70,29 @@ cur=我们常常会被宏大的地缘政治术语
 
 **为什么用成对登记而非单侧字符集**：单侧字符集（`tail`/`head`）在实测中产生假边界——`tail="了"` + `head="拉"` 会把「为了｜拉拢」和「完成了｜拉车」都算短语边界；`tail="某"` + `head="些"` 则把「某｜些」这个**要保护**的词劈开。成对登记把「块尾短语」与「块首后续首字」绑定，假阳性率从字符集交集的 O(n²) 降到显式枚举的 O(pairs)。
 
-### 3.3 三处接入点
+### 3.3 两处接入点（初版三处，实测两处即可）
+
+初版写了三处接入（`lengthSplit` 提前切分 / `isGoodCut` / `wordSafeSplit` 短语分支 + MAX 分支短语优先）。实现完后做了一次「删掉看测试是否仍全绿」的反证，结论是**后两处是冗余的**：
+
+| 初版接入点 | 反证结果 | 处置 |
+| --- | --- | --- |
+| A. `lengthSplit` 累积阶段提前切分 | 删掉则 8 条向量立刻红 | **保留（承重）** |
+| B. `isGoodCut` 第四类好切点 | 删掉则 MAX 兜底路径回退到字符集判据，部分向量红 | **保留** |
+| C. `wordSafeSplit` 短语分支 + 头块放宽 | 删掉后 216 条测试**全绿** | **删除**（提前切分 + B 已覆盖） |
+| D. MAX 分支内 `findPhraseBoundaryPos` 短语优先 | 删掉后 216 条测试**全绿** | **删除**（同上） |
+
+保留的承重逻辑：
 
 **接入点 A：`lengthSplit` 累积阶段提前切分（主要修复）**
 
 ```js
-} else if (stack.length === 0 && cur.length >= PHRASE_BOUNDARY_MIN_HEAD
-  && isPhraseBoundary(text, sourceIndex + 1)) {
+} else if (stack.length === 0 && isPhraseBoundary(text, sourceIndex + 1)
+  && cur.length >= Math.max(1, config.minCharsPerBlock - PHRASE_BOUNDARY_MIN_HEAD_RELAX)) {
   blocks.push(cur); cur = ''; lastHardCut = false
 }
 ```
 
-为什么放在这里：MAX 分支（`cur.length >= 15`）触发时窗口已错过最佳切点。短语右边界与标点等价，应在累积阶段兑现。`PHRASE_BOUNDARY_MIN_HEAD = min_chars - relax = 6`。
+为什么放在这里：MAX 分支（`cur.length >= 15`）触发时窗口已错过最佳切点。短语右边界与标点等价，应在累积阶段兑现。
 
 **接入点 B：`isGoodCut` 第四类好切点**
 
@@ -91,18 +102,20 @@ if (isPhraseBoundary(text, i)) return true
 
 排序在 `semantic_lead` / `good_lead` 之后、`good_tail` 之前（短语边界比字符级 `good_tail` 更强）。
 
-**接入点 C：`wordSafeSplit` 短语分支（头块放宽）**
+删掉 C/D 的价值不只是少 20 行：**同一语义有两条实现路径时，两条路径谁先命中取决于调用顺序，这本身就是下一次「改一处忘另一处」的温床**。反证把这条风险消掉了。
 
-```js
-const isPhraseBoundaryCut = isPhraseBoundary(text, i)
-if (isPhraseBoundaryCut && i >= phraseMinHead) {
-  if (tail > 3 && (tailMin === 0 || tail >= tailMin || tail >= 5)) return i
-  if (tailFallback < 0) tailFallback = i
-  continue
-}
-```
+### 3.4 模块抽取（债务门禁驱动，不是审美选择）
 
-`phraseMinHead = minHead - relax`，允许「去理解那段历史｜对今天…」7+8 这类头块。
+`packages/story2video-engine/src/text-segmentation.ts` 是 `.github/scripts/max-lines-baseline.json` 里 20 个 **`targets` 点名还账**对象之一（`target=1389`，**零增长容差**）。初版在该文件里净增 86 行 → CI `债务熔断检查` 判 `TARGET_GREW` 红。
+
+按仓内先例（CHANGELOG 里 `Publish.vue` 那一格写的「正解是结构性拆分而不是上调 targets —— 上调等于给这个文件再送免涨额度」），先做结构性拆分：
+
+- 新增 `packages/story2video-engine/src/subtitle-phrase-boundary.ts`（约 70 行）：成对短语表加载、`PHRASE_BOUNDARY_MIN_HEAD_RELAX`、`isPhraseBoundary(text, i)`、`findPhraseBoundaryPos(...)`。这段本是「纯函数 + 一张数据表」，与分句器实例状态无关，抽出来既可单测也顺带把门禁归零。
+- 再按 §3.3 的反证删掉 C/D 两处冗余（-20 行）。
+- 剩下的净新增只有 **9 行**（1 行 import + 6 行提前切分分支 + 2 行 `isGoodCut`），已无进一步可拆的独立单元（再拆就得搬走整个 `wordSafeSplit`/`isGoodCut` 词边界子系统，涉及 `isSafeCutPosition`/`protectedPhraseSpanAtBoundary` 等被 `enforceMax`/时间轴共用的守卫，属超范围重构）。
+- 因此按门禁错误文案明文的第二条路，把 `targets` 从 `1389` 上调到**实际值 `1398`**（不是「加额度」而是「冻结在当前值」，后续任何增长仍会红）。**这一处上调如实记录，不假装是拆分就够了。**
+
+JS 镜像同步删除 C/D 两处，并把 JS 侧头块下限从 `subtitleRules.defaults.min_chars_per_block`（忽略运行时配置）改成 `config.minCharsPerBlock`（与 TS 一致）——这是初版埋下的一处**真实跨实现分歧**，默认配置下测不出来，`parity.test.js` 也就不报。
 
 ## 4. 数据校验
 
@@ -199,3 +212,6 @@ return false
 | 三端漂移 | 同一份 `subtitle-rules.json` 三端加载 + parity 测试 + 共享向量三副本 |
 | `min_head_relax` 放宽导致短块 | `< min_chars` 块必须显式声明 `short_block_exceptions`（测试强制） |
 | Python sidecar 未同步 | 跨仓改动，独立 PR；mulpub 侧 E2E 需 8002 运行新代码 |
+| **同一语义存在两条实现路径**（初版 C/D 冗余） | 已用「删掉看测试是否全绿」的反证删掉；三端同步删除 |
+| **头块下限取值源不一致**（TS 用运行时 `config`、JS 用规则表默认值） | 已统一为运行时 `config.minCharsPerBlock`；默认配置下测不出来，属初版埋的真实分歧 |
+| **文件行数门禁（`targets` 零增长）** | 先做结构性拆分（抽出独立模块 70 行 + 删 20 行冗余），净新增压到 9 行；剩余 9 行按门禁明文允许的第二条路上调 `targets` 1389 → 1398 并在此如实记录 |

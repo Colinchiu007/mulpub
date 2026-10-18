@@ -115,10 +115,6 @@ const WORD_NO_CUT_PHRASES = new Set(subtitleRules.word_split.no_cut_bigrams || [
 const PHRASE_BOUNDARY_PAIRS = subtitleRules.word_split.phrase_boundary?.pairs || []
 // v1.3：短语边界路径允许头块放宽到 min_chars - relax（与既有 tailMin 软约束对齐）。
 const PHRASE_BOUNDARY_MIN_HEAD_RELAX = subtitleRules.word_split.phrase_boundary?.min_head_relax ?? 0
-const PHRASE_BOUNDARY_MIN_HEAD = Math.max(
-  1,
-  subtitleRules.defaults.min_chars_per_block - PHRASE_BOUNDARY_MIN_HEAD_RELAX,
-)
 
 /** v1.3 短语边界判定：切点落在某显式短语对的右端，且下一字符命中登记的后续首字。 */
 function isPhraseBoundary (text, i) {
@@ -784,13 +780,6 @@ function wordSafeSplit (text, lo, hi, minHead, tailMin) {
     // 语义引导允许短一字（如“他们甚至嚣张到｜把…”），但不再放宽到 min-2，
     // 避免在“成了”前形成 6 字头块。
     if (isSemanticLead && i < Math.max(1, minHead - 1)) continue
-    // v1.3：短语边界允许头块放宽到 phraseMinHead（如 "去理解那段历史|对今天…" 7+8）。
-    const isPhraseBoundaryCut = isPhraseBoundary(text, i)
-    if (isPhraseBoundaryCut && i >= PHRASE_BOUNDARY_MIN_HEAD) {
-      if (tail > 3 && (tailMin === 0 || tail >= tailMin || tail >= 5)) return i
-      if (tailFallback < 0) tailFallback = i
-      continue
-    }
     // “成了”是谓语起点，但不接受欠长头块；否则“硬生生让蒙元｜成了…”会只剩 6 字。
     if (text[i] === '成' && i < minHead) continue
     if (tail > 3 && (tailMin === 0 || tail >= tailMin || tail >= 5 || WORD_GOOD_LEAD.has(text[i]) || isSemanticLead)) {
@@ -852,11 +841,9 @@ function subtitleLengthSplit (text, config) {
       blocks.push(cur)
       cur = ''
       lastHardCut = false
-    } else if (stack.length === 0 && cur.length >= PHRASE_BOUNDARY_MIN_HEAD
-      && isPhraseBoundary(text, sourceIndex + 1)) {
-      // v1.3 短语边界提前切分：短语右边界与标点等价，在累积阶段就兑现，
-      // 不等 MAX 分支的裸切兜底（那里窗口已错过最佳切点）。
-      // 头块允许放宽到 minChars - relax；尾块至少留 1 字，由后续 merge/enforce 步骤补齐。
+    } else if (stack.length === 0 && isPhraseBoundary(text, sourceIndex + 1)
+      && cur.length >= Math.max(1, config.minCharsPerBlock - PHRASE_BOUNDARY_MIN_HEAD_RELAX)) {
+      // v1.3 短语边界与优先级标点等价：累积阶段即兑现切分，不等 MAX 分支的裸切兜底。
       blocks.push(cur)
       cur = ''
       lastHardCut = false
