@@ -163,15 +163,19 @@ promptOptimizationMeta: safePromptOptimizationMeta(segment.promptOptimizationMet
 
 **与「格式」同行的实现方式**：把「格式」与模型摘要放进同一个 `<p>`，用内联分隔符连接。这样做的好处是**天然同行**——浏览器在容器宽度不足时按需折行，不需要 JS 测量宽度，也不需要 CSS 媒体查询猜测断点。
 
+该行由独立组件 `ResultModelInfoRow.vue` 承载；取值逻辑在同目录纯函数模块 `composables/useResultModelInfo.js`（无 Vue 依赖，可脱离挂载直接单测）。这样拆的理由见 §8.1（`ResultView.vue` 是 `check-max-lines` 零容差点名对象，宿主只留接线）：
+
 ```html
-<div class="video-info">
-  <p v-if="completionSummary" class="completion-summary" data-testid="completion-summary">{{ completionSummary }}</p>
-  <!-- 格式 + 模型信息：同一行，放不下时由浏览器自然折行 -->
-  <p data-testid="video-format-models">
-    <span data-testid="video-format">格式: {{ formatLabel }}</span><template v-if="modelSummaryText">&nbsp;·&nbsp;</template><span v-if="modelSummaryText" data-testid="video-models">{{ modelSummaryText }}</span>
-  </p>
-  <p class="path-text">位置: {{ videoPath }}</p>
-</div>
+<!-- ResultModelInfoRow.vue -->
+<p data-testid="video-format-models">
+  <span data-testid="video-format">格式: {{ formatLabel }}</span><template v-if="modelSummaryText"> · </template><span v-if="modelSummaryText" data-testid="video-models">{{ modelSummaryText }}</span>
+</p>
+```
+
+```js
+// useResultModelInfo.js
+resolveModelSummaryParts(project, segments, label) // => ['文本模型: deepseek', '语音模型: speech-02-hd', ...]
+resolveModelSummaryText(project, segments, label)  // => '文本模型: deepseek · 语音模型: speech-02-hd'
 ```
 
 #### 3.2.2 显示项与取值口径
@@ -198,10 +202,13 @@ promptOptimizationMeta: safePromptOptimizationMeta(segment.promptOptimizationMet
 实现为**双重门控**，满足任一即不显示：
 
 ```js
-// ResultView.vue · videoModelLabel computed
-const mode = String(this.project?.options?.videoMode || '').trim().toLowerCase()
-if (mode && mode !== 'off') return resolvedVideoModel   // 显式开启增强才显示
-return ''
+// useResultModelInfo.js · resolveModelSummaryParts 内
+const VIDEO_ENABLED_MODES = new Set(['fixed', 'ai-judged'])
+const videoMode = cleanText(options.videoMode).toLowerCase()
+if (VIDEO_ENABLED_MODES.has(videoMode)) {
+  const videoModel = resolveModel('videoMeta', 'videoModel', 'videoProvider')
+  if (videoModel) parts.push(label('videoModel') + ': ' + videoModel)
+}
 ```
 
 | `videoMode` | 表现 |
@@ -306,40 +313,62 @@ return ''
 | # | 场景 | 期望 |
 |---|---|---|
 | R-1 | `ResultView.test.js` 既有用例 | 全部通过，无因本次改动失败 |
-| R-2 | `story2video-stages.test.js` / `story2video-project-service.test.js` | 全部通过；新增 `promptOptimizationMeta` 透传用例 |
+| R-2 | `story2video-stages.test.js` / `story2video-project-service.test.js` | 全部通过；透传用例在新建的 `story2video-prompt-meta.test.js` |
 | R-3 | `element-plus.test.js` 产物契约锁 | 通过（本次不新增 element-plus 组件） |
 | R-4 | locales 同步门禁（Gate 7） | zh/en 键集合完全一致 |
 | R-5 | 视觉回归（create-result 视图） | 差异来自模型信息新增文本本身；布局无位移、无溢出 |
+| R-6 | `check-max-lines` 逐文件行数门禁 | 四个点名/挂账文件（`ResultView.vue` 1890、`story2video-stages.js` 4006、两个测试文件登记值）全部回到目标内，无 `TARGET_GREW` / `TEST_LEDGER_GREW` |
 
 ---
 
 ## 七、测试计划
 
-### 7.1 单元测试（`ResultView.test.js`，新增 describe 块「模型信息展示」）
+### 7.1 单元测试（`ResultView.model-info.test.js`，新建）
 
 | 用例 | 断言 |
 |---|---|
-| 四项齐备时渲染顺序与内容 | `data-testid="video-models"` 文本等于 `'文本模型: deepseek · 语音模型: speech-02-hd · 图片模型: MiniMax Image · 视频模型: MiniMax Hailuo'` |
+| 四项齐备时渲染顺序与内容 | `resolveModelSummaryText` 等于 `文本模型: deepseek · 语音模型: speech-02-hd · 图片模型: MiniMax Image · 视频模型: MiniMax Hailuo` |
 | `videoMode='off'` 不渲染视频模型 | 文本不含「视频模型」 |
 | `videoMode` 缺省不渲染视频模型 | 文本不含「视频模型」 |
-| `videoMode='fixed'` 但 provider/model 空 | 文本不含「视频模型」 |
+| `videoMode='fixed'` 渲染视频模型 | 文本含「视频模型: MiniMax Hailuo」 |
+| `videoMode` 大写/带空白归一 | `'  AI-Judged '` 同样视为启用 |
+| `videoMode` 启用但 provider/model 空 | 文本不含「视频模型」，且无「视频模型:」空壳 |
 | 无 `promptOptimizationMeta` 不渲染文本模型 | 文本不含「文本模型」 |
-| segments meta 优先于 options | options 填 `imageModel: 'opt-model'`、segments 填 `imageMeta.model: 'seg-model'` → 显示 `seg-model` |
-| model 缺失时回退 provider | options 仅 `imageProvider: 'p'` → 显示 `p` |
-| 无 project（纯文件模式） | `data-testid="video-models"` 不存在 |
-| 全空时不渲染分隔符 | 文本为 `'格式: MP4'`（无 ` · `） |
-| segments 非数组不崩 | `segments: null` → 摘要为 `''`，无异常 |
-| `project.options` 非对象不崩 | `options: 'x'` → 摘要为 `''`，无异常 |
+| segments meta 优先于 options | options `imageModel: 'opt-model'`、segments `imageMeta.model: 'seg-model'` → 显示 `seg-model` |
+| segments 的 provider 优先于 options 的 model | 显示 segments 的 provider |
+| model 缺失时回退 provider | 仅 `imageProvider: 'p'` → 显示 `p` |
+| 逐段扫描取首个非空 | 第一段空、第二段有值 → 取第二段 |
+| `model_used='template'` 如实呈现 | 显示「文本模型: template」 |
+| 无 project（纯文件模式） | 摘要为 `''`，parts 为 `[]` |
+| 四项全空 | 摘要为 `''` |
+| `segments` 非数组 | 不崩溃；options 的值仍生效（按 `[]` 处理，不是作废 options） |
+| `project.options` 非对象 | 不崩溃且摘要为空 |
+| segments 含非对象项 | 安全跳过 |
+| 摘要不变量 | 不含连续分隔符、不以分隔符开头/结尾、无「标签: 」空值 |
+| `VIDEO_ENABLED_MODES` 集合 | 恰为 `['ai-judged', 'fixed']` |
+| DOM：与「格式」同一个 `<p>` | `video-format-models` 内同时含 `video-format` 与 `video-models`，tagName 为 `P` |
+| DOM：四项全空 | `video-models` 不存在，`video-format-models` 文本恰为「格式: MP4」 |
+| DOM：项目对象更新 | computed 重算，展示值跟随 |
+| locale 成对 | zh/en 的 `create.story2video.modelInfo` 四键齐备且非空 |
 
-### 7.2 主进程测试（`story2video-stages.test.js`，新增用例）
+### 7.2 主进程测试（`story2video-prompt-meta.test.js`，新建）
 
 | 用例 | 断言 |
 |---|---|
-| optimize entry 透传到 scene | `generate_assets` 输出 `pairedScenes[i].promptOptimizationMeta.model_used` 等于 optimize entry 的 `model_used` |
-| optimize 结果缺失时 fail-open | `context.optimize` 为空 → `promptOptimizationMeta` 为 `null`，阶段不失败 |
-| 白名单收窄 | entry 带的 `optimized_prompt` / `truncated` / `optimize_note` 不透传到 `promptOptimizationMeta` |
-| template 降级如实呈现 | `strategy_used='template'`、`model_used='template'` → `model_used` 为 `'template'` |
-| `{ results }` 包装兼容 | `context.optimize = { results: [...] }` → 正确取到第 i 项 |
+| 白名单与 service 侧对齐 | `PROMPT_OPTIMIZATION_META_KEYS` 恰为 7 个约定字段 |
+| 白名单收窄 | `optimized_prompt`/`truncated`/`optimize_note`/`degraded`/`index` 不透传；字符串 trim、boolean 原样 |
+| 畸形 entry | `null`/`undefined`/字符串/数字/数组 → `null` |
+| 全空白字段 | 返回 `null`（不留空对象） |
+| 越界/非法下标 | `promptOptimizationMetaOf` 对越界、负值、小数、非数组均返回 `null` |
+| template 降级 | `model_used='template'` 如实保留，`tokens_used` 被白名单丢弃 |
+| `optimizeItemPrompt` | 字符串原样；`prompt → optimized_prompt → optimized` 优先级；`null`/数组/数字 → `''` |
+| 集成：meta 透传到 scene | `generate_assets` 输出 `scenes[0].promptOptimizationMeta` 等于 optimize entry 的 7 字段 |
+| 集成：内部状态不透传 | 只含 `model_used`/`strategy_used` |
+| 集成：纯字符串 optimize | meta 为 `null`，阶段成功 |
+| 集成：null 项 fail-open | 阶段成功，`optimizedPrompts[0].prompt === ''`（两处 null 防御的回归锁） |
+| 集成：template 降级透传 | `model_used='template'` |
+| 集成：`{ results }` 包装 | 正确取到第 i 项 |
+| 集成：多场景 | 逐场景各取自己的 meta |
 
 ### 7.3 端到端验证（手动，记录于 `.quality-gates.md` / `openspec/records/`）
 
@@ -353,12 +382,19 @@ return ''
 
 | 文件 | 改动 |
 |---|---|
-| `apps/desktop/src/views/ResultView.vue` | 模板（格式行并入模型摘要）+ 4 个 computed + 1 段 CSS |
+| `apps/desktop/src/views/ResultView.vue` | 模板（视频信息区改用 `ResultModelInfoRow` 组件）+ 1 行 import + 1 行 components |
+| `apps/desktop/src/views/video-creation/ResultModelInfoRow.vue` | **新建**：「格式 + 模型」同一行的渲染组件 |
+| `apps/desktop/src/views/video-creation/composables/useResultModelInfo.js` | **新建**：模型信息取值口径纯函数（无 Vue 依赖，可独立测） |
 | `apps/desktop/src/locales/create/zh.js` | 新增 `story2video.modelInfo` 四项 |
 | `apps/desktop/src/locales/create/en.js` | 同上（成对） |
-| `apps/desktop/electron/services/story2video-stages.js` | `pairedScenes` 增加 `promptOptimizationMeta` 透传 |
-| `apps/desktop/src/views/ResultView.test.js` | 新增测试块 |
-| `apps/desktop/electron/services/story2video-stages.test.js` | 新增测试用例 |
+| `apps/desktop/electron/services/story2video-stages.js` | `pairedScenes` 挂 `promptOptimizationMeta`；两处 optimize 项解析改用共享 `optimizeItemPrompt` |
+| `apps/desktop/electron/services/story2video-prompt-meta.js` | **新建**：optimize 模型元数据白名单提取（含 `optimizeItemPrompt` null 防御） |
+| `apps/desktop/src/views/ResultView.test.js` | 无改动（模型信息用例迁出） |
+| `apps/desktop/src/views/ResultView.model-info.test.js` | **新建**：模型信息 UI + locale 成对 24 例 |
+| `apps/desktop/electron/services/story2video-stages.test.js` | 无改动（透传用例迁出） |
+| `apps/desktop/electron/services/story2video-prompt-meta.test.js` | **新建**：白名单/fail-open/null 防御 + 集成透传 17 例 |
+
+**为什么拆成新文件而不是就地加**：`ResultView.vue`（点名目标 1890）与 `story2video-stages.js`（点名目标 4006）都是 `check-max-lines` 的**零容差**点名还账对象，两个测试文件也各有 200 行容差上限。就地新增会把 4 个文件同时判红。按仓内同族先例（`podcast-publish-entry` / `publish-add-account-entry` 等）的口径，正解是**结构性拆分**：逻辑主体进纯函数/组件模块，宿主只留接线；测试按"被测模块/场景"分文件。拆完四个点名/挂账文件全部回到目标内，且逻辑因脱离 Vue 挂载而更易测。
 
 ### 8.2 风险与缓解
 

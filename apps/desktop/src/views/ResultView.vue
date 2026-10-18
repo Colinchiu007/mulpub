@@ -51,14 +51,9 @@
 
       <div class="video-info">
         <p v-if="completionSummary" class="completion-summary" data-testid="completion-summary">{{ completionSummary }}</p>
-        <!-- 模型信息（s2v-result-model-info）：与「格式」同一行展示本次生成调用的模型；
-             容器放不下时由浏览器自然折行，不撑破布局。四项全空时整段不渲染，与改动前一致。 -->
-        <p data-testid="video-format-models">
-          <span data-testid="video-format">格式: {{ formatLabel }}</span><template v-if="modelSummaryText"> · </template><span v-if="modelSummaryText" data-testid="video-models">{{ modelSummaryText }}</span>
-        </p>
+        <ResultModelInfoRow :project="project" :segments="segments" :format-label="formatLabel" />
         <p class="path-text">位置: {{ videoPath }}</p>
       </div>
-
       <div class="actions">
         <UiButton @click="download">下载视频</UiButton>
         <UiButton variant="secondary" @click="viewScript">{{ tOrKey('story2video.view_script') }}</UiButton>
@@ -450,6 +445,7 @@
 import UiButton from '../components/UiButton.vue'
 import UiModal from '../components/UiModal.vue'
 import PodcastEpisodeEntry from '../components/PodcastEpisodeEntry.vue'
+import ResultModelInfoRow from './video-creation/ResultModelInfoRow.vue'
 import { buildPublishFromProject, publishDataToQuery } from '@/features/publish/publish-from-project'
 import { getAppLocale } from '@/i18n'
 import { STORY2VIDEO_NOTIFICATION_KEYS, formatBgmSkippedNotification, formatStory2VideoNotification, getStory2VideoNotificationUiText, resolveStory2VideoNotification } from '@/story2video/story2video-notifications'
@@ -480,7 +476,7 @@ import {
 
 export default {
   name: 'ResultView',
-  components: { UiButton, UiModal, PodcastEpisodeEntry },
+  components: { UiButton, UiModal, PodcastEpisodeEntry, ResultModelInfoRow },
   data() {
     return {
       videoPath: null,
@@ -637,65 +633,6 @@ export default {
     formatLabel() {
       const extension = String(this.videoPath || '').split('.').pop()
       return extension ? extension.toUpperCase() : '视频'
-    },
-    // ── 模型信息（s2v-result-model-info，2026-10-18）─────────────────────────
-    // 合同：01-docs/PRD-S2V-RESULT-MODEL-INFO-2026-10-18.md §3.2 / §4
-    // 展示本次生成实际调用的文本/语音/图片/视频模型。取值口径：
-    //   segments[].*Meta（provider 实际返回值）优先于 project.options（用户提交时的选择）；
-    //   model 优先于 provider。缺失即整项不渲染，不显示空壳。
-    // 视频模型额外受 videoMode 门控：仅 fixed / ai-judged 视为启用，off/缺省一律不显示。
-    // 纯文件预览模式（无 project）整体不渲染。
-    modelSummaryParts() {
-      const project = this.project && typeof this.project === 'object' ? this.project : null
-      if (!project) return []
-      const options = project.options && typeof project.options === 'object' ? project.options : {}
-      const segments = Array.isArray(this.segments) ? this.segments : []
-
-      const firstNonEmpty = (pick) => {
-        for (const segment of segments) {
-          if (!segment || typeof segment !== 'object') continue
-          const value = pick(segment)
-          if (typeof value === 'string' && value.trim()) return value.trim()
-        }
-        return ''
-      }
-      const optionText = (key) => {
-        const value = options[key]
-        return typeof value === 'string' && value.trim() ? value.trim() : ''
-      }
-      // 先取 segments 实际执行值（model 优先，其次 provider），再回退 options 的 model，
-      // 最后回退 options 的 provider。segments 整体优先于 options：它是 provider 真实执行的记录。
-      const resolveModel = (metaKey, modelKey, providerKey) => (
-        firstNonEmpty(segment => segment[metaKey]?.model) ||
-        firstNonEmpty(segment => segment[metaKey]?.provider) ||
-        optionText(modelKey) ||
-        optionText(providerKey)
-      )
-
-      const label = (key) => this.tOrKey('create.story2video.modelInfo.' + key)
-      const parts = []
-
-      // 文本模型：来自 optimize 阶段 prompt-engine 返回的 model_used（含 'template' 降级值）
-      const textModel = firstNonEmpty(segment => segment.promptOptimizationMeta?.model_used)
-      if (textModel) parts.push(label('textModel') + ': ' + textModel)
-
-      const voiceModel = resolveModel('audioMeta', 'voiceModel', 'voiceProvider')
-      if (voiceModel) parts.push(label('voiceModel') + ': ' + voiceModel)
-
-      const imageModel = resolveModel('imageMeta', 'imageModel', 'imageProvider')
-      if (imageModel) parts.push(label('imageModel') + ': ' + imageModel)
-
-      // 视频模型门控：videoMode 为 fixed/ai-judged 才算启用视频增强（与 pipeline-model-preflight 同源）
-      const videoMode = String(options.videoMode || '').trim().toLowerCase()
-      if (videoMode === 'fixed' || videoMode === 'ai-judged') {
-        const videoModel = resolveModel('videoMeta', 'videoModel', 'videoProvider')
-        if (videoModel) parts.push(label('videoModel') + ': ' + videoModel)
-      }
-
-      return parts
-    },
-    modelSummaryText() {
-      return this.modelSummaryParts.join(' · ')
     },
     canTrim() {
       const start = Number(this.trimStart)

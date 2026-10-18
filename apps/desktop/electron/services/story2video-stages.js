@@ -37,6 +37,7 @@ const {
 } = require('./story2video-image-retry');
 const { classifyProviderFailure, TRANSIENT_MESSAGE_PATTERN } = require('./adapters/_base/provider-error');
 const { deriveStory2VideoAspectRatio } = require('./story2video-text-config');
+const { promptOptimizationMetaOf: pickPromptOptimizationMetaOf, optimizeItemPrompt } = require('./story2video-prompt-meta');
 const { resolveProviderDefaultModel } = require('./model-provider-manager');
 const { getProviderRunContext } = require('./provider-run-context');
 const modelCallScheduler = require('./model-call-scheduler');
@@ -2789,30 +2790,6 @@ function registerStory2VideoStages(pipelineEngine) {
         };
       }
 
-      // optimize 阶段的模型元数据（s2v-result-model-info，2026-10-18）：把 prompt-engine 返回的
-      // model_used/strategy_used 等带到 scene，供 Story2VideoProjectService 落盘
-      // segments[].promptOptimizationMeta，让任务详情页能展示"本视频的文本模型"。
-      // 只透传白名单字段（与 story2video-project-service.js 的 safePromptOptimizationMeta 对齐）：
-      // optimized_prompt/truncated/optimize_note 等流水线内部状态一律不带，避免污染 run context。
-      // fail-open：取不到 meta 时返回 null，绝不因此让 generate_assets 失败。
-      const PROMPT_OPTIMIZATION_META_KEYS = [
-        'strategy_used', 'key_source', 'cache_hit', 'model_used', 'caller', 'platform', 'style',
-      ];
-      const pickPromptOptimizationMeta = (entry) => {
-        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
-        const meta = {};
-        for (const key of PROMPT_OPTIMIZATION_META_KEYS) {
-          const value = entry[key];
-          if (typeof value === 'string' && value.trim()) meta[key] = value.trim();
-          else if (typeof value === 'boolean') meta[key] = value;
-        }
-        return Object.keys(meta).length > 0 ? meta : null;
-      };
-      const promptOptimizationMetaOf = (index) => {
-        const entry = Array.isArray(optimizedPrompts) ? optimizedPrompts[index] : null;
-        return pickPromptOptimizationMeta(entry);
-      };
-
       const firstDefined = (...values) => values.find(v => v !== undefined && v !== null);
       const useCurrentModels = params.__resumeUseCurrentModels === true;
       const concurrency = normalizeAssetConcurrency(firstDefined(params.concurrency, stage.options?.concurrency, 3));
@@ -3207,11 +3184,7 @@ function registerStory2VideoStages(pipelineEngine) {
                 return { index, success: true, path: null, videoPath: video.path, meta: { video: true } };
               }
             }
-            // 防御：optimize 结果可能含 null/非对象（上游异常项），不得因单项畸形让整阶段崩溃
-            const promptText = typeof prompt === 'string'
-              ? prompt
-              : (prompt && (prompt.prompt || prompt.optimized_prompt || prompt.optimized)) || '';
-            const negativePrompt = resolveSceneNegativePrompt(context, stage, index);
+            const promptText = optimizeItemPrompt(prompt), negativePrompt = resolveSceneNegativePrompt(context, stage, index);
             // 方案层 2：从 scene_context 提取逐场景上下文块与锚点，供内容安全改写保留原文背景
             const sceneContext = resolveSceneContextForRewrite(context, index);
             if (inputMode === 'images' && inputImages[index] !== undefined) {
@@ -3530,9 +3503,7 @@ function registerStory2VideoStages(pipelineEngine) {
           promptTranslation: promptTranslationOf(i),
           // 视频优化词（2026-08-15）：视频场景持久化到分段 videoPrompt，供视频任务编辑页编辑/重新生成
           videoPrompt: videoByIndex.has(i) ? ((optimizedVideoPrompts && optimizedVideoPrompts.get(i))?.prompt || null) : null,
-          // optimize 阶段模型元数据（s2v-result-model-info，2026-10-18）：供项目落盘
-          // segments[].promptOptimizationMeta，任务详情页据此展示文本模型
-          promptOptimizationMeta: promptOptimizationMetaOf(i),
+          promptOptimizationMeta: pickPromptOptimizationMetaOf(optimizedPrompts, i),
           imagePath: (image && image.success && image.path) ? image.path : null,
           videoPath: (video && video.path) ? video.path : null,
           audioPath: audio.path,
@@ -3581,10 +3552,7 @@ function registerStory2VideoStages(pipelineEngine) {
           fallbackReason: s?.fallbackReason || null,
         })),
         optimizedPrompts: optimizedPrompts.map((p, i) => ({
-          index: i,
-          // 防御：optimize 结果可能含 null/非对象（上游异常项），与 pairedScenes 的
-          // prompt 解析保持同一 fail-open 口径，不得因单项畸形让整阶段崩溃
-          prompt: typeof p === 'string' ? p : (p && (p.prompt || p.optimized_prompt || p.optimized)) || '',
+          index: i, prompt: optimizeItemPrompt(p),
           imagePath: (imageByIndex.get(i) && imageByIndex.get(i).path) || null,
           imageMeta: (imageByIndex.get(i) && imageByIndex.get(i).meta) || null,
           videoPath: (videoByIndex.get(i) && videoByIndex.get(i).path) || null,
