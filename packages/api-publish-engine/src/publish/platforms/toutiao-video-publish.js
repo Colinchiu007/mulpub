@@ -195,6 +195,45 @@ function parsePosterListResponse (raw) {
 /** 候选键（顺序即优先级）。真机跑通后应收敛为实际命中那一个。 */
 const POSTER_URI_KEYS = ['Uri', 'PosterUri', 'CoverUri', 'ThumbUri', 'Url', 'PosterUrl', 'ThumbUrl']
 
+/** 写接口的 CSRF 头名（2026-10-19 真机实证；证据见 pickCsrfToken 注释） */
+const CSRF_HEADER = 'x-csrf-token'
+
+/** 承载 CSRF 值的 cookie 名 */
+const CSRF_COOKIE = 'xigua_csrf_token'
+
+/**
+ * 从 cookie 串里取写接口需要的 CSRF token（纯函数）。
+ *
+ * **真机实证（2026-10-19）**：西瓜/头条的写接口（PublishVideo 等）必须带 `x-csrf-token`，
+ * 值取自 **cookie `xigua_csrf_token`**（实测 24 字符）。依据是应用自身 bundle
+ * `xigua_entry.*.js` 里写接口统一走：
+ *
+ *     var i = v("xigua_csrf_token");            // v = cookie getter
+ *     o.headers = { "x-csrf-token": i };        // POST 分支
+ *
+ * 真机对照实测（同一 cookie 串、同一请求体）：
+ *
+ * | 头部 | 结果 |
+ * | --- | --- |
+ * | 不带 | HTTP 403 `invalid csrf token` |
+ * | `x-csrf-token: <csrf_session_id>` | HTTP 403 同 |
+ * | `x-csrftoken: <csrf_session_id>` | HTTP 403 同 |
+ * | `x-secsdk-csrf-token: <csrf_session_id>` | HTTP 403 同 |
+ * | `X-CSRF-Token: <csrf_session_id>` | HTTP 403 同 |
+ * | **`x-csrf-token: <xigua_csrf_token>`** | **200，403 消失，进入业务码判定** |
+ *
+ * 该 cookie 由西瓜发布页渲染时下发；取不到时返回空串，由调用方**不设该头**——
+ * 让服务端如实拒绝，避免把「cookie 缺失」误诊成「签名算法不对」。
+ *
+ * @param {string} cookie
+ * @returns {string}
+ */
+function pickCsrfToken (cookie) {
+  const s = String(cookie == null ? '' : cookie)
+  const m = s.match(new RegExp('(?:^|;\\s*)' + CSRF_COOKIE + '=([^;]*)'))
+  return m ? decodeURIComponent(m[1].trim()) : ''
+}
+
 /**
  * 从推荐封面里挑一个 URI（纯函数，候选键探测见上）。
  * @param {Array} posters
@@ -223,6 +262,9 @@ module.exports = {
   TITLE_LIMIT,
   ABSTRACT_LIMIT,
   POSTER_URI_KEYS,
+  CSRF_HEADER,
+  CSRF_COOKIE,
+  pickCsrfToken,
   truncateByCodePoint,
   buildToutiaoPublishBody,
   parsePublishResponse,

@@ -119,6 +119,7 @@ const {
   PUBLISH_TYPE, VIDEO_TYPE, ASPECT_RATIO,
   truncateByCodePoint, buildToutiaoPublishBody, parsePublishResponse,
   parsePosterListResponse, pickPosterUri,
+  CSRF_HEADER, pickCsrfToken,
 } = require('./toutiao-video-publish')
 const { probePublishAuth, fetchPosterList } = require('./toutiao-video-probes')
 
@@ -188,12 +189,18 @@ class ToutiaoVideoChain {
   }
 
   _mpHeaders (extra) {
-    return Object.assign({
+    const h = {
       Cookie: this.cookie,
       'User-Agent': this.userAgent,
       Referer: this.mpBase + '/profile_v4/xigua/upload-video',
       Origin: this.mpBase,
-    }, extra || {})
+    }
+    // 写接口必须带 CSRF 头（2026-10-19 真机实证）：头名与 cookie 来源、
+    // 以及「不带 / 用错 cookie 一律 403 invalid csrf token」的对照证据，
+    // 全部写在 `toutiao-video-publish.js#pickCsrfToken` 的注释里（单一事实源）。
+    const csrf = pickCsrfToken(this.cookie)
+    if (csrf) h[CSRF_HEADER] = csrf
+    return Object.assign(h, extra || {})
   }
 
   /**

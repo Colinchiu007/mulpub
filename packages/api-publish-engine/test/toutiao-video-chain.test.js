@@ -26,6 +26,8 @@ const { startFakeServer, methodPathList } = require('./helpers/fake-http')
 const { createHttpClient } = require('../src/publish/core/http-base')
 const { ToutiaoVideoChain, ToutiaoVideoError, TT_APP_ID, TT_SPACE_NAME_FALLBACK, PUBLISH_TYPE, parsePosterListResponse, pickPosterUri } = require('../src/publish/platforms/toutiao-video')
 
+const { CSRF_HEADER, pickCsrfToken } = require('../src/publish/platforms/toutiao-video-publish')
+
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
 
 /** 造一个"已登录头条号"的 cookie 串（只需 sessionid/uid 类，签名在服务端） */
@@ -34,6 +36,9 @@ function makeCookie (o = {}) {
   if (!o.omitSession) parts.push('sessionid=' + (o.sessionId || 'SESSIONID_ABC'))
   if (!o.omitUid) parts.push('uid_tt=' + (o.uid || '1342958645023752'))
   parts.push('tt_webid=7000000000000000000')
+  // 2026-10-19 真机实证：写接口的 CSRF 值来自 cookie `xigua_csrf_token`（24 字符）。
+  // 默认带上，`omitCsrf` 用于验证「缺失时不伪造该头」。
+  if (!o.omitCsrf) parts.push('xigua_csrf_token=' + (o.csrf || 'CSRF_TOKEN_ABCDEFGHIJKL'))
   return parts.join('; ')
 }
 
@@ -519,6 +524,56 @@ describe('ToutiaoVideoChain — 头条视频 API 轨', () => {
       // 不得残留旧 snake_case 臆断形状
       expect(pub.body.vid).toBeUndefined()
       expect(pub.body.title).toBeUndefined()
+    } finally { fs.unlinkSync(f); await all.close() }
+  })
+
+  // ── CSRF 头（2026-10-19 真机实证：toutiao-csrf-header） ────────────────────
+  //
+  // 真机对照实测（同 cookie 串、同请求体）：
+  //   不带 / x-csrf-token=<csrf_session_id> / x-csrftoken / x-secsdk-csrf-token /
+  //   X-CSRF-Token  → 一律 HTTP 403 `invalid csrf token`
+  //   x-csrf-token=<cookie xigua_csrf_token> → 200，进入业务码判定
+  // 依据：应用 bundle `xigua_entry.*.js` 写接口分支
+  //   `var i = v("xigua_csrf_token"); o.headers = {"x-csrf-token": i}`
+  test('CSRF：pickCsrfToken 从 cookie 取值（含与其它 cookie 共存 / 缺失返回空串）', () => {
+    expect(pickCsrfToken('a=1; xigua_csrf_token=ABC123; b=2')).toBe('ABC123')
+    expect(pickCsrfToken('xigua_csrf_token=HEAD_VALUE; sessionid=S')).toBe('HEAD_VALUE')
+    // 前缀相似名不得误命中
+    expect(pickCsrfToken('not_xigua_csrf_token=BAD; a=1')).toBe('')
+    expect(pickCsrfToken('a=1')).toBe('')
+    expect(pickCsrfToken('')).toBe('')
+    expect(pickCsrfToken(null)).toBe('')
+  })
+
+  test('CSRF：_mpHeaders 带上 x-csrf-token；cookie 缺失时**不伪造**该头', () => {
+    const withCsrf = new ToutiaoVideoChain({ cookie: makeCookie({ csrf: 'REALTOKEN24CHARSXXXXXXXX' }), userAgent: UA })
+    const h = withCsrf._mpHeaders()
+    expect(h[CSRF_HEADER]).toBe('REALTOKEN24CHARSXXXXXXXX')
+    expect(CSRF_HEADER).toBe('x-csrf-token')
+
+    const noCsrf = new ToutiaoVideoChain({ cookie: makeCookie({ omitCsrf: true }), userAgent: UA })
+    const h2 = noCsrf._mpHeaders()
+    expect(h2[CSRF_HEADER]).toBeUndefined()
+    expect(Object.keys(h2).some((k) => /csrf/i.test(k))).toBe(false)
+  })
+
+  test('CSRF：PublishVideo 真实请求确实携带 x-csrf-token（防「只测 helper 不测出口」）', async () => {
+    const all = await startFakeServer()
+    const f = tmpVideo(1024)
+    try {
+      const { ToutiaoVideoChain: C } = require('../src/publish/platforms/toutiao-video')
+      const chain = new C({
+        cookie: makeCookie({ csrf: 'OUTGOING_CSRF_VALUE_1234' }),
+        mpBase: all.url, vodBase: all.url, userAgent: UA, uid: '1342958645023752',
+      })
+      const body = chain.buildPublishBody(
+        { title: 'T', abstract: 'A', video: { path: f } },
+        { vid: 'VID_CSRF', draft: true }
+      )
+      await chain.publish(body)
+      const pub = all.requests.find((x) => /PublishVideo/.test(x.url))
+      expect(pub).toBeTruthy()
+      expect(String(pub.headers['x-csrf-token'] || '')).toBe('OUTGOING_CSRF_VALUE_1234')
     } finally { fs.unlinkSync(f); await all.close() }
   })
 })
