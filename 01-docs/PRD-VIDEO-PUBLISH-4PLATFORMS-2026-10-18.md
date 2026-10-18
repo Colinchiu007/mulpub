@@ -463,6 +463,87 @@ R4 起 body 同时输出 `aspectRatio`（竖版 0.62 / 横版 1.78），
 
 ---
 
+## 12.6 写接口 CSRF 头（R6，2026-10-19 真机实证）
+
+### 12.6.1 结论
+
+**头条写接口（`PublishVideo` 等）必须带 `x-csrf-token`，值取自 cookie `xigua_csrf_token`。**
+缺少或取错来源一律 `HTTP 403 {"code":403,"msg":"invalid csrf token"}`。
+
+### 12.6.2 证据（三段逐级排除）
+
+**① `checkPublishAuth` 推翻「未实名所以不能发」**：
+
+```
+canPublish = true   disablePublish = false   blockStatus = 0   reviewLatency = 0
+authorPermission: IsIdentifyAuth=false（未实名），但 DisablePublish=false、IsUserBan=false
+```
+
+⇒ **「未实名」≠「不能发」**。此前据此判定「卡实名认证、需人工」属**错误归因，予以撤回**。
+同时补记首尾长度：`TtVideoTitleLenMin/Max = 0/30`、`XgVideoTitleLenMin/Max = 1/30`。
+
+**② 应用 bundle `xigua_entry.*.js` 的写接口分支**：
+
+```js
+var i = v("xigua_csrf_token");            // v = cookie getter
+o.headers = { "x-csrf-token": i };        // 仅 POST 分支设置
+```
+
+**③ 真机逐变体对照（同 cookie 串、同请求体）**：
+
+| 头部 | 结果 |
+| --- | --- |
+| 不带 | 403 `invalid csrf token` |
+| `x-csrf-token: <csrf_session_id>` | 403 同 |
+| `x-csrftoken: <csrf_session_id>` | 403 同 |
+| `x-secsdk-csrf-token: <csrf_session_id>` | 403 同 |
+| `X-CSRF-Token: <csrf_session_id>` | 403 同 |
+| **`x-csrf-token: <xigua_csrf_token>`** | **200，进入业务码判定** |
+
+> ⚠️ **判据陷阱**：**头名对但 cookie 来源错也是 403**。
+> 只验证「有没有这个头」会得出假结论，必须同时验证**头名 + 取值来源**。
+
+### 12.6.3 实现约束
+
+| 约束 | 说明 |
+| --- | --- |
+| 头名 | `x-csrf-token`（常量 `CSRF_HEADER`） |
+| 取值 | cookie `xigua_csrf_token`（常量 `CSRF_COOKIE`），由西瓜发布页渲染时下发 |
+| 缺失时 | **不伪造该头**，让服务端如实拒绝 —— 否则会把「cookie 缺失」误诊成「签名算法不对」 |
+| 单一事实源 | `pickCsrfToken()` 在 `toutiao-video-publish.js`（纯函数、无 IO），链内只调用不重抄 |
+
+### 12.6.4 越过 CSRF 后的服务端判据（新增硬约束）
+
+```
+{"data":{"Code":20007014,"Message":"request Param ThumbUri Can't be nil Error"},"status":0}
+```
+
+⇒ **`ThumbUri` 服务端必填**（不只是前端提示）。且：
+
+| 尝试 | 结果 |
+| --- | --- |
+| `ThumbUri=""` | `20007014 ThumbUri Can't be nil` |
+| `ThumbUri=<VOD 上传图片得到的 vid>` | `21085 封面数据异常，请重新上传` |
+
+⇒ `ThumbUri` 要的是**图片资源 URI**（tos/imagex 形态），**不是 VOD 视频 vid**。
+
+### 12.6.5 显示项与提示文字（本轮新增）
+
+| 场景 | 提示（拟定） |
+| --- | --- |
+| 缺 CSRF cookie | `头条写接口需要 CSRF 票据（xigua_csrf_token）缺失，请重新打开头条发布页后再试` |
+| 403 invalid csrf token | `头条拒绝了本次提交（CSRF 票据失效），请刷新头条发布页后重试` |
+| `ThumbUri Can't be nil` | `头条视频发布需要封面（平台必填）：请提供封面图或等待平台生成推荐封面` |
+| `21085 封面数据异常` | `封面格式不被平台接受：请提供 JPG/PNG 图片，而不是视频标识` |
+
+### 12.6.6 仍未闭合
+
+1. `GetPosterList` 取不到推荐封面（POST→405；GET 下 `vid` 无论放 query/路径/body 均报 `vid is required`）。
+2. `ThumbUri` 的**正确图片 URI 从哪来**（头条侧图片上传接口）尚未找到。
+3. 尚未成功提交过一次 `PublishVideo`（已越过 CSRF 与 `ThumbUri` 校验，未越过封面格式校验）。
+
+---
+
 ## 13. 小红书视频「草稿」真实通路（R5，2026-10-19 真机取证成功）
 
 ### 13.1 结论
