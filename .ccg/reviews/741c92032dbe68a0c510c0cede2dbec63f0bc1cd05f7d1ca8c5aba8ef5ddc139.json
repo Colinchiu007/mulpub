@@ -19,8 +19,37 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
+    "status": "needs_revision",
     "performedBy": null,
-    "findings": null
+    "engineVerdictBeforeClosure": null,
+    "debtClosure": {
+      "closedBy": "agent(Lead)",
+      "at": "2026-10-18T15:04:45.365Z",
+      "gatedBy": "scripts/check-pr-exec-record.js::evaluateDeepReviewDebt（只查 mode===dual 且 status 不在白名单）",
+      "remedy": "按该门禁判据给出的补救路径：在记录里写明原因并把 status 置为闭环白名单值。",
+      "noVerdictObtained": true,
+      "engineRunBlocked": {
+        "what": "CCG 深度双模型审查（mode=dual）在本机无法执行，**零裁决产出**",
+        "error": "claude 后端不产出任何输出：最小探针 `claude -p \"reply with exactly: OK\"` 60s 内零 stdout/零 stderr；引擎按 cfg.timeoutMs=600000 调用 codeagent-wrapper 后抛 `spawnSync … codeagent-wrapper.exe ETIMEDOUT`（exit 2）。",
+        "attempts": [
+          "① 按文档入口 `sh scripts/deep-review.sh`（Git Bash）：依赖体检 --check-deps 通过（codeagent-wrapper /c/Users/<user>/.claude/bin、claude [ABS]、opencode [ABS]），但真跑时以 POSIX 路径 `/c/Users/<user>/.claude/skills/adversarial-review-loop/scripts/ccg-deep-review.js` 调 Windows node，被解析成 `D:\\c\\Users\\<user>\\…` ⇒ `MODULE_NOT_FOUND`。根因：本机用户名含非 ASCII（邱领），MSYS 的 POSIX→Windows 路径转换对该参数失效。",
+          "② 绕开入口直调引擎（Windows 原生路径）`node \"%USERPROFILE%\\.claude\\skills\\adversarial-review-loop\\scripts\\ccg-deep-review.js\"`：`--dry-run` 全通过（判定 DUAL、跨家族 proposer=opencode critic=claude、将建 .adversarial\\ccg-deep-…），真跑在 [轮 1/3] 调 critic=claude 后 `ETIMEDOUT`（600s），exit 2。",
+          "③ 后端可用性最小探针：`claude --version` rc=0（2.1.302）、`opencode --version` rc=0（1.18.34），但两者的**模型调用**无响应 —— `claude -p \"reply with exactly: OK\"` 60s 零输出；且本机无 ANTHROPIC_API_KEY、无 %USERPROFILE%\\.claude\\.credentials.json。即 CLI 可用而鉴权/网络层不可用，换更长超时不会改变结论。"
+        ],
+        "evidence": "① `sh scripts/deep-review.sh --check-deps` rc=0（体检通过）；② 同脚本真跑 ⇒ `Error: Cannot find module 'D:\\c\\Users\\邱领\\.claude\\skills\\adversarial-review-loop\\scripts\\ccg-deep-review.js'`；③ 直调引擎 ⇒ `评审失败: spawnSync C:/Users/邱领/.claude/bin/codeagent-wrapper.exe ETIMEDOUT` / EXIT_RC=2；④ `claude -p` 探针 60s 零输出 + 无凭据文件。"
+      },
+      "substituteEvidence": [
+        "行为级回归锁 5 条（真起 powershell + 临时夹具）：新快照胜出 / 陈旧仍报 / 年龄由名字推导 / 只有 seed 时不得谎报 / 形状兜底",
+        "变异反证 4 道全部指名红：M1 复原原始 bug（seed 入候选+名字降序）⇒ 锁1；M2 年龄改回 LastWriteTime ⇒ 锁2/3/5；M3 强制 ageDays=0 ⇒ 锁2/3；M4 无时间戳时谎报 fresh ⇒ 锁4",
+        "每条变异先断言「锚点命中 + 变异已落盘」再判红，跑完按字节还原并核 sha256 与基线相等（E4FD7455…）",
+        "真实锚点 A/B：修复前 `[WARN] newest backup is 25.9 days old (limit 7)` / `ANCHOR_WARN`；修复后 `[OK] backups fresh (latest: 20261018-222345)` / `ANCHOR_OK`"
+      ],
+      "residualNotClosed": [
+        "**本轮没有获得任何外部双模型评审裁决**（不是「评审通过」）。本文件 status=needs_revision 是门禁白名单值，语义取「裁决未落定、留待外部复核」，不得读成 cleared。",
+        "待后端可用后应补跑：`sh scripts/deep-review.sh`（会重算并覆盖本 deepReview 字段，属引擎预期行为）。",
+        "WARN 档仍 exit 0、未把 stale 升为 FAIL；第三种备份目录族（如 manual-*）目前被正确忽略但不会提示——两处都在执行记录「遗留」里。"
+      ]
+    },
+    "auditNote": "本文件是 CCG 判定器的审计产物（.ccg/reviews/），记录名 = stagedDiffHash（内容寻址）。deepReview 字段由 agent 按先例（0af2390a / 05ae0d4e）在**引擎无法执行**的情况下写入，debtClosure.noVerdictObtained=true 明确标记「零裁决」，不冒充评审通过。"
   }
 }

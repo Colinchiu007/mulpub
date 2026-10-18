@@ -16,7 +16,7 @@ date: 2026-10-18
 | 行尾与 diff 对账 | ✅ | `scripts/mp-anchor-health.ps1` 两口径 `28 5` == `28 5`；`.github/workflows/quality-gate.yml` `6 0` == `6 0`；`CHANGELOG.md` `18 0` == `18 0`。删除数归因：ps1 的 5 行删除全部是旧 freshness 分支被替换（无他人内容）；gitattributes 为 `* text=auto`，工作副本 CRLF / blob LF 由 git 归一，两口径相等 |
 | 接线棘轮 | ✅ | 新 `*.test.js` 已在 `quality-gate.yml` Gate 2c 内显式点名；`check-unwired-tests.js` rc=0（见上行读数） |
 | QM-1 打包 / QM-4 视觉 | N/A | 改动集零 `apps/desktop/electron/**`、零 `packages/rpa-engine/**`、零 UI/样式 ⇒ 打包与像素门禁**不适用**（不是「跑了通过」）。记录此格是为了不与「已验证」混淆 |
-| QM-6 CCG 双模型外部评审 | 未执行 | 本机 `Get-Command codeagent-wrapper` 不存在，如实记未执行；不以自审冒充通过 |
+| QM-6 CCG 双模型外部评审 | **未获得裁决（环境受阻）** | 判定器判 `mode=dual`（代码变更 206 行 > 200 行阈值），记录 `.ccg/reviews/741c9203….json` 的 `deepReview` 由 agent 按先例（`0af2390a` / `05ae0d4e`）写入 `debtClosure`，并置 **`noVerdictObtained: true`**。三次尝试全部留证：① 文档入口 `sh scripts/deep-review.sh` 依赖体检通过但真跑以 POSIX 路径调 Windows node ⇒ `Cannot find module 'D:\c\Users\<user>\…'`（本机用户名含非 ASCII，MSYS 路径转换失效）；② 直调引擎（Windows 原生路径）`--dry-run` 全通过，真跑在 [轮 1/3] ⇒ `codeagent-wrapper.exe ETIMEDOUT`(600s) exit 2；③ 后端最小探针 `claude --version` rc=0(2.1.302) 但 `claude -p` 60s 零输出，且无 `ANTHROPIC_API_KEY` / 无 `.credentials.json` ⇒ **CLI 可用而模型调用不可用，加长超时不会改变结论**。状态值 `needs_revision` 是门禁白名单值，语义取「裁决未落定、留待外部复核」，**不得读成 `cleared`（评审通过）**；后端可用后应补跑 `sh scripts/deep-review.sh`（会覆盖该字段，属引擎预期行为）。替代证据（**不等价于外部评审**）：5 条行为锁 + 4 道指名变红变异 + 真实锚点 A/B |
 | 远程同步 | 由门禁推导 | 本行**不需要事后改写**：合并后门禁按主干历史推导归属（`scripts/lib/merge-ledger.js`，只认 squash 尾注 `(#NNNN)`）；现场读数看 CI 步骤首行 `MERGE-LEDGER prs=<n>`。合并前这篇文件还不在基线上，判 byDesign 不红；把本行状态列写成 `PASS` 会被判「预写不存在的证据」而红（change: `ban-record-closure-backfill-pr`）。main push 回读证据写在 PR 评论里，不写回本文件 |
 
 ### 真实锚点 A/B（不是只在新夹具上绿）
@@ -45,6 +45,7 @@ date: 2026-10-18
 
 ### 遗留（不假装已闭合）
 
+- **QM-6 外部双模型评审本轮没有拿到裁决**（本片最大的未闭合项，单独列在最前）：`mode=dual` 是判定器按「代码变更 206 行 > 200 行」机械判出来的，不是可以自证假阳性的判断；本机三次尝试都被环境挡住（详见上表 QM-6 行的三段证据）。评审记录里 `debtClosure.noVerdictObtained=true` 就是为此写的——**它不是评审结论，是"评审没能发生"的登记**。后端恢复后补跑 `sh scripts/deep-review.sh` 覆盖即可。
 - **`WARN` 档仍 `exit 0`**（设计如此：WARN 不该阻塞自动化）。本片只把读数修正，**未**把 stale 升级成 FAIL——那会让每日 `sync-app.ps1 -Safe` 在无人备份的日子里变红，属行为变更，应另行决定而不是夹带。
 - **备份保留策略**（保留 7 套）在 `sync-app.ps1` 内，本片未动。
 - **第三种目录族未提示**：若将来出现 `manual-*` 之类新命名，当前修法会正确地**忽略**它（不参与新鲜度判定），但**不会**提示"存在未识别的备份目录"。本轮刻意不加，避免 WARN 噪音回归——代价是：真的出现新族时，只有夹具那条锁会提醒作者。
