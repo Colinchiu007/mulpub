@@ -1,3 +1,39 @@
+## 字幕分句短语边界：四条可复用教训（subtitle-phrase-boundary-v1.3，2026-10-18）
+
+### lesson:editable-install-points-at-the-original-repo
+
+**`pip install -e .` 装出来的包指向的是「装的那一刻那个目录」，不是「你当前所在的 worktree」——在新 worktree 里跑测试，测的是旧代码。**
+
+现场：`smart-sentence-splitter` 是本机 editable install（`pip show` 报 `Editable project location: <原仓库绝对路径>`）。按规范建了隔离 worktree `sss-subtitle-phrase-boundary` 后，在 worktree 里改 `subtitle_segmenter.py` 并跑 `pytest`，结果是「改动好像没生效」——因为 `import splitter` 解析到的是**原仓库**的 `src/`。更隐蔽的是：我先跑了 176 个用例全是绿的，很容易把「绿」读成「改对了」；直到用 `python -c "import splitter...; print(m.__file__)"` 才看见真相。
+
+判据与解法：① 在非安装目录（worktree / 临时克隆）里跑 Python 测试前，**必须**先确认 `import <pkg>` 的 `__file__` 落在当前工作树，而不是凭「测试绿了」推断；② 覆盖用 `PYTHONPATH=<worktree>/src` 前置（`sys.path` 里 `PYTHONPATH` 优先于 site-packages 的 `.pth` 重定向）；③ 更根本的判据：**任何「改了代码但行为没变」的第一嫌疑是加载路径，不是逻辑**——先去证 `__file__`，再去看算法。
+
+### lesson:three-way-parity-means-three-repos-not-three-files
+
+**「三端逐字一致」不是「三个文件改一样」，而是「三个文件 + 一份共享数据 + 三份向量副本」四处同时落地；少一处，一致性就是纸面的。**
+
+现场：本仓字幕分句有三份实现（Python sidecar / TS 权威版 / Electron JS 镜像），共享一份 `subtitle-rules.json` 与一份 `subtitle_segmentation_vectors.json`。我只改了 mulpub 里的规则表与 TS/JS 代码时，TS 与 JS 全绿、parity 也绿——因为 parity 只比 TS vs JS，**根本不涉及 Python**。Python 侧要等真实 8002 链路 E2E 才会红，而那条 E2E 需要手工起服务、默认不进 PR 门禁。
+
+判据：跨仓/跨语言一致性的检查清单必须把「谁在 CI 里守它」写清：① 共享数据（规则表）有**几份物理副本**；② 向量文件有**几份物理副本**；③ 哪些测试比对**哪两端**；④ 哪两端**没有**任何自动比对（本案：Python vs TS 只有人工 E2E）。第 ④ 项是最容易被漏掉的一格，写空就等于默默接受漂移。
+
+### lesson:no-candidate-is-a-different-bug-than-wrong-candidate
+
+**「一个候选都没找到」和「找到的候选是错的」是两种缺陷，修法完全不同；先分清再动手。**
+
+现场：字幕坏切的插桩输出里，`isGoodCut` 对 `cur` 的每个位置都打 `REJECT`，最后返回 -1。我一开始按「候选判定太严」去放宽阈值（`minHead` 从 8 放到 6），实测只救回 11 个坏例里的 2 个。真正的原因是**结构性的**：`len === maxChars(15)` 且 `minHead === minChars(8)` 时，合法窗口 `i ∈ [len-minChars, maxChars]` 经常是空集（15 < 8+8），所以不是「判据严」而是**窗口本身没有候选**；下游 `findSafeCutPosition` 只校验「安全」不校验「语义」，于是退化成算术裸切。
+
+判据：看到「候选全拒 → 返回 -1 → 下游兜底」这条链，先算**窗口是否非空**（用真实 `cur.length` 与 min/max 代入），再谈放宽。窗口为空的场合，放宽任何单点判据都只是碰运气；正解是在**更早的阶段**产生切点（本案：把短语边界提升为与标点等价的切分信号，在累积阶段就切，而不是等 MAX 分支兜底）。
+
+### lesson:tokenizer-diffs-are-not-a-stable-authority
+
+**两个分词器在同一句中文上的切分跨度可以逐行不一致；把「分词边界」升成跨实现硬判据，等于把测试写成了「谁的分词器赢」。**
+
+现场：为修字幕坏切，最初想直接把 jieba/segmentit 的 token 边界当切点。实测同一段文案 8 行里 **8 行分词跨度全部不一致**（起始/结束位置系统性偏移），且本仓 `segmenterSpans` 的贪心对齐（`indexOf(word, cursor)` 命中失败就跳过）在连续中文上会**丢边界**。若据此判切点，三端逐字一致的既有契约当场破裂。
+
+判据：跨实现共享的判定规则必须能表达成**该语言自带的字符/字符串操作**（本案：`text.slice(i - left.length, i) === left` 这类纯字符串比较），不能依赖「某个库的输出」。凡是「规则需要靠 A 库的输出、而 B 语言没有同一个库」的地方，那不是共享规则，是隐藏的平台绑定。**成对登记（`[[left, next], ...]`）优于单侧字符集**也是同一族的教训：单侧的 `tail`/`head` 集合交集会产生假边界（`了|拉` 既可能来自「为了拉拢」也可能来自「完成了拉车」），而成对登记把「块尾短语」与「块首后续」绑定，假阳性从集合交集降到显式枚举。
+
+## 缓存空壳与漏斗守卫：空正文不得进改写链路（fix-collect-rewrite-empty-content，2026-10-18）
+
 ## 任务详情页模型信息：先核实「信息有没有落盘」，再摆四个字段（s2v-result-model-info，2026-10-18）
 
 ### lesson:display-needs-persisted-facts-not-runtime-facts
