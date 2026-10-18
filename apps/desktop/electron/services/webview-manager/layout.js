@@ -4,7 +4,8 @@
  * 窗口大小调整、侧边栏宽度、壳态互斥、弹窗互斥挂起
  */
 const log = require('../logger')
-const { computeEmbeddedViewBounds, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } = require('../view-bounds')
+// 宽度守卫用共享的 isValidSidebarWidth：各自手写比较拦不住 NaN（所有比较都是 false）。
+const { computeEmbeddedViewBounds, isValidSidebarWidth } = require('../view-bounds')
 const { SIDEBAR_WIDTH_DEFAULT, AUTH_TAB_ID } = require('./constants')
 
 module.exports = {
@@ -112,8 +113,8 @@ module.exports = {
   setSidebarWidth (width) {
     // 守卫：宽度必须严格 > 0。width <= 0 会让内嵌视图 x 落到 0、覆盖 x=0 的 MpSidebar，
     // 拦截侧边栏全部点击（2026-09-15「平台链接浮层盖住侧边栏」同类 Bug 的防御层之一）。
-    // 阈值统一取自 view-bounds.js 的 MIN_SIDEBAR_WIDTH / MAX_SIDEBAR_WIDTH 单一真源，避免漂移。
-    if (typeof width !== 'number' || width < MIN_SIDEBAR_WIDTH || width > MAX_SIDEBAR_WIDTH) {
+    // 用共享守卫 isValidSidebarWidth（单一真源）：NaN 能穿过手写的 `width < MIN || width > MAX`。
+    if (!isValidSidebarWidth(width)) {
       log.warn('WebviewManager', 'Invalid sidebar width ignored: ' + width)
       return
     }
@@ -125,6 +126,11 @@ module.exports = {
       }
       if (this._qrCodeLogin && typeof this._qrCodeLogin.setSidebarWidth === 'function') {
         this._qrCodeLogin.setSidebarWidth(width)
+      }
+      // OAuth 授权视图同为内嵌原生图层（2026-10-18 回归修复：此前漏同步，
+      // 收起态下左侧留 200px 死区、跨 900px 断点后仍按 200 布局）
+      if (this._oauthManager && typeof this._oauthManager.setSidebarWidth === 'function') {
+        this._oauthManager.setSidebarWidth(width)
       }
       this._repositionAll()
     }
@@ -153,12 +159,60 @@ module.exports = {
     if (this._qrCodeLogin && typeof this._qrCodeLogin.setSidebarCollapsed === 'function') {
       this._qrCodeLogin.setSidebarCollapsed(collapsed)
     }
+    // OAuth 授权视图同样必须同步（2026-10-18 回归修复：此前漏同步）
+    if (this._oauthManager && typeof this._oauthManager.setSidebarCollapsed === 'function') {
+      this._oauthManager.setSidebarCollapsed(collapsed)
+    }
     this._repositionAll()
+    // 多窗口同步：把新状态推给所有窗口的渲染进程（含发起窗口自身，幂等短路）
+    this.broadcastSidebarCollapsed()
   },
 
   /** 左侧导航栏当前是否收起（供 IPC 回执与测试断言） */
   isSidebarCollapsed () {
     return this._sidebarCollapsed === true
+  },
+
+  /**
+   * 把折叠状态广播到所有窗口的渲染进程（多窗口同步）。
+   *
+   * 为什么必须广播：_sidebarCollapsed 是应用级唯一真源，任一窗口点击后这里会把
+   * 全部内嵌视图重排成 x=0 全宽；但其它窗口的渲染进程各持一份 ref 副本，不通知
+   * 的话它们的 DOM 侧栏还显示着、却被原生视图盖住 ⇒ 侧栏看得见却点不动。
+   *
+   * 为什么不担心回环：渲染层 applyRemoteCollapsed 只改本地 ref，不写 localStorage、
+   * 不回调本 IPC；且它有「同值即短路」，第二波广播到不了主进程。
+   *
+   * @param {{ getAllWindows?: () => Array<{ isDestroyed?: () => boolean, webContents?: { isDestroyed?: () => boolean, send: Function } }> }} [browserWindowCtor]
+   *   可注入的 BrowserWindow（测试用；生产由调用方传 require('electron').BrowserWindow）。
+   *   未注入时延迟 require —— 单测环境没有 electron 运行时，不得在模块顶层依赖它。
+   * @returns {{ sent: number }} 实际送达的窗口数（静默跳过已销毁/发送失败的窗口）
+   */
+  broadcastSidebarCollapsed (browserWindowCtor) {
+    let ctor = browserWindowCtor
+    if (!ctor) {
+      try {
+        ctor = require('electron').BrowserWindow
+      } catch {
+        return { sent: 0 }
+      }
+    }
+    if (!ctor || typeof ctor.getAllWindows !== 'function') return { sent: 0 }
+
+    const collapsed = this._sidebarCollapsed === true
+    let sent = 0
+    for (const win of ctor.getAllWindows()) {
+      try {
+        if (!win || win.isDestroyed?.()) continue
+        const wc = win.webContents
+        if (!wc || wc.isDestroyed?.()) continue
+        wc.send('page-manager:sidebar-collapsed-changed', { data: { collapsed } })
+        sent++
+      } catch {
+        // 单个窗口发送失败（已销毁 / 竞态）不得中断其它窗口
+      }
+    }
+    return { sent }
   },
 
   /**

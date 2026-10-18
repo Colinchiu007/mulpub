@@ -52,6 +52,11 @@ class WebviewManager extends EventEmitter {
     this._authViewManager = null
     /** @type {import('./qrcode-login')|null} */
     this._qrCodeLogin = null
+    // OAuth 授权视图也是内嵌原生图层，同样需要跟随侧边栏宽度/折叠态重排。
+    // 2026-10-18 回归修复：_positionView 曾只传 1 参给 computeEmbeddedViewBounds，
+    // 导致收起态下 OAuth 视图左侧留 200px 死区、展开态不跟随 900px 断点的 68px。
+    /** @type {import('../oauth-manager')|null} */
+    this._oauthManager = null
     /** @type {{tabId: string, url: string, title: string, platform: string, isLogin: boolean, manager?: object}|null} */
     this._authTabInfo = null
     /** @type {string|null} 打开登录标签前的活动标签，用于关闭后回退 */
@@ -80,6 +85,24 @@ class WebviewManager extends EventEmitter {
 
   setMainWindow (win) {
     this.mainWindow = win
+  }
+
+  /**
+   * 注入 OAuth 管理器（其授权视图同为内嵌 WebContentsView，需同步侧栏布局）。
+   * @param {object|null} oauthManager
+   */
+  setOAuthManager (oauthManager) {
+    this._oauthManager = oauthManager || null
+    // 注入时把当前已知状态推给它，避免「注入晚于首次同步」导致它停留在默认值
+    if (this._oauthManager) {
+      if (typeof this._oauthManager.setSidebarWidth === 'function' &&
+          this._sidebarWidth !== SIDEBAR_WIDTH_DEFAULT) {
+        this._oauthManager.setSidebarWidth(this._sidebarWidth)
+      }
+      if (typeof this._oauthManager.setSidebarCollapsed === 'function' && this._sidebarCollapsed) {
+        this._oauthManager.setSidebarCollapsed(true)
+      }
+    }
   }
 
   /**

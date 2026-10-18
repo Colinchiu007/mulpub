@@ -23,7 +23,12 @@ const Store = require('./store')
 const EC = require('../core/error-codes').ERROR
 const { withSenderCheck } = require('../ipc-handlers/helpers')
 // 内嵌视图定位唯一来源：必须用「客户区」尺寸，禁用 getBounds() 外框尺寸（见 view-bounds.js）
-const { computeEmbeddedViewBounds } = require('./view-bounds')
+// 宽度守卫阈值同样取自 view-bounds 单一真源，避免各 manager 自造常量后漂移。
+const {
+  computeEmbeddedViewBounds,
+  SIDEBAR_WIDTH_DEFAULT,
+  isValidSidebarWidth,
+} = require('./view-bounds')
 // 独立窗口已不再需要（改为内嵌主窗口）
 
 // OAuth 平台配置
@@ -69,10 +74,65 @@ class OAuthManager {
     this._rejectAuth = null
     this._callbackServer = null
     this._loginTimeout = null
+    // 侧边栏宽度 / 折叠态：由 WebviewManager 单向同步（与 AuthViewManager / QRCodeLogin 同构）。
+    // 默认值必须与 view-bounds.js 的 SIDEBAR_WIDTH_DEFAULT 一致，避免未同步前错位。
+    this._sidebarWidth = SIDEBAR_WIDTH_DEFAULT
+    this._sidebarCollapsed = false
+    // 窗口尺寸变化监听解绑函数（OAuth 进行中拖动窗口必须重排，否则复现
+    // view-bounds.js 头部所述 2026-09-13「视图被窗口边框裁掉」同形态缺陷）
+    this._unsubscribeWindowResize = null
   }
 
   setMainWindow (win) {
+    // 先解绑旧窗口的监听，避免窗口重建后旧引用泄漏（clearMainWindowBindings 会把 win 置 null）
+    if (this._unsubscribeWindowResize) {
+      try { this._unsubscribeWindowResize() } catch (_e) { /* 解绑失败不影响换绑 */ }
+      this._unsubscribeWindowResize = null
+    }
     this.mainWindow = win
+    // OAuth 视图是内嵌原生图层，不跟随宿主 DOM 布局：窗口尺寸变化必须重排，
+    // 否则右侧滚动条 / 底部内容会被窗口边框裁掉（view-bounds.js 2026-09-13 同形态 Bug）。
+    if (win && typeof win.on === 'function') {
+      const onResize = () => this._positionView()
+      win.on('resize', onResize)
+      this._unsubscribeWindowResize = () => {
+        try { if (typeof win.off === 'function') win.off('resize', onResize) } catch (_e) { /* 窗口已销毁 */ }
+      }
+    }
+  }
+
+  /**
+   * 设置左侧导航栏宽度（由 WebviewManager 同步）。
+   * 守卫与 view-bounds.js 的 MIN/MAX_SIDEBAR_WIDTH 同源：0 与负值会让视图 x 落到 0、
+   * 覆盖 x=0 的 MpSidebar 并拦截其全部点击（2026-09-15「平台链接浮层盖住侧边栏」同类）。
+   */
+  setSidebarWidth (width) {
+    // 守卫与 view-bounds.js 的 isValidSidebarWidth 同源（含 NaN：NaN 的所有比较都是
+    // false，四份各自手写的 `width < MIN || width > MAX` 都拦不住它）。
+    // 0 与负值会让视图 x 落到 0、覆盖 x=0 的 MpSidebar 并拦截其全部点击
+    // （2026-09-15「平台链接浮层盖住侧边栏」同类 Bug）。
+    if (!isValidSidebarWidth(width)) {
+      log.warn('OAuthManager', 'Invalid sidebar width ignored: ' + width)
+      return
+    }
+    if (this._sidebarWidth === width) return
+    this._sidebarWidth = width
+    this._positionView()
+  }
+
+  /**
+   * 设置左侧导航栏是否收起（由 WebviewManager 同步）。
+   * 收起是用户显式意图：侧边栏 display:none 后视图必须 x=0 全宽，
+   * 不能用 width=0 表达（那条路有刻意保留的守卫，会被拒绝并回落 200）。
+   */
+  setSidebarCollapsed (collapsed) {
+    if (typeof collapsed !== 'boolean') {
+      log.warn('OAuthManager', 'Invalid sidebar collapsed flag ignored: ' + collapsed)
+      return
+    }
+    if (this._sidebarCollapsed === collapsed) return
+    this._sidebarCollapsed = collapsed
+    this._positionView()
   }
 
   /**
@@ -80,10 +140,17 @@ class OAuthManager {
    * 修复：startAuth 曾调用不存在的 this._positionView(...)，导致 OAuth 内嵌链路
    * 一进入就抛 "this._positionView is not a function"。
    * 尺寸来源必须是窗口客户区（见 view-bounds.js）。
+   * 必须传满 4 参：只传 win 会让 sidebarWidth 回落默认 200、collapsed 恒为 false，
+   * 收起态下左侧留 200px 死区且视图盖住侧边栏（2026-10-18 回归）。
    */
   _positionView () {
     if (!this.currentView || !this.mainWindow) return
-    this.currentView.setBounds(computeEmbeddedViewBounds(this.mainWindow))
+    this.currentView.setBounds(computeEmbeddedViewBounds(
+      this.mainWindow,
+      this._sidebarWidth || SIDEBAR_WIDTH_DEFAULT,
+      undefined,
+      this._sidebarCollapsed,
+    ))
   }
 
   /**
@@ -355,6 +422,11 @@ class OAuthManager {
     if (this._loginTimeout) {
       clearTimeout(this._loginTimeout)
       this._loginTimeout = null
+    }
+    // 视图销毁后不再需要监听窗口尺寸（监听按次绑定，泄漏会跨授权流程累积）
+    if (this._unsubscribeWindowResize) {
+      try { this._unsubscribeWindowResize() } catch (_e) { /* 解绑失败不影响关闭 */ }
+      this._unsubscribeWindowResize = null
     }
 
     // 认证页改回内嵌主窗口：从 contentView 移除视图

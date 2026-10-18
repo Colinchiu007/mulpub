@@ -227,6 +227,142 @@ describe('page-manager:set-sidebar-collapsed IPC 合同', () => {
   })
 })
 
+describe('broadcastSidebarCollapsed（多窗口同步，2026-10-18）', () => {
+  /** 造一个可观测的 BrowserWindow 替身 */
+  function makeWin (opts = {}) {
+    return {
+      isDestroyed: opts.destroyed ? () => true : () => false,
+      webContents: {
+        isDestroyed: opts.wcDestroyed ? () => true : () => false,
+        send: opts.sendFail ? vi.fn(() => { throw new Error('send failed') }) : vi.fn(),
+      },
+    }
+  }
+
+  it('收起时向所有窗口广播 { data: { collapsed: true } }', () => {
+    const { wm } = createManagerWithBrowserTab()
+    const a = makeWin()
+    const b = makeWin()
+    const ctor = { getAllWindows: () => [a, b] }
+
+    wm.setSidebarCollapsed(true)
+    const { sent } = wm.broadcastSidebarCollapsed(ctor)
+
+    expect(sent).toBe(2)
+    expect(a.webContents.send).toHaveBeenCalledWith(
+      'page-manager:sidebar-collapsed-changed', { data: { collapsed: true } })
+    expect(b.webContents.send).toHaveBeenCalledWith(
+      'page-manager:sidebar-collapsed-changed', { data: { collapsed: true } })
+  })
+
+  it('展开时广播 collapsed:false', () => {
+    const { wm } = createManagerWithBrowserTab()
+    const a = makeWin()
+    wm.setSidebarCollapsed(true)
+
+    wm.broadcastSidebarCollapsed({ getAllWindows: () => [a] })
+
+    expect(a.webContents.send).toHaveBeenLastCalledWith(
+      'page-manager:sidebar-collapsed-changed', { data: { collapsed: true } })
+  })
+
+  it('setSidebarCollapsed 变更时自动广播（IPC handler 无需重复调）', () => {
+    const { wm } = createManagerWithBrowserTab()
+    const a = makeWin()
+    wm.broadcastSidebarCollapsed = vi.fn(() => ({ sent: 1 }))
+
+    wm.setSidebarCollapsed(true)
+
+    expect(wm.broadcastSidebarCollapsed).toHaveBeenCalledTimes(1)
+  })
+
+  it('同值短路：重复 setSidebarCollapsed 不重复广播', () => {
+    const { wm } = createManagerWithBrowserTab()
+    wm.broadcastSidebarCollapsed = vi.fn(() => ({ sent: 1 }))
+
+    wm.setSidebarCollapsed(true)
+    wm.setSidebarCollapsed(true)
+
+    expect(wm.broadcastSidebarCollapsed).toHaveBeenCalledTimes(1)
+  })
+
+  it('跳过已销毁的窗口与 webContents，不中断其余窗口', () => {
+    const { wm } = createManagerWithBrowserTab()
+    const alive = makeWin()
+    const ctor = { getAllWindows: () => [makeWin({ destroyed: true }), makeWin({ wcDestroyed: true }), alive] }
+
+    const { sent } = wm.broadcastSidebarCollapsed(ctor)
+
+    expect(sent).toBe(1)
+    expect(alive.webContents.send).toHaveBeenCalledTimes(1)
+  })
+
+  it('单个窗口 send 抛错不影响其它窗口送达', () => {
+    const { wm } = createManagerWithBrowserTab()
+    const ok = makeWin()
+    const bad = makeWin({ sendFail: true })
+
+    const { sent } = wm.broadcastSidebarCollapsed({ getAllWindows: () => [bad, ok] })
+
+    expect(sent).toBe(1)
+    expect(ok.webContents.send).toHaveBeenCalledTimes(1)
+  })
+
+  it('未注入 BrowserWindow 且 electron 不可用时静默返回 sent:0（不抛异常）', () => {
+    const { wm } = createManagerWithBrowserTab()
+    expect(() => wm.broadcastSidebarCollapsed()).not.toThrow()
+  })
+
+  it('无窗口时不报错，sent:0', () => {
+    const { wm } = createManagerWithBrowserTab()
+    const { sent } = wm.broadcastSidebarCollapsed({ getAllWindows: () => [] })
+    expect(sent).toBe(0)
+  })
+})
+
+describe('setOAuthManager 注入（OAuth 视图同步侧栏布局，2026-10-18）', () => {
+  it('注入时把当前已知状态推给 OAuthManager', () => {
+    const wm = new WebviewManager()
+    const oauth = { setSidebarWidth: vi.fn(), setSidebarCollapsed: vi.fn() }
+
+    wm.setOAuthManager(oauth)
+
+    // 默认状态：宽度为默认值（不重复推）、未收起（不推）⇒ 两次都不调
+    expect(oauth.setSidebarWidth).not.toHaveBeenCalled()
+    expect(oauth.setSidebarCollapsed).not.toHaveBeenCalled()
+  })
+
+  it('注入时若已是非默认宽度/已收起，立即补齐推送', () => {
+    const { wm } = createManagerWithBrowserTab()
+    const oauth = { setSidebarWidth: vi.fn(), setSidebarCollapsed: vi.fn() }
+
+    wm.setSidebarWidth(68)
+    wm.setSidebarCollapsed(true)
+    wm.setOAuthManager(oauth)
+
+    expect(oauth.setSidebarWidth).toHaveBeenCalledWith(68)
+    expect(oauth.setSidebarCollapsed).toHaveBeenCalledWith(true)
+  })
+
+  it('注入 null 时清空引用（不抛异常）', () => {
+    const wm = new WebviewManager()
+    expect(() => wm.setOAuthManager(null)).not.toThrow()
+    expect(wm._oauthManager).toBeNull()
+  })
+
+  it('setSidebarWidth / setSidebarCollapsed 同步给 OAuthManager', () => {
+    const { wm } = createManagerWithBrowserTab()
+    const oauth = { setSidebarWidth: vi.fn(), setSidebarCollapsed: vi.fn() }
+    wm.setOAuthManager(oauth)
+
+    wm.setSidebarWidth(68)
+    wm.setSidebarCollapsed(true)
+
+    expect(oauth.setSidebarWidth).toHaveBeenCalledWith(68)
+    expect(oauth.setSidebarCollapsed).toHaveBeenCalledWith(true)
+  })
+})
+
 describe('WebviewManager 虚拟登录标签', () => {
   it('attachAuthViewManager 绑定开关钩子', () => {
     const wm = new WebviewManager()
