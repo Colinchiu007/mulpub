@@ -1,0 +1,30 @@
+{
+  "sha": "5f2e217700efe625a95d677ca3cfa93cbf4d070b",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 0 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 3,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": [
+      "\"01-docs/research/competitor-reverse-2026-10-13/derived/DLL-MediaTaskMgr-\\346\\216\\245\\345\\217\\243\\345\\245\\221\\347\\272\\246.md\"",
+      "\"01-docs/research/competitor-reverse-2026-10-13/\\345\\216\\237\\347\\224\\237\\345\\261\\202\\345\\210\\206\\346\\236\\220\\346\\212\\245\\345\\221\\212.md\"",
+      "\"01-docs/research/competitor-reverse-2026-10-13/\\345\\216\\237\\347\\224\\237\\345\\261\\202\\345\\210\\206\\346\\236\\220\\350\\241\\245\\345\\205\\205\\346\\212\\245\\345\\221\\212.md\""
+    ]
+  },
+  "stagedDiffHash": "56471d79623e1182efe6a60580481a7de3e26a2e5946e219583fc980caf4930c",
+  "decidedAt": "2026-10-18T16:08:16.395Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

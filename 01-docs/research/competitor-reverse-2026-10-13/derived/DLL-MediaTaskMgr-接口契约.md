@@ -18,19 +18,32 @@
 | 体积 / 架构 | 9.99 MB / **x86**（32 位）/ 8 个段 |
 | `.text` | **8,239,104 B**（7.86 MB）|
 | 规模 | **66,199 个函数 / 13,120 条字符串** |
-| 分析代价 | 每次 CLI 调用都是一次新 Ghidra 会话（必须重新全量 auto-analysis）⇒ **单次查询约 20–25 分钟** |
+| 分析代价 | 每次 CLI 调用都是一次新 Ghidra 会话（必须重新全量 auto-analysis）⇒ **单次查询实测 1832 s / 1859 s / 1910 s（约 30–32 分钟）** |
 
-**⛔ 先否证两条「以为有其实没有」的期待**（避免后来者重复投入）：
+**⛔ 先否证三条「以为有其实没有」的期待**（避免后来者重复投入）：
 
-1. **主程序 `WEMedia.exe` 不可反编译**：`.text` 12.4 MB **且加壳**，三档超时（默认 / 30 min / 60 min）**全部失败**。
+1. **主程序 `WEMedia.exe` 在本机超时预算内无法反编译**：`.text` 12.4 MB，三档超时（默认 330 s / 30 min / 60 min）**全部失败**。
+   ⚠ **2026-10-19 更正「加壳」这一归因**：字节级复核**未发现任何已知加壳器特征**
+   （VMProtect / Themida / ASPack / UPX / PECompact / NsPack 全未命中；入口 `0x005D5B2A` 处是
+   正常 MSVC C++ 序言 —— `push fs:[0]` 结构化异常登记 + `lea/sub esp`，不是壳的 `pushad` 前导）。
+   真实瓶颈是 **`.text` 12.4 MB 的体量**（对比 DLL 的 8.24 MB 已需 30 分钟，外推约 45–60 分钟以上），
+   不是壳。**「加壳」这个结论此前没有字节级证据，现予撤回**。
 2. **参考产品 exe 同样不可反编译**：196.4 MB，超过 REA 的 128 MB 快照预算。
+3. **`--snapshot` 不缓存分析**（2026-10-19 实测）：`analyze --snapshot` 只写 **8,080 字节**的概览元数据，
+   后续任何 `search` / `function` 拿着快照仍会**重跑完整 auto-analysis**（实测 1,910 s）。
+   ⇒ 想省钱只能「一次 analyze 拿全，别分多次查询」，或先走 PE 表（见 §2bis 的效率对比）。
+
 
 ⇒ 本层**没有 exe 代码成果**。所有原生层代码级成果都来自这个 DLL（未加壳、体量勉强可分析），
 以及可分析的 JS 层（参考产品 asar / 融媒宝 CEF 前端）。
 
 ---
 
-## 2. 导出契约（5 个函数，符号表实证）
+## 2. 导出契约（**7 个业务 C API**，PE 导出表实证）
+
+> **2026-10-19 更正**：本节原写「5 个函数」。重新直读 PE 导出表后发现 `MediaTaskMgr.dll` 共 **45 个导出**，
+> 其中业务 C API **7 个**（原文档漏记 2 个），其余 38 个是**嵌入式第三方图像库 CxImage 的 C++ mangled 导出**。
+> 证据：`inspect_pe_resources` 之外的独立取证 —— 直接解析导出目录（`DataDirectory[0]`，RVA `0x00948A10`，size 1592）。
 
 | 导出函数 | 地址（image base 内）| 职责 | 方向 |
 | --- | --- | --- | --- |
@@ -39,10 +52,77 @@
 | `SetTaskMgrIdleCallback` | `0x101D6F50` | **注册空闲回调**（引擎空闲通知）| 宿主 → 引擎 |
 | `GetMediaTaskMgr` | `0x101D6E90` | **取单例**（C 风格，非 COM）| 宿主 → 引擎 |
 | `UnInitMediaTaskMgr` | `0x101D6EA0` | 反初始化（释放资源）| 宿主 → 引擎 |
+| **`SetLibPostInitParam`** | `0x101D7770` | ⚠ **原文档漏记**。库初始化后参数注入入口（签名未证）| 宿主 → 引擎 |
+| **`SetLoginUserInfo`** | `0x101D7E90` | ⚠ **原文档漏记**。**登录态注入**入口（签名未证）| 宿主 → 引擎 |
 
-**架构判读**：这是**极简 C 风格导出契约**，不是 COM、不是 C++ 导出类。
-宿主通过这 5 个函数把媒体任务引擎嵌进自己的消息循环 —— 结果与进度经 `PostMsgCallback` 回传，
+**`SetLoginUserInfo` 的意义**：它证明「登录凭据由宿主（`WEMedia.exe`）持有并压进引擎」，
+而不是引擎自己管账号 —— 这解释了为什么该 DLL 的导入表里只有 `CRYPT32.dll` 的 **1 个**函数（不持凭证体系）。
+对本项目的含义：**不必从该 DLL 找账号存储格式**，那条线在宿主侧。
+
+**架构判读**：业务面仍是**极简 C 风格导出契约**（非 COM、非 C++ 导出类）。
+宿主通过这几个函数把媒体任务引擎嵌进自己的消息循环 —— 结果与进度经 `PostMsgCallback` 回传，
 空闲经 `IdleCallback` 通知。**接口/实现分离**（`ITaskMgr` 纯虚接口 + `VCTaskManager` 实现）说明引擎预留了替换扩展点。
+
+### 2.1 另外 38 个导出 = 嵌入式 **CxImage** 开源图像库
+
+导出表里除上述 7 个外，其余 38 条全是 CxImage 的 C++ mangled 名，按类归组：
+
+| 类 | 导出数 | 典型符号 |
+| --- | --- | --- |
+| `CxFile` / `CxIOFile` / `CxMemFile` | ~29 | `?Open@CxIOFile@@QAE_NPB_W0@Z`、`?Read@CxIOFile@@UAEIPAXII@Z`、`?Seek@CxIOFile@@UAE_NJH@Z` |
+| `CxImage` | ~6 | `??1CxImage@@UAE@XZ`、`??_FCxImage@@QAEXXZ`、`??_OCxImage@@QAEXAAV0@@Z` |
+| `CxClientExifInfo` | ~3 | `?CopyInfo@CxClientExifInfo@@QAEXABU1@@Z` |
+
+⇒ **判读**：图像编解码/EXIF **不是自研**，是引了开源 CxImage 并把它一起导出。
+对本项目：**零借鉴价值**（`sharp`/`jimp` 已覆盖，且 CxImage 是 2000 年代库、无 AVIF/HEIC）。
+
+---
+
+## 2bis. 导入表：15 个 DLL / 460 个函数（能力面直读）
+
+PE 导入目录（`DataDirectory[1]`，RVA `0x009459BC`）逐个解析所得：
+
+| DLL | 函数数 | 能读出什么 |
+| --- | --- | --- |
+| `KERNEL32.dll` | 140 | 基础 Win32 |
+| `MSVCR100.dll` / `MSVCP100.dll` | 175 / 79 | **VC++ 2010 运行时**（印证 §4 事实 6 的「VS 2008~2015」）|
+| `GDI32.dll` | 18 | 图像绘制（配合 CxImage）|
+| `libcurl.dll` | 12 | **HTTP 栈之一** |
+| `USER32.dll` | 7 | 窗口/消息 |
+| `ADVAPI32.dll` | 6 | 注册表/加密服务 |
+| `SHLWAPI.dll` | 5 | 路径工具 |
+| `WINHTTP.dll` | 4 | **HTTP 栈之二**（`WinHttpOpen` / `WinHttpGetProxyForUrl` / `WinHttpGetIEProxyConfigForCurrentUser` / `WinHttpCloseHandle`）|
+| `WS2_32.dll` | 4 | **HTTP 栈之三**（原始套接字）|
+| `ole32.dll` / `VERSION.dll` | 3 / 3 | COM 基础 / 版本查询 |
+| `SHELL32.dll` | 2 | |
+| `CRYPT32.dll` | **1** | 仅 1 个函数 ⇒ 印证 §2「不持凭证体系」|
+| `dxgi.dll` | 1 | GPU（视频解码/缩放）|
+
+**三条判读**：
+1. **三套网络栈并存**（libcurl + WINHTTP + WS2_32）—— 这不是设计优雅，而是历史叠加：
+   业务主体用 libcurl，代理探测单独走 WINHTTP（`WinHttpGetIEProxyConfigForCurrentUser` 读 IE 代理设置），
+   WS2_32 可能被 WINHTTP/CxImage 间接拉入。**本项目做代理时只需一套**（已用 `undici` + 自管代理）。
+2. `CRYPT32` 只有 1 个函数 ⇒ 没有本地加密体系（与 §2 的 `SetLoginUserInfo` 互补印证）。
+3. `dxgi` + `GDI32` + CxImage ⇒ 图像处理是 **CPU 为主 + 少量 GPU**，无 CUDA/编解码硬加速依赖。
+
+### 2ter. 方法论：**先 PE 表，后 Ghidra**（2026-10-19 立）
+
+本节 §2/§2bis 的全部内容（45 个导出 + 15 个 DLL / 460 个导入）是**直接解析 PE 导出/导入目录**得到的，
+耗时 **约 4 秒**。而 Ghidra 报告同一批导出符号需要 **30 分钟**（且只是「照抄导出表」，没有增量信息）。
+
+| 取证面 | 手段 | 耗时 | 增量 |
+| --- | --- | --- | --- |
+| 导出符号 / 地址 | 解析 `DataDirectory[0]` | **~4 s** | — |
+| 导入 DLL / 函数 | 解析 `DataDirectory[1]` | **~4 s** | — |
+| 段表 / 入口 / 体量 | 解析 COFF + Optional Header | **~1 s** | — |
+| 加壳判据 | 字符串扫 + 入口字节比对 | **~2 s** | — |
+| 函数体伪代码 / 交叉引用 / 调用图 | **Ghidra 全量分析** | **30–32 min** | ✅ 唯一不可替代 |
+
+**结论**：Ghidra 的价值在**函数体逻辑与引用图**，不在符号面。任何时候想「先看看这 DLL 有什么」，
+都应当先走 PE 表；只有需要读某个函数**内部怎么实现**时才付 30 分钟。
+—— 这条同样适用于将来复现：`parse-pe-imports.cjs`（已在 `01-docs/research/.../*.cjs`）就是这条路径的脚本化。
+
+
 
 ---
 
@@ -181,12 +261,15 @@ FFMpegFuncTask / UFFMpegFuncMsg ← ffmpeg 任务与其消息
 
 | # | 项 | 卡在哪 |
 | --- | --- | --- |
-| 1 | **「导出契约」只有 1/5 有反编译证据** | 仅 `InitMediaTaskMgr` 有 `procedure_pseudo_code`；其余 4 个的签名/参数类型来自**符号表推断**。反编译它们需每次 ~20–25 分钟（新 Ghidra 会话）|
-| 2 | **`Set*Callback` 的回调签名未知** | 需要反编译 `0x101D6990` / `0x101D6F50`；未做 |
+| 1 | **7 个业务导出里只有 1 个有反编译证据** | 仅 `InitMediaTaskMgr` 有 `procedure_pseudo_code`；其余 6 个（含新发现的 `SetLibPostInitParam` / `SetLoginUserInfo`）的签名/参数类型来自**导出表 + 符号表推断**。反编译它们需每个 ~30 分钟（新 Ghidra 会话）|
+| 2 | **`Set*Callback` / `SetLoginUserInfo` 的签名未知** | 需要反编译 `0x101D6990` / `0x101D6F50` / `0x101D7E90`；未做 |
 | 3 | **`param_1` 的语义未证** | 伪代码只显示它被写入管理器；推断是「宿主标识」，**未验证** |
 | 4 | **vtable 布局未验证** | 只知「第 2 个方法」被调用；完整方法表、ABI、结构体大小均未知 ⇒ 跨语言直连**不可行** |
-| 5 | **地址依赖 image base** | 表中地址是分析时的 image base 内偏移；DLL 重定位后需重算 |
+| 5 | **地址依赖 image base** | 表中地址是分析时的 image base 内偏移（本机实测 image base = `0x10000000`，与导出表 RVA 加和逐位吻合）；DLL 重定位后需重算 |
 | 6 | **版本漂移** | 分析的是 1.0.0.264；同目录已有 1.0.0.257 残留 ⇒ 该组件会热更，契约可能变 |
+| 7 | **38 个 CxImage 导出未逐个核对** | 只按类归组，未验证这些导出是否真被宿主使用（可能是链接期未被裁剪的副作用）|
+| 8 | **WEMedia.exe 是否真的分析不完，本轮仍未定论** | 2026-10-19 以 **2 小时**预算重跑中；此前最高只测到 60 分钟 |
+
 
 ---
 
