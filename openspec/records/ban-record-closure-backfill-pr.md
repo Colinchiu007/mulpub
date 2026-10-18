@@ -18,7 +18,8 @@ date: 2026-10-18
 | 变异反证 | ✅ | 判据本体与取源模块逐条做变异，实跑 **16 条**（M1–M16，M4 已撤销不补装饰）：每条必须 **CAUGHT 且红集指名到用例**；M5（两点式退回）红集含 1.9 的文件集断言；**M2 首跑判 PASSED**（摘掉 CLI 的 `closureDiff` 注入，104 例全绿）⇒ 同 PR 补两条锁后复跑 CAUGHT，该缺陷与后果记在 design D14 |
 | 误报率（形态级） | ✅ | 对 origin/main 最近 **120 笔 squash 合并**逐笔跑真判据：命中 52 笔，差量形态**逐笔归类全部是 `PENDING → PASS`**（54 处跃迁），标题非「回填/远程同步/收口/销账」的命中数 0。正控：已知回填 #3889（`99f463121`）当场「在样本内 且 被 flag」，探针失明时脚本自己 exit 3 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/`、`packages/rpa-engine/` 与任何 UI 文件 |
-| QM-6 外部评审 | ⚠️ 单轴交付 | 后端轴 claude 四次零交付（前三次 wrapper 报 status 1、第四次已喂 stdin 仍 1），直连探针定性为"该 CLI 此刻对本机不可用"（150s 超时、rc=124、stdout 0 字节）；前端轴 opencode 四次零交付（两次会话状态汇报而非发现清单、两次被 wrapper 的 argv 转发打回 usage）。 替代轴 codex 交付 F1–F8：F1–F5 复核确认早已实现并有指名用例；F6 记进 design 残留风险 5/6，F7 把 proposal 的误报主张从"以标题为真值"改为"形态级 + 注入探针"并补 120 笔实测，F8 落 spec 三条解析口径 + 新用例 + 红文案归属核实指引。 **双模型未达成，如实记单轴，不以自审冒充 PASS。** 细节见下方「遗留」。
+| QM-6 外部评审 | ❌ 未达成（单轴） | 后端 claude 五次零交付（三次 wrapper `status 1`、一次喂 stdin 仍 1、一次 `deep-review.sh` 现场 `spawnSync codeagent-wrapper.exe ETIMEDOUT`，产物 `mode=dual / status=error / findings=0`、脚本 rc=2）；直连探针定性 `claude -p` 本机 150s 不返回（rc=124、stdout 0 字节）⇒ 该 CLI 此刻对本机不可用。前端 opencode 四次零交付（两次会话状态快照、两次被 wrapper 的 argv 转发打回 usage）。替代轴 codex 交付 F1–F8 并逐条处置（F1–F5 复核已实现；F6→design 残留风险 5/6；F7→误报主张改形态级 + 注入探针；F8→spec 三条解析口径 + 新用例）。**不以自审冒充双模型 PASS，本 PR 因此不 arm 自动合并。** |
+| CI 侧现场读数 | ✅ | `QG Changes` 作业日志原文：`MERGE-LEDGER prs=2012 base=origin/main 归属可解析记录=468 派生收口=452 byDesign=1` 与 `HAND-CLOSURE 人工改写=0 新增重复行=0 记录被删=0 触碰记录=1`（`carrier_mode=visible event=pull_request`）。⇒ 差量取源在 Linux runner 上成立、没走 `n/a` 档；本 PR 被读成"碰了 1 篇记录、没改写任何收口行"，即新锁的自指验证在 CI 上同样成立 |
 | 远程同步 | 由门禁推导 | 本行**不需要事后改写**：合并后门禁按主干历史推导归属（`scripts/lib/merge-ledger.js`，只认 squash 尾注 `(#NNNN)`）；现场读数看 CI 步骤首行 `MERGE-LEDGER prs=<n>`，本 change 新增的 `HAND-CLOSURE … 触碰记录=<n>` 同行可辨「测到了 / 没碰记录 / 没测到」。合并前这篇文件还不在基线上，判 byDesign 不红；把本行状态列改写成 `PASS` 会被自己这条新锁判红 |
 
 ### 遗留（不假装已闭合）
