@@ -175,7 +175,7 @@ class RpaViewManager {
       const mn = '_publish_'+platform
       const publishFn = typeof this[mn]==='function'
         ? this[mn](win,article)
-        : this._publish_generic(win,article,platform,this._getPlatformConfig(platform))
+        : this._publish_generic(win,article,platform,this._getPlatformConfig(platform,article))
       const result = await Promise.race([
         publishFn,
         new Promise(function(_,rj){const _t=setTimeout(function(){rj(new Error('timeout ('+(timeout/1000)+'s)'))},timeout);if(_t&&_t.unref)_t.unref()})

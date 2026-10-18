@@ -17,9 +17,10 @@ const PlatformConfig = require('@multi-publish/shared-utils/src/platform-config'
 // 发布能力注册表（publish-capability-registry）：无标题平台单一真源——视频号/快手/微博/X/Instagram/TikTok 无独立标题框，标题经 _composeEditorCaption 合并进描述首行。
 const { isNoTitlePlatform } = require('@multi-publish/shared-utils/src/publish-capabilities')
 const { platformSelectors } = require('@multi-publish/rpa-engine')
+const { resolvePublishSelectors } = require('@multi-publish/rpa-engine/src/publish-selectors-by-content-type')
 const { getPublishUrl } = require('@multi-publish/api-publish-engine/src/platform-entries')
 const { isApiTrack } = require('@multi-publish/api-publish-engine/src/api-router')
-const { buildXhsVideoRefusal } = require('./xiaohongshu-draft-guard')
+const { buildXhsVideoRefusal } = require('./xiaohongshu-draft-guard')   // 仅作草稿流程异常时的 fail-closed 兜底
 // 2026-10-02 头条兜底：DOM 被闭包门控拦下 ⇒ 失败时走「页面内 SDK 签名 + Node 直连」（toutiao-direct-bridge）
 const { ProgressThrottle } = require('./rpa-progress-throttle')
 const { FieldRetryState } = require('./rpa-field-retry')
@@ -104,13 +105,15 @@ const domDump = require('./rpa-dom-dump')
 
 const platformsMixin = {
   // ========== P2-B: Config loading ==========
-  _getPlatformConfig(platform) {
+  _getPlatformConfig(platform, article) {
     if (!_platformConfigInstance) {
       _platformConfigInstance = new PlatformConfig(getConfigPath('platforms.yaml'))
     }
     const cfg = _platformConfigInstance.getPlatform(platform)
     if (!cfg) throw new Error('platform config not found: ' + platform)
-    const sel = (platformSelectors.PLATFORM_PUBLISH_SELECTORS && platformSelectors.PLATFORM_PUBLISH_SELECTORS[platform]) || {}
+    // 2026-10-18 video-publish-4：按内容类型选选择器（视频上传页形状与图文页不同）；
+    // 规则与取证注释见 packages/rpa-engine/src/publish-selectors-by-content-type.js。
+    const sel = resolvePublishSelectors({ platform, article, selectors: platformSelectors.PLATFORM_PUBLISH_SELECTORS || {} })
     const rpa = cfg.rpa_config || {}
     const patterns = (rpa.success_patterns && rpa.success_patterns.length > 0) ? rpa.success_patterns : (PLATFORM_SUCCESS_PATTERNS[platform]||[])
     return { publish_url: cfg.publish_url||'', type: cfg.type||'article', has_api: cfg.has_api||false, selectors: sel, success_patterns: patterns, preFill: rpa.preFill||null, prePublishHook: rpa.prePublishHook||null, hookContext: rpa.hookContext||null, success_mode: rpa.success_mode||'url', success_selector: rpa.success_selector||null, max_content: Number(cfg.max_content) || null }
@@ -198,7 +201,7 @@ const platformsMixin = {
 
   // ========== P2-B: Generic publish engine ==========
   async _publish_generic(win, article, platform, publishConfig) {
-    const config = publishConfig || this._getPlatformConfig(platform)
+    const config = publishConfig || this._getPlatformConfig(platform, article)
     const sel = config.selectors
     log.info('RpaView', '[' + platform + '] publish config=' + (publishConfig ? 'provided' : 'default') + '; selectorCount=' + Object.keys(sel || {}).length + '; publishButtons=' + (sel?.publish_btn?.length || 0) + '; titleInputs=' + (sel?.title_input?.length || 0) + '; fileInputs=' + (sel?.file_input?.length || 0) + '; hasCoverInput=' + Boolean(sel?.cover_input) + '; hasTitle=' + Boolean(article?.title) + '; hasVideo=' + Boolean(article?.video_path) + '; hasCover=' + Boolean(article?.cover_path))
     const throttle = new ProgressThrottle(5000, 10)
@@ -1292,9 +1295,24 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
     if (!article || (!article.title && !article.content && !article.video_path)) {
       return { success:false, error:'小红书发布至少需要标题、正文或视频', platform:'xiaohongshu' }
     }
-    const config = this._getPlatformConfig('xiaohongshu')
+    const config = this._getPlatformConfig('xiaohongshu', article)
     const contentType = article.video_path ? 'video' : 'image'
-    if (contentType === 'video') return buildXhsVideoRefusal(win)   // 小红书不得真实发布：视频草稿链未实现 ⇒ fail-closed
+    // 2026-10-18 video-publish-4：小红书视频只落到平台草稿箱（用户硬约束）。
+    // 旧实现是 `if (contentType === 'video') return buildXhsVideoRefusal(win)` —— 直接拒绝。
+    // 本轮拿到真机 DOM 证据（Playwright + 真实账号 cookie 打开
+    // `publish/publish?from=menu&target=video` 并真实上传 mp4）后，视频链已可实现：
+    //   `input.upload-input`（可见）→ 标题 `input.d-text`（placeholder=填写标题会有更多赞哦）
+    //   → 正文 `div.tiptap.ProseMirror` → **不点「发布笔记」**（真机为 DIV 按钮），
+    //   靠平台自动草稿保存落到草稿箱（图文模式 2026-09-29 已采用同一策略）。
+    // 守卫：合并后的选择器仍拿不到 file_input ⇒ 上传无从发生 ⇒ 绝不静默降级成草稿。
+    const videoFileInputs = (config.selectors && config.selectors.file_input) || []
+    if (contentType === 'video') {
+      log.info('RpaView', '[xiaohongshu] video draft-only：填内容后等平台自动存草稿，不点发布')
+      if (!videoFileInputs.length) {
+        log.warn('RpaView', '[xiaohongshu] 视频草稿链缺 file_input 选择器 ⇒ fail-closed 拒绝')
+        return buildXhsVideoRefusal(win)
+      }
+    }
     const publishUrl = getPublishUrl('xiaohongshu', contentType)
     // 2026-09-29 图文模式：publish/publish?from=menu 默认落「上传视频」tab（实测 file input accept 全是视频格式）；
     // 图文须先点「上传图文」tab（switchImageTab hook，参考产品 renderImage 同款 children[1].click()），否则图片上传进视频通道必失败。
@@ -1303,11 +1321,11 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
       ...config,
       publish_url: publishUrl || config.publish_url,
       ...(isImageMode ? { preFill: 'switchImageTab' } : {}),
-      // 2026-09-29 需求调整（用户指定）：小红书图文只落到平台草稿箱，不点发布。
+      // 2026-09-29 需求调整（用户指定）：小红书只落到平台草稿箱，不点发布。
+      // 2026-10-18 扩展：视频模式同样只落草稿箱（原先是 fail-closed 拒绝）。
       // 小红书编辑页有自动草稿保存（页面「编辑于 刚刚」，侧边栏草稿箱计数 +1），
-      // 填完标题/正文/图片后等落库即可；用户回头扫码在草稿箱里自行发布。
-      // 视频模式保持原发布链路（草稿箱对视频无此约定）。
-      ...(isImageMode ? { draftOnly: true } : {}),
+      // 填完标题/正文/媒体后等落库即可；用户回头在草稿箱里自行发布。
+      draftOnly: true,
     })
   },
 

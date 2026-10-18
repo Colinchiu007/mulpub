@@ -1,0 +1,98 @@
+# 本次执行记录：四平台视频真实发布 —— 真机 E2E 取证与头条/小红书视频链落地（video-publish-4 第 2 轮，2026-10-18）【混合 PR】
+
+- 分支：`video-publish-4`（worktree：`<仓库父目录>/mp-worktrees/mp-video-publish-4`）
+- 前序：PR #3918（视频号两处真因修复 + DOM 取证通道 + 门禁执行体，已合并 `c2ccb8c7`）
+- 关联 PRD：`01-docs/PRD-VIDEO-PUBLISH-4PLATFORMS-2026-10-18.md`（本轮补 §10 真机 E2E 取证结果）
+
+## 一、本轮做了什么
+
+1. **把真机 E2E 跑起来了**：连正在运行的应用实例（CDP 10961，我的 worktree 代码），
+   对视频号做了 A/B 对照，并用 Playwright + 真实账号 cookie 打开头条/小红书创作页真实上传取证。
+2. **A/B 对照（视频号）证明上一轮两处修复生效**（见 §二）。
+3. **头条 / 小红书视频选择器按真机取证登记**，并让发布链按内容类型选选择器（见 §三）。
+4. **小红书视频契约变更**：从「fail-closed 拒绝」改为「只落草稿箱」（用户硬约束），见 §四。
+
+## 二、视频号 A/B 对照（真机，同日两次真实发布）
+
+| 环节 | A 组（旧代码，实例 `mp-app-live2`） | B 组（修复后，我的 worktree） |
+| --- | --- | --- |
+| API 轨 | `Request failed with status code 404`（CDN 主机过期） | 到达新主机 `finder.video.qq.com`，返回 protobuf 业务错误（`Expected HTTP/ RTSP/ or ICE/`），**不再是 404** |
+| RPA 入口 | DOM 快照证明落在 `channels.weixin.qq.com/` 与 `/platform`（平台首页） | CDP target 直接看到 `https://channels.weixin.qq.com/platform/post/create`，标题「视频号助手」——**创作页** |
+| 上传 | `waitForElement timeout sel=input[type="file"]`（完全找不到） | `file input selectorCount=1` → `uploading file...` ×3 → **`upload={"ok":true}`** |
+| 标题/正文 | 全落空 | `title input selectorCount=3`；正文仍未写入 |
+| 门禁 | 无（继续点发布 → `publish verification timeout`） | **`pre-submit gate blocked: content-not-filled`**，未点发布 |
+
+⇒ 上一轮两处修复（入口 URL + CDN 主机）**在真机上验证生效**。
+
+## 三、头条 / 小红书真机 DOM 取证（本轮新增，可复用）
+
+方法：应用实例锁着默认 session 的 cookie 库，但 **RPA 分区**的 cookie 库可读
+（`shared-user-data/session/Partitions/rpa-<platform>-<accountId>/Network/Cookies`）。
+把它连同 `Local State` 复制成 Playwright profile（Chromium 自行解密，同一 Windows 用户），
+即可用真实登录态打开平台创作页并真实上传。
+
+### 头条（`profile_v4/xigua/upload-video`）
+
+- 上传前：`fileInputs=1`（隐藏 input，由 `.byte-upload-trigger` 点击区触发）
+- 上传后：`上传成功 segment_0000.mp4 大小: 1.1MB 视频时长: 5s` ⇒ 上传完成信号可用
+- 标题：`input.xigua-input.show-limit`，`placeholder="请输入 1～30 个字符"`
+- 简介：`textarea.byte-textarea.abstract`，`placeholder="请输入视频简介"`
+- 话题：`input.arco-input-tag-input`
+- 发布三键同排：`button.action-footer-btn.submit`（发布）/ `.draft`（存草稿）/ `.timer`（定时发布）
+  —— **「定时发布」也含「发布」二字，故发布按钮必须用精确类，不得 `:has-text("发布")` 打头**
+
+### 小红书（`publish/publish?from=menu&target=video`）
+
+- 上传前：`input.upload-input`（**可见**）+ `button.upload-butto`（text=上传视频）
+- 上传后：标题 `input.d-text`（`placeholder="填写标题会有更多赞哦"`）；
+  正文 `div.tiptap.ProseMirror`（contenteditable，**不是 textarea**）；
+  发布按钮是 **DIV**（text=「发布笔记」，页面上两份：编辑态 + 笔记预览态）；
+  另有「定时发布」开关（默认关）
+
+## 四、代码改动
+
+| 文件 | 改动 |
+| --- | --- |
+| `packages/rpa-engine/src/platform-selectors.js` | 新增 `toutiao_video` / `xiaohongshu_video` 两组选择器（真机取证注释随行） |
+| `packages/rpa-engine/src/publish-selectors-by-content-type.js`（新） | `resolvePublishSelectors({platform, article, selectors})`：有视频且登记了 `<platform>_video` ⇒ 视频选择器**覆盖同名字段**，未登记字段回落图文 |
+| `apps/desktop/electron/services/rpa-view-platforms.js` | `_getPlatformConfig(platform, article)` 按内容类型选选择器；小红书视频从 fail-closed 拒绝改为走草稿链（`draftOnly: true`），保留守卫（合并后仍无 file_input ⇒ 仍拒绝） |
+| `apps/desktop/electron/services/rpa-view-manager.js` | `_publish_generic` 调用点把 article 传进 config |
+| `packages/rpa-engine/tests/platform-selectors.test.js` | 「无多余平台」断言放开 `<platform>_video` 键，并要求其基座是已知平台、必须含 file_input |
+
+### TDD
+
+| 文件 | 用例 | 锁什么 |
+| --- | --- | --- |
+| `packages/rpa-engine/tests/publish-selectors-by-content-type.test.js`（新） | **8 例** | 无视频不回归 / 视频覆盖同名字段 / 未登记字段回落 / 无视频键用图文 / 空表不抛 / 不改入参 / 四平台视频键都含 file_input / 头条发布按钮首选项精确 |
+| `apps/desktop/electron/services/video-selectors-by-content-type.test.js`（新） | **4 例** | 头条/小红书视频选择器已按取证登记 / 图文未被污染 / 四平台视频键齐备 |
+| `apps/desktop/electron/services/xiaohongshu-video-draft.test.js`（新，从大文件拆出） | **5 例** | 视频走草稿链 draftOnly 不点发布 / 取配置带 article / 真实配置含 upload-input+tiptap / 图文不回归 / 缺 file_input 仍 fail-closed |
+| 既有面 | 129 例 | `rpa-view-platforms` / precondition / wiring / upload-order / dom-dump 全绿 |
+| `packages/rpa-engine` 全量 | **282 例** | 含改后的「无多余平台」 |
+| `packages/api-publish-engine` 全量 | **442 例** | 无回归 |
+
+## 五、门禁读数
+
+| 门禁 | 读数 |
+| --- | --- |
+| `check-max-lines.js` | **rc=0**（`rpa-view-platforms.js` 收敛到 1484 目标内；测试文件未超 1500） |
+| `check-text-encoding-integrity.js` | **OK** |
+| `check-no-brand-residue.js` | **PASS**（10145 tracked 文件） |
+| ESLint | rc=0 |
+| QM-1 `build:vue` | **rc=0**（27.63s） |
+| QM-1 `electron-builder --win --dir` | **rc=0** |
+| QM-1 启动验证 | **PASS**：alive(8s)=true / stderr **0 字节** / stdout 20,928 字节（一次性临时 profile，主 userData 被运行中实例独占） |
+
+## 六、未闭合（如实记录）
+
+1. **视频号正文选择器仍未命中**：真机 `title input selectorCount=3` 但
+   `no dedicated title field, title falls back to editor sel=none`。这是视频号最后一处缺口 ——
+   需要创作页上传后的 DOM（发布被 60′ 账号间隔挡住，且紧急放行每日仅 1 次已用尽）。
+2. **抖音**：API 轨仍缺 `__security_mc_*_s_sdk_sign_data_key_web_protect` 签名 cookie。
+3. **头条视频 API 轨**未实现（研究语料给出 `xigua/api/upload/getAuthKey/` → 上传 → `PublishVideo`）；
+   本轮落地的是 DOM 轨选择器。
+4. **头条真实发布未验证**：本轮只做到「真实上传成功 + 选择器登记」，未点发布。
+5. **小红书真实草稿未验证**：未跑通「上传 → 填内容 → 草稿箱计数 +1」。
+
+## 七、远程同步
+
+| 远程同步 | 由门禁推导（合并后按主干历史收口；不手写状态词） |

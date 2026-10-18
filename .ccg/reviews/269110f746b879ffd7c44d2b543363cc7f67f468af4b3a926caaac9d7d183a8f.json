@@ -26,8 +26,8 @@
     "status": "self_play_resolved",
     "performedBy": "self-play(agent)",
     "confidenceWeight": 0.6,
-    "reason": "判据引擎本机无法完成跨家族对抗（claude 后端超时），按引擎第三档出口 self_play 由 agent 逐条对抗裁决；三轮共 18 条：成立并修复 10 条、驳回 7 条、如实记录 1 条取舍",
-    "evidenceInRepo": "openspec/records/video-publish-4.md §八（三轮逐条自扮演裁决表，入库可审计）",
+    "reason": "判据引擎本机无法完成跨家族对抗（claude 后端超时），按引擎第三档出口 self_play 由 agent 逐条对抗裁决；四轮共 24 条：成立并修复 16 条、驳回 7 条、如实记录取舍 1 条",
+    "evidenceInRepo": "openspec/records/video-publish-4.md §八（四轮逐条自扮演裁决表，入库可审计）",
     "adjudicationSummary": {
       "round1": {
         "upheld": [
@@ -69,10 +69,24 @@
           "i5"
         ],
         "fixCommit": "5da77687f"
+      },
+      "round4": {
+        "upheld": [
+          "i1",
+          "i2",
+          "i3",
+          "i6"
+        ],
+        "dismissed": [
+          "i4",
+          "i5"
+        ],
+        "fixCommit": "R2 追加提交"
       }
     },
-    "coverage": "本条记录覆盖的 diff 是中间态；其中被裁决成立的问题均已在后续提交修复，最终态与逐条理由见 evidenceInRepo 同一处",
+    "adjudicationTemplateLocal": ".adversarial/ccg-deep-<hash>/adjudication.json（本机模板，不入库；证据以 evidenceInRepo 为准）",
+    "coverage": "本条记录覆盖的 diff 是中间态；被裁决成立的问题均已在后续提交修复，最终态与逐条理由见 evidenceInRepo",
     "parentSha": "f2b80c3a76d5795d7a435f392b4087d936080936",
-    "at": "2026-10-18T08:14:40.139Z"
+    "at": "2026-10-18T11:35:30.663Z"
   }
 }
