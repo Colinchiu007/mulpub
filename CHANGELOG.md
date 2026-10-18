@@ -1,3 +1,21 @@
+# [未发布] fix(scripts): 锚点热备份新鲜度改按目录名时间戳判定——修掉「每次都报 25.9 天前」的恒假告警（anchor-backup-latest）
+
+- **两处错误叠在一起才恒假**：`scripts/mp-anchor-health.ps1` 用 `Sort-Object Name -Descending` 取「最新备份」，而锚点备份目录里同时住着两族名字——时间戳族 `yyyyMMdd-HHmmss` 与一次性基线 `seed-20260923-001516`。ASCII 下 `s`(0x73) > `2`(0x32) ⇒ 基线永远排第一、永远被当成「最新」，于是**每次运行都报 `newest backup is 25.9 days old (limit 7)`，连刚写完快照的那一次也照报**（2026-10-18 重启应用的一键启动日志里现场可见）。第二处是年龄取 `LastWriteTime`——复制/还原快照会改写它，即便选对目录也可能算错龄。
+
+- **修法与判据**：改按 `[datetime]::TryParseExact($_.Name,'yyyyMMdd-HHmmss',…)` 解析出真实备份时刻再取最大，年龄由**名字**推导；只剩非时间戳目录时**如实报 WARN**（`seed-*` 是基线不是热快照，给它猜年龄等于撒谎），而不是继续拿它当「最新」。
+
+- **真实锚点 A/B（不是只在新夹具上绿）**：同一份 `shared-user-data` 上，修复前 `[WARN] newest backup is 25.9 days old (limit 7)` / `ANCHOR_WARN`；修复后 `[OK] backups fresh (latest: 20261018-222345)` / `ANCHOR_OK`。
+
+- **回归锁是行为级的，不是源码形状**：新增 `scripts/mp-anchor-health.test.js` **5 条**——真起 `powershell` 打临时夹具，断言 ①新快照必须胜过 `seed-*` 基线（本条即本 bug）②全部陈旧时仍必须报陈旧（防「改成恒新鲜」把门禁变装饰）③年龄必须由名字推导（夹具目录 mtime 就是「刚刚」，用 mtime 永远判不出 30 天前）④只有 seed 时不得谎报新鲜 ⑤形状兜底（必须出现 `yyyyMMdd-HHmmss`、不得出现 `$latest.LastWriteTime`）。
+
+- **变异反证 4 道全部指名红**：M1 复原原始 bug（seed 也入候选 + 名字降序）⇒ 锁 1 红；M2 年龄改回 `LastWriteTime` ⇒ 锁 2/3/5 红；M3 强制 `$ageDays = 0` ⇒ 锁 2/3 红；M4 无时间戳时谎报 fresh ⇒ 锁 4 红。每条都先断言「锚点命中 + 变异已落盘」再判红，跑完按字节还原并核 sha256 与基线相等。首次 M1 因多行锚点与行尾不匹配而**未命中，当场作废重做**——没有把它读成「这条反证不适用」。
+
+- **接线**：接进 `quality-gate.yml` Gate 2c（该 job 不自动收集 `scripts/` 下的测试，不点名等于没写）。`node scripts/check-unwired-tests.js` → `检查域内测试文件 107 个 / OK: 全部测试均已接线或按欠账登记` rc=0。
+
+- **门禁读数**：`check-workflow-structure` test+run `violations=0`；`check-doc-abs-paths --all` PASS（4107 受管文件）；`check-no-brand-residue` PASS（10301 tracked）；`check-text-encoding-integrity` OK（无新增损坏）；`check-record-qm5-rows` OK；`check-gate-record-debt` OK；行尾两口径 `mp-anchor-health.ps1 28/5 == 28/5`、`quality-gate.yml 6/0 == 6/0`。QM-1 / QM-4 记 N/A（零 `apps/desktop/electron/**`、零 `packages/rpa-engine/**`、零 UI —— 是不适用，不是「跑了通过」）；QM-6 未执行（本机无 `codeagent-wrapper`，不以自审冒充）。
+
+- **顺手留痕的一条环境事实**：新 worktree 未装依赖时 `check-workflow-structure.js` 会以 `Cannot find module 'js-yaml'` red，那是依赖未就绪不是判据失灵（`pnpm install --frozen-lockfile` 91 秒后 test+run 双 rc=0）。
+
 # [未发布] feat(s2v): 历史记录任务详情页视频信息区展示本次生成的模型信息（s2v-result-model-info）
 
 - **功能**：视频创作 → 历史记录 → 任务详情页（`/create/result?project=<id>`）视频预览下方的视频信息区，在「格式：MP4」**同一行**追加本次生成实际调用的模型信息：文本模型 / 语音模型 / 图片模型 / 视频模型，固定顺序、` · ` 分隔。视频模型受 `videoMode` 门控——仅 `fixed` / `ai-judged` 视为启用视频增强，`off` 或缺省时**整项不显示**（不是显示"未使用"）。容器放不下时由浏览器自然折行，不撑破布局；四项全空时整段不渲染，页面与改动前逐字节一致。
@@ -22291,4 +22309,3 @@ Desktop Shards + Coverage 门禁（实测 3 项重型 job 跑 15+ 分钟未完�
 （mock 契约问题，非修复问题）。入库一个红的测试比没有测试更糟，故本次不提交。
 
 ---
-
