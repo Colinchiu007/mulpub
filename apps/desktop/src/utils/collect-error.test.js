@@ -222,4 +222,31 @@ describe('classifyCollectError', () => {
     expect(r2.reason).toBe('video_no_video')
     expect(r2.retryable).toBe(false)
   })
+
+  // ── 结构化 reason 优先（2026-10-18，fix-collect-antibot-rewrite） ──
+  // 主进程 url-collector 已把「百度安全验证页」判为 security_challenge；渲染层不得再靠
+  // 文本猜测（文案本地化/改词会让文本判据漂移）。reason 命中白名单时优先采信。
+  describe('结构化 reason 优先', () => {
+    it('reason=security_challenge 直接采信，即使 message 是无关文案', () => {
+      const r = classifyCollectError({ code: -1, reason: 'security_challenge', message: '采集失败' })
+      expect(r.reason).toBe('security_challenge')
+      expect(r.detailKey).toBe('collectErrors.security_challenge')
+      expect(r.retryable).toBe(true)
+    })
+
+    it('reason 优先于 message 文本匹配（文本说 timeout，reason 说 security_challenge）', () => {
+      const r = classifyCollectError({ code: -1, reason: 'security_challenge', message: '请求超时' })
+      expect(r.reason).toBe('security_challenge')
+    })
+
+    it('未知 reason 不采信，退回文本匹配（避免无文案的 detailKey 逃逸）', () => {
+      const r = classifyCollectError({ code: -1, reason: 'made_up_reason', message: '请求超时' })
+      expect(r.reason).toBe('timeout')
+    })
+
+    it('reason 为 unknown 时按白名单采信为 unknown', () => {
+      const r = classifyCollectError({ code: -1, reason: 'unknown', message: 'whatever technical' })
+      expect(r.reason).toBe('unknown')
+    })
+  })
 })

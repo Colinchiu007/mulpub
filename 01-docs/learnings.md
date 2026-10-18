@@ -1,3 +1,60 @@
+## 反爬验证页与双份配置源：五条可复用教训（fix-collect-antibot-rewrite，2026-10-18）
+
+### lesson:guard-on-a-retired-path-is-no-guard
+
+**守卫挂在一个「已经不走了」的分支上，等于没有守卫，而且会让审查者以为这里处理过了。**
+
+现场：`Collection.vue` 的 `isSecurityChallenge`（旧 `:1093-1101`）只在 Python 聚合分支被调用（旧 `:1251`），
+而百家号链接 2026-09-29 起改走「视频通道 → 无视频回退 stealth」（`Collection.test.js:352-353` 的注释自陈），
+stealth 分支（旧 `:1222-1236`）没有任何判据 ⇒ 验证页结果直接入库。
+同一形态也出现在测试上：那条「安全验证不得当成功」的回归用例测的正是聚合路径。
+判据：改路由/改链路时，先数一遍「守卫调用点数」与「该输入实际经过的分支数」，两者不等就是缺口；
+搬运链路必须**同一次**搬运守卫与它的回归用例。
+
+### lesson:probe-findings-must-leave-recomputable-artifacts
+
+**现场探针只 `console.log` 不落盘，事后就无法复算，只能引用记忆——而记忆不是证据。**
+
+现场：`D:\Temp\baijiahao-probe*.js` 五支探针只打印到控制台，挑战率只能靠**另外落盘的 6 份 HTML**
+（文件名带 `-CHALLENGE`/`-OK`，`title` 可逐份复核）反推；而其中一支对比不同 UA 的探针（probe5）
+结论**完全不可复算**，最终只能写「未复现」，不能写结论。
+规范：探针必须同时留下 ①原始响应/页面字节 ②一份带时间戳的日志（`Tee-Object` 即可）；
+数字要能从产物重算出来，否则在文档里写「待复核」而不是写一个看起来精确的数。
+
+### lesson:parser-success-means-parsed-not-article
+
+**解析器的 `success:true` 通常只表示「拿到 HTML 并解析完」，不表示「拿到的是文章」；把它当语义成功会同时污染缓存与指标。**
+
+现场：生产解析器 `UrlCollector._parseHtml` 对「百度安全验证」页返回
+`{success:true, title:"百度安全验证", contentLen:101}`（用 3 份落盘 CHALLENGE 页实测），
+而 `collect()` 正是按 `result.success` 写内容缓存（旧 `url-collector.js:182-183`）⇒ 失败形态被固化成「成功」，
+同 URL 二次采集还会命中缓存返回空壳。
+规范：在「解析完成」与「内容可用」之间显式加一道语义判据（fail-closed），
+并让缓存只接受通过语义判据的结果；测试要拿**真实的失败页产物**过生产解析器，而不是喂假 result。
+
+### lesson:dual-config-source-makes-not-configured-errors-unreliable
+
+**同一项配置存在两份真源（UI/DB 与进程环境变量）时，「你没配置」这类报错最不可信。**
+
+现场：桌面 DB 只读核对显示 `agnes-multimodal`：`enabled=1`、`api_key_enc` 82 B、`capability_defaults` 含 `llm`、
+`capability_models.llm=agnes-3.0-flash`；而 Python `/aggregation/rewrite` 只读
+`LLM_API_KEY` / `PO_OPENAI_API_KEY`（`aggregation/service.py:218-220`）⇒ 报 `LLM_KEY_MISSING`。
+桌面引擎链路（`aiRewrite` → `generateWithDefault('llm')` → `getDefault('llm')`）本来能解析到同一份配置。
+规范：① 错误码要区分「用户未配置」与「配置未被注入/服务未就绪」（本片新增 `LLM_NOT_CONFIGURED`，并在日志里区分 `MANAGER_ABSENT`/`NO_DEFAULT`/`NO_API_KEY`/`NO_MODEL`）；
+② 配置来源收敛为单一出口（请求级 `llm` 优先于 env），env 只做兜底；
+③ Key 只进 payload，日志/错误文案一律不得拼接。
+
+### lesson:anti-bot-findings-need-two-independent-batches
+
+**反爬是概率性的：单批读数不能当因果，尤其当结论恰好指向「换个 UA / 换个 IP 就好」时。**
+
+现场数字（同一 URL、同一台机器）：
+stealth 浏览器落盘 6 份中 3 份是 CHALLENGE（desktop 2/3、mobile 1/3）；
+普通 HTTP 完整 Chrome UA 16/16 成功；仓库现用**截断 UA** 4/4 成功。
+即「UA 截断导致验证」这个看似合理的解释在本批**未复现**，不能写成根因。
+规范：任何「某因子导致反爬」的结论至少要 ①≥2 个独立批次 ②产物可复核 ③给出反例批；
+满足不了就写「未复现」，修复设计按「概率性 + fail-closed + 有界重试」而不是「换因子」。
+
 ## 一条新判据的绕行面必须在建实现之前逐条证活；而变异反证会抓到你自己的接线断线（ban-record-closure-backfill-pr，2026-10-18）
 
 ### lesson:prove-the-bypass-is-alive-before-plugging-it

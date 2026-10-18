@@ -149,6 +149,17 @@ class CollectVideoRequest(BaseModel):
         return v
 
 
+class LlmOverride(BaseModel):
+    """请求级 LLM 运行时覆盖（桌面「模型设置」默认模型注入，2026-10-18）。
+
+    三字段均可选，缺省按字段回退进程环境变量（LLM_* > PO_OPENAI_*）。
+    ⚠️ api_key 是凭据：只允许用于构造适配器，**不得**写入任何日志/异常文案。
+    """
+    api_key: Optional[str] = Field(default=None, description="LLM API Key（仅用于调用适配器，禁止落日志）")
+    base_url: Optional[str] = Field(default=None, description="OpenAI 兼容 base_url")
+    model: Optional[str] = Field(default=None, description="文字推理模型 ID")
+
+
 class RewriteRequest(BaseModel):
     """改写请求"""
     content: str = Field(..., min_length=1, description="待改写内容（非空即可，无最小字数限制）")
@@ -162,6 +173,11 @@ class RewriteRequest(BaseModel):
     # 取值与 ContentQualityEvaluator._PLATFORM_KEYWORDS 键一致：
     # 微信 / 抖音 / 小红书 / 知乎 / 微博 / B站 / 通用。
     platform: str = Field(default="通用", description="目标平台（微信/抖音/小红书/知乎/微博/B站/通用）")
+    # 桌面「模型设置」注入的默认文字推理模型（可选）：优先级 request.llm > env。
+    llm: Optional[LlmOverride] = Field(
+        default=None,
+        description="请求级 LLM 覆盖（桌面模型设置注入）；缺省字段回退环境变量",
+    )
 
     @field_validator("style")
     @classmethod

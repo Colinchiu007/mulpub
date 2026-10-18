@@ -60,6 +60,29 @@ describe("UrlCollector 失败日志（回归：采集失败无日志）", () => 
     expect(logger.notify).toHaveBeenCalled();
   });
 
+  // QM-6 外部评审 P3（2026-10-18）：安全验证页从「成功」改为「失败」后，若仍按普通失败
+  // 记熔断，用户按提示「1-2 分钟后重试」连试 3 次就会触发 failureThreshold=3 → 熔断 15 分钟，
+  // 与提示文案自相矛盾。判据：security_challenge 失败不得调用 recordFailure（健康度/审计仍记）。
+  it("security_challenge 失败不计入熔断（避免重试 3 次被锁 15 分钟）", async () => {
+    collector._rateLimiter = { evaluate: () => ({ allowed: true }), recordRequest: () => {} };
+    collector._needsBrowser = () => false;
+    collector._isHttpFirst = () => false;
+    collector._contentCache = { hasUrl: () => false, mark: () => {} };
+    collector._collectViaHttp = vi.fn().mockResolvedValue({
+      success: false,
+      reason: "security_challenge",
+      error: "目标站点返回安全验证页（百度安全验证），请稍后再试或先在浏览器中完成验证",
+    });
+    const recordFailure = vi.spyOn(collector._circuitBreaker, "recordFailure");
+    for (let i = 0; i < 3; i++) {
+      const r = await collector.collect("https://example.com/post/" + i);
+      expect(r.success).toBe(false);
+      expect(r.reason).toBe("security_challenge");
+    }
+    expect(recordFailure).not.toHaveBeenCalled();
+    recordFailure.mockRestore();
+  });
+
   // 回归保护：知乎采集偶发报「原因未识别」（2026-09-13）。
   // 根因：stealth 浏览器 page.content() 在页面导航中抛
   // "Unable to retrieve content because the page is navigating"，错误消息不含已知
@@ -245,8 +268,12 @@ describe("UrlCollector _needsBrowser", () => {
     expect(collector._needsBrowser("zhihu.com")).toBe(true);
   });
 
-  it("识别百家号域名需要浏览器渲染", () => {
-    expect(collector._needsBrowser("baijiahao.baidu.com")).toBe(true);
+  // 2026-10-18 路由拆分：百家号改为 HTTP 优先（直连成功即返回，命中验证页才回退浏览器），
+  // 因为百家号直连成功率高于浏览器且成本低；仍属「走 Node 采集通道」（needsStealth=true）。
+  it("百家号不是浏览器优先（HTTP 优先，命中验证页才回退浏览器）", () => {
+    expect(collector._needsBrowser("baijiahao.baidu.com")).toBe(false);
+    expect(collector._isHttpFirst("baijiahao.baidu.com")).toBe(true);
+    expect(collector._isHttpFirst("mbd.baidu.com")).toBe(true);
   });
 
   it("非知乎域名不需要浏览器渲染", () => {
@@ -269,12 +296,13 @@ describe("UrlCollector url-collect:needs-stealth 路由查询（回归：知乎�
     collector.registerIpcHandlers({ handle: (ch, fn) => { handlers[ch] = fn } });
   });
 
-  it("知乎问题/回答 URL → needsStealth: true（必须走 stealth，禁止裸连）", async () => {
+  it("知乎问题/回答 URL → needsStealth: true + mode= browser（必须走 stealth，禁止裸连）", async () => {
     const ret = await handlers["url-collect:needs-stealth"](null, {
       url: "https://www.zhihu.com/question/20255485/answer/2021183938203263464",
     });
     expect(ret.code).toBe(0);
     expect(ret.data.needsStealth).toBe(true);
+    expect(ret.data.mode).toBe("browser");
   });
 
   it("知乎专栏 URL → needsStealth: true", async () => {
@@ -283,22 +311,27 @@ describe("UrlCollector url-collect:needs-stealth 路由查询（回归：知乎�
     });
     expect(ret.code).toBe(0);
     expect(ret.data.needsStealth).toBe(true);
+    expect(ret.data.mode).toBe("browser");
   });
 
-  it("百家号 URL → needsStealth: true", async () => {
+  it("百家号 URL → needsStealth: true（仍走 Node 通道）+ mode=http-first", async () => {
+    // 向后兼容：渲染层语义「needsStealth=true ⇒ 跳过 Python 聚合层裸连」保持不变；
+    // mode 是新增细分（百家号主进程内 HTTP 优先，命中验证页才回退浏览器）。
     const ret = await handlers["url-collect:needs-stealth"](null, {
       url: "https://baijiahao.baidu.com/s?id=1873093353787420593",
     });
     expect(ret.code).toBe(0);
     expect(ret.data.needsStealth).toBe(true);
+    expect(ret.data.mode).toBe("http-first");
   });
 
-  it("普通站点 → needsStealth: false（走默认聚合路径）", async () => {
+  it("普通站点 → needsStealth: false（走默认聚合路径）+ mode=http", async () => {
     const ret = await handlers["url-collect:needs-stealth"](null, {
       url: "https://example.com/article",
     });
     expect(ret.code).toBe(0);
     expect(ret.data.needsStealth).toBe(false);
+    expect(ret.data.mode).toBe("http");
   });
 
   it("非法 URL → 不拦截（needsStealth: false，交由 collect 完整校验）", async () => {
@@ -313,14 +346,21 @@ describe("UrlCollector url-collect:needs-stealth 路由查询（回归：知乎�
   });
 
   it("静态判断与 _needsBrowser 共用同一域名清单（单一来源，防漂移）", () => {
-    // _needsBrowser 与 isAntiCrawlHost 必须一致：实例采集与渲染层路由不能各维护一份清单
-    for (const host of ["zhuanlan.zhihu.com", "www.zhihu.com", "zhihu.com", "baijiahao.baidu.com"]) {
+    // 2026-10-18 路由拆分：浏览器优先（知乎）与 HTTP 优先（百家号）各一张清单，
+    // 实例采集与渲染层路由必须共用同源判定，不得各维护一份后悄悄漂移。
+    for (const host of ["zhuanlan.zhihu.com", "www.zhihu.com", "zhihu.com"]) {
       expect(UrlCollector.isAntiCrawlHost(host)).toBe(true);
       expect(collector._needsBrowser(host)).toBe(true);
+    }
+    for (const host of ["baijiahao.baidu.com", "mbd.baidu.com"]) {
+      expect(UrlCollector.isHttpFirstHost(host)).toBe(true);
+      expect(collector._isHttpFirst(host)).toBe(true);
+      expect(collector._needsBrowser(host)).toBe(false);
     }
     for (const host of ["example.com", "mp.weixin.qq.com", "bilibili.com"]) {
       expect(UrlCollector.isAntiCrawlHost(host)).toBe(false);
       expect(collector._needsBrowser(host)).toBe(false);
+      expect(collector._isHttpFirst(host)).toBe(false);
     }
   });
 });
@@ -745,5 +785,303 @@ describe("UrlCollector 互动数据解析（engagement）", () => {
       expect(r.success).toBe(true);
       expect(r.engagement).toEqual({ likes: null, comments: null });
     });
+  });
+});
+
+// ===================== 反爬验证页护栏（2026-10-18 现场：百家号返回「百度安全验证」页） =====================
+// 现场：3 份 CHALLENGE 页解析正文均 114 字（逐字一致），3 份 OK 页不含任何标记。
+// 判据细节与误杀反例见 url-collector-antibot.test.js 头注释。
+const CHALLENGE_TEXT =
+  "网络不给力，请稍后重试 返回首页 问题反馈 百度安全验证 请完成下方验证后继续操作 正在验证... 验证通过 图片未转正 网络不给力，请刷新重试 加载中... 图片由AI生成 拖动左侧滑块使图片为正 扫码验证| 意见反馈 |刷新";
+const CHALLENGE_URL = "https://wappass.baidu.com/static/captcha/tuxing.html?ack=abc";
+const CHALLENGE_HTML = `<html><head><title>百度安全验证</title></head><body><div class="passMod">${CHALLENGE_TEXT}</div></body></html>`;
+const BAIJIAHAO_URL = "https://baijiahao.baidu.com/s?id=1879211845239319012&wfr=spider&for=pc";
+const OK_ARTICLE_HTML = `<html><head><title>百家号正常文章</title></head><body><div data-testid="article"><h1>百家号正常文章</h1><p>苹果与Meta破冰合作，Meta最强开源模型Muse Spark Open亮相。</p><p>第二段正文内容。</p></div></body></html>`;
+
+describe("UrlCollector 采集路由拆分（浏览器优先 vs HTTP 优先）", () => {
+  it("ANTI_CRAWL_HOSTNAMES 只保留知乎类，NODE_HTTP_FIRST_HOSTNAMES 含百家号", () => {
+    expect([...UrlCollector.ANTI_CRAWL_HOSTNAMES].sort()).toEqual([
+      "www.zhihu.com",
+      "zhihu.com",
+      "zhuanlan.zhihu.com",
+    ]);
+    expect([...UrlCollector.NODE_HTTP_FIRST_HOSTNAMES].sort()).toEqual([
+      "baijiahao.baidu.com",
+      "mbd.baidu.com",
+    ]);
+    expect(UrlCollector.routeFor("www.zhihu.com")).toBe("browser");
+    expect(UrlCollector.routeFor("baijiahao.baidu.com")).toBe("http-first");
+    expect(UrlCollector.routeFor("example.com")).toBe("http");
+  });
+
+  it("知乎仍走浏览器优先：不经过 HTTP 直连", async () => {
+    const collector = new UrlCollector({ auditDir: null, log: { info() {}, warn() {}, error() {}, notify() {} } });
+    collector._rateLimiter = { evaluate: () => ({ allowed: true }), recordRequest: () => {} };
+    collector._collectViaBrowser = vi.fn().mockResolvedValue({ success: true, title: "T", content: "C".repeat(100) });
+    collector._collectViaHttp = vi.fn();
+    const r = await collector.collect("https://zhuanlan.zhihu.com/p/1");
+    expect(r.success).toBe(true);
+    expect(collector._collectViaBrowser).toHaveBeenCalled();
+    expect(collector._collectViaHttp).not.toHaveBeenCalled();
+  });
+
+  it("百家号 HTTP 直连成功 → 直接返回，不上 stealth 浏览器（节省浏览器成本/降低风控）", async () => {
+    const collector = new UrlCollector({ auditDir: null, log: { info() {}, warn() {}, error() {}, notify() {} } });
+    collector._rateLimiter = { evaluate: () => ({ allowed: true }), recordRequest: () => {} };
+    collector._collectViaHttp = vi.fn().mockResolvedValue({ success: true, title: "T", content: "正文".repeat(100) });
+    collector._collectViaBrowser = vi.fn();
+    const r = await collector.collect(BAIJIAHAO_URL);
+    expect(r.success).toBe(true);
+    expect(collector._collectViaHttp).toHaveBeenCalled();
+    expect(collector._collectViaBrowser).not.toHaveBeenCalled();
+    expect(collector._contentCache.hasUrl(BAIJIAHAO_URL)).toBe(true);
+  });
+
+  it("百家号 HTTP 命中安全验证页 → 回退 stealth 浏览器（有界重试 maxAttempts=2）", async () => {
+    const collector = new UrlCollector({ auditDir: null, log: { info() {}, warn() {}, error() {}, notify() {} } });
+    collector._rateLimiter = { evaluate: () => ({ allowed: true }), recordRequest: () => {} };
+    collector._collectViaHttp = vi.fn().mockResolvedValue({
+      success: false,
+      error: "目标站点返回安全验证页（百度安全验证），请稍后再试或先在浏览器中完成验证",
+      reason: "security_challenge",
+    });
+    collector._collectViaBrowser = vi.fn().mockResolvedValue({ success: true, title: "浏览器标题", content: "浏览器正文".repeat(50) });
+    const r = await collector.collect(BAIJIAHAO_URL);
+    expect(r.success).toBe(true);
+    expect(collector._collectViaBrowser).toHaveBeenCalledWith(BAIJIAHAO_URL, 2);
+  });
+
+  it("百家号 HTTP 正文为空 → 回退 stealth 浏览器", async () => {
+    const collector = new UrlCollector({ auditDir: null, log: { info() {}, warn() {}, error() {}, notify() {} } });
+    collector._rateLimiter = { evaluate: () => ({ allowed: true }), recordRequest: () => {} };
+    collector._collectViaHttp = vi.fn().mockResolvedValue({ success: true, title: "T", content: "   " });
+    collector._collectViaBrowser = vi.fn().mockResolvedValue({ success: true, title: "浏览器标题", content: "浏览器正文".repeat(50) });
+    const r = await collector.collect(BAIJIAHAO_URL);
+    expect(r.success).toBe(true);
+    expect(collector._collectViaBrowser).toHaveBeenCalledWith(BAIJIAHAO_URL, 2);
+  });
+
+  it("百家号 HTTP 抛错 → 回退 stealth 浏览器", async () => {
+    const collector = new UrlCollector({ auditDir: null, log: { info() {}, warn() {}, error() {}, notify() {} } });
+    collector._rateLimiter = { evaluate: () => ({ allowed: true }), recordRequest: () => {} };
+    collector._collectViaHttp = vi.fn().mockRejectedValue(new Error("net::ERR_CONNECTION_RESET"));
+    collector._collectViaBrowser = vi.fn().mockResolvedValue({ success: true, title: "T", content: "C".repeat(100) });
+    const r = await collector.collect(BAIJIAHAO_URL);
+    expect(r.success).toBe(true);
+    expect(collector._collectViaBrowser).toHaveBeenCalledWith(BAIJIAHAO_URL, 2);
+  });
+
+  it("HTTP + 浏览器都命中验证页 → security_challenge，且失败不写内容缓存", async () => {
+    const collector = new UrlCollector({ auditDir: null, log: { info() {}, warn() {}, error() {}, notify() {} } });
+    collector._rateLimiter = { evaluate: () => ({ allowed: true }), recordRequest: () => {} };
+    const failure = {
+      success: false,
+      error: "目标站点返回安全验证页（百度安全验证），请稍后再试或先在浏览器中完成验证",
+      reason: "security_challenge",
+    };
+    collector._collectViaHttp = vi.fn().mockResolvedValue(failure);
+    collector._collectViaBrowser = vi.fn().mockResolvedValue(failure);
+    const mark = vi.spyOn(collector._contentCache, "mark");
+    const r = await collector.collect(BAIJIAHAO_URL);
+    expect(r.success).toBe(false);
+    expect(r.reason).toBe("security_challenge");
+    expect(mark).not.toHaveBeenCalled();
+    expect(collector._contentCache.hasUrl(BAIJIAHAO_URL)).toBe(false);
+  });
+
+  it("IPC url-collect:fetch 失败 envelope 透传 reason（渲染层 classifyCollectError 靠它命中）", async () => {
+    const collector = new UrlCollector({ auditDir: null, log: { info() {}, warn() {}, error() {}, notify() {} } });
+    const handlers = {};
+    collector.registerIpcHandlers({ handle: (ch, fn) => { handlers[ch] = fn } });
+    collector.collect = vi.fn().mockResolvedValue({
+      success: false,
+      error: "目标站点返回安全验证页（百度安全验证），请稍后再试或先在浏览器中完成验证",
+      reason: "security_challenge",
+    });
+    const ret = await handlers["url-collect:fetch"](null, { url: BAIJIAHAO_URL });
+    expect(ret.code).toBe(-1);
+    expect(ret.message).toContain("安全验证");
+    expect(ret.data.reason).toBe("security_challenge");
+    expect(ret.data.error).toContain("安全验证");
+  });
+});
+
+describe("UrlCollector _collectViaHttp（完整浏览器头 + 验证页护栏）", () => {
+  let collector;
+
+  beforeEach(() => {
+    collector = new UrlCollector({ auditDir: null, log: { info() {}, warn() {}, error() {}, notify() {} } });
+  });
+
+  it("请求头为完整浏览器请求头（Chrome 131 + Sec-Fetch-* 齐备，防御性加固）", async () => {
+    // 口径（2026-10-18 校正）：完整头不是挑战的已证原因 —— 普通 HTTP 通道探测百家号
+    // 20/20 成功、与 UA 完整/截断无关；挑战只出现在 headless 浏览器通道且概率性出现。
+    // 这里只锁「看起来像真实导航请求」的加固不被回退。
+    const get = vi.fn().mockResolvedValue({
+      data: OK_ARTICLE_HTML,
+      request: { res: { responseUrl: "https://baijiahao.baidu.com/s?id=1" } },
+    });
+    collector._getAxios = () => ({ get });
+    await collector._collectViaHttp("https://baijiahao.baidu.com/s?id=1");
+    const opts = get.mock.calls[0][1];
+    const headers = opts.headers;
+    expect(headers["User-Agent"]).toMatch(/Chrome\/131/);
+    expect(headers["User-Agent"]).not.toBe("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+    expect(headers.Accept).toContain("text/html");
+    expect(headers["Accept-Language"]).toMatch(/zh-CN/);
+    expect(headers["Accept-Encoding"]).toMatch(/gzip/);
+    expect(headers["Upgrade-Insecure-Requests"]).toBe("1");
+    expect(headers["Sec-Fetch-Dest"]).toBe("document");
+    expect(headers["Sec-Fetch-Mode"]).toBe("navigate");
+    expect(headers["Sec-Fetch-Site"]).toBe("none");
+  });
+
+  it("最终 URL 重定向到 wappass captcha → security_challenge 失败（绝不返回验证页正文）", async () => {
+    const get = vi.fn().mockResolvedValue({
+      data: CHALLENGE_HTML,
+      request: { res: { responseUrl: CHALLENGE_URL } },
+    });
+    collector._getAxios = () => ({ get });
+    const r = await collector._collectViaHttp(BAIJIAHAO_URL);
+    expect(r.success).toBe(false);
+    expect(r.reason).toBe("security_challenge");
+    expect(r.error).toContain("百度安全验证");
+    expect(r.content).toBeUndefined();
+  });
+
+  it("验证页即使正文混入大量噪声也不返回成功（title 结构性信号）", async () => {
+    const html = `<html><head><title>百度安全验证</title></head><body><div>${CHALLENGE_TEXT}${"噪声".repeat(500)}</div></body></html>`;
+    collector._getAxios = () => ({ get: vi.fn().mockResolvedValue({ data: html }) });
+    const r = await collector._collectViaHttp(BAIJIAHAO_URL);
+    expect(r.success).toBe(false);
+    expect(r.reason).toBe("security_challenge");
+  });
+});
+
+describe("UrlCollector _collectViaBrowser（验证页判定 + 换新 context 重试）", () => {
+  let collector;
+
+  function fakeBrowser(pages) {
+    const state = { contexts: 0 };
+    const browser = {
+      newContext: async () => {
+        const page = pages[Math.min(state.contexts, pages.length - 1)];
+        state.contexts += 1;
+        return {
+          newPage: async () => ({ goto: async () => {}, url: () => page.finalUrl, html: page.html }),
+          close: async () => {},
+        };
+      },
+    };
+    return { browser, state };
+  }
+
+  beforeEach(() => {
+    collector = new UrlCollector({ auditDir: null, log: { info() {}, warn() {}, error() {}, notify() {} } });
+    collector._waitForContentReady = async () => true;
+    collector._readPageContentWithRetry = async (page) => page.html;
+  });
+
+  it("第一次命中验证页 → 换新 context 重试成功，绝不返回验证页正文", async () => {
+    const { browser, state } = fakeBrowser([
+      { finalUrl: CHALLENGE_URL, html: CHALLENGE_HTML },
+      { finalUrl: BAIJIAHAO_URL, html: OK_ARTICLE_HTML },
+    ]);
+    collector._getStealthBrowser = async () => browser;
+    const r = await collector._collectViaBrowser(BAIJIAHAO_URL);
+    expect(r.success).toBe(true);
+    expect(r.content).toContain("苹果与Meta");
+    expect(r.content).not.toContain("百度安全验证");
+    expect(state.contexts).toBe(2);
+  });
+
+  it("两次都是验证页 → security_challenge 失败（有界重试只 2 次），不返回 success:true", async () => {
+    const { browser, state } = fakeBrowser([
+      { finalUrl: CHALLENGE_URL, html: CHALLENGE_HTML },
+      { finalUrl: CHALLENGE_URL, html: CHALLENGE_HTML },
+    ]);
+    collector._getStealthBrowser = async () => browser;
+    const r = await collector._collectViaBrowser(BAIJIAHAO_URL);
+    expect(r.success).toBe(false);
+    expect(r.reason).toBe("security_challenge");
+    expect(r.error).toContain("百度安全验证");
+    expect(state.contexts).toBe(2);
+  });
+
+  it("最终 URL 仍是文章地址但 HTML 是验证页 → 照样判验证页（按 title/HTML 判）", async () => {
+    const { browser } = fakeBrowser([
+      { finalUrl: BAIJIAHAO_URL, html: CHALLENGE_HTML },
+      { finalUrl: BAIJIAHAO_URL, html: OK_ARTICLE_HTML },
+    ]);
+    collector._getStealthBrowser = async () => browser;
+    const r = await collector._collectViaBrowser(BAIJIAHAO_URL);
+    expect(r.success).toBe(true);
+    expect(r.content).toContain("苹果与Meta");
+  });
+});
+
+describe("UrlCollector _parseHtml 百家号容器选择 + 解析前后验证页护栏", () => {
+  let collector;
+
+  beforeEach(() => {
+    collector = new UrlCollector({ auditDir: null, log: { info() {}, warn() {}, error() {}, notify() {} } });
+  });
+
+  it("优先取 [data-testid=article]：侧栏段落更多也不污染正文（实测 055 字符噪声消失）", () => {
+    const sidebar = Array.from({ length: 8 }, (_, i) => `<p>侧栏推荐${i}</p>`).join("");
+    const html = `<html><head><title>百家号文章标题</title></head><body>
+      <div class="side">${sidebar}</div>
+      <div data-testid="article"><h1>百家号文章标题</h1><p>第一段正文。</p><p>第二段正文。</p></div>
+    </body></html>`;
+    const r = collector._parseHtml(html, BAIJIAHAO_URL);
+    expect(r.content).toContain("第一段正文");
+    expect(r.content).toContain("第二段正文");
+    expect(r.content).not.toContain("侧栏推荐");
+    // 旧启发式会选中侧栏（8 个 <p> > 2 个）
+    expect(r.content.length).toBeLessThan(100);
+  });
+
+  it("无 [data-testid=article] 时回退旧「最多 <p>」启发式", () => {
+    const html = `<html><head><title>百家号文章标题</title></head><body>
+      <div class="a"><p>旧启发式正文一。</p><p>旧启发式正文二。</p></div>
+      <div class="b"><p>少量侧栏。</p></div>
+    </body></html>`;
+    const r = collector._parseHtml(html, BAIJIAHAO_URL);
+    expect(r.content).toContain("旧启发式正文一");
+  });
+
+  it("验证页 HTML（title=百度安全验证 + captcha URL）→ 解析前拦截为 security_challenge", () => {
+    const r = collector._parseHtml(CHALLENGE_HTML, CHALLENGE_URL);
+    expect(r.success).toBe(false);
+    expect(r.reason).toBe("security_challenge");
+    expect(r.content).toBeUndefined();
+  });
+
+  it("验证页 HTML + 普通文章 URL（无 captcha 重定向）→ 照样 fail-closed", () => {
+    // 修复前该输入会被当正常文章解析：T3 实测生产解析器对 CHALLENGE 页返回
+    // success=true / contentLen≈101 —— 这就是「验证页被当成功」的直接证据。
+    const r = collector._parseHtml(CHALLENGE_HTML, BAIJIAHAO_URL);
+    expect(r.success).toBe(false);
+    expect(r.reason).toBe("security_challenge");
+    expect(r.content).toBeUndefined();
+    expect(r.title).toBeUndefined();
+  });
+
+  it("解析后拦截：HTML 实体编码的强标记（htmlToText 未解码）→ 提取正文后仍判验证页", () => {
+    // &#35831;=请 &#25302;/&#21160;=拖动：HTML 文本里看不见原文，cheerio 解码后才成文字
+    const html = `<html><head><title>某篇文章</title></head><body><article>
+      <p>&#35831;完成下方验证后继续操作</p><p>&#25302;&#21160;左侧滑块使图片为正</p>
+    </article></body></html>`;
+    const r = collector._parseHtml(html, "https://example.com/post/1");
+    expect(r.success).toBe(false);
+    expect(r.reason).toBe("security_challenge");
+  });
+
+  it("误杀反例：合法长文含「网络不给力」→ 仍成功返回正文", () => {
+    const text = "我家宽带上周末一直抽风，页面老是提示「网络不给力，请刷新重试」，刷新十几次才打开后台。".repeat(8);
+    const html = `<html><head><title>一次宽带 DNS 故障排查记录</title></head><body><article><p>${text}</p></article></body></html>`;
+    const r = collector._parseHtml(html, "https://example.com/post/2");
+    expect(r.success).toBe(true);
+    expect(r.content).toContain("网络不给力");
   });
 });

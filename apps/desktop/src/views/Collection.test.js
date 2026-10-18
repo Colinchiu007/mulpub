@@ -382,7 +382,10 @@ describe("CollectionView", () => {
     function mockStealthApi() {
       return {
         aggregationCollect: vi.fn(), // 必须未被调用（裸连会触发风控）
-        aggregationRewrite: vi.fn().mockResolvedValue({ result_content: "改写后的内容。" }),
+        // 2026-10-18：stealth 分支自动改写改走桌面改写引擎（读「模型设置」的默认文字推理模型），
+        // 不再调 Python aggregationRewrite（它只读环境变量，必然误报 LLM_KEY_MISSING）。
+        aiRewrite: vi.fn().mockResolvedValue({ code: 0, data: { success: true, result: "改写后的内容。" } }),
+        aggregationRewrite: vi.fn(),
         urlCollectNeedsStealth: vi.fn().mockResolvedValue({
           code: 0,
           data: { needsStealth: true },
@@ -407,7 +410,7 @@ describe("CollectionView", () => {
       expect(w.vm.collectedResult.title).toBe("知乎回答标题");
     });
 
-    it("collectAndRewrite：知乎链接采集走 stealth，改写正常触发", async () => {
+    it("collectAndRewrite：知乎链接采集走 stealth，改写走桌面引擎（读模型设置）", async () => {
       window.electronAPI = mockStealthApi();
       const w = mountCollection();
       await nextTick();
@@ -417,9 +420,90 @@ describe("CollectionView", () => {
       expect(window.electronAPI.urlCollectFetch).toHaveBeenCalledWith(ZHIHU_ANSWER_URL);
       expect(w.vm.collectedResult.title).toBe("知乎回答标题");
       expect(w.vm.rewriteResult).toBe("改写后的内容。");
-      expect(window.electronAPI.aggregationRewrite).toHaveBeenCalledWith(
+      // 回归锁（2026-10-18）：stealth 分支必须走读取「模型设置」的 aiRewrite，
+      // 不得回退到只读环境变量的 Python aggregationRewrite。
+      expect(window.electronAPI.aiRewrite).toHaveBeenCalledWith(
         expect.objectContaining({ content: expect.stringContaining("知乎回答正文内容") })
       );
+      expect(window.electronAPI.aggregationRewrite).not.toHaveBeenCalled();
+    });
+
+    it("stealth 返回「百度安全验证」页 → 不入库、不触发改写、给出 security_challenge 文案", async () => {
+      const api = mockStealthApi();
+      api.urlCollectFetch = vi.fn().mockResolvedValue({
+        code: 0,
+        data: {
+          title: "百度安全验证",
+          content: "百度安全验证\n请完成下方验证后继续操作\n拖动左侧滑块使图片为正\n扫码验证| 意见反馈 |刷新",
+        },
+      });
+      window.electronAPI = api;
+      const w = mountCollection();
+      await nextTick();
+      w.vm.linkUrl = ZHIHU_ANSWER_URL;
+      await w.vm.collectAndRewrite();
+      // 验证页不是正文：绝不入库、绝不进入改写
+      expect(w.vm.collectedResult).toBe(null);
+      expect(w.vm.collectedItems.length).toBe(0);
+      expect(w.vm.collectError.reason).toBe("security_challenge");
+      expect(w.vm.collectErrorDetail).toContain("安全验证");
+      expect(api.aiRewrite).not.toHaveBeenCalled();
+      expect(api.aggregationRewrite).not.toHaveBeenCalled();
+    });
+
+    it("验证页文字命中 persistDraft 守卫 → 不创建草稿、不跳发布页", async () => {
+      const draftSave = vi.fn();
+      window.electronAPI = { draftSave, draftList: vi.fn().mockResolvedValue({ code: 0, data: [] }) };
+      const w = mountCollection();
+      await nextTick();
+      const verificationItem = {
+        id: "v1",
+        title: "百度安全验证",
+        content: "请完成下方验证后继续操作\n拖动左侧滑块使图片为正",
+        source: "url",
+      };
+      await w.vm.goPublishFromItem(verificationItem);
+      expect(draftSave).not.toHaveBeenCalled();
+      expect(pushSpy).not.toHaveBeenCalled();
+    });
+
+    // QM-6 外部评审 P3（2026-10-18）：abortIfVerificationPage 写入的 `reason` 必须被
+    // collectErrorDetail/collectErrorRetryable 消费；否则分类器只拿到 message 字符串，
+    // en 文案不含中文关键词时会退化为 collectErrors.unknown。
+    it("collectErrorDetail 优先采信结构化 reason（message 不含中文关键词也不退化 unknown）", async () => {
+      const w = mountCollection();
+      await nextTick();
+      w.vm.collectError = {
+        code: -1,
+        reason: "security_challenge",
+        message: "The target page triggered a security check",
+      };
+      expect(w.vm.collectErrorDetail).toContain("安全验证");
+      expect(w.vm.collectErrorDetail).not.toContain("原因未识别");
+      expect(w.vm.collectErrorRetryable).toBe(true);
+    });
+
+    it("urlCollectFetch 失败信封的 data.reason 会进入 collectError（结构化分类不丢）", async () => {
+      window.electronAPI = {
+        urlCollectNeedsStealth: vi.fn().mockResolvedValue({ code: 0, data: { needsStealth: true } }),
+        urlCollectFetch: vi.fn().mockResolvedValue({
+          code: -1,
+          message: "采集失败: 目标站点返回安全验证页",
+          data: {
+            success: false,
+            reason: "security_challenge",
+            error: "目标站点返回安全验证页（百度安全验证），请稍后再试或先在浏览器中完成验证",
+          },
+        }),
+      };
+      const w = mountCollection();
+      await nextTick();
+      // 用非视频平台 URL，避免先进入视频采集通道（百家号 /s 属视频平台路由）
+      w.vm.linkUrl = "https://www.sohu.com/a/123";
+      await w.vm.collectUrl();
+      expect(w.vm.collectError.reason).toBe("security_challenge");
+      expect(w.vm.collectedItems.length).toBe(0);
+      expect(w.vm.collectErrorDetail).toContain("安全验证");
     });
 
     it("stealth 采集失败 → 显示错误，不回退裸连", async () => {

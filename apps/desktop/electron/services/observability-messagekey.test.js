@@ -107,6 +107,7 @@ const ALLOWED_KEYS = new Set([
   'url-collect:collect-blocked-rate',
   'url-collect:collect-cache-hit',
   'url-collect:collect-start-browser',
+  'url-collect:collect-start-http-first',
   'url-collect:collect-start-http',
   'url-collect:collect-ok',
   'url-collect:collect-failed',

@@ -268,3 +268,126 @@ describe('aggregation IPC handlers', () => {
     expect(result.message).toContain('较短的短视频')
   })
 })
+
+// ═══════════════════════════════════════════════════════════════════════
+// 桌面「模型设置」默认 LLM → aggregation:rewrite 注入（fix-collect-antibot-rewrite）
+//
+// 根因：Python /aggregation/rewrite 只读进程 env（LLM_API_KEY/PO_OPENAI_API_KEY），
+// 桌面模型设置从未注入 ⇒ 已配置默认模型仍误报 LLM_KEY_MISSING。
+// 契约：调用后端前解析默认 llm 并放进 payload；解析失败短路 -400/LLM_NOT_CONFIGURED
+// 且不发请求；renderer 自带 llm 时绝不覆盖；无 manager 时降级为不注入（保留 env 兜底）。
+// ═══════════════════════════════════════════════════════════════════════
+
+/** 用户实际配置形态：多模态 provider，能力默认 llm + capability_models.llm */
+const LLM_PROVIDER = {
+  id: 'agnes-multimodal',
+  name: 'Agnes 多模态',
+  category: 'multimodal',
+  base_url: 'https://agnes.example.com/v1',
+  models: ['agnes-vision-1'],
+  capability_models: { llm: 'agnes-3.0-flash' },
+  config: { capabilities: ['llm', 'image'], capability_defaults: ['llm'] },
+}
+
+/**
+ * @param {{ provider?: object|null, apiKey?: string }} [opts]
+ */
+function createLlmManager ({ provider = LLM_PROVIDER, apiKey = 'sk-agg-test-secret-01' } = {}) {
+  return {
+    _ready: true,
+    getDefault: vi.fn(() => provider),
+    getProviderWithKey: vi.fn((id) => (provider ? { ...provider, api_key: apiKey } : null)),
+  }
+}
+
+describe('aggregation:rewrite — 注入桌面「模型设置」默认 LLM', () => {
+  it('解析成功 → payload 携带 llm（provider_id/api_key/base_url/model），且 Key 不落日志', async () => {
+    const ipcMain = createMockIpcMain()
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() }
+    const pythonBridge = { requestBackend: vi.fn().mockResolvedValue({ result_content: '改写后' }) }
+    const modelProviderManager = createLlmManager()
+    registerHandlers(ipcMain, createMockDeps({ pythonBridge, modelProviderManager, log }))
+
+    const handler = ipcMain._get('aggregation:rewrite')
+    const result = await handler({}, { content: '原文', style: '轻松易懂', length: 'keep' })
+
+    expect(pythonBridge.requestBackend).toHaveBeenCalledWith(
+      'POST', '/aggregation/rewrite',
+      {
+        content: '原文', style: '轻松易懂', length: 'keep',
+        llm: {
+          provider_id: 'agnes-multimodal',
+          api_key: 'sk-agg-test-secret-01',
+          base_url: 'https://agnes.example.com/v1',
+          model: 'agnes-3.0-flash',
+        },
+      },
+    )
+    expect(result.result_content).toBe('改写后')
+    // Key 不得出现在任何日志调用里（测试只断言"不含"，不打印值）
+    const logged = [...log.info.mock.calls, ...log.warn.mock.calls, ...log.error.mock.calls].flat().join(' ')
+    expect(logged).not.toContain('sk-agg-test-secret-01')
+  })
+
+  it('无可用默认 llm → 短路 -400/LLM_NOT_CONFIGURED，一次请求都不发', async () => {
+    const ipcMain = createMockIpcMain()
+    const pythonBridge = { requestBackend: vi.fn() }
+    const modelProviderManager = { _ready: true, getDefault: vi.fn(() => null), getProviderWithKey: vi.fn() }
+    registerHandlers(ipcMain, createMockDeps({ pythonBridge, modelProviderManager }))
+
+    const handler = ipcMain._get('aggregation:rewrite')
+    const result = await handler({}, { content: '原文' })
+
+    expect(result.code).toBe(-400)
+    expect(result.errorCode).toBe('LLM_NOT_CONFIGURED')
+    expect(typeof result.message).toBe('string')
+    expect(result.message.length).toBeGreaterThan(0)
+    expect(pythonBridge.requestBackend).not.toHaveBeenCalled()
+  })
+
+  it('manager 有 provider 但无 Key → 同样短路 -400/LLM_NOT_CONFIGURED', async () => {
+    const ipcMain = createMockIpcMain()
+    const pythonBridge = { requestBackend: vi.fn() }
+    const modelProviderManager = createLlmManager({ apiKey: '' })
+    registerHandlers(ipcMain, createMockDeps({ pythonBridge, modelProviderManager }))
+
+    const handler = ipcMain._get('aggregation:rewrite')
+    const result = await handler({}, { content: '原文' })
+
+    expect(result.errorCode).toBe('LLM_NOT_CONFIGURED')
+    expect(pythonBridge.requestBackend).not.toHaveBeenCalled()
+  })
+
+  it('renderer 已带 llm → 原样透传，不覆盖、也不因未配置而短路', async () => {
+    const ipcMain = createMockIpcMain()
+    const pythonBridge = { requestBackend: vi.fn().mockResolvedValue({ result_content: '改写后' }) }
+    // manager 不可用：若实现错误地去解析，就会短路
+    const modelProviderManager = { _ready: true, getDefault: vi.fn(() => null), getProviderWithKey: vi.fn() }
+    registerHandlers(ipcMain, createMockDeps({ pythonBridge, modelProviderManager }))
+    const callerLlm = { api_key: 'caller-provided-key', base_url: 'https://caller.example.com/v1', model: 'caller-model' }
+
+    const handler = ipcMain._get('aggregation:rewrite')
+    const result = await handler({}, { content: '原文', llm: callerLlm })
+
+    expect(pythonBridge.requestBackend).toHaveBeenCalledWith(
+      'POST', '/aggregation/rewrite',
+      { content: '原文', llm: callerLlm },
+    )
+    expect(result.result_content).toBe('改写后')
+  })
+
+  it('无 manager（依赖缺失）→ 降级为不注入 llm，请求照常发送（保留 Python env 兜底）', async () => {
+    const ipcMain = createMockIpcMain()
+    const pythonBridge = { requestBackend: vi.fn().mockResolvedValue({ result_content: '改写后' }) }
+    registerHandlers(ipcMain, createMockDeps({ pythonBridge }))
+
+    const handler = ipcMain._get('aggregation:rewrite')
+    const result = await handler({}, { content: '原文' })
+
+    expect(pythonBridge.requestBackend).toHaveBeenCalledWith(
+      'POST', '/aggregation/rewrite',
+      { content: '原文' },
+    )
+    expect(result.result_content).toBe('改写后')
+  })
+})

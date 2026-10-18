@@ -1,0 +1,30 @@
+{
+  "sha": "f0c5d1faf31fa4f2e65bf1375c915c93b445a996",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 2709 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 2709,
+    "fileCount": 32,
+    "codeFileCount": 27,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 42,
+    "docSensitiveContentHits": 5,
+    "docSensitiveContentSample": [
+      "| R2 后端前置校验 | `packages/python-backend/src/multi_publish/aggregation/service.py:218-220` | `api_key = os.environ.get(\"LLM_API_KEY\") or os.environ.get(\"PO_OPENAI_API_KEY\",\"\")`；为空即 `raise UserVisibleError(\"LLM_KEY_MISSING\", …)` |",
+      "| R6 数据证明 | E7 | 配置真实存在：`enabled=1` + 加密 Key 非空（82 B）+ `capability_defaults` 含 `llm` + `capability_models.llm=agnes-3.0-flash` |",
+      "| Anti-Anti-Spider | https://github.com/yinhangbupt/Anti-Anti-Spider | 针对具体站点的验证码/加密对抗代码合集 | **不采用** | 作者已声明项目暂停；对抗代码与站点版本强耦合、维护成本高；本项目产品化交付要求可维护与合规 |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "007e0c9b25c01ca92e7c76c432b26df6aa2d45c024f75ad3c452c814cb2de9df",
+  "decidedAt": "2026-10-18T06:20:04.512Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

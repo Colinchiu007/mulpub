@@ -1,3 +1,25 @@
+# [未发布] fix(collect): 百家号采集不再把「百度安全验证」页当正文，采集页改写改走桌面模型设置（fix-collect-antibot-rewrite）
+
+## 问题
+- 单篇 URL 采集百家号文章时，采集被标成成功、正文却是「百度安全验证」滑块页提示文字（用户原话：「✅ 百度安全验证百度安全验证 请完成下方验证后继续操作 … 拖动左侧滑块使图片为正 扫码验证| 意见反馈 |刷新」）；在该条目上点「去发布」，验证文字会进入发布页正文输入框。
+- 采集页 stealth 分支的自动改写误报「AI 改写功能需要连接智能写作服务，但尚未完成服务配置」，而用户已在「模型设置」中配置了 Agnes 多模态模型的文字推理能力（DB 只读核对：`enabled=1`、加密 Key 非空、`capability_defaults` 含 `llm`、`capability_models.llm=agnes-3.0-flash`）。
+
+## 改动
+- **采集路由**：`baijiahao.baidu.com` / `mbd.baidu.com` 由「浏览器优先」改为 **HTTP 优先**（完整浏览器请求头），命中验证页 / 正文为空 / 提取失败再回退 stealth 浏览器；重试有界（默认 2 次，每次换新 context 清掉上一次的 cookie/指纹状态）。知乎仍为浏览器优先（裸连 403 是另一形态）。
+- **验证页判据（fail-closed）**：新增主进程纯函数模块（结构性 URL/`<title>` 判据 + 正文强标记阈值 + 短正文边界），渲染层经同源模块转发同一词表（两端同判由测试逐条比对锁定）；命中即返回 `reason=security_challenge` 失败结构，**不再**返回 `success:true`。
+- **缓存**：验证页结果不得写入内容缓存（此前 `success===true` 即写，失败形态被固化成「成功」）。
+- **渲染层**：stealth 分支与回退分支补第二道守卫；「创建草稿 / 去发布」入口按同一判据拦截历史验证文字条目（`collection.draftBlockedSecurityChallenge`）。
+- **改写链路**：采集页 stealth 分支改走桌面引擎 `aiRewrite`（按「模型设置」解析默认文字推理模型，含多模态 provider 的 llm 能力路由）；Python `POST /aggregation/rewrite` 增加请求级 `llm` 注入（顺序：`request.llm` > `LLM_*` env > `PO_OPENAI_*` env），用户确实未配置时短路返回稳定错误码 `LLM_NOT_CONFIGURED`（**不发请求**）。
+- **文案（zh/en 成对）**：更新 `collection.collectErrors.security_challenge`，新增 `collection.draftBlockedSecurityChallenge`、`userErrors.LLM_NOT_CONFIGURED`。
+
+## 验证
+- 桌面定向 9 个测试文件：`Test Files 9 passed (9) / Tests 366 passed (366)`（url-collector 89 / antibot 24 / collected-content-guard 8 / llm-runtime-config 12 / aggregation 23 / zhihu-favlist 17 / user-facing-error 29 / collect-error 50 / Collection 114）。
+- 双模型外部评审（QM-6）：`codex exec review --uncommitted`（0 CRITICAL/0 MAJOR、2 P3，**采纳 2/2**）+ `claude -p`（0 CRITICAL/0 MAJOR、7 MINOR，采纳 0/7）；采纳项：结构化 `reason` 被解包丢弃 → `collectErrorSource()` 传对象 + IPC `data.reason` 透传；`security_challenge` 计入熔断会让用户按提示重试 3 次锁 15 分钟 → 改为不计熔断（健康度/审计保留）。
+- Python 定向：`python -m pytest tests/test_aggregation.py -q` → `51 passed in 23.09s`（基线 43，+8）。
+- 债务熔断：`node scripts/check-debt-budget.js` → rc=0（`filesOver500=95 ≤ baseline 101`；过程中把 `zhihu-favlist.js` 从一度 506 行压回 499 行，避免跨 500 红线）。
+- 真机：目标百家号 URL 连续 2 次采集 `success:true`、`contentLen=3521`、结果中验证标记为空；现场 3 份 CHALLENGE 页用生产解析器、captcha URL 与普通文章 URL 两种入参共 **6/6** 返回 `{success:false, reason:"security_challenge"}`；3 份 OK 页 `contentLen=3521/4639/3521` 且零标记（不误杀）。
+- 现场依据（已复跑，详见 `01-docs/PRD-FIX-COLLECT-ANTIBOT-REWRITE-LLM-2026-10-18.md` §2.1 与 §12.2）：普通 HTTP 直连 16/16 成功（0 挑战）；仓库现用截断 UA 4/4 成功（「UA 截断导致验证」本次未复现，不作根因）；修复前生产解析器对 3 份 CHALLENGE 页均返回 `success=true / title="百度安全验证" / contentLen=101`，修复后为 `success=false / reason=security_challenge`。
+
 # [未发布] feat(gate): 「禁止为改写收口行另开 PR」装上执行体 —— 按 PR 差量判人工改写，堵住"散文有规矩、没人装闸"（ban-record-closure-backfill-pr）
 
 - **立项事由**：#3879 把执行记录的「远程同步」收口改成按主干历史推导，并在 AGENTS 明文禁止"为改写那一行另开一次 PR"。禁令落主干（merge `b49510794`，03:43 +08）后 6 分钟内起，实测仍有 4 笔回填 PR 按旧 SOP 执行——#3889 03:49、#3891 04:18、#3890 04:20、#3884 09:15。成因不是有人抗命，是并发会话带着旧口径的分支与提示在跑，而那条禁止只存在于文字里，**没有任何东西检测它**。
