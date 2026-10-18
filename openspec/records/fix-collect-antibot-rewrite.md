@@ -117,6 +117,13 @@ node scripts/check-debt-budget.js
 真机与独立复核见 PRD §12.1 / §12.2（真机 2 次采集 `contentLen=3521` 且验证标记为空；
 3 份 CHALLENGE 页 × 两种 URL 入参 = 6/6 `security_challenge`；3 份 OK 页零误杀）。
 
+CI 首跑（PR #3915）shard 1/2 红过 1 例：`src/utils/rewrite-lineage.test.js` 的结构锁
+「Collection 的 Python 改写分支必须显式清掉引擎残留 id」——它的前提是 Collection 存在 Python
+改写分支，而本片正是把该分支整体改走桌面引擎 ⇒ 锁已过时（不是实现回归）。已把锁改为
+正向不变量：「Collection 不得再调用 `api.aggregationRewrite(`（无 id 链路），且
+`collectRewriteLineageId` 必须由共享 `extractRewriteHistoryId` 赋值」，本地
+`rewrite-lineage.test.js` 11 passed；这是 CI 首跑暴露的**测试前提过期**，修复后重跑。
+
 ### 遗留（不假装已闭合）
 
 - HTTP 直连仍可能被挑战（百度风控概率性）：修复只保证「失败不被当成功」，不承诺「永不触发」。
