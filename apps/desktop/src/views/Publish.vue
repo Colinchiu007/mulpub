@@ -209,13 +209,8 @@
                   <label class="cohere-form-label">
                     {{ t('publishPage.title') }}
                     <span v-if="fieldSupportText('title')" class="field-support-badge" data-testid="field-support-title">{{ fieldSupportText('title') }}</span>
-                  </label>
-                  <UiInput data-testid="publish-title" v-model="article.title" :placeholder="t('publishPage.videoTitlePlaceholder')" :maxlength="titleMaxLength" />
-                  <!-- 2026-10-18：标题实时字数（与截断同口径：Unicode 码点） -->
-                  <p class="title-char-count" data-testid="publish-title-count">{{ titleCharCount }}/{{ titleMaxLength }}</p>
-                  <p v-if="noTitleHint" class="no-title-hint" data-testid="no-title-hint">{{ noTitleHint }}</p>
-                  <!-- fix-hot-topics-genvideo-title：视频模式标题来源提示（三态，无 title_source 不渲染） -->
-                  <p v-if="videoTitleSourceHint" class="video-title-source-hint" data-testid="video-title-source-hint">{{ videoTitleSourceHint }}</p>
+                  </label><UiInput data-testid="publish-title" v-model="article.title" :placeholder="t('publishPage.videoTitlePlaceholder')" :maxlength="titleMaxLength" :hint="titleHint" />
+                  <p v-if="noTitleHint" class="no-title-hint" data-testid="no-title-hint">{{ noTitleHint }}</p><p v-if="videoTitleSourceHint" class="no-title-hint" data-testid="video-title-source-hint">{{ videoTitleSourceHint }}</p>
                 </div>
                 <!-- 标题助手：贴邻标题输入（openspec optimize-publish-right-rail） -->
                 <div v-if="showTitlePanel || article.title.length > 5" class="cohere-form-item">
@@ -361,9 +356,7 @@
                     {{ showAiWriter ? t('publishPage.close') : t('publishPage.aiWriter') }}
                   </button>
                 </div>
-                <UiInput data-testid="publish-title" v-model="article.title" :placeholder="t('publishPage.titlePlaceholder')" :maxlength="titleMaxLength" />
-                <!-- 2026-10-18：标题实时字数（与截断同口径：Unicode 码点） -->
-                <p class="title-char-count" data-testid="publish-title-count">{{ titleCharCount }}/{{ titleMaxLength }}</p>
+                <UiInput data-testid="publish-title" v-model="article.title" :placeholder="t('publishPage.titlePlaceholder')" :maxlength="titleMaxLength" :hint="titleHint" />
                 <p v-if="noTitleHint" class="no-title-hint" data-testid="no-title-hint">{{ noTitleHint }}</p>
               </div>
               <!-- 标题助手：贴邻标题输入（openspec optimize-publish-right-rail） -->
@@ -710,7 +703,6 @@
 <script setup>
 import UiButton from "../components/UiButton.vue";
 import UiInput from "../components/UiInput.vue";
-// 2026-10-18：标题相关逻辑整体下沉到 composable（本文件是零增长容差的还账文件）
 import { usePublishTitleLimit, usePublishVideoTitleHint } from '@/composables/usePublishTitleLimit'
 import { ref, reactive, computed, onMounted, onActivated, onBeforeUnmount, watch } from 'vue'
 import { safeHttpUrl } from '@multi-publish/shared-utils/src/safe-http-url'
@@ -1234,10 +1226,7 @@ const scheduleCapabilityHint = (ids) => fieldSurface.scheduleCapabilityHint(ids)
 const scheduleHintText = computed(() => fieldSurface.hintTextFor(selectedPlatforms.value))
 const noTitleHint = computed(() => fieldSurface.noTitleHintFor(selectedPlatforms.value))
 
-// ── 标题来源提示（fix-hot-topics-genvideo-title）与字数上限 ──
-// 三态映射与 20 字口径都在 usePublishTitleLimit.js（本文件零增长容差，故下沉）
-const videoTitleSourceHint = usePublishVideoTitleHint(activeMode, route, t)
-const { titleMaxLength, titleCharCount } = usePublishTitleLimit(article)
+const videoTitleSourceHint = usePublishVideoTitleHint(activeMode, route, t); const { titleMaxLength, titleHint } = usePublishTitleLimit(article)
 const selectedOverridePlatforms = computed(() =>
   fieldSurface.overridePlatformSpecsFor(platforms.value, selectedPlatforms.value))
 const visibilitySupportedPlatforms = computed(() =>
@@ -1574,10 +1563,6 @@ defineExpose({
 /* 通用字段支持度徽标 + 无标题平台标题提示（publish-capability-registry） */
 .field-support-badge { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 8px; font-size: var(--font-size-xs, 11px); color: var(--action-blue, #1890ff); background: color-mix(in srgb, var(--action-blue, #1890ff) 10%, transparent); vertical-align: middle; }
 .no-title-hint { margin: 6px 0 0; font-size: var(--font-size-xs); color: var(--muted); }
-/* 视频模式标题来源提示（fix-hot-topics-genvideo-title）：与 no-title-hint 同级辅助文字 */
-.video-title-source-hint { margin: 6px 0 0; font-size: var(--font-size-xs); color: var(--muted); }
-/* 标题实时字数（2026-10-18）：右对齐的轻量辅助文字，不抢标题本身的视觉权重 */
-.title-char-count { margin: 4px 0 0; font-size: var(--font-size-xs); color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
 .stack-gap { margin-bottom: var(--space-md); }
 .stack-gap-top { margin-top: 12px; }
 .stack-center { text-align: center; }

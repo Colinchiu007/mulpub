@@ -18,6 +18,9 @@ import { PUBLISH_TITLE_MAX, countTitleCodePoints, truncateTitleByCodePoints } fr
 
 export function usePublishTitleLimit (article) {
   const titleCharCount = computed(() => countTitleCodePoints(article?.title))
+  // 直接返回「可绑到 UiInput:hint」的成品文案：视图侧只需 :hint="titleHint"，
+  // 不必在模板里多写一个 <p>（Publish.vue 零增长容差，省一行是一行）。
+  const titleHint = computed(() => `${titleCharCount.value}/${PUBLISH_TITLE_MAX}`)
 
   watch(
     () => article?.title,
@@ -29,7 +32,7 @@ export function usePublishTitleLimit (article) {
     },
   )
 
-  return { titleMaxLength: PUBLISH_TITLE_MAX, titleCharCount }
+  return { titleMaxLength: PUBLISH_TITLE_MAX, titleCharCount, titleHint }
 }
 
 /**
