@@ -126,6 +126,121 @@ src/views/video-creation/ResultModelInfoRow.vue (2:9):
 本机缺 dev server 时不冒充跑像素门禁，把证据责任点名给 CI，但**不能因此说"视觉没问题"**——
 要说"零回归有行为级依据，像素差异的责任在 CI"。
 
+## 排序副作用被当成默认契约；而「真源已在主场、前端没问」是最隐蔽的缺陷形态（fix-model-default-follow，2026-10-18）
+
+### lesson:split-tests-by-experiment-not-by-intuition
+
+**测试文件超限要拆时，先做「HEAD 测试文件 + 当前源码」的对照实验，再决定拆哪一块——否则会把既有的隔离脆弱性误判成自己改坏了源码。**
+
+现场：CI 债务熔断判 `CreateView.test.js` 膨胀超容差，必须拆。第一次把**本次新增**的
+10 例拆出去，主文件立刻出现 **10 例失败**（克隆音色 / MiMo TTS 下拉等，全是语音状态相关），
+但每一例单跑都过。此时最容易被读成「我的源码改动有副作用」并去改源码。
+正解是对照实验：把 **HEAD 版测试文件**（7348 行、含那 10 例）另存同目录临时文件，
+用**当前源码**跑 ⇒ **316/316 全绿**。这一步把变量锁成「只在测试集合」，结论随之翻转：
+失败源于**拆分后顺序变化暴露的既有隔离脆弱性**（模块级 singleton 未随 `beforeEach` 完全复位）。
+于是改为移出**最不共享状态**的块（批量创作 / 画幅下发 / 文案字数上限），4 文件 / 327 例全绿。
+判据：拆分引起的红，先问「是源码跟着变了，还是只有测试集合变了」；
+一个临时同目录测试文件（跑完用 `scripts/safe-delete.js` 删掉）就能把这两个假设分开。
+
+### lesson:test-file-split-must-respect-state-coupling
+
+**这仓的 `CreateView.test.js` 里，用例之间通过模块级 singleton（TTS 音色域 composable、
+BGM 库、批量创作域）隐式耦合；`reset*ForTest()` 复位不完整，于是「谁跑在前面」会改变结果。**
+
+现场：拆走 10 例后一堆语音相关用例转红，原因不是断言错，而是前置用例留下的
+`s2vVoiceProvider` / 音色目录状态不同了。这属于**测试质量问题**（用例依赖兄弟用例的副作用），
+本次不在范围内根治（改 `beforeEach` 复位面会波及大量既有用例），但**必须留痕**：
+后续任何人再动这个文件的用例顺序，都应先跑一次全文件确认，而不是只跑自己那一例。
+判据：单跑通过 + 全文件失败 = 顺序/状态耦合，不是逻辑错。
+
+### lesson:auto-applied-value-must-be-distinguishable-from-explicit-choice
+
+**只要「默认值」会写回同一个状态位，「用户显式选择」与「上次自动填入」就会同形——而这条同形会让默认永久钉死。**
+
+现场（本 PR 初版自己踩的坑，自审时抓出）：修复第一版把 `configuredProvider?.id`（即当前
+`s2vConfig.voiceProvider`）当成「用户显式选择」，只在当前值为空时才解析默认。但用户报告的
+操作路径恰恰是「**已打开页面**上在设置里改默认」：设置弹窗关闭会触发
+`settingsDialogRevision` watcher → `loadS2VProviders()` 重跑 → 此时 `voiceProvider` 已是
+旧默认 A（上一轮自动填入的）→ 被当成显式选择 → 新默认 B **永不生效**。
+**不补这条，用户按他自述的步骤复现仍然失败**，而所有其它用例都绿。
+
+判据：任何「默认值写回可编辑状态」的设计，都必须能区分三种来源 ——
+① 用户显式选择、② 系统按默认填入、③ 从快照/持久化恢复。
+只有 ① 该优先于新默认。实现上维护一个「上次自动填入值」的旁路记录
+（本 PR 用 `s2v*AutoProviderId`），重拉时 `当前值 === 自动值` ⇒ 重新解析。
+**不要用「等值猜测」代替显式标记**：快照恢复的值与手选值可能逐字相同，
+猜测在那一格必然失准（本 PR 的处置是「快照按自动值处理」，并把代价写进 PRD）。
+
+### lesson:order-by-is-not-a-default-contract
+
+**`ORDER BY is_default DESC` 的排序副作用不是「默认契约」——同分列会把它打翻，而测试看不见。**
+
+现场：`CreateView.vue::loadS2VProviders()` 里图片/视频生成器默认值就是
+`this.s2vImageProviders[0].id` / `this.s2vVideoProviders[0].id`。它「看起来对」的唯一原因是
+`listProviders()` 的 `ORDER BY is_default DESC, is_preset DESC, name ASC` 把默认项顶到了第一位。
+可这个排序在 `is_default` 相同时按 `name ASC` 字典序 —— 默认项只要不是同分里字典序最小的，
+就会落到第二及以后，默认即静默失效。语音生成器更糟：它连排序都没用，而是
+`find(p => p.category === 'multimodal' && capability_models?.tts)`，**只看「是不是多模态」，
+不看「是不是默认」**，于是把 TTS 默认从 Mimo TTS 改成 MiniMax 多模态的 TTS 能力后，
+下拉仍默认 Mimo TTS（用户实测）。
+判据：凡是用「取首项」表达默认意图的代码，先问「首项为什么是对的」；答案如果是
+「因为上游排过序」，那就是排序副作用，不是契约 —— 要么显式读出默认标记，要么把
+「默认项必须在第一位」写成测试。正解是后者与前者同时做：本次把判定提成纯函数
+`resolveS2VDefaultProviderId()`，口径与主进程逐条对齐。
+
+### lesson:the-source-of-truth-already-exists-upstream
+
+**「主进程早就实现了，前端没问」比「两边都没做」更隐蔽——它连 TODO 都不会留。**
+
+现场：`ModelProviderManager.getDefault(category)` 自 2026-08 起就完整实现了双默认语义
+（`_multimodalProviderFor`：`capability_defaults.includes(cat) || !!row.is_default`），
+IPC handler `model-provider:get-default`、preload `system.js` 的 `modelProviderGetDefault`、
+前端 `api/model-providers.js` 的封装**四层全通**，只有 `CreateView` 从没调用过它。
+于是「设置里显示默认是 A」与「下拉默认是 B」可以长期并存，而且两边各自的测试都绿。
+判据：排查「设置改了但不生效」类缺陷时，第一件事是 grep 主进程有没有对应的 getter/IPC；
+如果四层链路齐全而消费方缺席，修复就是「加一次调用」，不要新建第二套实现
+（本次因此**完全没改主进程/IPC/DB**，只补前端读取与判定）。
+
+### lesson:fixture-without-default-markers-locks-the-bug-as-contract
+
+**夹具不带默认标记时，「挑形态」的旧实现会让错误断言通过——测试忠实实现了错误需求。**
+
+现场：`CreateView.test.js:848` 原断言「多模态优先于普通 TTS 服务商」的夹具里，
+`elevenlabs` 与 `minimax-multimodal` **都无任何默认标记**，旧代码的「第一个多模态」规则
+恰好命中 minimax ⇒ 断言绿。修复后该用例转红（新口径回退首项 elevenlabs）。
+**这不是回归，是需求变更**：那条断言锁定的正是本次要纠正的行为。处置是改写断言 +
+在用例上方留注释说明语义变更与指向新增用例组，而不是「为了让测试绿而保留旧行为」。
+判据：修复后遇到旧测试转红，先分辨「我改坏了行为」还是「我改的行为正是它锁的」；
+后者要改测试并留证据链，前者要改实现。二者的区别在于**用户需求原文**。
+
+### lesson:default-resolution-must-be-a-pure-function
+
+**把「谁是默认」提成纯函数，是为了让它可测；顺带发现主进程与前端候选集并不相同。**
+
+现场：判定逻辑一开始想直接内联进 `loadS2VProviders()`，但那样只能靠 mount 整个
+CreateView 来测（夹具要 mock 三路 list + 三路 getDefault）。提成
+`resolveS2VDefaultProviderId(providers, category, preferredId)` 后，9 条边界
+（多模态能力默认 / 普通默认 / 整体默认 / 图片视频同样跟随 / 无默认回首项 /
+悬空 id / 空列表 / 未声明能力 / 脏入参）在 500ms 内全跑完。
+更重要的是它逼出了一个真问题：**`preferredId`（主进程 getDefault）与前端候选列表
+不是同一个集合**（主进程不要求 `name` 非空，前端 `enabledProviders` 要求），
+所以 `preferredId` 必须过「在列表内 + 是默认」双重校验才能采用，校验不过就地降级 ——
+否则会选中一个下拉里不存在的项，直接产出空白选中项（本仓反复出现过的 UI 缺陷形态）。
+判据：跨层默认解析必须有「校验 + 降级」两段，不能直接信任上游 id。
+
+### lesson:dont-expand-scope-while-fixing-a-default
+
+**修默认值时，最容易顺手多做的是「把 Model 也一起联动」——那不是修复，是行为扩张。**
+
+现场：图片侧原本只设 `imageProvider` 不设 `imageModel`（`imageModel` 由 restore 快照与
+`applyS2VPipelineDefaults` 处理）。修复时很自然会想「那把 `getS2VDefaultImageModel`
+也加上，保持对称」——但这会改变图片模型的解析路径，引入与本次需求无关的回归面，
+还要为它写一套新测试。本次明确不做，并在 PRD §2.2「非目标」与 §5.4「明确不做的事」
+两处写下理由。语音/视频侧的 `*Model` 本来就跟着 provider 联动，无需新增。
+判据：修复的边界按「用户报的行为」划，不按「代码对称性」划；想要对称先问
+「那个方向现在有没有人报问题」。
+
+## 缓存空壳与漏斗守卫：空正文不得进改写链路（fix-collect-rewrite-empty-content，2026-10-18）
 
 ### lesson:success-shape-is-not-content-shape
 

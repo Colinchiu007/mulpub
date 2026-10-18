@@ -950,7 +950,8 @@ import {
 import { bgmLibraryRefs, bgmLibraryMethods, setupBgmLibraryDeps } from './video-creation/composables/useBgmLibrary'
 import { ttsVoicesRefs, ttsVoicesComputeds, ttsVoicesMethods, setupTtsVoicesDeps } from './video-creation/composables/useTtsVoices'
 import { batchCreateRefs, batchCreateMethods, setupBatchCreateDeps } from './video-creation/composables/useBatchCreate'
-import { modelProviderList } from '@/api/model-providers'
+import { modelProviderList, modelProviderGetDefault } from '@/api/model-providers'
+import { resolveS2VDefaultProviderId } from './video-creation/s2v-default-provider'
 import { getApi } from '@/api/electron-bridge'
 import { settingsDialogRevision } from '@/stores/settings-dialog'
 import { showPipelineBackgroundToast } from '@/stores/pipeline-background-toast'
@@ -1186,6 +1187,10 @@ export default {
       s2vConfigProfileError: '',
       // 批量创作（2026-08-15 story2video-batch-create）：弹窗状态 / 输入源 / 队列展示
       s2vImageProviders: [], s2vVideoProviders: [],
+      // 「本次会话自动应用过的生成器默认值」（2026-10-18）。用于区分「用户显式选择」与
+      // 「上次由模型设置默认自动填入的值」：前者必须尊重，后者在设置里的默认变化后应当跟随。
+      // 不持久化 —— 快照回填的值按「显式选择」处理（见 PRD §9.10.3 交互优先级）。
+      s2vImageAutoProviderId: '', s2vVideoAutoProviderId: '', s2vVoiceAutoProviderId: '',
       s2vTemplateLibrary: [], s2vTemplateCategory: 'all', s2vCustomTemplateName: '',
       s2vOpenSections: { basic: true, appearance: false, videoEnhance: false, voice: false, advanced: false, publish: false },
       // 运营中心选项控制（2026-08-31）：可见性与默认值
@@ -2752,6 +2757,12 @@ export default {
           delete config.voiceProvider; delete config.voiceModel; delete config.voiceId
         }
         this._applyS2VSnapshot(config, this.s2vConfig)
+        // 快照里的生成器选择视为「上次的起点」，登记为自动应用值（2026-10-18）：
+        // 用户改了「模型设置」里的默认后，重启/重进页面不该继续钉住旧默认；
+        // 同一次会话内用户手动改过下拉则与自动值不同，按显式选择保留。
+        this.s2vImageAutoProviderId = this.s2vConfig.imageProvider || ''
+        this.s2vVideoAutoProviderId = this.s2vConfig.videoProvider || ''
+        this.s2vVoiceAutoProviderId = this.s2vConfig.voiceProvider || ''
         // 2026-08-10 Bug 反哺：陈旧快照枚举值（如 imageStyle=anime-mslpadvn）不在当前选项
         // 列表时先归一化，避免下拉框空白选中项，也避免分镜自愈使用陈旧语言值估算。
         this.normalizeS2VRestoredEnums()
@@ -3000,6 +3011,9 @@ export default {
         this.s2vOutputConfig = JSON.parse(JSON.stringify(defaults.s2vOutputConfig || {}))
         // 重置后回到「未选择」状态，多模态默认重新生效
         this.s2vVoiceProviderExplicitEdge = false
+        this.s2vImageAutoProviderId = ''
+        this.s2vVideoAutoProviderId = ''
+        this.s2vVoiceAutoProviderId = ''
         await this.loadS2VVoiceData()
         try { await storeSetSetting('story2video.lastOptions.v1', null) } catch { /* 清理失败可忽略 */ }
       } finally { this.s2vRestoring = false }
@@ -3240,6 +3254,22 @@ export default {
       ])
       if (providerRequestId !== this.s2vVoiceProviderRequestId || this._s2vAlive === false) return
 
+      // 主进程侧「谁是该能力默认」的真源（2026-10-18 修复）。getDefault 内部已实现
+      // 双默认语义：多模态 capability_defaults / is_default > 普通 provider is_default。
+      // 失败（IPC 不可用 / 未初始化）时返回 data:null，由 resolveS2VDefaultProviderId
+      // 自行在列表内找默认，再兜底首项 —— 不因这一次查询失败就丢掉默认解析。
+      const [defaultImage, defaultVoice, defaultVideo] = await Promise.allSettled([
+        modelProviderGetDefault('image'),
+        modelProviderGetDefault('tts'),
+        modelProviderGetDefault('video'),
+      ])
+      if (providerRequestId !== this.s2vVoiceProviderRequestId || this._s2vAlive === false) return
+      const defaultProviderId = (result) => (
+        result.status === 'fulfilled' && result.value?.code === 0 && result.value?.data?.id
+          ? String(result.value.data.id)
+          : ''
+      )
+
       // 只展示「已启用且已配置」的服务商（is_configured=true：有可用 API Key 或免 Key 本地模型）。
       // 未配置/Key 解密失败的 provider 不进入能力下拉，避免旧配置恢复选中后流水线反复重试
       // 「尚未配置 API Key」导致卡在 generate_assets（2026-08-09 排查：debug profile 残留失效 key）。
@@ -3254,28 +3284,61 @@ export default {
       if (nextImageProviders) {
         this.s2vImageProviders = nextImageProviders
         // 图片生成器下拉归一化：已不存在/未配置的 provider 清空（含 imageModel），
-        // 避免下拉出现空白选中项；无显式选择时默认取第一个可用图片 provider（2026-08-12 Bug 修复）。
+        // 避免下拉出现空白选中项；无显式选择时默认取模型设置里该能力的默认 provider
+        // （2026-10-18 修复：此前只取列表首项，用户在设置里改默认不生效）。
         const imageProviderIds = new Set(this.s2vImageProviders.map(p => p.id))
+        // 当前值若等于「上次自动应用的值」，它就不是用户显式选择 ⇒ 应随设置里的默认重新解析。
+        // 这一条是「设置弹窗关闭后重拉列表」路径（settingsDialogRevision watcher）的关键：
+        // 只判 `!imageProvider` 会让旧默认永远钉住，用户改了设置也不生效。
+        const imageIsAutoApplied = this.s2vConfig.imageProvider !== ''
+          && this.s2vConfig.imageProvider === this.s2vImageAutoProviderId
         if (this.s2vConfig.imageProvider && !imageProviderIds.has(this.s2vConfig.imageProvider)) {
           this.s2vConfig.imageProvider = ''
           this.s2vConfig.imageModel = ''
+          this.s2vImageAutoProviderId = ''
         }
-        if (!this.s2vConfig.imageProvider && this.s2vImageProviders[0]) this.s2vConfig.imageProvider = this.s2vImageProviders[0].id
+        if (!this.s2vConfig.imageProvider || imageIsAutoApplied) {
+          if (this.s2vImageProviders[0]) {
+            const resolvedImageProvider = resolveS2VDefaultProviderId(
+              this.s2vImageProviders,
+              'image',
+              defaultProviderId(defaultImage)
+            )
+            if (resolvedImageProvider !== this.s2vConfig.imageProvider) {
+              this.s2vConfig.imageProvider = resolvedImageProvider
+              this.s2vConfig.imageModel = ''
+            }
+            this.s2vImageAutoProviderId = resolvedImageProvider
+          }
+        }
       }
 
       const nextVideoProviders = enabledProviders(videoResult)
       if (nextVideoProviders) {
         this.s2vVideoProviders = nextVideoProviders
         // 视频生成器与图片对齐（2026-08-12 审查 M2）：陈旧 provider 清空（含 videoModel），
-        // 未显式选择时默认取第一个可用视频 provider。
+        // 未显式选择时默认取模型设置里 video 能力的默认 provider（2026-10-18 起同源修复）。
         const videoProviderIds = new Set(this.s2vVideoProviders.map(p => p.id))
+        const videoIsAutoApplied = this.s2vConfig.videoProvider !== ''
+          && this.s2vConfig.videoProvider === this.s2vVideoAutoProviderId
         if (this.s2vConfig.videoProvider && !videoProviderIds.has(this.s2vConfig.videoProvider)) {
           this.s2vConfig.videoProvider = ''
           this.s2vConfig.videoModel = ''
+          this.s2vVideoAutoProviderId = ''
         }
-        if (!this.s2vConfig.videoProvider && this.s2vVideoProviders[0]) {
-          this.s2vConfig.videoProvider = this.s2vVideoProviders[0].id
-          this.s2vConfig.videoModel = this.getS2VDefaultVideoModel(this.s2vConfig.videoProvider)
+        if (!this.s2vConfig.videoProvider || videoIsAutoApplied) {
+          if (this.s2vVideoProviders[0]) {
+            const resolvedVideoProvider = resolveS2VDefaultProviderId(
+              this.s2vVideoProviders,
+              'video',
+              defaultProviderId(defaultVideo)
+            )
+            if (resolvedVideoProvider !== this.s2vConfig.videoProvider) {
+              this.s2vConfig.videoProvider = resolvedVideoProvider
+              this.s2vConfig.videoModel = this.getS2VDefaultVideoModel(resolvedVideoProvider)
+            }
+            this.s2vVideoAutoProviderId = resolvedVideoProvider
+          }
         }
       }
 
@@ -3283,18 +3346,24 @@ export default {
       if (nextVoiceProviders) {
         this.s2vVoiceProviders = nextVoiceProviders
         const configuredProvider = this.getS2VVoiceProvider()
-        // 默认选择多模态 TTS 模型（2026-08-12）：当模型设置保存了支持 TTS 能力的多模态模型
-        // Key（category=multimodal 且 capabilities 含 tts，如 MiniMax）时，语音生成器默认选中它，
-        // 其次才回退到普通 TTS 服务商首项；用户显式保存过的选择（configuredProvider / 显式 Edge）
-        // 始终优先。多模态候选额外要求 capability_models.tts 存在，避免缺默认 TTS 模型时
-        // getS2VDefaultVoiceModel 落到 image/video 模型（fail-closed 回退普通 TTS 首项）。
-        const multimodalProvider = nextVoiceProviders.find(
-          provider => provider?.category === 'multimodal' && typeof provider?.capability_models?.tts === 'string'
-        ) || null
-        const explicitEdge = this.s2vVoiceProviderExplicitEdge === true && !this.s2vConfig.voiceProvider
+        // 语音生成器默认值（2026-10-18 修复）：跟随「模型设置」里 TTS 能力的默认 ——
+        // 用户在设置中把某类别 TTS 模型设为默认、或把多模态模型（如 MiniMax）的 TTS
+        // 能力设为默认时，这里默认选中它，而不是「第一个多模态」或列表首项。
+        // 用户显式选择优先，但「上次由默认自动填入的值」不算显式选择：设置弹窗关闭后
+        // 会重跑本方法，若把旧默认当成用户选择，用户改设置就永远不生效（本次 Bug 主路径）。
+        const currentVoiceId = this.s2vConfig.voiceProvider || ''
+        const voiceIsAutoApplied = currentVoiceId !== '' && currentVoiceId === this.s2vVoiceAutoProviderId
+        const voiceExplicit = Boolean(configuredProvider) && !voiceIsAutoApplied
+        const explicitEdge = this.s2vVoiceProviderExplicitEdge === true && !currentVoiceId
+        const resolvedVoiceId = resolveS2VDefaultProviderId(
+          this.s2vVoiceProviders,
+          'tts',
+          defaultProviderId(defaultVoice)
+        )
         const nextProviderId = explicitEdge
           ? ''
-          : (configuredProvider?.id || multimodalProvider?.id || this.s2vVoiceProviders[0]?.id || '')
+          : (voiceExplicit ? configuredProvider.id : resolvedVoiceId)
+        if (!voiceExplicit && !explicitEdge) this.s2vVoiceAutoProviderId = nextProviderId
         const nextModel = nextProviderId
           ? (this.s2vVoiceModelOptions.includes(this.s2vConfig.voiceModel)
             ? this.s2vConfig.voiceModel
