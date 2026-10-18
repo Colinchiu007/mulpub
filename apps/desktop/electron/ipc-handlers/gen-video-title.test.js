@@ -92,7 +92,8 @@ describe('buildGenVideoTitlePrompt（主进程侧 prompt 构造）', () => {
   it('T25 含选题、摘要与「只输出标题本身」约束', () => {
     const { system, user } = pureFns.buildGenVideoTitlePrompt({ topicText: 'AI大模型最新突破进展', bodyText: '改写后的正文内容……' })
     expect(system).toContain('只输出标题本身')
-    expect(system).toContain('30')
+    expect(system).toContain('14') // 2026-10-18：理想长度 30→14（硬上限降到 20 字）
+    expect(system).toContain('20')
     expect(user).toContain('AI大模型最新突破进展')
     expect(user).toContain('改写后的正文内容……')
   })
@@ -337,7 +338,7 @@ describe('ai:generate-gen-video-title', () => {
 
     expect(result.code).toBe(0)
     expect(result.data.success).toBe(true)
-    expect(result.data.title.length).toBe(100)
+    expect(result.data.title.length).toBe(20) // 2026-10-18：默认上限 100→20
   })
 
   it('I10 推理型模型自动放大 max_tokens', async () => {

@@ -481,3 +481,141 @@ export async function aiGenerateGenVideoTitle (payload) {
 3. 不改主进程 `story2videoProject.title` 落库。
 4. 不改发布页「标题助手」面板。
 5. 不改 `publishDataToQuery` 的既有字段语义（只新增可选字段，由调用方决定是否传入）。
+
+---
+
+## 15. 2026-10-18 增量：标题 20 字上限 + 实时字数 + 全入口标题不再回退正文
+
+> 本节由用户当日追加需求触发，**推翻原先的三条非目标**：① 标题上限从 100 字降为 **20 字**；② 发布页标题输入框新增**实时字数显示**；③ **全入口排查**后发现「标题=正文切片」不止热门选题一条路径，`buildPublishFromProject` 本身仍在做 `title ← sourceText` 回退，故一并修复。
+
+### 15.1 需求原话
+
+1. 「所有的需要生成标题的地方都排查一下，都是这样正常处理了吗？」
+2. 「标题字数需要控制在最多 20 字。现在好像没有控制。」
+3. 「标题的输入框，需要有一个文字的实时字数输入显示。」
+
+### 15.2 排查结论（全入口审计）
+
+标题进入发布页共有 **4 条链路**，全部经 `buildPublishFromProject` 提取（`publish-from-project.js`）：
+
+| # | 入口 | 触发方式 | 修复前标题来源 | 修复前是否有 AI 生成 |
+|---|---|---|---|---|
+| 1 | 热门选题 → 生成视频 → 【去发布】 | `useGenVideoPublishTitle` | 修复前：正文前 100 字（本期已改 AI+降级） | 本期已加 |
+| 2 | 视频创作页 → 【去发布】 | `CreateView.publishPipelineResult` | `publish.title` 为空 ⇒ 回退 `project.title` ⇒ 回退 `sourceText`（**正文切片**） | ❌ 无 |
+| 3 | 结果页 → 【去发布】 | `ResultView.goPublish` | 同上 | ❌ 无 |
+| 4 | 历史视频一键发布 / 播客 | `CreateView.publishHistoryItem` / `PodcastEpisodeEntry` | 同上 | ❌ 无 |
+
+**结论：修复前 4 条里有 3 条（2/3/4）存在同一缺陷** —— 只要用户在视频创作配置里没填「发布标题」（该字段 placeholder 是「可选」），标题就会变成正文切片。热门选题那条只是**第四个受害者**，不是孤例。
+
+### 15.3 修复方案
+
+**A. 长度上限收敛为单一真源（20 字）**
+
+新增 `apps/desktop/src/features/publish/title-limits.js`：
+
+- `PUBLISH_TITLE_MAX = 20`：取值依据不是拍脑袋 —— 各平台 `titleMax` 里最小的是**小红书 20**，取它 = 全平台安全上限，标题在任何平台都不会被二次截断。
+- `PUBLISH_TITLE_IDEAL = 14`：写进主进程 prompt 的软约束，严格小于硬上限（否则 prompt 自相矛盾）。
+- `truncateTitleByCodePoints(text, max)` / `countTitleCodePoints(text)`：**按 Unicode 码点**计数与截断，不用 `String.length`。理由：emoji / 生僻字是代理对，`String.length` 会把 1 个字算成 2，用户看到「19/20」却被拦下会当成 bug。**计数与截断必须同口径**，否则同一个数字有两种含义。
+- 改前上限散在三处（`publish-from-project` 的 100、`gen-video-title` 的 100、主进程 prompt 里的另一个数字），靠注释互相提醒同步 —— 注释不是机制，收敛成唯一导出。
+
+**B. 全入口标题不再回退正文（系统性修复）**
+
+`buildPublishFromProject` 的标题链由 `publish.title || project.title || sourceText` 改为 **`publish.title || project.title`**：
+
+- 无显式标题 ⇒ 返回**空串**，由发布页 `noTitleHint` + 发布前校验把用户拦到「请填标题」。
+- 为什么不保留「截到 20 字的正文」：那仍是「正文前 N 字」，只是把 N 从 100 改成 20 —— 用户抱怨的正是这件事本身。
+- 为什么暴露空值而不是填充：用户根本没写标题这件事**必须被暴露**，不能被自动填充掩盖。填充看起来更"友好"，实则让用户以为标题是自己写的。
+
+**C. 发布页实时字数显示**
+
+- 组件：`apps/desktop/src/composables/usePublishTitleLimit.js` 的 `usePublishTitleLimit(article)` → `{ titleMaxLength, titleCharCount }`。
+- 视图：视频模式与图文模式**两个**标题输入框都渲染计数行。
+- 显示项：`<p class="title-char-count" data-testid="publish-title-count">12/20</p>`，右对齐、`tabular-nums`（等宽数字，避免输入时数字跳动导致布局抖动）。
+- 为什么抽成 composable 而不是写在视图里：`Publish.vue` 是 `check-max-lines` 里**点名还账、零增长容差**的文件（targets 钉在 1773 行）。为容纳新功能，同时把上一轮加的 12 行 `videoTitleSourceHint` 一并下沉（`usePublishVideoTitleHint`），最终视图 **1768 行**，比改前基线还少 5 行。
+- 为什么不用原生 `maxlength` 作为唯一拦截：原生按 UTF-16 单元算，与码点计数口径不同。故 `UiInput` 补 `maxlength` prop（属性透传只会落到根 div，等于写了不生效），但**真正的拦截由 watcher 按码点做**。
+
+### 15.4 数据校验
+
+| 校验点 | 规则 | 失败表现 |
+|---|---|---|
+| 输入上限 | 超过 20 码点即截断（watcher，输入过程中实时生效） | 静默截断 + 计数停在上限，不弹错 |
+| 计数显示 | 按码点计，emoji 算 1 | `0/20` 起步 |
+| `truncateTitleByCodePoints` 的 `max` 非法 | `0` / 负数 / `NaN` / `Infinity` / 非数字 ⇒ 回退 20；小数向下取整；数字字符串按数字 | **不返回空串、不抛错**（返回空串会把标题清空） |
+| 非字符串输入 | `null`/`undefined`/数字/对象/数组/布尔 ⇒ `''` / `0` | 不抛错 |
+| 代理对 | 截断不切断 emoji | 断言无孤立代理项 |
+| 提交前平台校验 | 20 字 = 60 字节 < 百家号 149 字节；= 小红书 20 字符上限 | 两个平台都不再触发截断/阻断 |
+
+### 15.5 功能逻辑与流程
+
+```
+用户输入标题
+  → [watch article.title] 按码点截断到 20 → 回写 article.title
+  → [computed titleCharCount] 重新计数 → 计数行实时更新「n/20」
+  → [handlePublish] 平台级校验（百家号字节 / 小红书字符）→ 通过则发
+```
+
+标题进入发布页的 4 条链路统一为：
+
+```
+buildPublishFromProject(project)
+  → title = publish.title || project.title || ''      ← 不再回退 sourceText
+  → content = publish.content || sourceText || segments  ← 正文链不变
+```
+
+热门选题那条在其之上再叠一层 AI 生成 + 三级降级（见 §4.3），`title_source` / `title_reason` 不变。
+
+### 15.6 交互逻辑与提示文字
+
+| 场景 | 显示项 | 文案/形态 |
+|---|---|---|
+| 标题输入框下方（视频/图文两模式都有） | 实时字数 | `12/20`（右对齐、等宽数字，无额外标签文字） |
+| 标题为空且平台要求标题 | 既有 `no-title-hint` | 沿用原文案（未新增） |
+| 热门选题带入 AI 标题 | `video-title-source-hint` | 沿用 §7.3 三态（未变） |
+| 标题超过 20 字 | 无提示 | 静默截断到上限（输入即限制，不需要事后报错） |
+
+### 15.7 影响文件清单（增量）
+
+新增：
+
+- `apps/desktop/src/features/publish/title-limits.js` + `.test.js`（12 例）
+- `apps/desktop/src/composables/usePublishTitleLimit.js`（含 `usePublishVideoTitleHint` 下沉）
+- `apps/desktop/src/views/Publish.title-counter.test.js`（6 例）
+
+修改：
+
+- `apps/desktop/src/features/publish/publish-from-project.js`（上限 20 + 去掉正文回退）
+- `apps/desktop/src/features/publish/publish-from-project.test.js`（新契约 + 回归锁 + emoji/边界）
+- `apps/desktop/src/features/publish/gen-video-title.js`（上限改为 re-export 单一真源）
+- `apps/desktop/src/components/UiInput.vue`（补 `maxlength` prop，否则属性透传到根 div 不生效）
+- `apps/desktop/src/views/Publish.vue`（计数行 ×2、两处 composable 调用、提示逻辑下沉）
+- `apps/desktop/src/views/Publish.test.js`（两条旧「平台字节截断」用例改为新不变量）
+- `apps/desktop/electron/ipc-handlers/gen-video-title.js`（prompt 软约束 14 字 / 硬上限 20 字提示、默认值 100→20）
+
+### 15.8 测试计划（增量）
+
+| 文件 | 例数 | 覆盖 |
+|---|---|---|
+| `title-limits.test.js` | 12 | 上限值、理想长度 < 上限、码点计数、emoji 不切断、非法 max 回退、非字符串输入 |
+| `publish-from-project.test.js` | 8（+2） | 显式标题、**无标题不得回退正文（回归锁）**、20 字截断、emoji 按 1 字、标签归一、URI 编码、空项目 |
+| `Publish.title-counter.test.js` | 6 | `0/20` 起始、实时跟随、超长截断、恰好 20 不误伤、图文模式同样生效、DOM 节点可观测 |
+
+**变异反证（实测，两条都指名红后还原）**：
+
+- `M-new-1`：把 watcher 的截断改成不截断 ⇒ `Publish.title-counter.test.js` 2 例红（「超过 20 字时被截断」/「图文模式同样有上限」）。证明计数测试不是摆设。
+- `M-new-2`：把标题链改回 `|| sourceText` ⇒ `publish-from-project.test.js` 1 例红（用例名即「【回归锁】无显式标题时不得回退正文」）。证明系统性修复有锁。
+
+### 15.9 验收标准（AC，增量）
+
+1. 标题输入框最多输入 20 个字；第 21 个字起无法输入（截断）。
+2. 输入框下方实时显示 `n/20`，随输入立即变化；emoji 算 1 个字。
+3. 视频模式与图文模式**都**有该计数。
+4. 从视频创作页 / 结果页 / 历史一键发布 / 播客进入发布页，**未填发布标题时标题为空**，不再是正文切片。
+5. 热门选题【去发布】行为保持不变（AI 标题 + 三级降级 + 来源提示）。
+6. 百家号 149 字节 / 小红书 20 字符校验在 20 字标题下都不会触发截断或阻断。
+7. `check-max-lines` 零违规（`Publish.vue` ≤1773、`Publish.test.js` ≤1935）。
+
+### 15.10 非目标（本轮明确不做）
+
+1. 不给入口 2/3/4 加 AI 标题生成（它们没有「选题」概念，降级目标不存在；要做得先定义「无标题时用什么降级」）。
+2. 不改各平台 `titleMax` 配置（只把应用层上限收到最严的那个值）。
+3. 不做标题字符级「已超出」红字提示（20 字是硬输入上限，超不过去）。

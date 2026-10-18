@@ -344,38 +344,38 @@ describe("PublishView", () => {
     expect(w.vm.result.success).toBe(true);
   });
 
-  it("handlePublish 百家号标题超长时自动按字节截断到 149 字节并继续一键发布", async () => {
+  it("handlePublish 标题被应用层 20 字上限截断后，百家号字节上限不再触发且继续一键发布", async () => {
     const w = await createWrapper();
     w.vm.selectedPlatforms = ["baijiahao"];
     w.vm.selectedAccounts = { baijiahao: ["bj1"] };
+    // 2026-10-18：上限降到 20 字（按码点）⇒ 20 中文 = 60 字节 < 百家号 149，
+    // 平台级字节截断那条安全网不再被触发，发出去的标题恰好 20 码点（旧行为是 49 字）。
     w.vm.article.title = "外婆的灶台总飘着豆瓣香的雾气。那年我离家求学，她往行李塞了一罐自制辣酱。十年后我回乡，罐子还在，人已不在，我终于读懂了那口辣里的甜。";
     w.vm.article.content = "正文";
 
     await w.vm.handlePublish();
     await flushPromises();
 
-    // 自动截断后仍继续发布，不阻断一键流程
     expect(window.electronAPI.publishBatch).toHaveBeenCalled();
     const [, data] = window.electronAPI.publishBatch.mock.calls[0];
-    // 66 个中文字符 = 198 字节，按 149 字节上限截断后剩 49 个中文字符（147 字节）
-    expect(Array.from(data.title).length).toBe(49);
+    expect(Array.from(data.title).length).toBe(20);
+    expect(Buffer.byteLength(data.title, "utf8")).toBeLessThanOrEqual(149);
     expect(w.vm.result.success).toBe(true);
   });
 
-  it("handlePublish 多平台发布时百家号标题截断后重新校验，其他平台仍超限则阻断", async () => {
+  it("handlePublish 多平台时 20 字标题同时满足百家号(149字节)与小红书(20字符)上限，不阻断", async () => {
     const w = await createWrapper();
-    // baijiahao(149字节) + xiaohongshu(20字符)：截断到 49 中文字符后仍超 xiaohongshu 上限
     w.vm.selectedPlatforms = ["baijiahao", "xiaohongshu"];
     w.vm.selectedAccounts = { baijiahao: ["bj1"], xiaohongshu: ["xhs1"] };
-    w.vm.article.title = "外婆的灶台总飘着豆瓣香的雾气。那年我离家求学，她往行李塞了一罐自制辣酱。十年后我回乡，罐子还在，人已不在，我终于读懂了那口辣里的甜。";
+    w.vm.article.title = "外婆的灶台总飘着豆瓣香的雾气。那年我离家求学，她往行李塞了一罐自制辣酱。";
     w.vm.article.content = "正文";
-
     await w.vm.handlePublish();
     await flushPromises();
-
-    // 截断到 49 字符后仍超 xiaohongshu 20 字符上限 → 重新校验失败，阻断发布
-    expect(window.electronAPI.publishBatch).not.toHaveBeenCalled();
-    expect(w.vm.result).toBeNull();
+    // 20 字 = 全平台安全值（各平台 titleMax 最小者是小红书 20），故两侧都过
+    expect(window.electronAPI.publishBatch).toHaveBeenCalled();
+    const [, data] = window.electronAPI.publishBatch.mock.calls[0];
+    expect(Array.from(data.title).length).toBe(20);
+    expect(w.vm.result.success).toBe(true);
   });
 
   it("handlePublish 百家号差异化覆盖标题超长时截断覆盖标题而非全局标题", async () => {

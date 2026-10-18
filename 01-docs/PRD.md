@@ -6467,7 +6467,7 @@ Vue 展示组件
 
 | 条件 | 标题 | `title_source` | `title_reason` |
 | --- | --- | --- | --- |
-| AI 生成成功 | AI 标题（prompt 约束 30 字，硬限 100 字） | `ai` | — |
+| AI 生成成功 | AI 标题（prompt 软约束 14 字，**硬限 20 字**，2026-10-18 起） | `ai` | — |
 | 未配置默认文字推理模型 / 无可用模型 / 无 API Key | 原始选题文本 | `topic` | `no-model` |
 | LLM 失败 / 超时 / 返回空 / 清洗后为空 | 原始选题文本 | `topic` | `failed` |
 | 选题文本为空 | 不注入 title | — | — |
@@ -6476,7 +6476,8 @@ Vue 展示组件
 - **降级不阻断**：任何降级路径都照常跳转发布页。
 - **run-only 同样带标题**：非 S2V 流水线只交接 `type=video` + `video_path` + `title` + `title_source`，`content`/`tags` 仍不注入。
 - **分层**：prompt 构造与 LLM 输出清洗在主进程（`electron/ipc-handlers/gen-video-title.js`），渲染层只保留降级链决策纯函数（`src/features/publish/gen-video-title.js` 的 `resolveGenVideoTitle`）。渲染层 `src/` 受 CJK 基线扫描，中文 prompt 不能放那里；全仓渲染层此前也没有 LLM prompt 构造先例。
-- **不动共享真源**：`buildPublishFromProject` 的回退链不变（历史记录/结果页/播客三条入口语义不变），标题决策放在调用方。
+- **共享真源的回退链已于 2026-10-18 修改（推翻原先的非目标）**：`buildPublishFromProject` 的 `title` 链由 `publish.title || project.title || sourceText` 改为 `publish.title || project.title`，无显式标题时返回**空串**而不是正文切片。动因是用户要求审计全入口后实测：视频创作页 / 结果页 / 历史一键发布 / 播客这三条入口，在用户未填「发布标题」（`s2vConfig.title`，placeholder 是「可选」）时标题同样变成正文切片 —— 热门选题只是第四个受害者。标题决策仍在调用方（热门选题侧叠 AI 生成 + 三级降级）。
+- **标题长度上限 2026-10-18 收为 20 字（单一真源 `src/features/publish/title-limits.js`）**：取值依据是各平台 `titleMax` 里最小者（小红书 20），故 20 是全平台安全上限。计数与截断同按 **Unicode 码点**（emoji 算 1 字），发布页标题输入框下方实时显示 `n/20`（视频与图文两模式都有）。改前上限散在三处并靠注释互相提醒同步 —— 注释不是机制。
 - LLM 输出清洗 10 条规则：思维链（闭合 + 未闭合）、markdown 围栏、取首行、控制字符、「标题：」前缀、列表编号、成对引号/书名号、尾部标点、Unicode 码点截断、空结果降级。
 - 模型解析复用 `aiGenerator.generateWithDefault('llm', …)`（与 `videogen-stages.callDefaultLlm` 同通道），推理型模型 `max_tokens` 放大到 5000；API Key 只在主进程边界读取。
 - 详细契约、时序、显示项、测试锚点与逃逸分析见 `01-docs/PRD-HOT-TOPICS-MODULE-2026-09-11.md` §3.13.10 与 `01-docs/PRD-VIDEO-PIPELINE-PROGRESS-MODAL-2026-10-17.md` §4.3.1。
@@ -15359,7 +15360,7 @@ Vue 展示组件
 
 | 条件 | 标题 | `title_source` | `title_reason` |
 | --- | --- | --- | --- |
-| AI 生成成功 | AI 标题（prompt 约束 30 字，硬限 100 字） | `ai` | — |
+| AI 生成成功 | AI 标题（prompt 软约束 14 字，**硬限 20 字**，2026-10-18 起） | `ai` | — |
 | 未配置默认文字推理模型 / 无可用模型 / 无 API Key | 原始选题文本 | `topic` | `no-model` |
 | LLM 失败 / 超时 / 返回空 / 清洗后为空 | 原始选题文本 | `topic` | `failed` |
 | 选题文本为空 | 不注入 title | — | — |
@@ -15368,7 +15369,8 @@ Vue 展示组件
 - **降级不阻断**：任何降级路径都照常跳转发布页。
 - **run-only 同样带标题**：非 S2V 流水线只交接 `type=video` + `video_path` + `title` + `title_source`，`content`/`tags` 仍不注入。
 - **分层**：prompt 构造与 LLM 输出清洗在主进程（`electron/ipc-handlers/gen-video-title.js`），渲染层只保留降级链决策纯函数（`src/features/publish/gen-video-title.js` 的 `resolveGenVideoTitle`）。渲染层 `src/` 受 CJK 基线扫描，中文 prompt 不能放那里；全仓渲染层此前也没有 LLM prompt 构造先例。
-- **不动共享真源**：`buildPublishFromProject` 的回退链不变（历史记录/结果页/播客三条入口语义不变），标题决策放在调用方。
+- **共享真源的回退链已于 2026-10-18 修改（推翻原先的非目标）**：`buildPublishFromProject` 的 `title` 链由 `publish.title || project.title || sourceText` 改为 `publish.title || project.title`，无显式标题时返回**空串**而不是正文切片。动因是用户要求审计全入口后实测：视频创作页 / 结果页 / 历史一键发布 / 播客这三条入口，在用户未填「发布标题」（`s2vConfig.title`，placeholder 是「可选」）时标题同样变成正文切片 —— 热门选题只是第四个受害者。标题决策仍在调用方（热门选题侧叠 AI 生成 + 三级降级）。
+- **标题长度上限 2026-10-18 收为 20 字（单一真源 `src/features/publish/title-limits.js`）**：取值依据是各平台 `titleMax` 里最小者（小红书 20），故 20 是全平台安全上限。计数与截断同按 **Unicode 码点**（emoji 算 1 字），发布页标题输入框下方实时显示 `n/20`（视频与图文两模式都有）。改前上限散在三处并靠注释互相提醒同步 —— 注释不是机制。
 - LLM 输出清洗 10 条规则：思维链（闭合 + 未闭合）、markdown 围栏、取首行、控制字符、「标题：」前缀、列表编号、成对引号/书名号、尾部标点、Unicode 码点截断、空结果降级。
 - 模型解析复用 `aiGenerator.generateWithDefault('llm', …)`（与 `videogen-stages.callDefaultLlm` 同通道），推理型模型 `max_tokens` 放大到 5000；API Key 只在主进程边界读取。
 - 详细契约、时序、显示项、测试锚点与逃逸分析见 `01-docs/PRD-HOT-TOPICS-MODULE-2026-09-11.md` §3.13.10 与 `01-docs/PRD-VIDEO-PIPELINE-PROGRESS-MODAL-2026-10-17.md` §4.3.1。

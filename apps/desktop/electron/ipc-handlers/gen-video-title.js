@@ -75,7 +75,9 @@ function resolveDefaultLlm (aiGenerator) {
 const GEN_VIDEO_TITLE_PROMPT_MAX = 200
 
 /** AI 标题的理想长度约束（写进 system prompt；硬截断仍走调用方传入的 max）。 */
-const GEN_VIDEO_TITLE_IDEAL = 30
+// 2026-10-18：标题硬上限降至 20 字（全平台安全值），理想长度同步收到 14 字。
+// 与渲染层 src/features/publish/title-limits.js 的 PUBLISH_TITLE_IDEAL 保持一致。
+const GEN_VIDEO_TITLE_IDEAL = 14
 
 /**
  * 构造爆款标题生成的 system / user prompt（纯函数）。
@@ -98,7 +100,7 @@ function buildGenVideoTitlePrompt (input = {}) {
     '你是短视频爆款标题编剧。基于给定选题与文案，写 1 个发布用标题。',
     '硬性要求：',
     '1. 只输出标题本身，不要引号、编号、解释、前后缀、markdown；',
-    `2. 不超过 ${GEN_VIDEO_TITLE_IDEAL} 字；`,
+    `2. 控制在 ${GEN_VIDEO_TITLE_IDEAL} 字以内；**硬上限 20 字**，超出会被截断（2026-10-18 起）；`,
     '3. 必须包含以下爆款元素中的至少 2 种：悬念钩子、具体数字、情绪共鸣词、身份标签（如"打工人""新手妈妈"）、反常识结论；',
     '4. 不使用"震撼""绝了""必看"等空洞夸张词作为唯一卖点；',
     '5. 与选题主题一致，不改变事实，不添加原文没有的承诺。',
@@ -109,7 +111,7 @@ function buildGenVideoTitlePrompt (input = {}) {
 
 /** LLM 输出清洗（与渲染层 gen-video-title.js 的 resolveGenVideoTitle 配套；此处为 CommonJS 副本，行为必须逐条一致）。 */
 function normalizeGeneratedTitle (raw, max) {
-  const limit = Number.isFinite(max) && max > 0 ? Math.floor(max) : 100
+  const limit = Number.isFinite(max) && max > 0 ? Math.floor(max) : 20
   let text = typeof raw === 'string' ? raw : ''
   if (!text.trim()) return ''
   text = text.replace(/<\s*think(?:ing)?\s*>[\s\S]*?(?:<\s*\/\s*think(?:ing)?\s*>|$)/gi, '')
@@ -150,7 +152,7 @@ function registerHandlers (ipcMain, deps) {
       }
       const bodyText = typeof payload.bodyText === 'string' ? payload.bodyText : ''
       const maxRaw = Number(payload.max)
-      const max = Number.isFinite(maxRaw) && maxRaw > 0 ? Math.floor(maxRaw) : 100
+      const max = Number.isFinite(maxRaw) && maxRaw > 0 ? Math.floor(maxRaw) : 20
 
       // ① 模型就绪性前置：无默认 LLM 直接返回 no-model，不发起网络调用
       const llm = resolveDefaultLlm(aiGenerator)

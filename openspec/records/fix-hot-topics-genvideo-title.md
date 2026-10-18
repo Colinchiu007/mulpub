@@ -117,3 +117,55 @@ date: 2026-10-17
 - **债务去向**：`.ccg/reviews/a4e95405….json` 会随本 PR 进入 main，`status=error` 保持可见。后续任何一次把该引擎 `timeoutMs` 提高（`~/.claude/skills/adversarial-review-loop/scripts/ccg-deep-review.js::cfgForMode`）后重跑，都能把它真正闭合。
 - **替代证据链**：625 例自动化测试全绿（含 61 例本期新增）+ 6 条变异反证全部指名红 + QM-1 打包三层判据通过 + CI 24 项全绿。这些**不等于**双模型评审，只是当前环境能拿到的最强证据。
 
+
+---
+
+## 增量：标题 20 字上限 + 实时字数 + 全入口不再回退正文（2026-10-18）
+
+> 用户当日追加三条需求：① 排查所有需要生成标题的地方；② 标题最多 20 字；③ 标题输入框要有实时字数显示。
+> 本节**推翻**上一轮 PRD §14 的两条非目标（「不改 buildPublishFromProject 回退链」与「标题硬限 100 字」）。
+
+### 审计结论：修复前 4 条链路里有 3 条同缺陷
+
+| # | 入口 | 修复前标题来源 |
+|---|---|---|
+| 1 | 热门选题 → 生成视频 → 【去发布】 | 上一轮已改 AI + 三级降级 |
+| 2 | 视频创作页 → 【去发布】 | 用户未填「发布标题」⇒ `publish.title` 空 ⇒ 回退 `sourceText` = **正文切片** |
+| 3 | 结果页 → 【去发布】 | 同上 |
+| 4 | 历史视频一键发布 / 播客 | 同上 |
+
+**结论**：热门选题只是第四个受害者。上一轮把共享真源列为「不动」属于**范围收得太小**（详见 learnings `lesson:scope-too-small-looks-like-scope-discipline`）。
+
+### 实现（本轮新增/修改）
+
+- 新增 `src/features/publish/title-limits.js`：`PUBLISH_TITLE_MAX = 20` / `PUBLISH_TITLE_IDEAL = 14` / `truncateTitleByCodePoints` / `countTitleCodePoints`，**单一真源**。
+- 新增 `src/composables/usePublishTitleLimit.js`：`usePublishTitleLimit(article)` + `usePublishVideoTitleHint(activeMode, route, t)`（后者是上一轮的视图内联逻辑下沉）。
+- `publish-from-project.js`：`title` 链去掉 `sourceText`；上限 100 → 20（走码点截断）。
+- `gen-video-title.js`：上限改为 re-export 单一真源（不再各写一个数字）。
+- `UiInput.vue`：补 `maxlength` prop（原来写了会落到根 div，等于不生效）。
+- `Publish.vue`：两处标题输入框加计数行；标题相关逻辑全部改调 composable（**净减 5 行**，见下）。
+- `electron/ipc-handlers/gen-video-title.js`：prompt 软约束 30→14 字、明示硬限 20 字；默认上限 100→20。
+
+### 质量门禁读数（本轮 fresh）
+
+| 门禁 | 结果 | 证据 |
+|---|---|---|
+| 单元测试（受影响套件） | ✅ | `title-limits` 12 + `Publish.title-counter` 6 + `publish-from-project` 8 + `gen-video-title` 15 + IPC 31 + `Publish.test` 111 + `Publish.video-title-source` 6 + `HotTopics` 相关 + `CreateView`/`ResultView` 415 + 播客 62 全绿 |
+| ESLint（改动文件） | ✅ 0 error | 仅 2 条既有 warning（`copyDetailMeta` 未用、一条 unused eslint-disable），改前即有 |
+| `check-max-lines` | ✅ | `Publish.vue` **1768** ≤1773（改前基线 1773，净减 5）；`Publish.test.js` **1934** ≤1935；新增测试文件均远低于 1500 |
+| `--cjk` | ✅ | baseline 1331 / current 1191，无新增硬编码中文（计数行是纯数字 `n/20`，不新增文案） |
+| locale 成对 / key 存在 | ✅ | `zh.js`/`en.js` 变更=false；2110 个 key 均存在 |
+| 变异反证 M-new-1 | ✅ 指名红 | watcher 不截断 ⇒ `Publish.title-counter` 2 例红（已还原） |
+| 变异反证 M-new-2 | ✅ 指名红 | 标题链改回 `|| sourceText` ⇒ `publish-from-project` 回归锁 1 例红（已还原） |
+
+### 零增长文件的处理（本轮最可复用的一条）
+
+`Publish.vue` 是 `check-max-lines` **点名还账、零增长容差**的文件。第一版把新逻辑直接写进视图 ⇒ `TARGET_GREW: 1794 > 1773（超 21）`。
+修法不是「调整 targets」（那是自己给自己放宽），而是**把自己的债务也还掉**：把上一轮塞进视图的 12 行 `videoTitleSourceHint` 一并下沉成 composable，
+最终 1768 行。同理 `Publish.test.js` 净增 3 行就撞 `TEST_LEDGER_GREW`（1935 上限），压到 1934 才过。
+
+### 遗留（不假装已闭合）
+
+- **入口 2/3/4 仍无 AI 标题生成**：它们没有「选题」概念，降级目标不存在；要做得先定义「无标题时用什么降级」。本轮只保证它们**不再塞正文切片**（返回空串 + 提示用户填）。
+- **真机目视未做**：计数行的视觉位置、右对齐与 `tabular-nums` 效果只在组件测试里断言存在性与数值，未在真实窗口目视。
+- **QM-6 深度审查仍未跑成**：根因与四次实测记录见上方 QM-6 行，未变。

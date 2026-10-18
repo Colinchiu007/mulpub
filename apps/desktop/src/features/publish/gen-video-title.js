@@ -17,23 +17,24 @@
  *     这样降级的每一格都能在无 IPC、无 Vue、无 LLM 的环境下穷举测试。
  */
 
+import { PUBLISH_TITLE_MAX, PUBLISH_TITLE_IDEAL, truncateTitleByCodePoints } from './title-limits'
+
 /**
- * 标题硬上限（百家号 DEFAULT_CONTENT_LIMITS.titleMax）。
- * 与 publish-from-project.truncateTitle 的默认值一致 —— 改一处必须同步另一处。
+ * 标题硬上限 —— **单一真源在 `title-limits.js`**（2026-10-18 起为 20 字）。
+ * 本导出保留只为不破坏既有 import（历史调用方写的是 GEN_VIDEO_TITLE_MAX）。
+ * 改长度只改 `title-limits.js`，不要再回来改这里。
  */
-export const GEN_VIDEO_TITLE_MAX = 100
+export const GEN_VIDEO_TITLE_MAX = PUBLISH_TITLE_MAX
 
 /** AI 标题的理想长度约束（写进主进程 system prompt；硬截断仍走 GEN_VIDEO_TITLE_MAX）。 */
-export const GEN_VIDEO_TITLE_IDEAL = 30
+export const GEN_VIDEO_TITLE_IDEAL = PUBLISH_TITLE_IDEAL
 
 function toText (value) {
   return typeof value === 'string' ? value : ''
 }
 
 function truncateByCodePoints (text, max) {
-  const chars = [...text]
-  if (chars.length <= max) return text
-  return chars.slice(0, max).join('')
+  return truncateTitleByCodePoints(text, max)
 }
 
 /**

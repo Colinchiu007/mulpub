@@ -210,7 +210,9 @@
                     {{ t('publishPage.title') }}
                     <span v-if="fieldSupportText('title')" class="field-support-badge" data-testid="field-support-title">{{ fieldSupportText('title') }}</span>
                   </label>
-                  <UiInput data-testid="publish-title" v-model="article.title" :placeholder="t('publishPage.videoTitlePlaceholder')" />
+                  <UiInput data-testid="publish-title" v-model="article.title" :placeholder="t('publishPage.videoTitlePlaceholder')" :maxlength="titleMaxLength" />
+                  <!-- 2026-10-18：标题实时字数（与截断同口径：Unicode 码点） -->
+                  <p class="title-char-count" data-testid="publish-title-count">{{ titleCharCount }}/{{ titleMaxLength }}</p>
                   <p v-if="noTitleHint" class="no-title-hint" data-testid="no-title-hint">{{ noTitleHint }}</p>
                   <!-- fix-hot-topics-genvideo-title：视频模式标题来源提示（三态，无 title_source 不渲染） -->
                   <p v-if="videoTitleSourceHint" class="video-title-source-hint" data-testid="video-title-source-hint">{{ videoTitleSourceHint }}</p>
@@ -359,7 +361,9 @@
                     {{ showAiWriter ? t('publishPage.close') : t('publishPage.aiWriter') }}
                   </button>
                 </div>
-                <UiInput data-testid="publish-title" v-model="article.title" :placeholder="t('publishPage.titlePlaceholder')" />
+                <UiInput data-testid="publish-title" v-model="article.title" :placeholder="t('publishPage.titlePlaceholder')" :maxlength="titleMaxLength" />
+                <!-- 2026-10-18：标题实时字数（与截断同口径：Unicode 码点） -->
+                <p class="title-char-count" data-testid="publish-title-count">{{ titleCharCount }}/{{ titleMaxLength }}</p>
                 <p v-if="noTitleHint" class="no-title-hint" data-testid="no-title-hint">{{ noTitleHint }}</p>
               </div>
               <!-- 标题助手：贴邻标题输入（openspec optimize-publish-right-rail） -->
@@ -706,6 +710,8 @@
 <script setup>
 import UiButton from "../components/UiButton.vue";
 import UiInput from "../components/UiInput.vue";
+// 2026-10-18：标题相关逻辑整体下沉到 composable（本文件是零增长容差的还账文件）
+import { usePublishTitleLimit, usePublishVideoTitleHint } from '@/composables/usePublishTitleLimit'
 import { ref, reactive, computed, onMounted, onActivated, onBeforeUnmount, watch } from 'vue'
 import { safeHttpUrl } from '@multi-publish/shared-utils/src/safe-http-url'
 import { getApi } from '@/api/electron-bridge'
@@ -1228,20 +1234,10 @@ const scheduleCapabilityHint = (ids) => fieldSurface.scheduleCapabilityHint(ids)
 const scheduleHintText = computed(() => fieldSurface.hintTextFor(selectedPlatforms.value))
 const noTitleHint = computed(() => fieldSurface.noTitleHintFor(selectedPlatforms.value))
 
-// ── 标题来源提示（fix-hot-topics-genvideo-title，2026-10-17）──
-// 热门选题「生成视频 → 去发布」带入标题时，query 会带 title_source/title_reason 说明标题怎么来的。
-// 只在**视频模式**且有 title_source 时显示（图文模式/无来源信息一律不渲染，避免污染其它入口）。
-const videoTitleSourceHint = computed(() => {
-  if (activeMode.value !== 'video') return ''
-  const source = String(route.query?.title_source || '')
-  if (source !== 'ai' && source !== 'topic') return ''
-  if (source === 'ai') return t('publishPage.videoTitleFromAi')
-  const reason = String(route.query?.title_reason || '')
-  if (reason === 'no-model') return t('publishPage.videoTitleFromTopicNoModel')
-  if (reason === 'failed') return t('publishPage.videoTitleFromTopicFailed')
-  // 来源是 topic 但缺 reason（异常/手改 query）：按失败态提示，不静默
-  return t('publishPage.videoTitleFromTopicFailed')
-})
+// ── 标题来源提示（fix-hot-topics-genvideo-title）与字数上限 ──
+// 三态映射与 20 字口径都在 usePublishTitleLimit.js（本文件零增长容差，故下沉）
+const videoTitleSourceHint = usePublishVideoTitleHint(activeMode, route, t)
+const { titleMaxLength, titleCharCount } = usePublishTitleLimit(article)
 const selectedOverridePlatforms = computed(() =>
   fieldSurface.overridePlatformSpecsFor(platforms.value, selectedPlatforms.value))
 const visibilitySupportedPlatforms = computed(() =>
@@ -1580,6 +1576,8 @@ defineExpose({
 .no-title-hint { margin: 6px 0 0; font-size: var(--font-size-xs); color: var(--muted); }
 /* 视频模式标题来源提示（fix-hot-topics-genvideo-title）：与 no-title-hint 同级辅助文字 */
 .video-title-source-hint { margin: 6px 0 0; font-size: var(--font-size-xs); color: var(--muted); }
+/* 标题实时字数（2026-10-18）：右对齐的轻量辅助文字，不抢标题本身的视觉权重 */
+.title-char-count { margin: 4px 0 0; font-size: var(--font-size-xs); color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
 .stack-gap { margin-bottom: var(--space-md); }
 .stack-gap-top { margin-top: 12px; }
 .stack-center { text-align: center; }
