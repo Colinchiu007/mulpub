@@ -3,8 +3,7 @@ record: fix-hot-topics-genvideo-title
 task: 热门选题「生成视频 → 去发布」标题改为 AI 爆款标题，三级降级到原始选题
 date: 2026-10-17
 sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话
+sync_reason: 本 PR 尚未合并，merge SHA 还不存在sync_backfill_owner: 下一个会话
 ---
 
 ## 本次执行记录：热门选题【去发布】标题 AI 化 + 三级降级（fix-hot-topics-genvideo-title，2026-10-17）
@@ -111,3 +110,12 @@ sync_backfill_owner: 下一个会话
 - **未做标题候选多选交互**：本期只生成 1 个标题；多候选 + 用户挑选是后续切片（PRD §14 已列为非目标）。
 - **未给「无模型」场景加一键跳转模型设置**：发布页提示只说「未配置文字推理模型」，用户需自行前往模型设置（设计文档 Open Questions 已记录取舍）。
 - **`buildPublishFromProject` 的回退链仍未加「前几级全空」夹具**：本期只在热门选题侧加了生产形态夹具；共享真源那三条入口（历史/结果页/播客）的同型加固待后续切片（已在 learnings 立纪律）。
+
+### QM-6 未完成的**人工授权**记录（合并依据，不是自动放行）
+
+- **授权时间**：2026-10-18（本轮会话，用户主动选择「授权按『环境限制』登记后合并」）。
+- **授权范围**：仅授权「在 `check-pr-exec-record --mode=enforce` 仍因 1 条 CCG 深度审查欠账判红的情况下合并本 PR」，**不含**授权伪造任何闭环状态。
+- **因此没有做的事**：记录里该 DUAL 记录的 `deepReview.status` **保持 `error`**（工具实测写入的真实值），未改成 `cleared` / `needs_revision` / `self_play_resolved` —— 那三个值都表示「评审有了结论」，而事实是评审没能跑完。
+- **债务去向**：`.ccg/reviews/a4e95405….json` 会随本 PR 进入 main，`status=error` 保持可见。后续任何一次把该引擎 `timeoutMs` 提高（`~/.claude/skills/adversarial-review-loop/scripts/ccg-deep-review.js::cfgForMode`）后重跑，都能把它真正闭合。
+- **替代证据链**：625 例自动化测试全绿（含 61 例本期新增）+ 6 条变异反证全部指名红 + QM-1 打包三层判据通过 + CI 24 项全绿。这些**不等于**双模型评审，只是当前环境能拿到的最强证据。
+
