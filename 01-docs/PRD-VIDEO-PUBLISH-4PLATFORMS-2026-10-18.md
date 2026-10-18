@@ -408,7 +408,7 @@ var a = { publish: 1, timer: 2, draft: 0 }   // PublishType（草稿是 0！）
 | 缺 uid | `toutiao-video: 缺 uid_tt（无法定位账号）` |
 | 缺视频 | `toutiao-video: taskData.video.path required` |
 | 视频文件不存在 | `toutiao-video: video file not found: <path>` |
-| **缺封面** | `头条视频发布需要封面图（平台必填）：请为任务提供 cover/coverPath` |
+| **缺封面** | `头条视频发布需要封面图（平台必填）：请提供 cover/coverPath，或已上传好的 thumbUri` |
 | 无发布权限 | `该头条号当前无发布权限（GetPublishAuth.DisablePublish=true）。平台侧原文：请完善账号信息，解锁发布文章、视频等权益功能。` |
 | 上传授权失败 | `toutiao-video: 未获取上传授权(code=…): <平台 msg>` |
 | 发稿失败 | 优先透出平台 `data.Message`，否则 `头条发布失败(status=…, code=…)` |
