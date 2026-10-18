@@ -12,6 +12,10 @@ date: <YYYY-MM-DD>
 # ⛔ 不要再写 sync_status / sync_reason / sync_backfill_owner：那是旧形态的登记字段，
 #    只服务于旧载体与存量 21 篇历史记录；新记录写了它们不会被判红，但会被记为歧义可见项。
 # ⛔ 也不要复用键名 sync_pr —— 真仓已有 6 篇用它，形态是 0 / pending / 完整 URL，语义是"回填状态"。
+# ⛔ 也不要手工把下面那行「远程同步」的状态列改写成 PASS / ✅ / 已合并 —— 那是一次「状态词跃迁」，
+#    Gate 2c 的 check-gate-record-debt 会按本次 PR 的 git 差量判红并点名这篇（change: ban-record-closure-backfill-pr）。
+#    合并后 main push 的回读证据写在 PR 评论里，不写回本文件：merge SHA 只在合并之后存在，
+#    把它的读数要求落进受扫描的文件，等于重新造出「必须为改写这一行另开一次 PR」那个循环。
 ---
 
 ## 本次执行记录：<标题>（<slug>，<YYYY-MM-DD>）

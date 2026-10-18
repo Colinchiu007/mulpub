@@ -18,10 +18,16 @@
 - [ ] 1.5 旧载体不在扫描域：只改 `.quality-gates.md` 的历史行 + 删 ledger 键 ⇒ 不红。
 - [ ] 1.6 混合 PR 点名具体篇目：同一 PR 既关旧行又新写记录 ⇒ 红集只含后者且文案给出篇名（可拆性）。
 - [ ] 1.7 **配对在同一文件内**，不要求行号对齐：构造"那一行因上下文移动而落在不同行号"的夹具，断言仍红。
-- [ ] 1.8 `--unified=0` 的行为锁：MUST NOT 把邻行算进配对（夹具让相邻行含另一篇的闭合字样）。
-- [ ] 1.9 **三点式（merge-base）行为锁**：base 之后另有他人合入把第三篇改成闭合 ⇒ 那一篇 MUST NOT 进红集。这是 D5 的实质证明，缺它则两点式与三点式在测试上不可分辨。
+- [ ] 1.8 ~~`--unified=0` 的行为锁~~ **撤销**：对照实验实测「默认上下文」与「`--unified=0`」的红集与文件集逐字相同 ⇒ 该断言不可分辨，写成锁就是装饰。`--unified=0` 保留为工程选择，不设用例不设变异（design M4 同步撤销）。
+- [ ] 1.9 **域正确性锁**（不是红集锁）：base 之后另有他人合入把第三篇改成闭合词时，`buildClosureDiff` 报告的**文件集** MUST 只含本 PR 触碰的那一篇。实测对照：两点式文件集 2 / 三点式 1 ⇒ **只有断言文件集才能区分两种写法**；若用例只断言红集，两点式与三点式同绿，这条锁就不成立（design D6 里原先那句"两点式会把别人的改写算进红集"已被本实验否证并改写）。
 - [ ] 1.10 词表同源结构锁：新判据 MUST NOT 自带第二份 `/^(PASS|N\/A|✅|已)/`，MUST 引用既有 `CLOSED_RE`/`ROW_RE`/`normalize`。
 - [ ] 1.11 扫描域复用 `listRecordFiles`：`diff 文件集 ∩ listRecordFiles 结果`，MUST NOT 由 diff 自己枚举目录、MUST NOT 用递归枚举（`_exempt/` 与 `_TEMPLATE.md` 会被吸进来）。
+- [ ] 1.12 **重复行锁**（F1，Critical）：同一记录文件内 `| 远程同步 |` 行数 > 1 ⇒ 判红。**必须配双向绕过探针**：先断言"只追加第二行 PASS、首行不动"在**没有这把锁时确实静默通过**（否则这条测试只证明夹具里那几格红，真实绕道仍在），再断言有锁后必红。
+- [ ] 1.13 **围栏隔离**（F2，High）：旧侧/新侧各自跟踪 ``` 围栏，围栏内的 `+`/`-` 引用行不参与配对。双向夹具：「正确迁移 + 文档引用示例行」不得误红；关掉围栏跟踪后同一夹具必须红（M10）。
+- [ ] 1.14 **派生标记词边界**（F3）：`已由门禁推导` MUST 按派生标记处理（实测它命中 `CLOSED_RE` 的 `已` 前缀而不命中现 `DERIVED_MARKER_RE`）；反向负控：`已由人工回填完成` 之类 MUST NOT 被当成派生标记（放宽过头会把真手写放过去）。
+- [ ] 1.15 **删除/改名档**（F4）：非 `_` 前缀记录文件被删 ⇒ 红；改名（删+增）⇒ 红；`_exempt/` 与 `_` 前缀删除 ⇒ 不红（负控样本取 main 上那 10 笔真实删除的形态，实测全部在 `_exempt/`）。
+- [ ] 1.16 **bullet 侧同判**（F5）：只把 `- 保留门禁：… | 远程同步 PENDING` 改成 `PASS` 而不动表格行 ⇒ 红；MUST 复用既有 `CLOSED_DECL_RE`/`UNCLOSED_DECL_RE`。反向负控：两形态都未闭合的在飞记录不得红。
+- [ ] 1.17 **取源位置锁**（D10）：`git diff` 只能存在于 `scripts/lib/pr-record-diff.js`。判据文件内出现 `execFileSync('git'` 或第二份 diff 解析即红——**既有两条锁不得为本次改动放宽**，放宽等于拆门。
 
 ## 2. 红测：不可用三档与阻断出口
 
@@ -34,9 +40,10 @@
 
 ## 3. 实现 + 接线
 
-- [ ] 3.1 实现落在 `scripts/check-gate-record-debt.js`：新增 `handClosedRows` 集合、进 `collect()` 返回面、进 `format()` 首行读数、进 `hasBlocking`。
+- [ ] 3.0 **取源独立成模块**：`scripts/lib/pr-record-diff.js`（`buildClosureDiff` + `parseClosureTransitions`）。判据文件内 MUST NOT 出现 `execFileSync('git'` 或第二份 diff 解析——基线规格「MUST NOT 在判据内另写 git 解析」已由两条在跑的锁钉住，本次不改宽它们（design D10；opencode 轴在未交付结论的中途命中此冲突）。新模块自带"diff 取源全仓只这一处"的同源锁。
+- [ ] 3.1 实现落在 `scripts/check-gate-record-debt.js`：新增 `handClosedRows` / `handClosureUnproven` / 重复行档 三个集合、进 `collect()` 返回面、进 `format()` 首行读数、进 `hasBlocking`。
 - [ ] 3.2 新增旗标 `--head-ref`（默认 `HEAD`）并同步 `parseFlags` 白名单与"裸旗标必须抛错"纪律；`--base-ref` 沿用。**白名单里不得出现无人消费的旗标**（上一轮 F2 的同型）。
-- [ ] 3.3 不新增 workflow 步骤：`check-gate-record-debt.js` 已在 `changes` job、已在非 PR 早退之前。MUST 实测两档都真的跑到了这条判据（PR 档与 push 档各取一次打印读数），不得以"它在同一个步骤里"代替证据。
+- [ ] 3.3 **不新增 workflow 步骤**：`check-gate-record-debt.js` 已在 `changes` job、已在非 PR 早退之前，且 checkout 已是 `fetch-depth: 0`（三点式所需 base 可得，design D11——这条是核实出来的，不是假设）。MUST 仍实测两档各取一次打印读数（PR 档与 push 档），不得以"它在同一个步骤里"代替证据。
 - [ ] 3.4 红文案给出不需要绕行的正解：不动 / 改派生标记 / 回读证据落 PR 评论。
 
 ## 4. 口径同步
@@ -48,12 +55,13 @@
 
 ## 5. 验证与交付
 
-- [ ] 5.1 变异反证 M1–M8（design 声明的整组）逐条实跑，要求红集**指名到用例**；整片 LOADFAIL、文件名、超时都不算证据。M5（两点式退回）若夹具下不红，则夹具无效，必须先修夹具再谈锁。
-- [ ] 5.2 本机点名跑静态门禁（本机 pre-commit 不覆盖 CI 静态项）：`check-gate-record-debt.test.js`、`check-record-qm5-rows.test.js`、`check-pr-exec-record.test.js`、`workflow-contract.test.js`、`check-unwired-tests.js`、`check-step-failfast.js`、`check-workflow-structure.js`、`check-doc-abs-paths.js`、`check-changelog-growth.js`、`check-changelog-duplicate-entries.js`。
+- [x] 5.1 变异反证逐条实跑，要求红集**指名到用例**；整片 LOADFAIL、文件名、超时都不算证据。M5（两点式退回）必须红在 1.9 的**文件集**断言上——它在红集断言下不可分辨，这一格本身就是"测不出差异的形态主张不许写成锁"的现场。**实跑读数（终局 15 条：M1、M2、M3、M5–M16；M4 已撤销不补装饰）**：首轮 12 条（M1–M13，去 M4）时 CAUGHT 11 / **PASSED 1 = M2**（把 `collect(...)` 的 `closureDiff` 注入整条摘掉，104 条用例全绿——判据"人工改写"那一档在 CLI 上从此恒不测，而打印面只换成 `prs=n/a`，读起来像"这台机器取不到差量"而非"没人改写"）。**这就是本 change 要消灭的那种装饰性门禁，长在我自己身上**：处置=同 PR 补两条锁（① 接线锁内加 `HAND-CLOSURE 人工改写=\d+ 新增重复行=\d+ 记录被删=\d+` 数值档 + 反向禁 `prs=n/a`；② 端到端用例：真历史 PR #3889 的 squash `99f463121`，`--base-ref=<sha>^1 --head-ref=<sha>` 必须 rc=1、点名 `max-lines-git-domain`、且同趟 `MERGE-LEDGER prs=\d+` 照出数——防止把 rc=1 归因到别处）。复跑 M2 ⇒ CAUGHT，红 2 条指名。**红集互不相同性**：M6/M8 同红在「取源位置锁」（两条打同一格，如实记为同因，不称独立）、M7/M9 同红在「F1 重复行档」（同因）；其余 8 条红集唯一。M5 红 3 条，含 1.9 的**文件集**断言那条 ⇒ 这一格按预期可分辨。跑后三个文件 md5 与跑前逐一相等（判据 / 取源模块 / 测试文件各 RESTORED）。**第二/三跑**：补完 CLI 接线锁与端到端用例后单独复跑 M2 ⇒ CAUGHT（红 2 条指名）；随后按评审 F8 新增 M16（不剥 `-` 前缀＝整档静默漏判，红 7），按 D13 新增 M14（摘 `touched++`，红 2）与 M15（未证实档改打数字，红 1）；最终全量 15 条重跑 **15 CAUGHT / 0 PASSED**，红集互不相同性：M6/M8 同打「取源位置锁」、M7/M9 同打「F1 重复行档」（两条变异打同一格，如实记同因，不称独立），其余 11 条红集唯一；跑后三文件 md5 再次逐一相等。
+- [x] 5.2 本机点名跑静态门禁（本机 pre-commit 不覆盖 CI 静态项），当场读数：`check-gate-record-debt.test.js` **108 passed / 0 fail**、`check-record-qm5-rows.test.js` 19/0、`check-pr-exec-record.test.js` 66/0、`workflow-contract.test.js` 43/0、`check-unwired-tests.js` rc=0、`check-step-failfast.js` rc=0、`check-workflow-structure.js` rc=0、`check-doc-abs-paths.js` PASS（受管文件 3960，含本篇新记录）、`check-no-brand-residue.js` PASS（10085 tracked）、`check-debt-budget.js` 五项指标全在基线内（maxFileLines 5098 < 5657、filesOver500 95 < 101）、`check-changelog-growth.js` PASS、`check-changelog-duplicate-entries.js` PASS（条目 506 / 冗余 0）。`openspec validate ban-record-closure-backfill-pr --strict` valid。
+- [x] 5.1b 误报主张按**diff 形态**量，不按标题量（评审 F7：以标题为真值是本 change 立论所否证的那种自证）。对 origin/main 最近 120 笔 squash 合并逐笔跑真判据（`.tools/fp-scan.cjs`，一次性工具，收尾删除）：命中 52 笔、形态逐笔归类**全部 `PENDING → PASS`**（54 处跃迁），标题非「回填/远程同步/收口/销账」的命中 0。**正控内建**：已知回填 #3889（`99f463121`）必须「在样本内 ∧ 被 flag」，否则脚本 exit 3 判探针失明——第一版就因 `rev-parse` 尾换行没 trim 而 120 笔全 `ref-unresolvable`、"命中 0"读起来像"零误报"，是这条正控把它揪出来的。样本对 F2/F3/F4 三类形态**零信息**（120 笔里从没出现过），那三格由 1.12–1.17 的注入探针负责，不吃样本。
 - [ ] 5.3 `node scripts/classify-docs-only.js --base=origin/main --head=HEAD` 在 **commit 之后**取证；本 PR 含 `scripts/` 工具脚本 ⇒ 预期 `docs-only=false`（混合 PR），走完整质量节拍。
 - [ ] 5.4 QM-6 双模型外部评审（后端 + 前端；某轴零交付时如实记未执行并补跨家族第三轴），Critical 清零后才继续。
-- [ ] 5.5 执行记录 `openspec/records/ban-record-closure-backfill-pr.md`：新形态（状态列「由门禁推导」，不填 `sync_*`）。
-- [ ] 5.6 CHANGELOG 收口 + `01-docs/learnings.md` 记两条：① "禁令落地 4 小时被违 4 次"是**散文规则无执行体**的成本实测；② 窄判据漏 2/4 —— **判据形态必须由违例样本反推，不能由字面最省写法决定**。
+- [x] 5.5 执行记录 `openspec/records/ban-record-closure-backfill-pr.md`：新形态（状态列「由门禁推导」，不填 `sync_*`）。落地后当场读数 `MERGE-LEDGER prs=2011 … byDesign=1`（这篇还没进基线 ⇒ byDesign，不红）；`check-pr-exec-record.js --mode=enforce` 与 `check-record-qm5-rows.js` 均 rc=0。
+- [x] 5.6 CHANGELOG 收口（单条标题块，置顶插入，逐行保留 CRLF：CR 增量 == 插入行数 == LF 增量三计数自证）+ `01-docs/learnings.md` 四条 lesson：① 绕行面必须先证活再堵（F1 前置事实那条用例的形状）；② **所有用例都自注入依赖 ⇒ "入口有没有真注入"不可表示**（M2 首跑 PASSED 的教训，本仓第二次撞同形态）；③ 常态与失明不得同形、也不可互判故障（`触碰记录=0/N/n/a`）；④ 按形态量的探针必须内建正控 + `codeagent-wrapper` 会嗅探父 argv、prompt 含换行/引号/长度>800 时切 stdin 模式（调用方必须喂 stdin，此前三次"后端不可用"其实是 runner 少喂 stdin 的归因错误）。
 - [ ] 5.7 **自指验证**：本 PR 自己的 diff MUST NOT 触碰任何记录的收口行。若触碰就会被自己的新锁判红——那是预期行为，届时如实记录"红了什么、怎么拆开的"，**不得反过来放宽判据**。
 - [ ] 5.8 开 PR；按「PR 自动合并」判据 1–5 自查后 squash 合并（判据取产物：`state=MERGED` + `mergeCommit.oid`、远端分支 0 行、`git log` 恰 1 行；rc 不作判据）。
 - [ ] 5.9 回读本次合并触发的 main push，按 (merge SHA, workflow) 判；无 push run 时如实记 `NO_RUN(by design)` 并转核该判据最近一次在 main 上的读数。**读数写 PR 评论**——这条本身就是新口径的第一次实践。
