@@ -63,6 +63,6 @@
 ## 6. 交付
 
 - [x] 6.1 QM-6：三通道外部评审不可用 ⇒ 记录里登记「未跑成」，另按用户口径做双轴自审（S-1/S-2/S-5 已修，S-3 拒绝附不可达判据，S-4 撤回附复核证据）
-- [ ] 6.2 push + PR + CI（sha-pin 看守）+ 判据齐备后 squash 合并并删远端分支
-- [ ] 6.3 合并后回填远程同步 PASS + merge SHA，同次提交内完成销账
-- [ ] 6.4 worktree 按 R1–R7 退役（先 tag 再动手，`safe-worktree-remove.ps1 -WhatIf` 先干跑）
+- [x] 6.2 push + PR + CI（sha-pin 看守）+ 判据齐备后 squash 合并并删远端分支      （归档前补勾，2026-10-18 取证：PR #3753 squash merge SHA `29e5a60cdcedec8eadeccb3ad1f14061b6010e73`，`git log origin/main --grep='(#3753)$'` 恰好 1 行；`git ls-remote --heads origin publish-frequency-per-platform-intervals` 返回 0 行）
+- [x] 6.3 合并后回填远程同步 PASS + merge SHA，同次提交内完成销账      （归档前补勾，证据 `openspec/records/publish-frequency-per-platform-intervals.md:20` 状态列 PASS 且带 merge SHA；注：这条通道已于 2026-10-17 被 #3879 取消，此后新记录改由 `scripts/lib/merge-ledger.js` 推导收口，不再回填）
+- [x] 6.4 worktree 按 R1–R7 退役（先 tag 再动手，`safe-worktree-remove.ps1 -WhatIf` 先干跑）      （归档前补勾，取证 `git worktree list` 已无该任务 worktree，仅剩 `mp-openspec-archive-frequency`）

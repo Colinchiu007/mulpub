@@ -13,13 +13,19 @@ describe('PublishTargetSelector', () => {
     const without = mount(PublishTargetSelector, { props: { groups, accountGroups: [] } })
     expect(without.find('[data-testid="publish-group-picker"]').exists()).toBe(false)
 
-    // 结构锁断言的是**改前就存在的形态**：section 的直接子节点历来是 [搜索框, 列表]。
-    // 空态下仍必须恰好是这两个，多一个节点就是给 CI 空 profile 制造像素漂移。
+    // 结构锁断言的是**可复核的形状**：section 的直接子节点恒为两个 —— 一直是
+    // 「[搜索框, 列表]」，publish-target-select-all 之后搜索框被包进一层
+    // `.target-selector__search-row`（全选/清空要塞进同一行，不能新开一行，
+    // 新开行会把下方整栏下移并撞 workflow 套件的 1% 像素阈值），所以变成
+    // 「[搜索行, 列表]」。**节点数不变**是这个锁真正要守的东西；行内还要再断言
+    // 「只剩搜索框本人」，否则"按钮块在空态也渲染"会从这个缝隙漏过去。
     // ⚠️ 不要退回成 `without.html() === legacy.html()`：那种写法两次挂载跑的是同一份新代码，
     // 只差"显式传空数组 vs 走默认值"，对本刀声称的"与改前一致"是恒真断言（装饰性门禁）。
     const children = without.get('section.target-selector').element.children
-    expect([...children].map(el => el.tagName.toLowerCase())).toEqual(['input', 'div'])
+    expect([...children].map(el => el.tagName.toLowerCase())).toEqual(['div', 'div'])
+    expect(children[0].className).toBe('target-selector__search-row')
     expect(children[1].className).toBe('target-selector__list')
+    expect([...children[0].children].map(el => el.tagName.toLowerCase())).toEqual(['input'])
   })
 
   it('accountGroups 会转发为 apply-group（组件不持有选中集）', async () => {

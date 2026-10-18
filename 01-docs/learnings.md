@@ -219,6 +219,133 @@ v5 把「同账号最小发布间隔」从档位派生改为逐平台表（只�
    实跑该测试文件 → `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 对账 → 才允许勾 tasks。
    本片 TDD 顺序因此可复核：策略层实测 9 条红→转绿，设置页实测 6 条红→23/23 绿，
    两次红的条数与"我写了哪几条锁"逐条对得上（不是"跑绿了就说红过"）。
+## 「批量选择」类控件的三条 UE 判断 + 实现期三条坑（publish-target-select-all，2026-10-17）
+
+### 续：视觉门禁两套阈值 + 「判据看不见 ≠ 没缺陷」+ 降级自审（2026-10-18）
+
+#### A. 同一视图在不同视觉套件里阈值不同，别拿一个套件的绿当另一个的绿
+
+把「全选 / 清空」做成**搜索框下的新一行**后，`QG Visual` 判红：像素套 `publish-form` 1.778% < 6% ⇒ **PASSED**；
+workflow 套同一张图 1.778% > **1%** ⇒ 6 条 `/publish` 用例全红，两轮甄别可复现。差别的不是图，是两套各自的口径。
+
+- **改完先问「这条判据有几套阈值」，再问「我绿的是哪一套」**。本仓 `QG Visual` 一个 job 跑 6 个套件
+  （pixel / views / views-supplement / dark / workflows / workflows-supplement），逐条打印
+  `[GATE-7] suite exits: …` —— 那行就是"我到底绿了哪几套"的现场，不看它等于没看。
+- **红要取产物**：`工作流结果: 25/31 通过，6 失败` + 逐条 `视觉差异 1.7783082561728396% 超过阈值 1%`
+  比"QG Visual 红了"有用得多；`gh api .../jobs/<id>/logs --allow-escape-sequences` 直接可拿。
+- **改法本身也是判据**：新开一行 ⇒ 下方整栏整体下移 ⇒ diff 覆盖整个右栏下半部。把按钮塞进**搜索行内部**
+  （搜索框 `flex:1` + 按钮 `flex:0 0 auto`），下方原地不动，第 2 轮 `31/31 通过`、六个套件 rc 全 0。
+  构造性视觉中性不是"少改点"，是**让改动落在不引起重排的那一层**。
+
+#### B. 「改法生效」与「基线过期」是两道不同的门
+
+套件全绿之后 `Gate 7b - Baseline freshness` 仍红（`publish-form{,-dark}.png` 两轮都红）。
+它证的是「基线是否等于本次渲染」——**界面真变了它必然红**，这不是回归，是流程要求你同源换基线。
+只看套件 rc 会把"基线还停在旧 UI"留到下次；只看 Gate 7b 会把"整栏下移"这种定位错误当成单纯基线问题。
+
+同源换基线四条纪律（本次实跑）：① 映射按判据自己的 `findRender`（`<name>.png` views 套优先 → 否则
+`<name>-current.png` 像素套）；② **只取 round2**——第 1 轮失败后 workflow 把 round1 挪进 `screenshots-round1/`，
+终判域是 round2，拿 round1 等于用"被否证的那一版"；③ **自证逐字节相等**（比对 sha256），
+不靠"写盘成功"就算过；④ 文件名必须已在 `base-screenshots/.gitignore` 白名单，否则被根 `*.png` 静默吞掉。
+
+#### C. `--cjk` 只扫汉字，扫不到顿号 —— 「判据看不见」不等于「没缺陷」
+
+`formatPlatformList` 里连接符硬编码中文顿号 `、`（U+3001），英文界面渲染成 `Weibo、Zhihu and 2 more` 中英混排，
+而 `check-locale-sync --cjk` **一直是绿的**——它扫的是汉字，不是「所有 CJK 标点」。
+同族形态本仓已多次出现（黑名单型判据放过未知故障、基线只看"有没有图"不看"图对不对"）。
+正解：连接符与截断后缀**都**由接线层从 locale 注入，纯函数只做拼接，仍可在无 Vue 环境单测。
+
+#### D. 依赖注入的函数不保证幂等：一次判据里不许读两遍
+
+```js
+// ✗ 先问长度、再取一遍 —— 两次调用可能给出不同答案
+const ids = Array.isArray(deps.getAvailableAccountIds?.(id)) ? deps.getAvailableAccountIds(id) : []
+// ✓ 只调用一次
+const avail = deps.getAvailableAccountIds?.(id)
+const ids = Array.isArray(avail) ? avail : []
+```
+
+`deps.*` 是外部传进来的：可能有副作用、可能读会变的时钟。"先问长度、再取一遍"会让
+**分类依据**与**校验依据**来自两次不同调用。判据：任何 `deps.x?.()` 出现两次，先问「它幂等吗」。
+
+#### E. 同一值两条读法 = 一条会在某个形态下静默失效
+
+接线层里同时有 `selectedPlatformsRef`（ref / 普通数组都归一化）与内联
+`selection?.selectedPlatforms?.value`（只认 ref）。后者在调用方给普通数组时恒 `undefined`
+⇒ `already` 永远为空、同一平台被重复写入。**修法不是加兜底，是删掉第二条读法**——
+归一化只能有一处，否则它会在某个没人测的形态下失效。
+
+#### F. 深度审查后端超时 = 环境问题，按规范降级自审而不是绕过
+
+`.ccg/reviews/*.json` 的 `mode=dual` 欠账由 `check-pr-exec-record --mode=enforce` 卡。
+`sh scripts/deep-review.sh` 两次都在 `[轮 1/3] critic=claude` 报
+`spawnSync …codeagent-wrapper.exe ETIMEDOUT`（脚本退出码 2 = 环境/配置，**不是**"有阻断"）。
+
+正解是主代理真做一遍审查、把 `performedBy` 写成降级事实、把 findings 落进记录——
+**不是**把 status 直接填 `cleared`，也不是第三次重试同一条 10 分钟超时。
+本次这样做的直接收益：自审抓到上面 D / E / C 三处真缺陷（两处正确性 + 一处 i18n），
+并各配「还原 bug 会让锁指名红」的反证。**若当时只把 status 填成 cleared，这三处就随 PR 进主干式合并了。**
+
+两个反证脚本自身的坑：① 篡改前**备份 → 改 → 跑 → 从备份恢复**，不要用 `git checkout -- <file>`，
+那会把同一次里尚未提交的修复一起丢掉；② 工作副本是 CRLF 而脚本里的锚点是 LF，比对前两侧必须归一，
+否则"锚点未命中"会被误读成"判据漂移"（本轮实测踩到这一格）。
+
+
+
+发布页「发布目标」区加「全选 / 清空」+ 分组选择回视。功能不大，但每一条都踩到了具体的坑。
+
+### UE 判断（每条都有反例支撑，不是审美选择）
+
+1. **「全选」必须定义成「全选可发布的」，不是"全选所有条目」。** 平台目录里大量平台当前
+   没有可用账号，全选它们后提交会被 `validatePublishTargets` 以「请为<平台>选择至少一个账号」
+   阻断 —— 用户点了全选反而发不出去。**这是"全选"这类控件最常见的自伤**：它把「可见的」
+   当成了「可用的」。被跳过的平台还必须在提示里点名（前 3 个 + 「等 N 个」），否则用户
+   看到 15 个平台只勾了 8 个，下一次点击发布时的阻断文案才是第一次通知。
+2. **批量选择是增量，逆操作只给「清空」，不给「反选」。** 反选在当前集合里语义自相矛盾：
+   反选后选中的恰好是"没有账号的平台"那部分，用户得到一个必然被提交校验拒绝的状态。
+   「全选/清空」这对操作互逆且各自无歧义，比「全选/反选」安全得多。
+   （同源：`P2-8b` 已论证过"按组替换"是破坏性动作，不能被当成便利性顺手加进来。）
+3. **空态不渲染，而不是渲染 disabled 控件。** 一个点了没反应的控件是坏的；但"渲染一个
+   disabled 按钮"和用户预期的"没有这个按钮"相比，后者更诚实，也顺带保持了
+   CI 空 profile 下 `publish-form` 的视觉中性（与 `P2-8b`「无组不渲染」同型 ——
+   空态若也渲染，就是给像素基线制造一次确定性漂移）。
+
+### lesson:computed-over-non-reactive-source-evaluates-once
+
+**依赖非响应式源的派生值不能写成 computed。** `publishableCount` 一度写成 computed，
+内部读 `getAvailableAccountIds`（`usePlatformSelection` 的普通函数）。测试替身的
+`byPlatform` 不是响应式源 ⇒ 它在账号目录就绪前求值一次即被缓存，之后永不重算，
+表现是"平台列表里账号明明在，全选按钮永远不出现"。
+修法：改成 `watch` 订阅三个**确实响应式**的源（`flatPlatforms` / `selectedPlatforms` /
+`selectedAccounts`，deep）后重算 —— `reconcileSelectedAccounts` 正是在这些源变化时
+补齐/剔除账号键，它跑完那一刻就是重算的正确时机。
+**判据**：一个 computed 读的东西里只要有非响应式的，它就只在第一次求值。
+（type=pitfall）
+
+### lesson:test-double-must-reproduce-reactivity-not-only-shape
+
+**测试替身比真身弱出来的缺陷没人见过（Mock 边界漏洞，本仓第 N 次同族）。**
+`Publish.test.js` 的 `useAccountStore` mock 用"普通对象 + getter"给 `byPlatform`；
+而真实 Pinia store 的 `byPlatform` 是对 `accounts` 派生的 computed —— "账号到了 ⇒
+界面跟着变"是响应式保证的。替身把这条保证抹掉了，于是整类"依赖 byPlatform 的 computed
+不重算"的缺陷**只在测试里成立**，真机不存在，反过来又会让人误判实现有问题。
+修法：容器改成 `ref`，getter 读 `.value`。调用方拿到的仍是普通对象（与 Pinia 自动解包
+同形），但这次读发生在响应式 Effect 里，依赖可被追踪。
+**判据**：替身要复现真身的**响应式语义**，不只是数据形状 —— 形状对了而语义弱了，
+比形状不对更难发现。（type=pitfall）
+
+### lesson:pure-function-chinese-literal-fails-cjk-gate
+
+**纯函数里出现中文就是 Gate 7 红：文案走回调注入，而不是在纯函数里拼。**
+清单截断的上限 `MAX_LISTED_PLATFORMS=3` 是纯函数常量，没问题；但「等 N 个」这个
+**后缀本身是中文** —— 写在 `usePublishTargetBulk.js` 里就是"渲染层非 locales 文件的
+硬编码中文"，`check-locale-sync --cjk` 当场判 4 处红。
+修法：纯函数只做"取前 N 个 + 调 `restLabel` 回调"，后缀由接线层从 locale 注入；
+不注入时返回完整清单而不自行拼中文（纯函数的边界，不是"降级后照旧"）。
+**判据**：判据本体要的是"无框架依赖"（可在无 Vue 环境单测），不是"无外部输入" ——
+文案走回调注入即可两全，别为了"纯"把 i18n 引进来，也别为了"方便"把中文字面量写进去。
+（type=pitfall）
+
 ## 外部记忆服务「写入成功 ≠ 落盘 ≠ 可检索」三层判据；EverOS 清理探测残留时 CRLF 必须显式保真（everos-mcp-cross-app-grids，2026-10-17）
 
 ### lesson:everos-write-success-is-not-persisted-nor-retrievable
@@ -20455,3 +20582,11 @@ CI 把 `QG Static` 钉红在 Gate 2c，红的是 `check-unwired-tests.test.js` �
 - **fact｜「改了没反应」先查同步机制再改代码**：运营中心改完桌面端不变，根因是 `OpsCenterSync` **只在应用启动时同步一次**（`autoSyncOnStart` 的 `setTimeout 3000`，全文件无 `setInterval`）。这是**预期行为**（组件注释写明「下次启动同步后自动可见」），但界面没告知运营者 ⇒ 反复保存、甚至回滚正确配置。修的是「告知」不是「即时生效」，两者不要混为一个问题。
 
 - **pitfall｜新执行记录必须同时写「frontmatter 的 `sync_status`」与「正文的 `| 远程同步 |` 表格行」**：只写前者，`check-gate-record-debt.js` 判「整块缺 远程同步 行」⇒ `QG Changes` 红（27s 即失败，属门禁判据而非测试）。**我在同一天连续两篇记录上踩了同一格**（`ops-identity-deploy` 与 `ops-deploy-learnings`），第一次靠 CI 红才发现、第二次又犯 ⇒ 靠自觉不可靠。正解：写完记录立刻本机跑 `node scripts/check-gate-record-debt.js` 确认 rc=0 再提交，不要等 CI 教。
+
+## 2026-10-18 收尾链三个取数坑（risk-batch4 收尾实测）
+
+- **pitfall｜`gh run list --commit <sha>` 会漏报已存在的 run —— 判「main push 没跑 CI」前必须换 raw API**：本轮 PR #3896 合并后（merge `077e790cd`），`gh run list --commit 077e790cd --json workflowName,conclusion` 只返回 `CI Failure Handler` 一类，据此差点写下「quality-gate `NO_RUN`」并触发一轮本不必要的 follow-up PR。改用 `gh api "repos/:owner/:repo/actions/runs?head_sha=<sha>"` 得 `total_count=67`，其中 **quality-gate `count=1 event=push` 且 `conclusion=success`**；再用 `?event=push&branch=main` 列表交叉确认同一结论。**判据**：凡要断言「某 SHA 上有没有 run」，取数必须走 `head_sha` 明文查询或 `--event push --branch main` 列表，**不得**用 `gh run list --commit`（它会静默少报，而「静默少报」与「真的没跑」在输出上完全同形）。
+
+- **pattern｜改判据/工具前先 `git merge --ff-only origin/main` —— 否则可能白做一遍（本轮实测）**：收尾时 `check-branch-merged` 在一个**已完整合并**的分支上报 `lost=1` rc=1，我定位到两条根因（`core.quotepath` 未关 + 输出按 latin1 解码后回传 git 参数时被按 UTF-8 重编码），修完并加了中文路径夹具，24/24 绿。但 ff 之后发现**并发会话的 PR #3875「落地判据 v3」已把这两个文件改了 471+353 行、且已覆盖该假 LOST**（v3 在 `077e790cd` 基线上跑同一分支：`identical=6 drift=0 lost=0` rc=0）。于是我的补丁整体作废、工作区复位。**代价**：约 40 分钟 + 一次 `reset --hard`（工作区只有自己的 2 个 staged 文件、已先备份 7015 字节补丁）。**纪律**：动 `scripts/` 判据或 `apps/` 前，先 `git log HEAD..origin/main -- <目标文件>` 看有没有未吸收的上游改动——「同一个坑两个会话同时修」在本仓是高频形态（判据类文件尤其热）。
+
+- **fact｜`core.quotepath` 的正确取值取决于用途，两个方向都对（补充 L1112）**：L1112 记的是「PowerShell 对 git 输出数行」场景——那里**转义形态（全 ASCII）反而安全**，故 `-c core.quotepath=false` 是把坑打开。但在**程序化判据**场景（路径当键、再回传给 `git ls-tree`/`git diff --` 做 blob 比对）里，恰恰相反：必须 `-c core.quotepath=off` **并且**在参数侧把 latin1 解码出来的字符串用 `Buffer.from(a, 'latin1')` 还原成原始字节（只做前者、不做后者时读数不变——本轮实测「修①后 lost 仍为 1」）。另有一条纯展示层的坑：latin1 串直接打印成文件名是 `ç«…` 乱码，须在**输出边界**转回 UTF-8（判据要说得清是哪个文件，才可能被信任）。**口径**：数行/人读 ⇒ 要 ASCII 转义；当键回传 ⇒ 要原始字节 + 展示边界还原，两者不可混用。

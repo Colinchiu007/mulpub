@@ -1,0 +1,68 @@
+{
+  "sha": "eb7c6d4196499ab7944c9db85021778f69ac989f",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 543 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 543,
+    "fileCount": 9,
+    "codeFileCount": 5,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "1. 查窗口占用：`SELECT key, last_publish_at FROM publish_timeline WHERE key LIKE 'tencent_video:%';`",
+      "2. 查是否回滚过：`SELECT count, rollback_count FROM publish_daily_count WHERE day_key = '<今天>';`"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "3fd04d7da0db85a5ab905d0d01019a21ebdf9c47b2196f7883a9038a13a09e54",
+  "decidedAt": "2026-10-18T01:26:45.285Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "error",
+    "performedBy": "claude",
+    "findings": null,
+    "error": "spawnSync codeagent-wrapper 超时 / exit 1 —— 评审后端无法在预算内处理本次 84 KB 审查提示",
+    "attempts": [
+      {
+        "at": "2026-10-17T15:32:00Z",
+        "budgetMs": 600000,
+        "result": "ETIMEDOUT"
+      },
+      {
+        "at": "2026-10-17T16:18:58Z",
+        "budgetMs": 600000,
+        "result": "ETIMEDOUT"
+      },
+      {
+        "at": "2026-10-17T17:05:00Z",
+        "budgetMs": 600000,
+        "result": "ETIMEDOUT"
+      },
+      {
+        "at": "2026-10-17T17:44:00Z",
+        "budgetMs": 1800000,
+        "result": "ETIMEDOUT"
+      },
+      {
+        "at": "2026-10-17T18:20:00Z",
+        "budgetMs": 1800000,
+        "result": "claude exited with status 1"
+      }
+    ],
+    "environmentProbes": [
+      "codeagent-wrapper --help → 0.19s OK",
+      "codeagent-wrapper --lite \"Reply PONG\" → 41.2s OK（PONG）",
+      "codeagent-wrapper 非 lite \"Reply PONG\" → 42.7s OK",
+      "stdin 模式 4.8 KB → 126.8s OK（PONG2）⇒ stdin 路径本身可用",
+      "评审提示 84,471 字节（proposal-v1.md）+ 变更基线 1,389 行 ⇒ 后端稳定失败"
+    ],
+    "conclusion": "DUAL 判定要求双模型深度审查；本机 claude 后端无法完成该体量的审查（小提示正常、审查提示必失败）。本记录**不宣称审查通过**：status 保持 error，供门禁与人工如实识别。替代性证据（不等价于双模型审查）：QM-5 五步根因/逃逸分析、3 层回归锁、M1/M2 变异反证、shared-utils 全量 1093 passed、桌面受影响面 48 passed、QM-1 打包+启动验证 PASS、CI 22 项全绿。处理方式：用户 2026-10-18 明确批准「按已登记的环境阻塞豁免合并」。",
+    "notReviewConclusion": true,
+    "userWaiver": "user-approved 2026-10-18",
+    "at": "2026-10-18T01:26:54.966Z"
+  }
+}

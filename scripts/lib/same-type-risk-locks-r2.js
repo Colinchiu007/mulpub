@@ -60,6 +60,28 @@ function enclosingFn (masked, at) {
  * R5：loading 型状态置 true 后，函数体内无复位 ⇒ 红；复位不在 finally ⇒ 出声。
  * @returns {{ok:boolean, findings:Array, visible:Array, stats:Object}}
  */
+/**
+ * finally 块范围（相对 body 起点的 [start, end) 数组）。
+ * 用词边界 `\bfinally\b` 找关键字（w4：避免含 finally 的标识符误命中），取其后的第一个 `{`
+ * 到配对 `}` —— 单行 finally 与多行 finally 归一到同一判定。
+ */
+function finallyBlockRanges (body) {
+  const out = []
+  const re = /\bfinally\b/g
+  let m
+  while ((m = re.exec(body)) !== null) {
+    const braceIdx = body.indexOf('{', m.index + m[0].length)
+    if (braceIdx < 0) continue
+    const close = matchBrace(body, braceIdx)
+    if (close < 0) continue
+    out.push([braceIdx, close + 1])
+  }
+  return out
+}
+
+/**
+ * R5：loading 型状态置 true 后，函数体内无复位 ⇒ 红
+ */
 function scanLoadingReset (sources) {
   // i7（CCG 13fc9740）：只有**已签核**（pending_signoff 非 true）的登记项才豁免；
   // 未签核的照红 —— agent 起草 / 人类生效的机械分界。
@@ -81,13 +103,15 @@ function scanLoadingReset (sources) {
       if (!fn) { stats.outsideFn++; visible.push({ path, name, kind: 'outside-fn', detail: '函数体外的 loading 赋值（组合式函数顶层），交人工确认' }); continue }
       stats.setTrue++
       const body = masked.slice(fn.b, fn.e)
-      // w4（CCG a9283db4）：lastIndexOf('finally') 会被含 finally 的标识符命中 ⇒ 用词边界正则取最后一个
-      let finallyIdx = -1
-      let fm2
-      const finRe = /\bfinally\b/g
-      while ((fm2 = finRe.exec(body)) !== null) finallyIdx = fm2.index
+      // ⚠ 2026-10-18 复核修正：原判据「复位下标 > finally 词的下标」对**单行 finally**
+      //   （`finally { this.pipelineLoading = false }`）漏判 —— finally 词在复位之前，词序比较必然失败，
+      //   实测 CreateView.vue:2106 被误列入「finally 外复位」可见面（逐条读码发现 L2112 有 finally 复位）。
+      //   改为**块范围判定**：finally 词后第一个 `{` 到配对 `}`，复位落在区间内即算 finally 复位
+      //   （单行 / 多行 finally 都正确）。
+      const finallyRanges = finallyBlockRanges(body)
       const resets = [...body.matchAll(new RegExp('\\b' + name + '\\s*=\\s*false\\b', 'g'))].map((x) => x.index + fn.b)
-      if (finallyIdx >= 0 && resets.some((r) => r > fn.b + finallyIdx)) { stats.finallyReset++; continue }
+      const inFinally = resets.some((r) => finallyRanges.some(([a, b]) => r > fn.b + a && r < fn.b + b))
+      if (inFinally) { stats.finallyReset++; continue }
       if (resets.length > 0) {
         stats.manualResetNoFinally++
         visible.push({ path, name, kind: 'manual-reset', detail: '复位在 finally 之外（×' + resets.length + '）；合法写法多，出声不拦截' })
@@ -165,4 +189,4 @@ function scanAllR2 (sources) {
   }
 }
 
-module.exports = { maskNonCode, matchBrace, scanLoadingReset, scanFakeProgress, scanAllR2 }
+module.exports = { maskNonCode, matchBrace, scanLoadingReset, scanFakeProgress, scanAllR2, finallyBlockRanges }
