@@ -19,9 +19,50 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "error",
-    "performedBy": "claude",
-    "findings": null,
+    "status": "cleared",
+    "performedBy": "frontend=opencode（5 次交付：第 1/3/5 次为会话状态快照、零 verdict 清单；第 2 次调用方引号 bug 致 exit 255；第 4 次 external_directory 权限被自动拒。第 5 次快照含 4 条线索，作者逐条对已提交 blob 验真后 4 条全部成立并已落地修复）；backend=claude（未交付：引擎第 1 轮 ETIMEDOUT@timeoutMs=600000；手动 2 次各 api_retry 打满 10/10 全 502 server_error 后 exit 1；探针两字请求 180s 无回音 exit 143）；闭包依据=用户授权按单轴闭包（2026-10-18 本会话，问题 D1 选「授权按单轴闭包（前端轴）」），非作者自审、非引擎自扮演；本片非高危域（无 crypto / 凭证 / 权限面）。",
+    "findings": [
+      {
+        "id": "FE-1",
+        "severity": "Warning",
+        "file": "apps/desktop/src/views/Publish.vue",
+        "line": "1263/1267（修复前）",
+        "issue": "正文取源表达式 String(article.content || '') 在谓词与 openScriptEntry 各写一遍，构成第二套口径（PRD §7.10.3.4 要求一处定义两处用）",
+        "fix": "收成单一 episodeSourceText computed，谓词与 openScriptEntry 同读一份",
+        "verified": "作者验真成立",
+        "mutant": "M2b（把该 computed 写成 trim 版 ⇒ 判据 4 前后两条指名红）"
+      },
+      {
+        "id": "FE-2",
+        "severity": "Info",
+        "file": "apps/desktop/src/views/Publish.vue",
+        "line": "667（修复前）",
+        "issue": "浮层块被插在 <!-- P2-2：AI 封面生成对话框 --> 注释与它所注释的 div 之间，使该注释变成给别人的块作注（误导下一个读者）",
+        "fix": "整块前移到该注释之前，恢复「注释紧邻其所注释元素」",
+        "verified": "作者验真成立",
+        "mutant": "不适用（结构性，非行为）"
+      },
+      {
+        "id": "FE-3",
+        "severity": "Warning",
+        "file": "apps/desktop/src/views/PublishPodcastEntry.test.js",
+        "line": "191（修复前）",
+        "issue": "用例名说「不发第二次出期请求」，但从没点过确认，not.toHaveBeenCalled() 实际量的是「关闭本身不发起出期」——名实不符，且合同要的「关闭 ≠ 取消在途出期」没被真正测到",
+        "fix": "改为先确认并断言恰好 1 次，再关闭并断言仍恰好 1 次（补上前置条件）",
+        "verified": "作者验真成立",
+        "mutant": "M9（在浮层 onCancel 里补发一次出期 ⇒ 只有这条红）"
+      },
+      {
+        "id": "FE-4",
+        "severity": "Warning",
+        "file": "apps/desktop/src/views/PublishPodcastEntry.test.js",
+        "line": "夹具（修复前）",
+        "issue": "ensureChannel 在夹具里出现 4 次却从无断言它不该被调用；若有人把兜底接回点击路径，无人可看（§7.10.3.2 不变量 2 失守面）",
+        "fix": "判据 1 补 expect(ensureChannel).not.toHaveBeenCalled()",
+        "verified": "作者验真成立",
+        "mutant": "M8（在 setup 里 void ensureChannel() ⇒ 判据 1 与判据 4 共三条红）"
+      }
+    ],
     "error": "spawnSync C:/Users/邱领/.claude/bin/codeagent-wrapper.exe ETIMEDOUT",
     "validationErrors": null,
     "at": "2026-10-18T02:47:48.267Z"
