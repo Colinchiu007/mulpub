@@ -19,8 +19,11 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "error",
+    "performedBy": "claude",
+    "findings": null,
+    "error": "spawnSync C:/Users/邱领/.claude/bin/codeagent-wrapper.exe ETIMEDOUT",
+    "validationErrors": null,
+    "at": "2026-10-18T14:45:29.611Z"
   }
 }
