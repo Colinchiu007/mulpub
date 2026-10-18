@@ -26,25 +26,53 @@
     "status": "self_play_resolved",
     "performedBy": "self-play(agent)",
     "confidenceWeight": 0.6,
-    "reason": "判据引擎本机无法完成跨家族对抗（claude 后端超时），按引擎第三档出口 self_play 由 agent 逐条对抗裁决",
-    "adjudication": {
-      "adjudicationFile": ".adversarial/ccg-deep-37e05dd9/adjudication.json",
-      "critiqueFingerprint": "746ce1561e4ed88c",
-      "upheld": [
-        "i1",
-        "i6",
-        "i7"
-      ],
-      "dismissed": [
-        "i2",
-        "i3",
-        "i4",
-        "i5"
-      ],
-      "fixesCommit": "4a33393a3",
-      "note": "upheld 三条全部落地修复且各有回归用例；dismissed 四条理由可由源码/契约复核（见 adjudication.json 每项 rationale）"
+    "reason": "判据引擎本机无法完成跨家族对抗（claude 后端超时），按引擎第三档出口 self_play 由 agent 逐条对抗裁决；三轮共 18 条：成立并修复 10 条、驳回 7 条、如实记录 1 条取舍",
+    "evidenceInRepo": "openspec/records/video-publish-4.md §八（三轮逐条自扮演裁决表，入库可审计）",
+    "adjudicationSummary": {
+      "round1": {
+        "upheld": [
+          "i1",
+          "i6",
+          "i7"
+        ],
+        "dismissed": [
+          "i2",
+          "i3",
+          "i4",
+          "i5"
+        ],
+        "fixCommit": "4a33393a3"
+      },
+      "round2": {
+        "upheld": [
+          "i1",
+          "i2",
+          "i3"
+        ],
+        "dismissed": [
+          "i4",
+          "i5"
+        ],
+        "fixCommit": "2cd6d37d4"
+      },
+      "round3": {
+        "upheld": [
+          "i1",
+          "i2",
+          "i3",
+          "i6"
+        ],
+        "dismissed": [
+          "i4"
+        ],
+        "acceptedTradeoff": [
+          "i5"
+        ],
+        "fixCommit": "5da77687f"
+      }
     },
+    "coverage": "本条记录覆盖的 diff 是中间态；其中被裁决成立的问题均已在后续提交修复，最终态与逐条理由见 evidenceInRepo 同一处",
     "parentSha": "f2b80c3a76d5795d7a435f392b4087d936080936",
-    "at": "2026-10-18T08:03:11.866Z"
+    "at": "2026-10-18T08:14:40.139Z"
   }
 }
