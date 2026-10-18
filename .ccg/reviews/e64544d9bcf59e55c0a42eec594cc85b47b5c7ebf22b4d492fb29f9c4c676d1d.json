@@ -1,0 +1,59 @@
+{
+  "sha": "91c79db804188e1956ed4c1dcc47f0019d4a5499",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 136 行（≤ 200）但命中 auth/数据库/加密：敏感内容 8 处",
+  "stats": {
+    "changedLines": 136,
+    "fileCount": 6,
+    "codeFileCount": 4,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 8,
+    "docSensitiveContentHits": 5,
+    "docSensitiveContentSample": [
+      "报错还是笼统的「账号信息缺失，请重新授权此账号再试」，把**架构性不可行误导成「用户该重新登录」**。",
+      "| 材料缺失 / PEM 非法 / 未授权 | `账号信息缺失，请重新授权此账号再试`（不变） |",
+      "| `getAuthKey`（VOD 授权） | ✅ 有 SessionToken |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "e64544d9bcf59e55c0a42eec594cc85b47b5c7ebf22b4d492fb29f9c4c676d1d",
+  "decidedAt": "2026-10-18T21:16:28.659Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

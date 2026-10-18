@@ -258,6 +258,35 @@ describe('douyin security-sdk cookie 名的两代形态', () => {
     expect(guard.hasSecurityMaterials(null)).toBe(false)
   })
 
+  // 2026-10-19 真机实证：真实账号的安全 cookie 值只有 18 字符 key id
+  // （如 `__security_mc_1_s_sdk_crypt_sdk=056709ca-4e73-9159`），
+  // 真材料在页面 IndexedDB `secure-store`（私钥不可导出）。
+  test('hasKeyIdOnlyMaterials：真机 key-id 形态 → true；完整形态 → false', () => {
+    const { pem } = makeKeys()
+    // 完整形态（有 data= 包裹 + PEM）都不是 key-id
+    expect(guard.hasKeyIdOnlyMaterials(makeCookie({ pem, keyStyle: 'live' }))).toBe(false)
+    expect(guard.hasKeyIdOnlyMaterials(makeCookie({ pem, keyStyle: 'legacy' }))).toBe(false)
+    expect(guard.hasKeyIdOnlyMaterials(makeCookie({ pem, keyStyle: 'bare' }))).toBe(false)
+    // 逐字真机形态
+    const realShape = [
+      '__security_mc_1_s_sdk_crypt_sdk=056709ca-4e73-9159',
+      '__security_mc_1_s_sdk_sign_data_key_web_protect=6c6586e1-4222-8f79',
+      '__security_mc_1_s_sdk_cert_key=fdef635f-4ae0-8ed3',
+      'sid_tt=94e56aa070d4a5f7ce44dec6d7964060',
+    ].join('; ')
+    expect(guard.hasKeyIdOnlyMaterials(realShape)).toBe(true)
+    // 材料不全时不算 key-id（那种情况由 hasSecurityMaterials 先拦）
+    expect(guard.hasKeyIdOnlyMaterials('sid_tt=ONLY')).toBe(false)
+    expect(guard.hasKeyIdOnlyMaterials('')).toBe(false)
+    expect(guard.hasKeyIdOnlyMaterials(null)).toBe(false)
+    // 一条像真材料的就判否（宁可交给 clientSign 裁决，也不误判好材料）
+    const mixed = [
+      '__security_mc_1_s_sdk_crypt_sdk=056709ca-4e73-9159',
+      '__security_mc_1_s_sdk_sign_data_key_web_protect=' + encField({ ticket: 't1', ts_sign: 'TS' }),
+    ].join('; ')
+    expect(guard.hasKeyIdOnlyMaterials(mixed)).toBe(false)
+  })
+
   test('真实命名不含 "/"：live 形态的名字必须无斜杠（cookie 名约束）', () => {
     const { pem } = makeKeys()
     const cookie = makeCookie({ pem, keyStyle: 'live' })

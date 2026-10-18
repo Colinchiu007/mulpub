@@ -531,3 +531,89 @@ R4 起 body 同时输出 `aspectRatio`（竖版 0.62 / 横版 1.78），
 2. 100 篇上限的清理/去重策略未实现。
 3. 坐标点击需替代为更稳的定位（换分辨率/缩放会失效），并补「草稿箱计数 +1」断言。
 4. 草稿**内容完整性**（标题/正文/封面是否都存住）未逐项核对。
+
+---
+
+## 14. 抖音签名材料形态（R6，2026-10-19 真机实证）
+
+### 14.1 结论
+
+抖音 API 轨在真机上推进到「**只差 create_v2**」，两个根因均为实测：
+
+| 步骤 | 结果 |
+| --- | --- |
+| `getSdkToken` | ✅ 92 字符 token |
+| `getAuthKey` | ✅ 有 SessionToken |
+| `uploadVideo`（VOD 5 步） | ✅ `videoId=v0300fg10000dbaja5fog65rgu1mtqe0` |
+| `uploadCover`（imagex） | ✅ `coverPoster=tos-cn-i-jm8ajry58r/…` |
+| `create_v2` | ❌ `{"status_code":8,"status_msg":"用户未登录"}` |
+
+### 14.2 根因一：HTTP 200 ≠ 已登录
+
+```
+/aweme/v1/creator/pc/user/info/?aid=2906  → HTTP 200，body {"status_code":8,"status_msg":"用户未登录"}
+/aweme/v1/web/aweme/create_v2/…           → HTTP 200，同上
+页面内 fetch 同一接口                      → 同上
+```
+
+**判据纪律（R6 新增）**：抖音一切「是否已登录」的判定**必须读 body 的 `status_code`**，
+**不得**以 HTTP 状态码或「创作页能渲染」为准。`rpa-douyin-01ab122e` 仍有 62 个 cookie
+（`sessionid`/`sid_tt`/`uid_tt` 齐全），但服务端不认 —— **cookie 名齐全 ≠ 登录有效**。
+
+### 14.3 根因二：签名私钥在 IndexedDB 且不可导出
+
+| 项 | 实测值 |
+| --- | --- |
+| `__security_mc_1_s_sdk_crypt_sdk` | `056709ca-4e73-9159`（18 字符，key id） |
+| `__security_mc_1_s_sdk_sign_data_key_web_protect` | `6c6586e1-4222-8f79`（18 字符，key id） |
+| `__security_mc_1_s_sdk_cert_key` | `fdef635f-4ae0-8ed3`（18 字符，key id） |
+
+签名器期望的形态是 `encodeURIComponent({"data":"<json>"})`（内含 `ec_privateKey` PEM / `ticket`）；
+这三个值解出来 `JSON.parse` 失败。
+
+真材料位置：
+
+| 位置 | 内容 |
+| --- | --- |
+| `localStorage['security-sdk/s_sdk_server_cert_key']` | 服务端证书（1739 字符） |
+| `localStorage['ztsdk_tcc_config']` | secsdk 配置（1022 字符） |
+| **`IndexedDB['secure-store']`** | ★ 私钥（WebCrypto `CryptoKey`，`extractable:false`，**不可导出**） |
+
+⇒ 「从 cookie/本地存储读 PEM 再用 Node crypto 签名」这条路**架构性不可行**（安全设计所致，非配置问题）。
+
+### 14.4 因此修掉的报错缺陷
+
+Step 0 曾硬要求 `bd_ticket_guard_client_data` 存在 —— 而它**只在受保护请求真正发生后**才由握手写入
+（执行后才有），且真实账号材料只剩 key id ⇒ 该判据**对真实账号恒不成立**，
+报错还是笼统的「账号信息缺失，请重新授权此账号再试」，把**架构性不可行误导成「用户该重新登录」**。
+
+**当前判据顺序**（刻意不放松任何既有守卫）：
+
+| # | 判据 | 说明 |
+| --- | --- | --- |
+| 1 | `hasSecurityMaterials(c)` | 不变 |
+| 2 | **`hasKeyIdOnlyMaterials(c)`** | 新增：材料只剩 key id ⇒ 专用诊断（指向页面内签名 / RPA 轨） |
+| 3 | `bd_ticket_guard_client_data` 存在 | **保留**（无证据可省 ⇒ 继续 fail-closed） |
+| 4 | `sid_tt=` 存在 | 不变 |
+| 5 | `clientSign(c)` 可签出 | 不变 |
+
+### 14.5 显示项与提示文字（R6 新增）
+
+| 场景 | 提示 |
+| --- | --- |
+| 材料只剩 key id | `抖音签名材料仅剩 key id（私钥在页面 IndexedDB 中不可导出），纯 API 轨无法完成 create_v2 签名；请改用页面内签名或 RPA/DOM 轨` |
+| 材料缺失 / PEM 非法 / 未授权 | `账号信息缺失，请重新授权此账号再试`（不变） |
+| 触发安全验证 | `抖音触发安全验证，请在创作者中心手动完成验证后重试（不自动换号）`（不变） |
+
+### 14.6 两条可行路线（下一轮）
+
+1. **页面内签名 / 页面内发 create_v2**：实测页面内 `fetch` 会被 secsdk **自动补 `x-secsdk-csrf-token`**，
+   且私钥在页面上下文里可用 ⇒ 「Node 驱动 + 页面签名」是可行中间路线。
+2. **RPA/DOM 轨**：最稳但慢。
+
+### 14.7 未闭合
+
+1. 抖音真实发布未成功（会话失效 + 私钥不可导出）。
+2. 视频号 / 头条的**活会话**在 `account-*` 分区，被当时运行中的应用实例独占锁定 ⇒ 这两个平台的真实发布本轮无法验证。
+3. `create_v2` 是否真需要 `bd-ticket-guard-ree-public-key` 未验证（会话失效使实验走不到那步）⇒ 判据继续 fail-closed。
+4. 视频号 15 个 `rpa-rpa-tencent_video-36b5b265-*` 分区全部为 2026-09-23，必然失效，勿再复用。
