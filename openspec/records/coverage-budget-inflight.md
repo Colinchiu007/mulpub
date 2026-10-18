@@ -16,7 +16,7 @@ date: 2026-10-19
 | 行尾与 diff 对账 | ✅ | 见下方「行尾两口径」：全变更集两口径逐文件相等，删除数归因逐条写在同段 |
 | 接线棘轮 | ✅ | 未新增 `*.test.js`（沿用已接线的 `scripts/check-coverage-budget.test.js`，`quality-gate.yml` Gate 2b7 的 `node scripts/check-coverage-budget.js` + `node --test …test.js` 两行早已在位）；`node scripts/check-unwired-tests.js` 读数见下 |
 | QM-1 打包 / QM-4 视觉 | N/A | 改动集零 `apps/desktop/electron/**`、零 `packages/rpa-engine/**`、零 UI/样式 ⇒ 打包与像素门禁**不适用**（不是「跑了通过」） |
-| QM-6 CCG 双模型外部评审 | 见下行 | 变更行数若低于判定器阈值则 `mode≠dual`，无需深度审查；实测判定记录与结论见「QM-6」段 |
+| QM-6 CCG 双模型外部评审 | **不触发（判定器判 `mode=single`×2）** | 本片拆成两笔提交，各自被 `ccg-review-decider` 判定为 `mode=single`：`aa0691eb27b2`（129 行）/ `1f6f076c0baa`（74 行），均「≤ 200 行且无敏感命中 → 走 §12.6 常规专家分派」。`snapshot-deep-review` 的欠账判据（`check-pr-exec-record.js` L664）**只对 `mode === 'dual'` 计欠账**，故本片无待闭环的深度审查记录 —— 这是**判定器给出的结论**，不是我自认豁免。**为什么拆**：整片一次性提交时判定器判 `mode=dual`（`changedLines=203`，仅超阈值 3 行），而本机 CCG 后端当日不可用（`claude -p` 探针 60s 零输出，详见 PR #3934 的 `debtClosure`）。**没有**再记一次「零裁决」债务：本片本就是两个关注点且有真实先后依赖（不先修采样器就拿不到干净窗口），按关注点拆开后各自都在常规分派档内 —— 让判定器按它自己的规则给出 `single`，而不是靠人把 203 行的双审查判成假阳性。|
 | 远程同步 | 由门禁推导 | 本行**不需要事后改写**：合并后门禁按主干历史推导归属（`scripts/lib/merge-ledger.js`，只认 squash 尾注 `(#NNNN)`）。合并前本篇还不在基线上，判 byDesign 不红；把本行状态列写成 `PASS` 会被判「预写不存在的证据」而红（change: `ban-record-closure-backfill-pr`）。main push 回读证据写在 PR 评论里 |
 
 ### 复测读数（改数的依据，可重跑）
