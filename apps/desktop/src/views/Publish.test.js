@@ -320,6 +320,7 @@ describe("PublishView", () => {
     expect(w.vm.article.video_path).toBe(realPath)
     expect(w.vm.article.title).toBe(realTitle)
   })
+
   it("handlePublish warns when title empty", async () => {
     const w = await createWrapper();
     await w.vm.handlePublish();

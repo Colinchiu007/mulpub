@@ -324,6 +324,146 @@ ${topic}
 - 不为媒体型流水线在热门选题内提供素材选择入口；
 - 不改变 `pipelineList` / `pipelineStartOrchestrated` 的 IPC 契约。
 
+#### 3.13.10 【去发布】标题生成与降级（fix-hot-topics-genvideo-title，2026-10-17）
+
+##### 3.13.10.1 问题与根因
+
+用户实测：热门选题页对某条选题执行【生成视频】→ run 成功 → 点【去发布】，发布页带入的标题是**改写正文的前 100 字**，而不是一个可用标题。第二形态：非 `story2video-compose` 流水线不产出 `story2videoProject`，【去发布】走 run-only 分支只带 `video_path`，**标题为空**。
+
+根因是标题在整条链路上从来不是一个独立生成物，它只是四级静默回退链的末端：
+
+| # | 位置 | 事实 | 后果 |
+| --- | --- | --- | --- |
+| 1 | `apps/desktop/src/features/hot-topics/gen-video-pipelines.js` `buildGenVideoStartParams` | 启动参数不含 `title` | 主进程 `run.params.title` 为空 |
+| 2 | `apps/desktop/src/story2video/s2v-config-snapshot.js` `buildStory2VideoTextConfigFromSnapshot` | `publish.title = config.title \|\| ''`，而 `S2V_CONFIG_DEFAULTS.title = ''` 且热门选题链路从不写该字段 | `publish.title` 为空 |
+| 3 | `apps/desktop/electron/services/story2video-project-service.js:1010` | `project.title = safeText(run.params?.title \|\| publish.title \|\| sourceText, 160)` | 落到 `sourceText`（= 改写全文，上限 100000） |
+| 4 | `apps/desktop/src/features/publish/publish-from-project.js` `buildPublishFromProject` | 取 `project.title`，再 `truncateTitle(rawTitle, 100)` | 标题 = **正文前 100 字** |
+
+##### 3.13.10.2 修复方案
+
+标题改为**由默认文字推理模型按爆款元素独立生成**，与文案改写分离（改写 prompt 不附带标题指令，避免两类任务互相污染——改写引擎 2026-09-18 已因「create 模式注入爆款要素诱导模型把要素名写成小节标题」踩过同类坑）。
+
+**三级降级链**（纯函数 `resolveGenVideoTitle`，单一真源）：
+
+```
+topicText trim 为空            → { title:'',    source:'none'  }  （不注入 query、不调 AI）
+aiAvailable !== true           → { title:topic, source:'topic' }  （不调 AI）
+AI 标题清洗后非空              → { title:ai,    source:'ai'    }
+其余（空/非字符串/仅思维链）   → { title:topic, source:'topic' }
+```
+
+| 触发条件 | title | title_source | title_reason |
+| --- | --- | --- | --- |
+| AI 生成成功 | AI 标题（≤100 字硬限，prompt 约束 30 字） | `ai` | 不带 |
+| 未配置默认文字推理模型（`getDefault('llm')` 空 / 无可用模型 / 无 API Key） | 原始选题文本 | `topic` | `no-model` |
+| LLM 调用失败 / 超时 / 返回空 / 清洗后为空 | 原始选题文本 | `topic` | `failed` |
+| 选题文本为空 | 不注入 title | — | — |
+
+##### 3.13.10.3 时序与交互
+
+标题生成放在**点击【去发布】时**而不是改写时或 run 完成时：
+
+| 候选时点 | 评估 | 结论 |
+| --- | --- | --- |
+| 改写阶段顺手产出 | 与改写混在一次调用，任务混淆，改写输出会被标题指令污染 | ❌ |
+| run completed 时自动生成 | 用户可能只想【查看】，不需要标题；浪费一次 LLM 调用 | ❌ |
+| **点击【去发布】时按需生成** | 用户意图明确；失败只影响标题不影响跳转 | ✅ |
+
+流程：
+
+```
+用户点【去发布】
+  → genVideoBusy = true（按钮禁用，防重复点击）
+  → ① modelProviderGetDefault('llm') 查默认文字推理模型
+  →      不可用 → 跳过 ②，titleSource = 'topic'（reason='no-model'）
+  → ② aiGenerateGenVideoTitle({ topicText, bodyText, max:100 })
+  →      code!==0 / success:false / 抛错 → titleSource = 'topic'（reason='failed'）
+  → ③ resolveGenVideoTitle({ topicText, aiTitle, aiAvailable, max })
+  → ④ 拼 query（有项目：沿用 publishDataToQuery；run-only：只带 video_path），
+  →    再用决策结果覆盖 title 并写 title_source / title_reason
+  → ⑤ resetGenVideoFrontendState() + router.push('/publish', query)
+```
+
+- **busy 守卫**：标题生成期间重复点击不发起第二次 LLM 调用、不发生第二次跳转。
+- **降级不阻断**：任何降级路径都照常跳转，标题降级不影响发布。
+
+##### 3.13.10.4 显示项与提示文字
+
+| 页面 | 元素 | 文案 key | zh |
+| --- | --- | --- | --- |
+| 热门选题·生成视频弹窗（完成态、未点击） | 标题来源说明行 | `hotTopics.genVideoTitleHint` | 点击「去发布」时，标题将由 AI 按爆款元素生成；若未配置文字推理模型或生成失败，将使用原始选题作为标题 |
+| 热门选题·生成视频弹窗（busy） | 生成中提示 | `hotTopics.genVideoTitleGenerating` | 正在生成标题… |
+| 发布页（视频模式，标题输入框下方） | `title_source=ai` | `publishPage.videoTitleFromAi` | 标题由 AI 按爆款元素生成 |
+| 发布页 | `title_source=topic&title_reason=no-model` | `publishPage.videoTitleFromTopicNoModel` | 未配置文字推理模型，标题已使用原始选题 |
+| 发布页 | `title_source=topic&title_reason=failed` | `publishPage.videoTitleFromTopicFailed` | AI 标题生成失败，标题已使用原始选题 |
+
+发布页提示**条件渲染**：无 `title_source` 不渲染；非视频模式忽略；`title_source=topic` 但缺 `title_reason`（异常/手改 query）按失败态提示，不静默。
+
+##### 3.13.10.5 LLM 输出清洗（10 条规则，主进程 `normalizeGeneratedTitle`）
+
+按序执行：① 剥离思维链（`<think>` 闭合块 + 未闭合尾部，`finish_reason=length` 截断形态）；② 剥离 markdown 代码围栏；③ 取首个非空行；④ 清洗控制字符；⑤ 剥「标题：/Title:」前缀标签；⑥ 剥列表编号前缀（`1.` / `1、` / `1)` / `-` / `*`）；⑦ 剥**成对**引号与书名号（单边保留，可能是标题内容）；⑧ 剥尾部标点与空白；⑨ 按 Unicode 码点截断；⑩ 任一步后为空即返回空串（调用方据此降级）。
+
+##### 3.13.10.6 数据校验
+
+| 输入 | 校验 | 失败行为 |
+| --- | --- | --- |
+| `topicText` | trim 后非空；≤ 100000 | `VALIDATION_ERROR`，不浪费 LLM 调用 |
+| `bodyText` | 仅取前 200 字进 prompt；非字符串按 `''` | prompt 摘要段为空，不抛错 |
+| `max` | 默认 100（百家号 `titleMax`）；非有限数/≤0 回退默认 | 用默认值 |
+| LLM 原始输出 | 10 条清洗规则 | 清洗后为空 → `reason:'failed'` |
+
+##### 3.13.10.7 接口契约
+
+**IPC `ai:generate-gen-video-title`**（`electron/ipc-handlers/gen-video-title.js`）：
+
+| 项 | 值 |
+| --- | --- |
+| 参数 | `{ topicText: string, bodyText: string, max?: number }` |
+| 成功 | `{ code: 0, data: { success: true, title: string } }` |
+| 无模型 | `{ code: 0, data: { success: false, reason: 'no-model' } }` |
+| LLM 失败 | `{ code: 0, data: { success: false, reason: 'failed', message: string } }` |
+| 参数非法 | `{ code: EC.VALIDATION_ERROR, message }` |
+| sender 校验 | `withSenderCheck`（拒绝外部网页） |
+| 模型解析 | 主进程 `aiGenerator._modelProviderManager.getDefault('llm')` + `resolveProviderDefaultModel`（用户默认 > 运营默认 > `capability_models.llm` > `models[0]`） |
+| API Key | 只在主进程边界读取，不出渲染层、不落日志（与 `prompt-bridge.resolveLlmBind` 同契约） |
+| 推理模型预算 | `isReasoningLlmModel` 命中时 `max_tokens` 放大到 5000，否则 1600（与 `videogen-stages.callDefaultLlm` 一致） |
+| 渲染层封装 | `aiGenerateGenVideoTitle`（`src/api/publisher.js`）+ preload `aiGenerateGenVideoTitle` |
+
+**路由 query 扩展**（`/publish`）：`title`（encodeURIComponent）、`title_source`（`ai`|`topic`）、`title_reason`（`no-model`|`failed`，仅 `title_source='topic'` 时）。
+
+##### 3.13.10.8 分层决策：prompt 为什么在主进程
+
+渲染层 `apps/desktop/src/` 受 `--cjk` 门禁全量字符串扫描（基线 1374 条），中文 prompt 指令放在渲染层会撞门禁；且全仓渲染层此前**没有任何 LLM prompt 构造先例**（都在 `electron/services/*-stages.js`）。因此：
+
+- **主进程**：`buildGenVideoTitlePrompt`（prompt 构造）+ `normalizeGeneratedTitle`（输出清洗）+ `resolveDefaultLlm`（模型解析）+ LLM 调用；
+- **渲染层**：只保留 `resolveGenVideoTitle`（降级链决策纯函数）+ 状态编排。
+
+##### 3.13.10.9 测试锚点
+
+| 文件 | 用例 |
+| --- | --- |
+| `apps/desktop/src/features/publish/gen-video-title.test.js` | 15 例：降级链六格、空/纯空白 AI 标题、非字符串 AI 标题、超长截断（选题与 AI 标题双向）、max 非法回退、`aiAvailable` 非 `true` 保守降级、emoji 码点截断、无参调用 |
+| `apps/desktop/electron/ipc-handlers/gen-video-title.test.js` | 31 例：正常返回、无默认 LLM、无可用模型、LLM 抛错、空 content、参数非对象、空 topicText、max 非法、推理/普通模型预算、sender 校验、输出清洗、prompt 构造（含爆款元素要求与摘要截断） |
+| `apps/desktop/src/views/HotTopics.test.js` | 8 例新增：AI 成功、无模型（不调 AI）、`modelProviderGetDefault` 抛错、LLM 返回空、LLM 抛错仍跳转、run-only 带标题、标题取自原始选题、重复点击幂等、完成态提示行 |
+| `apps/desktop/src/views/Publish.test.js` | 6 例新增：三态来源提示、无 `title_source` 不渲染、图文模式不渲染、缺 `title_reason` 按失败态 |
+
+##### 3.13.10.10 逃逸分析（QM-5）
+
+| 层级 | 修复前现状 | 为什么没拦住 |
+| --- | --- | --- |
+| 单元测试 | `publish-from-project.test.js` 覆盖「publish.title → project.title → sourceText」回退链 | 夹具让 `project.title` 与 `sourceText` **取同值且都只有 38 字**，「title 回退到 sourceText」这条生产缺陷路径在测试中表现为「正确行为」 |
+| 组件测试 | `HotTopics.test.js`【去发布】断言 `title === '发布标题'` | 夹具直接给定 `story2videoTextConfig.config.publish.title = '发布标题'`，而真实链路该字段恒为空串 |
+| 代码审查 | `hot-topics-pipeline-picker` 评审记录了「run-only 发布只能交接成片路径」 | 把「不伪造标题」当成合规终态，**没有继续问「那标题应该是什么」**——规则写的是「不得注入空标题」，没人验证「注入的标题从哪来」 |
+
+**系统性漏洞**：`buildPublishFromProject` 的回退链在**测试夹具层被自证**——夹具把前几级回退填满，使「前几级全空」的生产形态从未被断言。同类风险：任何「多级回退 + 夹具填满前几级」的纯函数，都需要至少一例**前几级全部为空**的生产形态夹具。本期 `mountCompletedRun` 夹具显式把 `publish.title` 置为空串（对齐真实链路）。
+
+##### 3.13.10.11 兼容性
+
+- 不改 `buildPublishFromProject` 的通用回退链（历史记录/结果页/播客三条入口的标题语义不变）。
+- 不改主进程 `story2videoProject.title` 落库（历史卡片标题回退链不变）。
+- 新增 query 字段为可选；旧链接（不含 `title_source`）行为完全不变。
+- 发布页来源提示为条件渲染，无 `title_source` 时 DOM 不变（视觉基线路径不受影响）。
+
 
 ## 4. 数据校验
 

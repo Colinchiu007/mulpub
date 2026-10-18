@@ -212,6 +212,8 @@
                   </label>
                   <UiInput data-testid="publish-title" v-model="article.title" :placeholder="t('publishPage.videoTitlePlaceholder')" />
                   <p v-if="noTitleHint" class="no-title-hint" data-testid="no-title-hint">{{ noTitleHint }}</p>
+                  <!-- fix-hot-topics-genvideo-title：视频模式标题来源提示（三态，无 title_source 不渲染） -->
+                  <p v-if="videoTitleSourceHint" class="video-title-source-hint" data-testid="video-title-source-hint">{{ videoTitleSourceHint }}</p>
                 </div>
                 <!-- 标题助手：贴邻标题输入（openspec optimize-publish-right-rail） -->
                 <div v-if="showTitlePanel || article.title.length > 5" class="cohere-form-item">
@@ -1225,6 +1227,21 @@ const scheduleCapabilityHint = (ids) => fieldSurface.scheduleCapabilityHint(ids)
 // 批量条目在模板里各自调 fieldSurface.hintTextFor(a.platforms)。
 const scheduleHintText = computed(() => fieldSurface.hintTextFor(selectedPlatforms.value))
 const noTitleHint = computed(() => fieldSurface.noTitleHintFor(selectedPlatforms.value))
+
+// ── 标题来源提示（fix-hot-topics-genvideo-title，2026-10-17）──
+// 热门选题「生成视频 → 去发布」带入标题时，query 会带 title_source/title_reason 说明标题怎么来的。
+// 只在**视频模式**且有 title_source 时显示（图文模式/无来源信息一律不渲染，避免污染其它入口）。
+const videoTitleSourceHint = computed(() => {
+  if (activeMode.value !== 'video') return ''
+  const source = String(route.query?.title_source || '')
+  if (source !== 'ai' && source !== 'topic') return ''
+  if (source === 'ai') return t('publishPage.videoTitleFromAi')
+  const reason = String(route.query?.title_reason || '')
+  if (reason === 'no-model') return t('publishPage.videoTitleFromTopicNoModel')
+  if (reason === 'failed') return t('publishPage.videoTitleFromTopicFailed')
+  // 来源是 topic 但缺 reason（异常/手改 query）：按失败态提示，不静默
+  return t('publishPage.videoTitleFromTopicFailed')
+})
 const selectedOverridePlatforms = computed(() =>
   fieldSurface.overridePlatformSpecsFor(platforms.value, selectedPlatforms.value))
 const visibilitySupportedPlatforms = computed(() =>
@@ -1561,6 +1578,8 @@ defineExpose({
 /* 通用字段支持度徽标 + 无标题平台标题提示（publish-capability-registry） */
 .field-support-badge { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 8px; font-size: var(--font-size-xs, 11px); color: var(--action-blue, #1890ff); background: color-mix(in srgb, var(--action-blue, #1890ff) 10%, transparent); vertical-align: middle; }
 .no-title-hint { margin: 6px 0 0; font-size: var(--font-size-xs); color: var(--muted); }
+/* 视频模式标题来源提示（fix-hot-topics-genvideo-title）：与 no-title-hint 同级辅助文字 */
+.video-title-source-hint { margin: 6px 0 0; font-size: var(--font-size-xs); color: var(--muted); }
 .stack-gap { margin-bottom: var(--space-md); }
 .stack-gap-top { margin-top: 12px; }
 .stack-center { text-align: center; }
