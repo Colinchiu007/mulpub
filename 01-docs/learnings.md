@@ -20622,3 +20622,19 @@ CI 把 `QG Static` 钉红在 Gate 2c，红的是 `check-unwired-tests.test.js` �
 - **bug（未修，已登记）｜`config_hash` 白名单里有两个块自带 `synced_at`，等于每请求都把 hash 变一次**：`app_menu_service.py:306` 返回 `{"items": [...], "synced_at": _now()}`、`content_category_service.py:343` 返回 `{"items": [...], "count": n, "synced_at": _now()}`，而 `appMenu` / `contentCategories` **都在** `RUNTIME_BLOCKS` 里。后果：每次 bootstrap 的 `config_hash` 都不同（实测同库连跑两次：`f8a5b99df879ac71/ver1` → `dd3dfca7ccd2e587/ver2`，`RuntimeConfigVersion` 落两行），`config_version` 每次都 +1 ⇒ 「生效看板」永远确认不了、版本表无限增长。这与 `config_fingerprint.py` 注释第 1 条「`synced_at` 每次请求都变，纳入则 hash 永远变、变推送地狱」**直接自相矛盾**——注释写对了，实现对不上。**修它要改这两个块对桌面端的消费形状（渲染端 `appMenu` 归一化把 `items` 挑出来用），属跨端破坏性变更，本轮只登记不修**；判据：任何要进 `RUNTIME_BLOCKS` 的块，其载荷里不得含 `synced_at` / `updated_at` 这类每请求变化的字段，加块时用 `canonical_json` 连算两次比对是否相等。
 
 
+## 2026-10-18 · 夹具落到工作树：命令替换吞 stdout + 「用例 rc」不测「夹具是否成形」（docs-sync-fixture-leak）
+
+- **症状**：某个 worktree 里出现 11 个未跟踪文件，目录名是 `On branch main―Initial commit―nothing to commit (create/copy files and use 'git add' to track)―…`。
+  它们是 `scripts/check-docs-sync.test.sh` 的夹具。清理只能走 `scripts/safe-delete.js`（目录一律拒绝递归删除），11 个文件逐个删完后空目录仍留（R0 没有目录出口），随 worktree 退役一并消失。
+- **链**：`make_repo` 内每条 git 调用没关 stdout ⇒ 调用方 `repo="$(make_repo …)"` 把 git 的 status 原文与真实路径拼成一个字符串 ⇒
+  `mkdir -p "$repo/…"` 的相对路径落在 **cwd（= 仓库工作树）**。触发条件是继承 `MSYS_NO_PATHCONV=1`/`MSYS2_ARG_CONV_EXCL`：
+  此时 `/tmp/tmp.XXXX` 被 bash（MSYS 根）与原生 `git.exe`（盘内路径）解析成两处 ⇒ `echo seed > "$dir/README.md"` 与 `git add -A` 量的不是同一个目录 ⇒ seed 提交为空 ⇒ 才有那段 status 可打。
+- **为什么四层门禁都没看见**：① 垃圾是未跟踪文件，CI 的检出态里没有它 ⇒ 远程结构性失明；② 自测的断言只比"被检方 rc"，
+  事发那次现场日志第 1 行是 `README.md: No such file or directory`，第 20 行照打 `PASS:` ⇒ **夹具没成形时用例仍绿**；
+  ③ AGENTS 有「文件系统测试隔离」这条纪律但没有执行体；④ 唯一撞上它的 `check-unwired-tests.js` 按磁盘扫，报出来的是**本机假红**（说仓库里有嵌套 workflow）。
+- **正解（按层，摘任一层另一层仍兜）**：环境由夹具自己钉（入口 unset）／函数 stdout 只留路径／
+  取到的路径与期望**逐字相等**再写入（顺序即判据的一半：放 mkdir 之后就等于先落盘再报错）／
+  夹具成形自检（有提交且 seed 在索引里）／cwd 条目快照对账并**点名**泄漏。
+- **可迁移的两句**：①「凡被 `$( )` 捕获的函数，它的 stdout 就是返回值」—— 任何旁路 `echo`/工具 stdout 都会变成返回值的一部分，
+  这类缺陷在 bash/PowerShell 里都是**不报错、只变形**；②「用例的 rc 只证被检方，不证夹具」——写夹具收尾必须回答
+  「如果夹具根本没建起来，这条用例会红还是会绿？」答不出"红"就补一条成形断言。
