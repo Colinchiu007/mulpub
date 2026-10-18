@@ -168,6 +168,20 @@ diff 图显示红线覆盖**整个右栏下半部**：新增一行把下方所�
 - 若最终 CI 仍判红，正解是**由 CI 同源产出基线**（`base-screenshots/publish-form{,-dark}.png` 是可跟踪文件，历史 PR #2623/#2709/#2804 都走过这条路），
   **不得**用本机 `--update-baseline` 掩盖。
 
+**第 2 轮实测（套件全绿 + 按 CI 同源重建基线）**：改法生效 ——
+`工作流结果: 31/31 通过，0 失败`，`[GATE-7] suite exits: pixel=0 views=0 views-supplement=0 dark=0 workflows=0 workflows-supplement=0`，
+第 1 轮那 6 条 `/publish` 用例全部转绿。随后 `Gate 7b - Baseline freshness` 判红，两轮甄别结论是
+「2 张视图两轮都红（确定性漂移）：`publish-form-dark.png` / `publish-form.png`」—— 正好是本刀的界面改动面，
+属预期变化，故按 CI 同源重建这 2 张基线。映射按 `scripts/check-baseline-freshness.js` 的 `findRender`
+（`<name>.png` views 套优先，否则 `<name>-current.png` 像素套）：
+`publish-form.png` ← `screenshots/publish-form.png`、`publish-form-dark.png` ← `screenshots/publish-form-dark-current.png`；
+只取 **round2**（第 1 轮失败后 round1 被挪进 `screenshots-round1/`，终判域是 round2，拿 round1 的图当基线等于用"被否证的那一版"）。
+自证：新基线 == 同一次 CI 渲染**逐字节相等**（`9afc302421c06630…` / `92697B`、`fc332db77813b451…` / `95504B`）。
+
+由此得到第三条可迁移判据：**「改法生效」与「基线过期」是两道不同的门**——套件 rc 全 0 只证前者；
+`Gate 7b` 证的是「基线是否等于本次渲染」，界面真变了它必然红，这不是回归，而是流程要求你同源换基线。
+两条都不能省：只看套件 rc 会把「基线还停在旧 UI」留到下次；只看 Gate 7b 会把「整栏下移」这种定位错误当成单纯基线问题。
+
 ## 七、显示项
 
 | 位置 | 内容 | 数据 | 空/异常态 |

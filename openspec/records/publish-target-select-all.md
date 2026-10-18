@@ -24,7 +24,7 @@ contract: 01-docs/PRD-PUBLISH-TARGET-SELECT-ALL-2026-10-17.md
 | `check-locale-sync` | ✅ pair + ✅ CJK | pair PASS（zh/en 变更均=true 且成对覆盖）；CJK 基线 1374 → 1217，无新增硬编码 |
 | ESLint | ✅ exit 0 | 仅 2 处 warning（`Publish.vue:726` 未用 disable 指令、`:1253` `copyDetailMeta`），经 `git diff origin/main` 核对**均不在本刀 diff 内** |
 | 测试 | ✅ 25 文件 422 用例全绿（含新 4 文件 34 例）；宽扫 76 文件 1379 用例全绿 | 受影响全量：`src/features/publish` + `usePlatformSelection` + `usePublishTargetBulkTargets` + `Publish.test.js` + `publish-target-select-all.test.js` |
-| `QG Visual` | ⏳ 第 1 轮判红 → 改设计后复跑 | 见下「视觉门禁实测」；终判以第 2 轮 CI 为准 |
+| `QG Visual` | 套件全绿；Gate 7b 基线已按 CI 同源重建 | 第 2 轮 `31/31 通过`、六个套件 rc 全 0；Gate 7b 点名的 2 张基线（`publish-form{,-dark}.png`）已按 round2 渲染重建并自证逐字节相等。详见下两节 |
 | 远程同步 | 由门禁推导 | `远程同步 PR #3861`（不带 `sync_*` 三字段，收口由 `merge-ledger` 按主干历史推导） |
 
 ### 反证（每条都实跑并指名红）
@@ -55,7 +55,37 @@ contract: 01-docs/PRD-PUBLISH-TARGET-SELECT-ALL-2026-10-17.md
 - **同一视图在像素套里 PASSED**（`publish-form` 1.778% < 6%）—— 两个套件阈值不同口径（workflows **1%** vs pixel **6%**），拿一个的绿当另一个的绿正是本轮红因。
 - diff 图显示红线覆盖**整个右栏下半部**：新增一行把下方所有内容整体下移。
 - 修法（构造性中性）：全选/清空**塞进搜索行内部**，不新开一行，下方原地不动；按钮做小号 chip 不撑高行高；顶层子节点数恒为 2。详见 PRD §六（含对初稿"CI 空 profile"前提的推翻与更正）。
-- **不采用**：本机 `--update-baseline` 重建基线 —— 本仓纪律明令禁止用基线掩盖回归。若第 2 轮仍红，正解是由 CI 同源产出 `base-screenshots/publish-form{,-dark}.png`。
+- **不采用**：本机 `--update-baseline` 重建基线 —— 本仓纪律明令禁止用基线掩盖回归。
+
+### 视觉门禁第 2 轮：套件全绿，但 Gate 7b 判基线过期（改法生效 + 按 CI 同源重建基线）
+
+第 2 轮（run `39088883316` / job `117561584700`）**套件侧全绿**，证明「塞进搜索行」的改法成立：
+
+```
+工作流结果: 31/31 通过，0 失败
+[GATE-7] suite exits: pixel=0 views=0 views-supplement=0 dark=0 workflows=0 workflows-supplement=0
+```
+
+第 1 轮那 6 条 `/publish` 用例（1.778% > 1%）全部转绿：新增块不再把下方整栏下移。
+但同一 job 的下一步 `Gate 7b - Baseline freshness` 判红，两轮甄别结论：
+
+```
+基线新鲜度[partial：只判本次有渲染的那些]：检查 43 张 / 违规 2 张 / 登记内动态漂移 0 张
+❌ 2 张视图两轮都红（确定性漂移，不因重试放行）：
+   · publish-form-dark.png
+   · publish-form.png
+```
+
+两张正好就是本刀的界面改动面 ⇒ 属**预期的界面变化**，正解是按 CI 同源重建基线（不是提阈值、不是遮区域、也不是本机 `--update-baseline`）。
+渲染↔基线映射按 `scripts/check-baseline-freshness.js` 的 `findRender`（`<name>.png` views 套优先，否则 `<name>-current.png` 像素套）：
+
+| 基线 | 取自（round2） | 旧 sha256 | 新 sha256 | 字节 |
+|---|---|---|---|---|
+| `publish-form.png` | `screenshots/publish-form.png`（views） | `01afaf90ea5d3af8…` | `9afc302421c06630…` | 92697 |
+| `publish-form-dark.png` | `screenshots/publish-form-dark-current.png`（pixel-gate） | `4f4dcace70b5f145…` | `fc332db77813b451…` | 95504 |
+
+三条纪律：① **只取 round2**（`screenshots/`）—— 第 1 轮失败后 workflow 把 round1 挪进 `screenshots-round1/`，终判域是 round2，拿 round1 的图当基线等于用"被否证的那一版"；② **自证逐字节相等**（复制后比对源/目标 sha256，不等即失败，不靠"写盘成功"就算过）；③ **文件名必须已在 `base-screenshots/.gitignore` 的白名单里**（`!publish-form.png` / `!publish-form-dark.png` 均已在），否则 PNG 被根 `*.png` 静默吞掉。
+新基线的目视形态与设计一致：两个小号 chip 与搜索框**同一行**，其下平台分组/账号清单/主操作按钮的纵向位置与旧基线逐像素一致。
 
 ### 语义决策（写明理由，便于后续 review）
 
