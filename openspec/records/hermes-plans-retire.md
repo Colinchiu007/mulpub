@@ -2,7 +2,6 @@
 record: hermes-plans-retire
 task: 退役 .hermes/plans/ 计划存档目录——会员中心 P1 迁 openspec/changes/archive，其余三份并入 openspec/records 同名记录
 date: 2026-10-18
-delivered_by_pr: 待填
 ---
 
 ## 本次执行记录：.hermes/plans/ 退役（hermes-plans-retire，2026-10-18）【混合 PR】
