@@ -454,11 +454,19 @@ IPC 'page-manager:set-sidebar-collapsed'
 
 ## 十七、遗留风险（不假装已闭合）
 
-1. **OAuth 内嵌视图不跟随侧栏宽度**：`apps/desktop/electron/services/oauth-manager.js:86` 调用 `computeEmbeddedViewBounds(this.mainWindow)` 时未传宽度，始终按默认 200 计算。收起侧栏后 OAuth 授权页左侧会留 200px 空白。既有实现本就不跟随 ≤900px 的 68px，本轮不扩大改动面；登记为已知限制，建议后续单独立项把 `oauth-manager` 接入与登录视图相同的同步链路。
-2. **视觉基线需要一次重建**：含 TabBar 的基线都会变化（最终清单以 CI `Gate 7b` 点名为准），重建必须在同源渲染环境完成并逐张审核；本轮不提供「本机 update-baseline」的替代证据。
-3. **多窗口不实时同步**：同一应用打开多个窗口时，折叠状态只在各自启动时从 `localStorage` 读取；运行期互不感知。若用户强需求，需新增 `storage` 事件广播或主进程统一状态源，属独立能力。
-4. **`ResizeObserver` 与媒体查询的时序窗口**：收起跨 900px 断点后立即展开，`_sidebarWidth` 可能短暂沿用旧断点值，需等侧栏重新有宽度后的下一次上报才纠正。视觉上表现为一次重排，不造成死区；若要彻底消除，可让渲染层在展开时立即上报当前 CSS 宽度（实现可选，非验收必须）。
-5. **RTL / 高 DPI 未专项验证**：图标为双向 chevron，RTL 下语义不变；高 DPI 下 SVG 矢量无模糊。但本轮不做 RTL 语言与 200% 缩放的专项视觉验收，登记为未取证项。
+> **2026-10-18 更新（`sidebar-collapse-followups` 分支）**：下列 1/3/4 三条已关闭或降级，处理结果逐条写在括号内；2 已随 #3916 的 CI 同源重建关闭；5 仍然有效。
+
+1. ~~**OAuth 内嵌视图不跟随侧栏宽度**~~（**已关闭**，#3916 合并后立项 `sidebar-collapse-followups`）：`oauth-manager.js` 的 `_positionView()` 原先只传 1 参给 `computeEmbeddedViewBounds`，`sidebarWidth` 回落默认 200、`collapsed` 恒 false —— 宽松默认值把「漏传」伪装成合法布局（不抛错、无告警、截图"看着对"），且既有测试断言的正是默认展开态的值，缺陷被写成正确行为的期望。现已补 `setSidebarWidth` / `setSidebarCollapsed` 并传满 4 参，`WebviewManager` 两个 setter 纳入同步链，`window.js` 装配链经 `setOAuthManager` 注入。**连带修复同形态缺陷**：OAuth 视图原先只在 `startAuth` 定位一次、不监听 `mainWindow` resize，授权过程中拖动窗口会复现 `view-bounds.js` 头部所述 2026-09-13「视图被窗口边框裁掉」；现已监听并在 `close()` / 换绑时解绑。
+2. ~~**视觉基线需要一次重建**~~（**已关闭**，#3916）：40 张有渲染基线由 CI 同源 artifact 重建并逐像素复核（`check-baseline-freshness --partial` → 43 检查 / 0 违规 / 40 张逐像素相等 / 3 张 autonomous-loop 专属无渲染）；三轮点名（round2 38 张 → #3897 后 2 张 → #3883 后 2 张）全部收口。
+3. ~~**多窗口不实时同步**~~（**已关闭**，#3916 合并后立项 `sidebar-collapse-followups`）：原判断「需新增 `storage` 事件广播或主进程统一状态源」的后半句是对的、前半句不够——主进程**本来就是**统一状态源（`WebviewManager._sidebarCollapsed` 是应用级唯一真源），缺的只是 `main → renderer` 的广播。现已新增 `broadcastSidebarCollapsed()` 向 `getAllWindows()` 投递 `page-manager:sidebar-collapsed-changed`，preload 暴露 `onSidebarCollapsedChanged`，渲染层 `applyRemoteCollapsed()` 只改本地 ref（不写 localStorage、不上报 IPC，两道回环防护）。**未采用 `storage` 事件方案**：`WebContentsView` 内嵌主页的 origin 是否同源需实测，且广播与主进程真源同一条链，不需要第二个状态通道。
+4. ~~**`ResizeObserver` 与媒体查询的时序窗口**~~（**降级为无需处理**，经代码复核）：`computeEmbeddedViewBounds` 内部 `collapsed ? 0 : normalizeSidebarWidth(width)` 已让 width 参数在收起态**完全失效**；展开时 `MpSidebar` 的 `ResizeObserver`（`w > 0` 守卫）在同一帧后上报真实宽度（200/68），主进程随即按新宽度重排。即：不产生错误布局，仅为一次通常不可见的重排。原 PRD 建议的「展开时立即上报当前 CSS 宽度」实现上取不到（`v-show` 与 ref 更新同 tick，DOM 宽度仍为 0），需 `nextTick` + 双次微任务，脆弱且收益为零。判据：遗留项开修前先问「它到底产不产生错误结果」。
+5. **RTL / 高 DPI 未专项验证**（**仍然有效**）：图标为双向 chevron，RTL 下语义不变；高 DPI 下 SVG 矢量无模糊。但本轮不做 RTL 语言与 200% 缩放的专项视觉验收，登记为未取证项。
+
+### 17.1 收尾时连带发现并修复的第三类缺陷（原 PRD 未登记）
+
+**NaN 能穿过所有 manager 的宽度守卫**。四处 `setSidebarWidth` 各自手写 `typeof width !== 'number' || width < MIN_SIDEBAR_WIDTH || width > MAX_SIDEBAR_WIDTH`，而 NaN 的所有比较运算都是 false ⇒ `NaN < MIN` 与 `NaN > MAX` 双双为假 ⇒ 放行；`typeof NaN === 'number'` 又为真 ⇒ 也放行。NaN 因此被写进 `_sidebarWidth`，直到 `computeEmbeddedViewBounds` 里的 `normalizeSidebarWidth`（含 `Number.isFinite`）才把它拦下并回落 200 —— 守卫的语义被推迟了一层，且四份实现的测试集不会自动对齐（每处都只测了 `0 / -1 / 601 / '200' / null` 这些"比较能拦"的值，没人测 NaN）。
+
+处理：`view-bounds.js` 新增 `isValidSidebarWidth()` 单一真源（有限数字 + 落在 `[MIN, MAX]`），四个 manager 共用；测试显式覆盖 `NaN` / `±Infinity` / 边界值 / 非数字。
 
 ---
 
@@ -467,3 +475,4 @@ IPC 'page-manager:set-sidebar-collapsed'
 | 日期 | 变更 | 说明 |
 |------|------|------|
 | 2026-10-18 | 初版 | 随 `sidebar-collapse-toggle` 分支立项；设计已定稿（按钮位置、图标、持久化、IPC 合同、a11y、视觉基线影响），实现与验证证据由执行记录回填 |
+| 2026-10-18 | 遗留收尾 | `sidebar-collapse-followups` 分支：关闭遗留 1（OAuth 接入侧栏同步 + 补 resize 监听）与 3（多窗口实时同步，主进程广播 + 渲染层静默应用）；降级遗留 4 为「无需处理」并写明依据；连带修复 NaN 穿过手写宽度守卫（抽 `isValidSidebarWidth` 单一真源）。新增 3 条 Requirement / 10 Scenario，新增 106 例测试（受影响面 12 files / 311 tests 全绿） |

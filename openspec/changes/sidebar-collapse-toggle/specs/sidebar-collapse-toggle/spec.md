@@ -150,3 +150,72 @@ MUST NOT 抛出未捕获异常、MUST NOT 无限重试、MUST NOT 以模态弹�
 - **WHEN** 渲染层调用 `setSidebarCollapsed` 但主进程未注册该通道（新旧版本混用）
 - **THEN** 调用失败被静默吞掉，UI 仍可本地切换
 - **AND** 不出现阻塞式错误弹窗或渲染层白屏
+
+### Requirement: 折叠状态必须在同一应用的多个窗口间保持一致
+
+折叠是**应用级**状态：主进程 `WebviewManager._sidebarCollapsed` 是唯一真源，任一窗口的点击
+都会让主进程重排**所有**内嵌视图。因此状态变化 MUST 以广播形式投递给每个窗口的渲染进程，
+收到广播的窗口 MUST 只更新本地视图状态。
+
+理由：各窗口渲染进程各持一份 ref 副本，若不同步，未点击的窗口会保留旧 DOM（侧栏仍显示），
+而其内嵌 `WebContentsView` 已被主进程重排成全宽 ⇒ 侧栏看得见却被原生图层盖住，点击错乱。
+
+#### Scenario: 一个窗口点击后其它窗口同步跟随
+
+- **WHEN** 窗口 A 点击折叠按钮切换为收起
+- **THEN** 主进程向所有窗口广播 `page-manager:sidebar-collapsed-changed`，载荷形如 `{ data: { collapsed: true } }`
+- **AND** 窗口 B 的渲染层把本地状态置为收起，侧栏随之隐藏
+- **AND** 窗口 B 的 `localStorage['mulpub.ui.sidebarCollapsed']` **不被改写**（持久化真源是用户点击的那个窗口）
+
+#### Scenario: 广播驱动的状态更新不得回传主进程
+
+- **WHEN** 渲染层应用来自广播的折叠状态
+- **THEN** MUST NOT 再次调用 `pageManager.setSidebarCollapsed`
+- **AND** MUST NOT 产生主进程 ↔ 渲染进程的循环广播
+- **AND** 本地订阅者仍被通知（同窗口其它组件可跟随）
+
+#### Scenario: 广播能力缺失时静默降级
+
+- **WHEN** preload 未暴露 `onSidebarCollapsedChanged`（新旧版本混用）
+- **THEN** 壳层静默跳过订阅，不抛异常、不阻塞挂载
+- **AND** 单窗口内的折叠功能完全不受影响
+
+### Requirement: 所有内嵌 WebContentsView 必须跟随侧栏宽度与折叠状态
+
+`WebviewManager` / `AuthViewManager` / `QRCodeLogin` / `OAuthManager` 四类内嵌视图的定位
+MUST 全部取用同一份侧栏状态；任一视图漏接都会造成可见的死区或点击错乱。
+
+#### Scenario: OAuth 授权视图按收起态全宽定位
+
+- **WHEN** 用户已收起左侧菜单，随后发起任一平台的 OAuth 授权
+- **THEN** 授权视图以 `x=0`、宽度=窗口客户区宽度定位（而非默认的 x=200）
+- **AND** 展开后新发起的授权回到 `x=200` 的既有布局
+
+#### Scenario: 侧栏宽度变化同步到 OAuth 视图
+
+- **WHEN** 渲染进程上报新的侧栏宽度（如窗口跨越 900px 断点后由 200 变 68）
+- **THEN** OAuth 视图（若正在显示）按新宽度重排，不停留在 200
+
+#### Scenario: 授权过程中窗口尺寸变化必须重排
+
+- **WHEN** OAuth 授权视图显示期间用户拖动主窗口改变其尺寸
+- **THEN** 视图按新的客户区尺寸重排
+- **AND** 视图右侧滚动条与底部内容不被窗口边框裁掉
+- **AND** 授权流程结束或窗口重建时监听被解绑，不跨流程累积
+
+### Requirement: 侧栏宽度守卫必须拒绝 NaN
+
+四处 `setSidebarWidth` 的入参守卫 MUST 共用单一真源实现。单独手写的
+`typeof width !== 'number' || width < MIN || width > MAX` **拦不住 NaN**——
+NaN 的所有比较运算均为 false，它会穿过 `typeof` 检查并被写进 `_sidebarWidth`。
+
+#### Scenario: NaN 被守卫拒绝
+
+- **WHEN** 任一 manager 的 `setSidebarWidth` 收到 `NaN`
+- **THEN** 该值被拒绝，`_sidebarWidth` 保持原值
+- **AND** 不触发视图重排
+
+#### Scenario: 守卫的合法边界
+
+- **WHEN** `setSidebarWidth` 收到 `[MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH]` 区间内的有限数字
+- **THEN** 接受并更新；`0` / 负值 / 越界 / `±Infinity` / 非数字一律拒绝
