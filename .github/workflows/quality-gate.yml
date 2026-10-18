@@ -374,6 +374,17 @@ jobs:
         run: |
           node --test scripts/check-branch-merged.test.js
 
+      # --- Gate 2b7：QG Coverage 预算常量的取证对账 ---
+      # 编 2b7 而不是 2b5：#3724（未合并）占用 "Gate 2b5 - CCG evidence anchor"，2b6 已被收敛探针占用，
+      # 同号会在 squash 后撞成两步同名（`check-unwired-tests.js` 的"同名 basename 必须写全相对路径"会读成一条）。
+      # 动因：`timeout-minutes` 这类**无人看管的预算常量**撞死过两趟 main push，丢的是证据不是绿勾。
+      # 落点同样必须是 changes 作业（判据本体要求 runner 上不装依赖 ⇒ 只用 node 内置模块）。
+      - name: "Gate 2b7 - Coverage budget provenance (changes job)"
+        shell: bash
+        run: |
+          node scripts/check-coverage-budget.js
+          node --test scripts/check-coverage-budget.test.js
+
       # --- Gate 2b6：CCG 收敛出口可达性探针 ---
       # 编 2b6 而不是 2b5：#3724（未合并）已占用 "Gate 2b5 - CCG evidence anchor"，
       # 两条合并顺序未知，同号会在 squash 后撞成两步同名（同名 basename 判据会读成一条）。
@@ -1278,7 +1289,12 @@ jobs:
     runs-on: windows-latest
     needs: [changes]
     if: needs.changes.outputs.docs-only != 'true'
-    timeout-minutes: 40
+    # 40 → 60（2026-10-18）：40 这一档实测撞死过两趟 main push（run 39037127191 = PR #3836 的收口证据、
+    # run 39084091986），后果不是"跑挂"而是 main 侧证据永久丢失；同一窗口里成功样本的尾部是 39.4/39.5/39.7，
+    # 也就是**贴着天花板过线**。数值与依据不写在注释里当散文——
+    # 由 scripts/lib/coverage-budget-provenance.js 单点持有，scripts/check-coverage-budget.js 每次 PR 对账
+    # （timeout ≥ ceil(floor × SAFETY_MULTIPLIER)、样本量下界、采集日过期、provenance 与本行同源、贴脸警报）。
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:

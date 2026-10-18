@@ -164,8 +164,17 @@ test('job 上限与单一真源严格对齐，且不许动无关 job', () => {
     assert.equal(j.timeoutMin, gate.GATE_JOB_TIMEOUT_MIN, `${name} 的 timeout-minutes 与单一真源不一致`)
     assert.equal(r.perJob[name].ok, true, `${name}: ${r.perJob[name].reason}`)
   }
+  // coverage 这一格自 #3313 起被钉成字面量 40，理由是「没有 WaitForExit 站点，本次不得顺手改它」。
+  // 那句理由成立（它确实没有步级预算），但它把"不动"写成了一条**没有依据的字面量锁** ——
+  // 于是 40 是否够用这件事，仓库里既没人判、也没人问（现场：两趟 main push 停在 40.0 分钟被杀）。
+  // 现在改由 coverage 自己的真源持有：这里只钉"workflow 与本 PR 的判据必须同源"，
+  // 不许再留第二个裸数字（换了数值不改出处 ⇒ 这条与 PROVENANCE_VALUE_DRIFT 双双变红）。
   const cov = jobs.find((x) => x.name === 'coverage')
-  assert.equal(cov.timeoutMin, 40, 'coverage job 没有 WaitForExit 站点，本次不得顺手改它')
+  const covProv = require('./lib/coverage-budget-provenance.js')
+  assert.equal(cov.timeoutMin, covProv.TIMEOUT_MINUTES,
+    'coverage 的 timeout-minutes 必须等值于 coverage-budget-provenance 的单点，不得在本文件另写字面量')
+  assert.equal(covProv.PROVENANCE.timeoutMinutes, covProv.TIMEOUT_MINUTES,
+    'provenance 自身的数值字段与导出的常量不得分裂')
 })
 
 test('复测入口的字段与出处逐字段对齐，单位换算锁到函数体', () => {
