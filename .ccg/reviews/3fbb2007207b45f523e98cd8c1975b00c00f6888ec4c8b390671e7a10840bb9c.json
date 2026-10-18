@@ -1,0 +1,30 @@
+{
+  "sha": "b010b308e6586ba81de2e8c78c667ba2d7e7ca22",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 206 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 206,
+    "fileCount": 9,
+    "codeFileCount": 3,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 3,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": [
+      "\"01-docs/research/competitor-reverse-2026-10-13/derived/DLL-MediaTaskMgr-\\346\\216\\245\\345\\217\\243\\345\\245\\221\\347\\272\\246.md\"",
+      "\"01-docs/research/competitor-reverse-2026-10-13/\\345\\216\\237\\347\\224\\237\\345\\261\\202\\345\\210\\206\\346\\236\\220\\346\\212\\245\\345\\221\\212.md\"",
+      "\"01-docs/research/competitor-reverse-2026-10-13/\\345\\216\\237\\347\\224\\237\\345\\261\\202\\345\\210\\206\\346\\236\\220\\350\\241\\245\\345\\205\\205\\346\\212\\245\\345\\221\\212.md\""
+    ]
+  },
+  "stagedDiffHash": "3fbb2007207b45f523e98cd8c1975b00c00f6888ec4c8b390671e7a10840bb9c",
+  "decidedAt": "2026-10-18T16:33:12.520Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

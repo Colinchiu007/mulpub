@@ -602,6 +602,12 @@ jobs:
           # start-app 启动链契约：WMI 脱离 + 存活断言 + 双向斜杠匹配（2026-10-16，
           # 用户三次看不到应用，根因是启动链被 agent 会话连坐杀）
           node --test scripts/sync-app.test.js
+          # 锚点热备份新鲜度判据（anchor-backup-latest，2026-10-18）：该 lint 原按目录名
+          # 「字符串降序」选最新快照，而锚点里还有 `seed-*` 基线目录，'s' > '2' ⇒ 基线
+          # 永远胜出、每次都报「25.9 天前」，连刚写完快照的那次也这么报。恒黄的门禁等于
+          # 没人看的门禁（与「装饰性门禁」同型）。锁是行为级的：真起 powershell 打临时
+          # 夹具，判「新快照胜出 / 真陈旧仍报 / 无时间戳快照不得谎报新鲜」三条。
+          node --test scripts/mp-anchor-health.test.js
           node --test scripts/qm1-child-env.test.js
           # QM-1 打包验证脚本的路径解析锁（fix-qm1-verify-path）：脚本住在仓库根 scripts/，
           # 产物不在脚本目录。#2985 引入起把 __dirname 当应用目录 ⇒ 脚本从未跑通，
