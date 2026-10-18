@@ -246,4 +246,18 @@ describe('S2vConfigPanels', () => {
     const w = mountPanel(vm);
     expect(w.get('[data-testid="s2v-voice-clone-choose-button"]').text()).toContain('重新选择音频文件');
   });
+
+  // QM-6 外部评审 Info：重选场景（已有样本时再次打开文件选择器）同样不得提前显示进行中文案。
+  it('重选期间（仅 loading、已有 selection、无 pending）按钮文案保持「重新选择音频文件」', () => {
+    vm = makeBoundVm(clonePanelState({
+      s2vVoiceCloneLoading: true,
+      s2vVoiceClonePending: null,
+      s2vVoiceCloneSelection: { selectionId: 'sel-old', sampleCount: 1 },
+    }));
+    const w = mountPanel(vm);
+    const button = w.get('[data-testid="s2v-voice-clone-choose-button"]');
+    expect(button.text()).toContain('重新选择音频文件');
+    expect(button.text()).not.toContain('正在添加…');
+    expect(button.attributes('disabled')).toBeDefined();
+  });
 });

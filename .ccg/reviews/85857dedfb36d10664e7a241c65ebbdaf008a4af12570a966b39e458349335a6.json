@@ -1,0 +1,28 @@
+{
+  "sha": "8d368e5f6f20bdd9e8f809d288b6fbcc8f36b7db",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 14 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 14,
+    "fileCount": 3,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "- **claude（本机单模型通道）**：直连 `claude -p` 三次尝试均未交付结论，**不记为通过**：① 文件读取式提示：21 分钟无输出、CPU 近零后终止；② 内联 diff 提示 + `--permission-mode dontAsk`：10.7 分钟无输出、CPU 0.28s/6s 后终止；③ `--dangerously-skip-permissions`：15.7 分钟无输出、末次采样 CPU 0.03s/6s 后终止。另 `--setting-sources \"\"` 会报 `Not logged in`（清空设置同时清掉凭据），该变体不可用。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "85857dedfb36d10664e7a241c65ebbdaf008a4af12570a966b39e458349335a6",
+  "decidedAt": "2026-10-18T02:58:27.581Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}
