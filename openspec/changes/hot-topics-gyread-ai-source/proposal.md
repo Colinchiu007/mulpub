@@ -29,9 +29,19 @@
 | **无官方 API / RSS** | 无 RSS、无 `llms.txt`，`/api/` 被 robots 禁。可用数据面只有 sitemap + search-index.json + HTML |
 | **不是「榜单」而是「日报」** | 它的排序是编辑意志，不是热度排序；`hotValue` 字段不存在，跨渠道热度可比性为零 |
 
-最后一条决定了架构：gyread **不能**作为普通 `CHANNEL_CONFIGS` 主渠道（那里的条目要参与
-统一热度评分与跨渠道 `sourceBonus` 全民热点信号），而应作为 `CATEGORY_BOOSTS.ai` 的定向补拉源
-——AI 分类正是它供给最对口、而现有补拉源（IT之家 RSS 筛 AI）质量最弱的一环。
+| **⛔ 合规未通过（决定性）** | `robots.txt` 在 **`User-agent: *`** 组写着 **`Disallow: /news/`**；`/news/` 的 Allow **只**给具名检索 UA。本应用用伪装 Chrome 的 UA 抓取即落在被禁路径上（服务器返回 200 ≠ 被许可） |
+
+## 结论（2026-10-19 更新）：实现落地，但**默认不抓取**
+
+> 本 change 的最终形态与初稿不同：对抗评审复核出上表最后一条，已由用户裁决
+> **摘除该源**。解析器与测试完整保留并全绿，但不挂进任何启用路径 ——
+> **解析器可用 ≠ 获准抓取**，二者必须分开。
+> 详细依据见 design.md §2.4 与 spec 的「合规边界与默认不启用」。
+
+架构决策（**仅在合规获批后**生效）：gyread **不能**作为普通 `CHANNEL_CONFIGS` 主渠道
+（那里的条目要参与统一热度评分与跨渠道 `sourceBonus` 全民热点信号），而应作为
+`CATEGORY_BOOSTS.ai` 的定向补拉源 —— AI 分类正是它供给最对口、
+而现有补拉源（IT之家 RSS 筛 AI）质量最弱的一环。
 
 ## What Changes
 

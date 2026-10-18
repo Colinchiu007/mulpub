@@ -59,18 +59,44 @@ gyread 的本质是**每日编辑精选的日报**，不是热度榜单。这个
 「一条多项出处」，解析必须返回**数组**而非单个 URL —— 这是旧版没有的形态。
 测试里两条路径各锁一例，外加「两版混存」的合成样本。
 
-### 2.4 配额与合规
+### 2.4 合规边界 —— ⚠️ 未决，本 change 暂缓合入
+
+**对抗评审（2026-10-19）指出本节原论证不成立，已复核属实。**
+
+原论证是「robots.txt 对检索类 UA 放行 `/news/`」。复核 `robots.txt` 原文：
+
+```
+User-agent: *            Disallow: /news/     ← 通用爬虫禁抓
+User-agent: OAI-SearchBot Allow: /news/       ← 仅具名检索 UA 放行
+Content-Signal: search=yes, ai-input=yes, ai-train=no
+```
+
+`/news/` 的放行**只存在于具名检索 UA 组**。本应用使用的 `DESKTOP_UA` 是伪装 Chrome
+的通用浏览器 UA，落在 `User-agent: *` 组 —— 即 `search-index.json` 与全部 edition 页
+抓取都落在被 `Disallow` 的路径上。**服务器返回 200 不等于被许可。**
+且伪装浏览器 UA 主动放弃了「我是检索代理」的身份主张，「检索/引用」的定性随之塌掉；
+`Content-Signal: ai-input=yes` 不覆盖这一条（robots 按 UA 组判定，与信号开关无关）。
+
+三个出口（需人工决策，本 change 不自行拍板）：
+
+1. **申请许可**：联系站点运营方，为本应用增加自报身份的 UA 组并获许可。
+   拿到许可前不得抓取。
+2. **放弃后台定时抓取**：改为用户在浏览器内自行访问，应用不做自动采集。
+3. **摘除该源。**
+
+**当前状态**：实现与测试已就绪并全绿，但因合规未决**暂不合入**。
+
+### 2.5 配额
 
 | 项 | 值 | 理由 |
 |---|---|---|
-| `intervalMinutes` | 60 | 日报一天一更；60 分钟足够覆盖，且不打扰 |
+| `intervalMinutes` | 60 | 日报一天一更 |
 | `riskLevel` | `medium` | 无登录态、无反爬对抗，但站点有 `x-robots-tag: noai` 声明，须比纯公开榜克制 |
-| `throttleKey` | `gyread-index` | 显式声明，与 URL 归一化键等价但更可读；未来若加第二个 gyread 端点可共享 |
-| 用途声明 | 代码注释 + 设计文档 | 明确「检索/引用」而非「训练语料」。`robots.txt` 对检索类 UA 放行 `/news/`，对训练类 UA 全站禁 |
+| `throttleKey` | `gyread-index` | 显式声明；未来若加第二个 gyread 端点可共享 |
 
-**明确的合规边界**：本接入**不**把 gyread 内容用于模型训练或语料构建。它的用途是
-「帮用户找到值得关注的一手 AI 新闻，并让用户点回原文」。这与站点 `Content-Signal: search=yes,
-ai-input=yes, ai-train=no` 的声明一致。
+⚠️ 评审指出「60 分钟 = 极保守」是自我矛盾：日报一天一更，60 分钟意味着一天最多
+24 轮抓取，是必要的数十倍。若最终获准接入，应把 interval 对齐内容更新节奏（≥6h），
+或实现条件请求（ETag / If-Modified-Since，304 不计压力）。此为本 change 遗留项。
 
 ### 2.5 分类器词表扩充的边界
 

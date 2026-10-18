@@ -11,8 +11,8 @@
  * 站点 robots.txt 对训练类 UA 全站 Disallow，响应头带 `x-robots-tag: noai, noimageai`。
  */
 import { describe, it, expect, vi } from 'vitest'
-import { CHANNEL_CONFIGS, CATEGORY_BOOSTS, HotTopicsService } from './hot-topics-service.js'
-import { parseGyreadIndex, parseGyreadEdition } from './hot-topics/channels.js'
+import { CHANNEL_CONFIGS, CATEGORY_BOOSTS, GYREAD_SOURCE, HotTopicsService } from './hot-topics-service.js'
+import { CHANNEL_PARSERS, parseGyreadIndex, parseGyreadEdition } from './hot-topics/channels.js'
 import { CHANNEL_WEIGHTS } from './hot-topics/scorer.js'
 import { classifyTopic, classifyTopicMulti } from './hot-topics/classifier.js'
 
@@ -212,29 +212,36 @@ describe('parseGyreadEdition：两版混存与 fail-open', () => {
   })
 })
 
-describe('CATEGORY_BOOSTS.ai：gyread 补拉源', () => {
-  const gyread = () => CATEGORY_BOOSTS.ai.sources.find(s => s.id === 'gyread-ai')
-
-  it('配置字段完整且符合规格', () => {
-    const s = gyread()
-    expect(s).toBeTruthy()
-    expect(s.channel).toBe('gyread')
-    expect(s.board).toBe('ai')
-    expect(s.boostCategory).toBe('ai')
-    expect(s.parser).toBe('gyread_index')
-    expect(s.onlyCategory).toBe('ai')
-    expect(s.throttleKey).toBe('gyread-index')
-    expect(s.intervalMinutes).toBeGreaterThanOrEqual(30)
-    expect(s.riskLevel).toBe('medium')
-    expect(s.enrichWithEdition).toBe(true)
-    expect(s.entryUrl).toBe('https://gyread.com/news/')
+/**
+ * 合规裁决（2026-10-19）：gyread 的 `robots.txt` 在 `User-agent: *` 组写着
+ * `Disallow: /news/`，放行只给具名检索 UA；本应用用伪装 Chrome 的 UA 抓取即落在
+ * 被禁路径上（服务器返回 200 ≠ 被许可）。故**默认不抓取** —— 源定义保留为
+ * `GYREAD_SOURCE` 常量作技术储备，但不挂进任何启用路径。
+ *
+ * 本组测试锁的就是这个边界：**解析器可用 ≠ 允许抓取**，二者必须分开。
+ */
+describe('合规边界：gyread 默认不抓取（解析器可用 ≠ 获准抓取）', () => {
+  it('CATEGORY_BOOSTS.ai 不含 gyread-ai（默认不生效）', () => {
+    const ids = CATEGORY_BOOSTS.ai.sources.map(s => s.id)
+    expect(ids).not.toContain('gyread-ai')
+    expect(ids).toContain('ithome-ai') // AI 供给退回 IT之家 RSS 单源
   })
 
-  it('与既有 ithome-ai 并存（两源互补）', () => {
-    const ids = CATEGORY_BOOSTS.ai.sources.map(s => s.id)
-    expect(ids).toContain('ithome-ai')
-    expect(ids).toContain('gyread-ai')
-    expect(CATEGORY_BOOSTS.ai.sources.length).toBeGreaterThanOrEqual(2)
+  it('源定义作为技术储备保留（合规获批后可一键挂回）', () => {
+    expect(GYREAD_SOURCE).toMatchObject({
+      id: 'gyread-ai', channel: 'gyread', board: 'ai',
+      boostCategory: 'ai', parser: 'gyread_index', onlyCategory: 'ai',
+      throttleKey: 'gyread-index', riskLevel: 'medium',
+      enrichWithEdition: true, entryUrl: 'https://gyread.com/news/',
+    })
+    expect(GYREAD_SOURCE.intervalMinutes).toBeGreaterThanOrEqual(30)
+  })
+
+  it('解析器本身仍完整可用（摘除的是启用路径，不是实现）', () => {
+    expect(typeof parseGyreadIndex).toBe('function')
+    expect(typeof parseGyreadEdition).toBe('function')
+    expect(CHANNEL_PARSERS.gyread_index).toBe(parseGyreadIndex)
+    expect(CHANNEL_PARSERS.gyread_edition).toBe(parseGyreadEdition)
   })
 
   it('gyread MUST NOT 作为主渠道（日报非热度榜，会污染 sourceBonus）', () => {
@@ -261,16 +268,21 @@ describe('enrichWithEdition：原文链接增强（fail-open）', () => {
     })
   }
 
-  const src = CATEGORY_BOOSTS.ai.sources.find(s => s.id === 'gyread-ai')
+  // 摘除后不再从启用配置里取 —— 直接用保留的常量，验证「实现仍可用」而非「已生效」。
+  const src = GYREAD_SOURCE
 
   it('增强成功：条目带 sourceUrls 数组与 entryUrl', async () => {
     const svc = makeService()
+    // onlyCategory:'ai' 过滤后只剩 OpenAI 那条（属 2026-10-16 那期），
+    // 故 edition 夹具必须**按请求的日报页 URL**返回与之对应的内容 ——
+    // 标题对得上才挂链接，这是 BLOCKING-4 修正后的正确语义。
+    const idx = sampleIndex()
+    const target = idx.items[2] // 2026-10/2026-10-16.html
     svc._fetchChannel = async (c) => {
-      if (c.url.includes('search-index.json')) {
-        return JSON.stringify(sampleIndex())
-      }
-      // edition 页：返回新版 HTML（多出处）
-      return modernEditionHtml()
+      if (c.url.includes('search-index.json')) return JSON.stringify(idx)
+      return modernEditionHtml().replace(
+        'NASA 罗曼望远镜升空 48 天：暗能量告别猜想',
+        target.t)
     }
     const res = await svc._collectBoostChannel(src, Date.now())
     expect(res.items).not.toBeNull()
@@ -280,8 +292,24 @@ describe('enrichWithEdition：原文链接增强（fail-open）', () => {
     expect(withUrls[0].entryUrl).toBe('https://gyread.com/news/')
   })
 
-  it('edition 抓取失败：条目仍在、无 sourceUrls、不记渠道失败', async () => {
+  // BLOCKING-4 回归锁：标题对不上时**不得**把该期第一条的出处挂上去。
+  // 那会系统性制造张冠李戴（站点本身就有出处错配问题），错误归因比没链接更糟。
+  it('标题匹配不上 → 不挂链接（禁止「取该期第一条」兜底）', async () => {
     const svc = makeService()
+    svc._fetchChannel = async (c) => {
+      if (c.url.includes('search-index.json')) return JSON.stringify(sampleIndex())
+      return modernEditionHtml() // 标题与索引条目完全无关
+    }
+    const res = await svc._collectBoostChannel(src, Date.now())
+    expect(res.items.length).toBeGreaterThan(0)
+    for (const it of res.items) {
+      expect(it.sourceUrls === undefined || it.sourceUrls.length === 0).toBe(true)
+    }
+  })
+
+  it('edition 抓取失败：条目仍在、无 sourceUrls、不记渠道失败', async () => {
+    const logs = []
+    const svc = makeService(logs)
     svc._fetchChannel = async (c) => {
       if (c.url.includes('search-index.json')) return JSON.stringify(sampleIndex())
       throw new Error('HTTP 503')
@@ -292,6 +320,9 @@ describe('enrichWithEdition：原文链接增强（fail-open）', () => {
     for (const it of res.items) {
       expect(it.sourceUrls === undefined || it.sourceUrls.length === 0).toBe(true)
     }
+    // fail-open 不等于故障静默：全部尝试都失败时必须出声，否则排查者只看到
+    // 「条目没带原文链接」而没有任何指向根因的信号（与既有「空列表视为失败」同型）。
+    expect(logs.some(m => m.includes('ALL') && m.includes('parseGyreadEdition'))).toBe(true)
   })
 
   it('edition 返回空 HTML：同样 fail-open（不丢条目）', async () => {
@@ -318,10 +349,13 @@ describe('classifier：AI 词表扩充（跨语料通用术语）', () => {
   it('新增 AI 正例全部判 ai', () => {
     expect(classifyTopic(null, 'gyread', '多智能体协作框架正式开源')).toBe('ai')
     expect(classifyTopic(null, 'gyread', '强化学习训练成本大幅下降')).toBe('ai')
-    expect(classifyTopic(null, 'gyread', '模型对齐问题引发行业热议')).toBe('ai')
     expect(classifyTopic(null, 'gyread', '世界模型空间推理能力突破')).toBe('ai')
     expect(classifyTopic(null, 'gyread', '端侧推理速度提升三倍')).toBe('ai')
     expect(classifyTopic(null, 'gyread', '开源权重模型追平闭源旗舰')).toBe('ai')
+    expect(classifyTopic(null, 'gyread', '具身智能机器人进入工厂产线')).toBe('ai')
+    // 「对齐」是双字歧义词、已降为 weak（权重 2 < MIN_SCORE 3）：
+    // 必须与「模型」等真实 AI 信号叠加才成类 —— 这正是 BLOCKING-5 要的效果。
+    expect(classifyTopic(null, 'gyread', '大模型对齐问题引发行业热议')).toBe('ai')
   })
 
   it('gyread 栏目名（全是域级泛称）不提供原生分类信息', () => {
@@ -339,6 +373,23 @@ describe('classifier：AI 词表扩充（跨语料通用术语）', () => {
   it('不为单站私活用语开词表（无判别力的词不得进表）', () => {
     expect(classifyTopic(null, 'gyread', '今日情报日报发布')).not.toBe('ai')
     expect(classifyTopic(null, 'gyread', '前沿信号流更新')).not.toBe('ai')
+  })
+
+  // 对抗评审 BLOCKING-5 的回归锁：词表作用于**全渠道所有条目**（不止 gyread），
+  // 而 strong 双字词权重 = 词长×2 = 4 ≥ MIN_SCORE 3 ⇒ 命中一个词即成类。
+  // 只测正例不测负例，等于没验证反向排除 —— 下面这些「含 AI 词但不是 AI」的
+  // 真实语料标题必须各自落回自己的分类，而不是被拉进 ai。
+  it('歧义词非 AI 负例：不得单词即成类（全渠道生效）', () => {
+    expect(classifyTopic(null, 'zhihu', '白酒蒸馏工艺对口感的影响')).not.toBe('ai')
+    expect(classifyTopic(null, 'zhihu', 'PPT 文本对齐的五个实用技巧')).not.toBe('ai')
+    expect(classifyTopic(null, 'weibo', '写作要结合上下文而不是堆砌金句')).not.toBe('ai')
+    expect(classifyTopic(null, 'weibo', '术后出现幻觉是正常恢复现象吗')).not.toBe('ai')
+    expect(classifyTopic(null, 'toutiao', '新能源汽车补贴政策微调落地')).not.toBe('ai')
+  })
+
+  it('歧义词叠加真实 AI 信号后仍可判 ai（降 weak 不误伤召回）', () => {
+    expect(classifyTopic(null, 'gyread', '大模型蒸馏技术降低推理成本')).toBe('ai')
+    expect(classifyTopic(null, 'gyread', '大模型上下文窗口扩展至百万 token')).toBe('ai')
   })
 
   it('多标签：AI + 财经交叉时不丢 AI 标签', () => {

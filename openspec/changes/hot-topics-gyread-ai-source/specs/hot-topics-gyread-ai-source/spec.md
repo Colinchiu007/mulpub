@@ -10,9 +10,12 @@
 
 ### Requirement: gyread 数据面与解析产物
 
-系统 SHALL 通过 `https://gyread.com/news/search-index.json` 获取 gyread 的索引数据
+系统 SHALL 实现 gyread 的解析器（`parseGyreadIndex` / `parseGyreadEdition`），
+但 MUST NOT 默认启用其抓取（合规裁决见「合规边界与默认不启用」）。
+
+`parseGyreadIndex` SHALL 解析 `https://gyread.com/news/search-index.json` 的数据
 （字段 `generated` / `pages` / `count` / `items[]`，每条 item 含 `u` 相对 URL、`d` 日期、
-`c` 栏目、`t` 标题、`s` 摘要、`g` 标签），并由 `parseGyreadIndex` 解析为统一条目结构
+`c` 栏目、`t` 标题、`s` 摘要、`g` 标签）为统一条目结构
 `{channel, rank, topic, hotValue, url, rawCategory}`。
 
 `parseGyreadIndex` SHALL 支持按调用方传入的日期过滤（单日或最近 N 天），因为全量索引
@@ -59,9 +62,12 @@
 - **WHEN** HTML 无 `src-line`，或为 `null` / 空串 / 不含任何 `item-title`
 - **THEN** 返回空数组或不含链接的条目，不抛错
 
-### Requirement: gyread 作为 AI 分类定向补拉源
+### Requirement: gyread 作为 AI 分类定向补拉源（**合规获批后启用**）
 
-`CATEGORY_BOOSTS.ai.sources` SHALL 包含 gyread 源，其 `id` / `channel` / `board` /
+⚠️ 本 Requirement 描述的是**合规获批后的目标形态**，当前**未生效**。
+生效前 `CATEGORY_BOOSTS.ai.sources` MUST NOT 含 gyread（见「合规边界与默认不启用」）。
+
+合规获批后：源定义 SHALL 保持为导出常量 `GYREAD_SOURCE`，其 `id` / `channel` / `board` /
 `boostCategory` / `parser` / `onlyCategory` / `throttleKey` / `intervalMinutes` /
 `riskLevel` 分别为 `gyread-ai` / `gyread` / `ai` / `ai` / `gyread_index` / `ai` /
 `gyread-index` / `>= 30` / `medium`。该源 SHALL NOT 出现在 `CHANNEL_CONFIGS` 中。
@@ -70,10 +76,14 @@
 无 `hotValue`、榜单序是编辑意志而非热度序、条目不会跨榜同现。把它当主渠道会污染
 `scorer` 的渠道内热度归一、名次兜底与 `sourceBonus`（全民热点信号）。
 
-#### Scenario: 补拉源配置完整
+#### Scenario: 默认不启用（当前生效）
 - **WHEN** 读取 `CATEGORY_BOOSTS.ai.sources`
-- **THEN** 存在 `id === 'gyread-ai'` 的源，上述各字段符合要求，且 `sources.length >= 2`
-  （与既有 `ithome-ai` 互补）
+- **THEN** **不含** `gyread-ai`；同时导出常量 `GYREAD_SOURCE` 仍存在且字段完整
+  （解析器可用 ≠ 获准抓取，二者必须分开）
+
+#### Scenario: 合规获批后配置完整
+- **WHEN** 完成许可与自报身份 UA 改造，把 `GYREAD_SOURCE` 挂回 sources
+- **THEN** 各字段符合要求，且 `sources.length >= 2`（与既有 `ithome-ai` 互补）
 
 #### Scenario: 不进主渠道
 - **WHEN** 读取 `CHANNEL_CONFIGS`
@@ -118,15 +128,30 @@ MUST NOT 让整个补拉渠道记失败。增强抓取的条目数 SHALL 有显�
 - **WHEN** 检查 gyread 补拉源与任何未来 gyread 端点
 - **THEN** `quotaKeyOf` 得到同一键（`gyread-index`），不因身份不同而绕过限流
 
-### Requirement: 合规边界
+### Requirement: 合规边界与默认不启用
 
-gyread 的接入用途 SHALL 限定为「检索/引用」：条目携带原文链接供用户点回一手信息，
-MUST NOT 把该站点内容用作模型训练语料或语料构建输入。代码与文档 SHALL 明示此边界。
+系统 MUST NOT 默认抓取 gyread 的 `/news/` 路径。解析器 SHALL 实现并保留（技术储备），
+但启用路径 MUST NOT 包含它 —— **解析器可用 ≠ 获准抓取**，二者必须分开。
 
-依据（站点自身声明）：`robots.txt` 对检索类 UA（`OAI-SearchBot` / `ChatGPT-User` /
-`PerplexityBot` 等）放行 `/news/`，对训练类 UA（`GPTBot` / `ClaudeBot` / `CCBot` /
-`Google-Extended` 等）全站 `Disallow`；HTTP 响应头带 `x-robots-tag: noai, noimageai`；
-`Content-Signal: search=yes, ai-input=yes, ai-train=no`。
+依据（对抗评审 BLOCKING-1，已复核属实）：gyread `robots.txt` 在 **`User-agent: *`** 组
+写着 **`Disallow: /news/`**；`/news/` 的 `Allow` **只**存在于具名检索 UA 组
+（`OAI-SearchBot` / `ChatGPT-User` / `PerplexityBot` 等）。本应用使用伪装 Chrome 的
+通用浏览器 UA（`DESKTOP_UA`），落在 `*` 组 ⇒ 抓取落在被禁路径上。
+**服务器返回 200 不等于被许可**；伪装 UA 还主动放弃了「我是检索代理」的身份主张，
+「检索/引用」的定性随之塌掉。`Content-Signal: ai-input=yes` 不覆盖这一条
+（robots 按 UA 组判定，与信号开关无关）。
+
+即使将来启用，用途也 SHALL 限定为「检索/引用」（用户点回原文），
+MUST NOT 把该站点内容用作模型训练语料或语料构建输入。
+
+#### Scenario: 默认不启用
+- **WHEN** 读取 `CATEGORY_BOOSTS.ai.sources` 与 `CHANNEL_CONFIGS`
+- **THEN** 二者均不含 gyread；应用启动后不会对该域名发起任何抓取
+
+#### Scenario: 启用前置条件写进代码
+- **WHEN** 检索 `GYREAD_SOURCE` 常量的注释
+- **THEN** 含三条前置条件：① 站点运营方新增自报身份 UA 组并获许可；
+  ② 抓取 UA 改为自报身份、不再伪装浏览器；③ 挂回 sources 并补 locales 文案
 
 #### Scenario: 用途声明存在
 - **WHEN** 检索代码库中 gyread 相关实现

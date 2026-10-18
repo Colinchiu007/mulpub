@@ -10,7 +10,9 @@
 - **分类器只补跨语料通用 AI 术语**：strong 只收 ≥3 字且语境排他的词；「蒸馏/对齐/幻觉/上下文/微调/涌现」等双字歧义词一律降 weak —— strong 双字词权重 = 词长×2 = 4 ≥ `MIN_SCORE` 3，**命中一个词即成类且作用于全渠道**，「白酒蒸馏工艺」「写作要结合上下文」会被拉进 AI。补 6 条「含歧义词但非 AI」的负例回归（原测试只有正例，等于没验证反向排除）。
 - **测试**：新增 `hot-topics-gyread.test.js` **32 例**；hot-topics 全套 **178 例**全绿（`new-sources` 19 / `boost-classify` 6 / `classifier` 32 / `scorer` 19 / `service` 56 / `quota` 14 / `gyread` 32）。
 - **门禁**：`apps/desktop` `pnpm run lint` rc=0；`check-locale-sync --keys`（2123 key）PASS；`check-no-brand-residue` PASS；`electron-builder --win --dir` rc=0。
+ HEAD
 ` 与 ` <sha> (提交标题)`。**没有任何现判据在看这件事**：`check-text-encoding-integrity` 管控制字节、`check-doc-abs-paths` 管绝对路径、numstat 两口径管行尾，三者对"行首七个尖括号"全部无感；git 侧也不兜底——它只拒绝**索引里**处于 `UU` 的合并，`git add` 掉标记文件即可提交，而 `stash pop` 压根不进合并状态机。
+ aaaadc716 (fix(热门选题): 按合规裁决摘除 gyread 抓取源，解析器保留为技术储备)
 - 危害不是"难看"而是**把矛盾读成收口**：标记留在执行记录里时，`check-gate-record-debt.js` 的 `ROW_RE` 只按行匹配第一条 `远程同步`，hunk 里第二条（`QM-6 已执行` vs `待跑` 这类互相矛盾的状态格）对它完全隐形，于是"还没干完"的记录被下一个会话读成"已结"——正是本仓反复治的重复开工入口。
 - 判据 `scripts/check-no-conflict-markers.js` 的三条不显然口径：① 扫**受管文件全集**（`git ls-files -z`），不用 `git grep` —— 后者会把含 NUL 的 `01-docs/PRD.md`/`learnings.md` 当二进制**静默跳过**，让"扫到 0"变成假结论（AGENTS「复扫必须带 -a」的同族）；② **只认行首 `<<<<<<<`/`>>>>>>>`，七个等号一律不认** —— 它在本仓是合法 Markdown setext 下划线（同一份 PRD-XHS 里实测 5 处正当用法），一并禁掉就是造一条会假红的锁；③ 退出码 **0 合规 / 1 违规 / 2 判据自身读不到** 严格分档，`受管文件数为 0` 或 `有文件读不到` 一律走 2 —— 不完整遍历报绿是假绿。
 - 只修了能机械证明无损的 2 篇（7 行纯删除、0 新增，每行删前断言确为标记行、删后断言结果是"原行序列去掉指定下标"的逐字保序子集）；4 篇需要**选边**的（两侧状态格矛盾、正文跨行焊接、小节在 hunk 内外各出现一次）一律**不代属主会话改写**，改为逐条带理由登记进承认清单，且清单只能缩小、登记项所指文件一旦无标记即报陈旧红 —— 把"我判断不了"变成机械可见的欠账，而不是悄悄挑一边。

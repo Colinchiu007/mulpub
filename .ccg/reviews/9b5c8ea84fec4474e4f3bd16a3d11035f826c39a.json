@@ -1,0 +1,43 @@
+{
+  "sha": "9b5c8ea84fec4474e4f3bd16a3d11035f826c39a",
+  "layer": "plan",
+  "mode": "single",
+  "reason": "变更 77 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 77,
+    "fileCount": 1,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "plannedFiles": [
+    "gyread.com",
+    "electron/services/hot-topics-service.js",
+    "CATEGORY_BOOSTS.ai",
+    "electron/services/hot-topics/channels.js",
+    "electron/services/hot-topics/classifier.js",
+    "electron/services/hot-topics/scorer.js",
+    "electron/services/hot-topics-gyread.test.js",
+    "search-index.json",
+    "robots.txt"
+  ],
+  "decidedAt": "2026-10-18T16:32:19.857Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "layer": "decision",
+    "status": "error",
+    "performedBy": "claude",
+    "objectType": "plan",
+    "rounds": [],
+    "error": "spawnSync C:/Users/邱领/.claude/bin/codeagent-wrapper.exe ETIMEDOUT",
+    "validationErrors": null,
+    "note": "第 1 轮评审失败",
+    "artifacts": ".adversarial\\ccg-plan-9b5c8ea8-claude",
+    "at": "2026-10-18T16:52:51.878Z"
+  }
+}
