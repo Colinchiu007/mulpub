@@ -49,7 +49,7 @@
  */
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Connection, Setting, Link, Reading, Upload, User, Compass, Keyboard } from '@element-plus/icons-vue'
+import { Connection, Setting, Link, Reading, Upload, User, Compass, Key } from '@element-plus/icons-vue'
 import UiModal from './UiModal.vue'
 import ModelProviders from '@/views/ModelProviders.vue'
 import LogsSettings from './LogsSettings.vue'
@@ -75,7 +75,7 @@ const { t } = useI18n()
     { key: 'feishu', label: t('knowledgeBase.feishuApi'), icon: Link, disabled: false },
     { key: 'zhihu', label: t('knowledgeBase.zhihuApi'), icon: Reading, disabled: false },
     { key: 'publish', label: t('settings.tabPublish'), icon: Upload, disabled: false },
-    { key: 'hotkeys', label: t('settings.tabHotkeys'), icon: Keyboard, disabled: false },
+    { key: 'hotkeys', label: t('settings.tabHotkeys'), icon: Key, disabled: false },
     { key: 'account', label: t('settings.tabAccount'), icon: User, disabled: true },
   ])
 

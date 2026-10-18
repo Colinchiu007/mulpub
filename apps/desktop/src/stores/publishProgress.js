@@ -13,6 +13,7 @@
  */
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
+import { createStallTracker } from './publish-progress-stall'
 import {
   onProgress,
   onBatchProgress,
@@ -413,9 +414,7 @@ export const usePublishProgressStore = defineStore('publishProgress', () => {
       // 面板随 App.vue 常驻，订阅生命周期 == 应用生命周期（监听器死亡 bug 的结构性修复）。
       offProgress = onProgress(handleProgressEvent)
       offBatchProgress = onBatchProgress(handleBatchEvent)
-      // 看门狗与订阅同生命周期（App 级常驻，init 幂等由 listenersBound 守），
-      // 重复 init 不得再挂第二个 interval。
-      startStaleWatch()
+      startStaleWatch() // 与订阅同生命周期；init 幂等由 listenersBound 守，重复 init 不得挂第二个 interval
     }
     // R2：渲染层重载恢复——领养不属于任何会话的运行中/排队任务（状态级，无阶段细节，如实呈现）
     try {
@@ -445,64 +444,8 @@ export const usePublishProgressStore = defineStore('publishProgress', () => {
     sessions.value.some((s) => s.status === 'running'),
   )
 
-  // ─── 陈旧看门狗（阶段 1.8 / audit-15）───────────────────────────
-  // lastEventAt 此前被写 4 次、被读 0 次：任务卡在「start 已发、done 永不到」时
-  // 面板会一直显示运行中，关闭按钮因 hasRunning 而禁用，用户只能等或重启应用。
-  // 判据：所有 running 任务里**最近一次事件**距今超过阈值 ⇒ 视为停滞。
-  // 阈值取 3 分钟：短于此会把「平台侧正常慢」（上传大视频、排队等待）误报成停滞。
-  const STALE_AFTER_MS = 180000
-  const STALE_TICK_MS = 15000
-  const nowTick = ref(Date.now())
-  let staleTimer = null
-
-  function startStaleWatch() {
-    if (staleTimer) return
-    staleTimer = setInterval(() => { nowTick.value = Date.now() }, STALE_TICK_MS)
-    if (typeof staleTimer?.unref === 'function') staleTimer.unref()
-  }
-
-  function stopStaleWatch() {
-    if (staleTimer) {
-      clearInterval(staleTimer)
-      staleTimer = null
-    }
-  }
-
-  /** 单个任务的最近事件时刻；两个锚点都缺 ⇒ 返回 null（无从判断，不谎报停滞） */
-  function taskAnchorAt(task) {
-    if (!task) return null
-    if (typeof task.lastEventAt === 'number' && task.lastEventAt > 0) return task.lastEventAt
-    if (typeof task.startedAt === 'number' && task.startedAt > 0) return task.startedAt
-    return null
-  }
-
-  const stallInfo = computed(() => {
-    let anchor = null
-    let runningTasks = 0
-    for (const session of sessions.value) {
-      if (session.status !== 'running') continue
-      for (const taskId of session.taskOrder) {
-        const task = session.tasks[taskId]
-        if (!task || TERMINAL_PHASES.has(task.phase)) continue
-        runningTasks += 1
-        const at = taskAnchorAt(task)
-        if (at === null) continue
-        // 取「最近的一次事件」：只要有任何一个任务刚动过，就不算整体停滞
-        if (anchor === null || at > anchor) anchor = at
-      }
-    }
-    if (runningTasks === 0 || anchor === null) {
-      return { stalled: false, minutes: 0, runningTasks }
-    }
-    const idleMs = Math.max(0, nowTick.value - anchor)
-    return {
-      stalled: idleMs >= STALE_AFTER_MS,
-      minutes: Math.floor(idleMs / 60000),
-      runningTasks,
-    }
-  })
-
-  const hasStalledTasks = computed(() => stallInfo.value.stalled)
+  // 陈旧看门狗（阶段 1.8 / audit-15）：判据住在 publish-progress-stall.js，与事件路由无耦合故可单独测
+  const { stallInfo, hasStalledTasks, start: startStaleWatch, stop: stopStaleWatch } = createStallTracker({ sessions, isTerminalPhase: (p2) => TERMINAL_PHASES.has(p2) })
 
   const aggregate = computed(() => {
     let total = 0
@@ -549,8 +492,7 @@ export const usePublishProgressStore = defineStore('publishProgress', () => {
     hasRunning,
     stallInfo,
     hasStalledTasks,
-    startStaleWatch,
-    stopStaleWatch,
+    startStaleWatch, stopStaleWatch,
     aggregate,
   }
 })

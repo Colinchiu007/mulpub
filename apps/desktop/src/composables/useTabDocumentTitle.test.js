@@ -68,7 +68,10 @@ describe('resolveRouteTabTitle（纯函数判定表）', () => {
     const registered = ROUTE_REGISTRY.filter(e => e.view !== '').map(e => e.path)
     expect(registered.length).toBeGreaterThanOrEqual(32)
     // 已知例外：暗路由在 home-shell 新标签中正常可达但暂用品牌名回退（补键计划见 PRD §9.2）
-    const exceptions = new Set(['/first-run', '/create/result', '/video-clone', '/film-engineering/classic'])
+    // '/:pathMatch(.*)*' 是 catch-all：它不对应任何具体页面，真实导航落到这里时
+    // 键是用户打出来的任意 path（映射表永远命中不了），回退品牌名就是正确行为，
+    // 因此登记为例外而不是往表里塞一个运行时永不命中的键。
+    const exceptions = new Set(['/first-run', '/create/result', '/video-clone', '/film-engineering/classic', '/:pathMatch(.*)*'])
     const unresolved = []
     for (const path of registered) {
       if (exceptions.has(path)) continue
