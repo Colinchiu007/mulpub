@@ -459,9 +459,14 @@ function makeRepoWithoutRecordB () {
   // 用 .git/info/exclude 让它对 git 彻底隐形（本地生效、不入库、不污染被测仓库）。
   fsB.mkdirSync(pathB.join(dir, 'scripts'), { recursive: true })
   fsB.copyFileSync(SCRIPT, pathB.join(dir, 'scripts', 'deep-review.sh'))
+fsB.mkdirSync(pathB.join(dir, 'scripts', 'lib'), { recursive: true })
+fsB.copyFileSync(pathB.join(ROOT, 'scripts', 'lib', 'ccg-backends.sh'), pathB.join(dir, 'scripts', 'lib', 'ccg-backends.sh'))
   const infoExclude = pathB.join(dir, '.git', 'info', 'exclude')
   fsB.mkdirSync(pathB.dirname(infoExclude), { recursive: true })
   fsB.appendFileSync(infoExclude, '\nscripts/deep-review.sh\n')
+  // 入口现在 source 一个兄弟依赖；夹具拷了它就必须同样对它隐藏 git status，
+  // 否则被测前提「非 .ccg 改动数」会被夹具自己的未跟踪文件污染。
+  fsB.appendFileSync(infoExclude, '\nscripts/lib/ccg-backends.sh\n')
   fsB.mkdirSync(pathB.join(dir, '.ccg', 'reviews'), { recursive: true })
   return dir
 }
@@ -676,4 +681,122 @@ testNeedsEngine('QM-6 第五轮 i4 反向：纯 .ccg 提交无记录不得判故
         '纯 .ccg 提交本就不该有记录 ⇒ 必须 exit 0（否则假阳）；实际 status=' + r.status)
     } finally { fsB.rmSync(dir, { recursive: true, force: true }) }
   } catch (e) { throw e }
+})
+
+// ══════════════════════════════════════════════════════════════════════════
+//  QM-6 评审后端可配置（change: qm6-review-backend-config，2026-10-18）
+//  这里守的是「两个读取方 + 入口转发」这一层。
+// ══════════════════════════════════════════════════════════════════════════
+
+const NODE_LIB = path.join(ROOT, "scripts", "lib", "ccg-review-backends.js")
+const SH_LIB = path.join(ROOT, "scripts", "lib", "ccg-backends.sh")
+
+/** 在给定 env 下跑 sh 侧读取方，返回 backend_table 的 stdout。 */
+function shBackendTable(env) {
+  const r = spawnSync(resolveGitBash(), ["-c",
+    'cd "$1" && . scripts/lib/ccg-backends.sh && resolve_review_backends >/dev/null && backend_table',
+    "x", toPosixPath(ROOT)], {
+    encoding: "utf8",
+    timeout: 60000,
+    env: { PATH: "/usr/bin:/bin", ...env },
+  })
+  assert.strictEqual(r.status, 0, `sh 读取方失败 rc=${r.status} err=${r.stderr}`)
+  return String(r.stdout || "").replace(/\r/g, "")
+}
+
+function nodeBackendTable(env) {
+  const r = spawnSync(process.execPath, [NODE_LIB, "--print-table"], {
+    encoding: "utf8",
+    timeout: 60000,
+    env: { ...process.env, ...env },
+  })
+  assert.strictEqual(r.status, 0, `node 读取方失败 rc=${r.status} err=${r.stderr}`)
+  return String(r.stdout || "").replace(/\r/g, "")
+}
+
+test("两个读取方必须给出同一份后端表（sh 版与 node 版逐字对账）", () => {
+  // 为什么必须字节比较，而不是各自断言"等于一个常量"：常量抄两份就会漂，而漂了的表
+  // 会让 --check-deps 打印的名单与判定器写进记录的名单互相矛盾 —— 那正是本次的病灶形态。
+  // 三档配置都要对账：默认 / 换 critic / 同族单后端（第三档是最容易只有一边处理对的形状）。
+  const cases = [
+    ["默认", {}],
+    ["env 换 critic", { MP_QM6_CRITIC: "codex" }],
+    ["同族单后端", { MP_QM6_CRITIC: "claude", MP_QM6_PROPOSER: "claude" }],
+    ["未登记后端名", { MP_QM6_CRITIC: "kimi", MP_QM6_PROPOSER: "gemini" }],
+  ]
+  for (const [label, env] of cases) {
+    const sh = shBackendTable(env)
+    const node = nodeBackendTable(env)
+    assert.ok(sh.length > 0, `${label}: sh 侧表为空 —— 解析退化` + ` (读不到清单?)`)
+    assert.ok(node.length > 0, `${label}: node 侧表为空`)
+    assert.equal(sh, node, `${label}: 两个读取方的后端表不一致`)
+  }
+  // 反证自证：默认档与换 critic 档必须**确实不同**，否则上面四组"相等"是恒真的空比较
+  assert.notEqual(shBackendTable({}), shBackendTable({ MP_QM6_CRITIC: "codex" }),
+    "覆盖没改变任何读数 ⇒ 对账锁测的是常量，不是解析")
+})
+
+test("入口必须把后端覆盖传给体检：--check-deps 只检配置里那对后端", () => {
+  // 造一个**只装了 codex** 的家目录。若入口仍按老名单体检，它会打印 claude 不可用，
+  // 而真实配置（--critic codex）下 claude 压根不该出现在判据里。
+  let seq = 0
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), `qm6-bt-${process.pid}-${seq++}-`))
+  fs.mkdirSync(path.join(home, ".claude", "bin"), { recursive: true })
+  fs.writeFileSync(path.join(home, ".claude", "bin", "codeagent-wrapper.exe"), "stub")
+  const bin = path.join(home, ".local", "bin")
+  fs.mkdirSync(bin, { recursive: true })
+  const IS_WIN = process.platform === "win32"
+  for (const tool of ["codex", "opencode"]) {
+    const f = path.join(bin, IS_WIN ? `${tool}.exe` : tool)
+    fs.writeFileSync(f, "#!/bin/sh\nexit 0\n")
+    try { fs.chmodSync(f, 0o755) } catch { /* Windows 上空操作 */ }
+  }
+  const r = spawnSync(resolveGitBash(), [SCRIPT, "--check-deps", "--critic", "codex"], {
+    encoding: "utf8",
+    timeout: 120000,
+    env: { PATH: "/usr/bin:/bin", HOME: home, USERPROFILE: home, CCG_BACKEND_BIN_DIRS: "" },
+  })
+  const out = String(r.stdout || "") + String(r.stderr || "")
+  assert.match(out, /· codex/, `体检必须检查被覆盖后的 critic=codex，实得：\n${out}`)
+  assert.match(out, /评审后端已被覆盖|评审后端已覆盖/, "覆盖必须出声")
+  assert.doesNotMatch(out, /· claude/, `claude 不在本次配置里，不得进体检面，实得：\n${out}`)
+})
+
+test("入口参数不得静默忽略：未知旗标与缺值一律 rc=2", () => {
+  for (const args of [["--critic"], ["--critic", "--force"], ["--oops"]]) {
+    const r = spawnSync(resolveGitBash(), [SCRIPT, ...args], {
+      encoding: "utf8",
+      timeout: 60000,
+      env: { PATH: "/usr/bin:/bin", HOME: process.env.HOME || os.homedir(), USERPROFILE: process.env.USERPROFILE || os.homedir() },
+    })
+    assert.equal(r.status, 2, `${JSON.stringify(args)} 应 rc=2，实得 rc=${r.status} out=${r.stdout} err=${r.stderr}`)
+    assert.match(String(r.stdout) + String(r.stderr), /缺值|未知旗标/,
+      `${JSON.stringify(args)} 必须点名是哪种参数错误`)
+  }
+})
+
+test("验证层必须把覆盖转发给驱动，且只在真的覆盖过时转发（默认路径保持逐字不变）", () => {
+  const sh = fs.readFileSync(SCRIPT, "utf8")
+  assert.match(sh, /exec node "\$DRIVER" --sha "\$SHA" \$BACKEND_ARGS/,
+    "验证层 exec 处必须带 $BACKEND_ARGS，否则 --critic 到入口就断了")
+  assert.match(sh, /BACKEND_ARGS="--proposer \$RB_PROPOSER --critic \$RB_CRITIC"/,
+    "转发内容必须由解析结果拼出，不得写死后端名")
+  // 默认不转发这一格是**设计**而不是遗漏：把本仓默认值钉进命令行等于再造一个真源，
+  // 上游改默认时这里会静默覆盖它。所以必须有一条锁同时证明"只在覆盖时加"。
+  assert.match(sh, /BACKEND_ARGS=""\nif \[ -n "\$RB_OVERRIDE_NOTE" \]; then/,
+    "BACKEND_ARGS 必须默认空、仅覆盖时才赋值")
+})
+
+test("--check-deps 的后端解析不得依赖 node（它是「node 本身坏了」时的诊断入口）", () => {
+  const sh = fs.readFileSync(SCRIPT, "utf8")
+  const iResolve = sh.indexOf("resolve_review_backends || exit 2")
+  const iNodeGate = sh.indexOf("# ---------- 1. 定位 node ----------")
+  const iCheckDeps = sh.indexOf('# ---------- 0a. 纯依赖体检（--check-deps）----------')
+  assert.ok(iResolve > 0, "找不到后端解析调用点 —— 锚点漂移，本锁会退化成恒真")
+  assert.ok(iNodeGate > 0, "找不到「定位 node」段")
+  assert.ok(iCheckDeps > 0, "找不到 --check-deps 段")
+  assert.ok(iResolve < iNodeGate,
+    `后端解析必须早于定位 node（实得 resolve=${iResolve} node=${iNodeGate}）`)
+  assert.ok(iResolve < iCheckDeps,
+    `后端解析必须早于 --check-deps 体检（实得 resolve=${iResolve} checkdeps=${iCheckDeps}）`)
 })
