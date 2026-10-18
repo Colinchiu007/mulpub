@@ -1,3 +1,19 @@
+# [未发布] fix(publish): 发布失败 6 平台归因 —— 上游失败不再「尽力继续」，加发布前置门禁（publish-failures-6）
+
+- **现场**：一条视频发 9 平台，进度浮层「成功 3/9 · 6 个失败」。六条里**四条同源**：上游关键步骤失败后没有 fail-fast，而是「尽力继续」，最终在「发布/验证」阶段以一条与根因无关的错误收尾。
+- **真因（日志+截图取证，非推测）**：
+  - 头条 `publish btn not found` ← `file input hasVideo=true selectorCount=0`：`videoPublishUrls.toutiao` 指向西瓜上传页，而 `PLATFORM_PUBLISH_SELECTORS.toutiao` 是图文文章页那套、**无 `file_input`** ⇒ 上传整段被跳过，标题/正文/按钮全部落空。
+  - 抖音 `publish timeout` ← `upload-complete signal not detected … continuing best-effort` + `title: fill not applied (readback=0)`：上传未确认、标题未写入仍继续点发布。
+  - 公众号「缺少媒体 ID」← 活日志 `save done without mediaId (saved=false … xhr=200)`：**保存动作本身没被平台确认**，被报成媒体 ID 采集失败。
+  - 快手 `publish verification timeout` ← 作品列表最新 10-12、本次无新增：确实没发出去（验证正确，文案误导）。
+  - 视频号 `not logged in` ← 页面被重定向到 `channels.weixin.qq.com/login.html`：登录态确实失效（真阳性）。
+  - 小红书 ← 主动拒绝（用户硬约束：视频草稿链未实现）。
+- **修复**：新增 `apps/desktop/electron/services/publish-precondition.js`（P1 能力/P2 上传/P3 标题/P4 正文四判据 + 可操作文案），在**点发布按钮之前**判定；不成立即返回 `preSubmitBlocked + definitelyNotSent`，由 `publisher-router` 经 `markNotSentByResult` 显式打标回滚发布间隔窗口（与 #3855 的 `release()` 修复联动）。视频上传整段下沉到 `upload-waiter._runVideoUpload`（含三态记录 + 选择器缺失判定），并接住 `_waitForVideoUploadComplete` 返回值（旧版丢弃）。
+- **公众号文案分层**：新增 `describeUnconfirmedSave()`，把「保存未被确认」与「采集不到 mediaId」分开；措辞避开「保存成功」以免污染下游文本分类器。
+- **测试**：`publish-precondition.test.js`（12 例）、`publish-precondition-wiring.test.js`（3 例，含「拦下时 `_click` 一次都没被调用」的接线锁）、`publish-upload-order.test.js`（5 例，上传时序跨模块结构锁）、`wechat-mp-draft-mediaid.test.js`（+4 例）。
+- **未闭合**：头条视频选择器需真机 DOM 取证；小红书视频草稿链未实现；视频号登录失效属账号域；快手发布时 toast 未捕获；抖音「转码中」竞态。
+- 文档：`01-docs/PRD-PUBLISH-FAILURE-ATTRIBUTION-2026-10-18.md`、`01-docs/BUGFIX-PUBLISH-FAILURES-6PLATFORMS-2026-10-18.md`、`openspec/records/publish-failures-6.md`。
+
 # [未发布] fix(gates): 深度审查台账的 alt 形态白名单跟上生产方投影（ccg-alt-form-producer）
 
 - **当场行为探测推翻了「已修」的假设**：main 的 `AUDIT_ARTIFACT_RE` 只接受 `\d{8}T\d{6}(.\d{1,3})?Z`，而生产方（`ccg-review-decider` 的 `new Date().toISOString().replace(/[:.]/g, '')`）**删掉冒号与点、保留日期里的连字符** ⇒ 真实投影是 `2026-10-18T021638562Z`，实测 `RE.test(生产方文件名) = false`。也就是说判定记录一旦被写成 alt 形态，判据会把它当「不是审计产物」而整条跳过。

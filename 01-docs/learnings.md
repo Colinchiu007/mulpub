@@ -1,3 +1,27 @@
+## 「尽力继续」会把真因换成症状：发布链的上游失败必须 fail-fast，且「收集了证据但没有消费者」等价于没收集（publish-failures-6，2026-10-18）
+
+用户报「一条视频发 9 平台，6 个失败」，浮层文案分别是 `publish btn not found` / `publish timeout` / `publish verification timeout` / `缺少媒体 ID` / `not logged in` / 「视频草稿链尚未实现」。逐条取证后发现**六条里四条同源**：上游关键步骤失败后没有 fail-fast，而是「best-effort 继续」，最终在「发布/验证」阶段以一条与根因无关的错误收尾。
+
+### lesson:best-effort-continue-launders-root-cause-into-symptom
+
+四条判据：
+
+- **失败的步骤和报错的步骤不是同一步时，报错几乎没有信息量。** 头条现场：`file input hasVideo=true selectorCount=0`（视频上传入口根本没登记）⇒ 上传整段跳过 ⇒ 标题/正文/按钮全都找不到 ⇒ 最后报「找不到发布按钮」。抖音现场：上传完成信号未检测到 + 标题 `readback=0`，仍继续点发布 ⇒ 65 秒后 `publish timeout`。两处的「报错步骤」都离「真正的失败步骤」隔了好几步。
+- **`if (A && B.length>0)` 是静默跳过，不是防御性写法。** 它把「平台没这个能力」变成「什么都不做、继续往下走」，而后续逻辑默认「没报错就是成功」。要判「能力是否存在」，就得**显式判定并留记录**（本轮：`fillReport.upload = {ok:false, reason:'upload-selector-missing'}`）。
+- **只写不读的证据字段等于没收集。** `fillReport` 当时是只写字段（全仓只有赋值 + draftOnly 一处消费）；收集了 title/content 失败事实却没有任何消费者在发布前检查它。判据：新加一个「结果记录」字段时，**同一次改动里必须给它一个消费者**，否则下一轮就会有人以为「已经检查过了」。
+- **丢弃返回值就是丢弃判据。** `await this._waitForVideoUploadComplete(...)` 的返回值（done / besteffort 放行）被直接丢掉，只留一条 warn。凡是「返回布尔表示是否确认」的等待函数，调用点必须接住并把它变成结构化事实。
+
+接线面的教训（本轮专门写了锁）：
+
+- **判据写得再对，没接线就一行都不生效，而「没接线」在只有单元测试的仓里看不见。** 因此新增了 3 条**接线锁**（`publish-precondition-wiring.test.js`）：断言「拦下时发布按钮的 `_click/_clickStable/_clickViaCdp` **一次都没被调用**」——把门禁那几行删掉，用例立刻红。
+- **拦截点要选在副作用之前。** 发布按钮点击是真实提交尝试（平台风控面）；拦在点击**之前**，失败就等于「平台写操作必然未发生」，可以**显式**标 `definitelyNotSent` 回滚发布间隔窗口，比用错误文本去猜封闭词表可靠一个量级（词表本身也明确拒绝收录中文短语，因为可能发生在动作之后）。
+- **拆文件时判据要跟着改形态，不能放宽。** 把上传整段下沉到 `upload-waiter._runVideoUpload` 后，「上传先于标题填充」这条不变量的证据跨了两个文件：`_publish_generic` 里调用点仍须早于 `'filling title...'`，注入文件与表单就绪等待在 `_runVideoUpload` 里。正解是按新形态分别断言，不是「找不到就跳过」。
+
+文案层的教训：
+
+- **两种不同处境共用一句话，等于把用户引向错误方向。** 公众号 `saved=false`（保存没被确认）与「保存成功但采集不到 mediaId」被合并成「缺少媒体 ID」；用户于是去找媒体 ID，而真实情况是保存根本没落地。分层判据：先把「动作是否被确认」判出来，再谈「采集是否成功」。
+- **否定句里的正向短语会污染下游文本分类器。** 本轮新用例当场抓到：文案写「也未出现「保存成功」提示」，而仓库多处按正则判成功 ⇒ 假阳。正解是换词（「保存完成」），不是放宽判据。
+
 ## 三条「看起来是我引入的 CI 红 / 提交污染」其实都有固定归因路径（startapp-skill-harden + flake-coverage-timeout，2026-10-18）
 
 ### lesson:judge-ci-red-by-timeout-frequency-and-change-scope
