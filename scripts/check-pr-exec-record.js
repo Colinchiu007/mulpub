@@ -649,6 +649,12 @@ function evaluateDeepReviewDebt (statuses, repo, readAtBase) {
 
   const unresolved = []
   const backendMismatch = []
+  // ⚠ 刻意**不**要求「本次新增的 dual 产物必须带 reviewBackends」（QM-6 评审 i4 提的那条更严的口径）。
+  //   试做并实测过：它会把所有**在本刀之前**生成的在飞 PR 产物判红（他们的记录里没有这个字段，
+  //   而他们没做错任何事）——一条 required check 因别人的落地而红，正是本仓反复记过的爆炸半径。
+  //   于是 i4 按 dismissed 处置，代价如实登记在下面那条「遗留」里：
+  //   绕过通道是「生成后手动删掉 reviewBackends」，那需要改动一个已入库的 JSON，
+  //   而现存的锁（判定器必写该字段 + 请求值 × performedBy 对账）把它限制在"刻意伪造"范围内。
   for (const rel of involved) {
     let rec = null
     try {

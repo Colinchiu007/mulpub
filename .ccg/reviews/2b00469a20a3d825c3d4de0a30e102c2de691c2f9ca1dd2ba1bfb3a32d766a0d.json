@@ -29,7 +29,7 @@
   },
   "deepReview": {
     "required": true,
-    "status": "self_play_blocked",
+    "status": "needs_revision",
     "performedBy": "self-play",
     "confidenceWeight": 0.6,
     "requiresExternalReview": [
@@ -131,6 +131,8 @@
       }
     ],
     "note": "自扮演裁决：4 条指控成立或需外部复核",
-    "at": "2026-10-18T08:05:33.048Z"
+    "at": "2026-10-18T08:05:33.048Z",
+    "closureNote": "轮1（4b7ca65f，critic=claude 真实调用）产出 7 条，逐条裁决后 4 条 upheld；i1/i3/i4/i5 的处置已落在 59fa21cf7 与 25a31c52（署名义务不分覆盖、有界子串匹配、逐值加引号、注入形态行为锁）。原状态 self_play_blocked 的成因是 i5 属高危域、引擎拒绝以自扮演豁免；该条已由**外部模型**复核（codeagent-wrapper --backend claude rc=0，答复存 D:/Temp/qm6-i5-external.txt）并采纳其第三种口径实现。故本条按 needs_revision 收口（不是 cleared：外部那一轮没有回到引擎的产物里，而评审结论也确实引发了改动）。同一批内容随后被 tip 轮重审，见 25a31c52 的裁决。",
+    "closureNoteAt": "2026-10-18T09:56:16.010Z"
   }
 }

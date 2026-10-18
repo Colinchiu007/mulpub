@@ -32,6 +32,11 @@
 - [x] 5.1 两个读取方逐字对账锁（四档配置 + 覆盖档与默认档必须确实不同）
 - [x] 5.2 `--check-deps` 行为锁（只装 codex 的假 HOME，断言 `· claude` 不出现）
 - [x] 5.3 变异反证 M1–M5（每条指名变红，且驱动断言"跑了多少条"而非只看有无红）
+- [ ] 5.5 **未做变异反证的新锁**（如实登记，别读成已反证）：外部评审后追加的
+  「source 前存在性守卫」「禁词 doesNotMatch(/BACKEND_ARGS/)」「有界子串的两条负控」「署名义务不分覆盖」
+  四条锁，其中「署名义务」与「有界子串」各有一条**反向对照**在同一份夹具里（全相符⇒全绿 / 补 overridden⇒变红），
+  起到近似反证作用；另两条（守卫与禁词）是结构锁，尚未做"把守卫摘掉必须红"的变异。
+  下一轮触碰这两个文件时应顺手补进 `D:/Temp/qm6-mutation-driver.cjs` 的清单。
 - [x] 5.4 既有回归全绿：`ccg-review-decider` 43、`deep-review-deps` 33、`plan-review-deps` 10、
   `ccg-bash-entry` 9、`check-pr-exec-record` 72、`ccg-review-backends` 17
 

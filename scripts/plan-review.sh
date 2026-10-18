@@ -43,6 +43,13 @@ say() { printf '%s\n' "$1"; }
 
 # 后端对的 shell 侧读取方（单一实现，与 deep-review.sh 共用同一份）。
 # 两个入口不得各抄一份名单 —— 那正是 2026-10-18「六份字面量互不认账」的病灶。
+# 找不到就当场 fail-closed（与 deep-review.sh 同形）：后续那些
+# "resolve_review_backends: command not found" 会把真因（没 source 上）伪装成功能故障。
+[ -f "$_self_dir_abs/lib/ccg-backends.sh" ] || {
+  say "✗ 找不到评审后端读取方：$_self_dir_abs/lib/ccg-backends.sh"
+  say "  入口必须由仓库内路径调用（sh scripts/plan-review.sh），不得经符号链接复制出去跑。"
+  exit 2
+}
 . "$_self_dir_abs/lib/ccg-backends.sh"
 
 PROPOSAL=""

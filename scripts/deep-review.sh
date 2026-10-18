@@ -97,6 +97,14 @@ done
 # lib/ccg-review-backends.js 的 node 版），两者必须逐字对账 —— 对账锁在
 # scripts/deep-review-deps.test.js「两个读取方必须给出同一份后端表」。
 # 按**脚本自身位置**解析而不是仓库相对路径：见上面 _self_dir_abs 的说明。
+# 找不到就当场 fail-closed：$0 在符号链接/非常规调用下可能指不到兄弟文件，
+# 而后续每个 `resolve_review_backends: command not found` 都会把真因（没 source 上）
+# 伪装成一堆功能故障 —— 本仓把这类读作「探针失明比报错更贵」。
+[ -f "$_self_dir_abs/lib/ccg-backends.sh" ] || {
+  printf '%s\n' "✗ 找不到评审后端读取方：$_self_dir_abs/lib/ccg-backends.sh"
+  printf '%s\n' "  入口必须由仓库内路径调用（sh scripts/deep-review.sh），不得经符号链接复制出去跑。"
+  exit 2
+}
 . "$_self_dir_abs/lib/ccg-backends.sh"
 
 # ==========================================================================

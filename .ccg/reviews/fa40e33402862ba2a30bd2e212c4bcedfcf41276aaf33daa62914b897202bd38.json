@@ -29,8 +29,72 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "needs_revision",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": ".ccg/reviews/26d2bf7e...json 包含 status=error、findings=null 及 validationErrors='issues[5].finding为空'。提交无效审查产物会污染审计链。",
+        "highRiskDomains": [],
+        "prosecution": "本次变更集把一份 status=error、findings=null、带 validationErrors='issues[5].finding为空' 的判定产物（.ccg/reviews/26d2bf7e…json）提交入库。审计链里出现一条「跑过但没结论」的记录，下一个读者要么误读成评审通过，要么花时间重新归因。",
+        "defense": "把失败现场原样入库至少是可追溯的；把它删掉或改写成 cleared 才是造假。",
+        "verdict": "upheld",
+        "rationale": "成立，但成立的是「不得留一份无说明的 error 在变更集里」，不是「不得登记失败」。处置：该产物状态改写为 needs_revision（闭环词表内的诚实一档），并就地写明原因——那一轮是 critic 输出契约校验失败（不是评审通过、也不是我的代码缺陷），同一批内容随后被 tip 那一轮（origin/main..HEAD 全量 diff，5 条 findings）覆盖审查。不写 cleared：那一轮确实没有结论。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "提案承认单引号/双引号注入形态（\"a'b\"、\"a\\\"b\"）在 spawnSync→Git Bash 层被吃掉，为 '不可测'。安全性完全押在 is_valid_backend 正则上，无第二道机械防线。",
+        "highRiskDomains": [],
+        "prosecution": "提案自己承认单/双引号注入形态在 spawnSync→Git Bash 层被吃掉、标记为「不可测」，于是后端名的安全性完全押在 is_valid_backend 的字符集正则上，没有第二道机械防线。",
+        "defense": "该指控的**前提已被本次 tip 提交消解**：exec 早已改成逐值加引号（`--proposer \"$RB_PROPOSER\" --critic \"$RB_CRITIC\"`），不再拼串展开；即使正则被放宽，值也只会作为**一个参数**抵达 node。",
+        "verdict": "upheld",
+        "rationale": "按「指控针对的那段代码已被替换」成立并闭环：判据侧有 doesNotMatch(/BACKEND_ARGS/) 的禁词锁钉住旧形态不得回来，另有 6 个注入形态（; | $() ` 空格 反斜杠）的入口行为锁与 node 侧按 env 的同形态锁。引号两格在本层不可测这件事没有被掩盖，而是写进锁的注释并说明由哪一侧覆盖——「测不到」与「不测」的差别必须留下现场。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "deep-review.sh 和 plan-review.sh 通过 $0 → _self_dir_abs 定位兄弟脚本；bash -c 调用或 symlink 会让 $0 变成命令字符串而非路径，导致 source 失败。",
+        "highRiskDomains": [],
+        "prosecution": "两个入口靠 $0 → _self_dir_abs 定位兄弟脚本。经 bash -c 调用或经符号链接复制时，$0 不再是脚本路径，source 会失败；而失败之后每个 resolve_review_backends 都是 command not found，真因（没 source 上）被伪装成一堆功能故障。",
+        "defense": "本仓的调用形态固定（sh scripts/deep-review.sh 或绝对路径），符号链接部署不在支持范围。",
+        "verdict": "upheld",
+        "rationale": "成立且不采纳「不在支持范围」作为免修理由：本刀刚刚就是因为 source 失败才炸出一串 command not found（实测：ROOT 落到仓库父目录那次），所以这个失败形态不是假想。已加 source 前的存在性守卫：缺失即打印「找不到评审后端读取方：<路径>」+ exit 2，并由 deep-review-deps.test.js「必须先确认兄弟依赖存在再 source」锁住守卫的存在、位置（早于 source）、文案与 exit 2 四点。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "judgeBackendMismatch 对缺失 reviewBackends 字段直接返回 null（历史兼容）。若新记录被刻意删除该字段，判据将被绕过而非判红。",
+        "highRiskDomains": [],
+        "prosecution": "judgeBackendMismatch 在 reviewBackends 缺失时直接返回 null（历史兼容）。若新记录刻意不带/删掉该字段，对账判据将被绕过而非判红。",
+        "defense": "「按字段缺失不判」是让存量产物不被追溯变红的前提；改成「新增必须有」要能区分「新增」与「存量」。",
+        "verdict": "dismissed",
+        "rationale": "更严的版本我**试做并实测过**：对「本次变更集里 status=A 的 dual 产物」强制要求该字段，结果打红 7 条既有回归锁，且现场不是假想——任何在本刀之前生成、仍在飞的 PR 其 dual 产物都没有这个字段，他们没做错任何事，却会因为别人落地而被 required check 判红。这条爆炸半径超出本刀应得的范围，故撤销。剩余风险如实登记：绕过通道是「生成后手动删掉已入库 JSON 里的这个字段」，它需要伪造一份已提交的产物；两条既有锁把它限制在刻意伪造范围内——① ccg-review-decider.test.js「判定记录必须写下本次请求的后端对」（真调 saveRecord 取证，生成侧恒写），② 本判据在字段存在时必然比对。撤销的决定连同理由写进了判据源码注释，避免下一个会话再试一遍。"
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      }
+    ],
+    "note": "自扮演裁决：3 条指控成立或需外部复核",
+    "at": "2026-10-18T09:49:57.105Z",
+    "closureNote": "轮3/4（tip 25a31c52，single 档，critic=claude 真实调用出 5 条）逐条裁决：i1/i2/i3 upheld 且均已实现（error 产物补闭包说明、exec 逐值加引号+禁词锁、source 前存在性守卫+行为锁），i4 dismissed（更严版本试做并实测会打红 7 条既有锁与他人在飞 PR，已撤销并把理由写进判据源码注释）。引擎无「已修」字段，任何 upheld 都记 self_play_blocked，故按闭环词表里的 needs_revision 收口——它描述的就是「评审产出了要求修订的结论」，而这些结论已在本分支内改完。",
+    "closureNoteAt": "2026-10-18T09:56:15.827Z"
   }
 }

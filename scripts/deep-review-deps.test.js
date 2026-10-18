@@ -822,3 +822,19 @@ test('入口必须拒绝注入形态的后端名（形态判据是第一道防�
     assert.ok(!out.includes("已向后端请求覆盖"), JSON.stringify(bad) + " 不得进入转发路径：" + out)
   }
 })
+
+test('入口必须先确认兄弟依赖存在再 source（$0 不可靠时给出真因，不留下一串 command not found）', () => {
+  // QM-6 评审 i3（第二轮）：$0 → _self_dir_abs 在符号链接/非常规调用下可能指不到兄弟文件。
+  // 那类失败的真实表现不是"找不到文件"这一句，而是后面每个函数都 command not found，
+  // 于是排查者会去修函数——本锁要求守卫**早于** source 且当场 exit 2。
+  for (const name of ['deep-review.sh', 'plan-review.sh']) {
+    const sh = fs.readFileSync(path.join(ROOT, 'scripts', name), 'utf8')
+    const guard = sh.indexOf('[ -f "$_self_dir_abs/lib/ccg-backends.sh" ]')
+    const src = sh.indexOf('. "$_self_dir_abs/lib/ccg-backends.sh"')
+    assert.ok(guard > 0, `${name} 必须有「source 前确认文件存在」的守卫（锚点找不到即红，不得静默跳过）`)
+    assert.ok(src > guard, `${name} 的守卫必须早于 source 那一行`)
+    const between = sh.slice(guard, src)
+    assert.match(between, /找不到评审后端读取方/, `${name} 守卫必须点名缺哪个文件`)
+    assert.match(between, /exit 2/, `${name} 守卫必须 fail-closed 早退，不得带着未定义的函数继续跑`)
+  }
+})
