@@ -1192,6 +1192,9 @@ export default {
       // 不持久化 —— 快照回填的值按「显式选择」处理（见 PRD §9.10.3 交互优先级）。
       s2vImageAutoProviderId: '', s2vVideoAutoProviderId: '', s2vVoiceAutoProviderId: '',
       s2vTemplateLibrary: [], s2vTemplateCategory: 'all', s2vCustomTemplateName: '',
+      // 折叠区默认态（s2v-voice-section-layout，2026-10-18）：除「基础」外全部默认收起。
+      // 原默认态同样是「仅 basic 展开」，此处把意图写成显式声明，并把恢复逻辑收紧为
+      // 「只打开快照里显式列出的分组」——旧实现是「先全关再逐项开」，等价但可读性差。
       s2vOpenSections: { basic: true, appearance: false, videoEnhance: false, voice: false, advanced: false, publish: false },
       // 运营中心选项控制（2026-08-31）：可见性与默认值
       s2vPipelineOptions: null,
@@ -2053,9 +2056,22 @@ export default {
     },
     s2vSubgroupLabel(subgroup) {
       const key = `create.story2video.subgroups.${subgroup}`
-      const fallback = { splitTiming: this.$t('create.story2video.ui.subgroupSplitTiming'), templateOutput: this.$t('create.story2video.ui.subgroupTemplateOutput') }[subgroup] || subgroup
-      const english = { splitTiming: 'Split & Timing', templateOutput: 'Template & Output' }[subgroup] || subgroup
-      return this.translateWithLocaleFallback(key, fallback, english)
+      // 子分区标题（声音区三个 + 高级区两个）：主键一律 create.story2video.subgroups.*，
+      // fallback 只作兜底，**不得自引用同一 key**（自引用等于没有 fallback）。
+      // 2026-10-18（s2v-voice-section-layout）：原先 splitTiming/templateOutput 的 fallback 指向
+      // ui.subgroupSplitTiming / ui.subgroupTemplateOutput，而二者与 subgroups.* 同值重复、主键
+      // 恒命中 ⇒ 那两键从未生效，已从 locale 删除并在此改为英文字面量（locale 文件受
+      // check-max-lines 的 500 行上限约束，删两行正好腾出本次新增的空间）。
+      const fallback = {
+        splitTiming: 'Split & Timing',
+        templateOutput: 'Template & Output',
+        voiceNarration: 'Narration',
+        voiceBgm: 'Background music',
+        voiceClone: 'Voice cloning',
+      }[subgroup] || subgroup
+      // fallback 与 english 同值：中文由 locale 主键给出，两者只在缺键时兜底，
+      // 因此不再维护两张同值表（原先的重复表就是上一版 fallback 自引用的来源）。
+      return this.translateWithLocaleFallback(key, fallback, fallback)
     },
     s2vSectionSummary(section) {
       // 既有声音摘要模板字面量保持逐字节不变（CJK 基线按「文件+文案内容」对账），
@@ -2789,9 +2805,14 @@ export default {
         this.s2vOutputConfig.resolution = normalizeResolution(this.s2vOutputConfig.resolution, this.maxOutputResolution)
         // 输出枚举（fps/format）同样做白名单归一化
         this.normalizeS2VRestoredEnums()
-        // 恢复表单折叠状态（类型守卫：仅接受字符串数组）
+        // 恢复表单折叠状态（s2v-voice-section-layout，2026-10-18）：
+        // 默认态是「除基础外全收」，因此恢复 = 先显式复位到默认态，再只打开快照里
+        // 列出的分组。语义与旧实现（"逐项置 true"）等价——旧实现依赖 data() 默认值
+        // 恰好是全关；一旦默认值变化（如新增分组默认展开），旧写法会把上一次的展开态
+        // 漏成"全开"，故这里把"复位"写成语义的一部分而不是隐含前提。
         if (applyUi && Array.isArray(snapshot.ui?.expandedGroups)) {
           const known = new Set(Object.keys(this.s2vOpenSections))
+          for (const section of known) this.s2vOpenSections[section] = section === 'basic'
           for (const section of snapshot.ui.expandedGroups) {
             if (typeof section === 'string' && known.has(section)) this.s2vOpenSections[section] = true
           }

@@ -336,8 +336,15 @@
               <span>{{ s2vSectionLabel('voice') }}</span>
               <span class="s2v-summary">{{ s2vSectionSummary('voice') }}<span v-if="s2vSectionAtDefault('voice')" class="s2v-summary-default">{{ $t('create.story2video.ui.sectionDefaultSuffix') }}</span></span>
             </summary>
-            <div class="s2v-field-grid">
-              <UiField class="config-item" option-key="voice.voiceProvider" label="语音生成器">
+              <!-- 声音区内再分三个子分区（s2v-voice-section-layout，2026-10-18）：
+                   原为单一自适应栅格，四类控件（语音生成器/音色ID、背景音乐/音量、音色克隆）
+                   混排，「音色复制 / 克隆」只占半行宽、和「背景音乐音量」并排，看不出分组。
+                   拆为「旁白设置 / 背景音乐 / 音色克隆」三块，各带标题行，
+                   克隆面板独占满宽。子分区沿用 .s2v-subgroup 既有样式（与「高级」区同构）。 -->
+              <div class="s2v-subgroup" data-testid="s2v-subgroup-voiceNarration">
+                <h4 class="s2v-subgroup-title">{{ s2vSubgroupLabel('voiceNarration') }}</h4>
+                <div class="s2v-field-grid">
+                  <UiField class="config-item" option-key="voice.voiceProvider" label="语音生成器">
                 <UiSelect v-model="s2vConfig.voiceProvider" @change="handleS2VVoiceProviderChange">
                   <!-- 首项「自动 Edge TTS」为常驻免费兜底（id=''），列表为空时下拉仍非空白；
                        仅补充配置引导提示（2026-08-12 复审 W1，与图片/视频空态提示对齐）。 -->
@@ -379,7 +386,12 @@
                   @click="refreshS2VVoiceCatalog"
                 >刷新音色列表</button>
                 <span v-else-if="s2vVoiceOptions.length === 0" class="config-hint">当前模型没有可用音色。</span>
-              </UiField>
+                </UiField>
+              </div>
+              </div>
+              <div class="s2v-subgroup" data-testid="s2v-subgroup-voiceBgm">
+                <h4 class="s2v-subgroup-title">{{ s2vSubgroupLabel('voiceBgm') }}</h4>
+                <div class="s2v-field-grid">
               <!-- 背景音乐与音量（自「画面」移入「声音」，s2v-bgm-legacy-repair）：
                    历史路径不再只有「未入库」一词，而是按主进程只读核验结果区分为
                    可用/已丢失/不可用/未知，并给出【加入素材库】/【清除】一次性修复动作。 -->
@@ -438,8 +450,12 @@
                   :label="$t('create.story2video.ui.bgmVolumeLabel')"
                   :hint="$t('create.story2video.ui.doubleResetHint')"
                 />
-              </div>
-              <div v-if="s2vVoiceCapability?.type === 'provider_personal_slot'" class="config-item config-span-2 voice-slot-hint">
+                </div>
+                </div>
+            </div>
+              <div class="s2v-subgroup" data-testid="s2v-subgroup-voiceClone">
+                <h4 class="s2v-subgroup-title">{{ s2vSubgroupLabel('voiceClone') }}</h4>
+                <div v-if="s2vVoiceCapability?.type === 'provider_personal_slot'" class="config-item config-span-2 voice-slot-hint">
                 <label>个人音色槽位</label>
                 <p class="config-hint">请先在服务商官方控制台创建或管理个人音色，再刷新本地目录并在上方下拉列表中选择。当前页面不会伪造或复制服务商槽位。</p>
               </div>
@@ -517,12 +533,12 @@
                   </div>
                 </div>
                 </template>
+                </div>
+                <div v-else-if="s2vVoiceCapability?.type === 'user_clone'" class="config-item config-span-2 voice-slot-hint">
+                  <label>音色复制 / 克隆</label>
+                  <p class="config-hint">当前服务商尚未接入可用的音色克隆能力。</p>
+                </div>
               </div>
-              <div v-else-if="s2vVoiceCapability?.type === 'user_clone'" class="config-item config-span-2 voice-slot-hint">
-                <label>音色复制 / 克隆</label>
-                <p class="config-hint">当前服务商尚未接入可用的音色克隆能力。</p>
-              </div>
-            </div>
           </details>
 
           <details

@@ -59,6 +59,7 @@ export default {
       subgroups: {
         splitTiming: '分句与时长',
         templateOutput: '模板与输出',
+        voiceNarration: '旁白设置', voiceBgm: '背景音乐', voiceClone: '音色复制 / 克隆',  // 声音区三子分区（s2v-voice-section-layout，2026-10-18）
       },
       startPipeline: '启动流水线',
       pause: '暂停',
@@ -311,8 +312,6 @@ export default {
         sectionVideoEnhance: "视频增强",
         sectionVoice: "声音",
         sectionAdvanced: "高级",
-        subgroupSplitTiming: "分句与时长",
-        subgroupTemplateOutput: "模板与输出",
         imageStyleDefault: "电影感",
         imageEffectNone: "无效果",
         summaryPureImages: "纯图片轮播",
