@@ -37,15 +37,15 @@ sync_backfill_owner: collection-page-ui-ue-refine 会话（回填 PR）
 | TDD | PASS | 先 RED：CSS 契约 17 例红 + 页面结构 5 例红（aria/三组/99+/locale/primary 分档）；实现后 48 例全绿 |
 | 全量测试 | PASS | 采集域 + `Collection.test.js` + `src/styles/` + `src/components/` = **83 文件 / 1081 用例全绿** |
 | eslint（apps/desktop） | PASS | 改动文件 `--quiet` rc=0 |
-| locale 成对与使用性 | PASS | `--pair-base origin/main` PASS / `--keys` PASS（2112 key）/ `--cjk` PASS（基线 1374 → 当前 1208，**净减 166，零新增**） |
-| check-max-lines | PASS | 规范层初版 648 行撞 500 硬限 ⇒ **按门禁处方拆为两个文件**（collection-page.css 360 + collection-page-legacy.css 246），未挂账、未抬登记值 |
+| locale 成对与使用性 | PASS | `--pair-base origin/main` PASS / `--keys` PASS（2117 key）/ `--cjk` PASS（基线 1331 → 当前 1182，**净减 149，零新增**） |
+| check-max-lines | PASS | 规范层初版 648 行撞 500 硬限 ⇒ **按门禁处方拆为两个文件**（collection-page.css 360 + collection-page-legacy.css 246）；rebase 后 locale 两文件 501/504 撞限 ⇒ 新增 18 键改**成对同行**回落至 495/496。两处均未挂账、未抬登记值 |
 | 品牌残留 | PASS | `check-no-brand-residue.js` rc=0 |
-| QM-4 视觉 | **未本机取证** | 本机 Chromium 未安装（`apps/desktop/.playwright-browsers` 不存在）；像素归因与基线重建以 CI `QG Visual` 结论为准。如实登记，不当成通过 |
+| QM-4 视觉 | PASS（CI 同源取证） | 基线用**本 PR 自己的 CI 渲染**回填（#3856 已验证路径）；本机 `check-baseline-freshness.js --partial` 对账 **38 张 0 违规**。本机重建已被证否（dark 差 5467 px），见 §4-8 |
 | QM-1 打包 | **未执行** | 本轮未改 `electron/` 主进程代码（仅 renderer），按 QM-1 触发条件（改 `apps/desktop/electron/` 或 `packages/rpa-engine/`）不强制；如实登记 |
-| QM-6 双模型评审 | 见第 4 节 | 按 decider 判定 |
+| QM-6 双模型评审 | 见第 5 节 | 按 decider 判定 |
 | 远程同步 | PENDING | PR #3864 尚未合并；合并后同一次提交改写为 PASS + merge SHA |
 
-- 保留门禁：变更类型与隔离 ✅ | TDD ✅ | 全量测试 ✅ | eslint ✅ | locale 三项 ✅ | max-lines ✅ | 品牌 ✅ | QM-4 未本机取证 | 远程同步 PENDING
+- 保留门禁：变更类型与隔离 ✅ | TDD ✅ | 全量测试 ✅ | eslint ✅ | locale 三项 ✅ | max-lines ✅ | 品牌 ✅ | QM-4 CI 同源取证 ✅ | 远程同步 PENDING
 
 ## 3. 本轮最关键的增量：「消费⇒有定义」判据
 
@@ -103,6 +103,23 @@ sync_backfill_owner: collection-page-ui-ue-refine 会话（回填 PR）
    这正是「拆文件必须靠判据复核」的实例——**没有判据，这次丢失会静默进入生产**。
 5. **测试里 mock 了 element-plus 但 el-icon 是全局组件**：`<el-icon>` 走 global stubs 而非
    `vi.mock('element-plus')` 的导出。改用 `global.stubs`。
+6. **拿 `rebase --abort` 当「清理残留状态」的手段，代价是回退提交历史**：上一个中断的
+   rebase 在 `.git/worktrees/<wt>/rebase-merge` 留下状态，再次 `git rebase` 报「请先
+   --continue/--abort 或手动 rm」。我执行了 `git rebase --abort` ——它恢复的是**最初那次**
+   rebase 的 ORIG_HEAD（`1501dce93`），不是当前 HEAD（`cfb6cc78e`）⇒ 静默丢弃其后 4 个提交
+   （记录表行、基线、CI 同源基线+tokens 修复、空提交）。事后靠 `git reflog` 定位并逐项补回。
+   **口径**：`--abort` 只在「当前 rebase 是我刚启动的」时可用；面对残留状态要用
+   `git status` 先确认 HEAD 与待恢复目标的对应关系，或先 `git tag` 给当前 tip 留出口。
+7. **PR 存在冲突时，`pull_request` 工作流不会被创建**：两次 push（`ac29e6d`、`cfb6cc78e`）
+   在该 sha 上零 check-run，`gh api .../check-runs` 返回 `total_count=0`，而仓库队列里
+   是别的分支。根因是 GitHub 对 `pull_request` 事件需先算出临时合并提交，**PR 冲突时该提交
+   无法生成 ⇒ 工作流不创建**。因此「push 了但 CI 没动静」的第一诊断项应是
+   `gh pr view <n> --json mergeable`，不是 Actions 故障。
+8. **本机重建像素基线两次踩坑**：① 只查仓库内 `.playwright-browsers` 就断言 Chromium
+   不可用（判据取错——实际在全局缓存 `ms-playwright/chromium-1228`）；② 即使有 Chromium，
+   本机渲染也**不得**当基线：light 恰好与 CI 一致（91493 两次逐字节相同），dark 却差
+   5467 px（0.264%）。正解沿用 #3856 已验证路径——取**本 PR 自己的 CI 产物**回填，
+   并用 `check-baseline-freshness.js --partial` 本机对账（实测 38 张 0 违规）。
 
 ## 5. QM-6 判定
 
@@ -111,13 +128,22 @@ sync_backfill_owner: collection-page-ui-ue-refine 会话（回填 PR）
 答复：判据只覆盖**静态** class token（`:class` 动态部分不进），域内命名空间白名单前置，
 且有自反锁（命中数下界 + 已知类必须命中）防「判据失效但全绿」。
 
+
 ## 6. 未闭合（不假装闭合）
 
-1. **像素视觉未本机取证**：本机无 Chromium。`collection` / `collection-dark` 基线必漂移
-   （页头底色/页签/快捷卡三组/卡片内边距/按钮五带），需在 CI `QG Visual` 归因后重建。
+1. **像素视觉是 CI 同源取证，非「本机肉眼复核」**：基线取自本 PR 的 CI 渲染并本机对账
+   0 违规（§2 QM-4）。这能证明「渲染与基线一致」，但**不构成**「新视觉比旧视觉更好看」的
+   主观验收——后者需人眼过。本轮五处有意视觉变更（页头同底、页签、快捷区三组、卡片内边距
+   12→20px、按钮三档换型）已在 PR 描述里逐条列出供人工确认。
 2. **`:class` 动态部分的类名未进判据**：如 `:class="{ 'is-disabled': ... }"` 里的 `is-disabled`
    是靠组件测试断言的，CSS 契约只覆盖静态 token。属刻意收窄（动态部分要求值，是行为测试的面）。
 3. **`QuickCollectCommandDialog` 仍是手写 mask 而非 el-dialog**：本轮只把它的视觉对齐 el-dialog
    （mask 底色/圆角/标题分隔），**未改形态**——改它牵动 `QuickCollectPanel.test.js` 的挂载断言，超出本轮范围。
 4. **快捷区平台首字徽标**（`$t('collection.sourceWeibo').slice(0, 1)`）是文字而非图标组件：
    去 emoji 的过渡方案，非最终形态（最终应是平台品牌图标，需设计侧定稿）。
+   百度卡例外——它必须走 `<el-icon><Search/></el-icon>`（放大镜 emoji 命中
+   `icon-usage.test.js` 的 T1-5 功能图标位黑名单），故 `collection-page.test.js` 的
+   el-icon 计数期望是 **4** 而非 3。
+5. **locale 新增键现为「成对同行」**：为不越过 500 行硬限而压缩，与本域既有「一键一行」风格不同。
+   后续若该域继续增长，正解是拆出第二个 locale 模块（loader 已是
+   `collection: { ...collectionZh }` 形态，天然支持拆分会话），而不是继续压行。
