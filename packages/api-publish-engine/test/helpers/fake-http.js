@@ -18,8 +18,7 @@ const http = require('http')
 async function startFakeServer (routes = []) {
   const requests = []
   const hits = routes.map(() => 0)
-  const server = http.createServer((req, res) => {
-    const chunks = []
+  const server = http.createServer((req, res) => {    const chunks = []
     req.on('data', (c) => chunks.push(c))
     req.on('end', () => {
       const rawBody = Buffer.concat(chunks)
@@ -71,9 +70,29 @@ async function startFakeServer (routes = []) {
   return {
     url: 'http://127.0.0.1:' + port,
     port,
+    routes,
     requests,
     requestsFor (path) {
       return requests.filter((r) => (typeof path === 'string' ? r.url === path : path.test(r.url)))
+    },
+    /**
+     * 就地替换某条路由的响应体。
+     *
+     * 为什么需要：有些响应必须回填**服务器自己的** host（如 `UploadHost`），
+     * 而 host 要等 `listen(0)` 拿到端口后才存在 ⇒ 只能启动后改。按引用改
+     * `routes[i].body` 即可，因为请求处理时是按引用读 `route.body` 的。
+     *
+     * @param {string|RegExp} match 与路由 `match` 相同的选择器
+     * @param {any} body 新的响应体（对象⇒JSON，raw 路由则原样）
+     */
+    replaceRouteBody (match, body) {
+      let n = 0
+      for (const r of routes) {
+        const same = typeof match === 'string' ? r.match === match : String(r.match) === String(match)
+        if (same) { r.body = body; n++ }
+      }
+      if (n === 0) throw new Error('replaceRouteBody: 未命中任何路由: ' + String(match))
+      return n
     },
     reset () { requests.length = 0 },
     close () { return new Promise((resolve) => server.close(resolve)) },

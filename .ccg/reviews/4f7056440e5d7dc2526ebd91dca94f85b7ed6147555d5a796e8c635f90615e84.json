@@ -1,0 +1,29 @@
+{
+  "sha": "c4f140419bd19f140f33d60b6ae665666ce797da",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 1105 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 1105,
+    "fileCount": 10,
+    "codeFileCount": 9,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 12,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "   （Chromium 用同一 Windows 用户的 DPAPI 自行解密 ⇒ 真实登录态）",
+      "| `GET /xigua/api/upload/GetPublishAuth?params={}&msToken=..` | 发布权限 | `data.authorPermission.DisablePublish=false` 等 |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "4f7056440e5d7dc2526ebd91dca94f85b7ed6147555d5a796e8c635f90615e84",
+  "decidedAt": "2026-10-18T14:59:39.400Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}
