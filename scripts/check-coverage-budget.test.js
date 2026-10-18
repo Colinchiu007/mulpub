@@ -141,6 +141,14 @@ test('7 采集器与受检常量字段必须同源（字段漂移的 provenance 
   assert.deepEqual(got, want,
     '采集器产出的字段集与 provenance 不一致：多出=' + JSON.stringify(got.filter((k) => !want.includes(k))) +
     ' 缺少=' + JSON.stringify(want.filter((k) => !got.includes(k))));
+  // 只比键名集合的 parity 对「字段语义漂移」结构性免疫（QM-6 后端轴 C3 命中）：
+  // samples 变成均值、maxMinutes 变成"所有趟的最大值（含 cancelled）"都能过键名锁。
+  assert.ok(Number.isInteger(built.samples) && built.samples === 2,
+    'samples 必须是成功样本的**计数**：' + JSON.stringify(built));
+  assert.equal(built.maxMinutes, 12,
+    'maxMinutes 必须是成功样本的最大值（10/12 里的 12），不得把 40 分那趟被杀的记录进来');
+  assert.ok(built.p90Minutes <= built.maxMinutes,
+    'p90 不得大于 max，否则分位数算的是另一个总体：' + JSON.stringify(built));
 });
 
 test('8 贴天花板被杀的趟数必须进 provenance，否则"max"是被天花板裁过的假数', () => {
