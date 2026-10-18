@@ -104,3 +104,14 @@ sync_backfill_owner: 下一个会话（按「PR 自动合并」收尾清单 1–
 - **用例归属实测**（剥 CR 后按名比对，第一版探针没剥 CR，把 68×76 全判成"两侧互斥"＝探针失明）：`origin/main` 侧 **68** 条 test，本分支 **76** 条；只在 main 侧出现的 **1** 条 = 我有意改名的旧契约（`缺陷D：损坏的 JSON 记录不抛异常（由别的门禁负责）` → `…，但必须点名出声（实测没有任何别的门禁在校验它可解析）`）；只在本分支出现的 **9** 条 = 那 1 条改名后的新版 + 5 条丙分级用例 + 3 条本轮命中锁。⇒ **main 侧一条测试都没被丢掉**，#3906 新增的两条形态用例在本分支照样在跑。
 - rebase 后重测：gate **76 passed / 0 failed**、decider **44 passed / 0 failed**；变异反证重跑：N1–N4 仍各指名红、**N5 随生产者撤回而撤销**（它锁的正是我撤回的那处改动，留着就是锁一个已不存在的方向）；另加 **N5b**——把扫描域的 dashed alt 分支摘掉，命名锁必须红。实跑结果 **5/5 CAUGHT、`escaped=0 anchorfail=0`、还原 md5 一致**，这条同时证明保留下来的命名锁不是装饰（它真在问生产方的投影，而不是复述一遍判据）。
 
+
+## 第二轮 rebase（→ `d65f0b76f`）：与 #3927 撞在同一批文件上，现值重取
+
+- **为什么必然冲突**：main 合了 `d65f0b76f`（#3927，change `qm6-review-backend-config`）——把 QM-6 评审后端对收敛成单一真源 `scripts/ccg-review-backends.list`，并把判定请求写进产物的新字段 `reviewBackends`，由 `check-pr-exec-record.js` 与驱动回填的 `deepReview.performedBy` 对账，**不符即判不闭合**。它改的正是我这条线在改的两个文件。4 个文件各出 1–2 处冲突，形态两种，处置不同：
+  1. **`module.exports` 行两侧各写子集** ⇒ 按键拆并集（合并后 22 键，我方仅多出 `isResolvableEvidence`），不是整行取一侧。
+  2. **两侧在同一位置各插字段 / 各插 reasons 块**：`decider` 里保留 #3927 的 `reviewBackends: RB.resolveBackends()` **同时**用我方的 `buildDeepReviewInit(result.mode)` 承载 `tier/evidence`（若取 HEAD 的内联对象，新字段会在下一次被漏掉——这正是那条锁的理由）；`gate` 里 `backendMismatch` 与 `unparsed` 两块**都要**，但冲突区尾部那两行 `    )` / `  }` 是**共享尾行**，所以把 `=======` 换成 `    )` + `  }` 而不是删标记（删了就是少一层闭合，肉眼看不出，`node --check` 当场报）。
+- **现值（在 `d65f0b76f` 基线重跑，不是引用旧数）**：`check-pr-exec-record.test.js` **76 → 81 passed / 0 failed**、`ccg-review-decider.test.js` **44 → 51 / 0**、qm5-rows **19 / 0**、classify-docs-only **27 / 0**。增量来自 #3927 自己新增的用例，不是本片新增。
+- **变异反证重跑 12 条、全部指名红、`escaped=0 anchorfail=0`、还原 md5 一致**：本片 5 条（N1 损坏静默 / N2 D 方向静默 / N3 evidence 非空即可 / N4 摘 `unreadablePrev` / N5b 摘 dashed 分支）+ **已合入主干的切片A 7 条（M-A…M-G）也重跑了一遍**——因为我这次编辑的正是切片A 那同一个函数，不重跑就不知道有没有把上游的锁拆掉（M-A 红集=9 里指名 1 条，其余是邻近用例被连带，仍按「指名」口径单独计）。
+- **一条不能混着报的读数**：`enforce` 对本分支打 OK，但 **#3927 的新对账对本片产物是「不适用」而不是「通过」**——`judgeBackendMismatch` 在 `reviewBackends` 缺席时 `return null`，而变更集里两条产物（`13049a50`、`c0b69a3f`）都由 #3927 落地前的 decider 写出，**没有这个字段**。所以「后端对账绿」这句话在本片没有证据支撑；它从下一次提交起才开始积累（本分支的 decider 现在两个字段都写）。
+- 行尾与 diff：两口径 numstat 逐文件同数（19 个文件全等），解冲突未改写行尾（`loneLF=0 dblCR=0`）。
+
