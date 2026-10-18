@@ -62,6 +62,12 @@ function listSourceFiles (root) {
 
 /**
  * 从某个 git ref 取 `scripts/lib/code-mask.js` 并 require 成 maskFn。
+ *
+ * ⚠ **安全边界（CCG 深度审查 i1，2026-10-18）**：本函数会 `require()` **目标 ref 里的源码**，
+ * 也就是**执行该 ref 的代码**。因此它只应对**可信 ref** 使用（`origin/main`、`HEAD~N`、自己刚提交的分支）。
+ * 不要把 `--base` 指向来源不明的分支/标签 —— 那等于主动执行仓库里的任意代码。
+ * CI 侧不受影响：`mask-coverage-ab.test.js` 只用**不存在的 ref** 验证报错路径，从不加载真实 ref 代码。
+ *
  * @param {string} root 仓库根
  * @param {string} ref 例如 'origin/main'
  * @returns {(src: string, opts?: object) => string}
@@ -77,7 +83,14 @@ function loadMaskFromGit (root, ref) {
   const file = path.join(dir, 'baseline-code-mask.cjs')
   fs.writeFileSync(file, src, 'utf8')
   const mod = require(file)
-  try { fs.rmSync(dir, { recursive: true, force: true }) } catch { /* 清理失败不影响结果 */ }
+  // 临时目录清理：失败**出声**而不是静默（CCG i4）。Windows 上文件可能被杀毒/索引短暂占用，
+  // 残留目录本身无害，但"悄悄留垃圾"会让 os.tmpdir 慢慢变大而无从察觉。
+  // 注意：不需要清 require.cache —— 每次 mkdtemp 出来的路径唯一，缓存键不会复用到旧模块。
+  try {
+    fs.rmSync(dir, { recursive: true, force: true })
+  } catch (e) {
+    process.emitWarning(`[mask-coverage-ab] 临时目录清理失败（可手动删除）：${dir} —— ${(e && e.message) || e}`)
+  }
   if (typeof mod.maskNonCode !== 'function') {
     throw new Error(`${ref} 的 code-mask 未导出 maskNonCode，无法作为 baseline`)
   }
