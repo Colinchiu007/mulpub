@@ -1290,7 +1290,9 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 术语与 `01-docs/i18n-glossary.md` 对齐：「存量」不得与「历史数据/旧数据」混用；
 改词典必须同 PR 跑 `apps/desktop/src/i18n/glossary.test.js`（键级成对锁覆盖不到术语成对）。
 
-### 8.2.9 音色来源三态标注（**合同，尚未实现**）
+### 8.2.9 音色来源三态标注（**部分实现：文本浮层已标注，判据 2 与视频落点未落**）
+> **落地状态（2026-10-19 逐绑定点实测，取代本节原先的"尚未实现"）**：读面已由 §7.10.4.1 的 `podcast:episode:planPreview` 一并提供，文本出期浮层 `src/components/PodcastScriptEntry.vue:16` 渲染来源标注、`:49-52` 持三把键 ⇒ 本节顶部那段"实测三个事实"（`voiceRef` 渲染层 0 命中、locales 无音色键、无 IPC 带到渲染层）**已全部过期，保留原文不改写，但以本段为准**。三处偏离必须知道：① **键名**实际落的是 `podcast.episode.origin*`（`src/locales/podcast/zh.js:174-176` = `en.js:174-176`），不是本节表里写的 `podcast.voice.origin*`，措辞也不同（实际「来自频道设置」，表里「本期音色取自频道设置」）——§7.10.4.1 那句"复用、不另写一份"未逐字兑现，记为**有意偏离**（同一条文案抄两份必然漂移，此处选择保留已落的这套键，本节表格按实测读、不再当第二份真源）。② **判据 2 未落**：`channel` 档也在 `ORIGIN_KEYS` 里，于是"用户自己填的"那一档照样显示来源，与判据 2 相反（tasks 4.5b①）。③ **落点换了组件**：本节原写"落点是 `PodcastEpisodeEntry.vue` 表单底部一行"，实际落在文本浮层；`PodcastEpisodeEntry.vue`（视频出期那枚）至今 `voice|origin` 命中 0。判据 1/3/4/5/6 未逐条反查 ⇒ 在 4.5b① 闭合前，本节不得读成"已按七条判据验收"。
+
 
 > **承载方（2026-10-16）**：本节的读面由 §7.10.4.1 的 `podcast:episode:planPreview` 一次性提供（不再单开 `podcast:voice-preview`，两趟近重复读路径会让音色解析跑两遍）。下面的落点、三态标注与验收判据**照用不变**，仅 IPC 名与载荷合一；`plan.voice.origin` 三把键由 §7.10.4.1 复用。
 > 本节是 tasks 4.5 剩下那半句的合同，不是实现。写作依据是当场实测的三个事实：
@@ -1470,6 +1472,8 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 9. **`feedSync` 只有写侧，没有读侧**（**已闭合，2026-10-11 刀 3 前置片**：`podcast:channel:get` 现在带 `feedSync`，`usePodcastChannel` 存为状态，托管卡片按 `failed`/`partial` 渲染横幅 + 【只重试上传 feed】；下面是当时的原始记录，保留不改写）：跨家族增量复核（opencode 续会话 residual-1）指出 `readFeedSync` 在 `electron/` 内**零生产调用者**、`getChannel` 只回 `meta`、`src/` 内没有任何 `feedSync` 消费点 —— 于是 §8 里那条「partial = 公网 feed 未同步 +【只重试上传 feed】」的横幅**不会出现在界面上**，本刀写进真源的失败态目前只服务「人工核对」与「下一刀的对账输入」。处置：§8 与 spec 的两处 Requirement 已改为「真源可复原」而不是「界面可见」，读侧横幅与崩溃对账（tasks 3.6）一并在刀 3 接线；不在本刀补横幅的理由是它会与刀 3 的发布状态机（partial 重试入口就在其中）共用同一份判据，先做等于把同一件事写两遍。**这条是刻意留的未闭合，不是遗漏**：如果刀 3 顺延，本条必须跟着顺延，不得让它长期读起来像已完成。
 10. **刀 3 前两片只有编排，没有入口（刻意中间态，不是遗漏）**（2026-10-11）：`podcast-episode-source/extract/publish` 三个模块已落并通过 89 例测试，但 `electron/ipc-handlers` 与 `preload` 里**没有任何调用者**——也就是「成片一键出一期」这个用户动作此刻**还做不到**。写这条是为了堵住 §13 第 9 条那一类错误的复发面：上一发生的是「写了真源就宣称界面可见」，这一次如果没人记账，就会变成「写了编排就宣称功能可用」。判据统一为一条：**任何一层落地，都必须明写它的消费方在哪一片、是否已存在**；`tasks.md` 3.3 之后紧接的 3.4/3.5（状态机、浮层、入口）就是这一条的读者。第 3 片接真物时，注入边界（`uploadImpl` / `episodeSink` / `feedSink` / `channelGate`）的形状就是合同——若届时必须改形状，必须同 PR 改掉对应测试与 PRD 本节，不得留下「测试说 OK、真物接不上」。
 11. **刀 3 前两片带着 3 条 Warning 级收尾缺陷进入主干，已编号登记而不是当场改**（2026-10-11，QM-6 后端 claude 评审 0 Critical / 3 Warning / 6 Info）：`episodeSink`/`feedSink`/`buildFeed` 抛错时无 cleanup 无领域码（F1）、编码器探测丢弃 exit code 与 stderr 会把「打包 ffmpeg 崩坏」错报成「缺编码器」（F2）、取消不打断在途 ffmpeg（F3），其余 6 条 Info 见 `tasks.md` 3.7 的 ①–⑧。三条 Warning 都属于「资源/排查方向」类，按 QM-6 本应修完再合；选择先合的理由是**这三处的形状全部落在没有生产实现钉死的注入接缝上**（本分支 `grep` 除模块自身与测试外零调用者），当场改会在第 3 片写真 adapter 时于同一处再改一遍。风险由两条机制兜住：① `tasks.md` 3.7 是带编号的必修清单，第 3 片的 PR 不过它就不算完成；② 编排层头注释已按 F3 如实改写，不许再把「取消窗口关闭」读成「取消即时生效」。**这条是刻意留的未闭合**：如果第 3 片顺延，本条与 §13 第 10 条一起顺延，不得让它长期读起来像已完成。 **同日处置进展（第 3 片上半，2026-10-11）**：F1 / F2 / F4 / F5 / F7 已闭合并各配行为锁（`podcast-episode-guards.test.js` 8 条 + 新增 `podcast-hosting-audio.test.js` 7 条）；G6/G7 首轮「红=0」暴露出 `publishAudio` 的守卫当时没有锁，补锁后重跑才指名变红——这条判据从此写成：**新增一条拒绝，必须在同 PR 给它一条能变红的锁**，否则等于没写。仍留 F3（取消贯穿）、F9（fixture 耦合）与 F8 的 sink 半边，随第 3 片下半闭合。
+12. **跨 provider 降级时各块响度可能不一致（本期接受项；2026-10-19 补登记）**：§7.4.0 第 2 条当时明写"后果必须如实写进 §13"，而本节原先 11 条里**一条都没写**——这条要求存续了八天未被执行，属于"契约自己下的支票没人兑付"。现状实测：`scripts/stage-media-tools.js:10-21` 的 `REQUIRED_FILTERS`（11 项，含 `anullsrc`/`amix`/`acrossfade`）**不含 `loudnorm`**，`apps/desktop/media-tools-lock.json` 无 filters 键；替代口径落在 `podcast-episode-tts-adapters.js:88-92`——同一期内所有块使用逐字相同的 `voiceId / rate / pitch / audio_format`。⇒ 只要不跨 provider 降级，块间响度一致；一旦降级（偏好/默认命中不同服务商），**各块响度可以不同，且本期不做归一也不做跨块音量补偿**。界面与文案不得声称"已做响度归一"；引入 `loudnorm` 的另一条 PR 必须同次改锁 + 改 `before-pack` 校验 + 重打包实测（AGENTS「Story2Video 媒体工具资源闭包」）。**这条是刻意的接受项，不是遗漏。**
+13. **进程被强杀后，在途出期的中间态无人认领（2026-10-19 登记，随 tasks 3.6b②）**：第 9 条当年把「读侧横幅」与「崩溃对账」写在同一句里并整条标为已闭合，**实测只对了一半**——读侧确已落（`ipc-handlers/podcast.js:185` 随 `getChannel` 回 `feedSync`，消费者 `src/components/PodcastHostingCard.vue:45-47,95-104`），崩溃对账**一行代码都没有**：忙标记是进程内状态（`services/podcast-channel-locks.js:121`），`:92` 那句「残留由启动对账接管」是注释不是实现，`publishInFlight` 在全部代码里命中 0（只存在于本 change 的 `design.md` 与 `.adversarial/` 产物里）。后果是强杀后留下的临时音频 / 已上传未写进 feed 的对象 / 半更新 feed 在下一次启动**既不会被提示也不会被清理**。落地顺序不得反：先在 spec delta 加 Requirement（现 13 条无一涉及对账），再落跨重启凭据 → `channel:get` 投影 → 频道页横幅 + zh/en 键；真机（强杀再启动）复现之前，本条不得被读成"注释里写了所以做了"。
 
 ## 14. 第 3 片落地增量与欠账更新（2026-10-11）
 
@@ -1522,5 +1526,5 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 
 ### 15.4 判据本身的验收
 
-- 判据必须能同时判「放」与「不放」：上两张表合起来覆盖 `apps/desktop/src/views` 下**所有**产出文案或成片的页面；新增一页就要在这里追加一行，写「放/不放 + 命中哪条判据」。
+- 判据必须能同时判「放」与「不放」。两张表当前覆盖的是**已裁定的 11 个位置**（§15.2 五枚 + §15.3 六枚），**不是**"`apps/desktop/src/views` 下所有产出文案或成片的页面"——那句话原先说过头了（2026-10-19 实测：该目录现有 36 个 `.vue`，按产物词元扫出 5 个候选页 `Collection.vue` / `VideoCloneView.vue` / `CreateViewHistory.vue` / `CreateHistory.vue` / `PromptEvalView.vue` 不在任一表内，且都不解析播客频道）。这 5 页的逐页裁定登记为 `tasks 5.1b②`，裁定前本节主张只到"已裁定 11 处"。新增一页就要在这里追加一行，写「放 / 不放 + 命中哪条判据」。
 - 三枚待落入口（4.3②）落地时，必须同 PR 把本节状态列从「待落」改为「已落」，并同步 `openspec/changes/podcast-oneclick-publish/tasks.md` 的 4.3② 勾位——**文档与代码的状态差**是本仓「over-claim」的老病。
