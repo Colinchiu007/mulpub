@@ -4,14 +4,13 @@ task: 发布页「发布目标」区增加「全选 / 清空」与分组选择�
 branch: publish-target-select-all
 worktree: <worktreeRoot>/mp-publish-target-select-all
 contract: 01-docs/PRD-PUBLISH-TARGET-SELECT-ALL-2026-10-17.md
-sync_status: PENDING
-sync_reason: 本 PR（publish-target-select-all，#3861）的远程同步待合并后由后续 docs PR 回填 PASS + merge SHA，并同步删除本条登记字段
-sync_backfill_owner: 本记录作者（publish-target-select-all 会话）或其后续 docs PR；回填时须一并删除 sync_* 三字段（登记随文件走，回填后不得残留）
 ---
 
 ## 本次执行记录：发布目标「全选 / 清空」+ 分组选择回视（publish-target-select-all，2026-10-17）
 
 > 需求原文：图片和视频发布页，右侧的「发布目标」区域，增加「全选」选项，和分组选择的选项。从 UE 用户交互上考虑，怎么设计和优化更合适。
+>
+> 本记录按新形态（`gate-record-sync-derived-status` 落地后）写：不带 `sync_*` 三字段、状态列不手写状态词 —— 收口由门禁按主干历史推导（`远程同步 PR #3861`）。
 
 | 项 | 结论 | 证据 |
 |---|---|---|
@@ -26,7 +25,7 @@ sync_backfill_owner: 本记录作者（publish-target-select-all 会话）或其
 | ESLint | ✅ exit 0 | 仅 2 处 warning（`Publish.vue:726` 未用 disable 指令、`:1253` `copyDetailMeta`），经 `git diff origin/main` 核对**均不在本刀 diff 内** |
 | 测试 | ✅ 25 文件 422 用例全绿（含新 4 文件 34 例）；宽扫 76 文件 1379 用例全绿 | 受影响全量：`src/features/publish` + `usePlatformSelection` + `usePublishTargetBulkTargets` + `Publish.test.js` + `publish-target-select-all.test.js` |
 | `QG Visual` | ⏳ 第 1 轮判红 → 改设计后复跑 | 见下「视觉门禁实测」；终判以第 2 轮 CI 为准 |
-| 远程同步 | PENDING | 待 PR #3861 合并后回填 PASS + merge SHA，并删除 frontmatter 的 `sync_*` 三字段 |
+| 远程同步 | 由门禁推导 | `远程同步 PR #3861`（不带 `sync_*` 三字段，收口由 `merge-ledger` 按主干历史推导） |
 
 ### 反证（每条都实跑并指名红）
 
