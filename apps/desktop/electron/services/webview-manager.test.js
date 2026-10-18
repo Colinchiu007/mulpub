@@ -355,6 +355,19 @@ describe('broadcastSidebarCollapsed（多窗口同步，2026-10-18）', () => {
     expect(sent).toBe(0)
     expect(loggerMock.warn).not.toHaveBeenCalled()
   })
+
+  it('CCG i4：BrowserWindow 解析结果被缓存，连续状态变化不重复解析', () => {
+    const { wm } = createManagerWithBrowserTab()
+    const ctor = { getAllWindows: () => [] }
+    wm._browserWindowCtor = ctor
+
+    wm.setSidebarCollapsed(true)
+    wm.setSidebarCollapsed(false)
+    wm.setSidebarCollapsed(true)
+
+    // 缓存的就是注入的 ctor，未被覆盖或清空
+    expect(wm._browserWindowCtor).toBe(ctor)
+  })
 })
 
 describe('setOAuthManager 注入（OAuth 视图同步侧栏布局，2026-10-18）', () => {

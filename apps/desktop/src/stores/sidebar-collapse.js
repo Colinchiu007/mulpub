@@ -120,6 +120,18 @@ export function subscribeSidebarCollapsed (cb) {
   return () => { subscribers.delete(cb) }
 }
 
+/**
+ * 清空全部订阅者。
+ *
+ * 为什么需要（CCG 深度审查 i1）：`subscribers` 是模块级集合，App 卸载时只靠各调用方
+ * 自己的退订函数清理；一旦某条路径漏调（或测试未走完整卸载），订阅者会跨路由/跨用例
+ * 累积 —— 表现为「改了 A 页面，B 页面的回调也在跑」这类极难归因的串扰。
+ * 本函数给「壳层卸载」与「测试隔离」一个确定的清理点，不依赖每个调用方都记得退订。
+ */
+export function resetSidebarCollapsedSubscribers () {
+  subscribers.clear()
+}
+
 /** 在「收起 / 展开」之间切换（全局按钮与后续快捷键的唯一入口）。 */
 export function toggleSidebarCollapse () {
   setSidebarCollapsed(!sidebarCollapsed.value)

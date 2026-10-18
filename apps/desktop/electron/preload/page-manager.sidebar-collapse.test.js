@@ -67,9 +67,32 @@ describe('page-manager preload：侧边栏折叠 IPC 合同', () => {
     handler({}, { collapsed: true })
     expect(cb).toHaveBeenLastCalledWith(true)
 
-    // 缺字段：交给渲染层的 applyRemoteCollapsed 用「非布尔忽略」兜底，不得传成 undefined 之外的怪值
+    // 两种 key 都缺：传 null（显式空值），渲染层「非布尔忽略」挡下。
+    // 2026-10-18 CCG i3 起由 undefined 改为 null —— undefined 与「忘了传参」同形，
+    // 会把「主进程发了坏载荷」隐藏掉（本条原断言 undefined，是锁被指控的行为）。
     handler({}, {})
-    expect(cb).toHaveBeenLastCalledWith(undefined)
+    expect(cb).toHaveBeenLastCalledWith(null)
+  })
+
+  it('广播载荷形状异常时传 null 而非 undefined（CCG i3：坏载荷不得与「忘传参」同形）', () => {
+    const { api, ipcRenderer } = createApi()
+    const cb = vi.fn()
+    api.pageManager.onSidebarCollapsedChanged(cb)
+
+    const handler = ipcRenderer.on.mock.calls[0][1]
+    // 载荷缺两种 key：既无 data.collapsed 也无顶层 collapsed
+    handler({}, {})
+    expect(cb).toHaveBeenLastCalledWith(null)
+
+    // data 存在但 collapsed 不是布尔
+    handler({}, { data: { collapsed: 'true' } })
+    expect(cb).toHaveBeenLastCalledWith(null)
+
+    // 无载荷
+    handler({}, undefined)
+    expect(cb).toHaveBeenLastCalledWith(null)
+
+    // null 会被渲染层 applyRemoteCollapsed 的「非布尔忽略」挡下（有 store 测试锁定）
   })
 
   it('退订函数解绑同一 handler（跨窗口泄漏防护）', () => {

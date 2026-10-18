@@ -197,12 +197,18 @@ module.exports = {
   broadcastSidebarCollapsed (browserWindowCtor) {
     let ctor = browserWindowCtor
     if (!ctor) {
-      try {
-        ctor = require('electron').BrowserWindow
-      } catch {
-        // 测试环境（无 electron 运行时）：折叠广播走不到，静默降级
-        return { sent: 0 }
+      // CCG 深度审查 i4：BrowserWindow 只在首次需要时解析一次并缓存，
+      // 不每次状态变化都 require。require 本身有模块缓存，但「解析+属性访问+
+      // 异常路径」在每次点击都走一遍是没有必要的重复。
+      if (!this._browserWindowCtor) {
+        try {
+          this._browserWindowCtor = require('electron').BrowserWindow
+        } catch {
+          // 测试环境（无 electron 运行时）：折叠广播走不到，静默降级
+          return { sent: 0 }
+        }
       }
+      ctor = this._browserWindowCtor
     }
     if (!ctor || typeof ctor.getAllWindows !== 'function') {
       // electron 在但拿不到窗口列表：这是真的异常，不得静默

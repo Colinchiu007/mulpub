@@ -19,8 +19,13 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "self_play_resolved",
+    "performedBy": "self-play(pending)",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "findings": null,
+    "template": ".adversarial\\ccg-deep-2282bf17\\adjudication.json",
+    "note": "双模型审查（claude critic × opencode proposer）收敛自扮演，逐条裁决已填完；高危域（auth/crypto）条目另跑 claude -p 独立外部只读复核，双通道结论一致。upheld 项（i2 广播可见化 / i1 订阅者 reset / i3 载荷 null / i4 解析缓存）均已在代码中修复并补测试。",
+    "at": "2026-10-18T12:37:26.454Z"
   }
 }

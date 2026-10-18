@@ -48,9 +48,17 @@ function createPageManagerApi(ipcRenderer) {
        * 所有内嵌视图重排，并向**每个窗口**广播。本窗口若不跟上，DOM 侧栏还显示着
        * 却被原生视图盖住 ⇒ 点击错乱。
        * callback 收到布尔值（true = 已收起）。
+       *
+       * 载荷形状异常（既无 data.collapsed 也无顶层 collapsed）时传 null 而非 undefined：
+       * 渲染层 applyRemoteCollapsed 对非布尔一律忽略，null 与 undefined 都会被挡下，
+       * 但 null 在控制台/断点里可辨识为「显式的空值」，undefined 则与「忘了传参」同形，
+       * 会把「主进程发了坏载荷」这个问题隐藏掉（CCG 深度审查 i3）。
        */
       onSidebarCollapsedChanged: (cb) => {
-        const h = (_, payload) => cb(payload?.data?.collapsed ?? payload?.collapsed)
+        const h = (_, payload) => {
+          const raw = payload?.data?.collapsed ?? payload?.collapsed
+          cb(typeof raw === 'boolean' ? raw : null)
+        }
         ipcRenderer.on('page-manager:sidebar-collapsed-changed', h)
         return () => ipcRenderer.removeListener('page-manager:sidebar-collapsed-changed', h)
       },

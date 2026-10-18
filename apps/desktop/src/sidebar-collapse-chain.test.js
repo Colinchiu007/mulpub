@@ -41,6 +41,11 @@ function createHarness () {
     mainWindow: { getContentBounds: () => ({ ...WINDOW_CONTENT }) },
     _sidebarWidth: 200,
     _sidebarCollapsed: false,
+    // 显式给一个「electron 不可用」的哨兵：链路测试走 node 环境，
+    // require('electron') 会解析到 mock 但 mock 没有 BrowserWindow.getAllWindows，
+    // 不预设 _browserWindowCtor 会触发 broadcastSidebarCollapsed 的 warn 分支，
+    // 把「测试环境无 electron」误报成「通道坏了」。多窗口用例会自行覆盖它。
+    _browserWindowCtor: { getAllWindows: () => [] },
     _tabViews: new Map([['tab-1', view]]),
     _activeTabId: 'tab-1',
     _authTabInfo: null,

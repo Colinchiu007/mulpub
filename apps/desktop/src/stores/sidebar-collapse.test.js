@@ -222,4 +222,18 @@ describe('多窗口广播同步（applyRemoteCollapsed / subscribeSidebarCollaps
     expect(sidebarCollapsed.value).toBe(false)
     expect(invokePageManager).toHaveBeenLastCalledWith('setSidebarCollapsed', false)
   })
+
+  it('CCG i1：resetSidebarCollapsedSubscribers 清空全部订阅者（防跨路由/跨用例累积）', async () => {
+    const { setSidebarCollapsed, subscribeSidebarCollapsed, resetSidebarCollapsedSubscribers } = await loadStore()
+    const a = []
+    const b = []
+    subscribeSidebarCollapsed((v) => a.push(v))
+    subscribeSidebarCollapsed((v) => b.push(v))
+
+    resetSidebarCollapsedSubscribers()
+    setSidebarCollapsed(true)
+
+    expect(a).toEqual([])
+    expect(b).toEqual([])
+  })
 })
