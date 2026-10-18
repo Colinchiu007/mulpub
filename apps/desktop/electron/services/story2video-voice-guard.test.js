@@ -11,6 +11,7 @@ const {
 const {
   isClonedVoiceUnavailableMessage,
   summarizeAssetFailures,
+  buildVoiceCloneAggregateError,
 } = require('./story2video-voice-guard')
 
 function makeStageExecutor() {
@@ -288,6 +289,20 @@ describe('isClonedVoiceUnavailableMessage / summarizeAssetFailures（2026-10-18�
     }
     expect(isClonedVoiceUnavailableMessage(null)).toBe(false)
     expect(isClonedVoiceUnavailableMessage(undefined)).toBe(false)
+  })
+
+  // 变异反证 M4（every 写成 some）在本用例存在前**存活**：全量同因时 every/some 都命中，
+  // 只有「部分失败同因」才能分辨。混合原因必须不聚合（继续逐条可见），否则会把限流/网络
+  // 等可重试失败吸收进「音色失效」结论。
+  it('运行期聚合只在全部失败同因时触发：混合原因必须返回 null（锁 every，防退化成 some）', () => {
+    expect(buildVoiceCloneAggregateError([
+      { error: "you don't have access to this voice_id" },
+      { error: 'rate limit reached' },
+    ])).toBeNull()
+    expect(buildVoiceCloneAggregateError([
+      { error: "you don't have access to this voice_id" },
+      { error: "you don't have access to this voice_id" },
+    ])).toContain('VOICE_CLONE_UNAVAILABLE')
   })
 
   it('summarizeAssetFailures 把相同 message 合并为场景区间', () => {

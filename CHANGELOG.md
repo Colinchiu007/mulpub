@@ -15,10 +15,10 @@
 - 不改阶段数量/顺序、不新增 checkpoint 类型、不静默替换用户音色。
 
 ## 验证
-- 定向测试：`tts-voice-clone-service.test.js`、`story2video-stages.test.js`、`tts-voice-service.test.js`、`story2video-notifications.test.js`、`pipeline-error-formatter.test.js`（真实读数见 `openspec/records/fix-s2v-voice-clone-integrity.md` 自测块，由 Lead 提交前实测回填）。
-- 变异反证清单见详细 PRD §12.3（去对账 / 反转优先级 / fail-closed / 守卫 warn-only / 聚合条件改 `some` / 不去重 / 渲染规则顺序 / 守卫放到 Promise 之后），实测结果同由 Lead 回填。
-- 文档门禁：`check-text-encoding-integrity`、`check-no-brand-residue`、`check-spec-purpose`、`openspec-sync-check`、`check-doc-abs-paths`。
-- QM-1 打包与 QM-6 双模型评审由 Lead 在提交前执行并回填，本条目不预填结论。
+- 定向测试：7 文件 / 330 passed（服务 48、完整性 8、阶段 154、守卫 11、通知 61+22、格式化器 27）；风险集回归 673 passed（命令与读数见 `openspec/records/fix-s2v-voice-clone-integrity.md` 自测块）。
+- 变异反证（详细 PRD §12.3）：M1 去对账 2F / M2 反转优先级 1F / M3 守卫 warn-only 3F / M4 聚合 `every`→`some` **初始存活**（补「混合原因不聚合」用例后 1F）/ M5 不去重 2F / M6 删渲染规则 4F；M7/M8 未逐条注入（结构性变异，由代码位置审查 + 零资源调用断言覆盖）。
+- 文档门禁实测：`check-text-encoding-integrity` OK；`check-no-brand-residue` PASS（10326 tracked）；`check-spec-purpose` 154 份 0 违规；`openspec-sync-check` OK（387 tasks/63 changes/234 archives）；`check-doc-abs-paths` PASS（572 文件）；`check-changelog-growth` PASS（521→522）、重复标题新增 0。
+- QM-1：electron-builder exit 0（asar 147,209,782 B，命中 2 个新模块，解包 require rc=0，启动 9s 存活 + stderr 0 行）。QM-6：本机 claude/opencode/codex 后端均超时不可用（ccg deep-review 的 claude critic 轴 ETIMEDOUT），如实保留债务、不伪造 cleared。
 # [未发布] feat(s2v): 历史记录任务详情页视频信息区展示本次生成的模型信息（s2v-result-model-info）
 
 - **功能**：视频创作 → 历史记录 → 任务详情页（`/create/result?project=<id>`）视频预览下方的视频信息区，在「格式：MP4」**同一行**追加本次生成实际调用的模型信息：文本模型 / 语音模型 / 图片模型 / 视频模型，固定顺序、` · ` 分隔。视频模型受 `videoMode` 门控——仅 `fixed` / `ai-judged` 视为启用视频增强，`off` 或缺省时**整项不显示**（不是显示"未使用"）。容器放不下时由浏览器自然折行，不撑破布局；四项全空时整段不渲染，页面与改动前逐字节一致。

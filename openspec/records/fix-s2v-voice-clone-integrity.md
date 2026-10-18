@@ -15,14 +15,14 @@ date: 2026-10-18
 | 第一性原因（QM-5 ①） | ✅ | 见 §QM-5①：`listClones` 只校验 `voice_id` 格式、从不与样本磁盘对账；`generate_assets` 无音色前置守卫；`tryReCloneVoice` 对样本目录 ENOENT 只是 catch 后返回 null。事故三方证据：`app.log:29882`（运行开始）/`:30077`（generate_assets 开始）/`:30082`–`:30129`（9 条 TTS 失败）/`:30084`（ENOENT）/`:30175`（0/9 收尾）；SQLite registry 记录 `deletionState=active` 且 `sampleStorage.relativeDir` 指向不存在的 `47f825cb-634e-4c5f-8d90-cc904e547411`；磁盘上 owner 目录仅剩另一个 MiMo 克隆的 `e39cae19-3438-448a-af7f-aa802eaa7fc9` |
 | 逃逸分析（QM-5 ②） | ✅ | 见 §QM-5②：服务层无「记录在、目录删」用例；catalog 用例只构造失效替身；阶段层无「生成前即失效」用例；渲染层未覆盖「没有访问权」原文；无「双失效」集成夹具；审查把样本持久化当成已闭合兜底 |
 | 系统性漏洞定位（QM-5 ③） | ✅ | 见 §QM-5③：①本地副本类能力只测读写不测存在性（测试场景缺失）；②失效通道只有 voice_id 单一来源、无原因枚举（测试质量不足）；③生成阶段对用户显式资源无前置守卫（流程缺失）；④批量失败按条拼接、无去重/聚合（审查盲区） |
-| 修复 + 回归保护（QM-5 ④） | ✅（变异实测待 Lead 回填） | 见 §QM-5④：`listClones` 对账 + `invalidReason`、`getCloneVoiceStatus`、生成前置守卫、运行期聚合、`summarizeAssetFailures` 去重、渲染层归一化。回归锁：服务层新增 8 例、阶段层新增 10 例、通知层新增 5 例、格式化器新增 3 例（按测试文件新增 `it(` 计数）。变异反证清单见详细 PRD §12.3，实测结果由 Lead 回填 |
+| 修复 + 回归保护（QM-5 ④） | ✅（变异实测 M1–M6，见下） | 见 §QM-5④：`listClones` 对账 + `invalidReason`、`getCloneVoiceStatus`、生成前置守卫、运行期聚合、`summarizeAssetFailures` 去重、渲染层归一化。回归锁：服务层新增 8 例、阶段层新增 10 例、通知层新增 5 例、格式化器新增 3 例（按测试文件新增 `it(` 计数）。变异反证实测（2026-10-19）：M1 去磁盘对账 ⇒ 2 failed；M2 反转失效原因优先级 ⇒ 1 failed；M3 守卫改成 warn-only ⇒ 3 failed；M4 聚合条件 `every` 改 `some` ⇒ **初始存活**（全量同因时 every/some 都命中），已补「混合原因不聚合」用例并复测 ⇒ 1 failed；M5 去重失效 ⇒ 2 failed；M6 删除渲染层规则 ⇒ 4 failed。M7（渲染规则顺序）/M8（守卫移到 Promise 之后）属结构性变异，未逐条注入，由代码位置审查 + 阶段层「零资源调用」断言覆盖，如实标注 |
 | 防止再次发生（QM-5 ⑤） | ✅ | 见 §QM-5⑤：`01-docs/learnings.md` 顶部 4 条教训、`CHANGELOG.md` 顶部条目、详细 PRD、`01-docs/PRD.md` §7.1.16.4（两处副本逐字节相同）、OpenSpec change `story2video-voice-clone-integrity`、本记录 |
-| 行尾与 diff 对账 | 待提交前实测 | 工作树读数：`git diff --numstat` 与 `git diff --ignore-cr-at-eol --numstat` 两口径逐档相等（新增文件未跟踪，提交后由 Lead 复跑并回填）。文档插入统一用 node 脚本做 CRLF 规范化，未手工编辑两份副本 |
+| 行尾与 diff 对账 | ✅ | 提交后复跑：`git diff --numstat origin/main..HEAD` 与 `git diff --ignore-cr-at-eol --numstat origin/main..HEAD` 两口径逐档相等（24 文件/2909 insert/58 delete，逐项同值）；`check-text-encoding-integrity` = `OK：无新增编码损坏`。文档插入统一用 node 脚本做 CRLF 规范化，两份副本 sha256 相同 |
 | 接线棘轮 | ✅ | 新增 2 个测试文件（`apps/desktop/electron/services/story2video-voice-guard.test.js` 10 例、`tts-voice-clone-integrity.test.js` 8 例），均落在 `apps/desktop/vitest.config.js` 的 `electron/services/**/*.test.js` 收集域；另扩展现有通知/格式化器测试。`node scripts/check-unwired-tests.js` 实跑 = `OK: 全部测试均已接线或按欠账登记`（检查域内 106 个测试文件） |
-| QM-1 打包 | 待提交前实测（由 Lead 执行） | 本刀改动含 `apps/desktop/electron/services/**`（主进程）⇒ 按 QM-1 必须打包。命令与三层 stderr 判据见详细 PRD/AGENTS.md；本记录不预填结论，Lead 执行后回填打包读数 |
+| QM-1 打包 | ✅ | `apps/desktop`：`pnpm exec electron-builder --win --dir --publish never` ⇒ exit 0（asar 147,209,782 B）；`asar list` 命中 `\electron\services\story2video-voice-guard.js` 与 `\electron\services\tts-voice-clone-integrity.js`；asar 解包后 `require()` 二者 rc=0（exports 与源码一致）；启动 9s 存活、stderr 0 行（层③干净；`ELECTRON_RUN_AS_NODE` 已从子进程 env 剔除） |
 | QM-2 代码必检项 | ✅ | 改动为只读异步 fs 对账 + 一次前置状态查询（每条 TTS 一次，O(1)，不随场景数增长）；无同步 CPU 密集原语、无新增 IPC、无 `v-html`、无硬编码等待；守卫日志只记 `voiceId/provider/reason`，不含音频/密钥/绝对路径 |
 | QM-4 视觉回归 | N/A（有据） | 未改模板/样式/DOM；失效克隆的展示复用既有通道（下拉禁用 option、克隆列表徽标、`设为默认` 禁用），未新增页面结构 |
-| QM-6 CCG 双模型外部评审 | 待提交前实测（由 Lead 执行） | codex + claude 两轴只读审查；本记录不预填结论，Lead 执行后回填 CRITICAL/MAJOR/MINOR 与采纳项 |
+| QM-6 CCG 双模型外部评审 | ❌ 未完成（环境受限，如实记录） | 预提交判定器已判 DUAL（1326 行 > 200）并落盘 `.ccg/reviews/43ffca04….json`。`sh scripts/deep-review.sh` 实测：proposer=opencode / critic=claude 依赖体检通过，但 critic 轴 `spawnSync C:/Users/邱领/.claude/bin/codeagent-wrapper.exe ETIMEDOUT`（deepReview.status=error）；独立探针 `claude -p "只回复两个字：收到"` >90s 超时、`opencode run …` 同样超时、`codex exec review` 同样无输出（本机 LLM CLI 后端当时不可用）。按记录纪律**不伪造 cleared**：该债务保留，作为本 PR 残留风险上报（CI 侧该判据为 advisory，不阻断合入） |
 | 远程同步 | 由门禁推导 | 合并后由 `scripts/lib/merge-ledger.js` 按主干历史推导收口，不手写状态词、不为收口另开 PR |
 
 ## QM-5 五步（详细）
@@ -79,7 +79,7 @@ date: 2026-10-18
 
 变异反证（防装饰性测试）：清单见 `01-docs/PRD-S2V-VOICE-CLONE-INTEGRITY-2026-10-18.md` §12.3
 （M1 去对账、M2 反转优先级、M3 fail-closed、M4 守卫 warn-only、M5 聚合条件改 `some`、
-M6 不去重、M7 删/移动渲染规则、M8 守卫放到 Promise 之后）。**实测结果由 Lead 回填，本记录不预填。**
+M6 不去重、M7 删/移动渲染规则、M8 守卫放到 Promise 之后）。**实测（2026-10-19）：M1–M6 全部变红（M4 初始存活，补「混合原因不聚合」用例后变红）；M7/M8 未逐条注入，由代码位置审查 + 「零资源调用」断言覆盖。**
 
 ### ⑤ 预防措施（全部落到文件）
 
@@ -109,42 +109,45 @@ M6 不去重、M7 删/移动渲染规则、M8 守卫放到 Promise 之后）。*
 | 阶段层：`isClonedVoiceUnavailableMessage` 统一判定 | ✅ | 同上；阶段层测试 2 例 |
 | 渲染层：pattern / 通知键 / 格式化器规则 / zh-en 文案 | ✅ | 通知层测试 5 例 + 格式化器 3 例；locales 成对 |
 | 文档：详细 PRD / PRD.md §7.1.16.4 / PRD-video-creation / change / 本记录 / CHANGELOG / learnings | ✅ | 本记录「② 预防措施」逐项列文件 |
-| 定向测试全绿 | 待提交前实测 | 由 Lead 执行并回填（命令见自测块） |
-| 宽范围回归 | 待提交前实测 | 同上 |
-| QM-1 打包（主进程改动必须打包） | 待提交前实测 | 由 Lead 执行并回填 |
-| QM-6 双模型外部评审 | 待提交前实测 | 由 Lead 执行并回填 |
-| 提交 / PR / 合并 / main push 回读 | 待执行 | 由 Lead 执行；收口由 `merge-ledger` 推导 |
+| 定向测试全绿 | ✅ | 7 文件 / 330 passed（服务 48、完整性 8、阶段 154、守卫 11、通知 61+22、格式化器 27）；风险集回归 `src/i18n` + `src/story2video` + `CreateView`/`CreateViewHistory`/`ResultView` + `tts-voice-service` + `pipeline-story2video-contract` + `story2video-project-service` = 673 passed（一次并发碰撞被 mutant 污染，已单跑复核 119 passed） |
+| 宽范围回归 | ✅ | 见「定向测试全绿」行；另 `check-max-lines`（0 违规）、`check-debt-budget`（全指标基线内、circularDeps 0）、`check-unwired-tests`（106 文件 OK）、`eslint --quiet` rc=0、CI 等价 `tsc --noEmit` rc=0 |
+| QM-1 打包（主进程改动必须打包） | ✅ | electron-builder exit 0；asar 命中 2 个新模块；解包 require rc=0；启动 9s 存活 + stderr 0 行 |
+| QM-6 双模型外部评审 | ❌ 未完成（后端不可用） | 证据见门禁表：ccg deep-review 的 claude critic 轴 ETIMEDOUT；claude/opencode/codex 独立探针均 >90s 超时。未伪造闭环状态 |
+| 提交 / PR / 合并 / main push 回读 | 提交+PR 已完成 | commit `1b08a99a2`（rebase 到 `5f2e21770` 后）；PR #3937；合并与 main push 回读由 Lead 在本记录落盘后执行，收口由 `merge-ledger` 推导 |
 
 ## 自测块（提交前当场跑，禁止预填结论）
 
 ```
-# 1) 定向测试（Lead 提交前执行并回填真实读数）
-cd apps/desktop && pnpm vitest run electron/services/tts-voice-clone-integrity.test.js \
-  electron/services/story2video-voice-guard.test.js electron/services/tts-voice-clone-service.test.js \
-  electron/services/story2video-stages.test.js electron/services/tts-voice-service.test.js
-cd apps/desktop && pnpm vitest run src/story2video/story2video-notifications.test.js \
-  src/utils/pipeline-error-formatter.test.js src/views/CreateView.test.js
+# 1) 定向测试（2026-10-19 实测）
+cd apps/desktop && pnpm exec vitest run \
+  electron/services/tts-voice-clone-service.test.js electron/services/tts-voice-clone-integrity.test.js \
+  electron/services/story2video-stages.test.js electron/services/story2video-voice-guard.test.js \
+  src/story2video/story2video-notifications.test.js src/story2video/notifications.test.js \
+  src/utils/pipeline-error-formatter.test.js
+→ Test Files 7 passed (7) / Tests 330 passed (330)
 
-# 2) 变异反证（清单见详细 PRD §12.3；逐条执行并记录哪几条变红）
-#    未变红的变异必须补断言或如实标注「不可分辨」
+# 2) 变异反证（详见门禁表 QM-5④）
+M1 2F | M2 1F | M3 3F | M4 初始存活→补混合原因用例后 1F | M5 2F | M6 4F
 
-# 3) 文档门禁（本记录落盘后执行；实际输出见下）
-node scripts/check-text-encoding-integrity.js
-node scripts/check-no-brand-residue.js
-node scripts/check-spec-purpose.js
-node scripts/openspec-sync-check.js
-node scripts/check-doc-abs-paths.js --base=origin/main --head=HEAD   # 需提交后取证
+# 3) 文档门禁（提交后实测）
+check-text-encoding-integrity → OK；check-no-brand-residue → PASS（10326 tracked）
+check-spec-purpose → 154 份 0 违规；openspec-sync-check → OK 387 tasks/63 changes/234 archives
+check-doc-abs-paths --base=origin/main --head=HEAD → PASS（改动 11 + 基线并入，572 文件）
+check-changelog-growth → PASS（521→522）；check-changelog-duplicate-entries → 新增副本 0
+check-record-qm5-rows → OK；check-gate-record-debt → OK（两源未收口行均已登记）
 
-# 4) 行尾与 diff 对账（提交前）
-git diff --numstat
-git diff --ignore-cr-at-eol --numstat
-#    两口径逐档相等；新增文件在提交后进入 diff，由 Lead 复跑
+# 4) 行尾与 diff 对账（提交后）
+git diff --numstat origin/main..HEAD 与 git diff --ignore-cr-at-eol --numstat origin/main..HEAD
+→ 两口径逐档相等；PRD.md 两处 §7.1.16.4 sha256=6bfa4f1b7ea5b8551e681663f14baa7274b3fb4c44763b81c47b4942fc27ba12，bytes 8307
 
 # 5) QM-1（改动了 electron 主进程，必须执行）
-cd apps/desktop && pnpm exec electron-builder --win --dir --publish never
-#    asar list / require 链 / 8 秒启动 stderr 三层判据（②非空且未命中红线 ⇒ NEEDS_REVIEW）
-```
+cd apps/desktop && pnpm exec electron-builder --win --dir --publish never → exit 0
+asar 命中 story2video-voice-guard.js / tts-voice-clone-integrity.js；解包 require rc=0；启动 9s 存活 stderr=0
 
+# 6) QM-6（环境受限，未完成）
+sh scripts/deep-review.sh → critic=claude spawnSync codeagent-wrapper.exe ETIMEDOUT
+claude -p / opencode run / codex exec 探针均 >90s 超时 ⇒ 保留 CCG 债务并上报
+```
 **本记录落盘时已实测的文档门禁读数（2026-10-18，由 docs-record 执行；提交后由 Lead 复跑）：**
 
 ```
@@ -169,3 +172,5 @@ cd apps/desktop && pnpm exec electron-builder --win --dir --publish never
 - **config 页/克隆列表的「已失效，请重新克隆」「设为默认」仍是硬编码中文**：存量 i18n 债务，
   非本刀范围。
 - **旧日志 `[object Object]`**（`app.log:30083`）：既有日志取对象未序列化缺陷，未在本刀强制改造。
+- **QM-6 双模型评审未完成**：本机 claude/opencode/codex CLI 后端在 2026-10-19 00:10–00:25 均不可用（基础探针 >90s 超时；ccg deep-review 的 claude critic 轴 ETIMEDOUT）。`.ccg/reviews/43ffca04….json` 保持 `deepReview.status=error`，未伪造闭环；该债务不阻断 CI（advisory），但属本 PR 残留风险，合并前已在 PR 说明。
+- **`.ccg/reviews/44f1ad….json` 已删除**：它由 rebase 前旧提交（`f1b716bec`，已被 rebase 丢弃）的预提交判定生成，内容寻址的 diff 在现分支上不存在；保留会让 CCG 债务指向不存在的改动集。
