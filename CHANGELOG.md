@@ -1,3 +1,16 @@
+# [未发布] fix(subtitle): 短语边界感知切分 v1.3 —— 修掉无标点长块硬切的 11 处坏切（subtitle-phrase-boundary-v1.3）
+
+- **用户反馈**（项目 `mvdnrqvc_b77q`）：视频创作任务的字幕层分句结果不理想，存在大量不合理断句。
+- **先回答"是不是降级"**：实测 8002 真实 `/v1/split` 响应经 `normalizeServiceSplitResult` 质量门后，`subtitleSource = smart-sentence-splitter`、`degraded = false`、14/14 场景采纳引擎字幕、0 回退。**坏切就是引擎算法本身的输出，与降级无关**；离线降级路径与在线路径块级差异仅 2 处（`了` 后宾语保护），双实现语义一致。
+- **根因**（插桩 `wordSafeSplit` / `isGoodCut` / `lengthSplit` MAX 分支定位）：`isGoodCut` 仅 `semantic_lead`（提/把/还/绝/已/依）、`good_lead`（和与及而但或把被从向对为于并且且成）、`good_tail`（的得了是就都也还要会能可将则若虽因着过地得正于…）三类算好切点。中文里大量安全切点是动词/名词短语的自然右边界（如「为了｜拉拢」「宏大｜的」「那段历史｜对今天」），三类都不命中。叠加 `wordSafeSplit` 准入 `i >= minHead(8)` 与尾块 `tail >= tailMin(8)` 的双重挤压，11 个坏切场景里 9 个的合法窗口内**一个好切点都没有**，返回 -1；随后 `findSafeCutPosition` 在 `[1, max]` 内只校验「安全」（不劈保护短语/代理对/小数点）不校验语义，等于用算术位置裸切——正是规范禁止的「用固定算术位置绕过保护合同」。
+- **为什么不能直接用分词边界**：实测 jieba(Python) 与 segmentit(JS/TS) 在同一文本上的分词跨度 8/8 行全部不一致，且 `segmenterSpans` 的贪心对齐在中文连续文本上丢掉大量边界。若把分词边界升级为跨实现硬判据，会立刻破坏三端逐字一致的既有契约 ⇒ 修复必须走字符规则可判定路径。
+- **修法（v1.3，三端同构）**：规则表单源 `subtitle-rules.json` 新增 `word_split.phrase_boundary` 段——`pairs` 显式成对短语表 `[[left, next], ...]`（块以 `left` 逐字结尾且下一字符命中 `next` 才构成短语右边界；仅单侧命中不构成，避免把「某|些」「票仓的|无奈」这类受保护词内部误判为边界）+ `min_head_relax: 2`（短语边界路径头块放宽到 `min_chars - 2`，与既有 `tailMin` 软约束同源）。初版写三处接入，实现后做「删掉看 216 条测试是否仍全绿」的反证，确认 `wordSafeSplit` 短语分支与 MAX 分支短语优先**都是冗余**并删除，承重的只剩两处：① `lengthSplit` 累积阶段提前切分（短语右边界与标点等价，不等 MAX 兜底）；② `isGoodCut` 第四类好切点。短语边界逻辑抽到独立模块 `subtitle-phrase-boundary.ts`（纯函数 + 数据表，与实例状态无关）。
+- **修复效果**（真实 8002 链路实测，99 块）：11 处坏切全部修复、0 回归（26 条既有向量 `expected_blocks` 全部不变）。示例：`是选举年为了拉拢某｜些特定票仓的无奈之举` → `是选举年为了｜拉拢某些特定票仓的无奈之举`；`我们常常会被宏大的地｜缘政治术语淹没` → `我们常常会被宏大的｜地缘政治术语淹没`；`最终会体现为日常｜生活中的隔阂与偏见` → `…最终会体现为｜日常生活中的隔阂与偏见`。
+- **向后兼容**：规则表缺省 `phrase_boundary` 段时 `pairs = []`、`relax = 0`，行为与 v1.2 完全一致；`subtitleSource` 枚举值不变（无新增来源）。
+- **TDD**：RED（TS 16 failed / JS 16 failed / Python 10 failed）→ GREEN（TS 216 passed / JS 168 passed / Python 577 passed, 9 skipped）→ 真实 8002 E2E 验证（99 块 / 14 场景 / 0 回退，6 项正向断言全 OK）。共享向量新增 10 条 `v1.3_phrase_boundary_*`，`expected_blocks` 为人工评审确认的手工真值，`short_block_exceptions` 显式声明每个 `< min_chars` 块。
+- **踩坑**：`smart-sentence-splitter` 的 `splitter` 包是 editable install 指向**原仓库**（`pip install -e .`），在新建 worktree 里跑 pytest 测的是旧代码。解法：`PYTHONPATH=<worktree>/src` 覆盖。这一条不写在文档里，下一次「改了代码测试却全绿」会再犯。
+- **跨仓**：`smart-sentence-splitter` 仓规则表 + `subtitle_segmenter.py` + 向量同步副本在独立 worktree `sss-subtitle-phrase-boundary`（分支 `subtitle-phrase-boundary-v1.3`），独立 PR。
+
 # [未发布] fix(story2video): 克隆音色先对账本地样本再进生成，失效音色不再跑满 9 条 TTS 才报重复英文（voice-clone-integrity）
 
 ## 问题
