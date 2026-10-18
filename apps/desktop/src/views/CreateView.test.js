@@ -1062,6 +1062,117 @@ describe("CreateView", () => {
     w.unmount();
   });
 
+  // ─── 用户报告的主路径：在设置里把默认从 Mimo 改成 MiniMax 后，已打开页面必须跟随 ───
+
+  it("设置里改了 TTS 默认后重拉列表，语音生成器从旧默认切到新默认（2026-10-18 主路径）", async () => {
+    // 第一次：默认是 mimo-tts
+    window.electronAPI.modelProviderList = vi.fn(async (category) => {
+      if (category === "tts") {
+        return {
+          code: 0,
+          data: [
+            { id: "mimo-tts", name: "MiMo TTS", category: "tts", enabled: true, is_configured: true, is_default: true, models: ["mimo-v2.5-tts"] },
+            { id: "minimax-multimodal", name: "MiniMax", category: "multimodal", enabled: true, is_configured: true, is_default: false, capabilities: ["tts"], capability_models: { tts: "speech-2.8-turbo" }, models: ["speech-2.8-turbo"], config: { capability_defaults: [] } },
+          ],
+        };
+      }
+      return { code: 0, data: [] };
+    });
+    window.electronAPI.modelProviderGetDefault = vi.fn(async (category) => (
+      category === "tts" ? { code: 0, data: { id: "mimo-tts" } } : { code: 0, data: null }
+    ));
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
+    await nextTick();
+    await w.vm.loadS2VProviders();
+    expect(w.vm.s2vConfig.voiceProvider).toBe("mimo-tts");
+
+    // 用户在设置里把 TTS 默认改成 MiniMax 多模态的 TTS 能力，关闭弹窗触发重拉
+    window.electronAPI.modelProviderList = vi.fn(async (category) => {
+      if (category === "tts") {
+        return {
+          code: 0,
+          data: [
+            { id: "mimo-tts", name: "MiMo TTS", category: "tts", enabled: true, is_configured: true, is_default: false, models: ["mimo-v2.5-tts"] },
+            { id: "minimax-multimodal", name: "MiniMax", category: "multimodal", enabled: true, is_configured: true, is_default: false, capabilities: ["tts"], capability_models: { tts: "speech-2.8-turbo" }, models: ["speech-2.8-turbo"], config: { capability_defaults: ["tts"] } },
+          ],
+        };
+      }
+      return { code: 0, data: [] };
+    });
+    window.electronAPI.modelProviderGetDefault = vi.fn(async (category) => (
+      category === "tts" ? { code: 0, data: { id: "minimax-multimodal" } } : { code: 0, data: null }
+    ));
+    await w.vm.loadS2VProviders();
+    // 旧默认是自动填入的，不是用户显式选择 ⇒ 必须跟随新默认
+    expect(w.vm.s2vConfig.voiceProvider).toBe("minimax-multimodal");
+    expect(w.vm.s2vConfig.voiceModel).toBe("speech-2.8-turbo");
+    w.unmount();
+  });
+
+  it("同一次会话内用户手动改过下拉后，重拉列表不被新默认覆盖", async () => {
+    window.electronAPI.modelProviderList = vi.fn(async (category) => {
+      if (category === "tts") {
+        return {
+          code: 0,
+          data: [
+            { id: "mimo-tts", name: "MiMo TTS", category: "tts", enabled: true, is_configured: true, is_default: false, models: ["mimo-v2.5-tts"] },
+            { id: "minimax-multimodal", name: "MiniMax", category: "multimodal", enabled: true, is_configured: true, is_default: false, capabilities: ["tts"], capability_models: { tts: "speech-2.8-turbo" }, models: ["speech-2.8-turbo"], config: { capability_defaults: ["tts"] } },
+          ],
+        };
+      }
+      return { code: 0, data: [] };
+    });
+    window.electronAPI.modelProviderGetDefault = vi.fn(async (category) => (
+      category === "tts" ? { code: 0, data: { id: "minimax-multimodal" } } : { code: 0, data: null }
+    ));
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
+    await nextTick();
+    await w.vm.loadS2VProviders();
+    expect(w.vm.s2vConfig.voiceProvider).toBe("minimax-multimodal");
+    // 用户手动切到 mimo（真实下拉 change）
+    w.vm.s2vConfig.voiceProvider = "mimo-tts";
+    w.vm.s2vConfig.voiceModel = "";
+    await w.vm.handleS2VVoiceProviderChange();
+    // 再次重拉（如设置弹窗关闭）：显式选择保持
+    await w.vm.loadS2VProviders();
+    expect(w.vm.s2vConfig.voiceProvider).toBe("mimo-tts");
+    w.unmount();
+  });
+
+  it("快照恢复的生成器选择不被当成显式选择：重拉后仍跟随当前设置默认", async () => {
+    window.electronAPI.modelProviderList = vi.fn(async (category) => {
+      if (category === "tts") {
+        return {
+          code: 0,
+          data: [
+            { id: "mimo-tts", name: "MiMo TTS", category: "tts", enabled: true, is_configured: true, is_default: false, models: ["mimo-v2.5-tts"] },
+            { id: "minimax-multimodal", name: "MiniMax", category: "multimodal", enabled: true, is_configured: true, is_default: false, capabilities: ["tts"], capability_models: { tts: "speech-2.8-turbo" }, models: ["speech-2.8-turbo"], config: { capability_defaults: ["tts"] } },
+          ],
+        };
+      }
+      return { code: 0, data: [] };
+    });
+    window.electronAPI.modelProviderGetDefault = vi.fn(async (category) => (
+      category === "tts" ? { code: 0, data: { id: "minimax-multimodal" } } : { code: 0, data: null }
+    ));
+    const mocks = await import("@/api/publisher");
+    mocks.storeGetSetting.mockResolvedValue({
+      version: 1,
+      s2vConfig: { voiceProvider: "mimo-tts", voiceModel: "" },
+      s2vOutputConfig: {},
+      ui: {},
+    });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
+    await nextTick();
+    w.vm.s2vVoiceProviders = [{ id: "mimo-tts", name: "MiMo TTS", category: "tts" }, { id: "minimax-multimodal", name: "MiniMax", category: "multimodal" }];
+    w.vm.selectedPipeline = { name: "story2video-compose", available: true, stages: [] };
+    await w.vm.restoreS2VLastOptions();
+    await w.vm.loadS2VProviders();
+    expect(w.vm.s2vConfig.voiceProvider).toBe("minimax-multimodal");
+    mocks.storeGetSetting.mockReset();
+    w.unmount();
+  });
+
   it("选择本地音频文件后自动保存为克隆音色（默认名音色001，无需手动添加）", async () => {
     const cloneApi = await import("@/api/tts-voice-clone");
     cloneApi.chooseTtsVoiceCloneSamples.mockResolvedValue({

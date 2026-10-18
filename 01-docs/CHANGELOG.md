@@ -4,6 +4,7 @@
 - **根因**：`CreateView.vue` 的 `loadS2VProviders()` 从未读取「谁是默认」——语音生成器用 `find(category === 'multimodal' && capability_models?.tts)`（只看形态不看默认），图片/视频生成器直接取 `providers[0]`（只依赖 `ORDER BY is_default DESC` 的排序副作用）。用户在「模型服务商」把 TTS 默认从 Mimo TTS 改成 MiniMax 多模态的 TTS 能力后，故事讲述流水线「声音参数 → 语音模型生成器」仍默认 Mimo TTS。
 - **修复**：新增纯函数 `resolveS2VDefaultProviderId(providers, category, preferredId)`（`apps/desktop/src/views/video-creation/create-view-module-utils.js`），判定口径与主进程 `ModelProviderManager._multimodalProviderFor` 逐条对齐（普通 provider `is_default`；多模态 `config.capability_defaults` 含该能力或整体 `is_default`，且必须 `capabilities` 声明该能力）。`loadS2VProviders()` 增补 `modelProviderGetDefault(image/tts/video)` 三路并行查询，三类生成器在用户无显式选择时按该函数解析默认值。
 - **优先级不变**：用户显式选过的 provider / 显式「自动 Edge TTS」仍优先于默认解析；主进程 `getDefault` 不可用时按列表内默认标记解析（不退回首项）；无任何默认时保持首项兜底（旧行为不回退）。
+- **关键补充（自审发现的缺口）**：初版只在「当前 provider 为空」时解析默认，而 `configuredProvider?.id` 把当前值直接当用户显式选择 —— 用户报告的操作路径「已打开页面上在设置里改默认」会让旧默认永久钉住（`settingsDialogRevision` 触发重拉时 `voiceProvider` 已是旧默认）。新增三个不持久化的 `s2v{Image,Video,Voice}AutoProviderId` 记录「上次由默认自动填入的值」，重拉时等值即视为非显式并重新解析；陈旧清空与「重置选项」一并清空；快照恢复值登记为自动应用值。**旧合同（2026-08-12「lastOptions 快照回填始终优先」）随之收窄为「同会话显式选择优先，跨会话快照值跟随当前默认」**，代价与正解已写入 PRD §9.10.3.1。
 - **不改主进程**：`getDefault` / `_multimodalProviderFor` / IPC / 数据库 schema 均未改动，前端缺的只是「去问」。
 
 ### 数据校验与安全

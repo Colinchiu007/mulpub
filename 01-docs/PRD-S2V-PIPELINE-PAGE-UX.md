@@ -707,13 +707,34 @@ loadPipelineOptions():
 
 #### 9.10.3 交互优先级（用户显式选择 > 模型设置默认）
 
-| 状态 | 默认选中项 |
-|------|-----------|
-| 用户在本页下拉里手动选过 provider | **该选择**（`s2vConfig.*Provider` 非空且在候选列表内），默认解析不介入 |
-| 用户显式选过「自动 Edge TTS」（`voiceProvider === ''` 且 `s2vVoiceProviderExplicitEdge === true`） | **自动 Edge TTS**，默认解析不介入 |
-| 用户从无显式选择（首次进入 / 点了「重置选项」） | `resolveS2VDefaultProviderId(...)` 的结果 |
+| 状态 | 默认选中项 | 实现位置 |
+|------|-----------|---------|
+| 用户在本页下拉里**手动改过** provider（本次会话内） | **该选择** | 当前值 ≠ `s2v*AutoProviderId` |
+| 用户显式选过「自动 Edge TTS」（`voiceProvider === ''` 且 `s2vVoiceProviderExplicitEdge === true`） | **自动 Edge TTS** | `explicitEdge` 分支 |
+| 当前值是上次由默认**自动填入**的（等值于 `s2v*AutoProviderId`） | 重新解析当前默认 | 见下「自动应用值」 |
+| 用户从无显式选择（首次进入 / 点了「重置选项」） | `resolveS2VDefaultProviderId(...)` | 本次新增 |
 
-该优先级沿用并显式化了 2026-08-12 既有合同（「用户显式保存过的选择始终优先」），本次仅把第三档从「第一个多模态 / 首项」改为「模型设置的默认」。
+**「自动应用值」跟踪（2026-10-18，修复主路径的关键）**
+
+只判「当前是否为空」会让旧默认永远钉住：用户在「模型设置」把 TTS 默认从 A 改为 B 后关闭弹窗，`settingsDialogRevision` watcher 触发 `loadS2VProviders()` 重跑，此时 `s2vConfig.voiceProvider` 已是 A（上次自动填入），若把它当成「用户显式选择」，新默认 B 永远不会生效 —— 这正是用户报告的现象。
+
+因此新增三个**不持久化**的组件状态 `s2vImageAutoProviderId` / `s2vVideoAutoProviderId` / `s2vVoiceAutoProviderId`，记录「上一次由默认解析自动填入的值」：
+
+- 解析默认并写入配置时，同步登记到对应 `AutoProviderId`；
+- 重拉列表时，若「当前值 === AutoProviderId」，判定为**非显式选择**，按当前默认重新解析（设置改变即时生效）;
+- 若「当前值 ≠ AutoProviderId」（用户手动改过），判定为**显式选择**，默认解析不介入；
+- 陈旧 provider（已删除/停用/未配置）清空时，同时清空对应 `AutoProviderId`；
+- `resetS2VLastOptions()` 重置时三者一并清空（回到「未选择」态）。
+
+**快照（lastOptions）的处理**：`_applyS2VSnapshotObject` 恢复出的 provider 值**登记为自动应用值**，即「上次的起点」而非显式选择。理由：快照是自动保存的，无法区分「用户当初手选」与「当初由默认填入」；若一律当显式选择，用户改了设置默认后重启仍看到旧默认（用户报告的正是这一类）。同一次会话内用户手动改过下拉则与自动值不同，仍按显式选择保留。
+
+#### 9.10.3.1 与「用户显式保存过的选择」旧合同的关系
+
+2026-08-12 的旧合同是「用户显式保存过的选择（lastOptions 快照回填）始终优先于多模态默认」。本次**收窄**为：**同一次编辑会话内**的显式选择优先；跨会话的快照值跟随当前设置默认。
+
+理由：旧口径下「快照里存着旧默认」与「设置里已改新默认」无法区分，导致设置改动永不生效——这是本次用户报障的根因形态。新口径把「默认该选谁」的唯一真源交给模型设置，符合用户原话「如果有多项可选的模型，应该默认为应用设置中默认的该类别的模型」。
+
+**代价（明确接受）**：用户上一次会话手选的 provider 在重启后会被当前设置默认取代，需重新手动选择。若后续需要「跨会话记住手选」，正解是给快照增加显式的 `*ProviderExplicit` 布尔位（而非靠等值猜测），属独立增量，不在本次范围。
 
 #### 9.10.4 涉及的三类生成器
 
@@ -746,13 +767,15 @@ loadS2VProviders()
 
 #### 9.10.7 验收标准
 
-① 模型设置把 TTS 默认设为 MiniMax 多模态的 TTS 能力（`capability_defaults: ['tts']`）后，故事讲述流水线「语音模型生成器」默认选中 `minimax-multimodal`，语音模型自动带出 `speech-2.8-turbo`；② 模型设置把 TTS 默认改为普通 TTS 服务商（`is_default: true`）后，默认选中该服务商而非多模态；③ 图片生成器 / 视频生成器同样跟随各自类别默认；④ 用户显式选过的 provider / 显式「自动 Edge TTS」不被默认解析覆盖；⑤ 主进程 `getDefault` 不可用（IPC 未注册/未初始化）时，仍按列表内的默认标记解析，不退回首项；⑥ 默认 provider 被删除/停用后回退到新的默认，无空白选中项；⑦ 无任何默认时保持首项兜底（旧行为不回退）；⑧ 回归：`create-view-module-utils`（9 例新增）、`CreateView`（313 例全绿）、`video-creation` 邻近域全绿。
+① 模型设置把 TTS 默认设为 MiniMax 多模态的 TTS 能力（`capability_defaults: ['tts']`）后，故事讲述流水线「语音模型生成器」默认选中 `minimax-multimodal`，语音模型自动带出 `speech-2.8-turbo`；② 模型设置把 TTS 默认改为普通 TTS 服务商（`is_default: true`）后，默认选中该服务商而非多模态；③ 图片生成器 / 视频生成器同样跟随各自类别默认；④ **已打开页面上改设置即时生效**：旧默认 A 被自动填入后，把默认改为 B 并关闭设置弹窗，重拉列表即切到 B（本次用户报障主路径）；⑤ 同一次会话内用户手动改过下拉后，重拉列表不被新默认覆盖；⑥ 快照恢复的 provider 不被当成显式选择，重拉后跟随当前设置默认；⑦ 主进程 `getDefault` 不可用（IPC 未注册/未初始化）时，仍按列表内的默认标记解析，不退回首项；⑧ 默认 provider 被删除/停用后回退到新的默认，无空白选中项；⑨ 无任何默认时保持首项兜底（旧行为不回退）；⑩ 回归：`create-view-module-utils`（9 例新增）、`CreateView`（316 例全绿）、`video-creation` 邻近域全绿。
 
 #### 9.10.8 已知限制
 
-- 本次只修「无显式选择时的默认值」；用户已保存的 lastOptions 快照仍按 §9.5.2 的既有语义优先恢复（显式选择 > 默认）。
-- 「重置选项」后回到默认解析（`resetS2VLastOptions` 已置 `s2vVoiceProviderExplicitEdge = false`）。
+- 「同一次会话内显式选择优先」只覆盖当前组件实例生命周期；跨会话的手选 provider 在重启后会被当前设置默认取代（见 §9.10.3.1 的代价说明与正解方向）。
+- 「重置选项」后回到默认解析（`resetS2VLastOptions` 已同时清空 `s2vVoiceProviderExplicitEdge` 与三个 `AutoProviderId`）。
 - 运营中心 `PipelineOptions.vue` 的 `voice.voiceProvider` / `visual.imageProvider` 选项目录 `default_value` 仍为空串（运营侧不持有桌面本地 provider id），本节不改变该契约。
+- `preferredId`（主进程 `getDefault`）与前端候选集不完全相同（主进程不要求 `name` 非空）；已用「在列表内 + 通过默认口径」双重校验吸收，校验不过则就地降级。
+- 图片生成器的 `imageModel` 仍不随 provider 联动（与改动前一致，非本次引入）。
 - 发布组独立选项（标题、标签、分辨率等）不在选项目录中，仅通过 `_group` 整组控制。
 
 ## 11. 详情页视觉与交互精致化契约（2026-09-20）

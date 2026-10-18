@@ -172,11 +172,36 @@ loadS2VProviders()
 
 | 状态 | 默认选中项 | 实现位置 |
 |---|---|---|
-| 用户在本页下拉手动选过 provider | 该选择 | `configuredProvider?.id` 优先（语音）；图片/视频由 `!s2vConfig.*Provider` 守卫 |
+| 用户在本页下拉**手动改过** provider（本次会话内） | 该选择 | 当前值 ≠ `s2v*AutoProviderId` |
 | 用户显式选过「自动 Edge TTS」 | 自动 Edge TTS | `s2vVoiceProviderExplicitEdge === true && !voiceProvider` |
-| 用户从无显式选择（首次进入 / 点了「重置选项」） | `resolveS2VDefaultProviderId(...)` | 本次新增 |
+| 当前值是上次由默认**自动填入**的 | 重新解析当前默认 | 当前值 === `s2v*AutoProviderId` |
+| 用户从无显式选择（首次进入 / 重置选项） | `resolveS2VDefaultProviderId(...)` | 本次新增 |
 
-该表沿用并显式化了 2026-08-12 既有合同（「用户显式保存过的选择始终优先」），本次仅把第三档从「第一个多模态 / 首项」改为「模型设置的默认」。
+#### 5.3.1 「自动应用值」跟踪（修复主路径的关键设计）
+
+**为什么必须有**：只判「当前是否为空」会让旧默认永远钉住。用户在「模型设置」把 TTS 默认从 A 改为 B 并关闭弹窗后，`settingsDialogRevision` watcher 触发 `loadS2VProviders()` 重跑，此时 `s2vConfig.voiceProvider` 已是 A（上次自动填入）。若把它当成「用户显式选择」，新默认 B 永远不生效 —— 这正是用户报告的现象（「我刚才在设置中修改成了…仍然默认为 Mimo TTS」）。
+
+**做法**：新增三个**不持久化**的组件状态 `s2vImageAutoProviderId` / `s2vVideoAutoProviderId` / `s2vVoiceAutoProviderId`，记录「上一次由默认解析自动填入的值」。
+
+| 时机 | 动作 |
+|---|---|
+| 解析默认并写入配置 | 同步登记到对应 `AutoProviderId` |
+| 重拉列表 | `当前值 === AutoProviderId` ⇒ 非显式，按当前默认重新解析；`≠` ⇒ 显式，不介入 |
+| 陈旧 provider 清空 | 同时清空对应 `AutoProviderId` |
+| `resetS2VLastOptions()` | 三者一并清空，回到「未选择」态 |
+| `_applyS2VSnapshotObject()`（快照恢复） | 恢复出的 provider 值**登记为自动应用值**（见 §5.3.2） |
+
+#### 5.3.2 快照（lastOptions）的处理与旧合同收窄
+
+`_applyS2VSnapshotObject` 恢复出的 provider 值**登记为自动应用值**，即「上次的起点」而非显式选择。
+
+**理由**：快照是自动保存的，无法区分「用户当初手选」与「当初由默认填入」。若一律当显式选择，用户改了设置默认后重启仍看到旧默认。
+
+**旧合同收窄**：2026-08-12 合同为「用户显式保存过的选择（lastOptions 快照回填）始终优先于多模态默认」。本次收窄为：**同一次编辑会话内**的显式选择优先；**跨会话的快照值跟随当前设置默认**。
+
+**代价（明确接受）**：用户上一次会话手选的 provider 在重启后会被当前设置默认取代，需重新手动选择。
+
+**正解方向（不在本次范围）**：若后续需要「跨会话记住手选」，给快照增加显式的 `*ProviderExplicit` 布尔位，而不是靠「等值猜测」。
 
 ### 5.4 明确不做的事
 
@@ -214,14 +239,17 @@ loadS2VProviders()
 | ① | 模型设置把 TTS 默认设为 MiniMax 多模态的 TTS 能力（`capability_defaults: ['tts']`，`is_default: false`） | 故事讲述流水线「语音模型生成器」默认 `minimax-multimodal`，「语音模型」默认 `speech-2.8-turbo` |
 | ② | 模型设置把 TTS 默认改为普通 TTS 服务商（`is_default: true`），多模态 `capability_defaults: []` | 默认选中该普通服务商，**不是**多模态 |
 | ③ | 图片 / 视频生成器 | 同样跟随各自类别默认（`image` / `video`） |
-| ④ | 用户已显式选过 provider（`mimo-tts`）或显式「自动 Edge TTS」 | 默认解析不覆盖该选择 |
-| ⑤ | 主进程 `getDefault` 不可用（`delete window.electronAPI.modelProviderGetDefault`） | 仍按列表内默认标记（`capability_defaults`）解析为 `minimax-multimodal`，不退回首项 |
-| ⑥ | 默认 provider 被删除 / 停用 / 未配置 | 回退到新的默认；无空白选中项 |
-| ⑦ | 无任何默认标记（全 `is_default: false`、无 `capability_defaults`） | 保持首项兜底（旧行为不回退） |
-| ⑧ | 多模态只声明 `image` 能力且 `is_default: true`，TTS 下拉另有普通 TTS 候选 | TTS 下拉默认该普通 TTS，**不**被 image 多模态抢走 |
-| ⑨ | MiMo TTS 为默认时 | 「语音模型」下拉仍隐藏（§4.3.1 合同不变），音色 ID 下拉正常 |
+| ④ | **已打开页面上改设置即时生效**：旧默认 A 自动填入后，把默认改为 B 并关闭设置弹窗（watcher 重拉） | 切到 B |
+| ⑤ | 同一次会话内用户手动改过下拉后重拉列表 | 保留该显式选择，不被新默认覆盖 |
+| ⑥ | 快照（lastOptions）恢复 provider 后重拉 | 跟随当前设置默认（快照值不算显式选择） |
+| ⑦ | 用户显式选过「自动 Edge TTS」 | 默认解析不覆盖该选择 |
+| ⑧ | 主进程 `getDefault` 不可用（`delete window.electronAPI.modelProviderGetDefault`） | 仍按列表内默认标记（`capability_defaults`）解析为 `minimax-multimodal`，不退回首项 |
+| ⑨ | 默认 provider 被删除 / 停用 / 未配置 | 回退到新的默认；无空白选中项 |
+| ⑩ | 无任何默认标记（全 `is_default: false`、无 `capability_defaults`） | 保持首项兜底（旧行为不回退） |
+| ⑪ | 多模态只声明 `image` 能力且 `is_default: true`，TTS 下拉另有普通 TTS 候选 | TTS 下拉默认该普通 TTS，**不**被 image 多模态抢走 |
+| ⑫ | MiMo TTS 为默认时 | 「语音模型」下拉仍隐藏（§4.3.1 合同不变），音色 ID 下拉正常 |
 
-**回归基线**：`create-view-module-utils`（9 例新增，全绿）、`CreateView.test.js`（313 例全绿）、`src/views/video-creation` + `s2v-options-autosave` + `CreateView.voice-clone-delete-guard` + `views-deep2`（143 例全绿）。
+**回归基线**：`create-view-module-utils`（9 例新增，全绿）、`CreateView.test.js`（316 例全绿）、`src/views/video-creation` + `s2v-options-autosave` + `CreateView.voice-clone-delete-guard`（136 例全绿）。
 
 ---
 
@@ -243,7 +271,7 @@ loadS2VProviders()
 | 多模态未声明该能力 | 不算默认（防 image 抢 tts） |
 | 非字符串 / 空入参 | 不抛错 |
 
-### 8.2 集成测试（CreateView，6 例新增 + 1 例改写）
+### 8.2 集成测试（CreateView，9 例新增 + 1 例改写）
 
 文件：`apps/desktop/src/views/CreateView.test.js`
 
@@ -255,6 +283,9 @@ loadS2VProviders()
 | 图片默认（新） | `imageProvider === 'img-default'` |
 | 视频默认（新） | `videoProvider === 'vid-default'` |
 | 用户显式选过 Mimo（新） | `voiceProvider === 'mimo-tts'` 不被覆盖 |
+| **设置改了默认后重拉列表（新，主路径）** | 第一次 A → 改默认为 B → 重拉后切到 B 与 `speech-2.8-turbo` |
+| **同会话手改下拉后重拉（新）** | 手切到 mimo → 重拉 → 仍是 mimo |
+| **快照恢复后重拉（新）** | 快照给 mimo → 重拉 → 跟随当前默认 minimax |
 | 原「语音生成器默认选择已配置的多模态 TTS 模型」（**改写**） | 原夹具两者都无默认标记，旧代码因「第一个多模态」规则选中 minimax；新口径回退首项 elevenlabs。该断言锁定的正是本次要纠正的行为，故改写为「默认为模型设置里设为默认的多模态 TTS 模型」 |
 
 ### 8.3 逃逸分析（为什么旧测试没拦住）

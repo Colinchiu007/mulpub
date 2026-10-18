@@ -128,6 +128,24 @@ src/views/video-creation/ResultModelInfoRow.vue (2:9):
 
 ## 排序副作用被当成默认契约；而「真源已在主场、前端没问」是最隐蔽的缺陷形态（fix-model-default-follow，2026-10-18）
 
+### lesson:auto-applied-value-must-be-distinguishable-from-explicit-choice
+
+**只要「默认值」会写回同一个状态位，「用户显式选择」与「上次自动填入」就会同形——而这条同形会让默认永久钉死。**
+
+现场（本 PR 初版自己踩的坑，自审时抓出）：修复第一版把 `configuredProvider?.id`（即当前
+`s2vConfig.voiceProvider`）当成「用户显式选择」，只在当前值为空时才解析默认。但用户报告的
+操作路径恰恰是「**已打开页面**上在设置里改默认」：设置弹窗关闭会触发
+`settingsDialogRevision` watcher → `loadS2VProviders()` 重跑 → 此时 `voiceProvider` 已是
+旧默认 A（上一轮自动填入的）→ 被当成显式选择 → 新默认 B **永不生效**。
+**不补这条，用户按他自述的步骤复现仍然失败**，而所有其它用例都绿。
+
+判据：任何「默认值写回可编辑状态」的设计，都必须能区分三种来源 ——
+① 用户显式选择、② 系统按默认填入、③ 从快照/持久化恢复。
+只有 ① 该优先于新默认。实现上维护一个「上次自动填入值」的旁路记录
+（本 PR 用 `s2v*AutoProviderId`），重拉时 `当前值 === 自动值` ⇒ 重新解析。
+**不要用「等值猜测」代替显式标记**：快照恢复的值与手选值可能逐字相同，
+猜测在那一格必然失准（本 PR 的处置是「快照按自动值处理」，并把代价写进 PRD）。
+
 ### lesson:order-by-is-not-a-default-contract
 
 **`ORDER BY is_default DESC` 的排序副作用不是「默认契约」——同分列会把它打翻，而测试看不见。**
