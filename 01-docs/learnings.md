@@ -68,6 +68,23 @@ provider 仅在 model 缺失（老项目、provider 未返回）时兜底。
 本例修完后同族命中归零；`story2video-project-service.js` 的 `extractImageOptimizedPrompt`
 是否同族未逐处核对，已在 record 的遗留里点名——**同族扫描不做完就是留债，留债要写出来**。
 
+### lesson:cjk-baseline-is-file-matched-so-moving-code-breaks-it
+
+**CJK 硬编码基线按「文件路径」匹配：把含中文的代码从一个文件搬到另一个文件，会凭空造出「新增硬编码」。**
+
+现场：`ResultView.vue` 里的「格式: 」是既有硬编码（在 `locale-cjk-baseline.json` 里、历来如此）。
+为消 `check-max-lines` 把它所在的 `<p>` 抽成 `video-creation/ResultModelInfoRow.vue` 后，
+Gate 7 `--cjk` 报「渲染端新增 1 处硬编码中文字符串」——代码一字未改，只是换了文件。
+
+判据：
+1. **抽文件时顺手把被搬走的用户可见文案一并 locale 化**，而不是留着等基线炸。本例把「格式」
+   收口成 `create.story2video.modelInfo.format`（zh/en 成对），既符合「用户可见文案必须走 locale」，
+   也不必为它去改基线（改基线 = 给掩盖新增开口子，门禁明确禁止）。
+2. 反过来也成立：**基线按文件匹配意味着"文件重命名/拆分"本身就是一类会触发门禁的改动**，
+   与改了什么代码无关。做结构性拆分前，先扫一遍被搬代码里有没有在基线内的硬编码文案。
+3. 顺带一条同源形态：`locales/create/en.js` 加 5 行就顶到 `check-max-lines` 的 500 行上限
+   ⇒ locale 文件也是行数门禁的对象，加键时注释要克制（能一行说清的不要写三行）。
+
 ### lesson:unit-test-green-is-not-build-green
 
 **renderer 侧新模块必须用 ESM `export`；「单测全绿」不构成「构建通过」的证据——那是另一层。**

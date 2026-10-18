@@ -285,6 +285,9 @@ if (VIDEO_ENABLED_MODES.has(videoMode)) {
 | `create.story2video.modelInfo.voiceModel` | `语音模型` | `Voice model` |
 | `create.story2video.modelInfo.imageModel` | `图片模型` | `Image model` |
 | `create.story2video.modelInfo.videoModel` | `视频模型` | `Video model` |
+| `create.story2video.modelInfo.format` | `格式` | `Format` |
+
+最后一项 `format` 是**顺带收口**：原 `ResultView.vue` 里的「格式: 」是硬编码（在 CJK 基线内、历来如此），抽成 `ResultModelInfoRow.vue` 后按文件匹配的 CJK 基线会失配 ⇒ Gate 7 `--cjk` 报「新增 1 处硬编码」。一并收口到 locale 既符合「用户可见文案必须走 locale」的规则，也避免为它去改基线。
 
 **分隔符** ` · ` 为标点，不属于可本地化文案，硬编码在模板/computed 中（同 `completionSummary` 的既有做法）。
 
@@ -315,11 +318,12 @@ if (VIDEO_ENABLED_MODES.has(videoMode)) {
 | R-1 | `ResultView.test.js` 既有用例 | 全部通过，无因本次改动失败 |
 | R-2 | `story2video-stages.test.js` / `story2video-project-service.test.js` | 全部通过；透传用例在新建的 `story2video-prompt-meta.test.js` |
 | R-3 | `element-plus.test.js` 产物契约锁 | 通过（本次不新增 element-plus 组件） |
-| R-4 | locales 同步门禁（Gate 7） | zh/en 键集合完全一致 |
+| R-4 | locales 同步门禁（Gate 7） | zh/en 键集合完全一致；`--cjk` 无新增硬编码（「格式」标签一并 locale 化） |
 | R-5 | 视觉回归（create-result 视图） | 差异来自模型信息新增文本本身；布局无位移、无溢出 |
-| R-6 | `check-max-lines` 逐文件行数门禁 | 四个点名/挂账文件（`ResultView.vue` 1890、`story2video-stages.js` 4006、两个测试文件登记值）全部回到目标内，无 `TARGET_GREW` / `TEST_LEDGER_GREW` |
+| R-6 | `check-max-lines` 逐文件行数门禁 | 四个点名/挂账文件（`ResultView.vue` 1890、`story2video-stages.js` 4006、两个测试文件登记值）全部回到目标内，无 `TARGET_GREW` / `TEST_LEDGER_GREW`；`locales/create/en.js` 不得顶到 500 行上限 |
 | R-7 | `pnpm run build:vue`（Vite/Rollup 构建） | 构建成功。**这条必须有本地实跑记录**：renderer 侧新模块若误用 CJS `module.exports`，Vitest 因互操作会全绿而 Rollup 直接失败（本次实测），单测绿不构成构建通过 |
 | R-8 | `check-doc-abs-paths` 文档绝对路径门禁 | 无新增本机绝对路径；`.ccg/reviews/` 下评审失败记录（含 wrapper 本机路径）不得进 PR |
+| R-9 | 组件在无 i18n 上下文可渲染 | `ResultModelInfoRow` 对 `$t` 做 `typeof === 'function'` 防御（与 `ResultView.tOrKey` 同口径）。既有 3 个 `ResultView.test.js` 用例直接 mount 不注入 `$t`，组件若裸调 `this.$t` 会抛 `this.$t is not a function` 连带 9 个 error |
 
 ---
 

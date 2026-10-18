@@ -13,7 +13,7 @@
     可独立测；本组件只负责把文本摆进这一行。
   -->
   <p data-testid="video-format-models">
-    <span data-testid="video-format">格式: {{ formatLabel }}</span><template v-if="modelSummaryText"> · </template><span v-if="modelSummaryText" data-testid="video-models">{{ modelSummaryText }}</span>
+    <span data-testid="video-format">{{ formatLabelText }}: {{ formatLabel }}</span><template v-if="modelSummaryText"> · </template><span v-if="modelSummaryText" data-testid="video-models">{{ modelSummaryText }}</span>
   </p>
 </template>
 
@@ -31,8 +31,20 @@ export default {
     formatLabel: { type: String, default: '' },
   },
   computed: {
+    // 「格式」标签走 locale：它与模型信息在同一行展示，随本次改动一并从 ResultView.vue
+    // 的硬编码收口到 locales（zh/en 成对），避免按文件匹配的 CJK 基线失配。
+    // 与 ResultView.tOrKey 同一防御：无 i18n 上下文（部分单测直接 mount 不注入 $t）时回落 key，
+    // 不得让整个组件渲染崩掉。
+    formatLabelText() {
+      return this.translate('create.story2video.modelInfo.format')
+    },
     modelSummaryText() {
-      return resolveModelSummaryParts(this.project, this.segments, key => this.$t('create.story2video.modelInfo.' + key)).join(' · ')
+      return resolveModelSummaryParts(this.project, this.segments, key => this.translate('create.story2video.modelInfo.' + key)).join(' · ')
+    },
+  },
+  methods: {
+    translate(key) {
+      return typeof this.$t === 'function' ? this.$t(key) : key
     },
   },
 }

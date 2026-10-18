@@ -285,6 +285,9 @@ export default {
         voiceModel: '语音模型',
         imageModel: '图片模型',
         videoModel: '视频模型',
+        // 「格式」标签随模型信息一并收口 locale：原在 ResultView.vue 硬编码，
+        // 抽成 ResultModelInfoRow.vue 后按文件匹配的 CJK 基线会失配
+        format: '格式',
       },
       // 详情页视觉与交互精致化（story2video-detail-visual-refinement，2026-09-20）
       // 中英必须成对维护：CI Gate 7 check-locale-sync.js --pair 硬拦截
