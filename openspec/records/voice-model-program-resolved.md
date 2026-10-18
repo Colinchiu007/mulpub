@@ -39,8 +39,9 @@ date: 2026-10-18
 | `apps/desktop` parity + `model-provider-manager*` | `Test Files 2 passed (2)` / `Tests 45 passed (45)` |
 | `apps/desktop` `electron/services/{story2video,podcast,model-provider}*`（主进程口径改动的全部消费者） | `Test Files 56 passed (56)` / `Tests 1406 passed (1406)` |
 | `apps/desktop` 定向（parity + useTtsVoices + S2vConfigPanels + model-provider-manager） | `Test Files 4 passed (4)` / `Tests 77 passed (77)` |
-| `apps/desktop` `src/views/CreateView.test.js` | `Test Files 1 passed (1)` / `Tests 307 passed (307)`（评审修复前后各跑一次，均全绿） |
-| `ops-center/backend` `test_model_presets_api.py` + `test_model_catalog_api.py` | `59 passed`（含新增 2 条 M2 用例；M2 修复后复跑仍 59） |
+| `apps/desktop` `src/views/CreateView.test.js` | rebase 前 `307/307`（评审修复前后各跑一次）；rebase 到最新 main 后上游已调整用例数 ⇒ **终态 `300/300 passed`** |
+| `apps/desktop` `CreateView.test.js` + `video-creation/**` 同批跑 | `Test Files 15` / `Tests 478`，其中 1 例 `去发布：有项目对象时视频模式预填充` 失败 —— **A/B 取证为顺序/时序污染 flake**：该用例单跑通过（5.3s）、完整单文件重跑 `300/300 passed`；它属发布预填，与本片语音域改动无交集，如实记录不掩盖 |
+| `ops-center/backend` `test_model_presets_api.py` + `test_model_catalog_api.py` | `61 passed`（含新增 M2 两条、能力默认模型 6 条、迁移回填、总览） |
 | `ops-center/frontend` `npm test` | `Test Files 16 passed (16)` / `Tests 161 passed (161)` |
 | `ops-center/frontend` `npm run build` | `✓ built`（`ModelPresets-*.js` 22.75 kB） |
 | `apps/desktop` `pnpm run lint` | exit 0（`eslint electron/ src/ --quiet` 无输出） |
