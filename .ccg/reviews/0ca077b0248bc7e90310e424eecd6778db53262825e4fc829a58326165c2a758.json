@@ -50,10 +50,59 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "self_play_resolved",
+    "performedBy": "self-play(agent)",
+    "fallbackReason": "跨家族对抗后端超时（本会话第 12 次同型 ETIMEDOUT），按引擎第三档出口 self_play 自查。本条 108 行，含真机协议订正。",
+    "evidenceInRepo": "openspec/records/toutiao-csrf-header.md（§二 证据链 3 段 + §五 未闭合）+ PRD §12.6",
+    "confidenceWeight": 0.7,
+    "adjudication": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "「未实名 ≠ 不能发」是对**前几轮结论的推翻**。若新结论也错，会让后续把真实的外部阻塞当成可绕过的软限制，去反复重试甚至尝试绕过平台限制。凭什么推翻？",
+        "verdict": "upheld_verified",
+        "rationale": "推翻的依据是**平台自己的接口读数**，不是推断：GetPublishAuth 返回 `DisablePublish=false` + `IsUserBan=false` + `blockStatus=0`，而 `IsIdentifyAuth=false`。本仓判据一直以 `DisablePublish` 为「能否发布」的单一事实源（`toutiao-video-probes.js#probePublishAuth`），现在读数与旧结论矛盾，应当以读数为准。同时**保留边界**：记录 §五 第 4 条明写「未实名是否会影响**发稿结果**仍未知」——即只用读数否证了「被拦在发布权限上」，没有声称「未实名不影响任何后续审核」。",
+        "fixCommit": null
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "CSRF 修复只验证到「403 消失、进入业务码判定」，**没有**验证到发稿成功。这算修好了吗？",
+        "verdict": "upheld_verified",
+        "rationale": "如实分层，且记录与 PR 正文都写明了：修的是「403 这一个确定性错误」，而「发稿成功」还差 ThumbUri 格式（§五 第 1 条）。判定依据是**错误状态迁移**而非成功：403 → `20007014 ThumbUri Can't be nil` → `21085 封面数据异常`，错误码在推进，说明每一层都真的越过了。这不构成「修好了发稿」，只构成「修好了 CSRF」，PR 标题也刻意只写到 CSRF。",
+        "fixCommit": null
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "「头名对但 cookie 来源错也是 403」这个判据陷阱写进文档是对的，但**代码**怎么防住同类错误再犯？",
+        "verdict": "upheld_partial",
+        "rationale": "代码侧做了三件事：① 头名与 cookie 名抽成 `CSRF_HEADER` / `CSRF_COOKIE` 两个常量（不散落字面量）；② `pickCsrfToken` 是纯函数、单一事实源；③ 测试里对**前缀相似名**（`not_xigua_csrf_token`）断言不得误命中。但**没有**机械防住「将来有人又拿 `csrf_session_id` 去填这个头」——那属于跨文件语义错误，当前测试只锁了「从 cookie 取值」这一条路径。**如实承认这是未闭合的防回归缺口**：若将来引入第二种取值来源，应补一条「取值来源必须是 CSRF_COOKIE」的机械锁。",
+        "fixCommit": null
+      },
+      {
+        "id": "i4",
+        "severity": "Info",
+        "finding": "`getAvatar` 之类无关改动有没有混进来？文件行数从 489 涨到 496，会不会又逼近行数闸？",
+        "verdict": "upheld_verified",
+        "rationale": "逐项核对改动集：只有 CSRF 相关的 4 处（契约模块新增 helper/常量、链模块 _mpHeaders、测试、文档）。行数实测：首轮确实报 `500 行 >= 500`（拆导出前），已把 2 个再导出移出链模块，最终 496 行并通过 `check-max-lines.js`（读数 ✅）。但 496/500 只剩 4 行余量，**下轮若再往此文件加逻辑前应先拆分**——已写入本裁决作为提醒。",
+        "fixCommit": null
+      },
+      {
+        "id": "i5",
+        "severity": "Info",
+        "finding": "`ThumbUri=<VOD 上传图片的 vid>` 得到 `21085 封面数据异常` —— 这条实测的价值是什么？会不会只是我传错了、没有信息量？",
+        "verdict": "upheld_verified",
+        "rationale": "有明确信息量：它把「封面来源」这个模糊问题**收窄**成「必须是图片资源 URI，不是视频 vid」，直接否掉了一条看起来最省事的路（复用 VOD 通道传图）。这也解释了为什么 `GetPosterList` 打不通会让整条链断在封面：封面只有两条来源（平台推荐 / 自传图片 URI），前者当前不可用、后者 URI 形态未确认。这条已写进 PRD §12.6.4 与记录 §2.4。",
+        "fixCommit": null
+      }
+    ],
+    "summary": {
+      "total": 5,
+      "upheldVerified": 4,
+      "upheldPartial": 1,
+      "note": "自查抓到一处真缺口（i3）：CSRF 取值来源没有机械防回归锁，只有路径级断言；并以 i4 记下「496/500 行余量仅 4 行，下轮先拆分再改」。i1 为对旧结论的推翻，已用平台读数取证并保留了「未实名对发稿结果影响未知」的边界。"
+    },
+    "at": "2026-10-18T22:52:27.721Z"
   }
 }
