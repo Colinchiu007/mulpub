@@ -186,6 +186,7 @@ import {
   onAutomationNotification,
 } from '@/api/automation'
 import { useNotify } from '@/composables/useNotify'
+import { confirmDanger } from '@/utils/confirm-danger'
 
 const { t } = useI18n()
 const { notifyError, notifySuccess } = useNotify()
@@ -334,6 +335,15 @@ async function runNow (task) {
 }
 
 async function remove (task) {
+  // audit-13 家族（本 PR 实测新增的一条）：删除自动化任务此前一点即删，
+  // 任务的触发条件与失败处理策略不可恢复。
+  const confirmed = await confirmDanger({
+    title: t('automation.removeConfirmTitle'),
+    message: t('automation.removeConfirmMessage', {
+      name: task?.name || task?.title || task?.id || '—',
+    }),
+  })
+  if (!confirmed) return
   const res = await automationRemove(task.id)
   if (!res || res.code !== 0 || !res.ok) { notifyError('automation.errDeleteFailed'); return }
   notifySuccess('automation.deleted')

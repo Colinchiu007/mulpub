@@ -64,6 +64,8 @@ export default {
     errSaveFailed: '保存失败，请重试',
     errRunFailed: '启动失败，请重试',
     errDeleteFailed: '删除失败，请重试',
+    removeConfirmTitle: '删除自动化任务',
+    removeConfirmMessage: '将删除自动化任务「{name}」。任务配置与其中保存的触发条件、失败处理策略一并移除且不可恢复。确认删除？',
     errAlreadyRunning: '该任务上一轮还在运行，已跳过本次触发',
 
     created: '任务已创建',

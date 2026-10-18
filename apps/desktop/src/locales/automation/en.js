@@ -64,6 +64,8 @@ export default {
     errSaveFailed: 'Failed to save. Please retry',
     errRunFailed: 'Failed to start. Please retry',
     errDeleteFailed: 'Failed to delete. Please retry',
+    removeConfirmTitle: 'Delete automation task',
+    removeConfirmMessage: 'This deletes automation task "{name}" together with its trigger and failure-handling configuration. It cannot be recovered. Delete it?',
     errAlreadyRunning: 'The previous run is still active — this trigger was skipped',
 
     created: 'Task created',

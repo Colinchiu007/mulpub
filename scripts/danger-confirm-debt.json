@@ -1,0 +1,54 @@
+{
+  "_comment": "check-danger-confirm.js 的欠账登记表（UX-AUDIT-2026-10-17 阶段 0.4 / audit-12）。键 = 文件#所在函数。每条必须写 reason；A 档（该文件看不到任何确认动作）还必须写 confirmed_by —— 确认到底发生在哪个文件哪一行，或为什么该操作按评审 w14 不需要确认。清单只能缩小：把确认收敛到 utils/confirm-danger.js 后删除对应条目，新增未确认的删除入口一律判红。",
+  "apps/desktop/src/composables/useAccountActions.js#remove": {
+    "reason": "底层薄封装，确认由调用方承担",
+    "confirmed_by": "apps/desktop/src/views/Accounts.vue:1187 notifyConfirm('accountsPage.confirmDeleteAccount')"
+  },
+  "apps/desktop/src/composables/useFilmEngineering.js#deleteConfigProfile": {
+    "reason": "底层薄封装，确认由配置档管理器的应用内对话框承担",
+    "confirmed_by": "apps/desktop/src/components/ConfigProfileManager.vue:133-144（requestDelete 只置 deleteTarget，confirmDelete 才执行删除）"
+  },
+  "apps/desktop/src/composables/useVideoClone.js#deleteConfigProfile": {
+    "reason": "底层薄封装，与影视工程共用同一个配置档管理器",
+    "confirmed_by": "apps/desktop/src/components/ConfigProfileManager.vue:133-144"
+  },
+  "apps/desktop/src/composables/useHotTopicsFavorites.js#toggleFavorite": {
+    "reason": "取消收藏是可重做操作（再点一次即恢复），按第二轮评审 w14「门禁只锁不可逆数据损失」不补确认",
+    "confirmed_by": "n/a —— 可重做操作，产品决定不确认"
+  },
+  "apps/desktop/src/composables/useHotTopicsFavorites.js#removeFavorite": {
+    "reason": "同上：移除收藏可重新收藏，不属于不可逆数据损失",
+    "confirmed_by": "n/a —— 可重做操作；调用点 apps/desktop/src/views/HotTopics.vue:225"
+  },
+  "apps/desktop/src/composables/useModelProviderCrud.js#doDelete": {
+    "reason": "已有确认，但走 notifyConfirm 而非统一原语；收敛到 confirmDanger 属本阶段后续批次"
+  },
+  "apps/desktop/src/composables/useProviderCrud.js#doDelete": {
+    "reason": "composable 内无确认，且全仓未找到模板消费点（属阶段 5.3「未接线」域）",
+    "confirmed_by": "n/a —— 无消费点；任何新调用点接入前必须补 confirmDanger，届时删除本条"
+  },
+  "apps/desktop/src/stores/accounts.js#batchDelete": {
+    "reason": "store action，确认由调用方批量删除入口承担",
+    "confirmed_by": "apps/desktop/src/views/Accounts.vue:1217 上游（文案 locales/accounts-page/zh.js:173 confirmBatchDelete 已含「此操作不可恢复」）"
+  },
+  "apps/desktop/src/views/CreateView.vue#confirmRunDeletion": {
+    "reason": "函数即「确认后执行」那一步，确认由应用内删除对话框承担",
+    "confirmed_by": "apps/desktop/src/views/CreateView.vue:3393-3395 requestHistoryDeletion 置 story2videoRunDeleteDialog.visible"
+  },
+  "apps/desktop/src/views/CreateView.vue#confirmBatchDeletion": {
+    "reason": "同上，批量删除对话框确认后才执行",
+    "confirmed_by": "apps/desktop/src/views/CreateView.vue:379 @delete-history-batch=\"requestHistoryBatchDeletion\""
+  },
+  "apps/desktop/src/views/CreateView.vue#confirmS2VConfigProfileDelete": {
+    "reason": "同上，配置档删除对话框确认后才执行",
+    "confirmed_by": "apps/desktop/src/views/CreateView.vue s2vConfigProfileDeleteDialogOpen（request 侧置位，本函数只执行）"
+  },
+  "apps/desktop/src/views/CreateView.vue#deleteHistory": {
+    "reason": "确认门禁由上游 requestHistoryDeletion 的应用内删除对话框承担（源码注释已写明「唯一确认，勿叠加」）",
+    "confirmed_by": "apps/desktop/src/views/CreateView.vue:3387-3396"
+  },
+  "apps/desktop/src/views/video-creation/composables/useBgmLibrary.js#confirmBgmDelete": {
+    "reason": "request 侧只置 target，本函数是确认后的执行步",
+    "confirmed_by": "apps/desktop/src/views/video-creation/composables/useBgmLibrary.js:193-194 requestBgmDelete + apps/desktop/src/views/CreateView.vue:638 @click=\"requestBgmDelete(item)\""
+  }
+}

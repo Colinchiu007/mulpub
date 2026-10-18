@@ -137,6 +137,11 @@ scripts/*.js
 # 一起静默忽略（本地全绿、CI 上 Cannot find module），必须显式 negation。
 !scripts/check-css-var-concat.js
 !scripts/check-css-var-concat.test.js
+# UX-AUDIT-2026-10-17 阶段 0.4 确认接线门禁本体与回归锁（同上一条理由）
+!scripts/check-danger-confirm.js
+!scripts/check-danger-confirm.test.js
+# 登记表的取证入口：A 档豁免必须写 confirmed_by，该脚本逐点打印所在函数体与确认痕迹
+!scripts/danger-confirm-evidence.js
 # 像素 diff 分布分析本体（2026-10-17）。用途：视觉回归报 N% 时，用**差异铺在哪儿**
 # 替代"肉眼看截图"来判断是否可接受 —— 本项目实测过「两张 PNG 差 127 字节、
 # 像素差 9.41%」，肉眼不可靠。同 #3011 同族：第 106 行 scripts/*.js 会静默忽略它。

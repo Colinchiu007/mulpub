@@ -116,6 +116,7 @@ import { onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { logsGetInfo, logsClear, submitFeedback as submitFeedbackRequest } from '@/api/publisher'
 import { getAppLocale, setAppLocale } from '@/i18n'
+import { confirmDanger } from '@/utils/confirm-danger'
 import NetSchedDiagnose from './NetSchedDiagnose.vue'
 import CacheCleanupSection from './CacheCleanupSection.vue'
 import { formatBytes } from '@/utils/bytes'
@@ -154,6 +155,12 @@ async function loadInfo () {
 
 async function clearLogs () {
   if (clearing.value) return
+  // audit-13 家族（本 PR 实测新增的一条）：清理日志此前一点即清，历史日志不可回补
+  const confirmed = await confirmDanger({
+    title: t('settings.logs.clearConfirmTitle'),
+    message: t('settings.logs.clearConfirmMessage'),
+  })
+  if (!confirmed) return
   clearing.value = true
   try {
     const result = await logsClear()

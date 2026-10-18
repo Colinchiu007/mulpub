@@ -18,4 +18,7 @@ export default {
     pipelineBackgroundToast: 'To check this task, open History in Video Creation',
     pageLoadFailed: 'Failed to load page',
     pageLoadFailedMessage: 'Page resources failed to load. Please retry or refresh the app.',
+    unsavedLeaveTitle: 'Leave this page',
+    unsavedLeaveMessage: 'This page still has unsaved content, and it is not kept alive across navigation — leaving will discard it. Leave anyway?',
+    unsavedLeaveMessageWithSubject: 'This page still has unsaved content "{subject}", and it is not kept alive across navigation — leaving will discard it. Leave anyway?',
   }

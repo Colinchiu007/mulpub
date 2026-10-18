@@ -18,4 +18,7 @@ export default {
     pipelineBackgroundToast: '如果想查看该任务，请进入视频创作的历史记录',
     pageLoadFailed: '页面加载失败',
     pageLoadFailedMessage: '页面资源仍未加载成功，请重试或刷新应用。',
+    unsavedLeaveTitle: '离开当前页面',
+    unsavedLeaveMessage: '当前页面还有未保存的内容，离开后会丢失（本页不在保活范围内）。确认离开？',
+    unsavedLeaveMessageWithSubject: '当前页面还有未保存的内容「{subject}」，离开后会丢失（本页不在保活范围内）。确认离开？',
   }

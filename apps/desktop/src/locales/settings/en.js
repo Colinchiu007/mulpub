@@ -84,6 +84,8 @@ export default {
       totalSize: 'Total Size',
       maxSize: 'Per-File Limit',
       clearBtn: 'Clear Logs',
+      clearConfirmTitle: 'Clear logs',
+      clearConfirmMessage: 'This wipes every application log file on this device; past logs cannot be recovered (accounts, drafts and publish history are untouched). Clear them?',
       autoClearHint: 'Log files are automatically cleaned when they reach 500M.',
       empty: 'No log files yet',
     },

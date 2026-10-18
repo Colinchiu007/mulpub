@@ -9,9 +9,13 @@ import i18n from '@/i18n'
 // useRoute() 需要 router 环境；测试统一 mock vue-router（topic 场景由各用例覆盖 query）
 const mockRouteQuery = { value: {} }
 const mockRouterPush = vi.fn()
+// audit-3 的守卫经 onBeforeRouteLeave 注册；必须用 vi.hoisted —— mock 工厂在被测模块
+// import 期就会执行，此时模块体的 const 还在 TDZ 里（同文件其它桩都用 hoisted）。
+const mockLeaveGuards = vi.hoisted(() => ({ list: [] }))
 vi.mock('vue-router', () => ({
   useRouter: () => ({ push: mockRouterPush }),
   useRoute: () => ({ query: mockRouteQuery.value }),
+  onBeforeRouteLeave: (guard) => { mockLeaveGuards.list.push(guard) },
 }))
 
 vi.mock('@/api/publisher', () => ({

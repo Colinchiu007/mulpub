@@ -279,6 +279,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { aiRewrite, aiListRewriteStrategies, aiGetRecommendedStrategies, draftSave, applyKnowledgeFeedback } from '@/api/publisher'
 import { useNotify } from '@/composables/useNotify'
+import { useUnsavedLeaveGuard } from '@/composables/useUnsavedLeaveGuard'
 import { formatUserError } from '@/utils/user-facing-error'
 import { useLoginGate } from '@/composables/useLoginGate'
 import { useWordCountValidation } from '@/composables/useWordCountValidation'
@@ -350,6 +351,14 @@ let savedDraftId = null
 // 本次改写结果对应的 rewrite_history 行 id（归因链第一环，见 utils/rewrite-lineage）。
 // 每次开始新改写先置 null、成功后再赋值，所以"上一次改写结果的 id"不可能残留到下一次发布。
 let rewriteLineageId = null
+
+// audit-3：RewriteView 不在 App.vue 的 keep-alive include 内，路由切换即卸载，
+// 而改写结果只有点「保存草稿」才落真源 —— 用户贴了长文、跑完改写、直接点侧边栏就全没了。
+// savedDraftId 一旦有值即视为已落真源（内容变化时 invalidateSavedDraft 会置空，守卫随之恢复）。
+useUnsavedLeaveGuard({
+  isDirty: () => (!!content.value.trim() || !!rewriteResult.value.trim()) && !savedDraftId,
+  subject: () => (content.value || rewriteResult.value || '').trim().slice(0, 24),
+})
 
 // ── 文案库交接（合并版「文案库」的【改写】按钮 → 本页）──
 // 载荷含 fromKey：改写成功后把结果回写文案库（同一来源只保留最新一次改写结果）。

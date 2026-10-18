@@ -86,6 +86,8 @@ export default {
       totalSize: '日志总大小',
       maxSize: '单文件上限',
       clearBtn: '清理日志',
+      clearConfirmTitle: '清理日志',
+      clearConfirmMessage: '将清空本机全部应用日志文件，历史日志不可恢复（不影响账号、草稿与发布记录）。确认清理？',
       autoClearHint: 'Log 文件达到 500M 时，系统会自动清理。',
       empty: '暂无日志文件',
     },

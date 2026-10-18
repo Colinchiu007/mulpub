@@ -387,6 +387,21 @@ jobs:
         run: |
           node --test scripts/ccg-convergence-probe.test.js
 
+      # --- Gate 2b7：前端 UI/UE 审计（UX-AUDIT-2026-10-17）两条新判据 ---
+      # 落点必须是 changes 作业（同 2b2/2b3/2b4 口径：static-gates 带 docs-only 门槛，
+      # 守门判据落在会被自己防的那道短路里的作业等于给自己关掉校验）；
+      # 本作业没有 Install deps ⇒ 判据只能 require node 内置模块。
+      #   · check-css-var-concat：`var(--token)` 后黏 hex 的**死声明**（整条 CSS 被解析器丢弃）。
+      #     既有 check-css-var-defined 只查 token 有没有定义，对该形态结构性失明。
+      #   · check-danger-confirm：破坏性写入口必须经确认原语（audit-12：原语自称契约而实测仅 4 个消费点）。
+      - name: "Gate 2b7 - CSS var concat & danger confirm (changes job)"
+        shell: bash
+        run: |
+          node scripts/check-css-var-concat.js --root=apps/desktop/src --root=apps/desktop/electron --min-files=150
+          node --test scripts/check-css-var-concat.test.js
+          node scripts/check-danger-confirm.js
+          node --test scripts/check-danger-confirm.test.js
+
       # --- Gate 2c3：CHANGELOG.md「只可增长」棘轮 ---
       # 动因（实测）：b531bdfe7（PR #2884，一个 ai-taste 功能 PR）把 CHANGELOG.md 从
       # 7,474,293 B / 1,133 条整份替换成 9,155 B / 2 条，**丢掉 1,131 条并全绿合入**。
