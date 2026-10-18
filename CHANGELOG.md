@@ -19,6 +19,17 @@
 - 变异反证（详细 PRD §12.3）：M1 去对账 2F / M2 反转优先级 1F / M3 守卫 warn-only 3F / M4 聚合 `every`→`some` **初始存活**（补「混合原因不聚合」用例后 1F）/ M5 不去重 2F / M6 删渲染规则 4F；M7/M8 未逐条注入（结构性变异，由代码位置审查 + 零资源调用断言覆盖）。
 - 文档门禁实测：`check-text-encoding-integrity` OK；`check-no-brand-residue` PASS（10326 tracked）；`check-spec-purpose` 154 份 0 违规；`openspec-sync-check` OK（387 tasks/63 changes/234 archives）；`check-doc-abs-paths` PASS（572 文件）；`check-changelog-growth` PASS（521→522）、重复标题新增 0。
 - QM-1：electron-builder exit 0（asar 147,209,782 B，命中 2 个新模块，解包 require rc=0，启动 9s 存活 + stderr 0 行）。QM-6：本机 claude/opencode/codex 后端均超时不可用（ccg deep-review 的 claude critic 轴 ETIMEDOUT），如实保留债务、不伪造 cleared。
+# [未发布] fix(shell): 折叠状态多窗口实时同步 + OAuth 授权视图接入侧栏布局（sidebar-collapse-followups）
+
+关闭 #3916 遗留清单的三项缺陷（前两条修复、第三条降级）：
+
+- **多窗口同步（点击错乱）**：折叠是应用级状态，主进程 `WebviewManager._sidebarCollapsed` 是唯一真源，但原先只有「渲染进程 → 主进程」单向 invoke。窗口 A 点收起后主进程会把**所有**内嵌视图重排成 `x=0` 全宽，窗口 B 的渲染进程却仍持旧值、DOM 侧栏仍显示 ⇒ 侧栏看得见却被原生图层盖住、点不动。新增 `WebviewManager.broadcastSidebarCollapsed()` 向 `getAllWindows()` 投递 `page-manager:sidebar-collapsed-changed`（载荷 `{ data: { collapsed } }`），preload 暴露 `pageManager.onSidebarCollapsedChanged(cb)`；渲染层 `applyRemoteCollapsed()` 只改本地 ref 并通知订阅者，**不写 localStorage、不上报 IPC**（持久化真源是用户点击的那个窗口；回传会形成 A↔B 互刷）。
+- **OAuth 授权视图接入侧栏布局**：`oauth-manager.js` 的 `_positionView()` 只传 1 参给 `computeEmbeddedViewBounds`，`sidebarWidth` 回落默认 200、`collapsed` 恒 false —— 宽松默认值把「漏传」伪装成合法布局（不抛错、无告警）。补 `setSidebarWidth` / `setSidebarCollapsed` 并传满 4 参；`WebviewManager` 两个 setter 把它纳入同步链（与 `AuthViewManager` / `QRCodeLogin` 同构），`window.js` 装配链经 `setOAuthManager` 注入。**顺带修同形态缺陷**：OAuth 视图原先只在 `startAuth` 定位一次、不监听 `mainWindow` resize，授权过程中拖动窗口会复现 `view-bounds.js` 头部所述 2026-09-13「视图被窗口边框裁掉」。
+- **抽出 NaN 免疫的宽度守卫（连带修复）**：四处 manager 各自手写的 `width < MIN || width > MAX` 拦不住 NaN —— NaN 的所有比较都是 false，它穿过 `typeof === 'number'` 检查被写进 `_sidebarWidth`，守卫语义被推迟到 `normalizeSidebarWidth` 才生效。新增 `view-bounds.isValidSidebarWidth()` 单一真源（含 `Number.isFinite`），四个 manager 共用。
+- **遗留第 3 项降级为「无需处理」**：收起期间跨 900px 断点原被登记为遗留，复核后确认 `computeEmbeddedViewBounds` 内部 `collapsed ? 0 : normalizeSidebarWidth(width)` 已让 width 参数在收起态完全失效，展开时 `MpSidebar` 的 `ResizeObserver`（`w > 0` 守卫）在同一帧后上报真实宽度 —— 不产生错误布局，不值得为一次不可见的抖动新增状态位。
+- **测试**：新增 106 例（OAuth 布局同步 7 / 守卫 4 / 广播 8 / 注入 4 / store 广播 8 / App 订阅 5 / preload 合同 3 / 跨进程多窗口链路 1，其余为既有文件增量），受影响面 12 files / 311 tests 全绿；`tsc --noEmit` rc=0；`eslint` 0 error。
+- **文档**：`openspec/changes/sidebar-collapse-toggle/` 新增 3 条 Requirement / 10 Scenario（spec 7 → 10 条）、tasks 第 7 节；执行记录 `openspec/records/sidebar-collapse-followups.md`。
+
 # [未发布] feat(gates): QM-6 评审后端对收敛为单一真源，「设了没生效」改为判不闭合（qm6-review-backend-config）
 
 - **三种旋钮全部静默失效，而失败症状不是报错**：为了让一个不可用的 critic 后端换人，依次试了改 `~/.claude/.ccg/config.toml` 的 `[routing]`（`ccg-deep-review.js` **从不读它**，输出仍是 `proposer=opencode critic=claude`）、`sh scripts/deep-review.sh --critic codex`（入口是 `for a in "$@"` 只认无值旗标，且 `exec node "$DRIVER" --sha "$SHA"` 一个后端参数都不转）、直连驱动 `--critic codex`（覆盖块只挂在决策层 `objectType:"plan"` 分支，验证层是裸的 `const cfg = cfgForMode(mode)`）。三种情况下评审照跑、结论照出、`deepReview.status` 照闭环，**没有任何东西记录"这次到底是谁评审的"**。

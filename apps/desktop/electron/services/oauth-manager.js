@@ -22,8 +22,13 @@ const { config: appConfig } = require('../config/app-config')
 const Store = require('./store')
 const EC = require('../core/error-codes').ERROR
 const { withSenderCheck } = require('../ipc-handlers/helpers')
-// 内嵌视图定位唯一来源：必须用「客户区」尺寸，禁用 getBounds() 外框尺寸（见 view-bounds.js）
-const { computeEmbeddedViewBounds } = require('./view-bounds')
+// 布局职责（视图定位 / 侧栏宽度与折叠同步 / 窗口 resize 重排）拆到
+// oauth-manager/layout.js，按 webview-manager/layout.js 的 Object.assign 混入范式
+// 合并到 prototype —— 2026-10-18 因 check-max-lines 500 行门禁拆分，
+// 对外接口（setMainWindow / setSidebarWidth / setSidebarCollapsed）完全不变。
+const oauthLayout = require('./oauth-manager/layout')
+// 默认宽度仍取 view-bounds 单一真源（构造里初始化用）
+const { SIDEBAR_WIDTH_DEFAULT } = require('./view-bounds')
 // 独立窗口已不再需要（改为内嵌主窗口）
 
 // OAuth 平台配置
@@ -69,21 +74,13 @@ class OAuthManager {
     this._rejectAuth = null
     this._callbackServer = null
     this._loginTimeout = null
-  }
-
-  setMainWindow (win) {
-    this.mainWindow = win
-  }
-
-  /**
-   * 授权视图布局（TabBar+NavBar 下方、侧边栏右侧），与其他内嵌视图一致。
-   * 修复：startAuth 曾调用不存在的 this._positionView(...)，导致 OAuth 内嵌链路
-   * 一进入就抛 "this._positionView is not a function"。
-   * 尺寸来源必须是窗口客户区（见 view-bounds.js）。
-   */
-  _positionView () {
-    if (!this.currentView || !this.mainWindow) return
-    this.currentView.setBounds(computeEmbeddedViewBounds(this.mainWindow))
+    // 侧边栏宽度 / 折叠态：由 WebviewManager 单向同步（与 AuthViewManager / QRCodeLogin 同构）。
+    // 默认值必须与 view-bounds.js 的 SIDEBAR_WIDTH_DEFAULT 一致，避免未同步前错位。
+    this._sidebarWidth = SIDEBAR_WIDTH_DEFAULT
+    this._sidebarCollapsed = false
+    // 窗口尺寸变化监听解绑函数（OAuth 进行中拖动窗口必须重排，否则复现
+    // view-bounds.js 头部所述 2026-09-13「视图被窗口边框裁掉」同形态缺陷）
+    this._unsubscribeWindowResize = null
   }
 
   /**
@@ -356,6 +353,11 @@ class OAuthManager {
       clearTimeout(this._loginTimeout)
       this._loginTimeout = null
     }
+    // 视图销毁后不再需要监听窗口尺寸（监听按次绑定，泄漏会跨授权流程累积）
+    if (this._unsubscribeWindowResize) {
+      try { this._unsubscribeWindowResize() } catch (_e) { /* 解绑失败不影响关闭 */ }
+      this._unsubscribeWindowResize = null
+    }
 
     // 认证页改回内嵌主窗口：从 contentView 移除视图
     if (this.currentView) {
@@ -429,5 +431,8 @@ class OAuthManager {
     })
   }
 }
+
+// 布局职责混入（见 oauth-manager/layout.js 顶部说明）：保持对外接口不变
+Object.assign(OAuthManager.prototype, oauthLayout)
 
 module.exports = OAuthManager
