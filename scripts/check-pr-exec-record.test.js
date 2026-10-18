@@ -1321,3 +1321,23 @@ test('接线锁：main() 必须把 base 读取器传给 evaluateDeepReviewDebt�
   assert.match(src, /evaluateDeepReviewDebt\(statuses, repo, [A-Za-z_$]/,
     '只补判据不接线等于没修 —— 调用点必须显式传第三个参数')
 })
+test('刀A §7.4-A：alt 形态必须接受生产方真实投影（候选表与正则不得同源于想象）', () => {
+  const { AUDIT_ARTIFACT_RE: RE } = require('./check-pr-exec-record.js')
+  const sha = 'a'.repeat(40)
+  // 形态由生产方决定：投影现算，不从判据/候选表取（否则探针与判据继续同源同错）
+  const stamp = new Date().toISOString().replace(/[:.]/g, '')
+  assert.match(stamp, /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{9}Z$/, '生产方投影形态变了，本锁的前提需重估：' + stamp)
+  assert.ok(RE.test('.ccg/reviews/' + sha + '-again-' + 'b'.repeat(40) + '-' + stamp + '.json'), '判据仍拒绝生产方写出的文件名：' + stamp)
+  const src = require('fs').readFileSync(require('path').join(__dirname, 'check-pr-exec-record.js'), 'utf8')
+  assert.ok(src.indexOf("text: '-2026-10-18T021638562Z'") >= 0, '生产方形态未进候选表 ⇒ 行为探测看不见它')
+})
+
+test('刀A §7.4-B：新增位数形态不得退化成通配（逐位负控）', () => {
+  const { AUDIT_ARTIFACT_RE: RE } = require('./check-pr-exec-record.js')
+  const p = (iso) => '.ccg/reviews/' + 'a'.repeat(40) + '-again-' + 'b'.repeat(40) + '-' + iso + '.json'
+  assert.ok(RE.test(p('2026-10-18T021638562Z')), '正控必须接受')
+  for (const bad of ['2026-10-18T02163856Z', '2026-10-18T0216385622Z', '2026-10-18T021638562',
+    '202610180T021638562Z', '2026-10-18t021638562Z', '2026-1-18T021638562Z']) {
+    assert.strictEqual(RE.test(p(bad)), false, '负控被放过（退化风险）：' + bad)
+  }
+})

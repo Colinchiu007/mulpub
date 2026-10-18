@@ -60,7 +60,7 @@ const CARRIER_RE = /^(?:openspec\/records\/[^_][^/]*\.md|\.quality-gates\.md|scr
 //   首版**没认这个形态** ⇒ 钩子若把它 stage 进同一次提交，出路④判「非纯回填」而假红；
 //   不 stage 则审查结论与门禁脱钩。属「声称同源的三处漏了第四处」。
 //   形态收得很紧：后缀必须形如 `-again-<40hex>_<14位T时间戳>`，且必须带 T 与 Z。
-const AUDIT_ARTIFACT_RE = /^\.ccg\/reviews\/(?:[0-9a-f]{40}|[0-9a-f]{64})(?:-again-[0-9a-f]{40}-\d{8}T\d{6}(?:\.\d{1,3})?Z)?\.json$/
+const AUDIT_ARTIFACT_RE = /^\.ccg\/reviews\/(?:[0-9a-f]{40}|[0-9a-f]{64})(?:-again-[0-9a-f]{40}-(?:\d{8}T\d{6}(?:\.\d{1,3})?Z|\d{4}-\d{2}-\d{2}T\d{9}Z))?\.json$/
 // 目录级判据：落在 .ccg/reviews/ 且是 .json 就进入「该不该被扫」的讨论范围。
 // 与 AUDIT_ARTIFACT_RE（已知形态）刻意分开，是为了让「命名又变了一次」这件事可被察觉：
 // 2026-10-17 实测，0386afdfc（#3755）把判定记录从 <40hex> 换成 <stagedDiffHash=64hex>，
@@ -106,6 +106,10 @@ const AUDIT_ALT_SHA_MAX = 80
 const AUDIT_ALT_ISO_CANDS = [
   { text: '-20261017T120000Z', label: 'ISO 时间戳' },
   { text: '-20261017T120000.123Z', label: 'ISO 时间戳（含毫秒）' },
+  // 生产方形态：`new Date().toISOString().replace(/[:.]/g, '')` 删掉冒号与点，但**日期里的连字符留着**
+  // ⇒ 真实投影是 2026-10-18T021638562Z。前两条是想象形态（无生产方），它们与旧正则同源，
+  //   所以行为探测曾自洽地绿而判据实际拒绝生产方写出的文件名 —— 候选表缺这一格，探测就看不见真形态。
+  { text: '-2026-10-18T021638562Z', label: '生产方 ISO 投影（日期保留连字符）' },
 ]
 function auditArtifactName (width, suffix) {
   return '.ccg/reviews/' + 'a'.repeat(width) + (suffix || '') + '.json'
