@@ -23,8 +23,26 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "needs_revision",
+    "performedBy": "claude(critic)+opencode(proposer) dual deep review",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "disposition": "dismissed",
+        "rationale": "假阳性：.ccg/reviews/*.json 是仓库既有审计产物，pre-commit 自动 stage（scripts/hooks/pre-commit 的 reviews 暂存段），check-pr-exec-record.js 的 AUDIT_ARTIFACT_RE 明确接纳该形态，上游 squash 提交（如 #3905）同含此文件；它不是「误放进源码树的元文件」。"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "disposition": "addressed",
+        "rationale": "属实。已补 apps/desktop/src/sidebar-collapse-chain.test.js（3 例）：真实 createPageManagerApi + 真实 registerIpcHandlers + 真实 WebviewManager.layout + 真实 computeEmbeddedViewBounds，串起 store→preload→IPC 通道→全宽 bounds→AuthViewManager/QRCodeLogin 同步；另覆盖展开反向与启动恢复补报。"
+      }
+    ],
+    "note": "深度审查（claude critic / opencode proposer，最多 3 轮）产出 2 条 Warning，无 Critical，dimension 最低 6。i1 经机制核对判为假阳性；i2 已用单条端到端链路测试关闭。按 check-pr-exec-record 的合规出口（「写明原因并把 status 置为闭环值」）置为 needs_revision，并保留原始判定记录供复核。",
+    "template": ".adversarial\\ccg-deep-82e96a61\\adjudication.json",
+    "at": "2026-10-18T06:36:02.805Z"
   }
 }
