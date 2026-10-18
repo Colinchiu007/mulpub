@@ -50,10 +50,61 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "self_play_resolved",
+    "performedBy": "self-play(agent)",
+    "fallbackReason": "跨家族对抗后端超时（本会话第 10 次同型 ETIMEDOUT），按引擎第三档出口 self_play 自查。",
+    "evidenceInRepo": "openspec/records/douyin-material-diagnosis.md（§二 两个根因 / §三 修法 / §六 平台事实）+ PRD §14",
+    "confidenceWeight": 0.6,
+    "adjudication": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "finding": "hasKeyIdOnlyMaterials 的判据是「短且无 data= 结构且解不出」——这是**启发式**，不是协议事实。若 ByteDance 某天把真材料改用另一种编码（短值 + 别的包裹），会被误判成 key-id 而拒绝好账号。",
+        "verdict": "accepted_known_tradeoff",
+        "rationale": "判据方向刻意做成「宁可漏判、不可误判」：只要**任意一条**候选值像真材料（含 data= / 长度>64 / 能解出 ec_privateKey 或 ticket）就返回 false，把裁决权交回 clientSign。所以误判只可能发生在「所有候选值都短且都解不出」的情形 —— 那种情形 clientSign 本来也必失败，差别只是错误文案。已补对照用例（完整材料不被误判）。",
+        "fixCommit": null
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "本轮**没有**真正验证「create_v2 不需要 bd-ticket-guard-ree-public-key」，却把这个判断写进了记录（§八 第 3 条）。会不会被读成「已经查清了」？",
+        "verdict": "upheld_verified",
+        "rationale": "已核对文案：记录 §三 明确写「**原样保留**（无证据表明可省 ⇒ 继续 fail-closed）」、§八 第 3 条写「仍**未经验证**……因此该判据保持 fail-closed，不据『未验证』放松」，PRD §14.4 表格第 3 行也标「保留（无证据可省 ⇒ 继续 fail-closed）」。**三处都在说「没验」而不是「已证」**，不存在把未验证写成结论的问题。",
+        "fixCommit": null
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "根因一（status_code:8 用户未登录）已足以解释本次失败，那根因二（私钥不可导出）是不是**没被实证**、只是从 cookie 长度推的？",
+        "verdict": "upheld_partial",
+        "rationale": "如实分层：**直接实证**的是「三值 18 字符 + resolveCryptPayload/resolveSignDataPayload 均抛错 + 真材料在 localStorage/IndexedDB 的实际键名与长度」；**推断**的是「IndexedDB secure-store 里那个 CryptoKey 不可导出」——本条依据 WebCrypto 规范（`extractable:false` 不可 export），未做「尝试导出被拒」的直接实验。因此记录里把它标为「设计所致」，并在 §八 第 1 条把可行动路线写成「页面内签名 / RPA」，没有声称已经把私钥读出来过。**若下一轮做页面内签名失败，应回头验证这条推断**（候选实验：在页面里 `crypto.subtle.exportKey` 试导 key）。",
+        "fixCommit": null
+      },
+      {
+        "id": "i4",
+        "severity": "Info",
+        "finding": "新诊断的文案里出现「IndexedDB」「RPA/DOM」这类**实现术语**，直接给终端用户看是否合适？",
+        "verdict": "upheld_verified",
+        "rationale": "本仓同类文案已有先例（如「抖音触发安全验证，请在创作者中心手动完成验证后重试」也是面向操作者）。该错误只会在**能力不可用**时出现，指向的是「该走哪条轨」这一操作性判断，术语在这里是有效信息而非噪音。若后续要面向纯终端用户，应改写成「该账号暂不支持自动发布，请改用模拟人工方式」并由上层按 code 映射",
+        "fixCommit": null
+      },
+      {
+        "id": "i5",
+        "severity": "Info",
+        "finding": "本轮只修了「报错准确度」，抖音仍然发不出去 —— 这算不算「改了个无关紧要的东西交差」？",
+        "verdict": "accepted_with_reason",
+        "rationale": "有两条独立理由认为这不是凑数：① 原报错**主动误导**用户去重新授权，而重新授权拿不到私钥 ⇒ 会引发无效的用户操作与工单，这是真实的产品缺陷；② 本轮同时产出了「抖音签名在纯 Node 侧不可行」这一**架构性结论**，它直接决定下一轮走页面内签名还是 RPA —— 这条结论的价值大于代码量。但也如实承认：**本轮没有让任何平台的真实发布成功**，目标的四平台进度未推进。",
+        "fixCommit": null
+      }
+    ],
+    "summary": {
+      "total": 5,
+      "acceptedKnownTradeoff": 1,
+      "acceptedWithReason": 1,
+      "upheldVerified": 2,
+      "upheldPartial": 1,
+      "note": "自查抓到一处需要分层说明的地方（i3）：根因二的「私钥不可导出」含规范推断成分，已明确标注为推断并给出下一轮的验证实验；其余 4 条为取舍或已核对无误。i5 如实承认本轮未推进真实发布成功。"
+    },
+    "at": "2026-10-18T21:16:59.881Z"
   }
 }
