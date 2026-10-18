@@ -22,7 +22,7 @@ date: 2026-10-18
 | QM-1 打包 | ✅ | `apps/desktop`：`pnpm exec electron-builder --win --dir --publish never` ⇒ exit 0（asar 147,209,782 B）；`asar list` 命中 `\electron\services\story2video-voice-guard.js` 与 `\electron\services\tts-voice-clone-integrity.js`；asar 解包后 `require()` 二者 rc=0（exports 与源码一致）；启动 9s 存活、stderr 0 行（层③干净；`ELECTRON_RUN_AS_NODE` 已从子进程 env 剔除） |
 | QM-2 代码必检项 | ✅ | 改动为只读异步 fs 对账 + 一次前置状态查询（每条 TTS 一次，O(1)，不随场景数增长）；无同步 CPU 密集原语、无新增 IPC、无 `v-html`、无硬编码等待；守卫日志只记 `voiceId/provider/reason`，不含音频/密钥/绝对路径 |
 | QM-4 视觉回归 | N/A（有据） | 未改模板/样式/DOM；失效克隆的展示复用既有通道（下拉禁用 option、克隆列表徽标、`设为默认` 禁用），未新增页面结构 |
-| QM-6 CCG 双模型外部评审 | ❌ 未完成（环境受限，如实记录） | 预提交判定器已判 DUAL（1326 行 > 200）并落盘 `.ccg/reviews/43ffca04….json`。`sh scripts/deep-review.sh` 实测：proposer=opencode / critic=claude 依赖体检通过，但 critic 轴 `spawnSync C:/Users/邱领/.claude/bin/codeagent-wrapper.exe ETIMEDOUT`（deepReview.status=error）；独立探针 `claude -p "只回复两个字：收到"` >90s 超时、`opencode run …` 同样超时、`codex exec review` 同样无输出（本机 LLM CLI 后端当时不可用）。按记录纪律**不伪造 cleared**：该债务保留，作为本 PR 残留风险上报（CI 侧该判据为 advisory，不阻断合入） |
+| QM-6 CCG 双模型外部评审 | ❌ 未完成（环境受限，如实记录） | 预提交判定器已判 DUAL（1326 行 > 200）并落盘 `.ccg/reviews/43ffca04….json`。`sh scripts/deep-review.sh` 实测：proposer=opencode / critic=claude 依赖体检通过，但 critic 轴 `spawnSync <user-home>/.claude/bin/codeagent-wrapper.exe ETIMEDOUT`（deepReview.status=error）；独立探针 `claude -p "只回复两个字：收到"` >90s 超时、`opencode run …` 同样超时、`codex exec review` 同样无输出（本机 LLM CLI 后端当时不可用）。按记录纪律**不伪造 cleared**：该债务保留，作为本 PR 残留风险上报（CI 侧该判据为 advisory，不阻断合入） |
 | 远程同步 | 由门禁推导 | 合并后由 `scripts/lib/merge-ledger.js` 按主干历史推导收口，不手写状态词、不为收口另开 PR |
 
 ## QM-5 五步（详细）
