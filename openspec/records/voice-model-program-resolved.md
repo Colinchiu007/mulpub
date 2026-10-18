@@ -8,7 +8,7 @@ date: 2026-10-18
 
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
-| 变更类型与隔离 | ✅ | 运行时代码（`apps/desktop/src/**`、`apps/desktop/electron/services/**`、`ops-center/backend/**`、`ops-center/frontend/src/**`）⇒ 隔离 worktree `D:\Data\projects\mp-worktrees\mp-voice-model-program-resolved`、裸分支 `voice-model-program-resolved`（非 C 盘；`git rev-parse --abbrev-ref HEAD` 实证）；依赖就绪 `node scripts/verify-worktree-deps.js` = `OK` |
+| 变更类型与隔离 | ✅ | 运行时代码（`apps/desktop/src/**`、`apps/desktop/electron/services/**`、`ops-center/backend/**`、`ops-center/frontend/src/**`）⇒ 隔离 worktree `<repo parent>/mp-worktrees/mp-voice-model-program-resolved`、裸分支 `voice-model-program-resolved`（非 C 盘；`git rev-parse --abbrev-ref HEAD` 实证）；依赖就绪 `node scripts/verify-worktree-deps.js` = `OK` |
 | 第一性原因（QM-5 ①） | ✅ | 三处独立成因：①**UI 冗余**——「语音模型」下拉在多模态/单能力 MiniMax 下只有唯一候选（`capability_models.tts` / `models[0]`），零信息增益却把模型决策推给用户；②**口径分叉**——前端 `getS2VDefaultVoiceModel` / `getS2VDefaultVideoModel` 在多模态缺能力声明时猜 `models[0]`（可能是 image/video/llm 模型），主进程 `resolveProviderDefaultModel` 是 fail-closed，**三层测试各测一层、无一断言两层相等**，故前端可任意改兜底而不红（2026-08-09 修过同族问题后复发）；③**死字段**——前端读 `provider.defaultModel`，而 `_safeRow()` 从不返回该字段，运营配置的 `default_model` 被静默忽略 |
 | 逃逸分析（QM-5 ②） | ✅ | ①单元层：`useTtsVoices.test.js` 只测前端解析、`model-provider-manager.resolve-default.test.js` 只测主进程，**跨层等价零覆盖**；②集成层：`CreateView.test.js` 10 处语音夹具只设 `s2vConfig.voiceProvider` 而不注册 `s2vVoiceProviders`，旧实现读 `voiceModel` 所以能过——**夹具替实现掩盖了"模型必须来自 provider 注册表"这一契约**；③呈现层：`S2vConfigPanels.test.js` 只迭代契约白名单，从未断言「某字段不渲染」这一负向事实 |
 | 修复 + 回归保护（QM-5 ④） | ✅ | 新增 **跨层一致性锁** `apps/desktop/electron/services/voice-model-resolution-parity.test.js`（27 例：22 组夹具同喂前端 composable 与主进程，逐项断言相等 + 4 条源码级防漂移锁 + MiMo 正交用例）；**变异反证**：摘掉前端 `category === 'multimodal'` fail-closed 分支 ⇒ 4 条同时转红（3 条跨层 + 1 条源码锁），还原即 27/27 绿；`S2vConfigPanels.test.js` 新增「永不渲染『语音模型』」三场景负向用例；`useTtsVoices.test.js` 导出面计数同步（20 refs / 5 computeds / 27 methods，并显式断言两个已删键不得复现）；ops-center 后端新增 6 例（全类别能力默认模型保存/越界 400/键归属 400/空值合法/总览分组与缺口/隐藏项排除/迁移幂等回填） |
@@ -41,10 +41,26 @@ date: 2026-10-18
 | `apps/desktop` 定向（parity + useTtsVoices + S2vConfigPanels + model-provider-manager） | `Test Files 4 passed (4)` / `Tests 77 passed (77)` |
 | `apps/desktop` `src/views/CreateView.test.js` | rebase 前 `307/307`（评审修复前后各跑一次）；rebase 到最新 main 后上游已调整用例数 ⇒ **终态 `300/300 passed`** |
 | `apps/desktop` `CreateView.test.js` + `video-creation/**` 同批跑 | `Test Files 15` / `Tests 478`，其中 1 例 `去发布：有项目对象时视频模式预填充` 失败 —— **A/B 取证为顺序/时序污染 flake**：该用例单跑通过（5.3s）、完整单文件重跑 `300/300 passed`；它属发布预填，与本片语音域改动无交集，如实记录不掩盖 |
-| `ops-center/backend` `test_model_presets_api.py` + `test_model_catalog_api.py` | `61 passed`（含新增 M2 两条、能力默认模型 6 条、迁移回填、总览） |
+| `ops-center/backend` `test_model_presets_api.py` + `test_model_catalog_api.py` | `60 passed`（56 + 4；含 M2 两条、能力默认模型 6 条、迁移回填、总览） |
 | `ops-center/frontend` `npm test` | `Test Files 16 passed (16)` / `Tests 161 passed (161)` |
 | `ops-center/frontend` `npm run build` | `✓ built`（`ModelPresets-*.js` 22.75 kB） |
 | `apps/desktop` `pnpm run lint` | exit 0（`eslint electron/ src/ --quiet` 无输出） |
+
+### 代码债门禁：两处「点名还账」对象的结构性拆分（首轮 CI 红 → 已修）
+
+首轮 CI `债务熔断检查` 判两条 `TARGET_GREW`，都是 `check-max-lines.js` 的**点名还账对象**（零增长容差）：
+
+| 文件 | 门禁读数 | 处置（**不上调 targets**） |
+|------|----------|---------------------------|
+| `apps/desktop/electron/services/model-provider-manager.js` | 1301 行 > 目标 1284（超 17） | 本片只改 `resolveProviderDefaultModel`，净增全是解释性注释。把 24 行 JSDoc 压到 8 行、内联注释压到 1 行，最终 **1284 == 天花板**；逻辑零变化，`model-provider-manager*.test.js` 12 条仍全绿 |
+| `ops-center/backend/services/model_preset_service.py` | 1321 行 > 目标 1221（超 100） | **结构性拆分**：把能力默认模型的校验、迁移回填、总览聚合整体搬到新模块 `ops-center/backend/services/capability_default_models.py`（`normalize_capability_models` / `backfill_single_category_capability_model` / `capability_overview` / `CAPABILITY_OVERVIEW_ORDER`），原文件只剩 3 处薄调用（含 1 行 import）；同时把「每个声明能力必须有默认模型」的既有校验一并收进 helper。最终 **1220 行 ≤ 1221**，`check-max-lines.js` rc=0、`check-debt-budget.js` 全绿 |
+
+口径说明（写清为什么不选另一条路）：门禁自身给了「或在 review 中说明理由后一并上调 targets」的出口，但本仓既有先例（`podcast-publish-entry` 等四例）明确把上调 targets 视为「给这个文件再送免涨额度」，与点名还账的立项意图冲突；两处改动都是本片引入的增量，结构上可分离，因此选择压缩注释 / 拆模块而不是改预算。
+
+### 其它首轮 CI 红与处置
+
+- `QG Changes` 的 `Gate 12c`（`check-doc-abs-paths.js`）判 3 处新增「本机绝对路径」：`.ccg/reviews/*.json` 里引擎写下的 `codeagent-wrapper.exe` 绝对路径错误文案、`openspec/changes/.../tasks.md` 与本记录里的 worktree 绝对路径。三处都改写成占位符形态（`$HOME/…`、`<repo parent>/mp-worktrees/…`），本地复跑 `check-doc-abs-paths.js --base=origin/main --head=HEAD` = PASS、`--all` 全量审计 PASS。**没有**跑 `--write-baseline` 把新增记进账本（那正是该门禁要拦的形状）。
+- `Gate Result` 是上述两条的聚合红灯，两条修好后自解。
 
 ### QM-1 打包证据
 

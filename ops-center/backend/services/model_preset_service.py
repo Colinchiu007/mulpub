@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
 from models import ModelPreset
+from services.capability_default_models import backfill_single_category_capability_model, normalize_capability_models
 
 logger = logging.getLogger("ops-center")
 
@@ -643,21 +644,7 @@ async def ensure_catalog_seeded(db: AsyncSession):
                 and row.base_url == item["base_url"]):
             row.models_url = item["models_url"]
             changed = True
-        # 能力默认模型回填（voice-model-program-resolved，2026-10-18）：单能力 provider 的
-        # capability_models[category] 缺失且有 default_model 时按 default_model 补齐。
-        # 多模态行不参与（其键由 capabilities 驱动，创建时已完整写入）。
-        # 幂等：仅该键不存在时写，绝不覆盖运营已填的值。
-        if row.category != "multimodal":
-            try:
-                existing_caps = json.loads(row.capability_models or "{}")
-            except (ValueError, TypeError):
-                existing_caps = {}
-            if not isinstance(existing_caps, dict):
-                existing_caps = {}
-            if row.category not in existing_caps and (row.default_model or "").strip():
-                existing_caps[row.category] = row.default_model.strip()
-                row.capability_models = json.dumps(existing_caps, ensure_ascii=False)
-                changed = True
+        changed = backfill_single_category_capability_model(row) or changed
     if changed:
         await db.commit()
 
@@ -787,64 +774,6 @@ async def get_model_preset(db: AsyncSession, preset_id: str):
     return (await db.execute(select(ModelPreset).where(ModelPreset.id == preset_id))).scalar_one_or_none()
 
 
-# 能力默认模型总览的能力分组顺序（voice-model-program-resolved，2026-10-18）。
-# llm/tts/image/video/speech_recognition 为桌面端能力选择器会消费的类别；
-# audio 仅作运营参考，不出现在桌面端能力下拉里。
-CAPABILITY_OVERVIEW_ORDER = ["llm", "tts", "image", "video", "speech_recognition", "audio"]
-
-
-async def capability_overview(db: AsyncSession) -> list[dict]:
-    """按能力类别聚合「每个模型提供方的默许模型」（admin-only 总览）。
-
-    语义（voice-model-program-resolved）：
-    - 只统计 is_visible=1 的预设——隐藏项不计入缺口，避免运营被已下线的提供方干扰。
-    - 多模态 provider 按其 capabilities 出现在多个能力分组中。
-    - 单能力 provider 按其 category 出现在唯一分组中。
-    - is_configured=false 表示该能力缺口（该提供方在此能力下没有默许模型），
-      桌面端将无法在该能力下使用它。
-    """
-    rows = (await db.execute(select(ModelPreset).where(ModelPreset.is_visible == 1))).scalars().all()
-    grouped: dict[str, list[dict]] = {cap: [] for cap in CAPABILITY_OVERVIEW_ORDER}
-    for row in rows:
-        try:
-            caps = json.loads(row.capabilities or "[]")
-        except (ValueError, TypeError):
-            caps = []
-        try:
-            cap_models = json.loads(row.capability_models or "{}")
-        except (ValueError, TypeError):
-            cap_models = {}
-        if not isinstance(caps, list):
-            caps = []
-        if not isinstance(cap_models, dict):
-            cap_models = {}
-        # 该 provider 参与的能力集合：多模态取 capabilities，单能力取自身 category
-        if row.category == "multimodal":
-            own_caps = [str(c) for c in caps if str(c) in grouped]
-        elif row.category in grouped:
-            own_caps = [row.category]
-        else:
-            own_caps = []
-        for cap in own_caps:
-            model = cap_models.get(cap)
-            model_text = str(model).strip() if model is not None else ""
-            grouped[cap].append({
-                "id": row.id,
-                "name": row.name,
-                "category": row.category,
-                "model": model_text,
-                "is_configured": bool(model_text),
-            })
-    # 分组内按名称稳定排序，便于运营横向对比
-    for cap in grouped:
-        grouped[cap].sort(key=lambda item: (item["is_configured"] is False, item["name"], item["id"]))
-    return [
-        {"capability": cap, "providers": grouped[cap]}
-        for cap in CAPABILITY_OVERVIEW_ORDER
-        if grouped[cap]
-    ]
-
-
 async def upsert_model_preset(db: AsyncSession, data: dict, updated_by: str = "admin"):
     preset_id = str(data.get("id", "")).strip()
     name = str(data.get("name", "")).strip()
@@ -869,8 +798,12 @@ async def upsert_model_preset(db: AsyncSession, data: dict, updated_by: str = "a
         raise ValueError("capability_models 必须是对象")
     if not isinstance(capability_doc_links, dict):
         raise ValueError("capability_doc_links 必须是对象")
+    normalized_cap_docs = {}
+    for cap, links in capability_doc_links.items():
+        if cap not in ALLOWED_DOC_KEYS:
+            raise ValueError(f"未知的能力文档键：{cap}（允许：{', '.join(sorted(ALLOWED_DOC_KEYS))}）")
+        normalized_cap_docs[cap] = _validate_doc_links(links, f"capability_doc_links.{cap}")
 
-    # models 先规范化（能力默认模型自洽校验需要它做 ∈ 判定）
     models = data.get("models", [])
     if not isinstance(models, list):
         raise ValueError("models 必须是数组")
@@ -881,44 +814,11 @@ async def upsert_model_preset(db: AsyncSession, data: dict, updated_by: str = "a
         text = str(m).strip()
         if text and text not in normalized_models:
             normalized_models.append(text)
-
-    for cap in capabilities:
-        if cap not in capability_models:
-            raise ValueError(f"能力 {cap} 缺少默认模型（capability_models）")
-    # 能力默认模型的全类别自洽校验（voice-model-program-resolved，2026-10-18）：
-    # capability_models 从「仅多模态」扩展为「所有 provider 均可填写」——单能力 provider 的键
-    # 即其自身 category，多模态 provider 的键即其 capabilities。
-    # 键必须落在该预设的类别/能力集合内；非空值必须 ∈ models（防止运营填错导致运行期 fail-closed）。
-    allowed_cap_keys = {category} | {str(c) for c in capabilities}
-    normalized_capability_models = {}
-    for cap_key, cap_model in capability_models.items():
-        if str(cap_key) not in allowed_cap_keys:
-            raise ValueError(
-                f"能力默认模型键 {cap_key} 不属于该预设的类别/能力（允许：{', '.join(sorted(allowed_cap_keys))}）"
-            )
-        # 只接受字符串或 null：int/bool 在桌面端两层解析里都会被 `typeof === 'string'` 静默跳过，
-        # 落库后会出现「校验通过 / 总览显示已配置 / 运行期当未配置」三面不一致（跨家族评审 M2）。
-        if cap_model is not None and not isinstance(cap_model, str):
-            raise ValueError(f"能力 {cap_key} 的默认模型必须是字符串（收到 {type(cap_model).__name__}）")
-        text = (cap_model or "").strip()
-        if text and normalized_models and text not in normalized_models:
-            raise ValueError(f"能力 {cap_key} 的默认模型 {text} 不在模型列表中")
-        normalized_capability_models[str(cap_key)] = text
-
-    normalized_cap_docs = {}
-    for cap, links in capability_doc_links.items():
-        if cap not in ALLOWED_DOC_KEYS:
-            raise ValueError(f"未知的能力文档键：{cap}（允许：{', '.join(sorted(ALLOWED_DOC_KEYS))}）")
-        normalized_cap_docs[cap] = _validate_doc_links(links, f"capability_doc_links.{cap}")
-
+    normalized_capability_models = normalize_capability_models(capability_models, category, capabilities, normalized_models)
     default_model = str(data.get("default_model", "")).strip()
     if default_model and normalized_models and default_model not in normalized_models:
         raise ValueError("默认模型 ID 必须在模型列表中")
-    # 兼容同步（voice-model-program-resolved）：本类别的能力默认模型有值时，镜像写入
-    # default_model，保证**旧版桌面端**（只读 default_model）行为不回退。
-    category_default = normalized_capability_models.get(category)
-    if category_default:
-        default_model = category_default
+    default_model = normalized_capability_models.get(category) or default_model
 
     row = await get_model_preset(db, preset_id)
     now = datetime.datetime.utcnow().isoformat()

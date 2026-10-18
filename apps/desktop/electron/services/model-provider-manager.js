@@ -72,28 +72,13 @@ function normalizeProviderModels (providerId, models) {
 }
 
 /**
- * 解析 provider 实际使用的默认模型 ID（2026-08-27 双默认语义；2026-10-18 能力优先级修订）。
- *
- * 优先级（voice-model-program-resolved：能力级默认必须**先于** provider 级默认）：
- *   1. config.user_default_model（桌面端用户下拉选择，用户级，最高优先；∈ models 才生效）
- *   2. capability_models[type]（运营中心按能力类别配置的默许模型；声明即有效，不校验 ∈ models）
- *   3. config.default_model（运营 provider 级默认；**多模态跳过**，因为它通常是 llm 默认模型；
- *      ∈ models 才生效）
- *   4. 单能力 provider 回退 models[0]；多模态 provider 无能力声明不猜测（返回 ''，调用方 fail-closed）
- *
- * 为什么第 2 步必须早于第 3 步（2026-10-18 复审实证的缺陷）：
- *   `minimax-multimodal` 的目录下发同时含 `default_model='MiniMax-M2.7'`（∈models）与
- *   `capability_models={llm:MiniMax-M2.7, tts:speech-2.8-turbo, image:image-01, video:MiniMax-Hailuo-2.3}`。
- *   旧顺序（default_model 优先）会让 tts/image/video 三个能力**全部解析成 LLM 模型**。
- *   新建任务时前端显式传 `params.voiceModel` 掩盖了这个缺陷，只有「断点续跑 / 播客」这类
- *   走 `__resumeUseCurrentModels` 的路径才会用上它 —— 表现为恢复后拿 LLM 模型当 TTS 用。
- *   前端 `resolveVoiceModelForProvider` 与本函数逐项等价，由
- *   `voice-model-resolution-parity.test.js` 做跨层一致性锁（两条都有「能力默认 vs 运营默认
- *   均有效且不同」的夹具，缺了就会漏掉这条分歧）。
- *
+ * 解析 provider 实际使用的默认模型 ID（2026-08-27 双默认语义；2026-10-18 修订优先级）。
+ * ① config.user_default_model（∈models 才生效）② capability_models[type]（声明即有效，须先于 ③：
+ * minimax-multimodal 的 default_model 是 LLM 模型，旧序会让 tts/image/video 全解析成它）
+ * ③ config.default_model（∈models 才生效；多模态除 llm 外跳过）④ 单能力 models[0]；多模态无声明 ''。
+ * 前端 resolveVoiceModelForProvider 逐项等价，由 voice-model-resolution-parity.test.js 锁定。详见 PRD。
  * @param {{ models?: unknown, config?: object|null, capability_models?: object|null, category?: string }} provider
- * @param {string} [type] 能力类型：llm/tts/speech_recognition/image/video/audio
- * @returns {string}
+ * @param {string} [type] 能力类型：llm/tts/speech_recognition/image/video/audio；返回模型 ID 或 ''。
  */
 function resolveProviderDefaultModel (provider, type) {
   if (!provider || typeof provider !== 'object') return ''
@@ -104,14 +89,12 @@ function resolveProviderDefaultModel (provider, type) {
   // 1. 用户默认（桌面端「默认模型」下拉选择）
   const userDefault = typeof config.user_default_model === 'string' ? config.user_default_model.trim() : ''
   if (userDefault && models.includes(userDefault)) return userDefault
-  // 2. 多模态能力路由（声明即有效，不校验 ∈ models）—— 必须先于 provider 级默认
+  // 2. 能力路由（声明即有效，不校验 ∈ models）—— 必须先于 provider 级默认
   if (type && provider.capability_models && typeof provider.capability_models === 'object') {
     const byCapability = provider.capability_models[type]
     if (typeof byCapability === 'string' && byCapability.trim()) return byCapability.trim()
   }
-  // 3. 运营 provider 级默认（目录同步下发）。多模态**除 llm 外**跳过：该字段对多模态是
-  //    provider 的「主模型」（通常是 llm），拿它解 tts/image/video 会静默取错模型；
-  //    但解 llm 时它正是正确来源，跳过会让「多模态 + 仅 default_model」的存量行静默降级为空串。
+  // 3. 运营 provider 级默认：多模态除 llm 外跳过（该字段对多模态是主模型，通常是 llm）
   const skipOpsDefault = provider.category === 'multimodal' && type && type !== 'llm'
   if (!skipOpsDefault) {
     const opsDefault = typeof config.default_model === 'string' ? config.default_model.trim() : ''

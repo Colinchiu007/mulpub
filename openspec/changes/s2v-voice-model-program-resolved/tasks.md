@@ -1,6 +1,6 @@
 # s2v-voice-model-program-resolved 变更任务
 
-> 隔离说明：本变更为**运行时代码变更**（apps/ + ops-center/），按 AGENTS.md 分层分支策略在独立 worktree `D:\Data\projects\mp-worktrees\mp-voice-model-program-resolved`（分支 `voice-model-program-resolved`，D 盘非 C 盘）完成，经 PR + CI 后 squash 合并回 main。
+> 隔离说明：本变更为**运行时代码变更**（apps/ + ops-center/），按 AGENTS.md 分层分支策略在独立 worktree `<repo parent>/mp-worktrees/mp-voice-model-program-resolved`（分支 `voice-model-program-resolved`，D 盘非 C 盘）完成，经 PR + CI 后 squash 合并回 main。
 
 ## 0. 阶段 1：契约与规格（openspec 五件套）
 

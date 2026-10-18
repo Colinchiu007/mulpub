@@ -8,6 +8,7 @@ from config import settings
 from database import get_db
 from middleware.auth import get_current_user, require_admin
 from services import model_preset_service
+from services.capability_default_models import capability_overview
 from services.logto_verifier import verify_bearer_or_catalog_key
 
 router = APIRouter(prefix="/api/v1/model-presets", tags=["model-presets"])
@@ -47,7 +48,7 @@ async def get_capability_overview(
     「某能力下哪些提供方缺默许模型」（is_configured=false 即缺口）。
     只统计 is_visible=1 的预设（隐藏项不计入缺口）。
     """
-    capabilities = await model_preset_service.capability_overview(db)
+    capabilities = await capability_overview(db)
     missing = sum(
         1 for group in capabilities for provider in group["providers"] if not provider["is_configured"]
     )
