@@ -1501,9 +1501,10 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 
 | 位置 | 产物 | 频道来源 | 状态 |
 | --- | --- | --- | --- |
-| `ResultView.vue:726` | 成片（视频出期） | 上下文频道 | 已落（刀 3 第 4 片） |
-| `CreateView.vue:4519` | 项目成片 | 项目绑定频道 | 已落（刀 3 第 4 片） |
+| `ResultView.vue:64` | 成片（视频出期） | 上下文频道 | 已落（刀 3 第 4 片）。**坐标实测校正（2026-10-19）**：原写 `:726` 早已漂走，现 `<PodcastEpisodeEntry :project :segments :video-path>` 在 `:64`，组件导入 `:447`、注册 `:479`。**同一条旧坐标还出现在 §14「第 3 片落地增量与欠账更新」里那条以「仍在的欠账（带承接片，不是遗漏）」开头的行——那是第 4 片当时的施工指令原文，按本仓"散文不改写"的规矩留着，本表是唯一坐标真源** |
+| `CreateView.vue:352-360` + `:4610` | 项目成片 | 项目绑定频道 | 已落（刀 3 第 4 片）。**坐标实测校正**：原写 `:4519` 漂到 `:4610`（`openPodcastEpisodePublish`）；浮层 `PodcastPublishAction` 挂载在 `:352-360`（`v-if="podcastEpisode.openedOnce"`，按需挂载的理由见该组件同名注释），事件绑定 `@publish-podcast-episode` 在 `:373` |
 | `CopyLibraryView.vue`（卡片内独立按钮，`@click.stop`） | 文案库单条口播稿 | **默认频道**（§7.10.3.2 裁定：入口侧解析，浮层内不放下拉；无默认频道 ⇒ 动作不出现） | 已落（tasks 4.3②-b） |
+| `CreateViewHistory.vue:291-293` | 该条历史run 的成片（`item.videoPath`/`item.outputPath`） | 由 `CreateView` 在交接时按 `projectId` 回取项目后决定（列表卡片手里只有索引信息，出期要的是完整项目） | 已落，但**本次才登记进表**：按钮 `data-testid="history-podcast-episode-button"` 在历史卡片上 `$emit('publish-podcast-episode', item)`，由 `CreateView.vue:373` 消费。此前 §15.2 只写了 `CreateView.vue`，把"入口在列表卡片、判据在项目"这一处分叉藏住了 |
 | `RewriteView.vue`（改写结果区，见 §7.10.3.4） | 改写结果区口播稿 | **默认频道**（§7.10.3.2 同一解析；原文写「当场选」与那条裁定冲突，已收敛） | 已落（tasks 4.3②-b②，2026-10-17） |
 | `Publish.vue`（文本类分支，见 §7.10.3.4） | `article.content` 当前稿 | **默认频道**（§7.10.3.2 同一解析。原文写「上下文频道」是**空头支票**：本播客频道体系里没有「发布页上下文频道」这个东西——发布页的上下文是平台/账号，与 RSS 频道不同源，照抄会把入口接到一个不存在的键上） | 已落（tasks 4.3②-b③，2026-10-18；入口只读在途正文，不固化草稿） |
 
@@ -1519,12 +1520,13 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 | --- | --- | --- |
 | `HotTopics` | ① | 那里是选题与素材，没有成片也没有成形口播稿；点它只能触发「去生成」，与一键发布不是一件事 |
 | `KeywordMonitor` | ① | 产出是关键词与抓取记录，不是可发布内容；且它没有稳定的单集概念，写进 feed 会造出无意义 item |
-| `PublishHistory` | ③ | 历史条目重发会**覆盖已上线的一期**（同 guid 换音频/换时长），用户以为只是重试；要做也得先做「重发即新期」的判据与确认，属另一刀 |
+| `PublishHistory` | ③ | **这条的理由原先写的是错的机制**（原文「历史条目重发会**覆盖已上线的一期**（同 guid 换音频/换时长）」）。实测：出期链**从头到尾没有任何一层传过 `meta.guid`**（`PodcastEpisodeEntry.vue` / `PodcastScriptEntryLauncher.vue` / `PodcastScriptEntry.vue` / `src/api/podcast-channel.js` / `ipc-handlers/podcast-episode-ipc.js` 五处 grep `guid` 命中 0），而 `podcast-rss.js:238` 是 `guid = ep.guid \|\| url` —— guid 回落成音频 URL。所以"同一期再发一次"产出的是**第二条 item**（两个 guid 并存，聚合端当两期），不是"把已上线那期换掉"。不放的理由照旧成立（③ 要的"幂等或显式二次确认"两条都不在），但**依据换了**：按错的依据做设计会去防覆盖，而真正要防的是重复。修复合同拆到 `tasks 5.1b③`（传一个按 runId 稳定的 guid）。 |
 | `Home` | ①② | 首页没有产物上下文也没有频道上下文，入口只能挂到一个空表单上 |
 | `FirstRun` | ①② | 引导期既没配托管凭证也没建频道，点开通期必然停在 `PODCAST_HOSTING_NOT_CONFIGURED` |
 | `FilmEngineering` | ① | 该页产物是视频工程与分镜资产，不是播客单集；它的发布挂载点在视频线，不在 RSS 线（见 ADR「协议型分发通道不挤进平台登记面」） |
 
 ### 15.4 判据本身的验收
 
-- 判据必须能同时判「放」与「不放」。两张表当前覆盖的是**已裁定的 11 个位置**（§15.2 五枚 + §15.3 六枚），**不是**"`apps/desktop/src/views` 下所有产出文案或成片的页面"——那句话原先说过头了（2026-10-19 实测：该目录现有 36 个 `.vue`，按产物词元扫出 5 个候选页 `Collection.vue` / `VideoCloneView.vue` / `CreateViewHistory.vue` / `CreateHistory.vue` / `PromptEvalView.vue` 不在任一表内，且都不解析播客频道）。这 5 页的逐页裁定登记为 `tasks 5.1b②`，裁定前本节主张只到"已裁定 11 处"。新增一页就要在这里追加一行，写「放 / 不放 + 命中哪条判据」。
+- 判据必须能同时判「放」与「不放」。两张表当前覆盖的是**已裁定的位置**（§15.2 六枚 + §15.3 六枚），**不是**"`apps/desktop/src/views` 下所有产出文案或成片的页面"。**「扫出 5 个候选页」那句话本身是有缺陷的**（2026-10-19 复核）：上一版没把**扫描坐标**（哪组词元、顶层还是递归、怎么算命中）写进任何地方。本日用另一组产物词元重扫同一目录，得到 `顶层 36 / 递归 52 / 候选 12 页`，与那份"5 页"清单只有 3 页重合（`CreateHistory` / `CreateViewHistory` / `PromptEvalView`），且这次没扫出 `Collection.vue` / `VideoCloneView.vue`。**两次的差不是现场变了，是坐标没记 ⇒ 任何一方都无法被复算**。从现在起本节自带坐标，重取命令（在 `apps/desktop/src/views` 下，含子目录）：域 = `find . -name '*.vue' | wc -l`（本次 52；顶层单算 `ls *.vue | wc -l` 本次 36）；候选 = 对每个 `.vue` 同时跑 `grep -acE 'article\.content|sourceText|scriptText|videoPath|outPath|finalVideo|成片|口播稿'` **大于 0** 与 `grep -acE 'usePodcastChannel|activeChannelId|podcastChannel|PODCAST_CHANNEL'` **等于 0**，本次命中 12 页。**敏感度是当场量出来的，不是修辞**：同一天再换一组更严的产物词元（`videoPath|outPath|finalVideoPath|composedVideo|resultVideo|\.mp4|previewUrl`）复扫其中**不在两张表内的 8 页**，只剩 3 页命中（`CreateHistory` / `CreateViewHistory` / `FilmCanvasView`）——词元集换一次清单就换一次，所以这里给命令与读数而不是一张写死的表；坐标变更时候选集必须整体重算，不得沿用旧清单。（读数域要说全：那 8 页是 12 页里除去 `CreateView` / `Publish` / `ResultView` / `HotTopics` 四页后的集合，后四页要么已在表内、要么已在 §15.3。）候选集由命令决定，命令变则候选集变，此时必须先改判据再改清单。在 5.1b② 逐页裁定落之前，本节主张只到"已裁定 12 处（含本次新登记的 `CreateViewHistory.vue` 一枚、本次更正依据的 `PublishHistory` 一枚）"，不得再写"覆盖所有页面"。
 - 三枚待落入口（4.3②）落地时，必须同 PR 把本节状态列从「待落」改为「已落」，并同步 `openspec/changes/podcast-oneclick-publish/tasks.md` 的 4.3② 勾位——**文档与代码的状态差**是本仓「over-claim」的老病。
+- **判据③ 对三枚"已落"的视频出期入口并不成立**（2026-10-19 实测，见上 `PublishHistory` 行的更正）：入口组件与 IPC 都不传 `guid`、也没有"这一期已经出过"的判据或二次确认。当前唯一挡住重复的是 `PODCAST_CHANNEL_BUSY`（同频道**并发**互斥），它对"先后点两次"完全放行。这不是要回退入口，而是③的合同缺一块——补法与触发条件记在 `tasks 5.1b③`。另记一条与本次音频键修复（PR #3958）的耦合，防止有人误读成"是它把门禁弄坏的"：音频键改成随期变化**之前**，同一期重复发布落的是同一个 URL ⇒ guid 也相同 ⇒ `podcast-rss.js:181-183` 的 `EPISODE_DUPLICATE`（按 `guid/audioUrl` 去重）**有机会**照出来；改完之后两次发布的 URL 天然不同，那条探针就不再可见。**"有机会"是刻意的弱写法**——本刀没有实测出期链在发布前是否真的跑过 `validateFeed`（`podcast-episode-compliance.js` 里判的是逐期 `validateEpisode`，跨期去重在 `validateFeed`），所以这条只能读成"少了一道巧合的兜底"，不能读成"少了一道生效的门禁"。

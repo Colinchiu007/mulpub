@@ -1,3 +1,14 @@
+# [未发布] docs(播客): 入口判据 §15 的坐标校正与一条依据被实测推翻，新开 5.1b③（podcast-entry-adjudication-51b2）
+
+- **两处入口坐标实测已漂**：§15.2 写的 `ResultView.vue:726` 现在在 `:64`（`<PodcastEpisodeEntry>` 挂载行，导入 `:447`、注册 `:479`），`CreateView.vue:4519` 现在在 `:4610`（`openPodcastEpisodePublish`，浮层挂载 `:352-360`、事件绑定 `:373`）。旧坐标**不删**，行内标"坐标实测校正"，并点明 §14 那条施工指令里同样出现的旧坐标按"散文不改写"留着、以本表为唯一真源。
+- **补上被藏住的一枚入口**：`CreateViewHistory.vue:291-293` 的按钮（`data-testid="history-podcast-episode-button"`）在历史卡片上 `$emit('publish-podcast-episode', item)`，由 `CreateView.vue:373` 消费，处理函数**先按 `projectId` 回取完整项目**再挂浮层（卡片只有索引信息，而降级判定要读 `segments[].audioMeta.degraded`）。此前表里只写 `CreateView.vue`，"入口在列表卡片、判据在项目"这处分叉没被任何一行记录过。
+- **§15.3 `PublishHistory` 那行的依据被推翻**：原文「历史条目重发会**覆盖已上线的一期**（同 guid 换音频/换时长）」。实测出期链**没有任何一层传过 `meta.guid`**（入口两组件 + `src/api/podcast-channel.js` + `ipc-handlers/podcast-episode-ipc.js` 共五处 grep `guid` 命中 0），而 `podcast-rss.js:238` 是 `guid = ep.guid || url` ⇒ guid 回落成音频 URL。所以"同一期再发一次"产出的是**第二条 item（两个 guid 并存，聚合端当两期）**，不是覆盖。结论（不放）不变，**依据换了**——按错依据做设计会去防覆盖，而真正要防的是重复。
+- **「扫出 5 个候选页」这句不可复算，已换成自带坐标的命令**：上一版没写扫描词元集。本日按 §15.4 新写入的命令重跑得到 `顶层 36 / 递归 52 / 候选 12 页`，与旧"5 页"清单只 3 页重合；当场还做了敏感度对照——换一组更严的产物词元复扫，8 页里只剩 3 页命中。**词元集换一次清单就换一次**，所以本节给命令与读数而不是一张写死的表。
+- **新开 `tasks 5.1b③`：判据③ 对三枚已落的视频出期入口当前不成立**。没有 guid、没有"这一期已出过"的判据、没有二次确认；唯一挡着的是 `PODCAST_CHANNEL_BUSY` 的**并发**互斥，对"先后点两次"完全放行。合同五条要点写进行内，其中**文本链的身份取什么（`rewriteHistoryId` 还是内容指纹）属产品判断**，定不下来不许实现。
+- **一条刻意不冒充的耦合**：音频键改成随期变化（PR #3958）**之前**，重复发布落同一个 URL ⇒ guid 相同 ⇒ `EPISODE_DUPLICATE`（`podcast-rss.js:181-183` 按 `guid/audioUrl` 去重）**有机会**照出来；改完之后两次 URL 天然不同，那条探针不再可见。"有机会"是弱写法——本刀没实测发布前是否真跑过 `validateFeed`（`podcast-episode-compliance.js` 判的是逐期 `validateEpisode`），所以这条只读作"少了一道巧合的兜底"，不读作"少了一道生效的门禁"。
+- **驱动侧记一条 fail-closed 现场**：锚点 `ResultView.vue:726` 首次命中 2（§14 欠账行也引它）⇒ 补丁驱动直接拒绝改写。正解是把锚点收成整行前缀，**不是**放宽命中计数。两份文档行尾均先断言"均匀 CRLF"再统一 join，两口径 `--numstat` 逐文件相等（PRD 6/4、tasks 2/1）。
+- 零运行时代码 ⇒ QM-1 / QM-4 / TDD 不触发，QM-6 走 docs-only 通道；全部现场记 `openspec/records/podcast-entry-adjudication-51b2.md`。
+
 # [未发布] test(播客): 出期链测试侧两笔债收口 —— fixture 尺寸单一真源 + 忙标记走公开出口（podcast-test-seam-debt）
 
 - **`podcast-episode-publish.test.js` 的音频字节数从六处手写收敛成一个 `AUDIO_BYTES`**（tasks 3.11 / 刀 3 评审遗留 F9）：写盘、申报值、上传回显、下游断言、两条旁路夹具全部从同一个数派生，其中 SIZE_MISMATCH 那条改成显式的 `AUDIO_BYTES - 1`——把"故意差一点"写进表达式，而不是留一个看不出关系的 `999`。同文件末尾加一条接线锁：本文件只允许出现一次该字面量，并带"读到了没"与"常量定义在位"两条正控，否则"0 命中"会被读成"通过"。
