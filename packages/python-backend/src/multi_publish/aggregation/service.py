@@ -209,14 +209,50 @@ class AggregationService:
 
     # ── 改写（P1: 使用 shared 库 + LLMServiceAdapter） ─────────────
 
+    def _resolve_llm_settings(self, request: Optional[RewriteRequest] = None) -> dict:
+        """解析 LLM 运行时配置：优先级 request.llm > env（LLM_* > PO_OPENAI_*）。
+
+        逐字段独立回退（api_key / base_url / model 各自判定），与桌面端
+        `electron/services/llm-runtime-config.js` 的注入契约一致：
+          - 桌面「模型设置」里的默认模型随请求下发的字段优先；
+          - 缺失字段回退进程环境变量，保持历史部署（只配 env）可用。
+
+        安全：返回的 api_key 只用于构造适配器；本方法及其调用方**不得**把密钥写日志。
+        """
+        override = getattr(request, "llm", None) if request is not None else None
+
+        def _override(name: str) -> Optional[str]:
+            value = getattr(override, name, None) if override is not None else None
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+            return None
+
+        api_key = (
+            _override("api_key")
+            or os.environ.get("LLM_API_KEY")
+            or os.environ.get("PO_OPENAI_API_KEY", "")
+        )
+        base_url = (
+            _override("base_url")
+            or os.environ.get("LLM_BASE_URL")
+            or os.environ.get("PO_OPENAI_BASE_URL", "")
+        )
+        model = (
+            _override("model")
+            or os.environ.get("LLM_MODEL")
+            or os.environ.get("PO_OPENAI_MODEL", "gpt-4o-mini")
+        )
+        return {"api_key": api_key, "base_url": base_url, "model": model}
+
     async def rewrite(self, request: RewriteRequest) -> RewriteResultModel:
         logger.info(f"[AggregationService] rewrite: style={request.style}, length={request.length}")
         # 输入校验：仅拦截空内容（2026-09-12 移除 20 字下限，非空即可改写）
         if not (request.content or "").strip():
             raise UserVisibleError("AGGREGATION_CONTENT_EMPTY", "输入内容不能为空")
-        # 前置校验：未配置 LLM API Key 时返回稳定错误码，由前端 locale 渲染友好文案
-        api_key = os.environ.get("LLM_API_KEY") or os.environ.get("PO_OPENAI_API_KEY", "")
-        if not api_key:
+        # 前置校验：未配置 LLM API Key 时返回稳定错误码，由前端 locale 渲染友好文案。
+        # 2026-10-18：请求可携带桌面「模型设置」解析出的 llm（request.llm > env）。
+        llm_settings = self._resolve_llm_settings(request)
+        if not llm_settings["api_key"]:
             raise UserVisibleError("LLM_KEY_MISSING", "AI 改写服务尚未配置访问密钥")
         # 从 shared 库导入（替代旧 content_aggregator.xxx 路径）
         RewriteProcessor = _lazy_import("content_aggregator_shared.shared.rewriters.rewriter", "RewriteProcessor")
@@ -228,9 +264,10 @@ class AggregationService:
             raise ImportError("content-aggregator-shared 未安装。请运行: pip install content-aggregator-shared")
 
         # P1: 使用 LLMServiceAdapter 注入 Multi-Publish 的 LLMService
-        llm_client = self._build_llm_adapter()
+        # 2026-10-18：request.llm（桌面模型设置）优先于 env，见 _resolve_llm_settings
+        llm_client = self._build_llm_adapter(request)
 
-        config = self._build_pipeline_config()
+        config = self._build_pipeline_config(request)
         config["_llm_client"] = llm_client
 
         content_obj = Content(
@@ -286,10 +323,11 @@ class AggregationService:
             logger.warning(f"[AggregationService] quality evaluation failed: {e}")
         return result_model
 
-    def _build_llm_adapter(self):
+    def _build_llm_adapter(self, request: Optional[RewriteRequest] = None):
         """构造 LLMServiceAdapter，将 Multi-Publish LLMService 注入改写器。
 
-        优先级：LLM_API_KEY > PO_OPENAI_API_KEY（向下兼容）
+        优先级：request.llm（桌面「模型设置」注入）> LLM_* > PO_OPENAI_*（向下兼容），
+        逐字段回退，见 _resolve_llm_settings。
         无 API key 时返回 None，让 RewriteProcessor 使用默认 LLMClient。
         """
         LLMService = _lazy_import("multi_publish.services.llm_service", "LLMService")
@@ -300,16 +338,19 @@ class AggregationService:
                            "RewriteProcessor 将使用默认 LLMClient")
             return None
 
-        api_key = os.environ.get("LLM_API_KEY") or os.environ.get("PO_OPENAI_API_KEY", "")
+        settings = self._resolve_llm_settings(request)
+        api_key = settings["api_key"]
         if not api_key:
             logger.warning("[AggregationService] 未配置 LLM API Key，"
                            "RewriteProcessor 将使用默认 LLMClient")
             return None
 
-        base_url = os.environ.get("LLM_BASE_URL") or os.environ.get("PO_OPENAI_BASE_URL", "")
-        model = os.environ.get("LLM_MODEL") or os.environ.get("PO_OPENAI_MODEL", "gpt-4o-mini")
-
-        svc = LLMService(config={"api_key": api_key, "base_url": base_url, "model": model})
+        # 注意：仅 api_key 进入适配器配置，不写任何日志（避免凭据进日志）
+        svc = LLMService(config={
+            "api_key": api_key,
+            "base_url": settings["base_url"],
+            "model": settings["model"],
+        })
         return LLMServiceAdapter(svc)
 
     # ── 源管理 ────────────────────────────────────────────────────────
@@ -378,17 +419,18 @@ class AggregationService:
 
     # ── 配置 ──────────────────────────────────────────────────────────
 
-    def _build_pipeline_config(self) -> dict:
+    def _build_pipeline_config(self, request: Optional[RewriteRequest] = None) -> dict:
         """构建 ContentPipeline 配置。
 
-        LLM 配置优先使用 Multi-Publish 标准环境变量 (LLM_API_KEY 等)，
-        向下兼容 PO_OPENAI_*（旧 content-aggregator 约定）。
+        LLM 配置优先级：request.llm（桌面「模型设置」注入）> Multi-Publish 标准环境变量
+        (LLM_*) > PO_OPENAI_*（旧 content-aggregator 约定），逐字段回退。
         """
+        settings = self._resolve_llm_settings(request)
         return {
             "llm": {
-                "api_key": os.environ.get("LLM_API_KEY") or os.environ.get("PO_OPENAI_API_KEY", ""),
-                "model": os.environ.get("LLM_MODEL") or os.environ.get("PO_OPENAI_MODEL", "gpt-4o-mini"),
-                "base_url": os.environ.get("LLM_BASE_URL") or os.environ.get("PO_OPENAI_BASE_URL", "https://api.openai.com/v1"),
+                "api_key": settings["api_key"],
+                "model": settings["model"],
+                "base_url": settings["base_url"] or "https://api.openai.com/v1",
             },
             "export": {"output_dir": "./output/aggregation"},
             "http": {

@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { formatUserError, USER_ERROR_CODES } from './user-facing-error'
+import zhUserErrors from '@/locales/user-errors/zh'
+import enUserErrors from '@/locales/user-errors/en'
 
 describe('formatUserError — errorCode 优先', () => {
   it('AUTH_REQUIRED：中文含原因+建议，不暴露通道名', () => {
@@ -196,5 +198,51 @@ describe('formatUserError — aggregation 域错误码 + params 插值（2026-09
     expect(internal.message).not.toContain('ConnectionResetError')
     const rewrite = formatUserError({ errorCode: 'AGGREGATION_REWRITE_FAILED', code: -400 }, { locale: 'en' })
     expect(rewrite.message).toContain('could not be completed')
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════
+// LLM_NOT_CONFIGURED（2026-10-18，fix-collect-antibot-rewrite）
+//
+// 新的稳定码：桌面「模型设置」里没有可用的默认文字推理模型时，聚合改写会在主进程
+// 短路成该码。文案必须是「可操作」的：指向 模型设置 → 文字推理 默认模型；
+// 多模态模型要勾选文字推理的默认标记；保存后重试。zh/en 必须成对（CI Gate 7）。
+// ═══════════════════════════════════════════════════════════════════════
+describe('formatUserError — LLM_NOT_CONFIGURED（默认文字推理模型未就绪）', () => {
+  it('USER_ERROR_CODES 暴露稳定码（防止常量与 locales 漂移）', () => {
+    expect(USER_ERROR_CODES.LLM_NOT_CONFIGURED).toBe('LLM_NOT_CONFIGURED')
+  })
+
+  it('zh：可操作文案（模型设置 / 文字推理 / 默认模型 / 多模态默认标记 / 保存后重试）', () => {
+    const result = formatUserError({ code: -400, errorCode: 'LLM_NOT_CONFIGURED', message: '未找到可用的默认文字推理模型' }, { locale: 'zh' })
+    expect(result.errorCode).toBe('LLM_NOT_CONFIGURED')
+    expect(result.matched).toBe('errorCode')
+    expect(result.message).toContain('模型设置')
+    expect(result.message).toContain('文字推理')
+    expect(result.message).toContain('默认模型')
+    expect(result.message).toContain('多模态')
+    expect(result.message).toContain('默认标记')
+    expect(result.message).toContain('保存')
+    expect(result.message).toContain('重试')
+    // 不得泄露 env 变量名/内部实现
+    expect(result.message).not.toContain('LLM_API_KEY')
+    expect(result.message).not.toContain('PO_OPENAI_API_KEY')
+  })
+
+  it('en：自然语言、无 env 变量名', () => {
+    const result = formatUserError({ code: -400, errorCode: 'LLM_NOT_CONFIGURED', message: 'x' }, { locale: 'en' })
+    expect(result.errorCode).toBe('LLM_NOT_CONFIGURED')
+    expect(result.message).toContain('Model Settings')
+    expect(result.message).toContain('Text Reasoning')
+    expect(result.message).toContain('multimodal')
+    expect(result.message).toContain('try again')
+    expect(result.message).not.toContain('LLM_API_KEY')
+  })
+
+  it('zh/en 成对：两个 userErrors 文案表都含该键（CI Gate 7 前置锁）', () => {
+    expect(typeof zhUserErrors.LLM_NOT_CONFIGURED).toBe('string')
+    expect(typeof enUserErrors.LLM_NOT_CONFIGURED).toBe('string')
+    expect(zhUserErrors.LLM_NOT_CONFIGURED.length).toBeGreaterThan(20)
+    expect(enUserErrors.LLM_NOT_CONFIGURED.length).toBeGreaterThan(20)
   })
 })
