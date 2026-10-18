@@ -15,6 +15,7 @@
 const { EventEmitter } = require('events')
 const { HOME_TAB_ID, AUTH_TAB_ID } = require('./constants')
 const { SIDEBAR_WIDTH_DEFAULT } = require('./constants')
+const log = require('../logger')
 
 // 导入各功能模块
 const eventBus = require('./event-bus')
@@ -93,14 +94,22 @@ class WebviewManager extends EventEmitter {
    */
   setOAuthManager (oauthManager) {
     this._oauthManager = oauthManager || null
-    // 注入时把当前已知状态推给它，避免「注入晚于首次同步」导致它停留在默认值
+    // 注入时把当前已知状态推给它，避免「注入晚于首次同步」导致它停留在默认值。
+    // log.info 出声（CCG 外部复核 i4 建议）：状态补齐是「修顺序依赖」的动作，
+    // 静默成功会让「到底有没有补上」只能靠猜，出问题时无法归因。
     if (this._oauthManager) {
+      const backfilled = []
       if (typeof this._oauthManager.setSidebarWidth === 'function' &&
           this._sidebarWidth !== SIDEBAR_WIDTH_DEFAULT) {
         this._oauthManager.setSidebarWidth(this._sidebarWidth)
+        backfilled.push('width=' + this._sidebarWidth)
       }
       if (typeof this._oauthManager.setSidebarCollapsed === 'function' && this._sidebarCollapsed) {
         this._oauthManager.setSidebarCollapsed(true)
+        backfilled.push('collapsed=true')
+      }
+      if (backfilled.length > 0) {
+        log.info('WebviewManager', 'setOAuthManager backfilled current state: ' + backfilled.join(', '))
       }
     }
   }

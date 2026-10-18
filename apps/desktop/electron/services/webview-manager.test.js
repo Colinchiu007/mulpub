@@ -318,6 +318,43 @@ describe('broadcastSidebarCollapsed（多窗口同步，2026-10-18）', () => {
     const { sent } = wm.broadcastSidebarCollapsed({ getAllWindows: () => [] })
     expect(sent).toBe(0)
   })
+
+  it('CCG i2：有窗口却一个都没送到时必须 warn（同步通道不得静默失败）', () => {
+    const { wm } = createManagerWithBrowserTab()
+    loggerMock.warn.mockClear()
+
+    // 唯一窗口已销毁 ⇒ 全部跳过 ⇒ sent=0 但 windows.length>0
+    wm.broadcastSidebarCollapsed({ getAllWindows: () => [{ isDestroyed: () => true, webContents: { isDestroyed: () => false, send: vi.fn() } }] })
+
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      'WebviewManager',
+      expect.stringContaining('no window received the collapsed broadcast'),
+    )
+  })
+
+  it('CCG i2：getAllWindows 不可用（electron 在但接口缺失）必须 warn', () => {
+    const { wm } = createManagerWithBrowserTab()
+    loggerMock.warn.mockClear()
+
+    const { sent } = wm.broadcastSidebarCollapsed({ getAllWindows: undefined })
+
+    expect(sent).toBe(0)
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      'WebviewManager',
+      expect.stringContaining('getAllWindows unavailable'),
+    )
+  })
+
+  it('CCG i2：测试环境（无 electron 运行时）静默 sent:0，不 warn', () => {
+    const { wm } = createManagerWithBrowserTab()
+    loggerMock.warn.mockClear()
+
+    // 不注入 ctor：node 环境 require('electron') 走 catch ⇒ 静默降级
+    const { sent } = wm.broadcastSidebarCollapsed()
+
+    expect(sent).toBe(0)
+    expect(loggerMock.warn).not.toHaveBeenCalled()
+  })
 })
 
 describe('setOAuthManager 注入（OAuth 视图同步侧栏布局，2026-10-18）', () => {

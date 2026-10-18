@@ -19,8 +19,108 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "self_play_blocked",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "domains": [
+          "auth",
+          "crypto"
+        ]
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "domains": [
+          "auth"
+        ]
+      }
+    ],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "oauth-manager._positionView 向 computeEmbeddedViewBounds 传了 4 个参数（mainWindow, width, undefined, collapsed），但 view-bounds.js 本轮 diff 未改函数签名；若该函数实际只接受 3 参，则第 3 个 undefined 会被当作 collapsed，真实 collapsed 值被忽略，折叠态永远不生效。",
+        "highRiskDomains": [
+          "auth",
+          "crypto"
+        ],
+        "prosecution": "若 computeEmbeddedViewBounds 实际只接受 3 参，则第 3 个 undefined 会被当作 collapsed，真实 collapsed 被忽略，折叠态永不生效。这条若成立，本 PR 的核心修复（OAuth 视图跟随折叠）就是无效代码，且 7 个新测试会给出假绿。",
+        "defense": "证伪：view-bounds.js:135 的签名为 (win, sidebarWidth, topOffset = BROWSER_CHROME_TOP, sidebarCollapsed = false)。第 3 参是 topOffset（传 undefined 即走默认 76），第 4 参才是 sidebarCollapsed。该 4 参形状与 auth-view-manager.js:166、qrcode-login.js:637 两处既有调用逐字一致（已用 grep 对三处做并列比对）。且 view-bounds.test.js 有专门针对第 4 参的用例（collapsed=true ⇒ x=0；false/省略/非布尔 ⇒ 与旧行为逐字节一致），os-manager.test.js 的「setSidebarCollapsed(true) 时视图 x=0 全宽」用例若签名不匹配会直接红。",
+        "verdict": "dismissed",
+        "rationale": "指控的事实前提（函数只接受 3 参）与源码不符，可直接 grep 证伪：签名 4 参，第 3 参为 topOffset。三处调用点形状一致 + 第 4 参专用测试用例构成双重证据。属评审者对参数位置的误读。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "layout.js 的 broadcastSidebarCollapsed 在无 electron 运行时（测试/构建）静默返回 sent:0，但 setSidebarCollapsed 无条件调用它；若未来该广播成为同步必要条件（如多窗口一致性），静默失败不会暴露，导致测试通过但生产行为缺失。",
+        "highRiskDomains": [],
+        "prosecution": "broadcastSidebarCollapsed 在无 electron 运行时静默返回 sent:0，而 setSidebarCollapsed 无条件调用它。若广播未来成为同步必要条件，静默失败不会暴露 ⇒ 测试通过但生产行为缺失（假绿）。",
+        "defense": "当前不是缺陷：① 该方法的降级路径有显式测试覆盖（「未注入 BrowserWindow 且 electron 不可用时静默返回 sent:0」）；② 广播失败不影响本窗口的正确性——主进程 _sidebarCollapsed 已置位、_repositionAll 已完成，广播只影响其它窗口；③ 生产环境 electron 必然存在（这是 Electron 主进程模块），静默路径只会在 vitest node 环境走到。但指控指出的演进风险真实存在。",
+        "verdict": "upheld",
+        "rationale": "当前行为有测试且有合理降级语义，但「必要同步通道静默失败」确实是可演进成的风险。处理方式：不在本轮改行为（避免过度设计），而是在实现里补一行注释说明该约束，并把「若广播成为必要通道必须先加可见性」写进 learnings。这是接受意见但不改代码的可验证处置。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "layout.js 用 try/catch 延迟 require('electron') 来避免模块顶层依赖，但这隐藏了运行时依赖关系，使代码路径在不同进程（主/渲染/测试）行为不一致，维护时难以追踪。",
+        "highRiskDomains": [],
+        "prosecution": "try/catch 延迟 require('electron') 隐藏运行时依赖，使代码路径在主进程/渲染进程/测试中行为不一致，维护时难以追踪。",
+        "defense": "这是本仓既有模式而非本轮新造：查 window.js、webview-manager/index.js 等多处对 electron 的延迟/注入式获取，且本仓测试大量在 node 环境下加载主进程模块（无 electron 运行时）。若在模块顶层 require('electron')，vitest 的 node 环境会直接抛错，现有 100+ 个 webview-manager 测试全部无法加载。此外本轮同时提供了 browserWindowCtor 注入参数（参照 publish-risk-ipc.test.js 的注入模式），测试走注入、生产走延迟 require，两条路径都有覆盖。",
+        "verdict": "dismissed",
+        "rationale": "该写法是为兼容本仓「node 环境加载主进程模块」的既有测试架构所必需，非本轮引入的坏味道；且已用参数注入把测试路径与生产路径显式分离，可追踪性由注入点名保证。若认定为坏味道，应作为全仓统一模式议题另立 change，不应在本缺陷修复 PR 里单独反转。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "OAuthManager 复制了 _sidebarWidth / _sidebarCollapsed 状态，与 WebviewManager 并存；同步依赖 setOAuthManager 的推送和手动调用，若事件顺序变化（如窗口重建前同步缺失），两边状态会分裂。",
+        "highRiskDomains": [
+          "auth"
+        ],
+        "prosecution": "OAuthManager 复制了 _sidebarWidth / _sidebarCollapsed，与 WebviewManager 并存；同步依赖 setOAuthManager 推送与手动调用，事件顺序变化（如窗口重建前同步缺失）会导致两边状态分裂。",
+        "defense": "与 AuthViewManager（auth-view-manager.js:134/136 同样持有 _sidebarWidth/_sidebarCollapsed）、QRCodeLogin（qrcode-login.js:73）完全同构——这是本仓四类内嵌视图的一致模式，不是本轮新造的分裂风险。且本轮专门加了防护：setOAuthManager 注入时会把当前已知状态立即补齐推送（测试覆盖「注入时若已是非默认宽度/已收起，立即补齐推送」），正是为了防止「注入晚于首次同步」。剩余风险（窗口重建后未重新注入）由 window.js 的 clearMainWindowBindings/finishWindowInitialization 每次重建都走同一装配链保证。",
+        "verdict": "dismissed",
+        "rationale": "状态复制是本仓四 manager 的一致既有模式，指控未指出比既有模式更差的新风险；本轮反而补了「注入时补齐推送」这一既有模式没有的防护。若要消灭复制，需把四 manager 改成同享一个 layout state 对象，属跨模块重构，超出本缺陷修复范围，应另立 change。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "broadcastSidebarCollapsed 向 BrowserWindow.getAllWindows() 所有窗口广播固定事件，无窗口来源过滤；虽然载荷仅为 boolean collapsed，但对未注册监听器的窗口仍发送 IPC，扩大了不必要的进程间暴露面。",
+        "highRiskDomains": [],
+        "prosecution": "向 getAllWindows() 所有窗口广播固定事件、无窗口来源过滤；对未注册监听器的窗口仍发送 IPC，扩大不必要的进程间暴露面。",
+        "defense": "① 载荷仅 { data: { collapsed: boolean } }，不含任何用户数据/凭证/路径；② 与本仓既有广播完全同模式——查 page-manager:navigation-changed、oauth:opened/closed、scheduler:dispatch-failed 等，全部是 getAllWindows() 或主窗口广播同一形状，未做窗口过滤；③ webContents.send 对无监听器的通道是 no-op，接收方窗口由 contextIsolation + 既有 IPC 权限模型保护，不因多发一条布尔广播而扩大攻击面。",
+        "verdict": "dismissed",
+        "rationale": "该形状是本仓广播的一致既有模式，且载荷不含敏感数据；指控要求的「窗口来源过滤」在全仓既有广播里均不存在，单独给这一条加会成为不一致的特例。若认为需要收紧，应作为全仓 IPC 广播面收敛议题另立 change。"
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "reason": "high_risk_requires_external",
+        "domains": [
+          "auth",
+          "crypto"
+        ]
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "reason": "high_risk_requires_external",
+        "domains": [
+          "auth"
+        ]
+      }
+    ],
+    "note": "自扮演裁决：3 条指控成立或需外部复核",
+    "at": "2026-10-18T11:40:03.427Z"
   }
 }

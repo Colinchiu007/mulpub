@@ -183,10 +183,16 @@ module.exports = {
    * 为什么不担心回环：渲染层 applyRemoteCollapsed 只改本地 ref，不写 localStorage、
    * 不回调本 IPC；且它有「同值即短路」，第二波广播到不了主进程。
    *
+   * ⚠ 可见性约束（CCG 深度审查 i2）：广播是**同步通道**，静默失败会让「测试通过但
+   * 生产行为缺失」。因此降级路径必须区分场景：
+   *   · 无 electron 运行时（vitest node 环境）⇒ 静默 sent:0，这是测试环境的正常形态；
+   *   · electron 可用但一个窗口都没送到 ⇒ 必须 warn，因为那意味着通道真的坏了。
+   * 若未来广播成为同步必要条件，先把这里的 warn 升级成 throw——不得 silently 放宽。
+   *
    * @param {{ getAllWindows?: () => Array<{ isDestroyed?: () => boolean, webContents?: { isDestroyed?: () => boolean, send: Function } }> }} [browserWindowCtor]
    *   可注入的 BrowserWindow（测试用；生产由调用方传 require('electron').BrowserWindow）。
    *   未注入时延迟 require —— 单测环境没有 electron 运行时，不得在模块顶层依赖它。
-   * @returns {{ sent: number }} 实际送达的窗口数（静默跳过已销毁/发送失败的窗口）
+   * @returns {{ sent: number }} 实际送达的窗口数（跳过已销毁/发送失败的窗口）
    */
   broadcastSidebarCollapsed (browserWindowCtor) {
     let ctor = browserWindowCtor
@@ -194,14 +200,20 @@ module.exports = {
       try {
         ctor = require('electron').BrowserWindow
       } catch {
+        // 测试环境（无 electron 运行时）：折叠广播走不到，静默降级
         return { sent: 0 }
       }
     }
-    if (!ctor || typeof ctor.getAllWindows !== 'function') return { sent: 0 }
+    if (!ctor || typeof ctor.getAllWindows !== 'function') {
+      // electron 在但拿不到窗口列表：这是真的异常，不得静默
+      log.warn('WebviewManager', 'broadcastSidebarCollapsed: BrowserWindow.getAllWindows unavailable')
+      return { sent: 0 }
+    }
 
+    const windows = ctor.getAllWindows()
     const collapsed = this._sidebarCollapsed === true
     let sent = 0
-    for (const win of ctor.getAllWindows()) {
+    for (const win of windows) {
       try {
         if (!win || win.isDestroyed?.()) continue
         const wc = win.webContents
@@ -211,6 +223,10 @@ module.exports = {
       } catch {
         // 单个窗口发送失败（已销毁 / 竞态）不得中断其它窗口
       }
+    }
+    // electron 可用、有窗口、却一个都没送到 ⇒ 通道坏了，必须出声（CCG 深度审查 i2）
+    if (sent === 0 && windows.length > 0) {
+      log.warn('WebviewManager', 'broadcastSidebarCollapsed: no window received the collapsed broadcast (sent=0 of ' + windows.length + ')')
     }
     return { sent }
   },
