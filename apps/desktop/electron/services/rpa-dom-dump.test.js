@@ -183,11 +183,36 @@ describe('rpa-dom-dump — 第二轮自扮演裁决整改（i1/i2/i3/i5）', () 
   it('i3：按钮只对发布类控件词表保留 preview，其余只留 textLength（防用户内容落盘）', () => {
     expect(COLLECT_SCRIPT).toContain('VOCAB')
     expect(COLLECT_SCRIPT).toContain('preview')
-    expect(COLLECT_SCRIPT).toContain('textLength:t.length')
+    expect(COLLECT_SCRIPT).toContain('textBucket:bucket(t.length)')
     expect(COLLECT_SCRIPT).not.toMatch(/text:cut\(e\.innerText,40\)/)
   })
 
   it('i5：采集脚本可被解析（语法守卫），不会把语法错误带进页面', () => {
     expect(() => new Function('return (' + COLLECT_SCRIPT + ')')).not.toThrow()
+  })
+})
+
+describe('rpa-dom-dump — 第三轮自扮演裁决整改（i2/i3/i6）', () => {
+  it('i2：长度分档（0 / 1-20 / 21-100 / 100+），不再落精确长度', () => {
+    expect(COLLECT_SCRIPT).toContain('valueBucket')
+    expect(COLLECT_SCRIPT).toContain('textBucket')
+    expect(COLLECT_SCRIPT).toContain('"21-100"')
+    expect(COLLECT_SCRIPT).not.toContain('valueLength')
+  })
+
+  it('i3：取证调用必须被 try/catch 包住（模块加载失败不得炸上传主链）', () => {
+    const src = fs.readFileSync(require.resolve('./upload-waiter'), 'utf8')
+    const line = src.split('\n').find((l) => l.includes("dumpDom(win, platform, 'uploaded'"))
+    expect(line).toBeTruthy()
+    expect(line).toContain('try {')
+    const idx = src.indexOf("dumpDom(win, platform, 'uploaded'")
+    const window = src.slice(Math.max(0, idx - 300), idx + 300)
+    expect(window).toContain('catch')
+  })
+
+  it('i6：老化主键取文件名里的 epoch（时钟跳变不影响），mtime 仅兜底', () => {
+    const src = fs.readFileSync(require.resolve('./rpa-dom-dump'), 'utf8')
+    expect(src).toMatch(/DUMP_NAME_RE\.exec\(n\)/)
+    expect(src).toContain('Number(m[2])')
   })
 })

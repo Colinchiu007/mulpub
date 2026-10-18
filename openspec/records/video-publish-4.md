@@ -94,3 +94,47 @@ API 轨 Step 0 `hasSecurityMaterials()` 为假 —— cookie 缺
 ## 七、远程同步
 
 | 远程同步 | 由门禁推导（合并后按主干历史收口；不手写状态词） |
+
+## 八、QM-6 自扮演裁决（逐条，含最强指控 / 最强辩护 / 裁决 / 可验证理由）
+
+引擎在本机无法完成跨家族对抗（claude 后端超时），按引擎**第三档出口 self_play** 由 agent 逐条对抗裁决。
+裁决模板由引擎生成（`.adversarial/ccg-deep-*/adjudication.json`，该目录不入库），下表把结论落到记录里以便审计。
+
+### 第一轮（针对首个提交的 diff，7 条）
+
+| # | 级别 | 指控 | 裁决 | 理由（可验证） |
+| --- | --- | --- | --- | --- |
+| i1 | Critical | `publish-precondition.js` 追加新代码后又写了一份 `module.exports`，前一处成为不可达死代码 | **成立·已修** | `grep -c "^module.exports"` 原为 2；改前一处不生效是真实维护陷阱。已删前一处（现恰好 1 处），并有 require 冒烟证明导出面含 `assertReady` |
+| i2 | Warning | `bodyTextLength` 采了 `innerText` 长度，违反「只采结构」 | 不成立 | 长度是不可逆整数投影，无法还原任何字符、也无法判定页面是否含某词；它是「页面是否渲染出内容」的存在性判据（0 vs 非 0），与 counts 同族。已在模块头把口径改为「只采结构与非可逆计数」 |
+| i3 | Warning | `COLLECT_SCRIPT` 手工拼接、测试用正则排除项，维护性差 | 不成立 | 拼接是**刻意规避模板字符串插值面**（正是 i5 担心的方向）；已有 18 条结构用例覆盖 |
+| i4 | Warning | 判定记录 `sha` 指向父提交，与 head 不一致 | 不成立 | pre-commit 阶段新提交对象尚不存在，只能落父 sha；记录身份是 **staged diff 哈希**（文件名），引擎自身输出也打印「写在父 sha 上是预期行为」 |
+| i5 | Warning | `executeJavaScript` 拼接是注入向量 | 不成立 | `COLLECT_SCRIPT` 是模块级常量，全仓无参数化通道；已加**语法守卫用例**（`new Function` 解析不抛） |
+| i6 | Warning | `upload-waiter` 热路径上 `await dumpDom`，内部 `writeFileSync` 阻塞事件循环 | **成立·已修** | 改为 `fs.promises.mkdir/writeFile`；用例断言源码含 `fs.promises.writeFile` 且不含 `fs.writeFileSync(file` |
+| i7 | Warning | 落盘无保留策略，`%TEMP%` 会无限堆积 | **成立·已修** | 新增 `pruneDumps(dir, keep=200)`，写盘后自动裁剪；2 条用例（保留策略 / 目录缺失返回 0） |
+
+### 第二轮（针对第二轮提交的 diff，5 条）
+
+| # | 级别 | 指控 | 裁决 | 理由（可验证） |
+| --- | --- | --- | --- | --- |
+| i1 | Critical | `pruneDumps` 用文件名字典序当「最近 N 份」，前缀/位数变化时判错 | **成立·已修** | 改为按 `mtimeMs` 排序，并加用例构造「字典序与时间序相反」的两组文件名，断言淘汰的是真正更旧的那份 |
+| i2 | Warning | 只按 `endsWith(".json")` 删，可能误删他人文件 | **成立·已修** | 新增 `DUMP_NAME_RE` 作**单一事实源**（写盘与清理共用），用例断言 `notes.json` / `cache.json` / 位数不足者一律不碰 |
+| i3 | Warning | 采 `button.innerText` 前 40 字，可能把用户内容写入磁盘 | **成立·已修** | 改为 `textLength` + **仅当命中发布类控件词表**（发表/发布/上传/投稿/存草稿/确定/提交…）才保留 preview；用例断言采集脚本不再出现整段 innerText 取值 |
+| i4 | Warning | 记录 `sha`/`changedLines` 与 head 不一致 | 不成立 | 同第一轮 i4：父 sha 是 pre-commit 的既定坐标，diff 身份是 staged 哈希 |
+| i5 | Warning | 采集脚本裸拼接，无语法守卫 | 不成立（已有守卫） | 引擎会真正把脚本注入页面，语法错会被 `executeJavaScript` 拒绝 → `dumpDom` 返回 null（**fail-safe**，不打断发布）；另有 `new Function` 语法守卫用例 |
+
+**结论**：两轮共 12 条，成立 6 条（第一轮 i1/i6/i7 + 第二轮 i1/i2/i3），**全部落地修复并有回归用例**；
+不成立 6 条的理由均可由源码或引擎契约当场复核。整改提交：`4a33393a3`（第一轮）、`2cd6d37d4`（第二轮）。
+
+### 第三轮（针对第三轮提交的 diff，6 条）
+
+| # | 级别 | 指控 | 裁决 | 理由（可验证） |
+| --- | --- | --- | --- | --- |
+| i1 | Critical | 判定记录自相矛盾（一篇 resolved、一篇 pending），且 evidence 指向未入库的 `.adversarial/*`；0.6 置信度不足以判 resolved | **成立·已修** | ① 所有记录改为**同一种收口状态**，并且 evidence 落到**本记录文档 §八**（入库可审计），不再依赖 gitignore 目录；② 置信度只描述「自扮演 vs 跨家族」的差异，不等于缺陷，已在每篇注明 |
+| i2 | Critical | 长度类字段（`valueLength`/`textLength`）对全部元素采集，等于把内容长度元信息落盘 | **成立·已修** | 改为**分档**：`valueBucket`/`textBucket` ∈ {`0`,`1-20`,`21-100`,`100+`}。P3/P4 判据要的只是「是否为空」，分档足够；用例断言采集脚本不再出现 `valueLength` |
+| i3 | Critical | `upload-waiter` 里 `require(...)` 在热路径，模块加载失败会炸上传主链 | **成立·已修** | 两处取证调用（`uploaded` / `nav`）都包 `try/catch`；用例断言调用点上下文含 `catch` |
+| i4 | Warning | `require('node:fs')` 与全仓风格不一致 | 不成立 | `apps/desktop/electron/services/*.js` 中已有 **19 个文件**使用 `node:` 前缀（含 `api-usage-governor.test.js` 等），属既有风格之一，不是新引入的偏差 |
+| i5 | Warning | `executeJavaScript` 同步跑在渲染进程，大页面可能卡顿 | 部分成立·已缓解 | 只在 `MP_DOM_DUMP=1` 时执行（生产零开销），且只在**阶段边界**（导航后 / 上传后）各一次，不在输入过程中；失败返回 null 且有 try/catch 兜底。未做分片采集（收益低、会显著增加复杂度），如实记录为已知取舍 |
+| i6 | Warning | 用 `mtimeMs` 老化，时钟跳变或外部改动会误判最旧文件 | **成立·已修** | 老化主键改为**文件名里的 epoch**（创建时刻，`Number(m[2])`），mtime 仅兜底；用例断言取的是第 2 组捕获 |
+
+**三轮合计 18 条**：成立并修复 **10 条**（第一轮 i1/i6/i7、第二轮 i1/i2/i3、第三轮 i1/i2/i3/i6），
+驳回 7 条（i2/i3/i4/i5 第一轮、i4/i5 第二轮、i4 第三轮），如实记录 1 条取舍（第三轮 i5 的分片采集）。

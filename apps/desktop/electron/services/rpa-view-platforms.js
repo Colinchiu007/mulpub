@@ -221,7 +221,8 @@ const platformsMixin = {
       return { success: false, error: platform+' not logged in', platform: platform }
     }
     // 导航完成后立刻取证：这一步回答「我们到底落在哪个页面上」（视频号曾落在平台首页）
-    await domDump.dumpDom(win, platform, 'nav', { logger: log })
+    // 取证是旁路：失败不得打断发布主链
+    try { await domDump.dumpDom(win, platform, 'nav', { logger: log }) } catch (_) { /* 旁路失败忽略 */ }
     // SPA 鐧诲綍鎬?DOM 鎺㈡祴锛歎RL 鏈烦杞絾椤甸潰宸叉槸鐧诲綍寮曞锛堝揩鎵嬬瓑 SPA 鏈櫥褰曚笉鏀瑰彉 URL锛?
     const loginProbe = await win.webContents.executeJavaScript(`(function(){
       var t = (document.body && document.body.innerText) || '';

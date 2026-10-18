@@ -34,23 +34,23 @@ const path = require('node:path')
 const COLLECT_SCRIPT = 'function(){' +
   'var vis=function(e){return !!(e&&(e.offsetParent||(e.getClientRects&&e.getClientRects().length)))};' +
   'var cut=function(s,n){s=String(s==null?"":s).replace(/\\s+/g," ").trim();return s.length>n?s.slice(0,n):s};' +
-  'var cls=function(e){return cut(e.className&&e.className.baseVal!==undefined?e.className.baseVal:e.className,120)};' +
+  'var bucket=function(n){return n===0?"0":(n<=20?"1-20":(n<=100?"21-100":"100+"))};var cls=function(e){return cut(e.className&&e.className.baseVal!==undefined?e.className.baseVal:e.className,120)};' +
   'var files=[].slice.call(document.querySelectorAll(\'input[type="file"]\')).map(function(e){return{' +
   'accept:cut(e.getAttribute("accept"),80),multiple:!!e.multiple,disabled:!!e.disabled,visible:vis(e),cls:cls(e),id:cut(e.id,60)}});' +
   'var inputs=[].slice.call(document.querySelectorAll("input")).filter(function(e){return e.type!=="file"&&e.type!=="hidden"}).map(function(e){return{' +
-  'type:cut(e.type,20),placeholder:cut(e.placeholder,80),cls:cls(e),id:cut(e.id,60),name:cut(e.name,60),visible:vis(e),valueLength:String(e.value||"").length,maxLength:Number(e.maxLength)||null}});' +
+  'type:cut(e.type,20),placeholder:cut(e.placeholder,80),cls:cls(e),id:cut(e.id,60),name:cut(e.name,60),visible:vis(e),valueBucket:bucket(String(e.value||"").length),maxLength:Number(e.maxLength)||null}});' +
   'var areas=[].slice.call(document.querySelectorAll("textarea")).map(function(e){return{' +
-  'placeholder:cut(e.placeholder,80),cls:cls(e),id:cut(e.id,60),visible:vis(e),valueLength:String(e.value||"").length}});' +
+  'placeholder:cut(e.placeholder,80),cls:cls(e),id:cut(e.id,60),visible:vis(e),valueBucket:bucket(String(e.value||"").length)}});' +
   'var editables=[].slice.call(document.querySelectorAll(\'[contenteditable=""],[contenteditable="true"],[contenteditable="plaintext-only"]\')).map(function(e){return{' +
   'tag:e.tagName.toLowerCase(),cls:cls(e),id:cut(e.id,60),placeholder:cut(e.getAttribute("data-placeholder")||e.getAttribute("placeholder"),80),' +
-  'visible:vis(e),textLength:String(e.innerText||"").length}});' +
+  'visible:vis(e),textBucket:bucket(String(e.innerText||"").length)}});' +
   // 控件词表（i3）：只对「像发布控件」的按钮保留文案预览；其余元素只留长度。
   // 为什么：`a` 的内联文本可能是作品标题等**用户内容**，整段 dump 到磁盘即为内容外泄。
   'var VOCAB=/发表|发布|上传|投稿|存草稿|草稿|确定|提交|下一步|完成|保存|预览|视频|图文|立即/;' +
   'var buttons=[].slice.call(document.querySelectorAll(\'button,[role="button"],a\')).map(function(e){' +
-  'var t=cut(e.innerText,40);return{textLength:t.length,preview:VOCAB.test(t)?t:null,disabled:!!e.disabled,' +
+  'var t=cut(e.innerText,40);return{textBucket:bucket(t.length),preview:VOCAB.test(t)?t:null,disabled:!!e.disabled,' +
   'visible:vis(e),cls:cls(e),tag:e.tagName.toLowerCase()}})' +
-  '.filter(function(b){return b.textLength>0});' +
+  '.filter(function(b){return b.textBucket!=="0"});' +
   'var uploadish=[].slice.call(document.querySelectorAll(\'[class*="upload"],[class*="Upload"],[class*="drag"],[class*="Drag"]\')).slice(0,20).map(function(e){return{' +
   'cls:cls(e),tag:e.tagName.toLowerCase(),visible:vis(e)}});' +
   'return{urlPath:location.pathname,docTitle:cut(document.title,120),files:files,inputs:inputs,textareas:areas,' +
@@ -69,7 +69,7 @@ function isEnabled (env) {
 }
 
 /** 本模块落盘文件的命名形态（写盘与保留策略共用同一份判据）。 */
-const DUMP_NAME_RE = /^[\w-]+-[\w-]+-\d{10,}\.json$/
+const DUMP_NAME_RE = /^([\w-]+-[\w-]+)-(\d{10,})\.json$/
 
 /** 落盘目录（系统临时目录下，避免污染仓库）。 */
 function dumpDir () {
@@ -158,7 +158,10 @@ async function pruneDumps (dir, keep = 200) {
     if (mine.length <= keep) return 0
     // i1：按 **mtime** 排序（不是文件名字典序）。字典序只在时间戳位数相同且前缀相同时才等价于时间序，
     // 一旦平台/阶段名长短变化就会误留旧文件、误删新文件。
+    // i6：老化主键优先取**文件名里的 epoch**（创建时刻的数字，不受系统时钟跳变影响），mtime 仅兜底。
     const stated = await Promise.all(mine.map(async (n) => {
+      const m = DUMP_NAME_RE.exec(n)
+      if (m) return { n, t: Number(m[2]) }
       try { const st = await fs.promises.stat(path.join(dir, n)); return { n, t: st.mtimeMs } } catch (_) { return { n, t: 0 } }
     }))
     stated.sort((a, b) => a.t - b.t)
