@@ -1423,10 +1423,8 @@ onMounted(async () => {
 onActivated(() => {
   applyHistoryVideoQuery()
   applyCopyDetailHandoff()
-  // S1c：草稿箱整页模式在 keep-alive 下必须重新加载。
-  // 此前 onActivated **完全没有 drafts 分支** —— 靠 watch(publishTab) 兜；
-  // 但若缓存实例再次以同一个 ?tab=drafts 激活（值未变 ⇒ watch 不触发），
-  // 列表就不会刷新。这里显式补一次，与「去发布」同族处理保持一致。
+  // S1c：草稿箱整页模式在 keep-alive 下必须重新加载。此前 onActivated 无 drafts 分支，
+  // 靠 watch(publishTab) 兜；但同值激活时 watch 不触发 ⇒ 列表不刷新。此处显式补一次。
   if (publishTab.value === 'drafts') void loadDrafts()
   // keep-alive 下 onMounted 不会再跑：热门选题交接必须挂在每次激活上。
   // applyDraftHandoff 自带「同一批 id 只装载一次」的幂等键，重复激活不会重置用户编辑。

@@ -8,7 +8,7 @@ date: 2026-10-19
 
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
-| 变更类型与隔离 | 运行时代码 | worktree `D:/Data/projects/mp-worktrees/mp-ui-flow-clarity`，裸分支 `ui-flow-clarity`；`node scripts/verify-worktree-deps.js` → OK（11 项消费方解析通过）；共享根保持 main clean |
+| 变更类型与隔离 | 运行时代码 | 独立 worktree（`mp-worktrees/mp-<task>` 约定路径）+ 裸分支 `ui-flow-clarity`；`node scripts/verify-worktree-deps.js` → OK（11 项消费方解析通过）；共享根保持 main clean |
 | 第一性原因（QM-5 ①） | 同一语义的 UI 存在多份实现，且外壳层承担了页面内职责 | 草稿箱 5 处实现（整页/发布页浮层/发布记录页标签/采集页面板/零引用死组件）；账号域 tab 切换 100% 依赖全局外壳层 `MpModuleNav`（`Accounts.vue` 全文件零 `?tab=` 写入控件）；菜单「发布」指向记录页而非编辑器 |
 | 逃逸分析（QM-5 ②） | 缺「同一语义唯一实现」的机械判据 | 本轮之前无任何断言约束「草稿列表渲染点数量」「菜单落点与页面职责一致」「外壳层组件是否可删」；`MpModuleNav.test.js` 只测组件内部行为，测不出「删了它页面还能不能用」 |
 | 修复 + 回归保护（QM-5 ④） | 已落地 4 组新判据 | ① `tab-independent-home.test.js` 断言方向反转 + 新增跨文件「MpModuleNav 不得复活」结构锁；② `route-registry-entry-hosts.test.js`（4 例）把 `/publish/history` 的多宿主从注释变成白名单锁，并锁定菜单落点不含 history；③ `PublishDestinationModal.test.js`（7 例）锁「已存草稿」披露节点 `role=status` + 固定 testid + 空选项不可选；④ `collection-visual-case-contract.test.js` 断言 `CollectionDraftsPanel.vue` 不得复活 |

@@ -471,7 +471,7 @@ Collection
 
 ## 15. 实施记录（2026-10-19）
 
-> 分支 `ui-flow-clarity`，隔离 worktree `D:/Data/projects/mp-worktrees/mp-ui-flow-clarity`。
+> 实施于独立 worktree + 裸分支 `ui-flow-clarity`（共享根保持 main clean）。
 
 ### 15.1 已完成
 

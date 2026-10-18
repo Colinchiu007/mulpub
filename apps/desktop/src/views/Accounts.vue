@@ -1,28 +1,10 @@
 <template>
   <div class="accounts-page">
     <h1 class="sr-only">{{ t('accountsPage.pageTitle') }}</h1>
-    <!-- PRD-UI-FLOW-CLARITY S1a：账号域页内模块导航。
-         此前该导航由 MpModuleNav（70px 全局外壳层）承担，S1b 将删除该组件，
-         故必须先在此建立页内 tablist，否则除「账号管理」外的 tab 全部不可达。
-         tab 数量为 3：「分享链接」按 PRD §14 裁决 #4 下线（零能力占位）。 -->
-    <div class="account-module-tabs" role="tablist" :aria-label="t('accountsPage.moduleTabsAria')">
-      <button
-        v-for="(tab, index) in moduleTabs"
-        :key="tab.key"
-        :id="`account-module-tab-${tab.key}`"
-        type="button"
-        role="tab"
-        :class="['account-module-tab', { active: accountTab === tab.key }]"
-        :aria-selected="accountTab === tab.key"
-        :aria-controls="'account-results'"
-        :tabindex="accountTab === tab.key ? 0 : -1"
-        :data-testid="`account-module-tab-${tab.key}`"
-        @click="setAccountTab(tab.key)"
-        @keydown="onModuleTabKeydown($event, index)"
-      >
-        {{ tab.label }}
-      </button>
-    </div>
+    <!-- PRD-UI-FLOW-CLARITY S1a：账号域页内模块导航（替代被删除的 MpModuleNav）。
+         独立组件见 features/accounts/AccountModuleTabs.vue —— 本文件是
+         check-max-lines 的点名还账文件（targets 1578、零增长容差），故不内联。 -->
+    <AccountModuleTabs :active-key="accountTab" />
     <section v-if="accountTab !== 'groups' && accountTab !== 'favorites'" class="account-controls" :aria-label="t('accountsPage.filterAria')">
       <div class="search-box platform-search-box">
         <Search class="search-icon" />
@@ -386,6 +368,7 @@ import AccountCloudSyncDialog from '@/features/accounts/components/AccountCloudS
 import AccountFavoritesPanel from '@/features/accounts/components/AccountFavoritesPanel.vue'
 import AccountGroupsPanel from '@/features/accounts/components/AccountGroupsPanel.vue'
 import AccountLoginDialog from '@/features/accounts/components/AccountLoginDialog.vue'
+import AccountModuleTabs from '@/features/accounts/components/AccountModuleTabs.vue'
 import AccountManagementCard from '@/features/accounts/components/AccountManagementCard.vue'
 import AccountProxyDialog from '@/features/accounts/components/AccountProxyDialog.vue'
 import RiskSuspendedBanner from '@/features/accounts/components/RiskSuspendedBanner.vue'
@@ -562,53 +545,12 @@ const authPlatformName = computed(() => loginPlatform.value ? platformLabel(logi
 // PRD-UI-FLOW-CLARITY S1a：账号域页内 tab 契约。
 // 白名单兜底：此前 accountTab 直读 query，非法值会渲染空白面板；
 // 现非法值一律回落 'accounts'，避免用户手改 URL 后看到空页。
+// 导航控件见 features/accounts/AccountModuleTabs.vue（本文件是行数点名还账文件）。
 const ACCOUNT_MODULE_TAB_KEYS = ['accounts', 'groups', 'favorites']
 const accountTab = computed(() => {
   const raw = String(route.query?.tab || 'accounts')
   return ACCOUNT_MODULE_TAB_KEYS.includes(raw) ? raw : 'accounts'
 })
-const moduleTabs = computed(() => [
-  { key: 'accounts', label: t('accountsPage.tabAccounts') },
-  { key: 'groups', label: t('accountsPage.tabGroups') },
-  { key: 'favorites', label: t('accountsPage.tabFavorites') },
-])
-
-/**
- * 切换账号域模块 tab。
- * 'accounts' 是默认值 ⇒ 落成「无 tab 参数」，保持 URL 干净且与旧深链兼容。
- */
-function setAccountTab (key) {
-  if (!ACCOUNT_MODULE_TAB_KEYS.includes(key)) return
-  if (accountTab.value === key) return
-  const query = { ...route.query }
-  if (key === 'accounts') delete query.tab
-  else query.tab = key
-  router.push({ path: '/accounts', query })
-}
-
-/**
- * 模块 tab 键盘导航。
- * ⚠️ 不可照抄 PublishHistory.vue 的 onTabKeydown —— 那个是 2-tab 硬编码
- * （nextIndex = Home?0 : End?1 : index===0?1:0），3 个 tab 复用会跳错。
- * 本实现按 tab 数量取模，任意 N 均正确。
- */
-function onModuleTabKeydown (event, index) {
-  const total = moduleTabs.value.length
-  if (!total) return
-  let nextIndex = null
-  if (event.key === 'ArrowRight') nextIndex = (index + 1) % total
-  else if (event.key === 'ArrowLeft') nextIndex = (index - 1 + total) % total
-  else if (event.key === 'Home') nextIndex = 0
-  else if (event.key === 'End') nextIndex = total - 1
-  if (nextIndex === null) return
-  event.preventDefault()
-  const next = moduleTabs.value[nextIndex]
-  if (!next) return
-  setAccountTab(next.key)
-  const container = event.currentTarget?.parentElement
-  const targetEl = container?.querySelector?.(`#account-module-tab-${next.key}`)
-  if (targetEl && typeof targetEl.focus === 'function') targetEl.focus()
-}
 const loginStateText = computed(() => {
   if (loginMode.value !== 'qrcode') return t('accountsPage.loginStateBrowser')
   return {
@@ -1426,40 +1368,8 @@ onUnmounted(() => {
 .login-state-actions .complete-login { min-height: 28px; padding: 4px 9px; border: 1px solid #5048e5; border-radius: 5px; background: #5048e5; color: #fff; }
 .login-state-actions button:disabled { opacity: 0.58; cursor: not-allowed; }
 .accounts-content { min-height: 520px; padding: 0; }
-/* PRD-UI-FLOW-CLARITY S1a：账号域页内模块导航。
-   替代被删除的 MpModuleNav（70px 外壳层）；层级高于下方 .filter-tabs（状态筛选）。
-   PRD §6.2 要求：窄屏（≤900px）复用 .filter-tabs 的横滚方案，
-   禁止等分压缩导致中文 tab 文案被截断。 */
-.account-module-tabs {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 24px 0;
-  border-bottom: 1px solid #e8e8ec;
-  margin-bottom: 12px;
-}
-.account-module-tab {
-  min-height: 34px;
-  padding: 6px 14px;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  background: transparent;
-  color: #6f7079;
-  font-size: var(--font-size-sm);
-  white-space: nowrap;
-  cursor: pointer;
-}
-.account-module-tab.active {
-  border-bottom-color: #5048e5;
-  color: #5048e5;
-  font-weight: 500;
-}
-.account-module-tab:focus-visible { outline: 2px solid #5048e5; outline-offset: -2px; }
-@media (max-width: 900px) {
-  .account-module-tabs { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
-  .account-module-tabs::-webkit-scrollbar { display: none; }
-  .account-module-tab { flex: 0 0 auto; }
-}
+/* PRD-UI-FLOW-CLARITY S1a 的模块导航样式已随组件迁至
+   features/accounts/AccountModuleTabs.vue（本文件是行数点名还账文件）。 */
 .account-workspace { min-height: 520px; display: grid; grid-template-columns: 240px minmax(0, 1fr); }
 .platform-filter-panel {
   display: flex;
