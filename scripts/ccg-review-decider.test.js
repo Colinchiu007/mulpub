@@ -733,7 +733,7 @@ test('QM-6 i3：已闭环的同名记录不得被静默覆盖（否则 amend 抹
 test('QM-6 第二轮 i5：另存名必须全局唯一（同 sha 前缀不得互相覆盖）', () => {
   const src = fs.readFileSync(SRC, 'utf8').replace(/\r\n/g, '\n')
   assert.match(src, /-again-\$\{sha\}-/, 'alt 名必须含**完整** sha（首版只用 slice(0,8)，同前缀会互覆盖）')
-  assert.match(src, /toISOString\(\)\.replace\(\/\[-:\]\/g, ""\)/, 'alt 时间戳必须与扫描域形态表同形（去掉 - 与 : 、保留 . 给毫秒段）。旧写法 [:.] 留着 ISO 连字符，产出 `-again-<sha>-2026-10-17T025039620Z`，AUDIT_ARTIFACT_RE 认不出 ⇒ 本条曾把缺陷本身钉成受保护形态，命名对齐锁见下一用例')
+  assert.match(src, /toISOString\(\)\.replace\(\/\[:\.\]\/g, ""\)/, 'alt 时间戳形态由生产方决定（本条锁它的字面写法）；两处描述是否同源不由本条自证，而由下一条「跨模块命名对齐锁」拿真实产物名去问 AUDIT_ARTIFACT_RE')
 })
 
 test('QM-6 第三轮 i5：哈希算失败时不得静默回落父 sha（那正是要消灭的撞名）', () => {

@@ -623,7 +623,7 @@ function saveRecord(result, sha, layer, plannedFiles, backends) {
       //   改为完整 sha + 时间戳（同一 sha 内毫秒级也唯一）。
       const alt = file.replace(
         /\.json$/,
-        `-again-${sha}-${new Date().toISOString().replace(/[-:]/g, "")}.json`
+        `-again-${sha}-${new Date().toISOString().replace(/[:.]/g, "")}.json`
       );
       fs.writeFileSync(alt, JSON.stringify(record, null, 2), "utf8");
       return alt;
