@@ -34,7 +34,8 @@ const { createSession, setCookies, restoreLocalStorage, restoreIndexedDB, create
 // #2701：登录分区每次新建、永不回收（本机实测 21 个目录 436MB，占分区存储 92%）
 const authReclaim = require('./auth-partition-reclaim')
 // 内嵌视图定位唯一来源：必须用「客户区」尺寸，禁用 getBounds() 外框尺寸（见 view-bounds.js）
-const { computeEmbeddedViewBounds, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } = require('./view-bounds')
+// 宽度守卫用共享的 isValidSidebarWidth：各自手写比较拦不住 NaN（所有比较都是 false）。
+const { computeEmbeddedViewBounds, isValidSidebarWidth } = require('./view-bounds')
 // 登录页宽度自适应（2026-09-28 非全屏登录页显示不全修复）：固定内容宽的登录页
 // （如快手 ≈1335 DIP）在非全屏视图（如 1051 DIP）中横向溢出被裁，按需缩小 zoomFactor
 const loginViewFit = require('./login-view-fit')
@@ -244,7 +245,8 @@ class AuthViewManager {
   setSidebarWidth(width) {
     // 与 WebviewManager.setSidebarWidth 对齐：宽度必须严格 > 0（见 view-bounds MIN_SIDEBAR_WIDTH），
     // 拒绝 0 与负值，避免内嵌登录视图 x 落到 0 覆盖侧边栏。
-    if (typeof width !== 'number' || width < MIN_SIDEBAR_WIDTH || width > MAX_SIDEBAR_WIDTH) return
+    // 用共享守卫 isValidSidebarWidth：NaN 能穿过手写的 `width < MIN || width > MAX`。
+    if (!isValidSidebarWidth(width)) return
     if (this._sidebarWidth !== width) {
       this._sidebarWidth = width
       if (this.mainWindow && this.currentView) {

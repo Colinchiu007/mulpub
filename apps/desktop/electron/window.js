@@ -202,6 +202,11 @@ function finishWindowInitialization(context, mainWindow) {
   webviewManager.setMainWindow(mainWindow)
   qrCodeLogin.setMainWindow(mainWindow)
   oauthManager.setMainWindow(mainWindow)
+  // OAuth 授权视图需跟随侧边栏宽度/折叠态重排：把它交给 WebviewManager 单向同步
+  // （2026-10-18 回归修复，此前它自己用默认 200px 布局，与折叠按钮不同步）
+  if (typeof webviewManager.setOAuthManager === 'function') {
+    webviewManager.setOAuthManager(oauthManager)
+  }
   commentManager.setGetMainWin(() => BrowserWindow.getAllWindows()[0])
   systemTray.init(mainWindow)
   hotkeys.register()

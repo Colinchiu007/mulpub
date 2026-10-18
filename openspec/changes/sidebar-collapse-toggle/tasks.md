@@ -69,3 +69,16 @@
 - [x] 6.3 开 PR 后等待 CI 全绿；混合 PR 走完整质量节拍
 - [x] 6.4 合并后按主干历史推导收口（`scripts/lib/merge-ledger.js`），不另开回填 PR
 - [x] 6.5 视觉基线由 CI 同源重建并逐张审核新增按钮区域
+
+## 7. 已知限制收尾（PR #3916 合并后，`sidebar-collapse-followups` 分支）
+
+判据口径：本节三项来自 #3916 执行记录「遗留（不假装已闭合）」清单，逐条关闭或降级，并写明依据。
+
+- [x] 7.1 OAuth 内嵌视图接入侧栏宽度/折叠同步：`oauth-manager.js` 的 `_positionView()` 只传 1 参给 `computeEmbeddedViewBounds` ⇒ `sidebarWidth` 回落默认 200、`collapsed` 恒 false。补 `setSidebarWidth` / `setSidebarCollapsed` + `_positionView` 传满 4 参，`WebviewManager` 两个 setter 纳入同步链，`window.js` 经 `setOAuthManager` 注入
+- [x] 7.2 OAuth 视图补 `mainWindow` resize 监听（原只在 `startAuth` 定位一次；授权过程中拖动窗口会复现 `view-bounds.js` 头部所述 2026-09-13「视图被窗口边框裁掉」同形态缺陷）；`close()` 与 `setMainWindow` 换绑时解绑
+- [x] 7.3 抽出 `view-bounds.isValidSidebarWidth()` 单一真源：四处 manager 各自手写的 `width < MIN || width > MAX` 拦不住 NaN（NaN 的所有比较都是 false），NaA 会穿过 `typeof === 'number'` 检查被写进 `_sidebarWidth`；四个 manager 改为共用该守卫
+- [x] 7.4 多窗口实时同步：主进程 `WebviewManager.broadcastSidebarCollapsed()` 向 `getAllWindows()` 投递 `page-manager:sidebar-collapsed-changed`（载荷 `{ data: { collapsed } }`），`setSidebarCollapsed` 变更后自动触发
+- [x] 7.5 渲染层 `applyRemoteCollapsed()`：只改本地 ref 并通知订阅者，**不写 localStorage、不上报 IPC**（持久化真源是用户点击的那个窗口；回传会形成 A↔B 互刷）；`subscribeSidebarCollapsed()` + `App.vue` onMounted 订阅 / onBeforeUnmount 退订
+- [x] 7.6 测试：新增 OAuth 布局同步 7 例、`isValidSidebarWidth` 4 例（含 NaN 复现）、广播 8 例、`setOAuthManager` 注入 4 例、store 广播同步 8 例、App 订阅 5 例、preload 广播合同 3 例、跨进程链路多窗口 1 例
+- [x] 7.7 第 3 项遗留（收起期间跨 900px 断点、展开后需一次宽度上报纠正）经代码复核**降级为「无需处理」**：`computeEmbeddedViewBounds` 内部 `collapsed ? 0 : normalizeSidebarWidth(width)` 已让 width 参数在收起态完全失效，展开时 `MpSidebar` 的 `ResizeObserver`（`w > 0` 守卫）在同一帧后上报真实宽度，不产生错误布局；实测未捕获到可见跳动，故不再单开修复
+- [x] 7.8 文档：本节 tasks + spec 新增 3 条 Requirement + 执行记录 `openspec/records/sidebar-collapse-followups.md`

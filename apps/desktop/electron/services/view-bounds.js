@@ -116,6 +116,27 @@ function normalizeSidebarWidth(width) {
 }
 
 /**
+ * 各 manager 的 setSidebarWidth 入参守卫（单一真源）。
+ *
+ * 为什么必须有这个函数：WebviewManager / AuthViewManager / QRCodeLogin / OAuthManager
+ * 四处各自写了 `typeof width !== 'number' || width < MIN || width > MAX`，
+ * 而 **NaN 的所有比较都是 false ⇒ NaN 能穿过这道守卫**并被写进 _sidebarWidth，
+ * 之后 computeEmbeddedViewBounds 的 normalizeSidebarWidth 才把它拦下（回落 200）。
+ * 结果是：渲染进程上报 NaN 时 manager 层认为"宽度变了"并触发一次无意义重排，
+ * 而守卫的语义（"挡住非法值"）实际被推迟了一层——四份重复实现还各自漂移。
+ *
+ * ⚠️ 不只是 NaN：`Infinity > MAX` 为 true 能被挡，但 `-Infinity < MIN` 同样为 true，
+ * 真正的漏网口径只有 NaN。用 `Number.isFinite` 一并覆盖。
+ *
+ * @param {unknown} width
+ * @returns {boolean} true = 合法（有限数字且落在 [MIN, MAX]）
+ */
+function isValidSidebarWidth(width) {
+  return typeof width === 'number' && Number.isFinite(width) &&
+    width >= MIN_SIDEBAR_WIDTH && width <= MAX_SIDEBAR_WIDTH
+}
+
+/**
  * 计算「右侧主体区域」内嵌视图的 bounds：左侧留出导航栏，顶部留出 TabBar + NavBar。
  * 宽高下限为 0（窗口被缩到极小时不产生负尺寸，Electron 会拒绝负值）。
  *
@@ -156,5 +177,6 @@ module.exports = {
   normalizeSize,
   getContentSize,
   normalizeSidebarWidth,
+  isValidSidebarWidth,
   computeEmbeddedViewBounds,
 }
