@@ -9,7 +9,7 @@ date: 2026-10-19
 | 门禁 | 状态 | 证据 |
 |------|------|------|
 | 变更类型与隔离 | ✅ | 纯文档/规格变更（`01-docs/PRD-PODCAST-ONECLICK-PUBLISH-2026-10-10.md`、`openspec/changes/podcast-oneclick-publish/tasks.md`、本篇记录、CHANGELOG），零运行时代码。仍按并发会话纪律走独立 worktree `mp-podcast-entry-adjudication-51b2`（`scripts/start-mp-task.ps1` 创建；共享根未落盘）。 |
-| 判定 | 由门禁现取 | `node scripts/classify-docs-only.js --base=origin/main --head=HEAD` 的读数在**提交后**取并写回本行（禁止预写）：预期 `docs-only=true`，因为改动集只含 `01-docs/**` 与 `openspec/**` 与根 `CHANGELOG.md`（三条均在 `CI_IGNORED_PATHS`）。 |
+| | 判定 | ✅ 现取 | 提交后实测：`node scripts/classify-docs-only.js --base=0472bed979 --head=HEAD` 输出 `docs-only=true`、`files=5`（`.ccg/reviews/fe18601….json` + PRD + CHANGELOG + tasks.md + 本篇记录），五条全命中 `CI_IGNORED_PATHS`。 | 其余判据当场读数：`check-changelog-growth` PASS（base 530 条 → head 531 条，字节 2843420 → 2847137）、`check-record-qm5-rows` OK（必需步骤 ①②④⑤，检查域 244 篇 / 欠账 27 条 / 未登记缺行 0）、`check-gate-record-debt` OK（`HAND-CLOSURE 人工改写=0`）、`check-doc-abs-paths` PASS（counts=1185 domain=4261 files=564，**账本未动**）、`check-no-brand-residue` PASS（10480 个 tracked 文件）、`check-pr-exec-record --mode=enforce` OK（新增记录 1 篇）。 |
 | 行尾与 diff 对账 | ✅ | 两份被改文档工作副本均为 `i/lf w/crlf attr/text=auto`。补丁驱动先断言行尾**均匀**（`seps.every(s => s === '\r\n')`，不均匀直接抛错要求改成 `(line,sep)` 成对回写），锚点一律先按**剥 `\r` 的子串**定位并要求恰命中 1，写完再判 `CR 数 == LF 数`。两口径 `git diff --numstat` / `--ignore-cr-at-eol --numstat` 逐文件相等（PRD 6/4、tasks 2/1）。**第一次就靠这条 fail-closed 抓到锚点二义**：`ResultView.vue:726` 在 §14 的欠账行里也出现一次，命中 2 ⇒ 驱动拒绝改写；正解是把锚点收成整行前缀 `\| \`ResultView.vue:726\` \|`，而不是放宽计数。 |
 | 品牌残留 | ✅ | 本刀不引入竞品名；`node scripts/check-no-brand-residue.js` 读数见下「其他判据」。 |
 | 改了什么（一）坐标 | ✅ | §15.2 前两行的入口坐标按实测校正：`ResultView.vue:726` → `:64`（`<PodcastEpisodeEntry>` 挂载行；导入 `:447`、注册 `:479`），`CreateView.vue:4519` → `:4610`（`openPodcastEpisodePublish`；浮层 `PodcastPublishAction` 挂载 `:352-360`、事件绑定 `:373`）。**旧坐标不删**，在行内标"坐标实测校正"，并写明 §14 那条施工指令里的同一旧坐标**刻意保留不改写**、以本表为唯一真源。 |
@@ -22,6 +22,14 @@ date: 2026-10-19
 | 接线棘轮 | N/A | 本刀不新增测试文件；§15.4 的坐标是**命令文本**而非脚本件，因此不需要接进 CI（选择理由：把一份一次性取证脚本塞进 `scripts/` 会让本 PR 变成混合 PR 并触发全量重型 job，而它的价值只在"能被一句话重取"，命令文本已经满足）。 |
 | 远程同步 | 由门禁推导 | 收口由 `scripts/lib/merge-ledger.js` 按主干历史推导；合并后的 main push 回读写进 PR 评论，不写回本文件。 |
 
+## 一条与本 PR 无关、但会拦住自动合并的 main 红（已归因，不在本刀修）
+
+- **归因读数**：`QG Desktop Shards (2/2)` 与 `QG Coverage` 自 **`2e108e7a6`（PR #3946「语音模型改由程序+运营决定，移除下拉」）合入 main 起持续红**。对照面取最近 9 次 main push：`33e0940e5` success → **`2e108e7a6` failure** → `e5ed32f52` / `5736b3ed2` / `950af9f3b` 三条 shard2 全 failure。失败面只有一条用例：`src/views/video-creation/S2vConfigPanels.test.js:290「语音 / 音色 ID 同在『旁白设置』子分区」`，整片读数 `Test Files 1 failed | 508 passed | 1 skipped (510)`。
+- **根因线索（未修，留给归属 PR）**：该 `UiField` 的 `v-if` 现在要求 `s2vConfig.voiceProvider && s2vVoiceContextModel`（`S2vConfigPanels.vue:359`），而 #3946 把 `voiceModel` 改成程序静默解析后，用例只设了 `s2vConfig.voiceModel`、**没给 `state.s2vVoiceContextModel`**（该值经 `S2vConfigPanels.vue:788` 从 state 转发）⇒ v-if 恒假、标签不渲染。这是 AGENTS「门禁断言随实现迁移同步」那一条的漏更，不是新缺陷。
+- **为什么判"与我无关"是实测而不是推论**：两个互不相干的在飞改动集（#3955 音色三态、#3958 音频键）**在同一分片报同一条红**，且 main push 上没有我的内容时就已经红。既有红不认领，也不在本刀顺手修——修它要动的是 #3946 的测试前提，属另一刀。
+- **但它确实拦住了自动合并**：本仓自动合并判据取「`gh pr checks` 零 pending、零 fail」，比 GitHub 的 required 清单更严（实测 required 面里 ruleset 是 `QG Static / QG Unit Tests / electron-tests / 文档同步检查 / 债务熔断检查 / 单元测试 + Lint / GUI Gate Result` 七条、classic protection 另有 `Gate Result / build / QG Unit Tests / QG Coverage`，两条清单互不完全覆盖），所以一条**非 required** 的红也会让在飞 PR 的守卫停在 `STOP：checks 真失败`。**这是设计如此**：不得为了让 PR 过就把"零 fail"放宽成"零 required fail"，那等于把门禁改成"没人看的那一条不算数"。
+- 取证顺带记一条工具事实：`gh api repos/<owner>/<repo>/actions/jobs/<id>/logs` 对这条 job 返回 **0 字节**（探针失明，读起来像"没有失败"），而 `gh run view <run> --job <id> --log` 给出 5.2 MB 全文。判"CI 里到底红在哪条"一律走后者。
+
 ## 其他判据读数
 
-- 最终读数在提交后现取（`check-no-brand-residue` / `check-gate-record-debt` / `check-record-qm5-rows` / `check-doc-abs-paths` / `check-changelog-growth` / `classify-docs-only`），逐项写在 PR 正文与本文件本节；**禁止预写"通过"**。
+- 本节的全部当场读数已并入上方「判定」行（base `0472bed979`），此处不再重复列；重取命令逐条写在该行里，任何人可在仓库内一句话复算。
