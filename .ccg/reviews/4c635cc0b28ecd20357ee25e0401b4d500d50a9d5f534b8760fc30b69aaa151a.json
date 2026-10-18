@@ -22,7 +22,7 @@
     "status": "error",
     "performedBy": "claude",
     "findings": null,
-    "error": "spawnSync C:/Users/邱领/.claude/bin/codeagent-wrapper.exe ETIMEDOUT",
+    "error": "spawnSync <HOME>/.claude/bin/codeagent-wrapper.exe ETIMEDOUT",
     "validationErrors": null,
     "at": "2026-10-18T15:39:10.384Z"
   }

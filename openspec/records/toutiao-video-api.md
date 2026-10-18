@@ -168,6 +168,19 @@ const base = this.uploadScheme + '//' + n0.UploadHost + '/upload/v1/' + store.St
   仓内 `scripts/sanitize-ccg-review-record.js` 把 `deepReview.error` 里的家目录前缀替换为 `<HOME>`，
   再以原 rc 退出；并给该 sanitizer 补「必须吞掉本机绝对路径 + 不得改动其他字段」的行为锁。
 
+### 8.1 自查到的一次越界（已回滚，如实登记）
+
+写脱敏脚本时我按「目录里所有含该路径的 json」批量替换，**连带改到了两个其他会话的判定记录**
+（`646acc81…` / `bd70c5fa…`）。后果是 `check-doc-abs-paths` 从「超出基线 1」变成
+「**低于**基线 2」—— 因为那两条在基线里本来就是允许的，被我改少后触发「账本变少」判定。
+
+处置：`git checkout --` 精确回滚那两个文件，只保留本分支自己的两条记录改动；
+复跑 `check-doc-abs-paths` 恢复 PASS。
+
+**这是本会话第二次犯「宽编辑」同型错误**（上一次是批量改 `.ccg/reviews` 状态导致 1044 个文件被污染）。
+两次的根因都是「按模式匹配整个目录，而不是先枚举再白名单确认」。此处的正确做法应是：
+先 `git status --porcelain .ccg/reviews` 看哪些是我这次动过的，只处理那几个。
+
 ## 九、远程同步
 
 | 远程同步 | 由门禁推导（合并后按主干历史收口；不手写状态词） |
