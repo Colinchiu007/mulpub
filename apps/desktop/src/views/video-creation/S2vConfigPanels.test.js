@@ -284,6 +284,12 @@ describe('S2vConfigPanels', () => {
     vm = makeBoundVm({ s2vConfig: s2vConfigFixture() });
     vm.s2vConfig.voiceProvider = 'minimax-multimodal';
     vm.s2vConfig.voiceModel = 'speech-2.8-turbo';
+    // 组件的显隐判据是 `s2vConfig.voiceProvider && s2vVoiceContextModel`
+    // （S2vConfigPanels.vue 的 `v-if`），其中 `s2vVoiceContextModel` 是 contract 绑定的
+    // **独立状态键**（`s2v-panel-contract.js`），并不由 `voiceModel` 派生。
+    // 本用例原先只设了 voiceProvider/voiceModel ⇒ 该字段不渲染 ⇒ 断红。
+    // 同文件 L127/L136 两个用例都是显式设这个键的，此处补齐同一前置。
+    vm.s2vVoiceContextModel = 'speech-2.8-turbo';
     const w = mountPanel(vm);
     const narration = w.get('[data-testid="s2v-subgroup-voiceNarration"]');
     expect(narration.text()).toContain('语音生成器');
