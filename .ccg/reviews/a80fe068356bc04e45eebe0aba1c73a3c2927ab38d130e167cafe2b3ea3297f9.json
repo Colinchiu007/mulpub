@@ -63,7 +63,7 @@
         "mutant": "M8（在 setup 里 void ensureChannel() ⇒ 判据 1 与判据 4 共三条红）"
       }
     ],
-    "error": "spawnSync C:/Users/邱领/.claude/bin/codeagent-wrapper.exe ETIMEDOUT",
+    "error": "spawnSync ~/.claude/bin/codeagent-wrapper.exe ETIMEDOUT",
     "validationErrors": null,
     "at": "2026-10-18T02:47:48.267Z"
   }
