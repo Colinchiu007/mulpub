@@ -1,0 +1,29 @@
+{
+  "sha": "93d8616e3153eeee5a93279f2c4e70d9443a67cc",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 112 行（≤ 200）但命中 auth/数据库/加密：敏感内容 9 处",
+  "stats": {
+    "changedLines": 112,
+    "fileCount": 6,
+    "codeFileCount": 4,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 9,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "  **不得**用本机 `--update-baseline` 掩盖。",
+      "- **不采用**：本机 `--update-baseline` 重建基线 —— 本仓纪律明令禁止用基线掩盖回归。若第 2 轮仍红，正解是由 CI 同源产出 `base-screenshots/publish-form{,-dark}.png`。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "7f3b0109d48c80e1fb342794033e6b9dd5d4355e466927473bed0511c9eab0b7",
+  "decidedAt": "2026-10-18T01:28:50.433Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

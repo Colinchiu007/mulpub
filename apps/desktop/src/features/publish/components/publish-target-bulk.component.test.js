@@ -36,7 +36,12 @@ function mountBulk (props = {}) {
 }
 
 describe('PublishTargetSelector — 全选 / 清空（publish-target-select-all）', () => {
-  it('空 profile 下 section 直接子节点仍恰为 [input, div]：全选行与分组行都不渲染（L8 视觉中性）', () => {
+  // 视觉中性锁（L8）。口径：section 直接子节点恒为 [搜索行, 列表] 两个 div —— 全选/清空
+  // **不新开一行**，而是塞进搜索行内（新开一行会把下方整栏下移，实测让 6 条 publish
+  // workflow 用例按 1% 阈值判红）。因此这里断言两层形状：
+  //   ① 顶层恒两节点且顺序不变（搜索行在前、列表在后）；
+  //   ② canSelectAll=false 时搜索行内**只有搜索框本身**（按钮块整块缺席）。
+  it('空 profile 下顶层仍恰为 [搜索行, 列表]，且搜索行内只有搜索框（L8 视觉中性）', () => {
     // canSelectAll=false + accountGroups=[] ⇒ 两个新增块都必须缺席。
     const wrapper = mountBulk({ canSelectAll: false, accountGroups: [] })
 
@@ -46,8 +51,21 @@ describe('PublishTargetSelector — 全选 / 清空（publish-target-select-all�
     expect(wrapper.find('[data-testid="publish-group-picker"]').exists()).toBe(false)
 
     const children = wrapper.get('section.target-selector').element.children
-    expect([...children].map(el => el.tagName.toLowerCase())).toEqual(['input', 'div'])
+    expect([...children].map(el => el.tagName.toLowerCase())).toEqual(['div', 'div'])
+    expect(children[0].className).toBe('target-selector__search-row')
     expect(children[1].className).toBe('target-selector__list')
+    // 搜索行内只剩搜索框本人 ⇒ 与改前的单行形态逐节点等价（不多一个按钮节点）
+    expect([...children[0].children].map(el => el.tagName.toLowerCase())).toEqual(['input'])
+  })
+
+  it('全选/清空与搜索框同处一行（不新开行，避免整栏下移撞像素门禁）', () => {
+    const wrapper = mountBulk({ canSelectAll: true, publishableCount: 3 })
+
+    const row = wrapper.get('.target-selector__search-row')
+    expect(row.find('input[type="search"]').exists()).toBe(true)
+    expect(row.find('[data-testid="target-bulk-toolbar"]').exists()).toBe(true)
+    // 顶层节点数不因按钮出现而增加
+    expect(wrapper.get('section.target-selector').element.children.length).toBe(2)
   })
 
   it('canSelectAll=true 时渲染全选/清空一行，且只 emit 事件（组件不持有选中集，L9）', async () => {

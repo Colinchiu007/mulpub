@@ -214,9 +214,10 @@ describe("PublishView — 发布目标全选 / 清空（publish-target-select-al
 
     expect(w.find('[data-testid="target-bulk-toolbar"]').exists()).toBe(false);
     expect(w.find('[data-testid="target-select-all"]').exists()).toBe(false);
-    // section 直接子节点仍恰为 [搜索框, 列表]
+    // 顶层仍恰为 [搜索行, 列表]，且搜索行内只剩搜索框（全选/清空整块缺席）
     const children = w.get("section.target-selector").element.children;
-    expect([...children].map(el => el.tagName.toLowerCase())).toEqual(["input", "div"]);
+    expect([...children].map(el => el.tagName.toLowerCase())).toEqual(["div", "div"]);
+    expect([...children[0].children].map(el => el.tagName.toLowerCase())).toEqual(["input"]);
   });
 
   it("没有选中任何平台时「清空」禁用（点了无效果，禁用以示无可清空）", async () => {

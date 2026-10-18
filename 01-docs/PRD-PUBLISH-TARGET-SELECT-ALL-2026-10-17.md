@@ -141,20 +141,38 @@ P0-2 的口径是"发布前可见"（徽标 + tooltip）。全选把挂起目标
   └─ 结果播报沿用 P2-8b §八；本刀不新增播报分支
 ```
 
-## 六、视觉中性策略（像素门禁）
+## 六、视觉中性策略（像素门禁）—— 含一次实测推翻的前提更正
 
-CI 的 `publish-form` 用例跑**空 profile**（`tests/e2e/fixtures/accounts.json` 无分组、`storeGetSetting` 无 `account_groups`）⇒ `accountGroups` 恒为空数组、可发布平台集合恒为空。据此：
+**初稿的前提错了，实测推翻后已改设计。** 初稿写「CI 的 `publish-form` 跑空 profile ⇒ 无可发布平台 ⇒ 整行不渲染即可视觉中性」。实测不成立：`tests/e2e/fixtures/accounts.json` **有 8 个账号**（覆盖 8 个平台），所以 CI 里 `canSelectAll` 恒为 **真**，全选/清空**必然渲染**。"空态不渲染"只能挡住"刚装好未登录"那一种真机情形，挡不住 CI。
 
-- **空 profile 下必须零 DOM 新增**：全选/清空一行在"无可发布平台"时**整行不渲染**（不是渲染一个 disabled 按钮）。这与 P2-8b「无组不渲染」是同一条构造性中性手段，理由也相同：空态若也渲染，就是给 `publish-form` 基线制造一次确定性漂移。
-- 判据形态：`PublishTargetSelector` 的 section 直接子节点在空 profile 下必须仍恰为 `[input, div]`（P2-8b L9 已有该锁，本刀扩展为"全选行与分组行都不在"）。
+**实测后果（判据取产物，非推断）**：把全选/清空做成**搜索框下的新一行**后，`QG Visual` 的 workflows 套件判红 ——
+`[GATE-7] suite exits: pixel=0 views=0 views-supplement=0 dark=0 workflows=1 workflows-supplement=0`，
+两轮甄别重跑仍是 `workflows 重跑 rc=1`，**可复现、非 flake**。具体是
+`工作流结果: 25/31 通过，6 失败`，6 条全是 `/publish` 用例
+（`publish-title-edit-reset` / `publish-author-edit-reset` / `publish-platform-search-reset` /
+`publish-cover-url-reset` / `publish-template-panel-toggle` / `publish-ai-panel-toggle`），
+每条都是 `视觉差异 1.7783082561728396% 超过阈值 1%`（**workflows 套件的阈值是 1%，不是像素套的 6%**；
+同一张图在像素套里 1.778% < 6% 是 PASSED —— 两个套件阈值不同口径，别拿一个的绿当另一个的绿）。
+diff 图显示红线覆盖**整个右栏下半部**：新增一行把下方所有内容整体下移。
+
+**改法（构造性中性）**：全选/清空**塞进搜索行内部**（`.target-selector__search-row`：搜索框 `flex:1` + 按钮块 `flex:0 0 auto`），
+不再新开一行 ⇒ 搜索行下方的一切原地不动。配套两条约束：
+① 按钮做成小号 chip（`font-size-xs` + `padding: 1px 8px`），**不得撑高搜索行**——撑高就等于把换来的收益还回去；
+② section 直接子节点数**恒为 2**（`[搜索行, 列表]`），空态下搜索行内只剩 `<input>` 本人。
+
+预期残留差异只落在搜索行那一带（约 `470 × 34` px 量级 < 1%），**是否真的低于 1% 以 CI 的 `QG Visual` 为准**，
+不在本地声称（本机无 Chromium，跑不了视觉套件；本仓纪律：环境缺失不得判成"无回归"）。
+
+- 判据形态：`PublishTargetSelector` 的直接子节点恒为 `[div(target-selector__search-row), div(target-selector__list)]`，且空态下搜索行内 `children` 恰为 `['input']`。
 - **不得**把这条锁写成"改前 html == 改后 html"（两次挂载跑同一份新代码 ⇒ 恒真，P2-8b §六已论证并纠正）。
-- 非空 profile（真机/有分组）下新增一行属**预期**的界面变化，需要时由 CI 同源基线重建处理，**不在本刀内**混入基线重建。
+- 若最终 CI 仍判红，正解是**由 CI 同源产出基线**（`base-screenshots/publish-form{,-dark}.png` 是可跟踪文件，历史 PR #2623/#2709/#2804 都走过这条路），
+  **不得**用本机 `--update-baseline` 掩盖。
 
 ## 七、显示项
 
 | 位置 | 内容 | 数据 | 空/异常态 |
 |---|---|---|---|
-| 「发布目标」标题下、搜索框下（新一行） | 「全选」按钮 + 「清空」按钮（文字按钮，非实心大按钮——它活在平台列表上方，不能抢主行动焦点） | 可发布平台集合 | 集合为空 ⇒ **整行不渲染**（视觉中性 + 不给死控件） |
+| **搜索行内**（搜索框右侧） | 「全选」+「清空」两个小号 chip 按钮，与搜索框**同一行**（不新开行，见 §六） | 可发布平台集合 | 集合为空 ⇒ **整块不渲染**（视觉中性 + 不给死控件） |
 | 全选按钮 tooltip | 「选中所有有可用账号的平台（N 个）」 | 可发布平台数 | 集合为空时不渲染，无 tooltip |
 | 清空按钮 | 「清空」 | `selectedPlatforms.length` | 未选任何平台时 disabled（点了无效果，禁用以示"无可清空"） |
 | 分组 chip（既有，增强） | 组名 + `已选/成员` + 预告 tooltip | `isAccountSelected` 逐成员计数 | 无可操作分组 ⇒ 整块不渲染（P2-8b 既有） |
@@ -205,11 +223,13 @@ CI 的 `publish-form` 用例跑**空 profile**（`tests/e2e/fixtures/accounts.js
 | L13 | `usePlatformSelection.test.js`（既有） | 零回归：reconcile 删键与默认账号回填行为不变；新增的 `clearPlatforms` 只动 `selectedPlatforms` | 若既有行为被改，L5 的理由须同步改写 |
 | L14 | `publish-target-select-all.test.js`（新，视图层） | 点全选真的把有账号平台写进选中集并播报；点清空真的清掉；发布中禁用；无可发布平台时整行不渲染 | 按钮在但写了空 ⇒ 红 |
 
-## 九之二、实现期实测到的两条坑（写进文档，因为它俩都不是"改个参数"能绕过的）
+## 九之二、实现期实测到的三条坑（写进文档，因为它仨都不是"改个参数"能绕过的）
 
 **① `publishableCount` 不能写成 computed。** `getAvailableAccountIds` 是 `usePlatformSelection` 的普通函数，它读的 `accountStore.byPlatform` 在**测试替身**里不是响应式源（`Publish.test.js` 的 `useAccountStore` mock 早前是普通对象 + getter）。写成 computed 时它在账号目录就绪前求值一次即被缓存，之后不重算 —— 表现是"平台列表里账号明明在，全选按钮永远不出现"。改为 `watch` 订阅三个确实是响应式的源（`flatPlatforms` / `selectedPlatforms` / `selectedAccounts`，`deep`）后重算：`reconcileSelectedAccounts` 正是在这些源变化时补齐/剔除账号键，它跑完那一刻就是重算的正确时机。
 
 **② 测试替身的 `byPlatform` 必须是 ref，否则整类缺陷只在测试里成立。** 真实 Pinia store 的 `byPlatform` 是对 `accounts` 派生的 computed，"账号到了 ⇒ 界面跟着变"是响应式保证的；用普通对象 + getter 的替身把这条保证抹掉了（Mock 边界漏洞：替身比真身弱，弱出来的缺陷没人见过）。已把 `Publish.test.js` 的容器改成 `ref`，getter 读 `.value` —— 调用方拿到的仍是普通对象（与 Pinia 自动解包同形），但这次读发生在响应式 Effect 里。
+
+**③ CI 的 `publish-form` 不是"空 profile"，且两个视觉套件阈值不同口径。** 初稿按「空 profile ⇒ 无可发布平台 ⇒ 不渲染即视觉中性」设计，被 CI 实测推翻：`tests/e2e/fixtures/accounts.json` 有 8 个账号，CI 里全选按钮**必然渲染**；而 workflows 套件的阈值是 **1%**（不是像素套的 6%），新增一行让 6 条 `/publish` 用例在 **1.778%** 判红，两轮甄别可复现（同一张图在像素套 1.778% < 6% 是 PASSED）。改法：按钮塞进搜索行同一行，让下方原地不动（详见 §六）。两条可迁移判据：**① "空态不渲染"只挡得住真机的空，挡不住 CI 的夹具数据 —— 设计前先读夹具；② 同一视图在不同套件可能阈值不同，别拿一个套件的绿当另一个的绿。**
 
 ## 十、验收
 
@@ -217,7 +237,7 @@ CI 的 `publish-form` 用例跑**空 profile**（`tests/e2e/fixtures/accounts.js
 - `check-locale-sync`：zh/en 成对（pair PASS）+ CJK 基线扫描不因本刀上升（PASS）。
 - `check-max-lines`：`Publish.vue` 仍在 targets（1773）之下（现 1770）；新文件 < 500 行。
 - eslint exit 0（仅 2 处既有 warning，均不在本刀 diff 内）。
-- QM-1：本刀不改 `apps/desktop/electron/` 与 `packages/rpa-engine/`，不触发强制打包；但因改了渲染层，需以 CI 的 `QG Visual` 为准，并在质量记录里如实写明"空 profile 下零 DOM 新增"的构造性论证与源码/DOM 级证据。
+- QM-1：本刀不改 `apps/desktop/electron/` 与 `packages/rpa-engine/`，不触发强制打包；但因改了渲染层，以 CI 的 `QG Visual` 为准。构造性论证是「**搜索行内改动、下方原地不动**」（§六），证据为组件层形状锁（顶层恒 2 节点 + 空态搜索行内仅 `<input>`）与视图层"无可发布平台整块不渲染"用例。本机无 Chromium ⇒ **不在本地声称像素结论**。
 - 真机行为验证需要已登录 profile 与至少一个有账号平台；本机不做端到端（牵动共享 userData），行为面以单测为准并如实标注。
 
 ## 十一、残余（明确不在本刀）

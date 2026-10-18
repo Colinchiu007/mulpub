@@ -1,33 +1,38 @@
 <template>
   <section class="target-selector" data-testid="publish-target-selector" aria-label="发布目标">
-    <input v-model="search" class="target-selector__search" type="search" aria-label="搜索发布平台或账号" placeholder="搜索平台或账号" />
-    <!-- 全选 / 清空（publish-target-select-all，2026-10-17）：
-         整行由 canSelectAll 决定是否渲染。canSelectAll=false（CI 空 profile、刚装好未登录）
-         时必须**整行缺席**，否则 section 的直接子节点从 [input, div] 变成三个，
-         publish-form 像素基线必然漂移——那不是可以事后补基线的变化，而是确定性红。
+    <!-- 搜索行（publish-target-select-all，2026-10-17）：全选/清空按钮**塞进搜索行**而不是
+         单开一行。理由不是排版偏好，是像素门禁：搜索行下方的一切（平台分组、账号清单、
+         保存草稿/一键发布等主操作）都是纵向排布的，新增一行会把它们整体下移 —— 实测
+         workflows 套件按 1% 阈值判红（publish-form 1.778%，6 条 publish 用例全红），
+         且 diff 图显示红线覆盖整个右栏下半部。塞进同一行后，下方不动，只有本行内部变化。
+         行内布局：搜索框 flex:1 + [全选][清空]（canSelectAll=false 时两个按钮都不渲染，
+         行内就只剩搜索框本人 —— 与改前的 `[input, div]` 形态逐节点等价）。
          契约见 01-docs/PRD-PUBLISH-TARGET-SELECT-ALL-2026-10-17.md §六。 -->
-    <div
-      v-if="canSelectAll"
-      class="target-selector__bulk"
-      data-testid="target-bulk-toolbar"
-      role="group"
-      :aria-label="bulkGroupAriaLabel"
-    >
-      <button
-        type="button"
-        class="target-selector__bulk-btn"
-        data-testid="target-select-all"
-        :disabled="disabled"
-        :aria-label="selectAllAriaLabel"
-        @click="$emit('select-all')"
-      >{{ selectAllLabel }}</button>
-      <button
-        type="button"
-        class="target-selector__bulk-btn"
-        data-testid="target-clear-all"
-        :disabled="disabled || selectedPlatforms.length === 0"
-        @click="$emit('clear-all')"
-      >{{ clearAllLabel }}</button>
+    <div class="target-selector__search-row">
+      <input v-model="search" class="target-selector__search" type="search" aria-label="搜索发布平台或账号" placeholder="搜索平台或账号" />
+      <div
+        v-if="canSelectAll"
+        class="target-selector__bulk"
+        data-testid="target-bulk-toolbar"
+        role="group"
+        :aria-label="bulkGroupAriaLabel"
+      >
+        <button
+          type="button"
+          class="target-selector__bulk-btn"
+          data-testid="target-select-all"
+          :disabled="disabled"
+          :aria-label="selectAllAriaLabel"
+          @click="$emit('select-all')"
+        >{{ selectAllLabel }}</button>
+        <button
+          type="button"
+          class="target-selector__bulk-btn"
+          data-testid="target-clear-all"
+          :disabled="disabled || selectedPlatforms.length === 0"
+          @click="$emit('clear-all')"
+        >{{ clearAllLabel }}</button>
+      </div>
     </div>
     <PublishGroupPicker
       :items="accountGroups"
@@ -222,12 +227,16 @@ function isAccountSelected (platformId, accountId) {
 
 <style scoped>
 .target-selector { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
-.target-selector__search { width: 100%; box-sizing: border-box; border: 1px solid var(--border-light, #e0e0e0); border-radius: 6px; padding: 8px 10px; color: var(--text-primary, #202124); background: var(--surface, #fff); font-size: var(--font-size-sm); }
+/* 搜索行：搜索框 + 全选/清空同一行。行高由搜索框决定（padding 8px/字号 sm），
+   两个 chip 按钮刻意做小（font-size-xs + padding 3px），保证它们**不撑高本行** ——
+   一旦撑高，下方整栏仍会下移，等于把"塞进同一行"换来的一次性收益又还回去。 */
+.target-selector__search-row { display: flex; align-items: center; gap: 6px; }
+.target-selector__search { flex: 1 1 auto; min-width: 0; box-sizing: border-box; border: 1px solid var(--border-light, #e0e0e0); border-radius: 6px; padding: 8px 10px; color: var(--text-primary, #202124); background: var(--surface, #fff); font-size: var(--font-size-sm); }
 .target-selector__search:focus { outline: 2px solid color-mix(in srgb, var(--action-blue, #1890ff) 25%, transparent); border-color: var(--action-blue, #1890ff); }
-/* 全选/清空行（publish-target-select-all）：刻意用小号文字按钮（非实心大按钮）——
-   它活在平台列表上方，不能抢「一键发布」主行动的焦点。与分组 chip 同一视觉层级。 */
-.target-selector__bulk { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.target-selector__bulk-btn { padding: 3px 10px; border: 1px solid var(--border-light, #e0e0e0); border-radius: 999px; background: var(--surface, #fff); color: var(--action-blue, #1890ff); font-size: var(--font-size-xs); line-height: 1.6; cursor: pointer; }
+/* 全选/清空（publish-target-select-all）：小号文字按钮（非实心大按钮）——
+   它活在搜索行里，不能抢「一键发布」主行动的焦点。 */
+.target-selector__bulk { display: flex; flex: 0 0 auto; align-items: center; gap: 4px; }
+.target-selector__bulk-btn { padding: 1px 8px; border: 1px solid var(--border-light, #e0e0e0); border-radius: 999px; background: var(--surface, #fff); color: var(--action-blue, #1890ff); font-size: var(--font-size-xs); line-height: 1.6; white-space: nowrap; cursor: pointer; }
 .target-selector__bulk-btn:hover:not(:disabled) { border-color: var(--action-blue, #1890ff); }
 .target-selector__bulk-btn:disabled { cursor: not-allowed; opacity: .6; }
 .target-selector__list { min-height: 0; max-height: clamp(220px, 38vh, 430px); overflow-y: auto; padding-right: 4px; scrollbar-gutter: stable; }
