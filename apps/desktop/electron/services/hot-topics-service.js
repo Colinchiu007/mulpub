@@ -127,26 +127,17 @@ const CHANNEL_CONFIGS = [
 ]
 
 /**
- * GYREAD AI 情报日报的补拉源定义 —— **当前未挂进任何启用路径**（见下方说明）。
+ * GYREAD AI 情报日报的补拉源定义 —— **当前未挂进任何启用路径**。
  *
- * 定义保留为常量的意义：把「实现就绪」与「获准抓取」两件事分开。
- * 解析与测试都完整可用，但合规未决时它只是一件**技术储备**，不是生效配置。
+ * ⛔ 合规裁决（2026-10-19，对抗评审 BLOCKING-1）：gyread `robots.txt` 在
+ * `User-agent: *` 组写着 `Disallow: /news/`，Allow 只给具名检索 UA（OAI-SearchBot 等）。
+ * 本应用 `DESKTOP_UA` 是伪装 Chrome 的通用 UA，落在 `*` 组 ⇒ 抓取在被禁路径上；
+ * **返回 200 不等于被许可**，且伪装 UA 放弃了「我是检索代理」的身份主张。
+ * `Content-Signal: ai-input=yes` 不覆盖此条（robots 按 UA 组判定）。
  *
- * ⛔ 合规裁决（2026-10-19，对抗评审 BLOCKING-1，已复核属实）：
- *   gyread 的 `robots.txt` 在 `User-agent: *` 组写着 **`Disallow: /news/`**；
- *   `/news/` 的 Allow 只存在于**具名检索 UA 组**（OAI-SearchBot / ChatGPT-User /
- *   PerplexityBot 等）。本应用的 `DESKTOP_UA` 是伪装 Chrome 的通用浏览器 UA，
- *   落在 `*` 组 ⇒ `search-index.json` 与全部 edition 页抓取都在被禁路径上。
- *   **服务器返回 200 不等于被许可**；且伪装 UA 主动放弃了「我是检索代理」的
- *   身份主张，「检索/引用」的定性随之塌掉。`Content-Signal: ai-input=yes`
- *   不覆盖这一条（robots 按 UA 组判定，与信号开关无关）。
- *
- * 重新启用的前置条件（缺一不可）：
- *   ① 站点运营方为本应用**新增自报身份的 UA 组**并获许可（书面）；
- *   ② 抓取 UA 改为自报身份（如 `MultiPublishBot/1.0 (+contact)`），不再伪装浏览器；
- *   ③ 把本常量挂回 `CATEGORY_BOOSTS.ai.sources`，并同步补 `locales` 渠道文案
- *      （zh/en 成对；既有回归锁会校验「全部 source id 都有文案键」）。
- * 详见 openspec change `hot-topics-gyread-ai-source` 的 design.md §2.4。
+ * 定义保留为常量：把「实现就绪」与「获准抓取」分开 —— 解析可用 ≠ 允许抓取。
+ * 启用前置条件：① 站点新增自报身份 UA 组并获许可；② 抓取 UA 改为自报身份；
+ * ③ 挂回 `CATEGORY_BOOSTS.ai.sources` 并补 locales 文案。依据见 design.md §2.4。
  */
 const GYREAD_SOURCE = {
   id: 'gyread-ai', name: 'GYREAD AI 情报日报',
@@ -187,28 +178,9 @@ const CATEGORY_BOOSTS = {
     // `throttleKey`（P2）与 tech 补拉源共享同一配额：两个身份打的是**同一个 RSS 端点**，
     // 若各自配额就是 2 次/15min；共享后 1 次/15min，且一方的失败也保护另一方。
     { id: 'ithome-ai', name: 'IT之家(AI 专题筛)', url: 'https://www.ithome.com/rss/', parser: 'ithome_rss', channel: 'ithome_tech', board: 'ai', boostCategory: 'ai', onlyCategory: 'ai', headers: {}, intervalMinutes: 15, riskLevel: 'low', throttleKey: 'ithome-rss' },
-    //
-    // ╔══════════════════════════════════════════════════════════════════════╗
-    // ║ ⛔ GYREAD AI 情报日报：已按合规裁决摘除，**默认不抓取**（2026-10-19）。   ║
-    // ╚══════════════════════════════════════════════════════════════════════╝
-    //
-    // 解析实现（`parseGyreadIndex` / `parseGyreadEdition`）与测试完整保留在仓库里，
-    // 但**不挂进任何启用路径** —— 解析器存在 ≠ 允许抓取，二者必须分开。
-    //
-    // 摘除依据（对抗评审 BLOCKING-1，已复核属实）：
-    //   gyread 的 `robots.txt` 在 `User-agent: *` 组写着 **`Disallow: /news/`**；
-    //   `/news/` 的 Allow 只存在于**具名检索 UA 组**（OAI-SearchBot / ChatGPT-User /
-    //   PerplexityBot 等）。本应用的 `DESKTOP_UA` 是伪装 Chrome 的通用浏览器 UA，
-    //   落在 `*` 组 ⇒ `search-index.json` 与全部 edition 页抓取都在被禁路径上。
-    //   **服务器返回 200 不等于被许可**；且伪装 UA 主动放弃了「我是检索代理」的
-    //   身份主张，「检索/引用」的定性随之塌掉。`Content-Signal: ai-input=yes`
-    //   不覆盖这一条（robots 按 UA 组判定，与信号开关无关）。
-    //
-    // 重新启用的前置条件（缺一不可）：
-    //   ① 站点运营方为本应用**新增自报身份的 UA 组**并获许可（书面）；
-    //   ② 抓取 UA 改为自报身份（如 `MultiPublishBot/1.0 (+contact)`），不再伪装浏览器；
-    //   ③ 把下面 `GYREAD_SOURCE` 挂回本数组，并同步补 `locales` 渠道文案。
-    // 详见 openspec change `hot-topics-gyread-ai-source` 的 design.md §2.4。
+    // ⛔ GYREAD AI 日报：已按合规裁决摘除，**默认不抓取**（robots 在 `*` 组禁 `/news/`）。
+    // 解析实现与测试保留，但不挂启用路径 —— 解析器可用 ≠ 获准抓取。
+    // 启用前必读 `GYREAD_SOURCE` 上方的合规说明与三条前置条件。
   ] },
   // 教育/国际暂无稳定可用垂类端点（探测记录：百度 education tab、头条分类参数、v2ex 均不可用），
   // 依赖 方案A 关键词/映射修复 + 方案C LLM 兜底补充

@@ -334,20 +334,16 @@ function parseIthomeRSS(xml) {
 /**
  * gyread.com（AI 情报日报）索引解析 —— `https://gyread.com/news/search-index.json`。
  *
- * 该站形态与其它渠道根本不同：**不是热度榜单，而是每日编辑精选的日报**
- * （2026-06-02 创刊，实测连续 139 天无中断日出刊）。因此：
- *   - 没有 `hotValue` 字段 → 一律 `null`（热度不可比，这是它 MUST NOT 进
- *     `CHANNEL_CONFIGS` 的根本原因，见 openspec change hot-topics-gyread-ai-source）；
- *   - 榜单序是编辑意志而非热度序 → 只作 `rank` 参考；
- *   - 全量索引实测 1421 条，远超单轮候选上限 → 调用方**必须**传 `date` 或 `days` 过滤。
+ * 该站是**每日编辑精选的日报**而非热度榜单：无 `hotValue`（一律 `null`，这也是它
+ * MUST NOT 进 `CHANNEL_CONFIGS` 的原因）、榜单序是编辑意志、全量 1421 条远超单轮
+ * 候选上限 ⇒ 调用方**必须**传 `date` 或 `days` 过滤。
  *
- * ⚠️ 合规边界：本解析的用途是「检索/引用」——条目最终要带用户点回 gyread 的原文链接。
- * **不得**把该站内容用作模型训练语料：站点 `robots.txt` 对 GPTBot/ClaudeBot/CCBot/
- * Google-Extended 等训练类 UA 全站 `Disallow`，响应头带 `x-robots-tag: noai, noimageai`，
- * 仅对 OAI-SearchBot/ChatGPT-User/PerplexityBot 等检索类 UA 放行 `/news/`。
+ * ⚠️ 合规：用途是「检索/引用」（用户点回原文），**不得**用作训练语料。
+ * 站点 robots.txt 在 `User-agent: *` 组禁 `/news/`，Allow 只给具名检索 UA；
+ * 故当前**默认不启用**（见 `hot-topics-service.js` 的 `GYREAD_SOURCE` 说明）。
  *
  * @param {object|null} json `{generated, pages, count, items[]}`，item 含 u/d/c/t/s/g
- * @param {{date?: string, days?: number}} [filter] date=单日（YYYY-MM-DD）；days=最近 N 个日期
+ * @param {{date?: string, days?: number}} [filter] date=单日；days=最近 N 个日期
  * @returns {Array<{channel:string, rank:number, topic:string, hotValue:null, url:string|null, rawCategory:string|null, rawDate:string}>}
  */
 function parseGyreadIndex (json, filter = {}) {
@@ -394,16 +390,11 @@ function stripTags (html) {
 }
 
 /**
- * 抽取「由多个 `<span>` 组成的字段」并归一成 `A · B` 形态。
- *
- * 为什么需要单独一个函数：`item-meta` 是
- * `<span class="meta-source">A</span><span class="meta-sep">·</span><span class="meta-topic">B</span>`，
- * 三个 span 之间**没有空白**，用 `stripTags` 整体剥标签会得到 `A·B`；而旧版
- * `dateline` 直接是 `A · B` —— 同一份语义出现两种口径，下游比对/展示会平白分叉。
- * 这里逐个 span 取文本再用空格连接，两版归一为 `A · B`。
- *
- * 注意不能反过来让 `stripTags` 也加空格：标题里的 `<span class="accent">摩根大通</span>封禁…`
- * 是行内强调，加空格会变成「摩根大通 封禁…」—— 那是错的。
+ * 抽取「由多个 `<span>` 组成的字段」并归一成 `A · B`。
+ * `item-meta` 三 span 间无空白，`stripTags` 会得 `A·B`，而旧版 `dateline` 是 `A · B`
+ * —— 同一语义两种口径，故逐 span 取文本再拼。
+ * 不能让 `stripTags` 也加空格：标题 `<span>摩根大通</span>封禁…` 是行内强调，
+ * 加空格会变成「摩根大通 封禁…」—— 是错的。
  */
 function stripTagsJoined (html) {
   const parts = String(html || '').split(/<span[^>]*>|<\/span>/i)
@@ -429,25 +420,16 @@ function extractLinks (html) {
 /**
  * gyread 单期日报 HTML 解析 —— 抽取每条选题的标题、来源标注与**原文链接**。
  *
- * 为什么需要这个解析器：`search-index.json` 的 `u` 指向的是**日报页本身**，不是新闻原文。
- * 用户点进去只会看到同一份日报，拿不到一手信息 —— 而「溯源跳板」正是 gyread 的核心价值。
- * 所以补拉时先用索引定选题，再用本解析器从日报页补原文链接（`sourceUrls`）。
+ * 存在理由：`search-index.json` 的 `u` 指向**日报页本身**而非新闻原文，
+ * 而「溯源跳板」（用户点回一手报道）正是 gyread 的核心价值。
  *
- * **必须兼容两代版式**（实测站点 2026-10-17 起已切换，且不排除将来再换）。
- * 两代的块内字段顺序**不同**，这是本解析器的主要陷阱：
- *   - 旧版（≤2026-10-16）：`dateline` → `item-title` → `body` → `src-line`
- *     （来源标注在标题**之前**，单链接）。
- *   - 新版（2026-10-17 起）：`item-title` → `item-meta` → `body` → `src-line`
- *     （来源标注在标题**之后**，多链接）。
- * 因此块锚点必须取 `dateline` / `item-title` / `item-meta` 三者中最早出现的那个。
- * 若只用 `item-title` 当锚点，旧版第一条会越界拿到**下一条**的 dateline ——
- * 串条缺陷（本轮实测复现过：第一条的 sourceText 变成第二条的 CNBC → The Verge）。
+ * **两代版式的字段顺序不同**，这是主要陷阱：旧版 `dateline` 在 `item-title` **之前**，
+ * 新版 `item-meta` 在**之后**。若以 `item-title` 作块锚点，旧版第一条会越界拿到
+ * **下一条**的 dateline（串条，本轮实测复现）。故块边界取条目容器 `<div class="item">`
+ * （两版都有、与字段顺序无关），容器内再「新版 item-meta 优先、旧版 dateline 兜底」。
  *
- * 实作因此**不依赖字段顺序**：块边界取条目容器 `<div class="item">`（两版都有、无歧义），
- * 容器内再按「新版 item-meta 优先、旧版 dateline 兜底」取来源标注。
- *
- * fail-open 是硬合同：任何一段缺失/畸形只让该条少带链接，**不得抛错**（否则一次版式变动
- * 就会让整个补拉渠道记失败，把高质量 AI 选题全部丢掉）。
+ * fail-open 是硬合同：缺失/畸形只让该条少带链接，**不得抛错** —— 否则一次版式变动
+ * 就会让整个补拉渠道记失败，把高质量 AI 选题全部丢掉。
  *
  * @param {string|null} html 单期日报 HTML
  * @returns {Array<{channel:string, topic:string, sourceText:string, sourceUrls:string[]}>}

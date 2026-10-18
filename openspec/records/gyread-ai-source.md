@@ -7,6 +7,14 @@
 **解析器与测试落地，但源不启用。** `CATEGORY_BOOSTS.ai` 不含 gyread；源定义保留为
 `GYREAD_SOURCE` 常量作技术储备。依据是合规裁决（见下）。
 
+## 远程同步
+
+| 远程同步 | 由门禁推导 |
+|---|---|
+
+收口由 `scripts/lib/merge-ledger.js` 按主干历史推导（PR 合并后自动收口，不手写状态词）。
+本篇记录随 PR #3943 落地。
+
 ## 变更类型与隔离声明
 
 - 运行时代码变更（apps/desktop/electron/**、apps/desktop/src/locales/**）→ 已在隔离 worktree
