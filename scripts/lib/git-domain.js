@@ -20,7 +20,9 @@
  *  ④ 并集不是 check-ignore：被跟踪但同时命中 .gitignore 的文件（历史上 `git add -f` 过的产物）
  *     **仍在域内** —— 「被跟踪就该被量」。改成"只取非忽略项"会静默停止测量这类文件，比假红更糟；
  *  ⑤ 集合里的路径一律**相对 root**（`git ls-files` 按 cwd 输出）、正斜杠形态；
- *     因此 root 只能指向「一个仓库根」，指到仓库子目录会让坐标系整体错位；
+ *     因此 root 只能指向「一个仓库根」，指到仓库子目录会让坐标系整体错位。目录身份由 **git 自己**判定
+ *     （`--show-toplevel` 可读 + `--show-prefix` 为空串），**不比路径字符串**——8.3 短名 / junction / 大小写这些
+ *     「同一目录多种写法」在 windows runner 上是真实存在的（锁 ⑫ 的动因）；
  *  ⑥ 机器态会改域：global/system 档里的 `core.excludesFile` 能把文件从 `--exclude-standard` 里藏掉。
  *     判据本体**按调用方的 git 环境如实取域**（不替调用方改配置）—— 因为这条不变量是「域 == git status
  *     口径」，而 git status 本身就吃机器态。为此 env 是**显式入参**（默认 process.env）：
@@ -34,26 +36,30 @@
 const { spawnSync } = require('node:child_process');
 
 const MAX_BUFFER = 64 * 1024 * 1024;
-const SAME_WIN = process.platform === 'win32';
-function normPath(p) {
-  let s = p;
-  try { s = fs.realpathSync.native ? fs.realpathSync.native(p) : fs.realpathSync(p); } catch (_) { /* 取不到真实路径时退回 resolve，比对仍按大小写折叠 */ }
-  s = require('node:path').resolve(s).replace(/\\/g, '/');
-  return SAME_WIN ? s.toLowerCase() : s;
-}
-/** root 必须是 git 自己的 toplevel（linked worktree 的 toplevel 就是它自己，因此换 worktree 仍然通过）。 */
+/**
+ * root 必须是 git 自己认定的工作树根。
+ * 判据一律取 git 的读数，**不做路径字符串比对**：cwd 在树根时 `--show-prefix` 是空串，指到子目录时是相对前缀。
+ * 动因（CI windows runner 实测红 3 条）：那台机器的 %TEMP% 是 8.3 短名（形如 \Users\RUNNER~1\AppData\Local\Temp\…）而 git 报长名
+ * （形如 \Users\runneradmin\AppData\Local\Temp\…），同一目录两种写法；上一版比的是归一后的字符串，而归一用的 `fs.realpathSync.native`
+ * 又因**本模块漏 require('node:fs')** 抛 ReferenceError 被 `catch (_)` 静默吞掉 ⇒ 实际在比原始字符串 ⇒
+ * 夹具根被判成「不是仓库根」。两个错误叠在一起才显形，所以这里把"谁来判目录身份"这件事整个交回 git。
+ */
 function assertRepoRoot(rootDir, env) {
-  const r = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: rootDir, encoding: 'utf8', maxBuffer: MAX_BUFFER, env });
-  if (r.error) throw new Error('无法从 git 取得扫描域：git 不可执行（' + r.error.message + '）');
-  if (r.status !== 0) {
-    throw new Error('无法从 git 取得扫描域：' + rootDir + ' 不是 git 工作树（git rev-parse --show-toplevel 返回 rc=' + r.status
-      + ' ' + String(r.stderr || '').trim() + '）');
+  const top = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: rootDir, encoding: 'utf8', maxBuffer: MAX_BUFFER, env });
+  if (top.error) throw new Error('无法从 git 取得扫描域：git 不可执行（' + top.error.message + '）');
+  if (top.status !== 0) {
+    throw new Error('无法从 git 取得扫描域：' + rootDir + ' 不是 git 工作树（git rev-parse --show-toplevel 返回 rc=' + top.status
+      + ' ' + String(top.stderr || '').trim() + '）');
   }
-  const top = String(r.stdout || '').trim();
-  if (!top) throw new Error('无法从 git 取得扫描域：git rev-parse --show-toplevel 返回空串（读不到 toplevel 不等同于"通过"）');
-  if (normPath(top) !== normPath(rootDir)) {
-    throw new Error('无法从 git 取得扫描域：root 必须是仓库根，传入 ' + rootDir + ' 的 toplevel 是 ' + top
-      + ' —— 指到子目录会让 ls-files 的相对路径与账本键坐标系错位，判定会变成"全零通过"');
+  if (!String(top.stdout || '').trim()) throw new Error('无法从 git 取得扫描域：git rev-parse --show-toplevel 返回空串（读不到 toplevel 不等同于"通过"）');
+  const pre = spawnSync('git', ['rev-parse', '--show-prefix'], { cwd: rootDir, encoding: 'utf8', maxBuffer: MAX_BUFFER, env });
+  if (pre.error) throw new Error('无法从 git 取得扫描域：git 不可执行（' + pre.error.message + '）');
+  if (pre.status !== 0) throw new Error('无法从 git 取得扫描域：git rev-parse --show-prefix 返回 rc=' + pre.status
+    + ' ' + String(pre.stderr || '').trim() + '（取不到前缀不等同于"在树根"）');
+  const prefix = String(pre.stdout || '').trim();
+  if (prefix) {
+    throw new Error('无法从 git 取得扫描域：root 必须是仓库根，传入 ' + rootDir + ' 的 git --show-prefix 是 "' + prefix
+      + '" —— 指到子目录会让 ls-files 的相对路径与账本键坐标系错位，判定会变成"全零通过"');
   }
 } // 本仓域 ≈ 1 万条，实测远小于 1MB；留足量避免静默截断
 

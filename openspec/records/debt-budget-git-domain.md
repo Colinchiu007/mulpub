@@ -11,7 +11,7 @@ date: 2026-10-18
 | 变更类型与隔离 | PASS | 运行面（CI 门禁本体 + 新增测试文件）⇒ 隔离 worktree（仓库父目录下 `mp-worktrees/mp-debt-budget-git-domain`，由 session-init.sh 按默认根创建）+ 裸分支 `debt-budget-git-domain`（入口 `bash scripts/session-init.sh debt-budget-git-domain`，收尾打印 `verify-worktree-deps OK`，11 项 `@multi-publish/*` 全部指向本 worktree）。复杂度：`ccg-review-decider` 判 DUAL（判定时的实现提交 7 文件 / +573 −59，跨 `.github` 与 `scripts`；采纳两轴意见后的最终 diff 更大，见「QM-6 发现处置」），故走 QM-6 双轴 |
 | 第一性原因（QM-5 ①） | PASS | 同一根因的第二处：`826fa7e13`（PR #3782，change `bundle-untrack`）把 5 个构建产物移出版本控制时，只给消费它们的 CI 作业补了重建步，**没问任何"自己扫磁盘"的门禁的域**。#3876 修了 `check-max-lines`，而 `scripts/check-debt-budget.js` 的两处 `fs.readdirSync`（计数 `countFilesByMinLines` + 循环依赖图 `checkCircularDeps`）从未改过 ⇒ `apps/desktop/electron/**.bundle.js` 落在 `SCAN_DIRS` 内且扩展名 `.js`，本机跑过 `build:preload` 就多出一个 ≥500 行的"债" |
 | 逃逸分析（QM-5 ②） | PASS | ① **该门禁此前没有任何测试文件**（`ls scripts/check-debt-budget*.test.js` = 无），所以既没有夹具也没有断言能表达"域"这件事 —— 归类 测试场景缺失；② CI 侧 `debt-guard.yml` 的检出里没有 gitignored 产物 ⇒ 偏差在 CI 上结构性不可见，归类 环境差异；③ 聚合指标形态掩盖：它输出的是 `filesOver500: N` 一个数，不是逐文件清单，所以 96 与 95 的差在日志里**不可归因**（本片顺手补了 `filesOver500Paths`/`--json`，这是"为什么这类假红能活下来"的一部分答案）；④ 基线余量吸收：`debt-baseline.json` 的 101 vs 现场 95/96，4 格余量让它一直不红 —— 归类 阈值当缓冲 |
-| 修复 + 回归保护（QM-5 ④） | PASS | 修复：新增 `scripts/lib/git-domain.js` 作为唯一实现（`git ls-files -z` ∪ `--others --exclude-standard`；`root` 与 `env` 都是显式入参；非工作树 / git 不可执行 / 空集合 ⇒ 抛错）。两个消费者都改成引用它并用**函数身份**互相钉死（`check-debt-budget.gitDomain === check-max-lines.gitDomain === lib 的那一个`）。`check-debt-budget` 两处 walk 在读文件之前按域过滤；取不到读数由 `main()` 转**退出码 2**（1 留给"确实超基线"）；新增 `--root`；`main()` 改为 `if (require.main === module)` 才跑。回归锁 26 条：`scripts/lib/git-domain.test.js` 11 条（六条语义 + root 必传 + env 两档 A/B + 真仓 status 交叉 + 消费者套件计数）与 `scripts/check-debt-budget.test.js` 15 条（计数侧域、循环依赖侧域、第三处取数域门、夹具"有牙"自证、未跟踪可见、非工作树抛错、防漂移函数身份、CLI 分档、判定层 `check()`、基线形状 `toPersisted`）。实跑：`node --test scripts/lib/git-domain.test.js` = 11/11、`node --test scripts/check-debt-budget.test.js` = 15/15、`node --test .github/scripts/check-max-lines.test.js` = 36/36（改域后未退化） |
+| 修复 + 回归保护（QM-5 ④） | PASS | 修复：新增 `scripts/lib/git-domain.js` 作为唯一实现（`git ls-files -z` ∪ `--others --exclude-standard`；`root` 与 `env` 都是显式入参；非工作树 / git 不可执行 / 空集合 ⇒ 抛错）。两个消费者都改成引用它并用**函数身份**互相钉死（`check-debt-budget.gitDomain === check-max-lines.gitDomain === lib 的那一个`）。`check-debt-budget` 两处 walk 在读文件之前按域过滤；取不到读数由 `main()` 转**退出码 2**（1 留给"确实超基线"）；新增 `--root`；`main()` 改为 `if (require.main === module)` 才跑。回归锁 27 条：`scripts/lib/git-domain.test.js` 12 条（六条语义 + root 必传 + toplevel 身份 + 别名同目录 + env 两档 A/B + 真仓 status 交叉 + 消费者套件计数）与 `scripts/check-debt-budget.test.js` 15 条（计数侧域、循环依赖侧域、第三处取数域门、夹具"有牙"自证、未跟踪可见、非工作树抛错、防漂移函数身份、CLI 分档、判定层 `check()`、基线形状 `toPersisted`）。实跑：`node --test scripts/lib/git-domain.test.js` = 12/12、`node --test scripts/check-debt-budget.test.js` = 15/15、`node --test .github/scripts/check-max-lines.test.js` = 36/36（改域后未退化） |
 | 防止再次发生（QM-5 ⑤） | PASS | ① **单一实现 + 身份锁**：把"两处各写一份 ls-files"变成结构上不可能（M4 实测：换成行为等价的本地包装 ⇒ 唯一红的是防漂移那条，行为用例全绿，说明这条锁测的是"共享"而不是"能跑"）；② 两条新锁接进 `quality-gate.yml` 的 `changes` job（不被 docs-only 短路、在非 PR 早退之前），`node scripts/check-unwired-tests.js` 实跑 rc=0（检查域 102 个测试文件）；③ 消费者套件计数锁：`⑩` 用嵌套 `node --test` 要求 `tests === 文件里声明的 test( 数`，并清掉继承的 `NODE_TEST_*`（否则嵌套 runner 打印「skipping running files」且 rc=0）；④ 本条与 [[project-mulpub-local-vs-ci-gate-divergence]] 的第三种分叉维度同型，已同步内置记忆 / EverOS |
 | 行尾与 diff 对账 | PASS | 被改的两个受管文件 `git ls-files --eol` = `i/lf w/crlf attr=text=auto`，工作副本实测 `lone_lf=0`（`check-debt-budget.js` 306→? 逐处替换后仍 0、`check-max-lines.js` 598→565、`quality-gate.yml` 2197→2204）；`git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径逐字相等，删除行全部归因到被替换的函数签名/本地实现/docblock。⛔ 本轮一次**自己写的驱动把 CRLF 文件按 latin1 写出**（`Buffer.from(s,'binary')`）⇒ 整份 `check-max-lines.js` 变乱码，是收尾那条 `lone_lf !== 0` 断言把它抓出来的（latin1 往返会改动字节布局），当场 `git checkout HEAD -- <精确单文件>` 还原并回读 `blob_equals_head=true` 后才重做 |
 | 接线棘轮 | PASS | 新增两个测试文件 `scripts/lib/git-domain.test.js`、`scripts/check-debt-budget.test.js`，同 PR 点名进 `.github/workflows/quality-gate.yml` 的 `changes` job；`check-unwired-tests.js` rc=0、`check-step-failfast.js` rc=0（38 步）、`check-workflow-structure.js` files=14 violations=0。新文件未被 `.gitignore` 吞：`git check-ignore --no-index -v` 实测 `scripts/lib/*` 不命中任何规则、`scripts/check-debt-budget.test.js` 命中通用反选 `!scripts/*.test.js`（line 232）⇒ 无需新增 negation |
@@ -41,7 +41,7 @@ date: 2026-10-18
   ⇒ 在干净检出（CI 那一档）上收窄域**不改变任何结论**，只消除本机维度的虚高。
   采纳后端轴 I3 后 `fanOut` 仍为 65（该文件受管 ⇒ 域门不改读数），这条是"第三处取数吃域"不构成行为回归的现场证据。
 - **必须如实说的边界**：CI 的检出里从来没有这些产物，所以"CI 全绿"不是本片的验收证据；
-  它只证明没把别的搞坏。真实验收 = 上面那组同树 A/B + 26 条锁 + 16 道变异。
+  它只证明没把别的搞坏。真实验收 = 上面那组同树 A/B + 27 条锁 + 18 道变异。
 - **夹具留在工作树里的两条**（不假装已闭合）：A/B 用的两个临时文件
   （`apps/desktop/electron/preload/index.bundle.js`、`scripts/tmp-debt-budget-prefix.js`）被
   `scripts/safe-delete.js` 按设计拒绝（闸 3：目标必须出现在 `git status` 的 `??` 里，被 `.gitignore` 吞掉的一律拒绝），
@@ -53,12 +53,12 @@ date: 2026-10-18
 
 被审对象钉在实现提交 `a8c0e29f9`；两轴并行、严格只读，原件入库
 `.ccg/reviews/debt-budget-git-domain-review-{backend,frontend}.md`。两轴 VERDICT 均为 **PASS**（无 Critical），
-采纳项**全部在合并前落地**，每条采纳的锁各配一道变异（M13–M16）。**归属口径**：下表主张一律摘自该模型自己
+采纳项**全部在合并前落地**，每条采纳的锁各配一道变异（M13–M16）；其中 W1 的首版修法被 CI 判红后重做，另补 M17/M18。**归属口径**：下表主张一律摘自该模型自己
 落盘的正文段落，未把两份的相同意见合并成一条（前端 W1 与后端 W1 是同一条修复，已如实标"同一处"）。
 
 | 轴 | 编号 | 主张（摘其原文语义） | 可达性分诊 | 处置 |
 |---|---|---|---|---|
-| 后端 | W1 | `--root` 允许指向任意子目录并"全零通过"；`BASELINE_PATH` 固定在 `scripts/`，换树时基线坐标系不跟着换 | 成立：`--root scripts` 实测 rc=0、`domain=217`、`filesOver500: 0` | **已采纳**：`gitDomain` 先取 `git rev-parse --show-toplevel` 与 root 对账，不等即抛错 ⇒ CLI rc=2；锁 ⑪ + 消费者 CLI 分档锁 + 变异 M13 |
+| 后端 | W1 | `--root` 允许指向任意子目录并"全零通过"；`BASELINE_PATH` 固定在 `scripts/`，换树时基线坐标系不跟着换 | 成立：`--root scripts` 实测 rc=0、`domain=217`、`filesOver500: 0` | **已采纳，但首版修法自己在 CI 红 3 条**（用路径字符串比对目录身份）⇒ 二版改由 git 判身份（`--show-prefix` 空串），锁 ⑪ + ⑫ + 消费者 CLI 分档锁 + 变异 M13/M17/M18，详见「W1 的首版修法自己红在 CI」 |
 | 后端 | W2 | 声称锁住"CLI 三档 rc"，实际只覆盖 rc=0/rc=2；`process.exit(1)` 那条路径与 `check()` 都没有用例 | 成立：对 `rc, 1` 的扫描零命中，`check(` 在测试里零命中 | **已采纳**：新增判定层锁（现场>基线 ⇒ 五项违规逐一产出且 `pass=false`，并配"现场==基线必须全绿"的正控，防"恒红"实现通过）+ 变异 M14 |
 | 后端 | I1 | `git-domain.test.js` 里 `!d.has(…) || d.has(…)` 是恒真式，属装饰性断言（与本片要消灭的 M11 同型） | 成立：读该行确认任何输入都真 | **已采纳**：删除该恒真式，改为断言"被跟踪且命中忽略的产物仍在域内" |
 | 后端 | I2 | 注释写"只持久化这 5 个数值口径"，`PERSISTED_KEYS` 实际是更多键且含非数值键；且没有针对落盘形状的测试 | 成立：实测 9 个键，含 `maxFilePath`/`circularDepDetails` | **已采纳**：注释按实测改 9 键 + 新增基线形状锁（`toPersisted` 键集与受管 `debt-baseline.json` `deepStrictEqual`）+ 变异 M15 |
@@ -71,7 +71,40 @@ date: 2026-10-18
 | 前端 | I3 | `check-max-lines.test.js` 的测试名仍写 `gitDomain()`（无参），函数体已传 root——同一 diff 里改了体没改名 | 成立 | **已采纳**：测试名改 `gitDomain(root)`，与"root 必传"口径一致 |
 | 前端 | I4 | 术语漂移：`受管` / `被跟踪` / `在索引里` / `索引内` 四处称同一概念 | 成立（四处均实测命中） | **部分采纳（收敛不扩散）**：共享实现 docblock 定「被跟踪」为主称谓并显式承认同义写法；全仓把"受管"改名会同时动两个既有门禁的文案与其结构锁，属另片扩面 |
 
-### 变异反证（16 道，逐条实跑、红集互不相同）
+### W1 的首版修法自己红在 CI（本片的第二次 QM-5 现场，必须如实记）
+
+**症状**：CI run `39091945548` / job `117570361904` 的 step 4「逐文件行数门禁」红 3 条
+（`check-max-lines.test.js:552 / :570 / :587`），报错原文：
+`root 必须是仓库根，传入 <夹具根，runner 的 %TEMP% 短名形态> \Users\RUNNER~1\AppData\Local\Temp\maxlines-forced-npofyJ
+的 toplevel 是 <同一目录的长名形态> \Users\runneradmin\AppData\Local\Temp\maxlines-forced-npofyJ`。
+**同一目录、两种写法**：那台 runner 的 `%TEMP%` 是 8.3 短名，而 `git rev-parse --show-toplevel` 报长名。
+
+**根因是两处叠加，任一处单独存在都不会红**：
+1. 判据本身选了「比路径字符串」这个方向（后端/前端 W1 的修法我按字面实现成 `normPath(top) === normPath(root)`）；
+2. `normPath` 里归一用的 `fs.realpathSync.native` **永远不会执行**——`git-domain.js` 只 require 了
+   `node:child_process`，**没有 require `node:fs`**，于是那行抛 `ReferenceError: fs is not defined`，
+   而它外面包着 `catch (_) { /* 取不到真实路径时退回 resolve */ }` ⇒ 静默退化成"什么都不归一"。
+   这正是 AGENTS 里「静默配置失败必须留日志」那一族的现场版：注释写得像兜底，实际把唯一有效的归一步骤吃掉了。
+
+**逃逸分析**：① 夹具的 root 全部来自 `fs.mkdtempSync(os.tmpdir())`，本机 `%TEMP%` 是长名 ⇒ 本机两种写法恰好同形，
+   这条判据在本机**不可能**被证伪（`p105` 实测本机 `realpath` 会把短名塌回长名，所以补上 `fs` 也能过，但那是碰运气）；
+   ② 我自己补的锁 ⑪ 只测「指到子目录必须抛错」这一半，没测「同一目录换写法必须放行」那一半 ⇒ 单侧锁；
+   ③ 首版修法的验收只跑到本机套件，没等 CI 的 step 4 回读就推进了 PR。归类：环境差异 + 测试场景缺失。
+
+**修复（判据换向，不是把归一补上就算完）**：目录身份交回 git 自己回答——`--show-toplevel` 必须 rc=0 且非空，
+`--show-prefix` 必须为空串（cwd 在树根时 git 给空串，指到子目录时给相对前缀）。字符串比对与 `normPath` 整段删除，
+`fs` 依赖随之消失（不再有"漏 require 会被 catch 吞掉"的那一格）。这样 8.3 短名 / junction / 大小写 / 分隔符
+这些"同一目录多种写法"都不再参与结论。
+
+**锁**：新增 ⑫「同一目录换一种写法仍必须是仓库根」——当场构造别名（win32 取 8.3 短名，否则 `fs.symlinkSync`），
+并**先自证别名有区分力**（与原名规范化后不等、realpath 相同），构造不出别名即 `assert.fail` 出声，禁止静默跳过；
+通过时打印 `[git-domain-alias] how=8dot3 sameDir=true`（本机实测走 8.3 支路，因此这条**在本机就能红**，不再依赖 runner）。
+
+**反证 M17/M18（各测一格，红集互不相同）**：
+- M17 把判据退回路径字符串比对 ⇒ CAUGHT，红的正是 ⑫；
+- M18 丢弃 `--show-prefix` 读数（恒不抛）⇒ CAUGHT，红的正是 ⑪（外加 ⑩ 计数锁连红，因为少跑一条断言）。
+
+### 变异反证（18 道，逐条实跑、红集互不相同）
 
 | id | 把实现改回的被禁形态 | 结果 |
 |----|----------------------|------|
@@ -85,12 +118,14 @@ date: 2026-10-18
 | M8 | 把并集退化成 check-ignore（剔掉"被跟踪但命中忽略"） | CAUGHT，红 8 条 |
 | M9 | 去掉空域抛错 | CAUGHT，红 1 条：`⑥ 空仓库必须抛错` |
 | M10 | 允许缺 root（静默按脚本所在目录降级） | CAUGHT，红 1 条：`⑨ root 必传` |
-| M11 | 取域时忽略 `opts.env`、强制继承宿主 env | **首跑 MISSED ⇒ 见下条纠偏**；改 API + 改夹具后重跑 CAUGHT，红 1 条：`⑦ 机器态能改域` |
+| M11 | 取域时忽略 `opts.env`、强制继承宿主 env | **首跑 MISSED ⇒ 见下方专段**；改 API + 改夹具后重跑 CAUGHT，红 1 条：`⑦ 机器态能改域` |
 | M12 | 摘掉 CI 里那两行接线 | CAUGHT，`check-unwired-tests` rc=1 且**逐个点名**两个文件 |
 | M13 | 摘掉「root 必须是 toplevel」守卫（采纳后端 W1 的锁） | CAUGHT，红 2 条：`⑪ toplevel 锁` + `⑩ 计数锁`（摘守卫同时少跑一条，被计数锁抓住） |
 | M14 | `check()` 把 `violations` 清空（超基线也不报 ⇒ rc=1 那一档永不发生） | CAUGHT，红 1 条：判定层锁 |
 | M15 | `toPersisted` 退回 `Object.assign({}, data)`（当场读数进账本） | CAUGHT，红 1 条：基线形状锁。**首跑 `ANCHOR hits=0` 不是锁没牙**，是我自己的驱动没把 needle 的换行换成该文件的 `CRLF`（`i/lf w/crlf`）—— 修驱动（按文件探测 `nl`）后重跑转 CAUGHT |
 | M16 | 摘掉 `measureModelProviderFanOut` 的域门（第三处取数退回"磁盘存在就算"） | CAUGHT，红 1 条：第三处取数锁（后端轴 I3） |
+| M17 | 把目录身份判据退回**路径字符串比对**（W1 首版修法的真实形态） | CAUGHT，红 1 条且点名 ⑫ —— 这条是「反证必须取被禁形态本身」的执行，不是"摘掉守卫"的泛化 |
+| M18 | 丢弃 `--show-prefix` 读数（恒不抛 ⇒ 子目录被当成仓库根） | CAUGHT，红 `⑪`，并连红 `⑩` 计数锁（少跑一条断言被计数抓到） |
 
 **M11 是这片最有价值的一条**：它抓到我自己写的 `⑦` 是一条装饰性断言 —— 原夹具把 `ghost.js` 提交进了索引，
 而 `core.excludesFile` 只作用于 `--others --exclude-standard` 半边，于是"两档 A/B"实际在读同一份输出，
@@ -99,6 +134,8 @@ date: 2026-10-18
 同一轮里 `⑦` 的文案也从"不得能改域"改成"能改域，且必须如实反映"—— 判据本体按调用方 env 取域，
 因为这条不变量是"域 == git status 口径"，而 `git status` 本身吃机器态。
 
+**M17 与 M18 的分工**：M17 证明 ⑫ 守的是"由 git 判身份"这件事本身（退回被禁形态即红），M18 证明 ⑪ 不是
+被 ⑫ 顺带满足的（丢弃前缀读数只红 ⑪）。两条红集不重叠，才说明这两格各有一半判据在守着。
 ### 遗留（不假装已闭合）
 
 1. **基线仍是缓冲**：`scripts/debt-baseline.json` 的 `filesOver500: 101` 与现场 95 之间有 6 格余量，
@@ -107,7 +144,7 @@ date: 2026-10-18
 2. **`check-debt-budget` 的 `EXCLUDE` 仍是子串松匹配**（`relative.includes('tests')` 这类），
    域过滤在它之后生效 ⇒ 一个 `apps/desktop/src/tests/foo.js` 式的受管文件会同时被 EXCLUDE 剔出计数，
    而 `check-max-lines` 用的是同一份字面量。这是**存量口径**，本片没顺手改，避免把两个门禁的判定域一起动。
-3. ~~`--root` 指向仓库子目录时坐标系错位~~ **已随采纳后端/前端两轴的 W1 收掉**：`gitDomain` 先取 `git rev-parse --show-toplevel` 与 root 对账，
+3. ~~`--root` 指向仓库子目录时坐标系错位~~ **已随采纳后端/前端两轴的 W1 收掉**：`gitDomain` 由 git 判目录身份（`--show-toplevel` 可读 + `--show-prefix` 空串），
    不等即抛错 ⇒ CLI 退出码 2（锁 ⑪ + 消费者 CLI 分档锁 + 变异 M13 实测 CAUGHT）。
 4. **CI 的 main push 档不覆盖 `openspec/**`**：与本片无关，但记录归属靠 squash 尾注，若将来有人给 ruleset 加旁路主体，
    推导链会出现"记录进过 main 但那次 push 没跑门禁"的窗口（见 `changes` job 注释）。

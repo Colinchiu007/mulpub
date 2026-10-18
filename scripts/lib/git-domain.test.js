@@ -243,3 +243,42 @@ test('⑩ 消费者套件必须"整份真的跑了"：门禁若在 import 期 pr
   assert.strictEqual(tests, declared, '跑了几条 vs 声明几条必须相等 —— 不等就是"有文件/用例根本没执行"（本仓把这种状态叫装饰性门禁）');
   assert.strictEqual(pass, declared, 'pass 数必须等于声明数');
 });
+
+test('⑫ 同一目录换一种写法仍必须是仓库根：判据取 git 自己的 --show-prefix，不得比路径字符串（CI windows runner 实测红 3 条）', () => {
+  // 现场：windows runner 的 %TEMP% 是 8.3 短名（形如 \Users\RUNNER~1\AppData\Local\Temp\…），
+  // 而 `git rev-parse --show-toplevel` 报的是同一目录的长名（形如 \Users\runneradmin\AppData\Local\Temp\…）。
+  // 原实现用 realpath 归一后比字符串，而 **本模块没有 require('node:fs')**，
+  // 于是 normPath 里的 realpath 那一步抛 ReferenceError 并被 catch(_) 静默吞掉 ⇒ 实际在比原始字符串 ⇒
+  // 同一个目录被判成「不是仓库根」，check-max-lines.test.js 的三条夹具用例当场红。
+  // 判据方向：目录身份该由 git 自己回答（cwd==toplevel 时 --show-prefix 为空串），字符串比对整条去掉。
+  const f = repo({ files: { 'a.js': 'x\n', 'sub/b.js': 'y\n' } });
+  const key = (s) => s.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+  let alias = null, how = '';
+  if (process.platform === 'win32') {
+    const ps = '(New-Object -ComObject Scripting.FileSystemObject).GetFolder("' + f.root.replace(/"/g, '') + '").ShortPath';
+    const r = spawnSync('powershell.exe', ['-NoProfile', '-Command', ps], { encoding: 'utf8' });
+    const s = String(r.stdout || '').trim();
+    if (r.status === 0 && s && fs.existsSync(s)) { alias = s; how = '8dot3'; }
+  }
+  let link = null;
+  if (!alias) {
+    link = f.root + '-alias';
+    try { fs.symlinkSync(f.root, link, 'dir'); alias = link; how = 'symlink'; } catch (_) { alias = null; }
+  }
+  try {
+    // 前置自证：构造不出别名 = 这一档没有区分力，必须出声，不得静默跳过（同 #3853 的 skip 掩盖教训）
+    assert.ok(alias, '无法构造「同一目录的另一种写法」（8.3 短名与符号链接都不可用）——这一档会退化成恒真，必须换机器/换文件系统再跑');
+    assert.notStrictEqual(key(alias), key(f.root), '别名必须真的是另一种写法，否则本档测不到任何东西：alias=' + alias);
+    assert.strictEqual(fs.realpathSync.native(alias), fs.realpathSync.native(f.root), '别名必须指向同一个目录');
+    const canonical = gitDomain(f.root, { env: f.env });
+    assert.ok(canonical.has('a.js') && canonical.has('sub/b.js'), '夹具必须有内容（空域会让下面的比较失去意义）：' + [...canonical].join(','));
+    let viaAlias;
+    assert.doesNotThrow(() => { viaAlias = gitDomain(alias, { env: f.env }); },
+      '同一目录换一种写法就抛错 ⇒ 判据在比路径字符串，而不是问 git 自己');
+    assert.deepStrictEqual([...viaAlias].sort(), [...canonical].sort(), '两种写法取到的域必须逐字相同');
+    console.log('[git-domain-alias] how=' + how + ' sameDir=' + (key(fs.realpathSync.native(alias)) === key(fs.realpathSync.native(f.root))));
+  } finally {
+    if (link) { try { fs.unlinkSync(link); } catch (_) { /* 清理失败不得掩盖判定 */ } }
+    cleanup(f);
+  }
+});

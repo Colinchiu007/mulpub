@@ -29,6 +29,10 @@
 ## 修复
 - 新增唯一实现 `scripts/lib/git-domain.js`：域 = `git ls-files -z` ∪ `git ls-files -z --others --exclude-standard`
   （= `git status` = CI 检出）。`root` 与 `env` 都是显式入参；非工作树 / git 不可执行 / 空集合一律抛错。
+- 「root 是不是仓库根」由 **git 自己**判（`--show-toplevel` rc=0 且非空 + `--show-prefix` 为空串），不比路径字符串：
+  windows runner 的 `%TEMP%` 是 8.3 短名而 git 报长名，字符串比对把同一目录判成两个 ⇒ CI 红 3 条。这一格还叠了第二个缺陷——
+  归一用的 `fs.realpathSync.native` 因本模块漏 `require('node:fs')` 而恒抛 ReferenceError，被外面的 `catch (_)` 静默吞掉，
+  于是"归一"从来没发生过。首版修法的缺陷与它的现场见记录的「W1 的首版修法自己红在 CI」。
 - 两个消费者引用同一份，并用**函数身份**互钉（不是"源码里出现过 require"那种记录性断言）。
   `check-debt-budget` **三处取数**（计数 walk + 循环依赖 walk + `model-provider-manager` 扇出单文件，后端轴 I3）都在读文件之前按域过滤；
   取不到读数 ⇒ 退出码 **2**，与「超基线」的 1 分开。
@@ -41,8 +45,9 @@
   修复前 96 / 修复后 95 / DELTA=1。三个"实测"数按树归因（前端轴 I2）：95 = git 域 = CI；96 = 同树 A/B 造出**一个**
   被忽略的 601 行产物；97 = #80 那次磁盘上有**两个** ≥500 行产物——该树态已不存在，不得再称"实测"。
   零回归控制：干净态五项指标读数逐项相等（当场 `domain=10052`，`fanOut=65` 在采纳"第三处取数也吃域"后不变）。
-- 锁 26 条（共享实现 `git-domain.test.js` 11 + 消费者 `check-debt-budget.test.js` 15，含"消费者套件必须整份真的跑了"的计数锁）+ 既有 `check-max-lines` 36 条不退化。
-- 变异 16 道（M1–M16）逐条实跑、红集互不相同，**全部 CAUGHT**；M13–M16 是采纳 QM-6 两条 Warning + 三条 Info 后各补一道。
+- 锁 27 条（共享实现 `git-domain.test.js` 12 + 消费者 `check-debt-budget.test.js` 15，含"消费者套件必须整份真的跑了"的计数锁）+ 既有 `check-max-lines` 36 条不退化。
+- 变异 18 道（M1–M18）逐条实跑、红集互不相同，**全部 CAUGHT**；M13–M16 是采纳 QM-6 两条 Warning + 三条 Info 后各补一道，
+  M17/M18 是 W1 首版修法被 CI 判红后重做的两条反证（各测一格、红集互不相同）。
   其中 M15 首跑报 `ANCHOR hits=0` 是**我的驱动**没把 needle 的换行换成该文件的 `CRLF`（`i/lf w/crlf`），不是锁没牙。
   M11 首跑 MISSED 才是真发现：我自己写的 `⑦` 是装饰性断言（夹具把 ghost.js 提交了，而 `core.excludesFile`
   只管未跟踪半边 ⇒ 两档在读同一份输出）。纠偏：把 `env` 提成显式入参 + 夹具改成未跟踪文件 + 要求两档给出不同大小的域。
