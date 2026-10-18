@@ -6,7 +6,7 @@ date: 2026-10-18
 
 ## 本次执行记录：历史记录任务详情页模型信息展示（s2v-result-model-info，2026-10-18）
 
-> 分支：`s2v-result-model-info`；worktree：`D:/Data/projects/mp-worktrees/mp-s2v-result-model-info`（由 `scripts/start-mp-task.ps1 -TaskName s2v-result-model-info` 创建）；基线 = `origin/main`（worktree 建后实测对齐）
+> 分支：`s2v-result-model-info`；worktree：`<仓库父目录>/mp-worktrees/mp-s2v-result-model-info`（由 `scripts/start-mp-task.ps1 -TaskName s2v-result-model-info` 创建）；基线 = `origin/main`（worktree 建后实测对齐）
 > 范围：🎨 UI/UX（渲染端 `ResultView.vue`）+ 🔧 主进程服务（`story2video-stages.js` meta 透传）+ 🧪 回归测试 + 📝 PRD/CHANGELOG
 > 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD` → **docs-only=false**（含 `apps/desktop/**` 代码）⇒ 不走 docs-only 快速通道，按完整质量节拍执行日常循环 ⓪→⑦
 
@@ -25,7 +25,7 @@ date: 2026-10-18
 | 验证范围取消费者并集 | PASS | `git grep -l "story2video-stages\|ResultView"` 取并集后全跑：`ResultView.test.js` **132 passed**、`ResultView.model-info.test.js` **24 passed**、`story2video-stages.test.js` **160 passed**、`story2video-prompt-meta.test.js` **17 passed**、`story2video-project-service.test.js` **119 passed**、`element-plus.test.js` **7 passed** ⇒ 合计 **436 passed / 0 failed** |
 | 本地门禁 | PASS | `check-max-lines.js` rc=0；`check-no-brand-residue.js` PASS（10282 个 tracked 文件）；`check-locale-sync.js --keys` PASS（2123 个使用中 key）；eslint 相关文件 **0 errors**（5 个 warning 经 stash 前后 A/B 核为既有，非本次引入） |
 | 远程同步 | 由门禁推导 | 合并后由主干历史推导，不手写状态词（`gate-record-sync-derived-status` 口径） |
-| QM-6 CCG 双模型评审 | ⚠️ **未跑成（环境故障，如实记录）** | pre-commit 判定 `DUAL`（变更 570 行 > 200 行阈值）⇒ 应跑 `deep-review.sh` + `plan-review.sh`。两次实跑**均因评审后端超时失败**：`spawnSync C:/Users/邱领/.claude/bin/codeagent-wrapper.exe ETIMEDOUT`（deep-review 轮 1/3、plan-review 轮 1/3）。`--check-deps` 体检通过（claude / opencode 均解析到）、`--dry-run` 能完整预览判定与引擎配置 ⇒ **不是配置问题，是 wrapper 进程启动超时**。另修掉一个本机路径转换问题（`$HOME` 的 POSIX 路径被 MSYS 转成 `D:\c\...`，需显式传 `CCG_ARL_DIR` Windows 路径 + `MSYS_NO_PATHCONV=1`）。**结论：双模型外部评审这条门禁本次未取得读数，不冒充通过**；它是本地把关环节、不阻断 CI，但按「把工具的失明读成结论是同型错误」的口径，此处记为未闭合项 |
+| QM-6 CCG 双模型评审 | ⚠️ **未跑成（环境故障，如实记录）** | pre-commit 判定 `DUAL`（变更 570 行 > 200 行阈值）⇒ 应跑 `deep-review.sh` + `plan-review.sh`。两次实跑**均因评审后端超时失败**：`spawnSync <评审 wrapper 绝对路径> ETIMEDOUT`（deep-review 轮 1/3、plan-review 轮 1/3）。`--check-deps` 体检通过（claude / opencode 均解析到）、`--dry-run` 能完整预览判定与引擎配置 ⇒ **不是配置问题，是 wrapper 进程启动超时**。另修掉一个本机路径转换问题（`$HOME` 的 POSIX 路径被 MSYS 转成 `D:\c\...`，需显式传 `CCG_ARL_DIR` Windows 路径 + `MSYS_NO_PATHCONV=1`）。**结论：双模型外部评审这条门禁本次未取得读数，不冒充通过**；它是本地把关环节、不阻断 CI，但按「把工具的失明读成结论是同型错误」的口径，此处记为未闭合项。三条失败判定记录（`.ccg/reviews/<sha>.json`）已从本 PR 撤出——评审未产出有效 verdict，留痕价值为零，且其 error 文本含本机绝对路径会触发 `Gate 12c doc-abs-paths` |
 
 ### 测试覆盖矩阵（Completeness 自评）
 
