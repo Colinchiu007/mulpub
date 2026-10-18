@@ -1,0 +1,57 @@
+{
+  "sha": "e4359e2a63dbd015a5697d4f18adc187902af964",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 3 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 3,
+    "fileCount": 2,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "- `node .github/scripts/check-locale-sync.js --cjk` → **首版实现判红，改完才绿**，现场值得留：初版那条 warn 写成中文（`音色来源取了闭集外的值，整行标注不显示:`），本机预跑读数 `FAIL：渲染端新增 1 处硬编码中文字符串（基线 1331 条，当前 1189 条）` 并**逐行点名** `PodcastScriptEntry.vue:49`；改判据后的读数 `CJK scan PASS（基线 1331 条，当前 1188 条，无新增硬编码）`。两条口径：① 排障用的开发者日志**不是用户文案**，走 ASCII 就够，不要为了过门禁把它塞进 locales（那会给 zh/en 各加一个永远不会被界面消费的键，AGENTS「禁止死键」同型）；② 正解不是 `--update-baseline`——那把基线从 1331 抬到\"容忍我的这一条\"，等于把自己新增的那一格改成契约。本机 pre-commit 不覆盖这条 Gate（AGENTS「本机 pre-commit 不覆盖 CI 静态门禁」），**它是靠\"按 CI 清单点名跑\"才被抓住的**，不是靠钩子。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "db911b58c28d0c18188c8fed6a63ce8ddcb34e1f48b17af6edec36226293a987",
+  "decidedAt": "2026-10-18T19:58:26.422Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

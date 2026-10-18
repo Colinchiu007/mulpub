@@ -80,7 +80,8 @@ const originLabel = computed(() => {
   // 判据 1：闭集外的值**不兜底成"取自频道"**（那等于伪造来源），出声一条 warn 供排障，
   // 界面按"没有可标注的来源"处理——三段音色照常显示，那部分不依赖 origin。
   if (!ORIGIN_KEYS[origin]) {
-    console.warn('[podcast-script-entry] 音色来源取了闭集外的值，整行标注不显示:', origin)
+    // 开发者日志，不是用户文案：走 ASCII，避免把一条排障用的字符串塞进 locale 基线（Gate 7 的 --cjk 按文件差分拦新增）
+    console.warn('[podcast-script-entry] voice.origin out of closed set, origin line hidden:', origin)
     return ''
   }
   if (!ANNOTATED_ORIGINS.includes(origin)) return ''
