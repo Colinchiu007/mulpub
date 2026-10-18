@@ -2930,6 +2930,27 @@ videogen 系列（animation AI 讲解动画 / avatar-spokesperson 数字人口�
 
 **已知限制（2026-08-15）**：历史列表 5s 轮询仅在有 running 任务时启动，失败/暂停任务在应用空闲时不自动刷新；同会话内由 `refreshRunningHistory` 的终态转换触发完整重载，跨会话以进入历史页时的 `loadHistory` 为准。
 
+
+#### 7.1.39 视频任务编辑页模型信息展示合同（2026-10-18）
+
+| 项目 | 合同 |
+|---|---|
+| 显示位置 | 视频预览下方视频信息区，与「格式：MP4」**同一行**（同一 `<p>` 内联分隔符连接），容器宽度不足时由浏览器自然折行；不得用 JS 测宽或 CSS 媒体查询决定换行。 |
+| 显示项 | 文本模型、语音模型、图片模型、视频模型，固定顺序，` · ` 分隔。文案 zh/en 成对（`create.story2video.modelInfo.*`）。 |
+| 视频模型显隐 | 双重门控：`project.options.videoMode` ∈ {`fixed`,`ai-judged`} **且** 解析值非空才显示；`off`/缺省一律不显示（不是显示"未使用"）。门控字段与 `pipeline-model-preflight` 的 video 能力需求判定同源。 |
+| 取值优先级 | `segments[].*Meta`（provider 实际返回值）优先于 `project.options`（用户提交意图）；`model` 优先于 `provider`，provider 仅在 model 缺失时兜底。文本模型取 `segments[].promptOptimizationMeta.model_used`。 |
+| 落盘链路 | `optimize` 阶段的 `model_used` 等白名单 meta 由 `story2video-stages.js` 的 `generate_assets` 透传到 `scene.promptOptimizationMeta`，经 `Story2VideoProjectService._persistComposeArtifacts` 的既有 `safePromptOptimizationMeta` 白名单落盘；service 侧不新增字段。 |
+| 白名单字段 | `strategy_used` / `key_source` / `cache_hit` / `model_used` / `caller` / `platform` / `style`；`optimized_prompt`、`truncated`、`optimize_note`、`degraded` 等流水线内部状态**不得**透传。 |
+| 降级如实呈现 | `strategy_used=template`（限流降级）时 `model_used` 为 `template`，展示 `template` 而**不得粉饰**为具体模型名。 |
+| 空态契约 | 四项全空时模型摘要整段不渲染、不输出分隔符，视频信息区 DOM 与改动前同形（「格式: MP4」一行）。 |
+| 脏数据防御 | `project`/`options`/`segments`/各 `*Meta` 为 null、非对象、非数组或空白串时，对应项视为缺失；不得抛错、不得渲染空壳标签（「文本模型: 」后无值）。 |
+| 纯文件预览模式 | 无 `project` 对象（仅 `path` query）时模型信息条整体不渲染。 |
+| 老项目兼容 | 无 `promptOptimizationMeta` 的老项目不渲染文本模型项，属有意行为（不做历史数据回填）；不得因此报错。 |
+| 实时性 | 项目对象变化（素材重生成后 `this.project = result.data`）时 computed 重算，展示值跟随实际执行结果。 |
+| 非目标 | 不做点击交互（跳转模型设置/切换模型重跑）、不做历史列表卡片展示、不改创作页模型选择 UI、不新增 IPC 通道。 |
+| 校验 | 必须通过 `ResultView.test.js`（含新增 17 例模型信息用例）、`story2video-stages.test.js`（含新增 6 例透调用例）、`story2video-project-service.test.js`、locale sync/CJK 及视觉回归。 |
+
+详细需求背景、数据源核实结论、取值口径裁决、测试计划与验收标准见 [PRD-S2V-RESULT-MODEL-INFO-2026-10-18.md](./PRD-S2V-RESULT-MODEL-INFO-2026-10-18.md)。
 #### 7.1.4 TTS 音色、个人克隆与隐私边界
 
 创作端按“已启用 provider → model → 音色目录”选择，不接受任意手填音色 ID。优先调用具备能力且已认证的

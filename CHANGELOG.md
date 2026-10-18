@@ -1,3 +1,12 @@
+# [未发布] feat(s2v): 历史记录任务详情页视频信息区展示本次生成的模型信息（s2v-result-model-info）
+
+- **功能**：视频创作 → 历史记录 → 任务详情页（`/create/result?project=<id>`）视频预览下方的视频信息区，在「格式：MP4」**同一行**追加本次生成实际调用的模型信息：文本模型 / 语音模型 / 图片模型 / 视频模型，固定顺序、` · ` 分隔。视频模型受 `videoMode` 门控——仅 `fixed` / `ai-judged` 视为启用视频增强，`off` 或缺省时**整项不显示**（不是显示"未使用"）。容器放不下时由浏览器自然折行，不撑破布局；四项全空时整段不渲染，页面与改动前逐字节一致。
+- **取值口径（哪个值才是"实际用的模型"）**：`segments[].imageMeta/audioMeta/videoMeta`（provider 真实返回值）**优先于** `project.options`（用户提交时的选择），`model` 优先于 `provider`。两者在"provider 忽略/改写 model 参数"或"多模态 provider 内部路由到别的模型"时会不一致，展示真实执行的才有诊断价值。文本模型取 `segments[].promptOptimizationMeta.model_used`。
+- **前置缺口已补：文本模型此前根本没落盘**。`optimize` 阶段的 prompt-engine 返回里一直有 `model_used`，但 `story2video-stages.js` 的 `pairedScenes` 构造处不携带 `promptOptimizationMeta`，`Story2VideoProjectService` 虽已定义该白名单字段却从不被填值 ⇒ 详情页拿不到文本模型。本片在 `generate_assets` 把 optimize entry 的白名单 meta（`strategy_used`/`key_source`/`cache_hit`/`model_used`/`caller`/`platform`/`style`）透传到 scene，service 侧零改动即通。`strategy_used=template`（限流降级）时 `model_used` 如实为 `template`，**不粉饰为具体模型名**。
+- **顺手修掉同函数里两处 `null` 崩溃**（QM-5 归因：optimize 结果含 null/非对象时 `p.prompt` 与 `prompt.prompt` 直接抛 `Cannot read properties of null`，把整阶段打成 `Asset scene generation failed`）。已按 fail-open 口径加固，与新增 meta 解析的防御同一形状。老项目/run-only 重建项目无 meta 时不渲染文本模型项，是有意行为而非功能损坏。
+- **测试**：`ResultView.test.js` 新增「模型信息展示」17 例（顺序/门控/优先级/回退/空态/脏数据/折行不变量）；`story2video-stages.test.js` 新增 6 例（meta 透传/白名单收窄/fail-open/template 降级/`{results}` 包装）。回归：`ResultView.test.js` 132 passed、`story2video-stages.test.js` 160 passed、`story2video-project-service.test.js` 119 passed、`element-plus.test.js` 7 passed。文案 zh/en 成对进 `locales/create/{zh,en}.js`（Gate 7）。
+- **文档**：新增 `01-docs/PRD-S2V-RESULT-MODEL-INFO-2026-10-18.md`（数据源核实结论/取值优先级/门控判据/数据校验/验收标准/测试计划全量详述）。
+
 # [未发布] feat(播客): 发布页文本类分支接入一键出期入口，并按点名还账把入口收成 launcher（podcast-publish-entry）
 
 - **落的是主线最后一枚入口**：PRD §7.10.3.4 把 ②-b② / ②-b③ 两枚的逐字段合同写全了，上一片只落了改写区那枚；本片落发布页文本类分支那枚。频道一律取 `usePodcastChannel` 的既有解析——没有默认频道时动作**整块不出现**，而不是弹一个必被宿主①层拒掉的框，也不为显示动作去 `ensureChannel()` 偷偷解析一个频道。
