@@ -1,0 +1,58 @@
+{
+  "sha": "0e357206d7cb1a2f176055e720adae7fc5a36785",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 854 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 854,
+    "fileCount": 27,
+    "codeFileCount": 12,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 1,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "- **结论二（两条轴不得合并）**：`sensitiveContentHits`（217/877）是真会触发的轴，但它答的是「这次改了加密/凭证/SQL 一类的**内容**」；§3 答的是「这次改了**守门人本身**（判据本体、decider、workflows、`classify-docs-only`、白名单归属文件）」。后者今天没有任何产物记录，只能现算。合成一条就会互相遮蔽：高危内容改动被「没碰判据文件」放行，或反之。故本轴**只作旁证出声，不作闭环资格**。",
+      "- 动机：tasks 2.x 要把「高危面」实现成判据。先量了主干产物的两个候选字段，结论是**都不能直接当 §3 的实现**——`stats.sensitivePathHits` 非空仅 **2/877**（构造性零，用它当判据等于 `self-play` 在几乎所有产物上都能闭环），`sensitiveContentHits` 非空 **217/877** 会真触发，但它答的是「改了加密内容」而不是「改了守门人」，两条轴合成一条就会互相遮蔽。落点：清单由判据对 `changedFileStatuses` **现算**，内容命中轴只作旁证出声。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "ed1e47f60ad8910aae667f3b70b7673c77f4efad0f03755f4d825b2df6fc9580",
+  "decidedAt": "2026-10-18T19:49:11.323Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

@@ -1,3 +1,5 @@
+## 缓存空壳与漏斗守卫：空正文不得进改写链路（fix-collect-rewrite-empty-content，2026-10-18）
+
 ## 字幕分句短语边界：四条可复用教训（subtitle-phrase-boundary-v1.3，2026-10-18）
 
 ### lesson:editable-install-points-at-the-original-repo
@@ -32,8 +34,55 @@
 
 判据：跨实现共享的判定规则必须能表达成**该语言自带的字符/字符串操作**（本案：`text.slice(i - left.length, i) === left` 这类纯字符串比较），不能依赖「某个库的输出」。凡是「规则需要靠 A 库的输出、而 B 语言没有同一个库」的地方，那不是共享规则，是隐藏的平台绑定。**成对登记（`[[left, next], ...]`）优于单侧字符集**也是同一族的教训：单侧的 `tail`/`head` 集合交集会产生假边界（`了|拉` 既可能来自「为了拉拢」也可能来自「完成了拉车」），而成对登记把「块尾短语」与「块首后续」绑定，假阳性从集合交集降到显式枚举。
 
-## 缓存空壳与漏斗守卫：空正文不得进改写链路（fix-collect-rewrite-empty-content，2026-10-18）
+## registry 里有记录不等于音色可用：完整性对账必须发生在消费点之前（fix-s2v-voice-clone-integrity，2026-10-18）
 
+### lesson:registry-presence-is-not-availability
+
+**「本地 registry 有 active 记录」是一个持久化事实，不是可用性结论。**
+
+现场：项目 `mvdxd21s_o1ws` 在 `generate_assets` 失败，9 条 TTS 全被供应商拒绝
+（`you don't have access to this voice_id`），重克隆回退因样本目录
+`voice-clone-samples/<ownerHash>/47f825cb-634e-4c5f-8d90-cc904e547411` 不存在而 ENOENT。
+而 SQLite registry 里该记录仍是 `deletionState=active`，偏好与 `lastOptions` 也仍指向它。
+`listClones` 只校验了 `voice_id` 格式，从不与样本磁盘对账 ⇒ 「registry 说存在、磁盘不在、
+供应商拒绝」三方同时成立却无人发现。
+判据：凡是「本地副本 + 远端 ID」双载体能力（克隆音色、缓存、离线包、导入素材），
+消费前必须回答「本地副本还在吗」；只回答「记录在吗」等于没回答。
+
+### lesson:mark-invalid-at-the-single-entry-not-at-each-consumer
+
+**失效标记要在唯一入口打一次，不要在每个消费方各判一遍。**
+
+现场：失效信号需要被三个消费方使用——catalog（移入 `invalidVoices` + 偏好回退）、
+前端克隆列表（徽标/禁用「设为默认」）、流水线（生成前置守卫）。若在 catalog 里过滤，
+另外两方拿不到；若三处各写一套判据，必然漂移。
+落点选在 `TtsVoiceCloneService.listClones` 打 `invalid:true` + `invalidReason`，并新增只读
+`getCloneVoiceStatus` 给守卫消费；catalog 既有 7.1.16 通道自动继承，前端零改动拿到徽标。
+判据：同一条失效语义有 N 个消费者时，先找「N 个消费者共同读的那个入口」。
+
+### lesson:preflight-guard-must-fail-open-and-run-before-side-effects
+
+**前置守卫的价值在「副作用之前」，而它的安全性在「自身故障时不扩大故障面」。**
+
+现场：`generate_assets` 在创建任何图片/视频/TTS Promise 之前调用守卫，命中即返回
+`VOICE_CLONE_UNAVAILABLE`，事故里可省下 9 条 TTS + 图片生成（约 137 秒与全部额度）。
+同时守卫必须 fail-open：服务未注册、方法缺失、查询抛错、未注册音色、有效克隆一律放行——
+否则「守卫坏了」会变成「所有生成都失败」，比原故障更糟。
+判据：守卫 = 只读 + 在副作用之前 + 命中才阻断 + 自身故障放行；四条缺一不可。
+
+### lesson:aggregate-repeated-provider-errors-before-showing-them
+
+**同一句供应商英文重复 N 次不是「信息完整」，是把可操作信息稀释成噪音。**
+
+现场：9 条 TTS 失败原因逐字相同，旧 `summarizeAssetFailures` 按场景拼成
+`TTS #1: you don't have access...; ...; TTS #9: you don't have access...`。
+修复后：① 相同 message 去重并输出场景区间（`TTS #1-#3: <msg>`）；
+② 当全部失败同属「克隆音色不可用」时聚合成一条 `VOICE_CLONE_UNAVAILABLE` 可操作提示；
+③ 聚合前先写 `context.generate_assets.resume`，断点不因聚合错误丢失。
+判据：批量失败默认按「原因」分组，同因全失败才聚合；聚合是「换一句可操作的话」，
+不是「把多条藏起来」——混合原因仍要逐条可见。
+
+## 缓存空壳与漏斗守卫：空正文不得进改写链路（fix-collect-rewrite-empty-content，2026-10-18）
 ## 任务详情页模型信息：先核实「信息有没有落盘」，再摆四个字段（s2v-result-model-info，2026-10-18）
 
 ### lesson:display-needs-persisted-facts-not-runtime-facts

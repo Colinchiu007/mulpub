@@ -11,6 +11,27 @@
 - **踩坑**：`smart-sentence-splitter` 的 `splitter` 包是 editable install 指向**原仓库**（`pip install -e .`），在新建 worktree 里跑 pytest 测的是旧代码。解法：`PYTHONPATH=<worktree>/src` 覆盖。这一条不写在文档里，下一次「改了代码测试却全绿」会再犯。
 - **跨仓**：`smart-sentence-splitter` 仓规则表 + `subtitle_segmenter.py` + 向量同步副本在独立 worktree `sss-subtitle-phrase-boundary`（分支 `subtitle-phrase-boundary-v1.3`），独立 PR。
 
+# [未发布] fix(story2video): 克隆音色先对账本地样本再进生成，失效音色不再跑满 9 条 TTS 才报重复英文（voice-clone-integrity）
+
+## 问题
+- 2026-10-18 22:32–22:44（本地）项目 `mvdxd21s_o1ws` 的故事讲述两次运行均在 `generate_assets` 失败：9 条 TTS 全部被供应商拒绝（`you don't have access to this voice_id`），重克隆回退因 `voice-clone-samples/<ownerHash>/47f825cb-634e-4c5f-8d90-cc904e547411` 目录不存在而 ENOENT，最终 `0/9` 场景同时具备图片与旁白。
+- 三方证据互相矛盾：SQLite registry（`tts-voice-clones:v2:minimax-multimodal:speech-2.8-turbo`）记录仍为 `deletionState=active`，音色偏好与 `story2video.lastOptions.v1` 仍指向该 `voiceId`，但磁盘样本目录已不在、供应商也已拒绝。
+- 根因：`TtsVoiceCloneService.listClones` 只校验 `voice_id` 格式、从不与样本磁盘对账；`generate_assets` 没有音色前置守卫；`tryReCloneVoice` 对 ENOENT 只是静默返回 null；失败聚合按场景逐条拼接同一句英文 9 次；渲染层匹配不到「没有访问权」形态，用户只看到不可操作的通用英文。
+
+## 改动
+- `listClones` 对每条克隆做只读磁盘对账（目录存在、非符号链接、目录内至少一个 `ALLOWED_AUDIO_EXTENSIONS` 扩展名文件），失效时输出 `invalid:true` 与 `invalidReason`（`invalid_voice_id` 优先于 `sample_storage_missing`）；有效记录不输出 reason；无 `sampleStorage` 的历史记录不判失效；`userData` 不可解析/IO 不可判定一律 fail-open 不误杀。
+- 新增只读 `getCloneVoiceStatus({providerId, model, voiceId})`：code/data 信封、owner 隔离、模型候选回退与 `findCloneSamples` 同风格、不写 registry/偏好。
+- catalog 既有 7.1.16 合同自动继承：失效克隆移入 `invalidVoices`、移出可选 `voices`，偏好回退默认音色并写回（`tts-voice-service.js` 不改）。
+- `generate_assets` 在任何图片/视频/TTS 调用前执行前置守卫（manual 模式由 `finalize_assets` 在旁白生成前复用同一 helper）：命中 `registered && invalid` 立即失败，前缀 `VOICE_CLONE_UNAVAILABLE`，零资源调用；守卫故障/未注册/有效克隆一律 fail-open。
+- 运行期全部 TTS 失败且均为克隆音色不可用时，聚合为单条 `VOICE_CLONE_UNAVAILABLE` 错误（先写 `context.generate_assets.resume`，不重复原始英文、不含 `TTS #`）；`summarizeAssetFailures` 对相同错误去重并输出场景区间（`#3` / `#1-#3` / `#1, #3` / `#?`）。
+- 渲染层新增 `VOICE_CLONE_UNAVAILABLE_PATTERN`、通知键 `VOICE_CLONE_UNAVAILABLE`、locale key `story2video.voice_clone_unavailable`（zh/en 成对），规则顺序早于 `VOICE_INVALID` 与 `asset_generation_failed`。
+- 不改阶段数量/顺序、不新增 checkpoint 类型、不静默替换用户音色。
+
+## 验证
+- 定向测试：7 文件 / 330 passed（服务 48、完整性 8、阶段 154、守卫 11、通知 61+22、格式化器 27）；风险集回归 673 passed（命令与读数见 `openspec/records/fix-s2v-voice-clone-integrity.md` 自测块）。
+- 变异反证（详细 PRD §12.3）：M1 去对账 2F / M2 反转优先级 1F / M3 守卫 warn-only 3F / M4 聚合 `every`→`some` **初始存活**（补「混合原因不聚合」用例后 1F）/ M5 不去重 2F / M6 删渲染规则 4F；M7/M8 未逐条注入（结构性变异，由代码位置审查 + 零资源调用断言覆盖）。
+- 文档门禁实测：`check-text-encoding-integrity` OK；`check-no-brand-residue` PASS（10326 tracked）；`check-spec-purpose` 154 份 0 违规；`openspec-sync-check` OK（387 tasks/63 changes/234 archives）；`check-doc-abs-paths` PASS（572 文件）；`check-changelog-growth` PASS（521→522）、重复标题新增 0。
+- QM-1：electron-builder exit 0（asar 147,209,782 B，命中 2 个新模块，解包 require rc=0，启动 9s 存活 + stderr 0 行）。QM-6：本机 claude/opencode/codex 后端均超时不可用（ccg deep-review 的 claude critic 轴 ETIMEDOUT），如实保留债务、不伪造 cleared。
 # [未发布] fix(shell): 折叠状态多窗口实时同步 + OAuth 授权视图接入侧栏布局（sidebar-collapse-followups）
 
 关闭 #3916 遗留清单的三项缺陷（前两条修复、第三条降级）：

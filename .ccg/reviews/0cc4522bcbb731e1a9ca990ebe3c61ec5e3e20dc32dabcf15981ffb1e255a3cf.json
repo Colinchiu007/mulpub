@@ -1,0 +1,43 @@
+{
+  "sha": "0fd6c81d13eb3d8248de9a5532e267ee9b550948",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 1122 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 1122,
+    "fileCount": 28,
+    "codeFileCount": 19,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 14,
+    "docSensitiveContentHits": 14,
+    "docSensitiveContentSample": [
+      "1. **OAuth 内嵌视图不跟随侧栏宽度**：`apps/desktop/electron/services/oauth-manager.js:86` 调用 `computeEmbeddedViewBounds(this.mainWindow)` 时未传宽度，始终按默认 200 计算。收起侧栏后 OAuth 授权页左侧会留 200px 空白。既有实现本就不跟随 ≤900px 的 68px，本轮不扩大改动面；登记为已知限制，建议后续单独立项把 `oauth-manager` 接入与登录视图相同的同步链路。",
+      "2. **视觉基线需要一次重建**：含 TabBar 的基线都会变化（最终清单以 CI `Gate 7b` 点名为准），重建必须在同源渲染环境完成并逐张审核；本轮不提供「本机 update-baseline」的替代证据。",
+      "1. ~~**OAuth 内嵌视图不跟随侧栏宽度**~~（**已关闭**，#3916 合并后立项 `sidebar-collapse-followups`）：`oauth-manager.js` 的 `_positionView()` 原先只传 1 参给 `computeEmbeddedViewBounds`，`sidebarWidth` 回落默认 200、`collapsed` 恒 false —— 宽松默认值把「漏传」伪装成合法布局（不抛错、无告警、截图\"看着对\"），且既有测试断言的正是默认展开态的值，缺陷被写成正确行为的期望。现已补 `setSidebarWidth` / `setSidebarCollapsed` 并传满 4 参，`WebviewManager` 两个 setter 纳入同步链，`window.js` 装配链经 `setOAuthManager` 注入。**连带修复同形态缺陷**：OAuth 视图原先只在 `startAuth` 定位一次、不监听 `mainWindow` resize，授权过程中拖动窗口会复现 `view-bounds.js` 头部所述 2026-09-13「视图被窗口边框裁掉」；现已监听并在 `close()` / 换绑时解绑。"
+    ],
+    "lineReadGaps": [
+      "\"01-docs/research/competitor-reverse-2026-10-13/derived/DLL-MediaTaskMgr-\\346\\216\\245\\345\\217\\243\\345\\245\\221\\347\\272\\246.md\"",
+      "\"01-docs/research/competitor-reverse-2026-10-13/\\345\\216\\237\\347\\224\\237\\345\\261\\202\\345\\210\\206\\346\\236\\220\\350\\241\\245\\345\\205\\205\\346\\212\\245\\345\\221\\212.md\""
+    ]
+  },
+  "stagedDiffHash": "0cc4522bcbb731e1a9ca990ebe3c61ec5e3e20dc32dabcf15981ffb1e255a3cf",
+  "decidedAt": "2026-10-18T18:50:24.424Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

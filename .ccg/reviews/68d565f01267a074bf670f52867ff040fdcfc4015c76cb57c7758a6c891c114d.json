@@ -1,0 +1,40 @@
+{
+  "sha": "a1729c9b77a52e774c77397a9c63cc8274465db1",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 4345 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 4345,
+    "fileCount": 43,
+    "codeFileCount": 28,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 15,
+    "docSensitiveContentHits": 3,
+    "docSensitiveContentSample": [
+      "| QM-6 闭环状态与处置 | ⚠️ **未闭环，经仓库所有者书面授权跳过** | 现状：`.ccg/reviews/` 下本分支判定记录存在 `pending` / `error` 状态（记录按内容寻址命名，rebase 后与当前 HEAD sha 不再对应），`node scripts/check-pr-exec-record.js --base=origin/main --mode=enforce` 因此判红（「不通过：1 条理由」）。**根因是评审后端不可用，不是代码问题**：`sh scripts/deep-review.sh --check-deps` 体检通过（二进制都在），实跑 `sh scripts/deep-review.sh` fail-closed —— ① `spawnSync <claude-bin>/codeagent-wrapper.exe ETIMEDOUT`；② `claude.exe -p` 直连 10KB 输入挂起 **25 分钟**无输出；③ `opencode` 付费模型全部 `This API key has expired`；④ `opencode` 免费模型 `Forbidden, OpenCode Free Model Gateway Detect Abuse Traffic`；另 `sh scripts/deep-review.sh` 直跑时还因 rebase 后 HEAD 无对应判定记录而 fail-closed。**处置：仓库所有者于 2026-10-19 明确书面授权「本次跳过 QM-6 双模型评审」**，本条如实记录该授权，**不以「双模型评审通过」记录本次结果**。恢复后端后补跑闭环：`sh scripts/deep-review.sh`；若提示「找不到判定记录」，先 `git add -A && git commit --amend --no-edit` 让 pre-commit 重新生成记录再跑 |",
+      "   （Chromium 用同一 Windows 用户的 DPAPI 自行解密 ⇒ 真实登录态）",
+      "| `GET /xigua/api/upload/GetPublishAuth?params={}&msToken=..` | 发布权限 | `data.authorPermission.DisablePublish=false` 等 |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "68d565f01267a074bf670f52867ff040fdcfc4015c76cb57c7758a6c891c114d",
+  "decidedAt": "2026-10-18T17:38:57.622Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}
