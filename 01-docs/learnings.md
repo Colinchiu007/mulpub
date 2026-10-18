@@ -121,6 +121,66 @@ MSYS 会把 `origin/main:CHANGELOG.md` 里的冒号当路径分隔符转换，�
   不等就是行尾/末尾换行出了问题，不是"差不多就行"。
 - 另：`check-changelog-growth.js` 要求**只增不减**（base 498 种标题 ⊆ head 499 种），
   基于旧 base 拼接会被判"少 N 种条目"。冲突解决按"两侧都保留"：用**最新 base 全文 + 我的块置顶**重建。
+## 多级回退链 + 夹具填满前几级 = 缺陷路径在测试里表现为正确行为（fix-hot-topics-genvideo-title，2026-10-17）
+
+用户报「热门选题生成视频后点去发布，带入的标题是正文的前多少字」。第一性根因不是哪一行写错，
+而是**标题从来不是一个独立生成物**——它是一个四级静默回退链的末端切片：
+
+```
+buildGenVideoStartParams 不带 title
+  → publish.title = config.title || ''（默认 ''，热门选题链路从不写）
+  → 主进程 project.title = run.params?.title || publish.title || sourceText
+  → buildPublishFromProject 取 project.title
+  → truncateTitle(rawTitle, 100)
+  ⇒ 标题 = 改写正文前 100 字
+```
+
+四层单独看都"合理"（每一层都是防御性兜底），组合起来产出一个没人想要的产物。
+
+1. **夹具自证是这类缺陷的标准逃逸形态。** 旧测试为什么全绿？
+   `publish-from-project.test.js` 的 `makeProject` 让 `project.title` 与 `sourceText`
+   **取同一个 38 字字符串**——于是「title 回退到 sourceText」这条生产缺陷路径，
+   在测试里长什么样就表现为什么样（正确行为）。`HotTopics.test.js` 的【去发布】夹具
+   更直接：手写 `publish.title = '发布标题'`，而真实链路该字段**恒为空串**。
+   **纪律**：任何「多级回退」纯函数，必须至少有一例**前几级全部为空**的生产形态夹具。
+   夹具填满前几级，等于把回退链的后半段（生产真正走到的那半段）置于测试盲区。
+
+2. **审查盲区：把「不得注入空 X」当成合规终态，没人追问「那 X 应该是什么」。**
+   `hot-topics-pipeline-picker` 评审明确记录了「run-only 发布只能交接成片路径，
+   不伪造标题正文」，当时看是严谨（确实修掉了 `title=''` 编码进 query 的问题）。
+   但规则只约束了**负面**（不许空），没有规定**正面**（标题从哪来）。
+   于是 run-only 分支的标题就一直是空的，S2V 分支的标题就一直是正文切片。
+   **纪律**：审查一条「不得注入空字段」的规则时，必须同时回答「该字段非空时从哪来」。
+   只堵负面不立正面，缺陷会以「静默降级到某个默认值」的形态继续存在。
+
+3. **渲染层不要放 LLM prompt（本仓门禁与既有模式双重理由）。**
+   第一版把 `buildGenVideoTitlePrompt` 放在 `src/features/publish/`，`--cjk` 门禁当场红
+   （基线 1374 条，新增 8 处中文 prompt 指令）。查证后发现两条独立理由都指向主进程：
+   ① `apps/desktop/src/` 受全量字符串字面量扫描，中文 prompt 必撞；
+   ② 全仓渲染层此前**没有任何 LLM prompt 构造先例**——explainer/videogen/documentary/localization
+   五族的 prompt 全在 `electron/services/*-stages.js`。把 prompt 下沉到 IPC handler 后，
+   渲染层只剩 `resolveGenVideoTitle` 降级链决策纯函数，CJK 门禁自然通过。
+   **纪律**：新增 LLM 调用先问「prompt 放哪层」——本仓的答案固定是主进程。
+
+4. **「无模型」不是 error，是降级理由。** handler 对「未配置默认文字推理模型」返回
+   `{ code: 0, data: { success: false, reason: 'no-model' } }` 而不是抛错。
+   若按 error 处理，渲染层会弹错误框——但用户没配模型是**合法状态**，
+   该走的是「用原始选题」的降级 + 一句提示，不是报错。
+   同理渲染层要先查 `modelProviderGetDefault('llm')` 再决定是否发起标题生成调用，
+   **无模型时一次网络调用都不该发生**。
+
+5. **清洗规则要覆盖推理模型的两种截断形态。** 思维链剥离必须同时处理
+   `<think>…</think>` 闭合块与**未闭合尾部**（`finish_reason=length` 时思考块没写完）。
+   ops-center 侧两个服务已为同一问题各修过一次（learnings:3347-3352），
+   本次是第三次——**「修复一处必须全局检索同类解析点」这条纪律的又一次实证**。
+   另外「成对引号才剥、单边保留」也值得记：`"标题` 很可能是标题内容本身，
+   无条件剥首尾引号会把标题啃掉一个字符。
+
+6. **标题生成时点：点击时 > 改写时 > 完成时。** 改写阶段顺手产出会把两类任务混在一个
+   prompt（改写引擎 2026-09-18 的「要素名被写成小节标题」事故正是任务混淆的产物）；
+   run 完成时自动生成会为只想【查看】的用户浪费一次 LLM 调用。
+   点【去发布】时用户意图最明确，且失败只影响标题不影响跳转——配合 busy 守卫
+   （重复点击不发起第二次调用、不发生第二次跳转），交互代价接近零。
 
 ## 门禁读的是「断言」而不是「测量」——循环依赖如何长出一个回填 PR（gate-record-sync-derived-status，2026-10-18）
 

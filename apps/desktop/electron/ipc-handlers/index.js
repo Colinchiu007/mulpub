@@ -27,6 +27,9 @@ function registerAllHandlers(ipcMain, deps) {
   require('./templates')(ipcMain, deps)
   require('./license')(ipcMain, deps)
   require('./ai')(ipcMain, deps)
+  // 热门选题「生成视频 → 去发布」的爆款标题生成（fix-hot-topics-genvideo-title）。
+  // 必须注册：缺了它渲染层【去发布】拿不到 AI 标题，只能降级为原始选题。
+  require('./gen-video-title')(ipcMain, deps)
   require('./offline')(ipcMain, deps)
   // 注意：这里**不要**再注册 `./payment`。
   // 买断授权模型已于 2026-10-17 移除（remove-buyout-license）：那条本地下单链路

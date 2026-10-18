@@ -43,6 +43,11 @@ export async function aiGenerate(type, provider, params) { return invokeWithFall
 // ─── 改写引擎 API（rewrite-engine）────────────────────
 export async function aiRewrite(params) { return invokeWithFallback("aiRewrite", { code: -1, data: null }, params) }
 
+// ─── 热门选题视频发布标题（fix-hot-topics-genvideo-title，2026-10-17）────
+// 契约：{ code:0, data:{ success:true, title } } | { code:0, data:{ success:false, reason:'no-model'|'failed' } }
+// 「无模型」与「调用失败」都返回 code:0 —— 调用方据此走降级，不当成错误弹窗。
+export async function aiGenerateGenVideoTitle(payload) { return invokeWithFallback("aiGenerateGenVideoTitle", { code: -1, message: 'electronAPI not available' }, payload) }
+
 export async function aiListRewriteStrategies() { return invokeWithFallback("aiListRewriteStrategies", { code: -1, data: [] }) }
 
 export async function aiGetRecommendedStrategies(userSettings) { return invokeWithFallback("aiGetRecommendedStrategies", { code: -1, data: [] }, userSettings) }
