@@ -83,6 +83,34 @@
 不是「把多条藏起来」——混合原因仍要逐条可见。
 
 ## 缓存空壳与漏斗守卫：空正文不得进改写链路（fix-collect-rewrite-empty-content，2026-10-18）
+
+## 改共享解析器口径时，先 grep「这个字段/函数被哪些测试断言过」
+
+### lesson:shared-resolver-change-must-grep-consumers-first
+
+**改一个被多处消费的解析器时，我列的「受影响测试清单」几乎必然是残缺的——清单要靠 grep 生成，不靠回忆。**
+
+现场：`resolveProviderDefaultModel` 的口径从「provider 级默认优先」改成「能力默认优先」后，
+本机定向跑了 56 个文件 / 1406 例（我自己按目录挑的清单）全绿，CI 的全量桌面分片却红了两处：
+`prompt-bridge.test.js` 里一条夹具同时给了 `capability_models.llm` 与 `config.default_model` 并断言后者胜；
+`CreateView.voice-clone-delete-guard.test.js` 只设 `s2vConfig.voiceProvider/voiceModel` 而没注册 provider 行，
+新实现按注册表解析 ⇒ 上下文为 null ⇒ 危险操作确认框根本没弹。
+两处都不是实现缺陷，而是**旧口径夹具**——但它们也不在我的清单里。
+
+判据：改动前先跑一次 `Select-String`/`grep` 找**字段名与函数名的全部测试引用**
+（本例是 `default_model`、`capability_models`、`getS2VVoiceContext`、`s2vVoiceProvider`），
+把命中的测试文件直接放进必跑列表；「按目录挑」只能覆盖你记得的那些。
+更一般的形状：**凡是被 ≥3 处消费的纯函数，它的语义变更面 = 全仓对它的断言集**，而这个集合只能机械枚举。
+
+### lesson:fixture-must-satisfy-the-new-precondition-not-bypass-it
+
+**夹具红了两条路：补前置条件（对）与放宽断言（错）——区别在于「生产路径也满足这个前置吗」。**
+
+现场：克隆删除测试失败后，最省事的修法是把 `getS2VVoiceCloneContext()` 改回「读 config.voiceModel」让夹具过；
+那样会把刚拆掉的第二真源又装回去。正解是在夹具里注册 provider 行——因为生产路径本来就是
+「先 `loadS2VProviders` 再操作音色」，夹具缺的是前置条件而不是断言太严。
+判据：夹具报红时先问「生产里这个前置一定成立吗」，成立就补夹具；不成立就是实现缺 fail-closed 或提示。
+
 ## 任务详情页模型信息：先核实「信息有没有落盘」，再摆四个字段（s2v-result-model-info，2026-10-18）
 
 ### lesson:display-needs-persisted-facts-not-runtime-facts
