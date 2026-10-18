@@ -20395,3 +20395,11 @@ CI 把 `QG Static` 钉红在 Gate 2c，红的是 `check-unwired-tests.test.js` �
 - **fact｜「改了没反应」先查同步机制再改代码**：运营中心改完桌面端不变，根因是 `OpsCenterSync` **只在应用启动时同步一次**（`autoSyncOnStart` 的 `setTimeout 3000`，全文件无 `setInterval`）。这是**预期行为**（组件注释写明「下次启动同步后自动可见」），但界面没告知运营者 ⇒ 反复保存、甚至回滚正确配置。修的是「告知」不是「即时生效」，两者不要混为一个问题。
 
 - **pitfall｜新执行记录必须同时写「frontmatter 的 `sync_status`」与「正文的 `| 远程同步 |` 表格行」**：只写前者，`check-gate-record-debt.js` 判「整块缺 远程同步 行」⇒ `QG Changes` 红（27s 即失败，属门禁判据而非测试）。**我在同一天连续两篇记录上踩了同一格**（`ops-identity-deploy` 与 `ops-deploy-learnings`），第一次靠 CI 红才发现、第二次又犯 ⇒ 靠自觉不可靠。正解：写完记录立刻本机跑 `node scripts/check-gate-record-debt.js` 确认 rc=0 再提交，不要等 CI 教。
+
+## 2026-10-18 收尾链三个取数坑（risk-batch4 收尾实测）
+
+- **pitfall｜`gh run list --commit <sha>` 会漏报已存在的 run —— 判「main push 没跑 CI」前必须换 raw API**：本轮 PR #3896 合并后（merge `077e790cd`），`gh run list --commit 077e790cd --json workflowName,conclusion` 只返回 `CI Failure Handler` 一类，据此差点写下「quality-gate `NO_RUN`」并触发一轮本不必要的 follow-up PR。改用 `gh api "repos/:owner/:repo/actions/runs?head_sha=<sha>"` 得 `total_count=67`，其中 **quality-gate `count=1 event=push` 且 `conclusion=success`**；再用 `?event=push&branch=main` 列表交叉确认同一结论。**判据**：凡要断言「某 SHA 上有没有 run」，取数必须走 `head_sha` 明文查询或 `--event push --branch main` 列表，**不得**用 `gh run list --commit`（它会静默少报，而「静默少报」与「真的没跑」在输出上完全同形）。
+
+- **pattern｜改判据/工具前先 `git merge --ff-only origin/main` —— 否则可能白做一遍（本轮实测）**：收尾时 `check-branch-merged` 在一个**已完整合并**的分支上报 `lost=1` rc=1，我定位到两条根因（`core.quotepath` 未关 + 输出按 latin1 解码后回传 git 参数时被按 UTF-8 重编码），修完并加了中文路径夹具，24/24 绿。但 ff 之后发现**并发会话的 PR #3875「落地判据 v3」已把这两个文件改了 471+353 行、且已覆盖该假 LOST**（v3 在 `077e790cd` 基线上跑同一分支：`identical=6 drift=0 lost=0` rc=0）。于是我的补丁整体作废、工作区复位。**代价**：约 40 分钟 + 一次 `reset --hard`（工作区只有自己的 2 个 staged 文件、已先备份 7015 字节补丁）。**纪律**：动 `scripts/` 判据或 `apps/` 前，先 `git log HEAD..origin/main -- <目标文件>` 看有没有未吸收的上游改动——「同一个坑两个会话同时修」在本仓是高频形态（判据类文件尤其热）。
+
+- **fact｜`core.quotepath` 的正确取值取决于用途，两个方向都对（补充 L1112）**：L1112 记的是「PowerShell 对 git 输出数行」场景——那里**转义形态（全 ASCII）反而安全**，故 `-c core.quotepath=false` 是把坑打开。但在**程序化判据**场景（路径当键、再回传给 `git ls-tree`/`git diff --` 做 blob 比对）里，恰恰相反：必须 `-c core.quotepath=off` **并且**在参数侧把 latin1 解码出来的字符串用 `Buffer.from(a, 'latin1')` 还原成原始字节（只做前者、不做后者时读数不变——本轮实测「修①后 lost 仍为 1」）。另有一条纯展示层的坑：latin1 串直接打印成文件名是 `ç«…` 乱码，须在**输出边界**转回 UTF-8（判据要说得清是哪个文件，才可能被信任）。**口径**：数行/人读 ⇒ 要 ASCII 转义；当键回传 ⇒ 要原始字节 + 展示边界还原，两者不可混用。
