@@ -13,6 +13,36 @@ const MAX_ROLLBACK_PER_DAY = 5
 /** accountId 归一：模块加载后由 publish-interval-guard 回填（避免 require 环），运行期必然已就绪 */
 let normalizeAccountId = null
 
+/**
+ * 窗口归属判据：**跨存储类型**的数值等价比较（唯一实现，禁止调用点各写一份）。
+ *
+ * 为什么不能用 `===`：桌面生产的 store 是 SQLite，`publish_timeline.last_publish_at`
+ * 列声明为 TEXT（store-schema.js），sqlite-wrapper 的 `get()` 对该列读回的是**字符串**
+ * （活库实测形如 `"1792241248768.0"`），而 `recordPublish()` 写入的是 **number**。
+ * `"1792241248768.0" === 1792241248768` 恒为 false ⇒ `release()` 每次都判 `window_taken`
+ * ⇒ P0-1「可确证未送出就回滚窗口」在生产里**从未生效过**。
+ * 现场表现：一次视频发布里其他平台正常发布或排队 1–2 分钟，视频号（账号档 60 分钟）
+ * 却显示「等待 59 分钟后重试（本账号间隔）」——而该视频号账号根本没发出过内容，
+ * 那个 59 分钟来自 60 分钟前**一次登录失效的尝试**。
+ *
+ * 单测为什么全绿：夹具用内存 Map，写进去什么类型、读出来就是什么类型（number === number）。
+ * 判据只在测试那一侧成立 —— 这是本仓反复登记过的「假夹具/夹具不对齐生产」同族逃逸。
+ *
+ * 归一方向必须**收窄**而不是放宽：只有能解析成有限数、且数值与 hold.at 相等，才算「是我的窗口」；
+ * null / undefined / 非数字 / NaN / Infinity 一律 false（fail-closed），
+ * 绝不把「读不懂」当成「可以回滚」——回滚错方向的代价是**早于窗口的重复发布**。
+ *
+ * @param {unknown} stored - store 读回值（生产是 string，内存夹具是 number，可能是 null）
+ * @param {number} expected - `recordPublish()` 返回的 `hold.at`
+ * @returns {boolean}
+ */
+function isSameWindow (stored, expected) {
+  if (stored === null || stored === undefined) return false
+  if (typeof expected !== 'number' || !Number.isFinite(expected)) return false
+  const actual = Number(stored)
+  return Number.isFinite(actual) && actual === expected
+}
+
 /** @param {(v: unknown) => string|null} fn 仅供宿主模块装载期回填，测试与业务不得调用 */
 function __setNormalizeAccountId (fn) {
   normalizeAccountId = fn
@@ -23,7 +53,8 @@ module.exports = {
 
   /**
    * 回滚一次**未提交**尝试所占的窗口与配额（P0-1）。三条纪律任一不成立即 no-op，方向恒为「多等」：
-   *   ① 乐观并发：仅当 store.get(key) === hold.at 才回滚该键 —— 绝不回滚他人窗口；
+   *   ① 乐观并发：仅当 store 读回的窗口**就是本次占位的那个**（见 `isSameWindow`，
+   *      跨存储类型比较）才回滚该键 —— 绝不回滚他人窗口；
    *   ② hold 必须由 recordPublish() 返回并回传；缺失/错配 ⇒ no-op + 出声；
    *   ③ 防风上限：当日回滚次数 >= `_rollbackCap()` 时拒绝（该上限带硬顶，不随日配额放大）。
    * 副作用：配额计数幂等回补（下限 0）；回滚计数只增不减。
@@ -54,16 +85,16 @@ module.exports = {
 
     let released = false
 
-    // ① 账号键
+    // ① 账号键（类型归一：生产 store 读回字符串，see isSameWindow）
     if (accountKey && hold.accountKey === accountKey) {
-      if (this._store.get(accountKey) === hold.at) {
+      if (isSameWindow(this._store.get(accountKey), hold.at)) {
         this._store.set(accountKey, hold.accountPrev ?? null)
         released = true
       }
     }
 
     // ① 平台键（独立判定：可能已被后续提交覆盖）
-    if (this._store.get(platformKey) === hold.at) {
+    if (isSameWindow(this._store.get(platformKey), hold.at)) {
       this._store.set(platformKey, hold.platformPrev ?? null)
       released = true
     }

@@ -219,10 +219,40 @@ Promise.race([ executorPromise, timeoutPromise(task.timeout, 默认 180000ms), a
 | 错误同时带 `notSubmitted=true` 与"已发起且未确证" | ❌ + `releaseFailed += 1` + error | 佐证位与阶段判据矛盾时取更保守一侧；**获益方不得自证免等** |
 | 该平台已有过一次成功发布，本轮却是"未发起尝试"的失败 | ❌ + 该平台**终身停用回滚** | 接线矛盾探针（`missingWiring` 计数）。⚠️ 必须排除 `definitelyNotSent`——登录态早退处主动打该标是**合法的未提交**，不排除的话"第一次登录失效"就会把该平台回滚能力自毁 |
 | 该平台已被停用回滚 | ❌ | `_rollbackDisabledPlatforms` |
-| 过闸后：窗口值不等于 `hold.at` | ❌ `window_taken` | 乐观并发：绝不回滚他人窗口 |
+| 过闸后：窗口值不等于 `hold.at`（**按数值比较**，跨存储类型） | ❌ `window_taken` | 乐观并发：绝不回滚他人窗口。判据见 §5.5.1 —— 直接用 `===` 会让生产回滚永久失效 |
 | 当日回滚次数已达 `_rollbackCap` | ❌ `rollback_cap` | 见下 |
 
 三道闸的副作用（只在真正回滚后发生）：配额计数幂等回补（下限 0）、`rollback_count` **只增不减**。
+
+#### 5.5.1 窗口归属判据必须跨存储类型（fix-release-window-taken-type-mismatch）
+
+`release()` 的乐观并发判据写成 `store.get(key) === hold.at` 会**在生产恒为 false**：
+
+| 侧 | 类型 | 来源 |
+| --- | --- | --- |
+| `hold.at` | `number` | `recordPublish()` 里 `Date.now()` |
+| `store.get(key)` | **`string`** | SQLite `publish_timeline.last_publish_at` 列声明为 **TEXT**（`store-schema.js`），`sqlite-wrapper` 读回 `"1792241248768.0"` |
+
+⇒ `release()` 每次都返回 `window_taken`，P0-1「可确证未送出就回滚窗口」**从未生效**。
+现场表现：视频号账号档 60′，一次登录失效的尝试把窗口占满，下一次提交显示
+「等待 59 分钟后重试（本账号间隔）」，而该账号根本没发出内容。
+单元测试全绿是因为夹具用内存 Map（写 number 读 number）——**测试与生产的存储类型不同**。
+
+现行判据（`guard-release.js` 的 `isSameWindow`，**唯一实现**）：
+
+```js
+Number.isFinite(Number(stored)) && Number(stored) === expected   // stored 为 null/undefined ⇒ false
+```
+
+归一方向是收窄不是放宽：只接受「同一数值的不同表示形态」，
+`null` / 非数字 / `NaN` / `Infinity` / 数值不等 一律 `false`（fail-closed），
+绝不把「读不懂」当成「可以回滚」——回滚错方向的代价是**早于窗口的重复发布**。
+回滚失败会同时 `releaseFailed += 1` 并打一条 `[task-queue] … 未能回滚间隔窗口（reason=…）` 的 warn。
+
+回归锁：`packages/shared-utils/tests/guard-release-store-type.test.js`（守卫层，string/number/尾缀/覆盖者）、
+`apps/desktop/electron/services/publish-interval-guard-store-integration.test.js`（**真实 sql.js**，
+先断言「写 number 读 string」的类型事实再断言业务结果）、
+`packages/shared-utils/tests/task-queue-guard-integration.test.js` 的 W1–W3（队列层端到端 + 告警反向锁）。
 
 **回滚硬顶**：`_rollbackCap = min(max(2, accountDailyMax), MAX_ROLLBACK_PER_DAY = 5)`。
 `max(2, …)` 让低配额平台至少能纠错两次；`min(…, 5)` 是 v3 加的——日配额从 20 放大到 500 时，
@@ -366,6 +396,13 @@ else: status='failed'; emit('task:failed')
    这是取舍，不是完备。
 5. **三个"看着像防线其实无关"的东西**：LLM 供应商 governor、`publish-contract.js` 的表单期校验、
    `riskSuspender` 的事后即停。改频控前别把它们当成已经守住了什么。
+
+6. **`publish_timeline` 仍是 TEXT 列（fix-release-window-taken-type-mismatch 的残留）**：
+   本次把**判据**做成类型无关（§5.5.1），但列类型没动。任何"直接读该列并做严格比较"的新代码
+   都会重犯同一个坑。已由集成锁 G1 把「写 number / 读 string」这一事实钉住，改动会被强制看见；
+   若将来要改成 INTEGER，必须同批处理库迁移与读侧兼容。
+7. **`releaseFailed` 仍无 UI 消费者**：本次只补了日志（§5.5.1），设置页没有读数入口。
+   即"回滚失败"现在可见但不可自助查；沿用既有债务，不在本片扩面。
 
 ---
 
