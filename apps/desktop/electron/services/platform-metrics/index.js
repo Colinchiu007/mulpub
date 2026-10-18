@@ -20,6 +20,9 @@ const log = require('../logger')
 // （由 electron/services/platform-metrics/index.test.js 的 M1-M4 逐字锁死）。
 const { resolvePublishedContentUrl } = require('@multi-publish/shared-utils/src/published-content-url')
 
+// 平台解析器注册表。key = parser.platform（平台常量，由下方「第一批解析器」逐个注册），
+// 空间由代码里的平台清单决定、不随运行时间增长；同平台重复注册是覆盖语义（后者生效），
+// 因此**不需要也没有** delete/clear —— R11 审计结论，见 openspec/records/risk-closeout.md §4.2。
 const registry = new Map()
 
 function registerParser(parser) {

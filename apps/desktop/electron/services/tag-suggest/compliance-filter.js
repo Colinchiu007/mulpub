@@ -8,6 +8,9 @@
 const path = require('path')
 const { normalizeTag, stripHash, getTagStyle } = require('./platform-rules')
 
+// 黑名单缓存。key = dataDir（生产恒为下方默认路径 ⇒ 单 key；只有测试会传多个临时目录，
+// 而测试目录随进程结束一起消失）。黑名单内容本身在单次运行内不变，故无淘汰需求 ——
+// R11 审计结论，见 openspec/records/risk-closeout.md §4.2。
 const _blocklistCache = new Map()
 
 /**

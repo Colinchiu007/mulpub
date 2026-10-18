@@ -64,6 +64,50 @@ test('R11 出声：模块级 Map 有写无清 ⇒ visible 面出现（不进红�
   assert.match(r.visible[0].detail, /只增/)
 })
 
+// ── R11 审计依据可查性（2026-10-18）──
+// 审计面的意义是「逼作者写一句为什么只增」。但"写没写"此前只能靠人读，
+// 于是每轮会话都要把 11 条重读一遍（本轮实测：关键词粗筛报 4 条缺理由，
+// 逐条读后发现那 4 条其实都有依据，只是表述不在关键词表里 —— 如
+// `livePartitions` 的理由是「跨进程回收」、两个 *Cache 的理由是「注册表数据冻结」）。
+//
+// 这把锁不试图用关键词判定「理由写得好不好」（那会引入假阳），只判一件可机械化的事：
+// **紧邻声明的上一行非空行必须是注释**（`//` 或 JSDoc 的 `*`/`/*`）。
+//
+// 判据从「上方 6 行内有任意注释」**收窄**到「紧邻」是实测逼出来的：第一版用 6 行窗口，
+// 变异验证（删掉 registry 的理由注释）后仍全绿 —— 因为 6 行内还有**别的**注释
+// （该文件的重构历史），宽判据测的是"附近有注释"而不是"解释了这个声明"。
+// 收窄后 11/11 真实条目全部成立（先取证再定判据），且删掉任一条的理由都会当场红。
+// 理由质量仍由人读，`derived/竞品缺陷同型风险清单.md` §4.2 已逐条登记判定。
+
+test('R11 审计依据可查：紧邻声明的上一行非空行必须是注释', () => {
+  const fs = require('node:fs')
+  const path = require('node:path')
+  const { collectSources } = require('./check-same-type-risk-locks')
+  const sources = collectSources(path.resolve(__dirname, '..'))
+  const r = scanAllR3(sources)
+  const missing = []
+  for (const v of r.visible) {
+    if (v.kind !== 'module-state-write-only') continue
+    const lines = fs.readFileSync(path.resolve(__dirname, '..', v.path), 'utf8').split('\n')
+    const name = v.name.replace(/[$]/g, '\\$')
+    let decl = -1
+    for (let i = 0; i < lines.length; i++) {
+      if (new RegExp('\\b' + name + '\\s*=\\s*new\\s+(Map|Set)').test(lines[i])) { decl = i; break }
+    }
+    if (decl < 0) { missing.push(v.path + ' :: ' + v.name + '（找不到声明行）'); continue }
+    // 紧邻：从声明行往上跳过空行，第一个非空行必须是注释
+    let i = decl - 1
+    while (i >= 0 && lines[i].trim() === '') i--
+    const prev = i >= 0 ? lines[i].trim() : ''
+    if (!/^(\/\/|\/\*\*?|\*)/.test(prev)) {
+      missing.push(v.path + ' :: ' + v.name + '（紧邻行不是注释 ⇒ 没写「为什么只增」）: ' + JSON.stringify(prev.slice(0, 50)))
+    }
+  }
+  assert.deepEqual(missing, [],
+    '每条 R11 审计项的紧邻行都必须是注释（解释为什么只增）；缺据：\n  ' + missing.join('\n  '))
+})
+
+
 test('R11 绿：写清配对完整 ⇒ 不出声', () => {
   const code = [
     'const lock = new Map()',
