@@ -162,6 +162,25 @@ douyin 缺材料才读）—— 旧断言写的是 douyin 不读，与新契约�
 QM-1 `build:vue` rc=0（26.25s）、`electron-builder --win --dir` rc=0、
 启动验证 **PASS**（alive(8s)=true / stderr **0 字节** / stdout 21,946 字节）。
 
-## 十一、远程同步
+## 十一、判据缺口留痕（不在本 PR 修，需后续专项）
+
+**现象**：`QG Changes` / `Gate 12c`（doc-abs-paths 基线）本轮真实红过一次。
+根因不是我的文档，而是 `deep-review.sh` 在评审后端超时时会**自行**把 spawnSync 原文
+（含 `C:/Users/<name>/.claude/bin/codeagent-wrapper.exe`）写进
+`.ccg/reviews/<sha>.json` 的 `error` 字段 ⇒ 被判为「新增失效绝对路径」⇒ 超出存量基线 1 个文件。
+
+**本 PR 的处置**：按仓内既有形态（`14179872` / `a4e95405` / `e9274a02` 等记录均用
+`<HOME>` 占位）改写为 `<HOME>/.claude/bin/codeagent-wrapper.exe`；ETIMEDOUT 语义与其余字段逐字未动。
+
+**缺口本身**：`deep-review.sh` 写入的 `error` 字段不受 doc-abs-paths 的占位符化保护
+（该保护只覆盖人写的文档），于是**每一轮环境阻塞都会重新制造一次这个红** ——
+本会话 4 轮里有 1 轮撞上，属于可预期的复发。
+
+**建议的后续专项**（需单独立 PR，不塞进功能 PR）：
+给 `deep-review.sh` 的 error 回写加统一占位符出口（把家目录前缀替换为 `<HOME>`），
+并在 `check-doc-abs-paths` 的域内为 `.ccg/reviews/*.json` 的 `error` 字段加一条
+「必须是占位符形态」的断言。否则这条红会按阻塞频率稳定复发。
+
+## 十二、远程同步
 
 | 远程同步 | 由门禁推导（合并后按主干历史收口；不手写状态词） |
