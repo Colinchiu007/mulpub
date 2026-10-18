@@ -64,16 +64,11 @@
         @keydown.space.prevent="openDetail(entry)"
       >
         <div class="copy-library-card-top">
-        <!-- 与改写区那枚入口的**刻意差异**（QM-6 前端轴 QM6-3807-1 点名 Warning，判不阻塞；已核实成立但不本片收口）：
-             这里只按「有没有默认频道」门控，正文缺席留到点击后早退；改写区那枚是渲染期就判掉。
-             原因在来源映射里（`useCopyLibrarySources.js` 的 video 分支：`content = sourceText 的前 N 字`，
-             而过滤器只要求 `sourceText || title` 非空）：一个**有标题没正文预览**的视频项，列表态 content 就是空串，
-             而点击时 `resolveCopyBody` 回源能拿到全文 ⇒ 若在这里按 `entry.content` 收，会把**可用入口**一起藏掉，
-             比留一个空正文的改写条目按钮更糟。
-             残留：`origin=rewrite` 且 content 为空的条目会显示一个点了没反应的按钮（四层来源里只有它没做 `|| title` 兜底）。
-             收口条件是「按来源分档判 + 给那一档配用例」，已登记为 tasks 4.3②-b 收尾②，不得顺手放宽成恒显示。 -->
+        <!-- 与改写区那枚入口的差别只剩「正文要不要回源」：可见性判据两边同形（无频道一律不出现），
+             但这里的正文按来源分档判——video 档列表态 content 只是预览，判据用 wordCount；
+             其余三档判 content.trim()。判据的唯一实现是下面的 canShowEpisodeEntry。 -->
         <button
-          v-if="podcast.activeChannelId.value"
+          v-if="canShowEpisodeEntry(entry)"
           type="button"
           class="copy-library-podcast-entry"
           :data-testid="'podcast-script-entry-' + entry.id"
@@ -130,10 +125,22 @@ const { t } = useI18n()
 // 正文用 resolveCopyBody 的唯一取法；**取到才挂浮层**，先挂再取会让预览拿空正文白跑一趟并弹一句无关原因。
 const podcast = usePodcastChannel()
 const scriptEntry = ref({ visible: false, openedOnce: false, script: '', title: '' })
+// 可见性按来源分档（tasks 4.3②-b 收尾②）：判据只写这一处，模板与点击路径共用。
+// - video：列表态 content 只是 sourceText 的前 N 字预览，而来源过滤器只要求 sourceText || title 非空，
+//   所以「content 为空、回源有全文」是合法输入 ⇒ 用 wordCount（同一份全文算出来的字数）判。
+// - collect / rewrite / draft：正文就在 entry.content 里 ⇒ 判 trim 后非空。
+//   rewrite 档原先那个「点了没反应的死按钮」就是这样收掉的：不是点击后拒，而是根本不出现。
+// 不得放宽成恒显示，也不得退回统一按 content 判——那会把 video 档的可用入口一起藏掉。
+function canShowEpisodeEntry (entry) {
+  if (!podcast.activeChannelId.value) return false
+  if (!entry || !entry.id) return false
+  if (copyEntryOrigin(entry) === ORIGIN_VIDEO) return Number(entry.wordCount) > 0
+  return String(entry.content || '').trim().length > 0
+}
 async function openScriptEntry (entry) {
-  if (!entry || !entry.id) return
-  const channelId = podcast.activeChannelId.value || await podcast.ensureChannel()
-  if (!channelId) return
+  if (!canShowEpisodeEntry(entry)) return
+  // 频道只读既有解析：v-if 已经保证它非空，原先那句 `|| await ensureChannel()` 是永远走不到的死分支。
+  const channelId = podcast.activeChannelId.value
   const content = await resolveCopyBody(entry)
   if (!content || !content.trim()) return
   scriptEntry.value = { visible: true, openedOnce: true, script: content, title: entry.title || '' }
