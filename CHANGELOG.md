@@ -1,3 +1,14 @@
+# [未发布] fix(播客): 文案库出期入口按来源分档判可见性，并摘掉两处不可达的频道兜底（podcast-entry-per-origin-visibility）
+
+- **收的是主线入口族最后两笔已登记欠账**：`tasks 4.3②-b 收尾②`（QM6-1 点名的"点了没反应的死按钮"）与 `QM6-2`（两处不可达的 `ensureChannel()` 兜底），都在 PR #3807 当时判 Warning 不阻塞并写了收口条件，本刀按条件收。
+- **根因不是"忘了判正文"，是判据选错了输入**：`useCopyLibrarySources.js` 的 video 分支把列表态 `content` 写成 `sourceText` 的前 N 字预览，而该分支过滤器只要求 `sourceText || title` 非空 ⇒ `content` 在 video 档**不是"有没有正文"的可靠代理**。于是"统一按 `entry.content` 判"这一眼看上去最自然的写法同时犯两个反向的错：把「有标题、列表态空、回源有全文」的视频项的**可用入口藏掉**，又留着 `origin=rewrite` 且正文为空的**死按钮**（四层来源里只有 rewrite 那层没做 `|| title` 兜底）。一条判据对两种来源给出两种相反错误 ⇒ 修法只能是**分档**，不是调宽或调窄阈值。
+- **实现形状**：判据唯一落在 `CopyLibraryView.vue` 的 `canShowEpisodeEntry(entry)`——无默认频道一律不出现；`copyEntryOrigin(entry) === ORIGIN_VIDEO` 判 `Number(wordCount) > 0`；其余三档判 `content.trim()` 非空。模板 `v-if` 与点击路径**共用这一个函数**（`if (!canShowEpisodeEntry(entry)) return`），不再有第二份口径。`CopyLibraryView.vue` 里那段解释"为什么两枚入口形状不同"的注释随之改写——它描述的是本刀之前的现场，留着会指着一个已消失的坏味道说"这是刻意的"。
+- **QM6-2 的死分支**：两处 `const channelId = podcast.activeChannelId.value || await podcast.ensureChannel()` 的兜底永远走不到（`v-if` 已保证频道非空），一律摘掉并各留一道 `if (!channelId) return`；`RewriteView.openScriptEntry` 因此不再需要 `async`，一并改回同步。留一条结构合同禁止它长回来。
+- **回归 4 条新用例 + 1 条改写 + 1 条结构合同**：`video 档按 wordCount 判`（空预览 + 回源有全文 ⇒ 动作在，且送预览的是回源全文）、`video 档 wordCount 为 0 ⇒ 不出现`（配"有字数的 v1 必须在"正控，防分档被读成"video 一律显示/一律隐藏"）、`rewrite 档空白正文不出现`（同档"有正文必须在"正控）、原「draft 空正文点了没反应」改判为**按钮根本不该存在**（旧断言把坏行为钉成了正确行为），外加一条按源码读的结构合同。夹具专门加了两支能让"按 content 判"与"按 wordCount 判"**结果不同**的输入——原夹具里 video 项 `content` 非空，两种实现同形，这类缺陷对它结构性免疫。
+- **变异反证 6 道 N1–N6 全部指名红**（`N1` 分档退化为统一 content ⇒ 2 红；`N2` `> 0` 放宽成 `>= 0` ⇒ 1 红；`N3` 非 video 档恒真 ⇒ 3 红；`N4`/`N5` 分别把兜底加回两枚入口 ⇒ 各由结构合同指名红；`N6` 点击路径绕开共用判据 ⇒ 结构合同红）。`N4/N5/N6` 同由一条结构合同承载（它们攻的本来就是同一个承重点），不冒充三道互不相同的闸。驱动两条自坏也记进执行记录：跨行锚点第一版隔了三行注释恒 0 命中、只被记成 `ANCHOR_MISS`（会被读成"这条变异不成立"）；把结构合同拆成两个 `it` 时第二次 `fileURLToPath(import.meta.url)` 在 vitest SSR 下抛 `TypeError: The URL must be of scheme file`，症状像"源码路径写错"而两处代码逐字相同——合并成单一读取点后全绿。
+- **验证**：`CopyLibraryView.test.js` 16 passed，与 `RewriteView.test.js` 合跑 110 条 **109 passed**（唯一那次红是我自己写错的判据锚点，已改并复跑为 0 failed）；`check-max-lines.js` rc=0；两口径 `--numstat` 相同；QM-1 不触发（零 `electron/**`），像素门禁本机不冒充、证据责任交 CI `QG Visual`。
+- **一处刻意没顺手做**：`collect` / `draft` 两档的正文目前只来自列表态 `content`、不回源，所以判据就用 `content`；若将来某层来源的正文也变成"列表态只是预览"（video 档已经是），必须再分一档而不是继续统称——这条写进了执行记录遗留与代码注释，防止后来者"顺手统一"。
+
 # [未发布] fix(subtitle): 短语边界感知切分 v1.3 —— 修掉无标点长块硬切的 11 处坏切（subtitle-phrase-boundary-v1.3）
 
 - **用户反馈**（项目 `mvdnrqvc_b77q`）：视频创作任务的字幕层分句结果不理想，存在大量不合理断句。
