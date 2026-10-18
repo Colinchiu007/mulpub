@@ -2,13 +2,16 @@
 /**
  * git-domain.js — 「该不该被量」的唯一判据：扫描域取自 git，而不是磁盘。
  *
- * 域 = 索引内文件 ∪ 未被 .gitignore 排除的未跟踪文件 —— 即 `git status` 的口径，也正是 CI 检出的口径。
+ * 域 = 被跟踪文件（`git ls-files`）∪ 未被 .gitignore 排除的未跟踪文件 —— 即 `git status` 的口径，也正是 CI 检出的口径。
+ * 术语（QM-6 前端轴 I4）：本模块与其锁统一以「被跟踪」为主称谓；本仓既有文档里同概念还写作「受管 / 在索引里 / 索引内」，指的是同一件事。
  *
  * 为什么要有这个共享模块：同一句话在两个门禁里各写一份时，两份必然漂移（本仓反复出现的"单一实现"议题）。
  * `check-max-lines`（#3876）与 `check-debt-budget`（本次）都要按域过滤，实现只留这一份，
  * 并由 `scripts/lib/git-domain.test.js` 逐条锁语义；两个消费者各自的集成锁只测"过滤有没有生效"。
  *
- * 六条语义（每条对应 git-domain.test.js 里的一格，改任何一条都要同时改那条锁）：
+ * 六条语义（QM-6 后端轴 I5：语义编号与用例编号**不是同一套**，映射如实写在这里，改任何一条都要同时改对应锁）：
+ *   语义 ①→用例 ②/⑧；②→③；③→⑤/⑥；④→④；⑤→①/⑨/⑪；⑥→⑦。用例 ⑩ 不属六条语义，
+ *   它是「消费者套件必须整份真的跑了」的夹具完整性锁（防 import 期 process.exit 造成的文件级假绿）。
  *  ① 不退回磁盘全量：#3782（bundle-untrack）之后构建产物只在磁盘存在且被忽略，
  *     按磁盘扫就成了「本机跑过 build:preload 就红、CI 永远看不见」—— 两个域比一份账；
  *  ② 不收窄成「只看索引」：未提交但未被忽略的新文件仍是新增债，必须可见；
@@ -30,18 +33,44 @@
 
 const { spawnSync } = require('node:child_process');
 
-const MAX_BUFFER = 64 * 1024 * 1024; // 本仓域 ≈ 1 万条，实测远小于 1MB；留足量避免静默截断
+const MAX_BUFFER = 64 * 1024 * 1024;
+const SAME_WIN = process.platform === 'win32';
+function normPath(p) {
+  let s = p;
+  try { s = fs.realpathSync.native ? fs.realpathSync.native(p) : fs.realpathSync(p); } catch (_) { /* 取不到真实路径时退回 resolve，比对仍按大小写折叠 */ }
+  s = require('node:path').resolve(s).replace(/\\/g, '/');
+  return SAME_WIN ? s.toLowerCase() : s;
+}
+/** root 必须是 git 自己的 toplevel（linked worktree 的 toplevel 就是它自己，因此换 worktree 仍然通过）。 */
+function assertRepoRoot(rootDir, env) {
+  const r = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: rootDir, encoding: 'utf8', maxBuffer: MAX_BUFFER, env });
+  if (r.error) throw new Error('无法从 git 取得扫描域：git 不可执行（' + r.error.message + '）');
+  if (r.status !== 0) {
+    throw new Error('无法从 git 取得扫描域：' + rootDir + ' 不是 git 工作树（git rev-parse --show-toplevel 返回 rc=' + r.status
+      + ' ' + String(r.stderr || '').trim() + '）');
+  }
+  const top = String(r.stdout || '').trim();
+  if (!top) throw new Error('无法从 git 取得扫描域：git rev-parse --show-toplevel 返回空串（读不到 toplevel 不等同于"通过"）');
+  if (normPath(top) !== normPath(rootDir)) {
+    throw new Error('无法从 git 取得扫描域：root 必须是仓库根，传入 ' + rootDir + ' 的 toplevel 是 ' + top
+      + ' —— 指到子目录会让 ls-files 的相对路径与账本键坐标系错位，判定会变成"全零通过"');
+  }
+} // 本仓域 ≈ 1 万条，实测远小于 1MB；留足量避免静默截断
 
 /**
  * @param {string} rootDir 仓库根绝对路径（必传 —— 缺参时"按脚本所在目录降级"会让两个消费者量到两棵树）
  * @returns {Set<string>} 域内文件路径（相对 rootDir，正斜杠）
- * @throws {Error} git 不可执行 / 非工作树 / 空集合
+ * @throws {Error} git 不可执行 / 非工作树 / root 不是仓库根（指到子目录）/ 空集合
  */
 function gitDomain(rootDir, opts) {
   if (typeof rootDir !== 'string' || rootDir.length === 0) {
     throw new Error('gitDomain 需要显式传入仓库根路径（root 必传），拒绝按脚本所在目录降级');
   }
   const env = (opts && opts.env) || process.env;
+  // root 必须是**仓库根**：`git ls-files` 按 cwd 输出相对路径，指到子目录时域与账本键
+  // 不在同一坐标系，判定会"全零通过"（QM-6 后端轴 W1 实测：--root scripts ⇒ domain=217、
+  // filesOver500=0、rc=0）。这条检查放共享实现里，两个消费者一起收口。
+  assertRepoRoot(rootDir, env);
   const run = (args) => {
     const r = spawnSync('git', args, { cwd: rootDir, encoding: 'utf8', maxBuffer: MAX_BUFFER, env });
     if (r.error) throw new Error('无法从 git 取得扫描域：git 不可执行（' + r.error.message + '）');

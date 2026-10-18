@@ -16,8 +16,10 @@
  * 扫描域：与行数门禁（.github/scripts/check-max-lines.js）共用 scripts/lib/git-domain.js ——
  * 域 = git 索引 ∪ 未被 .gitignore 排除的未跟踪文件（= `git status` = CI 检出的口径）。
  * 改前本文件按 `fs.readdirSync` 走磁盘，而 `apps/desktop/electron/**.bundle.js` 这类构建产物
- * 既落在 SCAN_DIRS 内又被忽略 ⇒ 本机跑过 build 就比 CI 多数个文件（实测 97 vs 95，基线 101，
- * 靠 4 格余量没红）—— 拿磁盘域去比一份按 CI 检出立的账，就是 #3782 漏改的第二处（见 #3876）。
+ * 既落在 SCAN_DIRS 内又被忽略 ⇒ 本机跑过 build 就比 CI 多数个文件 —— 拿磁盘域去比一份按 CI 检出立的账，
+ * 就是 #3782 漏改的第二处（见 #3876）。三个「实测」数归属不同棵树、绝对值随仓库增长浮动，不得当常数引用（QM-6 前端轴 I2）：
+ *   git 域 95 = CI 侧 95（同一口径）；磁盘域 96 = 本片同树 A/B 当场造出一个被忽略的 601 行产物（95+1，DELTA 即那一个）；
+ *   磁盘域 97 = #80 记录里「本机带产物时」那次读数（当时磁盘上有两个 ≥500 行的被忽略 bundle，95+2；该树态已不存在、当场不可复现）。
  * 取不到 git 读数（非工作树 / git 不可执行 / 空集合）一律退出码 2，与「指标超基线」的 1 分开。
  *
  * 用法：
@@ -71,7 +73,10 @@ function countFilesByMinLines(dirs, minLines, root, domain) {
   return { count, maxFile, files };
 }
 
-function measureModelProviderFanOut(root) {
+function measureModelProviderFanOut(root, domain) {
+  // 第三处取数同样吃这把域（QM-6 后端轴 I3）：磁盘上存在但不该被量的单文件不得贡献扇出数。
+  // 判据取「被跟踪即该量」的并集，所以历史上 `git add -f` 过的产物仍会进扇出（锁见 check-debt-budget.test.js 的 A/正控双档）。
+  if (!domain.has(MODEL_PROVIDER_PATH)) return { lines: 0, uniqueRequires: 0 };
   const fp = path.join(root, MODEL_PROVIDER_PATH);
   if (!fs.existsSync(fp)) return { lines: 0, uniqueRequires: 0 };
   const s = fs.readFileSync(fp, 'utf8');
@@ -159,24 +164,32 @@ function readBaseline() {
   }
 }
 
-function writeBaseline(data) {
+// 基线的**形状不许变**：受管文件 `scripts/debt-baseline.json` 现有 9 个键，本片新增的
+// `domainSize` / `filesOver500Paths` / `filesOver1000Paths` 是**现场证据**，写进账本就会把
+// "当场读数"变成"基线"（#3876 同型教训：这类数随仓库增长，钉进账本等于每次 re-sync 都要重算）。
+// 键集由 check-debt-budget.test.js 与受管文件逐字对账，多一个少一个都红 —— 防止下一个会话"顺手"扩形状。
+const PERSISTED_KEYS = ['scannedAt', 'maxFileLines', 'maxFilePath', 'filesOver1000', 'filesOver500',
+  'modelProviderLines', 'modelProviderRequireFanOut', 'circularDeps', 'circularDepDetails'];
+
+function toPersisted(data) {
   const persist = {};
   for (const k of PERSISTED_KEYS) persist[k] = data[k];
-  fs.writeFileSync(BASELINE_PATH, JSON.stringify(persist, null, 2) + '\n', 'utf8');
+  return persist;
+}
+
+function writeBaseline(data) {
+  fs.writeFileSync(BASELINE_PATH, JSON.stringify(toPersisted(data), null, 2) + '\n', 'utf8');
   console.log('Baseline written to', BASELINE_PATH);
 }
 
-// 基线文件只持久化这 5 个数值口径 —— 域大小与逐文件清单是**现场证据**，写进受管账本就会把
-// "当场读数"变成"基线"（#3876 同型教训：这类数会随仓库增长，钉进账本等于每次都要重算）。
-const PERSISTED_KEYS = ['maxFileLines', 'maxFilePath', 'filesOver1000', 'filesOver500',
-  'modelProviderLines', 'modelProviderRequireFanOut', 'circularDeps'];
-
-function collectMetrics(rootDir) {
+function collectMetrics(rootDir, opts) {
   const root = rootDir || ROOT;
-  const domain = gitDomain(root); // 取不到读数就地抛错，由调用方转退出码 2（不退回磁盘扫）
+  // opts.env 一路透传给取域：不传时共享实现按 process.env 如实取（域 == git status 口径，
+  // 而 git status 本身吃机器态）；测试必须传自己那份隔离 env，否则"绿"依赖这台机器的 git 配置。
+  const domain = gitDomain(root, opts); // 取不到读数就地抛错，由调用方转退出码 2（不退回磁盘扫）
   const r1000 = countFilesByMinLines(SCAN_DIRS, 1000, root, domain);
   const r500 = countFilesByMinLines(SCAN_DIRS, 500, root, domain);
-  const mp = measureModelProviderFanOut(root);
+  const mp = measureModelProviderFanOut(root, domain);
   const cd = checkCircularDeps(root, domain);
 
   return {
@@ -312,6 +325,6 @@ function main() {
 if (require.main === module) main();
 
 module.exports = {
-  collectMetrics, gitDomain, check, readBaseline, writeBaseline,
+  collectMetrics, gitDomain, check, readBaseline, writeBaseline, toPersisted,
   SCAN_DIRS, SOURCE_EXTS, EXCLUDE, PERSISTED_KEYS,
 };

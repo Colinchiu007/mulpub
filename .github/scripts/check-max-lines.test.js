@@ -536,7 +536,7 @@ test("git 可用但报告零文件也必须 fail closed：空域不等于「没�
   } finally { rmRf(root) }
 })
 
-test("现场留痕：plain 模式打印 domain= 且与 gitDomain().size 一致；--json 模式不得打印（会污染 JSON）", () => {
+test("现场留痕：plain 模式打印 domain= 且与 gitDomain(root).size 一致；--json 模式不得打印（会污染 JSON）", () => {
   const plain = spawnSync(process.execPath, [IMPL], { cwd: path.resolve(__dirname, '..', '..'), encoding: 'utf8' })
   const out = String(plain.stdout)
   const m = out.match(/^\[max-lines\] domain=(\d+) /m)

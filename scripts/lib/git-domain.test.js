@@ -120,7 +120,6 @@ test('④ 被跟踪但同时命中 .gitignore（历史 git add -f）仍在域内
   try {
     const d = gitDomain(f.root);
     assert.ok(d.has('built/out.js'), '索引里有它就该被量；按 check-ignore 排除会让"被跟踪的产物"静默免检');
-    assert.ok(!d.has('.gitignore') || d.has('.gitignore'));
   } finally { cleanup(f); }
 });
 
@@ -194,6 +193,18 @@ test('⑨ root 必传：缺参必须当场抛错，不得按"脚本所在目录"
   // 于是 --root / 换树验证会静默变成"验证了本仓"，读数完全像通过。
   assert.throws(() => gitDomain(undefined), /必传/);
   assert.throws(() => gitDomain(''), /必传/);
+});
+
+test('⑪ root 必须是 git 报出的 toplevel：指到仓库子目录必须抛错（QM-6 后端轴 W1）', () => {
+  // 真仓与夹具各测一档：只测一档时，"把比对改成只比长度"这类退化仍可能溜过去。
+  const repoRoot = path.resolve(__dirname, '..', '..');
+  assert.doesNotThrow(() => gitDomain(repoRoot), '仓库根本身必须通过（linked worktree 的 toplevel 就是它自己）');
+  assert.throws(() => gitDomain(path.join(repoRoot, 'scripts')), /仓库根/, '指到子目录必须点名"root 必须是仓库根"');
+  const f = repo({ files: { 'sub/x.js': 'a\n' } });
+  try {
+    assert.throws(() => gitDomain(path.join(f.root, 'sub')), /仓库根/);
+    assert.doesNotThrow(() => gitDomain(f.root));
+  } finally { cleanup(f); }
 });
 
 test('⑩ 消费者套件必须"整份真的跑了"：门禁若在 import 期 process.exit，node:test 会把整份文件报成 pass 1（本轮实测踩过）', () => {

@@ -1,3 +1,40 @@
+# [未发布] fix(gates): 债务熔断门禁的扫描域改成 git 的域，取域收敛成单一实现（debt-budget-git-domain）
+
+## 症状与根因
+- 症状：#3782 之后本机跑过 `build:preload` 再多一个产物过线，`check-debt-budget` 就会比 CI 多数个文件；
+  现场同树 A/B：磁盘域 `filesOver500=96` vs git 域 `95` = CI `95`（当场读数，基线 101 只剩 4 格缓冲；另有 #80 那次带两个产物的磁盘读数 97，归属见「验收与反证」）。
+- 根因与 #3876 同一条：`826fa7e13` 把 5 个构建产物移出版本控制时，只给消费它们的 CI 作业补了重建步，
+  没问任何"自己扫磁盘"的门禁的域。`check-debt-budget` 的两处 `fs.readdirSync`（计数 + 循环依赖图）就是第二处，
+  而且**这个门禁此前一个测试文件都没有**，所以"测了"这件事本身就不成立。
+
+## 修复
+- 新增唯一实现 `scripts/lib/git-domain.js`：域 = `git ls-files -z` ∪ `git ls-files -z --others --exclude-standard`
+  （= `git status` = CI 检出）。`root` 与 `env` 都是显式入参；非工作树 / git 不可执行 / 空集合一律抛错。
+- 两个消费者引用同一份，并用**函数身份**互钉（不是"源码里出现过 require"那种记录性断言）。
+  `check-debt-budget` **三处取数**（计数 walk + 循环依赖 walk + `model-provider-manager` 扇出单文件，后端轴 I3）都在读文件之前按域过滤；
+  取不到读数 ⇒ 退出码 **2**，与「超基线」的 1 分开。
+- `check-debt-budget` 现在支持 `--root`，且 `main()` 改成 `require.main === module` 才跑 —— 原实现在文件末尾
+  无条件 `main()` 并 `process.exit(0)`：任何 `require` 它的测试都会在导入期被杀进程，而 node:test 把
+  「文件退出 0」报成 `✔ + pass 1`（本轮实测：10 条用例一条没跑却全绿）。
+
+## 验收与反证
+- 同树 A/B 是判据（CI 的检出里从来没有那些产物，"CI 全绿"只证明没把别的搞坏）：造一个被忽略的 600 行产物，
+  修复前 96 / 修复后 95 / DELTA=1。三个"实测"数按树归因（前端轴 I2）：95 = git 域 = CI；96 = 同树 A/B 造出**一个**
+  被忽略的 601 行产物；97 = #80 那次磁盘上有**两个** ≥500 行产物——该树态已不存在，不得再称"实测"。
+  零回归控制：干净态五项指标读数逐项相等（当场 `domain=10052`，`fanOut=65` 在采纳"第三处取数也吃域"后不变）。
+- 锁 26 条（共享实现 `git-domain.test.js` 11 + 消费者 `check-debt-budget.test.js` 15，含"消费者套件必须整份真的跑了"的计数锁）+ 既有 `check-max-lines` 36 条不退化。
+- 变异 16 道（M1–M16）逐条实跑、红集互不相同，**全部 CAUGHT**；M13–M16 是采纳 QM-6 两条 Warning + 三条 Info 后各补一道。
+  其中 M15 首跑报 `ANCHOR hits=0` 是**我的驱动**没把 needle 的换行换成该文件的 `CRLF`（`i/lf w/crlf`），不是锁没牙。
+  M11 首跑 MISSED 才是真发现：我自己写的 `⑦` 是装饰性断言（夹具把 ghost.js 提交了，而 `core.excludesFile`
+  只管未跟踪半边 ⇒ 两档在读同一份输出）。纠偏：把 `env` 提成显式入参 + 夹具改成未跟踪文件 + 要求两档给出不同大小的域。
+- 新增 `filesOver500Paths` / `filesOver1000Paths` / `domainSize` 进现场输出；`--update` 仍只持久化账本原有的 9 个键
+  （键集由 `PERSISTED_KEYS` 逐字钉住并与受管 `debt-baseline.json` 对账）——把当场读数写进账本就会把它变成"基线"。
+
+## 遗留
+- 基线仍是缓冲（101 vs 95，6 格余量吸收过一次偏差就会吸收下一次）；`EXCLUDE` 仍是子串松匹配（存量口径，
+  与 `check-max-lines` 同源字面量，动它等于同时改两个门禁的判定域）。
+- ~~`--root` 指仓库子目录时坐标系错位~~ 已随采纳 QM-6 后端轴 W1 收掉：`gitDomain` 先取 `git rev-parse --show-toplevel` 与 root 对账，不等即抛错 ⇒ CLI 退出码 2（锁 ⑪ + 变异 M13）。
+
 # [未发布] fix(gate): 行数门禁的扫描域改成 git 的域 —— 本机跑过构建就报 NEW_OVER_LIMIT 的假红（max-lines-git-domain）
 
 ## 症状与根因

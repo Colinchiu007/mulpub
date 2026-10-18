@@ -4,7 +4,7 @@
  *
  * 动因（与 #3876 同根因的第二处）：本门禁的两处 walk 一直按磁盘扫，而 `apps/desktop/electron/**.bundle.js`
  * 这类构建产物既落在 SCAN_DIRS 内、又被 .gitignore 忽略 —— 本机跑过 build 就比 CI 多数个文件
- * （实测本机 filesOver500=97 vs CI 95、基线 101，靠 4 格余量没红）。这不是"本机更严"，
+ * 三个读数的归属见 check-debt-budget.js 文件头：95=git 域=CI，96=同树 A/B 造出一个被忽略产物，97=#80 那次带两个产物。这不是"本机更严"，
  * 是拿磁盘域去比一份按 CI 检出立的账 —— 同一条 #3782 漏改，只是被聚合口径吞掉了。
  *
  * 锁的两类：
@@ -84,7 +84,7 @@ test('gitignored 的构建产物不得计入 filesOver500（本机构建过就�
   const f = mkRepo();
   try {
     fixture(f);
-    const m = B.collectMetrics(f.root);
+    const m = B.collectMetrics(f.root, { env: f.env });
     assert.ok(m.filesOver500 >= 2, '受管大文件 + 未跟踪大文件都该计入，实得 ' + m.filesOver500);
     assert.ok(!m.filesOver500Paths.includes('apps/desktop/electron/generated.bundle.js'),
       '被忽略的产物不得进计数（它既不受管又被 .gitignore 排除）');
@@ -109,7 +109,7 @@ test('未跟踪但未忽略的新文件必须计入（不收窄成只看索引�
   const f = mkRepo();
   try {
     fixture(f);
-    const m = B.collectMetrics(f.root);
+    const m = B.collectMetrics(f.root, { env: f.env });
     assert.ok(m.filesOver500Paths.includes('apps/desktop/electron/untracked-big.js'),
       '未 git add 的新增债必须可见，否则门禁给"新增"让路');
   } finally { cleanup(f); }
@@ -142,7 +142,7 @@ test('第二处 walk 同一把域：互相 require 的**被忽略**生成物不�
     fs.writeFileSync(path.join(f.root, 'apps/desktop/electron/b.bundle.js'),
       "require('./a.bundle.js');\n", 'utf8');
     fs.appendFileSync(path.join(f.root, '.gitignore'), '*.bundle.js\n', 'utf8');
-    const m = B.collectMetrics(f.root);
+    const m = B.collectMetrics(f.root, { env: f.env });
     assert.strictEqual(m.circularDeps, 0, '被忽略的生成物不得参与循环依赖判定，实得 ' + m.circularDeps
       + ' cycles=' + JSON.stringify(m.circularDepDetails));
     // 牙：同一对文件若改成"未忽略的受管源文件"，就必须报出环 —— 否则上面那条 0 是判据没跑起来
@@ -150,7 +150,7 @@ test('第二处 walk 同一把域：互相 require 的**被忽略**生成物不�
     fs.writeFileSync(path.join(f.root, 'apps/desktop/electron/b.js'), "require('./a.js');\n", 'utf8');
     f.git(['add', '-A']);
     f.git(['commit', '-q', '-m', 'cycle']);
-    const m2 = B.collectMetrics(f.root);
+    const m2 = B.collectMetrics(f.root, { env: f.env });
     assert.ok(m2.circularDeps >= 1, '正向对照失效：真环没被报出来，说明上一处的 0 不构成证据');
   } finally { cleanup(f); }
 });
@@ -187,4 +187,58 @@ test('CLI：--root 缺值必须 rc=2 出声，不得静默按本仓跑（那会�
   const r = runCli(['--root']);
   assert.strictEqual(r.rc, 2, '实得 rc=' + r.rc);
   assert.match(r.out, /--root/);
+});
+
+test('CLI：--root 指到仓库子目录必须 rc=2，不许"全零通过"（QM-6 后端轴 W1 的实测形态）', () => {
+  const r = runCli(['--root', 'scripts']);
+  assert.strictEqual(r.rc, 2, '子目录必须被拒，实得 rc=' + r.rc + '\n' + r.out.slice(0, 300));
+  assert.match(r.out, /仓库根/, '文案必须点名是"root 不是仓库根"这一格');
+  assert.ok(!/filesOver500: 0/.test(r.out), '绝不允许出现"指标全零 + 通过"的读数');
+});
+
+test('判定层：check() 在"现场 > 基线"时逐指标产出违规并把 pass 置 false（rc=1 那一档的唯一来源）', () => {
+  const baseline = { maxFileLines: 100, maxFilePath: 'a.js', filesOver1000: 1, filesOver500: 2,
+    modelProviderLines: 10, modelProviderRequireFanOut: 3, circularDeps: 0 };
+  const current = { maxFileLines: 101, maxFilePath: 'b.js', filesOver1000: 2, filesOver500: 3,
+    modelProviderLines: 11, modelProviderRequireFanOut: 4, circularDeps: 1, circularDepDetails: [['x', 'y']] };
+  const { violations, results } = B.check(baseline, current);
+  for (const tag of ['MAX_FILE_LINES', 'FILES_OVER_1000', 'FILES_OVER_500', 'MODEL_PROVIDER_FAN_OUT', 'CIRCULAR_DEPS']) {
+    assert.ok(violations.some((v) => v.includes(tag)), '缺 ' + tag + ' 的违规项：' + JSON.stringify(violations));
+  }
+  assert.ok(results.every((r) => r.pass === false), '五项都必须置红：' + JSON.stringify(results.map((r) => [r.metric, r.pass])));
+  // 正控：现场==基线必须全绿 —— 没有它，一个"恒红"的 check() 也能通过上面的断言
+  const same = B.check(baseline, Object.assign({}, baseline, { circularDepDetails: [] }));
+  assert.deepStrictEqual(same.violations, [], '现场==基线不得报违规：' + JSON.stringify(same.violations));
+  assert.ok(same.results.every((r) => r.pass === true));
+});
+
+test('基线形状不许变：toPersisted 的键集必须逐字等于受管 debt-baseline.json 的键集', () => {
+  const tracked = Object.keys(JSON.parse(fs.readFileSync(path.join(ROOT, 'scripts', 'debt-baseline.json'), 'utf8')));
+  const metrics = { scannedAt: 'x', maxFileLines: 1, maxFilePath: 'a', filesOver1000: 0, filesOver500: 0,
+    filesOver500Paths: ['a'], filesOver1000Paths: [], domainSize: 9, modelProviderLines: 1,
+    modelProviderRequireFanOut: 1, circularDeps: 0, circularDepDetails: [] };
+  const persisted = Object.keys(B.toPersisted(metrics));
+  assert.deepStrictEqual(persisted, tracked, '基线形状漂移：现场字段被写进受管账本，或漏写了既有键');
+  assert.ok(!persisted.includes('domainSize') && !persisted.includes('filesOver500Paths'),
+    '当场读数进账本就会变成"基线"（#3876 同型），必须只留在现场输出里');
+});
+
+test('第三处取数也必须吃同一把域：model-provider-manager 在磁盘存在但被忽略时扇出不得贡献（后端轴 I3）', () => {
+  const f = mkRepo();
+  try {
+    fixture(f);
+    const rel = 'apps/desktop/electron/services/model-provider-manager.js';
+    fs.mkdirSync(path.join(f.root, 'apps/desktop/electron/services'), { recursive: true });
+    fs.appendFileSync(path.join(f.root, '.gitignore'), rel + '\n', 'utf8');
+    fs.writeFileSync(path.join(f.root, rel), "const a = require('./a');\nconst b = require('./b');\n", 'utf8');
+    // A 档：磁盘上存在、被忽略 ⇒ 该项不得贡献扇出数（改前它走 existsSync，与域无关）
+    const ignored = B.collectMetrics(f.root, { env: f.env });
+    assert.strictEqual(ignored.modelProviderRequireFanOut, 0, '被忽略的单文件仍贡献扇出数 ⇒ 第三处取数没吃域');
+    // 正控（同一把域的另一半）：把同一份内容 git add -f 成「被跟踪且命中忽略」，扇出必须被数到
+    // —— 语义 ④：被跟踪就该被量。没有这一档，上面那个 0 可能是探针失明而不是判据通过
+    f.git(['add', '-f', '--', rel]);
+    f.git(['commit', '-q', '-m', 'track the ignored artifact']);
+    const tracked = B.collectMetrics(f.root, { env: f.env });
+    assert.strictEqual(tracked.modelProviderRequireFanOut, 2, '被跟踪但命中忽略时必须仍被量（并集不是 check-ignore）');
+  } finally { cleanup(f); }
 });
