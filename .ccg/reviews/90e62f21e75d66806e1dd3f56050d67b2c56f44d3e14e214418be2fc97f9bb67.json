@@ -29,8 +29,8 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "cleared",
+    "performedBy": "codex (manual cross-family verification, 第四轮; 引擎自动跑失败 ETIMEDOUT)",
+    "findings": "第四轮跨家族评审（codex / OpenAI 家族）对「过门禁的结构性拆分」补丁的结论：**语义等价**，无 Critical / Warning；两条 Info 不阻断，已留痕如下。\n\n逐条核对（评审给出的行号证据）：\n① normalize_capability_models 抽取等价 —— 完整性循环文案/位置、键归属集合 {category} ∪ capabilities、值类型（str 或 None）、trim 时机、\normalized_models 空表时跳过 ∈models、str(cap_key) 归一，全部逐条一致；且 capability_models=None 已被 or {} 归一、类型检查通过后**无条件调用** helper，无提前 return 可绕过；capabilities 为空时完整性循环空转，与原行为相同。\n② changed = backfill_single_category_capability_model(row) or changed —— Python 的 or 左操作数必然求值，副作用（可能修改 row）必然发生，被短路的只是右侧布尔读取，无风险。\n③ _load_json_object 与原 try/except + isinstance 在 None/空串/JSON 合法但类型不符/truthy 非字符串四种输入下等价（\type(fallback) 退化为 list/dict 判据）。\n④ import 与包根约定一致，无循环导入（service → capability_default_models → models 单向）。\n⑤ 无漏搬：ALLOWED_DOC_KEYS / _validate_doc_links 仍留在原文件且被两处使用；CAPABILITY_OVERVIEW_ORDER 仅新模块定义/使用；routers 旧引用已全部迁移；测试走 HTTP 层无残留直连。\n⑥ 注释压缩后「不可从代码推导」的三项信息保留（能力优先的原因、多模态除 llm 外跳过的依据、与前端等价 + parity 锁 + PRD 指针）；丢失的三项细节（反向论证、缺陷暴露路径、具体模型 ID 清单）均可经 PRD 找回。\n\nInfo-1（异常顺序偏移，已留痕不修）：\normalized_cap_docs 校验从「capability_models 内容校验之后」提前到「类型检查之后、models 规范化之前」。仅当请求**同时**含非法 capability_models 内容与非法 capability_doc_links 时，先抛的错误从前者变为后者；单字段非法路径的文案与触发条件不变；全仓测试无任何对这三类错误文案/顺序的断言（评审实测零命中），合法输入落库结果完全一致。**不构成不等价**，记录留痕，不为其加测试（加一个\"同时非法\"的用例会把未定义的顺序固化成契约）。\nInfo-2（注释细节压缩）：丢失的三项细节由 PRD §3.1 / §7.1 承载，代码侧保留 PRD 指针。"
   }
 }
