@@ -8,7 +8,7 @@
 > - 第三方声明：图标几何取自 Lucide（ISC），`apps/desktop/THIRD-PARTY-NOTICES.md` 已由实现方登记，本文档不修改该文件
 > - 主进程：`apps/desktop/electron/services/view-bounds.js`、`apps/desktop/electron/services/webview-manager/{layout,ipc-handlers,index}.js`、`apps/desktop/electron/services/auth-view-manager.js`、`apps/desktop/electron/services/qrcode-login.js`
 > - 桥接：`apps/desktop/electron/preload/page-manager.js`、`apps/desktop/src/api/electron-bridge.js`
-> - 基线：`apps/desktop/tests/visual-testing/base-screenshots/`（43 张 PNG 全部需要重建）
+> - 基线：`apps/desktop/tests/visual-testing/base-screenshots/`（含 TabBar 的基线都需要重建；`first-run` 等全屏视图不含壳层，不变化。最终清单以 CI `Gate 7b` 点名为准）
 
 ---
 
@@ -422,7 +422,7 @@ IPC 'page-manager:set-sidebar-collapsed'
 
 ### 15.5 视觉门禁
 
-1. **如实承认**：`apps/desktop/tests/visual-testing/base-screenshots/` 下 43 张 PNG（目录内除 `.gitignore` 外实测 43 个 PNG）全部包含顶部标签栏，因此**全部会变化**；不得把本次视觉门禁红解释为「无关抖动」。
+1. **如实承认**：`apps/desktop/tests/visual-testing/base-screenshots/` 下共 43 张 PNG，其中**含顶部标签栏的视图**（工作台壳层内的全部路由）都会变化；`first-run` 走 `.fullscreen-main`、`login-form` / `settings-general` / `analytics-overview` 为独立页面或 CI 不产图（已登记），不含本次按钮。最终变化清单以 CI `Gate 7b` 点名为准，不得把本次视觉门禁红解释为「无关抖动」。
 2. 正确流程：本轮 PR 内**不**在本机执行 `pnpm test:visual:update-baseline` 覆盖基线；由 CI 在同源渲染环境重建基线（或按仓库既有基线重建流程单独提交基线更新 PR），并以浏览器/人工 diff 审核确认变化仅来自新增按钮与标签条起点右移。
 3. 门禁读数口径：像素阈值沿用 CI（`PIXEL_THRESHOLD`）与本地默认值的差异，不私自放宽；更新基线时逐张确认差异区域位于标签栏左侧。
 4. 补充取证：至少一张「展开」与一张「收起」的工作台截图（含浏览器标签激活态）用于人工审核，但**不作为**替代像素门禁的证据。
@@ -447,7 +447,7 @@ IPC 'page-manager:set-sidebar-collapsed'
 | 8 | 非 Electron 降级 | 浏览器打开 Vite dev server，点击按钮 UI 正常切换，控制台无未捕获异常 |
 | 9 | 可访问性 | 按钮为原生 button；`aria-pressed` 正确；zh/en `aria-label`/`title` 成对；SVG `aria-hidden`；Tab 可聚焦 |
 | 10 | 契约不变 | `BROWSER_CHROME_TOP === 76` 未被修改；`TabBar` 高 36、`NavBar` 高 40 |
-| 11 | 视觉基线影响已登记 | 文档/记录如实写明 43 张基线全量变化与重建流程，无「视觉中性」表述 |
+| 11 | 视觉基线影响已登记 | 文档/记录如实写明「含壳层的基线会变化（最终清单以 CI Gate 7b 为准）」与重建流程，无「视觉中性」表述 |
 | 12 | 文档同步 | 专项 PRD、OpenSpec change、PRD.md F8、DESIGN.md、i18n 术语、CHANGELOG、执行记录全部落盘 |
 
 ---
@@ -455,7 +455,7 @@ IPC 'page-manager:set-sidebar-collapsed'
 ## 十七、遗留风险（不假装已闭合）
 
 1. **OAuth 内嵌视图不跟随侧栏宽度**：`apps/desktop/electron/services/oauth-manager.js:86` 调用 `computeEmbeddedViewBounds(this.mainWindow)` 时未传宽度，始终按默认 200 计算。收起侧栏后 OAuth 授权页左侧会留 200px 空白。既有实现本就不跟随 ≤900px 的 68px，本轮不扩大改动面；登记为已知限制，建议后续单独立项把 `oauth-manager` 接入与登录视图相同的同步链路。
-2. **视觉基线需要一次全量重建**：43 张基线全部变化，重建必须在同源渲染环境完成并逐张审核；本轮不提供「本机 update-baseline」的替代证据。
+2. **视觉基线需要一次重建**：含 TabBar 的基线都会变化（最终清单以 CI `Gate 7b` 点名为准），重建必须在同源渲染环境完成并逐张审核；本轮不提供「本机 update-baseline」的替代证据。
 3. **多窗口不实时同步**：同一应用打开多个窗口时，折叠状态只在各自启动时从 `localStorage` 读取；运行期互不感知。若用户强需求，需新增 `storage` 事件广播或主进程统一状态源，属独立能力。
 4. **`ResizeObserver` 与媒体查询的时序窗口**：收起跨 900px 断点后立即展开，`_sidebarWidth` 可能短暂沿用旧断点值，需等侧栏重新有宽度后的下一次上报才纠正。视觉上表现为一次重排，不造成死区；若要彻底消除，可让渲染层在展开时立即上报当前 CSS 宽度（实现可选，非验收必须）。
 5. **RTL / 高 DPI 未专项验证**：图标为双向 chevron，RTL 下语义不变；高 DPI 下 SVG 矢量无模糊。但本轮不做 RTL 语言与 200% 缩放的专项视觉验收，登记为未取证项。

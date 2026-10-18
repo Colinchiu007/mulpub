@@ -552,10 +552,10 @@ Primary CTAs and pills meet comfortable touch sizing through 12px-24px padding a
 
 ### 尺寸与视觉令牌
 
-- 按钮高度撑满标签栏 36px；宽度 = 16px 图标 + 左右水平内边距（复用 `--spacing-*` token），不设固定像素宽；图标视觉尺寸 16×16，`stroke`/`fill` 使用 `currentColor`。
-- 常态前景 `--color-text-secondary`；hover 背景 `--color-sidebar-hover-bg`、前景 `--color-text-primary`；焦点环 `2px solid var(--color-primary)` + `2px` offset；`aria-pressed="true"`（已收起）允许用主色强化，但图标形状不变。
+- 按钮尺寸 30×28px，在 36px 行内垂直居中（`margin-top: 4px`），标签区左内边距 8px —— 不撑满行高、不新增行高；图标视觉尺寸 16×16，`stroke` 使用 `currentColor`，无固定像素颜色。
+- 常态前景 `--color-text-secondary`；hover 背景 `--color-bg-card`、前景 `--color-primary`、边框 `--color-border`；焦点环 `2px solid var(--color-primary)` + `1px` offset；收起态（`aria-pressed="true"`）前景用主色强化，但图标形状不变。
 - 暗色主题由 `[data-theme="dark"]` 的 token 覆写自动适配；组件内禁止十六进制颜色字面量。
-- **无动画、无过渡**：原生 `WebContentsView` 不跟随 CSS 过渡插值，动画期间视图边界必然与 DOM 不同步；折叠是「瞬时切换 + 一次重排」。
+- **无布局动画/无宽度过渡**：原生 `WebContentsView` 不跟随 CSS 过渡插值，宽度动画期间视图边界必然与 DOM 不同步；折叠是「瞬时切换 + 一次重排」。仅 hover/focus 的颜色有 0.15s 过渡，`prefers-reduced-motion: reduce` 下关闭。
 
 ### 状态与交互
 
@@ -580,7 +580,7 @@ Primary CTAs and pills meet comfortable touch sizing through 12px-24px padding a
 ### 范围边界
 
 - 不做动画、拖拽调宽、窄屏 68px 图标栏的第二种折叠形态、快捷键；OAuth 内嵌视图（`apps/desktop/electron/services/oauth-manager.js:86` 不传侧栏宽度）不跟随折叠，登记为已知限制。
-- 该按钮是全局可见 UI：`apps/desktop/tests/visual-testing/base-screenshots/` 下 43 张 PNG 全部变化，基线由 CI 同源渲染重建并逐张审核，不得声称「视觉中性」。
+- 该按钮是全局可见 UI：`apps/desktop/tests/visual-testing/base-screenshots/` 中**含 TabBar 的基线**都会变化（并非全部 43 张都含壳层，例如 `first-run` 走 `.fullscreen-main`）；最终变化清单以 CI `Gate 7b` 点名为准，基线由 CI 同源渲染重建并逐张审核，不得声称「视觉中性」。
 
 ## Known Gaps
 
