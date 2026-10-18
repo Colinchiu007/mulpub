@@ -119,6 +119,10 @@ describe('PublishView — 文本出期入口的合同（§7.10.3.4 ②-b③）',
     await nextTick();
     expect(channelState.activeChannelId.value, '夹具前提：这一档就是没有默认频道').toBe('');
     expect(w.find(ENTRY_TESTID).exists()).toBe(false);
+    // §7.10.3.2 不变量 2：入口侧只**读**既有解析，不得为了显示动作而去 ensure 一个频道。
+    // 夹具里 ensureChannel 会把 activeChannelId 写成 ch_from_ensure，所以这条断言是有牙的：
+    // 谁把兜底接回点击路径，这里当场红（前端轴 QM6 线索 L4 验真后补）。
+    expect(channelState.ensureChannel, '无默认频道时不得偷偷解析出一个频道来').not.toHaveBeenCalled();
   });
 
   it('判据 1 反向正控：有默认频道且有正文 ⇒ 入口出现（防上一条因选择器写错而空转）', async () => {
@@ -188,15 +192,24 @@ describe('PublishView — 文本出期入口的合同（§7.10.3.4 ②-b③）',
     expect(w.vm.article.content, '出期不得为固化草稿而改写/归一化在途正文（§7.10.3.4 最后一行）').toBe(SENTINEL);
   });
 
-  it('浮层常驻不卸载：关闭只收窗，不发第二次出期请求、也不销毁实例', async () => {
+  it('浮层常驻不卸载：关闭只收窗，既不打断已在途的出期、也不销毁实例', async () => {
     channelState.activeChannelId.value = 'ch_a';
     const w = await factory();
     w.vm.article.content = SENTINEL;
     await nextTick();
     await openEntry(w);
+    // 先真的发起一次出期，再点关闭——"不发第二次"只有在存在第一次时才是判据；
+    // 原来的写法从没点过确认，not.toHaveBeenCalled() 量的其实是"关闭本身不发起出期"，
+    // 名字说的却是"第二次"（前端轴 QM6 线索 L3 验真后改正，判据条数不变）。
+    await w.find('[data-testid="podcast-script-confirm"]').trigger('click');
+    await nextTick();
+    await Promise.resolve();
+    await nextTick();
+    expect(podcastApi.episodePublishFromScript, '前置条件：确实发起过一次出期').toHaveBeenCalledTimes(1);
+
     await w.find('[data-testid="podcast-script-cancel"]').trigger('click');
     await nextTick();
     expect(w.findComponent(PodcastScriptEntry).exists(), '关闭后组件应仍在树里（按需挂载、常驻）').toBe(true);
-    expect(podcastApi.episodePublishFromScript).not.toHaveBeenCalled();
+    expect(podcastApi.episodePublishFromScript, '关闭 ≠ 取消出期：不得追加第二次请求').toHaveBeenCalledTimes(1);
   });
 });
