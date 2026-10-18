@@ -454,6 +454,8 @@ import { storeGetSetting, storeSetSetting, draftList, aiRewrite, aiListRewriteSt
 import { extractRewriteHistoryId, attachRewriteLineage } from '@/utils/rewrite-lineage'
 import { formatUserError } from '@/utils/user-facing-error'
 import { classifyCollectError } from '@/utils/collect-error'
+// 采集内容守卫：识别「百度安全验证」等反爬验证页文字（判据与主进程同源，见模块注释）
+import { isVerificationContent } from '@/utils/collected-content-guard'
 import { useWordCountValidation } from '@/composables/useWordCountValidation'
 import { addViralToLibrary } from '@/api/knowledge-library'
 import PublishDestinationModal from '@/components/PublishDestinationModal.vue'
@@ -912,6 +914,13 @@ async function countDrafts () {
  * @returns {Promise<string|null>} 落库草稿 id（失败为 null）
  */
 async function persistDraft (payload, allowEmpty) {
+  // 发布链路最后一道守卫（2026-10-18 用户可见事故）：修复前落库的历史采集记录可能仍是
+  // 「百度安全验证」页文字，这里拦在「创建草稿 → 进发布页」之前，保证验证文字永远
+  // 不会进入发布页正文输入框。空白草稿（allowEmpty）不受此限。
+  if (payload && !allowEmpty && isVerificationContent({ title: payload.title, content: payload.content })) {
+    notifyError('collection.draftBlockedSecurityChallenge')
+    return null
+  }
   const saved = await saveDraftToStore(payload, { allowEmpty: Boolean(allowEmpty) })
   if (saved && saved.ok) {
     draftsReloadToken.value++
@@ -1066,9 +1075,27 @@ function isNoVideoCollectError (res) {
 
 // 采集错误细分提示：按 classifyCollectError 的 reason 渲染「具体原因 + 建议」文案，
 // 重试按钮按 retryable 显示（invalid_url/internal_url/protocol 类输入错误重试无意义）。
+// 结构化 reason 优先（2026-10-18 QM-6 外部评审 P3）：主进程/渲染层已给出 reason 时，
+// 必须把**整个错误对象**交给分类器；此前只取 message 字符串，en 文案不含中文关键词 ⇒
+// 退化为 unknown。视频管线仍按 message 透传具体 detail（结构化 reason 不在视频链路产生）。
+function collectErrorSource (err) {
+  if (!err) return ''
+  return err.reason ? err : (err.message || err)
+}
+
+// IPC 失败信封 → 采集错误对象：把 data.reason 一并带出（主进程在 data 里给的是结构化分类）
+function toCollectErrorFromIpc (res) {
+  const data = (res && res.data) || {}
+  return {
+    code: res && res.code != null ? res.code : -99,
+    ...(data.reason ? { reason: data.reason } : {}),
+    message: (res && (res.message || data.error)) || '',
+  }
+}
+
 const collectErrorDetail = computed(() => {
   if (!collectError.value) return ''
-  const raw = collectError.value.message || collectError.value
+  const raw = collectErrorSource(collectError.value)
   const { reason, detailKey } = classifyCollectError(raw)
   // 视频管线错误：后端 detail 已含具体中文提示（如「视频过长（15:32），采集仅支持 10 分钟内的短视频」），
   // 剥掉错误码前缀后直接透传，避免模板文案丢失实际时长/大小等关键信息。
@@ -1085,19 +1112,33 @@ const collectErrorDetail = computed(() => {
 })
 const collectErrorRetryable = computed(() => {
   if (!collectError.value) return false
-  const raw = collectError.value.message || collectError.value
-  return classifyCollectError(raw).retryable
+  return classifyCollectError(collectErrorSource(collectError.value)).retryable
 })
 
-// 检测采集结果是否为反爬安全验证页面（如百度家号返回「百度安全验证」标题）
+// 检测采集结果是否为反爬安全验证页面（如百家号返回「百度安全验证」标题）
+// 判据单一真源 = 主进程 url-collector-antibot（本模块经 collected-content-guard 转发），
+// 禁止在渲染层另抄一份词表 —— 两份词表必然漂移（2026-10-18 复盘）。
 function isSecurityChallenge (res) {
-  if (!res || !res.title) return false
-  const title = String(res.title)
-  const content = String(res.content || '')
-  // 安全验证页特征：标题含「安全验证」/「百度安全」或被正文长度极短且含提示语
-  if (title.includes('安全验证') || title.includes('百度安全') || title.includes('百度安全检测')) return true
-  if (content.length < 60 && (content.includes('安全验证') || content.includes('网络不给力') || content.includes('请稍后重试'))) return true
-  return false
+  if (!res) return false
+  return isVerificationContent({
+    title: String(res.title || ''),
+    content: String(res.content || res.description || ''),
+  })
+}
+
+/**
+ * 验证页结果统一处置：写入 security_challenge 采集错误并提示，调用方据此中止。
+ * 为什么必须中止：验证页的「文字」本身看起来像正文（标题=百度安全验证、正文=提示语），
+ * 一旦入库就会随「去发布」进入发布页正文输入框（用户可见事故）。
+ * @param {object} data - 采集返回的 { title, content }
+ * @returns {boolean} true = 命中验证页，调用方必须 return
+ */
+function abortIfVerificationPage (data) {
+  if (!isSecurityChallenge(data || {})) return false
+  const message = resolveNotifyText('collection.collectErrors.security_challenge').text
+  collectError.value = { code: -1, reason: 'security_challenge', message }
+  notifyError('collection.collectFailed', { message })
+  return true
 }
 
 // 聚合路径失败 — 无论任何错误码，都回退到 urlCollectFetch 降级
@@ -1218,14 +1259,17 @@ async function collectUrl () {
         return
       }
     }
-    // 反爬站点（知乎/百家号）→ 直接走 Node stealth 浏览器通道，跳过 Python 聚合层裸连
+    // 反爬站点（知乎/百家号）→ Node 采集通道（主进程内：知乎走 stealth 浏览器，
+    // 百家号 HTTP 优先 + 浏览器兜底），跳过 Python 聚合层裸连
     if (api && api.urlCollectFetch && await needsStealthRoute(api, trimmedUrl)) {
       const result = await api.urlCollectFetch(trimmedUrl)
       if (result.code !== 0) {
-        collectError.value = { code: result.code, message: result.message || (result.data && result.data.error) || '' }
+        collectError.value = toCollectErrorFromIpc(result)
         notifyError('collection.collectFailed', { message: formatUserError(result, { fallback: resolveNotifyText('collection.collectFailed').text }).message })
         return
       }
+      // 渲染层第二道守卫：旧版主进程/缓存仍可能把验证页当 success 返回，绝不入库
+      if (abortIfVerificationPage(result.data || {})) return
       const item = stealthResultToItem(result, linkUrl.value)
       collectedResult.value = item
       addedToViral.value = false
@@ -1274,10 +1318,12 @@ async function collectUrl () {
       const result = await api.urlCollectFetch(linkUrl.value.trim())
       if (result.code !== 0) {
         // IPC 失败返回 { code, message, data }：message 为主，旧版/异常时兜底 data.error
-        collectError.value = { code: result.code, message: result.message || (result.data && result.data.error) || '' }
+        collectError.value = toCollectErrorFromIpc(result)
         notifyError('collection.collectFailed', { message: formatUserError(result, { fallback: resolveNotifyText('collection.collectFailed').text }).message })
         return
       }
+      // 渲染层第二道守卫（与 stealth 分支同源）：验证页文字绝不入库
+      if (abortIfVerificationPage(result.data || {})) return
       const item = {
         ...result.data,
         id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
@@ -1402,14 +1448,18 @@ async function collectAndRewrite () {
       }
       // noVideoFallback：落回下方图文采集链路继续
     }
-    // 反爬站点（知乎/百家号）→ 直接走 Node stealth 浏览器通道采集，跳过 Python 聚合层裸连
+    // 反爬站点（知乎/百家号）→ Node 采集通道（主进程内：知乎走 stealth 浏览器，
+    // 百家号 HTTP 优先 + 浏览器兜底）。必须跳过 Python 聚合层裸连：先裸连失败再回退
+    // 会白白多触发一次反爬检测（提高封 IP 风险）。
     if (api.urlCollectFetch && await needsStealthRoute(api, trimmedUrl)) {
       const stealthResult = await api.urlCollectFetch(trimmedUrl)
       if (stealthResult.code !== 0) {
-        collectError.value = { code: stealthResult.code, message: stealthResult.message || (stealthResult.data && stealthResult.data.error) || '' }
+        collectError.value = toCollectErrorFromIpc(stealthResult)
         notifyError('collection.collectFailed', { message: formatUserError(stealthResult, { fallback: resolveNotifyText('collection.collectFailed').text }).message })
         return
       }
+      // 渲染层第二道守卫：验证页文字绝不入库、更不得进入改写正文
+      if (abortIfVerificationPage(stealthResult.data || {})) return
       const stealthItem = stealthResultToItem(stealthResult, linkUrl.value)
       collectedResult.value = stealthItem
       addedToViral.value = false
@@ -1417,25 +1467,20 @@ async function collectAndRewrite () {
       saveCollectedItems()
       notifySuccess('collection.collectSuccess')
       collecting.value = false
-      // Step 2: 自动改写
+      // Step 2: 自动改写 —— 必须走桌面改写引擎（aiRewrite）：它按「模型设置」解析默认
+      // 文字推理模型（含多模态 provider 的 llm 能力路由）。2026-10-18 事故根因：本分支
+      // 原调 Python /aggregation/rewrite，该后端只认进程环境变量 LLM_API_KEY，桌面模型
+      // 设置从未注入 ⇒ 用户已配置 Agnes 多模态仍误报 LLM_KEY_MISSING。
       rewriting.value = true
       try {
-        const rewrite = await api.aggregationRewrite({
-          content: stealthItem.content || stealthItem.description || '',
-          style: rewriteStyle.value,
-          min_word_count: Number(rewriteWordCountMin.value),
-          max_word_count: Number(rewriteWordCountMax.value),
-        })
+        const rewrite = await rewriteViaEngine(stealthItem.content || stealthItem.description || '')
         if (rewrite && rewrite.result_content) {
           rewriteResult.value = rewrite.result_content
-          // 归因链（QM-6 后端轴 W-2）：Python 改写链路不写桌面 rewrite_history，
-          // 没有可承载的 id。这里必须显式清掉上一次引擎改写留下的 id ——
-          // 否则"存草稿"会把旧引擎的关联挂到这份 Python 产物上，属于凭空伪造关联。
-          collectRewriteLineageId = null
           recordRewriteToLibrary(rewrite.result_content, stealthItem)
           notifySuccess('collection.rewriteSuccess')
         } else {
-          const formatted = formatUserError(rewrite || {}, { fallback: resolveNotifyText('collection.rewriteFailed').text })
+          const errorSource = rewrite && rewrite.__error ? rewrite.__error : (rewrite || {})
+          const formatted = formatUserError(errorSource, { fallback: resolveNotifyText('collection.rewriteFailed').text })
           rewriteError.value = { code: rewrite && rewrite.code != null ? rewrite.code : -99, message: formatted.message }
           notifyError('collection.rewriteFailed', { message: rewriteError.value.message })
         }
@@ -1461,7 +1506,7 @@ async function collectAndRewrite () {
       if (api.urlCollectFetch) {
         const fallback = await api.urlCollectFetch(linkUrl.value.trim())
         if (fallback.code !== 0) {
-          collectError.value = { code: fallback.code, message: fallback.message || (fallback.data && fallback.data.error) || '' }
+          collectError.value = toCollectErrorFromIpc(fallback)
           notifyError('collection.collectFailed', { message: formatUserError(fallback, { fallback: resolveNotifyText('collection.collectFailed').text }).message })
           return
         }

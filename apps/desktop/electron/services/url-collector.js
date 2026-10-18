@@ -1,14 +1,12 @@
 // @ts-check
 /**
- * URL Collector — URL 内容采集引擎
+ * URL Collector — URL 内容采集引擎（输入 URL → 标题/正文/封面/发布时间）
  *
- * 输入 URL → 提取文章标题/正文/封面/发布时间
+ * 采集通道按站点路由（清单见 url-collector-antibot.js）：
+ *   1. HTTP 请求 + Cheerio 解析（轻量；百家号 HTTP 优先，命中验证页才回退浏览器）
+ *   2. Playwright stealth 浏览器（知乎等反爬/SPA 站点，浏览器优先）
  *
- * 采集方式：
- *   1. HTTP 请求 + Cheerio 解析（轻量，首选）
-   *   2. Playwright stealth 浏览器（知乎、百家号等反爬/SPA 站点）
- *
- * 文件位置: apps/desktop/electron/url-collector.js
+ * 文件位置: apps/desktop/electron/services/url-collector.js
  */
 const log = require('./logger')
 const EC = require('../core/error-codes').ERROR
@@ -24,10 +22,12 @@ const {
 const path = require('path')
 const { extractReadableText } = require('./readable-text')
 const { parseEngagement, parseEngagementNumber } = require('./url-collector-engagement')
-// Page 层的等待与容错读取（正文就绪条件等待 / 导航竞态重试）实现见
-// url-collector-page-wait.js：它们只依赖 Playwright Page，与采集策略无关，
-// 拆出去可避免本文件因等待加固越过逐文件行数门禁（500 行）。
+// Page 等待/容错、反爬判据与请求头、通道编排（验证页重试 / HTTP 优先回退）分别拆在
+// url-collector-page-wait.js、url-collector-antibot.js、url-collector-browser.js（本文件只做装配；
+// 拆出动机：本文件已贴着逐文件行数门禁 500 行上限）。
 const { waitForContentReady, readPageContentWithRetry } = require('./url-collector-page-wait')
+const ANTIBOT = require('./url-collector-antibot')
+const { collectViaBrowser, collectHttpFirst } = require('./url-collector-browser')
 
 class UrlCollector {
   /**
@@ -174,6 +174,9 @@ class UrlCollector {
       if (this._needsBrowser(hostname)) {
         this._log.notify('url-collect', 'collect-start-browser', { params: { url, platform } })
         result = await this._collectViaBrowser(url)
+      } else if (this._isHttpFirst(hostname)) {
+        this._log.notify('url-collect', 'collect-start-http-first', { params: { url, platform } })
+        result = await collectHttpFirst({ http: () => this._collectViaHttp(url), browser: () => this._collectViaBrowser(url, 2), log: this._log }, url)
       } else {
         this._log.notify('url-collect', 'collect-start-http', { params: { url, platform } })
         result = await this._collectViaHttp(url)
@@ -184,15 +187,17 @@ class UrlCollector {
         this._circuitBreaker.recordSuccess(platform, 'default')
         this._healthMonitor.record(platform, 'default', { success: true })
         this._auditLogger.request(platform, 'default', url, 200, 0)
-        this._log.notify('url-collect', 'collect-ok', { params: { url, platform, mode: this._needsBrowser(hostname) ? 'browser' : 'http', durationMs, titleLen: (result.title || '').length, contentLen: (result.content || '').length } })
+        this._log.notify('url-collect', 'collect-ok', { params: { url, platform, mode: UrlCollector.routeFor(hostname), durationMs, titleLen: (result.title || '').length, contentLen: (result.content || '').length } })
       } else {
-        const reason = result && result.error && /登录|验证码|请登录/.test(result.error) ? 'captcha' : 'blocked'
-        this._circuitBreaker.recordFailure(platform, 'default', strategy.circuitBreaker)
+        // security_challenge 是站点侧概率性风控，不是采集器/账号故障：不记熔断（2026-10-18 QM-6 P3）。
+        // 否则用户按提示「1-2 分钟后重试」连试 3 次即触发 failureThreshold=3 → 熔断 15 分钟。
+        // 健康度与审计仍记录，只是不计熔断计数 / 不触发冷却封禁。
+        const antibot = !!(result && result.reason === 'security_challenge')
+        const reason = antibot ? 'security_challenge' : (result && result.error && /登录|验证码|请登录/.test(result.error) ? 'captcha' : 'blocked')
+        if (!antibot) this._circuitBreaker.recordFailure(platform, 'default', strategy.circuitBreaker)
         this._healthMonitor.record(platform, 'default', { success: false, reason })
         this._auditLogger.blocked(platform, 'default', reason)
-        if (this._circuitBreaker.getState(platform, 'default', strategy.circuitBreaker).state === 'open') {
-          this._coolDownPool.ban('account', platform, reason)
-        }
+        if (!antibot && this._circuitBreaker.getState(platform, 'default', strategy.circuitBreaker).state === 'open') this._coolDownPool.ban('account', platform, reason)
       }
       return result
     } catch (e) {
@@ -222,16 +227,16 @@ class UrlCollector {
 
     const response = await axios.get(url, {
       timeout: 15000,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'text/html,application/xhtml+xml',
-      },
+      // 完整浏览器请求头属防御性加固（并非挑战的已证原因，证据口径见
+      // url-collector-antibot.js 的 buildBrowserHeaders 注释）；判据仍是响应/HTML 本身。
+      headers: ANTIBOT.buildBrowserHeaders(),
       responseType: 'text',
       maxRedirects: 5,
     })
-
-    const html = response.data
-    return this._parseHtml(html, url)
+    const html = String(response.data || '')
+    // 重定向后的最终 URL 才是验证页判据（原始 URL 仍是文章地址）
+    const finalUrl = (response.request && response.request.res && response.request.res.responseUrl) || url
+    return this._parseHtml(html, finalUrl)
   }
 
   /**
@@ -239,6 +244,9 @@ class UrlCollector {
    */
   _parseHtml (html, url) {
     const cheerio = require('cheerio')
+    // 解析前防验证页：HTML 层面（title / 正文强标记）已能判定就直接失败返回，
+    // 不给「验证页被当文章」留任何路径（2026-10-18 现场）。
+    if (ANTIBOT.isVerificationHtml(html, url)) return ANTIBOT.securityChallengeFailure()
     const $ = cheerio.load(html)
 
     const getMeta = (name) => {
@@ -282,22 +290,26 @@ class UrlCollector {
       if (!contentEl.length) contentEl = $('.RichText.ztext').first()
     }
 
-    // 百家号：SPA 渲染，class 名每次构建混淆变化，正文稳定在 <p> 段落标签中。
-    // 采用「段落聚合」策略：取包含最多 <p> 的元素作为正文容器，再交同一套可读文本
-    // 提取器收口（保留段落换行 —— 此前只 join <p>，与其它站点格式不一致且会丢标题）。
-    if (hostname === 'baijiahao.baidu.com') {
-      const containers = $('[class]').get()
-      let bestContainer = null
-      let bestParagraphCount = -1
-      for (const el of containers) {
-        const pCount = $(el).find('p').length
-        if (pCount > bestParagraphCount) {
-          bestParagraphCount = pCount
-          bestContainer = el
+    // 百家号：SPA 渲染，class 名每次构建混淆变化；正文稳定在 [data-testid="article"] 容器
+    // （实测比「最多 <p> 的容器」干净：后者会把页脚/推荐噪声算进正文）。容器缺失时才回退
+    // 旧的「段落聚合」启发式，并交同一套可读文本提取器收口（保留段落换行）。
+    if (hostname === 'baijiahao.baidu.com' || hostname === 'mbd.baidu.com') {
+      const articleEl = $('[data-testid="article"]').first()
+      if (articleEl.length) textContent = extractReadableText(articleEl).slice(0, 50000)
+      if (!textContent) {
+        const containers = $('[class]').get()
+        let bestContainer = null
+        let bestParagraphCount = -1
+        for (const el of containers) {
+          const pCount = $(el).find('p').length
+          if (pCount > bestParagraphCount) {
+            bestParagraphCount = pCount
+            bestContainer = el
+          }
         }
-      }
-      if (bestContainer && bestParagraphCount > 0) {
-        textContent = extractReadableText($(bestContainer)).slice(0, 50000)
+        if (bestContainer && bestParagraphCount > 0) {
+          textContent = extractReadableText($(bestContainer)).slice(0, 50000)
+        }
       }
       // 百家号标题回退到 h1 或 title
       if (!title) title = $('h1').first().text().trim() || title
@@ -315,6 +327,12 @@ class UrlCollector {
         contentEl = $('body')
       }
       textContent = extractReadableText(contentEl).slice(0, 50000)
+    }
+
+    // 解析后再防验证页：提取后的正文是最终判据（HTML 实体编码等场景解析前看不到原文），
+    // 命中强标记一律按验证页失败，绝不把验证文案当文章正文返回。
+    if (ANTIBOT.isVerificationPage({ url, title, text: textContent })) {
+      return ANTIBOT.securityChallengeFailure()
     }
 
     return {
@@ -352,33 +370,36 @@ class UrlCollector {
     return parseEngagement($, html)
   }
 
-  /**
-   * 判断是否需要浏览器渲染（反爬站点）。
-   * 域名清单单一来源：ANTI_CRAWL_HOSTNAMES（渲染层路由与主进程采集共用，
-   * 避免「前端一份清单、主进程一份清单」漂移导致某站点仍走裸连触发风控）。
-   */
+  /** 反爬站点（浏览器优先）判定：清单单一来源见 url-collector-antibot.js（防两端漂移） */
   _needsBrowser (hostname) {
     return UrlCollector.isAntiCrawlHost(hostname)
   }
 
-  /**
-   * 反爬站点 hostname 判定（静态：preload/渲染层路由与实例采集共用）。
-   * 这些站点直接 HTTP 裸连会触发反爬（知乎返回 403/异常页，百家号返回安全验证页），
-   * 必须走 stealth 浏览器通道。
-   * @param {string} hostname
-   * @returns {boolean}
-   */
-  static isAntiCrawlHost (hostname) {
-    return UrlCollector.ANTI_CRAWL_HOSTNAMES.has(hostname)
+  /** HTTP 优先站点（百家号）：裸连成功即返回，命中验证页/正文为空才回退 stealth 浏览器 */
+  _isHttpFirst (hostname) {
+    return UrlCollector.isHttpFirstHost(hostname)
   }
 
-  /** 反爬站点清单（与 _parseHtml 的平台分派保持同步维护） */
-  static ANTI_CRAWL_HOSTNAMES = new Set([
-    'zhuanlan.zhihu.com',
-    'www.zhihu.com',
-    'zhihu.com',
-    'baijiahao.baidu.com',
-  ])
+  /** 静态判定：反爬站点（浏览器优先，知乎类裸连返回 403/异常页） */
+  static isAntiCrawlHost (hostname) {
+    return ANTIBOT.isAntiCrawlHost(hostname)
+  }
+
+  /** 静态判定：HTTP 优先站点（百家号，直连成功率高且成本低） */
+  static isHttpFirstHost (hostname) {
+    return ANTIBOT.isHttpFirstHost(hostname)
+  }
+
+  /** 采集路由：browser / http-first / http（needs-stealth IPC 的 mode 字段同源） */
+  static routeFor (hostname) {
+    return ANTIBOT.routeFor(hostname)
+  }
+
+  /** 反爬站点清单（浏览器优先） */
+  static ANTI_CRAWL_HOSTNAMES = ANTIBOT.ANTI_CRAWL_HOSTNAMES
+
+  /** HTTP 优先站点清单（百家号） */
+  static NODE_HTTP_FIRST_HOSTNAMES = ANTIBOT.NODE_HTTP_FIRST_HOSTNAMES
 
   /** 从 hostname 映射平台标识（策略配置键） */
   _platformFromHostname (hostname) {
@@ -394,55 +415,35 @@ class UrlCollector {
     return 'generic'
   }
 
-  /**
-   * Playwright stealth 浏览器采集（绕过反爬）
-   */
-  async _collectViaBrowser (url) {
-    const { chromium } = require('playwright-extra')
-    const StealthPlugin = require('puppeteer-extra-plugin-stealth')
-    chromium.use(StealthPlugin())
-
-    if (!this._stealthBrowser) {
-      this._stealthBrowser = await chromium.launch({ headless: true })
-    }
-    const context = await this._stealthBrowser.newContext({
-      viewport: { width: 1920, height: 1080 },
-      locale: 'zh-CN',
-    })
-    const page = await context.newPage()
-    try {
-      // 知乎等 SPA 持续轮询，networkidle 可能永不满足（30s 超时后仍导航中），
-      // 改用 load 事件确保首屏 DOM 就绪，避免 page.content() 在导航中抛
-      // "Unable to retrieve content because the page is navigating"。
-      await page.goto(url, { waitUntil: 'load', timeout: 30000 })
-      // SPA 异步渲染正文：条件等待内容容器出现（最多 CONTENT_READY_TIMEOUT_MS）再取 HTML。
-      // 原来是固定 waitForTimeout(2000)——注释写着「最多 10s」但代码只盲等 2s，
-      // 慢站点正文未渲染就取 HTML（解析成空正文），快站点白等 2s。
-      await this._waitForContentReady(page)
-      const html = await this._readPageContentWithRetry(page)
-      return this._parseHtml(html, url)
-    } finally {
-      await context.close()
-    }
+  /** Playwright stealth 浏览器采集：验证页判定 + 换新 context 有界重试见 url-collector-browser.js */
+  async _collectViaBrowser (url, maxAttempts = 2) {
+    return collectViaBrowser({
+      getBrowser: () => this._getStealthBrowser(),
+      parseHtml: (html, pageUrl) => this._parseHtml(html, pageUrl),
+      log: this._log,
+      fetchPage: async (page) => {
+        // 条件等待正文就绪（替代固定 sleep）后再读 HTML；导航竞态重试见 page-wait 模块
+        await this._waitForContentReady(page)
+        return this._readPageContentWithRetry(page)
+      },
+    }, url, maxAttempts)
   }
 
-  /**
-   * 条件等待正文就绪，替代固定 sleep（判据/超时处置见 url-collector-page-wait.js）。
-   * 保留为实例方法：采集链路只认这一入口，测试也锁这一入口。
-   *
-   * @param {object} page - Playwright Page
-   * @returns {Promise<boolean>} 是否在时限内命中就绪条件
-   */
+  /** 懒启动 stealth 浏览器（实例复用；stealth 插件在首次启动前注册一次） */
+  async _getStealthBrowser () {
+    if (this._stealthBrowser) return this._stealthBrowser
+    const { chromium } = require('playwright-extra')
+    chromium.use(require('puppeteer-extra-plugin-stealth')())
+    this._stealthBrowser = await chromium.launch({ headless: true })
+    return this._stealthBrowser
+  }
+
+  /** 条件等待正文就绪，替代固定 sleep（判据/超时见 url-collector-page-wait.js；测试锁此入口） */
   async _waitForContentReady (page) {
     return waitForContentReady(page, { log: this._log, label: 'UrlCollector' })
   }
 
-  /**
-   * 读取页面 HTML，导航竞态时等待后重试（判据见 url-collector-page-wait.js）。
-   * @param {object} page - Playwright Page
-   * @param {number} [maxAttempts] - 最大尝试次数
-   * @returns {Promise<string>}
-   */
+  /** 读取页面 HTML，导航竞态时等待后重试（判据见 url-collector-page-wait.js） */
   async _readPageContentWithRetry (page, maxAttempts = 3) {
     return readPageContentWithRetry(page, maxAttempts)
   }
@@ -458,17 +459,17 @@ class UrlCollector {
       throw new Error('[IPC] url-collector registerIpcHandlers 需要注入受控 ipcMain（禁止使用全局 ipcMain）');
     }
     const ipcMain = injectedIpcMain;
-    // 反爬站点路由查询（纯函数，无采集副作用）：渲染层据此决定是否跳过
-    // Python 聚合层裸连、直接走本通道的 stealth 浏览器采集。
-    // 背景：知乎/百家号对裸 HTTP 请求有风控，先裸连失败再回退会白白多触发
-    // 一次反爬检测（提高封 IP 风险），必须在发起前就路由到 stealth 通道。
+    // 采集路由查询（纯函数，无副作用）：渲染层据此决定是否跳过 Python 聚合层裸连。
+    // needsStealth=true 保持向后兼容语义（走主进程 Node 采集通道）；mode 为新增细分
+    // （browser=知乎浏览器优先 / http-first=百家号 HTTP 优先 / http=普通站点）。
     ipcMain.handle('url-collect:needs-stealth', async (event, arg) => {
       if (!arg || typeof arg !== 'object' || typeof arg.url !== 'string') {
         return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
       }
       try {
         const hostname = new URL(arg.url).hostname.toLowerCase()
-        return { code: 0, data: { needsStealth: UrlCollector.isAntiCrawlHost(hostname) } }
+        const mode = UrlCollector.routeFor(hostname)
+        return { code: 0, data: { needsStealth: mode !== 'http', mode } }
       } catch {
         // 非法 URL 交由后续 collect 的完整校验处理，这里不拦截
         return { code: 0, data: { needsStealth: false } }

@@ -23,6 +23,28 @@
 - `check-unwired-tests.js` 的 `NESTED_WORKFLOW_NOT_EXECUTED` 判定域是**磁盘**而非 `git ls-files`，
   于是本机垃圾会把公共仓 required 门禁判红一次（与 #3876 同族的磁盘域/检出域分叉），另立任务；
 - 同类面已清点到 `*.sh` 全集（按 `$(mktemp -d)` 扫仅命中本文件），但 vitest/pytest/ps1 的夹具落仓库内风险仍无统一判据。
+# [未发布] fix(collect): 百家号采集不再把「百度安全验证」页当正文，采集页改写改走桌面模型设置（fix-collect-antibot-rewrite）
+
+## 问题
+- 单篇 URL 采集百家号文章时，采集被标成成功、正文却是「百度安全验证」滑块页提示文字（用户原话：「✅ 百度安全验证百度安全验证 请完成下方验证后继续操作 … 拖动左侧滑块使图片为正 扫码验证| 意见反馈 |刷新」）；在该条目上点「去发布」，验证文字会进入发布页正文输入框。
+- 采集页 stealth 分支的自动改写误报「AI 改写功能需要连接智能写作服务，但尚未完成服务配置」，而用户已在「模型设置」中配置了 Agnes 多模态模型的文字推理能力（DB 只读核对：`enabled=1`、加密 Key 非空、`capability_defaults` 含 `llm`、`capability_models.llm=agnes-3.0-flash`）。
+
+## 改动
+- **采集路由**：`baijiahao.baidu.com` / `mbd.baidu.com` 由「浏览器优先」改为 **HTTP 优先**（完整浏览器请求头），命中验证页 / 正文为空 / 提取失败再回退 stealth 浏览器；重试有界（默认 2 次，每次换新 context 清掉上一次的 cookie/指纹状态）。知乎仍为浏览器优先（裸连 403 是另一形态）。
+- **验证页判据（fail-closed）**：新增主进程纯函数模块（结构性 URL/`<title>` 判据 + 正文强标记阈值 + 短正文边界），渲染层经同源模块转发同一词表（两端同判由测试逐条比对锁定）；命中即返回 `reason=security_challenge` 失败结构，**不再**返回 `success:true`。
+- **缓存**：验证页结果不得写入内容缓存（此前 `success===true` 即写，失败形态被固化成「成功」）。
+- **渲染层**：stealth 分支与回退分支补第二道守卫；「创建草稿 / 去发布」入口按同一判据拦截历史验证文字条目（`collection.draftBlockedSecurityChallenge`）。
+- **改写链路**：采集页 stealth 分支改走桌面引擎 `aiRewrite`（按「模型设置」解析默认文字推理模型，含多模态 provider 的 llm 能力路由）；Python `POST /aggregation/rewrite` 增加请求级 `llm` 注入（顺序：`request.llm` > `LLM_*` env > `PO_OPENAI_*` env），用户确实未配置时短路返回稳定错误码 `LLM_NOT_CONFIGURED`（**不发请求**）。
+- **文案（zh/en 成对）**：更新 `collection.collectErrors.security_challenge`，新增 `collection.draftBlockedSecurityChallenge`、`userErrors.LLM_NOT_CONFIGURED`。
+
+## 验证
+- 桌面定向 9 个测试文件：`Test Files 9 passed (9) / Tests 366 passed (366)`（url-collector 89 / antibot 24 / collected-content-guard 8 / llm-runtime-config 12 / aggregation 23 / zhihu-favlist 17 / user-facing-error 29 / collect-error 50 / Collection 114）。
+- 双模型外部评审（QM-6）：`codex exec review --uncommitted`（0 CRITICAL/0 MAJOR、2 P3，**采纳 2/2**）+ `claude -p`（0 CRITICAL/0 MAJOR、7 MINOR，采纳 0/7）；采纳项：结构化 `reason` 被解包丢弃 → `collectErrorSource()` 传对象 + IPC `data.reason` 透传；`security_challenge` 计入熔断会让用户按提示重试 3 次锁 15 分钟 → 改为不计熔断（健康度/审计保留）。
+- Python 定向：`python -m pytest tests/test_aggregation.py -q` → `51 passed in 23.09s`（基线 43，+8）。
+- 债务熔断：`node scripts/check-debt-budget.js` → rc=0（`filesOver500=95 ≤ baseline 101`；过程中把 `zhihu-favlist.js` 从一度 506 行压回 499 行，避免跨 500 红线）。
+- 真机：目标百家号 URL 连续 2 次采集 `success:true`、`contentLen=3521`、结果中验证标记为空；现场 3 份 CHALLENGE 页用生产解析器、captcha URL 与普通文章 URL 两种入参共 **6/6** 返回 `{success:false, reason:"security_challenge"}`；3 份 OK 页 `contentLen=3521/4639/3521` 且零标记（不误杀）。
+- 现场依据（已复跑，详见 `01-docs/PRD-FIX-COLLECT-ANTIBOT-REWRITE-LLM-2026-10-18.md` §2.1 与 §12.2）：普通 HTTP 直连 16/16 成功（0 挑战）；仓库现用截断 UA 4/4 成功（「UA 截断导致验证」本次未复现，不作根因）；修复前生产解析器对 3 份 CHALLENGE 页均返回 `success=true / title="百度安全验证" / contentLen=101`，修复后为 `success=false / reason=security_challenge`。
+
 # [未发布] feat(gate): 「禁止为改写收口行另开 PR」装上执行体 —— 按 PR 差量判人工改写，堵住"散文有规矩、没人装闸"（ban-record-closure-backfill-pr）
 
 - **立项事由**：#3879 把执行记录的「远程同步」收口改成按主干历史推导，并在 AGENTS 明文禁止"为改写那一行另开一次 PR"。禁令落主干（merge `b49510794`，03:43 +08）后 6 分钟内起，实测仍有 4 笔回填 PR 按旧 SOP 执行——#3889 03:49、#3891 04:18、#3890 04:20、#3884 09:15。成因不是有人抗命，是并发会话带着旧口径的分支与提示在跑，而那条禁止只存在于文字里，**没有任何东西检测它**。
@@ -22166,6 +22188,20 @@ P0-4（reportError 的 IPC 拒绝）经确认**无法在 vitest 环境覆盖**�
   导出符号与 `RATIOS` 键集合未变；`buildCoverSvg(title, {width, height})`
   旧调用形态仍可用；未传 `title` 时退回 `prompt`
 - 详细规格见 `01-docs/PRD.md`「内容感知封面生成（AI 生图不可用时的本地兜底）」章节
+# [未发布] fix(publish): 标题上限收为 20 字 + 输入框实时字数 + 全入口标题不再回退正文（fix-hot-topics-genvideo-title 增量）
+
+> 本条刻意**不放在文件顶部**：CHANGELOG 顶部是所有会话的并发插入点，两侧同位置插入必然冲突（本轮实测连中三轮 DIRTY 活锁）；同时刻意**不放在文件绝对末尾**，因为最后一块在 head 的边界会提前到本条标题处、破坏「保留块逐字节同源」。放在**最后一个一级标题之前**：前面的块尾部不变，最后一块整体后移但内容逐字节不变。
+
+- **用户三条追加需求**：① 排查所有需要生成标题的地方；② 标题最多 20 字；③ 标题输入框要有实时字数显示。
+- **全入口审计（本轮最重要发现）**：标题进发布页共 4 条链路，全部经 `buildPublishFromProject` 提取。修复前**其中 3 条**（视频创作页【去发布】/ 结果页【去发布】/ 历史一键发布与播客）在用户未填「发布标题」（`s2vConfig.title`，placeholder 就是「可选」）时，标题沿 `publish.title → project.title → sourceText` 落到**正文切片**。热门选题只是第四个受害者 —— 上一轮把它写进「不动共享真源」非目标，是把范围收得太小。
+- **系统性修复**：`buildPublishFromProject` 的 `title` 链去掉 `sourceText`，无显式标题返回**空串**（不保留「截到 20 字的正文」——那仍是正文前 N 字，只是 N 从 100 变 20）。由 `noTitleHint` + 发布前校验拦到「请填标题」。
+- **20 字单一真源** `src/features/publish/title-limits.js`（`PUBLISH_TITLE_MAX = 20`）：取值依据是各平台 `titleMax` 最小者（小红书 20）。改前上限散在三处并靠注释提醒同步 —— 注释不是机制。计数与截断**同按 Unicode 码点**（`String.length` 把 emoji 算 2，会让「19/20 却被拦」成为 bug）。
+- **实时字数**：视频与图文两个标题输入框下方显示 `n/20`（走 `UiInput` 既有 `hint`，不新增 DOM 节点；`tabular-nums` 防输入时数字跳动）。`UiInput` 补 `maxlength` prop —— 原来只会透传到根 `div`，写了不生效；真正拦截由 watcher 按码点做。
+- **零增长文件处理**：`Publish.vue` 是 `check-max-lines` 点名还账、零增长容差的文件。第一版直接写视图 ⇒ 超 21 行。修法不是调 targets，而是把上一轮自己加的 12 行 `videoTitleSourceHint` 一并下沉成 composable ⇒ 最终 1768 行（改前基线 1773）；rebase 后主干变化再收紧到 1773。
+- **测试**：新增 `title-limits.test.js`（12 例）+ `Publish.title-counter.test.js`（8 例，含 2 例从 `Publish.test.js` 迁移并按新契约重写）；`publish-from-project.test.js` 夹具改为 `title ≠ sourceText` 并新增回归锁「无显式标题不得回退正文」。受影响 8 文件 198 例全绿。变异反证两条：watcher 不截断 ⇒ 计数测试 2 例红；标题链改回 `|| sourceText` ⇒ 回归锁红。
+- **视觉基线**：标题计数行是有意变更，QG Visual 的 Gate 7b 判 `publish-form.png` 0.712% / `publish-form-dark.png` 0.666% 过期；按判据约束（`UPDATE_BASELINE` 只用于基线缺失，刻意不提供覆盖开关）走 `git rm` 受管基线 → 起本 worktree 独占端口 dev server → 重建 → 以 `PIXEL_THRESHOLD=0` 复核逐像素相等。
+- **QM-1 抓到一个真缺陷**：AGENTS.md 的 `pnpm exec electron-builder --win --x64` **不构建渲染层**，照它跑得到 `exit=0` + 全部产物，但 asar 里没有 `dist/`，启动即白屏（stderr `ERR_FILE_NOT_FOUND`）。正确命令是 `pnpm run build:win`；判据必须同时看 rc、产物、启动 stderr（并剔除 `ELECTRON_RUN_AS_NODE`、单独断言存活）。
+- **文档**：`01-docs/PRD-FIX-HOT-TOPICS-GENVIDEO-TITLE-2026-10-17.md` 新增 §15（483→621 行）；`01-docs/PRD.md` §3a.3.1 两处同步改写（原「硬限 100 字」「不动共享真源」均被本轮推翻）；执行记录同步更新。
 # [unreleased] fix(publish): M-1 重入锁前置 + .adversarial 白名单 + 方案时效性核验
 
 ### M-1 修复（发布重入窗口）

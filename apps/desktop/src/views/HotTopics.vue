@@ -268,6 +268,17 @@
           :summary="genVideoSummary"
           :show-time-guidance="true"
         />
+        <!-- fix-hot-topics-genvideo-title：完成后说明标题来源（AI 爆款标题，失败降级原始选题） -->
+        <div
+          v-if="genVideoResultReady && !genVideoBusy"
+          class="gen-video-title-hint"
+          data-testid="hot-topics-gen-video-title-hint"
+        >{{ t('hotTopics.genVideoTitleHint') }}</div>
+        <div
+          v-if="genVideoBusy && genVideoResultReady"
+          class="gen-video-title-hint"
+          data-testid="hot-topics-gen-video-title-generating"
+        >{{ t('hotTopics.genVideoTitleGenerating') }}</div>
       </div>
       <template #footer>
         <span v-if="genVideoErrorText" class="gen-video-error-text" data-testid="hot-topics-gen-video-error">{{ genVideoErrorText }}</span>

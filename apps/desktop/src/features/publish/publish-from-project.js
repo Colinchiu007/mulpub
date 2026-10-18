@@ -18,9 +18,13 @@
  */
 
 import { normalizePublishStringList } from './publish-contract'
+import { PUBLISH_TITLE_MAX, truncateTitleByCodePoints } from './title-limits'
 
-/** 百家号标题上限（DEFAULT_CONTENT_LIMITS.titleMax），超长截断 */
-const DEFAULT_TITLE_MAX = 100
+/**
+ * 标题上限铁律（2026-10-18 用户要求）：最多 20 字，单一真源在 `title-limits.js`。
+ * 保留本地常量名只为不破坏既有 import 语义。
+ */
+const DEFAULT_TITLE_MAX = PUBLISH_TITLE_MAX
 
 function readPublishConfig (project) {
   if (!project || typeof project !== 'object') return {}
@@ -41,9 +45,7 @@ function joinSegmentTexts (segments) {
 }
 
 function truncateTitle (title, max = DEFAULT_TITLE_MAX) {
-  const value = String(title || '').trim()
-  if (value.length <= max) return value
-  return value.slice(0, max)
+  return truncateTitleByCodePoints(String(title || '').trim(), max)
 }
 
 /**
@@ -57,7 +59,14 @@ export function buildPublishFromProject (project) {
   const projectTitle = typeof project?.title === 'string' ? project.title.trim() : ''
   const segmentText = joinSegmentTexts(project?.segments)
 
-  const rawTitle = String(publish.title || projectTitle || sourceText || '').trim()
+  // 标题只认**显式标题**（用户填的 publish.title，或项目里独立存在的 title）。
+  //
+  // ⛔ 2026-10-18 起**不再**回退到 sourceText：那是本期修的原始缺陷
+  //    （标题 = 正文前 N 字）。此函数是四条入口（视频创作 / 结果页 / 历史一键发布 /
+  //    播客）共用的唯一提取点，所以这一处不改就等于缺陷换个入口继续存在。
+  //    无显式标题 ⇒ 返回空串，由发布页的 noTitleHint + 发布前校验把用户拦到「请填标题」，
+  //    比自动塞一段正文切片诚实（用户根本没写标题这件事必须被暴露，不能被填充掩盖）。
+  const rawTitle = String(publish.title || projectTitle || '').trim()
   const rawContent = String(publish.content || sourceText || segmentText || '').trim()
   const tags = normalizePublishStringList(publish.tags)
   const videoPath = typeof project?.videoPath === 'string' ? project.videoPath.trim() : ''

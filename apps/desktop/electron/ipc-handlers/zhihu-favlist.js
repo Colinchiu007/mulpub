@@ -21,6 +21,8 @@ const ZhihuFavlistService = require('../services/zhihu-favlist-service')
 const BatchRateController = require('../services/batch-rate-controller')
 const { classifyZhihuUrl, buildUnifiedFavItems, normalizeFavItem } = require('../services/zhihu-fav-core')
 const credential = require('../services/zhihu-credential')
+// 改写 payload 注入桌面「模型设置」默认 llm（Python /aggregation/rewrite 只读 env 会误报 LLM_KEY_MISSING）
+const { applyLlmToBody } = require('../services/llm-runtime-config')
 
 /** 进行中批量任务的取消标记（单例：同类型任务同时只允许一个） */
 const activeBatches = { collect: null, rewrite: null, favBatch: null }
@@ -55,7 +57,7 @@ function rememberEntryMeta (url, meta) {
  * }} deps
  */
 function registerHandlers (ipcMain, deps) {
-  const { store, urlCollector, pythonBridge, log, rateControllerFactory } = deps
+  const { store, urlCollector, pythonBridge, log, rateControllerFactory, modelProviderManager } = deps
   const logger = log || { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} }
   const svc = new ZhihuFavlistService({ log: logger })
   // rateControllerFactory：测试注入快速控制器（跳过真实 8s 延迟）；生产用默认参数
@@ -142,13 +144,16 @@ function registerHandlers (ipcMain, deps) {
     try {
       if (!arg || !Array.isArray(arg.contents)) return { code: -2, message: '缺少内容列表' }
       if (activeBatches.rewrite) return { code: -3, message: '已有批量改写任务进行中' }
+      const resolved = applyLlmToBody({}, modelProviderManager, logger)
+      if (resolved.shortCircuit) return resolved.shortCircuit
+      const llm = resolved.body.llm
       const signal = { cancelled: false }
       activeBatches.rewrite = signal
       const ctrl = makeController({ baseIntervalMs: 3000, jitterMs: 2000 })
       const r = await ctrl.run(arg.contents, async (item) => {
-        const res = await pythonBridge.requestBackend('POST', '/aggregation/rewrite', {
-          content: item.content, style: arg.style || '轻松易懂', length: arg.length || 'keep',
-        })
+        const body = { content: item.content, style: arg.style || '轻松易懂', length: arg.length || 'keep' }
+        if (llm) body.llm = llm
+        const res = await pythonBridge.requestBackend('POST', '/aggregation/rewrite', body)
         const ok = res && res.result_content
         return { ok: Boolean(ok), data: res, retryable: false }
       }, {
@@ -254,12 +259,11 @@ function registerHandlers (ipcMain, deps) {
     return sanitizeDiagText(msg)
   }
 
-  async function rewriteOne (pythonBridge, content, style) {
+  async function rewriteOne (pythonBridge, content, style, llm) {
     let res
     try {
-      res = await pythonBridge.requestBackend('POST', '/aggregation/rewrite', {
-        content, style: style || '轻松易懂', length: 'keep',
-      })
+      const body = { content, style: style || '轻松易懂', length: 'keep', ...(llm ? { llm } : {}) }
+      res = await pythonBridge.requestBackend('POST', '/aggregation/rewrite', body)
     } catch (e) {
       return { error: summarizeRewriteError(e) }
     }
@@ -280,6 +284,8 @@ function registerHandlers (ipcMain, deps) {
       const signal = { cancelled: false }
       activeBatches.favBatch = signal
       const { urlCollector, pythonBridge, imageLocalizer } = deps
+      // 默认 llm 只解析一次；解析不到不阻断采集编排（改写失败仍回退原文）
+      const rewriteLlm = applyLlmToBody({}, modelProviderManager, logger).body.llm
       const forceRecollect = arg.forceRecollect === true
       // QM-6 M4 修复：消费渲染层传来的 collectedUrls（collected_items 的 sourceUrl 全集），
       // 与进程内 knownEntryMeta 取并集——knownEntryMeta 重启即失，跨会话去重靠它兜底
@@ -373,7 +379,7 @@ function registerHandlers (ipcMain, deps) {
         let rewritten = null
         let rewriteError
         try {
-          const r1 = await rewriteOne(pythonBridge, result.content, arg.rewriteStyle)
+          const r1 = await rewriteOne(pythonBridge, result.content, arg.rewriteStyle, rewriteLlm)
           if (r1 && r1.error) rewriteError = r1.error
           else if (typeof r1 === 'string' && r1) rewritten = r1
         } catch (e) {
