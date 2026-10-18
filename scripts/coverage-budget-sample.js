@@ -70,17 +70,37 @@ function buildProvenance(rows, meta) {
   };
 }
 
+/**
+ * 「在飞」与「漏样」是两件事，必须分开数（2026-10-19，change: coverage-budget-inflight）。
+ *
+ * 现场：`--limit=60` 连续三次以「有 8~9 趟活跃作业取不到时长 —— 这是取数漏样…先修采集再谈预算」
+ * rc=2 拒绝；逐 run 取证后那 8~9 趟**全部是 queued / in_progress**（还没跑完，本来就没有
+ * completed_at），同一窗口里「已完成却无时长」的真漏样是 **0 趟**。
+ * 旧口径把两者混成一格 ⇒ 只要仓库上有 CI 在跑就永远拒绝采样，预算常量于是**永远调不了**。
+ * 这不是 fail-closed，是把「还没观测到」混同成「观测失败」。
+ *
+ * 反向**不许**借这条放宽：`completed` 却无时长仍是漏样，照样阻断 ——
+ * 否则漏样会被读成「没有长尾」，那才是这一格原本要防的形态。
+ */
+function isInFlight(row) {
+  return Boolean(row && row.status && row.status !== 'completed');
+}
+
 function summarize(rows) {
   const list = rows || [];
   const skipped = list.filter((r) => r && r.concl === 'skipped').length;
   const active = list.filter((r) => r && r.concl !== 'skipped');
-  const timed = active.filter((r) => typeof r.min === 'number' && r.min > 0);
-  const noDuration = active.length - timed.length;
+  const inFlight = active.filter(isInFlight).length;
+  const settled = active.filter((r) => !isInFlight(r));
+  const timed = settled.filter((r) => typeof r.min === 'number' && r.min > 0);
+  // noDuration 只描述**已跑完却没读到时长**的漏样；在飞单独占 inFlight 一格。
+  const noDuration = settled.length - timed.length;
   const succ = timed.filter((r) => r.concl === 'success').map((r) => r.min).sort((a, b) => a - b);
   return {
     rows: list.length,
     skipped,
     active: active.length,
+    inFlight,
     noDuration,
     withDuration: timed.length,
     samples: succ.length,
@@ -107,15 +127,40 @@ function collect(maxRuns) {
     }
     const j = jobs.find((x) => x.name === JOB_NAME);
     if (!j) { missingJob++; continue; }
-    // 取不到时长也要**记进样本表**（min=null），由 summarize 报成 `取不到时长` ——
+    // 取不到时长也要**记进样本表**（min=null），由 summarize 分档报出 ——
     // 在这里 continue 掉会让"漏样"与"没有长尾"在现场同形。
+    // status 必须一起带上：没有它，"在飞（还没跑完）"与"跑完了却没时长"在数据层就分不开，
+    // 而这两类的处置完全相反（前者不算漏样、后者必须阻断）。
     const has = Boolean(j.started_at && j.completed_at);
     rows.push({
       run: r.databaseId, event: r.event, concl: j.conclusion, attempt: j.run_attempt,
+      status: j.status,
       min: has ? +(((new Date(j.completed_at) - new Date(j.started_at)) / 60000).toFixed(1)) : null,
     });
   }
   return { rows, runsListed: runs.length, probeErrors, missingJob };
+}
+
+/**
+ * 退出码决策的**单一真源**（2026-10-19，change: coverage-budget-inflight）。
+ *
+ * 为什么抽成纯函数：上一版的阻断判断是 main() 里的一行 `if (sum.noDuration > 0)`，
+ * 而锁只能对它做正则结构断言 —— 实测 `if (false && sum.noDuration > 0)` 这种架空写法
+ * **完全逃过**结构锁（M3 变异反证当场没红，见 openspec 记录的「NOT_CAUGHT 留痕」段）。
+ * 把决策抽出来之后，"漏样到底阻不阻断"变成可被行为断言钉死的形状，
+ * 而不是一句能被短路符绕过的条件。
+ *
+ * 分档语义：
+ *   2 = 采集不可信（probe 失败 / **已跑完**却无时长的真漏样）
+ *   1 = 采到了但零成功样本（"没采到"不是"没有长尾"）
+ *   0 = 可用于调预算
+ * `inFlight` **不参与**任何一档：在飞作业还没跑完，它不是漏样，也不是样本。
+ */
+function refusalCode(sum, probeErrors) {
+  if (probeErrors > 0) return 2;
+  if (sum && sum.noDuration > 0) return 2;
+  if (!sum || !sum.hasData) return 1;
+  return 0;
 }
 
 function main(argv) {
@@ -164,20 +209,24 @@ function main(argv) {
   console.log('[COVERAGE-BUDGET] workflow=' + WORKFLOW_FILE + ' repo=' + REPO +
     ' runs_listed=' + got.runsListed + ' 有该作业=' + sum.rows +
     ' 按设计跳过=' + sum.skipped + ' 活跃=' + sum.active +
+    ' in_flight=' + sum.inFlight +
     ' 取不到时长=' + sum.noDuration +
     ' 有时长=' + sum.withDuration + ' 无该作业=' + got.missingJob +
     ' probe_errors=' + got.probeErrors + ' ceiling=' + ceilingMinutes);
   console.log('[COVERAGE-BUDGET] 候选 provenance = ' + JSON.stringify(built));
-  if (got.probeErrors > 0) {
+  // 决策只认 refusalCode（单一真源）；这里仅负责把对应的话说清楚。
+  const refusal = refusalCode(sum, got.probeErrors);
+  if (refusal === 2 && got.probeErrors > 0) {
     console.error('[COVERAGE-BUDGET] 采集不完整（probe_errors>0），本次读数不得用于调预算');
     return 2;
   }
-  if (sum.noDuration > 0) {
+  if (refusal === 2) {
     console.error('[COVERAGE-BUDGET] 有 ' + sum.noDuration +
-      ' 趟活跃作业取不到时长 —— 这是取数漏样，不是"没有长尾"，先修采集再谈预算');
+      ' 趟**已跑完**却取不到时长 —— 这是取数漏样，不是"没有长尾"，先修采集再谈预算' +
+      '（在飞 ' + sum.inFlight + ' 趟不计入此列：它们还没跑完，不是漏样）');
     return 2;
   }
-  if (!sum.hasData) {
+  if (refusal === 1) {
     console.error('[COVERAGE-BUDGET] 零样本：这是"没采到"，不是"没有长尾"');
     return 1;
   }
@@ -187,6 +236,8 @@ function main(argv) {
   return 0;
 }
 
-module.exports = { buildProvenance, summarize, collect, main, JOB_NAME, WORKFLOW_PATH };
+module.exports = {
+  buildProvenance, summarize, collect, main, refusalCode, JOB_NAME, WORKFLOW_PATH,
+};
 
 if (require.main === module) process.exit(main(process.argv.slice(2)));

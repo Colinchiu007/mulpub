@@ -1,0 +1,38 @@
+{
+  "sha": "d65f0b76fc53379d4b2c0e9adec7801f8853a452",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 129 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 129,
+    "fileCount": 4,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "- **两件事，一件是放宽、一件是修工具**。用户 2026-10-19 授权放宽该预算常量后先做复测，结果发现：① **60 已经欠了**——干净窗口里 success 53 条、尾部 40.6 / 40.7 / 40.8 / 41 / 41.3 / **43.3**（p90 41.4），`ceil(43.3 × 1.5) = 65 > 60`，即 60 当时已低于本仓自己那条 ×1.5 规则，只是真源里还记着旧窗口的 39.7 所以没红；② **采样器永远拒绝采样**——`--limit=60` 连续三次 `rc=2` 报「有 8~9 趟活跃作业取不到时长 ⇒ 取数漏样，先修采集再谈预算」，逐 run 取证后那 8~9 趟**全部是 queued / in_progress**，同窗口「已完成却无时长」的真漏样是 **0 趟**。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "aa0691eb27b2d35d75c96bb7bc3775e8b16fe831577c9b1c658659e199374440",
+  "decidedAt": "2026-10-18T18:04:46.319Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

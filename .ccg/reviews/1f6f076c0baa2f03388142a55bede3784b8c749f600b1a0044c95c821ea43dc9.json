@@ -1,0 +1,39 @@
+{
+  "sha": "78e78d53aeb340cc365c648f3fb51c0455e871d9",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 74 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 74,
+    "fileCount": 3,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "用户 2026-10-19 明确授权放宽该预算常量（原话「要」）。但真正动手前先做复测，因为第 7 节已挂出",
+      "- 抬到 65 的代价：该作业最坏耗时上界从 60 变 65 分钟，PR 侧排队随之变长。由用户 2026-10-19 授权（原话「要」）。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "1f6f076c0baa2f03388142a55bede3784b8c749f600b1a0044c95c821ea43dc9",
+  "decidedAt": "2026-10-18T18:05:24.737Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}
