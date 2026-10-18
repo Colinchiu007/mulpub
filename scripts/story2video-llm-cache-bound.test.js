@@ -24,7 +24,7 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
 
-const SRC = path.join(__dirname, '..', 'electron', 'services', 'story2video-image-retry.js')
+const SRC = path.join(__dirname, '..', 'apps', 'desktop', 'electron', 'services', 'story2video-image-retry.js')
 
 function readSrc () { return fs.readFileSync(SRC, 'utf8') }
 
