@@ -40,7 +40,7 @@ function makeStore (initial) {
 
 const LOG = { info () {}, warn () {}, error () {}, notify () {} }
 
-/** 13 个数据块齐全的最小合法 payload（结构对齐 ops-center 的 bootstrap 形态） */
+/** 14 个数据块齐全的最小合法 payload（结构对齐 ops-center 的 bootstrap 形态） */
 function fullPayload (overrides = {}) {
   const base = {
     announcements: [],
@@ -56,6 +56,7 @@ function fullPayload (overrides = {}) {
     pipelineOptions: { publish: { visible: true } },
     appMenu: { items: [{ key: 'home', sort_order: 1 }] },
     contentCategories: [],
+    storyTextLimit: { story2video: { maxChars: 12000, warnPercent: 90 } },
     synced_at: '2026-10-07T10:00:00Z',
     config_version: 42,
     config_hash: computeConfigHash({}),
@@ -65,7 +66,7 @@ function fullPayload (overrides = {}) {
 }
 
 describe('computeConfigHash（design §1.2）', () => {
-  it('只由 13 个数据块计算，synced_at/config_version/config_hash/signature 全部不参与', () => {
+  it('只由 14 个数据块计算，synced_at/config_version/config_hash/signature 全部不参与', () => {
     const a = fullPayload()
     const b = fullPayload({
       synced_at: '2026-10-08T10:00:00Z',
@@ -112,26 +113,35 @@ describe('computeConfigHash（design §1.2）', () => {
     }
   })
 
-  it('13 个数据块与契约逐字一致', () => {
+  it('14 个数据块与契约逐字一致', () => {
     expect(RUNTIME_BLOCKS).toEqual([
       'announcements', 'update_policy', 'content_policy', 'feature_flags',
       'platform_defs', 'content_templates', 'keyword_watchlist',
       'rewrite_strategies', 'rewrite_hard_constraints', 'rewrite_ai_taste_map',
-      'pipelineOptions', 'appMenu', 'contentCategories',
+      'pipelineOptions', 'appMenu', 'contentCategories', 'storyTextLimit',
     ])
   })
 })
 
 describe('computeConfigHash 跨端固定向量（与 ops-center test_runtime_resilience_api.py::test_config_hash_pinned_vectors 同源）', () => {
   // 契约锁：两端任一改算法（canonical JSON 细节 / 键集合 / 截断位数）或改块名，本块立即红。
-  // 服务端固定向量（Python 侧同一组常量）：
-  //   compute_config_hash({})                            == "29f1096e3e93eaaf"
-  //   compute_config_hash({"announcements": []})          == "f30e01b53ec6b839"
-  //   compute_config_hash({"announcements":[{"title":"公告"}]}) == "fdbebf95ae223dfe"
+  // 服务端固定向量（Python 侧同一组常量，2026-10-18 storyTextLimit 13→14 后重新锚定，
+  // 已用服务端实现独立算过并与本实现逐字核对一致）：
+  //   compute_config_hash({})                            == "f559cffbd7fc2bcf"
+  //   compute_config_hash({"announcements": []})          == "301dd86b76646d9f"
+  //   compute_config_hash({"announcements":[{"title":"公告"}]}) == "b0d4bb463f2b9776"
   it('三个固定向量逐字一致', () => {
-    expect(computeConfigHash({})).toBe('29f1096e3e93eaaf')
-    expect(computeConfigHash({ announcements: [] })).toBe('f30e01b53ec6b839')
-    expect(computeConfigHash({ announcements: [{ title: '公告' }] })).toBe('fdbebf95ae223dfe')
+    expect(computeConfigHash({})).toBe('f559cffbd7fc2bcf')
+    expect(computeConfigHash({ announcements: [] })).toBe('301dd86b76646d9f')
+    expect(computeConfigHash({ announcements: [{ title: '公告' }] })).toBe('b0d4bb463f2b9776')
+  })
+
+  it('新增块 storyTextLimit 确实进入 hash：与「全 null 14 块」算出不同值', () => {
+    // 服务端同一 payload 的 14 块值为 9f096dda42d2fe56（已逐字核对）；这里按 Lead 建议只锁
+    // 「块清单变化 ⇒ hash 变化」这一行为，不把该值写成第二处需随块清单维护的硬编码。
+    const withStoryTextLimit = computeConfigHash({ storyTextLimit: { story2video: { maxChars: 10000, warnPercent: 90 } } })
+    expect(withStoryTextLimit).not.toBe(computeConfigHash({}))
+    expect(withStoryTextLimit).toMatch(/^[0-9a-f]{16}$/)
   })
 
   it('固定向量不受键序影响（canonical JSON 键字典序）', () => {
@@ -196,7 +206,7 @@ describe('validateSeedPayload（design §4.4 CI 校验 7 条）', () => {
     expect(validateSeedPayload(seed, { bytes: Buffer.byteLength(JSON.stringify(seed), 'utf8') })).toEqual({ errors: [], warnings: [] })
   })
 
-  it('第 1 条：13 个数据块缺任一即失败', () => {
+  it('第 1 条：14 个数据块缺任一即失败', () => {
     const seed = seedOf()
     delete seed.keyword_watchlist
     seed._meta.config_hash = computeConfigHash(seed)
@@ -289,7 +299,7 @@ describe('validateSeedPayload（design §4.4 CI 校验 7 条）', () => {
 })
 
 describe('SEED_BLOCK_TYPES', () => {
-  it('13 个块的类型与运行时消费口径一一对应（逐条对着 applyRuntime 推导，判错会误拦合法种子）', () => {
+  it('14 个块的类型与运行时消费口径一一对应（逐条对着 applyRuntime 推导，判错会误拦合法种子）', () => {
     expect(SEED_BLOCK_TYPES).toEqual({
       announcements: 'array',
       update_policy: 'object-or-null',
@@ -304,6 +314,7 @@ describe('SEED_BLOCK_TYPES', () => {
       pipelineOptions: 'object-or-null',
       appMenu: 'object-or-null',
       contentCategories: 'array-or-object',
+      storyTextLimit: 'object-or-null',
     })
     expect(Object.keys(SEED_BLOCK_TYPES).sort()).toEqual([...RUNTIME_BLOCKS].sort())
   })

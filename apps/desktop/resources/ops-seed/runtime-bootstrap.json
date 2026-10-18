@@ -1,7 +1,7 @@
 {
   "_meta": {
     "config_version": 0,
-    "config_hash": "1e8032303f210820",
+    "config_hash": "57bb9a2bbaf30a87",
     "exported_at": "2026-10-07T15:38:21.467Z",
     "source": "bootstrap:placeholder (发版前须用 --url 从生产运营中心重新导出)"
   },
@@ -80,5 +80,6 @@
       }
     ],
     "count": 10
-  }
+  },
+  "storyTextLimit": null
 }

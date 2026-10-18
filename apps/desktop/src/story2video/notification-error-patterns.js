@@ -29,7 +29,10 @@ const EMPTY_RESULT_PATTERN = /(repeatedly returned no result|多次未返回结�
 // 供应商 API Key 无效/已过期（区别于缺失：model_api_key_required 只覆盖未配置/未找到）
 const API_KEY_INVALID_PATTERN = /(api[ _-]?key.{0,24}(?:invalid|expired|失效|过期|无效|错误|不正确)|(?:invalid|expired)\s+api[ _-]?key|invalid\s+api\s*key|api\s*key\s*已?(?:过期|失效|无效)|鉴权失败|认证失败|密钥(?:无效|错误|过期)|authenticat|credential|(?:token|凭证).{0,16}(?:invalid|expired|无效|失效))/i
 const TEXT_ONLY_PATTERN = /(只支持\s*(?:text|文案)|text\s*mode|text input only)/i
-const TEXT_TOO_LONG_PATTERN = /(超过\s*6000|最多\s*6000|6000.*(?:字符|character)|text.*(?:too long|exceeds))/i
+// 字数上限可变（story-text-limit-control）：默认值 6000 → 10000 且可由运营中心下发覆盖。
+// 旧正则把 6000 写死在字面量里，上限变成 10000 后「超过 10000」会判为不匹配、错误归因落空
+// （PRD §7.8）。改为 4-6 位数字通配，6000 / 10000 两档都命中（两档均有测试锁定）。
+const TEXT_TOO_LONG_PATTERN = /(超过\s*\d{4,6}|最多\s*\d{4,6}|\d{4,6}.*(?:字符|character)|text.*(?:too long|exceeds))/i
 const PREVIEW_MISSING_PATTERN = /(未返回.*可预览.*视频|preview.*(?:missing|video)|no previewable video)/i
 const VOICE_INVALID_PATTERN = /(voice\s+(?:id\s+)?(?:wrong|invalid|not\s+found|does\s+not\s+exist|unavailable|missing)|(?:invalid|unsupported)\s+voice|voice_id.*(?:invalid|wrong|not\s+found|not\s+exist|unsupported)|cloned?\s+voice.*(?:not\s+found|not\s+available|unavailable)|voice.*(?:not\s+found|does\s+not\s+exist|invalid|unavailable)|\u97f3\u8272.*(?:\u65e0\u6548|\u4e0d\u5b58\u5728|\u5931\u6548|\u9519\u8bef|\u4e0d\u5b58\u5728)|\u5f53\u524d\u8d26\u53f7.*\u97f3\u8272|\u8d26\u53f7.*\u97f3\u8272|\u5c5e\u4e8e.*\u5176\u4ed6.*\u8d26\u53f7)/i
 const PIPELINE_CONCURRENCY_PATTERN = /(流水线正在(?:后台)?运行|最多同时运行|同时运行.*条|满负荷运行|concurrency limit)/i

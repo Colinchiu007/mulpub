@@ -638,6 +638,27 @@ class ContentCategory(Base):
     updated_by = Column(String(100), default="")
 
 
+class StoryTextLimit(Base):
+    """故事讲述文案字数控制 — 运营中心「字数控制」页维护，bootstrap 下发 storyTextLimit 块（2026-10-18）。
+
+    scope 与 services/story_text_limit_service.py 的 CATALOG 一一对应（本轮只有 story2video）；
+    它是跨端契约键，一旦发布不得改名（桌面端按键名读取，改名等于该 scope 静默失效）。
+
+    enabled=0 的 scope **整键不下发**（而不是下发 0/false）：
+    「块里没有这个 key = 用内置默认」是桌面端唯一的单一判据。
+    """
+
+    __tablename__ = "story_text_limits"
+
+    scope = Column(String(64), primary_key=True)  # 如 story2video
+    max_chars = Column(Integer, nullable=False, default=10000)  # 字数上限（Unicode 码点）
+    warn_percent = Column(Integer, nullable=False, default=90)  # 预警阈值百分比（整数，禁用浮点）
+    enabled = Column(Integer, nullable=False, default=1)  # 0 = 该 scope 不下发
+    note = Column(String(200), nullable=True)
+    updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+    updated_by = Column(String(100), nullable=True)
+
+
 class RewriteStrategy(Base):
     """改写策略模板 — 运营端管理桌面端改写引擎的策略配置。"""
 

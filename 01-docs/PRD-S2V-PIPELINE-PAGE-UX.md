@@ -788,7 +788,17 @@ loadPipelineOptions():
 1. **数值一律 clamp，不抛错**：`UiSlider.normalize()` 与 `setS2VConfigValue` 组合保证越界值回落区间内；`Infinity` / `NaN` / 空串一律视为非法并回落默认显示值。
 2. **运营显隐优先于用户态**：`s2vOptionVisible(key)` 为 false 时该字段**不渲染**，但其既有值保留在 `s2vConfig` 中（§9.9 行为），提交时不参与校验、仍随配置持久化 —— 防「隐藏即丢数据」。
 3. **枚举值非法回落**：`UiSelect` 的 `v-model` 值不在 `options` 中时显示为浏览器默认首项，不伪造合法值；由 §2.1.1 启动前置校验（`PIPELINE_MODEL_REQUIREMENTS_MISSING`）兜底。
-4. **字符计数上限**：`MAX_STORY2VIDEO_TEXT_CHARACTERS = 6000`；`textarea` 设 `maxlength` 禁止粘贴溢出；计数为**实时 `length`**，无 debounce。
+4. **字符计数上限（2026-10-18 修订：6000 → 10000，并改为运营可配）**：
+   - 内置默认值 `MAX_STORY2VIDEO_TEXT_CHARACTERS = 10000`。该常量自此只表示**默认值**，不是硬上限。
+   - 生效上限由运营中心「字数控制」经签名运行时下发块 `storyTextLimit.story2video.maxChars` 决定
+     （区间 1000~50000，默认 10000）；预警阈值 `warnPercent`（区间 50~99，默认 90）驱动三档色阶。
+     块缺失、为 `null`、字段非整数或越界时**一律回落内置默认**，不阻塞创作。
+     完整规则见 `PRD-STORY-TEXT-LIMIT-CONTROL-2026-10-18.md`。
+   - 计数口径是 **Unicode 码点**（`countUnicodeCodePoints`，等价 `Array.from(str).length`），
+     不是 UTF-16 `length` —— 否则 emoji 会按 2 计，用户在半数预算处就被截断。计数**实时**，无 debounce。
+   - **不设 `maxlength`**：`maxlength` 按 UTF-16 计且会静默丢弃粘贴内容，与「码点计数 + 显式告知被截断」
+     的产品语义冲突。超限走 `@input` → 按码点截断 → 弹 `story2video.text_too_long`（`{max}` 为生效上限）。
+   - 截断之外仍保留启动前最后一道闸：码点数 > 生效上限则拒绝启动（防带文案预填、批量创作等旁路绕过）。
 5. **写路径唯一**：详情页子组件（`S2vConfigPanels.vue`）与父组件共享同一 `s2vConfig` / `s2vOutputConfig` 响应式对象引用，写操作全部经 `v-model` 直绑；**不新增第二数据源、不新建 store、不整体替换对象**（引用稳定性由 `cloneForIpc` / `applyS2VPipelineDefaults` / `pickS2VConfigProfileFields` 三处消费点依赖）。`s2vConfig` 的 `deep: true` watcher 与 `scheduleS2VLastOptionsSave()` 节流语义**逐字节保持不变**。
 6. **折叠面板展开态**：走既有 `ui.expandedGroups` 持久化通道，读取失败 → 回落该组默认展开；不因持久化异常阻塞渲染。
 7. **历史背景音乐存在性门禁（2026-10-17）**：历史路径（`bgmPath` 非空且不在素材库）必须经主进程 `story2video:bgm-library-status` 只读核验；`missing` / `unusable` 时 `canStartPipeline=false` 且 `pipelineBlockedReason` 给出 `bgmLost` / `bgmUnusable`；`unknown`（通道不可用/浏览器态）**不得阻断**（失败开放）。核验合同与 compose 的 `resolveReadableMediaFile(path,{kind:'bgm'})` 同源，禁止渲染层自行猜测文件状态。详见 `PRD-S2V-BGM-VOICE-SECTION-LEGACY-REPAIR-2026-10-17.md`。

@@ -1,5 +1,5 @@
 {
-  "total": 153,
+  "total": 156,
   "routes": [
     {
       "path": "/api/auth/change-password",
@@ -1815,6 +1815,45 @@
     },
     {
       "path": "/api/v1/snapshots/{snapshot_id}/restore",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/story-text-limits",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "get_current_user"
+      ],
+      "auth_kinds": [
+        "session"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/story-text-limits",
+      "methods": [
+        "PUT"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/story-text-limits/reset",
       "methods": [
         "POST"
       ],

@@ -14,6 +14,63 @@
 - **未闭合**：头条视频选择器需真机 DOM 取证；小红书视频草稿链未实现；视频号登录失效属账号域；快手发布时 toast 未捕获；抖音「转码中」竞态。
 - 文档：`01-docs/PRD-PUBLISH-FAILURE-ATTRIBUTION-2026-10-18.md`、`01-docs/BUGFIX-PUBLISH-FAILURES-6PLATFORMS-2026-10-18.md`、`openspec/records/publish-failures-6.md`。
 
+# [未发布] feat(create): 故事讲述文案上限 6000 → 10000，并接入运营中心新增「字数控制」（story-text-limit-control）
+
+## 需求与结论
+- **用户诉求**：视频创作 → 故事讲述流水线（`story2video-compose`）的文案输入框上限从 **6000** 改为 **10000**；
+  并核查运营中心是否有相应设置可控——**没有**，就在运营中心菜单里加一项「字数控制」。
+- **现状核查（逐项排除，均有代码级证据）**：`选项控制` 管的是流水线**表单字段**的显隐/默认值
+  （`option_key` 受 `^[a-z]+\.[a-zA-Z_][a-zA-Z0-9_]*$` 与 group 白名单双重校验，放不进「一个全局数值上限」）；
+  `项目参数` 走 `config_items` → `/api/v1/sync/{project}/params` **写 YAML 文件**，**不参与运行时下发**、桌面端读不到；
+  `功能开关` / `桌面端功能开关` 是布尔/枚举语义，塞数值属语义错位。⇒ 必须新增。
+
+## 跨端契约（新增签名下发块）
+- 新块名 `storyTextLimit`，类型 `object-or-null`，形状 `{ "story2video": { "maxChars": <int>, "warnPercent": <int> } }`。
+- **只允许整数**：两端 `config_hash` 的 canonical 序列化都会对非整数/非有限数 fail-closed
+  （服务端 `assert_integer_numbers`、客户端 `assertNoFractionalNumbers`）；一旦混入 `0.9` 这类值，
+  `config_hash` 降级为空串、`config_version` 归零，全量客户端永远判「hash 未变」而看板上的「是否生效」从此失真。
+  因此预警阈值用**百分比整数**表达（`warnPercent`），这是本轮唯一被否决的「更直观」选型（`0.9` 浮点）。
+- **两端 `RUNTIME_BLOCKS` 白名单必须成对改**：13 → 14。漏一侧 ⇒ 两端 `config_hash` 不同 ⇒ 客户端 ACK 永不被认可。
+  两条数量断言（服务端 pytest / 客户端 vitest）互为锁。
+- 该块位于 `sign_runtime_payload` 的 `payload` 内层，**在 Ed25519 签名覆盖范围内**（不是签名后追加）。
+
+## 桌面端
+- `MAX_STORY2VIDEO_TEXT_CHARACTERS` 由 6000 改为 **10000**，语义收窄为「内置默认值」，
+  真实上限由运行时下发决定；计数分母 / 截断阈值 / 启动校验 / 批量占位符 / 切换流水线预填截断**统一引用生效值**。
+- 新增纯函数模块 `story-text-limit.js`：`resolveStory2VideoTextLimit(runtimeState)` 逐字段独立回落
+  （`null` / 非对象 / 非整数 / 越界都只让**该字段**回落默认，绝不抛错、绝不阻塞创作），并给出 `source`。
+- 三档色阶由固定 `max*0.9` 改为 `warnPercent` 驱动（默认 90 ⇒ 与历史行为逐值一致，`floor` 取界不变）。
+- `TEXT_TOO_LONG_PATTERN` 原先把上限写死在正则里（`超过\s*6000|最多\s*6000`），上限可配后会**把「超过 10000」判为不匹配**
+  ⇒ 改为数字通配，并补测试锁住 6000/10000 两档同时命中。
+- **主进程还有第二处硬上限，本轮一并接线**：`story2video-text-config.js` 的
+  `MAX_STORY2VIDEO_TEXT_UNICODE_CHARS = 6000` 被 `story2video-batch-queue.js` 的批量校验消费。
+  只改渲染端的结果是「前端放行 10000、主进程批量队列仍按 6000 拒绝」，**而且两侧单测全绿**（各测各的）。
+  现改为 `setStoryTextLimitProvider` 运行时读取（`phase1-context.js` 接线 `opsCenterSync.getRuntimeState().storyTextLimit`），
+  未接线 / provider 抛错 / 非法值一律回落 10000。
+- **`publish.content` 的耦合陷阱（会表现为「运营配置合法、启动失败」）**：该字段默认 fallback 就是脚本正文，
+  而字段级 `textValue()` 上限 20000 且**超限即 throw**。运营把 `maxChars` 配到 20000 以上时，
+  脚本先过字数闸再被 `publish.content 超过 20000` 拦。处置：该字段闸取 `Math.max(20000, textLimit)` ——
+  默认 10000 时仍是 20000（**与改动前逐字节一致，不松绑发布描述**），仅当运营显式调过 20000 才跟随。
+- **顺带修掉一处用户可见存量缺陷**：`CreateView.vue` 模板原写
+  `{{ story2videoTextCharacterCount }}/{{ MAX_STORY2VIDEO_TEXT_CHARACTERS }} 字符`，而该常量只是模块级 `import`，
+  不在 Vue 实例的 render proxy 上（Vue 3 只解析 `data`/`computed`/`methods`/`props`/`$setup` + `allowedGlobals`）
+  ⇒ 计数行实际渲染成 `1234/ 字符`、批量面板渲染成 `每条最多 undefined 字`。
+  现改为渲染 `story2videoTextMaxChars` 计算属性（并删除所有同名别名，避免读者误以为它是常量）。
+
+## 运营中心
+- 新增「字数控制」页（`/story-text-limit`，仅管理员）：按 `scope` 列表，本轮一行「故事讲述」，
+  可改字数上限（1000~50000，默认 10000）、预警阈值（50~99，默认 90）、启用与备注，支持恢复默认。
+- 后端新增 `story_text_limits` 表 + service + router；沿用 `app_menu_service` 的既有决策：
+  **写入口 fail-closed（未知 scope / 越界 / 非整数一律 400）、读出口 fail-open（未知 scope 忽略）**，
+  并带「目录欠账只补不覆盖」的 provision —— 缺这一步时新 scope 会在运营端永久消失而客户端照常显示。
+- 页面与提示语明确「保存后桌面端在**下一次配置同步**时生效（最长 24h，可手动同步）」，避免运营者反复保存以为没生效。
+
+## 文档
+- 新增 `01-docs/PRD-STORY-TEXT-LIMIT-CONTROL-2026-10-18.md`：现状核查表、契约三不可破、字段校验表、
+  三段流程（配置/下发/降级）、逐条功能逻辑（计数口径/三档色阶/截断/启动闸/预填/批量/刷新时机/错误识别）、
+  交互逻辑、显示项清单、提示文字清单、13 条边界、迁移兼容、非功能、10 条验收、测试矩阵、风险。
+- 修订 `01-docs/PRD-S2V-PIPELINE-PAGE-UX.md` §11.5 第 4 条：原文写着「`textarea` 设 `maxlength`」「计数为实时 `length`」，
+  **两处都与代码不符**（实际无 `maxlength`，且计数是 Unicode 码点 `Array.from().length`），本轮一并纠正并写清为什么不能改。
 # [未发布] fix(gates): 深度审查台账的 alt 形态白名单跟上生产方投影（ccg-alt-form-producer）
 
 - **当场行为探测推翻了「已修」的假设**：main 的 `AUDIT_ARTIFACT_RE` 只接受 `\d{8}T\d{6}(.\d{1,3})?Z`，而生产方（`ccg-review-decider` 的 `new Date().toISOString().replace(/[:.]/g, '')`）**删掉冒号与点、保留日期里的连字符** ⇒ 真实投影是 `2026-10-18T021638562Z`，实测 `RE.test(生产方文件名) = false`。也就是说判定记录一旦被写成 alt 形态，判据会把它当「不是审计产物」而整条跳过。
