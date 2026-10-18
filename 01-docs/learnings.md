@@ -1,4 +1,131 @@
-## 缓存空壳与漏斗守卫：空正文不得进改写链路（fix-collect-rewrite-empty-content，2026-10-18）
+## 任务详情页模型信息：先核实「信息有没有落盘」，再摆四个字段（s2v-result-model-info，2026-10-18）
+
+### lesson:display-needs-persisted-facts-not-runtime-facts
+
+**「页面上要显示 X」的第一问不是「X 在哪渲染」，而是「X 有没有被写进这个对象」。**
+
+现场：需求是历史记录任务详情页显示文本/语音/图片/视频四类模型。语音/图片/视频三类在
+`project.options`（`_safeOptions` 白名单）与 `segments[].*Meta`（provider 实际返回）里都有，
+照着摆就能显示。**文本模型没有**：`optimize` 阶段的 prompt-engine 一直返回 `model_used`，
+但 `story2video-stages.js` 的 `pairedScenes` 构造处不携带 `promptOptimizationMeta`，
+`Story2VideoProjectService._persistComposeArtifacts` 虽已定义该白名单字段却从不被填值
+⇒ 详情页恒为空。
+
+判据：接到「显示某信息」的需求，先沿**写入方**追一遍——这个字段在生产链路的哪一步被赋值？
+如果只在"用户手动触发"的分支里被写（本例 `regenerateScenePrompt` 才写 `promptOptimizationMeta`），
+那自动主路径就是断的。直接摆字段会交付一个"3/4 项恒空"的残缺功能，而且测试还全是绿的
+（因为空值分支也有"合理表现"）。
+
+### lesson:options-is-intent-metas-are-execution
+
+**同一个模型，`options` 是「用户选了谁」，`segments[].meta` 是「实际用了谁」——展示诊断信息要后者。**
+
+现场：`project.options.imageModel` 来自用户在下拉里的选择；`segments[].imageMeta.model`
+来自 provider 的返回值。两者在三种情况下会不一致：provider 忽略/改写 `model` 参数、
+多模态 provider 内部把请求路由到别的模型、`__resumeUseCurrentModels` 断点续跑时按当前设置重解析
+（`story2video-stages.js` 的 `useCurrentModels` 分支）。
+
+判据：展示"实际用了什么"时，segments meta 优先；options 只在 meta 缺失时兜底。
+同族推论：`model` 优先于 `provider`——用户问的是"哪个模型"，不是"接了哪家"；
+provider 仅在 model 缺失（老项目、provider 未返回）时兜底。
+
+### lesson:gate-on-the-intent-field-not-the-value-field
+
+**「用没用某能力」要门控意图字段，不能门控值字段——值字段会残留上一次的意图。**
+
+现场：视频模型的显隐，直觉写法是看 `videoProvider` 有没有值。但 `story2video-text-config.js`
+的 `videoConfig` 兼容旧扁平参数（`params.videoProvider`），且"用户曾选过 provider 后又把 mode
+切回 off"会留下非空 `videoProvider` ⇒ 只按值判断会把"没启用"显示成"启用了"。
+
+判据：显隐门控优先用**意图字段**（`videoMode` ∈ {`fixed`,`ai-judged`}），并确认该字段与
+权威判定同源（本例对齐 `pipeline-model-preflight.js` 的 video 能力需求：`off` 或其他模式
+不要求视频模型）。值字段只作为第二道闸（解析结果非空），两道都过才显示。
+
+### lesson:same-line-means-one-element-not-css-guessing
+
+**"放在格式同一行、放不下就折行"的正解是并进同一个元素，不是测宽度也不是媒体查询。**
+
+现场：需求明确「同一行里，放得下不用折行」。三种做法的差别：JS 测容器宽度再决定放哪一行
+（要监听 resize、要处理字体加载后的重排、边界值是猜的）；CSS 媒体查询猜断点
+（容器宽度 ≠ 视口宽度，侧边栏折叠就会失效）；把「格式」与模型摘要放进**同一个 `<p>`**
+用内联分隔符连接——浏览器天然按容器宽度折行，零 JS、零断点、零猜测。
+
+判据：需求说"同行、放不下折行"时，先问"这两个内容能不能本来是同一段文本"。
+能，就并元素；不能（比如要分别加 testid 或不同样式），才考虑嵌套 span——
+本例正是后者：`<span data-testid="video-format">` + 条件分隔符 + `<span data-testid="video-models">`，
+仍在一个 `<p>` 里，折行语义不变。
+
+### lesson:null-entry-crash-is-a-family-not-an-instance
+
+**修掉一处 `Cannot read properties of null` 时，同函数里的同族写法要一起修——它们是同一次疏漏。**
+
+现场：新增 `promptOptimizationMetaOf(i)` 时对 `null` entry 做了防御，跑测试却炸在
+`story2video-stages.js` 另一处：`typeof p === 'string' ? p : p.prompt || ...`
+（`optimizedPrompts` 映射）与 `prompt.prompt || ...`（`generateOneImage` 的 `promptText`）。
+三处形状逐字同型，都是"假设 optimize 结果项一定是对象"。
+
+判据：`typeof x === 'string' ? x : x.foo` 这个形状在整个文件里 grep 一遍再动手。
+本例修完后同族命中归零；`story2video-project-service.js` 的 `extractImageOptimizedPrompt`
+是否同族未逐处核对，已在 record 的遗留里点名——**同族扫描不做完就是留债，留债要写出来**。
+
+### lesson:cjk-baseline-is-file-matched-so-moving-code-breaks-it
+
+**CJK 硬编码基线按「文件路径」匹配：把含中文的代码从一个文件搬到另一个文件，会凭空造出「新增硬编码」。**
+
+现场：`ResultView.vue` 里的「格式: 」是既有硬编码（在 `locale-cjk-baseline.json` 里、历来如此）。
+为消 `check-max-lines` 把它所在的 `<p>` 抽成 `video-creation/ResultModelInfoRow.vue` 后，
+Gate 7 `--cjk` 报「渲染端新增 1 处硬编码中文字符串」——代码一字未改，只是换了文件。
+
+判据：
+1. **抽文件时顺手把被搬走的用户可见文案一并 locale 化**，而不是留着等基线炸。本例把「格式」
+   收口成 `create.story2video.modelInfo.format`（zh/en 成对），既符合「用户可见文案必须走 locale」，
+   也不必为它去改基线（改基线 = 给掩盖新增开口子，门禁明确禁止）。
+2. 反过来也成立：**基线按文件匹配意味着"文件重命名/拆分"本身就是一类会触发门禁的改动**，
+   与改了什么代码无关。做结构性拆分前，先扫一遍被搬代码里有没有在基线内的硬编码文案。
+3. 顺带一条同源形态：`locales/create/en.js` 加 5 行就顶到 `check-max-lines` 的 500 行上限
+   ⇒ locale 文件也是行数门禁的对象，加键时注释要克制（能一行说清的不要写三行）。
+
+### lesson:unit-test-green-is-not-build-green
+
+**renderer 侧新模块必须用 ESM `export`；「单测全绿」不构成「构建通过」的证据——那是另一层。**
+
+现场：本次把模型信息取值口径抽成 `views/video-creation/composables/useResultModelInfo.js`，
+顺手写成了 CommonJS 的 `module.exports = {...}`（与同目录 `electron/services/` 的习惯一致）。
+结果 41 条单测**全绿**，CI 的 `QG Unit Tests` 也 PASS，但 `build` job 炸了：
+
+```
+src/views/video-creation/ResultModelInfoRow.vue (2:9):
+"resolveModelSummaryParts" is not exported by
+"src/views/video-creation/composables/useResultModelInfo.js"
+```
+
+根因：**Vitest 有 CJS/ESM 互操作**（`import { x } from './cjs-module'` 能拿到 `module.exports.x`），
+而 **Rollup 不做互操作**。所以同一份代码在测试层完全正常，在构建层直接失败。
+更隐蔽的是：这个模块同时被 `electron/services/story2video-prompt-meta.js` 的 CJS require
+和 renderer 的 ESM import 消费——如果两边都用同一种模块格式，本来就不会有这个问题。
+
+判据：
+1. **`src/` 下的新模块一律 ESM**（`export`/`import`）；`electron/**` 下的保持 CJS require。
+   跨两侧共享的逻辑要先决定它长在哪儿，再决定模块格式——不要因为"顺手"就混用。
+2. 涉及 renderer 代码的 PR，**本地必须实跑一次 `pnpm run build:vue`**。
+   单测绿 ≠ 构建绿，CI 的 `QG Unit Tests` PASS 也不构成构建通过的证据（本次就是单元测试 PASS
+   的同时 build 红）。这条与 QM-1「不打包不提交」是同族：不同层抓不同类的错。
+3. 抽模块时如果只跑了 `vitest run <新测试文件>`，要额外问一句"这个文件被谁 import"——
+   被 renderer import 的就得按 ESM 验。
+
+### lesson:empty-state-parity-is-the-visual-regression-proof
+
+**零视觉回归的证据可以是 DOM 等价，不必等像素门禁。**
+
+现场：本次改的是视频信息区，最怕的是"四项全空时页面也变了"。
+用例直接断言 `data-testid="video-models"` 不存在、且 `video-format-models` 的文本
+`toBe("格式: MP4")`——即空态下 DOM 与改动前同形。这条同时是**测试先行时唯一通过的那条**
+（17 例首跑 16 红 1 绿，绿的就是它），它证明的是"契约本身没被破坏"，而不是"功能已实现"。
+
+判据：纯展示层改动的视觉风险，先用"空态 DOM 等价"锁死，再谈像素。
+本机缺 dev server 时不冒充跑像素门禁，把证据责任点名给 CI，但**不能因此说"视觉没问题"**——
+要说"零回归有行为级依据，像素差异的责任在 CI"。
+
 
 ### lesson:success-shape-is-not-content-shape
 

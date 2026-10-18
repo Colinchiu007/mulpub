@@ -37,6 +37,7 @@ const {
 } = require('./story2video-image-retry');
 const { classifyProviderFailure, TRANSIENT_MESSAGE_PATTERN } = require('./adapters/_base/provider-error');
 const { deriveStory2VideoAspectRatio } = require('./story2video-text-config');
+const { promptOptimizationMetaOf: pickPromptOptimizationMetaOf, optimizeItemPrompt } = require('./story2video-prompt-meta');
 const { resolveProviderDefaultModel } = require('./model-provider-manager');
 const { getProviderRunContext } = require('./provider-run-context');
 const modelCallScheduler = require('./model-call-scheduler');
@@ -3183,8 +3184,7 @@ function registerStory2VideoStages(pipelineEngine) {
                 return { index, success: true, path: null, videoPath: video.path, meta: { video: true } };
               }
             }
-            const promptText = typeof prompt === 'string' ? prompt : prompt.prompt || prompt.optimized_prompt || prompt.optimized;
-            const negativePrompt = resolveSceneNegativePrompt(context, stage, index);
+            const promptText = optimizeItemPrompt(prompt), negativePrompt = resolveSceneNegativePrompt(context, stage, index);
             // 方案层 2：从 scene_context 提取逐场景上下文块与锚点，供内容安全改写保留原文背景
             const sceneContext = resolveSceneContextForRewrite(context, index);
             if (inputMode === 'images' && inputImages[index] !== undefined) {
@@ -3503,6 +3503,7 @@ function registerStory2VideoStages(pipelineEngine) {
           promptTranslation: promptTranslationOf(i),
           // 视频优化词（2026-08-15）：视频场景持久化到分段 videoPrompt，供视频任务编辑页编辑/重新生成
           videoPrompt: videoByIndex.has(i) ? ((optimizedVideoPrompts && optimizedVideoPrompts.get(i))?.prompt || null) : null,
+          promptOptimizationMeta: pickPromptOptimizationMetaOf(optimizedPrompts, i),
           imagePath: (image && image.success && image.path) ? image.path : null,
           videoPath: (video && video.path) ? video.path : null,
           audioPath: audio.path,
@@ -3551,8 +3552,7 @@ function registerStory2VideoStages(pipelineEngine) {
           fallbackReason: s?.fallbackReason || null,
         })),
         optimizedPrompts: optimizedPrompts.map((p, i) => ({
-          index: i,
-          prompt: typeof p === 'string' ? p : p.prompt || p.optimized_prompt || p.optimized,
+          index: i, prompt: optimizeItemPrompt(p),
           imagePath: (imageByIndex.get(i) && imageByIndex.get(i).path) || null,
           imageMeta: (imageByIndex.get(i) && imageByIndex.get(i).meta) || null,
           videoPath: (videoByIndex.get(i) && videoByIndex.get(i).path) || null,
