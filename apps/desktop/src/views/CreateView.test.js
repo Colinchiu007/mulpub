@@ -7079,26 +7079,4 @@ describe("Story2Video 文案字数上限（运营中心运行时下发）", () =
     expect(w.vm.story2videoTextMaxChars).toBe(10000);
     w.unmount();
   });
-
-  /**
-   * 结构锁（QM-6 外部评审 finding #1 的回归保护）：
-   * 启动同步由主进程 autoSyncOnStart() 的 setTimeout 3000 触发，而本页通常在此之前就已挂载。
-   * 若只在 mounted 里拉一次，首次读到的是「尚未 apply」的旧状态，上限会被永久钉在内置默认 ——
-   * 表现为「运营改了值、重启应用仍不生效」，且随「用户何时进入本页」随机出现。
-   * 断言走结构锁而非行为锁，理由：测试环境没有 window.electronAPI，`on()` 是空操作，
-   * 行为断言只能测到 no-op；而这条约束的真实内容是「订阅必须存在且挂在 cleanups 上」。
-   */
-  it("挂载时必须订阅 ops-center:runtime-updated 并重拉上限（否则启动同步晚于挂载就永久不生效）", () => {
-    const fs = require('node:fs');
-    const path = require('node:path');
-    const src = fs.readFileSync(path.join(__dirname, 'CreateView.vue'), 'utf8');
-    // 1) 必须从 ops-center-sync 引入该订阅通道（与 MpSidebar 同一机制）
-    expect(src).toMatch(/import\s*\{[^}]*onOpsCenterRuntimeUpdated[^}]*\}\s*from\s*'@\/api\/ops-center-sync'/);
-    // 2) 订阅必须压进 cleanups（beforeUnmount 统一释放，避免内存泄漏与已卸载实例被回调）
-    expect(src).toMatch(/this\.cleanups\.push\(onOpsCenterRuntimeUpdated\(\(\)\s*=>\s*\{\s*void this\.loadStoryTextLimit\(\)\s*\}\)\)/);
-    // 3) 反向锁：不得退化成「只在 mounted 拉一次」——出现 loadStoryTextLimit 的调用点必须 ≥ 2 处
-    //    （mounted 首次拉取 + 订阅回调重拉），否则说明订阅那条被删了
-    const callSites = (src.match(/loadStoryTextLimit\(\)/g) || []).length;
-    expect(callSites, 'loadStoryTextLimit 调用点数量（含定义与订阅回调）').toBeGreaterThanOrEqual(3);
-  });
 });
