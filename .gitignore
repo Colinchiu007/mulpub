@@ -237,6 +237,9 @@ scripts/*.js
 !scripts/gate-budget-probe.js
 !scripts/check-desktop-shard-forwarding.js
 !scripts/check-desktop-shard-forwarding.test.js
+# QG Coverage 预算常量的取证对账（change: coverage-timeout-provenance，2026-10-18）：需入库，非临时脚本
+!scripts/check-coverage-budget.js
+!scripts/coverage-budget-sample.js
 # P0-1 平台分类 ID 转换器（ARCH-REUSE-INTEGRATION R-1）：需入库，非临时脚本
 !scripts/import-platform-taxonomy.js
 !scripts/import-platform-taxonomy.test.js
