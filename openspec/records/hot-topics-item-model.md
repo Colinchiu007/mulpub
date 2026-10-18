@@ -32,7 +32,7 @@ date: 2026-10-18
 | 文档同步 | PASS | PRD 新增 **§11 已实现切片**（11.1 单一实现五函数职责表、11.2 四个流程落点、11.3 数据校验拒绝码表、11.4 交互与显示项、11.5 回归锁与变异读数）+ §6.1 加状态更新注 + 变更记录 v1.1 行；`openspec/changes/hot-topics-viral-items/tasks.md` 勾 2.2 并同条补 PR 号位与证据；`CHANGELOG.md` 新增一个标题块（一条变更一个块，不用双换行插 bullet） |
 | 行尾（CRLF）保持 | PASS | 六处被改文件工作树均为 `i/lf w/crlf`；所有插入行由补丁脚本沿用**锚点行自己的行尾**，并断言「CR 增量 == 插入行数」与「裸 LF 行数不变」——实测 CHANGELOG 那次正是这条断言拦下了我前插的 10 行裸 LF（未落盘）。提交后以 `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径对账 |
 | 落点归属（不改他人文件） | PASS | 改动集恰 9 个文件（6 改 2 新 + 本记录），逐条来自 `git diff --name-only`；未卷入他人并发在制品；一次性脚手架脚本 7 份经 `node scripts/safe-delete.js` 可恢复删除，不进仓 |
-| QM-6 双模型外部评审 | PENDING | `ccg-review-decider` 判定 **DUAL**（384 行 > 200 行阈值、6 个源文件、无敏感命中，要求 claude + opencode）。深审与处置结论见 §4，回填后本行改写 |
+| QM-6 双模型外部评审 | **BLOCKED（后端不应答，本片不得合并）** | `ccg-review-decider` 判 **DUAL**（384 行 > 200 行阈值、6 个源文件、无敏感命中，要求 claude + opencode）。两次实跑 `sh scripts/deep-review.sh` 均在**轮 1 即 `spawnSync codeagent-wrapper.exe ETIMEDOUT`**，产物 `deepReview.status=error / rounds=0 / findings=0`（第二次脚本自身退 **2**=环境档）——`findings=0` 在这里是"没跑"，不是"没问题"。**归因为后端而非驱动超时**：同一 `codeagent-wrapper --backend claude --lite` 发一条"只回复两个字"的最小提示，**7 分钟无输出**（>7 min，stdout 0 字节）后被终止。处置：不改判据、不自扮演顶替外部评审（高危域不得自扮演豁免），保留分支内 `status=pending` 的判定产物让 `check-pr-exec-record --mode=enforce` 继续拦，等后端恢复后重跑 `sh scripts/deep-review.sh` → 处置 findings → 把产物与结论作为新提交落盘并把本行改写为 PASS |
 | 远程同步 | 由门禁推导 | 本行**不需要事后改写**：合并后由 `scripts/lib/merge-ledger.js` 按主干历史推导；本篇按新形态写，不带 `sync_*` 字段 |
 
 ## 2. 本片交付什么（一句话 + 三条判据）
