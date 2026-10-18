@@ -41,7 +41,6 @@ date: 2026-10-18
 ### 本轮真实返工（留证，不掩饰）
 
 **返工 A —— 批量替换的 helper 定义在错误作用域（254 例 ReferenceError）**
-
 214 处 mount 样板收敛后，helper 一度定义在 `describe("CreateView", ...)` **内部**，而该文件有 20+ 个
 describe 块共用。单跑 `-t "renders page header"` 通过（那个用例恰好在同一 describe 内），
 全文件跑则 **254 例报 `mountCreateView is not defined`**。修法：helper 提升到模块顶层，307/307 复绿。
@@ -66,6 +65,34 @@ describe 块共用。单跑 `-t "renders page header"` 通过（那个用例恰�
 - **补的机械锁**：`voice.element.children` 里直接含 `.s2v-subgroup` 的恰好三个且顺序一致；
   每个子分区祖先链上不得再出现 `.s2v-subgroup`。变异反证见上表 M2。
 - **浏览器复核**：父节点全为 `s2v-section-voice`、`nestedIn` 全 `null`、宽度集合 `[982]`。
+
+**返工 C —— rebase 后 locale 文件与 main 的新块叠加，越过 500 行上限**
+
+首次 rebase 到 `origin/main`（`5f2e21770`）后，`check-max-lines` 报
+`NEW_OVER_LIMIT: locales/create/en.js 503 >= 500` 与 `zh.js 501 >= 500`。
+量清归因：主干 `zh.js` 497 / `en.js` 499（main 刚合入 `modelInfo` 块），我各 +4 行 ⇒ 双双越界。
+按「新代码不得引入超大文件」，**不抬基线**，改为消除重复腾出空间：
+
+- 删掉 `ui.subgroupSplitTiming` / `ui.subgroupTemplateOutput` 两个**死重复键**——
+  主键是 `create.story2video.subgroups.splitTiming/templateOutput` 且恒命中，
+  二者只是 `s2vSubgroupLabel` 的 fallback、与主键同值，**从未生效**（origin/main 上即重复）；
+  同时在 `CreateView.s2vSubgroupLabel` 把该 fallback 改为非 CJK 英文字面量。
+- 顺带修掉上一版遗留的 **fallback 自引用**（voice* 的 fallback 指向与主键同一个 key，
+  等于没有 fallback），并把 fallback / english 两张同值表合并为一张。
+- 三个声音键 + 注释由 4 行压成 1 行。
+
+终态：`zh.js` 501 → **496**，`en.js` 503 → **498**，均回到 500 以内且留余量；
+`check-max-lines` rc=0、`check-debt-budget` rc=0、locale `--keys` / `--cjk` / `--pair-base` 全 rc=0。
+
+**返工 D —— 分支 CONFLICTING 时 pull_request workflow 根本不触发（两次 rebase）**
+
+第一次推送后 CI 正常跑；随后 main 前进，PR 变 `CONFLICTING`，再推两次都 `gh pr checks` 报
+`no checks reported`、`gh run list --commit <head>` 也查不到任何 run。
+**根因**：`pull_request` 事件跑的是**合并提交**（`refs/pull/N/merge`）；
+PR 有冲突时 GitHub 无法生成该合并提交，于是 workflow **整体不创建**——
+不是排队、不是失败，是没有这个 run 对象。
+两次 rebase（`5f2e21770` → `b29a35add`）解除冲突后立刻恢复：`mergeable=MERGEABLE` 且 9 项检查 pending。
+冲突点两次都只有 `CHANGELOG.md`（两侧都在顶部追加），按「两侧记录都保留、本次改动在前」解决。
 
 ### 遗留（不假装已闭合）
 
