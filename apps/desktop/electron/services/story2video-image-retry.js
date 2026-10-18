@@ -15,8 +15,28 @@ const LLM_REWRITE_MAX_CALLS_PER_SCENE = 2
 // 优化点 5：LLM 改写结果缓存（模块级，仅单次运行内有效）。
 // key = 原始 prompt 的 SHA-256 哈希，value = { prompt, retention }。
 // 同原始提示词哈希再次触发时直接复用，不重复调用 LLM。
+//
+// 2026-10-18 有界化：key 空间无界（用户每写一个新 prompt 就是新 key），而 Electron 主进程
+// **常驻**（不随单次生成任务结束重启）⇒ 原实现单调增长。R11 审计面（openspec/records/
+// risk-closeout.md §4.2）把这一项列为「真实无淘汰缓存」并登记待评估，本条即为处置。
+// 做法是**插入序上限**：Map 天然保序，超出上限时删最早插入的那条。语义不变 ——
+// 缓存收益（同 key 命中直接复用）完整保留，只是不再无限占用主进程内存。
+// 上限取值：一次生成任务的 prompt 数远小于 500，正常使用永远不会触发淘汰；
+// 只有"同一进程内长期生成大量不同 prompt"才会淘汰最早那批，而那批的复用价值也早已趋零。
+const LLM_REWRITE_CACHE_MAX_ENTRIES = 500
+
+/** 通用插入序上限写入：超出上限时删最早插入的一条（Map 保序，最早 = 迭代第一条）。 */
+function setWithInsertionBound (map, key, value, maxEntries) {
+  if (!map.has(key) && map.size >= maxEntries) {
+    const oldest = map.keys().next().value
+    if (oldest !== undefined) map.delete(oldest)
+  }
+  map.set(key, value)
+}
+
 const llmRewriteCache = new Map()
 // 优化点 5：每场景 LLM 改写调用计数（key = 原始 prompt 哈希）。
+// 与结果缓存同一上限常量 —— 两处不同步等于没锁（见同目录 story2video-llm-cache-bound.test.js）。
 const llmRewriteCallCount = new Map()
 
 const NON_CONTENT_POLICY_ERROR_CODES = new Set([
@@ -535,7 +555,7 @@ async function runContentPolicyImageRetry ({ prompt, sceneIndex, maxAttempts, ge
     // 优化点 5：每场景 LLM 改写调用上限（超过则回退，不调用 LLM）
     const callCount = llmRewriteCallCount.get(cacheKey) || 0
     if (callCount >= LLM_REWRITE_MAX_CALLS_PER_SCENE) return null
-    llmRewriteCallCount.set(cacheKey, callCount + 1)
+    setWithInsertionBound(llmRewriteCallCount, cacheKey, callCount + 1, LLM_REWRITE_CACHE_MAX_ENTRIES)
     // 多轮改写指令（优化点 3）：从「替换敏感词」到「抽象化」到「最小改写」，逐级降级。
     const ROUNDS = ['safe_rewrite', 'abstract_rewrite', 'minimal_rewrite']
     let best = null
@@ -570,7 +590,7 @@ async function runContentPolicyImageRetry ({ prompt, sceneIndex, maxAttempts, ge
     }
     const result = best ? { prompt: best, retention: bestRetention } : null
     // 优化点 5：缓存改写结果（仅缓存成功结果）
-    if (result) llmRewriteCache.set(cacheKey, result)
+    if (result) setWithInsertionBound(llmRewriteCache, cacheKey, result, LLM_REWRITE_CACHE_MAX_ENTRIES)
     return result
   }
 
