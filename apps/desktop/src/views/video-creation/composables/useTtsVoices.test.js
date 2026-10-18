@@ -17,6 +17,10 @@ import {
   setupTtsVoicesDeps,
   resetTtsVoicesForTest,
 } from './useTtsVoices'
+import {
+  getS2VDefaultVoiceModel,
+  resolveVoiceModelForProvider,
+} from './tts-voices-state'
 
 const here = dirname(fileURLToPath(import.meta.url))
 
@@ -47,20 +51,25 @@ describe('useTtsVoices 契约', () => {
     expect(() => ttsVoicesComputeds.s2vVoiceOptions.value).toThrow('deps not injected')
   })
 
-  it('导出面完整：20 状态 ref + 6 计算属性 + 28 方法', () => {
+  it('导出面完整：20 状态 ref + 5 计算属性 + 27 方法', () => {
     expect(Object.keys(ttsVoicesRefs)).toHaveLength(20)
-    expect(Object.keys(ttsVoicesComputeds)).toHaveLength(6)
-    expect(Object.keys(ttsVoicesMethods)).toHaveLength(28)
+    // 5 = 6 - s2vVoiceModelOptions（voice-model-program-resolved 移除「语音模型」下拉）
+    expect(Object.keys(ttsVoicesComputeds)).toHaveLength(5)
+    // 27 = 28 - handleS2VVoiceModelChange（同上）
+    expect(Object.keys(ttsVoicesMethods)).toHaveLength(27)
     // 关键名称在位（壳代理/桥接与 S2V 面板契约按名访问）
     for (const k of ['s2vVoiceCatalog', 's2vVoiceClones', 's2vVoiceCloneLoading', 's2vVoiceProviders']) {
       expect(ttsVoicesRefs).toHaveProperty(k)
     }
-    for (const k of ['s2vVoiceProviderOptions', 's2vVoiceModelOptions', 's2vVoiceOptions', 's2vVoiceModelHidden']) {
+    for (const k of ['s2vVoiceProviderOptions', 's2vVoiceModelHidden', 's2vVoiceContextModel', 's2vVoiceOptions']) {
       expect(ttsVoicesComputeds).toHaveProperty(k)
     }
     for (const k of ['loadS2VVoiceData', 'selectS2VVoice', 'addS2VVoiceClone', 'deleteS2VVoiceClone', 'renameS2VVoiceClone']) {
       expect(ttsVoicesMethods).toHaveProperty(k)
     }
+    // 模型下拉相关入口已随下拉一并移除（fail-closed：拼错的键不应静默存在）
+    expect(ttsVoicesMethods).not.toHaveProperty('handleS2VVoiceModelChange')
+    expect(ttsVoicesComputeds).not.toHaveProperty('s2vVoiceModelOptions')
   })
 
   it('resetTtsVoicesForTest 把状态复位到初值并清空 deps', () => {
@@ -76,15 +85,41 @@ describe('useTtsVoices 契约', () => {
     expect(() => ttsVoicesMethods.getS2VVoiceContext()).toThrow('deps not injected')
   })
 
-  it('getS2VVoiceContext / CloneContext 依 provider+model 计算，缺一即 null', () => {
+  it('getS2VVoiceContext 依 provider+解析出的默许模型计算；缺一即 null（voice-model-program-resolved）', () => {
     const deps = makeDeps()
     setupTtsVoicesDeps(deps)
+    // 无 provider → null
     expect(ttsVoicesMethods.getS2VVoiceContext()).toBeNull()
+    // provider 未注册在 s2vVoiceProviders → 解析不出模型 → null
     deps.s2vConfig.voiceProvider = 'p1'
     expect(ttsVoicesMethods.getS2VVoiceContext()).toBeNull()
-    deps.s2vConfig.voiceModel = 'm1'
+    // provider 已注册且运营默许模型可解析 → 正常返回（注意：不再读用户可编辑的 voiceModel）
+    ttsVoicesRefs.s2vVoiceProviders.value = [
+      { id: 'p1', name: 'P1', category: 'tts', models: ['m1', 'm2'], capability_models: { tts: 'm1' } },
+    ]
+    deps.s2vConfig.voiceModel = 'user-stale-value'
     expect(ttsVoicesMethods.getS2VVoiceContext()).toEqual({ providerId: 'p1', model: 'm1' })
     expect(ttsVoicesMethods.getS2VVoiceCloneContext()).toEqual({ providerId: 'p1', model: 'm1' })
+    // 解析结果为空（多模态无 tts 声明）→ null（fail-closed，不猜 models[0]）
+    ttsVoicesRefs.s2vVoiceProviders.value = [
+      { id: 'p1', name: 'P1', category: 'multimodal', models: ['m1', 'm2'] },
+    ]
+    expect(ttsVoicesMethods.getS2VVoiceContext()).toBeNull()
+  })
+
+  it('resolveVoiceModelForProvider 四级优先级（voice-model-program-resolved）', () => {
+    // 该函数与主进程 resolveProviderDefaultModel(provider,'tts') 等价，跨层锁见
+    // electron/services/voice-model-resolution-parity.test.js；此处测前端侧导入与 MiMo 特例。
+    expect(typeof resolveVoiceModelForProvider).toBe('function')
+    expect(resolveVoiceModelForProvider({ id: 'x', category: 'tts', models: ['a', 'b'], capability_models: { tts: 'b' } })).toBe('b')
+    // MiMo 特例正交保留：getS2VDefaultVoiceModel 对 mimo-tts 置空，实际模型由音色类型分支决定
+    const deps = makeDeps()
+    setupTtsVoicesDeps(deps)
+    ttsVoicesRefs.s2vVoiceProviders.value = [
+      { id: 'mimo-tts', name: 'MiMo', category: 'tts', models: ['mimo-v2.5-tts', 'mimo-v2.5-tts-voiceclone'] },
+    ]
+    deps.s2vConfig.voiceProvider = 'mimo-tts'
+    expect(getS2VDefaultVoiceModel()).toBe('')
   })
 
   it('MiMo TTS（provider.id === mimo-tts）隐藏模型下拉，catalog 用预置模型、克隆用 voiceclone 模型', () => {
@@ -94,9 +129,10 @@ describe('useTtsVoices 契约', () => {
     deps.s2vConfig.voiceProvider = 'mimo-tts'
     deps.s2vConfig.voiceModel = 'mimo-v2.5-tts'
     expect(ttsVoicesComputeds.s2vVoiceModelHidden.value).toBe(true)
-    expect(ttsVoicesComputeds.s2vVoiceModelOptions.value).toEqual([])
     expect(ttsVoicesMethods.getS2VVoiceContext()).toEqual({ providerId: 'mimo-tts', model: 'mimo-v2.5-tts' })
     expect(ttsVoicesMethods.getS2VVoiceCloneContext()).toEqual({ providerId: 'mimo-tts', model: 'mimo-v2.5-tts-voiceclone' })
+    // s2vVoiceContextModel 对 mimo 固定为预置音色模型（与用户配置无关）
+    expect(ttsVoicesComputeds.s2vVoiceContextModel.value).toBe('mimo-v2.5-tts')
   })
 
   it('s2vVoiceProviderOptions 首项为「自动 Edge TTS」且带 displayName（locale 取值）', () => {
@@ -140,13 +176,18 @@ describe('useTtsVoices 契约', () => {
     const deps = makeDeps()
     setupTtsVoicesDeps(deps)
     deps.s2vConfig.voiceProvider = 'p1'
-    deps.s2vConfig.voiceModel = 'm1'
+    ttsVoicesRefs.s2vVoiceProviders.value = [
+      { id: 'p1', name: 'P1', category: 'tts', models: ['m1', 'm2'], capability_models: { tts: 'm1' } },
+    ]
     const ctx = ttsVoicesMethods.getS2VVoiceContext()
+    expect(ctx).toEqual({ providerId: 'p1', model: 'm1' })
     ttsVoicesRefs.s2vVoiceRequestId.value = 5
     expect(ttsVoicesMethods.isCurrentS2VVoiceRequest(5, ctx)).toBe(true)
     expect(ttsVoicesMethods.isCurrentS2VVoiceRequest(4, ctx)).toBe(false)
-    // context 与当前配置不一致 → 亦判过期
-    deps.s2vConfig.voiceModel = 'm2'
+    // context 与当前解析结果不一致 → 亦判过期（换 provider 使解析值改变）
+    ttsVoicesRefs.s2vVoiceProviders.value = [
+      { id: 'p1', name: 'P1', category: 'tts', models: ['m1', 'm2'], capability_models: { tts: 'm2' } },
+    ]
     expect(ttsVoicesMethods.isCurrentS2VVoiceRequest(5, ctx)).toBe(false)
   })
 

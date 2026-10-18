@@ -949,6 +949,9 @@ import {
 } from '@/api/publisher'
 import { bgmLibraryRefs, bgmLibraryMethods, setupBgmLibraryDeps } from './video-creation/composables/useBgmLibrary'
 import { ttsVoicesRefs, ttsVoicesComputeds, ttsVoicesMethods, setupTtsVoicesDeps } from './video-creation/composables/useTtsVoices'
+// 能力级默认模型解析（voice-model-program-resolved，2026-10-18）：语音/视频域共用同一口径，
+// 与主进程 resolveProviderDefaultModel 逐项等价。
+import { resolveCapabilityDefaultModel } from './video-creation/composables/tts-voices-state'
 import { batchCreateRefs, batchCreateMethods, setupBatchCreateDeps } from './video-creation/composables/useBatchCreate'
 import { modelProviderList, modelProviderGetDefault } from '@/api/model-providers'
 import { resolveS2VDefaultProviderId } from './video-creation/s2v-default-provider'
@@ -1042,7 +1045,8 @@ const S2V_SUMMARY_FIELDS = {
   appearance: ['imageStyle', 'imageEffect'],
   videoEnhance: ['videoMode', 'videoFixedRatio', 'videoMinRatio', 'videoMaxRatio', 'shortVideoHandling'],
   // 背景音乐与音量归属「声音」分组（s2v-bgm-legacy-repair）：改动它们同样意味着该组已非默认。
-  voice: ['voiceProvider', 'voiceModel', 'voiceId', 'bgmPath', 'bgmVolume'],
+  // voiceModel 不再由用户选择（voice-model-program-resolved），不参与「是否默认」判定。
+  voice: ['voiceProvider', 'voiceId', 'bgmPath', 'bgmVolume'],
   advanced: ['splitLanguage', 'splitMode'],
   publish: ['platforms'],
 }
@@ -1260,7 +1264,6 @@ export default {
     // 计算属性：委托到 composable（只读，与迁出前的只读语义一致）。
     s2vVoiceProviderOptions: { get() { return ttsVoicesComputeds.s2vVoiceProviderOptions.value } },
     s2vVoiceCatalogRefreshable: { get() { return ttsVoicesComputeds.s2vVoiceCatalogRefreshable.value } },
-    s2vVoiceModelOptions: { get() { return ttsVoicesComputeds.s2vVoiceModelOptions.value } },
     s2vVoiceModelHidden: { get() { return ttsVoicesComputeds.s2vVoiceModelHidden.value } },
     s2vVoiceContextModel: { get() { return ttsVoicesComputeds.s2vVoiceContextModel.value } },
     s2vVoiceOptions: { get() { return ttsVoicesComputeds.s2vVoiceOptions.value } },
@@ -1953,7 +1956,6 @@ export default {
     loadS2VVoiceData(...args) { return ttsVoicesMethods.loadS2VVoiceData(...args) },
     refreshS2VVoiceCatalog(...args) { return ttsVoicesMethods.refreshS2VVoiceCatalog(...args) },
     handleS2VVoiceProviderChange(...args) { return ttsVoicesMethods.handleS2VVoiceProviderChange(...args) },
-    handleS2VVoiceModelChange(...args) { return ttsVoicesMethods.handleS2VVoiceModelChange(...args) },
     handleS2VVoiceSelection(...args) { return ttsVoicesMethods.handleS2VVoiceSelection(...args) },
     selectS2VVoice(...args) { return ttsVoicesMethods.selectS2VVoice(...args) },
     chooseS2VVoiceCloneSamples(...args) { return ttsVoicesMethods.chooseS2VVoiceCloneSamples(...args) },
@@ -2074,8 +2076,10 @@ export default {
       return this.translateWithLocaleFallback(key, fallback, fallback)
     },
     s2vSectionSummary(section) {
-      // 既有声音摘要模板字面量保持逐字节不变（CJK 基线按「文件+文案内容」对账），
-      // 背景音乐片段在字面量之外用 ASCII 连接符拼接。
+      // 既有声音摘要模板字面量保持逐字节不变（CJK 基线按「文件+文案内容」对账，
+      // 且 create-story2video-detail 像素基线含折叠态摘要）。
+      // voice-model-program-resolved（2026-10-18）：摘要仍展示当前生效的模型 ID —— 它不是用户
+      // 可选项而是程序解析结果的只读回显，对用户有信息价值；「是否默认」判定已不再计入 voiceModel。
       const voiceSummary = `${this.s2vConfig.voiceProvider || this.$t('create.story2video.voice.autoEdgeProvider')}${this.s2vConfig.voiceModel ? ` · ${this.s2vConfig.voiceModel}` : ''}${this.s2vConfig.voiceId ? ' · 已选音色' : ''}`
       const summaries = {
         basic: `${this.activeOutputConfig.resolution || '720x1280'} · 语速 ${Number(this.s2vConfig.voiceSpeed).toFixed(1)}x · 音量 ${Number(this.s2vConfig.voiceVolume).toFixed(2)}`,
@@ -2800,6 +2804,15 @@ export default {
           this.s2vConfig.videoProvider = ''
           this.s2vConfig.videoModel = ''
         }
+        // 语音模型归一（voice-model-program-resolved，2026-10-18）：旧快照/配置档案里的
+        // voiceModel 是用户从前端下拉手选的值，可能是任意 models 项（旧候选为
+        // `[capability_models.tts, ...models]`），恢复时若不重新解析就会把非 TTS 模型
+        // （如 MiniMax-Hailuo-2.3）当语音模型直达生成。这里统一按运营默许模型重算。
+        if (config.voiceProvider && voiceProviders.has(config.voiceProvider)) {
+          this.s2vConfig.voiceModel = this.getS2VDefaultVoiceModel(this.s2vConfig.voiceProvider)
+        } else {
+          this.s2vConfig.voiceModel = ''
+        }
         this._applyS2VSnapshot(snapshot.s2vOutputConfig, this.s2vOutputConfig)
         // 运营开关：恢复的旧快照若含超出上限的分辨率（如历史 4K），归一化到最高允许档
         this.s2vOutputConfig.resolution = normalizeResolution(this.s2vOutputConfig.resolution, this.maxOutputResolution)
@@ -3000,6 +3013,12 @@ export default {
             target[mapping.field] = value
           }
         }
+      }
+      // 语音模型不被运营 pipeline_options 覆盖（voice-model-program-resolved，2026-10-18）：
+      // 模型由运营「能力默认模型」经目录同步决定；此处若沿用运营下发的 voice.voiceModel，
+      // 会绕过 resolveVoiceModelForProvider 造成两套真源。重新解析一次即为最终值。
+      if (this.s2vConfig.voiceProvider) {
+        this.s2vConfig.voiceModel = this.getS2VDefaultVoiceModel(this.s2vConfig.voiceProvider)
       }
     },
     // 检查选项是否可见（2026-08-31）
@@ -3234,17 +3253,10 @@ export default {
       return this.s2vVideoProviders.find(provider => provider?.id === providerId) || null
     },
     getS2VDefaultVideoModel(providerId = this.s2vConfig.videoProvider) {
-      const provider = this.getS2VVideoProvider(providerId)
-      const models = Array.isArray(provider?.models)
-        ? provider.models.filter(model => typeof model === 'string' && model)
-        : []
-      // 多模态：默认取 capability_models.video（能力默认模型），models 首项可能是 image/llm 模型。
-      if (provider?.category === 'multimodal' && provider.capability_models && typeof provider.capability_models.video === 'string') {
-        const videoModel = provider.capability_models.video
-        return models.includes(videoModel) ? videoModel : (videoModel || models[0] || '')
-      }
-      const configuredDefault = typeof provider?.defaultModel === 'string' ? provider.defaultModel : ''
-      return models.includes(configuredDefault) ? configuredDefault : (models[0] || '')
+      // 与语音域共用同一口径（voice-model-program-resolved，2026-10-18）：
+      // 旧实现读 `provider.defaultModel`（该字段 IPC 从不返回，恒 undefined）并会猜 models[0]，
+      // 与主进程 resolveProviderDefaultModel 分叉。现统一走 resolveCapabilityDefaultModel。
+      return resolveCapabilityDefaultModel(this.getS2VVideoProvider(providerId), 'video')
     },
     handleS2VVideoProviderChange() {
       const nextProviderId = this.getS2VVideoProvider()?.id || ''
@@ -3385,11 +3397,10 @@ export default {
           ? ''
           : (voiceExplicit ? configuredProvider.id : resolvedVoiceId)
         if (!voiceExplicit && !explicitEdge) this.s2vVoiceAutoProviderId = nextProviderId
-        const nextModel = nextProviderId
-          ? (this.s2vVoiceModelOptions.includes(this.s2vConfig.voiceModel)
-            ? this.s2vConfig.voiceModel
-            : this.getS2VDefaultVoiceModel(nextProviderId))
-          : ''
+        // 语音模型由程序解析（voice-model-program-resolved，2026-10-18）：不再读用户保存的
+        // voiceModel，一律按运营默许模型解析；历史快照里的陈旧模型值在此被静默归一
+        // （不弹错、不中断）。「语音模型」下拉已整体移除，用户无法再手选模型。
+        const nextModel = nextProviderId ? this.getS2VDefaultVoiceModel(nextProviderId) : ''
         const contextChanged = nextProviderId !== this.s2vConfig.voiceProvider || nextModel !== this.s2vConfig.voiceModel
         this.s2vConfig.voiceProvider = nextProviderId
         this.s2vConfig.voiceModel = nextModel

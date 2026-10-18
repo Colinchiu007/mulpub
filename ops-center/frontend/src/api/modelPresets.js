@@ -31,3 +31,12 @@ export function reorderModelPreset(id, action, visibleIds) {
   if (Array.isArray(visibleIds)) body.visible_ids = visibleIds
   return api.post(`/model-presets/${id}/reorder`, body).then(r => r.data)
 }
+
+/**
+ * 能力默认模型总览（voice-model-program-resolved，2026-10-18）。
+ * 桌面应用使用某种能力时，具体模型由程序按此处配置的默许模型解析，不再要求用户选择。
+ * @returns {Promise<{capabilities: Array<{capability: string, providers: Array<{id,name,category,model,is_configured}>}>, missing_count: number}>}
+ */
+export function fetchCapabilityOverview() {
+  return api.get('/model-presets/capability-overview').then(r => r.data)
+}
