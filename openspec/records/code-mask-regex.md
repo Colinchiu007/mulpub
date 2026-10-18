@@ -116,7 +116,7 @@ branch: code-mask-regex
 | QM-1 打包验证 | **N/A** | 未改 `apps/desktop/electron/`；改动为 Node 侧判据库 + CI 一行 |
 | QM-2 代码必检项 | ✅ | 纯文本扫描，无 IO/网络/同步密集原语；等长性断言保留（下标可跨文本复用）|
 | QM-4 视觉 | **N/A** | 无 UI 变更 |
-| QM-6 双模型评审 | 见 PR | 改判据底座属 M 规模 |
+| QM-6 双模型评审 | **降级自查（非双模型）** | CCG 判定 `mode=dual`（275 行 > 200 阈值）。引擎实跑两次均在「轮 1/3 调用 critic=claude」处 `spawnSync codeagent-wrapper.exe ETIMEDOUT`（依赖体检能解析到可执行文件，但实际调用不可用）。按 AGENTS.md「子代理降级」立即降级为**主代理对抗性自查**，**未谎称跑过 dual**：性能（无 O(n²)：3000 除号 12ms / 3000 真正则 19ms / 单行 2000 个连续斜杠 1ms）、等长性（600 文件 0 不符）、幂等（true）、keep 语义变化、白名单边界逐项、全量回归 68 例、A/B 逐文件取证。结论 0 Critical / 0 High / 3 条已知限制，均已登记进 `.ccg/reviews/c3fce509….json` 的 `deepReview.performedBy` 与 `knownLimitations`。历史同形态先例：`14179872`（同为 claude 后端 ETIMEDOUT 后降级 + 如实标注）|
 | 远程同步 | 由门禁推导 | change `gate-record-sync-derived-status` |
 
 ### 未闭合（不假装已闭合）
