@@ -1,0 +1,29 @@
+{
+  "sha": "fd1f430680c7e948ea0399cc42791fa221968728",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 2876 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 2876,
+    "fileCount": 45,
+    "codeFileCount": 40,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 6,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "| 安全 | 该配置经 Ed25519 签名覆盖；写接口 `require_admin`；不涉及密钥/凭据 |",
+      "| locale 成对 | ✅ | 本轮**未新增 locale 键**（只把既有键里的数字换成生效值）；`check-locale-sync --keys` PASS（2107 key 齐备）；`--cjk` 唯一变化是计数行表达式改名（内容级替换，非行号漂移），`--update-baseline` 后基线 1331 条、`diff` 仅 `CreateView.vue` 一条 `+/-`，复跑 **PASS** |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "fcc1249f58ae47ed1685016ce06566dd78bf9fa793e309d80225c43260cbaf10",
+  "decidedAt": "2026-10-18T02:37:41.220Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

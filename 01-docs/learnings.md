@@ -20579,3 +20579,20 @@ CI 把 `QG Static` 钉红在 Gate 2c，红的是 `check-unwired-tests.test.js` �
   `spawnSync codeagent-wrapper.exe ETIMEDOUT`（依赖体检能解析到可执行文件、但实际调用不可用）。
   按「子代理降级」立即降级为主代理对抗性自查，**status 可置 `cleared` 但 `performedBy` 必须写明降级与依据**，
   不得谎称跑过 dual。历史同形态先例 `14179872`。
+- **pitfall｜Vue 模板引用「模块级 import 的常量」会静默渲染成 `undefined`，且不会有任何告警**（story-text-limit-control，2026-10-18 实测发现的**存量缺陷**）：`CreateView.vue` 模板写 `{{ story2videoTextCharacterCount }}/{{ MAX_STORY2VIDEO_TEXT_CHARACTERS }} 字符`，而 `MAX_STORY2VIDEO_TEXT_CHARACTERS` 只是 `import { … } from '@/story2video/story2video-notifications'`。Vue 3 Options API 的 render proxy 只解析 `data` / `computed` / `methods` / `props` / `$setup` 与 `allowedGlobals`（`Math`/`Date` 等白名单），**ES module import 不在其中**。后果是用户看到的是 `1234/ 字符`（批量面板则是 `每条最多 undefined 字`），既没报错也没有 lint 规则覆盖 —— 它活到今天是因为**没有任何测试断言过这一行渲染出来的文本**。判据：`grep` 任何 `<template>` 里出现的「全大写常量名」，逐个确认它在 `data`/`computed` 里有同名项；没有就是这条坑。
+
+- **pattern｜「把某个产品参数做成运营可配」的真正成本不在改数字，在跨端签名契约**：6000 → 10000 本身是 1 行；让它可配要新增**签名运行时下发块**（`storyTextLimit`）、两端 `RUNTIME_BLOCKS` 白名单**成对** +1（13→14）、`config_hash` 固定向量全部重算、随包种子 `runtime-bootstrap.json` 补键并重算 `_meta.config_hash`、三层降级（内存 / L2 快照 / L3 种子 / 内置默认）每层都要各自能回落。判据：**两端都必须有「块数量 == N」的显式断言**（服务端 pytest + 客户端 vitest），漏一侧的后果是 `config_hash` 两端不同 ⇒ 客户端 ACK 永不被认可、运营看板「是否生效」永久失真，且**不会有任何报错**。
+
+- **pitfall｜跨端下发里的比例/阈值不能用浮点（`0.9`），必须用百分比整数**：两端 `config_hash` 的 canonical 序列化都对非整数 **fail-closed**（服务端 `assert_integer_numbers`、客户端 `assertNoFractionalNumbers`）—— JS 写 `1.5e-7`、Python 写 `1.5e-07`，指数补零差异足以让两端 hash 不同。所以本项目已用 `warnPercent: 90` 而不是 `warnRatio: 0.9`。设计数值型下发字段前先问一句「两端 canonical 序列化会不会写出不同文本」。
+
+- **pitfall｜改渲染端的字面量上限前，先 grep 主进程有没有第二份**：本次渲染端 `MAX_STORY2VIDEO_TEXT_CHARACTERS = 6000` 之外，主进程 `story2video-text-config.js` 还有一份 `MAX_STORY2VIDEO_TEXT_UNICODE_CHARS = 6000`，被 `story2video-batch-queue.js` 的批量校验消费。只改渲染端的结果是「前端放行 10000、主进程批量队列仍按 6000 拒绝」，且**单测全绿**（两侧各测各的）。判据：`git grep -n "<字面量数值>"` 覆盖 `apps/desktop/src` 与 `apps/desktop/electron` 两侧，不要只看自己正在改的那一半。
+
+- **fact｜运营中心前端契约文档写 camelCase、后端实际返回 snake_case ⇒ 保存永远 400**：任务书里把响应形状写成 `{maxChars, warnPercent, scopeLabel}`，而后端 `_to_dict()` 产出 `{max_chars, warn_percent, label}`，`upsert` 读的也是 `raw.get("max_chars")`。前端按任务书写完单测能全绿（自测自的），一联调就 400。本仓运营中心管理接口的既有约定是 **snake_case**（`Parameters.vue` 用 `row.value_type`、`PipelineOptions.vue` 用 `option_key`）。判据：写接口层之前先读后端 service 的 `_to_dict` 真实键名，并用后端自己的 `_validate_*` 做一次跨语言干跑（把前端产出的 payload 直接喂进去）。
+
+- **pitfall｜`el-input-number` 的 `:min/:max` 与 `:precision` 都是「静默纠正」，与「越界给中文提示」的产品要求直接冲突**：`:min/:max` 会把运营输入的 60000 夹成 50000（运营者以为设的是 60000）；`:precision="0"` 会把 1000.5 四舍五入成 1001。两者都让「配错了」看起来像「配对了」——正是数值配置页最该防的失效形态。正解：不传 `:min/:max`/`:precision`（Element Plus 默认 `±Number.MAX_SAFE_INTEGER`、不做钳制），把区间交给**行内校验提示 + 保存按钮禁用**。
+
+- **pitfall｜写「可手动同步」这类跨端提示语前，必须先确认那个入口真的存在**：本次任务书让我写「保存后桌面端最长 24h 内生效、可手动同步」，实测全是假的 —— `opsCenterSyncNow` 在 2026-10-15 已从渲染端删除（`apps/desktop/src/api/ops-center-sync.js:7-8`），`MpSidebar.vue:126-127` 明写「应用端不暴露手动同步入口」，桌面端 `autoSyncOnStart()` 只有 `setTimeout 3000` 一次、全文件无 `setInterval`。而且运营中心本就有单一真源 `ops-center/frontend/src/constants/runtime-delivery.js`（`RESTART_HINT_WHEN` / `RESTART_HINT_HOW` / `RESTART_HINT_DURATION`）+ 结构锁 `tests/restart-hint.test.js` C1 禁止第二份字面量。**新增下发页面的成功提示必须 import 这组常量，不得自己重写一句同义文案**。
+
+- **bug（未修，已登记）｜`config_hash` 白名单里有两个块自带 `synced_at`，等于每请求都把 hash 变一次**：`app_menu_service.py:306` 返回 `{"items": [...], "synced_at": _now()}`、`content_category_service.py:343` 返回 `{"items": [...], "count": n, "synced_at": _now()}`，而 `appMenu` / `contentCategories` **都在** `RUNTIME_BLOCKS` 里。后果：每次 bootstrap 的 `config_hash` 都不同（实测同库连跑两次：`f8a5b99df879ac71/ver1` → `dd3dfca7ccd2e587/ver2`，`RuntimeConfigVersion` 落两行），`config_version` 每次都 +1 ⇒ 「生效看板」永远确认不了、版本表无限增长。这与 `config_fingerprint.py` 注释第 1 条「`synced_at` 每次请求都变，纳入则 hash 永远变、变推送地狱」**直接自相矛盾**——注释写对了，实现对不上。**修它要改这两个块对桌面端的消费形状（渲染端 `appMenu` 归一化把 `items` 挑出来用），属跨端破坏性变更，本轮只登记不修**；判据：任何要进 `RUNTIME_BLOCKS` 的块，其载荷里不得含 `synced_at` / `updated_at` 这类每请求变化的字段，加块时用 `canonical_json` 连算两次比对是否相等。
+
+

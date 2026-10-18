@@ -4,6 +4,8 @@ const {
   normalizeStory2VideoTextParams,
   MAX_STORY2VIDEO_TEXT_UNICODE_CHARS,
   countStory2VideoTextCharacters,
+  resolveMaxStory2VideoTextChars,
+  setStoryTextLimitProvider,
 } = require('./story2video-text-config')
 
 describe('Story2Video text 参数合同', () => {
@@ -433,11 +435,11 @@ describe('Story2Video text 参数合同', () => {
   })
 
   it.each([
-    ['中文', '中'.repeat(6000)],
-    ['英文', 'a'.repeat(6000)],
-    ['emoji', '😀'.repeat(6000)],
-  ])('接受恰好 6000 个 Unicode code point 的%s文案', (_language, text) => {
-    expect(Array.from(text)).toHaveLength(6000)
+    ['中文', '中'.repeat(10000)],
+    ['英文', 'a'.repeat(10000)],
+    ['emoji', '😀'.repeat(10000)],
+  ])('接受恰好 10000 个 Unicode code point 的%s文案', (_language, text) => {
+    expect(Array.from(text)).toHaveLength(10000)
 
     const result = normalizeStory2VideoTextParams({ text })
 
@@ -446,13 +448,13 @@ describe('Story2Video text 参数合同', () => {
   })
 
   it.each([
-    ['中文', '中'.repeat(6001)],
-    ['英文', 'a'.repeat(6001)],
-    ['emoji', '😀'.repeat(6001)],
-  ])('拒绝 6001 个 Unicode code point 的%s文案', (_language, text) => {
-    expect(Array.from(text)).toHaveLength(6001)
+    ['中文', '中'.repeat(10001)],
+    ['英文', 'a'.repeat(10001)],
+    ['emoji', '😀'.repeat(10001)],
+  ])('拒绝 10001 个 Unicode code point 的%s文案', (_language, text) => {
+    expect(Array.from(text)).toHaveLength(10001)
 
-    expect(() => normalizeStory2VideoTextParams({ text })).toThrow(/6000.*Unicode/i)
+    expect(() => normalizeStory2VideoTextParams({ text })).toThrow(/10000.*Unicode/i)
   })
 
   it.each([
@@ -538,14 +540,75 @@ describe('Story2Video text 参数合同', () => {
   ])('拒绝运行上下文中的敏感凭据 %#', (contextInput) => {
     expect(() => normalizeStory2VideoTextParams({ text: '测试', ...contextInput })).toThrow('敏感凭据')
   })
-  it('将 Story2Video 文案限制为 6000 个 Unicode 字符，版本化 prompt 直传同样受限', () => {
-    expect(MAX_STORY2VIDEO_TEXT_UNICODE_CHARS).toBe(6000)
-    expect(countStory2VideoTextCharacters('😀'.repeat(6000))).toBe(6000)
-    expect(normalizeStory2VideoTextParams({ text: '中'.repeat(6000) }).text).toHaveLength(6000)
-    expect(() => normalizeStory2VideoTextParams({ text: 'a'.repeat(6001) })).toThrow('最多 6000')
+  it('将 Story2Video 文案限制为内置默认 10000 个 Unicode 字符，版本化 prompt 直传同样受限', () => {
+    expect(MAX_STORY2VIDEO_TEXT_UNICODE_CHARS).toBe(10000)
+    expect(countStory2VideoTextCharacters('😀'.repeat(10000))).toBe(10000)
+    expect(normalizeStory2VideoTextParams({ text: '中'.repeat(10000) }).text).toHaveLength(10000)
+    expect(() => normalizeStory2VideoTextParams({ text: 'a'.repeat(10001) })).toThrow('最多 10000')
     expect(() => normalizeStory2VideoTextParams({
-      story2videoTextConfig: { version: 1, mode: 'text', prompt: '😀'.repeat(6001) },
-    })).toThrow('最多 6000')
+      story2videoTextConfig: { version: 1, mode: 'text', prompt: '😀'.repeat(10001) },
+    })).toThrow('最多 10000')
+  })
+})
+
+describe('Story2Video 文案上限的运行时下发（story-text-limit-control）', () => {
+  afterEach(() => { setStoryTextLimitProvider(null) })
+
+  it('未接线时回落内置默认 10000（不返回 undefined、不抛错）', () => {
+    setStoryTextLimitProvider(null)
+    expect(resolveMaxStory2VideoTextChars()).toBe(10000)
+    expect(normalizeStory2VideoTextParams({ text: 'a'.repeat(10000) }).text).toHaveLength(10000)
+    expect(() => normalizeStory2VideoTextParams({ text: 'a'.repeat(10001) })).toThrow('最多 10000')
+  })
+
+  it('运营下发合法值覆盖主进程上限（12000 可过，12001 被拒）', () => {
+    setStoryTextLimitProvider(() => ({ story2video: { maxChars: 12000, warnPercent: 90 } }))
+    expect(resolveMaxStory2VideoTextChars()).toBe(12000)
+    expect(normalizeStory2VideoTextParams({ text: 'a'.repeat(12000) }).text).toHaveLength(12000)
+    expect(() => normalizeStory2VideoTextParams({ text: 'a'.repeat(12001) })).toThrow('最多 12000')
+  })
+
+  it('provider 抛异常 → 回落内置默认（批量队列高频路径不允许未捕获异常）', () => {
+    setStoryTextLimitProvider(() => { throw new Error('ops-center unavailable') })
+    expect(() => resolveMaxStory2VideoTextChars()).not.toThrow()
+    expect(resolveMaxStory2VideoTextChars()).toBe(10000)
+    expect(() => normalizeStory2VideoTextParams({ text: 'a'.repeat(10001) })).toThrow('最多 10000')
+  })
+
+  it.each([
+    ['块为 null', null],
+    ['缺 story2video', {}],
+    ['字符串数字', { story2video: { maxChars: '12000' } }],
+    ['浮点', { story2video: { maxChars: 12000.5 } }],
+    ['越界（<1000）', { story2video: { maxChars: 999 } }],
+    ['越界（>50000）', { story2video: { maxChars: 50001 } }],
+    ['缺 maxChars', { story2video: { warnPercent: 90 } }],
+  ])('非法下发（%s）回落内置默认 10000', (_label, block) => {
+    setStoryTextLimitProvider(() => block)
+    expect(resolveMaxStory2VideoTextChars()).toBe(10000)
+  })
+
+  it('契约上界 50000 可被采纳（正文与「默认继承正文」的 publish.content 都跟随契约上界）', () => {
+    setStoryTextLimitProvider(() => ({ story2video: { maxChars: 50000 } }))
+    expect(resolveMaxStory2VideoTextChars()).toBe(50000)
+    // 20001 超过「字段级默认 20000」，但脚本上限已是 50000 ⇒ 正文与 publish.content 都必须放行：
+    // publish.content 默认 fallback 就是脚本正文（prompt），若它仍卡 20000，运营配 50000 会
+    // 「配置合法、启动失败」（Story2Video publish.content 超过 20000）。这是本轮去掉的耦合陷阱。
+    expect(normalizeStory2VideoTextParams({ text: 'a'.repeat(20001) }).text).toHaveLength(20001)
+    // 真正的闸回到字数闸：50001 被 storyTextLimit 拦，而不是被字段级长度拦。
+    expect(() => normalizeStory2VideoTextParams({ text: 'a'.repeat(50001) })).toThrow('最多 50000')
+  })
+
+  it('默认配置（10000）下 publish.content 的 20000 闸保持不变（未松绑发布描述）', () => {
+    setStoryTextLimitProvider(null) // 未接线 ⇒ 内置默认 10000
+    expect(resolveMaxStory2VideoTextChars()).toBe(10000)
+    // 10001 命中字数闸
+    expect(() => normalizeStory2VideoTextParams({ text: 'a'.repeat(10001) })).toThrow('最多 10000')
+    // 显式超长发布描述仍由 20000 字段闸拦（与改动前逐字节一致）
+    expect(() => normalizeStory2VideoTextParams({
+      text: 'a'.repeat(9999),
+      story2videoTextConfig: { version: 1, mode: 'text', prompt: 'a'.repeat(9999), publish: { content: 'b'.repeat(20001) } },
+    })).toThrow('publish.content 超过 20000')
   })
 })
 

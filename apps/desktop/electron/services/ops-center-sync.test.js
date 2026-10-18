@@ -614,6 +614,42 @@ describe('OpsCenterSync 运行时策略（公告/版本/内容安全）', () => 
     }))
   })
 
+  it('applyRuntime 归一化并透传字数控制块 storyTextLimit（object-or-null，story-text-limit-control）', () => {
+    const store = makeStore()
+    const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
+    svc.applyRuntime({
+      announcements: [],
+      storyTextLimit: { story2video: { maxChars: 12000, warnPercent: 90 } },
+      synced_at: 't',
+    })
+    // 渲染端要能原样读到契约块（驼峰键；形状由渲染端 story-text-limit.js 逐字段校验）
+    expect(svc.getRuntimeState().storyTextLimit).toEqual({ story2video: { maxChars: 12000, warnPercent: 90 } })
+    // 持久化 → 重启恢复（L2/L3 之外的 settings 恢复路径同样要带上）
+    const restored = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
+    expect(restored.getRuntimeState().storyTextLimit).toEqual({ story2video: { maxChars: 12000, warnPercent: 90 } })
+  })
+
+  it('storyTextLimit 非法形态一律归一化为 null（数组/字符串/非普通对象）', () => {
+    const store = makeStore()
+    const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
+    for (const bad of [null, [], 'x', 42, true, [{ story2video: { maxChars: 12000 } }]]) {
+      svc.applyRuntime({ announcements: [], storyTextLimit: bad, synced_at: 't' })
+      expect(svc.getRuntimeState().storyTextLimit, JSON.stringify(bad)).toBeNull()
+    }
+  })
+
+  it('storyTextLimit 内层只保留普通对象作用域，丢弃原型污染键', () => {
+    const store = makeStore()
+    const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
+    // 用 JSON.parse 构造真正的**自有** __proto__ 键（对象字面量的 __proto__: 会改原型而非建键）
+    const storyTextLimit = JSON.parse('{"story2video":{"maxChars":12000,"warnPercent":80},"badScope":"not-an-object","__proto__":{"polluted":true}}')
+    svc.applyRuntime({ announcements: [], storyTextLimit, synced_at: 't' })
+    const block = svc.getRuntimeState().storyTextLimit
+    expect(block).toEqual({ story2video: { maxChars: 12000, warnPercent: 80 } })
+    expect(Object.prototype.hasOwnProperty.call(block, '__proto__')).toBe(false)
+    expect(block.badScope).toBeUndefined()
+  })
+
   it('内容安全策略未启用或词为空时，敏感词过滤器仅含内置词库', () => {
     const store = makeStore()
     const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })

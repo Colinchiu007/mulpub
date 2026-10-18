@@ -71,7 +71,7 @@
               :class="story2videoTextCountLevel"
               :aria-live="story2videoTextCountLevel ? 'polite' : undefined"
               :title="story2videoTextCountLevel === 'is-warning' ? translateWithLocaleFallback('create.story2video.ui.charLimitWarning', '接近字数上限', 'Close to the character limit') : undefined"
-            >{{ story2videoTextCharacterCount }}/{{ MAX_STORY2VIDEO_TEXT_CHARACTERS }} 字符<span v-if="story2videoTextCountLevel === 'is-danger'">{{ translateWithLocaleFallback('create.story2video.ui.charLimitReached', '（已达字数上限）', ' (character limit reached)') }}</span></p>
+            >{{ story2videoTextCharacterCount }}/{{ story2videoTextMaxChars }} 字符<span v-if="story2videoTextCountLevel === 'is-danger'">{{ translateWithLocaleFallback('create.story2video.ui.charLimitReached', '（已达字数上限）', ' (character limit reached)') }}</span></p>
             <div v-if="isOrchestratedPipeline(selectedPipeline.name)" class="s2v-estimate-slot">
               <p v-if="s2vEstimateSummary" class="story2video-estimate" data-testid="s2v-estimate-row">
                 预估 {{ s2vEstimateSummary.sceneCount }} 个分镜 · 旁白约 {{ s2vEstimateSummary.durationMin }}~{{ s2vEstimateSummary.durationMax }} 秒 · 成本约 ¥{{ s2vEstimateSummary.totalCost.toFixed(2) }}
@@ -813,7 +813,7 @@
               v-model="s2vBatchTexts[index]"
               class="form-input textarea s2v-batch-text-area"
               rows="3"
-              :placeholder="translateWithLocaleFallback('create.story2video.batch.textPlaceholder', '输入第 ' + (index + 1) + ' 条文案（每条最多 ' + MAX_STORY2VIDEO_TEXT_CHARACTERS + ' 字）', 'Enter text ' + (index + 1) + ' (max ' + MAX_STORY2VIDEO_TEXT_CHARACTERS + ' chars each)', { index: index + 1, max: MAX_STORY2VIDEO_TEXT_CHARACTERS })"
+              :placeholder="translateWithLocaleFallback('create.story2video.batch.textPlaceholder', '输入第 ' + (index + 1) + ' 条文案（每条最多 ' + story2videoTextMaxChars + ' 字）', 'Enter text ' + (index + 1) + ' (max ' + story2videoTextMaxChars + ' chars each)', { index: index + 1, max: story2videoTextMaxChars })"
               :data-testid="'s2v-batch-text-' + index"
             ></textarea>
             <button
@@ -968,7 +968,6 @@ import {
 import { getAppLocale } from '@/i18n'
 import { RESUME_BLOCKING_ERROR_PATTERN, HISTORY_STATUSES, filterHistoryByStatus, latestHistoryTimestamp, markStaleRunningAsInterrupted, fillFailedPausedStage, policySceneQuery, sortHistoryByEffectiveTime } from './history-utils'
 import {
-  MAX_STORY2VIDEO_TEXT_CHARACTERS,
   STORY2VIDEO_NOTIFICATION_KEYS,
   countStory2VideoTextCharacters,
   formatStory2VideoNotification,
@@ -978,6 +977,8 @@ import {
   getStory2VideoNotificationUiText,
   resolveStory2VideoNotification,
 } from '@/story2video/story2video-notifications'
+// 字数控制（story-text-limit-control）：上限/预警阈值由运营中心运行时下发解析，缺省回落内置默认。
+import { resolveStory2VideoTextLimit, story2VideoTextWarnThreshold } from '@/story2video/story-text-limit'
 import {
   countSceneChars,
   estimateCharsPerSecond,
@@ -1190,6 +1191,9 @@ export default {
       // 运营中心选项控制（2026-08-31）：可见性与默认值
       s2vPipelineOptions: null,
       s2vPipelineOptionsLoading: false,
+      // 字数控制（story-text-limit-control，2026-10-18）：运营中心运行时下发的 storyTextLimit 块；
+      // null = 未配置/禁用/读取失败 → 计算属性回落内置默认（10000 字 / 90%）。
+      storyTextLimit: null,
       // 历史
       // 播客出期浮层（刀 3 第 4 片，PRD §6.4）：入口在历史卡片上，浮层挂在历史视图根部。
       // openedOnce 决定浮层是否已构造（按需挂载，理由见 PodcastEpisodeEntry 同名注释）。
@@ -1467,13 +1471,22 @@ export default {
     story2videoTextCharacterCount() {
       return countStory2VideoTextCharacters(this.pipelineText)
     },
-    // 字数计数的视觉档位：<90% 中性、>=90% 警示、达上限危险（与 create-view.css 的色阶一一对应）。
+    // 字数控制运行时生效值（story-text-limit-control）：运营下发合法值 > 内置默认 10000 / 90%。
+    // 解析函数保证绝不抛错：块缺省/非法/越界时逐项回落默认。
+    story2videoTextMaxChars() {
+      return resolveStory2VideoTextLimit(this.storyTextLimit).maxChars
+    },
+    story2videoTextWarnPercent() {
+      return resolveStory2VideoTextLimit(this.storyTextLimit).warnPercent
+    },
+    // 字数计数的视觉档位：<预警阈值 中性、>=阈值 警示、达上限危险（与 create-view.css 的色阶一一对应）。
+    // 阈值由运营下发 warnPercent 驱动（默认 90，与历史固定 90% 的行为逐值一致）。
     story2videoTextCountLevel() {
-      const max = Number(this.MAX_STORY2VIDEO_TEXT_CHARACTERS) || 0
+      const max = Number(this.story2videoTextMaxChars) || 0
       const count = Number(this.story2videoTextCharacterCount) || 0
       if (max <= 0) return ''
       if (count >= max) return 'is-danger'
-      if (count >= Math.floor(max * 0.9)) return 'is-warning'
+      if (count >= story2VideoTextWarnThreshold(max, this.story2videoTextWarnPercent)) return 'is-warning'
       return ''
     },
     // 数值型配置是否落在允许区间：越界值会被后端拒绝，提前在启动提示里暴露。
@@ -2144,7 +2157,8 @@ export default {
       this.dismissedProviderWarnings = false
       this.closeStory2VideoErrorDialog()
       if (this.isOrchestratedPipeline(p?.name) && this.inputMode !== 'text') this.inputMode = 'text'
-      // 选中编排流水线时执行 6000 码点上限（含带文案预填场景：预填时不截断，选中时统一截断+提示）
+      // 选中编排流水线时执行生效上限（默认 10000，可被运营中心 storyTextLimit 覆盖）码点截断
+      // （含带文案预填场景：预填时不截断，选中时统一截断+提示）
       if (this.isOrchestratedPipeline(p?.name)) this.enforceStory2VideoTextLimit()
       // Bug 反哺（2026-08-09）：mounted 时 selectedPipeline 为 null，restore 守卫直接 return，
       // 导致「上次使用的选项」保存成功但从未恢复。选中编排流水线时主动触发恢复；
@@ -2178,7 +2192,7 @@ export default {
         if (typeof draft.title === 'string' && draft.title.trim()) {
           this.s2vConfig.title = [...draft.title.trim()].slice(0, 20).join('')
         }
-        // 注意：此处不做 6000 码点截断——该上限仅作用于编排流水线（story2video-compose），
+        // 注意：此处不做码点截断——该上限仅作用于编排流水线（story2video-compose），
         // 其余文案型流水线（talking-head 等）无此限制。截断推迟到 selectPipeline 选中
         // 编排流水线时由 enforceStory2VideoTextLimit() 执行（见 selectPipeline）。
         this.inputMode = 'text'
@@ -2890,6 +2904,18 @@ export default {
         this.s2vPipelineOptionsLoading = false
       }
     },
+    async loadStoryTextLimit() {
+      // 字数控制（story-text-limit-control，2026-10-18）：与 loadPipelineOptions 同阶段拉取，
+      // 从运行时响应 data.storyTextLimit（驼峰）读取；通道不可用/块为 null/结构非法时
+      // 一律静默回落内置默认（fail-open，不弹错、不阻塞创作）。
+      try {
+        const res = await opsCenterSyncRuntime()
+        const data = res && res.code === 0 ? res.data : null
+        this.storyTextLimit = data && typeof data === 'object' ? (data.storyTextLimit ?? null) : null
+      } catch (_) {
+        this.storyTextLimit = null
+      }
+    },
     // 应用运营中心下发的选项默认值（2026-08-31）
     applyS2VPipelineDefaults() {
       const defaults = this.s2vPipelineOptions?.defaults
@@ -2995,8 +3021,11 @@ export default {
           this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.TEXT_REQUIRED })
           return
         }
-        if (countStory2VideoTextCharacters(text) > MAX_STORY2VIDEO_TEXT_CHARACTERS) {
-          this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.TEXT_TOO_LONG, messageParams: { max: MAX_STORY2VIDEO_TEXT_CHARACTERS } })
+        // 生效上限（运营下发 > 内置默认 10000，story-text-limit-control）：最后一道前端闸，
+        // 即使截断路径被绕过（预填/批量）也不把超限文案送进流水线。
+        const textLimit = this.story2videoTextMaxChars
+        if (countStory2VideoTextCharacters(text) > textLimit) {
+          this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.TEXT_TOO_LONG, messageParams: { max: textLimit } })
           return
         }
         this.orchestrationError = ''
@@ -3327,10 +3356,13 @@ export default {
     },
     enforceStory2VideoTextLimit() {
       if (!this.selectedPipeline || !this.isOrchestratedPipeline(this.selectedPipeline.name)) return
+      // 生效上限（默认 10000，可由运营中心 storyTextLimit 下发覆盖）：按 Unicode 码点截断，
+      // 不用 slice(0, max) 切 UTF-16（会切碎 emoji 代理对）。
+      const maxChars = this.story2videoTextMaxChars
       const characters = Array.from(this.pipelineText)
-      if (characters.length <= MAX_STORY2VIDEO_TEXT_CHARACTERS) return
-      this.pipelineText = characters.slice(0, MAX_STORY2VIDEO_TEXT_CHARACTERS).join('')
-      this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.TEXT_TOO_LONG, messageParams: { max: MAX_STORY2VIDEO_TEXT_CHARACTERS } })
+      if (characters.length <= maxChars) return
+      this.pipelineText = characters.slice(0, maxChars).join('')
+      this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.TEXT_TOO_LONG, messageParams: { max: maxChars } })
     },
     showStory2VideoErrorDialog(notification = {}) {
       const resolved = resolveStory2VideoNotification(notification)
@@ -5055,6 +5087,8 @@ export default {
     await Promise.all([this.loadPipelines(), this.loadS2VProviders()])
     await this.loadMaxOutputResolution()
       await this.loadPipelineOptions()
+      // 字数控制与选项控制同阶段：失败静默回落内置默认，不阻塞创作（story-text-limit-control）
+      await this.loadStoryTextLimit()
     // 路由直接进入历史记录视图（/create?view=history）
     if (this.$route?.query?.view === 'history') {
       this.detachPipelineView('history')

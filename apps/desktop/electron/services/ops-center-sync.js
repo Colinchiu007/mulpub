@@ -28,7 +28,7 @@ const { resolveTrustAnchor, resolveRuntimePublicKey, isPackagedApp } = require('
 // 统一内容类别（2026-10-03）：热门选题 / 采集库 / 账号标签 共用的单一真源
 const { normalizeContentCategories } = require('./content-categories')
 // 断连韧性：L2/L3 数据源 + canonicalJson/config_hash 真源（canonicalJson 自本文件迁入，导出保持不变）
-const { OpsRuntimeSnapshot, canonicalJson, replayLateBlock } = require('./ops-runtime-snapshot')
+const { OpsRuntimeSnapshot, canonicalJson, replayLateBlock, normalizeStoryTextLimit } = require('./ops-runtime-snapshot')
 const { OpsResilienceReporter, classifyFailureKind, resolveResilienceAuth, tagOpsError, RUNTIME_ENDPOINT } = require('./ops-resilience-reporter')
 
 const SETTING_KEY = 'opsCenterSync'
@@ -398,7 +398,7 @@ class OpsCenterSync {
       featureFlags: normalizeFeatureFlags(state.featureFlags),
       pipelineOptions: (state.pipelineOptions && typeof state.pipelineOptions === 'object') ? state.pipelineOptions : null,
       appMenu: normalizeAppMenu(state.appMenu),
-      contentCategories: normalizeContentCategories(state.contentCategories).items,
+      contentCategories: normalizeContentCategories(state.contentCategories).items, storyTextLimit: normalizeStoryTextLimit(state.storyTextLimit),
       syncedAt: state.syncedAt || '',
     }
   }
@@ -418,7 +418,7 @@ class OpsCenterSync {
       featureFlags: this._runtime.featureFlags || {},
       pipelineOptions: this._runtime.pipelineOptions || null,
       appMenu: this._runtime.appMenu || null,
-      contentCategories: this._runtime.contentCategories || [],
+      contentCategories: this._runtime.contentCategories || [], storyTextLimit: this._runtime.storyTextLimit || null,
       syncedAt: this._runtime.syncedAt || '',
     }
   }
@@ -561,7 +561,7 @@ class OpsCenterSync {
       featureFlags: normalizeFeatureFlags(payload.feature_flags),
       pipelineOptions: (payload.pipelineOptions && typeof payload.pipelineOptions === 'object') ? payload.pipelineOptions : null,
       appMenu: normalizeAppMenu(payload.appMenu),
-      contentCategories: normalizeContentCategories(payload.contentCategories).items,
+      contentCategories: normalizeContentCategories(payload.contentCategories).items, storyTextLimit: normalizeStoryTextLimit(payload.storyTextLimit),
       syncedAt: payload.synced_at || (replay ? '' : new Date().toISOString()),
     }
     this._runtime = next

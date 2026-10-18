@@ -24,8 +24,8 @@
 const fs = require('fs')
 const path = require('path')
 const {
-  MAX_STORY2VIDEO_TEXT_UNICODE_CHARS,
   countStory2VideoTextCharacters,
+  resolveMaxStory2VideoTextChars,
 } = require('./story2video-text-config')
 
 const BATCH_MAX_CONCURRENT = 2
@@ -82,11 +82,14 @@ function readTextFile(filePath) {
 function validateBatchText(text) {
   if (!isNonEmptyText(text)) return { ok: false, errorCode: BATCH_ERROR_CODES.TEXT_EMPTY }
   const trimmed = text.trim()
-  if (countStory2VideoTextCharacters(trimmed) > MAX_STORY2VIDEO_TEXT_UNICODE_CHARS) {
+  // 生效上限随运营中心 storyTextLimit 运行时下发变化（story-text-limit-control）；
+  // 未接线时为内置默认 10000，与渲染端批量面板占位符同一来源。
+  const maxChars = resolveMaxStory2VideoTextChars()
+  if (countStory2VideoTextCharacters(trimmed) > maxChars) {
     return {
       ok: false,
       errorCode: BATCH_ERROR_CODES.TEXT_TOO_LONG,
-      errorParams: { max: MAX_STORY2VIDEO_TEXT_UNICODE_CHARS },
+      errorParams: { max: maxChars },
     }
   }
   return { ok: true, text: trimmed }
@@ -154,12 +157,13 @@ class Story2VideoBatchQueue {
     if (!read.ok) return { ok: false, label, errorCode: read.errorCode }
     const text = read.content.trim()
     if (!text) return { ok: false, label, errorCode: BATCH_ERROR_CODES.FILE_CONTENT_EMPTY }
-    if (countStory2VideoTextCharacters(text) > MAX_STORY2VIDEO_TEXT_UNICODE_CHARS) {
+    const maxChars = resolveMaxStory2VideoTextChars()
+    if (countStory2VideoTextCharacters(text) > maxChars) {
       return {
         ok: false,
         label,
         errorCode: BATCH_ERROR_CODES.FILE_CONTENT_TOO_LONG,
-        errorParams: { max: MAX_STORY2VIDEO_TEXT_UNICODE_CHARS },
+        errorParams: { max: maxChars },
       }
     }
     return { ok: true, label, text }

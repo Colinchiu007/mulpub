@@ -98,12 +98,16 @@ def _degradation(**over):
 def test_config_hash_pinned_vectors():
     from services.runtime_service import RUNTIME_BLOCKS, compute_config_hash
 
-    assert len(RUNTIME_BLOCKS) == 13
+    # 2026-10-18 story-text-limit-control：新增 storyTextLimit 块，13 → 14。
+    # 这份断言与桌面端 ops-runtime-snapshot.test.js 的同名向量**必须成对改**：
+    # 只改一端 ⇒ 两端 canonical 输入不同 ⇒ config_hash 不同 ⇒ 客户端 ACK 永不被认可。
+    assert len(RUNTIME_BLOCKS) == 14
+    assert "storyTextLimit" in RUNTIME_BLOCKS
     # 全部块缺失 → 以 null 参与计算
-    assert compute_config_hash({}) == "29f1096e3e93eaaf"
-    assert compute_config_hash({"announcements": []}) == "f30e01b53ec6b839"
+    assert compute_config_hash({}) == "f559cffbd7fc2bcf"
+    assert compute_config_hash({"announcements": []}) == "301dd86b76646d9f"
     # 中文内容：验证 canonical JSON 的 ensure_ascii=False 与键字典序
-    assert compute_config_hash({"announcements": [{"title": "公告"}]}) == "fdbebf95ae223dfe"
+    assert compute_config_hash({"announcements": [{"title": "公告"}]}) == "b0d4bb463f2b9776"
 
 
 def test_config_hash_excludes_volatile_fields():

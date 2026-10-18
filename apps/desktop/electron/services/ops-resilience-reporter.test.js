@@ -170,11 +170,12 @@ describe('summarizeAppliedBlocks（ACK 的 applied/skipped 载荷）', () => {
     expect(applied.platform_defs).toBe(0)
     expect(skipped).toContain('content_policy')
     expect(skipped).not.toContain('announcements')
-    expect(skipped.length + Object.keys(applied).length).toBe(13)
+    // 14 块（story-text-limit-control：storyTextLimit 13 → 14）
+    expect(skipped.length + Object.keys(applied).length).toBe(14)
   })
 
   it('payload 非对象时全部进 skipped', () => {
-    expect(summarizeAppliedBlocks(null).skipped).toHaveLength(13)
+    expect(summarizeAppliedBlocks(null).skipped).toHaveLength(14)
   })
 })
 

@@ -386,6 +386,20 @@ async def _get_content_categories(db: AsyncSession) -> dict:
     return await content_category_service.get_bootstrap_content_categories(db)
 
 
+async def _get_story_text_limit(db: AsyncSession) -> dict | None:
+    """故事讲述文案字数上限下发（2026-10-18）——运营中心「字数控制」的唯一载荷。
+
+    形状固定为 ``{"story2video": {"maxChars": <int>, "warnPercent": <int>}}``；
+    enabled=0 的 scope 整键不出现；整块不可用（读库异常 / 全部禁用）时为 ``None``，
+    桌面端据此回落内置默认（10000 字 / 90%）。
+
+    与 appMenu / contentCategories 同点位：位于 bootstrap 响应的 Ed25519 签名覆盖范围内，
+    因此运营值不可被中间人改写。数值只能是整数，否则 compute_config_hash 会 fail-closed。
+    """
+    from services import story_text_limit_service
+    return await story_text_limit_service.get_bootstrap_story_text_limit(db)
+
+
 async def get_runtime_bootstrap(db: AsyncSession) -> dict:
     from services.feature_flag_service import list_runtime_feature_flags
     from services.platform_def_service import list_runtime_platform_defs
@@ -409,6 +423,7 @@ async def get_runtime_bootstrap(db: AsyncSession) -> dict:
         "pipelineOptions": await _get_pipeline_options(db),
         "appMenu": await _get_app_menu(db),
         "contentCategories": await _get_content_categories(db),
+        "storyTextLimit": await _get_story_text_limit(db),
         "synced_at": _now(),
     }
     # 配置版本号 + 内容指纹（2026-10-08 ops-center-resilience）。
