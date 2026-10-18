@@ -42,7 +42,7 @@
     "performedBy": "claude",
     "objectType": "plan",
     "rounds": [],
-    "error": "spawnSync C:/Users/邱领/.claude/bin/codeagent-wrapper.exe ETIMEDOUT",
+    "error": "spawnSync <claude-bin>/codeagent-wrapper.exe ETIMEDOUT",
     "validationErrors": null,
     "note": "第 1 轮评审失败",
     "artifacts": ".adversarial\\ccg-plan-3df99466-claude",

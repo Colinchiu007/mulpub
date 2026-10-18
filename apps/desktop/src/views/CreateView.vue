@@ -951,6 +951,7 @@ import { bgmLibraryRefs, bgmLibraryMethods, setupBgmLibraryDeps } from './video-
 import { ttsVoicesRefs, ttsVoicesComputeds, ttsVoicesMethods, setupTtsVoicesDeps } from './video-creation/composables/useTtsVoices'
 import { batchCreateRefs, batchCreateMethods, setupBatchCreateDeps } from './video-creation/composables/useBatchCreate'
 import { modelProviderList, modelProviderGetDefault } from '@/api/model-providers'
+import { resolveS2VDefaultProviderId } from './video-creation/s2v-default-provider'
 import { getApi } from '@/api/electron-bridge'
 import { settingsDialogRevision } from '@/stores/settings-dialog'
 import { showPipelineBackgroundToast } from '@/stores/pipeline-background-toast'
@@ -1028,7 +1029,6 @@ import {
   S2V_RESTORE_OUTPUT_ENUM_OPTIONS,
   pickS2VConfigProfileFields,
   pickS2VOutputProfileFields,
-  resolveS2VDefaultProviderId,
   CATEGORY_LABELS,
   COST_LABELS,
   STABILITY_MAP,

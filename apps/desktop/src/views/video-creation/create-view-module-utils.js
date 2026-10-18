@@ -405,65 +405,6 @@ const STABILITY_MAP = {
   'animation': 'experimental', 'hybrid': 'experimental', 'framework-smoke': 'experimental'
 }
 
-/**
- * 解析某能力（tts/image/video）在流水线生成器下拉中应默认选中的 provider id。
- *
- * 背景（2026-10-18 Bug 修复）：用户在「模型设置」把某类别模型设为默认，或把多模态模型的
- * 某个能力（如 MiniMax 的 TTS）设为默认后，视频创作各流水线页的生成器下拉仍默认选中
- * 列表首项（或「第一个多模态」），与设置里的默认不一致。根因是前端只按
- * `is_default DESC` 的排序副作用取首项，从未真正读取「谁是默认」。
- *
- * 判定口径与主进程 `ModelProviderManager._multimodalProviderFor` 保持一致：
- *   - 普通 provider：`is_default === true`
- *   - 多模态 provider：`config.capability_defaults` 含该能力，或整体 `is_default === true`
- *     （旧版「多模态整体默认」等价于其所有已声明能力均为默认）
- *   多模态还必须声明支持该能力（capabilities 含该能力），否则不算默认 —— 防止
- *   image 默认的多模态抢走 tts 下拉。
- *
- * 优先级：默认 provider（须在候选列表内）→ 候选列表首项（保持旧行为）→ 空串。
- * 「用户手动选过的」由调用方在传入前处理（显式选择优先于默认），本函数只回答
- * 「没有显式选择时该选谁」。
- *
- * @param {Array<object>|null|undefined} providers 候选 provider 列表（已过滤 enabled+configured）
- * @param {string} category 能力/类别：tts / image / video
- * @param {string} [preferredId] 优先尝试的 id（如主进程 getDefault 返回值）；不在列表内则忽略
- * @returns {string} provider id；无候选时返回空串
- */
-function resolveS2VDefaultProviderId(providers, category, preferredId) {
-  if (!Array.isArray(providers) || providers.length === 0) return ''
-  const cap = typeof category === 'string' ? category.trim() : ''
-  const candidates = providers.filter(p => p && typeof p === 'object' && typeof p.id === 'string' && p.id)
-
-  const isDefaultFor = (p) => {
-    if (p.is_default === true) return true
-    const cfg = p.config && typeof p.config === 'object' && !Array.isArray(p.config) ? p.config : null
-    if (!cfg || !Array.isArray(cfg.capability_defaults)) return false
-    return cfg.capability_defaults.includes(cap)
-  }
-
-  // 多模态必须声明支持该能力，否则其「默认」不适用于本下拉
-  const supportsCapability = (p) => {
-    if (p.category !== 'multimodal') return true
-    return Array.isArray(p.capabilities) && p.capabilities.includes(cap)
-  }
-
-  const findDefault = (id) => {
-    if (typeof id !== 'string' || !id) return null
-    const hit = candidates.find(p => p.id === id)
-    if (!hit) return null
-    return isDefaultFor(hit) && supportsCapability(hit) ? hit : null
-  }
-
-  // 1) 主进程 getDefault 给出的 id（真源），校验它确实是该能力的默认
-  const preferred = findDefault(preferredId)
-  if (preferred) return preferred.id
-  // 2) 列表内第一个满足默认口径的
-  const inList = candidates.find(p => isDefaultFor(p) && supportsCapability(p))
-  if (inList) return inList.id
-  // 3) 兜底：首项（保持旧行为）
-  return candidates[0].id
-}
-
 export {
   HISTORY_LOAD_TIMEOUT_MS,
   STORY2VIDEO_OUTPUT_ASPECT_RATIOS,
@@ -502,7 +443,6 @@ export {
   cloneJsonValue,
   pickS2VConfigProfileFields,
   pickS2VOutputProfileFields,
-  resolveS2VDefaultProviderId,
   CATEGORY_LABELS,
   COST_LABELS,
   STABILITY_MAP,

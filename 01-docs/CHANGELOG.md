@@ -6,6 +6,7 @@
 - **优先级不变**：用户显式选过的 provider / 显式「自动 Edge TTS」仍优先于默认解析；主进程 `getDefault` 不可用时按列表内默认标记解析（不退回首项）；无任何默认时保持首项兜底（旧行为不回退）。
 - **关键补充（自审发现的缺口）**：初版只在「当前 provider 为空」时解析默认，而 `configuredProvider?.id` 把当前值直接当用户显式选择 —— 用户报告的操作路径「已打开页面上在设置里改默认」会让旧默认永久钉住（`settingsDialogRevision` 触发重拉时 `voiceProvider` 已是旧默认）。新增三个不持久化的 `s2v{Image,Video,Voice}AutoProviderId` 记录「上次由默认自动填入的值」，重拉时等值即视为非显式并重新解析；陈旧清空与「重置选项」一并清空；快照恢复值登记为自动应用值。**旧合同（2026-08-12「lastOptions 快照回填始终优先」）随之收窄为「同会话显式选择优先，跨会话快照值跟随当前默认」**，代价与正解已写入 PRD §9.10.3.1。
 - **不改主进程**：`getDefault` / `_multimodalProviderFor` / IPC / 数据库 schema 均未改动，前端缺的只是「去问」。
+- **文件组织**：默认判定提为独立模块 `apps/desktop/src/views/video-creation/s2v-default-provider.js`（债务熔断单文件 500 行上限，从 `create-view-module-utils.js` 拆出）；`CreateView.test.js` 逼近测试文件行数容差，已把「批量创作」「画幅下发」「文案字数上限」三组自包含用例拆到 `CreateView.batch-create.test.js` 与 `CreateView.pipeline-runtime.test.js`（拆分前用「HEAD 测试文件 + 当前源码」对照实验确认失败源于既有测试隔离脆弱性，非源码副作用）。
 
 ### 数据校验与安全
 - 全分支 fail-closed 不抛错：`providers` 非数组/空、`category` 非字符串、`config` 非对象、`capability_defaults` 非数组、`is_default` 非严格 `true`、`preferredId` 不在候选列表或未通过默认口径 —— 均降级到下一档，绝不返回悬空 id（避免下拉空白选中项）。
