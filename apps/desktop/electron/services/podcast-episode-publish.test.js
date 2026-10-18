@@ -20,24 +20,29 @@ let dir = ''
 let tmpAudio = ''
 let realFs = null
 
+// 音频字节数的唯一真源：写盘字节、申报值、上传回显、下游断言全部从这一个数派生（tasks 3.11 / F9）。
+// 原先六处手写同一个数——漂移时 `assertUploadSizeMatches` 会红，但那道锁测的是**生产判据**，
+// 不是"这份夹具自己是否同源"；所以文件末尾另有一条只数本文件字面量的接线锁兜住这一类回归。
+const AUDIO_BYTES = 1000
+
 beforeEach(() => {
   dir = path.join(os.tmpdir(), 'mp-pod-pub-' + process.pid + '-' + Math.random().toString(36).slice(2, 9))
   fs.mkdirSync(dir, { recursive: true })
   tmpAudio = path.join(dir, 'ep-1.mp3')
-  fs.writeFileSync(tmpAudio, 'x'.repeat(1000))
+  fs.writeFileSync(tmpAudio, 'x'.repeat(AUDIO_BYTES))
   realFs = fs
 })
 
 afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }) })
 
-const mixed = () => ({ outPath: tmpAudio, mime: 'audio/mpeg', codec: 'libmp3lame', durationSec: 37.5, durationText: '00:37', sizeBytes: 1000 })
+const mixed = () => ({ outPath: tmpAudio, mime: 'audio/mpeg', codec: 'libmp3lame', durationSec: 37.5, durationText: '00:37', sizeBytes: AUDIO_BYTES })
 
 function mk (over = {}) {
   const calls = { upload: [], episode: [], feed: [] }
   const publisher = createEpisodePublisher({
     extractEpisodeAudio: async () => mixed(),
     assertUploadSizeMatches,
-    uploadImpl: async (a) => { calls.upload.push(a); return { url: 'https://cdn.example.com/podcast/ch_a0000001/ep-1.mp3', size: 1000 } },
+    uploadImpl: async (a) => { calls.upload.push(a); return { url: 'https://cdn.example.com/podcast/ch_a0000001/ep-1.mp3', size: AUDIO_BYTES } },
     episodeSink: async (ch, ep) => { calls.episode.push([ch, ep]); return { id: 'ep-1' } },
     feedSink: async (ch) => { calls.feed.push(ch); return { path: path.join(dir, 'feed.xml'), itemCount: 3 } },
     ...over.deps,
@@ -66,7 +71,7 @@ describe('成功与形状', () => {
     await publisher.publish(input)
     const [ch, ep] = calls.episode[0]
     expect(ch).toBe('ch_a0000001')
-    expect(ep).toMatchObject({ title: '第一期', durationSec: 37.5, sizeBytes: 1000, mime: 'audio/mpeg' })
+    expect(ep).toMatchObject({ title: '第一期', durationSec: 37.5, sizeBytes: AUDIO_BYTES, mime: 'audio/mpeg' })
     expect(ep.audioUrl).toMatch(/^https:\/\//)
   })
 
@@ -88,7 +93,7 @@ describe('拒绝格：库里一行都不许多', () => {
 
   it('上传回来的字节与实测不符 ⇒ 不挂这一期且清理临时文件', async () => {
     const { publisher, calls, input } = mk({
-      deps: { uploadImpl: async () => ({ url: 'https://cdn.example.com/a.mp3', size: 999 }) },
+      deps: { uploadImpl: async () => ({ url: 'https://cdn.example.com/a.mp3', size: AUDIO_BYTES - 1 }) },
     })
     await expect(publisher.publish(input)).rejects.toMatchObject({ code: EPISODE_PUBLISH_ERRORS.SIZE_MISMATCH })
     expect(calls.episode).toEqual([])
@@ -121,7 +126,7 @@ describe('partial 与取消：两种"不算成功"必须可区分', () => {
         uploadImpl: async (a) => {
           calls.upload.push(a)
           if (a.kind === 'feed') throw new Error('403')
-          return { url: 'https://cdn.example.com/podcast/ch_a0000001/ep-1.mp3', size: 1000 }
+          return { url: 'https://cdn.example.com/podcast/ch_a0000001/ep-1.mp3', size: AUDIO_BYTES }
         },
       },
     })
@@ -190,5 +195,20 @@ describe('装配判据', () => {
     await expect(publisher.publish({ channelId: 'ch_a0000001', fsImpl: hostileFs }))
       .rejects.toMatchObject({ code: 'PODCAST_HOSTING_UPLOAD_FAILED' })
     expect(warns.some((w) => w.includes('EBUSY'))).toBe(true)
+  })
+})
+
+describe('夹具尺寸常量的接线锁（tasks 3.11 / F9）', () => {
+  it('音频字节数在本文件只允许出现一次字面量，其余一律从 AUDIO_BYTES 派生', async () => {
+    const { readFileSync } = await import('node:fs')
+    const { fileURLToPath } = await import('node:url')
+    const self = readFileSync(fileURLToPath(import.meta.url), 'utf8')
+    // 读到空串就红：路径写错时「字面量只有一处」是恒真的假锁。
+    // 阈值取行数而不是字节数——本条判据数的是全文的三位以上数字字面量，写判据的那行若自带同一个数，
+    // 锁就会把自己的文案算成一次漂移（这是"探针污染被测量"的现场形态）。
+    expect(self.split('\n').length, '本文件没读到内容').toBeGreaterThan(50)
+    expect(self, 'AUDIO_BYTES 常量定义缺席 ⇒ 下面那条计数会因 0 命中而假绿').toContain('const AUDIO_BYTES =')
+    const literals = self.match(/\b1000\b/g) || []
+    expect(literals.length, '音频字节数又被手写了（改成从 AUDIO_BYTES 派生）').toBe(1)
   })
 })
