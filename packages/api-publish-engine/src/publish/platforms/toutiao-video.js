@@ -79,6 +79,21 @@ function cookieValue (cookie, key) {
   return m ? m[1].trim() : ''
 }
 
+/**
+ * 按**码点**截断（不是 UTF-16 code unit）。
+ *
+ * 为什么不能用 `String#slice`：`'😀标题'.slice(0,1)` 会把代理对切成孤立的高位代理，
+ * 提交给平台会变成乱码/非法字符。头条标题上限 30 字，正是最容易踩到的位置。
+ */
+function truncateByCodePoint (s, max) {
+  const str = String(s == null ? '' : s)
+  if (max <= 0) return ''
+  // 快路径：无代理对时 length 即码点数
+  if (str.length <= max) return str
+  const cps = Array.from(str)
+  return cps.length <= max ? str : cps.slice(0, max).join('')
+}
+
 class ToutiaoVideoChain {
   /**
    * @param {object} opts
@@ -218,8 +233,9 @@ class ToutiaoVideoChain {
   buildPublishBody (taskData, o = {}) {
     const td = taskData || {}
     const body = {
-      title: String(td.title || '').slice(0, 30),
-      abstract: String(td.content || td.abstract || '').slice(0, 2000),
+      // 头条标题上限 30 字：按码点截断，避免把 emoji 的代理对切成孤立半字符
+      title: truncateByCodePoint(td.title, 30),
+      abstract: truncateByCodePoint(td.content || td.abstract, 2000),
       vid: o.vid || td.vid || '',
     }
     // 话题：头条走独立 tags 字段（与 DOM 轨一致，正文不重复携带）
@@ -285,6 +301,7 @@ module.exports = {
     REGION,
   },
   cookieValue,
+  truncateByCodePoint,
   // 便于复用方与测试直击共用实现
   buildApplyQuery,
   uploadVideoToVod,

@@ -246,6 +246,27 @@ describe('ToutiaoVideoChain — 头条视频 API 轨', () => {
     expect(c2.resolveUid()).toBe('555')
   })
 
+  // —— 自扮演裁决补测（deep-review 后端超时后由 agent 对抗自查发现的两处）——
+
+  it('标题按**码点**截断：emoji 不被切成孤立代理对（头条上限 30 字）', async () => {
+    await bootChain()
+    // 前 29 个 emoji + 若干汉字，总长超过 30 码点
+    const emoji = '😀'
+    const title = emoji.repeat(31) + '尾巴'
+    const body = chain.buildPublishBody({ title, content: 'x' }, { vid: 'v1' })
+    expect(Array.from(body.title).length).toBe(30)
+    // 关键：不得出现孤立代理（String#slice 会造出来）
+    expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(body.title)).toBe(false)
+    expect(/^[\uDC00-\uDFFF]/.test(body.title)).toBe(false)
+    expect(body.title).toBe(emoji.repeat(30))
+  })
+
+  it('标题不超限时原样保留（快路径不改变内容）', async () => {
+    await bootChain()
+    const body = chain.buildPublishBody({ title: '正常标题😀', content: 'x' }, { vid: 'v1' })
+    expect(body.title).toBe('正常标题😀')
+  })
+
   it('串起来：run() 走完 getAuthKey → apply → 上传 → commit → PublishVideo，顺序不乱', async () => {
     // 同一个假服务器同时充当 mp 与 vod（base 相同），按 URL 精确路由
     const all = await startFakeServer([

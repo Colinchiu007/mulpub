@@ -131,6 +131,43 @@ const base = this.uploadScheme + '//' + n0.UploadHost + '/upload/v1/' + store.St
 3. **未做真机验证**：本轮验证停在「契约测试 + 全量回归 + 打包 + 启动」。
    真机一发需要：真实登录态 + `PublishVideo` 形状确认。
 
-## 七、远程同步
+## 七、自扮演裁决（评审后端第 5 次环境超时，由 agent 逐条对抗自查）
+
+`sh scripts/deep-review.sh` 判定 DUAL（1105 行 > 200 阈值），跨家族后端再次
+`spawnSync codeagent-wrapper.exe ETIMEDOUT`（本会话第 5 次同型阻塞）⇒ 按引擎第三档出口
+`self_play` 自查。重点放在**「抽取共用实现是否静默改变既有链行为」**这个最容易出回归的动作上，
+抓到 4 个真问题并全部修复：
+
+| # | 级别 | 问题 | 裁决 | 处置 |
+| --- | --- | --- | --- | --- |
+| i1 | **Critical** | 抽共用实现后，抖音 `分片缺失` 的错误码从 `io_error(-5)` 降成 `DouyinVideoError` 默认的 `data_error(-2)` | 成立·已修 | 共用实现新增 `errorCodes:{noNodes,shortChunks,noVid}` 映射，抖音链显式传原值。实测 `noNodes` 仍为 -2 |
+| i2 | Warning | 抖音仍保留第二份 aws4 签名实现（`_signedGet`/`_signedPost` + 本地 `sha256hex`/`pickSigned`/`hostOf` + `aws4` 导入），与「单一实现」自相矛盾 | 成立·已修 | 切到共用 `signedGet`/`signedPost`，删除本地重复实现与死函数；15 例抖音链测试仍全绿 |
+| i3 | Warning | 抽出的 `partSizeFor` 用 `<=` 写法、原实现是 `>` 写法，**恰好 500MB/1000MB** 处档位不同（500MB：新 3MiB / 原 5MiB） | 成立·已修 | 改回原 `>` 形式，并在函数注释写明「刻意保留写法，两者在边界不等价」 |
+| i4 | Warning | `String#slice(0,30)` 截标题会把 emoji 代理对切成孤立高位代理（头条标题上限正好 30 字，最易踩） | 成立·已修 | 新增 `truncateByCodePoint`（无代理对走 length 快路径）；补 2 例回归：31 emoji 截断后恰 30 且无孤立代理、未超限原样保留 |
+| i5 | Warning | `PublishVideo` body 字段是推断的、未取证 | 如实记录·不假装 | PR 与记录均标注；**`publishMode` 刻意保持 `dom-only`**，形状验证前不切线上流量 |
+| i6 | Info | 给共享测试基建 `fake-http.js` 新增 `replaceRouteBody()` | 接受 | 纯增量，不动既有签名与语义；未命中路由显式抛错；44 个 vitest 文件全绿 |
+| i7 | Info | 共用实现里 `uploaded < total` 分支实际不可达（循环内不捕获异常） | 接受 | 抖音原实现结构相同、同样不可达；保留它是为忠实原文，非新增活路径 |
+
+**小结**：7 条（成立并修复 4 / 如实记录 1 / 接受 2）。这次自查在「抽取共用实现」上抓到
+1 个 Critical 错误码降级、1 个边界档位不等价、1 个代理对切半 —— 都是单元测试看不出来、
+只有逐字对照原文才会暴露的静默回归。
+
+## 八、判据缺口留痕（第 2 次复现，建议独立专项）
+
+`deep-review.sh` 评审失败时，**引擎**（仓库外的 `~/.claude/skills/.../ccg-deep-review.js`）
+会把 spawnSync 原文写进 `.ccg/reviews/<sha>.json` 的 `deepReview.error`，其中含
+`<HOME>/.claude/bin/codeagent-wrapper.exe` ⇒ 被 `check-doc-abs-paths` 判为「新增失效绝对路径」，
+`QG Changes / Gate 12c` 红。
+
+- **这是第 2 次复现**（PR #3928 那次已记录过一次），属**按阻塞频率稳定复发**。
+- 本 PR 处置：按仓内既有形态（`<HOME>` 占位）就地改写 `error` 字段，保留 `ETIMEDOUT` 语义。
+- **为什么不在本 PR 根治**：`deep-review.sh` 结尾是 `exec node "$DRIVER"`，进程被替换，
+  仓内无法在其后做脱敏；要根治必须把 `exec` 改成普通调用 + 后处理步骤，那是改门禁脚本本体，
+  应当独立 PR 并单独评审（它是「改谁来守门」类改动，AGENTS 要求人工过目）。
+- **建议的独立专项**：把 `exec node "$DRIVER" --sha "$SHA"` 改为普通调用取得 rc，随后调用一个
+  仓内 `scripts/sanitize-ccg-review-record.js` 把 `deepReview.error` 里的家目录前缀替换为 `<HOME>`，
+  再以原 rc 退出；并给该 sanitizer 补「必须吞掉本机绝对路径 + 不得改动其他字段」的行为锁。
+
+## 九、远程同步
 
 | 远程同步 | 由门禁推导（合并后按主干历史收口；不手写状态词） |

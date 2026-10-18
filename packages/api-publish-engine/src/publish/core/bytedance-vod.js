@@ -151,14 +151,20 @@ function buildApplyQuery (o) {
  */
 async function uploadVideoToVod (o) {
   const ErrorClass = o.ErrorClass || Error
-  const fail = (msg) => { throw new ErrorClass(msg) }
+  // 错误码映射：抽共用实现时**必须**保住原链的错误语义。
+  // 抖音原实现对三条失败路径分别用 data_error(-2) / io_error(-5) / data_error(-2)，
+  // 而 DouyinVideoError 在 code===undefined 时默认 -2 ⇒ 若不显式传，`分片缺失` 会从
+  // io_error 被悄悄降级成 data_error（`publish-api-capabilities` 虽都映射 400，
+  // 但错误语义与调用方判据会变）。调用方按 key 提供即可。
+  const codes = o.errorCodes || {}
+  const fail = (msg, codeKey) => { throw new ErrorClass(msg, codeKey === undefined ? undefined : codes[codeKey]) }
   const size = fs.statSync(o.filePath).size
 
   // ① apply
   const applyQ = buildApplyQuery({ size, spaceName: o.spaceName, appId: o.appId, uid: o.uid, innerOid: o.innerOid })
   const ar = await signedGet(o.vod, o.vodBase, 'vod', applyQ, o.creds, o.region)
   const nodes = ((((ar.data || {}).Result || {}).InnerUploadAddress || {}).UploadNodes) || []
-  if (!nodes.length) fail('vod apply 无 UploadNodes')
+  if (!nodes.length) fail('vod apply 无 UploadNodes', 'noNodes')
   const n0 = nodes[0]
   const store = (n0.StoreInfos || [])[0] || {}
 
@@ -191,7 +197,7 @@ async function uploadVideoToVod (o) {
       if (o.onProgress) o.onProgress(Math.round((uploaded / total) * 70), '视频上传中')
     }
   } finally { fs.closeSync(fh) }
-  if (uploaded < total) fail('分片缺失（' + uploaded + '/' + total + '）')
+  if (uploaded < total) fail('分片缺失（' + uploaded + '/' + total + '）', 'shortChunks')
 
   // ③ finish
   await o.upload.request({
@@ -214,7 +220,7 @@ async function uploadVideoToVod (o) {
   const cr = await signedPost(o.vod, o.vodBase, 'vod', commitPath, commitBody, o.creds, o.region)
   const results = ((((cr.data || {}).Result || {}).Results) || [])
   const vid = results[0] && results[0].Vid
-  if (!vid) fail('CommitUploadInner 未返回 Vid')
+  if (!vid) fail('CommitUploadInner 未返回 Vid', 'noVid')
   return vid
 }
 
