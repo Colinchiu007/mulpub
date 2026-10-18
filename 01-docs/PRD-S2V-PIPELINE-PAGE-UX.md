@@ -1075,3 +1075,92 @@ loadS2VProviders()
 3. 门禁断言：`missing` 时 `canStartPipeline=false` 且阻断原因含“已丢失”；清除后恢复；`unknown` 不阻断。
 4. 修复断言：加入素材库成功后 `bgmPath` 为库内新路径、`s2vLegacyBgmPath===''`、状态 `idle`。
 5. 服务层 `inspectPath` 判定矩阵 8 例、IPC 2 例、preload/权限 1 例、composable 6 例全部通过。
+
+## 13. 声音区子分区布局与默认收缩契约（2026-10-18）
+
+> 本章与 §9、§11、§12 同级，是该能力的**实现合同**；完整 PRD（背景/交互/显示项/提示文字/测试/验收）
+> 见 `01-docs/PRD-S2V-VOICE-SECTION-LAYOUT-2026-10-18.md`。
+
+### 13.1 问题与根因
+
+用户报告：视频创作-故事讲述流水线详情页「声音」区选项布局乱。三类控件共居一个 `.s2v-field-grid`
+自适应栅格：
+
+| 症状 | 根因 |
+|------|------|
+| 「语音生成器」和「语音 / 音色 ID」混在一行 | 栅格 `repeat(auto-fit, minmax(min(280px,100%),1fr))` 按可用宽度自动分列，语义无关的字段被并排 |
+| 「背景音乐」和「背景音乐音量」与音色克隆同区 | 三者同属一个扁平栅格，无二级分组 |
+| 「音色复制 / 克隆」区域只占半行宽（与「背景音乐音量」并排） | `.config-span-2` 是 `grid-column: span 2`，在**多列** `auto-fit` 栅格里只跨 2 条轨道而非满宽；容器宽度恰好排 3 列时它就是半行宽 |
+
+**第一性根因**：`.config-span-2` 的「满宽」语义建立在「栅格恰好 2 列」这个**未声明的隐含前提**上。
+`auto-fit` 栅格的列数随容器宽度变化，于是同一个类在不同视口下呈现不同宽度——这不是样式写错，
+是**用列数相关的量（span N）表达列数无关的意图（满宽）**。
+
+### 13.2 分区结构（DOM 合同）
+
+「声音」折叠区内固定为三个子分区，顺序不可交换：
+
+| 顺序 | `data-testid` | locale key | 中文标题 | 内含控件 |
+|------|---------------|-----------|---------|---------|
+| 1 | `s2v-subgroup-voiceNarration` | `create.story2video.subgroups.voiceNarration` | 旁白设置 | 语音生成器、语音模型、语音 / 音色 ID |
+| 2 | `s2v-subgroup-voiceBgm` | `create.story2video.subgroups.voiceBgm` | 背景音乐 | 背景音乐（下拉 + 管理按钮 + 历史路径状态）、背景音乐音量 |
+| 3 | `s2v-subgroup-voiceClone` | `create.story2video.subgroups.voiceClone` | 音色复制 / 克隆 | 克隆面板（toggle + 样本选择 + 克隆列表）、个人音色槽位说明、未接入克隆能力提示 |
+
+- 子分区容器统一为 `<div class="s2v-subgroup" data-testid="...">`，标题为 `<h4 class="s2v-subgroup-title">`。
+- 每个子分区内部各有一个独立的 `.s2v-field-grid`，**子分区之间不得共享栅格**（这是防回退的机械判据）。
+- `optionKey`、`data-testid`、持久化字段全部不变（`voice.voiceProvider` / `voice.bgm` / `voice.bgmVolume` / `s2v-bgm-select` / `s2v-bgm-volume` / `s2v-bgm-manage-button` / `s2v-voice-clone-toggle` 等）。
+- `s2vVoiceCapability` 三分支（`provider_personal_slot` / `user_clone+enabled` / `user_clone+未启用`）全部归入克隆子分区，不得散落到其它分区。
+
+### 13.3 视觉分隔（UE）
+
+从 UE 角度，三个区域必须**在视觉上可辨认为独立单元**，而不只是文字标题不同。落地为三层：
+
+1. **卡片容器**：`.s2v-subgroup` 增加 `background` + `border` + `border-radius` + `padding`，与折叠区外壳（`.s2v-config-section`）形成「外壳 → 卡片」两级层次。
+2. **标题行**：`.s2v-subgroup-title` 保留虚线下边框，作为卡片内的节标题。
+3. **间距**：子分区之间 `margin-bottom` 12px；卡片内 `.s2v-field-grid` 去掉自身左右 padding（卡片已提供内缩），避免双重内缩。
+
+「高级」区原有的 `splitTiming` / `templateOutput` 两个子分区共用同一类名，因此**一并获得卡片样式**——
+这是本次「其他选项区域统一优化」的一部分，不单独建类。
+
+**样式落点**：以上规则写在 `src/styles/video-creation-forms.css`，**不写** `create-view.css`。
+后者受 `check-max-lines` 的 500 行上限（`NEW_OVER_LIMIT`，无增长容忍）与 `check-debt-budget`
+的 `filesOver500` 双重约束；把新样式加到 `create-view.css` 会同时踩红两条。
+`video-creation-forms.css` 的存在理由（见其文件头注释）本就是「不把 create-view.css 推过 500 行预算线」，
+这是该约定的第二次应用。
+
+### 13.4 默认收缩
+
+- `s2vOpenSections` 默认值：**仅 `basic` 展开**，其余（`appearance` / `videoEnhance` / `voice` / `advanced` / `publish`）全部收缩。
+- 该默认值同时作用于 `restoreS2VLastOptions` / `applyS2VConfigProfile` 的快照恢复：恢复时先显式复位到默认态，再只打开快照 `ui.expandedGroups` 里列出的分组。
+  **理由**：旧实现是「逐项置 true」，隐含依赖 data() 默认值恰好全关；一旦默认值变化（新增分组默认展开），旧写法会把上次的展开态漏成"全开"。
+- 像素基线影响：`create-story2video-detail` 截图路径中「声音」区本就收缩，故默认态**逐像素不变**，不重取证基线。
+
+### 13.5 交互与提示文字
+
+- 子分区标题为纯展示（`<h4>`），**不可点击**——折叠交互仍归外层 `<details>` 与内层克隆 toggle，不新增第三层折叠。
+- 无新增用户可见提示文字；三个子分区标题文案来自 locale（zh/en 成对新增 3 键）。
+- 「音色复制 / 克隆」子分区内保持既有全部文案（含 `voice-clone-pick-feedback` 的按钮文案时序：浏览文件期间只禁用不改文案）。
+
+### 13.6 数据校验与边界
+
+1. **不新增任何配置字段**：本次只改模板结构与 CSS，`s2vConfig` / `s2vOutputConfig` schema、持久化 payload、IPC 全部不变。
+2. **运营显隐语义不变**：`s2vOptionVisible('voice.bgmVolume')` 等守卫原样保留；子分区内字段被隐藏时，分区仍渲染（可能只剩标题行），不得把整个分区也藏掉。
+3. **窄屏**：`@media (max-width: 720px)` 下子分区卡片内边距收紧，栅格回落单列（与既有 `.s2v-field-grid` 窄屏规则叠加），不得出现横向溢出。
+4. **防撑宽不回退**：`voice-clone-layout-regression.test.js` 的既有断言（`minmax(min(200px,100%),1fr)` / `min-width:0` / `overflow-wrap:anywhere`）继续有效；克隆面板满宽后长不可断内容仍须换行。
+
+### 13.7 测试合同
+
+- 面板结构：`S2vConfigPanels.test.js` 断言三个子分区的**顺序 + testid + 归属**（`voiceNarration` 含语音生成器/音色ID、`voiceBgm` 含 bgm 三件套、`voiceClone` 含克隆 toggle 且**不含** `s2v-bgm-volume`）。
+- 三分支归属：`provider_personal_slot` / `user_clone+enabled` / `user_clone+未启用` 均归克隆子分区。
+- 收缩态：`s2v-section-voice` 的 `open` 属性缺省。
+- 跨文件影响：`CreateView.test.js` 中「高级区两个子组」用例的标题断言须**限定在 `s2v-section-advanced` 内**（全页面 `findAll` 会把声音区三个子分区算进来）。
+- 像素：`create-story2video-detail`（浅色 + 暗色）在默认收缩态下逐字节不变。
+
+### 13.8 验收标准
+
+1. 展开「声音」区：三个子分区自上而下排列，各自为独立卡片（有底色 + 边框），整行满宽；「音色复制 / 克隆」不再与「背景音乐音量」并排。
+2. 「高级」区两个子分区同样呈卡片态（统一优化生效）。
+3. 除「基础」外，五个折叠区默认全部收缩；恢复上次选项后仅快照列出的分组展开。
+4. 全部既有 `data-testid` / `optionKey` 可用，视觉回归 0 差异。
+5. locale zh/en 成对（`check-locale-sync --pair-base` + `--cjk` rc=0），无新增中文字面量。
+

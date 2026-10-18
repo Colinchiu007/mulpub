@@ -71,12 +71,16 @@ const mountPanel = (vm) => mount(S2vConfigPanels, {
 
 // 面板默认使用真实父级语义的桩：所有选项可见、分组标签/摘要可读。
 // 单独 makeVm 只会得到方法桩返回值 ''，导致 UiField 的 optionKey 守卫把控件隐藏。
+// s2vSubgroupLabel 桩按真实父级口径返回 locale key（CreateView.s2vSubgroupLabel 用
+// translateWithLocaleFallback 包 `create.story2video.subgroups.<name>`），
+// 因此这里直接回 key 前缀 + 名字，与真实渲染同形。
 const makeBoundVm = (overrides = {}) => makeVm({
   isOrchestratedPipeline: () => true,
   s2vOptionVisible: () => true,
   s2vSectionLabel: (section) => section,
   s2vSectionSummary: () => 'summary',
   s2vSectionAtDefault: () => false,
+  s2vSubgroupLabel: (subgroup) => `create.story2video.subgroups.${subgroup}`,
   translateWithLocaleFallback: (_key, zh) => zh,
   ...overrides,
 });
@@ -198,6 +202,87 @@ describe('S2vConfigPanels', () => {
     expect(status.text()).toContain('create.story2video.bgmLibrary.legacyHintChecking');
     expect(w.find('[data-testid="s2v-bgm-adopt"]').exists()).toBe(false);
     expect(w.find('[data-testid="s2v-bgm-clear"]').exists()).toBe(false);
+  });
+
+  // ── 声音区内部分区结构（s2v-voice-section-layout，2026-10-18）──
+  // 用户报告：声音区四类控件（语音生成器/音色ID、背景音乐/音量、音色克隆）挤在同一
+  // 自适应栅格里，「音色复制 / 克隆」只占半行宽、和「背景音乐音量」并排，看不出分组。
+  // 修法：声音区内按「旁白设置 / 背景音乐 / 音色克隆」拆三个子分区，各子分区自带标题行，
+  // 克隆面板满宽。断言锁 DOM 结构与顺序，防止回退成扁平栅格。
+  const SUBGROUPS = ['voiceNarration', 'voiceBgm', 'voiceClone']
+
+  it('「声音」区分拆为三个子分区，顺序为 旁白设置 → 背景音乐 → 音色克隆', () => {
+    const w = mountPanel(vm);
+    const voice = w.get('[data-testid="s2v-section-voice"]');
+    const titles = voice.findAll('.s2v-subgroup-title').map((n) => n.text());
+    expect(titles).toEqual([
+      'create.story2video.subgroups.voiceNarration',
+      'create.story2video.subgroups.voiceBgm',
+      'create.story2video.subgroups.voiceClone',
+    ]);
+    // 子分区本体也带着可寻址的 data-testid（视觉回归/探针按它定位）
+    expect(voice.findAll('.s2v-subgroup').map((n) => n.attributes('data-testid'))).toEqual(
+      SUBGROUPS.map((s) => `s2v-subgroup-${s}`)
+    );
+  });
+
+  it('「语音生成器」与「语音 / 音色 ID」同在「旁白设置」子分区', () => {
+    // 「语音 / 音色 ID」仅在已选语音模型（或模型下拉被隐藏）时渲染，故显式给模型值。
+    vm = makeBoundVm({ s2vConfig: s2vConfigFixture() });
+    vm.s2vConfig.voiceProvider = 'minimax-multimodal';
+    vm.s2vConfig.voiceModel = 'speech-2.8-turbo';
+    const w = mountPanel(vm);
+    const narration = w.get('[data-testid="s2v-subgroup-voiceNarration"]');
+    expect(narration.text()).toContain('语音生成器');
+    expect(narration.text()).toContain('语音 / 音色 ID');
+    // 「背景音乐」子分区不得包含语音生成器（分区之间不得互相渗透）
+    const bgm = w.get('[data-testid="s2v-subgroup-voiceBgm"]');
+    expect(bgm.text()).not.toContain('语音生成器');
+  });
+
+  it('「背景音乐」与「背景音乐音量」同在「背景音乐」子分区', () => {
+    const w = mountPanel(vm);
+    const bgm = w.get('[data-testid="s2v-subgroup-voiceBgm"]');
+    expect(bgm.find('[data-testid="s2v-bgm-select"]').exists()).toBe(true);
+    expect(bgm.find('[data-testid="s2v-bgm-volume"]').exists()).toBe(true);
+    expect(bgm.find('[data-testid="s2v-bgm-manage-button"]').exists()).toBe(true);
+    // 与「音色复制 / 克隆」分区不共居
+    const clone = w.get('[data-testid="s2v-subgroup-voiceClone"]');
+    expect(clone.find('[data-testid="s2v-bgm-select"]').exists()).toBe(false);
+  });
+
+  it('「音色复制 / 克隆」独占满宽子分区（不与「背景音乐音量」并排）', () => {
+    vm = makeBoundVm({
+      s2vVoiceCapability: { type: 'user_clone', clone: { enabled: true } },
+      s2vCloneOpen: true,
+    });
+    const w = mountPanel(vm);
+    const clone = w.get('[data-testid="s2v-subgroup-voiceClone"]');
+    // 克隆面板本体 + 展开后的克隆列表都归该子分区
+    expect(clone.find('[data-testid="s2v-voice-clone-toggle"]').exists()).toBe(true);
+    expect(clone.classes()).toContain('s2v-subgroup');
+    // 分区体内只允许克隆自己的子项：不得出现 BGM 滑杆（这是本次用户报告的直接症状）
+    expect(clone.find('[data-testid="s2v-bgm-volume"]').exists()).toBe(false);
+  });
+
+  it('「当前服务商尚未接入可用的音色克隆能力」提示归入克隆子分区', () => {
+    vm = makeBoundVm({ s2vVoiceCapability: { type: 'user_clone', clone: { enabled: false } } });
+    const w = mountPanel(vm);
+    const clone = w.get('[data-testid="s2v-subgroup-voiceClone"]');
+    expect(clone.text()).toContain('音色复制 / 克隆');
+    expect(clone.text()).toContain('当前服务商尚未接入可用的音色克隆能力');
+  });
+
+  it('「个人音色槽位」说明归入克隆子分区', () => {
+    vm = makeBoundVm({ s2vVoiceCapability: { type: 'provider_personal_slot' } });
+    const w = mountPanel(vm);
+    const clone = w.get('[data-testid="s2v-subgroup-voiceClone"]');
+    expect(clone.text()).toContain('个人音色槽位');
+  });
+
+  it('声音区默认收缩：details 不带 open 属性', () => {
+    const w = mountPanel(vm);
+    expect(w.find('[data-testid="s2v-section-voice"]').attributes('open')).toBeUndefined();
   });
 
   // ── 音色克隆入口按钮文案时序（voice-clone-pick-feedback，2026-10-18）──

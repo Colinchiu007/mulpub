@@ -1,0 +1,29 @@
+{
+  "sha": "37cf701b5c274c9ce017ad277de5cf82631bbb2d",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 921 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 921,
+    "fileCount": 16,
+    "codeFileCount": 6,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 2,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "- `optionKey`、`data-testid`、持久化字段全部不变（`voice.voiceProvider` / `voice.bgm` / `voice.bgmVolume` / `s2v-bgm-select` / `s2v-bgm-volume` / `s2v-bgm-manage-button` / `s2v-voice-clone-toggle` 等）。",
+      "- **AND** `s2v-bgm-select` / `s2v-bgm-volume` / `s2v-bgm-manage-button` / `s2v-voice-clone-toggle`"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "71b9d601c606102a501574998d0fd3513c81a2cdda2870c73477dd541d324e86",
+  "decidedAt": "2026-10-18T15:05:51.671Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

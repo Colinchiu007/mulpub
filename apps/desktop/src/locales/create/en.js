@@ -59,6 +59,10 @@ export default {
       subgroups: {
         splitTiming: 'Split & Timing',
         templateOutput: 'Template & Output',
+        // Sub-groups inside the Voice section (s2v-voice-section-layout, 2026-10-18)
+        voiceNarration: 'Narration',
+        voiceBgm: 'Background music',
+        voiceClone: 'Voice cloning',
       },
       startPipeline: 'Start pipeline',
       pause: 'Pause',

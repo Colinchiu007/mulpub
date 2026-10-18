@@ -59,6 +59,10 @@ export default {
       subgroups: {
         splitTiming: '分句与时长',
         templateOutput: '模板与输出',
+        // 声音区内的三个子分区（s2v-voice-section-layout，2026-10-18）
+        voiceNarration: '旁白设置',
+        voiceBgm: '背景音乐',
+        voiceClone: '音色复制 / 克隆',
       },
       startPipeline: '启动流水线',
       pause: '暂停',
