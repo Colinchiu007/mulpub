@@ -8,7 +8,7 @@ date: 2026-10-19
 
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
-| 变更类型与隔离 | ✅ | 运行时代码（`apps/desktop/src/views/video-creation/S2vConfigPanels.vue` 及其测试）⇒ 隔离 worktree `D:\Data\projects\mp-worktrees\mp-s2v-tone-field-guard`、裸分支 `s2v-tone-field-guard`（`start-mp-task.ps1 -TaskName s2v-tone-field-guard` 创建，依赖就绪 `verify-worktree-deps` = OK） |
+| 变更类型与隔离 | ✅ | 运行时代码（`apps/desktop/src/views/video-creation/S2vConfigPanels.vue` 及其测试）⇒ 隔离 worktree `<repo parent>/mp-worktrees/mp-s2v-tone-field-guard`、裸分支 `s2v-tone-field-guard`（`start-mp-task.ps1 -TaskName s2v-tone-field-guard` 创建，依赖就绪 `verify-worktree-deps` = OK） |
 | 第一性原因（QM-5 ①） | ✅ | #3946 把「语音 / 音色 ID」的渲染条件写成 `voiceProvider && s2vVoiceContextModel`，而 `s2vVoiceContextModel` 只认**程序按运营默许模型解析**的结果（依赖 provider 注册表）。上游布局契约 `S2vConfigPanels.test.js:282` 的夹具显式给 `voiceModel` 但不加载注册表 ⇒ 字段不渲染 ⇒ main push 的 `QG Desktop Shards (2/2)` 红（`expected '…' to contain '语音 / 音色 ID'`）。PR 侧没红是因为 shard 分片把该文件分到了另一片、且当时该断言来自更晚合入的上游提交 |
 | 逃逸分析（QM-5 ②） | ✅ | ①PR 侧分片与 main 侧分片不是同一集合，同一文件可能落在不同 shard；②该断言的注释写「仅在已选语音模型（或模型下拉被隐藏）时渲染」，而我的实现把「已选模型」重新定义成「注册表解析出模型」，**没有回溯这条既有契约**；③本地只跑了 `S2vConfigPanels.test.js` 的我方版本，未跑上游新增的布局断言 |
 | 修复 + 回归保护（QM-5 ④） | ✅ | 显示条件改为「已选提供方 且（程序解析出模型 **或** 显式 `s2vConfig.voiceModel`）」——保留「模型未知时不渲染空控件」的意图，同时兼容历史快照/配置档案回填与分发夹具。测试：既有布局契约 24 条全绿；我方负向用例补「场景 2b：仅 config.voiceModel 已知 → 字段渲染」，并把场景 2 改为「两个来源都为空」 |

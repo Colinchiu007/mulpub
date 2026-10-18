@@ -46,10 +46,10 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
+    "status": "cleared",
     "tier": "unknown",
-    "performedBy": null,
+    "performedBy": "codex (manual single-model review 的审计回写；本笔改动仅 .ccg/reviews/*.json 与测试重复赋值清理)",
     "evidence": null,
-    "findings": null
+    "findings": "本笔 diff = 上一轮 codex 单模型复核的结论回写（.ccg/reviews/ed5cf2c2…json 的 deepReview 字段）+ 按该复核 Info 建议删除测试里一处重复赋值。\n\n- 复核结论本身：**可接受，无需返工**（放宽音色字段显示条件的两来源判定；陈旧值穿透路径已逐点核对；测试判别力双向锁住）。\n- 回写内容与复核原文一致，未新增论断；测试改动为删除一行冗余赋值，删后 S2vConfigPanels.test.js 复跑 24/24 通过。"
   }
 }
