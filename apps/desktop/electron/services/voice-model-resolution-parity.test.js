@@ -83,6 +83,28 @@ const CASES = {
     config: { user_default_model: '  gpt-4o-mini-tts  ' },
   },
   '多模态-按 capability_models.tts 路由': MM,
+  // ★ C1 逃逸点（2026-10-18 跨家族评审发现）：能力默认与 provider 级默认**都有效且不同**。
+  // 缺这条夹具时，前端「能力优先」与主进程「default_model 优先」的口径分叉完全测不出来 ——
+  // 真实形态就是 minimax-multimodal：default_model=MiniMax-M2.7（llm）与 tts=speech-2.8-turbo 并存。
+  '多模态-能力默认与 provider 级默认均有效且不同（C1 关键夹具）': {
+    ...MM,
+    config: { default_model: 'MiniMax-M2.7' },
+  },
+  '单能力-能力默认与 provider 级默认均有效且不同（C1 关键夹具）': {
+    id: 'tts-both', name: 'TTS Both', category: 'tts',
+    models: ['m-cap', 'm-ops'],
+    capability_models: { tts: 'm-cap' },
+    config: { default_model: 'm-ops' },
+  },
+  '多模态-用户默认有效时压倒一切（含能力默认）': {
+    ...MM, config: { user_default_model: 'image-01', default_model: 'MiniMax-M2.7' },
+  },
+  '多模态-无 tts 能力声明但有 provider 级默认（必须 fail-closed，不得拿 llm 模型当 tts）': {
+    id: 'mm-no-tts', name: 'MM No TTS', category: 'multimodal',
+    models: ['MiniMax-M2.7', 'image-01'],
+    capability_models: { llm: 'MiniMax-M2.7', image: 'image-01' },
+    config: { default_model: 'MiniMax-M2.7' },
+  },
   '多模态-用户默认优先（∈models）': {
     ...MM, config: { user_default_model: 'MiniMax-M2.7', default_model: 'MiniMax-Hailuo-2.3' },
   },
@@ -162,27 +184,38 @@ describe('跨层一致性的防漂移锁（变异反证）', () => {
   const mainSrc = readFileSync(resolve(here, 'model-provider-manager.js'), 'utf8')
   const stateSrc = readFileSync(resolve(here, '../../src/views/video-creation/composables/tts-voices-state.js'), 'utf8')
 
-  it('主进程仍持有四级优先级（user_default_model → default_model → capability_models → 兜底）', () => {
+  it('主进程仍持有四级优先级（user_default_model → capability_models → 单能力 default_model → 兜底）', () => {
     expect(mainSrc).toContain('config.user_default_model')
-    expect(mainSrc).toContain('config.default_model')
     expect(mainSrc).toContain('provider.capability_models[type]')
+    // 只在 resolveProviderDefaultModel 函数体内比较先后：文件其它位置也会出现同名 token
+    const fnStart = mainSrc.indexOf('function resolveProviderDefaultModel')
+    expect(fnStart).toBeGreaterThan(-1)
+    const fnEnd = mainSrc.indexOf('\n}\n', fnStart)
+    const fnBody = mainSrc.slice(fnStart, fnEnd > 0 ? fnEnd : fnStart + 4000)
+    // 能力分支必须先于 provider 级默认（C1：minimax-multimodal 下 default_model 是 llm 模型）
+    expect(fnBody.indexOf('provider.capability_models[type]')).toBeLessThan(fnBody.indexOf('config.default_model'))
+    // 多模态跳过 provider 级默认
+    expect(fnBody).toMatch(/provider\.category !== 'multimodal'[\s\S]{0,200}config\.default_model/)
   })
 
   it('主进程多模态无声明仍 fail-closed（返回空串而非 models[0]）', () => {
     expect(mainSrc).toMatch(/if \(provider\.category === 'multimodal'\) return ''/)
   })
 
-  it('前端 resolveVoiceModelForProvider 的实现存在且包含能力路由', () => {
+  it('前端解析实现在位且包含能力路由', () => {
+    expect(stateSrc).toMatch(/export function resolveCapabilityDefaultModel/)
+    expect(stateSrc).toMatch(/provider\.capability_models\[type\]/)
+    // 语音域薄封装必须存在（跨层锁的实际被测入口）
     expect(stateSrc).toMatch(/export function resolveVoiceModelForProvider/)
-    expect(stateSrc).toMatch(/capability_models\?*\.tts/)
   })
 
   it('前端多模态分支同样 fail-closed（不得兜底 models[0]）', () => {
-    // 抓 resolveVoiceModelForProvider 函数体，确认含 category === 'multimodal' 时返回空串
-    const fnStart = stateSrc.indexOf('export function resolveVoiceModelForProvider')
+    const fnStart = stateSrc.indexOf('export function resolveCapabilityDefaultModel')
     expect(fnStart).toBeGreaterThan(-1)
     const fnBody = stateSrc.slice(fnStart, stateSrc.indexOf('\n}', fnStart))
     expect(fnBody).toMatch(/category === 'multimodal'/)
     expect(fnBody).toMatch(/return ''/)
+    // 且 capability 分支必须先于 provider 级默认（与主进程同序，C1）
+    expect(fnBody.indexOf('provider.capability_models')).toBeLessThan(fnBody.indexOf('config.default_model'))
   })
 })

@@ -618,7 +618,49 @@ async def test_empty_capability_default_model_is_allowed():
 
 
 @pytest.mark.asyncio
-async def test_capability_overview_groups_and_flags_gaps():
+async def test_non_string_capability_default_model_rejected():
+    """能力默认模型只接受字符串：int/bool 在桌面端会被静默跳过（跨家族评审 M2）。"""
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+
+    transport = ASGITransport(app=app)
+    headers = {"Authorization": f"Bearer {_admin_token()}"}
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        for bad in (42, True):
+            body = {
+                "id": "tts-cap-nonstr",
+                "name": "TTS Cap NonStr",
+                "category": "tts",
+                "models": ["42"],
+                "capability_models": {"tts": bad},
+            }
+            resp = await client.post("/api/v1/model-presets", json=body, headers=headers)
+            assert resp.status_code == 400, f"{bad!r} should be rejected"
+            assert "必须是字符串" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_capability_default_model_stored_as_trimmed_string():
+    """落库值必须是 trim 后的字符串（校验面/总览面/运行面三面同口径）。"""
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+
+    transport = ASGITransport(app=app)
+    headers = {"Authorization": f"Bearer {_admin_token()}"}
+    body = {
+        "id": "tts-cap-trim",
+        "name": "TTS Cap Trim",
+        "category": "tts",
+        "models": ["m1"],
+        "capability_models": {"tts": "  m1  "},
+    }
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post("/api/v1/model-presets", json=body, headers=headers)
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["capability_models"]["tts"] == "m1"
+
+
+
     """总览端点：按能力分组、多模态出现在多组、缺口 is_configured=false。"""
     from httpx import AsyncClient, ASGITransport
     from main import app

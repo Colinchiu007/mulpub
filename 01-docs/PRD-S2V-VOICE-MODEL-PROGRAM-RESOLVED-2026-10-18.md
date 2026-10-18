@@ -85,21 +85,37 @@ MiniMax TTS 单能力提供方同样只有唯一候选（`model-provider-seeds.j
 ### 3.1 能力默认模型解析口径（单一真源）
 
 ```
-resolveVoiceModelForProvider(provider, capabilityType):
+resolveCapabilityDefaultModel(provider, capabilityType):
   ├─ 1. config.user_default_model   （桌面端「模型设置」用户选择，用户级，最高优先）
   │       └─ 必须 ∈ provider.models，否则视为失效继续往下
   ├─ 2. capability_models[type]     （运营中心按能力类别配置的默许模型）
   │       └─ 非空字符串即采用，**不校验 ∈ models**（运营目录权威，允许声明 models 之外的合法 ID）
   ├─ 3. config.default_model        （运营 provider 级默认，兼容存量字段）
-  │       └─ 必须 ∈ provider.models，否则视为失效继续往下
+  │       └─ **多模态 provider 跳过此级**；其余 provider 必须 ∈ models，否则视为失效继续往下
   └─ 4. 兜底：
           ├─ category === 'multimodal' → 返回 ''（fail-closed，禁止猜 models[0]）
           └─ 其它（单能力）          → 返回 models[0] || ''
 ```
 
-与主进程 `resolveProviderDefaultModel(provider, type)` 的差异仅在**第 4 级单能力兜底**：主进程同样返回 `models[0]`，故二者完全等价（本 PRD §7.1 的跨层一致性测试逐项验证）。
+**为什么第 2 级必须早于第 3 级（2026-10-18 跨家族评审 C1 实证）**：`minimax-multimodal` 目录下发同时含
+`default_model = 'MiniMax-M2.7'`（∈ models，**LLM 模型**）与 `capability_models = {llm: MiniMax-M2.7, tts: speech-2.8-turbo, image: image-01, video: MiniMax-Hailuo-2.3}`。
+旧顺序（provider 级默认优先）会让 tts / image / video 三个能力**全部解析成 LLM 模型**；新建任务时前端显式传
+`params.voiceModel` 掩盖了它，只有断点续跑与播客这类走 `__resumeUseCurrentModels` 的路径才会踩到 ——
+表现为「恢复后拿 LLM 模型当 TTS 用」→ `VOICE_NOT_IN_CATALOG` / 调用失败。本次**同时修正主进程**
+`resolveProviderDefaultModel`（原先 default_model 优先）使两层同序，并补 4 条 parity 关键夹具
+（缺它们则两条口径的分叉完全测不出来）。
 
-**MiMo 特例（正交保留）**：`mimo-tts` 由音色类型区分模型（预置音色 → `mimo-v2.5-tts`，克隆音色 → `mimo-v2.5-tts-voiceclone`），这是能力 driven 的特殊分支，与"用户不该选模型"正交，逻辑完全不变：
+**为什么第 3 级对多模态要跳过**：`default_model` 对多模态是「provider 主模型」（通常是 llm），
+用它解 tts 会静默拿错模型；跳过它才能让「多模态缺能力声明 ⇒ fail-closed」这一意图真正成立。
+
+与主进程 `resolveProviderDefaultModel(provider, type)` 的差异：**无**。两层逐项等价，由
+`apps/desktop/electron/services/voice-model-resolution-parity.test.js`（31 例）做跨层一致性锁：
+同一组 26 个夹具（含 `null`/非对象/空 models/脏 models/`capability_models` 为字符串/多模态缺声明/
+**能力默认与 provider 级默认均有效且不同**）分别喂两层，断言返回值逐一相等；另配 4 条源码级防漂移锁
+（校验**函数体内**的关键分支顺序，而不是全文 token 顺序）。
+
+**MiMo 特例（正交保留）**：`mimo-tts` 由音色类型区分模型（预置音色 → `mimo-v2.5-tts`，克隆音色 →
+`mimo-v2.5-tts-voiceclone`），这是能力 driven 的特殊分支，与"用户不该选模型"正交，逻辑完全不变：
 
 | 用途 | 模型 |
 | --- | --- |
@@ -316,16 +332,43 @@ ensure_catalog_seeded(db)
 
 ### 7.1 回归锁（最重要）
 
-**跨层一致性测试**（`apps/desktop/electron/services/voice-model-resolution-parity.test.js`）：
+**跨层一致性测试**（`apps/desktop/electron/services/voice-model-resolution-parity.test.js`，31 例）：
 
-同一组 provider 夹具（覆盖：单能力有用户默认、单能力有运营默许、单能力两者皆无、多模态有 tts 声明、多模态无 tts 声明、用户默认失效、models 为空、provider 为 null）分别喂给：
+同一组 26 个 provider 夹具（覆盖：单能力有用户默认、单能力有运营默许、单能力两者皆无、单能力**能力默认与
+provider 级默认均有效且不同**、多模态有 tts 声明、多模态**能力默认与 provider 级默认均有效且不同**、
+多模态无 tts 声明但有 provider 级默认、用户默认失效、用户默认带空白、models 为空、models 含脏项、
+provider 为 null/非对象/空对象、`capability_models` 为字符串等）分别喂给：
 
 - 前端 `resolveVoiceModelForProvider(provider)`（经 composable 导出）
 - 主进程 `resolveProviderDefaultModel(provider, 'tts')`
 
-断言两者返回值**逐一相等**。
+断言两者返回值**逐一相等**。另含 4 条源码级防漂移锁 + 1 条 MiMo 正交用例。
 
-**逃逸分析**（为什么这条锁是必要的）：既有测试各自只测一层（`useTtsVoices.test.js` 测前端、`model-provider-manager.resolve-default.test.js` 测主进程），没有任何测试断言"两层口径相同"。因此历史上前端可以随意改兜底行为而不触发任何红。本条锁把"跨层等价"变成显式契约。
+**逃逸分析**（为什么这条锁是必要的，以及它是怎么被证明"原本不够"的）：既有测试各自只测一层
+（`useTtsVoices.test.js` 测前端、`model-provider-manager.resolve-default.test.js` 测主进程），没有任何
+测试断言"两层口径相同"。因此历史上前端可以随意改兜底行为而不触发任何红。
+
+**实证**：本变更首版把 `capability_models` 提到 `default_model` 之前（前端），而主进程仍是
+`default_model` 优先 —— 首版 22 个夹具里**没有一个"两者均有效且不同"的用例**，于是 27 条测试全绿，
+口径分叉完全没有暴露。跨家族评审（codex，OpenAI 家族）指出这一点后，补了 4 条关键夹具，
+测试立刻在旧实现上变红。这条经历本身写进了 learnings：**一致性锁的效力取决于夹具是否覆盖每个边界的
+"两侧都可能命中且取值不同"**，只覆盖 happy path 的锁是装饰性门禁。
+
+### 7.1b 跨家族评审（QM-6）与处置
+
+| 级别 | 问题 | 处置 |
+| --- | --- | --- |
+| CRITICAL C1 | 两层优先级顺序不一致（前端能力优先 / 主进程 provider 级默认优先）；真实分歧点是 `minimax-multimodal` 的 `default_model` 是 LLM 模型 | **改主进程与前端同序**（能力优先 + 多模态跳过 provider 级默认）；更新主进程 12 条测试（用例 2/4 重写、新增 8b/8c）；parity 补 4 条关键夹具；源码锁改为校验函数体内顺序 |
+| MAJOR M1 | 恢复路径（配置档案 / 模板 / 运营 pipeline_options）不归一 `voiceModel`，陈旧值直达生成 | `_applyS2VSnapshotObject` 与 `applyS2VPipelineDefaults` 末尾统一重算；provider 失效时清空 |
+| MAJOR M2 | 运营中心校验用"字符串化后的值"、落库用原始值 ⇒ 非字符串值静默通过校验、运行期被忽略、总览显示已配置 | 非字符串值直接 400「必须是字符串」；落库前统一 trim 成字符串；新增 2 条测试 |
+| MINOR m1 | 多模态缺 tts 声明但仍可从 `default_model` 解析出非 TTS 模型 | C1 修复时加「多模态跳过 `default_model`」后消解，parity 夹具锁定返回空串 |
+| MINOR m2 | 并发守卫 `providerId` trim 不对称（带空白的存量 id 会让请求结果被静默丢弃） | `getS2VVoiceProvider` 统一 trim 入参 |
+| MINOR m3 | `capability_overview` 对 capabilities 里的未知键静默丢弃（运营 typo 不可见） | 本期接受并记录：总览只覆盖已知能力类别（清单见 §3.3）；后续如需可加 `ignored_capabilities` 字段 |
+
+> 引擎侧的自动深审（`sh scripts/deep-review.sh`）本次**跑不通**：`codeagent-wrapper.exe` 在 critic 调用上
+> `ETIMEDOUT`，且 `claude -p` 在本机非交互模式下对任意 prompt 均无输出（90s 探针无响应）。故改用
+> `codex exec`（OpenAI 家族）对 diff 做人工跨家族评审，结论与处置如上；引擎失败记录保留在
+> `.ccg/reviews/*.json` 的 `deepReview.error` 字段里，未被抹掉。
 
 ### 7.2 验收标准
 

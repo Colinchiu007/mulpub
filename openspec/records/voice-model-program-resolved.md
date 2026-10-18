@@ -17,7 +17,7 @@ date: 2026-10-18
 | locale 成对（Gate 7） | ✅ | 本期**零新增用户可见文案**：删除的是既有控件，未新增 `zh.js`/`en.js` 键，故无需成对提交；渲染端非 locale 文件未新增 CJK 字面量（`useTtsVoices.js` 仍有既有 CJK-literal 约束测试守护） |
 | QM-1 打包 / QM-2 | 见下 | 见「QM-1 打包证据」小节 |
 | QM-4 视觉 | 责任交给 CI | 本机不冒充跑像素门禁（缺 dev server，且 QM-4 明确禁止本机截图当基线）。变更确实影响 `create-story2video-detail` 的「声音」分组布局（少一个字段），基线重取证按流程由 CI 渲染产物承担。为收窄漂移面，`s2vSectionSummary('voice')` 的模板字面量**逐字节保持不变**（模型 ID 保留为只读回显）——理由两条：①该行含硬编码中文，改动会被 `check-locale-sync --cjk` 判为新增硬编码（实测改后即报「渲染端新增 1 处」，已回退并按 gate 口径复核 PASS）；②折叠态摘要本身在像素基线内 |
-| QM-6 CCG 双模型外部评审 | 未执行 | 本机未探测到可用外部评审通道（`codeagent-wrapper` 类工具缺失）；**如实记为未执行，不以自审冒充通过** |
+| QM-6 CCG 双模型外部评审 | ✅ 已执行（改用 codex 人工跨家族） | 引擎 `sh scripts/deep-review.sh` **跑不通**：critic 调用 `codeagent-wrapper.exe` 返回 `ETIMEDOUT`；另用 90s 探针验证 `claude -p "reply with exactly: PONG"` 在本机非交互模式下**完全无响应**（不是 diff 太大导致，是 CLI 通道坏）。改用 `codex exec`（OpenAI 家族）对 diff 做跨家族评审，得 **1 CRITICAL + 2 MAJOR + 3 MINOR**，全部处置：**C1**（两层优先级顺序不一致——minimax-multimodal 的 `default_model` 是 LLM 模型，主进程会把它当 TTS 返回；新建任务被前端显式 params 掩盖，只有断点续跑/播客踩到）⇒ 改主进程与前端同序（能力优先 + 多模态跳过 provider 级默认），更新主进程 12 条测试、parity 补 4 条关键夹具、源码锁改为校验函数体内顺序；**M1**（恢复路径不归一 voiceModel）⇒ `_applyS2VSnapshotObject` + `applyS2VPipelineDefaults` 双端重算；**M2**（运营中心校验用字符串化值、落库用原始值 ⇒ 非字符串静默通过）⇒ 非字符串直接 400 + 落库 trim + 2 条测试；**m2**（守卫 trim 不对称）⇒ `getS2VVoiceProvider` 统一 trim；**m1** 由 C1 修复消解；**m3**（总览对未知能力键失明）记录为已知限制。引擎失败证据保留在 `.ccg/reviews/*.json` 的 `deepReview.error`，未抹掉 |
 | 远程同步 | 由门禁推导 | 见 PR（合并后由 `scripts/lib/merge-ledger.js` 按主干历史推导收口，本行不手写状态词） |
 
 - 保留门禁：判定 docs-only=false（走完整节拍）| 行尾对账 ✅ | 品牌残留 随 CI | 文档同步 随 CI doc-gate | 执行记录 ✅ 本文件（旧载体 `.quality-gates.md` 与 `scripts/gate-record-debt-ledger.json` 按 2026-10-15「旧载体冻结」政策**零改写**）| 远程同步 PR（见 PR 号）
@@ -36,9 +36,11 @@ date: 2026-10-18
 
 | 套件 | 读数 |
 |------|------|
-| `apps/desktop` 定向（parity + useTtsVoices + S2vConfigPanels） | `Test Files 3 passed (3)` / `Tests 59 passed (59)` |
-| `apps/desktop` `src/views/CreateView.test.js` | `Test Files 1 passed (1)` / `Tests 307 passed (307)` |
-| `ops-center/backend` `test_model_presets_api.py` + `test_model_catalog_api.py` | `59 passed` |
+| `apps/desktop` parity + `model-provider-manager*` | `Test Files 2 passed (2)` / `Tests 45 passed (45)` |
+| `apps/desktop` `electron/services/{story2video,podcast,model-provider}*`（主进程口径改动的全部消费者） | `Test Files 56 passed (56)` / `Tests 1406 passed (1406)` |
+| `apps/desktop` 定向（parity + useTtsVoices + S2vConfigPanels + model-provider-manager） | `Test Files 4 passed (4)` / `Tests 77 passed (77)` |
+| `apps/desktop` `src/views/CreateView.test.js` | `Test Files 1 passed (1)` / `Tests 307 passed (307)`（评审修复前后各跑一次，均全绿） |
+| `ops-center/backend` `test_model_presets_api.py` + `test_model_catalog_api.py` | `59 passed`（含新增 2 条 M2 用例；M2 修复后复跑仍 59） |
 | `ops-center/frontend` `npm test` | `Test Files 16 passed (16)` / `Tests 161 passed (161)` |
 | `ops-center/frontend` `npm run build` | `✓ built`（`ModelPresets-*.js` 22.75 kB） |
 | `apps/desktop` `pnpm run lint` | exit 0（`eslint electron/ src/ --quiet` 无输出） |

@@ -890,14 +890,20 @@ async def upsert_model_preset(db: AsyncSession, data: dict, updated_by: str = "a
     # 即其自身 category，多模态 provider 的键即其 capabilities。
     # 键必须落在该预设的类别/能力集合内；非空值必须 ∈ models（防止运营填错导致运行期 fail-closed）。
     allowed_cap_keys = {category} | {str(c) for c in capabilities}
+    normalized_capability_models = {}
     for cap_key, cap_model in capability_models.items():
         if str(cap_key) not in allowed_cap_keys:
             raise ValueError(
                 f"能力默认模型键 {cap_key} 不属于该预设的类别/能力（允许：{', '.join(sorted(allowed_cap_keys))}）"
             )
-        text = str(cap_model).strip() if cap_model is not None else ""
+        # 只接受字符串或 null：int/bool 在桌面端两层解析里都会被 `typeof === 'string'` 静默跳过，
+        # 落库后会出现「校验通过 / 总览显示已配置 / 运行期当未配置」三面不一致（跨家族评审 M2）。
+        if cap_model is not None and not isinstance(cap_model, str):
+            raise ValueError(f"能力 {cap_key} 的默认模型必须是字符串（收到 {type(cap_model).__name__}）")
+        text = (cap_model or "").strip()
         if text and normalized_models and text not in normalized_models:
             raise ValueError(f"能力 {cap_key} 的默认模型 {text} 不在模型列表中")
+        normalized_capability_models[str(cap_key)] = text
 
     normalized_cap_docs = {}
     for cap, links in capability_doc_links.items():
@@ -910,9 +916,9 @@ async def upsert_model_preset(db: AsyncSession, data: dict, updated_by: str = "a
         raise ValueError("默认模型 ID 必须在模型列表中")
     # 兼容同步（voice-model-program-resolved）：本类别的能力默认模型有值时，镜像写入
     # default_model，保证**旧版桌面端**（只读 default_model）行为不回退。
-    category_default = capability_models.get(category)
-    if category_default is not None and str(category_default).strip():
-        default_model = str(category_default).strip()
+    category_default = normalized_capability_models.get(category)
+    if category_default:
+        default_model = category_default
 
     row = await get_model_preset(db, preset_id)
     now = datetime.datetime.utcnow().isoformat()
@@ -929,7 +935,7 @@ async def upsert_model_preset(db: AsyncSession, data: dict, updated_by: str = "a
     row.limit_per_5h = limit_per_5h
     row.is_multimodal = 1 if data.get("is_multimodal") else 0
     row.capabilities = json.dumps(capabilities, ensure_ascii=False)
-    row.capability_models = json.dumps(capability_models, ensure_ascii=False)
+    row.capability_models = json.dumps(normalized_capability_models, ensure_ascii=False)
     row.doc_links = json.dumps(doc_links, ensure_ascii=False)
     row.capability_doc_links = json.dumps(normalized_cap_docs, ensure_ascii=False)
     row.is_visible = 0 if data.get("is_visible") is False else 1
