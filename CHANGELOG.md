@@ -1,3 +1,51 @@
+# [未发布] fix(ci): 时钟位移引信巡检补上「先重建构建产物」，并把「跑桌面测试的 job 必须先备好产物」做成按 job 的跨 workflow 装配锁（electron-ci-preload-build）
+
+- 现场与归属：上游 `826fa7e13`（PR #3782，change `bundle-untrack`）把 5 个受管构建产物移出版本控制后，
+  只给 `quality-gate.yml` 的三个消费 job 补了「先重建再测」。`electron-ci.yml` 那半边已由 PR #3837
+  （`1bed4ad2c`）补齐；**第三个消费面是 `clock-shift-oracle.yml`** —— 它经 CLI
+  （`node scripts/check-clock-shift-oracle.js`）跑全域候选（含 `apps/desktop`）。它在 PR 上看不出来的原因
+  与 `electron-ci` 那半边不同：该 workflow 只有 `schedule` + `workflow_dispatch`，PR 事件上根本不排队。
+- 为什么它躲过了既有的同族锁：`workflow-contract.test.js:1256` 那条锁的**扫描域**其实覆盖全部 workflow
+  （#3837 已把它从「写死 `quality-gate.yml` 一个文件」扩开），漏的是**消费者谓词**
+  （`desktopStepsRunSuite`，同文件 `:1233-1238`）—— 它只认 `--filter @multi-publish/desktop
+  test|test:all|test:coverage` 的单行与参数数组两种命令行形态，而 oracle job 是经 **CLI** 消费桌面用例的
+  ⇒ 该 job 对它结构性不可见。判据本身没有缺陷，是它的消费者定义域不含这条通道。
+- 定性（**不依赖「oracle 现在已红」**，那一点已被实测否证）：`826fa7e13` 之后 oracle 只有一次历史 run
+  （`38638645067`，2026-10-14 schedule success，早于改动落地）；单文件 A/B（同一判据文件、产物在场/缺席
+  两档各 300 例）实测**两档都是 300/300 通过** ⇒ 该文件在缺产物档下的红与产物无关（属负载/时序类），
+  把它当「产物缺失的红」就是拿没验过的因果当论据。正当性来自两条结构性理由：① 接线一致性
+  （`826fa7e13` 的「先重建再测」论证漏了第三个消费面）；② **权威性保全** ——
+  `scripts/check-clock-shift-oracle.js:354-357` 在基线段出现任何红时打印 `ORACLE_NOT_AUTHORITATIVE`
+  并 `return 0`，于是缺产物导致基线红时呈现是**绿灯**，而「该域内无引信」这句结论已经失效。
+  准确的表述是「**绿得看不出问题**」（丢的是权威性），不是「红得看不见」。
+- 修法：① `clock-shift-oracle.yml` 在整套候选跑之前插入 `Build preload bundles`（`build:preload` +
+  `build:paginator`）；② 判据升级为**按 job 扫全部 workflow** 的装配锁
+  `.github/scripts/check-desktop-test-prereqs.js` + 登记表 `desktop-test-prereq-jobs.json`
+  （「谁在域内」的唯一真源，未登记 / 陈旧登记双向报红），消费者形态 5 种
+  （`desktop-filter` / `pnpm-verb` / `root-nx` / `nx-direct` / `oracle-cli`）外加脚本闭包解析，
+  并额外要求满足器**排在消费者之前**；③ 锁接进 `quality-gate.yml` 的 **Gate 2b**（`shell: bash`，
+  任一条命令非零即中止，不是那条会被「最后一条绿」掩盖的 pwsh 步骤）。
+- 与 #3837 的关系（**不是严格超集**，各有比对方严的维度；两条都保留、未删改其任何一条）：本片在
+  **消费者形态面**是扩展（前者对经 CLI 消费桌面用例的 job 结构性不可见）；在**重建步形状**上更宽松
+  （接受满足器分处两步，前者要求同一步同时含两个脚本）；在**事件门槛**上只输出 `[NOTE]`（明示「PR 全绿
+  不构成这条在 CI 上跑过的证据」），而前者对 `electron-ci` 的两条 `if` 作字面量相等断言；在**域管理与
+  自故障**上是新增面（登记表 + 三档退出码 0 合规 / 1 有问题 / 2 扫描器自身故障）。
+- 本机读数（逐条可复跑）：锁用例 **9/9**；锁 CLI rc=0（`workflows=14 jobs=29 entries=47 in-domain=4`、
+  `problems: fatal=0 debt=0`，四条域内 job 由判据自己点名并给出消费者步号与形态）；
+  `check-unwired-tests` rc=0（检查域内 101 个测试文件）；`check-workflow-structure` rc=0 且其用例 6/6；
+  `check-step-failfast` rc=0（38 个受管 run 块）；`workflow-contract` **43/43**；oracle `--dry-run` rc=0
+  （`domain=1001 candidates=183`，属当次活计数）；`verify-worktree-deps` / `check-no-brand-residue` /
+  `openspec-sync-check` 各 rc=0；`git diff --check` rc=0。
+- 变异反证 7 道（各改判据的**一个**判定面，红集互不相同、逐条命中期望用例）：V1 摘掉 `desktop-filter`
+  的散文守卫 → T5/T6；V2 满足器闭包传递失效 → T3/T6/T9；V3 顺序判据反向 → T1/T3/T4/T5/T6/T9；
+  V4 `oracle-cli` 的 `--dry-run` 域外判定掐死 → T1/T2/T3/T4/T5/T6/T9；V5 形态上界
+  `MAX_FORM_COUNTS` 失效 → T6；V6 登记表条目级形状早退失效 → T7；V7 PR 侧被 `if` 跳过的步骤不留
+  NOTE → T1/T9。7 次还原后 md5 逐次回到基线。
+- 遗留（不假装已闭合）：oracle 的退出码语义（「权威性不足」与「确实没有引信」共用 `rc=0`）**不在本 PR** ——
+  把「非 0 即拦」做成常量红本身就是反模式（缺产物档确有一份负载/时序类红会让它常态变红），
+  需另开 change 定义独立出口；首次受影响的 schedule 是 **2026-10-21**（周三 18:00 UTC），合并后按
+  「(merge SHA, workflow)」回读，无 run 时如实记 `NO_RUN(by design)` 而不是把它读成「证据丢了」。
+
 # [未发布] fix(gate): 欠账账本拒收「会自己腐化的第二份事实」—— 登记项只留原因字符串（normalize-debt-ledger-entry-shape）
 
 - **动因是当场量出来的两处腐烂**：`scripts/gate-record-debt-ledger.json` 的 23 条登记项有两种值形态（14 字符串 / 9 对象 `{reason,status,line}`）。逐条核对载体现状后：`line` **9/9 全部指不到自己的 `远程同步` 行**（3 条越界/指空，6 条指到别的 QM 行），`status` **已有 1 条说谎**（登记 `PENDING`，载体是 `执行中`）。而 `loadLedger` 只取 `reason`，全仓无任何 `entry.status` / `entry.line` 读取 —— 即"读它的人拿不到真值，不读它的人以为它是真的"。

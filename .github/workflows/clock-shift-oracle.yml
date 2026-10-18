@@ -64,6 +64,17 @@ jobs:
       - name: Ensure Electron binary
         run: node scripts/ensure-electron.js
 
+      # 构建产物不进版本控制（change: bundle-untrack）⇒ 完整两趟会跑全域候选（含 apps/desktop）。
+      # 本步骤是「权威性保全」而非「当前已红」：本 PR 实测缺产物档唯一红文件
+      # （src/views/CreateView.test.js）经单文件 A/B 判为负载类、与产物无关；但基线段一旦因
+      # 任何原因红，判据打印 ORACLE_NOT_AUTHORITATIVE 并 **return 0**
+      # （scripts/check-clock-shift-oracle.js:354-357）—— 巡检看到绿灯而「无引信」的结论已失效。
+      # 判据：.github/scripts/check-desktop-test-prereqs.js（change: electron-ci-preload-build）。
+      - name: Build preload bundles
+        run: |
+          pnpm --filter @multi-publish/desktop run build:preload
+          pnpm --filter @multi-publish/desktop run build:paginator
+
       - name: 接缝自检（不起 vitest，秒级；判据本体坏掉必须当场出声）
         shell: bash
         run: node scripts/check-clock-shift-oracle.js --dry-run
