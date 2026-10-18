@@ -27,7 +27,9 @@ RB_OVERRIDE_NOTE=""
 
 # 后端形态判据（shell 安全边界，不是风格）：首字符字母，其后只允许 [A-Za-z0-9._-]，长度 ≤ 32。
 # 后端名最终会被拼进 `--backend <name>` 交给 codeagent-wrapper，所以这里挡的是注入字符本身；
-# 也正因为过了这道判据，调用点才允许把 $RB_NAMES / $BACKEND_ARGS 不加引号地交给 shell 拆词。
+# 也正因为过了这道判据，backend_table 才允许把 $RB_NAMES 不加引号交给 shell 拆词。
+# （转给驱动的那两个参数**不依赖**这一点：它们逐值加引号，见 deep-review.sh 的 exec 段——
+#   QM-6 外部评审的 Critical 就是提这个：拼串再展开等于把安全性单点押在本判据上。）
 is_valid_backend() {
   case "$1" in
     [A-Za-z]*) : ;;

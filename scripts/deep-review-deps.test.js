@@ -777,14 +777,17 @@ test("入口参数不得静默忽略：未知旗标与缺值一律 rc=2", () => 
 
 test("验证层必须把覆盖转发给驱动，且只在真的覆盖过时转发（默认路径保持逐字不变）", () => {
   const sh = fs.readFileSync(SCRIPT, "utf8")
-  assert.match(sh, /exec node "\$DRIVER" --sha "\$SHA" \$BACKEND_ARGS/,
-    "验证层 exec 处必须带 $BACKEND_ARGS，否则 --critic 到入口就断了")
-  assert.match(sh, /BACKEND_ARGS="--proposer \$RB_PROPOSER --critic \$RB_CRITIC"/,
-    "转发内容必须由解析结果拼出，不得写死后端名")
+  assert.match(sh, /exec node "\$DRIVER" --sha "\$SHA" --proposer "\$RB_PROPOSER" --critic "\$RB_CRITIC"/,
+    "验证层 exec 处必须逐个引用地带上覆盖参数，否则 --critic 到入口就断了")
+  assert.doesNotMatch(sh, /BACKEND_ARGS/,
+    "不得再把覆盖参数拼成一个无引号展开的串（QM-6 外部评审 Critical：那样安全性只押在字符集正则上，"
+    + "正则被放宽一格就直接打开词法拆分窗口，而放宽正则本身不会被任何测试问起）")
   // 默认不转发这一格是**设计**而不是遗漏：把本仓默认值钉进命令行等于再造一个真源，
   // 上游改默认时这里会静默覆盖它。所以必须有一条锁同时证明"只在覆盖时加"。
-  assert.match(sh, /BACKEND_ARGS=""\nif \[ -n "\$RB_OVERRIDE_NOTE" \]; then/,
-    "BACKEND_ARGS 必须默认空、仅覆盖时才赋值")
+  // 转发必须**只在覆盖时**发生：默认命令行保持与历史逐字相同，既不把本仓默认值钉成
+  // 第二真源，也让任何按旧命令行写的锁继续成立。判据按分支结构数一遍（两条 exec 各一份）。
+  assert.match(sh, /if \[ -n "\$RB_OVERRIDE_NOTE" \]; then\r?\n\s*say "→ 已向后端请求覆盖/,
+    "覆盖参数的 exec 分支必须由 RB_OVERRIDE_NOTE 门控（默认路径不得带上参数）")
 })
 
 test("--check-deps 的后端解析不得依赖 node（它是「node 本身坏了」时的诊断入口）", () => {
@@ -801,9 +804,10 @@ test("--check-deps 的后端解析不得依赖 node（它是「node 本身坏了
     `后端解析必须早于 --check-deps 体检（实得 resolve=${iResolve} checkdeps=${iCheckDeps}）`)
 })
 
-test('入口必须拒绝注入形态的后端名（$BACKEND_ARGS 不加引号展开的安全边界就在这里）', () => {
-  // QM-6 评审 i3：`exec node "$DRIVER" --sha "$SHA" $BACKEND_ARGS` 故意不引号，
-  // 因为需要按空格拆成多个参数；它唯一的防线是 is_valid_backend 的字符集。
+test('入口必须拒绝注入形态的后端名（形态判据是第一道防线，不是唯一一道）', () => {
+  // QM-6 评审 i3 的历史形态：exec 曾把一个拼好的串无引号展开，那时安全性完全依赖
+  // is_valid_backend 的字符集。现已改为逐值加引号（见上一条锁），
+  // 但**形态判据本身仍要锁**：它是"这个名字能不能进评审链"的唯一答复点，
   // 所以这条锁必须钉住**判据本身**，而不是只钉"名字被传下去了"——
   // 将来有人放宽那个正则，这里必须当场变红，而不是留到注入真发生那天。
   for (const bad of ['a;b', '$(id)', 'a`b', 'a b', 'a|b', '..\\a']) { // 单/双引号刻意不在列：spawnSync→Git Bash 的 argv 会把引号吃掉（实测 "a'b" 抵达脚本时已是 ab，于是它成了一个"合法名"并通过判据），在本层不可测；同形态由 node 侧 lib 锁按 env 覆盖。判据一律取产出的那句话，不取 rc —— 这里 rc=2 会来自「找不到 node」，与被拒无关。

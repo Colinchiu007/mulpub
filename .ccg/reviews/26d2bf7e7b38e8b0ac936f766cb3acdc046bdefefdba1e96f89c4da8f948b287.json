@@ -29,8 +29,13 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "error",
+    "performedBy": "claude",
+    "findings": null,
+    "error": "Critique校验失败",
+    "validationErrors": [
+      "issues[5].finding为空"
+    ],
+    "at": "2026-10-18T08:16:46.044Z"
   }
 }

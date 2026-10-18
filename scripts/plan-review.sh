@@ -417,14 +417,18 @@ say ""
 
 # ---------- 5. 跑引擎（objectType=plan） ----------
 # 决策层这条路径**是**驱动真正应用 --proposer/--critic 的地方（覆盖块就挂在
-# objectType:"plan" 分支里），所以这里转发即生效。不加引号是有意的（要按空格拆词），
-# 安全性由 lib/ccg-backends.sh 的 is_valid_backend 保证（名单里不允许空格与 shell 元字符）。
-BACKEND_ARGS=""
-if [ -n "$RB_OVERRIDE_NOTE" ]; then
-  BACKEND_ARGS="--proposer $RB_PROPOSER --critic $RB_CRITIC"
-  say "→ 已向后端请求覆盖：$BACKEND_ARGS"
-fi
+# objectType:"plan" 分支里），所以这里转发即生效。
+# 参数逐个加引号、按是否覆盖分成两条 exec（与 deep-review.sh 同一形态，
+# 取自 QM-6 外部评审的 Critical 建议）：不拼串就不会把安全性押在字符集正则那一道上。
 if [ "$DRY" -eq 1 ]; then
-  exec node "$DRIVER" --dry-run --proposal "$PROPOSAL" $BACKEND_ARGS
+  if [ -n "$RB_OVERRIDE_NOTE" ]; then
+    say "→ 已向后端请求覆盖：--proposer $RB_PROPOSER --critic $RB_CRITIC"
+    exec node "$DRIVER" --dry-run --proposal "$PROPOSAL" --proposer "$RB_PROPOSER" --critic "$RB_CRITIC"
+  fi
+  exec node "$DRIVER" --dry-run --proposal "$PROPOSAL"
 fi
-exec node "$DRIVER" --proposal "$PROPOSAL" $BACKEND_ARGS
+if [ -n "$RB_OVERRIDE_NOTE" ]; then
+  say "→ 已向后端请求覆盖：--proposer $RB_PROPOSER --critic $RB_CRITIC"
+  exec node "$DRIVER" --proposal "$PROPOSAL" --proposer "$RB_PROPOSER" --critic "$RB_CRITIC"
+fi
+exec node "$DRIVER" --proposal "$PROPOSAL"

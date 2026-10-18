@@ -823,23 +823,31 @@ fi
 # ---------- 5. 跑 ----------
 # 覆盖参数只在**真的覆盖过**时转发：默认路径保持与历史逐字相同，既不把本仓的默认值
 # 钉成上游的第二真源，也让任何按旧命令行写的锁继续成立。
-# 不加引号是有意的（需要按空格拆成多个参数）；安全性由 lib/ccg-backends.sh 的
-# is_valid_backend 保证 —— 名单里已经不允许空格与任何 shell 元字符，
-# 所以这里不存在词法二次解释的余地。
-BACKEND_ARGS=""
-if [ -n "$RB_OVERRIDE_NOTE" ]; then
-  BACKEND_ARGS="--proposer $RB_PROPOSER --critic $RB_CRITIC"
-  say "→ 已向后端请求覆盖：$BACKEND_ARGS"
-  say "  ⚠ 驱动**验证层**（评审 diff）当前不应用这两个参数（覆盖块只挂在决策层分支），"
-  say "    所以本次很可能是「请求了但驱动仍按自己的默认跑」—— 那会由记录对账判未闭合，"
-  say "    不会被读成通过。要让覆盖真正作用于 diff 评审，见 openspec 该 change 的出口两条。"
-fi
+#
+# 形态取自 QM-6 外部评审的 Critical 建议：**逐值加引号、分支成两条 exec**，
+# 而不是拼一个变量再无引号展开。拼串写法的安全性完全押在
+# is_valid_backend 的字符集上——那个正则将来被人放宽一格（例如为支持带空格的服务名）
+# 就直接打开词法拆分/注入窗口，而放宽正则本身不会被任何测试问起。
+# 现在即便正则被放宽，值也只会被当作**一个参数**交给 node，不构成第二道防线依赖。
+# （这也是为什么 scripts/deep-review-deps.test.js 里有一条 doesNotMatch 禁这个变量名 ——
+#   禁词锁不剥注释，所以本注释刻意不提那个名字。）
 if [ "$DRY" -eq 1 ]; then
   if [ "${DRY_NO_DRIVER:-0}" -eq 1 ]; then
     say ""
     say "[dry-run] 引擎缺失 ⇒ 到此为止（判定记录与模式判定已预览完毕）。"
     exit 0
   fi
-  exec node "$DRIVER" --dry-run --sha "$SHA" $BACKEND_ARGS
+  if [ -n "$RB_OVERRIDE_NOTE" ]; then
+    say "→ 已向后端请求覆盖：--proposer $RB_PROPOSER --critic $RB_CRITIC"
+    exec node "$DRIVER" --dry-run --sha "$SHA" --proposer "$RB_PROPOSER" --critic "$RB_CRITIC"
+  fi
+  exec node "$DRIVER" --dry-run --sha "$SHA"
 fi
-exec node "$DRIVER" --sha "$SHA" $BACKEND_ARGS
+if [ -n "$RB_OVERRIDE_NOTE" ]; then
+  say "→ 已向后端请求覆盖：--proposer $RB_PROPOSER --critic $RB_CRITIC"
+  say "  ⚠ 驱动**验证层**（评审 diff）当前不应用这两个参数（覆盖块只挂在决策层分支），"
+  say "    所以本次很可能是「请求了但驱动仍按自己的默认跑」—— 那会由判定记录的"
+  say "    reviewBackends × deepReview.performedBy 对账判未闭合，不会被读成通过。"
+  exec node "$DRIVER" --sha "$SHA" --proposer "$RB_PROPOSER" --critic "$RB_CRITIC"
+fi
+exec node "$DRIVER" --sha "$SHA"
