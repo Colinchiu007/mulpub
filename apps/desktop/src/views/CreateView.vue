@@ -954,7 +954,7 @@ import { modelProviderList } from '@/api/model-providers'
 import { getApi } from '@/api/electron-bridge'
 import { settingsDialogRevision } from '@/stores/settings-dialog'
 import { showPipelineBackgroundToast } from '@/stores/pipeline-background-toast'
-import { opsCenterSyncRuntime, opsCenterSyncPipelineOptions } from '@/api/ops-center-sync'
+import { opsCenterSyncRuntime, opsCenterSyncPipelineOptions, onOpsCenterRuntimeUpdated } from '@/api/ops-center-sync'
 import { formatUserError } from '@/utils/user-facing-error'
 import {
   getPipelineCategory,
@@ -5089,6 +5089,12 @@ export default {
       await this.loadPipelineOptions()
       // 字数控制与选项控制同阶段：失败静默回落内置默认，不阻塞创作（story-text-limit-control）
       await this.loadStoryTextLimit()
+      // ⚠️ 单次拉取不够：启动同步由主进程 `autoSyncOnStart()` 的 setTimeout 3000 触发，
+      // 而本页通常在此之前就已挂载 ⇒ 首次拉取读到的是「尚未 apply」的旧状态，上限会被钉在内置默认。
+      // 订阅 applyRuntime 成功后的广播再拉一次（与 MpSidebar 同一机制、同一通道），
+      // 否则「运营改了值、重启应用仍不生效」会按「用户何时进入本页」随机出现。
+      // 取消订阅走既有 cleanups 数组，beforeUnmount 统一释放。
+      this.cleanups.push(onOpsCenterRuntimeUpdated(() => { void this.loadStoryTextLimit() }))
     // 路由直接进入历史记录视图（/create?view=history）
     if (this.$route?.query?.view === 'history') {
       this.detachPipelineView('history')
