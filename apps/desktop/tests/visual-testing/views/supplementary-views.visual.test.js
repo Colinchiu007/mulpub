@@ -177,23 +177,15 @@ const supplementaryViewTests = [
     name: 'collection-confirm-dialog',
     route: '/collection',
     waitFor: '.collection-tab-btn.active',
-    // ⛔ 2026-10-12 #3395 起「草稿箱」是**独立页签**，而 /collection 的默认页签是
-    //   `collect`（Collection.vue: `const activeTab = ref('collect')`）。
-    //   本条用例写于 2026-09-10（d74115388），此后一直断言**默认页签上**的
-    //   「草稿箱」区块标题 ⇒ 从那次重构起恒定失败；而它只跑在**非 required** 的
-    //   `Visual Tests` workflow 里，红了 60+ 次没人发现。
-    //   修法：先切到草稿箱页签，再用 `data-testid`（而不是随文案变的 `:has-text`
-    //   与 `.cohere-card-grid`）断言。选择器契约由 src/views/Collection.test.js 的
-    //   「视觉用例选择器契约」锁住，防止再次静默漂移。
-    trigger: '[data-testid="collection-tab-drafts"]',
-    afterTrigger: '[data-testid="collection-drafts-panel"]',
+    // ⛔ 2026-10-12 #3395 起「草稿箱」是独立页签；2026-10-19 PRD-UI-FLOW-CLARITY S1c
+    //   起草稿箱**整页迁出**采集页（点击页签改为 router.push '/publish?tab=drafts'），
+    //   本页不再渲染草稿列表。故本用例退回断言采集页**默认态**（页签行 + 采集面板），
+    //   不再点击草稿箱页签 —— 点它会导航离开本页，截图必然偏离 /collection 基线。
+    //   选择器一律用 data-testid / 稳定 class，不用随文案变的 :has-text。
     checks: [
-      check('草稿箱区块标题', '[data-testid="collection-drafts-panel"] .cohere-section-title', '显示草稿箱区块标题'),
-      check(
-        '删除入口',
-        '[data-testid="collection-drafts-list"] [data-testid="draft-delete"], [data-testid="collection-drafts-empty"]',
-        '显示删除入口或明确空状态',
-      ),
+      check('页签行', '.collection-tabs[role="tablist"]', '显示采集页页签行'),
+      check('采集页签选中', '.collection-tab-btn.active', '默认落在采集页签'),
+      check('草稿箱入口仍在', '[data-testid="collection-tab-drafts"]', '草稿箱入口作为跳转页签保留'),
     ],
   },
   {

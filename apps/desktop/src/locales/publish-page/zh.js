@@ -10,6 +10,8 @@ export default {
     noDrafts: '暂无草稿',
     draftsHint: '保存草稿后，可以从这里继续编辑。',
     continueEdit: '继续编辑',
+    // S1c：草稿箱卡片的唯一发布出口（原「继续编辑」与「发布」指向同一 URL，收敛为一个）
+    openDraftToPublish: '去发布',
     untitled: '无标题',
     updatedUnknown: '更新时间未知',
     platformCount: (ctx) => ctx.named('count') + ' 个平台',

@@ -10,6 +10,9 @@ export default {
     noDrafts: 'No drafts yet',
     draftsHint: 'After saving a draft, you can continue editing it here.',
     continueEdit: 'Continue Editing',
+    // S1c: the single publish-exit on a draft card (previously "Continue Editing"
+    // and "Publish" resolved to the same URL, so they were collapsed into one)
+    openDraftToPublish: 'Publish this draft',
     untitled: 'Untitled',
     updatedUnknown: 'Updated time unknown',
     platformCount: (ctx) => ctx.named('count') + ' platforms',
