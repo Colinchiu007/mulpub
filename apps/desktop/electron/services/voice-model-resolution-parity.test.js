@@ -105,6 +105,14 @@ const CASES = {
     capability_models: { llm: 'MiniMax-M2.7', image: 'image-01' },
     config: { default_model: 'MiniMax-M2.7' },
   },
+  // 反向对照：多模态缺 llm 声明时，provider 级默认**仍应生效**（否则「多模态+仅 default_model」
+  // 的存量行解 llm 会静默降级为空串 —— 跨家族评审第二轮指出的退化）。
+  '多模态-缺 llm 声明时 provider 级默认仍生效': {
+    id: 'mm-llm-fallback', name: 'MM LLM Fallback', category: 'multimodal',
+    models: ['MiniMax-M2.7', 'speech-2.8-turbo'],
+    capability_models: { tts: 'speech-2.8-turbo' },
+    config: { default_model: 'MiniMax-M2.7' },
+  },
   '多模态-用户默认优先（∈models）': {
     ...MM, config: { user_default_model: 'MiniMax-M2.7', default_model: 'MiniMax-Hailuo-2.3' },
   },
@@ -181,8 +189,12 @@ describe('跨层一致性的防漂移锁（变异反证）', () => {
    * 确认前端没有把兜底写成 models[0]（多模态分支必须 fail-closed）。
    * 若有人把前端改成"多模态也兜底 models[0]"，本条立刻红。
    */
-  const mainSrc = readFileSync(resolve(here, 'model-provider-manager.js'), 'utf8')
-  const stateSrc = readFileSync(resolve(here, '../../src/views/video-creation/composables/tts-voices-state.js'), 'utf8')
+  const mainSrcRaw = readFileSync(resolve(here, 'model-provider-manager.js'), 'utf8')
+  const stateSrcRaw = readFileSync(resolve(here, '../../src/views/video-creation/composables/tts-voices-state.js'), 'utf8')
+  // 归一化行尾：工作副本可能是 CRLF，而下面用 '\n}\n' 定位函数结束符（CRLF 下会返回 -1，
+  // 让「函数体内」限定退化成「函数 + 后续 N 字符」——跨家族评审第二轮指出的盲区）。
+  const mainSrc = mainSrcRaw.replace(/\r\n/g, '\n')
+  const stateSrc = stateSrcRaw.replace(/\r\n/g, '\n')
 
   it('主进程仍持有四级优先级（user_default_model → capability_models → 单能力 default_model → 兜底）', () => {
     expect(mainSrc).toContain('config.user_default_model')
@@ -194,8 +206,8 @@ describe('跨层一致性的防漂移锁（变异反证）', () => {
     const fnBody = mainSrc.slice(fnStart, fnEnd > 0 ? fnEnd : fnStart + 4000)
     // 能力分支必须先于 provider 级默认（C1：minimax-multimodal 下 default_model 是 llm 模型）
     expect(fnBody.indexOf('provider.capability_models[type]')).toBeLessThan(fnBody.indexOf('config.default_model'))
-    // 多模态跳过 provider 级默认
-    expect(fnBody).toMatch(/provider\.category !== 'multimodal'[\s\S]{0,200}config\.default_model/)
+    // 多模态：非 llm 能力跳过 provider 级默认（llm 仍取其值）
+    expect(fnBody).toMatch(/category === 'multimodal' && type && type !== 'llm'[\s\S]{0,200}config\.default_model/)
   })
 
   it('主进程多模态无声明仍 fail-closed（返回空串而非 models[0]）', () => {

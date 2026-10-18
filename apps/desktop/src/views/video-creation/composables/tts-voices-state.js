@@ -107,8 +107,11 @@ export function resolveCapabilityDefaultModel (provider, type) {
     const byCapability = provider.capability_models[type]
     if (typeof byCapability === 'string' && byCapability.trim()) return byCapability.trim()
   }
-  // 3. 运营 provider 级默认（兼容存量字段）；多模态跳过（它是 provider 主模型，通常是 llm）
-  if (provider.category !== 'multimodal') {
+  // 3. 运营 provider 级默认（兼容存量字段）。多模态**除 llm 外**跳过：该字段对多模态是
+  //    provider 的「主模型」（通常是 llm），拿它解 tts/image/video 会静默取错模型；
+  //    但解 llm 时它正是正确来源。
+  const skipOpsDefault = provider.category === 'multimodal' && type && type !== 'llm'
+  if (!skipOpsDefault) {
     const opsDefault = typeof config.default_model === 'string' ? config.default_model.trim() : ''
     if (opsDefault && models.includes(opsDefault)) return opsDefault
   }

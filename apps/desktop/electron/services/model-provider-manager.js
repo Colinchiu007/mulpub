@@ -109,9 +109,11 @@ function resolveProviderDefaultModel (provider, type) {
     const byCapability = provider.capability_models[type]
     if (typeof byCapability === 'string' && byCapability.trim()) return byCapability.trim()
   }
-  // 3. 运营 provider 级默认（目录同步下发）。多模态跳过：它是 provider 级「主模型」，
-  //    通常为 llm 模型，用它解 tts/image/video 会静默拿错模型。
-  if (provider.category !== 'multimodal') {
+  // 3. 运营 provider 级默认（目录同步下发）。多模态**除 llm 外**跳过：该字段对多模态是
+  //    provider 的「主模型」（通常是 llm），拿它解 tts/image/video 会静默取错模型；
+  //    但解 llm 时它正是正确来源，跳过会让「多模态 + 仅 default_model」的存量行静默降级为空串。
+  const skipOpsDefault = provider.category === 'multimodal' && type && type !== 'llm'
+  if (!skipOpsDefault) {
     const opsDefault = typeof config.default_model === 'string' ? config.default_model.trim() : ''
     if (opsDefault && models.includes(opsDefault)) return opsDefault
   }

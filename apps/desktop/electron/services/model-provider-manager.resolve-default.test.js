@@ -45,6 +45,17 @@ describe('resolveProviderDefaultModel（双默认语义 + 能力优先）', () =
     expect(resolveProviderDefaultModel(noTts, 'video')).toBe('')
   })
 
+  it('4b. 多模态解 llm 时 provider 级默认仍生效（存量「多模态+仅 default_model」不降级）', () => {
+    const llmOnlyOps = {
+      id: 'mm2', category: 'multimodal', models: ['MiniMax-M2.7', 'speech-2.8-turbo'],
+      capability_models: { tts: 'speech-2.8-turbo' },
+      config: { default_model: 'MiniMax-M2.7' },
+    }
+    expect(resolveProviderDefaultModel(llmOnlyOps, 'llm')).toBe('MiniMax-M2.7')
+    // 同一条目解 tts 走能力路由
+    expect(resolveProviderDefaultModel(llmOnlyOps, 'tts')).toBe('speech-2.8-turbo')
+  })
+
   it('5. 多模态按能力路由（声明即有效，不要求 ∈ models）', () => {
     expect(resolveProviderDefaultModel({ ...MM, config: {} }, 'tts')).toBe('speech-2.8-turbo')
   })
