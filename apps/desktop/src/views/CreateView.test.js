@@ -123,6 +123,29 @@ import i18n from "@/i18n";
 // modal inside the wrapper; UiModal tests cover the real body mount contract.
 config.global.stubs = { ...(config.global.stubs || {}), teleport: true };
 
+// 语音域测试夹具（voice-model-program-resolved，2026-10-18）：
+// 语音模型不再由用户选择，改由 resolveVoiceModelForProvider 从**已注册的 provider 列表**
+// 解析。因此测试里只设 s2vConfig.voiceProvider 而不注册 s2vVoiceProviders 会解析出空模型，
+// 必须同时注册 provider。这里集中定义常用夹具，避免每个用例重复内联。
+const MULTIMODAL_PROVIDER_FIXTURE = {
+  id: "minimax-multimodal", name: "MiniMax", category: "multimodal",
+  enabled: true, is_configured: true,
+  capabilities: ["llm", "tts", "image", "video"],
+  capability_models: { llm: "MiniMax-M2.7", tts: "speech-2.8-turbo", image: "image-01", video: "MiniMax-Hailuo-2.3" },
+  models: ["speech-2.8-turbo", "image-01", "MiniMax-Hailuo-2.3", "MiniMax-M2.7"],
+};
+const MINIMAX_TTS_PROVIDER_FIXTURE = {
+  id: "minimax-tts", name: "MiniMax TTS", category: "tts",
+  enabled: true, is_configured: true,
+  models: ["speech-2.8-turbo"],
+  capability_models: { tts: "speech-2.8-turbo" },
+};
+const MIMO_TTS_PROVIDER_FIXTURE = {
+  id: "mimo-tts", name: "MiMo TTS", category: "tts",
+  enabled: true, is_configured: true,
+  models: ["mimo-v2.5-tts", "mimo-v2.5-tts-voiceclone"],
+};
+
 describe("CreateView", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -1188,6 +1211,7 @@ describe("CreateView", () => {
 
     const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
     await nextTick();
+    w.vm.s2vVoiceProviders = [MULTIMODAL_PROVIDER_FIXTURE];
     w.vm.s2vConfig.voiceProvider = "minimax-multimodal";
     w.vm.s2vConfig.voiceModel = "speech-2.8-turbo";
     w.vm.s2vVoiceCapability = { type: "user_clone", clone: { enabled: true } };
@@ -1226,6 +1250,7 @@ describe("CreateView", () => {
     });
     const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
     await nextTick();
+    w.vm.s2vVoiceProviders = [MULTIMODAL_PROVIDER_FIXTURE];
     w.vm.s2vConfig.voiceProvider = "minimax-multimodal";
     w.vm.s2vConfig.voiceModel = "speech-2.8-turbo";
     w.vm.s2vVoiceClones = [{ id: "MiniMaxVoice_auto1", name: "音色001" }];
@@ -1254,6 +1279,7 @@ describe("CreateView", () => {
     });
     const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
     await nextTick();
+    w.vm.s2vVoiceProviders = [MULTIMODAL_PROVIDER_FIXTURE];
     w.vm.s2vConfig.voiceProvider = "minimax-multimodal";
     w.vm.s2vConfig.voiceModel = "speech-2.8-turbo";
     w.vm.s2vVoiceClones = [{ id: "01", name: "音色001", invalid: true }];
@@ -1296,6 +1322,7 @@ describe("CreateView", () => {
     // 展开克隆面板后：自动保存提示存在、手动添加按钮不存在
     w.vm.selectedPipeline = { name: "story2video-compose", available: true, stages: [] };
     w.vm.s2vOpenSections.voice = true;
+    w.vm.s2vVoiceProviders = [MULTIMODAL_PROVIDER_FIXTURE];
     w.vm.s2vConfig.voiceProvider = "minimax-multimodal";
     w.vm.s2vConfig.voiceModel = "speech-2.8-turbo";
     w.vm.s2vVoiceCapability = { type: "user_clone", clone: { enabled: true } };
@@ -1322,6 +1349,7 @@ describe("CreateView", () => {
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", available: true, stages: [] };
     w.vm.s2vOpenSections.voice = true;
+    w.vm.s2vVoiceProviders = [MULTIMODAL_PROVIDER_FIXTURE];
     w.vm.s2vConfig.voiceProvider = "minimax-multimodal";
     w.vm.s2vConfig.voiceModel = "speech-2.8-turbo";
     w.vm.s2vVoiceCapability = { type: "user_clone", clone: { enabled: true } };
@@ -1367,6 +1395,7 @@ describe("CreateView", () => {
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", available: true, stages: [] };
     w.vm.s2vOpenSections.voice = true;
+    w.vm.s2vVoiceProviders = [MULTIMODAL_PROVIDER_FIXTURE];
     w.vm.s2vConfig.voiceProvider = "minimax-multimodal";
     w.vm.s2vConfig.voiceModel = "speech-2.8-turbo";
     w.vm.s2vVoiceCapability = { type: "user_clone", clone: { enabled: true } };
@@ -1412,6 +1441,7 @@ describe("CreateView", () => {
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", available: true, stages: [] };
     w.vm.s2vOpenSections.voice = true;
+    w.vm.s2vVoiceProviders = [MULTIMODAL_PROVIDER_FIXTURE];
     w.vm.s2vConfig.voiceProvider = "minimax-multimodal";
     w.vm.s2vConfig.voiceModel = "speech-2.8-turbo";
     w.vm.s2vVoiceCapability = { type: "user_clone", clone: { enabled: true } };
@@ -1440,6 +1470,7 @@ describe("CreateView", () => {
 
     const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
     await nextTick();
+    w.vm.s2vVoiceProviders = [MULTIMODAL_PROVIDER_FIXTURE];
     w.vm.s2vConfig.voiceProvider = "minimax-multimodal";
     w.vm.s2vConfig.voiceModel = "speech-2.8-turbo";
     w.vm.s2vVoiceCapability = { type: "user_clone", clone: { enabled: true } };
@@ -1473,6 +1504,7 @@ describe("CreateView", () => {
 
     const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
     await nextTick();
+    w.vm.s2vVoiceProviders = [MULTIMODAL_PROVIDER_FIXTURE];
     w.vm.s2vConfig.voiceProvider = "minimax-multimodal";
     w.vm.s2vConfig.voiceModel = "speech-2.8-turbo";
     w.vm.s2vVoiceCapability = { type: "user_clone", clone: { enabled: true } };
@@ -1995,11 +2027,23 @@ describe("CreateView - S2V orchestration", () => {
     expect(voiceProviderItem.find('option[value="minimax-multimodal"]').text()).toContain("MiniMax（多模态）");
     expect(voiceProviderItem.find('option[value="unconfigured-tts"]').exists()).toBe(false);
 
-    // 选中多模态：语音模型只显示 tts 能力模型，默认模型取 capability_models.tts
+    // 选中多模态（voice-model-program-resolved，2026-10-18）：「语音模型」下拉已移除，
+    // 具体模型由程序按运营默许模型 capability_models.tts 解析并静默写入 s2vConfig.voiceModel
+    w.vm.s2vVoiceProviders = [MULTIMODAL_PROVIDER_FIXTURE];
     w.vm.s2vConfig.voiceProvider = "minimax-multimodal";
     await nextTick();
-    expect(w.vm.s2vVoiceModelOptions).toEqual(["speech-2.8-turbo"]);
+    // 下拉不再渲染（label 为「语音模型」的配置项不存在）
+    const voiceModelItems = w.findAll(".config-item").filter(item => {
+      const label = item.find("label");
+      return label.exists() && label.text() === "语音模型";
+    });
+    expect(voiceModelItems).toHaveLength(0);
+    // 模型被程序解析为 tts 能力默认模型
     expect(w.vm.getS2VDefaultVoiceModel("minimax-multimodal")).toBe("speech-2.8-turbo");
+    await w.vm.loadS2VProviders();
+    expect(w.vm.s2vConfig.voiceModel).toBe("speech-2.8-turbo");
+    // 语音上下文（目录/能力请求入参）也取解析值，不读用户可编辑值
+    expect(w.vm.getS2VVoiceContext()).toEqual({ providerId: "minimax-multimodal", model: "speech-2.8-turbo" });
     w.unmount();
   });
 
@@ -4711,7 +4755,8 @@ describe("运营开关 videoCreation.maxOutputResolution（4K 能力）", () => 
       // 让 mounted 触发的异步加载先收敛，避免后续 resetS2VVoiceData 覆盖测试状态
       await w.vm.loadS2VProviders();
       await nextTick();
-      w.vm.s2vConfig.voiceProvider = "minimax-tts";
+      w.vm.s2vVoiceProviders = [MINIMAX_TTS_PROVIDER_FIXTURE];
+    w.vm.s2vConfig.voiceProvider = "minimax-tts";
       w.vm.s2vConfig.voiceModel = "speech-2.8-turbo";
       w.vm.s2vVoiceCatalog = [];
       w.vm.s2vVoiceClones = [{ id: "MiniMaxVoice_abc123", name: "克隆01" }, { id: "other-voice", name: "克隆02" }];
@@ -4742,7 +4787,8 @@ describe("运营开关 videoCreation.maxOutputResolution（4K 能力）", () => 
       await nextTick();
       await w.vm.loadS2VProviders();
       await nextTick();
-      w.vm.s2vConfig.voiceProvider = "minimax-tts";
+      w.vm.s2vVoiceProviders = [MINIMAX_TTS_PROVIDER_FIXTURE];
+    w.vm.s2vConfig.voiceProvider = "minimax-tts";
       w.vm.s2vConfig.voiceModel = "speech-2.8-turbo";
       w.vm.s2vVoiceCatalog = [];
       w.vm.s2vVoiceClones = [{ id: "MiniMaxVoice_abc123", name: "克隆01" }];
@@ -4767,7 +4813,8 @@ describe("运营开关 videoCreation.maxOutputResolution（4K 能力）", () => 
       // 显式选择 story2video-compose 流水线：本用例只关心克隆面板渲染，
       // 不依赖前面用例遗留的 pipelineList mock 状态（消除顺序依赖）
       w.vm.selectedPipeline = { name: "story2video-compose", available: true, stages: ["split", "optimize", "generate_assets", "compose"] };
-      w.vm.s2vConfig.voiceProvider = "minimax-tts";
+      w.vm.s2vVoiceProviders = [MINIMAX_TTS_PROVIDER_FIXTURE];
+    w.vm.s2vConfig.voiceProvider = "minimax-tts";
       w.vm.s2vConfig.voiceModel = "speech-2.8-turbo";
       w.vm.s2vVoiceCapability = { type: "user_clone", clone: { enabled: true } };
       w.vm.s2vCloneOpen = true;
@@ -4819,6 +4866,7 @@ describe("运营开关 videoCreation.maxOutputResolution（4K 能力）", () => 
     await nextTick();
     await w.vm.loadS2VProviders();
     await nextTick();
+    w.vm.s2vVoiceProviders = [MINIMAX_TTS_PROVIDER_FIXTURE];
     w.vm.s2vConfig.voiceProvider = "minimax-tts";
     w.vm.s2vConfig.voiceModel = "speech-2.8-turbo";
     await w.vm.loadS2VVoiceData();
@@ -4839,6 +4887,7 @@ describe("运营开关 videoCreation.maxOutputResolution（4K 能力）", () => 
     await nextTick();
     await w.vm.loadS2VProviders();
     await nextTick();
+    w.vm.s2vVoiceProviders = [MINIMAX_TTS_PROVIDER_FIXTURE];
     w.vm.s2vConfig.voiceProvider = "minimax-tts";
     w.vm.s2vConfig.voiceModel = "speech-2.8-turbo";
     await w.vm.loadS2VVoiceData();
@@ -6883,13 +6932,13 @@ describe("CreateView MiMo TTS 语音模型下拉隐藏（2026-09-18）", () => {
     await nextTick();
 
     // 选中 mimo-tts
+    w.vm.s2vVoiceProviders = [MIMO_TTS_PROVIDER_FIXTURE];
     w.vm.s2vConfig.voiceProvider = "mimo-tts";
     w.vm.s2vConfig.voiceModel = "";
     await nextTick();
 
-    // 语音模型下拉隐藏
+    // 语音模型下拉隐藏（2026-10-18 起为全 provider 规则，不再限于 mimo）
     expect(w.vm.s2vVoiceModelHidden).toBe(true);
-    expect(w.vm.s2vVoiceModelOptions).toEqual([]);
     expect(w.vm.getS2VDefaultVoiceModel("mimo-tts")).toBe("");
     const voiceModelItems = w.findAll(".config-item").filter(item => {
       const label = item.find("label");
@@ -6910,7 +6959,7 @@ describe("CreateView MiMo TTS 语音模型下拉隐藏（2026-09-18）", () => {
     w.unmount();
   });
 
-  it("非 mimo provider（如 minimax-tts）语音模型下拉正常显示", async () => {
+  it("非 mimo provider（如 minimax-tts）同样不渲染「语音模型」下拉，模型按运营默许解析（2026-10-18）", async () => {
     const minimaxProvider = {
       id: "minimax-tts",
       name: "MiniMax TTS",
@@ -6918,6 +6967,7 @@ describe("CreateView MiMo TTS 语音模型下拉隐藏（2026-09-18）", () => {
       enabled: true,
       is_configured: true,
       models: ["speech-2.8-turbo"],
+      capability_models: { tts: "speech-2.8-turbo" },
     };
     const listProviders = vi.fn(async (category) => {
       if (category === "tts") return { code: 0, data: [minimaxProvider] };
@@ -6936,18 +6986,20 @@ describe("CreateView MiMo TTS 语音模型下拉隐藏（2026-09-18）", () => {
     await w.vm.loadS2VProviders();
     await nextTick();
 
+    w.vm.s2vVoiceProviders = [MINIMAX_TTS_PROVIDER_FIXTURE];
     w.vm.s2vConfig.voiceProvider = "minimax-tts";
     w.vm.s2vConfig.voiceModel = "speech-2.8-turbo";
     await nextTick();
 
     expect(w.vm.s2vVoiceModelHidden).toBe(false);
-    expect(w.vm.s2vVoiceModelOptions).toEqual(["speech-2.8-turbo"]);
     expect(w.vm.getS2VDefaultVoiceModel("minimax-tts")).toBe("speech-2.8-turbo");
+    expect(w.vm.getS2VVoiceContext()).toEqual({ providerId: "minimax-tts", model: "speech-2.8-turbo" });
+    // 「语音模型」下拉在全 provider 下均不渲染（voice-model-program-resolved）
     const voiceModelItems = w.findAll(".config-item").filter(item => {
       const label = item.find("label");
       return label.exists() && label.text() === "语音模型";
     });
-    expect(voiceModelItems.length).toBeGreaterThan(0);
+    expect(voiceModelItems).toHaveLength(0);
     w.unmount();
   });
 });

@@ -114,6 +114,35 @@ describe('S2vConfigPanels', () => {
     expect(vm.s2vConfig.voiceSpeed).toBe(1.4);
   });
 
+  // voice-model-program-resolved（2026-10-18）：「语音模型」不再是用户可配置项。
+  // 不论哪个 provider、模型是否可解析，面板都不得渲染该字段——这是本变更的 UI 契约。
+  it('never renders a 「语音模型」 field: the model is resolved by the program', () => {
+    // 场景 1：已选 provider 且模型可解析 → 「语音 / 音色 ID」在，但「语音模型」不在
+    vm.s2vConfig.voiceProvider = 'minimax-multimodal';
+    vm.s2vConfig.voiceModel = 'speech-2.8-turbo';
+    vm.s2vVoiceContextModel = 'speech-2.8-turbo';
+    let w = mountPanel(vm);
+    const labels = (wrapper) => wrapper.findAll('.config-item label').map((n) => n.text());
+    expect(labels(w)).toContain('语音生成器');
+    expect(labels(w)).toContain('语音 / 音色 ID');
+    expect(labels(w)).not.toContain('语音模型');
+    w.unmount();
+
+    // 场景 2：模型解析为空（多模态缺 tts 声明）→ 两个字段都不渲染，不留空白控件
+    vm.s2vVoiceContextModel = '';
+    w = mountPanel(vm);
+    expect(labels(w)).not.toContain('语音模型');
+    expect(labels(w)).not.toContain('语音 / 音色 ID');
+    w.unmount();
+
+    // 场景 3：未选 provider → 同样不渲染
+    vm.s2vConfig.voiceProvider = '';
+    vm.s2vConfig.voiceModel = '';
+    w = mountPanel(vm);
+    expect(labels(w)).not.toContain('语音模型');
+    w.unmount();
+  });
+
   it('writes scalar data through setState on the parent instance, and rejects unknown keys', () => {
     const ctx = createS2VPanel(vm);
     // 「按字数 / 按秒」一类标量直写必须回落到父实例，子组件不自持状态

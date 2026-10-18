@@ -230,15 +230,36 @@
 - 语速为 range：最小 0.5、最大 2.0、步长 0.1，右侧显示当前值；与流水线启动页的语速交互一致。
 - 删除“重试图片”“重试视频”；保留“替换旁白”和下载图片/音频/视频动作。
 
-#### 4.3.1 MiMo TTS 语音模型下拉隐藏（2026-09-18）
+#### 4.3.1 语音模型由程序与运营决定（2026-10-18 起，取代 2026-09-18 的 MiMo 专属规则）
 
-- 当「语音生成器」为 MiMo TTS（provider id `mimo-tts`）时，「语音模型」下拉选择栏**不显示**。
-- 原因：`mimo-v2.5-tts` 与 `mimo-v2.5-tts-voiceclone` 两个模型由「语音 / 音色 ID」下拉区分——选择预置音色走 `mimo-v2.5-tts`，选择克隆音色走 `mimo-v2.5-tts-voiceclone`。
-- 音色 ID 下拉显示 9 个官方预置音色（mimo_default/冰糖/茉莉/苏打/白桦/Mia/Chloe/Milo/Dean）+ 用户克隆音色。
-- 克隆面板显示（选择本地 mp3/wav 音频文件 → 自动克隆，默认名「音色XXX」）。
-- 其他 provider（如 MiniMax）语音模型下拉保留（MiniMax 克隆音色自动切换 `speech-02-hd` 模型）。
-- 前端判定：`s2vVoiceModelHidden` computed（provider 为 mimo-tts 时 true）；catalog 请求固定用 `mimo-v2.5-tts`，capability/克隆请求用 `mimo-v2.5-tts-voiceclone`。
-- MiMo 克隆音色样本要求：mp3/wav、Base64 后 ≤10MB（本地校验按原始字节 ≤10MB 保守执行），由 `getRequirements` 数据驱动展示。
+**核心规则：「语音模型」下拉不再存在。** 用户在「声音选项」只选择**能力提供方**（语音生成器）；具体用哪个具体模型（Model ID）由程序按运营中心配置的默许模型自动确定，静默写入 `s2vConfig.voiceModel`（仅用于 IPC `voice.model` 下发与运行快照，不出现在界面上）。
+
+显示项（变更后「声音」分组）：
+
+| 元素 | 显示条件 | 说明 |
+| --- | --- | --- |
+| 语音生成器 | 始终 | 下拉：自动 Edge TTS + 各已启用 TTS 能力提供方；多模态带「（多模态）」后缀 |
+| 语音 / 音色 ID | `s2vConfig.voiceProvider` 非空**且**解析出的模型非空 | 提供方默认音色 + 目录音色 + 克隆音色；解析不出模型时整项不渲染（不留空白控件） |
+| ~~语音模型~~ | **永不显示** | 已删除（本次变更） |
+| 背景音乐 / 音量、旁白语速 / 音量 | 始终 | 与既有规则一致 |
+
+解析口径（与主进程 `resolveProviderDefaultModel(provider,'tts')` **逐项等价**，由 `apps/desktop/electron/services/voice-model-resolution-parity.test.js` 做跨层一致性锁）：
+
+1. `config.user_default_model`（桌面端「模型设置」用户选择，必须 ∈ `models`）
+2. `capability_models.tts`（运营中心按能力类别配置的默许模型，声明即有效，不校验 ∈ `models`）
+3. `config.default_model`（运营 provider 级默认，必须 ∈ `models`）
+4. 兜底：`category === 'multimodal'` → **返回空串（fail-closed，禁止猜 `models[0]`）**；单能力 → `models[0] || ''`
+
+运营中心配置入口：`ops-center` 预设模型设置页 →「能力默认模型」（单能力服务商按自身类别一项，多模态按支持能力逐项）+「能力默认模型总览」卡片（按能力类别列出各提供方的默许模型，未配置项高亮，缺口计数告警）。
+
+MiMo TTS 的 tts/voiceclone 双模型分支**保持不变**（与本规则正交）：
+
+- provider 为 `mimo-tts` 时，`s2vVoiceModelHidden` 仍为 true；
+- 预置音色目录请求固定用 `mimo-v2.5-tts`；能力查询 / 克隆 registry / 克隆请求固定用 `mimo-v2.5-tts-voiceclone`；
+- 音色 ID 下拉显示 9 个官方预置音色（mimo_default/冰糖/茉莉/苏打/白桦/Mia/Chloe/Milo/Dean）+ 用户克隆音色；
+- 克隆面板：选择本地 mp3/wav → 自动克隆，默认名「音色XXX」；样本 Base64 后 ≤10MB。
+
+历史项目兼容：旧快照里的 `voice.model` 若已不在当前解析结果内，装载时静默归一化为解析值（不弹错、不中断）。
 
 #### 4.3.2 语音生成器默认值跟随模型设置默认（2026-10-18）
 
@@ -882,7 +903,7 @@ loadS2VProviders()
 | 内容类型 / 分句语言 / 分句模式 | `contentType` / `splitLanguage` / `splitMode` | `advanced.*` | 运营枚举 |
 | 模板分类 / 视频模板 | `s2vTemplateCategory` / `s2vConfig.templateId` | `advanced.template*` | 选模板 → `applyS2VTemplate` 批量写回参数 |
 | 帧率 / 格式 | `activeOutputConfig.fps` / `.format` | `advanced.fps` / `advanced.format` | fps ∈ {24,30,60}；format ∈ {mp4, webm} |
-| 语音模型 / 音色 ID | `s2vConfig.voiceModel` / `voiceId` | —（受服务商能力驱动） | 目录加载失败显示 `inline-error`，不静默吞错 |
+| 语音 / 音色 ID | `s2vConfig.voiceId` | —（受服务商能力驱动） | 仅在「解析出的语音模型非空」时渲染；目录加载失败显示 `inline-error`，不静默吞错。**「语音模型」下拉已于 2026-10-18 移除**（见 §4.3.1）：模型由程序按运营默许模型解析，`s2vConfig.voiceModel` 不再是用户可配置项，故不占 optionKey |
 
 **数值输入与开关（保持原生，走 `.form-input` 统一外观）**
 

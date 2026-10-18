@@ -527,6 +527,203 @@ async def test_default_model_must_be_in_models():
         assert "默认模型 ID 必须在模型列表中" in resp.json()["detail"]
 
 
+# ─── 能力默认模型全类别（voice-model-program-resolved，2026-10-18）──────────
+
+
+@pytest.mark.asyncio
+async def test_single_category_provider_capability_default_models():
+    """单能力 provider 也能配置本类别的默许模型，且镜像写入 default_model（兼容旧桌面端）。"""
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+
+    transport = ASGITransport(app=app)
+    headers = {"Authorization": f"Bearer {_admin_token()}"}
+    body = {
+        "id": "tts-cap-default",
+        "name": "TTS Cap Default",
+        "category": "tts",
+        "models": ["m1", "m2"],
+        "capability_models": {"tts": "m2"},
+    }
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post("/api/v1/model-presets", json=body, headers=headers)
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["capability_models"]["tts"] == "m2"
+        # 兼容同步：本类别能力默认模型有值时镜像到 default_model
+        assert data["default_model"] == "m2"
+
+
+@pytest.mark.asyncio
+async def test_capability_default_model_must_be_in_models():
+    """能力默认模型非空时必须 ∈ models，否则 400（防止运营填错导致运行期 fail-closed）。"""
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+
+    transport = ASGITransport(app=app)
+    headers = {"Authorization": f"Bearer {_admin_token()}"}
+    body = {
+        "id": "tts-cap-mismatch",
+        "name": "TTS Cap Mismatch",
+        "category": "tts",
+        "models": ["m1"],
+        "capability_models": {"tts": "not-in-list"},
+    }
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post("/api/v1/model-presets", json=body, headers=headers)
+        assert resp.status_code == 400
+        assert "能力 tts 的默认模型 not-in-list 不在模型列表中" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_capability_default_model_key_must_belong_to_category():
+    """能力默认模型的键必须落在该预设的类别/能力集合内。"""
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+
+    transport = ASGITransport(app=app)
+    headers = {"Authorization": f"Bearer {_admin_token()}"}
+    body = {
+        "id": "tts-cap-badkey",
+        "name": "TTS Cap Bad Key",
+        "category": "tts",
+        "models": ["m1"],
+        "capability_models": {"image": "m1"},
+    }
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post("/api/v1/model-presets", json=body, headers=headers)
+        assert resp.status_code == 400
+        assert "不属于该预设的类别/能力" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_empty_capability_default_model_is_allowed():
+    """能力默认模型允许为空字符串（表示缺口），不触发 ∈ models 校验。"""
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+
+    transport = ASGITransport(app=app)
+    headers = {"Authorization": f"Bearer {_admin_token()}"}
+    body = {
+        "id": "tts-cap-empty",
+        "name": "TTS Cap Empty",
+        "category": "tts",
+        "models": ["m1"],
+        "capability_models": {"tts": ""},
+    }
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post("/api/v1/model-presets", json=body, headers=headers)
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["capability_models"]["tts"] == ""
+
+
+@pytest.mark.asyncio
+async def test_capability_overview_groups_and_flags_gaps():
+    """总览端点：按能力分组、多模态出现在多组、缺口 is_configured=false。"""
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+
+    transport = ASGITransport(app=app)
+    admin = {"Authorization": f"Bearer {_admin_token()}"}
+    user = {"Authorization": f"Bearer {_user_token()}"}
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # 造一个 tts 能力有缺口的可见预设
+        await client.put("/api/v1/model-presets/minimax-tts", json={
+            "id": "minimax-tts", "name": "MiniMax TTS", "category": "tts",
+            "models": ["speech-2.8-turbo"], "capability_models": {"tts": "speech-2.8-turbo"},
+            "is_visible": True,
+        }, headers=admin)
+        # google-tts 种子行有 default_model → 迁移回填后应已配置；这里显式清空制造缺口
+        await client.put("/api/v1/model-presets/google-tts", json={
+            "id": "google-tts", "name": "Google TTS", "category": "tts",
+            "models": ["google-tts", "waveNet"], "capability_models": {"tts": ""},
+            "is_visible": True,
+        }, headers=admin)
+
+        # 普通用户不可见总览（admin-only）
+        resp = await client.get("/api/v1/model-presets/capability-overview", headers=user)
+        assert resp.status_code == 403
+
+        resp = await client.get("/api/v1/model-presets/capability-overview", headers=admin)
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        tts_group = next(g for g in data["capabilities"] if g["capability"] == "tts")
+        by_id = {p["id"]: p for p in tts_group["providers"]}
+        assert by_id["minimax-tts"]["model"] == "speech-2.8-turbo"
+        assert by_id["minimax-tts"]["is_configured"] is True
+        assert by_id["google-tts"]["is_configured"] is False
+        assert by_id["google-tts"]["model"] == ""
+        # 多模态 provider 出现在其声明的每个能力分组中
+        mm_group = next(g for g in data["capabilities"] if g["capability"] == "tts")
+        assert "minimax-multimodal" in {p["id"] for p in mm_group["providers"]}
+        # missing_count 与逐项统计一致
+        expected_missing = sum(
+            1 for g in data["capabilities"] for p in g["providers"] if not p["is_configured"]
+        )
+        assert data["missing_count"] == expected_missing
+
+
+@pytest.mark.asyncio
+async def test_capability_overview_excludes_hidden_presets():
+    """隐藏预设不计入总览缺口。"""
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+
+    transport = ASGITransport(app=app)
+    admin = {"Authorization": f"Bearer {_admin_token()}"}
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        await client.put("/api/v1/model-presets/minimax-tts", json={
+            "id": "minimax-tts", "name": "MiniMax TTS", "category": "tts",
+            "models": ["speech-2.8-turbo"], "capability_models": {"tts": ""},
+            "is_visible": False,
+        }, headers=admin)
+        resp = await client.get("/api/v1/model-presets/capability-overview", headers=admin)
+        assert resp.status_code == 200, resp.text
+        tts_group = next(g for g in resp.json()["capabilities"] if g["capability"] == "tts")
+        assert "minimax-tts" not in {p["id"] for p in tts_group["providers"]}
+
+
+@pytest.mark.asyncio
+async def test_catalog_seed_backfills_single_category_capability_models():
+    """迁移回填：单能力 provider 的 capability_models[category] 缺失时按 default_model 补齐。"""
+    from database import async_session
+    from services.model_preset_service import ensure_catalog_seeded
+
+    # 先造一行缺 capability_models 的存量单能力预设
+    async with async_session() as db:
+        from models import ModelPreset
+        row = (await db.execute(
+            __import__("sqlalchemy").select(ModelPreset).where(ModelPreset.id == "elevenlabs")
+        )).scalar_one()
+        row.capability_models = json.dumps({})
+        await db.commit()
+
+    async with async_session() as db:
+        await ensure_catalog_seeded(db)
+
+    async with async_session() as db:
+        from models import ModelPreset
+        row = (await db.execute(
+            __import__("sqlalchemy").select(ModelPreset).where(ModelPreset.id == "elevenlabs")
+        )).scalar_one()
+        caps = json.loads(row.capability_models)
+        assert caps.get("tts") == "eleven_multilingual_v2"
+        # 幂等：已有键不被覆盖
+        caps["tts"] = "eleven_turbo_v2_5"
+        row.capability_models = json.dumps(caps)
+        await db.commit()
+
+    async with async_session() as db:
+        await ensure_catalog_seeded(db)
+
+    async with async_session() as db:
+        from models import ModelPreset
+        row = (await db.execute(
+            __import__("sqlalchemy").select(ModelPreset).where(ModelPreset.id == "elevenlabs")
+        )).scalar_one()
+        assert json.loads(row.capability_models)["tts"] == "eleven_turbo_v2_5"
+
+
 @pytest.mark.asyncio
 async def test_unknown_capability_doc_key_rejected():
     from httpx import AsyncClient, ASGITransport

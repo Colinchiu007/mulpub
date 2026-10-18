@@ -345,18 +345,11 @@
                 </UiSelect>
                 <p v-if="s2vVoiceProviders.length === 0" class="config-hint">未配置 TTS 模型时将使用自动 Edge TTS（免费）；如需 MiniMax 等语音模型与音色克隆能力，请先在「模型服务商」中配置。<a href="#/model-providers" class="config-hint-link">前往配置 →</a></p>
               </UiField>
-              <UiField v-if="s2vConfig.voiceProvider && !s2vVoiceModelHidden" class="config-item" label="语音模型">
-                <UiSelect
-                  v-if="s2vVoiceModelOptions.length > 0"
-                  v-model="s2vConfig.voiceModel"
-                  @change="handleS2VVoiceModelChange"
-                >
-                  <option disabled value="">选择模型</option>
-                  <option v-for="model in s2vVoiceModelOptions" :key="model" :value="model">{{ model }}</option>
-                </UiSelect>
-                <span v-else class="config-hint">当前服务商没有可用的语音模型。</span>
-              </UiField>
-              <UiField v-if="s2vConfig.voiceProvider && (s2vConfig.voiceModel || s2vVoiceModelHidden)" class="config-item" label="语音 / 音色 ID">
+              <!-- 「语音模型」下拉已移除（voice-model-program-resolved，2026-10-18）：
+                   用户只选择能力提供方，具体 Model ID 由程序按运营中心配置的默许模型解析
+                   （resolveVoiceModelForProvider），静默写入 s2vConfig.voiceModel 供 IPC/快照使用。
+                   MiMo 的 tts/voiceclone 双模型区分由音色类型驱动，与此正交。 -->
+              <UiField v-if="s2vConfig.voiceProvider && s2vVoiceContextModel" class="config-item" label="语音 / 音色 ID">
                 <UiSelect
                   id="s2v-voice-catalog"
                   v-model="s2vConfig.voiceId"
@@ -776,8 +769,7 @@ const s2vVoiceCloneRenamingId = computed(() => state.s2vVoiceCloneRenamingId);
 const s2vVoiceCloneRequirements = computed(() => state.s2vVoiceCloneRequirements);
 const s2vVoiceCloneSelection = computed(() => state.s2vVoiceCloneSelection);
 const s2vVoiceClones = computed(() => state.s2vVoiceClones);
-const s2vVoiceModelHidden = computed(() => state.s2vVoiceModelHidden);
-const s2vVoiceModelOptions = computed(() => state.s2vVoiceModelOptions);
+const s2vVoiceContextModel = computed(() => state.s2vVoiceContextModel);
 const s2vVoiceOptions = computed(() => state.s2vVoiceOptions);
 const s2vVoiceProviderOptions = computed(() => state.s2vVoiceProviderOptions);
 const s2vVoiceProviders = computed(() => state.s2vVoiceProviders);
@@ -794,7 +786,6 @@ const chooseS2VVoiceCloneSamples = (...args) => fns.chooseS2VVoiceCloneSamples(.
 const clearS2VLegacyBgm = (...args) => fns.clearS2VLegacyBgm(...args);
 const deleteS2VVoiceClone = (...args) => fns.deleteS2VVoiceClone(...args);
 const handleS2VVideoProviderChange = (...args) => fns.handleS2VVideoProviderChange(...args);
-const handleS2VVoiceModelChange = (...args) => fns.handleS2VVoiceModelChange(...args);
 const handleS2VVoiceProviderChange = (...args) => fns.handleS2VVoiceProviderChange(...args);
 const handleS2VVoiceSelection = (...args) => fns.handleS2VVoiceSelection(...args);
 const isOrchestratedPipeline = (...args) => fns.isOrchestratedPipeline(...args);

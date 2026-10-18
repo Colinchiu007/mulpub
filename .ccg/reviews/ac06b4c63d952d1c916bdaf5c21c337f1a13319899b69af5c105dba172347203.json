@@ -1,0 +1,30 @@
+{
+  "sha": "37cf701b5c274c9ce017ad277de5cf82631bbb2d",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 1006 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 1006,
+    "fileCount": 26,
+    "codeFileCount": 15,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 6,
+    "docSensitiveContentHits": 8,
+    "docSensitiveContentSample": [
+      "│ 文字推理 默认模型：[el-select 限定]   │",
+      "│ TTS语音 默认模型：[el-select 限定]    │",
+      "| 前端输入 | `el-select` 限定 `models` 候选，`allow-create` 兜底 | 保存前前端二次校验（既有模式，`ModelPresets.vue:365`） |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "ac06b4c63d952d1c916bdaf5c21c337f1a13319899b69af5c105dba172347203",
+  "decidedAt": "2026-10-18T16:02:15.690Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

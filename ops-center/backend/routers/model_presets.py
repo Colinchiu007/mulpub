@@ -35,6 +35,25 @@ async def list_model_presets(
     return {"presets": presets, "count": len(presets)}
 
 
+@router.get("/capability-overview")
+async def get_capability_overview(
+    db: AsyncSession = Depends(get_db),
+    _user: dict = Depends(require_admin),
+):
+    """能力默认模型总览（admin-only）：按能力类别列出每个模型提供方的默许模型。
+
+    用途（voice-model-program-resolved，2026-10-18）：桌面应用使用某种能力时，
+    具体模型由程序按此处配置的默许模型解析，不再要求用户选择。本端点让运营一眼看出
+    「某能力下哪些提供方缺默许模型」（is_configured=false 即缺口）。
+    只统计 is_visible=1 的预设（隐藏项不计入缺口）。
+    """
+    capabilities = await model_preset_service.capability_overview(db)
+    missing = sum(
+        1 for group in capabilities for provider in group["providers"] if not provider["is_configured"]
+    )
+    return {"capabilities": capabilities, "missing_count": missing}
+
+
 @router.get("/catalog")
 async def get_model_preset_catalog(
     db: AsyncSession = Depends(get_db),

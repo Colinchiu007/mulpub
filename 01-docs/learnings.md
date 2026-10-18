@@ -324,6 +324,53 @@ CreateView 来测（夹具要 mock 三路 list + 三路 getDefault）。提成
 两处写下理由。语音/视频侧的 `*Model` 本来就跟着 provider 联动，无需新增。
 判据：修复的边界按「用户报的行为」划，不按「代码对称性」划；想要对称先问
 「那个方向现在有没有人报问题」。
+## 三套并行解析逻辑收敛：把「跨层等价」写成显式契约（voice-model-program-resolved，2026-10-18）
+
+### lesson:three-implementations-one-truth-nobody-compared
+
+**同一个"默认值"被三处各写一遍时，真正的漏洞不是哪一处写错，而是「没有任何测试断言它们相等」。**
+
+现场：桌面端有三份"默认模型解析"——前端 TTS 域 `getS2VDefaultVoiceModel`、前端视频域
+`getS2VDefaultVideoModel`、主进程 `resolveProviderDefaultModel`。前两处因为要"稳妥"，
+在多模态缺 `capability_models[type]` 时会**猜 `models[0]`**；主进程是 fail-closed 返回 `''`。
+两者在多模态 provider 上分叉，而 `models[0]` 可能是 image/video/llm 模型——这正是
+"语音模型下拉偶现非 TTS 模型"（2026-08-09 修过一次）反复复发的结构性原因。
+**为什么既有的三层测试都没拦住**：`useTtsVoices.test.js` 只测前端、`model-provider-manager.resolve-default.test.js`
+只测主进程，**没有任何一条断言"两层口径相同"**。于是前端可以任意改兜底，测试全绿，行为却分叉。
+判据：发现同一语义被写两遍以上时，第一个要写的测试不是"各处行为对不对"，而是**"各处是否相等"**——
+把等价性本身变成断言（本仓落地：`apps/desktop/electron/services/voice-model-resolution-parity.test.js`，
+同 22 组夹具喂两层逐项比）。这条锁的价值不在当下的通过，而在于它使"改一层忘另一层"变成红。
+
+### lesson:dead-field-read-is-silent-by-design
+
+**读一个从不存在于 payload 的字段不会报错，它只是永远 undefined —— 这比抛错危险得多。**
+
+现场：`.vue` 侧读 `provider.defaultModel` 决定默认模型，而主进程 `_safeRow()` 从**从不返回**该字段
+（运营配置在 `provider.config.default_model` 里）。于是运营中心改了默认模型、桌面端毫无反应，
+表现为"这个配置项好像没用"。开发者读前端代码只看得到 `provider.defaultModel`，
+读主进程只看到 `_safeRow` 的返回对象，**两处都不像错的**，错在两者之间的那道缝。
+判据：跨进程/跨层传值时，凡 `typeof x === 'string'` 之类**容错读取**都要问一句"这个字段在生产者侧真的存在吗"，
+并且优先让它以**契约字段**（类型定义 / 契约测试）存在，而不是靠 `?.` 静默兜底。
+
+### lesson:keep-the-orthogonal-special-case-out-of-the-generalization
+
+**把"某 provider 特判"推广成通用规则时，要先把"能力驱动分支"和"UI 呈现分支"拆开，否则会误伤。**
+
+现场：`s2vVoiceModelHidden` 原本同时承担两件事——① 「MiMo 的模型由音色类型区分」（能力驱动，
+必须保留）② 「隐藏语音模型下拉」（UI 呈现，本次要推广到全 provider）。如果直接把 `s2vVoiceModelHidden`
+改成恒 true，MiMo 的克隆上下文会拿到 `mimo-v2.5-tts-voiceclone` 之外的错误模型，克隆链路直接坏。
+正解：把 UI 呈现交给新的 `s2vVoiceContextModel` + 模板条件，`s2vVoiceModelHidden` 保留为**纯 MiMo 标记**。
+判据：一个布尔量如果同时被"业务分支"和"呈现分支"消费，先拆语义再动它；改它的第一件事是列出全部消费点。
+
+### lesson:generalize-the-ops-capability-not-just-the-ui
+
+**用户问"运营中心有没有 X 设置功能"时，答案常常是"数据模型有、UI 有一半、校验没有、总览没有"。**
+
+现场：`capability_models` 字段、后端写入、多模态编辑框**都已经存在**，缺的是三件事：
+① 只有多模态能填（单能力类别填不了本类别默认模型）② 没有自洽校验（值可以不在 `models` 里，
+运行期 fail-closed 但没人知道为什么）③ 没有总览（运营无法一眼看出缺口）。
+所以正确回答不是"没有，我实现一下"，而是**逐层给出"已有什么 / 缺什么"**，再补齐缺的那几层。
+判据：这类问题的交付物应当包含"现状清单 + 缺口清单 + 补齐实现"，只做实现会让对方以为原来什么都没有。
 
 ## 缓存空壳与漏斗守卫：空正文不得进改写链路（fix-collect-rewrite-empty-content，2026-10-18）
 

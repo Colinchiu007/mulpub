@@ -1042,7 +1042,8 @@ const S2V_SUMMARY_FIELDS = {
   appearance: ['imageStyle', 'imageEffect'],
   videoEnhance: ['videoMode', 'videoFixedRatio', 'videoMinRatio', 'videoMaxRatio', 'shortVideoHandling'],
   // 背景音乐与音量归属「声音」分组（s2v-bgm-legacy-repair）：改动它们同样意味着该组已非默认。
-  voice: ['voiceProvider', 'voiceModel', 'voiceId', 'bgmPath', 'bgmVolume'],
+  // voiceModel 不再由用户选择（voice-model-program-resolved），不参与「是否默认」判定。
+  voice: ['voiceProvider', 'voiceId', 'bgmPath', 'bgmVolume'],
   advanced: ['splitLanguage', 'splitMode'],
   publish: ['platforms'],
 }
@@ -1257,7 +1258,6 @@ export default {
     // 计算属性：委托到 composable（只读，与迁出前的只读语义一致）。
     s2vVoiceProviderOptions: { get() { return ttsVoicesComputeds.s2vVoiceProviderOptions.value } },
     s2vVoiceCatalogRefreshable: { get() { return ttsVoicesComputeds.s2vVoiceCatalogRefreshable.value } },
-    s2vVoiceModelOptions: { get() { return ttsVoicesComputeds.s2vVoiceModelOptions.value } },
     s2vVoiceModelHidden: { get() { return ttsVoicesComputeds.s2vVoiceModelHidden.value } },
     s2vVoiceContextModel: { get() { return ttsVoicesComputeds.s2vVoiceContextModel.value } },
     s2vVoiceOptions: { get() { return ttsVoicesComputeds.s2vVoiceOptions.value } },
@@ -1950,7 +1950,6 @@ export default {
     loadS2VVoiceData(...args) { return ttsVoicesMethods.loadS2VVoiceData(...args) },
     refreshS2VVoiceCatalog(...args) { return ttsVoicesMethods.refreshS2VVoiceCatalog(...args) },
     handleS2VVoiceProviderChange(...args) { return ttsVoicesMethods.handleS2VVoiceProviderChange(...args) },
-    handleS2VVoiceModelChange(...args) { return ttsVoicesMethods.handleS2VVoiceModelChange(...args) },
     handleS2VVoiceSelection(...args) { return ttsVoicesMethods.handleS2VVoiceSelection(...args) },
     selectS2VVoice(...args) { return ttsVoicesMethods.selectS2VVoice(...args) },
     chooseS2VVoiceCloneSamples(...args) { return ttsVoicesMethods.chooseS2VVoiceCloneSamples(...args) },
@@ -2058,8 +2057,10 @@ export default {
       return this.translateWithLocaleFallback(key, fallback, english)
     },
     s2vSectionSummary(section) {
-      // 既有声音摘要模板字面量保持逐字节不变（CJK 基线按「文件+文案内容」对账），
-      // 背景音乐片段在字面量之外用 ASCII 连接符拼接。
+      // 既有声音摘要模板字面量保持逐字节不变（CJK 基线按「文件+文案内容」对账，
+      // 且 create-story2video-detail 像素基线含折叠态摘要）。
+      // voice-model-program-resolved（2026-10-18）：摘要仍展示当前生效的模型 ID —— 它不是用户
+      // 可选项而是程序解析结果的只读回显，对用户有信息价值；「是否默认」判定已不再计入 voiceModel。
       const voiceSummary = `${this.s2vConfig.voiceProvider || this.$t('create.story2video.voice.autoEdgeProvider')}${this.s2vConfig.voiceModel ? ` · ${this.s2vConfig.voiceModel}` : ''}${this.s2vConfig.voiceId ? ' · 已选音色' : ''}`
       const summaries = {
         basic: `${this.activeOutputConfig.resolution || '720x1280'} · 语速 ${Number(this.s2vConfig.voiceSpeed).toFixed(1)}x · 音量 ${Number(this.s2vConfig.voiceVolume).toFixed(2)}`,
@@ -3364,11 +3365,10 @@ export default {
           ? ''
           : (voiceExplicit ? configuredProvider.id : resolvedVoiceId)
         if (!voiceExplicit && !explicitEdge) this.s2vVoiceAutoProviderId = nextProviderId
-        const nextModel = nextProviderId
-          ? (this.s2vVoiceModelOptions.includes(this.s2vConfig.voiceModel)
-            ? this.s2vConfig.voiceModel
-            : this.getS2VDefaultVoiceModel(nextProviderId))
-          : ''
+        // 语音模型由程序解析（voice-model-program-resolved，2026-10-18）：不再读用户保存的
+        // voiceModel，一律按运营默许模型解析；历史快照里的陈旧模型值在此被静默归一
+        // （不弹错、不中断）。「语音模型」下拉已整体移除，用户无法再手选模型。
+        const nextModel = nextProviderId ? this.getS2VDefaultVoiceModel(nextProviderId) : ''
         const contextChanged = nextProviderId !== this.s2vConfig.voiceProvider || nextModel !== this.s2vConfig.voiceModel
         this.s2vConfig.voiceProvider = nextProviderId
         this.s2vConfig.voiceModel = nextModel

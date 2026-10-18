@@ -706,7 +706,8 @@ OpsCenter  ←→  unified-frontend       (独立，互不影响)
 运营人员在运营后台维护 Multi-Publish 前端【模型设置】的预设服务商目录：
 
 - **预设模型设置**：设定哪些模型在前端【模型设置】中显示（`is_visible` 开关）；每个模型可填写最多 10 条技术文档网页链接（`doc_links`）；可填写/修改平台预设默认模型 Model ID（`default_model`）。
-- **多模态设置**：针对多模态模型，手工配置其支持的每个能力（`capabilities`）、每能力默认模型（`capability_models`）与每能力技术文档链接（`capability_doc_links`，每能力最多 10 条）。
+- **能力默认模型（2026-10-18 起覆盖全类别）**：为**任意类别**的服务商配置「该能力下默认用哪个具体模型」（`capability_models`）。单能力服务商（tts/image/video/llm/…）按自身 `category` 一项；多模态服务商按 `capabilities` 逐项。桌面应用使用某种能力时按此自动确定 Model ID，**不再要求最终用户选择具体模型**。
+- **多模态设置**：针对多模态模型，手工配置其支持的每个能力（`capabilities`）与每能力技术文档链接（`capability_doc_links`，每能力最多 10 条）；每能力默认模型已并入上一条的「能力默认模型」统一入口。
 
 ### 12.2 功能列表
 
@@ -716,8 +717,11 @@ OpsCenter  ←→  unified-frontend       (独立，互不影响)
 | 前端显示开关 | `is_visible` 控制是否在前端【模型设置】展示；`include_hidden=false` 过滤隐藏项 | P0 |
 | 默认模型设置 | 每个预设可填写默认 Model ID，系统已知默认模型预填（MiniMax 多模态 `MiniMax-M2.7` 等） | P0 |
 | 文档链接管理 | 模型级 `doc_links` ≤10 条、能力级 `capability_doc_links` 每能力 ≤10 条；必须为 http(s) URL | P0 |
-| 多模态能力配置 | 多模态预设配置能力数组 + 每能力默认模型（缺省报 400）+ 每能力文档链接 | P0 |
+| 全类别能力默认模型 | 任意类别服务商均可配置「能力 → 默许模型」；单能力按 `category` 一项、多模态按 `capabilities` 逐项；值必须 ∈ `models` | P0 |
+| 能力默认模型总览 | 按能力类别聚合展示每个服务商的默许模型，未配置项高亮并统计缺口数；`GET /api/v1/model-presets/capability-overview`（admin） | P0 |
+| 多模态能力配置 | 多模态预设配置能力数组 + 每能力文档链接 | P0 |
 | 种子目录初始化 | 首次启动自动填充内置目录（与 Multi-Publish 预设对齐，含 MiniMax 各能力官方文档链接） | P0 |
+| 能力默认模型回填 | 启动迁移：单能力预设缺 `capability_models[category]` 且 `default_model` 非空时幂等回填 | P1 |
 
 ### 12.3 数据约束
 
@@ -725,13 +729,15 @@ OpsCenter  ←→  unified-frontend       (独立，互不影响)
 - `category`：`llm / tts / speech_recognition / image / video / audio / multimodal` 之一。
 - `doc_links` / `capability_doc_links`：JSON 数组/对象；每项必须 `http(s)` 开头；模型级 ≤10 条、每能力 ≤10 条，超限/非法返回 400。
 - `capabilities` 中的每个能力必须出现在 `capability_models`（缺默认模型 → 400「缺少默认模型」）。
-- `default_model`：字符串，可为空；已知默认值由种子目录预填。
+- `capability_models`（2026-10-18 扩展）：键必须落在 `{category} ∪ capabilities` 内，否则 400「能力默认模型键 X 不属于该预设的类别/能力」；非空值必须 ∈ `models`，否则 400「能力 X 的默认模型 Y 不在模型列表中」；空字符串表示「该能力未配置」（合法，桌面端 fail-closed 跳过该服务商）。
+- `default_model`：字符串，可为空；已知默认值由种子目录预填。**兼容同步**：当 `capability_models[category]` 非空时，保存时镜像写入 `default_model`，保证只读 `default_model` 的旧版桌面端行为不回退。
 
 ### 12.4 API
 
 | 方法 | 路径 | 鉴权 | 说明 |
 |------|------|------|------|
 | GET | `/api/v1/model-presets` | admin | 列表，支持 `category` / `include_hidden` 参数 |
+| GET | `/api/v1/model-presets/capability-overview` | admin | 能力默认模型总览：按能力类别分组列出各服务商的默许模型与 `is_configured` 缺口标记（仅统计 `is_visible=1`） |
 | GET | `/api/v1/model-presets/{id}` | admin | 详情 |
 | POST | `/api/v1/model-presets` | admin | 创建（校验同上） |
 | PUT | `/api/v1/model-presets/{id}` | admin | 更新 |
@@ -740,8 +746,10 @@ OpsCenter  ←→  unified-frontend       (独立，互不影响)
 ### 12.5 前端页面「预设模型」
 
 - 菜单入口：「预设模型」（`/model-presets`）。
+- **能力默认模型总览卡片**（页面顶部，2026-10-18 新增）：表格按能力（llm/tts/image/video/speech_recognition/audio）分组，每行以 tag 列出该能力下各服务商的默许模型（已配置=绿色 + 模型 ID，未配置=黄色 +「未配置」），末列显示「缺口 N / 总数」；存在缺口时顶部显示 warning 告警条并给出总数；右侧「刷新」按钮重新拉取。
 - 列表：类别筛选、多模态标签、能力 chips、默认模型列、文档链接数（N/10）、前端显示开关、编辑/删除。
-- 编辑对话框：基础信息（ID/名称/类别/Base URL/模型列表/默认模型 ID/多模态开关/前端显示）+ 多模态能力配置（能力多选、每能力默认模型、每能力文档链接 ≤10）+ 模型文档链接（≤10）。
+- 编辑对话框：基础信息（ID/名称/类别/Base URL/模型列表/默认模型 ID/多模态开关/前端显示）+ **能力默认模型区**（单能力服务商显示该项自身类别一条；多模态按支持能力逐项；候选为 `el-select` 从模型列表选择，`allow-create` 兜底；下方提示「必须出现在上方模型 ID 列表中；留空表示该能力下不可用」）+ 多模态能力配置（支持能力多选、每能力文档链接 ≤10）+ 模型文档链接（≤10）。
+- 前端预校验：保存前逐项检查 `capability_models` 非空值是否 ∈ 模型列表，越界即 `ElMessage.warning` 点名具体能力，不发请求。
 
 ### 12.6 验收标准
 

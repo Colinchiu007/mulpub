@@ -12,16 +12,15 @@ import {
   resetTtsVoicesForTest,
   ttsVoicesRefs,
   ttsVoicesComputeds,
+  getS2VVoiceProvider,
+  getS2VDefaultVoiceModel,
   s2vVoiceProviderOptions,
   s2vVoiceCatalogRefreshable,
-  s2vVoiceModelOptions,
   s2vVoiceModelHidden,
   s2vVoiceContextModel,
   s2vVoiceOptions,
 } from './tts-voices-state'
 import {
-  getS2VVoiceProvider,
-  getS2VDefaultVoiceModel,
   getS2VVoiceContext,
   getS2VVoiceCloneContext,
   isCurrentS2VVoiceRequest,
@@ -173,17 +172,8 @@ async function handleS2VVoiceProviderChange() {
   // 记录「显式选择自动 Edge TTS」：空 id 既是未选择也是显式 Edge，需区分以免被多模态默认覆盖
   state.s2vVoiceProviderExplicitEdge = !nextProviderId
   d.getS2vConfig().voiceProvider = nextProviderId
+  // 语音模型由程序按运营默许模型解析（voice-model-program-resolved）：用户只选提供方。
   d.getS2vConfig().voiceModel = nextProviderId ? getS2VDefaultVoiceModel(nextProviderId) : ''
-  d.getS2vConfig().voiceId = ''
-  await loadS2VVoiceData()
-}
-
-async function handleS2VVoiceModelChange() {
-  const d = requireDeps()
-  const nextModel = s2vVoiceModelOptions.value.includes(d.getS2vConfig().voiceModel)
-    ? d.getS2vConfig().voiceModel
-    : getS2VDefaultVoiceModel()
-  d.getS2vConfig().voiceModel = nextModel
   d.getS2vConfig().voiceId = ''
   await loadS2VVoiceData()
 }
@@ -210,7 +200,6 @@ export const ttsVoicesMethods = {
   loadS2VVoiceData,
   refreshS2VVoiceCatalog,
   handleS2VVoiceProviderChange,
-  handleS2VVoiceModelChange,
   handleS2VVoiceSelection,
   selectS2VVoice,
   chooseS2VVoiceCloneSamples,
