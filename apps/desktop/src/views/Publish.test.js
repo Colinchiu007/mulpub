@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { flushPromises, mount } from "@vue/test-utils";
-import { nextTick } from "vue";
+import { nextTick, ref } from "vue";
 import { createRouter, createWebHistory } from "vue-router";
 import { setActivePinia, createPinia } from "pinia";
 import { ElMessage, ElMessageBox } from "element-plus";
@@ -28,10 +28,12 @@ vi.mock("@/stores/platforms", () => ({
  * 账号目录用「可变容器」建模真实加载时序：ensureLoaded 解析**之前** `byPlatform` 为空。
  * 这直接对应线上缺陷现场——hash 路由首次写入 query 会先触发 watch(route.query.drafts)，
  * 那时 onMounted 的 `await loadAccounts()` 尚未跑完，按账号推导预置平台会得到空集。
+ * 容器内是 **ref**：真实 Pinia store 的 byPlatform 是对 accounts 派生的 computed，
+ * "账号到了 ⇒ 界面跟着变"是响应式保证的。赋值写 accountState.byPlatform.value = …。
  */
-const accountState = { byPlatform: null };
+const accountState = { byPlatform: ref(null) };
 function populateAccounts() {
-  accountState.byPlatform = {
+  accountState.byPlatform.value = {
     wechat_mp: [{ id: "acc1", name: "My Account", is_default: true }],
     baijiahao: [{ id: "bj1", name: "百家号账号", is_default: true }],
     xiaohongshu: [{ id: "xhs1", name: "小红书账号", is_default: true }],
@@ -42,7 +44,7 @@ vi.mock("@/stores/accounts", () => ({
   useAccountStore: () => ({
     load: mockAccountLoad,
     ensureLoaded: mockAccountLoad,
-    get byPlatform() { return accountState.byPlatform || {}; },
+    get byPlatform() { return accountState.byPlatform.value || {}; },
     getDefault: (p) => {
       if (p === "wechat_mp") return { id: "acc1", name: "My Account" };
       if (p === "baijiahao") return { id: "bj1", name: "百家号账号" };
@@ -728,7 +730,7 @@ describe("PublishView", () => {
 
     // 模拟「交接发生在账号目录尚未就绪时」：hash 路由首次写入 query 会先触发
     // watch(route.query.drafts)，此时 onMounted 的 await loadAccounts() 还没跑完。
-    accountState.byPlatform = null
+    accountState.byPlatform.value = null
     mockAccountLoad.mockClear()
 
     const loaded = await w.vm.applyDraftHandoff(['d1', 'd2'])
