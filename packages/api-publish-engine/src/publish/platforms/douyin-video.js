@@ -20,7 +20,10 @@ const crypto = require('crypto')
 const zlib = require('zlib')
 const { createHttpClient, requestWithRetry } = require('../core/http-base')
 const { errorCode } = require('../../error-codes')
-const { clientSign, extractReePublicKey, webVersionFromTicket, CREATE_V2_PATH, hasSecurityMaterials, resolveSignDataPayload } = require('../../signer/douyin-ticket-guard')
+const {
+  clientSign, extractReePublicKey, webVersionFromTicket, CREATE_V2_PATH,
+  hasSecurityMaterials, hasKeyIdOnlyMaterials, resolveSignDataPayload,
+} = require('../../signer/douyin-ticket-guard')
 // 话题内联描述（publish-topic-inline-description）：抖音是内联保留型平台——
 // 描述里的 `#话题` 原样保留在 content_desc，text_extra 标记话题位置段
 // （hashtag_id=0 纯文本话题，平台话题实体回填属 P2）。位置扫描用 content-formatter 单一实现。
@@ -41,6 +44,24 @@ const IMAGEX_VERSION = '2018-08-01'
 const IMAGEX_SERVICE_ID = 'jm8ajry58r'
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
 const FAIL_MSG = '账号信息缺失，请重新授权此账号再试'
+/**
+ * 签名材料**只剩 key id** 时的专用提示（2026-10-19 真机实证新增）。
+ *
+ * 实测形态：真实账号的 `__security_mc_1_s_sdk_crypt_sdk` /
+ * `..._s_sdk_sign_data_key_web_protect` / `..._s_sdk_cert_key` 的值都**只有 18 字符**
+ * （形如 `056709ca-4e73-9159`），是 **key id**，不是密文本体。
+ *
+ * 真材料在哪 —— **实测未找到**（此处曾写「在 IndexedDB `secure-store`，不可导出」，后经复测该库
+ * `cryptvalues` 的 keyCount = 0，那条断言**不成立**，已订正）：
+ *   · `localStorage['security-sdk/s_sdk_server_cert_key']` 只有**服务端证书**（无明文私钥）；
+ *   · `localStorage['ztsdk_tcc_config']` 只有 secsdk 配置；
+ *   · `window.secsdk` 存在但**只暴露 `csrf`**，无公开签名入口。
+ * ⇒ 准确表述是「本机读不到可用的签名材料」，而**不是**「已知它不可导出」。
+ *
+ * ⇒ 纯 Node 侧签名**在本机不可行**；不是「账号信息缺失」，也不该提示用户去重新授权。
+ */
+const FAIL_MSG_MATERIAL_ONLY_ID = '抖音签名材料仅剩 key id（签名私钥不在 cookie 中，本机也读不到可用的私钥材料），'
+  + '纯 API 轨无法完成 create_v2 签名；请改用 RPA/DOM 轨'
 
 // csrf HEAD URL 池（D3：默认 idx=1 命中 /aweme/create/）
 const CSRF_POOL = [
@@ -136,7 +157,22 @@ class DouyinVideoChain {
     if (!hasSecurityMaterials(c)) {
       throw new DouyinVideoError(FAIL_MSG, errorCode.data_error)
     }
-    if (!c.includes('bd_ticket_guard_client_data') ) {
+    // ⚠️ 2026-10-19 真机实证新增的两级诊断（**不放松任何既有守卫**）：
+    //
+    // ① 材料只剩 key id ⇒ 抛**专用**诊断。实测真实账号的
+    //    `__security_mc_1_s_sdk_crypt_sdk` / `..._sign_data_key_web_protect` / `..._cert_key`
+    //    值都只有 18 字符（形如 `056709ca-4e73-9159`），是 key id 而非密文；
+    //    真材料（含 `ec_privateKey` PEM）在页面 **IndexedDB `secure-store`**，
+    //    WebCrypto 私钥设计上**不可导出** ⇒ 纯 Node 侧签名对本机真实账号**架构性不可行**。
+    //    此前这种情况会落到通用 FAIL_MSG「账号信息缺失，请重新授权」，
+    //    把「重新授权也拿不到」误导成「用户该重新登录」——这是本轮的实证修正。
+    if (hasKeyIdOnlyMaterials(c)) {
+      throw new DouyinVideoError(FAIL_MSG_MATERIAL_ONLY_ID, errorCode.data_error)
+    }
+    // ② ree 公钥 cookie 仍然 fail-closed：本仓**没有证据**表明可以省（真机实测走到这里时
+    //    会话已过期，无法验证 create_v2 是否接受空 `bd-ticket-guard-ree-public-key`）。
+    //    ⇒ 保持原判据不动，宁可在有证据前继续拒绝，也不把「未验证」当成「可省」。
+    if (!c.includes('bd_ticket_guard_client_data')) {
       throw new DouyinVideoError(FAIL_MSG, errorCode.data_error)
     }
     if (!c.includes('sid_tt=')) {
