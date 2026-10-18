@@ -44,9 +44,13 @@ const COLLECT_SCRIPT = 'function(){' +
   'var editables=[].slice.call(document.querySelectorAll(\'[contenteditable=""],[contenteditable="true"],[contenteditable="plaintext-only"]\')).map(function(e){return{' +
   'tag:e.tagName.toLowerCase(),cls:cls(e),id:cut(e.id,60),placeholder:cut(e.getAttribute("data-placeholder")||e.getAttribute("placeholder"),80),' +
   'visible:vis(e),textLength:String(e.innerText||"").length}});' +
-  'var buttons=[].slice.call(document.querySelectorAll(\'button,[role="button"],a\')).map(function(e){return{' +
-  'text:cut(e.innerText,40),disabled:!!e.disabled,visible:vis(e),cls:cls(e),tag:e.tagName.toLowerCase()}})' +
-  '.filter(function(b){return b.text.length>0});' +
+  // 控件词表（i3）：只对「像发布控件」的按钮保留文案预览；其余元素只留长度。
+  // 为什么：`a` 的内联文本可能是作品标题等**用户内容**，整段 dump 到磁盘即为内容外泄。
+  'var VOCAB=/发表|发布|上传|投稿|存草稿|草稿|确定|提交|下一步|完成|保存|预览|视频|图文|立即/;' +
+  'var buttons=[].slice.call(document.querySelectorAll(\'button,[role="button"],a\')).map(function(e){' +
+  'var t=cut(e.innerText,40);return{textLength:t.length,preview:VOCAB.test(t)?t:null,disabled:!!e.disabled,' +
+  'visible:vis(e),cls:cls(e),tag:e.tagName.toLowerCase()}})' +
+  '.filter(function(b){return b.textLength>0});' +
   'var uploadish=[].slice.call(document.querySelectorAll(\'[class*="upload"],[class*="Upload"],[class*="drag"],[class*="Drag"]\')).slice(0,20).map(function(e){return{' +
   'cls:cls(e),tag:e.tagName.toLowerCase(),visible:vis(e)}});' +
   'return{urlPath:location.pathname,docTitle:cut(document.title,120),files:files,inputs:inputs,textareas:areas,' +
@@ -63,6 +67,9 @@ function isEnabled (env) {
   const e = env || process.env
   return String(e.MP_DOM_DUMP || '') === '1'
 }
+
+/** 本模块落盘文件的命名形态（写盘与保留策略共用同一份判据）。 */
+const DUMP_NAME_RE = /^[\w-]+-[\w-]+-\d{10,}\.json$/
 
 /** 落盘目录（系统临时目录下，避免污染仓库）。 */
 function dumpDir () {
@@ -146,9 +153,16 @@ async function dumpDom (win, platform, stage, opts = {}) {
 async function pruneDumps (dir, keep = 200) {
   try {
     const names = await fs.promises.readdir(dir)
-    const mine = names.filter((n) => n.endsWith('.json')).sort()
+    // i2：只认本模块命名形态（<platform>-<stage>-<epochMs>.json），目录里别人的 .json 一律不碰。
+    const mine = names.filter((n) => DUMP_NAME_RE.test(n))
     if (mine.length <= keep) return 0
-    const drop = mine.slice(0, mine.length - keep)
+    // i1：按 **mtime** 排序（不是文件名字典序）。字典序只在时间戳位数相同且前缀相同时才等价于时间序，
+    // 一旦平台/阶段名长短变化就会误留旧文件、误删新文件。
+    const stated = await Promise.all(mine.map(async (n) => {
+      try { const st = await fs.promises.stat(path.join(dir, n)); return { n, t: st.mtimeMs } } catch (_) { return { n, t: 0 } }
+    }))
+    stated.sort((a, b) => a.t - b.t)
+    const drop = stated.slice(0, stated.length - keep).map((x) => x.n)
     for (const n of drop) { try { await fs.promises.unlink(path.join(dir, n)) } catch (_) { /* 单份失败不影响其余 */ } }
     return drop.length
   } catch (_) {

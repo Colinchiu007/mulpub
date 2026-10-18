@@ -23,13 +23,28 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "self_play_pending",
-    "performedBy": "self-play(pending)",
+    "status": "self_play_resolved",
+    "performedBy": "self-play(agent)",
     "confidenceWeight": 0.6,
-    "requiresExternalReview": [],
-    "findings": null,
-    "template": ".adversarial\\ccg-deep-37e05dd9\\adjudication.json",
-    "note": "裁决尚未填写：7/7 条未定（i1, i2, i3, i4, i5, i6, i7）",
-    "at": "2026-10-18T07:54:39.786Z"
+    "reason": "判据引擎本机无法完成跨家族对抗（claude 后端超时），按引擎第三档出口 self_play 由 agent 逐条对抗裁决",
+    "adjudication": {
+      "adjudicationFile": ".adversarial/ccg-deep-37e05dd9/adjudication.json",
+      "critiqueFingerprint": "746ce1561e4ed88c",
+      "upheld": [
+        "i1",
+        "i6",
+        "i7"
+      ],
+      "dismissed": [
+        "i2",
+        "i3",
+        "i4",
+        "i5"
+      ],
+      "fixesCommit": "4a33393a3",
+      "note": "upheld 三条全部落地修复且各有回归用例；dismissed 四条理由可由源码/契约复核（见 adjudication.json 每项 rationale）"
+    },
+    "parentSha": "f2b80c3a76d5795d7a435f392b4087d936080936",
+    "at": "2026-10-18T08:03:11.866Z"
   }
 }

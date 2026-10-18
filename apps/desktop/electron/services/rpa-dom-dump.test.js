@@ -122,21 +122,72 @@ describe('rpa-dom-dump — CCG 自扮演裁决整改（i6/i7）', () => {
     expect(src).not.toMatch(/fs\.writeFileSync\(file/)
   })
 
-  it('i7：保留策略只留最近 N 份，且只动本模块的 .json', async () => {
+  it('i7：保留策略只留最近 N 份，且只动本模块命名形态的 .json', async () => {
     const { pruneDumps } = require('./rpa-dom-dump')
     const dir = tmpDir('prune')
-    for (let i = 0; i < 6; i++) fs.writeFileSync(path.join(dir, 'k-stage-' + i + '.json'), '{}')
+    for (let i = 0; i < 6; i++) {
+      const f = path.join(dir, 'k-stage-' + (1700000000000 + i) + '.json')
+      fs.writeFileSync(f, '{}')
+      const t = new Date(1700000000000 + i * 1000)
+      fs.utimesSync(f, t, t)
+    }
     fs.writeFileSync(path.join(dir, 'keep-me.txt'), 'x')
     const dropped = await pruneDumps(dir, 2)
     expect(dropped).toBe(4)
     const left = fs.readdirSync(dir).sort()
-    // 只剩最后 2 份 json + 非本模块的 txt
-    expect(left.filter((n) => n.endsWith('.json'))).toEqual(['k-stage-4.json', 'k-stage-5.json'])
+    // 只剩最后 2 份（按 mtime 的最近）+ 非本模块的 txt
+    expect(left.filter((n) => n.endsWith('.json'))).toEqual([
+      'k-stage-1700000000004.json', 'k-stage-1700000000005.json',
+    ])
     expect(left).toContain('keep-me.txt')
   })
 
   it('i7：目录不存在或读失败时静默返回 0（取证不得影响发布）', async () => {
     const { pruneDumps } = require('./rpa-dom-dump')
     await expect(pruneDumps(path.join(os.tmpdir(), 'mp-dom-dump-not-exist-' + Date.now()), 2)).resolves.toBe(0)
+  })
+})
+
+describe('rpa-dom-dump — 第二轮自扮演裁决整改（i1/i2/i3/i5）', () => {
+  it('i1：保留策略按 mtime 排序，而不是文件名字典序', () => {
+    const src = fs.readFileSync(require.resolve('./rpa-dom-dump'), 'utf8')
+    expect(src).toContain('mtimeMs')
+    expect(src).not.toMatch(/names\.filter\(\(n\) => n\.endsWith\('\.json'\)\)\.sort\(\)/)
+  })
+
+  it('i1：前缀长度不同也按真实时间淘汰（字典序会判错的那种）', async () => {
+    const { pruneDumps } = require('./rpa-dom-dump')
+    const dir = tmpDir('mtime')
+    // 构造「字典序」与「时间序」相反的两组名字
+    fs.writeFileSync(path.join(dir, 'z-long-platform-nav-1700000000000.json'), '{}')
+    await new Promise((r) => setTimeout(r, 20))
+    fs.writeFileSync(path.join(dir, 'a-stage-1700000000001.json'), '{}')
+    fs.utimesSync(path.join(dir, 'z-long-platform-nav-1700000000000.json'), new Date(1000), new Date(1000))
+    fs.utimesSync(path.join(dir, 'a-stage-1700000000001.json'), new Date(2000), new Date(2000))
+    const dropped = await pruneDumps(dir, 1)
+    expect(dropped).toBe(1)
+    expect(fs.readdirSync(dir)).toEqual(['a-stage-1700000000001.json'])
+  })
+
+  it('i2：只删本模块命名形态的 .json，别人的 .json 一律不碰', async () => {
+    const { pruneDumps } = require('./rpa-dom-dump')
+    const dir = tmpDir('own')
+    for (let i = 0; i < 4; i++) fs.writeFileSync(path.join(dir, 'douyin-nav-' + (1700000000000 + i) + '.json'), '{}')
+    const foreign = ['notes.json', 'cache.json', 'douyin-nav-123.json']
+    for (const n of foreign) fs.writeFileSync(path.join(dir, n), '{}')
+    const dropped = await pruneDumps(dir, 1)
+    expect(dropped).toBe(3)
+    expect(fs.readdirSync(dir).filter((n) => foreign.includes(n)).sort()).toEqual([...foreign].sort())
+  })
+
+  it('i3：按钮只对发布类控件词表保留 preview，其余只留 textLength（防用户内容落盘）', () => {
+    expect(COLLECT_SCRIPT).toContain('VOCAB')
+    expect(COLLECT_SCRIPT).toContain('preview')
+    expect(COLLECT_SCRIPT).toContain('textLength:t.length')
+    expect(COLLECT_SCRIPT).not.toMatch(/text:cut\(e\.innerText,40\)/)
+  })
+
+  it('i5：采集脚本可被解析（语法守卫），不会把语法错误带进页面', () => {
+    expect(() => new Function('return (' + COLLECT_SCRIPT + ')')).not.toThrow()
   })
 })
