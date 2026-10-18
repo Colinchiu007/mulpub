@@ -295,14 +295,41 @@ Chromium 用**同一 Windows 用户**的 DPAPI 密钥自行解密 ⇒ Playwright
 
 ## 11. 未闭合（截至 R2）
 
+### 11.0 路线纪律（用户 2026-10-18 明确指示，务必遵守）
+
+> 「不明白你为什么不复用蚁小二和融媒宝的逆向成果来实现几个平台的发布，
+> 非要自己去研究 DOM？又复杂又有风控风险。」
+
+**结论：优先走 API 轨，DOM 轨只作兜底。** 竞品逆向语料
+（`01-docs/research/competitor-reverse-2026-10-13/`）已给出各平台发布端点，
+且仓库 `packages/api-publish-engine/src/publish/platforms/` **已有**抖音/视频号/小红书的
+完整 API 链。dump DOM 应是「API 轨缺端点时的补充取证」，不是首选路径——
+DOM 要点按钮、等渲染、逐平台猜选择器，复杂且触发风控。
+
+各平台的正确路线与已知死路：
+
+| 平台 | 首选路线 | 语料端点 | 已知死路（前人真机实测，勿重踩） |
+| --- | --- | --- | --- |
+| 抖音 | **API 轨**（`douyin-video.js` 已实现） | `aweme/create_v2` + `upload/auth/v5` + VOD `ApplyUploadInner/CommitUploadInner`（`SpaceName=aweme`） | Step 0 缺 SDK 签名 cookie ⇒ 已由 D2 兜底修复（本轮） |
+| 视频号 | **API 轨**（`shipinhao-video.js` 已实现） | `helper_upload_params` → CDN 分片 → `post_create`/`post_draft` | 旧 CDN 主机 `finderassistancea` 已 404 ⇒ 已改为 `finder.video.qq.com`（#3918） |
+| 小红书 | API 轨**已有但实测不通** ⇒ 暂留 RPA 草稿 | `api/media/v1/upload/web/permit` → ros-upload → `web_api/sns/v2/note` | 2026-10-10 真机：`permit`/`ros-upload` 通过，但 `note` 恒 **406**（creator 域无主站 `web_session`，签名/风控过不去）⇒ 该账号 API 轨不具备可用条件 |
+| 今日头条 | **API 轨待建（最高优先级）** | `xigua/api/upload/getAuthKey/` → 上传 → `xigua/api/upload/PublishVideo` | 无（未试过）。抖音/头条**共用同一套腾讯云点播 VOD 协议**（`ApplyUploadInner` → 分片 → `CommitUploadInner`），故 `douyin-video.js` 的 VOD 上传器可直接复用，只需补头条自己的 `getAuthKey` / `PublishVideo` 两个端点 |
+
+**下一轮第一件事**：建 `toutiao-video.js`，复用 `douyin-video.js` 的 VOD 上传器，
+只写头条的两个端点适配。**不要**再扩 DOM 选择器。
+
+### 11.1 其余未闭合
+
 1. **视频号正文选择器仍未命中**：真机 `title input selectorCount=3` 但
    `no dedicated title field, title falls back to editor sel=none`。发布被 60′ 账号间隔
    挡住，且 `emergencyReleasePublishWait` 每日仅 1 次已用尽。
+   （注：视频号已有 API 轨，这只是 DOM 兜底路径的问题，优先级低于 §11.0 的头条 API 轨。）
 2. ~~**抖音**：API 轨仍缺 `__security_mc_*_s_sdk_sign_data_key_web_protect` 签名 cookie~~
    **根因已定位并修复（R2 追加，D2）**：store 里 19 条 cookie 非空 ⇒ 旧兜底判据
    `if (!cookie)` 永不触发；缺的两条是安全 SDK 在**页面 JS 运行时**才写进 Electron 分区的，
    是登录快照**之后**才出现，store 里永远没有。修法：判据升级为「cookie 为空 **或**
    （douyin 且签名材料不齐）」，命中后把分区 cookie **合并**进 store（分区优先、store 兜底）。
-   **待真机验证**：需一次真实抖音发布确认 `create_v2` 能过（当前被 3 分钟账号间隔挡住）。
-3. **头条视频 API 轨**未实现（`xigua/api/upload/getAuthKey/` → 上传 → `PublishVideo`）。
+   **待真机验证**：需一次真实抖音发布确认 `create_v2` 能过（应用重启后登录态失效，
+   报 `AUTH_REQUIRED`，需重新登录后再跑）。
+3. **头条视频 API 轨**未实现（见 §11.0，下一轮第一件事）。
 4. **头条/小红书真实发布未验证**：本轮止于「真实上传成功 + 选择器登记」。
