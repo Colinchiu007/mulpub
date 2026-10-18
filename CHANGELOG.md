@@ -1,3 +1,11 @@
+# [未发布] test(播客): 出期链测试侧两笔债收口 —— fixture 尺寸单一真源 + 忙标记走公开出口（podcast-test-seam-debt）
+
+- **`podcast-episode-publish.test.js` 的音频字节数从六处手写收敛成一个 `AUDIO_BYTES`**（tasks 3.11 / 刀 3 评审遗留 F9）：写盘、申报值、上传回显、下游断言、两条旁路夹具全部从同一个数派生，其中 SIZE_MISMATCH 那条改成显式的 `AUDIO_BYTES - 1`——把"故意差一点"写进表达式，而不是留一个看不出关系的 `999`。同文件末尾加一条接线锁：本文件只允许出现一次该字面量，并带"读到了没"与"常量定义在位"两条正控，否则"0 命中"会被读成"通过"。
+- **`podcast-hosting-service.test.js` 新增一条走公开出口的行为锁**「主键 PUT 失败之后，下一次发布必须能正常发出」（tasks 3.12）：原先这条只由白盒 `channelBusyGate.isBusy()===false` 守着，那测的是协作方状态，不是用户侧那件事。白盒断言**刻意保留**（它给精确归因），本仓不存在忙标记的公开只读出口，为测试新增一个 accessor 属 test-only API 反模式——这条取舍写在记录里，不当遗漏。
+- **单例取源加了防回潮锁**：忙标记/通行证必须经 `require('./podcast-channel-locks')` 取，出现 ESM `from` 即红。MB 实测这不是理论担忧——把取源换回 `import` 会让另外两条跨模块断言一起失效（两份实例），共 3 条红。
+- **变异反证三条各自指名红**：MA（把 `endPublish` 从 `finally` 挪进成功路径 ⇒ 精确制造"失败后占位没清"）红 2 条，其中一条是新增的公开出口用例、一条是原有白盒断言——**红集重合如实写出，不包装成两道独立的闸**；MB 红 3 条；M1/M2 成对（退回手写 ⇒ 只有那条锁红；再把锁改成恒真 ⇒ 0 红，证明红来自判据本身）。跑数一律带 `collected>=13/30` 下界与「汇总行 / `Failed Tests N` 头部 / `× ` 清单三者互证」——驱动本轮就自坏过三次（filter 与 cwd 不同源、`passed\s+N` 方向写反、只滤控制字符留下 `[39m` 残片），每一次形态都是"跑了且红了"被读成"没跑到用例"。
+- 生产代码零改动；末态 `podcast-episode-publish.test.js` 13 passed、`podcast-hosting-service.test.js` 30 passed。现场记 `openspec/records/podcast-test-seam-debt.md`。
+
 # [未发布] docs(播客): 一键发布计划账本与 PRD 自我承诺就地对账（podcast-plan-accounting）
 
 - **勾掉四行、拆开四条、补上两条 PRD 自己开过的支票**：`3.3a`（第三条进度通道七相位真在，`cancellable` 由主进程算）、`3.7`（后端评审遗留 ①–⑦ 逐条实测在位，⑧ 由 `3.11` 继续跟踪）、`4.3②`（三枚入口 + IPC/preload 通道 + 计费二次确认 + 三个显示项逐项闭合，含 PR #3942 那枚收尾）、`4.6`（本期不做响度归一，改为"决定不做 + 接受项已登记"闭合）。
