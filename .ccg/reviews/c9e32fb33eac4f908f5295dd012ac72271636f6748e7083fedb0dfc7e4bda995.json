@@ -19,8 +19,8 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "cleared",
+    "performedBy": "codex (manual cross-family verification, 第三轮; 引擎自动跑失败 ETIMEDOUT)",
+    "findings": "第三轮跨家族评审（codex / OpenAI 家族）对本笔小改的结论：**可接受，无新增阻断项**；C1/M1/M2/m2 保持闭合。\n\n逐项核对（评审给出的证据）：\n① 「多模态跳过 provider 级默认」收窄为 \type !== 'llm'：两层（主进程/前端）逻辑、注释语义、∈ models 校验完全等价；tts 域不受影响（多模态 + tts 仍跳过 → 走能力路由或 fail-closed）；llm 域恢复取 default_model。用例 4b 同时验证同一条目解 tts 仍走能力路由，钉住「收窄只对 llm 生效」的边界。\n② 行尾归一化是**变严而非掩盖**：\replace(/\\r\\n/g,'\\n') 只消除行尾工件，不改变断言输入语义；修复后 indexOf('\\n}\\n') 在 CRLF 工作副本下能正确定位函数结束，「能力分支先于 provider 级默认」的顺序断言从「函数 + 后续 4000 字符」的弱限界恢复为真正的函数体内。正则用 [\\s\\S]{0,200} 不受 \\r 影响，强度不变。\n③ 源码锁正则与实现行逐字符一致（引号/空格），不会恒假；有人回退实现而保留注释时会红，锁有效。\n\n非阻断观察 1 条（Info，未改）：falsy \type 时 \type && type !== 'llm' 使 skipOpsDefault=false，多模态可能返回 default_model（改动前是跳过）。当前所有调用点均显式传 type，实际不可达；评审明确「本轮不要求改」。**接受并记录**：若后续新增无 type 的调用方，应先在该函数入口对 falsy type 做显式归一（或断言），不要在调用点各自兜底。"
   }
 }
