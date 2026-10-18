@@ -2,7 +2,7 @@
 
 - **状态**：已修复（待 CI 合并）
 - **分支**：`config-hash-purity`
-- **worktree**：`D:\Data\projects\mp-worktrees\mp-config-hash-purity`
+- **worktree**：`<仓库父目录>/mp-worktrees/mp-config-hash-purity`（非 C 盘）
 - **发现日期**：2026-10-18（在 `story-text-limit-control` 合入前的跨端对账中顺手查出）
 - **严重级别**：P1（**不损坏配置内容**，但让整条「配置生效链路」的观测面永久失真：版本号无限增长、生效看板永远显示未确认）
 - **影响面**：运营中心「生效看板」（`RolloutView.vue`）全部指标、`RuntimeConfigVersion` 表体积、以及任何依赖「hash 变没变」判断是否需要重推的下游逻辑
