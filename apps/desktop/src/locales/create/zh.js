@@ -266,9 +266,10 @@ export default {
         autoEdgeProvider: '自动 Edge TTS',
         multimodalSuffix: '（多模态）',
         // 2026-08-13 音色克隆进行中反馈（选择文件后自动克隆期间）
+        // 2026-10-18 文案只在实际添加阶段显示；浏览文件选择器期间按钮文案保持不变
         cloneSelectButton: '选择本地音频文件',
         cloneReselectButton: '重新选择音频文件',
-        cloneInProgressButton: '正在克隆…',
+        cloneInProgressButton: '正在添加…',
         cloneStatusPending: '已选择 {count} 个样本，正在上传并克隆音色…（通常需要 10~60 秒，请勿重复操作）',
         clonePendingLabel: '创建中…',
         cloneSuccessToast: '已添加克隆音色「{name}」',

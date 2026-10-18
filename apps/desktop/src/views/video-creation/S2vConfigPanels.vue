@@ -457,9 +457,13 @@
                 </p>
                 <p v-if="s2vVoiceCloneRequirements" class="config-hint">以上为当前模型能力数据驱动的本地校验提示，具体以供应商官方 API 合同为准。</p>
                 <div class="voice-clone-actions">
-                  <button type="button" class="s2v-btn-secondary s2v-btn-sm" :disabled="s2vVoiceCloneLoading" @click="chooseS2VVoiceCloneSamples">
-                    {{ s2vVoiceCloneLoading
-                      ? translateWithLocaleFallback('create.story2video.voice.cloneInProgressButton', '正在克隆…', 'Cloning...')
+                  <!-- 进行中文案只由实际「添加克隆音色」阶段（s2vVoiceClonePending）驱动：
+                       浏览系统文件选择器期间 s2vVoiceCloneLoading 也为 true，但用户尚未选定文件，
+                       按钮文案必须保持「选择本地音频文件/重新选择音频文件」不变
+                       （voice-clone-pick-feedback，2026-10-18）。 -->
+                  <button type="button" class="s2v-btn-secondary s2v-btn-sm" data-testid="s2v-voice-clone-choose-button" :disabled="s2vVoiceCloneLoading" @click="chooseS2VVoiceCloneSamples">
+                    {{ s2vVoiceClonePending
+                      ? translateWithLocaleFallback('create.story2video.voice.cloneInProgressButton', '正在添加…', 'Adding...')
                       : (s2vVoiceCloneSelection
                         ? translateWithLocaleFallback('create.story2video.voice.cloneReselectButton', '重新选择音频文件', 'Choose audio file again')
                         : translateWithLocaleFallback('create.story2video.voice.cloneSelectButton', '选择本地音频文件', 'Choose local audio file')) }}
