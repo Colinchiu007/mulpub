@@ -8,7 +8,7 @@ date: 2026-10-18
 
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
-| 变更类型与隔离 | PASS | 改的是 `scripts/` 测试脚本本体 ⇒ 按 AGENTS 属**混合 PR**（不得走 docs-only 快速通道），已在隔离 worktree：`bash scripts/session-init.sh docs-sync-fixture-leak` → `D:/Data/projects/mp-worktrees/mp-docs-sync-fixture-leak`，裸分支 `docs-sync-fixture-leak`，`verify-worktree-deps OK`（11 项 `@multi-publish/*` 全部指向本 worktree）。判定 `node scripts/classify-docs-only.js --base=origin/main --head=HEAD` → **`docs-only=false`**（见「判定与实跑读数」） |
+| 变更类型与隔离 | PASS | 改的是 `scripts/` 测试脚本本体 ⇒ 按 AGENTS 属**混合 PR**（不得走 docs-only 快速通道），已在隔离 worktree：`bash scripts/session-init.sh docs-sync-fixture-leak` → `<仓库父目录>/mp-worktrees/mp-docs-sync-fixture-leak`，裸分支 `docs-sync-fixture-leak`，`verify-worktree-deps OK`（11 项 `@multi-publish/*` 全部指向本 worktree）。判定 `node scripts/classify-docs-only.js --base=origin/main --head=HEAD` → **`docs-only=false`**（见「判定与实跑读数」） |
 | 第一性原因（QM-5 ①） | PASS | **夹具路径来自被污染的命令替换**。`make_repo`（`scripts/check-docs-sync.test.sh:55-70`，行号当场 grep 过）里每条 `tgit` 调用都没关 stdout，而调用方写的是 `repo="$(make_repo "case-$CASE")"`（`:78`，当场 grep 核过）——命令替换会把函数写进 stdout 的一切拼成一个字符串。触发条件是**继承 MSYS 的路径转换开关**：`/tmp/tmp.XXXX` 这时被 bash（MSYS 根）与原生 `git.exe`（当成盘内路径）解析成**两个不同位置**，于是 `echo seed > "$dir/README.md"` 与 `git -C "$dir" add -A` 量的不是同一个目录，seed 提交变空，git 就把 `On branch main / Initial commit / nothing to commit …` 这段 status 原文打到 stdout ⇒ 整段进了 `$repo` ⇒ 后面的 `mkdir -p "$repo/$(dirname "$f")"`（`:89`）**相对 cwd** 建目录写文件，也就是往真实工作树里落垃圾 |
 | 逃逸分析（QM-5 ②） | PASS | ① **用例的 rc 不是"夹具是否正常"的判据**：事发那次（`/d/tmp/p124-docsync-selftest.log`，7149 字节）日志第 1 行就是 `line 39: /tmp/tmp.e4ivNEFFhs/case-1/README.md: No such file or directory`，而第 20 行照样打印 `PASS: 纯 scripts/ 工具变更属流程层，无需同步文档` —— 归类 测试质量不足（断言只覆盖"被检方的 rc"，不覆盖"夹具自己是否成形"）；② 垃圾是**未跟踪**文件，CI 的检出态里没有它 ⇒ 任何远程门禁结构性看不见，归类 环境差异；③ AGENTS 有「文件系统测试隔离：测试不得把可写状态固定到仓库内共享文件」这条纪律，但**没有任何机械判据**在测它，归类 流程缺失；④ 唯一"顺带撞上"它的判据是 `check-unwired-tests.js` 的嵌套 workflow 检查，而它按**磁盘**扫 ⇒ 报出来的是本机假红（点名一个不存在的仓库缺陷），既没定位到根因又制造了噪音，归类 测试质量不足 |
 | 修复 + 回归保护（QM-5 ④） | PASS | 修复分四层，全部落在同一个自测文件里（无新增测试文件 ⇒ 不触碰 `check-unwired-tests.js` 的接线棘轮）：① **环境免疫**——入口 `unset MSYS_NO_PATHCONV MSYS2_ARG_CONV_EXCL`，把夹具绑定的路径语义由夹具自己定（同族先例：AGENTS「断言 git status 干净度的测试夹具，必须自己声明 EOL 档并把索引交给 checkout」）；② **stdout 隔离**——`make_repo` 内每条 git 调用一律 `> /dev/null`，函数唯一的 stdout 出口是 `printf '%s' "$dir"`；③ **fail-closed 前置闸**——`repo` 必须逐字等于 `$TMP/case-<n>`，且这条判断排在**任何写入之前**（顺序即判据的一半：放在 mkdir 之后就等于先落盘再报错）；④ **夹具完整性自检**——`rev-parse HEAD` 必须存在且 `ls-files` 必须含 `README.md`，缺任一即 FATAL，使"PASS 测的是一个从没成形过的仓库"这一形态不可表示；另加⑤ **隔离对账**——进入时快照 cwd 条目、收尾与快照 `comm` 求差，出现任何新增条目即 FATAL 且**点名泄漏**（排在成败汇总之前，否则"用例全绿但漏了垃圾"这条路被让出去）。RED→GREEN 实测：改前 A 臂（`MSYS_NO_PATHCONV=1`，沙箱 cwd）`rc=1` + `FAILED: 8/8` + 沙箱残留 **5**；改后 A/B 两臂均 `rc=0` `PASS: 8` 且残留 **0** |
@@ -23,7 +23,7 @@ date: 2026-10-18
 
 ### A/B 与变异反证（每条都在沙箱 cwd 里跑，垃圾只落沙箱、绝不落工作树）
 
-驱动：`D:/tmp/p169.js`（改前 A/B）、`D:/tmp/p174.js`（分层变异）、`D:/tmp/p175.js`（隔离锁专属）。
+驱动：改前 A/B 是**内联 bash** 跑的（现场留在临时目录的 `p169-a.log` / `p169-b.log`，没有对应脚本文件——我原本在这里写成 `p169.js`，被 Gate 12c 当场抓到「磁盘上不存在」，那正是本仓「不得按印象补全产物名」的同型错误）；分层变异驱动 `p174.js`、隔离锁专属驱动 `p175.js` 两个文件当场 `ls` 过。
 每条变异跑完**逐字节还原**并校验（`RESTORED byte_equal=true`）。读数里的 `stray` = 沙箱 cwd 的残留条目数。
 
 | 用例 / 变异 | 摘掉的东西 | 环境 | rc | stray | 点名信号 |
