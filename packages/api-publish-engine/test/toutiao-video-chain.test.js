@@ -24,7 +24,7 @@ const os = require('os')
 const path = require('path')
 const { startFakeServer, methodPathList } = require('./helpers/fake-http')
 const { createHttpClient } = require('../src/publish/core/http-base')
-const { ToutiaoVideoChain, ToutiaoVideoError, TT_APP_ID, TT_SPACE_NAME_FALLBACK } = require('../src/publish/platforms/toutiao-video')
+const { ToutiaoVideoChain, ToutiaoVideoError, TT_APP_ID, TT_SPACE_NAME_FALLBACK, PUBLISH_TYPE } = require('../src/publish/platforms/toutiao-video')
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
 
@@ -96,7 +96,7 @@ describe('ToutiaoVideoChain — 头条视频 API 轨', () => {
   async function bootChain (opts = {}) {
     srv = await startFakeServer([
       { method: 'GET', match: /^\/xigua\/api\/upload\/getAuthKey\//, body: authKeyResp(opts.auth || {}) },
-      { method: 'POST', match: /^\/xigua\/api\/upload\/PublishVideo/, body: opts.publishBody || { status: 0, data: { item_id: 'ITEM_123' }, message: 'success' } },
+      { method: 'POST', match: /^\/xigua\/api\/upload\/PublishVideo/, body: opts.publishBody || { status: 0, data: { Code: 0, ItemId: 'ITEM_123', Message: '' }, message: 'success' } },
     ])
     vodSrv = await startFakeServer([])
     const uid = opts.uid || '1342958645023752'
@@ -207,22 +207,147 @@ describe('ToutiaoVideoChain — 头条视频 API 轨', () => {
     } finally { fs.unlinkSync(f) }
   })
 
-  it('Step5 publish：POST /xigua/api/upload/PublishVideo，成功以 status=0 + data.item_id 判定', async () => {
+  it('Step6 publish：POST /xigua/api/upload/PublishVideo，成功判据 status=0 && data.Code=0 && data.ItemId', async () => {
     await bootChain()
-    const r = await chain.publish({ title: 'T', abstract: 'A', vid: 'v123' })
+    const r = await chain.publish({ ItemId: '', Title: 'T', Abstract: 'A', VideoInfo: { Vid: 'v123' } })
     expect(r).toMatchObject({ success: true, platform: 'toutiao', publishId: 'ITEM_123' })
 
     const req = srv.requests.find((x) => /PublishVideo/.test(x.url))
     expect(req.method).toBe('POST')
-    expect(req.body).toMatchObject({ title: 'T', abstract: 'A' })
+    // 头条是 PascalCase 形状（bundle 取证），不是 snake_case
+    expect(req.body).toMatchObject({ Title: 'T', Abstract: 'A', VideoInfo: { Vid: 'v123' } })
   })
 
   it('publish 失败：status!=0 时透出平台 message，不谎报成功', async () => {
     await bootChain({ publishBody: { status: 1001, data: {}, message: '内容含违规信息' } })
-    const r = await chain.publish({ title: 'T', vid: 'v123' })
+    const r = await chain.publish({ Title: 'T' })
     expect(r.success).toBe(false)
     expect(r.platform).toBe('toutiao')
     expect(String(r.error)).toContain('违规')
+  })
+
+  it('publish 失败：status=0 但 data.Code!=0 也判失败（bundle 判据是两级都要 0）', async () => {
+    await bootChain({ publishBody: { status: 0, data: { Code: 1002, Message: '账号被限制' } } })
+    const r = await chain.publish({ Title: 'T' })
+    expect(r.success).toBe(false)
+    expect(String(r.error)).toContain('限制')
+    expect(r.code).toBe(1002)
+  })
+
+  it('publish 不谎报：status=0 且 Code=0 但缺 ItemId 时仍判失败', async () => {
+    await bootChain({ publishBody: { status: 0, data: { Code: 0 } } })
+    const r = await chain.publish({ Title: 'T' })
+    expect(r.success).toBe(false)
+  })
+
+  // —— 请求体形状（逐字对齐应用 bundle 的构造器）——
+
+  it('buildPublishBody：PascalCase + VideoInfo 嵌套 + 固定值 From/EnterFrom/CreateSource', () => {
+    const body = chain.buildPublishBody(
+      { title: '标题', content: '简介', video: { name: 'a.mp4', duration: 12, width: 1920, height: 1080 } },
+      { vid: 'V1', thumbUri: 'tos/x' }
+    )
+    expect(body).toMatchObject({
+      ItemId: '',
+      Title: '标题',
+      Abstract: '简介',
+      VideoInfo: { Vid: 'V1', VName: 'a.mp4', ThumbUri: 'tos/x', Duration: 12, VideoWidth: 1920, VideoHeight: 1080 },
+      VideoType: 3,        // 横版
+      PublishType: 1,      // 发布
+      From: 'mp',
+      EnterFrom: 5,
+      IsNew: true,
+      CreateSource: 2,
+      Praise: false,
+    })
+    // 不得残留 snake_case 旧形状（那是臆断产物）
+    expect(body.title).toBeUndefined()
+    expect(body.vid).toBeUndefined()
+    expect(body.abstract).toBeUndefined()
+  })
+
+  it('buildPublishBody：竖版（高>宽）走 VideoType=6 小视频', () => {
+    const body = chain.buildPublishBody(
+      { title: 't', video: { width: 1080, height: 1920 } },
+      { vid: 'V2' }
+    )
+    expect(body.VideoType).toBe(6)
+  })
+
+  it('buildPublishBody：draft ⇒ PublishType=0（草稿是 0 不是 1，传错会误发）', () => {
+    const body = chain.buildPublishBody({ title: 't' }, { vid: 'V3', draft: true })
+    expect(body.PublishType).toBe(PUBLISH_TYPE.draft)
+    expect(PUBLISH_TYPE).toEqual({ draft: 0, publish: 1, timer: 2 })
+  })
+
+  it('buildPublishBody：定时发布 ⇒ PublishType=2 且带 TimerTime', () => {
+    const body = chain.buildPublishBody({ title: 't' }, { vid: 'V4', timerTime: 1792400000 })
+    expect(body.PublishType).toBe(2)
+    expect(body.TimerTime).toBe(1792400000)
+  })
+
+  it('checkPublishAuth：DisablePublish=true ⇒ canPublish=false（只读、不阻断链路）', async () => {
+    srv = await startFakeServer([
+      { method: 'GET', match: /GetPublishAuth/, body: { status: 0, data: { authorPermission: { DisablePublish: true } } } },
+      { method: 'GET', match: /GetPublishPageReviewLatency/, body: { status: 0, data: { BlockStatus: 0, ReviewLatency: 0 } } },
+    ])
+    chain = new ToutiaoVideoChain({ cookie: makeCookie(), mpBase: srv.url, vodBase: srv.url, userAgent: UA, uid: '1342958645023752' })
+    const a = await chain.checkPublishAuth()
+    expect(a.canPublish).toBe(false)
+    expect(a.disablePublish).toBe(true)
+    expect(a.blockStatus).toBe(0)
+  })
+
+  it('run：无发布权限时**在上传前**就返回失败（不白传大文件）', async () => {
+    srv = await startFakeServer([
+      { method: 'GET', match: /GetPublishAuth/, body: { status: 0, data: { authorPermission: { DisablePublish: true } } } },
+      { method: 'GET', match: /GetPublishPageReviewLatency/, body: { status: 0, data: {} } },
+    ])
+    chain = new ToutiaoVideoChain({ cookie: makeCookie(), mpBase: srv.url, vodBase: srv.url, userAgent: UA, uid: '1' })
+    const f = tmpVideo(1024)
+    try {
+      const r = await chain.run({ title: 't', coverPath: 'D:/c.jpg', video: { path: f } })
+      expect(r.success).toBe(false)
+      expect(r.code).toBe('NO_PUBLISH_PERMISSION')
+      // 关键：没有发起 getAuthKey / 上传
+      expect(srv.requests.some((x) => /getAuthKey/.test(x.url))).toBe(false)
+    } finally { fs.unlinkSync(f) }
+  })
+
+  it('run：缺封面 ⇒ 本地 fail-closed，零请求（平台要求封面必填）', async () => {
+    await bootChain()
+    const f = tmpVideo(1024)
+    try {
+      await expect(chain.run({ title: 't', video: { path: f } })).rejects.toBeInstanceOf(ToutiaoVideoError)
+      expect(srv.requests.length).toBe(0)
+    } finally { fs.unlinkSync(f) }
+  })
+
+  it('run：封面闸门与 body 构造接受的来源必须一致 —— 只给 thumbUri 也要放行', async () => {
+    // 自扮演裁决 i1 的回归：旧实现的闸门只认 cover/coverPath，
+    // 而 buildPublishBody 认 thumbUri ⇒ 「给了已上传的封面 URI 反被本地拦掉」的自相矛盾。
+    const all = await startFakeServer([
+      { method: 'GET', match: /GetPublishAuth/, body: { status: 0, data: { authorPermission: { DisablePublish: false } } } },
+      { method: 'GET', match: /GetPublishPageReviewLatency/, body: { status: 0, data: {} } },
+      { method: 'GET', match: /^\/xigua\/api\/upload\/getAuthKey\//, body: authKeyResp({}) },
+      { method: 'GET', match: /Action=ApplyUploadInner/, body: null },
+      { method: 'POST', match: /\/upload\/v1\//, body: 'ok', raw: true },
+      { method: 'POST', match: /Action=CommitUploadInner/, body: commitResp('VID_COVER') },
+      { method: 'POST', match: /^\/xigua\/api\/upload\/PublishVideo/, body: { status: 0, data: { Code: 0, ItemId: 'ITEM_COVER' } } },
+    ])
+    all.replaceRouteBody(/Action=ApplyUploadInner/, applyResp(all.url.replace(/^http:\/\//, '')))
+    const c = new ToutiaoVideoChain({
+      cookie: makeCookie(), mpBase: all.url, vodBase: all.url,
+      userAgent: UA, uid: '1342958645023752', uploadScheme: 'http:',
+    })
+    const f = tmpVideo(1024)
+    try {
+      // 只给 thumbUri（模拟「封面早已上传」），不该被闸门拦
+      const r = await c.run({ title: 't', video: { path: f } }, { thumbUri: 'tos-cn-v/cover-uri' })
+      expect(r).toMatchObject({ success: true, publishId: 'ITEM_COVER' })
+      const pub = all.requests.find((x) => /PublishVideo/.test(x.url))
+      expect(pub.body.VideoInfo.ThumbUri).toBe('tos-cn-v/cover-uri')
+    } finally { fs.unlinkSync(f); await all.close() }
   })
 
   it('fail-closed：缺 sessionid ⇒ 抛错且零请求（不发任何外网调用）', async () => {
@@ -254,27 +379,30 @@ describe('ToutiaoVideoChain — 头条视频 API 轨', () => {
     const emoji = '😀'
     const title = emoji.repeat(31) + '尾巴'
     const body = chain.buildPublishBody({ title, content: 'x' }, { vid: 'v1' })
-    expect(Array.from(body.title).length).toBe(30)
+    expect(Array.from(body.Title).length).toBe(30)
     // 关键：不得出现孤立代理（String#slice 会造出来）
-    expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(body.title)).toBe(false)
-    expect(/^[\uDC00-\uDFFF]/.test(body.title)).toBe(false)
-    expect(body.title).toBe(emoji.repeat(30))
+    expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(body.Title)).toBe(false)
+    expect(/^[\uDC00-\uDFFF]/.test(body.Title)).toBe(false)
+    expect(body.Title).toBe(emoji.repeat(30))
   })
 
   it('标题不超限时原样保留（快路径不改变内容）', async () => {
     await bootChain()
     const body = chain.buildPublishBody({ title: '正常标题😀', content: 'x' }, { vid: 'v1' })
-    expect(body.title).toBe('正常标题😀')
+    expect(body.Title).toBe('正常标题😀')
   })
 
-  it('串起来：run() 走完 getAuthKey → apply → 上传 → commit → PublishVideo，顺序不乱', async () => {
+  it('串起来：run() 走完 授权闸门 → getAuthKey → apply → 上传 → commit → PublishVideo，顺序不乱', async () => {
     // 同一个假服务器同时充当 mp 与 vod（base 相同），按 URL 精确路由
     const all = await startFakeServer([
+      // 只读前置闸门（run 会先问一次；取不到也不阻断，但这里给它正常响应）
+      { method: 'GET', match: /GetPublishAuth/, body: { status: 0, data: { authorPermission: { DisablePublish: false } } } },
+      { method: 'GET', match: /GetPublishPageReviewLatency/, body: { status: 0, data: { BlockStatus: 0, ReviewLatency: 0 } } },
       { method: 'GET', match: /^\/xigua\/api\/upload\/getAuthKey\//, body: authKeyResp({}) },
       { method: 'GET', match: /Action=ApplyUploadInner/, body: null }, // 先占位，稍后用真实 host
       { method: 'POST', match: /\/upload\/v1\//, body: 'ok', raw: true },
       { method: 'POST', match: /Action=CommitUploadInner/, body: commitResp('VID_RUN') },
-      { method: 'POST', match: /^\/xigua\/api\/upload\/PublishVideo/, body: { status: 0, data: { item_id: 'ITEM_RUN' } } },
+      { method: 'POST', match: /^\/xigua\/api\/upload\/PublishVideo/, body: { status: 0, data: { Code: 0, ItemId: 'ITEM_RUN' } } },
     ])
     const host = all.url.replace(/^http:\/\//, '')
     // 把 apply 路由的响应体替换成携带真实 host 的版本
@@ -287,29 +415,41 @@ describe('ToutiaoVideoChain — 头条视频 API 轨', () => {
 
     const f = tmpVideo(2048)
     try {
-      const r = await c.run({ title: 'T标题', content: '正文内容', video: { path: f } })
+      // coverPath 必填（平台要求封面）；skipCoverCheck 会让链路在无封面时也继续，这里刻意**不**跳，
+      // 以便同时钉住「封面闸门在上传之前」这一行为。
+      const r = await c.run({ title: 'T标题', content: '正文内容', coverPath: 'D:/fake/cover.jpg', video: { path: f } })
       expect(r).toMatchObject({ success: true, platform: 'toutiao', publishId: 'ITEM_RUN' })
 
       // 同样不能用 methodPathList（会剥掉 query）
       const raws = all.requests.map((x) => x.method + ' ' + x.url)
+      const iGate = raws.findIndex((p) => /GetPublishAuth/.test(p))
       const iAuth = raws.findIndex((p) => /getAuthKey/.test(p))
       const iApply = raws.findIndex((p) => /Action=ApplyUploadInner/.test(p))
       const iUpload = raws.findIndex((p) => /^POST \/upload\/v1\//.test(p))
       const iCommit = raws.findIndex((p) => /Action=CommitUploadInner/.test(p))
       const iPublish = raws.findIndex((p) => /PublishVideo/.test(p))
-      // 顺序不变量：auth < apply < 二进制上传 < commit < publish，且每一步都真实发生
-      for (const [name, i] of [['auth', iAuth], ['apply', iApply], ['upload', iUpload], ['commit', iCommit], ['publish', iPublish]]) {
+      // 顺序不变量：闸门 < auth < apply < 二进制上传 < commit < publish，且每一步都真实发生
+      for (const [name, i] of [['gate', iGate], ['auth', iAuth], ['apply', iApply], ['upload', iUpload], ['commit', iCommit], ['publish', iPublish]]) {
         expect(i, name + ' 必须发生').toBeGreaterThan(-1)
       }
+      expect(iGate).toBeLessThan(iAuth)
       expect(iAuth).toBeLessThan(iApply)
       expect(iApply).toBeLessThan(iUpload)
       expect(iUpload).toBeLessThan(iCommit)
       expect(iCommit).toBeLessThan(iPublish)
 
-      // PublishVideo 的 body 必须带 apply 阶段拿到的 vid
+      // PublishVideo 的 body 必须是 bundle 取证的真实形状，且带 apply 阶段拿到的 Vid
       const pub = all.requests.find((x) => /PublishVideo/.test(x.url))
-      expect(pub.body).toMatchObject({ vid: 'VID_RUN' })
-      expect(pub.body.title).toBe('T标题')
+      expect(pub.body).toMatchObject({
+        Title: 'T标题',
+        Abstract: '正文内容',
+        VideoInfo: { Vid: 'VID_RUN' },
+        From: 'mp',
+        PublishType: PUBLISH_TYPE.publish,
+      })
+      // 不得残留旧 snake_case 臆断形状
+      expect(pub.body.vid).toBeUndefined()
+      expect(pub.body.title).toBeUndefined()
     } finally { fs.unlinkSync(f); await all.close() }
   })
 })

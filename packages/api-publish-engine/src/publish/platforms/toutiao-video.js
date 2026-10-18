@@ -21,13 +21,15 @@
  * ③ POST <UploadHost>/upload/v1/<StoreUri>?uploadid=..&part_number=..&phase=transfer&part_offset=..
  * ④ POST <UploadHost>/upload/v1/<StoreUri>?uploadid=..&phase=finish&uploadmode=part
  * ⑤ POST <vod>?Action=CommitUploadInner&… → Result.Results[0].Vid
- * ⑥ POST /xigua/api/upload/PublishVideo     ← 本文件补的最后一环
+ * ④ POST <UploadHost>/upload/v1/<StoreUri>?uploadid=..&phase=finish&uploadmode=part
+ * ⑤ POST <vod>?Action=CommitUploadInner&… → Result.Results[0].Vid
+ * ⑥ POST /xigua/api/upload/PublishVideo
  * ```
  *
  * ②③④⑤ 与抖音链同形，已抽到 `core/bytedance-vod.js` 单一实现；本文件只保留头条**独有**的三处：
  * getAuthKey 端点与响应形状、apply 的 `SpaceName`/`app_id=1231`/`EnOID=1`、发稿端点 `PublishVideo`。
  *
- * ## 与抖音的差异（逐项来自抓包，不是类比）
+ * ## 与抖音的差异（逐项来自取证，不是类比）
  *
  * | 项 | 抖音 | 头条 |
  * | --- | --- | --- |
@@ -37,6 +39,58 @@
  * | auth 端点 | `/web/api/media/upload/auth/v5/` | `/xigua/api/upload/getAuthKey/?params=…` |
  * | 发稿端点 | `aweme/create_v2` | `/xigua/api/upload/PublishVideo` |
  * | 签名材料 | 需 security-sdk 四类 + clientSign | 不需要（服务端凭 cookie 会话校验） |
+ *
+ * ## ⑥ 发稿端点与请求体的证据来路（2026-10-18 第 2 轮订正）
+ *
+ * ⚠️ 如实记录：本文件首次提交（PR #3935）时，`/xigua/api/upload/PublishVideo` 这个路径
+ * **是从竞品语料按模式套出来的** —— 语料里那个 `PublishVideo` 其实是**微视**的
+ * `media.weishi.qq.com/media-api/PublishVideo`，与头条无关；请求体也是按投稿语义推断的
+ * `{title,abstract,vid,tags}`。那是**无证据的臆断**，不符合本项目「先取证再实现」的口径，
+ * 而且当时页面的实网抓包里**从未出现过**该端点。
+ *
+ * 本轮改用确定性方法取证：把上传页加载的 60 个 JS bundle 全量落盘后本地检索，命中
+ * `pgcfe/mp/xigua/7219.*.chunk.js`，其中同时包含调用点与**请求体构造器**：
+ *
+ * ```js
+ * a.ZP.requestJsonNew("/xigua/api/upload/PublishVideo", Y, !0)   // ← 端点（实证）
+ * // 成功判据（实证）：0===dt && 0===vt ⇒ status===0 && data.Code===0，并取 data.ItemId
+ * var a = { publish: 1, timer: 2, draft: 0 }                     // ← PublishType 枚举（实证）
+ * ```
+ *
+ * 请求体是**头条 PascalCase** 形状（与 snake_case 的文章接口完全不同），逐字取自 bundle：
+ *
+ * ```text
+ * ItemId        "" 新建 / 已有 id = 编辑
+ * Title         标题
+ * Abstract      简介
+ * VideoInfo     { Vid, VName, ThumbUri, ThumbUrl, Duration, VideoWidth, VideoHeight }
+ * VideoType     3 = 横版视频，6 = 竖版小视频（bundle: Tt = U<1 ? 6 : 3）
+ * PublishType   0 = 存草稿，1 = 发布，2 = 定时
+ * From          "mp"（固定）
+ * EnterFrom     5（固定）
+ * IsNew         !ItemId
+ * CreateSource  2（固定）
+ * HashtagIds    [话题 id]
+ * AttrsValueMap 属性表
+ * HideInfo      { HideType }
+ * ComplianceInfo AI/来源合规声明（IsAIGC / ComplianceType / CreativeInfo）
+ * ```
+ *
+ * ## 发稿前的**五道平台侧闸门**（bundle 实证，每条都有平台原文提示语）
+ *
+ * | # | 闸门 | 平台原文 |
+ * | --- | --- | --- |
+ * | 1 | 实名认证 | `realNameNewDialog("video")` —— 未实名直接弹认证框，**根本不发请求** |
+ * | 2 | 用户状态 | `当前用户状态不能发文！` |
+ * | 3 | 视频上传完成 | `该视频还未上传完成，请上传完成再发表` |
+ * | 4 | 标题长度 | 草稿：`保存草稿失败，标题限制为 N 字以内`；发布：`该视频的标题需要在 W～z 字之间` |
+ * | 5 | **封面必填** | `该视频需要上传一个封面` |
+ *
+ * **这解释了 2026-10-18 真机点「存草稿」不发任何请求的现象**：该头条号
+ * `GET /mp/agw/media/get_user_base_info` 返回 `is_auth:false`、`media_status:4`，
+ * 页面顶部写着「请完善账号信息，解锁发布文章、视频等权益功能」⇒ 第 1 道闸就拦住，
+ * 请求根本没发（因此**没有产生任何草稿**，全程可控）。
+ * 结论：**头条真机发布的前置条件是账号完成实名/信息完善，属人工操作，不是代码缺陷。**
  */
 
 const fs = require('fs')
@@ -55,7 +109,14 @@ const TT_APP_ID = 1231
 const TT_SPACE_NAME_FALLBACK = 'middlevideo_toutiao'
 
 const AUTH_KEY_PATH = '/xigua/api/upload/getAuthKey/'
-const PUBLISH_PATH = '/xigua/api/upload/PublishVideo'
+
+// 发稿契约（端点 / 枚举 / 请求体构造 / 响应判据）已拆到 toutiao-video-publish.js ——
+// 该文件 512 行超 `check-max-lines` 的 500 上限，按既有范式拆分后本文件只留链编排。
+const {
+  PUBLISH_PATH, PUBLISH_AUTH_PATH, REVIEW_LATENCY_PATH,
+  PUBLISH_TYPE, VIDEO_TYPE,
+  truncateByCodePoint, buildToutiaoPublishBody, parsePublishResponse,
+} = require('./toutiao-video-publish')
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
 
@@ -77,21 +138,6 @@ function cookieValue (cookie, key) {
   const s = String(cookie || '')
   const m = s.match(new RegExp('(?:^|;\\s*)' + key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '=([^;]*)'))
   return m ? m[1].trim() : ''
-}
-
-/**
- * 按**码点**截断（不是 UTF-16 code unit）。
- *
- * 为什么不能用 `String#slice`：`'😀标题'.slice(0,1)` 会把代理对切成孤立的高位代理，
- * 提交给平台会变成乱码/非法字符。头条标题上限 30 字，正是最容易踩到的位置。
- */
-function truncateByCodePoint (s, max) {
-  const str = String(s == null ? '' : s)
-  if (max <= 0) return ''
-  // 快路径：无代理对时 length 即码点数
-  if (str.length <= max) return str
-  const cps = Array.from(str)
-  return cps.length <= max ? str : cps.slice(0, max).join('')
 }
 
 class ToutiaoVideoChain {
@@ -229,24 +275,72 @@ class ToutiaoVideoChain {
     })
   }
 
-  /** 组装 PublishVideo 的 body（字段名按头条投稿语义；title/abstract 为平台字段名） */
+  /**
+   * 组装 PublishVideo 的请求体。
+   *
+   * 字段形状**逐字取自应用 bundle**（见文件头 §⑥），不再是推断：
+   * PascalCase、`VideoInfo` 嵌套对象、`PublishType` 用枚举、`From`/`EnterFrom`/`CreateSource` 固定值。
+   *
+   * @param {object} taskData  业务任务（title/content/tags/cover...）
+   * @param {object} o
+   * @param {string} o.vid           CommitUploadInner 返回的 Vid（必填）
+   * @param {string} [o.thumbUri]    封面 StoreUri（平台**要求必填**，见闸门 5）
+   * @param {string} [o.thumbUrl]    封面外链（可由 thumbUri 派生，此处不派生，留空由平台处理）
+   * @param {number} [o.duration]    时长（秒）
+   * @param {number} [o.width]
+   * @param {number} [o.height]
+   * @param {boolean|number} [o.publishType] 0 草稿 / 1 发布 / 2 定时；缺省按 draft 布尔映射
+   * @param {boolean} [o.draft]
+   * @param {Array} [o.hashtagIds]   话题 id 列表
+   * @param {object} [o.compliance]  AI/来源合规声明
+   * @param {string[]} [o.tags]      纯文本话题（无 id 时退回 AttrsValueMap 不建议，故仍走 HashtagIds 语义）
+   */
   buildPublishBody (taskData, o = {}) {
-    const td = taskData || {}
-    const body = {
-      // 头条标题上限 30 字：按码点截断，避免把 emoji 的代理对切成孤立半字符
-      title: truncateByCodePoint(td.title, 30),
-      abstract: truncateByCodePoint(td.content || td.abstract, 2000),
-      vid: o.vid || td.vid || '',
-    }
-    // 话题：头条走独立 tags 字段（与 DOM 轨一致，正文不重复携带）
-    if (Array.isArray(td.tags) && td.tags.length) body.tags = td.tags
-    if (o.draft) body.draft = true
-    return body
+    // 形状与判据都在 toutiao-video-publish.js 单一实现里（纯函数，可直测）
+    return buildToutiaoPublishBody(taskData, o)
   }
 
   /**
-   * Step 6：PublishVideo 投稿。
-   * 成功判据（按头条网关惯例）：`status === 0` 且拿到 `data.item_id`。
+   * 只读前置闸门：发布权限 + 审核延迟（bundle 实证存在的两个端点）。
+   * 用途：在真正上传/发稿前把「账号被限」的场景**提前**判出来，避免白传一遍大文件。
+   * 0 请求也不降级为「放行」——取不到就返回 unknown，由调用方决定。
+   */
+  async checkPublishAuth () {
+    this._assertPreconditions()
+    const out = { canPublish: null, disablePublish: null, blockStatus: null, reviewLatency: null, raw: null }
+    try {
+      const r1 = await this.mp.request({
+        method: 'get', url: PUBLISH_AUTH_PATH + '?params=%7B%7D',
+        headers: this._mpHeaders({ Accept: 'application/json' }),
+        validateStatus: (s) => s >= 200 && s < 500,
+      })
+      const d1 = (r1.data || {}).data || {}
+      const perm = d1.authorPermission || {}
+      if (perm.DisablePublish !== undefined) {
+        out.disablePublish = Boolean(perm.DisablePublish)
+        out.canPublish = !Boolean(perm.DisablePublish)
+      }
+      out.raw = d1
+    } catch (e) {
+      this.logger && this.logger.warn && this.logger.warn('toutiao-video: GetPublishAuth 不可用 ' + String(e && e.message).slice(0, 120))
+    }
+    try {
+      const r2 = await this.mp.request({
+        method: 'get', url: REVIEW_LATENCY_PATH,
+        headers: this._mpHeaders({ Accept: 'application/json' }),
+        validateStatus: (s) => s >= 200 && s < 500,
+      })
+      const d2 = (r2.data || {}).data || {}
+      if (d2.BlockStatus !== undefined) out.blockStatus = Number(d2.BlockStatus)
+      if (d2.ReviewLatency !== undefined) out.reviewLatency = Number(d2.ReviewLatency)
+    } catch (_) { /* 只读遥测，取不到不影响主链 */ }
+    return out
+  }
+
+  /**
+   * Step ⑥：PublishVideo 投稿。
+   * 成功判据**逐字取自 bundle**：`status === 0 && data.Code === 0` 且 `data.ItemId` 存在。
+   * （旧实现按 `status===0 && data.item_id` 判定，字段名是错的 —— 头像是 PascalCase 的 `ItemId`。）
    */
   async publish (postData) {
     const res = await this.mp.request({
@@ -255,16 +349,15 @@ class ToutiaoVideoChain {
       headers: this._mpHeaders({ 'Content-Type': 'application/json', Accept: 'application/json' }),
       validateStatus: (s) => s >= 200 && s < 500,
     })
-    const d = res.data || {}
-    const itemId = (d.data && (d.data.item_id || d.data.itemId || d.data.group_id)) || d.item_id
-    if (d.status === 0 && itemId) {
-      return { success: true, mode: 'api', platform: 'toutiao', publishId: String(itemId) }
+    const p = parsePublishResponse(res.data)
+    if (p.ok) {
+      return { success: true, mode: 'api', platform: 'toutiao', publishId: p.itemId }
     }
     return {
       success: false,
       platform: 'toutiao',
-      code: d.status,
-      error: d.message || d.msg || ('头条发布失败(status=' + String(d.status) + ')'),
+      code: p.code,
+      error: p.message || ('头条发布失败(status=' + String(p.status) + ', code=' + String(p.code) + ')'),
     }
   }
 
@@ -277,12 +370,59 @@ class ToutiaoVideoChain {
     if (!fs.existsSync(videoPath)) {
       throw new ToutiaoVideoError('toutiao-video: video file not found: ' + videoPath)
     }
+    // 闸门 0（本地·零请求）：平台**要求封面必填**（bundle 原文：`该视频需要上传一个封面`）。
+    // 本地先判，省掉「传完大文件才被平台拒」的浪费；skipCoverCheck 仅供链路自测。
+    //
+    // ⚠️ 判据必须与 buildToutiaoPublishBody 接受封面来源**完全一致**，否则会出现
+    // 「调用方给了 opts.thumbUri 却被本地闸门拦掉」这种自相矛盾（本轮自扮演裁决 i1）。
+    const coverInputs = [
+      opts.cover && opts.cover.path, // 封面文件（未来 imagex 上传用）
+      opts.cover,                    // 直接给封面对象
+      opts.thumbUri,                 // 直接给封面 StoreUri（已上传）
+      td.cover,
+      td.coverPath,
+    ]
+    const hasCover = coverInputs.some((x) => Boolean(x))
+    if (!opts.skipCoverCheck && !hasCover) {
+      throw new ToutiaoVideoError(
+        '头条视频发布需要封面图（平台必填）：请提供 cover/coverPath，或已上传好的 thumbUri'
+      )
+    }
     const uid = this.resolveUid()
+
+    // 闸门 1-2（只读·可选）：发布权限 / 账号状态。取不到不阻断，但把结论如实带出去。
+    const auth = await this.checkPublishAuth().catch(() => null)
+    if (auth && auth.canPublish === false) {
+      return {
+        success: false,
+        platform: 'toutiao',
+        code: 'NO_PUBLISH_PERMISSION',
+        error: '该头条号当前无发布权限（GetPublishAuth.DisablePublish=true）。'
+          + '平台侧原文：请完善账号信息，解锁发布文章、视频等权益功能。',
+        auth,
+      }
+    }
+
     const creds = await this.getAuthKey()
     const vid = await this.uploadVideo(videoPath, creds, uid, opts.onProgress)
     if (opts.onProgress) opts.onProgress(80, '视频已上传，正在提交')
-    const body = this.buildPublishBody(td, { vid, draft: opts.draft })
-    return this.publish(body)
+
+    const body = this.buildPublishBody(td, {
+      vid,
+      itemId: opts.itemId,
+      draft: opts.draft,
+      publishType: opts.publishType,
+      timerTime: opts.timerTime,
+      hashtagIds: opts.hashtagIds,
+      compliance: opts.compliance,
+      thumbUri: opts.thumbUri || (td.cover && td.cover.uri) || '',
+      thumbUrl: opts.thumbUrl || (td.cover && td.cover.url) || '',
+      width: opts.width,
+      height: opts.height,
+      duration: opts.duration,
+    })
+    const r = await this.publish(body)
+    return auth ? Object.assign({}, r, { auth }) : r
   }
 }
 
@@ -294,6 +434,8 @@ module.exports = {
   TT_VIDEO_API: {
     AUTH_KEY_PATH,
     PUBLISH_PATH,
+    PUBLISH_AUTH_PATH,
+    REVIEW_LATENCY_PATH,
     AUTH_PARAMS,
     MP_BASE,
     VOD_BASE,
@@ -302,6 +444,8 @@ module.exports = {
   },
   cookieValue,
   truncateByCodePoint,
+  PUBLISH_TYPE,
+  VIDEO_TYPE,
   // 便于复用方与测试直击共用实现
   buildApplyQuery,
   uploadVideoToVod,
