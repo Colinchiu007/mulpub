@@ -1,3 +1,13 @@
+# [未发布] feat(播客): 发布页文本类分支接入一键出期入口，并把「只读在途正文」钉成可变异判据（podcast-publish-entry）
+
+- **落的是主线最后一枚入口**：PRD §7.10.3.4 把 ②-b② / ②-b③ 两枚的逐字段合同写全了，上一片只落了改写区那枚；本片落发布页文本类分支那枚。频道一律取 `usePodcastChannel` 的默认频道（§7.10.3.2 裁定：浮层内不放下拉，**无默认频道 ⇒ 动作整块不出现**，而不是弹一个必被宿主①层拒掉的框）；正文取 `article.content` 的**当前值**（含编辑器里未保存的改动），标题与「去发布」同源，不写第二套拼装。
+- **那条"必须先回答的副作用"给出答案：不固化草稿**。`article.content` 被发布动作与改写面板双向改写，是在途状态；入口全程只读，要「出期即固化一版草稿」必须另立切片并先补发布链幂等判据。这条不靠注释自觉，由变异 M6（把归一化正文写回在途状态）指名打红。
+- **判据复用同一个谓词**：`podcastEntryAvailable` 一处定义、两处用（模板 `v-if` 与 `openScriptEntry` 早退），杜绝「两处各写一份 trim 口径」的漂移面；浮层按需挂载且常驻不卸载，挂起 owner 沿用 `podcast-script-entry-overlay`，未新增第二个 owner。
+- **主干上这枚入口原本是零验收**：`Publish.test.js` 1900+ 行没有一条引用过 `activeChannelId` / `PodcastScriptEntry`，「入口不存在」与「入口存在但坏了」同形。新增 `src/views/PublishPodcastEntry.test.js` **7 条**（判据 1 含反向正控、判据 2 用实例级"未挂载"+预览 0 次、判据 4 拆成预览入参与出期载荷两条、只读副作用、常驻不卸载），全绿。
+- **变异 M1–M6 全部指名红、红集互不相同；M7 如实记 NOT_CAUGHT** 并归因为「防御重叠不可分辨」（点击路径已被同一个谓词在模板层挡死，构造不出按钮存在而谓词为假的现场），处置是写明承重点在 M1/M2/M5，不是加一条断言把红凑出来。驱动带三条自证：锚点命中=1 才动手、直跑 `node vitest.mjs` + 规模下界（防「跑了 0 条」读成全绿）、跑完按字节还原并核 md5 相等。
+- **测试与门禁**：QM-1 不触发（零 `electron/**`、零 `packages/rpa-engine/**`）；QM-4 本机不冒充跑像素门禁（缺 dev server），证据责任点名交给 CI `QG Visual`；lint 按 CI 同口径 `eslint electron/ src/ --quiet` 实测 rc=0 零输出；`Publish.vue` 是 CRLF 工作副本，插入走逐行 splice 并由驱动断言 CR 增量 == 插入行数（读数 1750→1787，delta=37=inserted）。
+- **同期顺手取证的两件事**（都不在本片改）：共享根 `CHANGELOG.md` 曾被一次坏重定向截断到 31 行（尾部是字面量 `fatal: Not a valid object name .md`），另有一份 learnings 带 1 行主干不存在的 pitfall——两者都按精确路径备份后从 HEAD 还原以解锁 worktree 入口，**那 1 行未落地内容仍只在备份里、等它的作者入库**；`session-init.sh` 的 `-RequireClean` 与 bootstrap 串行锁两次按设计拒绝，手搓 `git worktree add` 造不出依赖解析，属明禁路径。
+
 # [未发布] docs(openspec): 归档 ban-record-closure-backfill-pr —— 新需求进主规格，并当场核"镜像会不会联动"（archive-gate-record-closure-backfill）
 
 - **做了什么**：`openspec archive ban-record-closure-backfill-pr -y` ⇒ `quality-gate-execution-record: update，+1 added`，主规格需求数 2 → 3；change 落 `openspec/changes/archive/2026-10-18-ban-record-closure-backfill-pr/`。移动形态按 `git diff --cached -M` 判 **5 个 R100**（逐字节相同）而非"删 + 加"。
