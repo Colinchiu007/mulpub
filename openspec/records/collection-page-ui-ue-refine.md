@@ -42,10 +42,10 @@ sync_backfill_owner: collection-page-ui-ue-refine 会话（回填 PR）
 | 品牌残留 | PASS | `check-no-brand-residue.js` rc=0 |
 | QM-4 视觉 | PASS（CI 同源取证） | 基线用**本 PR 自己的 CI 渲染**回填（#3856 已验证路径）；本机 `check-baseline-freshness.js --partial` 对账 **38 张 0 违规**。本机重建已被证否（dark 差 5467 px），见 §4-8 |
 | QM-1 打包 | **未执行** | 本轮未改 `electron/` 主进程代码（仅 renderer），按 QM-1 触发条件（改 `apps/desktop/electron/` 或 `packages/rpa-engine/`）不强制；如实登记 |
-| QM-6 双模型评审 | 见第 5 节 | 按 decider 判定 |
+| QM-6 双模型评审 | **未完成（环境限制）·已披露** | decider 判 DUAL；`deep-review.sh` 两次 `ETIMEDOUT`（引擎 timeoutMs 硬编码 600s，diff 3786 行跑不完）。机械判据 OK，substantive 双模型审查未完成 ⇒ 按残留风险披露并给出三个补救选项，见第 5 节 |
 | 远程同步 | PENDING | PR #3864 尚未合并；合并后同一次提交改写为 PASS + merge SHA |
 
-- 保留门禁：变更类型与隔离 ✅ | TDD ✅ | 全量测试 ✅ | eslint ✅ | locale 三项 ✅ | max-lines ✅ | 品牌 ✅ | QM-4 CI 同源取证 ✅ | 远程同步 PENDING
+- 保留门禁：变更类型与隔离 ✅ | TDD ✅ | 全量测试 ✅ | eslint ✅ | locale 三项 ✅ | max-lines ✅ | 品牌 ✅ | QM-4 CI 同源取证 ✅ | QM-6 未完成·已披露 | 远程同步 PENDING
 
 ## 3. 本轮最关键的增量：「消费⇒有定义」判据
 
@@ -121,12 +121,47 @@ sync_backfill_owner: collection-page-ui-ue-refine 会话（回填 PR）
    5467 px（0.264%）。正解沿用 #3856 已验证路径——取**本 PR 自己的 CI 产物**回填，
    并用 `check-baseline-freshness.js --partial` 本机对账（实测 38 张 0 违规）。
 
-## 5. QM-6 判定
+## 5. QM-6 判定（**双模型审查未完成·已披露**）
 
 变更集中在 renderer 的 CSS/模板/locale + 两个新判据测试，无 IPC/主进程/数据模型改动。
-按 `ccg-review-decider` 判定（提交时落盘）。评审焦点应是「CSS 契约判据会不会误报」——
-答复：判据只覆盖**静态** class token（`:class` 动态部分不进），域内命名空间白名单前置，
-且有自反锁（命中数下界 + 已知类必须命中）防「判据失效但全绿」。
+
+**decider 判定**：`node scripts/ccg-review-decider.js --base origin/main` → **DUAL**
+（变更 1641 行 > 200 行阈值；15 个源文件；敏感路径命中 0）。要求 claude + opencode 双模型审查。
+decider 另报「文档行命中敏感词 10 处」——逐条核对是本 PRD 里的 CSS 尺寸表格文本
+（`col-select padding`、`col-toolbar-icon`、ASCII 版式图），**非凭证，属假阳性**。
+
+**深度审查实跑结果：失败（环境限制，非代码问题）**
+两次执行 `sh scripts/deep-review.sh --force` 均在同一位置失败：
+
+```
+[轮 1/3] 调用 critic=claude 评审...
+评审失败: spawnSync C:/Users/邱领/.claude/bin/codeagent-wrapper.exe ETIMEDOUT
+```
+
+- 后端体检通过（claude + opencode 均可解析、跨家族校验 proposer=opencode / critic=claude 通过）；
+- 失败点是**单次调用超时**：引擎把 `timeoutMs` 硬编码为 `600000`
+  （`~/.claude/skills/adversarial-review-loop/scripts/ccg-deep-review.js:105`，注释写明
+  「code 审查实测可超 10 分钟」），而本轮 diff 基线 `origin/main` 共 **3786 行**，
+  600s 内跑不完。该值**无环境变量覆盖入口**（已核对脚本与引擎，仅有 `CCG_BACKEND_BIN_DIRS` /
+  `CCG_ARL_DIR` 这类路径开关）。
+- 因此机械判据 `check-pr-exec-record --mode=enforce` 现为 **OK**（记录指向本分支真实提交
+  `6f005c9b`，而不是已废弃的暂存状态那条孤儿记录——后者描述的是 rebase 前一次 staging 的
+  diff 哈希，其 sha `b5ff39b1` 根本不在本分支历史里，留着只会是一条**永远无法清偿**的欠账）。
+- ⚠️ **但这不等于双模型审查做过了**：substantive 的双模型审查在本环境**未完成**。
+  该缺口按事实登记为残留风险，并在 PR 描述里逐条披露；本轮**不存在** IPC / 主进程 /
+  数据模型改动（仅 renderer 的 CSS/模板/locale），这是判断风险可控的依据，不是免责话术。
+
+**已做的替代自查**（不能替代双模型审查，如实说明）：
+判据面自审聚焦「CSS 契约会不会误报」——判据只覆盖**静态** class token（`:class` 动态部分不进），
+域内命名空间白名单前置，且有自反锁（命中数下界 ≥20 + 已知类必须命中）防「判据失效但全绿」；
+变异反证：删掉 `.col-btn-primary` 规则后契约测试立刻点名，恢复后全绿。
+
+**给人工的三个补救选项**（若认为必须补审，任一可独立执行）：
+1. 调高引擎 `timeoutMs`（改 `ccg-deep-review.js:105`，属改共享工具，须人工过目）后重跑；
+2. 把本 PR 拆成两个更小的 PR（先 CSS 规范层+判据，再页面级改动），让每份 diff 落进 600s；
+3. 拆出「渲染层 CSS/模板」子集单独走一次双模型审查（diff 更小，600s 内可完成）。
+
+
 
 
 ## 6. 未闭合（不假装闭合）
