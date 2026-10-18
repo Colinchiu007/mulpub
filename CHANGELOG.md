@@ -19,6 +19,23 @@
 - 变异反证（详细 PRD §12.3）：M1 去对账 2F / M2 反转优先级 1F / M3 守卫 warn-only 3F / M4 聚合 `every`→`some` **初始存活**（补「混合原因不聚合」用例后 1F）/ M5 不去重 2F / M6 删渲染规则 4F；M7/M8 未逐条注入（结构性变异，由代码位置审查 + 零资源调用断言覆盖）。
 - 文档门禁实测：`check-text-encoding-integrity` OK；`check-no-brand-residue` PASS（10326 tracked）；`check-spec-purpose` 154 份 0 违规；`openspec-sync-check` OK（387 tasks/63 changes/234 archives）；`check-doc-abs-paths` PASS（572 文件）；`check-changelog-growth` PASS（521→522）、重复标题新增 0。
 - QM-1：electron-builder exit 0（asar 147,209,782 B，命中 2 个新模块，解包 require rc=0，启动 9s 存活 + stderr 0 行）。QM-6：本机 claude/opencode/codex 后端均超时不可用（ccg deep-review 的 claude critic 轴 ETIMEDOUT），如实保留债务、不伪造 cleared。
+# [未发布] feat(gates): QM-6 评审后端对收敛为单一真源，「设了没生效」改为判不闭合（qm6-review-backend-config）
+
+- **三种旋钮全部静默失效，而失败症状不是报错**：为了让一个不可用的 critic 后端换人，依次试了改 `~/.claude/.ccg/config.toml` 的 `[routing]`（`ccg-deep-review.js` **从不读它**，输出仍是 `proposer=opencode critic=claude`）、`sh scripts/deep-review.sh --critic codex`（入口是 `for a in "$@"` 只认无值旗标，且 `exec node "$DRIVER" --sha "$SHA"` 一个后端参数都不转）、直连驱动 `--critic codex`（覆盖块只挂在决策层 `objectType:"plan"` 分支，验证层是裸的 `const cfg = cfgForMode(mode)`）。三种情况下评审照跑、结论照出、`deepReview.status` 照闭环，**没有任何东西记录"这次到底是谁评审的"**。
+
+- **根因不是"少一个旗标"，是仓里把后端对抄成六份字面量**：`ccg-review-decider.js` 的可用性表与目标文案各一份、`deep-review.sh` 的体检循环与裸名自检各一份、`plan-review.sh` 一份，加上驱动自己的 `cfgForMode`。于是判定器报的"两个后端都不可用"与入口实际检查的名字可以互相矛盾，且两边都自洽。修法是把策略收到**一份声明**（`scripts/ccg-review-backends.list`），按 CLI 旗标 > `MP_QM6_*` 环境变量 > 清单 三档解析。
+
+- **`--check-deps` 决定了这里必须有两份读取方**：该入口是"node 本身可能就是坏的"时的第一手诊断，让它依赖 node 等于把要诊断的东西当前提。于是 sh 版（`scripts/lib/ccg-backends.sh`，被两个入口 source）与 node 版并存 —— 这不是放行两份实现，而是补一把**逐字对账锁**：默认 / env 覆盖 / 同族单后端 / 未登记后端名四档下两侧输出必须逐字节相同，且"覆盖档与默认档必须确实不同"（否则四组相等是在比较常量，属恒真断言）。
+
+- **追责点放在欠账门禁而不是入口事后回读**：评审一次 15–40 分钟，本地跑完才发现白跑代价太大；`check-pr-exec-record.js` 在 CI 上必然执行。新纯函数 `judgeBackendMismatch` 只在「记录显式记着 `reviewBackends.overridden === true`」且 `performedBy` 的记号集合不含被请求的后端时报未闭合。四种不适用都各自可证：字段缺失的历史产物**不追溯变红**（这是本刀能安全上线的前提）、未覆盖不判（上游默认与本仓清单本来可以合理不同）、`self_play_resolved` 不插手（收紧自扮演豁免属改"谁来守门"，须人工过目）、`performedBy` 为空交回闭环判据。
+
+- **两处设计被自己的用例否证后改窄**：① 第三档原本写成"performedBy 里读不出后端名"，实测 `self-play` 按非字母切分得到 `['self','play']` 两个**完全像后端名**的记号，该判据永不成立 ⇒ 改成按显式字段判；② 判定器的提示文案原先埋在 `main()` 里，除真跑一次 pre-commit 外无法取证 ⇒ 抽成 `backendNoticeLines(backends, mode)` 导出后才发现"同族单后端"会被旧的 `available.length < 2` 读成降级 —— 配置被读成故障。
+
+- **顺带修掉两个被静默掩盖的真缺陷**（都是"错位的 cwd 与缺失的文件逐字同形"这一类）：入口 `$0` 是 Windows 绝对路径（测试与 `ccg-review.ps1` 就这么传）时 `case */*` 不匹配 ⇒ `_self_dir="."` ⇒ `ROOT` 落到**仓库父目录**，旧版之所以无害是因为每处仓库相对读都被 `[ -f ]` 挡成"不存在"；`--help` 用 `sed -n '2,18p'` 固定区间，加用法行后**静默截断最新几行**而看起来照样有输出。
+
+- **验证**：`ccg-review-backends` 17/17、`ccg-review-decider` 43/43、`deep-review-deps` 33/33、`plan-review-deps` 10/10、`ccg-bash-entry` 9/9、`check-pr-exec-record` 72/72。变异 M1–M5 各自**指名**变红（8/17、1/33、3/72、1/43、1/33），反证驱动断言"这次真的跑了 N 条"而非只看有没有红。新判据接在 `quality-gate.yml` 的 changes 作业（Gate 2c6）—— `scripts/**` 在 docs-only 白名单内，放 static-gates 等于给判据自己关掉校验。`check-workflow-structure` / `check-unwired-tests` / `check-step-failfast` 三条接线判据 rc=0。
+
+- **边界（不假装已闭合）**：本刀**没有**让 `--critic` 在 diff 评审上生效——那需要修仓外驱动或把引擎 vendor 进本仓，两条出口都留给人工裁决（vendor 后本仓就要对该驱动行为负责，属改"谁来守门"）。在二者落地前，对 diff 评审指定后端的效果是"被对账判红"，不是"换成功"；决策层（`plan-review.sh`）那条路径今天确实生效。
 # [未发布] fix(scripts): 锚点热备份新鲜度改按目录名时间戳判定——修掉「每次都报 25.9 天前」的恒假告警（anchor-backup-latest）
 
 - **两处错误叠在一起才恒假**：`scripts/mp-anchor-health.ps1` 用 `Sort-Object Name -Descending` 取「最新备份」，而锚点备份目录里同时住着两族名字——时间戳族 `yyyyMMdd-HHmmss` 与一次性基线 `seed-20260923-001516`。ASCII 下 `s`(0x73) > `2`(0x32) ⇒ 基线永远排第一、永远被当成「最新」，于是**每次运行都报 `newest backup is 25.9 days old (limit 7)`，连刚写完快照的那一次也照报**（2026-10-18 重启应用的一键启动日志里现场可见）。第二处是年龄取 `LastWriteTime`——复制/还原快照会改写它，即便选对目录也可能算错龄。

@@ -1,0 +1,51 @@
+{
+  "sha": "3df994661b40024c65c845c93960779833bb9454",
+  "layer": "plan",
+  "mode": "dual",
+  "reason": "变更 231 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 231,
+    "fileCount": 1,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "plannedFiles": [
+    "01-docs/PRD-S2V-PIPELINE-PAGE-UX.md",
+    "01-docs/PRD.md",
+    "openspec/records/fix-model-default-follow.md",
+    "apps/desktop/src/views/CreateView.vue",
+    "nextVoiceProviders.find",
+    "apps/desktop/electron/services/model-provider-manager.js",
+    "PipelineOptions.vue",
+    "apps/desktop/src/views/video-creation/create-view-module-utils.js",
+    "CreateView.vue",
+    "data.id",
+    "AGENTS.md",
+    "CreateView.test.js",
+    "CreateView.voice",
+    "apps/desktop/src/views/video-creation/create-view-module-utils.test.js",
+    "apps/desktop/src/views/CreateView.test.js",
+    "create-view-module-utils.test.js",
+    "01-docs/CHANGELOG.md"
+  ],
+  "decidedAt": "2026-10-18T13:49:45.752Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "layer": "decision",
+    "status": "error",
+    "performedBy": "claude",
+    "objectType": "plan",
+    "rounds": [],
+    "error": "spawnSync <claude-bin>/codeagent-wrapper.exe ETIMEDOUT",
+    "validationErrors": null,
+    "note": "第 1 轮评审失败",
+    "artifacts": ".adversarial\\ccg-plan-3df99466-claude",
+    "at": "2026-10-18T14:13:15.452Z"
+  }
+}

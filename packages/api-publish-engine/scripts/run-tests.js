@@ -49,6 +49,11 @@ const VITEST_FILES = new Set([
   'xiaohongshu-note-inpage.test.js',
   'signer-default-path.test.js',
   'tiktok.test.js',
+  // 头条视频 API 轨契约（toutiao-video-api，2026-10-18）。
+  // **必须在册**：依赖 vitest 的 describe/it 全局，漏登记会被 `node --test` 直跑成
+  // `ReferenceError: describe is not defined`。
+  'toutiao-video-chain.test.js',
+  'toutiao-adapter-routing.test.js',
   'topic-inline-contract.test.js',
   'twitter.test.js',
   'youtube.test.js',

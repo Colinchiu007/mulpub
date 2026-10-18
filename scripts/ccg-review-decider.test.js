@@ -913,3 +913,152 @@ test('QM-6 第四轮自查：git 调用失败时不得把 null 当成 diff 内�
     fs.rmSync(dir, { recursive: true, force: true })
   }
 })
+
+// ══════════════════════════════════════════════════════════════════════════
+//  QM-6 评审后端可配置（change: qm6-review-backend-config，2026-10-18）
+//  动因：换 critic 的三种旋钮全部静默失效，而仓里把后端对抄成六份字面量 ——
+//  判定器说「两个后端都不可用」，入口体检仍按老名单，两边互不认账。
+// ══════════════════════════════════════════════════════════════════════════
+
+const RB_LIB = require(path.join(__dirname, 'lib', 'ccg-review-backends.js'))
+
+/** 用给定 env 造一个 detectBackends() 形状的对象，但不碰 PATH（PATH 结果因机而异）。 */
+function fakeBackends(env) {
+  const prev = { c: process.env.MP_QM6_CRITIC, p: process.env.MP_QM6_PROPOSER }
+  if (env.MP_QM6_CRITIC === undefined) delete process.env.MP_QM6_CRITIC
+  else process.env.MP_QM6_CRITIC = env.MP_QM6_CRITIC
+  if (env.MP_QM6_PROPOSER === undefined) delete process.env.MP_QM6_PROPOSER
+  else process.env.MP_QM6_PROPOSER = env.MP_QM6_PROPOSER
+  try {
+    const resolved = RB_LIB.resolveBackends()
+    const names = RB_LIB.backendNames(resolved)
+    const installed = env.installed || names
+    const byName = {}
+    for (const n of names) byName[n] = installed.includes(n)
+    return { names, byName, resolved, wrapper: 'x', wrapperExists: true }
+  } finally {
+    if (prev.c === undefined) delete process.env.MP_QM6_CRITIC
+    else process.env.MP_QM6_CRITIC = prev.c
+    if (prev.p === undefined) delete process.env.MP_QM6_PROPOSER
+    else process.env.MP_QM6_PROPOSER = prev.p
+  }
+}
+
+test('后端对文案必须由单一真源派生：换 critic 后目标串与覆盖提示都要跟着变', () => {
+  const f = decider.backendNoticeLines
+  assert.strictEqual(typeof f, 'function',
+    'backendNoticeLines 必须导出 —— 否则本锁退化成「读源码字面」，改文案就失配')
+
+  const dflt = f(fakeBackends({}), 'dual').join('\n')
+  assert.match(dflt, /双模型\(claude \+ opencode\)/, `默认必须报既有形态，实得：${dflt}`)
+  assert.doesNotMatch(dflt, /已被覆盖/, '未覆盖时不得凭空打「已被覆盖」')
+
+  const swapped = f(fakeBackends({ MP_QM6_CRITIC: 'codex' }), 'dual').join('\n')
+  assert.match(swapped, /双模型\(codex \+ opencode\)/, `换 critic 后目标串必须跟着变，实得：${swapped}`)
+  assert.doesNotMatch(swapped, /双模型\(claude/, '旧后端名不得残留在目标串里')
+  // 覆盖必须出声：静默的旋钮等于没旋钮（本次事故的第一手原因就是没有任何地方回显
+  // 「你以为的 critic 是谁」）。
+  assert.match(swapped, /评审后端已被覆盖/, '覆盖必须出声')
+  assert.match(swapped, /critic=codex\(env\)/, '出声必须点名来源档位（env/cli/default）')
+})
+
+test('同族单后端是显式配置，不得报成「少了一个后端」的降级', () => {
+  // needDistinct 判据的反直觉一侧：proposer===critic 时 names 只有一个元素，
+  // 若沿用旧的 `available.length < 2` 就会把「一个人干两份活」打成就绪度不足。
+  const same = fakeBackends({ MP_QM6_CRITIC: 'claude', MP_QM6_PROPOSER: 'claude' })
+  const out = decider.backendNoticeLines(same, 'dual').join('\n')
+  assert.doesNotMatch(out, /降级为单后端/, `同族单后端不得报降级，实得：${out}`)
+  assert.match(out, /后端就绪/, '同族单后端且该后端可用 ⇒ 必须照样报就绪')
+
+  // 反向：双后端里真缺一个 ⇒ 必须报降级（这条不把上面那条否证掉）
+  const half = fakeBackends({ installed: ['claude'] })
+  assert.match(decider.backendNoticeLines(half, 'dual').join('\n'), /降级为单后端 \+ 补一次 agent 自评/)
+})
+
+test('一个后端都不可用时的文案必须点名「探测了哪些名字」，不得写死「两个」', () => {
+  // 「两个后端 CLI 都不可用」这句里的量词是抄来的：换成单后端配置后它会说错数量，
+  // 而排查者会去找一个不存在的第二个后端。
+  const none = fakeBackends({ MP_QM6_CRITIC: 'codex', installed: [] })
+  const out = decider.backendNoticeLines(none, 'dual').join('\n')
+  assert.match(out, /都不可用/, '不可用分支必须保留')
+  assert.match(out, /已探测 codex \/ opencode/, `必须点名实际探测的名单，实得：${out}`)
+  assert.doesNotMatch(out, /两个后端/, '不得再写死量词「两个」')
+})
+
+test('detectBackends 的探测名单必须跟随配置（不能再固定成 claude/opencode 两个键）', () => {
+  const prev = { c: process.env.MP_QM6_CRITIC, p: process.env.MP_QM6_PROPOSER }
+  process.env.MP_QM6_CRITIC = 'codex'
+  try {
+    const b = decider.detectBackends()
+    assert.deepEqual(b.names, ['codex', 'opencode'], `名单必须跟着配置走，实得 ${JSON.stringify(b.names)}`)
+    assert.ok('codex' in b.byName, 'byName 必须按配置的名字建键')
+    assert.equal('claude' in b.byName, false, '配置里没写的后端不得再被探测（旧实现写死两个键）')
+    assert.equal(b.resolved.critic, 'codex')
+  } finally {
+    if (prev.c === undefined) delete process.env.MP_QM6_CRITIC
+    else process.env.MP_QM6_CRITIC = prev.c
+    if (prev.p === undefined) delete process.env.MP_QM6_PROPOSER
+    else process.env.MP_QM6_PROPOSER = prev.p
+  }
+})
+
+test('判定记录必须写下「本次请求的后端对」，否则换后端在机器上不留痕', () => {
+  // 这是本刀的关键落点：请求值落进记录后，check-pr-exec-record.js 才能拿它与
+  // 驱动回填的 deepReview.performedBy 对账。没有这一字段，「设了没生效」就只能靠人盯终端。
+  const { execFileSync } = require('node:child_process')
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `qm6-rec-${process.pid}-`))
+  const origCwd = process.cwd()
+  const prev = process.env.MP_QM6_CRITIC
+  try {
+    execFileSync('git', ['init', '-q'], { cwd: dir, stdio: 'pipe' })
+    execFileSync('git', ['config', 'user.email', 't@t'], { cwd: dir, stdio: 'pipe' })
+    execFileSync('git', ['config', 'user.name', 't'], { cwd: dir, stdio: 'pipe' })
+    fs.writeFileSync(path.join(dir, 'seed.txt'), 'seed\n')
+    execFileSync('git', ['add', '-A'], { cwd: dir, stdio: 'pipe' })
+    execFileSync('git', ['commit', '-q', '-m', 'seed'], { cwd: dir, stdio: 'pipe' })
+    process.chdir(dir)
+    process.env.MP_QM6_CRITIC = 'codex'
+    const SHA = 'a'.repeat(40)
+    const out = decider.saveRecord({ mode: 'dual', reason: 'probe', stats: {} }, SHA, 'diff', undefined)
+    assert.ok(out, 'saveRecord 必须返回落盘路径')
+    const rec = JSON.parse(fs.readFileSync(out, 'utf8'))
+    assert.ok(rec.reviewBackends, '记录必须含 reviewBackends 字段')
+    assert.equal(rec.reviewBackends.critic, 'codex')
+    assert.equal(rec.reviewBackends.from.critic, 'env', '必须记下来源档位，便于区分「谁设的」')
+    assert.equal(rec.reviewBackends.proposer, 'opencode')
+    assert.equal(rec.reviewBackends.overridden, true)
+  } finally {
+    process.chdir(origCwd)
+    if (prev === undefined) delete process.env.MP_QM6_CRITIC
+    else process.env.MP_QM6_CRITIC = prev
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('禁词锁：decider 代码里不得再出现写死的后端名字面量（剥注释后判）', () => {
+  // 必须剥注释：本文件与 lib 的说明文字里合法地出现这些名字（在说「过去是什么」），
+  // 不剥注释的禁词锁会恒假红 —— 这是本仓记过的同型错误（判据错，不是实现错）。
+  // 也不得连 ".claude" 这条路径一起误杀：它在引号里带点，判据按 "claude" 全引号匹配。
+  const raw = fs.readFileSync(SRC, 'utf8').replace(/\r\n/g, '\n')
+  const code = raw
+    .split('\n')
+    .filter((l) => !/^\s*\/\//.test(l))
+    .join('\n')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+  assert.doesNotMatch(code, /["'`]claude["'`]/, '不得出现 "claude" 字面量（名单只准来自 lib）')
+  assert.doesNotMatch(code, /["'`]opencode["'`]/, '不得出现 "opencode" 字面量（名单只准来自 lib）')
+  assert.match(code, /ccg-review-backends/, '必须引用单一真源模块')
+  // 反失明：剥注释确实生效了（原文里注释含 claude，代码里不该含）
+  assert.ok(/claude/.test(raw), '前提自证：源文件里应仍有 claude（在注释/路径里），否则本锁在测空集')
+  assert.ok(!/["'`]claude["'`]/.test(code), '前提自证：剥注释后的代码面应不含该字面量')
+})
+
+test('接线锁：两个入口脚本必须引用同一个后端真源，且不得自带名单', () => {
+  for (const name of ['deep-review.sh', 'plan-review.sh']) {
+    const sh = fs.readFileSync(path.join(__dirname, name), 'utf8')
+    assert.match(sh, /\.\s+"\$_self_dir_abs\/lib\/ccg-backends\.sh"/,
+      `${name} 必须经单一真源取后端名单，否则它仍会按老名单体检`)
+    // 反失明：确认这两份脚本里确实有「按后端循环」这件事，不是把引用加在一个空转的分支上
+    assert.match(sh, /report_backends/, `${name} 应仍有 report_backends 体检面`)
+  }
+})

@@ -2978,7 +2978,7 @@ provider adapter `listVoices`，把规范化的内置音色/目录和当前选�
   目录失败路径与 IPC catch 必须记录日志（provider/model/脱敏原因，不记录密钥）；select/clear 失败路径同样经友好映射，
   **不得**向用户直显技术错误码。
 - **多模态模型承担 TTS 能力（2026-08-09）**：当「语音生成器」选择 `minimax-multimodal` 时，「provider → model → 音色目录」链路按 `capability_models.tts`（`speech-2.8-turbo`）走音色目录白名单与克隆合同（详见 7.4.1.1）；前端语音模型下拉只展示 TTS 能力模型，系统音色列表、默认音色、克隆与本地管理能力与 `minimax-tts` 完全一致；未声明 tts 能力的多模态 provider 目录请求 fail-closed 返回 `VOICE_MODEL_MISMATCH`。
-- **语音生成器默认选择多模态 TTS 模型（2026-08-12）**：当「模型服务商」中保存了支持 TTS 能力的多模态模型（`category=multimodal` 且 `capabilities` 包含 `tts`，当前为 MiniMax `minimax-multimodal`）时，图片轮播「语音生成器」下拉在用户没有显式保存过其他服务商选择时**默认选中该多模态模型**，并按 `capability_models.tts` 自动带出默认语音模型（如 `speech-2.8-turbo`）；用户显式保存过的服务商选择（lastOptions 快照回填）始终优先于该默认。下拉首项「自动 Edge TTS」免费兜底与空态引导文案不变；未声明 tts 能力的多模态 provider 不会出现在语音生成器列表（`listProviders` 按 tts 能力过滤，fail-closed）。
+- **语音生成器默认选择多模态 TTS 模型（2026-08-12；2026-10-18 修订）**：图片轮播「语音生成器」下拉在用户没有显式保存过其他服务商选择时的默认值，**以「模型服务商」设置里的默认为准**——用户在设置中把某类别 TTS 模型设为默认（普通 provider `is_default`），或把多模态模型（如 MiniMax `minimax-multimodal`）的 TTS 能力设为默认（`config.capability_defaults` 含 `tts`）时，默认选中该项，并按 `capability_models.tts` 自动带出默认语音模型（如 `speech-2.8-turbo`）。**不再**固定默认「第一个多模态模型」或列表首项。图片生成器 / 视频生成器同样跟随各自类别默认。用户显式保存过的服务商选择（lastOptions 快照回填）与显式「自动 Edge TTS」始终优先于该默认；主进程 `getDefault` 不可用时按列表内默认标记解析，无任何默认时保持首项兜底。判定口径、优先级、数据流与验收标准详见 `PRD-S2V-PIPELINE-PAGE-UX.md` §9.10。下拉首项「自动 Edge TTS」免费兜底与空态引导文案不变；未声明 tts 能力的多模态 provider 不会出现在语音生成器列表（`listProviders` 按 tts 能力过滤，fail-closed）。
 - **Doubao 个人槽位**：当前配置与 TTS adapter 的已注册/已验证调用合同不证明已经把用户个人槽位同步到本地，也不允许本地创建或伪造槽位。
   UI 必须提示用户先在供应商官方控制台创建/管理音色，再点击“刷新音色目录”并仅在有官方 API 证据及已验证的
   `listVoices` adapter 后选择；证据缺失时显示 `unsupported`/`unavailable`，不显示假列表。
@@ -12090,7 +12090,7 @@ provider adapter `listVoices`，把规范化的内置音色/目录和当前选�
   目录失败路径与 IPC catch 必须记录日志（provider/model/脱敏原因，不记录密钥）；select/clear 失败路径同样经友好映射，
   **不得**向用户直显技术错误码。
 - **多模态模型承担 TTS 能力（2026-08-09）**：当「语音生成器」选择 `minimax-multimodal` 时，「provider → model → 音色目录」链路按 `capability_models.tts`（`speech-2.8-turbo`）走音色目录白名单与克隆合同（详见 7.4.1.1）；前端语音模型下拉只展示 TTS 能力模型，系统音色列表、默认音色、克隆与本地管理能力与 `minimax-tts` 完全一致；未声明 tts 能力的多模态 provider 目录请求 fail-closed 返回 `VOICE_MODEL_MISMATCH`。
-- **语音生成器默认选择多模态 TTS 模型（2026-08-12）**：当「模型服务商」中保存了支持 TTS 能力的多模态模型（`category=multimodal` 且 `capabilities` 包含 `tts`，当前为 MiniMax `minimax-multimodal`）时，图片轮播「语音生成器」下拉在用户没有显式保存过其他服务商选择时**默认选中该多模态模型**，并按 `capability_models.tts` 自动带出默认语音模型（如 `speech-2.8-turbo`）；用户显式保存过的服务商选择（lastOptions 快照回填）始终优先于该默认。下拉首项「自动 Edge TTS」免费兜底与空态引导文案不变；未声明 tts 能力的多模态 provider 不会出现在语音生成器列表（`listProviders` 按 tts 能力过滤，fail-closed）。
+- **语音生成器默认选择多模态 TTS 模型（2026-08-12；2026-10-18 修订）**：图片轮播「语音生成器」下拉在用户没有显式保存过其他服务商选择时的默认值，**以「模型服务商」设置里的默认为准**——用户在设置中把某类别 TTS 模型设为默认（普通 provider `is_default`），或把多模态模型（如 MiniMax `minimax-multimodal`）的 TTS 能力设为默认（`config.capability_defaults` 含 `tts`）时，默认选中该项，并按 `capability_models.tts` 自动带出默认语音模型（如 `speech-2.8-turbo`）。**不再**固定默认「第一个多模态模型」或列表首项。图片生成器 / 视频生成器同样跟随各自类别默认。用户显式保存过的服务商选择（lastOptions 快照回填）与显式「自动 Edge TTS」始终优先于该默认；主进程 `getDefault` 不可用时按列表内默认标记解析，无任何默认时保持首项兜底。判定口径、优先级、数据流与验收标准详见 `PRD-S2V-PIPELINE-PAGE-UX.md` §9.10。下拉首项「自动 Edge TTS」免费兜底与空态引导文案不变；未声明 tts 能力的多模态 provider 不会出现在语音生成器列表（`listProviders` 按 tts 能力过滤，fail-closed）。
 - **Doubao 个人槽位**：当前配置与 TTS adapter 的已注册/已验证调用合同不证明已经把用户个人槽位同步到本地，也不允许本地创建或伪造槽位。
   UI 必须提示用户先在供应商官方控制台创建/管理音色，再点击“刷新音色目录”并仅在有官方 API 证据及已验证的
   `listVoices` adapter 后选择；证据缺失时显示 `unsupported`/`unavailable`，不显示假列表。

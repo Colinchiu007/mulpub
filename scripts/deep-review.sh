@@ -13,6 +13,15 @@
 #   sh scripts/deep-review.sh --force      # 忽略 mode=skip，强制跑
 #   sh scripts/deep-review.sh --dry-run    # 只打印将要做什么
 #   sh scripts/deep-review.sh --check-deps # 只体检评审后端依赖（不需要 node / git 记录）
+#   sh scripts/deep-review.sh --critic codex    # 临时换评审主力后端（不改清单）
+#   sh scripts/deep-review.sh --proposer gemini # 临时换出方案后端
+#   环境变量 MP_QM6_CRITIC / MP_QM6_PROPOSER 等价；优先级 旗标 > 环境变量 > 清单文件。
+#   清单唯一真源：scripts/ccg-review-backends.list（第一行 critic、第二行 proposer）。
+#
+# ⚠ 覆盖参数会**转发给驱动**，但驱动**验证层**（评审 diff 那条路径）目前不应用它
+#   （覆盖块只挂在决策层 --proposal 分支）。所以这里不谎称"换成功了"：请求值随判定
+#   记录落盘（reviewBackends），欠账门禁拿它与驱动回填的 deepReview.performedBy 对账，
+#   不符即判不闭合（backendMismatch）。决策层 plan-review.sh 那条路径今天就能生效。
 #
 # 退出码：0 无阻断 / 1 有阻断 / 2 环境或配置问题
 
@@ -25,26 +34,78 @@ set -u
 _self_dir="$0"
 case "$_self_dir" in
   */*) _self_dir="${_self_dir%/*}" ;;
+  *\\*) _self_dir="${_self_dir%\\*}" ;;
   *)   _self_dir="." ;;
 esac
+# ↑ 新增的 `*\\*` 分支修的是一个**一直存在但被静默掩盖**的缺陷：调用方给的是
+#   Windows 绝对路径（测试与 ccg-review.ps1 就是这么传的，`D:\...\deep-review.sh`），
+#   旧 case 里没有 `/`  ⇒ 落到 `*) _self_dir="."` ⇒ ROOT 变成**仓库的父目录**，
+#   于是所有仓库相对路径都读错地方。过去没人发现，是因为脚本里每一处仓库相对读
+#   都被 `[ -f ... ]` 挡成「不存在」（读成「没有判定记录」而不是「cd 错了」）。
+#   本 PR 引入 `. scripts/lib/ccg-backends.sh`（必须按脚本自身位置解析）才把它暴露出来。
 ROOT="$(cd "$_self_dir/.." && pwd)"
+say() { printf '%s\n' "$1"; }
+# 先把脚本自身目录**绝对化**再 cd：cd 之后相对 $0 就失效了，而下面 source 那行必须
+# 按脚本位置（不是仓库根）解析，才能在任意 cwd/任意调用形态下都读得到。
+_self_dir_abs="$(cd "$_self_dir" 2>/dev/null && pwd)" || _self_dir_abs="$_self_dir"
 cd "$ROOT" || exit 2
 
 FORCE=0
 DRY=0
 CHECK_DEPS=0
-for a in "$@"; do
-  case "$a" in
+# 后端覆盖：旗标 > 环境变量 > 清单文件。空串按「没配」处理（CI 表达式里 VAR="" 是常态，
+# 把它判成故障会把所有 PR 打红），但非空且不合法的名字一律早退（见 resolve_review_backends）。
+CRITIC_ARG=""
+PROPOSER_ARG=""
+# 改成 while+shift 而不是原来的 `for a in "$@"`：后者只认无值旗标，加了带值旗标就会把
+# "codex" 当成一个陌生参数**静默丢掉** —— 那正是本次要消灭的「传了等于没传」。
+while [ $# -gt 0 ]; do
+  case "$1" in
     --force) FORCE=1 ;;
     --dry-run) DRY=1 ;;
     --check-deps) CHECK_DEPS=1 ;;
+    --critic|--proposer)
+      _v="${2:-}"
+      case "$_v" in
+        ""|-*)
+          say "✗ 旗标 $1 缺值（必须紧跟一个后端名，例如 --critic codex）"
+          exit 2 ;;
+      esac
+      if [ "$1" = "--critic" ]; then CRITIC_ARG="$_v"; else PROPOSER_ARG="$_v"; fi
+      shift ;;
     --help|-h)
-      sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'
+      # 打印整段文件头注释（到 set -u 为止），不再用写死的行号区间：
+      # 固定区间会在我给用法块加行时**静默截断**最新那几行 —— 而 '--help' 看起来照样有输出。
+      sed -n '2,/^set -u/{/^set -u/!p}' "$0" | sed 's/^# \{0,1\}//'
       exit 0 ;;
+    *)
+      say "✗ 未知旗标：$1（本入口只认 --force / --dry-run / --check-deps / --critic <名> / --proposer <名> / --help）"
+      say "  参数不得静默忽略：静默忽略会让「我传了」与「传进去了」在产物上完全同形。"
+      exit 2 ;;
   esac
+  shift
 done
 
-say() { printf '%s\n' "$1"; }
+# say() 定义在参数解析**之前**（见上方 ROOT 那一段）：参数错误分支自己就要用它出声，
+# 放在循环之后会让 `--critic` 缺值这类输入报 "say: command not found" 而不是那句人话。
+
+# ==========================================================================
+#  0. 评审后端对：单一真源 + shell 侧读取方
+# ==========================================================================
+# 为什么这里要有一份纯 shell 的读取方（而不是统一调 node）：--check-deps 是「node 本身
+# 可能就是坏的」时的第一手诊断入口。于是仓里有两个读取方（本文件 source 的 sh 版与
+# lib/ccg-review-backends.js 的 node 版），两者必须逐字对账 —— 对账锁在
+# scripts/deep-review-deps.test.js「两个读取方必须给出同一份后端表」。
+# 按**脚本自身位置**解析而不是仓库相对路径：见上面 _self_dir_abs 的说明。
+# 找不到就当场 fail-closed：$0 在符号链接/非常规调用下可能指不到兄弟文件，
+# 而后续每个 `resolve_review_backends: command not found` 都会把真因（没 source 上）
+# 伪装成一堆功能故障 —— 本仓把这类读作「探针失明比报错更贵」。
+[ -f "$_self_dir_abs/lib/ccg-backends.sh" ] || {
+  printf '%s\n' "✗ 找不到评审后端读取方：$_self_dir_abs/lib/ccg-backends.sh"
+  printf '%s\n' "  入口必须由仓库内路径调用（sh scripts/deep-review.sh），不得经符号链接复制出去跑。"
+  exit 2
+}
+. "$_self_dir_abs/lib/ccg-backends.sh"
 
 # ==========================================================================
 #  0. 环境闸：拒绝 WSL
@@ -331,31 +392,37 @@ EOF
 # 注意它验的是「bash 能解析」；**wrapper 能否 spawn 由 prepend 绝对目录保证**，
 # 两者的差别见 resolve_backend 上方那段 ErrDot 说明。
 self_check_backends() {
-  for _sb_b in claude opencode; do
+  while IFS='|' read -r _sb_b _sb_unused_why _sb_unused_pkg; do
+    [ -n "$_sb_b" ] || continue
     if _sb_hit="$(command -v "$_sb_b" 2>/dev/null)"; then
       say "  · 裸名自检 $_sb_b → $(_resolve_hit "$_sb_hit")"
     else
       say "  · 裸名自检 $_sb_b → 仍不可解析"
       _RB_SELF_RC=2
     fi
-  done
+  done <<EOF
+$(backend_table)
+EOF
 }
 
 # 逐个后端体检并打印。
-# 退出码刻意分三档而不是「有一个能跑就算过」——单后端正是本条坑造成的降级形态，
+# 退出码刻意分两档而不是「有一个能跑就算过」——单后端正是本条坑造成的降级形态，
 # 把它做成 0 会让体检失去意义：
-#   0  两个后端都在（双模型齐备）
-#   2  有后端缺失（能跑则降级；两个都缺时另加硬提示）
+#   0  配置名单里的后端全部解析到绝对路径（跨家族对照按配置齐备）
+#   2  有后端缺失（能跑则降级；一个都不剩时另加硬提示）
+# 分母取自 backend_table 的行数（= 清单/覆盖解析出的名单），不是写死的 2。
 #
 # 副作用：把 _RB_OK / _RB_RC 暴露给调用方，主流程要靠它决定是继续还是早退。
 report_backends() {
   _rb_rc=0
   _rb_n=0
-  for _rb_b in claude opencode; do
-    case "$_rb_b" in
-      claude)   _rb_why="评审后端（主力）"; _rb_pkg='@anthropic-ai/claude-code' ;;
-      opencode) _rb_why="出方案后端 / 跨家族校验"; _rb_pkg='opencode-ai' ;;
-    esac
+  _rb_total=0
+  # 名单来自单一真源（backend_table 由清单 + 覆盖渲染），不再写死 claude/opencode。
+  # 读它用的是 heredoc 而不是管道：管道会把循环体推进子 shell，
+  # 而 resolve_backend 对 PATH 的修复必须留在当前 shell（见上方「后端解析」段）。
+  while IFS='|' read -r _rb_b _rb_why _rb_pkg; do
+    [ -n "$_rb_b" ] || continue
+    _rb_total=$((_rb_total + 1))
     # 直接调用，绝不走 $(...)：PATH 的修复必须留在当前 shell（见上）。
     resolve_backend "$_rb_b" || true
     say "  · $_rb_b  [$_RB_CODE] $_RB_MSG（$_rb_why）"
@@ -369,17 +436,24 @@ report_backends() {
         say "        或把它所在目录写进系统 PATH 后重开终端；"
         say "        也可用 CCG_BACKEND_BIN_DIRS 显式指一个目录" ;;
     esac
-  done
-  # ⚠ 必须按**计数**分档，不能只看「有没有」。
-  #   只看 0/1 标志时，2/2 可用与 1/2 可用长得一模一样，
-  #   于是双模型齐备也会打印「只剩单后端」（本 PR 自查时当场发现）。
+  done <<EOF
+$(backend_table)
+EOF
+  # ⚠ 必须按**计数**分档，不能只看「有没有」；而分母也不能写死成 2 ——
+  #   同族单后端（critic==proposer）配置下 backend_table 只有一行，
+  #   拿「1」当降级会把一份显式配置读成故障（本仓记过的「把配置判成故障」同型）。
   case "$_rb_n" in
     0)
       say ""
       say "  ✗ 没有任何评审后端可用 —— 深度审查根本起不来。" ;;
-    1)
+    "$_rb_total")
+      if [ "$RB_CRITIC" = "$RB_PROPOSER" ]; then
+        say ""
+        say "  ℹ 同族单后端（critic=proposer=$RB_CRITIC）：能跑，但按配置**不参与**跨家族交叉验证。"
+      fi ;;
+    *)
       say ""
-      say "  ⚠ 只剩单后端可用 —— 评审能跑，但跨家族交叉验证会缺失（这正是本条坑的形态）。" ;;
+      say "  ⚠ 仅 $_rb_n/$_rb_total 个后端可用 —— 评审能跑，但跨家族交叉验证会缺失（这正是本条坑的形态）。" ;;
   esac
   # 自检放在这里而不是只放在 --check-deps：主流程同样要知道自己修完之后
   # 裸名到底起不起来（第四轮 i3）。只给诊断入口做验证，等于把 non-diagnostic
@@ -395,6 +469,18 @@ report_backends() {
   _RB_SELF="$_RB_SELF_RC"
   return "$_rb_rc"
 }
+
+# ---------- 0-pre. 解析评审后端对（旗标 > 环境变量 > 清单文件） ----------
+# 必须早于 report_backends 与裸名自检：两边都消费解析结果。反过来（先体检、后解析）
+# 会让体检按老名单出结论，而本次六份字面量互不认账就是这个顺序造成的。
+resolve_review_backends || exit 2
+if [ -n "$RB_OVERRIDE_NOTE" ]; then
+  # 覆盖必须出声并点名**来源档位**：静默的旋钮等于没旋钮（2026-10-18 三种旋钮全部
+  # 静默失效、没有任何一行输出说清「当时的 critic 到底是谁」，是本刀的直接动因）。
+  say "ℹ 评审后端已覆盖：$RB_OVERRIDE_NOTE（critic 来源 $RB_FROM_CRITIC，proposer 来源 $RB_FROM_PROPOSER）"
+  say "  请求值随判定记录落盘（reviewBackends），实际执行者由驱动回填（deepReview.performedBy），"
+  say "  两者不符时 check-pr-exec-record.js 判该条深度审查**未闭合**（backendMismatch）。"
+fi
 
 # ---------- 0a. 纯依赖体检（--check-deps）----------
 # 刻意放在定位 node / 驱动 / 判定记录**之前**：这是「为什么我的评审降级了」
@@ -743,12 +829,33 @@ else
 fi
 
 # ---------- 5. 跑 ----------
+# 覆盖参数只在**真的覆盖过**时转发：默认路径保持与历史逐字相同，既不把本仓的默认值
+# 钉成上游的第二真源，也让任何按旧命令行写的锁继续成立。
+#
+# 形态取自 QM-6 外部评审的 Critical 建议：**逐值加引号、分支成两条 exec**，
+# 而不是拼一个变量再无引号展开。拼串写法的安全性完全押在
+# is_valid_backend 的字符集上——那个正则将来被人放宽一格（例如为支持带空格的服务名）
+# 就直接打开词法拆分/注入窗口，而放宽正则本身不会被任何测试问起。
+# 现在即便正则被放宽，值也只会被当作**一个参数**交给 node，不构成第二道防线依赖。
+# （这也是为什么 scripts/deep-review-deps.test.js 里有一条 doesNotMatch 禁这个变量名 ——
+#   禁词锁不剥注释，所以本注释刻意不提那个名字。）
 if [ "$DRY" -eq 1 ]; then
   if [ "${DRY_NO_DRIVER:-0}" -eq 1 ]; then
     say ""
     say "[dry-run] 引擎缺失 ⇒ 到此为止（判定记录与模式判定已预览完毕）。"
     exit 0
   fi
+  if [ -n "$RB_OVERRIDE_NOTE" ]; then
+    say "→ 已向后端请求覆盖：--proposer $RB_PROPOSER --critic $RB_CRITIC"
+    exec node "$DRIVER" --dry-run --sha "$SHA" --proposer "$RB_PROPOSER" --critic "$RB_CRITIC"
+  fi
   exec node "$DRIVER" --dry-run --sha "$SHA"
+fi
+if [ -n "$RB_OVERRIDE_NOTE" ]; then
+  say "→ 已向后端请求覆盖：--proposer $RB_PROPOSER --critic $RB_CRITIC"
+  say "  ⚠ 驱动**验证层**（评审 diff）当前不应用这两个参数（覆盖块只挂在决策层分支），"
+  say "    所以本次很可能是「请求了但驱动仍按自己的默认跑」—— 那会由判定记录的"
+  say "    reviewBackends × deepReview.performedBy 对账判未闭合，不会被读成通过。"
+  exec node "$DRIVER" --sha "$SHA" --proposer "$RB_PROPOSER" --critic "$RB_CRITIC"
 fi
 exec node "$DRIVER" --sha "$SHA"

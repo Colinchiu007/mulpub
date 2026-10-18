@@ -218,6 +218,16 @@ jobs:
         shell: bash
         run: node --test scripts/ccg-review-decider.test.js
 
+      # --- Gate 2c6：QM-6 评审后端对的单一真源 ---
+      # 动因（2026-10-18）：后端对在仓里被抄成六份字面量，于是"换 critic"有三种旋钮
+      # 全部静默失效而评审照跑、status 照闭环。本锁守解析优先级、两个读取方的逐字对账，
+      # 以及"请求值 vs 实际执行者"这条对账判据的本体。
+      # 落点必须在 changes 作业：scripts/** 在 docs-only 白名单内，放 static-gates 等于
+      # 给判据自己关掉校验（与 Gate 2c2 / 2c3 / 2c4 同一先例）。只 require node 内置模块。
+      - name: "Gate 2c6 - QM-6 review backend single source (changes job)"
+        shell: bash
+        run: node --test scripts/lib/ccg-review-backends.test.js
+
       # --- Gate 2c3：执行记录的 QM-5 行集棘轮 ---
       # 动因（本会话实测）：PR #3477 的记录在多次改写中把「防止再次发生（QM-5 ⑤）」的**行标题吞掉**、
       # 正文并入上一行末尾 ⇒ 五步只剩四步有名有姓，而 Gate 2c2 只判"记录存在与否"、不校验行集，全程全绿。
