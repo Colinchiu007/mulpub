@@ -324,7 +324,10 @@ export default {
     saveDraft: '💾 Save Draft',
     drafts: '📋 Drafts',
     quickPublish: '🚀 Quick Publish',
-    createVideo: '🎬 Create Video',
+    // S2 (PRD-UI-FLOW-CLARITY §14 decision #2): clicking this silently saves a draft
+    // before jumping to the creation page. The side effect is kept (drafts have value),
+    // but the label must disclose it so users never find an "unsaved" draft in the box.
+    createVideo: '🎬 Save draft & create video',
     createVideoEmpty: 'Content is empty, cannot create video',
     cancelTasks: 'Cancel Tasks',
     cancelledCount: (ctx) => 'Cancelled ' + ctx.named('count') + ' task(s)',

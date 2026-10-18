@@ -14,18 +14,27 @@
         data-testid="publish-dest-modal"
       >
         <header class="publish-dest-header">
-          <h3 id="publish-dest-title" class="publish-dest-title">{{ title }}</h3>
+          <h3 id="publish-dest-title" class="publish-dest-title">{{ resolvedTitle }}</h3>
           <button
             type="button"
             class="publish-dest-close"
-            :aria-label="closeAria"
-            title="关闭"
+            :aria-label="resolvedCloseAria"
+            :title="resolvedCloseAria"
             data-testid="publish-dest-close"
             @click="close"
           >✕</button>
         </header>
 
-        <p v-if="subtitle" class="publish-dest-subtitle">{{ subtitle }}</p>
+        <!-- S2「已存草稿」披露节点（PRD-UI-FLOW-CLARITY §9 验收 #8）：
+             这是全流程里**唯一**告诉用户"刚才那步已经静默存了一份草稿"的地方，
+             此前既无 role 也无 data-testid，任何断言都锁不住它。
+             补 role="status"（屏幕阅读器播报）+ 固定 testid（可被回归测试断言）。 -->
+        <p
+          v-if="resolvedSubtitle"
+          class="publish-dest-subtitle"
+          role="status"
+          data-testid="publish-dest-draft-saved"
+        >{{ resolvedSubtitle }}</p>
 
         <div class="publish-dest-banners">
           <!-- 直接发图文 -->
@@ -36,8 +45,8 @@
             @click="chooseArticle"
           >
             <span class="banner-icon">🖼️</span>
-            <span class="banner-title">直接发图文</span>
-            <span class="banner-desc">打开图文发布页，改写内容将自动填入文案输入框</span>
+            <span class="banner-title">{{ t('publishDestination.article') }}</span>
+            <span class="banner-desc">{{ t('publishDestination.articleDesc') }}</span>
           </button>
 
           <!-- 生成视频 -->
@@ -49,18 +58,22 @@
               @click="chooseVideo"
             >
               <span class="banner-icon"><el-icon><VideoCamera /></el-icon></span>
-              <span class="banner-title">生成视频</span>
-              <span class="banner-desc">打开视频创作流水线页，改写文本将自动填入文案输入框</span>
+              <span class="banner-title">{{ t('publishDestination.video') }}</span>
+              <span class="banner-desc">{{ t('publishDestination.videoDesc') }}</span>
             </button>
             <div class="publish-dest-pipeline">
-              <label class="pipeline-label" for="publish-dest-pipeline-select">流水线选择</label>
+              <label class="pipeline-label" for="publish-dest-pipeline-select">{{ t('publishDestination.pipelineLabel') }}</label>
               <select
                 id="publish-dest-pipeline-select"
                 v-model="selectedPipeline"
                 class="pipeline-select"
                 data-testid="publish-dest-pipeline-select"
               >
-                <option value="">-- 选择流水线 --</option>
+                <!-- S2：空选项设为 disabled —— 原实现允许选中空值，随后 chooseVideo 里
+                     用 `|| 'story2video-compose'` 静默回落到默认流水线（PRD §1.2 混淆点）。
+                     用户以为没选，实际发出了另一条流水线的创作请求。现在空选项只作占位，
+                     不可选中，选择必须显式。 -->
+                <option value="" disabled>{{ t('publishDestination.pipelineEmptyOption') }}</option>
                 <option
                   v-for="p in pipelineOptions"
                   :key="p.value"
@@ -77,13 +90,19 @@
 
 <script setup>
 import { VideoCamera } from '@element-plus/icons-vue'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
+
+// S2：本组件此前全部文案是**硬编码中文**，而 `publishDestination.*` 的 locale 键
+// （title/subtitle/close/article/...）早已存在却无人使用 —— 英文界面下这里一直显示中文。
+// 现改为「props 留空则取 locale」，调用方仍可显式覆盖。
+const { t } = useI18n()
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
-  title: { type: String, default: '选择发布去向' },
-  subtitle: { type: String, default: '改写内容已存入草稿箱，请选择下一步操作' },
-  closeAria: { type: String, default: '关闭' },
+  title: { type: String, default: '' },
+  subtitle: { type: String, default: '' },
+  closeAria: { type: String, default: '' },
   pipelineOptions: {
     type: Array,
     default: () => [
@@ -92,6 +111,11 @@ const props = defineProps({
   },
   defaultPipeline: { type: String, default: 'story2video-compose' },
 })
+
+const resolvedTitle = computed(() => props.title || t('publishDestination.title'))
+// 这条文案是「已存草稿」披露的唯一载体，不得为空
+const resolvedSubtitle = computed(() => props.subtitle || t('publishDestination.subtitle'))
+const resolvedCloseAria = computed(() => props.closeAria || t('publishDestination.close'))
 
 const emit = defineEmits(['close', 'publish-article', 'publish-video'])
 
