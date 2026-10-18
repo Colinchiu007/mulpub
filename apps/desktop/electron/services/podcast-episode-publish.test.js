@@ -102,7 +102,7 @@ describe('拒绝格：库里一行都不许多', () => {
 
   it('上传没给出可公网访问的 https 地址 ⇒ 不挂期（http/空串都不算成功）', async () => {
     const { publisher, calls, input } = mk({
-      deps: { uploadImpl: async () => ({ url: 'http://insecure.example.com/a.mp3', size: 1000 }) },
+      deps: { uploadImpl: async () => ({ url: 'http://insecure.example.com/a.mp3', size: AUDIO_BYTES }) },
     })
     await expect(publisher.publish(input)).rejects.toMatchObject({ code: EPISODE_PUBLISH_ERRORS.UPLOAD_FAILED })
     expect(calls.episode).toEqual([])
