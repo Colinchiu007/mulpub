@@ -11,7 +11,7 @@ sync_backfill_owner: 下一个会话
 
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
-| 变更类型与隔离 | ✅ | 运行时代码变更：worktree `D:\Data\projects\mp-worktrees\mp-fix-hot-topics-genvideo-title` + 裸分支 `fix-hot-topics-genvideo-title`（非 C 盘）；`scripts/pre-code-edit-guard.ps1` 在 worktree 内 exit 0 |
+| 变更类型与隔离 | ✅ | 运行时代码变更：worktree `<worktreeRoot>/mp-fix-hot-topics-genvideo-title` + 裸分支 `fix-hot-topics-genvideo-title`（非 C 盘）；`scripts/pre-code-edit-guard.ps1` 在 worktree 内 exit 0 |
 | 第一性原因（QM-5 ①） | ✅ | 四级静默回退链末端切片：`buildGenVideoStartParams` 不带 `title` → `publish.title = config.title \|\| ''`（默认空）→ 主进程 `project.title = run.params?.title \|\| publish.title \|\| sourceText` → `truncateTitle(rawTitle, 100)` ⇒ 正文前 100 字；非 S2V 流水线无 project ⇒ 标题空 |
 | 逃逸分析（QM-5 ②） | ✅ | 单测：`publish-from-project.test.js` 夹具让 `project.title` 与 `sourceText` 取同值 38 字，缺陷路径表现为正确行为；组件：`HotTopics.test.js`【去发布】夹具手写 `publish.title='发布标题'`，真实链路恒空。审查：`hot-topics-pipeline-picker` 评审把「不伪造标题」当合规终态，未追问「标题从哪来」 |
 | 修复 + 回归保护（QM-5 ④） | ✅ | 修复：AI 爆款标题 + 三级降级（无模型/失败 → 原始选题）。回归锁：纯函数 15 例 + IPC 31 例 + `HotTopics.test.js` +8 例 + `Publish.test.js` +6 例 = 60 例新增；`mountCompletedRun` 夹具显式把 `publish.title` 置空串对齐真实链路 |
