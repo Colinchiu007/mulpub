@@ -162,6 +162,8 @@ const uploadWaiterMixin = {
         // 表单就绪：上传完成后平台 SPA 渲染标题/简介有延迟（B站/快手要等切到编辑表单）
         const formReady = await this._waitForCondition(win, 'function(){return !!document.querySelector(\'input[placeholder*="标题"],textarea,[contenteditable="true"]\')}', 120000, 1500)
         if (!formReady) log.warn('RpaView', '[' + platform + '] editor form not ready after upload (still trying fields)')
+        // i3（第三轮裁决）：取证是旁路，模块加载/采集失败都**不得**打断上传确认主链。
+        try { await require('./rpa-dom-dump').dumpDom(win, platform, 'uploaded', { logger: log }) } catch (_) { /* 旁路失败忽略 */ }
         retry.markDone('file_upload'); this._emitProgress(platform, 'file uploaded', 40)
       } catch (e) {
         log.warn('RpaView', '[' + platform + '] upload: ' + e.message)

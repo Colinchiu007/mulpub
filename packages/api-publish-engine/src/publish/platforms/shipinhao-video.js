@@ -23,7 +23,14 @@ const { errorCode } = require('../../error-codes')
 const { convertInlineTopics, formatArticleBody } = require('../../content-formatter')
 
 const DEFAULT_API_BASE = 'https://channels.weixin.qq.com'
-const DEFAULT_CDN_BASE = 'https://finderassistancea.video.qq.com'
+// 2026-10-18 video-publish-4：CDN 主机名已更换。旧值 finderassistancea.video.qq.com 现返回 **404**
+// （真机实测：applyuploaddfs / uploadpartdfs / completepartuploaddfs 三条路径全 404），
+// 于是 API 轨在「Uploading video...」第一步就 404 → 回落 RPA；而 RPA 入口又是平台首页 ⇒ 视频号必然失败。
+// 新值取自**创作页自身代码**（finder-helper-web chunk-common 内 `this.HOST="finder.video.qq.com"`、
+// `ReplaceHost="https://finder.video.qq.com"`），实测该主机可达（返回 protobuf 业务错误而非 404）。
+// 保留旧主机作为**最后兜底**：若新主机在部分网络不可达，仍可回落读取 envInfo.cdnHostList。
+const CDN_HOST_CANDIDATES = ['https://finder.video.qq.com', 'https://finderassistancea.video.qq.com']
+const DEFAULT_CDN_BASE = CDN_HOST_CANDIDATES[0]
 const API_REFERER = 'https://channels.weixin.qq.com'
 const POST_REFERER = 'https://channels.weixin.qq.com/platform/post/create'
 const UPLOAD_REFERER = 'https://channels.weixin.qq.com/'

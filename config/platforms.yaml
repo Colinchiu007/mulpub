@@ -102,7 +102,11 @@ platforms:
     icon: ▶
     category: 中文
     content_category: VIDEO
-    publish_url: https://channels.weixin.qq.com/
+    # 2026-10-18 video-publish-4：此处原为平台首页 https://channels.weixin.qq.com/ —— RPA 落在首页后
+    # `input[type=file]` / 标题 / 发表按钮全部落空（真机日志：waitForElement timeout；页面快照里是首页
+    # 「视频57/关注者50」与页脚「关于腾讯」），最终只报 publish verification timeout。
+    # 创作页入口取自 videoPublishUrls.tencent_video 与竞品逆向（post_create / helper_upload_params 同源）。
+    publish_url: https://channels.weixin.qq.com/platform/post/create
     data_url: ''
     comment_url: ''
     cover_size: 1080x1080
