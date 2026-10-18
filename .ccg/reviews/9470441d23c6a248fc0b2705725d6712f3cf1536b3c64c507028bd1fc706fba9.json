@@ -32,8 +32,69 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "self_play_resolved",
+    "performedBy": "self-play(agent)",
+    "error": "spawnSync <HOME>/.claude/bin/codeagent-wrapper.exe ETIMEDOUT",
+    "fallbackReason": "跨家族对抗后端超时（本会话第 7 次同型 ETIMEDOUT），按引擎第三档出口 self_play 由 agent 逐条对抗自查。本条是「订正上一轮臆断」的 PR，自查重点放在「新实现本身是否又引入了新的不一致/新臆断」。",
+    "evidenceInRepo": "openspec/records/toutiao-publish-body.md（§二 取证方法 / §三 真机结论 / §六 未闭合）+ PRD §12",
+    "confidenceWeight": 0.6,
+    "adjudication": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "finding": "封面闸门（run）与封面消费（buildToutiaoPublishBody）接受的来源集合不一致：闸门只认 cover/coverPath，body 构造还认 thumbUri ⇒ 调用方传「已上传好的 thumbUri」时会被本地闸门拦掉，自相矛盾。",
+        "verdict": "upheld_fixed",
+        "rationale": "真实缺陷，只有在「封面早已上传、只给 URI」这条路径上暴露（常规路径给 cover 文件不会踩到）。修法：闸门收敛成 coverInputs 数组，与 body 构造接受的来源逐一对应，并在注释里写明「两侧必须一致」。补 1 例回归：只给 thumbUri 也必须放行，且该值要真的落进 VideoInfo.ThumbUri。",
+        "fixCommit": "本 PR 追加提交"
+      },
+      {
+        "id": "i2",
+        "severity": "Info",
+        "finding": "publish() 失败文案里的 status 取自 res.data.status，res.data 为假值时会打印「status=undefined」。",
+        "verdict": "upheld_fixed",
+        "rationale": "网络层异常/空响应时确实会出现 res.data 为空，那时错误文案应该是最有用的信息，不能退化成 undefined。修法：parsePublishResponse 增加返回归一化后的 status（缺失即 null），文案改用该值。",
+        "fixCommit": "本 PR 追加提交"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "parsePublishResponse 把 data.Code === undefined 当成功（codeOk），若网关既省略 Code 又回 ItemId，可能把实际失败读成成功。",
+        "verdict": "accepted_known_tradeoff",
+        "rationale": "bundle 实证的判据是 status===0 && data.Code===0；我额外放宽到「Code 缺失也算过」。放宽的理由：部分网关变体不回 Code，硬要求会导致全部误判失败。兜底是 ItemId 为**硬要求** —— 没有作品 id 就不算成功，这一点没有放宽。若将来在真机上观察到「itemId 有但实际失败」，应把放宽去掉；已记在记录 §六。",
+        "fixCommit": null
+      },
+      {
+        "id": "i4",
+        "severity": "Info",
+        "finding": "run() 每次发布都多打 2 个只读请求（GetPublishAuth / GetPublishPageReviewLatency），增加约 200-400ms 延迟。",
+        "verdict": "accepted_known_tradeoff",
+        "rationale": "换来的收益更大：能在**上传大文件之前**判出「账号无发布权限」直接返回，省掉整段上传。且取不到时不阻断（只 warn + 置 null），不会因为遥测端点抖动让发布失败。",
+        "fixCommit": null
+      },
+      {
+        "id": "i5",
+        "severity": "Info",
+        "finding": "为满足 check-max-lines（:500）拆出 toutiao-video-publish.js，可能被质疑是「为过门禁而拆」的装饰性拆分。",
+        "verdict": "upheld_rationale",
+        "rationale": "拆分边界是真实职责边界而非行数切割：新文件 = 纯函数契约（端点常量/枚举/截断/body 构造/响应解析），零 IO、零状态、可直接单测；原文件 = 链编排（6 次网络交互）。且公开 API 未变（PUBLISH_TYPE/VIDEO_TYPE/truncateByCodePoint 仍从 toutiao-video 再导出，既有测试与适配器无需改动），这一点由 29 例测试全绿佐证。",
+        "fixCommit": null
+      },
+      {
+        "id": "i6",
+        "severity": "Info",
+        "finding": "本 PR 的「订正」会不会是另一种臆断 —— 凭什么认定 bundle 里的就是权威？",
+        "verdict": "upheld_rationale",
+        "rationale": "bundle 是**平台自己运行的那份代码**，其调用点直接决定了真正发出的请求，比竞品语料强一个证据等级；且本轮同时拿到了三件事互证：端点字符串、成功判据（0===dt && 0===vt）、枚举（draft:0）。仍不足的部分也如实标注：请求体字段取自构造器摘录，但**未做一次真机放行验证**（账号被实名闸挡住），所以 publishMode 保持 dom-only 不切流量 —— 没有把「bundle 取证」直接当成「线上已验证」。",
+        "fixCommit": null
+      }
+    ],
+    "summary": {
+      "total": 6,
+      "upheldFixed": 2,
+      "acceptedKnownTradeoff": 2,
+      "upheldRationale": 2,
+      "note": "自查抓到 1 个真实不一致（封面闸门与 body 构造来源不一致）与 1 个文案缺陷，均已修复并补回归；另对「放宽 Code 缺失」「多打两个只读请求」两处取舍如实登记，并明确「bundle 取证 ≠ 线上已验证」。"
+    },
+    "at": "2026-10-18T18:22:37.823Z"
   }
 }

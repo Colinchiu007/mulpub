@@ -357,7 +357,7 @@ class ToutiaoVideoChain {
       success: false,
       platform: 'toutiao',
       code: p.code,
-      error: p.message || ('头条发布失败(status=' + String((res.data || {}).status) + ', code=' + String(p.code) + ')'),
+      error: p.message || ('头条发布失败(status=' + String(p.status) + ', code=' + String(p.code) + ')'),
     }
   }
 
@@ -372,8 +372,21 @@ class ToutiaoVideoChain {
     }
     // 闸门 0（本地·零请求）：平台**要求封面必填**（bundle 原文：`该视频需要上传一个封面`）。
     // 本地先判，省掉「传完大文件才被平台拒」的浪费；skipCoverCheck 仅供链路自测。
-    if (!opts.skipCoverCheck && !td.cover && !td.coverPath && !(opts.cover && opts.cover.path)) {
-      throw new ToutiaoVideoError('头条视频发布需要封面图（平台必填）：请为任务提供 cover/coverPath')
+    //
+    // ⚠️ 判据必须与 buildToutiaoPublishBody 接受封面来源**完全一致**，否则会出现
+    // 「调用方给了 opts.thumbUri 却被本地闸门拦掉」这种自相矛盾（本轮自扮演裁决 i1）。
+    const coverInputs = [
+      opts.cover && opts.cover.path, // 封面文件（未来 imagex 上传用）
+      opts.cover,                    // 直接给封面对象
+      opts.thumbUri,                 // 直接给封面 StoreUri（已上传）
+      td.cover,
+      td.coverPath,
+    ]
+    const hasCover = coverInputs.some((x) => Boolean(x))
+    if (!opts.skipCoverCheck && !hasCover) {
+      throw new ToutiaoVideoError(
+        '头条视频发布需要封面图（平台必填）：请提供 cover/coverPath，或已上传好的 thumbUri'
+      )
     }
     const uid = this.resolveUid()
 

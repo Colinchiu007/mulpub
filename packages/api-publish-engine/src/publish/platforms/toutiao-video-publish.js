@@ -147,6 +147,7 @@ function parsePublishResponse (raw) {
   return {
     ok,
     itemId: itemId ? String(itemId) : null,
+    status: d.status === undefined ? null : d.status,
     code: d.status === 0 ? data.Code : d.status,
     message: data.Message || d.message || d.msg || '',
   }

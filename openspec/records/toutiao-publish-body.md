@@ -145,6 +145,23 @@ GET /mp/agw/media/get_user_base_info  →  { "is_auth": false, "media_status": 4
 | QM-1 `electron-builder --win --dir` | **rc=0** |
 | QM-1 启动验证 | **PASS**：alive(8s)=true / stderr **0 字节** / stdout 20,428 字节 |
 
-## 八、远程同步
+## 八、自扮演裁决（评审后端第 7 次环境超时）
+
+`sh scripts/deep-review.sh` 判定 DUAL（526 行 > 200 阈值），跨家族后端再次
+`spawnSync codeagent-wrapper.exe ETIMEDOUT` ⇒ 按引擎第三档出口 `self_play` 自查。
+本条是「订正上一轮臆断」的 PR，自查重点是**「新实现会不会又引入新的不一致/新臆断」**：
+
+| # | 级别 | 问题 | 裁决 | 处置 |
+| --- | --- | --- | --- | --- |
+| i1 | Warning | **封面闸门与 body 构造接受的封面来源不一致**：闸门只认 `cover/coverPath`，而 `buildToutiaoPublishBody` 还认 `thumbUri` ⇒ 调用方给「已上传好的 thumbUri」反被本地拦掉 | 成立·已修 | 闸门收敛成 `coverInputs` 数组，与 body 来源逐一对应；补 1 例回归（只给 `thumbUri` 必须放行且落进 `VideoInfo.ThumbUri`） |
+| i2 | Info | 失败文案的 status 取自 `res.data.status`，`res.data` 为空时打印 `status=undefined` | 成立·已修 | `parsePublishResponse` 增加归一化 `status`（缺失即 `null`），文案改用之 |
+| i3 | Warning | `parsePublishResponse` 把 `data.Code === undefined` 当成功，理论上可把失败读成成功 | 接受·已登记 | 放宽理由：部分网关变体不回 `Code`，硬要求会全部误判失败；兜底是 **`ItemId` 为硬要求**，这点没放宽。若真机观察到「有 ItemId 但实际失败」应去掉放宽 |
+| i4 | Info | `run()` 每次发布多打 2 个只读请求（约 +200–400ms） | 接受·已登记 | 换来「上传大文件前」就判出无权限；且取不到时只 warn 不阻断 |
+| i5 | Info | 为过 `:500` 熔断拆出 `toutiao-video-publish.js`，是否属装饰性拆分 | 成立·说明 | 拆分边界是**纯函数契约 vs 链编排**（零 IO / 零状态），公开 API 未变（`PUBLISH_TYPE`/`VIDEO_TYPE`/`truncateByCodePoint` 仍从原文件再导出） |
+| i6 | Info | 「bundle 取证」会不会是另一种臆断 | 成立·说明 | bundle 是**平台自己运行的那份代码**，证据等级高于竞品语料；且端点/判据/枚举三者互证。但**仍未经真机放行验证**（账号被实名闸挡住）⇒ `publishMode` 保持 `dom-only`，不把「bundle 取证」当成「线上已验证」 |
+
+**小结**：6 条（成立并修复 2 / 接受并登记 2 / 成立并说明 2）。
+
+## 九、远程同步
 
 | 远程同步 | 由门禁推导 |

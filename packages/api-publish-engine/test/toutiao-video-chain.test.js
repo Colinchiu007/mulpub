@@ -323,6 +323,33 @@ describe('ToutiaoVideoChain — 头条视频 API 轨', () => {
     } finally { fs.unlinkSync(f) }
   })
 
+  it('run：封面闸门与 body 构造接受的来源必须一致 —— 只给 thumbUri 也要放行', async () => {
+    // 自扮演裁决 i1 的回归：旧实现的闸门只认 cover/coverPath，
+    // 而 buildPublishBody 认 thumbUri ⇒ 「给了已上传的封面 URI 反被本地拦掉」的自相矛盾。
+    const all = await startFakeServer([
+      { method: 'GET', match: /GetPublishAuth/, body: { status: 0, data: { authorPermission: { DisablePublish: false } } } },
+      { method: 'GET', match: /GetPublishPageReviewLatency/, body: { status: 0, data: {} } },
+      { method: 'GET', match: /^\/xigua\/api\/upload\/getAuthKey\//, body: authKeyResp({}) },
+      { method: 'GET', match: /Action=ApplyUploadInner/, body: null },
+      { method: 'POST', match: /\/upload\/v1\//, body: 'ok', raw: true },
+      { method: 'POST', match: /Action=CommitUploadInner/, body: commitResp('VID_COVER') },
+      { method: 'POST', match: /^\/xigua\/api\/upload\/PublishVideo/, body: { status: 0, data: { Code: 0, ItemId: 'ITEM_COVER' } } },
+    ])
+    all.replaceRouteBody(/Action=ApplyUploadInner/, applyResp(all.url.replace(/^http:\/\//, '')))
+    const c = new ToutiaoVideoChain({
+      cookie: makeCookie(), mpBase: all.url, vodBase: all.url,
+      userAgent: UA, uid: '1342958645023752', uploadScheme: 'http:',
+    })
+    const f = tmpVideo(1024)
+    try {
+      // 只给 thumbUri（模拟「封面早已上传」），不该被闸门拦
+      const r = await c.run({ title: 't', video: { path: f } }, { thumbUri: 'tos-cn-v/cover-uri' })
+      expect(r).toMatchObject({ success: true, publishId: 'ITEM_COVER' })
+      const pub = all.requests.find((x) => /PublishVideo/.test(x.url))
+      expect(pub.body.VideoInfo.ThumbUri).toBe('tos-cn-v/cover-uri')
+    } finally { fs.unlinkSync(f); await all.close() }
+  })
+
   it('fail-closed：缺 sessionid ⇒ 抛错且零请求（不发任何外网调用）', async () => {
     await bootChain({ cookie: 'uid_tt=1342958645023752; tt_webid=1' })
     await expect(chain.getAuthKey()).rejects.toBeInstanceOf(ToutiaoVideoError)
