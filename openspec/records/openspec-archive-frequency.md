@@ -87,6 +87,21 @@ PR #3910 打开后主干又前进了 4 个提交（`307d05225` / `7ac37d016` / `
 | 行尾 | PASS | 三份产物合并后 `CR=0`，与主干 blob 一致（`git ls-files --eol` 那三份是 `i/lf`）；`git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径**逐字相等** = `+570 -229` ⇒ 没有一行是行尾改写。注意 `git commit` 输出里那句 `warning: in the working copy of 'CHANGELOG.md', LF will be replaced by CRLF` 正是这条对账的即时告警，不是噪声 |
 | 合并提交本身 | PASS | 两个 parent 完整：`e3372875e`（本批）+ `5573c5df5`（主干）。合并提交**未**用 `--no-verify` 落第一次——见下方「过程瑕疵」，已用 `--amend` 让 pre-commit 真跑一遍并通过，amend 前后 `^{tree}` 逐 id 相同（`d5e0e44d9fe3…`），未推远端 |
 
+### 第二次 re-sync，以及「PR 侧检查凭空消失」的正确归因
+
+推第二笔（`c8c0ae6a8`）后 GitHub **一条 check 都没产生**：`gh pr checks` 报 `no checks reported`、
+`statusCheckRollup=[]`、`mergeable=UNKNOWN`，持续约 1 小时。我先把它读成「Actions 排队拥堵」——
+**那个结论是错的**，且错得有据可查：同期别的 PR 一直有 run 在排队与完成，队列不是瓶颈。
+真正的判据是一次只读探测：`git merge-tree --write-tree --messages origin/main <head>` 报
+`CONFLICT (content): CHANGELOG.md` ⇒ 主干在这期间又前进了 6 个提交，**合并提交算不出来 ⇒ checks 根本不产生**，
+而不是"排到了再跑"。同一条 PR 的**上一**个 head（`534795849`）其实早在 `06:10:45Z` 就全绿跑完
+（`quality-gate` / `Electron CI` / `GUI Tests` / `Doc Sync Gate` 等 7 条 run 均 `completed success`）——
+取证手法：`gh api repos/<r>/actions/runs?event=pull_request&per_page=100 --paginate --jq '…select(.head_branch=="<分支>")'`，
+按 **head_branch** 查而不是按 head_sha（`?head_sha=` 对新 sha 返回 0 条本身没有区分力）。
+口径：**「PR 侧 0 checks」第一步探冲突，第二步才谈排队**；`mergeable=UNKNOWN` 长时间不变就是这个形状。
+解法与前一次相同：以新主干为底重解 CHANGELOG（25 行顶部块原样插回，行多重集双向 `missing=0`、CR=0、无标记），
+第二个 merge 提交 parent = `c8c0ae6a8` + `2a4e03c8d`，pre-commit 真跑通过（本次没有用 `--no-verify`）。
+
 ### re-sync 后重跑的门禁（当场读数，不沿用 re-sync 前）
 
 - `classify-docs-only.js --base=5573c5df5 --head=<合并后 head>` → rc=0 但判定是 **`docs-only=false`**（files=19）。
