@@ -49,6 +49,16 @@
 - **文档**：`01-docs/PRD-UX-AUDIT-IMPLEMENT-2026-10-18.md` 新增 §11（流程 / 显示项 / 提示文字 zh-en 全清单 / 数据校验表 / 不变量与锁位 / 如实记录），`openspec/changes/ux-audit-implement/specs/desktop-ui-experience/spec.md` 新增 4 条 Requirement（含"引导只有单一真源且完成标记只由用户动作写入"、"全局注册组件必须被模板消费"、"帮助页每条指引必须有可达落点"），执行记录追加批次 B 段。
 - **既有假红如实登记**：`preload.test.js` 的 system 模块计数在把 `system.js` 精确还原到 HEAD 后实测 **140**、而断言写 139 ⇒ 该棘轮在本批动手前已差 1；本批按当场测得值改 137 并留下控制对照过程。`electron/services/feedback.test.js` 的 `fs.symlinkSync` 在本机报 `EPERM`（Windows 非特权进程不能建符号链接），与本批无关，判据以 CI 现场为准。
 
+# [未发布] fix(gates): 深度审查台账的 alt 形态白名单跟上生产方投影（ccg-alt-form-producer）
+
+- **当场行为探测推翻了「已修」的假设**：main 的 `AUDIT_ARTIFACT_RE` 只接受 `\d{8}T\d{6}(.\d{1,3})?Z`，而生产方（`ccg-review-decider` 的 `new Date().toISOString().replace(/[:.]/g, '')`）**删掉冒号与点、保留日期里的连字符** ⇒ 真实投影是 `2026-10-18T021638562Z`，实测 `RE.test(生产方文件名) = false`。也就是说判定记录一旦被写成 alt 形态，判据会把它当「不是审计产物」而整条跳过。
+
+- **为什么这条能长期潜伏**：`AUDIT_ALT_ISO_CANDS`（行为探测的输入）里只有 `-20261017T120000Z` / 带毫秒两种**想象形态**，与正则同源于同一个错误假设 ⇒ 探测与判据互相印证、自洽地绿。修法不是放宽判据，而是**把生产方形态请进候选表**并加两条锁：§7.4-A 的投影现算（不从判据取，否则又是自证）、§7.4-B 六条逐位负控钉住新分支没退化成通配（少一位 / 多一位 / 缺 Z / 小写 t / 单位数月 全部仍须拒绝）。
+
+- **验证**：`node --test scripts/check-pr-exec-record.test.js` ⇒ **tests 68 / pass 68 / fail 0**（既有 66 + 新增 2）。变异反证：把新增的那个分支形态从判据里摘掉 ⇒ **恰好指名 2 条变红**（`CAUGHT`），还原后 rc=0、md5 相符。测量域如实标注：变异跑在同一份字节的工作树副本上，不在共享根工作树里改判据。
+
+- **边界**：本刀只补「形态接受面」，不动 `evaluateDeepReviewDebt` 的判定逻辑，也不放宽任何阈值；`#3724` 主体的函数层叠（main 96 行含两段新扫描 vs 分支 87 行 + `headIsAncestorOf`/`findCcgLedger`）仍是独立的一刀，规格在 change 记录里。
+
 # [未发布] docs(openspec): 归档 v5 逐平台账号间隔 + 纠正 v1 PRD 的现在时错话与常量归属（openspec-archive-frequency）
 
 ## 干了什么
@@ -96,6 +106,50 @@
 - **自己的三处假绿如实记**：① 变异驱动第一版把「跑了 0 条测试」读成"全绿"，8 条变异齐报 NOT_CAUGHT（驱动产物，不是锁没牙）；② 第二版把仓库根相对路径当位置过滤器喂给 cwd 在 `apps/desktop` 的进程，同样 0 收集——两处都由规模下界（`total < 43` 即拒）拦住；③ 一条锚点恒 0 命中，根因是用测试文件的 CRLF 档去锚我新写的 LF 文件 ⇒ 行尾必须按**该文件自己**的档位判。另有两次归因错被实测纠正：禁词锁被自己的注释判红（处置是收紧判据而非删注释）、以及我把 `M2` 的红记成"禁裸数字断言"抓的（实为 marker 存在性；那条断言永不命中，已删——QM-6 前端轴 G7）。
 - **测试与门禁**：`gui-ci-exit-contract.test.js` **39 → 43 passed**（+4 条锁）；QM-1 不触发（零 `electron/`、零 `packages/rpa-engine/`）；QM-4 棘轮改动前后逐字相同（判定域 112 / 基线 43 / 缺 69 上界 69 / 无主 0）；品牌残留 PASS（9803 个 tracked 文件）；行尾两口径 numstat 相同。
 - **QM-6 双模型评审（394 行 ⇒ mode=dual）**：后端轴 claude 交付 13 条（载荷是第三种形态——markdown 的 severity/file/issue/fix 条目，既不是 stream-json 也不是纯 JSON 数组）；前端轴 opencode 第 1 次只交过程快照、零 verdict（不计成立），按重试预算补跑第 2 次交付 9 条 JSON findings（成立）。22 条里采纳 12 条并落码/落文档，**其中两条抓的是我自己的产出**：记录声称的耗时口径与代码不一致（G4，改为内层 finally，令"含清理"与"不吞样本"同时成立）、记录的算术错 `40 → 43` 实为 `39 → 43`（F7）。拒绝 4 条并给可证伪理由（B2 被 `M8` 现场否证、B10 属响亮红、F3 会让本地跑出一个与 CI 不同口径的通过、F8 的失效方向已 fail-closed）。**一条采纳被实测否证后改道**：G5 建议统一两档安全系数，我照做后本机一次高负载量到单样本 21678ms ⇒ `×4` 判红，而同一时刻 CI 分布 max 仍是 12744ms——那次红报的是"这台机器今天忙"，于是改回"两档各乘各自的量 + 共用同一条不等式实现 + 钉住系数大小关系"。
+
+
+# [未发布] fix(gates): 债务熔断门禁的扫描域改成 git 的域，取域收敛成单一实现（debt-budget-git-domain）
+
+## 症状与根因
+- 症状：#3782 之后本机跑过 `build:preload` 再多一个产物过线，`check-debt-budget` 就会比 CI 多数个文件；
+  现场同树 A/B：磁盘域 `filesOver500=96` vs git 域 `95` = CI `95`（当场读数，基线 101 只剩 4 格缓冲；另有 #80 那次带两个产物的磁盘读数 97，归属见「验收与反证」）。
+- 根因与 #3876 同一条：`826fa7e13` 把 5 个构建产物移出版本控制时，只给消费它们的 CI 作业补了重建步，
+  没问任何"自己扫磁盘"的门禁的域。`check-debt-budget` 的两处 `fs.readdirSync`（计数 + 循环依赖图）就是第二处，
+  而且**这个门禁此前一个测试文件都没有**，所以"测了"这件事本身就不成立。
+
+## 修复
+- 新增唯一实现 `scripts/lib/git-domain.js`：域 = `git ls-files -z` ∪ `git ls-files -z --others --exclude-standard`
+  （= `git status` = CI 检出）。`root` 与 `env` 都是显式入参；非工作树 / git 不可执行 / 空集合一律抛错。
+- 「root 是不是仓库根」由 **git 自己**判（`--show-toplevel` rc=0 且非空 + `--show-prefix` 为空串），不比路径字符串：
+  windows runner 的 `%TEMP%` 是 8.3 短名而 git 报长名，字符串比对把同一目录判成两个 ⇒ CI 红 3 条。这一格还叠了第二个缺陷——
+  归一用的 `fs.realpathSync.native` 因本模块漏 `require('node:fs')` 而恒抛 ReferenceError，被外面的 `catch (_)` 静默吞掉，
+  于是"归一"从来没发生过。首版修法的缺陷与它的现场见记录的「W1 的首版修法自己红在 CI」。
+- 两个消费者引用同一份，并用**函数身份**互钉（不是"源码里出现过 require"那种记录性断言）。
+  `check-debt-budget` **三处取数**（计数 walk + 循环依赖 walk + `model-provider-manager` 扇出单文件，后端轴 I3）都在读文件之前按域过滤；
+  取不到读数 ⇒ 退出码 **2**，与「超基线」的 1 分开。
+- `check-debt-budget` 现在支持 `--root`，且 `main()` 改成 `require.main === module` 才跑 —— 原实现在文件末尾
+  无条件 `main()` 并 `process.exit(0)`：任何 `require` 它的测试都会在导入期被杀进程，而 node:test 把
+  「文件退出 0」报成 `✔ + pass 1`（本轮实测：10 条用例一条没跑却全绿）。
+
+## 验收与反证
+- 同树 A/B 是判据（CI 的检出里从来没有那些产物，"CI 全绿"只证明没把别的搞坏）：造一个被忽略的 600 行产物，
+  修复前 96 / 修复后 95 / DELTA=1。三个"实测"数按树归因（前端轴 I2）：95 = git 域 = CI；96 = 同树 A/B 造出**一个**
+  被忽略的 601 行产物；97 = #80 那次磁盘上有**两个** ≥500 行产物——该树态已不存在，不得再称"实测"。
+  零回归控制：干净态五项指标读数逐项相等（当场 `domain=10052`，`fanOut=65` 在采纳"第三处取数也吃域"后不变）。
+- 锁 27 条（共享实现 `git-domain.test.js` 12 + 消费者 `check-debt-budget.test.js` 15，含"消费者套件必须整份真的跑了"的计数锁）+ 既有 `check-max-lines` 36 条不退化。
+- 变异 18 道（M1–M18）逐条实跑、红集互不相同，**全部 CAUGHT**；M13–M16 是采纳 QM-6 两条 Warning + 三条 Info 后各补一道，
+  M17/M18 是 W1 首版修法被 CI 判红后重做的两条反证（各测一格、红集互不相同）。
+  其中 M15 首跑报 `ANCHOR hits=0` 是**我的驱动**没把 needle 的换行换成该文件的 `CRLF`（`i/lf w/crlf`），不是锁没牙。
+  M11 首跑 MISSED 才是真发现：我自己写的 `⑦` 是装饰性断言（夹具把 ghost.js 提交了，而 `core.excludesFile`
+  只管未跟踪半边 ⇒ 两档在读同一份输出）。纠偏：把 `env` 提成显式入参 + 夹具改成未跟踪文件 + 要求两档给出不同大小的域。
+- 新增 `filesOver500Paths` / `filesOver1000Paths` / `domainSize` 进现场输出；`--update` 仍只持久化账本原有的 9 个键
+  （键集由 `PERSISTED_KEYS` 逐字钉住并与受管 `debt-baseline.json` 对账）——把当场读数写进账本就会把它变成"基线"。
+
+## 遗留
+- 基线仍是缓冲（101 vs 95，6 格余量吸收过一次偏差就会吸收下一次）；`EXCLUDE` 仍是子串松匹配（存量口径，
+  与 `check-max-lines` 同源字面量，动它等于同时改两个门禁的判定域）。
+- ~~`--root` 指仓库子目录时坐标系错位~~ 已随采纳 QM-6 后端轴 W1 收掉：`gitDomain` 先取 `git rev-parse --show-toplevel` 与 root 对账，不等即抛错 ⇒ CLI 退出码 2（锁 ⑪ + 变异 M13）。
+
 # [未发布] fix(gate): 行数门禁的扫描域改成 git 的域 —— 本机跑过构建就报 NEW_OVER_LIMIT 的假红（max-lines-git-domain）
 ## 症状与根因
 - 症状：在跑过 `pnpm run build:preload` 的工作树里执行 `node .github/scripts/check-max-lines.js` 报两条
