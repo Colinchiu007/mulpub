@@ -318,6 +318,8 @@ if (VIDEO_ENABLED_MODES.has(videoMode)) {
 | R-4 | locales 同步门禁（Gate 7） | zh/en 键集合完全一致 |
 | R-5 | 视觉回归（create-result 视图） | 差异来自模型信息新增文本本身；布局无位移、无溢出 |
 | R-6 | `check-max-lines` 逐文件行数门禁 | 四个点名/挂账文件（`ResultView.vue` 1890、`story2video-stages.js` 4006、两个测试文件登记值）全部回到目标内，无 `TARGET_GREW` / `TEST_LEDGER_GREW` |
+| R-7 | `pnpm run build:vue`（Vite/Rollup 构建） | 构建成功。**这条必须有本地实跑记录**：renderer 侧新模块若误用 CJS `module.exports`，Vitest 因互操作会全绿而 Rollup 直接失败（本次实测），单测绿不构成构建通过 |
+| R-8 | `check-doc-abs-paths` 文档绝对路径门禁 | 无新增本机绝对路径；`.ccg/reviews/` 下评审失败记录（含 wrapper 本机路径）不得进 PR |
 
 ---
 
@@ -395,6 +397,8 @@ if (VIDEO_ENABLED_MODES.has(videoMode)) {
 | `apps/desktop/electron/services/story2video-prompt-meta.test.js` | **新建**：白名单/fail-open/null 防御 + 集成透传 17 例 |
 
 **为什么拆成新文件而不是就地加**：`ResultView.vue`（点名目标 1890）与 `story2video-stages.js`（点名目标 4006）都是 `check-max-lines` 的**零容差**点名还账对象，两个测试文件也各有 200 行容差上限。就地新增会把 4 个文件同时判红。按仓内同族先例（`podcast-publish-entry` / `publish-add-account-entry` 等）的口径，正解是**结构性拆分**：逻辑主体进纯函数/组件模块，宿主只留接线；测试按"被测模块/场景"分文件。拆完四个点名/挂账文件全部回到目标内，且逻辑因脱离 Vue 挂载而更易测。
+
+**模块格式约定**：`src/` 下的新模块一律用 ESM `export`/`import`（`useResultModelInfo.js`）；`electron/**` 下的保持 CJS `require`（`story2video-prompt-meta.js`）。两侧不得混用——Vitest 有 CJS/ESM 互操作所以单测会全绿，Rollup 没有，构建期才炸（本次实测，见 §6.2 R-7）。
 
 ### 8.2 风险与缓解
 

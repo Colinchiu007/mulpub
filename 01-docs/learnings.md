@@ -68,6 +68,34 @@ provider 仅在 model 缺失（老项目、provider 未返回）时兜底。
 本例修完后同族命中归零；`story2video-project-service.js` 的 `extractImageOptimizedPrompt`
 是否同族未逐处核对，已在 record 的遗留里点名——**同族扫描不做完就是留债，留债要写出来**。
 
+### lesson:unit-test-green-is-not-build-green
+
+**renderer 侧新模块必须用 ESM `export`；「单测全绿」不构成「构建通过」的证据——那是另一层。**
+
+现场：本次把模型信息取值口径抽成 `views/video-creation/composables/useResultModelInfo.js`，
+顺手写成了 CommonJS 的 `module.exports = {...}`（与同目录 `electron/services/` 的习惯一致）。
+结果 41 条单测**全绿**，CI 的 `QG Unit Tests` 也 PASS，但 `build` job 炸了：
+
+```
+src/views/video-creation/ResultModelInfoRow.vue (2:9):
+"resolveModelSummaryParts" is not exported by
+"src/views/video-creation/composables/useResultModelInfo.js"
+```
+
+根因：**Vitest 有 CJS/ESM 互操作**（`import { x } from './cjs-module'` 能拿到 `module.exports.x`），
+而 **Rollup 不做互操作**。所以同一份代码在测试层完全正常，在构建层直接失败。
+更隐蔽的是：这个模块同时被 `electron/services/story2video-prompt-meta.js` 的 CJS require
+和 renderer 的 ESM import 消费——如果两边都用同一种模块格式，本来就不会有这个问题。
+
+判据：
+1. **`src/` 下的新模块一律 ESM**（`export`/`import`）；`electron/**` 下的保持 CJS require。
+   跨两侧共享的逻辑要先决定它长在哪儿，再决定模块格式——不要因为"顺手"就混用。
+2. 涉及 renderer 代码的 PR，**本地必须实跑一次 `pnpm run build:vue`**。
+   单测绿 ≠ 构建绿，CI 的 `QG Unit Tests` PASS 也不构成构建通过的证据（本次就是单元测试 PASS
+   的同时 build 红）。这条与 QM-1「不打包不提交」是同族：不同层抓不同类的错。
+3. 抽模块时如果只跑了 `vitest run <新测试文件>`，要额外问一句"这个文件被谁 import"——
+   被 renderer import 的就得按 ESM 验。
+
 ### lesson:empty-state-parity-is-the-visual-regression-proof
 
 **零视觉回归的证据可以是 DOM 等价，不必等像素门禁。**
