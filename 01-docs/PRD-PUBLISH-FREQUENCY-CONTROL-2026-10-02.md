@@ -1,8 +1,17 @@
 # PRD — 作品发布频率控制（publish-frequency-control）
 
 - 日期：2026-10-02
-- 状态：已实现，待评审
-- 关联：`openspec/changes/publish-frequency-control/`（proposal / design / specs / tasks）
+- 状态：**本文是 2026-10-02 的决策快照**。文中的数值与文件路径已被 v2→v5 取代，**不得**当作现行口径引用；
+  现行数值一律读下方「现行口径锚点」，架构综述见 `01-docs/ARCH-PUBLISH-FREQUENCY-AND-QUEUE-2026-10-16.md`。
+- 关联：`openspec/changes/archive/2026-10-05-publish-frequency-control/`（proposal / design / specs / tasks；
+  本文原先写的是 `openspec/changes/publish-frequency-control/`——归档会移动目录，那个坐标已不存在）。
+- **现行口径锚点（2026-10-18 当场回读源码与 `git ls-files` 取证，不是凭记忆抄写）**：
+  - 账号档 = **逐平台表** `packages/shared-utils/src/publish-frequency-account-interval.js:30-46`：视频号 60′ 是
+    **唯一偏离**，长文四台（公众号/知乎/百家号/头条）5′，其余 3′，微博/X 1′。
+  - 平台档与日配额 = `packages/shared-utils/src/publish-frequency-policy.js:104-111`：三档统一 1′，日配额 200 / 350 / 500。
+  - 最严基线 = 同文件 `:150-157`：60′ / 1′ / 200，且账号档**引用逐平台表**而非另写一个数字（两个数字必然有一天漂移）。
+  - 日配额上界 `MAX_DAILY_QUOTA = 5000` 在同文件 `:77`。
+  - 规格真源 `openspec/specs/publish-frequency-control/spec.md`（现 10 条 Requirement，v5 归档后由 6 条增至 10 条）。
 - 决策来源：用户 2026-10-02 会话决策 D1（全部排队等待）、D2（同平台跨账号维度）、D3（工程保守默认 + 可配置）
 
 ## 1. 背景与问题
@@ -81,8 +90,9 @@
 2. 环境变量取 `0` = 显式关闭该档；未设置 = 回落策略表；
 3. 非法值（非有限数 / 负数 / 空白）回落默认并**出声告警**，禁止静默当 0
    （否则"配置写错"会静默变成"关掉门禁"）；
-4. 除本模块外不得存在第二份间隔常量表。渲染层 `publish-contract.js` 的
-   `DEFAULT_MIN_ACCOUNT_INTERVAL_MS` 是**定时发布表单的输入期校验**，
+4. 除本模块外不得存在第二份间隔常量表。渲染层 `apps/desktop/src/features/publish/publish-schedule-contract.js:21` 的
+   `DEFAULT_MIN_ACCOUNT_INTERVAL_MS`（2026-10-18 纠：本文原先把它写成 `publish-contract.js`——那份文件确实存在，
+   但它**不含**这个常量，`export const DEFAULT_MIN_ACCOUNT_INTERVAL_MS` 全仓只有这一处）是**定时发布表单的输入期校验**，
    属另一件事，不得被当作运行期门禁。
 
 ## 5. 交互说明
@@ -107,9 +117,11 @@
   "内容已发到平台但应用判超时/报错"（视频上传 30 分钟预算下并不罕见）
   会既不占窗口又被重试 ⇒ **重复发布**，比"多等一会儿"严重得多。
 - **同平台多账号串行化**：一键把同一平台发给 2 个账号时，第二条会等满平台档（3–5 分钟）。
-- **运行期档位与定时表单校验是两套口径**：`publish-contract.js` 的
+- **运行期档位与定时表单校验是两套口径**：`apps/desktop/src/features/publish/publish-schedule-contract.js:21` 的
   `DEFAULT_MIN_ACCOUNT_INTERVAL_MS`（5 分钟扁平值）只校验**定时发布表单的输入**，
-  不是运行期门禁；运行期账号档按平台为 10/30/60 分钟。因此"排两条 10 分钟后的同平台微博"
+  不是运行期门禁；运行期账号档**在本文写作时**按平台为 10/30/60 分钟——该表已被 v4/v5 取代，现行逐平台值见上方
+  「现行口径锚点」（微博/X 现为 1′），所以下面"排两条 10 分钟后的同平台微博"这条举例**只在当时口径下成立**，
+  今天同样的排期不再被运行期挡住。两套口径分层这件事本身仍然成立。因此"排两条 10 分钟后的同平台微博"
   能通过表单，但第二条会在运行期进入 `blocked` 等待。这是有意保留的分层
   （输入期校验管的是"排期是否明显不合理"，运行期管"是否踩平台窗口"），
   代价是用户可能看到"表单放行、运行期排队"，界面用 §7 的归因标签解释这一秒数从哪来。

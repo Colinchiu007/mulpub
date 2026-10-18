@@ -1,3 +1,28 @@
+# [未发布] docs(openspec): 归档 v5 逐平台账号间隔 + 纠正 v1 PRD 的现在时错话与常量归属（openspec-archive-frequency）
+
+## 干了什么
+- `openspec archive publish-frequency-per-platform-intervals -y`：主规格 `openspec/specs/publish-frequency-control/spec.md`
+  的 Requirement 由 **6 条增至 10 条**（v5 的 4 条 ADDED 此前从未并入主干），`validate --strict` OK，目录进 `archive/2026-10-18-…`。
+- 归档前把 v5 tasks 的交付三格按**当场取证**补勾（merge SHA `29e5a60cd`、远端分支 0 行、worktree 已退役），
+  并写明 6.3 那条回填通道已于 2026-10-17 被 #3879 取消。
+- `01-docs/PRD-PUBLISH-FREQUENCY-CONTROL-2026-10-02.md` 三处纠偏 + 加「现行口径锚点」：状态行改为**决策快照**；
+  关联路径改成归档后的坐标；两处把 `DEFAULT_MIN_ACCOUNT_INTERVAL_MS` 写成"`publish-contract.js` 的"改成真实唯一落点
+  `apps/desktop/src/features/publish/publish-schedule-contract.js:21`（那份 `publish-contract.js` 确实存在但不含该常量）；
+  「运行期账号档按平台为 10/30/60 分钟」加限定并指回现行逐平台表（视频号 60′ 唯一偏离，长文 5′、其余 3′、微博/X 1′）。
+  **历史数值不改写**，只加时态限定与出处。
+- `01-docs/ARCH-PUBLISH-FREQUENCY-AND-QUEUE-2026-10-16.md` 适用范围补 v5（正文早已写「v5 起…」，头部漏了一行）。
+
+## 根因与缺口（QM-5）
+- 归档这一步**从来不在 AGENTS 的合并后收尾清单里** ⇒ change 目录长期留在 `openspec/changes/`，delta 从未并入主规格；
+  实测 `openspec/specs/` 只有 `publish-frequency-control` 一个频率 capability，而 v2/v3/v4 的 delta 目录叫三个不同名字。
+- 没有任何门禁看「实现已合并但 change 未归档」，`check-docs-sync` 也不看归档态 ⇒ 这一类积压结构性隐形（已登记遗留，本批不建判据）。
+- v2/v3/v4 现在直接归档会被 CLI fail-closed（`specs-apply.js:219-221`：新建规格只允许 ADDED，MODIFIED 需要目标规格存在）——
+  **这是好事**，不得用 `--skip-specs` 绕过（那等于把这些条款永远丢在主干之外）；正解是先收敛 capability 名并按现状重写条款。
+
+## 遗留
+- v2 的 44 项勾选账（审计读数 18/44）与 v2/v3/v4 的归档、`publish-frequency-unwired-surfaces` 归档，均另 PR 处理。
+- `scripts/calibrate-publish-frequency.js` 至今无测试、无 CI 接线（v2 任务 4.2 的真实残留，不在本批顺手修）。
+
 # [未发布] fix(create): 音色克隆入口按钮在文件选择期间不再提前显示进行中文案，且文案改为「正在添加…」（voice-clone-pick-feedback）
 
 - **症状**：故事讲述流水线「声音 → 音色复制 / 克隆」点击「选择本地音频文件」后，系统文件选择器刚打开、用户还在浏览，按钮文案就变成「正在克隆…」（按钮同时变灰）；取消选择后文案才恢复，观感像克隆已经开始。

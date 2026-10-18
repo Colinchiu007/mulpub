@@ -1,6 +1,9 @@
 # 发布频率控制与任务队列机制（现行实现，2026-10-16）
 
-> 适用范围：本篇描述**当前代码**的行为（策略 v4 + change `publish-frequency-unwired-surfaces`），
+> 适用范围：本篇描述**当前代码**的行为（策略 v4 + v5 逐平台账号间隔 + change `publish-frequency-unwired-surfaces`；
+> 正文里的「v5 起…」即 change `publish-frequency-per-platform-intervals`，2026-10-18 已归档为
+> `openspec/changes/archive/2026-10-18-publish-frequency-per-platform-intervals`，其 4 条 Requirement 已并入
+> `openspec/specs/publish-frequency-control/spec.md`），
 > 面向"要改这块的人"和"要排障的人"。所有数值与判据都标了落点（文件:行），
 > 行号会漂，**符号名不会**——按符号名找，找不到就是实现变了，别按本篇办事。
 >
