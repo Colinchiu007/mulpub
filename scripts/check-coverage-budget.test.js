@@ -232,3 +232,65 @@ test('13 CLI 退出码分档：真实仓必须绿，显式注入的坏值必须�
     '--timeout=1']);
   assert.equal(bad, mod.EXIT_VIOLATION, '--timeout=1 是显式注入的坏值，必须判违规而不是自身故障');
 });
+
+// ── 2026-10-19 增：**在飞作业不是漏样**（coverage-budget-inflight） ──────────────
+// 现场：`node scripts/coverage-budget-sample.js --limit=60` 连续三次以
+//   「有 8~9 趟活跃作业取不到时长 —— 这是取数漏样…先修采集再谈预算」rc=2 拒绝。
+// 逐趟取证后那 8~9 趟**全部是 queued / in_progress**（还没跑完，本来就没有 completed_at），
+// 同窗口"已完成却无时长"的真漏样是 **0 趟**。
+// 也就是说：只要仓库上有 CI 在跑，采样器就永远拒绝，预算常量于是**永远调不了** ——
+// 这不是 fail-closed，是把"还没观测到"混同成"观测失败"。两类必须分开：
+//   · 在飞（status != completed） ⇒ 不是样本，报出来但**不阻断**；
+//   · 已完成却无时长       ⇒ 真漏样，仍然阻断（否则漏样会被读成"没有长尾"）。
+test('14 在飞作业（status 非 completed）不得被算成漏样，也不得进样本分布', () => {
+  const r = sampler.summarize([
+    { concl: 'success', min: 41.7, status: 'completed' },
+    { concl: 'success', min: 40.6, status: 'completed' },
+    { concl: null, min: null, status: 'in_progress' },   // 在飞 ⇒ 不是漏样
+    { concl: null, min: null, status: 'queued' },        // 排队 ⇒ 不是漏样
+  ]);
+  assert.equal(r.inFlight, 2, '在飞趟数必须被单独数出来：' + JSON.stringify(r));
+  assert.equal(r.noDuration, 0,
+    '在飞作业被算成漏样 ⇒ 只要有 CI 在跑就永远调不了预算：' + JSON.stringify(r));
+  assert.equal(r.samples, 2, '在飞不得进 success 分布：' + JSON.stringify(r));
+  assert.equal(r.hasData, true, JSON.stringify(r));
+  assert.equal(r.maxMinutes, 41.7, JSON.stringify(r));
+});
+
+test('15 已完成却无时长仍是真漏样（这一格不许被上一条顺手放宽）', () => {
+  const r = sampler.summarize([
+    { concl: 'success', min: 41.7, status: 'completed' },
+    { concl: 'success', min: null, status: 'completed' },  // 跑完了却没时长 ⇒ 真漏样
+    { concl: 'cancelled', min: null, status: 'completed' },
+    { concl: null, min: null, status: 'in_progress' },
+  ]);
+  assert.equal(r.noDuration, 2, '已完成缺时长必须仍计入漏样：' + JSON.stringify(r));
+  assert.equal(r.inFlight, 1, JSON.stringify(r));
+  // 反向对偶：只有"在飞"时不得到达阻断分支
+  const onlyInflight = sampler.summarize([{ concl: null, min: null, status: 'queued' }]);
+  assert.equal(onlyInflight.noDuration, 0, JSON.stringify(onlyInflight));
+  assert.equal(onlyInflight.inFlight, 1, JSON.stringify(onlyInflight));
+});
+
+test('16 接线锁：采集必须带上 status，且退出码决策必须可被行为断言钉住', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'coverage-budget-sample.js'), 'utf8');
+  assert.match(src, /status:\s*j\.status|status:\s*job\.status/,
+    'collect() 必须把作业 status 记进行里，否则"在飞"与"漏样"在数据层就分不开');
+  assert.match(src, /inFlight/, 'summarize 必须输出 inFlight 这一格');
+  assert.match(src, /in_flight=/, '汇总行必须打印在飞趟数，静默剔除会让分母不可见');
+
+  // ★ 2026-10-19 修正：上一版这里只有正则结构断言（/sum\.noDuration\s*>\s*0/），
+  //   而实测 `if (false && sum.noDuration > 0)` 这种**架空阻断**的写法完全匹配 ⇒ 变异 M3 不红。
+  //   结构锁看不出"条件被短路"，所以决策抽成 refusalCode 纯函数、在这里做行为断言。
+  const code = (sum, probeErrors) => sampler.refusalCode(sum, probeErrors);
+  assert.equal(code({ noDuration: 0, inFlight: 0, hasData: true }, 0), 0,
+    '干净窗口必须放行');
+  assert.equal(code({ noDuration: 1, inFlight: 0, hasData: true }, 0), 2,
+    '真漏样必须阻断 —— 这一格被架空就等于把漏样读成"没有长尾"');
+  assert.equal(code({ noDuration: 0, inFlight: 9, hasData: true }, 0), 0,
+    '★ 在飞作业不得阻断采样：这一格失守，只要仓库有 CI 在跑就永远调不了预算');
+  assert.equal(code({ noDuration: 0, inFlight: 0, hasData: true }, 1), 2,
+    'probe_errors>0 仍必须阻断');
+  assert.equal(code({ noDuration: 0, inFlight: 0, hasData: false }, 0), 1,
+    '零样本必须非零出声（"没采到"不是"没有长尾"）');
+});
