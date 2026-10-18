@@ -17,6 +17,8 @@ date: 2026-10-18
 | 接线棘轮 | ✅ | 新测试 `scripts/lib/ccg-review-backends.test.js` 已显式点名进 `quality-gate.yml` Gate 2c6（`shell: bash`）。判据本体 rc=0：`check-workflow-structure.js`（files=14 violations=0）、`check-unwired-tests.js`（检查域 103 个测试文件，全部已接线）、`check-step-failfast.js`（39 个多命令步骤 OK）、`check-gate-record-debt.js`（OK，本记录已带 `远程同步` 行与 bullet 两形态）。新文件 `git check-ignore --no-index` 无回显 ⇒ 未被忽略 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/`、`packages/rpa-engine/`、任何 `.vue`/样式 ⇒ 打包与像素门禁不适用。改动集内新增用户可见（渲染层）文案为 0 ⇒ Gate 7 zh/en 成对与词典锁未触发；本刀文案全是终端输出，逐字清单见 change 的 design.md §5–§6 |
 | QM-6 CCG 双模型外部评审 | ✅ 已跑四轮（见下） | 三份判定产物状态均已收口为 `needs_revision` 并带 `closureNote` 写明依据：`2b00469a…`(4b7ca65f)、`26d2bf7e…`(59fa21cf7)、`fa40e334…`(25a31c52)。裁决原文 `.adversarial/ccg-deep-{4b7ca65f,25a31c52}/adjudication.json`；高危域 i5 的外部复核原文 `<临时目录>/qm6-i5-external.txt`（codeagent-wrapper --backend claude，rc=0） |
+| 远程同步 | 由门禁推导 | 本行**不需要事后改写**：合并后门禁按主干历史推导归属（`scripts/lib/merge-ledger.js`，只认 squash 尾注 `(#NNNN)`）；现场读数看 CI 步骤首行 `MERGE-LEDGER prs=<n>`。合并前这篇文件还不在基线上，判 byDesign 不红；把本行状态列写成 `PASS` 会被判「预写不存在的证据」而红 |
+- 保留门禁：判定证据 ✅ | 行尾对账 ✅ | 接线棘轮 ✅ | QM-6 四轮已跑 ✅ | 远程同步 由门禁推导
 
 ### QM-6 现场（四轮，逐轮读数；不写 PASS，写跑到哪一步）
 
