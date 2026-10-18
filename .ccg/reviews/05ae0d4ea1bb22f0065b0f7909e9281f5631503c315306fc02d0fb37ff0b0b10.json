@@ -1,0 +1,52 @@
+{
+  "sha": "d6a7bd7607002822e2bdc56c9bf0c70e1dd698f3",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 427 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 427,
+    "fileCount": 11,
+    "codeFileCount": 9,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": [
+      "\"01-docs/research/competitor-reverse-2026-10-13/derived/\\347\\253\\236\\345\\223\\201\\347\\274\\272\\351\\231\\267\\345\\220\\214\\345\\236\\213\\351\\243\\216\\351\\231\\251\\346\\270\\205\\345\\215\\225.md\""
+    ]
+  },
+  "stagedDiffHash": "05ae0d4ea1bb22f0065b0f7909e9281f5631503c315306fc02d0fb37ff0b0b10",
+  "decidedAt": "2026-10-18T08:14:04.671Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "cleared",
+    "performedBy": "critic=claude 真实评审完成（8 条问题 / 4 维度 / 最低分 4）→ 引擎进入自扮演第三档出口 → agent 逐条对抗性裁决：3 条 upheld（i1 Critical / i4 Warning / i5 Warning）、2 条 dismissed（i2 / i3） → 3 条 upheld 全部按裁决加固代码（见 findings.upheldFixed） → 按先例 0ca96713 口径置 cleared：引擎的 blockingFromAdjudication 把任何 upheld 一律判阻断（不看是否已修），    故 status 必须由 agent 置闭环；verdict 保持 upheld 不改成 dismissed（那是把真问题说没）。 注意：本地再跑 scripts/deep-review.sh 会重算并覆盖本字段为 self_play_blocked —— 这是引擎口径，不代表未修。",
+    "findings": {
+      "verdict": "cleared",
+      "critique": {
+        "total": 8,
+        "dimensions": 4,
+        "minScore": 4
+      },
+      "adjudication": {
+        "upheld": 3,
+        "dismissed": 2
+      },
+      "upheldFixed": {
+        "i1": "已在 loadMaskFromGit 的 JSDoc 与 check-mask-coverage.js 文件头各加\"安全边界\"说明：该函数会 require 执行目标 ref 的代码，只对可信 ref 使用；并说明 CI 侧为何不可利用（测试只用不存在的 ref）。",
+        "i4": "已把 fs.rmSync 的空 catch 改为 process.emitWarning 输出残留目录路径；并在注释里写明\"不需要清 require.cache 及其理由\"（每次 mkdtemp 路径唯一，缓存键不会复用）。",
+        "i5": "已把两处注释里的\"在此登记\"改为明确位置\"结论登记在 openspec/records/risk-closeout.md\"，并补\"本注释不是豁免机制\"，消除与\"判据不读注释\"的指代冲突。"
+      },
+      "dismissedReasons": {
+        "i2": "sha 落后是 pre-commit 的设计（引擎自陈「pre-commit 时新 commit 尚未生成，判定记录写在父 sha 上」）；判定按 stagedDiffHash 寻址，匹配的是内容不是坐标",
+        "i3": "该边界已有测试（`R11 绿：真正缩进的声明本来就不命中` 用行首两空格的 `const local = new Map()` 断言 moduleSets===0）；正则 `(?:^|\\n)(?:const|let|var)` 要求紧跟行首，缩进声明本就不命中"
+      },
+      "knownLimitations": [
+        "loadMaskFromGit 无法既比较任意 ref 又不执行它（除非引入沙箱，成本远超收益）⇒ 以文档显式化的方式处置，不视为已消除",
+        "R11 审计面 4 条无淘汰缓存登记待评估（见 derived §4.2），本轮不深挖"
+      ]
+    }
+  }
+}

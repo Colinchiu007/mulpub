@@ -24,7 +24,10 @@
 
     <template v-else>
       <div class="mp-shell" data-testid="mp-shell">
-        <MpSidebar @open-settings="showSettingsDialog = true" />
+        <!-- 全局左侧菜单折叠（PRD-SIDEBAR-COLLAPSE-TOGGLE-2026-10-18）：
+             用 v-show 而不是 v-if —— 卸载会重建侧栏的 ResizeObserver / 运营菜单拉取 /
+             登录区状态，并在展开首帧闪出一次 0 宽；v-show 只隐藏不销毁。 -->
+        <MpSidebar v-show="!sidebarCollapsed" @open-settings="showSettingsDialog = true" />
         <div class="mp-shell-main">
           <!-- 浏览器式标签栏 -->
           <TabBar
@@ -114,6 +117,7 @@ import { useLicenseStore } from '@/stores/license'
 import { useIdentityStore } from '@/stores/identity'
 import { useTabStore } from '@/stores/tab'
 import { notifySettingsDialogClosed, settingsDialogRequest } from '@/stores/settings-dialog'
+import { reportSidebarCollapsed, sidebarCollapsed } from '@/stores/sidebar-collapse'
 import { isHomeShellSearch } from '@/utils/home-shell'
 import { suspendEmbeddedViewsForOverlay, releaseEmbeddedViewsForOverlay } from '@/composables/useEmbeddedViewSuspension'
 import { useTabDocumentTitle } from '@/composables/useTabDocumentTitle'
@@ -385,6 +389,9 @@ onMounted(() => {
   // 它是被标签系统管理的对象，而非管理者，不订阅 tab 事件、不驱动壳态互斥。
   if (!isHomeShell) {
     tabStore.init()
+    // 启动恢复折叠态：主进程默认展开；若用户上次退出时是收起态，这里补一次上报，
+    // 否则之后新建的浏览器/登录标签 WebContentsView 仍从 x=200 开始，左侧留死区。
+    reportSidebarCollapsed()
   }
   spaNav.attach()
 

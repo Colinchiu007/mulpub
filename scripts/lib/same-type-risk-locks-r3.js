@@ -108,8 +108,15 @@ function scanModuleStateGrowth (sources) {
     MODULE_SET_RE.lastIndex = 0
     let m
     while ((m = MODULE_SET_RE.exec(masked)) !== null) {
-      const declLine = masked.slice(0, m.index).split('\n').pop()
-      if (/^\s/.test(declLine)) continue        // 缩进的声明不是模块顶层
+      // ⚠ 「是否缩进」的旧守卫已删除（2026-10-18 实测缺陷，勿加回来）：
+      //   旧写法是 `masked.slice(0, m.index).split('\n').pop()` —— 而 MODULE_SET_RE 以
+      //   `(?:^|\n)` 开头 ⇒ m.index 指向那个 `\n` ⇒ slice 之后拿到的是**上一行**内容。
+      //   于是「模块级声明正上方是注释或空行」时，上一行掩码后是纯空白 ⇒ `/^\s/` 为真
+      //   ⇒ 整条声明被当成缩进声明 **静默跳过**。实测：给 notify.js 的 rateBuckets 与
+      //   window.js 的 _completedIpcRegistrars 各加一段理由注释后，moduleSets 11→9、
+      //   writeOnly 2→0 —— 看上去像"豁免生效"，实际是这两条从此不在审计面里。
+      //   该守卫本来也无保护作用：正则以 `(?:^|\n)(?:const|let|var)` 要求声明紧跟行首，
+      //   缩进声明根本不会命中。删掉它即可，不需要替代判据。
       stats.moduleSets++
       const name = m[1]
       // ⚠ tail 必须从声明到文件尾：模块级集合天然服务全文件。不能传 matchBrace ——
@@ -132,7 +139,7 @@ function scanModuleStateGrowth (sources) {
           path,
           name,
           kind: 'module-state-write-only',
-          detail: '模块级 ' + m[2] + '「' + name + '」有写无清（若为有意的只增语义，请在该声明上方写明理由注释）',
+          detail: '模块级 ' + m[2] + '「' + name + '」有写无清（审计面：本判据**不读注释**，写理由不会让它消失；请人工复核它是缓存 / 登记表 / 竞态守卫中的哪一种，确认「有意的只增」后在此登记结论）',
         })
       }
     }

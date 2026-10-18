@@ -1,6 +1,10 @@
 <template>
-  <div class="tab-bar" data-testid="tab-bar" role="tablist" aria-label="标签页">
-    <div class="tab-bar-tabs">
+  <div class="tab-bar" data-testid="tab-bar">
+    <!-- 全局左侧菜单收起/展开（PRD-SIDEBAR-COLLAPSE-TOGGLE-2026-10-18）：
+         固定在最左侧、位于标签滚动区之外 —— 标签再多、横向滚动也滚不掉它；
+         与 TabBar 同高（36px），不新增行高 ⇒ WebContentsView TOP=76px 契约不变。 -->
+    <SidebarToggleButton :collapsed="sidebarCollapsed" @toggle="toggleSidebarCollapse" />
+    <div class="tab-bar-tabs" role="tablist" aria-label="标签页">
       <button
         v-for="tab in tabs"
         :key="tab.tabId"
@@ -64,6 +68,8 @@ import { storeToRefs } from 'pinia'
 import { useI18n } from 'vue-i18n'
 import { getPlatformIconUrl } from '@/composables/usePlatformIconUrl'
 import SpinnerIcon from './icons/SpinnerIcon.vue'
+import SidebarToggleButton from './SidebarToggleButton.vue'
+import { sidebarCollapsed, toggleSidebarCollapse } from '@/stores/sidebar-collapse'
 
 const { t } = useI18n()
 

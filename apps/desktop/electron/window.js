@@ -22,6 +22,10 @@ const {
 // R28 修复：防止 macOS app.on('activate') 重复调用 createWindow 时
 // 重复注册 ipcMain.handle 导致 "Attempted to register a second handler" 崩溃
 const _ipcRegistrationState = { completed: false, pending: null }
+// 有意只增，且**必须**只增（R11 审计面已人工复核，结论登记在 openspec/records/risk-closeout.md；本注释不是豁免机制）：key 只来自下方 IPC_REGISTRAR_NAMES
+// 常量表（≤10 个，空间严格有界），作用是 R28 的幂等保护 —— 该表一旦被 clear()，
+// macOS activate 的二次 createWindow 就会重新注册同一批 handler 并当场崩溃。
+// 即「不清」不是疏漏，是这条保护本身的前提；表大小由代码常量决定，不随运行时间增长。
 const _completedIpcRegistrars = new Set()
 let _pendingWindowCreation = null
 const IPC_REGISTRAR_NAMES = [

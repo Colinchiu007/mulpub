@@ -132,6 +132,8 @@ class AuthViewManager {
     this._autoCompletionAttemptId = null
     /** @type {number} 左侧导航栏当前宽度（由渲染进程同步，默认 200px） */
     this._sidebarWidth = SIDEBAR_WIDTH_DEFAULT
+    /** @type {boolean} 左侧导航栏是否收起（全局折叠按钮；收起时登录视图 x=0 全宽） */
+    this._sidebarCollapsed = false
     /** @type {(() => void) | null} 保留签名兼容（window.js resize 挂钩） */
     this._loginWindowResizeCleanup = null
     /** @type {(() => void) | null} 保留签名兼容（auth-window factory 已不再使用） */
@@ -158,8 +160,14 @@ class AuthViewManager {
    */
   _positionView() {
     if (!this.currentView || !this.mainWindow) return
-    // 左侧导航栏为固定区域，登录视图应定位在右侧主体区域
-    this.currentView.setBounds(computeEmbeddedViewBounds(this.mainWindow, this._sidebarWidth || SIDEBAR_WIDTH_DEFAULT))
+    // 左侧导航栏为固定区域，登录视图应定位在右侧主体区域；
+    // 侧栏收起时（全局折叠按钮）改由 collapsed 参数给出 x=0 全宽。
+    this.currentView.setBounds(computeEmbeddedViewBounds(
+      this.mainWindow,
+      this._sidebarWidth || SIDEBAR_WIDTH_DEFAULT,
+      undefined,
+      this._sidebarCollapsed,
+    ))
     // 宽度自适应（旁路：失败只告警，不得影响登录链路；页面未加载时探针为 no-op）
     loginViewFit.fitLoginViewZoomSafe(this.currentView, { tag: 'AuthView' })
   }
@@ -242,6 +250,20 @@ class AuthViewManager {
       if (this.mainWindow && this.currentView) {
         this._positionView()
       }
+    }
+  }
+
+  /**
+   * 设置左侧导航栏是否收起（由 WebviewManager 同步）。
+   * 收起时登录视图必须 x=0 全宽 —— 它是内嵌原生图层，不会跟随宿主 DOM 的 display:none。
+   * @param {boolean} collapsed
+   */
+  setSidebarCollapsed(collapsed) {
+    if (typeof collapsed !== 'boolean') return
+    if (this._sidebarCollapsed === collapsed) return
+    this._sidebarCollapsed = collapsed
+    if (this.mainWindow && this.currentView) {
+      this._positionView()
     }
   }
 
