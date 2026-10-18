@@ -52,7 +52,7 @@
       前端 Info #8 与后端 B7 命中同一处，合并在 B7 行处置。评审原件入库 `.ccg/reviews/freq-v3-review-backend.md` /
       `.ccg/reviews/freq-v3-review-frontend.md`（只留结论段），逐条依据可在那两份里复核，不必采信转述；
       处置引入的修复由变异 M12–M20 反证，M1–M20 全 CAUGHT）
-- [ ] 3.6 PR + CI 全绿 + 自动合并 + 远程同步回填与销账
+- [x] 3.6 PR + CI 全绿 + 自动合并 + 远程同步回填与销账  ⇒ 补勾 2026-10-18：PR #3637 已 squash 合并，merge SHA 469cf7b52c00e82c6b8d1b277aaae2227e286ba6（证据 openspec/records/publish-frequency-policy-v3.md:20 远程同步行 PASS）；该回填通道已于 2026-10-17 被 #3879 取消，此属历史事实
 
 ## 4. 文档与规格同步
 
@@ -66,5 +66,5 @@
       **刻意不把 v3 全部新增 MUST 写进主干**：v2 的 change 尚未归档（`openspec/changes/publish-frequency-policy-v2`
       仍在），主干规格只 6 条 Requirement 且不含日配额/抖动/回滚许可 —— 在归档前把 v3 条款塞进主干
       会让主干同时缺 v2 与多 v3，比滞后更难读。v3 的新增条款住在本次的增量规格里
-- [ ] 4.4 `AGENTS.md` / `01-docs/learnings.md` / `CHANGELOG.md` / `.quality-gates.md` /
+- [x] 4.4 `AGENTS.md` / `01-docs/learnings.md` / `CHANGELOG.md` / `.quality-gates.md` /  ⇒ 补勾 2026-10-18：AGENTS.md 与 01-docs/learnings.md 与 CHANGELOG.md 均含 policy-v3 命中（当场 grep -c 各 ≥1），记录在 openspec/records/publish-frequency-policy-v3.md
       `openspec/records/publish-frequency-policy-v3.md` + ledger 登记
