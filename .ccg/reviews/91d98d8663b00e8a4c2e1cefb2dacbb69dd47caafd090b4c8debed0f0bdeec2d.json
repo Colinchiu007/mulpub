@@ -1,0 +1,30 @@
+{
+  "sha": "d9e664742de4dbe411debe4952b375c7b19aab2d",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 0 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 4,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 3,
+    "docSensitiveContentSample": [
+      "- **不采用**：本机 `--update-baseline` 重建基线 —— 本仓纪律明令禁止用基线掩盖回归。若第 2 轮仍红，正解是由 CI 同源产出 `base-screenshots/publish-form{,-dark}.png`。",
+      "- **不采用**：本机 `--update-baseline` 重建基线 —— 本仓纪律明令禁止用基线掩盖回归。",
+      "两张正好就是本刀的界面改动面 ⇒ 属**预期的界面变化**，正解是按 CI 同源重建基线（不是提阈值、不是遮区域、也不是本机 `--update-baseline`）。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "91d98d8663b00e8a4c2e1cefb2dacbb69dd47caafd090b4c8debed0f0bdeec2d",
+  "decidedAt": "2026-10-18T02:27:33.628Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}
