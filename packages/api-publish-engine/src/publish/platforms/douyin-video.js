@@ -18,7 +18,6 @@
 const fs = require('fs')
 const crypto = require('crypto')
 const zlib = require('zlib')
-const aws4 = require('aws4')
 const { createHttpClient, requestWithRetry } = require('../core/http-base')
 const { errorCode } = require('../../error-codes')
 const { clientSign, extractReePublicKey, webVersionFromTicket, CREATE_V2_PATH, hasSecurityMaterials, resolveSignDataPayload } = require('../../signer/douyin-ticket-guard')
@@ -26,13 +25,18 @@ const { clientSign, extractReePublicKey, webVersionFromTicket, CREATE_V2_PATH, h
 // 描述里的 `#话题` 原样保留在 content_desc，text_extra 标记话题位置段
 // （hashtag_id=0 纯文本话题，平台话题实体回填属 P2）。位置扫描用 content-formatter 单一实现。
 const { findInlineTopicPositions, formatArticleBody } = require('../../content-formatter')
+// 字节系共享 vod 上传协议 + aws4 签名器（apply→分片→finish→commit）。
+// 2026-10-18 与头条视频链共用单一实现；vod 与 imagex 两个 service 都走这套签名。
+const {
+  partSizeFor, uploadVideoToVod, signedGet, signedPost,
+} = require('../core/bytedance-vod')
 
 const CREATOR_BASE = 'https://creator.douyin.com'
 const VOD_BASE = 'https://vod.bytedanceapi.com'
 const IMAGEX_BASE = 'https://imagex.bytedanceapi.com'
 const APP_ID = 2906
 const REGION = 'cn-north-1'
-const VOD_VERSION = '2020-11-19'
+// VOD_VERSION 统一由 core/bytedance-vod.js 提供（2026-10-18 与头条链共用）。
 const IMAGEX_VERSION = '2018-08-01'
 const IMAGEX_SERVICE_ID = 'jm8ajry58r'
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
@@ -58,25 +62,10 @@ function cookieValue (cookie, key) {
   if (seg === undefined) return ''
   return seg.split(';')[0].trim()
 }
-function sha256hex (s) { return crypto.createHash('sha256').update(s, 'utf8').digest('hex') }
 function crc32Hex (buf) { return ((zlib.crc32(buf) >>> 0)).toString(16).padStart(8, '0') }
 function clean (t) { return String(t == null ? '' : t).replace(/\s*\n\s*$/, '').trim() }
-function pickSigned (headers) {
-  const out = {}
-  for (const k of Object.keys(headers)) {
-    if (/^(authorization|x-amz-date|x-amz-content-sha256|x-amz-security-token|content-type)$/i.test(k)) out[k] = headers[k]
-  }
-  return out
-}
-function hostOf (base) { try { return new URL(base).host } catch (e) { return '' } }
 
-/** 分片大小阶梯（字节）：<=500MB→3MiB，<=1GB→5MiB，否则 10MiB */
-function partSizeFor (size) {
-  const MB = 1024 * 1024
-  if (size > 1000 * MB) return 10 * MB
-  if (size > 500 * MB) return 5 * MB
-  return 3 * MB
-}
+// 已抽到 core/bytedance-vod.js 的：partSizeFor / sha256hex / pickSigned / hostOf / signedGet / signedPost
 
 /** 构造 create_v2 投稿体；纯函数，供链与薄适配器共用 */
 function buildDouyinPostData (taskData, ctx) {
@@ -189,81 +178,43 @@ class DouyinVideoChain {
     return Object.keys(params).map((k) => encodeURIComponent(k) + '=' + encodeURIComponent(params[k])).join('&')
   }
 
-  /** 通用 aws4 签名 GET（vod/imagex apply） */
-  async _signedGet (client, base, service, query, creds) {
-    const path = '/?' + query
-    const headers = { 'x-amz-content-sha256': sha256hex('') }
-    const o = { host: hostOf(base), path, method: 'GET', headers, service, region: this.region }
-    aws4.sign(o, creds)
-    return client.request({ method: 'get', url: path, headers: pickSigned(o.headers), validateStatus: (s) => s >= 200 && s < 500 })
-  }
+  // 通用 aws4 签名 GET/POST 已抽到 core/bytedance-vod.js（`signedGet` / `signedPost`），
+  // vod 与 imagex 两个 service 共用同一实现；此处不再保留第二份。
 
-  /** 通用 aws4 签名 POST（vod/imagex commit，JSON 体） */
-  async _signedPost (client, base, service, path, bodyObj, creds) {
-    const bodyStr = JSON.stringify(bodyObj)
-    const headers = { 'content-type': 'application/json', 'x-amz-content-sha256': sha256hex(bodyStr) }
-    const o = { host: hostOf(base), path, method: 'POST', headers, body: bodyStr, service, region: this.region }
-    aws4.sign(o, creds)
-    return client.request({ method: 'post', url: path, data: bodyStr, headers: pickSigned(o.headers), maxBodyLength: Infinity, validateStatus: (s) => s >= 200 && s < 500 })
-  }
-
-  /** Step 3：vod 视频上传链 → Vid（apply→transfer 分片→finish→CommitUploadInner） */
+  /**
+   * Step 3：vod 视频上传链 → Vid（apply→transfer 分片→finish→CommitUploadInner）
+   *
+   * 2026-10-18（toutiao-video-api）：本段与头条视频链同形，已抽到
+   * `core/bytedance-vod.js` 单一实现；此处只传抖音的三个差异参数
+   * （SpaceName=aweme、app_id=2906、**不带** EnOID）。行为与原实现逐字等价，
+   * 回归由 `test/douyin-video-chain.test.js` 的步骤断言兜住。
+   */
   async uploadVideo (filePath, creds, uid, onProgress) {
-    const size = fs.statSync(filePath).size
-    const applyQ = this._applyQuery({
-      Action: 'ApplyUploadInner', Version: VOD_VERSION, SpaceName: 'aweme', FileType: 'video',
-      IsInner: 1, FileSize: size, app_id: this.appId, user_id: uid, s: crypto.randomBytes(8).toString('hex'),
+    return uploadVideoToVod({
+      vod: this.vod,
+      upload: this.upload,
+      vodBase: this.vodBase,
+      creds,
+      filePath,
+      uid,
+      spaceName: 'aweme',
+      appId: this.appId,
+      innerOid: false,
+      region: this.region,
+      userAgent: this.userAgent,
+      uploadScheme: this.uploadScheme,
+      onProgress,
+      ErrorClass: DouyinVideoError,
+      // 保住原错误语义：`分片缺失` 在抖音链历史上是 io_error(-5)，其余两条是 data_error(-2)
+      errorCodes: { noNodes: errorCode.data_error, shortChunks: errorCode.io_error, noVid: errorCode.data_error },
     })
-    const ar = await this._signedGet(this.vod, this.vodBase, 'vod', applyQ, creds)
-    const node = (((ar.data || {}).Result || {}).InnerUploadAddress || {}).UploadNodes || []
-    if (!node.length) throw new DouyinVideoError('douyin-video: vod apply 无 UploadNodes', errorCode.data_error)
-    const n0 = node[0]
-    const store = (n0.StoreInfos || [])[0] || {}
-    const uploadId = crypto.randomUUID()
-    const base = this.uploadScheme + '//' + n0.UploadHost + '/upload/v1/' + store.StoreUri
-    const partSize = partSizeFor(size)
-    const total = Math.max(1, Math.ceil(size / partSize))
-    const fh = fs.openSync(filePath, 'r')
-    const crcs = new Map()
-    try {
-      for (let i = 0; i < total; i++) {
-        const start = i * partSize
-        const len = Math.min(partSize, size - start)
-        const buf = Buffer.alloc(len)
-        fs.readSync(fh, buf, 0, len, start)
-        const crc = crc32Hex(buf)
-        const url = base + '?uploadid=' + uploadId + '&part_number=' + (i + 1) + '&phase=transfer&part_offset=' + start
-        await this.upload.request({
-          method: 'post', url, data: buf, maxBodyLength: Infinity,
-          headers: { Authorization: store.Auth, 'Content-CRC32': crc, 'Content-Type': 'application/octet-stream', 'X-Storage-U': uid, 'User-Agent': this.userAgent },
-          validateStatus: (s) => s >= 200 && s < 500,
-        })
-        crcs.set(i + 1, crc)
-        if (onProgress) onProgress(Math.round(((i + 1) / total) * 70), '视频上传中')
-      }
-    } finally { fs.closeSync(fh) }
-    if (crcs.size < total) throw new DouyinVideoError('douyin-video: 分片缺失（' + crcs.size + '/' + total + '）', errorCode.io_error)
-    // finish
-    await this.upload.request({
-      method: 'post', url: base + '?uploadid=' + uploadId + '&phase=finish&uploadmode=part', data: '',
-      headers: { Authorization: store.Auth, 'Content-Type': 'text/plain', 'X-Storage-U': uid, 'User-Agent': this.userAgent },
-      validateStatus: (s) => s >= 200 && s < 500,
-    })
-    // CommitUploadInner
-    const commitPath = '/?Action=CommitUploadInner&' + this._applyQuery({ Version: VOD_VERSION, SpaceName: 'aweme', app_id: this.appId, user_id: uid })
-    const commitBody = { SessionKey: n0.SessionKey, Functions: [{ name: 'GetMeta' }, { name: 'Snapshot', input: { SnapshotTime: 0 } }] }
-    const cr = await this._signedPost(this.vod, this.vodBase, 'vod', commitPath, commitBody, creds)
-    const results = (((cr.data || {}).Result || {}).Results || [{}])
-    const vid = results[0] && results[0].Vid
-    if (!vid) throw new DouyinVideoError('douyin-video: CommitUploadInner 未返回 Vid', errorCode.data_error)
-    return vid
   }
 
   /** Step 4：封面 imagex 上传链 → poster Uri */
   async uploadCover (coverPath, creds, uid) {
     const buf = fs.readFileSync(coverPath)
     const applyQ = this._applyQuery({ Action: 'ApplyImageUpload', Version: IMAGEX_VERSION, ServiceId: IMAGEX_SERVICE_ID, app_id: this.appId, user_id: uid, s: crypto.randomBytes(8).toString('hex') })
-    const ar = await this._signedGet(this.imagex, this.imagexBase, 'imagex', applyQ, creds)
+    const ar = await signedGet(this.imagex, this.imagexBase, 'imagex', applyQ, creds)
     const node = (((ar.data || {}).Result || {}).InnerUploadAddress || {}).UploadNodes || []
     if (!node.length) throw new DouyinVideoError('douyin-video: imagex apply 无 UploadNodes', errorCode.data_error)
     const n0 = node[0]
@@ -275,7 +226,7 @@ class DouyinVideoChain {
       validateStatus: (s) => s >= 200 && s < 500,
     })
     const commitPath = '/?Action=CommitImageUpload&' + this._applyQuery({ Version: IMAGEX_VERSION, ServiceId: IMAGEX_SERVICE_ID, app_id: this.appId, user_id: uid })
-    const cr = await this._signedPost(this.imagex, this.imagexBase, 'imagex', commitPath, { SessionKey: n0.SessionKey }, creds)
+    const cr = await signedPost(this.imagex, this.imagexBase, 'imagex', commitPath, { SessionKey: n0.SessionKey }, creds)
     const results = (((cr.data || {}).Result || {}).Results || [{}])
     const uri = results[0] && results[0].Uri
     if (!uri) throw new DouyinVideoError('douyin-video: CommitImageUpload 未返回 Uri', errorCode.data_error)

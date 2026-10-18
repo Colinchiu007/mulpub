@@ -117,7 +117,9 @@ test('输出里 PASS/FAIL 逐条可见（不是只给汇总）', () => {
 // ───────────────────────────────────────────────────────────────────────────
 const YAML_CASES = [
   // [slug, 期望块行数（不含键行）, 期望 has_api]
-  ['toutiao', 17, false],
+  // 2026-10-18（toutiao-video-api）：toutiao 的 has_api 由 false 翻成 true（补了视频 API 轨），
+  // 块行数 17→19（新增 2 行说明注释）。本表是「记录现状」的快照，配置有意变更时同步更新。
+  ['toutiao', 19, true],
   ['weibo', 14, false],
   ['zhihu', 17, false],
   ['baijiahao', 17, true],
@@ -151,17 +153,19 @@ test('回归：平台块提取不能吃到别的平台（文件顺序依赖 bug�
 })
 
 test('步骤 9 对 has_api:false 的平台不得去找发布链（顺序无关）', () => {
-  const checks = buildChecks('toutiao')
+  // 2026-10-18：toutiao 已翻成 has_api:true，改用 weibo 作为 has_api:false 的反例。
+  const checks = buildChecks('weibo')
   const step9 = checks.find((c) => c.id === 9)
   const r = step9.fn()
-  assert.equal(r.ok, true, `toutiao(has_api:false) 的步骤 9 应通过，实际: ${r.detail}`)
+  assert.equal(r.ok, true, `weibo(has_api:false) 的步骤 9 应通过，实际: ${r.detail}`)
   assert.ok(r.detail.includes('无需发布链'), `详情应说明无需发布链，实际: ${r.detail}`)
 })
 
 test('步骤 9 的顺序无关性：把平台在文件里的位置换掉，结论不变', () => {
   // 用三个 has_api:false 的平台互相印证 —— 若判据依赖「后面有没有 true 平台」，
   // 这三个必然给出不同结论（实测正是如此：xiaohongshu 过、weibo/zhihu 不过）。
-  for (const slug of ['weibo', 'zhihu', 'toutiao']) {
+  // 2026-10-18：toutiao 已翻成 has_api:true，从本组移出，补 instagram（has_api:false）。
+  for (const slug of ['weibo', 'zhihu', 'instagram']) {
     const r = buildChecks(slug).find((c) => c.id === 9).fn()
     assert.equal(r.ok, true, `${slug}(has_api:false) 步骤 9 应通过，实际: ${r.detail}`)
   }
@@ -502,7 +506,9 @@ test('TAG_STYLES 缺席的平台走默认兜底，且判据 7/8 不空转', () =
 // ───────────────────────────────────────────────────────────────────────────
 test('判据 11 适用面修正：有链才要求链级测试 + 别名同源 + 不存在的平台不得通过', () => {
   // ① 有链平台：详情必须报出「链 N 个 + 链级测试 M 个」（证明走的是链分支，不是恒过）
-  for (const slug of ['douyin', 'kuaishou', 'bilibili', 'baijiahao']) {
+  // 2026-10-18（toutiao-video-api）：toutiao 补了视频 API 轨（publish/platforms/toutiao-video.js），
+  // 从下方 ③「无链平台」组移入本组 —— 这正是本用例的设计意图：有链就必须报链数。
+  for (const slug of ['douyin', 'kuaishou', 'bilibili', 'baijiahao', 'toutiao']) {
     const r = buildChecks(slug).find((c) => c.id === 11).fn()
     assert.equal(r.ok, true, `${slug} 判据 11 应 PASS，实际: ${r.detail}`)
     assert.match(r.detail, /链 \d+ 个 \+ 链级测试 \d+ 个/,
@@ -517,7 +523,8 @@ test('判据 11 适用面修正：有链才要求链级测试 + 别名同源 + �
     `tencent_video 未按别名看到 shipinhao-* 的链 ⇒ 判据对命名差异失明（与判据 9 同型）。实际: ${tv.detail}`)
 
   // ③ 无链平台：**不得**因「无链可测」被判红（原判据对它们恒不可满足）
-  for (const slug of ['wechat_mp', 'weibo', 'toutiao', 'instagram', 'facebook']) {
+  // 2026-10-18：toutiao 已有链，移出本组（见 ①）。
+  for (const slug of ['wechat_mp', 'weibo', 'instagram', 'facebook']) {
     const r = buildChecks(slug).find((c) => c.id === 11).fn()
     assert.equal(r.ok, true, `${slug}（无发布链）判据 11 应 PASS，实际: ${r.detail}`)
     assert.match(r.detail, /无发布链 ⇒ 不要求链级测试/,
