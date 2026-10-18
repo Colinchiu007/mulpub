@@ -81,7 +81,7 @@ function resolveModelSummaryText (project, segments, label) {
   return resolveModelSummaryParts(project, segments, label).join(' · ');
 }
 
-module.exports = {
+export {
   VIDEO_ENABLED_MODES,
   resolveModelSummaryParts,
   resolveModelSummaryText,
