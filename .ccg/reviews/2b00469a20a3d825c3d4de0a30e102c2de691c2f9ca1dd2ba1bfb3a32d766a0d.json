@@ -92,7 +92,7 @@
         "prosecution": "token 化用 /[^A-Za-z0-9._-]+/ 切分，不拆 - . _，于是 performedBy=claude-agent 与请求 critic=claude 永不相等 ⇒ 真正的相符被误判成不符（假红）；反向同理。审计归属类判据一旦假红，使用者会用「删掉 reviewBackends」来消音，那是拆锁。",
         "defense": "整记号相等最保守，不会把无关的复合误判成相符。",
         "verdict": "upheld",
-        "rationale": "本条属高危域（domains:[auth]），按引擎规矩不自扮演，已交**外部模型复核**（codeagent-wrapper --backend claude，rc=0，答复存 D:/Temp/qm6-i5-external.txt）。外部结论：整记号相等假红、再拆词族判成员会引入假绿（claude-opencode 与无关请求词族重叠），第三种口径才对 —— 保留切分 + **有界子串**匹配（请求名两侧须为边界）。已照此实现，并补两条负控：碎片 clau/laude 不得把 claude 点着（防假绿）；请求 claude-agent 而实际 claude 必须仍判不符（防把「没跑复合体」读成跑过）。"
+        "rationale": "本条属高危域（domains:[auth]），按引擎规矩不自扮演，已交**外部模型复核**（codeagent-wrapper --backend claude，rc=0，答复存 <临时目录>/qm6-i5-external.txt）。外部结论：整记号相等假红、再拆词族判成员会引入假绿（claude-opencode 与无关请求词族重叠），第三种口径才对 —— 保留切分 + **有界子串**匹配（请求名两侧须为边界）。已照此实现，并补两条负控：碎片 clau/laude 不得把 claude 点着（防假绿）；请求 claude-agent 而实际 claude 必须仍判不符（防把「没跑复合体」读成跑过）。"
       },
       {
         "id": "i7",
@@ -132,7 +132,7 @@
     ],
     "note": "自扮演裁决：4 条指控成立或需外部复核",
     "at": "2026-10-18T08:05:33.048Z",
-    "closureNote": "轮1（4b7ca65f，critic=claude 真实调用）产出 7 条，逐条裁决后 4 条 upheld；i1/i3/i4/i5 的处置已落在 59fa21cf7 与 25a31c52（署名义务不分覆盖、有界子串匹配、逐值加引号、注入形态行为锁）。原状态 self_play_blocked 的成因是 i5 属高危域、引擎拒绝以自扮演豁免；该条已由**外部模型**复核（codeagent-wrapper --backend claude rc=0，答复存 D:/Temp/qm6-i5-external.txt）并采纳其第三种口径实现。故本条按 needs_revision 收口（不是 cleared：外部那一轮没有回到引擎的产物里，而评审结论也确实引发了改动）。同一批内容随后被 tip 轮重审，见 25a31c52 的裁决。",
+    "closureNote": "轮1（4b7ca65f，critic=claude 真实调用）产出 7 条，逐条裁决后 4 条 upheld；i1/i3/i4/i5 的处置已落在 59fa21cf7 与 25a31c52（署名义务不分覆盖、有界子串匹配、逐值加引号、注入形态行为锁）。原状态 self_play_blocked 的成因是 i5 属高危域、引擎拒绝以自扮演豁免；该条已由**外部模型**复核（codeagent-wrapper --backend claude rc=0，答复存 <临时目录>/qm6-i5-external.txt）并采纳其第三种口径实现。故本条按 needs_revision 收口（不是 cleared：外部那一轮没有回到引擎的产物里，而评审结论也确实引发了改动）。同一批内容随后被 tip 轮重审，见 25a31c52 的裁决。",
     "closureNoteAt": "2026-10-18T09:56:16.010Z"
   }
 }
