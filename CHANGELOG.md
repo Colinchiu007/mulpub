@@ -1,3 +1,44 @@
+# [未发布] feat(ux-audit): 阶段 1.1 —— 暗色主题入口（外观设置 + 模块级主题单例 + 启动引导）
+
+- **缺陷本体**：`useTheme()` 的生产调用点是 **0**（`grep -rn useTheme apps/desktop/src` 只命中自身与其测试）。
+  于是 `src/styles/*.css` 实测 **72 处** `[data-theme=…]` 暗色选择器（2026-10-18 当场重取；旧值 77 已撤回）、
+  20 张 `*-dark` 视觉基线、以及 Wave 0.4 那一轮"61→0 低对比修复"的全部成果，
+  都只存在于视觉测试手工 `setAttribute` 出来的状态里 —— **用户侧永远不可达**。这是审计
+  §1.1「11 条同一形状（已建好但没接上电）」里最重的一条，成本被第一轮低估（S→M）后独立成包。
+- **修法**：① `useTheme.js` 改**模块级单例**（`mode/theme/loaded` 住模块作用域；原实现每次调用新建一份
+  `theme` ref，两个消费者状态互不同步）；② 状态模型从 `light⇄dark` 二态改为 **`system|light|dark` 三态**，
+  持久化真源 `ui:theme` 存**模式**而非解析结果 —— 存解析结果会让"跟随系统"永远记不住，
+  两个方向的互相覆盖在用户侧都表现为"设置没保存"；③ `App.vue` 挂载即引导（不打开设置也能恢复上次主题）；
+  ④ 新增 `components/AppearanceSettings.vue`（`fieldset/legend` + 三档 radio，偏好未读到时整面板原生禁用
+  并给 `role="status"` 加载提示；生效主题行是 `system` 模式下唯一能自证"设置生效了"的信息）；
+  ⑤ 设置页插入「外观」Tab（`Brush` 图标，位于通用设置之后），Tab 总数 7→8。
+- **数据校验**：存储脏值（非字符串 / 不在 `THEME_MODES`）⇒ 回落 `system` 且 **MUST NOT 回写**
+  （把自己的默认值写成用户意图会永久掩盖真实意图）；`setThemeMode` 非法值 ⇒ `return false`，DOM 与存储都不动；
+  `storeGetSetting` 抛错（含未激活态的 `LicensePermissionError`）⇒ 按"无偏好"处理但 `loaded` 照样置真，
+  面板可用是硬要求；`applyTheme` 在 `persist` **之前**（持久化不可用时本地切换不得回滚）；
+  `matchMedia` 缺席 ⇒ 按 `light`、不注册监听、不抛错。
+- **锁与变异反证（三条全部实跑）**：`useTheme.test.js` 25 条（含"两个消费者共享同一份状态"
+  "多次 `useTheme` 只读一次偏好、只注册一次系统监听"）+ `AppearanceSettings.test.js` 8 条 +
+  `App.theme-boot.test.js` 2 条**装配锁**（真挂 `App.vue`，断 `storeGetSetting('ui:theme')` 被调 +
+  `data-theme` 落值；无意图时断 `storeSetSetting` 未被调用）+ `SettingsDialog.test.js` Tab 顺序与图标位计数。
+  M1 摘 `App.vue` 的 `useTheme()` ⇒ 装配锁 2 条全红；M2 摘面板行、留 Tab ⇒ 只有"点击外观"那条红
+  （`1 failed | 10 passed`）；M3 摘非法值拒绝 ⇒ `it.each` 三条红（`3 failed | 30 passed`）。
+  三处还原后 `md5sum` 与备份逐字节一致，`grep -c "MUT-"` = 0。
+- **顺带收敛**：`SettingsDialog.test.js` 里 4 处**硬编码下标点击**（`findAll('.settings-tab')[4]` 这类）
+  改为按用户可见文案定位 —— 插入第 3 个 Tab 会让它们整体位移而断言照样"通过"，只是悄悄改测了别的 Tab。
+  该教训本文件早已写过一次（"点击禁用 Tab"那条的注释），这是它的第二次兑现。
+  `tests/visual-testing/test-runner.js` 的主题注释原写"`data-theme` 是应用唯一的主题开关
+  （`useTheme.js` 的 `applyTheme` 写的就是它）"，在接线前那是**描述一条不存在的接线**，现改为如实写明写者。
+- **已知边界（不掩盖）**：`storeGetSetting/storeSetSetting` 不在 preload `PUBLIC_METHODS` 内
+  ⇒ 权限级别 `authenticated`；未激活态下切换本次会话生效但不跨启动持久化。这与 `drafts`、
+  `story2video.lastOptions` 等既有本地设置同源（同一对通道），单独为暗色开一条 public 通道属改"谁来守门"，不在本批。
+- **留给下一步**：暗档像素门禁自本批合并后起算；**20 张 `*-dark` 基线的重建必须人工审核 diff 图**，
+  本 PR 不用 `--update-baseline` 伪造基线证据（QM-4 第 4、7 条）。
+- **文档**：`01-docs/PRD-UX-AUDIT-IMPLEMENT-2026-10-18.md` 新增 §12（缺陷对照表 / 流程伪码 / 显示项 /
+  13 键 zh-en 提示文字全清单 / 数据校验表 / 10 条不变量与锁位 / 变异读数 / 暗档门禁起算点），
+  §4.1 Tab 清单更新为 8 行，§9 排期 1.1 改判已落地；openspec delta 新增 1 条 Requirement
+  （主题必须由用户可达的入口驱动并持久化模式，5 个 Scenario）；tasks.md 1.1 勾选并附证据。
+
 # [未发布] feat(ux-audit): 阶段 1 批次 B —— 试用横幅挂载、死全局注册清理、首运向导接回启动判定、帮助页可用化
 
 - **1.3 试用/免费版横幅**：`TrialBanner`（建好并做过三轮暗色对比度实测，却一直零挂载）挂进 `MemberCenter`。可见资格取服务端 `entitlement.plan`（A2 单一真源），倒计时取本地 `licenseStore.daysRemaining`（`expiresAt→天数` 只有 `license-manager._daysRemaining()` 一份实现）；关闭只在本次会话生效（正文是"还剩 N 天"这类自证过期的事实，与公告类一次性横幅不同）。`LoadingState`（`main.js` 全局注册、全仓模板零消费、自带 7 条用例）连同测试与 `test-setup.js` 镜像注册删除；新增 `src/global-components-contract.test.js`：全局注册↔模板消费对账、`main.js` 与单测镜像两份清单逐字相同、反失明（解析取 0 项或扫描域为空即红）、`LoadingState` 墓碑。变异"往 `main.js` 加一条假注册"实测双红，还原后 md5 与备份一致。

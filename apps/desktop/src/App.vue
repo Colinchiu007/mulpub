@@ -115,6 +115,7 @@ import { useIdentityStore } from '@/stores/identity'
 import { useTabStore } from '@/stores/tab'
 import { useHomeShellNavigation } from '@/composables/useHomeShellNavigation'
 import { useFirstRunGate } from '@/composables/useFirstRunGate'
+import { useTheme } from '@/composables/useTheme'
 import { notifySettingsDialogClosed, settingsDialogRequest } from '@/stores/settings-dialog'
 import { isHomeShellSearch } from '@/utils/home-shell'
 import { suspendEmbeddedViewsForOverlay, releaseEmbeddedViewsForOverlay } from '@/composables/useEmbeddedViewSuspension'
@@ -141,6 +142,11 @@ const tabTitleReporter = isHomeShell ? useTabDocumentTitle() : null
 // 首运向导判定（阶段 1.4）：只在主窗口实例跑。home-shell 实例本身就是浏览器标签的
 // WebContentsView，让它跳 /first-run 会把用户正在看的网页换成向导。
 if (!isHomeShell) useFirstRunGate()
+// 主题引导（阶段 1.1 / audit-9）：必须在壳层挂载时就把持久化偏好写进 document，
+// 而不是等用户打开设置面板——否则「深色」在下次打开设置前完全不生效，
+// 用户侧表现为「设置没保存」。home-shell 实例是独立 renderer，同样需要落色，
+// 故此处不做 isHomeShell 分支。
+useTheme()
 const accountActions = useAccountActions()
 const { t } = useI18n()
 const { notifyError } = useNotify()

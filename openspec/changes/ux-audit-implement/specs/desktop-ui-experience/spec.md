@@ -225,3 +225,40 @@ MUST NOT 写入未经取证的 URL。外链需求出现时 MUST 复用既有受�
 - **WHEN** `writeClipboard` 返回 `false` 或抛错
 - **THEN** MUST 报失败提示且 MUST NOT 报「已复制」；目录为空时复制按钮 MUST 禁用
 
+
+### Requirement: 主题必须由用户可达的入口驱动并持久化模式
+
+暗色主题的全部样式投入（`src/styles/*.css` 实测 72 处 `[data-theme=...]` 选择器、
+20 张 `*-dark` 视觉基线）MUST 建立在**用户可达**的状态之上。主题状态 MUST 是模块级单例
+（一份 `mode/theme/loaded` 住模块作用域），MUST NOT 每次调用 `useTheme()` 新建一份 ref；
+持久化真源 MUST 存**模式**（`system|light|dark`）而不是解析后的主题。
+
+#### Scenario: 不打开设置面板也能恢复上次主题
+
+- **WHEN** 应用启动且 `ui:theme` 存有 `dark`
+- **THEN** `App.vue` 的引导 MUST 在挂载时读取并把 `data-theme="dark"` 落到 `<html>`，
+  MUST NOT 要求用户先打开设置面板才生效
+
+#### Scenario: 跟随系统必须能被记住
+
+- **WHEN** 用户选择「跟随系统」
+- **THEN** 持久化的 MUST 是 `system`；此后系统偏好变化 MUST 驱动主题，
+  而用户显式选过 `light/dark` 后系统变化 MUST NOT 覆盖其选择
+
+#### Scenario: 无用户意图不得写盘
+
+- **WHEN** 存储里没有偏好、或存的是非法值（如 `neon`）
+- **THEN** MUST 回落 `system` 并按系统偏好渲染，且 MUST NOT 调用 `storeSetSetting`
+  （把自己的默认值写成用户意图，会永久掩盖真实意图）
+
+#### Scenario: 偏好读取未完成时面板不得可点
+
+- **WHEN** `loaded === false`
+- **THEN** 外观面板 MUST 整体禁用并给出 `role="status"` 加载提示；
+  读到偏好（或读到"读不到"）后 MUST 解禁——存储不可用不得让面板变砖
+
+#### Scenario: 主题开关只有一处写者
+
+- **WHEN** 新增任何写 `data-theme` 的代码路径
+- **THEN** MUST 经 `useTheme` 的 `applyTheme`；视觉测试 runner 手工 setAttribute 只是把
+  同一开关置态，MUST NOT 演变成第二套主题语义

@@ -134,11 +134,15 @@
 |---|---|---|---|---|
 | 0 | `model` | 模型设置 / Model Settings | 可用 | `ModelProviders` |
 | 1 | `general` | 通用设置 / General Settings | 可用 | `LogsSettings` |
-| 2 | `feishu` | 飞书 API | 可用 | `FeishuSettingsTab` |
-| 3 | `zhihu` | 知乎 API | 可用 | `ZhihuSettingsTab` |
-| 4 | `publish` | 发布设置 / Publish Settings | 可用 | `PublishFrequencySettings` |
-| 5 | `hotkeys` | 快捷键 / Keyboard shortcuts | **本批新增，可用** | `HotkeysSettings` |
-| 6 | `account` | 账号设置 / Account Settings | 禁用（敬请期待） | placeholder |
+| 2 | `appearance` | 外观 / Appearance | **1.1 新增，可用**（`Brush` 图标） | `AppearanceSettings` |
+| 3 | `feishu` | 飞书 API | 可用 | `FeishuSettingsTab` |
+| 4 | `zhihu` | 知乎 API | 可用 | `ZhihuSettingsTab` |
+| 5 | `publish` | 发布设置 / Publish Settings | 可用 | `PublishFrequencySettings` |
+| 6 | `hotkeys` | 快捷键 / Keyboard shortcuts | **1.6 新增，可用** | `HotkeysSettings` |
+| 7 | `account` | 账号设置 / Account Settings | 禁用（敬请期待） | placeholder |
+
+（§12 落地后的 8 行清单；`appearance` 插在 `general` 之后，把 `feishu/zhihu/publish/hotkeys/account`
+整体后移一位。`SettingsDialog.test.js` 的 Tab 顺序锁与图标位计数（8）已同步。）
 
 ### 4.2 快捷键面板
 
@@ -264,7 +268,7 @@
 
 | 批次 | 项 | 关键判据（不得只按本 PRD 的字面执行，须先复核实况） |
 |---|---|---|
-| 1B | 1.1 暗色入口 | **单独成包**（评审 c2）；设置页「外观」分组 + `useTheme` 改模块级单例；合并后暗档像素门禁起算；暗色基线重建须人工审核 |
+| 1B | 1.1 暗色入口 | ✅ **已落地**（§12）：设置页「外观」分组 + `useTheme` 改模块级单例 + `App.vue` 启动引导。合并后暗档像素门禁起算；**暗色基线重建仍须人工审核**（本 PR 不伪造基线） |
 | 1B | 1.3 TrialBanner / LoadingState | ✅ 已落地（§11.1.1 / §11.1.2）：横幅挂进 MemberCenter，`LoadingState` 连同测试与两处注册删除 |
 | 1B | 1.4 `/first-run` | ✅ 已落地（§11.1.3）：完成标记只由退出动作写；判定走拉取；第二套引导真源 `services/onboarding.js` 已删 |
 | 1B | 1.10 帮助与支持 | ✅ 已落地（§11.1.4）：全部指向应用内落点，未新增外链与第二份协议判据 |
@@ -531,5 +535,161 @@ support or browse the docs.」被替换——它承诺了一个不存在的文�
 `fs.symlinkSync` 在本机报 `EPERM: operation not permitted, symlink …`
 （Windows 非特权进程不能建符号链接）。feedback 服务本批未被触碰；CI 的 windows runner 可建链接，
 判据以 CI 现场为准，此处如实登记本机读数。
+
+---
+
+## 12. 阶段 1.1（audit-9）暗色主题入口 —— 单独成包
+
+> 这一条是整个审计里**成本被最低估**的一条：第一轮把它列进"接线批次"并宣称"几乎不产生新的
+> 视觉回归面"，第二轮评审否证后撤回——接线暗色主题会让 `src/styles/*.css` 里实测 **72 处**
+> `[data-theme=…]` 选择器（2026-10-18 当场重取：`grep -rn data-theme *.css | wc -l` = 72，
+> 全部为 `dark` 变体；旧值 77 已撤回）与 **20 张** `*-dark` 基线**首次变成真实用户可达态**，
+> 成本因此从 S 上修为 M，并独立成包。
+
+### 12.1 缺陷本体与修法选择
+
+| 维度 | 接线前（实测） | 接线后 |
+|---|---|---|
+| `useTheme()` 生产调用点 | **0**（`grep -rn "useTheme" apps/desktop/src` 只命中自身与其测试） | `App.vue` 引导 1 处 + `AppearanceSettings.vue` 1 处 |
+| 状态承载 | 每次 `useTheme()` **新建一份** `theme` ref ⇒ 两个消费者状态互不同步 | 模块级单例：`mode/theme/loaded` 住在模块作用域，全应用一份 |
+| 可表达的用户意图 | 只有 `light ⇄ dark` 二态开关 | 三态 `system \| light \| dark` |
+| 持久化真源 | 存的若是**解析后的主题**，则"跟随系统"无法被记住 | 存**模式**（`ui:theme` = `system\|light\|dark`），解析结果不落盘 |
+
+为什么必须是三态而不是开关：若只存解析结果，用户每改一次系统深色偏好，都会被上一次的手工
+切换"钉死"成 light/dark，而系统偏好反过来又覆盖用户选择——两个方向的覆盖都表现为"设置没保存"。
+所以**模式是真相，主题是派生值**。
+
+### 12.2 功能逻辑与流程
+
+```
+App.vue setup
+  └─ useTheme() → boot()（幂等：bootPromise 只建一次）
+        └─ init():
+             1) api.storeGetSetting('ui:theme')  ← 读持久化「模式」
+             2) normalizeStoredMode(stored)      ← 非法值 → null（不回落成脏值）
+             3) mode = stored ?? 'system'
+             4) applyTheme(resolveTheme(mode))   ← resolveTheme: light/dark 原样；system 走系统偏好
+             5) loaded = true
+             6) subscribeSystemTheme()           ← 只注册一次（模块生命周期 == 应用生命周期）
+
+用户在设置页「外观」点 radio
+  └─ choose(value) → setMode(value)
+        ├─ THEME_MODES 不含 value ⇒ return false 且不写存储（非法值不得进偏好）
+        ├─ mode = value
+        ├─ applyTheme(resolveTheme(value))        ← 立即生效，不等 IPC 回执
+        ├─ boot()                                 ← 保证 bootPromise 已建立（首帧前被点不丢状态）
+        └─ persist(value)                         ← storeSetSetting('ui:theme', value)
+
+系统偏好变化（matchMedia change）
+  └─ onSystemThemeChange：仅当 mode === 'system' 才 applyTheme
+        （用户显式选过 light/dark 后，系统偏好不得覆盖用户意图）
+```
+
+**顺序不可破的两条**：① `applyTheme` 在 `persist` **之前**——持久化不可用（未登录 / 桥接缺席）
+时用户看到的切换照样生效，回滚本地视觉态是把可用变不可用；② `loaded` 在 `applyTheme` **之后**
+置真——否则面板先解禁、radio 先渲染成未定值，用户点下去会覆盖掉刚读到的偏好。
+
+### 12.3 显示项
+
+| 位置 | 显示内容 | 出现条件 |
+|---|---|---|
+| 设置页左侧 Tab | 「外观」，图标 `Brush`，位于「通用设置」之后、「飞书 API」之前 | 常驻，`disabled: false` |
+| Tab 总数 | 8（账号设置仍为 `disabled` + 「敬请期待」） | 常驻 |
+| 面板标题 | 「主题」 | 常驻 |
+| 面板说明 | 「选择浅色、深色，或跟随系统偏好。」 | 常驻 |
+| 加载态 | 「正在读取主题偏好…」，带 `role="status"` | 仅 `loaded === false` |
+| 三档单选项 | 跟随系统 / 浅色 / 深色，各带一行说明 | 常驻 |
+| 生效主题行 | 「当前生效：浅色 \| 深色」 | 常驻（`system` 模式下这是唯一能自证"设置生效了"的信息） |
+| `data-theme` | `<html>` 上的 `light`/`dark` | 由 `applyTheme` 写，全仓 72 处样式的唯一开关 |
+
+`<fieldset :disabled="!loaded">` 是**原生**禁用传播：偏好未读到时三档一并禁用，
+不必给每个 `<input>` 单独写 `:disabled`，也不会出现"能点但点了覆盖掉偏好"的窗口。
+用 `fieldset/legend` 而不是 `div + 标题文本`，是为了让三个 radio 天然属于同一
+`name="appearance-mode"` 分组、屏幕阅读器读到分组名。
+
+### 12.4 提示文字全清单（13 键，zh/en 成对，Gate 7 逐键校验）
+
+| key | zh | en |
+|---|---|---|
+| `settings.tabAppearance` | 外观 | Appearance |
+| `settings.appearanceTitle` | 主题 | Theme |
+| `settings.appearanceHint` | 选择浅色、深色，或跟随系统偏好。 | Pick light, dark, or follow the system preference. |
+| `settings.appearanceLoading` | 正在读取主题偏好… | Loading theme preference… |
+| `settings.appearanceSystem` | 跟随系统 | Follow system |
+| `settings.appearanceSystemDesc` | 随系统的深色/浅色设置自动切换 | Switches with the system dark/light setting |
+| `settings.appearanceLight` | 浅色 | Light |
+| `settings.appearanceLightDesc` | 始终使用浅色主题 | Always use the light theme |
+| `settings.appearanceDark` | 深色 | Dark |
+| `settings.appearanceDarkDesc` | 始终使用深色主题 | Always use the dark theme |
+| `settings.appearanceCurrent` | 当前生效：{theme} | Currently active: {theme} |
+| `settings.appearanceLightValue` | 浅色 | light |
+| `settings.appearanceDarkValue` | 深色 | dark |
+
+`appearance*Value` 单独成键而不是复用 `appearanceLight/appearanceDark`：选项标签是
+"我要选哪个"（名词短语、句首大写），生效行是"现在是哪个"（嵌在句子里，英文要小写）。
+合并成一份必然在某一侧读起来别扭，属可预见的翻译错误。
+
+### 12.5 数据校验与边界
+
+| 输入 | 判据 | 结果 |
+|---|---|---|
+| 存储里的模式 | `normalizeStoredMode`：非字符串 / 去空白后不在 `THEME_MODES` ⇒ `null` | 回落 `system`；**不回写**（不把自己的默认值伪装成用户意图） |
+| `storeGetSetting` 信封 | 必须 `code === 0` 且 `data` 有值 | 否则按"无偏好"处理 |
+| `storeGetSetting` 抛错（含 `LicensePermissionError`） | `try/catch` | 按"无偏好"处理，`loaded` 照样置真——面板可用是硬要求 |
+| `storeSetSetting` 失败 | `try/catch`，静默 | 本地主题不回滚；日志由主进程侧承担 |
+| `setMode('neon')` | `THEME_MODES.includes` 为假 | `return false`，DOM 与存储都不动 |
+| `window.matchMedia` 不存在（非浏览器/老宿主） | typeof 守卫 | 按 `light` 处理，不注册监听、不抛错 |
+| 重复 `useTheme()` | `bootPromise` 已存在 | 不再发第二次 IPC；系统监听 `systemListenerRegistered` 只挂一次 |
+| `getApi()` 返回 null（纯 Vite 开发态） | 守卫 | 读视为无偏好、写静默跳过 |
+
+**已知边界（如实记录，不掩盖）**：`storeGetSetting` / `storeSetSetting` 不在 preload
+`PUBLIC_METHODS` 名单内 ⇒ 权限级别为 `authenticated`。未激活/未登录态下这两条调用会被
+`access-control` 拒绝，此时**本次会话的切换仍然生效但不跨启动持久化**。这与 `drafts`、
+`story2video.lastOptions` 等既有本地设置的边界完全同源（同一对通道，本批未改权限模型），
+把它单独为暗色主题开一条 public 通道属于改"谁来守门"，不在本批范围。
+
+### 12.6 交互与不变量（含锁的位置）
+
+| # | 不变量 | 锁 |
+|---|---|---|
+| I-1 | 打开过设置并选过深色后，**下次启动不打开设置也应落深色** | `App.theme-boot.test.js` 第 1 条（真挂 App.vue，断言 `storeGetSetting('ui:theme')` 被调 + `data-theme === 'dark'`） |
+| I-2 | 没有用户意图时不得写盘 | `App.theme-boot.test.js` 第 2 条（无偏好 ⇒ `storeSetSetting` 未被调用） |
+| I-3 | 「跟随系统」必须能被持久化 | `AppearanceSettings.test.js`：切 dark 再切 system ⇒ `toHaveBeenLastCalledWith('ui:theme','system')` |
+| I-4 | 脏值不得当作用户偏好应用，也不得回写 | `AppearanceSettings.test.js`：`data:'neon'` ⇒ 选中 system、`data-theme=light`、无写盘 |
+| I-5 | 偏好未读到时面板禁用且有 status 加载态，读到后解禁且撤掉提示 | `AppearanceSettings.test.js`（用不 resolve 的 promise 卡住读，再手动 release） |
+| I-6 | 存储不可用不得让面板变砖 | `AppearanceSettings.test.js` 末条（`storeGetSetting` reject ⇒ 仍可切 light 并落 DOM） |
+| I-7 | 模块级单例：两个消费者共享同一份状态；`boot` 幂等 | `useTheme.test.js` 25 条（含"两个消费者共享同一份状态""多次 useTheme 只读一次偏好、只注册一次系统监听"） |
+| I-8 | 外观 Tab 真能切出面板（Tab 在而面板缺席 = 死入口） | `SettingsDialog.test.js`「点击外观切换到外观面板」，断 3 个 `data-testid` |
+| I-9 | Tab 顺序与可用性 | `SettingsDialog.test.js` 首条（8 个 Tab、逐个 label/disabled）|
+| I-10 | `Icon 名必须真实存在` | `src/icon-imports-exist.test.js`（扫真实具名导入 vs 真实模块，`Brush` 已核：`'Brush' in icons === true`）|
+
+`SettingsDialog.test.js` 里原有的**硬编码下标点击**（`findAll('.settings-tab')[4]` 等 4 处）
+在本批一并改为按用户可见文案定位（`clickTab` / `tabByLabel`）。理由是这 4 处在插入第 3 个 Tab
+后会整体位移，而断言仍然"通过"——只是悄悄改测了别的 Tab。该教训本文件早已写过一次
+（「点击禁用 Tab」那条的注释），这次是它的第二次兑现。
+
+### 12.7 变异反证（本批实跑）
+
+| 变异 | 预期 | 实测 |
+|---|---|---|
+| M1 注释掉 `App.vue` 的 `useTheme()` 调用 | `App.theme-boot.test.js` 变红 | **CAUGHT**：2 条全红（`Tests 2 failed (2)`），其余文件不受影响 |
+| M2 删除 `<AppearanceSettings v-else-if="activeTab === 'appearance'">` 一行（Tab 保留） | 只有"点击外观"那条红 | **CAUGHT**：`Tests 1 failed \| 10 passed (11)`，红的正是指名那条 |
+| M3 把 `setThemeMode` 的非法值拒绝摘掉（整条 `if` 注释掉） | `useTheme.test.js` 变红 | **CAUGHT**：`Tests 3 failed \| 30 passed (33)`，红的恰是 `it.each` 的「非法模式 / 空值 / 非字符串 一律拒绝：不改主题、不写存储、返回 false」三条；`AppearanceSettings.test.js` 8 条不受影响（它走的是 `normalizeStoredMode` 那条独立判据） |
+
+三处变异还原后均经 `md5sum` 与被变异前的备份逐字节比对确认一致（`App.vue` = `6c11fd67…`、
+`useTheme.js` = `84d083f1…`），并 `grep -c "MUT-"` = 0 证无残留标记。
+
+### 12.8 暗档像素门禁的起算点与人工审核前置
+
+1.1 合并**之前**暗色不是用户可达态，跑暗档门禁无意义；审计 §5 已据此把阶段 0/1 限定为只跑浅档。
+1.1 落地后，20 张 `*-dark` 基线成为真实回归面。**基线重建必须由人工审核 diff 图后批准，
+禁止用 `--update-baseline` 自动收编**（AGENTS.md QM-4 第 4、7 条：基线必须与比对环境同源，
+只能取自 CI 同一次渲染）。因此本批的验收项「切深色后 20 张 dark 基线成为真实态」在代码侧完成，
+**基线侧留给下一次 CI 现场 + 人工批准**，不在本 PR 里伪造。
+
+`tests/visual-testing/test-runner.js` 的 `_applyTheme` 注释同时被更正：原文写
+"`data-theme` 是应用唯一的主题开关（`useTheme.js` 的 `applyTheme` 写的就是它）"，
+在接线前那是**描述一条不存在的接线**；现改为如实写明写者在哪（App 引导 + 外观面板），
+并把 77 处的旧读数换成本批当场重取的 72 处。
 
 

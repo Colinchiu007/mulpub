@@ -25,6 +25,7 @@
       <div class="settings-panel">
         <ModelProviders v-if="activeTab === 'model'" />
         <LogsSettings v-else-if="activeTab === 'general'" />
+        <AppearanceSettings v-else-if="activeTab === 'appearance'" />
         <FeishuSettingsTab v-else-if="activeTab === 'feishu'" />
         <!-- 知乎 API 紧随飞书 API 之下：两者都是「第三方开放平台凭据」，同类相邻 -->
         <ZhihuSettingsTab v-else-if="activeTab === 'zhihu'" />
@@ -49,10 +50,12 @@
  */
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Connection, Setting, Link, Reading, Upload, User, Compass, Key } from '@element-plus/icons-vue'
+import { Connection, Setting, Link, Reading, Upload, User, Compass, Key, Brush } from '@element-plus/icons-vue'
 import UiModal from './UiModal.vue'
 import ModelProviders from '@/views/ModelProviders.vue'
 import LogsSettings from './LogsSettings.vue'
+// 阶段 1.1（audit-9）：外观（浅色/深色/跟随系统）——暗色主题自实现起无用户可达入口
+import AppearanceSettings from './AppearanceSettings.vue'
 import FeishuSettingsTab from './FeishuSettingsTab.vue'
 import ZhihuSettingsTab from './ZhihuSettingsTab.vue'
 // publish-frequency-policy-v2：发布频率策略（含紧急放行出口）——原 publish tab 由 disabled 转为可用
@@ -72,6 +75,7 @@ const { t } = useI18n()
   const tabs = computed(() => [
     { key: 'model', label: t('settings.tabModel'), icon: Connection, disabled: false },
     { key: 'general', label: t('settings.tabGeneral'), icon: Setting, disabled: false },
+    { key: 'appearance', label: t('settings.tabAppearance'), icon: Brush, disabled: false },
     { key: 'feishu', label: t('knowledgeBase.feishuApi'), icon: Link, disabled: false },
     { key: 'zhihu', label: t('knowledgeBase.zhihuApi'), icon: Reading, disabled: false },
     { key: 'publish', label: t('settings.tabPublish'), icon: Upload, disabled: false },

@@ -36,6 +36,25 @@ function mountDialog (locale = 'zh') {
   })
 }
 
+/**
+ * 按用户可见文案定位并点击 Tab（含挂载后的异步冲刷）。
+ * 不写死下标：本文件「点击禁用 Tab」那条已写过这个教训——插入一个 Tab 会让所有
+ * 硬编码下标整体位移，断言看起来照过，实际改测了别的 Tab。
+ */
+async function clickTab (wrapper, label) {
+  const target = tabByLabel(wrapper, label)
+  await target.trigger('click')
+  await nextTick()
+  await new Promise(resolve => setTimeout(resolve, 0))
+  await nextTick()
+}
+
+function tabByLabel (wrapper, label) {
+  const target = wrapper.findAll('.settings-tab').find((tab) => tab.text().includes(label))
+  expect(target, `必须存在文案含「${label}」的 Tab`).toBeTruthy()
+  return target
+}
+
 describe('SettingsDialog', () => {
   beforeEach(() => {
     i18n.global.locale.value = 'zh'
@@ -51,26 +70,30 @@ describe('SettingsDialog', () => {
     }
   })
 
-  it('渲染七个 Tab，默认选中模型设置；发布/快捷键设置为可用、账号设置仍禁用', () => {
+  it('渲染八个 Tab，默认选中模型设置；发布/快捷键/外观设置为可用、账号设置仍禁用', () => {
     const wrapper = mountDialog()
     const tabs = wrapper.findAll('.settings-tab')
-    expect(tabs).toHaveLength(7)
+    expect(tabs).toHaveLength(8)
     expect(tabs[0].text()).toContain('模型设置')
     expect(tabs[1].text()).toContain('通用设置')
-    expect(tabs[2].text()).toContain('飞书 API')
-    expect(tabs[3].text()).toContain('知乎 API')
+    // 阶段 1.1（audit-9）：外观 Tab 上线——暗色主题此前无任何用户可达入口
+    expect(tabs[2].text()).toContain('外观')
+    expect(tabs[2].text()).not.toContain('敬请期待')
+    expect(tabs[2].attributes('disabled')).toBeUndefined()
+    expect(tabs[3].text()).toContain('飞书 API')
+    expect(tabs[4].text()).toContain('知乎 API')
     // publish-frequency-policy-v2：发布设置由 disabled 转为可用（不再是「敬请期待」）
-    expect(tabs[4].text()).toContain('发布设置')
-    expect(tabs[4].text()).not.toContain('敬请期待')
-    expect(tabs[4].attributes('disabled')).toBeUndefined()
-    // 阶段 1.6（audit-10）：快捷键 Tab 上线，消费既有 hotkeys:list IPC
-    expect(tabs[5].text()).toContain('快捷键')
+    expect(tabs[5].text()).toContain('发布设置')
     expect(tabs[5].text()).not.toContain('敬请期待')
     expect(tabs[5].attributes('disabled')).toBeUndefined()
+    // 阶段 1.6（audit-10）：快捷键 Tab 上线，消费既有 hotkeys:list IPC
+    expect(tabs[6].text()).toContain('快捷键')
+    expect(tabs[6].text()).not.toContain('敬请期待')
+    expect(tabs[6].attributes('disabled')).toBeUndefined()
     // 账号设置仍禁用（未在本变更范围内）
-    expect(tabs[6].text()).toContain('账号设置')
-    expect(tabs[6].text()).toContain('敬请期待')
-    expect(tabs[6].attributes('disabled')).toBeDefined()
+    expect(tabs[7].text()).toContain('账号设置')
+    expect(tabs[7].text()).toContain('敬请期待')
+    expect(tabs[7].attributes('disabled')).toBeDefined()
     expect(wrapper.get('.settings-tab.active').text()).toContain('模型设置')
   })
 
@@ -98,22 +121,26 @@ describe('SettingsDialog', () => {
 
   it('点击发布设置切换到发布频率策略面板', async () => {
     const wrapper = mountDialog()
-    await wrapper.findAll('.settings-tab')[4].trigger('click')
-    await nextTick()
-    await new Promise(resolve => setTimeout(resolve, 0))
-    await nextTick()
+    await clickTab(wrapper, '发布设置')
     expect(wrapper.get('.settings-tab.active').text()).toContain('发布设置')
     expect(wrapper.find('[data-testid="publish-frequency-settings"]').exists()).toBe(true)
   })
 
   it('点击知乎 API 切换到知乎配置面板', async () => {
     const wrapper = mountDialog()
-    await wrapper.findAll('.settings-tab')[3].trigger('click')
-    await nextTick()
-    await new Promise(resolve => setTimeout(resolve, 0))
-    await nextTick()
+    await clickTab(wrapper, '知乎 API')
     expect(wrapper.get('.settings-tab.active').text()).toContain('知乎 API')
     expect(wrapper.find('[data-testid="zhihu-settings"]').exists()).toBe(true)
+  })
+
+  it('点击外观切换到外观面板（阶段 1.1 的接线证明：暗色主题有用户可达入口了）', async () => {
+    const wrapper = mountDialog()
+    await clickTab(wrapper, '外观')
+    expect(wrapper.get('.settings-tab.active').text()).toContain('外观')
+    expect(wrapper.find('[data-testid="appearance-panel"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="appearance-mode-system"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="appearance-mode-light"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="appearance-mode-dark"]').exists()).toBe(true)
   })
 
   it('initialTab=zhihu 时打开即定位到知乎 API，且之后不再把用户拉回（采集页「前往设置」的落点契约）', async () => {
@@ -149,15 +176,12 @@ describe('SettingsDialog', () => {
   it('每个 Tab 渲染图标位（.tab-icon）', () => {
     const wrapper = mountDialog()
     const icons = wrapper.findAll('.settings-tab .tab-icon')
-    expect(icons).toHaveLength(7)
+    expect(icons).toHaveLength(8)
   })
 
   it('切到快捷键 Tab 渲染快捷键面板（阶段 1.6 的接线证明：IPC 有消费点了）', async () => {
     const wrapper = mountDialog()
-    await wrapper.findAll('.settings-tab')[5].trigger('click')
-    await nextTick()
-    await new Promise(resolve => setTimeout(resolve, 0))
-    await nextTick()
+    await clickTab(wrapper, '快捷键')
 
     expect(wrapper.get('.settings-tab.active').text()).toContain('快捷键')
     expect(wrapper.find('[data-testid="hotkeys-section"]').exists()).toBe(true)
@@ -167,9 +191,10 @@ describe('SettingsDialog', () => {
     const wrapper = mountDialog('en')
     const tabs = wrapper.findAll('.settings-tab')
     expect(tabs[0].text()).toContain('Model Settings')
-    expect(tabs[3].text()).toContain('Zhihu API')
-    expect(tabs[4].text()).toContain('Publish Settings')
-    expect(tabs[5].text()).toContain('Keyboard shortcuts')
-    expect(tabs[6].text()).toContain('Coming Soon')
+    expect(tabByLabel(wrapper, 'Appearance').text()).not.toContain('Coming Soon')
+    expect(tabByLabel(wrapper, 'Zhihu API').text()).toContain('Zhihu API')
+    expect(tabByLabel(wrapper, 'Publish Settings').text()).not.toContain('Coming Soon')
+    expect(tabByLabel(wrapper, 'Keyboard shortcuts').text()).not.toContain('Coming Soon')
+    expect(tabByLabel(wrapper, 'Coming Soon').text()).toContain('Account Settings')
   })
 })

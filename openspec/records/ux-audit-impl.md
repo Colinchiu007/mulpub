@@ -1,6 +1,6 @@
 ---
 record: ux-audit-impl
-task: 按 UX-AUDIT-2026-10-17 §5 落地阶段 0 全部 + 阶段 1 批次 A（导航/快捷键/404/离线/陈旧看门狗/两条新门禁）+ 批次 B（暗色入口除外：试用横幅挂载、死全局注册清理、首运向导接回启动判定、帮助页可用化）
+task: 按 UX-AUDIT-2026-10-17 §5 落地阶段 0 全部 + 阶段 1 批次 A（导航/快捷键/404/离线/陈旧看门狗/两条新门禁）+ 批次 B（试用横幅挂载、死全局注册清理、首运向导接回启动判定、帮助页可用化）+ 批次 C（1.1 暗色主题入口）
 date: 2026-10-18
 sync_status: PENDING
 sync_reason: 本片为混合 PR（运行时代码 + 门禁 + 文档），合并后收口由 merge-ledger 按主干历史推导，不另开回填 PR（2026-10-17 起回填通道已取消）
@@ -49,6 +49,24 @@ sync_backfill_owner: none-derived-from-trunk
 | 门禁与棘轮的如实改数 | ✅ | `preload.test.js` 三条计数：`check-danger-confirm` `files=372 … unregistered=0 missing_evidence=0 stale=0`；`check-css-var-concat files=201 violations=0`；`openspec-sync-check OK: 387 tasks`；`check-route-registry 37/37`；`check-locale-sync --cjk` 1175（删向导死文案与 LoadingState 后下降）、`--keys` 2156 全部存在。**既有假红记录**：把 `system.js` 精确还原到 HEAD 后同一测量得 **140** 而断言写 139 ⇒ 该棘轮在本批动手前已差 1，控制对照与逐字节还原（md5 相等）过程见 PRD §11.6 |
 | QM-1 打包 | 本批收尾重跑 | 本批改了 `electron/{window.js,ipc-handlers/*,preload/*,services/first-run.js}` ⇒ 属 QM-1 触发面；批次 A 的打包证据（`build:vue` rc=0 → `electron-builder --dir` rc=0 → asar `extractFile` 三查 → 隔离 userData 启动 10s 存活且 stderr 0 字节）已在上方表格登记，本批推送前按同三层判据重跑并回读 |
 | 本批未做（不冒充已做） | ⚠️ | 1.1（暗色入口，单独成包）与 1.2（`AnnouncementBanner` 挂载）未包含在本批：1.2 的正确实现需要先给内嵌 `WebContentsView` 加 top-inset 通道（`view-bounds.js` + `webview-manager/layout.js` + `webview-manager/ipc-handlers.js:246` + `preload/page-manager.js:40` 四处同步，仿 `setSidebarWidth`），否则原生图层会盖住横幅；本批不把它伪装成"挂一行" |
+
+## 阶段 1 批次 C：1.1 暗色主题入口（ux-audit-impl-c，2026-10-18）
+
+| 门禁 | 状态 | Fresh 证据 |
+|------|------|-----------|
+| 本批范围 | 1.1（单独成包） | `useTheme.js` 模块级单例改造 + `components/AppearanceSettings.vue` 新建 + `SettingsDialog.vue` 插「外观」Tab（7→8）+ `App.vue` 启动引导 + `tests/visual-testing/test-runner.js` 主题注释更正 |
+| 第一性原因（QM-5 ①） | ✅ | 不是"少写一行跳转"，而是**状态模型少一态**：原 `useTheme` 每次调用新建一份 `theme` ref 且只有 `light⇄dark`。照原样接一个开关的话"跟随系统"无处可存 —— 持久化**解析结果**会让用户每次改系统偏好都被上一次手工选择覆盖，两个方向的覆盖在用户侧同形为"设置没生效"。故真源改为**存模式（system/light/dark）、主题只是派生值** |
+| 逃逸分析（QM-5 ②） | ✅ | ①**测试场景缺失**：全仓没有任何"某 UI 状态是否用户可达"的判据，`useTheme.test.js` 测的是纯函数，模块 0 调用点也能全绿；②**视觉层结构性失明**：暗色对比度六轮修复全部发生在视觉测试手工 `setAttribute` 出来的状态里，"用户进不去这个状态"对像素门禁不可见；③**断言不精确**：`SettingsDialog.test.js` 4 处硬编码下标点击对"插入一个 Tab"完全免疫（位移后照样通过，只是悄悄改测别的 Tab）——本批顺手改为按用户可见文案定位 |
+| 系统性漏洞定位（QM-5 ③） | ✅ | AGENTS.md 已把「注册≠注入≠执行」写成纪律，但 UI 层没有机械判据（阶段 5.3 `check-ui-wired.js` 才是它的执行体）。本批的处理是把这条**下沉成装配锁**（`App.theme-boot.test.js` 以生产方式挂 `App.vue`，断 `storeGetSetting('ui:theme')` 被调 + `data-theme` 落值），而不是再造一条静态门禁；未落地的那条仍如实留给阶段 5，不预写达成 |
+| 修复 + 回归保护（QM-5 ④） | ✅ | `useTheme.test.js` 重写 25 条（含"两个消费者共享同一份状态""多次 `useTheme` 只读一次偏好、只注册一次系统监听"）；`AppearanceSettings.test.js` 新建 8 条（禁用期与 `role="status"` / 脏值回落且不回写 / 持久化的是模式 / 生效主题行 / 存储 reject 不变砖）；`App.theme-boot.test.js` 新建 2 条装配锁；`SettingsDialog.test.js` Tab 顺序与图标位计数改 8 + 新增「点击外观切换到外观面板」 |
+| 变异反证（三条全部实跑） | ✅ | M1 摘 `App.vue` 的 `useTheme()` ⇒ 装配锁 **2 条全红**（`Tests 2 failed (2)`）；M2 摘面板渲染行、**留 Tab** ⇒ `SettingsDialog.test.js` **只有指名那条红**（`1 failed \| 10 passed (11)`）；M3 摘 `setThemeMode` 的非法值拒绝 ⇒ `useTheme.test.js` 的 `it.each` **三条红**（`3 failed \| 30 passed (33)`）。三处还原后 `md5sum` 与被变异前备份逐字节相同（`App.vue` `6c11fd67…`、`useTheme.js` `84d083f1…`），`grep -c "MUT-"` = 0 |
+| 反证取的是被禁形态本身 | ✅ | M2 不是"删掉整个 Tab"（那会让首条计数锁一起红、失去归因力），而是只摘面板渲染行 —— 这正是"Tab 在、点进去是占位符"这一用户可见故障形态本身；M3 是注释掉整条 `if`，不是把白名单改宽 |
+| 已知边界（不掩盖） | ⚠️ | `storeGetSetting` / `storeSetSetting` 不在 preload `PUBLIC_METHODS` 内 ⇒ 权限级别 `authenticated`。未激活态下主题切换**本次会话生效但不跨启动持久化**（读被拒按"无偏好"处理；写被拒静默且本地不回滚）。这与 `drafts`、`story2video.lastOptions` 等既有本地设置同源（同一对通道）；单独为暗色开一条 public 通道属改"谁来守门"，本批不做，已在 PRD §12.5 登记 |
+| QM-4 视觉（起算点变更） | ⚠️ | 本批合并后，`src/styles/*.css` 实测 **72 处** `[data-theme=…]`（2026-10-18 当场重取；旧值 77 已撤回）与 **20 张** `*-dark` 基线首次成为真实用户可达的回归面。**基线重建必须人工审核 diff 图，禁止 `--update-baseline` 自动收编**；本 PR 不含任何基线改动，暗档门禁读数留待合并后第一次 CI 现场 |
+| QM-1 打包 | ✅ 推送前重跑 | 本批只改渲染端（`src/**`）与视觉 runner 注释，不在 QM-1 触发面（`apps/desktop/electron/`、`packages/rpa-engine/`）内；但 `vite build` 是 `.vue` 模板编译的必需判据，实测 `✓ built in 9.58s` rc=0。推送前仍按批次 A/B 的三层判据重跑打包链，使产物反映分支最终状态 |
+| 行尾与 diff 对账 | ✅ | `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径逐文件相同（`CHANGELOG.md 41/0`、`PRD 166/6`、`spec.md 37/0`、`tasks.md 1/1`）。`CHANGELOG.md` 仍为 `i/lf w/crlf attr/text=auto`，工作副本的 LF 警告属 checkout 转换，非内容改动 |
+| 门禁读数（本批当场） | ✅ | `check-max-lines` domain=10148 ⇒「无新增超大文件，挂账清单与现实一致」；`check-locale-sync --cjk` 1175（基线 1331，无新增硬编码）、`--keys` 2173 全部存在于 zh/en、`--pair-base` PASS；`check-no-brand-residue` PASS（10145 tracked 文件）；`openspec-sync-check` OK: 387 tasks；`vite build` rc=0 |
+| 本批未做（不冒充已做） | ⚠️ | 1.2（`AnnouncementBanner` 挂载 + top-inset 通道）仍待做，见上一节「本批未做」；阶段 2–5 全部待办 |
 
 ## 关联
 

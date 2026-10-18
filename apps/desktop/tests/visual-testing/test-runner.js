@@ -508,11 +508,15 @@ class VisualTestRunner {
   /**
    * 把主题写到 DOM（批次 1：暗色基线通道）
    *
-   * - `data-theme` 是应用唯一的主题开关（`src/composables/useTheme.js` 的 `applyTheme` 写的就是它）
+   * - `data-theme` 是应用唯一的主题开关；自阶段 1.1（audit-9）起它**真的有写者**：
+   *   `src/composables/useTheme.js` 的 `applyTheme` 写它，`App.vue` 挂载时引导、
+   *   设置页「外观」面板供用户切换。runner 手工 setAttribute 只是把同一开关置态，
+   *   不是在模拟一条已不存在的链路。
    * - **每个用例都必须显式设置**：runner 全用例复用同一个 page，hash 导航不重载文档，
    *   上一用例残留的 `data-theme="dark"` 会让下一个浅色用例拍出暗色图并与浅色基线比红
-   * - 浅色显式写 `"light"` 与「属性缺失」在样式上等价：全仓 77 处 `[data-theme=...]` 选择器
-   *   **全部是 `dark`**，且不存在 `:not([data-theme])` / `[data-theme=""]` / `html:not(...)`
+   * - 浅色显式写 `"light"` 与「属性缺失」在样式上等价：全仓 72 处 `[data-theme=...]` 选择器
+   *   （`src/styles/*.css`，2026-10-18 当场重取；77 是第一轮已撤回的旧值）**全部是 `dark`**，
+   *   且不存在 `:not([data-theme])` / `[data-theme=""]` / `html:not(...)`
    *   这类依赖属性存在性的写法（2026-09-29 实测）。因此本改造**不会改写既有浅色基线的拍摄条件**。
    * - 非法值一律归一为 `light`（fail-safe：不产出第三套命名）
    */

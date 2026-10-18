@@ -22,7 +22,7 @@
 - [x] 1.7 catch-all + `NotFound.vue`（真路由表 N1 + 出口 + 只回显 path），`route-registry` 同步登记（`check-route-registry` 实测 37/37）
 - [x] 1.7 离线双向：`offline:lost` 推送 + preload 暴露 + 白名单 + `useOfflineStatus` 三通道重写 + `dispose`；横幅文案入 locales、加 `role="alert"` 与暗色档；6 条主进程锁 + 4 条 composable 新锁
 - [x] 1.8 `lastEventAt` 陈旧看门狗（3 分钟阈值 / 15 秒采样 / 三个"不谎报"边界 / interval 幂等），面板停滞徽标与关闭解禁；6 条锁
-- [ ] 1.1 暗色主题入口（**单独成包**，评审 c2）：`useTheme` 改模块级单例 + 设置页「外观」分组（跟随系统/浅色/深色）+ `test-runner.js:511` 注释更正；合并后暗档像素门禁起算，暗色基线重建须人工审核
+- [x] 1.1 暗色主题入口（**单独成包**，评审 c2）：`useTheme` 改模块级单例（`mode/theme/loaded` 住模块作用域，`boot()` 幂等、系统监听只挂一次、`setThemeMode` 拒绝非法值且不写盘）+ 设置页「外观」分组（跟随系统/浅色/深色三档 `fieldset/legend`，未读到偏好前整面板 `disabled` 并给 `role="status"`）+ `App.vue` 启动引导（不打开设置也能恢复上次主题）。持久化真源存**模式**而非解析结果，脏值回落 `system` 且不回写。`test-runner.js` 的主题注释更正为如实描述写者（原句描述的接线当时不存在），并把 77 处旧读数改成本场重取的 72 处。锁：`useTheme.test.js` 25 条 + `AppearanceSettings.test.js` 8 条 + `App.theme-boot.test.js` 2 条（装配锁）+ `SettingsDialog.test.js` Tab 顺序/计数；变异 M1（摘 `App.vue` 的 `useTheme()`）⇒ 装配锁 2 条全红、M2（摘面板行、留 Tab）⇒ 只有指名那条红、M3（摘非法值拒绝）⇒ `it.each` 三条红，三处还原后 md5 与备份逐字节一致。合并后暗档像素门禁起算，**暗色基线重建仍须人工审核**（本 PR 不伪造基线）
 - [ ] 1.2 `AnnouncementBanner` 挂载（数据链已备，零引用）；与内嵌视图重叠时按浮层互斥合同登记 owner
 - [x] 1.3 `TrialBanner` 挂进 `MemberCenter`（可见资格取服务端 `entitlement.plan`，倒计时取本地 license；关闭只会话内生效）；`LoadingState` 与其测试、两处全局注册一并删除（实测全仓模板零消费）；新增 `src/global-components-contract.test.js`（注册↔消费 + 两份清单对账 + 反失明 + 墓碑，6 条，变异"加一条假注册"实测双红）
 - [x] 1.4 `/first-run` 接回启动判定：写标记从启动流程摘除（`runSetup` 与 `first-run:status` 推送通道删除），新增 `first-run:complete` IPC + preload + 两处白名单；`useFirstRunGate` 只在读到 `code===0 && setupDone===false` 时 `replace`（6 条判据锁 + 4 条 App 装配锁，装配锁变异"摘掉调用"实测变红）；向导由四步改三步并补「跳过引导」出口；顺带删除第二套引导真源 `services/onboarding.js`（`onboarding-done` 全仓零写点）
