@@ -4894,7 +4894,7 @@ export default {
         const r = await aiGenerate('llm', providerId, { prompt: '为短视频写一个30秒文案，风格：' + this.quickTheme })
         if (r?.code === 0 && r.data?.content) this.quickText = r.data.content // P0-1: content 非 text
       } catch (e) { this.quickError = 'AI 写稿失败: ' + formatUserError(e, { fallback: '未知错误' }).message }
-      this.aiLoading = false
+      finally { this.aiLoading = false }
     },
     // Remotion 安装
     async installDeps() {
