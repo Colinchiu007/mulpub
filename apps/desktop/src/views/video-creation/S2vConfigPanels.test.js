@@ -148,7 +148,6 @@ describe('S2vConfigPanels', () => {
     expect(labels(w)).toContain('语音 / 音色 ID');
     expect(labels(w)).not.toContain('语音模型');
     w.unmount();
-    vm.s2vConfig.voiceModel = 'speech-2.8-turbo';
 
     // 场景 3：未选 provider → 同样不渲染
     vm.s2vConfig.voiceProvider = '';
