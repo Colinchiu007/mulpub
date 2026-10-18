@@ -692,4 +692,24 @@ App.vue setup
 在接线前那是**描述一条不存在的接线**；现改为如实写明写者在哪（App 引导 + 外观面板），
 并把 77 处的旧读数换成本批当场重取的 72 处。
 
+### 12.9 本批 QM-1 现场副产的两条既有缺陷（不在本批修，登记于此）
+
+打包链本身全绿（`build:vue` rc=0、`electron-builder --dir` rc=0、asar 产物判据 13 条 PASS、
+隔离 userData 启动 10 秒存活且 **stderr 0 字节**）。但把**子进程 stdout** 落盘回读（22490 字节）时
+抓到两条与本批无关的既有问题；二者都不在 stderr，因此三层判据不会因它们变红 ——
+这是 AGENTS.md 那条"黑名单宽度 = 已知故障的枚举"的另一面：**判据只看 stderr 时，
+被 logger 打到 stdout 的真实故障会整体隐身**。
+
+| # | 现场 | 判读 | 处置 |
+|---|---|---|---|
+| 1 | `[ERROR] Renderer [Unhandled Rejection]: 许可证权限不足，无法调用 onProgress` / `onTabEvent`（未激活许可证 + 全新 userData 首启） | preload 的 `createPermissionError` 对 `authenticated` 级方法是**同步 throw**，订阅类调用点不 catch ⇒ 未登录/未激活态下标签系统订阅静默失败，且错误演成 unhandled rejection。与 AGENTS.md「electron-bridge 权限错误同步 throw 变 rejected promise、fallback 分支永不执行」同族 | 后续任务：订阅类 API 在未激活态应**不注册且不抛**（而非抛出去无人接）。先取证"未激活态是否真需要标签系统"，再决定降级提示还是静默；不得以"日志难看"为由直接吞掉 |
+| 2 | `[ERROR] sqlite-wrapper all() error: no such column: external_id \| SQL: SELECT platform, external_id, COUNT(*) AS n FROM viral_library` | 查询列与建表列不同源（缺迁移或缺列） | 后续任务：按 QM-5 五步处理（根因 → 逃逸 → 系统性漏洞 → 回归锁 → 预防），不在本批顺手改 |
+
+**方法论落点两条**：① QM-1 的启动验证在本仓**必须同时回读子进程 stdout**（不只是 stderr），
+理由不是"stderr 判据写错了"，而是它对该形态结构性失明；已写进执行记录的取证清单。
+② 产物级判据的第一条必须是**通路自证** —— 本批前两轮共 9 个 FAIL 全部来自 asar 键形用错
+（`listPackage` 返回 `\dist\assets\x.js`，`extractFile` 只认去前导分隔符、内部保留反斜杠的
+`dist\assets\x.js`；而单级路径 `dist/index.html` 用正斜杠恰好能读，于是错形被一次巧合坐实），
+**0 个来自产物本身**。把探针失明读成"功能没进包"，就是把工具的故障上报成同事的缺陷。
+
 
