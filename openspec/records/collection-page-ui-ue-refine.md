@@ -43,6 +43,7 @@ sync_backfill_owner: collection-page-ui-ue-refine 会话（回填 PR）
 | QM-4 视觉 | **未本机取证** | 本机 Chromium 未安装（`apps/desktop/.playwright-browsers` 不存在）；像素归因与基线重建以 CI `QG Visual` 结论为准。如实登记，不当成通过 |
 | QM-1 打包 | **未执行** | 本轮未改 `electron/` 主进程代码（仅 renderer），按 QM-1 触发条件（改 `apps/desktop/electron/` 或 `packages/rpa-engine/`）不强制；如实登记 |
 | QM-6 双模型评审 | 见第 4 节 | 按 decider 判定 |
+| 远程同步 | PENDING | PR #3864 尚未合并；合并后同一次提交改写为 PASS + merge SHA |
 
 - 保留门禁：变更类型与隔离 ✅ | TDD ✅ | 全量测试 ✅ | eslint ✅ | locale 三项 ✅ | max-lines ✅ | 品牌 ✅ | QM-4 未本机取证 | 远程同步 PENDING
 
