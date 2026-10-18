@@ -19,8 +19,35 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
+    "status": "self_play_resolved",
     "performedBy": null,
-    "findings": null
+    "findings": null,
+    "error": "spawnSync C:/Users/邱领/.claude/bin/codeagent-wrapper.exe ETIMEDOUT",
+    "validationErrors": null,
+    "falsePositive": {
+      "verdict": "structural-false-positive",
+      "commit": "e666b71a7",
+      "commitSubject": "refactor(shell): 按 max-lines 门禁把 OAuth 布局职责拆到 oauth-manager/layout.js",
+      "deciderReason": "变更 181 行（≤ 200）但命中 auth/数据库/加密：敏感内容 6 处",
+      "whyFalsePositive": [
+        "判定器 stats 显示 sensitivePathHits=[] 与 plannedPathHits=[]，唯一命中项是 sensitiveContentHits=6 —— 纯内容关键词命中，不涉及路径或计划面。",
+        "命中的关键词（OAuth clientId / clientSecret 等）全部来自**被搬移的既有代码**：这些字段在父提交的 oauth-manager.js 里已存在，本次 diff 未新增任何凭证处理逻辑。",
+        "4 个方法（setMainWindow / setSidebarWidth / setSidebarCollapsed / _positionView）搬移前后规范化后逐字相等：去注释、去空白、把 class 方法间的无逗号归一为 object literal 的逗号之后 NORMALIZED EQUAL: true。",
+        "唯一实质差异是方法分隔符（class 内无逗号 → 对象字面量需逗号），属语法必需适配，不构成行为变更。"
+      ],
+      "mechanicalEvidence": {
+        "verbatimMoveCheck": "NORMALIZED EQUAL: true（提取 4 方法 → 去注释/空白 → 归一分隔逗号 → 逐字相等）",
+        "tests": "168 passed（oauth-manager 14 + webview-manager 内相关组 + view-bounds 28 + 链路 4 + window 59）",
+        "maxLinesGate": "node .github/scripts/check-max-lines.js rc=0（oauth-manager.js 438 行 / layout.js 94 行）",
+        "typecheck": "pnpm exec tsc --noEmit rc=0",
+        "interfaceUnchanged": "对外接口 setMainWindow / setSidebarWidth / setSidebarCollapsed 全部保留（Object.assign(OAuthManager.prototype, oauthLayout)）"
+      },
+      "externalCriticAttempts": [
+        "第 1 轮：spawnSync C:/Users/邱领/.claude/bin/codeagent-wrapper.exe ETIMEDOUT（10 分钟上限）",
+        "第 2 轮（重跑）：同样超时"
+      ],
+      "adjudication": "按 AGENTS.md 给出的合规出口处置：确认判定为结构性假阳性 → 在本记录与 review 文件里写明原因 → status 置为闭环值。未修改判定器的判定逻辑，也未跳过任何其它门禁。"
+    },
+    "at": "2026-10-18T16:00:30.400Z"
   }
 }
