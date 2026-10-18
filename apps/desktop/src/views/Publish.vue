@@ -1373,8 +1373,6 @@ function editDraft (draft) {
   return router.replace({ path: '/publish', query: publishEditorQuery({ draft: String(draft.id) }) })
 }
 
-
-
 // ── 热门选题批量交接（?drafts=id,id,...）──
 // 状态机（解析/装载/幂等/预置目标）在 useHotTopicsDraftHandoff；本视图只保留触发点与提示。
 const handoff = useHotTopicsDraftHandoff({
