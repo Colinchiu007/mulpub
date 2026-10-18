@@ -23,8 +23,12 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "self_play_resolved",
+    "performedBy": "manual dual review: claude-code 2.1.301 + codex-cli 0.144.6 (CCG deep-review.sh orchestration not run)",
+    "findings": [
+      "codex-cli 0.144.6: 0 CRITICAL / 0 MAJOR, 2 P3 -> both FIXED: (1) Collection.vue structured reason was unwrapped to message string (en degrades to unknown) -> collectErrorSource() passes object + IPC data.reason passthrough; (2) security_challenge counted as breaker failure -> skip recordFailure/cooldown, keep health/audit.",
+      "Claude Code 2.1.301: 0 CRITICAL / 0 MAJOR, 7 MINOR -> 0 adopted (6 explicitly accept-as-is per PRD tradeoffs, 1 English fallback constant covered by zh/en locale).",
+      "Evidence: PRD §12.3 + openspec/records/fix-collect-antibot-rewrite.md QM-6 row; follow-up tests 9 files 366 passed."
+    ]
   }
 }
