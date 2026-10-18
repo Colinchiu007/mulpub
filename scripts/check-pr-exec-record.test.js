@@ -891,7 +891,7 @@ test('缺陷D：本次变更集不涉及任何 .ccg 记录时不得报（不扫�
   } finally { fs.rmSync(repo, { recursive: true, force: true }) }
 })
 
-test('缺陷D：损坏的 JSON 记录不抛异常（由别的门禁负责）', () => {
+test('缺陷D：损坏的 JSON 记录不抛异常，但必须点名出声（实测没有任何别的门禁在校验它可解析）', () => {
   const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'ccg-debt-'))
   const p = path.join(repo, '.ccg', 'reviews')
   fs.mkdirSync(p, { recursive: true })
@@ -902,7 +902,7 @@ test('缺陷D：损坏的 JSON 记录不抛异常（由别的门禁负责）', (
       repo
     )
     assert.strictEqual(r.checked, 1, '损坏记录仍算「本次涉及」')
-    assert.deepStrictEqual(r.reasons, [], '损坏记录不重复报，交给别的门禁')
+    assert.match(r.reasons.join('\n'), /解析不动/, '损坏记录必须点名出声，不能再交给一个并不存在的「别的门禁」')
   } finally { fs.rmSync(repo, { recursive: true, force: true }) }
 })
 
@@ -1531,7 +1531,7 @@ test('有界子串口径的两条负控：碎片不得匹配、请求复合名�
 test('丙 classifyEvidenceTier：闭集四档 + 其余一律 unknown（大小写/空格都不放过）', () => {
   const c = mod.classifyEvidenceTier
   assert.strictEqual(typeof c, 'function', '必须导出 classifyEvidenceTier')
-  assert.strictEqual(c({ tier: 'external', evidence: 'D:/Temp/x.log#ses_1' }), 'external')
+  assert.strictEqual(c({ tier: 'external', evidence: '<TEMP>/qm6-backend.log#ses_probe0001' }), 'external')
   assert.strictEqual(c({ tier: 'external' }), 'external-unverified', '只有声明没有出处 ⇒ 不算外部证据')
   assert.strictEqual(c({ tier: 'external', evidence: '   ' }), 'external-unverified', '空白 evidence 等于没填')
   assert.strictEqual(c({ tier: 'external', evidence: 42 }), 'external-unverified', '非字符串 evidence 不得被 String() 蒙过去')
@@ -1545,7 +1545,7 @@ test('丙 classifyEvidenceTier：闭集四档 + 其余一律 unknown（大小写
 test('丙 summarizeTierCoverage：五档计数 + 空集也必须给读数（反失明）', () => {
   const s = mod.summarizeTierCoverage
   const r = s([
-    { tier: 'external', evidence: 'p' }, { tier: 'external', evidence: 'p' },
+    { tier: 'external', evidence: 'ses_probe0001' }, { tier: 'external', evidence: 'PR #3777' },
     { tier: 'external' }, { tier: 'self-play' }, { tier: 'none' }, {}, { tier: 'CLAUDE' }
   ])
   assert.strictEqual(r.total, 7)
@@ -1601,4 +1601,44 @@ test('丙：真跑 CLI —— dual+cleared 但无 tier 的记录必须 rc=0 且�
     assert.ok(/TIER-COVERAGE/.test(res.out), `stdout 必须含覆盖率行，实际 rc=${res.rc} 输出开头=${JSON.stringify(res.out.slice(0, 200))}`);
     assert.strictEqual(res.rc, 0, `覆盖率不得把 PR 判红（先可见不拦）。rc=${res.rc} out=${JSON.stringify(res.out.slice(0, 300))}`);
   } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+// ── 2026-10-17 后端轴 findings 的处置落锁（critical #1/#2/#3 + 自查发现的 A/M 逃逸）────
+// 口径：这一批是「读不动 ≠ 没有」的第四与第五个落点 —— 此前注释写着"由别的门禁负责"，
+// 实测全仓唯一另一处逐条 parse 的 ccg-gate.js 也是 catch 跳过 ⇒ 那句话声称的门禁不存在。
+const SHA64U = 'd'.repeat(64)
+
+test('后端命中：变更集里有解析不动的评审产物 ⇒ 必须点名出声（损坏不等于没欠账）', () => {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'ccg-corrupt-'))
+  const rel = '.ccg/reviews/' + SHA64U + '.json'
+  fs.mkdirSync(path.join(repo, '.ccg', 'reviews'), { recursive: true })
+  fs.writeFileSync(path.join(repo, rel), '{"mode":"dual","deepReview":{"status":"clea', 'utf8')
+  try {
+    const r = mod.evaluateDeepReviewDebt(st([['A', rel]]), repo, () => null)
+    assert.strictEqual(r.reasons.length, 1, `解析不动的产物必须报 1 条，实际 ${r.reasons.length}：${JSON.stringify(r.reasons)}`)
+    assert.match(r.reasons[0], /解析不动/, '文案必须点明是"读不动"，不能写成"没有欠账"')
+    assert.ok(r.reasons[0].includes(SHA64U), '必须点名是哪个文件，否则归因不了')
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('后端命中：D 掉的记录 base 内容解析不动 ⇒ 走未证实出口出声，不得静默 continue', () => {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'ccg-corrupt-d-'))
+  const rel = '.ccg/reviews/' + SHA64U + '.json'
+  try {
+    const r = mod.evaluateDeepReviewDebt(st([['D', rel]]), repo, () => '{"mode":"dual","xx')
+    assert.strictEqual(r.reasons.length, 1, `base 读得动但解析不动必须报 1 条，实际 ${r.reasons.length}`)
+    assert.match(r.reasons[0], /无法取证/, '必须走「未证实」这条既有出口')
+    assert.ok(r.reasons[0].includes('base 内容解析不动'), '必须区分"读不到"与"读不动"，否则下一次排障找错方向')
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('后端命中：evidence 必须是可核指针 —— 单个字符 x 不得被判成 external', () => {
+  assert.strictEqual(mod.classifyEvidenceTier({ tier: 'external', evidence: 'x' }), 'external-unverified',
+    '非空 ≠ 可复核：一个字符就声称做过外部评审，必须降级')
+  assert.strictEqual(mod.classifyEvidenceTier({ tier: 'external', evidence: '我做过了' }), 'external-unverified',
+    '自由文本散文同样不可核')
+  for (const good of ['PR #3777 后端轴交付', 'ses_abc12345678', '3d77f06b-c417-436a-a513-aca14165aa3c']) {
+    assert.strictEqual(mod.classifyEvidenceTier({ tier: 'external', evidence: good }), 'external',
+      '可核形态（PR 引用 / 会话 id / uuid）应判 external：' + good)
+  }
 })

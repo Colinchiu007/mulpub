@@ -60,3 +60,10 @@
 
 - [ ] 7.1 判据本体属高危面 ⇒ 本 PR **不得**以 `self-play` 收口 QM-6；记录里必须写真实证据档或"未执行"，**不得**出现"降级已建立且本 PR 用它收口"
 - [ ] 7.2 本 PR **不自动合并**，一律人工过目（改"谁来守门"）
+
+## 8. QM-6 命中登记（2026-10-17，两轴经直呼 CLI 交付；处置明细见 `openspec/records/ccg-deg-evidence-tier.md`）
+
+- [ ] 8.1 **闭环值只能由工具写，不能由会话手写**（后端 B0/B1 + 前端 F1，实测：四种伪造 `cleared` 全部被接受，含 `evidence:"x"`）：`deep-review` 交付时才写 `tier:"external"` + 可核 `evidence` + `findings`；判据侧对「M 状态、base 非闭环 → head 闭环，而本次变更集没带任何外部评审产物」必须点名——`readAtBase` 已具备该能力，缺的只是把它用到转变检测上。**A 状态凭空伪造在判据层不可判**（除自述外无对象可核），只能由「写入方收敛到工具」+ 事后抽查承担，登记而不假装已闭合
+- [ ] 8.2 `summarizeTierCoverage` 增 `corrupt=N` 独立计数（后端 B3 的观察半边；归因已由「解析不动即点名」覆盖，此项只是趋势可见性）
+- [ ] 8.3 `ccg-review-decider.js` 的 `main()` 处理 `saveRecord` 的 null 返回 ⇒ 退出码与副作用一致，不以裸栈收尾（前端 F4：错误文本已先打印，属 fail-loud 不是假绿，但 rc 层级被裸栈掩盖）
+- [ ] 8.4 普查工具加 `require.main === module` 守卫；`parseFail` 拆成 `missing` 与 `unparsed` 两计数分别打印（前端 F5，与本会话自己踩的「json=0 是探针失明不是测量」同一条）

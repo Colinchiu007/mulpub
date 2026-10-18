@@ -70,3 +70,27 @@ sync_backfill_owner: 下一个会话（按「PR 自动合并」收尾清单 1–
 - 踩到并修掉的一条自家陷阱：追加脚本的**分隔空行**没补 CR ⇒ 两个文件各出 1 条裸 LF（`loneLF=1`）。先定位到「不接 CR 的行」逐条核是我的插入行还是他人既有混行尾（本仓这些文档历史上就是混行尾，禁止"探测多数派后统一回写"），确认是自己的产物才补 CR。修后 `loneLF=0 dblCR=0`，两口径 numstat 逐文件同数（design 12/0、tasks 1/0、工具 12/1）。
 - `openspec validate ccg-review-degradation-ladder --strict` = valid；`check-no-brand-residue` PASS；受管文档内**未新增任何本机绝对路径**（取证命令一律写成仓内可重取的形式）。
 
+
+## QM-6 两轴交付与逐条处置（2026-10-17，本分支 tip `0cff41eec` 为被评审树）
+
+**先记一条通道事实，否则下一个会话会把这份交付读成"自扮演"**：同一提示词经 `codeagent-wrapper` 派发 **5 次全部 rc=0、载荷里零 findings**（后端两次交回"我输出了 8 条数组"的散文、`grep severity` 唯一命中是头部 `Command:` 行里我自己写的提示词；前端三次交回 Work State 快照）。**绕开 wrapper 直呼 CLI** 后两轴都拿到可 `JSON.parse` 的数组 ⇒ 根因是 **wrapper 丢载荷，不是模型没产出**。后端 `claude` 8 条、前端 `opencode` 7 条（session `ses_eb6c3040dffeD2qBGFR70X0QGc`），字段形状 `{severity,file,issue,fix}`。
+
+| # | 轴/级别 | 判据 | 处置 |
+|---|---|---|---|
+| B0 | 后端 Critical：伪造 `cleared` 被判已闭环 | **成立**——我先用独立探针量到同一现场（四种伪造全部 `reasons=0/checked=1`，含 `evidence:"x"` 判 external） | 可判的一半本轮落：A/M 产物解析不动即点名（N1）。**「凭空新增一条 A 状态且 status=cleared」在判据层不可判**（除自述外无任何对象可核），正解是把「谁有权写闭环值」收到工具侧 + 事后抽查，已登记 tasks 5.x，不假装这条已闭合 |
+| B1 | 后端 Critical：`evidence` 非空即判 external | **成立**（`x` 通过） | 已修：`isResolvableEvidence` 只认 `#<≥3 位数字>` / `ses_…` / uuid / 40hex / 带扩展名的日志路径；不认则降 `external-unverified`。变异 N3 指名红 |
+| B2 | 后端 Warning：D 方向 base 解析失败静默 | **成立**（`catch { continue }` 既不计 `unreadable` 也不计 `removedUnclosed`） | 已修：计入 `unreadable` 并带后缀「base 内容解析不动」，与"读不到"区分。变异 N2 指名红 |
+| B3 | 后端 Warning：覆盖率统计静默剔除损坏项 ⇒ 虚低 | **内核成立、修法不采纳**（同一文件已被 B1 的出声点名，再加一个计数是重复信号） | 落 N1 的出声即闭合归因；`corrupt=N` 独立计数登记遗留，不做 |
+| B4 | 后端 Warning：`required` 未被消费 | **拒绝修法，采纳观察**：把 `required` 纳入判据会让「引擎对 mode≠skip 一律置 true」的既有形态变成**永久不可闭环**（与缺陷G 同一形态）；已按「只查 dual」收口 | 记此明说不重复讨论 |
+| B5 | 后端 Info：`summarizeTierCoverage` 空集不出声 | **否证**：空集打印 `total=0`，且既有用例断言行内含 `total=0`（"没接锁"与"接了但没记录"可区分） | 无需动作 |
+| B6 | 后端 Info：`performedBy`/`findings` 无消费方 | **否证**：`findings` 被 `shouldPreserveClosedRecord`（decider:468）消费，`performedBy` 被普查工具消费——后者正是「前缀分级不可用」那条结论的证据来源 | 无需动作 |
+| F0 | 前端 Critical：alt 时间戳形态 | **成立且后果比命中本身更硬**：实测主干真件 `-again-<40hex>-2026-10-17T025039620Z` 对 `AUDIT_ARTIFACT_RE` **返回 false**，而判据期望 `20261017T091333.123Z` ⇒ alt 产物从未参与欠账判定 | 已修生产者（`[-:]` 去连字符与冒号、保留点给毫秒段）+ 新增**跨模块命名对齐锁**；并改写那条把旧写法钉成受保护形态的结构锁（`[:.]`→`[-:]`，写明它曾锁住缺陷本身）。变异 N5 两条指名红 |
+| F1 | 前端 Warning：`tier` 恒 unknown、无生产者升级路径 | **成立**，登记 tasks 5.x：闭环值应由 `deep-review` 交付时写入，而不是会话手工改 JSON。本分支这条 13049a50 的收口正是**先真跑了评审再改**（范围覆盖：评审对象含该提交全部内容），不是绕过 |
+| F2 | 前端 Warning：`backendAvailability` 零消费 | **成立**，且正是 tasks 3.2 明文未做的那一格（不认领为新缺陷）；下一个消费者就是 tasks 2.x 的收口矩阵 |
+| F3 | 前端 Warning：闭环集合「三份真源」 | **核实为两份定义 + 一把 parity 锁**（`ccg-review-decider.test.js:679-682` 解析对方源码并 `sort()` 后 deep-equal）——这是仓内既有的「不能互相 require 就各存一份 + parity 锁」形态 | 拒绝合并修法（单向 require 会把 gate 依赖拉进 pre-commit 钩子链）；观察记此 |
+| F4 | 前端 Info：`main()` 不处理 `saveRecord` 的 null 返回 ⇒ 裸栈 | **成立**（报错文本已先打印，属 fail-loud 不是假绿，但退出码与副作用不一致） | 登记不夹带（本片已含 5 处修复，Info 级另片） |
+| F5 | 前端 Info：普查工具无 `require.main` 守卫、`parseFail` 混计两种语义 | **成立**，与我自己的现场一致（早前我把「读不到 ref 上的文件」和「读到但解析失败」混成一个数，导致 json=0 被读成探针失明） | 登记 tasks |
+
+**新增锁与反证**：`check-pr-exec-record.test.js` **74 passed / 0 failed**（新增 3 条，改 1 条老契约），`ccg-review-decider.test.js` **44 passed / 0 failed**（新增 2 条，改 1 条结构锁）；变异 **N1–N5 全部 CAUGHT、各自指名红**、`escaped=0 anchorfail=0`、每条还原后与变异前 md5 一致。
+**一处流程自纠**：这批锁**没有先见证红**（代码先行），补偿证据是 N1–N5 五条对判据本体的变异——摘掉守卫必须变红才算锁在住；把这点写出来是因为「TDD 两段实跑」的措辞如果照抄上一片，就成了没做却声称。
+

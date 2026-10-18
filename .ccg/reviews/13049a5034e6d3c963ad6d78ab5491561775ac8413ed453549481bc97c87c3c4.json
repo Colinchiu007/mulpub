@@ -32,10 +32,10 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
+    "status": "cleared",
+    "tier": "external",
+    "performedBy": "claude(direct CLI) + opencode(direct CLI)",
+    "evidence": "ses_eb6c3040dffeD2qBGFR70X0QGc + claude(direct) 8 findings; 被评审树 0cff41eec",
     "findings": null
   }
 }

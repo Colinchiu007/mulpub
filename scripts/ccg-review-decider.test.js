@@ -733,7 +733,7 @@ test('QM-6 i3：已闭环的同名记录不得被静默覆盖（否则 amend 抹
 test('QM-6 第二轮 i5：另存名必须全局唯一（同 sha 前缀不得互相覆盖）', () => {
   const src = fs.readFileSync(SRC, 'utf8').replace(/\r\n/g, '\n')
   assert.match(src, /-again-\$\{sha\}-/, 'alt 名必须含**完整** sha（首版只用 slice(0,8)，同前缀会互覆盖）')
-  assert.match(src, /toISOString\(\)\.replace\(\/\[:\.\]\/g, ""\)/, 'alt 名必须含时间戳，保证同一 sha 内也唯一')
+  assert.match(src, /toISOString\(\)\.replace\(\/\[-:\]\/g, ""\)/, 'alt 时间戳必须与扫描域形态表同形（去掉 - 与 : 、保留 . 给毫秒段）。旧写法 [:.] 留着 ISO 连字符，产出 `-again-<sha>-2026-10-17T025039620Z`，AUDIT_ARTIFACT_RE 认不出 ⇒ 本条曾把缺陷本身钉成受保护形态，命名对齐锁见下一用例')
 })
 
 test('QM-6 第三轮 i5：哈希算失败时不得静默回落父 sha（那正是要消灭的撞名）', () => {
@@ -1167,4 +1167,61 @@ test('丙3.2 接线锁：main 必须把已算出的 backends 传给 saveRecord',
   const src = fs.readFileSync(path.join(__dirname, 'ccg-review-decider.js'), 'utf8').replace(/\r\n/g, '\n')
   assert.match(src, /saveRecord\(\s*result,\s*sha,[\s\S]{0,90}staged\.plannedFiles,\s*backends\s*\)/,
     '调用点漏传 backends ⇒ 记录里的可用性来自第二次探测，与判定时的现场不是同一份（本机 PATH 中途变了就漂移）')
+})
+
+// ── 2026-10-17 后端命中：saveRecord 不得把「读不动」当成「没有」而覆盖既有评审证据 ────
+test('后端命中：同名记录存在但解析不动 ⇒ 逐字节保留它、本次另存 alt、且出声', () => {
+  withTempGitRepo(() => {
+    const first = decider.saveRecord(
+      { mode: 'dual', reason: 'probe-1', stats: {} }, 'c'.repeat(40), 'diff', undefined,
+      { wrapperExists: true, claude: true, opencode: true }
+    )
+    assert.ok(first, '首次落盘必须有路径')
+    const corrupt = '{"mode":"dual","deepReview":{"status":"clea'
+    fs.writeFileSync(first, corrupt, 'utf8')
+
+    const logs = []
+    const orig = console.log
+    console.log = (m) => { logs.push(String(m)) }
+    let second
+    try {
+      second = decider.saveRecord(
+        { mode: 'dual', reason: 'probe-2', stats: {} }, 'c'.repeat(40), 'diff', undefined,
+        { wrapperExists: true, claude: true, opencode: true }
+      )
+    } finally { console.log = orig }
+
+    assert.strictEqual(fs.readFileSync(first, 'utf8'), corrupt,
+      '损坏的既有记录必须逐字节原样保留 —— 覆盖它等于销毁已交付的评审证据（status/findings 都在那份里）')
+    assert.notStrictEqual(second, first, '本次判定必须落到 alt 路径，而不是原地覆盖')
+    assert.match(path.basename(second), /-again-/, 'alt 命名必须沿用既有 -again- 形态，便于扫描域认出')
+    assert.ok(logs.some((l) => /解析不动/.test(l)), '降级方向必须出声，不得静默改道')
+  })
+})
+
+// ── 跨模块命名对齐锁（2026-10-17 前端轴命中，实测后果比命中本身更硬）──────────────
+// 生产者 alt 名与扫描域形态表从来就没对上：旧实现 .replace(/[:.]/g,'') 留着 ISO 的连字符，
+// 产出 `-again-<40hex>-2026-10-17T025039620Z`，而 AUDIT_ARTIFACT_RE 要的是 `20261017T091333.123Z`。
+// 主干现存的真件即旧形态（git ls-tree origin/main -- .ccg/reviews 可复取），故 alt 从未参与欠账判定。
+const gateNaming = require('./check-pr-exec-record.js')
+
+test('跨模块命名对齐锁：生产者写出的 alt 文件名必须被扫描域的形态表认出', () => {
+  withTempGitRepo(() => {
+    const first = decider.saveRecord(
+      { mode: 'dual', reason: 'p1', stats: {} }, 'e'.repeat(40), 'diff', undefined,
+      { wrapperExists: true, claude: true, opencode: true }
+    )
+    const rec = JSON.parse(fs.readFileSync(first, 'utf8'))
+    rec.deepReview = { required: true, status: 'cleared', tier: 'external', evidence: 'ses_probe0001', performedBy: 'claude', findings: [] }
+    fs.writeFileSync(first, JSON.stringify(rec), 'utf8')
+
+    const alt = decider.saveRecord(
+      { mode: 'dual', reason: 'p2', stats: {} }, 'e'.repeat(40), 'diff', undefined,
+      { wrapperExists: true, claude: true, opencode: true }
+    )
+    assert.notStrictEqual(alt, first, '既有记录已闭环 ⇒ 第二次必须另存 alt')
+    assert.match(path.basename(alt), /-again-/, 'alt 必须沿用 -again- 形态')
+    assert.ok(gateNaming.AUDIT_ARTIFACT_RE.test('.ccg/reviews/' + path.basename(alt)),
+      `alt 产物必须被扫描域认出，否则它不参与欠账判定：${path.basename(alt)}`)
+  })
 })

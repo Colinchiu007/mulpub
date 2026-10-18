@@ -592,9 +592,13 @@ function saveRecord(result, sha, layer, plannedFiles, backends) {
   // sha256 抗碰撞 ⇒ 「同名而内容不同」只可能来自回落路径或哈希碰撞，无需防；
   // 真正要防的就是这一种：同名 + 已闭环。故写前检查，命中则拒写并保留原文件。
   if (fs.existsSync(file)) {
-    let prev = null;
-    try { prev = JSON.parse(fs.readFileSync(file, "utf8")); } catch (_) { prev = null; }
-    if (shouldPreserveClosedRecord(prev)) {
+    let prev = null; let unreadablePrev = false;
+    try { prev = JSON.parse(fs.readFileSync(file, "utf8")); } catch (_) { prev = null; unreadablePrev = true; }
+    if (unreadablePrev || shouldPreserveClosedRecord(prev)) {
+      if (unreadablePrev) {
+        console.log("   [CCG] ⚠ 同名判定记录已存在但**解析不动** ⇒ 不覆盖它，本次判定另存为 alt。");
+        console.log("         覆盖等于销毁既有评审证据（status/findings 可能都在那份里），而「读不动」不等于「没有」。");
+      }
       // 不覆盖已有实质内容的记录；把本次判定另存，避免两份都丢失。
       //
       // ★ 第四轮 i1/i6（Critical）：alt 名不得无限累积。
@@ -619,7 +623,7 @@ function saveRecord(result, sha, layer, plannedFiles, backends) {
       //   改为完整 sha + 时间戳（同一 sha 内毫秒级也唯一）。
       const alt = file.replace(
         /\.json$/,
-        `-again-${sha}-${new Date().toISOString().replace(/[:.]/g, "")}.json`
+        `-again-${sha}-${new Date().toISOString().replace(/[-:]/g, "")}.json`
       );
       fs.writeFileSync(alt, JSON.stringify(record, null, 2), "utf8");
       return alt;
