@@ -183,15 +183,6 @@ function evaluatePublishPreconditions (input) {
   return { ok: true }
 }
 
-module.exports = {
-  REASONS,
-  PLATFORM_LABELS,
-  VIDEO_ENTRY_HINTS,
-  labelOf,
-  describeFailure,
-  evaluatePublishPreconditions,
-}
-
 /**
  * 门禁的**执行体**：先取证（`MP_DOM_DUMP=1` 时 dump 页面形状），再判定，
  * 命中则产出可直接 return 的失败结果（带 `definitelyNotSent`）。

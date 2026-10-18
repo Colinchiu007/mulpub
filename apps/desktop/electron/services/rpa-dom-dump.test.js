@@ -114,3 +114,29 @@ describe('rpa-dom-dump — 绝不打断发布主链', () => {
     expect(COLLECT_SCRIPT).not.toMatch(/\.value\b\s*[,}]/)
   })
 })
+
+describe('rpa-dom-dump — CCG 自扮演裁决整改（i6/i7）', () => {
+  it('i6：写盘必须走异步（发布热路径被 await，不得用 writeFileSync 阻塞）', () => {
+    const src = fs.readFileSync(require.resolve('./rpa-dom-dump'), 'utf8')
+    expect(src).toContain('fs.promises.writeFile')
+    expect(src).not.toMatch(/fs\.writeFileSync\(file/)
+  })
+
+  it('i7：保留策略只留最近 N 份，且只动本模块的 .json', async () => {
+    const { pruneDumps } = require('./rpa-dom-dump')
+    const dir = tmpDir('prune')
+    for (let i = 0; i < 6; i++) fs.writeFileSync(path.join(dir, 'k-stage-' + i + '.json'), '{}')
+    fs.writeFileSync(path.join(dir, 'keep-me.txt'), 'x')
+    const dropped = await pruneDumps(dir, 2)
+    expect(dropped).toBe(4)
+    const left = fs.readdirSync(dir).sort()
+    // 只剩最后 2 份 json + 非本模块的 txt
+    expect(left.filter((n) => n.endsWith('.json'))).toEqual(['k-stage-4.json', 'k-stage-5.json'])
+    expect(left).toContain('keep-me.txt')
+  })
+
+  it('i7：目录不存在或读失败时静默返回 0（取证不得影响发布）', async () => {
+    const { pruneDumps } = require('./rpa-dom-dump')
+    await expect(pruneDumps(path.join(os.tmpdir(), 'mp-dom-dump-not-exist-' + Date.now()), 2)).resolves.toBe(0)
+  })
+})

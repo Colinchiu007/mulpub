@@ -116,11 +116,14 @@ async function dumpDom (win, platform, stage, opts = {}) {
       bodyTextLength: raw.bodyTextLength,
     }
     const dir = opts.dir || dumpDir()
-    fs.mkdirSync(dir, { recursive: true })
+    // i6（CCG 自扮演裁决）：dump 在发布热路径上被 await，写盘必须走异步，
+    // 不得用 writeFileSync 阻塞事件循环（上传确认路径对时延敏感）。
+    await fs.promises.mkdir(dir, { recursive: true })
     const safePlatform = String(platform || 'unknown').replace(/[^\w-]/g, '_')
     const safeStage = String(stage || 'stage').replace(/[^\w-]/g, '_')
     const file = path.join(dir, safePlatform + '-' + safeStage + '-' + Date.now() + '.json')
-    fs.writeFileSync(file, JSON.stringify(record, null, 2), 'utf8')
+    await fs.promises.writeFile(file, JSON.stringify(record, null, 2), 'utf8')
+    await pruneDumps(dir)
     const logger = opts.logger
     if (logger && typeof logger.info === 'function') {
       logger.info('RpaView', '[' + platform + '] dom-dump ' + stage + ' files=' + record.counts.files
@@ -133,4 +136,23 @@ async function dumpDom (win, platform, stage, opts = {}) {
   }
 }
 
-module.exports = { COLLECT_SCRIPT, dumpDom, dumpDir, isEnabled, safePath }
+/**
+ * 保留策略（i7）：取证产物只留最近 `keep` 份，防止长期运行把临时目录堆满。
+ * 只删本模块自己的 `*.json`（文件名以平台/阶段开头），且失败静默——取证不可影响发布。
+ * @param {string} dir
+ * @param {number} [keep]
+ * @returns {Promise<number>} 实际删除数量
+ */
+async function pruneDumps (dir, keep = 200) {
+  try {
+    const names = await fs.promises.readdir(dir)
+    const mine = names.filter((n) => n.endsWith('.json')).sort()
+    if (mine.length <= keep) return 0
+    const drop = mine.slice(0, mine.length - keep)
+    for (const n of drop) { try { await fs.promises.unlink(path.join(dir, n)) } catch (_) { /* 单份失败不影响其余 */ } }
+    return drop.length
+  } catch (_) {
+    return 0
+  }
+}
+module.exports = { COLLECT_SCRIPT, dumpDom, dumpDir, isEnabled, safePath, pruneDumps }
