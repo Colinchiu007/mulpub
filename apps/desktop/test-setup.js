@@ -227,6 +227,8 @@ const electronMock = {
 }
 
 // ─── 模块 mock 注册表 ───
+// key = 被 mock 的模块名（由各测试文件 vi.mock 时登记），空间由测试文件数决定、有界；
+// 整个注册表只在 vitest 进程内活着，进程退出即消失，故**不需要也没有** delete/clear。
 const mockRegistry = new Map()
 let electronMockEnabled = false
 

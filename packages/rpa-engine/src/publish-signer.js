@@ -44,7 +44,12 @@ function sortQueryString (query) {
   return pairs.map(([k, v]) => k + '=' + v).join('&')
 }
 
-/** @type {Map<string, (payload: any, ctx?: any) => Promise<string|null>>} */
+/**
+ * 平台签名适配器注册表。key = command 平台标识（如 'toutiao'），由 registerAdapter 注册 ——
+ * 空间由接入的平台数决定，不随运行时间增长；同平台重复注册为覆盖语义。
+ * 因此**不需要也没有** delete/clear —— R11 审计结论，见 openspec/records/risk-closeout.md §4.2。
+ * @type {Map<string, (payload: any, ctx?: any) => Promise<string|null>>}
+ */
 const adapters = new Map()
 
 /**
