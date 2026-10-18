@@ -4,7 +4,7 @@
 |---|---|
 | 文档版本 | v1.0 |
 | 日期 | 2026-10-18 |
-| 分支 / worktree | `s2v-voice-section-layout`（`D:/Data/projects/mp-worktrees/mp-s2v-voice-section-layout`，D 盘非 C） |
+| 分支 / worktree | `s2v-voice-section-layout`（隔离 worktree 位于 `<仓库父目录>/mp-worktrees/mp-s2v-voice-section-layout`，D 盘非 C） |
 | 关联文档 | `01-docs/PRD-S2V-PIPELINE-PAGE-UX.md` §13（实现合同）、`01-docs/PRD-S2V-BGM-VOICE-SECTION-LEGACY-REPAIR-2026-10-17.md`（BGM 归位前置）、`01-docs/PRD-video-creation.md` §7.4.1 |
 | 变更类型 | 运行时代码（前端展示层：模板结构 + CSS + locale） |
 | 影响面 | 故事讲述流水线详情页「声音」折叠区、「高级」折叠区子分组样式、折叠区默认态与恢复逻辑 |
