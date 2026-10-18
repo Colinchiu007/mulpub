@@ -1,0 +1,58 @@
+{
+  "sha": "cccd4518e66c0c186220db5e92fdacfcce84cbf7",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 20 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 20,
+    "fileCount": 4,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "而且它抛的是通用 `FAIL_MSG`，把「架构性不可行」**误导成「用户该重新授权」**（重新授权也拿不到私钥）。",
+      "而且它抛的是通用 `FAIL_MSG`，把「本机签不出名」**误导成「用户该重新授权」**（重新授权也解决不了材料缺失）。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "d735fb94215d6fe55d00f7361889f4cc763c49752de3d09ee585b8efd4fbd29b",
+  "decidedAt": "2026-10-18T21:41:58.505Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

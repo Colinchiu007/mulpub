@@ -49,15 +49,19 @@ const FAIL_MSG = '账号信息缺失，请重新授权此账号再试'
  *
  * 实测形态：真实账号的 `__security_mc_1_s_sdk_crypt_sdk` /
  * `..._s_sdk_sign_data_key_web_protect` / `..._s_sdk_cert_key` 的值都**只有 18 字符**
- * （形如 `056709ca-4e73-9159`），是 **key id**，不是密文本体；
- * 真正的材料（含 `ec_privateKey` PEM / `ticket`）在页面的
- * **IndexedDB `secure-store`** 里（WebCrypto 私钥设计上**不可导出**），
- * 另有 `localStorage['security-sdk/s_sdk_server_cert_key']` 存服务端证书。
+ * （形如 `056709ca-4e73-9159`），是 **key id**，不是密文本体。
+ *
+ * 真材料在哪 —— **实测未找到**（此处曾写「在 IndexedDB `secure-store`，不可导出」，后经复测该库
+ * `cryptvalues` 的 keyCount = 0，那条断言**不成立**，已订正）：
+ *   · `localStorage['security-sdk/s_sdk_server_cert_key']` 只有**服务端证书**（无明文私钥）；
+ *   · `localStorage['ztsdk_tcc_config']` 只有 secsdk 配置；
+ *   · `window.secsdk` 存在但**只暴露 `csrf`**，无公开签名入口。
+ * ⇒ 准确表述是「本机读不到可用的签名材料」，而**不是**「已知它不可导出」。
  *
  * ⇒ 纯 Node 侧签名**在本机不可行**；不是「账号信息缺失」，也不该提示用户去重新授权。
  */
-const FAIL_MSG_MATERIAL_ONLY_ID = '抖音签名材料仅剩 key id（私钥在页面 IndexedDB 中不可导出），'
-  + '纯 API 轨无法完成 create_v2 签名；请改用页面内签名或 RPA/DOM 轨'
+const FAIL_MSG_MATERIAL_ONLY_ID = '抖音签名材料仅剩 key id（签名私钥不在 cookie 中，本机也读不到可用的私钥材料），'
+  + '纯 API 轨无法完成 create_v2 签名；请改用 RPA/DOM 轨'
 
 // csrf HEAD URL 池（D3：默认 idx=1 命中 /aweme/create/）
 const CSRF_POOL = [

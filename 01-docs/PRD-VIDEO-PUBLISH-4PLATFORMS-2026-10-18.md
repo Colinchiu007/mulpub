@@ -560,7 +560,7 @@ R4 起 body 同时输出 `aspectRatio`（竖版 0.62 / 横版 1.78），
 **不得**以 HTTP 状态码或「创作页能渲染」为准。`rpa-douyin-01ab122e` 仍有 62 个 cookie
 （`sessionid`/`sid_tt`/`uid_tt` 齐全），但服务端不认 —— **cookie 名齐全 ≠ 登录有效**。
 
-### 14.3 根因二：签名私钥在 IndexedDB 且不可导出
+### 14.3 根因二：签名材料只剩 key id，本机找不到可用私钥
 
 | 项 | 实测值 |
 | --- | --- |
@@ -571,15 +571,21 @@ R4 起 body 同时输出 `aspectRatio`（竖版 0.62 / 横版 1.78），
 签名器期望的形态是 `encodeURIComponent({"data":"<json>"})`（内含 `ec_privateKey` PEM / `ticket`）；
 这三个值解出来 `JSON.parse` 失败。
 
-真材料位置：
+真材料**没有**出现在任何可读位置（R6 实测，含一次订正）：
 
-| 位置 | 内容 |
+| 位置 | 实测结果 |
 | --- | --- |
-| `localStorage['security-sdk/s_sdk_server_cert_key']` | 服务端证书（1739 字符） |
+| `localStorage['security-sdk/s_sdk_server_cert_key']` | 服务端证书（1739 字符）—— 只有证书，无私钥 |
 | `localStorage['ztsdk_tcc_config']` | secsdk 配置（1022 字符） |
-| **`IndexedDB['secure-store']`** | ★ 私钥（WebCrypto `CryptoKey`，`extractable:false`，**不可导出**） |
+| `IndexedDB['secure-store']` | 库存在，唯一 store `cryptvalues` 的 **keyCount = 0（空库）** |
+| `window.secsdk` | 全局存在，但**只暴露 `csrf`**，**无公开签名入口** |
 
-⇒ 「从 cookie/本地存储读 PEM 再用 Node crypto 签名」这条路**架构性不可行**（安全设计所致，非配置问题）。
+> ⚠️ **订正**：初版曾断言「私钥在 IndexedDB 且 `extractable:false` 不可导出」；
+> 后续实测该库**当前为空**，该断言**不成立**（属把规范推断写成事实）。
+> 准确表述：**本机这份 profile 里找不到可导出的私钥材料**；材料何时/落在哪里仍**未知**
+> （推测需在有效会话下由 secsdk 完成一次受保护请求的 bootstrap）。
+
+⇒ 「读 PEM 再用 Node crypto 签名」在本机走不通；但**「架构性不可行」这一更强断言本轮证据不足，不予主张**。
 
 ### 14.4 因此修掉的报错缺陷
 
@@ -601,7 +607,7 @@ Step 0 曾硬要求 `bd_ticket_guard_client_data` 存在 —— 而它**只在�
 
 | 场景 | 提示 |
 | --- | --- |
-| 材料只剩 key id | `抖音签名材料仅剩 key id（私钥在页面 IndexedDB 中不可导出），纯 API 轨无法完成 create_v2 签名；请改用页面内签名或 RPA/DOM 轨` |
+| 材料只剩 key id | `抖音签名材料仅剩 key id（签名私钥不在 cookie 中，本机也读不到可用的私钥材料），纯 API 轨无法完成 create_v2 签名；请改用 RPA/DOM 轨` |
 | 材料缺失 / PEM 非法 / 未授权 | `账号信息缺失，请重新授权此账号再试`（不变） |
 | 触发安全验证 | `抖音触发安全验证，请在创作者中心手动完成验证后重试（不自动换号）`（不变） |
 
@@ -613,7 +619,7 @@ Step 0 曾硬要求 `bd_ticket_guard_client_data` 存在 —— 而它**只在�
 
 ### 14.7 未闭合
 
-1. 抖音真实发布未成功（会话失效 + 私钥不可导出）。
+1. 抖音真实发布未成功（会话对 API 失效；且本机这份 profile 里找不到签名私钥材料）。
 2. 视频号 / 头条的**活会话**在 `account-*` 分区，被当时运行中的应用实例独占锁定 ⇒ 这两个平台的真实发布本轮无法验证。
 3. `create_v2` 是否真需要 `bd-ticket-guard-ree-public-key` 未验证（会话失效使实验走不到那步）⇒ 判据继续 fail-closed。
 4. 视频号 15 个 `rpa-rpa-tencent_video-36b5b265-*` 分区全部为 2026-09-23，必然失效，勿再复用。

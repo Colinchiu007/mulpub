@@ -261,8 +261,10 @@ describe("publish/platforms/douyin-video", function () {
         .then(() => null, (e) => e);
       expect(err).toBeInstanceOf(DouyinVideoError);
       expect(err.message).toContain("key id");
-      expect(err.message).toContain("IndexedDB");
       expect(err.message).toContain("RPA/DOM");
+      // 不得断言未经证实的机制：曾写「私钥在 IndexedDB 不可导出」，后经复测该库
+      // cryptvalues keyCount=0 ⇒ 那条机制断言不成立，已从文案中移除（本行防回归）
+      expect(err.message).not.toContain("IndexedDB");
       // 必须与「账号信息缺失」区分开
       expect(err.message).not.toBe("账号信息缺失，请重新授权此账号再试");
       expect(srv.requests.length).toBe(0); // 零请求

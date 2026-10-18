@@ -31,7 +31,7 @@ POST /aweme/v1/web/aweme/create_v2/…            → HTTP 200，body 同上
 另外 `rpa-douyin-01ab122e` 这份分区仍有 62 个 cookie（含 `sessionid`/`sid_tt`/`uid_tt`），
 **名字齐全 ≠ 服务端认可**。
 
-### 2.2 签名私钥在页面 IndexedDB 且**不可导出** ⇒ 纯 Node 侧 API 轨架构性不可行
+### 2.2 签名材料只剩 key id，且本机找不到可用的私钥 ⇒ 纯 Node 侧签不出名
 
 真机实测三类安全 cookie 的值：
 
@@ -44,16 +44,22 @@ __security_mc_1_s_sdk_cert_key                = fdef635f-4ae0-8ed3   （18 字�
 这是 **key id**，不是密文。签名器期望的值形态是 `encodeURIComponent({"data":"<json>"})`
 （JSON 里含 `ec_privateKey` PEM / `ticket`），而这三个值解出来是 `JSON.parse` 失败。
 
-真材料在哪（逐项实测）：
+真材料**没有**出现在任何可读位置（逐项实测，含一次**订正**）：
 
-| 位置 | 内容 |
+| 位置 | 实测结果 |
 | --- | --- |
-| `localStorage['security-sdk/s_sdk_server_cert_key']` | 服务端证书（`BEGIN CERTIFICATE`，1739 字符） |
+| `localStorage['security-sdk/s_sdk_server_cert_key']` | 服务端证书（`BEGIN CERTIFICATE`，1739 字符）—— **只有证书，没有私钥** |
 | `localStorage['ztsdk_tcc_config']` | secsdk 配置（1022 字符，含 `certType`） |
-| `IndexedDB['secure-store']` | ★ **私钥所在**（WebCrypto `CryptoKey`，设计上 `extractable:false`） |
+| **`IndexedDB['secure-store']`** | 库存在，但唯一 store `cryptvalues` 的 **keyCount = 0（空库）** |
+| `window.secsdk` | 全局存在，但**只暴露 `csrf`**（`tokenHeaderName` / `tokenMap` / `protectionConfig` / `nativeFetch` 等），**没有公开签名入口** |
 
-⇒ **私钥不可导出**，所以「cookie/本地存储里读出 PEM，再用 Node 的 crypto 签名」这条路**在本机行不通**。
-这不是配置问题，是安全设计。
+> ⚠️ **订正**：本节初版曾写「私钥在 IndexedDB `secure-store`，`extractable:false` 不可导出」。
+> 后续实测发现该库**当前为空**，因此该结论**不成立**（属把规范推断写成事实）。
+> 现在的准确表述是：**本机这份 profile 里找不到可导出的私钥材料**；
+> 私钥/密文何时落盘、落在哪里仍**未知**（推测要等 secsdk 在**有效会话**下完成一次受保护请求的 bootstrap）。
+
+⇒ 「cookie/本地存储里读出 PEM，再用 Node 的 crypto 签名」这条路**在本机走不通**（材料根本不在可读位置，
+且 `secsdk` 不对外暴露签名能力）。**但「架构性不可行」这个更强的断言，本轮证据不足，不予主张。**
 
 ## 三、由此暴露并修掉的一个真实代码缺陷
 
@@ -69,14 +75,14 @@ if (!c.includes('bd_ticket_guard_client_data')) throw FAIL_MSG   // 「账号信
 2. 真实账号的材料**只剩 key id**（见 §2.2）。
 
 ⇒ 这条判据对真实账号**恒不成立**，链是 **dead-on-arrival**；
-而且它抛的是通用 `FAIL_MSG`，把「架构性不可行」**误导成「用户该重新授权」**（重新授权也拿不到私钥）。
+而且它抛的是通用 `FAIL_MSG`，把「本机签不出名」**误导成「用户该重新授权」**（重新授权也解决不了材料缺失）。
 
 ### 修法（刻意**不放松**任何既有守卫）
 
 | 顺序 | 判据 | 变化 |
 | --- | --- | --- |
 | 1 | `hasSecurityMaterials(c)` | 不变 |
-| 2 | **`hasKeyIdOnlyMaterials(c)`（新增）** | 材料只剩 key id ⇒ 抛**专用**诊断：`抖音签名材料仅剩 key id（私钥在页面 IndexedDB 中不可导出），纯 API 轨无法完成 create_v2 签名；请改用页面内签名或 RPA/DOM 轨` |
+| 2 | **`hasKeyIdOnlyMaterials(c)`（新增）** | 材料只剩 key id ⇒ 抛**专用**诊断：`抖音签名材料仅剩 key id（签名私钥不在 cookie 中，本机也读不到可用的私钥材料），纯 API 轨无法完成 create_v2 签名；请改用 RPA/DOM 轨` |
 | 3 | `bd_ticket_guard_client_data` 存在 | **原样保留**（无证据表明可省 ⇒ 继续 fail-closed） |
 | 4 | `sid_tt=` 存在 | 不变 |
 | 5 | `clientSign(c)` 可签出 | 不变 |
@@ -124,7 +130,7 @@ if (!c.includes('bd_ticket_guard_client_data')) throw FAIL_MSG   // 「账号信
 
 ## 八、还没做完（不假装）
 
-1. **抖音真实发布未成功**：卡在 ① 会话对 API 失效；② 即使会话有效，纯 Node 签名也被「私钥不可导出」硬阻断。
+1. **抖音真实发布未成功**：卡在 ① 会话对 API 失效；② 即使会话有效，本机也找不到可用的签名私钥材料（且 `window.secsdk` 不暴露签名入口）。
    可行动的两条路：**(a) 页面内签名/页面内发 create_v2**（§六 第 1 条已验证 csrf 自动补齐，方向可行）；
    **(b) 走 RPA/DOM 轨**。
 2. **视频号 / 头条的活会话无法读取**（被另一实例独占），因此这两个平台的真实发布本轮无法验证。
