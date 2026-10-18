@@ -697,3 +697,242 @@ def test_collect_result_word_count_fallback():
     # 兜底逻辑：word_count or len(content)
     effective = r.word_count or len(r.content)
     assert effective == len("这是一段有内容的正文")
+
+
+# ── 13. 桌面「模型设置」LLM 注入（2026-10-18，fix-collect-antibot-rewrite）─────
+#
+# 根因：/aggregation/rewrite 只读进程 env（LLM_API_KEY/PO_OPENAI_API_KEY），桌面端
+# 「模型设置」里配置的默认模型从未注入 ⇒ 已配置仍误报 LLM_KEY_MISSING。
+# 契约：request.llm > env（LLM_API_KEY > PO_OPENAI_API_KEY），逐字段独立回退；
+#       缺 key 仍抛 UserVisibleError('LLM_KEY_MISSING')；Key 不得进入日志。
+
+_LLM_ENV_KEYS = (
+    "LLM_API_KEY", "PO_OPENAI_API_KEY",
+    "LLM_BASE_URL", "PO_OPENAI_BASE_URL",
+    "LLM_MODEL", "PO_OPENAI_MODEL",
+)
+
+
+def _clear_llm_env(monkeypatch):
+    for key in _LLM_ENV_KEYS:
+        monkeypatch.delenv(key, raising=False)
+
+
+def _capture_llm_pipeline(monkeypatch):
+    """替换 service._lazy_import：捕获 LLMService 配置 / adapter / pipeline 配置，全程零网络。"""
+    import multi_publish.aggregation.service as svc_mod
+
+    captured = {}
+
+    class FakeLLMService:
+        def __init__(self, config=None):
+            captured["llm_service_config"] = dict(config or {})
+
+    class FakeLLMServiceAdapter:
+        def __init__(self, svc):
+            captured["adapter_service"] = svc
+
+    class FakeRewriteProcessor:
+        def __init__(self, config):
+            captured["pipeline_config"] = config
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def rewrite(self, content, cfg):
+            result = type("R", (), {})()
+            result.success = True
+            result.rewritten_content = "改写结果"
+            result.error = None
+            return result
+
+    class FakeRewriteConfig:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    class _FakeStrategy:
+        def __init__(self, name):
+            self.name = name
+
+    class FakeContent:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    orig_lazy = svc_mod._lazy_import
+
+    def fake_lazy(module_path, attr=None):
+        if module_path == "multi_publish.services.llm_service" and attr == "LLMService":
+            return FakeLLMService
+        if module_path == "content_aggregator_shared.shared.clients.llm_service_adapter" and attr == "LLMServiceAdapter":
+            return FakeLLMServiceAdapter
+        if module_path == "content_aggregator_shared.shared.rewriters.rewriter":
+            return {
+                "RewriteProcessor": FakeRewriteProcessor,
+                "RewriteConfig": FakeRewriteConfig,
+                "RewriteStrategy": _FakeStrategy,
+            }.get(attr)
+        if module_path == "content_aggregator_shared.shared.models" and attr == "Content":
+            return FakeContent
+        return orig_lazy(module_path, attr)
+
+    monkeypatch.setattr(svc_mod, "_lazy_import", fake_lazy)
+    return captured
+
+
+def test_rewrite_request_accepts_llm_override():
+    """RewriteRequest 接受桌面端注入的 llm 对象（三个字段均可选）。"""
+    from multi_publish.aggregation.models import RewriteRequest
+
+    req = RewriteRequest(
+        content="测试内容",
+        llm={"api_key": "sk-unit-test-llm-01", "base_url": "https://agnes.example.com/v1", "model": "agnes-3.0-flash"},
+    )
+    assert req.llm is not None
+    assert req.llm.api_key == "sk-unit-test-llm-01"
+    assert req.llm.base_url == "https://agnes.example.com/v1"
+    assert req.llm.model == "agnes-3.0-flash"
+
+
+def test_rewrite_request_llm_optional_and_fields_optional():
+    """llm 缺省为 None；显式空对象时三字段均为 None（全回退 env）。"""
+    from multi_publish.aggregation.models import RewriteRequest
+
+    assert RewriteRequest(content="测试内容").llm is None
+
+    req = RewriteRequest(content="测试内容", llm={})
+    assert req.llm is not None
+    assert req.llm.api_key is None
+    assert req.llm.base_url is None
+    assert req.llm.model is None
+
+
+@pytest.mark.asyncio
+async def test_rewrite_uses_request_llm_when_env_empty(monkeypatch, caplog):
+    """env 全空 + request.llm 完整 → 不再抛 LLM_KEY_MISSING，adapter 使用注入 Key；
+    且 Key 不得出现在日志里（只断言"不含"，不打印值）。"""
+    import logging
+
+    caplog.set_level(logging.DEBUG)
+    _clear_llm_env(monkeypatch)
+    captured = _capture_llm_pipeline(monkeypatch)
+
+    from multi_publish.aggregation.service import AggregationService
+    from multi_publish.aggregation.models import RewriteRequest
+
+    req = RewriteRequest(
+        content="这是一段用于验证桌面模型设置注入的正文内容。",
+        style="轻松易懂",
+        llm={
+            "api_key": "sk-desktop-injected-01",
+            "base_url": "https://agnes.example.com/v1",
+            "model": "agnes-3.0-flash",
+        },
+    )
+    result = await AggregationService().rewrite(req)
+
+    assert result.result_content == "改写结果"
+    cfg = captured["llm_service_config"]
+    assert cfg["api_key"] == "sk-desktop-injected-01"
+    assert cfg["base_url"] == "https://agnes.example.com/v1"
+    assert cfg["model"] == "agnes-3.0-flash"
+    # pipeline 配置（RewriteProcessor config["llm"]）同样使用注入值
+    assert captured["pipeline_config"]["llm"]["api_key"] == "sk-desktop-injected-01"
+    # 安全：Key 不落日志
+    assert "sk-desktop-injected-01" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_rewrite_request_llm_overrides_env_per_field(monkeypatch):
+    """request.llm > env：两者都配置时逐字段以 request 为准（未提供的字段回退 env）。"""
+    monkeypatch.setenv("LLM_API_KEY", "env-key-should-lose")
+    monkeypatch.setenv("LLM_MODEL", "env-model")
+    monkeypatch.setenv("LLM_BASE_URL", "https://env.example.com/v1")
+    captured = _capture_llm_pipeline(monkeypatch)
+
+    from multi_publish.aggregation.service import AggregationService
+    from multi_publish.aggregation.models import RewriteRequest
+
+    req = RewriteRequest(
+        content="这是一段用于验证优先级的正文内容。",
+        llm={"api_key": "desktop-key-wins", "model": "desktop-model-wins"},
+    )
+    await AggregationService().rewrite(req)
+
+    cfg = captured["llm_service_config"]
+    assert cfg["api_key"] == "desktop-key-wins"
+    assert cfg["model"] == "desktop-model-wins"
+    # base_url 未在 request.llm 中提供 → 回退 env
+    assert cfg["base_url"] == "https://env.example.com/v1"
+
+
+@pytest.mark.asyncio
+async def test_rewrite_request_llm_missing_model_falls_back_to_env(monkeypatch):
+    """request.llm 缺 model → 回退 env LLM_MODEL。"""
+    monkeypatch.setenv("LLM_MODEL", "env-model")
+    monkeypatch.delenv("PO_OPENAI_MODEL", raising=False)
+    captured = _capture_llm_pipeline(monkeypatch)
+
+    from multi_publish.aggregation.service import AggregationService
+    from multi_publish.aggregation.models import RewriteRequest
+
+    req = RewriteRequest(
+        content="这是一段用于验证模型回退的正文内容。",
+        llm={"api_key": "desktop-key-model-fallback"},
+    )
+    await AggregationService().rewrite(req)
+
+    assert captured["llm_service_config"]["model"] == "env-model"
+
+
+@pytest.mark.asyncio
+async def test_rewrite_request_llm_missing_model_defaults(monkeypatch):
+    """request.llm 缺 model 且 env 未配置模型 → 默认 gpt-4o-mini。"""
+    _clear_llm_env(monkeypatch)
+    captured = _capture_llm_pipeline(monkeypatch)
+
+    from multi_publish.aggregation.service import AggregationService
+    from multi_publish.aggregation.models import RewriteRequest
+
+    req = RewriteRequest(
+        content="这是一段用于验证默认模型的正文内容。",
+        llm={"api_key": "desktop-key-default-model"},
+    )
+    await AggregationService().rewrite(req)
+
+    assert captured["llm_service_config"]["model"] == "gpt-4o-mini"
+
+
+@pytest.mark.asyncio
+async def test_rewrite_env_fallback_unaffected_without_request_llm(monkeypatch):
+    """无 request.llm 时保持既有 env 回退路径（历史部署不回归）。"""
+    monkeypatch.setenv("LLM_API_KEY", "env-only-key")
+    monkeypatch.setenv("LLM_MODEL", "env-only-model")
+    monkeypatch.delenv("PO_OPENAI_API_KEY", raising=False)
+    captured = _capture_llm_pipeline(monkeypatch)
+
+    from multi_publish.aggregation.service import AggregationService
+    from multi_publish.aggregation.models import RewriteRequest
+
+    req = RewriteRequest(content="这是一段用于验证 env 回退的正文内容。")
+    await AggregationService().rewrite(req)
+
+    assert captured["llm_service_config"]["api_key"] == "env-only-key"
+    assert captured["llm_service_config"]["model"] == "env-only-model"
+
+
+@pytest.mark.asyncio
+async def test_rewrite_empty_llm_object_still_requires_key(monkeypatch):
+    """request.llm 为空对象且 env 无 Key → 仍抛 LLM_KEY_MISSING（不得因注入字段存在而放行）。"""
+    _clear_llm_env(monkeypatch)
+
+    from multi_publish.aggregation._user_errors import UserVisibleError
+    from multi_publish.aggregation.service import AggregationService
+    from multi_publish.aggregation.models import RewriteRequest
+
+    req = RewriteRequest(content="这是一段用于验证缺 Key 的正文内容。", llm={"model": "only-model"})
+    with pytest.raises(UserVisibleError) as exc_info:
+        await AggregationService().rewrite(req)
+    assert exc_info.value.error_code == "LLM_KEY_MISSING"

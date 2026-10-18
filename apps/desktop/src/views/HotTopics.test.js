@@ -39,6 +39,8 @@ vi.mock('@/api/publisher', () => ({
   pipelineGetRunContext: vi.fn(),
   pipelineCancelRun: vi.fn(),
   onPipelineUpdate: vi.fn(() => vi.fn()),
+  modelProviderGetDefault: vi.fn(),
+  aiGenerateGenVideoTitle: vi.fn(),
 }))
 
 vi.mock('@/composables/useNotify', () => ({
@@ -54,7 +56,7 @@ import i18n from '@/i18n'
 import { hotTopicsFetch } from '@/api/hot-topics'
 import { hotTopicsGetCache } from '@/api/hot-topics'
 import { hotTopicsFavoriteList, hotTopicsFavoriteRemove } from '@/api/hot-topics'
-import { aiRewrite, draftSave, storeGetSetting, pipelineList, pipelineStartOrchestrated, pipelineGetRunContext, pipelineCancelRun } from '@/api/publisher'
+import { aiRewrite, draftSave, storeGetSetting, pipelineList, pipelineStartOrchestrated, pipelineGetRunContext, pipelineCancelRun, modelProviderGetDefault, aiGenerateGenVideoTitle } from '@/api/publisher'
 import { pipelineBackgroundToastVisible, hidePipelineBackgroundToast } from '@/stores/pipeline-background-toast'
 import { readFileSync } from 'node:fs'
 
@@ -91,7 +93,13 @@ describe('HotTopics.vue', () => {
     hotTopicsFavoriteList.mockResolvedValue({ code: 0, data: [] })
     // 默认流水线清单（选择器用例按需覆盖失败/空清单分支）
     pipelineList.mockResolvedValue({ code: 0, data: mockPipelineList })
-    document.body.innerHTML = '' // 清理 Teleport 到 body 的弹窗/按钮残留，隔离用例
+    // fix-hot-topics-genvideo-title：默认有可用文字推理模型 + AI 标题成功
+    // （无模型/失败分支由专用用例覆盖）
+    modelProviderGetDefault.mockResolvedValue({ code: 0, data: { id: 'openai', name: 'OpenAI' } })
+    aiGenerateGenVideoTitle.mockResolvedValue({ code: 0, data: { success: true, title: '打工人醒醒！AI又抢活了' } })
+    // 清理 Teleport 到 body 的弹窗/按钮残留，隔离用例
+    // 不用 innerHTML：CCG 安全门禁判高危（XSS）；改用逐节点移除
+    while (document.body.firstChild) document.body.removeChild(document.body.firstChild)
   })
 
   it('renders topic list after fetch', async () => {
@@ -645,7 +653,9 @@ describe('HotTopics.vue', () => {
     await flushPromises()
     expect(wrapper.vm.genVideoPhase).toBe('completed')
 
-    // 【去发布】→ /publish 视频模式预填充（title/content/tags 来自 publish 配置）
+    // 【去发布】→ /publish 视频模式预填充（content/tags 来自 publish 配置）
+    // fix-hot-topics-genvideo-title：title 现由 AI 爆款标题覆盖（不再是 publish.title/正文切片），
+    // content/tags 仍走 buildPublishFromProject 的既有提取语义。
     pushSpy.mockClear()
     document.body.querySelector('[data-testid="hot-topics-gen-video-publish"]').dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await flushPromises()
@@ -653,7 +663,7 @@ describe('HotTopics.vue', () => {
     expect(publishTarget).toBeTruthy()
     expect(publishTarget.query.type).toBe('video')
     expect(decodeURIComponent(String(publishTarget.query.video_path))).toBe('D:/videos/out.mp4')
-    expect(decodeURIComponent(String(publishTarget.query.title))).toBe('发布标题')
+    expect(decodeURIComponent(String(publishTarget.query.title))).toBe('打工人醒醒！AI又抢活了')
     expect(decodeURIComponent(String(publishTarget.query.content))).toBe('发布正文')
     expect(decodeURIComponent(String(publishTarget.query.tags))).toBe('AI')
 
@@ -699,10 +709,13 @@ describe('HotTopics.vue', () => {
     expect(publishTarget).toBeTruthy()
     expect(publishTarget.query.type).toBe('video')
     expect(decodeURIComponent(String(publishTarget.query.video_path))).toBe('D:/videos/out.mp4')
-    // 关键：不携带空标题/空正文（否则等于伪造了一个"有标题但为空"的项目）
-    expect(publishTarget.query.title).toBeUndefined()
+    // 关键：不携带空正文/空标签（否则等于伪造了一个"有正文但为空"的项目）
     expect(publishTarget.query.content).toBeUndefined()
     expect(publishTarget.query.tags).toBeUndefined()
+    // fix-hot-topics-genvideo-title：run-only 也带标题（AI 标题成功时来自 AI）
+    expect(decodeURIComponent(String(publishTarget.query.title))).toBe('打工人醒醒！AI又抢活了')
+    expect(publishTarget.query.title_source).toBe('ai')
+    expect(publishTarget.query.title_reason).toBeUndefined()
 
     wrapper.unmount()
     el.remove()
@@ -1163,9 +1176,11 @@ describe('HotTopics.vue', () => {
     expect(publishTarget).toBeTruthy()
     expect(publishTarget.query.type).toBe('video')
     expect(decodeURIComponent(String(publishTarget.query.video_path))).toBe('D:/videos/animated.mp4')
-    // run-only：不得注入空 title/content
-    expect(publishTarget.query.title).toBeUndefined()
+    // fix-hot-topics-genvideo-title：run-only 仍不得注入空 content/tags，
+    // 但标题必须有值（AI 标题优先，失败降级原始选题）。
     expect(publishTarget.query.content).toBeUndefined()
+    expect(decodeURIComponent(String(publishTarget.query.title))).toBe('打工人醒醒！AI又抢活了')
+    expect(publishTarget.query.title_source).toBe('ai')
 
     wrapper.unmount()
     el.remove()
@@ -1201,7 +1216,7 @@ describe('HotTopics 收藏选题 tab', () => {
     hotTopicsGetCache.mockResolvedValue({ code: 0, data: { topics: [], fetchedAt: 0, channelStats: {} } })
     hotTopicsFavoriteList.mockResolvedValue({ code: 0, data: [] })
     pipelineList.mockResolvedValue({ code: 0, data: mockPipelineList })
-    document.body.innerHTML = ''
+    while (document.body.firstChild) document.body.removeChild(document.body.firstChild)
   })
 
   // 根因回归保护：子组件必须自带 scoped 引入共用的列表样式表，否则行布局会再次塌成一行
@@ -1337,7 +1352,7 @@ describe('HotTopics heat ranking UI', () => {
     vi.clearAllMocks()
     hotTopicsGetCache.mockResolvedValue({ code: 0, data: { topics: [], fetchedAt: 0, channelStats: {} } })
     hotTopicsFavoriteList.mockResolvedValue({ code: 0, data: [] })
-    document.body.innerHTML = ''
+    while (document.body.firstChild) document.body.removeChild(document.body.firstChild)
   })
 
   async function mountWith(topics) {

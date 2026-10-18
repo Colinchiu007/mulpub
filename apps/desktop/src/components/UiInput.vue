@@ -7,6 +7,7 @@
       :value="modelValue"
       :placeholder="placeholder"
       :disabled="disabled"
+      :maxlength="maxlength"
       class="ui-input"
       @input="$emit('update:modelValue', $event.target.value)"
       @focus="$emit('focus', $event)"
@@ -18,6 +19,7 @@
       :placeholder="placeholder"
       :disabled="disabled"
       :rows="rows"
+      :maxlength="maxlength"
       class="ui-input ui-textarea"
       @input="$emit('update:modelValue', $event.target.value)"
     ></textarea>
@@ -34,6 +36,9 @@ defineProps({
   hint: String,
   disabled: Boolean,
   rows: { type: Number, default: 4 },
+  // 原生 maxlength：无此 prop 时 input 上的 maxlength 会落到根 div（属性透传不进门），
+  // 即「写了但不生效」—— publish-title 的字数上限正是靠这一条真正拦住输入。
+  maxlength: { type: [Number, String], default: undefined },
 });
 defineEmits(["update:modelValue", "focus", "blur"]);
 </script>

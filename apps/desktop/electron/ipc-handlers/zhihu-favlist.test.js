@@ -131,6 +131,130 @@ describe("zhihu-favlist IPC handlers", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────
+// batch-rewrite 注入桌面「模型设置」默认 LLM（fix-collect-antibot-rewrite）
+// 后端 /aggregation/rewrite 只读 env 时已配置默认模型也会误报 LLM_KEY_MISSING，
+// 因此 batch-rewrite 必须在调用前解析默认 llm 并随 payload 下发；解析失败短路不发请求。
+// ─────────────────────────────────────────────────────────────────────
+describe("zhihu-favlist:batch-rewrite — 注入桌面「模型设置」默认 LLM", () => {
+  const LLM_PROVIDER = {
+    id: "agnes-multimodal",
+    name: "Agnes 多模态",
+    category: "multimodal",
+    base_url: "https://agnes.example.com/v1",
+    models: ["agnes-vision-1"],
+    capability_models: { llm: "agnes-3.0-flash" },
+    config: { capabilities: ["llm", "image"], capability_defaults: ["llm"] },
+  };
+
+  function createLlmManager({ provider = LLM_PROVIDER, apiKey = "sk-zhihu-test-secret-01" } = {}) {
+    return {
+      _ready: true,
+      getDefault: vi.fn(() => provider),
+      getProviderWithKey: vi.fn((id) => (provider ? { ...provider, api_key: apiKey } : null)),
+    };
+  }
+
+  it("解析成功 → 每条 /aggregation/rewrite payload 携带 llm，且 Key 不落日志", async () => {
+    const ctx = makeDeps({ modelProviderManager: createLlmManager() });
+    registerHandlers(ctx.ipcMain, ctx.deps);
+
+    const r = await ctx.handlers["zhihu-favlist:batch-rewrite"](null, {
+      contents: [{ content: "内容一".repeat(20) }],
+    });
+
+    expect(r.code).toBe(0);
+    expect(r.data.completed).toBe(1);
+    expect(ctx.deps.pythonBridge.requestBackend).toHaveBeenCalledWith(
+      "POST", "/aggregation/rewrite",
+      {
+        content: "内容一".repeat(20),
+        style: "轻松易懂",
+        length: "keep",
+        llm: {
+          provider_id: "agnes-multimodal",
+          api_key: "sk-zhihu-test-secret-01",
+          base_url: "https://agnes.example.com/v1",
+          model: "agnes-3.0-flash",
+        },
+      },
+    );
+    const logged = [...ctx.deps.log.info.mock.calls, ...ctx.deps.log.warn.mock.calls, ...ctx.deps.log.error.mock.calls]
+      .flat().join(" ");
+    expect(logged).not.toContain("sk-zhihu-test-secret-01");
+  });
+
+  it("无可用默认 llm → 短路 -400/LLM_NOT_CONFIGURED，一次请求都不发", async () => {
+    const ctx = makeDeps({
+      modelProviderManager: { _ready: true, getDefault: vi.fn(() => null), getProviderWithKey: vi.fn() },
+    });
+    registerHandlers(ctx.ipcMain, ctx.deps);
+
+    const r = await ctx.handlers["zhihu-favlist:batch-rewrite"](null, {
+      contents: [{ content: "内容一".repeat(20) }],
+    });
+
+    expect(r.code).toBe(-400);
+    expect(r.errorCode).toBe("LLM_NOT_CONFIGURED");
+    expect(ctx.deps.pythonBridge.requestBackend).not.toHaveBeenCalled();
+  });
+
+  it("无 manager（依赖缺失）→ 降级为不注入 llm（保留 Python env 兜底）", async () => {
+    const ctx = makeDeps();
+    registerHandlers(ctx.ipcMain, ctx.deps);
+
+    const r = await ctx.handlers["zhihu-favlist:batch-rewrite"](null, {
+      contents: [{ content: "内容一".repeat(20) }],
+    });
+
+    expect(r.code).toBe(0);
+    const [, , payload] = ctx.deps.pythonBridge.requestBackend.mock.calls[0];
+    expect(payload).not.toHaveProperty("llm");
+  });
+
+  it("编排链路 zhihu-fav-batch:run 的自动改写同样携带 llm（真实采集页路径）", async () => {
+    registerHandlers._resetFavBatchStateForTest();
+    const ctx = makeDeps({
+      modelProviderManager: createLlmManager(),
+      urlCollector: { collect: vi.fn(async () => ({ success: true, title: "标题", content: "正文内容".repeat(10) })) },
+    });
+    registerHandlers(ctx.ipcMain, ctx.deps);
+
+    const r = await ctx.handlers["zhihu-fav-batch:run"](null, {
+      items: [{ url: "https://zhuanlan.zhihu.com/p/llm-inject-1", kind: "article" }],
+    });
+
+    expect(r.code).toBe(0);
+    expect(r.data.completed).toBe(1);
+    const rewriteCall = ctx.deps.pythonBridge.requestBackend.mock.calls.find(([m, p]) => p === "/aggregation/rewrite");
+    expect(rewriteCall).toBeTruthy();
+    expect(rewriteCall[2].llm).toEqual({
+      provider_id: "agnes-multimodal",
+      api_key: "sk-zhihu-test-secret-01",
+      base_url: "https://agnes.example.com/v1",
+      model: "agnes-3.0-flash",
+    });
+  });
+
+  it("编排链路无可用默认 llm → 不阻断采集，改写请求不带 llm（回退原文语义不变）", async () => {
+    registerHandlers._resetFavBatchStateForTest();
+    const ctx = makeDeps({
+      modelProviderManager: { _ready: true, getDefault: vi.fn(() => null), getProviderWithKey: vi.fn() },
+      urlCollector: { collect: vi.fn(async () => ({ success: true, title: "标题", content: "正文内容".repeat(10) })) },
+    });
+    registerHandlers(ctx.ipcMain, ctx.deps);
+
+    const r = await ctx.handlers["zhihu-fav-batch:run"](null, {
+      items: [{ url: "https://zhuanlan.zhihu.com/p/llm-inject-2", kind: "article" }],
+    });
+
+    expect(r.code).toBe(0);
+    const rewriteCall = ctx.deps.pythonBridge.requestBackend.mock.calls.find(([m, p]) => p === "/aggregation/rewrite");
+    expect(rewriteCall).toBeTruthy();
+    expect(rewriteCall[2]).not.toHaveProperty("llm");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
 // 密钥解析：从「全局明文」升级为「本用户 safeStorage 密文 + 旧版兼容」
 // 采集链读密钥必须与设置页写密钥走**同一个实现**（services/zhihu-credential），
 // 否则会出现「设置页说已配置、采集说未配置」的双口径争议。

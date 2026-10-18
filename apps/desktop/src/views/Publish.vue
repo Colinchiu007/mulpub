@@ -209,9 +209,8 @@
                   <label class="cohere-form-label">
                     {{ t('publishPage.title') }}
                     <span v-if="fieldSupportText('title')" class="field-support-badge" data-testid="field-support-title">{{ fieldSupportText('title') }}</span>
-                  </label>
-                  <UiInput data-testid="publish-title" v-model="article.title" :placeholder="t('publishPage.videoTitlePlaceholder')" />
-                  <p v-if="noTitleHint" class="no-title-hint" data-testid="no-title-hint">{{ noTitleHint }}</p>
+                  </label><UiInput data-testid="publish-title" v-model="article.title" :placeholder="t('publishPage.videoTitlePlaceholder')" :maxlength="titleMaxLength" :hint="titleHint" />
+                  <p v-if="noTitleHint" class="no-title-hint" data-testid="no-title-hint">{{ noTitleHint }}</p><p v-if="videoTitleSourceHint" class="no-title-hint" data-testid="video-title-source-hint">{{ videoTitleSourceHint }}</p>
                 </div>
                 <!-- 标题助手：贴邻标题输入（openspec optimize-publish-right-rail） -->
                 <div v-if="showTitlePanel || article.title.length > 5" class="cohere-form-item">
@@ -357,7 +356,7 @@
                     {{ showAiWriter ? t('publishPage.close') : t('publishPage.aiWriter') }}
                   </button>
                 </div>
-                <UiInput data-testid="publish-title" v-model="article.title" :placeholder="t('publishPage.titlePlaceholder')" />
+                <UiInput data-testid="publish-title" v-model="article.title" :placeholder="t('publishPage.titlePlaceholder')" :maxlength="titleMaxLength" :hint="titleHint" />
                 <p v-if="noTitleHint" class="no-title-hint" data-testid="no-title-hint">{{ noTitleHint }}</p>
               </div>
               <!-- 标题助手：贴邻标题输入（openspec optimize-publish-right-rail） -->
@@ -704,6 +703,7 @@
 <script setup>
 import UiButton from "../components/UiButton.vue";
 import UiInput from "../components/UiInput.vue";
+import { usePublishTitleLimit, usePublishVideoTitleHint } from '@/composables/usePublishTitleLimit'
 import { ref, reactive, computed, onMounted, onActivated, onBeforeUnmount, watch } from 'vue'
 import { safeHttpUrl } from '@multi-publish/shared-utils/src/safe-http-url'
 import { getApi } from '@/api/electron-bridge'
@@ -1225,6 +1225,8 @@ const scheduleCapabilityHint = (ids) => fieldSurface.scheduleCapabilityHint(ids)
 // 批量条目在模板里各自调 fieldSurface.hintTextFor(a.platforms)。
 const scheduleHintText = computed(() => fieldSurface.hintTextFor(selectedPlatforms.value))
 const noTitleHint = computed(() => fieldSurface.noTitleHintFor(selectedPlatforms.value))
+
+const videoTitleSourceHint = usePublishVideoTitleHint(activeMode, route, t); const { titleMaxLength, titleHint } = usePublishTitleLimit(article)
 const selectedOverridePlatforms = computed(() =>
   fieldSurface.overridePlatformSpecsFor(platforms.value, selectedPlatforms.value))
 const visibilitySupportedPlatforms = computed(() =>

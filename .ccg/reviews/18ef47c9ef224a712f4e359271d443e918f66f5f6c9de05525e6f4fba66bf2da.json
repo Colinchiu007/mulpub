@@ -1,0 +1,30 @@
+{
+  "sha": "2e7aa79fa7977b39b58017e4b0a8be7f5c0ff465",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 1,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 3,
+    "docSensitiveContentSample": [
+      "### QM-6 未完成的**人工授权**记录（合并依据，不是自动放行）",
+      "- **授权时间**：2026-10-18（本轮会话，用户主动选择「授权按『环境限制』登记后合并」）。",
+      "- **授权范围**：仅授权「在 `check-pr-exec-record --mode=enforce` 仍因 1 条 CCG 深度审查欠账判红的情况下合并本 PR」，**不含**授权伪造任何闭环状态。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "18ef47c9ef224a712f4e359271d443e918f66f5f6c9de05525e6f4fba66bf2da",
+  "decidedAt": "2026-10-18T03:42:06.199Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

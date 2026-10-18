@@ -1,0 +1,29 @@
+{
+  "sha": "4eb79ceaf5d610d2fccc4b41a94fc070d258ef1e",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 559 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 559,
+    "fileCount": 17,
+    "codeFileCount": 12,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "e9274a02a542ba4a173cc1487613df4ed4187f457b6f6f36805a2ffc746d9be5",
+  "decidedAt": "2026-10-18T04:37:07.625Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "error",
+    "performedBy": "claude",
+    "findings": null,
+    "error": "spawnSync <user-home>/.claude/bin/codeagent-wrapper.exe ETIMEDOUT",
+    "validationErrors": null,
+    "at": "2026-10-18T04:47:39.145Z"
+  }
+}

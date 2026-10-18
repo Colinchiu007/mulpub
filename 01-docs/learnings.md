@@ -1,3 +1,60 @@
+## 反爬验证页与双份配置源：五条可复用教训（fix-collect-antibot-rewrite，2026-10-18）
+
+### lesson:guard-on-a-retired-path-is-no-guard
+
+**守卫挂在一个「已经不走了」的分支上，等于没有守卫，而且会让审查者以为这里处理过了。**
+
+现场：`Collection.vue` 的 `isSecurityChallenge`（旧 `:1093-1101`）只在 Python 聚合分支被调用（旧 `:1251`），
+而百家号链接 2026-09-29 起改走「视频通道 → 无视频回退 stealth」（`Collection.test.js:352-353` 的注释自陈），
+stealth 分支（旧 `:1222-1236`）没有任何判据 ⇒ 验证页结果直接入库。
+同一形态也出现在测试上：那条「安全验证不得当成功」的回归用例测的正是聚合路径。
+判据：改路由/改链路时，先数一遍「守卫调用点数」与「该输入实际经过的分支数」，两者不等就是缺口；
+搬运链路必须**同一次**搬运守卫与它的回归用例。
+
+### lesson:probe-findings-must-leave-recomputable-artifacts
+
+**现场探针只 `console.log` 不落盘，事后就无法复算，只能引用记忆——而记忆不是证据。**
+
+现场：`D:\Temp\baijiahao-probe*.js` 五支探针只打印到控制台，挑战率只能靠**另外落盘的 6 份 HTML**
+（文件名带 `-CHALLENGE`/`-OK`，`title` 可逐份复核）反推；而其中一支对比不同 UA 的探针（probe5）
+结论**完全不可复算**，最终只能写「未复现」，不能写结论。
+规范：探针必须同时留下 ①原始响应/页面字节 ②一份带时间戳的日志（`Tee-Object` 即可）；
+数字要能从产物重算出来，否则在文档里写「待复核」而不是写一个看起来精确的数。
+
+### lesson:parser-success-means-parsed-not-article
+
+**解析器的 `success:true` 通常只表示「拿到 HTML 并解析完」，不表示「拿到的是文章」；把它当语义成功会同时污染缓存与指标。**
+
+现场：生产解析器 `UrlCollector._parseHtml` 对「百度安全验证」页返回
+`{success:true, title:"百度安全验证", contentLen:101}`（用 3 份落盘 CHALLENGE 页实测），
+而 `collect()` 正是按 `result.success` 写内容缓存（旧 `url-collector.js:182-183`）⇒ 失败形态被固化成「成功」，
+同 URL 二次采集还会命中缓存返回空壳。
+规范：在「解析完成」与「内容可用」之间显式加一道语义判据（fail-closed），
+并让缓存只接受通过语义判据的结果；测试要拿**真实的失败页产物**过生产解析器，而不是喂假 result。
+
+### lesson:dual-config-source-makes-not-configured-errors-unreliable
+
+**同一项配置存在两份真源（UI/DB 与进程环境变量）时，「你没配置」这类报错最不可信。**
+
+现场：桌面 DB 只读核对显示 `agnes-multimodal`：`enabled=1`、`api_key_enc` 82 B、`capability_defaults` 含 `llm`、
+`capability_models.llm=agnes-3.0-flash`；而 Python `/aggregation/rewrite` 只读
+`LLM_API_KEY` / `PO_OPENAI_API_KEY`（`aggregation/service.py:218-220`）⇒ 报 `LLM_KEY_MISSING`。
+桌面引擎链路（`aiRewrite` → `generateWithDefault('llm')` → `getDefault('llm')`）本来能解析到同一份配置。
+规范：① 错误码要区分「用户未配置」与「配置未被注入/服务未就绪」（本片新增 `LLM_NOT_CONFIGURED`，并在日志里区分 `MANAGER_ABSENT`/`NO_DEFAULT`/`NO_API_KEY`/`NO_MODEL`）；
+② 配置来源收敛为单一出口（请求级 `llm` 优先于 env），env 只做兜底；
+③ Key 只进 payload，日志/错误文案一律不得拼接。
+
+### lesson:anti-bot-findings-need-two-independent-batches
+
+**反爬是概率性的：单批读数不能当因果，尤其当结论恰好指向「换个 UA / 换个 IP 就好」时。**
+
+现场数字（同一 URL、同一台机器）：
+stealth 浏览器落盘 6 份中 3 份是 CHALLENGE（desktop 2/3、mobile 1/3）；
+普通 HTTP 完整 Chrome UA 16/16 成功；仓库现用**截断 UA** 4/4 成功。
+即「UA 截断导致验证」这个看似合理的解释在本批**未复现**，不能写成根因。
+规范：任何「某因子导致反爬」的结论至少要 ①≥2 个独立批次 ②产物可复核 ③给出反例批；
+满足不了就写「未复现」，修复设计按「概率性 + fail-closed + 有界重试」而不是「换因子」。
+
 ## 一条新判据的绕行面必须在建实现之前逐条证活；而变异反证会抓到你自己的接线断线（ban-record-closure-backfill-pr，2026-10-18）
 
 ### lesson:prove-the-bypass-is-alive-before-plugging-it
@@ -121,6 +178,66 @@ MSYS 会把 `origin/main:CHANGELOG.md` 里的冒号当路径分隔符转换，�
   不等就是行尾/末尾换行出了问题，不是"差不多就行"。
 - 另：`check-changelog-growth.js` 要求**只增不减**（base 498 种标题 ⊆ head 499 种），
   基于旧 base 拼接会被判"少 N 种条目"。冲突解决按"两侧都保留"：用**最新 base 全文 + 我的块置顶**重建。
+## 多级回退链 + 夹具填满前几级 = 缺陷路径在测试里表现为正确行为（fix-hot-topics-genvideo-title，2026-10-17）
+
+用户报「热门选题生成视频后点去发布，带入的标题是正文的前多少字」。第一性根因不是哪一行写错，
+而是**标题从来不是一个独立生成物**——它是一个四级静默回退链的末端切片：
+
+```
+buildGenVideoStartParams 不带 title
+  → publish.title = config.title || ''（默认 ''，热门选题链路从不写）
+  → 主进程 project.title = run.params?.title || publish.title || sourceText
+  → buildPublishFromProject 取 project.title
+  → truncateTitle(rawTitle, 100)
+  ⇒ 标题 = 改写正文前 100 字
+```
+
+四层单独看都"合理"（每一层都是防御性兜底），组合起来产出一个没人想要的产物。
+
+1. **夹具自证是这类缺陷的标准逃逸形态。** 旧测试为什么全绿？
+   `publish-from-project.test.js` 的 `makeProject` 让 `project.title` 与 `sourceText`
+   **取同一个 38 字字符串**——于是「title 回退到 sourceText」这条生产缺陷路径，
+   在测试里长什么样就表现为什么样（正确行为）。`HotTopics.test.js` 的【去发布】夹具
+   更直接：手写 `publish.title = '发布标题'`，而真实链路该字段**恒为空串**。
+   **纪律**：任何「多级回退」纯函数，必须至少有一例**前几级全部为空**的生产形态夹具。
+   夹具填满前几级，等于把回退链的后半段（生产真正走到的那半段）置于测试盲区。
+
+2. **审查盲区：把「不得注入空 X」当成合规终态，没人追问「那 X 应该是什么」。**
+   `hot-topics-pipeline-picker` 评审明确记录了「run-only 发布只能交接成片路径，
+   不伪造标题正文」，当时看是严谨（确实修掉了 `title=''` 编码进 query 的问题）。
+   但规则只约束了**负面**（不许空），没有规定**正面**（标题从哪来）。
+   于是 run-only 分支的标题就一直是空的，S2V 分支的标题就一直是正文切片。
+   **纪律**：审查一条「不得注入空字段」的规则时，必须同时回答「该字段非空时从哪来」。
+   只堵负面不立正面，缺陷会以「静默降级到某个默认值」的形态继续存在。
+
+3. **渲染层不要放 LLM prompt（本仓门禁与既有模式双重理由）。**
+   第一版把 `buildGenVideoTitlePrompt` 放在 `src/features/publish/`，`--cjk` 门禁当场红
+   （基线 1374 条，新增 8 处中文 prompt 指令）。查证后发现两条独立理由都指向主进程：
+   ① `apps/desktop/src/` 受全量字符串字面量扫描，中文 prompt 必撞；
+   ② 全仓渲染层此前**没有任何 LLM prompt 构造先例**——explainer/videogen/documentary/localization
+   五族的 prompt 全在 `electron/services/*-stages.js`。把 prompt 下沉到 IPC handler 后，
+   渲染层只剩 `resolveGenVideoTitle` 降级链决策纯函数，CJK 门禁自然通过。
+   **纪律**：新增 LLM 调用先问「prompt 放哪层」——本仓的答案固定是主进程。
+
+4. **「无模型」不是 error，是降级理由。** handler 对「未配置默认文字推理模型」返回
+   `{ code: 0, data: { success: false, reason: 'no-model' } }` 而不是抛错。
+   若按 error 处理，渲染层会弹错误框——但用户没配模型是**合法状态**，
+   该走的是「用原始选题」的降级 + 一句提示，不是报错。
+   同理渲染层要先查 `modelProviderGetDefault('llm')` 再决定是否发起标题生成调用，
+   **无模型时一次网络调用都不该发生**。
+
+5. **清洗规则要覆盖推理模型的两种截断形态。** 思维链剥离必须同时处理
+   `<think>…</think>` 闭合块与**未闭合尾部**（`finish_reason=length` 时思考块没写完）。
+   ops-center 侧两个服务已为同一问题各修过一次（learnings:3347-3352），
+   本次是第三次——**「修复一处必须全局检索同类解析点」这条纪律的又一次实证**。
+   另外「成对引号才剥、单边保留」也值得记：`"标题` 很可能是标题内容本身，
+   无条件剥首尾引号会把标题啃掉一个字符。
+
+6. **标题生成时点：点击时 > 改写时 > 完成时。** 改写阶段顺手产出会把两类任务混在一个
+   prompt（改写引擎 2026-09-18 的「要素名被写成小节标题」事故正是任务混淆的产物）；
+   run 完成时自动生成会为只想【查看】的用户浪费一次 LLM 调用。
+   点【去发布】时用户意图最明确，且失败只影响标题不影响跳转——配合 busy 守卫
+   （重复点击不发起第二次调用、不发生第二次跳转），交互代价接近零。
 
 ## 门禁读的是「断言」而不是「测量」——循环依赖如何长出一个回填 PR（gate-record-sync-derived-status，2026-10-18）
 

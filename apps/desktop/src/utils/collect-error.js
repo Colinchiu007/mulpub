@@ -8,9 +8,12 @@
  * 输入形态：
  *   - string：错误消息文本
  *   - { code, message }：IPC 返回的错误对象
+ *   - { code, message, reason }：带**结构化 reason** 的 IPC 错误（主进程已分类时优先采信）
  *   - Error：异常对象（取 message）
  *
- * 分类规则按优先级从上到下匹配，首个命中即返回。
+ * 分类规则按优先级从上到下匹配，首个命中即返回。结构化 reason 排在最前：
+ * 主进程（url-collector）已把「百度安全验证页」等形态判定为 security_challenge，
+ * 渲染层再做文本猜测属于二次推断——文本一旦被本地化/改写就会漂移（2026-10-18）。
  */
 
 /** 不可重试的分类（参数/输入类/资源超限错误，重试无意义） */
@@ -19,6 +22,21 @@ const NON_RETRYABLE = new Set([
   'video_too_long', 'video_file_too_large', 'no_audio_track', 'asr_engine_unavailable',
   'video_private', 'video_membership', 'video_region', 'video_invalid_platform', 'asr_empty',
   'video_channels_unsupported', 'video_no_video',
+])
+
+/**
+ * 可被 IPC 结构化 reason 直接采用的分类白名单。
+ * 与 locales/collection 的 collectErrors.* 键一一对应；不在表内的 reason 继续走文本匹配，
+ * 避免把上游拼错的字符串当成合法分类、渲染出一个没有文案的 detailKey。
+ */
+const STRUCTURED_REASONS = new Set([
+  'invalid_url', 'internal_url', 'protocol', 'budget_exhausted', 'cooldown', 'circuit_open',
+  'rate_limited', 'weekend_throttle', 'security_challenge', 'timeout', 'unreachable',
+  'content_unextractable', 'backend_unavailable', 'network_error',
+  'video_too_long', 'video_file_too_large', 'no_audio_track', 'asr_engine_unavailable',
+  'asr_download_failed', 'video_transcribe_timeout', 'video_private', 'video_membership',
+  'video_region', 'video_anti_bot', 'video_invalid_platform', 'video_channels_unsupported',
+  'video_no_video', 'asr_empty', 'unknown',
 ])
 
 /**
@@ -58,6 +76,13 @@ function result(reason) {
  */
 export function classifyCollectError(input) {
   const { message, code } = normalizeInput(input)
+
+  // ── 结构化 reason 优先（主进程 url-collector 已分类，如 security_challenge） ──
+  // 只在 reason 命中白名单时采用：未知字符串退回文本匹配，避免产生无文案的 detailKey。
+  if (input && typeof input === 'object' && typeof input.reason === 'string' &&
+      STRUCTURED_REASONS.has(input.reason)) {
+    return result(input.reason)
+  }
 
   // ── 视频采集管线错误（/aggregation/collect-video，detail 含具体中文提示时优先透传） ──
   // python-bridge 对 HTTP 422 resolve {code:-422, message:"ERROR_CODE: 中文提示"}；

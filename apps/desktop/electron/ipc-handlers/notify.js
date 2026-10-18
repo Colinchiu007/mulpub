@@ -36,6 +36,11 @@ const ALLOWED_LEVELS = new Set(['info', 'warn', 'error'])
 // 速率限制：每窗口（10s）/每 messageKey 计数，超限降级为聚合计数日志
 const RATE_WINDOW_MS = 10_000
 const RATE_MAX_PER_KEY = 20
+// 有意只增（R11 审计面已人工复核：key 空间有界且过期即覆盖；复核结论登记在 openspec/records/risk-closeout.md，本注释不是豁免机制）：key 由调用方传入的消息键决定，须通过下方
+// isKnownMessageKey 的前缀白名单；**同一 key 的过期窗口在 checkRateLimit 里被原地覆盖**
+// （`set` 换新对象，见 checkRateLimit 首分支）⇒ 单 key 只保留一个 bucket，不会累积成泄漏。
+// 因此这里不需要也不能靠 clear() 控制基数：真正的上限是「每窗口每 key 允许 20 次」，
+// 不是表大小。若将来改成「不校验 messageKey 白名单」，本注释与豁免须同时失效并改回清理。
 const rateBuckets = new Map() // key -> { count, windowStart }
 
 function isKnownMessageKey(messageKey) {

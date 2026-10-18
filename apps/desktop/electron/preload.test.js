@@ -212,7 +212,7 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r)).toContain('accountGetProxy')
   })
 
-  it('system 模块应导出 137 个方法（2026-10-18：139 − 2，引导通道收敛：删 onboardingComplete/GetSteps/Status 三条零写点的死通道与 onFirstRunStatus 推送，加 firstRunComplete）', () => {
+  it('system 模块应导出 138 个方法（2026-10-18 第三次合并 origin/main 后当场实测 138；本分支在该文件上的净变化 −4 +1：删 onFirstRunStatus 与 onboardingComplete/GetSteps/Status，加 firstRunComplete。main 侧同期 +1 aiGenerateGenVideoTitle）', () => {
     const { createSystemApi } = require('./preload/system')
     const r = createSystemApi(ipcRenderer)
     // 136 + opsCenterSyncRuntime/PipelineOptions/AppMenu（运营中心运行时策略，活通道）
@@ -226,7 +226,7 @@ describe('preload 子模块方法数', () => {
     // + batchCancel（2026-10-02 批量排期取消：清定时器 + 状态置 cancelled，与 batch:delete 区分）
     // - 10（分屏监控 webview:* API 随监控功能移除，网页查看统一走 pageManager）
     // - 3（2026-10-15：ops-center-sync:get/save/now 三条 IPC 在渲染端零调用，随别名一并移除）
-    expect(Object.keys(r).length).toBe(137)
+    expect(Object.keys(r).length).toBe(138)
     // 现场对照（2026-10-18）：把 system.js 精确还原到 HEAD 后同一条命令测得 **140**，
     // 而 HEAD 的断言写的是 139 ⇒ 这条棘轮在我动手之前就已差 1（既有假红，非本次引入）。
     // 本次净变化 −4 +1 = −3：删 onFirstRunStatus（`first-run:status` 推送，SPA 挂载前发出、无人监听）
@@ -234,13 +234,17 @@ describe('preload 子模块方法数', () => {
     // 加 firstRunComplete（引导完成标记的唯一写口）。
   })
 
-  it('合并后 api 总键数应为 335（2026-10-18：引导通道收敛 −4 +1；沿革 2026-10-17：343 + story2videoBgmLibraryStatus 历史 BGM 路径核验；2026-10-15：342 + accountGetProxy，账号页列表零解密后代理状态改由 account:get-proxy 按需读取；342 = 344 − 3 条死通道 + 1 个「再次发布」快照读口 historyGetRepublishSnapshot；344 = 343 + 1 个激活码核销键 identityRedeemCode → identity:redeem-code）', () => {
-    expect(Object.keys(api).length).toBe(335)
+  it('合并后 api 总键数应为 336（2026-10-18 第三次合并 origin/main 后当场实测 336；本分支 −4 +1，main 侧 +1 aiGenerateGenVideoTitle 与 −7 买断下线等沿革见下方注释）', () => {
+    expect(Object.keys(api).length).toBe(336)
+    // - 7（2026-10-17：买断授权模型下线 #3851，删 6 个 payment:* 通道 + 1 个 admin 桥接）
+    // + 1（2026-10-17：aiGenerateGenVideoTitle → ai:generate-gen-video-title，
+    //      热门选题「生成视频 → 去发布」的爆款标题生成；无模型/失败时降级原始选题）
     // 新键必须真实存在于聚合入口，防止「改了数字但方法没接上」
     expect(Object.keys(api)).toContain('identityRedeemCode')
     expect(Object.keys(api)).toContain('historyGetRepublishSnapshot')
     expect(Object.keys(api)).toContain('accountGetProxy')
     expect(Object.keys(api)).toContain('story2videoBgmLibraryStatus')
+    expect(Object.keys(api)).toContain('aiGenerateGenVideoTitle')
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {

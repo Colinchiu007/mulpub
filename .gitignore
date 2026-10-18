@@ -117,6 +117,11 @@ scripts/*.js
 # scripts/same-type-risk-locks.test.js 都按路径点名它 —— 漏这条 negation 的症状是
 # 本地全绿、CI 上 Cannot find module（#3011 / Gate 2c3 / precommit-spawn-budget 同族，第 4 次）。
 !scripts/check-same-type-risk-locks.js
+# 掩码覆盖 A/B 判据 CLI 本体（2026-10-18）：第 106 行 scripts/*.js 会把它静默忽略。
+# 它是 `scripts/lib/mask-coverage-ab.js` 的入口，改动 code-mask 的 PR 靠它跑「可见字符减少必须为 0」；
+# 被忽略的症状与上面几族完全同形 —— 本地全绿、CI 上 Cannot find module（#3011 / Gate 2c3 /
+# precommit-spawn-budget / same-type-risk-locks / 引导按钮名同族，第 6 次）。
+!scripts/check-mask-coverage.js
 # 引导文案按钮名同步锁本体：第 106 行 scripts/*.js 会把它静默忽略，而 quality-gate.yml
 # 的 changes job 按路径点名它 —— 漏这条 negation 的症状是本地全绿、CI 上 Cannot find
 # module（#3011 / Gate 2c3 / precommit-spawn-budget / same-type-risk-locks 同族，第 5 次）。
