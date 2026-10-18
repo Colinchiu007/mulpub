@@ -32,7 +32,7 @@
 - [x] 4.2 变异反证 M1–M5（design 表）逐条实跑，红集**指名到用例**；跑后源文件 md5 逐一还原核对。 **→ 落点：最终驱动 `mutate-final-1019.cjs` 实跑 **M1–M11 全 CAUGHT + C1 GREEN-AS-DESIGNED**，基线先自证 115/115 绿（基线不绿即停手，不在既有红上解释变异），跑后判据/测试/账本三文件 md5 与跑前逐一相等（打印 `true`）。逐条指名：M1→拒收用例+空原因用例；M2→拒收用例；M3→真仓形状锁；M4→口径锁「代码位置命中」支路；M5→真仓形状锁等 13 条；M6→真账本读通用例+真仓欠账用例；M7→未登记欠账三条+反清空用例；M8→反清空用例+W1 用例；M9→口径锁「注释位置的命中数为 0」支路；M10/M11→W1 用例。两组红集重合已归因（不是盲区）：**M4/M9 同用例不同断言支路**，用 `--test-name-pattern` 单跑取 message 当场分辨（支路读数见 1.4）；**M10/M11 攻的是同一条不变式**（"缺注入必须抛"），任何使其不抛的实现都落同一格红，二者不可分辨是不变式的形状而非锁的漏洞——差异只在"不抛之后读什么"，而正确实现根本不返回结果，行为上无从观测
 - [x] 4.3 执行记录 `openspec/records/debt-ledger-shape-normalize.md`（新形态：状态列「由门禁推导」、无 `sync_*`）。 **→ 落点：已建 `openspec/records/debt-ledger-shape-normalize.md`（状态列「由门禁推导」、无 `sync_*`），qm5 rc=0 认可其行集**
 - [x] 4.4 CHANGELOG 一个标题块；`01-docs/learnings.md` 记一条**我自己的错判**：上一轮我答"判据读不到 status"是**没读 `loadLedger` 就下结论**——真实缺陷相反（字段无人读且已腐化），纠偏过程与判据写法一并记下。 **→ 落点：CHANGELOG 单条标题块 + learnings 一条 `check-consumers-before-diagnosing-a-dead-field`（记的是我自己的错判：没读 `loadLedger` 就断言"读不到 status"，真缺陷相反）**
-- [ ] 4.5 `classify-docs-only` 在 commit 后取证；本刀含 `scripts/` ⇒ 预期混合 PR，走完整质量节拍。
+- [x] 4.5 `classify-docs-only` 在 commit 后取证；本刀含 `scripts/` ⇒ 预期混合 PR，走完整质量节拍。 **→ 落点：commit 后取，读数 `docs-only=false files=13` ⇒ 混合 PR，不借道；重型 job 未被短路（`QG Static`/`QG Unit Tests`/`build` 等均实跑并 success**
 - [x] 4.6 外部评审轴：先探针后派发（两字请求判后端是否活着），零交付形态如实记，不以自审冒充。 **→ 落点：见第 5 节。探针与派发读数逐条写在下面，两轴（critic=claude / proposer=opencode，取自 `origin/main:scripts/ccg-review-backends.list`）本轮均**未交付**，第三轴 codex 交付 5 条并已逐条处置；QM-6 行只记 PARTIAL，不写 PASS**
 
 ## 5. QM-6 外部评审轴的现场读数与处置（2026-10-19 复取）
@@ -44,6 +44,6 @@
 - [x] 5.5 W3 的尾巴（"形状锁里硬编码文件名，唯一性锁不扫测试文件"）处置为**如实记录残余**而非扩域：现形态下 `LEDGER_FILE` 若改名，真账本用例会因 `readFileSync` 旧路径 ENOENT 或键数不等而**当场大声红**，不存在静默读旧文件的通道；扩域去扫测试文件的字面串会把"测试引用常量"变成新的排版锁，收益不抵成本
 
 ## 6. 合并与收尾
-- [ ] 4.7 开 PR；满足自动合并判据则 squash + 删分支（产物判据：MERGED+oid、远端 0 行、main 恰 1 行、`check-branch-merged` lost=0）。
+- [x] 4.7 开 PR；满足自动合并判据则 squash + 删分支（产物判据：MERGED+oid、远端 0 行、main 恰 1 行、`check-branch-merged` lost=0）。 **→ 落点：PR #3949；判据第 4 条（`check-pr-exec-record --mode=enforce`）不满足 ⇒ 按 AGENTS 不自动合并，交人裁决；用户明示「认单轴，合并并把缺轴登记为欠账」后才 squash（见记录《QM-6 单轴放行的边界》）**
 - [ ] 4.8 回读 main push；纯 docs/scripts 命中 `paths-ignore` 时如实记 `NO_RUN(by design)` 并转核判据最近读数，读数是写 PR 评论。
 - [ ] 4.9 worktree 与本地分支按 R1–R7 清理，一次性脚本不落在仓库内。
