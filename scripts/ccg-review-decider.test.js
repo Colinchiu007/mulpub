@@ -1118,30 +1118,30 @@ function withTempGitRepo (fn) {
 test('丙3.4 summarizeBackendAvailability：0/1/2 必须分档（1/2 与 2/2 不得同形）', () => {
   const s = decider.summarizeBackendAvailability
   assert.strictEqual(typeof s, 'function', '必须导出纯函数（内联在 saveRecord 里的话行为锁无从注入）')
-  const two = s({ wrapperExists: true, claude: true, opencode: true })
-  const one = s({ wrapperExists: true, claude: true, opencode: false })
-  const none = s({ wrapperExists: false, claude: false, opencode: false })
+  const two = s({ wrapperExists: true, names: ['claude', 'opencode'], byName: { claude: true, opencode: true } })
+  const one = s({ wrapperExists: true, names: ['claude', 'opencode'], byName: { claude: true, opencode: false } })
+  const none = s({ wrapperExists: false, names: ['claude', 'opencode'], byName: { claude: false, opencode: false } })
   assert.deepStrictEqual([two.count, one.count, none.count], [2, 1, 0])
   assert.notDeepStrictEqual(two, one, '两档必须可区分 —— 只看"有没有"时 2/2 与 1/2 长成一个样')
   assert.strictEqual(one.partial, true)
   assert.strictEqual(two.partial, false)
   assert.strictEqual(two.wrapperReady, true)
   assert.strictEqual(none.wrapperReady, false)
-  assert.deepStrictEqual(none.backends, { wrapperExists: false, claude: false, opencode: false })
+  assert.deepStrictEqual(none.backends, { wrapperExists: false, names: ['claude', 'opencode'], onPath: [] })
 })
 
 test('丙3.1 行为锁：saveRecord 必须把可用性写进记录（注入夹具，不碰本机 PATH）', () => {
   withTempGitRepo(() => {
     const written = decider.saveRecord(
       { mode: 'dual', reason: 'probe', stats: {} }, 'a'.repeat(40), 'diff', undefined,
-      { wrapperExists: true, claude: true, opencode: false }
+      { wrapperExists: true, names: ['claude', 'opencode'], byName: { claude: true, opencode: false } }
     )
     assert.ok(written, 'saveRecord 应返回落盘路径')
     const rec = JSON.parse(fs.readFileSync(written, 'utf8'))
     assert.ok(rec.backendAvailability, '记录必须含 backendAvailability —— 否则"CLI 不可用"只能靠自述')
     assert.strictEqual(rec.backendAvailability.count, 1)
     assert.strictEqual(rec.backendAvailability.partial, true)
-    assert.deepStrictEqual(rec.backendAvailability.backends, { wrapperExists: true, claude: true, opencode: false })
+    assert.deepStrictEqual(rec.backendAvailability.backends, { wrapperExists: true, names: ['claude', 'opencode'], onPath: ['claude'] })
     assert.strictEqual(rec.deepReview.tier, 'unknown', '本轮初始化的 tier 不得被可用性落盘顺带改掉')
   })
 })
@@ -1151,7 +1151,7 @@ test('丙3.3 默认路径不得丢字段：不注入后端时也要写出可读�
     const written = decider.saveRecord({ mode: 'single', reason: 'probe', stats: {} }, 'b'.repeat(40), 'diff', undefined)
     const rec = JSON.parse(fs.readFileSync(written, 'utf8'))
     assert.ok(rec.backendAvailability, '缺省调用也要有该字段，否则新记录形状分成两种')
-    assert.ok([0, 1, 2].includes(rec.backendAvailability.count), 'count 必须是 0/1/2，不得是 undefined 或布尔')
+    assert.ok(Number.isInteger(rec.backendAvailability.count) && rec.backendAvailability.count >= 0 && rec.backendAvailability.count <= rec.backendAvailability.total, 'count 必须是 0..total 的整数，不得是 undefined 或布尔')
     assert.strictEqual(typeof rec.backendAvailability.wrapperReady, 'boolean')
     const expect = decider.summarizeBackendAvailability(decider.detectBackends())
     assert.deepStrictEqual(rec.backendAvailability, expect,
@@ -1159,7 +1159,7 @@ test('丙3.3 默认路径不得丢字段：不注入后端时也要写出可读�
     // 反真空留痕：若这台机器两个后端都没装，上一条会因「两边都是 0/false」而恒真 ⇒ 必须打印现场，
     // 让读者看见它到底测到了什么（同仓规矩：每次跑要打印走的是哪条支路 + 关键实测值）。
     console.log('  [avail] 默认路径现场 count=' + expect.count + ' wrapperReady=' + expect.wrapperReady +
-      ' claude=' + expect.backends.claude + ' opencode=' + expect.backends.opencode)
+      ' names=' + expect.backends.names.join(',') + ' onPath=' + (expect.backends.onPath.join(',') || 'none'))
   })
 })
 
@@ -1224,4 +1224,29 @@ test('跨模块命名对齐锁：生产者写出的 alt 文件名必须被扫描
     assert.ok(gateNaming.AUDIT_ARTIFACT_RE.test('.ccg/reviews/' + path.basename(alt)),
       `alt 产物必须被扫描域认出，否则它不参与欠账判定：${path.basename(alt)}`)
   })
+})
+
+// ── 现场形状契约锁（2026-10-17 rebase 到 #3927 之后发现的真缺陷）───────────────────
+// 现场事实：detectBackends() 的返回形状变成 { wrapper, wrapperExists, resolved, names, byName } 后，
+// 旧的 summarizeBackendAvailability 仍读 b.claude / b.opencode ⇒ 本机明明两个后端都可用，
+// 写进判定记录的却是 count=0。丙3.3 那条"和自己推导比一次"的断言两侧同错，完全看不出来。
+test('现场形状契约锁：可用性汇总必须由 detectBackends 的真实字段推导（夹具不得替对方把数算好）', () => {
+  const live = decider.detectBackends()
+  assert.ok(Array.isArray(live.names) && live.names.length >= 1,
+    `名单必须非空（探测名单来自单一真源 list），实际=${JSON.stringify(live.names)}`)
+  assert.deepStrictEqual([...Object.keys(live.byName)].sort(), [...live.names].sort(),
+    'byName 必须逐个覆盖名单 —— 有名字没被探过就等于"没测"')
+
+  const s = decider.summarizeBackendAvailability(live)
+  const expected = live.names.filter((n) => live.byName[n] === true)
+  console.log('  [现场形状] names=' + live.names.join(',') + ' byName=' + JSON.stringify(live.byName) +
+    ' ⇒ count=' + s.count + '/' + s.total + ' wrapperReady=' + s.wrapperReady)
+  assert.strictEqual(s.count, expected.length, 'count 必须由真实 byName 推导，不是由夹具里的两个布尔推导')
+  assert.strictEqual(s.total, live.names.length, '分母必须等于本轮真要用的后端数')
+  assert.deepStrictEqual(s.backends.onPath, expected, 'onPath 必须逐字等于探测命中集')
+
+  // 反向锁：旧形状交进来必须得 0 —— 这不是兼容层，而是把「读错形状 = 静默失明」钉成可见事实
+  const legacy = decider.summarizeBackendAvailability({ wrapperExists: true, claude: true, opencode: true })
+  assert.strictEqual(legacy.count, 0, '旧形状里没有 names ⇒ 汇总必须得 0；这正说明当初写进记录的 count=0 是读错形状，不是后端真不可用')
+  assert.strictEqual(legacy.total, 0, '分母同样为 0，不得凭空算成 2')
 })

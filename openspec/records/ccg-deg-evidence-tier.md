@@ -115,3 +115,16 @@ sync_backfill_owner: 下一个会话（按「PR 自动合并」收尾清单 1–
 - **一条不能混着报的读数**：`enforce` 对本分支打 OK，但 **#3927 的新对账对本片产物是「不适用」而不是「通过」**——`judgeBackendMismatch` 在 `reviewBackends` 缺席时 `return null`，而变更集里两条产物（`13049a50`、`c0b69a3f`）都由 #3927 落地前的 decider 写出，**没有这个字段**。所以「后端对账绿」这句话在本片没有证据支撑；它从下一次提交起才开始积累（本分支的 decider 现在两个字段都写）。
 - 行尾与 diff：两口径 numstat 逐文件同数（19 个文件全等），解冲突未改写行尾（`loneLF=0 dblCR=0`）。
 
+
+## 第二轮 rebase 之后自查抓到的一条真缺陷：`backendAvailability` 在说「两个后端都不可用」，而现场是 2/2
+
+- **发现方式不是测试**：rebase 完跑一次 `enforce` 想看欠账，顺手把新产物 `ef9454df…json` 打出来对了一眼——`backendAvailability.count=0`、`claude:false, opencode:false`。同一时刻我刚用 claude 与 opencode 各交付了一份可解析 findings。**读数与现实矛盾 ⇒ 先怀疑探针**。
+- **根因（实测）**：#3927 把 `detectBackends()` 的返回形状从 `{claude, opencode}` 改成 `{wrapper, wrapperExists, resolved, names, byName}`（探测名单改由单一真源 list 给），而我这轮的 `summarizeBackendAvailability` 仍在读 `b.claude === true` ⇒ 读到 `undefined` ⇒ `false` ⇒ `count=0`。**跨模块形状漂移，两侧各自自洽**。
+- **为什么 51 条用例全绿也照不出来**：丙3.1/丙3.4 注入的是**旧形状夹具**（`{claude:true, opencode:false}`），夹具替对方把数算好了；丙3.3 那条更隐蔽——它拿 `summarizeBackendAvailability(detectBackends())` 和记录里的值比，**两侧同错所以恒等**。这是本仓「契约夹具不得替对方剥壳」的又一落点：同一推导比同一推导，不叫对账。
+- **修法（不留兼容层）**：汇总器改为只认新形状——`total = names.length`、`count = names.filter(n => byName[n] === true).length`、`backends = { wrapperExists, names, onPath }`，并加 `total` 作分母（1/2 与 1/1 从此可区分，原来的 `partial: count === 1` 对三人名单会误判）。旧形状交进来必须得 0，这条写成**反向锁**，把「读错形状 = 静默失明」钉成可见事实而不是偷偷兼容。
+- **新增现场形状契约锁**：直接拿 `detectBackends()` 的真实现场推 expected（`live.names` × `live.byName`），断言 `count === expected.length`、`total === names.length`、`onPath` 逐字等于命中集，并每次打印 `[现场形状] names=… byName=… ⇒ count=2/2`。**它不是"和自己的推导比"**，所以探针再改形状时会红。
+- **变异 N6**（把 `byName[n] === true` 退回 `b[n] === true`）⇒ 现场形状锁**指名红**（红集=3、指名=1/1，另两条是被连带的同函数用例，按指名口径单列不算数）。本轮变异合计 **N1–N4 + N5b + N6 = 6 条全部 CAUGHT、`escaped=0 anchorfail=0`、还原 md5 一致**。
+- **已落进主干/分支的错误读数保留不改写**：`ef9454df…json` 里那个 `count=0` 是本缺陷的现场证据，且它 `mode=skip` 不要求闭环、该字段目前无判据消费 ⇒ 不改写产物、只在此登记（改写上一步的产物同样属于"手写闭环值"那类动作）。**下一笔提交起，记录里的这个字段才反映真实可用性。**
+- 测试现值（最终基线 `d65f0b76f`）：decider **51 → 52 passed / 0 failed**（新增现场形状锁一条）、gate **81 / 0**、qm5-rows **19 / 0**、classify-docs-only **27 / 0**。
+- **另一条不能混着报的读数**（同轮核清）：#3927 的后端对账 `judgeBackendMismatch` 在本片变更集的两条产物上是**「不适用」而非「通过」**——它们在 #3927 落地前由旧 decider 写出，没有 `reviewBackends` 字段，判据对此 `return null`。所以「后端对账绿」这句话本片没有证据支撑，只有自本分支起的**新**产物才开始积累可对账的字段。
+

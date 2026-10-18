@@ -657,14 +657,21 @@ function buildDeepReviewInit(mode) {
 function summarizeBackendAvailability(backends) {
   const b = backends || {};
   const wrapperExists = b.wrapperExists === true;
-  const claude = b.claude === true;
-  const opencode = b.opencode === true;
-  const count = (claude ? 1 : 0) + (opencode ? 1 : 0);
+  // 形状由 detectBackends() 持有：names = 本轮**真要用**的后端名单（单一真源 list），byName = 逐个 PATH 探测结果。
+  // 这里原先读的是 b.claude / b.opencode —— 那两个键在 change qm6-review-backend-config 之后已不存在，
+  // 于是现场「两个后端都可用」被报成 count=0，而单测因注入的是旧形状夹具，对这个漂移完全免疫
+  // （同仓教训：契约夹具不得替对方把数算好）。现只认新形状，不留双读兼容层。
+  const names = Array.isArray(b.names) ? b.names : [];
+  const byName = b.byName && typeof b.byName === "object" ? b.byName : {};
+  const onPath = names.filter((n) => byName[n] === true);
+  const count = onPath.length;
+  const total = names.length;
   return {
     count,
-    partial: count === 1,
+    total,
+    partial: count > 0 && count < total,
     wrapperReady: wrapperExists,
-    backends: { wrapperExists, claude, opencode },
+    backends: { wrapperExists, names: names.slice(), onPath: onPath.slice() },
   };
 }
 
