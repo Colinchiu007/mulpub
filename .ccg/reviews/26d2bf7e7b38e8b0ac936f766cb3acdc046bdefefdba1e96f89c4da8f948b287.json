@@ -1,0 +1,36 @@
+{
+  "sha": "4b7ca65f8fdbee958018e53c6b7613ccfe95f268",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 93 行（≤ 200）但命中 auth/数据库/加密：敏感内容 1 处",
+  "stats": {
+    "changedLines": 93,
+    "fileCount": 4,
+    "codeFileCount": 4,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 1,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "26d2bf7e7b38e8b0ac936f766cb3acdc046bdefefdba1e96f89c4da8f948b287",
+  "decidedAt": "2026-10-18T08:10:11.149Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

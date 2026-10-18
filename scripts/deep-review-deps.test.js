@@ -800,3 +800,21 @@ test("--check-deps 的后端解析不得依赖 node（它是「node 本身坏了
   assert.ok(iResolve < iCheckDeps,
     `后端解析必须早于 --check-deps 体检（实得 resolve=${iResolve} checkdeps=${iCheckDeps}）`)
 })
+
+test('入口必须拒绝注入形态的后端名（$BACKEND_ARGS 不加引号展开的安全边界就在这里）', () => {
+  // QM-6 评审 i3：`exec node "$DRIVER" --sha "$SHA" $BACKEND_ARGS` 故意不引号，
+  // 因为需要按空格拆成多个参数；它唯一的防线是 is_valid_backend 的字符集。
+  // 所以这条锁必须钉住**判据本身**，而不是只钉"名字被传下去了"——
+  // 将来有人放宽那个正则，这里必须当场变红，而不是留到注入真发生那天。
+  for (const bad of ['a;b', '$(id)', 'a`b', 'a b', 'a|b', '..\\a']) { // 单/双引号刻意不在列：spawnSync→Git Bash 的 argv 会把引号吃掉（实测 "a'b" 抵达脚本时已是 ab，于是它成了一个"合法名"并通过判据），在本层不可测；同形态由 node 侧 lib 锁按 env 覆盖。判据一律取产出的那句话，不取 rc —— 这里 rc=2 会来自「找不到 node」，与被拒无关。
+    const r = spawnSync(resolveGitBash(), [SCRIPT, "--critic", bad], {
+      encoding: "utf8",
+      timeout: 60000,
+      env: { PATH: "/usr/bin:/bin", HOME: process.env.HOME || os.homedir(), USERPROFILE: process.env.USERPROFILE || os.homedir() },
+    })
+    const out = String(r.stdout || "") + String(r.stderr || "")
+    assert.equal(r.status, 2, JSON.stringify(bad) + " 应 rc=2，实得 rc=" + r.status + " out=" + out)
+    assert.match(out, /不合法/, JSON.stringify(bad) + " 必须点名「后端名不合法」，实得：" + out)
+    assert.ok(!out.includes("已向后端请求覆盖"), JSON.stringify(bad) + " 不得进入转发路径：" + out)
+  }
+})

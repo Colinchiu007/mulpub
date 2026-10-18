@@ -29,8 +29,108 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "self_play_blocked",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "domains": [
+          "auth"
+        ]
+      }
+    ],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "judgeBackendMismatch 只在 overridden===true 时审计，默认配置（overridden=false）的执行者不符被静默跳过，审计目的在常用路径失效。",
+        "highRiskDomains": [],
+        "prosecution": "判据只在 reviewBackends.overridden===true 时做等值比对，因此绝大多数 PR（默认后端）走的是「什么都不判」分支：驱动回填的 performedBy 与清单不一致、或干脆没人署名，都不会被发现。审计目的（知道这次是谁评审的）恰好在最常走的路径上失效。",
+        "defense": "没人指定后端时，驱动的默认值就是权威；把「上游 cfgForMode 改了默认」判成本仓失守，会让每个正常 PR 都红，而这种红会被读成噪声并最终被清空。但辩护只覆盖「等值比对」这一半，覆盖不了「闭环状态可以无署名」这一半。",
+        "verdict": "upheld",
+        "rationale": "指控成立一半，且成立的那一半已改：judgeBackendMismatch 新增「状态在闭环词表内而 deepReview.performedBy 为空 ⇒ 判未闭合」，这一支**不分 overridden**，所以默认路径不再是全盲；等值比对仍只在覆盖时判（否则假红面 = 每个 PR），该保留理由写进函数头的 ③ 档。可验证证据：check-pr-exec-record.test.js 里「未覆盖 + cleared + 空 performedBy ⇒ string」与「未闭环 + 空 ⇒ null（不重复报）」两条断言。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "后端解析同时存在 sh（ccg-backends.sh）与 js（ccg-review-backends.js）两份实现，依赖逐字对账测试守同步，编辑时无法自动防漂移。",
+        "highRiskDomains": [],
+        "prosecution": "后端解析同时存在 sh（ccg-backends.sh）与 js（ccg-review-backends.js）两份实现，同步依赖一把逐字对账测试；编辑那一刻没有任何机械东西阻止我改一边忘另一边。",
+        "defense": "两份实现是被前提逼出来的：--check-deps 的定义就是「node 可能就是坏的」时的诊断入口，让它调 node 等于把要诊断的东西当前提。本仓对「两份实现」的既有处置不是消灭第二份，而是加 parity 锁（CJS/ESM 孪生、formatArticleBody/toHtmlBody 都是这个形状）。对账锁比的是**输出字节**而不是源码字面，四档配置（默认/env 覆盖/同族单后端/未登记名）再加一条「覆盖档与默认档必须确实不同」的自证，防的是恒真比较。",
+        "verdict": "dismissed",
+        "rationale": "不作为缺陷采纳，但把代价如实登记：design.md §9 写明「两份同义表必须成对改，对账锁负责在合并前抓出来」，spec 里写成 MUST 逐字对账。判据在 CI 的 changes 作业（Gate 2c6）必然执行 —— 「编辑时看不见」不等于「合并前检测不到」，而后者的成本才是本仓承担的那一个。若将来 --check-deps 允许依赖 node，这一档就该收敛成一份实现。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "deep-review.sh 对 $BACKEND_ARGS 无引号直接展开（exec ... $BACKEND_ARGS），安全性仅依赖 is_valid_backend 的正则，未来正则放宽即存在注入窗口。",
+        "highRiskDomains": [],
+        "prosecution": "deep-review.sh 用 exec node \"$DRIVER\" --sha \"$SHA\" $BACKEND_ARGS 无引号展开，安全性完全依赖 is_valid_backend 的字符集；未来任何人放宽那个正则（比如为了支持带空格的服务名）就打开注入窗口，而放宽正则这件事本身不会被任何测试问起。",
+        "defense": "不引号是功能必需（要拆成多个 argv），而字符集判据拒绝的是 ; | ` $ 空格 引号 反斜杠 这类 shell 元字符，过闸后不存在词法二次解释的余地。",
+        "verdict": "upheld",
+        "rationale": "安全类 Warning 按项目规矩当场处置：加行为锁把「正则就是防线」这件事钉住。deep-review-deps.test.js 新增「入口必须拒绝注入形态的后端名」，六个形态逐一断言 rc=2 且必须点名「不合法」且**不得**出现「已向后端请求覆盖」；lib 侧同形态按 env 再测一遍（含单双引号）。过程里实测到一个平台事实并如实写进锁的注释：单/双引号在 spawnSync→Git Bash 的 argv 层就被吃掉（\"a'b\" 抵达脚本时已是 ab），所以那两个形态在本层不可测，只能由 node 侧覆盖 —— 并且这一格提醒判据不得只看 rc：rc=2 也可能来自「找不到 node」，与拒绝无关，故断言取的是产出的那句话。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "judgeBackendMismatch 在 performedBy 为空时直接 return null（不判），若记录漏填执行者则不符永远不会被发现。",
+        "highRiskDomains": [],
+        "prosecution": "performedBy 为空时直接 return null（不判）。若驱动/人漏填执行者，「设了没生效」就永远不会被发现 —— 而这正是本判据存在的唯一理由。",
+        "defense": "空值也可能表示「本次没有真实评审」（自扮演/agent 自评），交给闭环词表那条判据更合适。",
+        "verdict": "upheld",
+        "rationale": "指控成立。已改为：closed ∧ 空 ⇒ 报「没有署名执行者的闭环不成立」；未闭环 ∧ 空 ⇒ 仍返回 null，由原有的 status 判据处理，避免同一屏两条诊断互相误导归属。两条分支各有断言（见 i1 的 rationale）。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "token 化用 /[^A-Za-z0-9._-]+/ 切分，复合名（如 claude-agent）不会与目标 claude 匹配，易产生假阴性。",
+        "highRiskDomains": [
+          "auth"
+        ],
+        "prosecution": "token 化用 /[^A-Za-z0-9._-]+/ 切分，不拆 - . _，于是 performedBy=claude-agent 与请求 critic=claude 永不相等 ⇒ 真正的相符被误判成不符（假红）；反向同理。审计归属类判据一旦假红，使用者会用「删掉 reviewBackends」来消音，那是拆锁。",
+        "defense": "整记号相等最保守，不会把无关的复合误判成相符。",
+        "verdict": "upheld",
+        "rationale": "本条属高危域（domains:[auth]），按引擎规矩不自扮演，已交**外部模型复核**（codeagent-wrapper --backend claude，rc=0，答复存 D:/Temp/qm6-i5-external.txt）。外部结论：整记号相等假红、再拆词族判成员会引入假绿（claude-opencode 与无关请求词族重叠），第三种口径才对 —— 保留切分 + **有界子串**匹配（请求名两侧须为边界）。已照此实现，并补两条负控：碎片 clau/laude 不得把 claude 点着（防假绿）；请求 claude-agent 而实际 claude 必须仍判不符（防把「没跑复合体」读成跑过）。"
+      },
+      {
+        "id": "i7",
+        "severity": "Warning",
+        "finding": "JS CLI 强制 modes.length===1，少一个或多一个打印模式即 rc=2 且拒绝执行，接口过严易打断现有调用方。",
+        "highRiskDomains": [],
+        "prosecution": "JS CLI 强制 modes.length===1，少传或多传打印模式即 rc=2 拒绝执行，接口过严，容易打断现有或未来的调用方。",
+        "defense": "「参数不得静默忽略」是本仓已建立的纪律：静默忽略让「我传了」与「传进去了」在产物上完全同形。0 个模式 ⇒ 调用方拿到空 stdout 却看到 rc=0，正是本次事故的形状；多个模式 ⇒ 一份参数两次输出，没人知道哪个是结论。唯一调用方是两个入口，各传恰好一个。",
+        "verdict": "dismissed",
+        "rationale": "不采纳。这条「严」就是判据本身，放宽它等于回到病灶。配套的可诊断性已经给足：rc=2 的 stderr 逐字列出被拒的旗标与本工具认哪些旗标，并由 ccg-review-backends.test.js 六格参数矩阵（含「拒参数时 stdout 必须为空」）钉住。"
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "reason": "high_risk_requires_external",
+        "domains": [
+          "auth"
+        ]
+      }
+    ],
+    "note": "自扮演裁决：4 条指控成立或需外部复核",
+    "at": "2026-10-18T08:05:33.048Z"
   }
 }

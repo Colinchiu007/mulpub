@@ -87,7 +87,8 @@ test("空白值算「没配」必须继续回落默认，不得抛错", () => {
 
 test("非空但不合法的后端名一律抛错（fail closed，不得静默回落）", () => {
   // 静默回落默认值 = 重新制造「以为换了后端其实没换」这个本次要消灭的形态。
-  for (const bad of ["codex; rm -rf /", "$(whoami)", "a b", "1claude", "-codex", "x".repeat(33)]) {
+  for (const bad of ["codex; rm -rf /", "$(whoami)", "a b", "1claude", "-codex", "x".repeat(33),
+    "a`b", "claude|whoami", "a'b", 'a"b', "a\\b", "a\tb"]) {
     assert.throws(
       () => m.resolveBackends({ env: { MP_QM6_CRITIC: bad } }),
       /评审后端名不合法/,

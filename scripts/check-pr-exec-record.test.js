@@ -1357,11 +1357,23 @@ test('judgeBackendMismatch：不适用必须返回 null，且三种不适用各�
     deepReview: { required: true, status: 'cleared', performedBy: 'claude' },
   }), null, '无 reviewBackends 的旧记录不得被判不符')
 
-  // ② performedBy 为空 ⇒ 无法比对
-  assert.strictEqual(J({
+  // ② 闭环状态 + 空 performedBy ⇒ **必须报**（QM-6 评审 i1/i4 采纳后改窄）：
+  //   「cleared」是一个断言，没有署名执行者的断言没有凭据；只在覆盖时追责会让默认
+  //   路径整体不设防，而那正是绝大多数 PR 走的路径。
+  assert.strictEqual(typeof J({
     reviewBackends: { critic: 'codex', proposer: 'opencode', overridden: true },
     deepReview: { status: 'cleared', performedBy: '' },
-  }), null, 'performedBy 空应交给闭环判据，不在本判据里重复报')
+  }), 'string', '闭环却无署名执行者必须报')
+  // 未闭环 + 空 performedBy ⇒ 不重复报（交回闭环判据，避免同一屏两条诊断互相误导）
+  assert.strictEqual(J({
+    reviewBackends: { critic: 'codex', proposer: 'opencode', overridden: true },
+    deepReview: { status: 'pending', performedBy: '' },
+  }), null, '未闭环时空 performedBy 不在本判据里重复报')
+  // 未覆盖 + 空 performedBy + 闭环 ⇒ 仍报（署名义务不分档）
+  assert.strictEqual(typeof J({
+    reviewBackends: { critic: 'codex', proposer: 'opencode' },
+    deepReview: { status: 'cleared', performedBy: '   ' },
+  }), 'string', '署名义务不得被 overridden 挡掉')
 
   // ③ performedBy 读不出任何后端名（自扮演 / agent 自评那类）⇒ 本判据不管
   assert.strictEqual(J({
@@ -1370,7 +1382,10 @@ test('judgeBackendMismatch：不适用必须返回 null，且三种不适用各�
   }), null, '自扮演不是「换了后端」，归自扮演豁免那条管')
 
   // 相符 ⇒ null（三种合规写法都要认，不得只认全等）
-  for (const performed of ['codex', 'claude+codex', 'codex, opencode', ' CODEX ']) {
+  // 复合名（评审 i5）：请求名作为**有界子串**出现在任一记号里即算相符 ——
+  // claude-agent / codex_cli / 带前缀的产物名都不该被误判成不符（那是假红）。
+  for (const performed of ['codex', 'claude+codex', 'codex, opencode', ' CODEX ',
+    'claude-agent+opencode', 'x_codex_v2', 'we-codex-them']) {
     assert.strictEqual(J({
       reviewBackends: { critic: 'codex', proposer: 'opencode', overridden: true },
       deepReview: { status: 'cleared', performedBy: performed },
@@ -1493,4 +1508,21 @@ test('后端对账的四档「不适用」必须各自可证，其中「没覆�
     'string',
     'cleared + 无后端执行者必须报不符：闭环词表不是免检'
   )
+})
+
+test('有界子串口径的两条负控：碎片不得匹配、请求复合名而只跑简单名必须仍判不符', () => {
+  // 评审 i5 采纳外部口径后的另一半：只修假红不修假绿。
+  const J = mod.judgeBackendMismatch
+  const base = (critic, performedBy) => J({
+    reviewBackends: { critic, proposer: 'opencode', overridden: true },
+    deepReview: { status: 'cleared', performedBy },
+  })
+  // 碎片不得把长名点着（clau ⊄ 边界内的 claude）
+  assert.strictEqual(typeof base('clau', 'claude'), 'string', '碎片被误配 ⇒ 假绿')
+  assert.strictEqual(typeof base('laude', 'claude'), 'string', '中段碎片被误配 ⇒ 假绿')
+  // 请求复合名而实际只跑了简单名 ⇒ 仍是缺评审，必须报
+  assert.strictEqual(typeof base('claude-agent', 'claude'), 'string',
+    '请求 claude-agent 而实际 claude 必须仍判不符')
+  // 同一份请求名作为完整记号出现 ⇒ 相符
+  assert.strictEqual(base('claude-agent', 'claude-agent'), null, '完整记号应相符')
 })

@@ -714,31 +714,45 @@ function evaluateDeepReviewDebt (statuses, repo, readAtBase) {
  *      不同（上游改了默认 ≠ 本仓失守）。本判据要抓的是**「我指定了，却没人按我指定的跑」**；
  *   ③ status === self_play_resolved —— 自扮演是既有门禁显式承认的出口，不属于"换了后端"，
  *      归「高危域不得自扮演豁免」那条管（本判据不得顺手把它判红，否则等于在仓侧偷改豁免政策）；
- *   ④ performedBy 为空 —— 无法比对，交回原有的 status 闭环判据。
+ *   ④ performedBy 为空 —— 状态已是闭环词表内 ⇒ 判「无署名执行者的闭环不成立」（评审 i1/i4 后改）；
  * ⚠ 曾经用「performedBy 里读不出后端名」当第 ③ 档的判据，被自己的用例否证了：
  *   `self-play` 按非字母切分会得到 ['self','play'] 两个**看起来完全像后端名**的记号，
  *   于是"读不出名字"永远不成立。凡是靠"这个名字长得像不像后端"做判据的地方都会踩同一条，
  *   所以这里改成按**显式字段**判（overridden / status），不按形态猜。
  * 判据用**记号集**而不是字符串相等：performedBy 可能是 `claude+opencode` 这类复合值，
- * 拿全等比会把合规判成违规。
+ * 拿全等比会把合规判成违规；而"再按 - . _ 拆词族判成员"会把 claude-opencode 与无关请求误合
+ * （假绿）。两头都对的口径是**有界子串**：由外部模型复核后采纳，见 change 的 design.md D5′。
  */
 function judgeBackendMismatch (rec) {
   if (!rec || typeof rec !== 'object') return null
   const req = rec.reviewBackends
   if (!req || typeof req !== 'object' || typeof req.critic !== 'string' || !req.critic) return null
-  // ② 只有「被显式覆盖过」的请求才需要追责
-  if (req.overridden !== true) return null
   const dr = rec.deepReview
   if (!dr || typeof dr !== 'object') return null
-  // ③ 自扮演闭合走它自己的审计路径，本判据不插手
+  // ② 自扮演闭合走它自己的审计路径，本判据不插手（收紧它属改豁免政策，须人工过目）
   if (dr.status === 'self_play_resolved') return null
-  const performed = typeof dr.performedBy === 'string' ? dr.performedBy : ''
-  if (!performed) return null
-  // 记号化：按非 [A-Za-z0-9._-] 切，剩下的才是候选后端名
+  const performed = typeof dr.performedBy === 'string' ? dr.performedBy.trim() : ''
+  const closed = CLOSED_DEEP_REVIEW_STATUSES.has(dr.status)
+  // 署名义务**不分是否覆盖**（QM-6 评审 i1/i4）：带着 reviewBackends 的记录是本轮之后的新产物，
+  // 状态写成闭环而 performedBy 为空 = 没有署名执行者的闭环，默认路径也拦。
+  if (!performed) {
+    return closed
+      ? `闭环状态 ${dr.status} 却无 deepReview.performedBy —— 没有署名执行者的闭环不成立`
+      : null
+  }
+  // ③ 等值比对只在显式覆盖过时判：没人指定后端时，驱动自己的默认值就是权威
+  if (req.overridden !== true) return null
+  // 记号化：按非 [A-Za-z0-9._-] 切（`+` / 空格 / 逗号都是分隔），但**不**拆 - . _
   const tokens = performed.split(/[^A-Za-z0-9._-]+/).filter(Boolean).map((t) => t.toLowerCase())
   if (tokens.length === 0) return null
+  const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  // 有界子串（评审 i5，经外部模型复核后采纳其第三种口径）：请求名两侧必须是边界。
+  // claude-agent 认得 claude（修假红）；claude 认不出 claude-agent（不引入假绿）；
+  // 也不会让 clau 这类碎片把 claude 误配。
+  const contains = (t, w) =>
+    t === w || new RegExp('(?:^|[^A-Za-z0-9])' + esc(w) + '(?:$|[^A-Za-z0-9])').test(t)
   const wanted = [req.critic, req.proposer].filter((x) => typeof x === 'string' && x).map((x) => x.toLowerCase())
-  if (wanted.some((w) => tokens.includes(w))) return null
+  if (tokens.some((t) => wanted.some((w) => contains(t, w)))) return null
   return `${req.critic}${req.proposer && req.proposer !== req.critic ? '/' + req.proposer : ''} ≠ ${performed}`
 }
 
