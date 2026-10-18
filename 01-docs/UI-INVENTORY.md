@@ -601,6 +601,7 @@
 | **内容** | 搜索 + 平台分组 + 账号子列表 |
 | **停用账号** | 仍列出但复选框 `disabled`、行加 `is-disabled`（降透明度 + `not-allowed`），账号名后显示「已停用」标记（`target-account-disabled-flag`）；判定来自 `usePublishPlatformCatalog` 附加的 `disabled` 字段，与可选集合同源 |
 | **默认回填** | `usePlatformSelection.getAccounts()` 已过滤停用账号，故停用账号不会被自动选为发布目标；已勾选的账号一旦被停用，`reconcileSelectedAccounts` 自动剔除 |
+| **批量操作行（publish-target-select-all，2026-10-17）** | 搜索框下、平台列表上一行：`[全选] [清空]`（`target-bulk-toolbar` / `target-select-all` / `target-clear-all`）。「全选」= 勾选**所有当前有可用账号的平台**，账号由 `reconcileSelectedAccounts` 回填默认账号；没有可用账号的平台不纳入并在提示里点名，否则它们必然触发 `validatePublishTargets` 的「请为<平台>选择至少一个账号」。「清空」= 清整个选中集（`clearPlatforms`），不提供"反选"（反选后选中的恰是无账号平台集合）。**无可发布平台时整行不渲染**（既不给死控件，也保持 CI 空 profile 下 `publish-form` 的视觉中性）。发布中（`disabled`）两者均禁用。契约见 `01-docs/PRD-PUBLISH-TARGET-SELECT-ALL-2026-10-17.md` |
 
 ### 7.3 PlatformOverridePanel（211 行）
 

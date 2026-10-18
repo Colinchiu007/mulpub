@@ -94,6 +94,13 @@ jobs:
           # （quotepath 开着 ⇒ 非 ASCII 路径键对不上 ⇒ 那条记录永远派生不出；rename 被检测 ⇒ 归属指错提交）。
           # 6 条变异反证已实测各自红在指名用例（MU-A…MU-F），摘掉任一条口径都不是"少测一项"而是"测了个错的"。
           node --test scripts/lib/merge-ledger.test.js
+          # 扫描域单一实现的回归锁（#3876 建域、本次把第二处消费者 check-debt-budget 收敛到同一份）。
+          # ① 它测的是"域算得对不对"这一层，两个消费者各自的锁测不到；② 它内含一条"消费者套件必须整份真的跑了"
+          #    的计数锁 —— check-debt-budget.js 原来在文件末尾无条件 main()（会 process.exit），
+          #    任何 require 它的测试都会在导入期被杀掉，而 node:test 把"文件退出 0"报成 pass 1。
+          # 落在这里的理由与 merge-ledger 同：本 job 不被 docs-only 短路，且在非 PR 早退之前。
+          node --test scripts/lib/git-domain.test.js
+          node --test scripts/check-debt-budget.test.js
           if [ "${{ github.event_name }}" != "pull_request" ]; then
             echo "docs-only=false" >> "$GITHUB_OUTPUT"
             echo "docs-only=false (non-PR event: full run)"
@@ -185,6 +192,11 @@ jobs:
           node --test scripts/same-type-risk-locks-r2.test.js
           node --test scripts/same-type-risk-locks-r3.test.js
           node --test scripts/image-mime.test.js
+          # 共享掩码库自身的回归锁（2026-10-18）：八条锁全部建立在 maskNonCode 之上，
+          # 它错一次就等于八条锁一起瞎。本轮实测它确实瞎过：源码面 311 个文件含
+          # 「正则字面量内出现引号」，其中 164 个掩码被打穿（最坏可见率 0.03），
+          # 八条锁在其上几乎没有覆盖面。本行必须先于上面四条理解（它们全依赖本库）。
+          node --test scripts/lib/code-mask.test.js
 
       # --- Gate 2c4：CCG 判定器（ccg-review-decider）的判据回归锁 ---
       # 动因（2026-10-15）：该脚本此前**零测试覆盖**（grep 只命中一条注释），
@@ -373,6 +385,17 @@ jobs:
         shell: bash
         run: |
           node --test scripts/check-branch-merged.test.js
+
+      # --- Gate 2b7：QG Coverage 预算常量的取证对账 ---
+      # 编 2b7 而不是 2b5：#3724（未合并）占用 "Gate 2b5 - CCG evidence anchor"，2b6 已被收敛探针占用，
+      # 同号会在 squash 后撞成两步同名（`check-unwired-tests.js` 的"同名 basename 必须写全相对路径"会读成一条）。
+      # 动因：`timeout-minutes` 这类**无人看管的预算常量**撞死过两趟 main push，丢的是证据不是绿勾。
+      # 落点同样必须是 changes 作业（判据本体要求 runner 上不装依赖 ⇒ 只用 node 内置模块）。
+      - name: "Gate 2b7 - Coverage budget provenance (changes job)"
+        shell: bash
+        run: |
+          node scripts/check-coverage-budget.js
+          node --test scripts/check-coverage-budget.test.js
 
       # --- Gate 2b6：CCG 收敛出口可达性探针 ---
       # 编 2b6 而不是 2b5：#3724（未合并）已占用 "Gate 2b5 - CCG evidence anchor"，
@@ -1278,7 +1301,12 @@ jobs:
     runs-on: windows-latest
     needs: [changes]
     if: needs.changes.outputs.docs-only != 'true'
-    timeout-minutes: 40
+    # 40 → 60（2026-10-18）：40 这一档实测撞死过两趟 main push（run 39037127191 = PR #3836 的收口证据、
+    # run 39084091986），后果不是"跑挂"而是 main 侧证据永久丢失；同一窗口里成功样本的尾部是 39.4/39.5/39.7，
+    # 也就是**贴着天花板过线**。数值与依据不写在注释里当散文——
+    # 由 scripts/lib/coverage-budget-provenance.js 单点持有，scripts/check-coverage-budget.js 每次 PR 对账
+    # （timeout ≥ ceil(floor × SAFETY_MULTIPLIER)、样本量下界、采集日过期、provenance 与本行同源、贴脸警报）。
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:

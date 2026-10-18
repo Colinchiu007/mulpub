@@ -1,0 +1,35 @@
+{
+  "sha": "93d8616e3153eeee5a93279f2c4e70d9443a67cc",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 112 行（≤ 200）但命中 auth/数据库/加密：敏感内容 9 处",
+  "stats": {
+    "changedLines": 112,
+    "fileCount": 6,
+    "codeFileCount": 4,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 9,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "  **不得**用本机 `--update-baseline` 掩盖。",
+      "- **不采用**：本机 `--update-baseline` 重建基线 —— 本仓纪律明令禁止用基线掩盖回归。若第 2 轮仍红，正解是由 CI 同源产出 `base-screenshots/publish-form{,-dark}.png`。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "7f3b0109d48c80e1fb342794033e6b9dd5d4355e466927473bed0511c9eab0b7",
+  "decidedAt": "2026-10-18T01:28:50.433Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "cleared",
+    "performedBy": "degraded:self-review（critic 后端 codeagent-wrapper ETIMEDOUT ×2，按 AGENTS.md 子代理不可用即降级）",
+    "findings": [
+      "F1[已修] usePublishTargetBulkTargets 对 selectedPlatforms 有两条读法；普通数组形态下 already 恒空、平台被重复写入。已统一走 selectedPlatformsRef。反证 M-F1 指名红。",
+      "F3[已修] usePublishTargetBulk.selectAllPublishTargets 曾两次调用注入的 getAvailableAccountIds（先问长度再取一遍），注入函数不保证幂等。已改为只调一次。反证 M-F3 指名红。",
+      "F2[已修] formatPlatformList 连接符硬编码中文顿号 U+3001，英文界面渲染成中英混排；--cjk 扫不到顿号故未红。已改为由接线层从 locale 注入 listSeparator（zh「、」/ en「, 」），兜底值改用 \", \"。",
+      "观察[未改] countRiskSuspended 的注释称 accountId==null 覆盖该平台全部账号，实现按平台计数不看 accountId；行为符合预期，注释误导，未动代码。",
+      "覆盖：\"内容寻址实测命中当前提交 8c2de2b04（搜索行改法），属同一 PR 变更集的子集，由同一次自审覆盖。\""
+    ]
+  }
+}

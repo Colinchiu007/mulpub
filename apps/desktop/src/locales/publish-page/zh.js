@@ -104,6 +104,28 @@ export default {
       alreadySelected: '该分组的 {count} 个账号已在选中集里',
       emptyGroup: '这个分组还没有成员',
       nothingToAdd: '「{name}」里的账号当前都不可用（已删除或已停用）',
+      selectedCount: '已选 {selected}/{total}',
+      },
+      // 全选 / 清空（publish-target-select-all，2026-10-17）：
+      // 全选的定义是「全选可发布的」——平台目录里大量平台当前没有任何可用账号
+      // （未登录 / 全部停用），全选它们会让提交校验以「请为<平台>选择至少一个账号」阻断，
+      // 那是用户点了全选反而发不出去。契约见 01-docs/PRD-PUBLISH-TARGET-SELECT-ALL-2026-10-17.md。
+      targetBulk: {
+      selectAll: '全选',
+      clearAll: '清空',
+      groupAria: '批量选择发布目标',
+      selectAllAria: '选中所有可发布的平台（{count} 个）',
+      selectAllDisabledTitle: '暂无可发布的平台，请先添加账号',
+      clearDisabledTitle: '当前没有选中的发布目标',
+      listRest: ' 等 {rest} 个',
+      /* 平台名之间的连接符。必须走 locale：纯函数里硬编码「、」时英文界面会渲染成
+         `Weibo、Zhihu and 2 more`（`--cjk` 只扫汉字，扫不到顿号 U+3001，所以当时没红）。 */
+      listSeparator: '、',
+      added: '已选中 {added} 个平台{skippedText}',
+      skipped: '，{count} 个平台没有可用账号，未纳入：{platforms}',
+      riskIncluded: '；其中 {count} 个已风控挂起，发布时会先被拦截',
+      alreadyAll: '已全部选中（{count} 个平台）',
+      cleared: '已清空发布目标',
       },
     accountSuffix: '账号',
     addArticle: '＋ 添加文章',
