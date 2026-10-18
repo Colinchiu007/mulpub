@@ -109,11 +109,15 @@ function onKeydown (event, index) {
   cursor: pointer;
 }
 .account-module-tab.active {
-  border-bottom-color: #5048e5;
-  color: #5048e5;
+  /* 用主题变量而非硬编码 #5048e5：浅色下 --color-primary 恰为 #5048E5（渲染不变），
+     暗色下它被 tokens.css 的 [data-theme="dark"] 覆盖为 #8b85ff。
+     硬编码值在暗底上只有 2.69:1，会被 contrast-audit（Gate 7c，阈值 3:1，
+     且在 dark 主题下采样）判红。 */
+  border-bottom-color: var(--color-primary, #5048e5);
+  color: var(--color-primary, #5048e5);
   font-weight: 500;
 }
-.account-module-tab:focus-visible { outline: 2px solid #5048e5; outline-offset: -2px; }
+.account-module-tab:focus-visible { outline: 2px solid var(--color-primary, #5048e5); outline-offset: -2px; }
 @media (max-width: 900px) {
   .account-module-tabs { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
   .account-module-tabs::-webkit-scrollbar { display: none; }
