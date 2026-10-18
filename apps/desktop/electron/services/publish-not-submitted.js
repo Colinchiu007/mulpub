@@ -79,4 +79,22 @@ function listSignatures () {
   return NOT_SENT_SIGNATURES.map((s) => ({ source: s.re.source, why: s.why }))
 }
 
-module.exports = { isProvablyNotSubmitted, markDefinitelyNotSent, listSignatures, NOT_SENT_SIGNATURES }
+/**
+ * 按发布器结果打「可确证未送出」标：**显式标优先，词表兜底**。
+ *
+ * 两条通道刻意分开、互不放宽：显式标来自发布器在**点发布按钮之前**的拦截
+ * （`publish-precondition.js` 的上传/标题/正文/能力四判据），那一刻平台写操作必然未发生；
+ * 词表兜底只能靠错误文本，判据弱一档，所以不得反过来放宽显式通道的语义。
+ * @param {Error|object} err 要打标的对象
+ * @param {{definitelyNotSent?:boolean, error?:string}} result 发布器返回的结果
+ * @returns {boolean} 是否已标记为未送出
+ */
+function markNotSentByResult (err, result) {
+  if (result && result.definitelyNotSent === true) {
+    if (err && typeof err === 'object') err.definitelyNotSent = true
+    return true
+  }
+  return markDefinitelyNotSent(err, result && result.error)
+}
+
+module.exports = { isProvablyNotSubmitted, markDefinitelyNotSent, markNotSentByResult, listSignatures, NOT_SENT_SIGNATURES }

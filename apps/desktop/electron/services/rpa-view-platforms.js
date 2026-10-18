@@ -94,6 +94,10 @@ function parsePublishResponseEvidence (body, response) {
 // 判据本体、三条红线与不变量见该模块头部注释。本文件只留薄调用点——它自己是逐文件行数
 // 门禁的**点名还账**文件（零增长容差），每多一行都在挤压一个已经压线的额度。
 const draftOnlyConfirm = require('./draft-only-confirm')
+// 发布前置门禁（publish-precondition-gate，2026-10-18）：点发布按钮之前断言
+// 「内容真的进去了」。动因是 2026-10-17 批量发布里头条/抖音的真实根因被
+// 「publish btn not found」「publish timeout」这两条下游症状掩盖。
+const publishPrecondition = require('./publish-precondition')
 
 
 const platformsMixin = {
@@ -202,7 +206,7 @@ const platformsMixin = {
     // draftOnly 分支仍无条件 return {success:true}，history 记 success
     // —— 假成功比失败危险：它骗过队列统计、历史列表与用户。
     // 这里收集**硬性内容字段**的填写结果，draftOnly 据此 fail-closed。
-    const fillReport = { title: null, content: null, tags: null }
+    const fillReport = { title: null, content: null, tags: null, upload: null }
 
     if (!config.publish_url) { log.warn('RpaView', '[' + platform + '] no publish_url configured'); return { success: false, error: platform+' no publish_url', platform: platform } }
 
@@ -277,38 +281,11 @@ const platformsMixin = {
     // video upload（必须先上传后填字段：kuaishou/bilibili 等平台的 publish_url 是
     // 上传落地页，标题/简介字段要等上传完成进入编辑器才渲染；旧顺序先填字段
     // 必然 timeout，2026-09 E2E 实锤）
-    log.info('RpaView', '[' + platform + '] file input hasVideo=' + Boolean(article.video_path) + ' selectorCount=' + (sel.file_input ? sel.file_input.length : 0))
-    if (article.video_path && sel.file_input && sel.file_input.length > 0) {
-      retry.addField('file_upload')
-      while (!retry.isDone('file_upload')) {
-        try {
-          this._emitProgress(platform, 'uploading file...', 25)
-          // 逐候选定位文件输入（上传落地页常有多个 input[type=file]，首个未必负责视频）
-          const fileSel = await this._resolveSelector(win, sel.file_input, 15000, 3000)
-          if (fileSel) {
-            await this._setFileInput(win, article.video_path, fileSel)
-            // 上传完成判定：百家号上传后页面会出现视频预览/编辑器初始化（发布按钮由 disabled 变可用）
-            // 不能依赖 progress/success class（百家号可能不使用），改为轮询"发布按钮可用或编辑器出现"
-            let uploadDone = false
-            if (platform === 'baijiahao') {
-              uploadDone = await this._waitForCondition(win, 'function(){var t=(document.body&&document.body.innerText)||"";var hasPreview=/预览|编辑|描述|简介|标题/.test(t);var ed=document.querySelector("[contenteditable=true],[data-lexical-editor=true]");var btn=[...document.querySelectorAll("button")].find(function(b){return (b.innerText||"").trim()==="发布"&&!b.disabled});return hasPreview&&(ed!==null||btn!==null)}', 180000, 1000)
-              if (!uploadDone) log.warn('RpaView', '['+platform+'] upload complete wait timeout (video may still be processing)')
-            } else {
-              await this._waitForVideoUploadComplete(win, platform, 900000, { fileBytes: readVideoFileBytes(article.video_path) })
-            }
-            // 编辑器表单就绪等待：上传完成后平台 SPA 渲染标题/简介字段有延迟，
-            // 不等直接填会全部 timeout（B站/快手上传完成后才切到编辑表单）
-            const formReady = await this._waitForCondition(win, 'function(){return !!document.querySelector(\'input[placeholder*="标题"],textarea,[contenteditable="true"]\')}', 120000, 1500)
-            if (!formReady) log.warn('RpaView', '[' + platform + '] editor form not ready after upload (still trying fields)')
-            retry.markDone('file_upload'); this._emitProgress(platform, 'file uploaded', 40)
-          } else {
-            if (!retry.retry('file_upload')) break; await this._sleep(2000)
-          }
-        } catch(e) {
-          log.warn('RpaView', '['+platform+'] upload: '+e.message)
-          if (!retry.retry('file_upload')) break; await this._sleep(2000)
-        }
-      }
+    // 视频上传整段下沉到 upload-waiter._runVideoUpload（含三态记录 + 选择器缺失判定）。
+    // 仅在有视频时调用：纯图文本就不该要求上传链存在（也让只 mock 图片链路的用例不受牵连）。
+    if (article.video_path) {
+      log.info('RpaView', '[' + platform + '] file input selectorCount=' + (sel.file_input ? sel.file_input.length : 0))
+      await this._runVideoUpload(win, article, platform, sel, fillReport, retry)
     }
 
     // title（逐候选回退 + 无独立标题字段时写进编辑器）
@@ -470,6 +447,35 @@ const platformsMixin = {
       return await draftOnlyConfirm.resolveDraftOnly(this, win, {
         platform, sel, article, fillReport, config, baselineCtx: draftOnlyBaselineCtx,
       })
+    }
+    // ★ publish-precondition-gate（2026-10-18）：点发布按钮之前断言「内容真的进去了」。
+    // 为什么必须在**点击之前**：发布按钮点击是副作用动作（每点一次都是一次真实提交尝试，
+    // 风控面），而且点完没反应只会得到 `publish timeout` 这类与根因无关的症状。
+    // 这里失败 ⇒ 平台写操作**必然未发生** ⇒ 显式标 definitelyNotSent（比靠错文本猜可靠），
+    // 由队列回滚发布间隔窗口（视频号 60′ 不再被一次假失败吃掉）。
+    {
+      const gate = publishPrecondition.evaluatePublishPreconditions({
+        platform,
+        article,
+        selectors: sel,
+        fillReport,
+        noTitlePlatform: isNoTitlePlatform(platform),
+      })
+      if (!gate.ok) {
+        log.warn('RpaView', '[' + platform + '] pre-submit gate blocked: ' + gate.reason
+          + ' (upload=' + JSON.stringify(fillReport.upload)
+          + ' title=' + JSON.stringify(fillReport.title)
+          + ' content=' + JSON.stringify(fillReport.content) + ')')
+        return {
+          success: false,
+          error: gate.message,
+          platform,
+          url: '',
+          reason: gate.reason,
+          preSubmitBlocked: true,
+          definitelyNotSent: true,
+        }
+      }
     }
     if (sel.publish_btn && sel.publish_btn.length>0) {
       retry.addField('publish')
@@ -1169,6 +1175,12 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
     const mediaId = saved.mediaId || ''
 
     if (!mediaId) {
+      // wxmp-unconfirmed-save（2026-10-18）：先分「保存没被确认」与「保存成功但采集不到 mediaId」
+      // 两种处境，再决定文案。现场读成后者会把用户引向错误方向（找媒体 ID）。
+      if (saved.saved === false) {
+        log.warn('RpaView', '[wechat_mp] save draft NOT confirmed by platform (saved=false, no mediaId) url=' + win.webContents.getURL())
+        return { success:false, error: draftMediaId.describeUnconfirmedSave(), platform:'wechat_mp' }
+      }
       log.warn('RpaView', '[wechat_mp] save draft result unverifiable: missing mediaId url=' + win.webContents.getURL())
       return { success:false, error: draftMediaId.describeSaveFailure(await readVisibleEditorToast(win), '微信公众号草稿保存结果无法验证：缺少媒体 ID'), platform:'wechat_mp' }
     }

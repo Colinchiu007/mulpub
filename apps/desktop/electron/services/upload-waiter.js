@@ -110,6 +110,73 @@ const uploadWaiterMixin = {
   },
 
   /**
+   * 视频上传整段（从「有没有入口」到「有没有被确认」），结果写进 `fillReport.upload`。
+   *
+   * 为什么下沉到这里（publish-precondition-gate，2026-10-18）：这段逻辑原先内联在
+   * `rpa-view-platforms._publish_generic` 里，两个形态缺陷都出在它身上——
+   *   ① 选择器缺失时**整段静默跳过、不留任何记录**（头条现场 `selectorCount=0`）；
+   *   ② `_waitForVideoUploadComplete` 的返回值被**丢弃**（抖音现场 besteffort 放行后继续点发布）。
+   * 下沉后 `_publish_generic` 只剩一行调用，且「上传事实」有唯一产出点，
+   * 前置门禁（`publish-precondition.js`）才有东西可判。
+   *
+   * 三态口径（缺一不可）：
+   *   平台没登记入口 ⇒ `{ok:false, reason:'upload-selector-missing'}`（= 未实现，不是失败）
+   *   等待被确认     ⇒ `{ok:true}`
+   *   未确认/抛错    ⇒ `{ok:false, detail|error}`（**不得**默认成功）
+   *
+   * @param {object} win BrowserWindow
+   * @param {object} article 文章/视频载荷
+   * @param {string} platform 平台 id
+   * @param {object} sel 平台选择器
+   * @param {object} fillReport 填表结果（本函数写 `.upload`）
+   * @param {object} retry FieldRetryState
+   * @returns {Promise<void>}
+   */
+  async _runVideoUpload(win, article, platform, sel, fillReport, retry) {
+    if (!article.video_path) return
+    const inputs = Array.isArray(sel.file_input) ? sel.file_input : []
+    if (inputs.length === 0) {
+      fillReport.upload = { ok: false, reason: 'upload-selector-missing', detail: 'platform has no file_input selector' }
+      log.warn('RpaView', '[' + platform + '] video present but platform has no file_input selector (video publish unsupported)')
+      return
+    }
+    retry.addField('file_upload')
+    while (!retry.isDone('file_upload')) {
+      try {
+        this._emitProgress(platform, 'uploading file...', 25)
+        // 逐候选定位文件输入（上传落地页常有多个 input[type=file]，首个未必负责视频）
+        const fileSel = await this._resolveSelector(win, inputs, 15000, 3000)
+        if (!fileSel) { if (!retry.retry('file_upload')) break; await this._sleep(2000); continue }
+        await this._setFileInput(win, article.video_path, fileSel)
+        // 完成判定：百家号看「预览/编辑器/发布按钮可用」，其余平台走上传等待器
+        let uploadDone
+        if (platform === 'baijiahao') {
+          uploadDone = await this._waitForCondition(win, 'function(){var t=(document.body&&document.body.innerText)||"";var hasPreview=/预览|编辑|描述|简介|标题/.test(t);var ed=document.querySelector("[contenteditable=true],[data-lexical-editor=true]");var btn=[...document.querySelectorAll("button")].find(function(b){return (b.innerText||"").trim()==="发布"&&!b.disabled});return hasPreview&&(ed!==null||btn!==null)}', 180000, 1000)
+          if (!uploadDone) log.warn('RpaView', '[' + platform + '] upload complete wait timeout (video may still be processing)')
+        } else {
+          uploadDone = await this._waitForVideoUploadComplete(win, platform, 900000, { fileBytes: readVideoFileBytes(article.video_path) })
+        }
+        fillReport.upload = uploadDone
+          ? { ok: true }
+          : { ok: false, detail: '未检测到上传完成信号（页面未出现预览/编辑器/上传完成文案）' }
+        // 表单就绪：上传完成后平台 SPA 渲染标题/简介有延迟（B站/快手要等切到编辑表单）
+        const formReady = await this._waitForCondition(win, 'function(){return !!document.querySelector(\'input[placeholder*="标题"],textarea,[contenteditable="true"]\')}', 120000, 1500)
+        if (!formReady) log.warn('RpaView', '[' + platform + '] editor form not ready after upload (still trying fields)')
+        retry.markDone('file_upload'); this._emitProgress(platform, 'file uploaded', 40)
+      } catch (e) {
+        log.warn('RpaView', '[' + platform + '] upload: ' + e.message)
+        fillReport.upload = { ok: false, error: e.message }
+        if (!retry.retry('file_upload')) break
+        await this._sleep(2000)
+      }
+    }
+    // 重试用尽兜底：没拿到明确结论一律按「未完成」记（不得默认成功）
+    if (!fillReport.upload) {
+      fillReport.upload = retry.isDone('file_upload') ? { ok: true } : { ok: false, detail: '上传步骤重试已用尽，未确认完成' }
+    }
+  },
+
+  /**
    * 取一帧上传信号（在页面上下文执行探针函数串）。
    * executeJavaScript 异常/非对象返回一律容错为「无信号」（不抛错、不中断等待循环）。
    * @param {object} win BrowserWindow（WebContentsView 宿主）
