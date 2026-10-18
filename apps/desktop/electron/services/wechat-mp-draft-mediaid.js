@@ -230,6 +230,27 @@ async function saveWechatMpDraft (host, win) {
 }
 
 /**
+ * 「保存未被平台确认」文案（wxmp-unconfirmed-save，2026-10-18）。
+ *
+ * 与 `describeSaveFailure`（=保存**成功但**采集不到 mediaId）是两种不同处境，
+ * 此前共用一句话，导致现场被读成「缺少媒体 ID」：
+ *   2026-10-17 12:59:09 活证据 —— 日志 `save done without mediaId (saved=false …xhr=200)`，
+ *   即保存后 30 秒内**既没跳转也没出现「保存成功/已保存」**，用户看到的却是
+ *   「保存结果无法验证：缺少媒体 ID」⇒ 用户以为媒体 ID 丢了，实际是**保存动作本身没被确认**。
+ *
+ * 判据：`saved === false` ⇒ 用本条；文案只讲「没确认到」+ 可操作下一步，
+ * **不得**声称成功、也不得把锅推给 mediaId。
+ * @returns {string}
+ */
+function describeUnconfirmedSave () {
+  // 措辞刻意避开「保存成功」四字：本仓多处按文本正则判成功/失败，
+  // 在一句**否定**里出现该短语会给下游分类器制造假阳（本轮新用例已抓到）。
+  return '微信公众号草稿保存未被平台确认（点击保存后 30 秒内既未跳转、也未出现「保存完成」提示）。'
+    + '本次未确认发出：请到公众号后台「草稿箱」核对——若草稿已在，可直接在后台群发；'
+    + '若草稿不在，请稍后重试。'
+}
+
+/**
  * 提示文本是否像「真实错误」：不含错误信号关键词的可见文案
  * （如编辑器常驻设置项「水印：xxx」、说明性文字）一律视为**非错误内容**，
  * 不得拼进失败文案——那是把可自愈问题伪装成平台业务错误的第二例
@@ -285,4 +306,5 @@ module.exports = {
   looksLikeErrorText,
   saveWechatMpDraft,
   describeSaveFailure,
+  describeUnconfirmedSave,
 }

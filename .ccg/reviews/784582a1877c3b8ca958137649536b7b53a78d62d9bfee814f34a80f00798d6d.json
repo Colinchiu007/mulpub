@@ -1,0 +1,50 @@
+{
+  "sha": "f0c5d1faf31fa4f2e65bf1375c915c93b445a996",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 818 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 818,
+    "fileCount": 14,
+    "codeFileCount": 11,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "784582a1877c3b8ca958137649536b7b53a78d62d9bfee814f34a80f00798d6d",
+  "decidedAt": "2026-10-18T05:05:18.602Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "error",
+    "performedBy": "claude",
+    "findings": null,
+    "error": "spawnSync codeagent-wrapper 超时 —— 评审后端无法在单轮 600s 预算内处理本次审查提示",
+    "attempts": [
+      {
+        "at": "2026-10-18T03:47:15Z",
+        "budgetMs": null,
+        "result": "decided mode=dual, status=pending"
+      },
+      {
+        "at": "2026-10-18T03:52:30Z",
+        "budgetMs": 600000,
+        "result": "ETIMEDOUT"
+      }
+    ],
+    "environmentProbes": [
+      "codeagent-wrapper --help → 0.19s OK",
+      "codeagent-wrapper --lite \"Reply PONG\" → 41.2s OK",
+      "codeagent-wrapper 非 lite \"Reply PONG\" → 42.7s OK",
+      "stdin 模式 4.8 KB → 126.8s OK ⇒ stdin 路径本身可用",
+      "审查提示（proposal 84 KB 级）+ 变更基线 1,325 行 ⇒ 后端稳定失败"
+    ],
+    "conclusion": "DUAL 判定要求双模型深度审查；本机 claude 后端无法完成该体量的审查。本记录**不宣称审查通过**：status 保持 error，供门禁与人工如实识别。替代性证据（不等价）：QM-5 五步、12+3+4 条新用例（含接线锁）、受影响面 787 passed、QM-1 打包与启动验证 PASS、CI 全绿。",
+    "notReviewConclusion": true,
+    "userWaiver": "session-standing ruling 2026-10-18（同阻塞在 PR #3855 已裁定「按已登记的环境阻塞豁免合并」）",
+    "at": "2026-10-18T05:05:32.278Z"
+  }
+}

@@ -34,6 +34,7 @@ const {
   buildVisibleToastScript,
   extractAppMsgIdFromBody,
   describeSaveFailure,
+  describeUnconfirmedSave,
 } = require('./wechat-mp-draft-mediaid')
 const {
   TOAST_SELECTORS,
@@ -219,5 +220,32 @@ describe('describeSaveFailure — 失败文案必须可操作（不得把静态�
   it('原创性 / 群发保护两类已知业务错误仍映射到可操作文案（不得回归）', () => {
     expect(describeSaveFailure('{"ret":"64714"}')).toContain('原创')
     expect(describeSaveFailure('"protect_status":1')).toContain('安全中心')
+  })
+})
+
+describe('公众号「保存未被确认」文案（wxmp-unconfirmed-save，2026-10-18）', () => {
+  it('讲的是「没确认到保存」，不得说成「缺少媒体 ID」', () => {
+    const msg = describeUnconfirmedSave()
+    expect(msg).toContain('保存未被平台确认')
+    expect(msg).not.toContain('缺少媒体 ID')
+  })
+
+  it('必须给出可操作下一步（草稿箱核对 + 后台可直接群发 / 重试）', () => {
+    const msg = describeUnconfirmedSave()
+    expect(msg).toContain('草稿箱')
+    expect(msg).toContain('群发')
+    expect(msg).toContain('重试')
+  })
+
+  it('不得声称成功（用户会据此以为已经发出去了）', () => {
+    expect(describeUnconfirmedSave()).not.toMatch(/保存成功|已保存草稿|发布成功/)
+  })
+
+  it('与「保存成功但采集不到 mediaId」是两条不同文案（不得合并）', () => {
+    const unconfirmed = describeUnconfirmedSave()
+    const missingId = describeSaveFailure('', '微信公众号草稿保存结果无法验证：缺少媒体 ID')
+    expect(unconfirmed).not.toBe(missingId)
+    expect(missingId).toContain('媒体 ID')
+    expect(unconfirmed).not.toContain('媒体 ID')
   })
 })
