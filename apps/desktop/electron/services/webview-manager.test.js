@@ -130,6 +130,103 @@ describe('setSidebarWidth 守卫（回归 2026-09-15：宽度=0 不能让内嵌�
   })
 })
 
+describe('setSidebarCollapsed（全局折叠按钮 → 内嵌视图全宽，2026-10-18）', () => {
+  it('默认展开，isSidebarCollapsed() 为 false', () => {
+    const wm = new WebviewManager()
+    expect(wm._sidebarCollapsed).toBe(false)
+    expect(wm.isSidebarCollapsed()).toBe(false)
+  })
+
+  it('收起后活动浏览器标签重排为 x=0、客户区全宽（不留 200px 死区）', () => {
+    const { wm, view } = createManagerWithBrowserTab()
+
+    wm.setSidebarCollapsed(true)
+
+    expect(wm._sidebarCollapsed).toBe(true)
+    expect(view.setBounds).toHaveBeenLastCalledWith({ x: 0, y: 76, width: 1424, height: 785 })
+  })
+
+  it('再次展开后恢复 x=200 的既有布局契约', () => {
+    const { wm, view } = createManagerWithBrowserTab()
+
+    wm.setSidebarCollapsed(true)
+    wm.setSidebarCollapsed(false)
+
+    expect(wm._sidebarCollapsed).toBe(false)
+    expect(view.setBounds).toHaveBeenLastCalledWith({ x: 200, y: 76, width: 1224, height: 785 })
+  })
+
+  it('重复设置同值不触发重排（幂等）', () => {
+    const { wm, view } = createManagerWithBrowserTab()
+    wm.setSidebarCollapsed(true)
+    const callsAfterCollapse = view.setBounds.mock.calls.length
+
+    wm.setSidebarCollapsed(true)
+
+    expect(view.setBounds.mock.calls.length).toBe(callsAfterCollapse)
+  })
+
+  it('非布尔入参被忽略（IPC 合同只接受 boolean）', () => {
+    const { wm, view } = createManagerWithBrowserTab()
+    const callsBefore = view.setBounds.mock.calls.length
+
+    wm.setSidebarCollapsed('true')
+    wm.setSidebarCollapsed(1)
+    wm.setSidebarCollapsed(undefined)
+
+    expect(wm._sidebarCollapsed).toBe(false)
+    expect(view.setBounds.mock.calls.length).toBe(callsBefore)
+  })
+
+  it('收起状态同步给 AuthViewManager / QRCodeLogin（登录/扫码视图同样全宽）', () => {
+    const { wm } = createManagerWithBrowserTab()
+    const auth = createFakeAuthViewManager()
+    const qr = createFakeQrCodeLogin()
+    auth.setSidebarCollapsed = vi.fn()
+    qr.setSidebarCollapsed = vi.fn()
+
+    wm.attachAuthViewManager(auth)
+    wm.attachQrCodeLogin(qr)
+    wm.setSidebarCollapsed(true)
+
+    expect(auth.setSidebarCollapsed).toHaveBeenLastCalledWith(true)
+    expect(qr.setSidebarCollapsed).toHaveBeenLastCalledWith(true)
+  })
+
+  it('收起后侧栏宽度上报仍被接受，但定位继续按收起（collapsed 优先于 width）', () => {
+    const { wm, view } = createManagerWithBrowserTab()
+
+    wm.setSidebarCollapsed(true)
+    wm.setSidebarWidth(68)
+
+    expect(wm._sidebarWidth).toBe(68)
+    expect(view.setBounds).toHaveBeenLastCalledWith({ x: 0, y: 76, width: 1424, height: 785 })
+  })
+})
+
+describe('page-manager:set-sidebar-collapsed IPC 合同', () => {
+  it('handler 把布尔值转交给 setSidebarCollapsed，并回传主进程当前状态', async () => {
+    const { wm } = createManagerWithBrowserTab()
+    const ipcHandlers = require('./webview-manager/ipc-handlers')
+    const handlers = new Map()
+    const fakeIpcMain = { handle: (channel, fn) => { handlers.set(channel, fn) } }
+
+    ipcHandlers.registerIpcHandlers.call(wm, fakeIpcMain)
+
+    const handler = handlers.get('page-manager:set-sidebar-collapsed')
+    expect(typeof handler).toBe('function')
+
+    // 测试环境 withSenderCheck 放行无 senderFrame 的 mock event（见 ipc-handlers/helpers.js）
+    const collapsedResult = await handler({}, true)
+    expect(collapsedResult).toEqual({ code: 0, data: { collapsed: true } })
+    expect(wm._sidebarCollapsed).toBe(true)
+
+    const expandedResult = await handler({}, false)
+    expect(expandedResult).toEqual({ code: 0, data: { collapsed: false } })
+    expect(wm._sidebarCollapsed).toBe(false)
+  })
+})
+
 describe('WebviewManager 虚拟登录标签', () => {
   it('attachAuthViewManager 绑定开关钩子', () => {
     const wm = new WebviewManager()

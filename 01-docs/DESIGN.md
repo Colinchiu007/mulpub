@@ -541,6 +541,47 @@ Primary CTAs and pills meet comfortable touch sizing through 12px-24px padding a
 - 像素门禁当前不覆盖 `hot-topics`（见 PRD §9.2 盲区登记），视觉正确性由组件/集成测试 + 人工截图取证保证。
 
 
+## 全局壳层：左侧菜单收起/展开（2026-10-18）
+
+### 结构与层级
+
+- 按钮固定于顶部标签栏 `TabBar` 最左侧、可横向滚动的 `.tab-bar-tabs` 之前；标签条滚动不带动按钮；按钮在既有 36px 行内垂直撑满，不新增行高，`TabBar(36px) + NavBar(40px) = BROWSER_CHROME_TOP(76px)` 的主进程契约不变。
+- 使用原生 `<button type="button">`；图标为内联 SVG 的双向 `chevron`（左箭头 + 右箭头，组合成「<>」），不使用 emoji、图标字体、位图或新图标依赖。
+- `role="tablist"` 只属于 `.tab-bar-tabs`；折叠按钮与「+」新建标签按钮位于 tablist 之外，不参与 tab 序列（原实现把 `role="tablist"` 放在 `TabBar` 根节点，既包含非 tab 元素，ARIA 不合规）。
+- `App.vue` 对 `<MpSidebar>` 施加 `v-show` 跟随折叠态（`display:none`），**不卸载组件**（保留其内部状态、`ResizeObserver` 与运营菜单订阅）；`MpSidebar.vue` 本体**未改动**，其既有 `if (w > 0)` 守卫保证收起时不会上报 `width=0`。收起时主内容区横向铺满。
+
+### 尺寸与视觉令牌
+
+- 按钮高度撑满标签栏 36px；宽度 = 16px 图标 + 左右水平内边距（复用 `--spacing-*` token），不设固定像素宽；图标视觉尺寸 16×16，`stroke`/`fill` 使用 `currentColor`。
+- 常态前景 `--color-text-secondary`；hover 背景 `--color-sidebar-hover-bg`、前景 `--color-text-primary`；焦点环 `2px solid var(--color-primary)` + `2px` offset；`aria-pressed="true"`（已收起）允许用主色强化，但图标形状不变。
+- 暗色主题由 `[data-theme="dark"]` 的 token 覆写自动适配；组件内禁止十六进制颜色字面量。
+- **无动画、无过渡**：原生 `WebContentsView` 不跟随 CSS 过渡插值，动画期间视图边界必然与 DOM 不同步；折叠是「瞬时切换 + 一次重排」。
+
+### 状态与交互
+
+- 二态 `expanded ⇄ collapsed`；点击或键盘 Enter/Space 切换，切换幂等；本地状态先于 IPC 生效，不做防抖延迟。
+- `aria-label` 与 `title` 使用同一文案，按「点击后会发生什么」描述：展开态显示「收起左侧菜单」/“Collapse sidebar”，收起态显示「展开左侧菜单」/“Expand sidebar”；`aria-pressed="true"` 表示已收起。
+- 文案写入 `apps/desktop/src/locales/tab-bar/{zh,en}.js`，zh/en 成对；`.vue` 内不硬编码中文。
+- 不进入 tablist、不注册全局快捷键；作为 `TabBar` 内第一个可聚焦元素参与 Tab 顺序。
+
+### 持久化与跨进程
+
+- `localStorage['mulpub.ui.sidebarCollapsed']`：`'1'` 收起；其他值、缺失、`getItem`/`setItem` 抛异常一律按展开/静默处理，不阻塞渲染。
+- 收起状态经 preload `pageManager.setSidebarCollapsed(boolean)` → IPC `page-manager:set-sidebar-collapsed` → 主进程 `WebviewManager._sidebarCollapsed`，并同步 `AuthViewManager` / `QRCodeLogin`；`computeEmbeddedViewBounds(win, sidebarWidth, 76, sidebarCollapsed)` 第 4 参为 `true` 时内嵌视图 `x=0`、宽=客户区全宽。
+- **收起不得用 `setSidebarWidth(0)` 表达**：`MIN_SIDEBAR_WIDTH=1` / `MAX_SIDEBAR_WIDTH=600` 与三处 `setSidebarWidth` 守卫逐字保留；收起不修改 `_sidebarWidth`，展开直接恢复 200px（≤900px 时 68px）。
+- 启动时若持久化为收起，工作台壳层挂载后主动上报一次；非 Electron（`invokePageManager` 返回 `undefined`）静默跳过。
+
+### 可访问性
+
+- 原生按钮语义；`aria-pressed` 暴露状态；SVG 带 `aria-hidden="true"` 与 `focusable="false"`，不进入可访问名称。
+- 焦点环可见且不被标签栏裁切；前景/背景对比度 ≥ 3:1（非文本 UI 元素），hover/focus 态同样满足。
+- `role="tablist"` 仅覆盖 `.tab-bar-tabs`，读屏器不会把「+」与折叠按钮播报为 tab。
+
+### 范围边界
+
+- 不做动画、拖拽调宽、窄屏 68px 图标栏的第二种折叠形态、快捷键；OAuth 内嵌视图（`apps/desktop/electron/services/oauth-manager.js:86` 不传侧栏宽度）不跟随折叠，登记为已知限制。
+- 该按钮是全局可见 UI：`apps/desktop/tests/visual-testing/base-screenshots/` 下 43 张 PNG 全部变化，基线由 CI 同源渲染重建并逐张审核，不得声称「视觉中性」。
+
 ## Known Gaps
 
 - Exact proprietary font files are not bundled; use the documented fallbacks when implementing externally.

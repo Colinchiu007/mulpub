@@ -20739,3 +20739,12 @@ CI 把 `QG Static` 钉红在 Gate 2c，红的是 `check-unwired-tests.test.js` �
 - **bug（未修，已登记）｜`config_hash` 白名单里有两个块自带 `synced_at`，等于每请求都把 hash 变一次**：`app_menu_service.py:306` 返回 `{"items": [...], "synced_at": _now()}`、`content_category_service.py:343` 返回 `{"items": [...], "count": n, "synced_at": _now()}`，而 `appMenu` / `contentCategories` **都在** `RUNTIME_BLOCKS` 里。后果：每次 bootstrap 的 `config_hash` 都不同（实测同库连跑两次：`f8a5b99df879ac71/ver1` → `dd3dfca7ccd2e587/ver2`，`RuntimeConfigVersion` 落两行），`config_version` 每次都 +1 ⇒ 「生效看板」永远确认不了、版本表无限增长。这与 `config_fingerprint.py` 注释第 1 条「`synced_at` 每次请求都变，纳入则 hash 永远变、变推送地狱」**直接自相矛盾**——注释写对了，实现对不上。**修它要改这两个块对桌面端的消费形状（渲染端 `appMenu` 归一化把 `items` 挑出来用），属跨端破坏性变更，本轮只登记不修**；判据：任何要进 `RUNTIME_BLOCKS` 的块，其载荷里不得含 `synced_at` / `updated_at` 这类每请求变化的字段，加块时用 `canonical_json` 连算两次比对是否相等。
 
 
+
+
+## 2026-10-18 · sidebar-collapse-toggle：全局壳层按钮的四条判据（视觉基线 / width=0 / 原生视图 / tablist）
+
+- **pattern · 全局可见 UI 改动必然让全部视觉基线变化，正确流程是 CI 同源重建而不是本机 update-baseline**：按钮位于 `TabBar`，而所有视觉截图都含顶部壳层 ⇒ `apps/desktop/tests/visual-testing/base-screenshots/` 下 43 张 PNG（目录内除 `.gitignore` 外实测 43 个）全部变化。判据：改动落在全局壳层时，先数「可能受影响的截图数」再谈 diff；PR 内不执行 `pnpm test:visual:update-baseline`（本机与 CI 渲染不同形），基线在同源环境重建并逐张确认差异只来自新增按钮与标签条起点右移。文档里不得出现「视觉中性」。
+- **pitfall · 折叠不能靠 `width=0` 表达——`MIN_SIDEBAR_WIDTH=1` 的守卫是为了防内嵌视图覆盖侧边栏，不是防误传**：`view-bounds.js:41` 的注释与 `webview-manager/layout.js:112-119` 的拒绝逻辑都是 2026-09-15「平台链接浮层盖住侧边栏」Bug 的防御层；`normalizeSidebarWidth(0)` 还会回落 200，所以 0 既会被拒绝、又会把「收起」悄悄变成「按 200 布局」。正解是新增显式布尔 `_sidebarCollapsed` + `computeEmbeddedViewBounds` 第 4 参（严格 `=== true`），让守卫与功能互不借用。
+- **pitfall · 主进程原生 WebContentsView 不会跟随 CSS 布局，任何侧栏显隐都必须同步重排**：`MpSidebar` 只是 DOM；浏览器/账号/登录标签是 `WebContentsView`。只做 `v-show` 不同步主进程，浏览器标签左侧会留 200px（或 ≤900px 时的 68px）死区，鼠标落点与视觉分界错位。本次把链路钉成一条 Requirement：preload `setSidebarCollapsed` → `page-manager:set-sidebar-collapsed` → `WebviewManager` → `AuthViewManager` / `QRCodeLogin` → `computeEmbeddedViewBounds(..., true)`；漏任一环都有独立测试。
+- **pattern · a11y：tablist 里不能塞非 tab 按钮**：`TabBar.vue` 原先把 `role="tablist"` 放在根节点，而根节点还有「+」与新增折叠按钮 ⇒ 读屏器会把它们播报成 tab。修法是把 `role="tablist" aria-label="标签页"` 移到只含 tab 的 `.tab-bar-tabs`，根节点降为普通容器；新按钮与「+」留在 tablist 之外。
+- **preference · 收起态下 `ResizeObserver` 的 `w > 0` 守卫正好是宽度状态的保护**：`MpSidebar.vue:225` 的 `if (w > 0)` 原本只是防 0 宽误上报；折叠后它正好阻止 `width=0` 污染主进程 `_sidebarWidth`，展开时直接回到最后合法值（200/68），不需要额外缓存。判据：给既有守卫写新用途时，先在测试里锁「不改守卫也成立」，避免为了新功能再动一次既有防御层。

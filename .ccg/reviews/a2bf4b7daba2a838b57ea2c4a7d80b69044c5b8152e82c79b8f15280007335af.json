@@ -1,0 +1,30 @@
+{
+  "sha": "5573c5df5d9defe022110e83b78e71fed571114f",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 990 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 990,
+    "fileCount": 35,
+    "codeFileCount": 23,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 9,
+    "docSensitiveContentSample": [
+      "| 视觉基线 | 按钮是全局可见 UI，**所有**页面截图都会变化 | 见 §15.5 与 §17：不声称视觉中性；基线由 CI 同源渲染重建，禁止本机 `--update-baseline` 掩盖 |",
+      "2. 正确流程：本轮 PR 内**不**在本机执行 `pnpm test:visual:update-baseline` 覆盖基线；由 CI 在同源渲染环境重建基线（或按仓库既有基线重建流程单独提交基线更新 PR），并以浏览器/人工 diff 审核确认变化仅来自新增按钮与标签条起点右移。",
+      "1. **OAuth 内嵌视图不跟随侧栏宽度**：`apps/desktop/electron/services/oauth-manager.js:86` 调用 `computeEmbeddedViewBounds(this.mainWindow)` 时未传宽度，始终按默认 200 计算。收起侧栏后 OAuth 授权页左侧会留 200px 空白。既有实现本就不跟随 ≤900px 的 68px，本轮不扩大改动面；登记为已知限制，建议后续单独立项把 `oauth-manager` 接入与登录视图相同的同步链路。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "a2bf4b7daba2a838b57ea2c4a7d80b69044c5b8152e82c79b8f15280007335af",
+  "decidedAt": "2026-10-18T06:16:53.432Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

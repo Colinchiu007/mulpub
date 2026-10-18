@@ -15,7 +15,7 @@ Multi-Publish 未修改随包分发的 FFmpeg/ffprobe 二进制。公开分发�
 
 ## Lucide 图标（内联 SVG 几何）
 
-顶部浏览器导航区的后退 / 前进 / 刷新按钮，以及标签栏与导航栏的加载指示器，其 SVG 路径几何取自 Lucide 图标库，以「内联 SVG 组件」形态复制进本仓库，不随包分发 Lucide 的任何代码或 npm 包。
+顶部浏览器导航区的后退 / 前进 / 刷新按钮，标签栏与导航栏的加载指示器，以及标签栏最左侧「左侧菜单收起 / 展开」按钮（双 chevron），其 SVG 路径几何取自 Lucide 图标库，以「内联 SVG 组件」形态复制进本仓库，不随包分发 Lucide 的任何代码或 npm 包。
 
 - 项目主页：https://lucide.dev
 - 上游仓库：https://github.com/lucide-icons/lucide
@@ -31,6 +31,7 @@ Multi-Publish 未修改随包分发的 FFmpeg/ffprobe 二进制。公开分发�
 | `src/components/icons/ArrowRightIcon.vue` | `arrow-right` | ISC + 下列 Feather MIT |
 | `src/components/icons/ReloadIcon.vue` | `rotate-cw` | ISC |
 | `src/components/icons/SpinnerIcon.vue` | `loader-circle` | ISC |
+| `src/components/icons/SidebarToggleIcon.vue` | `chevron-left` + `chevron-right` | ISC |
 
 按上游 LICENSE 声明，`arrow-left` 与 `arrow-right` 属自 Feather 项目派生的图标，该部分另受 MIT License 约束，Copyright (c) 2013-present Cole Bemis；上游 LICENSE 原文中包含其完整条款。`rotate-cw` 与 `loader-circle` 不在上游列出的 Feather 派生清单内，仅受 ISC 约束。
 

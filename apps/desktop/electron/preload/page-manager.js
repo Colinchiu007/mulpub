@@ -36,8 +36,11 @@ function createPageManagerApi(ipcRenderer) {
       subscribeEvents: () => ipcRenderer.invoke('page-manager:subscribe-events'),
       unsubscribeEvents: (subscriberId) => ipcRenderer.invoke('page-manager:unsubscribe-events', { subscriberId }),
 
-      // ── 左侧导航栏宽度同步 ──
+      // ── 左侧导航栏宽度 / 收起状态同步 ──
       setSidebarWidth: (width) => ipcRenderer.invoke('page-manager:set-sidebar-width', width),
+      // 全局折叠按钮（2026-10-18）：收起时内嵌 WebContentsView 改为 x=0 全宽。
+      // 与 setSidebarWidth 分开：宽度守卫拒绝 0，收起是显式布尔状态。
+      setSidebarCollapsed: (collapsed) => ipcRenderer.invoke('page-manager:set-sidebar-collapsed', collapsed),
       // T0-6b 壳态互斥：渲染层上报壳态（'workbench'|'browser'），主进程切换内嵌视图可见性
       setShellMode: (mode) => ipcRenderer.invoke('page-manager:set-shell-mode', mode),
       // 弹窗互斥（2026-09-23）：应用级模态浮层打开期间挂起内嵌 WebContentsView，

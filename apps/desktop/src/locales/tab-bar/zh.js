@@ -10,4 +10,7 @@ export default {
     closeUnsavedDiscard: '直接关闭',
     closeUnsavedCancel: '取消',
     closeUnsavedDiscardedWarn: '未保存，已关闭该登录标签',
+    // 全局左侧菜单折叠按钮（文案描述“下一次点击会做什么”，而不是当前状态）
+    collapseSidebar: '收起左侧菜单',
+    expandSidebar: '展开左侧菜单',
   }

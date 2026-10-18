@@ -131,6 +131,37 @@ module.exports = {
   },
 
   /**
+   * 设置左侧导航栏是否收起（全局折叠按钮 → 内嵌 WebContentsView 全宽）。
+   *
+   * 为什么不能复用 setSidebarWidth(0)：那条路径有**刻意保留**的守卫 —— width<=0 会让视图
+   * x 落到 0 并覆盖 x=0 的侧边栏（2026-09-15 Bug）。收起是显式状态，视图**应该** x=0，
+   * 所以用独立布尔位表达，守卫与功能互不借用。
+   *
+   * @param {boolean} collapsed true = 收起；非布尔值忽略（IPC 合同只接受 boolean）
+   */
+  setSidebarCollapsed (collapsed) {
+    if (typeof collapsed !== 'boolean') {
+      log.warn('WebviewManager', 'Invalid sidebar collapsed flag ignored: ' + collapsed)
+      return
+    }
+    if (this._sidebarCollapsed === collapsed) return
+    this._sidebarCollapsed = collapsed
+    // 登录视图 / 扫码登录视图也是内嵌原生图层，必须同步，否则同样留死区
+    if (this._authViewManager && typeof this._authViewManager.setSidebarCollapsed === 'function') {
+      this._authViewManager.setSidebarCollapsed(collapsed)
+    }
+    if (this._qrCodeLogin && typeof this._qrCodeLogin.setSidebarCollapsed === 'function') {
+      this._qrCodeLogin.setSidebarCollapsed(collapsed)
+    }
+    this._repositionAll()
+  },
+
+  /** 左侧导航栏当前是否收起（供 IPC 回执与测试断言） */
+  isSidebarCollapsed () {
+    return this._sidebarCollapsed === true
+  },
+
+  /**
    * 重新调整所有视图位置
    * 浏览器标签页填满 TOP=76px 以下区域，分屏标签使用原布局
    */
@@ -153,10 +184,11 @@ module.exports = {
       }
     } else if (this._tabViews.size > 0) {
       // 处理浏览器标签页
-      // 左侧导航栏为固定区域，WebContentsView 应定位在右侧主体区域
+      // 左侧导航栏为固定区域，WebContentsView 应定位在右侧主体区域；
+      // 侧栏收起时改由 computeEmbeddedViewBounds 的 collapsed 参数给出 x=0 全宽。
       var activeView = this._tabViews.get(this._activeTabId)
       if (activeView) {
-        activeView.setBounds(computeEmbeddedViewBounds(this.mainWindow, sidebarWidth))
+        activeView.setBounds(computeEmbeddedViewBounds(this.mainWindow, sidebarWidth, undefined, this._sidebarCollapsed))
         activeView.setVisible(true)
       }
     }
