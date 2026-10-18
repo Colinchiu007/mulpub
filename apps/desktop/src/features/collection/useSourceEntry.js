@@ -13,31 +13,58 @@ import { PLATFORM_SOURCE_URLS, PLATFORM_NAMES } from '@multi-publish/shared-util
  * 复用。采集页这三个按钮的语义是「去哪**找素材**」（看别人的热门内容挑选题），
  * 与「去哪**发内容**」是相反的，共用一张表必然有一边错。
  *
- * ## 2026-10-12 实测口径（web_fetch 纯 HTTP，无 UA/无 Cookie/不执行 JS）
+ * ## 2026-10-17 真机复核（真实 Chromium，独立无 Cookie context）
  *
- * | 平台 | 旧值（DASHBOARD） | 旧值实际是什么 | 新值（SOURCE） |
+ * | 卡片 | 来源 id | URL | 实测结论 |
  * |---|---|---|---|
- * | weibo | https://weibo.com/ | 消费端信息流首页 | https://s.weibo.com/top/summary（热搜榜）|
- * | zhihu | https://www.zhihu.com/ | 消费端首页推荐流 | https://www.zhihu.com/hot（热榜）|
- * | toutiao | https://mp.toutiao.com/ | **头条号创作后台**（实测 200 → profile_v4）| https://www.toutiao.com/hot-event/hot-board/?origin=toutiao_pc |
+ * | 微博热搜 | weibo | https://s.weibo.com/top/summary | 200，榜单 30 条渲染，可匿名浏览 |
+ * | 百度热搜 | baidu | https://top.baidu.com/board?tab=realtime | 200，服务端直出榜单，可匿名浏览 |
+ * | 今日头条 | toutiao | https://www.toutiao.com/ | 200，右侧「头条热榜」模块渲染 1-50 名 |
  *
- * 头条那条是**分类错误**而非"链接旧了"：mp.toutiao.com 是发布目的地，
- * 放在「素材采集来源」里从根上就是错的。
+ * 被替换掉的两条（**不得改回去**）：
+ *   · 知乎 https://www.zhihu.com/hot —— 最终跳到 /account/unhuman?...&need_login=true
+ *     （安全验证页），实名制强制登录才给看，采集页没有它的卡。
+ *   · 头条 https://www.toutiao.com/hot-event/hot-board/?origin=toutiao_pc —— 这是**数据接口**，
+ *     浏览器直接打开是一屏 JSON 文本（2026-10-17 用户实测即此形态），不是可浏览页面；
+ *     官方没有渲染版热榜页（/hot/、/trending/ 均 404）。
  *
- * 两条必须如实告知用户的边界（不得在代码里假装不存在）：
- *   · 微博：weibo.com 与 s.weibo.com/** 对无 Cookie 请求一律 302 →
- *     passport.weibo.com，属**服务端强制登录墙**。换 URL 只改变「登录后看到的是
- *     热搜榜还是信息流」，**不会**让用户免登录浏览 —— 不要指望换 URL 绕过登录。
- *   · 知乎：www.zhihu.com/hot 对抓取器返回 403（裸首页同样 403，故 403 是反爬
- *     而非失效）；/creator 已确证强制登录（302 → /signin?next=%2Fcreator）。
- *     真人浏览器下 /hot 是否免登录可浏览，本次工具未能证实。
+ * ## 为什么单独维护显示名表（SOURCE_LABEL_KEYS）
  *
+ * 来源 id 与「可发布平台 id」不是同一套：baidu 只是素材来源（没有发布链路），
+ * PLATFORM_NAMES 里没有它。若直接用 PLATFORM_NAMES 拼标题/提示，百度那条会显示
+ * 原始 id（「已打开 baidu 采集页面」）。
+ */
+
+/** 来源 id → 卡片显示名的 i18n 键（与 locales/collection 的四个键同源） */
+export const SOURCE_LABEL_KEYS = {
+  weibo: 'collection.sourceWeibo',
+  baidu: 'collection.sourceBaidu',
+  toutiao: 'collection.sourceToutiao',
+}
+
+/**
+ * 解析来源显示名：优先 i18n 文案，缺键时回退平台表，最后回退原始 id。
+ * @param {string} sourceId
+ * @param {(key: string, params?: object) => string} t
+ * @returns {string}
+ */
+function resolveSourceLabel (sourceId, t) {
+  const key = SOURCE_LABEL_KEYS[sourceId]
+  if (key) {
+    const label = t(key)
+    // 缺键时 vue-i18n 返回键本身；此时继续回退，避免把键名显示给用户
+    if (label && label !== key) return label
+  }
+  return PLATFORM_NAMES[sourceId] || sourceId
+}
+
+/**
  * @param {object} deps
  * @param {(p: {url: string, platform: string, title: string}) => Promise<any>} deps.createTab
  * @param {(key: string, opts?: object) => void} deps.notifyWarning
  * @param {(key: string, opts?: object) => void} deps.notifySuccess
  * @param {(key: string, params?: object) => string} deps.t
- * @returns {(platform: string) => Promise<void>}
+ * @returns {(sourceId: string) => Promise<void>}
  */
 export function createOpenSourceHandler ({
   createTab,
@@ -45,20 +72,21 @@ export function createOpenSourceHandler ({
   notifySuccess,
   t,
 }) {
-  return async function openCollection (platform) {
-    const url = PLATFORM_SOURCE_URLS[platform]
+  return async function openCollection (sourceId) {
+    const url = PLATFORM_SOURCE_URLS[sourceId]
     if (!url) {
       notifyWarning('collection.platformUnsupported')
       return
     }
+    const label = resolveSourceLabel(sourceId, t)
     // 在顶部全局标签栏打开平台页（page-manager 体系承载渲染）
     const tabId = await createTab({
       url,
-      platform,
-      title: t('collection.platformSourceTabTitle', { platform: PLATFORM_NAMES[platform] || platform }),
+      platform: sourceId,
+      title: t('collection.platformSourceTabTitle', { platform: label }),
     })
     if (tabId) {
-      notifySuccess('collection.openedPlatform', { params: { platform } })
+      notifySuccess('collection.openedPlatform', { params: { platform: label } })
     }
   }
 }

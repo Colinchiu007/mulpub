@@ -205,6 +205,15 @@ module.exports = {  /**
     const res = guard.release(platform, task.accountId, task._hold)
     if (!res || !res.released) {
       this._probeCounts.releaseFailed += 1
+      // 出声（fix-release-window-taken-type-mismatch）：`releaseFailed` 这个计数此前
+      // **零消费者、零日志**，于是「回滚每次都失败、窗口永远占满整个间隔」在生产里
+      // 完全不可见 —— 现场表现为视频号被挡 59 分钟而账号根本没发过内容，
+      // 却没有任何一行日志指向「回滚没生效」。回滚失败本身是罕见事件
+      // （正常只在"期间又真实发了一条"时出现 window_taken），故按 warn 一次性记录。
+      console.warn(
+        `[task-queue] 平台 ${platform} 的任务 ${task.id} 未能回滚间隔窗口`
+        + `（reason=${res && res.reason ? res.reason : 'unknown'}）：窗口保持占用，本次重试将等满剩余间隔`
+      )
       return false
     }
 

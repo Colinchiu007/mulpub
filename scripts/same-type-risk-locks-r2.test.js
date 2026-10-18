@@ -171,6 +171,60 @@ test('i7：签核后的豁免登记生效（出声不拦截），且缺字段/�
 })
 
 
+test('R5（评审驱动 batch4-②）：单行 finally 不得漏判', () => {
+  // 缺陷原型：CreateView.vue:2106 的 `finally { this.pipelineLoading = false }` 被
+  // 「复位下标 > finally 词下标」的词序判据漏判 ⇒ 误入可见面。块范围判定后必须算 finally 复位。
+  const code = [
+    'async loadPipelines() {',
+    '  this.pipelineLoading = true',
+    '  try {',
+    '    await pipelineList()',
+    '  } catch (e) {',
+    '    this.pipelineError = String(e)',
+    '  } finally { this.pipelineLoading = false }',
+    '}',
+  ].join('\n')
+  const r = scanLoadingReset(src('V.vue', code))
+  assert.equal(r.stats.finallyReset, 1, '单行 finally 必须算 finally 复位')
+  assert.equal(r.stats.manualResetNoFinally, 0, '不得再误入 finally 外复位')
+  assert.equal(r.visible.length, 0)
+})
+
+test('R5（评审驱动 batch4-③）：catch 后裸复位仍算 finally 外（脆弱形态要可见）', () => {
+  // 加固原型：CreateView.vue:4890 aiWrite() 原是 `} catch (e) { … }` 后裸 `this.aiLoading = false`
+  // —— 无 return 时行为正确，但未来 try 里加 return 就永久置灰 ⇒ 加固为 finally 前必须被可见面点名。
+  const code = [
+    'async aiWrite() {',
+    '  this.aiLoading = true',
+    '  try {',
+    '    await aiGenerate()',
+    '  } catch (e) {',
+    '    this.quickError = String(e)',
+    '  }',
+    '  this.aiLoading = false',
+    '}',
+  ].join('\n')
+  const r = scanLoadingReset(src('V.vue', code))
+  assert.equal(r.stats.manualResetNoFinally, 1, 'catch 后裸复位必须继续出声（逼人加固）')
+})
+
+test('R5（batch4）：多行 finally 仍算 finally 复位（不因修单行而回归）', () => {
+  const code = [
+    'async f() {',
+    '  this.loading = true',
+    '  try {',
+    '    await work()',
+    '  } finally {',
+    '    this.loading = false',
+    '  }',
+    '}',
+  ].join('\n')
+  const r = scanLoadingReset(src('V.vue', code))
+  assert.equal(r.stats.finallyReset, 1)
+  assert.equal(r.visible.length, 0)
+})
+
+
 // ── 真实仓：覆盖下界（防空转） ──
 
 test('真实仓：R5 命中数 ≥ 侦察实测下界；R9a 结构被真实统计', () => {

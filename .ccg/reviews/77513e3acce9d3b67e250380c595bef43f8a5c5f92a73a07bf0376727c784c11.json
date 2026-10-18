@@ -1,0 +1,28 @@
+{
+  "sha": "b979bd8a811afda4018c5d49431df6f61feac9eb",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 0 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 17,
+    "codeFileCount": 5,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "| 归档必须补齐 CLI 留下的占位 | ✅ | `openspec archive` 会往新主规格写 `TBD - created by archiving change <name>. Update Purpose after archive.`，而 CHANGELOG 第 3870 行记着这条账**历史上没人还**（2026-10-07 清点 151 份主规格里 43 份如此）。本次当场把 Purpose 写实；全仓现存 `created by archiving change` 字样 2 处（本 PR 已清 1 处，余 1 处属他人在飞规格，不在本 PR 认领范围） |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "77513e3acce9d3b67e250380c595bef43f8a5c5f92a73a07bf0376727c784c11",
+  "decidedAt": "2026-10-17T20:27:42.743Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

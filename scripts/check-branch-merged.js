@@ -5,13 +5,27 @@
 // 3 例假阳性）；② 判据非空时人照样删——本轮真实发生一次（差量 52/10/5 行仍删了 worktree 与分支）。
 // 所以把它变成一条命令：红了就停手，绿了才允许走 safe-worktree-remove.ps1 + `git branch -D`。
 //
-// 判据本体（对应 AGENTS.md「收尾链上的已知假失败」的 C 口径）：
-//   ① 普通文件逐字节比 blob —— 强判据，零成本。
-//   ② 不等时不得直接判丢失，也不得直接放行：必须同时成立
-//        (a) 双向行级多重集（我的新增行都在、我删掉的行不复现），
-//        (b) 该文件上除本次合并之外还有具名他人提交可解释差异。
-//      —— 「共用写面」不再靠手抄文件名名单；名单第 6 个热写面一出现就会被当普通文件比、当场复刻假阳性。
-//   ③ 判据自己取不到读数一律按「未证实」处理并走独立退出码 2 —— 把工具的失明读成结论，是本仓「装饰性门禁」的同型。
+// 判据本体（对应 AGENTS.md「收尾链上的已知假失败」的 C 口径；2026-10-17 v3 起按**份数 + 可解释容量**对账）：
+//   ① 逐文件先比 blob —— 强判据，零成本。**两侧同为缺席也算相等**：我把文件删了、主干也没有，那是删除落地了。
+//   ② 不等时按键的**份数**双向对账，而不是"出现过即违规"：
+//        缺口 tip(k) − main(k) > 0 —— 只有"他人对该键的净删除容量"能解释；
+//          且当这份份数是我带来的（tip>base）时，还要求它**随本次合并落地过**（否则"别人加过又撤"能替我的未落地行作保）。
+//        超出 main(k) − tip(k) > 0 —— 只有"他人净新增容量"能解释；解释不了时若我本是净删除 ⇒ LOST，
+//          若我从没写过这个键 ⇒ UNATTRIBUTED（说不清就不许据此删分支，但也不谎报"我的东西丢了"）。
+//      ⛔ 加法等式（main = base + Σ链上净增减）**只当自检，不当判据**，实测理由：判据若再叠上
+//      "该行须随我的合并落地过"这道血统前提并无条件适用，就会把 fork 时就存在的存量算成丢失 ——
+//      真实仓 bf520a13c 的 CHANGELOG 两行读数是 base=2 / tip=2 / main=0（主干后来把行里那个 BEL 控制字节改掉了），
+//      他人的删除容量本来足以解释，却被 landed=0 压成容量 0 ⇒ 假 LOST；git grep 复核确认这两行不是我带来的内容。
+//      血统前提因此收窄为"只对 tip>base 的键生效"。等式本身仍然每次跑：链上求和 ≠ main−base
+//      ⇒ 我漏读了某种 git 形态 ⇒ 退出码 2（见 assertChainCloses，它本轮抓到我自己两处解析错）。
+//   ③ 「多会话共用写面」不再靠手抄文件名名单，也不再按文件类别分两支 —— 份数口径对普通文件与热写面是同一条规则。
+//   ④ 二进制文件没有行级判据可用（git 不给补丁，份数无从数）：退回到"我那份字节是否随本次合并进过主干"，并在输出里点名这次降级。
+//   ⑤ 判据自己取不到读数一律按「未证实」处理并走独立退出码 2 —— 把工具的失明读成结论，是本仓「装饰性门禁」的同型。
+//   ⑥ `violations[]` 逐键字段的读法（QM-6 前端轴提示 `dir` 之名易被读成"目录"，故在此写明，不改字段名）：
+//        `dir` 是**缺口方向**三态（`short` / `over-deleted` / `over-extra`），与目录无关；`by` 是要解释的份数差；
+//        `capacity` 是该键上他人净增/净减的**合计**（逐笔贡献者由 `lineAttributions` 点名，不在这里重复）；
+//        `landedWithMerge` 是**跨多个 merge 取最大**份数，不是逐 merge 明细 —— 同分支多 PR 改同一文件时它偏宽松，
+//        这条遗留已登记在 PRD §9「遗留」，读数时须知道它是上界而非分解。
 //
 // 参考系（2026-10-17 v2 修正，`--against`，默认 origin/main → 回落 main 并打印落点）：
 //   判定域是「**主干现在**有没有这份内容」，`--merge` 只用来做归因排除（哪笔是本次合并自身）。
@@ -65,30 +79,127 @@ function representatives(lines) {
 }
 
 /**
- * 我的新增行必须逐条在主干出现 ≥ 我给的次数。
- * 返回"次数不足"的那些行（原始文本，去重后每键一条）。
+ * 他人净数按"同一笔内 + 与 − 相抵"算，且**必须先过段落结构**再认内容行。
+ *
+ * ⛔ 不能写 `if (t.startsWith('+++') || t.startsWith('---')) continue`：那是 v2 的真实盲区。
+ *   删除一个 `---` 行，补丁里就是 `----`（− 再加 ---），被这个前缀判断当成文件头整行吃掉 ⇒
+ *   删除侧净数被少算，真实仓实测把 CHANGELOG.md 的 `---` 判成 short=3（v3 第一版当场踩到，
+ *   靠"链上求和 == main−base"这条恒等式自检暴露）。
+ *   正解：只有**本文件段落里第一个 `@@` 之前**的行才是段落头（diff --git / index / --- / +++ / new mode），
+ *   进入 hunk 之后一切 + / − 都是内容行；`\ No newline at end of file` 单独排除。
  */
-function compareAddedLines(addedLines, mainLines) {
-  const need = multisetOf(addedLines);
-  const have = multisetOf(mainLines);
-  const rep = representatives(addedLines);
-  const out = [];
-  for (const [k, n] of need) if ((have.get(k) || 0) < n) out.push(rep.get(k));
-  return out;
+function parsePatchNet(patch) {
+  const net = new Map();
+  let inHunk = false;
+  let binary = false;
+  for (const raw of patch.split('\n')) {
+    const t = raw.replace(/[\r\n]+$/, '');
+    if (t.startsWith('diff --git')) { inHunk = false; continue; }
+    if (/^@@/.test(t)) { inHunk = true; continue; }
+    if (!inHunk) {
+      if (/Binary files /.test(t) || t.startsWith('GIT binary patch')) binary = true;
+      continue;
+    }
+    if (t.charCodeAt(0) === 92) continue;                 // "\ No newline at end of file"
+    if (!(t.startsWith('+') || t.startsWith('-'))) continue;
+    const k = key(t.slice(1));
+    if (k === '') continue;
+    net.set(k, (net.get(k) || 0) + (t.startsWith('+') ? 1 : -1));
+  }
+  return { net, binary };
 }
 
 /**
- * 我删掉的行必须在主干**一次都不出现**。
- * 这是双向判据的后半：单向只证"我的东西都在"，证不出"我删掉的那行被后续合并带回来了"。
+ * v3 判据本体：**份数 + 可解释容量**，不是"出现过即违规"，也不是"加法等式"。
+ *
+ *   deficit(k) = tip(k) − main(k) > 0   ⇒ 我那份内容有副本只剩在分支上。
+ *     可解释容量 = min( 他人对该键的"净删除"容量, 该行随本次合并进过主干的份数 )
+ *     —— 两个都必须：没有"它曾进过主干"这一步，别人加过又撤的同文行就能替我的未落地行作保
+ *        （QM-6 后端轴命中的洗白路径，T18）；没有容量，就是真丢失。
+ *   excess(k) = main(k) − tip(k) > 0     ⇒ 主干多了我以为不该有的份数（我的删除被丢，或凭空多份）。
+ *     可解释容量 = 他人对该键的"净新增"容量；超出容量的那部分才是违规。
+ *
+ * ⛔ 为什么这里**不用**"main = base + Σ(链上各笔净增减)"这条加法等式当判据（本会话先写成这样、被真实仓否证）：
+ *   两条分支交出**逐字相同**的一行时，主干只会出现一份（第二次是幂等无操作）。
+ *   等式会算出"我的那一份没落地"，而 git grep 实测该行在主干、份数与我的 tip 相同 ⇒ 假阳性。
+ *   本仓这类重复贡献是常态（AGENTS 记过"同一条回填标题相隔 20 分钟各落一遍"）。
+ *   等式仍然保留，但只当**自检**用（链上求和 != main−base ⇒ 我的解析漏了一种 git 形态 ⇒ 退出码 2），
+ *   不当结论用。这两件事必须分开。
  */
-function compareRemovedLines(removedLines, mainLines) {
-  const have = multisetOf(mainLines);
-  const rep = representatives(removedLines);
-  const out = [];
-  for (const k of new Set(removedLines.map(key))) {
-    if (k !== '' && (have.get(k) || 0) > 0) out.push(rep.get(k));
+function reconcileCounts(tipMap, mainMap, baseMap, caps, landedCount) {
+  const short = [];
+  const over = [];
+  const keys = new Set([].concat(
+    Array.from(tipMap.keys()), Array.from(mainMap.keys()), Array.from(caps.add.keys()), Array.from(caps.rem.keys())));
+  for (const k of keys) {
+    const tip = tipMap.get(k) || 0;
+    const main = mainMap.get(k) || 0;
+    if (!Number.isFinite(tip) || !Number.isFinite(main)) {
+      throw new JudgeError('份数比较取到非数（判据自身故障，不得当"已合并"读）：key=' + JSON.stringify(k));
+    }
+    if (main < tip) {
+      // 缺口分两种，只有一种要"随我的合并落地过"这道血统前提：
+      //   这个键的份数**是我带来的**（tip > base）⇒ 血统前提必须有，否则别人加过又撤的同文行
+      //      就能替"我的行从未落地"作保（QM-6 后端轴命中，T18）；
+      //   份数与 base 相同（我根本没动过它）⇒ 这些副本本来就是主干上的存量，主干后来少了
+      //      就是别人的删除，**不是我的工作**，不得拿"我的合并产物里没有"来拦清理。
+      // 实测动因：bf520a13c 的 CHANGELOG 里两行含 BEL 控制字节（"：\x07utonomous-loop.yml"），
+      // 主干后来把它修成了 "：autonomous-loop.yml"；这两行是 fork 时就有的存量 ⇒ 上一版把血统
+      // 前提无条件套上去，容量被 landed=0 压成 0 ⇒ 假 LOST。控制字节本身归 Gate 12b 管，不在这里守。
+      const introducedByMe = (tipMap.get(k) || 0) > (baseMap.get(k) || 0);
+      const removalCap = caps.rem.get(k) || 0;
+      const capacity = introducedByMe
+        ? Math.min(removalCap, typeof landedCount === 'function' ? landedCount(k) : 0)
+        : removalCap;
+      const unexplained = tip - main - capacity;
+      if (unexplained > 0) short.push({ key: k, by: unexplained, capacity: capacity, introducedByMe: introducedByMe });
+    } else if (main > tip) {
+      const addCap = caps.add.get(k) || 0;
+      const unexplained = main - tip - addCap;
+      if (unexplained > 0) {
+        // 同样是"主干比我的 tip 多"，两种成因必须分开：
+        //   我对这个键本是**净删除** ⇒ 多出来的就是我那次删除被合并丢掉 ⇒ 与工作有关，算 LOST；
+        //   我从没删过它 ⇒ 只是谁也解释不了的多余内容，说不清就不许据此删分支，但也不谎报"我的东西丢了"。
+        over.push({ key: k, by: unexplained, capacity: addCap, deletion: tip - (baseMap.get(k) || 0) < 0 });
+      }
+    }
   }
-  return out;
+  return { short, over };
+}
+
+/**
+ * 他人提交的**容量**表（不是净数）：add = 各笔正净增之和，rem = 各笔负净减的绝对值之和。
+ * 按笔取绝对值再相加，是因为容量回答"这些差异最多能被解释掉多少"，
+ * 而净数回答"实际变化了多少" —— 两者混用会把 T18 的加又撤算成 0 容量（对）或 2 容量（错）。
+ */
+function capacityCounts(entries) {
+  const add = new Map();
+  const rem = new Map();
+  for (const e of entries) {
+    for (const [k, v] of e.net) {
+      if (v > 0) add.set(k, (add.get(k) || 0) + v);
+      else if (v < 0) rem.set(k, (rem.get(k) || 0) - v);
+    }
+  }
+  return { add, rem };
+}
+
+/**
+ * 链上各笔（含本次合并）对每个键的净份数表 —— **只给恒等式自检用**。
+ * 走 first-parent 链并要求合并提交对第一父出补丁（`--diff-merges=first-parent`）：
+ * 默认 `git log -p` 对合并提交不给补丁，实测区间里有 27 个合并提交时求和少算，
+ * 把 CHANGELOG.md 的 `---` 演成 short=1885。
+ */
+function netCounts(entries) {
+  const m = new Map();
+  for (const e of entries) {
+    for (const [k, v] of e.net) {
+      if (v === 0) continue;
+      m.set(k, (m.get(k) || 0) + v);
+    }
+  }
+  for (const [k, v] of Array.from(m)) if (v === 0) m.delete(k);
+  return m;
 }
 
 // ---------------------------------------------------------------- git 只读封装
@@ -136,21 +247,6 @@ function blobText(root, oid) {
 }
 
 // 我在 base..ref 上对这个文件的 +/- 行
-function myLineDelta(root, base, ref, file) {
-  const d = git(root, ['diff', '--unified=0', base, ref, '--', file], true);
-  if (!d.ok) throw new JudgeError('diff ' + base + '..' + ref + ' -- ' + file + ' 失败');
-  const added = [];
-  const removed = [];
-  for (const l of splitLines(d.out)) {
-    const body = l.replace(/[\r\n]+$/, '');
-    if (body.startsWith('+++') || body.startsWith('---') || body.startsWith('diff ') ||
-      body.startsWith('index ') || body.startsWith('@@') || body.startsWith('\\')) continue;
-    if (body.startsWith('+')) added.push(body.slice(1) + '\n');
-    else if (body.startsWith('-')) removed.push(body.slice(1) + '\n');
-  }
-  return { added, removed };
-}
-
 // 差异归因 + 逐行归因共用同一次 `git log -p` 读数。
 // ⛔ 这里**不能**用 `git log -S<行>`：判据内部把 blob 按 latin1 读以保字节，而 execFileSync 会把字符串
 //   参数按 **UTF-8** 编码送出 ⇒ 中文行在 argv 上变成 mojibake（æ → c3 a6），与 blob 的真实字节永远对不上。
@@ -161,7 +257,9 @@ function patchesFor(root, base, against, file, excludeShas) {
   // 分隔符放在 %H **之前**：git 会在每条记录的格式化行后接换行再接补丁，
   // 若把 %x00 放在 %H 之后，split 出来的分片就会"上一段的尾巴带着下一段的 sha"，
   // 于是 sha 与 patch 错位配对 —— 实测这样构造出的归因列表 sha 全错（T2 当场抓住）。
-  const l = git(root, ['log', '--format=%x00%H%x09%h%x09%s', '-p', base + '..' + against, '--', file], true);
+  // --first-parent + --diff-merges=first-parent：见 netCounts 的注释，缺了它们链上有真合并提交时求和必少算。
+  const l = git(root, ['log', '--first-parent', '--diff-merges=first-parent',
+    '--format=%x00%H%x09%h%x09%s', '-p', base + '..' + against, '--', file], true);
   if (!l.ok) throw new JudgeError('log -p 归因失败：' + file);
   const skip = new Set(excludeShas || []);
   const out = [];
@@ -173,120 +271,230 @@ function patchesFor(root, base, against, file, excludeShas) {
     const patch = nl < 0 ? '' : body.slice(nl + 1);
     const [sha, abbrev, subject] = head.split('\t');
     if (!/^[0-9a-f]{40}$/.test(sha)) continue;     // 形状断言：解析退化不得当"有归因"
+    const parsed = parsePatchNet(patch);
+    const entry = { sha, subject: (abbrev || '') + ' ' + (subject || ''), net: parsed.net, binary: parsed.binary };
     if (skip.has(sha)) continue;                   // 本次合并自身不算他人
-    out.push({ sha, subject: (abbrev || '') + ' ' + (subject || ''), patch });
+    out.push(entry);
   }
   return out;
 }
 
-// 文件级归因：base..against 里除本次合并之外，还有谁碰过这个文件。
+// 文件级归因：base..against 的 first-parent 链里除本次合并之外，还有谁碰过这个文件。
 function attributionsForRoot(root, base, against, file, excludeShas) {
   return patchesFor(root, base, against, file, excludeShas)
     .map((e) => ({ sha: e.sha, subject: e.subject }));
 }
 
-// 逐行归因（方向敏感，且必须绑在本次合并上）：
-//   want='removed' —— 这行为什么现在不在主干：必须有一笔提交把它**净删掉**了；
-//   want='added'   —— 我删的这行为什么又回来了：必须有一笔提交把它**净加回**了。
-// "净"是同一次提交内 +/- 两侧计数相减，于是"同一笔里挪了个位置"（net=0）不算证据。
-// 单看这个还不够（QM-6 后端轴命中的正是这里）：调用方必须另外证明**这一行随本次合并进过主干**，
-// 否则"别人加过又撤的同文行"会把"我的行从未落地"洗成 DRIFT-ATTRIBUTED。
+// 逐行点名（方向敏感）：
+//   want='removed' —— 这一行为什么现在比预期少：链上必须有一笔提交对它**净为负**；
+//   want='added'   —— 这一行为什么比预期多：链上必须有一笔提交对它**净为正**。
+// "净"由 parsePatchNet 在段落结构内算，同一笔里挪位置（net=0）不算证据 ——
+// 这正是 QM-6 后端轴命中的那条洗白路径（T18 钉住），v3 里它由守恒式自己保证。
 function findLineCommit(entries, line, want) {
   const k = key(line);
   if (k === '') return null;
   for (const e of entries) {
-    let added = 0;
-    let removed = 0;
-    for (const raw of e.patch.split('\n')) {
-      const t = raw.replace(/[\r\n]+$/, '');
-      if (t.startsWith('+++') || t.startsWith('---')) continue;
-      if (!(t.startsWith('+') || t.startsWith('-'))) continue;
-      if (key(t.slice(1)) !== k) continue;
-      if (t.startsWith('+')) added++; else removed++;
-    }
-    const net = added - removed;
-    if (want === 'removed' && net < 0) return { sha: e.sha, subject: e.subject };
-    if (want === 'added' && net > 0) return { sha: e.sha, subject: e.subject };
+    const v = e.net.get(k) || 0;
+    if (want === 'removed' && v < 0) return { sha: e.sha, subject: e.subject };
+    if (want === 'added' && v > 0) return { sha: e.sha, subject: e.subject };
   }
   return null;
 }
 
-// 本次合并（们）里该文件的行集合 —— "我的行到底落地过没有"的唯一凭据。
-// landedMax: 该行在任一份合并产物里的最大出现次数（证明"我的新增行随合并进过主干"）。
-// absentInAny(k): 该行在**至少一份**合并产物里不存在（证明"我的删除确实在那次合并里生效过"）。
-function mergedLineState(root, mergedShas, file) {
-  const landedMax = new Map();
-  const perMerge = [];
-  for (const sha of mergedShas || []) {
-    if (!sha) { perMerge.push(null); continue; }
-    const blob = blobOid(root, sha, file);
-    if (blob === null) { perMerge.push(null); continue; }
-    const m = multisetOf(splitLines(blobText(root, blob)));
-    perMerge.push(m);
-    for (const [k, n] of m) landedMax.set(k, Math.max(landedMax.get(k) || 0, n));
+// 区间内（排除本次合并）把这份文件**整份删掉**的具名提交 —— 缺席形态唯一的正当解释。
+// 与 patchesFor 同一套分片写法：%x00 放在 %H **之前**，并把 sha 做形状断言，
+// 否则解析退化时会把"读不到"演成"有人删的"（v2 实测错过一次，M8 钉住）。
+function deletionCommitsFor(root, base, against, file, excludeShas) {
+  const l = git(root, ['log', '--diff-filter=D', '--format=%x00%H%x09%h%x09%s', base + '..' + against, '--', file], true);
+  if (!l.ok) throw new JudgeError('log --diff-filter=D 归因失败：' + file);
+  const skip = new Set(excludeShas || []);
+  const out = [];
+  for (const chunk of l.out.split('\0').slice(1)) {
+    const head = chunk.split('\n')[0];
+    const [sha, abbrev, subject] = head.split('\t');
+    if (!/^[0-9a-f]{40}$/.test(sha)) continue;
+    if (skip.has(sha)) continue;
+    out.push({ sha: sha, subject: (abbrev || '') + ' ' + (subject || '') });
   }
-  return {
-    landedMax,
-    landedCount: (k) => landedMax.get(k) || 0,
-    absentInAny: (k) => perMerge.some((m) => m === null || !m.has(k)),
-  };
+  return out;
+}
+
+/**
+ * 恒等式自检：Σ(链上各笔对该文件的净增减) 必须精确等于 main − base 的份数差。
+ * 闭不上就是"我的读数/解析漏了一种 git 形态"，而不是"内容丢了" —— 本轮实测靠它抓到两处自己的错：
+ *   ① 段落头用 startsWith('---') 判定，把删除 `---` 行产生的 `----` 当成文件头整行吃掉；
+ *   ② `git log -p` 对合并提交不给补丁，区间里有 27 个合并提交时求和少算（CHANGELOG 的 `---` 被演成 short=1885）。
+ * 这一条把"工具的数学错了"与"内容真的没落地"分开 —— 前者走退出码 2，后者才走 1。
+ * ⛔ 它**不是**判据（不做任何结论），也正因为真实仓里它总是闭合，没法靠现场夹具反证 ⇒
+ *   所以单独抽成函数并配直接的正/负控锁，而不是让它只活在 classifyFile 里当一段无法证伪的代码。
+ */
+function assertChainCloses(file, baseMap, mainMap, chainNet) {
+  const openKeys = [];
+  for (const k of new Set([].concat(Array.from(baseMap.keys()), Array.from(mainMap.keys()), Array.from(chainNet.keys())))) {
+    const lhs = (mainMap.get(k) || 0) - (baseMap.get(k) || 0);
+    const rhs = chainNet.get(k) || 0;
+    if (lhs !== rhs) openKeys.push({ key: k, by: lhs - rhs });
+  }
+  if (openKeys.length > 0) {
+    const sample = openKeys.slice(0, 2).map((o) => JSON.stringify(o.key.slice(0, 30)) + ' 偏差 ' + o.by).join(' / ');
+    throw new JudgeError(file + '：链上求和与 main−base 不闭合（' + openKeys.length + ' 个键；' + sample +
+      '）⇒ 归因面漏看了某种 git 形态，此时既不能判"已合并"也不能判"丢失"');
+  }
+  return openKeys;
 }
 
 // ---------------------------------------------------------------- 单文件判定
-function classifyFile(root, { ref, against, base, file, excludeShas, mergedShas }) {
+// 我的行"进过主干几份"的唯一凭据 = 本次合并（们）的产物里该键的份数，逐份取最大。
+// 缺了这一步，"别人加过又撤的同文行"就能替我的未落地行作保（QM-6 后端轴命中，T18 钉住）。
+function mergedCopiesOf(root, mergedShas, file) {
+  const per = [];
+  for (const sha of mergedShas || []) {
+    if (!sha) { per.push(null); continue; }
+    const oid = blobOid(root, sha, file);
+    per.push(oid === null ? null : multisetOf(splitLines(blobText(root, oid))));
+  }
+  return (k) => {
+    let mx = 0;
+    for (const m of per) if (m) mx = Math.max(mx, m.get(k) || 0);
+    return mx;
+  };
+}
+
+function classifyFile(root, { ref, against, base, file, excludeShas }) {
   const tipBlob = blobOid(root, ref, file);
   const againstBlob = blobOid(root, against, file);
-  if (tipBlob !== null && tipBlob === againstBlob) {
+  // 两侧同形即"没有差异"——包括**都为缺席**（我把文件删了、主干也没有了）：那正是删除落地了。
+  // v2 在这里要求 tipBlob 非 null，于是"删文件的 PR 完整落地"也被判 LOST（第三类假阳性）。
+  if (tipBlob === againstBlob) {
     return { verdict: 'IDENTICAL', attributions: [], lineAttributions: [], missingAdded: [], reappearedRemoved: [] };
   }
-  // blob 不等 —— 降级到行级，但必须能归因
-  const delta = myLineDelta(root, base, ref, file);
-  const fileAbsentOnMain = againstBlob === null;
-  const mainText = fileAbsentOnMain ? '' : blobText(root, againstBlob);
-  const mainLines = splitLines(mainText);
-  const entries = patchesFor(root, base, against, file, excludeShas);
+  // 链上一次读全（含本次合并），既给"他人"用，也给下面的恒等式自检用 —— 两次 git log 会翻倍成本，故只取一次。
+  const allEntries = patchesFor(root, base, against, file, []);
+  const skip = new Set(excludeShas || []);
+  const entries = allEntries.filter((e) => !skip.has(e.sha));
   const attributions = entries.map((e) => ({ sha: e.sha, subject: e.subject }));
-  const merged = mergedLineState(root, mergedShas || excludeShas, file);
-  // 整份文件不在主干 ⇒ MISSING_FILE。它必须与"某行被主干扩写/改掉"分开计：前者删分支就是真丢工作，
-  // 所以这条路上**不做任何行级救走**（一救就把"整份缺席"稀释成"一些行没对上"）。
-  if (fileAbsentOnMain) {
+
+  const baseTextOf = () => {
+    if (!base) return '';
+    const b = blobOid(root, base, file);
+    return b === null ? '' : blobText(root, b);
+  };
+  const tipText = tipBlob === null ? '' : blobText(root, tipBlob);
+  const mainText = againstBlob === null ? '' : blobText(root, againstBlob);
+  const baseText = baseTextOf();
+  // 二进制（含 NUL，或链上出现 "Binary files … differ"）：git 不给补丁，份数根本数不出来。
+  // 这一族必须单列，否则恒等式自检会把每个 PNG 分支都判成 rc=2 —— 那不是严格，是工具失明。
+  const binaryFile = [tipBlob, againstBlob, base].some((oid, i) => {
+    const txt = i === 0 ? tipText : (i === 1 ? mainText : baseText);
+    return txt.indexOf('\0') >= 0;
+  }) || allEntries.some((e) => e.binary);
+
+  // 整份文件不在主干：能点名"谁删的"就是漂移，点不出就是本次合并把它漏了。
+  if (againstBlob === null) {
+    const del = deletionCommitsFor(root, base, against, file, excludeShas);
+    if (del.length > 0) {
+      return {
+        verdict: 'DRIFT-ATTRIBUTED', fileAbsentOnMain: true, fileDeletedByOthers: true,
+        attributions: dedupeBySha(attributions.concat(del)), lineAttributions: del,
+        missingAdded: [], reappearedRemoved: [],
+      };
+    }
+    const tipLines = tipBlob === null ? [] : splitLines(tipText);
     return {
-      verdict: 'LOST', fileAbsentOnMain: true, attributions, lineAttributions: [],
-      missingAdded: [...representatives(delta.added).values()],
-      reappearedRemoved: [],
+      verdict: 'LOST', fileAbsentOnMain: true, fileDeletedByOthers: false, attributions,
+      lineAttributions: [], missingAdded: [...representatives(tipLines).values()], reappearedRemoved: [],
     };
   }
-  const missingRaw = compareAddedLines(delta.added, mainLines);
-  const reappearedRaw = compareRemovedLines(delta.removed, mainLines);
+
+  if (binaryFile) {
+    // 二进制没有行级判据可用 ⇒ 只问一件事：**我那份字节有没有随本次合并进过主干**。
+    // 进了 ⇒ 差异是后来别人改的（可归因）；没进 ⇒ 我的产物被换过，删分支就会丢那份字节。
+    const mergeCarriedIt = (excludeShas || []).some((sha) => sha && blobOid(root, sha, file) === tipBlob);
+    const tag = { binaryFile: true, missingAdded: mergeCarriedIt ? [] : [tipText.slice(0, 24) + '\n'], reappearedRemoved: [] };
+    if (mergeCarriedIt && attributions.length > 0) {
+      return Object.assign({ verdict: 'DRIFT-ATTRIBUTED', attributions, lineAttributions: [] }, tag, { missingAdded: [], reappearedRemoved: [] });
+    }
+    if (mergeCarriedIt) {
+      return Object.assign({ verdict: 'UNATTRIBUTED', attributions: [], lineAttributions: [] }, tag, { missingAdded: [], reappearedRemoved: [] });
+    }
+    return Object.assign({ verdict: 'LOST', attributions, lineAttributions: [] }, tag);
+  }
+
+  const tipMap = multisetOf(splitLines(tipText));
+  const mainMap = multisetOf(splitLines(mainText));
+  const baseMap = multisetOf(splitLines(baseText));
+  const tipReps = representatives(splitLines(tipText));
+  const mainReps = representatives(splitLines(mainText));
+
+  // 恒等式自检（本体已抽成 assertChainCloses，便于直接配正/负控锁）：只诊断"归因面能不能读全这段历史"，不参与结论。
+  assertChainCloses(file, baseMap, mainMap, netCounts(allEntries));
+
+  const caps = capacityCounts(entries);
+  const landed = mergedCopiesOf(root, excludeShas, file);
+  const rec = reconcileCounts(tipMap, mainMap, baseMap, caps, landed);
+  const detailOf = (dir, v) => ({
+    dir: dir, key: v.key, by: v.by, capacity: v.capacity,
+    base: baseMap.get(v.key) || 0, tip: tipMap.get(v.key) || 0, main: mainMap.get(v.key) || 0,
+    landedWithMerge: landed(v.key),
+  });
+
   const missingAdded = [];
   const reappearedRemoved = [];
+  const unexplainedOver = [];
+  const violations = [];
+  for (const s of rec.short) {
+    missingAdded.push(tipReps.get(s.key) || mainReps.get(s.key) || (s.key + '\n'));
+    violations.push(detailOf('short', s));
+  }
+  for (const o of rec.over) {
+    // 同样是"主干比预期多"，两种成因必须分开：
+    //   我对这个键本是**净删除** ⇒ 多出来的就是我那次删除被合并丢掉了 ⇒ 与工作有关，算 LOST；
+    //   我从没删过它 ⇒ 只是一份谁也解释不了的多余内容，说不清就不许据此删分支，但也不谎报"我的东西丢了"。
+    if (o.deletion) reappearedRemoved.push(mainReps.get(o.key) || tipReps.get(o.key) || (o.key + '\n'));
+    else unexplainedOver.push(mainReps.get(o.key) || (o.key + '\n'));
+    violations.push(detailOf(o.deletion ? 'over-deleted' : 'over-extra', o));
+  }
+
+  // 逐行点名：守恒能对上是因为他人净增减抵掉了差 ⇒ 把那些键的贡献者打出来（不是"该文件有别人动过"）。
   const lineAttributions = [];
-  // 违规行要能被**指认**才放行，指认有两道前提，缺一不可：
-  //   ① 这一行确实随本次合并（们）进过主干 / 我的这次删除确实在某次合并里生效过；
-  //   ② 范围内有一笔具名提交把它**净删掉**（新增行缺失方向）或**净加回**（删除行复现方向）。
-  // 只留 ② 会被"别人加过又撤的同文行"洗白（QM-6 后端轴命中，T18 钉住）；只留 ① 则说不清是谁改的。
-  for (const ln of missingRaw) {
-    const landed = merged.landedCount(key(ln)) > 0;
-    const who = landed ? findLineCommit(entries, ln, 'removed') : null;
-    if (who) lineAttributions.push(who); else missingAdded.push(ln);
+  const seenLine = new Set();
+  for (const k of new Set([].concat(Array.from(caps.add.keys()), Array.from(caps.rem.keys())))) {
+    const who = findLineCommit(entries, k + '\n', (caps.add.get(k) || 0) > 0 ? 'added' : 'removed');
+    if (who && !seenLine.has(who.sha)) { seenLine.add(who.sha); lineAttributions.push(who); }
   }
-  for (const ln of reappearedRaw) {
-    const mineLanded = merged.absentInAny(key(ln));
-    const who = mineLanded ? findLineCommit(entries, ln, 'added') : null;
-    if (who) lineAttributions.push(who); else reappearedRemoved.push(ln);
-  }
+
   if (missingAdded.length > 0 || reappearedRemoved.length > 0) {
-    return { verdict: 'LOST', fileAbsentOnMain: false, attributions, lineAttributions, missingAdded, reappearedRemoved };
+    return {
+      verdict: 'LOST', fileAbsentOnMain: false, attributions, lineAttributions,
+      missingAdded, reappearedRemoved, unexplainedOver, violations,
+    };
+  }
+  if (unexplainedOver.length > 0) {
+    return {
+      verdict: 'UNATTRIBUTED', fileAbsentOnMain: false, attributions, lineAttributions,
+      missingAdded: [], reappearedRemoved: [], unexplainedOver, violations,
+    };
   }
   if (attributions.length === 0 && lineAttributions.length === 0) {
-    return { verdict: 'UNATTRIBUTED', attributions: [], lineAttributions: [], missingAdded: [], reappearedRemoved: [] };
+    return { verdict: 'UNATTRIBUTED', attributions: [], lineAttributions: [], missingAdded: [], reappearedRemoved: [], violations: [] };
   }
   return {
     verdict: 'DRIFT-ATTRIBUTED',
-    attributions: attributions.concat(lineAttributions),
+    attributions: dedupeBySha(attributions.concat(lineAttributions)),
     lineAttributions,
-    missingAdded: [], reappearedRemoved: [],
+    missingAdded: [], reappearedRemoved: [], violations: [],
   };
+}
+
+function dedupeBySha(list) {
+  const seen = new Set();
+  const out = [];
+  for (const a of list || []) {
+    if (!a || !a.sha || seen.has(a.sha)) continue;
+    seen.add(a.sha);
+    out.push(a);
+  }
+  return out;
 }
 
 /**
@@ -332,7 +540,7 @@ function collect(opts) {
       res.files.push(Object.assign({ file: f },
         classifyFile(root, {
           ref: refSha, against: againstSha, base, file: f,
-          excludeShas: mergedShas, mergedShas,
+          excludeShas: mergedShas,
         })));
     }
     // 反失明分两种，方向相反，不得合并：
@@ -388,6 +596,23 @@ function show(line) {
   return Buffer.from(String(line), 'latin1').toString('utf8').replace(/[\r\n]+$/, '');
 }
 
+// `--json` 也是给人/机器核对证据用的出口，所以同样必须做 latin1→UTF-8 还原。
+// v2 只还原了 plain 出口，于是 --json 里的中文违规行打成 mojibake（æ 一切），
+// 而自动化消费者只会读 --json —— 等于把最关键的那份证据做成不可用。
+function readable(r) {
+  const one = (f) => Object.assign({}, f, {
+    missingAdded: (f.missingAdded || []).map(show),
+    reappearedRemoved: (f.reappearedRemoved || []).map(show),
+    unexplainedOver: (f.unexplainedOver || []).map(show),
+    // violations[].key 也是同一份 latin1 原文 —— 漏掉它，--json 里的中文证据依旧是 mojibake，
+    // 而 plain 出口看着正常，于是"已经修好编码"这句话只对一半的出口成立。
+    violations: (f.violations || []).map((v) => Object.assign({}, v, { key: show(v.key) })),
+    attributions: (f.attributions || []).map((a) => ({ sha: a.sha, subject: show(a.subject) })),
+    lineAttributions: (f.lineAttributions || []).map((a) => ({ sha: a.sha, subject: show(a.subject) })),
+  });
+  return Object.assign({}, r, { files: (r.files || []).map(one), reasons: (r.reasons || []).slice() });
+}
+
 function main(argv) {
   let o;
   try {
@@ -411,18 +636,25 @@ function main(argv) {
   const againstNote = r.against ? 'against=' + r.against + '@' + String(r.againstSha).slice(0, 9) : 'against=<未解析>';
 
   if (o.json) {
-    console.log(JSON.stringify(Object.assign({}, r, { counts: counts }), null, 2));
+    console.log(JSON.stringify(Object.assign(readable(r), { counts: counts }), null, 2));
   } else {
     if (r.emptyDelta) {
       console.log('[BRANCH-MERGED] ref 相对 ' + againstNote + ' 无差量 ⇒ 该分支已无独有内容（这是通过态，不是判据失明）');
     }
     for (const f of r.files) {
-      const who = (f.attributions || []).map((a) => show(a.subject).slice(0, 60));
+      const all = f.attributions || [];
+      const who = all.slice(0, 6).map((a) => show(a.subject).slice(0, 60));
+      const more = all.length > 6 ? ' …(共 ' + all.length + ' 笔)' : '';
       console.log(f.file + ' ' + f.verdict +
-        ((f.fileAbsentOnMain ? 1 : 0) ? '(整份文件不在主干)' : '') +
-        (who.length ? ' ←归因: ' + who.join(' / ') : '') +
+        ((f.fileAbsentOnMain ? 1 : 0) ? '(整份文件不在主干' + (f.fileDeletedByOthers ? '，后被具名提交删除' : '') + ')' : '') +
+        (f.binaryFile ? '(二进制，行级判据不适用)' : '') +
+        (who.length ? ' ←归因: ' + who.join(' / ') + more : '') +
         (f.missingAdded && f.missingAdded.length ? ' 缺失新增行=' + f.missingAdded.map(show).slice(0, 3).join(' | ') : '') +
-        (f.reappearedRemoved && f.reappearedRemoved.length ? ' 删除行复现=' + f.reappearedRemoved.map(show).slice(0, 3).join(' | ') : ''));
+        (f.reappearedRemoved && f.reappearedRemoved.length ? ' 删除行复现=' + f.reappearedRemoved.map(show).slice(0, 3).join(' | ') : '') +
+        (f.unexplainedOver && f.unexplainedOver.length ? ' 多余内容未归因=' + f.unexplainedOver.map(show).slice(0, 3).join(' | ') : '') +
+        (f.violations && f.violations.length ? ' 份数=' + f.violations.slice(0, 2).map((v) =>
+          v.dir + ' ' + v.by + '(base=' + v.base + ' tip=' + v.tip + ' main=' + v.main +
+          ' 可解释容量=' + v.capacity + ' 随合并落地过(跨 PR 取最大)=' + v.landedWithMerge + ')').join(' ; ') : ''));
     }
   }
   console.log('[BRANCH-MERGED] ref=' + String(o.ref).slice(0, 12) + ' ' + againstNote +
@@ -440,7 +672,8 @@ function main(argv) {
 
 module.exports = {
   VERDICTS, EXIT_OK, EXIT_LOST, EXIT_JUDGE_ERROR,
-  splitLines, key, multisetOf, compareAddedLines, compareRemovedLines,
+  splitLines, key, multisetOf, reconcileCounts, capacityCounts, netCounts, parsePatchNet, assertChainCloses,
+  JudgeError,
   classifyFile, collect, main, parseArgv,
 };
 

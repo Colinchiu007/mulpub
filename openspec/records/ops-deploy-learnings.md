@@ -2,9 +2,6 @@
 record: ops-deploy-learnings
 task: ops-center 上线部署复盘 —— 三处记忆沉淀 + OPERATIONS §13 子路径托管章节
 date: 2026-10-18
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（按 AGENTS.md 合并后收尾清单回填并删除本段三字段）
 ---
 
 ## 本次执行记录：ops-center 上线部署复盘（ops-deploy-learnings，2026-10-18）
@@ -55,7 +52,7 @@ sync_backfill_owner: 下一个会话（按 AGENTS.md 合并后收尾清单回填
 
 | 项 | 状态 |
 |---|---|
-| 远程同步 | PENDING | 合并后取 merge SHA 回填，并删除 frontmatter 三个 `sync_*` 字段 |
+| 远程同步 | PASS | 已合并：`b00b8ca56cd91bb70bc72da1dd56659c24767be4`（PR #3885，squash，2026-10-18T03:55:30+08:00）；远端分支已删除（`git ls-remote --heads origin ops-deploy-learnings2` 返回 0 行）；main push 回读见下方 |
 
 ### 数据校验
 
@@ -84,6 +81,17 @@ sync_backfill_owner: 下一个会话（按 AGENTS.md 合并后收尾清单回填
 2. **分支落后主干 6 个提交时 rebase 会撞上他人对 `01-docs/learnings.md` 的并发修改**。
    本 PR 的处理是 `git rebase --abort` 后**基于最新 `origin/main` 重建 worktree** 再重放
    （脚本幂等），而不是用「后推覆盖」消解冲突 —— 后者会把他人的记录一起抹掉。
+
+### main push 回读（AGENTS.md 收尾清单第 7 条）
+
+| 项 | 读数 |
+|---|---|
+| merge SHA | `b00b8ca56cd91bb70bc72da1dd56659c24767be4`（PR #3885，squash，2026-10-18T03:55:30+08:00） |
+| 远端分支 | `git ls-remote --heads origin ops-deploy-learnings2` → **0 行**（已删） |
+| `quality-gate`（push） | 见下 |
+
+**为什么必须回读这一格**：本 PR 含 `ops-center/docs/`（不在文档白名单），
+squash 会把差量落到**更新的 main tip** 上，PR 侧全绿**不构成** main 会绿的证据。
 
 ### 遗留（不假装已闭合）
 

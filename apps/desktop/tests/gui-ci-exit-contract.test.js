@@ -15,6 +15,9 @@ const {
   resetResults,
 } = require('./test-helpers');
 const { isIgnorableConsoleError, resolveGuiExitCode } = require('./electron-gui-v9');
+// 用例级预算与它的出处（同一份常量也被 scripts/case-timeout-audit.js require；
+// 放测试文件里复测入口读不到 —— 它没法 require 一份 vitest 用例）。
+const cliE2eBudget = require('./gui-cli-e2e-budget');
 
 const WORKFLOW_DIR = path.join(PROJECT_ROOT, '.github', 'workflows');
 
@@ -220,6 +223,7 @@ describe('GUI/CI 工作流门禁契约', () => {
   it('CLI 端到端：真 git 仓库里文档改动判否、桌面改动判是，取证失败必须 rc=1 且不写产出', () => {
     // 只测导出的 isGuiRelevant 等于没测 CLI 层（#3493 的同名教训）：base/head 取源、
     // merge-base 语义、取证失败时的 fail-closed、GITHUB_OUTPUT 追加，四件事都只存在于进程入口。
+    const startedAt = process.hrtime.bigint();
     const { execFileSync } = require('node:child_process');
     const os = require('os');
     const scriptPath = path.join(PROJECT_ROOT, 'scripts', 'ci-gui-relevance.js');
@@ -283,8 +287,198 @@ describe('GUI/CI 工作流门禁契约', () => {
       expect(okOut.rc).toBe(0);
       expect(fs.readFileSync(outFile, 'utf8')).toContain('gui-relevant=false');
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      try {
+        fs.rmSync(dir, { recursive: true, force: true });
+      } finally {
+        // 双层 finally：口径上必须"含清理"（与 vitest 给这条用例记的那段墙钟同一把尺子，QM-6 前端轴 F6），
+        // 但清理本身抛错时**不得吞掉样本**（QM-6 前端轴 G4：否则台账锁会报"记录没被执行"这种误导红，
+        // 而真因是 Windows 上的句柄占用）。原语的错照样往外抛，样本照样入账。
+        cliE2eBudget.recordGuiCliE2eElapsed(Number(process.hrtime.bigint() - startedAt) / 1e6);
+      }
     }
+  }, cliE2eBudget.GUI_CLI_E2E_CASE_TIMEOUT_MS);
+
+  // ── 上面那条用例的预算锁（三把，一把都不能省）───────────────────────────────
+  // 动因（当场实测，非推断）：main push 77598c4ac 与更早的 ce3f25cdf 各红一次，红点逐字相同 ——
+  // 该用例 `Error: Test timed out in 10000ms`，耗时行读数 11097ms / 12744ms；而同一作业在
+  // 相邻的 4 次 main push（f818c214e / ea257dd99 / 44054389e / 354c4183b）上是 1059–1657ms。
+  // 摆动 8 倍来自 runner 负载（它要真起 17 个子进程），与被测语义无关 ⇒ 全局 10s 预算被环境
+  // 开销独吞，即 AGENTS.md QM-3「环境开销不得与被测语义共用一个预算」的又一落点。
+  it('CLI 端到端用例必须显式声明用例级预算，且只能引用那个单点常量', () => {
+    const source = fs.readFileSync(__filename, 'utf8');
+    const start = source.indexOf("it('" + cliE2eBudget.GUI_CLI_E2E_TEST_NAME + "'");
+    expect(start, '用例名漂移 ⇒ 锚点找不到，锁会静默失去测量对象').toBeGreaterThan(-1);
+    const marker = '}, cliE2eBudget.GUI_CLI_E2E_CASE_TIMEOUT_MS);';
+    const declared = source.indexOf(marker, start);
+    expect(declared, '该用例没有引用单点预算常量（裸数字写法也会在这里红：marker 整串就是判据本体）').toBeGreaterThan(-1);
+
+    // 归属边界走共用纯函数（QM-6 前端轴 G1）：**取不到边界即红**，不退化成"到文件末尾"。
+    const boundary = cliE2eBudget.findNextCaseIndex(source, start + 1);
+    expect(boundary, '找不到下一条用例的边界 ⇒ "预算属于本条用例"这项检查会静默放宽，一律判红不判过')
+      .toBeGreaterThan(-1);
+    expect(boundary).toBeGreaterThan(declared);
+
+    // 禁词扫描必须先剥注释（含**块**注释）：本文件在讲这次病灶时必然提到 "10000ms" 这个旧预算数字，
+    // 不剥注释的禁词锁会把自己的说明判成违规（实测被这条锁抓到过一次），只剥行注释则块注释照样反咬。
+    const body = cliE2eBudget.stripComments(source.slice(start, declared));
+    // 带数字边界：`toContain('10000')` 会误伤 `100000` 这类无关大数（QM-6 前端轴 F9）。
+    // 这条拦的是"把旧的全局预算抄回用例体内"（例如 `{ timeout: 10000 }` 或 `const legacy = 10000`）——
+    // 变异 M15 实测过它有牙。**裸数字第三参写法不在这里拦**（`}, 60000)` 会被区间终点整条排除在
+    // 被测区之外，那种写法由上面 marker 存在性拦住）——QM-6 前端轴 G7 指出我原先那条
+    // `/\}\s*,\s*\d+\s*\)/` 是永不命中的装饰残留，已删；职责写在这里，不留假锁。
+    expect(body, '不得把旧的全局预算写回用例体内').not.toMatch(/(?<!\d)10000(?!\d)/);
+  });
+
+  it('预算必须挂在 CI 实测长尾上：≥ maxObservedMs × safetyMultiplier，且样本量与出处都有下界', () => {
+    const p = cliE2eBudget.GUI_CLI_E2E_BUDGET_PROVENANCE;
+    expect(p.samples, '样本量下界 4：只量一次就当分布，与拿注释当依据是同一个错').toBeGreaterThanOrEqual(4);
+    expect(p.maxObservedMs, '实测长尾必须是正数；0 会让"预算 ≥ 0×4"恒真').toBeGreaterThan(0);
+    expect(p.safetyMultiplier, '安全系数低于 2 就等于把预算贴在观测值上').toBeGreaterThanOrEqual(2);
+    // 两档系数的大小关系不许倒置：台账（单样本）松、分布（窗口 max）紧，反过来会让台账先于脚本失效，
+    // 于是"贴脸"在本地响、真正要防的分布长尾却没人看（QM-6 前端轴 G5）。
+    expect(cliE2eBudget.LEDGER_HEADROOM_FACTOR)
+      .toBeLessThanOrEqual(p.safetyMultiplier);
+    expect(cliE2eBudget.GUI_CLI_E2E_CASE_TIMEOUT_MS)
+      .toBeGreaterThanOrEqual(p.maxObservedMs * p.safetyMultiplier);
+    expect(p.collectedAt).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(p.source).toContain('scripts/case-timeout-audit.js');
+    expect(p.source).toContain('rc=3');
+    // 复测入口必须真的在仓库里：provenance 指向一个不存在的脚本，等于把"可复测"写成装饰
+    expect(fs.existsSync(path.join(PROJECT_ROOT, 'scripts', 'case-timeout-audit.js'))).toBe(true);
+  });
+
+  // 必须排在上面那条用例**之后**（vitest 按声明顺序跑）：台账靠那次真跑填充。
+  // 顺序被改动时这条会因"台账为空"直接红，不会静默通过。
+  it('台账必须有本次真跑的样本，且观测值不得贴脸逼近预算（贴脸＝要重测量并抬预算，不是放宽断言）', () => {
+    const samples = cliE2eBudget.guiCliE2eElapsedSamples();
+    expect(samples.length, '台账为空 ⇒ 用例里的耗时记录没被执行，这条锁是装饰').toBeGreaterThanOrEqual(1);
+    const max = Math.max(...samples);
+    const p = cliE2eBudget.GUI_CLI_E2E_BUDGET_PROVENANCE;
+    process.stdout.write('[gui-cli-e2e-budget] elapsed=' + samples.join(',') + 'ms'
+      + ' budget=' + cliE2eBudget.GUI_CLI_E2E_CASE_TIMEOUT_MS + 'ms'
+      + ' ledgerFactor=' + cliE2eBudget.LEDGER_HEADROOM_FACTOR
+      + ' distributionFactor=' + p.safetyMultiplier
+      + ' headroom=' + (cliE2eBudget.GUI_CLI_E2E_CASE_TIMEOUT_MS / max).toFixed(2) + 'x\n');
+    // 两档系数各自乘在各自的量上（QM-6 前端轴 G5 的处置；统一成一把尺子被本机负载实测否证，见模块注释）：
+    // 这里乘的是**本次单样本**，出处锁/复测脚本乘的是**一个窗口的分布 max**。
+    // 实现仍共用同一个纯函数 `headroomSufficient`——共用的是**不等式**，不是那个系数。
+    expect(cliE2eBudget.headroomSufficient(max, cliE2eBudget.GUI_CLI_E2E_CASE_TIMEOUT_MS,
+      cliE2eBudget.LEDGER_HEADROOM_FACTOR),
+      '单样本 × 台账系数吃掉预算 ⇒ 先重测分布再抬预算，不得放宽断言').toBe(true);
+    // 判据本身的正负控（没有这几行，上面那句只是在陈述"今天本机够快"）
+    expect(cliE2eBudget.headroomSufficient(15000, 60000, 4)).toBe(true);
+    expect(cliE2eBudget.headroomSufficient(15001, 60000, 4)).toBe(false);
+    expect(cliE2eBudget.headroomSufficient(30000, 60000, 2)).toBe(true);
+    expect(cliE2eBudget.headroomSufficient(30000, 60000, 3)).toBe(false);
+    expect(cliE2eBudget.headroomSufficient(NaN, 60000, 4)).toBe(false);
+    expect(cliE2eBudget.headroomSufficient(0, 60000, 4)).toBe(false);
+  });
+
+  it('耗时探针必须认得 CI 现场那两种形态，且不得误认同文件别的用例 / 未剥 ANSI 的原始行', () => {
+    const head = 'tests/gui-ci-exit-contract.test.js > ' + cliE2eBudget.GUI_CLI_E2E_SUITE_NAME + ' > ';
+    const name = cliE2eBudget.GUI_CLI_E2E_TEST_NAME;
+    // 两行都取 2026-10-17 从 CI 作业日志里实际抓到的形态（✓=跑成、×=被框架切断）
+    expect(cliE2eBudget.parseGuiCliE2eDuration('2026-10-17T08:13:07.6685257Z ✓ ' + head + name + ' 1657ms')).toBe(1657);
+    expect(cliE2eBudget.parseGuiCliE2eDuration('2026-10-17T08:41:39.0638977Z × ' + head + name + ' 11097ms')).toBe(11097);
+    // 负例四条：别的用例 / 没有 ms 后缀 / 非字符串 / 原始未剥 ANSI 行
+    expect(cliE2eBudget.parseGuiCliE2eDuration('✓ ' + head + '另一个用例 12ms')).toBeNull();
+    expect(cliE2eBudget.parseGuiCliE2eDuration('✓ ' + head + name)).toBeNull();
+    expect(cliE2eBudget.parseGuiCliE2eDuration(null)).toBeNull();
+    const ansi = '✓ \x1b[90mtests/gui-ci-exit-contract\x1b[22m.test.js > '
+      + cliE2eBudget.GUI_CLI_E2E_SUITE_NAME + ' > ' + name + ' 1657ms';
+    // 当场实测的口径，别写成"带 ANSI 的行一律不命中"：ANSI 落在**段与段之间**不影响子串匹配，
+    // 落在被匹配的串**内部**（CI 现场就是这样，见 \x1b[90m…\x1b[2m 把文件名拦腰截断）才会让探针 0 命中。
+    expect(cliE2eBudget.parseGuiCliE2eDuration(ansi),
+      '文件名被 ANSI 截断 ⇒ 子串探针失明，复测入口会报"没长尾"，那正是探针瞎了而不是没问题')
+      .toBeNull();
+
+    const audit = require(path.join(PROJECT_ROOT, 'scripts', 'case-timeout-audit.js'));
+    expect(cliE2eBudget.parseGuiCliE2eDuration(audit.stripAnsi(ansi))).toBe(1657);
+    // 另外两种真实存在的 CSI 形态也必须被剥掉（QM-6 后端轴 #12：清了行序列与私有序列的终止符
+    // 不是同一个字母族，漏剥就会让文件名中间残留不可见字符，而"0 命中"读起来像"没有长尾"）
+    expect(audit.stripAnsi('✓ tests/gui-ci-exit-contract\x1b[K.test.js > '
+      + cliE2eBudget.GUI_CLI_E2E_SUITE_NAME + ' > ' + name + ' 1657ms'))
+      .toBe('✓ tests/gui-ci-exit-contract.test.js > ' + cliE2eBudget.GUI_CLI_E2E_SUITE_NAME + ' > ' + name + ' 1657ms');
+    expect(audit.stripAnsi('\x1b[?25l✓ ' + head + name + ' 1657ms')).toContain(head + name + ' 1657ms');
+
+    // 名字**超集**与行尾还有尾巴，两种都必须判"不是这条用例"（QM-6 后端轴 #8：
+    // 子串匹配会把未来那条 `…（复跑）` 的耗时并进同一份分布，读数更充实却不再测它声称的东西）
+    expect(cliE2eBudget.parseGuiCliE2eDuration('✓ ' + head + name + '（复跑） 9999ms')).toBeNull();
+    expect(cliE2eBudget.parseGuiCliE2eDuration('✓ ' + head + name + ' 1657ms 后面还有字')).toBeNull();
+
+    // 字段集与 source **文案**都必须逐字一致（QM-6 前端轴 F5：只比 key 不比值，
+    // 脚本自带一份 source 也不会红，那就是"第二份真相"的漏口）
+    const made = audit.buildProvenance({ values: [1000, 2000], runCount: 2, jobs: 2 }, 4, cliE2eBudget, '2026-10-17');
+    expect(Object.keys(made).sort()).toEqual(Object.keys(cliE2eBudget.GUI_CLI_E2E_BUDGET_PROVENANCE).sort());
+    expect(made.source).toBe(cliE2eBudget.GUI_CLI_E2E_BUDGET_PROVENANCE.source);
+    expect(made.maxObservedMs).toBe(2000);
+    expect(made.collectedAt).toBe('2026-10-17');
+    // 出处文案里的 `--runs=N` 必须就是脚本的默认档，否则"照文案重跑"拿到的是另一个窗口（前端轴 F4）
+    expect(cliE2eBudget.GUI_CLI_E2E_BUDGET_PROVENANCE.source)
+      .toContain('--runs=' + audit.DEFAULT_RUNS);
+    // 脚本不得自带第二份耗时正则：漂移的两份必然给不同数
+    expect(audit.harvest('\x1b[90m' + ansi, cliE2eBudget)).toEqual([1657]);
+    expect(fs.readFileSync(path.join(PROJECT_ROOT, 'scripts', 'case-timeout-audit.js'), 'utf8'))
+      .not.toMatch(/\(\\d\+\)ms/);
+
+    // 参数面（QM-6 前端轴 F2，实测过的假绿：`--max-observed=abc` 会让 NaN 参与比较、
+    // 判据恒假 ⇒ 打印 OK 并 rc=0；`--runs=abc` 会让候选恒空 ⇒ 误报"探针瞎了"）
+    expect(() => audit.parseArgs(['--max-observed=abc'])).toThrow(/BAD_FLAG_VALUE/);
+    expect(() => audit.parseArgs(['--runs=0'])).toThrow(/BAD_FLAG_VALUE/);
+    expect(() => audit.parseArgs(['--whatever=1'])).toThrow(/UNKNOWN_FLAG/);
+    expect(audit.parseArgs(['--runs', '5', '--json'])).toEqual(audit.parseArgs(['--runs=5', '--json']));
+    expect(audit.parseArgs([]).runs).toBe(audit.DEFAULT_RUNS);
+    // 出处漂移判据（QM-6 后端轴 #4）：四个方向各自可分辨，且"实测更低"不许当成收紧理由
+    expect(audit.judgeDrift(12744, 13000)).toBe('STALE');
+    expect(audit.judgeDrift(12744, 12744)).toBe('OK');
+    expect(audit.judgeDrift(12744, 900)).toBe('OK_BELOW_RECORD');
+    expect(audit.judgeDrift(12744, NaN)).toBe('UNREADABLE');
+    // rc=5 那一档必须**可达**（前端轴 F1）：路径可注入，否则"读不到出处"这条分支在测试里摸不到，
+    // 而摸不到的分支就是装饰性门禁的第五种落点。
+    expect(() => audit.loadBudget(path.join(PROJECT_ROOT, 'no-such-budget-module.js')))
+      .toThrow(/BUDGET_UNREADABLE/);
+    expect(() => audit.loadBudget()).not.toThrow();
+
+    // 参数面的另外三档（QM-6 前端轴 G2 / G8）：0 值、缺值、手工档配 --json，都必须抛，
+    // 且各归各的消息——`--max-observed=0` 过得了旧校验会让 `budget < 0×4` 恒假、
+    // 打印 `OK（headroom=Infinity×）` 并 rc=0；`--runs`（缺值）曾被报成 UNKNOWN_FLAG。
+    expect(() => audit.parseArgs(['--max-observed=0'])).toThrow(/BAD_FLAG_VALUE/);
+    expect(() => audit.parseArgs(['--runs'])).toThrow(/MISSING_FLAG_VALUE/);
+    expect(() => audit.parseArgs(['--max-observed=5000', '--json'])).toThrow(/BAD_COMBINATION/);
+    // 覆盖度判据（QM-6 前端轴 G3）：不足窗口就不得出可粘贴 provenance，与零样本同档出声。
+    expect(audit.coverageSufficient(8, 8)).toBe(true);
+    expect(audit.coverageSufficient(8, 5)).toBe(false);
+    expect(audit.coverageSufficient(8, NaN)).toBe(false);
+
+    // 归属边界的"宽"必须本身可测（QM-6 前端轴 G1 的第二层）：四种合规写法都要能认出边界，
+    // 而"后面没有用例了"必须返回 -1（返回 -1 由声明锁判红，不是判过）。
+    const forms = [
+      "\n  it('A', () => {});",
+      '\n  it("B", () => {});',
+      "\n  it.each([1])('C', () => {});",
+      "\n  it.skipIf(true)('D', () => {});",
+      '\n  it("E", () => {}); ',
+    ];
+    forms.forEach((src, i) => {
+      // 匹配从那个换行符本身起算（`\n` 是 match 的第 0 个字符），所以边界下标就是 0
+      expect(cliE2eBudget.findNextCaseIndex(src, 0), '第 ' + (i + 1) + ' 种写法认不出 ⇒ 锚点会静默放宽')
+        .toBe(0);
+    });
+    expect(cliE2eBudget.findNextCaseIndex('\n  describe("x", () => {});', 0)).toBe(-1);
+    expect(cliE2eBudget.findNextCaseIndex('', 0)).toBe(-1);
+
+    // 套件名必须承重（QM-6 前端轴 R2-6）：探针按「文件 + 用例名」匹配，套件名原先只是个被拼进
+    // 样本行的常量——它漂移时拼出来的行照样能被解析，等于不承重。这里反过来要求**真实源文件里
+    // 的 describe 字面串必须等于该常量**，于是改名要么两处一起改、要么这条红。
+    const rawSelf = fs.readFileSync(__filename, 'utf8');
+    expect(rawSelf, '套件名常量与真实 describe 字面串脱钩 ⇒ 拼样本行的常量不承重')
+      .toContain("describe('" + cliE2eBudget.GUI_CLI_E2E_SUITE_NAME + "'");
+
+    // 剥注释这条本身也要有正负控（后端轴 #1）：块注释里的病灶引用必须被剥，
+    // 而 URL 里的 `//` 不许被误剥（误剥会把真违规洗白）。
+    expect(cliE2eBudget.stripComments('a /* 旧预算 10000ms 的说明 */ b')).not.toContain('10000');
+    expect(cliE2eBudget.stripComments('a // 旧预算 10000ms 的说明\nb')).not.toContain('10000');
+    expect(cliE2eBudget.stripComments('const u = "http://example.com"; // t 10000')).toContain('http://example.com');
   });
 
   // 实测反转了"依赖失败 ⇒ 检查不到来"的直觉：QG Changes 红过的 4 个历史 run 里，下游作业的
