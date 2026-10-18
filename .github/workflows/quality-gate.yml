@@ -1326,10 +1326,15 @@ jobs:
     if: needs.changes.outputs.docs-only != 'true'
     # 40 → 60（2026-10-18）：40 这一档实测撞死过两趟 main push（run 39037127191 = PR #3836 的收口证据、
     # run 39084091986），后果不是"跑挂"而是 main 侧证据永久丢失；同一窗口里成功样本的尾部是 39.4/39.5/39.7，
-    # 也就是**贴着天花板过线**。数值与依据不写在注释里当散文——
-    # 由 scripts/lib/coverage-budget-provenance.js 单点持有，scripts/check-coverage-budget.js 每次 PR 对账
+    # 也就是**贴着天花板过线**。
+    # 60 → 65（2026-10-19 复测）：60 这一档**没有**被杀过（cancelled 最大 38.9），但真实耗时涨了 ——
+    # 干净窗口（120 趟，在飞 9 趟按「不是漏样」排除）里 success 53 条、尾部 40.6/40.7/40.8/41/41.3/**43.3**，
+    # ceil(43.3 × 1.5) = 65 > 60 ⇒ 60 当时已低于本仓自己那条 ×1.5 规则。窗口同时从 60 扩到 120，
+    # 因为 60 趟窗口里 success 只剩 16 条（< MIN_SAMPLES 20，"样本不够下结论"而不是"预算够用"）。
+    # 数值与依据不写在注释里当散文——由 scripts/lib/coverage-budget-provenance.js 单点持有，
+    # scripts/check-coverage-budget.js 每次 PR 对账
     # （timeout ≥ ceil(floor × SAFETY_MULTIPLIER)、样本量下界、采集日过期、provenance 与本行同源、贴脸警报）。
-    timeout-minutes: 60
+    timeout-minutes: 65
     steps:
       - uses: actions/checkout@v4
         with:
