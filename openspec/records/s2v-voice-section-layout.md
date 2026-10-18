@@ -17,7 +17,7 @@ date: 2026-10-18
 | 评审发现的缺陷（CRITICAL，已修） | ✅ 已修 + 已锁 | **现象**：用户诉求「三区视觉分开」落空，变成卡片套卡片；克隆区实测宽 920 而非 982（差的正是父级 padding —— 这个宽度差在早先探针里出现过，当时误判成「内容宽度差异」没追，事后看正是嵌套指纹）。**修法**：关闭 `.s2v-field-grid` 后补一个 `</div>` 关闭 `voiceBgm`，删掉末尾多余 `</div>`（净 0 行），并把 L453/L454 缩进由 14 空格纠正为 16 空格（缩进误导正是排查成本高的原因）。**为什么既有测试没拦住**：`findAll('.s2v-subgroup')` 深度优先，嵌套时 document order 与兄弟形态完全相同 ⇒ 顺序断言全绿；归属断言查的是「克隆区里没有 BGM 控件」，嵌套时 BGM 内容在父级也不触发。**补锁**：见 M2。**浏览器复核**：三个子分区父节点全为 `s2v-section-voice`、`nestedIn` 全 null、宽度集合 `[982]`（修复前含 920） |
 | 防止再次发生（QM-5 ⑤） | ✅ | ①机械锁：7 例面板结构断言锁死子分区顺序/testid/归属，其中「克隆分区内不得出现 `s2v-bgm-volume`」直接对应用户报告的原始症状；跨文件影响（全页面 `findAll('.s2v-subgroup-title')` 会算进声音区三个子分区）以既有 `CreateView.test.js` 用例范围收紧承接。②learnings 置顶四条：`span N` 不是满宽 / 扁平栅格无语义 / 恢复默认态必须显式 / 像素基线对折叠内容失明。③EverOS 独立知识条目。④PRD §13 写成实现合同（DOM 结构/视觉分隔/默认收缩/数据校验/测试合同/验收 8 条）|
 | 行尾与 diff 对账 | ✅ | 提交后以 `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径逐值相等复核；`S2vConfigPanels.vue` / `create-view.css` / `video-creation-forms.css` / `CreateView.vue` / `CreateView.test.js` / locale 均未出现全文件重写形态（CRLF 保留） |
-| 行数门禁（本轮两次真红，均已修） | ✅ | ①`create-view.css` 在 origin/main 上 494 行，加 14 行样式 → `check-max-lines` 报 `NEW_OVER_LIMIT: 506 行 >= 500`。正解**不是抬基线**，而是把样式落到 `video-creation-forms.css`（该文件头注释声明的存在理由即「不把 create-view.css 推过 500 行预算线」），`create-view.css` 只留原两行 + 指路注释（净增 0 行样式）。②`CreateView.test.js` 在 origin/main 上已超挂账登记值 **199 行**（容差 200），本次新增 2 行断言刚好推到 201。按「存量膨胀应拆分，不应改基线」，正解是**减行数**：214 处逐处复制的 `mount(CreateView, {global:{...}})` 样板收敛为顶层 helper，净减约 290 行。终态 `check-max-lines` rc=0（`filesOver500` 96→95）、`check-debt-budget` rc=0 |
+| 行数门禁（三轮真红，均已修；**第三轮推翻了第二轮的修法**） | ✅ | ①`create-view.css` 在 origin/main 上 494 行，加 14 行样式 → `check-max-lines` 报 `NEW_OVER_LIMIT: 506 行 >= 500`。正解**不是抬基线**，而是把样式落到 `video-creation-forms.css`（该文件头注释声明的存在理由即「不把 create-view.css 推过 500 行预算线」），`create-view.css` 只留原两行 + 指路注释（净增 0 行样式）。②`CreateView.test.js` 当时主干已超挂账登记值 **199 行**（容差 200），+2 行断言推到 201 ⇒ 收敛 214 处逐处复制的 `mount(CreateView, {global:{...}})` 样板为顶层 helper。③**rebase 到最新 main 后 ② 被推翻**：main 的 `162a8619d` 已重构同一文件（269/388 行，净 −119），它降到 6963 行（膨胀 79），我的最小改动 +2 就合法 ⇒ **整体放弃样板收敛**，`CreateView.test.js` 取 main 版 + 只补 1 处断言范围收紧（终态 6965 行 / 膨胀 81）。这一轮还暴露出一条：**为过门禁而做的非必要重构会变成后续 rebase 的冲突源**——5 个重叠文件里 2 个正来自该重构。终态 `check-max-lines` rc=0、`check-debt-budget` rc=0 |
 | 接线棘轮 | ✅ | 未新增独立测试文件，全部改动落在既有已接线测试文件（`S2vConfigPanels.test.js`、`CreateView.test.js`）；`check-unwired-tests` 域内无新增未接线测试 |
 | QM-1 打包 | N/A（零 electron/**、零 packages/rpa-engine/**） | 本次改动全部在 `apps/desktop/src/**`（渲染层模板 + CSS + locale + 测试），不触碰主进程与 rpa-engine ⇒ 按 AGENTS.md QM-1 触发条件不适用。仍实跑 `build:vue` rc=0 证明模板可编译 |
 | QM-4 视觉 | ✅ 20/20 + 两轮探针 | 像素门禁浅色 20/20 全通过（含 `create-story2video-detail`，**未更新任何基线文件**——默认收缩态下声音区不渲染，基线逐字节不变）。展开态用一次性 Playwright + e2e fixture 探针取证：三个子分区满宽 982/982/920px、卡片底 `rgb(255,255,255)`、1px solid 边框、12px 圆角、`padding:12px 14px 14px`、`voiceOverflow=false`；**CSS 迁到 forms 文件后复核过第二轮**，读数一致。探针走 `safe-delete.js` 删除。**残留**：展开态无像素回归覆盖（已登记 PRD §9.3）|
@@ -40,12 +40,18 @@ date: 2026-10-18
 
 ### 本轮真实返工（留证，不掩饰）
 
-**返工 A —— 批量替换的 helper 定义在错误作用域（254 例 ReferenceError）**
+**返工 A —— 批量替换的 helper 定义在错误作用域（254 例 ReferenceError）｜该收敛最终已整体放弃**
 214 处 mount 样板收敛后，helper 一度定义在 `describe("CreateView", ...)` **内部**，而该文件有 20+ 个
 describe 块共用。单跑 `-t "renders page header"` 通过（那个用例恰好在同一 describe 内），
 全文件跑则 **254 例报 `mountCreateView is not defined`**。修法：helper 提升到模块顶层，307/307 复绿。
 教训：批量文本替换后，验证必须在「定义的作用域」之外做——单跑一个用例证明不了其他 describe
 能不能看到这个符号。
+
+**后续（rebase 到最新 main 后）**：main 的 `162a8619d` 已重构同一测试文件（净 −119 行，降到 6963），
+文件膨胀从 199 降到 79 ⇒ **那 214 处样板收敛不再必要，已整体放弃**（`CreateView.test.js` 取 main 版
++ 只补 1 处断言范围收紧，终态 6965 / 膨胀 81）。保留这段记录是因为两条教训仍成立，
+而且它自己又添了第三条：**为过门禁而做的非必要重构，会在下一次 rebase 变成冲突源**
+——本轮 5 个重叠文件里 2 个正来自该重构。
 
 **返工 B —— DOM 层级错位：克隆子分区被嵌进背景音乐子分区（CRITICAL，评审抓出）**
 

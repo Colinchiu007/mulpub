@@ -3688,7 +3688,9 @@ describe("CreateView - UI interactions", () => {
     w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
     w.vm.s2vOpenSections.advanced = true;
     await nextTick();
-    const titles = w.findAll(".s2v-subgroup-title").map(t => t.text());
+    // 子分区标题只在本分组内断言（2026-10-18 s2v-voice-section-layout：声音区也引入了
+    // 三个子分区，全页面 findAll 会把它们一起算进来）。
+    const titles = w.get('[data-testid="s2v-section-advanced"]').findAll(".s2v-subgroup-title").map(t => t.text());
     expect(titles).toEqual(["分句与时长", "模板与输出"]);
     expect(w.text()).toContain("分句语言");
     expect(w.text()).toContain("比例与分辨率");

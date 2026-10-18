@@ -283,7 +283,7 @@ voiceOverflow = false
 | `apps/desktop/src/styles/create-view.css` | 仅保留原两行 `.s2v-subgroup` 规则 + 一条指向 forms 文件的注释（净增 0 行样式） |
 | `apps/desktop/src/locales/create/zh.js` / `en.js` | 各 +3 键 |
 | `apps/desktop/src/views/video-creation/S2vConfigPanels.test.js` | +7 例 + 1 处桩 |
-| `apps/desktop/src/views/CreateView.test.js` | 1 处断言范围收紧 + 214 处 mount 样板收敛为顶层 helper（净减 ~290 行） |
+| `apps/desktop/src/views/CreateView.test.js` | 1 处断言范围收紧（终态 6965 行 / 相对挂账膨胀 81，在容差 200 内） |
 | `01-docs/PRD-S2V-PIPELINE-PAGE-UX.md` | 新增 §13 |
 | `CHANGELOG.md` | 前置条目 |
 
@@ -300,21 +300,32 @@ voiceOverflow = false
 `video-creation-forms.css` 的文件头注释已声明它的存在理由正是「不把 create-view.css 推过
 500 行预算线」，因此新样式落到那里，并在 `create-view.css` 留一条指路注释。
 
-**这道门禁也顺带解决了测试文件的问题**：`CreateView.test.js` 在 origin/main 上已超其挂账
-登记值 199 行（容差 200），本次新增 2 行断言刚好把它推到 201。按仓内规矩「存量膨胀应拆分，
-不应改基线」，正解是**减少行数**而不是抬登记值——文件里有 214 处逐处复制的
-`mount(CreateView, { global: {...} })` 样板，收敛成一个顶层 helper 后净减约 290 行，
-既化解了本次超限，也把存量欠账还成了负数。
+**这道门禁也牵出了测试文件的问题，但结论在 rebase 后反转了两次**：
+
+- 首次：`CreateView.test.js` 当时在 origin/main 上已超挂账登记值 199 行（容差 200），本次 +2 行断言
+  刚好推到 201 ⇒ 按仓内规矩「存量膨胀应拆分，不应改基线」，正解是**减少行数**，于是把 214 处
+  逐处复制的 `mount(CreateView, { global: {...} })` 样板收敛成顶层 helper（净减约 290 行）。
+- **rebase 到最新 main 后该修法被推翻**：main 的 `162a8619d` 已重构同一测试文件（269/388 行，
+  净 −119），文件降到 **6963** 行（膨胀 79）——我的最小改动 +2 就合法，**那 214 处样板收敛
+  因此不再必要，已整体放弃**。终态：`CreateView.test.js` 取 main 版 + 只补 1 处断言范围收紧
+  = **6965 行 / 膨胀 81**（容差 200 内）。
+- **这条反转本身是本 PR 最重要的一条过程教训**：为过门禁而做的**非必要重构**，会在下一次
+  rebase 变成冲突源——本轮 5 个重叠文件里 2 个（`CreateView.vue` / `CreateView.test.js`）
+  正来自那次重构。判据：动手做结构性重构前，先 `git fetch` 看主干是否已在同一文件上动过；
+  能靠「主干已缩小」解决的，不要自己造重构。
 
 ### 9.5 本轮两次真实返工（留证，不掩饰）
 
-#### 返工 A：批量替换的 helper 定义在错误作用域（254 例 ReferenceError）
+#### 返工 A：批量替换的 helper 定义在错误作用域（254 例 ReferenceError）｜该收敛最终已放弃
 
 第一轮把 `mountCreateView` 定义在 `describe("CreateView", ...)` **内部**，而该文件有 20+ 个
 describe 块共用。单跑 `-t "renders page header"` 是通过的（那个用例正好在同一个 describe 内），
 全文件跑则 254 例报 `mountCreateView is not defined`。
 **教训：批量文本替换后，验证必须在「定义的作用域」之外做**——单跑一个用例证明不了
 其他 describe 块能不能看到这个符号。修法：helper 提升到模块顶层。
+
+**后续**：rebase 后该收敛已整体放弃（见 §9.4），两条教训仍成立，
+并新增第三条：非必要重构会成为后续 rebase 的冲突源。
 
 #### 返工 B：DOM 层级错位——克隆子分区被嵌进背景音乐子分区（CRITICAL）
 
