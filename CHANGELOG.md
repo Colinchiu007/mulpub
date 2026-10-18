@@ -23,6 +23,16 @@
 - `check-unwired-tests.js` 的 `NESTED_WORKFLOW_NOT_EXECUTED` 判定域是**磁盘**而非 `git ls-files`，
   于是本机垃圾会把公共仓 required 门禁判红一次（与 #3876 同族的磁盘域/检出域分叉），另立任务；
 - 同类面已清点到 `*.sh` 全集（按 `$(mktemp -d)` 扫仅命中本文件），但 vitest/pytest/ps1 的夹具落仓库内风险仍无统一判据。
+# [未发布] feat(shell): 主窗口新增全局「左侧菜单收起/展开」按钮并同步内嵌视图全宽重排（sidebar-collapse-toggle）
+
+- **功能**：顶部标签栏 `TabBar` 最左侧新增常驻按钮（内联 SVG 双 chevron 组成「<>」、`currentColor`、16px），点击在「展开 / 收起」间切换；按钮位于既有 36px 标签栏内、不新增行高，在可横向滚动的 `.tab-bar-tabs` 之前（不随标签滚动）。原生 `<button type="button">` + `aria-pressed`（true=已收起）+ 随状态变化的 `aria-label`/`title`；文案 zh/en 成对进 `apps/desktop/src/locales/tab-bar/{zh,en}.js`（「收起左侧菜单」/“Collapse sidebar”、“展开左侧菜单”/“Expand sidebar”），`.vue` 不硬编码中文。
+- **持久化与恢复**：状态存 `localStorage['mulpub.ui.sidebarCollapsed']`（`'1'` 收起，其他/缺失展开）；读写 try/catch，隐私模式/localStorage 抛异常一律退化为展开、不阻塞渲染，非法值按展开。启动时若持久化为收起，工作台壳层挂载后主动上报主进程，保证之后新建的浏览器/账号/登录视图按全宽定位。
+- **跨进程同步**：preload `pageManager.setSidebarCollapsed(boolean)` → IPC `page-manager:set-sidebar-collapsed` → `WebviewManager._sidebarCollapsed`，同步 `AuthViewManager` / `QRCodeLogin`；`computeEmbeddedViewBounds` 新增第 4 参 `sidebarCollapsed`，严格为 `true` 时内嵌 `WebContentsView` 取 `x=0`、`width=客户区全宽`，为 `false` 或省略时行为逐字节不变。既有 `setSidebarWidth` 的 `width<=0` 拒绝守卫（`MIN_SIDEBAR_WIDTH=1`）原样保留——收起用独立布尔标志表达，不得用 width=0 模拟。
+- **契约与 a11y**：`TabBar(36px) + NavBar(40px) = TOP 76px` 契约不变；`role="tablist"` 从 `TabBar` 根节点移到 `.tab-bar-tabs`（根节点含「+」与折叠按钮等非 tab 元素，原写法 ARIA 不合规），折叠按钮不进入 tablist；图标 SVG `aria-hidden`，Enter/Space 可用，焦点环沿用设计 token。
+- **视觉基线影响（不声称视觉中性）**：按钮是全局可见 UI，`apps/desktop/tests/visual-testing/base-screenshots/` 中**含 TabBar 的基线**都会变化（最终变化清单以 CI `Gate 7b` 点名为准）；基线由 CI 同源渲染重建并逐张审核，禁止在本机用 `--update-baseline` 掩盖。
+- **非目标**：不做动画过渡（避免与原生 WebContentsView 边界不同步）、不做拖拽调宽、不做窄屏 68px 图标栏的第二种折叠形态、不做快捷键、不改 OAuth 内嵌视图（`oauth-manager.js:86` 既有实现不跟随侧栏宽度，登记为已知限制）。
+- **文档**：专项 PRD `01-docs/PRD-SIDEBAR-COLLAPSE-TOGGLE-2026-10-18.md`、OpenSpec change `openspec/changes/sidebar-collapse-toggle/`、执行记录 `openspec/records/sidebar-collapse-toggle.md`，并同步 `01-docs/PRD.md` F8、`01-docs/DESIGN.md`「全局壳层」、`01-docs/i18n-glossary.md` 术语与 `01-docs/learnings.md` 沉淀。
+
 # [未发布] fix(collect): 百家号采集不再把「百度安全验证」页当正文，采集页改写改走桌面模型设置（fix-collect-antibot-rewrite）
 
 ## 问题

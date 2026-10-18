@@ -1,0 +1,29 @@
+{
+  "sha": "606da82610bb52e46d77ff3e6eb955c03a48c28f",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 0 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 3,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "| QM-1 打包 / QM-4 视觉 | QM-1 ✅；QM-4 ✅（CI 同源重建 + 逐像素复核） | QM-1：`pnpm exec electron-builder --win --x64 --publish never` exit 0；产物 `app.asar` 150026 KB / `Multi-Publish.Setup.0.2.0.exe` 生成。启动三层判据：`spawnSync` 8s 窗口 `ETIMEDOUT`（存活、未提前退出），stderr 空（0 字节）；子进程 env 已剔除 `ELECTRON_RUN_AS_NODE`（父环境确实带着该变量，已出声告警，未静默剔除）。产物核验 17 项全 PASS：asar 含 view-bounds/layout/ipc-handlers/auth-view-manager/qrcode-login/preload page-manager/preload bundle/renderer bundle，测试文件未入包；产物内 `computeEmbeddedViewBounds` 实算展开 x=200/1224、收起 x=0/1424、width=0 仍回落 200；layout/ipc/preload 源码含新方法与新通道。QM-4：CI round2 `QG Visual` 的 `Gate 7`（6% 阈值）与 `Gate 7c` 暗档对比度均 PASS，`Gate 7b` 按预期红（round1 38/43、round2 36/43，2 张单轮证据），变化像素全部落在顶部壳层（pixelmatch threshold=0.1：487–513 px / 0.023–0.025%）。已从同 run artifact 重建 38 张基线（20 暗 + 18 亮；其中 `home-baseline.png` / `create-story2video-detail.png` 因 round2 未重采，取同 run round1 的 `-current` 渲染），3 张 autonomous-loop 专属基线（settings-general / login-form / analytics-overview）不受影响、保持不变。重建后 `node scripts/check-baseline-freshness.js --renders=<merged CI renders> --partial` 实测：检查 43 / 违规 0 / 40 张逐像素相等 / 3 张已知无渲染；另用 pngjs 逐像素审计确认 33/38 差异完全限于顶部壳层，5 张在阈值 0.1 下不计的亚像素 AA 噪声（≤7,728 px），未发现内容区/侧栏布局变化。PR 内未执行本机 `--update-baseline` |",
+      "| QM-1 打包 / QM-4 视觉 | QM-1 ✅；QM-4 ✅（CI 同源重建 + 逐像素复核） | QM-1：`pnpm exec electron-builder --win --x64 --publish never` exit 0；产物 `app.asar` 150026 KB / `Multi-Publish.Setup.0.2.0.exe` 生成。启动三层判据：`spawnSync` 8s 窗口 `ETIMEDOUT`（存活、未提前退出），stderr 空（0 字节）；子进程 env 已剔除 `ELECTRON_RUN_AS_NODE`（父环境确实带着该变量，已出声告警，未静默剔除）。产物核验 17 项全 PASS：asar 含 view-bounds/layout/ipc-handlers/auth-view-manager/qrcode-login/preload page-manager/preload bundle/renderer bundle，测试文件未入包；产物内 `computeEmbeddedViewBounds` 实算展开 x=200/1224、收起 x=0/1424、width=0 仍回落 200；layout/ipc/preload 源码含新方法与新通道。QM-4：CI round2 `QG Visual` 的 `Gate 7`（6% 阈值）与 `Gate 7c` 暗档对比度均 PASS，`Gate 7b` 按预期红（round1 38/43、round2 36/43，2 张单轮证据），变化像素全部落在顶部壳层（pixelmatch threshold=0.1：487–513 px / 0.023–0.025%）。已从同 run artifact 重建 38 张基线（20 暗 + 18 亮；其中 `home-baseline.png` / `create-story2video-detail.png` 因 round2 未重采，取同 run round1 的 `-current` 渲染），3 张 autonomous-loop 专属基线（settings-general / login-form / analytics-overview）不受影响、保持不变。重建后 `node scripts/check-baseline-freshness.js --renders=<merged CI renders> --partial` 实测：检查 43 / 违规 0 / 40 张逐像素相等 / 3 张已知无渲染；另用 pngjs 逐像素审计确认 33/38 差异完全限于顶部壳层，5 张在阈值 0.1 下不计的亚像素 AA 噪声（≤7,728 px），未发现内容区/侧栏布局变化。**rebase 到含 #3897（故事讲述字数控制）的新 main 后**，round4 `Gate 7`/`7c` 仍 PASS，`Gate 7b` 仅剩 1 张违规 + 1 张单轮证据（`create-story2video-detail` 亮/暗两张：main 已用 #3897 新布局重拍该页基线，本分支保留 main 版本故缺折叠按钮）；已从 round4 artifact 重建这 2 张（暗取 pixel-gate current、亮取同 run round1 current），复核 43 / 0 违规 / 40 张逐像素相等 / 3 张已知无渲染。PR 内未执行本机 `--update-baseline` |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "31b09c71c32b40fb227cf0a549a34fdbe52e120eb107105bacda27e13f634ec3",
+  "decidedAt": "2026-10-18T08:02:36.209Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

@@ -10,4 +10,7 @@ export default {
     closeUnsavedDiscard: 'Close anyway',
     closeUnsavedCancel: 'Cancel',
     closeUnsavedDiscardedWarn: 'Closed without saving',
+    // Global sidebar collapse toggle (label describes the NEXT action, not current state)
+    collapseSidebar: 'Collapse sidebar',
+    expandSidebar: 'Expand sidebar',
   }

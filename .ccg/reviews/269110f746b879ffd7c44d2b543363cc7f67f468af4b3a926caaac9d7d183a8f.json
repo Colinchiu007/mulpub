@@ -1,0 +1,78 @@
+{
+  "sha": "f2b80c3a76d5795d7a435f392b4087d936080936",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 367 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 367,
+    "fileCount": 9,
+    "codeFileCount": 7,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 4,
+    "docSensitiveContentHits": 6,
+    "docSensitiveContentSample": [
+      "| 抖音 | `rpa_vm`（API 先试后回落） | `API publish douyin: 账号信息缺失，请重新授权此账号再试` | `publish timeout` |",
+      "| V3 | 签名材料齐备（抖音） | `hasSecurityMaterials()` 为真 | Step 0 fail-closed：`账号信息缺失，请重新授权` |",
+      "| 抖音缺签名材料 | `账号信息缺失，请重新授权此账号再试`（**保留**：这是用户可执行的唯一动作；需在文档中说明「重新授权会补齐 SDK cookie」） |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "269110f746b879ffd7c44d2b543363cc7f67f468af4b3a926caaac9d7d183a8f",
+  "decidedAt": "2026-10-18T07:50:24.887Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play(agent)",
+    "confidenceWeight": 0.6,
+    "reason": "判据引擎本机无法完成跨家族对抗（claude 后端超时），按引擎第三档出口 self_play 由 agent 逐条对抗裁决；三轮共 18 条：成立并修复 10 条、驳回 7 条、如实记录 1 条取舍",
+    "evidenceInRepo": "openspec/records/video-publish-4.md §八（三轮逐条自扮演裁决表，入库可审计）",
+    "adjudicationSummary": {
+      "round1": {
+        "upheld": [
+          "i1",
+          "i6",
+          "i7"
+        ],
+        "dismissed": [
+          "i2",
+          "i3",
+          "i4",
+          "i5"
+        ],
+        "fixCommit": "4a33393a3"
+      },
+      "round2": {
+        "upheld": [
+          "i1",
+          "i2",
+          "i3"
+        ],
+        "dismissed": [
+          "i4",
+          "i5"
+        ],
+        "fixCommit": "2cd6d37d4"
+      },
+      "round3": {
+        "upheld": [
+          "i1",
+          "i2",
+          "i3",
+          "i6"
+        ],
+        "dismissed": [
+          "i4"
+        ],
+        "acceptedTradeoff": [
+          "i5"
+        ],
+        "fixCommit": "5da77687f"
+      }
+    },
+    "coverage": "本条记录覆盖的 diff 是中间态；其中被裁决成立的问题均已在后续提交修复，最终态与逐条理由见 evidenceInRepo 同一处",
+    "parentSha": "f2b80c3a76d5795d7a435f392b4087d936080936",
+    "at": "2026-10-18T08:14:40.139Z"
+  }
+}

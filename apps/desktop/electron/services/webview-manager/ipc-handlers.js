@@ -249,5 +249,14 @@ module.exports = {
         return { code: 0 }
       } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message } }
     }))
+
+    // 全局折叠按钮（2026-10-18）：收起/展开左侧菜单。与 set-sidebar-width 分开：
+    // 宽度守卫拒绝 0，收起必须 x=0 全宽，二者不能靠同一个数值表达。
+    ipcMain.handle('page-manager:set-sidebar-collapsed', withSenderCheck(function (_, collapsed) {
+      try {
+        self.setSidebarCollapsed(collapsed)
+        return { code: 0, data: { collapsed: self.isSidebarCollapsed() } }
+      } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message } }
+    }))
   }
 }

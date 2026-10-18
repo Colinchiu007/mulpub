@@ -1520,6 +1520,7 @@ Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 A
 | 首次运行引导 | 自动检测 Python 依赖 | ✅ |
 | 数据迁移 | JSONL → SQLite 迁移（migrateFromJsonl，v2.3.43 实现） | ✅ v2.3.43 |
 | 静默登录验证 | 隐藏 BrowserWindow 后台验证 Cookie 有效性（loginSilent） | ✅ |
+| 左侧菜单收起/展开 | 顶部标签栏最左侧新增全局按钮（内联 SVG 双 chevron「<>」、16px、36px 行内）；收起时左侧菜单完全隐藏、主内容与内嵌 WebContentsView 全宽（x=0），展开恢复 200px（窗口 ≤900px 时按既有媒体查询为 68px 图标栏）；状态存 `localStorage['mulpub.ui.sidebarCollapsed']` 并在启动时同步主进程。详见 [PRD-SIDEBAR-COLLAPSE-TOGGLE-2026-10-18.md](./PRD-SIDEBAR-COLLAPSE-TOGGLE-2026-10-18.md) | ✅ 2026-10-18 |
 
 #### F9：平台分类（v1.2.0, v2.3.43 完整实现）
 

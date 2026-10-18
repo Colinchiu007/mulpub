@@ -1,0 +1,82 @@
+import { ref } from 'vue'
+import { invokePageManager } from '@/api/electron-bridge'
+
+/**
+ * 全局左侧菜单「收起 / 展开」状态（模块单例，非 Pinia store）。
+ *
+ * 为什么是模块单例而不是 Pinia：它被壳层（App.vue）与 TabBar 同时消费，
+ * 且不依赖任何业务 store 的生命周期；与 `stores/settings-dialog.js` 同族。
+ *
+ * 三条不变量（PRD-SIDEBAR-COLLAPSE-TOGGLE-2026-10-18 §五）：
+ *  1. **本地持久化**：localStorage key `mulpub.ui.sidebarCollapsed`，`'1'` = 收起，
+ *     其余（缺失 / `'0'` / 非法值）一律按展开处理。读写全部 try/catch：
+ *     Electron 关闭存储 / 隐私模式 / 磁盘配额都可能抛错，持久化失败不得影响本次会话。
+ *  2. **主进程同步**：收起时左侧菜单是 `display:none`，但浏览器/账号/登录标签的
+ *     WebContentsView 是**原生图层**，不跟随 CSS 布局；不同步的话它们仍从 x=200
+ *     开始，左侧会留出 200px 死区。因此每次状态变化都上报一次
+ *     `pageManager.setSidebarCollapsed(boolean)`。
+ *  3. **失败静默降级**：非 Electron（浏览器打开 Vite）、老版本 preload（方法不存在）、
+ *     未登录时 IPC 权限拒绝 —— 一律只影响主进程同步，按钮仍能切换界面本身。
+ */
+
+/** localStorage key：跨重启记住用户的折叠偏好。 */
+export const SIDEBAR_COLLAPSED_STORAGE_KEY = 'mulpub.ui.sidebarCollapsed'
+
+function readStoredCollapsed () {
+  try {
+    return globalThis.localStorage?.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === '1'
+  } catch {
+    // 存储不可用：按默认展开处理，不阻塞首屏
+    return false
+  }
+}
+
+/** 当前是否已收起左侧菜单（唯一真源；消费方只读，写入走 set/toggle）。 */
+export const sidebarCollapsed = ref(readStoredCollapsed())
+
+function persistCollapsed (collapsed) {
+  try {
+    globalThis.localStorage?.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, collapsed ? '1' : '0')
+  } catch {
+    // 持久化失败只影响下次启动的默认值，不影响本次切换
+  }
+}
+
+function reportCollapsed (collapsed) {
+  try {
+    const pending = invokePageManager('setSidebarCollapsed', collapsed)
+    // preload 可能返回 rejected promise（未登录 / 权限不足 / 老版本主进程未注册 handler）；
+    // 主动挂 catch，避免 unhandled rejection 污染控制台。
+    if (pending && typeof pending.catch === 'function') pending.catch(() => {})
+  } catch {
+    // 非 Electron 环境或 preload 同步抛错：静默降级
+  }
+}
+
+/**
+ * 设置折叠状态。
+ * @param {boolean} collapsed true = 收起，false = 展开。非布尔值一律忽略
+ *   （IPC 合同只接受 boolean，避免 `'1'` / `1` 这类松散值把主进程参数契约带偏）。
+ */
+export function setSidebarCollapsed (collapsed) {
+  if (typeof collapsed !== 'boolean') return
+  if (sidebarCollapsed.value === collapsed) return
+  sidebarCollapsed.value = collapsed
+  persistCollapsed(collapsed)
+  reportCollapsed(collapsed)
+}
+
+/** 在「收起 / 展开」之间切换（全局按钮与后续快捷键的唯一入口）。 */
+export function toggleSidebarCollapse () {
+  setSidebarCollapsed(!sidebarCollapsed.value)
+}
+
+/**
+ * 把**已持久化**的折叠状态上报主进程，但不改变内存状态。
+ *
+ * 启动时序专用：主进程默认 `_sidebarCollapsed=false`；若用户上次退出时是收起态，
+ * App 挂载时必须补这一报，否则之后新建的浏览器/登录标签仍按 x=200 布局。
+ */
+export function reportSidebarCollapsed () {
+  reportCollapsed(sidebarCollapsed.value)
+}

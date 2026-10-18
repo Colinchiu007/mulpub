@@ -527,6 +527,36 @@ describe('AuthViewManager 凭证边界', () => {
     expect(setBounds).toHaveBeenLastCalledWith({ x: 200, y: 76, width: 1224, height: 785 })
   })
 
+  it('侧栏收起时登录视图同步为 x=0 全宽（原生视图不跟 CSS 布局）', () => {
+    const manager = new AuthViewManager()
+    const setBounds = vi.fn()
+    manager.currentView = { setBounds }
+    manager.mainWindow = createMainWindow()
+
+    manager.setSidebarCollapsed(true)
+    expect(manager._sidebarCollapsed).toBe(true)
+    expect(setBounds).toHaveBeenLastCalledWith({ x: 0, y: 76, width: 1424, height: 785 })
+
+    manager.setSidebarCollapsed(false)
+    expect(setBounds).toHaveBeenLastCalledWith({ x: 200, y: 76, width: 1224, height: 785 })
+  })
+
+  it('非布尔 collapsed 入参被忽略，既有定位不变', () => {
+    const manager = new AuthViewManager()
+    const setBounds = vi.fn()
+    manager.currentView = { setBounds }
+    manager.mainWindow = createMainWindow()
+    manager._positionView()
+    const callsBefore = setBounds.mock.calls.length
+
+    manager.setSidebarCollapsed('true')
+    manager.setSidebarCollapsed(1)
+    manager.setSidebarCollapsed(undefined)
+
+    expect(manager._sidebarCollapsed).toBe(false)
+    expect(setBounds.mock.calls.length).toBe(callsBefore)
+  })
+
   it('show()/hide() 切换视图可见性', () => {
     const manager = new AuthViewManager()
     const setVisible = vi.fn()

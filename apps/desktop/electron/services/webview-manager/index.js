@@ -63,6 +63,9 @@ class WebviewManager extends EventEmitter {
 
     // 左侧导航栏当前宽度（由渲染进程通过 IPC 同步，默认 200px）
     this._sidebarWidth = SIDEBAR_WIDTH_DEFAULT
+    // 左侧导航栏是否收起（全局折叠按钮；默认展开）。注意与 _sidebarWidth 分离：
+    // width<=0 是非法上报（守卫回落 200），收起是显式状态（内嵌视图 x=0 全宽）。
+    this._sidebarCollapsed = false
     // 壳态（T0-6b）：'browser'（浏览器壳，默认）| 'workbench'（工作台壳态，内嵌视图互斥隐藏）
     this._shellMode = 'browser'
     // 弹窗互斥（2026-09-23 Bug 修复）：活动浮层 owner 集合。WebContentsView 是原生图层，

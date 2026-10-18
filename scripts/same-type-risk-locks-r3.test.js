@@ -61,7 +61,7 @@ test('R11 出声：模块级 Map 有写无清 ⇒ visible 面出现（不进红�
   const r = scanModuleStateGrowth(src('svc.js', code))
   assert.equal(r.ok, true, 'R11 只出声不拦截')
   assert.equal(r.stats.writeOnly, 1)
-  assert.match(r.visible[0].detail, /只增语义/)
+  assert.match(r.visible[0].detail, /只增/)
 })
 
 test('R11 绿：写清配对完整 ⇒ 不出声', () => {
@@ -73,6 +73,46 @@ test('R11 绿：写清配对完整 ⇒ 不出声', () => {
   const r = scanModuleStateGrowth(src('svc.js', code))
   assert.equal(r.stats.writeOnly, 0)
   assert.equal(r.visible.length, 0)
+})
+
+// ── R11 回归锁（2026-10-18）：声明正上方是注释或空行时，旧实现会把该声明
+//    误判成「缩进声明」而整条跳过（根因：MODULE_SET_RE 以 `(?:^|\n)` 开头，
+//    m.index 指向那个 \n，`slice(0, m.index).split('\n').pop()` 取到的是**上一行**；
+//    上一行掩码后是纯空白 ⇒ `/^\s/` 为真 ⇒ 漏检）。实测伤害：给两条声明各加一段注释后
+//    moduleSets 11→9、writeOnly 2→0，看上去像"豁免生效"，实际是它们从审计面消失了。
+
+test('R11 回归：声明正上方是注释不得让集合从审计面消失', () => {
+  const code = [
+    '// 上面这行注释曾让下面的声明被判成「缩进」而整条漏检',
+    'const cache = new Map()',
+    'function put (k, v) { cache.set(k, v) }',
+  ].join('\n')
+  const r = scanModuleStateGrowth(src('svc.js', code))
+  assert.equal(r.stats.moduleSets, 1, '有注释在上方时模块级集合仍必须计入审计面')
+  assert.equal(r.stats.writeOnly, 1, '有注释在上方时仍必须出声（旧实现这里会静默为 0）')
+})
+
+test('R11 回归：声明正上方是空行不得让集合从审计面消失', () => {
+  const code = [
+    '',
+    '',
+    'const buckets = new Map()',
+    'function bump (k) { buckets.set(k, 1) }',
+  ].join('\n')
+  const r = scanModuleStateGrowth(src('svc.js', code))
+  assert.equal(r.stats.moduleSets, 1, '有空行在上方时模块级集合仍必须计入审计面')
+  assert.equal(r.stats.writeOnly, 1)
+})
+
+test('R11 绿：真正缩进的声明本来就不命中（删守卫后不得回退成误报）', () => {
+  const code = [
+    'function f () {',
+    '  const local = new Map()',
+    '  local.set(1, 2)',
+    '}',
+  ].join('\n')
+  const r = scanModuleStateGrowth(src('svc.js', code))
+  assert.equal(r.stats.moduleSets, 0, '缩进声明不是模块顶层，正则本身就不该命中')
 })
 
 test('R11 绿：函数内局部集合不在审计面（只看模块顶层）', () => {
@@ -162,7 +202,14 @@ test('真实仓：R7 扫描面真实覆盖；R11 审计面 ≥ 侦察实测；R7
     ' ｜ R11 模块级集合=' + r.stats.r11.moduleSets +
     ' 有写无清=' + r.stats.r11.writeOnly)
   assert.ok(r.stats.r7.objectsScanned >= 500, 'R7 对象扫描下界')
-  assert.ok(r.stats.r11.moduleSets >= 10, 'R11 模块级集合下界（侦察实测 4+）')
+  // 下界 10 → 30（2026-10-18，**读数上调而非放宽**）：旧下界 10 建立在一个**漏检**的读数上。
+  // R11 的「是否缩进」守卫用「上一行内容」判断（根因见 lib 里那段注释），会把
+  // 「声明正上方是注释或空行」的模块级集合整条跳过。删掉该守卫后真实读数是
+  // **moduleSets 34 / writeOnly 13**（此前为 11 / 2 —— 其中 11 条长期在审计面之外）。
+  // 所以必须**上调**下界，否则修好的漏检在下次误改时不会被发现。
+  assert.ok(r.stats.r11.moduleSets >= 30, 'R11 模块级集合下界（删漏检守卫后真实读数 34）')
+  assert.ok(r.stats.r11.writeOnly >= 10,
+    'R11 有写无清下界（真实读数 13；掉回 2 说明漏检守卫被加回来了）')
   assert.equal(r.ok, true, '当前仓应全绿：' + JSON.stringify(r.findings))
 })
 
