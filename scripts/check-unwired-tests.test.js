@@ -769,3 +769,42 @@ test('CLI：--root 指向不存在的目录必须 rc=2 并出声，不得静默 
   assert.equal(r.rc, 2, '抛错路径的退出码必须区别于「有违规」的 1，stdout=' + r.out.slice(0, 200))
   assert.match(r.err, /未找到 workflows 目录|无法枚举目录/)
 })
+
+// ---------------------------------------------------------------- 本地归档剪枝（2026-10-18 补）
+// 动因（实测）：`.agent_context/` 是**本地会话隔离归档**（worktree 快照 + 一次性探针脚本），
+// 从未被 git 跟踪（`git ls-files .agent_context` = 0 条），CI 上根本不存在它。
+// 但它就在共享仓库根里，于是本判据在共享根的输出是 **3546 行 / 其中 3543 行**来自
+// `.agent_context/worktree-archive-*`，rc=1；而干净 worktree 只有 3 行、rc=0。
+// 也就是说这个门禁在共享根上**完全不可用** —— 天天红的东西等于没有，
+// 属本仓反复记录的「装饰性门禁」同型（把红色训练成背景色）。
+// 下面两例：① 行为锁（归档目录里的测试不进检查域）② 常量钉住（防止有人把它从 PRUNE_DIRS 摘掉）。
+
+test("本地归档目录 .agent_context 下的 *.test.js 不得进入检查域", () => {
+  const { root } = makeFixture({
+    tests: [
+      "scripts/real.test.js",
+      ".agent_context/worktree-archive-fake/scripts/orphan.test.js",
+      ".agent_context/worktree-archive-fake/.github/scripts/lock.test.js",
+    ],
+    workflowBody: "run: node --test scripts/real.test.js\n",
+  })
+  try {
+    const r = checker.collectCheck(root, {}, {})
+    const seen = r.files
+    assert.deepEqual(seen, ["scripts/real.test.js"],
+      "只有真实脚本目录里的测试进检查域；归档副本必须被剪枝，实际: " + JSON.stringify(seen))
+    assert.deepEqual(r.violations, [], "归档目录里的孤儿测试不得判未接线")
+    assert.deepEqual(r.nested.map((v) => v.file), [],
+      "归档目录里的嵌套 workflow 也不得报（CI 只调度顶层 .github/workflows）")
+  } finally {
+    cleanup(root)
+  }
+})
+
+test("PRUNE_DIRS 必须含 .agent_context（摘掉它共享根会回到 3546 行噪声）", () => {
+  assert.ok(
+    checker.PRUNE_DIRS.includes(".agent_context"),
+    ".agent_context 是本地会话归档（git 未跟踪、CI 不存在），必须留在剪枝清单里；" +
+    "摘掉后共享根跑本判据会输出 3546 行、rc=1，门禁变得不可用",
+  )
+})

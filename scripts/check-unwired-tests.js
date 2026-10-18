@@ -27,7 +27,14 @@ const WORKSPACE_COVERED = ["apps/", "packages/", "ops-center/"]
 // 这一条同时也是 NESTED_WORKFLOW_NOT_EXECUTED 的白名单——新增嵌套 workflow 必须先在这里显式承认。
 const VENDORED_MIRROR = [".quality-rhythm/"]
 // 目录级剪枝：构建产物与依赖，永远不是本仓测试源。
-const PRUNE_DIRS = [".git", "node_modules", "dist", "dist-electron", "coverage", ".playwright-browsers", ".next", "build"]
+// 2026-10-18 补 `.agent_context`：它是**本地会话隔离归档**（worktree 快照、一次性探针脚本），
+// 从未被 git 跟踪（实测 `git ls-files .agent_context` = 0 条），因此 CI 上根本不存在它。
+// 不剪枝的代价实测：共享根跑本判据输出 **3546 行**、其中 **3543 行**来自
+// `.agent_context/worktree-archive-*`，rc=1；而干净 worktree 只有 3 行、rc=0
+// （"检查域内测试文件 104 个 / OK: 全部测试均已接线"）。
+// 也就是说这个门禁在共享根上**完全不可用** —— 天天红的东西等于没有，
+// 这正是本仓反复记录的「装饰性门禁」同型（把红色训练成背景色）。
+const PRUNE_DIRS = [".git", "node_modules", "dist", "dist-electron", "coverage", ".playwright-browsers", ".next", "build", ".agent_context"]
 
 // 欠账登记：path -> 不可省略的原因。只能缩小，新增即红（与 platform-definitions 棘轮同形）。
 // 2026-09-27 把 scripts 下 7 条 PowerShell 测试逐个实跑分档（本机 pwsh 7.6 / PS 5.1 各一遍，
@@ -425,4 +432,5 @@ module.exports = {
   WORKSPACE_COVERED,
   VENDORED_MIRROR,
   TEST_DOMAIN_EXCLUDED,
+  PRUNE_DIRS,
 }
