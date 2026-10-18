@@ -313,10 +313,15 @@ DOM 要点按钮、等渲染、逐平台猜选择器，复杂且触发风控。
 | 抖音 | **API 轨**（`douyin-video.js` 已实现） | `aweme/create_v2` + `upload/auth/v5` + VOD `ApplyUploadInner/CommitUploadInner`（`SpaceName=aweme`） | Step 0 缺 SDK 签名 cookie ⇒ 已由 D2 兜底修复（本轮） |
 | 视频号 | **API 轨**（`shipinhao-video.js` 已实现） | `helper_upload_params` → CDN 分片 → `post_create`/`post_draft` | 旧 CDN 主机 `finderassistancea` 已 404 ⇒ 已改为 `finder.video.qq.com`（#3918） |
 | 小红书 | API 轨**已有但实测不通** ⇒ 暂留 RPA 草稿 | `api/media/v1/upload/web/permit` → ros-upload → `web_api/sns/v2/note` | 2026-10-10 真机：`permit`/`ros-upload` 通过，但 `note` 恒 **406**（creator 域无主站 `web_session`，签名/风控过不去）⇒ 该账号 API 轨不具备可用条件 |
-| 今日头条 | **API 轨待建（最高优先级）** | `xigua/api/upload/getAuthKey/` → 上传 → `xigua/api/upload/PublishVideo` | 无（未试过）。抖音/头条**共用同一套腾讯云点播 VOD 协议**（`ApplyUploadInner` → 分片 → `CommitUploadInner`），故 `douyin-video.js` 的 VOD 上传器可直接复用，只需补头条自己的 `getAuthKey` / `PublishVideo` 两个端点 |
+| 今日头条 | **API 轨已实现**（`toutiao-video.js` + `bytedance-vod.js` 共用 VOD） | ⚠️ **订正**：语料里那个 `PublishVideo` 属于**微视**（`media.weishi.qq.com/media-api/PublishVideo`），与头条无关。头条端点改由**应用自身 bundle** 取证：`xigua/api/upload/getAuthKey/` → VOD `ApplyUploadInner/CommitUploadInner`（`SpaceName=middlevideo_toutiao`、`app_id=1231`、`EnOID=1`）→ `xigua/api/upload/PublishVideo` | 真机被**账号实名认证**拦住（见 §12.3），非代码问题 |
 
-**下一轮第一件事**：建 `toutiao-video.js`，复用 `douyin-video.js` 的 VOD 上传器，
-只写头条的两个端点适配。**不要**再扩 DOM 选择器。
+**下一轮第一件事（R2 时写下，已于 R3 完成）**：建 `toutiao-video.js`，复用 `douyin-video.js` 的 VOD 上传器，
+只写头条自己的端点适配。**不要**再扩 DOM 选择器。
+
+> **R3 复盘教训（写进纪律）**：判定「某端点有没有证据」时，**不能只看语料里出现过同名串**——
+> 语料是**跨平台 URL 大列表**，`PublishVideo` 这种通用命名在多个产品里都存在。
+> 正确判据是「该 URL 的主机名 + 路径是否属于本平台」，或直接做一次本平台取证。
+> R2 就是因为同名匹配把微视的端点当成了头条的，属于**跨平台套用**。
 
 ### 11.1 其余未闭合
 
@@ -331,5 +336,79 @@ DOM 要点按钮、等渲染、逐平台猜选择器，复杂且触发风控。
    （douyin 且签名材料不齐）」，命中后把分区 cookie **合并**进 store（分区优先、store 兜底）。
    **待真机验证**：需一次真实抖音发布确认 `create_v2` 能过（应用重启后登录态失效，
    报 `AUTH_REQUIRED`，需重新登录后再跑）。
-3. **头条视频 API 轨**未实现（见 §11.0，下一轮第一件事）。
+3. ~~**头条视频 API 轨**未实现（见 §11.0，下一轮第一件事）~~ **已实现（R3）**：
+   `toutiao-video.js`（链）+ `toutiao-video-publish.js`（发稿契约）+ `bytedance-vod.js`（与抖音共用 VOD），
+   五步链 + 发稿体均按取证落地，详见 §12。**真机发布仍被账号实名认证挡住**（§12.3）。
 4. **头条/小红书真实发布未验证**：本轮止于「真实上传成功 + 选择器登记」。
+   R3 追加：头条已定位到**账号侧**原因（`is_auth:false` / `media_status:4`），不是代码问题。
+
+---
+
+## 12. 头条视频发稿契约（R3，2026-10-18/19 取证）
+
+### 12.1 证据来源（为什么这次可信）
+
+**应用自身 bundle 落盘检索**，不是竞品语料套用：
+
+```
+① 可读分区 cookie（rpa-toutiao-7ae99805）起 Playwright 打开 profile_v4/xigua/upload-video
+② 监听 response 收集该页加载的 60 个 JS bundle，全量落盘
+③ 本地检索 "PublishVideo" → 命中 pgcfe/mp/xigua/7219.*.chunk.js（101 KB）
+④ 取调用点 ±1800 字符窗口 → 命中端点、成功判据、枚举
+```
+
+### 12.2 发稿契约（逐字）
+
+```js
+a.ZP.requestJsonNew("/xigua/api/upload/PublishVideo", Y, !0)
+// 成功判据：0===dt && 0===vt  ⇒  status===0 && data.Code===0，并取 data.ItemId
+var a = { publish: 1, timer: 2, draft: 0 }   // PublishType（草稿是 0！）
+// VideoType：Tt = U < 1 ? 6 : 3；3=横版、6=竖版小视频
+```
+
+请求体（PascalCase，与 snake_case 的文章接口完全不同）：
+
+| 字段 | 语义 | 取值来源 |
+| --- | --- | --- |
+| `ItemId` | 作品 id | 空=新建；有值=编辑 |
+| `Title` / `Abstract` | 标题 / 简介 | 任务字段，按**码点**截断（30 / 2000） |
+| `VideoInfo` | `{Vid, VName, ThumbUri, ThumbUrl, Duration, VideoWidth, VideoHeight}` | Vid 来自 `CommitUploadInner` |
+| `VideoType` | 3 横版 / 6 竖版小视频 | 宽高比较，高>宽 ⇒ 6 |
+| `PublishType` | **0 草稿 / 1 发布 / 2 定时** | `draft` 布尔或显式值 |
+| `From` / `EnterFrom` / `CreateSource` | 固定 `"mp"` / `5` / `2` | 常量 |
+| `IsNew` | `!ItemId` | 派生 |
+| `HashtagIds` | 话题 id 数组 | 任务字段 |
+| `HideInfo.HideType` | 隐藏类型 | 任务字段 |
+| `ComplianceInfo` | AI/来源合规声明 | 任务字段（可选） |
+| `TimerTime` | 定时时间（秒） | 给了就强制 `PublishType=2` |
+
+### 12.3 发稿前的五道平台侧闸门（决定「为什么发布不出去」）
+
+| # | 闸门 | 平台原文提示 | 我方处理 |
+| --- | --- | --- | --- |
+| 1 | **实名认证** | `realNameNewDialog("video")` —— 未实名**直接弹认证框，根本不发请求** | 无代码可解，需人工完善账号 |
+| 2 | 用户状态 | `当前用户状态不能发文！` | `checkPublishAuth()` 前置判 |
+| 3 | 视频上传完成 | `该视频还未上传完成，请上传完成再发表` | 链内保证：commit 拿到 Vid 才发稿 |
+| 4 | 标题长度 | 草稿：`保存草稿失败，标题限制为 N 字以内`；发布：`该视频的标题需要在 W～z 字之间` | 本地按 30 码点截断 |
+| 5 | **封面必填** | `该视频需要上传一个封面` | `run()` 本地 fail-closed（零请求），省掉白传大文件 |
+
+**R3 真机实测结论（2026-10-18 夜）**：该头条号
+`GET /mp/agw/media/get_user_base_info` → `{"is_auth":false,"media_status":4}`，
+页面写着「请完善账号信息，解锁发布文章、视频等权益功能」⇒ **第 1 道闸就拦住**。
+因此：
+- 点「存草稿」/「发布」都是空操作，网络层没有任何发稿请求（三次脚本均复现）
+- **没有产生任何草稿或正式作品**（已核草稿箱为空、作品管理无新增）
+- 头条「真实发布成功」的**前置条件是账号完成实名/信息完善，属人工操作**
+
+### 12.4 显示项与提示文字（我方 UI 口径）
+
+| 场景 | 我方提示 |
+| --- | --- |
+| 缺登录态 | `头条号登录态缺失，请重新授权此账号再试` |
+| 缺 uid | `toutiao-video: 缺 uid_tt（无法定位账号）` |
+| 缺视频 | `toutiao-video: taskData.video.path required` |
+| 视频文件不存在 | `toutiao-video: video file not found: <path>` |
+| **缺封面** | `头条视频发布需要封面图（平台必填）：请为任务提供 cover/coverPath` |
+| 无发布权限 | `该头条号当前无发布权限（GetPublishAuth.DisablePublish=true）。平台侧原文：请完善账号信息，解锁发布文章、视频等权益功能。` |
+| 上传授权失败 | `toutiao-video: 未获取上传授权(code=…): <平台 msg>` |
+| 发稿失败 | 优先透出平台 `data.Message`，否则 `头条发布失败(status=…, code=…)` |

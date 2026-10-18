@@ -1,0 +1,39 @@
+{
+  "sha": "d65f0b76fc53379d4b2c0e9adec7801f8853a452",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 526 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 526,
+    "fileCount": 5,
+    "codeFileCount": 3,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 1,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "| 缺登录态 | `头条号登录态缺失，请重新授权此账号再试` |",
+      "| 上传授权失败 | `toutiao-video: 未获取上传授权(code=…): <平台 msg>` |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "9470441d23c6a248fc0b2705725d6712f3cf1536b3c64c507028bd1fc706fba9",
+  "decidedAt": "2026-10-18T18:10:57.127Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}
