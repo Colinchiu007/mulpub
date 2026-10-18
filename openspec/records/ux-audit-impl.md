@@ -85,6 +85,21 @@ sync_backfill_owner: none-derived-from-trunk
 | 门禁读数（本批当场） | ✅ | `check-font-size-scale` PASS（当前 32 / 基线 790）；`check-locale-sync --keys` 2178 全存在、`--cjk` **1171**（基线 1175，`SEVERITY_LABELS` 下线）、`--pair-base` 待提交后由 CI Gate 7 复验；`check-max-lines` 无新增超大文件；`check-css-var-defined` 当前 0 / 基线 64；`openspec-sync-check` OK 387 tasks；`vite build` rc=0 |
 | 行尾与 diff 对账 | ✅ | `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径逐文件相同（`CHANGELOG.md 50/0`）；`CHANGELOG.md` 仍 `i/lf w/crlf attr/text=auto`，LF 警告属 checkout 转换 |
 
+## QG Visual 排红与基线重建（2026-10-18，人工批准后执行）
+
+`QG Visual` 在 head `4a582f9c5` 红。像素六套全部 rc=0（`pixel=0 views=0 views-supplement=0 dark=0 workflows=0 workflows-supplement=0`），红在 **Gate 7b 基线新鲜度**：`first-run.png 10753 px (0.519%)`、`first-run-dark.png 11389 px (0.549%)`、`create-editor.png 78638 px (3.792%)`。
+
+**逐条归因（不合并处理）**：
+
+| 基线 | 判读 | 证据 |
+|---|---|---|
+| `first-run.png` / `first-run-dark.png` | **确定性漂移，且确为本 PR 引入**（批次 B 把向导四步改三步、删「自动安装 Python 依赖和 Playwright」的假承诺） | ① diff 图人工核对：红块正好是被删的第③步与旧大按钮、步骤圆点 4→3，无意外改动；② 两轮采集渲染**逐字节相同**（浅 `0a53363f…`、暗 `a62a53a9…`，`screenshots/` 与 `screenshots-round1/` 两目录 md5 一致）⇒ 不是抖动；③ 门禁自己的两轮甄别也把它判为「两轮都红」 |
+| `create-editor.png` | **采集抖动，不由本 PR 负责，也不得借机重建** | 两轮渲染 md5 **不同**（`8358788d…` vs `b6284f58…`），且以 round1 渲染跑同一判据时 create-editor **不违规**（本地实测：round1 目录 40 张全等、0 违规）。CI 侧同样记为 `flake-confirmed（仅 round2 红）`，未计入阻断集 |
+
+**处置**：经用户批准，只用**同一次 CI run 的渲染**重建 `first-run` 浅/暗两张（来源 run `39108747330` / job `117620328650` / artifact `quality-gate-visual-reports`，取 `screenshots/first-run.png` 与 `screenshots/first-run-dark-current.png`，`cp` 逐字节复制、不走 `test:visual:update-baseline` 本机重捕）。自证：`node scripts/check-baseline-freshness.js --renders=<artifact screenshots> --partial` 由「违规 3 张」降为**违规 1 张（仅 create-editor，抖动）**，first-run 两张已从违规集消失。`create-editor.png` **保持原基线不动**。
+
+**登记一条残留**：`create-editor` 的采集抖动是既有的（AGENTS QM-4 排障顺序里「同态连拍互比」那一格），本批不修，但每次跑 Gate 7b 都可能随机红一张 —— 遇到时先做跨轮 md5 对照再决定是排红还是重建，**不得因为"红过"就顺手换基线**。
+
 ## 关联
 
 - 上游审计：`01-docs/UX-AUDIT-2026-10-17.md`（merge `c57616b61`）
