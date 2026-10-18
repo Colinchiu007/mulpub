@@ -508,7 +508,7 @@ test('取不到 git 读数必须 fail closed：不得退回磁盘全量，也不
 
 test('真实仓交叉探针：域必须等于 git status 口径、规模非退化，且账本每个键都可被量到', () => {
   const root = path.resolve(__dirname, '..', '..')
-  const domain = G.gitDomain()
+  const domain = G.gitDomain(root)
   assert.ok(domain instanceof Set && domain.size > 5000,
     '真实仓域规模下界（解析退化=空集合，读起来完全像通过）；实测 domain=' + domain.size)
   // 独立探针：git status --porcelain=v1 -z -uall 的 ?? 记录，并上 git ls-files -z。
@@ -541,11 +541,11 @@ test("现场留痕：plain 模式打印 domain= 且与 gitDomain().size 一致�
   const out = String(plain.stdout)
   const m = out.match(/^\[max-lines\] domain=(\d+) /m)
   assert.ok(m, 'plain 模式必须打印域规模留痕，否则下次没人知道它测的是哪个集合；实测首行：' + out.split('\n')[0])
-  assert.equal(Number(m[1]), G.gitDomain().size, '打印的数必须就是判据实际用的域大小（同源，不是另算一遍）')
+  assert.equal(Number(m[1]), G.gitDomain(path.resolve(__dirname, '..', '..')).size, '打印的数必须就是判据实际用的域大小（同源，不是另算一遍）')
   const j = spawnSync(process.execPath, [IMPL, '--json'], { cwd: path.resolve(__dirname, '..', '..'), encoding: 'utf8' })
   assert.ok(!/^\[max-lines\]/m.test(String(j.stdout)), "--json 模式混入非 JSON 行会让消费方解析失败")
   const parsed = JSON.parse(String(j.stdout))
-  assert.equal(parsed.domainSize, G.gitDomain().size, '--json 必须把域规模放进对象里')
+  assert.equal(parsed.domainSize, G.gitDomain(path.resolve(__dirname, '..', '..')).size, '--json 必须把域规模放进对象里')
 })
 
 // ── QM-6 两轴采纳后补的三格锁（被审快照 1aecfedeb → 采纳提交见 PR）─────────────
