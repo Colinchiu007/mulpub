@@ -39,7 +39,7 @@ date: 2026-10-19
 | 组件总数 | **27 个 PE，全部 PE32 x86** | `dump-all-components-pe.cjs` |
 | 加壳判据 | **27/27 干净**（0 壳字符串命中 / 正常入口前导 / 节名完整）| 同上 |
 | PE 判据假阳修复 | 8 个组件从「需人工」→ 干净 | `dump-pe-tables.test.js` 5 例 |
-| 参考产品主进程 | 8.0 MB / 141,720 行 / **34 IPC / 27 个 `page-manager:*`** | `extract-yixiaoer-main-inventory.cjs` |
+| 参考产品主进程 | 8.0 MB / 141,720 行 / **34 IPC / 27 个 `page-manager:*`** | `extract-refproduct-main-inventory.cjs` |
 | 参考产品 RPA 词汇 | **0 命中**（puppeteer/playwright/cdp/chromedriver）| 同上 |
 | 参考产品平台域名 | **220 个**（前 40 全是创作后台）| 同上 |
 | 端点数复核 | **1,327**（两口径一致、逐条回溯 DLL 字节、零编造）| `validate-platform-apis.cjs` |
@@ -51,3 +51,16 @@ date: 2026-10-19
 3. **CVE 编号未逐条核对** —— 组件文档只做「版本 → 已知有修复」的定性判断。
 4. **`socket.io` 在参考产品里的真实作用未定** —— 依赖与字段都在，但 `new Server` / `io()` 各 0 命中。
 5. **所有结论均为静态** —— 未运行任何竞品、未向任何平台发过请求，「签名有效」「接口可用」均未证。
+
+### 本 PR 自身踩的一次门禁顺序错误（留档）
+
+本地跑 `check-no-brand-residue.js` 报 **PASS**，CI 的 `Gate 12 - Brand residue` 却判红。
+根因：**取证顺序错了** —— 我在「写这篇执行记录之前」跑的品牌检查，而该脚本只扫 `git ls-files`
+（tracked 文件），当时记录还没落盘 ⇒ 它扫的是不含记录的树。
+记录里恰好引用了仓外脚本名，而那个脚本名的全拼正是品牌词之一 ⇒ 命中。
+
+**这与 AGENTS.md 里那条「`classify-docs-only` 必须在 commit 之后取证」是同一类病**：
+判据取证的**时机**与**被扫的树**必须对齐，否则 PASS 是假绿。
+修法：①记录内脚本名改为 `<REA_WORKSPACE>` 下的中性名 `extract-refproduct-main-inventory.cjs`；
+②新仓库里同名脚本一并改名，避免文档引用时再次带出品牌词；
+③本条留档，供后来者在这类「先跑判据再写文件」的场合提防。
