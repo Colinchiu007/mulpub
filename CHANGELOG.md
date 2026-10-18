@@ -22129,6 +22129,20 @@ P0-4（reportError 的 IPC 拒绝）经确认**无法在 vitest 环境覆盖**�
   导出符号与 `RATIOS` 键集合未变；`buildCoverSvg(title, {width, height})`
   旧调用形态仍可用；未传 `title` 时退回 `prompt`
 - 详细规格见 `01-docs/PRD.md`「内容感知封面生成（AI 生图不可用时的本地兜底）」章节
+# [未发布] fix(publish): 标题上限收为 20 字 + 输入框实时字数 + 全入口标题不再回退正文（fix-hot-topics-genvideo-title 增量）
+
+> 本条刻意**不放在文件顶部**：CHANGELOG 顶部是所有会话的并发插入点，两侧同位置插入必然冲突（本轮实测连中三轮 DIRTY 活锁）；同时刻意**不放在文件绝对末尾**，因为最后一块在 head 的边界会提前到本条标题处、破坏「保留块逐字节同源」。放在**最后一个一级标题之前**：前面的块尾部不变，最后一块整体后移但内容逐字节不变。
+
+- **用户三条追加需求**：① 排查所有需要生成标题的地方；② 标题最多 20 字；③ 标题输入框要有实时字数显示。
+- **全入口审计（本轮最重要发现）**：标题进发布页共 4 条链路，全部经 `buildPublishFromProject` 提取。修复前**其中 3 条**（视频创作页【去发布】/ 结果页【去发布】/ 历史一键发布与播客）在用户未填「发布标题」（`s2vConfig.title`，placeholder 就是「可选」）时，标题沿 `publish.title → project.title → sourceText` 落到**正文切片**。热门选题只是第四个受害者 —— 上一轮把它写进「不动共享真源」非目标，是把范围收得太小。
+- **系统性修复**：`buildPublishFromProject` 的 `title` 链去掉 `sourceText`，无显式标题返回**空串**（不保留「截到 20 字的正文」——那仍是正文前 N 字，只是 N 从 100 变 20）。由 `noTitleHint` + 发布前校验拦到「请填标题」。
+- **20 字单一真源** `src/features/publish/title-limits.js`（`PUBLISH_TITLE_MAX = 20`）：取值依据是各平台 `titleMax` 最小者（小红书 20）。改前上限散在三处并靠注释提醒同步 —— 注释不是机制。计数与截断**同按 Unicode 码点**（`String.length` 把 emoji 算 2，会让「19/20 却被拦」成为 bug）。
+- **实时字数**：视频与图文两个标题输入框下方显示 `n/20`（走 `UiInput` 既有 `hint`，不新增 DOM 节点；`tabular-nums` 防输入时数字跳动）。`UiInput` 补 `maxlength` prop —— 原来只会透传到根 `div`，写了不生效；真正拦截由 watcher 按码点做。
+- **零增长文件处理**：`Publish.vue` 是 `check-max-lines` 点名还账、零增长容差的文件。第一版直接写视图 ⇒ 超 21 行。修法不是调 targets，而是把上一轮自己加的 12 行 `videoTitleSourceHint` 一并下沉成 composable ⇒ 最终 1768 行（改前基线 1773）；rebase 后主干变化再收紧到 1773。
+- **测试**：新增 `title-limits.test.js`（12 例）+ `Publish.title-counter.test.js`（8 例，含 2 例从 `Publish.test.js` 迁移并按新契约重写）；`publish-from-project.test.js` 夹具改为 `title ≠ sourceText` 并新增回归锁「无显式标题不得回退正文」。受影响 8 文件 198 例全绿。变异反证两条：watcher 不截断 ⇒ 计数测试 2 例红；标题链改回 `|| sourceText` ⇒ 回归锁红。
+- **视觉基线**：标题计数行是有意变更，QG Visual 的 Gate 7b 判 `publish-form.png` 0.712% / `publish-form-dark.png` 0.666% 过期；按判据约束（`UPDATE_BASELINE` 只用于基线缺失，刻意不提供覆盖开关）走 `git rm` 受管基线 → 起本 worktree 独占端口 dev server → 重建 → 以 `PIXEL_THRESHOLD=0` 复核逐像素相等。
+- **QM-1 抓到一个真缺陷**：AGENTS.md 的 `pnpm exec electron-builder --win --x64` **不构建渲染层**，照它跑得到 `exit=0` + 全部产物，但 asar 里没有 `dist/`，启动即白屏（stderr `ERR_FILE_NOT_FOUND`）。正确命令是 `pnpm run build:win`；判据必须同时看 rc、产物、启动 stderr（并剔除 `ELECTRON_RUN_AS_NODE`、单独断言存活）。
+- **文档**：`01-docs/PRD-FIX-HOT-TOPICS-GENVIDEO-TITLE-2026-10-17.md` 新增 §15（483→621 行）；`01-docs/PRD.md` §3a.3.1 两处同步改写（原「硬限 100 字」「不动共享真源」均被本轮推翻）；执行记录同步更新。
 # [unreleased] fix(publish): M-1 重入锁前置 + .adversarial 白名单 + 方案时效性核验
 
 ### M-1 修复（发布重入窗口）
