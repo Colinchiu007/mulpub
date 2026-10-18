@@ -23,6 +23,10 @@ const path = require('path')
 const crypto = require('crypto')
 // 单一取源：合并账本与记录归属。判据内不得再出现第二份 git 解析（口径一漂移，所有记录的收口结论一起错）。
 const { buildLedger, classifyAttribution } = require('./lib/merge-ledger.js')
+// PR 差量取源同样必须在判据之外（change: ban-record-closure-backfill-pr，design D10）。
+// 这里只**消费**它的结构（哪个文件、哪侧的行、在不在围栏里），词表仍由本文件持有 ——
+// 反向依赖（模块自带词表）会造成第二份闭合词表，那正是 M8 那条锁要拦的形态。
+const { buildClosureDiff, splitDiffLines } = require('./lib/pr-record-diff.js')
 
 const GATE_FILE = '.quality-gates.md'
 const ROW_RE = /^\|\s*远程同步\s*\|/
@@ -46,7 +50,11 @@ const RECORD_FIELD_PR_LEGACY = 'sync_pr'
 // 新形态记录在状态列写的标记（见 openspec/records/_TEMPLATE.md）。判据用它区分
 // "作者按新规范留空待推导" 与 "旧形态忘了登记"——两者在账本不可用时必须给出不同的话。
 const DERIVED_MARKER = '由门禁推导'
-const DERIVED_MARKER_RE = new RegExp('^\\s*' + DERIVED_MARKER)
+// `已` 是 CLOSED_RE 的合法前缀之一 ⇒ 「已由门禁推导」这种自然中文措辞会同时命中
+// "已收口"与"没命中派生标记"，于是被本 change 的新锁判红（跨家族评审 F3）。
+// 放宽只发生在**这一份**实现里；不允许在别处再写一个 `已?由门禁推导`，那又变成两份词表。
+// 负控留在用例里：`已由人工回填完成` 之类 MUST NOT 被当成派生标记。
+const DERIVED_MARKER_RE = new RegExp('^\\s*已?' + DERIVED_MARKER)
 
 // 已收口的写法。只允许这一侧扩张，新增未收口写法必须走 gate-record-debt-ledger.json。
 const CLOSED_RE = /^(PASS|N\/A|✅|已)/
@@ -212,6 +220,9 @@ function readRecord(recordsRoot, fileName) {
   const allLines = text.split('\n')
   const rowLineIdx = allLines.findIndex(l => ROW_RE.test(l))
   const rowLine = rowLineIdx >= 0 ? allLines[rowLineIdx] : undefined
+  // 行数只用于**新增重复的归因**（design D12）；收口判定仍按第一行。改判定方向属行为变更，
+  // 会把 10 篇"本来就两行"的存量语义一起掀动，不在本 change 范围。
+  const rowCount = allLines.filter(l => ROW_RE.test(l)).length
   const status = rowLine ? (rowLine.split('|').map(normalize)[2] || '') : null
   const reason = fm[RECORD_FIELD_REASON]
   const owner = fm[RECORD_FIELD_OWNER]
@@ -247,6 +258,7 @@ function readRecord(recordsRoot, fileName) {
     relPath: `${RECORDS_REL.split(path.sep).join('/')}/${fileName}`,
     rowPresent: !!rowLine,
     rowLineNo: rowLineIdx + 1,
+    rowCount,
     declared,
     status,
     closed: !!rowLine && CLOSED_RE.test(status),
@@ -259,7 +271,102 @@ function readRecord(recordsRoot, fileName) {
   }
 }
 
-function collect({ root = process.cwd(), ledger = loadLedger(), duplicatesAllowed = DUPLICATE_HEADINGS_ALLOWED, crossSrcAllowed = CROSS_SRC_ALLOWED, recordsRoot = path.join(root, RECORDS_REL), carrierFreeze = null, mergeLedger = null } = {}) {
+// ── 人工改写收口行的检测（change: ban-record-closure-backfill-pr）──────────────
+// 为什么必须有执行体：禁令写在 AGENTS 里，实测落地后 4 小时内仍有 4 笔回填 PR 合入 ——
+// 那些会话的分支在禁令之前切出、读到的文档还是旧口径。对这一型违犯，"把话说清楚"作用为零。
+//
+// 分工：git/diff 结构在 scripts/lib/pr-record-diff.js，**词表在这里**（一份，别再造第二份）。
+// 判定形态取"同一文件内：删除侧有未闭合的那一行 ∧ 新增侧有手写闭合的那一行"。
+// 不取"本 PR 只动了那一行"：实测那种窄判据漏 2/4（#3890/#3891 顺带加了回读小节）。
+
+const RECORDS_REL_POSIX = RECORDS_REL.split(path.sep).join('/')
+
+function rowStatusOf(text) {
+  if (!ROW_RE.test(text)) return null
+  // 与 readRecord 同一条取法：split('|') 的第 3 段（1=空、2=门禁名、3=状态）。
+  return text.split('|').map(normalize)[2] || null
+}
+
+function isHandClosedStatus(s) {
+  return !!s && CLOSED_RE.test(s) && !DERIVED_MARKER_RE.test(s)
+}
+
+function classifyClosureDiff({ diffText, fileNames, rowCountByName }) {
+  const rows = []
+  const duplicates = []
+  const deleted = []
+  let touched = 0
+  if (!diffText) return { rows, duplicates, deleted, touched: 0 }
+  const files = splitDiffLines(diffText, RECORDS_REL_POSIX)
+  const allowed = new Set(fileNames)
+  for (const [name, v] of files) {
+    // 域 = listRecordFiles 的结果 ∩ diff。差一步就会把 `_TEMPLATE.md`、`_exempt/` 与旧载体吸进来
+    // （模板自己就带一行 远程同步，扫它必恒红 —— 与既有那条模板排除锁同一事由）。
+    if (!allowed.has(name)) continue
+    touched++
+    if (v.deletedFile) { deleted.push({ file: name }); continue }
+    const keep = (arr) => arr.filter((e) => !e.inFence).map((e) => e.text)
+    const rem = keep(v.removed)
+    const add = keep(v.added)
+    const remRows = rem.map(rowStatusOf).filter((s) => s !== null)
+    const addRows = add.map(rowStatusOf).filter((s) => s !== null)
+    const from = remRows.find((s) => !CLOSED_RE.test(s))
+    const to = addRows.find(isHandClosedStatus)
+    if (from !== undefined && to !== undefined) rows.push({ file: name, from, to, kind: 'row' })
+    else {
+      // bullet 侧同判（评审 F5）：只把 `- 保留门禁：… | 远程同步 PENDING` 改成 PASS 而不动
+      // 表格行，同样是一次"为改写收口证据而开的 PR"。词表用既有那两条，不新增第三份。
+      const remOpen = rem.some((l) => !ROW_RE.test(l) && UNCLOSED_DECL_RE.test(l))
+      const addDone = add.some((l) => !ROW_RE.test(l) && CLOSED_DECL_RE.test(l))
+      if (remOpen && addDone) rows.push({ file: name, from: 'PENDING(bullet)', to: 'PASS(bullet)', kind: 'bullet' })
+    }
+    // 重复行档（评审 F1）：绕道是"追加第二行 PASS、首行不动"——它同时骗过跃迁配对与派生收口。
+    // 只判"本 PR 新增了那一行 ∧ 结果里仍 >1 行"，不判"存在重复"：后者会把 10 篇存量
+    // （两行都写好的历史记录）在每个无关 PR 上钉红（design D12）。
+    // rowCount 由 collect 传进来（它本来就要逐篇 readRecord），这里不重读磁盘 ——
+    // 第一版在这里塞了个 readRecordSafe 占位、返回 null，等于把这条档写成永不触发的死路径。
+    const addedRowLines = add.filter((l) => ROW_RE.test(l)).length
+    const count = rowCountByName && rowCountByName.get(name)
+    if (addedRowLines > 0 && count > 1) duplicates.push({ file: name, count, added: addedRowLines })
+  }
+  return { rows, duplicates, deleted, touched }
+}
+
+// 判据这侧的取源包装：模块给结构（文件集、删/增、围栏），判据给词表判断。
+// 这样"全仓只有一处跑 git diff"与"闭合词表只有一份"两条同时成立；直接把模块函数再导出去
+// 会让消费者拿不到 rows/files，只能各自再拼一遍 —— 那就是第二份口径。
+// 注意这里**不做** listRecordFiles 求交：域交集住在 collect()（它有真目录清单），
+// 本函数回答的是"这份差量里有哪些记录文件、各自发生了什么"。
+function buildClosureDiffReport({ baseRef, headRef = 'HEAD', cwd = process.cwd(), recordsRel = RECORDS_REL_POSIX } = {}) {
+  const raw = buildClosureDiff({ baseRef, headRef, cwd, recordsRel })
+  if (raw.ok !== true) return { ok: false, reason: raw.reason, detail: raw.detail || null }
+  const diffText = raw.diff || ''
+  const filesMap = splitDiffLines(diffText, recordsRel)
+  const names = [...filesMap.keys()].filter((n) => n.endsWith('.md')).sort()
+  const cls = classifyClosureDiff({ diffText, fileNames: names, rowCountByName: new Map() })
+  return { ok: true, files: names, rows: cls.rows, deleted: cls.deleted, touched: cls.touched, baseRef, headRef }
+}
+
+// 测试与外部消费者的入口：只给 diff 文本 + 允许的篇名集合，返回跃迁档。
+// rowCount 传不进来时重复行档自然不触发（那是 collect 才有的"结果内容"信息），
+// 所以这个包装只承诺**跃迁**这一件事，不冒充覆盖了另外两档。
+function parseClosureTransitions(diffText, fileSet) {
+  return classifyClosureDiff({
+    diffText,
+    fileNames: [...(fileSet || [])],
+    rowCountByName: new Map(),
+  }).rows
+}
+
+// 取源失败的原因（供 format/CI rc 用），与合并账本那三档分开：两者测的是不同的东西，
+// 混成一个码就会把"判据装错了地方"报成"分支还没建好"。
+const CLOSURE_UNPROVEN = {
+  refUnresolvable: 'ref-unresolvable',
+  gitFailed: 'git-failed',
+  notInjected: 'not-injected',
+}
+
+function collect({ root = process.cwd(), ledger = loadLedger(), duplicatesAllowed = DUPLICATE_HEADINGS_ALLOWED, crossSrcAllowed = CROSS_SRC_ALLOWED, recordsRoot = path.join(root, RECORDS_REL), carrierFreeze = null, mergeLedger = null, closureDiff = null } = {}) {
   // 账本**只能由调用方注入**，与 carrierFreeze 同规：原先这里留了一条"默认去 buildLedger"的尾巴，
   // 实测它是一个永不被走到的分支（main 自己构造后注入、所有用例也注入），
   // 于是变异"把默认值写成坏 baseRef"全绿——未走过的分支不是备用路径，是藏起来的第二口径（N8 实测）。
@@ -376,9 +483,12 @@ function collect({ root = process.cwd(), ledger = loadLedger(), duplicatesAllowe
   const recordsClassified = []
   let recordsFromFiles = 0
   const closedRecordSlugs = []
+  // rowCount 顺手记下给下面的重复行档用（它本来就要逐篇 readRecord，不另开一次 IO）。
+  const rowCountByName = new Map()
   for (const fn of fileNames) {
     const rec = readRecord(recordsRoot, fn)
     recordsFromFiles++
+    rowCountByName.set(fn, rec.rowCount)
     if (rec.legacyPr !== null && rec.legacyPr !== undefined) {
       ambiguousPrKeys.push({ file: rec.fileName, value: rec.legacyPr.slice(0, 60) })
     }
@@ -445,6 +555,30 @@ function collect({ root = process.cwd(), ledger = loadLedger(), duplicatesAllowe
         : rec.reasonMissing ? `缺非空 ${RECORD_FIELD_REASON}` : `缺非空 ${RECORD_FIELD_OWNER}`
       open.push({ line: 0, status: rec.status, heading: `${rec.fileName}（${why}）`, evidence: '', source: 'records' })
     }
+  }
+
+  // ── 人工改写收口行（change: ban-record-closure-backfill-pr）──
+  // 只接受注入：与 mergeLedger 同一纪律（collect 默认自己去跑 git，夹具就会静流量到真仓状态；
+  // 上一轮 N8 实测过"默认分支永不被走"等于藏一份第二口径）。
+  let handClosedRows = []
+  let dupClosureRows = []
+  let deletedRecordFiles = []
+  let handClosureUnproven = null
+  let closureTouched = null
+  if (closureDiff === null || closureDiff === undefined) {
+    handClosureUnproven = CLOSURE_UNPROVEN.notInjected
+  } else if (closureDiff.ok !== true) {
+    handClosureUnproven = closureDiff.reason || 'unknown'
+  } else {
+    const cls = classifyClosureDiff({
+      diffText: closureDiff.diff || '',
+      fileNames,
+      rowCountByName,
+    })
+    handClosedRows = cls.rows
+    closureTouched = cls.touched
+    dupClosureRows = cls.duplicates
+    deletedRecordFiles = cls.deleted
   }
 
   // ── 跨源一致性：记录文件已 PASS，而**同 slug** 的旧载体块带着状态行却未收口 ⇒ 拦。
@@ -542,6 +676,11 @@ function collect({ root = process.cwd(), ledger = loadLedger(), duplicatesAllowe
     inconsistentAttribution,
     ambiguousPrKeys,
     unprovenDerived,
+    handClosedRows,
+    dupClosureRows,
+    deletedRecordFiles,
+    handClosureUnproven,
+    closureTouched,
     derivedCrossVisible,
     statusContradictions,
     crossSrcViolations,
@@ -571,6 +710,33 @@ function format(r, opt = {}) {
       // 评审 F1/F3：停用不只意味着"少一条收口通道"，还意味着下面两道净增拦截同时熄灯。
       // 不点名就会让人以为"只是派生不出来而已"，而实际是"预写 PASS 与归属谎报都不再被看见"。
       + '同时停用的还有 prematureClaims（合并前预写 PASS）与 delivered_by_pr 交叉核对两道拦截；CI 档这属于门禁自身故障，rc=2。')
+  }
+  // 本 change 的自证行（同 MERGE-LEDGER 那条的事由）：测到了什么、还是根本没测，必须一行可辨。
+  if (r.handClosureUnproven) {
+    out.push(`HAND-CLOSURE prs=n/a unproven=${r.handClosureUnproven} 触碰记录=n/a ⇒ 未证实"本 PR 没有人工改写收口行"`
+      + '（这是"我测不了"，不是"你没做"；CI 档属门禁自身故障，非零退出）')
+  } else {
+    out.push(`HAND-CLOSURE 人工改写=${r.handClosedRows.length} 新增重复行=${r.dupClosureRows.length} 记录被删=${r.deletedRecordFiles.length} 触碰记录=${r.closureTouched}`)
+  }
+  if (r.handClosedRows.length) {
+    out.push(`❌ 收口行被人工改写为闭合词 ${r.handClosedRows.length} 篇（这一行自 #3879 起由主干历史推导，改写既不改变判定，又正是在重新制造"合并后另开一次 PR"）：`)
+    for (const h of r.handClosedRows) {
+      out.push(`  ${h.file} —— ${h.kind} 侧 ${h.from} → ${h.to}`)
+    }
+    out.push('  正解（三选一，都不需要绕门禁）：① 不动那一行，让它保持 `PENDING` 或 `由门禁推导`；'
+      + '② 要清理旧文案就改成「由门禁推导」；③ main push 回读的读数写在 **PR 评论**里，不要写回仓库文件。')
+    out.push('  若这些行不是你改的（rebase 把他人行带进本分支），用 `git log -p -- openspec/records/<篇名>` 核归属，'
+      + '不要默认自己是回填 —— 也别放宽判据。')
+  }
+  if (r.dupClosureRows.length) {
+    out.push(`❌ 本 PR 给已经有多行的记录又新增了 \`| 远程同步 |\` 行 ${r.dupClosureRows.length} 篇（首行动不了、只追一行，是绕过上面那道锁最自然的退化形态）：`)
+    for (const d of r.dupClosureRows) out.push(`  ${d.file} —— 结果内容 ${d.count} 行，本次又加 ${d.added} 行`)
+    out.push('  正解：一篇记录只留一行收口，且状态列写「由门禁推导」。')
+  }
+  if (r.deletedRecordFiles.length) {
+    out.push(`❌ 记录文件在本次 diff 中被删除 ${r.deletedRecordFiles.length} 篇（记录是档案面；改名也落在这个档上）：`)
+    for (const d of r.deletedRecordFiles) out.push(`  ${d.file}`)
+    out.push('  正解：改名请分两次 PR（先加新篇、再于下一轮说明为何删旧）；`_exempt/` 与 `_` 前缀文件不受本条约束。')
   }
   out.push(`远程同步行 ${r.rowCount} 条 / 执行记录 ${r.recordCount} 篇（全部 ## 标题 ${r.headingCount} 个）/ 已登记欠账 ${r.registered.length} 条 / 记录文件 ${r.recordsFromFiles} 篇（两源分列，不可合并成一个趋势数）`)
   if (r.byDesign.length) {
@@ -703,6 +869,9 @@ function hasBlocking(r, opt = {}) {
     // 用 `|| []` 兜住手写夹具（本文件既有测试里存在手搓结果对象喂 hasBlocking 的用例），
     // 不是给生产代码加防御——缺字段在生产路径不可能出现。
     || (r.prematureClaims || []).length || (r.intentMismatch || []).length
+    // 人工改写收口行（本 change 的主判据）三档：状态词跃迁、本 PR 造成的重复行、记录被删。
+    || (r.handClosedRows || []).length || (r.dupClosureRows || []).length
+    || (r.deletedRecordFiles || []).length
     // carrierVisible：PR 档把冻结降成可见项。动因是 2026-10-16 实测 CI —— pull_request 事件检出的是
     // main⊕本分支的合并预览，主干每几分钟长一块，"状态等于冻结基线"在 PR 档结构上必红（写在今天、
     // 红在明天的引信）。main 档仍拦，所以这条不是把锁拆松，是把锁装回它真能成立的那一档。
@@ -730,6 +899,11 @@ function parseBaseRef(argv) {
   return hit ? hit.slice('--base-ref='.length) : 'origin/main'
 }
 
+function parseHeadRef(argv) {
+  const hit = argv.find((a) => a.startsWith('--head-ref='))
+  return hit ? hit.slice('--head-ref='.length) : 'HEAD'
+}
+
 function parseFlags(argv) {
   // 参数不得静默忽略：拼错的旗标读起来像"某一档生效了"，实际命令行什么都没改。
   // 原文件头宣传的 [--json] 从未被实现过——那是一个承诺了但不会出现的形态，已如实删掉。
@@ -739,8 +913,10 @@ function parseFlags(argv) {
   // `--current-pr` 曾在此列但**没有任何消费者**（byDesign 的判据是"该路径不在 base 归属映射里"，
   // 不需要 PR 号）。接受一个不生效的旗标与"拼错被静默忽略"是同一条反模式的两个方向
   // （外部评审 F5 家族的 F2），已删；CI 若真要下发就会在这里当场红，而不是"看起来生效"。
-  const allowed = ['carrier-mode', 'base-ref']
-  const needValue = ['base-ref']
+  // `head-ref` 与 `base-ref` 成对存在：本判据看的是 merge-base 到某个 head 的**差量**，
+  // 只给 base 不给 head 就只能读工作树，CI 上工作树不是 PR 的 head（同上一轮"取源必须成对"）。
+  const allowed = ['carrier-mode', 'base-ref', 'head-ref']
+  const needValue = ['base-ref', 'head-ref']
   for (const a of argv) {
     if (!a.startsWith('--')) continue
     const name = a.slice(2).split('=')[0]
@@ -762,14 +938,28 @@ function main() {
   // 否则夹具会静默量到真仓状态（carrierFreeze 同款教训，实测冲掉过 8 条合法测试）。
   const mode = parseCarrierMode(argv)
   const baseRef = parseBaseRef(argv)
+  const headRef = parseHeadRef(argv)
   const ml = buildLedger({ baseRef, cwd: root })
-  const r = collect({ root, carrierFreeze: loadCarrierFreeze(), mergeLedger: ml })
+  // 与 mergeLedger 同一纪律：只在 CLI 侧读生产仓库，collect() 保持可注入。
+  // MP_TEST_FORCE_UNPROVEN 是给"CI 档不可用必须非零退出"那条用例用的**注错**入口，
+  // 不是 skip 开关：它让失败分支可被真跑验证，而不是靠读代码断言"这段会执行"。
+  let closure = process.env.MP_TEST_FORCE_UNPROVEN
+    ? { ok: false, reason: String(process.env.MP_TEST_FORCE_UNPROVEN) }
+    : buildClosureDiff({ baseRef, headRef, cwd: root, recordsRel: RECORDS_REL_POSIX })
+  const r = collect({ root, carrierFreeze: loadCarrierFreeze(), mergeLedger: ml, closureDiff: closure })
   console.log(format(r, { carrierBlocking: mode === "block" }))
   // 打印即门禁：CI 上账本不可用（浅检出、ref 没取到、仓库态异常）意味着派生档整体停用。
   // 停用不是"通过"——留在 CI 里就是一条随时会烂成装饰的分支，必须当场红并给出原因。
   // 本机不强制：本地跑常常在 detached worktree 或没有 origin/main 的克隆里，那是合法使用形态。
   if (!ml.ok && String(process.env.CI || '') !== '') {
     console.error(`[gate-record-debt] 派生档在 CI 上不可用（reason=${ml.reason}），判为门禁自身故障而非通过`)
+    process.exit(2)
+  }
+  // 同一件事的第二把闸，但**测的是不同的东西**，所以必须是独立一条、独立 rc 语义：
+  // 账本停用 ⇒ 收口推不出来；差量停用 ⇒ "没人改写"这个结论根本没被测到。
+  // 把两者合成一个判断，就会出现"账本好着但 diff 取不到，照样报绿"的静默放行。
+  if (r.handClosureUnproven && String(process.env.CI || '') !== '') {
+    console.error(`[gate-record-debt] 人工改写检测在 CI 上取不到差量（reason=${r.handClosureUnproven}），判为门禁自身故障而非通过`)
     process.exit(2)
   }
   if (hasBlocking(r, { carrierVisible: mode === "visible" })) process.exit(1)
@@ -784,7 +974,14 @@ module.exports = {
   RECORD_FIELD_PR_LEGACY, DERIVED_MARKER, DERIVED_MARKER_RE,
   GATE_FILE, LEDGER_FILE, DUPLICATE_HEADINGS_ALLOWED, HEADING_RE, headingTitle,
   CARRIER_FREEZE_FILE, loadCarrierFreeze, carrierSignature, parseCarrierMode,
-  parseBaseRef, parseFlags,
+  parseBaseRef, parseHeadRef, parseFlags,
+  // 词表与结构判断的唯一入口在判据这侧（模块只给结构）；这里 re-export 是为了让
+  // "全仓只有一处 diff 取源"那条锁能同时看到两个消费者。真跑 CI 档用的就是这个再导出，
+  // 不是让调用方各自去 require 模块（那样第二个 execFileSync('git' 就长在别人文件里了）。
+  parseClosureTransitions, classifyClosureDiff, CLOSED_RE, ROW_RE,
+  // 对外只暴露判据这侧的包装（带 files/rows）。模块的裸取源函数**不**再导出：
+  // 一旦有人拿到它，就会在别处自己拼一遍词表判断，那又是一份口径。
+  buildClosureDiff: buildClosureDiffReport,
 }
 
 if (require.main === module) main()

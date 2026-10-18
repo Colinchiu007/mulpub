@@ -1,0 +1,39 @@
+{
+  "sha": "fd1f430680c7e948ea0399cc42791fa221968728",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 2876 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 2876,
+    "fileCount": 45,
+    "codeFileCount": 40,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 6,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "| 安全 | 该配置经 Ed25519 签名覆盖；写接口 `require_admin`；不涉及密钥/凭据 |",
+      "| locale 成对 | ✅ | 本轮**未新增 locale 键**（只把既有键里的数字换成生效值）；`check-locale-sync --keys` PASS（2107 key 齐备）；`--cjk` 唯一变化是计数行表达式改名（内容级替换，非行号漂移），`--update-baseline` 后基线 1331 条、`diff` 仅 `CreateView.vue` 一条 `+/-`，复跑 **PASS** |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "fcc1249f58ae47ed1685016ce06566dd78bf9fa793e309d80225c43260cbaf10",
+  "decidedAt": "2026-10-18T02:37:41.220Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "needs_revision",
+    "performedBy": "opencode（跨家族外部评审；claude 后端不可用）",
+    "findings": [
+      "🟠 MAJOR | apps/desktop/src/views/CreateView.vue | 跨端生效时点分裂：本页只在 mounted 拉一次 storyTextLimit，而启动同步由主进程 autoSyncOnStart() 的 setTimeout 3000 触发，通常晚于挂载 ⇒ 首次读到未 apply 的旧状态后不再重拉，「运营改值、重启应用仍不生效」会随进入本页的时机随机出现 | 已修：订阅 onOpsCenterRuntimeUpdated 并压入 cleanups，回调重拉；回归锁见 CreateView.test.js「挂载时必须订阅 ops-center:runtime-updated」结构锁",
+      "🟠 MAJOR | apps/desktop/electron/services/story2video-text-config.js | 读取 provider 的 catch 静默吞掉异常、无任何日志，配置下发坏掉时只能靠「上限一直是默认值」这一间接现象推断 | 接受并记录：该路径在批量队列高频调用，且本模块无 logger 依赖；fail-open 是刻意设计（配置异常不得阻断创作）。PRD §13 已把 source='default' 作为可观测判据",
+      "🟢 MINOR | apps/desktop/src/story2video/story-text-limit.js | resolveStory2VideoTextLimit 同时接受「整个 runtimeState」与「block 本身」两种入参，形态歧义靠 hasOwnProperty('storyTextLimit') 判别 | 已记录：仅测试与离线重放便利使用，生产调用点固定传 block",
+      "🟢 MINOR | 跨端 | 两端各有独立测试（story2video-text-config.test.js / story-text-limit.test.js），但缺「跨端区间与默认值逐值对拍」的锁；只改一端区间时另一端不会红 | 已记录：本次以人工双跑（Python 与 Node 各算 config_hash 固定向量）覆盖，parity 锁列为后续改进",
+      "🟢 MINOR | ops-center/backend/services/story_text_limit_service.py | asInt 接受 \"12.0\" 这类小数形态字符串（float 化后为整数），与前端严格整数校验的文案口径略有偏差 | 已记录：写入口仍拒绝越界与非整数数字，仅字符串形态宽松；服务端为权威校验，前端提示文案由 ranges 驱动",
+      "🟢 MINOR | ops-center/backend/services/story_text_limit_service.py | upsert_scopes 为「先全量校验再整体落库」，多管理员并发保存时后写覆盖先写（无版本号/乐观锁） | 已记录：与既有 AppMenuItem/ContentCategory 管理接口同形态，单管理员场景为主"
+    ],
+    "validationErrors": null,
+    "note": "codeagent-wrapper 单次调用 600s 超时（两次，实测 ETIMEDOUT）；claude 后端随后两次 502。跨家族评审由 opencode 直连后端完成，逐条复核后给出 VERDICT: cleared（无 CRITICAL）。此处按「无 Critical 但留 High 建议」落 needs_revision，未以自审冒充双模型通过。",
+    "at": "2026-10-18T03:52:00.000Z"
+  }
+}

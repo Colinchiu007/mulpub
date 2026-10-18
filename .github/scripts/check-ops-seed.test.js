@@ -37,6 +37,8 @@ function makeSeed (overrides = {}) {
     pipelineOptions: {},
     appMenu: null,
     contentCategories: { items: [{ category_key: 'general', name: '综合', sort_order: 0 }], count: 1 },
+    // 字数控制（story-text-limit-control）：契约 object-or-null，缺省下发 null（fail-open）
+    storyTextLimit: null,
   }
   Object.assign(seed, overrides)
   if (!overrides._meta) {
@@ -82,11 +84,11 @@ test('第 1 条：缺任一数据块即失败', () => {
   assert.ok(r.errors.some((e) => e.includes('SEED_BLOCK_MISSING') && e.includes('keyword_watchlist')))
 })
 
-test('13 个数据块全部参与 hash（漏一个就说明白名单不全）', () => {
+test('14 个数据块全部参与 hash（漏一个就说明白名单不全）', () => {
   const { SEED_BLOCK_TYPES } = require(
     path.join(REPO_ROOT, 'apps', 'desktop', 'electron', 'services', 'ops-runtime-snapshot'),
   )
-  assert.equal(RUNTIME_BLOCKS.length, 13)
+  assert.equal(RUNTIME_BLOCKS.length, 14)
   const seed = makeSeed()
   // 逐块对照「null」与「非 null 哨兵」两种取值：hash 必须不同。
   // （不能写成「把块改成 X 再比」——某些块本身就是 null，改成 null 等于没改，

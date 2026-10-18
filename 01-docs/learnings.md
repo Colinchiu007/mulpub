@@ -1,3 +1,53 @@
+## 一条新判据的绕行面必须在建实现之前逐条证活；而变异反证会抓到你自己的接线断线（ban-record-closure-backfill-pr，2026-10-18）
+
+### lesson:prove-the-bypass-is-alive-before-plugging-it
+
+**给判据加"堵绕行"的档之前，先写一条证明"不堵就真的能过"的用例。** 本次 F1 那条落成的形态是：断言 `parseClosureTransitions` 对「只追加一行 PASS、首行不动」这份差量**应当返回空**。它不是在测实现，是在证明绕道是活的——只测"加锁后红"，得到的证据只覆盖夹具里那几格，真实绕行面在夹具之外（本仓把这种锁记作装饰性门禁）。同理 F2/F3 各配一条"该形态真造出来也不误红"的负控：把围栏里的示例行、把 `已由门禁推导` 这种自然中文措辞真写进差量，断言判据不咬。
+
+**配套一条纪律：反向的"存量本来就如此"必须单独钉。** 重复行档若写成"存在重复即红"，会把 10 篇历史上就写了两行的记录在每个无关 PR 上钉红；判据形态必须是"本次动作造成的状态"（`本 PR 新增了那一行 ∧ 结果仍 >1 行`），配套用例是"存量两行、本 PR 没加行 ⇒ 不红"。
+
+### lesson:every-case-injects-its-own-dependency-means-the-default-path-is-untestable
+
+**所有用例都自己注入依赖去调纯函数时，"入口有没有真的注入"这一格在测试面上不可表示。** 现场：M2 把 `main()` 里 `collect({ ... closureDiff: closure })` 的注入整条摘掉，104 条用例全绿——判据的"人工改写"档在 CLI 上从此恒不测，而打印面只换成 `prs=n/a`，读起来像"这台机器取不到差量"而不是"没人改写"，缺陷伪装成常态。
+
+**口径**：入口侧的注入参数必须有一条"跑真入口、断言产物线打了**数字**而不是 n/a"的锁，且这条锁不读源码字面量（读源码只能证明字在，不能证明跑）。本仓这是第二次撞同一形态（既有接线锁的 N6/N8：摘掉 `parseFlags(argv)`、把默认账本构造写坏，72 条全绿），所以它是结构性盲区而非偶发遗漏——新写判据时把"CLI 默认档必须自己出声证明读到了真数据"当固定项。补的第二条是端到端：拿真历史里一笔货真价实的回填 PR（`99f463121`，PR #3889）跑真 CLI，要求 rc=1 ∧ 点名那篇记录 ∧ 同趟账本首行照出数；最后那半句是防止把 rc=1 归因到别处。
+
+### lesson:常态与失明不得同形，也不可互判故障
+
+**"取不到读数"和"取到但是空"是两件事，任何一侧写错都会逼人拆锁。** spec 初稿把「diff 为空」列进未证实三形态之一；实测 main push 上 `base==head`、以及任何不碰 `openspec/records/` 的 PR 差量都为空——照那句话实现，CI 会在每一个代码 PR 上退 2，而唯一的自救路径是加 skip 开关，那条锁就死了。反过来，若空差量与"取不到"在打印面上同形，接线断了没人看得见。落成的形态是三档分形：`触碰记录=0` / `触碰记录=N` / `触碰记录=n/a`，并配一条"取不到时不得打数字"的用例。
+
+### lesson:grounded-probes-and-wrapper-argv-sniffing
+
+**按形态量的误报率必须先自证探针通路。** 第一版扫描脚本把 `git rev-parse` 的返回值带着尾换行喂给 `buildClosureDiff`，于是 120 笔全部 `ref-unresolvable`、"命中 0 笔"读起来像"零误报"——这是探针失明不是结论。处置：`.trim()` + 内建正控（已知那笔回填必须在样本内且必须被 flag），正控失守就 exit 3。另记一次同类：判"某锁有没有牙"时先看它**当场打了什么数**，不要只看 rc。
+
+**经 `codeagent-wrapper` 起第三方 CLI 时，额外 argv 会被转交给后端 CLI；prompt 含换行/引号或长度>800 时它会改走 stdin 模式。** 现场一：`node .tools/review.cjs opencode <out> <prompt-file>` 里那个 prompt-file 变成 opencode 的 `unexpected argument` 并回显自身 usage（rc=78）⇒ 一次性工具的参数一律走环境变量、不落命令行。现场二：wrapper 回显 `Using stdin mode for task due to: piped input, newline, length>800`，调用方不喂 stdin 就直接 status 1。
+
+**后端轴零交付要归因到后端本体：wrapper 的报错只能当线索，不能当归因；而探针自己也不得用管道取 rc。** 本轮 claude 轴四次零交付（三次 wrapper 报 status 1，第四次已喂 stdin 仍 1）。我先写成"少喂 stdin"——只对了一半：把 prompt 送进 stdin 后同一条命令仍然失败。绕开 wrapper 直连 `printf reply-OK | claude -p --output-format text` 才拿到定性读数：150s 不返回、rc=124、stdout 0 字节 ⇒ 该 CLI 此刻对本机不可用（短 prompt 同样超时，所以也不是"太长"）。**而第一版探针本身就是错的**：写成 `claude ... | head -5` 并读 `$?`，拿到的是 head 的 0，"rc=0 且无输出"被误读成可用——改成 stdout/stderr 各自落文件、再单独取被诊断命令的 rc。判"某工具链可用不可用"之前，先证明自己的取数姿势量得到东西（本仓同族记录：`cmd | tail` 吃 rc、「零命中＝探针失明」）。
+
+## 「尽力继续」会把真因换成症状：发布链的上游失败必须 fail-fast，且「收集了证据但没有消费者」等价于没收集（publish-failures-6，2026-10-18）
+
+用户报「一条视频发 9 平台，6 个失败」，浮层文案分别是 `publish btn not found` / `publish timeout` / `publish verification timeout` / `缺少媒体 ID` / `not logged in` / 「视频草稿链尚未实现」。逐条取证后发现**六条里四条同源**：上游关键步骤失败后没有 fail-fast，而是「best-effort 继续」，最终在「发布/验证」阶段以一条与根因无关的错误收尾。
+
+### lesson:best-effort-continue-launders-root-cause-into-symptom
+
+四条判据：
+
+- **失败的步骤和报错的步骤不是同一步时，报错几乎没有信息量。** 头条现场：`file input hasVideo=true selectorCount=0`（视频上传入口根本没登记）⇒ 上传整段跳过 ⇒ 标题/正文/按钮全都找不到 ⇒ 最后报「找不到发布按钮」。抖音现场：上传完成信号未检测到 + 标题 `readback=0`，仍继续点发布 ⇒ 65 秒后 `publish timeout`。两处的「报错步骤」都离「真正的失败步骤」隔了好几步。
+- **`if (A && B.length>0)` 是静默跳过，不是防御性写法。** 它把「平台没这个能力」变成「什么都不做、继续往下走」，而后续逻辑默认「没报错就是成功」。要判「能力是否存在」，就得**显式判定并留记录**（本轮：`fillReport.upload = {ok:false, reason:'upload-selector-missing'}`）。
+- **只写不读的证据字段等于没收集。** `fillReport` 当时是只写字段（全仓只有赋值 + draftOnly 一处消费）；收集了 title/content 失败事实却没有任何消费者在发布前检查它。判据：新加一个「结果记录」字段时，**同一次改动里必须给它一个消费者**，否则下一轮就会有人以为「已经检查过了」。
+- **丢弃返回值就是丢弃判据。** `await this._waitForVideoUploadComplete(...)` 的返回值（done / besteffort 放行）被直接丢掉，只留一条 warn。凡是「返回布尔表示是否确认」的等待函数，调用点必须接住并把它变成结构化事实。
+
+接线面的教训（本轮专门写了锁）：
+
+- **判据写得再对，没接线就一行都不生效，而「没接线」在只有单元测试的仓里看不见。** 因此新增了 3 条**接线锁**（`publish-precondition-wiring.test.js`）：断言「拦下时发布按钮的 `_click/_clickStable/_clickViaCdp` **一次都没被调用**」——把门禁那几行删掉，用例立刻红。
+- **拦截点要选在副作用之前。** 发布按钮点击是真实提交尝试（平台风控面）；拦在点击**之前**，失败就等于「平台写操作必然未发生」，可以**显式**标 `definitelyNotSent` 回滚发布间隔窗口，比用错误文本去猜封闭词表可靠一个量级（词表本身也明确拒绝收录中文短语，因为可能发生在动作之后）。
+- **拆文件时判据要跟着改形态，不能放宽。** 把上传整段下沉到 `upload-waiter._runVideoUpload` 后，「上传先于标题填充」这条不变量的证据跨了两个文件：`_publish_generic` 里调用点仍须早于 `'filling title...'`，注入文件与表单就绪等待在 `_runVideoUpload` 里。正解是按新形态分别断言，不是「找不到就跳过」。
+
+文案层的教训：
+
+- **两种不同处境共用一句话，等于把用户引向错误方向。** 公众号 `saved=false`（保存没被确认）与「保存成功但采集不到 mediaId」被合并成「缺少媒体 ID」；用户于是去找媒体 ID，而真实情况是保存根本没落地。分层判据：先把「动作是否被确认」判出来，再谈「采集是否成功」。
+- **否定句里的正向短语会污染下游文本分类器。** 本轮新用例当场抓到：文案写「也未出现「保存成功」提示」，而仓库多处按正则判成功 ⇒ 假阳。正解是换词（「保存完成」），不是放宽判据。
+
 ## 三条「看起来是我引入的 CI 红 / 提交污染」其实都有固定归因路径（startapp-skill-harden + flake-coverage-timeout，2026-10-18）
 
 ### lesson:judge-ci-red-by-timeout-frequency-and-change-scope
@@ -20555,6 +20605,23 @@ CI 把 `QG Static` 钉红在 Gate 2c，红的是 `check-unwired-tests.test.js` �
   `spawnSync codeagent-wrapper.exe ETIMEDOUT`（依赖体检能解析到可执行文件、但实际调用不可用）。
   按「子代理降级」立即降级为主代理对抗性自查，**status 可置 `cleared` 但 `performedBy` 必须写明降级与依据**，
   不得谎称跑过 dual。历史同形态先例 `14179872`。
+- **pitfall｜Vue 模板引用「模块级 import 的常量」会静默渲染成 `undefined`，且不会有任何告警**（story-text-limit-control，2026-10-18 实测发现的**存量缺陷**）：`CreateView.vue` 模板写 `{{ story2videoTextCharacterCount }}/{{ MAX_STORY2VIDEO_TEXT_CHARACTERS }} 字符`，而 `MAX_STORY2VIDEO_TEXT_CHARACTERS` 只是 `import { … } from '@/story2video/story2video-notifications'`。Vue 3 Options API 的 render proxy 只解析 `data` / `computed` / `methods` / `props` / `$setup` 与 `allowedGlobals`（`Math`/`Date` 等白名单），**ES module import 不在其中**。后果是用户看到的是 `1234/ 字符`（批量面板则是 `每条最多 undefined 字`），既没报错也没有 lint 规则覆盖 —— 它活到今天是因为**没有任何测试断言过这一行渲染出来的文本**。判据：`grep` 任何 `<template>` 里出现的「全大写常量名」，逐个确认它在 `data`/`computed` 里有同名项；没有就是这条坑。
+
+- **pattern｜「把某个产品参数做成运营可配」的真正成本不在改数字，在跨端签名契约**：6000 → 10000 本身是 1 行；让它可配要新增**签名运行时下发块**（`storyTextLimit`）、两端 `RUNTIME_BLOCKS` 白名单**成对** +1（13→14）、`config_hash` 固定向量全部重算、随包种子 `runtime-bootstrap.json` 补键并重算 `_meta.config_hash`、三层降级（内存 / L2 快照 / L3 种子 / 内置默认）每层都要各自能回落。判据：**两端都必须有「块数量 == N」的显式断言**（服务端 pytest + 客户端 vitest），漏一侧的后果是 `config_hash` 两端不同 ⇒ 客户端 ACK 永不被认可、运营看板「是否生效」永久失真，且**不会有任何报错**。
+
+- **pitfall｜跨端下发里的比例/阈值不能用浮点（`0.9`），必须用百分比整数**：两端 `config_hash` 的 canonical 序列化都对非整数 **fail-closed**（服务端 `assert_integer_numbers`、客户端 `assertNoFractionalNumbers`）—— JS 写 `1.5e-7`、Python 写 `1.5e-07`，指数补零差异足以让两端 hash 不同。所以本项目已用 `warnPercent: 90` 而不是 `warnRatio: 0.9`。设计数值型下发字段前先问一句「两端 canonical 序列化会不会写出不同文本」。
+
+- **pitfall｜改渲染端的字面量上限前，先 grep 主进程有没有第二份**：本次渲染端 `MAX_STORY2VIDEO_TEXT_CHARACTERS = 6000` 之外，主进程 `story2video-text-config.js` 还有一份 `MAX_STORY2VIDEO_TEXT_UNICODE_CHARS = 6000`，被 `story2video-batch-queue.js` 的批量校验消费。只改渲染端的结果是「前端放行 10000、主进程批量队列仍按 6000 拒绝」，且**单测全绿**（两侧各测各的）。判据：`git grep -n "<字面量数值>"` 覆盖 `apps/desktop/src` 与 `apps/desktop/electron` 两侧，不要只看自己正在改的那一半。
+
+- **fact｜运营中心前端契约文档写 camelCase、后端实际返回 snake_case ⇒ 保存永远 400**：任务书里把响应形状写成 `{maxChars, warnPercent, scopeLabel}`，而后端 `_to_dict()` 产出 `{max_chars, warn_percent, label}`，`upsert` 读的也是 `raw.get("max_chars")`。前端按任务书写完单测能全绿（自测自的），一联调就 400。本仓运营中心管理接口的既有约定是 **snake_case**（`Parameters.vue` 用 `row.value_type`、`PipelineOptions.vue` 用 `option_key`）。判据：写接口层之前先读后端 service 的 `_to_dict` 真实键名，并用后端自己的 `_validate_*` 做一次跨语言干跑（把前端产出的 payload 直接喂进去）。
+
+- **pitfall｜`el-input-number` 的 `:min/:max` 与 `:precision` 都是「静默纠正」，与「越界给中文提示」的产品要求直接冲突**：`:min/:max` 会把运营输入的 60000 夹成 50000（运营者以为设的是 60000）；`:precision="0"` 会把 1000.5 四舍五入成 1001。两者都让「配错了」看起来像「配对了」——正是数值配置页最该防的失效形态。正解：不传 `:min/:max`/`:precision`（Element Plus 默认 `±Number.MAX_SAFE_INTEGER`、不做钳制），把区间交给**行内校验提示 + 保存按钮禁用**。
+
+- **pitfall｜写「可手动同步」这类跨端提示语前，必须先确认那个入口真的存在**：本次任务书让我写「保存后桌面端最长 24h 内生效、可手动同步」，实测全是假的 —— `opsCenterSyncNow` 在 2026-10-15 已从渲染端删除（`apps/desktop/src/api/ops-center-sync.js:7-8`），`MpSidebar.vue:126-127` 明写「应用端不暴露手动同步入口」，桌面端 `autoSyncOnStart()` 只有 `setTimeout 3000` 一次、全文件无 `setInterval`。而且运营中心本就有单一真源 `ops-center/frontend/src/constants/runtime-delivery.js`（`RESTART_HINT_WHEN` / `RESTART_HINT_HOW` / `RESTART_HINT_DURATION`）+ 结构锁 `tests/restart-hint.test.js` C1 禁止第二份字面量。**新增下发页面的成功提示必须 import 这组常量，不得自己重写一句同义文案**。
+
+- **bug（未修，已登记）｜`config_hash` 白名单里有两个块自带 `synced_at`，等于每请求都把 hash 变一次**：`app_menu_service.py:306` 返回 `{"items": [...], "synced_at": _now()}`、`content_category_service.py:343` 返回 `{"items": [...], "count": n, "synced_at": _now()}`，而 `appMenu` / `contentCategories` **都在** `RUNTIME_BLOCKS` 里。后果：每次 bootstrap 的 `config_hash` 都不同（实测同库连跑两次：`f8a5b99df879ac71/ver1` → `dd3dfca7ccd2e587/ver2`，`RuntimeConfigVersion` 落两行），`config_version` 每次都 +1 ⇒ 「生效看板」永远确认不了、版本表无限增长。这与 `config_fingerprint.py` 注释第 1 条「`synced_at` 每次请求都变，纳入则 hash 永远变、变推送地狱」**直接自相矛盾**——注释写对了，实现对不上。**修它要改这两个块对桌面端的消费形状（渲染端 `appMenu` 归一化把 `items` 挑出来用），属跨端破坏性变更，本轮只登记不修**；判据：任何要进 `RUNTIME_BLOCKS` 的块，其载荷里不得含 `synced_at` / `updated_at` 这类每请求变化的字段，加块时用 `canonical_json` 连算两次比对是否相等。
+
+
 ## 「我的测试全绿」这句话在本仓有两种读数，只读一行会骗人（ux-audit 阶段 1 批次 B，2026-10-18）
 
 ### lesson:collect-error-invisible-in-tests-line-and-hoisting-tdz

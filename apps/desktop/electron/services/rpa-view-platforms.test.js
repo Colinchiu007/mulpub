@@ -959,15 +959,6 @@ describe('rpa-view-platforms — 视频发布页字段填充时序（2026-09 E2E
     return source.slice(start, end > 0 ? end : undefined)
   }
 
-  it('_publish_generic：视频上传发生在标题填充之前', () => {
-    const body = getGenericBody()
-    const uploadIdx = body.indexOf('_setFileInput(win, article.video_path')
-    const titleIdx = body.indexOf("'filling title...'")
-    expect(uploadIdx).toBeGreaterThan(-1)
-    expect(titleIdx).toBeGreaterThan(-1)
-    expect(uploadIdx).toBeLessThan(titleIdx)
-  })
-
   it('_publish_generic：导航后调用弹窗清理（草稿恢复/引导遮罩）', () => {
     const body = getGenericBody()
     expect(body).toContain('_dismissPostNavDialogs')
@@ -978,33 +969,6 @@ describe('rpa-view-platforms — 视频发布页字段填充时序（2026-09 E2E
     // 快手草稿弹窗两按钮（放弃/继续编辑）与通用引导按钮（我知道了/知道了）都在处理范围内
     expect(source).toContain('放弃')
     expect(source).toContain('我知道了')
-  })
-
-  it('_publish_generic：上传后有编辑器表单就绪等待（而非直接填字段）', () => {
-    const body = getGenericBody()
-    const uploadIdx = body.indexOf('_setFileInput(win, article.video_path')
-    const titleIdx = body.indexOf("'filling title...'")
-    const formWait = body.slice(uploadIdx, titleIdx)
-    expect(formWait).toContain('_waitForCondition')
-  })
-
-  // smoke4（2026-09-23）实锤：旧上传完成判定 !p||s 在快手/B站立即为真（页面根本
-  // 不用 progress class），导致还在上传落地页就点发布→全部失败。统一改为
-  // 共享的强判定：进度元素不可见 且（可见 video 预览 或 已跳转编辑页 URL）。
-  it('视频上传完成强判定存在于 generic 与 douyin 两条链路', () => {
-    const source = readPlatformsSource()
-    expect(source).toMatch(/async\s+_waitForVideoUploadComplete\s*\(/)
-    const genericStart = source.indexOf('async _publish_generic')
-    const genericEnd = source.indexOf('\n  // ========== ', genericStart + 10)
-    const genericBody = source.slice(genericStart, genericEnd > 0 ? genericEnd : undefined)
-    expect(genericBody).toContain('this._waitForVideoUploadComplete(')
-    const douyinStart = source.indexOf('async _publish_douyin')
-    const douyinEnd = source.indexOf('\n  async _', douyinStart + 10)
-    const douyinBody = source.slice(douyinStart, douyinEnd > 0 ? douyinEnd : undefined)
-    expect(douyinBody).toContain('this._waitForVideoUploadComplete(')
-    // blob 本地预览在注入瞬间就存在，判定必须要求 https 服务端预览源（smoke5 实锤）
-    expect(source).toMatch(/currentSrc/)
-    expect(source).toMatch(/indexOf\("https:"\)===0/)
   })
 })
 
@@ -1047,6 +1011,12 @@ describe('rpa-view-platforms — 选择器候选回退与标题写编辑器（li
     // 这样测试才真的能验证「首个候选不存在时回退到下一个」这条取证结论
     ctx._resolveSelector = (...args) => platformsMixin._resolveSelector.call(ctx, ...args)
     ctx._composeEditorCaption = (...args) => platformsMixin._composeEditorCaption.call(ctx, ...args)
+    // publish-precondition-gate（2026-10-18）：上传整段已下沉到 upload-waiter 的
+    // `_runVideoUpload`。这条用例的 ctx 是手造对象（不是 Object.assign(mixin, …)），
+    // 所以必须像 _resolveSelector 一样把真实实现接上——否则 this._runVideoUpload
+    // 在 ctx 上不存在，「上传发生在标题之前」这类顺序断言会直接失去被测对象。
+    ctx._setFileInput = vi.fn().mockResolvedValue(true)
+    ctx._runVideoUpload = (...args) => platformsMixin._runVideoUpload.call(ctx, ...args)
     return ctx
   }
 

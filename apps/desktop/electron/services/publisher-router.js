@@ -15,7 +15,7 @@ const path = require('path')
 const { execFile } = require('child_process')
 const logger = require('./logger')
 // publish-frequency-policy-v2 P0-1：把「可确证未送出」的登录态族失败打标，供队列回滚间隔窗口
-const { markDefinitelyNotSent } = require('./publish-not-submitted')
+const { markNotSentByResult } = require('./publish-not-submitted')
 // fix-risk-hold-false-positive P0-1：抛错时把适配器已算出的结构化风控信号（code / risk_blocked）
 // 搬到 Error 上，使上层判定可以「结构化优先、文本兜底」而不是靠错误文本猜关键词。
 const { attachRiskSignals } = require('./publish-risk')
@@ -605,7 +605,8 @@ class RpaVmPublisher {
       // 先判登录态并 early-return，早于任何表单填充/提交）⇒ 打标后由队列回滚间隔窗口。
       // 词表是封闭的（services/publish-not-submitted.js），未命中一律按已提交处理（保守侧）。
       const rpaErr = new Error(result.error || 'RPA 发布失败')
-      markDefinitelyNotSent(rpaErr, result.error)
+      // publish-precondition-gate 的显式标优先，封闭词表兜底（见 markNotSentByResult）
+      markNotSentByResult(rpaErr, result)
       // P0-1：RPA 轨也会回传结构化风控信号（如微信/知乎轨的 code），一并搬运，
       // 否则上层只能靠文本关键词猜 —— 猜错的代价是冻结账号。
       attachRiskSignals(rpaErr, result)

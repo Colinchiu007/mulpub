@@ -99,6 +99,91 @@
 - **文档**：`01-docs/PRD-UX-AUDIT-IMPLEMENT-2026-10-18.md` 新增 §11（流程 / 显示项 / 提示文字 zh-en 全清单 / 数据校验表 / 不变量与锁位 / 如实记录），`openspec/changes/ux-audit-implement/specs/desktop-ui-experience/spec.md` 新增 4 条 Requirement（含"引导只有单一真源且完成标记只由用户动作写入"、"全局注册组件必须被模板消费"、"帮助页每条指引必须有可达落点"），执行记录追加批次 B 段。
 - **既有假红如实登记**：`preload.test.js` 的 system 模块计数在把 `system.js` 精确还原到 HEAD 后实测 **140**、而断言写 139 ⇒ 该棘轮在本批动手前已差 1；本批按当场测得值改 137 并留下控制对照过程。`electron/services/feedback.test.js` 的 `fs.symlinkSync` 在本机报 `EPERM`（Windows 非特权进程不能建符号链接），与本批无关，判据以 CI 现场为准。
 
+# [未发布] feat(gate): 「禁止为改写收口行另开 PR」装上执行体 —— 按 PR 差量判人工改写，堵住"散文有规矩、没人装闸"（ban-record-closure-backfill-pr）
+
+- **立项事由**：#3879 把执行记录的「远程同步」收口改成按主干历史推导，并在 AGENTS 明文禁止"为改写那一行另开一次 PR"。禁令落主干（merge `b49510794`，03:43 +08）后 6 分钟内起，实测仍有 4 笔回填 PR 按旧 SOP 执行——#3889 03:49、#3891 04:18、#3890 04:20、#3884 09:15。成因不是有人抗命，是并发会话带着旧口径的分支与提示在跑，而那条禁止只存在于文字里，**没有任何东西检测它**。
+- **判据形态是「行级状态词跃迁」，不是「本 PR 只动了那一行」**：窄判据实测漏 2/4——#3890 与 #3891 除了那一行还加了 `### main push 回读` 小节、QM-1/QM-4 状态与视觉基线闭合说明。照窄写法会把这条锁写成必然漏判的装饰门禁。现形：同一篇记录里删除侧 `远程同步` 行未收口 ∧ 新增侧是闭合词 ⇒ 判红并点名文件。
+- **四条绕行逐一封口**（跨家族评审 F1–F5 命中，每条先证绕行是活的再堵）：追加第二行 PASS 而不动首行（跃迁配对看不见它，派生收口也照常绿）；代码围栏里的示例行顶替真实行进配对；`已由门禁推导` 被 `CLOSED_RE` 的 `已` 前缀误判成人工闭合；改名/整删把配对拆到两个文件；以及只改 `- 保留门禁：… | 远程同步 PENDING` 这条 bullet 而不动表格行。重复行档只判「本 PR 新增了那一行 ∧ 结果仍 >1 行」，不判「存在重复」——后者会把 10 篇两行都写好的历史记录在每个无关 PR 上钉红。
+- **git 取源必须长在判据外面**：基线规格 `quality-gate-execution-record` 第一条就写着「MUST NOT 在判据内另写 git 解析」，且该禁令已有两条在跑的锁钉住。新增 `scripts/lib/pr-record-diff.js` 作 PR 差量取源的单一实现（三点式 `base...head`、`--no-renames`、`core.quotepath=off`）；闭合词表与状态列取法仍留在判据侧——词表搬进模块就是第二份口径，两份必然漂移，漂移方向是"换个新词绕过"或"误伤合法新词"。
+- **两点式与三点式的差别只在文件集、不在红集**：本机对照实验（base 之后由他人合入一篇记录、base 取该合并的父提交、head 只改 mine.md）读数——两种模式红集**逐字相同**，文件集两点式 2 / 三点式 1。所以这条只能钉在文件集断言上；钉在红集上就得到一条"既精确又无用"的锁。变异 M5（退回两点式）实测红 5 条，其中指名的那条就是文件集断言。
+- **空差量是仓库常态，不是门禁故障**（spec 初稿写错，当场实测纠正）：main push 上 `base==head`、以及任何不碰记录文件的 PR，差量都为空；照「diff 为空 ⇒ 未证实 ⇒ CI 非零退出」实现，等于让每一个代码 PR 退 2，唯一出路是逼人给判据加 skip 开关。现口径是三档读数在打印面上分形：`触碰记录=0`（没碰）/ `触碰记录=N`（碰了 N 篇且逐篇判过）/ `触碰记录=n/a`（没测到）。把工具的失明读成清白、把仓库常态读成故障，是同一枚硬币的两面。
+- **误报主张从「以标题为真值」升级为「形态级 + 注入探针」**：对 origin/main 最近 **120 笔 squash 合并**逐笔跑真判据，命中 52 笔，差量形态逐笔归类**全部是 `PENDING → PASS`**（54 处跃迁），标题非「回填/远程同步/收口/销账」的命中数 0；正控是已知回填 #3889（`99f463121`）当场「在样本内 ∧ 被 flag」，正控失守时扫描器自己 exit 3 而不是报一个漂亮的 0。标题一致只算旁证——本 change 的立论恰恰是自述口径会失灵，拿它当真值就是循环论证。
+- **变异反证抓到自己一处断线**：M2（把 CLI 里 `closureDiff` 的注入整条摘掉）首跑 **PASSED**，104 条用例全绿。根因是所有用例都自己注入 closureDiff 去调 `collect()`，于是"CLI 那条路有没有把差量喂进判据"这一格在测试面上**根本不可表示**。处置是补两条不读源码字面量的锁——接线锁的 stdout 加 `HAND-CLOSURE … 触碰记录=\d+` 数值档并反向禁 `prs=n/a`，以及一条拿真历史回填 PR 跑真 CLI 的端到端用例（要求 rc=1、点名那篇记录、同趟 `MERGE-LEDGER prs=\d+` 照出数，防止把红归因到别处）。复跑 M2 ⇒ CAUGHT。实跑 16 条变异（M4 已撤销）全部指名。
+- **落地不动存量**：判据兼容读旧形态（36 篇手写 PASS 原样保留，随各自下次自然改动收敛）；旧载体 `.quality-gates.md` 与 `scripts/gate-record-debt-ledger.json` 不在扫描域，关闭其中已存在的历史行仍是合法通道；`_TEMPLATE.md` 加"不要手工改写那一行"的注；AGENTS「PR 自动合并」第 3 条补机械口径与三条正解、第 6 条补「main push 回读的读数写 PR 评论、不落仓库文件」。测试 **77 → 108 例**。
+
+# [未发布] fix(publish): 发布失败 6 平台归因 —— 上游失败不再「尽力继续」，加发布前置门禁（publish-failures-6）
+
+- **现场**：一条视频发 9 平台，进度浮层「成功 3/9 · 6 个失败」。六条里**四条同源**：上游关键步骤失败后没有 fail-fast，而是「尽力继续」，最终在「发布/验证」阶段以一条与根因无关的错误收尾。
+- **真因（日志+截图取证，非推测）**：
+  - 头条 `publish btn not found` ← `file input hasVideo=true selectorCount=0`：`videoPublishUrls.toutiao` 指向西瓜上传页，而 `PLATFORM_PUBLISH_SELECTORS.toutiao` 是图文文章页那套、**无 `file_input`** ⇒ 上传整段被跳过，标题/正文/按钮全部落空。
+  - 抖音 `publish timeout` ← `upload-complete signal not detected … continuing best-effort` + `title: fill not applied (readback=0)`：上传未确认、标题未写入仍继续点发布。
+  - 公众号「缺少媒体 ID」← 活日志 `save done without mediaId (saved=false … xhr=200)`：**保存动作本身没被平台确认**，被报成媒体 ID 采集失败。
+  - 快手 `publish verification timeout` ← 作品列表最新 10-12、本次无新增：确实没发出去（验证正确，文案误导）。
+  - 视频号 `not logged in` ← 页面被重定向到 `channels.weixin.qq.com/login.html`：登录态确实失效（真阳性）。
+  - 小红书 ← 主动拒绝（用户硬约束：视频草稿链未实现）。
+- **修复**：新增 `apps/desktop/electron/services/publish-precondition.js`（P1 能力/P2 上传/P3 标题/P4 正文四判据 + 可操作文案），在**点发布按钮之前**判定；不成立即返回 `preSubmitBlocked + definitelyNotSent`，由 `publisher-router` 经 `markNotSentByResult` 显式打标回滚发布间隔窗口（与 #3855 的 `release()` 修复联动）。视频上传整段下沉到 `upload-waiter._runVideoUpload`（含三态记录 + 选择器缺失判定），并接住 `_waitForVideoUploadComplete` 返回值（旧版丢弃）。
+- **公众号文案分层**：新增 `describeUnconfirmedSave()`，把「保存未被确认」与「采集不到 mediaId」分开；措辞避开「保存成功」以免污染下游文本分类器。
+- **测试**：`publish-precondition.test.js`（12 例）、`publish-precondition-wiring.test.js`（3 例，含「拦下时 `_click` 一次都没被调用」的接线锁）、`publish-upload-order.test.js`（5 例，上传时序跨模块结构锁）、`wechat-mp-draft-mediaid.test.js`（+4 例）。
+- **未闭合**：头条视频选择器需真机 DOM 取证；小红书视频草稿链未实现；视频号登录失效属账号域；快手发布时 toast 未捕获；抖音「转码中」竞态。
+- 文档：`01-docs/PRD-PUBLISH-FAILURE-ATTRIBUTION-2026-10-18.md`、`01-docs/BUGFIX-PUBLISH-FAILURES-6PLATFORMS-2026-10-18.md`、`openspec/records/publish-failures-6.md`。
+
+# [未发布] feat(create): 故事讲述文案上限 6000 → 10000，并接入运营中心新增「字数控制」（story-text-limit-control）
+
+## 需求与结论
+- **用户诉求**：视频创作 → 故事讲述流水线（`story2video-compose`）的文案输入框上限从 **6000** 改为 **10000**；
+  并核查运营中心是否有相应设置可控——**没有**，就在运营中心菜单里加一项「字数控制」。
+- **现状核查（逐项排除，均有代码级证据）**：`选项控制` 管的是流水线**表单字段**的显隐/默认值
+  （`option_key` 受 `^[a-z]+\.[a-zA-Z_][a-zA-Z0-9_]*$` 与 group 白名单双重校验，放不进「一个全局数值上限」）；
+  `项目参数` 走 `config_items` → `/api/v1/sync/{project}/params` **写 YAML 文件**，**不参与运行时下发**、桌面端读不到；
+  `功能开关` / `桌面端功能开关` 是布尔/枚举语义，塞数值属语义错位。⇒ 必须新增。
+
+## 跨端契约（新增签名下发块）
+- 新块名 `storyTextLimit`，类型 `object-or-null`，形状 `{ "story2video": { "maxChars": <int>, "warnPercent": <int> } }`。
+- **只允许整数**：两端 `config_hash` 的 canonical 序列化都会对非整数/非有限数 fail-closed
+  （服务端 `assert_integer_numbers`、客户端 `assertNoFractionalNumbers`）；一旦混入 `0.9` 这类值，
+  `config_hash` 降级为空串、`config_version` 归零，全量客户端永远判「hash 未变」而看板上的「是否生效」从此失真。
+  因此预警阈值用**百分比整数**表达（`warnPercent`），这是本轮唯一被否决的「更直观」选型（`0.9` 浮点）。
+- **两端 `RUNTIME_BLOCKS` 白名单必须成对改**：13 → 14。漏一侧 ⇒ 两端 `config_hash` 不同 ⇒ 客户端 ACK 永不被认可。
+  两条数量断言（服务端 pytest / 客户端 vitest）互为锁。
+- 该块位于 `sign_runtime_payload` 的 `payload` 内层，**在 Ed25519 签名覆盖范围内**（不是签名后追加）。
+
+## 桌面端
+- `MAX_STORY2VIDEO_TEXT_CHARACTERS` 由 6000 改为 **10000**，语义收窄为「内置默认值」，
+  真实上限由运行时下发决定；计数分母 / 截断阈值 / 启动校验 / 批量占位符 / 切换流水线预填截断**统一引用生效值**。
+- 新增纯函数模块 `story-text-limit.js`：`resolveStory2VideoTextLimit(runtimeState)` 逐字段独立回落
+  （`null` / 非对象 / 非整数 / 越界都只让**该字段**回落默认，绝不抛错、绝不阻塞创作），并给出 `source`。
+- 三档色阶由固定 `max*0.9` 改为 `warnPercent` 驱动（默认 90 ⇒ 与历史行为逐值一致，`floor` 取界不变）。
+- `TEXT_TOO_LONG_PATTERN` 原先把上限写死在正则里（`超过\s*6000|最多\s*6000`），上限可配后会**把「超过 10000」判为不匹配**
+  ⇒ 改为数字通配，并补测试锁住 6000/10000 两档同时命中。
+- **主进程还有第二处硬上限，本轮一并接线**：`story2video-text-config.js` 的
+  `MAX_STORY2VIDEO_TEXT_UNICODE_CHARS = 6000` 被 `story2video-batch-queue.js` 的批量校验消费。
+  只改渲染端的结果是「前端放行 10000、主进程批量队列仍按 6000 拒绝」，**而且两侧单测全绿**（各测各的）。
+  现改为 `setStoryTextLimitProvider` 运行时读取（`phase1-context.js` 接线 `opsCenterSync.getRuntimeState().storyTextLimit`），
+  未接线 / provider 抛错 / 非法值一律回落 10000。
+- **`publish.content` 的耦合陷阱（会表现为「运营配置合法、启动失败」）**：该字段默认 fallback 就是脚本正文，
+  而字段级 `textValue()` 上限 20000 且**超限即 throw**。运营把 `maxChars` 配到 20000 以上时，
+  脚本先过字数闸再被 `publish.content 超过 20000` 拦。处置：该字段闸取 `Math.max(20000, textLimit)` ——
+  默认 10000 时仍是 20000（**与改动前逐字节一致，不松绑发布描述**），仅当运营显式调过 20000 才跟随。
+- **顺带修掉一处用户可见存量缺陷**：`CreateView.vue` 模板原写
+  `{{ story2videoTextCharacterCount }}/{{ MAX_STORY2VIDEO_TEXT_CHARACTERS }} 字符`，而该常量只是模块级 `import`，
+  不在 Vue 实例的 render proxy 上（Vue 3 只解析 `data`/`computed`/`methods`/`props`/`$setup` + `allowedGlobals`）
+  ⇒ 计数行实际渲染成 `1234/ 字符`、批量面板渲染成 `每条最多 undefined 字`。
+  现改为渲染 `story2videoTextMaxChars` 计算属性（并删除所有同名别名，避免读者误以为它是常量）。
+
+## 运营中心
+- 新增「字数控制」页（`/story-text-limit`，仅管理员）：按 `scope` 列表，本轮一行「故事讲述」，
+  可改字数上限（1000~50000，默认 10000）、预警阈值（50~99，默认 90）、启用与备注，支持恢复默认。
+- 后端新增 `story_text_limits` 表 + service + router；沿用 `app_menu_service` 的既有决策：
+  **写入口 fail-closed（未知 scope / 越界 / 非整数一律 400）、读出口 fail-open（未知 scope 忽略）**，
+  并带「目录欠账只补不覆盖」的 provision —— 缺这一步时新 scope 会在运营端永久消失而客户端照常显示。
+- 页面与提示语明确「保存后桌面端在**下一次配置同步**时生效（最长 24h，可手动同步）」，避免运营者反复保存以为没生效。
+
+## 文档
+- 新增 `01-docs/PRD-STORY-TEXT-LIMIT-CONTROL-2026-10-18.md`：现状核查表、契约三不可破、字段校验表、
+  三段流程（配置/下发/降级）、逐条功能逻辑（计数口径/三档色阶/截断/启动闸/预填/批量/刷新时机/错误识别）、
+  交互逻辑、显示项清单、提示文字清单、13 条边界、迁移兼容、非功能、10 条验收、测试矩阵、风险。
+- 修订 `01-docs/PRD-S2V-PIPELINE-PAGE-UX.md` §11.5 第 4 条：原文写着「`textarea` 设 `maxlength`」「计数为实时 `length`」，
+  **两处都与代码不符**（实际无 `maxlength`，且计数是 Unicode 码点 `Array.from().length`），本轮一并纠正并写清为什么不能改。
 # [未发布] fix(gates): 深度审查台账的 alt 形态白名单跟上生产方投影（ccg-alt-form-producer）
 
 - **当场行为探测推翻了「已修」的假设**：main 的 `AUDIT_ARTIFACT_RE` 只接受 `\d{8}T\d{6}(.\d{1,3})?Z`，而生产方（`ccg-review-decider` 的 `new Date().toISOString().replace(/[:.]/g, '')`）**删掉冒号与点、保留日期里的连字符** ⇒ 真实投影是 `2026-10-18T021638562Z`，实测 `RE.test(生产方文件名) = false`。也就是说判定记录一旦被写成 alt 形态，判据会把它当「不是审计产物」而整条跳过。

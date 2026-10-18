@@ -14,8 +14,16 @@ import {
   SCENE_AUDIO_REGENERATE_FAILED_PATTERN, SCENE_PROMPT_REGENERATE_FAILED_PATTERN,
   SCENE_AI_VIDEO_GENERATE_FAILED_PATTERN,
 } from './notification-error-patterns'
+import { DEFAULT_STORY2VIDEO_TEXT_LIMIT } from './story-text-limit'
 
-export const MAX_STORY2VIDEO_TEXT_CHARACTERS = 6000
+/**
+ * 内置默认文案上限（Unicode 码点）。
+ *
+ * 语义收窄（story-text-limit-control）：这里是**内置默认值**，不再是硬上限。
+ * 真实生效上限由运营中心运行时下发块 `storyTextLimit.story2video.maxChars` 覆盖，
+ * 解析入口见 ./story-text-limit.js（缺省/非法时回落本值）。
+ */
+export const MAX_STORY2VIDEO_TEXT_CHARACTERS = DEFAULT_STORY2VIDEO_TEXT_LIMIT.maxChars
 
 export const STORY2VIDEO_NOTIFICATION_KEYS = Object.freeze({
   MODEL_CONFIGURATION_REQUIRED: 'story2video.model_configuration_required',

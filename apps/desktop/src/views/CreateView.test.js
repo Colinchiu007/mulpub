@@ -1435,9 +1435,9 @@ describe("CreateView - quick render", () => {
     w.unmount();
   });
 
-  it("超长草稿预填不在加载时截断，选中编排流水线时才截断到 6000 码点", async () => {
+  it("超长草稿预填不在加载时截断，选中编排流水线时才截断到 10000 码点", async () => {
     const mocks = await import("@/api/publisher");
-    const longText = "字".repeat(6500);
+    const longText = "字".repeat(12000);
     mocks.draftList.mockResolvedValueOnce({
       code: 0,
       data: [{ id: "draft_long", content: longText }],
@@ -1447,12 +1447,12 @@ describe("CreateView - quick render", () => {
     });
     await w.vm._loadDraftForRewrite("draft_long");
     await nextTick();
-    // 预填时不截断：非编排流水线（如 talking-head）无 6000 上限
-    expect(w.vm.pipelineText.length).toBe(6500);
+    // 预填时不截断：非编排流水线（如 talking-head）无字数上限
+    expect(w.vm.pipelineText.length).toBe(12000);
     // 选中编排流水线时截断 + 弹窗提示
     w.vm.selectPipeline({ name: "story2video-compose", category: "generated" });
     await nextTick();
-    expect(Array.from(w.vm.pipelineText).length).toBe(6000);
+    expect(Array.from(w.vm.pipelineText).length).toBe(10000);
     expect(w.vm.story2videoErrorDialog?.visible).toBe(true);
     w.unmount();
   });
@@ -2032,14 +2032,14 @@ describe("CreateView - S2V orchestration", () => {
     });
     w.unmount();
   });
-  it("Story2Video 在调用 IPC 前拒绝超过 6000 个 Unicode 字符的文案", async () => {
+  it("Story2Video 在调用 IPC 前拒绝超过 10000 个 Unicode 字符的文案", async () => {
     const mocks = await import("@/api/publisher");
     const w = mount(CreateView, {
       global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
-    w.vm.pipelineText = "😀".repeat(6001);
+    w.vm.pipelineText = "😀".repeat(10001);
 
     await w.vm.startPipeline();
 
@@ -2047,7 +2047,7 @@ describe("CreateView - S2V orchestration", () => {
     expect(w.vm.story2videoErrorDialog).toMatchObject({
       visible: true,
       messageKey: "story2video.text_too_long",
-      messageParams: { max: 6000, maxFormatted: "6,000" },
+      messageParams: { max: 10000, maxFormatted: "10,000" },
     });
     w.unmount();
   });
@@ -6954,6 +6954,129 @@ describe("自动流水线（非故事讲述）画幅随分辨率下发（2026-10
     expect(mocks.pipelineStartOrchestrated).toHaveBeenCalledWith("animated-explainer", expect.objectContaining({
       aspectRatio: "16:9",
     }));
+    w.unmount();
+  });
+});
+
+/**
+ * Story2Video 文案字数上限（story-text-limit-control，2026-10-18）
+ *
+ * 默认值 6000 → 10000，并可由运营中心签名下发块 `storyTextLimit` 覆盖。
+ * 锁三态：未配置 → 10000；下发 12000 → 计数分母/截断/启动校验全链路按 12000；
+ * 下发非法值 → 回落 10000。预警档位由 warnPercent 驱动（默认 90%，与历史行为一致）。
+ */
+describe("Story2Video 文案字数上限（运营中心运行时下发）", () => {
+  const mountView = () => mount(CreateView, {
+    global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+  });
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineStartOrchestrated.mockResolvedValue({ code: 0, data: { runId: "run-text-limit" } });
+    mocks.pipelineGetRunContext.mockResolvedValue({ code: 0, data: { status: { status: "paused" }, context: {} } });
+    mocks.draftList.mockResolvedValue({ code: 0, data: [] });
+  });
+
+  it("未配置运营项时默认上限 10000，计数分母渲染生效值", async () => {
+    const w = mountView();
+    await nextTick();
+    expect(w.vm.storyTextLimit).toBeNull();
+    expect(w.vm.story2videoTextMaxChars).toBe(10000);
+    expect(w.vm.story2videoTextWarnPercent).toBe(90);
+    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
+    w.vm.pipelineText = "字".repeat(10000);
+    await nextTick();
+    expect(w.text()).toContain("10000/10000");
+    // 恰好 10000 不截断；10001 才截断并提示生效值
+    w.vm.enforceStory2VideoTextLimit();
+    expect(Array.from(w.vm.pipelineText).length).toBe(10000);
+    w.vm.pipelineText = "字".repeat(10001);
+    w.vm.enforceStory2VideoTextLimit();
+    expect(Array.from(w.vm.pipelineText).length).toBe(10000);
+    expect(w.vm.story2videoErrorDialog.messageParams.max).toBe(10000);
+    w.unmount();
+  });
+
+  it("运营下发 12000：计数分母、截断阈值与启动校验全部按 12000 生效", async () => {
+    const mocks = await import("@/api/publisher");
+    const w = mountView();
+    await nextTick();
+    w.vm.storyTextLimit = { story2video: { maxChars: 12000, warnPercent: 90 } };
+    await nextTick();
+    expect(w.vm.story2videoTextMaxChars).toBe(12000);
+    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
+    w.vm.pipelineText = "字".repeat(12000);
+    await nextTick();
+    expect(w.text()).toContain("12000/12000");
+    w.vm.enforceStory2VideoTextLimit();
+    expect(Array.from(w.vm.pipelineText).length).toBe(12000);
+    // 启动校验同样用 12000：12001 被拒，12000 放行
+    w.vm.pipelineText = "字".repeat(12001);
+    await w.vm.startPipeline();
+    expect(mocks.pipelineStartOrchestrated).not.toHaveBeenCalled();
+    expect(w.vm.story2videoErrorDialog).toMatchObject({
+      visible: true,
+      messageKey: "story2video.text_too_long",
+      messageParams: { max: 12000 },
+    });
+    w.vm.closeStory2VideoErrorDialog();
+    w.vm.pipelineText = "字".repeat(12000);
+    await w.vm.startPipeline();
+    expect(mocks.pipelineStartOrchestrated).toHaveBeenCalled();
+    w.unmount();
+  });
+
+  it("运营下发非法值时回落内置 10000（字符串数字/浮点/越界均不例外）", async () => {
+    const w = mountView();
+    await nextTick();
+    w.vm.storyTextLimit = { story2video: { maxChars: "12000", warnPercent: 150 } };
+    await nextTick();
+    expect(w.vm.story2videoTextMaxChars).toBe(10000);
+    expect(w.vm.story2videoTextWarnPercent).toBe(90);
+    for (const block of [
+      { story2video: { maxChars: 99999999 } },
+      { story2video: { maxChars: 12000.5 } },
+      { story2video: { maxChars: 999 } },
+      null,
+    ]) {
+      w.vm.storyTextLimit = block;
+      await nextTick();
+      expect(w.vm.story2videoTextMaxChars, JSON.stringify(block)).toBe(10000);
+    }
+    w.unmount();
+  });
+
+  it("预警档位由 warnPercent 驱动：默认 9000 起警示、达上限危险", async () => {
+    const w = mountView();
+    await nextTick();
+    w.vm.pipelineText = "字".repeat(8999);
+    await nextTick();
+    expect(w.vm.story2videoTextCountLevel).toBe("");
+    w.vm.pipelineText = "字".repeat(9000);
+    await nextTick();
+    expect(w.vm.story2videoTextCountLevel).toBe("is-warning");
+    w.vm.pipelineText = "字".repeat(10000);
+    await nextTick();
+    expect(w.vm.story2videoTextCountLevel).toBe("is-danger");
+    // 下发 warnPercent=80 / maxChars=12000 → 预警起点 floor(12000*0.8)=9600
+    w.vm.storyTextLimit = { story2video: { maxChars: 12000, warnPercent: 80 } };
+    w.vm.pipelineText = "字".repeat(9599);
+    await nextTick();
+    expect(w.vm.story2videoTextCountLevel).toBe("");
+    w.vm.pipelineText = "字".repeat(9600);
+    await nextTick();
+    expect(w.vm.story2videoTextCountLevel).toBe("is-warning");
+    w.unmount();
+  });
+
+  it("loadStoryTextLimit 读取失败时静默回落 null，不阻塞创作", async () => {
+    const w = mountView();
+    await nextTick();
+    // 测试环境无 electronAPI ⇒ invokeWithFallback 回落 code=-1，解析结果为内置默认
+    await expect(w.vm.loadStoryTextLimit()).resolves.toBeUndefined();
+    expect(w.vm.storyTextLimit).toBeNull();
+    expect(w.vm.story2videoTextMaxChars).toBe(10000);
     w.unmount();
   });
 });

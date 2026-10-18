@@ -246,6 +246,12 @@ function extractContext(container) {
   if (opsCenterSync && typeof opsCenterSync.getFeatureFlag === 'function' && typeof setFeatureFlagProvider === 'function') {
     setFeatureFlagProvider((key) => opsCenterSync.getFeatureFlag(key))
   }
+  // 故事讲述文案字数上限（story-text-limit-control，2026-10-18）：运营中心 storyTextLimit
+  // 运行时下发 → 主进程最后一道闸惰性读取（未接线/非法值回落内置默认 10000，与渲染端同一判据）。
+  const { setStoryTextLimitProvider } = require('../services/story2video-text-config')
+  if (opsCenterSync && typeof opsCenterSync.getRuntimeState === 'function' && typeof setStoryTextLimitProvider === 'function') {
+    setStoryTextLimitProvider(() => opsCenterSync.getRuntimeState().storyTextLimit)
+  }
   // 模型调用用量脱敏上报（P0 第二批）：聚合 model_provider_logs → ops-center /usage/ingest
   const { UsageReporter } = require('../services/usage-reporter')
   const usageReporter = new UsageReporter({

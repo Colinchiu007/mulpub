@@ -1,0 +1,29 @@
+{
+  "sha": "4422259ed258cf6ab2ffed68e2be389682790799",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 2 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 2,
+    "fileCount": 5,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "## 授权与风险",
+      "- [ ] 4.1 `AGENTS.md`：「不再需要回填动作」那段补执行体说明 + 复现命令（`node scripts/check-gate-record-debt.js`），并写明本条红的授权来源（用户拍板，属\"改谁来守门\"）。**按章节锚点改，禁止按行号**（该文件是热点载体，本轮实测其「合并后收尾清单」又被别的会话加过条目）。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "8ff68aac9f8b275a9976189f4f2a1520531f7c529233321b6bc33a89def3187f",
+  "decidedAt": "2026-10-18T02:17:49.561Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

@@ -144,7 +144,14 @@ const CHECKPOINT_POLICIES = new Set(['guided', 'manual_all', 'auto_noncreative',
 const STORY2VIDEO_IMAGE_PLATFORMS = PROMPT_ENGINE_PLATFORMS
 const STORY2VIDEO_PROMPT_STYLES = PROMPT_ENGINE_STYLES
 const ASPECT_RATIOS = new Set(['16:9', '9:16', '1:1', '4:3', '3:4'])
-const MAX_STORY2VIDEO_TEXT_UNICODE_CHARS = 6000
+// 文案字数上限（Unicode 码点）。story-text-limit-control（2026-10-18）起语义收窄：
+// 这是**内置默认值**，不再是硬上限 —— 真实生效上限由运营中心运行时下发的
+// storyTextLimit.story2video.maxChars 覆盖（默认 10000）。渲染端同一份解析见
+// apps/desktop/src/story2video/story-text-limit.js；两端默认值与区间必须一致。
+const MAX_STORY2VIDEO_TEXT_UNICODE_CHARS = 10000
+// 跨端契约合法区间（闭区间，与运营中心写入口校验表一致）：运营下发值只在该区间内被采纳。
+const MIN_STORY2VIDEO_TEXT_UNICODE_CHARS = 1000
+const HARD_MAX_STORY2VIDEO_TEXT_UNICODE_CHARS = 50000
 const STORY2VIDEO_TEXT_TOO_LONG_ERROR_CODE = 'story2video.text_too_long'
 const SUBTITLE_SIZE_MAP = Object.freeze({
   size1: 'size1', size2: 'size2', size3: 'size3', size4: 'size4', size5: 'size5', size6: 'size6',
@@ -168,11 +175,39 @@ function countStory2VideoTextCharacters(value) {
   return Array.from(String(value || '')).length
 }
 
-function story2VideoTextTooLongError() {
+/**
+ * 运营中心运行时读取器（phase1 接线，2026-10-18 story-text-limit-control）：
+ * 接线形态 setStoryTextLimitProvider(() => opsCenterSync.getRuntimeState().storyTextLimit)。
+ * 未接线 / 读取抛错 / 结构非法时一律用内置默认值（fail-open，不阻断创作）。
+ */
+let _storyTextLimitProvider = null
+function setStoryTextLimitProvider(fn) {
+  _storyTextLimitProvider = typeof fn === 'function' ? fn : null
+}
+
+/**
+ * 当前生效的文案字数上限：运营下发合法整数 > 内置默认值。
+ * 判据与渲染端 src/story2video/story-text-limit.js 逐条一致（严格整数 + 闭区间 1000~50000）；
+ * 字符串数字 / 浮点 / 越界 / NaN 一律回落默认，绝不 clamp（clamp 会让配置错误看起来像生效）。
+ * 主进程是最后一道闸：即使渲染端截断被绕过，也不会把超限文案送进流水线。
+ */
+function resolveMaxStory2VideoTextChars() {
+  if (!_storyTextLimitProvider) return MAX_STORY2VIDEO_TEXT_UNICODE_CHARS
+  let raw
+  try { raw = _storyTextLimitProvider() } catch (_) { return MAX_STORY2VIDEO_TEXT_UNICODE_CHARS }
+  const scope = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw.story2video : null
+  const value = scope && typeof scope === 'object' && !Array.isArray(scope) ? scope.maxChars : null
+  return typeof value === 'number' && Number.isInteger(value)
+    && value >= MIN_STORY2VIDEO_TEXT_UNICODE_CHARS && value <= HARD_MAX_STORY2VIDEO_TEXT_UNICODE_CHARS
+    ? value
+    : MAX_STORY2VIDEO_TEXT_UNICODE_CHARS
+}
+
+function story2VideoTextTooLongError(maxChars = resolveMaxStory2VideoTextChars()) {
   /** @type {Error & { code?: string, params?: { max: number } }} */
-  const error = new Error('Story2Video 文案最多 ' + MAX_STORY2VIDEO_TEXT_UNICODE_CHARS + ' 个 Unicode 字符')
+  const error = new Error('Story2Video 文案最多 ' + maxChars + ' 个 Unicode 字符')
   error.code = STORY2VIDEO_TEXT_TOO_LONG_ERROR_CODE
-  error.params = { max: MAX_STORY2VIDEO_TEXT_UNICODE_CHARS }
+  error.params = { max: maxChars }
   return error
 }
 
@@ -312,17 +347,20 @@ function normalizeStory2VideoTextParams(params = {}) {
 
   const suppliedPrompt = own(suppliedConfig, 'prompt')
   const suppliedText = firstDefined(params.text, suppliedPrompt)
-  if (countStory2VideoTextCharacters(String(suppliedText || '').trim()) > MAX_STORY2VIDEO_TEXT_UNICODE_CHARS) {
-    throw story2VideoTextTooLongError()
+  const textLimit = resolveMaxStory2VideoTextChars()
+  if (countStory2VideoTextCharacters(String(suppliedText || '').trim()) > textLimit) {
+    throw story2VideoTextTooLongError(textLimit)
   }
-  if (suppliedPrompt !== undefined && suppliedPrompt !== null && countStory2VideoTextCharacters(String(suppliedPrompt).trim()) > MAX_STORY2VIDEO_TEXT_UNICODE_CHARS) {
-    throw story2VideoTextTooLongError()
+  if (suppliedPrompt !== undefined && suppliedPrompt !== null && countStory2VideoTextCharacters(String(suppliedPrompt).trim()) > textLimit) {
+    throw story2VideoTextTooLongError(textLimit)
   }
-  const text = textValue(suppliedText, '', 'text').trim()
+  // 字段级 textValue 的默认上限是 20000，低于跨端契约上限 50000；这里显式抬到契约上界，
+  // 否则运营把 maxChars 调到 20000 以上时会在通过字数闸后又被文本字段长度拦下。
+  const text = textValue(suppliedText, '', 'text', HARD_MAX_STORY2VIDEO_TEXT_UNICODE_CHARS).trim()
   if (!text) throw validationError('Story2Video 文案不能为空')
   const prompt = suppliedPrompt === undefined || suppliedPrompt === null || String(suppliedPrompt).trim() === ''
     ? text
-    : textValue(suppliedPrompt, text, 'prompt').trim()
+    : textValue(suppliedPrompt, text, 'prompt', HARD_MAX_STORY2VIDEO_TEXT_UNICODE_CHARS).trim()
   if (prompt !== text) throw validationError('Story2Video text 与 story2videoTextConfig.prompt 必须一致')
 
   const size = normalizeSize(firstDefined(own(suppliedConfig, 'size'), params.resolution, params.output?.resolution))
@@ -538,7 +576,13 @@ function normalizeStory2VideoTextParams(params = {}) {
     enabled: booleanValue(firstDefined(own(publishInput, 'enabled'), params.publishEnabled), false),
     platforms: stringArray(firstDefined(own(publishInput, 'platforms'), params.platforms), 'publish.platforms'),
     title: textValue(firstDefined(own(publishInput, 'title'), params.title), '', 'publish.title', 200),
-    content: textValue(firstDefined(own(publishInput, 'content'), params.content), prompt, 'publish.content', 20000),
+    // publish.content 是**发布到平台的描述字段**（与平台 char limit / content-formatter 同一体系），
+    // 但它**默认继承脚本正文**（fallback = prompt），所以它的长度闸不能低于脚本上限：
+    // 否则运营把 storyTextLimit.maxChars 调到 20000 以上时，脚本先过了字数闸，却在这里被
+    // 「Story2Video publish.content 超过 20000 字符」拦下 —— 表现为「运营配置合法、启动失败」。
+    // 取 max(20000, 脚本生效上限)：默认配置（10000）下行为与本次改动前逐字节一致，
+    // 因此不构成对发布描述的策略松绑，只消除「继承正文」带来的耦合陷阱。
+    content: textValue(firstDefined(own(publishInput, 'content'), params.content), prompt, 'publish.content', Math.max(20000, textLimit)),
     tags: stringArray(firstDefined(own(publishInput, 'tags'), params.tags), 'publish.tags', 30),
     coverUrl: textValue(own(publishInput, 'coverUrl'), '', 'publish.coverUrl', 4096),
   }
@@ -757,6 +801,10 @@ module.exports = {
   MAX_STORY2VIDEO_TEXT_UNICODE_CHARS,
   countStory2VideoTextCharacters,
   normalizeStory2VideoTextParams,
+  // 字数上限运行时生效值（story-text-limit-control）：主进程最后一道闸与渲染端共用同一套判据，
+  // phase1 注入运营中心读取器后即可随运行时下发变化（不接线时回落内置默认 10000）。
+  setStoryTextLimitProvider,
+  resolveMaxStory2VideoTextChars,
   // 画幅推导规则（单一真源）：normalizeAspectRatio 与 story2video-stages 的兜底推导
   // 必须同源，否则「校验时判定为合法、运行时却用另一个画幅出图」。
   deriveStory2VideoAspectRatio,

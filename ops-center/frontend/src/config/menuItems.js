@@ -1,5 +1,5 @@
 import {
-  Bell, Camera, Collection, Connection, Cpu, DataAnalysis, DataLine, Document, Edit, FolderOpened,
+  Bell, Camera, Collection, Connection, Cpu, DataAnalysis, DataLine, Document, Edit, EditPen, FolderOpened,
   Grid, HomeFilled, Key, Lock, MagicStick, Monitor, Operation, PieChart, Postcard, Refresh,
   Search, ChatDotRound, Medal, Setting, Switch, SwitchButton, Tickets, Timer, TrendCharts,
 } from '@element-plus/icons-vue'
@@ -33,6 +33,8 @@ export const MENU_ITEMS = [
   { path: '/keyword-watchlist', label: '关键词监测', icon: Search },
   { path: '/pipeline-deps', label: '流水线依赖', icon: Connection },
   { path: '/pipeline-options', label: '选项控制', icon: Operation, adminOnly: true },
+  // 字数控制：直接决定桌面端「视频创作-故事讲述」文案输入框的字数上限，属配置下发，限定管理员
+  { path: '/story-text-limit', label: '字数控制', icon: EditPen, adminOnly: true },
   { path: '/app-menu', label: '应用菜单', icon: Grid, adminOnly: true },
   { path: '/content-categories', label: '内容类别管理', icon: Collection, adminOnly: true },
   { path: '/parameters', label: '项目参数', icon: Operation },

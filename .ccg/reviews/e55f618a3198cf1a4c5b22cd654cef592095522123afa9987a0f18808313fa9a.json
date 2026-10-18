@@ -1,0 +1,28 @@
+{
+  "sha": "f7c5ef6f848d38dddafd6e41c94e70b39154d15f",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 2,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "- [ ] 5.8 开 PR **已开** #3911（`mergeable=MERGEABLE`，`headRefOid=f7c5ef6f8`，15 文件 / +1373 −8）。**按 AGENTS「禁止自动合并的情形」第 1 与第 5 条停手**：`check-pr-exec-record.js --mode=enforce` 当场判红「CCG 深度审查欠账 1 条（mode=dual，status=pending→error）」，且 QM-6 后端轴缺失属待人工裁决争议 ⇒ 不 arm squash，把三条走法交人定（等 claude 恢复补跑 / 逐条点名豁免 / 授权按单轴闭包并如实记账）。CI 侧 `QG Changes` 已 pass，其 **advisory** 档不拦（`quality-gate.yml:157` 用 `--mode=advisory`），所以\"CI 绿\"与\"enforce 绿\"本轮是分开的两件事，不得拿前者当后者。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "e55f618a3198cf1a4c5b22cd654cef592095522123afa9987a0f18808313fa9a",
+  "decidedAt": "2026-10-18T05:27:37.095Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}
