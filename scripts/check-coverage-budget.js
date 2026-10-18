@@ -129,10 +129,11 @@ function judgeWorkflow(opts) {
     floorMinutes,
     hugging,
     violations,
-    readout: 'timeout=' + timeout + ' 需≥' + required + ' floor=' + floorMinutes +
+    readout: 'timeout=' + timeout + ' 需≥' + required + ' 余量=' + (timeout - required) + ' 分' +
+      ' floor=' + floorMinutes +
       ' samples=' + provenance.samples + ' max=' + provenance.maxMinutes +
       ' p90=' + provenance.p90Minutes + ' censored_at_ceiling=' + provenance.censoredAtCeiling +
-      '(天花板 ' + provenance.ceilingMinutesSampled + ' 分)' +
+      '(绑 ' + provenance.ceilingMinutesSampled + ' 分那条天花板，非当前值)' +
       ' collected=' + provenance.collectedAt + ' age_days=' + (Number.isFinite(age) ? age : 'NaN'),
   };
 }

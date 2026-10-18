@@ -152,6 +152,16 @@ test('8 贴天花板被杀的趟数必须进 provenance，否则"max"是被天�
   assert.equal(built.maxMinutes, 9);
 });
 
+test('8b 截尾窗口是单边下界：杀在天花板"之上一点"仍算被天花板杀，中途取消不算', () => {
+  // GitHub 掐作业有收尾延迟，实测被杀趟常比天花板多几十秒（40.3 分）；
+  // 判据若写成 |ceiling - min| <= 0.5 就会把这一格漏掉 —— 那正是"被杀"最常见的外观。
+  const built = sampler.buildProvenance(
+    [{ min: 40.3, concl: 'cancelled' }, { min: 30, concl: 'cancelled' }, { min: 12, concl: 'success' }],
+    { runsListed: 3, collectedAt: '2026-01-01', ceilingMinutes: 40 });
+  assert.equal(built.censoredAtCeiling, 1, JSON.stringify(built));
+  assert.equal(built.ceilingMinutesSampled, 40, '天花板锚点必须随读数一起出口，否则下一个人不知道它绑哪条线');
+});
+
 test('9 零样本必须出声并以非零码失败（"没采到"不得读成"没有长尾"）', () => {
   const r = sampler.summarize([]);
   assert.equal(r.samples, 0);

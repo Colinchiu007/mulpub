@@ -15,6 +15,25 @@
 
 合起来说明 40 不是"够用但运气差"，而是**已经没有余量**。
 
+## 1b. 更正一条我在 PR 初稿里写下的过断（被自家 CI 当场纠正）
+
+我最初写的是「没有任何东西在看这个数」。**不准确**：仓库里有一条锁钉着它 ——
+`scripts/gate-budget.test.js:168`（#3313 引入）原文是 `assert.equal(cov.timeoutMin, 40, 'coverage job 没有 WaitForExit 站点，本次不得顺手改它')`。
+本 PR 第一次推上去时，`QG Static` 就是被这条钉红的（`not ok 128`，`expected 40 / actual 60`）。
+
+真正的漏洞形状比"没人看"更值得记：**那条锁的理由是对的**（coverage 确实没有步级 `WaitForExit` 预算），
+**但它把"不动"写成了结论** —— 于"40 够不够"这个问题从没有进入过任何判据。
+既有锁可以既精确又守错东西（本仓"装饰性门禁"的第 N 种落点：**锁钉住的是决策的边界，不是决策的依据**）。
+
+处置不是把 40 改成 60 了事（那只是把裸字面量从一个文件搬到另一个文件），而是把它**委派**给本片的单点：
+
+```
+assert.equal(cov.timeoutMin, covProv.TIMEOUT_MINUTES, '…… 不得在本文件另写字面量')
+```
+
+反证 M11b 已实跑：把 workflow 改成 45 ⇒ `gate-budget.test.js` 红 1 条且**点名这条断言**，还原后逐字节相同。
+于是"改数值不改出处"这条路现在同时被两处拦：那条委派锁 + 本片的 `PROVENANCE_VALUE_DRIFT`。
+
 ## 2. 为什么不复用 `scripts/gate-budget.js`（以及复用了什么）
 
 `gate-budget.js` 是本仓既有的预算单一真源（#3313 立），它守的是 **Gate 4 / Desktop shard 的步级 `WaitForExit` 预算 + 作业上限**这一对；
@@ -50,7 +69,8 @@ PROVENANCE_VALUE_DRIFT provenance 记的数值 ≠ workflow 那一格的实际�
 更糟的是，只要有一趟成功恰好贴着天花板过线（今天就是 39.7），
 "用观测到的最大值当天花板"这种偷懒写法会把真正被杀的那两趟**全部读成 0**——判据最关键的输入自己失效。
 所以：天花板必须**显式给定**（`--ceiling=`，默认取 workflow 现值；回答"上一代天花板杀了几趟"要显式传 40），
-且 `censoredAtCeiling` 只数**贴天花板 ±0.5 分钟**的 `cancelled`，手动取消与被新 push 顶掉不算。
+且 `censoredAtCeiling` 是**单边下界**：`ceiling − 时长 ≤ 0.5` ⇒ 含"杀在天花板之上几十秒"（GitHub 掐作业有收尾延迟，40.3 这种形态最常见），
+排除"中途取消 / 被新 push 顶掉"（30 分的 cancelled 不算）。写成 `|ceiling − min| ≤ 0.5` 反而会把前一格漏掉 —— 这条由测试 8b 双向钉住。
 
 ## 5. 采集坐标本身会骗人（三条现场纠正）
 
@@ -63,18 +83,29 @@ PROVENANCE_VALUE_DRIFT provenance 记的数值 ≠ workflow 那一格的实际�
 
 ## 6. 证据
 
-- 自测 **16/16**（`node --test scripts/check-coverage-budget.test.js`），先红后绿：首跑红在 `Cannot find module`，实现后逐条转绿。
-- **10 道变异反证逐条实跑、红集互不相同，10/10 CAUGHT**（驱动 `.tools/tmp/coverage-timeout/mutants.cjs`，
-  基线先证绿、还原后按 md5 逐字节核对）。M1 之外每条各只红它声称的那一条。
-- 现场读数：`[COVERAGE-BUDGET] job=QG Coverage timeout=60 需≥60 floor=39.7 samples=24 max=39.7 p90=39.4 censored_at_ceiling=0(天花板 40 分) collected=2026-10-18 age_days=0 ⇒ OK`。
+- 自测 **17/17**（`node --test scripts/check-coverage-budget.test.js`），先红后绿：首跑红在 `Cannot find module`，实现后逐条转绿。
+  被改到的既有套件同跑：`scripts/gate-budget.test.js` **25/25**（含本片重写的那条 coverage 钉，见 §1b）。
+- **11 道变异反证逐条实跑、红集互不相同、11/11 CAUGHT**：10 道判据/采集器内部形态 + M11b（委派锁反证），
+  另有一条**接线反证**（摘掉 Gate 2b7 的 `node --test` ⇒ `check-unwired-tests.js` 立刻点名新测试文件，rc=1）。
+  驱动都在 `.tools/tmp/coverage-timeout/`，基线先证绿、还原按 md5 逐字节核对。
+  M11b 第一次跑被**我自己的探针字符串**骗过一次：我搜"不许在本文件另写字面量"，断言原文是"不得……" ⇒ 误判成"没点名"；
+  改搜断言原文子串后才看到它确实点名。读数与断言文本必须逐字对上再下结论。
+- 现场读数：`[COVERAGE-BUDGET] job=QG Coverage timeout=60 需≥60 余量=0 分 floor=39.7 samples=24 max=39.7 p90=39.4 censored_at_ceiling=0(绑 40 分那条天花板，非当前值) collected=2026-10-18 age_days=0 ⇒ OK`。
 - 注入负控：`--timeout=1` ⇒ `EXIT_VIOLATION`（1），`--timeout=40` ⇒ `HUGGING` + `PROVENANCE_VALUE_DRIFT` 同时点名。
 
 ## 7. 遗留（不假装已闭合）
 
 - `censoredAtCeiling=0` 只描述**它声明的那个窗口**（最近 60 趟）。两条 40.0 的杀记录在窗口滑动之前，已作为现场写进第 1 节，但没有进数值字段——
   字段不能为了好看写成别的数，这是设计上的诚实代价：读数会随窗口移动，`STALE_PROVENANCE` 因此不可省。
-- **"任意 cancelled"这一形态目前没有锁能区分**：测试夹具里的被杀样本恰好都贴着天花板，所以"把取消也算成截尾"这种变异**不会被抓到**（我构造不出可判别的夹具：
-  GitHub API 不返回取消原因）。这不是缺陷清单里的一条红，是本判据的一处已知盲区——将来若要收口，得引入 `event` 或 run 级 `attempt` 侧证，而不是放宽阈值。
+- ~~"任意 cancelled 这一形态没有锁能区分"~~ —— **本 PR 内已闭合**（测试 8b：40.3 的 cancelled 算、30 分的不算）。
+  这条最初是当盲区写下的，是 QM-6 前端轴 F3① 把我逼到去看那一行的：它指出文档写"±0.5"而代码是单边。
+  **代码是对的、文档是错的**，所以修法是把文档改成单边口径 + 补一条双向锁，而不是把代码改成绝对值（那会漏掉"杀在天花板之上几十秒"这一最常见形态）。
+  仍留下的残余：GitHub API 不返回取消**原因**，我们只能按时长 proximity 推断 ⇒ 一趟在 39.9 分被**人工取消**的 run 会被算成截尾。
+- `censored_at_ceiling` 绑的是**采样窗口内生效的那条天花板**（现在是 40），所以 stdout 明确写着"绑 40 分那条天花板，非当前值"。
+  这带来一个当前无法消除的空档：**60 这条新天花板还没有任何数据**（本 PR 未合并，窗口里没有跑在 60 下的趟），
+  因此"60 够不够"现在只有 ×1.5 规则这一个依据，没有被截尾证据反向确认过。第一次能回答它的时间点是合并后攒够 20 趟成功样本 + 一次 `--limit=60` 复测。
+- 仓库里现在有**四个"=20"**（本片 `MIN_SAMPLES`，`gate-budget.js` 的 `MIN_SAMPLE_GATE4_SUCCESS` 与 `MIN_SAMPLE_CURRENT_FORM`，以及别处一个）。
+  四者同值不同事（分母是不同的池），QM-6 前端轴提醒这会把下一个维护者引向"随手统一"的错误合并 —— 这里**显式不许统一**。
 - 其余 9 个 `timeout-minutes` 字面量（5 / 15 / 20 / 55）仍是无对账的裸常量。本片只把**已被现场证明丢过证据**的那一格纳入治理；
   把它们一次性收进同一张表是更大的改动（要逐作业采集），按"先修有证据的"排序留作后续。
 - 抬到 60 的代价写在明处：该作业的**最坏耗时上界**从 40 变 60 分钟，PR 侧排队时长随之变长。
