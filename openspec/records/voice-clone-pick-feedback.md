@@ -8,7 +8,7 @@ date: 2026-10-18
 
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
-| 变更类型与隔离 | PASS | 运行时代码（renderer 模板 + locale + 测试）：worktree `D:/Data/projects/mp-worktrees/mp-voice-clone-pick-feedback`，裸分支 `voice-clone-pick-feedback`，基线 `origin/main` `fd1f43068`；文档（PRD/CHANGELOG/本记录）同 PR 落地 |
+| 变更类型与隔离 | PASS | 运行时代码（renderer 模板 + locale + 测试）：worktree `<仓库父目录>/mp-worktrees/mp-voice-clone-pick-feedback`，裸分支 `voice-clone-pick-feedback`，基线 `origin/main` `fd1f43068`；文档（PRD/CHANGELOG/本记录）同 PR 落地 |
 | 第一性原因（QM-5 ①） | PASS | 引入提交 `fc77ae661`（2026-08-13「音色克隆选择文件后加入进行中占位行与状态反馈」）：为提供进行中反馈，把入口按钮文案绑到共享忙碌态 `s2vVoiceCloneLoading`；该标志在 `chooseS2VVoiceCloneSamples` 调用 `chooseTtsVoiceCloneSamples`（主进程 `dialog.showOpenDialog` 的 IPC）**之前**置位（现行代码 `apps/desktop/src/views/video-creation/composables/tts-voices-clone.js:30-34`，该行由 `e11565b0a` 从 CreateView.vue 抽出，语义未变），因此系统文件选择器打开期间文案即为「正在克隆…」。同时该阶段实际动作是选定文件后的自动保存/添加，而非克隆本身 |
 | 逃逸分析（QM-5 ②） | PASS | ① 单元层：composable 无「choose pending 期间」的时序用例；② 集成层：`CreateView.test.js:1045` 把 `chooseTtsVoiceCloneSamples` mock 成**立即 resolve**，只断言 `await` 之后的状态，永远观察不到文件对话框打开期间的渲染；③ 断言层：该用例把「正在克隆…」写成期望值，**把缺陷锁成了正确行为**；④ 审查层：PRD 原文写的是「选择本地音频文件后自动克隆期间」，实现提前到选择返回前，无测试能区分「后」与「前」 |
 | 修复 + 回归保护（QM-5 ④） | PASS | 文案改由 `s2vVoiceClonePending` 驱动（该状态只在选定文件返回、`addTtsVoiceClone` 开始时置位；文件浏览期间为 null）。`S2vConfigPanels.vue` 入口按钮补 `data-testid=s2v-voice-clone-choose-button`；locale 文案改「正在添加…」/`Adding...`（zh/en 成对）。回归：`S2vConfigPanels.test.js` 4 条模板契约（仅 loading、无 pending ⇒ 文案保持「选择本地音频文件」；pending ⇒ 「正在添加…」且优先于「重新选择」；添加结束 ⇒ 恢复「重新选择」；已选样本重选期间（loading + selection + 无 pending）⇒ 保持「重新选择音频文件」，QM-6 评审 Info 采纳补锁）+ `CreateView.test.js` 2 条时序回归（deferred `choose` 期间文案不变且无状态行/占位行，resolve 后才切「正在添加…」；取消选择不进入添加态、不报错） |
@@ -32,7 +32,7 @@ date: 2026-10-18
 
 **判定器**：`ccg-review-decider.js` ⇒ `SINGLE`（源码变更 140 行 ≤ 200、无敏感命中；`required=true`，期望 claude 单模型深度审查）。
 
-**官方通道 `sh scripts/deep-review.sh`：失败，未闭环**。依赖体检通过（claude/opencode 均解析到绝对路径），但引擎调用 `codeagent-wrapper.exe`（`C:/Users/邱领/.claude/bin/codeagent-wrapper.exe`）在 600s 后 `spawnSync ... ETIMEDOUT`；判定产物 `.ccg/reviews/627ab65e….json` 的 `deepReview.status` = `error`（`error` 字段保留原始超时）。另测得该 wrapper 对最小探活 `echo OK` 也挂起（120s 无返回，随后终止），属本机通道故障，不是本 PR 触发。**未把该产物改写为 PASS/cleared**。
+**官方通道 `sh scripts/deep-review.sh`：失败，未闭环**。依赖体检通过（claude/opencode 均解析到绝对路径），但引擎调用 `codeagent-wrapper.exe`（`<HOME>/.claude/bin/codeagent-wrapper.exe`）在 600s 后 `spawnSync ... ETIMEDOUT`；判定产物 `.ccg/reviews/627ab65e….json` 的 `deepReview.status` = `error`（`error` 字段保留原始超时，本机 home 路径按本仓 Gate 12c 要求改写为 `<HOME>` 占位符）。另测得该 wrapper 对最小探活 `echo OK` 也挂起（120s 无返回，随后终止），属本机通道故障，不是本 PR 触发。**未把该产物改写为 PASS/cleared**。
 
 **降级处置（AGENTS「子代理降级」：不盲等）**：
 - **opencode（外部模型，plan agent，只读）**：交付 2 条 Info，无 Critical/Warning。
