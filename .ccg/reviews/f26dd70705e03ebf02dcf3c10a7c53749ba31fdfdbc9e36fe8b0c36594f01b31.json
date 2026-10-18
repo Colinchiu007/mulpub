@@ -19,8 +19,73 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "cleared",
+    "performedBy": "单轴闭包（外部评审只有一路真交付），由用户于 2026-10-18 本会话明示授权：「授权单轴闭包后合并」。 后端轴 claude（[routing.backend].primary）本轮五次零交付：三次 wrapper 回 `claude exited with status 1`（日志在完成时被删）、第四次把 prompt 真喂进 stdin 仍 status 1、第五次由 `sh scripts/deep-review.sh` 现场撞出 `spawnSync C:/Users/…/codeagent-wrapper.exe ETIMEDOUT`。归因不按 wrapper 报错猜：绕开 wrapper 直连 `printf reply-OK | claude -p --output-format text` ⇒ 150s 不返回、rc=124、stdout 0 字节 ⇒ 定性为该 CLI 此刻对本机不可用（第一版探针写成 `… | head` 后读 $?，拿到的是 head 的 0，差点把\"没响应\"读成\"可用但没话\"，已纠正）。 前端轴 opencode（[routing.frontend].primary）本轮四次零交付：两次交回会话状态快照（Objective / Work State / Next Move）而非发现清单，两次被 wrapper 的 argv 嗅探打回 usage 错误（一次性脚本的额外 argv 被转交给后端 CLI，根本没到模型；该形态不占重试额度，属我自己的调用姿势错误）。 替代轴 codex 交付 F1–F8 八条（session 01a14cce-3949-7e51-bee9-c9bed25bd308），逐条验真后处置见 findings。评审范围 = `git diff origin/main...HEAD`（含 15 个文件的最终差量），本产物服务的是该范围，不是某一笔已被 rebase 改写的提交。 本产物**不是**\"双模型通过\"：那一档本轮没达成，如实留在 status=cleared 的 performedBy 散文与本 PR 的执行记录里。",
+    "findings": [
+      {
+        "id": "F1",
+        "axis": "codex",
+        "severity": "CRITICAL",
+        "claim": "「一篇记录只有一行」对记录文件源不成立，追加第二行 PASS 而不动首行可静默绕过",
+        "verification": "成立（readRecord 取首行；既有重复检测只管旧载体 ## 标题）。真仓实测 447 篇记录里有 10 篇本就两行，故该档不能写成\"存在重复即红\"",
+        "disposition": "已实现\"本 PR 新增那一行 ∧ 结果仍 >1 行\"的重复行档 + 存量负控；用例「F1 重复行档」与「F1 反向：存量本来就两行」各一条，变异 M7/M9 指名变红"
+      },
+      {
+        "id": "F2",
+        "axis": "codex",
+        "severity": "WARNING",
+        "claim": "同文件内配对是内容盲的：文档里引用的示例行会顶替真实行，正确迁移被误红",
+        "verification": "成立（记录正文确有以竖线开头的示例行）",
+        "disposition": "围栏隔离按删除侧/新增侧各自跟踪；用例「F2 围栏隔离」+ 变异 M10 指名变红；口径写入 spec「三条解析口径」"
+      },
+      {
+        "id": "F3",
+        "axis": "codex",
+        "severity": "WARNING",
+        "claim": "CLOSED_RE 的「已」前缀会把「已由门禁推导」判成人工闭合，误伤鼓励的迁移动作",
+        "verification": "成立（该行对 CLOSED_RE 为真、对原 DERIVED_MARKER_RE 为假）",
+        "disposition": "词边界改为可选「已」前缀（同一份实现内改），用例「F3 词边界」+ 变异 M11 指名变红"
+      },
+      {
+        "id": "F4",
+        "axis": "codex",
+        "severity": "WARNING",
+        "claim": "改名/整删+新增会把配对拆到两个文件，跃迁档对此失明；且记录文件被删本身无人看守",
+        "verification": "成立（真仓 10 处记录删除全部落在 _exempt/，据此定豁免边界）",
+        "disposition": "删除档 + `--no-renames` 取源；用例「F4 删除/改名档」+ 变异 M12 指名变红；`_` 前缀与 _exempt 不受此条约束"
+      },
+      {
+        "id": "F5",
+        "axis": "codex",
+        "severity": "WARNING",
+        "claim": "只改 bullet（- 保留门禁：… | 远程同步 PENDING）不动表格行也是一次回填，而唯一看得见它的判据明示不拦截",
+        "verification": "成立（statusMismatch 在可见面，不进拦截面）",
+        "disposition": "bullet 侧同判复用既有两条词表，不新增第三份；用例「F5 bullet 侧同判」+ 变异 M13 指名变红"
+      },
+      {
+        "id": "F6",
+        "axis": "codex",
+        "severity": "INFO",
+        "claim": "闭合→闭合的改写不拦；且账本不可用那档的文案明写\"收口只认状态列的闭合词表\"，回退档里手写闭合词仍有判定力",
+        "verification": "成立（读 format 原文核对，非推测）",
+        "disposition": "不补判据，记进 design.md 残留风险 5/6。理由：补\"触碰已闭合行即红\"会把\"修正一个写错的 merge SHA\"也判红，那是没有正解的硬要求——本仓纪律是不造逼人绕行的锁"
+      },
+      {
+        "id": "F7",
+        "axis": "codex",
+        "severity": "WARNING",
+        "claim": "「80 PR 样本 0 误报」以标题为真值是循环论证：本 change 的立论恰恰是自述口径会失灵",
+        "verification": "成立（原判据确实拿标题当 ground truth）",
+        "disposition": "改为形态级实测：origin/main 最近 120 笔 squash 合并逐笔跑真判据，52 笔命中且形态逐笔归类全部 PENDING→PASS；正控内建（已知回填 99f463121 必须在样本内且被 flag，失守则扫描器 exit 3）。样本对 F2/F3/F4 形态零信息，那三格由注入探针负责——已如实写进 proposal 与 tasks 5.1b"
+      },
+      {
+        "id": "F8",
+        "axis": "codex",
+        "severity": "INFO",
+        "claim": "三条实现细节未钉：差量行的 -/+ 前缀剥离、`\\ No newline` 元数据行与 CRLF 档、rebase 吸收他人行时红文案要给出归属核法",
+        "verification": "成立（逐条对照代码：前缀已由 slice(1) 剥、元数据行按非 +/- 忽略；红文案原本没有 git log -p 的核法）",
+        "disposition": "写入 spec「三条解析口径」+ 新增用例「F8 差量行解析」（含 LF/CRLF 同判断言）+ 红文案补 `git log -p -- openspec/records/<篇名>` 与\"不是你改的别默认自己是回填，也别放宽判据\"；变异 M16（不剥前缀）红 7 条指名"
+      }
+    ]
   }
 }
