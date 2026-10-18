@@ -17,7 +17,7 @@ date: 2026-10-19
 | 行尾与 diff 对账 | ✅ | 两口径 `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 逐文件相同（当场读数见 PR 说明）。`CopyLibraryView.test.js` / 两个 `.vue` 工作副本是 CRLF（`i/lf w/crlf attr/text=auto`），编辑一律单行锚点或按文件自身行尾拼装；本篇记录与新写的注释均按该文件档位逐行写回，落笔后断言 `cr == lf == 行数` |
 | 接线棘轮 | ✅ | 不新增测试文件，改的是已被 `vitest.config.js` 的 `src/**/*.test.{js,ts}` glob 收进的 `CopyLibraryView.test.js`；现场证据是该文件在本轮 `--reporter=json` 报告里 **16 条被收集且 16 passed**（`total=16`），不是"文件存在" |
 | QM-1 打包 / QM-4 视觉 | N/A / 交 CI | QM-1 不触发：改动集零 `apps/desktop/electron/**`、零 `packages/rpa-engine/**`。QM-4：`CopyLibraryView` 属像素域视图（动作按钮的出现条件变了），本机不冒充跑像素门禁，证据责任交给 CI `QG Visual` |
-| QM-6 CCG 双模型外部评审 | 待判定后如实填 | 提交时由 pre-commit 的 `ccg-review-decider.js` 按 diff 规模判档；本片量小（两视图 + 一测试），若判 `single/skip` 就不调外部模型，判定与原因写回本行，不以自审冒充通过 |
+| QM-6 CCG 双模型外部评审 | ⏸ 未调外部模型（判定档位如此），如实记录 | pre-commit 的 `ccg-review-decider.js` 对本片判定是 **`mode=single`**（`变更 113 行（≤ 200）/ 3 个源文件 / 无敏感命中`，产物 `.ccg/reviews/7af58287….json`，自动随提交入库）。`single` 档按决策矩阵不调双模型外部评审，本片**也没有**额外去跑单模型 `deep-review.sh`——这一格不得被读成"已复核"。真正复核过本片的两道是：① 6 道变异反证全部指名红（每条先自证锚点命中=1、跑完核 md5）；② 上一刀 QM-6 前端轴留下的两条欠账（QM6-1 分档、QM6-2 死分支）本片按它们各自写明的收口条件结清，不是自行判定"可以不修"。`check-pr-exec-record.js --mode=enforce` 的收口范围只取 `mode=dual` 产物，所以它判 OK 不构成"外部评审已做"的证据 |
 | 远程同步 | 由门禁推导 | 本行**不需要事后改写**：合并后门禁按主干历史推导归属（`scripts/lib/merge-ledger.js`，只认 squash 尾注 `(#NNNN)`）；现场读数看 CI 步骤首行 `MERGE-LEDGER prs=<n>`。合并前这篇文件还不在基线上，判 byDesign 不红；把本行状态列写成 `PASS` 会被判「预写不存在的证据」而红 |
 
 ### 遗留（不假装已闭合）
