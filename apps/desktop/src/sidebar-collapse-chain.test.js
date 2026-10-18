@@ -154,4 +154,56 @@ describe('左侧菜单收起/展开 · 跨进程链路（真实 preload + 真实
     expect(boot.auth.calls).toEqual([true])
     expect(boot.qr.calls).toEqual([true])
   })
+
+  it('多窗口：A 窗口点击 → 主进程广播 → B 窗口 preload 收到裸布尔（不回传 IPC）', async () => {
+    // 窗口 A：用户点击折叠按钮（走 store → IPC 全链路）
+    const a = createHarness()
+    globalThis.window.electronAPI = { pageManager: a.api.pageManager }
+
+    // 窗口 B：独立 ipcRenderer 替身。handlers 只收「注册上的监听函数」，
+    // applied 只收「剥壳后交给渲染层的值」——两者分开，避免在迭代中修改同一数组。
+    const bHandlers = []
+    const bApplied = []
+    const bInvoke = vi.fn(() => Promise.reject(new Error('窗口 B 不得在此链路中发起 IPC')))
+    const bIpcRenderer = {
+      invoke: bInvoke,
+      on (channel, handler) {
+        if (channel === 'page-manager:sidebar-collapsed-changed') bHandlers.push(handler)
+      },
+      removeListener () {},
+    }
+    const bApi = createPageManagerApi(bIpcRenderer)
+    const bOff = bApi.pageManager.onSidebarCollapsedChanged((collapsed) => {
+      bApplied.push(collapsed)
+    })
+
+    setSidebarCollapsed(true)
+    await flushIpc()
+
+    // A 窗口自己的 IPC 链路已把主进程切成收起
+    expect(a.wm.isSidebarCollapsed()).toBe(true)
+    expect(a.view.bounds).toEqual({ x: 0, y: 76, width: 1424, height: 785 })
+
+    // 主进程广播：向「所有窗口」投递。这里只有 B 的替身注册了监听，
+    // 因此 sent 计数即 B 收到的条数；载荷必须是 { data: { collapsed } } 生产形状。
+    const bWindow = {
+      isDestroyed: () => false,
+      webContents: {
+        isDestroyed: () => false,
+        send (channel, ...args) {
+          expect(channel).toBe('page-manager:sidebar-collapsed-changed')
+          // 真实 ipcRenderer 的监听器签名是 (event, payload)，不能只传 payload
+          for (const handler of bHandlers.slice()) handler({}, ...args)
+        },
+      },
+    }
+    const { sent } = a.wm.broadcastSidebarCollapsed({ getAllWindows: () => [bWindow] })
+    expect(sent).toBe(1)
+
+    // preload 剥壳后交给渲染层的是裸布尔，且 B 的 invoke 从未被调用（无回环）
+    expect(bApplied).toEqual([true])
+    expect(bInvoke).not.toHaveBeenCalled()
+
+    bOff()
+  })
 })

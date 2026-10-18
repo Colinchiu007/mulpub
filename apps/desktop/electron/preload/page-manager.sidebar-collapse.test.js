@@ -37,4 +37,49 @@ describe('page-manager preload：侧边栏折叠 IPC 合同', () => {
     const channels = ipcRenderer.invoke.mock.calls.map(([channel]) => channel)
     expect(channels).not.toContain('page-manager:set-sidebar-width')
   })
+
+  it('暴露 onSidebarCollapsedChanged(cb)，监听专用广播通道', () => {
+    const { api, ipcRenderer } = createApi()
+
+    expect(typeof api.pageManager.onSidebarCollapsedChanged).toBe('function')
+    const cb = vi.fn()
+    const off = api.pageManager.onSidebarCollapsedChanged(cb)
+
+    expect(ipcRenderer.on).toHaveBeenCalledWith(
+      'page-manager:sidebar-collapsed-changed', expect.any(Function))
+
+    // 主进程载荷形状 { data: { collapsed } }：preload 负责剥壳，交给渲染层裸布尔
+    const handler = ipcRenderer.on.mock.calls[0][1]
+    handler({}, { data: { collapsed: true } })
+    expect(cb).toHaveBeenCalledWith(true)
+
+    handler({}, { collapsed: false })
+    expect(cb).toHaveBeenLastCalledWith(false)
+  })
+
+  it('广播载荷形状变化时不得静默错位（缺 data 时回落到顶层 collapsed）', () => {
+    const { api, ipcRenderer } = createApi()
+    const cb = vi.fn()
+    api.pageManager.onSidebarCollapsedChanged(cb)
+
+    const handler = ipcRenderer.on.mock.calls[0][1]
+    // 老形状：直接 { collapsed }
+    handler({}, { collapsed: true })
+    expect(cb).toHaveBeenLastCalledWith(true)
+
+    // 缺字段：交给渲染层的 applyRemoteCollapsed 用「非布尔忽略」兜底，不得传成 undefined 之外的怪值
+    handler({}, {})
+    expect(cb).toHaveBeenLastCalledWith(undefined)
+  })
+
+  it('退订函数解绑同一 handler（跨窗口泄漏防护）', () => {
+    const { api, ipcRenderer } = createApi()
+    const off = api.pageManager.onSidebarCollapsedChanged(vi.fn())
+
+    const handler = ipcRenderer.on.mock.calls[0][1]
+    off()
+
+    expect(ipcRenderer.removeListener).toHaveBeenCalledWith(
+      'page-manager:sidebar-collapsed-changed', handler)
+  })
 })

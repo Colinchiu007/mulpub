@@ -132,3 +132,94 @@ describe('侧边栏折叠全局状态（模块单例，非 Pinia）', () => {
     expect(sidebarCollapsed.value).toBe(true)
   })
 })
+
+describe('多窗口广播同步（applyRemoteCollapsed / subscribeSidebarCollapsed）', () => {
+  it('applyRemoteCollapsed 改状态但不写 localStorage —— 持久化真源是用户点击的那个窗口', async () => {
+    const { sidebarCollapsed, applyRemoteCollapsed } = await loadStore()
+
+    applyRemoteCollapsed(true)
+
+    expect(sidebarCollapsed.value).toBe(true)
+    expect(window.localStorage.getItem(KEY)).toBeNull()
+  })
+
+  it('applyRemoteCollapsed 不上报主进程 —— 状态来自主进程广播，回传会形成 A↔B 互刷', async () => {
+    const { applyRemoteCollapsed } = await loadStore()
+    invokePageManager.mockClear()
+
+    applyRemoteCollapsed(true)
+    applyRemoteCollapsed(false)
+    applyRemoteCollapsed(true)
+
+    expect(invokePageManager).not.toHaveBeenCalled()
+  })
+
+  it('applyRemoteCollapsed 非布尔值被忽略（广播载荷同样只接受 boolean）', async () => {
+    const { sidebarCollapsed, applyRemoteCollapsed } = await loadStore()
+
+    applyRemoteCollapsed('true')
+    applyRemoteCollapsed(1)
+    applyRemoteCollapsed(null)
+    applyRemoteCollapsed(undefined)
+
+    expect(sidebarCollapsed.value).toBe(false)
+  })
+
+  it('applyRemoteCollapsed 与本地同值时不重复通知订阅者（远端窗口已是该态）', async () => {
+    const { applyRemoteCollapsed, subscribeSidebarCollapsed } = await loadStore()
+    const seen = []
+    const unsubscribe = subscribeSidebarCollapsed((v) => seen.push(v))
+
+    applyRemoteCollapsed(false) // 与初始值相同：不应触发
+    applyRemoteCollapsed(true)
+    applyRemoteCollapsed(true) // 重复：不应再触发
+
+    expect(seen).toEqual([true])
+    unsubscribe()
+  })
+
+  it('setSidebarCollapsed（用户点击）也会通知订阅者 —— 供同窗口其它组件响应', async () => {
+    const { setSidebarCollapsed, subscribeSidebarCollapsed } = await loadStore()
+    const seen = []
+    const unsubscribe = subscribeSidebarCollapsed((v) => seen.push(v))
+
+    setSidebarCollapsed(true)
+    setSidebarCollapsed(false)
+
+    expect(seen).toEqual([true, false])
+    unsubscribe()
+  })
+
+  it('退订后不再收到通知（App.vue onBeforeUnmount 必须调，否则跨路由泄漏）', async () => {
+    const { setSidebarCollapsed, subscribeSidebarCollapsed } = await loadStore()
+    const seen = []
+    const unsubscribe = subscribeSidebarCollapsed((v) => seen.push(v))
+
+    unsubscribe()
+    setSidebarCollapsed(true)
+
+    expect(seen).toEqual([])
+  })
+
+  it('subscribe 回调抛错不影响其它订阅者，也不影响状态本身', async () => {
+    const { setSidebarCollapsed, subscribeSidebarCollapsed } = await loadStore()
+    const good = []
+    subscribeSidebarCollapsed(() => { throw new Error('bad subscriber') })
+    const unsub = subscribeSidebarCollapsed((v) => good.push(v))
+
+    expect(() => setSidebarCollapsed(true)).not.toThrow()
+    expect(good).toEqual([true])
+    unsub()
+  })
+
+  it('广播载荷驱动的本地状态仍可被用户再次切换（广播不锁死交互）', async () => {
+    const { sidebarCollapsed, applyRemoteCollapsed, toggleSidebarCollapse } = await loadStore()
+
+    applyRemoteCollapsed(true)
+    expect(sidebarCollapsed.value).toBe(true)
+
+    toggleSidebarCollapse()
+    expect(sidebarCollapsed.value).toBe(false)
+    expect(invokePageManager).toHaveBeenLastCalledWith('setSidebarCollapsed', false)
+  })
+})

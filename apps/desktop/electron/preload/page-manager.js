@@ -41,6 +41,19 @@ function createPageManagerApi(ipcRenderer) {
       // 全局折叠按钮（2026-10-18）：收起时内嵌 WebContentsView 改为 x=0 全宽。
       // 与 setSidebarWidth 分开：宽度守卫拒绝 0，收起是显式布尔状态。
       setSidebarCollapsed: (collapsed) => ipcRenderer.invoke('page-manager:set-sidebar-collapsed', collapsed),
+      /**
+       * 监听折叠状态广播（多窗口同步）。
+       *
+       * 折叠是应用级状态：主进程 WebviewManager 是唯一真源，任一窗口点击后它会把
+       * 所有内嵌视图重排，并向**每个窗口**广播。本窗口若不跟上，DOM 侧栏还显示着
+       * 却被原生视图盖住 ⇒ 点击错乱。
+       * callback 收到布尔值（true = 已收起）。
+       */
+      onSidebarCollapsedChanged: (cb) => {
+        const h = (_, payload) => cb(payload?.data?.collapsed ?? payload?.collapsed)
+        ipcRenderer.on('page-manager:sidebar-collapsed-changed', h)
+        return () => ipcRenderer.removeListener('page-manager:sidebar-collapsed-changed', h)
+      },
       // T0-6b 壳态互斥：渲染层上报壳态（'workbench'|'browser'），主进程切换内嵌视图可见性
       setShellMode: (mode) => ipcRenderer.invoke('page-manager:set-shell-mode', mode),
       // 弹窗互斥（2026-09-23）：应用级模态浮层打开期间挂起内嵌 WebContentsView，

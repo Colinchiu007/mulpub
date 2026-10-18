@@ -31,8 +31,32 @@ function readStoredCollapsed () {
   }
 }
 
-/** 当前是否已收起左侧菜单（唯一真源；消费方只读，写入走 set/toggle）。 */
+/** 当前是否已收起左侧菜单（唯一真源；消费方只读，写入走 set/toggle/applyRemote）。 */
 export const sidebarCollapsed = ref(readStoredCollapsed())
+
+/**
+ * 状态变更订阅者集合。
+ *
+ * 为什么需要：折叠是**应用级**状态（主进程 WebviewManager 是唯一真源），
+ * 但每个窗口的渲染进程各持有一份 ref 副本。窗口 A 点收起后，主进程会把**所有**
+ * 内嵌视图重排成 x=0 全宽；窗口 B 若不跟上，它的 DOM 侧栏还显示着、却被原生
+ * 视图盖住 ⇒ 点击错乱（侧栏看得见却点不动）。订阅机制让主进程广播能推到这里。
+ *
+ * 回环防护分两道：
+ *   ① applyRemoteCollapsed 不持久化、不上报 IPC（状态本就来自主进程广播）；
+ *   ② 所有写入路径都有「同值即短路」，重复值不会再次触发通知。
+ */
+const subscribers = new Set()
+
+function notify (collapsed) {
+  for (const cb of subscribers) {
+    try {
+      cb(collapsed)
+    } catch {
+      // 单个订阅者抛错不得影响其它订阅者，也不得中断状态变更本身
+    }
+  }
+}
 
 function persistCollapsed (collapsed) {
   try {
@@ -64,6 +88,36 @@ export function setSidebarCollapsed (collapsed) {
   sidebarCollapsed.value = collapsed
   persistCollapsed(collapsed)
   reportCollapsed(collapsed)
+  notify(collapsed)
+}
+
+/**
+ * 应用**来自主进程广播**的折叠状态（多窗口同步专用）。
+ *
+ * 与 setSidebarCollapsed 的三处刻意差异：
+ *   1. 不写 localStorage —— 持久化真源是「用户点击的那个窗口」，避免两个窗口
+ *      互相覆盖彼此的持久化值（后写的那次会赢，与用户最后一次操作无关）；
+ *   2. 不上报 IPC —— 状态本就来自主进程广播，回传会形成 A↔B 无限互刷；
+ *   3. 仍通知订阅者 —— 同窗口的其它组件（如将来加的状态指示）要跟上。
+ *
+ * @param {boolean} collapsed true = 收起，false = 展开。非布尔值一律忽略
+ */
+export function applyRemoteCollapsed (collapsed) {
+  if (typeof collapsed !== 'boolean') return
+  if (sidebarCollapsed.value === collapsed) return
+  sidebarCollapsed.value = collapsed
+  notify(collapsed)
+}
+
+/**
+ * 订阅折叠状态变更。
+ * @param {(collapsed: boolean) => void} cb
+ * @returns {() => void} 退订函数（调用方必须在卸载时调用，否则跨路由/跨窗口泄漏）
+ */
+export function subscribeSidebarCollapsed (cb) {
+  if (typeof cb !== 'function') return () => {}
+  subscribers.add(cb)
+  return () => { subscribers.delete(cb) }
 }
 
 /** 在「收起 / 展开」之间切换（全局按钮与后续快捷键的唯一入口）。 */
