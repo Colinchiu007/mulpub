@@ -235,3 +235,83 @@ v3 把节奏收紧到"分钟级"后，运营侧的真实约束不在账号间隔
 
 `publish_timeline` 中已落盘的未来时间戳**历史行**不做自动回写清理——自动改写时间戳属第二写入口，
 且其错误方向是「少等」，正撞防重复发布的保守侧；需独立评审。当前可用紧急放行人工清除。
+
+---
+
+## 14. 回滚窗口的窗口归属判据（fix-release-window-taken-type-mismatch，2026-10-17 追加）
+
+> 现场：一次视频发布，其他平台正常发布或排队 1–2 分钟，**视频号显示「等待 59 分钟后重试（本账号间隔）」**，
+> 而该视频号账号短期并未发布过任何内容。
+> 结论：**不是**间隔数值问题（视频号 60′ 是 v5 产品决策，§2 已登记），**也不是**时钟倒挂（那是 §13），
+> 而是「可确证未送出的失败应当回滚窗口」这件事**从未生效**。
+
+### 14.1 判据（为什么用数值比较）
+
+`release()` 的乐观并发判据原本是 `store.get(key) === hold.at`。两侧类型在生产里不同：
+
+| 侧 | 类型 | 来源 |
+| --- | --- | --- |
+| `hold.at` | `number` | `recordPublish()` 的 `Date.now()` |
+| `store.get(key)` | **`string`** | SQLite `publish_timeline.last_publish_at` 列声明 **TEXT**，读回形如 `"1792241248768.0"` |
+
+严格相等恒为 `false` ⇒ `release()` 永远返回 `window_taken` ⇒ 窗口永不回滚。
+现行为**单一判据** `isSameWindow(stored, expected)`：
+
+```
+stored 为 null/undefined            → false（没有窗口可回滚）
+expected 非有限 number              → false
+Number(stored) 非有限（NaN/文本）    → false
+Number(stored) === expected         → true（同一窗口）
+其余                                 → false
+```
+
+**方向恒为收窄**：只接受「同数值的不同表示形态」。理由与 §13 同源——
+把「已送出」误判成「未送出」会回滚出**早于窗口的重复发布**（危险侧），
+漏判只是多等一个窗口（安全侧）。
+
+### 14.2 数据校验（V1–V7）
+
+| # | 规则 | 落点 | 方向 |
+| --- | --- | --- | --- |
+| V1 | `hold.at` 必须是有限 number，否则 `prev_missing`（不回滚） | `release()` | fail-closed |
+| V2 | 读回值必须能解析成有限 number 且数值等于 `hold.at` 才算「同一窗口」 | `isSameWindow` | fail-closed |
+| V3 | 读回为 `null` / `undefined` ⇒ 不相等 | `isSameWindow` | fail-closed |
+| V4 | 读回无法解析（`NaN` / 文本）⇒ 不相等，**不得**当成「我的窗口」 | `isSameWindow` | fail-closed |
+| V5 | 回滚失败必须 warn（含 `reason`）且 `releaseFailed += 1` | `_maybeRollback` | 出声 |
+| V6 | 回滚成功才回补日配额 `count`(−1)；`rollback_count` 只增不减 | `release()` | 不变 |
+| V7 | 未来戳写入闸（`timestamp > now + 60s` 拒收）保持 | `setPublishTimeline` | 不变 |
+
+### 14.3 流程（一次失败现在会怎么走）
+
+```
+check() 放行 → recordPublish() 占位（乐观记账，不变） → publisher.publish() 失败
+  ├─ 可确证未送出（not logged in / Cookie 缺失 / 风控挂起）
+  │    → release() ├─ 成功 → publish:released → _delayRequeue(releaseGraceMs≈60s) → 重试
+  │                └─ 失败 → warn「未能回滚间隔窗口（reason=…）」→ 占窗口 → 排队等满
+  └─ 其它失败（已发出 / 在飞未知） → 占窗口 → 排队等满（保守侧，不变）
+```
+
+修复前：视频号一次登录失效 ⇒ 占满 60′ ⇒ 重试按 59′ 排期 ⇒ 每小时白试一次。
+修复后：⇒ 回滚 ⇒ 60s 后重试 ⇒ 重试两次仍失败则判 failed（视频号另有自动存草稿兜底）。
+
+### 14.4 显示项与提示文字（不改文案，明确「应该看到什么」）
+
+| 场景 | 用户可见文案 | 备注 |
+| --- | --- | --- |
+| 回滚成功 | `未提交到平台，已恢复可发布` | `phase='released'`；**修复后这条才会在生产里真正出现** |
+| 回滚失败 | 无新文案（沿用 `等待 N 分钟后重试` + `（本账号间隔）`） | 主进程 warn 落日志，属排障者视角 |
+| 主进程日志（新增） | `[task-queue] 平台 <p> 的任务 <id> 未能回滚间隔窗口（reason=window_taken）：窗口保持占用，本次重试将等满剩余间隔` | `reason` ∈ `prev_missing` / `window_taken` / `rollback_cap` |
+
+### 14.5 与 §4「生效链」的关系
+
+§4 的时序一字未改；本节只纠正第 ⑤ 步「失败回滚」的**判据实现**，不新增写入口、
+不改变记账时机、不改变窗口占用语义（「请求已发生」仍占窗口）。
+
+### 14.6 登记债务（本修复不做）
+
+1. `publish_timeline` 仍是 **TEXT** 列。本次把判据做成类型无关，列类型没动——
+   任何「直接读该列并做严格比较」的新代码都会重犯。已由集成锁把「写 number / 读 string」
+   这个事实钉住（`publish-interval-guard-store-integration.test.js` G1）。
+2. `releaseFailed` 仍无 UI 读数入口（现在有日志，不可自助查）。
+3. 历史脏窗口（已被占住且未过期的行）不自动清空，需等自然过期或用紧急放行。
+
