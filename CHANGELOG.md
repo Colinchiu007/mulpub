@@ -1,3 +1,14 @@
+# [未发布] test(s2v): 子分区断言跟着 #3946 的实现迁移走，修掉 main 自 2e108e7a6 起的一条红（fix-s2v-subgroup-assertion-stale）
+
+- **这条红不是本 PR 引入的，是 main 的**：`QG Desktop Shards (2/2)` 与 `QG Coverage` 自 **`2e108e7a6`（PR #3946「语音模型改由程序+运营决定，移除「语音模型」下拉」）合入 main 起持续红**，同次还红 required 的 `Gate Result`。对照面（main push 结论）：`33e0940e5` success → **`2e108e7a6` failure** → `e5ed32f52` / `5736b3ed2` / `950af9f3b` 三条 shard2 全 failure。失败面**只有一条用例**：`S2vConfigPanels.test.js:290`「`语音 / 音色 ID` 同在『旁白设置』子分区」，整片 `1 failed | 508 passed | 1 skipped (510)`。两个互不相干的在飞改动集（#3955、#3958）在同一分片报同一条红 ⇒ 归因不靠推论。
+- **根因**：#3946 把渲染条件从"用户选了模型"改成"程序静默解析出的 context model 非空"——`S2vConfigPanels.vue:359` 现在是 `v-if="s2vConfig.voiceProvider && s2vVoiceContextModel"`，该值经 `:788` 从 state 转发（真源 `tts-voices-state.js:172`）。而这条子分区用例只设了 `vm.s2vConfig.voiceModel`（**那是被移除的下拉**写的字段），没设 `s2vVoiceContextModel` ⇒ v-if 恒假、标签不渲染。属 AGENTS「门禁断言随实现迁移同步」的漏更，不是新缺陷。
+- **为什么 #3946 自己没发现**：同文件 `:123-145` 那条**由 #3946 亲笔写的**用例已经把新判据两侧都测了（场景 1 设 `s2vVoiceContextModel` 断言两字段都在、场景 2 置空断言都不渲染）。**同一批改动里一处按新判据写、另一处仍按旧判据写**——这是"断言随实现迁移"漏更的典型形状：不是没人知道新判据，是迁移只做了一半。可复算的手法因此是"列出所有断言该 UI 存在的测试"，而不是"跑我改过的测试文件"。
+- **修法（最小）**：该用例补一行 `vm.s2vVoiceContextModel = 'speech-2.8-turbo';`（与 `:127` 既有写法同形），注释从"仅在已选语音模型时渲染"改成"v-if 读的是 state 派生的 context model"。**红灯→绿灯逐字实测**：改前同一条命令 `1 failed | 23 passed (24)`，红点 `AssertionError: expected 'create.story2video.subgroups.voiceNar…' to contain '语音 / 音色 ID'` @ `:290:30`；改后 **`24 passed (24)`**。
+- **三条明确不做**：不把断言改成"只查 `语音生成器`"绕过、不给 `toContain` 加兜底、不把该文件摘出分片——那都是把缺陷改成契约。
+- **一条留下待裁决的（属改"谁来守门"，不在本刀动）**：`QG Desktop Shards` 不在 required 清单里 ⇒ 一片红可以合进 main，而 main 的红之后通过 required 的 `Gate Result` **反过来拦住所有后续 PR**。要么把分片收进 required，要么给"main 已红"加一道阻断新合并的机制；两者都是在改守门范围，须人工过目。
+- **工具事实一条**：`gh api repos/<owner>/<repo>/actions/jobs/<id>/logs` 对这条 job 返回 **0 字节**（读起来像"没有失败"）；全文要走 `gh run view <run> --job <id> --log`（本次 5,197,906 字节）。
+- 只改一个测试文件（5/1 行，两口径 numstat 相等）⇒ QM-1 不触发（未改 `electron/**`）、QM-4 不触发（渲染真源一字未动）、QM-6 档位非 `dual` 故**未调用外部模型**，替代证据是同一条命令的红灯→绿灯对照。全过程记 `openspec/records/fix-s2v-subgroup-assertion-stale.md`。
+
 # [未发布] docs(播客): 入口判据 §15 的坐标校正与一条依据被实测推翻，新开 5.1b③（podcast-entry-adjudication-51b2）
 
 - **两处入口坐标实测已漂**：§15.2 写的 `ResultView.vue:726` 现在在 `:64`（`<PodcastEpisodeEntry>` 挂载行，导入 `:447`、注册 `:479`），`CreateView.vue:4519` 现在在 `:4610`（`openPodcastEpisodePublish`，浮层挂载 `:352-360`、事件绑定 `:373`）。旧坐标**不删**，行内标"坐标实测校正"，并点明 §14 那条施工指令里同样出现的旧坐标按"散文不改写"留着、以本表为唯一真源。

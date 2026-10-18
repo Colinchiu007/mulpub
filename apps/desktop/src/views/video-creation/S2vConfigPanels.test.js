@@ -280,10 +280,14 @@ describe('S2vConfigPanels', () => {
   });
 
   it('「语音生成器」与「语音 / 音色 ID」同在「旁白设置」子分区', () => {
-    // 「语音 / 音色 ID」仅在已选语音模型（或模型下拉被隐藏）时渲染，故显式给模型值。
+    // 「语音 / 音色 ID」的 v-if 读的是 **state 派生的 s2vVoiceContextModel**，不是 s2vConfig.voiceModel：
     vm = makeBoundVm({ s2vConfig: s2vConfigFixture() });
     vm.s2vConfig.voiceProvider = 'minimax-multimodal';
     vm.s2vConfig.voiceModel = 'speech-2.8-turbo';
+    // voice-model-program-resolved（2026-10-18，PR #3946）把「语音模型」下拉移除后，模型值由程序按运营配置静默
+    // 解析进 state，所以这里必须把 context model 也显式给上——只设 s2vConfig.voiceModel 会让 v-if 恒假、
+    // 标签不渲染（本条曾长期红在 QG Desktop Shards (2/2)：断言没跟着实现迁，属 AGENTS「门禁断言随实现迁移同步」）。
+    vm.s2vVoiceContextModel = 'speech-2.8-turbo';
     const w = mountPanel(vm);
     const narration = w.get('[data-testid="s2v-subgroup-voiceNarration"]');
     expect(narration.text()).toContain('语音生成器');
