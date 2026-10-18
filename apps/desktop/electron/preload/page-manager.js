@@ -38,6 +38,8 @@ function createPageManagerApi(ipcRenderer) {
 
       // ── 左侧导航栏宽度同步 ──
       setSidebarWidth: (width) => ipcRenderer.invoke('page-manager:set-sidebar-width', width),
+      // 阶段 1.2：常驻 chrome（公告横幅）的额外顶部下移；卸载/关闭时必须回写 0
+      setTopInset: (px) => ipcRenderer.invoke('page-manager:set-top-inset', px),
       // T0-6b 壳态互斥：渲染层上报壳态（'workbench'|'browser'），主进程切换内嵌视图可见性
       setShellMode: (mode) => ipcRenderer.invoke('page-manager:set-shell-mode', mode),
       // 弹窗互斥（2026-09-23）：应用级模态浮层打开期间挂起内嵌 WebContentsView，

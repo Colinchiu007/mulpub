@@ -4,7 +4,7 @@
  * 窗口大小调整、侧边栏宽度、壳态互斥、弹窗互斥挂起
  */
 const log = require('../logger')
-const { computeEmbeddedViewBounds, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } = require('../view-bounds')
+const { computeEmbeddedViewBounds, contentTopWithInset, normalizeTopInset, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } = require('../view-bounds')
 const { SIDEBAR_WIDTH_DEFAULT, AUTH_TAB_ID } = require('./constants')
 
 module.exports = {
@@ -131,6 +131,34 @@ module.exports = {
   },
 
   /**
+   * 设置渲染层常驻 chrome 的额外顶部下移（阶段 1.2 / audit-6：运营公告横幅）。
+   *
+   * 为什么必须有这条通道而不是「挂上去就行」：`WebContentsView` 是压在渲染进程 DOM 之上的
+   * 原生图层，CSS z-index 对它无效，而它的 y 来自主进程侧的镜像常量 `BROWSER_CHROME_TOP=76`。
+   * 横幅插在 DOM 流里之后，若不把内嵌视图一起下移，横幅会被外部网页整块盖住——
+   * 用户看到的就是「公告永远不出现」，与 2026-09-23 设置弹窗被盖住是同一形状。
+   *
+   * 与 `setSidebarWidth` 的两处刻意不同：① 0 是**合法值**（表示当前无横幅，是收口态）；
+   * ② 非法值不拒绝而是回落默认并出声（该路径的重排成本低于让视图停在错误顶偏移）。
+   * @param {number} px - 像素高度
+   */
+  setTopInset (px) {
+    const next = normalizeTopInset(px)
+    if (next !== px) {
+      log.warn('WebviewManager', 'Invalid top inset ignored, fallback default: ' + px)
+    }
+    if (this._topInset === next) return
+    this._topInset = next
+    // 登录视图内嵌在主窗口内容矩形，必须同步下移，否则只有浏览器标签让位（口径分裂）。
+    // **不**传给 qrcode-login：它自「独立窗口承载」迁移后 `_sidebarWidth`/`setSidebarWidth`
+    // 只是签名兼容（见 qrcode-login.js:48-51 的说明），给它加一个没人读的 setter 就是死接线。
+    if (this._authViewManager && typeof this._authViewManager.setTopInset === 'function') {
+      this._authViewManager.setTopInset(next)
+    }
+    this._repositionAll()
+  },
+
+  /**
    * 重新调整所有视图位置
    * 浏览器标签页填满 TOP=76px 以下区域，分屏标签使用原布局
    */
@@ -143,6 +171,8 @@ module.exports = {
       return
     }
     var sidebarWidth = this._sidebarWidth || SIDEBAR_WIDTH_DEFAULT
+    // 顶部 = 固定 chrome + 渲染层上报的常驻 chrome 下移（公告横幅）；无横幅时即 BROWSER_CHROME_TOP
+    var contentTop = contentTopWithInset(this._topInset)
 
     // 登录标签活动态：登录视图由 AuthViewManager 自行定位（全屏 y=76），
     // 浏览器标签保持隐藏，不做布局
@@ -156,7 +186,7 @@ module.exports = {
       // 左侧导航栏为固定区域，WebContentsView 应定位在右侧主体区域
       var activeView = this._tabViews.get(this._activeTabId)
       if (activeView) {
-        activeView.setBounds(computeEmbeddedViewBounds(this.mainWindow, sidebarWidth))
+        activeView.setBounds(computeEmbeddedViewBounds(this.mainWindow, sidebarWidth, contentTop))
         activeView.setVisible(true)
       }
     }

@@ -154,12 +154,14 @@ async function exerciseFirstRun(r) {
   record(r, '首次运行从欢迎步骤开始', await bodyHas(r, '欢迎使用汤姆鱼'));
   // 验证 firstRunCheck 被调用
   await expectIpc(r, 'firstRunCheck', '首次运行检查环境');
-  // 验证下一步可点击：点击 “开始配置” 进入环境步骤
+  // 验证下一步可点击：点击 “开始配置” 进入账号步骤
+  // （阶段 1.4 起向导由四步改三步，删掉的是「自动安装 Python 依赖和 Playwright」那一步
+  //  —— 那句承诺在 P2-E 之后无人执行；因此这里断言的落点从 '环境' 改为 '添加你的第一个账号'。）
   const clicked = await clickText(r, '开始配置');
   if (clicked) {
-    record(r, '开始配置进入环境步骤', await bodyHas(r, '环境'));
+    record(r, '开始配置进入账号步骤', await bodyHas(r, '添加你的第一个账号'));
   } else {
-    record(r, '开始配置进入环境步骤', false);
+    record(r, '开始配置进入账号步骤', false);
   }
 }
 

@@ -15,6 +15,8 @@
 const { EventEmitter } = require('events')
 const { HOME_TAB_ID, AUTH_TAB_ID } = require('./constants')
 const { SIDEBAR_WIDTH_DEFAULT } = require('./constants')
+// 顶部下移的默认值/上限只认 view-bounds 一份，避免与 layout.js 的判据漂移
+const { TOP_INSET_DEFAULT } = require('../view-bounds')
 
 // 导入各功能模块
 const eventBus = require('./event-bus')
@@ -63,6 +65,8 @@ class WebviewManager extends EventEmitter {
 
     // 左侧导航栏当前宽度（由渲染进程通过 IPC 同步，默认 200px）
     this._sidebarWidth = SIDEBAR_WIDTH_DEFAULT
+    // 渲染层常驻 chrome 的额外顶部下移（阶段 1.2 公告横幅）；0 = 当前无横幅
+    this._topInset = TOP_INSET_DEFAULT
     // 壳态（T0-6b）：'browser'（浏览器壳，默认）| 'workbench'（工作台壳态，内嵌视图互斥隐藏）
     this._shellMode = 'browser'
     // 弹窗互斥（2026-09-23 Bug 修复）：活动浮层 owner 集合。WebContentsView 是原生图层，

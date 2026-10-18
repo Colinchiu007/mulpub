@@ -34,7 +34,7 @@ const { createSession, setCookies, restoreLocalStorage, restoreIndexedDB, create
 // #2701：登录分区每次新建、永不回收（本机实测 21 个目录 436MB，占分区存储 92%）
 const authReclaim = require('./auth-partition-reclaim')
 // 内嵌视图定位唯一来源：必须用「客户区」尺寸，禁用 getBounds() 外框尺寸（见 view-bounds.js）
-const { computeEmbeddedViewBounds, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } = require('./view-bounds')
+const { computeEmbeddedViewBounds, contentTopWithInset, normalizeTopInset, TOP_INSET_DEFAULT, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } = require('./view-bounds')
 // 登录页宽度自适应（2026-09-28 非全屏登录页显示不全修复）：固定内容宽的登录页
 // （如快手 ≈1335 DIP）在非全屏视图（如 1051 DIP）中横向溢出被裁，按需缩小 zoomFactor
 const loginViewFit = require('./login-view-fit')
@@ -132,6 +132,8 @@ class AuthViewManager {
     this._autoCompletionAttemptId = null
     /** @type {number} 左侧导航栏当前宽度（由渲染进程同步，默认 200px） */
     this._sidebarWidth = SIDEBAR_WIDTH_DEFAULT
+    /** @type {number} 渲染层常驻 chrome 的额外顶部下移（阶段 1.2 公告横幅）；0 = 无横幅 */
+    this._topInset = TOP_INSET_DEFAULT
     /** @type {(() => void) | null} 保留签名兼容（window.js resize 挂钩） */
     this._loginWindowResizeCleanup = null
     /** @type {(() => void) | null} 保留签名兼容（auth-window factory 已不再使用） */
@@ -158,8 +160,9 @@ class AuthViewManager {
    */
   _positionView() {
     if (!this.currentView || !this.mainWindow) return
-    // 左侧导航栏为固定区域，登录视图应定位在右侧主体区域
-    this.currentView.setBounds(computeEmbeddedViewBounds(this.mainWindow, this._sidebarWidth || SIDEBAR_WIDTH_DEFAULT))
+    // 左侧导航栏为固定区域，登录视图应定位在右侧主体区域；
+    // 顶部 = 固定 chrome + 渲染层上报的常驻 chrome 下移（公告横幅），与浏览器标签同一口径
+    this.currentView.setBounds(computeEmbeddedViewBounds(this.mainWindow, this._sidebarWidth || SIDEBAR_WIDTH_DEFAULT, contentTopWithInset(this._topInset)))
     // 宽度自适应（旁路：失败只告警，不得影响登录链路；页面未加载时探针为 no-op）
     loginViewFit.fitLoginViewZoomSafe(this.currentView, { tag: 'AuthView' })
   }
@@ -242,6 +245,20 @@ class AuthViewManager {
       if (this.mainWindow && this.currentView) {
         this._positionView()
       }
+    }
+  }
+
+  /**
+   * 设置渲染层常驻 chrome 的额外顶部下移（阶段 1.2 / audit-6，由 WebviewManager 同步）。
+   * 0 是合法值（无横幅）；非法值由 view-bounds 回落默认，不在这里另写一份判据。
+   * @param {number} px - 像素高度
+   */
+  setTopInset(px) {
+    const next = normalizeTopInset(px)
+    if (this._topInset === next) return
+    this._topInset = next
+    if (this.mainWindow && this.currentView) {
+      this._positionView()
     }
   }
 

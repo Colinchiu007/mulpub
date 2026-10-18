@@ -272,7 +272,7 @@
 | 1B | 1.3 TrialBanner / LoadingState | ✅ 已落地（§11.1.1 / §11.1.2）：横幅挂进 MemberCenter，`LoadingState` 连同测试与两处注册删除 |
 | 1B | 1.4 `/first-run` | ✅ 已落地（§11.1.3）：完成标记只由退出动作写；判定走拉取；第二套引导真源 `services/onboarding.js` 已删 |
 | 1B | 1.10 帮助与支持 | ✅ 已落地（§11.1.4）：全部指向应用内落点，未新增外链与第二份协议判据 |
-| 1B | 1.2 公告横幅挂载 | **实测修正**：`WebContentsView` 的原生图层不按 CSS 定位，而内嵌视图位置由主进程 `computeEmbeddedViewBounds(win, sidebarWidth)` 算出（`BROWSER_CHROME_TOP=76` 就是"渲染层固定头高"的镜像常量）。因此挂根级横幅**不能只登记 owner**，必须先加一条 **top-inset 通道**：仿 `setSidebarWidth` 的四处同步 —— `electron/services/view-bounds.js`、`webview-manager/layout.js`（`_topInset` + 变更后 `_repositionAll()`）、`webview-manager/ipc-handlers.js:246` 同族的 IPC 注册、`electron/preload/page-manager.js:40` + 渲染层 `invokePageManager('setTopInset', h)`（横幅高度用 `ResizeObserver` 上报，卸载/关闭时回 0）。改这条链路必须同跑 `overlay-view-suspension.test.js` + `shell-mode-6b.test.js` 全量 |
+| 1B | 1.2 公告横幅挂载 | ✅ **已落地**（§13）：top-inset 通道四处同步 + 横幅上报高度 + 卸载回 0。**实测修正**：`WebContentsView` 的原生图层不按 CSS 定位，而内嵌视图位置由主进程 `computeEmbeddedViewBounds(win, sidebarWidth)` 算出（`BROWSER_CHROME_TOP=76` 就是"渲染层固定头高"的镜像常量）。因此挂根级横幅**不能只登记 owner**，必须先加一条 **top-inset 通道**：仿 `setSidebarWidth` 的四处同步 —— `electron/services/view-bounds.js`、`webview-manager/layout.js`（`_topInset` + 变更后 `_repositionAll()`）、`webview-manager/ipc-handlers.js:246` 同族的 IPC 注册、`electron/preload/page-manager.js:40` + 渲染层 `invokePageManager('setTopInset', h)`（横幅高度用 `ResizeObserver` 上报，卸载/关闭时回 0）。改这条链路必须同跑 `overlay-view-suspension.test.js` + `shell-mode-6b.test.js` 全量 |
 | 2 | 2.1–2.8 | 封面缩略图三步、历史列表三项、`allSettled` 首屏、监听前移、聚合进度软权重、发布前摘要确认、toast 单点化、首屏体量 |
 | 3 | 3.1–3.9（3.3 除外） | 术语/导航真源、数据口径、令牌双轨、控件体系、三态统一、最差文案、账号页重排 |
 | 4 | 4.1–4.8 | 浅色对比度重取、裸 hex 收编、label for、键盘可达、roving tabindex、aria-live、长度限制口径、稳定 `:key` |
@@ -713,3 +713,116 @@ App.vue setup
 **0 个来自产物本身**。把探针失明读成"功能没进包"，就是把工具的故障上报成同事的缺陷。
 
 
+
+---
+
+## 13. 阶段 1.2（audit-6）运营公告横幅挂载 + top-inset 通道
+
+### 13.1 缺陷本体
+
+`AnnouncementBanner.vue` 已写好，数据链也齐备（ops-center 后台 → 主进程 `OpsCenterSync`
+运行时状态 → `opsCenterSyncRuntime` IPC → `useOpsCenterRuntime`），
+但**全仓零引用**（唯一命中是 `MemberCenter.vue:210` 的一句注释）。
+于是"运营公告"这一产品能力在桌面上不存在：后台发了，客户端什么都不显示。
+
+### 13.2 为什么不能"挂一行"（本批的真实成本）
+
+`WebContentsView`（浏览器标签 / 登录标签里加载的外部网页）是**原生图层**，
+压在渲染进程 DOM 之上，CSS `z-index` 对它无效；它的纵向位置由主进程侧的镜像常量
+`BROWSER_CHROME_TOP = 76`（TabBar 36 + NavBar 40）算出。横幅插在 DOM 流里之后：
+
+- 不处理 ⇒ 浏览器标签激活时横幅被外部网页**整块盖住**（2026-09-23「设置弹窗被盖住」同形）；
+- 用浮层互斥（`suspendEmbeddedViews`）处理 ⇒ 错用机制：那是**模态**浮层的办法，
+  常驻横幅若挂起内嵌视图，等于"为了显示一条公告而永久隐藏网页内容"。
+
+正解是第三条：**给内嵌视图加一个 top-inset 通道**，让主进程按横幅实际高度把网页区域整体下移。
+
+### 13.3 通道四处同步（与 `setSidebarWidth` 同构，一处不缺）
+
+| 落点 | 改动 |
+|---|---|
+| `electron/services/view-bounds.js` | 新增 `TOP_INSET_DEFAULT=0` / `MAX_TOP_INSET=200` / `normalizeTopInset(px)` / `contentTopWithInset(inset)`（`BROWSER_CHROME_TOP + 下移`，单一实现） |
+| `electron/services/webview-manager/layout.js` | `setTopInset(px)`（非法值回落 0 + `log.warn` 出声）→ 同步 `AuthViewManager` → `_repositionAll()`；`_repositionAll` 取 `computeEmbeddedViewBounds(win, sidebarWidth, contentTopWithInset(this._topInset))` |
+| `electron/services/webview-manager/ipc-handlers.js` | 注册 `page-manager:set-top-inset`（带既有 `withSenderCheck`） |
+| `electron/preload/page-manager.js` | 暴露 `pageManager.setTopInset(px)`（bundle 由 `pnpm run build:preload` 重打，产物 gitignore） |
+| `electron/services/webview-manager/index.js` | 构造期 `this._topInset = TOP_INSET_DEFAULT`（默认值只 import view-bounds 一份） |
+| `electron/services/auth-view-manager.js` | `_topInset` + `setTopInset` + `_positionView` 喂 `contentTopWithInset(this._topInset)` |
+
+**刻意不做的一条**：不给 `qrcode-login.js` 加 `setTopInset`。它自「独立窗口承载」迁移后
+`_sidebarWidth` / `setSidebarWidth()` 只是签名兼容（该文件 48-51 行自己写着），
+再加一个没人读的 setter 就是本仓最忌的"死接线"。这条反向选择由
+`webview-manager-top-inset.test.js` 的一条**反向锁**钉住（断 `_qrCodeLogin` 上没有 `setTopInset`）。
+
+### 13.4 交互与数据校验
+
+| 场景 | 判据 | 行为 |
+|---|---|---|
+| 无公告 | `visibleAnnouncements.length === 0` | 整块 `v-if` 不渲染，上报 0 |
+| 有公告 | 每条 `role="alert"`，容器 `role="region"` + `aria-label` | 上报 `offsetHeight` |
+| 用户关闭 | 写 `localStorage['announcement-banner-dismissed']`（键 `id:<id>`，无 id 的老数据退化为 `severity:title:content` 摘要） | 该条消失；全部关完 ⇒ 上报 0 |
+| 维护类公告 | `severity === 'maintenance'` | **不给关闭按钮**（系统维护不是可忽略的打扰） |
+| 未知 severity | 不在 `info/warning/maintenance` | 徽标如实回落「提示」档，配色 class 仍按原值保留（可归因） |
+| 读压制记录抛错 | `localStorage.getItem` throw | 忽略并照常渲染（读不到历史记录 ≠ 没有公告） |
+| 写压制记录抛错 | `setItem` throw | 关闭动作照常完成，只落盘失败 |
+| 卸载 | `onBeforeUnmount` | 若残留非 0 上报 ⇒ 补发 0（释放穷尽，与浮层互斥合同同一条纪律） |
+| 主进程收到非法值 | NaN / 负 / 字符串 / > 200 | 回落 0 + `log.warn` 出声；不得产生 NaN 坐标 |
+
+`normalizeTopInset` 与 `normalizeSidebarWidth` 的**判据方向相反**是有意为之：
+侧边栏宽度 0 会让内嵌视图 `x=0` 盖住侧边栏（2026-09-15 事故），故 0 非法；
+而顶部下移的 0 正是"没有常驻 chrome"的收口态，把 0 判非法就是永久错位。
+两条都在各自函数注释里写明理由，并有 `view-bounds-top-inset.test.js` 的第一条断言钉住。
+
+### 13.5 显示项与提示文字（新增 5 键，zh/en 成对）
+
+| key | zh | en |
+|---|---|---|
+| `announcement.regionLabel` | 运营公告 | Service announcements |
+| `announcement.closeLabel` | 关闭公告 | Dismiss announcement |
+| `announcement.severityInfo` | 提示 | Notice |
+| `announcement.severityWarning` | 重要提醒 | Important |
+| `announcement.severityMaintenance` | 系统维护 | Maintenance |
+
+同批下线 `useOpsCenterRuntime.js` 里的 `SEVERITY_LABELS = { info: '提示', ... }`
+（composable 持有中文字面量，Gate 7 的 zh/en 成对约束管不到它）。
+`useOpsCenterRuntime.test.js` 的导出完整性锁随之改判，并加一条墓碑断言
+（`not.toHaveProperty('SEVERITY_LABELS')`）防止原形态回来。
+CJK 基线读数因此从 1175 降到 **1171**。
+
+### 13.6 回归锁与变异反证
+
+| 锁 | 条数 | 盯的是 |
+|---|---|---|
+| `electron/services/view-bounds-top-inset.test.js` | 18 | 数值口径：0 合法、非法回落、上限是真数、bounds 的 y/height 联动、极窄窗口高度取 0 不为负 |
+| `electron/services/webview-manager-top-inset.test.js` | 17 | 接线：真触发重排、同值不重复重排、挂起态只隐藏不写 bounds、登录视图收到、**扫码视图不得收到**、通道三处同步的源锁（ipc / preload / layout 任一缺失即红） |
+| `src/components/AnnouncementBanner.test.js` | 9 | 组件：region/alert 语义、徽标走 locales（切 en 跟着变）、未知档位回落、维护类无关闭按钮、关闭后报 0、无 id 老数据关得掉、卸载还 0、存储抛错不变砖 |
+| `src/App.announcement-inset.test.js` | 2 | **装配锁**：以生产方式挂 App，公告存在 ⇒ 横幅渲染且 `pageManager.setTopInset(64)` 被调；无公告 ⇒ 报 0 |
+| 既有回归（AGENTS 强制面） | 164 + 33 | `overlay-view-suspension` / `shell-mode-6a` / `shell-mode-6b` / `webview-manager` / `auth-view-manager` / `view-bounds` + `NotFound` / `SettingsDialog` / 两条 App 装配锁 |
+
+变异 **M4**：删掉 `App.vue` 里的 `<AnnouncementBanner @inset="onChromeInset" />` 一行 ⇒
+装配锁 **2 条全红**（`Tests 2 failed (2)`），其余文件不受影响；还原后 `md5sum` 与备份逐字节相同
+（`da61287e…`），`grep -c "MUT-START"` = 0。
+
+### 13.7 同批修掉的两条 CI 红（属"实现变了、锁/夹具跟着改"，不是放宽）
+
+1. **`QG Browser E2E` 22 条路由 + 6 条集成流全红**：根因在 E2E 的 IPC 夹具
+   `tests/e2e/helpers/ipc-mock.js:162` 写的是 `firstRunCheck ⇒ ok({ isFirstRun: true, setupDone: false })`。
+   阶段 1.4 的引导判定按契约读到 `setupDone:false` 就把**每一条**路由重定向到 `/first-run`，
+   于是 22 条路由用例集体在测向导页（现场证据：日志里反复 `navigated to …/#/first-run`）。
+   夹具同时带着一个真实响应里从来不存在的字段 `isFirstRun`。
+   改法：夹具与真桥逐字同形（`{ setupDone }`）并按场景语义取 `true`（E2E 测的是已引导的存量用户），
+   补 `firstRunComplete`、删 `onFirstRunStatus`（该方法本批已随推送通道删除）。
+   这是 AGENTS.md「契约夹具不得替对方剥壳」的第四种落点：**夹具凭空多带一个字段**。
+2. **`QG Static` Gate 16 字体档位红**：`views/NotFound.vue:59` 用了 `font-size: 40px` 字面量
+   （阶段 1.7 新建该文件时，这条门禁还没进 main；合并 origin/main 后才第一次被执行）。
+   改为七档里最大的一档 `var(--font-size-xxl)`（32px），不为一个 404 大字开第八档。
+
+### 13.8 QM-1 证据（本批重跑）
+
+`verify-worktree-deps` OK → `build:vue` rc=0 → `electron-builder --win --dir` rc=0
+（唯一非致命告警 `.playwright-browsers` 缺 ⇒ 产物不含捆绑 Chromium，如实记为"安装包证据不完整"）
+→ asar 产物判据 **12 条全 PASS**（layout/`view-bounds`/ipc/preload/auth 五处改动逐个读产物内容，
+外加 renderer chunk 含 `announcement-banners` 与 `ui:theme`，并各带一条通路自证）
+→ 隔离 userData 启动 10 秒：**ALIVE=true、STDERR_BYTES=0、红线命中 0、进程计数 0→0、
+PARENT_ENV_DEFECT=none**。子进程 stdout（22461 字节）按 §12.9 的新口径一并回读，
+其中 `Unhandled Rejection: 许可证权限不足（onProgress/onTabEvent）` 与
+`no such column: external_id` 两条既有缺陷仍在，登记状态未变（本批不顺手修）。

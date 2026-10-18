@@ -158,9 +158,13 @@
     updateInstallNow: makeHandler('updateInstallNow', async () => ok(true)),
     onUpdateStatus: makeOn('update:status'),
 
-    // 首次运行
-    firstRunCheck: makeHandler('firstRunCheck', async () => ok({ isFirstRun: true, setupDone: false })),
-    onFirstRunStatus: makeOn('first-run:status'),
+    // 首次运行：夹具必须与真实桥逐字同形 —— 主进程 `checkDeps()` 只回 `{ setupDone }`
+    // （`isFirstRun` 那个字段从来不在真实响应里）。取 `true` 的理由是场景语义：
+    // E2E 检查的是"已引导完成的存量用户"在各路由上的行为；若这里回 false，
+    // App.vue 的引导判定（阶段 1.4）会把**每一条**路由重定向到 /first-run，
+    // 于是所有路由用例都在测向导页而不是测它声称的那条路由。
+    firstRunCheck: makeHandler('firstRunCheck', async () => ok({ setupDone: true })),
+    firstRunComplete: makeHandler('firstRunComplete', async () => ok({ setupDone: true })),
 
     // 平台
     platformList: makeHandler('platformList', async () => ok([

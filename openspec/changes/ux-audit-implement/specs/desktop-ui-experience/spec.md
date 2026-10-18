@@ -262,3 +262,35 @@ MUST NOT 写入未经取证的 URL。外链需求出现时 MUST 复用既有受�
 - **WHEN** 新增任何写 `data-theme` 的代码路径
 - **THEN** MUST 经 `useTheme` 的 `applyTheme`；视觉测试 runner 手工 setAttribute 只是把
   同一开关置态，MUST NOT 演变成第二套主题语义
+
+### Requirement: 渲染层常驻 chrome 必须经 top-inset 通道与内嵌视图共处
+
+`WebContentsView`（浏览器/登录标签里的外部网页）是压在渲染进程 DOM 之上的原生图层，
+CSS `z-index` 对它无效，其纵向位置由主进程侧的镜像常量 `BROWSER_CHROME_TOP` 决定。
+因此任何**常驻**的渲染层 chrome（运营公告横幅）MUST 把自身高度经
+`page-manager:set-top-inset` 报给主进程，由主进程把内嵌视图一起下移；
+MUST NOT 用"登记浮层互斥 owner"替代——那是模态浮层的机制，常驻条挂起会让网页永不显示。
+
+#### Scenario: 有公告时内嵌视图按 76 + 横幅高度定位
+
+- **WHEN** 横幅渲染并上报高度 h
+- **THEN** 浏览器标签视图的 `y` MUST 等于 `BROWSER_CHROME_TOP + normalizeTopInset(h)`，
+  且 `height` 等量收窄；`x`/`width` MUST NOT 受影响
+
+#### Scenario: 横幅消失必须把下移还回 0
+
+- **WHEN** 公告为空、用户关闭全部公告、或横幅被卸载
+- **THEN** MUST 上报 0 并触发重排；0 MUST 是合法值（与侧边栏宽度拒绝 0 的口径**相反**，
+  因为这里的 0 表示"没有常驻 chrome"这一收口态，把 0 当非法就是永久错位）
+
+#### Scenario: 异常上报值不得把内容区压死
+
+- **WHEN** 收到 NaN / 负数 / 字符串 / 超过 `MAX_TOP_INSET` 的值
+- **THEN** MUST 回落默认 0 并出声告警，MUST NOT 把异常值拼进 `setBounds`
+  （那会让内嵌视图高度为 0，用户侧是"网页标签打开后一片空白"）
+
+#### Scenario: 只有真的内嵌在主窗口的承载才接收下移
+
+- **WHEN** 某承载已改为独立窗口（如扫码登录视图）
+- **THEN** MUST NOT 为其新增 `setTopInset` 之类无人读取的 setter；
+  同步范围以"谁读这个值"为准，不以"谁有同名方法"为准

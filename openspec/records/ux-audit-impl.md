@@ -1,6 +1,6 @@
 ---
 record: ux-audit-impl
-task: 按 UX-AUDIT-2026-10-17 §5 落地阶段 0 全部 + 阶段 1 批次 A（导航/快捷键/404/离线/陈旧看门狗/两条新门禁）+ 批次 B（试用横幅挂载、死全局注册清理、首运向导接回启动判定、帮助页可用化）+ 批次 C（1.1 暗色主题入口）
+task: 按 UX-AUDIT-2026-10-17 §5 落地阶段 0 全部 + 阶段 1 批次 A（导航/快捷键/404/离线/陈旧看门狗/两条新门禁）+ 批次 B（试用横幅挂载、死全局注册清理、首运向导接回启动判定、帮助页可用化）+ 批次 C（1.1 暗色主题入口）+ 批次 D（1.2 公告横幅挂载与 top-inset 通道）；阶段 1 至此除 3.3 类产品决策外全部收口
 date: 2026-10-18
 sync_status: PENDING
 sync_reason: 本片为混合 PR（运行时代码 + 门禁 + 文档），合并后收口由 merge-ledger 按主干历史推导，不另开回填 PR（2026-10-17 起回填通道已取消）
@@ -68,6 +68,22 @@ sync_backfill_owner: none-derived-from-trunk
 | 行尾与 diff 对账 | ✅ | `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径逐文件相同（`CHANGELOG.md 41/0`、`PRD 166/6`、`spec.md 37/0`、`tasks.md 1/1`）。`CHANGELOG.md` 仍为 `i/lf w/crlf attr/text=auto`，工作副本的 LF 警告属 checkout 转换，非内容改动 |
 | 门禁读数（本批当场） | ✅ | `check-max-lines` domain=10148 ⇒「无新增超大文件，挂账清单与现实一致」；`check-locale-sync --cjk` 1175（基线 1331，无新增硬编码）、`--keys` 2173 全部存在于 zh/en、`--pair-base` PASS；`check-no-brand-residue` PASS（10145 tracked 文件）；`openspec-sync-check` OK: 387 tasks；`vite build` rc=0 |
 | 本批未做（不冒充已做） | ⚠️ | 1.2（`AnnouncementBanner` 挂载 + top-inset 通道）仍待做，见上一节「本批未做」；阶段 2–5 全部待办 |
+
+## 阶段 1 批次 D：1.2 公告横幅挂载 + top-inset 通道（ux-audit-impl-d，2026-10-18）
+
+| 门禁 | 状态 | Fresh 证据 |
+|------|------|-----------|
+| 本批范围 | 1.2 + 两条 CI 收红 | `view-bounds.js`（新增 4 个导出）、`webview-manager/{index,layout,ipc-handlers}.js`、`preload/page-manager.js`、`auth-view-manager.js`、`AnnouncementBanner.vue` 重写、`App.vue` 挂载、`locales/announcement/{zh,en}.js` 新建、`useOpsCenterRuntime.{js,test.js}` 收敛、`tests/e2e/helpers/{ipc-mock,route-functional-suite}.js` 收红、`views/NotFound.vue` 字体档 |
+| 第一性原因（QM-5 ①） | ✅ | 不是"少挂一个组件"，而是**架构缺一层**：内嵌 `WebContentsView` 的位置由主进程镜像常量决定，渲染层从来没有"我多占了顶部多少"的通道。审计 §9 对 1.2 的原估算是"挂上去 + 登记 owner"，实测该写法会把常驻横幅当成模态浮层处理（挂起内嵌视图＝永久隐藏网页内容），因此本批按 PRD §9 已修正的口径实现 top-inset 通道 |
+| 逃逸分析（QM-5 ②） | ✅ | ①**流程缺失**：没有任何判据看"渲染层新增常驻 chrome 是否同步了内嵌视图位置"（阶段 5.3 `check-ui-wired.js` 只覆盖组件引用面）；②**夹具不形**：E2E 的 `ipc-mock.js` 给 `firstRunCheck` 造了一个真实响应里**从来不存在的字段** `isFirstRun`，并把 `setupDone` 写成 `false` ⇒ 阶段 1.4 的引导判定按契约正确工作，却把 22 条路由全部重定向到 `/first-run`，E2E 因此在测"每一环都对、合起来全错"的东西；③**门禁时差**：`NotFound.vue` 的 `font-size: 40px` 是本 PR 阶段 1.7 新建，而 Gate 16 是合并 origin/main 之后才第一次被执行 ⇒ "我的文件早就绿过"不是证据 |
+| 系统性漏洞定位（QM-5 ③） | ✅ | 具体到文件：`tests/e2e/helpers/ipc-mock.js` 的 mock 与被 mock 的真桥**不同形**（多字段 + 语义取反），属 AGENTS.md「契约夹具不得替对方剥壳」家族的**第四种落点：夹具凭空多带一个字段**。同批已把该通道改为逐字同形并按场景语义取值 |
+| 修复 + 回归保护（QM-5 ④） | ✅ | 新增 4 个测试文件共 46 条：`view-bounds-top-inset.test.js` 18（数值口径，含"0 合法"这条与侧边栏方向相反的判据）、`webview-manager-top-inset.test.js` 17（接线 + 通道三处同步源锁 + "扫码视图不得收到"反向锁 + 挂起态不得写 bounds）、`AnnouncementBanner.test.js` 9、`App.announcement-inset.test.js` 2（装配锁）；既有强制面全跑：`overlay-view-suspension`/`shell-mode-6a`/`shell-mode-6b`/`webview-manager`/`auth-view-manager`/`view-bounds` = 164 条，另 33 条（`NotFound`/`SettingsDialog`/两条 App 装配锁） |
+| 变异反证 | ✅ | **M4** 摘掉 `App.vue` 的 `<AnnouncementBanner @inset="onChromeInset" />` ⇒ 装配锁 **2 条全红**（`Tests 2 failed (2)`）；还原后 `md5sum` 与备份逐字节相同（`da61287e…`）、`grep -c "MUT-START"` = 0。本批累计四条（M1/M2/M3 见批次 C 行） |
+| 防再犯（QM-5 ⑤） | ✅ | ①通道三处同步的源锁（ipc / preload / layout 任一缺失或改名不一致即红）；②"只有真的内嵌在主窗口的承载才接收下移"写进规格与代码注释，并用**反向锁**（断 `_qrCodeLogin` 上没有 `setTopInset`）而不是只写散文；③E2E 夹具改为与真桥同形后，`ipc-mock` 的注释里写明"取 true 的是场景语义"，防止下一次有人当默认值抄 |
+| QM-1 打包 | ✅ 本批重跑 | 触发面命中（改 `apps/desktop/electron/` 下 6 个文件）：`verify-worktree-deps` OK → `build:vue` rc=0 → `electron-builder --win --dir` rc=0（唯一非致命告警 `.playwright-browsers` 缺 ⇒ 产物不含捆绑 Chromium）→ asar 产物判据 **12 条全 PASS**（layout/view-bounds/ipc/preload/auth 五处内容逐个读回 + renderer chunk 含 `announcement-banners`、`ui:theme`，每条前都先跑通路自证）→ 隔离 userData 启动 10 秒 **ALIVE=true、STDERR_BYTES=0、红线命中 0、进程计数 0→0、PARENT_ENV_DEFECT=none**；子进程 stdout 22461 字节按 §12.9 新口径一并回读 |
+| 既有缺陷登记（不认领不掩盖） | ⚠️ 未修 | ①未激活许可证 + 全新 userData 首启时 `Renderer [Unhandled Rejection]: 许可证权限不足，无法调用 onProgress / onTabEvent`（同步权限错误无人 catch，标签系统订阅静默失败）；②`sqlite-wrapper … no such column: external_id`（`viral_library` 查询列与建表列不同源）。两条都不是本批引入（批次 C 已登记），修法需各自走 QM-5，本批不顺手改 |
+| 门禁读数（本批当场） | ✅ | `check-font-size-scale` PASS（当前 32 / 基线 790）；`check-locale-sync --keys` 2178 全存在、`--cjk` **1171**（基线 1175，`SEVERITY_LABELS` 下线）、`--pair-base` 待提交后由 CI Gate 7 复验；`check-max-lines` 无新增超大文件；`check-css-var-defined` 当前 0 / 基线 64；`openspec-sync-check` OK 387 tasks；`vite build` rc=0 |
+| 行尾与 diff 对账 | ✅ | `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径逐文件相同（`CHANGELOG.md 50/0`）；`CHANGELOG.md` 仍 `i/lf w/crlf attr/text=auto`，LF 警告属 checkout 转换 |
 
 ## 关联
 

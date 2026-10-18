@@ -139,11 +139,50 @@ function computeEmbeddedViewBounds(win, sidebarWidth, topOffset = BROWSER_CHROME
   }
 }
 
+/**
+ * 渲染层可上报的「顶部额外下移」（公告横幅等常驻 chrome）默认值与上限。
+ *
+ * 上限取 200：横幅是「徽标 + 标题 + 可选正文 + 关闭按钮」的单/双行块，实测高度远小于此；
+ * 超限一律按非法处理并回落 0 —— 一个异常上报值（NaN / 负数 / 整屏高度）若被接受，
+ * 会把内嵌 WebContentsView 的可用高度压成 0，用户侧表现为「网页标签打开后一片空白」，
+ * 比"横幅挡住一点内容"严重一个量级。
+ */
+const TOP_INSET_DEFAULT = 0
+const MAX_TOP_INSET = 200
+
+/**
+ * 归一化顶部下移量。与 normalizeSidebarWidth **不同**：0 在这里是**合法值**
+ * （它表示"当前没有横幅"，是卸载/关闭时必须回写的收口态），所以判据是 `0 <= px <= MAX`。
+ * 非法值（非数字 / NaN / 负 / 越界）回落 TOP_INSET_DEFAULT 而不是拒绝，
+ * 因为这一路的重排成本低于让视图停在错误顶偏移的成本。
+ * @param {number} [px]
+ * @returns {number}
+ */
+function normalizeTopInset(px) {
+  if (typeof px !== 'number' || !Number.isFinite(px)) return TOP_INSET_DEFAULT
+  if (px < 0 || px > MAX_TOP_INSET) return TOP_INSET_DEFAULT
+  return Math.round(px)
+}
+
+/**
+ * 内容区顶部 = 固定 chrome（TabBar + NavBar）+ 渲染层上报的额外下移。
+ * 单一实现，避免三处 manager 各写一遍 `76 + inset` 而漂移。
+ * @param {number} [inset]
+ * @returns {number}
+ */
+function contentTopWithInset(inset) {
+  return BROWSER_CHROME_TOP + normalizeTopInset(inset)
+}
+
 module.exports = {
   BROWSER_CHROME_TOP,
   SIDEBAR_WIDTH_DEFAULT,
   MIN_SIDEBAR_WIDTH,
   MAX_SIDEBAR_WIDTH,
+  TOP_INSET_DEFAULT,
+  MAX_TOP_INSET,
+  normalizeTopInset,
+  contentTopWithInset,
   normalizeSize,
   getContentSize,
   normalizeSidebarWidth,

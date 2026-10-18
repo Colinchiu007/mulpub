@@ -31,7 +31,8 @@ describe('useOpsCenterRuntime', () => {
     expect(s.contentPolicy.value.enabled).toBe(true)
     expect(s.contentPolicy.value).not.toHaveProperty('word_list')
     expect(s.loaded.value).toBe(true)
-    expect(s.SEVERITY_LABELS.maintenance).toBe('系统维护')
+    // 墓碑：档位文案已迁到 locales（announcement/*），composable 不得再持有中文字面量
+    expect(s).not.toHaveProperty('SEVERITY_LABELS')
   })
 
   it('IPC 不可用/无数据时保持空状态不抛错', async () => {
@@ -44,8 +45,10 @@ describe('useOpsCenterRuntime', () => {
 
   it('导出完整性', () => {
     const s = useOpsCenterRuntime()
-    for (const key of ['announcements', 'updatePolicy', 'contentPolicy', 'syncedAt', 'loaded', 'loadRuntime', 'SEVERITY_LABELS']) {
+    for (const key of ['announcements', 'updatePolicy', 'contentPolicy', 'syncedAt', 'loaded', 'loadRuntime']) {
       expect(s).toHaveProperty(key)
     }
+    // 导出面收敛（阶段 1.2）：SEVERITY_LABELS 已删，文案归 locales/announcement
+    expect(s).not.toHaveProperty('SEVERITY_LABELS')
   })
 })

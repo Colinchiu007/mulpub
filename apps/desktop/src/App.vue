@@ -56,6 +56,10 @@
             @navigate="onNavigate"
             @save-account="onSaveAccount"
           />
+          <!-- 运营公告横幅（阶段 1.2 / audit-6）：建好并接好数据链却零引用，用户永远看不到。
+               挂在 NavBar 之下、模块导航之上——它与内嵌 WebContentsView 的关系由
+               `setTopInset` 通道处理（原生图层不按 CSS 定位，必须把内嵌视图一起下移）。 -->
+          <AnnouncementBanner @inset="onChromeInset" />
           <!-- 模块导航（仅首页标签显示） -->
           <MpModuleNav v-if="isHomeTab" />
           <!-- 主内容区 -->
@@ -98,6 +102,7 @@ import OfflineIndicator from '@/components/OfflineIndicator.vue'
 import UpdateNotification from '@/components/UpdateNotification.vue'
 import SettingsDialog from '@/components/SettingsDialog.vue'
 import BackToTop from '@/components/BackToTop.vue'
+import AnnouncementBanner from '@/components/AnnouncementBanner.vue'
 import PipelineBackgroundToast from '@/components/PipelineBackgroundToast.vue'
 import PublishProgressPanel from '@/components/PublishProgressPanel.vue'
 import RouteLoadError from '@/components/RouteLoadError.vue'
@@ -254,6 +259,13 @@ watch(showSettingsDialog, (open) => {
   if (open) suspendEmbeddedViewsForOverlay('settings-dialog')
   else releaseEmbeddedViewsForOverlay('settings-dialog')
 })
+
+// 公告横幅高度 → 内嵌视图顶部下移（阶段 1.2 / audit-6）。
+// 表现层不直接摸 IPC：横幅只上报自己多高，由壳层决定这条 chrome 怎么和原生图层共处。
+// 0 是有效值（横幅消失/卸载），主进程侧 setTopInset 会据此把内嵌视图收回到 76px。
+function onChromeInset (px) {
+  invokePageManager('setTopInset', px)
+}
 
 // 「就地打开设置」请求（2026-10-15）：页面（如采集页知乎区块）需要把用户直接送到
 // 某个具体 Tab——只说「去设置里配」而没有任何入口，是典型的死胡同文案。

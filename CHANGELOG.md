@@ -1,3 +1,53 @@
+# [未发布] feat(ux-audit): 阶段 1.2 —— 运营公告横幅挂载 + 内嵌视图 top-inset 通道
+
+- **缺陷本体**：`AnnouncementBanner.vue` 写好了，数据链也齐（ops-center → 主进程 `OpsCenterSync`
+  运行时状态 → `opsCenterSyncRuntime` → `useOpsCenterRuntime`），但**全仓零引用**
+  （唯一命中是 `MemberCenter.vue:210` 的一句注释）。后台发公告、客户端什么都不显示。
+- **为什么不是"挂一行"**：`WebContentsView`（浏览器/登录标签里的外部网页）是压在渲染层 DOM 之上的
+  **原生图层**，CSS `z-index` 对它无效，纵向位置由主进程镜像常量 `BROWSER_CHROME_TOP=76` 决定。
+  横幅插在 DOM 流里若不处理，浏览器标签激活时被网页**整块盖住**（2026-09-23 设置弹窗被盖住同形）；
+  而用浮层互斥（`suspendEmbeddedViews`）是**用错机制**——那是模态浮层的办法，常驻横幅挂起内嵌视图
+  等于"为显示一条公告而永久隐藏网页内容"。正解是第三条：给内嵌视图建一条 **top-inset 通道**。
+- **通道四处同步（仿 `setSidebarWidth`，一处不缺）**：`view-bounds.js` 新增
+  `TOP_INSET_DEFAULT/MAX_TOP_INSET/normalizeTopInset/contentTopWithInset`（`76+inset` 单一实现）；
+  `webview-manager/layout.js` 的 `setTopInset` + `_repositionAll` 取新顶；
+  `webview-manager/ipc-handlers.js` 注册 `page-manager:set-top-inset`（带既有 `withSenderCheck`）；
+  `preload/page-manager.js` 暴露 `pageManager.setTopInset`（bundle 由 `build:preload` 重打，产物 gitignore）；
+  另 `webview-manager/index.js` 初始化 `_topInset`、`auth-view-manager.js` 同步接收。
+  **刻意不给 `qrcode-login` 加 setter**：它自「独立窗口承载」后 `_sidebarWidth` 只是签名兼容，
+  加无人读取的 setter 就是本仓最忌的死接线 —— 这条反向选择由一条**反向锁**钉住。
+- **判据方向刻意与侧边栏相反**：`normalizeSidebarWidth` 拒绝 0（0 让视图 `x=0` 盖住侧边栏，2026-09-15 事故），
+  而 `normalizeTopInset` **接受 0**——0 是"没有常驻 chrome"的收口态，判非法就是永久错位。
+  非法值（NaN/负/字符串/>200）回落 0 并 `log.warn` 出声；不得把异常值拼进 `setBounds`
+  （那会让内嵌视图高度为 0，用户侧是"网页标签打开后一片空白"）。
+- **交互与校验**：无公告整块不渲染并报 0；每条 `role="alert"`、容器 `role="region"`；
+  关闭键优先 `id:<id>`、无 id 的老数据退 `severity:title:content` 摘要（关得掉）；
+  `severity==='maintenance'` **不给关闭按钮**；未知档位如实回落「提示」而配色 class 保留原值（可归因）；
+  `localStorage` 读写抛错都不得让横幅变砖或让关闭失效；`onBeforeUnmount` 残留非 0 必须补发 0（释放穷尽）。
+- **文案入 locales**：新增 `locales/announcement/{zh,en}.js` 5 键成对；同批下线
+  `useOpsCenterRuntime.js` 的 `SEVERITY_LABELS`（composable 持有中文字面量，Gate 7 管不到它），
+  导出完整性锁改判并加墓碑断言防回归；CJK 基线读数 1175 → **1171**。
+- **锁与变异**：`view-bounds-top-inset.test.js` 18 条（数值口径）、`webview-manager-top-inset.test.js` 17 条
+  （接线 + 通道三处同步源锁 + "扫码视图不得收到"反向锁）、`AnnouncementBanner.test.js` 9 条、
+  `App.announcement-inset.test.js` 2 条**装配锁**（真挂 App：公告存在 ⇒ `pageManager.setTopInset(64)` 被调；
+  无公告 ⇒ 报 0）。M4 摘掉 App.vue 的挂载行 ⇒ 装配锁 2 条全红，还原后 md5 与备份一致（`da61287e…`）。
+  按 AGENTS 强制面全跑既有回归：`overlay-view-suspension`/`shell-mode-6a`/`shell-mode-6b`/`webview-manager`/
+  `auth-view-manager`/`view-bounds` 共 164 条 + 33 条，全绿。
+- **同批修掉的两条 CI 红（都不是放宽断言）**：① `QG Browser E2E` 22 条路由 + 6 条集成流全红，
+  根因是 E2E 夹具 `ipc-mock.js` 把 `firstRunCheck` 写成 `{ isFirstRun: true, setupDone: false }` ——
+  阶段 1.4 的引导判定按契约读到未引导就把**每一条**路由重定向到 `/first-run`（现场：日志反复
+  `navigated to …/#/first-run`），22 条用例集体在测向导页；且 `isFirstRun` 这个字段在真实响应里
+  **从来不存在**。改法：夹具与真桥逐字同形 + 按场景语义取 `setupDone: true`，补 `firstRunComplete`、
+  删已下线推送通道的 `onFirstRunStatus`。这是「契约夹具不得替对方剥壳」的第四种落点：**夹具凭空多带一个字段**。
+  ② `QG Static` Gate 16 抓到 `NotFound.vue:59` 的 `font-size: 40px` 字面量（该文件是本 PR 阶段 1.7 新建，
+  而这条门禁是合并 origin/main 后才第一次被执行）⇒ 改七档最大档 `var(--font-size-xxl)`，不为一个 404 大字开第八档。
+- **QM-1（本批触发面：`electron/`）**：`verify-worktree-deps` OK → `build:vue` rc=0 →
+  `electron-builder --win --dir` rc=0 → asar 产物判据 **12 条全 PASS**（五处主进程改动逐个读产物内容 +
+  renderer chunk 含 `announcement-banners`/`ui:theme`，各带通路自证）→ 隔离 userData 启动 10 秒
+  `ALIVE=true`、**stderr 0 字节**、红线命中 0、进程计数 0→0。子进程 stdout 按 §12.9 新口径一并回读，
+  两条既有缺陷（未激活态 `Unhandled Rejection: onProgress/onTabEvent`、`viral_library` 缺 `external_id` 列）
+  仍在，登记状态未变、本批不顺手修。
+
 # [未发布] feat(ux-audit): 阶段 1.1 —— 暗色主题入口（外观设置 + 模块级主题单例 + 启动引导）
 
 - **缺陷本体**：`useTheme()` 的生产调用点是 **0**（`grep -rn useTheme apps/desktop/src` 只命中自身与其测试）。

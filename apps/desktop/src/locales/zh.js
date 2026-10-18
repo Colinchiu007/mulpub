@@ -7,6 +7,7 @@ import loginGateZh from './login-gate/zh'
 import providerCrudZh from './provider-crud/zh'
 import publishDraftsZh from './publish-drafts/zh'
 import hotkeysZh from './hotkeys/zh'
+import announcementZh from './announcement/zh'
 import navZh from './nav/zh'
 import tabBarZh from './tab-bar/zh'
 import memberCenterZh from './member-center/zh'
@@ -63,6 +64,7 @@ export default {
   providerCrud: { ...providerCrudZh },
   publishDrafts: { ...publishDraftsZh },
   hotkeys: { ...hotkeysZh },
+  announcement: { ...announcementZh },
   nav: { ...navZh },
   tabBar: { ...tabBarZh },
   sidebar: { ...sidebarZh },

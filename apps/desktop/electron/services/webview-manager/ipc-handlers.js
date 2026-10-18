@@ -249,5 +249,15 @@ module.exports = {
         return { code: 0 }
       } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message } }
     }))
+
+    // 阶段 1.2（audit-6）：渲染层常驻 chrome（运营公告横幅）的额外顶部下移。
+    // WebContentsView 是原生图层、不按 CSS 定位，横幅插在 DOM 流里必须把内嵌视图一起下移，
+    // 否则横幅被外部网页整块盖住（与 2026-09-23 设置弹窗被盖住同形）。
+    ipcMain.handle('page-manager:set-top-inset', withSenderCheck(function (_, px) {
+      try {
+        self.setTopInset(px)
+        return { code: 0 }
+      } catch (e) { log.warn('WebviewManager', 'ipc handler error: ' + ((e && e.message) || e)); return { code: EC.REQUEST_ERROR, message: e.message } }
+    }))
   }
 }

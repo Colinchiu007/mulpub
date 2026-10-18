@@ -56,7 +56,7 @@ function goBack () {
   background: var(--color-bg-card, var(--surface, #fff));
 }
 .not-found-code {
-  font-size: 40px;
+  font-size: var(--font-size-xxl);
   font-weight: 800;
   color: var(--color-text-muted, var(--text-muted, #8a8a8f));
   line-height: 1.1;
