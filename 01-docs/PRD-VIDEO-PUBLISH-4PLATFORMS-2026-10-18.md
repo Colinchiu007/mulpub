@@ -524,13 +524,46 @@ R4 起 body 同时输出 `aspectRatio`（竖版 0.62 / 横版 1.78），
 | 草稿将超上限（≥95 篇） | `小红书草稿箱已有 N 篇（上限 100），超出后平台会自动删除一篇，建议先清理` |
 | 草稿内容未核对 | `草稿已创建，但标题/正文/封面完整性未逐项校验` |
 
-### 13.6 未闭合
+### 13.6 草稿落地到产品分区（R7 已闭环）
 
-1. **草稿落在用户分区**尚未复验（当前成功是在拷贝出的 profile 上）—— 需在应用关闭时用
-   `--user-data-dir=shared-user-data --profile-directory=session` 复验。
-2. 100 篇上限的清理/去重策略未实现。
-3. 坐标点击需替代为更稳的定位（换分辨率/缩放会失效），并补「草稿箱计数 +1」断言。
-4. 草稿**内容完整性**（标题/正文/封面是否都存住）未逐项核对。
+**结论：小红书「发布到草稿箱」已闭环** —— 草稿真正落在产品使用的 RPA 分区
+`session/Partitions/rpa-xiaohongshu-a1eac276` 里，从该分区重开浏览器仍显示 `草稿箱(1)`。
+
+验证方法（三步，可复现）：
+
+| 阶段 | 动作 | 读数 |
+| --- | --- | --- |
+| 1 | 从真实分区 seed 临时 profile（`Network/Cookies` → `Default/Network/Cookies` + `shared-user-data/Local State` → 临时 profile 根），上传视频 → 点「暂存离开」 | 起始 `草稿箱(0)` → 点击后 **`草稿箱(1)`** |
+| 2 | 把临时 profile 的 `Default/{Local Storage,IndexedDB,Session Storage}` **回写**进真实分区 | 24 个文件：Local Storage 5 / IndexedDB 14 / Session Storage 5 |
+| 3 | 从**真实分区**重新 seed 并打开发布页 | **`草稿箱(1)`**（截图取证） |
+
+落盘证据（真实分区 `Default/`）：
+
+| 路径 | 规模 |
+| --- | --- |
+| `IndexedDB/https_creator.xiaohongshu.com_0.indexeddb.leveldb` + `…indexeddb.blob` | **377.6 KB**（含视频缩略图 blob） |
+| `Local Storage/leveldb` | 8.7 KB |
+| `Session Storage` | 0.5 KB |
+
+**⇒ 平台侧「草稿」的物理位置确定**：`<profile>/Default/Local Storage` + `<profile>/Default/IndexedDB`。
+这解释了 §13.2 第 1 条（草稿不是服务端对象），也给实现定了落点：
+**RPA 引擎必须让这个分区保持持久化**，任何「临时 profile 跑完就丢」的做法都会让草稿消失。
+
+### 13.7 实现注意（R7 新增，两条硬约束）
+
+1. **分区目录缺 `Local State`**：`session/Partitions/<p>/` 下**没有** `Local State`（DPAPI 的 `encrypted_key` 在
+   `shared-user-data/Local State`）。所以**不能**把分区直接当 `--user-data-dir` 启动（cookie 解不开，
+   表现为「跳到登录页、`input[type=file]` 数量为 0」，**看似未登录、实为解密失败**）。
+   正确做法：以 `shared-user-data` 为主 user-data-dir（应用的做法），或把 `Local State` 一并提供。
+2. **草稿是浏览器本地对象**：不要指望「换机器/换 profile 后草稿还在」；也不要设计「清空 cache 后重试」的兜底
+   （会连草稿一起删掉）。
+
+### 13.8 仍未闭合
+
+1. **100 篇上限的清理/去重策略**未实现（平台原文：超出后**默认删除最后一篇**，属静默丢失）。
+2. 坐标点击需替代为更稳的定位（当前「暂存离开」固定在 1600×1000 视口下的 `(683,955)`，**换分辨率/缩放会失效**）。
+3. 草稿**内容完整性**（标题/正文/封面是否都逐字存住）未逐项核对 —— 当前只断言了「草稿箱计数 +1」。
+4. 本轮的「回写存储」是**验证手段**，不是产品实现；产品化应由 RPA 引擎在真实分区上直接跑流程（见 §13.7）。
 
 ---
 
