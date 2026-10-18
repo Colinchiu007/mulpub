@@ -158,16 +158,8 @@ platforms:
     # 阈值来源：以 publish-capabilities.json 为准（contentMax=100000）。本文件该值曾为 5000，
     # 与注册表漂移（2026-10-01 复查对账修正）。头条为长文平台，未做平台侧实测取证。
     max_content: 100000
-    # 2026-10-18（toutiao-video-api）：**视频** API 轨已实现（publish/platforms/toutiao-video.js，
-    # 五步链按实网抓包取证：getAuthKey → vod ApplyUploadInner → tos 分片 → CommitUploadInner
-    # → xigua/api/upload/PublishVideo）。故 has_api 由 false 改为 true。
-    #
-    # ⚠️ 两轴语义（同 douyin/tencent_video 的既有注释）：
-    #   `has_api` = 「该平台**有** API 发布实现」——视频有（本轮补），图文也有（/api/article/publish）
-    #   `publishMode` = 「当前走哪条轨」
-    # 本轮只打开 has_api，**publishMode 仍保留 dom-only**：视频链尚未真机验证一发
-    # （PublishVideo 的真实 body 形状还没抓到，见 PRD §11.0），先让 DOM 轨继续兜底；
-    # 真机验证通过后再改 api-then-dom。
+    # 2026-10-18（toutiao-video-api）：视频 API 轨已实现（publish/platforms/toutiao-video.js，
+    # 五步链实网抓包取证），故 has_api false→true；publishMode 仍 dom-only（PublishVideo 形状待真机验证）。
     has_api: true
     publishMode: dom-only   # W1 §5.1 三态总闸：api-only|api-then-dom|dom-only
     enabled: true
