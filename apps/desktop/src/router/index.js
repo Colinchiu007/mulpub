@@ -57,6 +57,10 @@ const routes = [
   { path: '/rewrite', name: 'Rewrite', component: () => import('@/views/RewriteView.vue') },
   { path: '/hot-topics', name: 'HotTopics', component: () => import('@/views/HotTopics.vue') },
   { path: '/podcast', name: 'PodcastChannel', component: () => import('@/views/PodcastChannelView.vue') },
+  // catch-all（UX-AUDIT-2026-10-17 阶段 1.9）：此前无兜底，访问 `#/typo` 时 router-view
+  // 匹配不到组件 ⇒ 整页空白且无提示，用户无法区分"应用坏了"与"地址写错了"。
+  // 必须放在最后：vue-router 4 按注册顺序匹配，但 * 的优先级最低，位置只影响可读性。
+  { path: '/:pathMatch(.*)*', name: 'NotFound', component: () => import('@/views/NotFound.vue') },
 ]
 
 const router = createRouter({

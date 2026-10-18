@@ -4,30 +4,32 @@
  *
  * 注册 Electron globalShortcut，为应用提供键盘操作支持。
  *
- * 快捷键列表：
- *   Ctrl+Alt+P — 打开发布页
- *   Ctrl+Alt+M — 打开分屏监控
- *   Ctrl+Alt+D — 打开数据看板
- *   Ctrl+Alt+C — 打开内容采集
- *   Ctrl+Alt+H — 返回首页
- *   Ctrl+Alt+Q — 退出应用
+ * 快捷键表由下方 SHORTCUTS **单点持有**（10 条）。历史上的头部注释只列了 6 条、
+ * 并把 `CmdOrCtrl+Comma` 写成「设置」而它实际跳 /accounts —— 那份注释与表长期不同步，
+ * 而设置页「快捷键」面板（阶段 1.6）直接消费 getShortcuts()，
+ * 所以这里写什么用户就看到什么。口径：
+ *   - `labelKey` 是渲染端 locales 的键（展示用，双语）
+ *   - `label`   只给主进程日志用（中文，不面向用户）
+ *   - 新增快捷键必须同时补 locales `hotkeys.label.*` 的 zh/en 一对，否则设置页会露出键名
  *
- * 文件位置: apps/desktop/electron/hotkeys.js
+ * 键位当前不可由用户自定义（本模块不提供写路径）；设置页只做只读展示 + 明确说明。
  */
 const { globalShortcut, BrowserWindow } = require('electron')
 const log = require('./logger')
 
 const SHORTCUTS = {
-  'CmdOrCtrl+Alt+P': { route: '/publish', label: '发布' },
-  'CmdOrCtrl+Alt+D': { route: '/dashboard', label: '数据看板' },
-  'CmdOrCtrl+Alt+C': { route: '/collection', label: '内容采集' },
-  'CmdOrCtrl+Alt+H': { route: '/', label: '首页' },
-  'CmdOrCtrl+Alt+N': { route: '/publish', label: '新建发布' },
-  'CmdOrCtrl+Alt+A': { route: '/accounts', label: '账号管理' },
-  'CmdOrCtrl+Alt+K': { route: '/keywords', label: '关键词监测' },
-  'CmdOrCtrl+Alt+V': { route: '/viral-analysis', label: '爆款分析' },
-  'CmdOrCtrl+Comma': { route: '/accounts', label: '设置' },
-  'CmdOrCtrl+Alt+Q': { route: '__quit__', label: '退出' },
+  'CmdOrCtrl+Alt+P': { route: '/publish', label: '发布', labelKey: 'hotkeys.label.publish' },
+  'CmdOrCtrl+Alt+D': { route: '/dashboard', label: '数据看板', labelKey: 'hotkeys.label.dashboard' },
+  'CmdOrCtrl+Alt+C': { route: '/collection', label: '内容采集', labelKey: 'hotkeys.label.collection' },
+  'CmdOrCtrl+Alt+H': { route: '/', label: '首页', labelKey: 'hotkeys.label.home' },
+  'CmdOrCtrl+Alt+N': { route: '/publish', label: '新建发布', labelKey: 'hotkeys.label.newPublish' },
+  'CmdOrCtrl+Alt+A': { route: '/accounts', label: '账号管理', labelKey: 'hotkeys.label.accounts' },
+  'CmdOrCtrl+Alt+K': { route: '/keywords', label: '关键词监测', labelKey: 'hotkeys.label.keywords' },
+  'CmdOrCtrl+Alt+V': { route: '/viral-analysis', label: '爆款分析', labelKey: 'hotkeys.label.viral' },
+  // 实测语义就是「跳账号管理」，不是打开设置弹窗；旧注释写成「设置」是错的，
+  // 展示面不得复读这个错（阶段 1.6 的键位表若与行为不符，比没有表更伤）。
+  'CmdOrCtrl+Comma': { route: '/accounts', label: '账号管理', labelKey: 'hotkeys.label.accounts' },
+  'CmdOrCtrl+Alt+Q': { route: '__quit__', label: '退出', labelKey: 'hotkeys.label.quit' },
 }
 
 let registered = false

@@ -241,6 +241,24 @@ function onNetworkChange(isOffline) {
     log.info("offline", "Network restored, processing cached tasks")
     processCachedTasks()
     notifyFrontend()
+  } else if (!wasOffline && isOffline) {
+    // 阶段 1.7（audit-7）：此前只有「恢复」方向会推给渲染层，断网方向**没有出口** ——
+    // 主进程明明知道掉线了（net.on("offline") 已注册），用户侧却全程静默，
+    // 直到采集/发布报错才知道是网络问题。丢事件比丢状态更糟：这是有监听、无通道。
+    log.info("offline", "Network lost, notifying frontend")
+    notifyOfflineLost()
+  }
+}
+
+function notifyOfflineLost() {
+  const win = getMainWindow()
+  if (!win) return
+  try {
+    win.webContents.send("offline:lost", {
+      cachedCount: loadCache().length,
+    })
+  } catch (e) {
+    log.warn("offline", "Failed to notify frontend of offline: " + e.message)
   }
 }
 

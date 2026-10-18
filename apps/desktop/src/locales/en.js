@@ -6,6 +6,7 @@ import commonEn from './common/en'
 import loginGateEn from './login-gate/en'
 import providerCrudEn from './provider-crud/en'
 import publishDraftsEn from './publish-drafts/en'
+import hotkeysEn from './hotkeys/en'
 import navEn from './nav/en'
 import tabBarEn from './tab-bar/en'
 import memberCenterEn from './member-center/en'
@@ -61,6 +62,7 @@ export default {
   loginGate: { ...loginGateEn },
   providerCrud: { ...providerCrudEn },
   publishDrafts: { ...publishDraftsEn },
+  hotkeys: { ...hotkeysEn },
   nav: { ...navEn },
   tabBar: { ...tabBarEn },
   sidebar: { ...sidebarEn },

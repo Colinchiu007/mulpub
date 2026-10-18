@@ -51,10 +51,10 @@ describe('SettingsDialog', () => {
     }
   })
 
-  it('渲染六个 Tab，默认选中模型设置；发布设置为可用、账号设置仍禁用', () => {
+  it('渲染七个 Tab，默认选中模型设置；发布/快捷键设置为可用、账号设置仍禁用', () => {
     const wrapper = mountDialog()
     const tabs = wrapper.findAll('.settings-tab')
-    expect(tabs).toHaveLength(6)
+    expect(tabs).toHaveLength(7)
     expect(tabs[0].text()).toContain('模型设置')
     expect(tabs[1].text()).toContain('通用设置')
     expect(tabs[2].text()).toContain('飞书 API')
@@ -63,10 +63,14 @@ describe('SettingsDialog', () => {
     expect(tabs[4].text()).toContain('发布设置')
     expect(tabs[4].text()).not.toContain('敬请期待')
     expect(tabs[4].attributes('disabled')).toBeUndefined()
+    // 阶段 1.6（audit-10）：快捷键 Tab 上线，消费既有 hotkeys:list IPC
+    expect(tabs[5].text()).toContain('快捷键')
+    expect(tabs[5].text()).not.toContain('敬请期待')
+    expect(tabs[5].attributes('disabled')).toBeUndefined()
     // 账号设置仍禁用（未在本变更范围内）
-    expect(tabs[5].text()).toContain('账号设置')
-    expect(tabs[5].text()).toContain('敬请期待')
-    expect(tabs[5].attributes('disabled')).toBeDefined()
+    expect(tabs[6].text()).toContain('账号设置')
+    expect(tabs[6].text()).toContain('敬请期待')
+    expect(tabs[6].attributes('disabled')).toBeDefined()
     expect(wrapper.get('.settings-tab.active').text()).toContain('模型设置')
   })
 
@@ -81,7 +85,13 @@ describe('SettingsDialog', () => {
 
   it('点击禁用 Tab（账号设置）不切换激活态', async () => {
     const wrapper = mountDialog()
-    await wrapper.findAll('.settings-tab')[5].trigger('click')
+    // 按「带 disabled 属性」定位而不是写死下标：本 PR 加了快捷键 Tab 后，
+    // 下标 5 已指向一个**可用** Tab，硬编码下标会让这条锁悄悄改测别的东西。
+    const disabled = wrapper.findAll('.settings-tab').find(tab => tab.attributes('disabled') !== undefined)
+    expect(disabled, '必须恰有一个禁用 Tab（账号设置）').toBeTruthy()
+    expect(disabled.text()).toContain('账号设置')
+
+    await disabled.trigger('click')
     await nextTick()
     expect(wrapper.get('.settings-tab.active').text()).toContain('模型设置')
   })
@@ -139,7 +149,18 @@ describe('SettingsDialog', () => {
   it('每个 Tab 渲染图标位（.tab-icon）', () => {
     const wrapper = mountDialog()
     const icons = wrapper.findAll('.settings-tab .tab-icon')
-    expect(icons).toHaveLength(6)
+    expect(icons).toHaveLength(7)
+  })
+
+  it('切到快捷键 Tab 渲染快捷键面板（阶段 1.6 的接线证明：IPC 有消费点了）', async () => {
+    const wrapper = mountDialog()
+    await wrapper.findAll('.settings-tab')[5].trigger('click')
+    await nextTick()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    await nextTick()
+
+    expect(wrapper.get('.settings-tab.active').text()).toContain('快捷键')
+    expect(wrapper.find('[data-testid="hotkeys-section"]').exists()).toBe(true)
   })
 
   it('en 语言下 Tab 为英文，发布设置不再是 Coming Soon', () => {
@@ -148,6 +169,7 @@ describe('SettingsDialog', () => {
     expect(tabs[0].text()).toContain('Model Settings')
     expect(tabs[3].text()).toContain('Zhihu API')
     expect(tabs[4].text()).toContain('Publish Settings')
-    expect(tabs[5].text()).toContain('Coming Soon')
+    expect(tabs[5].text()).toContain('Keyboard shortcuts')
+    expect(tabs[6].text()).toContain('Coming Soon')
   })
 })

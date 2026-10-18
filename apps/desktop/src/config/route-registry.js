@@ -84,6 +84,16 @@ export const ROUTE_REGISTRY = Object.freeze([
     entryFrom: '/',
   },
   {
+    // catch-all：任何未登记路径的落点。它不是一条「可被跳转到的路由」，而是**兜底出口**，
+    // 因此 navEntry 恒空、internal 恒真，entryFrom 记 '/'（首页是它唯一的常规上游）。
+    path: '/:pathMatch(.*)*',
+    name: 'NotFound',
+    view: 'NotFound.vue',
+    navEntry: null,
+    internal: true,
+    entryFrom: '/',
+  },
+  {
     // 暗路由：入口是侧边栏顶部「新建发布」按钮（MpSidebar.vue goToPublish，全域常驻），
     // 另可从 /create/result、/library 历史记录等处进入。无侧边栏菜单项 ——
     // 菜单「发布」目前指向 /publish/history（语义错位，由 T1 处理，本卡只登记不改语义）

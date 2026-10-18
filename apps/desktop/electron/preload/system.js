@@ -110,6 +110,11 @@ function createSystemApi(ipcRenderer) {
     onOfflineRestored: (cb) => {
       const h = (_, d) => cb(d); ipcRenderer.on('offline:restored', h); return () => ipcRenderer.removeListener('offline:restored', h)
     },
+    // 阶段 1.7（audit-7）：断网方向的推送，与 restored 成对。
+    // 主进程 net.on("offline") 早已注册，但此前只有恢复方向有出口。
+    onOfflineLost: (cb) => {
+      const h = (_, d) => cb(d); ipcRenderer.on('offline:lost', h); return () => ipcRenderer.removeListener('offline:lost', h)
+    },
 
     // Onboarding API
     onboardingComplete: () => ipcRenderer.invoke('onboarding:complete'),

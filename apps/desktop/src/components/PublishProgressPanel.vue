@@ -17,6 +17,17 @@
             <el-icon class="ppp__spin"><Loading /></el-icon>
             {{ t('publishPage.publishProgressPanel.sessionRunning') }}
           </span>
+          <!-- 阶段 1.8：lastEventAt 此前只写不读，卡住的面板与"运行中"读数完全同形。
+               现在把停滞事实说出来，并据此解禁关闭按钮（不假装已失败，也不让用户干等）。 -->
+          <span
+            v-if="store.hasStalledTasks"
+            class="ppp__badge ppp__badge--stalled"
+            role="status"
+            data-testid="publish-progress-stalled"
+            :title="t('publishPage.publishProgressPanel.stalledExplanation')"
+          >
+            {{ t('publishPage.publishProgressPanel.stalledBadge', { minutes: store.stallInfo.minutes }) }}
+          </span>
         </span>
         <span class="ppp__actions">
           <button
@@ -33,10 +44,12 @@
             type="button"
             class="ppp__icon-btn"
             data-testid="publish-progress-close"
-            :disabled="store.hasRunning"
-            :title="store.hasRunning
+            :disabled="store.hasRunning && !store.hasStalledTasks"
+            :title="store.hasRunning && !store.hasStalledTasks
               ? t('publishPage.publishProgressPanel.closeDisabledHint')
-              : t('publishPage.publishProgressPanel.close')"
+              : (store.hasRunning
+                ? t('publishPage.publishProgressPanel.closeStalledHint')
+                : t('publishPage.publishProgressPanel.close'))"
             :aria-label="t('publishPage.publishProgressPanel.close')"
             @click="handleClose"
           >

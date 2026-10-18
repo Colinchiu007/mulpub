@@ -16,6 +16,7 @@ export default {
     tabModel: 'Model Settings',
     tabGeneral: 'General Settings',
     tabPublish: 'Publish Settings',
+    tabHotkeys: 'Keyboard shortcuts',
     tabAccount: 'Account Settings',
     tabComingSoon: 'Coming Soon',
     placeholder: 'This feature is under development. Stay tuned.',

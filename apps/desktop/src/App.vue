@@ -113,6 +113,7 @@ import { clearRouteLoadError, routeLoadError } from '@/router'
 import { useLicenseStore } from '@/stores/license'
 import { useIdentityStore } from '@/stores/identity'
 import { useTabStore } from '@/stores/tab'
+import { useHomeShellNavigation } from '@/composables/useHomeShellNavigation'
 import { notifySettingsDialogClosed, settingsDialogRequest } from '@/stores/settings-dialog'
 import { isHomeShellSearch } from '@/utils/home-shell'
 import { suspendEmbeddedViewsForOverlay, releaseEmbeddedViewsForOverlay } from '@/composables/useEmbeddedViewSuspension'
@@ -124,6 +125,9 @@ const route = useRoute()
 const licenseStore = useLicenseStore()
 const identityStore = useIdentityStore()
 const tabStore = useTabStore()
+// 快捷键导航与侧边栏导航共用同一段实现（阶段 1.5）；必须在 setup 顶层取，
+// 因为 composable 依赖 pinia 与 router 的注入上下文。
+const { navigate } = useHomeShellNavigation()
 const { navigation, isHomeTab: isHomeTabFromStore, activeTabId } = storeToRefs(tabStore)
 // 内嵌主页壳态（+ 新标签中的独立 SPA 实例）：URL search 含 mp-home-shell=1。
 // 该实例本身就是 WebContentsView（浏览器标签），不是主窗口的 home 虚拟标签，
@@ -390,8 +394,11 @@ onMounted(() => {
 
   const api = getApi()
   if (api && api.onNavigate && !isHomeShell) {
+    // 全局快捷键与侧边栏鼠标点击必须共用一段导航实现（阶段 1.5）：
+    // 裸 router.push 在「当前是网页标签」时把路由推到看不见的后台首页标签，
+    // 用户侧表现为「按 Ctrl+Alt+D 没反应」。
     unsubscribeNavigate = api.onNavigate((route) => {
-      router.push(route)
+      navigate(route)
     })
   }
   // 内嵌主页实例：接收主进程定向投递的侧边栏导航指令，在本实例自身 router 内跳转。

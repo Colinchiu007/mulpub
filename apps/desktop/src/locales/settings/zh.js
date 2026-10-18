@@ -16,6 +16,7 @@ export default {
     tabModel: '模型设置',
     tabGeneral: '通用设置',
     tabPublish: '发布设置',
+    tabHotkeys: '快捷键',
     tabAccount: '账号设置',
     tabComingSoon: '敬请期待',
     placeholder: '该功能正在开发中，敬请期待',

@@ -19,6 +19,13 @@ export default {
     pageLoadFailed: '页面加载失败',
     pageLoadFailedMessage: '页面资源仍未加载成功，请重试或刷新应用。',
     unsavedLeaveTitle: '离开当前页面',
+    offlineBanner: '网络已断开 — 发布任务将被缓存，网络恢复后自动重试',
+    offlineCachedCount: '（{count} 个待发布）',
+    notFoundTitle: '这里没有可显示的页面',
+    notFoundHint: '你访问的地址在本应用里不存在，可能是地址输错或入口已调整。',
+    notFoundHome: '回到首页',
+    notFoundBack: '返回上一页',
+    notFoundFootnote: '如果从菜单或帮助链接点进来，请把上方地址一并发给我们，便于定位是哪条入口失效。',
     unsavedLeaveMessage: '当前页面还有未保存的内容，离开后会丢失（本页不在保活范围内）。确认离开？',
     unsavedLeaveMessageWithSubject: '当前页面还有未保存的内容「{subject}」，离开后会丢失（本页不在保活范围内）。确认离开？',
   }

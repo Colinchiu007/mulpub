@@ -103,6 +103,7 @@ import { invokePageManager, getApi } from '@/api/electron-bridge'
 import { useTabStore } from '@/stores/tab'
 import { opsCenterSyncAppMenu, onOpsCenterRuntimeUpdated } from '@/api/ops-center-sync'
 import { useAppVersion } from '@/composables/useAppVersion'
+import { useHomeShellNavigation } from '@/composables/useHomeShellNavigation'
 import brandLogoUrl from '@/assets/brand/tom-fish-logo.png'
 
 const route = useRoute()
@@ -169,32 +170,10 @@ const navPath = computed(() => {
 })
 
 /**
- * 侧边栏导航点击：把「点了没反应」变为「当前标签可见跳转」。
- * - 聚焦内嵌主页实例（home-shell）→ 经 IPC 定向让该实例自身 router.push，主窗口隐藏路由保持不动；
- * - 聚焦普通网页标签 → 先切回首页标签再导航，让变化可见；
- * - 聚焦首页标签 → 维持原有主窗口路由跳转。
+ * 侧边栏导航点击与全局快捷键共用同一段实现（useHomeShellNavigation）：
+ * 三段式的判据、失败留痕与「让变化可见」的语义只有一份，禁止在本文件重写。
  */
-async function onNavClick (to) {
-  if (typeof to !== 'string' || !to) return
-  if (tabStore.activeTabIsHomeShell) {
-    const api = getApi()
-    try {
-      const res = api && api.pageManager && typeof api.pageManager.navigateActiveHomeShell === 'function'
-        ? await api.pageManager.navigateActiveHomeShell(to)
-        : null
-      if (res && res.data && res.data.handled) return
-    } catch (error) {
-      console.warn('[sidebar] navigate home-shell failed', error)
-    }
-  }
-  if (!tabStore.isHomeTab) {
-    const homeTab = tabStore.tabs.find((tab) => tab.isHome)
-    if (homeTab && tabStore.activeTabId !== homeTab.tabId) {
-      try { await tabStore.switchToTab(homeTab.tabId) } catch (error) { console.warn('[sidebar] switch home failed', error) }
-    }
-  }
-  try { await router.push(to) } catch (error) { console.warn('[sidebar] navigate failed', error) }
-}
+const { navigate: onNavClick } = useHomeShellNavigation()
 
 /** 「更多」组是否存在当前路由命中项（触发器常驻高亮依据，2026-09-21 选中态修复） */
 const hasActiveMoreItem = computed(() => moreItems.value.some((item) => isActive(item)))
