@@ -1,0 +1,31 @@
+{
+  "sha": "c2ccb8c7c39ccbef654b63df15356a85e7b546b1",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 72 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 72,
+    "fileCount": 5,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "6ef0929892410131ecfa9723058cadc8839f0971217432b4a738836be43c4945",
+  "decidedAt": "2026-10-18T09:30:48.354Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "manual dual review: claude-code 2.1.301 + codex-cli 0.144.6 (CCG deep-review.sh orchestration not run)",
+    "findings": [
+      "codex-cli 0.144.6: 0 CRITICAL / 0 MAJOR. Verified: guard is at the funnel entry (rewriteViaEngine) covering all 4 call sites; reuses existing stable errorCode AGGREGATION_CONTENT_EMPTY; no aiRewrite call when content is blank.",
+      "Claude Code 2.1.301: 0 CRITICAL / 0 MAJOR, 2 MINOR -> 0 adopted: (1) suggest distinguishing \"empty success\" at the collection layer (cache_hit contract) -> rejected, out of scope (cache contract is existing design; changing it affects cache consumers); (2) suggest a dedicated manual-rewrite-entry test -> rejected, already covered by funnel-level tests (4 cases incl. non-blank content false-positive guard).",
+      "Mutation falsification: guard condition changed to if(false) -> 3 of 4 guard tests went red immediately; restored -> green. Tests are behavioral, not decorative.",
+      "Evidence: openspec/records/fix-collect-rewrite-empty-content.md (QM-5 five steps + QM-6 row); Collection.test.js 118 passed; adjacent regressions 60 passed."
+    ]
+  }
+}

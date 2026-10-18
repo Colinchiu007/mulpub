@@ -1,3 +1,19 @@
+# [未发布] fix(collect): 采集内容为空时不再把空串发往改写引擎（缓存空壳 + 一键改写守卫，fix-collect-rewrite-empty-content）
+
+## 问题
+- 用户实测：百家号文章点「一键改写」，先提示「内容采集成功」，随后又弹「Python backend request failed (422)」。日志实证链：`POST /aggregation/collect-video` 422（无视频）→ 回落图文 → `collect-cache-hit`（提示采集成功）→ `POST /aggregation/rewrite` 422 → `collection.rewriteFailed`。
+- 根因：内容缓存命中返回空壳 `{success:true, title:'', content:''}`（`url-collector.js` cache_hit 分支），`collectAndRewrite` 把 `content || description || ''` 当改写入参 ⇒ 空串；旧后端 `RewriteRequest.content` 有 `min_length=1` ⇒ FastAPI 422。本地实测：同 payload 直打运行中后端稳定复现 422（`{"detail":[{"type":"string_too_short","loc":["body","content"],...}]}`）。
+
+## 改动
+- 改写漏斗 `rewriteViaEngine(content)` 入口判空（trim），空内容直接返回稳定错误码 `AGGREGATION_CONTENT_EMPTY`（复用既有码，zh/en 文案已存在），**不调用 aiRewrite**。四个调用点（视频转写 / stealth 自动改写 / 聚合回退 / 手动改写）共用同一漏斗，一处覆盖全路径。
+- 回归锁：`Collection.test.js` 新增「空正文改写守卫」4 例（空串 / 纯空白 / 缓存空壳一键改写 / 正常内容不误杀）；变异反证：禁用守卫 ⇒ 3 例当场红。
+- 不改缓存语义：`cache_hit` 空壳仍是既定的成功形态（修复面收敛在「空内容不得进改写」，不动缓存契约）。
+
+## 验证
+- `pnpm vitest run src/views/Collection.test.js` → 118 passed（含新增 4 例）。
+- 相邻回归：user-facing-error 29 + rewrite-lineage 11 + collected-content-guard 8 + llm-runtime-config 12 → 60 passed。
+- eslint 相关文件 exit 0。
+
 # [未发布] feat(shell): 主窗口新增全局「左侧菜单收起/展开」按钮并同步内嵌视图全宽重排（sidebar-collapse-toggle）
 
 - **功能**：顶部标签栏 `TabBar` 最左侧新增常驻按钮（内联 SVG 双 chevron 组成「<>」、`currentColor`、16px），点击在「展开 / 收起」间切换；按钮位于既有 36px 标签栏内、不新增行高，在可横向滚动的 `.tab-bar-tabs` 之前（不随标签滚动）。原生 `<button type="button">` + `aria-pressed`（true=已收起）+ 随状态变化的 `aria-label`/`title`；文案 zh/en 成对进 `apps/desktop/src/locales/tab-bar/{zh,en}.js`（「收起左侧菜单」/“Collapse sidebar”、“展开左侧菜单”/“Expand sidebar”），`.vue` 不硬编码中文。
