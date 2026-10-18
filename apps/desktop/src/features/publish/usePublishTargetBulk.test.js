@@ -138,6 +138,29 @@ describe('selectAllPublishTargets（发布页全选）', () => {
     expect(calls).toEqual([])
   })
 
+  // 深度审查发现（2026-10-18，降级自审）：注入函数被调了两次 —— 先问长度、再取一遍。
+  // 它来自外部，不保证幂等（可带副作用，或两次读到的时刻不同），
+  // 于是「分类依据」与「校验依据」会来自两次不同的调用。
+  it('每个平台只调用一次注入的 getAvailableAccountIds（不幂等的注入函数不得被读两遍）', () => {
+    const { platforms } = makeDeps({})
+    const seen = []
+    // 每次调用都返回不同长度：若被判据读两遍，第一遍看到非空、第二遍看到空，
+    // 分类结果就会与"按第二次调用判定"自相矛盾。
+    let n = 0
+    const result = selectAllPublishTargets({
+      platforms,
+      getAvailableAccountIds: (platformId) => { seen.push(platformId); n += 1; return n % 2 === 1 ? ['a'] : [] },
+      isPlatformSelected: () => false,
+      selectPlatform: () => {},
+    })
+
+    // 4 个平台 ⇒ 恰好 4 次调用；坏项不计
+    expect(seen.length).toBe(4)
+    expect(seen).toEqual(['wechat_mp', 'zhihu', 'douyin', 'bilibili'])
+    // 依据第一次调用：奇数位非空 ⇒ wechat_mp / douyin 可发布
+    expect(result.added).toEqual(['wechat_mp', 'douyin'])
+  })
+
   it('幂等：同一状态下连点两次全选，第二次零写入且 added=0（与按组添加同语义）', () => {
     const first = makeDeps({})
     const r1 = selectAllPublishTargets(first.deps)

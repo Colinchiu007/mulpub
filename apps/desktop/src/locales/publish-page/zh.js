@@ -118,6 +118,9 @@ export default {
       selectAllDisabledTitle: '暂无可发布的平台，请先添加账号',
       clearDisabledTitle: '当前没有选中的发布目标',
       listRest: ' 等 {rest} 个',
+      /* 平台名之间的连接符。必须走 locale：纯函数里硬编码「、」时英文界面会渲染成
+         `Weibo、Zhihu and 2 more`（`--cjk` 只扫汉字，扫不到顿号 U+3001，所以当时没红）。 */
+      listSeparator: '、',
       added: '已选中 {added} 个平台{skippedText}',
       skipped: '，{count} 个平台没有可用账号，未纳入：{platforms}',
       riskIncluded: '；其中 {count} 个已风控挂起，发布时会先被拦截',

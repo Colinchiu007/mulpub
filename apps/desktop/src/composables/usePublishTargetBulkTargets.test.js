@@ -167,19 +167,47 @@ describe('usePublishTargetBulkTargets（全选/清空接线层）', () => {
     expect(key).toBe('publishPage.targetBulk.cleared')
   })
 
+  // 深度审查发现（2026-10-18，降级自审）：接线层对同一个值有两条读法 ——
+  // selectedPlatformsRef（ref 与非 ref 都归一化）与内联的 `selection?.selectedPlatforms?.value`。
+  // 后者在调用方给普通数组时恒 undefined ⇒ already 永远为空、同一平台被重复写入。
+  it('选中集是普通数组（非 ref）时 already 仍正确、且不重复写入（只保留一条读法）', () => {
+    const calls = []
+    // 普通数组形态：模拟不经 ref 包装的消费者
+    const selection = {
+      selectedPlatforms: ['wechat_mp'],
+      getAvailableAccountIds: (id) => ({ wechat_mp: ['wx-1'], bilibili: ['bili-1'] })[id] || [],
+      selectPlatform: vi.fn((id) => calls.push(id)),
+      clearPlatforms: vi.fn(),
+    }
+    const { selectAll } = usePublishTargetBulkTargets({ selection, platforms: ref(GROUPED_PLATFORMS), notifyInfo, notifyWarning })
+
+    const result = selectAll()
+
+    expect(result.already).toEqual(['wechat_mp'])
+    expect(result.added).toEqual(['bilibili'])
+    // 已选中的平台不得被再写一次
+    expect(calls).toEqual(['bilibili'])
+  })
+
   it('平台名清单截断规则：>3 个只列 3 个 + 「等 N 个」（判据取纯函数，不取上层拼装）', () => {
     const selection = makeSelection({ availableByPlatform: { wechat_mp: ['wx-1'], bilibili: ['bili-1'] } })
     const { formatPlatformList } = usePublishTargetBulkTargets({ selection, platforms: ref(GROUPED_PLATFORMS), notifyInfo, notifyWarning })
-    // 截断后缀由**接线层**注入 locale：纯函数不得 import i18n，中文不得进渲染层非 locales 文件
-    // （CI Gate 7 check-locale-sync --cjk）。
+    // 截断后缀与**连接符**都由接线层注入 locale：纯函数不得 import i18n，中文不得进渲染层
+    // 非 locales 文件（CI Gate 7 check-locale-sync --cjk）。连接符此前硬编码「、」，
+    // 英文界面会渲染成中英混排 —— 顿号 U+3001 不在 --cjk 的扫描域内，所以当时没被拦下。
     const restLabel = (rest) => i18n.global.t('publishPage.targetBulk.listRest', { rest })
-    const fmt = (labels) => formatPlatformList(labels, { restLabel })
+    const separator = i18n.global.t('publishPage.targetBulk.listSeparator')
+    const fmt = (labels, opts) => formatPlatformList(labels, { restLabel, separator, ...opts })
 
     expect(fmt(['A', 'B'])).toBe('A、B')
     expect(fmt(['A', 'B', 'C'])).toBe('A、B、C')
     expect(fmt(['A', 'B', 'C', 'D'])).toBe('A、B、C 等 1 个')
     expect(fmt(['A', 'B', 'C', 'D', 'E', 'F'])).toBe('A、B、C 等 3 个')
+    // 英文 locale 的连接符：不得出现顿号（这就是"连接符必须走 locale"的意思）
+    const enSeparator = i18n.global.getLocaleMessage('en').publishPage.targetBulk.listSeparator
+    expect(fmt(['Weibo', 'Zhihu'], { separator: enSeparator })).toBe('Weibo, Zhihu')
+    expect(fmt(['Weibo', 'Zhihu'], { separator: enSeparator })).not.toContain('、')
     // 不注入 restLabel 时不得自行拼中文 —— 那是纯函数的边界，不是"降级后照旧"
-    expect(formatPlatformList(['A', 'B', 'C', 'D'])).toBe('A、B、C、D')
+    expect(formatPlatformList(['A', 'B', 'C', 'D'])).toBe('A, B, C, D')
   })
 })

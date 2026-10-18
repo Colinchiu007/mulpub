@@ -161,6 +161,77 @@ v5 把「同账号最小发布间隔」从档位派生改为逐平台表（只�
    两次红的条数与"我写了哪几条锁"逐条对得上（不是"跑绿了就说红过"）。
 ## 「批量选择」类控件的三条 UE 判断 + 实现期三条坑（publish-target-select-all，2026-10-17）
 
+### 续：视觉门禁两套阈值 + 「判据看不见 ≠ 没缺陷」+ 降级自审（2026-10-18）
+
+#### A. 同一视图在不同视觉套件里阈值不同，别拿一个套件的绿当另一个的绿
+
+把「全选 / 清空」做成**搜索框下的新一行**后，`QG Visual` 判红：像素套 `publish-form` 1.778% < 6% ⇒ **PASSED**；
+workflow 套同一张图 1.778% > **1%** ⇒ 6 条 `/publish` 用例全红，两轮甄别可复现。差别的不是图，是两套各自的口径。
+
+- **改完先问「这条判据有几套阈值」，再问「我绿的是哪一套」**。本仓 `QG Visual` 一个 job 跑 6 个套件
+  （pixel / views / views-supplement / dark / workflows / workflows-supplement），逐条打印
+  `[GATE-7] suite exits: …` —— 那行就是"我到底绿了哪几套"的现场，不看它等于没看。
+- **红要取产物**：`工作流结果: 25/31 通过，6 失败` + 逐条 `视觉差异 1.7783082561728396% 超过阈值 1%`
+  比"QG Visual 红了"有用得多；`gh api .../jobs/<id>/logs --allow-escape-sequences` 直接可拿。
+- **改法本身也是判据**：新开一行 ⇒ 下方整栏整体下移 ⇒ diff 覆盖整个右栏下半部。把按钮塞进**搜索行内部**
+  （搜索框 `flex:1` + 按钮 `flex:0 0 auto`），下方原地不动，第 2 轮 `31/31 通过`、六个套件 rc 全 0。
+  构造性视觉中性不是"少改点"，是**让改动落在不引起重排的那一层**。
+
+#### B. 「改法生效」与「基线过期」是两道不同的门
+
+套件全绿之后 `Gate 7b - Baseline freshness` 仍红（`publish-form{,-dark}.png` 两轮都红）。
+它证的是「基线是否等于本次渲染」——**界面真变了它必然红**，这不是回归，是流程要求你同源换基线。
+只看套件 rc 会把"基线还停在旧 UI"留到下次；只看 Gate 7b 会把"整栏下移"这种定位错误当成单纯基线问题。
+
+同源换基线四条纪律（本次实跑）：① 映射按判据自己的 `findRender`（`<name>.png` views 套优先 → 否则
+`<name>-current.png` 像素套）；② **只取 round2**——第 1 轮失败后 workflow 把 round1 挪进 `screenshots-round1/`，
+终判域是 round2，拿 round1 等于用"被否证的那一版"；③ **自证逐字节相等**（比对 sha256），
+不靠"写盘成功"就算过；④ 文件名必须已在 `base-screenshots/.gitignore` 白名单，否则被根 `*.png` 静默吞掉。
+
+#### C. `--cjk` 只扫汉字，扫不到顿号 —— 「判据看不见」不等于「没缺陷」
+
+`formatPlatformList` 里连接符硬编码中文顿号 `、`（U+3001），英文界面渲染成 `Weibo、Zhihu and 2 more` 中英混排，
+而 `check-locale-sync --cjk` **一直是绿的**——它扫的是汉字，不是「所有 CJK 标点」。
+同族形态本仓已多次出现（黑名单型判据放过未知故障、基线只看"有没有图"不看"图对不对"）。
+正解：连接符与截断后缀**都**由接线层从 locale 注入，纯函数只做拼接，仍可在无 Vue 环境单测。
+
+#### D. 依赖注入的函数不保证幂等：一次判据里不许读两遍
+
+```js
+// ✗ 先问长度、再取一遍 —— 两次调用可能给出不同答案
+const ids = Array.isArray(deps.getAvailableAccountIds?.(id)) ? deps.getAvailableAccountIds(id) : []
+// ✓ 只调用一次
+const avail = deps.getAvailableAccountIds?.(id)
+const ids = Array.isArray(avail) ? avail : []
+```
+
+`deps.*` 是外部传进来的：可能有副作用、可能读会变的时钟。"先问长度、再取一遍"会让
+**分类依据**与**校验依据**来自两次不同调用。判据：任何 `deps.x?.()` 出现两次，先问「它幂等吗」。
+
+#### E. 同一值两条读法 = 一条会在某个形态下静默失效
+
+接线层里同时有 `selectedPlatformsRef`（ref / 普通数组都归一化）与内联
+`selection?.selectedPlatforms?.value`（只认 ref）。后者在调用方给普通数组时恒 `undefined`
+⇒ `already` 永远为空、同一平台被重复写入。**修法不是加兜底，是删掉第二条读法**——
+归一化只能有一处，否则它会在某个没人测的形态下失效。
+
+#### F. 深度审查后端超时 = 环境问题，按规范降级自审而不是绕过
+
+`.ccg/reviews/*.json` 的 `mode=dual` 欠账由 `check-pr-exec-record --mode=enforce` 卡。
+`sh scripts/deep-review.sh` 两次都在 `[轮 1/3] critic=claude` 报
+`spawnSync …codeagent-wrapper.exe ETIMEDOUT`（脚本退出码 2 = 环境/配置，**不是**"有阻断"）。
+
+正解是主代理真做一遍审查、把 `performedBy` 写成降级事实、把 findings 落进记录——
+**不是**把 status 直接填 `cleared`，也不是第三次重试同一条 10 分钟超时。
+本次这样做的直接收益：自审抓到上面 D / E / C 三处真缺陷（两处正确性 + 一处 i18n），
+并各配「还原 bug 会让锁指名红」的反证。**若当时只把 status 填成 cleared，这三处就随 PR 进主干式合并了。**
+
+两个反证脚本自身的坑：① 篡改前**备份 → 改 → 跑 → 从备份恢复**，不要用 `git checkout -- <file>`，
+那会把同一次里尚未提交的修复一起丢掉；② 工作副本是 CRLF 而脚本里的锚点是 LF，比对前两侧必须归一，
+否则"锚点未命中"会被误读成"判据漂移"（本轮实测踩到这一格）。
+
+
+
 发布页「发布目标」区加「全选 / 清空」+ 分组选择回视。功能不大，但每一条都踩到了具体的坑。
 
 ### UE 判断（每条都有反例支撑，不是审美选择）

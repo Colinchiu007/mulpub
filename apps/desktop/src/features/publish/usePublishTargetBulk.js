@@ -51,9 +51,10 @@ export function selectAllPublishTargets (deps) {
     if (!platformId) continue // 坏项：不是"没有账号的平台"，不得进 skipped
 
     // 可发布 = 该平台当前至少有一个可勾选账号。判据唯一入口见文件头第 1 条。
-    const availableIds = Array.isArray(deps.getAvailableAccountIds?.(platformId))
-      ? deps.getAvailableAccountIds(platformId)
-      : []
+    // ⚠️ 只调用**一次**注入函数：它是外部传进来的，不保证幂等（可能带副作用或读取时刻不同），
+    //    「先问长度、再取一遍」会让分类依据与校验依据来自两次不同的调用。
+    const available = deps.getAvailableAccountIds?.(platformId)
+    const availableIds = Array.isArray(available) ? available : []
     if (availableIds.length === 0) {
       result.skipped.push({ platformId, reason: REASON_NO_ACCOUNT })
       continue
@@ -82,18 +83,29 @@ export function selectAllPublishTargets (deps) {
 export const MAX_LISTED_PLATFORMS = 3
 
 /**
+ * 名字连接符的**兜底**值。正常路径由接线层按 locale 注入（zh「、」/ en「, 」）；
+ * 这里只在调用方没给时用，且刻意选不带 CJK 标点的形态，避免英文界面出现中英混排。
+ */
+const DEFAULT_SEPARATOR = ', '
+
+/**
  * @param {string[]} labels 平台显示名
  * @param {object} [options]
  * @param {number} [options.maxListed] 最多列几个（超出部分只记总数）
  * @param {(rest: number) => string} [options.restLabel] 超出部分的文案，由**接线层**注入
  *   （locale）。本函数是纯函数，不得 import i18n —— 否则它就无法在无 Vue 环境里单测，
  *   且会把中文硬编码带进渲染层（CI Gate 7 check-locale-sync --cjk 会判红）。
+ * @param {string} [options.separator] 名字之间的连接符，**同样必须由接线层注入**。
+ *   中文用「、」、英文用「, 」—— 此前这里硬编码「、」，英文界面会渲染成
+ *   `Weibo、Zhihu and 2 more` 这种中英混排（`--cjk` 只扫汉字、扫不到 U+3001 顿号，
+ *   所以它当时没红；这是「判据看不见 = 没缺陷」的反例）。
  * @returns {string}
  */
 export function formatPlatformList (labels, options = {}) {
   const maxListed = Number.isFinite(options.maxListed) ? options.maxListed : MAX_LISTED_PLATFORMS
   const restLabel = typeof options.restLabel === 'function' ? options.restLabel : null
+  const separator = typeof options.separator === 'string' ? options.separator : DEFAULT_SEPARATOR
   const list = (Array.isArray(labels) ? labels : []).filter(name => typeof name === 'string' && name)
-  if (list.length <= maxListed || !restLabel) return list.join('、')
-  return list.slice(0, maxListed).join('、') + restLabel(list.length - maxListed)
+  if (list.length <= maxListed || !restLabel) return list.join(separator)
+  return list.slice(0, maxListed).join(separator) + restLabel(list.length - maxListed)
 }

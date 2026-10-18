@@ -119,6 +119,9 @@ export default {
       selectAllDisabledTitle: 'No publishable platform yet, add an account first',
       clearDisabledTitle: 'No publish target is selected',
       listRest: ' and {rest} more',
+      /* Platform-name separator; must come from locale so English never renders the
+         Chinese ideographic comma (it used to be hardcoded in the pure function). */
+      listSeparator: ', ',
       added: 'Selected {added} platform(s){skippedText}',
       skipped: ', {count} platform(s) have no available account and were skipped: {platforms}',
       riskIncluded: '; {count} of them are suspended for risk control and will be blocked at publish time',

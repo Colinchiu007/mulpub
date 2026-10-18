@@ -80,7 +80,9 @@ export function usePublishTargetBulkTargets ({
     const result = selectAllPublishTargets({
       platforms: flatPlatforms.value,
       getAvailableAccountIds: (platformId) => selection?.getAvailableAccountIds?.(platformId) || [],
-      isPlatformSelected: (platformId) => (selection?.selectedPlatforms?.value || []).includes(platformId),
+      // 复用上面已归一化的 selectedPlatformsRef，不另写一条 `?.value || []` 读法：
+      // 调用方给的是普通数组时 `?.value` 恒 undefined ⇒ already 永远为空、同一平台被重复写入。
+      isPlatformSelected: (platformId) => selectedPlatformsRef.value.includes(platformId),
       selectPlatform: (platformId) => selection?.selectPlatform?.(platformId),
     })
 
@@ -102,9 +104,11 @@ export function usePublishTargetBulkTargets ({
         count: result.skipped.length,
         platforms: formatPlatformList(skippedLabels, {
           maxListed: MAX_LISTED_PLATFORMS,
-          // 截断后缀走 locale：纯函数不 import i18n，中文不得进渲染层非 locales 文件
-          // （CI Gate 7 check-locale-sync --cjk 会判红）。
+          // 截断后缀与连接符都走 locale：纯函数不 import i18n，中文不得进渲染层非 locales 文件
+          // （CI Gate 7 check-locale-sync --cjk 会判红；顿号 U+3001 不在它的扫描域内，
+          //   所以连接符此前硬编码「、」时没被拦下 —— 英文界面会渲染成中英混排）。
           restLabel: (rest) => t('publishPage.targetBulk.listRest', { rest }),
+          separator: t('publishPage.targetBulk.listSeparator'),
         }),
       })
       : ''

@@ -87,6 +87,37 @@ contract: 01-docs/PRD-PUBLISH-TARGET-SELECT-ALL-2026-10-17.md
 三条纪律：① **只取 round2**（`screenshots/`）—— 第 1 轮失败后 workflow 把 round1 挪进 `screenshots-round1/`，终判域是 round2，拿 round1 的图当基线等于用"被否证的那一版"；② **自证逐字节相等**（复制后比对源/目标 sha256，不等即失败，不靠"写盘成功"就算过）；③ **文件名必须已在 `base-screenshots/.gitignore` 的白名单里**（`!publish-form.png` / `!publish-form-dark.png` 均已在），否则 PNG 被根 `*.png` 静默吞掉。
 新基线的目视形态与设计一致：两个小号 chip 与搜索框**同一行**，其下平台分组/账号清单/主操作按钮的纵向位置与旧基线逐像素一致。
 
+### 深度审查：双模型后端两次超时 → 按规范降级为自审，抓到 3 处真缺陷
+
+`check-pr-exec-record --mode=enforce` 先把两笔 CCG 判定记为**未收口的深度审查欠账**（`mode=dual / status=pending`）。
+按规范路径跑 `sh scripts/deep-review.sh`，**连续两次**在 `[轮 1/3] 调用 critic=claude` 处失败：
+
+```
+评审失败: spawnSync C:/…/codeagent-wrapper.exe ETIMEDOUT
+```
+
+脚本自身的退出码约定是 `0 无阻断 / 1 有阻断 / 2 环境或配置问题`，两次都落在 **2**（后端 10 分钟未返回），
+**不是评审结论**。按 AGENTS.md「子代理降级：出现 403/超时等后端不可用错误时立即降级为主代理直接执行，不盲等」，
+本次由主代理对同一变更集逐文件自审，并把降级原因与结论如实写进判定记录的 `deepReview.performedBy`。
+
+自审**真的抓到了东西**（不是走流程）：
+
+| # | 缺陷 | 性质 | 处置 |
+|---|---|---|---|
+| F1 | 接线层对同一值有**两条读法**：`selectedPlatformsRef`（已归一化 ref/非 ref）与内联 `selection?.selectedPlatforms?.value`。后者在调用方给普通数组时恒 `undefined` ⇒ `already` 永远为空、同一平台被重复写入 | 正确性 | 已修：统一走 `selectedPlatformsRef` |
+| F3 | 纯函数把**注入的** `getAvailableAccountIds` 调用两遍（先问长度、再取一遍）。注入函数不保证幂等，「分类依据」与「校验依据」来自两次不同调用 | 正确性 | 已修：只调一次 |
+| F2 | `formatPlatformList` 的连接符**硬编码中文顿号 U+3001**，英文界面会渲染成 `Weibo、Zhihu and 2 more` | i18n | 已修：连接符由接线层从 locale 注入（zh「、」/ en「, 」），兜底值改 `", "` |
+| — | `countRiskSuspended` 注释称「accountId==null 覆盖该平台全部账号」，实现按平台计数、不看 accountId | 注释误导 | **只报告不改**：行为符合预期，改注释不改代码 |
+
+**F2 值得单记一条判据**：`check-locale-sync --cjk` 只扫**汉字**，扫不到顿号 U+3001 —— 所以这处中文标点
+从 Gate 7 眼皮底下过了。「判据看不见」不等于「没缺陷」，`--cjk` 的覆盖面是汉字、不是「所有 CJK 标点」。
+
+**反证（新锁必须有牙，不靠"我加测试了"）**：把 F1 / F3 各还原一次，新加的锁**均指名红**（未被拦 = 0）。
+反证脚本用「备份 → 改 → 跑 → 从备份恢复」而不是 `git checkout`，否则会把尚未提交的修复一起丢掉。
+
+另按 Gate 12c 的建议，把判定记录里被 decider 采样进来的本机绝对路径改成占位符 `<claude-bin>`，
+否则该 JSON 会把一个失效绝对路径带进受管树（`node scripts/check-doc-abs-paths.js --all` 会判红）。
+
 ### 语义决策（写明理由，便于后续 review）
 
 1. **全选 = 全选「可发布的」**，不是"全选所有平台"。无可用账号的平台不进选中集并在提示里点名，否则它们必然触发 `validatePublishTargets` 的阻断。

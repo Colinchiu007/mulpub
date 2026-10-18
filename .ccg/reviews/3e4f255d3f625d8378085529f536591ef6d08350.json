@@ -1,0 +1,35 @@
+{
+  "sha": "3e4f255d3f625d8378085529f536591ef6d08350",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 1467 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 1467,
+    "fileCount": 30,
+    "codeFileCount": 21,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 67,
+    "docSensitiveContentHits": 27,
+    "docSensitiveContentSample": [
+      "> **下游（2026-10-17）**：`01-docs/PRD-PUBLISH-TARGET-SELECT-ALL-2026-10-17.md`（第三刀）在同一个「发布目标」区加了「全选 / 清空」，并给本刀的 chip 补了\"已选/成员\"回视与点击前预告 tooltip。第三刀**未改本刀的任何结论**：additive 语义、不做按组替换、无组不渲染三条全部沿用。",
+      "| 8 | 账号分组/矩阵管理 | 账号分组、团队/子账号 | ~~无分组~~ → **已实现三刀**：P2-8a 分组持久化（#2756）+ P2-8b 发布页「按组添加」（#2817）+ **P2-8c「全选/清空 + 分组回视」（2026-10-17，见 [PRD-PUBLISH-TARGET-SELECT-ALL-2026-10-17.md](./PRD-PUBLISH-TARGET-SELECT-ALL-2026-10-17.md)）** | 🟡 P2-8 ✅ |",
+      "# PRD：发布页「发布目标」区增加「全选」与「分组选择」（publish-target-select-all，2026-10-17）"
+    ],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-18T03:01:29.628Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "cleared",
+    "performedBy": "degraded:self-review（critic 后端 codeagent-wrapper ETIMEDOUT ×2，按 AGENTS.md 子代理不可用即降级）",
+    "findings": [
+      "F1[已修] usePublishTargetBulkTargets 对 selectedPlatforms 有两条读法；普通数组形态下 already 恒空、平台被重复写入。已统一走 selectedPlatformsRef。反证 M-F1 指名红。",
+      "F3[已修] usePublishTargetBulk.selectAllPublishTargets 曾两次调用注入的 getAvailableAccountIds（先问长度再取一遍），注入函数不保证幂等。已改为只调一次。反证 M-F3 指名红。",
+      "F2[已修] formatPlatformList 连接符硬编码中文顿号 U+3001，英文界面渲染成中英混排；--cjk 扫不到顿号故未红。已改为由接线层从 locale 注入 listSeparator（zh「、」/ en「, 」），兜底值改用 \", \"。",
+      "观察[未改] countRiskSuspended 的注释称 accountId==null 覆盖该平台全部账号，实现按平台计数不看 accountId；行为符合预期，注释误导，未动代码。",
+      "覆盖：\"本分支当前 HEAD 的全量变更集（1467 行 / 30 文件），即本轮自审的主对象。\""
+    ]
+  }
+}

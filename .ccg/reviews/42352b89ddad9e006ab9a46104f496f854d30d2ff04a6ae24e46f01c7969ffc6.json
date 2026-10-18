@@ -23,8 +23,14 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "cleared",
+    "performedBy": "degraded:self-review（critic 后端 codeagent-wrapper ETIMEDOUT ×2，按 AGENTS.md 子代理不可用即降级）",
+    "findings": [
+      "F1[已修] usePublishTargetBulkTargets 对 selectedPlatforms 有两条读法；普通数组形态下 already 恒空、平台被重复写入。已统一走 selectedPlatformsRef。反证 M-F1 指名红。",
+      "F3[已修] usePublishTargetBulk.selectAllPublishTargets 曾两次调用注入的 getAvailableAccountIds（先问长度再取一遍），注入函数不保证幂等。已改为只调一次。反证 M-F3 指名红。",
+      "F2[已修] formatPlatformList 连接符硬编码中文顿号 U+3001，英文界面渲染成中英混排；--cjk 扫不到顿号故未红。已改为由接线层从 locale 注入 listSeparator（zh「、」/ en「, 」），兜底值改用 \", \"。",
+      "观察[未改] countRiskSuspended 的注释称 accountId==null 覆盖该平台全部账号，实现按平台计数不看 accountId；行为符合预期，注释误导，未动代码。",
+      "覆盖：\"该记录的 stagedDiffHash 已因 rebase（CHANGELOG 冲突按两侧保留重新解决）而无法对上当前分支任何提交 —— 属内容寻址失效的陈旧记录；其内容仍是同一 PR 的子集，由同一次自审覆盖。\""
+    ]
   }
 }
