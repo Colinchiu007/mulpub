@@ -39,10 +39,19 @@ const REVIEW_LATENCY_PATH = '/xigua/api/upload/GetPublishPageReviewLatency'
 const PUBLISH_TYPE = Object.freeze({ draft: 0, publish: 1, timer: 2 })
 
 /**
- * VideoType 枚举 —— 取自 bundle：`Tt = U < 1 ? 6 : 3`。
+ * VideoType 枚举 —— 取自 bundle：`Tt = U < 1 ? 6 : 3`（`U` 即 `aspectRatio`）。
  * 3 = 横版视频（发布后进 `content-manage-v2`）；6 = 竖版小视频（进 `small-video`）。
  */
 const VIDEO_TYPE = Object.freeze({ landscape: 3, verticalSmall: 6 })
+
+/**
+ * 平台宽高比常量 —— 取自 bundle：`Z = VideoWidth < VideoHeight ? .62 : 1.78`
+ * 竖版 0.62、横版 1.78；它同时是 `VideoType` 的判据（`U < 1` ⇒ 竖版）和 body 里的 `aspectRatio`。
+ */
+const ASPECT_RATIO = Object.freeze({ vertical: 0.62, landscape: 1.78 })
+
+/** 推荐封面列表端点（bundle 逐字：`(0,u.t9)("/ixigua/api/upload/GetPosterList/", {body:{vid}})`） */
+const POSTER_LIST_PATH = '/ixigua/api/upload/GetPosterList/'
 
 /** 平台标题上限（config/platforms.yaml 的 toutiao.max_title = 30） */
 const TITLE_LIMIT = 30
@@ -89,8 +98,13 @@ function buildToutiaoPublishBody (taskData, o = {}) {
   const draft = o.draft === true || o.publishType === PUBLISH_TYPE.draft
   const height = Number(o.height || (td.video && td.video.height) || 0)
   const width = Number(o.width || (td.video && td.video.width) || 0)
-  // 竖版（高>宽）走 6=小视频，其余 3=横版（bundle 同款判据）
-  const isVertical = height > 0 && width > 0 && height > width
+  // 竖版判据与 bundle 一致：bundle 用 aspectRatio < 1，等价于「高>宽」。
+  // 宽高缺失时按横版处理（平台默认 3），并在 aspectRatio 上体现。
+  const hasDim = height > 0 && width > 0
+  const isVertical = hasDim && height > width
+  const aspectRatio = hasDim
+    ? (isVertical ? ASPECT_RATIO.vertical : ASPECT_RATIO.landscape)
+    : ASPECT_RATIO.landscape
   const hashtagIds = Array.isArray(o.hashtagIds)
     ? o.hashtagIds
     : (Array.isArray(td.hashtag_ids) ? td.hashtag_ids : [])
@@ -114,6 +128,8 @@ function buildToutiaoPublishBody (taskData, o = {}) {
       VideoHeight: height,
     },
     VideoType: isVertical ? VIDEO_TYPE.verticalSmall : VIDEO_TYPE.landscape,
+    // bundle 的 body 里还带 aspectRatio（Z），且它正是 VideoType 的判据来源
+    aspectRatio,
     PublishType: publishType,
     From: 'mp',
     EnterFrom: 5,
@@ -153,15 +169,63 @@ function parsePublishResponse (raw) {
   }
 }
 
+/**
+ * 解析推荐封面列表响应（纯函数）。
+ *
+ * 证据（bundle 逐字）：
+ * ```js
+ * (0,u.t9)("/ixigua/api/upload/GetPosterList/", { body: { vid } })
+ * // → (t||{}).data.Posters ；空数组则 UI 提示「视频上传完毕后才能生成推荐封面，你可上传或自定义截取封面」
+ * ```
+ *
+ * ⚠️ 如实标注未知：**`Posters[]` 每一项的字段名未取证**（抓到的只是 `.Posters` 这一层）。
+ * 因此 `pickPosterUri()` 采用**候选键探测**而不是写死单一键，并把命中的键一并返回，
+ *  便于第一次真机跑通后回来把这里收敛成确定实现。
+ *
+ * @param {object} raw 网关响应体
+ * @returns {{posters: Array, code: any}}
+ */
+function parsePosterListResponse (raw) {
+  const d = raw || {}
+  const data = d.data || {}
+  const posters = Array.isArray(data.Posters) ? data.Posters : []
+  return { posters, code: d.code !== undefined ? d.code : d.status }
+}
+
+/** 候选键（顺序即优先级）。真机跑通后应收敛为实际命中那一个。 */
+const POSTER_URI_KEYS = ['Uri', 'PosterUri', 'CoverUri', 'ThumbUri', 'Url', 'PosterUrl', 'ThumbUrl']
+
+/**
+ * 从推荐封面里挑一个 URI（纯函数，候选键探测见上）。
+ * @param {Array} posters
+ * @returns {{uri: string, key: string|null, poster: object|null}}
+ */
+function pickPosterUri (posters) {
+  const list = Array.isArray(posters) ? posters : []
+  for (const p of list) {
+    if (!p || typeof p !== 'object') continue
+    for (const k of POSTER_URI_KEYS) {
+      const v = p[k]
+      if (typeof v === 'string' && v) return { uri: v, key: k, poster: p }
+    }
+  }
+  return { uri: '', key: null, poster: null }
+}
+
 module.exports = {
   PUBLISH_PATH,
   PUBLISH_AUTH_PATH,
   REVIEW_LATENCY_PATH,
+  POSTER_LIST_PATH,
   PUBLISH_TYPE,
   VIDEO_TYPE,
+  ASPECT_RATIO,
   TITLE_LIMIT,
   ABSTRACT_LIMIT,
+  POSTER_URI_KEYS,
   truncateByCodePoint,
   buildToutiaoPublishBody,
   parsePublishResponse,
+  parsePosterListResponse,
+  pickPosterUri,
 }

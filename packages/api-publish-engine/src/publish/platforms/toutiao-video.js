@@ -110,13 +110,17 @@ const TT_SPACE_NAME_FALLBACK = 'middlevideo_toutiao'
 
 const AUTH_KEY_PATH = '/xigua/api/upload/getAuthKey/'
 
-// 发稿契约（端点 / 枚举 / 请求体构造 / 响应判据）已拆到 toutiao-video-publish.js ——
-// 该文件 512 行超 `check-max-lines` 的 500 上限，按既有范式拆分后本文件只留链编排。
+// 本文件的职责已按「有无副作用」切成三块，防止单文件再撞 `check-max-lines` 的 500 上限：
+//   · toutiao-video-publish.js —— 纯契约（端点/枚举/body 构造/响应解析），无 IO
+//   · toutiao-video-probes.js  —— 只读探测（发布权限 / 推荐封面），无副作用
+//   · 本文件                    —— 有副作用的链编排（getAuthKey → apply → 分片 → commit → PublishVideo）
 const {
-  PUBLISH_PATH, PUBLISH_AUTH_PATH, REVIEW_LATENCY_PATH,
-  PUBLISH_TYPE, VIDEO_TYPE,
+  PUBLISH_PATH, PUBLISH_AUTH_PATH, REVIEW_LATENCY_PATH, POSTER_LIST_PATH,
+  PUBLISH_TYPE, VIDEO_TYPE, ASPECT_RATIO,
   truncateByCodePoint, buildToutiaoPublishBody, parsePublishResponse,
+  parsePosterListResponse, pickPosterUri,
 } = require('./toutiao-video-publish')
+const { probePublishAuth, fetchPosterList } = require('./toutiao-video-probes')
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
 
@@ -131,6 +135,12 @@ class ToutiaoVideoError extends Error {
     this.name = 'ToutiaoVideoError'
     this.code = code || 'TT_VIDEO_ERROR'
   }
+}
+
+/** 调用方给的是本地封面文件（给不出平台侧 URI）吗？仅用于错误文案区分 */
+function hasLocalCoverOnly (coverInputs) {
+  const local = coverInputs.filter(Boolean)
+  return local.length > 0 && local.every((x) => typeof x === 'string')
 }
 
 /** 从 cookie 串取 key 的值（`; ` 分隔，取第一个 '=' 之后到下一个 ';'） */
@@ -301,40 +311,22 @@ class ToutiaoVideoChain {
   }
 
   /**
-   * 只读前置闸门：发布权限 + 审核延迟（bundle 实证存在的两个端点）。
-   * 用途：在真正上传/发稿前把「账号被限」的场景**提前**判出来，避免白传一遍大文件。
-   * 0 请求也不降级为「放行」——取不到就返回 unknown，由调用方决定。
+   * 取**推荐封面**列表（平台按 vid 自动生成的候选封面）。
+   * 实现与证据说明见 `toutiao-video-probes.js#fetchPosterList`。
+   * @param {string} vid
+   */
+  async getPosterList (vid) {
+    if (!vid) throw new ToutiaoVideoError('toutiao-video: getPosterList 需要 vid')
+    return fetchPosterList(this.mp, this._mpHeaders({ 'Content-Type': 'application/json', Accept: 'application/json' }), vid, this.logger)
+  }
+
+  /**
+   * 只读前置闸门：发布权限 + 审核延迟。
+   * 实现与语义见 `toutiao-video-probes.js#probePublishAuth`（取不到 ⇒ unknown，不阻断）。
    */
   async checkPublishAuth () {
     this._assertPreconditions()
-    const out = { canPublish: null, disablePublish: null, blockStatus: null, reviewLatency: null, raw: null }
-    try {
-      const r1 = await this.mp.request({
-        method: 'get', url: PUBLISH_AUTH_PATH + '?params=%7B%7D',
-        headers: this._mpHeaders({ Accept: 'application/json' }),
-        validateStatus: (s) => s >= 200 && s < 500,
-      })
-      const d1 = (r1.data || {}).data || {}
-      const perm = d1.authorPermission || {}
-      if (perm.DisablePublish !== undefined) {
-        out.disablePublish = Boolean(perm.DisablePublish)
-        out.canPublish = !Boolean(perm.DisablePublish)
-      }
-      out.raw = d1
-    } catch (e) {
-      this.logger && this.logger.warn && this.logger.warn('toutiao-video: GetPublishAuth 不可用 ' + String(e && e.message).slice(0, 120))
-    }
-    try {
-      const r2 = await this.mp.request({
-        method: 'get', url: REVIEW_LATENCY_PATH,
-        headers: this._mpHeaders({ Accept: 'application/json' }),
-        validateStatus: (s) => s >= 200 && s < 500,
-      })
-      const d2 = (r2.data || {}).data || {}
-      if (d2.BlockStatus !== undefined) out.blockStatus = Number(d2.BlockStatus)
-      if (d2.ReviewLatency !== undefined) out.reviewLatency = Number(d2.ReviewLatency)
-    } catch (_) { /* 只读遥测，取不到不影响主链 */ }
-    return out
+    return probePublishAuth(this.mp, this._mpHeaders({ Accept: 'application/json' }), this.logger)
   }
 
   /**
@@ -370,11 +362,10 @@ class ToutiaoVideoChain {
     if (!fs.existsSync(videoPath)) {
       throw new ToutiaoVideoError('toutiao-video: video file not found: ' + videoPath)
     }
-    // 闸门 0（本地·零请求）：平台**要求封面必填**（bundle 原文：`该视频需要上传一个封面`）。
-    // 本地先判，省掉「传完大文件才被平台拒」的浪费；skipCoverCheck 仅供链路自测。
+    // 封面来源（调用方显式给出时优先用）
     //
     // ⚠️ 判据必须与 buildToutiaoPublishBody 接受封面来源**完全一致**，否则会出现
-    // 「调用方给了 opts.thumbUri 却被本地闸门拦掉」这种自相矛盾（本轮自扮演裁决 i1）。
+    // 「调用方给了 opts.thumbUri 却被本地闸门拦掉」这种自相矛盾（自扮演裁决 i1）。
     const coverInputs = [
       opts.cover && opts.cover.path, // 封面文件（未来 imagex 上传用）
       opts.cover,                    // 直接给封面对象
@@ -382,12 +373,7 @@ class ToutiaoVideoChain {
       td.cover,
       td.coverPath,
     ]
-    const hasCover = coverInputs.some((x) => Boolean(x))
-    if (!opts.skipCoverCheck && !hasCover) {
-      throw new ToutiaoVideoError(
-        '头条视频发布需要封面图（平台必填）：请提供 cover/coverPath，或已上传好的 thumbUri'
-      )
-    }
+    const hasCallerCover = coverInputs.some((x) => Boolean(x))
     const uid = this.resolveUid()
 
     // 闸门 1-2（只读·可选）：发布权限 / 账号状态。取不到不阻断，但把结论如实带出去。
@@ -407,6 +393,41 @@ class ToutiaoVideoChain {
     const vid = await this.uploadVideo(videoPath, creds, uid, opts.onProgress)
     if (opts.onProgress) opts.onProgress(80, '视频已上传，正在提交')
 
+    // 闸门 5（封面必填）必须放在**上传之后**：平台的推荐封面是按 vid 自动生成的
+    // （bundle 原文：「视频上传完毕后才能生成推荐封面，你可上传或自定义截取封面」）。
+    // 所以顺序是：先看调用方有没有**平台侧可用的封面 URI** ⇒ 没有就向平台要推荐封面 ⇒
+    // 都没有才失败。这样解掉了「先要封面才能上传、上传完才有封面」的死锁。
+    //
+    // ⚠️ 判据是「有没有可用 **URI**」，不是「有没有封面字段」：
+    // `coverPath` 是本地文件路径，body 需要的是平台侧 URI，而头条封面上传尚未实现 ⇒
+    // 只给 coverPath 时**仍然**要回落推荐封面（自扮演裁决：曾用 hasCallerCover 触发回落，
+    // 结果 coverPath 让回落被跳过、thumbUri 又是空 ⇒ 必失败，属判据用错）。
+    let thumbUri = opts.thumbUri || (td.cover && td.cover.uri) || ''
+    let thumbUrl = opts.thumbUrl || (td.cover && td.cover.url) || ''
+    const hasUsableCoverUri = Boolean(thumbUri)
+    let posters = null
+    if (!hasUsableCoverUri && !opts.skipCoverCheck) {
+      posters = await this.getPosterList(vid).catch((e) => {
+        this.logger && this.logger.warn && this.logger.warn(
+          'toutiao-video: GetPosterList 不可用，回落失败: ' + String(e && e.message).slice(0, 120))
+        return null
+      })
+      if (posters && posters.picked && posters.picked.uri) {
+        thumbUri = posters.picked.uri
+        if (opts.onProgress) opts.onProgress(85, '已自动选用平台推荐封面')
+      }
+    }
+    if (!thumbUri && !opts.skipCoverCheck) {
+      const hint = hasLocalCoverOnly(coverInputs)
+        ? '调用方只提供了本地封面文件（cover/coverPath），但头条封面上传尚未实现 —— '
+          + '请改传平台侧 thumbUri，或依赖平台推荐封面'
+        : '调用方未提供 cover/thumbUri'
+      throw new ToutiaoVideoError(
+        '头条视频发布需要封面图（平台必填）：平台未生成推荐封面，且' + hint
+        + '。平台侧原文：该视频需要上传一个封面'
+      )
+    }
+
     const body = this.buildPublishBody(td, {
       vid,
       itemId: opts.itemId,
@@ -415,14 +436,19 @@ class ToutiaoVideoChain {
       timerTime: opts.timerTime,
       hashtagIds: opts.hashtagIds,
       compliance: opts.compliance,
-      thumbUri: opts.thumbUri || (td.cover && td.cover.uri) || '',
-      thumbUrl: opts.thumbUrl || (td.cover && td.cover.url) || '',
+      thumbUri,
+      thumbUrl,
       width: opts.width,
       height: opts.height,
       duration: opts.duration,
     })
     const r = await this.publish(body)
-    return auth ? Object.assign({}, r, { auth }) : r
+    const extra = {}
+    if (auth) extra.auth = auth
+    // 把「封面从哪来」如实带出去，便于真机排障（推荐封面命中键目前是候选探测）
+    if (posters) extra.cover = { source: posters.picked && posters.picked.uri ? 'platform-poster' : 'caller', pickedKey: posters.picked && posters.picked.key, posterCount: (posters.posters || []).length }
+    else if (thumbUri) extra.cover = { source: 'caller', pickedKey: null, posterCount: 0 }
+    return Object.keys(extra).length ? Object.assign({}, r, extra) : r
   }
 }
 
@@ -436,6 +462,7 @@ module.exports = {
     PUBLISH_PATH,
     PUBLISH_AUTH_PATH,
     REVIEW_LATENCY_PATH,
+    POSTER_LIST_PATH,
     AUTH_PARAMS,
     MP_BASE,
     VOD_BASE,
@@ -446,6 +473,9 @@ module.exports = {
   truncateByCodePoint,
   PUBLISH_TYPE,
   VIDEO_TYPE,
+  ASPECT_RATIO,
+  parsePosterListResponse,
+  pickPosterUri,
   // 便于复用方与测试直击共用实现
   buildApplyQuery,
   uploadVideoToVod,

@@ -390,7 +390,55 @@ var a = { publish: 1, timer: 2, draft: 0 }   // PublishType（草稿是 0！）
 | 2 | 用户状态 | `当前用户状态不能发文！` | `checkPublishAuth()` 前置判 |
 | 3 | 视频上传完成 | `该视频还未上传完成，请上传完成再发表` | 链内保证：commit 拿到 Vid 才发稿 |
 | 4 | 标题长度 | 草稿：`保存草稿失败，标题限制为 N 字以内`；发布：`该视频的标题需要在 W～z 字之间` | 本地按 30 码点截断 |
-| 5 | **封面必填** | `该视频需要上传一个封面` | `run()` 本地 fail-closed（零请求），省掉白传大文件 |
+| 5 | **封面必填** | `该视频需要上传一个封面` | **R4 订正**：封面由平台按 vid **自动生成推荐封面**，我方不需要上传图片；闸门改为「上传后取推荐封面」（见 §12.5）。只给本地 `coverPath` 不足以满足（body 要的是平台侧 URI） |
+
+### 12.5 封面来源：平台推荐封面（R4 订正，2026-10-19）
+
+上一版（§12.3 第 5 行）把「封面必填」当成**上传前**的本地闸门，还把 `coverPath` 当作可满足条件 ——
+两处都错。证据（应用 bundle 逐字 + 原文 UI 文案）纠正为：
+
+```js
+// 端点（bundle 逐字）
+(0,u.t9)("/ixigua/api/upload/GetPosterList/", { body: { vid } })   // → data.Posters
+// 平台原文 UI 文案
+「视频上传完毕后才能生成推荐封面，你可上传或自定义截取封面」
+```
+
+⇒ 两点结论：
+
+1. **推荐封面依赖 `vid`，所以只能在上传之后取**。把闸门放上传前会形成死锁：
+   先要封面才能上传、上传完才有封面。
+2. **不需要我方上传封面图**：从 `Posters` 里选一张即可（`@ixigua` 的 `GetPosterList` 就是干这个的）。
+
+### 12.5.1 实现与判据
+
+| 项 | 规则 |
+| --- | --- |
+| 触发回落 | 调用方**没有平台侧可用 URI**（`opts.thumbUri` / `td.cover.uri`）时才查推荐封面 |
+| 判据依据 | 是「有没有可用 **URI**」而不是「有没有封面字段」——`coverPath` 是本地文件，给不出 URI（自扮演裁决抓到过一次判据用错） |
+| 取值 | `parsePosterListResponse` 解析 `data.Posters`；`pickPosterUri` 按候选键 `Uri / PosterUri / CoverUri / ThumbUri / Url / PosterUrl / ThumbUrl` 顺序探测 |
+| 落点 | 选中值写入 `VideoInfo.ThumbUri`，并把来源带出 `result.cover = { source: 'platform-poster' \| 'caller', pickedKey, posterCount }` |
+| 都没有 | fail-closed **不发 PublishVideo**，错误文案区分「只给了本地封面文件（封面上传尚未实现）」与「完全没给封面」 |
+| 探测失败 | `GetPosterList` 抛错只 warn 并继续判闸门，不掩盖 |
+
+> ⚠️ **如实标注未知**：`Posters[]` 每一项的**字段名尚未取证**（只抓到 `.Posters` 这一层）。
+> 因此用候选键探测而非写死，并把命中的键回传 —— 第一次真机跑通后应回来收敛成确定实现。
+
+### 12.5.2 提示文字（R4 新增/变更）
+
+| 场景 | 提示 |
+| --- | --- |
+| 自动选中推荐封面 | 进度 85% `已自动选用平台推荐封面` |
+| 只给本地封面文件、且平台无推荐封面 | `头条视频发布需要封面图（平台必填）：平台未生成推荐封面，且调用方只提供了本地封面文件（cover/coverPath），但头条封面上传尚未实现 —— 请改传平台侧 thumbUri，或依赖平台推荐封面。平台侧原文：该视频需要上传一个封面` |
+| 完全没给封面、且平台无推荐封面 | `头条视频发布需要封面图（平台必填）：平台未生成推荐封面，且调用方未提供 cover/thumbUri。平台侧原文：该视频需要上传一个封面` |
+| 推荐封面接口不可用 | warn：`toutiao-video: GetPosterList 不可用，回落失败: <原因>` |
+
+### 12.5.3 请求体补正
+
+`VideoType` 的判据在 bundle 里是 `aspectRatio < 1`（`Tt = U < 1 ? 6 : 3`），
+而 `aspectRatio` 本身也是 body 字段（`Z = VideoWidth < VideoHeight ? .62 : 1.78`）。
+R4 起 body 同时输出 `aspectRatio`（竖版 0.62 / 横版 1.78），
+宽高缺失时按横版（`VideoType=3`、`aspectRatio=1.78`）并在记录里标注。
 
 **R3 真机实测结论（2026-10-18 夜）**：该头条号
 `GET /mp/agw/media/get_user_base_info` → `{"is_auth":false,"media_status":4}`，
@@ -408,7 +456,7 @@ var a = { publish: 1, timer: 2, draft: 0 }   // PublishType（草稿是 0！）
 | 缺 uid | `toutiao-video: 缺 uid_tt（无法定位账号）` |
 | 缺视频 | `toutiao-video: taskData.video.path required` |
 | 视频文件不存在 | `toutiao-video: video file not found: <path>` |
-| **缺封面** | `头条视频发布需要封面图（平台必填）：请提供 cover/coverPath，或已上传好的 thumbUri` |
+| **缺封面** | 见 §12.5.2（R4 起按「本地封面文件 / 完全没给」两句区分，且封面改为平台推荐封面优先） |
 | 无发布权限 | `该头条号当前无发布权限（GetPublishAuth.DisablePublish=true）。平台侧原文：请完善账号信息，解锁发布文章、视频等权益功能。` |
 | 上传授权失败 | `toutiao-video: 未获取上传授权(code=…): <平台 msg>` |
 | 发稿失败 | 优先透出平台 `data.Message`，否则 `头条发布失败(status=…, code=…)` |
