@@ -36,7 +36,7 @@
 
 运行时代码任务必须从 scripts/start-mp-task.ps1 -TaskName <kebab-case> 启动；该入口会校验共享主目录、安装 hooks，并创建独立 worktree（默认 `<仓库父目录>/mp-worktrees`，路径可经 `-WorktreeRoot` / `MP_WORKTREES` 覆盖）。共享根目录健康检查由 scripts/mp-worktree-health.ps1 执行，Windows 当前用户计划任务由 scripts/install-session-isolation-task.ps1 注册。该脚本自 2026-09-28 起有两个新约束：`-TaskPath` 可指向一次性路径（**自检与测试必须用它**），而 `-Unregister` 打向生产路径 `\Mulpub\` 一律拒绝、须显式加 `-AllowLiveUnregister`。原因是「先 `-Unregister`、随后重注册因提权失败」会把共享根实时写保护**静默拆掉**：AtLogOn 触发器非提权注册一律 `PermissionDenied / HRESULT 0x80070005`（同一次探针里非 AtLogOn 的健康巡检任务可正常注册并删除，所以提权门槛精确只在 AtLogOn 那一格）。注册结果一律以 `Get-ScheduledTask` 产物为准，**不得看 rc**：`Register-ScheduledTask` 失败抛的是非终止错误、不写 `$LASTEXITCODE`，只看 rc 会把「一条都没注册上」报成成功（本仓实测踩过两次）。**接线进 CI 的机器态断言，必须先在「runner 态」本机跑一遍**——CI runner 上 `\Mulpub\` 根本不存在，而 PowerShell 里 `function F { @(...) }` 的隐式输出会把空数组**摊平成 `$null`**（实测 5.1：`(F1)` 为 NULL，`,` 前缀与调用点 `@(F1)` 才是 Object[] 长度 0），于是 `Compare-Object $a $b` 报「无法将 Null 值绑定到 -ReferenceObject」；正解是让快照函数**不返回任何东西**、改写 `$script:` 变量并用 `-join '|'` 的字符串比较（串不可能为 null 也不会摊平）。另两条同场实测：`-Watch` 没有单实例锁，重新注册计划任务会与既存 watcher **并存**（两份 FileSystemWatcher 各记一条 violation）；注册 AtLogOn 需要提权，但 `Start-ScheduledTask` 拉起已注册的任务**不需要**——用任务本身重启 watcher 是唯一有产物的路径。完整说明见 docs/session-isolation-automation.md。不得把运行时代码任务直接绑定到共享仓库根；新电脑克隆后先运行 `scripts/bootstrap-write-guard.ps1` 完成 hooks、计划任务、watcher 与自检，仅安装质量节拍 skill 不会自动启用该机制。
 
-- **⛔ 共享主目录实时写保护**：共享仓库根下 `apps/`、`packages/`、`ops-center/`、`config/`、`.github/` 等运行时路径禁止直接落盘；`scripts/guard-shared-root-writes.ps1` 由 Windows 计划任务 `Session Isolation Write Guard`（AtLogOn）常驻监听，非 gitignored 文件移入 `%LOCALAPPDATA%\Mulpub\session-isolation\quarantine\`，tracked 文件从 HEAD 精确恢复并写 `violations.jsonl`；放行 `docs/`、`01-docs/`、`scripts/`、`openspec/`、`.ccg/`、`.agent_context/`、`.hermes/` 及根级流程文档。任务开始与提交前必须确认 Write Guard 任务已注册且 watcher 运行、共享根保持 main clean。
+- **⛔ 共享主目录实时写保护**：共享仓库根下 `apps/`、`packages/`、`ops-center/`、`config/`、`.github/` 等运行时路径禁止直接落盘；`scripts/guard-shared-root-writes.ps1` 由 Windows 计划任务 `Session Isolation Write Guard`（AtLogOn）常驻监听，非 gitignored 文件移入 `%LOCALAPPDATA%\Mulpub\session-isolation\quarantine\`，tracked 文件从 HEAD 精确恢复并写 `violations.jsonl`；放行 `docs/`、`01-docs/`、`scripts/`、`openspec/`、`.ccg/`、`.agent_context/`、`.adversarial/` 及根级流程文档。任务开始与提交前必须确认 Write Guard 任务已注册且 watcher 运行、共享根保持 main clean。
 
 - **质量节拍强制卡点**：提交前必须完成 `.quality-gates.md` 自检清单，违反不允许提交
 
@@ -425,11 +425,20 @@ CRITICAL 必须修复才能继续。
 ├── 01-docs/               # PRD、架构、设计等文档
 ├── config/                # 配置文件（config.yaml, platforms.yaml）
 ├── scripts/               # 脚本（check-docs-sync.sh 等）
-├── .hermes/plans/         # 实施计划存档
 ├── .github/workflows/     # CI/CD 配置
 ├── CHANGELOG.md / README.md / AGENTS.md
 └── 01-docs/PRD.md / ARCHITECTURE-PLAYWRIGHT.md / DESIGN.md / DEVELOPMENT_REPORT.md
 ```
+
+> **实施计划的存档位（2026-10-18 起，change: hermes-plans-retire）**：动手**前**的方案一律
+> 进 `openspec/changes/<slug>/proposal.md`（中高风险任务须经 `/opsx:propose`）；动手**后**的
+> 执行记录进 `openspec/records/<分支名>.md`（唯一强制载体）。历史曾用的 `.hermes/plans/`
+> 已整体退役 —— 该目录名来自 Hermes 技能转换本文件时留下的上游印记，既非本项目概念，
+> 也不归属实际写入方（CCG Workflow 编排系统），且它在 `classify-docs-only.js` 白名单里
+> 被显式声明为「内容不做机器判定」，等于一条无人守门的入库通道。存量四份计划已分别
+> 迁至 `openspec/changes/archive/2026-09-23-member-center-p1/`（会员中心 P1，另在
+> `01-docs/PLAN-MEMBER-CENTER-P1-SERVER-2026-09-23.md` 保留并列副本）与并入
+> `openspec/records/` 同名执行记录（其余三份内容已被其覆盖）。
 
 ## 打包验证（质量门禁 QM-1 补充）
 
