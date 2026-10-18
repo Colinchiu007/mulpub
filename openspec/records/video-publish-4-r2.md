@@ -13,6 +13,7 @@
 4. **小红书视频契约变更**：从「fail-closed 拒绝」改为「只落草稿箱」（用户硬约束），见 §四。
 5. **PRD 补 §10 真机 E2E 取证结果**：取证方法（A/B 两种）、A/B 对照表、头条/小红书真实 DOM 表、
    契约变更说明、按内容类型选选择器的规则、数据校验 V8–V12、提示文字（见 §八）。
+6. **D2 签名材料兜底**：抖音 API 轨 Step 0 fail-closed 的真因定位与修复（见 §十）。
 
 ## 二、视频号 A/B 对照（真机，同日两次真实发布）
 
@@ -115,6 +116,52 @@
 文档门禁：`check-doc-abs-paths` PASS、`check-no-brand-residue` PASS（10286 文件）、
 `check-text-encoding-integrity` OK、`check-no-conflict-markers` OK、`check-max-lines` rc=0。
 
-## 九、远程同步
+## 十、D2 签名材料兜底（`rpa-view-manager.js`）
+
+### 真因（读代码 + 今日日志双向定位）
+
+今日日志：`API publish douyin: 账号信息缺失，请重新授权此账号再试`，且**没有**
+`API publish cookie fallback from auth partition` 这行 ⇒ 说明 `authData.cookies` **非空**，
+旧兜底判据 `if (!cookie)` 根本没触发。
+
+而 `douyin-video.js` 的 Step 0 是 `hasSecurityMaterials(cookie)`（
+`packages/api-publish-engine/src/signer/douyin-ticket-guard.js:112`），要求同时存在：
+
+```
+CRYPT_KEY_RE      = /(?:^|;\s*)((?:__security_mc_\d+_|security-sdk\/)?s_sdk_crypt_sdk)=/
+SIGN_DATA_KEY_RE  = /(?:^|;\s*)((?:__security_mc_\d+_|security-sdk\/)?s_sdk_sign_data_key[_/]web_protect)=/
+```
+
+这两条是**安全 SDK 在页面 JS 运行时**才写进 Electron 分区的，是登录快照**之后**才出现的 ⇒
+凭证 store 里永远没有它们。于是「store 有 19 条 cookie」与「缺 2 条签名材料」可以同时成立。
+
+### 修法
+
+判据从「cookie 为空」升级为「cookie 为空 **或**（`platform === 'douyin'` 且签名材料不齐）」。
+命中后把分区 cookie **合并**进 store cookie（**分区值优先、store 值兜底**），而非整体替换 ——
+避免为了补两条 SDK cookie 丢掉 store 里更全的其余字段。非 douyin 平台判据零变化。
+
+判据自身不可用时（require 失败）保持既有语义，不盲目兜底。
+
+### TDD（新增 5 例，共 11 例）
+
+| 用例 | 锁什么 |
+| --- | --- |
+| douyin store 非空但缺签名材料 ⇒ 触发兜底并合并 | store 的 `sessionid`/`uid_tt` 仍在，SDK 两条已补上 |
+| douyin 签名材料已齐 ⇒ 不读分区 | 不引入多余 IO |
+| douyin store 为空 ⇒ 仍走原 D1 整体替换 | 不回归 D1 |
+| douyin 分区也为空 ⇒ 保持 store 原串 | 不吞证据，交由 adapter fail-closed |
+| 同名 cookie 以分区值优先 + 日志点名 merged | 合并方向正确且可审计 |
+
+同时把原「store cookie 非空时不触发分区读取」那条改为**按平台区分**（kuaishou 不读、
+douyin 缺材料才读）—— 旧断言写的是 douyin 不读，与新契约直接冲突。
+
+### 门禁
+
+`check-max-lines` rc=0；ESLint rc=0；受影响面 **147 passed**（8 文件）；
+QM-1 `build:vue` rc=0（26.25s）、`electron-builder --win --dir` rc=0、
+启动验证 **PASS**（alive(8s)=true / stderr **0 字节** / stdout 21,946 字节）。
+
+## 十一、远程同步
 
 | 远程同步 | 由门禁推导（合并后按主干历史收口；不手写状态词） |
