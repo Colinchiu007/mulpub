@@ -1,3 +1,11 @@
+# [未发布] fix(create): 音色克隆入口按钮在文件选择期间不再提前显示进行中文案，且文案改为「正在添加…」（voice-clone-pick-feedback）
+
+- **症状**：故事讲述流水线「声音 → 音色复制 / 克隆」点击「选择本地音频文件」后，系统文件选择器刚打开、用户还在浏览，按钮文案就变成「正在克隆…」（按钮同时变灰）；取消选择后文案才恢复，观感像克隆已经开始。
+- **根因**：入口按钮文案绑定共享忙碌态 `s2vVoiceCloneLoading`，而该标志在调用 `chooseTtsVoiceCloneSamples`（打开系统文件对话框的 IPC）之前就置位，对话框返回前恒为真；且「克隆」并不是该阶段实际动作——选定文件后进入的是自动保存（添加）克隆音色。
+- **修复**：文案改由添加阶段专属的 `s2vVoiceClonePending` 驱动（只在选定文件返回、`addTtsVoiceClone` 开始时置位）；浏览期间只禁用按钮、不改文案。文案「正在克隆…」→「正在添加…」（zh/en 成对），并补 `data-testid=s2v-voice-clone-choose-button` 供回归测试稳定选取。
+- **回归保护**：`S2vConfigPanels.test.js` +3 条模板契约锁（仅 loading 无 pending 时文案不变 / pending 时切「正在添加…」且优先于「重新选择」/ 添加结束恢复「重新选择」）；`CreateView.test.js` +2 条时序回归（选择器打开期间文案不变、选定返回后才切换；取消选择不进入添加态），原「克隆期间」用例断言改为「正在添加…」。克隆域相关 331 例全绿。
+- **文档**：PRD §7.1.4「音色克隆区域交互合同」两处同步写明时序：文件浏览期间不改文案，选定文件返回后才显示「正在添加…」。
+
 # [未发布] docs(openspec): 归档 gate-record-sync-derived-status，主规格 quality-gate-execution-record 落地
 
 - **动作**：`openspec archive gate-record-sync-derived-status -y` ⇒ `specsUpdated=true / added=3`，change 落为 `openspec/changes/archive/2026-10-18-gate-record-sync-derived-status/`，并创建主规格 `openspec/specs/quality-gate-execution-record/spec.md`；`openspec/specs/openspec-integration/spec.md` 纯插入一条 Requirement（+21 −0，不动既有行）。

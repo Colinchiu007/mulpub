@@ -199,4 +199,51 @@ describe('S2vConfigPanels', () => {
     expect(w.find('[data-testid="s2v-bgm-adopt"]').exists()).toBe(false);
     expect(w.find('[data-testid="s2v-bgm-clear"]').exists()).toBe(false);
   });
+
+  // ── 音色克隆入口按钮文案时序（voice-clone-pick-feedback，2026-10-18）──
+  // 浏览系统文件选择器期间只应禁用按钮，不得改文案；文案只由实际添加态（pending）驱动。
+  const clonePanelState = (overrides = {}) => ({
+    s2vVoiceCapability: { type: 'user_clone', clone: { enabled: true } },
+    s2vCloneOpen: true,
+    ...overrides,
+  });
+
+  it('浏览文件期间（仅 loading、无 pending）入口按钮文案保持「选择本地音频文件」', () => {
+    vm = makeBoundVm(clonePanelState({
+      s2vVoiceCloneLoading: true,
+      s2vVoiceClonePending: null,
+      s2vVoiceCloneSelection: null,
+    }));
+    const w = mountPanel(vm);
+    const button = w.get('[data-testid="s2v-voice-clone-choose-button"]');
+    expect(button.text()).toContain('选择本地音频文件');
+    expect(button.text()).not.toContain('正在添加…');
+    expect(button.attributes('disabled')).toBeDefined();
+    expect(w.find('[data-testid="s2v-voice-clone-status"]').exists()).toBe(false);
+  });
+
+  it('选定文件返回进入添加态（pending）后入口按钮切「正在添加…」，且优先于「重新选择」', () => {
+    vm = makeBoundVm(clonePanelState({
+      s2vVoiceCloneLoading: true,
+      s2vVoiceClonePending: { id: 'pending-1', name: '音色001', sampleCount: 1 },
+      s2vVoiceCloneSelection: { selectionId: 'sel-1', sampleCount: 1 },
+      s2vVoiceCloneStatusText: () => '上传并添加中',
+    }));
+    const w = mountPanel(vm);
+    const button = w.get('[data-testid="s2v-voice-clone-choose-button"]');
+    expect(button.text()).toContain('正在添加…');
+    expect(button.text()).not.toContain('重新选择音频文件');
+    expect(w.find('[data-testid="s2v-voice-clone-status"]').exists()).toBe(true);
+    expect(w.find('[data-testid="s2v-voice-clone-pending-row"]').exists()).toBe(true);
+  });
+
+  it('添加结束后恢复已选样本态文案「重新选择音频文件」', () => {
+    vm = makeBoundVm(clonePanelState({
+      s2vVoiceCloneLoading: false,
+      s2vVoiceClonePending: null,
+      s2vVoiceCloneSelection: { selectionId: 'sel-1', sampleCount: 1 },
+    }));
+    const w = mountPanel(vm);
+    expect(w.get('[data-testid="s2v-voice-clone-choose-button"]').text()).toContain('重新选择音频文件');
+  });
 });

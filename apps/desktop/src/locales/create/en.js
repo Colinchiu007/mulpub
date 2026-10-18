@@ -267,9 +267,10 @@ export default {
         autoEdgeProvider: 'Auto Edge TTS',
         multimodalSuffix: ' (Multimodal)',
         // 2026-08-13 In-progress feedback while cloning a voice after choosing a local audio file
+        // 2026-10-18 Only shown during the actual add phase; label stays unchanged while the file picker is open
         cloneSelectButton: 'Choose local audio file',
         cloneReselectButton: 'Choose audio file again',
-        cloneInProgressButton: 'Cloning...',
+        cloneInProgressButton: 'Adding...',
         cloneStatusPending: 'Selected {count} sample(s). Uploading and cloning the voice... (usually 10-60 s, please wait)',
         clonePendingLabel: 'Creating...',
         cloneSuccessToast: 'Cloned voice "{name}" added',

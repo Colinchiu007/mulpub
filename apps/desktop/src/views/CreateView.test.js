@@ -1075,7 +1075,7 @@ describe("CreateView", () => {
     expect(w.find('[data-testid="s2v-voice-clone-pending-row"]').exists()).toBe(true);
     expect(w.find('[data-testid="s2v-voice-clone-status"]').exists()).toBe(true);
     expect(w.text()).toContain("创建中…");
-    expect(w.text()).toContain("正在克隆…");
+    expect(w.text()).toContain("正在添加…");
     expect(w.text()).toContain("正在上传并克隆音色");
 
     // 完成：占位行替换为真实行 + 自动选中 + 成功轻提示
@@ -1086,6 +1086,81 @@ describe("CreateView", () => {
     expect(w.vm.s2vVoiceClones).toContainEqual(expect.objectContaining({ id: "MiniMaxVoice_auto1", name: "音色001" }));
     expect(w.vm.s2vConfig.voiceId).toBe("MiniMaxVoice_auto1");
     expect(w.vm.s2vOptionsToast).toContain("已添加克隆音色");
+    w.unmount();
+  });
+
+  it("浏览系统文件选择器期间按钮文案不变，选定返回后才切「正在添加…」（2026-10-18 回归）", async () => {
+    const cloneApi = await import("@/api/tts-voice-clone");
+    let resolveChoose;
+    cloneApi.chooseTtsVoiceCloneSamples.mockImplementation(() => new Promise((resolve) => { resolveChoose = resolve; }));
+    let resolveAdd;
+    cloneApi.addTtsVoiceClone.mockImplementation(() => new Promise((resolve) => { resolveAdd = resolve; }));
+    const catalogApi = await import("@/api/tts-voice-catalog");
+    catalogApi.selectTtsVoice.mockResolvedValue({ code: 0, data: { selectedVoiceId: "MiniMaxVoice_auto1" } });
+
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", available: true, stages: [] };
+    w.vm.s2vOpenSections.voice = true;
+    w.vm.s2vConfig.voiceProvider = "minimax-multimodal";
+    w.vm.s2vConfig.voiceModel = "speech-2.8-turbo";
+    w.vm.s2vVoiceCapability = { type: "user_clone", clone: { enabled: true } };
+    w.vm.s2vCloneOpen = true;
+    await nextTick();
+
+    const chooseButton = () => w.get('[data-testid="s2v-voice-clone-choose-button"]');
+    const flow = w.vm.chooseS2VVoiceCloneSamples();
+    await nextTick();
+
+    // 系统文件选择器打开期间：按钮可以禁用，但文案必须保持原样，且不得出现添加态/状态行
+    expect(cloneApi.chooseTtsVoiceCloneSamples).toHaveBeenCalledTimes(1);
+    expect(w.vm.s2vVoiceCloneLoading).toBe(true);
+    expect(chooseButton().text()).toContain("选择本地音频文件");
+    expect(chooseButton().text()).not.toContain("正在添加…");
+    expect(chooseButton().text()).not.toContain("正在克隆…");
+    expect(w.find('[data-testid="s2v-voice-clone-status"]').exists()).toBe(false);
+    expect(w.find('[data-testid="s2v-voice-clone-pending-row"]').exists()).toBe(false);
+
+    // 选定文件返回页面后才进入自动添加阶段，此时按钮文案才变化
+    resolveChoose({ code: 0, data: { selectionId: "sel-1", samples: [{ name: "a.wav", contentType: "audio/wav", durationSeconds: 12 }] } });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await nextTick();
+    expect(cloneApi.addTtsVoiceClone).toHaveBeenCalledTimes(1);
+    expect(w.vm.s2vVoiceClonePending).toMatchObject({ name: "音色001", sampleCount: 1 });
+    expect(chooseButton().text()).toContain("正在添加…");
+    expect(chooseButton().text()).not.toContain("正在克隆…");
+    expect(w.find('[data-testid="s2v-voice-clone-status"]').exists()).toBe(true);
+
+    resolveAdd({ code: 0, data: { voice: { id: "MiniMaxVoice_auto1", name: "音色001" } } });
+    await flow;
+    await nextTick();
+    expect(chooseButton().text()).not.toContain("正在添加…");
+    w.unmount();
+  });
+
+  it("取消本地文件选择时不进入添加态、不显示状态行，按钮文案保持不变（2026-10-18 回归）", async () => {
+    const cloneApi = await import("@/api/tts-voice-clone");
+    // 主进程在用户取消对话框时返回 code 0 + paths: []（见 tts-voice-clone IPC handler）
+    cloneApi.chooseTtsVoiceCloneSamples.mockResolvedValue({ code: 0, data: { paths: [] } });
+
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", available: true, stages: [] };
+    w.vm.s2vOpenSections.voice = true;
+    w.vm.s2vConfig.voiceProvider = "minimax-multimodal";
+    w.vm.s2vConfig.voiceModel = "speech-2.8-turbo";
+    w.vm.s2vVoiceCapability = { type: "user_clone", clone: { enabled: true } };
+    w.vm.s2vCloneOpen = true;
+    await nextTick();
+
+    await w.vm.chooseS2VVoiceCloneSamples();
+    await nextTick();
+    expect(w.vm.s2vVoiceCloneLoading).toBe(false);
+    expect(w.vm.s2vVoiceClonePending).toBe(null);
+    expect(w.get('[data-testid="s2v-voice-clone-choose-button"]').text()).toContain("选择本地音频文件");
+    expect(w.get('[data-testid="s2v-voice-clone-choose-button"]').text()).not.toContain("正在添加…");
+    expect(w.find('[data-testid="s2v-voice-clone-status"]').exists()).toBe(false);
+    expect(w.find('[data-testid="s2v-voice-clone-pending-row"]').exists()).toBe(false);
     w.unmount();
   });
 
