@@ -1,0 +1,29 @@
+{
+  "sha": "c29ef1acf161fefdaf341801562b760b23da7ef0",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 327 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 327,
+    "fileCount": 15,
+    "codeFileCount": 11,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 2,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "若嫌体积大，可在部署后单独 `DELETE FROM runtime_config_version WHERE version < <当前>`——",
+      "1. **`RuntimeConfigVersion` 历史行未清理**：修复前每次 bootstrap 落一行，表里已积累若干行。它是**读时推导的派生表**，历史行不影响正确性（`resolve_config_version` 只查「hash 是否见过」与「最新版本号」），故**刻意不迁移**；若将来体积成为问题，可单独 `DELETE FROM runtime_config_version WHERE version < <当前版本>`，但那需要一次明确的运维决策，不在本 change 范围内。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "bbf8d465d83ae2bc9609a0569d044205a6436180f0035c04e34b973671a8711b",
+  "decidedAt": "2026-10-18T09:33:26.207Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

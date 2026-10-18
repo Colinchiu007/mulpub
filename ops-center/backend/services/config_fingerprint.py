@@ -43,12 +43,20 @@ def compute_config_hash(payload: dict, canonical_json) -> str:
     参数 ``canonical_json`` 由调用方注入（复用 runtime_service 那个与桌面端逐字节对齐的
     实现，避免在这里复制第二份序列化器 —— 那正是两端漂移的来源）。
 
-    三条不可违背的约束（design.md §1.2）：
+    四条不可违背的约束（design.md §1.2）：
     1. 只取 RUNTIME_BLOCKS 白名单——synced_at 每次请求都变，纳入则 hash 永远变、
        客户端每次都发 ACK，直接变成推送地狱。
     2. 缺失键以 ``None`` 参与而非跳过——否则「删掉一个数据块」与「该键本来不存在」
        产生同一个 hash，运营删除配置会静默不升版。
     3. 不得纳入 config_version / config_hash / signature（自指）。
+    4. **白名单内每个块的载荷本身也不得含「每请求变化」的字段**（synced_at /
+       updated_at / 任何 `_now()` 产物）——只把顶层 synced_at 挡在白名单外是不够的：
+       2026-10-18 之前 appMenu 与 contentCategories 两个块各自返回了块内 synced_at，
+       注释第 1 条明明写对了，实现却对不上，实测后果是「内容没变 hash 也变」：
+       每次 bootstrap 的 config_hash 都不同、config_version 每次 +1、
+       生效看板「已确认率」永远上不去、RuntimeConfigVersion 表随请求数无限增长。
+       回归锁：`ops-center/backend/tests/test_config_hash_stability.py`
+       （同一库连构两次 bootstrap，hash 必须逐字相等）。
 
     第四道锁：**数值必须两端序列化一致**，否则 raise ValueError。
     """
