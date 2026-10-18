@@ -43,7 +43,11 @@
 
 const fs = require('fs');
 const path = require('path');
-const { spawnSync } = require('node:child_process');
+// 扫描域的实现只有一份：scripts/lib/git-domain.js（#3876 建立，本次收敛第二处消费者）。
+// 为什么共享而不是各留一份：两个门禁比的是同一份账，域口径一分叉，症状就是「本机红 / CI 绿」。
+// 六条语义（逐条有锁在 scripts/lib/git-domain.test.js）：不退回磁盘全量；不收窄成只看索引；
+// 取不到读数一律抛错（调用方转退出码 2）；并集不是 check-ignore；路径相对 root；机器态会改域。
+const { gitDomain } = require('../../scripts/lib/git-domain');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const BASELINE_PATH = path.join(__dirname, 'max-lines-baseline.json');
@@ -105,43 +109,6 @@ const TEST_SCAN_DIR_EXCLUDE = ['node_modules', 'dist', '.git', 'dist-electron'];
 const DEFAULT_TEST_LIMIT = 1500;
 const DEFAULT_TEST_GROWTH_ALLOWANCE = 200;
 
-/**
- * 「该不该被量」的唯一判据交给 git，而不是磁盘。
- * 域 = 索引内文件 ∪ 未被 .gitignore 排除的未跟踪文件 —— 即 `git status` 的口径，
- * 也正是 CI 检出的口径。三条不可破：
- *  ① 不退回磁盘全量：#3782（bundle-untrack）之后 5 个构建产物只在磁盘存在且被忽略，
- *     按磁盘扫就成了「本机跑过 build:preload 就 NEW_OVER_LIMIT、CI 永远看不见」——两个域比一份账；
- *  ② 不收窄成「只看索引」：未提交但未被忽略的新文件仍是新增债，必须可见；
- *  ③ 取不到读数（非工作树 / git 缺失 / 空集合）一律抛错，由 main() 转退出码 2 出声。
- * 另有三条语义（评审两轴各命中一处，写在这里免得下一个人当"顺手改宽/改窄"）：
- *  ④ 并集不是 check-ignore：被跟踪但同时命中 .gitignore 的文件（历史上 git add -f 过的产物）**仍在域内**
- *     ——「被跟踪就该被量」。改成"只取非忽略项"会静默停止测量这类文件，比假红更糟。
- *  ⑤ 集合里的路径一律**相对扫描根**（git ls-files 按 cwd 输出）；因此 --root 只能指向
- *     「另一个仓库根」（如另一个 worktree），指到本仓子目录会让账本坐标系整体错位（存量行为，未改）。
- *  ⑥ 机器态会改域：system/global 档里的 core.excludesFile 能把文件从 --exclude-standard 里藏掉
- *     （实测：同一夹具，带该配置时产物不在域内，置 GIT_CONFIG_NOSYSTEM=1 后回到域内）。
- *     测试夹具因此必须两向屏蔽，判据本体则按"仓库当前 git 配置"如实取域。
- */
-function gitDomain(rootDir) {
-  const root = rootDir || ROOT;
-  const run = (args) => {
-    const r = spawnSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
-    if (r.error) throw new Error('无法从 git 取得扫描域：git 不可执行（' + r.error.message + '）');
-    if (r.status !== 0) {
-      throw new Error('无法从 git 取得扫描域：git ' + args.join(' ') + ' 在 ' + root
-        + ' 返回 rc=' + r.status + ' ' + String(r.stderr || '').trim());
-    }
-    return String(r.stdout || '').split('\0').filter(Boolean);
-  };
-  const set = new Set(run(['ls-files', '-z']));
-  // ls-files 没有 -u/<mode>（那是 status/add 的旗标，误用会 rc=129）；默认就不折叠目录，
-  // 只要不加 --directory，输出即逐文件 —— 与探针用的 status -uall 同口径。
-  for (const p of run(['ls-files', '-z', '--others', '--exclude-standard'])) set.add(p);
-  if (set.size === 0) {
-    throw new Error('无法从 git 取得扫描域：git 报告 0 个文件（空域不等于「没有超限文件」，拒绝据此出结论）');
-  }
-  return set;
-}
 
 function walkDir(absDir, baseDir, out, domain) {
   let entries;
@@ -470,7 +437,7 @@ function main() {
   // 域由 git 给（见 gitDomain）。取不到读数一律退出码 2，绝不退回磁盘全量——
   // 那正是被修的假红来源：本机构建过就红，而 CI 的检出里根本没有那些产物。
   let domain;
-  try { domain = gitDomain(rootDir); } catch (e) {
+  try { domain = gitDomain(rootDir || ROOT); } catch (e) {
     console.log('❌ ' + (e && e.message ? e.message : String(e)));
     console.log('   门禁拒绝出结论：退出码 2 = 判据自身故障（与「发现违规」的 1 分开，混档等于把失明读成结论）。');
     process.exit(2);

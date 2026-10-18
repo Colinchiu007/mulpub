@@ -94,6 +94,13 @@ jobs:
           # （quotepath 开着 ⇒ 非 ASCII 路径键对不上 ⇒ 那条记录永远派生不出；rename 被检测 ⇒ 归属指错提交）。
           # 6 条变异反证已实测各自红在指名用例（MU-A…MU-F），摘掉任一条口径都不是"少测一项"而是"测了个错的"。
           node --test scripts/lib/merge-ledger.test.js
+          # 扫描域单一实现的回归锁（#3876 建域、本次把第二处消费者 check-debt-budget 收敛到同一份）。
+          # ① 它测的是"域算得对不对"这一层，两个消费者各自的锁测不到；② 它内含一条"消费者套件必须整份真的跑了"
+          #    的计数锁 —— check-debt-budget.js 原来在文件末尾无条件 main()（会 process.exit），
+          #    任何 require 它的测试都会在导入期被杀掉，而 node:test 把"文件退出 0"报成 pass 1。
+          # 落在这里的理由与 merge-ledger 同：本 job 不被 docs-only 短路，且在非 PR 早退之前。
+          node --test scripts/lib/git-domain.test.js
+          node --test scripts/check-debt-budget.test.js
           if [ "${{ github.event_name }}" != "pull_request" ]; then
             echo "docs-only=false" >> "$GITHUB_OUTPUT"
             echo "docs-only=false (non-PR event: full run)"
