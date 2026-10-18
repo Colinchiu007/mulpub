@@ -132,11 +132,21 @@ describe('S2vConfigPanels', () => {
     expect(labels(w)).not.toContain('语音模型');
     w.unmount();
 
-    // 场景 2：模型解析为空（多模态缺 tts 声明）→ 两个字段都不渲染，不留空白控件
+    // 场景 2：模型两个来源都为空 → 两个字段都不渲染，不留空白控件
+    // （voice-model-program-resolved 修正，2026-10-19：正常路径由程序解析的 s2vVoiceContextModel
+    // 提供；历史快照/配置档案回填尚未重算时由 s2vConfig.voiceModel 提供。二者皆空才视为未知。）
     vm.s2vVoiceContextModel = '';
+    vm.s2vConfig.voiceModel = '';
     w = mountPanel(vm);
     expect(labels(w)).not.toContain('语音模型');
     expect(labels(w)).not.toContain('语音 / 音色 ID');
+    w.unmount();
+
+    // 场景 2b：仅 config.voiceModel 已知（未注册 provider 注册表 / 快照回填未重算）→ 字段照常渲染
+    vm.s2vConfig.voiceModel = 'speech-2.8-turbo';
+    w = mountPanel(vm);
+    expect(labels(w)).toContain('语音 / 音色 ID');
+    expect(labels(w)).not.toContain('语音模型');
     w.unmount();
 
     // 场景 3：未选 provider → 同样不渲染

@@ -356,7 +356,11 @@
                    用户只选择能力提供方，具体 Model ID 由程序按运营中心配置的默许模型解析
                    （resolveVoiceModelForProvider），静默写入 s2vConfig.voiceModel 供 IPC/快照使用。
                    MiMo 的 tts/voiceclone 双模型区分由音色类型驱动，与此正交。 -->
-              <UiField v-if="s2vConfig.voiceProvider && s2vVoiceContextModel" class="config-item" label="语音 / 音色 ID">
+              <!-- 显示条件（voice-model-program-resolved 修正，2026-10-19）：已选提供方 **且** 已知模型。
+                   模型有两个来源：①程序按运营默许模型解析出的 s2vVoiceContextModel（正常路径）；
+                   ②既有 s2vConfig.voiceModel（历史快照 / 配置档案回填后尚未重算、或分发夹具显式给值）。
+                   两者都为空 ⇒ 无法确定用哪个模型 ⇒ 整项不渲染，不留一个空音色下拉。 -->
+              <UiField v-if="s2vConfig.voiceProvider && (s2vVoiceContextModel || s2vConfig.voiceModel)" class="config-item" label="语音 / 音色 ID">
                 <UiSelect
                   id="s2v-voice-catalog"
                   v-model="s2vConfig.voiceId"

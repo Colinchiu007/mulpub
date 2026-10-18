@@ -1,3 +1,10 @@
+# [未发布] fix(s2v): 「语音 / 音色 ID」显示条件回补 —— 模型来源不止一处（s2v-tone-field-guard）
+
+- **#3946 引入的 main 红**：该字段的 `v-if` 写成「已选提供方 **且** `s2vVoiceContextModel`」，而后者只认「程序按运营默许模型解析出的结果」（依赖 provider 注册表）。上游布局契约 `S2vConfigPanels.test.js` 的夹具显式给 `voiceModel` 但不加载注册表 ⇒ 字段不渲染 ⇒ main push 的 `QG Desktop Shards (2/2)` 判红（`expected '…' to contain '语音 / 音色 ID'`）。PR 侧没红是因为两片 shard 的文件集合不同、且该断言来自更晚合入的上游提交。
+- **根因不是「条件写错」，是「把含义悄悄窄化了」**：原注释写的是「仅在已选语音模型时渲染」。判断「已选模型」本来有两条来源——①程序解析出的 `s2vVoiceContextModel`（新路径）②既有 `s2vConfig.voiceModel`（历史快照 / 配置档案回填后尚未重算 / 分发夹具显式给值）。#3946 只保留了 ①，于是 ② 的现场一律显示缺失。
+- **修法**：条件改为「已选提供方 且（① **或** ②）」。仍保留「模型完全未知时不渲染空音色下拉」的意图（两来源皆空才隐藏），同时不破坏既有布局契约。测试补「场景 2b：仅 `config.voiceModel` 已知 → 字段照常渲染」，并把原「模型为空」场景改成「两来源都为空」。
+- **验证**：`S2vConfigPanels.test.js` 24/24；`CreateView.test.js` + `video-creation/**` + parity 共 14 文件 471/471；`check-max-lines` rc=0；本片只改 renderer 条件，无 `electron/**` 主进程改动 ⇒ QM-1 不触发。
+
 # [未发布] docs(播客): 入口判据 §15 的坐标校正与一条依据被实测推翻，新开 5.1b③（podcast-entry-adjudication-51b2）
 
 - **两处入口坐标实测已漂**：§15.2 写的 `ResultView.vue:726` 现在在 `:64`（`<PodcastEpisodeEntry>` 挂载行，导入 `:447`、注册 `:479`），`CreateView.vue:4519` 现在在 `:4610`（`openPodcastEpisodePublish`，浮层挂载 `:352-360`、事件绑定 `:373`）。旧坐标**不删**，行内标"坐标实测校正"，并点明 §14 那条施工指令里同样出现的旧坐标按"散文不改写"留着、以本表为唯一真源。

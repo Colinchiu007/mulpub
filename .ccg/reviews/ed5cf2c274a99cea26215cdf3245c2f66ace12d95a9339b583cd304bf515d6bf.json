@@ -1,0 +1,55 @@
+{
+  "sha": "0472bed9793f684c0890b245b22998b253b4fc11",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 19 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 19,
+    "fileCount": 5,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "ed5cf2c274a99cea26215cdf3245c2f66ace12d95a9339b583cd304bf515d6bf",
+  "decidedAt": "2026-10-18T22:56:44.311Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "cleared",
+    "tier": "unknown",
+    "performedBy": "codex (manual single-model review, §12.6 常规专家分派)",
+    "evidence": null,
+    "findings": "复核结论：**可接受，无需返工**。\n\n① 放宽是否可接受 / 陈旧值能否穿透：可接受。评审逐点核对了 s2vConfig.voiceModel 的生产写入点——handleS2VVoiceProviderChange 重算、快照恢复（未注册则双删、已注册强制重算）、配置档案回填后重算、loadS2VProviders 无条件重算——不存在「provider 已选 + voiceModel 残留陈旧值」的持久形态；「模型未知却显示空音色下拉」的坏形态不会复活（两来源皆空的条件已被既有写入点覆盖）。\n② 是否有更好写法：恢复路径重算**已经做了**（上述 4 处），放宽条件是给「注册表尚未注入的渲染上下文」兜底，两者不互斥；改上游布局测试的夹具只能修一个现场，而把「模型有两个合法来源」写进契约比改夹具更诚实。取舍代价（Info）：voiceModel「非空即已解析」这条不变量靠 4 个写入点的约定维持、无单一收口，将来若新增「只写 provider 不重算 model」的路径会经该 || 复活——已在补丁注释与 PRD 里显式记录。\n③ 测试判别力：有。场景 2b 在条件回退为只认 s2vVoiceContextModel 时会红；场景 2（双空不渲染）防止进一步放宽成「有 provider 就显示」，两个方向都被锁住。\n④ 边界核对：MiMo 特例（s2vVoiceContextModel 对 mimo-tts 硬返回 mimo-v2.5-tts ⇒ 来源①命中，正交无泄漏）；provider 未注册但 voiceModel 有值（唯一入口会双删）；provider 注册但解析为空（fail-closed ⇒ 两来源皆空 ⇒ 不渲染，原场景 2 的形态未被破坏）。\n⑤ Info（已采纳）：测试里场景 2b 结尾有一处重复赋值，已删除并复跑 24/24。"
+  }
+}
