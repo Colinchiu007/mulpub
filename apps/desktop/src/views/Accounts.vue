@@ -1,6 +1,28 @@
 <template>
   <div class="accounts-page">
     <h1 class="sr-only">{{ t('accountsPage.pageTitle') }}</h1>
+    <!-- PRD-UI-FLOW-CLARITY S1a：账号域页内模块导航。
+         此前该导航由 MpModuleNav（70px 全局外壳层）承担，S1b 将删除该组件，
+         故必须先在此建立页内 tablist，否则除「账号管理」外的 tab 全部不可达。
+         tab 数量为 3：「分享链接」按 PRD §14 裁决 #4 下线（零能力占位）。 -->
+    <div class="account-module-tabs" role="tablist" :aria-label="t('accountsPage.moduleTabsAria')">
+      <button
+        v-for="(tab, index) in moduleTabs"
+        :key="tab.key"
+        :id="`account-module-tab-${tab.key}`"
+        type="button"
+        role="tab"
+        :class="['account-module-tab', { active: accountTab === tab.key }]"
+        :aria-selected="accountTab === tab.key"
+        :aria-controls="'account-results'"
+        :tabindex="accountTab === tab.key ? 0 : -1"
+        :data-testid="`account-module-tab-${tab.key}`"
+        @click="setAccountTab(tab.key)"
+        @keydown="onModuleTabKeydown($event, index)"
+      >
+        {{ tab.label }}
+      </button>
+    </div>
     <section v-if="accountTab !== 'groups' && accountTab !== 'favorites'" class="account-controls" :aria-label="t('accountsPage.filterAria')">
       <div class="search-box platform-search-box">
         <Search class="search-icon" />
@@ -118,18 +140,14 @@
       :aria-labelledby="`account-status-tab-${filter}`"
     >
       <RiskSuspendedBanner />
-      <section v-if="accountTab === 'share'" class="module-placeholder" data-testid="account-share-panel">
-        <div class="module-placeholder-icon" aria-hidden="true"><el-icon><Link /></el-icon></div>
-        <h2>{{ t('accountsPage.shareTitle') }}</h2>
-        <p>{{ t('accountsPage.shareHint') }}</p>
-        <span class="module-placeholder-state" data-testid="account-share-state" role="status">{{ t('accountsPage.shareNotConnected') }}</span>
-        <button class="page-button secondary" data-testid="account-share-create" type="button" disabled>{{ t('accountsPage.createShareLink') }}</button>
-      </section>
+      <!-- 「分享链接」占位面板已于 PRD-UI-FLOW-CLARITY S1a 删除：
+           该 tab 为零能力占位（disabled 按钮 + 未接入状态），
+           按 docs/desktop-ui-layout-spec.md:246-248「避免为零能力入口提供视觉热区」先例下线。 -->
       <!-- 分组真源状态必须可见：'unreadable' 与「用户没有分组」是两件事，
            'save-failed' 若不报就等于告诉用户"改好了"而其实重启即丢。
            必须放在面板之后：放在前面会抢走面板的 v-else-if 链条，让面板在非 ok 态整个消失。 -->
       <AccountGroupsPanel
-        v-else-if="accountTab === 'groups'"
+        v-if="accountTab === 'groups'"
         :groups="accountStore.groups || []"
         :accounts="accountStore.accounts"
         :platforms="allPlatforms"
@@ -158,7 +176,10 @@
         :groups="accountStore.groups || []"
         @open-group="openFavoriteGroup"
       />
-      <div v-else class="account-workspace">
+      <!-- S1a：显式写成 v-else-if="accountTab === 'accounts'"（原为 v-else）。
+           原 v-else 挂在 `<p v-if="groups && …">` 那条独立链上，语义上会在
+           groups tab 下也命中；改为显式判断后，三个 tab 与三个面板一一对应。 -->
+      <div v-else-if="accountTab === 'accounts'" class="account-workspace">
         <aside class="platform-filter-panel" :aria-label="t('accountsPage.platformFilterAria')">
           <div class="platform-filter-heading">{{ t('accountsPage.platform') }}</div>
           <button
@@ -358,7 +379,7 @@
 
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { Close, Delete, FolderOpened, Link, Plus, Search, UserFilled, WarningFilled } from '@element-plus/icons-vue'
+import { Close, Delete, FolderOpened, Plus, Search, UserFilled, WarningFilled } from '@element-plus/icons-vue'
 import { useNotify } from '@/composables/useNotify'
 import AccountAuthorizationGuide from '@/features/accounts/components/AccountAuthorizationGuide.vue'
 import AccountCloudSyncDialog from '@/features/accounts/components/AccountCloudSyncDialog.vue'
@@ -538,7 +559,56 @@ const authViewVisible = computed({
   set: value => { loginVisible.value = Boolean(value) },
 })
 const authPlatformName = computed(() => loginPlatform.value ? platformLabel(loginPlatform.value) : t('accountsPage.loginTitle'))
-const accountTab = computed(() => String(route.query?.tab || 'accounts'))
+// PRD-UI-FLOW-CLARITY S1a：账号域页内 tab 契约。
+// 白名单兜底：此前 accountTab 直读 query，非法值会渲染空白面板；
+// 现非法值一律回落 'accounts'，避免用户手改 URL 后看到空页。
+const ACCOUNT_MODULE_TAB_KEYS = ['accounts', 'groups', 'favorites']
+const accountTab = computed(() => {
+  const raw = String(route.query?.tab || 'accounts')
+  return ACCOUNT_MODULE_TAB_KEYS.includes(raw) ? raw : 'accounts'
+})
+const moduleTabs = computed(() => [
+  { key: 'accounts', label: t('accountsPage.tabAccounts') },
+  { key: 'groups', label: t('accountsPage.tabGroups') },
+  { key: 'favorites', label: t('accountsPage.tabFavorites') },
+])
+
+/**
+ * 切换账号域模块 tab。
+ * 'accounts' 是默认值 ⇒ 落成「无 tab 参数」，保持 URL 干净且与旧深链兼容。
+ */
+function setAccountTab (key) {
+  if (!ACCOUNT_MODULE_TAB_KEYS.includes(key)) return
+  if (accountTab.value === key) return
+  const query = { ...route.query }
+  if (key === 'accounts') delete query.tab
+  else query.tab = key
+  router.push({ path: '/accounts', query })
+}
+
+/**
+ * 模块 tab 键盘导航。
+ * ⚠️ 不可照抄 PublishHistory.vue 的 onTabKeydown —— 那个是 2-tab 硬编码
+ * （nextIndex = Home?0 : End?1 : index===0?1:0），3 个 tab 复用会跳错。
+ * 本实现按 tab 数量取模，任意 N 均正确。
+ */
+function onModuleTabKeydown (event, index) {
+  const total = moduleTabs.value.length
+  if (!total) return
+  let nextIndex = null
+  if (event.key === 'ArrowRight') nextIndex = (index + 1) % total
+  else if (event.key === 'ArrowLeft') nextIndex = (index - 1 + total) % total
+  else if (event.key === 'Home') nextIndex = 0
+  else if (event.key === 'End') nextIndex = total - 1
+  if (nextIndex === null) return
+  event.preventDefault()
+  const next = moduleTabs.value[nextIndex]
+  if (!next) return
+  setAccountTab(next.key)
+  const container = event.currentTarget?.parentElement
+  const targetEl = container?.querySelector?.(`#account-module-tab-${next.key}`)
+  if (targetEl && typeof targetEl.focus === 'function') targetEl.focus()
+}
 const loginStateText = computed(() => {
   if (loginMode.value !== 'qrcode') return t('accountsPage.loginStateBrowser')
   return {
@@ -822,7 +892,10 @@ function toggleAccountInGroup (groupId, accountId) {
 
 function openFavoriteGroup (group) {
   setGroupFilter(group.id)
-  router.replace({ path: '/accounts', query: {} })
+  // PRD-UI-FLOW-CLARITY S1a：原实现 `router.replace({ query: {} })` 会清空**整个** query，
+  // 于是用户在「收藏分组」tab 内点开任一组就被踢回「账号管理」（accountTab 回落默认值），
+  // 且无任何提示。改为显式保留 tab，与页内 tab 契约一致。
+  router.replace({ path: '/accounts', query: { tab: 'favorites' } })
 }
 
 async function handleRequireLogin () {
@@ -1353,12 +1426,40 @@ onUnmounted(() => {
 .login-state-actions .complete-login { min-height: 28px; padding: 4px 9px; border: 1px solid #5048e5; border-radius: 5px; background: #5048e5; color: #fff; }
 .login-state-actions button:disabled { opacity: 0.58; cursor: not-allowed; }
 .accounts-content { min-height: 520px; padding: 0; }
-.module-placeholder { min-height: 320px; display: grid; place-items: center; align-content: center; gap: 8px; padding: 32px; background: var(--color-bg-inset); color: #707080; text-align: center; }
-.module-placeholder h2 { margin: 0; color: #25252b; font-size: var(--font-size-md); }
-.module-placeholder p { max-width: 480px; margin: 0; font-size: var(--font-size-sm); line-height: 1.6; }
-.module-placeholder-icon { font-size: var(--font-size-xl); opacity: .72; }
-.module-placeholder-state { border-radius: 999px; padding: 3px 9px; background: #ececf1; color: #777985; font-size: var(--font-size-xs); }
-.module-placeholder .page-button { margin-top: 4px; }
+/* PRD-UI-FLOW-CLARITY S1a：账号域页内模块导航。
+   替代被删除的 MpModuleNav（70px 外壳层）；层级高于下方 .filter-tabs（状态筛选）。
+   PRD §6.2 要求：窄屏（≤900px）复用 .filter-tabs 的横滚方案，
+   禁止等分压缩导致中文 tab 文案被截断。 */
+.account-module-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 24px 0;
+  border-bottom: 1px solid #e8e8ec;
+  margin-bottom: 12px;
+}
+.account-module-tab {
+  min-height: 34px;
+  padding: 6px 14px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: #6f7079;
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.account-module-tab.active {
+  border-bottom-color: #5048e5;
+  color: #5048e5;
+  font-weight: 500;
+}
+.account-module-tab:focus-visible { outline: 2px solid #5048e5; outline-offset: -2px; }
+@media (max-width: 900px) {
+  .account-module-tabs { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+  .account-module-tabs::-webkit-scrollbar { display: none; }
+  .account-module-tab { flex: 0 0 auto; }
+}
 .account-workspace { min-height: 520px; display: grid; grid-template-columns: 240px minmax(0, 1fr); }
 .platform-filter-panel {
   display: flex;
