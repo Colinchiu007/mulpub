@@ -2056,23 +2056,22 @@ export default {
     },
     s2vSubgroupLabel(subgroup) {
       const key = `create.story2video.subgroups.${subgroup}`
-      // 声音区三个子分区（s2v-voice-section-layout，2026-10-18）：与「高级」区的
-      // splitTiming / templateOutput 同机制，新增键必须同时落在 zh/en 两份 locale。
+      // 子分区标题（声音区三个 + 高级区两个）：主键一律 create.story2video.subgroups.*，
+      // fallback 只作兜底，**不得自引用同一 key**（自引用等于没有 fallback）。
+      // 2026-10-18（s2v-voice-section-layout）：原先 splitTiming/templateOutput 的 fallback 指向
+      // ui.subgroupSplitTiming / ui.subgroupTemplateOutput，而二者与 subgroups.* 同值重复、主键
+      // 恒命中 ⇒ 那两键从未生效，已从 locale 删除并在此改为英文字面量（locale 文件受
+      // check-max-lines 的 500 行上限约束，删两行正好腾出本次新增的空间）。
       const fallback = {
-        splitTiming: this.$t('create.story2video.ui.subgroupSplitTiming'),
-        templateOutput: this.$t('create.story2video.ui.subgroupTemplateOutput'),
-        voiceNarration: this.$t('create.story2video.subgroups.voiceNarration'),
-        voiceBgm: this.$t('create.story2video.subgroups.voiceBgm'),
-        voiceClone: this.$t('create.story2video.subgroups.voiceClone'),
-      }[subgroup] || subgroup
-      const english = {
         splitTiming: 'Split & Timing',
         templateOutput: 'Template & Output',
         voiceNarration: 'Narration',
         voiceBgm: 'Background music',
         voiceClone: 'Voice cloning',
       }[subgroup] || subgroup
-      return this.translateWithLocaleFallback(key, fallback, english)
+      // fallback 与 english 同值：中文由 locale 主键给出，两者只在缺键时兜底，
+      // 因此不再维护两张同值表（原先的重复表就是上一版 fallback 自引用的来源）。
+      return this.translateWithLocaleFallback(key, fallback, fallback)
     },
     s2vSectionSummary(section) {
       // 既有声音摘要模板字面量保持逐字节不变（CJK 基线按「文件+文案内容」对账），

@@ -22,11 +22,33 @@
   "decidedBy": "ccg-review-decider",
   "deepReview": {
     "required": true,
-    "status": "error",
-    "performedBy": "claude",
-    "findings": null,
+    "status": "self_play_resolved",
+    "performedBy": "session-subagent(cross-family) + @vue/compiler-sfc AST 取证 + Playwright 实测",
+    "degradedFrom": "dual(claude + opencode CLI)",
+    "degradedReason": "代码评审后端不可用：scripts/deep-review.sh 两轮均在 [轮 1/3] critic=claude 处失败，spawnSync codeagent-wrapper.exe ETIMEDOUT（引擎单轮 timeoutMs 硬编码 600000ms，本 diff 921 行 >200 行阈值故判 DUAL，超出可完成窗口）。引擎不提供后端选择/超时覆盖开关，无法降级为单 opencode 后端。",
+    "findings": [
+      {
+        "id": "CRIT-1",
+        "severity": "CRITICAL",
+        "status": "fixed",
+        "file": "apps/desktop/src/views/video-creation/S2vConfigPanels.vue",
+        "summary": "DOM 层级错位：voiceClone 子分区不是 details 的直接子节点，而是被嵌在 voiceBgm 子分区内部（卡片套卡片），用户诉求「三个区域视觉上分开」落空；克隆区实测宽 920px 而非 982px。",
+        "rootCause": "voiceBgm 子分区打开后，关闭 .s2v-field-grid 时漏写关闭子分区自身的 </div>；文件末尾恰好多出一个 </div> 把缺口补上 ⇒ 整体 div 配平，Vue 编译器不报错，克隆区被推深一层。L453/L454 缩进为 14 空格（应在 16 空格）进一步误导排查。",
+        "whyTestsMissed": "findAll('.s2v-subgroup') 是深度优先遍历，嵌套时 document order 与兄弟形态完全相同 ⇒ 顺序断言全绿；归属断言查「克隆区内无 s2v-bgm-volume」，嵌套时 BGM 内容在父级而非子级，也不触发。",
+        "fix": "补一个 </div> 关闭 voiceBgm + 删掉末尾多余 </div>（净 0 行）+ 缩进纠正为 16 空格。",
+        "lockAdded": "S2vConfigPanels.test.js「三个子分区必须是声音分区的一级子节点（互不嵌套）」：① voice.element.children 里直接含 .s2v-subgroup 的恰好三个且顺序一致；② 每个子分区祖先链上不得再出现 .s2v-subgroup。",
+        "mutationProof": "还原 bug 形态后该用例当场红（expected [narration, …(1)] to deeply equal [narration, …(2)]，直接子节点只有 2 个）；同一次变异里旧的「顺序」断言依然通过，实证盲区。还原后 23/23 复绿。",
+        "verification": "浏览器实测：三个子分区父节点全为 s2v-section-voice、nestedIn 全 null、宽度集合只有一个值 982（修复前含 920）、无横向溢出。测试面 14 文件 442 例全绿（S2vConfigPanels 23/23、CreateView 307/307）。"
+      }
+    ],
+    "verifiedClean": [
+      "声音区三个子分区的控件归属（旁白/背景音乐/音色ID 各归其位，三分支克隆态全归克隆子分区）经 AST 与浏览器双重核对",
+      "零 schema / IPC / optionKey / data-testid 变更（diff 复核）",
+      "locale zh/en 三键成对，check-locale-sync --keys 与 --cjk 均 rc=0",
+      "check-max-lines / check-debt-budget / check-doc-abs-paths 均 rc=0，未上调任何基线登记值",
+      "像素基线 create-story2video-detail 20/20 通过且未更新任何基线文件"
+    ],
     "error": "spawnSync <user-home>/.claude/bin/codeagent-wrapper.exe ETIMEDOUT（评审后端超时，详见 PR 正文「深度审查降级」节）",
-    "validationErrors": null,
-    "at": "2026-10-18T15:19:50.693Z"
+    "at": "2026-10-18T16:15:15.739Z"
   }
 }

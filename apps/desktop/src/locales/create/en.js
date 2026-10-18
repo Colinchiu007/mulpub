@@ -59,10 +59,7 @@ export default {
       subgroups: {
         splitTiming: 'Split & Timing',
         templateOutput: 'Template & Output',
-        // Sub-groups inside the Voice section (s2v-voice-section-layout, 2026-10-18)
-        voiceNarration: 'Narration',
-        voiceBgm: 'Background music',
-        voiceClone: 'Voice cloning',
+        voiceNarration: 'Narration', voiceBgm: 'Background music', voiceClone: 'Voice cloning',  // Voice sub-groups (s2v-voice-section-layout, 2026-10-18)
       },
       startPipeline: 'Start pipeline',
       pause: 'Pause',
@@ -317,8 +314,6 @@ export default {
         sectionVideoEnhance: "Video enhance",
         sectionVoice: "Voice",
         sectionAdvanced: "Advanced",
-        subgroupSplitTiming: "Split & timing",
-        subgroupTemplateOutput: "Templates & output",
         imageStyleDefault: "Cinematic",
         imageEffectNone: "No effect",
         summaryPureImages: "Pure image carousel",
