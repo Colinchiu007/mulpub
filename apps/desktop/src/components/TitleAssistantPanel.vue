@@ -166,7 +166,7 @@ watch(() => props.visible, (v) => {
   margin-bottom: 10px;
 }
 .ta-tip {
-  background: var(--surface)3e0;
+  background: var(--surface);
   border-left: 3px solid #f57c00;
   padding: 8px 10px;
   border-radius: 4px;

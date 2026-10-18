@@ -44,6 +44,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { cacheGetStats, cacheClear } from '@/api/publisher'
+import { confirmDanger } from '@/utils/confirm-danger'
 import { formatBytes } from '@/utils/bytes'
 
 const { t } = useI18n()
@@ -75,6 +76,15 @@ async function loadCache () {
 
 async function clearCache () {
   if (cacheClearing.value) return
+  // audit-13：清理缓存会删掉中间产物且不可恢复，此前一点即清
+  const confirmed = await confirmDanger({
+    title: t('settings.cache.clearConfirmTitle'),
+    message: t('settings.cache.clearConfirmMessage', {
+      count: cacheInfo.fileCount,
+      size: formatBytes(cacheInfo.totalBytes || 0),
+    }),
+  })
+  if (!confirmed) return
   cacheClearing.value = true
   cacheToast.value = ''
   try {

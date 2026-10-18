@@ -37,7 +37,7 @@ export default {
   padding: 24px;
   border: 1px solid #f0c7c7;
   border-radius: 12px;
-  background: var(--color-bg-card)8f8;
+  background: var(--color-bg-card);
   color: #4a1d1d;
 }
 .route-load-error-icon {

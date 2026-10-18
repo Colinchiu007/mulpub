@@ -10,6 +10,10 @@ const api = vi.hoisted(() => ({
 
 vi.mock('@/api/publisher', () => api)
 
+// audit-13：清理缓存前必须经统一确认原语；默认「用户已确认」，取消侧用例单独改写
+const confirmDanger = vi.hoisted(() => vi.fn(async () => true))
+vi.mock('@/utils/confirm-danger', () => ({ confirmDanger }))
+
 import CacheCleanupSection from './CacheCleanupSection.vue'
 
 const STATS = {
@@ -38,6 +42,8 @@ describe('CacheCleanupSection（自 LogsSettings.vue 抽离的缓存清理卡片
     i18n.global.locale.value = 'zh'
     api.cacheGetStats.mockReset().mockResolvedValue(STATS)
     api.cacheClear.mockReset()
+    confirmDanger.mockReset()
+    confirmDanger.mockImplementation(async () => true)
   })
 
   it('挂载即拉取统计，渲染总大小/文件数/明细（明细名走 i18n）', async () => {
@@ -79,5 +85,22 @@ describe('CacheCleanupSection（自 LogsSettings.vue 抽离的缓存清理卡片
   it('IPC 不可用（降级 code:-1）时不抛异常', () => {
     api.cacheGetStats.mockResolvedValue({ code: -1, data: { totalBytes: 0, fileCount: 0, items: [] } })
     expect(() => mountSection()).not.toThrow()
+  })
+
+  // audit-13：清理缓存删掉中间产物且不可恢复，此前一点即清
+  it('清理前先弹确认，文案点名文件数与体积；取消时不得调用 cacheClear', async () => {
+    confirmDanger.mockImplementation(async () => false)
+    api.cacheClear.mockResolvedValue({ code: 0, data: { freedBytes: 1024 } })
+    const wrapper = await flush(mountSection())
+
+    await wrapper.get('[data-testid="cache-clear-btn"]').trigger('click')
+    await flush(wrapper)
+
+    expect(confirmDanger).toHaveBeenCalledTimes(1)
+    const opts = confirmDanger.mock.calls[0][0]
+    expect(opts.message).toContain('3')
+    expect(opts.message).toContain('1.50 KB')
+    expect(opts.message).toMatch(/不可恢复/)
+    expect(api.cacheClear).not.toHaveBeenCalled()
   })
 })

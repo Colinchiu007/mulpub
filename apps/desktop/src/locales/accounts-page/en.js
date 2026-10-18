@@ -164,7 +164,7 @@ export default {
     cardCreatorTitle: 'Click to open the creator center',
     creatorCardHint: 'Click to open the creator center for this account',
     creatorTabTitle: '{platform} Creator Center',
-    confirmDeleteAccount: (ctx) => 'Delete the ' + ctx.named('platform') + ' account "' + ctx.named('name') + '"?',
+    confirmDeleteAccount: (ctx) => 'Delete the ' + ctx.named('platform') + ' account "' + ctx.named('name') + '"? Its login credentials are removed too and cannot be recovered — you will have to sign in again.',
     confirmDeleteTitle: 'Confirm Delete',
     deleteFailed: 'Delete failed',
     accountDeleted: 'Account deleted',

@@ -164,7 +164,7 @@ export default {
     cardCreatorTitle: '点击打开创作者中心',
     creatorCardHint: '点击打开该账号创作者中心',
     creatorTabTitle: '{platform} 创作者中心',
-    confirmDeleteAccount: (ctx) => '确定删除「' + ctx.named('platform') + '」账号「' + ctx.named('name') + '」吗？',
+    confirmDeleteAccount: (ctx) => '确定删除「' + ctx.named('platform') + '」账号「' + ctx.named('name') + '」吗？登录凭证会一并删除且不可恢复，需重新登录才能恢复。',
     confirmDeleteTitle: '确认删除',
     deleteFailed: '删除失败',
     accountDeleted: '账号已删除',

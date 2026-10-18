@@ -349,4 +349,72 @@ describe('usePublishDrafts', () => {
       expect(block).toContain("'rewriteHistoryId'")
     })
   })
+
+  // audit-2（blocker）：同一个 draftDelete 在采集页有确认、在发布页无确认。
+  // 用户在发布页误点「删除」即永久丢失刚写好的正文（全仓无回收站/无撤销）。
+  describe('removeDraft 必须经 confirmDanger 二次确认', () => {
+    async function seedDraft (title) {
+      mockDraftList.mockResolvedValue({ code: 0, data: [{ id: 'd1', title, content: '正文' }] })
+      const drafts = createDrafts()
+      await drafts.loadDrafts()
+      return drafts
+    }
+
+    it('未确认（取消/ESC/点遮罩）时不得调用底层删除 API', async () => {
+      const drafts = await seedDraft('标题')
+      mockConfirm.mockRejectedValue(new Error('cancel'))
+
+      const ok = await drafts.removeDraft('d1')
+
+      expect(ok).toBe(false)
+      expect(mockConfirm).toHaveBeenCalledTimes(1)
+      expect(mockDraftDelete).not.toHaveBeenCalled()
+    })
+
+    it('确认后删除，且确认文案点名被删草稿的标题', async () => {
+      const drafts = await seedDraft('我的发布草稿')
+      mockConfirm.mockResolvedValue(undefined)
+      mockDraftDelete.mockResolvedValue({ code: 0 })
+
+      const ok = await drafts.removeDraft('d1')
+
+      expect(ok).toBe(true)
+      const message = mockConfirm.mock.calls[0][0]
+      expect(message).toContain('我的发布草稿')
+      // 后果披露必须写清「不可恢复」，不得只写「确定删除吗」
+      expect(message).toMatch(/不可恢复|永久删除/)
+      expect(mockDraftDelete).toHaveBeenCalledWith('d1')
+    })
+
+    it('草稿缺标题时用无标题占位，不得把 undefined 拼进用户可见文案', async () => {
+      const drafts = await seedDraft(undefined)
+      mockConfirm.mockResolvedValue(undefined)
+      mockDraftDelete.mockResolvedValue({ code: 0 })
+
+      await drafts.removeDraft('d1')
+
+      const message = mockConfirm.mock.calls[0][0]
+      expect(message).not.toContain('undefined')
+      expect(message.length).toBeGreaterThan(0)
+    })
+
+    it('draftId 缺席时既不弹确认也不删除（不得用 undefined 去查真源）', async () => {
+      const drafts = createDrafts()
+
+      const ok = await drafts.removeDraft(undefined)
+
+      expect(ok).toBe(false)
+      expect(mockConfirm).not.toHaveBeenCalled()
+      expect(mockDraftDelete).not.toHaveBeenCalled()
+    })
+
+    it('接线守卫：removeDraft 必须走统一确认原语，不得自造弹窗', async () => {
+      const fs = require('fs')
+      const path = require('path')
+      const src = fs.readFileSync(path.resolve(__dirname, 'usePublishDrafts.js'), 'utf8')
+      expect(src).toContain("from '@/utils/confirm-danger'")
+      // 视图/composable 内不得再直接消费 ElMessageBox（那是 confirmDanger 的实现细节）
+      expect(src).not.toMatch(/ElMessageBox/)
+    })
+  })
 })

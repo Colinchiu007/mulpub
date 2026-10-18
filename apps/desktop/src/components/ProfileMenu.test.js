@@ -7,6 +7,10 @@ const push = vi.hoisted(() => vi.fn())
 vi.mock('vue-router', () => ({ useRouter: () => ({ push }) }))
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key) => key }) }))
 
+// audit-13：退出登录是破坏性操作，须经统一确认原语；默认「已确认」
+const confirmDanger = vi.hoisted(() => vi.fn(async () => true))
+vi.mock('@/utils/confirm-danger', () => ({ confirmDanger }))
+
 describe('ProfileMenu', () => {
   let store
   let licenseStore
@@ -35,6 +39,21 @@ describe('ProfileMenu', () => {
     wrapper?.unmount()
     wrapper = null
     push.mockReset()
+    confirmDanger.mockReset()
+    confirmDanger.mockImplementation(async () => true)
+  })
+
+  it('退出登录先过确认原语；用户取消时不得真的退出', async () => {
+    await mountMenu()
+    confirmDanger.mockImplementation(async () => false)
+
+    await wrapper.get('[data-testid="mp-profile"]').trigger('click')
+    await wrapper.get('[data-testid="profile-menu-signout"]').trigger('click')
+    await wrapper.vm.$nextTick()
+
+    expect(confirmDanger).toHaveBeenCalledTimes(1)
+    expect(confirmDanger.mock.calls[0][0].message).toBe('memberCenter.signOutConfirmMessage')
+    expect(store.signOut).not.toHaveBeenCalled()
   })
 
   it('未登录（signed_out）点击头像直接触发登录，不展开菜单', async () => {

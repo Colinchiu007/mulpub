@@ -97,6 +97,8 @@ export default {
       fileCount: '缓存文件数',
       clearBtn: '清理缓存',
       clearing: '清理中…',
+      clearConfirmTitle: '清理缓存',
+      clearConfirmMessage: '将删除 {count} 个临时缓存文件，释放约 {size}。中间产物删除后需重新生成，不可恢复。确认清理？',
       empty: '暂无缓存文件',
       autoClearHint: '清理仅删除临时缓存，不会影响历史记录中已保存的成品视频与素材库。',
       clearedToast: '已释放 {size} 缓存',

@@ -6,9 +6,10 @@ import { normalizeRewriteLineage } from '@/utils/rewrite-lineage'
 // 「快照 → 表单」的唯一实现（草稿箱与本 PR 的「再次发布」共用，禁止各写一份）
 import { applyPublishSnapshot } from '@/features/publish/publish-snapshot'
 import i18n from '@/i18n'
+import { confirmDanger } from '@/utils/confirm-danger'
 import { useNotify } from './useNotify'
 
-const t = (key) => i18n.global.t(key)
+const t = (key, params) => i18n.global.t(key, params)
 
 const ARTICLE_FIELDS = [
   'title',
@@ -182,6 +183,16 @@ export function usePublishDrafts ({
   }
 
   async function removeDraft (draftId) {
+    if (!draftId) return false
+    // 删除不可逆且无回收站：确认文案必须点名被删草稿，用户在发布页误点即永久丢失正文（audit-2）
+    const draft = drafts.value.find(item => item && item.id === draftId)
+    const confirmed = await confirmDanger({
+      title: t('publishDrafts.deleteConfirmTitle'),
+      message: t('publishDrafts.deleteConfirmMessage', {
+        title: (draft && draft.title) || t('publishDrafts.untitledDraft'),
+      }),
+    })
+    if (!confirmed) return false
     try {
       const result = await draftDelete(draftId)
       if (!result || result.code !== 0) {

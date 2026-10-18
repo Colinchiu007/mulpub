@@ -47,6 +47,7 @@
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useIdentity } from '@/composables/useIdentity'
+import { confirmDanger } from '@/utils/confirm-danger'
 import { useMemberStore } from '@/stores/member'
 import { avatarInitialOf, statusLabelOf, formatTimestamp } from './labels'
 
@@ -69,6 +70,12 @@ async function handleSwitch() {
 }
 
 async function handleSignOut() {
+  // audit-13：退出登录会中断会员权益/配额/云端同步，此前一点即退
+  const confirmed = await confirmDanger({
+    title: t('memberCenter.signOutConfirmTitle'),
+    message: t('memberCenter.signOutConfirmMessage'),
+  })
+  if (!confirmed) return
   pending.value = 'sign-out'
   try {
     await signOut()
@@ -78,6 +85,12 @@ async function handleSignOut() {
 }
 
 async function handleRevoke() {
+  // audit-13：撤销其他会话不可逆，且远程会话无法找回
+  const confirmed = await confirmDanger({
+    title: t('memberCenter.revokeOthersConfirmTitle'),
+    message: t('memberCenter.revokeOthersConfirmMessage'),
+  })
+  if (!confirmed) return
   revoking.value = true
   try {
     await memberStore.revokeOtherSessions()

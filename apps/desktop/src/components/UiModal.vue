@@ -53,8 +53,10 @@ const props = defineProps({
   variant: { type: String, default: "" },
   testId: { type: String, default: "" },
   closeOnOverlay: { type: Boolean, default: true },
-  closeOnEsc: { type: Boolean, default: false },
-  trapFocus: { type: Boolean, default: false },
+  // audit-29：安全默认值不得低于被替换的 Element Plus（dialog.mjs 实测 closeOnPressEscape:true）。
+  // 36 处调用点里 trap-focus 显式传参 0 次，Tab 因此一路跑出弹窗到背后页面。
+  closeOnEsc: { type: Boolean, default: true },
+  trapFocus: { type: Boolean, default: true },
   closeDisabled: { type: Boolean, default: false },
   closeAriaLabel: { type: String, default: "Close" },
 });

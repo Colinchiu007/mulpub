@@ -95,6 +95,8 @@ export default {
       fileCount: 'Cache files',
       clearBtn: 'Clear Cache',
       clearing: 'Clearing…',
+      clearConfirmTitle: 'Clear cache',
+      clearConfirmMessage: 'This deletes {count} temporary cache files and frees about {size}. Intermediate artifacts must be regenerated and cannot be recovered. Clear them?',
       empty: 'No cache files yet',
       autoClearHint: 'Cleaning only removes temporary cache; it will not affect finished videos or the media library saved in history.',
       clearedToast: 'Freed {size} of cache',

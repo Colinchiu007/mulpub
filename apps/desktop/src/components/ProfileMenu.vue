@@ -136,6 +136,7 @@ import { ArrowUp, CircleCloseFilled, Key, Medal, Refresh, Setting, SwitchButton,
 import { useIdentity } from '@/composables/useIdentity'
 import { useLicenseStore } from '@/stores/license'
 import { useDropdownBehavior } from '@/composables/useDropdownBehavior'
+import { confirmDanger } from '@/utils/confirm-danger'
 import IdentityDiagnostics from '@/components/IdentityDiagnostics.vue'
 import {
   resolveIdentityErrorMessageKey,
@@ -254,6 +255,12 @@ async function handleSwitchAccount() {
 }
 
 async function handleSignOut() {
+  // audit-13：退出登录会中断会员权益/配额/云端同步，此前点菜单项即退出
+  const confirmed = await confirmDanger({
+    title: t('memberCenter.signOutConfirmTitle'),
+    message: t('memberCenter.signOutConfirmMessage'),
+  })
+  if (!confirmed) return
   pendingAction.value = 'sign-out'
   try {
     const ok = await signOut()

@@ -451,7 +451,7 @@ onMounted(() => {
 
 .feedback-error {
   color: #b42318;
-  background: var(--color-bg-card)1f0;
+  background: var(--color-bg-card);
 }
 
 .feedback-success {
