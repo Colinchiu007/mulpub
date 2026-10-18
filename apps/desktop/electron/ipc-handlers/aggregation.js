@@ -21,7 +21,17 @@
  *   -6:  ASR_ENGINE_UNAVAILABLE 语音转写引擎不可用
  *   -7:  TRANSCRIBE_TIMEOUT     转写超时
  *   -8:  NO_AUDIO_TRACK         视频无音轨
+ *
+ * 改写 LLM 注入（2026-10-18，fix-collect-antibot-rewrite）：
+ *   Python 后端历史上只读进程 env（LLM_API_KEY/PO_OPENAI_API_KEY），而用户在桌面
+ *   「模型设置」里配置的默认 llm 从未进入请求 ⇒ 已配置仍误报 LLM_KEY_MISSING。
+ *   现在 aggregation:rewrite 在调用后端前经 `services/llm-runtime-config` 解析默认
+ *   llm 并放进 payload（renderer 显式传入 llm 时原样尊重、绝不覆盖）；用户确实没有
+ *   可用默认模型时短路 -400/LLM_NOT_CONFIGURED（不发请求）；模型服务未就绪或依赖
+ *   缺失时降级为不注入，保留后端 env 兜底。
  */
+
+const { applyLlmToBody } = require('../services/llm-runtime-config')
 
 /**
  * 根据异常对象推断错误码
@@ -73,7 +83,7 @@ function classifyError(e, fallbackMsg) {
  * }} deps
  */
 function registerHandlers(ipcMain, deps) {
-  const { pythonBridge, log, asrInstaller } = deps
+  const { pythonBridge, log, asrInstaller, modelProviderManager } = deps
   const logger = log || { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} }
   const installer = asrInstaller || require('../services/asr-installer')
 
@@ -115,7 +125,10 @@ function registerHandlers(ipcMain, deps) {
 
   ipcMain.handle('aggregation:rewrite', async (_event, payload) => {
     try {
-      return await pythonBridge.requestBackend('POST', '/aggregation/rewrite', payload || {})
+      // 注入桌面「模型设置」默认 llm；显式 llm 不覆盖；用户未配置时短路不发请求
+      const { body, shortCircuit } = applyLlmToBody(payload, modelProviderManager, logger)
+      if (shortCircuit) return shortCircuit
+      return await pythonBridge.requestBackend('POST', '/aggregation/rewrite', body)
     } catch (e) {
       logger.error('[aggregation] rewrite failed:', e && e.message ? e.message : String(e))
       const err = classifyError(e, '改写失败')

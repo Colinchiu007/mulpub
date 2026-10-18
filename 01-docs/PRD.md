@@ -20227,3 +20227,31 @@ Gate 9 的 `srcDir` 与 `docPaths` 由 PR **实际变更文件**的落点决定�
 LLM 空输出/报告缺失时，审计 job 会往 job 汇总写 `AUTONOMOUS_VERDICT_NOTE`
 （`NO_VERDICT` / `NO_REPORT`），`Gate Result` 聚合时一并打印：
 `autonomous-verdict : NO_VERDICT <-- 覆盖审计未实际产出有效 verdict，绿色不代表已审计`。
+
+## 附录：采集反爬验证页与改写 LLM 配置契约（2026-10-18，fix-collect-antibot-rewrite）
+
+> 需求与证据全文见 `01-docs/PRD-FIX-COLLECT-ANTIBOT-REWRITE-LLM-2026-10-18.md`（含现场证据坐标、判据矩阵、
+> 残余限制与开源调研）。本节只登记**产品契约**，不重复全文。
+
+### 一、采集侧（百家号等反爬站点）
+
+1. **失败不得伪装成成功**：命中「百度安全验证」等验证页时，采集结果为失败（`reason=security_challenge`），
+   绝不把验证提示文字当正文返回；该判定在主进程与渲染层各执行一次，两端判据同源（改一端不改另一端由测试判红）。
+2. **通道选择显式化**：百家号走「HTTP 直连优先 → 验证页/空正文/提取失败再回退 stealth 浏览器」；
+   知乎等仍为浏览器优先。路由查询返回 `{ needsStealth, mode }`，`mode ∈ {browser, http-first, http}`。
+3. **缓存只记成功**：验证页结果不得写入内容缓存。
+4. **发布链路兜底**：历史采集条目若仍是验证页文字，「创建草稿 / 去发布」入口必须拦截并提示，不得进入发布页正文。
+
+### 二、改写侧（AI 改写配置）
+
+5. **配置单源**：以桌面「模型设置」的默认文字推理模型（含多模态模型的 llm 能力）为准；
+   请求级 `llm` 优先于进程环境变量，Python 侧对 `api_key` / `base_url` / `model` **逐字段**回退。
+6. **错误码可区分**：用户确实未配置 → `LLM_NOT_CONFIGURED`（含可操作指引：模型设置 → 文字推理 → 默认标记）；
+   服务未就绪/未注入 → 降级不注入并保留 env 兜底，不得误报「未配置」。
+7. **凭据不外泄**：`api_key` 只进请求 payload，不写日志、不进错误文案。
+
+### 三、验收锚点
+
+- 判据与测试坐标见新 PRD §10/§11；门禁与真机证据见新 PRD §12；交付记录见 §13。
+- 采集页文案：`collection.collectErrors.security_challenge`（更新）、`collection.draftBlockedSecurityChallenge`（新增）；
+  改写错误码文案：`userErrors.LLM_NOT_CONFIGURED`（新增）——三项均 zh/en 成对。
