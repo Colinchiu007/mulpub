@@ -43,6 +43,14 @@ const MANUAL_REFRESH_MIN_INTERVAL_MS = 60 * 1000
 const THROTTLE_STATE_KEY = 'hot_topics_throttle_state' // P3：限流/熔断状态落盘（跨进程重启）
 const MAX_PER_CHANNEL = 50
 const MAX_TOPICS = 400 // 10 渠道 × 50 条候选（去重后实际更少；含垂类补拉）；上限兼顾 IPC 载荷，按统一热度截断尾部
+/**
+ * gyread 原文链接增强的单轮抓取上限。
+ *
+ * 为什么必须有：该增强是「每个条目多打一次 HTTP」，无上限时最坏 50 次/轮。
+ * gyread 是日报而非榜单，AI 分类每期平均 11.5 条，取 10 已覆盖主体；
+ * 站点虽为 Cloudflare 缓存 HIT、压力极小，仍按最保守口径设限。
+ */
+const GYREAD_ENRICH_LIMIT = 10
 const LLM_BATCH_LIMIT = 40   // 单次抓取最多送 LLM 分类的 general 条目数（成本控制）
 const LLM_LABELS_MAX = 500   // LLM 标签缓存条目上限（超限按插入序裁剪）
 const RANK_CONFIG_KEY = 'hot_topics_rank_config' // P2 评分配置：{ channelWeights?, halfLifeMs? }（可选，缺省用内置默认）
@@ -147,6 +155,20 @@ const CATEGORY_BOOSTS = {
     // `throttleKey`（P2）与 tech 补拉源共享同一配额：两个身份打的是**同一个 RSS 端点**，
     // 若各自配额就是 2 次/15min；共享后 1 次/15min，且一方的失败也保护另一方。
     { id: 'ithome-ai', name: 'IT之家(AI 专题筛)', url: 'https://www.ithome.com/rss/', parser: 'ithome_rss', channel: 'ithome_tech', board: 'ai', boostCategory: 'ai', onlyCategory: 'ai', headers: {}, intervalMinutes: 15, riskLevel: 'low', throttleKey: 'ithome-rss' },
+    // GYREAD AI 情报日报（调研 2026-10-18）：与 IT之家 RSS 互补的第二路 AI 供给。
+    //
+    // 为什么挂补拉而不是主渠道：它是**每日编辑精选的日报**，不是热度榜单 ——
+    // 无 `hotValue`、榜单序是编辑意志而非热度序、条目不会跨榜同现。当主渠道会污染
+    // scorer 的渠道内热度归一、名次兜底与 `sourceBonus`（全民热点信号）。
+    // 详见 openspec change `hot-topics-gyread-ai-source`。
+    //
+    // 合规边界：用途是「检索/引用」（`sourceUrls` 带用户点回原文），**不是**训练语料 ——
+    // 站点 robots.txt 对训练类 UA 全站 Disallow、响应头带 `x-robots-tag: noai, noimageai`。
+    //
+    // `intervalMinutes: 60`：日报一天只更一次，60 分钟足够覆盖且最克制。
+    // `enrichWithEdition`：索引只给日报页地址，一手原文链接要从单期 HTML 抽（见
+    // `_enrichGyreadSources`）——那是这个源相对 IT之家 RSS 的核心增量价值。
+    { id: 'gyread-ai', name: 'GYREAD AI 情报日报', url: 'https://gyread.com/news/search-index.json', parser: 'gyread_index', channel: 'gyread', board: 'ai', boostCategory: 'ai', onlyCategory: 'ai', headers: {}, intervalMinutes: 60, riskLevel: 'medium', throttleKey: 'gyread-index', entryUrl: 'https://gyread.com/news/', enrichWithEdition: true, indexFilter: { days: 3 } },
   ] },
   // 教育/国际暂无稳定可用垂类端点（探测记录：百度 education tab、头条分类参数、v2ex 均不可用），
   // 依赖 方案A 关键词/映射修复 + 方案C LLM 兜底补充
@@ -395,12 +417,17 @@ class HotTopicsService {
    * 微博情感/健康垂类共用端点但各自独立节流）。id 含 board 段
    * （如 weibo:emotion:3）避免与主榜 'weibo:3' 撞号。
    * filterCategory：解析后仅保留该原生分类条目（微博 band_list 垂类过滤）。
+   * indexFilter：传给解析器的过滤参数（gyread 索引按 date/days 过滤，否则 1421 条全量入库）。
    *
    * v3 分类归属（修复「科技类混入不沾边内容」根因之一）：v2 把条目的
    * `category` 无条件硬写成 `source.boostCategory`，分类器完全不参与 —— 垂类端点里
    * 夹带的异质条目（跨界榜单条目、垂类 RSS 的非本行内容）会被强行挂到目标分类下。
    * 现在先走分类器：分类器判出明确分类时以分类器为准；只有它给出 general（确实无信号）
    * 时才用 boostCategory 兜底 —— 垂类榜本身即该分类的定向供给，兜底仍保供。
+   *
+   * enrichWithEdition（gyread 专用）：索引只给**日报页**地址，一手原文链接要从单期 HTML 抽。
+   * 该增强**fail-open**：抓取/解析失败只丢 `sourceUrls`，不丢条目、不记渠道失败 ——
+   * 否则站点一次版式变动就会让整个 AI 补拉渠道记失败，把高质量选题全部丢掉。
    */
   async _collectBoostChannel(source, fetchedAt) {
     // 补拉同样按配额键（P0）：微博垂类与微博主渠道、IT之家两路补拉共用端点，
@@ -416,7 +443,10 @@ class HotTopicsService {
       const text = await this._fetchChannel(source)
       const parser = CHANNEL_PARSERS[source.parser]
       if (!parser) throw new Error('no boost parser for ' + source.id)
-      let rawItems = parser(text.startsWith('{') || text.startsWith('[') ? JSON.parse(text) : text)
+      const parsed = text.startsWith('{') || text.startsWith('[') ? JSON.parse(text) : text
+      // 解析器第二参数：gyread 索引需要 date/days 过滤（全量 1421 条远超候选上限）；
+      // 其余解析器忽略第二参数（签名兼容，不影响既有渠道）。
+      let rawItems = source.indexFilter ? parser(parsed, source.indexFilter) : parser(parsed)
       if (source.filterCategory) {
         rawItems = rawItems.filter(x => x.rawCategory === source.filterCategory)
       }
@@ -424,7 +454,7 @@ class HotTopicsService {
       if (source.onlyCategory) {
         rawItems = rawItems.filter(x => classifyTopicMulti(x.rawCategory, x.channel, x.topic).category === source.onlyCategory)
       }
-      const items = rawItems.slice(0, MAX_PER_CHANNEL).map(x => {
+      let items = rawItems.slice(0, MAX_PER_CHANNEL).map(x => {
         const multi = classifyTopicMulti(x.rawCategory, x.channel, x.topic)
         const categories = multi.category === 'general'
           ? [source.boostCategory]
@@ -441,6 +471,9 @@ class HotTopicsService {
           fetchedAt,
         }
       })
+      if (source.enrichWithEdition) {
+        items = await this._enrichGyreadSources(items, source, fetchedAt)
+      }
       this.breaker.recordSuccess(quotaKey)
       return { channel: source.id, items, skipped: false, boost: true }
     } catch (e) {
@@ -448,6 +481,47 @@ class HotTopicsService {
       this.log.warn && this.log.warn('[hot-topics] boost channel ' + source.id + ' failed:', e && e.message ? e.message : String(e), state)
       return { channel: source.id, items: null, skipped: false, error: e && e.message ? e.message : String(e), boost: true }
     }
+  }
+
+  /**
+   * gyread 原文链接增强：按条目的日报页地址抓单期 HTML，用 `parseGyreadEdition`
+   * 抽「出处」里的一手原文链接，写入 `sourceUrls` 与 `entryUrl`。
+   *
+   * **fail-open 是硬合同**：单个条目抓取失败/无链接只让该条不带 `sourceUrls`，
+   * 绝不抛错、绝不让整个补拉渠道记失败。理由是站点版式仍在演进（2026-10-17 刚换过
+   * `dateline` → `item-meta`），而「一次版式变动丢掉全部 AI 选题」的代价远高于
+   * 「部分条目缺原文链接」。
+   *
+   * 抓取量上限 `GYREAD_ENRICH_LIMIT`（10）：AI 分类每期平均 11.5 条，10 条已覆盖主体；
+   * 无上限时最坏 50 条（MAX_PER_CHANNEL）× 1 次 HTTP 会明显放大对站点的压力。
+   */
+  async _enrichGyreadSources (items, source, fetchedAt) {
+    const editionParser = CHANNEL_PARSERS.gyread_edition
+    if (!editionParser) return items
+    const limit = Math.min(GYREAD_ENRICH_LIMIT, items.length)
+    for (let i = 0; i < limit; i++) {
+      const it = items[i]
+      if (!it.url) continue // 索引没给日报页地址 → 无从增强（保持无 sourceUrls）
+      try {
+        const html = await this._fetchChannel({ url: it.url, headers: source.headers || {} })
+        const editions = editionParser(html)
+        // 标题对齐：edition 解析出的标题与索引标题可能因版式/实体编码有细微差异，
+        // 故按「包含或相等」宽松匹配；匹配不上就取该期第一条（同期同源，仍是有效溯源）。
+        const match = editions.find(e => e.topic === it.topic)
+          || editions.find(e => e.topic.includes(it.topic) || it.topic.includes(e.topic))
+          || editions[0]
+        if (match && Array.isArray(match.sourceUrls) && match.sourceUrls.length) {
+          it.sourceUrls = match.sourceUrls
+          it.entryUrl = source.entryUrl || null
+          it.sourceText = match.sourceText || null
+        }
+      } catch (e) {
+        // 单条失败只跳过该条：其余条目继续增强，渠道整体仍记成功
+        this.log.warn && this.log.warn('[hot-topics] gyread edition enrich failed for "' +
+          it.topic.slice(0, 24) + '": ' + (e && e.message ? e.message : String(e)))
+      }
+    }
+    return items
   }
 
   /** 聚合一批渠道结果为 { channelStats, allTopics, seen }（跨渠道按选题文本去重，先到者保留） */
@@ -698,6 +772,7 @@ module.exports = {
   THROTTLE_STATE_KEY,
   MAX_PER_CHANNEL,
   MAX_TOPICS,
+  GYREAD_ENRICH_LIMIT,
   CHANNEL_CONFIGS,
   CATEGORY_BOOSTS,
   RANK_CONFIG_KEY,
