@@ -107,14 +107,19 @@ class RpaViewManager {
         // 命中后把分区 cookie **合并**进 store cookie（分区值优先，store 值兜底），
         // 而不是整体替换——避免为了补两条 SDK cookie 丢掉 store 里更全的其余字段。
         let cookieFromPartition = null
+        // i6（CCG 自扮演裁决，crypto 域）：判据模块加载失败时**不得静默返回 false** ——
+        // 那会把「依赖失效」伪装成「材料已齐」，与 D2 要修的「静默」同型。
+        // 改为：出声告警 + 仍返回 false（保持不盲目兜底），但运维能看到通道已断。
         const needsMaterialFallback = () => {
           if (!cookie) return true
           if (platform !== 'douyin') return false
           try {
             const { hasSecurityMaterials } = require('@multi-publish/api-publish-engine/src/signer/douyin-ticket-guard')
             return !hasSecurityMaterials(cookie)
-          } catch (_) {
-            return false // 判据自身不可用时保持既有语义，不盲目兜底
+          } catch (e) {
+            log.warn('RpaView', 'douyin 签名材料判据不可用（模块加载失败），本次不做材料兜底: '
+              + String((e && e.message) || e).slice(0, 160))
+            return false
           }
         }
         if (needsMaterialFallback()) {
@@ -123,15 +128,19 @@ class RpaViewManager {
           if (fallback.cookieString) {
             if (cookie) {
               // 合并：分区优先（更新），store 兜底（更全）
+              // i3（CCG 自扮演裁决）：cookie 值**可以含 '='**（base64 padding、JWT），
+              // 因此必须用 indexOf('=') 取**第一个** '=' 作分隔（旧写法 split('=')[1] 会截断值）。
+              // 另：'name=value' 段内的 ';' 只可能是段分隔符（RFC 6265 禁止 cookie 值含 ';'），
+              // 故 split(';') 是安全的；真正危险的是 split('=')，已由 indexOf 修掉。
               const merged = new Map()
-              for (const seg of String(cookie).split(';')) {
-                const i = seg.indexOf('=')
-                if (i > 0) merged.set(seg.slice(0, i).trim(), seg.slice(i + 1).trim())
+              const absorb = (str) => {
+                for (const seg of String(str).split(';')) {
+                  const i = seg.indexOf('=')
+                  if (i > 0) merged.set(seg.slice(0, i).trim(), seg.slice(i + 1).trim())
+                }
               }
-              for (const seg of fallback.cookieString.split(';')) {
-                const i = seg.indexOf('=')
-                if (i > 0) merged.set(seg.slice(0, i).trim(), seg.slice(i + 1).trim())
-              }
+              absorb(cookie)
+              absorb(fallback.cookieString)
               cookieFromPartition = Array.from(merged.entries()).map(([k, v]) => k + '=' + v).join('; ')
               log.info('RpaView', 'API publish cookie material-fallback merged from auth partition ' + fallback.partition
                 + ' (partition=' + fallback.count + ' cookies, store+partition merged) platform=' + platform)

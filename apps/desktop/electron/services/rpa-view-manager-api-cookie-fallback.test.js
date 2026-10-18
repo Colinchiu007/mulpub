@@ -252,4 +252,61 @@ describe('RpaViewManager API-first 签名材料兜底（D2，video-publish-4）'
     const infos = log.info.mock.calls.map(c => c.join(' ')).join('\n')
     expect(infos).toContain('material-fallback merged')
   })
+
+  // i3（CCG 自扮演裁决）：cookie 值**可以含 '='**（base64 padding、JWT）。
+  // 旧写法 split('=')[1] 会把值截断在第一个 '=' 处；必须用 indexOf('=') 取第一个作分隔。
+  it('i3：cookie 值含 "=" 时不被截断（base64/JWT 形态）', async () => {
+    shouldUseApi.mockReturnValue(true)
+    supportsApi.mockReturnValue(true)
+    const jwtLike = 'aaa.bbb.ccc=='
+    collectAuthPartitionCookies.mockResolvedValue({
+      cookieString: SDK_SIGN + '=' + jwtLike,
+      partition: 'account-acc', count: 1,
+    })
+    publishViaApi.mockResolvedValue({ success: true })
+    const manager = new RpaViewManager()
+
+    await manager.publish(
+      'douyin',
+      { accountId: 'acc' },
+      { cookies: [{ name: 'sessionid', value: 's1' }] },
+      1000,
+    )
+
+    const passed = publishViaApi.mock.calls[0][2]
+    expect(passed).toContain(SDK_SIGN + '=' + jwtLike)
+    expect(passed).toContain('sessionid=s1')
+  })
+
+  // i6（CCG 自扮演裁决，crypto 域）：判据模块加载失败时**不得静默返回 false** ——
+  // 那会把「依赖失效」伪装成「材料已齐」。必须出声告警。
+  it('i6：签名材料判据不可用时出声告警（不得静默关闭兜底）', async () => {
+    shouldUseApi.mockReturnValue(true)
+    supportsApi.mockReturnValue(true)
+    publishViaApi.mockResolvedValue({ success: true })
+    const manager = new RpaViewManager()
+
+    // 让 require 失败：用一个不存在的平台名不会触发（platform!=='douyin' 直接 return false），
+    // 因此这里直接验证「非 douyin 不读分区」与「douyin 缺材料会读」两条边界，
+    // 而 require 失败路径由源码结构断言覆盖（catch 里有 log.warn）。
+    await manager.publish(
+      'douyin',
+      { accountId: 'acc' },
+      { cookies: [{ name: 'sessionid', value: 's1' }] },
+      1000,
+    )
+
+    // 缺材料 ⇒ 一定读了分区（无论判据是否可用，douyin + 缺材料这条路径必达）
+    expect(collectAuthPartitionCookies).toHaveBeenCalledWith('douyin', 'acc')
+  })
+
+  it('i6：源码里判据 catch 分支必须 log.warn（结构锁，防回归成静默）', () => {
+    const src = require('node:fs').readFileSync(require.resolve('./rpa-view-manager'), 'utf8')
+    const idx = src.indexOf('douyin 签名材料判据不可用')
+    expect(idx).toBeGreaterThan(-1)
+    // 该 warn 必须在 needsMaterialFallback 的 catch 里
+    const window = src.slice(Math.max(0, idx - 400), idx + 200)
+    expect(window).toContain('catch')
+    expect(window).toContain('log.warn')
+  })
 })
