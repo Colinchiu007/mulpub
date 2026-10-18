@@ -845,19 +845,25 @@ describe("CreateView", () => {
     w.unmount();
   });
 
-  it("语音生成器默认选择已配置的多模态 TTS 模型（minimax-multimodal 优先于普通 TTS 服务商）", async () => {
+  // 2026-10-18 语义变更：原断言「无任何默认标记时多模态仍优先于普通 TTS 服务商」与
+  // 「跟随模型设置默认」的新需求冲突（那正是本次修复要纠正的行为），已改写为
+  // 「模型设置把多模态 TTS 能力设为默认时优先选中它」，完整场景见下方新增用例组。
+  it("语音生成器默认选择模型设置里设为默认的多模态 TTS 模型", async () => {
     window.electronAPI.modelProviderList = vi.fn(async (category) => {
       if (category === "tts") {
         return {
           code: 0,
           data: [
-            { id: "elevenlabs", name: "ElevenLabs", category: "tts", enabled: true, is_configured: true, models: ["eleven_multilingual_v2"] },
-            { id: "minimax-multimodal", name: "MiniMax", category: "multimodal", enabled: true, is_configured: true, capabilities: ["llm", "tts", "image", "video"], capability_models: { tts: "speech-2.8-turbo" }, models: ["speech-2.8-turbo", "image-01"] },
+            { id: "elevenlabs", name: "ElevenLabs", category: "tts", enabled: true, is_configured: true, is_default: false, models: ["eleven_multilingual_v2"] },
+            { id: "minimax-multimodal", name: "MiniMax", category: "multimodal", enabled: true, is_configured: true, is_default: false, capabilities: ["llm", "tts", "image", "video"], capability_models: { tts: "speech-2.8-turbo" }, models: ["speech-2.8-turbo", "image-01"], config: { capability_defaults: ["tts"] } },
           ],
         };
       }
       return { code: 0, data: [] };
     });
+    window.electronAPI.modelProviderGetDefault = vi.fn(async (category) => (
+      category === "tts" ? { code: 0, data: { id: "minimax-multimodal" } } : { code: 0, data: null }
+    ));
     const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
     await nextTick();
     await w.vm.loadS2VProviders();
@@ -905,6 +911,154 @@ describe("CreateView", () => {
     await nextTick();
     await w.vm.loadS2VProviders();
     expect(w.vm.s2vConfig.voiceProvider).toBe("elevenlabs");
+    w.unmount();
+  });
+
+  // ─── 2026-10-18 修复：流水线生成器默认值跟随「模型设置」里的类别/能力默认 ───
+  // 回归场景：用户把 TTS 默认从 Mimo TTS 改成 MiniMax 多模态的 TTS 能力后，
+  // 故事讲述流水线「声音参数 → 语音模型生成器」仍默认 Mimo TTS。
+
+  it("模型设置把多模态 TTS 能力设为默认时，语音生成器默认选中它（而非 Mimo/首项）", async () => {
+    window.electronAPI.modelProviderList = vi.fn(async (category) => {
+      if (category === "tts") {
+        return {
+          code: 0,
+          data: [
+            { id: "mimo-tts", name: "MiMo TTS", category: "tts", enabled: true, is_configured: true, is_default: false, models: ["mimo-v2.5-tts"] },
+            { id: "minimax-multimodal", name: "MiniMax", category: "multimodal", enabled: true, is_configured: true, is_default: false, capabilities: ["llm", "tts", "image", "video"], capability_models: { tts: "speech-2.8-turbo" }, models: ["speech-2.8-turbo", "image-01"], config: { capability_defaults: ["tts"] } },
+          ],
+        };
+      }
+      return { code: 0, data: [] };
+    });
+    // 主进程 getDefault('tts') 返回该多模态（capability_defaults 命中）
+    window.electronAPI.modelProviderGetDefault = vi.fn(async (category) => (
+      category === "tts" ? { code: 0, data: { id: "minimax-multimodal" } } : { code: 0, data: null }
+    ));
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
+    await nextTick();
+    await w.vm.loadS2VProviders();
+    expect(w.vm.s2vConfig.voiceProvider).toBe("minimax-multimodal");
+    expect(w.vm.s2vConfig.voiceModel).toBe("speech-2.8-turbo");
+    w.unmount();
+  });
+
+  it("模型设置把普通 TTS 服务商设为默认时，语音生成器默认选中它（多模态不再是默认）", async () => {
+    window.electronAPI.modelProviderList = vi.fn(async (category) => {
+      if (category === "tts") {
+        return {
+          code: 0,
+          data: [
+            { id: "mimo-tts", name: "MiMo TTS", category: "tts", enabled: true, is_configured: true, is_default: false, models: ["mimo-v2.5-tts"] },
+            { id: "elevenlabs", name: "ElevenLabs", category: "tts", enabled: true, is_configured: true, is_default: true, models: ["eleven_multilingual_v2"] },
+            { id: "minimax-multimodal", name: "MiniMax", category: "multimodal", enabled: true, is_configured: true, is_default: false, capabilities: ["tts"], capability_models: { tts: "speech-2.8-turbo" }, models: ["speech-2.8-turbo"], config: { capability_defaults: [] } },
+          ],
+        };
+      }
+      return { code: 0, data: [] };
+    });
+    window.electronAPI.modelProviderGetDefault = vi.fn(async (category) => (
+      category === "tts" ? { code: 0, data: { id: "elevenlabs" } } : { code: 0, data: null }
+    ));
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
+    await nextTick();
+    await w.vm.loadS2VProviders();
+    expect(w.vm.s2vConfig.voiceProvider).toBe("elevenlabs");
+    w.unmount();
+  });
+
+  it("主进程 getDefault 不可用时仍按列表内的默认标记解析（不静默退回首项）", async () => {
+    window.electronAPI.modelProviderList = vi.fn(async (category) => {
+      if (category === "tts") {
+        return {
+          code: 0,
+          data: [
+            { id: "mimo-tts", name: "MiMo TTS", category: "tts", enabled: true, is_configured: true, is_default: false, models: ["mimo-v2.5-tts"] },
+            { id: "minimax-multimodal", name: "MiniMax", category: "multimodal", enabled: true, is_configured: true, is_default: false, capabilities: ["tts"], capability_models: { tts: "speech-2.8-turbo" }, models: ["speech-2.8-turbo"], config: { capability_defaults: ["tts"] } },
+          ],
+        };
+      }
+      return { code: 0, data: [] };
+    });
+    // 未注册 modelProviderGetDefault → invokeWithFallback 返回 data:null
+    delete window.electronAPI.modelProviderGetDefault;
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
+    await nextTick();
+    await w.vm.loadS2VProviders();
+    expect(w.vm.s2vConfig.voiceProvider).toBe("minimax-multimodal");
+    w.unmount();
+  });
+
+  it("图片生成器默认值跟随模型设置的图片默认（不只修语音）", async () => {
+    window.electronAPI.modelProviderList = vi.fn(async (category) => {
+      if (category === "image") {
+        return {
+          code: 0,
+          data: [
+            { id: "img-first", name: "首项图片", category: "image", enabled: true, is_configured: true, is_default: false, models: ["m1"] },
+            { id: "img-default", name: "默认图片", category: "image", enabled: true, is_configured: true, is_default: true, models: ["m2"] },
+          ],
+        };
+      }
+      return { code: 0, data: [] };
+    });
+    window.electronAPI.modelProviderGetDefault = vi.fn(async (category) => (
+      category === "image" ? { code: 0, data: { id: "img-default" } } : { code: 0, data: null }
+    ));
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
+    await nextTick();
+    await w.vm.loadS2VProviders();
+    expect(w.vm.s2vConfig.imageProvider).toBe("img-default");
+    w.unmount();
+  });
+
+  it("视频生成器默认值跟随模型设置的视频默认", async () => {
+    window.electronAPI.modelProviderList = vi.fn(async (category) => {
+      if (category === "video") {
+        return {
+          code: 0,
+          data: [
+            { id: "vid-first", name: "首项视频", category: "video", enabled: true, is_configured: true, is_default: false, models: ["v1"] },
+            { id: "vid-default", name: "默认视频", category: "video", enabled: true, is_configured: true, is_default: true, models: ["v2"] },
+          ],
+        };
+      }
+      return { code: 0, data: [] };
+    });
+    window.electronAPI.modelProviderGetDefault = vi.fn(async (category) => (
+      category === "video" ? { code: 0, data: { id: "vid-default" } } : { code: 0, data: null }
+    ));
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
+    await nextTick();
+    w.vm.s2vConfig.videoMode = "fixed";
+    await w.vm.loadS2VProviders();
+    expect(w.vm.s2vConfig.videoProvider).toBe("vid-default");
+    w.unmount();
+  });
+
+  it("用户在语音生成器下拉手动选过时，默认解析不覆盖该选择", async () => {
+    window.electronAPI.modelProviderList = vi.fn(async (category) => {
+      if (category === "tts") {
+        return {
+          code: 0,
+          data: [
+            { id: "mimo-tts", name: "MiMo TTS", category: "tts", enabled: true, is_configured: true, is_default: false, models: ["mimo-v2.5-tts"] },
+            { id: "minimax-multimodal", name: "MiniMax", category: "multimodal", enabled: true, is_configured: true, is_default: false, capabilities: ["tts"], capability_models: { tts: "speech-2.8-turbo" }, models: ["speech-2.8-turbo"], config: { capability_defaults: ["tts"] } },
+          ],
+        };
+      }
+      return { code: 0, data: [] };
+    });
+    window.electronAPI.modelProviderGetDefault = vi.fn(async (category) => (
+      category === "tts" ? { code: 0, data: { id: "minimax-multimodal" } } : { code: 0, data: null }
+    ));
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
+    await nextTick();
+    // 用户显式选了 Mimo TTS（快照恢复 / 手动下拉）
+    w.vm.s2vConfig.voiceProvider = "mimo-tts";
+    w.vm.s2vConfig.voiceModel = "";
+    await w.vm.loadS2VProviders();
+    expect(w.vm.s2vConfig.voiceProvider).toBe("mimo-tts");
     w.unmount();
   });
 

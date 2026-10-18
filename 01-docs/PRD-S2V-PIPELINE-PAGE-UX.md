@@ -240,6 +240,10 @@
 - 前端判定：`s2vVoiceModelHidden` computed（provider 为 mimo-tts 时 true）；catalog 请求固定用 `mimo-v2.5-tts`，capability/克隆请求用 `mimo-v2.5-tts-voiceclone`。
 - MiMo 克隆音色样本要求：mp3/wav、Base64 后 ≤10MB（本地校验按原始字节 ≤10MB 保守执行），由 `getRequirements` 数据驱动展示。
 
+#### 4.3.2 语音生成器默认值跟随模型设置默认（2026-10-18）
+
+「语音生成器」在用户无显式选择时的默认值 = 模型设置里 TTS 能力的默认（含多模态能力默认），不再固定为「第一个多模态」或列表首项。完整合同（判定口径、优先级、数据流、校验、验收）见 **§9.10**。
+
 
 ### 4.4 无成片任务编辑
 
@@ -666,6 +670,89 @@ loadPipelineOptions():
 - 选项默认值不覆盖用户已修改的值（仅在首次加载时应用）。
 - 选项隐藏后，已配置的值在提交时保留（不参与校验但保留在 s2vConfig 中）。
 - 运营中心前端 `typelabel` 占位符为静态文本，未从 API 动态获取（低优先级）。
+
+### 9.10 生成器默认值跟随模型设置默认（2026-10-18）
+
+#### 9.10.1 需求与根因
+
+用户在「模型服务商」里把某类别模型设为默认（★），或把多模态模型（如 MiniMax）的某个能力（如 TTS）设为默认后，**视频创作所有流水线页**中该类别的生成器下拉，若有多项可选模型，其默认选中项必须是该默认模型。
+
+**根因（2026-10-18 修复前）**：`CreateView.vue` 的 `loadS2VProviders()` 从未读取「谁是默认」：
+
+- 语音生成器：`nextVoiceProviders.find(p => p.category === 'multimodal' && capability_models?.tts)` —— 只看「是不是多模态」，不看「是不是默认」。
+- 图片/视频生成器：`this.s2vImageProviders[0].id` / `this.s2vVideoProviders[0].id` —— 直接取列表首项。
+
+二者都只是依赖 `listProviders` 里 `ORDER BY is_default DESC` 的**排序副作用**，一旦默认落在第二项之后、或默认是普通单能力模型而多模态排在前面，默认即失效。用户实测形态：TTS 默认由 Mimo TTS 改为 MiniMax 多模态的 TTS 能力后，故事讲述流水线「声音参数 → 语音模型生成器」仍默认 Mimo TTS。
+
+**真源在主场**：`ModelProviderManager.getDefault(category)`（`model-provider:get-default` IPC，preload 已暴露为 `modelProviderGetDefault`）已完整实现双默认语义。前端缺的只是「去问」。
+
+#### 9.10.2 默认判定口径（与主进程同源）
+
+`resolveS2VDefaultProviderId(providers, category, preferredId)`（`apps/desktop/src/views/video-creation/create-view-module-utils.js`）为唯一判定实现，口径与主进程 `_multimodalProviderFor` 逐条对齐：
+
+| 候选形态 | 视为该能力默认的条件 |
+|---------|-------------------|
+| 普通 provider（`category !== 'multimodal'`） | `is_default === true` |
+| 多模态 provider | `config.capability_defaults` 包含该能力，**或** 整体 `is_default === true`（旧版「多模态整体默认」等价于其所有已声明能力均为默认） |
+| 多模态 provider（能力声明校验） | 还必须 `capabilities` 包含该能力；否则其「默认」不适用于本下拉（防止 image 默认的多模态抢走 tts 下拉） |
+
+**优先级（自上而下，取第一个命中）**：
+
+1. `preferredId`（主进程 `getDefault(category)` 返回的 id）——须通过上表口径校验，且须在候选列表内；
+2. 候选列表内第一个满足上表口径的；
+3. 候选列表首项（保持 2026-08-12 起的旧兜底行为，保证无任何默认时行为不回退）；
+4. 候选列表为空 → 空串 `''`（上游渲染「自动 Edge TTS」/「无」占位，见 §9.7 与 13652 行合同）。
+
+**失效处理（fail-closed，不抛错）**：`preferredId` 不在候选列表内、或通过了 id 匹配但未通过默认口径校验时，忽略该 id 继续向下判定，**绝不返回悬空 id**（否则下拉出现空白选中项）。
+
+#### 9.10.3 交互优先级（用户显式选择 > 模型设置默认）
+
+| 状态 | 默认选中项 |
+|------|-----------|
+| 用户在本页下拉里手动选过 provider | **该选择**（`s2vConfig.*Provider` 非空且在候选列表内），默认解析不介入 |
+| 用户显式选过「自动 Edge TTS」（`voiceProvider === ''` 且 `s2vVoiceProviderExplicitEdge === true`） | **自动 Edge TTS**，默认解析不介入 |
+| 用户从无显式选择（首次进入 / 点了「重置选项」） | `resolveS2VDefaultProviderId(...)` 的结果 |
+
+该优先级沿用并显式化了 2026-08-12 既有合同（「用户显式保存过的选择始终优先」），本次仅把第三档从「第一个多模态 / 首项」改为「模型设置的默认」。
+
+#### 9.10.4 涉及的三类生成器
+
+| 生成器 | 能力参数 | 默认模型解析（provider 确定后） |
+|--------|---------|-------------------------------|
+| 语音生成器 | `tts` | `getS2VDefaultVoiceModel`：多模态取 `capability_models.tts`，否则 `defaultModel` / `models[0]`；MiMo TTS 返回 `''`（语音模型下拉隐藏，见 §4.3.1） |
+| 图片生成器 | `image` | 仅解析 provider id；`imageModel` 沿用既有链路（本次不新增 `getS2VDefaultImageModel`，避免行为漂移） |
+| 视频生成器 | `video` | `getS2VDefaultVideoModel`：多模态取 `capability_models.video`，否则 `defaultModel` / `models[0]` |
+
+#### 9.10.5 数据流
+
+```
+loadS2VProviders()
+  ├─ Promise.allSettled([ modelProviderList('image'), modelProviderList('tts'), modelProviderList('video') ])
+  ├─ Promise.allSettled([ modelProviderGetDefault('image'), modelProviderGetDefault('tts'), modelProviderGetDefault('video') ])
+  │     └─ 失败/未初始化 → data:null → defaultProviderId() 返回 ''，不阻塞、不抛错
+  ├─ 每类：enabledProviders 过滤（enabled && is_configured && id && name）
+  ├─ 陈旧 provider 清空（含对应 Model 字段），避免下拉空白选中项
+  └─ 无显式选择时：resolveS2VDefaultProviderId(list, capability, defaultId)
+```
+
+#### 9.10.6 数据校验与边界
+
+- `providers` 非数组 / `null` / `undefined` / 字符串 → 返回 `''`，不抛错。
+- `category` 非字符串 → trim 后为空串，`capability_defaults.includes('')` 恒 false，安全降级到首项兜底。
+- provider 缺 `id`、`id` 非字符串、`config` 非对象（数组/标量）→ 该候选不参与默认判定。
+- `config.capability_defaults` 非数组 → 视为未声明能力默认。
+- `is_default` 为真值（1 / "1"）但非严格 `true` → **不视为默认**（与主进程 `!!row.is_default` 的转换边界保持一致，主进程在 `_safeRow` 已转布尔；前端列表直接来自 IPC，故此处要求严格 `true`）。
+- `modelProviderGetDefault` 三次查询与三次列表查询**并行**（两个 `Promise.allSettled`），不增加串行延迟；任一路失败不影响其余。
+
+#### 9.10.7 验收标准
+
+① 模型设置把 TTS 默认设为 MiniMax 多模态的 TTS 能力（`capability_defaults: ['tts']`）后，故事讲述流水线「语音模型生成器」默认选中 `minimax-multimodal`，语音模型自动带出 `speech-2.8-turbo`；② 模型设置把 TTS 默认改为普通 TTS 服务商（`is_default: true`）后，默认选中该服务商而非多模态；③ 图片生成器 / 视频生成器同样跟随各自类别默认；④ 用户显式选过的 provider / 显式「自动 Edge TTS」不被默认解析覆盖；⑤ 主进程 `getDefault` 不可用（IPC 未注册/未初始化）时，仍按列表内的默认标记解析，不退回首项；⑥ 默认 provider 被删除/停用后回退到新的默认，无空白选中项；⑦ 无任何默认时保持首项兜底（旧行为不回退）；⑧ 回归：`create-view-module-utils`（9 例新增）、`CreateView`（313 例全绿）、`video-creation` 邻近域全绿。
+
+#### 9.10.8 已知限制
+
+- 本次只修「无显式选择时的默认值」；用户已保存的 lastOptions 快照仍按 §9.5.2 的既有语义优先恢复（显式选择 > 默认）。
+- 「重置选项」后回到默认解析（`resetS2VLastOptions` 已置 `s2vVoiceProviderExplicitEdge = false`）。
+- 运营中心 `PipelineOptions.vue` 的 `voice.voiceProvider` / `visual.imageProvider` 选项目录 `default_value` 仍为空串（运营侧不持有桌面本地 provider id），本节不改变该契约。
 - 发布组独立选项（标题、标签、分辨率等）不在选项目录中，仅通过 `_group` 整组控制。
 
 ## 11. 详情页视觉与交互精致化契约（2026-09-20）

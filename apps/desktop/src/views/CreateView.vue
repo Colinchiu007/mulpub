@@ -950,7 +950,7 @@ import {
 import { bgmLibraryRefs, bgmLibraryMethods, setupBgmLibraryDeps } from './video-creation/composables/useBgmLibrary'
 import { ttsVoicesRefs, ttsVoicesComputeds, ttsVoicesMethods, setupTtsVoicesDeps } from './video-creation/composables/useTtsVoices'
 import { batchCreateRefs, batchCreateMethods, setupBatchCreateDeps } from './video-creation/composables/useBatchCreate'
-import { modelProviderList } from '@/api/model-providers'
+import { modelProviderList, modelProviderGetDefault } from '@/api/model-providers'
 import { getApi } from '@/api/electron-bridge'
 import { settingsDialogRevision } from '@/stores/settings-dialog'
 import { showPipelineBackgroundToast } from '@/stores/pipeline-background-toast'
@@ -1028,6 +1028,7 @@ import {
   S2V_RESTORE_OUTPUT_ENUM_OPTIONS,
   pickS2VConfigProfileFields,
   pickS2VOutputProfileFields,
+  resolveS2VDefaultProviderId,
   CATEGORY_LABELS,
   COST_LABELS,
   STABILITY_MAP,
@@ -3240,6 +3241,22 @@ export default {
       ])
       if (providerRequestId !== this.s2vVoiceProviderRequestId || this._s2vAlive === false) return
 
+      // 主进程侧「谁是该能力默认」的真源（2026-10-18 修复）。getDefault 内部已实现
+      // 双默认语义：多模态 capability_defaults / is_default > 普通 provider is_default。
+      // 失败（IPC 不可用 / 未初始化）时返回 data:null，由 resolveS2VDefaultProviderId
+      // 自行在列表内找默认，再兜底首项 —— 不因这一次查询失败就丢掉默认解析。
+      const [defaultImage, defaultVoice, defaultVideo] = await Promise.allSettled([
+        modelProviderGetDefault('image'),
+        modelProviderGetDefault('tts'),
+        modelProviderGetDefault('video'),
+      ])
+      if (providerRequestId !== this.s2vVoiceProviderRequestId || this._s2vAlive === false) return
+      const defaultProviderId = (result) => (
+        result.status === 'fulfilled' && result.value?.code === 0 && result.value?.data?.id
+          ? String(result.value.data.id)
+          : ''
+      )
+
       // 只展示「已启用且已配置」的服务商（is_configured=true：有可用 API Key 或免 Key 本地模型）。
       // 未配置/Key 解密失败的 provider 不进入能力下拉，避免旧配置恢复选中后流水线反复重试
       // 「尚未配置 API Key」导致卡在 generate_assets（2026-08-09 排查：debug profile 残留失效 key）。
@@ -3254,27 +3271,38 @@ export default {
       if (nextImageProviders) {
         this.s2vImageProviders = nextImageProviders
         // 图片生成器下拉归一化：已不存在/未配置的 provider 清空（含 imageModel），
-        // 避免下拉出现空白选中项；无显式选择时默认取第一个可用图片 provider（2026-08-12 Bug 修复）。
+        // 避免下拉出现空白选中项；无显式选择时默认取模型设置里该能力的默认 provider
+        // （2026-10-18 修复：此前只取列表首项，用户在设置里改默认不生效）。
         const imageProviderIds = new Set(this.s2vImageProviders.map(p => p.id))
         if (this.s2vConfig.imageProvider && !imageProviderIds.has(this.s2vConfig.imageProvider)) {
           this.s2vConfig.imageProvider = ''
           this.s2vConfig.imageModel = ''
         }
-        if (!this.s2vConfig.imageProvider && this.s2vImageProviders[0]) this.s2vConfig.imageProvider = this.s2vImageProviders[0].id
+        if (!this.s2vConfig.imageProvider && this.s2vImageProviders[0]) {
+          this.s2vConfig.imageProvider = resolveS2VDefaultProviderId(
+            this.s2vImageProviders,
+            'image',
+            defaultProviderId(defaultImage)
+          )
+        }
       }
 
       const nextVideoProviders = enabledProviders(videoResult)
       if (nextVideoProviders) {
         this.s2vVideoProviders = nextVideoProviders
         // 视频生成器与图片对齐（2026-08-12 审查 M2）：陈旧 provider 清空（含 videoModel），
-        // 未显式选择时默认取第一个可用视频 provider。
+        // 未显式选择时默认取模型设置里 video 能力的默认 provider（2026-10-18 起同源修复）。
         const videoProviderIds = new Set(this.s2vVideoProviders.map(p => p.id))
         if (this.s2vConfig.videoProvider && !videoProviderIds.has(this.s2vConfig.videoProvider)) {
           this.s2vConfig.videoProvider = ''
           this.s2vConfig.videoModel = ''
         }
         if (!this.s2vConfig.videoProvider && this.s2vVideoProviders[0]) {
-          this.s2vConfig.videoProvider = this.s2vVideoProviders[0].id
+          this.s2vConfig.videoProvider = resolveS2VDefaultProviderId(
+            this.s2vVideoProviders,
+            'video',
+            defaultProviderId(defaultVideo)
+          )
           this.s2vConfig.videoModel = this.getS2VDefaultVideoModel(this.s2vConfig.videoProvider)
         }
       }
@@ -3283,18 +3311,18 @@ export default {
       if (nextVoiceProviders) {
         this.s2vVoiceProviders = nextVoiceProviders
         const configuredProvider = this.getS2VVoiceProvider()
-        // 默认选择多模态 TTS 模型（2026-08-12）：当模型设置保存了支持 TTS 能力的多模态模型
-        // Key（category=multimodal 且 capabilities 含 tts，如 MiniMax）时，语音生成器默认选中它，
-        // 其次才回退到普通 TTS 服务商首项；用户显式保存过的选择（configuredProvider / 显式 Edge）
-        // 始终优先。多模态候选额外要求 capability_models.tts 存在，避免缺默认 TTS 模型时
-        // getS2VDefaultVoiceModel 落到 image/video 模型（fail-closed 回退普通 TTS 首项）。
-        const multimodalProvider = nextVoiceProviders.find(
-          provider => provider?.category === 'multimodal' && typeof provider?.capability_models?.tts === 'string'
-        ) || null
+        // 语音生成器默认值（2026-10-18 修复）：跟随「模型设置」里 TTS 能力的默认 ——
+        // 用户在设置中把某类别 TTS 模型设为默认、或把多模态模型（如 MiniMax）的 TTS
+        // 能力设为默认时，这里默认选中它，而不是「第一个多模态」或列表首项。
+        // 用户显式保存过的选择（configuredProvider / 显式 Edge）始终优先。
         const explicitEdge = this.s2vVoiceProviderExplicitEdge === true && !this.s2vConfig.voiceProvider
         const nextProviderId = explicitEdge
           ? ''
-          : (configuredProvider?.id || multimodalProvider?.id || this.s2vVoiceProviders[0]?.id || '')
+          : (configuredProvider?.id || resolveS2VDefaultProviderId(
+            this.s2vVoiceProviders,
+            'tts',
+            defaultProviderId(defaultVoice)
+          ))
         const nextModel = nextProviderId
           ? (this.s2vVoiceModelOptions.includes(this.s2vConfig.voiceModel)
             ? this.s2vConfig.voiceModel

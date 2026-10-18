@@ -1,3 +1,26 @@
+# [未发布] fix(video-creation): 流水线生成器默认值跟随「模型设置」默认（图片/视频/语音三类）
+
+### 变更
+- **根因**：`CreateView.vue` 的 `loadS2VProviders()` 从未读取「谁是默认」——语音生成器用 `find(category === 'multimodal' && capability_models?.tts)`（只看形态不看默认），图片/视频生成器直接取 `providers[0]`（只依赖 `ORDER BY is_default DESC` 的排序副作用）。用户在「模型服务商」把 TTS 默认从 Mimo TTS 改成 MiniMax 多模态的 TTS 能力后，故事讲述流水线「声音参数 → 语音模型生成器」仍默认 Mimo TTS。
+- **修复**：新增纯函数 `resolveS2VDefaultProviderId(providers, category, preferredId)`（`apps/desktop/src/views/video-creation/create-view-module-utils.js`），判定口径与主进程 `ModelProviderManager._multimodalProviderFor` 逐条对齐（普通 provider `is_default`；多模态 `config.capability_defaults` 含该能力或整体 `is_default`，且必须 `capabilities` 声明该能力）。`loadS2VProviders()` 增补 `modelProviderGetDefault(image/tts/video)` 三路并行查询，三类生成器在用户无显式选择时按该函数解析默认值。
+- **优先级不变**：用户显式选过的 provider / 显式「自动 Edge TTS」仍优先于默认解析；主进程 `getDefault` 不可用时按列表内默认标记解析（不退回首项）；无任何默认时保持首项兜底（旧行为不回退）。
+- **不改主进程**：`getDefault` / `_multimodalProviderFor` / IPC / 数据库 schema 均未改动，前端缺的只是「去问」。
+
+### 数据校验与安全
+- 全分支 fail-closed 不抛错：`providers` 非数组/空、`category` 非字符串、`config` 非对象、`capability_defaults` 非数组、`is_default` 非严格 `true`、`preferredId` 不在候选列表或未通过默认口径 —— 均降级到下一档，绝不返回悬空 id（避免下拉空白选中项）。
+- 多模态必须 `capabilities` 含该能力才算该能力默认，防止 image 默认的多模态抢走 tts 下拉默认位。
+- 三个 `getDefault` 与三个 `list` 分两批 `Promise.allSettled` 并行，不增加串行延迟；任一路失败不影响其余（读默认是优化查询，不是必要查询，不得阻断创作）。
+
+### 验证
+- TDD：先写 9 例纯函数单测确认 RED（`resolveS2VDefaultProviderId is not a function`），实现后 20/20 全绿。
+- `CreateView.test.js` 313/313 全绿（含 6 例新增 + 1 例改写：原「多模态无条件优先」断言锁定的正是本次要纠正的行为，改写为「默认为模型设置里设为默认的多模态 TTS 模型」并留注释）。
+- 邻近域回归：`src/views/video-creation` + `s2v-options-autosave` + `CreateView.voice-clone-delete-guard` + `views-deep2` 共 143/143 全绿。
+
+### 文档
+- 新增 `01-docs/PRD-MODEL-DEFAULT-FOLLOW-2026-10-18.md`（详版：根因溯源 / 目标与非目标 / 判定口径 / 实现合同 / 数据校验边界表 / 9 条验收标准 / 测试设计与逃逸分析 / 影响面与风险）。
+- `01-docs/PRD-S2V-PIPELINE-PAGE-UX.md` 新增 §9.10（生成器默认值跟随模型设置默认，含口径表/优先级/数据流/校验/验收/已知限制）与 §4.3.2（索引）。
+- `01-docs/PRD.md` §7.1.4「语音生成器默认选择多模态 TTS 模型」条目修订为「以模型设置默认为准」，两处重复段同步改写。
+
 # [未发布] feat(film-engineering): 《Hell Grind》全量语料导入与全片量产（film-full-corpus-production）
 
 ### 变更
