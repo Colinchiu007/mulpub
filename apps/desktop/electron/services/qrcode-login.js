@@ -67,8 +67,10 @@ class QrCodeLogin {
     this.onOpened = null
     /** @type {(() => void) | null} */
     this.onClosed = null
-    /** @type {number} 左侧导航栏宽度（签名兼容保留；独立窗口承载后不再参与布局） */
+    /** @type {number} 左侧导航栏宽度（由 WebviewManager 同步，默认 200px） */
     this._sidebarWidth = 200
+    /** @type {boolean} 左侧导航栏是否收起（全局折叠按钮；收起时扫码视图 x=0 全宽） */
+    this._sidebarCollapsed = false
   }
 
   setMainWindow (win) {
@@ -608,6 +610,20 @@ class QrCodeLogin {
   }
 
   /**
+   * 设置左侧导航栏是否收起（由 WebviewManager 同步）。
+   * 收起时扫码登录视图必须 x=0 全宽 —— 内嵌原生图层不会跟随宿主 DOM 的 display:none。
+   * @param {boolean} collapsed
+   */
+  setSidebarCollapsed (collapsed) {
+    if (typeof collapsed !== 'boolean') return
+    if (this._sidebarCollapsed === collapsed) return
+    this._sidebarCollapsed = collapsed
+    if (this.mainWindow && this.currentView) {
+      this._positionView()
+    }
+  }
+
+  /**
    * 登录视图布局（TabBar+NavBar 下方），与浏览器标签定位一致。
    * 尺寸来源必须是窗口客户区（getContentBounds），不能用 getBounds() 外框尺寸，
    * 否则视图右侧滚动条与底部内容会被窗口边框裁掉（见 view-bounds.js）。
@@ -616,7 +632,12 @@ class QrCodeLogin {
    */
   _positionView () {
     if (!this.currentView || !this.mainWindow) return
-    this.currentView.setBounds(computeEmbeddedViewBounds(this.mainWindow, this._sidebarWidth))
+    this.currentView.setBounds(computeEmbeddedViewBounds(
+      this.mainWindow,
+      this._sidebarWidth,
+      undefined,
+      this._sidebarCollapsed,
+    ))
     // 宽度自适应（旁路：失败只告警，不得影响扫码登录链路；页面未加载时探针为 no-op）
     loginViewFit.fitLoginViewZoomSafe(this.currentView, { tag: 'QrCodeLogin' })
   }

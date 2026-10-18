@@ -104,6 +104,13 @@
 | 尚未实现执行引擎 | Execution engine not available yet | hotTopics.genVideoPipelineUnavailable |
 | 暂不支持从选题直接生成 | Not supported from a topic yet | hotTopics.genVideoPipelineUnsupported |
 | 流水线：{pipeline} | Pipeline: {pipeline} | hotTopics.genVideoPipelineLabel |
+| 收起左侧菜单 | Collapse sidebar | tabBar.collapseSidebar |
+| 展开左侧菜单 | Expand sidebar | tabBar.expandSidebar |
+
+> **「侧边栏 / Sidebar」暂不登记为表行**：本次按钮文案使用「左侧菜单」措辞（与既有「左侧菜单」「主导航」一致），
+> 而 `glossary.test.js` 要求术语在 zh/en locale 字符串值中的出现状态一致；当前 en 侧因
+> `Collapse sidebar` / `Expand sidebar` 含 “sidebar” 而命中、zh 侧无任何字符串值含「侧边栏」，
+> 直接登记会当场判红。按本表维护规则「先登记再成对加文案」，待后续有含「侧边栏」的 zh 文案落地时再补行。
 
 ## 维护规则
 

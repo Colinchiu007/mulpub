@@ -1,0 +1,30 @@
+{
+  "sha": "896c0e646f3ec119894fb0089148b5660a05daff",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 5,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 6,
+    "docSensitiveContentSample": [
+      "2. **视觉基线需要一次全量重建**：43 张基线全部变化，重建必须在同源渲染环境完成并逐张审核；本轮不提供「本机 update-baseline」的替代证据。",
+      "2. **视觉基线需要一次重建**：含 TabBar 的基线都会变化（最终清单以 CI `Gate 7b` 点名为准），重建必须在同源渲染环境完成并逐张审核；本轮不提供「本机 update-baseline」的替代证据。",
+      "- **pattern · 全局可见 UI 改动必然让全部视觉基线变化，正确流程是 CI 同源重建而不是本机 update-baseline**：按钮位于 `TabBar`，而所有视觉截图都含顶部壳层 ⇒ `apps/desktop/tests/visual-testing/base-screenshots/` 下 43 张 PNG（目录内除 `.gitignore` 外实测 43 个）全部变化。判据：改动落在全局壳层时，先数「可能受影响的截图数」再谈 diff；PR 内不执行 `pnpm test:visual:update-baseline`（本机与 CI 渲染不同形），基线在同源环境重建并逐张确认差异只来自新增按钮与标签条起点右移。文档里不得出现「视觉中性」。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "0020a1d5391a01f23fe886599b0c8e1aa67616b87082bbe61a3b3045586cf9f3",
+  "decidedAt": "2026-10-18T06:38:21.989Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

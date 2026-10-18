@@ -144,6 +144,45 @@ describe('computeEmbeddedViewBounds 侧栏宽度=0 防御（回归 2026-09-15 �
 })
 
 /**
+ * 侧栏**收起**（用户点全局折叠按钮）与「宽度非法=0」是两件事：
+ *   · 宽度=0 是**缺失/异常上报**，必须回落 200（防内嵌视图盖住侧边栏，见上组回归）；
+ *   · 收起是**显式用户意图**，此时侧边栏 display:none，内嵌视图必须 x=0、横向铺满，
+ *     否则浏览器/账号/登录标签会在左侧留下 200px 死区（原生图层不跟 CSS 布局）。
+ * 因此收起由**独立的布尔参数**表达，绝不靠 width=0 借用守卫的后门。
+ */
+describe('computeEmbeddedViewBounds 侧栏收起（显式 collapsed 标志）', () => {
+  it('收起时内嵌视图 x=0、宽度=客户区全宽，顶部偏移仍为 76', () => {
+    const bounds = computeEmbeddedViewBounds(createRealShapeWindow(), 200, BROWSER_CHROME_TOP, true)
+    expect(bounds).toEqual({ x: 0, y: 76, width: 1424, height: 785 })
+  })
+
+  it('收起时显式传入的侧栏宽度被忽略（收起态没有侧栏宽度可言）', () => {
+    expect(computeEmbeddedViewBounds(createRealShapeWindow(), 68, BROWSER_CHROME_TOP, true).x).toBe(0)
+    expect(computeEmbeddedViewBounds(createRealShapeWindow(), undefined, BROWSER_CHROME_TOP, true).x).toBe(0)
+  })
+
+  it('展开（collapsed=false 或缺省）时行为与既有契约逐字节一致', () => {
+    const expanded = computeEmbeddedViewBounds(createRealShapeWindow(), 200)
+    expect(computeEmbeddedViewBounds(createRealShapeWindow(), 200, BROWSER_CHROME_TOP, false)).toEqual(expanded)
+    // 展开态下 width=0 仍按非法值回落默认 200（守卫不被 collapsed 参数绕过）
+    const guarded = computeEmbeddedViewBounds(createRealShapeWindow(), 0, BROWSER_CHROME_TOP, false)
+    expect(guarded.x).toBe(SIDEBAR_WIDTH_DEFAULT)
+  })
+
+  it('非布尔值不得被当成收起（strict true，防 IPC 参数漂移）', () => {
+    for (const value of [1, 'true', '1', {}, []]) {
+      const bounds = computeEmbeddedViewBounds(createRealShapeWindow(), 200, BROWSER_CHROME_TOP, value)
+      expect(bounds.x, `collapsed=${JSON.stringify(value)} 必须按展开处理`).toBe(200)
+    }
+  })
+
+  it('收起与自定义顶部偏移可同时使用（分屏 NAV_HEIGHT=56 场景）', () => {
+    const bounds = computeEmbeddedViewBounds(createRealShapeWindow(), 200, 56, true)
+    expect(bounds).toEqual({ x: 0, y: 56, width: 1424, height: 805 })
+  })
+})
+
+/**
  * 联动契约（2026-09-16 加固）：
  * BROWSER_CHROME_TOP 是与渲染进程 DOM 的 TabBar/NavBar CSS 高度**手工同步**的常量。
  * WebContentsView 是原生图层，不受 CSS overflow 裁剪——若组件高度改动而常量未同步，
