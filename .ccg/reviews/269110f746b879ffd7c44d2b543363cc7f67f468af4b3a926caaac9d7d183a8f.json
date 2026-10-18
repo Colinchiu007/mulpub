@@ -1,0 +1,30 @@
+{
+  "sha": "f2b80c3a76d5795d7a435f392b4087d936080936",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 367 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 367,
+    "fileCount": 9,
+    "codeFileCount": 7,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 4,
+    "docSensitiveContentHits": 6,
+    "docSensitiveContentSample": [
+      "| 抖音 | `rpa_vm`（API 先试后回落） | `API publish douyin: 账号信息缺失，请重新授权此账号再试` | `publish timeout` |",
+      "| V3 | 签名材料齐备（抖音） | `hasSecurityMaterials()` 为真 | Step 0 fail-closed：`账号信息缺失，请重新授权` |",
+      "| 抖音缺签名材料 | `账号信息缺失，请重新授权此账号再试`（**保留**：这是用户可执行的唯一动作；需在文档中说明「重新授权会补齐 SDK cookie」） |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "269110f746b879ffd7c44d2b543363cc7f67f468af4b3a926caaac9d7d183a8f",
+  "decidedAt": "2026-10-18T07:50:24.887Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

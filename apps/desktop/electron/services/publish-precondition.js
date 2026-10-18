@@ -191,3 +191,65 @@ module.exports = {
   describeFailure,
   evaluatePublishPreconditions,
 }
+
+/**
+ * 门禁的**执行体**：先取证（`MP_DOM_DUMP=1` 时 dump 页面形状），再判定，
+ * 命中则产出可直接 return 的失败结果（带 `definitelyNotSent`）。
+ *
+ * 为什么放在这里而不是让调用点内联：调用点（`rpa-view-platforms._publish_generic`）
+ * 已贴着行数熔断上限，而「取证 + 判定 + 结果形状」是一件事，内联会把三者拆散。
+ *
+ * @param {object} p
+ * @param {object} p.win BrowserWindow
+ * @param {string} p.platform
+ * @param {object} p.article
+ * @param {object} p.selectors
+ * @param {object} p.fillReport
+ * @param {boolean} [p.noTitlePlatform]
+ * @param {object} [p.logger]
+ * @returns {Promise<{ ok: true } | { ok: false, result: object }>}
+ */
+async function assertReady (p) {
+  const input = p || {}
+  try {
+    const domDump = require('./rpa-dom-dump')
+    await domDump.dumpDom(input.win, input.platform, 'prepublish', { logger: input.logger })
+  } catch (_) { /* 取证失败不阻塞判定 */ }
+  const gate = evaluatePublishPreconditions({
+    platform: input.platform,
+    article: input.article,
+    selectors: input.selectors,
+    fillReport: input.fillReport,
+    noTitlePlatform: Boolean(input.noTitlePlatform),
+  })
+  if (gate.ok) return { ok: true }
+  const report = input.fillReport || {}
+  if (input.logger && typeof input.logger.warn === 'function') {
+    input.logger.warn('RpaView', '[' + input.platform + '] pre-submit gate blocked: ' + gate.reason
+      + ' (upload=' + JSON.stringify(report.upload)
+      + ' title=' + JSON.stringify(report.title)
+      + ' content=' + JSON.stringify(report.content) + ')')
+  }
+  return {
+    ok: false,
+    result: {
+      success: false,
+      error: gate.message,
+      platform: input.platform,
+      url: '',
+      reason: gate.reason,
+      preSubmitBlocked: true,
+      definitelyNotSent: true,
+    },
+  }
+}
+
+module.exports = {
+  REASONS,
+  PLATFORM_LABELS,
+  VIDEO_ENTRY_HINTS,
+  labelOf,
+  describeFailure,
+  evaluatePublishPreconditions,
+  assertReady,
+}

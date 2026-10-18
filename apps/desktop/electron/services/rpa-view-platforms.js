@@ -98,6 +98,8 @@ const draftOnlyConfirm = require('./draft-only-confirm')
 // 「内容真的进去了」。动因是 2026-10-17 批量发布里头条/抖音的真实根因被
 // 「publish btn not found」「publish timeout」这两条下游症状掩盖。
 const publishPrecondition = require('./publish-precondition')
+// 真机 DOM 取证（MP_DOM_DUMP=1 才采集；默认零开销）
+const domDump = require('./rpa-dom-dump')
 
 
 const platformsMixin = {
@@ -218,6 +220,8 @@ const platformsMixin = {
       log.warn('RpaView', '[' + platform + '] not logged in url=' + curUrl)
       return { success: false, error: platform+' not logged in', platform: platform }
     }
+    // 导航完成后立刻取证：这一步回答「我们到底落在哪个页面上」（视频号曾落在平台首页）
+    await domDump.dumpDom(win, platform, 'nav', { logger: log })
     // SPA 鐧诲綍鎬?DOM 鎺㈡祴锛歎RL 鏈烦杞絾椤甸潰宸叉槸鐧诲綍寮曞锛堝揩鎵嬬瓑 SPA 鏈櫥褰曚笉鏀瑰彉 URL锛?
     const loginProbe = await win.webContents.executeJavaScript(`(function(){
       var t = (document.body && document.body.innerText) || '';
@@ -449,34 +453,15 @@ const platformsMixin = {
       })
     }
     // ★ publish-precondition-gate（2026-10-18）：点发布按钮之前断言「内容真的进去了」。
-    // 为什么必须在**点击之前**：发布按钮点击是副作用动作（每点一次都是一次真实提交尝试，
-    // 风控面），而且点完没反应只会得到 `publish timeout` 这类与根因无关的症状。
-    // 这里失败 ⇒ 平台写操作**必然未发生** ⇒ 显式标 definitelyNotSent（比靠错文本猜可靠），
-    // 由队列回滚发布间隔窗口（视频号 60′ 不再被一次假失败吃掉）。
+    // 为什么必须在**点击之前**：发布按钮点击是副作用动作（每点一次都是一次真实提交尝试，风控面），
+    // 且点完没反应只会得到 publish timeout 这类与根因无关的症状；而「点击之前」失败 ⇒ 平台写操作
+    // 必然未发生 ⇒ 显式标 definitelyNotSent，由队列回滚发布间隔窗口（视频号 60′ 不再被假失败吃掉）。
+    // 取证（MP_DOM_DUMP=1）+ 判定 + 结果形状都在 publish-precondition.assertReady 里。
     {
-      const gate = publishPrecondition.evaluatePublishPreconditions({
-        platform,
-        article,
-        selectors: sel,
-        fillReport,
-        noTitlePlatform: isNoTitlePlatform(platform),
-      })
-      if (!gate.ok) {
-        log.warn('RpaView', '[' + platform + '] pre-submit gate blocked: ' + gate.reason
-          + ' (upload=' + JSON.stringify(fillReport.upload)
-          + ' title=' + JSON.stringify(fillReport.title)
-          + ' content=' + JSON.stringify(fillReport.content) + ')')
-        return {
-          success: false,
-          error: gate.message,
-          platform,
-          url: '',
-          reason: gate.reason,
-          preSubmitBlocked: true,
-          definitelyNotSent: true,
-        }
-      }
+      const gate = await publishPrecondition.assertReady({ win, platform, article, selectors: sel, fillReport, noTitlePlatform: isNoTitlePlatform(platform), logger: log })
+      if (!gate.ok) return gate.result
     }
+
     if (sel.publish_btn && sel.publish_btn.length>0) {
       retry.addField('publish')
       while (!retry.isDone('publish')) {
