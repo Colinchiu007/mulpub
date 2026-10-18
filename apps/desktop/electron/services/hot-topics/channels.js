@@ -2,7 +2,7 @@
 /**
  * 热门选题渠道解析器 — 每渠道一个 parse 函数
  *
- * 统一输出条目结构：{ channel, rank, topic, hotValue, url, rawCategory }
+ * 统一输出条目结构：{ channel, kind, rank, topic, hotValue, url, rawCategory }（kind 由产出层写，见 hot-topics/item-model.js）
  * 所有解析器只做纯数据提取，不做网络请求（fetch 由 service 层统一处理）。
  *
  * v2 变更（方案A/D）：
@@ -13,6 +13,7 @@
 
 /** HTML 实体解码（百度/tophub HTML 渠道用） */
 const { safeHttpUrl } = require('@multi-publish/shared-utils/src/safe-http-url')
+const { KIND_TOPIC } = require('./item-model.js')
 
 function decodeHtmlEntities(text) {
   return String(text || '')
@@ -33,6 +34,7 @@ function parseZhihu(json) {
   const list = (json && json.data) || []
   return list.slice(0, 50).map((item, i) => ({
     channel: 'zhihu',
+    kind: KIND_TOPIC,
     rank: i + 1,
     topic: String((item.question && item.question.title) || (item.target && item.target.title) || item.title || '').trim(),
     hotValue: Number((item.detail_text || '').replace(/[^0-9]/g, '')) || null,
@@ -49,6 +51,7 @@ function parseToutiao(json) {
   const list = (json && json.data) || []
   return list.slice(0, 50).map((item, i) => ({
     channel: 'toutiao',
+    kind: KIND_TOPIC,
     rank: i + 1,
     topic: String(item.Title || '').trim(),
     hotValue: Number(item.HotValue) || null,
@@ -70,6 +73,7 @@ function parseTencent(json) {
   const filtered = list.filter(item => item.articletype !== '560')
   return filtered.slice(0, 50).map((item, i) => ({
     channel: 'tencent',
+    kind: KIND_TOPIC,
     rank: i + 1,
     topic: decodeHtmlEntities(item.title || item.name || ''),
     hotValue: Number(item.hotEvent || item.hotScore || 0) || null,
@@ -84,6 +88,7 @@ function parseBilibili(json) {
   const list = (json && json.data && Array.isArray(json.data.list)) ? json.data.list : []
   return list.slice(0, 50).map((item, i) => ({
     channel: 'bilibili',
+    kind: KIND_TOPIC,
     rank: i + 1,
     topic: String(item.title || '').trim(),
     hotValue: Number(item.stat && item.stat.view) || null,
@@ -120,6 +125,7 @@ function parseDouyin(json) {
       if (!topic || items.some(x => x.topic === topic)) continue
       items.push({
         channel: 'douyin',
+        kind: KIND_TOPIC,
         rank: Number(w.position) || items.length + 1,
         topic,
         hotValue: Number(w.hot_value) || null,
@@ -140,6 +146,7 @@ function parseXiaohongshu(json) {
   const list = (json && json.data && Array.isArray(json.data.items)) ? json.data.items : []
   return list.slice(0, 50).map((item, i) => ({
     channel: 'xiaohongshu',
+    kind: KIND_TOPIC,
     rank: i + 1,
     topic: String(item.title || '').trim(),
     hotValue: parseCnNumber(item.score),
@@ -158,6 +165,7 @@ function parseIfeng(json) {
   const list = (json && json.data && Array.isArray(json.data.list)) ? json.data.list : []
   return list.slice(0, 50).map((item, i) => ({
     channel: 'ifeng',
+    kind: KIND_TOPIC,
     rank: i + 1,
     topic: decodeHtmlEntities(item.title || ''),
     hotValue: Number(item.commentsCount) || null,
@@ -211,6 +219,7 @@ function parseIfengInline(html) {
   const list = (all && all.hotRankData && Array.isArray(all.hotRankData.data)) ? all.hotRankData.data : []
   return list.slice(0, 50).map((item, i) => ({
     channel: 'ifeng',
+    kind: KIND_TOPIC,
     rank: i + 1,
     topic: decodeHtmlEntities(item.title || ''),
     hotValue: null,
@@ -236,6 +245,7 @@ function parseBaidu(json) {
   const ranked = content.filter(item => !item.isTop)
   return ranked.slice(0, 50).map((item, i) => ({
     channel: 'baidu',
+    kind: KIND_TOPIC,
     rank: Number(item.index) || i + 1,
     topic: decodeHtmlEntities(item.word || item.query || ''),
     hotValue: Number(item.hotScore) || null,
@@ -253,6 +263,7 @@ function parseWeibo(json) {
     : (json && Array.isArray(json.data)) ? json.data : []
   return list.slice(0, 50).map((item, i) => ({
     channel: 'weibo',
+    kind: KIND_TOPIC,
     // rank 用数组序 i+1（与其他解析器一致）：实测 band_list 中 realpos 偶发稀疏（null），
     // 若回退 i+1 会与后续条目的 realpos 撞号产生重复 id；数组序恒唯一
     rank: i + 1,
@@ -278,6 +289,7 @@ function parseTophub(html) {
       : parseInt(hotText.replace(/[^0-9]/g, ''), 10) || null
     if (topic) items.push({
       channel: 'tophub',
+      kind: KIND_TOPIC,
       rank: items.length + 1,
       topic,
       hotValue,
@@ -295,6 +307,7 @@ function parseSinaFinance(json) {
   const list = (json && json.result && Array.isArray(json.result.data)) ? json.result.data : []
   return list.slice(0, 50).map((item, i) => ({
     channel: 'sina_finance',
+    kind: KIND_TOPIC,
     rank: i + 1,
     topic: decodeHtmlEntities(item.title || ''),
     hotValue: null,
@@ -321,6 +334,7 @@ function parseIthomeRSS(xml) {
     const lm = b.match(/<link>([\s\S]*?)<\/link>/)
     items.push({
       channel: 'ithome_tech',
+      kind: KIND_TOPIC,
       rank: items.length + 1,
       topic: title,
       hotValue: null,

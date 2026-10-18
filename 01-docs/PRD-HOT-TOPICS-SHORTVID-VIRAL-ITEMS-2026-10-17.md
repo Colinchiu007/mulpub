@@ -224,6 +224,8 @@ GET https://raw.githubusercontent.com/lonnyzhang423/douyin-hot-hub/main/archives
 
 ### 6.1 前置：条目数据模型扩展（所有爆款源的公共前提）
 
+> **状态更新（2026-10-18）**：本小节的字段合同**已实现**，已落地口径（含拒绝码表、三个调用点、回归锁与变异读数）见 §11。本节保留为业务口径来源；§6.2 及以后的小节仍是合同。
+
 现有产物 `{ channel, rank, topic, hotValue, url, rawCategory }` 必须扩为向后兼容的可选段：
 
 | 新字段 | 类型 | 必填判据 | 缺席语义 |
@@ -283,8 +285,58 @@ GET https://raw.githubusercontent.com/lonnyzhang423/douyin-hot-hub/main/archives
 | 「daysOnBoard」被误读为热度值 | 用户决策被误导 | tooltip 写清口径；`hotValue` 字段留 null 不填 |
 | 条目级那一片的合规面（爬虫 ToS） | 法务/账号风险 | §6 实现前须单独过一次合规评估，不在本 PR 范围 |
 
+## 11. 已实现切片：条目数据模型（2026-10-18，tasks 2.2）
+
+**本节是已落地口径的真源。** §6.1 的字段合同已实现；§6.2 / §6.3 / §6.4（三个爆款内容源）仍是合同，**未实现**。
+
+### 11.1 功能逻辑（单一实现）
+
+唯一实现是 `apps/desktop/electron/services/hot-topics/item-model.js`，四个导出口径：
+
+| 函数 | 职责 | 关键判据 |
+|---|---|---|
+| `normalizeKind(v)` | 判别位归一 | 只认 `topic` / `item`；**非法值返回 `null`**，绝不"修好"成合法值 |
+| `pickContentFields(e) | 内容段归一 | `author` 必须是干净字符串且 ≤128 字符（超长视为来源畸形——截断会得到一个"看起来真"的名字，比缺席更坏）；`publishTime` 必须匹配 ISO 形态（毫秒时间戳**不是**发布时间）；`interaction` 只认白名单 `like/comment/share/play` 且值必须是非负整数，**0 必须保留**（0 是真实读数，与"没有"不是一回事）；全部不合格 ⇒ 键**不存在**而非 `undefined` |
+| `validateEntry(e)` | 单条资格 | `KIND_INVALID` / `TOPIC_TEXT_MISSING` / `ITEM_NO_CONTENT` / `ENTRY_INVALID` 四种拒绝码 |
+| `filterViableEntries(list, {channel, log})` | 采集出口过滤 | 返回 `{kept, dropped, reasonCounts}`；告警**只记渠道、计数与原因**，不记条目文本 |
+| `withLegacyKind(e)` | 旧缓存读取归一 | 仅当 `kind` 为 `undefined/null` 时补 `topic`；**已有值（含非法值）原样保留**，非法值留给资格判据判红，不在这里悄悄迁移 |
+
+### 11.2 流程（三个调用点，一处不多一处不少）
+
+1. **产出层**：`hot-topics/channels.js` 的 13 个解析器每个产出对象都写 `kind: KIND_TOPIC`（判别位由产出层负责，消费层不得推断）。
+2. **采集出口**：`hot-topics-service.js` 两个 `map()` 之后各接一道 `filterViableEntries(...)`，不合格条目**在进入分类/评分/缓存之前**被丢弃。
+3. **读取侧兼容**：`getCache()` 把持久化的历史条目经 `withLegacyKind` 归一，**不写回存储**（读路径写回会把"当年没这个字段"和"当年没有这个值"抹成同一份数据）。
+4. **IPC 入口白名单**：`ipc-handlers/hot-topics.js` 的 `_sanitizeTopic`（收藏存量）经 `normalizeKind(raw.kind) || KIND_TOPIC` + `...pickContentFields(raw)` 接同一实现。
+
+### 11.3 数据校验（拒绝码与后果）
+
+| 情形 | 判据 | 后果 |
+|---|---|---|
+| `kind` 缺失或非法 | `KIND_INVALID` | 采集出口丢弃 + 该渠道计数 +1，warn 点名渠道与原因 |
+| 标题空白 | `TOPIC_TEXT_MISSING` | 丢弃（`item` 态同样要求有文本，不得产出无题条目） |
+| `kind='item'` 且三个内容字段全空 | `ITEM_NO_CONTENT` | 丢弃——这是“装饰性升级”的唯一拦点：不拦它，它会继续被 classifier 归类、被 scorer 计入“多榜同现”、被界面用渠道名兜底作者 |
+| `interaction` 为空对象 / 全 `undefined` / 值为负数小数或字符串 | 视为互动段**缺席** | 条目仍合格（只要另有真字段），界面不渲染该段 |
+| 未登记的互动键（如 `favoriteCount`） | 不采纳 | 键不进对象；O-3 取证前不得为 `play` 之类留空壳 |
+
+### 11.4 交互逻辑与显示项
+
+**本片无用户可见变化**：判别位与新字段都只是数据形状，而三个内容源（§6.2–§6.4）尚未接入，所以没有任何条目会以 `kind=item` 出现。界面行为与改前逐字一致——旧缓存与新产物都读作 `topic`。
+显示项与提示文字的**新增**发生在接入第一个条目源那一片（届时作者段/互动段/缺席态文案一律进 `locales/hot-topics/{zh,en}.js` 成对提交，渲染层不得出现中文字面量）。
+
+### 11.5 回归锁与变异反证（现场读数）
+
+| 项 | 读数 |
+|---|---|
+| 新增行为用例 | `apps/desktop/electron/services/hot-topics-item-model.test.js` **21 条全绿** |
+| 消费者并集全跑 | 8 个测试文件 **170 passed / 0 failed**（`hot-topics-item-model` / `hot-topics-service` / `hot-topics-new-sources` / `hot-topics-boost-classify` / `hot-topics-quota` / `classifier` / `scorer` / `ipc-handlers/hot-topics.assembly`）+ `src/href-scheme-contract.test.js` **16/16** |
+| 接线守卫 | 同文件内按源码断言：两个采集出口都调用判据（`filterViableEntries(` 计数 ≥2）、`kind: x.kind` 与 `...pickContentFields(` 在位、缓存读取接 `withLegacyKind`、收藏投影含 `normalizeKind` + `pickContentFields`；解析器计数锁要求 `kind: KIND_TOPIC` 出现次数 == 解析器数 −1，并带"扫描到的解析器数 ≥13"的反失明下界 |
+| 变异反证 | M1 判据恒通过 ⇒ 红 3/21；M2 摘掉第一个出口的判据调用 ⇒ 红 1/21；M3 空对象当有效互动 ⇒ 红 2/21；M4 `withLegacyKind` 把非法 kind 也修成 topic ⇒ 红 1/21。四条均 `restored=true`（还原后 md5 与改前相同） |
+| 既有断言校订 | `hot-topics-service.test.js` 的“getCache returns persisted cache”按新口径改写（旧数据读出 `kind: 'topic'`），并**新增**一条“读路径不得写回”的断言（`store.setSetting` 未被调用） |
+| 静态门禁 | eslint（`apps/desktop/eslint.config.mjs`，CI Gate 11 同源）5 个文件 rc=0；`scripts/check-debt-budget.js` 全部指标在基线内 |
+
 ## 10. 变更记录
 
 | 日期 | 内容 |
 |---|---|
 | 2026-10-17 | v1.0 首版：开源参照系实测（档 A/B/C）、逐平台可用性判定、第一刀（归档型热度标签）六维度规格、条目模型合同（§6，未实现） |
+| 2026-10-18 | v1.1 §6.1 条目模型已实现（tasks 2.2）：新增 §11 记录已落地口径——单一实现 `hot-topics/item-model.js`、产出层写 `kind`、两个采集出口的资格判据、旧缓存读取归一且不写回、IPC 收藏白名单接同一实现；21 条新用例 + 170/170 消费者并集 + 四条变异反证。§6.2–§6.4 三个爆款源仍是合同，未实现。 |

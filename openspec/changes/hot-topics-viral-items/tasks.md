@@ -21,7 +21,10 @@
 
 - [ ] 2.1 **前置取证**关闭 O-1（抖音官方热门视频榜的权限项/字段/配额/计费）——阻塞 2.3
   - 取证方法：由具备开放平台资质的账号按文档页实测一次，把响应原样落 `01-docs/research/`；取证前 2.3 不得开工
-- [ ] 2.2 条目模型落地：`kind` 必填 + `author`/`publishTime`/`interaction` 可选段，产出层写判别位
+- [x] 2.2 条目模型落地：`kind` 必填 + `author`/`publishTime`/`interaction` 可选段，产出层写判别位
+  - 证据（分支 `hot-topics-item-model`，PR 号见执行记录「远程同步」行）：新增单一实现 `apps/desktop/electron/services/hot-topics/item-model.js` + 用例 `apps/desktop/electron/services/hot-topics-item-model.test.js`（**21 passed**）；`channels.js` 13 个解析器逐个产出 `kind: KIND_TOPIC`；`hot-topics-service.js` 两个采集出口接 `filterViableEntries`、`getCache()` 接 `withLegacyKind`（读侧归一不写回）；`ipc-handlers/hot-topics.js` 的 `_sanitizeTopic` 接 `normalizeKind` + `pickContentFields`。
+  - 验证读数：消费者并集 8 个测试文件 **170 passed / 0 failed**；`src/href-scheme-contract.test.js` **16/16**；四条变异反证 M1 3/21、M2 1/21、M3 2/21、M4 1/21 全部指名红且还原后 md5 相同；eslint rc=0；`check-debt-budget` 在基线内。
+  - 既有断言校订：`hot-topics-service.test.js` 的旧缓存用例按新口径改写并加一条「读路径不得写回」。已落地口径详见 `01-docs/PRD-HOT-TOPICS-SHORTVID-VIRAL-ITEMS-2026-10-17.md` §11。
   - 需改：`hot-topics/channels.js`、`hot-topics-service.js` 收集出口（资格判据 + 丢弃 + 指名告警）
   - 回归：spec Requirement 1/2 的每个 Scenario 各一条；含"把丢弃判据改成 no-op 必须变红"的反证
 - [ ] 2.3 第一个内容条目源接入（依 2.1 结果在「官方 OpenAPI」与"自托管签名方案"中二选一）

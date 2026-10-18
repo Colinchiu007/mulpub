@@ -390,6 +390,7 @@
   新落点：**被测试读取的数据文件也算消费者面**，改它就要跑读它的那把测试。
 
 
+<<<<<<< HEAD
 # [未发布] fix(登录): 头条号登录期观测的覆盖面补正——真实生效的验证码入口此前既不在监测域、也不匹配锚点
 
 - fix(登录): 头条号登录期观测的**监测域补两条**（`yhgfb-cn-static.com` 验证码中心、`bytetos.com` 风控 glue）。动因是 2026-10-22 从 `https://mp.toutiao.com/` 的**实际登录页 HTML** 静态引用里抓到资源清单，发现上一刀（PR #4237）的监测域清单**漏了这两条**——而漏掉的恰恰是**真正生效**的图形验证码入口所在域：该域的请求此前**根本进不了** `webRequest` 过滤面 ⇒ 它的失败请求、HTTP≥400、慢请求**一条都不记**。
@@ -1667,6 +1668,17 @@ IPC 次数本身未降（本轮是「按需申请」，单段仍 5 次 IPC；服
   `packages/rewrite-engine` = 194 passed。
 - 变异反证：禁用截断 ⇒ 1 例红；回退「原样透传信封」⇒ 2 例红。
 - `build:vue` rc=0；locale pair/keys rc=0；max-lines rc=0；unwired-tests rc=0。
+=======
+# [未发布] feat(hot-topics): 条目模型加 kind 判别位与内容段，不合格条目在采集出口即丢（hot-topics-item-model）
+
+- **第一性问题不是"渠道不够"而是"盒子不对"**：`hot-topics/channels.js` 的统一产物 `{channel, rank, topic, hotValue, url, rawCategory}` 没有作者 / 发布时间 / 互动数，所以"给热门选题加近期爆款视频"这句话在数据结构层面无法表达。本片只把盒子改对，**不接任何新源**，因此用户可见行为逐字不变。
+- **单一实现** `apps/desktop/electron/services/hot-topics/item-model.js`：`normalizeKind`（非法值返回 null，不"修好"）、`pickContentFields`（`author` ≤128 且不截断、`publishTime` 必须 ISO 形态、`interaction` 只认 `like/comment/share/play` 且非负整数——**0 保留**、空对象算缺席）、`validateEntry`（四种拒绝码）、`filterViableEntries`（采集出口过滤，warn 只记渠道/计数/原因，不记条目文本）、`withLegacyKind`（旧缓存读作 topic，已有值含非法值原样保留）。
+- **丢弃点为什么在主进程**：`kind='item'` 但三个内容字段全空，一旦进列表就会继续被 classifier 归类、被 scorer 计入"多榜同现"、被界面用渠道名兜底作者——四个消费层各自把同一份坏数据兜成不同形状，症状只是"看着不太对"。这是本仓"装饰性升级/装饰性链路"的同型，故在入口就拦。
+- **三处手工白名单同批改**（AGENTS.md「新增字段必须同时改所有投影白名单，两侧各自单测都会绿」那条）：服务层两个采集出口 + IPC 收藏 `_sanitizeTopic`；并配一条**读源码的接线守卫**（两个出口各调一次判据、`kind: x.kind` 与 `...pickContentFields(` 在位、缓存读取接 `withLegacyKind`），带"解析器数 ≥13"的反失明下界。
+- **读路径不写回**：`getCache()` 只做读取侧归一；既有断言"returns persisted cache"按新口径改写，并新增一条 `store.setSetting` 未被调用的断言——把历史数据改写成当下口径，事后就分不清"当年没有"与"当年没这个字段"。
+- **验证**：新增 21 条行为用例全绿；消费者并集 8 个测试文件 170 passed / 0 failed；href 契约测试 16/16；eslint rc=0；债务指标在基线内。**四条变异反证**（判据恒通过 / 摘掉一个出口调用 / 空对象当有效互动 / 连非法 kind 也修好）分别红 3/21、1/21、2/21、1/21，全部指名且还原后 md5 相同。
+- **规格同步**：`openspec/changes/hot-topics-viral-items/tasks.md` 勾 2.2；PRD 新增 §11「已实现切片」，并如实标明 §6.2–§6.4（抖音官方热门视频榜、小红书条目自采、视频号）仍是合同——其中 O-1 的字段/权限/配额**未取证**，规格里没有凭想象写过任何一个字段名。
+>>>>>>> 0b6a067f1 (feat(hot-topics): 条目模型加 kind 判别位与内容段，不合格条目在采集出口即丢)
 # [未发布] fix(s2v): 「语音 / 音色 ID」显示条件回补 —— 模型来源不止一处（s2v-tone-field-guard）
 
 - **#3946 引入的 main 红**：该字段的 `v-if` 写成「已选提供方 **且** `s2vVoiceContextModel`」，而后者只认「程序按运营默许模型解析出的结果」（依赖 provider 注册表）。上游布局契约 `S2vConfigPanels.test.js` 的夹具显式给 `voiceModel` 但不加载注册表 ⇒ 字段不渲染 ⇒ main push 的 `QG Desktop Shards (2/2)` 判红（`expected '…' to contain '语音 / 音色 ID'`）。PR 侧没红是因为两片 shard 的文件集合不同、且该断言来自更晚合入的上游提交。

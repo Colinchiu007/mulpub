@@ -150,7 +150,10 @@ describe('HotTopicsService', () => {
     const persisted = { topics: [{ id: 'zhihu:1', topic: 't' }], fetchedAt: 123, channelStats: {} }
     const store = { getSetting: () => JSON.stringify(persisted), setSetting: vi.fn() }
     const svc = makeService({ settingsStore: store })
-    expect(svc.getCache()).toEqual(persisted)
+    // 旧缓存条目不含 kind ⇒ 按规格 Requirement 1 读作 topic；这是读取侧归一，不是数据迁移
+    expect(svc.getCache()).toEqual({ topics: [{ id: 'zhihu:1', topic: 't', kind: 'topic' }], fetchedAt: 123, channelStats: {} })
+    // 读路径不得写回：把历史数据改写成当下口径，事后就分不清"当年没有"与"当年没这个字段"
+    expect(store.setSetting).not.toHaveBeenCalled()
   })
 
   it('fetchTopics serves fresh cache without network', async () => {
