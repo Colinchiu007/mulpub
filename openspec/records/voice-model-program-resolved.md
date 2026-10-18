@@ -67,6 +67,19 @@ date: 2026-10-18
   重生成 `tests/fixtures/auth-surface.json`（total 156 → 157，仅新增该端点一行），复跑全量 `pytest -q` = **684 passed**。
   没有手改 fixture、也没有放宽断言。
 
+- 第三轮 CI 的 `QG Desktop Shards (1/2)` 红：**2 个文件 5 条用例失败**，全部是两个旧口径消费者的**夹具期望**需要按 C1 新语义更新
+  （本机定向套件跑的是我自己列的清单，漏了这两个文件——这是真实的逃逸，如实记录）：
+  ① `electron/services/prompt-bridge.test.js`（1 条）：夹具同时给了 `capability_models.llm='MiniMax-M2.7'` 与
+     `config.default_model='MiniMax-M1'`，旧断言期望后者胜。按 C1 新语义能力默认必须胜 ⇒ 把该条改名为
+     「多模态下能力默认优先于 provider 级默认」并断言 `MiniMax-M2.7`；**另补一条**「多模态缺能力声明时回退 config.default_model」
+     锁住 C1 修复的另一半（仅 llm 取 provider 级默认），不是把覆盖换掉。
+  ② `src/views/CreateView.voice-clone-delete-guard.test.js`（4 条）：夹具只设 `s2vConfig.voiceProvider/voiceModel`
+     而不注册 provider 行；克隆上下文已改为「按 provider 注册表解析能力默认模型」，于是 `getS2VVoiceCloneContext()`
+     fail-closed 返回 null，`confirmDanger` 根本没被调用。修法是在 `mountWithClonedVoice()` 里注册 `minimax-tts` provider 行
+     （生产路径同样是「先 loadS2VProviders 再操作音色」，所以这是夹具补齐而非放宽断言）。
+  复跑：`vitest run` 该两文件 = **2 files / 40 tests passed**。同批复查了另外两个引用 `default_model` 的测试
+  （`model-provider-apply-catalog.test.js`、`useModelProviderCrud.test.js`）= 72 passed；它们不受口径变更影响。
+
 ### QM-1 打包证据
 
 本片**未修改 `apps/desktop/electron/**` 的运行时逻辑**（仅在该目录下新增一个测试文件 `voice-model-resolution-parity.test.js`）。为稳妥仍执行了打包与启动三层判据：

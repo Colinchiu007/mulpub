@@ -346,7 +346,10 @@ describe('PromptBridge BYOK llm 注入', () => {
     expect(bridge.resolveLlmBind().model).toBe('MiniMax-M2.7')
   })
 
-  it('resolveLlmBind：用户未选择时使用运营预设默认（config.default_model）', () => {
+  it('resolveLlmBind：多模态下运营的能力默认（capability_models.llm）优先于 provider 级默认', () => {
+    // 2026-10-18（voice-model-program-resolved，跨家族评审 C1）：能力级默认必须先于 provider 级默认。
+    // 多模态的 config.default_model 是 provider「主模型」（通常为 llm），但不区分能力；
+    // capability_models.llm 才是运营为该能力显式指定的默许模型。
     const bridge = new PromptBridge({})
     bridge.modelProviderManager = {
       getDefault: vi.fn(() => ({ id: 'minimax-multimodal', name: 'MiniMax 多模态', models: ['speech-2.8-turbo', 'MiniMax-M1', 'MiniMax-M2.7'] })),
@@ -355,6 +358,24 @@ describe('PromptBridge BYOK llm 注入', () => {
         category: 'multimodal',
         models: ['speech-2.8-turbo', 'MiniMax-M1', 'MiniMax-M2.7'],
         capability_models: { llm: 'MiniMax-M2.7', tts: 'speech-2.8-turbo' },
+        config: { default_model: 'MiniMax-M1' },
+        api_key: 'sk-minimax',
+      })),
+    }
+    expect(bridge.resolveLlmBind().model).toBe('MiniMax-M2.7')
+  })
+
+  it('resolveLlmBind：多模态缺能力声明时回退运营预设默认（config.default_model）', () => {
+    // C1 修复的另一半：多模态**仅 llm 能力**取 provider 级默认（tts/image/video 跳过它，
+    // 以免拿 LLM 模型当 TTS）。这条锁住「无 capability_models.llm 时 llm 仍可用 default_model」。
+    const bridge = new PromptBridge({})
+    bridge.modelProviderManager = {
+      getDefault: vi.fn(() => ({ id: 'minimax-multimodal', name: 'MiniMax 多模态', models: ['speech-2.8-turbo', 'MiniMax-M1'] })),
+      getProviderWithKey: vi.fn(() => ({
+        id: 'minimax-multimodal',
+        category: 'multimodal',
+        models: ['speech-2.8-turbo', 'MiniMax-M1'],
+        capability_models: { tts: 'speech-2.8-turbo' },
         config: { default_model: 'MiniMax-M1' },
         api_key: 'sk-minimax',
       })),

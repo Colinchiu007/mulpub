@@ -135,12 +135,28 @@ function mountCreateView() {
   });
 }
 
-/** 准备好可删除的克隆音色上下文：provider/model 齐备 + 列表中有目标音色 */
+/**
+ * 准备好可删除的克隆音色上下文：provider/model 齐备 + 列表中有目标音色。
+ *
+ * 2026-10-18（voice-model-program-resolved）：克隆上下文不再读用户保存的 `voiceModel`，
+ * 而是按 provider 注册表解析能力默认模型 ⇒ 夹具必须把 provider 行注册进来，
+ * 否则 `getS2VVoiceCloneContext()` 会 fail-closed 返回 null（本测试在此之前只设 config 字段）。
+ * 这不是为过测试放宽断言：生产路径同样是「先 loadS2VProviders 再操作音色」。
+ */
 async function mountWithClonedVoice(voices) {
   const w = mountCreateView();
   await nextTick();
   await w.vm.loadS2VProviders();
-  await nextTick();
+  w.vm.s2vVoiceProviders = [
+    {
+      id: "minimax-tts",
+      name: "MiniMax TTS",
+      category: "tts",
+      models: ["speech-2.8-turbo"],
+      capability_models: { tts: "speech-2.8-turbo" },
+      config: {},
+    },
+  ];
   w.vm.s2vConfig.voiceProvider = "minimax-tts";
   w.vm.s2vConfig.voiceModel = "speech-2.8-turbo";
   w.vm.s2vVoiceClones = voices;
