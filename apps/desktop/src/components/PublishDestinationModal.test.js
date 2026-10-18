@@ -12,7 +12,7 @@
  * ⚠️ 组件用 `<teleport to="body">` 渲染，`wrapper.find/get` 找不到节点，
  *    必须查 `document.body`（与 HotTopics.test.js 的 `publish-dest-article` 同模式）。
  */
-import { afterEach, describe, it, expect } from 'vitest'
+import { afterEach, beforeEach, describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import i18n from '@/i18n'
@@ -31,7 +31,17 @@ async function mountModal (props = {}) {
 
 const q = (sel) => document.body.querySelector(sel)
 
+// ⚠️ 有界面的测试会临时切全局 locale（验证 locale 生效）。`i18n` 是**模块级单例**，
+// 同一 worker 内的后续测试文件共享它 —— 若本文件把 locale 留在 'en'，会污染
+// 依赖默认中文的既有测试（实测同分片内 S2vConfigPanels 因此偶发拿到未解析的
+// `create.story2video.*` key 而判红）。故快照原值并在 afterEach 原样恢复。
+let localeSnapshot = null
+beforeEach(() => {
+  localeSnapshot = i18n.global.locale.value
+})
+
 afterEach(() => {
+  if (localeSnapshot !== null) i18n.global.locale.value = localeSnapshot
   wrapper?.unmount()
   wrapper = null
   // teleport 到 body 的节点由组件卸载时移除；这里只兜底清掉残留的 overlay。
