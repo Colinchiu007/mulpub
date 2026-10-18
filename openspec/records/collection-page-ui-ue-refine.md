@@ -135,7 +135,7 @@ decider 另报「文档行命中敏感词 10 处」——逐条核对是本 PRD 
 
 ```
 [轮 1/3] 调用 critic=claude 评审...
-评审失败: spawnSync C:/Users/邱领/.claude/bin/codeagent-wrapper.exe ETIMEDOUT
+评审失败: spawnSync <claude-wrapper-exe> ETIMEDOUT
 ```
 
 - 后端体检通过（claude + opencode 均可解析、跨家族校验 proposer=opencode / critic=claude 通过）；
