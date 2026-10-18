@@ -1,0 +1,30 @@
+{
+  "sha": "5f2e217700efe625a95d677ca3cfa93cbf4d070b",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 1326 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 1326,
+    "fileCount": 23,
+    "codeFileCount": 13,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 2,
+    "docSensitiveContentHits": 6,
+    "docSensitiveContentSample": [
+      "| O7 | 失效原因在运行期/日志里可定位（voiceId/provider/reason），但不记录音频、密钥、绝对路径 | 日志字段白名单；无音频内容/密钥/本机绝对路径 |",
+      "（不记录音频、密钥、绝对路径）。",
+      "| 守卫 fail-open 与不误伤 | 克隆服务未注册、缺少 `getCloneVoiceStatus`、查询抛错、`registered:false`、`invalid:false`、默认音色/非克隆 provider、`voiceId` 为空或 `'default'` 时 MUST 放行；守卫故障不得变成任务失败。命中时 warn 日志固定 `[Story2Video] cloned voice blocked by preflight` 加 `{voiceId, provider, reason}`，禁止记录音频/密钥/绝对路径。 【已实现】 |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "43ffca04943fba5af0f3b18a76ac87fda2bdd66ef9179e2ed583457b867a3485",
+  "decidedAt": "2026-10-18T15:56:39.860Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

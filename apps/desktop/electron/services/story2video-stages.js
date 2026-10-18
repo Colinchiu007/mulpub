@@ -41,6 +41,8 @@ const { promptOptimizationMetaOf: pickPromptOptimizationMetaOf, optimizeItemProm
 const { resolveProviderDefaultModel } = require('./model-provider-manager');
 const { getProviderRunContext } = require('./provider-run-context');
 const modelCallScheduler = require('./model-call-scheduler');
+// 克隆音色前置守卫/失败聚合（2026-10-18）：判定、文案与去重逻辑收敛在独立模块，本文件只留调用点。
+const { isClonedVoiceUnavailableMessage, summarizeAssetFailures, resolveVoiceCloneGuard, buildVoiceCloneAggregateError } = require('./story2video-voice-guard');
 const {
   buildPromptEngineOptimizeRequest,
   extractOptimizedPrompt,
@@ -1475,16 +1477,6 @@ function normalizeAssetResult(result, pathKeys) {
   return { path: assetPath, duration: data.duration, meta: data };
 }
 
-function summarizeAssetFailures(label, results) {
-  return results.map((item) => {
-    const index = Number.isInteger(item?.index) ? item.index + 1 : '?';
-    const message = typeof item?.error === 'string' && item.error.trim()
-      ? item.error.trim().replace(/\s+/g, ' ').slice(0, 500)
-      : label + ' generation failed';
-    return label + ' #' + index + ': ' + message;
-  });
-}
-
 /**
  * Unified cloned-voice re-clone fallback for TTS stages.
  * 约定：仅尝试用本地样本重新克隆并重试合成；重新克隆失败时透传原始音色错误，
@@ -1493,15 +1485,8 @@ function summarizeAssetFailures(label, results) {
 async function tryReCloneVoice({ pipelineEngine, error, text, voiceId, voiceProvider, voiceModel, resolveManager, retryFn, context }) {
   const _errMsg = String((error && error.message) || error || '')
   const _errCode = (error && error.code) || (error && error.context && error.context.code) || ''
-  const _isClonedVoiceFail = _errCode === 'INVALID_CONFIG'
-    || /voice\s+(?:id\s+)?(?:wrong|not\s+found|does\s+not\s+exist|unavailable|missing)/i.test(_errMsg)
-    || /voice_id.*(?:not\s+found|not\s+exist|invalid|wrong|not\s+support)/i.test(_errMsg)
-    || /cloned?\s+voice.*(?:not\s+found|not\s+available|unavailable)/i.test(_errMsg)
-    || /(?:don't|do not|cannot|can't)\s+have\s+access.*voice/i.test(_errMsg)
-    || /\u5f53\u524d\u8d26\u53f7.*\u97f3\u8272|\u8d26\u53f7.*\u97f3\u8272|\u5c5e\u4e8e.*\u5176\u4ed6.*\u8d26\u53f7/.test(_errMsg)
-    || /\u97f3\u8272.*(?:\u65e0\u6548|\u4e0d\u5b58\u5728|\u5931\u6548|\u9519\u8bef|\u4e0d\u652f\u6301)/.test(_errMsg)
-    || /voice.*(?:\u65e0\u6548|\u4e0d\u5b58\u5728|\u5931\u6548|\u9519\u8bef|\u4e0d\u652f\u6301)/i.test(_errMsg)
-    || /\u58f0\u97f3.*(?:\u65e0\u6548|\u4e0d\u5b58\u5728|\u5931\u6548|\u9519\u8bef|\u4e0d\u652f\u6301)/.test(_errMsg)
+  // 消息判定收敛到 isClonedVoiceUnavailableMessage（失败聚合复用同一判定）；INVALID_CONFIG 为历史错误码分支，保留不缩窄行为。
+  const _isClonedVoiceFail = _errCode === 'INVALID_CONFIG' || isClonedVoiceUnavailableMessage(_errMsg)
   if (!_isClonedVoiceFail) return null
   const log = pipelineEngine && pipelineEngine.log
   const runContext = context && typeof context === 'object' ? context : null
@@ -3026,6 +3011,10 @@ function registerStory2VideoStages(pipelineEngine) {
       // 避免首个图片/视频/TTS 完成前（如图片生成需 16-30s）前端长期无数量信息
       writeAssetsProgress();
 
+      // 克隆音色前置守卫（2026-10-18）：任何图片/视频/旁白生成启动前确认克隆音色仍可用；命中失效立即 fail fast，不消耗额度。
+      const clonedVoiceBlockError = await resolveVoiceCloneGuard({ pipelineEngine, voiceId, providerId: resolvedVoiceProvider, model: resolvedVoiceModel })
+      if (clonedVoiceBlockError) return { success: false, error: clonedVoiceBlockError }
+
       // AI 视频场景生成（有界并发，受 provider 每分钟预算约束；与图片/旁白并行启动，2026-08-13 优化：
       // 此前视频串行且必须全部完成才启动图片/旁白，导致「视频 4/5 · 图片 0/16 · 旁白 0/8」长期无进展）。
       const videoResults = new Map();
@@ -3631,6 +3620,9 @@ function registerStory2VideoStages(pipelineEngine) {
             savedAt: new Date().toISOString(),
           };
         }
+        // 全部 TTS 失败且原因均为「克隆音色不可用」时聚合为一条可操作提示（避免同一原始英文按场景重复 N 次）。
+        const aggregateVoiceCloneError = buildVoiceCloneAggregateError(failedTts)
+        if (aggregateVoiceCloneError) return { success: false, error: aggregateVoiceCloneError }
         const failureDetails = [
           ...summarizeAssetFailures('Image', failedImages),
           ...summarizeAssetFailures('TTS', failedTts),
@@ -3724,6 +3716,10 @@ function registerStory2VideoStages(pipelineEngine) {
           return resolveCapabilityModel(provider, 'tts')
         } catch (_) { return '' }
       })() : voiceModel
+
+      // 克隆音色前置守卫（2026-10-18）：manual 模式在生成旁白前复用同一守卫，与 auto 路径行为一致（图片候选已生成，不再浪费 TTS 调用）。
+      const clonedVoiceBlockError = await resolveVoiceCloneGuard({ pipelineEngine, voiceId, providerId: resolvedVoiceProvider, model: resolvedVoiceModel })
+      if (clonedVoiceBlockError) return { success: false, error: clonedVoiceBlockError }
 
       const rawTtsItemTask = async (scene) => {
         const resumed = partialByIndex.get(scene.index)
@@ -4002,4 +3998,6 @@ module.exports = {
   runBoundedPromptTranslation,
   STORY2VIDEO_COMPOSE_PARALLEL_TASK,
   tryReCloneVoice,
+  // 克隆音色不可用判定与失败聚合（过渡期保留 re-export，实现已迁至 story2video-voice-guard）
+  isClonedVoiceUnavailableMessage, summarizeAssetFailures,
 };

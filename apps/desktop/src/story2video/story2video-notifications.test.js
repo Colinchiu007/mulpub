@@ -538,3 +538,60 @@ describe('Story2Video 断点恢复失败（resumeOrchestration errorCode 契约�
     expect(stageNotFound.message).toContain('failed stage could not be located')
   })
 })
+
+describe('Story2Video 克隆音色不可用（VOICE_CLONE_UNAVAILABLE 归一化，2026-10-18 事故）', () => {
+  it('errorCode=VOICE_CLONE_UNAVAILABLE 归一化为 voice_clone_unavailable，zh/en 文案成对且不泄漏原始英文', () => {
+    const zh = formatStory2VideoNotification({ errorCode: 'VOICE_CLONE_UNAVAILABLE' })
+    expect(zh.messageKey).toBe(STORY2VIDEO_NOTIFICATION_KEYS.VOICE_CLONE_UNAVAILABLE)
+    expect(zh.message).toContain('所选克隆音色不可用')
+    expect(zh.message).toContain('重新克隆')
+    expect(zh.message).not.toContain('VOICE_CLONE_UNAVAILABLE')
+    expect(zh.message).not.toContain("you don't have access")
+    expect(zh.message).not.toContain('voice_id')
+
+    const en = formatStory2VideoNotification({ errorCode: 'VOICE_CLONE_UNAVAILABLE' }, 'en')
+    expect(en.messageKey).toBe(STORY2VIDEO_NOTIFICATION_KEYS.VOICE_CLONE_UNAVAILABLE)
+    expect(en.message).toContain('The selected cloned voice is unavailable')
+    expect(en.message).toContain('Re-clone the voice')
+    expect(en.message).not.toContain('VOICE_CLONE_UNAVAILABLE')
+    expect(en.message).not.toContain("you don't have access")
+  })
+
+  it("供应商原始聚合错误 you don't have access to this voice_id 归一化为同一 key", () => {
+    const raw = "Asset scene generation failed: 0/9 scenes have both image and audio. TTS #1: TTS provider failed: you don't have access to this voice_id (voice_id=clone_abc)"
+    const zh = formatStory2VideoNotification({ error: raw })
+    expect(zh.messageKey).toBe(STORY2VIDEO_NOTIFICATION_KEYS.VOICE_CLONE_UNAVAILABLE)
+    expect(zh.message).not.toContain("you don't have access")
+    expect(zh.message).not.toContain('voice_id')
+
+    const en = formatStory2VideoNotification({ error: raw }, 'en-US')
+    expect(en.messageKey).toBe(STORY2VIDEO_NOTIFICATION_KEYS.VOICE_CLONE_UNAVAILABLE)
+    expect(en.message).not.toContain("you don't have access")
+  })
+
+  it('后端稳定前缀 VOICE_CLONE_UNAVAILABLE: <说明> 直接命中本地化文案，不落到泛化兜底', () => {
+    const result = formatStory2VideoNotification({
+      error: 'VOICE_CLONE_UNAVAILABLE: 供应商已不再受理该音色，且本地克隆样本缺失',
+    })
+    expect(result.messageKey).toBe(STORY2VIDEO_NOTIFICATION_KEYS.VOICE_CLONE_UNAVAILABLE)
+    expect(result.message).toBe('所选克隆音色不可用：供应商已不再受理该音色，且本地克隆样本缺失，无法自动重建。请在「声音」设置中重新克隆该音色或改选其它可用音色，然后重新启动。')
+  })
+
+  it('既有 VOICE_INVALID 用例不回归（voice id wrong / 中文无权访问仍归 voice_invalid）', () => {
+    const wrong = formatStory2VideoNotification({
+      error: 'TTS provider "minimax-tts" failed: invalid params, voice id wrong',
+    })
+    expect(wrong.messageKey).toBe(STORY2VIDEO_NOTIFICATION_KEYS.VOICE_INVALID)
+    expect(wrong.messageKey).not.toBe(STORY2VIDEO_NOTIFICATION_KEYS.VOICE_CLONE_UNAVAILABLE)
+
+    const chineseDenied = formatStory2VideoNotification({ error: 'TTS provider failed: 当前账号无权访问该音色' })
+    expect(chineseDenied.messageKey).toBe(STORY2VIDEO_NOTIFICATION_KEYS.VOICE_INVALID)
+  })
+
+  it('resolveStory2VideoNotification（弹窗路径）同样识别新错误码，且不需要必填插值参数', () => {
+    const resolved = resolveStory2VideoNotification({ errorCode: 'VOICE_CLONE_UNAVAILABLE' })
+    expect(resolved.key).toBe(STORY2VIDEO_NOTIFICATION_KEYS.VOICE_CLONE_UNAVAILABLE)
+    expect(resolved.message).toContain('所选克隆音色不可用')
+    expect(resolved.message).not.toMatch(/\{[^}]+\}/)
+  })
+})

@@ -130,6 +130,7 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 
 | 日期 | 范围 | 核心内容 | 主文档 |
 |------|------|----------|--------|
+| 2026-10-18 | 克隆音色本地样本完整性核验 + 生成前置守卫 | 故事讲述「声音」：`listClones` 对每条克隆做本地样本磁盘对账（失效标记 `invalidReason=invalid_voice_id 或 sample_storage_missing`），既有「已失效，请重新克隆」通道自动生效；新增只读 `getCloneVoiceStatus` 供生成前置守卫；`generate_assets` 在任何图片/视频/旁白调用前 fail fast（`VOICE_CLONE_UNAVAILABLE`），运行期全部 TTS 因克隆音色不可用时聚合为单条可操作提示；`summarizeAssetFailures` 相同错误去重 + 场景区间。详见 `01-docs/PRD-S2V-VOICE-CLONE-INTEGRITY-2026-10-18.md` 与总 PRD §7.1.16.4 | 总 PRD 7.1.16.4 / OpenSpec story2video-voice-clone-integrity |
 | 2026-10-17 | 流水线进度浮层统一 + 四按钮完成出口 | 视频创作页与热门选题页的流水线进度浮层改成同一套 footer（`UiButton` 单一来源），固定【查看】【去发布】【后台运行】【取消】四个按钮；【查看】【去发布】初始灰显，仅本次 run 成功并取得成片后解锁；**成功后浮层保持打开、不再自动跳转结果页**（取代 2026-08-21 的「完成即跳转」口径），由用户显式选择出口：【查看】→ `/create?view=history` 并定位「已完成」标签，【去发布】→ `/publish` 视频模式预填充（`buildPublishFromProject` + `publishDataToQuery`，run-only 记录退化为只带 `video_path`）。后台运行/取消语义不变（不调 `pipelineCancel`、检查点禁止后台化）。详见 `01-docs/PRD-VIDEO-PIPELINE-PROGRESS-MODAL-2026-10-17.md` | PRD-PIPELINE-MODAL / OpenSpec unify-video-pipeline-progress-modal |
 | 2026-08-24 | 克隆音色跨运行恢复 + 图片轮播编码预算 | 供应商侧失效克隆音色重克隆成功后，只在当前用户、当前 provider/model 的本地目录中以新 ID 替换旧 ID；仍指向旧 ID 的偏好同步迁移，迁移故障不阻断本次旁白重试。图片轮播 zoompan 单段编码预算纳入 workScale² 工作画布成本，2x→1.5x→1x 每次降档独立重算。PR #1143。详见本节 3.1.4.2、3.1.36 | PRD 3.1.4.2 / 3.1.36 / story2video-voice-recovery |
 | 2026-08-21 | 流水线启动前台跟踪 + 独立历史页「已中断」对齐 |
