@@ -1,6 +1,6 @@
 # PRD — 主窗口全局「左侧菜单收起/展开」（sidebar-collapse-toggle）
 
-> **立项日期**: 2026-10-18 | **状态**: 随分支 `sidebar-collapse-toggle` 交付（worktree `D:\Data\projects\mp-worktrees\mp-sidebar-collapse-toggle`）
+> **立项日期**: 2026-10-18 | **状态**: 随分支 `sidebar-collapse-toggle` 交付（隔离 worktree `mp-worktrees/mp-sidebar-collapse-toggle`，相对仓库父目录）
 > **关联**: [PRD.md](./PRD.md) §3.1 F8 系统功能 · [DESIGN.md](./DESIGN.md)「全局壳层：左侧菜单收起/展开」 · OpenSpec change `openspec/changes/sidebar-collapse-toggle/` · 执行记录 `openspec/records/sidebar-collapse-toggle.md`
 > **影响模块**:
 > - 渲染层：`apps/desktop/src/App.vue`、`apps/desktop/src/components/TabBar.vue`、本次新增的 `apps/desktop/src/stores/sidebar-collapse.js`（模块级单例状态）、`apps/desktop/src/components/SidebarToggleButton.vue`、`apps/desktop/src/components/icons/SidebarToggleIcon.vue`、`apps/desktop/src/locales/tab-bar/{zh,en}.js`
