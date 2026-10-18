@@ -1,0 +1,38 @@
+{
+  "sha": "18b899827544f6323ae4fac457134e9fa38dacbf",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 15 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 15,
+    "fileCount": 2,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "  使 `tests/test_auth_surface.py::test_surface_matches_committed_fixture` 判「端点鉴权面与已提交清单不一致」"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "b0f581c06891e939f9e1e67198a5407fd860418c181b84aae5cdc7eeabf8365b",
+  "decidedAt": "2026-10-18T19:07:00.416Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

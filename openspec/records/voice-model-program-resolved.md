@@ -61,6 +61,11 @@ date: 2026-10-18
 
 - `QG Changes` 的 `Gate 12c`（`check-doc-abs-paths.js`）判 3 处新增「本机绝对路径」：`.ccg/reviews/*.json` 里引擎写下的 `codeagent-wrapper.exe` 绝对路径错误文案、`openspec/changes/.../tasks.md` 与本记录里的 worktree 绝对路径。三处都改写成占位符形态（`$HOME/…`、`<repo parent>/mp-worktrees/…`），本地复跑 `check-doc-abs-paths.js --base=origin/main --head=HEAD` = PASS、`--all` 全量审计 PASS。**没有**跑 `--write-baseline` 把新增记进账本（那正是该门禁要拦的形状）。
 - `Gate Result` 是上述两条的聚合红灯，两条修好后自解。
+- 第二轮 CI 的 `ops-center 后端测试` 红：新增 admin 端点 `GET /api/v1/model-presets/capability-overview`
+  使 `tests/test_auth_surface.py::test_surface_matches_committed_fixture` 判「端点鉴权面与已提交清单不一致」
+  （`None -> ['require_admin']`）。按该判据自带的正解跑 `cd ops-center/backend && python scripts/auth_surface.py --emit`
+  重生成 `tests/fixtures/auth-surface.json`（total 156 → 157，仅新增该端点一行），复跑全量 `pytest -q` = **684 passed**。
+  没有手改 fixture、也没有放宽断言。
 
 ### QM-1 打包证据
 

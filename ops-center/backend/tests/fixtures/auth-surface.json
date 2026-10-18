@@ -1,5 +1,5 @@
 {
-  "total": 156,
+  "total": 157,
   "routes": [
     {
       "path": "/api/auth/change-password",
@@ -699,6 +699,19 @@
       "path": "/api/v1/model-presets",
       "methods": [
         "POST"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/model-presets/capability-overview",
+      "methods": [
+        "GET"
       ],
       "auth": [
         "require_admin"
