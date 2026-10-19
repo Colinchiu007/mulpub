@@ -126,3 +126,29 @@ electron 树与批次 G 已实测 PASS 的产物逐字相同。
 | 修复 + 回归保护（QM-5 ④） | `integration-flows.js` 新增 `acceptPublishSummaryConfirm(r, timeout)`：等 `.el-message-box` 可见 → 取其文本 → 点 `.el-message-box__btns button.el-button--primary`；取不到一律如实返回 false，**不抛错**（抛错会把整条流判成基础设施故障，掩盖真实原因）。三条流各接一处，并新增三条**正向**检查：`Flow1.6b 发布前摘要确认出现并可确认`、`Flow5.1b 离线发布同样经过摘要确认`、`Flow6.1b 失败路径同样经过摘要确认`；随后的 IPC 等待判据从 `publishClicked` 改为 `confirm.clicked` —— 让"没确认"与"确认了但 IPC 没来"在报告里是可区分的两件事。 |
 | 防止再次发生（QM-5 ⑤） | ① 三条 `*b` 检查把新契约钉成**必须出现**：确认闸门若被无声去掉（反向回归），`dialogFound=false` 当场红，而不是"少测一项"；② 本记录把这条写进 QM-2 同族清单：改任何"用户点一下之后会发生什么"的语义时，改动集必须包含 `grep -rla <该入口文案或 testid> apps/desktop/tests/e2e` 的读者清单；③ 离线路径也被显式覆盖（`Flow5.1b`），避免"确认只在在线路径"这种半覆盖被误当成全覆盖。 |
 | 未闭合（不假装） | 本机未跑 QG Browser E2E（需 dev server + Playwright，且历史预算 30 分钟），本判断的最终裁决在 CI 的这一次运行。若 `Flow1.6b` 反而红（例如 E2E 现场 `buildPublishSummaryMessage` 取不到篇数走了"跳过确认"分支），那是**新信息**：说明摘要在某些合法现场会 unresolved，需要按那条分支重新设计确认契约，不得回头把检查删掉。 |
+
+## 七、与主干的语义冲突怎么合（2026-10-19 re-sync，merge commit e311e9295）
+
+`origin/main` 前进到含 #4000（S3 交接参数收敛）与 #4019（头条封面五步链）之后，
+`Publish.vue` 的 `onMounted` 与本分支阶段 2.3（audit-63 三源并行）**撞在同一段代码上**。
+这是**代码文件的冲突，一律不许 union** —— 先 `git merge --abort` 回到干净态，再按语义合并。
+
+### 7.1 两个意图其实不矛盾，矛盾的是文本
+
+| 侧 | 它要什么 | 它的实现长在哪 |
+|---|---|---|
+| 主干 #4000 | 入口裁定只有**一个**出口：批量 / 单篇 / 再次发布 / `?video_path=` 预填的优先级与互斥 | `composables/useRouteHandoff.js` 的 `applyRouteHandoff()`（内部含 `applyHistoryVideoQuery` / `handoffIdsFromQuery` / `loadDrafts` + `loadDraft` / republish） |
+| 本分支 2.3 | 首屏三个互不依赖的数据源不得串行 await（串行 ⇒ 耗时是三者之和） | `Promise.allSettled([loadAccounts, loadPrecheckPreference, (+loadDrafts)])` + 逐源 `rejected` 只 warn |
+
+**合并结果**：`applyCopyDetailHandoff()` 仍在最前（copy-detail 契约锁要求"挂载即消费载荷"，它依赖这一点所以**不能**并进 `applyRouteHandoff`）→ 三源并行块 → 默认选中账号循环（必须在 `loadAccounts` 落地之后）→ `await routeHandoff.applyRouteHandoff()`。**本分支原先内联的那 16 行 handoff 优先级判据被删掉**，因为它正是 #4000 要消灭的"第二份各自判"——留着它就是把主干的重构回滚一次。
+
+### 7.2 为什么"跑通测试"不等于"合对了"
+
+合并后跑的不是"整包一遍"，而是**按被改区域的承重锁逐个点名**：`src/views/Publish.test.js` + `src/composables/useRouteHandoff.test.js`（120 passed）、`src/views/firstPaintParallel.contract.test.js` + `usePublishFlow.test.js` + `usePublishFlow.m1-reentry.test.js`（96 passed）、`copy-detail-handoff` / `copy-library-truncation` / `CopyLibraryView`（27 passed）。其中 `firstPaintParallel.contract.test.js` 是**本分支自己写的并行契约**：如果合并时把并行块顺手退成串行，红的是它，而不是任何一条主干测试 —— 这就是"按谁读这段代码去选验证域"的具体用处。
+
+### 7.3 一次差点留在仓库里的损坏（自我抓住，必须记）
+
+CHANGELOG 的 union 我第一遍写成 `readFileSync(p, 'latin1')` + `writeFileSync(p, out.join('\n'))`（**写的时候没成对声明 latin1**）⇒ 每个中文被按 latin1 解出再以 UTF-8 编码写回，`未`（`e6 9c aa`）变成 `c3 a6 c2 9c c2 aa`，**整份 CHANGELOG 变成 mojibake**。
+危险的是它**不报任何错**，而且 git diff 只看行内容时看起来"只是中文乱了"，真正暴露它的是我自己的**字节级对账探针**：它对 CHANGELOG 报 `lost=47 且全部是非 ASCII 行`（ASCII 行 0 丢失）。"只有非 ASCII 行全丢"这种分布根本不是"内容丢了"的形状，而是编码被换了形状。
+正解与验证：`git checkout --conflict=merge -- CHANGELOG.md` 从 index 的三个 stage 把冲突态还原（注意它写的标签是 `<<<<<<< ours / >>>>>>> theirs`，不是 `<<<<<<< HEAD`——按 HEAD 找锚点会得到 0 个块，这是"探针 0 命中先怀疑坐标"的又一次现场），再以 latin1 读 + latin1 写重做 union，最后断言**文件头 12 字节的 hex** 回到 `23 20 5b e6 9c aa e5 8f 91 e5 b8 83`（`# [未发布`）+ lost=0 + markers=0。
+**口径**：① 字节保真的读写必须**成对**声明编码，且收尾断言用"文件头 hex + 双向行多重集"，不用"看起来对"；② 同一批里凡用了 latin1 读，就要把该次所有写回都过一遍同样的头字节检查（本会话另两处 union 已核：首字节均为合法 UTF-8，未受影响）；③ 判"丢了 N 行"之前先看**丢失集合的形状**：全非 ASCII ⇒ 先怀疑仪器，不是先改文件。
