@@ -813,3 +813,54 @@ https://mp.toutiao.com/profile_v4/personal/auth?enter_from=main_page   ← 二�
    且外链打开受 `href-scheme-contract.test.js` 白名单约束，需按契约接入。
 2. 接线时须同步补 `locales/zh.js` / `en.js` 成对文案（Gate 7 locale-sync）。
 3. `IsIdentifyAuth=false` 与弹窗「账号信息未完善」是否完全等价未单独证实。
+
+### 12.7.5 「解法入口」在界面上的落地（R9，2026-10-19）
+
+#### 断点不在引擎，在结果收敛器
+
+引擎返回 `helpUrl` 并不会自动到界面 —— `publish-mode-runner` 用
+`Object.assign(base, {...})` **重建**结果对象，只挑 `error` / `code` 等少数字段往下传。
+新增字段默认不透出。
+
+⇒ 渲染层的接法改为**按稳定失败码反查链接**，只依赖已经在传的 `code`。
+好处：收敛器将来再挑字段也不会让链接静默失效。
+
+#### 单一真源（三处必须一致）
+
+| 处 | 文件 | 约束 |
+| --- | --- | --- |
+| 主进程（CJS） | `packages/shared-utils/src/publish-gate-help.js` | 权威表 |
+| 渲染进程（ESM） | `packages/shared-utils/src/publish-gate-help.browser.js` | 浏览器不能执行 CJS，故双份（本仓既有先例） |
+| 引擎 | `packages/api-publish-engine/.../toutiao-video-publish.js` 的 `ACCOUNT_FIX_URL` | **不能** require 本包（该包是零 workspace 依赖运行时），故自带常量 |
+
+一致性由 `packages/shared-utils/test/publish-gate-help-parity.test.js` **机械锁死**：
+两份逐字段比对 + **静态读引擎源码**比对 `ACCOUNT_FIX_URL` 字面量。
+**为什么必须机械**：任一处漂移，用户会被送到错页面且**不报错**。
+
+#### 显示项与交互
+
+| 项 | 规则 |
+| --- | --- |
+| 出现位置 | 发布进度面板里**失败**的那一行（`phase === 'failed'`） |
+| 出现条件 | `task.code` 在链接表里**有对应项**；否则**不渲染**（绝不给点不动的链接） |
+| 链接属性 | `href` 过 `safeHttpUrl`；`target="_blank"`；`rel="noopener noreferrer"` |
+| 文案 | i18n `publishPage.publishFlow.gateHelp.<code>`；未命中用表内中文兜底 |
+| 判据形状 | `v-if` 与 `:href` **必须同一个表达式** `safeHttpUrl(gateHelp.url)`（`href-scheme-contract.test.js` 硬判据，防死锚点） |
+
+#### 文案
+
+| 语言 | 文案 |
+| --- | --- |
+| zh | 去头条号完善账号信息 |
+| en | Complete your Toutiao account info |
+
+#### 数据校验
+
+- `url` 必须是 http/https 且**不含 userinfo**（parity 测试里断言，渲染层 `safeHttpUrl` 再验一次）。
+- `code` 缺失 / 未知 ⇒ `helpForCode` 返回 `null`，界面不渲染。
+
+#### 仍未闭合
+
+1. 单篇发布流程的失败 toast 仍是纯文本（它拿到的是入队响应，平台失败异步回来），未接。
+2. 目前只有头条两个码；其它平台的账号状态类失败要接需成对加表项。
+3. 链接页面对未登录 / 其它账号是否同样有效未验证。

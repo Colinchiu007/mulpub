@@ -374,6 +374,13 @@ export default {
       publishFailed: 'Publish failed',
       publishFailedTitle: 'Publish Failed',
       publishErrorTitle: 'Publish Error',
+      // Pre-publish gate "how to fix" link labels (2026-10-19, publish-gate-help-ui).
+      // The URL itself lives in packages/shared-utils/src/publish-gate-help(.browser).js
+      // (single source, same table as the engine-side helpUrl; locked by a parity test).
+      gateHelp: {
+        accountNotVerified: 'Complete your Toutiao account info',
+        noPublishPermission: 'Complete your Toutiao account info',
+      },
       publishFailedProgress: (ctx) => '✗ Publish failed: ' + ctx.named('message'),
       publishErrorProgress: (ctx) => '✗ Error: ' + ctx.named('message'),
       scheduleInvalidProgress: (ctx) => '✗ ' + ctx.named('message'),

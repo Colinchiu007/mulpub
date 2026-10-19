@@ -384,6 +384,13 @@ export default {
       publishFailed: '发布失败',
       publishFailedTitle: '发布失败',
       publishErrorTitle: '发布异常',
+      // 发布前闸门的「解法入口」链接文案（2026-10-19，publish-gate-help-ui）。
+      // 链接地址不在这里维护 —— 在 packages/shared-utils/src/publish-gate-help(.browser).js
+      // 的单一真源里（与引擎侧 helpUrl 同表，parity 测试钉住），这里只管文案。
+      gateHelp: {
+        accountNotVerified: '去头条号完善账号信息',
+        noPublishPermission: '去头条号完善账号信息',
+      },
       publishFailedProgress: (ctx) => '✗ 发布失败: ' + ctx.named('message'),
       publishErrorProgress: (ctx) => '✗ 错误: ' + ctx.named('message'),
       scheduleInvalidProgress: (ctx) => '✗ ' + ctx.named('message'),
