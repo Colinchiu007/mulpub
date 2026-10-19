@@ -1100,6 +1100,52 @@ IPC 次数本身未降（本轮是「按需申请」，单段仍 5 次 IPC；服
 - **检查时机三处**（Q5）：启动水合（含离线缓存回放）+ 登录成功（`auth-service.onAuthenticated` → `syncNow`）+ 每 6h 轮询（unref）。策略缺失/`enforce_enabled=false` → 零行为变化（默认部署安全）；阻断判定不受 gray_ratio 灰度影响（全员一致）。
 - **防破解定位如实声明**：exe 未签名（sign:false），客户端判定是劝导层、服务端 426 是执法层，破解者 patch 掉弹窗后机器端点仍拒绝；fuses/代码签名/下载镜像列后续路线图（design §7）。存量更老版本无 gate 能力，随下一次常规更新下发（Q12）。
 - **回归锁**：pytest 16 例（upsert 校验 5 + 版本门 8 + 接线断言 + `_cmp_version` 语义）+ `auth_surface` 清单重生成（157 路由，`enforce_version_gate` 登记 `version-gate` 语义）；vitest 32 例（evaluate 状态机 8 + 72h 宽限边界 6（71.9h/72.1h/回拨）+ 窗口管理层 6 + 契约锁 12——四条接线钩子缺一即红）；相邻回归 auto-updater/ops-center-sync/window 176 例全绿。locale 走主进程字典 `enforce-gate-text.js`（zh/en 键集合一致性锁；渲染端 src 零改动、不受 CJK 基线约束）。管理页 UpdatePolicy.vue 新增阻断卡片（启用前二次确认 + 400 文案透出）。验证全程记 `openspec/records/forced-update-gate.md`，规格 `openspec/changes/forced-update-gate/`，PRD `01-docs/PRD-FORCED-UPDATE-GATE-2026-10-19.md`。
+# [未发布] fix(封面裁剪): 接缝从未产出宽高，cover:crop 自 #1174 起恒返回「图片尺寸无效」（cover-crop-license-bugs）
+
+- **原发缺陷不是回归**：`readImageAsDataUrl()` 的成功分支只返回 `{dataUrl,sizeBytes}`，**从来没有**返回过
+  `width/height`，而 `cropImageFile()` 把 `read.width / read.height` 喂给 `normalizeRect()` ——
+  `Number(undefined) || 0` 得 0 ⇒ 每一次裁剪都走 `图片尺寸无效`。取证两条一起做才算归因成立：
+  `git log --diff-filter=A -- cover-cropper.js` 唯一命中 `f9d1343bd`（PR #1174，2026-08-27），
+  而 `git log -S'width: size.width' -- 同一文件` **零命中** ⇒ 该字段从未存在过，不是"被谁删了"。存续 53 天。
+- **用户读到的是我们的失效模式，不是他的图片坏了**：`图片尺寸无效` 这句文案描述的对象被搞错了——
+  尺寸不是图片的属性没读出来，是**我们的解析器没把尺寸交出去**。修法是补一个零依赖的字节头解析器
+  （新 `packages/shared-utils/src/image-size.js`，PNG IHDR / JPEG **按段结构** / WebP VP8·VP8L·VP8X），
+  并把失败原因分成 `EMPTY / TOO_SHORT / UNRECOGNIZED` 三种可区分读数；
+  **解析不出返回 `null` 而不是 `{width:0}`** —— 0 会被上游同一把判据读成"尺寸无效"，
+  等于把「工具不认识」伪装成「用户的文件坏了」，正是原 Bug 的形状。
+- **同一条链上还有第二处缺陷，被第一处挡在下游所以从未显形**：`pickJpegQuality` 是同步函数，
+  而它唯一的真实消费者传进来的编码器包的是 `webContents.executeJavaScript` ⇒ 返回 Promise。
+  `promise.length` 是 undefined、`undefined <= maxBytes` 恒 false，二分一路退到最低质量，
+  最后 `fs.writeFileSync(path, picked.buffer)` 收到一个 Promise 而抛 `ERR_INVALID_ARG_TYPE`。
+  **只修第一处会把用户从「图片尺寸无效」推进一个没人读过的 TypeError**，所以两处同批修。
+- **为什么四层门禁全绿**：`normalizeRect` 的单测里宽高是**测试自己传的 1920/1080**；
+  `cropImageFile` 只测了「文件不存在」这条早退分支；`pickJpegQuality` 的三条夹具一律返回 Buffer。
+  三层各自正确，**A 产出对象 → B 消费字段**这条缝没有任何用例穿过 —— 这是本仓
+  「注册≠注入≠生效」家族在**函数接缝**上的落点：字段同名、签名对得上，人眼也看不出接缝为空。
+- **JPEG 判据必须按容器走，不能扫字节**：EXIF（APP1）里可以塞一张缩略图，而缩略图自己就带 SOF0 且
+  出现在主图 SOF **之前**；朴素扫描会把 160×120 当主图尺寸，裁剪框被一个不存在的边界夹住 ⇒
+  **静默裁错而不是报错**。实现按段长度整段跳过 APPn，并有一条专门的负控用例钉住（M4 退回朴素扫描即红）。
+- **不用 sharp**：它不在 `apps/desktop` 的 dependencies 里（只在 `.cover-rasterize-worker.js` 以传递依赖被用），
+  为几个字节的头加一条生产依赖边要付打包体积与「生产依赖闭包」门禁的连锁。
+- **回归保护 17 例 + 五条反证**：真实文件夹具的真值来自**当场实测的两把独立尺子**
+  （System.Drawing 与 sharp 对 PNG 512×904、JPEG 1024×576 读数逐字一致）；
+  WebP 512×286 / 512×219 **只有 sharp 一把**（本机 System.Drawing 无 webp 编解码器），
+  单尺子在列、不假装双尺子，另用逐字节手写的规范夹具覆盖 VP8L/VP8X 这两条真文件覆盖不到的分支。
+  另有一条「两张不同尺寸的图必须给出不同读数」——夹具若对所有输入同形，
+  「按输入区分」这一整类缺陷对它结构性免疫。反证 M1–M5 各自指名变红、红集互不相同，
+  跑后实现文件 md5 逐字节还原。
+- **QM-1 全通过**：`build:dir` rc=0；`scripts/qm1-scheduled-publish-verify.cjs` 四段全 PASS，
+  打包产物内 `readImageSize` 对三张真图给出 512×904 / 1024×576 / 512×286，8 秒存活且 **stderr 长度=0**
+  （三层判据的第③层），asar 清单 15061 条带规模下界断言（防"解析退化成空集合 ⇒ 零缺失读成通过"）。
+- **驱动与夹具自己的四个坑，一并记进 BUGFIX 文档**：`pnpm` 是 `.CMD` shim，`execFileSync` 不走 shell 会 ENOENT
+  而 `e.status` 是 undefined ⇒ 会被读成"红了但一条 FAIL 都没解析到"；vitest 在被捕获的子进程里仍然上色，
+  `FAIL\s+path` 必须**先剥 ANSI**；正则 `\S*(…\.test\.js)` 的贪婪前缀会把路径吞成只剩 `r.test.js` 的尾巴；
+  JPEG 段长度字段**含其自身 2 字节**，第一版夹具写成 payload 长度，判据当场把自己的夹具判红 ——
+  夹具不合法时的"解析失败"读起来和"判据坏了"一模一样。
+- 全过程与完整契约（数据校验 / 流程 / 交互 / 显示项 / 提示文字逐条含新增与退役）见
+  `01-docs/BUGFIX-COVER-CROP-SIZE-SEAM-2026-10-19.md`；执行记录见 `openspec/records/cover-crop-license-bugs.md`。
+  QM-6 双模型外部评审**未执行**（本机无可用通道，pre-commit 亦如实打印跳过），不得读成"已外部复核"。
+
 
 # [未发布] fix(播客): 音色来源标注只给 ②③ 出声，闭集外取值不伪造来源并出声（podcast-voice-origin-tristate）
 
