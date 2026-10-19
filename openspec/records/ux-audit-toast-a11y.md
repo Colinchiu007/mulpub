@@ -162,6 +162,22 @@ toast，用户根本看不见」。**打开原文核对后撤回**：三处是 C
 → **39 passed**；被触及的 21 个文件 → **800 passed**；全量 `src` → **369 个文件全绿**（补建 preload 产物后）；
 门禁自测 **7 passed / fail 0**；九条变异 **9/9 CAUGHT**、`restore[final] … => IDENTICAL`。
 
+## 第 2 轮 re-sync 与本棘轮的第一次真实拦截（2026-10-19）
+
+- 合入 `origin/main`（落后 8 个提交）后只有 `CHANGELOG.md` 一处冲突（两侧都是置顶新条目），按并集合：
+  `hunks=1 / mine=77 / theirs=7`，双向多重集对账 `lost=0 gainedKinds=0`，标记行只剩 0 条。
+  交集文件另有 `apps/desktop/src/views/FilmCanvasView.actions.test.js`（git 自动合，合并后 `git diff origin/main..HEAD -- 该文件`
+  只剩我自己的 4/3 行 ⇒ 主干新增的 83 行完整保留），该文件 14 例与 toast 三套一起跑：**53 passed**。
+- **棘轮当场拦下一笔主干增量**：`GREW views/FilmCanvasView.vue 12→13`。取证三连（merge-base=12 / origin/main=13 /
+  `git log -1 -S` 归因到已合并的 `3b41a02c3 (#3978)`），确认与本分支无关后按「归因给 base 并逐项出声」口径 re-sync，
+  并在判据头注释与基线 `_comment` 双处写下动因；`check-toast-single-exit.js` 现读 `直调处数=85 / 基线处数=85 / 违规=0 PASS`，
+  `node --test scripts/check-toast-single-exit.test.js` 由 6/1 回到 **7 pass 0 fail**。
+- 同跑（re-sync 后）：`check-gate-record-debt` OK、`check-pr-exec-record --mode=enforce` OK（本 PR 28 文件 / 携带 1 篇记录）、
+  `check-doc-abs-paths` PASS（现场 1163 处、基线内 563 文件，无新增）、`check-no-brand-residue` PASS。
+- **不认领别人的账**：本条只 re-sync 基线数字与出声，不迁移那一处调用点 —— 迁移要 messageKey 与 zh/en 成对 locale，
+  属「某页文案对不对」的另一批变更，与本批「出口有没有策略」混在一起会让两批归因互相污染。
+
+
 ## 远程同步
 
 | 远程同步 | 由门禁推导 | 本行**不事后改写**：合并后由 `scripts/lib/merge-ledger.js` 按主干历史推导归属（只认 squash 尾注 `(#NNNN)`）；现场读数看 CI 步骤首行 `MERGE-LEDGER prs=<n>`。合并前这篇还不在基线上 ⇒ 判 `byDesign` 不红；把状态列预写成 `PASS` 会被 `prematureClaims` 判红（change: `ban-record-closure-backfill-pr` / `gate-record-sync-derived-status`）。main push 回读证据写在 PR 评论里，不写回本文件。 |
