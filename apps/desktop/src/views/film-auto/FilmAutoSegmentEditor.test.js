@@ -15,9 +15,14 @@ vi.mock('vue-i18n', () => ({
 
 import FilmAutoSegmentEditor from './FilmAutoSegmentEditor.vue'
 
+// 2026-10-19：块标题由 5 项补齐为 7 项（补 SCENE CONTEXT 与 STYLE）；夹具随之补齐，
+// 否则「完整提示词」会被判缺块、黄提示恒出现。
 const FULL_PROMPT = [
   'EXT. STREET',
   '[CHARACTER: ROKO] walks.',
+  '',
+  'SCENE CONTEXT',
+  'EXACT 3 CHARACTERS',
   '',
   'GEO SPATIAL LAYOUT',
   'alley left',
@@ -30,6 +35,9 @@ const FULL_PROMPT = [
   '',
   'CHARACTER ACTING',
   'tense',
+  '',
+  'STYLE',
+  'Photoreal. NON-IP.',
   '',
   'POSITIVE CONSTRAINTS',
   '8K',

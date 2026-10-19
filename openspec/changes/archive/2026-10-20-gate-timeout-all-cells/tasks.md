@@ -10,4 +10,4 @@
 - [x] 旧 provenance 降为转发 shim（既有消费者零改动）
 - [x] 回归锁 20 → 26（新增 17 棘轮①/18 棘轮②/19 缩进纪律/20 seeded 双向/21 校验器/22 真实仓全量）
 - [x] 接线：`quality-gate.yml` changes 作业 Gate 2b7 扩范围
-- [ ] 归档：本 change 合并后再落 `openspec/specs/`（按仓规，归档前以 PRD 为准）
+- [x] 归档：本 change 合并后归档至 `openspec/changes/archive/2026-10-20-gate-timeout-all-cells/`（specs/ 侧不落同名目录，与三笔近期先例一致）

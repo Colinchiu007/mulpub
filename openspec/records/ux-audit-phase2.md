@@ -86,6 +86,31 @@ publish-confirm-summary 4），另压行后复跑 `firstPaintParallel`(8) + Publ
 **QM-1 本轮不重跑**：入站 59 个文件里 `apps/desktop/electron/**` 与 `packages/rpa-engine/**` 命中 **0**，
 electron 树与批次 G 已实测 PASS 的产物逐字相同。
 
+## 第 3 轮 re-sync（落后 8 个提交，merge 后 push 前取证）
+
+- **为什么走 merge**：本分支 9 个提交、主干 8 个新提交，且 `CHANGELOG.md` 顶部必撞 ——
+  与 impl 分支同一判据（同一处冲突不付 9 遍）。
+- **唯一冲突 `CHANGELOG.md`**：一个 hunk，`mine=34 / theirs=7`，两侧都非空；并集解法逐行保留各自 EOL；
+  对账 **vs HEAD `34 0` 且 vs origin/main `34 0`，两种 `--numstat` 口径逐字相同**（双向纯插入，零删除）。
+- **验证面按「变更集交集」取**（交集 4 个文件：`CHANGELOG.md`、`locales/publish-page/{zh,en}.js`、`stores/publishProgress.js`）
+  ⇒ `stores/publishProgress.test.js` + `components/PublishProgressPanel.test.js` + `views/Publish.test.js` +
+  `views/PublishHistory.test.js` + `composables/usePublishHistoryRowFormat.test.js` = **301 passed / 5 files**；
+  `check-locale-sync --pair-base origin/main` / `--cjk` / `check-max-lines` 全 PASS。
+- **自动合上 ≠ 合对，三条不变式逐条回读**：① `showDraftList` 在源码里只剩注释与一条
+  「断言它为 undefined」的负向测试（S1c 删掉的东西没有被合并带回来）；② `contentPreview` 在
+  `usePublishHistoryRowFormat.js` 里仍为 0 次（主干 #3951 大改 PublishHistory，这块必须重验）；
+  ③ `FolderOpened` 在 `PublishHistory.vue` 只出现在**解释为什么不导入它的注释**里（死导入未复活）。
+- **一条需要如实说明的重叠风险**：主干 `9fffea446`（PR #3951「S1 导航收敛 + S2 披露明示」）与本批的
+  PRD §10（S1b/S1c/S1d 浮层与草稿箱收敛）**是同一族改动的两个来源**。合并没报冲突不等于两边做了同一件事：
+  后续若在 PRD/审计里读到同一要求的两套表述，收敛方向是**以主干已落地的实现为准**、把我这边的规格文字并过去，
+  而不是留两份。本轮没有替主干改任何一行。
+- **上一次 CI 红的归因仍未结清**：#3986 的 `QG Browser E2E` 红在 Flow1.7（`publishBatch` IPC 0 次调用）、
+  Flow5.2/5.3（离线合同：`offlineCacheCalls=0`、恢复在线后按钮仍 disabled）、Flow6.2（错误提示不可达）。
+  这些都不在本批 diff 的语义面上（本批只改首屏并行批次门控与历史行格式化），且 main push 的同一 job 是
+  **success**（run `39192099035`）⇒ 最可能的解释是**检查跑在落后的 base 上**（PR 处于 CONFLICTING 时
+  GitHub 只对 head 单侧跑）。本次合并把 base 抬到当前 main，若重跑仍红，就必须按本仓口径逐条查，
+  不得以「不是我改的」放行。
+
 ## 远程同步
 
 | 远程同步 | 由门禁推导 | 本行**不事后改写**：合并后由 `scripts/lib/merge-ledger.js` 按主干历史推导归属（只认 squash 尾注 `(#3986)`）；现场读数看 CI 步骤首行 `MERGE-LEDGER prs=<n>`。合并前这篇还不在基线上 ⇒ 判 `byDesign` 不红；把状态列预写成 `PASS` 会被 `prematureClaims` 判红（change: `ban-record-closure-backfill-pr` / `gate-record-sync-derived-status`）。main push 回读证据写在 PR 评论里，不写回本文件。 |
