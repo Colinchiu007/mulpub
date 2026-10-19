@@ -434,10 +434,12 @@ async function onFeedPublished (res) {
 }
 
 onMounted(async () => {
-  const [chRes] = await Promise.allSettled([loadChannel()])
+  // 阶段 2.3（audit-63）：频道元信息 / 单集列表 / RSS 端点三个源互不依赖，并行拉取。
+  // 原先 `loadChannel()` 独占一个 await：它慢（或挂）时另两块的骨架也出不来。
+  // 失败口径不变——每个源自己负责把错误落进自己的 error ref，这里只汇总出声。
+  const [chRes] = await Promise.allSettled([loadChannel(), loadEpisodes(), loadEndpoints()])
   const ch = chRes.status === 'fulfilled' ? chRes.value : null
   channelForm.value = applyChannelToForm(ch && ch.ok ? ch.channel : null)
-  await Promise.allSettled([loadEpisodes(), loadEndpoints()])
   if (ch && !ch.ok) notifyError(errorText(channelError.value || 'PODCAST_IPC_UNAVAILABLE'))
   if (episodesError.value) notifyError(errorText(episodesError.value))
 })

@@ -672,3 +672,49 @@ describe('PodcastChannelView 视图行为', () => {
     expect(en.podcast.channel.ownerEmailPrivacy).toBeTruthy()
   })
 })
+
+// ── 阶段 2.3（audit-63）首屏并行化的「行为锁」──
+// 这是本批唯一"真跑并行"的锁（Publish/Collection 那两个视图的测试文件已在 testLimit=1500
+// 之上挂账，只能上源码契约锁，见 firstPaintParallel.contract.test.js 的头注释）。
+// 判据取 Home.first-paint.test.js 同一手法：给慢源与快源各自的延时桩，
+// 看**快源的 start 是否落在慢源的 end 之前** —— 串行 await 时它不可能落在之前。
+describe('PodcastChannelView 首屏并行发起（audit-63）', () => {
+  it('channelGet 慢时，单集与端点不等它：三个源的 start 都在 channel:end 之前', async () => {
+    const order = []
+    const delay = (ms) => new Promise((r) => setTimeout(r, ms))
+    podcastApi.channelGet = vi.fn(async () => { order.push('channel:start'); await delay(40); order.push('channel:end'); return { ok: true, channel: SAMPLE_CHANNEL } })
+    podcastApi.episodeList = vi.fn(async () => { order.push('episodes:start'); await delay(2); order.push('episodes:end'); return { ok: true, episodes: [] } })
+    podcastApi.endpointList = vi.fn(async () => { order.push('endpoints:start'); await delay(2); order.push('endpoints:end'); return { endpoints: [] } })
+
+    const w = mount(PodcastChannelView, { global: { plugins: [i18n] } })
+    // 桩内部用 setTimeout 造延时；flushPromises 只清微任务队列、不推进定时器，必须给真实时间
+    await delay(120)
+    await flushPromises()
+
+    for (const k of ['channel:start', 'episodes:start', 'endpoints:start']) {
+      expect(order, k + ' 未被发起（并行批里少了这个源）').toContain(k)
+    }
+    expect(order.indexOf('episodes:start')).toBeLessThan(order.indexOf('channel:end'))
+    expect(order.indexOf('endpoints:start')).toBeLessThan(order.indexOf('channel:end'))
+    // 频道表单仍由 channel 填充（并行不等于丢依赖）
+    expect(w.find('[data-testid="podcast-field-title"]').element.value).toBe(SAMPLE_CHANNEL.title)
+    w.unmount()
+  })
+
+  it('channelGet 抛错不阻断单集与端点：两者照常渲染', async () => {
+    podcastApi.channelGet = vi.fn(async () => { throw new Error('channel boom') })
+    podcastApi.episodeList = vi.fn(async () => ({ ok: true, episodes: [{ guid: 'g1', title: '第一期' }] }))
+    podcastApi.endpointList = vi.fn(async () => ({ endpoints: [{ id: 'ep1', name: '小宇宙', url: 'https://www.xiaoyuzhoufm.com' }] }))
+
+    const w = mount(PodcastChannelView, { global: { plugins: [i18n] } })
+    await flushPromises()
+    await new Promise((r) => setTimeout(r, 20))
+    await flushPromises()
+
+    expect(w.text()).toContain('第一期')
+    expect(w.text()).toContain('小宇宙')
+    // 频道读失败必须出声，而不是静默留空
+    expect(podcastApi.channelGet).toHaveBeenCalled()
+    w.unmount()
+  })
+})

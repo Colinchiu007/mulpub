@@ -1387,17 +1387,17 @@ const {
 // 草稿导入 — 从 Collection 页跳转时加载
 onMounted(async () => {
   applyCopyDetailHandoff() // 置顶：不依赖前置异步步骤
-  if (publishTab.value === 'drafts') {
-    showDraftList.value = true
-    await loadDrafts()
-  }
-  await loadAccounts()  // 加载多账号列表
-  // 初始化默认选中账号
+  const draftsTab = publishTab.value === 'drafts'
+  if (draftsTab) showDraftList.value = true
+  // 阶段 2.3（audit-63，对齐 Home.vue 首屏范式）：账号目录/预检偏好/草稿列表互不依赖 ⇒ 并行，原先一串独占 await 让就绪时间是三者之和；allSettled 不抛 ⇒ 失败逐条出声。
+  const sources = [['loadAccounts', loadAccounts()], ['loadPrecheckPreference', loadPrecheckPreference()]]
+  if (draftsTab) sources.push(['loadDrafts', loadDrafts()])
+  const settled = await Promise.allSettled(sources.map((s) => s[1]))
+  settled.forEach((r, i) => { if (r.status === 'rejected') console.warn(`[publish] 首屏数据源失败：${sources[i][0]}`, r.reason) })
   for (const pid of selectedPlatforms.value) {
     const def = getDefaultAccount(pid)
     if (def) setSelectedAccountIds(pid, [def.id])
   }
-  await loadPrecheckPreference()
   applyHistoryVideoQuery()
   // 热门选题批量交接优先：这批 id 是「刚改写完的 N 条」，必须整体进批量区；
   // 单篇 ?draft= 只在没有批量交接时生效（两个参数同时出现时以批量为准）。

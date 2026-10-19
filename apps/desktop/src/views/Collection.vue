@@ -811,18 +811,30 @@ const { error: rewriteWordCountError } = useWordCountValidation(
 onMounted(async () => {
   // 草稿箱页签自行拉取列表；这里只取条数供页签角标显示（失败静默，不阻塞采集页）
   void countDrafts().then((n) => { draftCount.value = n })
-  await loadCollectedItems()
-  void loadCopyRewrites()
-  void loadRewriteStrategies()
-  void refreshStrategyPreview()
   // 统一内容类别：全应用单例，这里只需触发一次加载 + 订阅运营变更
-  loadContentCategories().catch(() => {})
-  categoriesUnsubscribe = watchContentCategories()
-  // 知乎收藏批量（2026-10-03）：平台目录 + 进度事件订阅
   // Promise.resolve 包裹：测试桩的 load() 可能返回 undefined，直接 .catch 会抛
   // "Cannot read properties of undefined (reading 'catch')"（QG Unit unhandled rejection 修复）
-  if (!platformStore.loaded) { Promise.resolve(platformStore.load()).catch(() => {}) }
-  if (!accountStore.accounts || !accountStore.accounts.length) { try { await Promise.resolve(accountStore.load()) } catch { /* 账号加载失败不阻塞 */ } }
+  const categoriesReady = loadContentCategories().catch(() => {})
+  categoriesUnsubscribe = watchContentCategories()
+  const platformReady = platformStore.loaded ? Promise.resolve() : Promise.resolve(platformStore.load()).catch(() => {})
+  const accountsReady = (accountStore.accounts && accountStore.accounts.length)
+    ? Promise.resolve()
+    : Promise.resolve(accountStore.load()).catch(() => {})
+  // 阶段 2.3（audit-63）：采集列表 / 改写结果 / 改写策略 / 平台目录 / 账号 / 内容类别
+  // 六个源互不依赖，并行拉取。原先 `await loadCollectedItems()` 独占首屏，
+  // 平台目录与账号在其后串行 ⇒ 就绪时间是三者之和；知乎收藏批量的平台范围
+  // 还要等账号目录回来才能定初值。对齐 Home.vue 的首屏范式：任一源失败只让
+  // 对应区块停在默认值，不整页报错。
+  await Promise.allSettled([
+    loadCollectedItems(),
+    loadCopyRewrites(),
+    loadRewriteStrategies(),
+    categoriesReady,
+    platformReady,
+    accountsReady
+  ])
+  // 策略预览依赖策略已回：改到并行批之后触发（原先与 fire-and-forget 的策略加载抢跑）
+  void refreshStrategyPreview()
   if (!batchPlatformScope.value && batchPlatformOptions.value.length) batchPlatformScope.value = batchPlatformOptions.value[0].id
   if (!batchVideoPlatformScope.value && batchVideoPlatformOptions.value.length) batchVideoPlatformScope.value = batchVideoPlatformOptions.value[0].id
 })
