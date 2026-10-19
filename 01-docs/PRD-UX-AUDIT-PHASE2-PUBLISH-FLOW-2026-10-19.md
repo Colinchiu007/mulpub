@@ -79,7 +79,7 @@ step = min(total, done + (running > 0 ? 1 : 0))
 
 ### 3.4 首屏并行化（audit-63）
 - 三个视图的 `onMounted` 内，互不依赖的数据源改由**同一个 `Promise.allSettled` 批**发起：
-  - `Publish.vue`：账号目录 / 预检偏好（草稿页签时含草稿列表）
+  - `Publish.vue`：账号目录 / 预检偏好（`?tab=drafts` 草稿整页时含草稿列表）
   - `Collection.vue`：采集列表 / 改写结果 / 改写策略 / 内容类别 / 平台目录 / 账号
   - `PodcastChannelView.vue`：频道元信息 / 单集列表 / RSS 端点
 - 判据：**就绪时间是最大值而不是之和**。任一源失败只让对应区块停在默认值，不整页报错；
@@ -234,3 +234,40 @@ N 个已 resolve 的 promise 让 `await` 只在微任务里续体，定时器相
 `expect(ElMessageBox.confirm).not.toHaveBeenCalled()`。闸门上线后它必然红——
 但它要证的从来只是"没有**敏感词**弹窗"。已改为按弹窗文案指名过滤，
 而不是放宽成"允许一次 confirm"（后者会把敏感词回归整个吃掉）。
+
+## 10. 与 PRD-UI-FLOW-CLARITY（S1b/S1c/S1d）的叠加契约
+
+本节写的是**两个 PRD 各自成立、叠起来会互相吃掉**的那几格。判据统一是：
+「合并后行为必须仍然指向整页草稿箱，且发布记录页不得残留草稿入口」。
+
+### 10.1 发布记录页的显示面收缩（S1c）
+
+- 本页**不再有草稿标签与整条 tablist**（单 tab 的 tablist 对屏幕阅读器是噪音）。
+  本 PR 的渲染上限提示（`history-render-limit-hint`）、审核徽标、内容类型徽标等
+  全部落在「发布记录」这一唯一列表上，不再有 tab 语义。
+- `contentPreview`（正文摘要，48 字符截断加省略号）**随草稿卡片一并下线**：
+  它的唯一调用点在草稿卡片。合并后本 PR 的 `usePublishHistoryRowFormat` 导出由 17 → **16**，
+  并以墓碑断言锁住「api 上没有它 + composable 源里不得再出现该函数定义」，
+  防止它作为零消费者导出复活。
+- 草稿箱的唯一入口是 `/publish?tab=drafts`（整页），采集页与发布页的"草稿"按钮一律跳该地址。
+
+### 10.2 发布页首屏并行化与草稿整页的交叠（audit-63 × S1c）
+
+- 判据仍是「三个互不依赖的源同处一个 `Promise.allSettled` 批」，
+  但**入批条件**从「草稿浮层开关 `showDraftList`」改为「`publishTab === 'drafts'`」。
+  `showDraftList` 这个状态已随浮层删除（`usePublishDrafts` 不再导出），
+  合并结果里若保留 `showDraftList.value = true` 就是 `undefined` 运行期崩溃 ——
+  而两侧文本单独看都合法，只有读合并结果才能发现。
+- 该形态由 `firstPaintParallel.contract.test.js` 的源码锁逐字钉住：
+  `if (draftsTab) sources.push(['loadDrafts', loadDrafts()])`。
+  **这条锁的作用不是碍事**：它否决了「把条件并进数组展开」或「退回条件 await」两种写法，
+  后者正是本 PR 要消除的串行退化。
+
+### 10.3 侧边栏「发布」落点改变（S1d）对本 PR 的影响
+
+- 菜单「发布」直达发布编辑器 `/publish`，`/publish/history` 转为内部路由（从发布页「发布记录」进入）。
+  本 PR 的「发布前摘要确认」闸门与发布进度面板都挂在 `/publish`，
+  因此**用户现在从菜单进来就会撞上确认闸门**——这是 S1d 与本 PR 叠加后的新暴露面，
+  不是 Bug；文案与计数口径见 §9.2/§9.3，位置不可挪的理由见 §9.1。
+- 本 PR 不新增任何 locale 键来描述这一跳转变化（属 S1d 的文案面）。
+

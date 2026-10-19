@@ -56,7 +56,6 @@ function mountApp () {
         MpSidebar: { template: '<div data-testid="mp-sidebar-stub" />' },
         TabBar: true,
         NavBar: true,
-        MpModuleNav: true,
         PublishProgressPanel: true,
         RouteLoadError: true,
         UpdateNotification: true,

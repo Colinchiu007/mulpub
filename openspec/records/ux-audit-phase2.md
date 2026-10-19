@@ -49,3 +49,39 @@ sync_backfill_owner: none-derived-from-trunk
 | 防止再次发生（QM-5 ⑤） | ✅ | ①口径写进规格（本 change 新增 Requirement「发布前必须给出可否决的摘要确认」）；②PRD §9 写明位置不可挪的理由、计数口径、失败取向；③本记录登记"CJK 门禁必须在每个含渲染改动的批次当场跑"，已同步进 tasks.md 5.5 |
 | 门禁 | ✅ | `check-locale-sync --keys` PASS(2125) / `--cjk` PASS（基线 1331、当前 1189、无新增硬编码）/ `check-max-lines` ✅ / eslint --quiet 0 违规 / vite build 通过（本批无 electron/ 改动 ⇒ QM-1 不适用） |
 | 未覆盖 | 登记 | 闸门是新增模态弹窗，像素门禁不覆盖模态内层（既有失明，见视觉基线记忆）；`audit-1` 提到的"日配额/频控窗口预警"未并入本闸门（属 2.5 之外的另一份数据源，未验证可得的字段前不写文案） |
+
+## 第 2 轮 re-sync（落后 1 个提交 `9fffea446`，PRD-UI-FLOW-CLARITY S1b/S1c/S1d）
+
+冲突 2 个文件、3 个 hunk，全部是**「本 PR 抽走的旧形态」与「main 就地删除的宿主特性」抢同一处**：
+
+| hunk | 现场 | 解法与理由 |
+|---|---|---|
+| `PublishHistory.vue` import 行 | 本 PR 加了 `FolderOpened`（草稿标签图标），main 的 S1c **删掉整个草稿标签** | 取 main 的图标清单（不含 `FolderOpened`）。它在本 PR 里已无消费者，跟着合并进来就是死导入。audit 三函数的 import 也不取：本 PR 早已把它们抽进 `usePublishHistoryRowFormat`，页面再直接 import 等于两份真源 |
+| `PublishHistory.vue` 函数块（89 行） | HEAD 侧为空（函数已抽出），main 侧仍是旧的内联形态并新加一条 `contentPreview 已删除` 说明 | 取 HEAD 的空侧 + **只保留 main 那条缺席说明**，并把它的理由改写成本分支的真实收口：`contentPreview` 的唯一调用点是草稿卡片正文摘要，卡片随 S1c 下线 ⇒ 连 composable 里的那份一并删除 |
+| `Publish.vue` onMounted | 本 PR 把首屏改成 `Promise.allSettled` 三源并行；main 的 S1c 删了 `showDraftList`（页内浮层开关），并把「草稿页签才加载列表」改成整页判据 | **保留并行版**，但必须删掉 `if (draftsTab) showDraftList.value = true` —— `usePublishDrafts` 已不再导出该状态，这行两侧文本都"合法"、合起来是 `showDraftList is undefined` 的运行期崩溃，而它落在冲突块里恰好被看见 |
+
+**`contentPreview` 的删除不是"顺手清理"**：`git grep` 在合并后的树上只剩 composable 的导出与两处测试引用，
+模板零调用。按 AGENTS「确定未被使用即可完全删除」执行，并把测试侧改法写成**墓碑断言**而不是删掉了事：
+`usePublishHistoryRowFormat.test.js` 的导出清单从 17 → 16，原 `contentPreview` 用例替换为
+「api 上没有它 + composable 源里不得再出现 `function contentPreview(` + 不得出现裸 `contentPreview` 导出项」三条，
+这样它复活时会红。
+
+**`check-max-lines` 的 TARGET_GREW 与不放宽口径**：`Publish.vue` 是**点名还账**文件（目标 1773，零增长容差），
+合并后 1777 ⇒ 红。处置**没有**上调 target，而是把本 PR 的注释从 4 行压到 1 行、并把
+`const draftsTab` 与 `const sources` 合成一条声明（两个声明符），回到 1772 行。
+关键约束是 `firstPaintParallel.contract.test.js` 的源码锁**逐字要求**
+`if (draftsTab) sources.push(['loadDrafts', loadDrafts()])` 这种形态，
+所以"改成条件展开（`...(cond ? [[...]] : [])`）以省一行"是**被锁否决**的方案 ——
+这条锁在此处的作用不是碍事，而是防止性能改动退化成条件 await。压完 8 条契约锁仍全绿。
+
+**取证（当场实跑，非引用）**：9 项静态门禁全 rc=0（`check-max-lines` 无新增超限且点名还账文件回到 1772、
+locale `--keys` 2125 成对、`--cjk` 1164 < 基线 1331、css-var、font-size、brand-residue 10582 文件、
+doc-abs-paths、unwired-tests、no-conflict-markers 标记行 8 全带登记）；
+`vitest run` 交汇面 9 个文件 → **419 passed**（PublishHistory 90 / rowContract 9 / rowFormat 16 /
+coverThumbnails 17 / Publish / usePublishFlow / publishProgress 45 / PublishProgressPanel /
+publish-confirm-summary 4），另压行后复跑 `firstPaintParallel`(8) + Publish + PublishHistory + rowFormat
+→ **227 passed / 4 files**；
+行尾对账 `git diff --cached --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径逐文件相等
+（`Publish.vue` 37/37、`PublishHistory.vue` 20/114）。
+**QM-1 本轮不重跑**：入站 59 个文件里 `apps/desktop/electron/**` 与 `packages/rpa-engine/**` 命中 **0**，
+electron 树与批次 G 已实测 PASS 的产物逐字相同。

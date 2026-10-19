@@ -12,6 +12,26 @@
 - **发现的既有缺陷（不在本批修，已登记）**：`cover:crop` 自引入提交 `f9d1343bd`（PR #1174）起恒返回「图片尺寸无效」——`cropImageFile` 取 `read.width/height`，而 `readImageAsDataUrl` 从不返回这两个字段（原始 blob 已核实"从未提供"，非后被删除）；既有测试只有「文件不存在」一条负例，正向路径零覆盖，故在全绿下存活至今。不与本批混做的原因：同一次提交改两个变量会让 M13（异步化）的归因失效。
 - **非目标**：2.1②（小图生成与缓存）、2.7 toast 单点化、2.8 首屏体量留后续批次，其契约已先写进 PRD §7 以免重新设计。QM-4 像素门禁与 QM-6 双模型评审在本批状态为 PENDING（本机无 CCG，pre-commit 实测打印「未找到 CCG，已跳过」），不预写结论。
 - **文档**：专项 PRD `01-docs/PRD-UX-AUDIT-PHASE2-PUBLISH-FLOW-2026-10-19.md`（显示项表、校验口径、权重公式、实测基线表、十六条反证）、OpenSpec change `openspec/changes/ux-audit-implement-phase2/`（新增能力 `desktop-publish-certainty` 5 条 Requirement）、执行记录 `openspec/records/ux-audit-phase2.md`。
+- **第 2 轮 re-sync（merge 落后 1 个提交 `9fffea446`，PRD-UI-FLOW-CLARITY S1b/S1c/S1d）**：3 个 hunk 全是
+  「本 PR 已抽走的旧形态」与「main 就地删除的宿主特性」抢同一处，**没有一个能靠机械并集解**：
+  ① `PublishHistory.vue` 的图标 import —— 本 PR 加的 `FolderOpened` 因 S1c 删掉草稿标签而**失去唯一消费者**，
+  跟着合并就是死导入；audit 三函数的 import 也不取（本 PR 已抽进 composable，页面再引等于两份真源）。
+  ② 同文件 89 行函数块 —— HEAD 侧为空（已抽出）、main 侧仍是内联旧形态，取空侧 + 只保留 main 的
+  缺席说明并改写成本分支的真实收口：`contentPreview` 唯一调用点是草稿卡片 ⇒ **连 composable 里那份一并删除**，
+  导出 17 → 16，测试侧不写成"删掉了事"而写成**墓碑断言**（api 无此键 + 源内不得再出现该函数定义）。
+  ③ `Publish.vue` 首屏 —— 保留 `Promise.allSettled` 并行版，但必须删掉 `showDraftList.value = true`：
+  该状态已随浮层下线（`usePublishDrafts` 不再导出），这行两侧文本单独看都合法、合起来是 `undefined`
+  运行期崩溃，**只有读合并结果才能发现**。入批条件随之从"浮层开关"改成"`publishTab === 'drafts'`"。
+- **`check-max-lines` 的 TARGET_GREW 没有靠放宽解决**：`Publish.vue` 是点名还账文件（目标 1773、零增长），
+  合并后 1777 ⇒ 红。处置是把本 PR 注释 4 行压成 1 行、`const draftsTab` 与 `const sources` 合成一条声明，
+  回到 1772。**上调 target 被排除**，而"把条件并进数组展开以再省一行"也被 `firstPaintParallel.contract.test.js`
+  的源码锁否决（它逐字要求 `if (draftsTab) sources.push([...])`）——这条锁在此处的作用不是碍事，
+  是防止性能改动退化成条件 await。压行后 8 条契约锁复跑全绿。
+- **re-sync 证据**：9 项静态门禁当场 rc=0（含 `--cjk` 1164 < 基线 1331）；交汇面 9 个测试文件 **419 passed**，
+  压行后 4 个文件复跑 **227 passed**；行尾两口径逐文件相等（`Publish.vue` 37/37、`PublishHistory.vue` 20/114）；
+  **QM-1 不重跑**的判据是入站 59 个文件里 `apps/desktop/electron/**` 与 `packages/rpa-engine/**` 命中 **0**
+  （electron 树与批次 G 已实测 PASS 的产物逐字相同）。叠加契约写入 PRD 新增 §10（三小节，含
+  「S1d 使菜单『发布』直达编辑器后，用户从菜单进来就会撞上本 PR 的确认闸门」这一新暴露面）。
 # [未发布] fix(gate): 欠账账本拒收「会自己腐化的第二份事实」—— 登记项只留原因字符串（normalize-debt-ledger-entry-shape）
 
 - **动因是当场量出来的两处腐烂**：`scripts/gate-record-debt-ledger.json` 的 23 条登记项有两种值形态（14 字符串 / 9 对象 `{reason,status,line}`）。逐条核对载体现状后：`line` **9/9 全部指不到自己的 `远程同步` 行**（3 条越界/指空，6 条指到别的 QM 行），`status` **已有 1 条说谎**（登记 `PENDING`，载体是 `执行中`）。而 `loadLedger` 只取 `reason`，全仓无任何 `entry.status` / `entry.line` 读取 —— 即"读它的人拿不到真值，不读它的人以为它是真的"。

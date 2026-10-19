@@ -13,13 +13,13 @@ function makeApi (category = 'TEXT') {
 }
 
 describe('usePublishHistoryRowFormat — 导出完整性（模板解构的全部成员）', () => {
-  it('17 个展示值函数全部导出且为函数', () => {
+  it('16 个展示值函数全部导出且为函数', () => {
     const { api } = makeApi()
     const keys = [
       'recordTitle', 'publisherName', 'auditLabel', 'auditAlert', 'auditHint',
       'contentTypeValue', 'contentTypeLabel', 'publishModeValue', 'publishModeLabel',
       'deliveryModeValue', 'deliveryModeLabel', 'deliveryModeHint',
-      'resultValue', 'failedCount', 'metricValue', 'formatTime', 'contentPreview'
+      'resultValue', 'failedCount', 'metricValue', 'formatTime'
     ]
     for (const k of keys) {
       expect(api, `缺少导出 ${k}`).toHaveProperty(k)
@@ -165,13 +165,16 @@ describe('usePublishHistoryRowFormat — 计数与指标', () => {
     expect(api.resultValue({}, 'url')).toBe('')
   })
 
-  it('contentPreview 压空白并在 48 字符后截断加省略号', () => {
+  it('contentPreview 已随 S1c 下线：不得复活为导出，也不得留在源码里当死函数', () => {
+    // 判据来自合并现场的实测推理：origin/main 的 S1c 删除了草稿卡片（contentPreview 的
+    // **唯一**调用点），而本 PR 早已把它抽进 composable —— 两侧都"合法"，合起来就是一条
+    // 零消费者的导出。所以墓碑要同时钉两侧：api 上没有它、composable 源里也没定义它。
     const { api } = makeApi()
-    expect(api.contentPreview('甲  \n  乙')).toBe('甲 乙')
-    const long = 'x'.repeat(60)
-    const out = api.contentPreview(long)
-    expect(out).toHaveLength(51)
-    expect(out.endsWith('...')).toBe(true)
+    expect(api).not.toHaveProperty('contentPreview')
+    const src = require('node:fs').readFileSync(
+      require('node:path').resolve(process.cwd(), 'src/composables/usePublishHistoryRowFormat.js'), 'utf8')
+    expect(src).not.toMatch(/function contentPreview\s*\(/)
+    expect(src).not.toMatch(/^\s*contentPreview,?$/m)
   })
 
   it('formatTime 对空值与非法值分别回落（非法值必须原样出声，不得静默变空）', () => {

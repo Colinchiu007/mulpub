@@ -159,22 +159,21 @@ describe('PublishHistory', () => {
     expect(wrapper.get('[data-testid="export-history"]').text()).toContain('导出')
   })
 
-  it('发布记录标签提供面板关联、roving tabindex 和方向键切换', async () => {
+  // S1c：本页草稿标签整体下线，草稿箱收敛到唯一整页视图 /publish?tab=drafts。
+  // 原用例断言 2-tab tablist 的面板关联与方向键切换，随第二个 tab 删除而失效；
+  // 改为锁定「不得复活」：页面只剩发布记录面板，且不再渲染 tablist / 草稿入口。
+  it('草稿标签已下线：只剩发布记录面板，不再渲染 tablist 或草稿入口', async () => {
     const wrapper = mountView()
     await nextTick()
     await nextTick()
 
-    const recordsTab = wrapper.get('[data-testid="records-tab"]')
-    const draftsTab = wrapper.get('[data-testid="drafts-tab"]')
-    expect(recordsTab.attributes('aria-controls')).toBe('records-panel')
-    expect(recordsTab.attributes('tabindex')).toBe('0')
-    expect(draftsTab.attributes('aria-controls')).toBe('drafts-panel')
-    expect(draftsTab.attributes('tabindex')).toBe('-1')
-
-    await recordsTab.trigger('keydown', { key: 'ArrowRight' })
-    await nextTick()
-    expect(draftsTab.attributes('aria-selected')).toBe('true')
-    expect(draftListMock).toHaveBeenCalledTimes(1)
+    expect(wrapper.find('[data-testid="drafts-tab"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="records-tab"]').exists()).toBe(false)
+    expect(wrapper.find('[role="tablist"]').exists()).toBe(false)
+    expect(wrapper.find('#drafts-panel').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="refresh-drafts"]').exists()).toBe(false)
+    // 发布记录面板本身仍在
+    expect(wrapper.find('#records-panel').exists()).toBe(true)
   })
 
   it('展示服务端总数并使用 offset 加载剩余发布记录', async () => {
@@ -593,21 +592,16 @@ describe('PublishHistory', () => {
     expect(wrapper.get('[data-testid="history-search"]').element.value).toBe('')
   })
 
-  it('草稿为空时渲染 EmptyState，有草稿时不渲染', async () => {
-    draftListMock.mockResolvedValue({ code: 0, data: [] })
+  // S1c：原「草稿为空时渲染 EmptyState」用例随草稿面板删除而失效。
+  // 草稿箱的空态/列表契约现由 Publish.test.js（整页草稿箱）承担，
+  // 这里只锁「本页不再读取草稿」——不得因残留接线而多打一次 IPC。
+  it('本页不再读取草稿（草稿箱已迁至 /publish?tab=drafts）', async () => {
     const wrapper = mountView()
     await nextTick()
-    await wrapper.get('[data-testid="drafts-tab"]').trigger('click')
     await flushPromises()
-
-    expect(wrapper.find('[data-testid="publish-history-drafts-empty"]').exists()).toBe(true)
-
-    draftListMock.mockResolvedValue({ code: 0, data: [{ id: 'd1', title: '草稿一', updated_at: '2026-09-01 10:00:00' }] })
-    await wrapper.get('[data-testid="refresh-drafts"]').trigger('click')
-    await flushPromises()
-
+    expect(draftListMock).not.toHaveBeenCalled()
     expect(wrapper.find('[data-testid="publish-history-drafts-empty"]').exists()).toBe(false)
-    expect(wrapper.findAll('.draft-card')).toHaveLength(1)
+    expect(wrapper.findAll('.draft-card')).toHaveLength(0)
   })
 
   it('加载失败时显示错误并允许重试', async () => {
@@ -682,17 +676,15 @@ describe('PublishHistory', () => {
     wrapper.unmount()
   })
 
-  it('切换草稿箱后加载草稿，并进入编辑器继续编辑', async () => {
+  // S1c：原「切换草稿箱后加载草稿并进入编辑器」随草稿标签删除而失效。
+  // 保留有价值的断言：本页不得再读草稿 IPC。
+  it('本页不再提供草稿入口（草稿箱唯一实现为 /publish?tab=drafts）', async () => {
     const wrapper = mountView()
     await nextTick()
-    await wrapper.get('[data-testid="drafts-tab"]').trigger('click')
-    await nextTick()
-    await nextTick()
-
-    expect(draftListMock).toHaveBeenCalledTimes(1)
-    expect(wrapper.text()).toContain('待完成草稿')
-    await wrapper.get('[data-testid="edit-draft-draft-1"]').trigger('click')
-    expect(pushMock).toHaveBeenCalledWith('/publish?draft=draft-1')
+    await flushPromises()
+    expect(draftListMock).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-testid="edit-draft-draft-1"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="drafts-tab"]').exists()).toBe(false)
   })
 
   it('新建发布先选择类型，再带类型进入编辑器', async () => {

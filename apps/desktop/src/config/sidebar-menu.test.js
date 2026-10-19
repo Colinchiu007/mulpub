@@ -86,7 +86,8 @@ describe('SIDEBAR_MENU_DEFINITION 契约', () => {
  */
 const EXPECTED_DERIVED_MENU = Object.freeze([
   { key: 'home', group: 'primary', labelI18nKey: 'sidebar.nav.home', to: '/' },
-  { key: 'publish', group: 'primary', labelI18nKey: 'sidebar.nav.publish', to: '/publish/history' },
+  // S1d：菜单「发布」由 /publish/history 改指 /publish（修正语义错位，key 不变）
+  { key: 'publish', group: 'primary', labelI18nKey: 'sidebar.nav.publish', to: '/publish' },
   { key: 'accounts', group: 'primary', labelI18nKey: 'sidebar.nav.accounts', to: '/accounts' },
   { key: 'dashboard', group: 'primary', labelI18nKey: 'sidebar.nav.dashboard', to: '/dashboard' },
   { key: 'create', group: 'primary', labelI18nKey: 'sidebar.nav.create', to: '/create' },

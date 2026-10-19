@@ -98,11 +98,6 @@ export function usePublishHistoryRowFormat ({ t, platformStore }) {
 
   const formatTime = (value) => formatDateTime(value, { emptyText: t('historyPage.unknownTime'), invalidText: String(value ?? '') })
 
-  function contentPreview (content) {
-    const text = String(content).replace(/\s+/g, ' ').trim()
-    return text.length > 48 ? text.slice(0, 48) + '...' : text
-  }
-
   return {
     recordTitle,
     publisherName,
@@ -119,7 +114,6 @@ export function usePublishHistoryRowFormat ({ t, platformStore }) {
     resultValue,
     failedCount,
     metricValue,
-    formatTime,
-    contentPreview
+    formatTime
   }
 }

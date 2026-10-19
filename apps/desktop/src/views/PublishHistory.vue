@@ -5,40 +5,10 @@
       <span>{{ t('historyPage.totalTasks', { count: totalRecords }) }}</span>
     </header>
 
-    <div class="history-tabs" role="tablist" :aria-label="t('historyPage.tablistAria')">
-      <button
-        id="records-tab"
-        class="history-tab"
-        :class="{ active: activeTab === 'records' }"
-        type="button"
-        role="tab"
-        :aria-selected="activeTab === 'records'"
-        aria-controls="records-panel"
-        :tabindex="activeTab === 'records' ? 0 : -1"
-        data-testid="records-tab"
-        @click="activeTab = 'records'"
-        @keydown="onTabKeydown($event, 0)"
-      >
-        {{ t('historyPage.tabRecords') }}
-      </button>
-      <button
-        id="drafts-tab"
-        class="history-tab"
-        :class="{ active: activeTab === 'drafts' }"
-        type="button"
-        role="tab"
-        :aria-selected="activeTab === 'drafts'"
-        aria-controls="drafts-panel"
-        :tabindex="activeTab === 'drafts' ? 0 : -1"
-        data-testid="drafts-tab"
-        @click="openDrafts"
-        @keydown="onTabKeydown($event, 1)"
-      >
-        {{ t('historyPage.tabDrafts') }}
-      </button>
-    </div>
-
-    <section v-if="activeTab === 'records'" id="records-panel" class="history-panel" role="tabpanel" aria-labelledby="records-tab">
+    <!-- S1c：草稿标签已删除 —— 草稿箱收敛为唯一整页视图 /publish?tab=drafts。
+         本页只剩「发布记录」一个面板，故不再需要 tablist：单 tab 的 tablist 对
+         屏幕阅读器是噪音，且原 onTabKeydown 是 2-tab 硬编码。 -->
+    <section id="records-panel" class="history-panel" :aria-label="t('historyPage.tabRecords')">
       <div class="history-tools" :class="{ 'selection-mode': selectionMode }">
         <template v-if="!selectionMode">
           <div class="history-search-row">
@@ -308,43 +278,8 @@
       </div>
     </section>
 
-    <section v-else id="drafts-panel" class="history-panel drafts-panel" role="tabpanel" aria-labelledby="drafts-tab">
-      <div class="panel-toolbar">
-        <span class="record-count">{{ t('historyPage.draftsCount', { count: drafts.length }) }}</span>
-        <button class="secondary-action" type="button" data-testid="refresh-drafts" @click="loadDrafts">{{ t('historyPage.refresh') }}</button>
-      </div>
-      <div v-if="draftLoading" class="state-panel state-panel--skeleton" data-testid="history-drafts-loading">
-        <UiSkeleton variant="list" :count="3" />
-      </div>
-      <div v-else-if="draftError" class="state-panel state-error" role="alert">
-        <p>{{ t('historyPage.draftsLoadFailed') }}</p>
-        <span>{{ draftError }}</span>
-        <button class="secondary-action" type="button" @click="loadDrafts">重试</button>
-      </div>
-      <EmptyState
-        v-else-if="drafts.length === 0"
-        data-testid="publish-history-drafts-empty"
-        :title="t('publishHistory.empty.drafts.title')"
-        :description="t('publishHistory.empty.drafts.message')"
-        :action-text="t('publishHistory.empty.drafts.action')"
-        @action="goToEditor()"
-      >
-        <template #icon><FolderOpened /></template>
-      </EmptyState>
-      <div v-else class="record-list">
-        <article v-for="draft in drafts" :key="draft.id" class="record-card draft-card">
-          <div class="record-preview draft-preview" aria-hidden="true"><span>{{ t('historyPage.draftMark') }}</span></div>
-          <div class="record-main">
-            <div class="record-title-row"><h2>{{ draft.title || t('historyPage.unnamedDraft') }}</h2></div>
-            <div class="record-meta">
-              <span><Clock />{{ formatTime(draft.updated_at || draft.updatedAt || draft.created_at || draft.createdAt) }}</span>
-              <span v-if="draft.content">{{ contentPreview(draft.content) }}</span>
-            </div>
-          </div>
-          <button class="secondary-action" type="button" :data-testid="`edit-draft-${draft.id}`" @click="editDraft(draft.id)">{{ t('historyPage.continueEditing') }}</button>
-        </article>
-      </div>
-    </section>
+    <!-- S1c：原草稿面板（drafts-panel）已删除 —— 第三处草稿 UI 收敛到
+         /publish?tab=drafts 整页视图。 -->
     <PublishTypeDialog
       :visible="showPublishTypeDialog"
       :platforms="publishTypePlatforms"
@@ -452,13 +387,17 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { safeHttpUrl } from '@multi-publish/shared-utils/src/safe-http-url'
-import { CirclePlus, Clock, Close, Delete, Download, FolderOpened, Grid, List, Operation, Search, Tickets, User } from '@element-plus/icons-vue'
+// FolderOpened 随 S1c 草稿标签下线后全仓零消费者，故不随本 PR 的图标清单一起带进来（死导入）。
+// audit 三函数（normalizeAuditStatus / auditStatusLabelKey / isAuditAlertStatus）已由
+// usePublishHistoryRowFormat 持有，本页不再直接 import —— 两份 import 必然口径分裂。
+import { CirclePlus, Clock, Close, Delete, Download, Grid, List, Operation, Search, Tickets, User } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import { getAppLocale } from '@/i18n'
 import { useRouter } from 'vue-router'
-import { draftList, historyDelete, historyGet, historyList, retryTask } from '@/api/publisher'
+// S1c：draftList 已移除 —— 本页不再读取草稿（草稿箱收敛到 /publish?tab=drafts）
+import { historyDelete, historyGet, historyList, retryTask } from '@/api/publisher'
 import { usePublishHistoryMetrics } from '@/composables/usePublishHistoryMetrics'
 import { PLATFORM_ICONS, PLATFORM_NAMES } from '@multi-publish/shared-utils/src/platform-definitions'
 import { getPlatformIconUrl, isPlatformIconUrl } from '@/composables/usePlatformIconUrl'
@@ -480,17 +419,13 @@ const { t } = useI18n()
 const router = useRouter()
 const platformStore = usePlatformStore()
 platformStore.load()
-const activeTab = ref('records')
 const records = ref([])
-const drafts = ref([])
 const loading = ref(false)
-const draftLoading = ref(false)
 const errorMessage = ref('')
 // 未登录门禁态：history:list 等通道要求登录（license-access-control AUTH_REQUIRED），
 // 与「服务连接失败」必须区分展示，避免把权限拒绝伪装成网络故障（2026-09-15）。
 const loginRequired = ref(false)
 const { isAuthenticated: identityAuthenticated, signIn: identitySignIn } = useIdentity()
-const draftError = ref('')
 const selectionMode = ref(false)
 const selectedIds = ref([])
 const totalRecords = ref(0)
@@ -809,36 +744,9 @@ watch(debouncedFilters, () => {
   if (hasActiveFilters.value) void loadRemainingRecordsForFilters()
 })
 
-async function loadDrafts () {
-  draftLoading.value = true
-  draftError.value = ''
-  try {
-    const result = await draftList()
-    if (!result || result.code !== 0) throw new Error(result?.message || t('historyPage.draftsReadFailed'))
-    drafts.value = Array.isArray(result.data) ? result.data : []
-  } catch {
-    drafts.value = []
-    draftError.value = t('historyPage.checkService')
-  } finally {
-    draftLoading.value = false
-  }
-}
-
-function openDrafts () {
-  activeTab.value = 'drafts'
-  loadDrafts()
-}
-
-function onTabKeydown (event, index) {
-  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
-  event.preventDefault()
-  const nextIndex = event.key === 'Home' ? 0 : event.key === 'End' ? 1 : index === 0 ? 1 : 0
-  if (nextIndex === 0) activeTab.value = 'records'
-  else openDrafts()
-  nextTick(() => {
-    event.currentTarget?.parentElement?.querySelectorAll('[role="tab"]')?.[nextIndex]?.focus()
-  })
-}
+// S1c：loadDrafts / openDrafts / onTabKeydown 已删除 ——
+// 本页草稿标签整体下线，草稿箱收敛到 /publish?tab=drafts 单一实现。
+// 原 onTabKeydown 还是 2-tab 硬编码（End 固定跳到第 2 个），随 tab 删除一并消失。
 
 function goToEditor (type) {
   if (!type) {
@@ -847,11 +755,6 @@ function goToEditor (type) {
   }
   showPublishTypeDialog.value = false
   router.push('/publish?type=' + encodeURIComponent(type))
-}
-
-function editDraft (id) {
-  if (!id) return
-  router.push('/publish?draft=' + encodeURIComponent(id))
 }
 
 function cancelSelection () {
@@ -924,7 +827,7 @@ const {
   recordTitle, publisherName, auditLabel, auditAlert, auditHint,
   contentTypeValue, contentTypeLabel, publishModeValue, publishModeLabel,
   deliveryModeValue, deliveryModeLabel, deliveryModeHint,
-  resultValue, failedCount, metricValue, formatTime, contentPreview,
+  resultValue, failedCount, metricValue, formatTime,
 } = usePublishHistoryRowFormat({ t, platformStore })
 
 // ── 作品链接的目的地判据 + 打开通道 ──
@@ -998,6 +901,9 @@ async function deleteSelectedRecords () {
     deletingSelected.value = false
   }
 }
+
+// S1c：contentPreview 已删除 —— 唯一调用点是草稿卡片正文摘要，随草稿面板一并下线；
+// 本 PR 侧它原本已被抽进 usePublishHistoryRowFormat，两侧收口后一并从 composable 里删除。
 
 
 function csvCell (value) {

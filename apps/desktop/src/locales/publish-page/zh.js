@@ -10,6 +10,8 @@ export default {
     noDrafts: '暂无草稿',
     draftsHint: '保存草稿后，可以从这里继续编辑。',
     continueEdit: '继续编辑',
+    // S1c：草稿箱卡片的唯一发布出口（原「继续编辑」与「发布」指向同一 URL，收敛为一个）
+    openDraftToPublish: '去发布',
     untitled: '无标题',
     updatedUnknown: '更新时间未知',
     platformCount: (ctx) => ctx.named('count') + ' 个平台',
@@ -332,7 +334,10 @@ export default {
     saveDraft: '💾 保存草稿',
     drafts: '📋 草稿箱',
     quickPublish: '🚀 一键发布',
-    createVideo: '🎬 创作视频',
+    // S2（PRD-UI-FLOW-CLARITY §14 裁决 #2）：该按钮点击后会**先静默保存一份草稿**
+    // 再跳转创作页。草稿本身有保留价值，故保留副作用，但必须在文案上明示，
+    // 否则用户会在草稿箱里发现一条"自己没存过"的草稿（§1.2 混淆点 #3）。
+    createVideo: '🎬 保存草稿并创作视频',
     createVideoEmpty: '内容为空，无法创作视频',
     cancelTasks: '取消任务',
     cancelledCount: (ctx) => '已取消 ' + ctx.named('count') + ' 个任务',
