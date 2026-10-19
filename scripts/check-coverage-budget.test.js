@@ -1,10 +1,12 @@
-// QG Coverage 作业超时的取证锁（node:test，只用内置模块 —— 本文件接在 quality-gate.yml 的 changes job，
+// 全仓 CI 作业超时的取证锁（node:test，只用内置模块 —— 本文件接在 quality-gate.yml 的 changes job，
 // 那个 job 没有 Install deps，任何第三方 require 会当场 MODULE_NOT_FOUND）。
 //
-// 它守的三件事，逐条对应本轮实测到的形状：
+// 它守的四件事，逐条对应实测到的形状：
 //   ① 数值必须由**可重跑的采集**支撑（不是把一次读数抄进注释）；
 //   ② 成功样本是**右截尾**的 —— 贴着天花板的那几趟永远不会以"成功"出现，所以 max 单独不构成预算依据；
-//   ③ 采集器与受检常量**必须同源**：字段漂移一次的 provenance，读起来完全像有效。
+//   ③ 采集器与受检常量**必须同源**：字段漂移一次的 provenance，读起来完全像有效；
+//   ④ 2026-10-20 扩到全仓 24 格后新增：**清单棘轮** —— workflow 里新出现的裸常量必须当场红，
+//      登记项消失也必须红，否则"纳入治理"只是一次性快照，下一个会话照样能加一个没人看的数。
 'use strict';
 
 const test = require('node:test');
@@ -14,11 +16,13 @@ const path = require('node:path');
 
 const SELF = path.join(__dirname, 'check-coverage-budget.js');
 const mod = require(SELF);
-const prov = require(path.join(__dirname, 'lib', 'coverage-budget-provenance.js'));
+const regLib = require(path.join(__dirname, 'lib', 'gate-timeout-registry.js'));
+const prov = regLib;
 const sampler = require(path.join(__dirname, 'coverage-budget-sample.js'));
 
+const ROOT = path.join(__dirname, '..');
 const REAL_WORKFLOW = fs.readFileSync(
-  path.join(__dirname, '..', '.github', 'workflows', 'quality-gate.yml'), 'utf8');
+  path.join(ROOT, '.github', 'workflows', 'quality-gate.yml'), 'utf8');
 
 function withTimeout(yaml, minutes) {
   return yaml.replace(
@@ -226,15 +230,19 @@ test('12 采集器与判据的字段清单逐字相等（漏一格时 parity 锁
 });
 
 test('13 CLI 退出码分档：真实仓必须绿，显式注入的坏值必须判违规而不是自身故障', () => {
-  const code = mod.main(['--root=' + path.join(__dirname, '..')]);
+  const code = mod.main(['--root=' + ROOT]);
   assert.equal(code, mod.EXIT_OK, '真实仓上 CLI 必须绿');
-  const bad = mod.main(['--root=' + path.join(__dirname, '..'),
-    '--timeout=1']);
+  // 注入坏值必须**指名到格**（2026-10-20 起：--timeout 单独出现会因"不知道注入给哪一格"走退出码 2，
+  // 那是把猜测变成判据的反面 —— 所以这里显式给出 --job）。
+  const bad = mod.main(['--root=' + ROOT, '--job=coverage',
+    '--workflow=.github/workflows/quality-gate.yml', '--timeout=1']);
   assert.equal(bad, mod.EXIT_VIOLATION, '--timeout=1 是显式注入的坏值，必须判违规而不是自身故障');
+  const ambiguous = mod.main(['--root=' + ROOT, '--timeout=1']);
+  assert.equal(ambiguous, mod.EXIT_JUDGE_ERROR, '--timeout 不配 --job 必须走自身故障档，不得猜');
 });
 
 // ── 2026-10-19 增：**在飞作业不是漏样**（coverage-budget-inflight） ──────────────
-// 现场：`node scripts/coverage-budget-sample.js --limit=60` 连续三次以
+// 现场：`node scripts/gate-timeout-sample.js --limit=60` 连续三次以
 //   「有 8~9 趟活跃作业取不到时长 —— 这是取数漏样…先修采集再谈预算」rc=2 拒绝。
 // 逐趟取证后那 8~9 趟**全部是 queued / in_progress**（还没跑完，本来就没有 completed_at），
 // 同窗口"已完成却无时长"的真漏样是 **0 趟**。
@@ -293,4 +301,129 @@ test('16 接线锁：采集必须带上 status，且退出码决策必须可被�
     'probe_errors>0 仍必须阻断');
   assert.equal(code({ noDuration: 0, inFlight: 0, hasData: false }, 0), 1,
     '零样本必须非零出声（"没采到"不是"没有长尾"）');
+});
+
+// ── 2026-10-20 增：**清单棘轮**（change: gate-timeout-all-cells）─────────────────
+// 现场：全仓实测 24 格 `timeout-minutes` 分布在 11 个 workflow，而此前只有 `QG Coverage`
+// 一格有人看。只把 24 格抄进一张表是**一次性快照** —— 下一个会话照样能新增一个没人看的裸常量。
+// 所以真正要装的是棘轮：workflow 里出现的每一格都必须在册，登记项消失也必须出声。
+
+/** 造一份最小可用注册表（judgeRegistry 只读 raw.jobs/raw.minSamples 等标量）。 */
+function syntheticRegistry(jobs) {
+  return {
+    raw: { schema: 1, minSamples: 20, staleDays: 90, seededGraceDays: 30, jobs },
+    jobs: jobs.slice(),
+    byKey: new Map(jobs.map((j) => [j.workflow + '#' + j.jobId, j])),
+  };
+}
+function jobFixture(over) {
+  return Object.assign({
+    workflow: '.github/workflows/demo.yml',
+    jobId: 'demo',
+    displayName: 'demo',
+    timeoutMinutes: 10,
+    state: 'measured',
+    provenance: {
+      samples: 25, maxMinutes: 2, p90Minutes: 1.8, censoredAtCeiling: 0,
+      ceilingMinutesSampled: 10, runsListed: 30, collectedAt: '2026-10-18',
+    },
+  }, over || {});
+}
+const DEMO_YAML = 'jobs:\n  demo:\n    name: demo\n    runs-on: ubuntu-latest\n    timeout-minutes: 10\n';
+
+test('17 棘轮①：workflow 里出现注册表没登记的 timeout-minutes ⇒ UNREGISTERED_TIMEOUT_CELL', () => {
+  const r = mod.judgeRegistry({
+    registry: syntheticRegistry([jobFixture()]),
+    workflows: ['.github/workflows/demo.yml'],
+    readWorkflow: () => DEMO_YAML + '  sneaky:\n    name: sneaky\n    timeout-minutes: 30\n',
+  });
+  assert.equal(r.judgeError, false, JSON.stringify(r.reasons));
+  assert.equal(r.ok, false, '多出一格未登记的裸常量必须判红');
+  const v = r.violations.find((x) => x.rule === 'UNREGISTERED_TIMEOUT_CELL');
+  assert.ok(v, '必须点名 UNREGISTERED_TIMEOUT_CELL，实际：' + JSON.stringify(r.violations));
+  assert.equal(v.key, '.github/workflows/demo.yml#sneaky');
+});
+
+test('18 棘轮②：注册表登记了但 workflow 里已读不到该格 ⇒ MISSING_TIMEOUT_CELL', () => {
+  const jobs = [jobFixture(), jobFixture({ jobId: 'gone', displayName: 'gone' })];
+  const r = mod.judgeRegistry({
+    registry: syntheticRegistry(jobs),
+    workflows: ['.github/workflows/demo.yml'],
+    readWorkflow: () => DEMO_YAML,
+  });
+  assert.equal(r.ok, false, '登记项消失必须判红（否则表会越来越像"全部合规"）');
+  const v = r.violations.find((x) => x.rule === 'MISSING_TIMEOUT_CELL');
+  assert.ok(v, '必须点名 MISSING_TIMEOUT_CELL，实际：' + JSON.stringify(r.violations));
+  assert.equal(v.key, '.github/workflows/demo.yml#gone');
+});
+
+test('19 缩进纪律：步级 timeout-minutes（8 空格）不得被读成作业级（实测把 70 读成 10）', () => {
+  const text = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'electron-ci.yml'), 'utf8');
+  const scan = mod.scanTimeoutCells(text);
+  assert.equal(scan.cells.get('electron-tests'), 70,
+    'electron-tests 的作业级天花板是 70；读成 10 会让一格合规作业报 UNDER_BUDGET（假违规与假绿同害）');
+  assert.equal(scan.cells.get('changes'), 5, '同一文件里另一格（changes）也必须读对');
+  assert.ok(scan.stepLevel.length >= 2,
+    '两个 8 空格的步级 timeout-minutes 必须被单列出来（不得静默忽略，也不得混进作业级）：' +
+    JSON.stringify(scan.stepLevel));
+  assert.equal(mod.parseJobTimeout(text, 'electron-tests'), 70, 'parseJobTimeout 必须与扫描器同口径');
+});
+
+test('20 state=seeded 双向出声：攒够了不升级 / 宽限期到期仍不足，都必须红', () => {
+  const yaml = 'jobs:\n  demo:\n    timeout-minutes: 10\n';
+  const stale = mod.judgeRegistry({
+    registry: syntheticRegistry([jobFixture({ state: 'seeded',
+      provenance: Object.assign({}, jobFixture().provenance, { samples: 25 }) })]),
+    workflows: ['.github/workflows/demo.yml'],
+    readWorkflow: () => yaml,
+  });
+  assert.ok(stale.violations.some((x) => x.rule === 'SEEDED_STALE'),
+    'samples ≥ minSamples 却仍标 seeded ⇒ 该升级（宽限期不是永久豁免）：' + JSON.stringify(stale.violations));
+
+  const expired = mod.judgeRegistry({
+    registry: syntheticRegistry([jobFixture({ state: 'seeded',
+      provenance: Object.assign({}, jobFixture().provenance, { samples: 5, collectedAt: '2026-01-01' }) })]),
+    workflows: ['.github/workflows/demo.yml'],
+    readWorkflow: () => yaml,
+  });
+  assert.ok(expired.violations.some((x) => x.rule === 'SEEDED_EXPIRED'),
+    '宽限期到期样本仍不足 ⇒ 必须重采或降级说明：' + JSON.stringify(expired.violations));
+});
+
+test('21 注册表校验器 fail closed：坏字段一律抛，不得静默放过', () => {
+  const good = JSON.parse(fs.readFileSync(path.join(ROOT, 'scripts', 'gate-timeout-registry.json'), 'utf8'));
+  const clone = () => JSON.parse(JSON.stringify(good));
+  const cases = [
+    ['schema 错', (c) => { c.schema = 2; }],
+    ['重复登记', (c) => { c.jobs.push(JSON.parse(JSON.stringify(c.jobs[0]))); }],
+    ['p90 > max', (c) => { c.jobs[0].provenance.p90Minutes = c.jobs[0].provenance.maxMinutes + 1; }],
+    ['samples > runsListed', (c) => { c.jobs[0].provenance.samples = c.jobs[0].provenance.runsListed + 1; }],
+    ['state 非法', (c) => { c.jobs[0].state = 'nope'; }],
+    ['collectedAt 非 YYYY-MM-DD', (c) => { c.jobs[0].provenance.collectedAt = '2026/10/18'; }],
+    ['workflow 不是 workflows 路径', (c) => { c.jobs[0].workflow = 'quality-gate.yml'; }],
+    ['timeout 非整数', (c) => { c.jobs[0].timeoutMinutes = 5.5; }],
+  ];
+  for (const [name, mutate] of cases) {
+    const c = clone();
+    mutate(c);
+    assert.throws(() => regLib.validateRegistry(c), /GATE-TIMEOUT-REGISTRY/,
+      name + ' 必须抛错（半份注册表比没有注册表更危险：它会以合法外表继续放行）');
+  }
+  assert.equal(regLib.validateRegistry(good), true, '真实注册表必须通过校验');
+});
+
+test('22 真实仓全量对账：24 格都在册且都合规（棘轮自证覆盖面对齐）', () => {
+  const r = mod.judgeRegistry({ root: ROOT });
+  assert.equal(r.judgeError, false, JSON.stringify(r.reasons));
+  assert.deepEqual(r.violations, [], '真实仓上不得有违规：' + JSON.stringify(r.violations));
+  const reg = regLib.loadRegistry(ROOT);
+  assert.equal(r.cells.length, reg.jobs.length,
+    '判定格数必须等于注册表格数 —— 少一格说明有登记项没被真正判定（假绿形态）');
+  assert.ok(reg.jobs.length >= 20, '治理面不得悄悄缩水：实测全仓 24 格，现在只剩 ' + reg.jobs.length);
+  // 注册表里每一格都必须在 workflow 里真实存在（反向也要成立，不然棘轮只管一半）
+  for (const j of reg.jobs) {
+    const text = fs.readFileSync(path.join(ROOT, j.workflow), 'utf8');
+    assert.equal(mod.parseJobTimeout(text, j.jobId), j.timeoutMinutes,
+      j.workflow + '#' + j.jobId + ' 的注册值与 workflow 实际值必须逐字相等');
+  }
 });
