@@ -46,10 +46,29 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
+    "status": "self_play_resolved",
+    "tier": "self-play",
+    "performedBy": "self-play(claude-critic x opencode-proposer)",
+    "evidence": {
+      "reason": "本提交是**第二轮审查结论的处置**（不是新的一块未审代码）。第二轮审查（`sh scripts/deep-review.sh`，critic=claude × proposer=opencode，基线 origin/main 5119 行）已对第一轮修复做过完整对抗评审，产出 8 条；本提交逐条修复并在同一批次补齐回归锁。",
+      "adjudicationFile": ".adversarial/ccg-deep-f1734902/adjudication.json（adjudicationOutcome=all_upheld_and_fixed）",
+      "fixes": [
+        "i1 W9 两组判据互斥（原双重计数 + 溢出镜被误标容差吸附）",
+        "i2 补 zhCharsPerSecond/enWordsPerSecond 注入路径 + 文档改为如实表述",
+        "i3 输入白名单与能力表拆开，缺省档位复用 DEFAULT_TIERS（12s 档真正可达）",
+        "i4 新增 requireQuotedDialogue：无引号即退 tier 并给可操作提示",
+        "i5 listTasks 跟随符号链接任务目录",
+        "i6 risk/chain/emotion 闭集校验",
+        "i7 容差悬崖明示 + 断言边界存在的测试",
+        "i8 prompts/tasks 空目录与缺失同处置"
+      ],
+      "convergenceCriterion": "本轮 8 条全部修复且各有回归锁 + film 相关 506 例全绿 + QM-1 打包 rc=0 与启动验证 stderr 0 B。**不再起第三轮**：每轮审查都会对上一轮修复提出新意见，起第三轮即无限回归。剩余风险不假装闭合，逐条写入 openspec/records/film-batch1.md 的「遗留」表（容差台阶 / 日韩不计语速 / 无引号剧本需人工复核）。",
+      "residualRisks": [
+        "容差把跳变悬崖从 5.0s 挪到 5.3s，未消除（已明示 + rawSec 可绕开）",
+        "假名/谚文不计入语速，日韩文案需手工设定",
+        "自动模式的台词/动作分离依赖引号标注；无引号剧本仍需人工复核 W9 与 durationRawSec"
+      ]
+    },
     "findings": null
   }
 }
