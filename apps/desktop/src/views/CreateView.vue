@@ -44,8 +44,6 @@
 
       <!-- 流水线启动页：配置与执行 -->
       <div v-else class="pipeline-detail">
-        <button class="back-btn" @click="goToHistory()">← 返回</button>
-
         <div class="detail-header">
           <h2>{{ pipelineName(selectedPipeline.name) }}</h2>
           <p class="detail-desc">{{ pipelineDescription(selectedPipeline.name) }}</p>
@@ -2107,8 +2105,6 @@ export default {
       this.viewHistory.push(state);
       this.viewHistoryIndex = this.viewHistory.length - 1;
     },
-    // 返回历史记录页
-    goToHistory() { this.detachPipelineView('history'); this.selectedPipeline = null; this.view = 'history'; this.loadHistory(); this.pushViewState({ view: 'history' }); },
     // unify-video-pipeline-progress-modal：把 URL 上的 ?filter= 落到历史筛选态。
     // 单一入口供 mounted 与 $route.query.filter watch 共用；非法值静默忽略（保持当前筛选）。
     applyHistoryFilterFromRoute(value) {
