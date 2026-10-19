@@ -269,56 +269,36 @@ async def test_gate_ack_endpoint_rejects_old_version():
 # ─── 3. 接线断言 ────────────────────────────────────────────
 
 def test_gate_wiring_catalog_and_ack_have_gate_bootstrap_exempt():
-    """接线断言（CI 鲁棒版）：不再比对测试进程里 import 的函数对象——那在
-    conftest sys.path 注入时序下会产生双实例（本地绿 CI 红两次实测）。改为
-    对每个路由**独立 import 该路由模块**并按函数名子串匹配依赖，比对对象
-    与路由挂载来源同源，环境差异归零。"""
-    from main import app
-    from fastapi.routing import APIRoute
+    """接线断言：消费 auth-surface fixture（同一反射真源）。
 
-    def _route_for(path, method):
-        for route in app.routes:
-            # duck-typing 替代 isinstance：fastapi.routing 双 import 时 APIRoute 类引用
-            # 不同实例，isinstance 恒 False（CI 实测根因：同文件 A8 行为测试 426 生效 =
-            # 门确实挂载，仅类身份比对失败）
-            if hasattr(route, "dependant") and getattr(route, "path", None) == path and method in getattr(route, "methods", set()):
-                return route
+    为什么不直接反射 app.routes：函数内 from main import app 在 CI 全量顺序下
+    拿到的可能是空骨架实例（实测三次：路由表只剩 FastAPI 默认 6 条，而同文件
+    A8 行为测试 426 生效、test_auth_surface 反射 157 条全在——实例身份跨测试
+    文件不稳定）。auth-surface.json 由 scripts/auth_surface.py --emit 从同一
+    app 反射生成、auth_surface 测试锁它与实现一致，消费它 = 用已验证的取源。
+    函数级依赖名（enforce_version_gate）出现在 auth 列表即挂门成立。
+    """
+    import json
+    from pathlib import Path
+
+    fixture = Path(__file__).resolve().parent / "fixtures" / "auth-surface.json"
+    routes = json.loads(fixture.read_text(encoding="utf-8"))
+    if isinstance(routes, dict):
+        routes = routes.get("routes", [])
+
+    def _entry(path, method):
+        for r in routes:
+            if r.get("path") == path and method in (r.get("methods") or []):
+                return r
         return None
 
     def _has_gate(path, method):
-        route = _route_for(path, method)
-        if route is None:
-            return False
-        # dependant.call = 端点函数本身；遍历其依赖闭包的 qualname+name
-        stack = [route.dependant]
-        seen = set()
-        while stack:
-            dep = stack.pop()
-            if id(dep) in seen:
-                continue
-            seen.add(id(dep))
-            call = getattr(dep, "call", None)
-            if call is not None and "enforce_version_gate" in ((getattr(call, "__qualname__", "") or "") + (getattr(call, "__name__", "") or "")):
-                return True
-            stack.extend(getattr(dep, "dependencies", []) or [])
-        # 兜底 1：route 级依赖（router dependencies）挂在 route.dependencies，不进 dependant 闭包
-        for d in getattr(route, "dependencies", []) or []:
-            dd = getattr(d, "dependency", d)
-            if "enforce_version_gate" in ((getattr(dd, "__qualname__", "") or "") + (getattr(dd, "__name__", "") or "")):
-                return True
-        # 兜底 2：任何包装形式的字符串化匹配（Depends repr 含函数名）
-        if "enforce_version_gate" in repr(getattr(route, "dependencies", [])) + repr(getattr(route, "dependant", "")):
-            return True
-        return False
+        r = _entry(path, method)
+        return r is not None and "enforce_version_gate" in (r.get("auth") or [])
 
-    # 前提自证改走 path 字符串集合：路由表枚举口径跨环境有差（两次实测 _route_for
-    # 在 CI 上找不到本地可见的路径），但 path 字符串本身无环境差。同文件 A8 的
-    # 426 行为测试通过 = 路由与门都在，仅 APIRoute 类型/依赖对象身份比对不可靠。
-    all_paths = {str(getattr(r, "path", "")) for r in app.routes}
-    assert "/api/v1/model-presets/catalog" in all_paths, (
-        "catalog 路径不在路由表：" + str(sorted(p for p in all_paths if "catalog" in p)[:5]))
-    assert "/api/v1/runtime/ack" in all_paths
-    assert "/api/v1/telemetry/degradation" in all_paths
+    # 前提自证：fixture 里必须存在这些路径（防 fixture 过期空真）
+    assert _entry("/api/v1/model-presets/catalog", "GET") is not None, "fixture 缺 catalog 条目"
+    assert _entry("/api/v1/runtime/ack", "POST") is not None, "fixture 缺 ack 条目"
 
     # 挂门端点（桌面端真实消费）
     assert _has_gate("/api/v1/model-presets/catalog", "GET")
@@ -326,7 +306,6 @@ def test_gate_wiring_catalog_and_ack_have_gate_bootstrap_exempt():
     assert _has_gate("/api/v1/telemetry/degradation", "POST")
     # 豁免端点：bootstrap 不挂门（策略通道自锁排除）
     assert not _has_gate("/api/v1/runtime/bootstrap", "GET")
-
 
 def test_gate_version_compare_semantics():
     from services.version_gate import _cmp_version
