@@ -52,6 +52,10 @@ KNOWN_AUTH_DEPS: dict[str, str] = {
     "require_admin": "session+role",
     "require_catalog_key": "apikey",
     "verify_bearer_or_catalog_key": "dual",
+    # forced-update-gate（2026-10-19）：强制升级版本门（非身份鉴权，业务闸门）。
+    # enforce_enabled=1 且客户端版本低于 enforce_min_version（或机器通道缺/坏
+    # X-Client-Version 头，fail-closed）→ 426 Upgrade Required；Cookie 会话豁免。
+    "enforce_version_gate": "version-gate",
 }
 
 # ── 公开端点显式登记（无任何鉴权依赖的路由必须在此列出）────────────────────

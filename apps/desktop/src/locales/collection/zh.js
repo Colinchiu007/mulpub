@@ -322,6 +322,20 @@ export default {
     cancelBatch: '取消',
     enterRss: '请输入 RSS 链接',
     enterUrlList: '请输入至少一个链接',
+    // ── 采集页整体 UI/UE 统一（collection-page-ui-ue-refine，2026-10-17）──
+    // 模板里的裸中文字符串搬进 locale（zh/en 成对，渲染端 CJK 基线纪律）。
+    // 每行两个键是刻意的：本域文件改动前已 483 行，逐条一行会把本文件顶过
+    // check-max-lines 的 500 行硬限（NEW_OVER_LIMIT）。
+    pageSubtitle: '从各平台采集内容，或快速创建草稿',
+    urlPlaceholder: '输入文章链接，自动采集标题、正文、封面…',
+    collect: '采集', collecting: '采集中…',
+    retry: '重试', createDraft: '创建草稿',
+    useViralLibrary: '结合爆款库', usePersonalExperience: '结合个人经历',
+    saveDraft: '存入草稿', goPublish: '去发布',
+    cancel: '取消', resultTitlePrefix: '采集结果',
+    hasCoverImage: '有封面图', quickNewDraft: '新建草稿',
+    quickClipboard: '剪贴板导入', quickGroupNew: '新建',
+    quickGroupDrafts: '草稿', quickGroupSources: '素材来源',
     tabCollect: '内容采集',
     quickCollectTab: '快捷采集',
     draftsTab: '草稿箱',

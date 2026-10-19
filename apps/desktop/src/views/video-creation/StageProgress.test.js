@@ -344,6 +344,72 @@ describe("StageProgress 阶段级进行中信息统一契约（openspec pipeline
   });
 });
 
+// ============================================================================
+// 子进度条统一对齐契约（2026-10-19，bugfix s2v-stage-bar-align）
+//
+// 背景：视频创作流水线进度浮层中，「提示词优化」阶段的子进度条比其他阶段短
+// 约 50px（用户截图红框标注）。像素取证（stage-item 行 y=235/376/518/661）：
+//   文案拆分   fill x=86..1018 (w=928)
+//   内容增强   fill x=86..1018 (w=928)
+//   提示词优化 fill x=86..968  (w=878)  ← 短 50px
+//   AI视频场景选择 fill x=86..1018 (w=928)
+// 四条的 stage-status 列左边界完全一致（x≈1019/1036），且 optimize 完成后
+// percent=100（story2video-stages.js:2716 emitStageComplete 口径），
+// 所以差异不是「轨道长度不同」，而是 optimize 在 completed 快照里 percent≠100
+// 或状态文案换行把主列压窄。契约锁定：完成态阶段子进度条必须满格（100%）。
+// ============================================================================
+describe("StageProgress 子进度条统一对齐（2026-10-19）", () => {
+  const at = (iso) => new Date(iso).toISOString();
+
+  it("已完成阶段：子进度条满格（percent=100），与其余完成阶段视觉等长", () => {
+    const w = mountWith({
+      stages: [
+        makeStage({ name: "split", status: "completed", startedAt: at("2026-10-19T22:00:00"), completedAt: at("2026-10-19T22:01:00"), progress: { percent: 100 } }),
+        makeStage({ name: "domain_enrich", status: "completed", startedAt: at("2026-10-19T22:01:00"), completedAt: at("2026-10-19T22:02:00"), progress: { percent: 100 } }),
+        makeStage({ name: "optimize", status: "completed", startedAt: at("2026-10-19T22:02:00"), completedAt: at("2026-10-19T22:03:00"), progress: { percent: 100 } }),
+        makeStage({ name: "select_video_scenes", status: "completed", startedAt: at("2026-10-19T22:03:00"), completedAt: at("2026-10-19T22:04:00"), progress: { percent: 100 } }),
+      ],
+    });
+    const widths = ["split", "domain_enrich", "optimize", "select_video_scenes"].map((n) => {
+      const bar = w.find(`[data-testid="story2video-stage-progress-${n}"]`);
+      expect(bar.exists()).toBe(true);
+      expect(bar.attributes("aria-valuenow")).toBe("100");
+      expect(bar.find(".stage-sub-fill").attributes("style")).toContain("width: 100%");
+      return bar.attributes("aria-valuenow");
+    });
+    // 四条必须同为 100%（等长），任一不为 100 即对齐契约破坏
+    expect(new Set(widths).size).toBe(1);
+    w.unmount();
+  });
+
+  it("optimize 快照 percent 缺失/非法时按完成态补齐为 100（修复根因）", () => {
+    // 历史快照可能只带 optimize_progress 而无 stage.progress；completed 阶段应满格
+    const w = mountWith({
+      stages: [
+        makeStage({ name: "optimize", status: "completed", startedAt: at("2026-10-19T22:02:00"), completedAt: at("2026-10-19T22:03:00") }),
+      ],
+      orchestrationContext: { optimize_progress: { done: 169, total: 169 } },
+    });
+    const bar = w.find('[data-testid="story2video-stage-progress-optimize"]');
+    expect(bar.exists()).toBe(true);
+    expect(bar.attributes("aria-valuenow")).toBe("100");
+    expect(bar.find(".stage-sub-fill").attributes("style")).toContain("width: 100%");
+    w.unmount();
+  });
+
+  it("运行中阶段保持真实 percent，不被人为抬到 100（避免假完成）", () => {
+    const w = mountWith({
+      stages: [
+        makeStage({ name: "optimize", status: "running", startedAt: at("2026-10-19T22:02:00"), progress: { percent: 37 } }),
+      ],
+    });
+    const bar = w.find('[data-testid="story2video-stage-progress-optimize"]');
+    expect(bar.attributes("aria-valuenow")).toBe("37");
+    expect(bar.find(".stage-sub-fill").attributes("style")).toContain("width: 37%");
+    w.unmount();
+  });
+});
+
 describe("StageProgress 合成时间说明块（2026-08-17）", () => {
   it("showTimeGuidance=true 时渲染合成时间说明（标题/说明/三档参考/正常范围）", () => {
     const w = mountWith({ stages: [makeStage()], showTimeGuidance: true });

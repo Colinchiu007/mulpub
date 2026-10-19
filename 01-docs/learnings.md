@@ -1,3 +1,76 @@
+
+
+用户反馈采集页「视觉散乱、不够统一精致」，逐条取证（PRD §1 共 15 项）后，最值钱的一条不是
+「圆角不统一」这类肉眼可见项，而是**三个死类**：
+
+- `is-primary`（`CollectedResultsList.vue:99/100`）在**全仓 0 处样式定义**，却被当成「主操作」标记；
+- `class="primary"`（`Collection.vue:328`、`CollectionDraftsPanel.vue:56`）同样 0 处定义；
+- `collection-tab-badge`（两个页签组件渲染）0 处定义 ⇒ 角标是**裸文本**，无底色无圆角。
+
+后果：PRD 里白纸黑字写的「创建草稿/发布 = primary，查看/视频创作 = secondary」在**视觉上完全不成立**
+（两者长得一模一样）。而 `CollectedResultsList.test.js` 断言的正是：
+
+```js
+expect(cls('draft')).toContain('is-primary')   // ← 只验证 class 名挂上去了
+```
+
+**测试全绿**。因为它只验证「class 名挂上去了」，不验证「class 名有样式」。
+
+### 为什么这是「装饰性门禁」的同型
+
+本仓反复出现这类形态：**判据看着在守某个东西，实际守的是它的影子**。
+- 守「有分级」→ 实际守的是「class 名字符串出现过」；
+- 守「角标可读」→ 实际守的是「span 渲染出来了」。
+
+影子永远绿，真身已经烂了三年。
+
+### 处方：把「消费⇒有定义」做成机械判据
+
+`features/collection/collection-page-css-contract.test.js`：
+
+```
+遍历采集域 9 个渲染层文件的 <template>
+  抽取 class="..." 的**静态** token（:class 动态部分不进判据——那要求值，是行为测试的面）
+  对每个域内命名空间前缀的 token（col-/zb-/qc-/card-/batch-/stat-/copy-/tag-/library-/asr-/creator-）
+    ⇒ 必须在规范层（collection-page.css + collection-page-legacy.css）或该组件自身 <style> 找到 .token { 规则
+反向：is-primary / primary ⇒ 域内 0 消费
+```
+
+### 三条工程细节（都踩过）
+
+1. **`findRule` 必须按逗号切选择器**。初版用整体正则，`.col-btn-cancel, .col-btn-clear {` 这种
+   选择器列表**只认第一个成员** ⇒ 实测 `col-btn-cancel` 返回 true 而 `col-btn-clear` 返回 false。
+2. **必须打印命中条数并对下界断言**（AGENTS QM-2）。`collectStaticClassTokens()` 后断言
+   `tokens.length >= 20`；否则正则改坏导致匹配 0 条时，下面所有「必须有定义」都会**恒真**——
+   判据失效但全绿，比没有判据更糟。
+3. **判据自反锁**：显式断言 `findRule(pageCss, 'col-btn--primary') === true`，防「判据本身坏了」。
+
+### 判据当场抓到的真问题（不是防假设）
+
+跑第一轮就抓到 6 类「消费了但没定义」——**此前都在生产里**：
+
+- `col-section-title` / `col-section-title--flex` / `col-error-banner` 定义在 `Collection.vue` 的
+  **scoped** style 里，却被 `BatchCollectPanel`/`QuickCollectPanel`/`CollectionDraftsPanel`/
+  `CollectedResultsList` 共同消费。scoped 样式出不了组件 ⇒ **消费方实际拿不到这些样式**，
+  四个组件的区块标题与错误横幅一直在用继承值渲染。
+
+### 可迁移的判据
+
+> 任何「靠 class 名表达语义」的约定（primary/secondary/danger、active、badge…），
+> **必须有一条判据验证「名字背后有样式」**，只断名字等于没断。
+
+### 顺带：CSS 注释里出现 `*/` 会提前闭合块注释
+
+我在 tokens.css 注释里写 `--space-*/--radius-*`，`*/` 直接闭合了块注释 ⇒ 后面整段变成
+「注释外的内容」，`--col-*` 槽全部读不到，契约测试 9 连红。**注释里禁用该字样**，
+已在 tokens.css 与 collection-page.css 两处显式立规。
+
+### 顺带：拆文件必须靠判据复核
+
+规范层超 500 行硬限后按门禁处方拆成两个文件，用 PowerShell 按行号切分时丢了 `part1` 尾部
+三条规则（`col-btn-clear`/`col-btn-retry`/`col-btn-retry-sm`）。**契约测试立刻红**——
+没有它，这次丢失会静默进入生产。**拆文件是「判据必须复核」的典型场景。**
+
 ## 扩展名是「用户说的」，魔数是「文件说的」——克隆样本校验必须信后者（s2v-clone-sample-sniff，2026-10-19）
 
 ### lesson: validate-audio-container-by-magic-bytes-not-extension
@@ -78,6 +151,24 @@ Esc 不收尾、Tab 走开后那块 `role="menu"` 还挂在可读区域里。
 ⇒ **反证报 MISSED 时，第一问不是"这处代码不重要"，而是"我的断言覆盖了哪条边"**；
 要覆盖的是"焦点从别处来"这条边，得专门加一条不经过方向键的用例。
 
+## "二手摘要"接执法接口会挂错位置——挂点必须读 router 本体数端点（forced-update-gate-explore-before-wire，2026-10-19）
+
+### lesson: never-wire-an-enforcement-point-from-a-secondhand-inventory
+
+**现场**：forced-update-gate 的执法层初版按探子报告把 426 版本门挂在 `/api/v1/member/*`（报告称"桌面端会员 API 走这里"）。动手前读 `member_grant.py` 全文（31 行）即证伪：该 router 只有一个 admin 手动开通端点 `POST /grants`，桌面端根本不调用它——桌面会员 API 走外部服务 `auth.iart.work`（`config/identity-public.json` businessApiUrl）。桌面端真实消费的 ops-center 端点是 `model-presets/catalog`、`runtime/ack`、`telemetry/degradation`（由 `ops-center-sync.js` 的 `_fetchJson` 与 `ops-resilience-reporter.js` 的常量锚定）。若照报告直接接线，执法层会挂在一个被拦截面零调用的 router 上——**426 永远打不中要拦的客户端**，门禁全绿但机制失效，这是"装饰性门禁"在安全机制上的最危险形态。同时发现的第二处同型问题：原设计"缺 X-Client-Version 头放行"对存量旧客户端完全失效（它们不发新头），fail-closed（缺头=旧版=426）才是有效语义。
+
+**教训**：凡基于二手清单（探子报告、文档摘要、他人 PRD）做**接口/执法/拦截**类决策，接线前必须读目标文件本体并回答两个问题——①这个端点/函数在生产链路上被谁调用（追到调用方代码行，不满足于"存在"）；②判据的缺省分支落在谁头上。文档说"有"不算数，调用链说"没走"才算数。落地形式：proposal 里专门写"事实修正"段记录改了什么、为什么（本刀 PRD §1 与 commit message 各有一段），让下一个读者能看见方案与实探的差值。
+
+---
+
+## GitHub 强推空 diff 会触发 PR 被 Colinchiu007 关闭——rebase 中断后必须校验 ahead>0 再推（pr-closed-by-empty-force-push，2026-10-19）
+
+### lesson: verify-ahead-count-before-force-push-after-rebase-accident
+
+**现场**：PR #4025 的 rebase 因两个 `rebase --continue` 竞争（一个带 pre-commit 全量门禁 20+ 分钟，一个带 `-c core.hooksPath=/dev/null`）+ 杀进程清场后，误用 `rebase --skip` 跳过了唯一 pick——分支 tip 变成与 origin/main 完全相等（`ahead_of_main=0`），且这个空 diff 被 `--force-with-lease` 推上远端。GitHub 端 PR head 变成 main 同位 ⇒ diff 为零 ⇒ 数分钟后被账号主人（Colinchiu007）以 `closed` 事件关掉。恢复路径：`git reflog` 找回原提交 `a33ac8caf`（reflog 是唯一没被破坏的事实源）→ 在新 main 上 `cherry-pick` → 用 Node 单行脚本清 CHANGELOG 冲突标记（双侧条目保留，`markers before=3 after=0` 断言）→ `cherry-pick --continue` → 校验 `ahead=1` + 关键文件存在 + `force-with-lease` 重推 → `gh pr reopen`。
+
+**教训**：①rebase 事故后强推前必须机械断言 `git log origin/main..HEAD` 非空——把"空 diff"推上去不仅没有内容，还会触发远端自动化（人或 bot）关闭 PR，事后 reopen 需要额外解释成本；②PowerShell 处理含中文/多行/正则元字符的文件内容会编码损坏（实测 ParserError + `<<<<<<<` 清不掉），一律改用一次性 Node 脚本 + 用后 `safe-delete`；③同一 worktree 的 rebase 卡死时先查 `Get-CimInstance Win32_Process` 的 git 命令行全家桶再动手——两个 `rebase --continue` 竞争同一 `rebase-merge` 目录时，杀进程链是唯一出路，且杀完必须以 reflog 为真源重建，不能相信工作区"看起来还在"的文件。
+
 ---
 
 
@@ -119,6 +210,19 @@ GitHub 的 pwsh wrapper 以 `$LASTEXITCODE` 决定步骤成败，而该步骤 `f
 - **pitfall · 静默截断比硬拒绝更隐蔽**：`TOO_LONG` 至少让用户知道失败；`_postProcess` 砍尾则让用户拿到不完整的稿子且**以为它就是全部**。判据：任何「按上限截断」的实现必须同时产出可见信号（返回 `outputTruncated`/`outputLength`，UI 横幅），否则宁可拒绝。
 - **pitfall · max_tokens 缺失时「输出截断」会发生在模型默认值处，与引擎截断混在一起**：大多数 OpenAI 兼容 adapter 不传 `max_tokens` 走服务商默认（OpenAI 4096）——把引擎输出上限放到 50000 后，真实瓶颈转移到了模型默认值，且这种截断引擎侧 `outputTruncated` 检测不到（引擎只见到完整返回）。解法：桥接层显式传 64000；后续可读 `finish_reason: 'length'` 区分模型侧截断。
 - **pattern · 放开上限必须同帧更新「自适应默认值」**：`deriveWordCountRange` 的 MAX_CAP 若仍钉在 6000，12000 字原文会被「自适应」压回 6000——放开引擎上限但自适应层没跟上，等于没放开。判据：改上限时 grep 所有消费该数字的**派生函数**，不只是校验器。
+## 「套餐不支持」不是「服务不可用」：错误分类错误会把可行动提示变成无意义重试（fix-s2v-clone-plan-unsupported，2026-10-19）
+
+### lesson:plan-unsupported-is-not-retryable
+
+**「你的套餐不含该能力」和「服务暂时不可用」是两类完全不同的失败：前者重试永远失败，后者才值得重试。**
+
+现场：MiniMax 对订阅套餐账号返回 `your current token plan not support model, voice_clone`，
+被 adapter 的 isQuota 正则（`token\s*plan` 分支）误吃成额度类，再被 service 折叠成
+VOICE_CLONE_PROVIDER_UNAVAILABLE，用户看到「请稍后重试」并反复尝试。
+判据：错误分类的每个类别必须回答「用户下一步该做什么」——套餐类→升级/认证/换供应商；额度类→等待或充值；
+瞬时类→重试。原文含 `not support` / `forbidden` / `disabled` 的「能力缺失」信号，必须先于「额度」信号判定；
+凡 statusCode 明确（如 MiniMax 2038）时用 statusCode 短路，不赌正则。
+透明度要求：能力缺失类错误必须把供应商原话带到用户面（detail），删除「请稍后重试」指引。
 
 ## 「没人读」和「读不到」是两件事——先查消费者，再决定删字段还是补校验（debt-ledger-shape-normalize，2026-10-19）
 
@@ -21509,6 +21613,22 @@ CI 把 `QG Static` 钉红在 Gate 2c，红的是 `check-unwired-tests.test.js` �
 - **pattern · 测试锚在实现细节上，等于把实现写成契约（于是样式层怎么退都不会红）**：原用例断言 `svg.findAll('path')).toHaveLength(2)` —— 它锁的是"双 chevron"这个具体实现，不是"图标表达双向"这个意图。后果是缺陷从单测层完全逃逸（改颜色、改边框、改尺寸都不红），只有用户肉眼能发现。改法是比**图形签名**（图元标签名 + 关键几何属性拼串）在**两态之间**是否相等：对"调几个像素"不敏感，对"退化成同一图形只换颜色"敏感（那正是要防的退化）。可迁移判据：**断言要锚在"我想防的那个退化形态"上，而不是"我现在写的那三行代码"上**；一旦某条断言改个颜色就失效，它大概率锁错了对象。
 - **pitfall · doc-abs-paths 的坑不止「自己写路径」，「继承别人写的路径」同样会红**：这是同一门禁的**第二种踩法**。上次（sidebar-collapse-followups）是我自己在 CCG 记录里手写本机用户目录下的 `codeagent-wrapper.exe` 全路径；这次是**引擎自己**把 `spawnSync` 的完整错误串（含同样路径）写进 `deepReview.error`，我在收敛 status 时用 `error: prev.error || null` **原样继承**了它 ⇒ CI `check-doc-abs-paths` 判「新增本机绝对路径 1 个文件」，整条 `QG Changes` 红、下游全 skipped。判据升级为：**任何写入受管文件的字段，无论来源是自己写的还是继承的，落盘前都要过一次绝对路径扫描**（本机用户目录、项目根所在的盘符根、系统临时目录三类形态都要扫）；改法照旧是换占位符（如 `<ccg-bin>/...`），**不是** `--write-baseline`。**第三次踩法更反讽**：我在**记录这条教训本身**时又把这些路径的原文形态写了出来，于是 learnings 的计数从基线 38 涨到 40 ⇒ 同一门禁再次红。⇒ 最终判据：**在文档里描述"某类路径"时，连"举例的形态"也必须写成占位符**，因为门禁扫的是字面量、读不懂"这是举例"。定位动作可复用：门禁报「超出基线 N 个文件」但不点名时，本地 `node scripts/check-doc-abs-paths.js --base=origin/main --head=HEAD`（**带 base 的 diff 模式**，与 CI 同款）会逐处列出文件:行号；只跑 `--all` 全量模式可能看不到，因为两者的判定域不同。
 
+## 2026-10-18 · 夹具落到工作树：命令替换吞 stdout + 「用例 rc」不测「夹具是否成形」（docs-sync-fixture-leak）
+
+- **症状**：某个 worktree 里出现 11 个未跟踪文件，目录名是 `On branch main―Initial commit―nothing to commit (create/copy files and use 'git add' to track)―…`。
+  它们是 `scripts/check-docs-sync.test.sh` 的夹具。清理只能走 `scripts/safe-delete.js`（目录一律拒绝递归删除），11 个文件逐个删完后空目录仍留（R0 没有目录出口），随 worktree 退役一并消失。
+- **链**：`make_repo` 内每条 git 调用没关 stdout ⇒ 调用方 `repo="$(make_repo …)"` 把 git 的 status 原文与真实路径拼成一个字符串 ⇒
+  `mkdir -p "$repo/…"` 的相对路径落在 **cwd（= 仓库工作树）**。触发条件是继承 `MSYS_NO_PATHCONV=1`/`MSYS2_ARG_CONV_EXCL`：
+  此时 `/tmp/tmp.XXXX` 被 bash（MSYS 根）与原生 `git.exe`（盘内路径）解析成两处 ⇒ `echo seed > "$dir/README.md"` 与 `git add -A` 量的不是同一个目录 ⇒ seed 提交为空 ⇒ 才有那段 status 可打。
+- **为什么四层门禁都没看见**：① 垃圾是未跟踪文件，CI 的检出态里没有它 ⇒ 远程结构性失明；② 自测的断言只比"被检方 rc"，
+  事发那次现场日志第 1 行是 `README.md: No such file or directory`，第 20 行照打 `PASS:` ⇒ **夹具没成形时用例仍绿**；
+  ③ AGENTS 有「文件系统测试隔离」这条纪律但没有执行体；④ 唯一撞上它的 `check-unwired-tests.js` 按磁盘扫，报出来的是**本机假红**（说仓库里有嵌套 workflow）。
+- **正解（按层，摘任一层另一层仍兜）**：环境由夹具自己钉（入口 unset）／函数 stdout 只留路径／
+  取到的路径与期望**逐字相等**再写入（顺序即判据的一半：放 mkdir 之后就等于先落盘再报错）／
+  夹具成形自检（有提交且 seed 在索引里）／cwd 条目快照对账并**点名**泄漏。
+- **可迁移的两句**：①「凡被 `$( )` 捕获的函数，它的 stdout 就是返回值」—— 任何旁路 `echo`/工具 stdout 都会变成返回值的一部分，
+  这类缺陷在 bash/PowerShell 里都是**不报错、只变形**；②「用例的 rc 只证被检方，不证夹具」——写夹具收尾必须回答
+  「如果夹具根本没建起来，这条用例会红还是会绿？」答不出"红"就补一条成形断言。
 
 - **pitfall · 「按具体路径打补丁 + 把这个补丁钉成常量锁」会让同一类缺陷逐次复发，而锁照绿**：测试接线棘轮（`scripts/check-unwired-tests.js`）的判定域是磁盘遍历。第一例 `.agent_context`（共享根输出 3546 行、3543 行来自它）的处置是给剪枝清单加一条目录名，并加一条「PRUNE_DIRS 必须含 .agent_context」的常量钉死用例。第二例 `.adversarial/arl-patched/.github/workflows/ci.yml` 出现时，**那条常量锁完全绿**——它锁的是「别把我这条补丁摘掉」，不是「别再依赖逐目录名」。⇒ 凡「清单只能缩小」型处置，先问它在防的是**动作**还是**决策**：只防摘掉某一项的锁，等于把打补丁钉成受保护形态。正解是把来源换成一个能表达整个集合的判据（这里 = `git status` 口径 = CI 检出态，共享实现 `scripts/lib/git-domain.js`，同 #3876/#3900 一条路），并把旧机制本身锁成「不得回来」（断言 `walkRepoFiles`/`PRUNE_DIRS` 为 undefined + 必须 require 共享实现 + 源码不得出现 `withFileTypes`）。
 - **pattern · 同一处判据往往有两个方向的域缺陷，只修「假红」那半边会把更糟的「假绿」留下**：换域时我先只改了两条枚举（测试文件 / 嵌套 workflow），是「外部评审该问的那一句」逼出另一半——`readWorkflowText`/`listJobBlocks` 仍用 `fs.readdirSync(.github/workflows)` 决定「有哪些 workflow」。那个方向的危害不是多报红，而是**本机在 `.github/workflows/` 放一份被 gitignore 的 yml 就能伪造「这条测试已接线」**：CI 的检出态里没有它，棘轮却据此放行，于是未接线的测试永远隐身。口径：给一个判据换取数来源时，把该文件里**所有**「从磁盘得到清单」的点逐个列出一起换，并每个方向各写一条行为锁（假红方向 = 被忽略的东西不得进判据；假绿方向 = 被忽略的东西不得充当通过证据）。

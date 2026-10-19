@@ -83,6 +83,10 @@ async function performShutdown(context) {
   await runCleanup('Error closing webviews:', () => {
     if (webviewManager && webviewManager.closeAll) return webviewManager.closeAll()
   })
+  // forced-update-gate：清 6h 轮询定时器 + 关阻断弹窗（其余窗口清理前，避免遗留置顶窗）
+  await runCleanup('Error disposing enforce gate:', () => {
+    try { require('./services/enforce-gate').dispose() } catch (e) { /* shutdown 尽力清理 */ }
+  })
   await runCleanup('Error cleaning rpa views:', () => {
     if (rpaViewManager && rpaViewManager.cleanup) return rpaViewManager.cleanup()
   })

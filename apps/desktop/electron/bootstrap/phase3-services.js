@@ -214,6 +214,18 @@ async function startServices({ container, usageTracker, store, taskQueue, callba
     if (identityService && typeof identityService.dispose === 'function') {
       cleanups.push(() => identityService.dispose())
     }
+    // forced-update-gate：登录成功 → 立即刷新 bootstrap（策略/阻断判定即时生效，
+    // 不等 6h 轮询）。grilling Q5 第二时机。经既有 onStateChanged 过滤 authenticated
+    //（auth-service 文件行数受债务基线 filesOver500 约束，便捷封装放不下，过滤就地写）。
+    if (identityService && typeof identityService.onStateChanged === 'function' && opsCenterSync) {
+      const unsubscribeAuthGate = identityService.onStateChanged((state) => {
+        if (!state || state.status !== 'authenticated') return
+        try { opsCenterSync.syncNow().catch(() => {}) } catch (e) {
+          log.notify('EnforceGate', 'auth-refresh-failed', { level: 'WARN', error: errorMessage(e) })
+        }
+      })
+      if (typeof unsubscribeAuthGate === 'function') cleanups.push(unsubscribeAuthGate)
+    }
     const ownerSubjectProvider = identityService
       ? () => {
           const state = identityService.getState()
