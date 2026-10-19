@@ -246,12 +246,19 @@ export default {
       if (!stage) return null
       // 统一契约优先：stage.progress.percent；旧快照降级：context.compose_progress（compose 子进度）
       const stagePercent = Number(stage?.progress?.percent)
-      const p = Number.isFinite(stagePercent)
+      const hasStagePercent = Number.isFinite(stagePercent) && stagePercent >= 0 && stagePercent <= 100
+      const p = hasStagePercent
         ? { ...stage.progress, percent: stagePercent }
         : (stage.name === 'compose' && this.orchestrationContext && this.orchestrationContext.compose_progress)
       const percent = Number(p?.percent)
-      if (!Number.isFinite(percent) || percent < 0 || percent > 100) return null
-      return Math.round(percent)
+      if (Number.isFinite(percent) && percent >= 0 && percent <= 100) return Math.round(percent)
+      // 完成态对齐契约（2026-10-19，bugfix s2v-stage-bar-align）：
+      // 已完成阶段若无合法 stage.progress.percent（如 optimize 历史快照只带
+      // optimize_progress），子进度条此前整条不渲染，导致该阶段条形比其余
+      // 完成阶段短一截（用户截图实测短 50px，破坏视觉对齐）。这里按满格补齐，
+      // 使全部已完成阶段子进度条等长。skipped 阶段不补（本就无进度语义）。
+      if (stage.status === 'completed') return 100
+      return null
     },
     formatDuration(ms) {
       const totalSeconds = Math.max(0, Math.floor(Number(ms) / 1000))

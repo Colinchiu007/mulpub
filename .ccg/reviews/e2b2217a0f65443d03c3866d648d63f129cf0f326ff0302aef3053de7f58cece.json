@@ -1,0 +1,66 @@
+{
+  "sha": "c86f3cbd8cc22f18ae84f8164daa0240439a8a5e",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 6 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 6,
+    "fileCount": 10,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 3,
+    "docSensitiveContentSample": [
+      "- **顺手记下这个基线缺的那道锁**（留给门禁批次，不在本 PR 夹带）：现在 `--update` 是",
+      "2. **给这个基线加一条\"只可缩小\"的机械约束**（下一批做）：现在 `--update` 是\"重算即接受\"，缺一道\"调大必须与一次真实清理同 PR\"的锁。本仓已有同型判据可抄：`check-doc-abs-paths.js` 的 `judgeLedgerDrift`（为容忍自己的新增而调大账本 ⇒ 当场判「账本被放宽」红）。差别在于 debt 基线**确实存在\"如实记录主干现状\"的正当场景**，所以正解不是禁掉调大，而是**要求调大时点名是哪条真实清理没做**——这一条留给门禁批次实现，本次只登记。",
+      "| 第一性原因（QM-5 ①） | ✅ | 三处**自我修正**均有实证：①`/key/map`「密钥分发」推断撤销（只有裸 URL 无调用点）；②参考产品「有本地签名」修正为「远端为主 1.5 平台兜底」（createSign 仅 3 处）；③上批 sig3 复刻预估依据「主脚本 226 条」——本轮发现主脚本只有 3 个 make-closure，重活在 sub2，预估更乐观 |"
+    ],
+    "lineReadGaps": [
+      "\"01-docs/research/competitor-reverse-2026-10-13/derived/\\344\\270\\244\\350\\276\\271\\347\\253\\236\\345\\223\\201\\351\\243\\216\\346\\216\\247\\346\\226\\271\\345\\274\\217\\345\\257\\271\\347\\205\\247.md\"",
+      "\"01-docs/research/competitor-reverse-2026-10-13/derived/\\350\\236\\215\\345\\252\\222\\345\\256\\235-MediaTaskMgr\\344\\270\\232\\345\\212\\241API\\345\\272\\217\\350\\250\\200\\345\\217\\226\\350\\257\\201.md\"",
+      "\"01-docs/research/competitor-reverse-2026-10-13/derived/\\350\\236\\215\\345\\252\\222\\345\\256\\235-sig3\\350\\260\\203\\347\\224\\250\\345\\233\\276\\344\\270\\216\\346\\265\\201\\346\\260\\264\\347\\272\\277.md\"",
+      "\"01-docs/research/competitor-reverse-2026-10-13/derived/\\350\\236\\215\\345\\252\\222\\345\\256\\235-\\345\\271\\263\\345\\217\\260\\351\\205\\215\\347\\275\\256\\346\\213\\206\\350\\247\\243-top10.md\"",
+      "\"01-docs/research/competitor-reverse-2026-10-13/derived/\\350\\236\\215\\345\\252\\222\\345\\256\\235-\\350\\207\\252\\345\\256\\266\\345\\220\\216\\347\\253\\257API\\351\\235\\242.md\"",
+      "\"01-docs/research/competitor-reverse-2026-10-13/\\344\\272\\244\\344\\273\\230\\347\\211\\251\\346\\200\\273\\347\\264\\242\\345\\274\\225.md\""
+    ]
+  },
+  "stagedDiffHash": "e2b2217a0f65443d03c3866d648d63f129cf0f326ff0302aef3053de7f58cece",
+  "decidedAt": "2026-10-19T09:12:16.618Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

@@ -305,6 +305,44 @@ describe("TtsVoiceCloneService", () => {
     ).resolves.toMatchObject({ code: 0, data: { selectedVoiceId: "voice-clone-a" } });
   });
 
+  // 2026-10-19 事故：MiniMax 订阅套餐账号克隆被拒（"your current token plan not
+  // support model, voice_clone"）。PLAN_UNSUPPORTED 必须原样透传（附供应商原话 detail），
+  // 不得折叠成 VOICE_CLONE_PROVIDER_UNAVAILABLE（「暂时不可用，请重试」会误导用户重试）。
+  it("adapter 抛 PLAN_UNSUPPORTED 时透传 VOICE_CLONE_PLAN_UNSUPPORTED 并附供应商原话 detail", async () => {
+    const samplePath = path.join(sandboxPath, "voice.wav");
+    await nodeFs.promises.writeFile(samplePath, "audio");
+    const { ProviderError, ERROR_CODES } = require("./adapters/_base/provider-error");
+    manager.callAdapter.mockRejectedValueOnce(
+      new ProviderError(ERROR_CODES.PLAN_UNSUPPORTED, "your current token plan not support model, voice_clone", { providerId: PROVIDER_ID }),
+    );
+    const result = await cloneFromPaths(service, [samplePath], "Plan Locked");
+    expect(result).toMatchObject({
+      code: -1,
+      message: "VOICE_CLONE_PLAN_UNSUPPORTED",
+      data: { detail: "your current token plan not support model, voice_clone" },
+    });
+    // 失败不落 registry
+    const key = cloneRegistrySettingKey(PROVIDER_ID, MODEL);
+    const registry = store.getValue("user-a", key);
+    expect(!registry || registry.voices.length === 0).toBe(true);
+  });
+
+  it("callAdapter 返回结构化 errorCode=PLAN_UNSUPPORTED 时同样透传", async () => {
+    const samplePath = path.join(sandboxPath, "voice.wav");
+    await nodeFs.promises.writeFile(samplePath, "audio");
+    manager.callAdapter.mockResolvedValueOnce({
+      code: -1,
+      errorCode: "PLAN_UNSUPPORTED",
+      message: "your current token plan not support model, voice_clone",
+    });
+    const result = await cloneFromPaths(service, [samplePath], "Plan Locked 2");
+    expect(result).toMatchObject({
+      code: -1,
+      message: "VOICE_CLONE_PLAN_UNSUPPORTED",
+      data: { detail: "your current token plan not support model, voice_clone" },
+    });
+  });
+
   it("远端成功后持久化 owner-scoped 样本，且 IPC/registry 不泄露来源路径或字节", async () => {
     const samplePath = path.join(sandboxPath, "speaker.wav");
     const sampleBytes = Buffer.from("RIFF-test-audio");

@@ -1,0 +1,58 @@
+{
+  "sha": "74a0f5d9322e04aa1888099a8530133fe1aa7242",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 144 行（≤ 200）但命中 auth/数据库/加密：敏感内容 3 处",
+  "stats": {
+    "changedLines": 144,
+    "fileCount": 12,
+    "codeFileCount": 9,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 3,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "- 2026-10-19 真实事故：MiniMax 订阅套餐账号克隆音色被服务端拒绝（`model_provider_logs` id=10030：`your current token plan not support model, voice_clone`，latency 1125ms——请求真实到达、鉴权通过、参数合规）。adapter 把它误判为额度类（`token\\s*plan` 被 isQuota 吃掉），service 折叠成 `VOICE_CLONE_PROVIDER_UNAVAILABLE`，用户看到「音色克隆服务暂时不可用，请稍后重试」——重试永不成功，误导用户反复尝试。",
+      "| 第一性原因（QM-5 ①） | ✅ | 用户 MiniMax 订阅套餐账号克隆被服务端拒绝（`model_provider_logs` id=10030：`your current token plan not support model, voice_clone`，2026-10-19 07:05:53，latency 1125ms——请求真实到达服务端、鉴权通过、参数合规）；adapter `classifyBaseRespError` 把它误判为 QUOTA（`token\\s*plan` 分支），service 折叠为 `VOICE_CLONE_PROVIDER_UNAVAILABLE`，前端映射「暂时不可用，请稍后重试」——重试永不成功，文案误导 |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "453d424516b5fa57b231350126ecb1b7610e42d0fa8422aba1380827bd8a778d",
+  "decidedAt": "2026-10-19T09:09:49.589Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

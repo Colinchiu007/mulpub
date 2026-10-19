@@ -74,12 +74,37 @@ describe('CollectedResultsList 卡片操作分级', () => {
     const cards = w.findAll('.cohere-card')
     expect(cards.length).toBe(2)
     const cls = (id) => w.find(`[data-testid="result-${id}-a"]`).classes().join(' ')
-    expect(cls('draft')).toContain('is-primary')
-    expect(cls('publish')).toContain('is-primary')
-    expect(cls('view')).not.toContain('is-primary')
-    expect(cls('video')).not.toContain('is-primary')
+    // 2026-10-17 collection-page-ui-ue-refine：`is-primary` 是全仓零样式定义的**死类**
+    // （分级在视觉上完全不成立），统一改为 col-btn--primary；「该类真有定义」由
+    // collection-page-css-contract.test.js 的「消费⇒有定义」判据看守。
+    expect(cls('draft')).toContain('col-btn--primary')
+    expect(cls('publish')).toContain('col-btn--primary')
+    expect(cls('view')).not.toContain('col-btn--primary')
+    expect(cls('video')).not.toContain('col-btn--primary')
+    // 死类不得复辟
+    for (const id of ['draft', 'publish', 'view', 'video']) {
+      expect(cls(id), `${id} 不得再用死类 is-primary`).not.toContain('is-primary')
+      expect(cls(id), `${id} 不得再用死类 primary`).not.toMatch(/(^|\s)primary(\s|$)/)
+    }
     expect(w.find('[data-testid="batch-item-check-a"]').exists()).toBe(true)
     expect(w.find('[data-testid="batch-item-check-b"]').exists()).toBe(true)
+  })
+
+  it('primary 档按钮在规范层有真实样式定义（不是死类占位）', () => {
+    // 上一条只证明「class 名对」；这一条证明「class 名有样式」——
+    // 正是 is-primary 缺陷的盲区（原测试只断类名、不断定义，所以分级失效三年没人发现）。
+    const { readFileSync } = require('node:fs')
+    const { join } = require('node:path')
+    const pageCss = readFileSync(join(process.cwd(), 'src/features/collection/collection-page.css'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+    const primaryBody = /\.col-btn--primary\s*\{([^}]*)\}/.exec(pageCss)
+    const secondaryBody = /\.col-btn--secondary\s*\{([^}]*)\}/.exec(pageCss)
+    expect(primaryBody, 'col-btn--primary 应在规范层有定义').toBeTruthy()
+    expect(secondaryBody, 'col-btn--secondary 应在规范层有定义').toBeTruthy()
+    // primary 与 secondary 的声明必须真的不同（否则分级仍是假的）
+    expect(primaryBody[1].trim()).not.toBe(secondaryBody[1].trim())
+    expect(primaryBody[1]).toMatch(/background/)
+    expect(secondaryBody[1]).toMatch(/border/)
   })
 })
 

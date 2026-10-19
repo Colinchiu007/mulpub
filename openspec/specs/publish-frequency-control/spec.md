@@ -239,3 +239,264 @@ MUST NOT 提交空 map（"清空覆盖"的既有语义是提交 `null`）。
 - **WHEN** 用户在某平台行填 12（分钟）并保存
 - **THEN** 提交值为 `12 * 60000` 毫秒，字段名与主进程 `resolvePolicyOverrides` 的键逐一对应
 
+### Requirement: 提交阶段判定（不可被获益方伪造）
+
+守卫 MUST 以**提交阶段**而非**错误类型**作为「未提交失败」的判据。发布传输层（真正发出平台写操作的那一层）MUST 在首次
+平台写操作前调用一次 `markSubmitted()`，队列 MUST 将其结果记录为 `task.submittedAt`。回滚间隔窗口 MUST 仅在
+`task.submittedAt` 为空时允许；错误对象上的 `notSubmitted` / `definitelyNotSent`（见
+`apps/desktop/electron/services/publish-not-submitted.js`）MUST 只作**佐证位**，两者与阶段标记不一致时 MUST 按「已提交」
+处理（占窗口）并记录 error 级日志。
+
+#### Scenario: 提交前失败可立即重试
+- **WHEN** 一次发布在发出任何平台请求之前失败，且该错误带 `notSubmitted` 或 `definitelyNotSent`
+- **THEN** 守卫回滚该次占位，同一 (platform, accountId) 无需等待即可再次提交
+
+#### Scenario: 提交后失败仍占窗口
+- **WHEN** 一次发布已发出平台请求（`submittedAt` 已置位）后失败或超时
+- **THEN** 该窗口 MUST 保持占用，后续同窗口提交被拦；回滚 MUST NOT 发生
+
+#### Scenario: 佐证位与阶段标记不一致时 fail-closed
+- **WHEN** 错误带 `notSubmitted === true` 但 `task.submittedAt` 已置位
+- **THEN** 判定为已提交，占窗口，并记录 error 级日志与计数
+
+#### Scenario: 成功发布的接线自证
+- **WHEN** 一次发布**成功**但 `task.submittedAt` 为空
+- **THEN** 记录 error 级日志并递增「接线缺陷」计数（把传输层漏接线从静默风险变为主动告警）
+
+#### Scenario: 竞态输掉且执行器未收敛时不得回滚（v3 起追加的事实）
+- **WHEN** 一次发布因超时/中止判输，但执行器 promise **尚未收敛**（请求可能仍在飞）
+- **THEN** MUST 置 `task.submitUncertain` 并拒绝回滚；该标记按任务**终身不复位**（重试轮不得还原窗口）
+
+#### Scenario: 某平台出现"成功但未打点"后永久停用该平台回滚
+- **WHEN** 某平台命中 `_disableRollbackForPlatform`（成功而 `submittedAt` 为空，见 `packages/shared-utils/src/task-queue-frequency.js`）
+- **THEN** 该平台后续失败不再回滚窗口，避免用不可靠的打点证据撤销已生效的限流保护
+
+### Requirement: 账号级日配额
+
+守卫 MUST 支持账号级日配额维度，与最小间隔**并存**：间隔管突发，配额管总量。日配额 MUST 按 `platform:accountId` 计数，
+键为**本机运营日** `YYYY-MM-DD`（不换算平台时区、不声称与平台日界等价）。三档默认值以 `TIER_PRESETS`
+（`packages/shared-utils/src/publish-frequency-policy.js`）为唯一真源：**长文 200 / 短视频 350 / 短内容 500**，
+上界 `MAX_DAILY_QUOTA`（=5000，写成严格大于最大默认值，避免上调默认时撞被静默钳位）。回滚许可数由
+`MAX_ROLLBACK_PER_DAY` 与档位共同决定（`packages/shared-utils/src/guard-release.js`），MUST NOT 随配额放大而失去"少量回滚"的语义。
+配额被拒 MUST 以 `bucket='daily'`、`reason='daily_quota'` 表达，且 MUST NOT 以固定短间隔反复重判。
+计数存储读回类型不一致时 MUST 归一（TEXT 亲和）；`dailyStore` 自身抛错 MUST fail-open 并**出声**，不得静默放行。
+
+#### Scenario: 当日配额用尽
+- **WHEN** 同一账号当日已提交次数达到该档位上限
+- **THEN** `check()` 返回 `allowed=false`、`bucket='daily'`、`reason='daily_quota'`；任务进入 `_quotaBlocked`，
+  `_processNext` 跳过它，定时器指向次日（`msUntilNextDay`，`apps/desktop/electron/services/store/publish-daily-store.js` 侧的 `prune*` 保留 7 天）
+
+#### Scenario: 跨日恢复
+- **WHEN** 本机运营日跨过 00:00
+- **THEN** 该账号计数从 0 起算，被阻任务重新入队并重新判定
+
+#### Scenario: 未提交回滚回补配额且幂等
+- **WHEN** 一次未提交失败触发了回滚
+- **THEN** 该次占用的配额计数 MUST 被回补（下限 0），且重复回滚 MUST NOT 重复回补
+
+#### Scenario: 回滚计数只增不减
+- **WHEN** 任意一次回滚发生
+- **THEN** 该账号当日的回滚计数 +1，且不因配额回补而减少
+
+### Requirement: 间隔抖动只增不减
+
+守卫 MUST 支持可注入随机源与抖动比例；实际等待 MUST 为 `remaining × (1 + ratio × rand)`，`rand ∈ [0,1)`。
+`ratio` 默认值取 `DEFAULT_JITTER_RATIO`（=0.4），非法值 MUST 回落默认并**出声**。抖动 MUST NOT 使等待短于标称最小间隔，
+且抖动后仍 MUST 钳在 `setTimeout` 安全值内；`ratio = 0` 时行为 MUST 严格等于未引入抖动前的值。
+
+#### Scenario: 抖动区间
+- **WHEN** 抖动比例为 0.4 且连续采样多次
+- **THEN** 每次实际等待均落入 `[base, base × 1.4)`
+
+#### Scenario: 关闭抖动等价旧行为
+- **WHEN** 抖动比例为 0
+- **THEN** 实际等待严格等于标称剩余时间（与未引入抖动时逐值一致）
+
+#### Scenario: 非法抖动比例回落并出声
+- **WHEN** `MP_PUBLISH_JITTER_RATIO` 被配成空白、负数或 `>= 1`
+- **THEN** 回落 `DEFAULT_JITTER_RATIO` 并打印一次告警，MUST NOT 静默当成 0（那等于关掉防突发）
+
+### Requirement: 未登记平台出声且回落不得弱于任何已登记平台
+
+平台未登记于策略表时，守卫 MUST 回落最严基线（`BASELINE_INTERVALS`，其账号档**引用逐平台表的最严值**而非另写数字），
+MUST NOT 回落 0；并 MUST 对该平台**出声告警一次**（进程内按平台去重）。基线强度 MUST 可被自检：
+`checkBaselineStrength()`（`packages/shared-utils/src/publish-frequency-policy.js`）在加载期断言回落值不弱于任一已登记平台。
+
+#### Scenario: 未登记平台回落并告警
+- **WHEN** 对未登记平台发起发布
+- **THEN** 使用最严基线档位，且日志出现且仅出现一次该平台的回落告警
+
+#### Scenario: 有人把基线改松时当场变红
+- **WHEN** 回落基线的任一维度弱于某个已登记平台的现行值
+- **THEN** `checkBaselineStrength()` 自检失败并出声（"新增平台忘记登记 ⇒ 更松"这条路 MUST NOT 静默成立）
+
+### Requirement: 一次性紧急放行
+
+系统 MUST 提供显式的一次性紧急放行入口，跳过某一 (platform, accountId) 的当前等待。每账号每日次数默认 1、上界 10；
+跨账号冷却 `DEFAULT_COOLDOWN_MS`（=10 分钟）与"每日 1 次"**正交**（见 `apps/desktop/electron/services/publish-emergency-release.js`）。
+放行 MUST 经二次确认、MUST 受每日次数上限与冷却约束、MUST 写入追加式审计 `publish-emergency-audit.jsonl`（UI 无编辑入口），
+并 MUST 对结果给出明确回显。IPC 通道名是 `publishFreq:emergencyRelease`（`apps/desktop/electron/ipc-handlers/publish-frequency.js`）。
+
+#### Scenario: 放行成功并留痕
+- **WHEN** 用户在设置页确认紧急放行且当日次数未用尽
+- **THEN** 该账号的等待被解除、任务立即进入队列，审计追加一行，设置页与进度面板同步刷新
+
+#### Scenario: 超过每日上限
+- **WHEN** 当日紧急放行次数已达上限
+- **THEN** 拒绝放行，队列状态不变，界面给出上限文案
+
+#### Scenario: 无等待中的窗口
+- **WHEN** 该账号当前没有等待中的窗口
+- **THEN** 明确回显「当前没有等待中的窗口」，MUST NOT 静默
+
+#### Scenario: 功能被关闭时回显 disabled
+- **WHEN** 紧急放行被整体禁用（配置/开关关闭）
+- **THEN** 返回第 4 种结果态 `disabled` 并给出文案，MUST NOT 把它伪装成"无等待中的窗口"
+
+### Requirement: 回滚资格由竞态收敛性决定，不得只由打点状态决定
+
+系统 MUST 在 `Promise.race([执行器, 超时, 中止])` 结束后判定执行器**是否已收敛**，并把该结论
+作为「未提交失败回滚」的前置判据。执行器尚未收敛（请求可能仍在飞）时，MUST NOT 回滚间隔窗口
+与日配额，MUST NOT 声称该次尝试"未提交"。被 race 的那个 promise MUST 就是被观测收敛性的
+那个 promise（不得另起一次执行器调用）。
+
+理由：传输层的提交打点按运行中任务表查任务，任务离开该表后迟到的打点永久落空；
+"没有打点"在竞态输掉那一刻**不构成**"没有发起"的证据。
+
+#### Scenario: 超时输掉且执行器仍在飞时窗口保持占用
+- **WHEN** 一次发布提交后被 `task.timeout` 判超时，而执行器 promise 尚未收敛
+- **THEN** 守卫不得回滚该次占位；该平台/账号的间隔窗口仍被占用，窗口内的后续提交被阻塞
+
+#### Scenario: 同通道第二条任务不得因上一条超时而提前发出
+- **WHEN** 上一条任务在同 (platform, accountId) 通道上因超时失败，随后提交同通道的新任务
+- **THEN** 新任务 MUST 被频控拦下并报 `bucket:'account'`，MUST NOT 被执行
+
+#### Scenario: 在飞未知必须可归因且不得伪装成"未提交"
+- **WHEN** 一次失败发生在执行器未收敛时
+- **THEN** 该任务被置 `submitUncertain`，探针计数 `inflightUnknown` 增加一次（按任务而非按轮），
+  并输出一条点名平台与任务 ID 的告警；`lastAttemptNotSubmitted` MUST 为 false
+
+#### Scenario: 终身锁——一旦在飞未知，本任务后续轮次不得回滚
+- **WHEN** 一条已置 `submitUncertain` 的任务在后续轮次失败，且该轮错误带 `definitelyNotSent=true`
+- **THEN** 仍 MUST NOT 回滚窗口（回滚会还原到"第一轮仍在飞那次提交之前"的窗口，比不回滚更糟）
+
+#### Scenario: 对偶——确证未送出的快速失败仍须照常回滚
+- **WHEN** 执行器**已收敛**地失败，且从未发起写尝试或显式声明 `definitelyNotSent`
+- **THEN** 窗口 MUST 被回滚、配额 MUST 回补，重试按 `releaseGraceMs` 有界退避
+  （把禁止回滚写成永不回滚即撤销 v2 的免等重试能力）
+
+### Requirement: 频率数值的单一落点与「档位 + 逐平台偏离」派生
+
+长文 / 短视频·图文社区 / 短内容三档的**平台档与日配额** MUST 各自只在一处定义（`TIER_PRESETS`，
+`packages/shared-utils/src/publish-frequency-policy.js`）；**账号档 MUST 由逐平台表
+`PLATFORM_ACCOUNT_MIN_INTERVAL_MS`（`packages/shared-utils/src/publish-frequency-account-interval.js`）持有**，
+档位不得再直接给出账号档数字（v5 起）。未登记平台的回落基线 MUST 是独立常量，其账号档 MUST **引用逐平台表的最严值**
+而不是另写一个数字（两个数字必然有一天漂移）。
+
+`long > clip > short` 的档间单调 MUST 只对「未对该平台做偏离」的平台成立；一旦某平台（现仅视频号）偏离到比其档位更严的值，
+跨档比较即不成立 ⇒ 偏离集合 MUST 被显式钉住，新增偏离 MUST 让锁变红而不是静默通过。
+
+#### Scenario: 逐平台与档位各自取到生效值
+- **WHEN** 分别查询 tencent_video、wechat_mp、weibo 的生效策略
+- **THEN** 账号档取自逐平台表（视频号 60′ 为**唯一偏离**、长文档 5′、short 档 1′），
+  平台档三档统一 1′（v4 撤分级、机制保留），日配额按档位取 200 / 350 / 500
+
+#### Scenario: 偏离集合扩大必须出声
+- **WHEN** 有人把某个平台的账号档改成偏离其档位默认的值
+- **THEN** 除该平台外的表必须仍等于其档位默认；偏离集合大小/成员变化必须让既有锁变红，不得静默混入
+
+#### Scenario: 未登记平台回落最严档并出声
+- **WHEN** 查询不在策略表内的平台
+- **THEN** 回落 `BASELINE_INTERVALS` 并置 `fallback: true`，由守卫按平台去重输出一条告警
+
+### Requirement: 未提交回滚的每日许可数不得随日配额放大
+
+守卫 MUST 以 `min(max(2, accountDailyMax), MAX_ROLLBACK_PER_DAY)` 决定每账号每日的回滚许可，
+`MAX_ROLLBACK_PER_DAY` MUST 是守卫导出的独立常量。日配额被调大 MUST NOT 使回滚许可同比例放大。
+
+#### Scenario: 高日配额下仍受硬顶约束
+- **WHEN** 某账号当日已回滚 5 次而其档位日配额为 200
+- **THEN** 第 6 次回滚被拒绝并回报 `reason:'rollback_cap'`，窗口保持占用
+
+#### Scenario: 封顶必须真的在管
+- **WHEN** 断言当前策略表的任一档日配额
+- **THEN** 其值 MUST 大于 `MAX_ROLLBACK_PER_DAY`（否则本锁测的是从不生效的死支路）
+
+### Requirement: 有界退避等待中的任务必须仍可观测与持久化
+
+任务因回滚成功而进入 `releaseGraceMs` 退避时，系统 MUST 把它登记进频控等待承载处
+（与 `publish:blocked` 同一处）并持久化队列快照；`getStatus()` / `getPendingTasks()` /
+`serialize()` MUST 在该期间仍能看到它，`cancel()` MUST 能取消它。
+
+#### Scenario: 退避期间仍可查、可序列化
+- **WHEN** 一次未提交失败刚完成回滚并进入退避
+- **THEN** 该任务出现在待办列表与队列快照中；重启后可恢复，MUST NOT 只活在定时器闭包里
+
+### Requirement: 平台间隔档必须统一存在且不得整条移除
+
+系统 SHALL 为每个已登记平台提供非零的平台间隔档（键 `platform:*`），且 v4 起三档取**同一值 1 分钟**。
+平台间隔档的作用是"同一平台、不同账号两次发布之间的最小错开"；同一账号的场景由账号间隔档
+（`platform:accountId`）与"取更严者"规则覆盖。该档 MUST NOT 被整条移除或归零，因为它是唯一约束
+"同一台机器、同一出口 IP 下多号在同一平台并行"的机制，而其失效后果（平台侧把多号关联为矩阵行为）
+在本地没有任何可观测信号。
+
+#### Scenario: 三档平台间隔相等且等于 1 分钟
+
+- **WHEN** 分别解析 `long` / `clip` / `short` 任一档的代表平台
+- **THEN** 三者的 `platformMinMs` MUST 相等，且 MUST 等于 `1 * 60 * 1000`
+- **AND** 把其中任一档改回更大的值 MUST 使回归锁变红（等号是收紧，不是放宽）
+
+#### Scenario: 平台间隔归零即视为门禁缺失
+
+- **WHEN** 任一已登记平台的 `platformMinMs` 解析结果为 `0`（且并非用户显式覆盖）
+- **THEN** 回归锁 MUST 变红，包括"每个维度均为正数"这条既有锁
+- **AND** 运行期 `guard.check()` MUST NOT 因平台档归零而把跨账号并行判为可直接提交
+
+#### Scenario: 跨账号并行仍被错开
+
+- **WHEN** 同平台账号 A 刚完成一次发布（在 1 分钟窗口内），账号 B 从未发布
+- **THEN** 账号 B 的账号档不阻塞，但因平台档窗口未满而被阻塞，`bucket` MUST 报 `platform`
+
+### Requirement: 日配额必须保持与内容形态同向的单调性
+
+系统 SHALL 按档位提供 `accountDailyMax`，v4 取 `long 200 / clip 350 / short 500`，并 MUST 满足
+`long < clip < short`（长文日配额最少）。日配额数值 MUST 由策略表单一持有；任何"抬高某档配额"的
+改动 MUST 同时被逐平台数据表断言与档间单调断言观察到。
+
+#### Scenario: 逐平台配额等于档位数据表
+
+- **WHEN** 遍历全部已登记平台并解析其 `accountDailyMax`
+- **THEN** 每个平台的读数 MUST 等于其所属档在数据表中的值（200 / 350 / 500）
+- **AND** 把任一档改回历史值（如 clip 退回 50）MUST 变红
+
+#### Scenario: 配额单调不得反向或被抹平
+
+- **WHEN** 解析 `long` / `clip` / `short` 三档代表平台
+- **THEN** MUST 满足 `long.accountDailyMax < clip.accountDailyMax < short.accountDailyMax`
+- **AND** 把 `short` 压到与 `long` 相等 MUST 变红
+
+#### Scenario: 日配额抬高不得放大回滚许可
+
+- **WHEN** 使用真实策略表构造守卫并逐档读取"每日可回滚次数"上限
+- **THEN** 三档 MUST 全部等于硬顶 `MAX_ROLLBACK_PER_DAY = 5`
+- **AND** 该上限 MUST NOT 表达为 `max(2, accountDailyMax)`（配额 ×N 不得把防风闸额度也 ×N）
+
+### Requirement: 回落基线的两维「不弱于」判据（间隔取上界、配额取下界）
+
+系统 MUST 在未登记平台（含非字符串平台标识）回落 `BASELINE_INTERVALS` 并带 `fallback: true` 供守卫出声。
+「不弱于」在两个维度上**方向相反**，MUST 分别取界：间隔维度 MUST 不小于所有已登记平台中的最大值；
+日配额维度 MUST 不大于所有已登记平台中的最小值。该回落值 MUST 保持为**独立常量**，不得由档位表派生
+（否则改档会静默改变回落实质）。当前取值以 `BASELINE_INTERVALS` 为准（账号档引用逐平台表最严值、
+平台档 1′、日配额取最严档），本文**不复制数字**。
+
+#### Scenario: 回落三个维度各自满足不弱于
+- **WHEN** 比较 `BASELINE_INTERVALS` 与已登记平台策略表
+- **THEN** `accountMinMs` 与 `platformMinMs` MUST 分别 ≥ 全域最大值
+- **AND** `accountDailyMax` MUST ≤ 全域最小值
+- **AND** 把基线日配额写成比任何平台都宽 MUST 变红（由 `checkBaselineStrength()` 的既有锁承担）
+
+#### Scenario: 回落不得为 0 且必须出声一次
+- **WHEN** 以未登记平台标识调用 `resolveIntervals`
+- **THEN** 返回 MUST 等于 `BASELINE_INTERVALS` 且 `fallback` 为 `true`
+- **AND** 三个维度 MUST 均为正数，守卫 MUST 在进程内去重后告警一次，MUST NOT 静默按 0 放行
+
