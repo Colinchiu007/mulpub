@@ -6,7 +6,7 @@ export default {
     title: '文案改写',
     subtitle: 'AI 驱动的多策略文案改写引擎，结合爆款库与个人经历提升原创性',
     inputSection: '输入文案',
-    inputPlaceholder: '输入或粘贴需要改写的文案内容（最多 6000 字）...',
+    inputPlaceholder: '输入或粘贴需要改写的文案内容（最多 50000 字）...',
     configSection: '改写设置',
     useViralLibrary: '结合爆款库',
     useViralLibraryHint: '优先匹配爆款文案策略，提升内容吸引力和传播潜力',
@@ -52,9 +52,12 @@ export default {
     wordCountMinPlaceholder: '最小',
     wordCountMaxPlaceholder: '最大',
     wordCountUnit: '字',
-    wordCountMinInvalid: '最小字数需为 0-5999 的整数',
-    wordCountMaxInvalid: '最大字数需为 1-6000 的整数',
+    wordCountMinInvalid: '最小字数需为 0-49999 的整数',
+    wordCountMaxInvalid: '最大字数需为 1-50000 的整数',
     wordCountMaxLtMin: '最大字数不能小于最小字数',
+    // 输出截断可见化（rewrite-limits-50000，2026-10-19）：引擎按字数区间/策略上限砍尾时
+    // 结果卡顶部横幅提示；length=实际输出字数，max=生效上限
+    outputTruncated: '改写结果已按字数上限截断：实际输出 {length} 字（上限 {max} 字），原文后半部分未包含在结果中。如需完整改写，请调大「字数控制」上限。',
     // ── 改写质量评估报告（content-quality-eval 桌面端闭环）──
     qualitySection: '质量评估',
     qualitySufficiency: '改写充分度',

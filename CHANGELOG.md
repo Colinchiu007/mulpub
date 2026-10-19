@@ -5,6 +5,28 @@
 - **第二落点：`transition: all` 把 outline 一起淡入**。第一次真浏览器读数里，4 个带 `transition: all` 的变体在 Tab 后 0ms 仍是过渡起点（`3px solid currentColor / offset 0`），不带 `all` 的立刻正确。修法是在焦点环规则里显式 `transition: outline-color 0s, outline-width 0s, outline-offset 0s`，并让判据同时读 **t=0 与 t=450ms**。
 - **取证**：本机 Chromium 加载**真实** CSS 文件与 `UiButton.vue` 的 `<style scoped>` 原文，键盘 `Tab` 进焦点态读 computedStyle —— 8 个类 × 浅暗两档 = **16 项两时刻全 OK**（浅 `2px solid rgb(96,58,249) off=2px`，暗 `rgb(123,116,255)`）；非文本对比度 light 6.05 / dark-canvas 4.78 / dark-card 4.30，全部 ≥3:1。回归锁 `src/styles/focus-ring.test.js`（12 例），7 道变异逐条指名变红、`RESTORED_OK=true`。
 - **边界**：3.6 主体（571 处 `<button>` 迁移、双轨合一）不在本批；`<div @click>`（阶段 4.4）刻意排除在判据域外；裸 `<button>` 仍由 UA 焦点环服务（实测 src 内 37 处 `outline: none` 全落在输入框/文本域，未波及按钮）。无新增 locale 键。
+# [未发布] feat(subtitle): 数字/单位完整性与双字搭配守卫 v1.4 —— 8 段复杂文案实测驱动的第二族坏切（subtitle-word-integrity）
+
+- **动因与取证**：v1.3 合并后用 8 段不同风格文案（政治评论续篇/历史叙事/科技解说/口语短视频/生活叙事/无标点压力段×2）对真实引擎做三端对跑，暴露一族 v1.3 未覆盖的坏切。**A/B 反证**（关掉 phrase_boundary 输出逐字节不变）证实非 v1.3 引入：是 `no_cut_bigrams` 词表缺口 + 标点累积分支直切不经守卫的既有缺陷。实测证据：`风速每秒 8│米`、`套现约 3.2│亿元`、`提升了│60%`、`制程是│3 纳米`、`当│成`、`遗│忘`、`那│段`、`千│万人`。
+- **`unit_guard`（确定性规则，非枚举）**：`word_split.unit_guard.units`（44 个量词/单位，最长优先）+ 两条 bind 判定——left_bind（左边数字串│右边单位开头，**数字串含中文数词**`一二三四五六七八九十百千万亿兆两零〇`，容忍尾部一个排版空格 `'8 米'`）；right_bind（向左跳空白/标点取引导字 c ∈ `是约到达了超足低高等` 且右侧以 ASCII 数字开头、中间无汉字）。**接入点两处**：`isSafeCutPosition` 第五条件 + **标点累积分支**（该分支此前直切不经守卫——`8│米` 正是空格切点，只改 findSafeCutPosition 拦不住）。TS/Python/JS 三端同构。
+- **`no_cut_bigrams` +7，逐条带实测出处**：`当成`（A 例）、`万人`（G 例）、`遗忘`（G 例）、`那段`（G 例）、`仿佛`（E 例）、`亿元`/`纳米`（F/B 例，与 unit_guard 双登记是纵深防御——本表管短语内部任意位置，unit_guard 只管数字-单位接缝，职责注释已写进规则表防误删）。
+- **对抗评审拦下 3 处真问题（claude 后端本轮可用，轮 1 真实跑出 8 条发现）**：① i1 Critical——数字判定若只认 ASCII，`一百五十│元` 中文数词同形坏切会漏 ⇒ 数字字符集扩中文数词并加向量；② 零误伤预检（i5，把口头承诺变机械读数）**当场否决 `飘地` 词条**——它命中既有 v1.3 向量 `qing_piao_piao` 的块间接缝，会改变已发布期望输出；③ i2 准入自洽——`测试/恐慌/看不见` 无实测出处，从本次移除记待补录。评审回应逐条落盘 `openspec/changes/subtitle-word-integrity/review-response.md`。
+- **回归面（零误伤实证）**：既有 44 条共享向量 `expected_blocks` 零变化；金标重生成后 **169 块零变化**（`rulesLfSha256=75151bb8…` 已随 #3970 的对账锁同批登记，两仓 LF 归一化逐字节一致，跨仓对账 PASS）。
+- **新增 7 条 `v1.4_word_integrity_*` 共享向量**（数字│单位 ×3 含中文数词压力例 + 双字搭配 ×3 + 万人 ×1，手工真值 + `short_block_exceptions` 显式声明）；TS 263 / JS 202 / Python 611 全绿；变异反证 M1（删 unit_guard ⇒ 2 红）/ M2（删 no_cut 新词条 ⇒ 1 红）各自指名变红；8 段文案三端对跑 8/8 逐字一致、7 类坏切实例 0 残留（用**当前源码重打的 esbuild 夹具**——旧夹具内嵌 v1.1 规则表，再次实证其"假锁"属性）。
+- **如实记不修**：`老槐│树下`（处所短语开放集合，枚举不完备，待可观测性切片）；`先想三秒：│这钱花出去`（冒号尾块两块都完整，不是坏切）。
+# [未发布] feat(gates): 跨仓 sidecar 对账锁 + Python 金标 + ops-center 能力声明互证（subtitle-sidecar-parity-lock）
+
+- **锁文件自身的比较也必须走同一口径**（真实运行抓到的假红）：第一版用**原字节**比锁文件，四条数据哈希明明全等却稳定报「锁不一致」——两仓检出行为不同（mulpub 的 .gitattributes 是 	ext=auto，Windows 工作树 CRLF；sidecar 检出 LF），同一份登记表的原字节必然不同。教训不是「再小心」，而是**判据里只要有一处口径与其余部分不一致，它就会在最不该红的地方稳定假红、然后被当成噪声关掉**。现改为与数据同一口径（只抹平 CRLF），并补两条回归（同内容/不同行尾 ⇒ 不报；内容真不同 ⇒ 报）。
+- **跨仓数据第一次有了机械判据**：新增 `packages/story2video-engine/tests/fixtures/sidecar-parity.lock.json`（与 smart-sentence-splitter 仓**逐字节相同**），登记规则表与共享向量的 **LF 归一化 sha256**；两仓各一条断言本地文件匹配登记值。此前这两份数据是两仓手工副本，**没有任何东西会告诉你「只改了一边」**——两仓单测各读自己仓的副本，全绿，而线上 8002 跑的是 sidecar 副本、本地降级路径跑的是 mulpub 副本。顺带把已漂的 `no_cut_bigrams` 尾 9 元素顺序对齐（集合相同；Python 侧是 `set` + 真值/最长匹配，读实现确认与顺序无关，且 sidecar 全量 `577 passed, 9 skipped`）。
+- **口径选「LF 归一化字节哈希」而不是 JSON 语义比较**：语义比较放过键序/缩进/行尾；各语言自己做 canonical JSON 更糟——`json.dumps(sort_keys=True)` 与 `JSON.stringify` 在浮点、转义、非 ASCII 上不同，等于在判据里埋一个自己就会漂的组件。代价是数据文件任何格式差异都会红，那是有意的：跨语言场景下「格式不同但语义相同」就是漂移温床。
+- **单仓锁缺的那一格由 `scripts/check-sidecar-parity.js` 补**：它同时读两个 checkout，比较「两个锁逐字相同 / 各自数据匹配自己的锁 / 跨仓数据哈希相同」。存在的理由是一条单仓判据**结构上看不见**的形态——A 仓把「数据+锁」一起更新（CI 全绿），B 仓还是旧的。该脚本**不挂 PR**（要 clone 另一个仓库，把第三方可用性变成 PR 红点只会让它被豁免），而是 `sidecar-parity.yml` 的 `schedule` + `workflow_dispatch`；**判据本身的检出能力**由 `scripts/check-sidecar-parity.test.js`（13 例，含 0/1/2 三档退出码与锁行尾口径）锁住，接在 `quality-gate.yml` 新增的 **Gate 12f**（changes job，每个 PR 都跑）——把「判据会跑」和「判据没坏」分成两条。
+- **Python 金标对账（sidecar → TS / JS 各自直比，不靠传递）**：新增 `subtitle_parity_corpus.json`（18 例、**只有输入**）与 `subtitle_python_golden.json`（生成器产出，18 例 / 169 块）。分工必须写清否则会误用：**金标不是真值**，它回答「本地实现与线上 sidecar 是不是同一份行为」；「这样切对不对」仍由手工向量定义（向量测试明令禁止把实现输出写入向量）。三端一起漂时金标不红、手工向量红，二者互补。金标带 provenance（生成时的规则表/向量/**语料**三个哈希），改了任一方不重生成会红——这是设计意图的摩擦，不是误报。
+- **生成器不接受命令行路径参数**（这条是被判据逼出来的，但结论是设计变对了）：首版写成 `--corpus/--out`，提交时 CCG 安全扫描器把「`Path(` 同行出现 `args`」判为**路径遍历高危并阻断提交**，而该扫描器**没有任何抑制机制**（源码核实：只有注释行跳过）。可以靠改名变量躲过那条正则，但那是「为通过判据而改代码」，与本案要建立的东西相反。正解是让脚本只读 `tests/vectors/` 下的固定输入、只写固定输出——一个只做这件事的脚本本来就不需要任意路径能力。复检 0 高危。
+- **语料与金标也是跨仓副本，因此也进跨仓对账**：sidecar 侧不消费金标、mulpub 侧不看 sidecar，两者若漂了**单仓判据里没有一只眼睛能看见**（过期金标仍会被复制过去并通过对方的测试，只是它描述的是旧行为）。`check-sidecar-parity.js` 因此从比 2 条产物扩到比较**四份**（规则表 / 向量 / 语料 / 金标），缺一侧如实报「只在一侧存在」而不读成一致；sidecar 侧另加一条「金标 provenance 与本仓数据版本一致」的断言防过期。
+- **ops-center 的「假锁」改诚实**：`prompt_eval_segmentation.py` 头部原写「完整移植桌面端 text-segmentation.ts」，实测**缺整个词边界子系统**（`good_lead`/`good_tail`/`semantic_lead`/`no_cut_bigrams`/`phrase_boundary` 全无），而它的 esbuild 对照测试**只在 `ops-center/**` 变更时触发**——改桌面端 TS 时那条对照一次都不跑。本次把声明改成如实的 `PORTED_SURFACE` / `NOT_PORTED_SURFACE` 两个常量，并加 3 条**声明与源码互相印证**的锁（未移植清单必须点名词边界子系统；源码里必须确实没有那些实现标识；只扫代码形态标识、不扫散文——docstring 里刻意写了这些名字用于说明缺口，裸词匹配会把说明本身判成实现）。
+- **不加 `ops-center-ci.yml` 的触发路径**（有意）：该 job 已长期卡在 10 分钟超时临界（main 上最近 7 次有 3 次 cancelled），加触发只会加剧取消率；真问题是移植保真度而非触发频率。缺口如实记录，补偿是 `packages/story2video-engine` 侧的 TS↔Python 金标对账。
+- **纠正我自己写错的 learnings**：原文「三个文件 + 一份共享数据 + 三份向量副本」三处都错——实现是 **4 份**（漏了 ops-center 的简化 Python）、数据是 **2 份**手工副本、向量是 **2 份**。另加两条 lesson（单仓锁看不见跨仓漂移；参考实现快照不是真值）。
+- **零运行时行为改动**：本次全部是判据、注释与文档，切分逻辑一行未动；`sidecar-parity.lock.json` 缺失或 `phrase_boundary` 缺省时的 v1.2/v1.3 行为不变。
 
 # [未发布] fix(a11y): 「更多」菜单补 roving tabindex + 方向键 + Esc + 焦点归还（UX 审计 4.5 / audit-31）
 
@@ -33,6 +55,15 @@
 
 - 涉及文件：`apps/desktop/src/layouts/MpSidebar.vue`、`apps/desktop/src/layouts/MpSidebar.more-keyboard.test.js`（新）、
   `openspec/records/ux-audit-more-keyboard.md`（新）、`01-docs/UX-AUDIT-2026-10-17.md`（audit-31 就地指针 + 4.5 行状态）。
+
+# [未发布] fix(story2video): 克隆样本魔数嗅探 —— 「改名容器」在克隆入口拦截（s2v-clone-sample-sniff）
+
+- **事故**：任务 `mvf29iv8_cgll`（2026-10-19 17:37，story2video-compose，14 场景）在 `generate_assets` 整阶段失败：图片 14/14 成功，TTS 0/14 —— 13 个场景 MiMo 返回 `Param Incorrect`、1 个叠加 429 限流。根因是用户克隆音色的样本文件**扩展名 `.mp3`、真实容器是 MP4/AAC**（魔数 `ftypmp42`，ffprobe 判定 `mov,mp4,m4a` + `aac`）。
+- **根因链**：`tts-voice-clone-service.js` 的 `_prepareOneSample` 只按扩展名定 `contentType`（`.mp3` → `audio/mpeg`，引入自 68b890039，2026-08-04）；合成时 `asset-generator` 把样本转 `data:audio/mpeg;base64,…` 放进 `audio.voice`，克隆服务端按真实容器解码、发现声明 MIME 与容器不符即拒绝。这是 `2026-08-23-fix-mimo-tts-param-incorrect`（预置音色默认值 `default`→`mimo_default`）之后同错误码的第二种成因，两者互相独立。
+- **修法（黑名单式嗅探）**：`_prepareOneSample` 读取 buffer 后新增 `sniffSampleContainerMismatch`——只拦**可可靠识别的「容器错名」**（.mp3 内容为 ftyp/RIFF-WAVE/OggS/fLaC、.wav/.m4a 内容为 ID3 或 MPEG 帧同步等互串形态），命中抛 `VOICE_CLONE_SAMPLE_EXTENSION_UNSUPPORTED`，在克隆入口前置拒绝并复用既有本地化文案。未知/占位字节维持旧行为放行，由 ffprobe 时长探测 fail-closed 兜底——白名单式强校验会误伤既有测试夹具与罕见封装，黑名单恰好覆盖事故形态且零误伤。
+- **回归锁**：`tts-voice-clone-service.test.js` 新增 2 例——「改名容器」三形态拒绝（ftypmp42 假 MP3、ID3 假 M4A、RIFF 假 M4A，均不调 adapter/不写 registry）与「真实容器不误伤」（ID3 头 MP3、870B 双静音帧裸 MP3、RIFF/WAVE 全部正常克隆通过）。
+- **文件**：`apps/desktop/electron/services/tts-voice-clone-service.js`、`tts-voice-clone-service.test.js`。回归：clone 域 155 例全绿（service 50 + integrity 8 + provider 122 内 asset/mimo 部分 + catalog/service 33）。
+
 # [未发布] docs(audit): 更正 audit-60 的 harm 陈述 —— ElMessage 根节点其实已带 role="alert"，阶段 4.6 因此收窄（ux-audit-toast-a11y-correction）
 
 - **动工前核了库的真实产物**（本机 element-plus 2.14.2）：`message.vue` 编译产物里 `role` 出现 1 次、值为 `"alert"`、挂在 `.el-message` 根 div 的属性表上；5 个 message 实现文件里 `aria-` 计数**全为 0**；`MessageHandler` 只有 `close()`，**没有 DOM 句柄**。
@@ -139,6 +170,31 @@
   行尾两口径 numstat 一致。QM-1 / QM-4 / TDD 均 N/A（无代码行为变更）。
   QM-6 双模型外部评审**未执行**（本机无可用通道，pre-commit 如实打印跳过）。
 - 执行记录 `openspec/records/debt-baseline-resync.md`（含归因两条、影响面与两个跟进项判据）。
+
+# [未发布] feat(rewrite): 改写引擎输入/输出字数上限放开到 50000 + 输出截断可见化（rewrite-limits-50000）
+
+## 问题
+
+- 输入 6000 码点上限把知乎长文 / 视频转写常态化拒之门外（#3979 只能用「截取前 6000 字」缓解，尾部丢失）。
+- 输出侧 `_postProcess` 按 字数区间.max > 策略.maxLength > 3000 砍尾时**完全静默**——用户拿到不完整的稿子且不知道，比 `TOO_LONG` 更隐蔽。
+- 大多数 LLM adapter 不传 `max_tokens` 走服务商默认（OpenAI 4096），输出在模型默认值处被截断且无法归因。
+
+## 改动
+
+- 输入上限 6000 → **50000**（`MAX_INPUT_CHARS`），输出显式区间合法域 → **50000**（新增 `MAX_OUTPUT_CHARS`）；无显式区间的兜底 3000 与策略级 800/1500/2000/3000 **保持不变**（用户显式区间优先级高于策略上限）。
+- 上限单一真源：渲染层 `rewrite-engine-limits.js` 同值常量 + 结构锁读引擎源码比对（输入/输出两把锁，判据必须消费常量，`len > 6000` / `range.max <= 6000` 字面量回潮即红）。
+- **输出截断可见化**：`_postProcess` 返回 `{text, truncatedAt}`，`rewrite()` 结果新增 `outputTruncated` / `outputLength`；改写页结果卡顶部暖橙横幅（`data-testid="rewrite-output-truncated"`）提示实际字数与上限，zh/en 成对文案。
+- 主进程桥接 `max_tokens: 64000`（CJK 1 字 ≈ 1~1.6 token × 倍余量；Anthropic 必填字段原默认 4096 同步受益）。
+- UI 字数区间校验（`useWordCountValidation`）与 `deriveWordCountRange` 自适应上界改读常量：12000 字原文自适应 max = 14400，不再被压回 6000。
+- locale 同步：placeholder / 越界错误文案 / 截断横幅（zh/en）。
+
+## 验证
+
+- 引擎 219 passed（新增 L1/L2/L3 截断可见化 + W3/W8 重写为 50000 口径 + 6001 走通正控）；渲染层定向：limits 10 + defaults 19 + error 8 + user-facing-error 32 + Collection 输入上限 6 + RewriteView 100 + Collection 回归 125 全绿。
+- 变异面：`rewrite-engine-limits.test.js` 结构锁×2（改一边必红）；横幅出现/缺省两态断言。
+- `build:vue` rc=0；`electron-builder --dir` rc=0；asar 实测含 `MAX_INPUT_CHARS = 50000` / `MAX_OUTPUT_CHARS = 50000` / `outputTruncated`。
+- 文档：`01-docs/PRD-REWRITE-LIMITS-50000-2026-10-19.md`（限额体系/数据校验/交互/显示项/流程全量）。
+
 # [未发布] feat(侧栏): 折叠按钮改为可表意的语义化图标并补齐可发现性（sidebar-toggle-ux）
 
 - **用户反馈是「样式太不明显，根本让人注意不到」，不是功能坏了**：折叠功能本身在 PR #3916 已正确（切换/持久化/跨进程同步/多窗口广播），缺陷全在呈现层。三处独立成因：**①图形不表意** —— 双向 chevron（「<>」）在通行图标语义里读作「代码」或「展开更多」，与「收起侧栏」无关；**②两态共用同一图形** —— 收起/展开只靠颜色区分（primary vs secondary），是单通道编码，对色觉障碍用户完全失效，普通用户也无法从图标判断当前处于哪个状态；**③常态几乎不可见** —— 图标色对 TabBar 背景亮色实测 4.40:1（差 0.1 不达 WCAG AA 4.5:1），边框与底色都是 `transparent`。

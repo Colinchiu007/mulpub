@@ -1,8 +1,53 @@
-"""PromptEval 分句服务（Python）— 完整移植桌面端 text-segmentation.ts 的字幕 7 步管道与场景级分割。
+"""PromptEval 分句服务（Python）— 桌面端 text-segmentation.ts 的**简化移植**。
 
-一致性：tests 用 esbuild 打包桌面端 TS 模块做输入→输出对照断言。
+## 覆盖范围（2026-10-19 更正）
+
+本文件此前自称「完整移植」，那是**不准确的**，且这种不准确会误导人以为这里有一层保护。
+实测核对后的真实覆盖如下；对外承诺以 `PORTED_SURFACE` / `NOT_PORTED_SURFACE` 两个常量
+为准，`tests/test_prompt_eval_segmentation.py` 有一致性锁（声明与源码必须互相印证）。
+
+- 已移植：句子切分、引号/括号配对、优先级标点切分、枚举位移、超长句 200 字强制分段、
+  场景级目标字数分配、字幕长度切分的**标点驱动主干**。
+- **未移植**：桌面端字幕切分的「词边界子系统」——`good_lead` / `good_tail` /
+  `semantic_lead` / `no_cut_bigrams` / `tailMin` 软约束，以及 v1.3 的 `phrase_boundary`。
+  也就是说：本服务在**无标点长块**上的切点与桌面端**并不保证一致**（桌面端会找不劈词的
+  安全切点，本服务退化为算术/枚举位置）。
+
+## 一致性测试的真实边界
+
+`tests/test_prompt_eval_segmentation.py` 用 esbuild 打包桌面端 TS 做输入→输出对照，
+但语料是**硬编码的少量标点丰富句式**——它验证的是「主干对齐」，不是「全量等价」。
+新增语料时请优先覆盖已移植面；若把无标点长块加进语料，本服务会红——那是真实的能力缺口，
+不是测试写错。
+
+另：`ops-center-ci.yml` 只在 `ops-center/**` 变更时触发，所以**改桌面端 TS 不会跑这条对照**。
+这条缺口不在这里修（该 job 已长期卡在 10 分钟超时临界，加触发只会加剧取消率）；
+真正的补偿是 `packages/story2video-engine` 侧的 TS↔Python sidecar 金标对账
+（见 `packages/story2video-engine/tests/sidecar-golden.test.ts`）。
 """
 from __future__ import annotations
+
+# 已移植的上游子系统（与 text-segmentation.ts 逐项对应；新增能力时同步改这两个常量，
+# 否则 tests/test_prompt_eval_segmentation.py 的声明一致性锁会红）。
+PORTED_SURFACE = (
+    "sentence_boundary",
+    "quote_pairing",
+    "priority_punct_split",
+    "enumeration_shift",
+    "max_sentence_length_fallback",
+    "scene_target_chars",
+    "subtitle_length_split_punct_driven",
+)
+
+# 明确未移植：桌面端字幕切分的词边界子系统 + v1.3 短语边界。
+NOT_PORTED_SURFACE = (
+    "word_good_lead",
+    "word_good_tail",
+    "word_semantic_lead",
+    "word_no_cut_bigrams",
+    "word_tail_min_soft_constraint",
+    "phrase_boundary_v1_3",
+)
 
 import re
 

@@ -205,6 +205,15 @@
       <!-- 改写结果区 -->
       <div v-if="rewriteResult" ref="rewriteResultCardEl" class="cohere-card rewrite-result-card">
         <div class="cohere-section-title">{{ t('rewritePage.resultSection') }}</div>
+        <!-- 输出截断可见化（rewrite-limits-50000，2026-10-19）：引擎因字数区间/策略上限
+             砍尾时必须让用户知道，不再静默丢内容 -->
+        <div
+          v-if="outputTruncatedInfo"
+          class="rewrite-output-truncated-banner"
+          data-testid="rewrite-output-truncated"
+        >
+          ⚠️ {{ t('rewritePage.outputTruncated', { length: outputTruncatedInfo.length, max: outputTruncatedInfo.max }) }}
+        </div>
         <div class="rewrite-result-meta" v-if="rewriteMeta">
           <span>{{ t('rewritePage.metaStrategy') }}：{{ rewriteMeta.strategyName }}</span>
           <span>{{ t('rewritePage.metaAiTaste') }}：{{ rewriteMeta.aiTastePct }}</span>
@@ -342,6 +351,7 @@ import { usePodcastChannel } from '@/composables/usePodcastChannel'
 import RewriteStrategyPicker from '@/components/RewriteStrategyPicker.vue'
 import WordCountRangeInput from '@/components/WordCountRangeInput.vue'
 import { deriveDefaultMode, deriveWordCountRange } from '@/utils/rewrite-defaults'
+import { REWRITE_ENGINE_MAX_OUTPUT_CHARS } from '@/utils/rewrite-engine-limits'
 
 const router = useRouter()
 const route = useRoute()
@@ -359,6 +369,9 @@ const rewriteResultCardEl = ref(null)
 // 改写结果标题（2026-09-18）：引擎从改写结果提炼 ≤20 字标题，纯文字展示
 const rewriteTitle = ref('')
 const rewriteMeta = ref(null)
+// 输出截断可见化（rewrite-limits-50000，2026-10-19）：引擎 outputTruncated=true 时
+// {length: 实际输出字数, max: 生效上限}；未截断为 null。数据源见 result 消费分支。
+const outputTruncatedInfo = ref(null)
 // content-quality-eval 桌面端闭环：改写质量评估报告（RewriteQualityEvaluator 结果）
 const rewriteQuality = ref(null)
 // P2 隐式反馈：本次改写引用的知识条目（保存/发布=采纳 / 再次改写=弃用）
@@ -810,6 +823,11 @@ async function startRewrite() {
         // 实际生效的改写模式（用于字数概览的用词分派；缺省 imitate）
         mode: data.metadata?.mode || 'imitate',
       }
+      // 输出截断可见化（rewrite-limits-50000）：引擎 outputTruncated=true ⇒ 记录
+      // {length, max} 供结果卡横幅展示；未截断/缺省字段 ⇒ 复位 null。
+      outputTruncatedInfo.value = (data.outputTruncated === true && Number.isFinite(Number(data.outputLength)))
+        ? { length: Number(data.outputLength), max: wordCountMax.value || REWRITE_ENGINE_MAX_OUTPUT_CHARS }
+        : null
       if (data.warnings && data.warnings.length > 0) {
         rewriteError.value = data.warnings.join('；')
       }
@@ -1215,6 +1233,19 @@ function onPublishVideo(pipelineId) {
   color: var(--ink);
   line-height: 1.4;
   word-break: break-all;
+}
+
+/* 输出截断可见化（rewrite-limits-50000，2026-10-19）：结果卡顶部的暖橙横幅，
+   与质量评估 warn 色一致；不抢视觉焦点但一定可见。 */
+.rewrite-output-truncated-banner {
+  margin: 0 0 var(--space-md);
+  padding: 10px var(--space-md);
+  border: 1px solid #f3d5a3;
+  border-radius: 8px;
+  background: #fdf6ec;
+  color: #92610c;
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
 }
 
 /* 质量评估：左侧结论强调条取代原先「结果卡片内再套一个带边框的卡片」，

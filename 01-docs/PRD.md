@@ -3430,7 +3430,7 @@ Electron 打包、工作树、PR 或发布状态证据。
 | 移除 voicedesign | mimo-v2.5-tts-voicedesign（文本设计音色）项目用不到，从模型种子（model-provider-seeds.js）、adapter 静态列表、能力表与运营中心预设（model_preset_service.py）中移除；能力查询返回 model_not_whitelisted。 |
 | 克隆恢复 | story2video 克隆恢复的模型兜底按 provider 区分：MiMo 回退 mimo-v2.5-tts-voiceclone（而非 MiniMax 的 speech-02-hd）；findCloneSamples 回退链扩展包含 mimo 模型。 |
 | 克隆补偿 | MiMo 为纯本地克隆 provider（无远端 deleteVoice），克隆失败补偿跳过远端删除，只做本地样本清理。 |
-| 数据校验 | 克隆音色合成缺样本 → INVALID_CONFIG（fail closed），不静默回退默认音色；非 mp3/wav 样本在 add 阶段由 _assertPreparedSample 拒绝。 |
+| 数据校验 | 克隆音色合成缺样本 → INVALID_CONFIG（fail closed），不静默回退默认音色；非 mp3/wav 样本在 add 阶段由 _assertPreparedSample 拒绝。**「改名容器」嗅探（2026-10-19，mvf29iv8_cgll 回归）**：_prepareOneSample 读取字节后按魔数校验内容真实容器（黑名单式：ftyp/RIFF-WAVE/OggS/fLaC/ID3/MPEG 帧同步六种），扩展名与内容不符时以 VOICE_CLONE_SAMPLE_EXTENSION_UNSUPPORTED 在克隆入口前置拒绝——克隆服务端按真实容器解码，仅凭扩展名放行会在合成时确定性报 Param Incorrect 并拖垮整条 generate_assets；未知字节维持旧行为，由 ffprobe 时长探测 fail-closed 兜底。 |
 | 交互逻辑 | 语音生成器 = Mimo TTS 时：语音模型下拉隐藏；音色 ID 下拉显示 9 个预置音色 + 用户克隆音色；克隆面板显示（选择本地音频文件 → 自动克隆，默认名「音色XXX」）。 |
 | 提示文字 | 移除「当前语音模型暂不支持音色列表与克隆功能」对 mimo-v2.5-tts-voiceclone 的触发；克隆样本要求提示由 getRequirements 数据驱动（mp3/wav、≤10MB）。 |
 | 验收标准 | ① mimo-v2.5-tts 音色下拉显示 9 个预置音色；② mimo-v2.5-tts-voiceclone 克隆面板可用，选择 mp3/wav 样本自动克隆，合成时注入样本并切 voiceclone 模型；③ 语音模型下拉在 Mimo 下隐藏、MiniMax 下保留；④ voicedesign 从所有模型列表移除；⑤ 克隆音色偏好跨会话保留；⑥ 克隆样本缺失时流水线 fail closed 不静默回退。 |
@@ -12543,7 +12543,7 @@ Electron 打包、工作树、PR 或发布状态证据。
 | 移除 voicedesign | mimo-v2.5-tts-voicedesign（文本设计音色）项目用不到，从模型种子（model-provider-seeds.js）、adapter 静态列表、能力表与运营中心预设（model_preset_service.py）中移除；能力查询返回 model_not_whitelisted。 |
 | 克隆恢复 | story2video 克隆恢复的模型兜底按 provider 区分：MiMo 回退 mimo-v2.5-tts-voiceclone（而非 MiniMax 的 speech-02-hd）；findCloneSamples 回退链扩展包含 mimo 模型。 |
 | 克隆补偿 | MiMo 为纯本地克隆 provider（无远端 deleteVoice），克隆失败补偿跳过远端删除，只做本地样本清理。 |
-| 数据校验 | 克隆音色合成缺样本 → INVALID_CONFIG（fail closed），不静默回退默认音色；非 mp3/wav 样本在 add 阶段由 _assertPreparedSample 拒绝。 |
+| 数据校验 | 克隆音色合成缺样本 → INVALID_CONFIG（fail closed），不静默回退默认音色；非 mp3/wav 样本在 add 阶段由 _assertPreparedSample 拒绝。**「改名容器」嗅探（2026-10-19，mvf29iv8_cgll 回归）**：_prepareOneSample 读取字节后按魔数校验内容真实容器（黑名单式：ftyp/RIFF-WAVE/OggS/fLaC/ID3/MPEG 帧同步六种），扩展名与内容不符时以 VOICE_CLONE_SAMPLE_EXTENSION_UNSUPPORTED 在克隆入口前置拒绝——克隆服务端按真实容器解码，仅凭扩展名放行会在合成时确定性报 Param Incorrect 并拖垮整条 generate_assets；未知字节维持旧行为，由 ffprobe 时长探测 fail-closed 兜底。 |
 | 交互逻辑 | 语音生成器 = Mimo TTS 时：语音模型下拉隐藏；音色 ID 下拉显示 9 个预置音色 + 用户克隆音色；克隆面板显示（选择本地音频文件 → 自动克隆，默认名「音色XXX」）。 |
 | 提示文字 | 移除「当前语音模型暂不支持音色列表与克隆功能」对 mimo-v2.5-tts-voiceclone 的触发；克隆样本要求提示由 getRequirements 数据驱动（mp3/wav、≤10MB）。 |
 | 验收标准 | ① mimo-v2.5-tts 音色下拉显示 9 个预置音色；② mimo-v2.5-tts-voiceclone 克隆面板可用，选择 mp3/wav 样本自动克隆，合成时注入样本并切 voiceclone 模型；③ 语音模型下拉在 Mimo 下隐藏、MiniMax 下保留；④ voicedesign 从所有模型列表移除；⑤ 克隆音色偏好跨会话保留；⑥ 克隆样本缺失时流水线 fail closed 不静默回退。 |

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { classifyInputShape, deriveDefaultMode, deriveWordCountRange } from '@/utils/rewrite-defaults'
+import { REWRITE_ENGINE_MAX_OUTPUT_CHARS } from '@/utils/rewrite-engine-limits'
 
 // rewrite-default-strategy-fix（2026-10-19）
 // 锁住「默认参数按输入形态推导」这条契约，防止退回写死的 create + 800-2000。
@@ -97,13 +98,16 @@ describe('rewrite-defaults — 字数区间自适应', () => {
     expect(r.max).toBeGreaterThanOrEqual(5000)
   })
 
-  it('R3：自适应区间夹在引擎合法域内（max<=6000，min<=max）', () => {
-    for (const len of [2000, 3000, 5000, 6000, 12000]) {
+  it('R3：自适应区间夹在引擎合法域内（max<=50000，min<=max）', () => {
+    for (const len of [2000, 3000, 5000, 6000, 12000, 40000]) {
       const r = deriveWordCountRange('x'.repeat(len))
-      expect(r.max).toBeLessThanOrEqual(6000)
+      expect(r.max).toBeLessThanOrEqual(REWRITE_ENGINE_MAX_OUTPUT_CHARS)
       expect(r.min).toBeGreaterThanOrEqual(200)
       expect(r.min).toBeLessThanOrEqual(r.max)
     }
+    // rewrite-limits-50000：12000 字原文的自适应上限 = 14400（1.2 倍），不再被压回 6000
+    const long = deriveWordCountRange('x'.repeat(12000))
+    expect(long.max).toBe(14400)
   })
 
   it('R3：真实科技长稿的区间能容纳原文', () => {
