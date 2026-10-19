@@ -21,6 +21,8 @@
 
 const { execFile } = require('child_process')
 const fs = require('fs')
+const http = require('http')
+const https = require('https')
 const os = require('os')
 const path = require('path')
 const { findFfmpeg } = require('./media-tool-paths')
@@ -29,6 +31,14 @@ const { segmentScript } = require('./video-script-segmentation')
 const { extractKeyEntities, checkSceneAlignment, assessVisualConsistency } = require('./video-content-alignment')
 const { emitStageProgress, emitStageStart, emitStageItem, emitStageComplete } = require('./stage-progress')
 const { getProviderRunContext } = require('./provider-run-context')
+// 数字人分支（avatar-spokesperson）：独立模块，避免本文件突破 max-lines 挂账容差
+const {
+  AVATAR_PIPELINE,
+  DIGITAL_HUMAN_PROVIDER,
+  resolveDigitalHumanProvider,
+  resolveDigitalHumanInputs,
+  runDigitalHumanGenerate,
+} = require('./digital-human-stages')
 const { resolveProviderDefaultModel } = require('./model-provider-manager')
 
 const VIDEOGEN_STAGE_TYPES = {
@@ -41,22 +51,6 @@ const VIDEOGEN_STAGE_TYPES = {
 
   RENDER: 'videogen_render',
 }
-
-/**
- * 数字人流水线的机器名。
- * 为什么不放进 VIDEOGEN_STAGE_TYPES：那个对象的 values 被
- * videogen-stages.test.js「注册全部 7 个共享阶段类型」遍历并断言
- * 每一项都是已注册的执行器函数；混入非阶段类型的常量会让该断言失效。
- */
-const AVATAR_PIPELINE = 'avatar-spokesperson'
-
-/**
- * 数字人 provider 固定为 HeyGen：仓库当前只有这一家数字人 adapter
- * （model-provider-seeds.js 中 category=video 里唯一带数字人语义的）。
- * 将来接第二家时，把本常量换成 capability 解析即可，改动力仍集中在一处。
- * 允许 params.videoProvider 显式覆盖，保留人工指向其他数字人服务的口子。
- */
-const DIGITAL_HUMAN_PROVIDER = 'heygen'
 
 const MAX_SCENES = 12
 const DEFAULT_SCENE_SECONDS = 5
@@ -134,66 +128,6 @@ function getVideoProviderConfig (aiGenerator) {
   return { providerId: provider.id.trim(), model: model || '' }
 }
 
-/**
- * 解析数字人 provider（avatar-spokesperson 专用）。
- *
- * 为什么不能用 getVideoProviderConfig：那个取的是 getDefault('video')，
- * 候选是 agnes/video/kling/runway/veo 等**通用文生视频**模型——它们不认
- * character/voice/script，把数字人参数发给它们等于把流水线跑成一个
- * 「用主题当画面提示词」的普通文生视频（正是本次要修的断裂点 B1）。
- *
- * @param {object} aiGenerator
- * @param {object} [params] 允许 params.videoProvider 显式覆盖
- * @returns {{providerId: string, model: string}|null}
- */
-function resolveDigitalHumanProvider (aiGenerator, params) {
-  const manager = aiGenerator && aiGenerator._modelProviderManager
-  const override = typeof params?.videoProvider === 'string' ? params.videoProvider.trim() : ''
-  const providerId = override || DIGITAL_HUMAN_PROVIDER
-  if (!manager || typeof manager.getProvider !== 'function') {
-    // manager 不可用时不臆造 provider 可用性，交给调用方 fail closed
-    return null
-  }
-  let provider = null
-  try { provider = manager.getProvider(providerId) } catch (_) { provider = null }
-  if (!provider) return null
-  const model = typeof provider.id === 'string' && provider.id.trim()
-    ? resolveProviderDefaultModel(provider, 'video')
-    : ''
-  return { providerId, model: model || '' }
-}
-
-/**
- * 从上下文/参数中解析数字人三要素（character / voice / script）。
- *
- * 取值优先级：显式 params > stage.options > 前序 avatar_select 阶段产出。
- * 三要素任一缺失即返回 null，由调用方 fail closed——
- * 缺 character 会让 HeyGen adapter 直接抛 INVALID_CONFIG，
- * 与其让它跑到网络层才炸，不如在本地给出可操作的错误。
- *
- * @returns {{character: string, voice: string, script: string}|null}
- */
-function resolveDigitalHumanInputs (params, stage, context) {
-  const box = context && context.avatar_select && typeof context.avatar_select === 'object'
-    ? context.avatar_select
-    : {}
-  const pick = (key) => {
-    const candidates = [params && params[key], stage?.options?.[key], box[key]]
-    for (const value of candidates) {
-      if (typeof value === 'string' && value.trim()) return value.trim()
-    }
-    return ''
-  }
-  const character = pick('avatarId')
-  const voice = pick('voiceId')
-  // 口播文案候选：script 阶段产出（字符串）/ avatar_select 的 script / 用户主题兜底
-  let script = ''
-  if (typeof context?.script === 'string' && context.script.trim()) script = context.script.trim()
-  else if (typeof box.script === 'string' && box.script.trim()) script = box.script.trim()
-  else if (typeof params?.text === 'string' && params.text.trim()) script = params.text.trim()
-  if (!character || !voice || !script) return null
-  return { character, voice, script }
-}
 
 async function callDefaultLlm (aiGenerator, systemPrompt, userContent, maxTokens, runtimeOptions) {
   if (!aiGenerator || typeof aiGenerator.generateWithDefault !== 'function') {
@@ -437,6 +371,33 @@ function getRunDir (runId) {
 }
 
 /**
+ * 下载远程视频到本地文件（通用分支使用；数字人分支在 digital-human-stages.js
+ * 里有自己的简化实现）。
+ *
+ * 用 http/https 而非 fetch：需要跟随 3xx 重定向（provider 的 CDN 常返回 302），
+ * 且流式写盘避免大文件把整个 body 读进内存。
+ */
+function downloadToFile (url, dest) {
+  return new Promise((resolve, reject) => {
+    const lib = String(url).startsWith('https:') ? https : http
+    const file = fs.createWriteStream(dest)
+    const request = lib.get(url, (response) => {
+      if (response.statusCode && response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
+        downloadToFile(response.headers.location, dest).then(resolve, reject)
+        return
+      }
+      if (response.statusCode !== 200) {
+        reject(new Error('视频下载失败，HTTP ' + response.statusCode))
+        return
+      }
+      response.pipe(file)
+      file.on('finish', () => file.close(() => resolve(dest)))
+    })
+    request.on('error', (error) => { fs.unlinkSync(dest); reject(error) })
+  })
+}
+
+/**
  * 从 context 中按候选键取第一个非空值。
  * 不同 videogen 流水线把前序阶段输出写入各自的阶段名
  * （animation→concept/storyboard；character-animation→character_design/rigging；
@@ -480,114 +441,6 @@ function resolveVideogenScenes (context) {
  *
  * 复用通用分支的轮询/下载/产物约定（scene_000.mp4），使 MERGE 阶段无需改动即可拼接。
  */
-async function runDigitalHumanGenerate (options) {
-  const { runId, manager, digitalHuman, inputs, providerRunContext, onProgress } = options
-  const runDir = getRunDir(runId)
-  fs.mkdirSync(runDir, { recursive: true })
-
-  emitStageItem(onProgress, 1, 1, {
-    messageKey: 'stageProgress.videogenGenerate',
-    kind: 'video',
-    percentStart: 0,
-    percentEnd: 40,
-  })
-
-  let submit
-  try {
-    submit = await manager.callAdapter(digitalHuman.providerId, 'generateVideo', {
-      character: inputs.character,
-      voice: inputs.voice,
-      script: inputs.script,
-      ...(digitalHuman.model ? { model: digitalHuman.model } : {}),
-    }, { providerRunContext })
-  } catch (error) {
-    return { success: false, error: '数字人视频生成调用失败：' + (error && error.message ? error.message : String(error)) }
-  }
-
-  if (submit && submit.code !== 0) {
-    return {
-      success: false,
-      error: submit.message || ('数字人视频生成调用失败（provider: ' + digitalHuman.providerId + '）'),
-    }
-  }
-  const data = submit && submit.data
-  // 二层失败：adapter 抛异常被 callAdapter 包装成 { code:0, data:{ code:-1, message } }
-  if (data && typeof data === 'object' && (data.code === -1 || data.code < 0)) {
-    return {
-      success: false,
-      error: (data.message || data.error || '数字人视频生成失败（provider: ' + digitalHuman.providerId + '）'),
-    }
-  }
-  const taskId = data && (data.taskId || data.videoId || data.id || data.task_id)
-  if (!taskId) {
-    return {
-      success: false,
-      error: '数字人视频生成未返回任务 ID'
-        + (data && typeof data === 'object' ? '，响应数据：' + JSON.stringify(Object.keys(data).filter(k => k !== 'model')) : '')
-        + (submit && submit.message ? '；' + submit.message : ''),
-    }
-  }
-
-  // 轮询：与通用分支同一套超时/终端态语义（10 分钟上限、10s 间隔）
-  const VIDEO_POLL_TIMEOUT_MS = 10 * 60 * 1000
-  const VIDEO_POLL_INTERVAL_MS = 10 * 1000
-  const TERMINAL_STATES = ['failed', 'error', 'cancelled']
-  const pollDeadline = Date.now() + VIDEO_POLL_TIMEOUT_MS
-  let videoUrl = null
-  let lastState = ''
-  while (true) {
-    const status = await manager.callAdapter(digitalHuman.providerId, 'getVideoStatus', { videoId: taskId, taskId }, { providerRunContext })
-    const url = status && (status.videoUrl || status.url || (status.data && (status.data.videoUrl || status.data.url)))
-    if (url) { videoUrl = url; break }
-    lastState = String((status && (status.status || (status.data && status.data.status))) || '').toLowerCase()
-    if (TERMINAL_STATES.includes(lastState)) break
-    if (Date.now() + VIDEO_POLL_INTERVAL_MS > pollDeadline) break
-    await new Promise(r => setTimeout(r, VIDEO_POLL_INTERVAL_MS))
-  }
-  if (!videoUrl) {
-    const reason = TERMINAL_STATES.includes(lastState)
-      ? '任务状态为 ' + lastState
-      : '轮询超时（上限 ' + Math.round(VIDEO_POLL_TIMEOUT_MS / 1000) + 's，末次状态=' + (lastState || 'unknown') + '）'
-    return { success: false, error: '数字人视频生成失败：' + reason + '（provider: ' + digitalHuman.providerId + '）' }
-  }
-
-  const dest = path.join(runDir, 'scene_000.mp4')
-  try {
-    await downloadToFile(videoUrl, dest)
-  } catch (error) {
-    return { success: false, error: '数字人视频下载失败：' + (error && error.message ? error.message : String(error)) }
-  }
-
-  emitStageComplete(onProgress, {
-    messageKey: 'stageProgress.videogenGenerateComplete',
-    summaryKey: 'stageProgress.videogenSummary',
-    summaryParams: { done: 1, total: 1 },
-  })
-  // output 形状与通用分支一致（{ videos, scenes }），MERGE 可直接消费
-  return { success: true, output: { videos: [{ index: 0, success: true, path: dest }], scenes: [] } }
-}
-
-async function downloadToFile (url, dest) {
-  const http = require('http')
-  const https = require('https')
-  return new Promise((resolve, reject) => {
-    const lib = String(url).startsWith('https:') ? https : http
-    const file = fs.createWriteStream(dest)
-    const request = lib.get(url, (response) => {
-      if (response.statusCode && response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
-        downloadToFile(response.headers.location, dest).then(resolve, reject)
-        return
-      }
-      if (response.statusCode !== 200) {
-        reject(new Error('视频下载失败，HTTP ' + response.statusCode))
-        return
-      }
-      response.pipe(file)
-      file.on('finish', () => file.close(() => resolve(dest)))
-    })
-    request.on('error', (error) => { fs.unlinkSync(dest); reject(error) })
-  })
-}
 
 /**
  * 注册 video-gen 类流水线的共享阶段执行器
