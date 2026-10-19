@@ -216,67 +216,12 @@ function extractContext(container) {
   }
   // ─── 强制升级门（forced-update-gate，2026-10-19）───
   // 劝导层：enforce 策略判定 + 独立置顶弹窗（服务端版本门 426 是执法层）。
-  const enforceGate = require('../services/enforce-gate')
-  const { readGateText } = require('../services/enforce-gate-text')
-  const path = require('path')
-  const app = require('electron').app
-  const { enforceGateStatePaths, createNodeFileFacades } = require('../services/enforce-gate-fs')
-  // enforce-gate 装配需要真实 electron app（getPath/getVersion/getLocale）。
-  // bootstrap/phase1 单测的 electron mock 无这些方法（实测 73 例红）——mock 环境跳过装配，
-  // 断言覆盖由 enforce-gate.test.js（deps 注入）+ 契约锁承担，单测不需要真装配。
-  const electronAppReady = !!(app && typeof app.getPath === 'function' && typeof app.getVersion === 'function')
-  if (electronAppReady) {
-    const paths = enforceGateStatePaths(app)
-    enforceGate.init({
-      appVersion: () => app.getVersion(),
-      now: () => Date.now(),
-      monotonicMs: () => process.hrtime.bigint() / 1000000,
-      stateFile: paths.stateFile,
-      // bootstrap.test.js 的 electron mock 无 getLocale（实测 60 例红）；防御式取值，缺方法回 'en'
-      locale: (typeof app.getLocale === 'function' && app.getLocale()) || 'en',
-      gatePreloadPath: paths.preloadPath,
-      ...createNodeFileFacades(),
-      createGateWindow: (opts) => {
-        const { BrowserWindow } = require('electron')
-        const win = new BrowserWindow({ ...opts, alwaysOnTop: true })
-        try { win.setAlwaysOnTop(true, 'screen-saver') } catch (e) { /* 旧版本无级别参数 */ }
-        return win
-      },
-      loadGatePage: (win) => win.loadFile(paths.gateHtmlPath),
-      // 主窗 hide/show 由 window.js 在创建主窗口后注入（getMainWin 依赖层在 phase1 之外）
-      hideMainWindow: () => { try { const fn = enforceGate.getMainWindowFacade(); const w = fn && fn(); if (w && !w.isDestroyed()) { w.__enforceGateHidden = true; w.hide() } } catch (e) { log.notify('EnforceGate', 'hide-main-failed', { error: String(e && e.message) }) } },
-      showMainWindow: () => { try { const fn = enforceGate.getMainWindowFacade(); const w = fn && fn(); if (w && !w.isDestroyed()) { w.__enforceGateHidden = false; w.show() } } catch (e) { log.notify('EnforceGate', 'show-main-failed', { error: String(e && e.message) }) } },
-      wasMainWindowHidden: () => { try { const fn = enforceGate.getMainWindowFacade(); const w = fn && fn(); return !!(w && !w.isDestroyed() && w.__enforceGateHidden) } catch (e) { return false } },
-      log: { warn: (msg, extra) => log.notify('EnforceGate', 'state-persist-failed', { level: 'WARN', error: msg + (extra ? ' ' + JSON.stringify(extra) : '') }) },
-      installNow: () => autoUpdater.installNow(),
-      syncNow: () => { try { opsCenterSync.syncNow().catch(() => {}) } catch (e) { log.notify('EnforceGate', 'sync-now-failed', { error: String(e && e.message) }) } },
-      setInterval: (fn, ms) => { const t = require('timers').setInterval(fn, ms); return { unref: () => t.unref && t.unref(), clear: () => clearInterval(t) } },
-    })
-    // 策略到达 → enforce 判定（与 autoUpdater.applyPolicy 并行，不动既有链）
-    if (opsCenterSync && typeof opsCenterSync.setUpdatePolicyConsumer === 'function') {
-      const originalPolicyConsumer = null // 上一行已注册 applyPolicy；这里追加第二个消费者
-      void originalPolicyConsumer
-      opsCenterSync.setUpdatePolicyConsumer((policy) => {
-        autoUpdater.applyPolicy(policy)
-        enforceGate.onPolicy(policy)
-      })
-    }
-    // bootstrap 同步结果 → 宽限逻辑（成功缓存/失败宽限/超期 verify-failed）
-    if (opsCenterSync && typeof opsCenterSync.setOnSyncOutcome === 'function') {
-      opsCenterSync.setOnSyncOutcome((outcome) => enforceGate.onSyncOutcome(outcome))
-    }
-    // 启动即水合：用已持久化缓存先跑一次判定（离线启动也能立即阻断）
-    enforceGate.onSyncOutcome({ ok: true, policy: opsCenterSync.getUpdatePolicy ? opsCenterSync.getUpdatePolicy() : null })
-    // 运行中每 6h 轮询（unref，不阻塞退出）
-    enforceGate.startPolling()
-    // 进度透传：auto-updater → gate 窗口
-    if (autoUpdater && typeof autoUpdater.onProgress === 'function') {
-      autoUpdater.onProgress((payload) => enforceGate.onUpdaterProgress(payload))
-    }
-  } else {
-    log.notify('EnforceGate', 'skip-assembly-no-electron-app', { level: 'WARN', error: 'electron app 不可用（单测 mock 环境），跳过 enforce-gate 装配' })
-  }
-  void readGateText
+  // 全部装配细节（含 enforce-gate require）抽至 services/enforce-gate-assembly.js
+  //（债务熔断 filesOver500 基线约束：phase1 主文件 507 行不得净增）。
+  // 接线契约锁（enforce-gate.contract.test.js）锁定 assembleEnforceGate 调用行存在。
+  require('../services/enforce-gate-assembly').assembleEnforceGate({
+    app: require('electron').app, opsCenterSync, autoUpdater, log,
+  })
   // 官方内容模板库运行时下发 → TemplateManager.applyRemote（先注入再启动自动同步）
   if (opsCenterSync && typeof opsCenterSync.setTemplateManager === 'function') {
     opsCenterSync.setTemplateManager(templateManager)

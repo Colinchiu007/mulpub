@@ -40,17 +40,6 @@ class AuthService {
     return () => this._listeners.delete(listener)
   }
 
-  /**
-   * forced-update-gate（2026-10-19）：登录成功订阅器。
-   * 便捷封装：只在进入 authenticated 状态的那次变更回调（比 onStateChanged
-   * 里手写 if 过滤更不易漏）；返回取消订阅函数。照 onStateChanged 同构。
-   */
-  onAuthenticated(listener) {
-    return this.onStateChanged((state) => {
-      if (state && state.status === 'authenticated') listener(state)
-    })
-  }
-
   _setState(next) {
     this._state = { ...this._state, ...next }
     const state = this.getState()

@@ -44,7 +44,7 @@ describe('enforce-gate-text 文案字典', () => {
 })
 
 describe('phase1-context 接线锁（缺一即红）', () => {
-  const phase1Path = join(here, '../bootstrap/phase1-context.js')
+  const phase1Path = join(here, './enforce-gate-assembly.js')
   const src = readFileSync(phase1Path, 'utf-8')
 
   it('setUpdatePolicyConsumer → enforceGate.onPolicy 接线', () => {
@@ -57,9 +57,10 @@ describe('phase1-context 接线锁（缺一即红）', () => {
     expect(src).toMatch(/enforceGate\.onSyncOutcome/)
   })
 
-  it('identity onAuthenticated → syncNow 刷新接线（phase3：登录成功即刷新策略）', () => {
+  it('identity 登录成功 → syncNow 刷新接线（phase3：onStateChanged 过滤 authenticated）', () => {
     const phase3Src = readFileSync(join(here, '../bootstrap/phase3-services.js'), 'utf-8')
-    expect(phase3Src).toMatch(/onAuthenticated/)
+    expect(phase3Src).toMatch(/onStateChanged/)
+    expect(phase3Src).toMatch(/status !== 'authenticated'/)
     expect(phase3Src).toMatch(/opsCenterSync\.syncNow/)
   })
 
@@ -78,9 +79,12 @@ describe('phase1-context 接线锁（缺一即红）', () => {
     expect(syncSrc).toMatch(/setOnSyncOutcome\s*\(/)
   })
 
-  it('identity auth-service 必须公开 onAuthenticated 订阅器', () => {
+  it('identity 登录事件可订阅（auth-service 公开 onStateChanged；phase3 过滤 authenticated）', () => {
     const authSrc = readFileSync(join(here, './identity/auth-service.js'), 'utf-8')
-    expect(authSrc).toMatch(/onAuthenticated/)
+    expect(authSrc).toMatch(/onStateChanged/)
+    const phase3Src = readFileSync(join(here, '../bootstrap/phase3-services.js'), 'utf-8')
+    expect(phase3Src).toMatch(/onStateChanged/)
+    expect(phase3Src).toMatch(/status !== 'authenticated'/)
   })
 
   it('auto-updater 必须公开 onProgress 订阅器（进度透传给 gate 窗口）', () => {
