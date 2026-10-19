@@ -1321,7 +1321,7 @@ for r in jeffstric/ZJT waooAI/waoowaoo chatfire-AI/huobao-drama MemeCalculate/mo
 done
 ```
 
-## 附录 B：许可证核实方法
+## 附录 C：许可证核实方法
 
 ```powershell
 # 逐仓读取 LICENSE 前 5 行判定
