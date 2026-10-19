@@ -1,0 +1,61 @@
+id: backend-axis
+backend: codex
+workdir: D:\Data\projects\mulpub
+---CONTENT---
+你是**后端/架构评审轴**。对一份**尚未实施的纯设计文档（PRD）**做对抗性评审。请用中文输出。
+
+评审对象：`01-docs/PRD-UI-FLOW-CLARITY-2026-10-18.md`（Multi-Publish 桌面端 Electron+Vue3 的操作流程与结果归属治理方案）。评审的是"方案逻辑是否成立"，不是已合入的代码。
+
+## 评审维度
+1. **逻辑自洽性**：§4.2 五条规则是否相互支撑或彼此冲突？S1–S4 依赖顺序是否真成立？
+2. **技术可行性**：文档声称的落点（文件/行号）是否真实存在、改动是否可行（用 grep/read 核实）。
+3. **数据一致性**：`drafts` 单行存储被 4 页面写入；S3 把 `?draft=`/`?drafts=`/`?republish=`/`?video_path=` 收敛为 `?draft=<id>+?mode=` 是否会丢语义？深链兼容层能否落地？
+4. **回归风险**：删 MpModuleNav、侧边栏「发布」重指向、草稿箱唯一化，是否破坏 e2e/视觉基线/运营中心菜单契约？
+5. **遗漏与过度设计**：隐藏成本？有没有"为整洁而整洁"的无收益改动？
+
+## 必须核实的关键事实（不要凭文档断言，逐条核实并给出证据）
+- `apps/desktop/src/config/route-registry.js`：`/publish` 与 `/publish/history` 的登记与注释
+- `apps/desktop/src/composables/useCopyDetailMode.js`：`handleCreateVideo` 是否真的先 saveDraft
+- `apps/desktop/electron/services/first-run.js`：是否真的只写标记不引导
+- `apps/desktop/src/App.vue`：keep-alive 与 MpModuleNav 挂载条件
+- 侧边栏菜单 key 与 ops-center 契约耦合方式（`src/config/sidebar-menu.js` + `ops-center/backend/services/app_menu_service.py`）
+
+## 输出（严格 JSON，仅输出 JSON，无其他文字）
+{"findings":[{"severity":"Critical|Warning|Info","dimension":"logic|feasibility|consistency|regression|overdesign","doc_section":"§x.y","description":"问题","evidence":"文件:行号 或 核实后与文档一致","fix_suggestion":"具体改法"}],"passed_checks":["文档正确且与代码事实相符的点"],"summary":"整体判断 + 最大风险"}
+
+## 纪律
+- 只评文档范围，不蔓延。
+- 每个 finding 需代码证据或逻辑推演支撑；无证据的猜测标 Info 并注明"未核实"。
+- 文档与代码事实不符者，至少 Warning。
+
+=== TASK ===
+id: frontend-axis
+backend: gemini
+workdir: D:\Data\projects\mulpub
+---CONTENT---
+你是**前端/UX 评审轴**。对一份**尚未实施的纯设计文档（PRD）**做对抗性评审。请用中文输出。
+
+评审对象：`01-docs/PRD-UI-FLOW-CLARITY-2026-10-18.md`（Multi-Publish 桌面端 Electron+Vue3 的操作流程与结果归属治理方案）。评审的是"方案是否真能改善用户体验"，不是已合入的代码。
+
+## 评审维度
+1. **UX 改善真实性**：五条规则（§4.2）真能降低首次使用困惑吗？还是把混乱从一处挪到另一处？
+2. **心智模型（§4.1）**："一次创作只有一条主线 + 产出物只有一个名字=草稿"是否符合真实用户心理？视频项目/采集原文/文案库被归为"草稿的索引或形态"，会不会反而误导？
+3. **交互一致性**：删 MpModuleNav、草稿箱唯一化、「去发布」同构化，是否制造新的不一致（如账号页 tab 从模块导航移到页内后的层级变化）？
+4. **可访问性与边界**：`docs/frontend-interaction-spec.md` §10.3「禁用原因必须可见」、§8 骨架屏、窄屏/reduced-motion，方案是否覆盖？
+5. **验收标准可测性**：§9 的 14 条验收标准是否真可被测试验证，还是含糊不可测？
+
+## 必须核实的关键事实（不要凭文档断言，逐条核实并给出证据）
+- `apps/desktop/src/views/Publish.vue`：操作卡按钮（L540-556）与页内草稿浮层（L569-590）
+- `apps/desktop/src/components/PipelineBackgroundToast.vue`：`pointer-events:none` 与 4 秒消失是否属实
+- `apps/desktop/src/components/PublishProgressPanel.vue` 与 `usePublishProgressAutoCollapse.js`：自动收敛 5 秒是否属实
+- `apps/desktop/src/views/ProductionBoard.vue:155-165`：审批门处理后是否真的无后续指引
+- `apps/desktop/src/views/FirstRun.vue` + `electron/services/first-run.js`：首跑引导是否真的不可达
+- `docs/frontend-interaction-spec.md` §6.3/§9/§10.3 与 `docs/desktop-ui-layout-spec.md` §3 既有条款
+
+## 输出（严格 JSON，仅输出 JSON，无其他文字）
+{"findings":[{"severity":"Critical|Warning|Info","dimension":"ux|mental_model|consistency|a11y|verifiability","doc_section":"§x.y","description":"问题","evidence":"文件:行号 或 核实后与文档一致","fix_suggestion":"具体改法"}],"passed_checks":["文档正确且与代码事实相符的点"],"summary":"整体判断 + 最大的体验风险"}
+
+## 纪律
+- 只评文档范围，不蔓延。
+- 每个 finding 需代码证据或 UX 原理支撑；无证据的猜测标 Info 并注明"未核实"。
+- 文档与代码事实不符者，至少 Warning。
