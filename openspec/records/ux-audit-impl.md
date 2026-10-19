@@ -207,7 +207,36 @@ stores.sidebar-collapse / **新增 useAppShellChrome**）
 `onSidebarCollapsedChanged` / `applyRemoteCollapsed` —— 两份口径必然漂移）。
 夹具只 mock `@/api/electron-bridge`，`@/stores/sidebar-collapse` 用真实实现。
 
+## 第 5 轮 re-sync（落后 1 个提交 `9fffea446`，PRD-UI-FLOW-CLARITY S1/S2）
 
+只有 2 个文件冲突，但这一轮是**两个特性抢同一格 chrome** 的语义交汇，不是行尾冲突：
+
+- `App.vue`：本 PR 把 `<AnnouncementBanner>` 插在 NavBar 之下、`<MpModuleNav v-if="isHomeTab">`
+  之上；main 的 S1b **整块删掉了 MpModuleNav**（账号域 tab 迁到 `Accounts.vue` 页内 tablist）。
+  机械并集会得到「横幅 + 已删组件的引用」并存。合成结果：保留横幅 + 采纳删除说明，
+  并把横幅位置的旧措辞「模块导航之上」改成「主内容区之上」（那层已不存在，留着就是假注释）。
+  **叠加后果写进注释**：公告横幅占用的正是被删掉的这一格，所以顶部下移量必须由横幅实测后经
+  `setTopInset` 如实上报、不得回到镜像常量 —— 两个特性各自成立不代表叠加后仍成立。
+- `config/route-registry.js`：本 PR 在 `/publish` 条目前插入 NotFound catch-all；main 就地改写了
+  `/publish` 的注释与 `navEntry/internal/entryFrom`（S1d 语义修正）。解法 = **保留我的整条新记录**
+  ∧ **整段采纳 main 对 `/publish` 的新语义**（我那句「菜单发布指向 /publish/history，由 T1 处理」
+  已被 main 落地，留着就是过期陈述）。
+
+**QM-1 本轮不重跑的判据**（按「昂贵验证要不要重跑＝集合交集」口径）：入站 59 个文件里
+`apps/desktop/electron/**` 与 `packages/rpa-engine/**` 命中 **0**
+（`git diff --name-only $(git merge-base HEAD MERGE_HEAD) MERGE_HEAD | grep -cE '^apps/desktop/electron/|^packages/rpa-engine/'`
+= 0），electron 树与 `ea6271d4a` 那次已实测 PASS 的产物逐字相同 ⇒ 沿用该证据，不做无谓重建。
+
+**取证（当场实跑）**：`check-route-registry.js` PASS（37 路由 / 22 菜单 / 12 暗路由）；
+9 项静态门禁全 rc=0（max-lines 无新增超限、locale keys 2182 成对、CJK 1144 < 基线 1331、
+css-var、font-size、brand-residue 10608 文件、doc-abs-paths、unwired-tests 110 文件、
+no-conflict-markers 标记行 8 全部带登记）；
+`vitest run` 交汇面 11 个文件 → **394 passed / 11 files**
+（App.announcement-inset / App.sidebar-collapse / App.theme-boot / useAppShellChrome /
+sidebar-collapse-chain / tab-independent-home（含 S1b「MpModuleNav 不得复活」结构锁）/
+Publish / Collection / Accounts / useOpsCenterRuntime / AnnouncementBanner）。
+
+## 关联
 
 - 上游审计：`01-docs/UX-AUDIT-2026-10-17.md`（merge `c57616b61`）
 - 本批 PRD：`01-docs/PRD-UX-AUDIT-IMPLEMENT-2026-10-18.md`（显示项 / 交互 / 校验 / 提示文字全清单）

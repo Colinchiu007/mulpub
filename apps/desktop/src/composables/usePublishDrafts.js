@@ -60,7 +60,8 @@ export function usePublishDrafts ({
 }) {
   // 统一通知通道（D1 决策）：toast 走 useNotify（带 notify:log 上报）
   const { notifyError, notifySuccess, notifyWarning, notifyConfirm } = useNotify()
-  const showDraftList = ref(false)
+  // S1c：showDraftList 已删除 —— 草稿箱收敛为唯一整页视图（/publish?tab=drafts），
+  // 不再有页内浮层需要开关状态。原 ref 仅供浮层 v-if 使用，随浮层一并下线。
   const drafts = ref([])
   const loadingDrafts = ref(false)
 
@@ -122,7 +123,6 @@ export function usePublishDrafts ({
         message: t('publishDrafts.staleScheduleCleared', { time: outcome.staleScheduleTime }),
       })
     }
-    showDraftList.value = false
     return true
   }
 
@@ -208,7 +208,6 @@ export function usePublishDrafts ({
   }
 
   return {
-    showDraftList,
     drafts,
     loadingDrafts,
     buildDraftSnapshot,

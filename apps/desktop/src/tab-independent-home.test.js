@@ -9,7 +9,7 @@
  *   4. locales zh/en 成对含 tabs.newTabTitle（CI Gate 7 同语义前置检查）。
  */
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { readFileSync, existsSync, readdirSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -37,19 +37,51 @@ describe('App.vue 新标签独立主页契约', () => {
 
   // F1：内嵌主页实例运行于 WebContentsView（仅覆盖内容矩形），若再渲染一份外层
   // Sidebar/TabBar/NavBar 会造成双份 chrome 视觉错乱——必须走独立模板分支。
-  it('内嵌主页走独立模板分支：含 mp-home-shell 根但不含外层 chrome', () => {
+  //
+  // PRD-UI-FLOW-CLARITY S1b：该分支原有的「模块导航层」已删除。
+  // 组件（MpModuleNav）零 props、tabs 只由 route.path 计算，对本实例仅提供
+  // 「指向当前路由的自指 tab」或账号域 tab；账号域 tab 现由 Accounts.vue 页内
+  // tablist 承担（Accounts.vue 渲染在本分支的 router-view 内，同样生效）。
+  // 故断言方向由「必须含 MpModuleNav」反转为「不得含任何导航 chrome」。
+  it('内嵌主页走独立模板分支：含 mp-home-shell 根但不含任何导航 chrome', () => {
     expect(appSrc).toMatch(/v-else-if="isHomeShell"/)
     expect(appSrc).toMatch(/mp-home-shell-root/)
-    // 该分支内只渲染模块导航 + 工作区，不渲染 MpSidebar / TabBar
     const shellBlock = appSrc.slice(
       appSrc.indexOf('v-else-if="isHomeShell"'),
       appSrc.indexOf('<template v-else>')
     )
-    expect(shellBlock).toMatch(/MpModuleNav/)
     expect(shellBlock).toMatch(/router-view/)
+    // 外层 chrome：一律不得出现
     expect(shellBlock).not.toMatch(/<MpSidebar/)
     expect(shellBlock).not.toMatch(/<TabBar/)
     expect(shellBlock).not.toMatch(/<NavBar/)
+    // S1b 起：模块导航层也不得出现（该实例的导航由页内 tab + 主进程 IPC 承担）
+    expect(shellBlock).not.toMatch(/MpModuleNav/)
+    expect(shellBlock).not.toMatch(/mp-module-nav/)
+  })
+
+  // S1b 结构锁：MpModuleNav 组件整体下线后不得复活。
+  // 复活途径有两种（重新创建组件文件 / 在别处 import），两条都要拦。
+  it('MpModuleNav 不得复活：组件文件不存在，且全仓无任何 import', () => {
+    expect(existsSync(join(srcDir, 'layouts/MpModuleNav.vue'))).toBe(false)
+    const offenders = []
+    const walk = (dir) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name)
+        if (entry.isDirectory()) {
+          if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue
+          walk(full)
+          continue
+        }
+        if (!/\.(vue|js|ts)$/.test(entry.name)) continue
+        const text = readFileSync(full, 'utf8')
+        if (/MpModuleNav\s+from|from\s+['"]@\/layouts\/MpModuleNav/.test(text)) {
+          offenders.push(full.slice(srcDir.length + 1))
+        }
+      }
+    }
+    walk(srcDir)
+    expect(offenders).toEqual([])
   })
 })
 

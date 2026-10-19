@@ -83,10 +83,13 @@ export default {
     noGroups: 'No groups yet',
     accountListAria: 'Account list',
     loadingAccounts: 'Loading accounts...',
-    shareTitle: 'Share Link',
-    shareHint: 'Team sharing is not connected yet; account data stays isolated by device and identity.',
-    shareNotConnected: 'Not connected',
-    createShareLink: 'Create Share Link',
+    // PRD-UI-FLOW-CLARITY S1a: in-page module navigation for the accounts domain
+    // (replaces MpModuleNav). Only 3 tabs — the "Share Link" tab was retired per
+    // PRD §14 decision #4 (zero-capability placeholder), together with its 4 keys.
+    moduleTabsAria: 'Accounts module navigation',
+    tabAccounts: 'Accounts',
+    tabGroups: 'Groups',
+    tabFavorites: 'Favorite groups',
     groupsSaveFailed: 'Group changes could not be saved and will be lost after restart',
     groupsUnreadable: 'Group records are temporarily unreadable (not signed in, or local storage unavailable); the groups below are from this session only',
     groupsMigrated: 'Groups restored from this machine\'s legacy records and saved to local storage',

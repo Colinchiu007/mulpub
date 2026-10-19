@@ -90,7 +90,6 @@ const WorkspacePage = defineComponent({
 
 const childStubs = {
   MpSidebar: true,
-  MpModuleNav: true,
   TabBar: true,
   NavBar: true,
   OfflineIndicator: true,

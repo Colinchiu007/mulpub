@@ -83,10 +83,13 @@ export default {
     noGroups: '暂无分组',
     accountListAria: '账号列表',
     loadingAccounts: '正在加载账号...',
-    shareTitle: '分享链接',
-    shareHint: '当前工作区尚未接入团队分享服务；账号数据仍按当前设备和登录身份隔离。',
-    shareNotConnected: '未接入服务',
-    createShareLink: '创建分享链接',
+    // PRD-UI-FLOW-CLARITY S1a：账号域页内模块导航（替代 MpModuleNav）。
+    // 仅 3 个 tab ——「分享链接」按 PRD §14 裁决 #4 下线（零能力占位），
+    // 其 shareTitle/shareHint/shareNotConnected/createShareLink 四个键随之删除。
+    moduleTabsAria: '账号模块导航',
+    tabAccounts: '账号管理',
+    tabGroups: '分组管理',
+    tabFavorites: '收藏分组',
     groupsSaveFailed: '分组改动未能保存，重启后会丢失',
     groupsUnreadable: '暂时读不到分组记录（未登录或本地存储不可用），下方显示的是本次会话内的分组',
     groupsMigrated: '已从本机旧记录恢复分组，并保存到本地存储',

@@ -760,6 +760,16 @@ App.vue setup
 `view-bounds-top-inset.test.js`（18 条）+ `webview-manager-top-inset.test.js`（17 条）+
 `webview-manager.test.js` 的折叠用例共同守住，任何一方被摘掉都会红。
 
+**与「模块导航下线」（origin/main `PRD-UI-FLOW-CLARITY S1b`）的叠加**：横幅的挂载点原写作
+「NavBar 之下、**模块导航**之上」，而 S1b 把 `MpModuleNav` 整块删掉了（账号域 tab 迁到
+`Accounts.vue` 页内 tablist）。于是横幅实际占用的正是**被删掉的那一格 70px chrome**。
+两条口径必须同时成立：① 横幅位置在文档与模板里一律改述为「NavBar 之下、主内容区之上」，
+不得再引用已不存在的模块导航（过期陈述会让下一个会话以为还有一层可以量）；
+② 顶部下移量**只能**来自横幅实测后经 `setTopInset` 上报，不得因为"上面那层没了"就回到
+镜像常量 `BROWSER_CHROME_TOP` —— 两个特性各自成立不代表叠加后仍成立，这一格归谁由运行时决定。
+`tab-independent-home.test.js` 的「MpModuleNav 不得复活」结构锁与
+`App.announcement-inset.test.js` 的装配锁同批跑绿，即证明叠加态没有互相吃掉。
+
 **刻意不做的一条**：不给 `qrcode-login.js` 加 `setTopInset`。它自「独立窗口承载」迁移后
 `_sidebarWidth` / `setSidebarWidth()` 只是签名兼容（该文件 48-51 行自己写着），
 再加一个没人读的 setter 就是本仓最忌的"死接线"。这条反向选择由

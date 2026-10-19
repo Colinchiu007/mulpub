@@ -96,23 +96,32 @@ export const ROUTE_REGISTRY = Object.freeze([
     entryFrom: '/',
   },
   {
-    // 暗路由：入口是侧边栏顶部「新建发布」按钮（MpSidebar.vue goToPublish，全域常驻），
-    // 另可从 /create/result、/library 历史记录等处进入。无侧边栏菜单项 ——
-    // 菜单「发布」目前指向 /publish/history（语义错位，由 T1 处理，本卡只登记不改语义）
+    // 侧边栏「发布」菜单的落地页（PRD-UI-FLOW-CLARITY S1d 修正语义错位）。
+    // 修正前：菜单「发布」指向 /publish/history，用户点「发布」看到的是历史记录列表，
+    // 而真正的发布编辑器 /publish 只能经侧边栏顶部「新建发布」按钮或结果页跳转进入。
+    // 修正后：菜单直达发布编辑器；/publish/history 转为内部路由（从发布页「发布记录」进）。
+    // 其他入口：MpSidebar.vue goToPublish（全域常驻）、/create/result、/library 历史记录。
     path: '/publish',
     name: 'Publish',
     view: 'Publish.vue',
-    navEntry: null,
-    internal: true,
-    entryFrom: '/',
+    navEntry: { key: 'publish', group: SIDEBAR_GROUP_PRIMARY, labelI18nKey: 'sidebar.nav.publish', to: '/publish', icon: VideoCamera },
+    internal: false,
+    entryFrom: null,
   },
   {
+    // 内部路由：发布记录列表。
+    // 进入方式（三处，均为页内按钮，不占侧边栏菜单）：
+    //   ① /publish 编辑器内「发布记录」按钮（Publish.vue）
+    //   ② 首页快捷入口 / 首页操作卡（Home.vue ×3）
+    //   ③ 排期结果页（PublishScheduleResult → router.push('/publish/history')）
+    // entryFrom 只能填单值（check-route-registry.js:340 的 registryByPath.has 判定），
+    // 故登记主宿主 '/publish'；其余宿主由 route-registry-entry-hosts.test.js 机械锁定。
     path: '/publish/history',
     name: 'PublishHistory',
     view: 'PublishHistory.vue',
-    navEntry: { key: 'publish', group: SIDEBAR_GROUP_PRIMARY, labelI18nKey: 'sidebar.nav.publish', to: '/publish/history', icon: VideoCamera },
-    internal: false,
-    entryFrom: null,
+    navEntry: null,
+    internal: true,
+    entryFrom: '/publish',
   },
   {
     path: '/accounts',

@@ -10,6 +10,9 @@ export default {
     noDrafts: 'No drafts yet',
     draftsHint: 'After saving a draft, you can continue editing it here.',
     continueEdit: 'Continue Editing',
+    // S1c: the single publish-exit on a draft card (previously "Continue Editing"
+    // and "Publish" resolved to the same URL, so they were collapsed into one)
+    openDraftToPublish: 'Publish this draft',
     untitled: 'Untitled',
     updatedUnknown: 'Updated time unknown',
     platformCount: (ctx) => ctx.named('count') + ' platforms',
@@ -324,7 +327,10 @@ export default {
     saveDraft: '💾 Save Draft',
     drafts: '📋 Drafts',
     quickPublish: '🚀 Quick Publish',
-    createVideo: '🎬 Create Video',
+    // S2 (PRD-UI-FLOW-CLARITY §14 decision #2): clicking this silently saves a draft
+    // before jumping to the creation page. The side effect is kept (drafts have value),
+    // but the label must disclose it so users never find an "unsaved" draft in the box.
+    createVideo: '🎬 Save draft & create video',
     createVideoEmpty: 'Content is empty, cannot create video',
     cancelTasks: 'Cancel Tasks',
     cancelledCount: (ctx) => 'Cancelled ' + ctx.named('count') + ' task(s)',
