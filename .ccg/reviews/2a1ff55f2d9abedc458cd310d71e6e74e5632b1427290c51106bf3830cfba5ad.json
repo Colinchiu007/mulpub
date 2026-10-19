@@ -1,20 +1,21 @@
 {
-  "sha": "914440fdb140227744b71951b30f31aa6de790b2",
+  "sha": "700d820e2ead3fef91c37069165f862096252f03",
   "layer": "diff",
-  "mode": "dual",
-  "reason": "变更 745 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
   "stats": {
-    "changedLines": 745,
-    "fileCount": 4,
-    "codeFileCount": 2,
+    "changedLines": 0,
+    "fileCount": 1,
+    "codeFileCount": 0,
     "sensitivePathHits": [],
     "plannedPathHits": [],
-    "sensitiveContentHits": 4,
+    "sensitiveContentHits": 0,
     "docSensitiveContentHits": 0,
     "docSensitiveContentSample": [],
     "lineReadGaps": []
   },
-  "decidedAt": "2026-10-19T00:47:16.678Z",
+  "stagedDiffHash": "2a1ff55f2d9abedc458cd310d71e6e74e5632b1427290c51106bf3830cfba5ad",
+  "decidedAt": "2026-10-19T02:00:32.963Z",
   "decidedBy": "ccg-review-decider",
   "reviewBackends": {
     "proposer": "opencode",
@@ -44,12 +45,11 @@
     }
   },
   "deepReview": {
-    "required": true,
-    "status": "error",
-    "performedBy": "claude",
-    "findings": null,
-    "error": "spawnSync C:/Users/邱领/.claude/bin/codeagent-wrapper.exe ETIMEDOUT",
-    "validationErrors": null,
-    "at": "2026-10-19T00:58:10.892Z"
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
   }
 }
