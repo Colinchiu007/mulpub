@@ -2,6 +2,7 @@
 
 > 分支 `forced-update-gate` ｜ worktree `mp-worktrees/mp-forced-update-gate` ｜ 2026-10-19
 > 规格：`openspec/changes/forced-update-gate/`（proposal 含 grilling Q1-Q12 定案）｜ PRD：`01-docs/PRD-FORCED-UPDATE-GATE-2026-10-19.md`
+> 远程同步 PR #4025
 
 ## 交付内容
 
