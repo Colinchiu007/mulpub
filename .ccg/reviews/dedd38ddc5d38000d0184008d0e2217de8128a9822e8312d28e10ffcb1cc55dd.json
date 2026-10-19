@@ -46,10 +46,61 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "self_play_resolved",
+    "performedBy": "self-play(agent)",
+    "fallbackReason": "跨家族对抗后端超时（本会话第 14 次同型 ETIMEDOUT），按引擎第三档出口 self_play 自查。本条 160 行。",
+    "evidenceInRepo": "openspec/records/toutiao-account-detection.md（§一 真机读数 / §三 改动 / §六 未做）+ PRD §12.7",
+    "confidenceWeight": 0.7,
+    "adjudication": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "这一轮的核心需求是「弹窗提示 + 可点链接」，但只交付了引擎数据层（helpUrl），UI 没接线。需求算完成了吗？",
+        "verdict": "upheld_failed_partial",
+        "rationale": "**不算完成**，我如实承认这是部分交付：用户要的是「点得到链接」，现在只在返回值里带着 URL，界面上仍是纯文本。没在同一轮做完的原因是：渲染层发布失败走 `notifyFailure`→`notifyError` 单一纯文本通道，而外链打开被 `href-scheme-contract.test.js` 白名单约束；在会话末尾抢改这块，风险是把「提示」做成「点了没反应」或绕过外链白名单（安全面）。取舍是：先把**可验证的判据**（真机确认识别准确、不误拦、零上传）做实，把 UI 接线点与约束写进 PRD §12.7.5，而不是给一个没验证过的点击行为。**这是取舍，不是完成。**",
+        "fixCommit": null
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "`IsIdentifyAuth=false` 就断言「账号信息未完善、发不了」，会不会把其他原因导致的未认证也拦掉，造成误拦？",
+        "verdict": "upheld_verified",
+        "rationale": "① 真机上该账号确实被平台拦住（弹窗原文已取证），所以对这一例**拦是对的**；② 误拦风险已被三条设计约束压低：`identityVerified` **缺省/undefined 时放行**（老响应没这字段不得当 false）；取不到 `auth` 时（`.catch(() => null)`）同样**放行**；闸门只在上传前做只读判断；③ 文案只写「账号信息未完善」不写「未实名」，避免把判据含义说过头。残余风险：若某账号 `IsIdentifyAuth=false` 但实际可发布，会被提前拦一次——**这一点未验证**，已记入 PRD §12.7.5 第 3 条。",
+        "fixCommit": null
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "闸门放在**上传之前**，会不会白拦掉「本来可以先上传、后补账号信息」的场景？",
+        "verdict": "accepted_known_tradeoff",
+        "rationale": "取舍明确：上传要真金白银的带宽与时间（59MB 实测约 50s），而当前真机行为是「点发布即被拦」，与是否已上传无关 ⇒ 先拦能省掉一次无效上传。代价写进 PRD §12.7.5：若平台日后允许「先传后补」，这里需改成上传后判定。测试用「`Action=ApplyUploadInner` 请求数必须为 0」把该行为钉住，将来改行为时会红。",
+        "fixCommit": null
+      },
+      {
+        "id": "i4",
+        "severity": "Info",
+        "finding": "为避 500 行硬闸，把原来 12 行内联闸门合并成 `buildPublishGateResult`，是否为过闸而重构、增加风险？",
+        "verdict": "upheld_verified",
+        "rationale": "合并本身有独立收益：原来「无权限」的判据与文案散在链里，现在与「账号未完善」一起收敛到无 IO 的契约模块，可被单测直接覆盖（4 个新用例里 3 个是纯函数级）。行数收益是附带：496 → 491。风险控制：保留 `canPublish===false → NO_PUBLISH_PERMISSION` 的原有语义（有专门用例锁「两条闸门不互相覆盖」）。",
+        "fixCommit": null
+      },
+      {
+        "id": "i5",
+        "severity": "Info",
+        "finding": "用户说「没有 FAQ 就自己在飞书建《汤姆鱼使用问题指南》」——我用平台 landing-type 页代替，是否回避了用户想要的我方文档？",
+        "verdict": "accepted_with_reason",
+        "rationale": "用户原话是「如果头条有现成的问题解答或FAQ网页，就用那个链接。如果没有，就自己在飞书上创建」。本轮拿到的是**平台自己的「去完善」落地页**（点弹窗按钮就跳这里），对用户来说点进去即可完成，比一篇我方说明更直接 ⇒ 命中「有现成的就用现成的」分支，不触发建飞书文档那一步。但如实记：我**没有**验证该页面对未登录/其它账号是否同样有效，也未确认本会话有飞书写入权限；若后续确需「我方自己的指南」，本记录 §二 的证据可直接作为素材。",
+        "fixCommit": null
+      }
+    ],
+    "summary": {
+      "total": 5,
+      "upheldFailedPartial": 1,
+      "upheldVerified": 2,
+      "acceptedKnownTradeoff": 1,
+      "acceptedWithReason": 1,
+      "note": "自查抓到最主要的问题（i1）：需求只交付了数据层，UI 未接线，属**部分交付**，已在记录 §六 与 PRD §12.7.5 显式写明；i2 的误拦残余风险、i3 的「先拦后补」取舍、i5 的「用平台页面替代飞书文档」都如实记录，不当作已闭合。"
+    },
+    "at": "2026-10-19T00:42:48.635Z"
   }
 }
