@@ -167,12 +167,7 @@ class AuthViewManager {
     // 左侧导航栏为固定区域，登录视图应定位在右侧主体区域；
     // 侧栏收起时（全局折叠按钮）由 collapsed 参数给出 x=0 全宽；
     // 顶部 = 固定 chrome + 渲染层上报的常驻 chrome 下移（公告横幅），与浏览器标签同一口径
-    this.currentView.setBounds(computeEmbeddedViewBounds(
-      this.mainWindow,
-      this._sidebarWidth || SIDEBAR_WIDTH_DEFAULT,
-      contentTopWithInset(this._topInset),
-      this._sidebarCollapsed,
-    ))
+    this.currentView.setBounds(computeEmbeddedViewBounds(this.mainWindow, this._sidebarWidth || SIDEBAR_WIDTH_DEFAULT, contentTopWithInset(this._topInset), this._sidebarCollapsed))
     // 宽度自适应（旁路：失败只告警，不得影响登录链路；页面未加载时探针为 no-op）
     loginViewFit.fitLoginViewZoomSafe(this.currentView, { tag: 'AuthView' })
   }
@@ -273,11 +268,8 @@ class AuthViewManager {
     }
   }
 
-  /**
-   * 设置渲染层常驻 chrome 的额外顶部下移（阶段 1.2 / audit-6，由 WebviewManager 同步）。
-   * 0 是合法值（无横幅）；非法值由 view-bounds 回落默认，不在这里另写一份判据。
-   * @param {number} px - 像素高度
-   */
+  // 渲染层常驻 chrome 的额外顶部下移（阶段 1.2 / audit-6，由 WebviewManager 同步）。
+  // 判据与理由的唯一真源在 webview-manager/layout.js 的 setTopInset；非法值由 view-bounds 回落。
   setTopInset(px) {
     const next = normalizeTopInset(px)
     if (this._topInset === next) return

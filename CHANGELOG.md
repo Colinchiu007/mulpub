@@ -47,7 +47,35 @@
   `ALIVE=true`、**stderr 0 字节**、红线命中 0、进程计数 0→0。子进程 stdout 按 §12.9 新口径一并回读，
   两条既有缺陷（未激活态 `Unhandled Rejection: onProgress/onTabEvent`、`viral_library` 缺 `external_id` 列）
   仍在，登记状态未变、本批不顺手修。
-
+- **第 4 轮 re-sync（merge `9048ae428`，落后 49 个提交）**：7 个文件冲突。追加型写面
+  （`CHANGELOG.md`/`01-docs/learnings.md`）取并集；5 个代码文件**改用「取 main 为底 + 重放本 PR 的小改动」**——
+  判据是本 PR 在这 5 个文件只写了 2/19/4/9/31 行而 main 写了 25/27/34/8/109 行，把大的一侧当底要核对的面积
+  小一个量级。机械并集解冲器在这里**实测制造过一次结构破坏**：它把 main 的 `set-sidebar-collapsed` handler
+  整块插进本 PR `set-top-inset` handler 的 `try` 里（函数体中途冒出另一个 `ipcMain.handle(...)` + 悬空 `} catch`），
+  而 `node --check` 之前它**长得完全像合法代码**。此后规则：两侧都在同一函数体内追加的冲突一律手工合成。
+- **两个特性的交汇只有一处有语义量**：`computeEmbeddedViewBounds` 的第三参（top-inset ⇒ y）与第四参
+  （`sidebarCollapsed` ⇒ x）**正交**，但两侧调用行长得不同，并集会留下"同一个 view 连 `setBounds` 两次、
+  第二次覆盖第一次"的形状。收成一次调用同时传两参（`layout.js:_repositionAll`、`auth-view-manager.js:_positionView`）。
+  双向行级包含校验（两侧各自新增行都必须出现在结果里）打印出的 7 条 missing **逐条读过后全部是"两侧都改过的
+  同一行被合成为一行"**（import 合成超集、调用合成一次、`undefined` 实参换成 `contentTopWithInset(...)`），
+  不是丢失——"合成"与"丢失"在这一格同形，所以脚本必须打印而不是静默放行。
+- **re-sync 逼出本 PR 自己的两处（不与清理混做，但挡门禁）**：① `App.vue` 合并后 **509 > 500** ⇒
+  `check-max-lines` `NEW_OVER_LIMIT`。没有调阈值、没有把 `App.vue` 塞进挂账清单，而是按 AGENTS 正解把两段装配
+  （横幅 `@inset` 上报 + 折叠多窗口同步）抽成 `src/composables/useAppShellChrome.js`（壳层回到 483 行）。
+  "抽出没抽坏"的证据只能是**真挂 `App.vue`** 的 `App.announcement-inset` / `App.sidebar-collapse` 两条装配锁，
+  读源码的结构性断言在这里证明不了任何东西。② 前者夹具缺 `onTabEvent`/`subscribeEvents`/`unsubscribeEvents`
+  （main 侧 `App.vue` 现在在 `onMounted` 里 `tabStore.init()`），症状是 **`Test Files 5 passed` 与 `Errors 4` 同屏**、
+  用例名里完全没有它们——**只数通过数就会把它读成通过**；夹具按真实桥同形补齐（对齐 main 已有的那份形状）。
+  连带 `useOpsCenterRuntime.js` 的中文 `console.warn` 被 `check-locale-sync --cjk` 判为渲染端新增硬编码中文
+  （上一批刚把同类问题收成 ASCII，这一条漏跑判据），改 ASCII，日志语义不变，CJK 读数 1169 → **1168**。
+- **QM-1 重跑（re-sync + 抽出后 `electron/` 与 renderer 都变了）**：`verify-worktree-deps` OK →
+  `pnpm run build:dir` rc=0 → asar 产物判据 **16 条全 PASS**（逐项读产物内容：合并后的 4 参签名、
+  collapsed 只决定 x / topOffset 只决定 y、`layout` 与 `auth` 各只剩一次 `setBounds` 且同时传两参、
+  "只传 collapsed 的旧调用"必须不在、`setTopInset`/`setSidebarCollapsed`/`broadcastSidebarCollapsed` 三方法都在、
+  两条 IPC 通道与 preload 三个出口都在）→ 隔离 userData 启动 9 秒 `alive=true`、**stderr 0 字节**、红线命中 0 ⇒
+  `QM1_VERDICT=PASS`。受影响回归共 **345 passed / 13 files**（webview-manager×2 / auth-view-manager /
+  oauth-manager / qrcode-login / page-manager.sidebar-collapse / window / view-bounds×2 / App×2 /
+  sidebar-collapse-chain / stores.sidebar-collapse），静态门禁 9 项当场全绿。
 # [未发布] feat(ux-audit): 阶段 1.1 —— 暗色主题入口（外观设置 + 模块级主题单例 + 启动引导）
 
 - **缺陷本体**：`useTheme()` 的生产调用点是 **0**（`grep -rn useTheme apps/desktop/src` 只命中自身与其测试）。

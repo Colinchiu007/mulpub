@@ -26,7 +26,7 @@ export function useOpsCenterRuntime () {
     try {
       res = await opsCenterSyncRuntime()
     } catch (err) {
-      console.warn('[ops-center-runtime] 运行时策略读取失败，按无配置处理：', err?.message || err)
+      console.warn('[ops-center-runtime] runtime policy read failed, treated as no-config:', err?.message || err)
       loaded.value = true
       return { code: -1, message: 'runtime_read_failed', data: null }
     }

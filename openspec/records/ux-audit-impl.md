@@ -124,7 +124,90 @@ tracked 已核实**的样本（`electron/services/first-run.test.js`），**没�
 控制对照按「备份 → `git checkout HEAD -- 单文件` → 同一条命令 → 还原」执行，两侧 md5 唯一值 1；
 HEAD 版红「真实仓库棘轮」、修改后红「域样本 ≥12」，两轮红**互不相同**这一点本身定位了下界问题。
 
-## 关联
+## 第 4 轮 re-sync（origin/main 落后 49 个提交，merge `9048ae428`）
+
+冲突 7 个文件：`CHANGELOG.md`、`01-docs/learnings.md`（两块都是**追加型写面** ⇒ 取并集）
+与 5 个代码文件（`preload/page-manager.js`、`auth-view-manager.js`、
+`webview-manager/{index.js,ipc-handlers.js,layout.js}`）。
+
+**代码文件没有用并集解，改走「取 main 为底 + 重放我这侧的小改动」**。判据是本 PR 在这 5 个文件里
+只写了 2/19/4/9/31 行，而 main 写了 25/27/34/8/109 行——把大的一侧当底、把小的一侧重新落上去，
+结构由人一次核过；反过来做要核对的是 109 行那一侧，漏检面积大一个量级。
+这一点是**上一轮实测逼出来的**：追加型解冲器在 `ipc-handlers.js` 把 main 的
+`set-sidebar-collapsed` handler **整块插进了我这侧 `set-top-inset` handler 的 `try` 里**
+（函数体中途出现另一个 `ipcMain.handle(...)` 调用 + 悬空的 `} catch`），
+`node --check` 之前它长得完全像一段合法代码。此后凡两侧都在同一函数体内追加的冲突，
+一律手工合成，不接受机械并集。
+
+**两个特性的交汇点（本次唯一有语义合并量的地方）**：`computeEmbeddedViewBounds`
+的第三参（本 PR 的 top-inset，决定 y）与第四参（main 的 `sidebarCollapsed`，决定 x）正交，
+但两侧各自写的调用行**长得不同**，并集会留下"同一个 view 连着 `setBounds` 两次、
+第二次覆盖第一次"的形状。三处收成一次调用同时传两参：
+`layout.js:_repositionAll`、`auth-view-manager.js:_positionView`；
+`view-bounds.js` 的 4 参签名由 main 与本地自动合并得到，实测
+`grep -n 'function computeEmbeddedViewBounds'` = 单一定义。
+
+**双向行级包含校验**（`mw-merge-verify.cjs`，两侧各自的新增行必须都出现在结果里）：
+5 个代码文件中 3 个报 missing，逐条核对**全部是"两侧都改过的同一行被合成为一行"**
+（import 行合成超集、`setBounds` 调用合成一次、`undefined` 实参换成
+`contentTopWithInset(this._topInset)`），不是丢失；`CHANGELOG.md`/`learnings.md`
+两侧 95/187/57/380 行全部命中。校验脚本把「缺失」打印出来而不静默放行，
+是因为"合成"与"丢失"在这一格里同形——只有逐条读才能分开，所以必须逐条打印。
+
+**re-sync 暴露的两处本 PR 自己的问题**（不与清理混做，但必须本轮修掉才能过门禁）：
+
+1. `App.vue` 合并后 **509 行 > 500** ⇒ `check-max-lines` 报 `NEW_OVER_LIMIT`。
+   main 那侧 479 行是登记内的，我这侧新增的装配代码（横幅 `@inset` 上报 + 折叠多窗口同步）
+   把它推过线。**没有**调高阈值、**没有**把 `App.vue` 加进挂账清单，
+   而是按 AGENTS 的正解抽成 `src/composables/useAppShellChrome.js`（壳层 483 行）。
+   抽出后行为逐字不变，由真挂 `App.vue` 的 `App.announcement-inset.test.js` 与
+   `App.sidebar-collapse.test.js` 守住——这两条用例是"抽出没抽坏"的唯一证据，
+   读源码的结构性断言在这里证明不了任何东西。
+2. `App.announcement-inset.test.js` 的 `window.electronAPI.pageManager` 夹具**缺**
+   `onTabEvent` / `subscribeEvents` / `unsubscribeEvents`：main 侧 `App.vue` 现在在
+   `onMounted` 里 `tabStore.init()`，而 `stores/tab.js:154` 走的就是这三个方法。
+   症状是 **`Test Files 5 passed` 与 `Errors 4` 同屏**、用例名里完全没有它们
+   ——只数通过数就会把它读成通过。夹具按真实桥同形补齐（对齐 main 的
+   `App.sidebar-collapse.test.js` 已有形状），并在使用处写明这条教训。
+
+**连带**：`useOpsCenterRuntime.js:29` 的 `console.warn` 中文文案被
+`check-locale-sync.js --cjk` 判为"渲染端新增硬编码中文"（本 PR 上一批刚把同类问题
+收成 ASCII，这一条漏跑判据）。改为 ASCII 文案，日志语义不变。
+
+**取证（当场实跑）**：`node .github/scripts/check-max-lines.js` → PASS（超限 95 / 挂账 95，无新增）；
+`check-locale-sync.js --keys` → PASS（2180 key 成对）；`--cjk` → PASS（基线 1331 / 当前 1168）；
+`check-css-var-defined.js` → PASS；`check-font-size-scale.js` → PASS；
+`check-no-brand-residue.js` → PASS；`check-doc-abs-paths.js` → PASS；
+`check-unwired-tests.js` → OK（110 个文件）；`check-no-conflict-markers.js` → PASS
+（8 处标记行全部带原因登记且不超基线）；
+`node scripts/verify-worktree-deps.js` → OK；
+`vitest run` 受影响的 14 个文件（webview-manager-top-inset / webview-manager / auth-view-manager /
+oauth-manager / qrcode-login / page-manager.sidebar-collapse / window / view-bounds /
+view-bounds-top-inset / App.announcement-inset / App.sidebar-collapse / sidebar-collapse-chain /
+stores.sidebar-collapse / **新增 useAppShellChrome**）
+→ **354 passed / 14 files，零 unhandled error**。
+
+**抽出这一步的反证（两条，红集互不相同，还原后 md5 与备份逐字节一致 `app=c7bee979` / `chrome=f4d74198`）**：
+
+| 变异 | 指名变红的用例 | 结果 |
+|---|---|---|
+| N1 `App.vue` 把 `useAppShellChrome({ isHomeShell })` 的解构换成 `const onChromeInset = () => {}`（**取规则明文禁止的那个形态**："抽出后接线丢失"，而不是随便删一行） | 接线锁 + `App.announcement-inset` 2 条 + `App.sidebar-collapse` 5 条（挂载订阅 / 广播应用 / v-show 跟随 / 卸载退订 / 启动补报） | **CAUGHT**（8 红 / 18，基线同域 18 passed 且 red=0） |
+| N2 composable 里 `pm.onSidebarCollapsedChanged(...)` 改成 `void pm.onSidebarCollapsedChanged`（订阅注册被摘掉，其余不动） | `useAppShellChrome` 的"订阅广播落到真实 store"+"卸载必须注销" + `App.sidebar-collapse` 同族 4 条 | **CAUGHT**（6 红） |
+
+两条各证一侧：**N1 证"抽出没把电抽丢"**（App 侧装配锁真有牙），
+**N2 证"新模块的订阅不是装饰"**（composable 自己的锁测的是它声称的那一格）。
+基线一趟先跑并断言 `red=0` 才允许解读变异结果——否则"红了"分不清是变异造成的还是本来就红。
+
+**新增回归锁 `src/composables/useAppShellChrome.test.js`（9 条）**：导出完整性（模板只需要
+`onChromeInset`）、上报值原样透传、**0 必须上报**（0 是收口态不是非法值）、主窗口实例挂载补报
+持久化折叠态且不改内存态、`isHomeShell` 实例不得上报、广播落到**真实 store**、
+回环防护判据写成「广播后没有**新增**上报调用」而不是「总共为 0」（挂载那一次是合法调用——
+这条期望最初写错，读实现后改正期望、没动实现）、老桥未暴露该方法时静默跳过、卸载必须注销，
+以及接线锁（`App.vue` 必须 import + 解构，且**不得**再出现 `invokePageManager('setTopInset'` /
+`onSidebarCollapsedChanged` / `applyRemoteCollapsed` —— 两份口径必然漂移）。
+夹具只 mock `@/api/electron-bridge`，`@/stores/sidebar-collapse` 用真实实现。
+
+
 
 - 上游审计：`01-docs/UX-AUDIT-2026-10-17.md`（merge `c57616b61`）
 - 本批 PRD：`01-docs/PRD-UX-AUDIT-IMPLEMENT-2026-10-18.md`（显示项 / 交互 / 校验 / 提示文字全清单）

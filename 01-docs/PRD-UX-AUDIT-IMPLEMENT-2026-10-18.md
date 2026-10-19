@@ -747,11 +747,25 @@ App.vue setup
 | `electron/preload/page-manager.js` | 暴露 `pageManager.setTopInset(px)`（bundle 由 `pnpm run build:preload` 重打，产物 gitignore） |
 | `electron/services/webview-manager/index.js` | 构造期 `this._topInset = TOP_INSET_DEFAULT`（默认值只 import view-bounds 一份） |
 | `electron/services/auth-view-manager.js` | `_topInset` + `setTopInset` + `_positionView` 喂 `contentTopWithInset(this._topInset)` |
+| `src/composables/useAppShellChrome.js` | 渲染层装配点（**2026-10-19 从 `App.vue` 抽出**）：横幅的 `@inset` → `invokePageManager('setTopInset', px)`，与左侧菜单折叠的多窗口同步（挂载时 `reportSidebarCollapsed()`、订阅 `onSidebarCollapsedChanged` → `applyRemoteCollapsed`、卸载时注销）。抽出的理由是壳层尺寸门禁（`App.vue` 加满两段装配后到 509 行 > 500），**行为逐字不变**，由 `App.announcement-inset.test.js` + `App.sidebar-collapse.test.js` 真挂 `App.vue` 双向守住 |
+
+**与「左侧菜单折叠」（origin/main `2026-10-18`）的交汇**：两侧都改了 `computeEmbeddedViewBounds`
+的调用形态——本 PR 加第三个参数（顶下移 `topOffset`），折叠特性加第四个参数
+（`sidebarCollapsed` ⇒ `x=0` 全宽）。合并后的**唯一签名**是
+`computeEmbeddedViewBounds(win, sidebarWidth, topOffset = BROWSER_CHROME_TOP, sidebarCollapsed = false)`，
+两个维度**正交**：`collapsed` 只决定 x，`topOffset` 只决定 y。因此三个调用点
+（`layout.js:_repositionAll` / `auth-view-manager.js:_positionView` / 各自测试）必须**同时**传
+`contentTopWithInset(this._topInset)` 与 `this._sidebarCollapsed`——只传其一就是口径分裂
+（横幅在但登录视图不上移，或反之）。这条"两个特性共用一个几何函数"的合并由
+`view-bounds-top-inset.test.js`（18 条）+ `webview-manager-top-inset.test.js`（17 条）+
+`webview-manager.test.js` 的折叠用例共同守住，任何一方被摘掉都会红。
 
 **刻意不做的一条**：不给 `qrcode-login.js` 加 `setTopInset`。它自「独立窗口承载」迁移后
 `_sidebarWidth` / `setSidebarWidth()` 只是签名兼容（该文件 48-51 行自己写着），
 再加一个没人读的 setter 就是本仓最忌的"死接线"。这条反向选择由
 `webview-manager-top-inset.test.js` 的一条**反向锁**钉住（断 `_qrCodeLogin` 上没有 `setTopInset`）。
+同一判据下 `useAppShellChrome` 也**不**给 home-shell 实例上报折叠态（`isHomeShell` 短路），
+理由与 `App.vue` 原注释一致：内嵌主页实例本身是被标签系统管理的网页，不是管理者。
 
 ### 13.4 交互与数据校验
 

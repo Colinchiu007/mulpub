@@ -125,11 +125,8 @@ import { useHomeShellNavigation } from '@/composables/useHomeShellNavigation'
 import { useFirstRunGate } from '@/composables/useFirstRunGate'
 import { useTheme } from '@/composables/useTheme'
 import { notifySettingsDialogClosed, settingsDialogRequest } from '@/stores/settings-dialog'
-import {
-  reportSidebarCollapsed,
-  sidebarCollapsed,
-  applyRemoteCollapsed,
-} from '@/stores/sidebar-collapse'
+import { sidebarCollapsed } from '@/stores/sidebar-collapse'
+import { useAppShellChrome } from '@/composables/useAppShellChrome'
 import { isHomeShellSearch } from '@/utils/home-shell'
 import { suspendEmbeddedViewsForOverlay, releaseEmbeddedViewsForOverlay } from '@/composables/useEmbeddedViewSuspension'
 import { useTabDocumentTitle } from '@/composables/useTabDocumentTitle'
@@ -259,11 +256,6 @@ let unsubscribeHomeShellNav = null
 // getAllWindows()[0]（主窗口），home-shell（独立 WebContentsView）收不到，
 // 同一 renderer 内 App 只挂载一次（main.js createApp 单例），无双订阅。
 let unsubscribeDispatchFailed = null
-// 多窗口折叠状态同步（2026-10-18）：主进程是应用级唯一真源，任一窗口点击后它会
-// 重排全部内嵌视图并向每个窗口广播。本窗口若不跟上，DOM 侧栏还显示着却被原生
-// 视图盖住 ⇒ 侧栏看得见却点不动（点击错乱）。
-let unsubscribeSidebarCollapsed = null
-
 // 弹窗互斥（2026-09-23 Bug 修复）：浏览器/登录标签（外部网页 WebContentsView）活动时，
 // 原生图层永远压在渲染层 DOM 之上——设置弹窗打开后「屏幕闪一下但没出现」。
 // 弹窗打开即挂起全部内嵌视图，关闭后恢复；非 Electron 环境静默降级。
@@ -272,12 +264,8 @@ watch(showSettingsDialog, (open) => {
   else releaseEmbeddedViewsForOverlay('settings-dialog')
 })
 
-// 公告横幅高度 → 内嵌视图顶部下移（阶段 1.2 / audit-6）。
-// 表现层不直接摸 IPC：横幅只上报自己多高，由壳层决定这条 chrome 怎么和原生图层共处。
-// 0 是有效值（横幅消失/卸载），主进程侧 setTopInset 会据此把内嵌视图收回到 76px。
-function onChromeInset (px) {
-  invokePageManager('setTopInset', px)
-}
+// 壳层 chrome 装配（公告下移上报 + 折叠多窗口同步）已抽到 useAppShellChrome。
+const { onChromeInset } = useAppShellChrome({ isHomeShell })
 
 // 「就地打开设置」请求（2026-10-15）：页面（如采集页知乎区块）需要把用户直接送到
 // 某个具体 Tab——只说「去设置里配」而没有任何入口，是典型的死胡同文案。
@@ -423,9 +411,6 @@ onMounted(() => {
   // 它是被标签系统管理的对象，而非管理者，不订阅 tab 事件、不驱动壳态互斥。
   if (!isHomeShell) {
     tabStore.init()
-    // 启动恢复折叠态：主进程默认展开；若用户上次退出时是收起态，这里补一次上报，
-    // 否则之后新建的浏览器/登录标签 WebContentsView 仍从 x=200 开始，左侧留死区。
-    reportSidebarCollapsed()
   }
   spaNav.attach()
 
@@ -446,15 +431,6 @@ onMounted(() => {
       if (typeof path === 'string' && path.charAt(0) === '/') {
         try { router.push(path) } catch (error) { console.warn('[home-shell] navigate failed', error) }
       }
-    })
-  }
-
-  // 多窗口折叠同步：主进程广播 → applyRemoteCollapsed（只改本地 ref，不持久化、不上报，
-  // 回环防护见 stores/sidebar-collapse.js）。preload 未暴露该方法（老版本）时静默跳过。
-  const pm = api && api.pageManager
-  if (pm && typeof pm.onSidebarCollapsedChanged === 'function') {
-    unsubscribeSidebarCollapsed = pm.onSidebarCollapsedChanged((collapsed) => {
-      applyRemoteCollapsed(collapsed)
     })
   }
 
@@ -485,8 +461,6 @@ onBeforeUnmount(() => {
   unsubscribeHomeShellNav = null
   if (typeof unsubscribeDispatchFailed === 'function') unsubscribeDispatchFailed()
   unsubscribeDispatchFailed = null
-  if (typeof unsubscribeSidebarCollapsed === 'function') unsubscribeSidebarCollapsed()
-  unsubscribeSidebarCollapsed = null
   if (!isHomeShell) tabStore.dispose()
   identityStore.dispose()
 })
