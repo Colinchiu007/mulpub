@@ -1,21 +1,21 @@
 {
-  "sha": "181e620df9c750e5b4ddc997cda69aca3dc1446b",
+  "sha": "abbb7d0cc9475b190c2c6f235e6f3e421d470e4e",
   "layer": "diff",
-  "mode": "dual",
-  "reason": "变更 172 行（≤ 200）但命中 auth/数据库/加密：敏感内容 2 处",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
   "stats": {
-    "changedLines": 172,
-    "fileCount": 4,
-    "codeFileCount": 2,
+    "changedLines": 0,
+    "fileCount": 1,
+    "codeFileCount": 0,
     "sensitivePathHits": [],
     "plannedPathHits": [],
-    "sensitiveContentHits": 2,
+    "sensitiveContentHits": 0,
     "docSensitiveContentHits": 0,
     "docSensitiveContentSample": [],
     "lineReadGaps": []
   },
-  "stagedDiffHash": "399c5decf3184a0440aee05c1c02516326514887d3ac33041e6d533f671e113d",
-  "decidedAt": "2026-10-19T01:26:44.803Z",
+  "stagedDiffHash": "bb3483570b7d8838eded3648609807001eabcb6e5ce51e0a23448831546adea8",
+  "decidedAt": "2026-10-19T02:00:58.600Z",
   "decidedBy": "ccg-review-decider",
   "reviewBackends": {
     "proposer": "opencode",
@@ -45,7 +45,7 @@
     }
   },
   "deepReview": {
-    "required": true,
+    "required": false,
     "status": "pending",
     "tier": "unknown",
     "performedBy": null,
