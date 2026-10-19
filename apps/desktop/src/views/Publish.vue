@@ -1349,9 +1349,10 @@ function onOpenDraftsPage () {
 // onActivated 对 republish 无守卫（URL 同带两者时后到者静默覆盖先到者）。
 // ?republish= 仍由 usePublishRepublish 独立消费（快照拉取/覆盖确认/appliedIds 幂等），
 // 入口只做「本次激活消费哪一路」的裁定，不重写 URL、不重复记账。
-// watchRepublishQuery 的独立 query watcher 被移除（PRD 禁止两个 watcher 各自判断）；
-// keep-alive 激活场景由 onActivated → applyRouteHandoff 覆盖；?video_path= 预填是
-// 入口的叠加层（与三路不互斥，先于裁定执行，自带无 query 早退）。
+// keep-alive 激活走 onActivated → applyRouteHandoff；同实例内 query 变化（草稿箱
+// 点另一张卡片 replace ?draft=）走 watchRouteHandoff（定义处接线）——两条路径共用
+// 同一裁定与幂等键，不是 PRD 反对的「第二个各自判断的 watcher」（那指绕过入口另行
+// 裁定）；?video_path= 预填是入口的叠加层（与三路不互斥，自带无 query 早退）。
 
 function publishEditorQuery (extra = {}) {
   const query = { tab: 'publish', ...extra }
@@ -1384,16 +1385,19 @@ const routeHandoff = useRouteHandoff({
   activeMode, syncTopicsToContent,
   // 单篇缺失的可见提示（缺失是终态，不静默也不回落 republish）
   notifyDraftMissing: (id) => notifyError('publishDrafts.notFound', { message: t('publishDrafts.notFound', { id }) }),
-  // 文案库详情态（与交接无冲突，置顶执行）
-  applyCopyDetailHandoff,
 })
 const {
   handoffAppliedKey, batchTargetPlatforms, handoffPlatformOptions,
   applyBatchTargetsToAll, applyDraftHandoff, handoffIdsFromQuery, parseHandoffDraftIds,
 } = routeHandoff
+// 同实例内 query 变化的交接（见上方入口注释）：挂在解构之后，避免 TDZ
+routeHandoff.watchRouteHandoff()
 
 // 草稿导入 — 从 Collection 页跳转时加载
 onMounted(async () => {
+  // 文案库详情态消费必须置顶（不依赖任何前置异步步骤）——copy-detail 契约锁
+  // 「挂载即消费载荷」依赖这一点，故它不进 applyRouteHandoff（那里位于 await 链之后）
+  applyCopyDetailHandoff()
   // S1c：草稿箱整页模式只需加载列表（原实现还置 showDraftList=true 驱动浮层）
   if (publishTab.value === 'drafts') await loadDrafts()
   await loadAccounts()  // 加载多账号列表
@@ -1412,6 +1416,8 @@ onMounted(async () => {
 // onActivated（每次激活都触发）上，否则 query 预填静默失效。
 // 非 keep-alive 上下文（内嵌主页实例）onActivated 不触发，仍由上面的 onMounted 覆盖。
 onActivated(async () => {
+  // 文案库详情态消费置顶（同 onMounted 契约）
+  applyCopyDetailHandoff()
   // S1c：草稿箱整页模式在 keep-alive 下必须重新加载。此前 onActivated 无 drafts 分支，
   // 靠 watch(publishTab) 兜；但同值激活时 watch 不触发 ⇒ 列表不刷新。此处显式补一次。
   if (publishTab.value === 'drafts') void loadDrafts()

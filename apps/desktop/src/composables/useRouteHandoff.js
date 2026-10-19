@@ -29,7 +29,7 @@
  *    video_path 预填**不设键**：`usePublishHistoryPrefill` 自带无 query 早退 + 写同值幂等，
  *    且每次激活重跑是现状行为。
  */
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { useHotTopicsDraftHandoff } from './useHotTopicsDraftHandoff'
 import { usePublishRepublish } from './usePublishRepublish'
 import { usePublishHistoryPrefill } from './usePublishHistoryPrefill'
@@ -39,10 +39,14 @@ import { usePublishHistoryPrefill } from './usePublishHistoryPrefill'
  * @param {object} deps.route vue-router route（ref/computed 均可，需 .query）
  * @param {Function} deps.loadDrafts 拉取草稿列表（usePublishDrafts）
  * @param {Function} deps.loadDraft 装载单篇草稿（返回 false = 草稿不存在）
- * @param {Function} deps.applyCopyDetailHandoff 文案库详情态消费（与交接无冲突，置顶执行）
  * @param {Record<string, unknown>} deps.[...rest] 透传给批量/republish/视频预填的依赖
  *   （route/router/article/activeMode/...，签名见各 composable）
  * @param {Function} deps.notifyDraftMissing 单篇草稿缺失提示（key 或 (id)=>void 均可由视图决定）
+ *
+ * ⚠️ 文案库详情态（applyCopyDetailHandoff）**不归本入口**：它的契约是「挂载/激活
+ * 即消费，不依赖任何前置异步步骤」（copy-detail-handoff 测试锁），而入口位于
+ * onMounted 的 await 链之后——把它挪进来会破坏置顶契约（实测：copyHandoff.take
+ * 零调用，7 例契约锁全红）。由视图在 onMounted/onActivated 首行直接调用。
  */
 export function useRouteHandoff (deps) {
   const { route, loadDrafts, loadDraft, notifyDraftMissing } = deps
@@ -63,9 +67,6 @@ export function useRouteHandoff (deps) {
    * @returns {Promise<{kind: 'batch'|'draft'|'draft-missing'|'republish'|'none', id?: string, count?: number, applied?: boolean}>}
    */
   async function applyRouteHandoff () {
-    // 文案库详情态与交接参数无冲突，保持现状「置顶、不依赖前置异步步骤」
-    if (typeof deps.applyCopyDetailHandoff === 'function') deps.applyCopyDetailHandoff()
-
     // 叠加层：历史视频预填（无 video_path 时内部早退，不覆盖既有草稿）
     videoPrefill.applyHistoryVideoQuery()
 
@@ -109,8 +110,22 @@ export function useRouteHandoff (deps) {
     return { kind: 'none' }
   }
 
+  /**
+   * query watcher（覆盖「同实例存活期间 query 变化」的交接）：
+   * keep-alive 实例在**同一页面内**换交接参数（如草稿箱点另一张卡片 → editDraft
+   * replace `?draft=<另一篇>`）不触发 onActivated/onMounted，必须靠 watcher。
+   * 裁定仍走 applyRouteHandoff 单一入口（优先级/互斥/幂等与激活路径同源），
+   * 不是 PRD 反对的「第二个各自判断的 watcher」——那指的是绕过入口另行裁定。
+   */
+  function watchRouteHandoff () {
+    watch(() => (route.value || route).query, async () => {
+      await applyRouteHandoff()
+    })
+  }
+
   return {
     applyRouteHandoff,
+    watchRouteHandoff,
     /** 透传给视图的既有能力（批量区工具条仍需） */
     handoffAppliedKey: batch.handoffAppliedKey,
     batchTargetPlatforms: batch.batchTargetPlatforms,
