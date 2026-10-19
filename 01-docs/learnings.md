@@ -1,3 +1,26 @@
+## 扩展名是「用户说的」，魔数是「文件说的」——克隆样本校验必须信后者（s2v-clone-sample-sniff，2026-10-19）
+
+### lesson: validate-audio-container-by-magic-bytes-not-extension
+
+**现场**：视频任务 `mvf29iv8_cgll` 整阶段失败，TTS 14 个场景 13 报 MiMo `Param Incorrect`。取证到二进制层才发现：克隆样本 `.mp3` 文件头是 `00 00 00 18 ftypmp42` —— **内容是 MP4/AAC 容器**（ffprobe：`mov,mp4,m4a` + `aac` 编码，29.8s）。服务端只认真实容器，声明 MIME 与容器不符即拒绝，且这个错误在 14 个场景上**确定性复现**（与限流 429 完全无关，#5 只是叠加）。
+
+**根因溯源**：`_prepareOneSample`（引入 commit 68b890039，2026-08-04）的 contentType 完全由 `path.extname` 决定——`.mp3` 就是 `audio/mpeg`，**从不看内容一个字节**。此后每次合成把样本转成 `data:audio/mpeg;base64,…` 注入 `audio.voice`，错误被固化进克隆音色的整个生命周期。
+
+**逃逸链（为什么没测出来）**：
+- 单元测试层：`tts-voice-clone-service.test.js` 既有夹具全部是 `"audio"` / `"RIFF-test-audio"` 这类**占位字节**——它们既不是真 mp3 也不是真容器，任何「按内容判定」的测试在占位字节上无从下手，测试也就从未覆盖「扩展名与内容不符」这一形态；
+- 集成层：克隆链路的对账测试（voice-clone-integrity）校验的是「registry 记录与磁盘样本一致」，两侧都以扩展名为准，**同源盲区**；
+- 真实 provider 层：克隆 `cloneVoice()` 是本地操作（MiMo 不上传），错误延迟到**合成时**才由远端报出，克隆成功 ≠ 样本可用；
+- 审查层：`2026-08-23-fix-mimo-tts-param-incorrect` 修过同一个错误码，但成因是预置音色默认值，修复后测试围绕「默认音色发送值」写，没有反推「还有什么输入能让服务端报 Param Incorrect」。
+
+**系统性漏洞**：测试夹具约定缺陷——音频类单测的夹具字节与真实格式**零相关性**，导致「格式判定」这一类逻辑（嗅探/转码/探测）在这套测试里**天然不可测**。
+
+**修法**：黑名单式魔数嗅探 `sniffSampleContainerMismatch`（tts-voice-clone-service.js）——只拦可可靠识别的容器互串（ftyp/RIFF-WAVE/OggS/fLaC/ID3/MPEG 帧同步六种魔数），未知字节放行交给 ffprobe 时长探测 fail-closed 兜底。**选黑名单不选白名单是本次的第二个教训**：白名单第一版当场误伤 13 个既有用例（占位字节夹具），黑名单精确覆盖事故形态且零误伤——「拦截面 = 已确认的故障形态枚举，兜底面 = 既有探测」，两层各司其职，不追求一步到位的内容级白名单。
+
+**可复用的三条**：
+1. 凡「按扩展名/文件名定行为」的代码，问一句「文件内容说谎了吗」——音频容器、图片格式、压缩包都可能改名；测试断言里至少给一个「内容与扩展名不符」的用例。
+2. 音频类夹具应该用真实字节头（ID3/ff fb/RIFF-WAVE/ftyp）构造，占位字符串字节会让格式逻辑测试退化为「只测了文件名」。
+3. 「克隆成功」不等于「样本可用」：本地克隆型 provider（MiMo）错误延迟到合成时爆发，诊断这类问题时先对样本做 ffprobe/魔数取证，别在日志层打转。
+
 ## 「反证全绿」可以是「一条都没跑」——变异驱动必须自证探针活着（mutation-probe-blindness，2026-10-19）
 
 ### lesson: a-mutation-driver-must-prove-its-own-probe-alive
@@ -57,6 +80,7 @@ Esc 不收尾、Tab 走开后那块 `role="menu"` 还挂在可读区域里。
 
 ---
 
+
 ## 守门步骤的"通过"是谁说了算的？——通过路径没有 exit 时，判词来自最后一条原生命令（gate7-pass-path-exit，2026-10-19）
 
 ### lesson: a-gate-step-needs-an-explicit-exit-on-its-pass-path
@@ -89,6 +113,12 @@ GitHub 的 pwsh wrapper 以 `$LASTEXITCODE` 决定步骤成败，而该步骤 `f
    只去掉前缀、没保留行锚定，正文一处散文注释（"经 `$pixelExit -ne 0` 拦住"）又成了错锚点。
    **放宽判据的形状 ≠ 放弃定位的方式**；正解是 `/^\s*(?:\} elseif|if) \(\$pixelExit -ne 0\)/m`。
 
+## 2026-10-19 · rewrite-limits-50000：三层上限的真实语义与「静默截断」是同一类缺陷（fix-collect-rewrite-too-long 续篇）
+
+- **pattern · 「上限」从来不是一个数，是三层各自独立语义的数**：改写引擎里 6000（输入硬拒）/ 3000（无意图兜底输出）/ 策略级 800-3000（平台形态）三层长相相似但职责不同。放开时问「每一层为谁存在」：输入上限跟随模型能力（50000），无意图兜底保留保守（3000 不动），策略上限是产品语义（不动，且用户显式区间必须始终压过它）。把三层一刀切放开会把「抖音口播 800 字」这类形态约束一起冲掉。
+- **pitfall · 静默截断比硬拒绝更隐蔽**：`TOO_LONG` 至少让用户知道失败；`_postProcess` 砍尾则让用户拿到不完整的稿子且**以为它就是全部**。判据：任何「按上限截断」的实现必须同时产出可见信号（返回 `outputTruncated`/`outputLength`，UI 横幅），否则宁可拒绝。
+- **pitfall · max_tokens 缺失时「输出截断」会发生在模型默认值处，与引擎截断混在一起**：大多数 OpenAI 兼容 adapter 不传 `max_tokens` 走服务商默认（OpenAI 4096）——把引擎输出上限放到 50000 后，真实瓶颈转移到了模型默认值，且这种截断引擎侧 `outputTruncated` 检测不到（引擎只见到完整返回）。解法：桥接层显式传 64000；后续可读 `finish_reason: 'length'` 区分模型侧截断。
+- **pattern · 放开上限必须同帧更新「自适应默认值」**：`deriveWordCountRange` 的 MAX_CAP 若仍钉在 6000，12000 字原文会被「自适应」压回 6000——放开引擎上限但自适应层没跟上，等于没放开。判据：改上限时 grep 所有消费该数字的**派生函数**，不只是校验器。
 
 ## 「没人读」和「读不到」是两件事——先查消费者，再决定删字段还是补校验（debt-ledger-shape-normalize，2026-10-19）
 

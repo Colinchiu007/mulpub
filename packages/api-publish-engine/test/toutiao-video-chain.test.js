@@ -42,6 +42,12 @@ function makeCookie (o = {}) {
   return parts.join('; ')
 }
 
+function tmpImageForCover (bytes = 2048) {
+  const p = path.join(os.tmpdir(), 'tt-cover-' + Date.now() + '-' + Math.random().toString(36).slice(2) + '.jpg')
+  fs.writeFileSync(p, Buffer.concat([Buffer.from([0xFF, 0xD8, 0xFF, 0xE0]), Buffer.alloc(bytes, 0x7F), Buffer.from([0xFF, 0xD9])]))
+  return p
+}
+
 function tmpVideo (bytes = 4096) {
   const p = path.join(os.tmpdir(), 'tt-video-' + Date.now() + '-' + Math.random().toString(36).slice(2) + '.mp4')
   fs.writeFileSync(p, Buffer.alloc(bytes, 7))
@@ -670,5 +676,47 @@ describe('ToutiaoVideoChain — 头条视频 API 轨', () => {
       expect(r.helpUrl).toBe(ACCOUNT_FIX_URL)
       expect(r.error).toContain('账号信息未完善')
     } finally { fs.unlinkSync(f); await srv.close() }
+  })
+
+  test('本地封面：run() 对 coverPath 走五步链并把它作为 ThumbUri 提交', async () => {
+    const all = await startFakeServer([
+      { match: /getAuthKey/, body: { data: { accessKey: 'AK2', uploadToken: 'HMAC:x' } } },
+      { match: /GetImageUploadParams/, body: { code: 2000, data: { tos_host: 'tos2.test.local', tos_sign: 'JWT2', bucket: 'b', object_ids: ['tos-cn-i-e874c6/oLOC'] } } },
+      { match: /tos-cn-i-e874c6\/oLOC/, method: 'PUT', body: { success: 0 } },
+      { match: /GetImageUploadInfos/, body: { code: 2000, data: [{ uri: 'tos-cn-i-e874c6/oLOC', result_uri: 'tos-cn-i-e874c6/oLOC', info: { md5: 'b'.repeat(32) } }] } },
+      { match: /GetPosterList/, body: { data: { Posters: [] } } },
+    ])
+    const img = tmpImageForCover()
+    const vidPath = img.replace(/\.jpg$/, '.mp4')
+    fs.writeFileSync(vidPath, Buffer.alloc(2048, 7))
+    try {
+      const chain = new ToutiaoVideoChain({ cookie: makeCookie(), mpBase: all.url, vodBase: all.url, userAgent: UA, uid: '1342958645023752' })
+      chain.getAuthKey = async () => ({ spaceName: 's', sessionToken: 't', accessKeyId: 'a', secretAccessKey: 'b' })
+      chain.uploadVideo = async () => 'VID_LOC'
+      chain.getPosterList = async () => null
+      let submitted = null
+      chain.mp = {
+        request: async (o) => {
+          if (/getAuthKey/.test(o.url)) {
+            return { status: 200, data: { status: 0, data: { accessKey: 'AK2', uploadToken: 'HMAC:x' } } }
+          }
+          if (/GetImageUploadParams/.test(o.url)) {
+            return { status: 200, data: { code: 2000, data: { tos_host: 'tos2.test.local', tos_sign: 'JWT2', bucket: 'b', object_ids: ['tos-cn-i-e874c6/oLOC'] } } }
+          }
+          if (/GetImageUploadInfos/.test(o.url)) {
+            return { status: 200, data: { code: 2000, data: [{ uri: 'tos-cn-i-e874c6/oLOC', result_uri: 'tos-cn-i-e874c6/oLOC', info: { md5: 'b'.repeat(32) } }] } }
+          }
+          submitted = o
+          return { status: 200, data: { status: 0, data: { Code: 0, ItemId: 7 } } }
+        },
+      }
+      const r = await chain.run({ title: 'T', video: { path: vidPath }, coverPath: img }, { draft: true })
+      console.log('DBG submitted=', JSON.stringify(submitted && submitted.url), 'r=', JSON.stringify(r))
+      expect(r.success).toBe(true)
+      // 提交走 chain.mp.request（data 是 JSON 字符串）
+      expect(JSON.parse(submitted.data).VideoInfo.ThumbUri).toBe('tos-cn-i-e874c6/oLOC')
+      expect(all.requests.some((x) => /GetImageUploadParams/.test(x.url))).toBe(true)
+      expect(all.requests.some((x) => /GetImageUploadInfos/.test(x.url))).toBe(true)
+    } finally { for (const p of [img, vidPath]) if (fs.existsSync(p)) fs.unlinkSync(p); await all.close() }
   })
 })

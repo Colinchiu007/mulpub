@@ -246,3 +246,39 @@ v3 的处理：认出二进制（blob 含 NUL 或链上出现 `Binary files … 
   实际清理等 v3 落到 main 之后用 main 上的判据跑，不用本片 worktree 里的实现自证。
 
 
+
+## 10. v3 上线后被真实清理任务第三次否证 —— 「落地那版本来就不是我这版」（2026-10-19 增量）
+
+**动因（现场，非推演）**：清理 44 个孤儿分支时，两条 CI 探针分支（`ci-trigger-probe` / `ci-probe-2`，tip 是 #3733 那条 `cjk-font-selfcontained` 的旧切片）在 main 判据下报 `files=21 identical=7 drift=2 lost=12 rc=1`。
+我先给出一句归因（「因为我多传了一份 merge SHA，把删除提交从他人净删除容量里排除了」）并据此**保留了分支**。随后 A/B 实测把它否证：
+只传属主 PR #3733 的 merge SHA 与同时传 #3733+#3769，读数**逐字相同**（`files=21 identical=7 drift=2 lost=12`）。真正的成因是第三种形态。
+
+**真成因**：探针分支切在 **QM-6 评审修正之前**，而 squash 落地的是修正**之后**那一版。按文件比 blob 取证：`tip:f` 与 `110c3aabb:f` 对 `font-resolver.js`（+99 / −8）、`font-resolver.test.js`（+172 / −22）、`asset-generator.js`、`local-cover-generator.js`、`story2video-compose-engine.js`、`bundled-font-packaging.test.js`、该 PRD **全部不等**，
+且差异内容里明写着「QM-6 评审 i2」的 `warnFontFallback` / `buildDrawtextFontOption` 收敛，以及 Gate 12c 要求的「安装目录示例路径 → 尖括号占位符」改写（原文是一条 Windows 绝对路径，按 Gate 12c 不在本文重述）。也就是说这 12 条 LOST 的语义是**我这旧版没被采纳**，不是**工作丢了**。
+
+**为什么 v3 看不见这一格**：v3 问的是"我这行在不在主干现状里"＋"缺口能不能被他人净删除容量解释"。上面两种答案都是"不解释"，于是判 LOST，且判据不会说"落地那份根本不是你这版"。
+而操作者在这个形态下的正确动作（比 blob）当时只能手工做——这正是我今天连续两次写下错误归因的土壤。
+
+**本片只加读数，不改判据宽严。** 新增 `classifyRevision(mergeBlob, tipBlob, baseBlob)`，按**三**分而不是两分：
+
+| 产物 blob 与 | 归类 | 含义 |
+|---|---|---|
+| `== tip` | `carried` | 原样带上我那版 |
+| `== base` | `not-carried` | **我的改动根本没带上** ⇒ 真丢失 |
+| 两者都不等 | `different` | 产物既不是我这版也不是起点 ⇒ **只知道"这笔落地的不是我当前这版"，不知道方向**：可能是评审改了产物再落地，也可能是分支在这笔之后自己前进 |
+
+三分是本片的全部要点：只比 `tip` 与 `merge` 会把 `not-carried` 和 `different` 合成一格，
+于是"根本没带上"可以被读成"被修订"——那是**替真丢失作保**的方向，比原盲区更糟。`different` 还带 `onlyInMerge` / `onlyInTip` 双向规模（按行多重集，与判定本体同口径）；读数本身**只说"版本不同"、不说方向**，要定性必须自己比 blob。
+
+出口两条都要有（`T31` 接线锁）：plain 在判定行尾打 ` 落地版本=版本不同@<sha>(主干独有P行/我这版独有M行)`，末行汇总打 ` 落地版本不同=<n> 没带上=<n>`；`--json` 的文件对象带 `revisionsAtMerge`。
+只在一个出口存在等于没有——这条与本片 v2 那次"只还原了 plain 的 latin1"是同一课。
+
+**退出码不变**：`carried / different / not-carried` 一律不参与判定，`lost>0` 仍返回 1。
+「因为只是被取代，所以允许删分支」是一次**把守门判据改宽**的动作，需要单独授权，不属本片；本片只保证下一个读到这里的人不必再靠手工比 blob、也不必再猜。
+
+**遗留（不假装已闭合）**
+- `different` 是否应把该文件从 LOST 降级为一个新的可删档位——**未做，需人工裁决**（同 §9 遗留里"份数偏宽松"那条的处置方式：先点名，不先放行）。
+  **本格的初稿把它印成「修订@…」、并写成"我这旧版没被采纳"——那是在替一个没实测的因果背书**：QM-6 后端轴 B1 指出「同一分支被两笔 PR 用过时，早期那笔合法落地的版本也会落进这一格」，本地复现（`repro-b1.cjs`）证实为 `carried:1, different:[merge1]`。故分类名与出口文案一并改为中性 `different` / `版本不同@`，方向由人比 blob 定；回归锁 `T33`（断言读数里不得出现"修订/旧版"），变异 M9 专打这一格退化。
+- `describeRevisions` 只打前 2 笔；`lineDiffScale` 对**热写面**（`CHANGELOG.md` 那种重复键极多的文件）会把"我这份拷贝没落"和"整段被改写"报成同一规模，读数须与 `份数=` 一起看，不能单独作结论。
+- 真实仓现场两格各点名一例（同一 tip 一次跑齐）：`font-resolver.js` 走 `版本不同@110c3aabb(主干独有95行/我这版独有8行)`，
+  `.ccg/reviews/4e34763ec…json` 走 `根本没带上@110c3aabb`。`not-carried` 的其余形态仍靠 `T29` 夹具锁。

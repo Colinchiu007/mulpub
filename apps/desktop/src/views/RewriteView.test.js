@@ -300,9 +300,10 @@ describe('RewriteView', () => {
   it('shows error for non-integer or out-of-range word count', async () => {
     const wrapper = factory()
     const inputs = wrapper.findAll('input.word-count-input')
-    await inputs[1].setValue(7000)
+    // rewrite-limits-50000：合法上界改为 50000；7000 已合法，越界值改用 50001
+    await inputs[1].setValue(50001)
     await nextTick()
-    expect(wrapper.text()).toContain('最大字数需为 1-6000 的整数')
+    expect(wrapper.text()).toContain('最大字数需为 1-50000 的整数')
   })
 
   it('disables rewrite button when content is empty', async () => {

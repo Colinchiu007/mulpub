@@ -165,11 +165,51 @@ async function uploadCoverImage (o) {
   return { uri: registered.uri, info: registered.info }
 }
 
+/**
+ * 从调用方封面输入里选「本地文件路径」（三态契约的第一态）。
+ * 纯函数：非字符串/空值一律跳过（对象形态的 cover 走的是 URI 态，不属于本态）。
+ *
+ * @param {Array} coverInputs run() 收集的封面输入数组（与 hasLocalCoverOnly 同一来源）
+ * @returns {string|null}
+ */
+function pickLocalCoverPath (coverInputs) {
+  const arr = Array.isArray(coverInputs) ? coverInputs : []
+  return arr.find((x) => typeof x === 'string' && x) || null
+}
+
+/**
+ * 链内便捷封装：从 ToutiaoVideoChain 实例取 client/headers 并完成五步。
+ * 放本模块的原因：run() 已 495/500 行，接线体（~20 行）放链内必撞行数闸；
+ * 且 client/headers 的取法是链的实现细节，收在这里让链内只留 4 行调用。
+ *
+ * @param {object} chain ToutiaoVideoChain 实例（用其 mp/headers/userAgent）
+ * @param {string} imagePath 本地封面 jpeg
+ * @param {object} [o] {onProgress}
+ * @returns {Promise<{uri: string, info: object}>}
+ */
+async function uploadLocalCoverFor (chain, imagePath, o) {
+  const opts = o || {}
+  const { createHttpClient } = require('../core/http-base')
+  return uploadCoverImage({
+    imagePath,
+    mpClient: chain.mp,
+    headers: chain._mpHeaders({ Accept: 'application/json' }),
+    // 零外发约定：链的 mpBase 被注入成非官方域（测试）时，vas 同样跟过去；生产不传即用官方域
+    vasClient: o.vasClient || createHttpClient({ baseURL: o.vasBase || (chain.mpBase && !chain.mpBase.includes('mp.toutiao.com') ? chain.mpBase : VAS_BASE), timeout: 30000 }),
+    axiosLike: chain.mp,
+    userAgent: chain.userAgent,
+    ErrorClass: Error,
+    onProgress: opts.onProgress,
+  })
+}
+
 module.exports = {
   VAS_BASE,
   AUTH_KEY_TYPE,
   pickImageTempCreds,
   pickUploadTarget,
   pickRegisteredImage,
+  pickLocalCoverPath,
   uploadCoverImage,
+  uploadLocalCoverFor,
 }

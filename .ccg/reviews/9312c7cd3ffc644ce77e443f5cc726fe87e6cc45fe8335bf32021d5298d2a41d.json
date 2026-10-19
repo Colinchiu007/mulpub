@@ -1,0 +1,61 @@
+{
+  "sha": "8d60543199869a2c0115a9a4581626ecd795eb7f",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 0 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 3,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "task: 竞品逆向第十批 —— sig3 逐函数深挖（Hook 法 + opcode 更正 + 31 函数 I/O + 密钥流）",
+      "| 密钥流 | 512B 提取，256 输入全同值（与输入无关），跨 startupRandom 不变 |"
+    ],
+    "lineReadGaps": [
+      "\"01-docs/research/competitor-reverse-2026-10-13/derived/\\350\\236\\215\\345\\252\\222\\345\\256\\235-sig3\\351\\200\\220\\345\\207\\275\\346\\225\\260\\346\\267\\261\\346\\214\\226.md\"",
+      "\"01-docs/research/competitor-reverse-2026-10-13/\\344\\272\\244\\344\\273\\230\\347\\211\\251\\346\\200\\273\\347\\264\\242\\345\\274\\225.md\""
+    ]
+  },
+  "stagedDiffHash": "9312c7cd3ffc644ce77e443f5cc726fe87e6cc45fe8335bf32021d5298d2a41d",
+  "decidedAt": "2026-10-19T14:51:52.584Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

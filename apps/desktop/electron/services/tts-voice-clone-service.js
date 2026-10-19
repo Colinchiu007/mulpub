@@ -98,6 +98,35 @@ function safeIdentifier(value, maxLength = MAX_IDENTIFIER_LENGTH) {
   return normalized;
 }
 
+/**
+ * 克隆样本魔数嗅探（黑名单式）：检测「内容是已知的其它音频容器」与扩展名声明不符。
+ *
+ * 背景（mvf29iv8_cgll，2026-10-19）：.mp3 文件实际是 MP4/AAC（ftypmp42），仅凭
+ * 扩展名放行后，克隆服务端按「声明 MIME 与真实容器不符」拒绝合成（Param
+ * Incorrect），导致整条流水线 generate_assets 失败。
+ *
+ * 采用黑名单而非白名单：只拦截可可靠识别的「容器错名」形态（MP4/ftyp、RIFF/WAVE、
+ * ID3 或 MPEG 帧同步的 MP3、OggS、fLaC 互串）；未知/占位字节维持旧行为放行，
+ * 由 ffprobe 时长探测在生产环境 fail-closed 兜底，避免误伤既有夹具与罕见封装。
+ * @param {Buffer} buffer - 已读取的样本字节
+ * @param {string} extension - 小写扩展名（含点）
+ * @returns {boolean} true = 内容容器与扩展名声明不符，应拒绝
+ */
+function sniffSampleContainerMismatch(buffer, extension) {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 12) return false;
+  const ascii = buffer.toString("latin1", 0, 12);
+  const isMpegAudio = buffer[0] === 0xff && (buffer[1] & 0xe0) === 0xe0;
+  const isMp3Id3 = ascii.startsWith("ID3");
+  const isRiffWave = ascii.startsWith("RIFF") && ascii.slice(8, 12) === "WAVE";
+  const isMp4Ftyp = ascii.slice(4, 8) === "ftyp";
+  const isOgg = ascii.startsWith("OggS");
+  const isFlac = ascii.startsWith("fLaC");
+  if (extension === ".mp3") return isMp4Ftyp || isRiffWave || isOgg || isFlac;
+  if (extension === ".wav") return isMp3Id3 || isMpegAudio || isMp4Ftyp || isOgg || isFlac;
+  if (extension === ".m4a") return isMp3Id3 || isMpegAudio || isRiffWave || isOgg || isFlac;
+  return false;
+}
+
 function hasControlCharacter(value) {
   return [...value].some((character) => {
     const codePoint = character.codePointAt(0);
@@ -1437,6 +1466,12 @@ async renameClone(input) {
       buffer.length !== canonicalStat.size
     ) {
       throw new VoiceCloneError("VOICE_CLONE_SAMPLE_INVALID");
+    }
+    // 魔数嗅探（mvf29iv8_cgll 回归锁，2026-10-19）：真实事故里 .mp3 文件内容是
+    // MP4/AAC 容器（ftypmp42），扩展名校验放行后，克隆服务端按「声明 MIME 与真实
+    // 容器不符」返回 Param Incorrect，整条流水线 generate_assets 失败。
+    if (sniffSampleContainerMismatch(buffer, extension)) {
+      throw new VoiceCloneError("VOICE_CLONE_SAMPLE_EXTENSION_UNSUPPORTED");
     }
     let durationSeconds;
     try {

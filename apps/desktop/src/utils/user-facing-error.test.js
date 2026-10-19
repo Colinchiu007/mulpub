@@ -260,14 +260,15 @@ describe('formatUserError — 改写引擎业务错误码', () => {
   })
 
   it('REWRITE_CONTENT_TOO_LONG：zh 插值 {max}、en 成对', () => {
-    const zh = formatUserError({ errorCode: 'REWRITE_CONTENT_TOO_LONG', params: { max: 6000 } }, { locale: 'zh' })
+    // rewrite-limits-50000：上限真源 50000（由 rewrite-engine-error 归一化时注入）
+    const zh = formatUserError({ errorCode: 'REWRITE_CONTENT_TOO_LONG', params: { max: 50000 } }, { locale: 'zh' })
     expect(zh.errorCode).toBe('REWRITE_CONTENT_TOO_LONG')
     expect(zh.matched).toBe('errorCode')
-    expect(zh.message).toContain('6000')
+    expect(zh.message).toContain('50000')
     expect(zh.message).toContain('改写')
 
-    const en = formatUserError({ errorCode: 'REWRITE_CONTENT_TOO_LONG', messageParams: { max: 6000 } }, { locale: 'en' })
-    expect(en.message).toContain('6000')
+    const en = formatUserError({ errorCode: 'REWRITE_CONTENT_TOO_LONG', messageParams: { max: 50000 } }, { locale: 'en' })
+    expect(en.message).toContain('50000')
     expect(en.message).toContain('rewrite')
   })
 
