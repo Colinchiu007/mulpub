@@ -516,6 +516,9 @@ shared-user-data.backups/
 #   「negation 必须各自存在」那条锁里，它按模式匹配 negation 清单，不依赖任何行位置。
 !scripts/qm6-tier-watermark.js
 !scripts/qm6-enforce-preview.js
+# toast 单点出口棘轮的判据本体（2026-10-19，change: ux-audit-toast-single-exit）。同 #3011 家族：
+# 第 106 行 scripts/*.js 会静默忽略它 ⇒ 本地在盘跑得通、CI 上 Cannot find module。基线 JSON 不在该 glob 内。
+!scripts/check-toast-single-exit.js
 # CCG 深度审查的工作产物（提案/评审/裁决），不进主干；判定记录 .ccg/reviews/*.json 才是留痕
 .adversarial/
 # 构建产物（由 build:preload / build:paginator 生成，不进版本控制）

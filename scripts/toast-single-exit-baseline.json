@@ -1,0 +1,33 @@
+{
+  "_comment": "toast 直调基线（UX 审计 §16.2 口径③）。byFile=ElMessage.<type>( 直调份数；genericByFile=ElMessage({...}) 泛化直调份数（useNotify.js 之外的存量）。两者都只能缩小；无 --update-baseline，放宽只能手改本 JSON 并留在 diff 里。",
+  "generatedBy": "node scripts/check-toast-single-exit.js --json 的同一 scan 实现（不是另写一份计数）",
+  "generatedAt": "2026-10-19",
+  "byFile": {
+    "App.vue": 5,
+    "components/ConfigProfileManager.vue": 4,
+    "components/KeywordMonitorPanel.vue": 11,
+    "components/PatternAnalysisPanel.vue": 3,
+    "components/PersonalFormDialog.vue": 1,
+    "components/PersonalKnowledgePanel.vue": 3,
+    "components/PublishFrequencySettings.vue": 6,
+    "components/SidebarUpdateButton.vue": 1,
+    "components/TagSuggester.vue": 2,
+    "components/ViralFormDialog.vue": 1,
+    "components/ViralLibraryTable.vue": 3,
+    "composables/useAccountEvents.js": 1,
+    "features/collection/CreatorCredentialDialog.vue": 3,
+    "features/collection/CreatorMonitor.vue": 8,
+    "features/dashboard/PerformanceFlowPanel.vue": 1,
+    "views/Dashboard.vue": 4,
+    "views/FilmCanvasView.vue": 12,
+    "views/KnowledgeBasePage.vue": 9,
+    "views/PerformanceInsights.vue": 3,
+    "views/PromptEvalView.vue": 1,
+    "views/film-auto/FilmAutoPanel.vue": 1,
+    "views/film-auto/useFilmAutoRun.js": 1
+  },
+  "genericByFile": {
+    "components/PublishProgressFooter.vue": 1,
+    "components/PublishProgressPanel.vue": 5
+  }
+}

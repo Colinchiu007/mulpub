@@ -5,6 +5,7 @@
  * 职责（对应 01-docs/ARCH-notify-log-standard.md §3.3）：
  *   - 统一入口：notify / notifyError / notifySuccess / notifyWarning / notifyConfirm
  *   - 内部：notifyCore 解析文案 + 日志上报 → ElMessage/ElMessageBox 展示
+ *   - 时长、档位与同源合并由 utils/toast-policy 唯一持有（调用点显式 duration 一律被夹住）
  *   - 未命中 messageKey 时：error 级用 fallback 兜底，其余静默（避免空白 toast）
  *
  * 依赖（薄封装）：
@@ -15,6 +16,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import i18n from '@/i18n'
 import { notifyText, reportNotify } from '@/utils/notifyCore'
 import { looksLikeI18nKey } from '@/utils/message-contract'
+import { resolveToastDuration, resolveToastGrouping, resolveToastType } from '@/utils/toast-policy'
 
 /**
  * 统一通知入口。
@@ -39,19 +41,34 @@ export function useNotify () {
       // 未命中 key：error 级用 fallback 兜底，其余静默
       if (level === 'error' && options.fallback) {
         reportNotify(messageKey, { ...options, level: 'error', error: options.fallback })
-        ElMessage.error(options.fallback)
+        ElMessage({
+          message: options.fallback,
+          type: 'error',
+          duration: resolveToastDuration('error', options.duration).ms,
+          grouping: resolveToastGrouping(options.grouping),
+        })
         return options.fallback
       }
       return ''
     }
-    const show = {
-      success: () => ElMessage.success(text),
-      info: () => ElMessage.info(text),
-      warning: () => ElMessage.warning(text),
-      warn: () => ElMessage.warning(text),
-      error: () => ElMessage.error(text),
-    }[level]
-    if (show) show()
+    // 阶段 2.7（audit-60 更正后的真实缺口）：时长与同源合并由 toast-policy 唯一持有，
+    // 调用点显式 duration 一律被策略夹住；`grouping` 默认开（审计现场的"刷屏"就是
+    // 同一句话被堆成一片），只有调用点显式 `grouping: false` 才各算一次。
+    //
+    // 为什么走 `ElMessage({ type, ... })` 而不是 `ElMessage.success(...)`：
+    // "level 叫什么"是一个变量；若用类型化方法，出口就得自己存一张档位表。该表现在住在
+    // utils/toast-policy 的 TOAST_TYPE_BY_LEVEL（唯一词表），本行只消费它——两处各存一份必漂移。
+    // 宿主签名实测（`node_modules/element-plus/es/components/message/src/message.d.ts`）：
+    //   `MessageFn: (options?: MessageParams, appContext?) => MessageHandler`
+    //   `MessageParams = MessageOptions | MessageOptions['message']`，`MessageOptions` 含
+    //   `type` / `duration`（"If set to 0, it will not turn off automatically"）/ `grouping`。
+    const type = resolveToastType(level)
+    const { ms, fellBack, reason } = resolveToastDuration(level, options.duration)
+    if (fellBack) {
+      // 不得静默：静默会让"我传的时长没生效"永远不被知道
+      console.warn('[notify] duration rejected by policy, fallback applied: ' + reason + ' (key=' + String(messageKey || '') + ', requested=' + String(options.duration) + ')')
+    }
+    ElMessage({ message: text, type, duration: ms, grouping: resolveToastGrouping(options.grouping) })
     // P1 可观测性：把用户实际看到的文案作为 error 字段上报（此前只报 messageKey，
     // 主进程日志无法得知用户看到了什么内容；error 字段经 notify:log 脱敏后落盘）
     reportNotify(messageKey, { ...options, level, error: text })

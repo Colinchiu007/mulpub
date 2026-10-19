@@ -2,7 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 // vi.hoisted：mock 工厂被提升，顶层变量需用 hoisted 定义
 const mocks = vi.hoisted(() => ({
-  elMessage: { success: vi.fn(), info: vi.fn(), warning: vi.fn(), error: vi.fn() },
+  // 真实桥的 ElMessage 是**可调用**的（`MessageFn: (options?: MessageParams) => MessageHandler`），
+  // 类型档走 options.type。夹具必须同形：只给四个命名方法会让"改用泛化入口"的实现
+  // 在这里静默不计数，于是"展示了一次"这件事根本没有被断言（本仓「mock 要对齐语义不只对齐形状」）。
+  elMessage: Object.assign(vi.fn(), {
+    success: vi.fn(), info: vi.fn(), warning: vi.fn(), error: vi.fn(),
+  }),
   elMessageBox: { confirm: vi.fn() },
 }))
 
@@ -20,6 +25,7 @@ vi.mock('@/api/electron-bridge', () => ({
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { invoke } from '@/api/electron-bridge'
 import { useNotify } from './useNotify'
+import { TOAST_MAX_DURATION_MS } from '@/utils/toast-policy'
 
 describe('useNotify — 导出完整性（QM-3）', () => {
   it('导出全部方法', () => {
@@ -45,7 +51,8 @@ describe('useNotify — 通知展示', () => {
   it('notify 命中 key → ElMessage 展示 + 日志上报', async () => {
     const text = n.notify('story2video.quota_exceeded', { module: 'm', level: 'error' })
     expect(text.length).toBeGreaterThan(0)
-    expect(ElMessage.error).toHaveBeenCalledWith(text)
+    expect(ElMessage).toHaveBeenCalledTimes(1)
+    expect(ElMessage).toHaveBeenCalledWith(expect.objectContaining({ message: text, type: 'error' }))
     await Promise.resolve()
     expect(invoke).toHaveBeenCalledWith('notifyLog', expect.objectContaining({ messageKey: 'story2video.quota_exceeded' }))
   })
@@ -54,15 +61,16 @@ describe('useNotify — 通知展示', () => {
     n.notifySuccess('story2video.export_completed')
     n.notifyWarning('story2video.rate_limited')
     n.notifyInfo('story2video.path_copied')
-    expect(ElMessage.success).toHaveBeenCalledTimes(1)
-    expect(ElMessage.warning).toHaveBeenCalledTimes(1)
-    expect(ElMessage.info).toHaveBeenCalledTimes(1)
+    // 走泛化入口后"哪一档"由 options.type 承载 ⇒ 断言类型序列，而不是断言命名方法被调
+    expect(ElMessage.mock.calls.map((c) => c[0].type)).toEqual(['success', 'warning', 'info'])
   })
 
   it('未命中 key + error 级 + fallback → ElMessage.error(fallback)', async () => {
     const text = n.notifyError('nonexistent.key', { fallback: '自定义错误' })
     expect(text).toBe('自定义错误')
-    expect(ElMessage.error).toHaveBeenCalledWith('自定义错误')
+    expect(ElMessage).toHaveBeenCalledWith(expect.objectContaining({
+      message: '自定义错误', type: 'error', duration: 6000, grouping: true,
+    }))
     await Promise.resolve()
     expect(invoke).toHaveBeenCalled()
   })
@@ -70,19 +78,68 @@ describe('useNotify — 通知展示', () => {
   it('未命中 key + 非 error 级 → 静默（不展示不抛错）', () => {
     const text = n.notify('nonexistent.key', { level: 'info' })
     expect(text).toBe('')
-    expect(ElMessage.info).not.toHaveBeenCalled()
+    expect(ElMessage).not.toHaveBeenCalled()
   })
 
   it('options.message 直接传文案（绕过 messageKey 解析）', () => {
     const text = n.notifyWarning('nonexistent.key', { message: '动态拼接的警告文案' })
     expect(text).toBe('动态拼接的警告文案')
-    expect(ElMessage.warning).toHaveBeenCalledWith('动态拼接的警告文案')
+    expect(ElMessage).toHaveBeenCalledWith(expect.objectContaining({
+      message: '动态拼接的警告文案', type: 'warning', duration: 4000, grouping: true,
+    }))
   })
 
   it('options.message 为 i18n 原始 key 时拦截，不直出（防泄漏）', () => {
     const text = n.notifyWarning('nonexistent.key', { message: 'accountsPage.loginExpiredHint' })
     expect(text).toBe('')
-    expect(ElMessage.warning).not.toHaveBeenCalled()
+    expect(ElMessage).not.toHaveBeenCalled()
+  })
+})
+
+
+describe('useNotify — 时长与同源合并策略（阶段 2.7）', () => {
+  let n
+  beforeEach(() => {
+    vi.clearAllMocks()
+    invoke.mockResolvedValue({ code: 0, data: true })
+    n = useNotify()
+  })
+
+  it('缺省 duration ⇒ 用该 level 的策略默认值，并且 grouping 默认开', () => {
+    n.notifyError('story2video.quota_exceeded')
+    const opt = ElMessage.mock.calls[0][0]
+    expect(opt.duration).toBe(6000)  // error 档
+    expect(opt.grouping).toBe(true)  // 默认合并：审计现场的"刷屏"就是同一句话堆成一片
+  })
+
+  it('调用点显式 duration 被上限夹住，并出声（不得静默改语义）', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    n.notify('story2video.export_completed', { level: 'success', duration: 999999 })
+    expect(ElMessage.mock.calls[0][0].duration).toBe(TOAST_MAX_DURATION_MS)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('duration rejected by policy'))
+    warn.mockRestore()
+  })
+
+  it('0 是合法值（常驻），不得被当成非法去回落默认', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    n.notify('story2video.export_completed', { level: 'success', duration: 0 })
+    expect(ElMessage.mock.calls[0][0].duration).toBe(0)
+    expect(warn).not.toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
+  it('非法 duration（字符串 / 负数 / NaN）回落该档默认并出声', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    n.notify('story2video.rate_limited', { level: 'warning', duration: -5 })
+    n.notify('story2video.rate_limited', { level: 'warning', duration: 'soon' })
+    expect(ElMessage.mock.calls.map((c) => c[0].duration)).toEqual([4000, 4000])
+    expect(warn).toHaveBeenCalledTimes(2)
+    warn.mockRestore()
+  })
+
+  it('显式 grouping:false 才各算一次（保留"必须各弹一次"的场景）', () => {
+    n.notify('story2video.export_completed', { level: 'success', grouping: false })
+    expect(ElMessage.mock.calls[0][0].grouping).toBe(false)
   })
 })
 
@@ -133,5 +190,27 @@ describe('useNotify — 确认弹窗', () => {
     })
     expect(ok).toBe(false)
     expect(ElMessageBox.confirm).not.toHaveBeenCalled()
+  })
+})
+
+describe('useNotify — 档位词表由策略层单点持有（本批实测过的收窄）', () => {
+  let n
+  beforeEach(() => {
+    vi.clearAllMocks()
+    invoke.mockResolvedValue({ code: 0, data: true })
+    n = useNotify()
+  })
+
+  it("level:'warn' 必须渲染成 warning 档，不得掉成 info", () => {
+    n.notify('story2video.rate_limited', { module: 'm', level: 'warn' })
+    expect(ElMessage).toHaveBeenCalledTimes(1)
+    // 时长一并验证：warn 与 warning 共用 4000 那一档（两张表成对，见 toast-policy.test.js 的键集锁）
+    expect(ElMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'warning', duration: 4000 }))
+  })
+
+  it('未知 level 不抛错，落 info 档（与 resolveToastType 的兜底口径一致）', () => {
+    n.notify('story2video.rate_limited', { module: 'm', level: 'totally-unknown' })
+    expect(ElMessage).toHaveBeenCalledTimes(1)
+    expect(ElMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'info' }))
   })
 })
