@@ -1,0 +1,59 @@
+{
+  "sha": "9c55d80258924c470e4f2243706c98449cddda06",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 2,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 3,
+    "docSensitiveContentSample": [
+      "| 「ThumbUri 要 ImageX 的 ApplyImageUpload」 | **否**。真页面用 `getAuthKey(type=**image_temp**, useStsToken=false)` → `vas-lf-x.ixigua.com/video/openapi/v1/?action=GetImageUploadParams` 拿三元组 |",
+      "| 「invalid top Account = pgc 授权上下文不同」 | **部分对**。根因是拿 `type=video` 的 STS 去签 pgc/imagex 请求；换 image_temp 即通 |",
+      "   → `{accessKey, uploadToken:\"HMAC-SHA1:1.0:<unix>:<accessKey>:<sig>\"}`"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "cb90a0ff1faa6f1decf97c2012bc9da3fb329bf02d6dc125f7ff02be588ac8bb",
+  "decidedAt": "2026-10-19T06:46:22.012Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

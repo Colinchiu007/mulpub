@@ -21,6 +21,8 @@
 
 const { execFile } = require('child_process')
 const fs = require('fs')
+const http = require('http')
+const https = require('https')
 const os = require('os')
 const path = require('path')
 const { findFfmpeg } = require('./media-tool-paths')
@@ -29,6 +31,14 @@ const { segmentScript } = require('./video-script-segmentation')
 const { extractKeyEntities, checkSceneAlignment, assessVisualConsistency } = require('./video-content-alignment')
 const { emitStageProgress, emitStageStart, emitStageItem, emitStageComplete } = require('./stage-progress')
 const { getProviderRunContext } = require('./provider-run-context')
+// 数字人分支（avatar-spokesperson）：独立模块，避免本文件突破 max-lines 挂账容差
+const {
+  AVATAR_PIPELINE,
+  DIGITAL_HUMAN_PROVIDER,
+  resolveDigitalHumanProvider,
+  resolveDigitalHumanInputs,
+  runDigitalHumanGenerate,
+} = require('./digital-human-stages')
 const { resolveProviderDefaultModel } = require('./model-provider-manager')
 
 const VIDEOGEN_STAGE_TYPES = {
@@ -38,6 +48,7 @@ const VIDEOGEN_STAGE_TYPES = {
   STORYBOARD: 'videogen_storyboard',
   GENERATE: 'videogen_generate',
   MERGE: 'videogen_merge',
+
   RENDER: 'videogen_render',
 }
 
@@ -116,6 +127,7 @@ function getVideoProviderConfig (aiGenerator) {
   const model = resolveProviderDefaultModel(provider, 'video')
   return { providerId: provider.id.trim(), model: model || '' }
 }
+
 
 async function callDefaultLlm (aiGenerator, systemPrompt, userContent, maxTokens, runtimeOptions) {
   if (!aiGenerator || typeof aiGenerator.generateWithDefault !== 'function') {
@@ -359,6 +371,33 @@ function getRunDir (runId) {
 }
 
 /**
+ * 下载远程视频到本地文件（通用分支使用；数字人分支在 digital-human-stages.js
+ * 里有自己的简化实现）。
+ *
+ * 用 http/https 而非 fetch：需要跟随 3xx 重定向（provider 的 CDN 常返回 302），
+ * 且流式写盘避免大文件把整个 body 读进内存。
+ */
+function downloadToFile (url, dest) {
+  return new Promise((resolve, reject) => {
+    const lib = String(url).startsWith('https:') ? https : http
+    const file = fs.createWriteStream(dest)
+    const request = lib.get(url, (response) => {
+      if (response.statusCode && response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
+        downloadToFile(response.headers.location, dest).then(resolve, reject)
+        return
+      }
+      if (response.statusCode !== 200) {
+        reject(new Error('视频下载失败，HTTP ' + response.statusCode))
+        return
+      }
+      response.pipe(file)
+      file.on('finish', () => file.close(() => resolve(dest)))
+    })
+    request.on('error', (error) => { fs.unlinkSync(dest); reject(error) })
+  })
+}
+
+/**
  * 从 context 中按候选键取第一个非空值。
  * 不同 videogen 流水线把前序阶段输出写入各自的阶段名
  * （animation→concept/storyboard；character-animation→character_design/rigging；
@@ -391,27 +430,17 @@ function resolveVideogenScenes (context) {
   return Array.isArray(value) ? value : null
 }
 
-async function downloadToFile (url, dest) {
-  const http = require('http')
-  const https = require('https')
-  return new Promise((resolve, reject) => {
-    const lib = String(url).startsWith('https:') ? https : http
-    const file = fs.createWriteStream(dest)
-    const request = lib.get(url, (response) => {
-      if (response.statusCode && response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
-        downloadToFile(response.headers.location, dest).then(resolve, reject)
-        return
-      }
-      if (response.statusCode !== 200) {
-        reject(new Error('视频下载失败，HTTP ' + response.statusCode))
-        return
-      }
-      response.pipe(file)
-      file.on('finish', () => file.close(() => resolve(dest)))
-    })
-    request.on('error', (error) => { fs.unlinkSync(dest); reject(error) })
-  })
-}
+/**
+ * 数字人视频生成（avatar-spokesperson 的 GENERATE 分支）。
+ *
+ * 与通用文生视频分支的差异（不是「少做几步」，是语义不同）：
+ *  - 不调 prompt-engine：那是通用文生视频提示词优化器，数字人不需要画面提示词，
+ *    且 8013 未运行时它会 fail-closed 直接失败（PRD §3.3 D3）。
+ *  - 提交参数是 { character, voice, script } 而非 { prompt, width, height, numFrames }。
+ *  - 数字人一次生成即成片（单场景），不做多场景并行。
+ *
+ * 复用通用分支的轮询/下载/产物约定（scene_000.mp4），使 MERGE 阶段无需改动即可拼接。
+ */
 
 /**
  * 注册 video-gen 类流水线的共享阶段执行器
@@ -477,11 +506,15 @@ function registerVideoGenStages (pipelineEngine) {
       const topic = typeof params.text === 'string' ? params.text.trim() : ''
       if (!topic) return { success: false, error: 'avatar-spokesperson 需要非空主题（params.text）' }
       const avatarId = params.avatarId || stage.options?.avatarId || ''
+      // voiceId 此前从未被解析（PRD §1.2）：数字人三要素里音色一直是空的，
+      // generate 阶段拿不到 voice ⇒ HeyGen adapter 必然抛 INVALID_CONFIG。
+      // 与 avatarId 同优先级解析，并写进 output 供 generate 阶段消费。
+      const voiceId = params.voiceId || stage.options?.voiceId || ''
       const { system, user } = buildScriptPrompt(topic, 'avatar-spokesperson')
       try {
         const script = await callDefaultLlm(aiGenerator, system, user, undefined, { providerRunContext })
         emitStageComplete(onProgress, { messageKey: 'stageProgress.videogenAvatarComplete', summaryKey: 'stageProgress.videogenAvatarSummary' })
-        return { success: true, output: { script, avatarId, topic } }
+        return { success: true, output: { script, avatarId, voiceId, topic } }
       } catch (error) {
         return { success: false, error: 'avatar 阶段失败：' + (error && error.message ? error.message : String(error)) }
       }
@@ -669,11 +702,44 @@ function registerVideoGenStages (pipelineEngine) {
     async ({ runId, stage, params, context, serviceBus, onProgress }) => {
       emitStageStart(onProgress, { messageKey: 'stageProgress.videogenGenerateStart' })
       const providerRunContext = getProviderRunContext(context || {})
+      const aiGenerator = getAiGenerator(pipelineEngine)
+      const manager = aiGenerator && aiGenerator._modelProviderManager
+
+      // ── 数字人分支（avatar-spokesperson）───────────────────────────────────
+      // 必须放在通用分支之前：数字人不需要「画面提示词 + prompt-engine」，
+      // 它需要的是（数字人形象 + 音色 + 口播文案）三要素。若让它落到下面的
+      // 通用分支，会退化成「用主题当画面提示词」的普通文生视频 —— 这正是
+      // 本次要修的行为（PRD-AVATAR-SPOKESPERSON-HEYGEN-WIRING-2026-10-19 §1.2 B1/B2）。
+      if (stage.options?.digitalHuman === true || context?.pipeline === AVATAR_PIPELINE) {
+        const digitalHuman = resolveDigitalHumanProvider(aiGenerator, params)
+        if (!digitalHuman || !manager || typeof manager.callAdapter !== 'function') {
+          return {
+            success: false,
+            error: '数字人视频生成需要 HeyGen 数字人模型，请在「模型设置」中配置 HeyGen 后重试',
+            errorCode: 'VIDEO_MODEL_NOT_CONFIGURED',
+          }
+        }
+        const inputs = resolveDigitalHumanInputs(params, stage, context)
+        if (!inputs) {
+          return {
+            success: false,
+            error: '数字人视频生成需要三项输入：数字人形象（avatarId）、音色（voiceId）、口播文案（text）。请先完成选择后重试',
+            errorCode: 'AVATAR_INPUTS_INCOMPLETE',
+          }
+        }
+        return await runDigitalHumanGenerate({
+          runId,
+          manager,
+          digitalHuman,
+          inputs,
+          providerRunContext,
+          onProgress,
+        })
+      }
+
       const scenes = resolveVideogenScenes(context) || []
       const prompts = scenes.length > 0 ? scenes.map(s => s.prompt) : [params.text || '']
       if (!prompts[0]) return { success: false, error: '该流水线 generate 需要场景提示词或主题' }
-      const aiGenerator = getAiGenerator(pipelineEngine)
-      const manager = aiGenerator && aiGenerator._modelProviderManager
       const videoProvider = getVideoProviderConfig(aiGenerator)
       if (!videoProvider || !manager || typeof manager.callAdapter !== 'function') {
         return {
@@ -963,6 +1029,10 @@ module.exports = {
   REASONING_MODEL_PATTERNS,
   isReasoningLlmModel,
   resolveStoryboardMode,
+  resolveDigitalHumanProvider,
+  resolveDigitalHumanInputs,
+  AVATAR_PIPELINE,
+  DIGITAL_HUMAN_PROVIDER,
   parseJsonObject,
   buildVideoOptimizeContext,
   callDefaultLlm,

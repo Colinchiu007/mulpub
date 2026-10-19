@@ -89,7 +89,7 @@
               :key="m.value"
               :class="['mode-chip', { active: rewriteMode === m.value }]"
               :disabled="rewriting"
-              @click="rewriteMode = m.value"
+              @click="onModeChipClick(m.value)"
             >{{ m.label }}</button>
           </div>
         </div>
@@ -102,6 +102,8 @@
             <WordCountRangeInput
               v-model:min="wordCountMin"
               v-model:max="wordCountMax"
+              @update:min="markWordCountManuallySet"
+              @update:max="markWordCountManuallySet"
               :min-placeholder="t('rewritePage.wordCountMinPlaceholder')"
               :max-placeholder="t('rewritePage.wordCountMaxPlaceholder')"
               :unit="t('rewritePage.wordCountUnit')"
@@ -120,6 +122,52 @@
               <option value="wechat_mp">{{ t('rewriteEngine.platformWechatMp') }}</option>
               <option value="bilibili">{{ t('rewriteEngine.platformBilibili') }}</option>
               <option value="zhihu">{{ t('rewriteEngine.platformZhihu') }}</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- 行业 / 目的 / 语气：三个短字段并排 -->
+        <!-- 存在意义（rewrite-default-strategy-fix）：改写页此前只发 platform，industry/purpose/tone
+             根本不下发 ⇒ StrategyMatcher 拿到空输入 ⇒ 五维全拿基础分并列 ⇒ 退化为取数组首项。
+             补上这三个真实输入，匹配器才有可匹配的信号（对应 PRD R1）。 -->
+        <div class="config-grid config-grid--three">
+          <div class="config-row">
+            <label class="cohere-form-label">{{ t('rewriteEngine.industryLabel') }}</label>
+            <select v-model="industry" class="cohere-input config-select" :disabled="rewriting">
+              <option value="">{{ t('rewriteEngine.industryGeneral') }}</option>
+              <option value="technology">{{ t('rewriteEngine.industryTechnology') }}</option>
+              <option value="ecommerce">{{ t('rewriteEngine.industryEcommerce') }}</option>
+              <option value="education">{{ t('rewriteEngine.industryEducation') }}</option>
+              <option value="finance">{{ t('rewriteEngine.industryFinance') }}</option>
+              <option value="lifestyle">{{ t('rewriteEngine.industryLifestyle') }}</option>
+              <option value="beauty">{{ t('rewriteEngine.industryBeauty') }}</option>
+              <option value="entertainment">{{ t('rewriteEngine.industryEntertainment') }}</option>
+              <option value="ip-building">{{ t('rewriteEngine.industryIpBuilding') }}</option>
+            </select>
+          </div>
+
+          <div class="config-row">
+            <label class="cohere-form-label">{{ t('rewriteEngine.purposeLabel') }}</label>
+            <select v-model="purpose" class="cohere-input config-select" :disabled="rewriting">
+              <option value="">{{ t('rewriteEngine.purposeGeneral') }}</option>
+              <option value="engagement">{{ t('rewriteEngine.purposeEngagement') }}</option>
+              <option value="conversion">{{ t('rewriteEngine.purposeConversion') }}</option>
+              <option value="follower-growth">{{ t('rewriteEngine.purposeFollowerGrowth') }}</option>
+              <option value="authority-building">{{ t('rewriteEngine.purposeAuthority') }}</option>
+              <option value="sales">{{ t('rewriteEngine.purposeSales') }}</option>
+            </select>
+          </div>
+
+          <div class="config-row">
+            <label class="cohere-form-label">{{ t('rewriteEngine.toneLabel') }}</label>
+            <select v-model="tone" class="cohere-input config-select" :disabled="rewriting">
+              <option value="">{{ t('rewriteEngine.toneGeneral') }}</option>
+              <option value="casual">{{ t('rewriteEngine.toneCasual') }}</option>
+              <option value="storytelling">{{ t('rewriteEngine.toneStorytelling') }}</option>
+              <option value="emotional">{{ t('rewriteEngine.toneEmotional') }}</option>
+              <option value="persuasive">{{ t('rewriteEngine.tonePersuasive') }}</option>
+              <option value="humorous">{{ t('rewriteEngine.toneHumorous') }}</option>
+              <option value="formal">{{ t('rewriteEngine.toneFormal') }}</option>
             </select>
           </div>
         </div>
@@ -293,6 +341,7 @@ import PodcastScriptEntry from '@/components/PodcastScriptEntry.vue'
 import { usePodcastChannel } from '@/composables/usePodcastChannel'
 import RewriteStrategyPicker from '@/components/RewriteStrategyPicker.vue'
 import WordCountRangeInput from '@/components/WordCountRangeInput.vue'
+import { deriveDefaultMode, deriveWordCountRange } from '@/utils/rewrite-defaults'
 
 const router = useRouter()
 const route = useRoute()
@@ -332,10 +381,22 @@ const viralEngagement = ref(null)
 const useViralLibrary = ref(true)
 const usePersonalExperience = ref(false)
 const rewriteMode = ref('create')
+// 用户是否手动切换过改写模式：手动选择优先于按输入形态的自动推导。
+// 未手动切换时，startRewrite 会按当前正文形态推导（成稿→imitate，选题→create），
+// 避免把一篇成稿当选题种子交给 create 模式（实测导致事实密度几乎全丢）。
+let modeManuallySet = false
 const platform = ref('')
-// 字数区间控制（默认 800-2000）
+// 行业 / 目的 / 语气（rewrite-default-strategy-fix）：此前改写页完全不下发这三项，
+// 匹配器只能拿到空输入 ⇒ 全体并列退化为数组首项。补上后用户显式意图可真正参与匹配。
+// 默认空串 = 「通用/未指定」，绝不猜测用户行业——猜出来的值是假事实，比缺失更糟。
+const industry = ref('')
+const purpose = ref('')
+const tone = ref('')
+// 字数区间控制（默认 800-2000；长文成稿在改写前按原文长度自适应，避免被硬截断）
 const wordCountMin = ref(800)
 const wordCountMax = ref(2000)
+// 字数区间是否已被用户手动编辑：手动值优先于自适应推导
+let wordCountManuallySet = false
 
 // 策略选择（2026-09-15 改为默认「手动选择」展开下拉，降低发现成本；未选时仍传 null 走引擎自动匹配）
 // 注：AiWriterPanel / Collection 采集页保持默认 auto，不受影响
@@ -366,6 +427,9 @@ const REWRITE_PAGE_PLATFORMS = ['douyin', 'xiaohongshu', 'wechat_mp', 'bilibili'
 function consumeLibraryHandoff () {
   const handoff = takeRewriteHandoff()
   if (!handoff || typeof handoff.content !== 'string' || !handoff.content.trim()) return
+  // 交接是显式入口，mode 由本函数确定 ⇒ 必须置「已手动」，
+  // 否则 startRewrite 的按输入形态推导会把它覆盖掉（实测把 imitate 改成 create）。
+  modeManuallySet = true
   rewriteMode.value = 'imitate'
   content.value = handoff.content
   if (REWRITE_PAGE_PLATFORMS.includes(handoff.platform)) platform.value = handoff.platform
@@ -486,7 +550,13 @@ async function refreshStrategyPreview() {
   if (rewriting.value) return
   const seq = ++previewSeq
   try {
-    const res = await aiGetRecommendedStrategies({ platform: platform.value || undefined })
+    // 预览必须与 startRewrite 下发同一套 userSettings，否则预览名与实际命中策略会漂移
+    const res = await aiGetRecommendedStrategies({
+      platform: platform.value || undefined,
+      industry: industry.value || undefined,
+      purpose: purpose.value || undefined,
+      tone: tone.value || undefined,
+    }, content.value.trim())
     if (seq !== previewSeq) return // 已有更新的请求，丢弃本次过期结果
     if (res && res.code === 0 && Array.isArray(res.data) && res.data.length > 0) {
       previewStrategyName.value = res.data[0].name || '--'
@@ -498,8 +568,25 @@ async function refreshStrategyPreview() {
   }
 }
 
-// 目标平台变化 → 预览随新 userSettings 刷新（refreshStrategyPreview 内含竞态守卫）
-watch(platform, refreshStrategyPreview)
+// 目标平台/行业/目的/语气变化 → 预览随新 userSettings 刷新（refreshStrategyPreview 内含竞态守卫）
+// rewrite-default-strategy-fix：行业/目的/语气同样参与匹配，变化也需刷新预览。
+// ⚠ content 必须一起监听（CCG 深度审查 i3）：启发式兜底依赖原文形态，
+//   只监听设置项会导致「粘贴长文但没动下拉」时预览名不刷新，
+//   而实际改写会用新的 content 重新匹配 ⇒ 预览名与实际命中策略漂移。
+// ⚠ content 走 300ms 防抖（CCG 二轮 i3）：正文逐字输入会高频触发预览请求，
+//   previewSeq 只保证「过期结果不渲染」，拦不住请求本身。下拉选择是离散低频
+//   动作可即时刷新；正文连续键入合并到停顿后一次，交互上无感知差异。
+let contentPreviewTimer = null
+function scheduleContentPreview() {
+  if (contentPreviewTimer) clearTimeout(contentPreviewTimer)
+  contentPreviewTimer = setTimeout(() => {
+    contentPreviewTimer = null
+    refreshStrategyPreview()
+  }, 300)
+}
+onUnmounted(() => { if (contentPreviewTimer) clearTimeout(contentPreviewTimer) })
+watch([platform, industry, purpose, tone], refreshStrategyPreview)
+watch(content, scheduleContentPreview)
 
 // 改写结果被用户编辑（textarea v-model）→ 已存草稿内容过期：置空 id，下次操作按当前内容重存
 // （saveToDraft 成功后 savedDraftId 更新，此处仅在内容再次变化时失效，不构成循环）
@@ -540,6 +627,8 @@ onMounted(() => {
   }
   const topic = typeof route.query.topic === 'string' ? route.query.topic.trim() : ''
   if (topic) {
+    // 选题带入是显式入口，mode 由本分支确定 ⇒ 置「已手动」，防止被形态推导覆盖
+    modeManuallySet = true
     rewriteMode.value = 'create'
     // 选题带入：不再有 ≥20 字符限制（2026-09-12 移除最少字数）
     content.value = topic
@@ -570,9 +659,41 @@ const canStartRewrite = computed(() => {
 // ── 字数区间校验（共享 composable，与 Collection 页一致）──
 const { error: wordCountError } = useWordCountValidation(wordCountMin, wordCountMax, (key) => t('rewritePage.' + key))
 
+/** P1-E 评审 W-1：移除标题参考 chip 时同步清空爆款信号（信号与标题同源，语义一致） */
 // ── 方法 ──
 
-/** P1-E 评审 W-1：移除标题参考 chip 时同步清空爆款信号（信号与标题同源，语义一致） */
+/**
+ * 用户手动点选改写模式：置位「已手动」标志，此后不再被自动推导覆盖。
+ * 用户显式选择永远优先于启发式——这是本次修复的边界，不得反过来。
+ */
+function onModeChipClick(value) {
+  modeManuallySet = true
+  rewriteMode.value = value
+}
+
+/**
+ * 字数区间被用户编辑：置位「已手动」标志，此后不再自适应覆盖。
+ */
+function markWordCountManuallySet() {
+  wordCountManuallySet = true
+}
+
+/**
+ * 改写前按当前正文推导默认参数（仅当用户未手动设置时）。
+ *
+ * mode：成稿→imitate（保留原文），选题种子→create（从种子生全文）。
+ * 字数：长文按原文长度自适应，避免硬截 60%。
+ */
+function applyInputDerivedDefaults(trimmed) {
+  if (!modeManuallySet) {
+    rewriteMode.value = deriveDefaultMode(trimmed)
+  }
+  if (!wordCountManuallySet) {
+    const range = deriveWordCountRange(trimmed)
+    wordCountMin.value = range.min
+    wordCountMax.value = range.max
+  }
+}
 function clearTitleHint() {
   titleHint.value = ''
   viralAngles.value = []
@@ -590,6 +711,11 @@ async function startRewrite() {
   if (wordCountError.value) return
   contentError.value = ''
   if (!(await ensureLogin({ message: t('rewritePage.needLogin') }))) return
+
+  // 按输入形态推导默认参数（用户手动设置过则不覆盖）
+  applyInputDerivedDefaults(trimmed)
+  // 推导后可能修正区间，需重新校验（长文自适应会把上限抬高，不会引入非法区间）
+  if (wordCountError.value) return
 
   rewriting.value = true
   rewriteError.value = ''
@@ -618,6 +744,9 @@ async function startRewrite() {
       content: trimmed,
       userSettings: {
         platform: platform.value || undefined,
+        industry: industry.value || undefined,
+        purpose: purpose.value || undefined,
+        tone: tone.value || undefined,
         wordCountRange: {
           min: Number(wordCountMin.value),
           max: Number(wordCountMax.value),
@@ -1021,6 +1150,18 @@ function onPublishVideo(pipelineId) {
 }
 @media (max-width: 820px) {
   .config-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* 行业 / 目的 / 语气 三列并排（窄屏逐级降为单列，避免挤压成不可读的窄条） */
+.config-grid--three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: var(--space-lg);
+}
+@media (max-width: 1024px) {
+  .config-grid--three { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 820px) {
+  .config-grid--three { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* 策略选择器内部的单选文案字号与其它字段保持一致（子组件默认 12px） */
