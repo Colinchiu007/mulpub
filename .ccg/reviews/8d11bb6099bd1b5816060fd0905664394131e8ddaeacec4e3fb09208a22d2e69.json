@@ -15,7 +15,7 @@
     "lineReadGaps": []
   },
   "stagedDiffHash": "8d11bb6099bd1b5816060fd0905664394131e8ddaeacec4e3fb09208a22d2e69",
-  "decidedAt": "2026-10-19T10:54:11.560Z",
+  "decidedAt": "2026-10-19T10:54:11.56Z",
   "decidedBy": "ccg-review-decider",
   "reviewBackends": {
     "proposer": "opencode",
@@ -46,10 +46,14 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
+    "status": "cleared",
+    "tier": "external",
+    "performedBy": "claude (cross-family) + main-agent self-check; codex unavailable (429/503)",
     "evidence": null,
-    "findings": null
+    "findings": [
+      "本提交是 QM-6 修复后的复跑提交（max_tokens 推导化 + WordCountRangeInput 常量化 + AiWriterPanel 占位符），评审详情见 0e1219f7c0d34e33f84135747dc1ff65e78f4322efaf25d86fb9a6a38a0e0b30.json",
+      "Claude 轴对同变更集已完成：0 CRITICAL / 1 MAJOR（已修）/ 4 MINOR（2 修 2 留档）",
+      "codex 轴 429/503 降级口径同前"
+    ]
   }
 }
