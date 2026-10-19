@@ -5,8 +5,8 @@
       :value="min"
       type="number"
       class="cohere-input word-count-input"
-      min="0"
-      max="5999"
+      :min="0"
+      :max="REWRITE_ENGINE_MAX_INPUT_CHARS - 1"
       :placeholder="minPlaceholder"
       :disabled="disabled"
       @input="$emit('update:min', toNumber($event.target.value))"
@@ -16,8 +16,8 @@
       :value="max"
       type="number"
       class="cohere-input word-count-input"
-      min="1"
-      max="6000"
+      :min="1"
+      :max="REWRITE_ENGINE_MAX_OUTPUT_CHARS"
       :placeholder="maxPlaceholder"
       :disabled="disabled"
       @input="$emit('update:max', toNumber($event.target.value))"
@@ -31,7 +31,10 @@
 /**
  * 字数区间输入（文案改写页 / 采集页共用）
  * min/max 双向绑定 + 校验错误展示；校验逻辑在 useWordCountValidation composable。
+ * 原生 min/max 属性同步读上限常量（rewrite-limits-50000，2026-10-19）：
+ * 写死 5999/6000 会让鼠标 spinner 用户无法设到 50000（QM-6 Claude 轴 MINOR-2）。
  */
+import { REWRITE_ENGINE_MAX_INPUT_CHARS, REWRITE_ENGINE_MAX_OUTPUT_CHARS } from '@/utils/rewrite-engine-limits'
 defineProps({
   label: { type: String, default: '' },
   min: { type: [Number, String], default: 800 },
