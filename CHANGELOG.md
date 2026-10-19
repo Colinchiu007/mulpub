@@ -1,3 +1,10 @@
+# [未发布] docs(openspec): 归档 normalize-debt-ledger-entry-shape —— 主规格拿到「登记项只准承载原因」这条需求（archive-debt-ledger-shape）
+
+- **归档落点**：`openspec/changes/normalize-debt-ledger-entry-shape/` 移入 `openspec/changes/archive/2026-10-19-normalize-debt-ledger-entry-shape/`，主规格 `openspec/specs/quality-gate-execution-record/spec.md` 的 Requirement 由 3 条增至 4 条；新增块 **36 行 / 5 个 Scenario**，与 change 的 delta **逐行全等**（一次性驱动从两侧各取该块比对，任一行不等即抛错并打印首个差异）。
+- **为什么不联动 vendored 契约镜像**：镜像锁 `scripts/quality-rhythm-spec-mirror.test.js` 的比对目标写死是 `openspec/specs/openspec-integration/spec.md`，本刀动的是另一个 capability ⇒ 不联动。不靠记忆答题：归档前后各跑一次，两次均 **8 passed / 0 failed**，主规格与镜像的 Requirement 计数两侧均 **13** 未变。
+- **`openspec validate --all --strict` 做真 A/B**（在同一份 `origin/main` 上另建 detached 工作树跑基线，而不是拿历史数字对比）：归档前 **223 items / 201 passed / 22 failed** → 归档后 **222 / 200 / 22**，离开 changes 域的恰是本刀这 1 项，失败集逐条不变。
+- **Purpose 占位没有新增**：`TBD - created by archiving…` 只在归档器**新建** spec 文件时才写；本刀目标 spec 已存在，实测归档后该文件 `TBD` 计数为 **0**，`check-spec-purpose.js` 前后均「扫描 154 份主规格、违规 0」。
+- **两条正规隔离入口本刀都被别人的现场挡住**：`start-mp-task.ps1` 因标准根之外注册着 2 个 worktree 判 `ok:false`（`clean/hooks/writeGuard` 全绿），`session-init.sh` 因共享根有 7 项他人未跟踪文件而拒绝。纯文档改刀按既有纪律走 `%TEMP%` 下的 detached 工作树出口，共享根全程停在 `main` 未动；这三条机器卫生事实已如实上报，不代删。
 # [未发布] fix(播客): 出期音频对象键随期变化，修掉同频道第二期原地覆盖第一期（podcast-audio-key-per-episode）
 
 - **用户可见症状**：同一个播客频道连发两期，第二期 PUT 把第一期的音频**原地覆盖**了——两次发布都报成功、日志零异常，而订阅端旧期 `<item>` 的 enclosure 指向的直链现在播的是新期的声音。RSS 里两期都在、音频只有一份。
