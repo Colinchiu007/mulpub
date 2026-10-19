@@ -58,6 +58,10 @@ branch: remove-video-back-btn
 | CHANGELOG | PASS | 置顶追加本条 |
 | 文档同步 | PASS | PRD 未涉及按钮级 UI 细节，无需改 |
 
+| 远程同步 | 由门禁推导 |
+
+- 保留门禁：变更类型与隔离 ✅ | TDD ✅ | eslint ✅ | i18n ✅ | QM-4 ✅ | QM-1 ✅ | QM-2 ✅ | CHANGELOG ✅ | 文档同步 ✅
+
 ## 5. 已知残留（不假装已闭合）
 
 - `collection` 基线漂移属他人会话（PR #3951 改 `Collection.vue` 未刷基线），本刀不代刷——跨会话写面，代刷会把别人的变更烘进我的 diff。
