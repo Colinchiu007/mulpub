@@ -769,3 +769,104 @@ test('T25 --json 出口必须带 counts 与逐文件判定，且与 plain 的计
   assert.ok(plainCounts.IDENTICAL > 0, 'plain 里一条判定都没数到 = 解析器失明，不是"计数为 0"');
   r.rm();
 });
+
+// ---------------------------------------------------------------- 落地版本形态（T28-T32）
+// 动因（2026-10-19 实测）：清理孤儿分支时判据对 #3733 报 `lost=12 / rc=1`，真实原因是
+// 「分支切在 QM-6 评审修正之前，落地的是修正之后那一版」（`font-resolver.js` 与产物差 +99/−8，
+// 差异内容里明写「QM-6 评审 i2」的 `warnFontFallback`）。v3 只说"这行不在主干"，
+// 说不出"落地那版本来就不是我这版"，于是操作者只能手工比 blob —— 而我据此连续写下两次错误归因
+// （第二次被自己的 A/B 实测否证：只传属主 merge 与多传一份 merge，读数一模一样）。
+// 本片**只加读数、不改宽严**：rc 仍为 1；"是否因此放行删除"是另一片，需人工授权。
+test('T28 合并落地的是另一版修订（既非 base 也非我这版）⇒ 必须点名 revised，且不得因此放行', () => {
+  const r = baseRepo({ 'code.txt': 'A\nB\n' });
+  r.w('code.txt', 'A\nB\nMY LINE\n');
+  const tip = r.addCommit('mine');
+  land(r, tip, [], 'feat: mine (#9001)', { 'code.txt': 'A\nB\nREVISED LINE\n' });
+  r.g(['checkout', '-q', 'main']);
+  r.w('code.txt', 'A\nB\n');
+  r.addCommit('docs: others drop the revised line');
+  const out = mod.collect({ ref: tip, merges: [r.merge], root: r.dir });
+  const f = out.files.find((x) => x.file === 'code.txt');
+  assert.equal(f.verdict, 'LOST', '我这版从没进主干 ⇒ 判据宽严不得因为"有修订"就松动：' + JSON.stringify(f));
+  const rev = f.revisionsAtMerge || {};
+  assert.equal((rev.revised || []).length, 1, '必须点名"落地的是另一版修订"：' + JSON.stringify(rev));
+  assert.equal(rev.revised[0].at, r.merge.slice(0, 9), '要能点名是哪一笔：' + JSON.stringify(rev.revised[0]));
+  assert.ok(rev.revised[0].onlyInMerge >= 1 && rev.revised[0].onlyInTip >= 1,
+    '差异规模必须两个方向都给，只给一个就说不出"被取代"：' + JSON.stringify(rev.revised[0]));
+  assert.equal((rev.notCarried || []).length, 0);
+  assert.equal(mod.main(['--ref=' + tip, '--merge=' + r.merge, '--root=' + r.dir]), 1, '加了读数不等于放行');
+  r.rm();
+});
+
+test('T29 合并根本没带上这个文件（产物 == base）⇒ 只能报 not-carried，不得被洗成"被修订"', () => {
+  const r = baseRepo({ 'code.txt': 'A\nB\n', 'other.txt': 'o\n' });
+  r.w('code.txt', 'A\nB\nMY LINE\n');
+  r.w('other.txt', 'o\nNEW\n');
+  const tip = r.addCommit('mine');
+  land(r, tip, ['other.txt'], 'feat: mine (#9001)');   // 产物里 code.txt 仍是 base 那份
+  const out = mod.collect({ ref: tip, merges: [r.merge], root: r.dir });
+  const f = out.files.find((x) => x.file === 'code.txt');
+  assert.equal(f.verdict, 'LOST', '我这行从没落地 ⇒ 仍须 LOST：' + JSON.stringify(f));
+  const rev = f.revisionsAtMerge || {};
+  assert.equal((rev.notCarried || []).length, 1, '"根本没带上"必须单独成档：' + JSON.stringify(rev));
+  assert.equal((rev.revised || []).length, 0,
+    '把"没落"报成"被修订"就是替真丢失作保 —— 这一格是整个读数里唯一会替错误结论背书的方向');
+  assert.equal(mod.main(['--ref=' + tip, '--merge=' + r.merge, '--root=' + r.dir]), 1);
+  r.rm();
+});
+
+test('T30 合并逐字节带上我那版（后被他人改写）⇒ revised / not-carried 都必须为空，读数不得凭空出现', () => {
+  const r = baseRepo({ 'code.txt': 'A\nB\n' });
+  r.w('code.txt', 'A\nB\nMY LINE\n');
+  const tip = r.addCommit('mine');
+  land(r, tip, ['code.txt'], 'feat: mine (#9001)');
+  r.g(['checkout', '-q', 'main']);
+  r.w('code.txt', 'A\nB\nMY LINE RENAMED\n');
+  r.addCommit('docs: others reword my line');
+  const out = mod.collect({ ref: tip, merges: [r.merge], root: r.dir });
+  const f = out.files.find((x) => x.file === 'code.txt');
+  const rev = f.revisionsAtMerge || {};
+  assert.equal(rev.carried, 1, '逐字节带上我那版 ⇒ 计一笔 carried：' + JSON.stringify(rev));
+  assert.equal((rev.revised || []).length, 0, '正常落地不得带"被修订"：' + JSON.stringify(rev));
+  assert.equal((rev.notCarried || []).length, 0, '正常落地不得带"没带上"：' + JSON.stringify(rev));
+  r.rm();
+});
+
+test('T31 接线锁：这条读数必须同时出现在 plain 与 --json 两个出口（只算不读就是装饰性字段）', () => {
+  const r = baseRepo({ 'code.txt': 'A\nB\n' });
+  r.w('code.txt', 'A\nB\nMY LINE\n');
+  const tip = r.addCommit('mine');
+  land(r, tip, [], 'feat: mine (#9001)', { 'code.txt': 'A\nB\nREVISED LINE\n' });
+  r.g(['checkout', '-q', 'main']);
+  r.w('code.txt', 'A\nB\n');
+  r.addCommit('docs: others drop the revised line');
+  const cli = (extra) => {
+    try { return execFileSync(process.execPath, [SELF, '--ref=' + tip, '--merge=' + r.merge, '--root=' + r.dir].concat(extra || []), { encoding: 'utf8' }); }
+    catch (e) { return String(e.stdout || ''); }
+  };
+  const plain = cli();
+  assert.match(plain, /^code\.txt LOST.*落地版本=/m, 'plain 出口必须把这条读数打在判定行上：' + plain.split('\n').filter((l) => /^code\.txt/.test(l)).join(' ⏎ '));
+  assert.match(plain, /修订落地=\d+ 没带上=\d+/, '末行汇总也必须给出条数，否则没人会去逐行找：' + plain.slice(-260));
+  // --json 的 stdout 末尾仍跟着汇总行（既有出口形状，T25 已钉），所以按 `}\n[BRANCH-MERGED]` 切，
+  // 不得为了"解析方便"去改那个出口 —— 那会把别人的消费者一起改掉，不属本片。
+  const rawJ = cli(['--json']);
+  const cut = rawJ.lastIndexOf('}\n[BRANCH-MERGED]');
+  const j = JSON.parse(cut < 0 ? rawJ : rawJ.slice(0, cut + 1));
+  const f = (j.files || []).find((x) => x.file === 'code.txt');
+  assert.ok(f && f.revisionsAtMerge && (f.revisionsAtMerge.revised || []).length === 1,
+    '--json 是自动化消费者唯一读的那份，漏这个出口等于只在人眼里存在：' + JSON.stringify(f && f.revisionsAtMerge));
+  assert.match(rawJ.slice(cut), /修订落地=1 没带上=0/, '汇总行在 --json 档同样要给出条数：' + rawJ.slice(-200));
+  r.rm();
+});
+
+test('T32 classifyRevision 三分表逐格锁（含"我删文件"与"新增文件"两族边界）', () => {
+  assert.equal(mod.classifyRevision('X', 'X', 'B'), 'carried');
+  assert.equal(mod.classifyRevision('B', 'X', 'B'), 'not-carried');
+  assert.equal(mod.classifyRevision('R', 'X', 'B'), 'revised');
+  assert.equal(mod.classifyRevision(null, 'X', null), 'not-carried', '新增文件没被带上');
+  assert.equal(mod.classifyRevision('X', 'X', null), 'carried', '新增文件原样带上');
+  assert.equal(mod.classifyRevision('R', 'X', null), 'revised', '新增文件被换成另一版');
+  assert.equal(mod.classifyRevision(null, null, 'B'), 'carried', '我删了文件、产物也删了 ⇒ 删除落地');
+  assert.equal(mod.classifyRevision('B', null, 'B'), 'not-carried', '我的删除没落地');
+  assert.equal(mod.classifyRevision('R', null, 'B'), 'revised', '我的删除被改成另一份内容');
+});

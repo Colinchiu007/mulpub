@@ -246,3 +246,37 @@ v3 的处理：认出二进制（blob 含 NUL 或链上出现 `Binary files … 
   实际清理等 v3 落到 main 之后用 main 上的判据跑，不用本片 worktree 里的实现自证。
 
 
+
+## 10. v3 上线后被真实清理任务第三次否证 —— 「落地那版本来就不是我这版」（2026-10-19 增量）
+
+**动因（现场，非推演）**：清理 44 个孤儿分支时，两条 CI 探针分支（`ci-trigger-probe` / `ci-probe-2`，tip 是 #3733 那条 `cjk-font-selfcontained` 的旧切片）在 main 判据下报 `files=21 identical=7 drift=2 lost=12 rc=1`。
+我先给出一句归因（「因为我多传了一份 merge SHA，把删除提交从他人净删除容量里排除了」）并据此**保留了分支**。随后 A/B 实测把它否证：
+只传属主 PR #3733 的 merge SHA 与同时传 #3733+#3769，读数**逐字相同**（`files=21 identical=7 drift=2 lost=12`）。真正的成因是第三种形态。
+
+**真成因**：探针分支切在 **QM-6 评审修正之前**，而 squash 落地的是修正**之后**那一版。按文件比 blob 取证：`tip:f` 与 `110c3aabb:f` 对 `font-resolver.js`（+99 / −8）、`font-resolver.test.js`（+172 / −22）、`asset-generator.js`、`local-cover-generator.js`、`story2video-compose-engine.js`、`bundled-font-packaging.test.js`、该 PRD **全部不等**，
+且差异内容里明写着「QM-6 评审 i2」的 `warnFontFallback` / `buildDrawtextFontOption` 收敛，以及 Gate 12c 要求的「安装目录示例路径 → 尖括号占位符」改写（原文是一条 Windows 绝对路径，按 Gate 12c 不在本文重述）。也就是说这 12 条 LOST 的语义是**我这旧版没被采纳**，不是**工作丢了**。
+
+**为什么 v3 看不见这一格**：v3 问的是"我这行在不在主干现状里"＋"缺口能不能被他人净删除容量解释"。上面两种答案都是"不解释"，于是判 LOST，且判据不会说"落地那份根本不是你这版"。
+而操作者在这个形态下的正确动作（比 blob）当时只能手工做——这正是我今天连续两次写下错误归因的土壤。
+
+**本片只加读数，不改判据宽严。** 新增 `classifyRevision(mergeBlob, tipBlob, baseBlob)`，按**三**分而不是两分：
+
+| 产物 blob 与 | 归类 | 含义 |
+|---|---|---|
+| `== tip` | `carried` | 原样带上我那版 |
+| `== base` | `not-carried` | **我的改动根本没带上** ⇒ 真丢失 |
+| 两者都不等 | `revised` | 产物是另一版修订 ⇒ 报缺的是"我这旧版没被采纳" |
+
+三分是本片的全部要点：只比 `tip` 与 `merge` 会把 `not-carried` 和 `revised` 合成一格，
+于是"根本没带上"可以被读成"被修订"——那是**替真丢失作保**的方向，比原盲区更糟。`revised` 还带 `onlyInMerge` / `onlyInTip` 两个方向的规模（按行多重集，与判定本体同口径），否则"被修订"三个字没有任何可核对的力。
+
+出口两条都要有（`T31` 接线锁）：plain 在判定行尾打 ` 落地版本=修订@<sha>(主干独有P行/我这版独有M行)`，末行汇总打 ` 修订落地=<n> 没带上=<n>`；`--json` 的文件对象带 `revisionsAtMerge`。
+只在一个出口存在等于没有——这条与本片 v2 那次"只还原了 plain 的 latin1"是同一课。
+
+**退出码不变**：`carried / revised / not-carried` 一律不参与判定，`lost>0` 仍返回 1。
+「因为只是被取代，所以允许删分支」是一次**把守门判据改宽**的动作，需要单独授权，不属本片；本片只保证下一个读到这里的人不必再靠手工比 blob、也不必再猜。
+
+**遗留（不假装已闭合）**
+- `revised` 是否应把该文件从 LOST 降级为一个新的可删档位——**未做，需人工裁决**（同 §9 遗留里"份数偏宽松"那条的处置方式：先点名，不先放行）。
+- `describeRevisions` 只打前 2 笔；`lineDiffScale` 对**热写面**（`CHANGELOG.md` 那种重复键极多的文件）会把"我这份拷贝没落"和"整段被改写"报成同一规模，读数须与 `份数=` 一起看，不能单独作结论。
+- 本片在真实仓的现场只覆盖 `revised` 一格；`not-carried` 的真实样本是 §9 的 `fix-toutiao-submit-chain` 那类（未点名），仍靠 `T29` 夹具锁。

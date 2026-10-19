@@ -360,6 +360,43 @@ function mergedCopiesOf(root, mergedShas, file) {
   };
 }
 
+// 「合并产物里这个文件的那一份」相对「我这版」和「改动起点」是什么关系。
+// 三分而不是两分，是因为"产物 ≠ 我这版"有两种成因，方向相反：
+//   revised     —— 产物是**另一版修订**（评审后改过再落地）⇒ 报缺的行是"我这旧版没被采纳"，不是工作丢了；
+//   not-carried —— 产物**等于起点**，即我的改动根本没带上 ⇒ 那就是真丢失，绝不得被"有修订"这种说法洗白。
+// 只比较 tip 与 merge 两个 blob 会把这两格合成一格，而那正是最危险的一次合并。
+function classifyRevision(mergeBlob, tipBlob, baseBlob) {
+  if (mergeBlob === tipBlob) return 'carried';
+  if (mergeBlob === baseBlob) return 'not-carried';
+  return 'revised';
+}
+
+// 两份文本的按键差异规模（按行多重集，不做任何归一化 —— 与判定本体同一口径）。
+function lineDiffScale(tipText, mergeText) {
+  const am = multisetOf(splitLines(tipText));
+  const bm = multisetOf(splitLines(mergeText));
+  let onlyInMerge = 0, onlyInTip = 0;
+  for (const k of new Set([...am.keys(), ...bm.keys()])) {
+    const a = am.get(k) || 0, b = bm.get(k) || 0;
+    if (b > a) onlyInMerge += b - a; else onlyInTip += a - b;
+  }
+  return { onlyInMerge, onlyInTip };
+}
+
+function revisionsAtMerge(root, mergedShas, file, tipBlob, baseBlob) {
+  const out = { carried: 0, revised: [], notCarried: [] };
+  for (const sha of mergedShas || []) {
+    if (!sha) continue;
+    const mb = blobOid(root, sha, file);
+    const kind = classifyRevision(mb, tipBlob, baseBlob);
+    if (kind === 'carried') { out.carried++; continue; }
+    if (kind === 'not-carried') { out.notCarried.push({ at: String(sha).slice(0, 9) }); continue; }
+    const d = lineDiffScale(tipBlob === null ? '' : blobText(root, tipBlob), mb === null ? '' : blobText(root, mb));
+    out.revised.push({ at: String(sha).slice(0, 9), onlyInMerge: d.onlyInMerge, onlyInTip: d.onlyInTip });
+  }
+  return out;
+}
+
 function classifyFile(root, { ref, against, base, file, excludeShas }) {
   const tipBlob = blobOid(root, ref, file);
   const againstBlob = blobOid(root, against, file);
@@ -374,14 +411,12 @@ function classifyFile(root, { ref, against, base, file, excludeShas }) {
   const entries = allEntries.filter((e) => !skip.has(e.sha));
   const attributions = entries.map((e) => ({ sha: e.sha, subject: e.subject }));
 
-  const baseTextOf = () => {
-    if (!base) return '';
-    const b = blobOid(root, base, file);
-    return b === null ? '' : blobText(root, b);
-  };
+  const baseBlob = base ? blobOid(root, base, file) : null;
   const tipText = tipBlob === null ? '' : blobText(root, tipBlob);
   const mainText = againstBlob === null ? '' : blobText(root, againstBlob);
-  const baseText = baseTextOf();
+  const baseText = baseBlob === null ? '' : blobText(root, baseBlob);
+  // 落地版本读数：只解释"为什么报缺"，不参与判据宽严 —— 退出码仍由 LOST/UNATTRIBUTED 决定。
+  const revisions = revisionsAtMerge(root, excludeShas, file, tipBlob, baseBlob);
   // 二进制（含 NUL，或链上出现 "Binary files … differ"）：git 不给补丁，份数根本数不出来。
   // 这一族必须单列，否则恒等式自检会把每个 PNG 分支都判成 rc=2 —— 那不是严格，是工具失明。
   const binaryFile = [tipBlob, againstBlob, base].some((oid, i) => {
@@ -396,13 +431,14 @@ function classifyFile(root, { ref, against, base, file, excludeShas }) {
       return {
         verdict: 'DRIFT-ATTRIBUTED', fileAbsentOnMain: true, fileDeletedByOthers: true,
         attributions: dedupeBySha(attributions.concat(del)), lineAttributions: del,
-        missingAdded: [], reappearedRemoved: [],
+        missingAdded: [], reappearedRemoved: [], revisionsAtMerge: revisions,
       };
     }
     const tipLines = tipBlob === null ? [] : splitLines(tipText);
     return {
       verdict: 'LOST', fileAbsentOnMain: true, fileDeletedByOthers: false, attributions,
       lineAttributions: [], missingAdded: [...representatives(tipLines).values()], reappearedRemoved: [],
+      revisionsAtMerge: revisions,
     };
   }
 
@@ -410,7 +446,7 @@ function classifyFile(root, { ref, against, base, file, excludeShas }) {
     // 二进制没有行级判据可用 ⇒ 只问一件事：**我那份字节有没有随本次合并进过主干**。
     // 进了 ⇒ 差异是后来别人改的（可归因）；没进 ⇒ 我的产物被换过，删分支就会丢那份字节。
     const mergeCarriedIt = (excludeShas || []).some((sha) => sha && blobOid(root, sha, file) === tipBlob);
-    const tag = { binaryFile: true, missingAdded: mergeCarriedIt ? [] : [tipText.slice(0, 24) + '\n'], reappearedRemoved: [] };
+    const tag = { binaryFile: true, revisionsAtMerge: revisions, missingAdded: mergeCarriedIt ? [] : [tipText.slice(0, 24) + '\n'], reappearedRemoved: [] };
     if (mergeCarriedIt && attributions.length > 0) {
       return Object.assign({ verdict: 'DRIFT-ATTRIBUTED', attributions, lineAttributions: [] }, tag, { missingAdded: [], reappearedRemoved: [] });
     }
@@ -466,23 +502,23 @@ function classifyFile(root, { ref, against, base, file, excludeShas }) {
   if (missingAdded.length > 0 || reappearedRemoved.length > 0) {
     return {
       verdict: 'LOST', fileAbsentOnMain: false, attributions, lineAttributions,
-      missingAdded, reappearedRemoved, unexplainedOver, violations,
+      missingAdded, reappearedRemoved, unexplainedOver, violations, revisionsAtMerge: revisions,
     };
   }
   if (unexplainedOver.length > 0) {
     return {
       verdict: 'UNATTRIBUTED', fileAbsentOnMain: false, attributions, lineAttributions,
-      missingAdded: [], reappearedRemoved: [], unexplainedOver, violations,
+      missingAdded: [], reappearedRemoved: [], unexplainedOver, violations, revisionsAtMerge: revisions,
     };
   }
   if (attributions.length === 0 && lineAttributions.length === 0) {
-    return { verdict: 'UNATTRIBUTED', attributions: [], lineAttributions: [], missingAdded: [], reappearedRemoved: [], violations: [] };
+    return { verdict: 'UNATTRIBUTED', attributions: [], lineAttributions: [], missingAdded: [], reappearedRemoved: [], violations: [], revisionsAtMerge: revisions };
   }
   return {
     verdict: 'DRIFT-ATTRIBUTED',
     attributions: dedupeBySha(attributions.concat(lineAttributions)),
     lineAttributions,
-    missingAdded: [], reappearedRemoved: [], violations: [],
+    missingAdded: [], reappearedRemoved: [], violations: [], revisionsAtMerge: revisions,
   };
 }
 
@@ -596,6 +632,24 @@ function show(line) {
   return Buffer.from(String(line), 'latin1').toString('utf8').replace(/[\r\n]+$/, '');
 }
 
+// 落地版本读数的人话形态。**不参与退出码**：它回答"为什么报缺"，不回答"能不能删"。
+function describeRevisions(rev) {
+  if (!rev) return '';
+  const parts = [];
+  const revised = rev.revised || [];
+  const notCarried = rev.notCarried || [];
+  if (revised.length) {
+    parts.push('修订@' + revised.slice(0, 2).map((x) =>
+      x.at + '(主干独有' + x.onlyInMerge + '行/我这版独有' + x.onlyInTip + '行)').join(',') +
+      (revised.length > 2 ? ' …(共 ' + revised.length + ' 笔)' : ''));
+  }
+  if (notCarried.length) {
+    parts.push('根本没带上@' + notCarried.slice(0, 2).map((x) => x.at).join(',') +
+      (notCarried.length > 2 ? ' …(共 ' + notCarried.length + ' 笔)' : ''));
+  }
+  return parts.length ? ' 落地版本=' + parts.join(' ; ') : '';
+}
+
 // `--json` 也是给人/机器核对证据用的出口，所以同样必须做 latin1→UTF-8 还原。
 // v2 只还原了 plain 出口，于是 --json 里的中文违规行打成 mojibake（æ 一切），
 // 而自动化消费者只会读 --json —— 等于把最关键的那份证据做成不可用。
@@ -654,14 +708,19 @@ function main(argv) {
         (f.unexplainedOver && f.unexplainedOver.length ? ' 多余内容未归因=' + f.unexplainedOver.map(show).slice(0, 3).join(' | ') : '') +
         (f.violations && f.violations.length ? ' 份数=' + f.violations.slice(0, 2).map((v) =>
           v.dir + ' ' + v.by + '(base=' + v.base + ' tip=' + v.tip + ' main=' + v.main +
-          ' 可解释容量=' + v.capacity + ' 随合并落地过(跨 PR 取最大)=' + v.landedWithMerge + ')').join(' ; ') : ''));
+          ' 可解释容量=' + v.capacity + ' 随合并落地过(跨 PR 取最大)=' + v.landedWithMerge + ')').join(' ; ') : '') +
+        describeRevisions(f.revisionsAtMerge));
     }
   }
+  const revOf = (v) => (v && v.revisionsAtMerge) || {};
+  const nRevised = r.files.filter((x) => ((revOf(x).revised) || []).length > 0).length;
+  const nNotCarried = r.files.filter((x) => ((revOf(x).notCarried) || []).length > 0).length;
   console.log('[BRANCH-MERGED] ref=' + String(o.ref).slice(0, 12) + ' ' + againstNote +
     ' merges=' + r.merges.length + ' files=' + r.files.length +
     ' identical=' + counts.IDENTICAL + ' drift=' + counts['DRIFT-ATTRIBUTED'] +
     ' lost=' + counts.LOST + ' unattributed=' + counts.UNATTRIBUTED +
-    ' judge_error=' + (r.judgeError ? 1 : 0));
+    ' judge_error=' + (r.judgeError ? 1 : 0) +
+    ' 修订落地=' + nRevised + ' 没带上=' + nNotCarried);
   if (r.judgeError) {
     for (const why of r.reasons) console.error('[BRANCH-MERGED] 判据自身故障（按"未证实"处理，不得据此删分支）：' + why);
     return EXIT_JUDGE_ERROR;
@@ -674,6 +733,7 @@ module.exports = {
   VERDICTS, EXIT_OK, EXIT_LOST, EXIT_JUDGE_ERROR,
   splitLines, key, multisetOf, reconcileCounts, capacityCounts, netCounts, parsePatchNet, assertChainCloses,
   JudgeError,
+  classifyRevision, lineDiffScale, revisionsAtMerge, describeRevisions,
   classifyFile, collect, main, parseArgv,
 };
 
