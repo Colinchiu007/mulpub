@@ -510,22 +510,23 @@ function main(argv) {
   //   控制流会重新 evaluate 出 r2 并 return report(r2) —— 若只改 r，欠账会被静默丢弃。
   // base 与变更集同源：--statuses 外部注入时可能没有可用 base，readAtBase 会返回 null 走未证实出口
   const baseRef = typeof args.base === 'string' ? args.base.trim() : ''
-  // 丙：覆盖率读数。不参与判定 —— 一上线红两百条会逼人把门削宽（本仓点名的失败形态）。
-  let tierLinePrinted = false
-  const applyDeepDebt = (target) => {
-    if (!tierLinePrinted) {
-      tierLinePrinted = true
-      process.stdout.write(summarizeTierCoverage(dualClosedDeepReviews(statuses, repo)).line + String.fromCharCode(10))
-    }
+  // ★ 取源、判据、读数都只算/打印**一次**：`--no-remote` 与远端清单取不到时，
+  //   applyDeepDebt 会被 r 和 r2 各调一次，而 deepDebt 只依赖 statuses/repo/baseRef（与 target 无关）。
+  //   实跑现场：TRANSITION-CHECK 逐字打了两遍（TIER 那行当时有一条 tierLinePrinted 挡着，这行没挡）——
+  //   「同一条读数打两遍」与「量了两次、两个数」在日志里无法分辨，故收敛到调用点之前。
+  const readAtBase = (rel) => {
     // D 方向需要 base 的 blob 才能判「删掉的那条当时是否已闭环」；取不到就返回 null，
     // 由判据按「未证实」出声，而不是静默放行。变更集本身仍只有 changedFileStatuses 一个取源。
-    const readAtBase = (rel) => {
-      if (typeof baseRef !== 'string' || !baseRef.trim()) return null
-      try {
-        return execFileSync('git', ['-C', repo, 'show', `${baseRef}:${rel}`], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 })
-      } catch { return null }
-    }
-    const deepDebt = evaluateDeepReviewDebt(statuses, repo, readAtBase)
+    if (!baseRef) return null
+    try {
+      return execFileSync('git', ['-C', repo, 'show', `${baseRef}:${rel}`], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 })
+    } catch { return null }
+  }
+  const deepDebt = evaluateDeepReviewDebt(statuses, repo, readAtBase)
+  // 丙：覆盖率读数。不参与判定 —— 一上线红两百条会逼人把门削宽（本仓点名的失败形态）。
+  process.stdout.write(summarizeTierCoverage(dualClosedDeepReviews(statuses, repo)).line + String.fromCharCode(10))
+  process.stdout.write(((deepDebt.transition || {}).line) + String.fromCharCode(10))
+  const applyDeepDebt = (target) => {
     if (deepDebt.reasons.length > 0) {
       target.ok = false
       target.reasons.push(...deepDebt.reasons)
@@ -562,6 +563,90 @@ function main(argv) {
  *   但留 High 建议、self_play_resolved=第三档出口已裁决）。本门禁要防的是
  *   「深度审查静默地从未发生」，不是「建议项没改完」—— 后者属评审环节。
  */
+// ── 高危面清单（tasks 2.1 / design §3）─────────────────────────────────────
+// 判据只认「路径前缀 + 显式自指」，不认内容指纹：#3747 的后端评审已否证指纹路线
+// （被改动的源码可以躲在任何注释密集的非高危路径里），而产物字段更不可用 ——
+// 主干 877 份判定记录里 `stats.sensitivePathHits` 非空的只有 2 份（构造性零）。
+// 每条都必须带 why（实测出处），且**由测试断言每条前缀至少命中 1 个受管文件**：
+// 命中 0 的前缀守的是一个不存在的面，那是装饰性条目，比没有条目更坏。
+// 清单只能缩小；新增前缀必须给实测出处，不做自动推断（与 LOGIN_PAGE_PATH_MARKERS 同口径）。
+const HIGH_RISK_SURFACES = [
+  { prefix: 'apps/desktop/electron/services/credential-', why: '登录凭证加解密（AES-256-GCM），实测主干命中 3 个受管文件' },
+  { prefix: 'apps/desktop/electron/services/account-state-lock.js', why: '登录态真源的串行锁，实测命中 1 个' },
+  { prefix: 'packages/api-publish-engine/src/auth/', why: '云端账号/凭证校验面，实测命中 18 个' },
+  { prefix: 'packages/shared-utils/src/login-state.js', why: '登录态三态迁移的唯一口径，实测命中 1 个' },
+  { prefix: 'fingerprint', why: '设备指纹/身份识别面（跨目录），实测命中 9 个' },
+  { prefix: '.github/workflows/', why: 'CI 判据本体（谁来守门），实测命中 15 个' },
+  { prefix: 'scripts/check-', why: '仓内静态门禁脚本本体 = 判据自指，实测命中 100 个' },
+  { prefix: 'scripts/ccg-review-', why: '判定写入方 + 后端对真源（决定"要不要评审"与"谁来评"），实测命中 3 个受管文件' },
+  { prefix: 'scripts/deep-review', why: '评审驱动本体（闭环值与 performedBy 由它写），实测命中 2 个受管文件' },
+]
+
+/**
+ * 命中哪个高危面前缀（返回 null = 不在清单上）。
+ * **唯一**的匹配实现 —— 自指判据与变更集分组都走它。两处各写一遍前缀匹配时，
+ * 变异「把 isHighRiskSurface 摘成恒 false」不会让矩阵变红，因为矩阵走的是
+ * highRiskHits 里另抄的那份（本轮 P1 实测 PARTIAL 的成因）。
+ */
+function highRiskPrefixOf (file) {
+  const f = String(file || '').replace(/^\.\//, '')
+  const hit = HIGH_RISK_SURFACES.find((s) => f.indexOf(s.prefix) >= 0)
+  return hit ? hit.prefix : null
+}
+
+/** 该路径是否落在高危面上（前缀子串匹配，不加正则以免被转义坑）。 */
+function isHighRiskSurface (file) {
+  return highRiskPrefixOf(file) !== null
+}
+
+/**
+ * 「闭环声称」的可核性分级 —— 与 tier 分级正交，答的是另一个问题：
+ * 一条已经写着闭环值的记录，凭什么算真闭环？
+ *   external ⇒ 必须有可核 evidence（见 isResolvableEvidence），否则 external-unverified
+ *   note     ⇒ 只有 closureNote（主干既有约定：轮次 + 逐条处置），非高危面够用
+ *   none     ⇒ 自称没评审却写着闭环值：任何面都不放行
+ *   unknown  ⇒ 字段还没积累（新记录天生 tier=unknown）⇒ **本切片不拦**，
+ *              否则重造「无法闭合的循环」（缺陷G：初版对 single 也要求闭环时的同一形态）。
+ */
+function closureCorroboration (dr) {
+  const tier = classifyEvidenceTier(dr)
+  if (tier === 'external') return 'external'
+  if (tier === 'external-unverified') return 'external-unverified'
+  if (tier === 'none') return 'none'
+  if (tier === 'self-play') return 'self-play'
+  const note = dr && typeof dr.closureNote === 'string' ? dr.closureNote.trim() : ''
+  return note.length >= 20 ? 'note' : 'unknown'
+}
+
+/** 变更集里命中的高危面（用于点名，不用于推断新面）。匹配一律走 highRiskPrefixOf。 */
+function highRiskHits (statuses) {
+  // 组序 = 变更集里第一次触碰的顺序（不是清单序）：判据只看「有没有命中」，
+  // 点名只取前 4 个前缀，因此这里刻意不再遍历一次清单 —— 第二次遍历就是第二份匹配实现。
+  const groups = new Map()
+  for (const e of statuses) {
+    const prefix = highRiskPrefixOf(e.file)
+    if (prefix === null) continue
+    if (!groups.has(prefix)) groups.set(prefix, [])
+    groups.get(prefix).push(e.file)
+  }
+  return [...groups].map(([prefix, files]) => ({ prefix, files }))
+}
+
+/**
+ * 转变核对的可见读数（先不拦的部分放这里）：base 读不到的条数**必须单列**，
+ * 否则「我核对了收口动作」与「我一条都没核到」在日志里逐字同形。
+ */
+function summarizeTransitionCheck (rows) {
+  const list = Array.isArray(rows) ? rows : []
+  const checked = list.filter((r) => r && r.baseReadable === true).length
+  const unverifiable = list.filter((r) => r && r.baseReadable !== true).length
+  const uncorroborated = list.filter((r) => r && r.baseReadable === true && r.wasClosed !== true && r.nowClosed === true && r.corroborated !== true).length
+  return {
+    checked, unverifiable, uncorroborated,
+    line: 'TRANSITION-CHECK 收口转变=待判 已核对=' + checked + ' 无出处=' + uncorroborated + ' 未证实=' + unverifiable,
+  }
+}
+
 const CLOSED_DEEP_REVIEW_STATUSES = new Set([
   'cleared',
   'needs_revision',
@@ -675,6 +760,11 @@ function evaluateDeepReviewDebt (statuses, repo, readAtBase) {
   //   **免审计版本**。内容只能从 base 的 blob 读，工作树里已经没有这个文件了。
   const removedUnclosed = []
   const unreadable = []
+  const badClosure = []
+  const transitionRows = []
+  const riskHits = highRiskHits(statuses)
+  const onHighRisk = riskHits.length > 0
+  const mFiles = new Set(statuses.filter((e) => e.status === 'M').map((e) => e.file))
   const unparsed = []
   for (const e of statuses) {
     if (e.status !== 'D' || !REVIEWS_DIR_RE.test(e.file)) continue
@@ -710,7 +800,7 @@ function evaluateDeepReviewDebt (statuses, repo, readAtBase) {
     )
   }
 
-  if (involved.length === 0) return { reasons, checked: 0 }
+  if (involved.length === 0) return { reasons, checked: 0, transition: summarizeTransitionCheck(transitionRows) }
 
   const unresolved = []
   const backendMismatch = []
@@ -745,6 +835,41 @@ function evaluateDeepReviewDebt (statuses, repo, readAtBase) {
     // 这一格是本刀的全部理由：status 是"有人写了个词"，performedBy 才是"谁真的跑了"。
     const mismatch = judgeBackendMismatch(rec)
     if (mismatch) backendMismatch.push(`${rel}（请求 ${mismatch}）`)
+    // ── 收口矩阵（tasks 2.3）：状态在闭环白名单里 ≠ 闭环成立 ──────────────────
+    if (CLOSED_DEEP_REVIEW_STATUSES.has(st)) {
+      const cor = closureCorroboration(rec.deepReview)
+      if (cor === 'none') {
+        badClosure.push(`${rel}（tier=none：自称未评审，却把 status 写成 ${st}）`)
+      } else if (onHighRisk && cor !== 'external' && cor !== 'unknown') {
+        // 高危面（含判据本体自指）只认可核外部出处；unknown 放过是**刻意**的 ——
+        // 新记录天生 tier=unknown，此刻加严就等于「每次改判据都必须先跑完外部评审才能提交」，
+        // 与缺陷G 那次「对 single 也要求闭环 ⇒ 无法闭合的循环」同型。
+        badClosure.push(`${rel}（高危面 ${riskHits[0].prefix} 上以 ${cor} 收口，需 tier=external + 可核 evidence）`)
+      }
+    }
+
+    // ── 转变检测（tasks 8.1）：把 pending 改成闭环值这件事本身要有出处 ──────────
+    if (mFiles.has(rel)) {
+      const baseTxt = typeof readAtBase === 'function' ? readAtBase(rel) : null
+      let brec = null
+      let readable = baseTxt !== null && baseTxt !== undefined
+      if (readable) {
+        try { brec = JSON.parse(baseTxt) } catch { readable = false }
+      }
+      if (!readable || !brec || typeof brec !== 'object') {
+        transitionRows.push({ file: rel, baseReadable: false })
+      } else {
+        const bst = brec.deepReview && typeof brec.deepReview.status === 'string' ? brec.deepReview.status : ''
+        const wasClosed = CLOSED_DEEP_REVIEW_STATUSES.has(bst)
+        const nowClosed = CLOSED_DEEP_REVIEW_STATUSES.has(st)
+        const cor = closureCorroboration(rec.deepReview)
+        const corroborated = cor === 'external' || cor === 'note'
+        transitionRows.push({ file: rel, baseReadable: true, wasClosed, nowClosed, corroborated })
+        if (!wasClosed && nowClosed && !corroborated) {
+          badClosure.push(`${rel}（收口无出处：base=${bst || '(缺失)'} → head=${st}，既无 tier=external + 可核 evidence，也无 closureNote）`)
+        }
+      }
+    }
   }
   if (unresolved.length > 0) {
     reasons.push(
@@ -752,6 +877,19 @@ function evaluateDeepReviewDebt (statuses, repo, readAtBase) {
       + `但状态不在闭环白名单 {${[...CLOSED_DEEP_REVIEW_STATUSES].join(', ')}} 内：\n`
       + unresolved.slice(0, 8).map((p) => `    - ${p}`).join('\n')
       + `\n    补跑：sh scripts/deep-review.sh（或确认该判定是假阳性后，在记录里写明原因并把 status 置为闭环值）`
+    )
+  }
+  if (badClosure.length > 0) {
+    reasons.push(
+      `CCG 收口不成立 ${badClosure.length} 条 —— status 已写成闭环值，但「谁真的评审了」拿不出可核出处：\n`
+      + badClosure.slice(0, 8).map((p) => `    - ${p}`).join('\n')
+      + (onHighRisk
+        ? `\n    本次变更集命中高危面前缀 ${riskHits.slice(0, 4).map((h) => h.prefix).join(' / ')} ⇒`
+          + ' 只认 tier=external + 可核 evidence；closureNote（假阳性出口）只在非高危面够用。'
+        : '')
+      + '\n    出口：① 跑真外部评审，把 tier=external 与可核 evidence 写进产物；'
+      + '\n    ② 非高危面可按门禁既有合规出口写明 closureNote（假阳性原因）。'
+      + '\n    不得反向处置：删掉 tier 只是退回 unknown 被放过，那不等于评审做过 —— 覆盖率读数会把它显出来。'
     )
   }
   if (backendMismatch.length > 0) {
@@ -777,7 +915,7 @@ function evaluateDeepReviewDebt (statuses, repo, readAtBase) {
       + '\n    正解：让 pre-commit 重新生成该产物（或 sh scripts/deep-review.sh 补跑），不要手工修补 JSON。'
     )
   }
-  return { reasons, checked: involved.length }
+  return { reasons, checked: involved.length, transition: summarizeTransitionCheck(transitionRows) }
 }
 
 /**
@@ -862,6 +1000,6 @@ function report(r, mode) {
 //   stripCommentsForScan 把源码削成「只含代码行」的视图（引号感知剥注释 + 规范化 CRLF）
 // 生产路径只用 describeAuditWidths / auditAcceptedAltForm().description；
 // 其余导出不改变判据行为，仅为可测性存在。
-module.exports = { isResolvableEvidence, classifyEvidenceTier, summarizeTierCoverage, evaluate, resolveHeadBranch, readExemptsOnDisk, remoteBranchSet, isPureBackfillChangeSet, evaluateDeepReviewDebt, judgeBackendMismatch, CLOSED_DEEP_REVIEW_STATUSES, RECORDS_RE, EXEMPT_RE, CARRIER_RE, DEFAULT_THRESHOLD, AUDIT_ARTIFACT_RE, auditAcceptedWidths, auditAcceptedAltForm, describeAuditWidths, stripCommentsForScan, AUDIT_NAME_WIDTH_MIN, AUDIT_NAME_WIDTH_MAX }
+module.exports = { isResolvableEvidence, classifyEvidenceTier, summarizeTierCoverage, HIGH_RISK_SURFACES, isHighRiskSurface, closureCorroboration, summarizeTransitionCheck, evaluate, resolveHeadBranch, readExemptsOnDisk, remoteBranchSet, isPureBackfillChangeSet, evaluateDeepReviewDebt, judgeBackendMismatch, CLOSED_DEEP_REVIEW_STATUSES, RECORDS_RE, EXEMPT_RE, CARRIER_RE, DEFAULT_THRESHOLD, AUDIT_ARTIFACT_RE, auditAcceptedWidths, auditAcceptedAltForm, describeAuditWidths, stripCommentsForScan, AUDIT_NAME_WIDTH_MIN, AUDIT_NAME_WIDTH_MAX }
 
 if (require.main === module) main(process.argv.slice(2))

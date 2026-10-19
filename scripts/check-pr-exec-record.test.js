@@ -1600,6 +1600,11 @@ test('丙：真跑 CLI —— dual+cleared 但无 tier 的记录必须 rc=0 且�
     const res = RUNx([script, `--repo=${repo}`, '--base=main', '--head=pr', '--mode=enforce', '--no-remote']);
     assert.ok(/TIER-COVERAGE/.test(res.out), `stdout 必须含覆盖率行，实际 rc=${res.rc} 输出开头=${JSON.stringify(res.out.slice(0, 200))}`);
     assert.strictEqual(res.rc, 0, `覆盖率不得把 PR 判红（先可见不拦）。rc=${res.rc} out=${JSON.stringify(res.out.slice(0, 300))}`);
+    // ★ 两档读数各**恰好一行**。本档走的是 --no-remote（r 与 r2 各调一次 applyDeepDebt），
+    //   实跑现场是 TRANSITION-CHECK 逐字打了两遍而 TIER 只有一遍 —— 只断言"含这行"对重复完全免疫。
+    const count = (needle) => res.out.split(needle).length - 1
+    assert.strictEqual(count('TIER-COVERAGE'), 1, `覆盖率读数必须恰好打印一次，实际 ${count('TIER-COVERAGE')} 次`);
+    assert.strictEqual(count('TRANSITION-CHECK'), 1, `转变读数必须恰好打印一次（打两遍与"量了两次两个数"在日志里无法分辨），实际 ${count('TRANSITION-CHECK')} 次`);
   } finally { fs.rmSync(repo, { recursive: true, force: true }) }
 })
 
@@ -1641,4 +1646,151 @@ test('后端命中：evidence 必须是可核指针 —— 单个字符 x 不得
     assert.strictEqual(mod.classifyEvidenceTier({ tier: 'external', evidence: good }), 'external',
       '可核形态（PR 引用 / 会话 id / uuid）应判 external：' + good)
   }
+})
+
+// ── tasks 2.x 收口矩阵 + tasks 8.1 转变检测（2026-10-19 降级梯 切片D）──────────────
+// 场景脑暴（先想清再写）：
+//   正常：高危面 + 真实外部出处 ⇒ 放行 / 非高危面 + self-play ⇒ 本切片不拦
+//   异常：高危面 + self-play ⇒ 拦 / 任意面 + tier=none 却闭环 ⇒ 拦 / 伪造闭环（无出处无原因）⇒ 拦
+//   边界：tier 缺失(unknown) ⇒ 不拦（转拦另片，防不可闭合循环）/ base 取不到 ⇒ 不得读成「没转变」
+//   负控：清单只可缩小 / 每条前缀必须命中真实受管文件（命中 0 = 装饰前缀）
+const RISK_GATE = 'scripts/check-pr-exec-record.js'
+const SELF_PLAY = { required: true, status: 'self_play_resolved', tier: 'self-play', evidence: null, performedBy: 'self-play', findings: null }
+const EXT_OK = { required: true, status: 'cleared', tier: 'external', evidence: 'ses_probe0001', performedBy: 'claude', findings: null }
+
+function repoWithFile (rel, obj) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccg-matrix-'))
+  const full = path.join(dir, rel)
+  fs.mkdirSync(path.dirname(full), { recursive: true })
+  fs.writeFileSync(full, JSON.stringify(obj), 'utf8')
+  return dir
+}
+const ART = '.ccg/reviews/' + 'f'.repeat(64) + '.json'
+
+test('2.1 高危面清单：非空、每条前缀都命中真实受管文件（命中 0 即装饰）、规模下界', () => {
+  const list = mod.HIGH_RISK_SURFACES
+  assert.ok(Array.isArray(list) && list.length >= 6, `清单至少 6 类，实际 ${list && list.length}`)
+  for (const s of list) {
+    assert.ok(typeof s.prefix === 'string' && s.prefix.length > 0, '每条必须有 prefix')
+    assert.ok(typeof s.why === 'string' && s.why.length >= 8, `前缀 ${s.prefix} 缺 why（无出处的条目不许进清单）`)
+  }
+  const tracked = require('node:child_process').execFileSync('git', ['ls-files'], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 }).split(/\r?\n/).filter(Boolean)
+  for (const s of list) {
+    const hits = tracked.filter((f) => f.indexOf(s.prefix) >= 0).length
+    assert.ok(hits >= 1, `前缀 ${s.prefix} 在主干命中 0 个受管文件 ⇒ 它守的是一个不存在的面，是装饰性条目`)
+  }
+})
+
+test('2.1 单一匹配实现：高危面前缀匹配只准有一处（highRiskPrefixOf）', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'check-pr-exec-record.js'), 'utf8')
+  const start = src.indexOf('function highRiskPrefixOf')
+  assert.ok(start >= 0, '必须存在唯一的高危面匹配实现 highRiskPrefixOf')
+  const end = src.indexOf('\n}', start)
+  // 锚点形态变了就红，不得静默把区间放大到整份文件（本仓「结构锁锚点静默失效」的同型错误）
+  assert.ok(end > start, 'highRiskPrefixOf 的闭合括号锚点定位不到 ⇒ 本锁的测量域不可信')
+  const outside = src.slice(0, start) + src.slice(end)
+  assert.ok(!/HIGH_RISK_SURFACES\s*\.\s*(some|filter|find|forEach|map)/.test(outside),
+    '清单的遍历只准发生在 highRiskPrefixOf 里：另抄一份会让「摘掉判据」的变异只红一半（P1 实测 PARTIAL 的成因）')
+  assert.ok(!outside.includes('indexOf(s.prefix'),
+    '前缀比较不得出现在第二个地方 —— 同上，两处口径必然漂移')
+  assert.match(src, /function isHighRiskSurface[\s\S]{0,240}?return highRiskPrefixOf\(file\) !== null/,
+    'isHighRiskSurface 必须是 highRiskPrefixOf 的薄封装')
+  assert.match(src, /function highRiskHits[\s\S]{0,600}?highRiskPrefixOf\(e\.file\)/,
+    'highRiskHits 的变更集分组必须走同一个匹配实现')
+})
+
+test('2.2 自指：改判据本体的文件必须被判高危（含 workflows 与 credential 类）', () => {
+  assert.strictEqual(mod.isHighRiskSurface(RISK_GATE), true, '判据本体必须自指为高危')
+  assert.strictEqual(mod.isHighRiskSurface('scripts/ccg-review-decider.js'), true, '判定写入方同样是守门人')
+  assert.strictEqual(mod.isHighRiskSurface('.github/workflows/quality-gate.yml'), true)
+  assert.strictEqual(mod.isHighRiskSurface('apps/desktop/electron/services/credential-store.js'), true)
+  assert.strictEqual(mod.isHighRiskSurface('apps/desktop/electron/ipc-handlers/account.js'), false,
+    '未登记的前缀不得判高危 —— 加面要走实测出处，不得靠猜')
+})
+
+test('2.3 矩阵①：高危面 + self-play 收口 ⇒ 必须欠账并点名', () => {
+  const repo = repoWithFile(ART, { mode: 'dual', deepReview: SELF_PLAY })
+  try {
+    const r = mod.evaluateDeepReviewDebt(
+      st([['A', ART], ['M', RISK_GATE]]), repo, () => null)
+    assert.match(r.reasons.join('\n'), /高危面/, `高危面上的自扮演必须拦：${JSON.stringify(r.reasons)}`)
+    assert.ok(r.reasons.join('\n').includes(ART), '必须点名是哪条产物')
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('2.3 矩阵②：高危面 + 真实外部出处 ⇒ 放行（矩阵不得把外部评审一起拦掉）', () => {
+  const repo = repoWithFile(ART, { mode: 'dual', deepReview: EXT_OK })
+  try {
+    const r = mod.evaluateDeepReviewDebt(st([['A', ART], ['M', RISK_GATE]]), repo, () => null)
+    assert.deepStrictEqual(r.reasons, [], `external + 可核 evidence 在高危面上应当通过，实际 ${JSON.stringify(r.reasons)}`)
+    assert.strictEqual(r.checked, 1)
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('2.3 矩阵③：tier=none 却写闭环 ⇒ 任意面都欠账（自称没评审却宣称完成）', () => {
+  const repo = repoWithFile(ART, { mode: 'dual', deepReview: { required: true, status: 'cleared', tier: 'none', evidence: null } })
+  try {
+    const r = mod.evaluateDeepReviewDebt(st([['A', ART]]), repo, () => null)
+    assert.strictEqual(r.reasons.length, 1, `tier=none 的闭环必须报 1 条，实际 ${JSON.stringify(r.reasons)}`)
+    assert.match(r.reasons[0], /tier=none|未评审/)
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('2.3 边界（不可闭合循环负控）：tier 缺失(unknown) 的已闭环记录本切片仍不拦', () => {
+  const repo = repoWithFile(ART, { mode: 'dual', deepReview: { required: true, status: 'cleared', performedBy: 'claude', findings: null } })
+  try {
+    const r = mod.evaluateDeepReviewDebt(st([['A', ART], ['M', RISK_GATE]]), repo, () => null)
+    assert.deepStrictEqual(r.reasons, [],
+      '历史/新记录天生 tier=unknown；此刻加严就是造出「无法闭合的循环」（缺陷G 同型）。转拦前提是 unknown 占比降下来')
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('8.1 转变①：base 非闭环 → head 闭环，既无外部出处也无书面原因 ⇒ 必须点名（伪造闭环）', () => {
+  const repo = repoWithFile(ART, { mode: 'dual', deepReview: { required: true, status: 'cleared', tier: 'unknown' } })
+  const base = JSON.stringify({ mode: 'dual', deepReview: { required: true, status: 'pending', tier: 'unknown' } })
+  try {
+    const r = mod.evaluateDeepReviewDebt(st([['M', ART]]), repo, () => base)
+    assert.strictEqual(r.reasons.length, 1, `凭空收口必须报 1 条，实际 ${JSON.stringify(r.reasons)}`)
+    assert.match(r.reasons[0], /收口无出处|无外部评审出处/)
+    assert.ok(r.reasons[0].includes(ART))
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('8.1 转变②：同一转变带 closureNote（主干既有约定）⇒ 非高危面放行、高危面仍拦', () => {
+  const closed = { mode: 'dual', deepReview: { required: true, status: 'cleared', tier: 'unknown', closureNote: '轮1 外部 claude 交付 6 条，3 upheld 已实现、2 dismissed 给可证伪理由' } }
+  const base = JSON.stringify({ mode: 'dual', deepReview: { required: true, status: 'pending' } })
+  const plain = repoWithFile(ART, closed)
+  const risky = repoWithFile(ART, closed)
+  try {
+    const ok = mod.evaluateDeepReviewDebt(st([['M', ART]]), plain, () => base)
+    assert.deepStrictEqual(ok.reasons, [], `带书面原因的收口在非高危面应当放行，实际 ${JSON.stringify(ok.reasons)}`)
+    const bad = mod.evaluateDeepReviewDebt(st([['M', ART], ['M', RISK_GATE]]), risky, () => base)
+    assert.match(bad.reasons.join('\n'), /高危面/, '高危面上的收口必须有可核外部出处，书面原因不足以放行')
+  } finally { fs.rmSync(plain, { recursive: true, force: true }); fs.rmSync(risky, { recursive: true, force: true }) }
+})
+
+test('8.1 转变③：base 取不到时不得当成「没有转变」（未证实 ≠ 已核对）', () => {
+  const repo = repoWithFile(ART, { mode: 'dual', deepReview: { required: true, status: 'cleared', tier: 'unknown' } })
+  try {
+    const r = mod.evaluateDeepReviewDebt(st([['M', ART]]), repo, () => null)
+    assert.deepStrictEqual(r.reasons, [], 'base 不可读时不在这里报（避免把工具失明变成假红），但必须留下可见痕迹')
+    // ★ 必须走判据路径断言：只测 summarizeTransitionCheck 的计数，变异「把读不到 base 的那条
+    //   push 改成已核对」就抓不到（P4 实测 NOT_CAUGHT 的成因 —— 计数函数被手搓 rows 测过了）。
+    assert.strictEqual(r.transition.unverifiable, 1,
+      `判据必须真的把「读不到 base」这条喂进转变读数，实际 ${JSON.stringify(r.transition)}`)
+    assert.strictEqual(r.transition.checked, 0, '未证实的条数不得混进「已核对」')
+    assert.match(r.transition.line, /未证实=1/, `读不到 base 必须单列计数，不得静默归零：${r.transition.line}`)
+    const cov = mod.summarizeTransitionCheck([{ file: ART, baseReadable: false, wasClosed: false, nowClosed: true, corroborated: false }])
+    assert.match(cov.line, /未证实=1/)
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('2.3 边界（不过拦负控）：非高危面 + self-play 收口 ⇒ 本切片不拦，且欠账必须留到 4.x 的货币判据', () => {
+  const repo = repoWithFile(ART, { mode: 'dual', deepReview: SELF_PLAY })
+  try {
+    const r = mod.evaluateDeepReviewDebt(st([['A', ART]]), repo, () => null)
+    assert.deepStrictEqual(r.reasons, [],
+      `非高危面上的自扮演此刻仍算闭环（等 tasks 4.x 的变异产物货币才收紧）。实际 ${JSON.stringify(r.reasons)}`)
+    assert.strictEqual(r.checked, 1)
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
 })
