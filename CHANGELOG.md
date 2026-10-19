@@ -126,6 +126,41 @@
 - **随批收红**：`QG Static` 的 Gate 7 抓到两处开发者诊断硬编码中文（改英文）；`Gate 12e` 的 tasks 编号断档；`check-max-lines` 把 `publishProgress.js` 557→498（看门狗抽到 `publish-progress-stall.js`）；`SettingsDialog` 的 `Keyboard` 图标名不存在（`@element-plus/icons-vue` 无此导出，Proxy 夹具使其在单测里隐形、只有 `vite build` 才炸）→ 改 `Key` 并补 `icon-imports-exist.test.js`。三条既有锁按实测改判据方向而非放宽：`window.test.js`（改为断言启动不写标记）、`ipc-exposure-contract`（M-9 抓到 `publisher.js` 直访 `getApi`，实现改用桥接原语且桥接缺席回非 0 码）、`visual-view-runner`（catch-all 加"只能缩小 + 僵尸即红"的非可渲染路由豁免）。
 - **文档**：`01-docs/PRD-UX-AUDIT-IMPLEMENT-2026-10-18.md` 新增 §11（流程 / 显示项 / 提示文字 zh-en 全清单 / 数据校验表 / 不变量与锁位 / 如实记录），`openspec/changes/ux-audit-implement/specs/desktop-ui-experience/spec.md` 新增 4 条 Requirement（含"引导只有单一真源且完成标记只由用户动作写入"、"全局注册组件必须被模板消费"、"帮助页每条指引必须有可达落点"），执行记录追加批次 B 段。
 - **既有假红如实登记**：`preload.test.js` 的 system 模块计数在把 `system.js` 精确还原到 HEAD 后实测 **140**、而断言写 139 ⇒ 该棘轮在本批动手前已差 1；本批按当场测得值改 137 并留下控制对照过程。`electron/services/feedback.test.js` 的 `fs.symlinkSync` 在本机报 `EPERM`（Windows 非特权进程不能建符号链接），与本批无关，判据以 CI 现场为准。
+# [未发布] chore(debt): 债务熔断基线 re-sync 到主干现状——接受漂移不是清理，并登记拆分红利（debt-baseline-resync）
+
+- **现场**：`debt-guard.yml` 的「债务熔断检查」从今天起在**每一个** rebase/merge 到今天主干的
+  pull request 上判红：`MAX_FILE_LINES: 5359 > baseline 5239`、`FILES_OVER_1000: 29 > baseline 28`。
+  本会话的 #3898 / #3992 / #4010 同时被卡（#4010 是以另一种形状：
+  `scripts/lib/git-domain.test.js` ⑩「消费者套件必须整份真的跑了」把 `check-debt-budget` 的失败
+  原样抬成红 ⇒ 一条下游锁把上游债务变成了自己的失败，这正是该锁设计要防的"读起来像通过"的反面）。
+- **归因两条并列，都是当场量的**：① 在**刚由 `session-init.sh` 从主干创建、未做任何改动**的
+  worktree 里跑同一条判据，读数与 CI 逐字相同 ⇒ 不在任何本会话分支上；
+  ② `git show origin/main:apps/desktop/src/views/CreateView.vue | wc -l` = **5358**，
+  而 `git show origin/main:scripts/debt-baseline.json` 的 `maxFileLines` = **5239**
+  ⇒ **主干自己的树违反自己的基线**。增量大户是当日已合并的 #3969 / #3946 / #3936，
+  三条都落在 `CreateView.vue` 这条链上。
+- **本次只做一件事：把两个数改成实测现状。** `git diff` 全文只有 `maxFileLines`、
+  `filesOver1000`、`scannedAt` 三行；`maxFilePath` 仍指向 `CreateView.vue`
+  （**没有换文件来绕开上涨**），也没有动判据口径、没有动扫描域。这是 AGENTS.md 里
+  「debt-baseline 更新即如实记录现状，须在 PR 说明是接受漂移而非清理」那条的正面执行。
+- **不认领"顺手拆一个大文件"**：`CreateView.vue` 今天有三个并发会话在改，在热文件上做结构搬迁
+  会把三批归因搅在一起，且 `create-*` 像素基线需重取并人工审核。拆的**判据**已经写清：
+  必须让 `maxFileLines` 与 `filesOver1000` **同时下降**，否则等于白搬。
+- **顺手记下这个基线缺的那道锁**（留给门禁批次，不在本 PR 夹带）：现在 `--update` 是
+  "重算即接受"，缺"调大必须与一次真实清理同 PR"的约束。可抄的同型判据是
+  `check-doc-abs-paths.js` 的 `judgeLedgerDrift`（为容忍自己的新增而调大账本 ⇒ 当场判
+  「账本被放宽」红）。差别在于 debt 基线**确实存在"如实记录主干现状"的正当场景**，
+  所以正解不是禁掉调大，而是要求调大时**点名哪条真实清理没做**。
+- **验证**：`node --test scripts/check-debt-budget.test.js` ⇒ 15 pass / 0 fail（含"基线形状不许变"
+  与"域口径必须与 `git status` 一致"两条，本次形状与域都没动）；re-sync 后
+  `node scripts/check-debt-budget.js` ⇒ 「所有债务指标在基线内，通过」；
+  `classify-docs-only` ⇒ `docs-only=false files=1`（工具面数据文件，不借快速通道）；
+  行尾两口径 numstat 一致。QM-1 / QM-4 / TDD 均 N/A（无代码行为变更）。
+  QM-6 双模型外部评审**未执行**（本机无可用通道，pre-commit 如实打印跳过）。
+- 执行记录 `openspec/records/debt-baseline-resync.md`（含归因两条、影响面与两个跟进项判据）。
+
+
+
 # [未发布] feat(侧栏): 折叠按钮改为可表意的语义化图标并补齐可发现性（sidebar-toggle-ux）
 
 - **用户反馈是「样式太不明显，根本让人注意不到」，不是功能坏了**：折叠功能本身在 PR #3916 已正确（切换/持久化/跨进程同步/多窗口广播），缺陷全在呈现层。三处独立成因：**①图形不表意** —— 双向 chevron（「<>」）在通行图标语义里读作「代码」或「展开更多」，与「收起侧栏」无关；**②两态共用同一图形** —— 收起/展开只靠颜色区分（primary vs secondary），是单通道编码，对色觉障碍用户完全失效，普通用户也无法从图标判断当前处于哪个状态；**③常态几乎不可见** —— 图标色对 TabBar 背景亮色实测 4.40:1（差 0.1 不达 WCAG AA 4.5:1），边框与底色都是 `transparent`。
