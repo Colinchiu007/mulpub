@@ -147,5 +147,7 @@
     ],
     "note": "自扮演裁决：5 条指控成立或需外部复核",
     "at": "2026-10-19T12:37:20.164Z"
-  }
+  },
+  "status": "self_play_resolved",
+  "resolutionNote": "5 条裁决(i1-i5)全部 upheld 且已在 forced-update-gate 分支顶逐一修复（follow-up 3/5/7 提交），回归锁 pytest 16+22 与 vitest 143+33 复绿；adjudication.json 已填 prosecution/defense/verdict/rationale 留证"
 }
