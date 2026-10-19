@@ -75,4 +75,36 @@ date: 2026-10-18
 - `node scripts/check-unwired-tests.js` rc=0 ｜ `node scripts/check-debt-budget.js` rc=0 ｜ `.github/scripts/check-max-lines.js` rc=0
   ｜ `node scripts/check-no-conflict-markers.js` rc=0 ｜ `node scripts/check-gate-record-debt.js` rc=0 ｜ `node scripts/check-record-qm5-rows.js` rc=0（必需步骤 ① ② ④ ⑤ 齐）
 - `node scripts/check-doc-abs-paths.js`（Gate 12c）rc=0 ｜ `node scripts/check-no-brand-residue.js` rc=0
-- 两口径 numstat 逐字相等（现场读数见提交前的门禁批次输出）
+- 两口径 numstat 逐字相等 = `+180 -6`（re-sync 后在 `5cd5a4198` 上重取，两口径逐字相同 ⇒ 无行尾改写）
+
+### 追加：两个版本在**同一个触发条件**下的对照（2026-10-18，一次误操作送来的免费 A/B）
+
+我随后一批门禁命令因为 `cd` 被 `&` 一起放进了后台，实际跑在了**共享根**（未修版）上，而那个 shell 已经
+导出了 `MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'`。于是拿到一组比我原计划更强的对照——**同一环境、两个版本**：
+
+| 版本 | 环境 | 用例结果 | 现场 |
+|---|---|---|---|
+| 未修版（共享根 `f0c5d1faf`） | caller 导出 MSYS 开关 | `FAILED: 2 / 8`，rc=1，日志 46761 字节 | 第 1 行即 `line 39: /tmp/tmp.HtufpEby3I/case-1/README.md: No such file or directory`；第 20 行却打 `PASS: 纯 scripts/ 工具变更属流程层…`；**负向那条**（`运行时代码缺文档仍被拦红`，期望 rc=1）报成 `实际 rc=0`；根级留下一个空目录，名字就是那段 status 原文 |
+| 已修版（本片 `5cd5a4198`） | 同一条命令、同一个 shell 导出 | `PASS: 8 docs-sync gate checks`，rc=0，日志 513 字节 | `git status --porcelain -uall` = 0 行，工作树零残留 |
+
+三条由此确立、且原先只停在推理层面的事实：
+
+1. **触发条件确证**是继承的 MSYS 路径转换开关，与仓库内容无关：同一开关下旧版红、新版绿。
+2. 夹具坏时的失效方向是**双向**的 —— 正向用例可能 vacuously PASS，而**负向用例会把"该拦的没拦住"读成通过**。
+   本案红掉的那条恰好是"豁免不得外溢到 `apps/`"这条负向锁：它失效意味着门禁回归的探测器本身失灵，
+   比漏报一个用例严重得多。
+3. 泄漏产物可能是 **git 不可见的空目录**（空目录不入 git，`git status` 永不报它）⇒
+   「`git status` 干净」**不构成**"没泄漏"的证据。所以本片第⑤道锁的对账用 `ls -1A`（能看到空目录）
+   而不是 `git status`。共享根那个空目录我**没有**手工删：`safe-delete.js` 按闸 1（目标必须是文件）
+   与闸 3（必须出现在 `??` 里）双重拒绝，而 AGENTS 的 R0 不给目录出口，留给人工 `rmdir`。
+
+### 我自己在本片过程中犯的两次工具性错误（如实记）
+
+1. 把 `&` 放在 `cd ... && 后台任务 &` 之后，导致后续前台命令跑在**上一个 cwd**（共享根）而不是本片
+   worktree —— 读数因此一度是"共享根的读数"。发现后逐条在正确 worktree 重跑，未沿用任何一次错读。
+2. 第三次在同一会话里用 `node -e "…含反引号的 markdown…"`：bash 抢在 node 之前把正文当命令执行
+   （现场打出来的片段是 `f0c5d1faf: command not found`、`FAILED:: command not found`、
+   `line: command not found`、`??: command not found`、`safe-delete.js: command not found`、`rmdir: missing operand`）。
+   事后逐个核对损害：`rmdir` 因缺参数未执行、
+   两个 worktree 与共享根均 clean、记录文件未被写入 ⇒ 无损害。正解是这类内容一律走 Edit/Write 工具，
+   本条记录就是用 Edit 落的。
