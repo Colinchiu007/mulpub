@@ -66,7 +66,6 @@ export default {
       },
       startPipeline: 'Start pipeline',
       pause: 'Pause',
-      backToHistory: 'Back',
       selectionWait: {
         stageLabel: 'Awaiting asset selection',
         banner: (ctx) => 'Storyboard assets are ready — pick the final material for each scene (' + ctx.named('count') + ' scenes total).',
