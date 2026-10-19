@@ -122,14 +122,13 @@ const CHANNEL_CONFIGS = [
  * GYREAD AI 情报日报的补拉源定义 —— **当前未挂进任何启用路径**。
  *
  * ⛔ 合规裁决（2026-10-19，对抗评审 BLOCKING-1）：gyread `robots.txt` 在 `User-agent: *`
- * 组写着 `Disallow: /news/`，Allow 只给具名检索 UA（OAI-SearchBot 等）。本应用
- * `DESKTOP_UA` 是伪装 Chrome 的通用 UA，落在 `*` 组 ⇒ 抓取在被禁路径上；
- * **返回 200 不等于被许可**，且伪装 UA 放弃了「我是检索代理」的身份主张。
- * `Content-Signal: ai-input=yes` 不覆盖此条（robots 按 UA 组判定）。
+ * 组写着 `Disallow: /news/`，Allow 只给具名检索 UA。本应用 `DESKTOP_UA` 是伪装 Chrome
+ * 的通用 UA，落在 `*` 组 ⇒ 抓取在被禁路径上；**返回 200 不等于被许可**，伪装 UA 还
+ * 放弃了「我是检索代理」的身份主张；`Content-Signal: ai-input=yes` 不覆盖此条。
  *
  * 保留为常量：把「实现就绪」与「获准抓取」分开 —— 解析可用 ≠ 允许抓取。
- * 启用前置：① 站点新增自报身份 UA 组并获许可；② 抓取 UA 改自报身份；
- * ③ 挂回 `CATEGORY_BOOSTS.ai.sources` 并补 locales 文案。依据见 design.md §2.4。
+ * 启用前置（见 design.md §2.4）：① 站点新增自报身份 UA 组并获许可；② 抓取 UA 改
+ * 自报身份；③ 挂回 `CATEGORY_BOOSTS.ai.sources` 并补 locales 文案。
  */
 const GYREAD_SOURCE = {
   id: 'gyread-ai', name: 'GYREAD AI 情报日报',
@@ -448,8 +447,7 @@ class HotTopicsService {
       const parser = CHANNEL_PARSERS[source.parser]
       if (!parser) throw new Error('no boost parser for ' + source.id)
       const parsed = text.startsWith('{') || text.startsWith('[') ? JSON.parse(text) : text
-      // 解析器第二参数：gyread 索引需要 date/days 过滤（全量 1421 条远超候选上限）；
-      // 其余解析器忽略第二参数（签名兼容，不影响既有渠道）。
+      // 第二参数：gyread 索引需 date/days 过滤（全量 1421 条远超候选上限）；其余解析器忽略
       let rawItems = source.indexFilter ? parser(parsed, source.indexFilter) : parser(parsed)
       if (source.filterCategory) {
         rawItems = rawItems.filter(x => x.rawCategory === source.filterCategory)

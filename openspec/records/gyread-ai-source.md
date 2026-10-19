@@ -18,7 +18,7 @@
 ## 变更类型与隔离声明
 
 - 运行时代码变更（apps/desktop/electron/**、apps/desktop/src/locales/**）→ 已在隔离 worktree
-  `D:\Data\projects\mp-worktrees\mp-gyread-ai-source` 完成；共享主目录未落运行时代码。
+  隔离 worktree `mp-gyread-ai-source` 完成；共享主目录未落运行时代码。
 - 文档/规格变更（openspec/changes/、01-docs/research/、CHANGELOG.md）→ 同分支就地编辑，随 PR 落地。
 
 ## 合规裁决（本 change 的决定性事件）
