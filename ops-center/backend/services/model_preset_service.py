@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
 from models import ModelPreset
+from services.capability_default_models import backfill_single_category_capability_model, normalize_capability_models
 
 logger = logging.getLogger("ops-center")
 
@@ -643,6 +644,7 @@ async def ensure_catalog_seeded(db: AsyncSession):
                 and row.base_url == item["base_url"]):
             row.models_url = item["models_url"]
             changed = True
+        changed = backfill_single_category_capability_model(row) or changed
     if changed:
         await db.commit()
 
@@ -796,9 +798,6 @@ async def upsert_model_preset(db: AsyncSession, data: dict, updated_by: str = "a
         raise ValueError("capability_models 必须是对象")
     if not isinstance(capability_doc_links, dict):
         raise ValueError("capability_doc_links 必须是对象")
-    for cap in capabilities:
-        if cap not in capability_models:
-            raise ValueError(f"能力 {cap} 缺少默认模型（capability_models）")
     normalized_cap_docs = {}
     for cap, links in capability_doc_links.items():
         if cap not in ALLOWED_DOC_KEYS:
@@ -815,10 +814,11 @@ async def upsert_model_preset(db: AsyncSession, data: dict, updated_by: str = "a
         text = str(m).strip()
         if text and text not in normalized_models:
             normalized_models.append(text)
-
+    normalized_capability_models = normalize_capability_models(capability_models, category, capabilities, normalized_models)
     default_model = str(data.get("default_model", "")).strip()
     if default_model and normalized_models and default_model not in normalized_models:
         raise ValueError("默认模型 ID 必须在模型列表中")
+    default_model = normalized_capability_models.get(category) or default_model
 
     row = await get_model_preset(db, preset_id)
     now = datetime.datetime.utcnow().isoformat()
@@ -835,7 +835,7 @@ async def upsert_model_preset(db: AsyncSession, data: dict, updated_by: str = "a
     row.limit_per_5h = limit_per_5h
     row.is_multimodal = 1 if data.get("is_multimodal") else 0
     row.capabilities = json.dumps(capabilities, ensure_ascii=False)
-    row.capability_models = json.dumps(capability_models, ensure_ascii=False)
+    row.capability_models = json.dumps(normalized_capability_models, ensure_ascii=False)
     row.doc_links = json.dumps(doc_links, ensure_ascii=False)
     row.capability_doc_links = json.dumps(normalized_cap_docs, ensure_ascii=False)
     row.is_visible = 0 if data.get("is_visible") is False else 1

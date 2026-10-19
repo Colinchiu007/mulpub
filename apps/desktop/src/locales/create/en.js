@@ -59,6 +59,7 @@ export default {
       subgroups: {
         splitTiming: 'Split & Timing',
         templateOutput: 'Template & Output',
+        voiceNarration: 'Narration', voiceBgm: 'Background music', voiceClone: 'Voice cloning',  // Voice sub-groups (s2v-voice-section-layout, 2026-10-18)
       },
       startPipeline: 'Start pipeline',
       pause: 'Pause',
@@ -279,6 +280,18 @@ export default {
         cloneDeleteConfirmMessage: 'About to permanently delete the cloned voice "{name}". Its saved voice samples will be removed and this cannot be undone.',
         cloneDeleteConfirmButton: 'Delete',
       },
+      // Detail-page model info (s2v-result-model-info, 2026-10-18): shown on the same line as "Format"
+      // in the video info area, listing the models actually used to generate this video.
+      // Kept paired with zh.js: CI Gate 7 check-locale-sync.js --pair enforces it
+      modelInfo: {
+        textModel: 'Text model',
+        voiceModel: 'Voice model',
+        imageModel: 'Image model',
+        videoModel: 'Video model',
+        // The "Format" label moved into the locale with the model info: it was hardcoded in
+        // ResultView.vue, and extracting it broke the file-matched CJK baseline.
+        format: 'Format',
+      },
       // Detail-page visual & interaction refinement (story2video-detail-visual-refinement, 2026-09-20)
       // Kept paired with zh.js: CI Gate 7 check-locale-sync.js --pair enforces it
       ui: {
@@ -301,8 +314,6 @@ export default {
         sectionVideoEnhance: "Video enhance",
         sectionVoice: "Voice",
         sectionAdvanced: "Advanced",
-        subgroupSplitTiming: "Split & timing",
-        subgroupTemplateOutput: "Templates & output",
         imageStyleDefault: "Cinematic",
         imageEffectNone: "No effect",
         summaryPureImages: "Pure image carousel",

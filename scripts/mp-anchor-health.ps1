@@ -66,18 +66,41 @@ foreach ($d in @('session', 'credentials')) {
 }
 
 # --- hot-backup freshness -----------------------------------------------------
+# The snapshot directory NAME is the backup time (`yyyyMMdd-HHmmss`), and the anchor
+# also holds non-timestamped one-shot baselines (`seed-<stamp>`). Two things must
+# therefore not be done, both of which produced a permanently yellow lint until
+# 2026-10-18:
+#   1. sorting raw directory names -- 's' (0x73) sorts above '2' (0x32), so the
+#      `seed-*` baseline beat every real snapshot and the lint reported "25.9 days
+#      old" on runs that had just written a snapshot seconds earlier;
+#   2. deriving the age from LastWriteTime -- copying/restoring a snapshot rewrites
+#      mtime, so it is not the backup time at all.
+# Parse the name instead, and treat "no timestamped snapshot yet" as an honest WARN
+# rather than guessing an age for a directory that is not a hot snapshot.
 $backupRoot = $anchor.TrimEnd('\', '/') + '.backups'
 if (Test-Path -LiteralPath $backupRoot) {
-  $latest = @(Get-ChildItem -LiteralPath $backupRoot -Directory -ErrorAction SilentlyContinue |
-              Sort-Object Name -Descending) | Select-Object -First 1
-  if ($latest) {
-    $ageDays = ((Get-Date) - $latest.LastWriteTime).TotalDays
+  $snapshots = @(Get-ChildItem -LiteralPath $backupRoot -Directory -ErrorAction SilentlyContinue |
+                 ForEach-Object {
+                   $takenAt = [datetime]::MinValue
+                   $isStamp = [datetime]::TryParseExact(
+                     $_.Name,
+                     'yyyyMMdd-HHmmss',
+                     [System.Globalization.CultureInfo]::InvariantCulture,
+                     [System.Globalization.DateTimeStyles]::None,
+                     [ref]$takenAt)
+                   if ($isStamp) { [pscustomobject]@{ Name = $_.Name; TakenAt = $takenAt } }
+                 })
+  if ($snapshots.Count -gt 0) {
+    $latest = $snapshots | Sort-Object -Property TakenAt -Descending | Select-Object -First 1
+    $ageDays = ((Get-Date) - $latest.TakenAt).TotalDays
     if ($ageDays -gt $BackupStaleDays) {
       Say 'WARN' ("newest backup is {0:N1} days old (limit {1})" -f $ageDays, $BackupStaleDays); $warn = $true
     } else {
       Say 'OK' ("backups fresh (latest: {0})" -f $latest.Name)
     }
-  } else { Say 'WARN' 'backup root exists but is empty'; $warn = $true }
+  } else {
+    Say 'WARN' ("no timestamped hot snapshot in $backupRoot (expected yyyyMMdd-HHmmss) - run sync-app.ps1 -Safe once"); $warn = $true
+  }
 } else {
   Say 'WARN' "no hot backups yet ($backupRoot absent) - run sync-app.ps1 -Safe once"
   $warn = $true

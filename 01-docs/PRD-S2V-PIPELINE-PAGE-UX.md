@@ -230,15 +230,40 @@
 - 语速为 range：最小 0.5、最大 2.0、步长 0.1，右侧显示当前值；与流水线启动页的语速交互一致。
 - 删除“重试图片”“重试视频”；保留“替换旁白”和下载图片/音频/视频动作。
 
-#### 4.3.1 MiMo TTS 语音模型下拉隐藏（2026-09-18）
+#### 4.3.1 语音模型由程序与运营决定（2026-10-18 起，取代 2026-09-18 的 MiMo 专属规则）
 
-- 当「语音生成器」为 MiMo TTS（provider id `mimo-tts`）时，「语音模型」下拉选择栏**不显示**。
-- 原因：`mimo-v2.5-tts` 与 `mimo-v2.5-tts-voiceclone` 两个模型由「语音 / 音色 ID」下拉区分——选择预置音色走 `mimo-v2.5-tts`，选择克隆音色走 `mimo-v2.5-tts-voiceclone`。
-- 音色 ID 下拉显示 9 个官方预置音色（mimo_default/冰糖/茉莉/苏打/白桦/Mia/Chloe/Milo/Dean）+ 用户克隆音色。
-- 克隆面板显示（选择本地 mp3/wav 音频文件 → 自动克隆，默认名「音色XXX」）。
-- 其他 provider（如 MiniMax）语音模型下拉保留（MiniMax 克隆音色自动切换 `speech-02-hd` 模型）。
-- 前端判定：`s2vVoiceModelHidden` computed（provider 为 mimo-tts 时 true）；catalog 请求固定用 `mimo-v2.5-tts`，capability/克隆请求用 `mimo-v2.5-tts-voiceclone`。
-- MiMo 克隆音色样本要求：mp3/wav、Base64 后 ≤10MB（本地校验按原始字节 ≤10MB 保守执行），由 `getRequirements` 数据驱动展示。
+**核心规则：「语音模型」下拉不再存在。** 用户在「声音选项」只选择**能力提供方**（语音生成器）；具体用哪个具体模型（Model ID）由程序按运营中心配置的默许模型自动确定，静默写入 `s2vConfig.voiceModel`（仅用于 IPC `voice.model` 下发与运行快照，不出现在界面上）。
+
+显示项（变更后「声音」分组）：
+
+| 元素 | 显示条件 | 说明 |
+| --- | --- | --- |
+| 语音生成器 | 始终 | 下拉：自动 Edge TTS + 各已启用 TTS 能力提供方；多模态带「（多模态）」后缀 |
+| 语音 / 音色 ID | `s2vConfig.voiceProvider` 非空**且**解析出的模型非空 | 提供方默认音色 + 目录音色 + 克隆音色；解析不出模型时整项不渲染（不留空白控件） |
+| ~~语音模型~~ | **永不显示** | 已删除（本次变更） |
+| 背景音乐 / 音量、旁白语速 / 音量 | 始终 | 与既有规则一致 |
+
+解析口径（与主进程 `resolveProviderDefaultModel(provider,'tts')` **逐项等价**，由 `apps/desktop/electron/services/voice-model-resolution-parity.test.js` 做跨层一致性锁）：
+
+1. `config.user_default_model`（桌面端「模型设置」用户选择，必须 ∈ `models`）
+2. `capability_models.tts`（运营中心按能力类别配置的默许模型，声明即有效，不校验 ∈ `models`）
+3. `config.default_model`（运营 provider 级默认，必须 ∈ `models`）
+4. 兜底：`category === 'multimodal'` → **返回空串（fail-closed，禁止猜 `models[0]`）**；单能力 → `models[0] || ''`
+
+运营中心配置入口：`ops-center` 预设模型设置页 →「能力默认模型」（单能力服务商按自身类别一项，多模态按支持能力逐项）+「能力默认模型总览」卡片（按能力类别列出各提供方的默许模型，未配置项高亮，缺口计数告警）。
+
+MiMo TTS 的 tts/voiceclone 双模型分支**保持不变**（与本规则正交）：
+
+- provider 为 `mimo-tts` 时，`s2vVoiceModelHidden` 仍为 true；
+- 预置音色目录请求固定用 `mimo-v2.5-tts`；能力查询 / 克隆 registry / 克隆请求固定用 `mimo-v2.5-tts-voiceclone`；
+- 音色 ID 下拉显示 9 个官方预置音色（mimo_default/冰糖/茉莉/苏打/白桦/Mia/Chloe/Milo/Dean）+ 用户克隆音色；
+- 克隆面板：选择本地 mp3/wav → 自动克隆，默认名「音色XXX」；样本 Base64 后 ≤10MB。
+
+历史项目兼容：旧快照里的 `voice.model` 若已不在当前解析结果内，装载时静默归一化为解析值（不弹错、不中断）。
+
+#### 4.3.2 语音生成器默认值跟随模型设置默认（2026-10-18）
+
+「语音生成器」在用户无显式选择时的默认值 = 模型设置里 TTS 能力的默认（含多模态能力默认），不再固定为「第一个多模态」或列表首项。完整合同（判定口径、优先级、数据流、校验、验收）见 **§9.10**。
 
 
 ### 4.4 无成片任务编辑
@@ -666,6 +691,112 @@ loadPipelineOptions():
 - 选项默认值不覆盖用户已修改的值（仅在首次加载时应用）。
 - 选项隐藏后，已配置的值在提交时保留（不参与校验但保留在 s2vConfig 中）。
 - 运营中心前端 `typelabel` 占位符为静态文本，未从 API 动态获取（低优先级）。
+
+### 9.10 生成器默认值跟随模型设置默认（2026-10-18）
+
+#### 9.10.1 需求与根因
+
+用户在「模型服务商」里把某类别模型设为默认（★），或把多模态模型（如 MiniMax）的某个能力（如 TTS）设为默认后，**视频创作所有流水线页**中该类别的生成器下拉，若有多项可选模型，其默认选中项必须是该默认模型。
+
+**根因（2026-10-18 修复前）**：`CreateView.vue` 的 `loadS2VProviders()` 从未读取「谁是默认」：
+
+- 语音生成器：`nextVoiceProviders.find(p => p.category === 'multimodal' && capability_models?.tts)` —— 只看「是不是多模态」，不看「是不是默认」。
+- 图片/视频生成器：`this.s2vImageProviders[0].id` / `this.s2vVideoProviders[0].id` —— 直接取列表首项。
+
+二者都只是依赖 `listProviders` 里 `ORDER BY is_default DESC` 的**排序副作用**，一旦默认落在第二项之后、或默认是普通单能力模型而多模态排在前面，默认即失效。用户实测形态：TTS 默认由 Mimo TTS 改为 MiniMax 多模态的 TTS 能力后，故事讲述流水线「声音参数 → 语音模型生成器」仍默认 Mimo TTS。
+
+**真源在主场**：`ModelProviderManager.getDefault(category)`（`model-provider:get-default` IPC，preload 已暴露为 `modelProviderGetDefault`）已完整实现双默认语义。前端缺的只是「去问」。
+
+#### 9.10.2 默认判定口径（与主进程同源）
+
+`resolveS2VDefaultProviderId(providers, category, preferredId)`（`apps/desktop/src/views/video-creation/create-view-module-utils.js`）为唯一判定实现，口径与主进程 `_multimodalProviderFor` 逐条对齐：
+
+| 候选形态 | 视为该能力默认的条件 |
+|---------|-------------------|
+| 普通 provider（`category !== 'multimodal'`） | `is_default === true` |
+| 多模态 provider | `config.capability_defaults` 包含该能力，**或** 整体 `is_default === true`（旧版「多模态整体默认」等价于其所有已声明能力均为默认） |
+| 多模态 provider（能力声明校验） | 还必须 `capabilities` 包含该能力；否则其「默认」不适用于本下拉（防止 image 默认的多模态抢走 tts 下拉） |
+
+**优先级（自上而下，取第一个命中）**：
+
+1. `preferredId`（主进程 `getDefault(category)` 返回的 id）——须通过上表口径校验，且须在候选列表内；
+2. 候选列表内第一个满足上表口径的；
+3. 候选列表首项（保持 2026-08-12 起的旧兜底行为，保证无任何默认时行为不回退）；
+4. 候选列表为空 → 空串 `''`（上游渲染「自动 Edge TTS」/「无」占位，见 §9.7 与 13652 行合同）。
+
+**失效处理（fail-closed，不抛错）**：`preferredId` 不在候选列表内、或通过了 id 匹配但未通过默认口径校验时，忽略该 id 继续向下判定，**绝不返回悬空 id**（否则下拉出现空白选中项）。
+
+#### 9.10.3 交互优先级（用户显式选择 > 模型设置默认）
+
+| 状态 | 默认选中项 | 实现位置 |
+|------|-----------|---------|
+| 用户在本页下拉里**手动改过** provider（本次会话内） | **该选择** | 当前值 ≠ `s2v*AutoProviderId` |
+| 用户显式选过「自动 Edge TTS」（`voiceProvider === ''` 且 `s2vVoiceProviderExplicitEdge === true`） | **自动 Edge TTS** | `explicitEdge` 分支 |
+| 当前值是上次由默认**自动填入**的（等值于 `s2v*AutoProviderId`） | 重新解析当前默认 | 见下「自动应用值」 |
+| 用户从无显式选择（首次进入 / 点了「重置选项」） | `resolveS2VDefaultProviderId(...)` | 本次新增 |
+
+**「自动应用值」跟踪（2026-10-18，修复主路径的关键）**
+
+只判「当前是否为空」会让旧默认永远钉住：用户在「模型设置」把 TTS 默认从 A 改为 B 后关闭弹窗，`settingsDialogRevision` watcher 触发 `loadS2VProviders()` 重跑，此时 `s2vConfig.voiceProvider` 已是 A（上次自动填入），若把它当成「用户显式选择」，新默认 B 永远不会生效 —— 这正是用户报告的现象。
+
+因此新增三个**不持久化**的组件状态 `s2vImageAutoProviderId` / `s2vVideoAutoProviderId` / `s2vVoiceAutoProviderId`，记录「上一次由默认解析自动填入的值」：
+
+- 解析默认并写入配置时，同步登记到对应 `AutoProviderId`；
+- 重拉列表时，若「当前值 === AutoProviderId」，判定为**非显式选择**，按当前默认重新解析（设置改变即时生效）;
+- 若「当前值 ≠ AutoProviderId」（用户手动改过），判定为**显式选择**，默认解析不介入；
+- 陈旧 provider（已删除/停用/未配置）清空时，同时清空对应 `AutoProviderId`；
+- `resetS2VLastOptions()` 重置时三者一并清空（回到「未选择」态）。
+
+**快照（lastOptions）的处理**：`_applyS2VSnapshotObject` 恢复出的 provider 值**登记为自动应用值**，即「上次的起点」而非显式选择。理由：快照是自动保存的，无法区分「用户当初手选」与「当初由默认填入」；若一律当显式选择，用户改了设置默认后重启仍看到旧默认（用户报告的正是这一类）。同一次会话内用户手动改过下拉则与自动值不同，仍按显式选择保留。
+
+#### 9.10.3.1 与「用户显式保存过的选择」旧合同的关系
+
+2026-08-12 的旧合同是「用户显式保存过的选择（lastOptions 快照回填）始终优先于多模态默认」。本次**收窄**为：**同一次编辑会话内**的显式选择优先；跨会话的快照值跟随当前设置默认。
+
+理由：旧口径下「快照里存着旧默认」与「设置里已改新默认」无法区分，导致设置改动永不生效——这是本次用户报障的根因形态。新口径把「默认该选谁」的唯一真源交给模型设置，符合用户原话「如果有多项可选的模型，应该默认为应用设置中默认的该类别的模型」。
+
+**代价（明确接受）**：用户上一次会话手选的 provider 在重启后会被当前设置默认取代，需重新手动选择。若后续需要「跨会话记住手选」，正解是给快照增加显式的 `*ProviderExplicit` 布尔位（而非靠等值猜测），属独立增量，不在本次范围。
+
+#### 9.10.4 涉及的三类生成器
+
+| 生成器 | 能力参数 | 默认模型解析（provider 确定后） |
+|--------|---------|-------------------------------|
+| 语音生成器 | `tts` | `getS2VDefaultVoiceModel`：多模态取 `capability_models.tts`，否则 `defaultModel` / `models[0]`；MiMo TTS 返回 `''`（语音模型下拉隐藏，见 §4.3.1） |
+| 图片生成器 | `image` | 仅解析 provider id；`imageModel` 沿用既有链路（本次不新增 `getS2VDefaultImageModel`，避免行为漂移） |
+| 视频生成器 | `video` | `getS2VDefaultVideoModel`：多模态取 `capability_models.video`，否则 `defaultModel` / `models[0]` |
+
+#### 9.10.5 数据流
+
+```
+loadS2VProviders()
+  ├─ Promise.allSettled([ modelProviderList('image'), modelProviderList('tts'), modelProviderList('video') ])
+  ├─ Promise.allSettled([ modelProviderGetDefault('image'), modelProviderGetDefault('tts'), modelProviderGetDefault('video') ])
+  │     └─ 失败/未初始化 → data:null → defaultProviderId() 返回 ''，不阻塞、不抛错
+  ├─ 每类：enabledProviders 过滤（enabled && is_configured && id && name）
+  ├─ 陈旧 provider 清空（含对应 Model 字段），避免下拉空白选中项
+  └─ 无显式选择时：resolveS2VDefaultProviderId(list, capability, defaultId)
+```
+
+#### 9.10.6 数据校验与边界
+
+- `providers` 非数组 / `null` / `undefined` / 字符串 → 返回 `''`，不抛错。
+- `category` 非字符串 → trim 后为空串，`capability_defaults.includes('')` 恒 false，安全降级到首项兜底。
+- provider 缺 `id`、`id` 非字符串、`config` 非对象（数组/标量）→ 该候选不参与默认判定。
+- `config.capability_defaults` 非数组 → 视为未声明能力默认。
+- `is_default` 为真值（1 / "1"）但非严格 `true` → **不视为默认**（与主进程 `!!row.is_default` 的转换边界保持一致，主进程在 `_safeRow` 已转布尔；前端列表直接来自 IPC，故此处要求严格 `true`）。
+- `modelProviderGetDefault` 三次查询与三次列表查询**并行**（两个 `Promise.allSettled`），不增加串行延迟；任一路失败不影响其余。
+
+#### 9.10.7 验收标准
+
+① 模型设置把 TTS 默认设为 MiniMax 多模态的 TTS 能力（`capability_defaults: ['tts']`）后，故事讲述流水线「语音模型生成器」默认选中 `minimax-multimodal`，语音模型自动带出 `speech-2.8-turbo`；② 模型设置把 TTS 默认改为普通 TTS 服务商（`is_default: true`）后，默认选中该服务商而非多模态；③ 图片生成器 / 视频生成器同样跟随各自类别默认；④ **已打开页面上改设置即时生效**：旧默认 A 被自动填入后，把默认改为 B 并关闭设置弹窗，重拉列表即切到 B（本次用户报障主路径）；⑤ 同一次会话内用户手动改过下拉后，重拉列表不被新默认覆盖；⑥ 快照恢复的 provider 不被当成显式选择，重拉后跟随当前设置默认；⑦ 主进程 `getDefault` 不可用（IPC 未注册/未初始化）时，仍按列表内的默认标记解析，不退回首项；⑧ 默认 provider 被删除/停用后回退到新的默认，无空白选中项；⑨ 无任何默认时保持首项兜底（旧行为不回退）；⑩ 回归：`create-view-module-utils`（9 例新增）、`CreateView`（316 例全绿）、`video-creation` 邻近域全绿。
+
+#### 9.10.8 已知限制
+
+- 「同一次会话内显式选择优先」只覆盖当前组件实例生命周期；跨会话的手选 provider 在重启后会被当前设置默认取代（见 §9.10.3.1 的代价说明与正解方向）。
+- 「重置选项」后回到默认解析（`resetS2VLastOptions` 已同时清空 `s2vVoiceProviderExplicitEdge` 与三个 `AutoProviderId`）。
+- 运营中心 `PipelineOptions.vue` 的 `voice.voiceProvider` / `visual.imageProvider` 选项目录 `default_value` 仍为空串（运营侧不持有桌面本地 provider id），本节不改变该契约。
+- `preferredId`（主进程 `getDefault`）与前端候选集不完全相同（主进程不要求 `name` 非空）；已用「在列表内 + 通过默认口径」双重校验吸收，校验不过则就地降级。
+- 图片生成器的 `imageModel` 仍不随 provider 联动（与改动前一致，非本次引入）。
 - 发布组独立选项（标题、标签、分辨率等）不在选项目录中，仅通过 `_group` 整组控制。
 
 ## 11. 详情页视觉与交互精致化契约（2026-09-20）
@@ -772,7 +903,7 @@ loadPipelineOptions():
 | 内容类型 / 分句语言 / 分句模式 | `contentType` / `splitLanguage` / `splitMode` | `advanced.*` | 运营枚举 |
 | 模板分类 / 视频模板 | `s2vTemplateCategory` / `s2vConfig.templateId` | `advanced.template*` | 选模板 → `applyS2VTemplate` 批量写回参数 |
 | 帧率 / 格式 | `activeOutputConfig.fps` / `.format` | `advanced.fps` / `advanced.format` | fps ∈ {24,30,60}；format ∈ {mp4, webm} |
-| 语音模型 / 音色 ID | `s2vConfig.voiceModel` / `voiceId` | —（受服务商能力驱动） | 目录加载失败显示 `inline-error`，不静默吞错 |
+| 语音 / 音色 ID | `s2vConfig.voiceId` | —（受服务商能力驱动） | 仅在「解析出的语音模型非空」时渲染；目录加载失败显示 `inline-error`，不静默吞错。**「语音模型」下拉已于 2026-10-18 移除**（见 §4.3.1）：模型由程序按运营默许模型解析，`s2vConfig.voiceModel` 不再是用户可配置项，故不占 optionKey |
 
 **数值输入与开关（保持原生，走 `.form-input` 统一外观）**
 
@@ -965,3 +1096,94 @@ loadPipelineOptions():
 3. 门禁断言：`missing` 时 `canStartPipeline=false` 且阻断原因含“已丢失”；清除后恢复；`unknown` 不阻断。
 4. 修复断言：加入素材库成功后 `bgmPath` 为库内新路径、`s2vLegacyBgmPath===''`、状态 `idle`。
 5. 服务层 `inspectPath` 判定矩阵 8 例、IPC 2 例、preload/权限 1 例、composable 6 例全部通过。
+
+## 13. 声音区子分区布局与默认收缩契约（2026-10-18）
+
+> 本章与 §9、§11、§12 同级，是该能力的**实现合同**；完整 PRD（背景/交互/显示项/提示文字/测试/验收）
+> 见 `01-docs/PRD-S2V-VOICE-SECTION-LAYOUT-2026-10-18.md`。
+
+### 13.1 问题与根因
+
+用户报告：视频创作-故事讲述流水线详情页「声音」区选项布局乱。三类控件共居一个 `.s2v-field-grid`
+自适应栅格：
+
+| 症状 | 根因 |
+|------|------|
+| 「语音生成器」和「语音 / 音色 ID」混在一行 | 栅格 `repeat(auto-fit, minmax(min(280px,100%),1fr))` 按可用宽度自动分列，语义无关的字段被并排 |
+| 「背景音乐」和「背景音乐音量」与音色克隆同区 | 三者同属一个扁平栅格，无二级分组 |
+| 「音色复制 / 克隆」区域只占半行宽（与「背景音乐音量」并排） | `.config-span-2` 是 `grid-column: span 2`，在**多列** `auto-fit` 栅格里只跨 2 条轨道而非满宽；容器宽度恰好排 3 列时它就是半行宽 |
+
+**第一性根因**：`.config-span-2` 的「满宽」语义建立在「栅格恰好 2 列」这个**未声明的隐含前提**上。
+`auto-fit` 栅格的列数随容器宽度变化，于是同一个类在不同视口下呈现不同宽度——这不是样式写错，
+是**用列数相关的量（span N）表达列数无关的意图（满宽）**。
+
+### 13.2 分区结构（DOM 合同）
+
+「声音」折叠区内固定为三个子分区，顺序不可交换：
+
+| 顺序 | `data-testid` | locale key | 中文标题 | 内含控件 |
+|------|---------------|-----------|---------|---------|
+| 1 | `s2v-subgroup-voiceNarration` | `create.story2video.subgroups.voiceNarration` | 旁白设置 | 语音生成器、语音模型、语音 / 音色 ID |
+| 2 | `s2v-subgroup-voiceBgm` | `create.story2video.subgroups.voiceBgm` | 背景音乐 | 背景音乐（下拉 + 管理按钮 + 历史路径状态）、背景音乐音量 |
+| 3 | `s2v-subgroup-voiceClone` | `create.story2video.subgroups.voiceClone` | 音色复制 / 克隆 | 克隆面板（toggle + 样本选择 + 克隆列表）、个人音色槽位说明、未接入克隆能力提示 |
+
+- 子分区容器统一为 `<div class="s2v-subgroup" data-testid="...">`，标题为 `<h4 class="s2v-subgroup-title">`。
+- 每个子分区内部各有一个独立的 `.s2v-field-grid`，**子分区之间不得共享栅格**（这是防回退的机械判据）。
+- `optionKey`、`data-testid`、持久化字段全部不变（`voice.voiceProvider` / `voice.bgm` / `voice.bgmVolume` / `s2v-bgm-select` / `s2v-bgm-volume` / `s2v-bgm-manage-button` / `s2v-voice-clone-toggle` 等）。
+- `s2vVoiceCapability` 三分支（`provider_personal_slot` / `user_clone+enabled` / `user_clone+未启用`）全部归入克隆子分区，不得散落到其它分区。
+
+### 13.3 视觉分隔（UE）
+
+从 UE 角度，三个区域必须**在视觉上可辨认为独立单元**，而不只是文字标题不同。落地为三层：
+
+1. **卡片容器**：`.s2v-subgroup` 增加 `background` + `border` + `border-radius` + `padding`，与折叠区外壳（`.s2v-config-section`）形成「外壳 → 卡片」两级层次。
+2. **标题行**：`.s2v-subgroup-title` 保留虚线下边框，作为卡片内的节标题。
+3. **间距**：子分区之间 `margin-bottom` 12px；卡片内 `.s2v-field-grid` 去掉自身左右 padding（卡片已提供内缩），避免双重内缩。
+
+「高级」区原有的 `splitTiming` / `templateOutput` 两个子分区共用同一类名，因此**一并获得卡片样式**——
+这是本次「其他选项区域统一优化」的一部分，不单独建类。
+
+**样式落点**：以上规则写在 `src/styles/video-creation-forms.css`，**不写** `create-view.css`。
+后者受 `check-max-lines` 的 500 行上限（`NEW_OVER_LIMIT`，无增长容忍）与 `check-debt-budget`
+的 `filesOver500` 双重约束；把新样式加到 `create-view.css` 会同时踩红两条。
+`video-creation-forms.css` 的存在理由（见其文件头注释）本就是「不把 create-view.css 推过 500 行预算线」，
+这是该约定的第二次应用。
+
+### 13.4 默认收缩
+
+- `s2vOpenSections` 默认值：**仅 `basic` 展开**，其余（`appearance` / `videoEnhance` / `voice` / `advanced` / `publish`）全部收缩。
+- 该默认值同时作用于 `restoreS2VLastOptions` / `applyS2VConfigProfile` 的快照恢复：恢复时先显式复位到默认态，再只打开快照 `ui.expandedGroups` 里列出的分组。
+  **理由**：旧实现是「逐项置 true」，隐含依赖 data() 默认值恰好全关；一旦默认值变化（新增分组默认展开），旧写法会把上次的展开态漏成"全开"。
+- 像素基线影响：`create-story2video-detail` 截图路径中「声音」区本就收缩，故默认态**逐像素不变**，不重取证基线。
+
+### 13.5 交互与提示文字
+
+- 子分区标题为纯展示（`<h4>`），**不可点击**——折叠交互仍归外层 `<details>` 与内层克隆 toggle，不新增第三层折叠。
+- 无新增用户可见提示文字；三个子分区标题文案来自 locale（zh/en 成对新增 3 键）。
+- 「音色复制 / 克隆」子分区内保持既有全部文案（含 `voice-clone-pick-feedback` 的按钮文案时序：浏览文件期间只禁用不改文案）。
+
+### 13.6 数据校验与边界
+
+1. **不新增任何配置字段**：本次只改模板结构与 CSS，`s2vConfig` / `s2vOutputConfig` schema、持久化 payload、IPC 全部不变。
+2. **运营显隐语义不变**：`s2vOptionVisible('voice.bgmVolume')` 等守卫原样保留；子分区内字段被隐藏时，分区仍渲染（可能只剩标题行），不得把整个分区也藏掉。
+3. **窄屏**：`@media (max-width: 720px)` 下子分区卡片内边距收紧，栅格回落单列（与既有 `.s2v-field-grid` 窄屏规则叠加），不得出现横向溢出。
+4. **防撑宽不回退**：`voice-clone-layout-regression.test.js` 的既有断言（`minmax(min(200px,100%),1fr)` / `min-width:0` / `overflow-wrap:anywhere`）继续有效；克隆面板满宽后长不可断内容仍须换行。
+
+### 13.7 测试合同
+
+- 面板结构：`S2vConfigPanels.test.js` 断言三个子分区的**顺序 + testid + 归属**（`voiceNarration` 含语音生成器/音色ID、`voiceBgm` 含 bgm 三件套、`voiceClone` 含克隆 toggle 且**不含** `s2v-bgm-volume`）。
+- **层级（防嵌套）**：另有一条独立断言——三个子分区必须是 `details` 的**直接子节点**，且任一子分区的祖先链上不得再出现 `.s2v-subgroup`。**这条不可省**：`findAll('.s2v-subgroup')` 是深度优先，嵌套时顺序断言依然全绿（2026-10-18 实测：克隆区被嵌进背景音乐区，顺序与归属断言全过，只有层级断言抓到）。
+- 三分支归属：`provider_personal_slot` / `user_clone+enabled` / `user_clone+未启用` 均归克隆子分区。
+- 收缩态：`s2v-section-voice` 的 `open` 属性缺省。
+- 跨文件影响：`CreateView.test.js` 中「高级区两个子组」用例的标题断言须**限定在 `s2v-section-advanced` 内**（全页面 `findAll` 会把声音区三个子分区算进来）。
+- 像素：`create-story2video-detail`（浅色 + 暗色）在默认收缩态下逐字节不变。
+
+### 13.8 验收标准
+
+1. 展开「声音」区：三个子分区自上而下排列，各自为独立卡片（有底色 + 边框），**同宽满宽**（浏览器实测三者宽度集合只有一个值）；「音色复制 / 克隆」不再与「背景音乐音量」并排。
+2. 「高级」区两个子分区同样呈卡片态（统一优化生效）。
+3. 除「基础」外，五个折叠区默认全部收缩；恢复上次选项后仅快照列出的分组展开。
+4. 全部既有 `data-testid` / `optionKey` 可用，视觉回归 0 差异。
+5. locale zh/en 成对（`check-locale-sync --pair-base` + `--cjk` rc=0），无新增中文字面量。
+6. 三个子分区是同级的直接子节点（层级断言 + 浏览器 `parentElement` 链双重取证）。
+

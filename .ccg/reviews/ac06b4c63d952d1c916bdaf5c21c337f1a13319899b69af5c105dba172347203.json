@@ -1,0 +1,33 @@
+{
+  "sha": "37cf701b5c274c9ce017ad277de5cf82631bbb2d",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 1006 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 1006,
+    "fileCount": 26,
+    "codeFileCount": 15,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 6,
+    "docSensitiveContentHits": 8,
+    "docSensitiveContentSample": [
+      "│ 文字推理 默认模型：[el-select 限定]   │",
+      "│ TTS语音 默认模型：[el-select 限定]    │",
+      "| 前端输入 | `el-select` 限定 `models` 候选，`allow-create` 兜底 | 保存前前端二次校验（既有模式，`ModelPresets.vue:365`） |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "ac06b4c63d952d1c916bdaf5c21c337f1a13319899b69af5c105dba172347203",
+  "decidedAt": "2026-10-18T16:02:15.69Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "cleared",
+    "performedBy": "codex (manual cross-family review; 引擎自动跑失败 ETIMEDOUT，人工改用 codex exec 完成跨家族评审)",
+    "findings": "1 CRITICAL + 2 MAJOR + 3 MINOR（codex/OpenAI 家族评审 DeepSeek 家族产出）。全部处置如下：\n\nC1（CRITICAL，已修）：主进程 resolveProviderDefaultModel 的优先级是 user_default → default_model → capability_models → 兜底，而前端新实现把 capability_models 提到 default_model 之前。真实分歧点就在 minimax-multimodal：default_model=MiniMax-M2.7（llm 模型）与 tts=speech-2.8-turbo 并存时，主进程会把 LLM 模型当 TTS 返回。新建任务时前端显式传 params.voiceModel 掩盖了它，只有断点续跑 / 播客（__resumeUseCurrentModels）会踩到 → 恢复后 VOICE_NOT_IN_CATALOG / 调用失败。\n  处置（比评审建议更进一步，按意图修）：主进程改为 capability_models 先于 default_model，且多模态跳过 provider 级默认（该字段对多模态是 provider 主模型）。同步更新 model-provider-manager.resolve-default.test.js（用例 2/4 重写 + 新增 8b/8c 边界）；parity 锁补 4 条关键夹具（「多模态/单能力 能力默认与 provider 级默认均有效且不同」「多模态无 tts 声明但有 provider 级默认」「用户默认压倒一切」），并把源码锁改成校验**函数体内**的先后顺序。这正是原有 22 条夹具的缺口 —— 缺它则两条口径的分叉完全测不出来。\n\nM1（MAJOR，已修）：恢复路径不做 voiceModel 归一，只有 loadS2VProviders 归一。\n  处置：_applyS2VSnapshotObject 在 provider 有效时用 getS2VDefaultVoiceModel 重算、失效时清空；applyS2VPipelineDefaults 末尾同样重算（运营 pipeline_options 的 voice.voiceModel 不再绕过单一真源）。\n\nM2（MAJOR，已修）：运营中心校验的是「字符串化后的值」，落库的是原始值 → 非字符串 capability 默认值静默通过校验、运行期被忽略、总览却显示已配置。\n  处置：upsert_model_preset 对非字符串值直接 400「必须是字符串」；落库前统一 trim 成字符串（normalized_capability_models）；default_model 镜像也改用归一后的值。新增 2 条测试（拒绝 int/bool、落库 trim）。\n\nm2（MINOR，已修）：并发守卫 providerId trim 不对称（getS2VVoiceContext trim，s2vVoiceContextModel/守卫不 trim）→ 陈旧带空白 voiceProvider 会让结果被静默丢弃。处置：getS2VVoiceProvider 统一 trim 入参。\n\nm1（MINOR，按口径裁定后已消解）：多模态缺 capability_models.tts 但 config.default_model∈models 时仍会解析出非 TTS 模型。C1 修复时已加「多模态跳过 default_model」，m1 不再成立（parity 夹具「多模态无 tts 声明但有 provider 级默认」锁定返回空串）。\n\nm3（MINOR，接受并记录）：capability_overview 对 capabilities 里的未知能力键静默丢弃（运营 typo 不可见）。本期不改：能力键白名单属另一个面（ALLOWED_DOC_KEYS 已有 7 类），先在 PRD 记「总览只覆盖已知能力类别」；后续如需可加 ignored_capabilities 字段。",
+    "error": "spawnSync $HOME/.claude/bin/codeagent-wrapper.exe ETIMEDOUT",
+    "validationErrors": null,
+    "at": "2026-10-18T16:14:55.178Z"
+  }
+}

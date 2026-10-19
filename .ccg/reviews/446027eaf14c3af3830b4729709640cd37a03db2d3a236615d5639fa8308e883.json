@@ -1,0 +1,63 @@
+{
+  "sha": "131c0fff66966c477259d9ae10fadd9bae3c6d31",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 0 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 8,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": [
+      "\"01-docs/research/competitor-reverse-2026-10-13/derived/\\350\\236\\215\\345\\252\\222\\345\\256\\235-\\345\\211\\215\\347\\253\\257\\345\\212\\237\\350\\203\\275\\351\\235\\242\\346\\235\\203\\345\\250\\201\\346\\270\\205\\347\\202\\271.md\"",
+      "\"01-docs/research/competitor-reverse-2026-10-13/derived/\\350\\236\\215\\345\\252\\222\\345\\256\\235-\\347\\231\\276\\345\\272\\246\\351\\243\\216\\346\\216\\247verifyToken\\344\\270\\216\\346\\255\\273\\344\\273\\243\\347\\240\\201.md\"",
+      "\"01-docs/research/competitor-reverse-2026-10-13/derived/\\350\\236\\215\\345\\252\\222\\345\\256\\235-\\347\\255\\276\\345\\220\\215\\347\\256\\227\\346\\263\\225-a_bogus\\344\\270\\216SM3.md\"",
+      "\"01-docs/research/competitor-reverse-2026-10-13/derived/\\350\\236\\215\\345\\252\\222\\345\\256\\235-\\347\\255\\276\\345\\220\\215\\350\\260\\203\\345\\272\\246\\345\\261\\202-\\346\\263\\250\\345\\205\\245JS\\344\\270\\216\\346\\241\\245\\345\\245\\221\\347\\272\\246.md\"",
+      "\"01-docs/research/competitor-reverse-2026-10-13/\\344\\272\\244\\344\\273\\230\\347\\211\\251\\346\\200\\273\\347\\264\\242\\345\\274\\225.md\"",
+      "\"01-docs/research/competitor-reverse-2026-10-13/\\346\\267\\261\\346\\214\\226\\350\\241\\245\\345\\205\\205\\346\\212\\245\\345\\221\\212-\\347\\254\\2545\\350\\275\\256.md\"",
+      "\"01-docs/research/competitor-reverse-2026-10-13/\\350\\236\\215\\345\\252\\222\\345\\256\\235-\\345\\256\\214\\346\\225\\264\\346\\213\\206\\350\\247\\243.md\""
+    ]
+  },
+  "stagedDiffHash": "446027eaf14c3af3830b4729709640cd37a03db2d3a236615d5639fa8308e883",
+  "decidedAt": "2026-10-19T00:15:13.910Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

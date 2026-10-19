@@ -1,0 +1,28 @@
+{
+  "sha": "37cf701b5c274c9ce017ad277de5cf82631bbb2d",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 59 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 59,
+    "fileCount": 7,
+    "codeFileCount": 5,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": [
+      "\"01-docs/research/competitor-reverse-2026-10-13/derived/\\347\\253\\236\\345\\223\\201\\347\\274\\272\\351\\231\\267\\345\\220\\214\\345\\236\\213\\351\\243\\216\\351\\231\\251\\346\\270\\205\\345\\215\\225.md\""
+    ]
+  },
+  "stagedDiffHash": "9bce8ad9d4f55519d04920bc203298406f19b73a25c6df3f6d5fc7edb3344e25",
+  "decidedAt": "2026-10-18T13:12:49.774Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

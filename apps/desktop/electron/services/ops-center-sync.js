@@ -397,7 +397,7 @@ class OpsCenterSync {
       contentPolicy: state.contentPolicy || null,
       featureFlags: normalizeFeatureFlags(state.featureFlags),
       pipelineOptions: (state.pipelineOptions && typeof state.pipelineOptions === 'object') ? state.pipelineOptions : null,
-      appMenu: normalizeAppMenu(state.appMenu),
+      appMenu: normalizeAppMenu(state.appMenu, state.syncedAt), // config-hash-purity：块内已无 synced_at，时间戳取本状态顶层
       contentCategories: normalizeContentCategories(state.contentCategories).items, storyTextLimit: normalizeStoryTextLimit(state.storyTextLimit),
       syncedAt: state.syncedAt || '',
     }
@@ -560,7 +560,7 @@ class OpsCenterSync {
       contentPolicy: payload.content_policy && typeof payload.content_policy === 'object' ? payload.content_policy : null,
       featureFlags: normalizeFeatureFlags(payload.feature_flags),
       pipelineOptions: (payload.pipelineOptions && typeof payload.pipelineOptions === 'object') ? payload.pipelineOptions : null,
-      appMenu: normalizeAppMenu(payload.appMenu),
+      appMenu: normalizeAppMenu(payload.appMenu, payload.synced_at), // config-hash-purity：块内已无 synced_at，时间戳取信封顶层
       contentCategories: normalizeContentCategories(payload.contentCategories).items, storyTextLimit: normalizeStoryTextLimit(payload.storyTextLimit),
       syncedAt: payload.synced_at || (replay ? '' : new Date().toISOString()),
     }

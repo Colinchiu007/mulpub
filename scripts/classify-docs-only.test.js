@@ -40,7 +40,6 @@ test('CI_IGNORED_PATHS 清单内容被钉死（与 push paths-ignore 同源同�
     '.editorconfig',
     '.ccg/**',
     '.claude/**',
-    '.hermes/**',
     '.agents/**',
     // 质量节拍 vendored 制品树。前提锁：它的校验（契约镜像漂移锁）已搬进 changes job
     // 且整份 workflow 只出现一次，见下方对账表 `.quality-rhythm/**` 那一行。
@@ -87,7 +86,6 @@ test('全部文件命中白名单 => true', () => {
       'openspec/specs/ci-path-gating/spec.md',
       '.ccg/commands/frontend_task_id.md',
       '.claude/settings.json',
-      '.hermes/plans/x.md',
       '.agents/skills/y/SKILL.md',
     ]),
     true,
@@ -196,7 +194,6 @@ const GATE_COVERAGE_FOR_WHITELIST = [
   { pattern: '.ccg/**', noGate: '评审工具产物，无仓内门禁消费' },
   { pattern: '.adversarial/**', noGate: '对抗评审产物（proposal/critique/rebuttal/summary），纯 .md + .json，无可执行代码，无仓内门禁消费其内容' },
   { pattern: '.claude/**', noGate: '工具配置副本，无仓内门禁消费' },
-  { pattern: '.hermes/**', noGate: '计划存档目录，内容不做机器判定' },
   { pattern: '.agents/**', noGate: '上游技能制品副本目录，无仓内门禁消费' },
   { pattern: '.quality-rhythm/**', commands: MIRROR_CMDS,
     why: '该树里被仓内门禁**判定**的内容只有 vendored 契约镜像 spec-contract.md，其漂移锁必须住在不被 docs-only 短路的 changes job（AGENTS.md 进白名单前提锁）。另有两处引用不是"判定其内容"：check-unwired-tests.js 把整棵 .quality-rhythm/ 作为 VENDORED_MIRROR **排除集**引用（因此那 11 个可执行脚本不构成本次放行面），三个全量 workflow 的 push.paths-ignore 引用该 glob。全仓 workflow 正文不执行该树里的任何脚本' },

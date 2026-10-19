@@ -30,6 +30,10 @@ function buildMockContext(overrides) {
     _onWindowResize: vi.fn(),
     resize: vi.fn(),
     init: vi.fn(),
+    // 2026-10-18：OAuth 授权视图交给 WebviewManager 同步侧栏布局（漏接回归修复）
+    setOAuthManager: vi.fn(),
+    setSidebarWidth: vi.fn(),
+    setSidebarCollapsed: vi.fn(),
   })
   return Object.assign({
     authViewManager: mk(),
@@ -382,6 +386,15 @@ describe('window — createWindow', () => {
     createWindow(context)
     expect(context.oauthManager.setMainWindow).toHaveBeenCalledTimes(1)
     expect(context.oauthManager.registerIpcHandlers).toHaveBeenCalledTimes(1)
+  })
+
+  it('把 oauthManager 注入 webviewManager（回归：OAuth 视图漏接侧栏宽度/折叠态）', () => {
+    // 2026-10-18：oauth-manager._positionView 曾只传 1 参给 computeEmbeddedViewBounds，
+    // sidebarWidth 回落默认 200、collapsed 恒 false ⇒ 收起态下 OAuth 视图左侧留
+    // 200px 死区、跨 900px 断点后仍按 200 布局。装配链必须把它交给 WebviewManager 同步。
+    createWindow(context)
+    expect(context.webviewManager.setOAuthManager).toHaveBeenCalledTimes(1)
+    expect(context.webviewManager.setOAuthManager).toHaveBeenCalledWith(context.oauthManager)
   })
 
   it('调用 urlCollector.registerIpcHandlers（回归：35ae6224 误删导致 url-collect:fetch 无 handler）', () => {

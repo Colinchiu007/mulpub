@@ -1,7 +1,13 @@
 # MediaTaskMgr.dll 平台 API 端点清单（原生层提取）
 
 > 来源：REA `search .{4,} --kind strings` on `MediaTaskMgr.dll`（Ghidra 12.1.4）
-> URL 总数：**1339**（去重后按平台归并）
+> URL 总数：**1327**（去重后按平台归并）
+>
+> ⚠ **2026-10-19 更正**：本行原写「1339」，与实际内容不符。独立复核（严格正则 + 宽松正则两种口径）
+> 都得到 **1327 条、零重复**；并逐条比对 `MediaTaskMgr.dll` 原始字节，**1327 条全部可在 DLL 中找到**
+> （即**零编造**）。另有 20 条 DLL 里的 URL 是 XML DTD 命名空间（`w3.org` / `ibm.com`），本文已正确排除。
+> 差出的 12 条属计数笔误，非内容缺失。
+> 复现：`<REA_WORKSPACE>` 下的 `validate-platform-apis.cjs`。
 
 ---
 

@@ -183,7 +183,7 @@ test("常规：小规模无敏感命中 => single", () => {
 
 test("常规：决策层（方案文件）不按扩展名过滤规模", () => {
   const staged = makeStaged({
-    files: [{ file: ".hermes/plans/plan.md", added: 50, deleted: 0 }],
+    files: [{ file: "openspec/changes/x/proposal.md", added: 50, deleted: 0 }],
     proposal: true,
   });
   // 决策层的规模来自 staged.stats.changedLines
@@ -733,7 +733,7 @@ test('QM-6 i3：已闭环的同名记录不得被静默覆盖（否则 amend 抹
 test('QM-6 第二轮 i5：另存名必须全局唯一（同 sha 前缀不得互相覆盖）', () => {
   const src = fs.readFileSync(SRC, 'utf8').replace(/\r\n/g, '\n')
   assert.match(src, /-again-\$\{sha\}-/, 'alt 名必须含**完整** sha（首版只用 slice(0,8)，同前缀会互覆盖）')
-  assert.match(src, /toISOString\(\)\.replace\(\/\[:\.\]\/g, ""\)/, 'alt 名必须含时间戳，保证同一 sha 内也唯一')
+  assert.match(src, /toISOString\(\)\.replace\(\/\[:\.\]\/g, ""\)/, 'alt 时间戳形态由生产方决定（本条锁它的字面写法）；两处描述是否同源不由本条自证，而由下一条「跨模块命名对齐锁」拿真实产物名去问 AUDIT_ARTIFACT_RE')
 })
 
 test('QM-6 第三轮 i5：哈希算失败时不得静默回落父 sha（那正是要消灭的撞名）', () => {
@@ -912,4 +912,341 @@ test('QM-6 第四轮自查：git 调用失败时不得把 null 当成 diff 内�
     process.chdir(origCwd)
     fs.rmSync(dir, { recursive: true, force: true })
   }
+})
+
+// ══════════════════════════════════════════════════════════════════════════
+//  QM-6 评审后端可配置（change: qm6-review-backend-config，2026-10-18）
+//  动因：换 critic 的三种旋钮全部静默失效，而仓里把后端对抄成六份字面量 ——
+//  判定器说「两个后端都不可用」，入口体检仍按老名单，两边互不认账。
+// ══════════════════════════════════════════════════════════════════════════
+
+const RB_LIB = require(path.join(__dirname, 'lib', 'ccg-review-backends.js'))
+
+/** 用给定 env 造一个 detectBackends() 形状的对象，但不碰 PATH（PATH 结果因机而异）。 */
+function fakeBackends(env) {
+  const prev = { c: process.env.MP_QM6_CRITIC, p: process.env.MP_QM6_PROPOSER }
+  if (env.MP_QM6_CRITIC === undefined) delete process.env.MP_QM6_CRITIC
+  else process.env.MP_QM6_CRITIC = env.MP_QM6_CRITIC
+  if (env.MP_QM6_PROPOSER === undefined) delete process.env.MP_QM6_PROPOSER
+  else process.env.MP_QM6_PROPOSER = env.MP_QM6_PROPOSER
+  try {
+    const resolved = RB_LIB.resolveBackends()
+    const names = RB_LIB.backendNames(resolved)
+    const installed = env.installed || names
+    const byName = {}
+    for (const n of names) byName[n] = installed.includes(n)
+    return { names, byName, resolved, wrapper: 'x', wrapperExists: true }
+  } finally {
+    if (prev.c === undefined) delete process.env.MP_QM6_CRITIC
+    else process.env.MP_QM6_CRITIC = prev.c
+    if (prev.p === undefined) delete process.env.MP_QM6_PROPOSER
+    else process.env.MP_QM6_PROPOSER = prev.p
+  }
+}
+
+test('后端对文案必须由单一真源派生：换 critic 后目标串与覆盖提示都要跟着变', () => {
+  const f = decider.backendNoticeLines
+  assert.strictEqual(typeof f, 'function',
+    'backendNoticeLines 必须导出 —— 否则本锁退化成「读源码字面」，改文案就失配')
+
+  const dflt = f(fakeBackends({}), 'dual').join('\n')
+  assert.match(dflt, /双模型\(claude \+ opencode\)/, `默认必须报既有形态，实得：${dflt}`)
+  assert.doesNotMatch(dflt, /已被覆盖/, '未覆盖时不得凭空打「已被覆盖」')
+
+  const swapped = f(fakeBackends({ MP_QM6_CRITIC: 'codex' }), 'dual').join('\n')
+  assert.match(swapped, /双模型\(codex \+ opencode\)/, `换 critic 后目标串必须跟着变，实得：${swapped}`)
+  assert.doesNotMatch(swapped, /双模型\(claude/, '旧后端名不得残留在目标串里')
+  // 覆盖必须出声：静默的旋钮等于没旋钮（本次事故的第一手原因就是没有任何地方回显
+  // 「你以为的 critic 是谁」）。
+  assert.match(swapped, /评审后端已被覆盖/, '覆盖必须出声')
+  assert.match(swapped, /critic=codex\(env\)/, '出声必须点名来源档位（env/cli/default）')
+})
+
+test('同族单后端是显式配置，不得报成「少了一个后端」的降级', () => {
+  // needDistinct 判据的反直觉一侧：proposer===critic 时 names 只有一个元素，
+  // 若沿用旧的 `available.length < 2` 就会把「一个人干两份活」打成就绪度不足。
+  const same = fakeBackends({ MP_QM6_CRITIC: 'claude', MP_QM6_PROPOSER: 'claude' })
+  const out = decider.backendNoticeLines(same, 'dual').join('\n')
+  assert.doesNotMatch(out, /降级为单后端/, `同族单后端不得报降级，实得：${out}`)
+  assert.match(out, /后端就绪/, '同族单后端且该后端可用 ⇒ 必须照样报就绪')
+
+  // 反向：双后端里真缺一个 ⇒ 必须报降级（这条不把上面那条否证掉）
+  const half = fakeBackends({ installed: ['claude'] })
+  assert.match(decider.backendNoticeLines(half, 'dual').join('\n'), /降级为单后端 \+ 补一次 agent 自评/)
+})
+
+test('一个后端都不可用时的文案必须点名「探测了哪些名字」，不得写死「两个」', () => {
+  // 「两个后端 CLI 都不可用」这句里的量词是抄来的：换成单后端配置后它会说错数量，
+  // 而排查者会去找一个不存在的第二个后端。
+  const none = fakeBackends({ MP_QM6_CRITIC: 'codex', installed: [] })
+  const out = decider.backendNoticeLines(none, 'dual').join('\n')
+  assert.match(out, /都不可用/, '不可用分支必须保留')
+  assert.match(out, /已探测 codex \/ opencode/, `必须点名实际探测的名单，实得：${out}`)
+  assert.doesNotMatch(out, /两个后端/, '不得再写死量词「两个」')
+})
+
+test('detectBackends 的探测名单必须跟随配置（不能再固定成 claude/opencode 两个键）', () => {
+  const prev = { c: process.env.MP_QM6_CRITIC, p: process.env.MP_QM6_PROPOSER }
+  process.env.MP_QM6_CRITIC = 'codex'
+  try {
+    const b = decider.detectBackends()
+    assert.deepEqual(b.names, ['codex', 'opencode'], `名单必须跟着配置走，实得 ${JSON.stringify(b.names)}`)
+    assert.ok('codex' in b.byName, 'byName 必须按配置的名字建键')
+    assert.equal('claude' in b.byName, false, '配置里没写的后端不得再被探测（旧实现写死两个键）')
+    assert.equal(b.resolved.critic, 'codex')
+  } finally {
+    if (prev.c === undefined) delete process.env.MP_QM6_CRITIC
+    else process.env.MP_QM6_CRITIC = prev.c
+    if (prev.p === undefined) delete process.env.MP_QM6_PROPOSER
+    else process.env.MP_QM6_PROPOSER = prev.p
+  }
+})
+
+test('判定记录必须写下「本次请求的后端对」，否则换后端在机器上不留痕', () => {
+  // 这是本刀的关键落点：请求值落进记录后，check-pr-exec-record.js 才能拿它与
+  // 驱动回填的 deepReview.performedBy 对账。没有这一字段，「设了没生效」就只能靠人盯终端。
+  const { execFileSync } = require('node:child_process')
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `qm6-rec-${process.pid}-`))
+  const origCwd = process.cwd()
+  const prev = process.env.MP_QM6_CRITIC
+  try {
+    execFileSync('git', ['init', '-q'], { cwd: dir, stdio: 'pipe' })
+    execFileSync('git', ['config', 'user.email', 't@t'], { cwd: dir, stdio: 'pipe' })
+    execFileSync('git', ['config', 'user.name', 't'], { cwd: dir, stdio: 'pipe' })
+    fs.writeFileSync(path.join(dir, 'seed.txt'), 'seed\n')
+    execFileSync('git', ['add', '-A'], { cwd: dir, stdio: 'pipe' })
+    execFileSync('git', ['commit', '-q', '-m', 'seed'], { cwd: dir, stdio: 'pipe' })
+    process.chdir(dir)
+    process.env.MP_QM6_CRITIC = 'codex'
+    const SHA = 'a'.repeat(40)
+    const out = decider.saveRecord({ mode: 'dual', reason: 'probe', stats: {} }, SHA, 'diff', undefined)
+    assert.ok(out, 'saveRecord 必须返回落盘路径')
+    const rec = JSON.parse(fs.readFileSync(out, 'utf8'))
+    assert.ok(rec.reviewBackends, '记录必须含 reviewBackends 字段')
+    assert.equal(rec.reviewBackends.critic, 'codex')
+    assert.equal(rec.reviewBackends.from.critic, 'env', '必须记下来源档位，便于区分「谁设的」')
+    assert.equal(rec.reviewBackends.proposer, 'opencode')
+    assert.equal(rec.reviewBackends.overridden, true)
+  } finally {
+    process.chdir(origCwd)
+    if (prev === undefined) delete process.env.MP_QM6_CRITIC
+    else process.env.MP_QM6_CRITIC = prev
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('禁词锁：decider 代码里不得再出现写死的后端名字面量（剥注释后判）', () => {
+  // 必须剥注释：本文件与 lib 的说明文字里合法地出现这些名字（在说「过去是什么」），
+  // 不剥注释的禁词锁会恒假红 —— 这是本仓记过的同型错误（判据错，不是实现错）。
+  // 也不得连 ".claude" 这条路径一起误杀：它在引号里带点，判据按 "claude" 全引号匹配。
+  const raw = fs.readFileSync(SRC, 'utf8').replace(/\r\n/g, '\n')
+  const code = raw
+    .split('\n')
+    .filter((l) => !/^\s*\/\//.test(l))
+    .join('\n')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+  assert.doesNotMatch(code, /["'`]claude["'`]/, '不得出现 "claude" 字面量（名单只准来自 lib）')
+  assert.doesNotMatch(code, /["'`]opencode["'`]/, '不得出现 "opencode" 字面量（名单只准来自 lib）')
+  assert.match(code, /ccg-review-backends/, '必须引用单一真源模块')
+  // 反失明：剥注释确实生效了（原文里注释含 claude，代码里不该含）
+  assert.ok(/claude/.test(raw), '前提自证：源文件里应仍有 claude（在注释/路径里），否则本锁在测空集')
+  assert.ok(!/["'`]claude["'`]/.test(code), '前提自证：剥注释后的代码面应不含该字面量')
+})
+
+test('接线锁：两个入口脚本必须引用同一个后端真源，且不得自带名单', () => {
+  for (const name of ['deep-review.sh', 'plan-review.sh']) {
+    const sh = fs.readFileSync(path.join(__dirname, name), 'utf8')
+    assert.match(sh, /\.\s+"\$_self_dir_abs\/lib\/ccg-backends\.sh"/,
+      `${name} 必须经单一真源取后端名单，否则它仍会按老名单体检`)
+    // 反失明：确认这两份脚本里确实有「按后端循环」这件事，不是把引用加在一个空转的分支上
+    assert.match(sh, /report_backends/, `${name} 应仍有 report_backends 体检面`)
+  }
+})
+
+function toLfLocal (s) { return s.replace(/\r\n/g, '\n') }
+
+
+// ── QM-6 丙：来源意图必须是结构化字段（不靠 performedBy 散文）────────────────
+// 实测主干 827 份产物里 performedBy 有 34 种自由写法，其中 12 条以 "self-play" 开头
+// 却同时声明做过外部复核 ⇒ 任何按前缀分级的判据都会当场误判那 12 份。
+// 判据只能读 tier（闭集）+ evidence（出处），二者合取才算外部证据。
+test('丙：判定记录初始化必须带 tier=unknown 与 evidence=null（新记录天生带字段，不留空让人猜）', () => {
+  const init = decider.buildDeepReviewInit
+  assert.strictEqual(typeof init, 'function', '必须导出纯函数 buildDeepReviewInit（只 grep 源码的结构锁会被 if(false&&) 绕过，本仓已踩过）')
+  for (const m of ['dual', 'single']) {
+    const dr = init(m)
+    assert.strictEqual(dr.tier, 'unknown', 'mode=' + m + ' 的初始来源档必须是 unknown')
+    assert.strictEqual(dr.evidence, null, 'evidence 初始必须是 null，不得是空串（空串会被误当"已填")')
+    assert.strictEqual(dr.status, 'pending')
+    assert.strictEqual(dr.required, true)
+  }
+  assert.strictEqual(init('skip').required, false, 'skip 仍不得置 required（缺陷G 口径不变）')
+  assert.strictEqual(init('skip').tier, 'unknown', 'skip 也要有 tier 字段，否则下游要处理两种形状')
+})
+
+test('丙：saveRecord 必须真的用初始化函数（接线锁，防"字段定义了但没人写")', () => {
+  const src = toLfLocal(fs.readFileSync(path.join(__dirname, 'ccg-review-decider.js'), 'utf8'))
+  assert.match(src, /deepReview:\s*buildDeepReviewInit\(result\.mode\)/,
+    'saveRecord 必须调用 buildDeepReviewInit —— 手写字面量的话新增字段会在下一次被漏掉')
+})
+
+// ── QM-6 丙 3.x：降级资格以物证为准 ──────────────────────────────────────────
+// detectBackends()（:641）已经在算 {wrapperExists, claude, opencode}，但从未落进判定记录
+// ⇒ 「CLI 不可用」只能靠自述。规格里 D6 的落点就是把这份现场钉进产物。
+// 夹具沿用本文件既有的「真 git 仓库 + chdir + 真调 saveRecord」写法，不另起一套。
+function withTempGitRepo (fn) {
+  const os = require('node:os')
+  const { execFileSync } = require('node:child_process')
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'avail-lock-'))
+  const origCwd = process.cwd()
+  try {
+    // 必须是真 git 仓库且 index 干净：git diff --cached 为空 ⇒ 走「父 sha 命名」回落路径。
+    execFileSync('git', ['init', '-q'], { cwd: dir, stdio: 'pipe' })
+    execFileSync('git', ['config', 'user.email', 't@t'], { cwd: dir, stdio: 'pipe' })
+    execFileSync('git', ['config', 'user.name', 't'], { cwd: dir, stdio: 'pipe' })
+    fs.writeFileSync(path.join(dir, 'seed.txt'), 'seed' + String.fromCharCode(10))
+    execFileSync('git', ['add', '-A'], { cwd: dir, stdio: 'pipe' })
+    execFileSync('git', ['commit', '-q', '-m', 'seed'], { cwd: dir, stdio: 'pipe' })
+    process.chdir(dir)
+    return fn(dir)
+  } finally {
+    process.chdir(origCwd)
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+test('丙3.4 summarizeBackendAvailability：0/1/2 必须分档（1/2 与 2/2 不得同形）', () => {
+  const s = decider.summarizeBackendAvailability
+  assert.strictEqual(typeof s, 'function', '必须导出纯函数（内联在 saveRecord 里的话行为锁无从注入）')
+  const two = s({ wrapperExists: true, names: ['claude', 'opencode'], byName: { claude: true, opencode: true } })
+  const one = s({ wrapperExists: true, names: ['claude', 'opencode'], byName: { claude: true, opencode: false } })
+  const none = s({ wrapperExists: false, names: ['claude', 'opencode'], byName: { claude: false, opencode: false } })
+  assert.deepStrictEqual([two.count, one.count, none.count], [2, 1, 0])
+  assert.notDeepStrictEqual(two, one, '两档必须可区分 —— 只看"有没有"时 2/2 与 1/2 长成一个样')
+  assert.strictEqual(one.partial, true)
+  assert.strictEqual(two.partial, false)
+  assert.strictEqual(two.wrapperReady, true)
+  assert.strictEqual(none.wrapperReady, false)
+  assert.deepStrictEqual(none.backends, { wrapperExists: false, names: ['claude', 'opencode'], onPath: [] })
+})
+
+test('丙3.1 行为锁：saveRecord 必须把可用性写进记录（注入夹具，不碰本机 PATH）', () => {
+  withTempGitRepo(() => {
+    const written = decider.saveRecord(
+      { mode: 'dual', reason: 'probe', stats: {} }, 'a'.repeat(40), 'diff', undefined,
+      { wrapperExists: true, names: ['claude', 'opencode'], byName: { claude: true, opencode: false } }
+    )
+    assert.ok(written, 'saveRecord 应返回落盘路径')
+    const rec = JSON.parse(fs.readFileSync(written, 'utf8'))
+    assert.ok(rec.backendAvailability, '记录必须含 backendAvailability —— 否则"CLI 不可用"只能靠自述')
+    assert.strictEqual(rec.backendAvailability.count, 1)
+    assert.strictEqual(rec.backendAvailability.partial, true)
+    assert.deepStrictEqual(rec.backendAvailability.backends, { wrapperExists: true, names: ['claude', 'opencode'], onPath: ['claude'] })
+    assert.strictEqual(rec.deepReview.tier, 'unknown', '本轮初始化的 tier 不得被可用性落盘顺带改掉')
+  })
+})
+
+test('丙3.3 默认路径不得丢字段：不注入后端时也要写出可读的可用性', () => {
+  withTempGitRepo(() => {
+    const written = decider.saveRecord({ mode: 'single', reason: 'probe', stats: {} }, 'b'.repeat(40), 'diff', undefined)
+    const rec = JSON.parse(fs.readFileSync(written, 'utf8'))
+    assert.ok(rec.backendAvailability, '缺省调用也要有该字段，否则新记录形状分成两种')
+    assert.ok(Number.isInteger(rec.backendAvailability.count) && rec.backendAvailability.count >= 0 && rec.backendAvailability.count <= rec.backendAvailability.total, 'count 必须是 0..total 的整数，不得是 undefined 或布尔')
+    assert.strictEqual(typeof rec.backendAvailability.wrapperReady, 'boolean')
+    const expect = decider.summarizeBackendAvailability(decider.detectBackends())
+    assert.deepStrictEqual(rec.backendAvailability, expect,
+      '默认路径必须真的探测一次 —— 把 detectBackends 回退摘掉就会写成全 false，与本机现场不符')
+    // 反真空留痕：若这台机器两个后端都没装，上一条会因「两边都是 0/false」而恒真 ⇒ 必须打印现场，
+    // 让读者看见它到底测到了什么（同仓规矩：每次跑要打印走的是哪条支路 + 关键实测值）。
+    console.log('  [avail] 默认路径现场 count=' + expect.count + ' wrapperReady=' + expect.wrapperReady +
+      ' names=' + expect.backends.names.join(',') + ' onPath=' + (expect.backends.onPath.join(',') || 'none'))
+  })
+})
+
+test('丙3.2 接线锁：main 必须把已算出的 backends 传给 saveRecord', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'ccg-review-decider.js'), 'utf8').replace(/\r\n/g, '\n')
+  assert.match(src, /saveRecord\(\s*result,\s*sha,[\s\S]{0,90}staged\.plannedFiles,\s*backends\s*\)/,
+    '调用点漏传 backends ⇒ 记录里的可用性来自第二次探测，与判定时的现场不是同一份（本机 PATH 中途变了就漂移）')
+})
+
+// ── 2026-10-17 后端命中：saveRecord 不得把「读不动」当成「没有」而覆盖既有评审证据 ────
+test('后端命中：同名记录存在但解析不动 ⇒ 逐字节保留它、本次另存 alt、且出声', () => {
+  withTempGitRepo(() => {
+    const first = decider.saveRecord(
+      { mode: 'dual', reason: 'probe-1', stats: {} }, 'c'.repeat(40), 'diff', undefined,
+      { wrapperExists: true, claude: true, opencode: true }
+    )
+    assert.ok(first, '首次落盘必须有路径')
+    const corrupt = '{"mode":"dual","deepReview":{"status":"clea'
+    fs.writeFileSync(first, corrupt, 'utf8')
+
+    const logs = []
+    const orig = console.log
+    console.log = (m) => { logs.push(String(m)) }
+    let second
+    try {
+      second = decider.saveRecord(
+        { mode: 'dual', reason: 'probe-2', stats: {} }, 'c'.repeat(40), 'diff', undefined,
+        { wrapperExists: true, claude: true, opencode: true }
+      )
+    } finally { console.log = orig }
+
+    assert.strictEqual(fs.readFileSync(first, 'utf8'), corrupt,
+      '损坏的既有记录必须逐字节原样保留 —— 覆盖它等于销毁已交付的评审证据（status/findings 都在那份里）')
+    assert.notStrictEqual(second, first, '本次判定必须落到 alt 路径，而不是原地覆盖')
+    assert.match(path.basename(second), /-again-/, 'alt 命名必须沿用既有 -again- 形态，便于扫描域认出')
+    assert.ok(logs.some((l) => /解析不动/.test(l)), '降级方向必须出声，不得静默改道')
+  })
+})
+
+// ── 跨模块命名对齐锁（2026-10-17 前端轴命中，实测后果比命中本身更硬）──────────────
+// 生产者 alt 名与扫描域形态表从来就没对上：旧实现 .replace(/[:.]/g,'') 留着 ISO 的连字符，
+// 产出 `-again-<40hex>-2026-10-17T025039620Z`，而 AUDIT_ARTIFACT_RE 要的是 `20261017T091333.123Z`。
+// 主干现存的真件即旧形态（git ls-tree origin/main -- .ccg/reviews 可复取），故 alt 从未参与欠账判定。
+const gateNaming = require('./check-pr-exec-record.js')
+
+test('跨模块命名对齐锁：生产者写出的 alt 文件名必须被扫描域的形态表认出', () => {
+  withTempGitRepo(() => {
+    const first = decider.saveRecord(
+      { mode: 'dual', reason: 'p1', stats: {} }, 'e'.repeat(40), 'diff', undefined,
+      { wrapperExists: true, claude: true, opencode: true }
+    )
+    const rec = JSON.parse(fs.readFileSync(first, 'utf8'))
+    rec.deepReview = { required: true, status: 'cleared', tier: 'external', evidence: 'ses_probe0001', performedBy: 'claude', findings: [] }
+    fs.writeFileSync(first, JSON.stringify(rec), 'utf8')
+
+    const alt = decider.saveRecord(
+      { mode: 'dual', reason: 'p2', stats: {} }, 'e'.repeat(40), 'diff', undefined,
+      { wrapperExists: true, claude: true, opencode: true }
+    )
+    assert.notStrictEqual(alt, first, '既有记录已闭环 ⇒ 第二次必须另存 alt')
+    assert.match(path.basename(alt), /-again-/, 'alt 必须沿用 -again- 形态')
+    assert.ok(gateNaming.AUDIT_ARTIFACT_RE.test('.ccg/reviews/' + path.basename(alt)),
+      `alt 产物必须被扫描域认出，否则它不参与欠账判定：${path.basename(alt)}`)
+  })
+})
+
+// ── 现场形状契约锁（2026-10-17 rebase 到 #3927 之后发现的真缺陷）───────────────────
+// 现场事实：detectBackends() 的返回形状变成 { wrapper, wrapperExists, resolved, names, byName } 后，
+// 旧的 summarizeBackendAvailability 仍读 b.claude / b.opencode ⇒ 本机明明两个后端都可用，
+// 写进判定记录的却是 count=0。丙3.3 那条"和自己推导比一次"的断言两侧同错，完全看不出来。
+test('现场形状契约锁：可用性汇总必须由 detectBackends 的真实字段推导（夹具不得替对方把数算好）', () => {
+  const live = decider.detectBackends()
+  assert.ok(Array.isArray(live.names) && live.names.length >= 1,
+    `名单必须非空（探测名单来自单一真源 list），实际=${JSON.stringify(live.names)}`)
+  assert.deepStrictEqual([...Object.keys(live.byName)].sort(), [...live.names].sort(),
+    'byName 必须逐个覆盖名单 —— 有名字没被探过就等于"没测"')
+
+  const s = decider.summarizeBackendAvailability(live)
+  const expected = live.names.filter((n) => live.byName[n] === true)
+  console.log('  [现场形状] names=' + live.names.join(',') + ' byName=' + JSON.stringify(live.byName) +
+    ' ⇒ count=' + s.count + '/' + s.total + ' wrapperReady=' + s.wrapperReady)
+  assert.strictEqual(s.count, expected.length, 'count 必须由真实 byName 推导，不是由夹具里的两个布尔推导')
+  assert.strictEqual(s.total, live.names.length, '分母必须等于本轮真要用的后端数')
+  assert.deepStrictEqual(s.backends.onPath, expected, 'onPath 必须逐字等于探测命中集')
+
+  // 反向锁：旧形状交进来必须得 0 —— 这不是兼容层，而是把「读错形状 = 静默失明」钉成可见事实
+  const legacy = decider.summarizeBackendAvailability({ wrapperExists: true, claude: true, opencode: true })
+  assert.strictEqual(legacy.count, 0, '旧形状里没有 names ⇒ 汇总必须得 0；这正说明当初写进记录的 count=0 是读错形状，不是后端真不可用')
+  assert.strictEqual(legacy.total, 0, '分母同样为 0，不得凭空算成 2')
 })

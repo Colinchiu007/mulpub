@@ -1,0 +1,48 @@
+{
+  "sha": "3eb1ffafe12bfa5ef69b3a14ae7c45293b9da5a2",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 166 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 166,
+    "fileCount": 2,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "ad6532ccef78da215e5c5bbb2be3afb522ee7b71d85bb5f2d8b3d5736678f761",
+  "decidedAt": "2026-10-18T12:30:58.479Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play(agent)",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "domains": [
+          "crypto"
+        ]
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "domains": [
+          "crypto"
+        ]
+      }
+    ],
+    "findings": null,
+    "template": ".adversarial\\ccg-deep-48c48093\\adjudication.json",
+    "note": "裁决尚未填写：6/6 条未定（i1, i2, i3, i4, i5, i6）",
+    "at": "2026-10-18T12:37:57.722Z",
+    "adjudicationTemplateLocal": ".adversarial/ccg-deep-48c48093/adjudication.json",
+    "evidenceInRepo": "openspec/records/video-publish-4.md §八 + video-publish-4-r2.md §十（入库可审计）"
+  }
+}

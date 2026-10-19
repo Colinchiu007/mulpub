@@ -1,5 +1,9 @@
 # PRD：QG Coverage 预算常量取证化（coverage-timeout-provenance，2026-10-18）
 
+> **修订 2026-10-19（change: `coverage-budget-inflight`）**：`timeout-minutes` 由 **60 复测重定为 65**，
+> 并修掉采样器把「在飞作业」误判成「漏样」从而**永远拒绝采样**的缺陷。**当前生效值以第 8 节与
+> `scripts/lib/coverage-budget-provenance.js` 为准**；第 1–7 节保留 2026-10-18 的原始现场与推导，不追改历史。
+
 ## 1. 这片修什么
 
 `.github/workflows/quality-gate.yml` 的 `coverage` 作业带 `timeout-minutes: 40`，而**没有任何东西在看这个数够不够**。
@@ -110,3 +114,91 @@ PROVENANCE_VALUE_DRIFT provenance 记的数值 ≠ workflow 那一格的实际�
   把它们一次性收进同一张表是更大的改动（要逐作业采集），按"先修有证据的"排序留作后续。
 - 抬到 60 的代价写在明处：该作业的**最坏耗时上界**从 40 变 60 分钟，PR 侧排队时长随之变长。
   这是"证据完整"与"合入延迟"的交换，由用户 2026-10-18 授权（原话「要动」）。
+
+## 8. 2026-10-19 复测重定数：60 → 65，并修掉「永远拒绝采样」（change: coverage-budget-inflight）
+
+### 8.1 触发
+
+用户 2026-10-19 明确授权放宽该预算常量（原话「要」）。但真正动手前先做复测，因为第 7 节已挂出
+一条欠账：**"60 够不够"当时只有一个 ×1.5 规则撑着，没有截距证据反向确认过**。
+
+### 8.2 复测发现两件事（都不是原来假设的那件）
+
+| 发现 | 现场读数 | 结论 |
+| --- | --- | --- |
+| **60 已经欠了** | 干净窗口 success 53 条，尾部 40.6 / 40.7 / 40.8 / 41 / 41.3 / **43.3**（p90 41.4）⇒ `ceil(43.3 × 1.5) = 65` | 60 < 65，已低于本仓自己那条 ×1.5 规则；没红只是因为真源里还记着旧窗口的 39.7 |
+| **采样器永远拒绝** | `--limit=60` 连续三次 `rc=2`：`in_flight` 之外还报「有 8~9 趟活跃作业取不到时长 ⇒ 取数漏样，先修采集再谈预算」；逐 run 取证后那 8~9 趟**全部是 queued / in_progress**，同窗口"已完成却无时长"的真漏样为 **0 趟** | 旧口径把「还没观测到」混同成「观测失败」⇒ 只要仓库有 CI 在跑就永远调不了预算 |
+
+第二条是**工具失明**而不是数据缺失：它的方向与"把失明读成结论"相反，但后果同型——判据从此不可用。
+
+### 8.3 采样器的修复（`scripts/coverage-budget-sample.js`）
+
+1. **字段级**：`collect()` 增记 `status`；`summarize()` 新增 `inFlight` 一格，`noDuration` **只数「已跑完却没读到时长」**。
+   在飞不计入 `noDuration`、也不进 `samples`/`max`/`p90`（它本来就不是样本）。
+2. **决策级**：退出码判断从 `main()` 里那行 `if (sum.noDuration > 0)` 抽成纯函数 `refusalCode(sum, probeErrors)`，
+   语义三档不变：`2` = 采集不可信（probe 失败 / 真漏样）；`1` = 采到但零成功样本；`0` = 可用于调预算。
+   `inFlight` **不参与**任何一档。
+3. **显示项（用户可见文案）**：汇总行新增 `in_flight=`；漏样告警改为
+   「有 N 趟**已跑完**却取不到时长 —— 这是取数漏样…（在飞 M 趟不计入此列：它们还没跑完，不是漏样）」。
+   静默剔除是不允许的：分母不可见就等于把"剔除了多少"这件事藏起来。
+4. **反向不许被顺手放宽**：`completed` 却无时长仍是漏样、照样阻断（锁 15 双向对偶）。
+
+### 8.4 新读数（`node scripts/coverage-budget-sample.js --limit=120`）
+
+```
+runs_listed=120  有该作业=118  按设计跳过=25  活跃=93
+in_flight=9  取不到时长=0（在飞已被正确排除）  有时长=84  无该作业=2  probe_errors=0  ceiling=60
+候选 provenance: samples=53  max=43.3  p90=41.4  censoredAtCeiling=0  collectedAt=2026-10-18
+```
+
+对账门禁读数：`timeout=65 需≥65 余量=0 分 floor=43.3 samples=53 max=43.3 p90=41.4 censored_at_ceiling=0 ⇒ OK`。
+
+**窗口为什么从 60 扩到 120**：60 趟窗口里 success 只剩 16 条，低于 `MIN_SAMPLES=20`。
+那不是"预算够用"，是"样本不够下结论"——扩窗而不是凑数。
+
+**`collectedAt` 为什么是 10-18 而不是本地日 10-19**：采样器写的是 UTC 日期
+（`new Date().toISOString().slice(0,10)`），本次采集发生在 2026-10-19 01:50 CST = 2026-10-18 17:50Z。
+写成本地日会得到 `age_days=-1`（负龄看着像时钟 bug），且与"再跑一次复测"的输出对不上。
+
+### 8.5 变异反证（5 道全指名红；含一次 NOT_CAUGHT 的留痕）
+
+| 变异 | 内容 | 结果 |
+| --- | --- | --- |
+| M1 | 复原旧口径：在飞也算漏样 | 锁 14 / 15 红 |
+| M2 | `collect()` 不再带 `status` | 锁 16 红 |
+| M3 | 架空阻断：`if (false && sum.noDuration > 0)` | **首轮 NOT_CAUGHT** —— 当时的锁 16 只有正则 `/sum\.noDuration\s*>\s*0/`，短路符照样匹配 |
+| M3' | 同上，改打在 `refusalCode` 上 | 锁 16 红（重构后） |
+| M4 | `refusalCode` 把在飞也判阻断（旧口径在决策层复原） | 锁 16 红 |
+| M5 | `probe_errors` 不再阻断（不完整采集被当可用） | 锁 16 红 |
+
+**M3 这次 NOT_CAUGHT 是本片最有价值的一条**：它证明"结构锁看不出条件被短路"。
+处置不是补一条更花哨的正则，而是把决策抽成纯函数、改成**行为断言**——
+`refusalCode({noDuration:1,...}, 0) === 2` 这种形状，短路符绕不过去。
+（同型教训：判据落在"源码长什么样"上，就永远防不住"长得对但行为空"。）
+
+### 8.6 给下一个维护者的操作步骤
+
+```
+# 1) 复测（窗口按 MIN_SAMPLES 决定，别为了省时间缩窗）
+node scripts/coverage-budget-sample.js --limit=120
+#    期望末行：[COVERAGE-BUDGET] OK samples=… max=… p90=… censored_at_ceiling=…
+#    rc=2 且提示 probe_errors>0 ⇒ 网络/gh 抖动，重跑；提示"No 趟已跑完却取不到时长" ⇒ 真漏样，先修采集
+# 2) 用输出里的 collectedAt / samples / maxMinutes / p90Minutes / censoredAtCeiling 逐字更新
+#    scripts/lib/coverage-budget-provenance.js 的 PROVENANCE
+# 3) 新 timeout = ceil(floor × 1.5)，floor = max(成功最大, 有被杀趟时的天花板)
+#    同时更新 PROVENANCE.timeoutMinutes 与 .github/workflows/quality-gate.yml 的 timeout-minutes（两处必须同值）
+# 4) 对账：node scripts/check-coverage-budget.js        # 必须 rc=0
+#    锁：  node --test scripts/check-coverage-budget.test.js
+```
+
+### 8.7 遗留（不假装已闭合）
+
+- **`余量=0`**：65 恰好等于 `ceil(43.3 × 1.5)`，与上一代 60 = `ceil(39.7 × 1.5)` 同一风格（贴着规则下界）。
+  仍未被截尾证据反向确认过：本窗口 `censoredAtCeiling=0`，即"65 这条天花板还没有任何数据"。
+  第一次能回答它的时间点是攒够一轮跑在 65 下的样本后复测。
+- **耗时仍在涨**（窗口内 max 从 39.7 → 43.3）。若下一轮再涨，65 会再次变成"贴着"状态；
+  HUGGING 警报（max ≥ 0.9 × timeout，即 ≥ 58.5）会先叫，但那需要有人去看那条读数。
+- **`MIN_SAMPLES = 20` 与另外三个"=20"** 同值不同事，**不得随手统一**（理由见第 7 节）。
+- 其余 9 个 `timeout-minutes` 字面量仍是无对账的裸常量（同第 7 节，本片未扩大治理面）。
+- 抬到 65 的代价：该作业最坏耗时上界从 60 变 65 分钟，PR 侧排队随之变长。由用户 2026-10-19 授权（原话「要」）。
+

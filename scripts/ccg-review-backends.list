@@ -1,0 +1,15 @@
+# QM-6 深度评审的后端对 —— 单一真源（change: qm6-review-backend-config）
+#
+# 第一行 = critic（评审/挑刺主力），第二行 = proposer（出修订方案 / 跨家族对照）。
+# 有效行必须是裸后端名，不要加引号或空格；以 # 开头的行与空行被忽略。
+#
+# 读取方有两个：scripts/lib/ccg-review-backends.js（node，判定器与记录用）与
+# scripts/deep-review.sh 里的纯 shell 读取（--check-deps 刻意不依赖 node，
+# 因为「node 本身坏了」正是那道诊断入口要能回答的场景）。
+# 两个读取方必须逐字给出同一份名单，对账锁见 scripts/deep-review-deps.test.js。
+#
+# 临时换后端（不改本文件）：
+#   MP_QM6_CRITIC=codex sh scripts/deep-review.sh
+#   sh scripts/deep-review.sh --critic codex
+claude
+opencode

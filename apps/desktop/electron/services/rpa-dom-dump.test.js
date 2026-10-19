@@ -187,6 +187,19 @@ describe('rpa-dom-dump — 第二轮自扮演裁决整改（i1/i2/i3/i5）', () 
     expect(COLLECT_SCRIPT).not.toMatch(/text:cut\(e\.innerText,40\)/)
   })
 
+  it('i3（第四轮收紧）：preview 只在文本**整串等于**词表词时非空（包含匹配会泄露用户内容）', () => {
+    // 旧实现 `VOCAB.test(t)` 是**包含**匹配 ⇒「提交个人信息：13800138000」含「提交」，
+    // 会把用户内容写进落盘 JSON。新实现要求整串相等。
+    expect(COLLECT_SCRIPT).toContain('vocabHas')
+    expect(COLLECT_SCRIPT).toContain('VOCAB[i]===t')
+    expect(COLLECT_SCRIPT).not.toMatch(/VOCAB\.test\(/)
+  })
+
+  it('i3（第四轮收紧）：preview 截断长度降到 20（更小的泄露面）', () => {
+    expect(COLLECT_SCRIPT).toContain('cut(e.innerText,20)')
+    expect(COLLECT_SCRIPT).not.toContain('cut(e.innerText,40)')
+  })
+
   it('i5：采集脚本可被解析（语法守卫），不会把语法错误带进页面', () => {
     expect(() => new Function('return (' + COLLECT_SCRIPT + ')')).not.toThrow()
   })

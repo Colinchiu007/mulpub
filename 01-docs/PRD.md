@@ -292,6 +292,7 @@ fail-open），每场景附加 `subtitleTimeline`（真实词级时间 + charTim
 **字幕分割质量护栏（双实现共享，splitter v0.14.2 起）**：
 - **min_chars 不变量**：每块清理后长度 ≥ min_chars；例外（独立短句/标点或空格边界短片段/≤3 字合法短尾）必须在共享向量 `subtitle_segmentation_vectors.json` 的 `short_block_exceptions` 中显式声明（含 reason）；无标点硬切产生的孤悬尾块视为违规，按 Step 3/6 平衡切分（如 15+4 → 11+8）；
 - **语义引导词优先（v1.2.4）**：`已经`、`依然` 等成词副词优先把切点前移到副词前，让前块带走完整名词短语、后块以副词开头（如 `底层农民的实际负担｜依然重得吓人`）；5-6 字语义短尾必须在共享向量 `short_block_exceptions` 显式声明。
+- **短语边界感知切分（v1.3）**：无标点长块硬切时优先落在共享规则表 `word_split.phrase_boundary.pairs` 登记的**显式成对短语右边界**——切点判定 = 块以某 pair 的 `left` 逐字结尾、且紧随其后的字符命中该 pair 的 `next`。仅单侧命中不构成边界（避免把「某|些」「票仓的|无奈」这类受保护词内部误判为边界）。短语边界与优先级标点等价，在 Step 3 累积阶段即兑现，不等 MAX 分支兜底（那里合法窗口已错过最佳切点，会退化为算术位置裸切）。短语边界路径的头块允许放宽到 `min_chars - min_head_relax`（默认 2），尾块仍 ≥ `min_chars`；放宽产生的 `< min_chars` 头块必须在共享向量 `short_block_exceptions` 显式声明。规则表缺省 `phrase_boundary` 段时行为与 v1.2 完全一致（向后兼容）。修复了 11 处真实文案坏切（如 `是选举年为了拉拢某｜些特定票仓的` → `是选举年为了｜拉拢某些特定票仓的`）。
 - **时间戳严格连续**：proportional/equal 均要求 `start_i == round(start_{i-1} + duration_{i-1}, 2)`（舍入后累加），禁止 0.01s 级间隙/重叠；`start_time`/`duration` 保留 2 位小数（**四舍五入 half-up**，`floor(x*100+0.5)/100` 与 `Math.round(x*100)/100` 语义一致，禁止 Python 原生 `round()`——银行家舍入会在 .xx5 边界与 TS 产生 0.01s 级分歧）；
 - **向量双轨管理（防自证陷阱）**：`expected_blocks` 必须为手工真值（按规范人工推导后再与实现输出核对），禁止直接把实现输出写入向量——否则实现与向量共同漂移，测试失去拦截力。
 #### 7.1.2 文案边界与用户提示合同| 合同 | 要求 ||------|------|| 文案输入 | Story2Video 只接受文案输入；按 Unicode code point 计数，最多 6,000 个中文、英文或 emoji 字符；不以场景数量限制用户输入 || 前后端一致性 | Renderer 在调用 IPC 前拦截超限文案，主进程 normalizer 以同一 6,000 字符规则再次校验；后端直接调用不得绕过该限制 || 反馈呈现 | Story2Video 的编排错误、文件校验错误与结果页错误统一使用应用内模态框；页面不重复渲染同一错误，也不得直接显示服务端技术错误 || 本地化 | 消息以稳定的消息键和参数存储，默认中文；当前提供中文和英文目录，未知技术错误必须回退到友好的本地化通用说明 |#### 7.1.3 故事讲述自动执行与表单边界`story2video-compose` 是历史、IPC、项目清单和执行器使用的稳定机器 ID，**不得改名**；仅产品显示层使用 locale资源，默认中文显示“故事讲述”，英文显示“Story Telling”（2026-08-14 更名，原名“全能创作 / Omni Creation”，再早“图片轮播 / Image Carousel”）。所有阶段、类别、状态和操作文字必须使用同一套 localekey，未知内部 ID 只能回退为原始 ID。| 范围 | 产品合同 ||------|----------|| 六阶段 | 文案拆分 → 内容增强 → 画面提示词优化 → 图片/视频/旁白生成 → 合成轮播视频 → 发布（未启用时明确为 `skipped`）。用户确认后固定 `autoAdvance=true` 与 `checkpointPolicy='none'`，不提供人工 checkpoint、继续或推进操作。 || 运行反馈 | 图片轮播只使用条目式阶段清单显示 `pending/running/completed/skipped/failed/needs_user_input` 与可读摘要；不渲染 S2V 百分比进度作为反馈。取消入口保留。 || 进度区固定（2026-08-09） | 流水线运行/结束期间，**进度头部固定**：进度条 + 百分比 + 已用时（+ 完成摘要）使用 `position: sticky; top: 0` 固定在主内容区（`.cohere-main`）顶部，不随页面滚动离开视口；背景使用主题 `--bg`（明暗主题一致），贴顶时底部圆角 + 轻阴影与阶段明细分隔。阶段明细列表（stage-item）仍随内容正常滚动，避免整块进度区（阶段较多时）遮挡下方输入/配置区。 || 内容政策耗尽 | `needs_user_input` 不是可推进的通用 checkpoint。用户必须先取消旧运行，再以修改后的文案创建新运行；不得在原 run 上继续、恢复或用占位图伪造成功。 || 受控默认 | 分句语言默认“自动识别”；音调、并发数和创意强度不在图片轮播表单展示，只能使用版本化、可审计、可回滚的受控默认值。 || 两类风格 | 图片风格决定图片供应商输出的视觉审美；提示词风格决定优化器如何组织、表达画面提示词。两项必须同时保留，不能因枚举相似而合并。 |
@@ -2930,6 +2931,31 @@ videogen 系列（animation AI 讲解动画 / avatar-spokesperson 数字人口�
 
 **已知限制（2026-08-15）**：历史列表 5s 轮询仅在有 running 任务时启动，失败/暂停任务在应用空闲时不自动刷新；同会话内由 `refreshRunningHistory` 的终态转换触发完整重载，跨会话以进入历史页时的 `loadHistory` 为准。
 
+
+#### 7.1.39 视频任务编辑页模型信息展示合同（2026-10-18）
+
+| 项目 | 合同 |
+|---|---|
+| 显示位置 | 视频预览下方视频信息区，与「格式：MP4」**同一行**（同一 `<p>` 内联分隔符连接），容器宽度不足时由浏览器自然折行；不得用 JS 测宽或 CSS 媒体查询决定换行。 |
+| 显示项 | 文本模型、语音模型、图片模型、视频模型，固定顺序，` · ` 分隔。文案 zh/en 成对（`create.story2video.modelInfo.{textModel,voiceModel,imageModel,videoModel}`）。 |
+| 「格式」标签 locale 化 | 原 `ResultView.vue` 里硬编码的「格式: 」随本次抽组件一并收口为 `create.story2video.modelInfo.format`。**动因是 CJK 基线按文件路径匹配**：含中文的代码从一个文件搬到另一个文件会凭空造出「新增硬编码」红（代码一字未改）。不得为它去改 CJK 基线。 |
+| 视频模型显隐 | 双重门控：`project.story2videoTextConfig.config.video.mode` ∈ {`fixed`,`ai-judged`} **且** 解析值非空才显示；`off`/缺省一律不显示（不是显示"未使用"）。门控字段与 `pipeline-model-preflight` 的 video 能力需求判定同源。**门控字段不在 `options`**：`_safeOptions` 白名单不含任何 video 键，读 `options.videoMode` 会恒得 `undefined` ⇒ 本项恒不显示（2026-10-19 change `s2v-video-model-source` 修正；`options.videoMode/videoModel/videoProvider` 仅作历史清单兼容兜底）。 |
+| 视频模型取值 | `segments[].videoMeta.model` → `.provider` → `story2videoTextConfig.config.video.model` → `.provider` → `options.videoModel` → `options.videoProvider`。`safeAssetMeta` 落盘时保留 `videoMeta` 的 `provider`/`model`，故「实际执行 > 配置」口径在视频侧同样成立。 |
+| 取值优先级 | `segments[].*Meta`（provider 实际返回值）优先于 `project.options`（用户提交意图）；`model` 优先于 `provider`，provider 仅在 model 缺失时兜底。文本模型取 `segments[].promptOptimizationMeta.model_used`。 |
+| 落盘链路 | `optimize` 阶段的 `model_used` 等白名单 meta 由 `story2video-stages.js` 的 `generate_assets` 透传到 `scene.promptOptimizationMeta`，经 `Story2VideoProjectService._persistComposeArtifacts` 的既有 `safePromptOptimizationMeta` 白名单落盘；service 侧不新增字段。 |
+| 白名单字段 | `strategy_used` / `key_source` / `cache_hit` / `model_used` / `caller` / `platform` / `style`；`optimized_prompt`、`truncated`、`optimize_note`、`degraded` 等流水线内部状态**不得**透传。 |
+| 降级如实呈现 | `strategy_used=template`（限流降级）时 `model_used` 为 `template`，展示 `template` 而**不得粉饰**为具体模型名。 |
+| 空态契约 | 四项全空时模型摘要整段不渲染、不输出分隔符，视频信息区 DOM 与改动前同形（「格式: MP4」一行）。 |
+| 脏数据防御 | `project`/`options`/`segments`/各 `*Meta` 为 null、非对象、非数组或空白串时，对应项视为缺失；不得抛错、不得渲染空壳标签（「文本模型: 」后无值）。 |
+| 纯文件预览模式 | 无 `project` 对象（仅 `path` query）时模型信息条整体不渲染。 |
+| 老项目兼容 | 无 `promptOptimizationMeta` 的老项目不渲染文本模型项，属有意行为（不做历史数据回填）；不得因此报错。 |
+| 实时性 | 项目对象变化（素材重生成后 `this.project = result.data`）时 computed 重算，展示值跟随实际执行结果。 |
+| 非目标 | 不做点击交互（跳转模型设置/切换模型重跑）、不做历史列表卡片展示、不改创作页模型选择 UI、不新增 IPC 通道。 |
+| 模块归属与格式 | 渲染在 `views/video-creation/ResultModelInfoRow.vue`，取值口径在同目录 `composables/useResultModelInfo.js`（纯函数、无 Vue 依赖），主进程白名单在 `electron/services/story2video-prompt-meta.js`。**`src/` 下用 ESM，`electron/` 下用 CJS，不得混用**（Vitest 有互操作 ⇒ 单测全绿，Rollup 没有 ⇒ 构建期才炸）。宿主 `ResultView.vue` 只留接线（它是 `check-max-lines` 零容差点名对象）。 |
+| i18n 兜底 | `ResultModelInfoRow` 调 `$t` 必须带 `typeof === 'function'` 防御（与 `ResultView.tOrKey` 同口径）。宿主的 tOrKey 防御**不会**被子组件继承；既有测试直接 mount 不注入 `$t`，裸调会让它们连带崩。 |
+| 校验 | 必须通过 `ResultView.test.js`、`ResultView.model-info.test.js`、`story2video-stages.test.js`、`story2video-prompt-meta.test.js`、`story2video-project-service.test.js`、locale sync/CJK、`check-max-lines`、`check-doc-abs-paths`、`pnpm run build:vue` 及视觉回归。 |
+
+详细需求背景、数据源核实结论、取值口径裁决、测试计划与验收标准见 [PRD-S2V-RESULT-MODEL-INFO-2026-10-18.md](./PRD-S2V-RESULT-MODEL-INFO-2026-10-18.md)。
 #### 7.1.4 TTS 音色、个人克隆与隐私边界
 
 创作端按“已启用 provider → model → 音色目录”选择，不接受任意手填音色 ID。优先调用具备能力且已认证的
@@ -2954,7 +2980,7 @@ provider adapter `listVoices`，把规范化的内置音色/目录和当前选�
   目录失败路径与 IPC catch 必须记录日志（provider/model/脱敏原因，不记录密钥）；select/clear 失败路径同样经友好映射，
   **不得**向用户直显技术错误码。
 - **多模态模型承担 TTS 能力（2026-08-09）**：当「语音生成器」选择 `minimax-multimodal` 时，「provider → model → 音色目录」链路按 `capability_models.tts`（`speech-2.8-turbo`）走音色目录白名单与克隆合同（详见 7.4.1.1）；前端语音模型下拉只展示 TTS 能力模型，系统音色列表、默认音色、克隆与本地管理能力与 `minimax-tts` 完全一致；未声明 tts 能力的多模态 provider 目录请求 fail-closed 返回 `VOICE_MODEL_MISMATCH`。
-- **语音生成器默认选择多模态 TTS 模型（2026-08-12）**：当「模型服务商」中保存了支持 TTS 能力的多模态模型（`category=multimodal` 且 `capabilities` 包含 `tts`，当前为 MiniMax `minimax-multimodal`）时，图片轮播「语音生成器」下拉在用户没有显式保存过其他服务商选择时**默认选中该多模态模型**，并按 `capability_models.tts` 自动带出默认语音模型（如 `speech-2.8-turbo`）；用户显式保存过的服务商选择（lastOptions 快照回填）始终优先于该默认。下拉首项「自动 Edge TTS」免费兜底与空态引导文案不变；未声明 tts 能力的多模态 provider 不会出现在语音生成器列表（`listProviders` 按 tts 能力过滤，fail-closed）。
+- **语音生成器默认选择多模态 TTS 模型（2026-08-12；2026-10-18 修订）**：图片轮播「语音生成器」下拉在用户没有显式保存过其他服务商选择时的默认值，**以「模型服务商」设置里的默认为准**——用户在设置中把某类别 TTS 模型设为默认（普通 provider `is_default`），或把多模态模型（如 MiniMax `minimax-multimodal`）的 TTS 能力设为默认（`config.capability_defaults` 含 `tts`）时，默认选中该项，并按 `capability_models.tts` 自动带出默认语音模型（如 `speech-2.8-turbo`）。**不再**固定默认「第一个多模态模型」或列表首项。图片生成器 / 视频生成器同样跟随各自类别默认。用户显式保存过的服务商选择（lastOptions 快照回填）与显式「自动 Edge TTS」始终优先于该默认；主进程 `getDefault` 不可用时按列表内默认标记解析，无任何默认时保持首项兜底。判定口径、优先级、数据流与验收标准详见 `PRD-S2V-PIPELINE-PAGE-UX.md` §9.10。下拉首项「自动 Edge TTS」免费兜底与空态引导文案不变；未声明 tts 能力的多模态 provider 不会出现在语音生成器列表（`listProviders` 按 tts 能力过滤，fail-closed）。
 - **Doubao 个人槽位**：当前配置与 TTS adapter 的已注册/已验证调用合同不证明已经把用户个人槽位同步到本地，也不允许本地创建或伪造槽位。
   UI 必须提示用户先在供应商官方控制台创建/管理音色，再点击“刷新音色目录”并仅在有官方 API 证据及已验证的
   `listVoices` adapter 后选择；证据缺失时显示 `unsupported`/`unavailable`，不显示假列表。
@@ -3408,6 +3434,31 @@ Electron 打包、工作树、PR 或发布状态证据。
 | 交互逻辑 | 语音生成器 = Mimo TTS 时：语音模型下拉隐藏；音色 ID 下拉显示 9 个预置音色 + 用户克隆音色；克隆面板显示（选择本地音频文件 → 自动克隆，默认名「音色XXX」）。 |
 | 提示文字 | 移除「当前语音模型暂不支持音色列表与克隆功能」对 mimo-v2.5-tts-voiceclone 的触发；克隆样本要求提示由 getRequirements 数据驱动（mp3/wav、≤10MB）。 |
 | 验收标准 | ① mimo-v2.5-tts 音色下拉显示 9 个预置音色；② mimo-v2.5-tts-voiceclone 克隆面板可用，选择 mp3/wav 样本自动克隆，合成时注入样本并切 voiceclone 模型；③ 语音模型下拉在 Mimo 下隐藏、MiniMax 下保留；④ voicedesign 从所有模型列表移除；⑤ 克隆音色偏好跨会话保留；⑥ 克隆样本缺失时流水线 fail closed 不静默回退。 |
+
+#### 7.1.16.4 克隆音色本地样本完整性核验与生成前置守卫（2026-10-18）
+
+**背景**：真实事故（本地 2026-10-18 22:32–22:44 / UTC 14:32–14:44，日志 `shared-user-data/logs/app-2026-10-18.log`）——项目 `mvdxd21s_o1ws` 的 story2video-compose 在 `generate_assets`（第 5/7 阶段）失败，`0/9` 场景同时具备图片与旁白；9 条 TTS 全部被供应商拒绝（原文 `you don't have access to this voice_id`），重克隆回退因样本目录 `.../voice-clone-samples/<ownerHash>/47f825cb-634e-4c5f-8d90-cc904e547411` 不存在而抛 ENOENT。SQLite registry（`tts-voice-clones:v2:minimax-multimodal:speech-2.8-turbo`）中该记录仍为 `deletionState=active`，偏好与 `story2video.lastOptions.v1` 仍指向该 `voiceId`。即「registry 说存在、磁盘样本已不在、供应商也已拒绝」三方互相矛盾，而修复前程序只校验 `voice_id` 格式，从不与样本磁盘对账。日志证据：`app.log:29882`（运行开始）、`app.log:30077`（generate_assets 开始）、`app.log:30082` / `:30087` / `:30092` / `:30097` / `:30104` / `:30109` / `:30116` / `:30122` / `:30129`（9 条 TTS 失败）、`app.log:30084`（ENOENT）、`app.log:30175`（0/9 收尾）。
+
+| 合同 | 要求 |
+|------|------|
+| 磁盘完整性对账 | `TtsVoiceCloneService.listClones` MUST 对每条克隆记录做只读磁盘对账：按 `sampleStorage.relativeDir` 解析 `<userData>/voice-clone-samples/<ownerHash>/<storageId>`，目录存在、非符号链接、且目录内至少有一个文件带可识别音频扩展名（`ALLOWED_AUDIO_EXTENSIONS`：`.aac` / `.flac` / `.m4a` / `.mp3` / `.ogg` / `.opus` / `.wav` / `.webm`）才算有效；失效时输出 `invalid:true` 且 `invalidReason` 为 `invalid_voice_id` 或 `sample_storage_missing`（前者优先）；有效记录 MUST NOT 输出 `invalidReason`。无 `sampleStorage` 的历史记录不因样本状态判失效。 【已实现】 |
+| unknown fail-open 边界 | `userData` 路径不可解析、`lstat` / `readdir` 抛非 ENOENT 错误、或运行环境无 Electron `app.getPath` 时 MUST 按不可判定处理（不判失效、放行），不得把「环境不可判定」误判成「用户音色被删」。输入侧相反 fail-closed：`sampleStorage` 形状不合法（非三段、owner 不匹配、含 `..` 或分隔符或超长）时不做任何文件系统探测，直接按 `sample_storage_missing` 处理。 【已实现】 |
+| 只读状态查询 | 新增 `TtsVoiceCloneService.getCloneVoiceStatus({providerId, model, voiceId})`，返回 code/data 信封：命中有效 → `{code:0,data:{registered:true,name,invalid:false,invalidReason:null}}`；命中失效 → `{code:0,data:{registered:true,name,invalid:true,invalidReason}}`；未命中 → `{code:0,data:{registered:false}}`；非法入参 / owner 不可解析 / store 不可用 → `{code:-1,message}`，message 分别为 `VOICE_CLONE_INVALID_ARGUMENTS` / `VOICE_OWNER_UNAVAILABLE` / `VOICE_CLONE_STORE_UNAVAILABLE`。MUST 遵守 owner 隔离，模型候选回退与 `findCloneSamples` 同风格（先精确 model，再 speech-2.8-turbo / speech-02-hd / speech-2.8-hd / speech-2.6-hd / speech-2.6-turbo / mimo-v2.5-tts-voiceclone / mimo-v2.5-tts）。MUST 只读（不写 registry/偏好、不清理样本）。 【已实现】 |
+| catalog 合并与偏好回退 | `tts-voice-service._buildCatalogResponse` 既有 7.1.16 合同 MUST 继续成立：`invalid===true` 的克隆移入 `invalidVoices`、移出可选 `voices`，偏好不命中时回退默认音色并写回。本 PR 不修改该文件，新增失效来源由 `listClones` 打标自动继承该合同。 【已实现】 |
+| 生成前置守卫 | `story2video-stages.generate_assets` MUST 在创建任何图片/视频/TTS 调用之前执行前置守卫：命中 `registered && invalid` 立即失败，错误前缀 `VOICE_CLONE_UNAVAILABLE`，且 MUST NOT 产生任何资产生成调用；manual 模式的 TTS 由 `finalize_assets` 在生成旁白前用同一共享 helper `resolveVoiceCloneGuard`（`story2video-voice-guard.js`）守卫（manual 候选生成不生成 TTS，故不在候选阶段阻断）。 【已实现】 |
+| 守卫 fail-open 与不误伤 | 克隆服务未注册、缺少 `getCloneVoiceStatus`、查询抛错、`registered:false`、`invalid:false`、默认音色/非克隆 provider、`voiceId` 为空或 `'default'` 时 MUST 放行；守卫故障不得变成任务失败。命中时 warn 日志固定 `[Story2Video] cloned voice blocked by preflight` 加 `{voiceId, provider, reason}`，禁止记录音频/密钥/绝对路径。 【已实现】 |
+| 运行期聚合 | 已实际发生 TTS 失败后，若 `failedTts.length > 0` 且 `failedTts.every(isClonedVoiceUnavailableMessage)` → MUST 聚合为单条 `VOICE_CLONE_UNAVAILABLE: 所选克隆音色已不可用（供应商拒绝访问，且本地样本无法用于重新克隆）。请在「声音」设置中重新克隆或改选其它音色后重新启动。`；MUST 先按既有逻辑写入 `context.generate_assets.resume` 再返回失败；错误中 MUST NOT 重复原始供应商英文、MUST NOT 出现 `TTS #N`。混合原因仍走既有失败聚合。 【已实现】 |
+| 失败聚合去重 | `summarizeAssetFailures` MUST 对归一化后的相同 message 去重并按首次出现顺序输出场景区间：单条 `TTS #3: <msg>`、连续 2 条及以上 `TTS #1-#3: <msg>`、非连续 `TTS #1, #3: <msg>`、索引缺失 `TTS #?: <msg>`；Image 侧共用同一实现与格式。 【已实现】 |
+| 渲染层归一化 | 新增 `VOICE_CLONE_UNAVAILABLE_PATTERN`（覆盖错误码前缀与 `don't have access to voice` 一类供应商原文的多种否定/口语变体）与通知键 `VOICE_CLONE_UNAVAILABLE → story2video.voice_clone_unavailable`；`resolveMessageKey` 与 `pipeline-error-formatter` 的判定 MUST 早于 `VOICE_INVALID` 与 `asset_generation_failed`；locale key MUST 在 zh/en 成对逐字一致。 【已实现】 |
+| 不变量 | MUST 不改变阶段数量/顺序（仍 7 阶段、`generate_assets` 第 5/7）、不新增 checkpoint 类型、不静默替换用户音色（失效即失败；`tryReCloneVoice` 不得 `retryFn('default')`）；与 7.1.16.1 三层降级衔接：样本在 → Layer 1 可重克隆；样本缺失 → 终态失败并给出可操作提示。 【已实现】 |
+| 验收标准 | ① 删除样本目录后 `listClones` 输出 `invalid:true, invalidReason:'sample_storage_missing'`，目录完好则不输出 `invalidReason`；② 非法 `voice_id` 优先级高于样本缺失；③ `userData` 不可解析不判失效；④ `getCloneVoiceStatus` 五态、owner 隔离与模型回退成立且只读；⑤ catalog 对新增失效来源同样移入 `invalidVoices` 并回退偏好；⑥ 前置守卫命中时零图片/零 TTS 调用、错误以 `VOICE_CLONE_UNAVAILABLE: ` 开头；⑦ 守卫故障/未注册/有效克隆放行；⑧ 运行期 9 条同因失败聚合为 1 条且 resume 仍写入；⑨ `summarizeAssetFailures` 四种区间形态；⑩ 渲染层 zh/en 文案逐字匹配且规则顺序正确。 【已实现】 |
+
+**实现映射（`feat_story2video_voice_clone_integrity`）**：
+
+- `apps/desktop/electron/services/tts-voice-clone-integrity.js`（纯逻辑：`inspectSampleStorage` / `computeCloneInvalidReason` / `buildPublicCloneEntries` / `readCloneVoiceStatus`）+ `tts-voice-clone-service.js`（薄封装 `listClones` / `getCloneVoiceStatus`）。 【已实现】
+- `apps/desktop/electron/services/story2video-voice-guard.js`（`resolveVoiceCloneGuard` / `buildVoiceCloneUnavailableError` / `buildVoiceCloneAggregateError` / `isClonedVoiceUnavailableMessage` / `summarizeAssetFailures`）+ `story2video-stages.js`（`generate_assets` / `finalize_assets` 接入与运行期聚合）。 【已实现】
+- `apps/desktop/src/story2video/notification-error-patterns.js` / `story2video-notifications.js` / `apps/desktop/src/utils/pipeline-error-formatter.js` / `apps/desktop/src/locales/story2video/{zh,en}.js`：错误归一化与文案。 【已实现】
+- 详细设计、数据校验与测试计划见 `01-docs/PRD-S2V-VOICE-CLONE-INTEGRITY-2026-10-18.md`；OpenSpec change `story2video-voice-clone-integrity`；执行记录 `openspec/records/fix-s2v-voice-clone-integrity.md`。 【已实现】
 
 #### 7.1.17 提示词优化输出净化与无实质内容守卫（2026-08-09）
 
@@ -9605,6 +9656,7 @@ fail-open），每场景附加 `subtitleTimeline`（真实词级时间 + charTim
 **字幕分割质量护栏（双实现共享，splitter v0.14.2 起）**：
 - **min_chars 不变量**：每块清理后长度 ≥ min_chars；例外（独立短句/标点或空格边界短片段/≤3 字合法短尾）必须在共享向量 `subtitle_segmentation_vectors.json` 的 `short_block_exceptions` 中显式声明（含 reason）；无标点硬切产生的孤悬尾块视为违规，按 Step 3/6 平衡切分（如 15+4 → 11+8）；
 - **语义引导词优先（v1.2.4）**：`已经`、`依然` 等成词副词优先把切点前移到副词前，让前块带走完整名词短语、后块以副词开头（如 `底层农民的实际负担｜依然重得吓人`）；5-6 字语义短尾必须在共享向量 `short_block_exceptions` 显式声明。
+- **短语边界感知切分（v1.3）**：无标点长块硬切时优先落在共享规则表 `word_split.phrase_boundary.pairs` 登记的**显式成对短语右边界**——切点判定 = 块以某 pair 的 `left` 逐字结尾、且紧随其后的字符命中该 pair 的 `next`。仅单侧命中不构成边界（避免把「某|些」「票仓的|无奈」这类受保护词内部误判为边界）。短语边界与优先级标点等价，在 Step 3 累积阶段即兑现，不等 MAX 分支兜底（那里合法窗口已错过最佳切点，会退化为算术位置裸切）。短语边界路径的头块允许放宽到 `min_chars - min_head_relax`（默认 2），尾块仍 ≥ `min_chars`；放宽产生的 `< min_chars` 头块必须在共享向量 `short_block_exceptions` 显式声明。规则表缺省 `phrase_boundary` 段时行为与 v1.2 完全一致（向后兼容）。修复了 11 处真实文案坏切（如 `是选举年为了拉拢某｜些特定票仓的` → `是选举年为了｜拉拢某些特定票仓的`）。
 - **时间戳严格连续**：proportional/equal 均要求 `start_i == round(start_{i-1} + duration_{i-1}, 2)`（舍入后累加），禁止 0.01s 级间隙/重叠；`start_time`/`duration` 保留 2 位小数（**四舍五入 half-up**，`floor(x*100+0.5)/100` 与 `Math.round(x*100)/100` 语义一致，禁止 Python 原生 `round()`——银行家舍入会在 .xx5 边界与 TS 产生 0.01s 级分歧）；
 - **向量双轨管理（防自证陷阱）**：`expected_blocks` 必须为手工真值（按规范人工推导后再与实现输出核对），禁止直接把实现输出写入向量——否则实现与向量共同漂移，测试失去拦截力。
 #### 7.1.2 文案边界与用户提示合同| 合同 | 要求 ||------|------|| 文案输入 | Story2Video 只接受文案输入；按 Unicode code point 计数，最多 6,000 个中文、英文或 emoji 字符；不以场景数量限制用户输入 || 前后端一致性 | Renderer 在调用 IPC 前拦截超限文案，主进程 normalizer 以同一 6,000 字符规则再次校验；后端直接调用不得绕过该限制 || 反馈呈现 | Story2Video 的编排错误、文件校验错误与结果页错误统一使用应用内模态框；页面不重复渲染同一错误，也不得直接显示服务端技术错误 || 本地化 | 消息以稳定的消息键和参数存储，默认中文；当前提供中文和英文目录，未知技术错误必须回退到友好的本地化通用说明 |#### 7.1.3 故事讲述自动执行与表单边界`story2video-compose` 是历史、IPC、项目清单和执行器使用的稳定机器 ID，**不得改名**；仅产品显示层使用 locale资源，默认中文显示“故事讲述”，英文显示“Story Telling”（2026-08-14 更名，原名“全能创作 / Omni Creation”，再早“图片轮播 / Image Carousel”）。所有阶段、类别、状态和操作文字必须使用同一套 localekey，未知内部 ID 只能回退为原始 ID。| 范围 | 产品合同 ||------|----------|| 六阶段 | 文案拆分 → 内容增强 → 画面提示词优化 → 图片/视频/旁白生成 → 合成轮播视频 → 发布（未启用时明确为 `skipped`）。用户确认后固定 `autoAdvance=true` 与 `checkpointPolicy='none'`，不提供人工 checkpoint、继续或推进操作。 || 运行反馈 | 图片轮播只使用条目式阶段清单显示 `pending/running/completed/skipped/failed/needs_user_input` 与可读摘要；不渲染 S2V 百分比进度作为反馈。取消入口保留。 || 进度区固定（2026-08-09） | 流水线运行/结束期间，**进度头部固定**：进度条 + 百分比 + 已用时（+ 完成摘要）使用 `position: sticky; top: 0` 固定在主内容区（`.cohere-main`）顶部，不随页面滚动离开视口；背景使用主题 `--bg`（明暗主题一致），贴顶时底部圆角 + 轻阴影与阶段明细分隔。阶段明细列表（stage-item）仍随内容正常滚动，避免整块进度区（阶段较多时）遮挡下方输入/配置区。 || 内容政策耗尽 | `needs_user_input` 不是可推进的通用 checkpoint。用户必须先取消旧运行，再以修改后的文案创建新运行；不得在原 run 上继续、恢复或用占位图伪造成功。 || 受控默认 | 分句语言默认“自动识别”；音调、并发数和创意强度不在图片轮播表单展示，只能使用版本化、可审计、可回滚的受控默认值。 || 两类风格 | 图片风格决定图片供应商输出的视觉审美；提示词风格决定优化器如何组织、表达画面提示词。两项必须同时保留，不能因枚举相似而合并。 |
@@ -12041,7 +12093,7 @@ provider adapter `listVoices`，把规范化的内置音色/目录和当前选�
   目录失败路径与 IPC catch 必须记录日志（provider/model/脱敏原因，不记录密钥）；select/clear 失败路径同样经友好映射，
   **不得**向用户直显技术错误码。
 - **多模态模型承担 TTS 能力（2026-08-09）**：当「语音生成器」选择 `minimax-multimodal` 时，「provider → model → 音色目录」链路按 `capability_models.tts`（`speech-2.8-turbo`）走音色目录白名单与克隆合同（详见 7.4.1.1）；前端语音模型下拉只展示 TTS 能力模型，系统音色列表、默认音色、克隆与本地管理能力与 `minimax-tts` 完全一致；未声明 tts 能力的多模态 provider 目录请求 fail-closed 返回 `VOICE_MODEL_MISMATCH`。
-- **语音生成器默认选择多模态 TTS 模型（2026-08-12）**：当「模型服务商」中保存了支持 TTS 能力的多模态模型（`category=multimodal` 且 `capabilities` 包含 `tts`，当前为 MiniMax `minimax-multimodal`）时，图片轮播「语音生成器」下拉在用户没有显式保存过其他服务商选择时**默认选中该多模态模型**，并按 `capability_models.tts` 自动带出默认语音模型（如 `speech-2.8-turbo`）；用户显式保存过的服务商选择（lastOptions 快照回填）始终优先于该默认。下拉首项「自动 Edge TTS」免费兜底与空态引导文案不变；未声明 tts 能力的多模态 provider 不会出现在语音生成器列表（`listProviders` 按 tts 能力过滤，fail-closed）。
+- **语音生成器默认选择多模态 TTS 模型（2026-08-12；2026-10-18 修订）**：图片轮播「语音生成器」下拉在用户没有显式保存过其他服务商选择时的默认值，**以「模型服务商」设置里的默认为准**——用户在设置中把某类别 TTS 模型设为默认（普通 provider `is_default`），或把多模态模型（如 MiniMax `minimax-multimodal`）的 TTS 能力设为默认（`config.capability_defaults` 含 `tts`）时，默认选中该项，并按 `capability_models.tts` 自动带出默认语音模型（如 `speech-2.8-turbo`）。**不再**固定默认「第一个多模态模型」或列表首项。图片生成器 / 视频生成器同样跟随各自类别默认。用户显式保存过的服务商选择（lastOptions 快照回填）与显式「自动 Edge TTS」始终优先于该默认；主进程 `getDefault` 不可用时按列表内默认标记解析，无任何默认时保持首项兜底。判定口径、优先级、数据流与验收标准详见 `PRD-S2V-PIPELINE-PAGE-UX.md` §9.10。下拉首项「自动 Edge TTS」免费兜底与空态引导文案不变；未声明 tts 能力的多模态 provider 不会出现在语音生成器列表（`listProviders` 按 tts 能力过滤，fail-closed）。
 - **Doubao 个人槽位**：当前配置与 TTS adapter 的已注册/已验证调用合同不证明已经把用户个人槽位同步到本地，也不允许本地创建或伪造槽位。
   UI 必须提示用户先在供应商官方控制台创建/管理音色，再点击“刷新音色目录”并仅在有官方 API 证据及已验证的
   `listVoices` adapter 后选择；证据缺失时显示 `unsupported`/`unavailable`，不显示假列表。
@@ -12495,6 +12547,31 @@ Electron 打包、工作树、PR 或发布状态证据。
 | 交互逻辑 | 语音生成器 = Mimo TTS 时：语音模型下拉隐藏；音色 ID 下拉显示 9 个预置音色 + 用户克隆音色；克隆面板显示（选择本地音频文件 → 自动克隆，默认名「音色XXX」）。 |
 | 提示文字 | 移除「当前语音模型暂不支持音色列表与克隆功能」对 mimo-v2.5-tts-voiceclone 的触发；克隆样本要求提示由 getRequirements 数据驱动（mp3/wav、≤10MB）。 |
 | 验收标准 | ① mimo-v2.5-tts 音色下拉显示 9 个预置音色；② mimo-v2.5-tts-voiceclone 克隆面板可用，选择 mp3/wav 样本自动克隆，合成时注入样本并切 voiceclone 模型；③ 语音模型下拉在 Mimo 下隐藏、MiniMax 下保留；④ voicedesign 从所有模型列表移除；⑤ 克隆音色偏好跨会话保留；⑥ 克隆样本缺失时流水线 fail closed 不静默回退。 |
+
+#### 7.1.16.4 克隆音色本地样本完整性核验与生成前置守卫（2026-10-18）
+
+**背景**：真实事故（本地 2026-10-18 22:32–22:44 / UTC 14:32–14:44，日志 `shared-user-data/logs/app-2026-10-18.log`）——项目 `mvdxd21s_o1ws` 的 story2video-compose 在 `generate_assets`（第 5/7 阶段）失败，`0/9` 场景同时具备图片与旁白；9 条 TTS 全部被供应商拒绝（原文 `you don't have access to this voice_id`），重克隆回退因样本目录 `.../voice-clone-samples/<ownerHash>/47f825cb-634e-4c5f-8d90-cc904e547411` 不存在而抛 ENOENT。SQLite registry（`tts-voice-clones:v2:minimax-multimodal:speech-2.8-turbo`）中该记录仍为 `deletionState=active`，偏好与 `story2video.lastOptions.v1` 仍指向该 `voiceId`。即「registry 说存在、磁盘样本已不在、供应商也已拒绝」三方互相矛盾，而修复前程序只校验 `voice_id` 格式，从不与样本磁盘对账。日志证据：`app.log:29882`（运行开始）、`app.log:30077`（generate_assets 开始）、`app.log:30082` / `:30087` / `:30092` / `:30097` / `:30104` / `:30109` / `:30116` / `:30122` / `:30129`（9 条 TTS 失败）、`app.log:30084`（ENOENT）、`app.log:30175`（0/9 收尾）。
+
+| 合同 | 要求 |
+|------|------|
+| 磁盘完整性对账 | `TtsVoiceCloneService.listClones` MUST 对每条克隆记录做只读磁盘对账：按 `sampleStorage.relativeDir` 解析 `<userData>/voice-clone-samples/<ownerHash>/<storageId>`，目录存在、非符号链接、且目录内至少有一个文件带可识别音频扩展名（`ALLOWED_AUDIO_EXTENSIONS`：`.aac` / `.flac` / `.m4a` / `.mp3` / `.ogg` / `.opus` / `.wav` / `.webm`）才算有效；失效时输出 `invalid:true` 且 `invalidReason` 为 `invalid_voice_id` 或 `sample_storage_missing`（前者优先）；有效记录 MUST NOT 输出 `invalidReason`。无 `sampleStorage` 的历史记录不因样本状态判失效。 【已实现】 |
+| unknown fail-open 边界 | `userData` 路径不可解析、`lstat` / `readdir` 抛非 ENOENT 错误、或运行环境无 Electron `app.getPath` 时 MUST 按不可判定处理（不判失效、放行），不得把「环境不可判定」误判成「用户音色被删」。输入侧相反 fail-closed：`sampleStorage` 形状不合法（非三段、owner 不匹配、含 `..` 或分隔符或超长）时不做任何文件系统探测，直接按 `sample_storage_missing` 处理。 【已实现】 |
+| 只读状态查询 | 新增 `TtsVoiceCloneService.getCloneVoiceStatus({providerId, model, voiceId})`，返回 code/data 信封：命中有效 → `{code:0,data:{registered:true,name,invalid:false,invalidReason:null}}`；命中失效 → `{code:0,data:{registered:true,name,invalid:true,invalidReason}}`；未命中 → `{code:0,data:{registered:false}}`；非法入参 / owner 不可解析 / store 不可用 → `{code:-1,message}`，message 分别为 `VOICE_CLONE_INVALID_ARGUMENTS` / `VOICE_OWNER_UNAVAILABLE` / `VOICE_CLONE_STORE_UNAVAILABLE`。MUST 遵守 owner 隔离，模型候选回退与 `findCloneSamples` 同风格（先精确 model，再 speech-2.8-turbo / speech-02-hd / speech-2.8-hd / speech-2.6-hd / speech-2.6-turbo / mimo-v2.5-tts-voiceclone / mimo-v2.5-tts）。MUST 只读（不写 registry/偏好、不清理样本）。 【已实现】 |
+| catalog 合并与偏好回退 | `tts-voice-service._buildCatalogResponse` 既有 7.1.16 合同 MUST 继续成立：`invalid===true` 的克隆移入 `invalidVoices`、移出可选 `voices`，偏好不命中时回退默认音色并写回。本 PR 不修改该文件，新增失效来源由 `listClones` 打标自动继承该合同。 【已实现】 |
+| 生成前置守卫 | `story2video-stages.generate_assets` MUST 在创建任何图片/视频/TTS 调用之前执行前置守卫：命中 `registered && invalid` 立即失败，错误前缀 `VOICE_CLONE_UNAVAILABLE`，且 MUST NOT 产生任何资产生成调用；manual 模式的 TTS 由 `finalize_assets` 在生成旁白前用同一共享 helper `resolveVoiceCloneGuard`（`story2video-voice-guard.js`）守卫（manual 候选生成不生成 TTS，故不在候选阶段阻断）。 【已实现】 |
+| 守卫 fail-open 与不误伤 | 克隆服务未注册、缺少 `getCloneVoiceStatus`、查询抛错、`registered:false`、`invalid:false`、默认音色/非克隆 provider、`voiceId` 为空或 `'default'` 时 MUST 放行；守卫故障不得变成任务失败。命中时 warn 日志固定 `[Story2Video] cloned voice blocked by preflight` 加 `{voiceId, provider, reason}`，禁止记录音频/密钥/绝对路径。 【已实现】 |
+| 运行期聚合 | 已实际发生 TTS 失败后，若 `failedTts.length > 0` 且 `failedTts.every(isClonedVoiceUnavailableMessage)` → MUST 聚合为单条 `VOICE_CLONE_UNAVAILABLE: 所选克隆音色已不可用（供应商拒绝访问，且本地样本无法用于重新克隆）。请在「声音」设置中重新克隆或改选其它音色后重新启动。`；MUST 先按既有逻辑写入 `context.generate_assets.resume` 再返回失败；错误中 MUST NOT 重复原始供应商英文、MUST NOT 出现 `TTS #N`。混合原因仍走既有失败聚合。 【已实现】 |
+| 失败聚合去重 | `summarizeAssetFailures` MUST 对归一化后的相同 message 去重并按首次出现顺序输出场景区间：单条 `TTS #3: <msg>`、连续 2 条及以上 `TTS #1-#3: <msg>`、非连续 `TTS #1, #3: <msg>`、索引缺失 `TTS #?: <msg>`；Image 侧共用同一实现与格式。 【已实现】 |
+| 渲染层归一化 | 新增 `VOICE_CLONE_UNAVAILABLE_PATTERN`（覆盖错误码前缀与 `don't have access to voice` 一类供应商原文的多种否定/口语变体）与通知键 `VOICE_CLONE_UNAVAILABLE → story2video.voice_clone_unavailable`；`resolveMessageKey` 与 `pipeline-error-formatter` 的判定 MUST 早于 `VOICE_INVALID` 与 `asset_generation_failed`；locale key MUST 在 zh/en 成对逐字一致。 【已实现】 |
+| 不变量 | MUST 不改变阶段数量/顺序（仍 7 阶段、`generate_assets` 第 5/7）、不新增 checkpoint 类型、不静默替换用户音色（失效即失败；`tryReCloneVoice` 不得 `retryFn('default')`）；与 7.1.16.1 三层降级衔接：样本在 → Layer 1 可重克隆；样本缺失 → 终态失败并给出可操作提示。 【已实现】 |
+| 验收标准 | ① 删除样本目录后 `listClones` 输出 `invalid:true, invalidReason:'sample_storage_missing'`，目录完好则不输出 `invalidReason`；② 非法 `voice_id` 优先级高于样本缺失；③ `userData` 不可解析不判失效；④ `getCloneVoiceStatus` 五态、owner 隔离与模型回退成立且只读；⑤ catalog 对新增失效来源同样移入 `invalidVoices` 并回退偏好；⑥ 前置守卫命中时零图片/零 TTS 调用、错误以 `VOICE_CLONE_UNAVAILABLE: ` 开头；⑦ 守卫故障/未注册/有效克隆放行；⑧ 运行期 9 条同因失败聚合为 1 条且 resume 仍写入；⑨ `summarizeAssetFailures` 四种区间形态；⑩ 渲染层 zh/en 文案逐字匹配且规则顺序正确。 【已实现】 |
+
+**实现映射（`feat_story2video_voice_clone_integrity`）**：
+
+- `apps/desktop/electron/services/tts-voice-clone-integrity.js`（纯逻辑：`inspectSampleStorage` / `computeCloneInvalidReason` / `buildPublicCloneEntries` / `readCloneVoiceStatus`）+ `tts-voice-clone-service.js`（薄封装 `listClones` / `getCloneVoiceStatus`）。 【已实现】
+- `apps/desktop/electron/services/story2video-voice-guard.js`（`resolveVoiceCloneGuard` / `buildVoiceCloneUnavailableError` / `buildVoiceCloneAggregateError` / `isClonedVoiceUnavailableMessage` / `summarizeAssetFailures`）+ `story2video-stages.js`（`generate_assets` / `finalize_assets` 接入与运行期聚合）。 【已实现】
+- `apps/desktop/src/story2video/notification-error-patterns.js` / `story2video-notifications.js` / `apps/desktop/src/utils/pipeline-error-formatter.js` / `apps/desktop/src/locales/story2video/{zh,en}.js`：错误归一化与文案。 【已实现】
+- 详细设计、数据校验与测试计划见 `01-docs/PRD-S2V-VOICE-CLONE-INTEGRITY-2026-10-18.md`；OpenSpec change `story2video-voice-clone-integrity`；执行记录 `openspec/records/fix-s2v-voice-clone-integrity.md`。 【已实现】
 
 #### 7.1.17 提示词优化输出净化与无实质内容守卫（2026-08-09）
 

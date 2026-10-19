@@ -1,0 +1,55 @@
+{
+  "sha": "4cdafde073d4551cb80898f24f540c420405a4e2",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 1 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 1,
+    "fileCount": 1,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "9a4f7dc4bef17bf5e3c8197f6f8254f68323112079fe4149cf48adb733610e08",
+  "decidedAt": "2026-10-18T23:01:27.744Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "cleared",
+    "tier": "unknown",
+    "performedBy": "codex (manual single-model review 的审计回写；本笔改动仅 .ccg/reviews/*.json 与测试重复赋值清理)",
+    "evidence": null,
+    "findings": "本笔 diff = 上一轮 codex 单模型复核的结论回写（.ccg/reviews/ed5cf2c2…json 的 deepReview 字段）+ 按该复核 Info 建议删除测试里一处重复赋值。\n\n- 复核结论本身：**可接受，无需返工**（放宽音色字段显示条件的两来源判定；陈旧值穿透路径已逐点核对；测试判别力双向锁住）。\n- 回写内容与复核原文一致，未新增论断；测试改动为删除一行冗余赋值，删后 S2vConfigPanels.test.js 复跑 24/24 通过。"
+  }
+}

@@ -4,6 +4,7 @@
  */
 const fs = require('fs')
 const platformsMixin = require('./rpa-view-platforms')
+const { PLATFORM_PUBLISH_SELECTORS } = require('@multi-publish/rpa-engine/src/platform-selectors')
 
 // 2026-09-29：rpa-view-platforms.js 两次拆分（rpa-publish-id-extract.js / rpa-view-navigation-helpers.js），
 // 2026-10 三次拆分（upload-waiter.js：视频上传等待循环 v4）——
@@ -666,17 +667,9 @@ describe('rpa-view-platforms — 图文模式（2026-09-29：双入口 URL + 图
     expect(context._setFileInput).not.toHaveBeenCalled()
   })
 
-  // 2026-10-10 硬约束收紧：小红书视频不再走通用发布流程（终点是点「发布」），改为 fail-closed。
-  // 旧断言（无 preFill + target=video 交给 generic）正是「视频可真实发布」的契约，已被用户要求推翻。
-  it('小红书视频模式：fail-closed 拒绝，绝不进入 generic（不得真实发布）', async () => {
-    const { win } = createWindow('https://creator.xiaohongshu.com/publish/publish?from=menu&target=video')
-    const context = createImageContext()
-
-    const result = await platformsMixin._publish_xiaohongshu.call(context, win, { title: 'T', video_path: 'D:/v.mp4' })
-
-    expect(context._publish_generic).not.toHaveBeenCalled()
-    expect(result).toMatchObject({ success: false, platform: 'xiaohongshu', errorCode: 'XHS_VIDEO_DRAFT_UNSUPPORTED' })
-  })
+  // 2026-10-18 video-publish-4：小红书视频契约已迁到 xiaohongshu-video-draft.test.js
+  // （本文件已贴 testLimit=1500 熔断）。该文件锁：视频走草稿链 draftOnly=true 不点发布；
+  // 真实配置下缺 file_input 仍 fail-closed 拒绝；图文模式不回归。
 
   it('generic 图片上传：无视频有图时上传首图（image_upload 字段）', async () => {
     const { win } = createWindow('https://example.com/publish')

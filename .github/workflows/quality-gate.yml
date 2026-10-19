@@ -12,7 +12,6 @@ on:
       - '.editorconfig'
       - '.ccg/**'
       - '.claude/**'
-      - '.hermes/**'
       - '.agents/**'
       - '.quality-rhythm/**'
       - 'openspec/**'
@@ -200,6 +199,10 @@ jobs:
           # 掩码覆盖 A/B 工具自身的锁（2026-10-18）：它证明「判据能看见」这件事本身可信；
           # 其中一例专测「候选掩得更多必须被判回归」—— 那是这条取证手段的元判据。
           node --test scripts/lib/mask-coverage-ab.test.js
+          # LLM 改写缓存有界化的回归锁（2026-10-18）：R11 审计面把这两个 Map 判为
+          # 「真实无淘汰缓存」（key = 原始 prompt SHA-256 无界 + 主进程常驻 ⇒ 单调增长）。
+          # 锁的是插入序上限真的在、两个 Map 共用同一常量、且缓存收益未被"修没"。
+          node --test scripts/story2video-llm-cache-bound.test.js
 
       # --- Gate 2c4：CCG 判定器（ccg-review-decider）的判据回归锁 ---
       # 动因（2026-10-15）：该脚本此前**零测试覆盖**（grep 只命中一条注释），
@@ -213,6 +216,16 @@ jobs:
       - name: "Gate 2c4 - CCG decider regression lock (changes job)"
         shell: bash
         run: node --test scripts/ccg-review-decider.test.js
+
+      # --- Gate 2c6：QM-6 评审后端对的单一真源 ---
+      # 动因（2026-10-18）：后端对在仓里被抄成六份字面量，于是"换 critic"有三种旋钮
+      # 全部静默失效而评审照跑、status 照闭环。本锁守解析优先级、两个读取方的逐字对账，
+      # 以及"请求值 vs 实际执行者"这条对账判据的本体。
+      # 落点必须在 changes 作业：scripts/** 在 docs-only 白名单内，放 static-gates 等于
+      # 给判据自己关掉校验（与 Gate 2c2 / 2c3 / 2c4 同一先例）。只 require node 内置模块。
+      - name: "Gate 2c6 - QM-6 review backend single source (changes job)"
+        shell: bash
+        run: node --test scripts/lib/ccg-review-backends.test.js
 
       # --- Gate 2c3：执行记录的 QM-5 行集棘轮 ---
       # 动因（本会话实测）：PR #3477 的记录在多次改写中把「防止再次发生（QM-5 ⑤）」的**行标题吞掉**、
@@ -389,12 +402,14 @@ jobs:
         run: |
           node --test scripts/check-branch-merged.test.js
 
-      # --- Gate 2b7：QG Coverage 预算常量的取证对账 ---
+      # --- Gate 2b7：全仓 CI 作业超时常量的取证对账（2026-10-20 起覆盖全部 24 格） ---
       # 编 2b7 而不是 2b5：#3724（未合并）占用 "Gate 2b5 - CCG evidence anchor"，2b6 已被收敛探针占用，
       # 同号会在 squash 后撞成两步同名（`check-unwired-tests.js` 的"同名 basename 必须写全相对路径"会读成一条）。
       # 动因：`timeout-minutes` 这类**无人看管的预算常量**撞死过两趟 main push，丢的是证据不是绿勾。
+      # 2026-10-20 扩面：全仓实测 24 格，此前只有 QG Coverage 一格有人看 ⇒ 加**清单棘轮**
+      # （新增的裸常量、登记项消失都当场红）+ seeded 宽限期（样本还不足的格子限期升级，不是永久豁免）。
       # 落点同样必须是 changes 作业（判据本体要求 runner 上不装依赖 ⇒ 只用 node 内置模块）。
-      - name: "Gate 2b7 - Coverage budget provenance (changes job)"
+      - name: "Gate 2b7 - Gate timeout registry (changes job)"
         shell: bash
         run: |
           node scripts/check-coverage-budget.js
@@ -598,6 +613,12 @@ jobs:
           # start-app 启动链契约：WMI 脱离 + 存活断言 + 双向斜杠匹配（2026-10-16，
           # 用户三次看不到应用，根因是启动链被 agent 会话连坐杀）
           node --test scripts/sync-app.test.js
+          # 锚点热备份新鲜度判据（anchor-backup-latest，2026-10-18）：该 lint 原按目录名
+          # 「字符串降序」选最新快照，而锚点里还有 `seed-*` 基线目录，'s' > '2' ⇒ 基线
+          # 永远胜出、每次都报「25.9 天前」，连刚写完快照的那次也这么报。恒黄的门禁等于
+          # 没人看的门禁（与「装饰性门禁」同型）。锁是行为级的：真起 powershell 打临时
+          # 夹具，判「新快照胜出 / 真陈旧仍报 / 无时间戳快照不得谎报新鲜」三条。
+          node --test scripts/mp-anchor-health.test.js
           node --test scripts/qm1-child-env.test.js
           # QM-1 打包验证脚本的路径解析锁（fix-qm1-verify-path）：脚本住在仓库根 scripts/，
           # 产物不在脚本目录。#2985 引入起把 __dirname 当应用目录 ⇒ 脚本从未跑通，
@@ -1306,10 +1327,15 @@ jobs:
     if: needs.changes.outputs.docs-only != 'true'
     # 40 → 60（2026-10-18）：40 这一档实测撞死过两趟 main push（run 39037127191 = PR #3836 的收口证据、
     # run 39084091986），后果不是"跑挂"而是 main 侧证据永久丢失；同一窗口里成功样本的尾部是 39.4/39.5/39.7，
-    # 也就是**贴着天花板过线**。数值与依据不写在注释里当散文——
-    # 由 scripts/lib/coverage-budget-provenance.js 单点持有，scripts/check-coverage-budget.js 每次 PR 对账
-    # （timeout ≥ ceil(floor × SAFETY_MULTIPLIER)、样本量下界、采集日过期、provenance 与本行同源、贴脸警报）。
-    timeout-minutes: 60
+    # 也就是**贴着天花板过线**。
+    # 60 → 65（2026-10-19 复测）：60 这一档**没有**被杀过（cancelled 最大 38.9），但真实耗时涨了 ——
+    # 干净窗口（120 趟，在飞 9 趟按「不是漏样」排除）里 success 53 条、尾部 40.6/40.7/40.8/41/41.3/**43.3**，
+    # ceil(43.3 × 1.5) = 65 > 60 ⇒ 60 当时已低于本仓自己那条 ×1.5 规则。窗口同时从 60 扩到 120，
+    # 因为 60 趟窗口里 success 只剩 16 条（< MIN_SAMPLES 20，"样本不够下结论"而不是"预算够用"）。
+    # 数值与依据不写在注释里当散文——由 scripts/gate-timeout-registry.json（24 格唯一真源，
+    # 经 scripts/lib/gate-timeout-registry.js 加载校验）单点持有，scripts/check-coverage-budget.js 每次 PR 对账
+    # （timeout ≥ ceil(floor × SAFETY_MULTIPLIER)、样本量下界、采集日过期、注册值与本行同源、贴脸警报、清单棘轮）。
+    timeout-minutes: 65
     steps:
       - uses: actions/checkout@v4
         with:

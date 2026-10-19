@@ -303,7 +303,13 @@ async def get_bootstrap_app_menu(db: AsyncSession) -> dict:
                 "group": group,
             }
         )
-    return {"items": items, "synced_at": _now()}
+    # ⛔ 载荷内**不得**再带 synced_at（config-hash-purity，2026-10-18）：
+    # 本块在 `config_fingerprint.RUNTIME_BLOCKS` 白名单内，参与 config_hash 计算。
+    # 曾经这里返回 {"items": items, "synced_at": _now()}，于是「内容没变」也会被算成
+    # 「内容变了」——每次 bootstrap 的 hash 都不同，config_version 每次 +1，
+    # 生效看板的「已确认率」永远上不去，RuntimeConfigVersion 表随请求数无限增长。
+    # 时间戳改由 bootstrap 信封顶层的 synced_at 承载（不在白名单内，不参与 hash）。
+    return {"items": items}
 
 
 def _item_to_dict(row: AppMenuItem) -> dict:
