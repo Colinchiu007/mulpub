@@ -954,3 +954,22 @@ const { uri, info } = await uploadCoverImage({
 
 `uploadCoverImage` 尚未接进 `run()` 的封面闸门（调用方现在需显式调）；接入点在
 `hasLocalCoverOnly` 分支（coverInputs 形状契约需先立，留下一轮小 PR）。
+
+### 12.6.7.6 封面接线进 run()（R12，2026-10-19，同分支第二提交）
+
+§12.6.7.5「未闭合①」关闭。三态契约在闸门 5 生效：
+
+| 态 | 触发输入 | 行为 |
+| --- | --- | --- |
+| 平台 URI | `opts.thumbUri` / `td.cover.uri` | 直接填 `VideoInfo.ThumbUri` |
+| 推荐封面 | 无 URI 时 `GetPosterList` | 先试（服务端故障时为 null） |
+| **本地文件** | `opts.cover.path` / `td.coverPath` / `td.cover`（字符串） | **`uploadLocalCoverFor(chain, path)` 五步链 → result_uri 进 ThumbUri** |
+
+接线体在 `toutiao-video-cover.js`（`pickLocalCoverPath` + `uploadLocalCoverFor`），链内 5 行。
+旧报错文案「头条封面上传尚未实现」订正为「本地封面上传失败且推荐封面不可用」。
+
+**零外发纪律**：`uploadLocalCoverFor` 的 vas 域按 `chain.mpBase` 推断 ——
+测试注入假 mpBase 时 vas 自动跟随假地址；生产用官方域。
+
+**回归锁**：`test/toutiao-video-chain.test.js` 新增「本地封面接线」用例 ——
+coverPath ⇒ 五步链三请求发生（params/Infos 打假服务器）+ 提交体 ThumbUri = 登记 uri。
