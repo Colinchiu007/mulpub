@@ -2,20 +2,22 @@
 /**
  * check-toast-single-exit.js — 「toast 只有一个出口」棘轮（UX 审计 §16.2 口径 ③）
  *
- * 现状（2026-10-19 当场实跑）：`ElMessage.{error,success,warning,info}` 直调 **84** 处 / 22 文件，
- * 而单一出口 `useNotify.js` 已经存在。本门禁落地前实测是 **90** 处 —— 差额 6 处全部在 `useNotify.js`
- * 自己身上（它原先用 `ElMessage.error(...)` 这类**分类型直调**），本批把出口改成泛化 `ElMessage({...})`
- * 后由 90 降到 84。两个数用**同一把尺子**（本文件的 `scan()` + `stripLineComments`）量的：
- * `git show HEAD:apps/desktop/src/composables/useNotify.js` 那份 typed=6 / typed(now)=0，84+6=90 逐字对上，
- * 所以审计 §16.2 的 90 不是口径错，是"批次前的现状"。
+ * 现状（2026-10-19 当场实跑，仪器 = 本文件的 `scan()` + `stripLineComments`）：
+ * 判定域（**出口之外**）直调 **84** 处 / 22 文件、泛化 6 处、成员 0 处；出口内 typed=1 + member=1 由豁免吸收。
+ * 批次前实测是 **90** 处，口径差就一处：那时候出口自己的 6 处 `ElMessage.error(...)` 这类**分类型直调**也在域内。
+ * 本批把那 6 处收成 2 处，并且出口整体退出判定域（它就是要被允许调用宿主的那个地方），
+ * 于是 90 = 84（出口之外，未动）+ 6（出口自身，已收）——**两个数是同一把尺子的两个时刻**，不是两套尺子。
+ * 全仓现场调用点合计 86 = 84（域内）+ 2（出口内）。
  * 策略（时长上限 + 同源合并）只写在出口里 ⇒ 直调那 84 处**绕过策略**。本门禁不要求一次迁完（那会把"出口有没有策略"与
  * "某页文案对不对"混成一次变更，归因互相污染），只保证**存量不再增长、新文件不得开口子**。
  *
  * 四条口径：
  *  ① **按文件计份数**，不按"文件名出现过"计 —— 一个文件从 3 处涨到 4 处必须红，
  *     而"该文件已在基线里"这种存在性判据对此完全免疫（本仓「装饰性门禁」的同型）。
- *  ② `ElMessage(...)` 泛化调用只允许出现在**出口清单**里（默认只有 useNotify.js）。
- *     否则"改用泛化入口"会绕过本门禁 ① 的直调统计 —— 这是门禁自己的漏项，必须一起拦。
+ *  ② ElMessage 的**三种调用形态**都计入：`ElMessage.error(` 直调、`ElMessage({...})` 泛化、
+ *     `ElMessage[type]({...})` 成员。只允许出现在**出口**（`EXIT_ALLOWLIST`，出口豁免覆盖三态）。
+ *     否则"换一种写法"就能绕过 ① 的份数统计 —— 而出口自己用的正是成员形态，
+ *     豁免若只覆盖泛化那一态，门禁会把自己的出口判成违规。
  *  ③ 基线只能缩小：任何文件计数上涨、新文件命中、非出口文件用泛化调用 ⇒ 红；
  *     **不提供 `--update-baseline`**，要放宽只能人手改 JSON，改动能在 diff 里被看见。
  *  ④ 扫描域为空 / 有文件读不到 / 真仓文件数退化到个位数 ⇒ rc=2（判据自身故障），
@@ -33,6 +35,9 @@ const DEFAULT_BASELINE = path.join(__dirname, 'toast-single-exit-baseline.json')
 
 const DIRECT_RE = /\bElMessage\s*\.\s*(?:error|success|warning|info)\s*\(/g
 const GENERIC_RE = /\bElMessage\s*\(/g
+// 第三种形态：`ElMessage[type]({...})`。出口本身就用这一形（档位由变量承载），
+// 所以它必须与上面两种一样被计入并靠出口豁免拦住——否则"改用方括号取值"就是门禁自己的漏项。
+const MEMBER_RE = /\bElMessage\s*\[/g
 const EXIT_ALLOWLIST = ['composables/useNotify.js']
 
 function walk (dir, out) {
@@ -64,6 +69,8 @@ function scan (scanRoot) {
   const all = walk(scanRoot, [])
   const byFile = new Map()
   const genericByFile = new Map()
+  const memberByFile = new Map()
+  const exitByFile = new Map()
   const unreadable = []
   for (const f of all) {
     const rel = path.relative(scanRoot, f).replace(/\\/g, '/')
@@ -73,10 +80,18 @@ function scan (scanRoot) {
     const code = stripLineComments(src)
     const direct = countIn(DIRECT_RE, code)
     const generic = countIn(GENERIC_RE, code)
+    const member = countIn(MEMBER_RE, code)
+    // 出口豁免覆盖**全部三种形态**：出口就是那个出口，它调用 ElMessage 定义上不是绕过。
+    // 只豁免泛化形态会把真相写歪——出口改用方括号形态后，门禁会把自己的出口判成违规。
+    if (EXIT_ALLOWLIST.some((a) => rel.endsWith(a))) {
+      if (direct || generic || member) exitByFile.set(rel, { direct, generic, member })
+      continue
+    }
     if (direct > 0) byFile.set(rel, direct)
     if (generic > 0) genericByFile.set(rel, generic)
+    if (member > 0) memberByFile.set(rel, member)
   }
-  return { all, byFile, genericByFile, unreadable }
+  return { all, byFile, genericByFile, memberByFile, exitByFile, unreadable }
 }
 
 function main (argv) {
@@ -87,12 +102,13 @@ function main (argv) {
   const scanRoot = opt('scan-root') || DEFAULT_SCAN_ROOT
   const baselinePath = opt('baseline') || DEFAULT_BASELINE
   if (!fs.existsSync(scanRoot)) { console.error('[toast-exit] 扫描根缺失：' + scanRoot); return 2 }
-  const { all, byFile, genericByFile, unreadable } = scan(scanRoot)
+  const { all, byFile, genericByFile, memberByFile, exitByFile, unreadable } = scan(scanRoot)
   if (unreadable.length) { console.error('[toast-exit] 有文件读不到，判据自身故障：' + unreadable.slice(0, 3).join(', ')); return 2 }
-  if (all.length === 0 || (byFile.size === 0 && genericByFile.size === 0)) {
+  if (all.length === 0 || (byFile.size === 0 && genericByFile.size === 0 && memberByFile.size === 0 && exitByFile.size === 0)) {
     // 判据失明的定义是"什么都没数到"，不是"没有直调"——
-    // 只存在泛化调用的仓库状态是可判定的，把它读成"门禁坏了"会让真正的空域与
-    // "存量已被迁完"两种情况无法区分（前者该红，后者该绿）。
+    // 只存在成员形态调用、或只有出口在调用的仓库状态都是**可判定的**，
+    // 把它读成"门禁坏了"会让真正的空域与"存量已被迁完"两种情况无法区分（前者该红，后者该绿）。
+    // 加第三/第四张计数图时必须一起放进这条判据，否则新那张图**永远救不了**旧的 blindness（本轮由自测当场抓住）。
     console.error('[toast-exit] 扫描域为空或一个调用点都没数到 ⇒ 判据失明（不得读成合规）')
     return 2
   }
@@ -128,9 +144,22 @@ function main (argv) {
   }
 
   const genericTotal = [...genericByFile.values()].reduce((a, b) => a + b, 0)
+  // 方括号形态：出口之外出现即红（出口自己用这一形，已由 scan 的出口豁免移出判定域）。
+  // 没有这一档，"改用 ElMessage[type](...)" 就是门禁的第四个漏项——而它恰好是出口的正解形态。
+  for (const [rel, n] of memberByFile) {
+    const allowed = baseline.memberByFile && baseline.memberByFile[rel]
+    if (allowed === undefined) problems.push(`NEW_MEMBER_FILE ${rel}：ElMessage[...] 成员形态 ${n} 处，出口只有 ${EXIT_ALLOWLIST.join(', ')}`)
+    else if (n > allowed) problems.push(`GREW_MEMBER ${rel}：基线 ${allowed} 处 → 现 ${n} 处（只可缩小）`)
+  }
+  for (const rel of Object.keys((baseline.memberByFile && typeof baseline.memberByFile === 'object') ? baseline.memberByFile : {})) {
+    if (!memberByFile.has(rel)) problems.push(`STALE_MEMBER_BASELINE ${rel}：已不再命中，必须删掉这条登记`)
+  }
+  const memberTotal = [...memberByFile.values()].reduce((a, b) => a + b, 0)
+  const exitTotal = [...exitByFile.values()].reduce((a, x) => a + x.direct + x.generic + x.member, 0)
   console.log('[toast-exit] 域=' + all.length + ' 文件 / 直调文件=' + byFile.size +
     ' / 直调处数=' + totalNow + ' / 基线处数=' + totalBase +
-    ' / 泛化处数=' + genericTotal + ' / 违规=' + problems.length)
+    ' / 泛化处数=' + genericTotal + ' / 成员处数=' + memberTotal +
+    ' / 出口内=' + exitTotal + ' / 违规=' + problems.length)
   for (const p of problems) console.log('  ' + p)
   if (argv.includes('--json')) console.log(JSON.stringify({ totalNow, totalBase, byFile: Object.fromEntries(byFile), problems }))
   if (problems.length) return 1
@@ -139,4 +168,4 @@ function main (argv) {
 }
 
 if (require.main === module) process.exit(main(process.argv.slice(2)))
-module.exports = { main, scan, stripLineComments, DIRECT_RE, GENERIC_RE, EXIT_ALLOWLIST }
+module.exports = { main, scan, stripLineComments, DIRECT_RE, GENERIC_RE, MEMBER_RE, EXIT_ALLOWLIST }

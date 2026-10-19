@@ -11,6 +11,7 @@ vi.mock('element-plus', () => ({
 const { ElMessage } = await import('element-plus')
 
 import CreatorMonitor from './CreatorMonitor.vue'
+import { messageIs, messageContains, messageOf } from '../../utils/toast-assert-helpers'
 
 /** i18n 桩：给出真实模板，vue-i18n 才会替换 {count} / {max} / {remain} 等占位符。
  *  空 messages 时 t() 只回显 key，插值不会被替换，断言占位符数值就会假失败。 */
@@ -251,7 +252,7 @@ describe('CreatorMonitor · 一键采集', () => {
     await nextTick()
     expect(ElMessage.success).toHaveBeenCalled()
     expect(ElMessage.info).toHaveBeenCalled()
-    expect(ElMessage.info.mock.calls[0][0]).toContain('7')
+    expect(messageOf(ElMessage.info.mock.calls[0][0])).toContain('7')
   })
 
   it('全部采完时不提示剩余', async () => {
@@ -350,7 +351,7 @@ describe('CreatorMonitor · 降级与错误', () => {
     await flushPromises(); await nextTick()
     await w.find('[data-testid="creator-collect-one"]').trigger('click')
     await nextTick()
-    expect(ElMessage.error).toHaveBeenCalledWith('bad')
+    expect(ElMessage.error).toHaveBeenCalledWith(messageIs('bad'))
     expect(ElMessage.success).not.toHaveBeenCalled()
   })
 

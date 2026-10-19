@@ -73,8 +73,8 @@ toast，用户根本看不见」。**打开原文核对后撤回**：三处是 C
 |---|---|---|
 | 判定：docs-only | ❌ false | 本批改 `apps/desktop/src/**` 与 `.github/workflows/**` ⇒ 混合 PR，走完整质量节拍（`classify-docs-only` 必须在 commit 后取证，预提交时 HEAD==base 会给出假 false） |
 | 变更类型与隔离 | ✅ | 运行时代码变更在独立 worktree `<仓库父目录>/mp-worktrees/mp-ux-audit-toast-a11y`（非 C 盘）、裸分支名 `ux-audit-toast-a11y`；共享根保持 main clean |
-| TDD（测试先于实现） | ✅ | `toast-policy.test.js` 15 条 + `useNotify.test.js` 19 条；`cd apps/desktop && npx vitest run src/composables/useNotify.test.js src/utils/toast-policy.test.js` → **34 passed (34)** |
-| 变异反证 | ✅ 6/6 CAUGHT | 驱动先跑未变异正控（vitest 34 passed / gate `fail 0`）与**解析器正控**（四族失败行写法认不出即 exit 2），再逐条变异；还原后三个目标文件 md5 逐字节 IDENTICAL |
+| TDD（测试先于实现） | ✅ | `toast-policy.test.js` 15 条 + `useNotify.test.js` 19 条 + `toast-assert-helpers.test.js` 5 条；`cd apps/desktop && npx vitest run src/composables/useNotify.test.js src/utils/toast-policy.test.js` → **39 passed (39)**；全量 `npx vitest run src`（369 个测试文件）在补建 `electron/preload/index.bundle.js`（`npm run build:preload`，缺它时 `overlay-view-suspension` / `shell-mode-6b` 两条报 ENOENT）后全绿 |
+| 变异反证 | ✅ 9/9 CAUGHT | 驱动先跑未变异正控（vitest 39 passed / gate `fail 0`）与**解析器正控**（四族失败行写法认不出即 exit 2），再逐条变异；还原后三个目标文件 md5 逐字节 IDENTICAL |
 | 门禁接线 | ✅ | 判据本体 + 自测**两条命令都**接进 `quality-gate.yml` 的 `changes` 作业、且在非 PR 早退之前 ⇒ PR 与 main push 两档都覆盖；`node scripts/check-unwired-tests.js` → 「检查域内测试文件 109 个 / OK」 |
 | 行尾对账 | ✅ | `git diff --numstat HEAD` 与 `git diff -w --numstat HEAD` 对照：`.gitignore 3/0`、`quality-gate.yml 6/0`、`useNotify.js 26/9` 两口径相同；`useNotify.test.js` 89/10 vs 88/9 —— 差的 **1/1 是原文件末尾没有行尾换行**、追加时补上那一个换行所致（`git diff | grep "^-"` 现场可见那行就是 `})`，非内容丢失） |
 | 中文硬编码 | ✅ | `node .github/scripts/check-locale-sync.js --cjk` → PASS（基线 1331 / 当前 1164，无新增）；策略告警文案写成 ASCII（`console.warn` 是给开发者的，不是用户可见文案 ⇒ 按 AGENTS 不新增 locale 死键） |
@@ -85,7 +85,7 @@ toast，用户根本看不见」。**打开原文核对后撤回**：三处是 C
 | QM-6 双模型 | ⚠️ 未执行 | 本机无 CCG：pre-commit 打印 `[CCG] 未找到 CCG（run_skill.js），已跳过 CCG 门禁`。替代自证＝6 条变异 + 6 条门禁自测 + 34 条单测；不谎称跑过外部模型 |
 | 品牌残留 / 冲突标记 / 绝对路径 | ✅ | `check-no-brand-residue` PASS；`check-no-conflict-markers` OK（标记行 8 全带登记）；`check-doc-abs-paths` 本批新段落只用相对路径与 `<占位>` |
 
-### 变异反证（六条，各自只动一个变量）
+### 变异反证（九条，各自只动一个变量）
 
 | # | 变异 | 实测红在 | 结论 |
 |---|---|---|---|
@@ -95,6 +95,9 @@ toast，用户根本看不见」。**打开原文核对后撤回**：三处是 C
 | ④ | 摘掉注释剥离（`stripLineComments(src)` → `src`） | 2 条：「注释里举例写的 ElMessage.error( 不得计数」+「真实仓现场处数必须等于基线总数」 | CAUGHT |
 | ⑤ | 档位词表漏掉 `warn` 档 | 3 条：出口侧 `level:'warn'` + 策略侧别名 + **成对键集锁** | CAUGHT |
 | ⑥ | 只在**时长表**加一档（行为面看不出来） | 2 条：默认时长精确表 + 成对键集锁 | CAUGHT |
+| ⑦ | 摘掉成员形态计数（`if (member > 0) memberByFile.set(...)` → `if (false)`） | 1 条指名：「方括号成员形态…在出口之外出现 ⇒ 红」 | CAUGHT |
+| ⑧ | 摘掉出口豁免（`if (EXIT_ALLOWLIST.some(...)) {` → `if (false) {`） | 2 条：同上一条（出口内那处被当成违规）+「真实仓现场处数必须等于基线总数」 | CAUGHT |
+| ⑨ | 观察助手恒真（`asymmetricMatch: (arg) => textOf(arg) === expected` → `() => true`） | 2 条：「文案不对就是不匹配」+ **「负控：参数根本不是消息时一律不匹配」** | CAUGHT |
 
 第一轮驱动只拿到 2/4，两条 NOT_CAUGHT 事后证明**都是探针自己的错，不是实现的错**（这条比结论有用）：
 
@@ -111,12 +114,53 @@ toast，用户根本看不见」。**打开原文核对后撤回**：三处是 C
   并把"这条红不到"写进注释而不是靠放宽断言凑红。
 
 ### 用户可见行为的变化（写给下一个读代码的人，不必反推）
+（本节按最终实现写：出口用「类型方法 + 选项对象」，不是泛化调用。理由见下一节《出口形态的二次改判》。）
+
 
 - 同一条通知重复出现时折叠成一条并显示次数（此前是逐条堆叠刷屏）。
 - 停留时长按档区分：error 6s、warning 4s、info 3s、success 2s；**此前出口不传 duration，四档一律 3s**
   （element-plus 默认），也就是"报错和提示一样久"。
 - 调用点显式传的 `duration` 仍被尊重，但超过 10s 会被夹到 10s 并在控制台出声；传 `0` 表示常驻，原样放行。
 - `notifyConfirm`（模态确认）不套时长策略、不进棘轮计数。
+
+## 出口形态的二次改判（同批内，被全量套件推翻的第一版）
+
+第一版实现把出口改成**一次泛化调用** `ElMessage({ message, type, duration, grouping })`，我自己那两个测试文件
+**34 passed** 就认为成立。跑全量 `src` 后现场是 **18 个测试文件 / 284 条用例红**，错误签名 568 次
+`ElMessage is not a function`：16 个消费者测试的 element-plus 夹具只提供**命名方法**（宿主确实提供命名方法，
+`message.d.ts:174-179`），而我改成只调泛化形态，等于单方面打破了它们的观察契约。
+
+**改判**：出口取 `ElMessage[type]({ message, duration, grouping })` —— 宿主 `MessageTypedFn` 实测接受选项对象
+（`message.d.ts:173`），策略全部照样生效，而消费者观察面一条不用改。取舍不是"哪个设计更漂亮"，
+而是**改契约要付多少别人的账**：改 16 个夹具动的是其他会话的测试面，且会把"mock 该长什么样"的争论带进本批。
+
+改判带来的三条配套（都是必须项，缺一就是给门禁留洞）：
+
+1. **棘轮必须数第三种形态**。`ElMessage[...]` 加进 `scan()` 成为第三张计数图，否则"别人也改用方括号"是一条
+   完全不被观测的绕过路径 —— 而出口自己正是这一形。出口豁免因此要覆盖**全部三态**，只豁免泛化那一态
+   会让门禁把自己的出口判成违规（变异 ⑧ 抓的就是这条）。
+2. **blindness 判据必须跟着扩**。原条件是"两张计数图都空才算失明"，加第三张时我没并进去，
+   于是只剩成员形态的夹具被误判成 rc=2「门禁坏了」——**是门禁的自测当场抓住的**（我为新一维加的那条用例），
+   不是我读代码读出来的。口径：加任何"全部为空才失明"的判据时，先问"新这张图能不能单独支撑一个可判定的状态"，
+   能就必须并进失明条件。
+3. **消费者断言收敛到语义而不是形态**。新增 `src/utils/toast-assert-helpers.js`（单一实现），把 **78 处**
+   `ElMessage.<档>).toHaveBeenCalledWith('文案')` / `expect.stringContaining(...)` / 直接读 `mock.calls[..][0]`
+   的写法改成 `messageIs / messageContains / messageOf`，对字符串形态与选项形态**同时成立**；
+   助手自身 5 条锁含一条关键负控（`undefined / 数字 / 空对象 / message 非字符串` 一律不匹配），变异 ⑨ 证明它有牙。
+   78 这个数字来自清点探针（67 字面量 + 10 stringContaining + 1 `i18n.global.t(...)`），转换脚本对每个形态各断言命中数。
+
+两处由**批量改写自己造出来**的破损（都在提交前被当场抓住，值得记下来因为它们的形状很普通）：
+
+- 第二遍转换的字面量分支**漏了调用自身的收尾括号**（3 行 + 1 行带 `;` 的漏网），报的是 vite 解析错，
+  定位不到具体行。正解不是去读测试输出，而是**改完立刻用 esbuild 把整个域的测试文件过一遍**
+  （本轮 369 个文件，秒级，失败即非零退出）。`node --check` 抓不到这类问题（ESM/括号跨行都不报）。
+- 变异驱动 v3 的**收尾漏了 `restore('final')`** ⇒ ⑨ 的变异（`() => true`）留在磁盘上。
+  是我按"md5 逐字节对照"回读现场时发现的（`assert=81dc2cc0` 对不上驱动打印的那个值）。
+  口径：反证驱动的**最后一次 restore 与逐字节对账**必须写在摘要之前，否则最后一条变异一定留残留。
+
+最终读数：`npx vitest run src/composables/useNotify.test.js src/utils/toast-policy.test.js src/utils/toast-assert-helpers.test.js`
+→ **39 passed**；被触及的 21 个文件 → **800 passed**；全量 `src` → **369 个文件全绿**（补建 preload 产物后）；
+门禁自测 **7 passed / fail 0**；九条变异 **9/9 CAUGHT**、`restore[final] … => IDENTICAL`。
 
 ## 远程同步
 

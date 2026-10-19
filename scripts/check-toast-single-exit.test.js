@@ -80,6 +80,27 @@ test('泛化 ElMessage({...}) 在出口之外出现 ⇒ 红；进基线后只能
   assert.match(r3.out, /GREW_GENERIC views\/B\.vue/)
 })
 
+test('方括号成员形态 ElMessage[type]({...}) 在出口之外出现 ⇒ 红；出口内出现不计', () => {
+  // 这一档不是理论完备性：出口**正是**用这一形（档位由变量承载）。
+  // 如果门禁只数 `.error(` 与 `(`，那么"别人也改用方括号"就是一条完全不被观测的绕过路径。
+  const exitRel = EXIT_ALLOWLIST[0]
+  const root = fixture({
+    [exitRel]: 'ElMessage[type]({ message: 1 })\n',
+    'views/D.vue': 'ElMessage[foo]({ message: 2 })\n',
+  })
+  const r1 = run(['--scan-root=' + root, '--baseline=' + baselineFile(root, { byFile: {}, genericByFile: {}, memberByFile: {} })])
+  assert.strictEqual(r1.rc, 1, r1.out)
+  assert.match(r1.out, /NEW_MEMBER_FILE views\/D\.vue/)
+  assert.doesNotMatch(r1.out, /NEW_MEMBER_FILE composables/, '出口内的成员形态必须由豁免吸收，否则门禁会把自己的出口判成违规')
+  const r2 = run(['--scan-root=' + root, '--baseline=' + baselineFile(root, { byFile: {}, genericByFile: {}, memberByFile: { 'views/D.vue': 1 } })])
+  assert.strictEqual(r2.rc, 0, r2.out)
+  // 登记陈旧：文件不再命中却不删条目，同样必须红
+  const r3 = run(['--scan-root=' + fixture({ [exitRel]: 'ElMessage[type]({ message: 1 })\n' }),
+    '--baseline=' + baselineFile(root, { byFile: {}, genericByFile: {}, memberByFile: { 'views/D.vue': 1 } })])
+  assert.strictEqual(r3.rc, 1, r3.out)
+  assert.match(r3.out, /STALE_MEMBER_BASELINE views\/D\.vue/)
+})
+
 test('注释里举例写的 ElMessage.error( 不得计数（与 5.3 同源：文档提到 ≠ 代码在用）', () => {
   assert.strictEqual(stripLineComments('// 例如 ElMessage.error(x)\nconst a = 1').includes('ElMessage'), false)
   assert.ok(stripLineComments('ElMessage.error(x) // 顺带 ElMessage.error 的说法').includes('ElMessage.error(x)'))

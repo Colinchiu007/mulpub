@@ -29,6 +29,7 @@ vi.mock('@/api/publisher', () => ({
 vi.mock('element-plus', () => ({ ElMessage: mockMessage, ElMessageBox: { confirm: mockConfirm } }))
 
 import { usePublishDrafts } from './usePublishDrafts'
+import { messageIs, messageContains } from './../utils/toast-assert-helpers'
 
 describe('usePublishDrafts', () => {
   let article
@@ -165,8 +166,8 @@ describe('usePublishDrafts', () => {
     await expect(drafts.loadDrafts()).resolves.toEqual([])
     await expect(drafts.saveDraft()).resolves.toEqual({ ok: false, draftId: null })
 
-    expect(mockMessage.error).toHaveBeenCalledWith('读取失败')
-    expect(mockMessage.error).toHaveBeenCalledWith('保存失败')
+    expect(mockMessage.error).toHaveBeenCalledWith(messageIs('读取失败'))
+    expect(mockMessage.error).toHaveBeenCalledWith(messageIs('保存失败'))
   })
 
   it('空草稿不提交', async () => {
@@ -177,7 +178,7 @@ describe('usePublishDrafts', () => {
     await drafts.saveDraft()
 
     expect(mockDraftSave).not.toHaveBeenCalled()
-    expect(mockMessage.warning).toHaveBeenCalledWith('标题和内容不能都为空')
+    expect(mockMessage.warning).toHaveBeenCalledWith(messageIs('标题和内容不能都为空'))
   })
 
   // ─── P1-4 定时×草稿互斥（2026-10-08 发布页优化 roadmap 第一项）───
@@ -232,7 +233,7 @@ describe('usePublishDrafts', () => {
 
     expect(article.title).toBe('过期定时草稿')
     expect(article.publishTime).toBe('')
-    expect(mockMessage.warning).toHaveBeenCalledWith(expect.stringContaining('已过期'))
+    expect(mockMessage.warning).toHaveBeenCalledWith(messageContains('已过期'))
   })
 
   it('P1-4：加载含未来定时时间的草稿时保留定时且不提示', async () => {

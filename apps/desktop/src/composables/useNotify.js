@@ -41,7 +41,7 @@ export function useNotify () {
       // 未命中 key：error 级用 fallback 兜底，其余静默
       if (level === 'error' && options.fallback) {
         reportNotify(messageKey, { ...options, level: 'error', error: options.fallback })
-        ElMessage({
+        ElMessage.error({
           message: options.fallback,
           type: 'error',
           duration: resolveToastDuration('error', options.duration).ms,
@@ -55,12 +55,12 @@ export function useNotify () {
     // 调用点显式 duration 一律被策略夹住；`grouping` 默认开（审计现场的"刷屏"就是
     // 同一句话被堆成一片），只有调用点显式 `grouping: false` 才各算一次。
     //
-    // 为什么走 `ElMessage({ type, ... })` 而不是 `ElMessage.success(...)`：
-    // "level 叫什么"是一个变量；若用类型化方法，出口就得自己存一张档位表。该表现在住在
-    // utils/toast-policy 的 TOAST_TYPE_BY_LEVEL（唯一词表），本行只消费它——两处各存一份必漂移。
+    // 出口形态取 `ElMessage[type]({ message, duration, grouping })`：类型方法承载档位，选项承载策略。
+    // 不写成 `ElMessage({ type, ... })` 是实测决定的——本仓 16 个消费者测试的 element-plus 夹具只提供
+    // 命名方法（宿主确实提供命名方法），换成泛化形态会让它们全部报 "ElMessage is not a function"。
     // 宿主签名实测（`node_modules/element-plus/es/components/message/src/message.d.ts`）：
-    //   `MessageFn: (options?: MessageParams, appContext?) => MessageHandler`
-    //   `MessageParams = MessageOptions | MessageOptions['message']`，`MessageOptions` 含
+    //   `MessageTypedFn: (options?: MessageParamsWithType, appContext?) => MessageHandler`（d.ts:173）
+    //   档位词表只住在 utils/toast-policy 的 TOAST_TYPE_BY_LEVEL（两处各存一份必漂移）；`MessageOptions` 含
     //   `type` / `duration`（"If set to 0, it will not turn off automatically"）/ `grouping`。
     const type = resolveToastType(level)
     const { ms, fellBack, reason } = resolveToastDuration(level, options.duration)
@@ -68,7 +68,7 @@ export function useNotify () {
       // 不得静默：静默会让"我传的时长没生效"永远不被知道
       console.warn('[notify] duration rejected by policy, fallback applied: ' + reason + ' (key=' + String(messageKey || '') + ', requested=' + String(options.duration) + ')')
     }
-    ElMessage({ message: text, type, duration: ms, grouping: resolveToastGrouping(options.grouping) })
+    ElMessage[type]({ message: text, duration: ms, grouping: resolveToastGrouping(options.grouping) })
     // P1 可观测性：把用户实际看到的文案作为 error 字段上报（此前只报 messageKey，
     // 主进程日志无法得知用户看到了什么内容；error 字段经 notify:log 脱敏后落盘）
     reportNotify(messageKey, { ...options, level, error: text })

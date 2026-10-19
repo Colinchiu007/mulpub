@@ -29,5 +29,6 @@
   "genericByFile": {
     "components/PublishProgressFooter.vue": 1,
     "components/PublishProgressPanel.vue": 5
-  }
+  },
+  "memberByFile": {}
 }

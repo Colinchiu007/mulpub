@@ -80,6 +80,7 @@ vi.mock('@/composables/useFilmVideoGen', async () => {
 
 import FilmCanvasView from './FilmCanvasView.vue'
 import { ElMessage } from 'element-plus'
+import { messageIs, messageContains } from '../utils/toast-assert-helpers'
 
 const vg = () => globalThis.__fakeVg
 
@@ -146,7 +147,7 @@ describe('FilmCanvasView LLM 润色开关已下线（2026-10-07）', () => {
     w.vm.form.script = '第一场\n\n剧情。'
     await w.vm.onAdapt()
     await flushPromises()
-    expect(ElMessage.success).toHaveBeenCalledWith('filmEngineering.canvas.adapt.done')
+    expect(ElMessage.success).toHaveBeenCalledWith(messageIs('filmEngineering.canvas.adapt.done'))
     const warned = ElMessage.warning.mock.calls.map((c) => String(c[0]))
     expect(warned.some((s) => /llm/i.test(s))).toBe(false)
     w.unmount()
@@ -193,7 +194,7 @@ describe('FilmCanvasView 5.2 失败单镜就地重试', () => {
     vg().shotResults.value = []
     await w.vm.onRetryShot('adapt-001')
     expect(vg().retryShot).not.toHaveBeenCalled()
-    expect(ElMessage.error).toHaveBeenCalledWith('filmEngineering.canvas.retry.failed')
+    expect(ElMessage.error).toHaveBeenCalledWith(messageIs('filmEngineering.canvas.retry.failed'))
     w.unmount()
   })
 
@@ -208,7 +209,7 @@ describe('FilmCanvasView 5.2 失败单镜就地重试', () => {
     await flushPromises()
     const node = w.vm.nodes.find((n) => n.id === 'shot:adapt-001')
     expect(node.data.status).toBe('failed')
-    expect(ElMessage.error).toHaveBeenCalledWith('filmEngineering.canvas.retry.failed')
+    expect(ElMessage.error).toHaveBeenCalledWith(messageIs('filmEngineering.canvas.retry.failed'))
     w.unmount()
   })
 })

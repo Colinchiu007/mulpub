@@ -88,6 +88,7 @@ vi.mock("@element-plus/icons-vue", () => {
 
 // 导入顺序与 Publish.test.js 一致（mock 必须在被 mock 的模块之前注册）
 import PublishView from "./Publish.vue";
+import { messageIs, messageContains, messageOf } from '../utils/toast-assert-helpers'
 
 describe("PublishView — 发布目标全选 / 清空（publish-target-select-all）", () => {
   beforeEach(async () => {
@@ -165,7 +166,7 @@ describe("PublishView — 发布目标全选 / 清空（publish-target-select-al
     await flushPromises();
 
     expect(w.vm.selectedPlatforms).toEqual(["wechat_mp"]);
-    const message = ElMessage.info.mock.calls.at(-1)[0];
+    const message = messageOf(ElMessage.info.mock.calls.at(-1)[0]);
     expect(message).toBe(i18n.global.t("publishPage.targetBulk.alreadyAll", { count: 1 }));
     expect(message).not.toContain("已选中 0 个平台");
   });
@@ -183,7 +184,7 @@ describe("PublishView — 发布目标全选 / 清空（publish-target-select-al
 
     expect(w.vm.selectedPlatforms).toEqual(["wechat_mp"]);
     // 播报数字来自同一次分类：added=1、skipped=1
-    const message = ElMessage.info.mock.calls.at(-1)[0];
+    const message = messageOf(ElMessage.info.mock.calls.at(-1)[0]);
     expect(message).toContain("已选中 1 个平台");
     expect(message).toContain("1 个平台没有可用账号");
     expect(message).toContain("知乎");
@@ -202,7 +203,7 @@ describe("PublishView — 发布目标全选 / 清空（publish-target-select-al
     await flushPromises();
 
     expect(w.vm.selectedPlatforms).toEqual([]);
-    expect(ElMessage.info).toHaveBeenCalledWith(i18n.global.t("publishPage.targetBulk.cleared"));
+    expect(ElMessage.info).toHaveBeenCalledWith(messageIs(i18n.global.t("publishPage.targetBulk.cleared")));
   });
 
   it("平台目录里没有任何可用账号时整行不渲染（CI 空 profile 的视觉中性由这条守）", async () => {

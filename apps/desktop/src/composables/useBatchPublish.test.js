@@ -79,6 +79,7 @@ import { useBatchPublish, selectHandoffPresetPlatforms } from '../composables/us
 // 与被测校验 validatePlatformContent 同源的上限读取（单一真源）：
 // 超限测试数据从注册表实时推导（limit+1），平台上限调整时测试不再漂移
 import { getPlatformContentLimit } from '../features/publish/publish-contract'
+import { messageIs, messageContains } from '../utils/toast-assert-helpers'
 
 function futurePublishTime (minutes = 10) {
   return new Date(Date.now() + minutes * 60 * 1000).toISOString()
@@ -512,7 +513,7 @@ describe('useBatchPublish — composable setup', () => {
 
     await r.handleBatchPublish()
 
-    expect(mockElMessage.warning).toHaveBeenCalledWith('批量文章中有账号已失效，请重新选择发布账号')
+    expect(mockElMessage.warning).toHaveBeenCalledWith(messageIs('批量文章中有账号已失效，请重新选择发布账号'))
     expect(mockElMessageBox.confirm).not.toHaveBeenCalled()
     expect(mockBatchCreate).not.toHaveBeenCalled()
   })
@@ -599,7 +600,7 @@ describe('useBatchPublish — composable setup', () => {
 
     await r.handleBatchPublish()
 
-    expect(mockElMessage.warning).toHaveBeenCalledWith('有文章缺少标题')
+    expect(mockElMessage.warning).toHaveBeenCalledWith(messageIs('有文章缺少标题'))
     expect(mockBatchCreate).not.toHaveBeenCalled()
     expect(mockOnProgress).not.toHaveBeenCalled()
   })
@@ -610,7 +611,7 @@ describe('useBatchPublish — composable setup', () => {
 
     await r.handleBatchPublish()
 
-    expect(mockElMessage.warning).toHaveBeenCalledWith('有文章缺少正文')
+    expect(mockElMessage.warning).toHaveBeenCalledWith(messageIs('有文章缺少正文'))
     expect(mockBatchCreate).not.toHaveBeenCalled()
     expect(mockOnProgress).not.toHaveBeenCalled()
   })
@@ -791,7 +792,7 @@ describe('useBatchPublish — composable setup', () => {
 
     expect(r.batchDone.value).toBe(1)
     expect(r.batchFail.value).toBe(1)
-    expect(mockElMessage.warning).toHaveBeenCalledWith('批量发布完成：1 个成功，1 个失败')
+    expect(mockElMessage.warning).toHaveBeenCalledWith(messageIs('批量发布完成：1 个成功，1 个失败'))
     expect(unsubscribeBatch).toHaveBeenCalledTimes(1)
   })
 
@@ -827,7 +828,7 @@ describe('useBatchPublish — composable setup', () => {
 
     expect(mockRetryTask).toHaveBeenCalledWith('failed-1')
     expect(r.failedBatchTasks.value).toEqual([])
-    expect(mockElMessage.success).toHaveBeenCalledWith('已重新提交 1 个失败任务')
+    expect(mockElMessage.success).toHaveBeenCalledWith(messageIs('已重新提交 1 个失败任务'))
   })
 
   it('全部任务失败时显示明确错误汇总，并忽略其他批次事件', async () => {
@@ -855,7 +856,7 @@ describe('useBatchPublish — composable setup', () => {
 
     expect(r.batchDone.value).toBe(0)
     expect(r.batchFail.value).toBe(2)
-    expect(mockElMessage.error).toHaveBeenCalledWith('批量发布失败：2 个任务全部失败')
+    expect(mockElMessage.error).toHaveBeenCalledWith(messageIs('批量发布失败：2 个任务全部失败'))
     expect(unsubscribeBatch).toHaveBeenCalledTimes(1)
   })
 
@@ -890,7 +891,7 @@ describe('useBatchPublish — composable setup', () => {
       failed: 1,
     })
 
-    expect(mockElMessage.warning).toHaveBeenCalledWith('批量发布完成：1 个成功，1 个失败')
+    expect(mockElMessage.warning).toHaveBeenCalledWith(messageIs('批量发布完成：1 个成功，1 个失败'))
     expect(unsubscribeBatch).toHaveBeenCalledTimes(1)
     expect(window.electronAPI.batchGet).not.toHaveBeenCalled()
   })
@@ -926,7 +927,7 @@ describe('useBatchPublish — composable setup', () => {
     await vi.advanceTimersByTimeAsync(10)
 
     expect(window.electronAPI.batchGet).toHaveBeenCalledWith('batch1')
-    expect(mockElMessage.warning).toHaveBeenCalledWith('批量发布完成：1 个成功，1 个失败')
+    expect(mockElMessage.warning).toHaveBeenCalledWith(messageIs('批量发布完成：1 个成功，1 个失败'))
     expect(unsubscribeBatch).toHaveBeenCalledTimes(1)
     expect(vi.getTimerCount()).toBe(0)
   })
@@ -956,7 +957,7 @@ describe('useBatchPublish — composable setup', () => {
     await vi.advanceTimersByTimeAsync(20)
 
     expect(window.electronAPI.batchGet).toHaveBeenCalledTimes(2)
-    expect(mockElMessage.error).toHaveBeenCalledWith('批量发布状态确认超时，请在任务记录中查看最终结果')
+    expect(mockElMessage.error).toHaveBeenCalledWith(messageIs('批量发布状态确认超时，请在任务记录中查看最终结果'))
     expect(unsubscribeBatch).toHaveBeenCalledTimes(1)
     expect(vi.getTimerCount()).toBe(0)
   })
@@ -1248,7 +1249,7 @@ describe('useBatchPublish — P2-7 批量条目字段面', () => {
     await r.handleBatchPublish()
 
     expect(mockBatchCreate).not.toHaveBeenCalled()
-    expect(mockElMessage.warning).toHaveBeenCalledWith(expect.stringContaining('小红书标题'))
+    expect(mockElMessage.warning).toHaveBeenCalledWith(messageContains('小红书标题'))
   })
 
   it('差异化面板里的超长覆盖内容按平台上限自动转换（PRD-PLATFORM-CHAR-LIMITS §F3：截断放行 + 汇总提示，不再整批中止）', async () => {
