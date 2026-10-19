@@ -1,0 +1,62 @@
+{
+  "sha": "3e2e4f29057aeaa99e5274365d8c5b1c4cb8cb27",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 808 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 808,
+    "fileCount": 29,
+    "codeFileCount": 19,
+    "sensitivePathHits": [
+      "packages/api-publish-engine/src/auth/plan-matrix.js",
+      "packages/api-publish-engine/src/auth/postgres-commerce-store.js",
+      "packages/api-publish-engine/src/auth/subscription-service.js"
+    ],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 3,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "> **本文档是机制设计文档，不是代码变更授权。** 现行代码真源仍是",
+      "  ├─ SELECT 现有 active 且未过期订阅（advisory lock 已先取）"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "220698d9bcb56a7e319fe151a7b987a744e5d675437c6f749edc67c2c27b1d7d",
+  "decidedAt": "2026-10-19T17:41:35.788Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

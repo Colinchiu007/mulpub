@@ -238,3 +238,59 @@ describe('usePlatformSelection — composable setup', () => {
     expect(r.getSelectedAccountIds('wechat_mp')).toEqual(['acc3'])
   })
 })
+
+describe('usePlatformSelection — 档位平台数上限（v2.0 C1.3）', () => {
+  it('未传 getEntitlement 时不做限制（既有调用方零改动）', () => {
+    const r = usePlatformSelection(makeAccountStore())
+    for (const p of ['zhihu', 'douyin', 'weibo', 'kuaishou', 'bilibili']) r.togglePlatform(p)
+    expect(r.selectedPlatforms.value.length).toBe(6)
+  })
+
+  it('免费档第 6 个平台被拒绝且返回 false（调用方据此提示）', () => {
+    let entitlement = { plan: 'free', limits: { max_platforms: 5 } }
+    const r = usePlatformSelection(makeAccountStore(), null, { getEntitlement: () => entitlement })
+    for (const p of ['zhihu', 'douyin', 'weibo', 'kuaishou']) {
+      expect(r.togglePlatform(p)).toBe(true)
+    }
+    expect(r.selectedPlatforms.value.length).toBe(5)
+    // 第 6 个：拒绝，且状态不变
+    expect(r.togglePlatform('bilibili')).toBe(false)
+    expect(r.selectedPlatforms.value).not.toContain('bilibili')
+    expect(r.platformLimit.value).toEqual({ limit: 5, selected: 5, atLimit: true })
+  })
+
+  it('已选中的平台永远可以取消（上限不锁死退出路径）', () => {
+    const r = usePlatformSelection(makeAccountStore(), null, {
+      getEntitlement: () => ({ plan: 'free', limits: { max_platforms: 1 } }),
+    })
+    // 初始就有 wechat_mp，上限 1 ⇒ 已满
+    expect(r.canAddPlatform('zhihu')).toBe(false)
+    expect(r.togglePlatform('wechat_mp')).toBe(true)
+    expect(r.selectedPlatforms.value).toEqual([])
+  })
+
+  it('按组添加同受上限约束（不能绕过单点选择）', () => {
+    const r = usePlatformSelection(makeAccountStore(), null, {
+      getEntitlement: () => ({ plan: 'free', limits: { max_platforms: 2 } }),
+    })
+    expect(r.selectPlatform('zhihu')).toBe(true)
+    expect(r.selectPlatform('douyin')).toBe(false)
+    expect(r.selectedPlatforms.value).toEqual(['wechat_mp', 'zhihu'])
+  })
+
+  it('limits 缺失或 -1 时放行（缺失即放行 / 不限语义）', () => {
+    const missing = usePlatformSelection(makeAccountStore(), null, {
+      getEntitlement: () => ({ plan: 'free' }),
+    })
+    for (const p of ['zhihu', 'douyin', 'weibo', 'kuaishou', 'bilibili', 'toutiao']) {
+      expect(missing.togglePlatform(p)).toBe(true)
+    }
+    const unlimited = usePlatformSelection(makeAccountStore(), null, {
+      getEntitlement: () => ({ plan: 'pro', limits: { max_platforms: -1 } }),
+    })
+    for (const p of ['zhihu', 'douyin', 'weibo', 'kuaishou', 'bilibili', 'toutiao']) {
+      expect(unlimited.togglePlatform(p)).toBe(true)
+    }
+    expect(unlimited.platformLimit.value.limit).toBeNull()
+  })
+})

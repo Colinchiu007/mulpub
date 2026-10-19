@@ -3,7 +3,7 @@
 const assert = require('assert')
 const test = require('node:test')
 
-const { PLAN_IDS, getPlanEntitlement, getPlanCatalog, PLAN_MATRIX_VERSION } = require('../src/auth/plan-matrix')
+const { PLAN_IDS, getPlanEntitlement, getPlanCatalog, PLAN_MATRIX_VERSION, planRank, PLAN_RANK } = require('../src/auth/plan-matrix')
 
 test('plan-matrix 契约（spec §2）', async (t) => {
   await t.test('档位枚举与版本', () => {
@@ -19,9 +19,12 @@ test('plan-matrix 契约（spec §2）', async (t) => {
     assert.strictEqual(free.priceMonthlyCents, 0)
     assert.strictEqual(standard.priceMonthlyCents, 5900)
     assert.strictEqual(standard.priceYearlyCents, 49900)
-    assert.strictEqual(pro.priceMonthlyCents, 7900)
-    assert.strictEqual(pro.priceYearlyCents, 69900)
+    // v2.0 机制 C2.3 结构 A：相邻档 2.0x（行业中位），¥79 → ¥119、¥699 → ¥999
+    assert.strictEqual(pro.priceMonthlyCents, 11900)
+    assert.strictEqual(pro.priceYearlyCents, 99900)
     for (const item of catalog) assert.strictEqual(item.currency, 'CNY')
+    // 档位序随目录下发，UI 排序与续叠保护同源（不得各自维护一份次序）
+    assert.deepStrictEqual(catalog.map((it) => it.rank), [0, 1, 2])
   })
 
   await t.test('官方积分月度配额：30 / 1600 / 2200', () => {
@@ -55,7 +58,8 @@ test('plan-matrix 契约（spec §2）', async (t) => {
     assert.ok(standard.features.includes('video_create'))
     assert.ok(standard.features.includes('schedule_batch'))
     assert.ok(standard.features.includes('dashboard_full'))
-    assert.strictEqual(standard.quota.video_create_monthly, 500)
+    // v2.0 机制 C4.3：视频配额 500 → 300（3× 于画像 p75 100 条/月）
+    assert.strictEqual(standard.quota.video_create_monthly, 300)
     assert.strictEqual(getPlanEntitlement('pro').quota.video_create_monthly, 3000)
     assert.strictEqual(standard.limits.concurrent_tasks, 3)
     assert.strictEqual(getPlanEntitlement('pro').limits.concurrent_tasks, 10)
@@ -65,10 +69,71 @@ test('plan-matrix 契约（spec §2）', async (t) => {
     assert.ok(getPlanEntitlement('pro').quota.official_credit_monthly > standard.quota.official_credit_monthly)
   })
 
+  await t.test('v2.0 机制：档位序 rank 单调且不可被 overrides 覆盖', () => {
+    assert.strictEqual(planRank('free'), 0)
+    assert.strictEqual(planRank('standard'), 1)
+    assert.strictEqual(planRank('pro'), 2)
+    // 未知档位返回 -1：调用方据此判「无法比较」，不得把未知值当 0/2 参与大小比较
+    assert.strictEqual(planRank('enterprise'), -1)
+    assert.deepStrictEqual({ ...PLAN_RANK }, { free: 0, standard: 1, pro: 2 })
+    // 单一真源（CCG i3）：BASE_MATRIX.rank 引用 PLAN_RANK，三处派生必须同值，
+    // 否则 limits.plan_rank 与降级保护会各读一份次序，改错一处即静默不一致
+    const catalog = getPlanCatalog()
+    for (const plan of PLAN_IDS) {
+      assert.strictEqual(getPlanEntitlement(plan).limits.plan_rank, planRank(plan))
+      assert.strictEqual(catalog.find((item) => item.id === plan).rank, planRank(plan))
+    }
+    // 档位序可配 ⇒ 运营改错一个数就能让 v2.0 C9.2 的降级保护静默失效 ⇒ 必须不可覆盖
+    assert.throws(
+      () => getPlanEntitlement('standard', { standard: { rank: 5 } }),
+      (err) => err.code === 'PLAN_MATRIX_CONFIG_INVALID'
+    )
+  })
+
+  await t.test('v2.0 机制：三条新权益轴的 features 派生（云同步/批量/模型分层）', () => {
+    const free = getPlanEntitlement('free')
+    const standard = getPlanEntitlement('standard')
+    const pro = getPlanEntitlement('pro')
+    // 云同步账号数：0 = 本档不提供（免费档只允许本地绑定，云同步是付费面）
+    assert.ok(!free.features.includes('cloud_account_sync'))
+    assert.ok(standard.features.includes('cloud_account_sync'))
+    assert.ok(pro.features.includes('cloud_account_sync'))
+    // 批量发布：单次上限 1 = 单篇，不派生批量能力
+    assert.ok(!free.features.includes('batch_publish'))
+    assert.ok(standard.features.includes('batch_publish'))
+    assert.ok(pro.features.includes('batch_publish'))
+    // 模型分层：features 是单调包含判定，高档覆盖低档（pro 同时含 standard 级）
+    assert.ok(!free.features.includes('tier_access_standard'))
+    assert.ok(standard.features.includes('tier_access_standard'))
+    assert.ok(!standard.features.includes('tier_access_pro'))
+    assert.ok(pro.features.includes('tier_access_standard'))
+    assert.ok(pro.features.includes('tier_access_pro'))
+  })
+
+  await t.test('v2.0 机制：limits 新键随快照下发（此前客户端拿不到，G6 根因）', () => {
+    const free = getPlanEntitlement('free')
+    const standard = getPlanEntitlement('standard')
+    const pro = getPlanEntitlement('pro')
+    assert.strictEqual(free.limits.max_devices, 2)
+    assert.strictEqual(standard.limits.max_devices, 3)
+    assert.strictEqual(pro.limits.max_devices, -1)
+    assert.strictEqual(free.limits.max_cloud_accounts, 0)
+    assert.strictEqual(standard.limits.max_cloud_accounts, 20)
+    assert.strictEqual(pro.limits.max_cloud_accounts, -1)
+    assert.strictEqual(free.limits.batch_size_per_run, 1)
+    assert.strictEqual(standard.limits.batch_size_per_run, 10)
+    assert.strictEqual(pro.limits.batch_size_per_run, -1)
+    assert.strictEqual(free.limits.model_tier, 0)
+    assert.strictEqual(standard.limits.model_tier, 1)
+    assert.strictEqual(pro.limits.model_tier, 2)
+    assert.strictEqual(free.limits.plan_rank, 0)
+    assert.strictEqual(pro.limits.plan_rank, 2)
+  })
+
   await t.test('运营 overrides 注入：合法覆盖生效、未知键与非法值 fail closed', () => {
     const patched = getPlanEntitlement('standard', { standard: { videoMonthly: 600 } })
     assert.strictEqual(patched.quota.video_create_monthly, 600)
-    assert.strictEqual(getPlanEntitlement('standard').quota.video_create_monthly, 500) // 不污染基线
+    assert.strictEqual(getPlanEntitlement('standard').quota.video_create_monthly, 300) // 不污染基线
     assert.throws(() => getPlanEntitlement('standard', { standard: { noSuchKey: 1 } }), /unknown key/i)
     assert.throws(() => getPlanEntitlement('standard', { standard: { videoMonthly: 1.5 } }), /integer/i)
     assert.throws(
@@ -106,7 +171,7 @@ test('plan-matrix 契约（spec §2）', async (t) => {
     assert.doesNotThrow(() => getPlanEntitlement('standard', { standard: null }))
     const withNull = getPlanEntitlement('standard', { standard: null })
     assert.deepStrictEqual(withNull, baseline)
-    assert.strictEqual(withNull.quota.video_create_monthly, 500) // 未被覆盖，仍是基线值
+    assert.strictEqual(withNull.quota.video_create_monthly, 300) // 未被覆盖，仍是基线值
   })
 
   await t.test('getPlanCatalog(overrides)：合法覆盖在目录展示与内嵌 entitlement 均生效', () => {

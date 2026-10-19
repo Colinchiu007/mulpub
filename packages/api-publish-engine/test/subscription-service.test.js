@@ -148,6 +148,37 @@ test('redeem 兑换码核销状态机', async (t) => {
     assert.strictEqual(repository.orders.length, 0)
   })
 
+  await t.test('幂等重放口径固化（CCG i2）：无有效订阅时 plan=码面档位、压制为 false', async () => {
+    const { service } = createService({
+      codes: [{ code: 'ABCD-EFGH-JKMN', status: 'used', used_by: 'u-1', used_at: '2026-09-22T00:00:00Z', plan: 'standard' }],
+      // 已过期但尚未被 settleExpiry 结算的 active 行：不得被当成现行权益
+      current: {
+        id: 'sub-u-1', plan: 'pro', status: 'active',
+        current_period_start: '2026-08-01T00:00:00Z', current_period_end: '2026-09-01T00:00:00Z',
+      },
+    })
+    const view = await service.redeem({ userId: 'u-1', code: 'ABCD-EFGH-JKMN' })
+    assert.strictEqual(view.idempotent, true)
+    assert.strictEqual(view.subscription, null)
+    assert.strictEqual(view.plan, 'standard', '无有效订阅 ⇒ 回落到本次核销所授予的档位')
+    assert.strictEqual(view.requestedPlan, 'standard')
+    assert.strictEqual(view.downgradeSuppressed, false)
+  })
+
+  await t.test('幂等重放：有效 pro 订阅 + standard 码 ⇒ plan=pro、压制为 true', async () => {
+    const { service } = createService({
+      codes: [{ code: 'ABCD-EFGH-JKMN', status: 'used', used_by: 'u-1', used_at: '2026-09-22T00:00:00Z', plan: 'standard' }],
+      current: {
+        id: 'sub-u-1', plan: 'pro', status: 'active',
+        current_period_start: '2026-09-01T00:00:00Z', current_period_end: '2026-10-01T00:00:00Z',
+      },
+    })
+    const view = await service.redeem({ userId: 'u-1', code: 'ABCD-EFGH-JKMN' })
+    assert.strictEqual(view.plan, 'pro')
+    assert.strictEqual(view.requestedPlan, 'standard')
+    assert.strictEqual(view.downgradeSuppressed, true)
+  })
+
   await t.test('applySubscription 冲突短路：不标记已用、不发通知、码仍 active（G3 · N-N2）', async () => {
     const conflict = Object.assign(new Error('ORDER_REFERENCE_CONFLICT'), { code: 'ORDER_REFERENCE_CONFLICT', status: 409 })
     const { service, repository } = createService({
@@ -295,6 +326,28 @@ test('grant / createRedeemBatch / settleExpiry / 视图', async (t) => {
     assert.strictEqual(clean.repository.entitlementWrites.length, 0)
   })
 
+  await t.test('settleExpiry 宽限期（v2.0 C9.2 冲突二）：带 graceUntil/previousPlan，只保留只读看板', async () => {
+    const withExpiry = createService({ expiryResult: { id: 'sub-u-1', plan: 'pro', status: 'expired' } })
+    await withExpiry.service.settleExpiry('u-1')
+    const payload = withExpiry.repository.entitlementWrites[0].payload
+    // 免费档基座不变（配额按 free，不得把上一档额度白送）
+    assert.strictEqual(payload.plan, 'free')
+    assert.strictEqual(payload.quota.video_create_monthly, 0)
+    assert.strictEqual(payload.quota.official_credit_monthly, 30)
+    // 收尾期与上一档位：客户端据此展示「已到期，7 天内仍可查看」横幅
+    assert.strictEqual(typeof payload.graceUntil, 'string')
+    assert.strictEqual(payload.graceUntil, '2026-09-30T00:00:00.000Z') // now(09-23) + 7 天
+    assert.strictEqual(payload.previousPlan, 'pro')
+    // 只读能力保留；生成类与「新建批量/定时入口」不保留（CCG i4 修正：
+    // schedule_batch 全仓无消费点，保留它没有收尾收益，只留下到期后的付费入口）
+    assert.ok(payload.features.includes('dashboard_full'))
+    assert.ok(!payload.features.includes('schedule_batch'))
+    assert.ok(!payload.features.includes('video_create'))
+    assert.ok(!payload.features.includes('tier_access_pro'))
+    // 通知文案必须说清收尾期，否则用户以为到期即什么都用不了
+    assert.match(withExpiry.repository.notifications[0].body, /7 天/)
+  })
+
   await t.test('grant 默认 providerReference 逐次唯一（否则撞 UNIQUE 回滚整事务）', async () => {
     const { service, repository } = createService()
     const first = await service.grant({ userId: 'u-1', plan: 'standard', durationDays: 30 })
@@ -327,7 +380,7 @@ test('grant / createRedeemBatch / settleExpiry / 视图', async (t) => {
     assert.strictEqual(publish.limit, 1500)
     const video = usageView.features.find((item) => item.feature === 'video_create')
     assert.strictEqual(video.used, 0)
-    assert.strictEqual(video.limit, 500)
+    assert.strictEqual(video.limit, 300)
   })
 })
 

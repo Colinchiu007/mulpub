@@ -5,8 +5,10 @@
  * 数据契约：01-docs/DESIGN-MEMBER-CENTER-2026-09-23.md §2。
  *
  * 约定：
- * - 数值 -1 表示「不限」，仅 maxPlatforms / aiWriteMonthly / videoMonthly / officialCreditMonthly 允许（见 UNLIMITED_ALLOWED）；
+ * - 数值 -1 表示「不限」，仅 maxPlatforms / aiWriteMonthly / videoMonthly / officialCreditMonthly /
+ *   maxDevices / maxCloudAccounts / batchSizePerRun 允许（见 UNLIMITED_ALLOWED）；
  *   dailyPublish 被显式排除——它派生被扣减的 quota.cloud_publish_monthly，-1 会击穿 consumeFeature 的 limit >= 0 校验（CCG C5）。
+ * - rank 是档位序（0/1/2），**不在 NUMERIC_KEYS 内**：运营 overrides 不得改档位序（改错会让降级保护静默失效）。
  * - 输出形状直接兼容 PostgresEntitlementProvider.consumeFeature：features 为字符串数组（includes 判定），
  *   quota 为顶层对象且键名对齐 `${feature}_monthly`；limits 为 UI 展示透传字段（扣减路径不读）。
  * - overrides 为运营可配注入（config.yaml，带 * 项），只允许覆盖基线已有数值键。
@@ -18,9 +20,16 @@
  *   依赖注入能否触达本矩阵取决于部署层——本仓无法自证。
  */
 
-const PLAN_MATRIX_VERSION = '2026-10-08'
+const PLAN_MATRIX_VERSION = '2026-10-20'
 
 const PLAN_IDS = Object.freeze(['free', 'standard', 'pro'])
+
+/**
+ * 档位序（v2.0 机制 C9.2 跨档续叠保护的真源）。
+ * 独立于 BASE_MATRIX 且**不可被 overrides 覆盖**：档位序一旦可配，运营改错一个数
+ * 就能让「低档覆盖高档」的降级保护失效，而这类错误在日志里不可见。
+ */
+const PLAN_RANK = Object.freeze({ free: 0, standard: 1, pro: 2 })
 
 const BASE_MATRIX = {
   free: {
@@ -36,6 +45,18 @@ const BASE_MATRIX = {
     // 体验额度：约 2 条 720P 视频或 7 张标准清晰度配图
     officialCreditMonthly: 30,
     concurrentTasks: 1,
+    // v2.0 机制 C2.3 结构 A：rank 用于跨档续叠保护（免费档为最小序）。
+    // 引用 PLAN_RANK 而非字面量：档位序只能有一个真源，否则 limits.plan_rank 与
+    // planRank()（降级保护）会各读一份，改错一处即静默不一致。
+    rank: PLAN_RANK.free,
+    // v2.0 机制 C6.2：设备数温和上限（服务端会话表可强制；-1 表示不限）
+    maxDevices: 2,
+    // v2.0 机制 C6.1：云凭证同步账号数（0 表示不提供云同步；-1 表示不限）
+    maxCloudAccounts: 0,
+    // v2.0 机制 C7 A 批：单次批量发布条数上限（1 表示单篇；-1 表示不限）
+    batchSizePerRun: 1,
+    // v2.0 机制 C7 A 批：模型分层访问级别（0 基础 / 1 标准 / 2 高阶）
+    modelTier: 0,
   },
   standard: {
     label: '标准版',
@@ -45,17 +66,24 @@ const BASE_MATRIX = {
     dailyPublish: 50,
     // 「不限」前提是走自有 Key；官方积分受 officialCreditMonthly（中档）约束。
     aiWriteMonthly: -1,
-    videoMonthly: 500,
+    // v2.0 机制 C4.3：500 → 300（3× 于画像 p75 100 条/月，收敛过松的承诺）
+    videoMonthly: 300,
     scheduleBatch: true,
     dashboard: 'full',
     // 成本占比 27.1%（¥59 × 27.1% ≈ ¥16）。年付按月等额发放，年付总量因此恒为 12×本值
     officialCreditMonthly: 1600,
     concurrentTasks: 3,
+    rank: PLAN_RANK.standard,
+    maxDevices: 3,
+    maxCloudAccounts: 20,
+    batchSizePerRun: 10,
+    modelTier: 1,
   },
   pro: {
     label: '专业版',
-    priceMonthlyCents: 7900,
-    priceYearlyCents: 69900,
+    // v2.0 机制 C2.3 结构 A：¥79 → ¥119（相邻档 2.0x，行业中位），年付 ¥699 → ¥999
+    priceMonthlyCents: 11900,
+    priceYearlyCents: 99900,
     maxPlatforms: -1,
     // spec：「不限（默认上限 1000，运营可配）」——用有限高值而非 -1，避免下游除零/无限逻辑。
     dailyPublish: 1000,
@@ -63,18 +91,27 @@ const BASE_MATRIX = {
     videoMonthly: 3000,
     scheduleBatch: true,
     dashboard: 'full',
-    // 成本占比 27.8%（¥79 × 27.8% ≈ ¥22）。年付按月等额发放，年付总量因此恒为 12×本值
+    // 成本占比 27.8%（¥119 × 18.5% ≈ ¥22；积分成本不变，涨价部分是功能价）。年付按月等额发放
     officialCreditMonthly: 2200,
     concurrentTasks: 10,
+    rank: PLAN_RANK.pro,
+    maxDevices: -1,
+    maxCloudAccounts: -1,
+    batchSizePerRun: -1,
+    modelTier: 2,
   },
 }
 
 const NUMERIC_KEYS = Object.freeze([
   'priceMonthlyCents', 'priceYearlyCents', 'maxPlatforms', 'dailyPublish',
   'aiWriteMonthly', 'videoMonthly', 'officialCreditMonthly', 'concurrentTasks',
+  'maxDevices', 'maxCloudAccounts', 'batchSizePerRun', 'modelTier',
 ])
 // 不含 dailyPublish：它派生 quota.cloud_publish_monthly，该 feature 会被 consumeFeature 扣减（要求 limit >= 0），-1 会导致发布链路 503
-const UNLIMITED_ALLOWED = Object.freeze(['maxPlatforms', 'aiWriteMonthly', 'videoMonthly', 'officialCreditMonthly'])
+const UNLIMITED_ALLOWED = Object.freeze([
+  'maxPlatforms', 'aiWriteMonthly', 'videoMonthly', 'officialCreditMonthly',
+  'maxDevices', 'maxCloudAccounts', 'batchSizePerRun',
+])
 // concurrentTasks 至少 1：0 并发为病态配置。dailyPublish 不在此列（0 属刻意清零配额，仍合法）。
 const MIN_ONE_KEYS = Object.freeze(['concurrentTasks'])
 
@@ -151,6 +188,13 @@ function getPlanEntitlement(plan, overrides) {
   if (matrix.videoMonthly > 0) features.push('video_create')
   if (matrix.scheduleBatch === true) features.push('schedule_batch')
   if (matrix.dashboard === 'full') features.push('dashboard_full')
+  // v2.0 机制 C6.1：账号数 > 0（或 -1 不限）才提供云凭证同步；0 表示本档不提供
+  if (matrix.maxCloudAccounts !== 0) features.push('cloud_account_sync')
+  // v2.0 机制 C7 A 批：单次批量上限 > 1（或 -1 不限）才提供批量发布
+  if (matrix.batchSizePerRun !== 1) features.push('batch_publish')
+  // v2.0 机制 C7 A 批：模型分层访问，高档覆盖低档（features.includes 是单调包含判定）
+  if (matrix.modelTier >= 1) features.push('tier_access_standard')
+  if (matrix.modelTier >= 2) features.push('tier_access_pro')
   // dailyPublish 已在 UNLIMITED_ALLOWED 之外，取值必为有限非负整数（-1 被 override 校验拒绝），此处无需再判 -1
   const cloudPublishMonthly = matrix.dailyPublish * 30
   return deepFreeze({
@@ -167,8 +211,23 @@ function getPlanEntitlement(plan, overrides) {
       max_platforms: matrix.maxPlatforms,
       daily_publish: matrix.dailyPublish,
       concurrent_tasks: matrix.concurrentTasks,
+      // v2.0 机制：以下四项此前只存在于文档，客户端 normalizeEntitlement 会丢弃；
+      // 现在随快照签名下发并被客户端透传（见 entitlement-service.normalizeEntitlement）
+      max_devices: matrix.maxDevices,
+      max_cloud_accounts: matrix.maxCloudAccounts,
+      batch_size_per_run: matrix.batchSizePerRun,
+      model_tier: matrix.modelTier,
+      plan_rank: matrix.rank,
     },
   })
+}
+
+/**
+ * 档位序查询（跨档续叠保护用）。未知档位返回 -1：调用方据此判「无法比较」，
+ * 不得把未知值当 0 或 2 参与大小比较（那会让未知档位静默覆盖或静默被压制）。
+ */
+function planRank(plan) {
+  return Object.prototype.hasOwnProperty.call(PLAN_RANK, plan) ? PLAN_RANK[plan] : -1
 }
 
 /** 价目目录（GET /api/v1/plans 展示用，含展示字段，与权益分离）。 */
@@ -181,6 +240,7 @@ function getPlanCatalog(overrides) {
       currency: 'CNY',
       priceMonthlyCents: matrix.priceMonthlyCents,
       priceYearlyCents: matrix.priceYearlyCents,
+      rank: matrix.rank,
       entitlement: getPlanEntitlement(plan, overrides),
     })
   })
@@ -189,4 +249,4 @@ function getPlanCatalog(overrides) {
 // 基线为全标量 + 浅拷贝安全；显式深冻结作 tripwire，若将来有人塞入嵌套对象可及时暴露（见测试）。
 deepFreeze(BASE_MATRIX)
 
-module.exports = { PLAN_MATRIX_VERSION, PLAN_IDS, getPlanEntitlement, getPlanCatalog }
+module.exports = { PLAN_MATRIX_VERSION, PLAN_IDS, PLAN_RANK, getPlanEntitlement, getPlanCatalog, planRank }
