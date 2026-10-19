@@ -120,6 +120,8 @@ const {
   truncateByCodePoint, buildToutiaoPublishBody, parsePublishResponse,
   parsePosterListResponse, pickPosterUri,
   CSRF_HEADER, pickCsrfToken,
+  buildPublishGateResult,
+  CODE_ACCOUNT_NOT_VERIFIED,
 } = require('./toutiao-video-publish')
 const { probePublishAuth, fetchPosterList } = require('./toutiao-video-probes')
 
@@ -383,18 +385,11 @@ class ToutiaoVideoChain {
     const hasCallerCover = coverInputs.some((x) => Boolean(x))
     const uid = this.resolveUid()
 
-    // 闸门 1-2（只读·可选）：发布权限 / 账号状态。取不到不阻断，但把结论如实带出去。
+    // 闸门 1-2（只读·可选）：发布权限 / 账号未完善。取不到不阻断，但把结论如实带出去。
+    // 两种情形的判据、结果码与平台「去完善」链接都在 toutiao-video-publish.js 单一实现里。
     const auth = await this.checkPublishAuth().catch(() => null)
-    if (auth && auth.canPublish === false) {
-      return {
-        success: false,
-        platform: 'toutiao',
-        code: 'NO_PUBLISH_PERMISSION',
-        error: '该头条号当前无发布权限（GetPublishAuth.DisablePublish=true）。'
-          + '平台侧原文：请完善账号信息，解锁发布文章、视频等权益功能。',
-        auth,
-      }
-    }
+    const gate = buildPublishGateResult(auth)
+    if (gate) return gate
 
     const creds = await this.getAuthKey()
     const vid = await this.uploadVideo(videoPath, creds, uid, opts.onProgress)

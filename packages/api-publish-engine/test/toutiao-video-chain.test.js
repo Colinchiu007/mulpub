@@ -26,7 +26,7 @@ const { startFakeServer, methodPathList } = require('./helpers/fake-http')
 const { createHttpClient } = require('../src/publish/core/http-base')
 const { ToutiaoVideoChain, ToutiaoVideoError, TT_APP_ID, TT_SPACE_NAME_FALLBACK, PUBLISH_TYPE, parsePosterListResponse, pickPosterUri } = require('../src/publish/platforms/toutiao-video')
 
-const { CSRF_HEADER, pickCsrfToken } = require('../src/publish/platforms/toutiao-video-publish')
+const { CSRF_HEADER, pickCsrfToken, buildPublishGateResult, CODE_ACCOUNT_NOT_VERIFIED, ACCOUNT_FIX_URL } = require('../src/publish/platforms/toutiao-video-publish')
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
 
@@ -575,5 +575,58 @@ describe('ToutiaoVideoChain — 头条视频 API 轨', () => {
       expect(pub).toBeTruthy()
       expect(String(pub.headers['x-csrf-token'] || '')).toBe('OUTGOING_CSRF_VALUE_1234')
     } finally { fs.unlinkSync(f); await all.close() }
+  })
+
+  // ── 账号未完善闸门（2026-10-19 真机实证：toutiao-account-detection） ──────────
+  //
+  // 真机证据：该头条号 `GetPublishAuth.authorPermission.IsIdentifyAuth=false`
+  // （`DisablePublish` 仍为 true? 不 —— 实测为 **false**），点「发布」时平台弹出
+  // 「账号信息未完善，暂时不能进行发布文章、视频等权益操作，请完善后重试」，
+  // 其「去完善」按钮实测弹出 `https://mp.toutiao.com/profile_v4/personal/landing-type`。
+  // 所以：**提交前就能检测到**，判据是 IsIdentifyAuth；DisablePublish 不能用于此判断。
+  test('账号未完善：buildPublishGateResult 给出 ACCOUNT_NOT_VERIFIED + 平台「去完善」链接', () => {
+    const r = buildPublishGateResult({ canPublish: true, identityVerified: false })
+    expect(r).toBeTruthy()
+    expect(r.code).toBe(CODE_ACCOUNT_NOT_VERIFIED)
+    expect(r.success).toBe(false)
+    // 链接必须是平台自己的完善入口（用户点进去就能解决），不是自建说明页
+    expect(r.helpUrl).toBe(ACCOUNT_FIX_URL)
+    expect(String(r.helpUrl)).toContain('mp.toutiao.com')
+    expect(r.helpLabel).toBeTruthy()
+    // 文案如实说「账号信息未完善」，不臆断成「未实名」
+    expect(r.error).toContain('账号信息未完善')
+    expect(r.error).not.toContain('未实名')
+  })
+
+  test('账号未完善：正常账号 / 取不到 auth 都**不得**误拦', () => {
+    expect(buildPublishGateResult({ canPublish: true, identityVerified: true })).toBeNull()
+    expect(buildPublishGateResult(null)).toBeNull()
+    // identityVerified 缺省（老响应没有该字段）不得当成 false 拦掉
+    expect(buildPublishGateResult({ canPublish: true })).toBeNull()
+  })
+
+  test('账号未完善：无发布权限仍走 NO_PUBLISH_PERMISSION（两条闸门不互相覆盖）', () => {
+    const r = buildPublishGateResult({ canPublish: false, identityVerified: false })
+    expect(r.code).toBe('NO_PUBLISH_PERMISSION')
+    expect(r.helpUrl).toBe(ACCOUNT_FIX_URL)
+  })
+
+  // 注：`IsIdentifyAuth → identityVerified` 的映射已由 2026-10-19 真机实测确认
+  // （该头条号返回 identityVerified=false / canPublish=true），此处只锁纯函数行为，
+  // 不引入对假服务器路由形状的额外依赖。
+
+  test('账号未完善：run() 在**上传前**就中止（零上传请求）并返回 helpUrl', async () => {
+    const srv = await startFakeServer()
+    const f = tmpVideo(512)
+    try {
+      const chain = new ToutiaoVideoChain({ cookie: makeCookie(), mpBase: srv.url, vodBase: srv.url, userAgent: UA, uid: '1342958645023752' })
+      // 直接桩住只读探测：真机已确认真实账号返回 identityVerified=false
+      chain.checkPublishAuth = async () => ({ canPublish: true, disablePublish: false, blockStatus: 0, reviewLatency: 0, identityVerified: false })
+      const r = await chain.run({ title: 'T', video: { path: f } }, { draft: true })
+      expect(r.code).toBe(CODE_ACCOUNT_NOT_VERIFIED)
+      expect(r.helpUrl).toBe(ACCOUNT_FIX_URL)
+      // 关键：不该浪费一次真实上传
+      expect(srv.requestsFor(/Action=ApplyUploadInner/).length).toBe(0)
+    } finally { fs.unlinkSync(f); await srv.close() }
   })
 })

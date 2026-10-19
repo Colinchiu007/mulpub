@@ -195,6 +195,85 @@ function parsePosterListResponse (raw) {
 /** 候选键（顺序即优先级）。真机跑通后应收敛为实际命中那一个。 */
 const POSTER_URI_KEYS = ['Uri', 'PosterUri', 'CoverUri', 'ThumbUri', 'Url', 'PosterUrl', 'ThumbUrl']
 
+// ── 账号未完善（无法发布）闸门 ───────────────────────────────────────────────
+//
+// 2026-10-19 真机实证：靠 `GetPublishAuth.authorPermission.IsIdentifyAuth === false`
+// **可以**在提交前检测到这种账号，不需要等提交失败。
+//
+// 权威证据是平台自己的发布页：真机上传完成后点「发布」，弹出模态框
+//   「账号信息未完善 —— 账号信息未完善，暂时不能进行发布文章、视频等权益操作，请完善后重试」
+// 该弹窗的「去完善」按钮会打开下面的 `ACCOUNT_FIX_URL`（实测录到的弹出目标）。
+//
+// ⚠️ 注意判据的边界：`DisablePublish` / `BlockStatus` 在这种账号上仍是 false / 0，
+// 所以**不能**用它们判断「能否发布」；`IsIdentifyAuth` 是目前唯一的提交前信号。
+// 但它是否等价于「实名认证」未被单独证实（弹窗文案是更宽的「账号信息未完善」），
+// 因此提示语只如实说「账号信息未完善」，不臆断成「未实名」。
+const CODE_ACCOUNT_NOT_VERIFIED = 'ACCOUNT_NOT_VERIFIED'
+
+/** 平台自己的「去完善」落地页（实测：弹窗「去完善」的弹出目标） */
+const ACCOUNT_FIX_URL = 'https://mp.toutiao.com/profile_v4/personal/landing-type'
+
+/** 头条认证页（二级入口，兜底用） */
+const ACCOUNT_AUTH_URL = 'https://mp.toutiao.com/profile_v4/personal/auth?enter_from=main_page'
+
+/**
+ * 账号未完善闸门的失败结果（纯函数）。
+ *
+ * `helpUrl` 是给 UI 渲染「可点击查看」用的：指向平台自己的完善入口，
+ * 而不是我方自建的说明页 —— 用户点进去就能直接解决问题。
+ *
+ * @param {object} [auth] probePublishAuth 的返回值（透传出去便于排查）
+ * @returns {{success: boolean, platform: string, code: string, error: string, helpUrl: string, helpLabel: string, auth: object|undefined}}
+ */
+function buildAccountNotVerifiedResult (auth) {
+  return {
+    success: false,
+    platform: 'toutiao',
+    code: CODE_ACCOUNT_NOT_VERIFIED,
+    error: '该头条号账号信息未完善，暂时无法发布视频（平台提示：账号信息未完善，'
+      + '暂时不能进行发布文章、视频等权益操作，请完善后重试）。',
+    helpUrl: ACCOUNT_FIX_URL,
+    helpLabel: '去头条号完善账号信息',
+    auth,
+  }
+}
+
+/**
+ * 发布前闸门（提交前、只读）——把两种「不该提交」的情形收敛到一处：
+ *
+ * | 情形 | 判据 | 结果码 |
+ * | --- | --- | --- |
+ * | 无发布权限 | `canPublish === false`（`DisablePublish=true`） | `NO_PUBLISH_PERMISSION` |
+ * | 账号信息未完善 | `identityVerified === false`（`IsIdentifyAuth=false`） | `ACCOUNT_NOT_VERIFIED` |
+ *
+ * 后者在真机上的权威证据是平台发布页的模态框「账号信息未完善」（点「发布」时弹出），
+ * 且此时 `DisablePublish` 仍是 false —— 所以两个判据必须分开看。
+ *
+ * @param {object|null} auth probePublishAuth 的返回值
+ * @returns {object|null} 需要中止时返回失败结果（含 helpUrl），否则 null
+ */
+function buildPublishGateResult (auth) {
+  if (!auth) return null
+  if (auth.canPublish === false) {
+    return {
+      success: false,
+      platform: 'toutiao',
+      code: 'NO_PUBLISH_PERMISSION',
+      error: '该头条号当前无发布权限（GetPublishAuth.DisablePublish=true）。'
+        + '平台侧原文：请完善账号信息，解锁发布文章、视频等权益功能。',
+      helpUrl: ACCOUNT_FIX_URL,
+      helpLabel: '去头条号完善账号信息',
+      auth,
+    }
+  }
+  return isAccountIncomplete(auth) ? buildAccountNotVerifiedResult(auth) : null
+}
+
+/** 该账号是否被判定为「账号信息未完善」（提交前、只读） */
+function isAccountIncomplete (auth) {
+  return Boolean(auth) && auth.identityVerified === false
+}
+
 /** 写接口的 CSRF 头名（2026-10-19 真机实证；证据见 pickCsrfToken 注释） */
 const CSRF_HEADER = 'x-csrf-token'
 
@@ -265,6 +344,13 @@ module.exports = {
   CSRF_HEADER,
   CSRF_COOKIE,
   pickCsrfToken,
+  // 账号未完善闸门（2026-10-19）：判据 + 平台「去完善」链接
+  CODE_ACCOUNT_NOT_VERIFIED,
+  ACCOUNT_FIX_URL,
+  ACCOUNT_AUTH_URL,
+  buildAccountNotVerifiedResult,
+  isAccountIncomplete,
+  buildPublishGateResult,
   truncateByCodePoint,
   buildToutiaoPublishBody,
   parsePublishResponse,
