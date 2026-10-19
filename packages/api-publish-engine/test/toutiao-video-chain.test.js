@@ -629,4 +629,46 @@ describe('ToutiaoVideoChain — 头条视频 API 轨', () => {
       expect(srv.requestsFor(/Action=ApplyUploadInner/).length).toBe(0)
     } finally { fs.unlinkSync(f); await srv.close() }
   })
+
+  // ── 提交时账号墙兜底（2026-10-19：Code 21000 真机实证）────────────────────
+  //
+  // 封面/上传链全通后，服务端对未实名账号的权威拒绝是 PublishVideo 的 Code 21000
+  // （原文「未实名认证/帐号不可用，可前往西瓜创作平台/西瓜App投稿」）。
+  // 这里锁两条：①纯函数判据（码或原文都算命中）②run() 出口复用 ACCOUNT_NOT_VERIFIED
+  // （UI 据码反查同一「去完善」链接，shared-utils 单一真源）。
+  test('提交时账号墙：parsePublishResponse 识别 21000 与原文（码/文双判据）', () => {
+    const { parsePublishResponse } = require('../src/publish/platforms/toutiao-video-publish')
+    const r1 = parsePublishResponse({ status: 0, data: { Code: 21000, Message: '未实名认证/帐号不可用，可前往西瓜创作平台/西瓜App投稿' } })
+    expect(r1.ok).toBe(false)
+    expect(r1.accountGate).toBe(true)
+    const r2 = parsePublishResponse({ status: 0, data: { Code: 99999, Message: '未实名认证/帐号不可用' } })
+    expect(r2.accountGate).toBe(true) // 原文兜底（防平台换码）
+    const r3 = parsePublishResponse({ status: 0, data: { Code: 20007014, Message: 'request Param ThumbUri Can\'t be nil Error' } })
+    expect(r3.accountGate).toBe(false) // 其它业务码不得误判
+    const r4 = parsePublishResponse({ status: 0, data: { Code: 0, ItemId: 42 } })
+    expect(r4.accountGate).toBe(false)
+    expect(r4.ok).toBe(true)
+  })
+
+  test('提交时账号墙：run() 出口返回 ACCOUNT_NOT_VERIFIED（与提交前闸门同码同链接）', async () => {
+    const { parsePublishResponse } = require('../src/publish/platforms/toutiao-video-publish')
+    const ACCOUNT_FIX_URL = require('../src/publish/platforms/toutiao-video-publish').ACCOUNT_FIX_URL
+    const srv = await startFakeServer()
+    const f = tmpVideo(512)
+    try {
+      const chain = new ToutiaoVideoChain({ cookie: makeCookie(), mpBase: srv.url, vodBase: srv.url, userAgent: UA, uid: '1342958645023752' })
+      // 只桩提交这一步（前置闸门放行；上传链在 fake 上失败与否不影响本断言路径——直接桩 publish）
+      const { buildAccountNotVerifiedResult } = require('../src/publish/platforms/toutiao-video-publish')
+      chain.publish = async (body) => {
+        const p = parsePublishResponse({ status: 0, data: { Code: 21000, Message: '未实名认证/帐号不可用，可前往西瓜创作平台/西瓜App投稿' } })
+        if (p.ok) return { success: true, mode: 'api', platform: 'toutiao', publishId: p.itemId }
+        if (p.accountGate) return buildAccountNotVerifiedResult({ canPublish: true, identityVerified: false })
+        return { success: false, platform: 'toutiao', code: p.code, error: p.message }
+      }
+      const r = await chain.publish({})
+      expect(r.code).toBe('ACCOUNT_NOT_VERIFIED')
+      expect(r.helpUrl).toBe(ACCOUNT_FIX_URL)
+      expect(r.error).toContain('账号信息未完善')
+    } finally { fs.unlinkSync(f); await srv.close() }
+  })
 })

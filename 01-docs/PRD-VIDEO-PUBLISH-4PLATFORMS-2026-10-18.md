@@ -906,3 +906,51 @@ https://mp.toutiao.com/profile_v4/personal/auth?enter_from=main_page   ← 二�
 1. `21000` → `ACCOUNT_NOT_VERIFIED` 的提交时结构化映射（含 `helpUrl` 复用同一链接）。
 2. 封面链五步沉淀为 `toutiao-video-cover.js`（现链文件 491/500 行，需新模块避免行数闸）。
 3. 视频号 / 抖音仍等扫码登录。
+
+### 12.6.7.5 封面链代码化 + 21000 兜底（R11，2026-10-19，#4008 后续）
+
+§12.6.7.4 ①② 关闭：封面五步链已从取证**沉淀为代码**，提交时账号墙已接兜底映射。
+
+#### 实现落点
+
+| 层 | 文件 | 说明 |
+| --- | --- | --- |
+| 编排 | `packages/api-publish-engine/src/publish/platforms/toutiao-video-cover.js` | `uploadCoverImage(o)`：注入 `mpClient/vasClient/axiosLike`（可全假服务器，零外发）；生产缺省 tos host 用三元组返回值 |
+| 纯判据 | 同上 `pickImageTempCreds / pickUploadTarget / pickRegisteredImage` | 形状不对一律 `null`（fail closed，不伪造凭证/不猜默认值）；`info.md5` 缺失=未登记 |
+| 提交时兜底 | `toutiao-video-publish.js#parsePublishResponse` | 新增 `accountGate`：`Code 21000` **或**原文含「未实名认证/帐号不可用」双判据；其它业务码不误判（测试锁 20007014/成功样例） |
+| 链出口 | `toutiao-video.js#run()` 提交段 | `accountGate` ⇒ 返回 `code:'ACCOUNT_NOT_VERIFIED'`（与 §12.7 提交前闸门同码；UI 据码反查同一「去完善」链接，shared-utils 单一真源） |
+
+#### 调用契约（编码接手者需知）
+
+```js
+const { uploadCoverImage } = require('…/toutiao-video-cover')
+const { uri, info } = await uploadCoverImage({
+  imagePath: '/本地/cover.jpg',       // jpeg
+  mpClient,   // baseURL=https://mp.toutiao.com，头用 chain._mpHeaders({Accept:'application/json'})
+  vasClient,  // baseURL=https://vas-lf-x.ixigua.com
+  axiosLike,  // 通用请求器（PUT 用）
+  headers, userAgent,
+  // tosBaseUrl 仅测试注入；生产不传
+})
+// uri 即 PublishVideo 的 VideoInfo.ThumbUri
+```
+
+#### 失败路径（全部 fail closed，测试各一例）
+
+| 失败点 | 判据 | 不发生的事 |
+| --- | --- | --- |
+| ①凭证形状不对 | `pickImageTempCreds`=null | 不发起 params 请求 |
+| ②params code≠2000 | 直接抛（含 10413/10402 原文） | 不 PUT |
+| ③PUT 非 2xx | 抛「PUT 图未落盘」 | 不登记 |
+| ④登记无 md5 / 串号 | 抛「GetImageUploadInfos 未登记成功」 | **不返回 uri**（21084 教训） |
+
+#### runner 接线纪律（本轮实测踩坑）
+
+`packages/api-publish-engine/scripts/run-tests.js` 的 `VITEST_FILES` 是**登记表**：
+新增 vitest 文件必须登记，否则走 node 直跑分支必崩（单文件 vitest 直跑却绿 ——
+「单文件绿 ≠ 接线绿」，与 #3983 的 vite alias 同族教训）。
+
+#### 未闭合
+
+`uploadCoverImage` 尚未接进 `run()` 的封面闸门（调用方现在需显式调）；接入点在
+`hasLocalCoverOnly` 分支（coverInputs 形状契约需先立，留下一轮小 PR）。

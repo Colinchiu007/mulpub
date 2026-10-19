@@ -53,6 +53,7 @@ const VITEST_FILES = new Set([
   // **必须在册**：依赖 vitest 的 describe/it 全局，漏登记会被 `node --test` 直跑成
   // `ReferenceError: describe is not defined`。
   'toutiao-video-chain.test.js',
+  'toutiao-video-cover.test.js',
   'toutiao-adapter-routing.test.js',
   'topic-inline-contract.test.js',
   'twitter.test.js',

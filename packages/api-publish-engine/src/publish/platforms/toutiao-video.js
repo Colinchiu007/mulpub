@@ -120,7 +120,7 @@ const {
   truncateByCodePoint, buildToutiaoPublishBody, parsePublishResponse,
   parsePosterListResponse, pickPosterUri,
   CSRF_HEADER, pickCsrfToken,
-  buildPublishGateResult,
+  buildPublishGateResult, buildAccountNotVerifiedResult,
   CODE_ACCOUNT_NOT_VERIFIED,
 } = require('./toutiao-video-publish')
 const { probePublishAuth, fetchPosterList } = require('./toutiao-video-probes')
@@ -354,6 +354,10 @@ class ToutiaoVideoChain {
     if (p.ok) {
       return { success: true, mode: 'api', platform: 'toutiao', publishId: p.itemId }
     }
+    // 2026-10-19：提交时账号墙兜底（Code 21000 / 原文「未实名认证/帐号不可用」）——
+    // 与提交前 buildPublishGateResult 同码 `ACCOUNT_NOT_VERIFIED`，
+    // UI 据码反查同一「去完善」链接（shared-utils 单一真源）。
+    if (p.accountGate) return buildAccountNotVerifiedResult({ canPublish: true, identityVerified: false })
     return {
       success: false,
       platform: 'toutiao',
