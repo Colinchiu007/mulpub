@@ -1029,3 +1029,25 @@ UI「已登录」标记即来源于此。⇒ 视频号**有可用会话**，位�
 `electron=5` 进程 → 命令行含 `--remote-debugging-port=9279` → `GET /json/list` 找 renderer →
 CDP 连接后在页面上下文调 `window.electronAPI.*`（listAccounts / accountCheckLogin /
 accountBatchCheckLogin / authLoginSilent）。**不碰** cookie 文件（独占锁）、不杀进程、不发稿。
+
+### 12.6.7.7 全链真机预演 + 两个真 bug 修复（R14，2026-10-20，同分支第三、四提交）
+
+用活 cookie 对**当前代码**做全链预演，四层全部真实可复现，终点 21000（预期）：
+
+| 层 | 真机读数 |
+| --- | --- |
+| ① 提交前闸门 | identityVerified=false → ACCOUNT_NOT_VERIFIED 拦截 ✅ |
+| ② 封面五步链 | PUT 204（CRC32）→ 登记 → result_uri（1280×720 jpeg）✅ |
+| ③ 视频 VOD | 新 Vid ✅ |
+| ④ PublishVideo | **21000 账号墙 + accountGate=true 被 parsePublishResponse 正确识别** ✅ |
+
+#### 预演抓到的两个真 bug（均在 #4038 引入）
+
+| bug | 症状 | 修复 |
+| --- | --- | --- |
+| wrapper 变量名/透传 | `uploadLocalCoverFor` 第三参省略（生产路径）时 `o.vasClient` 必崩（`o` undefined）；axiosLike 硬编码 chain.mp、tosBaseUrl 未透传 | 三处改走 `opts.*` 并透传；回归锁：第三参省略用例 |
+| PUT 缺 CRC32 | 真 tos 校验 `Content-CRC32`，缺失 → `4007 MismatchChecksum`（HTTP 400） | `uploadCoverImage` 内置 `crc32hex()` 并加头 |
+
+**教训（两条都重要）**：
+1. 单测假服务器不校验 CRC ⇒ **8 例全绿但真机第一步就 400** —— 「单测绿 ≠ 真机通」的又一方（前有 vite alias、后有 CRC）。
+2. 「第三参省略」这条生产主路径没有用例 —— 回归锁必须覆盖**默认参数形态**，不只覆盖显式传参形态。

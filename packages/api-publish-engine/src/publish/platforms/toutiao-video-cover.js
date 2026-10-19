@@ -141,11 +141,20 @@ async function uploadCoverImage (o) {
   // ③ PUT 图（Authorization = tos_sign 原文，完整 JWT）
   // tosBaseUrl 仅测试注入（零外发）；生产缺省 https://<tos_host>（三元组原样返回的 host）
   const tosBase = o.tosBaseUrl || ('https://' + target.tosHost)
+  // CRC32：tos 服务端校验（缺省/不匹配 → 4007 MismatchChecksum，真机实测）
+  function crc32hex (b) {
+    let c
+    const table = []
+    for (let n = 0; n < 256; n++) { c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; table[n] = c >>> 0 }
+    let crc = 0 ^ (-1)
+    for (let i = 0; i < b.length; i++) crc = (crc >>> 8) ^ table[(crc ^ b[i]) & 0xFF]
+    return ((crc ^ (-1)) >>> 0).toString(16).padStart(8, '0')
+  }
   const put = await o.axiosLike.request({
     method: 'put',
     url: tosBase + '/' + target.objectId,
     data: buf, maxBodyLength: Infinity,
-    headers: { 'Content-Type': 'image/jpeg', Authorization: target.tosSign, 'User-Agent': o.userAgent || '' },
+    headers: { 'Content-Type': 'image/jpeg', 'Content-CRC32': crc32hex(buf), Authorization: target.tosSign, 'User-Agent': o.userAgent || '' },
     validateStatus: (s) => s >= 200 && s < 500,
   })
   if (put.status >= 300) fail('PUT 图未落盘（HTTP ' + put.status + ' ' + JSON.stringify(put.data).slice(0, 160) + '）')
@@ -192,11 +201,12 @@ async function uploadLocalCoverFor (chain, imagePath, o) {
   const { createHttpClient } = require('../core/http-base')
   return uploadCoverImage({
     imagePath,
-    mpClient: chain.mp,
+    mpClient: opts.mpClient || chain.mp,
     headers: chain._mpHeaders({ Accept: 'application/json' }),
     // 零外发约定：链的 mpBase 被注入成非官方域（测试）时，vas 同样跟过去；生产不传即用官方域
-    vasClient: o.vasClient || createHttpClient({ baseURL: o.vasBase || (chain.mpBase && !chain.mpBase.includes('mp.toutiao.com') ? chain.mpBase : VAS_BASE), timeout: 30000 }),
-    axiosLike: chain.mp,
+    vasClient: opts.vasClient || createHttpClient({ baseURL: opts.vasBase || (chain.mpBase && !chain.mpBase.includes('mp.toutiao.com') ? chain.mpBase : VAS_BASE), timeout: 30000 }),
+    axiosLike: opts.axiosLike || chain.mp,
+    tosBaseUrl: opts.tosBaseUrl,
     userAgent: chain.userAgent,
     ErrorClass: Error,
     onProgress: opts.onProgress,
