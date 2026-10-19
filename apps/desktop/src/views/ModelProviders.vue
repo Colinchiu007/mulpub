@@ -141,7 +141,7 @@
                 <div v-if="p.category === 'multimodal' && p.capabilities && p.capabilities.length > 0" class="provider-field capability-defaults">
                   <span class="field-label">{{ t('modelProviders.capabilityDefaultLabel') }}</span>
                   <span class="field-value capability-default-toggles">
-                    <span
+                    <span role="button" tabindex="0" @keydown.enter.prevent="toggleCapabilityDefault(p, cap)" @keydown.space.prevent="toggleCapabilityDefault(p, cap)"
                       v-for="cap in p.capabilities" :key="'def-' + cap"
                       class="capability-default-chip"
                       :class="{ active: ((p.config && Array.isArray(p.config.capability_defaults) ? p.config.capability_defaults : []).includes(cap) || p.is_default) }"

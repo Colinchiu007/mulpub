@@ -944,6 +944,15 @@ IPC 次数本身未降（本轮是「按需申请」，单段仍 5 次 IPC；服
 - **不加 `ops-center-ci.yml` 的触发路径**（有意）：该 job 已长期卡在 10 分钟超时临界（main 上最近 7 次有 3 次 cancelled），加触发只会加剧取消率；真问题是移植保真度而非触发频率。缺口如实记录，补偿是 `packages/story2video-engine` 侧的 TS↔Python 金标对账。
 - **纠正我自己写错的 learnings**：原文「三个文件 + 一份共享数据 + 三份向量副本」三处都错——实现是 **4 份**（漏了 ops-center 的简化 Python）、数据是 **2 份**手工副本、向量是 **2 份**。另加两条 lesson（单仓锁看不见跨仓漂移；参考实现快照不是真值）。
 - **零运行时行为改动**：本次全部是判据、注释与文档，切分逻辑一行未动；`sidecar-parity.lock.json` 缺失或 `phrase_boundary` 缺省时的 v1.2/v1.3 行为不变。
+# [未发布] fix(a11y): 18 处非按钮可点元素补 role=button + tabindex + Enter/Space（阶段 4.4），并把"给容器加 role"的错误修法钉成判据（ux-audit-clickable-roles）
+
+- **域先被自己的探针错过两次**：第一版按类名前缀猜"是不是按钮"，把 `<span class="ui-btn-spinner">`（aria-hidden 装饰节点）算成缺口；同时把 `UiButton`/`el-button`/`router-link` 这些**内部渲染原生 button/a 的组件**算成缺口 —— 150 个"缺口"里 109 个是假阳性。改成按「这个 class 挂在什么元素上」分类后，真实域收到 **31 个站点**。
+- **本批改了 18 处**（标签芯片、阶段节点、卡片/缩略图、日历日、模板项、平台条目、评论平台条、take 卡、时间轴行、上传区、能力芯片、URL 移除按钮等）：统一加 `role="button" tabindex="0" @keydown.enter.prevent/@keydown.space.prevent`，且**表达式逐字镜像 @click**（漏一个修饰键就是行为分裂，由锁断言这条）。
+- **⛔ 最值钱的一条：给容器加 `role="button"` 会让子树变成 presentational。** 我第一版把 `role=button` 加到了 CreateView 两个上传区和 CreatorMonitor 的列表项上，而它们内部有**可见**的「移除 / 立即检测 / 取关 / 取消关注」按钮 —— 那不是修无障碍，是把 5 个真控件从 a11y 树上抹掉。判据固化为「已补 role 的元素不得有可见可聚焦后代」，并用变异 K3 把**我撤销掉的那个错误形态**重新造出来验证它真的会变红。这 3 处改为登记欠账（正解是把动作提为区内显式 `<button>`）。
+- **13 处登记为欠账，逐条给原因**：`<th>` 排序表头 ×4（加 role 会剥夺单元格语义，正解是 th 内放 button）、`<h3>` 折叠头 ×1（失去 heading 跳读）、遮罩 `@click.self` 关闭 ×6（键盘等价物是 Esc，加 role 会把整个对话框子树压掉）、上传区 ×2。清单**只能缩小**，新缺口未登记即红、键漂移即红。
+- **证据**：`src/views|components|features` 全量 `3529 passed | 2 skipped`（218 files）；新锁 `clickable-roles.contract.test.js` 7 例 + 行为锁 `clickable-roles.behavior.test.js` 3 例（Enter/Space 真触发同一 emit，并含一条"只有 @click 时 Enter 必须不产生事件"的负控，防两条行为用例变成假证）；5 道变异 K1–K5 全部指名变红、`RESTORED_OK=true`；`pnpm run build:vue` rc=0（21 个模板全部编译通过）。
+- **顺带发现（未在本批修，已登记）**：`PodcastScriptEntry.vue` 的遮罩用的是 `@click` 而不是 `@click.self`（其余四例都是 `.self`）——点击对话框内部会冒泡触发取消。这是行为缺陷，不属键盘可达域，已写进执行记录留给浮层批次。
+- 无新增 locale 键；role/tabindex 不改变任何计算样式，像素基线不随之变化。
 
 # [未发布] fix(a11y): 「更多」菜单补 roving tabindex + 方向键 + Esc + 焦点归还（UX 审计 4.5 / audit-31）
 

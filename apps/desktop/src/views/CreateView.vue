@@ -119,7 +119,7 @@
             <p class="config-hint">{{ mediaRequirementsAudioText }}</p>
           </div>
           <div v-if="inputMode === 'video' && !isOrchestratedPipeline(selectedPipeline.name)" class="input-area">
-            <div class="upload-zone" @click="$refs.pipelineVideoInput?.click()">
+            <div role="button" tabindex="0" @keydown.enter.prevent="$refs.pipelineVideoInput?.click()" @keydown.space.prevent="$refs.pipelineVideoInput?.click()" class="upload-zone" @click="$refs.pipelineVideoInput?.click()">
               <p v-if="!pipelineVideo">点击上传参考视频（用于电影感/蒙太奇流水线）</p>
               <p v-else>✅ {{ pipelineVideo.name }}</p>
             </div>
