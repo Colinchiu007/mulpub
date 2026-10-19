@@ -2,7 +2,6 @@
 record: ai-film-research-2026-10-19
 task: 克隆 16 个 AI 影视开源项目做代码级逆向分析，输出研究报告与落地实施方案，并完成 CCG 双模型对抗性审核
 date: 2026-10-19
-delivered_by_pr: 3945
 ---
 
 ## 本次执行记录：16 个 AI 影视开源项目调研 + CCG 双模型对抗审核（ai-film-research-2026-10-19，2026-10-19）
@@ -19,6 +18,19 @@ delivered_by_pr: 3945
 | QM-1 打包 / QM-4 视觉 | N/A | 未触运行面（变更集 0 个源文件） |
 | QM-6 CCG 双模型外部评审 | ⚠️ 如实记录 | 双模型评审**实际执行**（backend 架构/数据/算法视角 + frontend 工程/交付视角，两条独立并行），三轮累计 **55 条意见、0 拒绝**。但载体为**本机子代理**，`codeagent-wrapper` 外部模型未调用（本机无该工具），属「双模型交叉审查」的降级形态，非「外部模型评审」 |
 | 远程同步 | 由门禁推导 | 本行不事后改写；合并后门禁按主干历史推导归属（`scripts/lib/merge-ledger.js`） |
+
+### 交付更正（2026-10-19，补交 PR）
+
+**PR #3945 实际只合并了本记录 + 1 个 CCG 产物，两篇研究报告未进入 main。**
+
+根因：共享根文档流程是「本地 main commit → `git branch <name>` → `git reset --keep origin/main`」。本次在三次连续提交中重复执行该序列，最后一次 `git branch -f` 时 HEAD 的父链已不含前两次的文档提交（每次 `reset --keep` 都把工作区与 HEAD 一起回退，靠 `git checkout <branch> -- <files>` 逐次恢复文件），于是 PR 的 diff 只剩最后一个 commit 的记录文件。**校验失效点**：`gh pr view --json files` 只看了最后一次推送后的结果（2 个文件），没有核对「预期交付的 2 篇文档是否都在变更集里」——`docs-only=true files=3` 的判定也被后续 commit 覆盖而失真。
+
+**修复**：从本地 reflog 保留的 `616dde143`（含两篇文档的最终形态）恢复文件，另开 PR 补交。该 commit 未被 gc，取证命令 `git ls-tree -r --name-only 616dde143 -- 01-docs | grep RESEARCH-AI-FILM`。
+
+**回归保护（防再次发生）**：
+1. 开 PR 前必须核对「预期交付物清单」与 `gh pr view <n> --json files` 的两个集合相等，不等即停下；
+2. `git branch -f` 之后必须用 `git log --oneline origin/main..<branch>` 确认提交链完整，而不是只看分支 tip；
+3. 共享根连续多次「commit → branch → reset」是有损操作（工作区随 HEAD 回退），后续多 commit 文档任务应改为「一次性 commit 全部文件」或改用隔离 worktree。
 
 ### 遗留（不假装已闭合）
 
