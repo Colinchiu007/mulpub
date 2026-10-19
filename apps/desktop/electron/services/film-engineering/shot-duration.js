@@ -70,7 +70,7 @@ function countSpeechUnits (text) {
   if (!s.trim()) return { cjkChars: 0, latinWords: 0, total: 0, excludedKanaHangul: 0 }
   // 去掉成对括号内的舞台提示（中英文括号与方头括号）
   const stripped = s
-    .replace(/[（(【\[][^）)】\]]*[）)】\]]/g, ' ')
+    .replace(/[（(【[][^）)】\]]*[）)】\]]/g, ' ')
     .replace(/\[[^\]]*\]/g, ' ')
   const HAN = /[\u4e00-\u9fff]/g
   const KANA_HANGUL = /[\u3040-\u30ff\uac00-\ud7af]/g
