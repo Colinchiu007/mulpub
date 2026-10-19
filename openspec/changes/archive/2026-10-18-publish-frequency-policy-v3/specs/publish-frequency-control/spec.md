@@ -1,4 +1,8 @@
-# publish-frequency-policy-v3 (delta: publish-frequency-policy-v3)
+# publish-frequency-control (delta: publish-frequency-policy-v3)
+
+> 本 delta 于 2026-10-18 随归档做了一次**按现状重写**（capability 目录名 `publish-frequency-policy-v3` → 主干真名 `publish-frequency-control`，否则 CLI 会因目标规格不存在而 fail-closed）。
+> 被推翻的数值段（v3 的 `{5′,3′,30}` / 「日配额恰为 v2 的 10 倍」、v4 的「账号间隔 5 分钟」）已按现行代码改写，
+> 不保留历史数字——把过期数值写进主干就是让规格说谎；数值一律以符号名指路，不写行号。
 
 ## ADDED Requirements
 
@@ -34,25 +38,29 @@
 - **THEN** 窗口 MUST 被回滚、配额 MUST 回补，重试按 `releaseGraceMs` 有界退避
   （把禁止回滚写成永不回滚即撤销 v2 的免等重试能力）
 
-### Requirement: 频率数值按档单一落点并可派生
+### Requirement: 频率数值的单一落点与「档位 + 逐平台偏离」派生
 
-长文 / 短视频·图文社区 / 短内容三档的账号档、平台档与日配额 MUST 各自只在一处定义，
-平台表 MUST 由「档位预设 + 平台分组」派生；未登记平台的回落基线 MUST 是独立常量
-（不得由档位预设派生）。`platformMinMs ≤ accountMinMs` MUST 对每个已登记平台成立，
-且账号档 MUST 满足 `long > clip > short` 的严格单调。
+长文 / 短视频·图文社区 / 短内容三档的**平台档与日配额** MUST 各自只在一处定义（`TIER_PRESETS`，
+`packages/shared-utils/src/publish-frequency-policy.js`）；**账号档 MUST 由逐平台表
+`PLATFORM_ACCOUNT_MIN_INTERVAL_MS`（`packages/shared-utils/src/publish-frequency-account-interval.js`）持有**，
+档位不得再直接给出账号档数字（v5 起）。未登记平台的回落基线 MUST 是独立常量，其账号档 MUST **引用逐平台表的最严值**
+而不是另写一个数字（两个数字必然有一天漂移）。
 
-#### Scenario: 逐档精确值
-- **WHEN** 分别查询 wechat_mp、douyin、weibo 的生效策略
-- **THEN** 返回 `{5′,3′,30}`、`{3′,2′,50}`、`{1′,1′,200}`；平台档取值集合为 `{1′,2′,3′}`
-  （不再是统一 2′）
+`long > clip > short` 的档间单调 MUST 只对「未对该平台做偏离」的平台成立；一旦某平台（现仅视频号）偏离到比其档位更严的值，
+跨档比较即不成立 ⇒ 偏离集合 MUST 被显式钉住，新增偏离 MUST 让锁变红而不是静默通过。
 
-#### Scenario: 日配额恰为 v2 的 10 倍
-- **WHEN** 按档位比较 v2 基线 (3/5/20) 与当前生效值
-- **THEN** 每档恰为 10 倍；未登记平台的回落基线同步为 30，MUST NOT 让新登记平台比老平台严 10 倍
+#### Scenario: 逐平台与档位各自取到生效值
+- **WHEN** 分别查询 tencent_video、wechat_mp、weibo 的生效策略
+- **THEN** 账号档取自逐平台表（视频号 60′ 为**唯一偏离**、长文档 5′、short 档 1′），
+  平台档三档统一 1′（v4 撤分级、机制保留），日配额按档位取 200 / 350 / 500
+
+#### Scenario: 偏离集合扩大必须出声
+- **WHEN** 有人把某个平台的账号档改成偏离其档位默认的值
+- **THEN** 除该平台外的表必须仍等于其档位默认；偏离集合大小/成员变化必须让既有锁变红，不得静默混入
 
 #### Scenario: 未登记平台回落最严档并出声
 - **WHEN** 查询不在策略表内的平台
-- **THEN** 回落 `BASELINE_INTERVALS` 并置 `fallback:true`，由守卫按平台去重输出一条告警
+- **THEN** 回落 `BASELINE_INTERVALS` 并置 `fallback: true`，由守卫按平台去重输出一条告警
 
 ### Requirement: 未提交回滚的每日许可数不得随日配额放大
 

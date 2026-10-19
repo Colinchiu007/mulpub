@@ -1,4 +1,8 @@
-# publish-frequency-v4 Delta Specification
+# publish-frequency-control (delta: publish-frequency-policy-v4)
+
+> 本 delta 于 2026-10-18 随归档做了一次**按现状重写**（capability 目录名 `publish-frequency-v4` → 主干真名 `publish-frequency-control`，否则 CLI 会因目标规格不存在而 fail-closed）。
+> 被推翻的数值段（v3 的 `{5′,3′,30}` / 「日配额恰为 v2 的 10 倍」、v4 的「账号间隔 5 分钟」）已按现行代码改写，
+> 不保留历史数字——把过期数值写进主干就是让规格说谎；数值一律以符号名指路，不写行号。
 
 ## ADDED Requirements
 
@@ -51,25 +55,21 @@
 - **THEN** 三档 MUST 全部等于硬顶 `MAX_ROLLBACK_PER_DAY = 5`
 - **AND** 该上限 MUST NOT 表达为 `max(2, accountDailyMax)`（配额 ×N 不得把防风闸额度也 ×N）
 
-## MODIFIED Requirements
+### Requirement: 回落基线的两维「不弱于」判据（间隔取上界、配额取下界）
 
-### Requirement: 未登记平台的回落值必须逐维度不弱于任何已登记平台
-
-系统 SHALL 在未登记平台（含非字符串平台标识）回落 `BASELINE_INTERVALS`，其 v4 取值为
-账号间隔 5 分钟、平台间隔 1 分钟、日配额 200 条，并带 `fallback: true` 标记供守卫出声。
-"不弱于"在两个维度上方向相反，MUST 分别取界：间隔维度 MUST 不小于所有已登记平台中的最大值；
-日配额维度 MUST 不大于所有已登记平台中的最小值。该回落值 MUST 保持为**独立常量**，
-不得由档位表派生（否则改档会静默改变回落实质）。
+系统 MUST 在未登记平台（含非字符串平台标识）回落 `BASELINE_INTERVALS` 并带 `fallback: true` 供守卫出声。
+「不弱于」在两个维度上**方向相反**，MUST 分别取界：间隔维度 MUST 不小于所有已登记平台中的最大值；
+日配额维度 MUST 不大于所有已登记平台中的最小值。该回落值 MUST 保持为**独立常量**，不得由档位表派生
+（否则改档会静默改变回落实质）。当前取值以 `BASELINE_INTERVALS` 为准（账号档引用逐平台表最严值、
+平台档 1′、日配额取最严档），本文**不复制数字**。
 
 #### Scenario: 回落三个维度各自满足不弱于
-
 - **WHEN** 比较 `BASELINE_INTERVALS` 与已登记平台策略表
 - **THEN** `accountMinMs` 与 `platformMinMs` MUST 分别 ≥ 全域最大值
 - **AND** `accountDailyMax` MUST ≤ 全域最小值
-- **AND** 把基线日配额写成比任何平台都宽（如 600）MUST 变红
+- **AND** 把基线日配额写成比任何平台都宽 MUST 变红（由 `checkBaselineStrength()` 的既有锁承担）
 
 #### Scenario: 回落不得为 0 且必须出声一次
-
 - **WHEN** 以未登记平台标识调用 `resolveIntervals`
 - **THEN** 返回 MUST 等于 `BASELINE_INTERVALS` 且 `fallback` 为 `true`
 - **AND** 三个维度 MUST 均为正数，守卫 MUST 在进程内去重后告警一次，MUST NOT 静默按 0 放行

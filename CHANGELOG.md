@@ -1,3 +1,28 @@
+# [未发布] docs(openspec): 归档 v2/v3/v4 并把 12 条频率契约并入主干规格（openspec-archive-frequency 第二批）
+
+## 干了什么
+- 三个 change 的 delta capability 目录名**收敛到主干真名** `publish-frequency-control`（原本 v2/v3/v4 各自叫
+  `publish-frequency-policy-v2` / `-v3` / `publish-frequency-v4`，与主干无一对齐 ⇒ CLI 必然 fail-closed）。
+- 主干 Requirement 计数 **10 → 15（v2 +5）→ 19（v3 +4）→ 22（v4 +3）**，每一步 `validate --strict` 都过。
+- **按现状重写，不搬历史数字**：v2 删掉两条被后续版本推翻的 MODIFIED（20/10/3、平台档 2′），5 条 ADDED 补齐 v3–v5 的事实
+  （`definitelyNotSent` / `submitUncertain` / `_disableRollbackForPlatform`、`MAX_DAILY_QUOTA` 严格大于最大默认、
+  `DEFAULT_JITTER_RATIO` 回落出声、`checkBaselineStrength()`、紧急放行四态与 10′ 冷却、真实通道名 `publishFreq:emergencyRelease`）；
+  v3 只重写「频率数值按档单一落点并可派生」（账号档现归逐平台表，`long > clip > short` 单调只对未偏离平台成立）并删两个过期 Scenario；
+  v4 把无法应用的 MODIFIED 转写成 ADDED「回落基线的两维不弱于判据（间隔取上界、配额取下界）」。
+- 归档前**逐格核 v2 的 44 项勾选**（只读代理 + 我抽样复核）：28 格补勾（每格带 `文件:行号`/符号名证据）、
+  14 格判 PARTIAL、2 格判未做（4.2 校准脚本无测试无接线；7.3 视觉三处 0 命中）——留空但写明缺什么，不再靠沉默说谎。
+  v3 两格交付项按 merge SHA `469cf7b52…` 补勾。
+
+## 根因（QM-5）
+- 与第一批同一条：**归档不在合并后收尾清单里** ⇒ delta 从未并入主干、capability 名漂移无人问、tasks 勾选表与事实漂移（v2 实测 18/44）。
+- 复核修正了前置审计的两处偏差：它说"真残留只有 3 项"（实为 14 PARTIAL + 2 NOT_DONE，低估），且个别行号坐标错
+  （`definitelyNotSent` 在 `publish-not-submitted.js` 不在 `task-queue-frequency.js`）⇒ 本批只采信可当场复现的**符号名**证据。
+
+## 遗留
+- `scripts/calibrate-publish-frequency.js` 无测试无 CI 接线（本批只写明不补）；v2 的 QM-4 视觉一格三处 0 命中；
+  `task-queue.js` 注释自称"结构锁"名实不符（改注释属代码改动，不在 docs 批做）；
+  `publish-frequency-unwired-surfaces` 仍未归档（与 v5 同指一个 capability，需一次覆盖排序判断）；归档积压依然无判据。
+
 # [未发布] feat(collection): 采集页整体 UI/UE 统一与精致化（collection-page-ui-ue-refine）
 
 用户真机走查反馈采集页「整体布局和细节元素和用户交互体验，视觉上都很散乱，不够统一和清晰，也不够精致高级」。
