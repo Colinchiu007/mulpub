@@ -1,0 +1,60 @@
+{
+  "sha": "c79527117f8789fa33560ee9d859d1e5f94cab70",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 676 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 676,
+    "fileCount": 15,
+    "codeFileCount": 8,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "185b9eb9680395714bb204c87af5f87f825ce496bad6b9ba8a1e97ae997780e3",
+  "decidedAt": "2026-10-18T23:44:42.790Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "cleared",
+    "tier": "dual",
+    "performedBy": "codex",
+    "evidence": "2026-10-19 以 codex exec 对完整设计做对抗评审（原定 claude 后端 502、codeagent-wrapper ETIMEDOUT，按 AGENTS 子代理降级纪律换后端，跨家族对照以 codex 承担）：6 BLOCKING + 6 MINOR。逐条处置见 openspec/records/gyread-ai-source.md「评审修正项」表 —— B1 合规（robots 在 * 组禁 /news/）经用户裁决摘除源，落地为默认不抓取 + GYREAD_SOURCE 技术储备；B4 editions[0] 兜底（系统性张冠李戴）已删除并留回归锁；B5 双字歧义词降 weak + 补 6 条非 AI 负例；B2 url 去重与全败出声随 enrich 摘除，判据登记进 spec「启用时一并实现」。",
+    "findings": {
+      "blocking": 6,
+      "minor": 6,
+      "resolved": ["B1 合规摘除源（用户裁决）", "B4 删兜底+回归锁", "B5 词表降级+非AI负例", "B2 去重+出声（随 enrich 摘除，判据入 spec）"],
+      "deferred": ["B3 补拉路径空列表检查（启用时落地）", "B6 interval 对齐更新节奏（启用时落地）"]
+    }
+  }
+}

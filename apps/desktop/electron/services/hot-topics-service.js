@@ -25,6 +25,10 @@ const { classifyTopicMulti, CATEGORY_KEYS } = require('./hot-topics/classifier')
 const { CHANNEL_PARSERS } = require('./hot-topics/channels')
 const { scoreTopics, markTrend } = require('./hot-topics/scorer')
 const { ChannelThrottle, ChannelBreaker, quotaKeyOf } = require('./hot-topics/throttle')
+// gyread 源定义单独成模块：① 把「实现就绪」与「获准抓取」分开（合规依据自成一处，
+// 不会被误当成已生效配置）；② 本文件登记值 534 + 容差 200，main 已漂移到 671，
+// 余量将尽 —— 按门禁意图拆分而非抬基线。启用前必读该模块的合规说明。
+const { GYREAD_SOURCE } = require('./hot-topics/gyread-source')
 
 const CACHE_KEY = 'hot_topics_cache'
 const LLM_LABELS_KEY = 'hot_topics_llm_labels'
@@ -147,6 +151,9 @@ const CATEGORY_BOOSTS = {
     // `throttleKey`（P2）与 tech 补拉源共享同一配额：两个身份打的是**同一个 RSS 端点**，
     // 若各自配额就是 2 次/15min；共享后 1 次/15min，且一方的失败也保护另一方。
     { id: 'ithome-ai', name: 'IT之家(AI 专题筛)', url: 'https://www.ithome.com/rss/', parser: 'ithome_rss', channel: 'ithome_tech', board: 'ai', boostCategory: 'ai', onlyCategory: 'ai', headers: {}, intervalMinutes: 15, riskLevel: 'low', throttleKey: 'ithome-rss' },
+    // ⛔ GYREAD AI 日报：已按合规裁决摘除，**默认不抓取**（robots 在 `*` 组禁 `/news/`）。
+    // 解析实现与测试保留，但不挂启用路径 —— 解析器可用 ≠ 获准抓取。
+    // 启用前必读 `GYREAD_SOURCE` 上方的合规说明与三条前置条件。
   ] },
   // 教育/国际暂无稳定可用垂类端点（探测记录：百度 education tab、头条分类参数、v2ex 均不可用），
   // 依赖 方案A 关键词/映射修复 + 方案C LLM 兜底补充
@@ -395,12 +402,17 @@ class HotTopicsService {
    * 微博情感/健康垂类共用端点但各自独立节流）。id 含 board 段
    * （如 weibo:emotion:3）避免与主榜 'weibo:3' 撞号。
    * filterCategory：解析后仅保留该原生分类条目（微博 band_list 垂类过滤）。
+   * indexFilter：传给解析器的过滤参数（gyread 索引按 date/days 过滤，否则 1421 条全量入库）。
    *
    * v3 分类归属（修复「科技类混入不沾边内容」根因之一）：v2 把条目的
    * `category` 无条件硬写成 `source.boostCategory`，分类器完全不参与 —— 垂类端点里
    * 夹带的异质条目（跨界榜单条目、垂类 RSS 的非本行内容）会被强行挂到目标分类下。
    * 现在先走分类器：分类器判出明确分类时以分类器为准；只有它给出 general（确实无信号）
    * 时才用 boostCategory 兜底 —— 垂类榜本身即该分类的定向供给，兜底仍保供。
+   *
+   * enrichWithEdition（gyread 专用）：索引只给**日报页**地址，一手原文链接要从单期 HTML 抽。
+   * 该增强**fail-open**：抓取/解析失败只丢 `sourceUrls`，不丢条目、不记渠道失败 ——
+   * 否则站点一次版式变动就会让整个 AI 补拉渠道记失败，把高质量选题全部丢掉。
    */
   async _collectBoostChannel(source, fetchedAt) {
     // 补拉同样按配额键（P0）：微博垂类与微博主渠道、IT之家两路补拉共用端点，
@@ -416,7 +428,9 @@ class HotTopicsService {
       const text = await this._fetchChannel(source)
       const parser = CHANNEL_PARSERS[source.parser]
       if (!parser) throw new Error('no boost parser for ' + source.id)
-      let rawItems = parser(text.startsWith('{') || text.startsWith('[') ? JSON.parse(text) : text)
+      const parsed = text.startsWith('{') || text.startsWith('[') ? JSON.parse(text) : text
+      // 第二参数：gyread 索引需 date/days 过滤（全量 1421 条远超候选上限）；其余解析器忽略
+      let rawItems = source.indexFilter ? parser(parsed, source.indexFilter) : parser(parsed)
       if (source.filterCategory) {
         rawItems = rawItems.filter(x => x.rawCategory === source.filterCategory)
       }
@@ -424,7 +438,7 @@ class HotTopicsService {
       if (source.onlyCategory) {
         rawItems = rawItems.filter(x => classifyTopicMulti(x.rawCategory, x.channel, x.topic).category === source.onlyCategory)
       }
-      const items = rawItems.slice(0, MAX_PER_CHANNEL).map(x => {
+      let items = rawItems.slice(0, MAX_PER_CHANNEL).map(x => {
         const multi = classifyTopicMulti(x.rawCategory, x.channel, x.topic)
         const categories = multi.category === 'general'
           ? [source.boostCategory]
@@ -448,6 +462,9 @@ class HotTopicsService {
       this.log.warn && this.log.warn('[hot-topics] boost channel ' + source.id + ' failed:', e && e.message ? e.message : String(e), state)
       return { channel: source.id, items: null, skipped: false, error: e && e.message ? e.message : String(e), boost: true }
     }
+  }
+
+  /**
   }
 
   /** 聚合一批渠道结果为 { channelStats, allTopics, seen }（跨渠道按选题文本去重，先到者保留） */
@@ -700,5 +717,6 @@ module.exports = {
   MAX_TOPICS,
   CHANNEL_CONFIGS,
   CATEGORY_BOOSTS,
+  GYREAD_SOURCE,
   RANK_CONFIG_KEY,
 }

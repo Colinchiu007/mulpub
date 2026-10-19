@@ -28,6 +28,9 @@ export default {
       'baidu-finance': 'Baidu Finance Board', 'sina-finance': 'Sina Finance Roll', 'ithome-tech': 'IT Home Hot',
       'ithome-ai': 'IT Home (AI)',
       'weibo-emotion': 'Weibo Emotion', 'weibo-health': 'Weibo Health',
+      // hot-topics-gyread-ai-source (2026-10-18): GYREAD AI Intelligence Daily.
+      // Both keys are needed: `gyread` is the item channel, `gyread-ai` is the boost source id.
+      gyread: 'GYREAD AI Daily', 'gyread-ai': 'GYREAD AI Daily',
     },
     selectAll: 'Select all',
     deselectAll: 'Deselect all',

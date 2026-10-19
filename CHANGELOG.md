@@ -126,6 +126,33 @@
 - **随批收红**：`QG Static` 的 Gate 7 抓到两处开发者诊断硬编码中文（改英文）；`Gate 12e` 的 tasks 编号断档；`check-max-lines` 把 `publishProgress.js` 557→498（看门狗抽到 `publish-progress-stall.js`）；`SettingsDialog` 的 `Keyboard` 图标名不存在（`@element-plus/icons-vue` 无此导出，Proxy 夹具使其在单测里隐形、只有 `vite build` 才炸）→ 改 `Key` 并补 `icon-imports-exist.test.js`。三条既有锁按实测改判据方向而非放宽：`window.test.js`（改为断言启动不写标记）、`ipc-exposure-contract`（M-9 抓到 `publisher.js` 直访 `getApi`，实现改用桥接原语且桥接缺席回非 0 码）、`visual-view-runner`（catch-all 加"只能缩小 + 僵尸即红"的非可渲染路由豁免）。
 - **文档**：`01-docs/PRD-UX-AUDIT-IMPLEMENT-2026-10-18.md` 新增 §11（流程 / 显示项 / 提示文字 zh-en 全清单 / 数据校验表 / 不变量与锁位 / 如实记录），`openspec/changes/ux-audit-implement/specs/desktop-ui-experience/spec.md` 新增 4 条 Requirement（含"引导只有单一真源且完成标记只由用户动作写入"、"全局注册组件必须被模板消费"、"帮助页每条指引必须有可达落点"），执行记录追加批次 B 段。
 - **既有假红如实登记**：`preload.test.js` 的 system 模块计数在把 `system.js` 精确还原到 HEAD 后实测 **140**、而断言写 139 ⇒ 该棘轮在本批动手前已差 1；本批按当场测得值改 137 并留下控制对照过程。`electron/services/feedback.test.js` 的 `fs.symlinkSync` 在本机报 `EPERM`（Windows 非特权进程不能建符号链接），与本批无关，判据以 CI 现场为准。
+# [未发布] fix(a11y): 「更多」菜单补 roving tabindex + 方向键 + Esc + 焦点归还（UX 审计 4.5 / audit-31）
+
+- **修什么**：侧边栏「更多」容器早就声明了 `role="menu"` / `role="menuitem"`，但没有任何键盘行为 ——
+  展开后焦点掉回 `document.body`，方向键无效，Esc 不收尾，Tab 走开后菜单还挂着。
+  **给了角色却不给该角色的操作方式，比不给角色更坏**：读屏会 announce「菜单」并据此期待方向键可用。
+  这是人工读模板才发现的（审计条目 audit-31），此前不在任何机械判据的视野内。
+
+- **交互口径**：停在「更多」上按 ↓ 展开并把焦点放进菜单；↑/↓ 在**可见项之间循环**（末位再按回第一项）；
+  Home/End 直达首末项；Esc 收起并**把焦点归还触发器**；Tab 收起但不抢焦点、不 preventDefault；
+  鼠标点某项后该项即成 roving 位，随后方向键从**它**继续；焦点离开菜单且未落在触发器上则自动收起。
+  展开起点取「当前路由命中项」而非第 0 项（`initialMoreIndex`），运营隐藏某项后索引不漂移（`visibleMoreIndexes`）。
+
+- **实现层硬约束（踩过的坑）**：元素表必须是**普通数组** —— 写成 `ref([])` 并在模板 `:ref` 回调里赋新数组会
+  形成 render → ref 回调 → 改状态 → 再 render 的自循环，组件立刻抛 `Maximum recursive updates exceeded in component <MpSidebar>`。
+  另：`<router-link>` 的模板 ref 拿到的是**组件实例**，可直接 `focus()` 的是它渲染的 `<a>`，统一走 `focusableOf()`。
+
+- **验证**：`vitest run src/layouts` → 49 passed / 5 files（其中新增 `MpSidebar.more-keyboard.test.js` 13 条，
+  夹具路由全部由渲染结果反推，不手抄菜单配置）；变异反证 7 条（退回 `tabindex="0"` / 摘 `@focus` roving 迁移 /
+  回绕改夹住 / Esc 不归还焦点 / 起点写死 0 / 摘 `aria-controls` / focusout 不豁免触发器）**各红在指名用例**，
+  控制跑 rc=0、还原后逐字节相同。**两条方法论收获**：① 反证报 MISSED 时先问"我的断言有没有覆盖那条边"，
+  不是"这处代码不重要"（MK-2 正是这样发现判据的洞）；② 变异驱动必须自证探针活着 ——
+  v1 用了 vitest 4 已移除的 `--reporter=basic`，每跑都是 Startup Error rc=1，把 7 条「一条都没跑」报成 7 条 CAUGHT。
+
+- **刻意没做**：`sidebar.cloudPublish` 的标签「CLI」不改成业务语义名（属产品命名决定，zh/en 现均为 `CLI`，待口径后走成对 locales 小 PR）；13 项仍扁平不分组（动它会把选中态、运营配置主键与像素基线一起牵进来）。
+
+- 涉及文件：`apps/desktop/src/layouts/MpSidebar.vue`、`apps/desktop/src/layouts/MpSidebar.more-keyboard.test.js`（新）、
+  `openspec/records/ux-audit-more-keyboard.md`（新）、`01-docs/UX-AUDIT-2026-10-17.md`（audit-31 就地指针 + 4.5 行状态）。
 # [未发布] docs(audit): 更正 audit-60 的 harm 陈述 —— ElMessage 根节点其实已带 role="alert"，阶段 4.6 因此收窄（ux-audit-toast-a11y-correction）
 
 - **动工前核了库的真实产物**（本机 element-plus 2.14.2）：`message.vue` 编译产物里 `role` 出现 1 次、值为 `"alert"`、挂在 `.el-message` 根 div 的属性表上；5 个 message 实现文件里 `aria-` 计数**全为 0**；`MessageHandler` 只有 `close()`，**没有 DOM 句柄**。
@@ -135,7 +162,6 @@
 - **方法论（写进审计稿文末《第三轮更正》）**：审计里任何 `X 计数很低 ⇒ 用户得不到 Y` 的句子，动工前必须先回答**「还有哪条通道在承载 Y」**（含依赖库与宿主默认行为）。这是 AGENTS「宿主 API 字段归属必须先核实」的第二落点：第一次用它挡住了读不存在的 `getVisibilityState`，这次用它挡住了一处会加倍播报的"修复"。
 
 # [未发布] feat(gates): UX 审计阶段 5.3/5.4 两条新门禁 —— 未接线组件与死观测字段必须被机械检出（ux-audit-phase34）
-
 - **修什么**：审计 §1 的核心结论「机制在、最后一公里没接」里的两族形状，此前**没有任何东西在检测**：
   ① 组件写好、props 接口定好、**全仓零引用**（audit-6/audit-66 四例：AnnouncementBanner / TrialBanner /
   LoadingState / StaggeredList）；② store 字段**有写无读**（`lastEventAt` 写 4 读 0；本轮又抓到
@@ -176,11 +202,7 @@
 - **文档**：`openspec/changes/ux-audit-implement-phase5/`（proposal + tasks + 新增能力
   `desktop-ui-wired-gates` 3 条 Requirement / 10 个 Scenario）、执行记录 `openspec/records/ux-audit-phase34.md`
   （域测量读数、四条口径的失败形态、假阳性归因、变异表、QM-1/QM-4 不适用的理由、QM-6 未跑的如实登记）。
-
-
-
 ### 同 PR 续做：QG Visual 的通过路径被一个清理动作判了红（Gate 7 退出码收敛）
-
 - **现场（判据取产物）**：本 PR 的 `QG Visual` 报红，而该步骤日志末行是 `[GATE-7] All visual tests passed`，
   读数 `pixel=0 views=0 views-supplement=0 dark=0 workflows=0 workflows-supplement=0` —— 六套全 0。
 - **根因**：Gate 7 的四条 `exit` 分支各管一种失败，**通过路径没有任何 exit**；GitHub 的 pwsh wrapper 以
@@ -207,7 +229,6 @@
   这三份历史 CRLF 文档的 blob 现为纯 LF，磁盘 CRLF 只是 checkout 转换）。正解：`split('\n')` 后**逐行保留
   各自结尾**，插入行取锚点那一行的结尾，改完用 `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 对账。
 # [未发布] chore(debt): 债务熔断基线 re-sync 到主干现状——接受漂移不是清理，并登记拆分红利（debt-baseline-resync）
-
 - **现场**：`debt-guard.yml` 的「债务熔断检查」从今天起在**每一个** rebase/merge 到今天主干的
   pull request 上判红：`MAX_FILE_LINES: 5359 > baseline 5239`、`FILES_OVER_1000: 29 > baseline 28`。
   本会话的 #3898 / #3992 / #4010 同时被卡（#4010 是以另一种形状：
@@ -238,9 +259,6 @@
   行尾两口径 numstat 一致。QM-1 / QM-4 / TDD 均 N/A（无代码行为变更）。
   QM-6 双模型外部评审**未执行**（本机无可用通道，pre-commit 如实打印跳过）。
 - 执行记录 `openspec/records/debt-baseline-resync.md`（含归因两条、影响面与两个跟进项判据）。
-
-
-
 # [未发布] feat(侧栏): 折叠按钮改为可表意的语义化图标并补齐可发现性（sidebar-toggle-ux）
 
 - **用户反馈是「样式太不明显，根本让人注意不到」，不是功能坏了**：折叠功能本身在 PR #3916 已正确（切换/持久化/跨进程同步/多窗口广播），缺陷全在呈现层。三处独立成因：**①图形不表意** —— 双向 chevron（「<>」）在通行图标语义里读作「代码」或「展开更多」，与「收起侧栏」无关；**②两态共用同一图形** —— 收起/展开只靠颜色区分（primary vs secondary），是单通道编码，对色觉障碍用户完全失效，普通用户也无法从图标判断当前处于哪个状态；**③常态几乎不可见** —— 图标色对 TabBar 背景亮色实测 4.40:1（差 0.1 不达 WCAG AA 4.5:1），边框与底色都是 `transparent`。
@@ -262,14 +280,12 @@
 - **`tasks 4.5b②` 记的是一个产品裁决而不是实现欠账**：频道 `voiceRef` 只有读侧没有写侧，回退链第 ① 档恒为空；写侧需要频道页的音色录入控件，而 §8.2.9「故意不做」第二条禁的是「全局默认音色选择器」（那东西在本仓不存在），与频道级 `voiceRef` 不是同一件事——但 PRD 从未写过这个控件的字段、交互与文案，按「先文档再代码」不临场发明。另拆 `4.5b③`：视频出期浮层 `PodcastEpisodeEntry.vue` 至今 `voice|origin` 命中 0，§8.2.9 原定落点那半未做。
 
 # [未发布] docs(openspec): 归档 normalize-debt-ledger-entry-shape —— 主规格拿到「登记项只准承载原因」这条需求（archive-debt-ledger-shape）
-
 - **归档落点**：`openspec/changes/normalize-debt-ledger-entry-shape/` 移入 `openspec/changes/archive/2026-10-19-normalize-debt-ledger-entry-shape/`，主规格 `openspec/specs/quality-gate-execution-record/spec.md` 的 Requirement 由 3 条增至 4 条；新增块 **36 行 / 5 个 Scenario**，与 change 的 delta **逐行全等**（一次性驱动从两侧各取该块比对，任一行不等即抛错并打印首个差异）。
 - **为什么不联动 vendored 契约镜像**：镜像锁 `scripts/quality-rhythm-spec-mirror.test.js` 的比对目标写死是 `openspec/specs/openspec-integration/spec.md`，本刀动的是另一个 capability ⇒ 不联动。不靠记忆答题：归档前后各跑一次，两次均 **8 passed / 0 failed**，主规格与镜像的 Requirement 计数两侧均 **13** 未变。
 - **`openspec validate --all --strict` 做真 A/B**（在同一份 `origin/main` 上另建 detached 工作树跑基线，而不是拿历史数字对比）：归档前 **223 items / 201 passed / 22 failed** → 归档后 **222 / 200 / 22**，离开 changes 域的恰是本刀这 1 项，失败集逐条不变。
 - **Purpose 占位没有新增**：`TBD - created by archiving…` 只在归档器**新建** spec 文件时才写；本刀目标 spec 已存在，实测归档后该文件 `TBD` 计数为 **0**，`check-spec-purpose.js` 前后均「扫描 154 份主规格、违规 0」。
 - **两条正规隔离入口本刀都被别人的现场挡住**：`start-mp-task.ps1` 因标准根之外注册着 2 个 worktree 判 `ok:false`（`clean/hooks/writeGuard` 全绿），`session-init.sh` 因共享根有 7 项他人未跟踪文件而拒绝。纯文档改刀按既有纪律走 `%TEMP%` 下的 detached 工作树出口，共享根全程停在 `main` 未动；这三条机器卫生事实已如实上报，不代删。
 # [未发布] fix(播客): 出期音频对象键随期变化，修掉同频道第二期原地覆盖第一期（podcast-audio-key-per-episode）
-
 - **用户可见症状**：同一个播客频道连发两期，第二期 PUT 把第一期的音频**原地覆盖**了——两次发布都报成功、日志零异常，而订阅端旧期 `<item>` 的 enclosure 指向的直链现在播的是新期的声音。RSS 里两期都在、音频只有一份。
 - **根因（第一性引入点 `46736edf5`，PR #3302，2026-10-11）**：当时为"临时产物归拢"定了两个名字——目录 `runDir = <tmpRoot>/episode-<runId>` 与文件基名 `outBase = <runDir>/episode`。**目录带 runId、文件不带**；而下游 `publishAudio` 拼的对象键是 `<prefix>/audio/<channelId>/<basename>.<ext>`，`runDir` 那一层在进 key 时被 `path.basename` 整个丢掉 ⇒ 同频道每一期都算出同一个键 `episode.mp3`。跨频道由 `channelId` 挡住，跨期没人挡。存续 8 天。
 - **这条不是"没想到"，是自家写下的判据只跑通了一半**：`publishAudio` 头注释原文就写着「key 必须带 channelId，两期写进同一层＝后一次发布静默覆盖前一期」——实现挡住了跨频道那一半，跨期那一半没接。修法因此是把这句判据补全（`channelId` 挡跨频道、`stem` 挡跨期，两个方向是同一条不变式），而不是新加一条规则。
@@ -279,9 +295,7 @@
 - **顺带记一条"同形不同义"，防止下一个会话顺手统一**：feed 的键固定成 `feed.xml` 是**对的**（一个频道一份 feed，本来就该被覆盖），音频固定成 `episode.mp3` 是**错的**（一期一份）。判据不是"键要不要唯一"，而是"这一段区分的是谁"。
 - **系统性预防落进 AGENTS.md QM-2**：新增一条——凡"身份由多个字段拼成的外部键"（对象键、缓存键、文件名、幂等指纹），必须有一条「两个不同实体 ⇒ 两个不同键」的行为锁，且**禁止只用前缀 `toContain` 断言**。这是「文本结构断言」那条在**对象键**上的落点。
 - **验证**：消费者并集（6 个测试文件）在最终树全跑 **114 passed**——`podcast-episode-host` 53、`podcast-hosting-service` 30、`podcast-hosting-audio-key` 11、`podcast-hosting-audio` 7、`podcast-episode-ipc` 6、`podcast-script-ipc` 7；QM-1 按三层判据重取（打包产物归属自证 = 包内 blob 与工作树逐字节相同，另带两个我没改动的同域文件作对照组），ESLint/Gate 7 四档、`check-max-lines`、`check-gate-record-debt`、`check-record-qm5-rows`、`check-doc-abs-paths`、`check-pr-exec-record --mode=enforce` 均 rc=0；QM-6 判定档位为 `single`，**未调用外部模型**，不得读成"已双模型复核"。全过程记 `openspec/records/podcast-audio-key-per-episode.md`。
-
 # [未发布] fix(gate): 欠账账本拒收「会自己腐化的第二份事实」—— 登记项只留原因字符串（normalize-debt-ledger-entry-shape）
-
 - **动因是当场量出来的两处腐烂**：`scripts/gate-record-debt-ledger.json` 的 23 条登记项有两种值形态（14 字符串 / 9 对象 `{reason,status,line}`）。逐条核对载体现状后：`line` **9/9 全部指不到自己的 `远程同步` 行**（3 条越界/指空，6 条指到别的 QM 行），`status` **已有 1 条说谎**（登记 `PENDING`，载体是 `执行中`）。而 `loadLedger` 只取 `reason`，全仓无任何 `entry.status` / `entry.line` 读取 —— 即"读它的人拿不到真值，不读它的人以为它是真的"。
 - **为什么必然腐化**：`.quality-gates.md` 是置顶追加型台账，每合并一次块整体下移，行号指针结构上不可能长期正确；`status` 则是判据本来就会从载体测出来的量的第二份拷贝。两份都会漂，漂移方向是"下一个会话把它当坐标用"。
 - **删字段而不是补校验**（design D2）：给 `line` 加"仍指向该行"的校验会当场红 9 条，而那 9 条账该由作者本人取证销账、不该由本刀代改别人的记录；删字段零信息损失（消费者为零），并把这类指针永久逐出数据面。
@@ -289,9 +303,7 @@
 - **迁移只解包，不动语义**：9 条对象塌成各自的 `reason`；当场对账——键数 23→23、键序与键内容逐字相等、原因文本逐字相等、判据读数不变（仍打印「已登记欠账 23 条」，rc=0）。不销任何一笔账、不改 `.quality-gates.md` 任何一行、不动 carrier-freeze 基线。
 - **回归锁 112 例全绿（77→108→112）**：新增 4 条（拒收对象并点名键 / 空原因旧判据不被挤掉 / 真仓形状锁含"清空账本不得读成合规"的下界 / 账本文件名在判据里只允许一处）。**变异反证 M1–M5 全部指名变红**，红集互不相同；M5（迁移漏一条）实测抓在真仓形状锁上；跑后判据/测试/账本三文件 md5 与跑前逐一相等。
 - **我自己上一轮的错判，按本仓规矩记下来**：我曾断言"判据读不到 `status`，六成欠账状态只活在散文里"——**没读 `loadLedger` 就下结论**。实际它两种形态都读得动（只取 reason），真实缺陷相反：那两个字段无人消费且已在静默腐化。结论形状从"补齐读取"翻成"删掉字段 + 拒收"，代价是小刀方向整个换掉；凡"某字段读不到/没人用"这类断言，必须先读消费者再开口。
-
 # [未发布] docs(播客): 出期崩溃对账按顺序先落合同——spec 第 14 条 Requirement + 4 个 Scenario（podcast-crash-reconcile-spec）
-
 - **只写合同、不写实现，而且是规定的顺序**：`tasks 3.6b②` 与 PRD §13 第 13 条都明文写着「落地顺序不得反：先在 spec delta 加 Requirement（现 13 条无一涉及对账），再落跨重启凭据 → `channel:get` 投影 → 频道页横幅 + zh/en 键」。本刀收在第一步，`3.6b②` **保持未勾**，PRD 那条也补了"不得因合同已写而改判"。
 - **写合同的输入全部当场量**：忙标记是模块级 `Map`（`podcast-channel-locks.js:121`），`:91-92` 的注释写着「崩溃随进程消失，**残留由启动对账接管（只提示不自动修复）**」——它把"启动对账"当成已存在的东西来陈述，而 `publishInFlight` 在代码里**命中 0**（`git grep -c` 对 `apps/desktop/electron`+`packages` = 0 行，命中只落在 `.adversarial/`、`.ccg/` 产物）。**没有任何既有状态可扫** ⇒ 合同只能写成"链进入时留一份跨重启凭据"，而不是"启动时扫一遍"。另确认 `episodes.json` 只在链末尾写（`podcast-channel-service.js:40`）⇒ 用结果文件反推在途态正是本条要消灭的黑洞。
 - **两条写进合同的取舍（不是实现细节，后来者不得顺手改）**：① **凭据写入失败 ⇒ fail-closed 拒绝发起**——与 AGENTS「进度事件是旁路、发送失败不得冒泡」**刻意相反**，理由是进度丢了只影响观感、凭据丢了下次启动就无从对账，做成静默旁路会把"磁盘满"变成"发布照常成功但中间态永远不可知"；② **对账只报告、绝不自动重发**——`meta.guid` 至今没有任何一层传过（`podcast-rss.js:238` 令 guid 回落成音频 URL ⇒ 重复发布的产物是**第二条 item**），所以重发只能是用户显式发起，身份来源待 `tasks 5.1b③`。这条同时把两刀之间的**依赖方向**钉死：3.6b② 不许靠"自动重发"实现，否则会把一个还没定的问题变成事故。
@@ -299,11 +311,8 @@
 - 四个 Scenario：强杀后如实报告（且对账路径**零出站**）/ 正常收尾后重启不得出现横幅（凭据文件不存在也不报错）/ 凭据写不进去就不发起（返回带领域码的失败、忙标记照常释放）/ 对账不把"重发"当修复（入口走正常链、新 `runId`，文案不得声称"已自动恢复"）。
 - **本刀没做的五项**点名留档，防止被"合同已写"读成"事已办"：跨重启凭据文件与写入/收尾时机、`channel:get` 的 `interrupted` 字段、频道页横幅与 `podcast.episode.*` zh/en 键、强杀再启动的真机复现、"凭据写失败"那条领域码。
 - 规格面读数：spec delta 的 `### Requirement` 计数 13 → **14**。零运行时代码 ⇒ QM-1 / QM-4 / TDD 不触发，QM-6 走 docs-only 通道且**未调用外部模型**。三处补丁都由"行尾均匀 + 锚点恰命中 1 + `CR==LF` + 单行替换不改 CR 数"驱动落地，两口径 `--numstat` 逐文件相等（spec 30/0、tasks 1/0、PRD 1/1）。全过程记 `openspec/records/podcast-crash-reconcile-spec.md`。
-
 # [未发布] fix(collect): 一键改写对超长正文截取前 6000 字并明确提示；引擎业务错误不再退化成「AI 改写失败」（fix-collect-rewrite-too-long）
-
 ## 问题
-
 - 用户实测：采集页输入知乎回答链接
   （`https://www.zhihu.com/question/715577762/answer/2095239383058329672`）点「一键改写」，
   采集成功后弹「AI 改写失败」，无任何具体原因。
@@ -315,9 +324,7 @@
   对照样本：同链路 5899 字文章 8 分钟前改写成功。
 - 第一性引入点：#3915 把采集页 stealth 分支的改写从 Python 聚合层切到桌面引擎时，
   错误字段位置从「平铺」变成「嵌在 data 里」，消费点未同步归一化。
-
 ## 改动
-
 - 新增 `apps/desktop/src/utils/rewrite-engine-limits.js`：6000 码点上限（与引擎常量结构锁）、
   `prepareRewriteInput` 按码点截断（不劈开代理对）。
 - 采集页 `rewriteViaEngine`：超长截取前 6000 码点继续改写 + `collection.rewriteTruncated`
@@ -326,16 +333,13 @@
   `errorCode/message/params`，并映射稳定文案码（`TOO_LONG` / `SENSITIVE_CONTENT` 新增 zh/en
   文案；`EMPTY_RESULT` / `LLM_ERROR` / `NO_LLM_CLIENT` / `EMPTY_CONTENT` 复用既有码）。
 - 引擎侧把 6000 提为具名常量 `MAX_INPUT_CHARS`（行为不变），供渲染层结构锁对齐。
-
 ## 验证
-
 - `apps/desktop` 定向：`rewrite-engine-limits` 9 + `rewrite-engine-error` 8 +
   `user-facing-error` 32 + `Collection.rewrite-input-limit` 5 = 54 passed；
   `Collection.test.js` + `rewrite-lineage.test.js` = 129 passed；
   `packages/rewrite-engine` = 194 passed。
 - 变异反证：禁用截断 ⇒ 1 例红；回退「原样透传信封」⇒ 2 例红。
 - `build:vue` rc=0；locale pair/keys rc=0；max-lines rc=0；unwired-tests rc=0。
-
 # [未发布] fix(s2v): 「语音 / 音色 ID」显示条件回补 —— 模型来源不止一处（s2v-tone-field-guard）
 
 - **#3946 引入的 main 红**：该字段的 `v-if` 写成「已选提供方 **且** `s2vVoiceContextModel`」，而后者只认「程序按运营默许模型解析出的结果」（依赖 provider 注册表）。上游布局契约 `S2vConfigPanels.test.js` 的夹具显式给 `voiceModel` 但不加载注册表 ⇒ 字段不渲染 ⇒ main push 的 `QG Desktop Shards (2/2)` 判红（`expected '…' to contain '语音 / 音色 ID'`）。PR 侧没红是因为两片 shard 的文件集合不同、且该断言来自更晚合入的上游提交。

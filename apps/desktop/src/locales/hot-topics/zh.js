@@ -28,6 +28,9 @@ export default {
       'baidu-finance': '百度财经榜', 'sina-finance': '新浪财经滚动', 'ithome-tech': 'IT之家热榜',
       'ithome-ai': 'IT之家(AI 专题筛)',
       'weibo-emotion': '微博情感垂类', 'weibo-health': '微博健康垂类',
+      // hot-topics-gyread-ai-source（2026-10-18）：GYREAD AI 情报日报。
+      // 两个键都要有：gyread 是条目 channel，gyread-ai 是补拉源 id（下拉显示后者）。
+      gyread: 'GYREAD AI 日报', 'gyread-ai': 'GYREAD AI 日报',
     },
     selectAll: '全选',
     deselectAll: '取消全选',
