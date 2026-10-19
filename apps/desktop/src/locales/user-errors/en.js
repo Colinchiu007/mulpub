@@ -22,6 +22,8 @@ export default {
     API_KEY_REQUIRED: 'Remote providers require an API key. Add it in Model Settings and try again.',
     LLM_KEY_MISSING: 'AI rewriting needs to connect to a writing service, but that service has not been configured yet. Please go to Model Settings in the app and add the API key for your AI provider (OpenAI-compatible endpoints are supported), save it, then click Rewrite again. Not sure where that is? Open Member Center - Help & Support and click "Configure AI services" to jump straight to that page.',
     LLM_NOT_CONFIGURED: 'No default text-reasoning model is available. Open Model Settings and choose a default model under the Text Reasoning (LLM) category; if you use a multimodal model, tick the Text Reasoning default marker on that model; then add the API key, save, and try again.',
+    REWRITE_CONTENT_TOO_LONG: 'The text exceeds the {max}-character single-rewrite limit, so it could not be rewritten. Shorten it and try again, or rewrite it in parts.',
+    REWRITE_CONTENT_SENSITIVE: 'The text contains sensitive words and cannot be rewritten. Edit the content and try again.',
     AGGREGATION_CONTENT_EMPTY: 'Please enter or collect some content to rewrite first, then click Rewrite.',
     AGGREGATION_URL_EMPTY: 'Please enter the link to collect first; the link cannot be empty.',
     AGGREGATION_URL_INVALID: 'The link format is incorrect: only web links starting with http:// or https:// are supported. Please check and try again.',
