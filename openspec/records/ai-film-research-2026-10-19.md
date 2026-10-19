@@ -58,3 +58,7 @@ date: 2026-10-19
 ### 第二层深挖（v3，follow-up）
 
 三个新项目各加一节第二层（§3.17.1 / §3.18.1 / §3.19.1）：FireRed 的 MoviePy 栈与节拍分配算法（SUBCLIP_END_SAFETY_MARGIN_S 安全边距 / 双窗口 clamp / BGM 三态 / SNAP_SAFETY_MAX_STEPS 防死循环）、smy 的失败模式表与分层配方与色盘闭环（仅抽象做法，文本不可复制）、ToonCrafter 的首尾帧约束模型机制（c_concat 钉两端 / Fusion zero-init / 末帧裁剪）。报告 1690 → 1867 行。
+
+### 第三层综合（v4，follow-up）
+
+新增 §3.17.2（ASR 粗剪编排层：逐句裁决/静默分组/前缀和重校，升级为可直接实施）与两个横向收束节 §3.20（分镜数据模型四方对照——mulpub refTokens 为四方最强实体机制、prompt 单字段 13.9k 是最刺眼缺口、sceneId 全 1:1 暴露 Scene 树未被消费、时长字段缺失）、§3.21（连续性七种武器全景——mulpub 仅有第 1 档，短板在 prompt 纪律/输入接力/生成策略/验收闭环）。报告 1867 → 2001 行。
