@@ -1,0 +1,59 @@
+{
+  "sha": "4d539f3ddc0f3bb00e251ec86d25c6471971af6b",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 2,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 6,
+    "docSensitiveContentSample": [
+      "### C10.3 档位与「AI 生成内容合规」：商用授权的免责边界",
+      "v1.1 把「商用授权」放在 standard 起（条款层，成本最低感知最强）。v2.1 补",
+      "**授权的免责边界**（法务前置，签约前必须过）："
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "34a072a861edc54479f19c062db3d012ede56e7c40b7c2ba1d523683b13f11c8",
+  "decidedAt": "2026-10-19T10:30:56.823Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}
