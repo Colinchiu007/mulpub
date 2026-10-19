@@ -84,6 +84,8 @@ window.JsKuaishouGetSig3(_account_id,sig3);
 
 ⇒ 快手用 `gen__NS_sig3`（`__NS_sig3` 是快手公开的签名名），输入是 `sig3_data` 对象。
 
+⇒ **sig3_data 由原生 %s 填值**（exe 模板 ';var sig3_data=' 后接 NUL 占位），不是页面拼的 —— 详见 融媒宝-hxfalcon指令集与URL三分类.md §1。
+
 ### 2.6 汇总表
 
 | # | 平台 | 页面函数 | 回调桥 | 实参契约 |
@@ -304,5 +306,5 @@ node extract-exe-injected-js.cjs
 | 3 | **`gen__NS_sig3` 的 `sig3_data` 结构未取证** | 只看到调用，没看到 `sig3_data` 怎么构造 |
 | 4 | **抖音 ticket-guard 的 `ZTSDK` 来源未取证** | 它是抖音页面内置的 SDK；竞品直接读 `localStorage` 的 `security-sdk/*` |
 | 5 | **`bc/zh/` `bc/z/` 的含义未证** | 两个 static 路径前缀 |
-| 6 | **289 个 URL 未分类** | 只抽了集合，未区分「平台 / 自家后端 / 静态资源」|
+| 6 | ~~289 个 URL 未分类~~ | ✅ **已分类（见 `融媒宝-hxfalcon指令集与URL三分类.md` §3）**：20 平台 / 9 自家 / 33 other；平台路径面暴露「收益看板」是主要功能 |
 | 7 | **未做活体验证** | 全部静态；「这些注入在真实平台上是否成功」未证 |
