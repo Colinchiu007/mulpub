@@ -236,6 +236,28 @@ no-conflict-markers 标记行 8 全部带登记）；
 sidebar-collapse-chain / tab-independent-home（含 S1b「MpModuleNav 不得复活」结构锁）/
 Publish / Collection / Accounts / useOpsCenterRuntime / AnnouncementBanner）。
 
+## 第 6 轮 re-sync（origin/main 落后 8 个提交，merge `0c9c6aaab`）
+
+- **为什么用 merge 不用 rebase**：本分支有 20 个提交，`git rebase origin/main` 在第一刀就撞
+  `config/route-registry.js` —— 撞的是**注释与路由对象混在同一个 hunk** 的形态（HEAD 侧是主干对
+  `/publish` 语义改位的注释，我侧是新增的 `NotFound` 兜底路由 + 旧注释）。逐个提交重放会把同一处冲突
+  付 20 遍；`git merge origin/main` 一次就把 68 个主干改动并进来，且 `route-registry.js` 在合并态**自动合上了**
+  （rebase 的分叉点不同才撞）。这是本仓「多提交改顶部时用 merge 不用 rebase」同一条判据。
+- **唯一冲突是 `CHANGELOG.md` 顶部**：一个 hunk（`mine=128 / theirs=7`，两侧都非空 ⇒ 分桶正确）。
+  解法 = 两侧逐字并集（`split('\n')` 保留每行自身 `\r`、只删 3 行标记、`join('\n')`），
+  对账 **vs HEAD `34 0` / vs origin/main `128 0`，且 `--numstat` 与 `-w --numstat` 两口径逐字相同**（双向纯插入）。
+- **验证范围取「变更集交集」而不是「我改过的文件」**：交集只有 5 个文件
+  （`01-docs/learnings.md`、`CHANGELOG.md`、`locales/publish-page/{zh,en}.js`、`stores/publishProgress.js`）
+  ⇒ 交汇面跑 `stores/publishProgress.test.js` + `components/PublishProgressPanel.test.js` + `views/Publish.test.js`
+  = **180 passed / 3 files**。另有一条**不在交集、但冲突就落在它身上**的：`config/route-registry.js` 虽被自动合上，
+  仍跑 `.github/scripts/check-route-registry.test.js` = **14 passed**（登记表与侧边栏一致性由它守）。
+  `check-locale-sync --pair-base origin/main` 与 `--cjk` 均 PASS。
+- **语义回读（自动合上 ≠ 合对）**：两条不变式当场核 —— ① `NotFound` 兜底路由仍在（`grep -c NotFound` = 2）；
+  ② `/publish` 的 `navEntry.to` 仍指 `/publish`（主干的 S1d 语义改位没被我这一侧的旧注释带回去）。
+  两个 JS 文件 `node --check` 通过。
+- **如实记一条路径差异**：rebase 下 `route-registry.js` 会红，merge 下它自动合上了。我选后者并靠回读断言兜底；
+  若主干继续在这个文件上高频变动，下一轮可能换 rebase 更省 —— 判据是「同一处冲突要付几遍」，不是「哪个命令更标准」。
+
 ## 关联
 
 - 上游审计：`01-docs/UX-AUDIT-2026-10-17.md`（merge `c57616b61`）
