@@ -503,7 +503,7 @@ Collection
 | 阶段 | 剩余内容 | 原因 |
 |------|---------|------|
 | **S2 剩余** | 「去发布」双路径**已核实无需改动**（`buildPublishFromProject` 仅服务视频路径，`type:'video'` 硬编码符合设计；图文路径靠 `?draft=` 不带 type 回落 article，两路本就同构） | — |
-| **S3** | 交接参数收敛 + `useRouteHandoff` + 深链重定向层 | 依赖 S2 接线完成 |
+| **S3** | ✅ **已实施（PR #4000，2026-10-19）**，实施结果与本节规格的偏差见 §15.5 | 交接参数收敛 + `useRouteHandoff` 单一入口 + 互斥一次性裁定 |
 | **S4** | 首跑引导下线（按 §14 #1 裁决） | 影响面 386 处，须单独 PR 并逐项清点 |
 | **暗路由** | `/intelligence`、`/auto-pipeline` 维持登记 | §14 #3 裁决 |
 
@@ -512,4 +512,17 @@ Collection
 删除 70px 模块导航层会让**主窗口内所有页面**整体上移，S1a 新增的 tablist 又会让账号页局部下移；
 故本次 PR 必须同步重建 `apps/desktop/tests/visual-testing/base-screenshots/` 下受影响基线，
 否则 `QG Visual`（Gate 7，阈值 6%）必然判红。基线以同源渲染重建，逐张确认差异仅来自本 PR 的布局变更。
+
+### 15.5 S3 实施记录（2026-10-19，PR #4000）——本节规格与代码事实的偏差
+
+实施 §5-S3 时实勘发现两处规格与代码不符，**以代码事实为准**实施并回写：
+
+| # | 本文档原写法 | 实际事实 | 处置 |
+|---|------------|---------|------|
+| D12 | 「收敛到 `?draft=<id>` + `?mode=article\|video`」 | `?mode=` 全仓**零实现**——模式真源是 `?type=`（`Publish.vue` 的 `publishType` computed），视频模式由 `?video_path=` 副作用置位。造一个无人写入的 `?mode=` 参数正是规则 1 反对的「无来源入口」 | 不实现 `?mode=`；`useRouteHandoff` 只消费 `?draft=`/`?drafts=`，并把 `?video_path=` 预填实现为**叠加层**（与三路不互斥，先于裁定执行，自带无 query 早退——这是现状语义） |
+| D13 | 「`useRouteHandoff` 入口 normalize 必须**白名单透传 `republish`**，不得 replace」 | 「透传」针对的是 normalize/rewrite URL 的方案；实施采取**不重写 URL**（`?republish=` 载入后由 `usePublishRepublish.js:125` 自行 replace 清地址栏，`?draft=` 不清理），因此不存在透传问题 | 入口产出的是「本次激活消费哪一路」的裁定，不碰 URL；互斥（含 PRD 警告项「onActivated 无守卫导致后到者覆盖」）由入口一次性裁定并加测试锁 |
+
+**CreateView 侧不改动的依据**：§5-S3 写的「删除 CreateView.vue 的 mounted + 2 watch（L5098-5121）」已被上游重构失效——实勘 `?draft=` 只剩 mounted 单点（改写预填，L5219），无「发布交接」语义、无分散可收敛，为收敛而收敛只会引入回归面。
+
+**基线对照实验**：`Publish.test.js` 有 7 个既有失败（上游文案详情改动的 mock 环境问题）。为防把既有失败读成回归，实施时用 `git stash` 对照——改动前基线 7 failed/103 passed，改动后 7 failed/134 passed，失败集合逐条相同 ⇒ 零新增失败。该实验方法（stash 基线复跑 → 逐条比对失败集合）建议作为「改动前测试已红」场景的标准归因手段。
 

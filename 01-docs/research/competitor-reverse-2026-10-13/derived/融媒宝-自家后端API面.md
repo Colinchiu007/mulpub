@@ -59,7 +59,7 @@
 
 | 前缀 | 端点 | 证据 | 推断语义 |
 | --- | --- | --- | --- |
-| **账号体系 /pc/**（40 条，此处列原生侧）| login / reg | exe@13860164 / @13860036 | 登录 / 注册（参数 inviteCode、bd_vid——带邀请码与投放来源）|
+| **账号体系 /pc/（原生侧，全前缀共 41 条）** | login / reg | exe@13860164 / @13860036 | 登录 / 注册（参数 inviteCode、bd_vid——带邀请码与投放来源）|
 | | checkPhone / resetPwdCheckPhone / resetPwd | exe@13859972 / @13860091 / @13860143 | 手机校验 / 改密前校验 / 重置密码 |
 | | quit | exe@13860376 | 登出（参数 uniqueIds）|
 | | deleteAccount | exe@13860480 | 注销账号（参数 del_backup）|
@@ -98,7 +98,7 @@
 
 > 分层判据：`UserExtend`、`pcrank`、`selectCommentlist`、`PcDouyinOpen`、`PcDouyinLetter/getWs` 等在 exe 中 ascii 与 utf16 双口径均 **0 出现** ⇒ 这些接口由 CEF 页面直发，不经原生 HTTP 引擎。反之为原生侧持有（如 danger/*、key/map、pc 账号族）。
 
-**两个结构性发现**：① `PcDouyinLetter/*` 23 条 + `getWs` WebSocket ⇒ 抖音私信是完整的独立子系统（联系人/话术/规则/已读/撤回），即 `view-quick-reply` 页面的服务端；② `/pcrank/*` 9 条热榜 ⇒ 「热榜」由**自家后端聚合**而非直连各平台——与 URL 三分类里 5 个第三方内容平台（yuncheapp 等）互为印证。
+**两个结构性发现**：① `PcDouyinLetter/*` 全前缀 23 条（含 exe 侧 getSubUserAccountMew）+ `getWs` WebSocket ⇒ 抖音私信是完整的独立子系统（联系人/话术/规则/已读/撤回），即 `view-quick-reply` 页面的服务端；② `/pcrank/*` 9 条热榜 ⇒ 「热榜」由**自家后端聚合**而非直连各平台——与 URL 三分类里 5 个第三方内容平台（yuncheapp 等）互为印证。
 
 ---
 
