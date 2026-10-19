@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 
 
 用户反馈采集页「视觉散乱、不够统一精致」，逐条取证（PRD §1 共 15 项）后，最值钱的一条不是
@@ -71,7 +70,6 @@ expect(cls('draft')).toContain('is-primary')   // ← 只验证 class 名挂上�
 规范层超 500 行硬限后按门禁处方拆成两个文件，用 PowerShell 按行号切分时丢了 `part1` 尾部
 三条规则（`col-btn-clear`/`col-btn-retry`/`col-btn-retry-sm`）。**契约测试立刻红**——
 没有它，这次丢失会静默进入生产。**拆文件是「判据必须复核」的典型场景。**
->>>>>>> 45a840573 (feat(collection): 采集页整体 UI/UE 统一与精致化（collection-page-ui-ue-refine）)
 
 ## 扩展名是「用户说的」，魔数是「文件说的」——克隆样本校验必须信后者（s2v-clone-sample-sniff，2026-10-19）
 
