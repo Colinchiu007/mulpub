@@ -10,6 +10,7 @@
  *
  * 本模块把这两条默认值改为「按输入形态推导」，并抽成纯函数以便单测与复用。
  */
+import { REWRITE_ENGINE_MAX_OUTPUT_CHARS } from './rewrite-engine-limits'
 
 /**
  * 判定输入形态：成稿（draft）还是选题种子（topic）。
@@ -73,7 +74,8 @@ export function deriveDefaultMode(text) {
  * 设计原则：默认区间必须容纳原文，不能让长文被硬压。
  * - 短文：沿用既有 800-2000 手感（下限兜住「别写太少」）
  * - 中长文：上限抬到原文长度的 ADAPTIVE_MAX_RATIO，下限按 ADAPTIVE_MIN_RATIO
- * - 结果夹在 [200, 6000] 内（6000 为引擎输入上限，见 rewrite-engine-core._validate）
+ * - 结果夹在 [200, REWRITE_ENGINE_MAX_OUTPUT_CHARS] 内（上界 = 引擎输出上限，
+ *   rewrite-limits-50000 起 50000，经 rewrite-engine-limits.js 结构锁对齐）
  *
  * @param {string} text - 原文
  * @returns {{min:number, max:number}}
@@ -98,5 +100,5 @@ const ADAPTIVE_MIN_RATIO = 0.6
 const ADAPTIVE_MAX_RATIO = 1.2
 /** 区间下界（码点）：低于此值「别写太少」失去意义 */
 const MIN_CAP = 200
-/** 区间上界（码点）：引擎输入与输出上限，见 rewrite-engine-core._validate */
-const MAX_CAP = 6000
+/** 区间上界（码点）：引擎输出上限单一真源（rewrite-engine-limits.js 结构锁对齐） */
+const MAX_CAP = REWRITE_ENGINE_MAX_OUTPUT_CHARS

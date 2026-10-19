@@ -1,0 +1,59 @@
+{
+  "sha": "d34ee074266de51fee0226e5029ad13de8c3bdaf",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 805 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 805,
+    "fileCount": 30,
+    "codeFileCount": 23,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 6,
+    "docSensitiveContentHits": 6,
+    "docSensitiveContentSample": [
+      "「因为只是被取代，所以允许删分支」是一次**把守门判据改宽**的动作，需要单独授权，不属本片；本片只保证下一个读到这里的人不必再靠手工比 blob、也不必再猜。",
+      "- 主进程 `rewrite-engine.js` 的 `llmClient.chat` 增加 `max_tokens: 64000`。",
+      "- Anthropic adapter 的 `max_tokens` 是必填字段（原默认 4096），透传后同样受益；OpenAI 兼容 adapter（openai/deepseek/doubao/gemini/openrouter/ollama/agnes/sensenova/minimax）已有 `if (params.max_tokens !== undefined) body.max_tokens = ...` 条件透传，无需改 adapter。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "d57b30e2ad985dc9bdc605e1fbc53fdca6c887d6e261cf3683f2b81ffbe4e368",
+  "decidedAt": "2026-10-19T15:18:16.623Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}
