@@ -1563,6 +1563,103 @@ F8（三分 prompt + kit-loader 归一化）
 
 ---
 
+### 3.23 第五层新视角（v6）：成本经济学、失败哲学与 prompt 演化机制
+
+> 前四层回答了「有什么 / 怎么做到 / 在生态什么位置 / 怎么排期」。这一层换三个此前完全未覆盖的视角：**钱**（每次生成的成本结构与谁在管钱）、**失败**（对「生成失败」的根本态度）、**演化**（prompt 改错了怎么知道）。素材主要来自 waoowaoo 的企业级架构文档（19 条 BA 不变量 + 5 条 FG 不变量）、moyin 的限额常量、showvi 的逆向 API 实战。
+
+#### 3.23.1 成本经济学：AI 视频生产的「钱」是怎么被管的
+
+**对照事实**：mulpub 的成本控制目前只有一处——`video-gen.js` 的 `cost_confirmation` 闸（用户确认后放行，`costCheck` 逐镜清单）。这属于**「事前一次性授权」**，而业界已经走得更远。
+
+**① waoowaoo 的 19 条计费不变量（BA-01 ~ BA-19）**——这是 19 个项目里唯一的「把钱当一等公民设计」的完整体系，关键条目：
+
+| 不变量 | 一句话 | 对 mulpub 的意义 |
+|---|---|---|
+| **BA-01 价格唯一表示** | 价格只有一份运行时目录；「运行时读 TS、校验脚本读 JSON 镜像」的双轨曾让镜像停在 52 条而运行时已有 70 条，**校验脚本恒 OK 但完全不能说明用户被收了多少钱** | ⚠️ 直接命中 mulpub 的 `publish-capabilities.json`（CJS/ESM 双版本消费）——**双版本之间漂移的风险是真实发生过的行业事故，不是理论** |
+| **BA-01B 跨 provider 同价** | 同一能力经不同 provider 提供时成本可不同，**零售价必须一致** | mulpub 多家视频模型适配器若未来计费，适用 |
+| **BA-01D 计价单位=真实基准** | 按 token 计价的模型不得把「每百万单价」注册成整次金额；无法表达的基准必须 fail closed | 防止「单价×数量」口径错配 |
+| **BA-02 计划先于副作用** | 付费前完成全部校验，PlanSnapshot 创建前不得提交 Provider | mulpub 的 cost_confirm 闸已是此形态 ✅ |
+| **BA-03 冻结同一输入** | Snapshot 冻结资源版本+参数+quote；**执行快照就是该 Snapshot，不建第二份冻结** | 防「确认时的参数 ≠ 执行时的参数」 |
+| **BA-08 attempt 与收费分离** | Provider attempt 可重试，**同一业务执行只持一份授权和费用**；未提交 Provider 的失败释放冻结 | **直接回答 F12 的遗留问题**：VLM QC 重试如何不重复扣费 |
+| **BA-09 批量仍是一次计划** | 整批一次校验/报价/授权，失败项续跑**复用原 Snapshot，不重新收费成功项** | mulpub 批量生成（120 镜）续跑场景适用 |
+| **BA-17 LLM 后付** | 模型价格跑完才知道 → 事前只做门禁，**逐调用实时结算** | 解释了为什么 mulpub「事前闸」之后仍需账本 |
+
+**② moyin 的提交前限额校验**（`sclass-prompt-builder.ts:80-85`）——把平台硬限制做成**常量 + 提交前校验 + overLimit/limitWarnings 结构**：
+
+```javascript
+export const SEEDANCE_LIMITS = {
+  maxImages: 9, maxTotalFiles: 12, maxPromptChars: 5000,
+  // overLimit / limitWarnings 由 builder 计算并随提交返回
+}
+```
+
+mulpub 的对应物是 `auto-plan.js` 的 `MAX_AUTO_SHOTS=120` 等——但**只挡总量，不挡「单次提交的参数组合」**。若 mulpub 接 Seedance 2.0 组级生成（F16），这套限额常量结构可直接搬。
+
+**③ showvi 的逆向 API 形态**（`clients/SEEDDANCE.md`）——即梦 Cookie `sessionid` 认证、模型矩阵（3.0/pro/fast/s2.0 + seedance-2.0 需 Playwright）、时长档位 5/10s 与 4-15s。**价值是「平台能力矩阵的实测记录」而非代码**——它证明即梦系模型的多图参考（seedance-2.0）与即梦 3.0 的单图参考在**客户端层面就是两套协议**。mulpub 的 `video-reference-inputs.js` 只覆盖 minimax/agnes 三家，扩展即梦系时可参考此矩阵。
+
+**成本经济学收束**：mulpub 当前「事前一次性确认」模式对单镜生成够用，但**三个缺口在批量场景会放大**：① 续跑是否重复计费（BA-08/09）；② 参数漂移（确认 5s 执行 8s，BA-03）；③ 能力目录双版本漂移（BA-01，mulpub 的 publish-capabilities.json CJS/ESM 双版本就是同一形态）。**建议**：F12 实施时按 BA-08 语义实现「attempt 与收费分离」；给 `publish-capabilities.json` 的 CJS/ESM 双版本加一个「同源校验」测试（两侧加载同一 JSON 文件，防 BA-01 事故重演）。
+
+#### 3.23.2 失败哲学：对「生成失败」的根本态度决定架构形态
+
+**waoowaoo 的 failure-governance（FG-01~05）是 19 个项目里唯一的「失败处理设计文档」**，核心主张一句话：**外部异常是开放集合，产品错误码是封闭集合——把未知异常翻译成错误码会永久丢失诊断事实**。
+
+| 不变量 | 一句话 |
+|---|---|
+| **FG-01 原生证据是失败事实** | 任何失败必须形成版本化 FailureRecord（脱敏有界的 name/message/code/status/request id/cause）；后续只能追加 context，**不得用统一 code 或包装文案覆盖原始证据** |
+| **FG-02 解释不裁决重放** | 产品错误码只管展示与 i18n；**自动重放的输入不得使用错误码或 retryable 标志** |
+| **FG-03 registry 是唯一重放裁判** | 每个可重放动作声明封闭 operation identity（重试次数/幂等语义/副作用）；**调用方不得传 retry 次数**；提交结果未知时禁止重提 |
+| **FG-05 绕过必须机器失败** | CI conformance 穷尽 registry，拒绝裸 Provider 响应、通用 retrying fetch、无绑定 catch；**文档提醒不算边界** |
+
+**「踩过的坑」四段实录**（同文档）——每一段都是「局部修复 → 下一层再丢」的教训链：
+1. FailureRecord v1 把 code/message 当事实 → COS 返回未知 `UserNetworkTooSlow` 被坍缩为 INTERNAL_ERROR → 又被判不可重试 → **传输统一 ≠ 证据完整**
+2. 给 COS 加错误名白名单只修一个已知实例 → **开放世界的下一个错误仍会落空** → 白名单整体删除
+3. 媒体预检把未知异常包装成 `INVALID_PARAMS` → **多个用户被错误引导去改创作参数**（真实用户伤害）
+4. Provider 错误只修了三段中的一段 → 其余层仍丢原文 → **局部翻译统一 ≠ 失败事实统一**
+
+**对照 19 个项目的失败处理形态**：
+
+| 形态 | 项目 | 对失败的根本态度 |
+|---|---|---|
+| **证据保全派** | waoowaoo | 失败是事实，先保真再解释（FG 体系） |
+| **fail-soft 降级派** | FireRed（ASR 裁决失败回退原句）、Pixelle（三态对齐） | 局部失败不阻塞整体 |
+| **fail-closed 拒绝派** | mulpub film-kit、Jellyfish readiness | 条件不满足就整体拒绝 |
+| **静默吞掉派** | 多个项目（`except: pass` / 正则假测试） | 无体系，随机丢诊断 |
+
+**对 mulpub 的增量结论**：
+1. mulpub 的 fail-closed（kit-loader、成本闸）与 FireRed 的 fail-soft 是**两种都正确的态度，但适用层不同**——**配置/输入层 fail-closed（坏数据宁可不做），执行层 fail-soft（单镜失败不废整批）**。mulpub 当前两层的边界没有明文化，`production-driver.js` 的「已开始的批跑完、未开始的保持 pending」实际上是执行层 fail-soft 的雏形，值得明文确立。
+2. **FG-03 对 mulpub 的 F19（checkpoint + history_id 只轮询不重提交）是现成的设计依据**——「提交受理结果未知时始终禁止重提」这条不变量，正是 F19 想解决的问题的规范表述。F19 实施时可直接引用 FG-03 作为设计依据。
+3. mulpub 若要建立自己的 FailureRecord，最小形态是：**在 `production-driver` 的失败批记录中追加「原始 provider 错误体」字段**（现在只有归因结论），使续跑决策与排障都能看到第一手证据。
+
+#### 3.23.3 Prompt 演化机制：改 prompt 之后，怎么知道没改坏
+
+这是 19 个项目里**最隐蔽也最关键的空白**：prompt 是所有项目的核心资产，但**有回归验证机制的只有 waoowaoo 一家**。
+
+**waoowaoo 的 canary 机制**（`standards/prompt-canary/*.canary.json`，4 份）：
+- 形态：**固定输入 → 期望输出**的 JSON 对（如 `storyboard_panels.canary.json`：给定 source_text，期望产出含 `panel_number/description/characters/location/shot_type/camera_move/video_prompt/duration` 的结构化分镜数组）
+- **关键发现：开源仓里 canary 没有消费代码**——全仓搜索仅 `package-lock.json` 命中。结合其 `ee/` 闭源目录的存在，判定：**canary 的执行器在闭源 EE 侧**，开源仓只放基线数据。这本身就是一条信息：**canary 基线被视为「标准」而与代码分离存放**（`standards/` 目录），连闭源侧也要遵循同一份基线
+- 另一个演化机制在 FireRed：`.claude/skills/openstoryline-use/`——**把自己的安装与使用方法做成 Claude Skill**，即「AI 使用 AI 产品」的技能化封装；加上第二层发现的「Skill 沉淀」（剪辑逻辑 → SKILL.md），FireRed 的 prompt/技能演化是**用户参与式**的
+
+**对照各项目的 prompt 演化能力**：
+
+| 项目 | prompt 存放 | 版本化 | 回归验证 | 演化机制 |
+|---|---|---|---|---|
+| waoowaoo | `standards/prompt-canary/*.json` | ✅ 文件级 | ✅ canary（执行器在 EE） | 基线随版本发布 |
+| FireRed | `prompts/tasks/**` | ✅ git | ❌ 无 | Skill 沉淀（用户参与） |
+| smy | references/ 单一来源 | ✅ git | **✅ 实测迭代记录写进文档**（三轮定版史） | 人工实测台账 |
+| mulpub | prompt-doctrine.json | ✅ git + 同源锁测试 | **部分**（结构锁有，语义回归无） | 无 |
+| 其余 14 个 | 散落代码/文档 | 部分 | ❌ | 无 |
+
+**对 mulpub 的增量结论（升级 F30/F1 的设计）**：
+1. mulpub 现有的「同源锁测试」（`BUGFIX-FILM-ENGINEERING-FINDINGS:302-308`）锁的是**结构与绑定**（doctrine 文件 ↔ UI 标签页），**锁不了语义**——改一条 rule 的措辞导致生成质量下降，现有机制完全无感。这正好是 canary 填的坑。
+2. **最小 canary 形态建议**（不必等 F30）：为 prompt-doctrine 的**每条 rule** 建一条「输入示例 → 期望产出要点」断言（JSON 放 `film-kit/prompt-canary/`），测试断言「渲染后的完整 prompt 必含/必不含某些关键片段」（如禁代词规则 → 渲染后 prompt 不含「他/她/它」指代角色的段落）。**这不需要调 LLM**——断言的是 prompt 组装结果，不是生成结果，纯本地可跑、零成本。
+3. **「失败模式台账 + canary」是一对闭环**：台账记录「症状→修法」，canary 把修法固化为回归断言——**下次改 prompt 时，之前翻过的车不会再翻**。smy 用人肉做到了这一点（三轮定版史），mulpub 可以用机制做到。
+
+> 💡 **一句话总结第五层**：前三层研究的是「怎么把视频做出来」，这一层研究的是「**做出来之后，钱、失败、迭代怎么管**」——这三样在 19 个项目里几乎无人成体系，而 waoowaoo 用 19+5 条不变量证明这三样恰恰是「能用」与「能长期用」的分界线。mulpub 的 cost_confirm 闸是很好的起点，但 BA-08（attempt 与收费分离）、FG-03（重放裁判）、canary（prompt 回归）三个缺口在批量生产场景会持续放大。
+
+---
+
+---
+
 ## 四、横向对比与复用价值排名
 
 ### 4.1 mulpub 现状 vs 竞品能力对照
