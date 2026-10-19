@@ -1118,7 +1118,7 @@ rewrite-limits-50000 放开上限后暴露三条契约尾巴（change rewrite-se
   迁移范围，属需确认的设计决定，故本批只写成待决项、不代订。
 
 - 涉及文件：`apps/desktop/src/styles/tokens.slots.test.js`、`openspec/records/ux-audit-contrast-light.md`（新）、
-  `01-docs/UX-AUDIT-2026-10-17.md`（audit-51 就地指针 + 4.1 行状态）。渲染端零改动。
+  `01-docs/UX-AUDIT-2026-10-17.md`（audit-51 就地指针 + 4.1 行状态）、`01-docs/learnings.md`（置顶一条：量对比度前先问这个 token 被几种语义消费）。渲染端零改动。
 
 # [未发布] feat(gates): UX 审计阶段 5.3/5.4 两条新门禁 —— 未接线组件与死观测字段必须被机械检出（ux-audit-phase34）
 
