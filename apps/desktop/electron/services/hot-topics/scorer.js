@@ -34,6 +34,10 @@ const CHANNEL_WEIGHTS = {
   bilibili: 0.85,
   sina_finance: 0.8,
   ithome_tech: 0.8,
+  // GYREAD AI 情报日报：**不是热度榜**，是每日编辑精选的日报 —— 无 hotValue、
+  // 榜单序是编辑意志而非热度序。取 0.7：显著低于国民级综合榜（1.0）以免挤占真实热搜位次，
+  // 但不低于 0.5 —— 否则 AI 补拉进来的高质量条目会在统一热度截断时被全部挤掉，失去接入意义。
+  gyread: 0.7,
 }
 const DEFAULT_WEIGHT = 0.9
 
