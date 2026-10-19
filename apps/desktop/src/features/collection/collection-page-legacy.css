@@ -335,3 +335,114 @@
   word-break: break-all;
   user-select: all;
 }
+
+/* ==========================================================================
+ * 快捷采集弹窗的 qc-* 视觉（2026-10-19 收编）
+ *
+ * 为什么必须搬到这里：这批类原本只写在 QuickCollectPanel.vue 的 `<style scoped>` 里，
+ * 而真正渲染它们的是**另一个组件** QuickCollectCommandDialog.vue —— scoped 样式
+ * 出不了组件边界，所以那个弹窗的遮罩/标题/输入/字数计数/错误提示**一直是裸的**
+ * （没有底色、没有圆角、没有边框）。这条链断在「消费与定义不在同一组件」，
+ * 功能测试与像素基线都发现不了：前者只看 DOM 结构，后者只比「和上一版一致」。
+ * 是「消费⇒有定义」判据把命名空间从 col- 拓宽到 qc-/zb- 之后才暴露出来的。
+ *
+ * 值沿用 QuickCollectPanel.vue 里的原定义（未做任何视觉改动），
+ * 便于两个使用方共用同一份；该组件内的重复块已同时删除。
+ * ========================================================================== */
+.zb-flex1 { flex: 1; }
+
+.qc-modal-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(23, 23, 32, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+.qc-modal {
+  width: min(680px, 92vw);
+  max-height: 88vh;
+  overflow: auto;
+  background: var(--color-bg-card);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-4) var(--spacing-5);
+}
+
+.qc-modal-title {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+}
+
+.qc-modal-intro {
+  margin: var(--spacing-2) 0 var(--spacing-3);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  line-height: 1.6;
+}
+
+.qc-field { margin-bottom: var(--spacing-3); }
+
+.qc-field-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: var(--font-size-sm);
+  margin-bottom: var(--spacing-1);
+  color: var(--color-text-primary);
+}
+
+.qc-counter {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.qc-counter--over { color: var(--color-danger); }
+
+.qc-input,
+.qc-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xs);
+  padding: var(--spacing-2);
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  color: var(--color-text-primary);
+  background: var(--color-bg-card);
+}
+
+.qc-input:focus,
+.qc-textarea:focus {
+  border-color: var(--color-primary);
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-primary-light);
+}
+
+.qc-textarea {
+  resize: vertical;
+  line-height: 1.6;
+}
+
+.qc-hint {
+  margin-top: var(--spacing-1);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+
+.qc-field-error {
+  margin-top: var(--spacing-1);
+  font-size: var(--font-size-xs);
+  color: var(--color-error-banner-text);
+}
+
+.qc-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-2);
+  margin-top: var(--spacing-2);
+}
