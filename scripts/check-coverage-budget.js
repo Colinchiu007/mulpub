@@ -1,38 +1,38 @@
-// QG Coverage 作业超时的机械判据 —— 「预算数值必须有可重跑的实测支撑」这条纪律的执行体。
-//
-// 为什么要有这个文件（2026-10-18）：`timeout-minutes: 40` 撞上过两趟 main push
-// （run 39037127191 = #3836 的那次，恰好 40.0 分钟被杀），后果不是"跑挂"而是**main 侧证据永久丢失**；
-// 而当时没有任何东西在看这个数够不够 —— 它是"装饰性门禁"的镜像形态：**无人看管的预算常量**。
-// 本文件把它变成一条命令：红了就改数值或重采集，不许改宽判据。
-//
-// 判据（四条，全部可在 `coverage-budget-sample.js` 的现场读数上复核）：
-//   PROVENANCE_VALUE_DRIFT  provenance 记的数值 ≠ workflow 实际值 ⇒ 表与 runner 不同源；
-//   UNDER_BUDGET            timeout < ceil(max × safetyMultiplier)；
-//   INSUFFICIENT_SAMPLES    成功样本 < MIN_SAMPLES（一次读数不构成分布）；
-//   STALE_PROVENANCE        采集日距今 > STALE_DAYS（数字不随仓库变，样本会）。
-// 另：读不到 `timeout-minutes` 时**不得**当成"没问题"，走退出码 2（把工具的失明读成结论是本仓的老错型）。
-//
+// 全仓 CI 作业 `timeout-minutes` 的机械判据（来路与设计取舍见 01-docs/PRD-GATE-TIMEOUT-GOVERNANCE-2026-10-20.md）。
+// 逐格判据：PROVENANCE_VALUE_DRIFT / UNDER_BUDGET / INSUFFICIENT_SAMPLES / SEEDED_STALE /
+//           SEEDED_EXPIRED / STALE_PROVENANCE / HUGGING（max ≥ HARD_RATIO × timeout）。
+// 清单棘轮：UNREGISTERED_TIMEOUT_CELL（新增裸常量必须当场红）/ MISSING_TIMEOUT_CELL（登记项消失必须红）。
+// 读不到 `timeout-minutes`、或读到非整数值时不得当成"没问题"，走退出码 2（失明 ≠ 合规）。
 // 依赖：只用 node 内置模块 —— 本文件被 quality-gate.yml 的 changes job 点名，那个 job 没有 Install deps。
 'use strict';
 
 const fs = require('fs');
 const path = require('path');
+const registryLib = require(path.join(__dirname, 'lib', 'gate-timeout-registry.js'));
 
 const EXIT_OK = 0;
 const EXIT_VIOLATION = 1;
 const EXIT_JUDGE_ERROR = 2;
 
-const JOB_ID = 'coverage';
-const JOB_NAME = 'QG Coverage';
-const MIN_SAMPLES = 20;
-const STALE_DAYS = 90;
+// 兼容出口：单格时代的名字（既有锁与既有消费者直接引用）。
+const JOB_ID = registryLib.COVERAGE_JOB_ID;
+const JOB_NAME = registryLib.JOB_NAME;
+
+// 阈值不在本文件另写一份 —— 全部来自注册表的三个标量，避免"各抄一份"。
+// 注册表坏了就让 getter 抛（fail closed），由 main 转成退出码 2。
+function thresholds() {
+  const reg = registryLib.registry();
+  return {
+    minSamples: reg.raw.minSamples,
+    staleDays: reg.raw.staleDays,
+    seededGraceDays: reg.raw.seededGraceDays,
+  };
+}
 
 /**
  * 按**作业块**取 timeout-minutes。
- * 不能用「文件里第一个 timeout-minutes」：本 workflow 有 10 个该键（5 / 15 / 20 / 40 / 55 都有），
+ * 不能用「文件里第一个 timeout-minutes」：quality-gate.yml 有 10 个该键，
  * 取错一格会让判据读着一个作业的数、守着另一个作业的命。
- * @param {string} text workflow 原文
- * @param {string} jobId 作业键（如 'coverage'）
  * @returns {number|null} 读不到返回 null（由调用方按失明处理，不得返回默认值）
  */
 function parseJobTimeout(text, jobId) {
@@ -43,26 +43,63 @@ function parseJobTimeout(text, jobId) {
     if (/^jobs:\s*$/.test(raw)) { inJobs = true; continue; }
     if (!inJobs) continue;
     const m = /^( {2})([A-Za-z0-9_-]+):\s*$/.exec(raw);
-    if (m) {
-      inside = (m[2] === jobId);
-      continue;
-    }
+    if (m) { inside = (m[2] === jobId); continue; }
     if (!inside) continue;
-    const t = /^\s+timeout-minutes:\s*(\d+)\s*$/.exec(raw);
+    // 只认**作业级**（恰好 4 空格缩进）。实测 electron-ci.yml 里还有 2 格 8 空格的
+    // **步级** timeout-minutes —— 那是另一层预算（步内），拿它当作业级会把 70 读成 10。
+    const t = /^ {4}timeout-minutes:\s*(\d+)\s*$/.exec(raw);
     if (t) return Number(t[1]);
   }
   return null;
 }
 
-function daysSince(isoDate) {
-  const d = new Date(isoDate + 'T00:00:00Z');
-  if (Number.isNaN(d.getTime())) return Infinity;
-  return Math.floor((Date.now() - d.getTime()) / 86400000);
+/**
+ * 扫出**全部作业级** timeout-minutes 格子（清单棘轮的输入）：`^  <jobId>:$` 起块，
+ * 块内**恰好 4 空格**的 `^    timeout-minutes: <整数>$`。缩进必须钉死：实测 electron-ci.yml
+ * 的 `electron-tests` 作业级是 70，而它内部两个 step 各带 8 空格的 `timeout-minutes: 10`；
+ * 用 `^\s+` 收会把 70 读成 10，于是对一格**合规**作业报 UNDER_BUDGET（假违规与假绿同害）。
+ * 深缩进的（步级）单独收进 stepLevel 并打印：不在治理面内，但不得静默忽略。
+ */
+function scanTimeoutCells(text) {
+  const lines = String(text).split(/\r?\n/);
+  const cells = new Map();
+  const stepLevel = [];
+  const unparsed = [];
+  let cur = null;
+  for (const raw of lines) {
+    const m = /^ {2}([A-Za-z0-9_-]+):\s*$/.exec(raw);
+    if (m) { cur = m[1]; continue; }
+    if (!/^\s*timeout-minutes:/.test(raw)) continue;
+    const indent = (/^(\s*)/.exec(raw))[1].length;
+    if (indent > 4) {
+      const t = /^\s+timeout-minutes:\s*(\d+)\s*$/.exec(raw);
+      stepLevel.push({ jobId: cur, raw: raw.trim(), value: t ? Number(t[1]) : null });
+      continue;
+    }
+    const t = /^ {4}timeout-minutes:\s*(\d+)\s*$/.exec(raw);
+    if (!t || !cur) { unparsed.push(raw.trim()); continue; }
+    cells.set(cur, Number(t[1]));
+  }
+  return { cells, stepLevel, unparsed };
 }
 
-function judgeWorkflow(opts) {
+function daysSince(isoDate, nowMs) {
+  const d = new Date(isoDate + 'T00:00:00Z');
+  if (Number.isNaN(d.getTime())) return Infinity;
+  const now = typeof nowMs === 'number' ? nowMs : Date.now();
+  return Math.floor((now - d.getTime()) / 86400000);
+}
+
+/**
+ * 逐格判定。`entry` 形如注册表 jobs[i]（至少要有 timeoutMinutes/state/provenance）。
+ * 单格时代的 `judgeWorkflow` 也走这里 —— 规则只有一份实现。
+ */
+function judgeEntry(opts) {
   const o = opts || {};
-  const provenance = o.provenance;
+  const th = o.thresholds || thresholds();
+  const entry = o.entry || {};
+  const provenance = o.provenance || entry.provenance;
+  const state = o.state || entry.state || 'measured';
   const requiredKeys = ['jobName', 'workflowPath', 'collectedAt', 'runsListed', 'samples',
     'maxMinutes', 'p90Minutes', 'censoredAtCeiling', 'ceilingMinutesSampled', 'safetyMultiplier',
     'timeoutMinutes', 'remeasureCommand'];
@@ -75,24 +112,26 @@ function judgeWorkflow(opts) {
       reasons.push('safetyMultiplier 必须 >1');
     }
   }
-  const timeout = typeof o.timeoutMinutes === 'number'
-    ? o.timeoutMinutes : parseJobTimeout(o.workflowText || '', JOB_ID);
-  if (timeout === null || timeout === undefined) reasons.push('读不到 ' + JOB_NAME + ' 的 timeout-minutes');
+  const declared = typeof o.timeoutMinutes === 'number'
+    ? o.timeoutMinutes
+    : (typeof entry.timeoutMinutes === 'number' ? entry.timeoutMinutes : null);
+  const timeout = declared !== null ? declared : parseJobTimeout(o.workflowText || '', o.jobId || JOB_ID);
+  if (timeout === null || timeout === undefined) reasons.push('读不到 timeout-minutes');
   if (reasons.length) {
     return { ok: false, judgeError: true, reasons, timeoutMinutes: timeout, violations: [] };
   }
 
   const violations = [];
-  // floor 的取法是本文件存在的理由：成功样本是**右截尾**的 —— 在天花板处被杀的趟永远不会以 success
-  // 出现，所以只看 maxMinutes 会系统性地低估长尾（今天就是现场：成功最大 39.7 分，另有两趟正好停在 40.0）。
-  // 有被杀的趟时，真实上界至少到那条天花板。
+  // floor 的取法是本判据存在的理由：成功样本是**右截尾**的 —— 在天花板处被杀的趟永远不会以
+  // success 出现，只看 maxMinutes 会系统性低估长尾（现场：成功最大 39.7，另有两趟正好停在 40.0）。
   const floorMinutes = provenance.censoredAtCeiling > 0
     ? Math.max(provenance.maxMinutes, provenance.ceilingMinutesSampled)
     : provenance.maxMinutes;
   const required = Math.ceil(floorMinutes * provenance.safetyMultiplier);
-  if (provenance.timeoutMinutes !== timeout) {
+  if (o.checkDrift !== false && typeof provenance.timeoutMinutes === 'number' &&
+      provenance.timeoutMinutes !== timeout) {
     violations.push({ rule: 'PROVENANCE_VALUE_DRIFT',
-      detail: 'provenance 记 ' + provenance.timeoutMinutes + '，workflow 实际 ' + timeout });
+      detail: '注册表记 ' + provenance.timeoutMinutes + '，workflow 实际 ' + timeout });
   }
   if (timeout < required) {
     violations.push({ rule: 'UNDER_BUDGET',
@@ -101,18 +140,32 @@ function judgeWorkflow(opts) {
         '（floor = max(成功最大 ' + provenance.maxMinutes +
         ', 截尾天花板 ' + (provenance.censoredAtCeiling > 0 ? provenance.ceilingMinutesSampled : '不计') + ')）' });
   }
-  if (provenance.samples < MIN_SAMPLES) {
-    violations.push({ rule: 'INSUFFICIENT_SAMPLES',
-      detail: 'samples=' + provenance.samples + ' < ' + MIN_SAMPLES + '（一次读数不构成分布）' });
+  const age = daysSince(provenance.collectedAt, o.nowMs);
+  if (state === 'measured') {
+    if (provenance.samples < th.minSamples) {
+      violations.push({ rule: 'INSUFFICIENT_SAMPLES',
+        detail: 'samples=' + provenance.samples + ' < ' + th.minSamples + '（一次读数不构成分布）' });
+    }
+  } else if (state === 'seeded') {
+    // 双向都要出声：攒够了却不升级 = 把宽限期当永久豁免；到期还没攒够 = 宽限期失效。
+    if (provenance.samples >= th.minSamples) {
+      violations.push({ rule: 'SEEDED_STALE',
+        detail: 'state=seeded 但 samples=' + provenance.samples + ' ≥ ' + th.minSamples +
+          ' ⇒ 该把 state 改成 measured（宽限期不是永久豁免）' });
+    } else if (Number.isFinite(age) && age > th.seededGraceDays) {
+      violations.push({ rule: 'SEEDED_EXPIRED',
+        detail: 'state=seeded 且 collectedAt=' + provenance.collectedAt + ' 距今 ' + age +
+          ' 天 > 宽限期 ' + th.seededGraceDays + '，样本仍只有 ' + provenance.samples +
+          ' < ' + th.minSamples + ' ⇒ 重采，或在注册表里如实降级说明' });
+    }
   }
-  const age = daysSince(provenance.collectedAt);
-  if (age > STALE_DAYS) {
+  if (age > th.staleDays) {
     violations.push({ rule: 'STALE_PROVENANCE',
       detail: 'collectedAt=' + provenance.collectedAt + ' 距今 ' +
-        (Number.isFinite(age) ? age : '不可解析') + ' 天 > ' + STALE_DAYS });
+        (Number.isFinite(age) ? age : '不可解析') + ' 天 > ' + th.staleDays });
   }
-  // 警报档（取自 scripts/gate-budget.js 的同一比例，不另立一个 0.9）：
-  // "贴着天花板跑成功"是下一趟被杀的预告，不是安全证明 —— 本作业现场就是 39.7 / 40。
+  // 警报档取自 scripts/gate-budget.js 的 HARD_RATIO，不另立一个 0.9：
+  // "贴着天花板跑成功"是下一趟被杀的预告，不是安全证明。
   const hardRatio = require('./gate-budget.js').HARD_RATIO;
   const hugging = timeout > 0 && provenance.maxMinutes >= hardRatio * timeout;
   if (hugging) {
@@ -136,6 +189,28 @@ function judgeWorkflow(opts) {
       '(绑 ' + provenance.ceilingMinutesSampled + ' 分那条天花板，非当前值)' +
       ' collected=' + provenance.collectedAt + ' age_days=' + (Number.isFinite(age) ? age : 'NaN'),
   };
+}
+
+/** 单格兼容入口（既有锁与既有消费者用）。 */
+function judgeWorkflow(opts) {
+  const o = opts || {};
+  return judgeEntry({
+    entry: { timeoutMinutes: o.timeoutMinutes, state: 'measured' },
+    provenance: o.provenance,
+    timeoutMinutes: o.timeoutMinutes,
+    workflowText: o.workflowText,
+    jobId: o.jobId || JOB_ID,
+    nowMs: o.nowMs,
+  });
+}
+
+/** 把注册表条目补成 judgeEntry 需要的 provenance 形状（safetyMultiplier / remeasureCommand 是全局知识）。 */
+function provenanceOf(entry) {
+  return Object.assign({ jobName: entry.displayName, workflowPath: entry.workflow }, entry.provenance, {
+    safetyMultiplier: require('./gate-budget.js').SAFETY_MULTIPLIER,
+    timeoutMinutes: entry.timeoutMinutes,
+    remeasureCommand: '(见 scripts/gate-timeout-sample.js)',
+  });
 }
 
 function main(argv) {
@@ -184,8 +259,10 @@ function main(argv) {
 
 module.exports = {
   EXIT_OK, EXIT_VIOLATION, EXIT_JUDGE_ERROR,
-  JOB_ID, JOB_NAME, MIN_SAMPLES, STALE_DAYS,
-  parseJobTimeout, daysSince, judgeWorkflow, main,
+  JOB_ID, JOB_NAME,
+  get MIN_SAMPLES() { return thresholds().minSamples; },
+  get STALE_DAYS() { return thresholds().staleDays; },
+  parseJobTimeout, scanTimeoutCells, daysSince, judgeEntry, judgeWorkflow, provenanceOf, main,
 };
 
 if (require.main === module) process.exit(main(process.argv.slice(2)));
