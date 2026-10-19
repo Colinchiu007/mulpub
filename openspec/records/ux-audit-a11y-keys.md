@@ -1,0 +1,50 @@
+---
+record: ux-audit-a11y-keys
+task: UX 审计阶段 4.8 —— v-for 索引 :key 棘轮门禁（存量只可缩小 + 风险档清单）与现场读数
+date: 2026-10-19
+---
+
+## 本次执行记录：v-for 索引 :key 棘轮（ux-audit-a11y-keys，2026-10-19）【混合 PR】
+
+| 门禁 | 状态 | Fresh 证据 |
+|------|------|-----------|
+| 变更类型与隔离 | ✅ | 新增判据本体 + 基线 JSON + 测试 + workflow 接线（`.github/workflows/quality-gate.yml` 属混合 PR，不走 docs-only 快速通道）⇒ 隔离 worktree `D:/Data/projects/mp-worktrees/mp-ux-audit-a11y-keys`、裸分支 `ux-audit-a11y-keys`（`session-init.sh` 创建） |
+| 判定 | `classify-docs-only` docs-only=false | 改动集含 `.github/workflows/`、`scripts/` 工具脚本本体 ⇒ 完整节拍，不得借道 |
+| 现场读数（同一把尺子） | ✅ | `node scripts/check-vfor-stable-key.js` 打印 `域=180 文件 / v-for 索引变量=52 / 名字补召回=8 / 违规文件=34 / 处数=47 / 基线处数=47 / 风险档文件=6 / 违规=0`。**与审计 §14 audit-33 报的「38 处」和粗尺 grep 报的「46 处 / 31 文件」都不同**：审计那个数是批次前的现状（存续期间他人会话新增），粗尺 grep 会把"名字像索引但不是 v-for 非首位形参"的写法也计进来。判据本体是**结构化 + 名字补召回两层**：结构层收任意命名的索引位（本仓实测 52 个索引变量里有 `si / plat / cat / slot / stageIndex` 这类不在任何词表里的名字），名字层补召回结构看不见的那些（8 处）。两个数用同一把尺子可对账：47 = 39（纯结构）+ 8（名字补召回）。 |
+| 修复 + 回归保护（QM-5 ④） | ✅ | 新增 `scripts/check-vfor-stable-key.test.js` **8 例**全绿：形参解析五形态 / 组合键不误判（`` :key="`${i}-${t}`" `` 不判）/ 单引号与 `v-bind:key` 两种属性形态 / 三处注释剥离（含正控）/ `url("http://x")` 的 `//` 不得被剥 / 名字补召回 / 真实仓 total==基线 且风险档清单 `deepEqual` / 基线 JSON 形状（份数正整数 + 仓库相对 posix 路径 + 风险档 ⊆ byFile）。两条**反失明**下界：`.vue` 文件数 >100、索引变量数 >20，防"解析退化成空集合 ⇒ 0 违规读成通过" |
+| 反证（变异） | ✅ | N1 判据 no-op ⇒ 红 5 条；N2 摘结构层 ⇒ 只红"真实仓对账"；N3 不剥模板注释 ⇒ 只红"注释不计数"；N4 风险档恒空 ⇒ 只红"真实仓对账（deepEqual）"；N5 只认双引号 ⇒ 只红"单引号形态"。**五条红集互不相同**，跑后判据文件 md5 逐字节还原（`RESTORED_OK=true`） |
+| 接线 | ✅ | `quality-gate.yml` Gate 2c（`shell: bash` fail-fast 步骤，紧随 `check-step-failfast.js`）两条：`node --test scripts/check-vfor-stable-key.test.js` + `node scripts/check-vfor-stable-key.js`。`check-unwired-tests.js` 读数「检查域内测试文件 109 个 / OK」；`.gitignore:106 scripts/*.js` 会静默忽略判据本体，已补 `!scripts/check-vfor-stable-key.js`（同 #3011 家族，注释写明症状）；测试文件由 `!scripts/*.test.js` 既有规则放行 |
+| 行尾与 diff 对账 | ✅ | 提交前 `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径逐一相等 |
+| QM-1 打包 / QM-4 视觉 | N\/A | 未触碰 `apps/desktop/electron/`、`packages/rpa-engine/`、任何 `.vue`/样式/locale ⇒ 无运行时代码与视觉面变更（本 PR 只加判据与基线）。基线 JSON 由 `scan()` 自产，非人工点数 |
+| QM-6 CCG 双模型外部评审 | 未执行 | pre-commit 打印 `[CCG] 未找到 CCG（run_skill.js），已跳过 CCG 门禁`；本机无可用外部评审通道 ⇒ 如实记未执行 |
+| 远程同步 | 由门禁推导 | 本行**不事后改写**：合并后由 `scripts/lib/merge-ledger.js` 按主干历史推导；预写 `PASS` 会被 `prematureClaims` 判红 |
+
+- 保留门禁：docs-only=false 完整节拍 | 行尾对账 ✅ | 品牌残留 随 CI | 文档同步 随 CI doc-gate | 执行记录 ✅ 本文件 | 远程同步 PR #（合并后由门禁推导）
+
+## 刻意没做的事（这是本批最重要的一条诚实记录）
+
+1. **没有把 47 处索引 `:key` 一把改成稳定键。** 逐处改需要判断"这一份列表的稳定身份字段是哪个"
+   （`rows` 有 `id`、`titles` 是字符串数组可能有重复、`contextEntries` 只有下标……），
+   那是**每页各自的语义裁决**；把 47 处机械改写和"这条判据有没有牙"混成一次变更，
+   归因会互相污染，而且 `CreateView.vue`（9 处）/ `Accounts.vue` / `ProductionBoard.vue` 等
+   是他人会话正在改的热文件。本批交付的是**类级防线**（存量只可缩小 + 风险档新增即红），
+   收敛动作留给按页的后续批次。
+2. **风险档 6 个文件（`:key` 用索引 + 同文件有 `.splice/.shift/.pop/.unshift`）不在基线里给豁免通道**：
+   `NEW_RISK_FILE` 判红且**不得登记进基线**——这类组合是真会掉数据状态的缺陷面，
+   允许登记等于把判据改成"只统计不拦"。要把某文件从这个档里摘掉，唯一路径是**改代码**。
+   现存 6 条是**历史存量**（基线生成时一次性登记，随收敛只可缩小）。
+3. **没有把对象遍历的第二形参从判据里摘掉**。`v-for="(v, k) in obj"` 的 `k` 是稳定属性名、不是索引，
+   但静态解析无法区分"数组的第二位"与"对象的第二位"。判据取**过判**（口径 ③），
+   理由是：过判只多花一次人工确认，漏判要靠下一个作者自觉；被误判时的正解是改用更强的键（`v.id`），
+   而不是放宽判据。这一条写在文件头注释里而不是藏在实现里。
+
+## 与审计条目的对应
+
+- audit-33（阶段 4.8「38 处数据列表用 index 作 `:key`」）：本批落**棘轮 + 风险档**，
+  现场读数 47 处 / 34 文件（数字口径差异见上表"现场读数"行，三个数已用同一把尺子对账）。
+- 阶段 4.6（`aria-live` 稀疏 / toast 容器无 `role`）：**未在本批实施，且审计原句需复核**——
+  本会话早前从已安装的 element-plus 类型声明实测过 message 根节点渲染 `role="alert"`，
+  所以"toast 容器无 role"这一条很可能已被宿主默认满足；当场粗尺读数是
+  `aria-live|role="status"|role="alert"` 三种形态合计 76 处（与审计的「12 处」是**不同口径**，
+  审计只数 `aria-live`）。按本仓纪律，**在把口径对齐之前不动这一项**，不得为了"完成清单项"
+  去加一层重复的 ARIA（`role="alert"` 已是隐式 live region，再叠 `aria-live` 会造成双播报）。

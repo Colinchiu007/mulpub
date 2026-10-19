@@ -902,6 +902,11 @@ jobs:
           bash scripts/session-init.test.sh
           node --test scripts/check-step-failfast.test.js
           node scripts/check-step-failfast.js
+          # v-for 索引 :key 棘轮（UX 审计 4.8 / audit-33，2026-10-19）：索引当身份 ⇒ 增删/重排时
+          # 行内局部状态跟着位置走。存量按文件份数只可缩小；"索引 :key 与 .splice/.shift/.pop/.unshift
+          # 同时出现"的文件另立只可缩小的风险档清单，新增即红。判据本身带三档失明出口（rc=2）。
+          node --test scripts/check-vfor-stable-key.test.js
+          node scripts/check-vfor-stable-key.js
           # 账本门禁不在此处：账本 JSON 已进 docs-only 白名单，而本 job 整个被 docs-only 门控，
           # 留在这里等于「纯文档 PR 没人校验账本」。它现在在无条件执行的 changes job 里。
           # docs-only 短路判定单一真源的回归锁（change: docs-only-ci-shortcircuit）
