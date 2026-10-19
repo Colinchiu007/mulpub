@@ -16,6 +16,14 @@
   --color-primary-light: #eff6fb;
   --color-on-primary: #ffffff;
 
+  /* 焦点环单一真源（audit-25 / WCAG 2.4.7 Focus Visible，实施方案阶段 3.6 子集）。
+   * 动因：cohere-design-system.css 的 --focus-blue 曾在浅/暗两档各声明一次却零消费者
+   * （死槽位），而 .ui-btn 与 .cohere-btn-* 两族按钮没有任何 :focus-visible 规则 ——
+   * 键盘用户 Tab 到主操作按钮时看不见焦点落点。规范槽在此建立，两档都显式给值：
+   * 浅色档用主色悬停紫 #603af9（对白底约 7:1），暗色档必须另给一档（见下方 dark 块），
+   * 因为 #603af9 压在 #1a1a1e 上只有约 1.9:1，"继承浅色档"等于暗色下没有焦点指示。 */
+  --color-focus-ring: var(--color-primary-hover);
+
   /* ---- 背景与表面 ---- */
   --color-bg-canvas: #ffffff;
   --color-bg-card: #ffffff;
@@ -221,6 +229,10 @@
 
   /* 品牌色暗底亮化变体：仅用于暗色模式下的文字/描边场景（保持紫色相，替代旧蓝系 #4c8bf5/#6b8cff） */
   --color-primary-dark-tint: #7b74ff;
+
+  /* 焦点环暗档：暗底用亮化紫（与 --color-primary-dark-tint 同值，对比约 5.9:1）。
+   * 这一行不可省略——省略时暗色档继承浅色的 #603af9，非文本对比不足 3:1。 */
+  --color-focus-ring: var(--color-primary-dark-tint);
 
   /* 悬浮操作浮标：暗色下保持「比页面卡片更亮一档」的表面层级，图标用亮色保证对比度 */
   --color-float-surface: #2c2c34;

@@ -1,3 +1,27 @@
+## 「规则已加」和「用户看得见」隔着两件事——基类覆盖与 transition:all 的淡入（focus-ring-zero-coverage，2026-10-19）
+
+### lesson: a-rule-on-the-base-class-can-be-zero-coverage
+
+**现场**：Mulpub 阶段 3.6 子集，给按钮补键盘焦点环。`.cohere-btn` 是基类，`.cohere-btn-primary/-secondary/-ghost/-text/-outline/-coral` 是变体。
+直觉写法是在基类上补一条 `:focus-visible` 覆盖全族。**实测是零覆盖**：180 个 `.vue` 模板里 134 处按钮 class 全部只写变体类，一处都不带 `cohere-btn`。
+而这件事在源码里**看不出差别**——`grep` 得到"基类已有焦点环"，diff 得到"+3 行"，测试文件不存在，CI 全绿。
+
+**为什么会漏**：类名体系给人的心智模型是"基类 = 公共形态"，但本仓的按钮实际按"变体自带全部声明"抄写（每个变体块都重复 `font-family/padding/cursor`），基类成了装饰。
+把这条读成"命名不规范"就错过了重点：**判据域必须由消费者侧清点得出**。落法是扫全部模板、按「这个 class 挂在 `button`/`a`/`role=button` 上」取证，再逐个回查选择器；
+新增变体没登记就当场红。硬编码清单是同一个坑的第二种形态（清单会随漂移而"看起来通过"）。
+
+**同族第二落点：`transition: all` 把 `outline-*` 一起纳入过渡。** 加上焦点环后真浏览器读数里，带 `transition: all` 的 4 个变体在 `Tab` 后 **0ms** 读到 `3px solid currentColor / offset 0`（过渡起点），不带 `all` 的立刻正确。
+若探针只读稳态（等 450ms 再看），这条差异在证据上**不可表示**，而用户看到的是"焦点移过去、描边慢慢渗出来"——对键盘导航就是"没反应"。判据因此读**两个时刻**，并在焦点环规则里显式 `transition: outline-color 0s, outline-width 0s, outline-offset 0s`。
+
+**同族第三落点（探针自身坏，两次）**：① 失败名匹配写 `✕`(U+2715)，而 vitest 打 `×`(U+00D7) ⇒ 7 道变异全部"红但不知红在哪条"；
+② `out.match(/(\d+) passed/)` 先命中 `Test Files  1 passed`，把一趟 12 个测试全绿的运行读成 `passed=1`，摘要行标签与数字之间还夹 ANSI 码 ⇒ 控制趟被误判 `PROBE_BLIND`。
+两者都**报错在自己那边**（拒绝出结论），这是它们唯一做对的地方；若按 rc 直接判定，七条结论会全部写成"CAUGHT"。
+
+**口径（三条可执行）**：
+① 给"某一族"补样式前，先数**这一族的真实挂载点**：`class` 属性里出现的是基类还是变体？分布不均时基类规则就是装饰。
+② 任何"看得见"类判据（焦点环、错误态、加载态）必须**在真实渲染引擎上读 computed 值**，且读**动作后 0ms 与稳态两个时刻**；源码正则只能证明"写了"，不能证明"出现了"。
+③ 判据域由消费者推导（模板 / 调用点 / 读取方），不由维护者抄写；并配规模下界，让"解析器退化成空集合"读不成"零问题"。
+
 ## 守门步骤的"通过"是谁说了算的？——通过路径没有 exit 时，判词来自最后一条原生命令（gate7-pass-path-exit，2026-10-19）
 
 ### lesson: a-gate-step-needs-an-explicit-exit-on-its-pass-path

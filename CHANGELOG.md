@@ -1,3 +1,11 @@
+# [未发布] fix(a11y): 两族按钮建立即时键盘焦点环 —— 只写基类等于零覆盖这一形态被真浏览器抓到（ux-audit-focus-ring）
+
+- **缺陷本体**：`.ui-btn` 与 `.cohere-btn-*` 两族按钮在 `origin/main` 上**没有任何 `:focus-visible` 规则**（`git grep` 实测命中 0；只有 `s2v-btn-*` 一族有 4 条），设计系统里同时躺着 `--focus-blue` 的两档声明、**零消费者**。键盘用户 Tab 到主操作按钮时看不到焦点落点（WCAG 2.4.7）。
+- **⛔ 最值得记的一条：「只写基类」是零覆盖修复**。实测 180 个 `.vue` 模板里 134 处按钮 class **全部只带变体类**（`class="cohere-btn-primary"`），一处都不带基类 `cohere-btn` —— 只写 `.cohere-btn:focus-visible` 在源码里看起来"已经修了"，对那 134 个按钮完全无效。因此 group selector 逐个点名变体，锁的**判据域从模板清点得出**而不是抄一份清单。
+- **第二落点：`transition: all` 把 outline 一起淡入**。第一次真浏览器读数里，4 个带 `transition: all` 的变体在 Tab 后 0ms 仍是过渡起点（`3px solid currentColor / offset 0`），不带 `all` 的立刻正确。修法是在焦点环规则里显式 `transition: outline-color 0s, outline-width 0s, outline-offset 0s`，并让判据同时读 **t=0 与 t=450ms**。
+- **取证**：本机 Chromium 加载**真实** CSS 文件与 `UiButton.vue` 的 `<style scoped>` 原文，键盘 `Tab` 进焦点态读 computedStyle —— 8 个类 × 浅暗两档 = **16 项两时刻全 OK**（浅 `2px solid rgb(96,58,249) off=2px`，暗 `rgb(123,116,255)`）；非文本对比度 light 6.05 / dark-canvas 4.78 / dark-card 4.30，全部 ≥3:1。回归锁 `src/styles/focus-ring.test.js`（12 例），7 道变异逐条指名变红、`RESTORED_OK=true`。
+- **边界**：3.6 主体（571 处 `<button>` 迁移、双轨合一）不在本批；`<div @click>`（阶段 4.4）刻意排除在判据域外；裸 `<button>` 仍由 UA 焦点环服务（实测 src 内 37 处 `outline: none` 全落在输入框/文本域，未波及按钮）。无新增 locale 键。
+
 # [未发布] docs(audit): 更正 audit-60 的 harm 陈述 —— ElMessage 根节点其实已带 role="alert"，阶段 4.6 因此收窄（ux-audit-toast-a11y-correction）
 
 - **动工前核了库的真实产物**（本机 element-plus 2.14.2）：`message.vue` 编译产物里 `role` 出现 1 次、值为 `"alert"`、挂在 `.el-message` 根 div 的属性表上；5 个 message 实现文件里 `aria-` 计数**全为 0**；`MessageHandler` 只有 `close()`，**没有 DOM 句柄**。

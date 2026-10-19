@@ -59,6 +59,12 @@ function onClick(event) {
   line-height: 1;
 }
 .ui-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+/* 键盘焦点环（audit-25 / WCAG 2.4.7）：UiButton 根节点的 classes 恒含基类 ui-btn，
+ * 所以一条基类规则即可覆盖全部 <UiButton> 用法（与 cohere 那族不同——那族模板只带变体类，
+ * 见 styles/cohere-design-system.css 的 group selector 与 focus-ring.test.js 的清点判据）。
+ * 颜色取 tokens.css 的 --color-focus-ring。 */
+.ui-btn:focus-visible { outline: 2px solid var(--color-focus-ring); outline-offset: 2px; transition: outline-color 0s, outline-width 0s, outline-offset 0s; }
+
 .ui-btn.is-loading { opacity: 0.65; cursor: not-allowed; }
 
 .ui-btn-spinner {
