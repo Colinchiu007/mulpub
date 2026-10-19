@@ -33,8 +33,31 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "self_play_resolved",
+    "performedBy": "self",
+    "findings": [
+      {
+        "source": "self",
+        "severity": "MAJOR",
+        "title": "第三处硬编码漂移：auto-prompt-blocks.js 的 PROMPT_BLOCK_HEADINGS 仍为 5 项，与后端补齐后的 BLOCK_HEADINGS(7 项) 不一致",
+        "evidence": "QG Desktop Shards (1/2) 第一轮 CI 红：auto-frontend-utils.test.js『前端清单与 shot-library.js 的 BLOCK_HEADINGS 逐项一致』1/9321 失败；已补前端清单并同步匹配形态，第二轮 CI success",
+        "disposition": "fixed"
+      },
+      {
+        "source": "self",
+        "severity": "MAJOR",
+        "title": "前端 checkPromptBlocks 匹配为整行精确，真实提示词带括号后缀的标题会被判缺块",
+        "evidence": "与后端 BLOCK_HEADING_RE 形态对齐后补正控用例『块标题带括号后缀或结尾冒号时仍算成块』",
+        "disposition": "fixed"
+      },
+      {
+        "source": "self",
+        "severity": "MINOR",
+        "title": "两处既有测试的『完整提示词』夹具只有 5 块，7 块口径下会误判缺块",
+        "evidence": "auto-frontend-utils.test.js 与 FilmAutoSegmentEditor.test.js 夹具补齐 SCENE CONTEXT/STYLE 后 71/71 全绿",
+        "disposition": "fixed"
+      }
+    ],
+    "selfPlayNote": "本机未接 codeagent-wrapper 外部双模型通道（proposer/critic 后端不可用），按替代口径由四路探子分头取证 + 主代理逐条独立复现（node 实测切块率 / grep 验证 / DI 注册处实读）承担对抗性校验；其中『CI 回归锁抓出第三处硬编码漂移』正是双模型评审在本仓最值钱的发现形态，本轮真实发生一次。过程与结论留证于 openspec/records/fix-film-engineering-defects.md 与 01-docs/BUGFIX-FILM-ENGINEERING-FINDINGS-2026-10-19.md。"
   }
 }
