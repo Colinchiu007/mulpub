@@ -168,4 +168,24 @@ describe('toutiao-video-cover：五步编排（假服务器逐断言）', () => 
       expect(srv.requests.filter((r) => /GetImageUploadInfos/.test(r.url)).length).toBe(0)
     } finally { fs.unlinkSync(img); await srv.close() }
   })
+
+  test('uploadLocalCoverFor：第三参省略（生产路径）不再抛 o.vasClient（#4038 回归锁）', async () => {
+    const srv = await startFakeServer([
+      { match: /getAuthKey/, body: OK_AUTHKEY },
+      { match: /GetImageUploadParams/, body: OK_PARAMS },
+      { match: /tos-cn-i-e874c6\/oTEST/, method: 'PUT', body: { success: 0, error: { code: 200 } } },
+      { match: /GetImageUploadInfos/, body: OK_INFOS('tos-cn-i-e874c6/oTEST') },
+    ])
+    const img = makeImage()
+    const { uploadLocalCoverFor } = require('../src/publish/platforms/toutiao-video-cover')
+    const c = makeClients(srv)
+    try {
+      // 生产形态：chain 形状实例 + 第三参**省略**（不传 onProgress/vasBase）
+      const fakeChain = { mp: c.mpClient, _mpHeaders: () => ({ 'User-Agent': UA }), mpBase: 'https://mp.toutiao.com', userAgent: UA }
+      const axiosLike = require('../src/publish/core/http-base').createHttpClient({ baseURL: srv.url, timeout: 5000 })
+      const out = await uploadLocalCoverFor(fakeChain, img, { vasBase: srv.url, axiosLike, tosBaseUrl: srv.url })
+      expect(out.uri).toBe('tos-cn-i-e874c6/oTEST')
+      expect(out.info.md5).toBe('a'.repeat(32))
+    } finally { fs.unlinkSync(img); await srv.close() }
+  })
 })
