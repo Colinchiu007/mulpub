@@ -47,11 +47,43 @@
     }
   },
   "deepReview": {
-    "required": false,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play(agent)",
+    "fallbackReason": "跨家族对抗后端超时（本会话第 20 次同型 ETIMEDOUT），按引擎第三档出口 self_play 自查。本条为会话权威定论记录（docs-only）。",
+    "evidenceInRepo": "openspec/records/session-authority-check.md（§一 定论表 / §二 方法与语义澄清）+ PRD §15",
+    "confidenceWeight": 0.7,
+    "adjudication": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "头条 batch-check 是 valid=true，但 authLoginSilent 同账号却是 valid=false —— 两个应用自身 IPC 互相矛盾，哪个可信？",
+        "verdict": "upheld_verified",
+        "rationale": "不矛盾，是**两个不同的问题**：batch-check 走各平台真实校验接口（判「现在登录态是否有效」），authLoginSilent 判「能否用信封 cookie **静默重登**」（重登是另一条更苛刻的路径，需要有可登出的会话材料）。头条会话活着但不能静默重登，语义自洽。真结论以 batch-check 为准——这点已写进 PRD §15 的语义澄清，防止后续会话再用 silent=false 误判「未登录」（本轮之前就该澄清而未澄清）。",
+        "fixCommit": null
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "探测经用户正在使用的应用（CDP 注入页面上下文调 IPC）—— 会不会影响用户正在做的事？",
+        "verdict": "upheld_verified",
+        "rationale": "全部调用是**只读或幂等**的 IPC：listAccounts（读表）、accountCheckLogin / batchCheckLogin（读校验并持久化状态，持久化本身是应用「一键检测」按钮的同款行为）、authLoginSilent（只读语义判定）。没有调用发稿、删除、修改类通道；未触碰 cookie 文件（独占锁反而挡住了）；未杀进程。CDP 连接本身是应用启动参数显式开放的（--remote-debugging-port=9279），属应用支持的调试面。",
+        "fixCommit": null
+      },
+      {
+        "id": "i3",
+        "severity": "Info",
+        "finding": "抖音「应用确认过期」与「自己探的 status_code:8」一致 —— 那这轮的增量价值是什么？",
+        "verdict": "upheld_verified",
+        "rationale": "增量是**权威性与持久化**：自探是脚本读数（可争议），应用确认后**已把账号持久化为 expired**（`persisted.ok=true, status=expired`），意味着 UI/调度层自此按 expired 处理（不再向它派发任务），这是状态机的真实迁移而不只是观测。同时三平台一次定论，替代了此前「逐平台各自探、结论分散」的形态。",
+        "fixCommit": null
+      }
+    ],
+    "summary": {
+      "total": 3,
+      "upheldVerified": 3,
+      "note": "本轮全部为验证类产出：三平台定论（头条活着/抖音过期已持久化/视频号待探针）+ IPC 语义澄清（silent≠login）+ 无侵入探测方法沉淀。未发稿、未越界、未动他人域。"
+    },
+    "at": "2026-10-19T20:13:38.883Z"
   }
 }
