@@ -119,6 +119,19 @@ GitHub 的 pwsh wrapper 以 `$LASTEXITCODE` 决定步骤成败，而该步骤 `f
 - **pitfall · 静默截断比硬拒绝更隐蔽**：`TOO_LONG` 至少让用户知道失败；`_postProcess` 砍尾则让用户拿到不完整的稿子且**以为它就是全部**。判据：任何「按上限截断」的实现必须同时产出可见信号（返回 `outputTruncated`/`outputLength`，UI 横幅），否则宁可拒绝。
 - **pitfall · max_tokens 缺失时「输出截断」会发生在模型默认值处，与引擎截断混在一起**：大多数 OpenAI 兼容 adapter 不传 `max_tokens` 走服务商默认（OpenAI 4096）——把引擎输出上限放到 50000 后，真实瓶颈转移到了模型默认值，且这种截断引擎侧 `outputTruncated` 检测不到（引擎只见到完整返回）。解法：桥接层显式传 64000；后续可读 `finish_reason: 'length'` 区分模型侧截断。
 - **pattern · 放开上限必须同帧更新「自适应默认值」**：`deriveWordCountRange` 的 MAX_CAP 若仍钉在 6000，12000 字原文会被「自适应」压回 6000——放开引擎上限但自适应层没跟上，等于没放开。判据：改上限时 grep 所有消费该数字的**派生函数**，不只是校验器。
+## 「套餐不支持」不是「服务不可用」：错误分类错误会把可行动提示变成无意义重试（fix-s2v-clone-plan-unsupported，2026-10-19）
+
+### lesson:plan-unsupported-is-not-retryable
+
+**「你的套餐不含该能力」和「服务暂时不可用」是两类完全不同的失败：前者重试永远失败，后者才值得重试。**
+
+现场：MiniMax 对订阅套餐账号返回 `your current token plan not support model, voice_clone`，
+被 adapter 的 isQuota 正则（`token\s*plan` 分支）误吃成额度类，再被 service 折叠成
+VOICE_CLONE_PROVIDER_UNAVAILABLE，用户看到「请稍后重试」并反复尝试。
+判据：错误分类的每个类别必须回答「用户下一步该做什么」——套餐类→升级/认证/换供应商；额度类→等待或充值；
+瞬时类→重试。原文含 `not support` / `forbidden` / `disabled` 的「能力缺失」信号，必须先于「额度」信号判定；
+凡 statusCode 明确（如 MiniMax 2038）时用 statusCode 短路，不赌正则。
+透明度要求：能力缺失类错误必须把供应商原话带到用户面（detail），删除「请稍后重试」指引。
 
 ## 「没人读」和「读不到」是两件事——先查消费者，再决定删字段还是补校验（debt-ledger-shape-normalize，2026-10-19）
 

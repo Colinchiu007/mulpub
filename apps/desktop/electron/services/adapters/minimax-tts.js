@@ -103,13 +103,22 @@ function classifyBaseRespError (message, providerId, statusCode) {
   const isContentPolicy = hasStrictContentPolicySignal(msg)
   // 认证判定收紧：裸 "api key" 不得直接判 AUTH；必须邻近 invalid/expired 等失效信号
   const isAuth = /api[ _-]?key[^\n]{0,24}(?:invalid|expired|\u5931\u6548|\u8fc7\u671f|\u65e0\u6548|\u9519\u8bef|\u4e0d\u6b63\u786e)|(?:invalid|expired)\s+api[ _-]?key|invalid\s+api\s*key|(?:key|\u5bc6\u94a5).{0,16}(?:invalid|expired|\u5931\u6548|\u8fc7\u671f|\u65e0\u6548|\u9519\u8bef|\u4e0d\u6b63\u786e)|authenticat|credential|unauthorized|access\s+denied|(?:token|\u51ed\u8bc1).{0,16}(?:invalid|expired|\u65e0\u6548|\u5931\u6548)/i.test(msg)
+  // 套餐/认证不含该能力（2026-10-19 事故：MiniMax 返回 "your current token plan not
+  // support model, voice_clone"）。必须先于 isQuota 判定——isQuota 的 token\s*plan 分支
+  // 会把「套餐不支持」误吃成「额度不足」，两者对用户的动作指引完全不同（升级认证 vs 等待额度）。
+  // 命中 2038（用户语音克隆功能被禁用，官方文档：需完成个人/企业认证）或计划不支持类原文。
+  const isPlanUnsupported = (
+    Number(statusCode) === 2038
+    || /token\s*plan[^.\n]{0,80}not\s+support|not\s+support[^.\n]{0,80}voice[_\s-]?clone|voice[_\s-]?clone[^.\n]{0,40}(?:forbidden|disabled|not\s*(?:supported|available)|user\s*forbidden)|\u8bed\u97f3\u514b\u9686\u529f\u80fd\u88ab\u7981\u7528|(?:\u5957\u9910|\u8ba2\u9605)[^.\n]{0,40}\u4e0d(?:\u652f\u6301|\u542b)/i.test(msg)
+  )
   const isQuota = /\u4f59\u989d|\u989d\u5ea6|\u7528\u91cf|quota|balance|exhausted|insufficient|billing|payment\s*required|(?:token\s*plan|\u989d\u5ea6).{0,24}(?:\u4e0a\u9650|\u8d85|\u8017\u5c3d|\u7528\u5c3d|\u7528\u5b8c)|\u5347\u7ea7|upgrade/i.test(msg)
     const isVoiceInvalid = /voice\s+(?:id\s+)?(?:wrong|invalid|not\s+found|does\s+not\s+exist|unavailable|missing)|(?:invalid|unsupported)\s+voice|voice_id.*(?:invalid|wrong|not\s+found|not\s+exist|unsupported)|cloned?\s+voice.*(?:not\s+found|not\s+available|unavailable)|don'?t\s+have\s+access.*voice_id|access.*(?:to\s+)?(?:this\s+)?voice|(?:\\u97f3\\u8272|\\u58f0\\u97f3).*(?:\\u65e0\\u6548|\\u4e0d\\u5b58\\u5728|\\u5931\\u6548|\\u9519\\u8bef|\\u4e0d\\u5b58\\u5728)|\\u5f53\\u524d\\u8d26\\u53f7.*\\u97f3\\u8272|\\u8d26\\u53f7.*\\u97f3\\u8272|\\u5c5e\\u4e8e.*\\u5176\\u4ed6.*\\u8d26\\u53f7/i.test(msg)
   const code = isContentPolicy ? ERROR_CODES.CONTENT_POLICY
     : isAuth ? ERROR_CODES.AUTH_FAILED
-      : isQuota ? ERROR_CODES.QUOTA_EXCEEDED
-        : isVoiceInvalid ? ERROR_CODES.INVALID_CONFIG
-          : ERROR_CODES.PROVIDER_ERROR
+      : isPlanUnsupported ? ERROR_CODES.PLAN_UNSUPPORTED
+        : isQuota ? ERROR_CODES.QUOTA_EXCEEDED
+          : isVoiceInvalid ? ERROR_CODES.INVALID_CONFIG
+            : ERROR_CODES.PROVIDER_ERROR
   return new ProviderError(code, msg || 'MiniMax \u8bed\u97f3\u5408\u6210\u5931\u8d25', {
     providerId,
     ...(statusCode != null ? { statusCode: Number(statusCode) } : {}),
