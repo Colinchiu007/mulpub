@@ -278,7 +278,10 @@ def test_gate_wiring_catalog_and_ack_have_gate_bootstrap_exempt():
 
     def _route_for(path, method):
         for route in app.routes:
-            if isinstance(route, APIRoute) and route.path == path and method in route.methods:
+            # duck-typing 替代 isinstance：fastapi.routing 双 import 时 APIRoute 类引用
+            # 不同实例，isinstance 恒 False（CI 实测根因：同文件 A8 行为测试 426 生效 =
+            # 门确实挂载，仅类身份比对失败）
+            if hasattr(route, "dependant") and getattr(route, "path", None) == path and method in getattr(route, "methods", set()):
                 return route
         return None
 
