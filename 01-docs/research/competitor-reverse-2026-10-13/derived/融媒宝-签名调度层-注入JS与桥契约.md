@@ -240,12 +240,25 @@ WOW64 = 32 位进程（印证 §组件文档里「27/27 全部 PE32」）。
 
 ⇒ 它只编码了时间戳，**params/data/UA 全部丢失**。
 
-根因（已定位到具体调用）：
+根因是**两个互相独立的缺陷**（本篇首发时写成单一原因，已由后续取证更正 —— 见 `融媒宝-快手sig3与hxfalcon引擎.md` §4）：
+
+**缺陷 A —— 影响 params / data：`CryptoJS.MD5()` 对「非字符串、非 WordArray」的输入返回常量。**
+
 ```javascript
 let paramsarr1 = _0x1f3b8d(md5(_0x1f3b8d(md5(params).toString())).toString());
 ```
-`_0x1f3b8d` 的语义是「**十六进制字符串 → 字节数组**」（内部用 `a.length >> 1`），
-但第二层传进去的是 **CryptoJS 的 WordArray 对象**（没有 `.length`）⇒ `undefined >> 1 = 0` ⇒ **空数组**。
+
+干净沙箱实测：`md5(Uint8Array([1..16]))` 与 `md5(Uint8Array([16..1]))`、`md5([1,2,3])` 与 `md5([3,2,1])`
+**全部返回同一个常量 `487f7b22f68312d2c1bbc93b1aea445b`**（而字符串输入正常逐字变化）。
+双重哈希链第二层正是 `md5(_0x1f3b8d(...))`，`_0x1f3b8d` 返回 `Uint8Array` ⇒ 该层恒为常量 ⇒ params/data 全丢。
+
+**缺陷 B —— 影响 UA：`_0x1f3b8d` 收到 WordArray ⇒ 长度为 0。**
+
+`let uaStr = _0x1f3b8d(md5(ua(userAgent).toString()));` 里 `md5(...)` 返回 WordArray（未再 `.toString()`），
+`_0x1f3b8d` 内部 `a.length >> 1` ⇒ `undefined >> 1 = 0` ⇒ 空数组。
+
+更正说明：本篇首发时把两者都归因于「空数组」—— `paramsarr1` 实测**长度是 16 不是 0**，
+但内容恒等（`paramsarr1(A)` 与 `paramsarr1(B)` 的 `[14][15]` 都是 `68,91`）。结论（输入无关）不变。
 实测：`paramsarr1` 长度 0、`uaStr` 长度 0，而 `arr[4]`/`arr[8]` 就是 `undefined`。
 
 **更正三：这条路径很可能是「已被平台弃用后留下的残留」。**
