@@ -1065,6 +1065,69 @@ if base_path not in final_path.parents:            # ← 路径穿越防护
 - `SplitShots` 返回的 `clip_captions` 复用 `Clip` 模型，**镜头切分结果与字幕单元耦合**，抽取时需解耦
 - 重量级依赖（MCP + LangChain）与 mulpub 现有技术栈不重合，只能取**单个模块**而非整体架构
 
+#### 3.17.1 第二层深挖（v3）：合成与时间线算法的「怎么做到」
+
+> 第一层回答了「有什么节点」，这一层读三个最大节点的**实现细节** —— `render_video.py`（1023 行）、`plan_timeline.py`（907 行）、`generate_ai_transition.py`（571 行）。**这层的结论改变了第一层的一个判断**：FireRed 与其他项目在合成上的差异不是「另一个 ffmpeg 包装」，而是**完全不同的合成栈**。
+
+**深挖 1：成片合成不用 ffmpeg filter_complex，而是 MoviePy + Pillow**
+
+| 项目 | 成片合成技术 |
+|---|---|
+| mulpub | `concat demuxer -c copy`（直拷，无转场） |
+| showvi / yumcut / huobao | ffmpeg `filter_complex`（xfade/amix） |
+| mulpub `remotion-composer` | Remotion（React 渲染） |
+| **FireRed** | **MoviePy（`CompositeVideoClip`）+ Pillow 画字幕** |
+
+FireRed 用 `moviepy` 的 Python 对象模型组装时间线，字幕用 **`PillowSubtitleRenderer`**（`render_video.py:422-567`）逐字测量宽度换行 —— `draw.textlength(candidate, font=font) <= max_width_px` 逐字符累积、超宽即断行（`:557-565`）。**这是 CJK 逐字换行，不是空格分词**，对中文字幕是正确的做法。
+
+**深挖 2：`SUBCLIP_END_SAFETY_MARGIN_S` —— MoviePy 的隐性失败模式**
+
+`render_video.py:24`：`SUBCLIP_END_SAFETY_MARGIN_S = 1e-3`。所有 `subclipped(0, end)` 的 end 都要**减去 1ms**（`:596`、`:613`、`:650`、`:662` 四处统一使用）。这是 MoviePy 的一个坑：**取到素材的最后一帧可能触发解码器截断错误或时长超界**。1ms 的安全边距人眼不可见，但能避免随机崩溃。**只有真在 MoviePy 上踩过随机崩溃的人才会加这个常量** —— 它不在任何文档里。
+
+**深挖 3：AudioTrackComposer 的三轨模型与「双窗口」**
+
+`render_video.py:574-667`，三个音轨层合成：
+1. **video 原声层**：`with_volume_scaled(VIDEO_VOLUME_SCALE)`
+2. **voiceover 层**：`source_window`（素材内取哪段）→ `timeline_window`（放到时间线哪里）。**关键处理：`expected = min(expected, max_available)`（`:623`）—— 时间线窗口想要的时长若超过素材实有，clamp 而非报错**，宁可配音短一点也不让整条渲染崩掉
+3. **BGM 层**：先 concat 所有 BGM 段，然后**三态** —— 短于成片则 `_loop_audio` 循环补齐、超长则裁剪、容差内不动（`:659-662`）。与 Pixelle 的视频三态（pad/trim/容差）完全同构，**再次印证「三态 + 容差」是音视频对齐的行业共识**
+
+**深挖 4：`_allocate_clip_durations_using_beats` —— 「卡点」的完整算法**（`plan_timeline.py:654-728`）
+
+这是整个 FireRed 里**算法密度最高**的一段，注释写明四步：
+
+```
+1) 按各素材源时长加权分配（总和 = 组目标时长）
+2) 每个 clip 的结束点吸附到最近的节拍边界；差值结转（carry over）给下一个 clip
+3) 最后一个 clip 向上取整，保证总时长 ≥ 组目标
+4) 整数截断漂移用「小数部分排序补偿」修平（fractional_parts 按余数降序，前 remainder 个各 +1ms）
+```
+
+配套防御：`SNAP_SAFETY_MAX_STEPS = 10_000`（`:24`）—— 吸附循环超过一万步即抛 `RuntimeError("snap_to_nearest_beat safety exceeded")`（`:720-721`），防止节拍表异常时死循环。**这是「数据异常时 fail-fast 而不是挂死」的标准写法。**
+
+**深挖 5：`_compute_title_music_offset` —— 让片头字幕结束在节拍上**（`plan_timeline.py:488-521`）
+
+反向问题：不是「镜头卡节拍」，而是「**BGM 该从音乐的哪一毫秒开始播，才能让片头字幕的结束点恰好落在节拍上**」。算法：按节拍时长累计走查，找到第一个 ≥ title_duration 的节拍点，反推 `music_offset_ms = cumulative - title_duration`。注释还特意说明「原版代码假设节拍表非空，否则 modulo 崩溃，这里加了守卫」—— 又一个「开源化时补防御」的痕迹。
+
+**深挖 6：AI 转场的实现侧 —— 首尾帧预处理与可取消轮询**
+
+`generate_ai_transition.py:455-537` `_preprocess_first_last_frame`：
+- 色彩归一：非 RGB 一律 `convert("RGB")`（API 不收 alpha 通道）
+- 尺寸对齐：**先按 `max(dst_w/src_w, dst_h/src_h)` 放大再中心裁剪**（LANCZOS），而不是直接拉伸 —— 保住宽高比
+- **逐像素断言**：`assert aligned_first_frame.size == aligned_last_frame.size == target_size`（`:535`）—— 首尾帧尺寸不一致直接 fail-fast，不带病提交
+- **每步 transformation 记入 meta**（`resize_with_center_crop` / `none`），渲染产物可审计「哪帧被动过什么」
+
+`utils/ai_transition_client.py:63-70` `_sleep_with_cancel`：轮询间隔 15s，但 **sleep 切成 0.2s 小片、每片检查取消标志** —— 用户点取消最迟 0.2s 生效，而不是等完整个轮询周期。错误响应统一 `_format_response_error`（截断 2000 字符防止日志爆炸）。
+
+**对 mulpub 的增量结论（相对第一层）**：
+
+| 第一层结论 | 第二层修正 |
+|---|---|
+| 「19 节点编排思路 ⭐，节点图收益有限」 | **维持，但补充**：`plan_timeline` 的节拍分配算法是独立可搬的**纯函数算法**（约 130 行，含测试友好的纯计算），不需要接受整个节点图 |
+| 「render_video 是普通渲染」 | **修正**：MoviePy 栈与 mulpub 现有 ffmpeg 直拷是**两个物种**。若 mulpub 要上「字幕烧录 + 多音轨混音」，MoviePy 路线提供了一整套**已被踩过坑的参考实现**（安全边距/双窗口 clamp/BGM 三态）；若坚持 ffmpeg filter_complex，则 `SUBCLIP_END_SAFETY_MARGIN_S` 这类 MoviePy 坑不适用，但 `expected = min(expected, max_available)` 的 clamp 语义仍值得抄 |
+| 「Skill 沉淀 ⭐⭐」 | 维持。且补充：`_sleep_with_cancel` 的**协作式取消切片**模式适用于 mulpub 所有长任务轮询（包括 video-gen 的 10s×10min 轮询） |
+
+> 💡 **一句话**：第一层看到的是「小红书做了个 agentic 剪辑」，第二层看到的是**「一个把 MoviePy 踩坑经验沉淀成常量的团队」**——后者的信息量远大于前者。
+
 ---
 
 ### 3.18 🔴 smy-seedance-storyboard（**无许可证**）—— 纯 Skill 资产包，只能学结构不能抄文本
@@ -1113,6 +1176,62 @@ references/
 
 > 💡 **这是本轮最有价值的一条方法论教训**：`smy` 的 README **没有 license 徽章**，很容易被误以为「没写就是开源」。正确做法是**第一步检查 LICENSE 文件是否存在**，而不是看 README。这与前 16 个项目形成对照 —— 它们全都有明确的 LICENSE 文件。
 
+#### 3.18.1 第二层深挖（v3）：读了「单一事实来源」的实体内容
+
+> 第一层只看了文件结构，这一层把两份核心文档读透 —— `上美影风格指南.md`（379 行，11 个章节）与 `seedance-manual.md`（726 行，16 个模板）。**法律边界不变：以下全部是「抽象做法」层面的理解， mulpub 落地必须用自写表达。** 但这两份文档的组织方式本身就是「风格类 Skill 该怎么写」的最佳标本。
+
+**深挖 1：全仓含金量最高的资产是「失败模式表」**（风格指南 §十，`上美影风格指南.md:353-371`）
+
+一张 **11 条「症状 → 原因 → 修复」** 的实测翻车清单：
+
+| 症状（摘） | 原因 | 修复方向 |
+|---|---|---|
+| 视频平涂对了但没手绘味（像干净 CG） | v2 视频行**删光了质感词族**（水粉肌理/笔触/手工感） | 恢复质感词，否定词只留「反 3D 三连」 |
+| 子风格视频无敦煌感 | 视频首行「斑驳壁画肌理」+「无渐变」**自相矛盾** | 按子风格替换媒介质感词，删「纯 2D 平涂」 |
+| 画面出现阴影/渐变/3D 体积 | 柔边晕染类短语或模型默认渲染倾向 | 末尾硬约束 + 清除 soft glow/晕染 + 负面词 |
+| 跨集人物漂移 | 风格行/色盘不一致 | **逐字校验 + 四视图资产 + 尾帧接力**三重机制 |
+| 视频端风格丢失 | 提示词过长 | 首行只用精简版，动作精简，总长控制 |
+| 异兽画成普通野兽 | 缺神性标记 | 补鎏金部位/发光器官/独有纹样 |
+
+更关键的是表头那段**迭代史**：2026-08-25 当天三轮实测 —— 第一轮达标 → 第三轮扩大测试（鲁智深 5 段 + 罗刹 1 段敦煌）**发现视频端失效**，定位根因是「v2 精简版删光质感词族 + 敦煌子风格自相矛盾」，出 v3 后定版。
+
+**为什么这张表是全仓最值钱的**：它记录的不是「成功的 prompt」，而是**「prompt 为什么会失效」**。mulpub 的 `prompt-doctrine.json` 有 10 条 rules，但**没有一张「症状→原因→修复」的失败模式对照表**。做 F1 增补时，最有价值的不是再抄几条成功规则，而是**建立 mulpub 自己的翻车台账** —— 每次生成失败记录「症状/根因/修法」，让规范随失败而进化。
+
+**深挖 2：风格约束的「分层配方」结构**（§二）
+
+同一套风格被拆成 **6 层**，各有明确用途：
+
+```
+§2.1 完整版·平涂强化（中文）     → 生图主用
+§2.2 英文对照版                 → Midjourney 等英文模型
+§2.3 精简版                     → Seedance 视频提示词首行专用（防「提示词过长丢风格」）
+§2.4 硬约束层（咆哮体）         → 所有生图提示词必附
+§2.5 负面提示词库               → 与正面块配套
+§2.6 MJ 实测原版（归档）        → 只留证不使用
+```
+
+配套**使用规则**明确「哪一层用在哪个端」。这个「**同一语义、多端配方、分层维护**」的结构，直接回答了 mulpub 一个悬而未决的问题：`prompt-doctrine.json` 里 zh/en 双字段之外，**还应该有「长版/首行版」之分** —— 因为 FireRed 的失败模式表恰好证明了「视频首行用长版会丢风格」。
+
+**深挖 3：色盘防漂移是一个闭环而非一句声明**（§3.3–3.5）
+
+```
+开工：素材清单头部声明色盘（中文 + 英文逐字对照）
+  ↓
+使用：所有资产提示词 + 每集分镜首行【逐字引用同一字符串】
+  ↓
+扩展：最多加 2 个扩展色；「怪色点缀」优先占额、只用于小面积
+     （滚边/器物/印章/一朵花/一只蝴蝶）
+  ↓
+修漂移：跨集人物漂移 → 逐字校验 + 四视图资产 + 尾帧接力三重机制
+```
+
+配套一张 **情绪—色彩映射表**（仙气宁静=青瓷绿/月白，冲突爆发=朱砂红/墨黑，神性宝物=鎏金/藤黄……）—— 写分镜氛围时按情绪选加重色，**色彩从「装饰选择」变成「叙事工具」**。
+
+**对 mulpub 的增量结论**：
+1. F1 增补 `prompt-doctrine.json` 时，**新增两类结构**：①「失败模式台账」（symptom/cause/fix 三列）②「分端配方」（full/firstline 双版本字段）。这两类在现有 7 blocks/10 rules/6 glossary 里都没有。
+2. 「剧组色盘」应做成 **film-kit 资产**（`palette.json`：每部剧声明 4 主色 + ≤2 扩展色，中英对照），生成资产提示词与分镜首行时**机械注入同一字符串** —— 防漂移靠机制不靠自觉。
+3. **再次强调许可证边界**：以上全部是「做法」层面；`smy` 的具体文字、模板原文、示例工程仍然不可复制。
+
 ---
 
 ### 3.19 ⭐ ToonCrafter（Apache-2.0）—— 唯一「生成模型」形态，桌面端不可直接接入
@@ -1160,7 +1279,65 @@ gradio_app.py  Web Demo
 
 > ⚠️ **它自己 README 顶部有防伪声明**：「We have not set up any official profit-making projects or web applications. Please be cautious!!!」—— 说明存在冒名站点。若日后调研其在线 Demo，需确认域名。
 
----
+#### 3.19.1 第二层深挖（v3）：首尾帧约束在模型层是怎么实现的
+
+> 第一层只确认了「需要 GPU、512×320」。这一层把**「两张图怎么同时约束一段视频的生成」**这个问题读透 —— 这是理解所有「首尾帧生视频」产品（可灵/即梦/FireRed 的 AI 转场）底层原理的一把钥匙。Apache-2.0，机制描述可自由引用。
+
+**深挖 1：推理侧的三路条件拼接**（`scripts/gradio/i2v_test_application.py:38-100`）
+
+`get_image()` 的完整条件构造，一步不漏：
+
+```
+① 文本条件    text_emb = get_learned_conditioning([prompt])
+② 图像条件    img_emb  = embedder(首帧图) → image_proj_model → 投影
+              imtext_cond = cat([text_emb, img_emb])     ← 文本与首帧图语义拼接
+③ 结构条件    c_concat：
+   a. 首帧编码 → videos  repeat 到 frames//2 份（占前半）
+      尾帧编码 → videos2 repeat 到 frames//2 份（占后半）
+      torch.cat([videos, videos2], dim=2)            → 全长隐变量序列
+   b. img_tensor_repeat = zeros_like(z)
+      img_tensor_repeat[:,:,:1,:,:]  = z[:,:,:1,:,:]   ← 只把【第 1 帧】填成首帧 latent
+      img_tensor_repeat[:,:,-1:,:,:] = z[:,:,-1:,:,:]  ← 只把【最后 1 帧】填成尾帧 latent
+   c. 其余中间帧全零 → 交给扩散去「补」
+cond = {"c_crossattn": [imtext_cond], "fs": fs, "c_concat": [img_tensor_repeat]}
+```
+
+**核心设计**：`c_concat` 是一个与输出同形状的 latents 张量，**只有头尾两帧有值、中间全零**。扩散模型以「concat 条件」方式接收它 —— 每一步去噪都被迫「贴近首帧开始、贴着尾帧结束」。中间不是插值出来的，而是**在被两端钉死的约束下新生成的**。这就是「插值」的本质：**不是数学插值，是受约束的生成**。
+
+另一个细节（`:70,79`）：首尾帧各自 `repeat` 到 `frames//2` 后拼成全长序列再编码 —— 即 **VAE 编码时首尾帧各自「假装」占了半段视频**，这样 encoder 提取的隐状态带有时间上下文，而不是单帧孤立编码。
+
+**深挖 2：`get_latent_z_with_hidden_states` —— 隐状态也要首尾的**（`:127-141`）
+
+```python
+encoder_posterior, hidden_states = model.first_stage_model.encode(x, return_hidden_states=True)
+### use only the first and last hidden states
+hidden_states_first_last.append(hid_new)
+```
+encoder 的多层 hidden states **只取第一层和最后一层**，传给 `batch_ddim_sampling(..., hs=hs)` —— 与 decoder 的 `attn_refinement` 配套：采样时中间帧对「首尾帧的深层特征」做 cross-attention。
+
+**深挖 3：模型层的 Fusion 注意力 + zero-init**（`lvdm/models/autoencoder_dualref.py:256-292`）
+
+- `ref_context: b c 2 h w`（注释明确 **2 = starting and ending frame**，`:490`）
+- decoder 每一级都有 `attn_refinement`（`:467`），中间特征作为 query，**首帧与尾帧的 k/v 拼接**作为 context：
+  ```python
+  k = torch.cat([k[:, [0] * (bt//b)], k[:, [1]*(bt//b)]], dim=2)   # :287
+  v = torch.cat([v[:, [0] * (bt//b)], v[:, [1]*(bt//b)]], dim=2)   # :291
+  ```
+  即生成的**每一帧**都同时「看见」起点与终点 —— 空间上越靠近哪端，注意力自然越偏向哪端
+- **`nn.init.zeros_(self.to_out[0].weight/bias)`（`:261-262`）：Fusion 层输出零初始化** —— ControlNet 式的经典技巧：训练初期该分支不扰动预训练权重，从零学起。这说明「首尾帧约束」是**外挂微调**，不动 backbone
+
+**深挖 4：两个工程细节**
+- 步数硬顶：`if steps > 60: steps = 60`（`:48-49`）—— 防 GUI 侧把步数拉满烧卡
+- 尾帧处理：`if image2 is None: batch_samples[...,:-1,...]`（`:102-104`）—— 单图模式（图生视频）时**生成的最后一帧就是输入帧本身，要裁掉**，否则成片首尾会有两帧重复。这个「末帧重复」问题在 concat 型流水线里同样会出现，值得记住
+
+**对 mulpub 的增量结论（相对第一层）**：
+
+| 第一层结论 | 第二层修正 |
+|---|---|
+| 「仅概念参考，没有可插入的位置」 | **维持不接入的判定，但知识价值上调** —— 它解释了「首尾帧生视频」类 API（可灵/即梦/FireRed 转场所用）的能力边界：**中间内容是「受两端约束的新生成」，不是保真插值**。因此：① 中间运动符合两端语义但细节可能「脑补」→ 对卡通/风格化内容安全，对需要精确动作衔接的实拍感内容要抽查；② **首尾帧的尺寸/色彩一致性必须在喂给 API 前自己做对齐**（参照 FireRed `_preprocess_first_last_frame` 的中心裁剪 + 逐像素断言）；③ 输出帧率（如 10fps）与成片帧率（24fps）不一致时需要光流补帧或接受抽帧感 |
+| F31（介质掩护）的底层依据 | **补上了**：既然中间是「受约束的新生成」，两端语义差异越大、模型自由度越大、翻车概率越高 —— 这正是 FireRed 那条「禁止形态差异巨大的实体直接形变，必须加介质掩护」的**模型层解释**。两条证据（prompt 层经验 + 模型层机制）互相印证 |
+
+> 💡 **一句话**：ToonCrafter 对 mulpub 的价值不在「用它的代码」，而在**「看懂了首尾帧生视频这个黑盒的内部」** —— 之后 mulpub 对接任何首尾帧 API 出了怪结果（中间画面脑补、尾帧重复、风格漂移），都能对着这三个机制（c_concat 钉两端 / Fusion 注意力 / 末帧裁剪）定位原因。
 
 ## 四、横向对比与复用价值排名
 
