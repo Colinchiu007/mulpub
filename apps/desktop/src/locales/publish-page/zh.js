@@ -366,6 +366,15 @@ export default {
       sensitiveMessage: (ctx) => '发布内容包含敏感词：' + ctx.named('words') + '，是否仍然发布？',
       sensitiveForcePublish: '强制发布',
       sensitiveModify: '修改',
+      // 阶段 2.6（audit-1）：发布前摘要确认闸门。
+      // 摘要行说"几篇 × 几个平台 × 几个目标"，明细行说"哪个平台几个账号"，
+      // 截断行只在**真的发生过截断**时出现（不得预告不存在的损失）。
+      confirmTitle: '确认发布',
+      confirmSummary: (ctx) => '将把 ' + ctx.named('articles') + ' 篇内容发布到 ' + ctx.named('platforms') + ' 个平台、共 ' + ctx.named('targets') + ' 个「平台 × 账号」目标。',
+      confirmDetail: (ctx) => '明细：' + ctx.named('detail'),
+      confirmTruncated: (ctx) => '其中 ' + ctx.named('count') + ' 项内容会被截断后发出（各平台上限不同）。',
+      confirmAction: '确认发布',
+      confirmCancel: '再看看',
       generatingCover: '🖼️ 图文平台需要图片，正在自动生成封面...',
       coverGenerated: '✓ 封面已生成并附加到内容',
       // 2026-10-12：自动封面兜底的两条分支文案（公众号封面必填 → 生成结果必须对用户可见）

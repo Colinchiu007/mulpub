@@ -36,3 +36,16 @@ sync_backfill_owner: none-derived-from-trunk
 - 规格增量：`openspec/changes/ux-audit-implement-phase2/specs/desktop-publish-certainty/spec.md`（5 条 Requirement）
 - 任务清单：`openspec/changes/ux-audit-implement-phase2/tasks.md`
 - 与阶段 1 的关系：`ux-audit-impl`（PR #3898）与本分支相互独立，均基于同一份审计；本分支不引用那个尚未合并的 PRD 文件
+
+## 批次 H：发布前摘要确认闸门（2.6 / audit-1，同日续做）
+
+| 门禁 | 状态 | Fresh 证据 |
+|------|------|-----------|
+| 变更类型与隔离 | ✅ 同一 worktree/分支续做 | `ux-audit-phase2`（无 electron/ 改动 ⇒ 本批不触发 QM-1；上一批次 G 已跑满三层判据） |
+| 第一性原因（QM-5 ①） | ✅ | 审计 w1 复核后 audit-1 已由 blocker 降为 major：批量路径确有确认，缺的是**单篇通用路径**没有可否决的摘要 ⇒ 用户只能在"发完之后"才知道发去了几台、会不会被截断 |
+| 逃逸分析（QM-5 ②） | ✅ | 既有锁「敏感词接口缺少 data 时按无敏感词处理」写作 `expect(ElMessageBox.confirm).not.toHaveBeenCalled()` ⇒ 它把"没有敏感词弹窗"过宽地写成"一次确认都没有"，闸门上线必然撞红。这是**断言不精确**的现场：改动落地后它既可能被人放宽成"允许一次"（吃掉敏感词回归），也可能被误读成"闸门错了" |
+| 系统性漏洞定位（QM-5 ③） | ✅ | (a) 渲染端 CJK 门禁此前从未在本分支跑过（我批次 F 写的 `console.warn('[publish] 首屏数据源失败：…')` 已经违规，直到批次 H 跑 `--cjk` 才暴露）；(b) 摘要这类"文案由代码拼接"的改动没有 locale 归属约束 ⇒ 顿号/中文字面量极易混进 src |
+| 修复 + 回归保护（QM-5 ④） | ✅ | 新增 `src/utils/publish-confirm-summary.js`（纯函数）+ `publish-confirm-summary.test.js`（7 条）；`usePublishFlow.test.js` +4 条（文案内容、`invocationCallOrder` 顺序、取消即不派发且解锁、无截断不出截断行、接线锁）；敏感词那条改为按弹窗文案**指名**过滤。变异 M17（删闸门）/ M18（取消后仍派发）/ M19（解析失败改 fail-closed）/ M20（截断行无条件输出）逐条实测变红，还原 md5 一致 |
+| 防止再次发生（QM-5 ⑤） | ✅ | ①口径写进规格（本 change 新增 Requirement「发布前必须给出可否决的摘要确认」）；②PRD §9 写明位置不可挪的理由、计数口径、失败取向；③本记录登记"CJK 门禁必须在每个含渲染改动的批次当场跑"，已同步进 tasks.md 5.5 |
+| 门禁 | ✅ | `check-locale-sync --keys` PASS(2125) / `--cjk` PASS（基线 1331、当前 1189、无新增硬编码）/ `check-max-lines` ✅ / eslint --quiet 0 违规 / vite build 通过（本批无 electron/ 改动 ⇒ QM-1 不适用） |
+| 未覆盖 | 登记 | 闸门是新增模态弹窗，像素门禁不覆盖模态内层（既有失明，见视觉基线记忆）；`audit-1` 提到的"日配额/频控窗口预警"未并入本闸门（属 2.5 之外的另一份数据源，未验证可得的字段前不写文案） |

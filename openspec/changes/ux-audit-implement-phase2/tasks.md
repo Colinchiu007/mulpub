@@ -43,3 +43,15 @@
   按实际状态登记，不谎称已跑；替代通道另议
 - [ ] 4.6 QM-4 像素门禁：本批改了 `PublishProgressPanel` / `PublishHistory` 展示面，
   需在收口批次跑 `npm run test:visual:pixel`（基线只能取 CI 渲染）
+
+## 5. 阶段 2 批次 H — 发布前摘要闸门（2.6）
+
+- [x] 5.1 纯函数 `utils/publish-confirm-summary.js`：计数口径 + 只数不说 + 解析失败取向
+  —— 锁：`publish-confirm-summary.test.js`（新建 7 条：去重/脏输入/三段拼接/labelFor/零目标/失败态）；反证 M20
+- [x] 5.2 `usePublishFlow.handlePublish` 接入 `notifyConfirm` 闸门（位置在校验与截断之后、派发之前）
+  —— 锁：`usePublishFlow.test.js` 新增 4 条（文案内容、调用顺序、取消不派发且解锁、无截断不出截断行、接线锁）；反证 M17/M18/M19
+- [x] 5.3 既有敏感词锁改为**按弹窗文案指名**（原写法把"没有敏感词弹窗"写成"一次确认都没有"，被闸门撞红）
+- [x] 5.4 locale 新增 `publishPage.publishFlow.confirmTitle / confirmSummary / confirmDetail / confirmTruncated / confirmAction / confirmCancel`（zh/en 成对，`--keys` PASS 2125）
+- [x] 5.5 CJK 门禁实跑暴露并修掉本批自造的两处中文字面量（`Publish.vue` 的 console.warn 前缀、
+  摘要明细的连接符顿号）⇒ `check-locale-sync --cjk` PASS（基线 1331 / 当前 1189）
+- [ ] 5.6 QM-4 像素门禁：闸门是新增弹窗，像素门禁不覆盖模态内层（既有失明），仍需人工看一次

@@ -53,6 +53,7 @@ import { isMarkdownContent, normalizePlatformOverrides } from '@/features/publis
 import { resolveCoverFields } from '@/features/publish/publish-upload-file'
 import { attachRewriteLineage } from '@/utils/rewrite-lineage'
 import { usePublishProgressStore } from '@/stores/publishProgress'
+import { buildPublishSummaryMessage } from '@/utils/publish-confirm-summary'
 
 // 图文必填图片的平台（2026-09-29 实测取证：小红书/快手/抖音图文上传区要求至少 1 张图；
 // 无图时 handlePublish 自动生成封面兜底——AI 生图优先，cover:generate-ai 内建本地标题卡回退）
@@ -424,6 +425,33 @@ export function usePublishFlow(options) {
         notifyWarning('publishPage.publishFlow.contentInvalid', { message: contentCheck.message })
         return
       }
+    }
+
+    // ── 阶段 2.6（audit-1）：发布前摘要确认闸门 ──
+    // 批量路径早有确认（审计 w1 复核后把 audit-1 从 blocker 降为 major），缺的是这条通用路径：
+    // 点「发布」时看不到"发到哪几台、每台几个账号、内容会不会被截断"，只能发完再回头看。
+    // 位置不可挪：必须在**全部校验与截断都算完之后、progress 重置与任何写操作之前** ——
+    // 摘要里说的截断必须就是待发出的那一份；用户取消时页面状态保持原样（不留半条进度）。
+    // 失败取向是"放行不堵死"：文案解析不出来时跳过闸门并出声，
+    // 绝不因一个 locale 键缺失而让用户点不动「发布」。
+    const summary = buildPublishSummaryMessage({
+      targets,
+      truncationCount: truncationNotices.length,
+      articleCount: 1,
+      labelFor: (id) => getPlatformLabel(id),
+      resolve: (key, params, fallback) => progressText(key, params, fallback)
+    })
+    if (summary.failed) {
+      console.warn('[publish-flow] publish summary unresolved; confirm gate skipped (publish not blocked)')
+    } else {
+      const confirmed = await notifyConfirm('publishPage.publishFlow.confirmSummary', {
+        message: summary.text,
+        title: progressText('publishPage.publishFlow.confirmTitle'),
+        confirmButtonText: progressText('publishPage.publishFlow.confirmAction'),
+        cancelButtonText: progressText('publishPage.publishFlow.confirmCancel'),
+        type: 'warning',
+      })
+      if (!confirmed) return
     }
 
     // M-1：锁已在前置处置锁，此处不再重复赋值

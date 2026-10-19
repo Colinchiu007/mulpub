@@ -358,6 +358,15 @@ export default {
       sensitiveMessage: (ctx) => 'Content contains sensitive words: ' + ctx.named('words') + '. Publish anyway?',
       sensitiveForcePublish: 'Force Publish',
       sensitiveModify: 'Edit',
+      // Phase 2.6 (audit-1): pre-publish summary gate. The head line states
+      // "articles × platforms × platform-account targets", the detail line names each platform,
+      // and the truncation line appears ONLY when a truncation actually happened.
+      confirmTitle: 'Confirm publishing',
+      confirmSummary: (ctx) => 'Publish ' + ctx.named('articles') + ' article(s) to ' + ctx.named('platforms') + ' platform(s), ' + ctx.named('targets') + ' "platform × account" target(s) in total.',
+      confirmDetail: (ctx) => 'Detail: ' + ctx.named('detail'),
+      confirmTruncated: (ctx) => ctx.named('count') + ' of them will be truncated before sending (limits differ per platform).',
+      confirmAction: 'Publish',
+      confirmCancel: 'Not now',
       generatingCover: '🖼️ Image required for image-text platforms, generating cover...',
       coverGenerated: '✓ Cover generated and attached',
       // 2026-10-12: branches of the automatic cover fallback (WeChat cover is mandatory, so the

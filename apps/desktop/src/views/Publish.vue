@@ -1393,7 +1393,7 @@ onMounted(async () => {
   const sources = [['loadAccounts', loadAccounts()], ['loadPrecheckPreference', loadPrecheckPreference()]]
   if (draftsTab) sources.push(['loadDrafts', loadDrafts()])
   const settled = await Promise.allSettled(sources.map((s) => s[1]))
-  settled.forEach((r, i) => { if (r.status === 'rejected') console.warn(`[publish] 首屏数据源失败：${sources[i][0]}`, r.reason) })
+  settled.forEach((r, i) => { if (r.status === 'rejected') console.warn(`[publish] first-paint data source failed: ${sources[i][0]}`, r.reason) })
   for (const pid of selectedPlatforms.value) {
     const def = getDefaultAccount(pid)
     if (def) setSelectedAccountIds(pid, [def.id])

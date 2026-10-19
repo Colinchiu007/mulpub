@@ -810,7 +810,12 @@ selectedPlatforms = { value: ['toutiao'] }
 
     await expect(r.handlePublish()).resolves.toBeUndefined()
 
-    expect(mockElMessageBox.confirm).not.toHaveBeenCalled()
+    // 「没有敏感词弹窗」≠「一次确认都没有」：阶段 2.6 起发布前必有摘要闸门。
+    // 断言必须指名叫它真正要测的那一个，否则这条锁会被无关的闸门撞红（本批实测就是这样撞的），
+    // 或者被人改成"允许一次 confirm"而把敏感词回归整个吃掉。
+    const sensitiveDialogs = mockElMessageBox.confirm.mock.calls
+      .filter((args) => String(args[0]).includes('敏感词'))
+    expect(sensitiveDialogs).toHaveLength(0)
     expect(mockPublishBatch).toHaveBeenCalledTimes(1)
   })
 
@@ -1246,6 +1251,76 @@ selectedPlatforms = { value: ['toutiao'] }
       // 上面两条缺一即静默漂移 —— 这也是本仓 useBatchPublish.js 只剩 1 行行数余量的后果（见 PRD §十一）。
       const batchSrc = fs.readFileSync(path.join(root, 'src/composables/useBatchPublish.js'), 'utf8')
       expect(batchSrc).toMatch(/attachRewriteLineage/)
+    })
+  })
+
+  // ── 阶段 2.6（audit-1）：发布前摘要确认闸门 ──
+  // 批量路径早有确认（审计 w1 复核后 audit-1 从 blocker 降为 major），缺的是这条通用路径。
+  // 三条判据各守一格：闸门出现且在派发之前 / 取消即不派发且解锁 / 截断行只在真截断时出现。
+  describe('发布前摘要确认闸门（2.6）', () => {
+    function readyArticle () {
+      article.title = '标题'
+      article.content = '正文'
+    }
+
+    function gateDialog () {
+      const calls = mockElMessageBox.confirm.mock.calls.map((c) => String(c[0]))
+      return calls.find((t) => t.includes('篇内容发布到'))
+    }
+
+    it('闸门出现在派发之前，文案说出篇数 / 平台数 / 目标数 / 逐平台明细', async () => {
+      mockSensitiveCheck.mockResolvedValue({ code: 0, data: { words: [] } })
+      readyArticle()
+      const r = createFlow()
+      await r.handlePublish()
+
+      const gate = gateDialog()
+      expect(gate, '闸门未出现').toBeTruthy()
+      expect(gate).toContain('1 个平台')
+      expect(gate).toContain('共 1 个')
+      expect(gate).toContain('明细：')
+      // 顺序判据：确认框必须早于真实派发（否则"确认"成了通知，用户没有否决的时机）
+      expect(mockElMessageBox.confirm.mock.invocationCallOrder[0])
+        .toBeLessThan(mockPublishBatch.mock.invocationCallOrder[0])
+    })
+
+    it('用户取消闸门 ⇒ 一次都不派发，且 publishing 复位（不留永久禁用）', async () => {
+      mockSensitiveCheck.mockResolvedValue({ code: 0, data: { words: [] } })
+      mockElMessageBox.confirm.mockRejectedValueOnce(new Error('cancel'))
+      readyArticle()
+      const r = createFlow()
+      await r.handlePublish()
+      expect(mockPublishBatch).not.toHaveBeenCalled()
+      expect(r.publishing.value).toBe(false)
+    })
+
+    it('无截断时摘要里不出现"截断"（不得预告不存在的损失）', async () => {
+      mockSensitiveCheck.mockResolvedValue({ code: 0, data: { words: [] } })
+      readyArticle()
+      const r = createFlow()
+      await r.handlePublish()
+      expect(gateDialog()).toBeTruthy()
+      expect(gateDialog()).not.toContain('截断')
+    })
+
+    it('接线锁：闸门必须经共享实现与 notifyConfirm，且解析失败时放行不堵死', async () => {
+      const fs = require('fs')
+      const path = require('path')
+      const src = fs.readFileSync(path.resolve(__dirname, 'usePublishFlow.js'), 'utf8')
+      expect(src).toMatch(/from '@\/utils\/publish-confirm-summary'/)
+      expect(src).toMatch(/buildPublishSummaryMessage\(\{/)
+      // 取消必须走同一个统一通道（不得旁路 ElMessageBox 自弹一份）
+      expect(src).toMatch(/const confirmed = await notifyConfirm\('publishPage\.publishFlow\.confirmSummary'/)
+      // 解析失败取向：跳过闸门 + 出声，绝不因缺 locale 键把发布堵死
+      expect(src).toMatch(/summary\.failed/)
+      expect(src).toMatch(/publish summary unresolved; confirm gate skipped/)
+
+      const { buildPublishSummaryMessage } = await import('@/utils/publish-confirm-summary')
+      const failed = buildPublishSummaryMessage({
+        targets: [{ platform: 'toutiao', accountId: 'a1' }],
+        resolve: () => '',
+      })
+      expect(failed).toMatchObject({ text: '', failed: true })
     })
   })
 })

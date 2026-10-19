@@ -70,8 +70,10 @@ describe('Publish.vue 首屏并行化契约（audit-63）', () => {
   })
 
   it('失败必须逐条出声（allSettled 不抛 ⇒ 不检查 rejected 就是把失败读成"没有数据"）', () => {
+    // 前缀用 ASCII：渲染端 src 非 locales 文件不得新增中文字面量（locale-sync --cjk 实测会点名，
+    // 本仓第一次跑这条判据时正是被自己新加的 console.warn 撞红的）
     expect(block).toMatch(/r\.status === 'rejected'/)
-    expect(block).toMatch(/console\.warn\(`\[publish\] 首屏数据源失败/)
+    expect(block).toMatch(/console\.warn\(`\[publish\] first-paint data source failed/)
   })
 })
 
