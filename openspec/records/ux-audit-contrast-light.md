@@ -111,3 +111,7 @@ CL-7 有一条红落在**本批之前就存在**的锁上（`批次 2：暗色�
 3. **没有动 `contrast-audit.js` 去覆盖浅色态**：那是真浏览器 computed-style 现场（要 dev server + CI 的 Chromium），
    属另一条链路；本批的判据是**源级**的（读 tokens.css 的声明值），两者互补而非替代。
    如实记下这个缺口：源级判据看不见"某组件其实用了硬编码色而非 token"，那由 `check-frontend-consistency.js` 的 colorLiterals 基线守。
+
+## 远程同步
+
+| 远程同步 | 由门禁推导 | 本行**不事后改写**：合并后由 `scripts/lib/merge-ledger.js` 按主干历史推导归属（只认 squash 尾注 `(#NNNN)`，PR 号见本 PR 页面）；现场读数看 CI 步骤首行 `MERGE-LEDGER prs=<n>`。合并前这篇还不在基线上 ⇒ 判 `byDesign` 不红；把状态列预写成 `PASS` 会被 `prematureClaims` 判红（change: `ban-record-closure-backfill-pr` / `gate-record-sync-derived-status`）。main push 回读证据写在 PR 评论里，不写回本文件。 **本行的存在本身就是判据**：`check-gate-record-debt.js` 对「整块缺 远程同步 行」的新记录当场判红（本轮实测过：本仓两篇新记录因为只写了 frontmatter 的 `sync_pr/sync_status` 就被拦下，frontmatter 那几个键是**意图声明**，不能替代这一行）。 |
