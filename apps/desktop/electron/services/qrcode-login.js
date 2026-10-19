@@ -33,7 +33,8 @@ const accountProfile = require('@multi-publish/shared-utils/src/account-profile'
 const EC = require('../core/error-codes').ERROR
 const { withSenderCheck } = require('../ipc-handlers/helpers')
 // 内嵌视图定位唯一来源：必须用「客户区」尺寸，禁用 getBounds() 外框尺寸（见 view-bounds.js）
-const { computeEmbeddedViewBounds, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } = require('./view-bounds')
+// 宽度守卫用共享的 isValidSidebarWidth：各自手写比较拦不住 NaN（所有比较都是 false）。
+const { computeEmbeddedViewBounds, isValidSidebarWidth } = require('./view-bounds')
 // 登录页宽度自适应（2026-09-28 非全屏登录页显示不全修复）：与 AuthViewManager 同根因，
 // 固定内容宽的扫码页在非全屏视图中横向溢出被裁，按需缩小 zoomFactor（见 login-view-fit.js）
 const loginViewFit = require('./login-view-fit')
@@ -67,8 +68,10 @@ class QrCodeLogin {
     this.onOpened = null
     /** @type {(() => void) | null} */
     this.onClosed = null
-    /** @type {number} 左侧导航栏宽度（签名兼容保留；独立窗口承载后不再参与布局） */
+    /** @type {number} 左侧导航栏宽度（由 WebviewManager 同步，默认 200px） */
     this._sidebarWidth = 200
+    /** @type {boolean} 左侧导航栏是否收起（全局折叠按钮；收起时扫码视图 x=0 全宽） */
+    this._sidebarCollapsed = false
   }
 
   setMainWindow (win) {
@@ -600,8 +603,23 @@ class QrCodeLogin {
   setSidebarWidth (width) {
     // 与 WebviewManager.setSidebarWidth 对齐：宽度必须严格 > 0（见 view-bounds MIN_SIDEBAR_WIDTH），
     // 拒绝 0 与负值，避免内嵌扫码登录视图 x 落到 0 覆盖侧边栏。
-    if (typeof width !== 'number' || width < MIN_SIDEBAR_WIDTH || width > MAX_SIDEBAR_WIDTH) return
+    // 用共享守卫 isValidSidebarWidth：NaN 能穿过手写的 `width < MIN || width > MAX`。
+    if (!isValidSidebarWidth(width)) return
     this._sidebarWidth = width
+    if (this.mainWindow && this.currentView) {
+      this._positionView()
+    }
+  }
+
+  /**
+   * 设置左侧导航栏是否收起（由 WebviewManager 同步）。
+   * 收起时扫码登录视图必须 x=0 全宽 —— 内嵌原生图层不会跟随宿主 DOM 的 display:none。
+   * @param {boolean} collapsed
+   */
+  setSidebarCollapsed (collapsed) {
+    if (typeof collapsed !== 'boolean') return
+    if (this._sidebarCollapsed === collapsed) return
+    this._sidebarCollapsed = collapsed
     if (this.mainWindow && this.currentView) {
       this._positionView()
     }
@@ -616,7 +634,12 @@ class QrCodeLogin {
    */
   _positionView () {
     if (!this.currentView || !this.mainWindow) return
-    this.currentView.setBounds(computeEmbeddedViewBounds(this.mainWindow, this._sidebarWidth))
+    this.currentView.setBounds(computeEmbeddedViewBounds(
+      this.mainWindow,
+      this._sidebarWidth,
+      undefined,
+      this._sidebarCollapsed,
+    ))
     // 宽度自适应（旁路：失败只告警，不得影响扫码登录链路；页面未加载时探针为 no-op）
     loginViewFit.fitLoginViewZoomSafe(this.currentView, { tag: 'QrCodeLogin' })
   }

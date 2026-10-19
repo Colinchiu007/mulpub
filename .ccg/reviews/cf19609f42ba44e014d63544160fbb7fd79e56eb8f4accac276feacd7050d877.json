@@ -1,0 +1,69 @@
+{
+  "sha": "9923e17404691daca77664b7c94e8701cec637f5",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 31 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 31,
+    "fileCount": 2,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "cf19609f42ba44e014d63544160fbb7fd79e56eb8f4accac276feacd7050d877",
+  "decidedAt": "2026-10-18T15:43:28.049Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play(agent)",
+    "fallbackReason": "跨家族对抗后端超时（本会话第 6 次同型 ETIMEDOUT），按引擎第三档出口 self_play 自查。本条改动全部落在测试夹具与配置注释上，自查重点是「换样本是否削弱了用例原意图」。",
+    "evidenceInRepo": "openspec/records/toutiao-video-api.md §八 与本 commit message（逐条说明为何换样本、原意图如何保持）",
+    "confidenceWeight": 0.6,
+    "adjudication": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "finding": "把「步骤 9 对 has_api:false 平台不得找发布链」的反例从 toutiao 换成 weibo，可能把 case 换成更弱样本（weibo 块 14 行、zhihu 17 行，toutiao 原 17 行）。",
+        "verdict": "upheld_rationale",
+        "rationale": "该用例断言的是「has_api:false ⇒ 详情含『无需发布链』」，与块行数无关；weibo 与 toutiao 同为 has_api:false，语义完全等价。且顺序无关性那组由 [weibo, zhihu, toutiao] 换成 [weibo, zhihu, instagram]，仍然覆盖「三个 has_api:false 平台互相印证」，样本数与原设计一致（3 个）。实测 21/21 pass，说明换样本后判据仍被真实执行（不是恒过）。",
+        "fixCommit": null
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "YAML_CASES 里写死的块行数 17→19 是维护陷阱：以后任何人编辑 toutiao 块都会让它红，且红的原因与「块边界提取正确性」这个原意图无关。",
+        "verdict": "accepted_known_tradeoff",
+        "rationale": "这是原测试本来的设计（它自称「合规版图快照：记录现状，不是宣称现状对」，并在注释里写明「若是有意修好了，请同步更新本快照」）。改成只断言不变量的做法会让「块行数变化」这个信号消失，而该信号在历史上正是「块提取吃到别的平台」的探针之一 —— 削弱它不是本 PR 该做的决定。故保持原设计，只同步数值，并在夹具旁注明「配置有意变更时同步更新」。",
+        "fixCommit": null
+      },
+      {
+        "id": "i3",
+        "severity": "Info",
+        "finding": "判据 11 的 ③「无链平台」组移出 toutiao、① 「有链平台」组加入 toutiao，等于改了「哪些平台该被要求链级测试」的期望面。",
+        "verdict": "upheld_rationale",
+        "rationale": "这正是该用例的设计意图：① 断言「有链就必须报出链 N 个 + 链级测试 M 个」，③ 断言「无链不得因无链可测被判红」。toutiao 补链后语义从 ③ 变成 ①，把它挪组是**跟随事实**，不是放宽。若不移，反而会让 ③ 拿一个有链平台去验「无链」分支 —— 那才是失真。",
+        "fixCommit": null
+      },
+      {
+        "id": "i4",
+        "severity": "Info",
+        "finding": "同时把 platforms.yaml 里头条的 10 行注释压到 2 行，属「顺手改动」，混在门禁修复里。",
+        "verdict": "upheld_rationale",
+        "rationale": "不是为了美观：`YAML_CASES` 断言块行数，10 行注释会把该数字从 17 顶到 27，而详细理由本应放执行记录 —— 压到 2 行后块为 19 行，既保住可读性也把夹具数值控制在合理范围。详细论证全部保留在 `openspec/records/toutiao-video-api.md`。",
+        "fixCommit": null
+      }
+    ],
+    "summary": {
+      "total": 4,
+      "upheldRationale": 3,
+      "acceptedKnownTradeoff": 1,
+      "note": "本条改动面只有测试夹具与配置注释，无运行时代码；自查结论是「换样本保持了原意图、未削弱判据」，并如实登记了「硬编码块行数」这个既有维护陷阱而非偷偷改掉它。"
+    },
+    "at": "2026-10-18T16:00:48.508Z"
+  }
+}

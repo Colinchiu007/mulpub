@@ -18,6 +18,7 @@ const {
   normalizeSize,
   getContentSize,
   normalizeSidebarWidth,
+  isValidSidebarWidth,
   computeEmbeddedViewBounds,
 } = require('./view-bounds')
 
@@ -101,6 +102,42 @@ describe('normalizeSidebarWidth', () => {
   })
 })
 
+describe('isValidSidebarWidth（manager 层入参守卫单一真源）', () => {
+  it('合法值放行：含边界 1 / 600 与窄屏 68', () => {
+    expect(isValidSidebarWidth(1)).toBe(true)
+    expect(isValidSidebarWidth(68)).toBe(true)
+    expect(isValidSidebarWidth(200)).toBe(true)
+    expect(isValidSidebarWidth(600)).toBe(true)
+  })
+
+  it('拒绝 0 / 负值 / 越界 / 非数字', () => {
+    expect(isValidSidebarWidth(0)).toBe(false)
+    expect(isValidSidebarWidth(-1)).toBe(false)
+    expect(isValidSidebarWidth(601)).toBe(false)
+    expect(isValidSidebarWidth('200')).toBe(false)
+    expect(isValidSidebarWidth(null)).toBe(false)
+    expect(isValidSidebarWidth(undefined)).toBe(false)
+    expect(isValidSidebarWidth({})).toBe(false)
+  })
+
+  it('拒绝 NaN —— 手写比较 `w < MIN || w > MAX` 拦不住它（NaN 的所有比较都是 false）', () => {
+    // 这是本函数存在的唯一理由：四处 manager 各自手写的守卫都漏了这一类。
+    // 复现"NaN 能穿过 typeof + 区间比较"：typeof 检查过得去，两个比较都 false。
+    // （不直接写 `NaN < 1`：use-isnan 规则本身就在拦这种反模式，正好印证手写比较不可靠）
+    const nan = 0 / 0
+    expect(typeof nan === 'number').toBe(true)
+    expect(nan < 1 || nan > 600).toBe(false)
+    expect(Number.isNaN(nan)).toBe(true)
+    // 共享守卫必须挡住
+    expect(isValidSidebarWidth(nan)).toBe(false)
+  })
+
+  it('拒绝 ±Infinity', () => {
+    expect(isValidSidebarWidth(Infinity)).toBe(false)
+    expect(isValidSidebarWidth(-Infinity)).toBe(false)
+  })
+})
+
 describe('computeEmbeddedViewBounds（内嵌视图布局契约）', () => {
   it('基于客户区计算：左侧留出侧栏、顶部留出 TabBar+NavBar', () => {
     const bounds = computeEmbeddedViewBounds(createRealShapeWindow(), 200)
@@ -140,6 +177,45 @@ describe('computeEmbeddedViewBounds 侧栏宽度=0 防御（回归 2026-09-15 �
   it('侧栏宽度为非法负值同样回落默认 200', () => {
     const bounds = computeEmbeddedViewBounds(createRealShapeWindow(), -3)
     expect(bounds.x).toBe(SIDEBAR_WIDTH_DEFAULT)
+  })
+})
+
+/**
+ * 侧栏**收起**（用户点全局折叠按钮）与「宽度非法=0」是两件事：
+ *   · 宽度=0 是**缺失/异常上报**，必须回落 200（防内嵌视图盖住侧边栏，见上组回归）；
+ *   · 收起是**显式用户意图**，此时侧边栏 display:none，内嵌视图必须 x=0、横向铺满，
+ *     否则浏览器/账号/登录标签会在左侧留下 200px 死区（原生图层不跟 CSS 布局）。
+ * 因此收起由**独立的布尔参数**表达，绝不靠 width=0 借用守卫的后门。
+ */
+describe('computeEmbeddedViewBounds 侧栏收起（显式 collapsed 标志）', () => {
+  it('收起时内嵌视图 x=0、宽度=客户区全宽，顶部偏移仍为 76', () => {
+    const bounds = computeEmbeddedViewBounds(createRealShapeWindow(), 200, BROWSER_CHROME_TOP, true)
+    expect(bounds).toEqual({ x: 0, y: 76, width: 1424, height: 785 })
+  })
+
+  it('收起时显式传入的侧栏宽度被忽略（收起态没有侧栏宽度可言）', () => {
+    expect(computeEmbeddedViewBounds(createRealShapeWindow(), 68, BROWSER_CHROME_TOP, true).x).toBe(0)
+    expect(computeEmbeddedViewBounds(createRealShapeWindow(), undefined, BROWSER_CHROME_TOP, true).x).toBe(0)
+  })
+
+  it('展开（collapsed=false 或缺省）时行为与既有契约逐字节一致', () => {
+    const expanded = computeEmbeddedViewBounds(createRealShapeWindow(), 200)
+    expect(computeEmbeddedViewBounds(createRealShapeWindow(), 200, BROWSER_CHROME_TOP, false)).toEqual(expanded)
+    // 展开态下 width=0 仍按非法值回落默认 200（守卫不被 collapsed 参数绕过）
+    const guarded = computeEmbeddedViewBounds(createRealShapeWindow(), 0, BROWSER_CHROME_TOP, false)
+    expect(guarded.x).toBe(SIDEBAR_WIDTH_DEFAULT)
+  })
+
+  it('非布尔值不得被当成收起（strict true，防 IPC 参数漂移）', () => {
+    for (const value of [1, 'true', '1', {}, []]) {
+      const bounds = computeEmbeddedViewBounds(createRealShapeWindow(), 200, BROWSER_CHROME_TOP, value)
+      expect(bounds.x, `collapsed=${JSON.stringify(value)} 必须按展开处理`).toBe(200)
+    }
+  })
+
+  it('收起与自定义顶部偏移可同时使用（分屏 NAV_HEIGHT=56 场景）', () => {
+    const bounds = computeEmbeddedViewBounds(createRealShapeWindow(), 200, 56, true)
+    expect(bounds).toEqual({ x: 0, y: 56, width: 1424, height: 805 })
   })
 })
 

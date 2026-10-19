@@ -647,6 +647,20 @@ function clearRewriteResult () {
 }
 
 async function rewriteViaEngine (content) {
+  // 空正文守卫（2026-10-18，fix-collect-rewrite-empty-content）：内容缓存命中会返回空壳
+  // {title:'',content:''}（url-collector.js cache_hit 分支），此时「一键改写」会把空串
+  // 发往改写引擎（旧链路报 Python 422，新链路同样无意义）。四个调用点（视频转写 /
+  // stealth 自动 / 聚合回退 / 手动改写）都走这个漏斗，在这里判空一次覆盖全部路径；
+  // 复用既有稳定错误码 AGGREGATION_CONTENT_EMPTY（zh/en 文案已由 user-facing-error 提供）。
+  if (!content || !String(content).trim()) {
+    return {
+      __error: {
+        code: -400,
+        errorCode: 'AGGREGATION_CONTENT_EMPTY',
+        message: resolveNotifyText('userErrors.AGGREGATION_CONTENT_EMPTY').text,
+      },
+    }
+  }
   let res
   try {
     // main 新增的字数控制（min/max）→ targetLength 语义映射：窄区间视为 short，宽高区间视为 long，其余 medium

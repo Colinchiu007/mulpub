@@ -1,0 +1,99 @@
+{
+  "sha": "c4f140419bd19f140f33d60b6ae665666ce797da",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 1105 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 1105,
+    "fileCount": 10,
+    "codeFileCount": 9,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 12,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "   （Chromium 用同一 Windows 用户的 DPAPI 自行解密 ⇒ 真实登录态）",
+      "| `GET /xigua/api/upload/GetPublishAuth?params={}&msToken=..` | 发布权限 | `data.authorPermission.DisablePublish=false` 等 |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "4f7056440e5d7dc2526ebd91dca94f85b7ed6147555d5a796e8c635f90615e84",
+  "decidedAt": "2026-10-18T14:59:39.400Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play(agent)",
+    "error": "spawnSync <HOME>/.claude/bin/codeagent-wrapper.exe ETIMEDOUT",
+    "fallbackReason": "跨家族对抗后端超时（spawnSync codeagent-wrapper.exe ETIMEDOUT，本会话第 5 次同型环境阻塞）；按引擎第三档出口 self_play 由 agent 逐条对抗自查。本轮 DUAL/1105 行，自查重点放在「抽取共用实现是否改变既有链行为」。",
+    "evidenceInRepo": "openspec/records/toutiao-video-api.md §二/§三/§八（取证、复用边界、未闭合清单，入库可审计）",
+    "confidenceWeight": 0.6,
+    "adjudication": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "把抖音 uploadVideo 抽成共用实现时，`分片缺失` 的错误码从 errorCode.io_error(-5) 降成了 DouyinVideoError 的默认值 data_error(-2) —— 既有链的错误语义被静默改变。",
+        "verdict": "upheld_fixed",
+        "rationale": "原文三条失败路径分别是 data_error / io_error / data_error，而共用实现只调 `new ErrorClass(msg)`，构造器默认 code=data_error ⇒ 只有中间那条被改了。虽然 publish-api-capabilities 把 -2/-5 都映射成 HTTP 400（对外状态码不变），但错误语义与调用方判据会变，属真实回归。修法：共用实现新增 `errorCodes:{noNodes,shortChunks,noVid}` 映射，抖音链显式传 `{noNodes:data_error, shortChunks:io_error, noVid:data_error}`。已实测 noNodes 仍为 -2。",
+        "fixCommit": "本 PR 追加提交"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "抖音链仍保留第二份 aws4 签名实现（`_signedGet`/`_signedPost` + 本地 sha256hex/pickSigned/hostOf + aws4 依赖），与「抽单一实现」的目标自相矛盾。",
+        "verdict": "upheld_fixed",
+        "rationale": "改造后 uploadVideo 已完全走共用实现，本地 _signedGet/_signedPost 只剩 uploadCover 的 imagex 两处调用。共用 signedGet/signedPost 签名即可满足（service 参数已支持 imagex）⇒ 已切换调用点并删除 本地 _signedGet/_signedPost/sha256hex/pickSigned/hostOf 与 aws4 导入。删除后 15 例抖音链测试仍全绿（覆盖 imagex 封面路径）。",
+        "fixCommit": "本 PR 追加提交"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "抽出的 partSizeFor 用了 `<=` 写法，而抖音原实现是 `>` 写法；两者在**恰好 500MB / 1000MB** 处档位不同（原实现 500MB→5MiB，新实现 500MB→3MiB），大文件分片数与上传行为会变。",
+        "verdict": "upheld_fixed",
+        "rationale": "纯抽取重构必须逐字保持原行为。已把共用实现改回抖音原 `>` 形式，并在函数上写明「刻意保留写法、两者在边界处不等价」。抖音原实现注释写的 `<=` 描述与代码不一致，以代码为准。",
+        "fixCommit": "本 PR 追加提交"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "buildPublishBody 用 String#slice(0,30) 截标题，会把 emoji 的代理对切成孤立高位代理，提交给平台即乱码/非法字符；头条标题上限正好是 30 字，最容易踩到。",
+        "verdict": "upheld_fixed",
+        "rationale": "已新增 truncateByCodePoint（按码点截断，无代理对时走 length 快路径），title/abstract 均改用；并补 2 例回归：31 个 emoji 的标题截断后必须恰好 30 个且不含孤立代理；未超限时原样保留。",
+        "fixCommit": "本 PR 追加提交"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "PublishVideo 的请求体字段（title/abstract/vid/tags）是推断的，未实网取证；若字段名不对，链会在最后一步失败。",
+        "verdict": "accepted_documented",
+        "rationale": "抓包时对 PublishVideo 主动 abort（安全边界：不在未确认形状前发真稿）。已在 PR 正文与执行记录 §六 明确标注「端点双重确认、字段名待验证」，并且**刻意**只打开 `has_api` 而把 `publishMode` 保持 `dom-only` —— 在形状验证前不切线上流量。这是「宁可慢一步也不拿线上试错」的选择，不是遗漏。",
+        "fixCommit": null
+      },
+      {
+        "id": "i6",
+        "severity": "Info",
+        "finding": "为让 apply 响应回填服务器自身 host，给共享测试基建 test/helpers/fake-http.js 新增了 replaceRouteBody()，属改动他人共用文件。",
+        "verdict": "accepted",
+        "rationale": "纯增量：不动既有 startFakeServer 签名、不动 requests/requestsFor/methodPathList 语义，未命中路由时显式抛错（不静默）。既有 44 个 vitest 文件全绿即证明无回归。",
+        "fixCommit": null
+      },
+      {
+        "id": "i7",
+        "severity": "Info",
+        "finding": "共用实现里 `uploaded < total`（分片缺失）分支实际不可达——循环内不捕获异常，任何请求抛错都会直接冒泡。",
+        "verdict": "accepted",
+        "rationale": "抖音原实现结构相同（用 crcs.size 判断），同样不可达。保留该分支与错误码映射是为「抽取时忠实原文」，不是新增活路径。已在 i1 的说明里保留其错误码，避免将来该分支变成可达时语义错位。",
+        "fixCommit": null
+      }
+    ],
+    "summary": {
+      "total": 7,
+      "upheldFixed": 4,
+      "acceptedDocumented": 1,
+      "accepted": 2,
+      "criticalFixed": 1,
+      "note": "自扮演自查在「抽取共用实现」这个最容易出静默回归的动作上抓到 4 个真问题（含 1 个 Critical 错误码降级、1 个边界档位不等价、1 个代理对切半），均已修复并补测试锁。"
+    },
+    "at": "2026-10-18T15:18:36.302Z"
+  }
+}

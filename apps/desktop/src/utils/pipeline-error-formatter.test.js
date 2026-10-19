@@ -136,4 +136,22 @@ describe('formatPipelineError', () => {
     const result = formatPipelineError(raw)
     expect(result.key).toBe('story2video.rate_limited')
   })
+
+  it('matches the VOICE_CLONE_UNAVAILABLE backend prefix (history page error chain)', () => {
+    const r = formatPipelineError('VOICE_CLONE_UNAVAILABLE: 供应商已不再受理该音色，且本地克隆样本缺失')
+    expect(r.key).toBe('story2video.voice_clone_unavailable')
+    expect(r.params).toEqual({ context: '' })
+    expect(r.message).toBe('')
+  })
+
+  it("matches the provider access-denial wording you don't have access to this voice_id", () => {
+    const raw = "Asset scene generation failed: 0/9 scenes have both image and audio. TTS #1: TTS provider failed: you don't have access to this voice_id"
+    const r = formatPipelineError(raw)
+    expect(r.key).toBe('story2video.voice_clone_unavailable')
+  })
+
+  it('keeps plain voice_id errors on the existing voice path (no regression)', () => {
+    const r = formatPipelineError('TTS provider "minimax-tts" failed: invalid params, voice id wrong')
+    expect(r.key).not.toBe('story2video.voice_clone_unavailable')
+  })
 })

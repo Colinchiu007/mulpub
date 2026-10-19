@@ -1,3 +1,449 @@
+## 「没人读」和「读不到」是两件事——先查消费者，再决定删字段还是补校验（debt-ledger-shape-normalize，2026-10-19）
+
+### lesson:check-consumers-before-diagnosing-a-dead-field
+
+**我上一轮把"账本里 `status`/`line` 没人读"说成了"判据读不到状态"，两句都不是当场量的。** 真去读 `loadLedger` 才发现它 `typeof entry === 'string' ? entry : entry.reason` —— 两种形态都读得动，只是**只取 reason**；而 `status`/`line` 确实无人消费。所以缺陷不是"读取有洞"，而是"**数据里躺着两份无人核对、且其中一份结构上必然过期的事实**"。修法因此从"补齐 status 读取"（会造出与载体测量重复的第二真源）翻成"删字段 + 判据拒收"（`{reason,status,line}` 当场抛错并点名键）。**判"某字段是死是活"的最低动作**：① grep 被读处（`entry\.status` / `entry\.line`），② 读归一化函数本体，③ 再逐条比它和现场事实是否一致——第 ③ 步这次量出 `line` 9/9 已指错、`status` 1/9 已说谎，才有资格说"腐化"。
+
+**可复用的形态结论**：置顶追加型台账（每合并一次整体下移）里**任何行号指针都是负债**，别存；状态类字段若判据本来就会从载体测，账本里存副本就是第二真源，漂移只是时间问题。账本该只存**无法推导的东西**——这里是"为什么没回填"的原因。
+
+**配套的两条锁的分工要分开测**：真仓形状锁（值全为字符串 + 键数下界，防"清空账本变绿"）由**数据变异**抓（M5 迁移漏一条 ⇒ 红在这条）；拒收行为由**夹具变异**抓（M1 退回宽容读 ⇒ 红在拒收用例）。两条各打各的格子，合成一条就会互相掩盖。
+
+## 缓存空壳与漏斗守卫：空正文不得进改写链路（fix-collect-rewrite-empty-content，2026-10-18）
+
+## 字幕分句短语边界：四条可复用教训（subtitle-phrase-boundary-v1.3，2026-10-18）
+
+### lesson:editable-install-points-at-the-original-repo
+
+**`pip install -e .` 装出来的包指向的是「装的那一刻那个目录」，不是「你当前所在的 worktree」——在新 worktree 里跑测试，测的是旧代码。**
+
+现场：`smart-sentence-splitter` 是本机 editable install（`pip show` 报 `Editable project location: <原仓库绝对路径>`）。按规范建了隔离 worktree `sss-subtitle-phrase-boundary` 后，在 worktree 里改 `subtitle_segmenter.py` 并跑 `pytest`，结果是「改动好像没生效」——因为 `import splitter` 解析到的是**原仓库**的 `src/`。更隐蔽的是：我先跑了 176 个用例全是绿的，很容易把「绿」读成「改对了」；直到用 `python -c "import splitter...; print(m.__file__)"` 才看见真相。
+
+判据与解法：① 在非安装目录（worktree / 临时克隆）里跑 Python 测试前，**必须**先确认 `import <pkg>` 的 `__file__` 落在当前工作树，而不是凭「测试绿了」推断；② 覆盖用 `PYTHONPATH=<worktree>/src` 前置（`sys.path` 里 `PYTHONPATH` 优先于 site-packages 的 `.pth` 重定向）；③ 更根本的判据：**任何「改了代码但行为没变」的第一嫌疑是加载路径，不是逻辑**——先去证 `__file__`，再去看算法。
+
+### lesson:three-way-parity-means-three-repos-not-three-files
+
+**「三端逐字一致」不是「三个文件改一样」，而是「三个文件 + 一份共享数据 + 三份向量副本」四处同时落地；少一处，一致性就是纸面的。**
+
+现场：本仓字幕分句有三份实现（Python sidecar / TS 权威版 / Electron JS 镜像），共享一份 `subtitle-rules.json` 与一份 `subtitle_segmentation_vectors.json`。我只改了 mulpub 里的规则表与 TS/JS 代码时，TS 与 JS 全绿、parity 也绿——因为 parity 只比 TS vs JS，**根本不涉及 Python**。Python 侧要等真实 8002 链路 E2E 才会红，而那条 E2E 需要手工起服务、默认不进 PR 门禁。
+
+判据：跨仓/跨语言一致性的检查清单必须把「谁在 CI 里守它」写清：① 共享数据（规则表）有**几份物理副本**；② 向量文件有**几份物理副本**；③ 哪些测试比对**哪两端**；④ 哪两端**没有**任何自动比对（本案：Python vs TS 只有人工 E2E）。第 ④ 项是最容易被漏掉的一格，写空就等于默默接受漂移。
+
+### lesson:no-candidate-is-a-different-bug-than-wrong-candidate
+
+**「一个候选都没找到」和「找到的候选是错的」是两种缺陷，修法完全不同；先分清再动手。**
+
+现场：字幕坏切的插桩输出里，`isGoodCut` 对 `cur` 的每个位置都打 `REJECT`，最后返回 -1。我一开始按「候选判定太严」去放宽阈值（`minHead` 从 8 放到 6），实测只救回 11 个坏例里的 2 个。真正的原因是**结构性的**：`len === maxChars(15)` 且 `minHead === minChars(8)` 时，合法窗口 `i ∈ [len-minChars, maxChars]` 经常是空集（15 < 8+8），所以不是「判据严」而是**窗口本身没有候选**；下游 `findSafeCutPosition` 只校验「安全」不校验「语义」，于是退化成算术裸切。
+
+判据：看到「候选全拒 → 返回 -1 → 下游兜底」这条链，先算**窗口是否非空**（用真实 `cur.length` 与 min/max 代入），再谈放宽。窗口为空的场合，放宽任何单点判据都只是碰运气；正解是在**更早的阶段**产生切点（本案：把短语边界提升为与标点等价的切分信号，在累积阶段就切，而不是等 MAX 分支兜底）。
+
+### lesson:tokenizer-diffs-are-not-a-stable-authority
+
+**两个分词器在同一句中文上的切分跨度可以逐行不一致；把「分词边界」升成跨实现硬判据，等于把测试写成了「谁的分词器赢」。**
+
+现场：为修字幕坏切，最初想直接把 jieba/segmentit 的 token 边界当切点。实测同一段文案 8 行里 **8 行分词跨度全部不一致**（起始/结束位置系统性偏移），且本仓 `segmenterSpans` 的贪心对齐（`indexOf(word, cursor)` 命中失败就跳过）在连续中文上会**丢边界**。若据此判切点，三端逐字一致的既有契约当场破裂。
+
+判据：跨实现共享的判定规则必须能表达成**该语言自带的字符/字符串操作**（本案：`text.slice(i - left.length, i) === left` 这类纯字符串比较），不能依赖「某个库的输出」。凡是「规则需要靠 A 库的输出、而 B 语言没有同一个库」的地方，那不是共享规则，是隐藏的平台绑定。**成对登记（`[[left, next], ...]`）优于单侧字符集**也是同一族的教训：单侧的 `tail`/`head` 集合交集会产生假边界（`了|拉` 既可能来自「为了拉拢」也可能来自「完成了拉车」），而成对登记把「块尾短语」与「块首后续」绑定，假阳性从集合交集降到显式枚举。
+
+## registry 里有记录不等于音色可用：完整性对账必须发生在消费点之前（fix-s2v-voice-clone-integrity，2026-10-18）
+
+### lesson:registry-presence-is-not-availability
+
+**「本地 registry 有 active 记录」是一个持久化事实，不是可用性结论。**
+
+现场：项目 `mvdxd21s_o1ws` 在 `generate_assets` 失败，9 条 TTS 全被供应商拒绝
+（`you don't have access to this voice_id`），重克隆回退因样本目录
+`voice-clone-samples/<ownerHash>/47f825cb-634e-4c5f-8d90-cc904e547411` 不存在而 ENOENT。
+而 SQLite registry 里该记录仍是 `deletionState=active`，偏好与 `lastOptions` 也仍指向它。
+`listClones` 只校验了 `voice_id` 格式，从不与样本磁盘对账 ⇒ 「registry 说存在、磁盘不在、
+供应商拒绝」三方同时成立却无人发现。
+判据：凡是「本地副本 + 远端 ID」双载体能力（克隆音色、缓存、离线包、导入素材），
+消费前必须回答「本地副本还在吗」；只回答「记录在吗」等于没回答。
+
+### lesson:mark-invalid-at-the-single-entry-not-at-each-consumer
+
+**失效标记要在唯一入口打一次，不要在每个消费方各判一遍。**
+
+现场：失效信号需要被三个消费方使用——catalog（移入 `invalidVoices` + 偏好回退）、
+前端克隆列表（徽标/禁用「设为默认」）、流水线（生成前置守卫）。若在 catalog 里过滤，
+另外两方拿不到；若三处各写一套判据，必然漂移。
+落点选在 `TtsVoiceCloneService.listClones` 打 `invalid:true` + `invalidReason`，并新增只读
+`getCloneVoiceStatus` 给守卫消费；catalog 既有 7.1.16 通道自动继承，前端零改动拿到徽标。
+判据：同一条失效语义有 N 个消费者时，先找「N 个消费者共同读的那个入口」。
+
+### lesson:preflight-guard-must-fail-open-and-run-before-side-effects
+
+**前置守卫的价值在「副作用之前」，而它的安全性在「自身故障时不扩大故障面」。**
+
+现场：`generate_assets` 在创建任何图片/视频/TTS Promise 之前调用守卫，命中即返回
+`VOICE_CLONE_UNAVAILABLE`，事故里可省下 9 条 TTS + 图片生成（约 137 秒与全部额度）。
+同时守卫必须 fail-open：服务未注册、方法缺失、查询抛错、未注册音色、有效克隆一律放行——
+否则「守卫坏了」会变成「所有生成都失败」，比原故障更糟。
+判据：守卫 = 只读 + 在副作用之前 + 命中才阻断 + 自身故障放行；四条缺一不可。
+
+### lesson:aggregate-repeated-provider-errors-before-showing-them
+
+**同一句供应商英文重复 N 次不是「信息完整」，是把可操作信息稀释成噪音。**
+
+现场：9 条 TTS 失败原因逐字相同，旧 `summarizeAssetFailures` 按场景拼成
+`TTS #1: you don't have access...; ...; TTS #9: you don't have access...`。
+修复后：① 相同 message 去重并输出场景区间（`TTS #1-#3: <msg>`）；
+② 当全部失败同属「克隆音色不可用」时聚合成一条 `VOICE_CLONE_UNAVAILABLE` 可操作提示；
+③ 聚合前先写 `context.generate_assets.resume`，断点不因聚合错误丢失。
+判据：批量失败默认按「原因」分组，同因全失败才聚合；聚合是「换一句可操作的话」，
+不是「把多条藏起来」——混合原因仍要逐条可见。
+
+## 缓存空壳与漏斗守卫：空正文不得进改写链路（fix-collect-rewrite-empty-content，2026-10-18）
+
+## 改共享解析器口径时，先 grep「这个字段/函数被哪些测试断言过」
+
+### lesson:shared-resolver-change-must-grep-consumers-first
+
+**改一个被多处消费的解析器时，我列的「受影响测试清单」几乎必然是残缺的——清单要靠 grep 生成，不靠回忆。**
+
+现场：`resolveProviderDefaultModel` 的口径从「provider 级默认优先」改成「能力默认优先」后，
+本机定向跑了 56 个文件 / 1406 例（我自己按目录挑的清单）全绿，CI 的全量桌面分片却红了两处：
+`prompt-bridge.test.js` 里一条夹具同时给了 `capability_models.llm` 与 `config.default_model` 并断言后者胜；
+`CreateView.voice-clone-delete-guard.test.js` 只设 `s2vConfig.voiceProvider/voiceModel` 而没注册 provider 行，
+新实现按注册表解析 ⇒ 上下文为 null ⇒ 危险操作确认框根本没弹。
+两处都不是实现缺陷，而是**旧口径夹具**——但它们也不在我的清单里。
+
+判据：改动前先跑一次 `Select-String`/`grep` 找**字段名与函数名的全部测试引用**
+（本例是 `default_model`、`capability_models`、`getS2VVoiceContext`、`s2vVoiceProvider`），
+把命中的测试文件直接放进必跑列表；「按目录挑」只能覆盖你记得的那些。
+更一般的形状：**凡是被 ≥3 处消费的纯函数，它的语义变更面 = 全仓对它的断言集**，而这个集合只能机械枚举。
+
+### lesson:fixture-must-satisfy-the-new-precondition-not-bypass-it
+
+**夹具红了两条路：补前置条件（对）与放宽断言（错）——区别在于「生产路径也满足这个前置吗」。**
+
+现场：克隆删除测试失败后，最省事的修法是把 `getS2VVoiceCloneContext()` 改回「读 config.voiceModel」让夹具过；
+那样会把刚拆掉的第二真源又装回去。正解是在夹具里注册 provider 行——因为生产路径本来就是
+「先 `loadS2VProviders` 再操作音色」，夹具缺的是前置条件而不是断言太严。
+判据：夹具报红时先问「生产里这个前置一定成立吗」，成立就补夹具；不成立就是实现缺 fail-closed 或提示。
+
+## 任务详情页模型信息：先核实「信息有没有落盘」，再摆四个字段（s2v-result-model-info，2026-10-18）
+
+### lesson:display-needs-persisted-facts-not-runtime-facts
+
+**「页面上要显示 X」的第一问不是「X 在哪渲染」，而是「X 有没有被写进这个对象」。**
+
+现场：需求是历史记录任务详情页显示文本/语音/图片/视频四类模型。语音/图片/视频三类在
+`project.options`（`_safeOptions` 白名单）与 `segments[].*Meta`（provider 实际返回）里都有，
+照着摆就能显示。**文本模型没有**：`optimize` 阶段的 prompt-engine 一直返回 `model_used`，
+但 `story2video-stages.js` 的 `pairedScenes` 构造处不携带 `promptOptimizationMeta`，
+`Story2VideoProjectService._persistComposeArtifacts` 虽已定义该白名单字段却从不被填值
+⇒ 详情页恒为空。
+
+判据：接到「显示某信息」的需求，先沿**写入方**追一遍——这个字段在生产链路的哪一步被赋值？
+如果只在"用户手动触发"的分支里被写（本例 `regenerateScenePrompt` 才写 `promptOptimizationMeta`），
+那自动主路径就是断的。直接摆字段会交付一个"3/4 项恒空"的残缺功能，而且测试还全是绿的
+（因为空值分支也有"合理表现"）。
+
+### lesson:options-is-intent-metas-are-execution
+
+**同一个模型，`options` 是「用户选了谁」，`segments[].meta` 是「实际用了谁」——展示诊断信息要后者。**
+
+现场：`project.options.imageModel` 来自用户在下拉里的选择；`segments[].imageMeta.model`
+来自 provider 的返回值。两者在三种情况下会不一致：provider 忽略/改写 `model` 参数、
+多模态 provider 内部把请求路由到别的模型、`__resumeUseCurrentModels` 断点续跑时按当前设置重解析
+（`story2video-stages.js` 的 `useCurrentModels` 分支）。
+
+判据：展示"实际用了什么"时，segments meta 优先；options 只在 meta 缺失时兜底。
+同族推论：`model` 优先于 `provider`——用户问的是"哪个模型"，不是"接了哪家"；
+provider 仅在 model 缺失（老项目、provider 未返回）时兜底。
+
+### lesson:gate-on-the-intent-field-not-the-value-field
+
+**「用没用某能力」要门控意图字段，不能门控值字段——值字段会残留上一次的意图。**
+
+现场：视频模型的显隐，直觉写法是看 `videoProvider` 有没有值。但 `story2video-text-config.js`
+的 `videoConfig` 兼容旧扁平参数（`params.videoProvider`），且"用户曾选过 provider 后又把 mode
+切回 off"会留下非空 `videoProvider` ⇒ 只按值判断会把"没启用"显示成"启用了"。
+
+判据：显隐门控优先用**意图字段**（`videoMode` ∈ {`fixed`,`ai-judged`}），并确认该字段与
+权威判定同源（本例对齐 `pipeline-model-preflight.js` 的 video 能力需求：`off` 或其他模式
+不要求视频模型）。值字段只作为第二道闸（解析结果非空），两道都过才显示。
+
+### lesson:same-line-means-one-element-not-css-guessing
+
+**"放在格式同一行、放不下就折行"的正解是并进同一个元素，不是测宽度也不是媒体查询。**
+
+现场：需求明确「同一行里，放得下不用折行」。三种做法的差别：JS 测容器宽度再决定放哪一行
+（要监听 resize、要处理字体加载后的重排、边界值是猜的）；CSS 媒体查询猜断点
+（容器宽度 ≠ 视口宽度，侧边栏折叠就会失效）；把「格式」与模型摘要放进**同一个 `<p>`**
+用内联分隔符连接——浏览器天然按容器宽度折行，零 JS、零断点、零猜测。
+
+判据：需求说"同行、放不下折行"时，先问"这两个内容能不能本来是同一段文本"。
+能，就并元素；不能（比如要分别加 testid 或不同样式），才考虑嵌套 span——
+本例正是后者：`<span data-testid="video-format">` + 条件分隔符 + `<span data-testid="video-models">`，
+仍在一个 `<p>` 里，折行语义不变。
+
+### lesson:null-entry-crash-is-a-family-not-an-instance
+
+**修掉一处 `Cannot read properties of null` 时，同函数里的同族写法要一起修——它们是同一次疏漏。**
+
+现场：新增 `promptOptimizationMetaOf(i)` 时对 `null` entry 做了防御，跑测试却炸在
+`story2video-stages.js` 另一处：`typeof p === 'string' ? p : p.prompt || ...`
+（`optimizedPrompts` 映射）与 `prompt.prompt || ...`（`generateOneImage` 的 `promptText`）。
+三处形状逐字同型，都是"假设 optimize 结果项一定是对象"。
+
+判据：`typeof x === 'string' ? x : x.foo` 这个形状在整个文件里 grep 一遍再动手。
+本例修完后同族命中归零；`story2video-project-service.js` 的 `extractImageOptimizedPrompt`
+是否同族未逐处核对，已在 record 的遗留里点名——**同族扫描不做完就是留债，留债要写出来**。
+
+### lesson:cjk-baseline-is-file-matched-so-moving-code-breaks-it
+
+**CJK 硬编码基线按「文件路径」匹配：把含中文的代码从一个文件搬到另一个文件，会凭空造出「新增硬编码」。**
+
+现场：`ResultView.vue` 里的「格式: 」是既有硬编码（在 `locale-cjk-baseline.json` 里、历来如此）。
+为消 `check-max-lines` 把它所在的 `<p>` 抽成 `video-creation/ResultModelInfoRow.vue` 后，
+Gate 7 `--cjk` 报「渲染端新增 1 处硬编码中文字符串」——代码一字未改，只是换了文件。
+
+判据：
+1. **抽文件时顺手把被搬走的用户可见文案一并 locale 化**，而不是留着等基线炸。本例把「格式」
+   收口成 `create.story2video.modelInfo.format`（zh/en 成对），既符合「用户可见文案必须走 locale」，
+   也不必为它去改基线（改基线 = 给掩盖新增开口子，门禁明确禁止）。
+2. 反过来也成立：**基线按文件匹配意味着"文件重命名/拆分"本身就是一类会触发门禁的改动**，
+   与改了什么代码无关。做结构性拆分前，先扫一遍被搬代码里有没有在基线内的硬编码文案。
+3. 顺带一条同源形态：`locales/create/en.js` 加 5 行就顶到 `check-max-lines` 的 500 行上限
+   ⇒ locale 文件也是行数门禁的对象，加键时注释要克制（能一行说清的不要写三行）。
+
+### lesson:unit-test-green-is-not-build-green
+
+**renderer 侧新模块必须用 ESM `export`；「单测全绿」不构成「构建通过」的证据——那是另一层。**
+
+现场：本次把模型信息取值口径抽成 `views/video-creation/composables/useResultModelInfo.js`，
+顺手写成了 CommonJS 的 `module.exports = {...}`（与同目录 `electron/services/` 的习惯一致）。
+结果 41 条单测**全绿**，CI 的 `QG Unit Tests` 也 PASS，但 `build` job 炸了：
+
+```
+src/views/video-creation/ResultModelInfoRow.vue (2:9):
+"resolveModelSummaryParts" is not exported by
+"src/views/video-creation/composables/useResultModelInfo.js"
+```
+
+根因：**Vitest 有 CJS/ESM 互操作**（`import { x } from './cjs-module'` 能拿到 `module.exports.x`），
+而 **Rollup 不做互操作**。所以同一份代码在测试层完全正常，在构建层直接失败。
+更隐蔽的是：这个模块同时被 `electron/services/story2video-prompt-meta.js` 的 CJS require
+和 renderer 的 ESM import 消费——如果两边都用同一种模块格式，本来就不会有这个问题。
+
+判据：
+1. **`src/` 下的新模块一律 ESM**（`export`/`import`）；`electron/**` 下的保持 CJS require。
+   跨两侧共享的逻辑要先决定它长在哪儿，再决定模块格式——不要因为"顺手"就混用。
+2. 涉及 renderer 代码的 PR，**本地必须实跑一次 `pnpm run build:vue`**。
+   单测绿 ≠ 构建绿，CI 的 `QG Unit Tests` PASS 也不构成构建通过的证据（本次就是单元测试 PASS
+   的同时 build 红）。这条与 QM-1「不打包不提交」是同族：不同层抓不同类的错。
+3. 抽模块时如果只跑了 `vitest run <新测试文件>`，要额外问一句"这个文件被谁 import"——
+   被 renderer import 的就得按 ESM 验。
+
+### lesson:empty-state-parity-is-the-visual-regression-proof
+
+**零视觉回归的证据可以是 DOM 等价，不必等像素门禁。**
+
+现场：本次改的是视频信息区，最怕的是"四项全空时页面也变了"。
+用例直接断言 `data-testid="video-models"` 不存在、且 `video-format-models` 的文本
+`toBe("格式: MP4")`——即空态下 DOM 与改动前同形。这条同时是**测试先行时唯一通过的那条**
+（17 例首跑 16 红 1 绿，绿的就是它），它证明的是"契约本身没被破坏"，而不是"功能已实现"。
+
+判据：纯展示层改动的视觉风险，先用"空态 DOM 等价"锁死，再谈像素。
+本机缺 dev server 时不冒充跑像素门禁，把证据责任点名给 CI，但**不能因此说"视觉没问题"**——
+要说"零回归有行为级依据，像素差异的责任在 CI"。
+
+## 排序副作用被当成默认契约；而「真源已在主场、前端没问」是最隐蔽的缺陷形态（fix-model-default-follow，2026-10-18）
+
+### lesson:split-tests-by-experiment-not-by-intuition
+
+**测试文件超限要拆时，先做「HEAD 测试文件 + 当前源码」的对照实验，再决定拆哪一块——否则会把既有的隔离脆弱性误判成自己改坏了源码。**
+
+现场：CI 债务熔断判 `CreateView.test.js` 膨胀超容差，必须拆。第一次把**本次新增**的
+10 例拆出去，主文件立刻出现 **10 例失败**（克隆音色 / MiMo TTS 下拉等，全是语音状态相关），
+但每一例单跑都过。此时最容易被读成「我的源码改动有副作用」并去改源码。
+正解是对照实验：把 **HEAD 版测试文件**（7348 行、含那 10 例）另存同目录临时文件，
+用**当前源码**跑 ⇒ **316/316 全绿**。这一步把变量锁成「只在测试集合」，结论随之翻转：
+失败源于**拆分后顺序变化暴露的既有隔离脆弱性**（模块级 singleton 未随 `beforeEach` 完全复位）。
+于是改为移出**最不共享状态**的块（批量创作 / 画幅下发 / 文案字数上限），4 文件 / 327 例全绿。
+判据：拆分引起的红，先问「是源码跟着变了，还是只有测试集合变了」；
+一个临时同目录测试文件（跑完用 `scripts/safe-delete.js` 删掉）就能把这两个假设分开。
+
+### lesson:test-file-split-must-respect-state-coupling
+
+**这仓的 `CreateView.test.js` 里，用例之间通过模块级 singleton（TTS 音色域 composable、
+BGM 库、批量创作域）隐式耦合；`reset*ForTest()` 复位不完整，于是「谁跑在前面」会改变结果。**
+
+现场：拆走 10 例后一堆语音相关用例转红，原因不是断言错，而是前置用例留下的
+`s2vVoiceProvider` / 音色目录状态不同了。这属于**测试质量问题**（用例依赖兄弟用例的副作用），
+本次不在范围内根治（改 `beforeEach` 复位面会波及大量既有用例），但**必须留痕**：
+后续任何人再动这个文件的用例顺序，都应先跑一次全文件确认，而不是只跑自己那一例。
+判据：单跑通过 + 全文件失败 = 顺序/状态耦合，不是逻辑错。
+
+### lesson:auto-applied-value-must-be-distinguishable-from-explicit-choice
+
+**只要「默认值」会写回同一个状态位，「用户显式选择」与「上次自动填入」就会同形——而这条同形会让默认永久钉死。**
+
+现场（本 PR 初版自己踩的坑，自审时抓出）：修复第一版把 `configuredProvider?.id`（即当前
+`s2vConfig.voiceProvider`）当成「用户显式选择」，只在当前值为空时才解析默认。但用户报告的
+操作路径恰恰是「**已打开页面**上在设置里改默认」：设置弹窗关闭会触发
+`settingsDialogRevision` watcher → `loadS2VProviders()` 重跑 → 此时 `voiceProvider` 已是
+旧默认 A（上一轮自动填入的）→ 被当成显式选择 → 新默认 B **永不生效**。
+**不补这条，用户按他自述的步骤复现仍然失败**，而所有其它用例都绿。
+
+判据：任何「默认值写回可编辑状态」的设计，都必须能区分三种来源 ——
+① 用户显式选择、② 系统按默认填入、③ 从快照/持久化恢复。
+只有 ① 该优先于新默认。实现上维护一个「上次自动填入值」的旁路记录
+（本 PR 用 `s2v*AutoProviderId`），重拉时 `当前值 === 自动值` ⇒ 重新解析。
+**不要用「等值猜测」代替显式标记**：快照恢复的值与手选值可能逐字相同，
+猜测在那一格必然失准（本 PR 的处置是「快照按自动值处理」，并把代价写进 PRD）。
+
+### lesson:order-by-is-not-a-default-contract
+
+**`ORDER BY is_default DESC` 的排序副作用不是「默认契约」——同分列会把它打翻，而测试看不见。**
+
+现场：`CreateView.vue::loadS2VProviders()` 里图片/视频生成器默认值就是
+`this.s2vImageProviders[0].id` / `this.s2vVideoProviders[0].id`。它「看起来对」的唯一原因是
+`listProviders()` 的 `ORDER BY is_default DESC, is_preset DESC, name ASC` 把默认项顶到了第一位。
+可这个排序在 `is_default` 相同时按 `name ASC` 字典序 —— 默认项只要不是同分里字典序最小的，
+就会落到第二及以后，默认即静默失效。语音生成器更糟：它连排序都没用，而是
+`find(p => p.category === 'multimodal' && capability_models?.tts)`，**只看「是不是多模态」，
+不看「是不是默认」**，于是把 TTS 默认从 Mimo TTS 改成 MiniMax 多模态的 TTS 能力后，
+下拉仍默认 Mimo TTS（用户实测）。
+判据：凡是用「取首项」表达默认意图的代码，先问「首项为什么是对的」；答案如果是
+「因为上游排过序」，那就是排序副作用，不是契约 —— 要么显式读出默认标记，要么把
+「默认项必须在第一位」写成测试。正解是后者与前者同时做：本次把判定提成纯函数
+`resolveS2VDefaultProviderId()`，口径与主进程逐条对齐。
+
+### lesson:the-source-of-truth-already-exists-upstream
+
+**「主进程早就实现了，前端没问」比「两边都没做」更隐蔽——它连 TODO 都不会留。**
+
+现场：`ModelProviderManager.getDefault(category)` 自 2026-08 起就完整实现了双默认语义
+（`_multimodalProviderFor`：`capability_defaults.includes(cat) || !!row.is_default`），
+IPC handler `model-provider:get-default`、preload `system.js` 的 `modelProviderGetDefault`、
+前端 `api/model-providers.js` 的封装**四层全通**，只有 `CreateView` 从没调用过它。
+于是「设置里显示默认是 A」与「下拉默认是 B」可以长期并存，而且两边各自的测试都绿。
+判据：排查「设置改了但不生效」类缺陷时，第一件事是 grep 主进程有没有对应的 getter/IPC；
+如果四层链路齐全而消费方缺席，修复就是「加一次调用」，不要新建第二套实现
+（本次因此**完全没改主进程/IPC/DB**，只补前端读取与判定）。
+
+### lesson:fixture-without-default-markers-locks-the-bug-as-contract
+
+**夹具不带默认标记时，「挑形态」的旧实现会让错误断言通过——测试忠实实现了错误需求。**
+
+现场：`CreateView.test.js:848` 原断言「多模态优先于普通 TTS 服务商」的夹具里，
+`elevenlabs` 与 `minimax-multimodal` **都无任何默认标记**，旧代码的「第一个多模态」规则
+恰好命中 minimax ⇒ 断言绿。修复后该用例转红（新口径回退首项 elevenlabs）。
+**这不是回归，是需求变更**：那条断言锁定的正是本次要纠正的行为。处置是改写断言 +
+在用例上方留注释说明语义变更与指向新增用例组，而不是「为了让测试绿而保留旧行为」。
+判据：修复后遇到旧测试转红，先分辨「我改坏了行为」还是「我改的行为正是它锁的」；
+后者要改测试并留证据链，前者要改实现。二者的区别在于**用户需求原文**。
+
+### lesson:default-resolution-must-be-a-pure-function
+
+**把「谁是默认」提成纯函数，是为了让它可测；顺带发现主进程与前端候选集并不相同。**
+
+现场：判定逻辑一开始想直接内联进 `loadS2VProviders()`，但那样只能靠 mount 整个
+CreateView 来测（夹具要 mock 三路 list + 三路 getDefault）。提成
+`resolveS2VDefaultProviderId(providers, category, preferredId)` 后，9 条边界
+（多模态能力默认 / 普通默认 / 整体默认 / 图片视频同样跟随 / 无默认回首项 /
+悬空 id / 空列表 / 未声明能力 / 脏入参）在 500ms 内全跑完。
+更重要的是它逼出了一个真问题：**`preferredId`（主进程 getDefault）与前端候选列表
+不是同一个集合**（主进程不要求 `name` 非空，前端 `enabledProviders` 要求），
+所以 `preferredId` 必须过「在列表内 + 是默认」双重校验才能采用，校验不过就地降级 ——
+否则会选中一个下拉里不存在的项，直接产出空白选中项（本仓反复出现过的 UI 缺陷形态）。
+判据：跨层默认解析必须有「校验 + 降级」两段，不能直接信任上游 id。
+
+### lesson:dont-expand-scope-while-fixing-a-default
+
+**修默认值时，最容易顺手多做的是「把 Model 也一起联动」——那不是修复，是行为扩张。**
+
+现场：图片侧原本只设 `imageProvider` 不设 `imageModel`（`imageModel` 由 restore 快照与
+`applyS2VPipelineDefaults` 处理）。修复时很自然会想「那把 `getS2VDefaultImageModel`
+也加上，保持对称」——但这会改变图片模型的解析路径，引入与本次需求无关的回归面，
+还要为它写一套新测试。本次明确不做，并在 PRD §2.2「非目标」与 §5.4「明确不做的事」
+两处写下理由。语音/视频侧的 `*Model` 本来就跟着 provider 联动，无需新增。
+判据：修复的边界按「用户报的行为」划，不按「代码对称性」划；想要对称先问
+「那个方向现在有没有人报问题」。
+## 三套并行解析逻辑收敛：把「跨层等价」写成显式契约（voice-model-program-resolved，2026-10-18）
+
+### lesson:three-implementations-one-truth-nobody-compared
+
+**同一个"默认值"被三处各写一遍时，真正的漏洞不是哪一处写错，而是「没有任何测试断言它们相等」。**
+
+现场：桌面端有三份"默认模型解析"——前端 TTS 域 `getS2VDefaultVoiceModel`、前端视频域
+`getS2VDefaultVideoModel`、主进程 `resolveProviderDefaultModel`。前两处因为要"稳妥"，
+在多模态缺 `capability_models[type]` 时会**猜 `models[0]`**；主进程是 fail-closed 返回 `''`。
+两者在多模态 provider 上分叉，而 `models[0]` 可能是 image/video/llm 模型——这正是
+"语音模型下拉偶现非 TTS 模型"（2026-08-09 修过一次）反复复发的结构性原因。
+**为什么既有的三层测试都没拦住**：`useTtsVoices.test.js` 只测前端、`model-provider-manager.resolve-default.test.js`
+只测主进程，**没有任何一条断言"两层口径相同"**。于是前端可以任意改兜底，测试全绿，行为却分叉。
+判据：发现同一语义被写两遍以上时，第一个要写的测试不是"各处行为对不对"，而是**"各处是否相等"**——
+把等价性本身变成断言（本仓落地：`apps/desktop/electron/services/voice-model-resolution-parity.test.js`，
+同 22 组夹具喂两层逐项比）。这条锁的价值不在当下的通过，而在于它使"改一层忘另一层"变成红。
+
+### lesson:dead-field-read-is-silent-by-design
+
+**读一个从不存在于 payload 的字段不会报错，它只是永远 undefined —— 这比抛错危险得多。**
+
+现场：`.vue` 侧读 `provider.defaultModel` 决定默认模型，而主进程 `_safeRow()` 从**从不返回**该字段
+（运营配置在 `provider.config.default_model` 里）。于是运营中心改了默认模型、桌面端毫无反应，
+表现为"这个配置项好像没用"。开发者读前端代码只看得到 `provider.defaultModel`，
+读主进程只看到 `_safeRow` 的返回对象，**两处都不像错的**，错在两者之间的那道缝。
+判据：跨进程/跨层传值时，凡 `typeof x === 'string'` 之类**容错读取**都要问一句"这个字段在生产者侧真的存在吗"，
+并且优先让它以**契约字段**（类型定义 / 契约测试）存在，而不是靠 `?.` 静默兜底。
+
+### lesson:keep-the-orthogonal-special-case-out-of-the-generalization
+
+**把"某 provider 特判"推广成通用规则时，要先把"能力驱动分支"和"UI 呈现分支"拆开，否则会误伤。**
+
+现场：`s2vVoiceModelHidden` 原本同时承担两件事——① 「MiMo 的模型由音色类型区分」（能力驱动，
+必须保留）② 「隐藏语音模型下拉」（UI 呈现，本次要推广到全 provider）。如果直接把 `s2vVoiceModelHidden`
+改成恒 true，MiMo 的克隆上下文会拿到 `mimo-v2.5-tts-voiceclone` 之外的错误模型，克隆链路直接坏。
+正解：把 UI 呈现交给新的 `s2vVoiceContextModel` + 模板条件，`s2vVoiceModelHidden` 保留为**纯 MiMo 标记**。
+判据：一个布尔量如果同时被"业务分支"和"呈现分支"消费，先拆语义再动它；改它的第一件事是列出全部消费点。
+
+### lesson:generalize-the-ops-capability-not-just-the-ui
+
+**用户问"运营中心有没有 X 设置功能"时，答案常常是"数据模型有、UI 有一半、校验没有、总览没有"。**
+
+现场：`capability_models` 字段、后端写入、多模态编辑框**都已经存在**，缺的是三件事：
+① 只有多模态能填（单能力类别填不了本类别默认模型）② 没有自洽校验（值可以不在 `models` 里，
+运行期 fail-closed 但没人知道为什么）③ 没有总览（运营无法一眼看出缺口）。
+所以正确回答不是"没有，我实现一下"，而是**逐层给出"已有什么 / 缺什么"**，再补齐缺的那几层。
+判据：这类问题的交付物应当包含"现状清单 + 缺口清单 + 补齐实现"，只做实现会让对方以为原来什么都没有。
+
+## 缓存空壳与漏斗守卫：空正文不得进改写链路（fix-collect-rewrite-empty-content，2026-10-18）
+
+### lesson:success-shape-is-not-content-shape
+
+**「采集成功」是一个信封状态，不是「拿到了文章」；把它当内容用，就会把空壳喂给下游。**
+
+现场：内容缓存命中（`url-collector.js` 的 `cache_hit` 分支）返回的是**有意的成功形态**
+`{success:true, title:'', content:''}`——它表达的是「这个 URL 采过，直接复用」，
+而不是「正文在这里」。而 `collectAndRewrite` 的改写入参是
+`stealthItem.content || stealthItem.description || ''`：空壳进来，`||` 一路兜底成空串，
+直送改写引擎。旧后端 `content` 字段有 `min_length=1`，于是 FastAPI 报 422，
+用户看到「Python backend request failed (422)」——既不知道发生了什么，也不知道该干什么。
+判据：凡是以「成功信封」为输入的下一步，先问「这个信封成功时**内容一定非空吗**」；
+`cache_hit` / 降级 / 回退形态的成功，天然允许空内容。
+
+### lesson:guard-at-the-funnel-not-at-each-call-site
+
+**同类守卫要放在漏斗入口，不要放在每个调用点——调用点会加，漏斗只有一个。**
+
+现场：`rewriteViaEngine` 有四个调用点（视频转写 / stealth 自动改写 / 聚合回退 / 手动改写），
+事故只暴露了其中一条，但空串可以沿任意一条进来。在漏斗入口加一道 trim 判空，
+四条路径同时被覆盖，而且新增第五条调用点时自动继承守卫（在调用点各写一遍必然漏——
+这与上一刀「守卫挂在一条会退役的分支上」是同一族错误：**分散 = 会漏**）。
+判据：给「进入引擎/后端前的参数校验」找漏斗；找不到漏斗（说明同类调用太分散）本身就是信号。
+
+### lesson:reuse-the-error-code-table-before-adding-one
+
+**稳定错误码表先搜后用——`AGGREGATION_CONTENT_EMPTY` 早就存在，只是采集页没人用。**
+
+现场：`user-facing-error.js` 里 `AGGREGATION_CONTENT_EMPTY`（zh/en 文案齐备）自 RewriteView
+时代就在，采集页改写链路却自己拼错误。新码会让用户看到两套说辞，也会让错误码表持续膨胀。
+判据：新增用户可见错误前先 grep `USER_ERROR_CODES` / `userErrors.*`；复用不丢信息，
+新增必须成对（zh/en）且带可操作文案。
+
 ## 反爬验证页与双份配置源：五条可复用教训（fix-collect-antibot-rewrite，2026-10-18）
 
 ### lesson:guard-on-a-retired-path-is-no-guard
@@ -16296,6 +16742,62 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 ### 经验沉淀（审查清单更新点）
 - **新增「控制信号 vs 业务数据」审查项**：任何 `Promise.resolve` 值被透传给下一层时，先确认 resolve 值集合里是否存在非业务数据的控制信号（cancel/timeout/close），若有必须在消费边界拦截并规格化（OpenSpec 场景）。
 - **IPC 返回契约测试**：主进程 IPC handler 的返回形状（含取消/超时分支）必须有契约测试钉死，渲染层的 mock 不能替代主进程侧断言。
+## 增量轮（标题 20 字上限 + 实时字数）教训（2026-10-18，fix-hot-topics-genvideo-title）
+
+### lesson:zero-growth-file-extract-before-adding
+
+**`check-max-lines` 的「点名还账、零增长容差」不是「这个文件不能改」，是「改动必须自带还债」。**
+给 `Publish.vue`（target 钉 1773、容差 0）加标题 20 字上限与实时字数，第一版直接写进视图 ⇒ `TARGET_GREW` 超 21 行。
+正解是把**自己的债务也算进去**：上一轮我在同一文件加的 12 行 `videoTitleSourceHint` 三态映射也是新债，一起下沉成
+`usePublishVideoTitleHint` 后视图只剩两行调用 ⇒ 最终 1768 行，比改前基线还少 5。
+判据是「我要加的这 N 行，从这个文件的哪些既有 BLOCK 里省出来」。测试文件同样适用。
+
+### lesson:rebase-before-claiming-headroom
+
+**行数读数必须在 rebase 之后取。** 按 rebase 前基线算出「还了 5 行」以为稳，`git rebase origin/main` 后才看到
+主干自己已把该文件收到 1770、把 `Publish.test.js` 堆到正好 1935（容差顶格）—— 同一改动瞬间从「还 5 行」变成「超 2 行 + 测试顶格」。
+
+### lesson:label-merge-is-legitimate-for-line-budget
+
+**零增长文件里，模板排版合并是合法手段，语义改写不是。** 相邻 `<p>` 并一行、`</label>` 与紧随的输入框并一行 = 等价；
+把两个不同提示合成一句、删掉条件渲染 = 行为漂移。前者只是让声明式模板更紧凑，后者会让测试与行为一起漂。
+
+### lesson:test-migration-not-deletion-when-contract-changes
+
+**契约变了的用例要「迁移并改写」，不是删掉。** 20 字上限让「百家号按字节截断到 49 字」不可达，原用例必然红；
+但它守的是「提交前的平台级校验仍然生效」—— 删掉就没覆盖了。做法是搬到标题专项测试文件并按新契约重写
+（断言「20 码点标题的 UTF-8 字节数 ≤ 149 且发布照常继续」）。判据：删一条用例前先问「它守的是什么不变量」。
+
+### lesson:multilevel-fallback-needs-empty-chain-fixture
+
+**多级回退链 + 夹具填满前几级 = 缺陷路径在测试里表现为「正确行为」。** 本轮审计发现 4 条标题链路里 3 条同缺陷，
+而 `publish-from-project.test.js` 的旧夹具让 `title === sourceText` 且只有 38 字，于是「标题回退到正文」这条生产缺陷
+在测试里看起来完全正常。纪律：多级回退的纯函数**必须有一例「前几级全空」的生产形态夹具**；
+「不得注入空 X」的规则必须同时回答「X 非空时从哪来」。
+
+### lesson:electron-builder-alone-ships-white-screen-package
+
+**QM-1 的官方命令本身不足以产生可用包。** `pnpm exec electron-builder --win --x64` 不构建渲染层（`dist/` 由 `build:vue` 产出），
+干净工作区里照它跑会得到 `exit=0` + `Multi-Publish.exe` 228MB + `app.asar` 140MB 全在，但 asar 里**根本没有 `dist/`**，
+启动后 stderr 报 `Failed to load URL: …app.asar/dist/index.html … ERR_FILE_NOT_FOUND` —— 一个启动即白屏的包。
+正确命令是 `pnpm run build:win`。三条判据必须同时看：`exit=0`（不够）、产物存在（不够）、**启动后 stderr**（唯一拦下它的）；
+判 stderr 前还要硬性剔除 `ELECTRON_RUN_AS_NODE`（带上它 Electron 以纯 Node 模式静默退出，与「启动干净」完全同形）并单独断言存活。
+元教训：**规范里写的命令是「当时那次能跑通的那个写法」，不是「能产生可用产物的那个写法」**。
+
+### lesson:deep-review-timeout-not-proportional-to-diff-size
+
+**「把 diff 拆小，深度审查就能跑完」是未经验证的假设，实测被否。** 1790 行连续四次 `spawnSync codeagent-wrapper.exe ETIMEDOUT`；
+本轮增量 559 行（约 1/3）同样在**同一位置**超时 ⇒ 在可行区间内超时与 diff 体量没有单调关系，拆 PR 不是解法。
+剩余可能均指向环境：① 后端单次评审耗时远超引擎硬编码 `timeoutMs: 600000`（`cfgForMode`，无 CLI/env 覆盖入口）；
+② 大 prompt 经 argv 传给 wrapper 后卡住（Windows 命令行 ~32KB 量级）。处置纪律：闭环状态只有
+`{cleared, needs_revision, self_play_resolved}`，三者都表示「评审有结论」；没跑成时写任何一个是伪造，只能是停下来报告用户。
+
+### lesson:hot-append-surface-put-new-block-at-tail
+
+**顶部追加型热点文件（CHANGELOG / learnings）在本仓会制造循环冲突。** 主干每十几分钟合一个 PR，每个 PR 都在同一位置
+（文件顶部）插入自己的块；CI 一轮 40 分钟，期间主干必然再前进 ⇒ rebase 完再推、推完又被判 DIRTY，形成活锁。
+本轮实测连续三轮都是这两个文件冲突。破法：把新增块追加到**文件末尾**（增长门禁判标题多重集、对账判 preamble 逐字节，
+都与位置无关），冲突面立刻消失。代价是条目不在「最新在前」的阅读位置，需在条目里注明原因。
 # 历史记录状态标签与统一排序复盘（2026-08-15）
 
 ## QM-5
@@ -20736,7 +21238,13 @@ CI 把 `QG Static` 钉红在 Gate 2c，红的是 `check-unwired-tests.test.js` �
 
 - **pitfall｜写「可手动同步」这类跨端提示语前，必须先确认那个入口真的存在**：本次任务书让我写「保存后桌面端最长 24h 内生效、可手动同步」，实测全是假的 —— `opsCenterSyncNow` 在 2026-10-15 已从渲染端删除（`apps/desktop/src/api/ops-center-sync.js:7-8`），`MpSidebar.vue:126-127` 明写「应用端不暴露手动同步入口」，桌面端 `autoSyncOnStart()` 只有 `setTimeout 3000` 一次、全文件无 `setInterval`。而且运营中心本就有单一真源 `ops-center/frontend/src/constants/runtime-delivery.js`（`RESTART_HINT_WHEN` / `RESTART_HINT_HOW` / `RESTART_HINT_DURATION`）+ 结构锁 `tests/restart-hint.test.js` C1 禁止第二份字面量。**新增下发页面的成功提示必须 import 这组常量，不得自己重写一句同义文案**。
 
-- **bug（未修，已登记）｜`config_hash` 白名单里有两个块自带 `synced_at`，等于每请求都把 hash 变一次**：`app_menu_service.py:306` 返回 `{"items": [...], "synced_at": _now()}`、`content_category_service.py:343` 返回 `{"items": [...], "count": n, "synced_at": _now()}`，而 `appMenu` / `contentCategories` **都在** `RUNTIME_BLOCKS` 里。后果：每次 bootstrap 的 `config_hash` 都不同（实测同库连跑两次：`f8a5b99df879ac71/ver1` → `dd3dfca7ccd2e587/ver2`，`RuntimeConfigVersion` 落两行），`config_version` 每次都 +1 ⇒ 「生效看板」永远确认不了、版本表无限增长。这与 `config_fingerprint.py` 注释第 1 条「`synced_at` 每次请求都变，纳入则 hash 永远变、变推送地狱」**直接自相矛盾**——注释写对了，实现对不上。**修它要改这两个块对桌面端的消费形状（渲染端 `appMenu` 归一化把 `items` 挑出来用），属跨端破坏性变更，本轮只登记不修**；判据：任何要进 `RUNTIME_BLOCKS` 的块，其载荷里不得含 `synced_at` / `updated_at` 这类每请求变化的字段，加块时用 `canonical_json` 连算两次比对是否相等。
+- **bug（✅ 已修复 2026-10-18，change: `config-hash-purity`）｜`config_hash` 白名单里有两个块自带 `synced_at`，等于每请求都把 hash 变一次**：`app_menu_service.py:306` 曾返回 `{"items": [...], "synced_at": _now()}`、`content_category_service.py:343` 曾返回 `{"items": [...], "count": n, "synced_at": _now()}`，而 `appMenu` / `contentCategories` **都在** `RUNTIME_BLOCKS` 里。后果：每次 bootstrap 的 `config_hash` 都不同（实测同库连跑两次：`f8a5b99df879ac71/ver1` → `dd3dfca7ccd2e587/ver2`，`RuntimeConfigVersion` 落两行），`config_version` 每次都 +1 ⇒ 「生效看板」永远确认不了、版本表无限增长。这与 `config_fingerprint.py` 注释第 1 条「`synced_at` 每次请求都变，纳入则 hash 永远变、变推送地狱」**直接自相矛盾**——注释写对了，实现对不上。**修复（方案 A，用户确认不考虑老客户端）**：把 `synced_at` 从两个块内删掉，只留在 bootstrap 信封顶层（顶层本来就不参与 hash）；桌面端 `normalizeAppMenu(raw, fallbackSyncedAt)` 改从信封顶层取时间戳，同时向后兼容旧形态（块内若还带着就优先用）。判据：任何要进 `RUNTIME_BLOCKS` 的块，其载荷里不得含**每请求变化**的字段，加块时用 `canonical_json` 连算两次比对是否相等。回归锁：`ops-center/backend/tests/test_config_hash_stability.py`（不变量「同库连构两次 bootstrap，hash 逐字相等」+ 静态锁「块内不得含 `synced_at` 键」），已做变异反证（注回缺陷当场红）。详见 `01-docs/BUGFIX-CONFIG-HASH-SYNCED-AT-2026-10-18.md`。
+
+- **pitfall｜「顶层挡住」不等于「块内干净」——注释与实现互相矛盾时，注释反而成了掩护**：`config_fingerprint.py` 的 docstring 第 1 条把「synced_at 不得纳入」写得非常清楚，于是后来每一任读代码的人都认为「这里已经处理过了」。真正的洞在**块内**：两个 service 各自在下发载荷里又带了一份 `_now()`。同类形态还有：docstring 说「只取白名单」、实现确实只取白名单，但白名单里的块自己会随时间变化。**判据：凡是「某字段不得参与 X」的规则，必须同时锁三个位置——输入集本身、输入集里每个元素的内部、以及真实装配路径下的端到端行为。**只锁第一个位置，就等于把规则写在了洞口旁边却没人看守。
+
+- **pitfall｜合成数据（手工构造的 payload）会绕过出问题的那段代码**：`test_config_hash_excludes_volatile_fields` 手工往顶层塞 `synced_at` 断言 hash 不变，看起来覆盖了「volatile 不影响 hash」，其实它验证的是一条**已经成立**的性质（顶层本来就不在白名单里）。缺陷只会在 `get_runtime_bootstrap()` 真实装配时出现，而合成 payload 根本不经过那条路径。**判据：测「某条规则成立」时，先问「这条规则有没有可能被违反」；如果违反只能发生在真实装配路径上，就必须有一条走真实路径的测试**（本 change 的做法：真库 + 真 ASGI，连请求两次 bootstrap 比 hash）。配套的静态锁（块内不得含 `synced_at` 键）用来抓「只在特定分支条件下才写入」的漏网形态——不变量抓「值在变」，静态锁抓「键还在」，两者互补。
+
+- **pitfall｜判据写太宽会把「正确语义」一起判死——`updated_at` 不是 volatile**：本 change 初版把 `updated_at` / `created_at` 也列入纯净锁的 `VOLATILE_KEYS`，被 `content_policy` 块里的 `updated_at` 当场判红。但那是**内容属性**（运营改了这条配置，它跟着变，hash 随之变化是**正确**行为）；只有 `synced_at` 是「每次请求现生成」的时钟产物，与内容无关。**判据：禁一个字段前先分清它是「时钟产物」还是「内容属性」——前者禁，后者必须留，否则「内容变更升版」这条正确语义会被一起判死。**为此专门加了一条反向锁：`updated_at` 变化时 hash **必须**改变。
 
 
 ## 「我的测试全绿」这句话在本仓有两种读数，只读一行会骗人（ux-audit 阶段 1 批次 B，2026-10-18）
@@ -20823,3 +21331,29 @@ const identity = vi.hoisted(() => ({ status: ref('x') }))   // ReferenceError: C
 - **pitfall｜E2E 夹具里凭空多带一个字段，足以让 22 条路由集体测错东西**。本轮 `QG Browser E2E` 全红的根因是 `tests/e2e/helpers/ipc-mock.js` 把 `firstRunCheck` 写成 `{ isFirstRun: true, setupDone: false }`：`isFirstRun` 在真实响应里**从来不存在**，`setupDone:false` 又与真桥的实际取值相反，于是阶段 1.4 那条"只有读到 `setupDone===false` 才跳向导"的**正确**判定，把每一条路由都重定向到了 `/first-run`——22 条路由 + 6 条集成流集体在测向导页，而每一环的实现与单测都对。这是「契约夹具不得替对方剥壳」家族的**第四种落点：夹具凭空造字段**。口径：夹具必须逐字等于真桥的响应形状（字段名、取值语义、有无字段），且要问「这条 mock 代表的是哪个用户场景」——E2E 是存量已引导用户，就该 `setupDone: true`。
 
 - **pattern｜"我的文件早就绿过"不是证据：门禁会随 main 前进而第一次执行到你的代码**。阶段 1.7 新建的 `NotFound.vue` 里 `font-size: 40px` 一路过关，直到合并 origin/main 把 Gate 16（字体档位）带进来才红。同族的还有本批 `QG Static`：判据本体早已存在，只是从没在你的文件上跑过。收尾时"CI 变红"的正确归因顺序是：先问**这条判据是不是这次合并才第一次覆盖到我的代码**（是 ⇒ 我的代码本来就违规，认领并修），再问是不是判据本身被谁改宽/改窄。
+
+
+
+## 2026-10-18 · sidebar-collapse-toggle：全局壳层按钮的四条判据（视觉基线 / width=0 / 原生视图 / tablist）
+
+- **pattern · 全局可见 UI 改动会让「含壳层」的视觉基线变化，正确流程是 CI 同源重建而不是本机 update-baseline**：按钮位于 `TabBar`，工作台壳层内的所有视图截图都含顶部壳层 ⇒ `apps/desktop/tests/visual-testing/base-screenshots/` 下 43 张 PNG 中，**含 TabBar 的基线**全部变化；`first-run` 走 `.fullscreen-main`、`login-form` / `settings-general` / `analytics-overview` 为独立页或 CI 不产图（已登记），不会因本次按钮变化。判据：改动落在全局壳层时，先按「哪些截图含壳层」数受影响面，再以 CI `Gate 7b` 点名清单为准，不要写成「43 张全部变化」；PR 内不执行 `pnpm test:visual:update-baseline`（本机与 CI 渲染不同形），基线在同源环境重建并逐张确认差异只来自新增按钮与标签条起点右移。文档里不得出现「视觉中性」。
+- **pitfall · 折叠不能靠 `width=0` 表达——`MIN_SIDEBAR_WIDTH=1` 的守卫是为了防内嵌视图覆盖侧边栏，不是防误传**：`view-bounds.js:41` 的注释与 `webview-manager/layout.js:112-119` 的拒绝逻辑都是 2026-09-15「平台链接浮层盖住侧边栏」Bug 的防御层；`normalizeSidebarWidth(0)` 还会回落 200，所以 0 既会被拒绝、又会把「收起」悄悄变成「按 200 布局」。正解是新增显式布尔 `_sidebarCollapsed` + `computeEmbeddedViewBounds` 第 4 参（严格 `=== true`），让守卫与功能互不借用。
+- **pitfall · 主进程原生 WebContentsView 不会跟随 CSS 布局，任何侧栏显隐都必须同步重排**：`MpSidebar` 只是 DOM；浏览器/账号/登录标签是 `WebContentsView`。只做 `v-show` 不同步主进程，浏览器标签左侧会留 200px（或 ≤900px 时的 68px）死区，鼠标落点与视觉分界错位。本次把链路钉成一条 Requirement：preload `setSidebarCollapsed` → `page-manager:set-sidebar-collapsed` → `WebviewManager` → `AuthViewManager` / `QRCodeLogin` → `computeEmbeddedViewBounds(..., true)`；漏任一环都有独立测试。
+- **pattern · a11y：tablist 里不能塞非 tab 按钮**：`TabBar.vue` 原先把 `role="tablist"` 放在根节点，而根节点还有「+」与新增折叠按钮 ⇒ 读屏器会把它们播报成 tab。修法是把 `role="tablist" aria-label="标签页"` 移到只含 tab 的 `.tab-bar-tabs`，根节点降为普通容器；新按钮与「+」留在 tablist 之外。
+- **preference · 收起态下 `ResizeObserver` 的 `w > 0` 守卫正好是宽度状态的保护**：`MpSidebar.vue:225` 的 `if (w > 0)` 原本只是防 0 宽误上报；折叠后它正好阻止 `width=0` 污染主进程 `_sidebarWidth`，展开时直接回到最后合法值（200/68），不需要额外缓存。判据：给既有守卫写新用途时，先在测试里锁「不改守卫也成立」，避免为了新功能再动一次既有防御层。
+
+## 2026-10-18 · sidebar-collapse-followups：遗留收尾的三条判据（宽松默认值掩盖漏传 / 单向 IPC 假一致性 / NaN 穿过手写比较）
+
+- **pitfall · 宽松默认值会把「漏传参数」伪装成合法布局，是静默缺陷的最佳温床**：`oauth-manager.js:86` 的 `_positionView()` 只传 1 参给 `computeEmbeddedViewBounds`，`sidebarWidth` 回落默认 200、`sidebarCollapsed` 恒 false —— 于是「没接折叠状态」表现为「按 200px 正常布局」，不抛错、无告警、截图也"看着对"。更糟的是既有测试断言的正是 `{x:200,y:76,width:1224,height:785}`（默认展开态），**缺陷被写成正确行为的期望**。判据：① 一个函数有多个可选参数时，问「漏传每个参数分别会静默变成什么」；② 文件头注释声称「已接入」的模块，逐个核对调用点实参个数（本次就是注释说接了、代码没接）；③ 测试断言默认值本身不构成覆盖，必须为每个参数写「非默认值」用例。
+- **pitfall · 单向 IPC 不构成状态一致性——「每次变化都上报」只保证发起方正确**：折叠态在主进程是应用级唯一真源，任一窗口点击都会重排**所有**内嵌视图；但渲染进程各持一份 ref 副本，只有 `renderer → main` 的 invoke。结果：窗口 A 收起后，窗口 B 的 DOM 侧栏仍显示、却被主进程重排成全宽的原生视图盖住 ⇒ 侧栏看得见点不动（比死区更严重的点击错乱）。判据：状态真源在 A 侧、副本在 B 侧时，必须问「A 变了，B 怎么知道」；单向通知链只覆盖发起方。修复用广播 + `applyRemoteCollapsed`（不持久化、不上报，两道回环防护），但**根因在规格**——原 PRD/spec 只写了「上报一次」，把跨窗口一致性强加成 IPC 单向性的自然推论，规格漏了则测试不可能补上。
+- **pitfall · NaN 能穿过所有手写的区间比较守卫——`typeof x === ''number''` 也拦不住它**：NaN 的所有比较运算都是 false，所以 `width < MIN || width > MAX` 对 NaN 双双为假 ⇒ 放行；而 `typeof NaN === ''number''` 为真 ⇒ 也放行。四处 manager 各自手写同一套比较，每处都只测了 `0 / -1 / 601 / ''200'' / null` 这些"比较能拦"的值，**没人测过 NaN**——而它恰好是比较拦不住的那一类。`normalizeSidebarWidth` 里的 `Number.isFinite` 在 view-bounds 层才把它拦下，守卫语义被推迟一层，且四份实现各自漂移。判据：① 任何手写数值区间守卫，测试必须显式包含 `NaN` / `±Infinity`；② 同一套守卫出现第 2 次时就该抽单一真源（本次抽 `view-bounds.isValidSidebarWidth`），不要靠"四处都写对"——它们的测试集不会自动对齐。
+- **pattern · 跨窗口/跨进程链路的端到端断言，最容易漏的是「载荷形状」而不是「通道名」**：本轮链路测试第一版失败在 `bApplied` 收到 `[undefined]`——preload 的 handler 签名是 `(event, payload)`（与既有 `onNavigationChanged` 一致），而我的 mock 只传了 `payload` 一个参数。判据：链路测试替身调用 IPC 监听器时，**必须复刻真实 ipcRenderer 的 `(event, payload)` 两参形状**，只传 payload 会让剥壳逻辑静默取到 undefined，而这种失败与「主进程少发了字段」完全同形。
+- **preference · 遗留项要逐条判定「关闭 / 降级 / 真遗留」，不要一律挂成待办**：#3916 遗留的第 3 项「收起期间跨 900px 断点、展开后需一次宽度上报纠正」，复核后发现 `computeEmbeddedViewBounds` 内部 `collapsed ? 0 : normalizeSidebarWidth(width)` 已让 width 参数在收起态完全失效，展开时 `MpSidebar` 的 `ResizeObserver`（`w > 0` 守卫）在同一帧后上报真实宽度 —— 不产生错误布局。为一次不可见的抖动新增"待重报"标记位会把简单状态机复杂化。判据：遗留项在开修前先问「它到底产不产生错误结果」，只产生理论上的次优行为就降级并在文档写明依据，别让假问题占用后续维护注意力。
+
+## 2026-10-18 · sidebar-collapse-followups：QM-1 产物核验的四个坑（asar / 空集合假绿 / build:win）
+
+- **pitfall · `asar extract-file` 在本机版本 stdout 恒为空，核验必须改用 `asar extract` 全量解压**：实测 `pnpm exec asar extract-file`、`node node_modules/@electron/asar/bin/asar.js extract-file`、`Start-Process -RedirectStandardOutput` 三种调用方式**全部返回 0 字节**（退出码还是 0）。若照文档假设它打印文件内容，会得到"所有内容检查静默失败"，且**与「产物里真的没有这些代码」完全同形**——无法从输出区分。正解：`asar extract <archive> <dest>` 全量解压一次（13216 个文件），之后读普通文件。
+- **pitfall · `asar extract` 漏传目标目录会用 cwd 当目标，把内容解压进工作区**：本轮因此误把 8 个文件（view-bounds.js / window.js / layout.js 等）抽进 worktree 根与 `apps/desktop/`，并**顶掉了一个受管文件**（`electron/services/view-bounds.js` 变 ` D`）。处置按 R2/R0：`git checkout -- <精确文件>` 恢复 + `node scripts/safe-delete.js <每个文件>` 清理，最终 `git status` 空。判据：跑 asar extract 前后各取一次 `git status --porcelain`，出现非预期 `??`/` D` 立即停。
+- **pitfall · `powershell -File` 拉起的校验脚本 cwd 是任意目录，`pnpm exec asar` 在那里解析不到 CLI**：表现为"extract 退出 0 但目标目录 0 文件"的静默假失败。必须 `Push-Location <App>` 再调，`finally` 里 `Pop-Location`。同类坑：Node 脚本 `spawn('pnpm', ...)` 在 Windows 必须 `shell: true`，否则 ENOENT 且 stdout 为空。
+- **pitfall · 空集合必须判 FAIL，否则「扫到 0 个 chunk 却报 PASS」是假绿**：核验脚本里 `$bundleOk=$false; foreach(...){...}` 的初值语义在集合为空时会让检查项"通过"——本次真实发生过一次（`scanned 0 chunks` 却 PASS）。判据：任何"扫描 N 个候选找 X"的检查，N=0 时必须显式失败，并在输出里打印 N。
+- **pattern · `pnpm run build:win` ≠ 裸 `electron-builder`**：前者 = `build:vue`（vite build 产出 `dist/`）+ electron-builder。只跑后者会让 asar 缺 `dist/`，启动时报 `ERR_FILE_NOT_FOUND: app.asar/dist/index.html`。这个失败**只有启动判据能抓住**（打包 exit 0、asar 大小正常、清单里 electron/ 齐全），再次印证"打包成功 ≠ 应用能起来"。

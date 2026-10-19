@@ -1,0 +1,26 @@
+{
+  "sha": "2d9551d90f3309fbb8746096f293c78801cc749c",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 265 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 265,
+    "fileCount": 10,
+    "codeFileCount": 7,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "b450702ebbcd9b12bf73eae56f76fbbc228654aa144ab9ff1a15b68597f0d037",
+  "decidedAt": "2026-10-18T17:32:52.687Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "cleared",
+    "performedBy": "codex (manual cross-family verification; 引擎自动跑失败 ETIMEDOUT)",
+    "findings": "第二轮跨家族评审（codex / OpenAI 家族）对修复补丁的逐条验证：C1 已闭合 / M1 已闭合 / M2 已闭合 / m2 已闭合，无新增阻断项。\n\n三条非阻断观察及处置：\n① 存量「多模态 + 仅 default_model」解 llm 会 fail-closed 降级为空串 —— **已采纳并修**：把「多模态跳过 provider 级默认」收窄为「仅当 type !== 'llm' 时跳过」，让 llm 仍可取 default_model；补主进程用例 4b + parity 夹具「多模态-缺 llm 声明时 provider 级默认仍生效」。\n② 源码锁用 indexOf('\\n}\\n') 定位函数结束，CRLF 工作副本下返回 -1、限定退化为「函数 + 后续 N 字符」—— **已修**：读取后先 replace(/\\r\\n/g,'\\n') 归一化行尾。\n③ 「会话内手动 voiceModel 被 ops 同步重置」的交互语义 —— **不适用**：该观察的前提是「前端仍有可选模型的下拉」，而本 PR 已把下拉整体删除，用户无法产生会话内手动值；用户级偏好经 config.user_default_model 表达（优先级最高，不被覆盖）。"
+  }
+}

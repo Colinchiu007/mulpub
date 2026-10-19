@@ -1,0 +1,40 @@
+{
+  "sha": "d1028b58aae6159d021ea212d1c5d37e274dcba0",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 4,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 3,
+    "docSensitiveContentSample": [
+      "13. **进程被强杀后，在途出期的中间态无人认领（2026-10-19 登记，随 tasks 3.6b②）**：第 9 条当年把「读侧横幅」与「崩溃对账」写在同一句里并整条标为已闭合，**实测只对了一半**——读侧确已落（`ipc-handlers/podcast.js:185` 随 `getChannel` 回 `feedSync`，消费者 `src/components/PodcastHostingCard.vue:45-47,95-104`），崩溃对账**一行代码都没有**：忙标记是进程内状态（`services/podcast-channel-locks.js:121`），`:92` 那句「残留由启动对账接管」是注释不是实现，`publishInFlight` 在全部代码里命中 0（只存在于本 change 的 `design.md` 与 `.adversarial/` 产物里）。后果是强杀后留下的临时音频 / 已上传未写进 feed 的对象 / 半更新 feed 在下一次启动**既不会被提示也不会被清理**。落地顺序不得反：先在 spec delta 加 Requirement（现 13 条无一涉及对账），再落跨重启凭据 → `channel:get` 投影 → 频道页横幅 + zh/en 键；真机（强杀再启动）复现之前，本条不得被读成\"注释里写了所以做了\"。",
+      "- [ ] 3.6b② **崩溃对账**（PRD §13 第 13 条的新接受项）：应用进程被强杀时，在途出期留下的中间态（临时音频、已上传未写进 feed 的对象、忙标记）在下次启动**无人认领**——忙标记是进程内的（`services/podcast-channel-locks.js:121`），`:92` 那句「残留由启动对账接管」是注释而不是实现；`publishInFlight` 在全仓代码里命中 0（只存在于本 change 的 `design.md` 与 `.adversarial/` 产物）。落地顺序不得反：**先在 spec delta 加一条 Requirement**（现 13 条无一涉及对账），再落「上次出期未收尾」的可跨重启凭据 → 经 `channel:get` 投影 → 频道页横幅 + zh/en 键。没有真机复现（强杀再启动）之前，这条不许被读成\"注释里有就等于做了\"。",
+      "| 修复 + 回归保护（QM-5 ④） | ✅ | 文档侧四处：① §13 新增第 12 条（跨 provider 降级各块响度可能不一致，含 `REQUIRED_FILTERS` 11 项不含 `loudnorm` 的实测出处与替代口径 `podcast-episode-tts-adapters.js:88-92`）；② §13 新增第 13 条（强杀后在途出期无人认领，点名\"第 9 条只对了一半\"并把落地顺序钉死为 spec Requirement → 跨重启凭据 → `channel:get` 投影 → 横幅 + zh/en）；③ §8.2.9 标题改「部分实现」并插入落地状态段（含键名偏离 `podcast.episode.origin*` vs 表内 `podcast.voice.origin*`、判据 2 未落、落点换到文本浮层而 `PodcastEpisodeEntry.vue` 的 `voice\\|origin` 命中 0）；④ §15.4 的穷尽性主张收窄为\"已裁定的 11 个位置\"并列出 5 个未裁定候选页。任务侧：勾 `3.3a`/`3.7`/`4.3②`/`4.6` 四行（每行同次补逐绑定点证据行），拆出 `3.6b②`/`4.5b①`/`4.5b②`/`5.1b②` 四条新的未勾项，`3.6b`/`3.11`/`3.12`/`4.5`/`5.1b` 各补现状行后保持未勾。**回归保护**＝这四处更正都带 `文件:行号` 级取证，下一个会话可按同一坐标重取；本 PR 不新增测试文件（无运行面可锁，见\"接线棘轮\"行的如实说明）。 |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "49d57ef08300c4d628473a1b4389768effa2af541b0c80270384bc29f393978f",
+  "decidedAt": "2026-10-18T19:02:38.084Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

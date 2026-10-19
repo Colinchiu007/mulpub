@@ -62,6 +62,13 @@ const SEED_MAX_AGE_DAYS = 90
  *   - array-or-object—— contentCategories：服务端发 {items,count}，客户端 normalizeContentCategories
  *                       同时接受裸数组与 {items}（sidebar-menu-merge 归一化口径）
  * 判错的代价是**误拦合法的种子**或**放过结构坏掉的种子**，两边都是坏处，所以必须逐块实测。
+ *
+ * ⚠️ config-hash-purity（2026-10-18）：上面每一个非 null 的块都是 `config_hash` 的输入，
+ * 因此**块内不得含「每请求变化」的字段**（synced_at / updated_at 之类）。服务端曾在下发的
+ * appMenu 与 contentCategories 里带块内 synced_at，导致「内容没变 hash 也变」——
+ * config_version 每次 +1、生效看板「已确认率」永远上不去、版本表无限增长。
+ * 时间戳只存在于 bootstrap 信封顶层（不在 RUNTIME_BLOCKS 内，不参与 hash）。
+ * 服务端回归锁见 ops-center/backend/tests/test_config_hash_stability.py。
  */
 const SEED_BLOCK_TYPES = {
   announcements: 'array',

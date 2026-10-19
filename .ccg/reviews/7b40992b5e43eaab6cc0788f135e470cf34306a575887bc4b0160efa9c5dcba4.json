@@ -1,0 +1,36 @@
+{
+  "sha": "81e75f67281dd5e119f72a722552094f1f830e56",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 43 行（≤ 200）但命中 auth/数据库/加密：敏感内容 1 处",
+  "stats": {
+    "changedLines": 43,
+    "fileCount": 3,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 1,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "7b40992b5e43eaab6cc0788f135e470cf34306a575887bc4b0160efa9c5dcba4",
+  "decidedAt": "2026-10-18T20:13:15.263Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "deepReview": {
+    "required": true,
+    "status": "cleared",
+    "performedBy": "codex (manual cross-family review, tests-only 43 行)",
+    "findings": "结论：**可接受**。两处修改均属「夹具跟上新契约」，未发现放宽断言或掩盖真实缺陷。无 Critical / Warning。\n\n① prompt-bridge.test.js：被改的夹具同时给 capability_models.llm 与 config.default_model，正是旧口径下必红的形态；改后仍逐值断言（未弱化匹配），并**补了一条**回退用例 ⇒ 收紧覆盖。\n   判别力核验：旧实现会返回 MiniMax-M1 ≠ 新断言 MiniMax-M2.7 ⇒ 红；且夹具 models[0] 与两者都不同，对「误回退 models[0]」也判红。\n   补充说明（评审指出、非阻塞）：新增用例锁的是「多模态 llm 无能力声明时回退 default_model」；「多模态仅 llm 取 default_model、tts/image/video 跳过」的另一半由 parity 锁（mm-no-tts 等夹具）与源码形状断言覆盖，分摊在两处、同仓同 CI，覆盖完整。\n\n② CreateView.voice-clone-delete-guard.test.js：旧夹具只设 config 字段，注册表恒空 ⇒ getS2VVoiceCloneContext() fail-closed 返回 null ⇒ confirmDanger 未被调用。这是夹具缺前置条件，不是产品缺陷；补法在 loadS2VProviders() 之后注入 provider 行，与生产前置态一致，且五个删除门禁断言原样保留。\n   fail-closed 可接受性核验：不弹确认也不删是本测试自己既有的契约用例（音色上下文缺失时不弹不删），删除是破坏性操作，方向安全；生产可达性极低（克隆列表本身按 context 加载，provider 消失时 loadS2VProviders 会清空 voiceProvider）。\n   Info（不要求本 PR 处理）：未来若出现「列表已展示但 context 失效」的竞态，可在该分支写 s2vVoiceCloneError 给用户提示——属体验增强，非正确性缺陷。\n\n③ 不建议实现侧对「注册表未加载」抛显式错误（会与既有 fail-closed 契约冲突）；「注册表为空」分支已被既有用例覆盖，无需再补。\n④ Info（写法建议）：mountWithClonedVoice 直接给 s2vVoiceProviders 赋值绕过了 mock IPC；更贴生产的写法是 mock @/api/model-providers。当前写法可接受（受测对象是删除门禁而非加载器，且无 flake 风险）。"
+  }
+}

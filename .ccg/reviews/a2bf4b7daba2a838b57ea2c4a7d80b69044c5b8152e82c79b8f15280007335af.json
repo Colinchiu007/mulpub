@@ -1,0 +1,48 @@
+{
+  "sha": "5573c5df5d9defe022110e83b78e71fed571114f",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 990 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 990,
+    "fileCount": 35,
+    "codeFileCount": 23,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 9,
+    "docSensitiveContentSample": [
+      "| 视觉基线 | 按钮是全局可见 UI，**所有**页面截图都会变化 | 见 §15.5 与 §17：不声称视觉中性；基线由 CI 同源渲染重建，禁止本机 `--update-baseline` 掩盖 |",
+      "2. 正确流程：本轮 PR 内**不**在本机执行 `pnpm test:visual:update-baseline` 覆盖基线；由 CI 在同源渲染环境重建基线（或按仓库既有基线重建流程单独提交基线更新 PR），并以浏览器/人工 diff 审核确认变化仅来自新增按钮与标签条起点右移。",
+      "1. **OAuth 内嵌视图不跟随侧栏宽度**：`apps/desktop/electron/services/oauth-manager.js:86` 调用 `computeEmbeddedViewBounds(this.mainWindow)` 时未传宽度，始终按默认 200 计算。收起侧栏后 OAuth 授权页左侧会留 200px 空白。既有实现本就不跟随 ≤900px 的 68px，本轮不扩大改动面；登记为已知限制，建议后续单独立项把 `oauth-manager` 接入与登录视图相同的同步链路。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "a2bf4b7daba2a838b57ea2c4a7d80b69044c5b8152e82c79b8f15280007335af",
+  "decidedAt": "2026-10-18T06:16:53.432Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "needs_revision",
+    "performedBy": "claude(critic)+opencode(proposer) dual deep review",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "disposition": "dismissed",
+        "rationale": "假阳性：.ccg/reviews/*.json 是仓库既有审计产物，pre-commit 自动 stage（scripts/hooks/pre-commit 的 reviews 暂存段），check-pr-exec-record.js 的 AUDIT_ARTIFACT_RE 明确接纳该形态，上游 squash 提交（如 #3905）同含此文件；它不是「误放进源码树的元文件」。"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "disposition": "addressed",
+        "rationale": "属实。已补 apps/desktop/src/sidebar-collapse-chain.test.js（3 例）：真实 createPageManagerApi + 真实 registerIpcHandlers + 真实 WebviewManager.layout + 真实 computeEmbeddedViewBounds，串起 store→preload→IPC 通道→全宽 bounds→AuthViewManager/QRCodeLogin 同步；另覆盖展开反向与启动恢复补报。"
+      }
+    ],
+    "note": "深度审查（claude critic / opencode proposer，最多 3 轮）产出 2 条 Warning，无 Critical，dimension 最低 6。i1 经机制核对判为假阳性；i2 已用单条端到端链路测试关闭。按 check-pr-exec-record 的合规出口（「写明原因并把 status 置为闭环值」）置为 needs_revision，并保留原始判定记录供复核。",
+    "template": ".adversarial\\ccg-deep-82e96a61\\adjudication.json",
+    "at": "2026-10-18T06:36:02.805Z"
+  }
+}

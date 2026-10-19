@@ -70,6 +70,8 @@ const ALLOWED_AUDIO_EXTENSIONS = Object.freeze({
   ".wav": "audio/wav",
   ".webm": "audio/webm",
 });
+// 克隆样本完整性判定/失效原因逻辑在 tts-voice-clone-integrity（纯逻辑 + 依赖注入，避免循环 require）
+const { buildPublicCloneEntries, findCloneSamplesWithRuntime, inspectSampleStorage, readCloneVoiceStatus } = require("./tts-voice-clone-integrity");
 
 const cloneRegistryLocks = new Map();
 
@@ -363,15 +365,13 @@ class TtsVoiceCloneService {
 
     const registryResult = this._readRegistry(request, owner);
     if (registryResult.error) return registryResult.error;
-    return success({
-      providerId: request.providerId,
-      model: request.model,
-      voices: registryResult.registry.voices.map((voice) => {
-        const publicEntry = publicVoice(voice);
-        if (!isProviderCloneVoiceIdValid(request.providerId, voice.id)) publicEntry.invalid = true;
-        return publicEntry;
-      }),
+    // 失效判定：voice_id 非法优先于本地样本缺失（2026-10-18 事故：registry 仍 active 但样本目录已丢失，恢复路径必然 ENOENT）。
+    const voices = await buildPublicCloneEntries({
+      voices: registryResult.registry.voices, providerId: request.providerId, toPublicVoice: publicVoice,
+      isVoiceIdValid: isProviderCloneVoiceIdValid,
+      sampleStorageStatusOf: (sampleStorage) => this._sampleStorageStatus(owner, sampleStorage),
     });
+    return success({ providerId: request.providerId, model: request.model, voices });
   }
 
   async createSampleSelection(input, paths, senderKey) {
@@ -639,38 +639,30 @@ class TtsVoiceCloneService {
    * - 名称允许重复（供应商不要求唯一），前端以「音色XXX」自动命名避免默认冲突。
    */
     /**
-   * 根据 voiceId 查找克隆音色的原始音频样本路径（用于跨账号重新克隆）。
-   * 返回 { sampleStorage, name } 或 null。
+   * 根据 voiceId 查找克隆音色的原始音频样本路径（用于跨账号重新克隆）；返回 { sampleStorage, name, model } 或 null。
+   * 查找主体（模型候选回退）在 tts-voice-clone-integrity，本方法只注入 store/owner 依赖，行为与返回形状保持不变。
    */
   async findCloneSamples(voiceId, providerId, model) {
-    if (!this._store || !voiceId) return null
-    const owner = this._captureOwner()
-    if (!owner) return null
-    // Try exact model key first, then fall back to known TTS models
-    // (handles case where pipeline resumes without voiceModel or model changed).
-    // MiniMax 克隆音色 registry 绑定在 speech-2.8-turbo 等模型下；
-    // MiMo 克隆音色 registry 绑定在 mimo-v2.5-tts-voiceclone 下。
-    const candidateModels = [
-      model,
-      'speech-2.8-turbo', 'speech-02-hd', 'speech-2.8-hd', 'speech-2.6-hd', 'speech-2.6-turbo',
-      'mimo-v2.5-tts-voiceclone', 'mimo-v2.5-tts',
-    ].filter(Boolean)
-    const triedKeys = new Set()
-    for (const m of candidateModels) {
-      const key = cloneRegistrySettingKey(providerId, m)
-      if (triedKeys.has(key)) continue
-      triedKeys.add(key)
-      let registry
-      try {
-        registry = this._store.getUserSetting(key, null, owner.subject)
-      } catch (_) { continue }
-      if (!registry || !Array.isArray(registry.voices)) continue
-      const clone = registry.voices.find(v => v.id === voiceId && v.deletionState === DELETE_STATES.ACTIVE)
-      if (clone && clone.sampleStorage) {
-        return { sampleStorage: clone.sampleStorage, name: clone.name, model: m }
-      }
-    }
-    return null
+    return findCloneSamplesWithRuntime({ store: this._store, captureOwner: () => this._captureOwner(), voiceId, providerId, model, buildRegistryKey: cloneRegistrySettingKey, activeDeletionState: DELETE_STATES.ACTIVE })
+  }
+
+  /**
+   * 查询克隆音色可用性（只读，不写 registry/偏好）：命中 active 记录返回 {registered, name, invalid, invalidReason}，
+   * 未命中返回 {registered:false}；查找/失效判定主体在 tts-voice-clone-integrity（模型候选回退与 findCloneSamples 同风格）。
+   */
+  async getCloneVoiceStatus(input) {
+    // 校验规则与 _normalizeDeleteRequest 一致：providerId/model 安全标识符，voiceId 安全且 ≤ 256
+    const request = this._normalizeDeleteRequest(input);
+    if (!request) return failure("VOICE_CLONE_INVALID_ARGUMENTS");
+    const owner = this._captureOwner();
+    if (!owner) return failure("VOICE_OWNER_UNAVAILABLE");
+    if (!this._hasUserSettings()) return failure("VOICE_CLONE_STORE_UNAVAILABLE");
+    return readCloneVoiceStatus({
+      store: this._store, owner, request,
+      buildRegistryKey: cloneRegistrySettingKey, isVoiceIdValid: isProviderCloneVoiceIdValid,
+      activeDeletionState: DELETE_STATES.ACTIVE,
+      sampleStorageStatusOf: (sampleStorage) => this._sampleStorageStatus(owner, sampleStorage),
+    });
   }
 
   /**
@@ -1109,6 +1101,14 @@ async renameClone(input) {
     } catch (_) {
       return null;
     }
+  }
+
+  /**
+   * 判定克隆样本目录状态：'ok' | 'missing' | 'unknown'（只读探测）；判定主体在 tts-voice-clone-integrity.inspectSampleStorage，
+   * 本方法注入 this._fs/userData 依赖（测试会注入 fs，禁止直接 require node:fs）。
+   */
+  async _sampleStorageStatus(owner, sampleStorage) {
+    return inspectSampleStorage({ fs: this._fs, userDataPath: this._resolveUserDataPath(), owner, sampleStorage, isSafeSampleStorage: isSafeCloneSampleStorage, isPathWithin });
   }
 
   _createSampleStorageDescriptor(owner, sampleCount) {

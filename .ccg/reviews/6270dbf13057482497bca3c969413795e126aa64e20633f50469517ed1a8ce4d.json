@@ -1,0 +1,71 @@
+{
+  "sha": "42e4b2e7cb246e0bbec7bcddfb8ca2722b19ae4d",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 47 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 47,
+    "fileCount": 4,
+    "codeFileCount": 3,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "6270dbf13057482497bca3c969413795e126aa64e20633f50469517ed1a8ce4d",
+  "decidedAt": "2026-10-18T18:23:22.039Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play(agent)",
+    "fallbackReason": "跨家族对抗后端超时（本会话第 8 次同型 ETIMEDOUT），按引擎第三档出口 self_play 自查。本条是上一提交的裁决整改（封面闸门对齐 + 失败文案），改动 47 行。",
+    "evidenceInRepo": "openspec/records/toutiao-publish-body.md §八 裁决表 i1/i2 两行",
+    "confidenceWeight": 0.65,
+    "adjudication": [
+      {
+        "id": "i1",
+        "severity": "Info",
+        "finding": "coverInputs 数组里 `opts.cover && opts.cover.path` 被紧随其后的 `opts.cover` 在真值意义上完全包含 ⇒ 第一项是冗余条件。",
+        "verdict": "accepted_style",
+        "rationale": "不是遗漏而是刻意：该数组的职责是**枚举可接受的封面来源**（供后续维护者一眼看全 + 与 buildToutiaoPublishBody 的来源逐一对应），不是最短布尔式。删掉第一项后「cover 文件路径」这个形态在代码里就看不见了，反而更容易在下一次改动时漏掉。三项（cover 对象 / thumbUri / taskData 侧 cover|coverPath）互不重复。",
+        "fixCommit": null
+      },
+      {
+        "id": "i2",
+        "severity": "Info",
+        "finding": "封面闸门的提示文案改了（新增「或已上传好的 thumbUri」），可能与 PRD §12.4 的提示文字表不一致。",
+        "verdict": "upheld_verified",
+        "rationale": "已核对：PRD §12.4 表里那行原文是「请为任务提供 cover/coverPath」，本轮代码改成「请提供 cover/coverPath，或已上传好的 thumbUri」。**PRD 需要同步**，本轮同 PR 内一并更新（同一提交内改，不留跨轮漂移）。",
+        "fixCommit": "本 PR 追加提交"
+      },
+      {
+        "id": "i3",
+        "severity": "Info",
+        "finding": "新增的「只给 thumbUri 也放行」回归用例用了独立假服务器，若 gate 路由缺失会静默通过（checkPublishAuth 取不到时返回 null 不阻断）。",
+        "verdict": "upheld_verified",
+        "rationale": "已核对：该用例显式注册了 GetPublishAuth + GetPublishPageReviewLatency 两条路由并断言`publishId: ITEM_COVER` 与 `VideoInfo.ThumbUri` 落值 —— 不是「没抛错就算过」。若闸门仍拦 thumbUri，会在 run() 抛 ToutiaoVideoError 而用例直接红，已被 i1 修复前实测验证过。",
+        "fixCommit": null
+      }
+    ],
+    "summary": {
+      "total": 3,
+      "upheldVerified": 2,
+      "acceptedStyle": 1,
+      "note": "本条 47 行是纯整改 + 回归用例；顺带查出 PRD §12.4 提示文字需同步（i2），已在同 PR 补上，避免跨轮文档漂移。"
+    },
+    "at": "2026-10-18T18:25:56.298Z"
+  }
+}

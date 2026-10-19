@@ -1,0 +1,46 @@
+{
+  "sha": "c29ef1acf161fefdaf341801562b760b23da7ef0",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 327 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 327,
+    "fileCount": 15,
+    "codeFileCount": 11,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 2,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "若嫌体积大，可在部署后单独 `DELETE FROM runtime_config_version WHERE version < <当前>`——",
+      "1. **`RuntimeConfigVersion` 历史行未清理**：修复前每次 bootstrap 落一行，表里已积累若干行。它是**读时推导的派生表**，历史行不影响正确性（`resolve_config_version` 只查「hash 是否见过」与「最新版本号」），故**刻意不迁移**；若将来体积成为问题，可单独 `DELETE FROM runtime_config_version WHERE version < <当前版本>`，但那需要一次明确的运维决策，不在本 change 范围内。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "bbf8d465d83ae2bc9609a0569d044205a6436180f0035c04e34b973671a8711b",
+  "decidedAt": "2026-10-18T09:33:26.207Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play + lead 逐条裁决（i1 属 crypto 高危域，已按 requiresExternalReview 外部复核后落判）",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "domains": [
+          "crypto"
+        ]
+      }
+    ],
+    "findings": [
+      "i1（Warning / crypto，upheld 已修）：config_fingerprint.py 第 4 条约束把 updated_at 与 synced_at 并列称为 volatile，与桌面端回归锁「updated_at 变化必须改变 hash」直接矛盾——后人照它扩 VOLATILE_KEYS 就会把「内容变更升版」这条正确语义一起判死。修复：第 4 条改为「不得含每请求变化的**时钟产物**（synced_at / syncedAt / 任何 _now() 产物）」，并新增一段明确区分「时钟产物」与「内容属性」（updated_at / created_at 属内容属性，运营改配置时它跟着变、hash 随之变化是正确行为）。",
+      "i2（Warning，upheld 已修）：test_config_hash_stability 原断言两次请求的顶层 synced_at 必须不同，同毫秒执行会造成偶发假失败（flake CI）。修复：删掉该前置断言，改为注释说明「真正要守的是 hash 与 version 相同；synced_at 相同只说明时钟刻度没跨过，不影响断言有效性」。",
+      "i3（Warning，dismissed）：测试模块改全局 os.environ + sys.path.insert 被指污染 pytest 套件。辩护成立：这是照抄 test_runtime_resilience_api.py 的既有约定，tests/conftest.py 已用 setdefault 对同一批变量做会话级兜底，且后端全量 pytest 676 passed / 0 failed 即无污染的经验证据。已在测试文件 docstring 里写明该约定来历，避免后人重复质疑。"
+    ],
+    "template": ".adversarial\\ccg-deep-d9bab901\\adjudication.json",
+    "note": "3 条已逐条出 verdict（upheld 2 / dismissed 1）；2 条 upheld 均已修复并复跑测试，1 条 dismissed 已把辩护理由写进测试文件 docstring。",
+    "at": "2026-10-18T09:38:06.260Z"
+  }
+}

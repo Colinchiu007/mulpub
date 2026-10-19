@@ -336,8 +336,15 @@
               <span>{{ s2vSectionLabel('voice') }}</span>
               <span class="s2v-summary">{{ s2vSectionSummary('voice') }}<span v-if="s2vSectionAtDefault('voice')" class="s2v-summary-default">{{ $t('create.story2video.ui.sectionDefaultSuffix') }}</span></span>
             </summary>
-            <div class="s2v-field-grid">
-              <UiField class="config-item" option-key="voice.voiceProvider" label="语音生成器">
+              <!-- 声音区内再分三个子分区（s2v-voice-section-layout，2026-10-18）：
+                   原为单一自适应栅格，四类控件（语音生成器/音色ID、背景音乐/音量、音色克隆）
+                   混排，「音色复制 / 克隆」只占半行宽、和「背景音乐音量」并排，看不出分组。
+                   拆为「旁白设置 / 背景音乐 / 音色克隆」三块，各带标题行，
+                   克隆面板独占满宽。子分区沿用 .s2v-subgroup 既有样式（与「高级」区同构）。 -->
+              <div class="s2v-subgroup" data-testid="s2v-subgroup-voiceNarration">
+                <h4 class="s2v-subgroup-title">{{ s2vSubgroupLabel('voiceNarration') }}</h4>
+                <div class="s2v-field-grid">
+                  <UiField class="config-item" option-key="voice.voiceProvider" label="语音生成器">
                 <UiSelect v-model="s2vConfig.voiceProvider" @change="handleS2VVoiceProviderChange">
                   <!-- 首项「自动 Edge TTS」为常驻免费兜底（id=''），列表为空时下拉仍非空白；
                        仅补充配置引导提示（2026-08-12 复审 W1，与图片/视频空态提示对齐）。 -->
@@ -345,18 +352,15 @@
                 </UiSelect>
                 <p v-if="s2vVoiceProviders.length === 0" class="config-hint">未配置 TTS 模型时将使用自动 Edge TTS（免费）；如需 MiniMax 等语音模型与音色克隆能力，请先在「模型服务商」中配置。<a href="#/model-providers" class="config-hint-link">前往配置 →</a></p>
               </UiField>
-              <UiField v-if="s2vConfig.voiceProvider && !s2vVoiceModelHidden" class="config-item" label="语音模型">
-                <UiSelect
-                  v-if="s2vVoiceModelOptions.length > 0"
-                  v-model="s2vConfig.voiceModel"
-                  @change="handleS2VVoiceModelChange"
-                >
-                  <option disabled value="">选择模型</option>
-                  <option v-for="model in s2vVoiceModelOptions" :key="model" :value="model">{{ model }}</option>
-                </UiSelect>
-                <span v-else class="config-hint">当前服务商没有可用的语音模型。</span>
-              </UiField>
-              <UiField v-if="s2vConfig.voiceProvider && (s2vConfig.voiceModel || s2vVoiceModelHidden)" class="config-item" label="语音 / 音色 ID">
+              <!-- 「语音模型」下拉已移除（voice-model-program-resolved，2026-10-18）：
+                   用户只选择能力提供方，具体 Model ID 由程序按运营中心配置的默许模型解析
+                   （resolveVoiceModelForProvider），静默写入 s2vConfig.voiceModel 供 IPC/快照使用。
+                   MiMo 的 tts/voiceclone 双模型区分由音色类型驱动，与此正交。 -->
+              <!-- 显示条件（voice-model-program-resolved 修正，2026-10-19）：已选提供方 **且** 已知模型。
+                   模型有两个来源：①程序按运营默许模型解析出的 s2vVoiceContextModel（正常路径）；
+                   ②既有 s2vConfig.voiceModel（历史快照 / 配置档案回填后尚未重算、或分发夹具显式给值）。
+                   两者都为空 ⇒ 无法确定用哪个模型 ⇒ 整项不渲染，不留一个空音色下拉。 -->
+              <UiField v-if="s2vConfig.voiceProvider && (s2vVoiceContextModel || s2vConfig.voiceModel)" class="config-item" label="语音 / 音色 ID">
                 <UiSelect
                   id="s2v-voice-catalog"
                   v-model="s2vConfig.voiceId"
@@ -379,7 +383,12 @@
                   @click="refreshS2VVoiceCatalog"
                 >刷新音色列表</button>
                 <span v-else-if="s2vVoiceOptions.length === 0" class="config-hint">当前模型没有可用音色。</span>
-              </UiField>
+                </UiField>
+              </div>
+              </div>
+              <div class="s2v-subgroup" data-testid="s2v-subgroup-voiceBgm">
+                <h4 class="s2v-subgroup-title">{{ s2vSubgroupLabel('voiceBgm') }}</h4>
+                <div class="s2v-field-grid">
               <!-- 背景音乐与音量（自「画面」移入「声音」，s2v-bgm-legacy-repair）：
                    历史路径不再只有「未入库」一词，而是按主进程只读核验结果区分为
                    可用/已丢失/不可用/未知，并给出【加入素材库】/【清除】一次性修复动作。 -->
@@ -438,8 +447,12 @@
                   :label="$t('create.story2video.ui.bgmVolumeLabel')"
                   :hint="$t('create.story2video.ui.doubleResetHint')"
                 />
-              </div>
-              <div v-if="s2vVoiceCapability?.type === 'provider_personal_slot'" class="config-item config-span-2 voice-slot-hint">
+                </div>
+                </div>
+            </div>
+              <div class="s2v-subgroup" data-testid="s2v-subgroup-voiceClone">
+                <h4 class="s2v-subgroup-title">{{ s2vSubgroupLabel('voiceClone') }}</h4>
+                <div v-if="s2vVoiceCapability?.type === 'provider_personal_slot'" class="config-item config-span-2 voice-slot-hint">
                 <label>个人音色槽位</label>
                 <p class="config-hint">请先在服务商官方控制台创建或管理个人音色，再刷新本地目录并在上方下拉列表中选择。当前页面不会伪造或复制服务商槽位。</p>
               </div>
@@ -517,12 +530,12 @@
                   </div>
                 </div>
                 </template>
+                </div>
+                <div v-else-if="s2vVoiceCapability?.type === 'user_clone'" class="config-item config-span-2 voice-slot-hint">
+                  <label>音色复制 / 克隆</label>
+                  <p class="config-hint">当前服务商尚未接入可用的音色克隆能力。</p>
+                </div>
               </div>
-              <div v-else-if="s2vVoiceCapability?.type === 'user_clone'" class="config-item config-span-2 voice-slot-hint">
-                <label>音色复制 / 克隆</label>
-                <p class="config-hint">当前服务商尚未接入可用的音色克隆能力。</p>
-              </div>
-            </div>
           </details>
 
           <details
@@ -776,8 +789,7 @@ const s2vVoiceCloneRenamingId = computed(() => state.s2vVoiceCloneRenamingId);
 const s2vVoiceCloneRequirements = computed(() => state.s2vVoiceCloneRequirements);
 const s2vVoiceCloneSelection = computed(() => state.s2vVoiceCloneSelection);
 const s2vVoiceClones = computed(() => state.s2vVoiceClones);
-const s2vVoiceModelHidden = computed(() => state.s2vVoiceModelHidden);
-const s2vVoiceModelOptions = computed(() => state.s2vVoiceModelOptions);
+const s2vVoiceContextModel = computed(() => state.s2vVoiceContextModel);
 const s2vVoiceOptions = computed(() => state.s2vVoiceOptions);
 const s2vVoiceProviderOptions = computed(() => state.s2vVoiceProviderOptions);
 const s2vVoiceProviders = computed(() => state.s2vVoiceProviders);
@@ -794,7 +806,6 @@ const chooseS2VVoiceCloneSamples = (...args) => fns.chooseS2VVoiceCloneSamples(.
 const clearS2VLegacyBgm = (...args) => fns.clearS2VLegacyBgm(...args);
 const deleteS2VVoiceClone = (...args) => fns.deleteS2VVoiceClone(...args);
 const handleS2VVideoProviderChange = (...args) => fns.handleS2VVideoProviderChange(...args);
-const handleS2VVoiceModelChange = (...args) => fns.handleS2VVoiceModelChange(...args);
 const handleS2VVoiceProviderChange = (...args) => fns.handleS2VVoiceProviderChange(...args);
 const handleS2VVoiceSelection = (...args) => fns.handleS2VVoiceSelection(...args);
 const isOrchestratedPipeline = (...args) => fns.isOrchestratedPipeline(...args);

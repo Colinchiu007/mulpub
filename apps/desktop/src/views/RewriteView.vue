@@ -767,8 +767,10 @@ function resolveRewriteTitle() {
  */
 const podcast = usePodcastChannel()
 const scriptEntry = ref({ visible: false, openedOnce: false, script: '', title: '' })
-async function openScriptEntry () {
-  const channelId = podcast.activeChannelId.value || await podcast.ensureChannel()
+function openScriptEntry () {
+  // 只读既有解析：动作能出现就说明默认频道非空（模板同一个谓词），原先那句
+  // `|| await ensureChannel()` 是永远走不到的死分支（QM6-2），留着会让人以为这里能兜出频道。
+  const channelId = podcast.activeChannelId.value
   if (!channelId) return
   const body = rewriteResult.value
   if (!body || !body.trim()) return

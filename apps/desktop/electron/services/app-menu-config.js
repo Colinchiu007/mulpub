@@ -28,11 +28,22 @@ const APP_MENU_GROUPS = ['primary', 'more']
 /**
  * 应用菜单配置结构校验。
  *
- * @param {unknown} raw 下发原始值，期望 { items: [{ key, visible, sort_order, group }], synced_at }
+ * config-hash-purity（2026-10-18）：**时间戳不再从块内取**。
+ * `appMenu` 在 `RUNTIME_BLOCKS` 白名单内、参与 config_hash 计算，而服务端曾在这里下发
+ * 块内 `synced_at: _now()` ⇒ 「运营没改菜单，hash 也每次都在变」——
+ * config_version 每次 +1、生效看板「已确认率」永远上不去、版本表随请求数无限增长。
+ * 因此服务端已把 `synced_at` 从本块移除，只保留在 bootstrap 信封顶层（顶层字段不参与 hash）。
+ *
+ * 读侧仍**向后兼容**：块内若还带着 synced_at（旧版本服务端 / 手工构造的测试数据），
+ * 优先用它；否则回落到调用方传入的信封顶层 `fallbackSyncedAt`。这样「新旧服务端混跑」
+ * 期间不会出现时间戳突然变空。
+ *
+ * @param {unknown} raw 下发原始值，期望 { items: [{ key, visible, sort_order, group }] }
+ * @param {string} [fallbackSyncedAt] bootstrap 信封顶层的 synced_at（块内不再下发时的时间戳来源）
  * @returns {{items: Array<{key:string,visible:boolean,sort_order:number|null,group:string|null}>, syncedAt: string} | null}
  *          null 表示不可用，调用方（渲染端）应 fail-open 回退本地默认菜单
  */
-function normalizeAppMenu(raw) {
+function normalizeAppMenu(raw, fallbackSyncedAt) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
   const list = raw.items
   if (!Array.isArray(list)) return null
@@ -60,7 +71,9 @@ function normalizeAppMenu(raw) {
   }
   return {
     items,
-    syncedAt: typeof raw.synced_at === 'string' ? raw.synced_at : '',
+    // 块内 synced_at 已不再下发（config-hash-purity）：优先兼容旧形态，回落信封顶层。
+    syncedAt: (typeof raw.synced_at === 'string' && raw.synced_at)
+      || (typeof fallbackSyncedAt === 'string' ? fallbackSyncedAt : ''),
   }
 }
 

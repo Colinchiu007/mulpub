@@ -24,7 +24,10 @@
 
     <template v-else>
       <div class="mp-shell" data-testid="mp-shell">
-        <MpSidebar @open-settings="showSettingsDialog = true" />
+        <!-- 全局左侧菜单折叠（PRD-SIDEBAR-COLLAPSE-TOGGLE-2026-10-18）：
+             用 v-show 而不是 v-if —— 卸载会重建侧栏的 ResizeObserver / 运营菜单拉取 /
+             登录区状态，并在展开首帧闪出一次 0 宽；v-show 只隐藏不销毁。 -->
+        <MpSidebar v-show="!sidebarCollapsed" @open-settings="showSettingsDialog = true" />
         <div class="mp-shell-main">
           <!-- 浏览器式标签栏 -->
           <TabBar
@@ -122,6 +125,11 @@ import { useHomeShellNavigation } from '@/composables/useHomeShellNavigation'
 import { useFirstRunGate } from '@/composables/useFirstRunGate'
 import { useTheme } from '@/composables/useTheme'
 import { notifySettingsDialogClosed, settingsDialogRequest } from '@/stores/settings-dialog'
+import {
+  reportSidebarCollapsed,
+  sidebarCollapsed,
+  applyRemoteCollapsed,
+} from '@/stores/sidebar-collapse'
 import { isHomeShellSearch } from '@/utils/home-shell'
 import { suspendEmbeddedViewsForOverlay, releaseEmbeddedViewsForOverlay } from '@/composables/useEmbeddedViewSuspension'
 import { useTabDocumentTitle } from '@/composables/useTabDocumentTitle'
@@ -251,6 +259,10 @@ let unsubscribeHomeShellNav = null
 // getAllWindows()[0]（主窗口），home-shell（独立 WebContentsView）收不到，
 // 同一 renderer 内 App 只挂载一次（main.js createApp 单例），无双订阅。
 let unsubscribeDispatchFailed = null
+// 多窗口折叠状态同步（2026-10-18）：主进程是应用级唯一真源，任一窗口点击后它会
+// 重排全部内嵌视图并向每个窗口广播。本窗口若不跟上，DOM 侧栏还显示着却被原生
+// 视图盖住 ⇒ 侧栏看得见却点不动（点击错乱）。
+let unsubscribeSidebarCollapsed = null
 
 // 弹窗互斥（2026-09-23 Bug 修复）：浏览器/登录标签（外部网页 WebContentsView）活动时，
 // 原生图层永远压在渲染层 DOM 之上——设置弹窗打开后「屏幕闪一下但没出现」。
@@ -411,6 +423,9 @@ onMounted(() => {
   // 它是被标签系统管理的对象，而非管理者，不订阅 tab 事件、不驱动壳态互斥。
   if (!isHomeShell) {
     tabStore.init()
+    // 启动恢复折叠态：主进程默认展开；若用户上次退出时是收起态，这里补一次上报，
+    // 否则之后新建的浏览器/登录标签 WebContentsView 仍从 x=200 开始，左侧留死区。
+    reportSidebarCollapsed()
   }
   spaNav.attach()
 
@@ -431,6 +446,15 @@ onMounted(() => {
       if (typeof path === 'string' && path.charAt(0) === '/') {
         try { router.push(path) } catch (error) { console.warn('[home-shell] navigate failed', error) }
       }
+    })
+  }
+
+  // 多窗口折叠同步：主进程广播 → applyRemoteCollapsed（只改本地 ref，不持久化、不上报，
+  // 回环防护见 stores/sidebar-collapse.js）。preload 未暴露该方法（老版本）时静默跳过。
+  const pm = api && api.pageManager
+  if (pm && typeof pm.onSidebarCollapsedChanged === 'function') {
+    unsubscribeSidebarCollapsed = pm.onSidebarCollapsedChanged((collapsed) => {
+      applyRemoteCollapsed(collapsed)
     })
   }
 
@@ -461,6 +485,8 @@ onBeforeUnmount(() => {
   unsubscribeHomeShellNav = null
   if (typeof unsubscribeDispatchFailed === 'function') unsubscribeDispatchFailed()
   unsubscribeDispatchFailed = null
+  if (typeof unsubscribeSidebarCollapsed === 'function') unsubscribeSidebarCollapsed()
+  unsubscribeSidebarCollapsed = null
   if (!isHomeShell) tabStore.dispose()
   identityStore.dispose()
 })

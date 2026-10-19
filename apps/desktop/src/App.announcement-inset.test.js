@@ -88,6 +88,17 @@ describe('App 装配公告横幅与顶部下移', () => {
       pageManager: {
         setTopInset: vi.fn().mockResolvedValue({ code: 0 }),
         setShellMode: vi.fn().mockResolvedValue({ code: 0 }),
+        // main 侧 App.vue 现在会在 onMounted 里 tabStore.init()，它走 pageManager 命名空间
+        // 订阅标签事件并 subscribeEvents（见 stores/tab.js:44-50,150-179,244）。
+        // 夹具必须与真实桥同形：缺键时挂载链抛出未捕获 rejection，而用例仍全绿——
+        // vitest 把 "Errors 4" 与 "59 passed" 同时打印，只数通过数就会把它读成通过。
+        on: vi.fn(() => () => {}),
+        onTabEvent: vi.fn(() => () => {}),
+        onNavigationChanged: vi.fn(() => () => {}),
+        subscribeEvents: vi.fn().mockResolvedValue({ code: 0, data: { subscriberId: 'test-sub' } }),
+        unsubscribeEvents: vi.fn().mockResolvedValue({ code: 0 }),
+        getAllTabs: vi.fn().mockResolvedValue({ code: 0, data: [] }),
+        getActiveTab: vi.fn().mockResolvedValue({ code: 0, data: null }),
       },
     }
   })

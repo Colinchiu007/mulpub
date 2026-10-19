@@ -138,3 +138,17 @@ API 轨 Step 0 `hasSecurityMaterials()` 为假 —— cookie 缺
 
 **三轮合计 18 条**：成立并修复 **10 条**（第一轮 i1/i6/i7、第二轮 i1/i2/i3、第三轮 i1/i2/i3/i6），
 驳回 7 条（i2/i3/i4/i5 第一轮、i4/i5 第二轮、i4 第三轮），如实记录 1 条取舍（第三轮 i5 的分片采集）。
+
+### 第四轮（R2 提交，针对 `22fb7e378`，6 条）
+
+| # | 级别 | 指控 | 裁决 | 理由（可验证） |
+| --- | --- | --- | --- | --- |
+| i1 | Critical | `assertReady` 的 `catch(_)` 静默吞掉 rpa-dom-dump 模块加载错误，取证通道失效后仍继续门禁，破坏「取证+判定」审计契约 | **成立·已修** | 旧代码确实是 `catch (_) { /* 取证失败不阻塞判定 */ }`，无任何输出 ⇒ 「通道断了」与「本平台不需要取证」在生产上完全同形。已改为：`rec === null` 或抛错都 `logger.warn` 出声（文案点名「本次缺页面形状证据」），判定仍继续（取证是旁路，不得阻塞发布） |
+| i2 | Critical | VOCAB 用**包含**匹配，命中后仍保留前 40 字，`提交个人信息：138…` 之类会把用户内容写进临时 JSON | **成立·已修** | 旧实现 `VOCAB.test(t) ? t : null` + `cut(e.innerText,40)` 确实如此。已改为**整串相等**：`VOCAB` 从正则改为词数组，`vocabHas(t)` 要求去空白后的文本**恰好等于**某个控件标签才留 preview；同时截断从 40 降到 20。这样 preview 只可能是「发布」「存草稿」「上传视频」这类控件标签本身，不含用户内容 |
+| i3 | Warning | 热路径同步 `require('./rpa-dom-dump')`，模块语法错误被静默跳过，取证旁路失败无可见信号 | **成立·已修** | 与 i1 同一处代码、同一修法：require 与调用都在 try 内，失败走 warn 分支出声。另：`publish-precondition.test.js` 已有「取证异常不抛」用例，本轮为其补「异常时出声」断言 |
+| i4 | Warning | 采集脚本手工拼接，`new Function` 语法守卫只防解析错误、不防逻辑漂移 | 不成立（已有逻辑锁） | 逻辑漂移由 **21 例结构断言**守：断言采集脚本必须含 `bucket`/`valueBucket`/`textBucket`/`vocabHas`/`VOCAB`、不得含 `valueLength`、不得含整段 innerText 取值、preview 只来自词表。改词表内容会撞「VOCAB 必须存在且 preview 仅词表命中」这类断言；纯解析错误另有 `new Function` 守卫 |
+| i5 | Warning | `executeJavaScript` 在渲染进程同步做大 DOM 查询，可能短暂阻塞上传确认热路径 | 部分成立·已缓解，如实记为取舍 | 缓解：默认关闭（`MP_DOM_DUMP` 未设时一次都不读页面，有测试锁）；只在**阶段边界**各一次，不在输入过程中；try/catch 兜底不抛。未做分片/异步采集：收益低（只在排障时开启）而复杂度显著上升，如实记录为已知取舍 |
+| i6 | Warning | 新记录 `3ae7ca6d` 状态 pending 且 performedBy 为 null；`evidenceInRepo` 指向未入库的 `.adversarial` 目录 | **成立·已修** | 前半是**时点快照**（裁决尚未执行，见本表）；后半确有一处指针指到 gitignore 目录。已统一口径：每篇记录的 `evidenceInRepo` 只写**入库文档**（`openspec/records/<branch>.md` 的裁决表），`.adversarial/` 路径仅作本机模板定位，不作为证据引用 |
+
+**四轮合计 24 条**：成立并修复 **16 条**（前三轮 10 条 + 本轮 i1/i2/i3/i6），
+驳回 7 条，如实记录取舍 1 条（本轮 i5）。

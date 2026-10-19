@@ -74,7 +74,7 @@ test('允许清单只能缩小：清单内的历史重复不报，其余重复�
 })
 
 test('真实仓库：允许清单里的历史重复确实仍然存在（清单不得变成无人认领的死条目）', () => {
-  const r = checker.collect({ root: path.join(__dirname, '..') })
+  const r = checker.collect({ root: path.join(__dirname, '..'), ledger: checker.loadLedger(path.join(__dirname, '..')) })
   assert.deepStrictEqual(r.duplicates, [], JSON.stringify(r.duplicates))
   const heads = new Set()
   for (const line of fs.readFileSync(path.join(__dirname, '..', '.quality-gates.md'), 'utf8').split('\n')) {
@@ -782,7 +782,7 @@ test('跨源：身份规则退化时配对数必须显式归 0（基线写在断
 })
 
 test('跨源：真仓现场报得出配对数，且当前零未承认违例（防判据整体失效）', () => {
-  const r = checker.collect({ root: path.join(__dirname, '..') })
+  const r = checker.collect({ root: path.join(__dirname, '..'), ledger: checker.loadLedger(path.join(__dirname, '..')) })
   assert.ok(r.crossSrcPairs > 50, '配对数退化成 ' + r.crossSrcPairs + ' —— 身份规则或载体块解析已失效')
   assert.strictEqual(r.crossSrcViolations.length, 0, '新违例必须由作者回填或显式承认，不许带着红合并')
   assert.strictEqual(r.crossSrcStaleAck.length, 0, JSON.stringify(r.crossSrcStaleAck))
@@ -1778,4 +1778,116 @@ test('F8 差量行解析：git 元数据行不得伪装成跃迁，且 LF/CRLF �
   // 同一份差量按 LF 连接与按 CRLF 连接必须同判：判据里逐行剥尾部 \r 是唯一入口。
   assert.deepEqual(checker.parseClosureTransitions(real.join('\n'), new Set(['no-newline.md'])), a,
     '差量侧的行尾档不得改变判定')
+})
+
+// ── change: normalize-debt-ledger-entry-shape ──────────────────────────────
+
+test('loadLedger 拒收非字符串登记项，并点名是哪个键', () => {
+  // 旧实现"是对象就取 reason"是宽容读：那等于允许 {reason,status,line} 这个形状再生，
+  // 而 status/line 实测已在静默腐化（line 9/9 指不到自己的行，status 1 条已和载体现状不符）。
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-ledger-shape-'))
+  fs.mkdirSync(path.join(dir, 'scripts'), { recursive: true })
+  const write = (obj) => fs.writeFileSync(
+    path.join(dir, 'scripts', 'gate-record-debt-ledger.json'), JSON.stringify(obj, null, 2), 'utf8')
+  write({ '记录甲': '纯字符串原因', '记录乙': { reason: '有原因', status: 'PENDING', line: 4479 } })
+  let msg = ''
+  try { checker.loadLedger(dir); assert.fail('对象形态必须被拒收，实际静默通过了') } catch (e) { msg = String(e.message || e) }
+  assert.match(msg, /记录乙/, `错误文本必须点名是哪个键，实际：${msg.slice(0, 120)}`)
+  assert.doesNotMatch(msg, /\bundefined\b/, `不得把键名打成 undefined：${msg.slice(0, 120)}`)
+  // 纯字符串形态必须照旧通过（拒绝不能顺手把合法形态也拦掉）
+  write({ '记录甲': '纯字符串原因' })
+  assert.deepStrictEqual(checker.loadLedger(dir), { 记录甲: '纯字符串原因' })
+})
+
+test('空原因的旧判据不得被形状校验挤掉', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-ledger-blank-'))
+  fs.mkdirSync(path.join(dir, 'scripts'), { recursive: true })
+  const p = path.join(dir, 'scripts', 'gate-record-debt-ledger.json')
+  fs.writeFileSync(p, JSON.stringify({ '记录甲': '   ' }), 'utf8')
+  assert.throws(() => checker.loadLedger(dir), /缺少原因/, '字符串空白仍须按"缺原因"拒')
+  fs.writeFileSync(p, JSON.stringify({ '记录甲': { reason: ' ', status: 'PENDING' } }), 'utf8')
+  // 顺序是确定的：非字符串先被形状判据拒，所以这里必须点名形状错——
+  // 写成「或缺少原因」就等于两条判据互相掩盖时也能绿（评审 I4）
+  assert.throws(() => checker.loadLedger(dir), /必须是原因字符串/, '对象值必须先被形状判据拒，不得落到空白分支')
+})
+
+test('真仓形状锁：账本值全为字符串，且不得靠清空账本变绿', () => {
+  const file = path.join(__dirname, 'gate-record-debt-ledger.json')
+  const raw = JSON.parse(fs.readFileSync(file, 'utf8'))
+  const keys = Object.keys(raw)
+  assert.ok(keys.length > 0, '空账本不等于零欠账：清空登记项正是本判据要拦的绕行', keys.length)
+  const bad = keys.filter((k) => typeof raw[k] !== 'string')
+  assert.deepEqual(bad, [], `仍有非字符串登记项 ${bad.length} 条：${bad.slice(0, 3).join(" | ")}`)
+  const blank = keys.filter((k) => !String(raw[k]).trim())
+  assert.deepEqual(blank, [], '值不得为空白')
+})
+
+test('账本文件名在判据里只允许出现一处（LEDGER_FILE 是唯一口径）', () => {
+  // 判据：账本文件名在「代码位置」只能出现一次，且那一次必须是 LEDGER_FILE 的定义行。
+  // 为什么不写「剥掉注释再数出现次数」：本仓判据里有一条引导语在注释里点名这个文件名，而
+  // /^\s*\/\// 只能剥整行注释、剥不掉行尾注释 —— 那种写法会把文档判成第二份硬编码（假红），
+  // 而消除假红的唯一出路是把注释删掉，即为了让锁好过而销毁证据。逐处定位才对应「谁在写这个路径」。
+  const src = fs.readFileSync(path.join(__dirname, 'check-gate-record-debt.js'), 'utf8')
+  const TOKEN = 'gate-record-debt-ledger.json'
+  const code = []
+  const commented = []
+  src.split(/\r?\n/).forEach((line, idx) => {
+    let at = line.indexOf(TOKEN)
+    while (at >= 0) {
+      const head = line.slice(0, at)
+      // 注释位 = 整行注释，或本行在先出现的 // 之后（排除 :// ——协议串里的 // 不是注释起点）
+      let cue = -1
+      for (let k = 0; k + 1 < head.length; k++) {
+        if (head[k] === '/' && head[k + 1] === '/' && head[k - 1] !== ':') { cue = k; break }
+      }
+      const isComment = /^\s*\/\//.test(line) || cue >= 0
+      ;(isComment ? commented : code).push({ line: idx + 1, text: line.trim().slice(0, 120) })
+      at = line.indexOf(TOKEN, at + TOKEN.length)
+    }
+  })
+  // 反失明：一处都没命中 = 读错了文件或文件名被改名，不得把空集读成「唯一」
+  assert.ok(code.length + commented.length >= 1, '判据里读不到账本文件名 = 探针失明，不是合规')
+  assert.strictEqual(code.length, 1, '代码位置命中 ' + code.length + ' 处：' + JSON.stringify(code) + ' 注释位置命中：' + JSON.stringify(commented))
+  assert.match(code[0].text, /^const LEDGER_FILE = path\.join\(__dirname, 'gate-record-debt-ledger\.json'\)$/,
+    '唯一口径必须是 LEDGER_FILE 定义行；第二处硬编码路径就是不认账的口径分裂')
+  // 正控（防「把注释也当口径」的假红变成恒红）：真实现里确有注释提及，为 0 说明定位逻辑整体失灵
+  assert.ok(commented.length >= 1, '注释位置的命中数为 0 = 定位逻辑失灵（本仓判据里就有注释提及的先例）')
+})
+
+test('真账本必须能被真 loadLedger 读通（形状锁不得只读文件绕过判据函数）', () => {
+  // 评审 W3：形状锁自己 JSON.parse 文件，等于"文件形状对但判据读不通"这一格没人测。
+  // 这条把真实账本喂给真实函数：不抛错、条数>0、值全为非空字符串。
+  const root = path.resolve(__dirname, '..')
+  const got = checker.loadLedger(root)
+  const keys = Object.keys(got)
+  assert.ok(keys.length > 0, '真账本一条都读不出 = 函数或文件坏了，不是"没有欠账"')
+  for (const k of keys) assert.ok(typeof got[k] === 'string' && got[k].trim(), `真账本里有非字符串/空原因：${k.slice(0, 40)}`)
+  // 键数必须等于文件里的条数：读通不等于读全
+  const raw = JSON.parse(fs.readFileSync(path.join(root, 'scripts', 'gate-record-debt-ledger.json'), 'utf8'))
+  assert.strictEqual(keys.length, Object.keys(raw).length, 'loadLedger 静默丢条目', keys.length)
+})
+
+test('清空账本不得变绿：未登记欠账判据必须真会红（反"为通过而清清单"）', () => {
+  // 评审 W2：规格要"防清空"。数量下限会腐烂（合法销账后条数必然减少），所以这里证的是
+  // **机制本身**：账本空了而载体仍有未收口行 ⇒ r.open（未登记欠账）非空且进阻断出口。
+  const dir = fixture([{ head: '未收口的老记录（legacy，2026-09-28）', status: 'PENDING' }])
+  const r = checker.collect({ root: dir, ledger: {}, mergeLedger: mkML({ ok: true, merged: [], added: [] }) })
+  assert.ok((r.open || []).length >= 1, `账本清空后必须报未登记欠账，实际：${JSON.stringify(r.open)}`)
+  assert.equal(checker.hasBlocking(r), true, '未登记欠账必须进阻断出口，否则这条判据只是打印')
+  // 反向：同一篇登记上之后必须不红（防"恒红"的假严格）
+  const okLedger = { '未收口的老记录（legacy，2026-09-28）': '历史记录的收口证据未由本会话取证' }
+  const r2 = checker.collect({ root: dir, ledger: okLedger, mergeLedger: mkML({ ok: true, merged: [], added: [] }) })
+  assert.deepEqual((r2.open || []).filter((x) => /未收口的老记录/.test(JSON.stringify(x))), [],
+    `登记后仍报未登记 = 键匹配写错：${JSON.stringify(r2.open)}`)
+  assert.equal(checker.hasBlocking(r2), false, '登记齐了就该不红')
+})
+
+test('W1：collect 缺 ledger 注入必须抛错——默认值等于静默读生产账本', () => {
+  const dir = fixture([{ head: '未收口的老记录（legacy，2026-09-28）', status: 'PENDING' }])
+  // 没注入：出声，且不得因为"读到了真仓那份清单里已有的键"而静默变绿
+  assert.throws(() => checker.collect({ root: dir }), /缺 ledger 注入/, '缺注入必须按判据自身故障处理')
+  // 注入了空账本：合法值，必须照常报未登记欠账（与"没注入"可区分是这条锁的本体）
+  const r = checker.collect({ root: dir, ledger: {}, mergeLedger: mkML({ ok: true, merged: [], added: [] }) })
+  assert.ok(r.open.length >= 1, '空账本不等于零欠账：' + JSON.stringify(r.open))
+  assert.equal(checker.hasBlocking(r), true, '未登记欠账必须进阻断出口')
 })

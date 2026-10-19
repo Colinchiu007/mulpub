@@ -127,6 +127,7 @@ scripts/*.js
 # module（#3011 / Gate 2c3 / precommit-spawn-budget / same-type-risk-locks 同族，第 5 次）。
 !scripts/check-locale-button-name-sync.js
 !scripts/quality-rhythm-wrapper.js
+!scripts/ccg-artifact-shape-survey.js
 !scripts/ccg-gate.js
 !scripts/ccg-deep-review.js
 !scripts/ccg-review-decider.js

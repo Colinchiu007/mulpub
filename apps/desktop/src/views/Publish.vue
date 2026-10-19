@@ -355,6 +355,7 @@
                   >
                     {{ showAiWriter ? t('publishPage.close') : t('publishPage.aiWriter') }}
                   </button>
+                  <PodcastScriptEntryLauncher :script="article.content" :title="article.title" />
                 </div>
                 <UiInput data-testid="publish-title" v-model="article.title" :placeholder="t('publishPage.titlePlaceholder')" :maxlength="titleMaxLength" :hint="titleHint" />
                 <p v-if="noTitleHint" class="no-title-hint" data-testid="no-title-hint">{{ noTitleHint }}</p>
@@ -710,6 +711,7 @@ import { getApi } from '@/api/electron-bridge'
 import { useNotify } from '@/composables/useNotify'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import PodcastScriptEntryLauncher from '@/components/PodcastScriptEntryLauncher.vue'
 import { getAppLocale } from '@/i18n'
 import { usePlatformStore } from '@/stores/platforms'
 import { useRiskStore } from '@/stores/risk'
@@ -1370,8 +1372,6 @@ function editDraft (draft) {
   if (!draft?.id) return
   return router.replace({ path: '/publish', query: publishEditorQuery({ draft: String(draft.id) }) })
 }
-
-
 
 // ── 热门选题批量交接（?drafts=id,id,...）──
 // 状态机（解析/装载/幂等/预置目标）在 useHotTopicsDraftHandoff；本视图只保留触发点与提示。

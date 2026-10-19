@@ -33,6 +33,7 @@ export default {
     media_unreadable: 'Could not read the selected {kindLabel} file. Make sure it is not locked or corrupted, then try again.',
     media_path_unresolved: 'Could not resolve the local path of the selected {kindLabel} file. Choose it again; if this keeps happening, restart the app.',
     voice_invalid: "The {provider} model account voice is unavailable. Choose another voice in Voice Settings or use this model account's default voice.",
+    voice_clone_unavailable: 'The selected cloned voice is unavailable: the provider no longer accepts it and its local clone sample is missing, so it cannot be rebuilt automatically. Re-clone the voice or choose another available voice in Voice settings, then start again.',
     project_delete_failed: 'The project could not be deleted. Please try again.',
     project_delete_confirm: 'Delete this project and its local output? This cannot be undone.',
     run_delete_failed: 'The pipeline task could not be deleted. Please try again.',

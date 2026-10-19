@@ -34,7 +34,8 @@ const { createSession, setCookies, restoreLocalStorage, restoreIndexedDB, create
 // #2701：登录分区每次新建、永不回收（本机实测 21 个目录 436MB，占分区存储 92%）
 const authReclaim = require('./auth-partition-reclaim')
 // 内嵌视图定位唯一来源：必须用「客户区」尺寸，禁用 getBounds() 外框尺寸（见 view-bounds.js）
-const { computeEmbeddedViewBounds, contentTopWithInset, normalizeTopInset, TOP_INSET_DEFAULT, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } = require('./view-bounds')
+// 宽度守卫用共享的 isValidSidebarWidth：各自手写比较拦不住 NaN（所有比较都是 false）。
+const { computeEmbeddedViewBounds, isValidSidebarWidth, contentTopWithInset, normalizeTopInset, TOP_INSET_DEFAULT } = require('./view-bounds')
 // 登录页宽度自适应（2026-09-28 非全屏登录页显示不全修复）：固定内容宽的登录页
 // （如快手 ≈1335 DIP）在非全屏视图（如 1051 DIP）中横向溢出被裁，按需缩小 zoomFactor
 const loginViewFit = require('./login-view-fit')
@@ -132,6 +133,9 @@ class AuthViewManager {
     this._autoCompletionAttemptId = null
     /** @type {number} 左侧导航栏当前宽度（由渲染进程同步，默认 200px） */
     this._sidebarWidth = SIDEBAR_WIDTH_DEFAULT
+    /** @type {boolean} 左侧导航栏是否收起（全局折叠按钮；收起时登录视图 x=0 全宽） */
+    this._sidebarCollapsed = false
+
     /** @type {number} 渲染层常驻 chrome 的额外顶部下移（阶段 1.2 公告横幅）；0 = 无横幅 */
     this._topInset = TOP_INSET_DEFAULT
     /** @type {(() => void) | null} 保留签名兼容（window.js resize 挂钩） */
@@ -161,8 +165,14 @@ class AuthViewManager {
   _positionView() {
     if (!this.currentView || !this.mainWindow) return
     // 左侧导航栏为固定区域，登录视图应定位在右侧主体区域；
+    // 侧栏收起时（全局折叠按钮）由 collapsed 参数给出 x=0 全宽；
     // 顶部 = 固定 chrome + 渲染层上报的常驻 chrome 下移（公告横幅），与浏览器标签同一口径
-    this.currentView.setBounds(computeEmbeddedViewBounds(this.mainWindow, this._sidebarWidth || SIDEBAR_WIDTH_DEFAULT, contentTopWithInset(this._topInset)))
+    this.currentView.setBounds(computeEmbeddedViewBounds(
+      this.mainWindow,
+      this._sidebarWidth || SIDEBAR_WIDTH_DEFAULT,
+      contentTopWithInset(this._topInset),
+      this._sidebarCollapsed,
+    ))
     // 宽度自适应（旁路：失败只告警，不得影响登录链路；页面未加载时探针为 no-op）
     loginViewFit.fitLoginViewZoomSafe(this.currentView, { tag: 'AuthView' })
   }
@@ -239,12 +249,27 @@ class AuthViewManager {
   setSidebarWidth(width) {
     // 与 WebviewManager.setSidebarWidth 对齐：宽度必须严格 > 0（见 view-bounds MIN_SIDEBAR_WIDTH），
     // 拒绝 0 与负值，避免内嵌登录视图 x 落到 0 覆盖侧边栏。
-    if (typeof width !== 'number' || width < MIN_SIDEBAR_WIDTH || width > MAX_SIDEBAR_WIDTH) return
+    // 用共享守卫 isValidSidebarWidth：NaN 能穿过手写的 `width < MIN || width > MAX`。
+    if (!isValidSidebarWidth(width)) return
     if (this._sidebarWidth !== width) {
       this._sidebarWidth = width
       if (this.mainWindow && this.currentView) {
         this._positionView()
       }
+    }
+  }
+
+  /**
+   * 设置左侧导航栏是否收起（由 WebviewManager 同步）。
+   * 收起时登录视图必须 x=0 全宽 —— 它是内嵌原生图层，不会跟随宿主 DOM 的 display:none。
+   * @param {boolean} collapsed
+   */
+  setSidebarCollapsed(collapsed) {
+    if (typeof collapsed !== 'boolean') return
+    if (this._sidebarCollapsed === collapsed) return
+    this._sidebarCollapsed = collapsed
+    if (this.mainWindow && this.currentView) {
+      this._positionView()
     }
   }
 

@@ -456,6 +456,24 @@ describe('QrCodeLogin 凭证边界', () => {
     await expect(loginPromise).resolves.toBeInstanceOf(Error)
   })
 
+  it('侧栏收起时扫码登录视图同步为 x=0 全宽（原生视图不跟 CSS 布局）', async () => {
+    const mainWindow = createMainWindow()
+    const qrCodeLogin = new QrCodeLogin({ accountManager: createManager() })
+    qrCodeLogin.setMainWindow(mainWindow)
+
+    const loginPromise = qrCodeLogin.openLogin('kuaishou', 0).catch(error => error)
+    const view = createdViews[0]
+
+    qrCodeLogin.setSidebarCollapsed(true)
+    expect(view.setBounds).toHaveBeenLastCalledWith({ x: 0, y: 76, width: 1184, height: 685 })
+
+    qrCodeLogin.setSidebarCollapsed(false)
+    expect(view.setBounds).toHaveBeenLastCalledWith({ x: 200, y: 76, width: 984, height: 685 })
+
+    qrCodeLogin.close()
+    await expect(loginPromise).resolves.toBeInstanceOf(Error)
+  })
+
   it('close 会清理认证视图会话（独立窗口已移除，改用内嵌模式）', async () => {
     const mainWindow = createMainWindow()
     const qrCodeLogin = new QrCodeLogin({ accountManager: createManager() })

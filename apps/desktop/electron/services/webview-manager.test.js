@@ -130,6 +130,289 @@ describe('setSidebarWidth 守卫（回归 2026-09-15：宽度=0 不能让内嵌�
   })
 })
 
+describe('setSidebarCollapsed（全局折叠按钮 → 内嵌视图全宽，2026-10-18）', () => {
+  it('默认展开，isSidebarCollapsed() 为 false', () => {
+    const wm = new WebviewManager()
+    expect(wm._sidebarCollapsed).toBe(false)
+    expect(wm.isSidebarCollapsed()).toBe(false)
+  })
+
+  it('收起后活动浏览器标签重排为 x=0、客户区全宽（不留 200px 死区）', () => {
+    const { wm, view } = createManagerWithBrowserTab()
+
+    wm.setSidebarCollapsed(true)
+
+    expect(wm._sidebarCollapsed).toBe(true)
+    expect(view.setBounds).toHaveBeenLastCalledWith({ x: 0, y: 76, width: 1424, height: 785 })
+  })
+
+  it('再次展开后恢复 x=200 的既有布局契约', () => {
+    const { wm, view } = createManagerWithBrowserTab()
+
+    wm.setSidebarCollapsed(true)
+    wm.setSidebarCollapsed(false)
+
+    expect(wm._sidebarCollapsed).toBe(false)
+    expect(view.setBounds).toHaveBeenLastCalledWith({ x: 200, y: 76, width: 1224, height: 785 })
+  })
+
+  it('重复设置同值不触发重排（幂等）', () => {
+    const { wm, view } = createManagerWithBrowserTab()
+    wm.setSidebarCollapsed(true)
+    const callsAfterCollapse = view.setBounds.mock.calls.length
+
+    wm.setSidebarCollapsed(true)
+
+    expect(view.setBounds.mock.calls.length).toBe(callsAfterCollapse)
+  })
+
+  it('非布尔入参被忽略（IPC 合同只接受 boolean）', () => {
+    const { wm, view } = createManagerWithBrowserTab()
+    const callsBefore = view.setBounds.mock.calls.length
+
+    wm.setSidebarCollapsed('true')
+    wm.setSidebarCollapsed(1)
+    wm.setSidebarCollapsed(undefined)
+
+    expect(wm._sidebarCollapsed).toBe(false)
+    expect(view.setBounds.mock.calls.length).toBe(callsBefore)
+  })
+
+  it('收起状态同步给 AuthViewManager / QRCodeLogin（登录/扫码视图同样全宽）', () => {
+    const { wm } = createManagerWithBrowserTab()
+    const auth = createFakeAuthViewManager()
+    const qr = createFakeQrCodeLogin()
+    auth.setSidebarCollapsed = vi.fn()
+    qr.setSidebarCollapsed = vi.fn()
+
+    wm.attachAuthViewManager(auth)
+    wm.attachQrCodeLogin(qr)
+    wm.setSidebarCollapsed(true)
+
+    expect(auth.setSidebarCollapsed).toHaveBeenLastCalledWith(true)
+    expect(qr.setSidebarCollapsed).toHaveBeenLastCalledWith(true)
+  })
+
+  it('收起后侧栏宽度上报仍被接受，但定位继续按收起（collapsed 优先于 width）', () => {
+    const { wm, view } = createManagerWithBrowserTab()
+
+    wm.setSidebarCollapsed(true)
+    wm.setSidebarWidth(68)
+
+    expect(wm._sidebarWidth).toBe(68)
+    expect(view.setBounds).toHaveBeenLastCalledWith({ x: 0, y: 76, width: 1424, height: 785 })
+  })
+})
+
+describe('page-manager:set-sidebar-collapsed IPC 合同', () => {
+  it('handler 把布尔值转交给 setSidebarCollapsed，并回传主进程当前状态', async () => {
+    const { wm } = createManagerWithBrowserTab()
+    const ipcHandlers = require('./webview-manager/ipc-handlers')
+    const handlers = new Map()
+    const fakeIpcMain = { handle: (channel, fn) => { handlers.set(channel, fn) } }
+
+    ipcHandlers.registerIpcHandlers.call(wm, fakeIpcMain)
+
+    const handler = handlers.get('page-manager:set-sidebar-collapsed')
+    expect(typeof handler).toBe('function')
+
+    // 测试环境 withSenderCheck 放行无 senderFrame 的 mock event（见 ipc-handlers/helpers.js）
+    const collapsedResult = await handler({}, true)
+    expect(collapsedResult).toEqual({ code: 0, data: { collapsed: true } })
+    expect(wm._sidebarCollapsed).toBe(true)
+
+    const expandedResult = await handler({}, false)
+    expect(expandedResult).toEqual({ code: 0, data: { collapsed: false } })
+    expect(wm._sidebarCollapsed).toBe(false)
+  })
+})
+
+describe('broadcastSidebarCollapsed（多窗口同步，2026-10-18）', () => {
+  /** 造一个可观测的 BrowserWindow 替身 */
+  function makeWin (opts = {}) {
+    return {
+      isDestroyed: opts.destroyed ? () => true : () => false,
+      webContents: {
+        isDestroyed: opts.wcDestroyed ? () => true : () => false,
+        send: opts.sendFail ? vi.fn(() => { throw new Error('send failed') }) : vi.fn(),
+      },
+    }
+  }
+
+  it('收起时向所有窗口广播 { data: { collapsed: true } }', () => {
+    const { wm } = createManagerWithBrowserTab()
+    const a = makeWin()
+    const b = makeWin()
+    const ctor = { getAllWindows: () => [a, b] }
+
+    wm.setSidebarCollapsed(true)
+    const { sent } = wm.broadcastSidebarCollapsed(ctor)
+
+    expect(sent).toBe(2)
+    expect(a.webContents.send).toHaveBeenCalledWith(
+      'page-manager:sidebar-collapsed-changed', { data: { collapsed: true } })
+    expect(b.webContents.send).toHaveBeenCalledWith(
+      'page-manager:sidebar-collapsed-changed', { data: { collapsed: true } })
+  })
+
+  it('展开时广播 collapsed:false', () => {
+    const { wm } = createManagerWithBrowserTab()
+    const a = makeWin()
+    wm.setSidebarCollapsed(true)
+
+    wm.broadcastSidebarCollapsed({ getAllWindows: () => [a] })
+
+    expect(a.webContents.send).toHaveBeenLastCalledWith(
+      'page-manager:sidebar-collapsed-changed', { data: { collapsed: true } })
+  })
+
+  it('setSidebarCollapsed 变更时自动广播（IPC handler 无需重复调）', () => {
+    const { wm } = createManagerWithBrowserTab()
+    const a = makeWin()
+    wm.broadcastSidebarCollapsed = vi.fn(() => ({ sent: 1 }))
+
+    wm.setSidebarCollapsed(true)
+
+    expect(wm.broadcastSidebarCollapsed).toHaveBeenCalledTimes(1)
+  })
+
+  it('同值短路：重复 setSidebarCollapsed 不重复广播', () => {
+    const { wm } = createManagerWithBrowserTab()
+    wm.broadcastSidebarCollapsed = vi.fn(() => ({ sent: 1 }))
+
+    wm.setSidebarCollapsed(true)
+    wm.setSidebarCollapsed(true)
+
+    expect(wm.broadcastSidebarCollapsed).toHaveBeenCalledTimes(1)
+  })
+
+  it('跳过已销毁的窗口与 webContents，不中断其余窗口', () => {
+    const { wm } = createManagerWithBrowserTab()
+    const alive = makeWin()
+    const ctor = { getAllWindows: () => [makeWin({ destroyed: true }), makeWin({ wcDestroyed: true }), alive] }
+
+    const { sent } = wm.broadcastSidebarCollapsed(ctor)
+
+    expect(sent).toBe(1)
+    expect(alive.webContents.send).toHaveBeenCalledTimes(1)
+  })
+
+  it('单个窗口 send 抛错不影响其它窗口送达', () => {
+    const { wm } = createManagerWithBrowserTab()
+    const ok = makeWin()
+    const bad = makeWin({ sendFail: true })
+
+    const { sent } = wm.broadcastSidebarCollapsed({ getAllWindows: () => [bad, ok] })
+
+    expect(sent).toBe(1)
+    expect(ok.webContents.send).toHaveBeenCalledTimes(1)
+  })
+
+  it('未注入 BrowserWindow 且 electron 不可用时静默返回 sent:0（不抛异常）', () => {
+    const { wm } = createManagerWithBrowserTab()
+    expect(() => wm.broadcastSidebarCollapsed()).not.toThrow()
+  })
+
+  it('无窗口时不报错，sent:0', () => {
+    const { wm } = createManagerWithBrowserTab()
+    const { sent } = wm.broadcastSidebarCollapsed({ getAllWindows: () => [] })
+    expect(sent).toBe(0)
+  })
+
+  it('CCG i2：有窗口却一个都没送到时必须 warn（同步通道不得静默失败）', () => {
+    const { wm } = createManagerWithBrowserTab()
+    loggerMock.warn.mockClear()
+
+    // 唯一窗口已销毁 ⇒ 全部跳过 ⇒ sent=0 但 windows.length>0
+    wm.broadcastSidebarCollapsed({ getAllWindows: () => [{ isDestroyed: () => true, webContents: { isDestroyed: () => false, send: vi.fn() } }] })
+
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      'WebviewManager',
+      expect.stringContaining('no window received the collapsed broadcast'),
+    )
+  })
+
+  it('CCG i2：getAllWindows 不可用（electron 在但接口缺失）必须 warn', () => {
+    const { wm } = createManagerWithBrowserTab()
+    loggerMock.warn.mockClear()
+
+    const { sent } = wm.broadcastSidebarCollapsed({ getAllWindows: undefined })
+
+    expect(sent).toBe(0)
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      'WebviewManager',
+      expect.stringContaining('getAllWindows unavailable'),
+    )
+  })
+
+  it('CCG i2：测试环境（无 electron 运行时）静默 sent:0，不 warn', () => {
+    const { wm } = createManagerWithBrowserTab()
+    loggerMock.warn.mockClear()
+
+    // 不注入 ctor：node 环境 require('electron') 走 catch ⇒ 静默降级
+    const { sent } = wm.broadcastSidebarCollapsed()
+
+    expect(sent).toBe(0)
+    expect(loggerMock.warn).not.toHaveBeenCalled()
+  })
+
+  it('CCG i4：BrowserWindow 解析结果被缓存，连续状态变化不重复解析', () => {
+    const { wm } = createManagerWithBrowserTab()
+    const ctor = { getAllWindows: () => [] }
+    wm._browserWindowCtor = ctor
+
+    wm.setSidebarCollapsed(true)
+    wm.setSidebarCollapsed(false)
+    wm.setSidebarCollapsed(true)
+
+    // 缓存的就是注入的 ctor，未被覆盖或清空
+    expect(wm._browserWindowCtor).toBe(ctor)
+  })
+})
+
+describe('setOAuthManager 注入（OAuth 视图同步侧栏布局，2026-10-18）', () => {
+  it('注入时把当前已知状态推给 OAuthManager', () => {
+    const wm = new WebviewManager()
+    const oauth = { setSidebarWidth: vi.fn(), setSidebarCollapsed: vi.fn() }
+
+    wm.setOAuthManager(oauth)
+
+    // 默认状态：宽度为默认值（不重复推）、未收起（不推）⇒ 两次都不调
+    expect(oauth.setSidebarWidth).not.toHaveBeenCalled()
+    expect(oauth.setSidebarCollapsed).not.toHaveBeenCalled()
+  })
+
+  it('注入时若已是非默认宽度/已收起，立即补齐推送', () => {
+    const { wm } = createManagerWithBrowserTab()
+    const oauth = { setSidebarWidth: vi.fn(), setSidebarCollapsed: vi.fn() }
+
+    wm.setSidebarWidth(68)
+    wm.setSidebarCollapsed(true)
+    wm.setOAuthManager(oauth)
+
+    expect(oauth.setSidebarWidth).toHaveBeenCalledWith(68)
+    expect(oauth.setSidebarCollapsed).toHaveBeenCalledWith(true)
+  })
+
+  it('注入 null 时清空引用（不抛异常）', () => {
+    const wm = new WebviewManager()
+    expect(() => wm.setOAuthManager(null)).not.toThrow()
+    expect(wm._oauthManager).toBeNull()
+  })
+
+  it('setSidebarWidth / setSidebarCollapsed 同步给 OAuthManager', () => {
+    const { wm } = createManagerWithBrowserTab()
+    const oauth = { setSidebarWidth: vi.fn(), setSidebarCollapsed: vi.fn() }
+    wm.setOAuthManager(oauth)
+
+    wm.setSidebarWidth(68)
+    wm.setSidebarCollapsed(true)
+
+    expect(oauth.setSidebarWidth).toHaveBeenCalledWith(68)
+    expect(oauth.setSidebarCollapsed).toHaveBeenCalledWith(true)
+  })
+})
+
 describe('WebviewManager 虚拟登录标签', () => {
   it('attachAuthViewManager 绑定开关钩子', () => {
     const wm = new WebviewManager()

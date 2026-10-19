@@ -1,0 +1,59 @@
+{
+  "sha": "b0bf0ff8a037a1f7b433c6bd74b0f30e8a3e819d",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 2,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 5,
+    "docSensitiveContentSample": [
+      "| 拷 `Partitions/<p>/Network/Cookies` → 临时 profile 的 `Default/Network/Cookies`，**并同时拷** `shared-user-data/Local State` | ✅ Chromium 用同一 Windows 用户 DPAPI 自解密 |",
+      "| 直接以 `Partitions/<p>` 作 user-data-dir 启动 | ❌ 分区目录**无 `Local State`**（DPAPI `encrypted_key` 在那）⇒ cookie 解不开 ⇒ 跳登录、`input[type=file]` 为 0，**表象是「未登录」，实为解密失败** |",
+      "| 登录态缺失/失效 | `小红书登录态已失效，请重新授权此账号再试` |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "da5fee2f498481483de8e0f7149b85d11eda0677f7844516e7c9a539f2c8129e",
+  "decidedAt": "2026-10-18T20:29:54.023Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

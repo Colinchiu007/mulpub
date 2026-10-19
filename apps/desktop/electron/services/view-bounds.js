@@ -116,17 +116,47 @@ function normalizeSidebarWidth(width) {
 }
 
 /**
+ * 各 manager 的 setSidebarWidth 入参守卫（单一真源）。
+ *
+ * 为什么必须有这个函数：WebviewManager / AuthViewManager / QRCodeLogin / OAuthManager
+ * 四处各自写了 `typeof width !== 'number' || width < MIN || width > MAX`，
+ * 而 **NaN 的所有比较都是 false ⇒ NaN 能穿过这道守卫**并被写进 _sidebarWidth，
+ * 之后 computeEmbeddedViewBounds 的 normalizeSidebarWidth 才把它拦下（回落 200）。
+ * 结果是：渲染进程上报 NaN 时 manager 层认为"宽度变了"并触发一次无意义重排，
+ * 而守卫的语义（"挡住非法值"）实际被推迟了一层——四份重复实现还各自漂移。
+ *
+ * ⚠️ 不只是 NaN：`Infinity > MAX` 为 true 能被挡，但 `-Infinity < MIN` 同样为 true，
+ * 真正的漏网口径只有 NaN。用 `Number.isFinite` 一并覆盖。
+ *
+ * @param {unknown} width
+ * @returns {boolean} true = 合法（有限数字且落在 [MIN, MAX]）
+ */
+function isValidSidebarWidth(width) {
+  return typeof width === 'number' && Number.isFinite(width) &&
+    width >= MIN_SIDEBAR_WIDTH && width <= MAX_SIDEBAR_WIDTH
+}
+
+/**
  * 计算「右侧主体区域」内嵌视图的 bounds：左侧留出导航栏，顶部留出 TabBar + NavBar。
  * 宽高下限为 0（窗口被缩到极小时不产生负尺寸，Electron 会拒绝负值）。
  *
+ * 侧栏收起（2026-10-18，全局折叠按钮）用**第 4 个独立布尔参数**表达，而不是 width=0：
+ *   · width=0 是「缺失/异常上报」，必须回落 200（否则原生视图盖住 x=0 的侧边栏，见上）；
+ *   · 收起是用户显式意图：此时侧边栏 `display:none`，内嵌视图必须 x=0 全宽，
+ *     否则浏览器/账号/登录标签左侧会留出 200px 死区（原生图层不跟随 CSS 布局）。
+ * 两件事混用同一个数值会让「守卫」与「功能」互相证伪，故参数分离。
+ *
  * @param {any} win BrowserWindow 或等价 mock
- * @param {number} [sidebarWidth] 左侧导航栏宽度，缺省 200
+ * @param {number} [sidebarWidth] 左侧导航栏宽度，缺省 200（收起时忽略）
  * @param {number} [topOffset] 顶部偏移，缺省 BROWSER_CHROME_TOP(76)
+ * @param {boolean} [sidebarCollapsed] 是否已收起左侧导航栏；严格 `=== true` 才生效，
+ *   其余值（1 / 'true' / undefined）一律按展开处理，避免 IPC 参数漂移改变布局
  * @returns {{ x: number, y: number, width: number, height: number }}
  */
-function computeEmbeddedViewBounds(win, sidebarWidth, topOffset = BROWSER_CHROME_TOP) {
+function computeEmbeddedViewBounds(win, sidebarWidth, topOffset = BROWSER_CHROME_TOP, sidebarCollapsed = false) {
   const content = getContentSize(win)
-  const sidebar = normalizeSidebarWidth(sidebarWidth)
+  const collapsed = sidebarCollapsed === true
+  const sidebar = collapsed ? 0 : normalizeSidebarWidth(sidebarWidth)
   const top = typeof topOffset === 'number' && Number.isFinite(topOffset) && topOffset >= 0
     ? topOffset
     : BROWSER_CHROME_TOP
@@ -186,5 +216,6 @@ module.exports = {
   normalizeSize,
   getContentSize,
   normalizeSidebarWidth,
+  isValidSidebarWidth,
   computeEmbeddedViewBounds,
 }

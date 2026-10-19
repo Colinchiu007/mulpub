@@ -200,6 +200,38 @@ sidecar Python、MP TS 镜像、MP JS 镜像 SHALL 对同一文本同一配置�
 - **WHEN** 处理包含 成了 的文本，并且该边界不是 完成了 或 做成了 的普通宾语边界
 - **THEN** SHALL 按既有语义候选规则判断，不得把所有“成了”文本一律视为不可切分
 
+### Requirement: 短语边界感知切分（v1.3）
+
+无标点长块硬切时，字幕切分器 SHALL 优先落在共享规则表 `word_split.phrase_boundary.pairs` 登记的显式成对短语右边界。切点判定 = 块以某 pair 的 `left` 逐字结尾，且紧随其后的字符命中该 pair 的 `next`。仅单侧命中（或仅命中字符集而不满足成对约束）SHALL NOT 构成短语边界，以避免把「某|些」「票仓的|无奈」这类受保护词内部位置误判为边界。
+
+短语边界切分的头块 SHALL 允许放宽到 `min_chars_per_block - phrase_boundary.min_head_relax`；尾块仍要求 ≥ `min_chars_per_block`，避免产生过短尾块。该放宽路径产生的 `< min_chars` 头块 SHALL 在共享向量 `short_block_exceptions` 中按 index 显式声明 reason。
+
+短语边界 SHALL 与优先级标点等价，在 Step 3 累积阶段即兑现切分，不得等到 MAX 分支的兜底路径（那里合法窗口已错过最佳切点，会退化为算术位置裸切）。
+
+#### Scenario: 为了拉拢不在某些内部劈开
+- **WHEN** 对 很多人以为，这是一个简单的政治表态，是选举年为了拉拢某些特定票仓的无奈之举。 以 min=8/max=15 分句
+- **THEN** 输出包含 是选举年为了 与 拉拢某些特定票仓的无奈之举，禁止出现 是选举年为了拉拢某 + 些特定票仓的 拆块
+
+#### Scenario: 地缘政治不被劈开
+- **WHEN** 对 我们常常会被宏大的地缘政治术语淹没，觉得这事儿离自己太远。 分句
+- **THEN** 输出包含 我们常常会被宏大的 与 地缘政治术语淹没，禁止出现 我们常常会被宏大的地 + 缘政治术语 拆块
+
+#### Scenario: 日常生活不被劈开
+- **WHEN** 对 最终会体现为日常生活中的隔阂与偏见。 分句
+- **THEN** 输出包含 最终会体现为 与 日常生活中的隔阂与偏见，禁止出现 最终会体现为日常 + 生活中的隔阂 拆块
+
+#### Scenario: 短语边界头块放宽须显式声明
+- **WHEN** 短语边界路径产生 clean 后 < min_chars 的头块（如 是选举年为了 6 字、去理解那段历史 7 字）
+- **THEN** 该块 SHALL 保留且必须在共享向量 `short_block_exceptions` 中按 index 显式声明 reason；未声明的 < min_chars 块视为违规
+
+#### Scenario: 三端短语边界一致
+- **WHEN** TypeScript、Electron JS 镜像和 smart-sentence-splitter Python 端加载同一规则表处理同一输入
+- **THEN** 三端 SHALL 输出逐块相同的字幕文本，短语边界位置完全一致
+
+#### Scenario: 规则表缺省向后兼容
+- **WHEN** 规则表不含 `word_split.phrase_boundary` 段（旧版规则表）
+- **THEN** 短语边界判定 SHALL 恒为 false，`min_head_relax` SHALL 为 0，分句行为与 v1.2 完全一致
+
 ### Requirement: 词边界判断异常时安全回退
 
 本地词边界判断器缺失、初始化失败、词典加载失败或运行时抛错时，字幕主流程 SHALL 继续使用显式短语、字符规则和安全边界守卫，不得让 soft tie-break 异常使整段分句失败。所有长度 fallback SHALL 复用同一安全边界合同；在当前范围内找不到合法边界时，系统 SHALL 保留完整块或扩大安全搜索范围。

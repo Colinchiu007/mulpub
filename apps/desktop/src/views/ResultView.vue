@@ -51,10 +51,9 @@
 
       <div class="video-info">
         <p v-if="completionSummary" class="completion-summary" data-testid="completion-summary">{{ completionSummary }}</p>
-        <p>格式: {{ formatLabel }}</p>
+        <ResultModelInfoRow :project="project" :segments="segments" :format-label="formatLabel" />
         <p class="path-text">位置: {{ videoPath }}</p>
       </div>
-
       <div class="actions">
         <UiButton @click="download">下载视频</UiButton>
         <UiButton variant="secondary" @click="viewScript">{{ tOrKey('story2video.view_script') }}</UiButton>
@@ -446,6 +445,7 @@
 import UiButton from '../components/UiButton.vue'
 import UiModal from '../components/UiModal.vue'
 import PodcastEpisodeEntry from '../components/PodcastEpisodeEntry.vue'
+import ResultModelInfoRow from './video-creation/ResultModelInfoRow.vue'
 import { buildPublishFromProject, publishDataToQuery } from '@/features/publish/publish-from-project'
 import { getAppLocale } from '@/i18n'
 import { STORY2VIDEO_NOTIFICATION_KEYS, formatBgmSkippedNotification, formatStory2VideoNotification, getStory2VideoNotificationUiText, resolveStory2VideoNotification } from '@/story2video/story2video-notifications'
@@ -476,7 +476,7 @@ import {
 
 export default {
   name: 'ResultView',
-  components: { UiButton, UiModal, PodcastEpisodeEntry },
+  components: { UiButton, UiModal, PodcastEpisodeEntry, ResultModelInfoRow },
   data() {
     return {
       videoPath: null,
