@@ -16,6 +16,12 @@ const logger = require('./logger-fallback')
 // 无显式字数控制时的默认输出上限（3000 字以下）
 const DEFAULT_MAX_OUTPUT_LENGTH = 3000
 
+// 单次改写输入上限（Unicode 码点）。渲染层
+// `apps/desktop/src/utils/rewrite-engine-limits.js` 的 REWRITE_ENGINE_MAX_INPUT_CHARS
+// 必须与此一致（结构锁：`rewrite-engine-limits.test.js`）——渲染层截到 A、引擎拒收于 B
+// 会让「一键改写」在长文上静默失败（2026-10-19 事故形态）。
+const MAX_INPUT_CHARS = 6000
+
 // 引擎内置默认硬约束（rewrite-hard-constraints 审查 M1）：
 // 运营中心未配置/未同步/离线场景的回退，保证独立部署桌面端仍有提示词级纯文案约束。
 // 内容与运营中心种子 hard-constraint-default-v1 一致（单一事实源在运营中心，此处仅为缺失回退）。
@@ -307,8 +313,8 @@ class RewriteEngine {
       return { valid: false, error: '内容不能为空', errorCode: 'EMPTY_CONTENT' }
     }
     const len = [...content].length // Unicode code point 计数
-    if (len > 6000) {
-      return { valid: false, error: '内容过长，最多 6000 字', errorCode: 'TOO_LONG' }
+    if (len > MAX_INPUT_CHARS) {
+      return { valid: false, error: `内容过长，最多 ${MAX_INPUT_CHARS} 字`, errorCode: 'TOO_LONG' }
     }
     return { valid: true }
   }
@@ -619,4 +625,4 @@ class RewriteEngine {
   }
 }
 
-module.exports = { RewriteEngine }
+module.exports = { RewriteEngine, MAX_INPUT_CHARS }

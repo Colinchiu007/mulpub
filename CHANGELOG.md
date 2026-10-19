@@ -71,6 +71,15 @@
   这三份历史 CRLF 文档的 blob 现为纯 LF，磁盘 CRLF 只是 checkout 转换）。正解：`split('\n')` 后**逐行保留
   各自结尾**，插入行取锚点那一行的结尾，改完用 `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 对账。
 
+# [未发布] fix(播客): 音色来源标注只给 ②③ 出声，闭集外取值不伪造来源并出声（podcast-voice-origin-tristate）
+
+- **`originLabel` 原先是一张表兼两件事，于是三档全出声**：`ORIGIN_KEYS` 同时回答「有哪些档」（闭集）与「哪些档要出声」（标注资格），而 PRD §8.2.9 判据 2 要的是后者——① 频道自己填的东西不需要再被界面告诉一遍来源。现拆成 `ORIGIN_KEYS`（闭集）+ `ANNOTATED_ORIGINS`（白名单），判据三段：无 origin → 空、闭集外 → `console.warn` + 空（**不得兜底成"取自频道"，那是伪造来源**）、非白名单 → 空。
+- **那个 span 当初没有 `data-testid`，所以落地时一条断言都没写过它**：`PodcastScriptEntry.test.js` 里 `PLAN_OK` 只喂过 `preference` 一档，且只断言三段音色含 `prov_x`——「三档全出声」与「只有该出声的档出声」在那套夹具下**完全同形**，这是判据 2 能静默缺失一整个 PR 的原因。补齐 4 条：②③ 各一条正向（断言真实 locale 值而不是键名）、`origin=channel` 一条「标注不出现但**三段照常显示**」、闭集外一条「不出现 + 不兜底 + warn 恰好一次」。
+- **闭集外那条排障日志走 ASCII**：首版写成中文，被本机按 CI 清单点名跑的 `check-locale-sync.js --cjk` 逐行点名判红；正解不是 `--update-baseline`（那是把自己新增那一格改成契约），也不是塞进 `locales` 造一对界面永不消费的死键。
+- **五条变异全部指名红**：M1（白名单放进 `channel`）与 M2（清空白名单）**红集不同**——这是"两轴真分开"的证据，若仍是一张表两条变异会打在同一格；M3（摘 warn）与 M4（兜底成频道文案）**红集重合**（同一条用例的两个方向），如实写成"不是两道独立的闸"；M5（撤标注时把三段一起撤掉）红在第二组断言上，这条变异的存在理由就是判据 2 常被写过头。**末态 17 passed**；现场记 `openspec/records/podcast-voice-origin-tristate.md`。
+- **`tasks 4.5b②` 记的是一个产品裁决而不是实现欠账**：频道 `voiceRef` 只有读侧没有写侧，回退链第 ① 档恒为空；写侧需要频道页的音色录入控件，而 §8.2.9「故意不做」第二条禁的是「全局默认音色选择器」（那东西在本仓不存在），与频道级 `voiceRef` 不是同一件事——但 PRD 从未写过这个控件的字段、交互与文案，按「先文档再代码」不临场发明。另拆 `4.5b③`：视频出期浮层 `PodcastEpisodeEntry.vue` 至今 `voice|origin` 命中 0，§8.2.9 原定落点那半未做。
+
+
 # [未发布] docs(openspec): 归档 normalize-debt-ledger-entry-shape —— 主规格拿到「登记项只准承载原因」这条需求（archive-debt-ledger-shape）
 
 - **归档落点**：`openspec/changes/normalize-debt-ledger-entry-shape/` 移入 `openspec/changes/archive/2026-10-19-normalize-debt-ledger-entry-shape/`，主规格 `openspec/specs/quality-gate-execution-record/spec.md` 的 Requirement 由 3 条增至 4 条；新增块 **36 行 / 5 个 Scenario**，与 change 的 delta **逐行全等**（一次性驱动从两侧各取该块比对，任一行不等即抛错并打印首个差异）。
@@ -109,6 +118,42 @@
 - 四个 Scenario：强杀后如实报告（且对账路径**零出站**）/ 正常收尾后重启不得出现横幅（凭据文件不存在也不报错）/ 凭据写不进去就不发起（返回带领域码的失败、忙标记照常释放）/ 对账不把"重发"当修复（入口走正常链、新 `runId`，文案不得声称"已自动恢复"）。
 - **本刀没做的五项**点名留档，防止被"合同已写"读成"事已办"：跨重启凭据文件与写入/收尾时机、`channel:get` 的 `interrupted` 字段、频道页横幅与 `podcast.episode.*` zh/en 键、强杀再启动的真机复现、"凭据写失败"那条领域码。
 - 规格面读数：spec delta 的 `### Requirement` 计数 13 → **14**。零运行时代码 ⇒ QM-1 / QM-4 / TDD 不触发，QM-6 走 docs-only 通道且**未调用外部模型**。三处补丁都由"行尾均匀 + 锚点恰命中 1 + `CR==LF` + 单行替换不改 CR 数"驱动落地，两口径 `--numstat` 逐文件相等（spec 30/0、tasks 1/0、PRD 1/1）。全过程记 `openspec/records/podcast-crash-reconcile-spec.md`。
+
+# [未发布] fix(collect): 一键改写对超长正文截取前 6000 字并明确提示；引擎业务错误不再退化成「AI 改写失败」（fix-collect-rewrite-too-long）
+
+## 问题
+
+- 用户实测：采集页输入知乎回答链接
+  （`https://www.zhihu.com/question/715577762/answer/2095239383058329672`）点「一键改写」，
+  采集成功后弹「AI 改写失败」，无任何具体原因。
+- 证据链：采集正文 6766 码点 > 改写引擎 6000 码点硬上限
+  （`packages/rewrite-engine/src/rewrite-engine-core.js` 的 `_validate`）⇒ 引擎返回
+  `TOO_LONG`；该时段 `model_provider_logs` 无记录（LLM 未被调用，失败在入口校验）；
+  采集页漏斗把 IPC 信封 `{code:0,data:{success:false,error,errorCode}}` 原样交给
+  `formatUserError`，后者只读顶层 `errorCode/message` ⇒ 具体原因丢失、只剩兜底文案。
+  对照样本：同链路 5899 字文章 8 分钟前改写成功。
+- 第一性引入点：#3915 把采集页 stealth 分支的改写从 Python 聚合层切到桌面引擎时，
+  错误字段位置从「平铺」变成「嵌在 data 里」，消费点未同步归一化。
+
+## 改动
+
+- 新增 `apps/desktop/src/utils/rewrite-engine-limits.js`：6000 码点上限（与引擎常量结构锁）、
+  `prepareRewriteInput` 按码点截断（不劈开代理对）。
+- 采集页 `rewriteViaEngine`：超长截取前 6000 码点继续改写 + `collection.rewriteTruncated`
+  提示；采集原文保持不变（视频转写 / stealth 自动 / 聚合回退 / 手动改写四个调用点共用漏斗）。
+- 新增 `apps/desktop/src/utils/rewrite-engine-error.js`：把引擎业务错误归一化到顶层
+  `errorCode/message/params`，并映射稳定文案码（`TOO_LONG` / `SENSITIVE_CONTENT` 新增 zh/en
+  文案；`EMPTY_RESULT` / `LLM_ERROR` / `NO_LLM_CLIENT` / `EMPTY_CONTENT` 复用既有码）。
+- 引擎侧把 6000 提为具名常量 `MAX_INPUT_CHARS`（行为不变），供渲染层结构锁对齐。
+
+## 验证
+
+- `apps/desktop` 定向：`rewrite-engine-limits` 9 + `rewrite-engine-error` 8 +
+  `user-facing-error` 32 + `Collection.rewrite-input-limit` 5 = 54 passed；
+  `Collection.test.js` + `rewrite-lineage.test.js` = 129 passed；
+  `packages/rewrite-engine` = 194 passed。
+- 变异反证：禁用截断 ⇒ 1 例红；回退「原样透传信封」⇒ 2 例红。
+- `build:vue` rc=0；locale pair/keys rc=0；max-lines rc=0；unwired-tests rc=0。
 
 # [未发布] fix(s2v): 「语音 / 音色 ID」显示条件回补 —— 模型来源不止一处（s2v-tone-field-guard）
 
@@ -198,6 +243,33 @@
 - **遗留第 3 项降级为「无需处理」**：收起期间跨 900px 断点原被登记为遗留，复核后确认 `computeEmbeddedViewBounds` 内部 `collapsed ? 0 : normalizeSidebarWidth(width)` 已让 width 参数在收起态完全失效，展开时 `MpSidebar` 的 `ResizeObserver`（`w > 0` 守卫）在同一帧后上报真实宽度 —— 不产生错误布局，不值得为一次不可见的抖动新增状态位。
 - **测试**：新增 106 例（OAuth 布局同步 7 / 守卫 4 / 广播 8 / 注入 4 / store 广播 8 / App 订阅 5 / preload 合同 3 / 跨进程多窗口链路 1，其余为既有文件增量），受影响面 12 files / 311 tests 全绿；`tsc --noEmit` rc=0；`eslint` 0 error。
 - **文档**：`openspec/changes/sidebar-collapse-toggle/` 新增 3 条 Requirement / 10 Scenario（spec 7 → 10 条）、tasks 第 7 节；执行记录 `openspec/records/sidebar-collapse-followups.md`。
+# [未发布] fix(film-engineering): 五条功能缺陷修复——复制模式退化 / 阶段名未本地化 / 画布归因过粗 / refCount 无写入 / 7 块 vs 5 块口径不一致（fix-film-engineering-defects）
+
+- **缺陷 1（CRITICAL）：一键复制的三个结构化模式在真实语料上退化**。分镜详情抽屉提供 `full/blocks/characters/geo` 四种复制模式，用主进程同一套切块逻辑跑**真实 kit 的 153 个分镜**实测：能切出任意块的仅 **3 镜（2.0%）**，`GEO SPATIAL LAYOUT` 命中 **0**，`[CHARACTER:` 命中 **0** —— 点「复制 GEO 布局」几乎恒得到「（无 GEO SPATIAL LAYOUT 块）」。根因是切块用**整行精确比较**（`BLOCK_HEADINGS.includes(line.toUpperCase())`），而真实提示词的块标题带括号后缀与结尾冒号，例如 `GEO SPATIAL LAYOUT (locked across every CO shot — pure spatial map):`。引入点 `a3a93913`（2026-08-15，`shot-library.js` 新增文件即如此，**自诞生起即如此、非后续回归**）。
+
+  - **修复**：`BLOCK_HEADINGS` 补齐为 **7 项**（补 `SCENE CONTEXT` 与 `STYLE`，与随包方法论同源）；判定改为**行首前缀正则**，且正则**从 `BLOCK_HEADINGS` 单一真源生成**（避免第三处硬编码），容忍括号后缀 / 结尾冒号 / 小写 / 前导空白，并用 `\b` 词边界保证正文行中出现的标题字样不被误判。
+  - **实测**：切块率 **2.0%（3/153）→ 43.1%（66/153）**。
+
+- **缺陷 2（MAJOR）：自动模式进度阶段名显示英文 id 原文**（`film_auto_plan` / `film_auto_generate` / `film_auto_render`）。阶段 id 定义在 `useFilmAutoRun.js`，从未登记进 `src/i18n/pipeline-labels.js` 的 STAGES 表，`translate()` 走 fallback 返回原始 id。引入点 `b3ee1579`（2026-10-10，PR #3234 新增自动模式时只定义 id、忘了登记翻译）。**修复**：STAGES 补三条 + `locales/pipelines/{zh,en}.js` 成对文案（分镜规划 / 逐镜生成 / 收口合成；Shot Planning / Shot Generation / Final Composition），用词与自动模式步骤条一致。
+
+- **缺陷 3（MAJOR）：画布所有失败都归因为「影视引擎不可用」**。除「超过 10 镜」「未选分镜」外**全部**弹同一条，而真因常是没配视频模型（`VIDEO_MODEL_NOT_CONFIGURED`），用户会以为安装坏了而非去配模型。**是两处叠加**：① 视图 `else` 兜底过宽；② `useFilmVideoGen.start` 第 166 行捕捉了 `res.errorCode`，但第 169 行**恒返回硬编码 `'startFailed'`**，真因在返回时被丢弃 ⇒ 调用方拿不到值，**只改视图无效**。**修复**：两处都改 —— 如实透传 `errorCode`，视图按 `VIDEO_MODEL_NOT_CONFIGURED` 分流到 `video.noModel`（精准文案早已存在于 locales，只是画布未引用）。
+
+- **缺陷 4（MINOR）：画布「已注入 N 张参考」提示永不显示**。`ShotNode.vue` 渲染该提示，但全仓**无任何代码写入 `data.refCount`**（grep 仅命中渲染处）⇒ 连线成功后用户得不到任何视觉反馈。**修复**：在 `addEdge` / `removeNodes` 后由 `collectShotReferences` 回写（**真源与实际参与生成的参考同源，不引入第二套计数**）；删边时先收集受影响的 target 再重算，避免读到已被过滤掉的边。
+
+- **缺陷 5（MINOR）：方法论 7 块 vs 切块 5 块口径不一致**。随缺陷 1 补齐为 7 项，并加**同源锁**机械比对 `BLOCK_HEADINGS` 与 `prompt-doctrine.json` 的 `blocks[].label`。
+
+- **回归保护测试（新增 17 条）**：
+  - `electron/services/film-engineering/shot-library.real-kit.test.js`（9 条，真实语料）
+  - `src/i18n/pipeline-labels.stage-coverage.test.js`（3 条，全仓扫描阶段 key）
+  - `src/views/FilmCanvasView.actions.test.js` 扩展 5 条（共 14）
+
+  **为什么既有测试拦不住缺陷 1**：`shot-library.test.js` 的 blocks/characters/geo 三个用例用的是**自造的理想化夹具**（块标题就是纯 `GEO SPATIAL LAYOUT`）。那种夹具在「整行精确比较」和「行首前缀匹配」两种实现下**都会通过** —— 它测的是算法意图，不是算法对真实输入的有效性。改实现后它们仍全绿，所以新断言刻意**锚定真实语料的统计特征**（命中数 > 0、切块率 > 阈值）。
+
+- **四条系统性漏洞与堵法**：S1 夹具理想化 → 真实语料统计断言；S2 动态 i18n key 无登记检查（三道文案门禁都只管字面量）→ 全仓扫描锁；S3 错误兜底 `else` 吞掉原因多样性 + composable 换硬编码常量返回让调用方失去分流能力 → 透传链端到端保真；S4 跨文件「渲染侧读字段、写入侧没写」→ 写入端单测配对。
+
+- **验证**：定向 8 个文件 **87/87 全绿**（含既有 `shot-library.test.js` 20 条、画布 4 文件 41 条零回归）；`pnpm run lint` exit 0；`check-locale-sync --pair-base HEAD` PASS（zh/en 成对）。
+
+- **文档**：`01-docs/PRD-FILM-ENGINEERING-DEFECT-FIX-2026-10-19.md`（含显示项 / 交互 / 数据校验 / 提示文案全表）、`01-docs/BUGFIX-FILM-ENGINEERING-FINDINGS-2026-10-19.md`（根因溯源 + 逃逸链）、`01-docs/USER-MANUAL-FILM-ENGINEERING-COMPLETE-2026-10-19.md`（同步修订）、`01-docs/learnings.md` 置顶条目、`.agent_context/memory-film-engineering-defect-fix.md`、EverOS（md-first 直写 + 读回验证 HIT）。
 
 # [未发布] feat(gates): QM-6 评审后端对收敛为单一真源，「设了没生效」改为判不闭合（qm6-review-backend-config）
 

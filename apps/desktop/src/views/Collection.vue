@@ -447,6 +447,8 @@ import { resolveNotifyText } from '@/utils/notifyCore'
 import { storeGetSetting, storeSetSetting, draftList, aiRewrite, aiListRewriteStrategies, aiGetRecommendedStrategies } from '@/api/publisher'
 import { extractRewriteHistoryId, attachRewriteLineage } from '@/utils/rewrite-lineage'
 import { formatUserError } from '@/utils/user-facing-error'
+import { REWRITE_ENGINE_MAX_INPUT_CHARS, prepareRewriteInput } from '@/utils/rewrite-engine-limits'
+import { normalizeRewriteEngineError } from '@/utils/rewrite-engine-error'
 import { classifyCollectError } from '@/utils/collect-error'
 // 采集内容守卫：识别「百度安全验证」等反爬验证页文字（判据与主进程同源，见模块注释）
 import { isVerificationContent } from '@/utils/collected-content-guard'
@@ -655,6 +657,16 @@ async function rewriteViaEngine (content) {
       },
     }
   }
+  // 超长自动截取（fix-collect-rewrite-too-long，2026-10-19）：采集到的长文（知乎回答等）
+  // 会超过引擎入口的 6000 码点硬上限，旧行为是被引擎拒收（TOO_LONG）后只弹兜底
+  // 「AI 改写失败」；采集页没有「先精简再改写」的交互位（结果区原文 readonly），
+  // 因此这里截取前 N 码点继续改写，并明确告知用户截断事实。
+  const prepared = prepareRewriteInput(content)
+  if (prepared.truncated) {
+    notifyWarning('collection.rewriteTruncated', {
+      params: { original: prepared.originalLength, max: REWRITE_ENGINE_MAX_INPUT_CHARS },
+    })
+  }
   let res
   try {
     // main 新增的字数控制（min/max）→ targetLength 语义映射：窄区间视为 short，宽高区间视为 long，其余 medium
@@ -663,7 +675,7 @@ async function rewriteViaEngine (content) {
     const wordCountTarget = maxW <= 800 ? 'short' : (minW >= 1500 || maxW >= 2500) ? 'long' : 'medium'
     const params = {
       mode: 'imitate',
-      content: content,
+      content: prepared.text,
       userSettings: {
         tone: STYLE_TO_TONE[rewriteStyle.value] || 'casual',
         targetWordCount: { min: minW, max: maxW },
@@ -688,8 +700,14 @@ async function rewriteViaEngine (content) {
     collectRewriteLineageId = extractRewriteHistoryId(res)
     return { result_content: res.data.result, knowledgeRefs: res.data.knowledgeRefs || [] }
   }
-  // 失败时透传原始 res（含 errorCode/message），供调用方 formatUserError 映射友好文案
-  if (res && (res.code !== 0 || (res.data && res.data.success === false))) {
+  // 引擎业务错误（`{code:0, data:{success:false, error, errorCode}}`）必须归一化到顶层：
+  // formatUserError 只读顶层 errorCode/message，直接透传整个信封会让具体原因丢失，
+  // 用户只看到兜底「AI 改写失败」（2026-10-19 事故形态，正文 6766 字 > 6000 上限）。
+  if (res && res.code === 0 && res.data && res.data.success === false) {
+    return { __error: normalizeRewriteEngineError(res) }
+  }
+  // IPC 层错误（code !== 0）本身已是顶层 message 形状，原样透传
+  if (res && res.code !== 0) {
     return { __error: res }
   }
   return null

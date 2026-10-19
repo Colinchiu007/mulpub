@@ -199,3 +199,54 @@ describe('PodcastScriptEntry · 渲染层不得出现第二份分块/音色实�
     expect(hits).toEqual([])
   })
 })
+
+/**
+ * 音色来源三态标注（PRD §8.2.9 判据 1、2）。
+ *
+ * 判据 2 是这一族里最容易写反的一条：「① 命中不显示」不是「① 命中显示成别的」，
+ * 也不是「整行不显示」——三段音色（服务商/模型/音色）在任何一档都要照常显示，
+ * 被撤掉的只有那句**来源说明**。用户自己填进频道的东西不需要再被他自己的界面告诉一遍来源。
+ */
+describe('PodcastScriptEntry · 音色来源三态标注', () => {
+  const voiceWith = (origin) => ({
+    ok: true,
+    plan: { totalBlocks: 7, totalCodepoints: 12345 },
+    voice: { providerId: 'prov_x', model: 'mdl_y', voiceId: 'voice_z', origin, resolvedBy: 'preference' },
+  })
+
+  it('origin=preference ⇒ 标注出现，且用的是真实 locale 值（不是键名打到界面上）', async () => {
+    api.episodePlanPreview.mockResolvedValue(ok(voiceWith('preference')))
+    const w = await open()
+    const tag = w.find('[data-testid="podcast-script-voice-origin"]')
+    expect(tag.exists(), '② 命中却不标注 ⇒ 用户分不清"我配过"与"系统替我选了"').toBe(true)
+    expect(tag.text()).toBe(zh.podcast.episode.originPreference)
+  })
+
+  it('origin=providerDefault ⇒ 标注出现（③ 命中同样要写来源）', async () => {
+    api.episodePlanPreview.mockResolvedValue(ok(voiceWith('providerDefault')))
+    const w = await open()
+    const tag = w.find('[data-testid="podcast-script-voice-origin"]')
+    expect(tag.exists()).toBe(true)
+    expect(tag.text()).toBe(zh.podcast.episode.originProviderDefault)
+  })
+
+  it('origin=channel ⇒ 整行不显示标注，但三段音色照常显示（判据 2 只撤那一句，不撤那一段）', async () => {
+    api.episodePlanPreview.mockResolvedValue(ok(voiceWith('channel')))
+    const w = await open()
+    expect(w.find('[data-testid="podcast-script-voice-origin"]').exists(), '① 命中还告诉用户来源 ⇒ §8.2.9 判据 2').toBe(false)
+    const line = w.find('[data-testid="podcast-script-voice"]')
+    expect(line.exists(), '撤标注时把三段也一起撤掉了 ⇒ 用户看不到本期真正用的音色').toBe(true)
+    expect(line.text()).toContain('prov_x')
+    expect(line.text()).toContain('voice_z')
+  })
+
+  it('origin 取闭集外的值 ⇒ 不标注也不得兜底成"取自频道"，并留一条 warn（判据 1）', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    api.episodePlanPreview.mockResolvedValue(ok(voiceWith('fromTheChannelProbably')))
+    const w = await open()
+    expect(w.find('[data-testid="podcast-script-voice-origin"]').exists()).toBe(false)
+    expect(w.find('[data-testid="podcast-script-voice"]').text()).not.toContain(zh.podcast.episode.originChannel)
+    expect(warn).toHaveBeenCalledTimes(1)
+    warn.mockRestore()
+  })
+})
