@@ -1,0 +1,61 @@
+{
+  "sha": "1c89ba01ab04f49324978669ef2bf0dbb29d2fe5",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 1660 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 1660,
+    "fileCount": 39,
+    "codeFileCount": 21,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 16,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "sha256(readFileSync(p, 'utf8').replace(/\\r\\n/g, '\\n'))",
+      "hashlib.sha256(path.read_bytes().replace(b\"\\r\\n\", b\"\\n\")).hexdigest()"
+    ],
+    "lineReadGaps": [
+      "\"01-docs/research/competitor-reverse-2026-10-13/derived/\\350\\236\\215\\345\\252\\222\\345\\256\\235-sig3\\345\\205\\250\\351\\203\\250\\345\\256\\236\\347\\216\\260.md\"",
+      "\"01-docs/research/competitor-reverse-2026-10-13/\\344\\272\\244\\344\\273\\230\\347\\211\\251\\346\\200\\273\\347\\264\\242\\345\\274\\225.md\""
+    ]
+  },
+  "stagedDiffHash": "d90f1a4f8140b437b006a9d3d2185a2f907db91613beb9aeade4682e3438845c",
+  "decidedAt": "2026-10-19T14:26:34.939Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

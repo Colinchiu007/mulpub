@@ -858,6 +858,9 @@ describe("CreateView", () => {
     expect(w.vm.friendlyVoiceCatalogError("VOICE_CLONE_SAMPLE_TOO_LARGE")).toContain("大小超出限制");
     expect(w.vm.friendlyVoiceCatalogError("VOICE_CLONE_SELECTION_UNAVAILABLE")).toContain("音频样本暂存不可用");
     expect(w.vm.friendlyVoiceCatalogError("VOICE_CLONE_UNAVAILABLE")).toContain("音色克隆服务暂时不可用");
+    // 2026-10-19 事故：MiniMax 订阅套餐账号克隆被拒 → 明确的付费方式说明，不再是「请稍后重试」
+    expect(w.vm.friendlyVoiceCatalogError("VOICE_CLONE_PLAN_UNSUPPORTED")).toContain("另付费 9.9 元购买音色");
+    expect(w.vm.friendlyVoiceCatalogError("VOICE_CLONE_PLAN_UNSUPPORTED")).toContain("不能直接使用订阅套餐");
     expect(w.vm.friendlyVoiceCatalogError("VOICE_CLONE_DIALOG_UNAVAILABLE")).toContain("文件选择窗口");
     expect(w.vm.friendlyVoiceCatalogError("VOICE_CLONE_MODEL_MISMATCH")).toContain("模型设置");
     // 配置类错误（缺 API Key 等）→ 引导去模型设置，而非「请稍后重试」
