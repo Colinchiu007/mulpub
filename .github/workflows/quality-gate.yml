@@ -598,6 +598,14 @@ jobs:
           # 判据本体也要在每次 PR 上真被执行一次（--dry-run 不起 vitest，秒级）：
           # 否则 CLI 只有本地手动跑过，会烂成"工具还在、扫描域已经漂"那种装饰性存量。
           node scripts/check-clock-shift-oracle.js --dry-run
+          # 阶段 5.3 / 5.4 两条新门禁（ux-audit-phase34，2026-10-19）。落点选本步骤的理由与上面
+          # check-workflow-structure 完全同一条：**本步骤整体是 shell: bash，任一非零即中止**；
+          # 接进 Gate 3（默认 pwsh、多条命令只有最后一条的 $LASTEXITCODE 决定成败）等于接进装饰门禁。
+          # 判据本体也在每次 PR 上真跑（秒级，纯静态扫 src），否则只会烂成"本地手动跑过一次"的存量。
+          node --test scripts/check-ui-wired.test.js
+          node scripts/check-ui-wired.js
+          node --test scripts/check-field-consumed.test.js
+          node scripts/check-field-consumed.js
 
       # --- Gate 2c: 测试收集接线棘轮 + 此前从未被 CI 收集的锁 ---
       # 本仓不自动收集 scripts/ 与 .github/scripts/ 下的测试（vitest 只管 workspace，
