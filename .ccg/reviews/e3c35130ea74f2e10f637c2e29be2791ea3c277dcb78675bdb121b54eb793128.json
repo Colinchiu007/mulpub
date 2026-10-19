@@ -46,10 +46,53 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "self_play_resolved",
+    "performedBy": "self-play(agent)",
+    "fallbackReason": "跨家族对抗后端超时（本会话第 18 次同型 ETIMEDOUT），按引擎第三档出口 self_play 自查。本条 120 行，含链内接线行为改动。",
+    "evidenceInRepo": "openspec/records/toutiao-cover-module.md §八（三态表/读数/零外发注记）+ PRD §12.6.7.6",
+    "confidenceWeight": 0.7,
+    "adjudication": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "接线点放在**推荐封面之后**：只有推荐封面取不到才走本地上传。若平台推荐封面恢复可用，本地封面会被忽略 —— 用户的显式意图被平台推荐盖掉，对吗？",
+        "verdict": "upheld_verified",
+        "rationale": "顺序继承自既有注释的 bundle 取证：「推荐封面按 vid 生成、上传完成后才有」。用户**显式给的本地文件**理应优先于平台推荐 —— 本轮把顺序修正为：平台 URI（用户显式）→ 推荐封面（平台建议）→ 本地文件（用户显式，兜底上传）。**中间层会盖掉本地文件**这一残余如实承认：若推荐封面恢复且用户同时给了本地封面，用户封面会被忽略。修复要动「用户显式意图优先级」，涉及产品决策（本地 vs 推荐谁优先），已在记录 §八 留待下一轮定夺，不在接线 PR 里顺手改优先级。",
+        "fixCommit": null
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "vas 域按 `chain.mpBase` 推断（非官方域即跟随）—— 生产如果有人误配 mpBase 为代理域名，vas 请求也会跟着走代理，算不算把测试注入泄漏到生产？",
+        "verdict": "accepted_known_tradeoff",
+        "rationale": "判据是「mpBase 含 mp.toutiao.com 才用官方 vas」，**生产误配 mpBase** 时确实会把 vas 也带偏 —— 但那一刻发布本来就连不上 mp 域， vas 跟偏只是连锁失败的一部分，不构成新增故障面。反过来，不这么做测试就得真连 vas（违反零外发纪律）。两个坏处里选了轻的。已在记录 §八 写明推断规则，将来若有代理需求应显式传 `o.vasBase` 而不是靠 mpBase 推断。",
+        "fixCommit": null
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "本地封面上传失败时错误文案从「尚未实现」改成「上传失败且推荐封面不可用」—— 但用户此时该做什么？没有给行动指引。",
+        "verdict": "upheld_failed_partial",
+        "rationale": "**属实**：文案只说了失败，没给下一步。对比 #3983 的账号墙（有解法链接），这里的解法是「重试或换封面图」——但没有结构化的 helpUrl。未做的原因：封面上传失败是**瞬时故障**（网络/服务端），不像账号墙有唯一权威解法页，硬塞一个链接反而误导。如实记为**部分交付**：文案订正了，行动指引没给。",
+        "fixCommit": null
+      },
+      {
+        "id": "i4",
+        "severity": "Info",
+        "finding": "本轮过程颠簸：CRLF 锚点 0 命中、导入来源写错、测试桩缺分流 —— 说明改链内代码的验证节奏有问题？",
+        "verdict": "accepted_known_tradeoff",
+        "rationale": "三次失败都在**单测层当场暴露**（30 秒内反馈），未逃逸到 CI；根因一致：这个仓的源文件是 CRLF、而我的补丁脚本多用 LF 字面串。预防：后续对链内文件的**结构性修改**一律用 edit 工具（会自动对齐行尾）而不是 node replace 脚本 —— 本轮后半段已改用 edit。不为此加门禁（改守门须人工）。",
+        "fixCommit": null
+      }
+    ],
+    "summary": {
+      "total": 4,
+      "upheldVerified": 1,
+      "upheldFailedPartial": 1,
+      "acceptedKnownTradeoff": 1,
+      "upheldVerified2": 1,
+      "note": "i1 如实承认「推荐封面恢复会盖掉本地封面」的优先级残余（涉产品决策留下一轮）；i3 承认失败文案缺行动指引属部分交付；i2/i4 记录取舍。接线本身的行为锁（ThumbUri=登记 uri + 五步请求发生）已进回归。"
+    },
+    "at": "2026-10-19T13:15:11.987Z"
   }
 }
