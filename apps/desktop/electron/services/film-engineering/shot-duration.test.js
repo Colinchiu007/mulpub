@@ -9,7 +9,7 @@
 const {
   DURATION_SOURCES, DEFAULT_TIERS, DEFAULT_MAX_SEC, MIN_SHOT_SEC,
   ZH_CHARS_PER_SECOND, EN_WORDS_PER_SECOND,
-  countSpeechUnits, snapToTier, estimateShotSeconds, resolveShotDurationMs, resolvePlanDurations,
+  countSpeechUnits, extractDialogueText, snapToTier, estimateShotSeconds, resolveShotDurationMs, resolvePlanDurations,
 } = require('./shot-duration')
 
 describe('shot-duration / 常量与优先级声明', () => {
@@ -65,13 +65,29 @@ describe('shot-duration / countSpeechUnits', () => {
   })
 })
 
-describe('shot-duration / snapToTier（只向上不向下）', () => {
-  it('落在档位之间时向上取（不能向下，否则切掉台词尾巴）', () => {
+describe('shot-duration / snapToTier（默认向上，容差内就近）', () => {
+  it('明显超出档位时向上取（不向下，否则会切掉台词尾巴）', () => {
     expect(snapToTier(3).sec).toBe(5)
     expect(snapToTier(5).sec).toBe(5)
-    expect(snapToTier(5.1).sec).toBe(8)
+    expect(snapToTier(6).sec).toBe(8)
     expect(snapToTier(7.9).sec).toBe(8)
     expect(snapToTier(9).sec).toBe(10)
+  })
+
+  it('容差内（默认 0.3s）取该档而非跳三秒——v7 对抗评审 i5', () => {
+    // 40 字 → 5.0s 用 5s 档；41 字 → 5.125s，只超出 0.125s，不该跳到 8s（+60%）
+    const r41 = snapToTier(5.125)
+    expect(r41.sec).toBe(5)
+    expect(r41.toleranceUsed).toBe(true)
+    // 超出容差才向上
+    const over = snapToTier(5.4)
+    expect(over.sec).toBe(8)
+    expect(over.toleranceUsed).toBe(false)
+  })
+
+  it('容差可注入，0 表示严格向上', () => {
+    expect(snapToTier(5.1, undefined, { toleranceSec: 0 }).sec).toBe(8)
+    expect(snapToTier(5.1, undefined, { toleranceSec: 0.5 }).sec).toBe(5)
   })
 
   it('超过最大档时取最大档并置 overflow', () => {
@@ -293,5 +309,90 @@ describe('shot-duration / resolvePlanDurations（批量）', () => {
   it('非数组输入按空处理，不抛', () => {
     expect(resolvePlanDurations(null).ok).toBe(true)
     expect(resolvePlanDurations(undefined).ok).toBe(true)
+  })
+})
+
+// ===== v7 对抗评审修复的回归锁 =====
+
+describe('shot-duration / extractDialogueText（i1：引号内才是台词）', () => {
+  it('中文引号抽取', () => {
+    const r = extractDialogueText('他推开门，低声说：「你终于来了。」然后转身')
+    expect(r.usedQuotes).toBe(true)
+    expect(r.dialogue).toBe('你终于来了。')
+  })
+
+  it('直角引号与弯引号都识别', () => {
+    expect(extractDialogueText('『走吧』').dialogue).toBe('走吧')
+    expect(extractDialogueText('“走吧”').dialogue).toBe('走吧')
+    expect(extractDialogueText('"go now"').dialogue).toBe('go now')
+  })
+
+  it('多段引号按行合并', () => {
+    const r = extractDialogueText('他说：「第一句。」停了一下，又说：「第二句。」')
+    expect(r.dialogue).toBe('第一句。\n第二句。')
+  })
+
+  it('无引号时退化为整段并标记 usedQuotes=false（宁可高估不可低估）', () => {
+    const r = extractDialogueText('他推开门走进屋子')
+    expect(r.usedQuotes).toBe(false)
+    expect(r.dialogue).toBe('他推开门走进屋子')
+  })
+
+  it('空引号不算台词，退化为整段', () => {
+    const r = extractDialogueText('他说：「」')
+    expect(r.usedQuotes).toBe(false)
+  })
+
+  it('空 / 非字符串安全', () => {
+    expect(extractDialogueText('').dialogue).toBe('')
+    expect(extractDialogueText(null).dialogue).toBe('')
+  })
+})
+
+describe('shot-duration / 日韩字符不计入语速（i8）', () => {
+  it('假名与谚文不计入 total，但被计数并告警', () => {
+    const u = countSpeechUnits('こんにちは 세계')
+    expect(u.total).toBe(0)
+    expect(u.excludedKanaHangul).toBeGreaterThan(0)
+    const r = estimateShotSeconds('こんにちは', 'normal')
+    expect(r.ok).toBe(true)
+    if (r.ok) expect(r.warnings.join()).toContain('假名/谚文')
+  })
+
+  it('汉字仍正常计入', () => {
+    expect(countSpeechUnits('你好世界').cjkChars).toBe(4)
+  })
+})
+
+describe('shot-duration / 吸附落差如实回传（i5）', () => {
+  it('estimateShotSeconds 回传 rawSec 与 snapDeltaSec', () => {
+    const r = estimateShotSeconds('一'.repeat(41), 'normal')
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.rawSec).toBeGreaterThan(5)
+    expect(r.rawSec).toBeLessThan(5.4)
+    expect(r.durationSec).toBe(5)
+    expect(r.snapDeltaSec).toBeLessThan(0)
+    expect(r.toleranceUsed).toBe(true)
+  })
+
+  it('resolveShotDurationMs 透传 rawSec', () => {
+    const r = resolveShotDurationMs({ dialogue: '一'.repeat(41) })
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(Number.isFinite(r.rawSec)).toBe(true)
+    expect(Number.isFinite(r.snapDeltaSec)).toBe(true)
+  })
+})
+
+describe('shot-duration / text 走引号抽取（i1 端到端）', () => {
+  it('动作 + 长台词混排时，只按台词计时长', () => {
+    // 动作描述 40 字 + 引号内台词 8 字：若按整段会算 6s+，按台词只有 1s → 5s 档
+    const text = '他缓慢地推开门走进屋子环顾四周然后停在窗前凝视着外面的雨夜' + '「你来了。」'
+    const r = resolveShotDurationMs({ text })
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.source).toBe('formula')
+    expect(r.rawSec).toBeLessThan(2)
   })
 })

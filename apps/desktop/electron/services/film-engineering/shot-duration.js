@@ -31,48 +31,96 @@ const DEFAULT_TIERS = Object.freeze([5, 8, 10, 12])
 const DEFAULT_MAX_SEC = 12
 /** 单镜时长下限（秒）：低于它连一个动作都摆不下 */
 const MIN_SHOT_SEC = 1
+/** 吸附容差（秒）：raw 只超出档位不到该值时仍取该档，避免一字之差跳三秒（v7 对抗评审 i5） */
+const DEFAULT_SNAP_TOLERANCE_SEC = 0.3
 /** 各情绪档的中文语速（字/秒）；与 shot-grammar.json 的 emotionTiers 同源默认值 */
 const ZH_CHARS_PER_SECOND = Object.freeze({ normal: 8, argument: 10, tender: 5 })
 /** 英文语速（词/秒）；中文按字、英文按词，两者不可混算 */
 const EN_WORDS_PER_SECOND = Object.freeze({ normal: 2.6, argument: 3.4, tender: 1.7 })
 
 /**
- * 统计台词的可发音单位数：中日韩统一表意文字按「字」，其余按「词」。
+ * 统计台词的可发音单位数：汉字按「字」，拉丁字母词按「词」。
  * 标点、空白、括号内的舞台提示不计入（它们不占说话时长）。
+ *
+ * **日文假名与韩文谚文刻意不计入**（v7 对抗评审 i8）：语速档（8/10/5 字每秒）是用中文
+ * 语料标定的，把假名/谚文当成汉字折算会系统性低估日韩文案时长。当前产品只做中英，
+ * 故对日韩文本采取「不计入」这个可解释的保守口径——若将来支持日韩，应新增独立语速档，
+ * 而不是把字符集扩回来。
  * @param {string} text
- * @returns {{cjkChars: number, latinWords: number, total: number}}
+ * @returns {{cjkChars: number, latinWords: number, total: number, excludedKanaHangul: number}}
  */
 function countSpeechUnits (text) {
   const s = typeof text === 'string' ? text : ''
-  if (!s.trim()) return { cjkChars: 0, latinWords: 0, total: 0 }
+  if (!s.trim()) return { cjkChars: 0, latinWords: 0, total: 0, excludedKanaHangul: 0 }
   // 去掉成对括号内的舞台提示（中英文括号与方头括号）
   const stripped = s
     .replace(/[（(【\[][^）)】\]]*[）)】\]]/g, ' ')
     .replace(/\[[^\]]*\]/g, ' ')
-  const cjk = stripped.match(/[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]/g) || []
+  const HAN = /[\u4e00-\u9fff]/g
+  const KANA_HANGUL = /[\u3040-\u30ff\uac00-\ud7af]/g
+  const cjk = stripped.match(HAN) || []
+  const excludedKanaHangul = (stripped.match(KANA_HANGUL) || []).length
   const latin = stripped
-    .replace(/[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]/g, ' ')
+    .replace(HAN, ' ')
+    .replace(KANA_HANGUL, ' ')
     .match(/[A-Za-z][A-Za-z'’-]*/g) || []
-  return { cjkChars: cjk.length, latinWords: latin.length, total: cjk.length + latin.length }
+  return { cjkChars: cjk.length, latinWords: latin.length, total: cjk.length + latin.length, excludedKanaHangul }
 }
 
 /**
- * 把原始秒数向上吸附到最近的支持档位（不向下，避免切掉台词尾部）。
- * 超过最大档时返回最大档，并置 overflow=true 由调用方决定是否拆镜。
+ * 从剧本段落里挑出**真正会被念出来**的部分。
+ *
+ * 动因（v7 对抗评审 i1）：自动模式原先把整段 beat.text 当台词计时长，而 beat.text
+ * 通常同时含动作与环境描述（「他推开门走进屋子」），按 8 字/秒折算会系统性高估时长。
+ *
+ * 口径：优先取成对引号内的内容（「」『』“”""）；没有引号时退化为整段——
+ * 因为自动模式的输入不保证区分台词与动作，此时**宁可高估**（高估只会让镜头变宽裕，
+ * 低估会切掉台词）。退化时返回 usedQuotes=false，供调用方在告警里说明。
+ * @param {string} text
+ * @returns {{dialogue: string, usedQuotes: boolean}}
+ */
+function extractDialogueText (text) {
+  const s = typeof text === 'string' ? text : ''
+  if (!s.trim()) return { dialogue: '', usedQuotes: false }
+  const quoted = s.match(/[「『“"]([^」』”"]*)[」』”"]/g)
+  if (quoted && quoted.length > 0) {
+    const dialogue = quoted
+      .map((q) => q.slice(1, -1))
+      .filter((q) => q.trim())
+      .join('\n')
+    if (dialogue.trim()) return { dialogue, usedQuotes: true }
+  }
+  return { dialogue: s, usedQuotes: false }
+}
+
+/**
+ * 把原始秒数吸附到支持档位。
+ *
+ * 规则（v7 对抗评审 i5 修订）：
+ *   1. **默认不向下吸附**——向下会切掉台词尾部；
+ *   2. 但允许 `toleranceSec` 的容差（默认 0.3s）：raw 只超出档位不到一档容差时仍取该档，
+ *      避免「40 字→5s、41 字→8s（+60%）」这种一字之差的巨大跳变；
+ *   3. 超过最大档返回最大档并置 overflow=true，由调用方决定是否拆镜。
  * @param {number} rawSec
  * @param {number[]} [tiers]
- * @returns {{sec: number, overflow: boolean}}
+ * @param {{toleranceSec?: number}} [opts]
+ * @returns {{sec: number, overflow: boolean, toleranceUsed: boolean}}
  */
-function snapToTier (rawSec, tiers) {
+function snapToTier (rawSec, tiers, opts) {
+  const o = opts || {}
+  const tolerance = Number.isFinite(Number(o.toleranceSec)) && Number(o.toleranceSec) >= 0
+    ? Number(o.toleranceSec)
+    : DEFAULT_SNAP_TOLERANCE_SEC
   const list = Array.isArray(tiers) && tiers.length > 0
     ? tiers.map(Number).filter((n) => Number.isFinite(n) && n > 0).sort((a, b) => a - b)
     : DEFAULT_TIERS.slice()
   const raw = Number(rawSec)
-  if (!Number.isFinite(raw) || raw <= 0) return { sec: list[0], overflow: false }
+  if (!Number.isFinite(raw) || raw <= 0) return { sec: list[0], overflow: false, toleranceUsed: false }
   for (const t of list) {
-    if (raw <= t) return { sec: t, overflow: false }
+    if (raw <= t) return { sec: t, overflow: false, toleranceUsed: false }
+    if (raw <= t + tolerance) return { sec: t, overflow: false, toleranceUsed: true }
   }
-  return { sec: list[list.length - 1], overflow: true }
+  return { sec: list[list.length - 1], overflow: true, toleranceUsed: false }
 }
 
 /**
@@ -81,9 +129,10 @@ function snapToTier (rawSec, tiers) {
  * 这是「无 TTS 时的最佳估计」，不是最终权威——最终以 TTS 实测为准。
  * @param {string} text 台词原文（无台词时可传空串，此时按最小档）
  * @param {string} [emotion] 情绪档 key：normal / argument / tender
- * @param {{tiers?: number[], maxSec?: number, minSec?: number}} [opts]
+ * @param {{tiers?: number[], maxSec?: number, minSec?: number, snapToleranceSec?: number}} [opts]
  * @returns {{ok: true, durationSec: number, durationMs: number, rawSec: number,
- *            source: 'formula', tierSec: number, units: {cjkChars: number, latinWords: number, total: number},
+ *            source: 'formula', tierSec: number, snapDeltaSec: number, toleranceUsed: boolean,
+ *            units: {cjkChars: number, latinWords: number, total: number, excludedKanaHangul: number},
  *            emotion: string, overflow: boolean, warnings: string[]}
  *          | {ok: false, error: string}}
  */
@@ -95,6 +144,9 @@ function estimateShotSeconds (text, emotion, opts) {
   const tiers = Array.isArray(o.tiers) && o.tiers.length > 0 ? o.tiers : DEFAULT_TIERS
   const maxSec = Number.isFinite(Number(o.maxSec)) ? Number(o.maxSec) : DEFAULT_MAX_SEC
   const minSec = Number.isFinite(Number(o.minSec)) ? Number(o.minSec) : MIN_SHOT_SEC
+  const toleranceSec = Number.isFinite(Number(o.snapToleranceSec)) && Number(o.snapToleranceSec) >= 0
+    ? Number(o.snapToleranceSec)
+    : DEFAULT_SNAP_TOLERANCE_SEC
 
   const units = countSpeechUnits(text)
   const zhRate = ZH_CHARS_PER_SECOND[emo]
@@ -106,16 +158,22 @@ function estimateShotSeconds (text, emotion, opts) {
 
   const warnings = []
   if (units.total === 0) warnings.push('无台词：按最小档处理，建议由画面动作决定时长')
+  if (units.excludedKanaHangul > 0) {
+    warnings.push('含 ' + units.excludedKanaHangul + ' 个假名/谚文字符未计入语速：当前语速档只用中文标定，日韩文案时长会被低估，请手工设定')
+  }
   if (rawSec < minSec && units.total > 0) warnings.push('推算时长低于最小值 ' + minSec + 's，已抬到最小值')
   if (rawSec > maxSec) {
     warnings.push('推算时长 ' + rawSec.toFixed(1) + 's 超过单镜上限 ' + maxSec + 's，必须按 long_dialogue_split 拆解台词，不得截断')
   }
 
   const effectiveRaw = Math.max(rawSec, units.total > 0 ? minSec : 0)
-  const snapped = snapToTier(effectiveRaw, tiers)
+  const snapped = snapToTier(effectiveRaw, tiers, { toleranceSec })
   let tierSec = snapped.sec
   if (Number.isFinite(maxSec) && tierSec > maxSec) tierSec = maxSec
   if (snapped.overflow) warnings.push('推算时长超过最大档位，已取 ' + tierSec + 's')
+  // 吸附落差如实回传：调用方要能看到「4.9s 的内容用了 8s 档位」这类跳变，
+  // 而不是只拿到一个档位数字（v7 对抗评审 i5）
+  const snapDeltaSec = Math.round((tierSec - rawSec) * 1000) / 1000
 
   return {
     ok: true,
@@ -124,6 +182,8 @@ function estimateShotSeconds (text, emotion, opts) {
     rawSec,
     source: 'formula',
     tierSec,
+    snapDeltaSec,
+    toleranceUsed: snapped.toleranceUsed,
     units,
     emotion: emo,
     overflow: snapped.overflow,
@@ -140,8 +200,12 @@ function estimateShotSeconds (text, emotion, opts) {
  *
  * @param {{durationMs?: unknown, ttsDurationMs?: unknown, userDurationMs?: unknown,
  *          text?: unknown, dialogue?: unknown, emotion?: unknown}} shot
- * @param {{tiers?: number[], maxSec?: number, minSec?: number, defaultSec?: number}} [ctx]
- * @returns {{ok: true, durationMs: number, durationSec: number, source: string, warnings: string[]}}
+ * @param {{tiers?: number[], maxSec?: number, minSec?: number, defaultSec?: number,
+ *          snapToleranceSec?: number, dialogueSource?: 'auto'|'verbatim'}} [ctx]
+ *   dialogueSource='auto'（默认）时，若 shot 只给了 text，会先按引号抽取台词（见 extractDialogueText）；
+ *   'verbatim' 表示 shot.dialogue 已是纯台词，不再抽取。
+ * @returns {{ok: true, durationMs: number, durationSec: number, source: string,
+ *            rawSec?: number, snapDeltaSec?: number, warnings: string[]}}
  *          | {ok: false, error: string}
  */
 function resolveShotDurationMs (shot, ctx) {
@@ -150,6 +214,10 @@ function resolveShotDurationMs (shot, ctx) {
   const tiers = Array.isArray(c.tiers) && c.tiers.length > 0 ? c.tiers : DEFAULT_TIERS
   const maxSec = Number.isFinite(Number(c.maxSec)) ? Number(c.maxSec) : DEFAULT_MAX_SEC
   const minSec = Number.isFinite(Number(c.minSec)) ? Number(c.minSec) : MIN_SHOT_SEC
+  const toleranceSec = Number.isFinite(Number(c.snapToleranceSec)) && Number(c.snapToleranceSec) >= 0
+    ? Number(c.snapToleranceSec)
+    : DEFAULT_SNAP_TOLERANCE_SEC
+  const dialogueSource = c.dialogueSource === 'verbatim' ? 'verbatim' : 'auto'
   const warnings = []
 
   const asPositiveMs = (v) => {
@@ -176,7 +244,7 @@ function resolveShotDurationMs (shot, ctx) {
   const userMs = asPositiveMs(s.userDurationMs)
   if (userMs !== null) {
     const ms = clampMs(userMs, '用户设定时长')
-    return { ok: true, durationMs: ms, durationSec: ms / 1000, source: 'user', warnings }
+    return { ok: true, durationMs: ms, durationSec: ms / 1000, source: 'user', rawSec: ms / 1000, snapDeltaSec: 0, warnings }
   }
   if (s.userDurationMs !== undefined && s.userDurationMs !== null) {
     warnings.push('用户设定时长非法（' + String(s.userDurationMs) + '），降级到下一来源')
@@ -186,33 +254,46 @@ function resolveShotDurationMs (shot, ctx) {
   const ttsMs = asPositiveMs(s.ttsDurationMs)
   if (ttsMs !== null) {
     const ms = clampMs(ttsMs, 'TTS 实测时长')
-    return { ok: true, durationMs: ms, durationSec: ms / 1000, source: 'tts', warnings }
+    return { ok: true, durationMs: ms, durationSec: ms / 1000, source: 'tts', rawSec: ms / 1000, snapDeltaSec: 0, warnings }
   }
   if (s.ttsDurationMs !== undefined && s.ttsDurationMs !== null) {
     warnings.push('TTS 实测时长非法（' + String(s.ttsDurationMs) + '），降级到下一来源')
   }
 
   // 3) formula：按台词推算
-  const line = typeof s.dialogue === 'string' && s.dialogue.trim()
-    ? s.dialogue
-    : (typeof s.text === 'string' ? s.text : '')
-  const est = estimateShotSeconds(line, s.emotion, { tiers, maxSec, minSec })
+  // 自动模式下 shot.text 往往是「动作 + 台词」混排，直接整段计时长会高估（v7 对抗评审 i1），
+  // 故只在没有显式 dialogue 时按引号抽取真正会被念出来的部分。
+  let line = ''
+  if (typeof s.dialogue === 'string' && s.dialogue.trim()) {
+    line = s.dialogue
+  } else if (typeof s.text === 'string' && s.text.trim()) {
+    line = dialogueSource === 'verbatim' ? s.text : extractDialogueText(s.text).dialogue
+  }
+  const est = estimateShotSeconds(line, s.emotion, { tiers, maxSec, minSec, snapToleranceSec: toleranceSec })
   if (!est.ok) return { ok: false, error: est.error }
   for (const w of est.warnings) warnings.push(w)
   // formula 与 tier 的差别只在「台词是否为空」：有台词就是推算，无台词才退到档位默认
   const hasLine = est.units.total > 0
 
   if (hasLine) {
-    return { ok: true, durationMs: est.durationMs, durationSec: est.durationSec, source: 'formula', warnings }
+    return {
+      ok: true,
+      durationMs: est.durationMs,
+      durationSec: est.durationSec,
+      source: 'formula',
+      rawSec: est.rawSec,
+      snapDeltaSec: est.snapDeltaSec,
+      warnings,
+    }
   }
 
   // 4) tier：兜底档位默认
   const defaultSec = Number.isFinite(Number(c.defaultSec)) && Number(c.defaultSec) > 0
     ? Number(c.defaultSec)
     : tiers[0]
-  const clamped = snapToTier(defaultSec, tiers)
+  const clamped = snapToTier(defaultSec, tiers, { toleranceSec })
   const sec = Math.min(Math.max(clamped.sec, minSec), maxSec)
-  return { ok: true, durationMs: Math.round(sec * 1000), durationSec: sec, source: 'tier', warnings }
+  return { ok: true, durationMs: Math.round(sec * 1000), durationSec: sec, source: 'tier', rawSec: defaultSec, snapDeltaSec: Math.round((sec - defaultSec) * 1000) / 1000, warnings }
 }
 
 /**
@@ -250,9 +331,11 @@ module.exports = {
   DEFAULT_TIERS,
   DEFAULT_MAX_SEC,
   MIN_SHOT_SEC,
+  DEFAULT_SNAP_TOLERANCE_SEC,
   ZH_CHARS_PER_SECOND,
   EN_WORDS_PER_SECOND,
   countSpeechUnits,
+  extractDialogueText,
   snapToTier,
   estimateShotSeconds,
   resolveShotDurationMs,

@@ -40,8 +40,15 @@ const MIN_AUTO_DURATION_SEC = 10
 const MAX_AUTO_DURATION_SEC = 600
 const AUTO_ASPECTS = Object.freeze(['16x9', '9x16'])
 const AUTO_SHOT_SECONDS = Object.freeze([5, 8, 10])
-/** 单镜时长上限（秒）：与 film-kit/shot-grammar.json 的 durationTiers.maxSec 同源口径 */
-const MAX_AUTO_SHOT_SEC = 12
+/**
+ * 内置档位的单镜上限（秒）——**从档位本身推导，不另写一个字面量**。
+ *
+ * v7 对抗评审 i3 修正：初版写死 12 并注释「与 shot-grammar.json 的 maxSec 同源」，但内置档位
+ * 最高只有 10，于是 12s 档在自动模式根本不可达，而 maxSec=12 让「已到上限」的判定永远不触发。
+ * 现在上限等于实际最高档；kit 支持到 12s，需要放宽时用 planAutoShots({ durationTiers }) 注入，
+ * 不要改这个常量（改它会让 validateAutoInputs 接受的档位与实际能力脱节）。
+ */
+const MAX_AUTO_SHOT_SEC = Math.max(...AUTO_SHOT_SECONDS)
 const MAX_AUTO_REFS = 8
 /** 与 ipc-handlers/film-engineering.js:47-49 同源预估口径 */
 const DISK_ESTIMATE_BYTES_PER_SHOT = 8 * 1024 * 1024
@@ -222,17 +229,26 @@ function planAutoShots (input) {
     mediaRoot: o.mediaRoot,
   })
 
+  // v7 对抗评审 i3：允许调用方注入时长档（来自 film-kit/shot-grammar.json 的 durationTiers），
+  // 缺省才用内置常量。这样 kit 资产可以成为运行时事实源，而不只是文档。
+  const durationTiers = Array.isArray(o.durationTiers) && o.durationTiers.length > 0
+    ? o.durationTiers.map(Number).filter((n) => Number.isFinite(n) && n > 0).sort((a, b) => a - b)
+    : AUTO_SHOT_SECONDS
+  const durationMaxSec = Math.max(...durationTiers)
+
   const shots = beats.map((beat, i) => {
     const template = templates[i % templates.length]
     const prompt = buildTemplatePrompt({ template, beatText: beat.text, characterMap })
     const refPaths = bound[i] ? bound[i].refPaths : []
     // v7 批次一 F2 + F34：给每镜补 durationMs（来源优先级链）。
     // 自动模式下还没有 TTS 实测，故走 formula（按本镜文案推算）→ tier（o.seconds 兜底）。
+    // 传 text 而非 dialogue：beat.text 通常是「动作 + 台词」混排，
+    // resolveShotDurationMs 会按引号抽取真正被念出的部分（v7 对抗评审 i1），避免整段按语速高估。
     // 这是**纯增量**：原先 `seconds` 的语义与 plannedDurationSec 一律不动，
     // 消费方可以继续只读 seconds；需要更细的时长就读 durationMs。
     const duration = resolveShotDurationMs(
-      { dialogue: beat.text, emotion: beat.emotion },
-      { tiers: AUTO_SHOT_SECONDS, maxSec: MAX_AUTO_SHOT_SEC, defaultSec: Number(o.seconds) },
+      { text: beat.text, emotion: beat.emotion },
+      { tiers: durationTiers, maxSec: durationMaxSec, defaultSec: Number(o.seconds) },
     )
     return {
       index: i,
@@ -246,6 +262,7 @@ function planAutoShots (input) {
       durationMs: duration.ok ? duration.durationMs : Math.round(Number(o.seconds) * 1000),
       durationSec: duration.ok ? duration.durationSec : Number(o.seconds),
       durationSource: duration.ok ? duration.source : 'tier',
+      durationRawSec: duration.ok && Number.isFinite(duration.rawSec) ? duration.rawSec : null,
       durationWarnings: duration.ok ? duration.warnings : [duration.error],
       status: 'pending',
     }
@@ -265,6 +282,34 @@ function planAutoShots (input) {
       message: '按台词推算总时长 ' + estimatedDurationSec + ' 秒，与档位基线 ' + plannedDurationSec + ' 秒相差超过 20%'
         + '（推算 ' + durationSourceCount.formula + ' 镜 / 档位 ' + durationSourceCount.tier + ' 镜）。'
         + '最终以 TTS 实测为准；若差异过大请调整单镜秒数或拆分长台词镜头。',
+    })
+  }
+  // v7 对抗评审 i1：逐镜时长警告原先只挂在 shot.durationWarnings 上，调用方不遍历就看不见，
+  // 于是「推算超过单镜上限必须拆解台词」这条承诺在自动模式里是静默的。
+  //
+  // 判据刻意只覆盖**两类实质事件**，不把「无台词 / 低于最小档」这类良性提示也报上来——
+  // 一个恒真的告警会立刻退化成噪音（W8 的误报风险已被同一轮评审点过）。
+  //   ① overflow：台词量超过最高档，不拆解就会丢字
+  //   ② truncation：容差吸附把档位压到内容长度以下，尾部可能被切
+  const overflowShots = shots.filter((s) => Number.isFinite(s.durationRawSec) && s.durationRawSec > durationMaxSec)
+  const truncatedShots = shots.filter((s) => Number.isFinite(s.durationRawSec)
+    && s.durationRawSec * 1000 > Number(s.durationMs) + 1)
+  if (overflowShots.length > 0 || truncatedShots.length > 0) {
+    const parts = []
+    if (overflowShots.length > 0) {
+      parts.push('其中 ' + overflowShots.length + ' 镜推算时长超过单镜上限 ' + durationMaxSec + ' 秒（'
+        + overflowShots.slice(0, 5).map((s) => '#' + s.index).join(', ')
+        + '），必须按 long_dialogue_split 拆解台词，不得截断')
+    }
+    if (truncatedShots.length > 0) {
+      parts.push(truncatedShots.length + ' 镜因容差吸附到了略短的档位（'
+        + truncatedShots.slice(0, 5).map((s) => '#' + s.index).join(', ')
+        + '），台词尾部可能被切，建议复核或改大单镜秒数')
+    }
+    durationWarnings.push({
+      code: 'W9',
+      message: '有 ' + (overflowShots.length + truncatedShots.length) + ' 个分镜的实际台词长度超出其档位时长；'
+        + parts.join('；') + '。逐镜明细见 shots[].durationWarnings。',
     })
   }
   const wallclock = shots.length * WALLCLOCK_SECONDS_PER_SHOT

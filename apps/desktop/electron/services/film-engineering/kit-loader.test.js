@@ -9,7 +9,7 @@ const fs = require('fs')
 const os = require('os')
 const path = require('path')
 
-const { loadFilmKit, loadFilmKitChain, validateManifest, validateShotLibrary, validateReferences, validateDoctrine, validateShotSceneRefs, validateShotGrammar, validateComplianceChecklist, validatePalette, FILM_PROMPT_MAX_LEN } = require('./kit-loader')
+const { loadFilmKit, loadFilmKitChain, validateManifest, validateShotLibrary, validateReferences, validateDoctrine, validateShotSceneRefs, validateShotGrammar, validateComplianceChecklist, validatePalette, checkSchemaVersion, FILM_PROMPT_MAX_LEN } = require('./kit-loader')
 
 const UUID = '3caa2f3a-52b5-4293-9237-0c8f76c7158a'
 
@@ -680,5 +680,77 @@ describe('loadFilmKit: 新资产的两种失败形态（缺失 vs 损坏）', ()
     expect(r.kit.palette.primary.length).toBe(4)
     expect(r.kit.compliance.items.length).toBe(1)
     expect(r.kit.assetWarnings).toEqual([])
+  })
+})
+
+// ===== v7 对抗评审修复的回归锁 =====
+
+describe('checkSchemaVersion（i4：版本号不再是装饰）', () => {
+  it('声明的版本必须受支持', () => {
+    expect(checkSchemaVersion({ schemaVersion: 1 }, 'x', [1]).ok).toBe(true)
+    expect(checkSchemaVersion({ schemaVersion: 2 }, 'x', [1]).ok).toBe(false)
+    expect(checkSchemaVersion({ schemaVersion: 0 }, 'x', [1]).ok).toBe(false)
+  })
+
+  it('缺失时默认拒绝；allowMissing 时放行', () => {
+    expect(checkSchemaVersion({}, 'x', [1]).ok).toBe(false)
+    expect(checkSchemaVersion({}, 'x', [1], { allowMissing: true }).ok).toBe(true)
+  })
+
+  it('非整数拒绝', () => {
+    expect(checkSchemaVersion({ schemaVersion: '1.5' }, 'x', [1]).ok).toBe(false)
+    expect(checkSchemaVersion({ schemaVersion: 'a' }, 'x', [1]).ok).toBe(false)
+  })
+
+  it('不受支持时的错误文案指向「重新导入配套资产」而不是「改版本号」', () => {
+    const r = checkSchemaVersion({ schemaVersion: 9 }, 'palette', [1])
+    expect(r.ok).toBe(false)
+    if (!r.ok) {
+      expect(r.error).toContain('palette')
+      expect(r.error).toContain('重新导入配套资产')
+    }
+  })
+})
+
+describe('validate* 读取 schemaVersion（i4 接线）', () => {
+  it('shot-grammar 版本不符 → 拒绝', () => {
+    const g = makeShotGrammar()
+    g.schemaVersion = 2
+    const r = validateShotGrammar(g)
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('schemaVersion')
+  })
+
+  it('compliance-checklist 版本不符 → 拒绝', () => {
+    const c = makeCompliance()
+    c.schemaVersion = 7
+    expect(validateComplianceChecklist(c).ok).toBe(false)
+  })
+
+  it('palette 版本不符 → 拒绝', () => {
+    const p = makePalette()
+    p.schemaVersion = 0
+    expect(validatePalette(p).ok).toBe(false)
+  })
+
+  it('prompt-doctrine 缺版本按 v1 兼容，声明 2 通过，声明 3 拒绝', () => {
+    const base = { blocks: [{ key: 'style', label: 'STYLE', zh: '风格', en: 'Style' }], rules: [{ key: 'r1', title: 't', zh: '中', en: 'e' }], glossary: [] }
+    expect(validateDoctrine(base).ok).toBe(true)
+    expect(validateDoctrine({ ...base, schemaVersion: 2 }).ok).toBe(true)
+    expect(validateDoctrine({ ...base, schemaVersion: 3 }).ok).toBe(false)
+  })
+})
+
+describe('readOptionalJsonFile 的字面 null（i7）', () => {
+  it('文件内容为 JSON null → 按损坏处理，不当缺失放行', () => {
+    const dir = tmpDir()
+    writeKit(dir, makeKit())
+    fs.writeFileSync(path.join(dir, 'palette.json'), 'null')
+    const r = loadFilmKit({ kitDir: dir })
+    expect(r.ok).toBe(false)
+    if (!r.ok) {
+      expect(r.error).toContain('palette.json')
+      expect(r.error).toContain('空值')
+    }
   })
 })

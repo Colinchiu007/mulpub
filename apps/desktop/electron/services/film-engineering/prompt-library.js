@@ -41,14 +41,37 @@ const VAR_NAME_RE = /^[a-z][a-z0-9_]*$/
  * 断言 target 解析后仍位于 root 之内（防 `..` 与符号链接越界）
  * @param {string} root
  * @param {string} target
+ * @param {string} root
+ * @param {string} target
+ * @param {{resolveSymlinks?: boolean}} [opts]
+ *   resolveSymlinks=true 时对两侧做 fs.realpathSync 后**再次**断言（v7 对抗评审 i2）。
+ *   词法 path.resolve 只能挡住 `..`，挡不住 tasksRoot 内一个指向外部的符号链接/junction；
+ *   初版注释宣称「越界符号链接一律拒绝」而实现未覆盖，这里补上实现而不是改小注释。
  * @returns {{ok: true, resolved: string} | {ok: false, error: string}}
  */
-function resolveInside (root, target) {
+function resolveInside (root, target, opts) {
+  const o = opts || {}
   const rootAbs = path.resolve(root)
   const targetAbs = path.resolve(target)
   const rel = path.relative(rootAbs, targetAbs)
   if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) {
     return { ok: false, error: '路径越界：' + target + ' 不在 ' + rootAbs + ' 之内' }
+  }
+  if (o.resolveSymlinks === true) {
+    let realRoot
+    let realTarget
+    try {
+      realRoot = fs.realpathSync(rootAbs)
+      realTarget = fs.realpathSync(targetAbs)
+    } catch (e) {
+      // 解析失败时 fail-closed：拿不到真实路径就无法证明它没越界，不猜
+      return { ok: false, error: '无法解析真实路径（可能是指向不存在目标的链接）：' + target + ' — ' + (e instanceof Error ? e.message : String(e)) }
+    }
+    const realRel = path.relative(realRoot, realTarget)
+    if (realRel.startsWith('..') || path.isAbsolute(realRel)) {
+      return { ok: false, error: '符号链接越界：' + target + ' 的真实路径 ' + realTarget + ' 不在 ' + realRoot + ' 之内' }
+    }
+    return { ok: true, resolved: realTarget }
   }
   return { ok: true, resolved: targetAbs }
 }
@@ -99,7 +122,7 @@ function listTasks (tasksRoot) {
 function readPromptFile (tasksRoot, task, locale, part, errors) {
   // tasksRoot 已指向 .../prompts/tasks，故相对路径从 <task> 起算
   const relPath = path.join(task, locale, part)
-  const inside = resolveInside(tasksRoot, path.join(tasksRoot, relPath))
+  const inside = resolveInside(tasksRoot, path.join(tasksRoot, relPath), { resolveSymlinks: true })
   if (!inside.ok) {
     errors.push(relPath + ': ' + inside.error)
     return null

@@ -508,3 +508,71 @@ describe('planAutoShots: durationMs 增量字段（F2 + F34）', () => {
     expect(r.estimates.estimatedDurationSec).toBe(r.estimatedDurationSec)
   })
 })
+
+// ===== v7 对抗评审 i1：逐镜时长警告必须聚合进 plan.warnings =====
+
+describe('planAutoShots: 时长警告可见（i1）', () => {
+  it('逐镜时长警告聚合为 W9，不再只藏在 shots[].durationWarnings', () => {
+    // 单镜塞进远超 10s 档位的台词量
+    const r = planAutoShots({
+      script: '第一场\n' + '这是一句特别长的台词'.repeat(9) + '。',
+      characterRefs: [],
+      sceneRefs: [],
+      aspect: '16x9',
+      seconds: 5,
+      targetDurationSec: 10,
+      templateShots: [{ prompt: 'T1' }],
+    })
+    expect(r.ok).toBe(true)
+    const w9 = r.warnings.find((w) => w.code === 'W9')
+    expect(w9).toBeTruthy()
+    expect(w9.message).toContain('#')
+  })
+
+  it('无时长警告时不产生 W9（防恒真告警）', () => {
+    const r = planAutoShots({
+      script: '第一场\n他说：「好。」',
+      characterRefs: [],
+      sceneRefs: [],
+      aspect: '16x9',
+      seconds: 5,
+      targetDurationSec: 10,
+      templateShots: [{ prompt: 'T1' }],
+    })
+    expect(r.ok).toBe(true)
+    expect(r.warnings.map((w) => w.code)).not.toContain('W9')
+  })
+
+  it('逐镜带 durationRawSec，便于调用方展示吸附落差', () => {
+    const r = planAutoShots({
+      script: '第一场\n他说：「一二三四五六七八九十。」',
+      characterRefs: [],
+      sceneRefs: [],
+      aspect: '16x9',
+      seconds: 5,
+      targetDurationSec: 10,
+      templateShots: [{ prompt: 'T1' }],
+    })
+    expect(r.ok).toBe(true)
+    for (const s of r.shots) {
+      expect(s.durationRawSec === null || Number.isFinite(s.durationRawSec)).toBe(true)
+    }
+  })
+
+  it('durationTiers 可注入（i3：kit 可成为运行时事实源）', () => {
+    const r = planAutoShots({
+      script: '第一场\n他推开门。',
+      characterRefs: [],
+      sceneRefs: [],
+      aspect: '16x9',
+      seconds: 5,
+      targetDurationSec: 20,
+      durationTiers: [5, 8, 10, 12],
+      templateShots: [{ prompt: 'T1' }],
+    })
+    expect(r.ok).toBe(true)
+    for (const s of r.shots) {
+      expect([5, 8, 10, 12]).toContain(s.durationSec)
+    }
+  })
+})

@@ -258,3 +258,53 @@ describe('prompt-library / 真实 film-kit 集成（目录即契约）', () => {
     expect(r.library.tasks.generate_ai_transition.en.system.toLowerCase()).toContain('medium cover')
   })
 })
+
+// ===== v7 对抗评审 i2：符号链接越界必须拒绝 =====
+
+describe('prompt-library / 符号链接越界（i2）', () => {
+  it('resolveInside(resolveSymlinks) 对越界链接返回失败', () => {
+    const root = tmpDir()
+    const outside = tmpDir()
+    fs.writeFileSync(path.join(outside, 'secret.md'), 'secret', 'utf-8')
+    const linkPath = path.join(root, 'escape.md')
+    let ok = true
+    try {
+      fs.symlinkSync(path.join(outside, 'secret.md'), linkPath, 'file')
+    } catch {
+      ok = false
+    }
+    if (!ok) return // Windows 无符号链接权限时跳过（不影响其它平台）
+    const r = resolveInside(root, linkPath, { resolveSymlinks: true })
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toContain('符号链接越界')
+  })
+
+  it('root 内普通文件在 resolveSymlinks 下仍通过', () => {
+    const root = tmpDir()
+    const f = path.join(root, 'a.md')
+    fs.writeFileSync(f, 'x', 'utf-8')
+    const r = resolveInside(root, f, { resolveSymlinks: true })
+    expect(r.ok).toBe(true)
+  })
+
+  it('链接目标不存在时 fail-closed（拿不到真实路径就不放行）', () => {
+    const root = tmpDir()
+    const linkPath = path.join(root, 'dangling.md')
+    let ok = true
+    try {
+      fs.symlinkSync(path.join(tmpDir(), 'nope.md'), linkPath, 'file')
+    } catch {
+      ok = false
+    }
+    if (!ok) return
+    const r = resolveInside(root, linkPath, { resolveSymlinks: true })
+    expect(r.ok).toBe(false)
+  })
+
+  it('不传 resolveSymlinks 时保持词法语义（向后兼容）', () => {
+    const root = tmpDir()
+    const f = path.join(root, 'a.md')
+    fs.writeFileSync(f, 'x', 'utf-8')
+    expect(resolveInside(root, f).ok).toBe(true)
+  })
+})

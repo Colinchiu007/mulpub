@@ -43,6 +43,42 @@ function isUuidLike (value) {
 }
 
 /**
+ * 校验 `schemaVersion`（v7 对抗评审 i4）。
+ *
+ * 动因：v7 给 prompt-doctrine 升到 schemaVersion=2、给三份新资产声明 schemaVersion=1，
+ * 但没有任何 validate* 读过这个字段——版本号纯装饰，未来做破坏性 schema 变更时
+ * 加载期检不出来，只会表现为「某个字段莫名 undefined」。
+ *
+ * 口径：`allowed` 是受支持版本集合；`allowMissing` 时缺失按 `legacyDefault` 处理
+ * （prompt-doctrine 的历史文件没有该字段，不能因此让老 kit 整体不可用）。
+ * @param {any} obj
+ * @param {string} label
+ * @param {number[]} allowed
+ * @param {{allowMissing?: boolean, legacyDefault?: number}} [opts]
+ * @returns {{ok: boolean, error?: string}}
+ */
+function checkSchemaVersion (obj, label, allowed, opts) {
+  const o = opts || {}
+  const raw = obj && obj.schemaVersion
+  if (raw === undefined || raw === null) {
+    if (o.allowMissing === true) return { ok: true }
+    return { ok: false, error: label + '.schemaVersion 缺失（要求 ' + allowed.join('/') + '）' }
+  }
+  const n = Number(raw)
+  if (!Number.isInteger(n)) {
+    return { ok: false, error: label + '.schemaVersion 必须为整数（实际 ' + String(raw) + '）' }
+  }
+  if (!allowed.includes(n)) {
+    return {
+      ok: false,
+      error: label + '.schemaVersion=' + n + ' 不受支持（本版本支持 ' + allowed.join('/') + '）：'
+        + '这通常意味着资产由更新/更旧的应用版本产出，请重新导入配套资产，不要手工改版本号',
+    }
+  }
+  return { ok: true }
+}
+
+/**
  * 校验 film-manifest.json
  * @returns {{ok: boolean, error?: string}}
  */
@@ -207,6 +243,9 @@ function validateReferences (references) {
  */
 function validateDoctrine (doctrine) {
   if (!doctrine || typeof doctrine !== 'object') return { ok: false, error: 'prompt-doctrine 必须为对象' }
+  // 历史文件没有 schemaVersion，缺失按 v1 处理；但一旦声明就必须受支持（i4）
+  const v = checkSchemaVersion(doctrine, 'prompt-doctrine', [1, 2], { allowMissing: true })
+  if (!v.ok) return v
   if (!Array.isArray(doctrine.blocks) || doctrine.blocks.length === 0) {
     return { ok: false, error: 'prompt-doctrine.blocks 必须为非空数组' }
   }
@@ -270,6 +309,8 @@ function validateShotGrammar (grammar) {
   if (!grammar || typeof grammar !== 'object' || Array.isArray(grammar)) {
     return { ok: false, error: 'shot-grammar 必须为对象' }
   }
+  const v = checkSchemaVersion(grammar, 'shot-grammar', [1])
+  if (!v.ok) return v
   const groups = ['shotSizes', 'cameraMoves', 'cameraAngles', 'lightingSetups', 'vfxPresets', 'emotionTiers']
   for (const g of groups) {
     if (!Array.isArray(grammar[g]) || grammar[g].length === 0) {
@@ -317,6 +358,8 @@ function validateComplianceChecklist (checklist) {
   if (!checklist || typeof checklist !== 'object' || Array.isArray(checklist)) {
     return { ok: false, error: 'compliance-checklist 必须为对象' }
   }
+  const v = checkSchemaVersion(checklist, 'compliance-checklist', [1])
+  if (!v.ok) return v
   if (!Array.isArray(checklist.items) || checklist.items.length === 0) {
     return { ok: false, error: 'compliance-checklist.items 必须为非空数组' }
   }
@@ -357,6 +400,8 @@ function validatePalette (palette) {
   if (!palette || typeof palette !== 'object' || Array.isArray(palette)) {
     return { ok: false, error: 'palette 必须为对象' }
   }
+  const v = checkSchemaVersion(palette, 'palette', [1])
+  if (!v.ok) return v
   const limits = palette.limits || {}
   const maxPrimary = Number.isInteger(limits.maxPrimary) ? limits.maxPrimary : 4
   const maxExtended = Number.isInteger(limits.maxExtended) ? limits.maxExtended : 2
@@ -448,7 +493,13 @@ function readOptionalJsonFile (filePath, label, errors, assetWarnings, requireAs
     return { present: false, missing: true }
   }
   const value = readJsonFile(filePath, label, errors)
-  return { present: value !== null, value }
+  // v7 对抗评审 i7：文件存在、JSON 合法但内容是字面 null 时，原先落进「present 但 value 假值」
+  // 的第三态——既不算缺失也不报损坏，静默放行。这里明确按损坏处理。
+  if (value === null) {
+    errors.push(label + ' 内容为空值（JSON 为 null）：文件存在但不是有效对象')
+    return { present: false }
+  }
+  return { present: true, value }
 }
 
 function loadFilmKit (opts) {
@@ -599,4 +650,5 @@ module.exports = {
   validateShotGrammar,
   validateComplianceChecklist,
   validatePalette,
+  checkSchemaVersion,
 }
