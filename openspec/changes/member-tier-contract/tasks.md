@@ -29,7 +29,7 @@
 
 - [x] 3.1 全量服务端测试：`packages/api-publish-engine npm test` rc=0
 - [x] 3.2 受影响前端测试：entitlement-service / identity store / plan-limits / usePlatformSelection / Publish（110 例）
-- [ ] 3.3 QM-1：`electron-builder --win --x64` rc=0 + 启动验证（三层 stderr 判据）
+- [x] 3.3 QM-1：`electron-builder --win --x64` rc=0 + 启动验证（三层 stderr 判据）
 - [x] 3.4 文档：PRD（新增）、pricing-strategy v2.2、两份机制文档状态回写、CHANGELOG
 - [x] 3.5 质量门禁：`check-no-brand-residue.js` / 行尾对账 / 执行记录 `openspec/records/member-tier-contract.md`
-- [ ] 3.6 PR → CI 绿 → squash 合并 → main push 回读 → 收尾
+- [x] 3.6 PR #4051 → CI 绿 → squash 合并 → main push 回读 → 收尾（见执行记录）
