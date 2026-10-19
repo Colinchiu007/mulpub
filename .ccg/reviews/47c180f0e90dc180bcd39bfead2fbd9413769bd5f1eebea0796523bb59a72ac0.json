@@ -46,10 +46,10 @@
   },
   "deepReview": {
     "required": false,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
+    "status": "self_play_resolved",
+    "performedBy": "main-agent-degraded",
     "evidence": null,
-    "findings": null
+    "findings": "本机无 codeagent-wrapper 双模型后端（opencode/claude 均不可用），按 AGENTS.md「子代理降级」转主代理自执行；方案级评审已由 PRD 三轮双轴对抗评审覆盖，本轮代码级自审结论见 openspec/records/ui-flow-handoff.md QM-5 行与 PR 描述的校准两处（D12/D13）。未以自审冒充双模型通过。",
+    "tier": "self-play"
   }
 }
