@@ -9,6 +9,7 @@ import { join } from 'node:path'
 function makeDeps (overrides = {}) {
   const windows = []
   let nowMs = 1_700_000_000_000
+  let monoMs = 1000.0
   let mainHidden = false
   let written = null
   const stateFile = join(mkdtempSync(join(tmpdir(), 'enforce-gate-')), 'enforce-gate-state.json')
@@ -16,7 +17,7 @@ function makeDeps (overrides = {}) {
   const deps = {
     appVersion: () => '0.2.0',
     now: () => nowMs,
-    monotonicMs: () => 1000.0,
+    monotonicMs: () => monoMs,
     stateFile,
     locale: 'zh-CN',
     gatePreloadPath: 'fake-preload.js',
@@ -24,7 +25,7 @@ function makeDeps (overrides = {}) {
     readStateFile: (p) => readFileSync(p, 'utf-8'),
     writeStateFileAtomic: (p, state) => { written = { p, state }; writeFileSync(p, JSON.stringify(state)) },
     removeStateFile: (p) => { written = null; try { rmSync(p) } catch { /* absent */ } },
-    // 窗口/主窗管理
+    // 窗口/主窗管理（QM-6 i1：程序化关闭走 __closeProgrammatically → destroy）
     createGateWindow: (opts) => {
       const win = {
         opts,
@@ -35,6 +36,8 @@ function makeDeps (overrides = {}) {
         show: vi.fn(),
         focus: vi.fn(),
         close: vi.fn(),
+        destroy: vi.fn(),
+        __closeProgrammatically: vi.fn(function () { this.destroy() }),
         webContents: { send: vi.fn() },
       }
       windows.push(win)
@@ -50,7 +53,7 @@ function makeDeps (overrides = {}) {
     setInterval: vi.fn(() => ({ unref: vi.fn(), clear: vi.fn() })),
     ...overrides,
   }
-  return { deps, windows, stateFile, advance: (ms) => { nowMs += ms } }
+  return { deps, windows, stateFile, advance: (ms) => { nowMs += ms; monoMs += ms } }
 }
 
 function makeGate () {
@@ -223,7 +226,7 @@ describe('窗口管理层（依赖注入）', () => {
     const gate = await makeGate()
     gate.applyDecisionForTest(deps, { status: 'blocking', current: '0.1.0', target: '0.2.0' })
     gate.applyDecisionForTest(deps, { status: 'pass' })
-    expect(windows[0].close).toHaveBeenCalled()
+    expect(windows[0].destroy).toHaveBeenCalled()
     expect(deps.showMainWindow).toHaveBeenCalledOnce()
   })
 
@@ -242,7 +245,7 @@ describe('窗口管理层（依赖注入）', () => {
     const gate = await makeGate()
     gate.applyDecisionForTest(deps, { status: 'blocking', current: '0.1.0', target: '0.2.0' })
     gate.disposeForTest(deps)
-    expect(windows[0].close).toHaveBeenCalled()
+    expect(windows[0].destroy).toHaveBeenCalled()
     expect(deps.showMainWindow).toHaveBeenCalled()
     gate.disposeForTest(deps) // 幂等
     expect(deps.showMainWindow).toHaveBeenCalledOnce()

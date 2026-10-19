@@ -3,7 +3,7 @@
  * enforce-gate 弹窗渲染脚本（CSP: script-src 'self'，无内联）。
  * 状态视图机：blocking / downloading / error / verify-failed，见 PRD §6。
  */
-const t = window.enforceGate.texts
+const t = (window.enforceGate.texts && window.enforceGate.texts.t) ? window.enforceGate.texts.t : {}
 let currentDecision = null
 
 const el = {

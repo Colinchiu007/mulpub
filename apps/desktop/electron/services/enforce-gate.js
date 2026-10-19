@@ -148,15 +148,28 @@ async function onSyncOutcomeForTest (deps, outcome) {
     applyDecisionForTest(deps, decision)
     return decision
   }
-  // 时钟回拨检测：墙钟早于缓存 fetchedAt 超过 24h → 判时钟异常（PRD R4）
+  // 时钟回拨防线（QM-6 i3 修复）：优先用单调钟差（免疫墙钟回拨），状态文件带
+  // monotonicRefMs（saveState 时记录的单调钟读数）才算得出；旧状态文件无该字段
+  // 才回落墙钟并 WARN（墙钟差会被 <24h 回拨反复续期——单调钟可用的场景不走这条路）。
   const fetchedAtMs = Date.parse(state.fetchedAt)
-  let elapsed = deps.now() - (Number.isFinite(fetchedAtMs) ? fetchedAtMs : 0)
-  if (elapsed < -CLOCK_ROLLBACK_TOLERANCE_MS) {
-    deps.log.warn('enforce-gate: clock rollback detected, using cached state', {
-      now: new Date(deps.now()).toISOString(),
-      fetchedAt: state.fetchedAt,
-    })
-    elapsed = 0 // 视为"刚刚同步过"，按缓存宽限判定（不引入可信时钟重方案）
+  const wallElapsed = deps.now() - (Number.isFinite(fetchedAtMs) ? fetchedAtMs : 0)
+  let elapsed
+  if (typeof state.monotonicRefMs === 'number' && Number.isFinite(state.monotonicRefMs)) {
+    const monoNow = deps.monotonicMs()
+    elapsed = Math.max(0, monoNow - state.monotonicRefMs) // 单调钟不会回退，负差夹为 0
+    if (wallElapsed < -CLOCK_ROLLBACK_TOLERANCE_MS) {
+      deps.log.warn('enforce-gate: clock rollback detected, monotonic clock governs grace', {
+        now: new Date(deps.now()).toISOString(),
+        fetchedAt: state.fetchedAt,
+      })
+    }
+  } else {
+    elapsed = wallElapsed
+    if (elapsed < 0) {
+      // 无单调参考 + 墙钟倒退：按"刚刚同步过"放行本轮并出声（旧行为，仅限旧状态文件过渡期）
+      deps.log.warn('enforce-gate: wall clock moved backwards and no monotonic reference in state, treating as fresh', {})
+      elapsed = 0
+    }
   }
   if (elapsed > GRACE_PERIOD_MS) {
     const decision = { status: 'verify-failed' }
@@ -211,11 +224,18 @@ function applyDecisionForTest (deps, decision) {
   }
   const win = deps.createGateWindow(gateWindowOptions(deps))
   _win = win
-  // 不可关闭：拦截用户侧 close（dispose 走 destroy 语义不经过此 handler）
+  // 不可关闭（QM-6 i1）：拦截用户侧 close；程序化关闭走 destroy()（不发 close 事件）
+  // + __closeProgrammatically 标志双保险——hideGate/dispose 不经此 handler。
+  let gateClosing = false
   win.on('close', (e) => {
+    if (gateClosing) return
     e.preventDefault()
     deps.log.warn('enforce-gate: user attempted to close gate window (blocked)')
   })
+  win.__closeProgrammatically = () => {
+    gateClosing = true
+    try { win.destroy() } catch (e) { deps.log.warn('enforce-gate: destroy failed', { error: String((e && e.message) || e) }) }
+  }
   win.on('closed', () => { if (_win === win) _win = null })
   deps.loadGatePage(win)
   win.once('ready-to-show', () => {
@@ -229,7 +249,8 @@ function applyDecisionForTest (deps, decision) {
 
 function hideGate (deps) {
   if (_win && !_win.isDestroyed()) {
-    try { _win.close() } catch (e) { deps.log.warn('enforce-gate: close failed', { error: String((e && e.message) || e) }) }
+    // QM-6 i1：程序化关闭走 destroy（close handler 只拦用户侧）
+    try { if (_win.__closeProgrammatically) _win.__closeProgrammatically() } catch (e) { deps.log.warn('enforce-gate: close failed', { error: String((e && e.message) || e) }) }
   }
   _win = null
   if (deps.wasMainWindowHidden()) deps.showMainWindow()
@@ -302,7 +323,8 @@ function dispose (deps) {
     _timer = null
   }
   if (_win && !_win.isDestroyed()) {
-    try { _win.close() } catch (e) { d.log.warn('enforce-gate: dispose close failed', { error: String((e && e.message) || e) }) }
+    // QM-6 i1：程序化关闭走 destroy（close handler 只拦用户侧）
+    try { if (_win.__closeProgrammatically) _win.__closeProgrammatically() } catch (e) { d.log.warn('enforce-gate: dispose close failed', { error: String((e && e.message) || e) }) }
   }
   _win = null
   if (d.wasMainWindowHidden()) d.showMainWindow()

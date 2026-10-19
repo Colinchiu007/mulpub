@@ -44,13 +44,23 @@ def _cmp_version(a: str, b: str) -> int:
 
 
 def _is_admin_cookie_session(request: Request) -> bool:
-    """Cookie 会话（运营后台）判别：有会话 Cookie 即豁免。
+    """Cookie 会话（运营后台）判别：Cookie JWT **验签通过**才豁免。
 
-    不在这里做完整鉴权（那是各端点既有依赖的职责）；版本门只判"这是不是
-    人工后台流量"。伪造 Cookie 的请求仍会被端点自身的鉴权依赖拒绝（401），
-    版本门对其放行不构成绕过——伪造者过不了下一道 401。
+    QM-6 i2 修复：此前只判 cookie 名存在（值不验），攻击者带任意值假 cookie
+    + 打包在 exe 里的静态 catalog key 即可绕过 426（两道闸各放一半）。现在
+    豁免必须过 HS256 验签（与 middleware/auth 同一密钥与算法）；伪造值验签
+    必败 → 不豁免 → 机器通道 fail-closed 生效。角色校验交由各端点既有依赖，
+    版本门只负责"豁免面收窄到真会话"。
     """
-    return bool(request.cookies.get(settings.session_cookie_name))
+    token = request.cookies.get(settings.session_cookie_name)
+    if not token:
+        return False
+    try:
+        from middleware.auth import _decode_token
+        _decode_token(token)
+        return True
+    except Exception:
+        return False
 
 
 async def _load_enforce_policy(db: AsyncSession) -> tuple[str, bool]:

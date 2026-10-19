@@ -150,7 +150,7 @@ async def test_policy_enforce_bad_version_format_rejected():
 
 @pytest.mark.asyncio
 async def test_policy_bootstrap_payload_carries_enforce_fields():
-    await _set_policy(enforce_min_version="0.2.0", enforce_enabled=True, enabled=True)
+    await _set_policy(enforce_min_version="0.2.0", enforce_enabled=True, min_version="0.3.0", enabled=True)
     async with _client() as client:
         r = await client.get(
             "/api/v1/runtime/bootstrap",
@@ -169,7 +169,7 @@ async def test_policy_bootstrap_payload_carries_enforce_fields():
 
 @pytest.mark.asyncio
 async def test_gate_passes_when_version_meets_enforce_line():
-    await _set_policy(enforce_min_version="0.2.0", enforce_enabled=True, enabled=True)
+    await _set_policy(enforce_min_version="0.2.0", enforce_enabled=True, min_version="0.3.0", enabled=True)
     async with _client() as client:
         r = await client.get("/api/v1/model-presets/catalog", headers=_catalog_headers("0.2.0"))
         assert r.status_code == 200, r.text
@@ -179,7 +179,7 @@ async def test_gate_passes_when_version_meets_enforce_line():
 
 @pytest.mark.asyncio
 async def test_gate_rejects_below_enforce_line_with_426():
-    await _set_policy(enforce_min_version="0.2.0", enforce_enabled=True, enabled=True)
+    await _set_policy(enforce_min_version="0.2.0", enforce_enabled=True, min_version="0.3.0", enabled=True)
     async with _client() as client:
         r = await client.get("/api/v1/model-presets/catalog", headers=_catalog_headers("0.1.9"))
         assert r.status_code == 426, r.text
@@ -193,7 +193,7 @@ async def test_gate_rejects_below_enforce_line_with_426():
 @pytest.mark.asyncio
 async def test_gate_missing_header_is_fail_closed():
     """机器通道缺 X-Client-Version 头 → 按旧版处理 → 426（存量旧客户端不发新头）。"""
-    await _set_policy(enforce_min_version="0.2.0", enforce_enabled=True, enabled=True)
+    await _set_policy(enforce_min_version="0.2.0", enforce_enabled=True, min_version="0.3.0", enabled=True)
     async with _client() as client:
         r = await client.get("/api/v1/model-presets/catalog",
                              headers={"X-Catalog-Key": "catalog-test-key"})
@@ -202,7 +202,7 @@ async def test_gate_missing_header_is_fail_closed():
 
 @pytest.mark.asyncio
 async def test_gate_bad_header_is_fail_closed():
-    await _set_policy(enforce_min_version="0.2.0", enforce_enabled=True, enabled=True)
+    await _set_policy(enforce_min_version="0.2.0", enforce_enabled=True, min_version="0.3.0", enabled=True)
     async with _client() as client:
         for bad in ("", "abc", "0.2.x", "v0.2.0"):
             r = await client.get("/api/v1/model-presets/catalog", headers=_catalog_headers(bad))
@@ -225,7 +225,7 @@ async def test_gate_no_policy_row_passes():
     from database import async_session
     from sqlalchemy import delete
     from models import UpdatePolicy
-    await _set_policy(enforce_min_version="0.2.0", enforce_enabled=True, enabled=True)
+    await _set_policy(enforce_min_version="0.2.0", enforce_enabled=True, min_version="0.3.0", enabled=True)
     async with async_session() as db:
         await db.execute(delete(UpdatePolicy))
         await db.commit()
@@ -243,7 +243,7 @@ async def test_gate_admin_cookie_session_exempt():
     此请求会 426；豁免后走机器鉴权（key 合法）→ 200。
     （裸 Cookie 无 key 的 401 属端点自身鉴权层，与版本门无关。）
     """
-    await _set_policy(enforce_min_version="0.2.0", enforce_enabled=True, enabled=True)
+    await _set_policy(enforce_min_version="0.2.0", enforce_enabled=True, min_version="0.3.0", enabled=True)
     client = _admin_cookie_client()
     try:
         r = await client.get("/api/v1/model-presets/catalog",
@@ -256,7 +256,7 @@ async def test_gate_admin_cookie_session_exempt():
 @pytest.mark.asyncio
 async def test_gate_ack_endpoint_rejects_old_version():
     """runtime/ack 同样挂门（机器端点覆盖面）。"""
-    await _set_policy(enforce_min_version="0.2.0", enforce_enabled=True, enabled=True)
+    await _set_policy(enforce_min_version="0.2.0", enforce_enabled=True, min_version="0.3.0", enabled=True)
     async with _client() as client:
         r = await client.post(
             "/api/v1/runtime/ack",

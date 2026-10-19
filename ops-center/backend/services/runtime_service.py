@@ -297,6 +297,12 @@ async def upsert_update_policy(db: AsyncSession, body: dict) -> dict:
             raise ValueError("启用强制阻断时必须填写 enforce_min_version（低于此版本的客户端将被阻断）")
         if min_version and _cmp_version(enforce_min_version) >= _cmp_version(min_version):
             raise ValueError("强制阻断版本必须低于最低提示版本（阻断线必须严于提示线）")
+        # QM-6 i4 修复：min_version 为空时 enforce 无上界 → 误配 99.0.0 会全员硬锁。
+        # 上界回落 force_version；两者都空则拒绝启用（先配置提示/强制线再开阻断）。
+        if not min_version and force_version and _cmp_version(enforce_min_version) >= _cmp_version(force_version):
+            raise ValueError("强制阻断版本必须低于强制下载版本（min_version 为空时以 force_version 为上界）")
+        if not min_version and not force_version:
+            raise ValueError("启用强制阻断前必须先配置 min_version 或 force_version 作为阻断线上界（防误配全员硬锁）")
     now = _now()
     row = (await db.execute(sa.select(UpdatePolicy).order_by(UpdatePolicy.id).limit(1))).scalar_one_or_none()
     if row is None:

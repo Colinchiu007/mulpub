@@ -8,9 +8,13 @@ function registerHandlers (ipcMain, deps) {
   if (!enforceGate) return // 测试环境未装配时静默跳过（与 approval-gate 同模式）
 
   const log = require('../services/logger')
+  // QM-6 i5 修复：文案直读主进程字典（编译期常量，不依赖 deps.gateTexts 注入——
+  // 此前 phase5 deps 无该键 → get-texts 恒 null → gate 渲染层解构 TypeError 白屏）
+  const { readGateText } = require('../services/enforce-gate-text')
+  const locale = (deps.gateLocale != null) ? deps.gateLocale : 'zh-CN'
 
   ipcMain.on('enforce-gate:get-texts', (event) => {
-    event.returnValue = deps.gateTexts || null
+    event.returnValue = readGateText(locale)
   })
 
   ipcMain.on('enforce-gate:upgrade', () => {
