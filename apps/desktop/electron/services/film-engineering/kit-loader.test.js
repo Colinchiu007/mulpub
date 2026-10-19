@@ -754,3 +754,63 @@ describe('readOptionalJsonFile 的字面 null（i7）', () => {
     }
   })
 })
+
+// ===== v7 对抗评审第二轮 =====
+
+describe('validateShotGrammar 语义字段取值域（第二轮 i6）', () => {
+  it('risk 拼错 → 拒绝', () => {
+    const g = makeShotGrammar()
+    g.cameraMoves[0].risk = 'hihg'
+    const r = validateShotGrammar(g)
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('risk')
+  })
+
+  it('chain 拼错 → 拒绝', () => {
+    const g = makeShotGrammar()
+    g.shotSizes[0].chain = 'wdie'
+    expect(validateShotGrammar(g).ok).toBe(false)
+  })
+
+  it('emotion 拼错 → 拒绝', () => {
+    const g = makeShotGrammar()
+    g.cameraAngles[0].emotion = 'powr'
+    expect(validateShotGrammar(g).ok).toBe(false)
+  })
+
+  it('未声明语义字段时不强制（向后兼容）', () => {
+    const g = makeShotGrammar()
+    delete g.cameraMoves[0].risk
+    expect(validateShotGrammar(g).ok).toBe(true)
+  })
+
+  it('合法取值通过', () => {
+    const g = makeShotGrammar()
+    g.cameraMoves[0].risk = 'high'
+    expect(validateShotGrammar(g).ok).toBe(true)
+  })
+})
+
+describe('prompts/tasks 存在但为空（第二轮 i8）', () => {
+  it('非严格模式：空目录与缺失同处置，只记告警', () => {
+    const dir = tmpDir()
+    writeKit(dir, makeKit())
+    fs.rmSync(path.join(dir, 'prompts', 'tasks'), { recursive: true, force: true })
+    fs.mkdirSync(path.join(dir, 'prompts', 'tasks'), { recursive: true })
+    const r = loadFilmKit({ kitDir: dir })
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.kit.promptLibrary).toBeNull()
+    expect(r.kit.assetWarnings.join()).toContain('存在但没有任务目录')
+  })
+
+  it('严格模式：空目录仍按失败处理（导入校验要拦）', () => {
+    const dir = tmpDir()
+    writeKit(dir, makeKit())
+    fs.rmSync(path.join(dir, 'prompts', 'tasks'), { recursive: true, force: true })
+    fs.mkdirSync(path.join(dir, 'prompts', 'tasks'), { recursive: true })
+    const r = loadFilmKit({ kitDir: dir, requireAssets: true })
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toContain('prompts/tasks')
+  })
+})

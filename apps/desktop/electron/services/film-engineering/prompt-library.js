@@ -104,8 +104,21 @@ function listTasks (tasksRoot) {
   } catch {
     return []
   }
+  // v7 对抗评审第二轮 i5：Dirent.isDirectory() 对符号链接恒为 false，
+  // 于是「合法 symlink 任务目录」会被静默丢弃——文件级有 realpath 防线，目录级却静默放过，
+  // fail-closed 姿态不一致。这里显式跟随链接再判类型；越界的链接会在 readPromptFile 的
+  // realpath 校验处 fail-closed 报错，不会静默读到外部文件。
   return entries
-    .filter((e) => e.isDirectory() && TASK_NAME_RE.test(e.name))
+    .filter((e) => TASK_NAME_RE.test(e.name))
+    .filter((e) => {
+      if (e.isDirectory()) return true
+      if (!e.isSymbolicLink()) return false
+      try {
+        return fs.statSync(path.join(tasksRoot, e.name)).isDirectory()
+      } catch {
+        return false
+      }
+    })
     .map((e) => e.name)
     .sort()
 }

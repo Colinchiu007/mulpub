@@ -49,6 +49,22 @@ const EN_WORDS_PER_SECOND = Object.freeze({ normal: 2.6, argument: 3.4, tender: 
  * @param {string} text
  * @returns {{cjkChars: number, latinWords: number, total: number, excludedKanaHangul: number}}
  */
+/**
+ * 合并语速档：注入值优先，非法项忽略并保留内置默认。
+ * @param {Record<string, number>} base
+ * @param {any} injected
+ * @returns {Record<string, number>}
+ */
+function mergeRates (base, injected) {
+  if (!injected || typeof injected !== 'object') return base
+  const out = Object.assign({}, base)
+  for (const key of Object.keys(base)) {
+    const n = Number(injected[key])
+    if (Number.isFinite(n) && n > 0) out[key] = n
+  }
+  return out
+}
+
 function countSpeechUnits (text) {
   const s = typeof text === 'string' ? text : ''
   if (!s.trim()) return { cjkChars: 0, latinWords: 0, total: 0, excludedKanaHangul: 0 }
@@ -100,7 +116,11 @@ function extractDialogueText (text) {
  *   1. **默认不向下吸附**——向下会切掉台词尾部；
  *   2. 但允许 `toleranceSec` 的容差（默认 0.3s）：raw 只超出档位不到一档容差时仍取该档，
  *      避免「40 字→5s、41 字→8s（+60%）」这种一字之差的巨大跳变；
- *   3. 超过最大档返回最大档并置 overflow=true，由调用方决定是否拆镜。
+ *   3. 超过最大档返回最大档并置 overflow=true，由调用方决定是否拆镜；
+ *   4. **容差只把悬崖挪到 t+tolerance，不消除悬崖**（v7 对抗评审第二轮 i7）：
+ *      raw=5.3000 取 5s、raw=5.3001 取 8s。这是刻意接受的取舍——档位是模型的离散能力，
+ *      任何「就近取档」都会引入向下取档从而可能截断台词。所以这里不假装连续：
+ *      真值由 rawSec / snapDeltaSec 如实回传，调用方要连续量就自己用 rawSec。
  * @param {number} rawSec
  * @param {number[]} [tiers]
  * @param {{toleranceSec?: number}} [opts]
@@ -148,9 +168,15 @@ function estimateShotSeconds (text, emotion, opts) {
     ? Number(o.snapToleranceSec)
     : DEFAULT_SNAP_TOLERANCE_SEC
 
+  // 语速档可经 opts 注入（v7 对抗评审第二轮 i2）。SCHEMA.md 原写「emotionTiers.zhCharsPerSecond
+  // 直接驱动时长推算」，但实现只读硬编码常量 —— 改资产语速零生效，属本 PR 自己修的「假同源」同型。
+  // 现在：注入优先，缺省回落内置档；注入时只认正数，非法项忽略并保留默认。
+  const zhRates = mergeRates(ZH_CHARS_PER_SECOND, o.zhCharsPerSecond)
+  const enRates = mergeRates(EN_WORDS_PER_SECOND, o.enWordsPerSecond)
+
   const units = countSpeechUnits(text)
-  const zhRate = ZH_CHARS_PER_SECOND[emo]
-  const enRate = EN_WORDS_PER_SECOND[emo]
+  const zhRate = zhRates[emo]
+  const enRate = enRates[emo]
   // 中英混排时分别按各自语速折算，再相加——单一语速乘总数会系统性低估英文、高估中文
   const zhSec = units.cjkChars > 0 ? units.cjkChars / zhRate : 0
   const enSec = units.latinWords > 0 ? units.latinWords / enRate : 0
@@ -201,7 +227,9 @@ function estimateShotSeconds (text, emotion, opts) {
  * @param {{durationMs?: unknown, ttsDurationMs?: unknown, userDurationMs?: unknown,
  *          text?: unknown, dialogue?: unknown, emotion?: unknown}} shot
  * @param {{tiers?: number[], maxSec?: number, minSec?: number, defaultSec?: number,
- *          snapToleranceSec?: number, dialogueSource?: 'auto'|'verbatim'}} [ctx]
+ *          snapToleranceSec?: number, dialogueSource?: 'auto'|'verbatim',
+ *          zhCharsPerSecond?: Record<string, number>, enWordsPerSecond?: Record<string, number>,
+ *          requireQuotedDialogue?: boolean}} [ctx]
  *   dialogueSource='auto'（默认）时，若 shot 只给了 text，会先按引号抽取台词（见 extractDialogueText）；
  *   'verbatim' 表示 shot.dialogue 已是纯台词，不再抽取。
  * @returns {{ok: true, durationMs: number, durationSec: number, source: string,
@@ -263,13 +291,38 @@ function resolveShotDurationMs (shot, ctx) {
   // 3) formula：按台词推算
   // 自动模式下 shot.text 往往是「动作 + 台词」混排，直接整段计时长会高估（v7 对抗评审 i1），
   // 故只在没有显式 dialogue 时按引号抽取真正会被念出来的部分。
+  //
+  // requireQuotedDialogue（自动模式）时，**没有引号就不算有台词**——退到档位兜底。
+  // 否则纯动作镜会被按字/秒折算，120 字动作镜推出 15s 并触发「必须拆解台词」，
+  // 而那个镜根本没有台词可拆（v7 对抗评审第二轮 i4）。
   let line = ''
+  let usedQuotes = false
   if (typeof s.dialogue === 'string' && s.dialogue.trim()) {
     line = s.dialogue
+    usedQuotes = true
   } else if (typeof s.text === 'string' && s.text.trim()) {
-    line = dialogueSource === 'verbatim' ? s.text : extractDialogueText(s.text).dialogue
+    if (dialogueSource === 'verbatim') {
+      line = s.text
+      usedQuotes = true
+    } else {
+      const ex = extractDialogueText(s.text)
+      line = ex.dialogue
+      usedQuotes = ex.usedQuotes
+    }
   }
-  const est = estimateShotSeconds(line, s.emotion, { tiers, maxSec, minSec, snapToleranceSec: toleranceSec })
+  const requireQuoted = c.requireQuotedDialogue === true
+  const lineForTiming = requireQuoted && !usedQuotes ? '' : line
+  if (requireQuoted && !usedQuotes && line.trim()) {
+    warnings.push('本镜未检出引号台词：按动作描述处理，时长走档位兜底而不是按字/秒折算（若含台词请用「」标注）')
+  }
+  const est = estimateShotSeconds(lineForTiming, s.emotion, {
+    tiers,
+    maxSec,
+    minSec,
+    snapToleranceSec: toleranceSec,
+    zhCharsPerSecond: c.zhCharsPerSecond,
+    enWordsPerSecond: c.enWordsPerSecond,
+  })
   if (!est.ok) return { ok: false, error: est.error }
   for (const w of est.warnings) warnings.push(w)
   // formula 与 tier 的差别只在「台词是否为空」：有台词就是推算，无台词才退到档位默认
@@ -334,6 +387,7 @@ module.exports = {
   DEFAULT_SNAP_TOLERANCE_SEC,
   ZH_CHARS_PER_SECOND,
   EN_WORDS_PER_SECOND,
+  mergeRates,
   countSpeechUnits,
   extractDialogueText,
   snapToTier,

@@ -182,10 +182,28 @@
 - `durationTiers.supportedSec` 非空且每项为正数；`durationTiers.maxSec` 为正数
   且 **不得超过 `supportedSec` 的最大档位**（否则上限形同虚设）。
 
+### 时长档的单一真源（v7 对抗评审第二轮 i3）
+
+档位在仓库里只有**两个合法出处**，不得再有第三份字面量：
+
+| 出处 | 用途 |
+|------|------|
+| `shot-duration.js` 的 `DEFAULT_TIERS` | **运行时能力表**（缺省档位）。`auto-plan` 直接复用它，不再自带一份 |
+| 本文件 `durationTiers.supportedSec` | **资产声明**。必须与 `DEFAULT_TIERS` 一致；要放宽档位就同时改两处并加测试 |
+
+`auto-plan.js` 的 `AUTO_SHOT_SECONDS=[5,8,10]` 是**用户输入白名单**（`validateAutoInputs` 用），
+与能力表语义不同，**不得**兼当档位表——初版就是把它兼当档位表，导致资产承诺 12s 而自动模式
+最高只有 10s（第二轮 i3）。
+
 设计要点：
 - `chain`（宽/中/近 三组）用于「相邻景别跨度 ≤ 两级」的链式校验；
-- `risk`（low/medium/high）用于批量生成的风险分流：**high 档必须单独试镜，不进批次**；
-- `emotionTiers.zhCharsPerSecond` 直接驱动时长推算（与 `shot-duration.js` 的默认值同源）。
+- `risk`（low/medium/high）用于批量生成的风险分流：**high 档必须单独试镜，不进批次**。
+  该字段是**闭集**，`validateShotGrammar` 会拒绝拼错的值（如 `hihg`）——否则「high 必须试镜」
+  这条安全规则会被一个拼写错误静默架空（v7 对抗评审第二轮 i6）。`chain` 与 `emotion` 同理；
+- `emotionTiers.zhCharsPerSecond` **不是**自动生效的运行时事实源：`shot-duration.js` 有内置默认档，
+  资产值必须经 `estimateShotSeconds(..., { zhCharsPerSecond })` 或 `planAutoShots({ durationTiers })`
+  的注入路径才会覆盖（v7 对抗评审第二轮 i2 —— 原表述写「直接驱动」，与实现不符，属「假同源」）。
+  接入方应把本字段读出来传进去，而不是假定改了 JSON 就生效。
 
 ## 六、compliance-checklist.json（v7 新增）
 

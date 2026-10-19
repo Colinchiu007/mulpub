@@ -329,6 +329,23 @@ function validateShotGrammar (grammar) {
       if (typeof item.en !== 'string' || !item.en.trim()) {
         return { ok: false, error: 'shot-grammar.' + g + '[' + item.key + '].en 必须为非空字符串' }
       }
+      // v7 对抗评审第二轮 i6：risk / chain / emotion 是**语义字段**，拼错（如 hihg）会静默通过，
+      // 而「high 必须单独试镜」这类安全规则正依赖 risk 的取值 —— 拼错等于把规则架空。
+      // 故对已声明的语义字段做闭集校验（未声明则不要求）。
+      const enumChecks = [
+        ['risk', ['low', 'medium', 'high']],
+        ['chain', ['wide', 'medium', 'close']],
+        ['emotion', ['neutral', 'power', 'weakness', 'fate', 'unease', 'engagement', 'immersion', 'detachment']],
+      ]
+      for (const [field, allowed] of enumChecks) {
+        if (item[field] === undefined) continue
+        if (!allowed.includes(item[field])) {
+          return {
+            ok: false,
+            error: 'shot-grammar.' + g + '[' + item.key + '].' + field + ' 取值非法（允许 ' + allowed.join('/') + '，实际 ' + String(item[field]) + '）',
+          }
+        }
+      }
     }
   }
   const tiers = grammar.durationTiers
@@ -534,8 +551,20 @@ function loadFilmKit (opts) {
     else assetWarnings.push('prompts/tasks 缺失：任务化提示词库不可用（旧版 kit，请重新导入以启用）')
   } else {
     const libraryResult = loadPromptLibrary({ tasksRoot: promptsTasksRoot })
-    if (!libraryResult.ok) errors.push('prompts/tasks: ' + libraryResult.error)
-    else library = libraryResult.library
+    if (!libraryResult.ok) {
+      // v7 对抗评审第二轮 i8：目录**存在但为空**（升级残留的旧空壳）原先会让整级不可用，
+      // 而目录缺失只记告警——陈旧空目录比缺失更糟，等于把正常升级路径误伤成硬失败。
+      // 非严格模式下与「缺失」同处置；严格模式（导入校验）仍按失败处理。
+      const isEmptyDir = libraryResult.errors.length > 0
+        && libraryResult.errors.every((e) => e.includes('任务目录为空'))
+      if (isEmptyDir && !requireAssets) {
+        assetWarnings.push('prompts/tasks 存在但没有任务目录：该增强能力不可用（请重新导入影视工程资产）')
+      } else {
+        errors.push('prompts/tasks: ' + libraryResult.error)
+      }
+    } else {
+      library = libraryResult.library
+    }
   }
 
   const checks = [

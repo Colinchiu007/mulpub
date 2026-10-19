@@ -32,7 +32,7 @@ const {
 const {
   sha256, buildShotFingerprint, buildPayloadHash, buildPlanId, buildRefsFingerprint,
 } = require('./auto-plan-fingerprint')
-const { resolveShotDurationMs } = require('./shot-duration')
+const { resolveShotDurationMs, DEFAULT_TIERS: DEFAULT_DURATION_TIERS } = require('./shot-duration')
 
 const MAX_AUTO_SHOTS = 120
 const MAX_AUTO_SCRIPT_LENGTH = 10000
@@ -48,7 +48,7 @@ const AUTO_SHOT_SECONDS = Object.freeze([5, 8, 10])
  * 现在上限等于实际最高档；kit 支持到 12s，需要放宽时用 planAutoShots({ durationTiers }) 注入，
  * 不要改这个常量（改它会让 validateAutoInputs 接受的档位与实际能力脱节）。
  */
-const MAX_AUTO_SHOT_SEC = Math.max(...AUTO_SHOT_SECONDS)
+const MAX_AUTO_SHOT_SEC = Math.max(...DEFAULT_DURATION_TIERS)
 const MAX_AUTO_REFS = 8
 /** 与 ipc-handlers/film-engineering.js:47-49 同源预估口径 */
 const DISK_ESTIMATE_BYTES_PER_SHOT = 8 * 1024 * 1024
@@ -229,11 +229,13 @@ function planAutoShots (input) {
     mediaRoot: o.mediaRoot,
   })
 
-  // v7 对抗评审 i3：允许调用方注入时长档（来自 film-kit/shot-grammar.json 的 durationTiers），
-  // 缺省才用内置常量。这样 kit 资产可以成为运行时事实源，而不只是文档。
+  // 时长档的唯一缺省事实源是 shot-duration 的 DEFAULT_TIERS（= film-kit 的 supportedSec）。
+  // v7 对抗评审第二轮 i3：初版用 AUTO_SHOT_SECONDS 兼当档位表，于是「用户可选的 seconds 输入域」
+  // 与「模型支持的时长档」被绑成同一个东西，资产承诺 12s 而自动模式最高只有 10s。
+  // 两者语义不同：前者是输入白名单（validateAutoInputs 用），后者是能力表。
   const durationTiers = Array.isArray(o.durationTiers) && o.durationTiers.length > 0
     ? o.durationTiers.map(Number).filter((n) => Number.isFinite(n) && n > 0).sort((a, b) => a - b)
-    : AUTO_SHOT_SECONDS
+    : DEFAULT_DURATION_TIERS
   const durationMaxSec = Math.max(...durationTiers)
 
   const shots = beats.map((beat, i) => {
@@ -248,7 +250,16 @@ function planAutoShots (input) {
     // 消费方可以继续只读 seconds；需要更细的时长就读 durationMs。
     const duration = resolveShotDurationMs(
       { text: beat.text, emotion: beat.emotion },
-      { tiers: durationTiers, maxSec: durationMaxSec, defaultSec: Number(o.seconds) },
+      {
+        tiers: durationTiers,
+        maxSec: durationMaxSec,
+        defaultSec: Number(o.seconds),
+        // v7 对抗评审第二轮 i4：自动模式的 beat.text 常常是纯动作描述。
+        // 没有引号就说明这句话不会被念出来，按「字/秒」折算等于给动作配了语速，
+        // 于是 120 字的无台词动作镜会触发「必须拆解台词」——误导用户去拆一个没有台词的镜头。
+        // 要求必须有引号才走 formula，否则退到档位兜底（tier）。
+        requireQuotedDialogue: true,
+      },
     )
     return {
       index: i,
@@ -291,8 +302,12 @@ function planAutoShots (input) {
   // 一个恒真的告警会立刻退化成噪音（W8 的误报风险已被同一轮评审点过）。
   //   ① overflow：台词量超过最高档，不拆解就会丢字
   //   ② truncation：容差吸附把档位压到内容长度以下，尾部可能被切
+  // 两组必须**互斥**：溢出镜（rawSec > maxSec）必然同时满足「内容长于档位」，若不排除就会
+  // 既报「必须拆解台词」又报「容差吸附到更短档位」，而且 N 会把同一镜数两次
+  // （v7 对抗评审第二轮 i1）。截断只对未溢出的镜成立。
   const overflowShots = shots.filter((s) => Number.isFinite(s.durationRawSec) && s.durationRawSec > durationMaxSec)
   const truncatedShots = shots.filter((s) => Number.isFinite(s.durationRawSec)
+    && s.durationRawSec <= durationMaxSec
     && s.durationRawSec * 1000 > Number(s.durationMs) + 1)
   if (overflowShots.length > 0 || truncatedShots.length > 0) {
     const parts = []
@@ -308,7 +323,7 @@ function planAutoShots (input) {
     }
     durationWarnings.push({
       code: 'W9',
-      message: '有 ' + (overflowShots.length + truncatedShots.length) + ' 个分镜的实际台词长度超出其档位时长；'
+      message: '有 ' + (overflowShots.length + truncatedShots.length) + ' 个分镜的实际台词长度超出其档位时长（两类互斥，合计即独立镜数）；'
         + parts.join('；') + '。逐镜明细见 shots[].durationWarnings。',
     })
   }

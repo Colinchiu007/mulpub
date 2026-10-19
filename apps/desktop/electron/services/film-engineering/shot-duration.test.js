@@ -9,7 +9,7 @@
 const {
   DURATION_SOURCES, DEFAULT_TIERS, DEFAULT_MAX_SEC, MIN_SHOT_SEC,
   ZH_CHARS_PER_SECOND, EN_WORDS_PER_SECOND,
-  countSpeechUnits, extractDialogueText, snapToTier, estimateShotSeconds, resolveShotDurationMs, resolvePlanDurations,
+  mergeRates, countSpeechUnits, extractDialogueText, snapToTier, estimateShotSeconds, resolveShotDurationMs, resolvePlanDurations,
 } = require('./shot-duration')
 
 describe('shot-duration / 常量与优先级声明', () => {
@@ -394,5 +394,81 @@ describe('shot-duration / text 走引号抽取（i1 端到端）', () => {
     if (!r.ok) return
     expect(r.source).toBe('formula')
     expect(r.rawSec).toBeLessThan(2)
+  })
+})
+
+describe('shot-duration / 语速档可注入（第二轮 i2）', () => {
+  it('注入更慢的语速会拉长时长', () => {
+    const base = estimateShotSeconds('一'.repeat(40), 'normal')
+    const slow = estimateShotSeconds('一'.repeat(40), 'normal', { zhCharsPerSecond: { normal: 4 } })
+    expect(base.ok && slow.ok).toBe(true)
+    if (!base.ok || !slow.ok) return
+    expect(slow.rawSec).toBeCloseTo(10, 5)
+    expect(slow.durationSec).toBeGreaterThan(base.durationSec)
+  })
+
+  it('注入非法值被忽略并保留默认', () => {
+    const r = estimateShotSeconds('一'.repeat(40), 'normal', { zhCharsPerSecond: { normal: -1, argument: 'x' } })
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.rawSec).toBeCloseTo(5, 5)
+  })
+
+  it('mergeRates 只覆盖 base 已有键，不引入新键', () => {
+    const merged = mergeRates({ normal: 8, argument: 10 }, { normal: 4, bogus: 99 })
+    expect(merged.normal).toBe(4)
+    expect(merged.argument).toBe(10)
+    expect(merged.bogus).toBeUndefined()
+  })
+
+  it('resolveShotDurationMs 透传语速注入', () => {
+    const r = resolveShotDurationMs({ dialogue: '一'.repeat(40) }, { zhCharsPerSecond: { normal: 4 } })
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.durationSec).toBe(10)
+  })
+})
+
+describe('shot-duration / requireQuotedDialogue（第二轮 i4）', () => {
+  it('要求引号且无引号时退到 tier，并挂可操作提示', () => {
+    const r = resolveShotDurationMs({ text: '他推开门走进屋子' }, { requireQuotedDialogue: true, defaultSec: 5 })
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.source).toBe('tier')
+    expect(r.warnings.join()).toContain('未检出引号台词')
+  })
+
+  it('要求引号且有引号时走 formula', () => {
+    const r = resolveShotDurationMs({ text: '他说：「你好。」' }, { requireQuotedDialogue: true })
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.source).toBe('formula')
+  })
+
+  it('显式 dialogue 即使无引号也算台词（调用方已声明）', () => {
+    const r = resolveShotDurationMs({ dialogue: '一二三四五六七八' }, { requireQuotedDialogue: true })
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.source).toBe('formula')
+  })
+})
+
+describe('shot-duration / 容差边界是台阶而非连续（第二轮 i7）', () => {
+  it('边界两侧如实反映：5.30 取 5s、5.31 取 8s', () => {
+    const below = snapToTier(5.30)
+    const above = snapToTier(5.31)
+    expect(below.sec).toBe(5)
+    expect(above.sec).toBe(8)
+    // 承认这是台阶，不假装平滑
+    expect(above.sec - below.sec).toBe(3)
+  })
+
+  it('调用方要连续量就用 rawSec，而不是 durationSec', () => {
+    const r = estimateShotSeconds('一'.repeat(43), 'normal') // 5.375s
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.durationSec).toBe(8)
+    expect(r.rawSec).toBeCloseTo(5.375, 3)
+    expect(r.snapDeltaSec).toBeGreaterThan(2)
   })
 })
