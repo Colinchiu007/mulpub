@@ -1,3 +1,36 @@
+## 守门步骤的"通过"是谁说了算的？——通过路径没有 exit 时，判词来自最后一条原生命令（gate7-pass-path-exit，2026-10-19）
+
+### lesson: a-gate-step-needs-an-explicit-exit-on-its-pass-path
+
+**现场**：PR #3992 的 required check `QG Visual` 报红，而同一步骤日志末行是 `[GATE-7] All visual tests passed`，
+六个套件退出码读数全为 0（`pixel=0 views=0 views-supplement=0 dark=0 workflows=0 workflows-supplement=0`）。
+红了约一小时才被归因，因为"日志说全绿"与"检查说红"看起来不可能同时成立。
+
+**根因**：Gate 7 有四条 `exit` 分支，各管一种失败（就绪 3 / 像素 / 校验域 1 / agent），**唯独通过路径没有 exit**。
+GitHub 的 pwsh wrapper 以 `$LASTEXITCODE` 决定步骤成败，而该步骤 `finally` 里清理 dev server 的
+`taskkill /PID ... /T /F` 在进程已退出时返回非零 ⇒ 一个 required check 的成败由**清理动作**决定。
+
+**为什么这是"装饰性门禁"的反向形态**：既往记下的同族病是"捕获而不判定 ⇒ 恒绿"；这次是"判定而不收口 ⇒ 恒不可信"。
+同一个坑的两个方向：AGENTS.md 那条「一个 `run:` 块里塞多条测试命令必须用 `shell: bash`」管的是**中间命令的失败被吞**，
+本条管的是**通过时的余值被当成判词**。收尾判据要问的不是"失败分支有没有 exit"，而是
+"**通过路径的最后一个语句是什么**"。
+
+**修法（判定与退出拆开）**：`$gateVerdict = 0` 单点初始化 → 四条分支改 if/elseif 单链、各自只赋码（优先级逐字保留）
+→ 唯一出口 `if ($gateVerdict -ne 0) { exit $gateVerdict }` → 通过文案 → **显式 `exit 0`**。
+`$darkExit` 与各套件留痕值仍不参与判定，这一格未收紧也未放松（改动守门判据时必须把"没改什么"一起写出来）。
+
+**可复用的三条**：
+1. 给守门步骤加锁时，禁令要配正向对偶：既锁"四条分支不得退回各自 exit"，也锁"判定值四格齐全 + 唯一出口排在
+   通过文案之前 + `exit 0` 排在通过文案之后"。只写禁令会把"删掉被禁物"与"删掉需求"判成同形。
+2. 反证必须包含**摘掉结尾 `exit 0`** 这一格，且前置 `$LASTEXITCODE = <脏值>` 模拟清理动作。本机 pwsh 就能复现
+   GH wrapper 语义（`. script.ps1` 后 `exit $LASTEXITCODE`），不必只在 CI 上赌一次红。
+3. `workflow-contract.test.js` 那类"锁文本形状"的判据，锚点必须**行锚定到可执行语句**。本次两次自伤：
+   ① 我在注释里原样引用了 `All visual tests passed`，而既有顺序锁用裸短语 `indexOf` 定位 ⇒ 注释顶掉锚点、当场红；
+   ② 为"两种形状都合法"把 `indexOf('if ($pixelExit -ne 0)')` 放宽成裸短语 `search(/\$pixelExit -ne 0/)` 时，
+   只去掉前缀、没保留行锚定，正文一处散文注释（"经 `$pixelExit -ne 0` 拦住"）又成了错锚点。
+   **放宽判据的形状 ≠ 放弃定位的方式**；正解是 `/^\s*(?:\} elseif|if) \(\$pixelExit -ne 0\)/m`。
+
+
 ## 「没人读」和「读不到」是两件事——先查消费者，再决定删字段还是补校验（debt-ledger-shape-normalize，2026-10-19）
 
 ### lesson:check-consumers-before-diagnosing-a-dead-field
