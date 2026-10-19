@@ -85,3 +85,7 @@ publish-confirm-summary 4），另压行后复跑 `firstPaintParallel`(8) + Publ
 （`Publish.vue` 37/37、`PublishHistory.vue` 20/114）。
 **QM-1 本轮不重跑**：入站 59 个文件里 `apps/desktop/electron/**` 与 `packages/rpa-engine/**` 命中 **0**，
 electron 树与批次 G 已实测 PASS 的产物逐字相同。
+
+## 远程同步
+
+| 远程同步 | 由门禁推导 | 本行**不事后改写**：合并后由 `scripts/lib/merge-ledger.js` 按主干历史推导归属（只认 squash 尾注 `(#3986)`）；现场读数看 CI 步骤首行 `MERGE-LEDGER prs=<n>`。合并前这篇还不在基线上 ⇒ 判 `byDesign` 不红；把状态列预写成 `PASS` 会被 `prematureClaims` 判红（change: `ban-record-closure-backfill-pr` / `gate-record-sync-derived-status`）。main push 回读证据写在 PR 评论里，不写回本文件。 |
