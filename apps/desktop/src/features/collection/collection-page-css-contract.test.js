@@ -41,7 +41,9 @@ const SCOPE_VUE = [
   './BatchCollectPanel.vue',
   './CollectedResultsList.vue',
   './ColProgressBlock.vue',
-  './CollectionDraftsPanel.vue',
+  // './CollectionDraftsPanel.vue' 已随上游 #3951 移除：草稿箱收敛为
+  // /publish?tab=drafts 单一实现，面板组件不得复活
+  // （见 src/views/collection-visual-case-contract.test.js 的「不得复活」锁）。
   './QuickCollectPanel.vue',
   './QuickCollectCommandDialog.vue',
   './CollectionDraftsTab.vue',
