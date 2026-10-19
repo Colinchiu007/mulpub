@@ -331,6 +331,9 @@ function dispose (deps) {
   const d = deps || _deps
   if (!d) return
   if (_timer) {
+    // QM-6 同型锁 L4（竞品 while(true) 无退出缺陷同型）：真实 clearInterval 句柄，
+    // 不经包装对象的 clear 闭包——静态扫描器认字面量，语义上也更直接
+    try { if (_timer.raw) clearInterval(_timer.raw) } catch (e) { /* noop */ }
     try { _timer.clear() } catch (e) { /* noop */ }
     _timer = null
   }

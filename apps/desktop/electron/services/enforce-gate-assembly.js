@@ -47,7 +47,7 @@ function assembleEnforceGate ({ app, opsCenterSync, autoUpdater, log }) {
     log: { warn: (msg, extra) => log.notify('EnforceGate', 'state-persist-failed', { level: 'WARN', error: msg + (extra ? ' ' + JSON.stringify(extra || {}) : '') }) },
     installNow: () => autoUpdater.installNow(),
     syncNow: () => { try { opsCenterSync.syncNow().catch(() => {}) } catch (e) { log.notify('EnforceGate', 'sync-now-failed', { level: 'WARN', error: String(e && e.message) }) } },
-    setInterval: (fn, ms) => { const t = require('timers').setInterval(fn, ms); return { unref: () => t.unref && t.unref(), clear: () => clearInterval(t) } },
+    setInterval: (fn, ms) => { const raw = require('timers').setInterval(fn, ms); return { raw, unref: () => raw.unref && raw.unref(), clear: () => clearInterval(raw) } },
   })
   // 策略到达 → enforce 判定（与 autoUpdater.applyPolicy 并行，不动既有链）
   if (opsCenterSync && typeof opsCenterSync.setUpdatePolicyConsumer === 'function') {
