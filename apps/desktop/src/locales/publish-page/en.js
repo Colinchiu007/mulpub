@@ -16,6 +16,10 @@ export default {
     untitled: 'Untitled',
     updatedUnknown: 'Updated time unknown',
     platformCount: (ctx) => ctx.named('count') + ' platforms',
+    // v2.0 mechanism C1.3: platform-count cap notice. Informational only; the
+    // limit value comes from the server-issued entitlement.limits.
+    platformLimitReached: 'Your current plan allows up to {limit} platforms. Upgrade to add more.',
+    platformLimitHint: '{selected} / {limit} platforms selected',
     delete: 'Delete',
     publishTitle: 'Quick Publish',
     batchSubtitle: 'Batch edit multiple articles and publish to each platform independently',

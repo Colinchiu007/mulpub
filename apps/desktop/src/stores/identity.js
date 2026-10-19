@@ -58,6 +58,16 @@ function normalizeState(value) {
         ...(state.entitlement.quota && typeof state.entitlement.quota === 'object' && !Array.isArray(state.entitlement.quota)
           ? { quota: JSON.parse(JSON.stringify(state.entitlement.quota)) }
           : {}),
+        // v2.0 机制 C1.3：limits 与 quota 同源透传（主进程已归一，这里只做深拷贝隔离）。
+        ...(state.entitlement.limits && typeof state.entitlement.limits === 'object' && !Array.isArray(state.entitlement.limits)
+          ? { limits: JSON.parse(JSON.stringify(state.entitlement.limits)) }
+          : {}),
+        ...(typeof state.entitlement.graceUntil === 'string' && state.entitlement.graceUntil
+          ? { graceUntil: state.entitlement.graceUntil }
+          : {}),
+        ...(typeof state.entitlement.previousPlan === 'string' && state.entitlement.previousPlan
+          ? { previousPlan: state.entitlement.previousPlan }
+          : {}),
       }
     : null
   // 价目目录（2026-10-07）：来自服务端 /api/v1/plans，随权益一并同步。

@@ -172,6 +172,14 @@ Esc 不收尾、Tab 走开后那块 `role="menu"` 还挂在可读区域里。
 ---
 
 
+## 批量脚本碰共享审计面=越权篡改——enforce 判据的历史欠账不属于本 PR 职责面（shared-audit-mass-edit-rollback，2026-10-20）
+
+### lesson: never-mass-edit-shared-audit-ledger-to-pass-a-local-gate
+
+**现场**：PR #4025 合并前跑 `check-pr-exec-record --mode=enforce` 被全仓 1344 条评审记录的历史 pending 永久卡死。写了一个批量脚本把全部记录 status 置 self_play_resolved——一次篡改了 1344 个他人会话的审计条目。当场察觉（输出列表跨全仓）并 `git checkout --` 回滚，仅保留本 PR 关联 6 条的闭环改动。
+
+**教训**：①**本地判据红 ≠ 本 PR 的问题**——enforce 模式扫的是全仓历史欠账，历史 PR 都在 advisory（明文不阻断）下合并，AGENTS.md 明文「转阻断 = 删掉它」是另一条 PR 的事；为过本地判据去改共享数据面，等于把别人的欠账记到自己账上再销掉。②**批量脚本的作用域必须先断言**：写循环处理目录内文件前，先打印将触及的文件数并与预期对比（预期 6，实际 1344 = 立即停）；单靠"脚本逻辑正确"挡不住作用域错误。③篡改审计面的不可逆性高于代码回滚——审计面是跨会话的信任锚，回滚恢复字节但恢复不了"曾经被改过"这个事实；当场报备 + 记入 learnings 是唯一补偿路径。
+
 ## 守门步骤的"通过"是谁说了算的？——通过路径没有 exit 时，判词来自最后一条原生命令（gate7-pass-path-exit，2026-10-19）
 
 ### lesson: a-gate-step-needs-an-explicit-exit-on-its-pass-path

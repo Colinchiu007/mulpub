@@ -1,4 +1,5 @@
 {
+ "schemaVersion": 2,
  "blocks": [
   {
    "key": "scene_context",
@@ -41,6 +42,30 @@
    "label": "POSITIVE CONSTRAINTS",
    "zh": "正向锁定：8K 细节、毛孔级皮肤、无抖动闪烁；计数物体以「是什么在画面中」表述；点名失败镜头长什么样",
    "en": "Positive locks: 8K detail, pore-level skin, no jitter; counted objects phrased as what IS in frame; name what a failed shot looks like"
+  },
+  {
+   "key": "long_dialogue_split",
+   "label": "LONG DIALOGUE HANDLING",
+   "zh": "长台词 7 手法（T1-T7）：T1 拆成「问—答」两镜；T2 台词前置动作镜垫一句；T3 用听者反应镜打断；T4 边走边说（运动消解时长）；T5 插入物件特写（手/道具）；T6 同一句拆到两句台词块（在自然停顿处）；T7 允许镜头内保留但把长句写成「呼吸分段的短句群」。单镜台词上限：中文 ≤ 40 字 / 英文 ≤ 25 词",
+   "en": "Seven techniques for over-long dialogue (T1-T7): T1 split into question/reply shots; T2 pre-line an action shot; T3 cut to listener reaction; T4 walk-and-talk; T5 insert a prop close-up; T6 split one sentence at a natural pause into two AUDIO blocks; T7 keep in-shot but rewrite as breath-separated short clauses. Per-shot dialogue ceiling: 40 CJK chars / 25 English words"
+  },
+  {
+   "key": "action_choreography",
+   "label": "ACTION CHOREOGRAPHY",
+   "zh": "动作戏编排 17 条要点：①一镜一动作 ②动作必须有终点姿态 ③避免多人同时动作 ④打击点在画面外的处理 ⑤用尘土/碎屑/衣物摆动承接冲击 ⑥不在同一镜内改变空间关系 ⑦快速动作配慢速镜头 ⑧反转动作需两镜（起势/落点）⑨手持感只靠轻微晃动 ⑩避免肢体交叠（易粘连）⑪武器走向写在动作句内 ⑫受击反应放在下一切点 ⑬慢动作只用于强调帧 ⑭同一动作不跨镜重复 ⑮环境反馈（风、雨、火）作为动作的一部分 ⑯落地/起身需要独立镜 ⑰动作结束后留 0.3s 静止",
+   "en": "Seventeen action-choreography points: one action per shot; every action ends in a settled pose; avoid simultaneous multi-character action; handle impact outside frame; carry impact with dust/debris/cloth; never change spatial relations inside one shot; pair fast action with slow camera; reversals need two shots (windup/landing); handheld only via slight sway; avoid limb overlap (smearing); put weapon direction inside the action sentence; reaction lands on the next cut; slow motion only for accent frames; never repeat one action across shots; environmental feedback is part of the action; landing/rising needs its own shot; hold 0.3s of stillness after the action"
+  },
+  {
+   "key": "frame_constraint",
+   "label": "FIRST / LAST FRAME CONSTRAINT",
+   "zh": "首尾帧强约束（21 条，择要）：①首帧必须是「静止的构图」而非动作中间态 ②尾帧必须是可继续的稳定姿态 ③首尾帧共用同一 GEO 平面 ④首尾帧角色数量必须一致 ⑤首尾帧风格前缀逐字相同 ⑥尾帧不得出现新角色 ⑦尾帧不得引入新光源方向 ⑧首尾帧画幅比例一致 ⑨首尾帧景别差异 ≤ 一级 ⑩禁止首尾帧之间做空间跳转 ⑪过渡动作必须写明起点与终点 ⑫描述两端之间的唯一变化量 ⑬首帧动作幅度必须小于尾帧余量 ⑭禁止尾帧出现运动模糊 ⑮禁止首帧出现运动模糊 ⑯首尾帧都需要写明相机站位 ⑰尾帧留出下一镜的入画空间 ⑱首尾帧色温一致 ⑲禁止尾帧出现画外元素 ⑳首尾帧的服装状态必须一致 ㉑两端之间只允许一个物理事件",
+   "en": "Twenty-one first/last-frame constraints (abridged): the first frame is a still composition, never a mid-action instant; the last frame is a resumable settled pose; both share one GEO floor plan; identical character counts; identical style prefix verbatim; the last frame introduces no new character; no new light direction; identical aspect ratio; shot-size delta at most one step; no spatial jump between the two ends; state the transition's start and end; describe the single change between the ends; first-frame amplitude must be smaller than the last-frame headroom; no motion blur on the last frame; none on the first frame either; both name the camera position; the last frame leaves entry room for the next shot; matched color temperature; no off-screen elements in the last frame; identical wardrobe state; exactly one physical event between the ends"
+  },
+  {
+   "key": "transition_medium_cover",
+   "label": "AI TRANSITION — MEDIUM COVER",
+   "zh": "AI 转场「介质掩护」铁律：**绝对禁止**让两个物理形态差异巨大的实体直接发生形变。形变发生时必须引入符合全局基调的**过渡介质**掩盖计算过程——镜头光斑（lens flare）、运动模糊（motion blur）、粒子爆散（particle burst）、烟雾、水花、雨幕、翻页、遮挡物扫过。介质必须：①与本片美术基调一致 ②在形变前 2-4 帧进入 ③在形变后 2-4 帧退出 ④不得遮挡主体关键信息。典型可用对：人→人（同形态，直接过渡）；人→兽（需烟雾/粒子）；室内→室外（需光斑/白闪）；物→人（需遮挡扫过）",
+   "en": "AI-transition medium-cover rule: never let two entities with vastly different physical forms morph directly. When a morph happens, introduce a transition medium consistent with the film's art direction to cover the computation — lens flare, motion blur, particle burst, smoke, water splash, rain curtain, page turn, an occluder sweeping past. The medium must match the art direction, enter 2-4 frames before the morph, exit 2-4 frames after it, and never occlude key subject information. Safe pairs: human→human (same form, direct); human→beast (smoke or particles); interior→exterior (flare or white flash); object→human (sweeping occluder)"
   }
  ],
  "rules": [
@@ -103,6 +128,139 @@
    "title": "Dialogue lives only in the audio block",
    "zh": "台词只在 AUDIO 块：声音+情绪→引号台词→肢体动作→面部反应；无台词者完全沉默",
    "en": "Voice+emotion → line in quotes → physical action → facial reaction; everyone else stays completely silent"
+  },
+  {
+   "key": "no-pronoun-visual",
+   "title": "No pronouns in visual description",
+   "zh": "视觉描述四维度禁代词：景别/角度/主体/环境四个维度内一律写具体名词，禁止用「他/她/它/他们/它们」指代角色或物体；同一镜内不得出现可指向多个实体的代词",
+   "en": "Four visual dimensions (shot size / angle / subject / environment) must use concrete nouns. Never use he/she/it/they to reference a character or object; a shot must not contain a pronoun that could resolve to more than one entity"
+  },
+  {
+   "key": "duration-from-text",
+   "title": "Duration is computed from the line, not guessed",
+   "zh": "时长由台词推算而非拍脑袋：按台词字数与情绪档位估算，再向上取到模型支持的档位；不要在提示词里写与实测时长冲突的秒数",
+   "en": "Derive duration from the line length and emotion tier, then snap up to a supported tier; never write a seconds value that conflicts with the measured duration"
+  },
+  {
+   "key": "single-physical-event",
+   "title": "One physical event between the frame ends",
+   "zh": "首尾帧之间只允许一个物理事件：超过一个事件时，模型会在中段自选一个执行，结果不可控",
+   "en": "Exactly one physical event may occur between the first and last frame; with two or more the model picks one mid-clip and the result is uncontrollable"
+  },
+  {
+   "key": "medium-cover-on-morph",
+   "title": "Morphs require a transition medium",
+   "zh": "形变必须有介质掩护：物理形态差异大的实体之间禁止直接形变，必须用符合美术基调的介质掩盖计算过程（详见 transition_medium_cover 块）",
+   "en": "Morphs require a cover medium: entities with very different physical forms must never morph directly; hide the computation behind an in-style medium (see the transition_medium_cover block)"
+  }
+ ],
+ "recipes": [
+  {
+   "key": "full",
+   "label": "FULL",
+   "zh": "完整版配方：包含全部 7 个基础块 + 适用时追加长台词/动作戏/首尾帧块。用于关键镜、开场镜、情绪转折镜",
+   "en": "Full recipe: all seven base blocks, plus long-dialogue / action / frame-constraint blocks when applicable. Use for key shots, opening shots, emotional turns",
+   "blockKeys": [
+    "style",
+    "scene_context",
+    "geo_spatial_layout",
+    "action_timing",
+    "audio",
+    "character_acting",
+    "positive_constraints"
+   ]
+  },
+  {
+   "key": "firstline",
+   "label": "FIRST LINE",
+   "zh": "首行精华版：只保留「风格前缀 + 主体 + 一个动作 + 一个约束」，压到一行内。用于批量过镜、预演、快速试错——不用于终版",
+   "en": "First-line condensed recipe: style prefix + subject + one action + one constraint, compressed to a single line. For batch passes, previz, and quick iterations — never for the final take",
+   "blockKeys": [
+    "style",
+    "scene_context"
+   ]
+  }
+ ],
+ "failureLedger": [
+  {
+   "id": "FL-01",
+   "symptom": "角色串脸（同一角色在不同镜头里脸不一样）",
+   "cause": "参考图没有做「身份锚点」声明；或 prompt 里用了代词导致模型重新想象角色",
+   "fix": "把角色定妆图排在参考图第一位并显式声明为身份锚点；视觉描述内禁用代词（rule: no-pronoun-visual）；同一角色跨镜粘贴同一段身份描述符",
+   "tags": [
+    "consistency",
+    "character"
+   ]
+  },
+  {
+   "id": "FL-02",
+   "symptom": "长台词镜头里角色嘴型对不上，或说话中途模型自行切走",
+   "cause": "单镜台词超过模型可承载长度；模型在长句中途失去「正在说话」状态",
+   "fix": "按 long_dialogue_split 的 T1-T7 处理；单镜台词压到 40 字 / 25 词以内；把长句拆成两块 AUDIO 并在自然停顿处切镜",
+   "tags": [
+    "dialogue",
+    "timing"
+   ]
+  },
+  {
+   "id": "FL-03",
+   "symptom": "AI 转场处出现「融化」「粘连」「面团化」的畸形过渡",
+   "cause": "两个物理形态差异巨大的实体被要求直接形变，模型只能靠插值硬接",
+   "fix": "加介质掩护（镜头光斑/运动模糊/粒子/烟雾/遮挡扫过）；介质需在形变前 2-4 帧进入、后 2-4 帧退出（rule: medium-cover-on-morph）",
+   "tags": [
+    "transition",
+    "artifact"
+   ]
+  },
+  {
+   "id": "FL-04",
+   "symptom": "首尾帧生视频的中间段「脑补」出与剧本无关的内容",
+   "cause": "首尾帧之间塞了两个以上物理事件，模型自选执行顺序；或首帧不是静止构图而是动作中间态",
+   "fix": "首尾帧之间只保留一个物理事件（rule: single-physical-event）；首帧改为静止构图；尾帧改为可继续的稳定姿态（block: frame_constraint）",
+   "tags": [
+    "frame-constraint",
+    "artifact"
+   ]
+  },
+  {
+   "id": "FL-05",
+   "symptom": "同一场次的镜头空间关系错乱（人物左右互换、门口位置漂移）",
+   "cause": "GEO 平面图没有逐镜粘贴；或某一镜里改动了相机站位却没写回 GEO 块",
+   "fix": "每场锁定 GEO 块逐镜逐字粘贴（rule: describe-everything）；跨 180° 轴线必须写「轴线切换」并在两镜之间插入中性过渡镜",
+   "tags": [
+    "continuity",
+    "space"
+   ]
+  },
+  {
+   "id": "FL-06",
+   "symptom": "动作戏糊成一团、肢体交叠、武器消失",
+   "cause": "一镜内塞多个动作；多人同时动作；肢体在画面中交叠产生粘连",
+   "fix": "一镜一动作且动作有终点姿态；避免多人同时动作；避免肢体交叠；受击反应放到下一切点（block: action_choreography）",
+   "tags": [
+    "action",
+    "artifact"
+   ]
+  },
+  {
+   "id": "FL-07",
+   "symptom": "画面风格跨集漂移（第一集冷青、第三集偏黄）",
+   "cause": "色盘只存在于想象中，没有逐字复用；每集重新描述色调",
+   "fix": "在 palette.json 里声明主色与扩展色，生成时机械注入同一字符串；扩展色不得超过 2 个（见 film-kit/palette.json）",
+   "tags": [
+    "style",
+    "consistency"
+   ]
+  },
+  {
+   "id": "FL-08",
+   "symptom": "生成结果「看起来对但就是不对味」，反复重试无效",
+   "cause": "提示词过长导致中段约束被模型忽略（长 prompt 的注意力衰减）",
+   "fix": "改用 firstline 配方快速定位问题维度，再用 full 配方补齐；一次只改一处（rule: one-change-at-a-time）；超过 10-15 次迭代就简化镜头（rule: simplify-shot）",
+   "tags": [
+    "prompt",
+    "process"
+   ]
   }
  ],
  "glossary": [
@@ -135,6 +293,26 @@
    "term": "GEO block",
    "zh": "地理空间布局块（每场锁定，逐镜粘贴不变）",
    "en": "Geo spatial layout block (locked per scene)"
+  },
+  {
+   "term": "identity anchor",
+   "zh": "身份锚点：参考图列表的第一张，用于锁定角色面部身份；其余参考图只允许提供环境与光影",
+   "en": "Identity anchor: the first reference image, locking the character's facial identity; the remaining references may only supply environment and lighting"
+  },
+  {
+   "term": "end frame prompt",
+   "zh": "尾帧提示词：描述本镜结束时画面的稳定状态，作为下一镜（或首尾帧生视频）的输入",
+   "en": "End frame prompt: describes the settled state of the frame at the shot's end, used as input to the next shot or to first/last-frame video generation"
+  },
+  {
+   "term": "transition medium",
+   "zh": "过渡介质：掩盖形变计算过程的画面元素（光斑/烟雾/粒子/模糊/遮挡物）",
+   "en": "Transition medium: an in-frame element (flare, smoke, particles, blur, occluder) that hides the morph computation"
+  },
+  {
+   "term": "failure ledger",
+   "zh": "失败模式台账：症状→原因→修法的可检索记录，改提示词前先查这里",
+   "en": "Failure ledger: searchable symptom → cause → fix records; check it before editing any prompt"
   }
  ]
 }

@@ -1,0 +1,167 @@
+{
+ "schemaVersion": 1,
+ "description": {
+  "zh": "剧本合规审核清单：在生成任何镜头之前逐项过一遍。每条含 id / 分类 / 严重度 / 检查问题 / 通过判据 / 不通过时的处置建议。severity=blocker 的条目未通过时禁止进入生成阶段；severity=warn 的条目记录并在成片前复核。",
+  "en": "Script compliance checklist: run through every item before generating any shot. Each entry carries id / category / severity / question / pass criteria / remediation. Items with severity=blocker forbid entering the generation stage when failing; severity=warn items are recorded and re-reviewed before delivery."
+ },
+ "severityScale": {
+  "blocker": { "zh": "阻断：不通过则禁止进入生成阶段", "en": "Blocker: failing forbids entering generation" },
+  "warn": { "zh": "告警：记录并在成片前复核", "en": "Warning: record and re-review before delivery" }
+ },
+ "categories": [
+  { "key": "content", "zh": "内容合规", "en": "Content compliance" },
+  { "key": "ip", "zh": "知识产权", "en": "Intellectual property" },
+  { "key": "identity", "zh": "真实身份", "en": "Real identity" },
+  { "key": "structure", "zh": "结构完整性", "en": "Structural integrity" },
+  { "key": "continuity", "zh": "连续性", "en": "Continuity" },
+  { "key": "technical", "zh": "技术可行性", "en": "Technical feasibility" }
+ ],
+ "items": [
+  {
+   "id": "CC-01",
+   "category": "content",
+   "severity": "blocker",
+   "zhQuestion": "剧本是否包含政策明令禁止的内容（暴力血腥细节、色情、赌博、毒品制作、恐怖主义、极端政治表述）？",
+   "enQuestion": "Does the script contain policy-forbidden content (graphic violence, sexual content, gambling, drug synthesis, terrorism, extremist politics)?",
+   "zhPass": "以上任一项均不出现于台词、动作描述、画面描述",
+   "enPass": "None of the above appears in dialogue, action description, or visual description",
+   "zhFix": "改写为留白处理：暴力以结果暗示（剪影/声音/反应镜），情感以对视与沉默表达；不得尝试「换个说法绕过」",
+   "enFix": "Rewrite with ellipsis: imply violence via result (silhouette, sound, reaction shot), express intimacy through gaze and silence; never try to reword around the policy"
+  },
+  {
+   "id": "CC-02",
+   "category": "ip",
+   "severity": "blocker",
+   "zhQuestion": "是否直接使用了他人的受版权保护角色形象、商标、影视片段或美术资产？",
+   "enQuestion": "Does the script reuse a third party's copyrighted character design, trademark, film footage, or art asset?",
+   "zhPass": "全部角色与场景为原创或已获授权；reference-registry 中的素材均具备可用授权",
+   "enPass": "All characters and locations are original or licensed; every asset in reference-registry carries usable rights",
+   "zhFix": "替换为原创设计；确需致敬时只借鉴构图/调性等「不可版权化的方法」，不使用具体形象与标识",
+   "enFix": "Replace with original designs; when homage is needed, borrow only non-copyrightable methods (composition, tonality), never specific designs or marks"
+  },
+  {
+   "id": "CC-03",
+   "category": "identity",
+   "severity": "blocker",
+   "zhQuestion": "是否要求生成可识别的真实人物（明星、公众人物、普通人的照片）？",
+   "enQuestion": "Does the script require a recognizable real person (celebrity, public figure, or a private individual's photo)?",
+   "zhPass": "角色全部为虚构设计；参考图不含真实可识别人物",
+   "enPass": "All characters are fictional designs; no reference image contains an identifiable real person",
+   "zhFix": "改为虚构角色设计图；若必须表现真实人物，改走真人拍摄而非 AI 生成路径",
+   "enFix": "Switch to a fictional character design; if a real person must appear, use live-action footage instead of generation"
+  },
+  {
+   "id": "CC-04",
+   "category": "content",
+   "severity": "warn",
+   "zhQuestion": "是否包含未成年人形象或涉及未成年人的情节？",
+   "enQuestion": "Does the script include minors or plots involving minors?",
+   "zhPass": "涉及未成年人时，情节不涉及任何暴力、性、危险行为模仿",
+   "enPass": "When minors appear, no plot involves violence, sexuality, or imitation of dangerous behavior",
+   "zhFix": "调整情节；未成年人角色一律以远景/背影/剪影呈现，不做正面细节生成",
+   "enFix": "Adjust the plot; render minors only as wide shots, from behind, or in silhouette — never generate facial detail"
+  },
+  {
+   "id": "CC-05",
+   "category": "structure",
+   "severity": "blocker",
+   "zhQuestion": "每一个分镜是否都能追溯到剧本中的具体文字（有 source_text 出处）？",
+   "enQuestion": "Can every shot be traced back to specific script text (a source_text origin)?",
+   "zhPass": "每个镜头都有明确的剧本出处；不存在「为凑时长而添加的镜头」",
+   "enPass": "Every shot has a clear script origin; no shot exists merely to fill duration",
+   "zhFix": "删除无出处镜头；确需过场时补写剧本原文再生成",
+   "enFix": "Remove unsourced shots; when a transition is truly needed, write the script text first and then generate"
+  },
+  {
+   "id": "CC-06",
+   "category": "continuity",
+   "severity": "warn",
+   "zhQuestion": "同一场次内的空间关系（门口位置、人物左右）是否在剧本层面就一致？",
+   "enQuestion": "Are spatial relations within a scene (door position, left/right placement) consistent already at the script level?",
+   "zhPass": "同一场景的每次出现都指向同一处物理空间，无矛盾描述",
+   "enPass": "Every appearance of a location points to the same physical space with no contradictions",
+   "zhFix": "统一空间描述并写入 GEO 平面图；跨 180° 轴线处补写「轴线切换」意图",
+   "enFix": "Unify the spatial description into the GEO floor plan; at 180° axis crossings, write the axis change explicitly"
+  },
+  {
+   "id": "CC-07",
+   "category": "continuity",
+   "severity": "warn",
+   "zhQuestion": "角色的服装、伤妆、道具状态是否在剧本层面有变化记录？",
+   "enQuestion": "Are wardrobe, injury makeup, and prop state changes recorded at the script level?",
+   "zhPass": "每处状态变化都有对应的情节原因，且变化点明确",
+   "enPass": "Every state change has a plot cause and a clear change point",
+   "zhFix": "补写变化原因与发生镜次；无原因的变化一律视为连续性缺陷",
+   "enFix": "Write the cause and the shot where it happens; a change without a cause is a continuity defect"
+  },
+  {
+   "id": "CC-08",
+   "category": "technical",
+   "severity": "warn",
+   "zhQuestion": "是否存在超过模型单镜时长上限（12s）的连续动作或台词？",
+   "enQuestion": "Is there continuous action or dialogue exceeding the model's per-shot ceiling (12s)?",
+   "zhPass": "拆解后每镜 ≤ 12s；单镜台词 ≤ 40 字（中文）/ 25 词（英文）",
+   "enPass": "After splitting, every shot is ≤ 12s; per-shot dialogue ≤ 40 CJK chars / 25 English words",
+   "zhFix": "按 prompt-doctrine 的 long_dialogue_split（T1-T7）拆解，或在自然停顿处切镜",
+   "enFix": "Split using prompt-doctrine's long_dialogue_split (T1-T7), or cut at a natural pause"
+  },
+  {
+   "id": "CC-09",
+   "category": "technical",
+   "severity": "warn",
+   "zhQuestion": "是否存在需要多个物理事件才能完成的单镜？",
+   "enQuestion": "Does any single shot require more than one physical event to complete?",
+   "zhPass": "每镜只承载一个物理事件（含首尾帧生成）；多余事件已拆分到相邻镜",
+   "enPass": "Each shot carries exactly one physical event (including first/last-frame generation); extras are split into adjacent shots",
+   "zhFix": "拆分镜头；首尾帧生视频模式下尤其严格——两个以上事件会被模型自选执行顺序",
+   "enFix": "Split the shot; this is strictest under first/last-frame generation, where two or more events let the model pick the order"
+  },
+  {
+   "id": "CC-10",
+   "category": "technical",
+   "severity": "warn",
+   "zhQuestion": "是否使用了高风险运镜或特效（handheld / orbit / whip_pan / 多人形变）却没有单独试镜计划？",
+   "enQuestion": "Are high-risk moves or VFX (handheld, orbit, whip_pan, multi-subject morph) used without an individual test-shot plan?",
+   "zhPass": "每个高风险项都有独立试镜安排，不进入批量生成",
+   "enPass": "Every high-risk item has an individual test shot and is excluded from batch generation",
+   "zhFix": "先在单镜上验证；验证通过后再纳入批次，验证不过则改用 low/medium 风险的等效表达",
+   "enFix": "Validate on a single shot first; only then include it in the batch — otherwise substitute an equivalent low/medium-risk treatment"
+  },
+  {
+   "id": "CC-11",
+   "category": "content",
+   "severity": "warn",
+   "zhQuestion": "是否包含可能被误读为真实事件/真实品牌的信息（虚构新闻、虚构产品、真实地名+负面情节）？",
+   "enQuestion": "Does the script contain information that could be misread as a real event or brand (fictional news, fictional products, real place names paired with negative plots)?",
+   "zhPass": "虚构内容有明确虚构标记；不出现真实品牌标识与可识别的真实机构",
+   "enPass": "Fictional content is clearly marked; no real brand marks or identifiable real institutions appear",
+   "zhFix": "改用虚构名称；确需真实地名时避免与负面情节绑定",
+   "enFix": "Use invented names; when a real place is needed, avoid pairing it with negative plot"
+  },
+  {
+   "id": "CC-12",
+   "category": "content",
+   "severity": "warn",
+   "zhQuestion": "是否包含可能引发模仿的危险行为（高空、明火、驾驶分心、自伤）的详细步骤？",
+   "enQuestion": "Does the script detail dangerous behavior that could be imitated (heights, open flame, distracted driving, self-harm)?",
+   "zhPass": "危险行为只呈现结果与氛围，不呈现可操作的步骤",
+   "enPass": "Dangerous behavior shows only outcome and atmosphere, never operable steps",
+   "zhFix": "删去步骤细节；用反应镜与声音替代过程镜",
+   "enFix": "Remove step details; replace process shots with reaction shots and sound"
+  }
+ ],
+ "workflow": {
+  "zh": [
+   "1. 读剧本，逐条回答 items 中的 zhQuestion；",
+   "2. 任一 blocker 未通过 → 停止，先修剧本，不得进入分镜与生成；",
+   "3. warn 未通过 → 写入交付清单的待复核项，成片前必须逐条复核并记录处置；",
+   "4. 全部通过后，把结果与剧本哈希一起存档，作为本片合规证据。"
+  ],
+  "en": [
+   "1. Read the script and answer every zhQuestion/enQuestion in items;",
+   "2. Any blocker failing → stop, fix the script first, never proceed to storyboard or generation;",
+   "3. Warn failing → record in the delivery checklist's re-review list, and re-verify each item before delivery;",
+   "4. When all pass, archive the result together with the script hash as this film's compliance evidence."
+  ]
+ }
+}

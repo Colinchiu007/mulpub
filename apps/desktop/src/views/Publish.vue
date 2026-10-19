@@ -764,6 +764,7 @@ import { usePublishPlatformCatalog } from '@/features/publish/usePublishPlatform
 import { readPanelVisibilityPrefs, writePanelVisibilityPrefs } from '@/composables/usePanelVisibilityPrefs'
 import { formatBytes } from '@/utils/bytes'
 import { classifyVideoSelection, describeVideoFile } from '@/utils/video-selection-feedback'
+import { useIdentityStore } from '@/stores/identity'
 
 // 组件名显式声明：App.vue 主工作区 <keep-alive :include="['Publish']"> 按组件名匹配，
 // 让发布页在路由切换时保留实例（草稿不丢）。依赖文件名推断的 __name 在构建配置变化时不稳，
@@ -778,6 +779,9 @@ const { t } = useI18n()
 // （头条经平台 bundle 取证为 7 天；若 hint 仍显全局 30 天，用户按 30 天排期会被提交
 // 校验拒绝）。实现见 fieldSurface.hintTextFor（下方 fieldSurface 定义处接线）。
 const { notifySuccess, notifyWarning, notifyInfo, notifyError, notifyConfirm } = useNotify()
+// v2.0 机制 C1.3 / C7 C 批：发布页的平台数上限来自服务端下发并经签名快照透传的
+// entitlement.limits；缺失时 plan-limits 按「不限」放行。
+const identityStore = useIdentityStore()
 // 视频上传区 el-upload 实例（video/article 两个互斥分支共用一个 ref，同时只有一个渲染）。
 // limit=1 的「重选替换」需要经它 clearFiles + handleStart，否则 el-upload 静默丢弃新文件。
 const videoUploadRef = ref(null)
@@ -1183,7 +1187,11 @@ const {
   selectPlatform,
   selectAccount,
   clearPlatforms,
-} = usePlatformSelection(accountStore, platformStore)
+} = usePlatformSelection(accountStore, platformStore, {
+  getEntitlement: () => identityStore.entitlement,
+  // 触顶播报由 composable 回调（本文件是零增长挂账文件，不为一个分支再加行）
+  onLimitReached: (limit) => notifyWarning('publishPage.platformLimitReached', { params: { limit: limit ?? '' } }),
+})
 
 // P2-8b「按组添加」：判据本体在 features/publish/usePublishGroupApply（纯函数、可单测），
 // 这里只做 store ↔ 视图的接线；视图不自己数成员、也不拼播报文案。
