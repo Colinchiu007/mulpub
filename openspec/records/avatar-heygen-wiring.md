@@ -146,3 +146,34 @@ cd apps/desktop && pnpm exec electron-builder --win --x64
 - 收口方式：`scripts/lib/merge-ledger.js` 按主干历史推导（change `gate-record-sync-derived-status`，
   2026-10-17 起新 PR 不手写状态词——手写 `PASS` 会在合并前被判 `prematureClaim` 红）
 - main push 回读证据写在 PR 评论里，不写回本文件（merge SHA 只在合并后存在）
+
+## 八、CCG 深度双模型审查（本地跑，不进 CI）
+
+`sh scripts/deep-review.sh` → DUAL（变更 955 行 > 200 行阈值）· proposer=opencode / critic=claude
+
+**轮 1 抓到 1 个真实缺陷并已修**：
+
+> Duplicate locale keys — avatar keys added both in `locales/create/avatar/{zh,en}.js`
+> AND inline in `locales/create/ui/{zh,en}.js`.
+
+根因：拆分 `create/{zh,en}.js` 是两步做的，第二步吃掉了第一步的成果——先在 ui 块内联加
+21 个 avatar 键，随后为压 500 行门禁把**整个 ui 块**从 git HEAD 搬到 `ui/{zh,en}.js`，
+而那个 HEAD 版本已含这些键。装配处 `ui: { ...uiZh, ...avatarZh }` 让后展开的覆盖前者，
+**值恰好相同所以功能看起来完全正常**，但改 `ui/*.js` 那份不生效、两处不同步也不报错，
+`--keys` 门禁只查"key 是否存在"，查不出重复。
+
+修法：`avatar/{zh,en}.js` 作唯一真源，从 `ui/{zh,en}.js` 删掉重复的 21 键；两边键集现完全不相交。
+回归锁 `ui-assembly.test.js` 从 2 例扩到 4 例（键集不相交 / avatar 键可见 / ui 原有键可见 /
+zh-en 结构对等），并做了变异反证（注入重复键 ⇒ 判红点名 `[zh] avatarSectionTitle`；
+删装配处 `...avatarZh` ⇒ 结构对等锁判红）。提交 `c06b4df01`。
+
+**工具侧限制（如实记录，不掩饰）**：轮 1 之后 critic 的 JSON 输出被截断
+（`{ 34 个 / } 33 个，结尾无 }`，13594 字符），驱动报
+`JSON解析失败：模型输出被截断` 并以 exit 2 结束，故**没有产出闭环的
+`deepReview.status`**；另一次重试为 `codeagent-wrapper ETIMEDOUT`。方案体量
+（179 KB proposal / 3747 行 diff 基线）超出 critic 单轮输出预算，仓内文档也写明
+深度审查"实测单次 >15 分钟、不进 CI"。
+
+因此本记录的深度审查结论是「**已执行、已抓到并修复 1 个真实缺陷、但工具未能自动
+闭环**」，不是"未执行"。该门的机械判据在 CI 侧是 `--mode=advisory`（只告警不阻断，
+见 `quality-gate.yml` 该 step），本地 `--mode=enforce` 仍会点名这 1 条欠账。
