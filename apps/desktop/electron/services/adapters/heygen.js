@@ -12,6 +12,8 @@
  * 实现的方法（capabilities）：
  *   - generateVideo()    提交数字人视频生成任务
  *   - getVideoStatus()   查询任务状态
+ *   - listAvatars()      列出可用数字人形象（GET /v2/avatars）
+ *   - listVoices()       列出可用音色（GET /v2/voices）
  *   - listModels()       静态预定义列表
  *   - testConnection()   通过最小请求验证
  */
@@ -180,6 +182,66 @@ class HeyGenAdapter extends BaseAdapter {
   /** 返回静态预定义模型列表 */
   async listModels() {
     return HEYGEN_MODELS.map(m => ({ ...m }))
+  }
+
+  /**
+   * 列出账号可用的数字人形象（GET /v2/avatars）。
+   *
+   * 为什么要做归一化：HeyGen 的 avatars 响应在不同版本/形态下字段不一致
+   * （data.avatars / data 直接是数组，字段 avatar_id / id 混用），调用方
+   * （avatar-catalog-service → UI 下拉）需要稳定的 { id, name } 形状。
+   * 拿不到 id 的条目直接丢弃，不产出「id 为空的形象」——那会让下游
+   * generateVideo 收到空 character 并抛 INVALID_CONFIG。
+   *
+   * @returns {Promise<Array<{id: string, name: string, previewUrl: string, gender: string}>>}
+   */
+  async listAvatars() {
+    const resp = await this._request('/avatars', { method: 'GET' })
+    const data = await resp.json()
+    const raw = Array.isArray(data && data.data)
+      ? data.data
+      : (Array.isArray(data && data.data && data.data.avatars) ? data.data.avatars : [])
+    const out = []
+    for (const item of raw) {
+      if (!item || typeof item !== 'object') continue
+      const id = String(item.avatar_id || item.id || '').trim()
+      if (!id) continue
+      out.push({
+        id,
+        name: String(item.avatar_name || item.name || id).trim() || id,
+        previewUrl: String(item.preview_url || item.avatar_image_url || '').trim(),
+        gender: String(item.gender || '').trim(),
+      })
+    }
+    return out
+  }
+
+  /**
+   * 列出账号可用音色（GET /v2/voices）。
+   *
+   * 归一化同 listAvatars：字段 voice_id / id 混用，附带 language/gender 供 UI 分组展示。
+   *
+   * @returns {Promise<Array<{id: string, name: string, language: string, gender: string}>>}
+   */
+  async listVoices() {
+    const resp = await this._request('/voices', { method: 'GET' })
+    const data = await resp.json()
+    const raw = Array.isArray(data && data.data)
+      ? data.data
+      : (Array.isArray(data && data.data && data.data.voices) ? data.data.voices : [])
+    const out = []
+    for (const item of raw) {
+      if (!item || typeof item !== 'object') continue
+      const id = String(item.voice_id || item.id || '').trim()
+      if (!id) continue
+      out.push({
+        id,
+        name: String(item.name || item.display_name || id).trim() || id,
+        language: String(item.language || '').trim(),
+        gender: String(item.gender || '').trim(),
+      })
+    }
+    return out
   }
 
   /** 测试连接 — 通过 GET /video/status 验证认证 */

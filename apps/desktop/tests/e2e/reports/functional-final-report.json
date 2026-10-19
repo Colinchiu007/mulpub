@@ -1,18 +1,18 @@
 {
   "meta": {
-    "generatedAt": "2026-08-24T04:39:26.563Z",
+    "generatedAt": "2026-10-19T03:01:13.193Z",
     "vite": "http://127.0.0.1:5174",
     "spec": "前端全量功能 E2E 测试 (task-29a)",
     "version": "1.0.0",
     "phase": "Phase 0-4 全部完成"
   },
   "summary": {
-    "totalChecks": 317,
-    "totalPassed": 317,
-    "totalFailed": 0,
-    "totalConsoleErrors": 0,
+    "totalChecks": 148,
+    "totalPassed": 135,
+    "totalFailed": 13,
+    "totalConsoleErrors": 4,
     "totalPageErrors": 0,
-    "passRate": 100,
+    "passRate": 91.22,
     "coverageRate": 100
   },
   "routes": {
@@ -207,33 +207,6 @@
         }
       },
       {
-        "spec": "monitor",
-        "route": "/monitor",
-        "title": "文章监控",
-        "status": "✅ PASS",
-        "checks": {
-          "total": 12,
-          "passed": 12,
-          "failed": 0
-        },
-        "consoleErrors": 0,
-        "pageErrors": 0,
-        "kinds": {
-          "functional": {
-            "total": 10,
-            "passed": 10
-          },
-          "expectNoConsoleError": {
-            "total": 1,
-            "passed": 1
-          },
-          "expectNoPageError": {
-            "total": 1,
-            "passed": 1
-          }
-        }
-      },
-      {
         "spec": "keywords",
         "route": "/keywords",
         "title": "关键词监控",
@@ -318,26 +291,18 @@
         "spec": "create",
         "route": "/create",
         "title": "AI 创作",
-        "status": "✅ PASS",
+        "status": "❌ FAIL",
         "checks": {
-          "total": 58,
-          "passed": 58,
-          "failed": 0
+          "total": 8,
+          "passed": 7,
+          "failed": 1
         },
-        "consoleErrors": 0,
+        "consoleErrors": 4,
         "pageErrors": 0,
         "kinds": {
           "functional": {
-            "total": 56,
-            "passed": 56
-          },
-          "expectNoConsoleError": {
-            "total": 1,
-            "passed": 1
-          },
-          "expectNoPageError": {
-            "total": 1,
-            "passed": 1
+            "total": 8,
+            "passed": 7
           }
         }
       },
@@ -345,26 +310,18 @@
         "spec": "result",
         "route": "/create/result",
         "title": "创作结果",
-        "status": "✅ PASS",
+        "status": "❌ FAIL",
         "checks": {
-          "total": 10,
-          "passed": 10,
-          "failed": 0
+          "total": 1,
+          "passed": 0,
+          "failed": 1
         },
         "consoleErrors": 0,
         "pageErrors": 0,
         "kinds": {
           "functional": {
-            "total": 8,
-            "passed": 8
-          },
-          "expectNoConsoleError": {
             "total": 1,
-            "passed": 1
-          },
-          "expectNoPageError": {
-            "total": 1,
-            "passed": 1
+            "passed": 0
           }
         }
       },
@@ -372,26 +329,18 @@
         "spec": "pipeline",
         "route": "/create/pipeline",
         "title": "创作流水线",
-        "status": "✅ PASS",
+        "status": "❌ FAIL",
         "checks": {
-          "total": 11,
-          "passed": 11,
-          "failed": 0
+          "total": 1,
+          "passed": 0,
+          "failed": 1
         },
         "consoleErrors": 0,
         "pageErrors": 0,
         "kinds": {
           "functional": {
-            "total": 9,
-            "passed": 9
-          },
-          "expectNoConsoleError": {
             "total": 1,
-            "passed": 1
-          },
-          "expectNoPageError": {
-            "total": 1,
-            "passed": 1
+            "passed": 0
           }
         }
       },
@@ -399,26 +348,18 @@
         "spec": "create-history",
         "route": "/create/history",
         "title": "创作历史",
-        "status": "✅ PASS",
+        "status": "❌ FAIL",
         "checks": {
-          "total": 14,
-          "passed": 14,
-          "failed": 0
+          "total": 1,
+          "passed": 0,
+          "failed": 1
         },
         "consoleErrors": 0,
         "pageErrors": 0,
         "kinds": {
           "functional": {
-            "total": 12,
-            "passed": 12
-          },
-          "expectNoConsoleError": {
             "total": 1,
-            "passed": 1
-          },
-          "expectNoPageError": {
-            "total": 1,
-            "passed": 1
+            "passed": 0
           }
         }
       },
@@ -426,26 +367,18 @@
         "spec": "cloud-publish",
         "route": "/cloud-publish",
         "title": "云端发布",
-        "status": "✅ PASS",
+        "status": "❌ FAIL",
         "checks": {
-          "total": 12,
-          "passed": 12,
-          "failed": 0
+          "total": 1,
+          "passed": 0,
+          "failed": 1
         },
         "consoleErrors": 0,
         "pageErrors": 0,
         "kinds": {
           "functional": {
-            "total": 10,
-            "passed": 10
-          },
-          "expectNoConsoleError": {
             "total": 1,
-            "passed": 1
-          },
-          "expectNoPageError": {
-            "total": 1,
-            "passed": 1
+            "passed": 0
           }
         }
       },
@@ -453,26 +386,18 @@
         "spec": "intelligence",
         "route": "/intelligence",
         "title": "智能助手",
-        "status": "✅ PASS",
+        "status": "❌ FAIL",
         "checks": {
-          "total": 15,
-          "passed": 15,
-          "failed": 0
+          "total": 1,
+          "passed": 0,
+          "failed": 1
         },
         "consoleErrors": 0,
         "pageErrors": 0,
         "kinds": {
           "functional": {
-            "total": 13,
-            "passed": 13
-          },
-          "expectNoConsoleError": {
             "total": 1,
-            "passed": 1
-          },
-          "expectNoPageError": {
-            "total": 1,
-            "passed": 1
+            "passed": 0
           }
         }
       },
@@ -480,38 +405,30 @@
         "spec": "calendar",
         "route": "/calendar",
         "title": "排期日历",
-        "status": "✅ PASS",
+        "status": "❌ FAIL",
         "checks": {
-          "total": 13,
-          "passed": 13,
-          "failed": 0
+          "total": 1,
+          "passed": 0,
+          "failed": 1
         },
         "consoleErrors": 0,
         "pageErrors": 0,
         "kinds": {
           "functional": {
-            "total": 11,
-            "passed": 11
-          },
-          "expectNoConsoleError": {
             "total": 1,
-            "passed": 1
-          },
-          "expectNoPageError": {
-            "total": 1,
-            "passed": 1
+            "passed": 0
           }
         }
       }
     ],
     "totals": {
-      "totalChecks": 273,
-      "totalPassed": 273,
-      "totalFailed": 0,
-      "totalConsoleErrors": 0,
+      "totalChecks": 142,
+      "totalPassed": 135,
+      "totalFailed": 7,
+      "totalConsoleErrors": 4,
       "totalPageErrors": 0,
-      "coveredRoutes": 18,
-      "totalRoutes": 18
+      "coveredRoutes": 17,
+      "totalRoutes": 17
     }
   },
   "flows": {
@@ -519,11 +436,11 @@
       {
         "key": "flow-1",
         "name": "创建 → 发布 → 看板",
-        "status": "✅ PASS",
+        "status": "❌ FAIL",
         "checks": {
-          "total": 12,
-          "passed": 12,
-          "failed": 0
+          "total": 1,
+          "passed": 0,
+          "failed": 1
         },
         "consoleErrors": 0,
         "pageErrors": 0
@@ -531,11 +448,11 @@
       {
         "key": "flow-2",
         "name": "账号管理 → 侧栏 → 发布",
-        "status": "✅ PASS",
+        "status": "❌ FAIL",
         "checks": {
-          "total": 8,
-          "passed": 8,
-          "failed": 0
+          "total": 1,
+          "passed": 0,
+          "failed": 1
         },
         "consoleErrors": 0,
         "pageErrors": 0
@@ -543,11 +460,11 @@
       {
         "key": "flow-3",
         "name": "模型服务商 → AI 写作",
-        "status": "✅ PASS",
+        "status": "❌ FAIL",
         "checks": {
-          "total": 7,
-          "passed": 7,
-          "failed": 0
+          "total": 1,
+          "passed": 0,
+          "failed": 1
         },
         "consoleErrors": 0,
         "pageErrors": 0
@@ -555,11 +472,11 @@
       {
         "key": "flow-4",
         "name": "监控 → 评论回复",
-        "status": "✅ PASS",
+        "status": "❌ FAIL",
         "checks": {
-          "total": 6,
-          "passed": 6,
-          "failed": 0
+          "total": 1,
+          "passed": 0,
+          "failed": 1
         },
         "consoleErrors": 0,
         "pageErrors": 0
@@ -567,11 +484,11 @@
       {
         "key": "flow-5",
         "name": "设置变更级联",
-        "status": "✅ PASS",
+        "status": "❌ FAIL",
         "checks": {
-          "total": 6,
-          "passed": 6,
-          "failed": 0
+          "total": 1,
+          "passed": 0,
+          "failed": 1
         },
         "consoleErrors": 0,
         "pageErrors": 0
@@ -579,30 +496,122 @@
       {
         "key": "flow-6",
         "name": "错误路径",
-        "status": "✅ PASS",
+        "status": "❌ FAIL",
         "checks": {
-          "total": 5,
-          "passed": 5,
-          "failed": 0
+          "total": 1,
+          "passed": 0,
+          "failed": 1
         },
         "consoleErrors": 0,
         "pageErrors": 0
       }
     ],
     "totals": {
-      "totalChecks": 44,
-      "totalPassed": 44,
-      "totalFailed": 0,
+      "totalChecks": 6,
+      "totalPassed": 0,
+      "totalFailed": 6,
       "totalConsoleErrors": 0,
       "totalPageErrors": 0
     }
   },
-  "issues": [],
+  "issues": [
+    {
+      "severity": "CRITICAL",
+      "category": "路由检查失败",
+      "spec": "create",
+      "issue": "AI 创作 (/create) failed=1 consoleErrors=4",
+      "recommendation": "查看 reports/create.functional.json 并修复"
+    },
+    {
+      "severity": "CRITICAL",
+      "category": "路由检查失败",
+      "spec": "result",
+      "issue": "创作结果 (/create/result) failed=1 consoleErrors=0",
+      "recommendation": "查看 reports/result.functional.json 并修复"
+    },
+    {
+      "severity": "CRITICAL",
+      "category": "路由检查失败",
+      "spec": "pipeline",
+      "issue": "创作流水线 (/create/pipeline) failed=1 consoleErrors=0",
+      "recommendation": "查看 reports/pipeline.functional.json 并修复"
+    },
+    {
+      "severity": "CRITICAL",
+      "category": "路由检查失败",
+      "spec": "create-history",
+      "issue": "创作历史 (/create/history) failed=1 consoleErrors=0",
+      "recommendation": "查看 reports/create-history.functional.json 并修复"
+    },
+    {
+      "severity": "CRITICAL",
+      "category": "路由检查失败",
+      "spec": "cloud-publish",
+      "issue": "云端发布 (/cloud-publish) failed=1 consoleErrors=0",
+      "recommendation": "查看 reports/cloud-publish.functional.json 并修复"
+    },
+    {
+      "severity": "CRITICAL",
+      "category": "路由检查失败",
+      "spec": "intelligence",
+      "issue": "智能助手 (/intelligence) failed=1 consoleErrors=0",
+      "recommendation": "查看 reports/intelligence.functional.json 并修复"
+    },
+    {
+      "severity": "CRITICAL",
+      "category": "路由检查失败",
+      "spec": "calendar",
+      "issue": "排期日历 (/calendar) failed=1 consoleErrors=0",
+      "recommendation": "查看 reports/calendar.functional.json 并修复"
+    },
+    {
+      "severity": "MAJOR",
+      "category": "集成流失败",
+      "spec": "flow-1",
+      "issue": "创建 → 发布 → 看板 failed=1 consoleErrors=0 pageErrors=0",
+      "recommendation": "查看 reports/integration.flow-1.json"
+    },
+    {
+      "severity": "MAJOR",
+      "category": "集成流失败",
+      "spec": "flow-2",
+      "issue": "账号管理 → 侧栏 → 发布 failed=1 consoleErrors=0 pageErrors=0",
+      "recommendation": "查看 reports/integration.flow-2.json"
+    },
+    {
+      "severity": "MAJOR",
+      "category": "集成流失败",
+      "spec": "flow-3",
+      "issue": "模型服务商 → AI 写作 failed=1 consoleErrors=0 pageErrors=0",
+      "recommendation": "查看 reports/integration.flow-3.json"
+    },
+    {
+      "severity": "MAJOR",
+      "category": "集成流失败",
+      "spec": "flow-4",
+      "issue": "监控 → 评论回复 failed=1 consoleErrors=0 pageErrors=0",
+      "recommendation": "查看 reports/integration.flow-4.json"
+    },
+    {
+      "severity": "MAJOR",
+      "category": "集成流失败",
+      "spec": "flow-5",
+      "issue": "设置变更级联 failed=1 consoleErrors=0 pageErrors=0",
+      "recommendation": "查看 reports/integration.flow-5.json"
+    },
+    {
+      "severity": "MAJOR",
+      "category": "集成流失败",
+      "spec": "flow-6",
+      "issue": "错误路径 failed=1 consoleErrors=0 pageErrors=0",
+      "recommendation": "查看 reports/integration.flow-6.json"
+    }
+  ],
   "totals": {
-    "totalChecks": 317,
-    "totalPassed": 317,
-    "totalFailed": 0,
-    "totalConsoleErrors": 0,
+    "totalChecks": 148,
+    "totalPassed": 135,
+    "totalFailed": 13,
+    "totalConsoleErrors": 4,
     "totalPageErrors": 0
   }
 }

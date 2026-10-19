@@ -34,6 +34,21 @@
     </span>
     <span v-else-if="task.phase === 'failed'" class="ppp__task-error" :title="task.error">
       {{ truncateError(task.error) }}
+      <!--
+        解法入口（2026-10-19，publish-gate-help-ui）
+        有些失败是账号状态问题、技术上绕不过去（如头条「账号信息未完善」）。这时对用户
+        唯一有用的是「去哪里改」，所以按失败码给出平台官方入口，可点击直接去。
+        · 表来自 shared-utils 单一真源（与引擎侧 helpUrl 同表，parity 测试钉住）
+        · href 仍过 safeHttpUrl —— 渲染层不信任任何 URL 字符串（本仓既有判据）
+      -->
+      <a
+        v-if="safeHttpUrl(gateHelp.url)"
+        class="ppp__task-help"
+        data-testid="publish-progress-task-gate-help"
+        :href="safeHttpUrl(gateHelp.url)"
+        target="_blank"
+        rel="noopener noreferrer"
+      >{{ gateHelpLabel }}</a>
     </span>
     <span v-else-if="task.phase === 'blocked'" class="ppp__task-wait" data-testid="publish-progress-task-wait">
       <template v-if="isDailyQuota">
@@ -102,6 +117,8 @@
  */
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { helpForCode } from '@multi-publish/shared-utils/src/publish-gate-help'
+import { safeHttpUrl } from '@multi-publish/shared-utils/src/safe-http-url'
 import {
   CircleCheckFilled, CircleCloseFilled, Clock, CopyDocument, Loading, RefreshRight, RemoveFilled,
 } from '@element-plus/icons-vue'
@@ -148,6 +165,28 @@ function stageLabel(stageKey) {
   }
   return t('publishPage.publishProgressPanel.' + (map[stageKey] || 'stageDetail'))
 }
+
+/**
+ * 失败码 → 平台官方「解法入口」（2026-10-19，publish-gate-help-ui）
+ *
+ * 只在有对应表项时才给出可用 url —— 没有入口时返回一个空壳，`safeHttpUrl('')` 为 null，
+ * 模板据此**不渲染**（绝不给一个点不动的链接）。
+ * 表在 `shared-utils/src/publish-gate-help`（与引擎侧 helpUrl 同源，parity 测试钉住）。
+ *
+ * 注意模板形状：`v-if` 与 `:href` 必须取**同一个表达式** `safeHttpUrl(gateHelp.url)` ——
+ * 这是 `apps/desktop/src/href-scheme-contract.test.js` 的硬判据（防二者分叉成「死锚点」）。
+ */
+const EMPTY_GATE_HELP = Object.freeze({ url: '', labelKey: '', fallbackLabel: '' })
+const gateHelp = computed(() => helpForCode(props.task && props.task.code) || EMPTY_GATE_HELP)
+
+/** 链接文案：i18n 命中用翻译，未命中用表里自带的中文兜底（与仓内兜底同风格） */
+const gateHelpLabel = computed(() => {
+  const item = gateHelp.value
+  // 无入口时不算文案（模板里那个链接本身也不会渲染，因为 safeHttpUrl('') === null）
+  if (!safeHttpUrl(item.url)) return ''
+  const translated = t(item.labelKey)
+  return typeof translated === 'string' && translated !== item.labelKey ? translated : item.fallbackLabel
+})
 
 /**
  * 状态列承载「最具体状态」：运行行显示当前阶段词（如「上传」）而非笼统「进行中」，

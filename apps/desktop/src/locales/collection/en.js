@@ -188,6 +188,7 @@ export default {
     rewriting: 'AI rewriting...',
     rewriteSuccess: 'Rewrite complete',
     rewriteFailed: 'AI rewrite failed',
+    rewriteTruncated: 'The article has {original} characters, over the {max}-character rewrite limit; only the first {max} characters were rewritten.',
     oneClickRewrite: 'One-click Rewrite',
     oneClickRewriting: 'Rewriting...',
     originalContent: 'Original',

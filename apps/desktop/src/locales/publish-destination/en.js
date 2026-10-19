@@ -10,5 +10,6 @@ export default {
     video: 'Generate video',
     videoDesc: 'Open the video pipeline page with text pre-filled',
     pipelineLabel: 'Pipeline',
+    pipelineEmptyOption: '-- Choose a pipeline --',
     close: 'Close',
   }

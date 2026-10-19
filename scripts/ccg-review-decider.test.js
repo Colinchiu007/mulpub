@@ -183,7 +183,7 @@ test("常规：小规模无敏感命中 => single", () => {
 
 test("常规：决策层（方案文件）不按扩展名过滤规模", () => {
   const staged = makeStaged({
-    files: [{ file: ".hermes/plans/plan.md", added: 50, deleted: 0 }],
+    files: [{ file: "openspec/changes/x/proposal.md", added: 50, deleted: 0 }],
     proposal: true,
   });
   // 决策层的规模来自 staged.stats.changedLines

@@ -10,6 +10,10 @@ import i18n from "@/i18n";
 
 const routes = [
   { path: "/", name: "home", component: { template: "<div>home</div>" } },
+  // editDraft/onOpenDraftsPage 等视图内导航以 /publish 为目标：无此桩路由时
+  // router.replace 被拒（"No match found"），query 不变 ⇒ 依赖 query 变化的
+  // 装载路径（继续编辑草稿）静默失效（实测该用例因此自 routes 精简后一直红）。
+  { path: "/publish", name: "publish", component: { template: "<div>publish</div>" } },
 ];
 const router = createRouter({ history: createWebHistory(), routes });
 
@@ -169,11 +173,39 @@ describe("PublishView", () => {
     await nextTick()
     await w.vm.loadDrafts()
     await nextTick()
-    expect(w.vm.showDraftList).toBe(true)
+    // S1c：showDraftList（页内浮层开关）已随浮层一起删除，草稿箱只剩整页实现
+    expect(w.vm.showDraftList).toBeUndefined()
     expect(window.electronAPI.draftList).toHaveBeenCalled()
     expect(w.get('[data-testid="publish-drafts-page"]').exists()).toBe(true)
     expect(w.get('[data-testid="publish-drafts-empty"]').text()).toContain('暂无草稿')
     expect(w.find('[data-testid="publish-title"]').exists()).toBe(false)
+  })
+
+  // S1c 回归保护：草稿箱每条草稿必须有「去发布」出口。
+  // 背景：替换采集页草稿面板（原面板带 edit/publish 两键）后，若整页草稿箱只有
+  // 「继续编辑」+「删除」，从采集页进草稿箱的用户就找不到发布入口 —— 功能倒退。
+  it("草稿箱列表每条草稿有且仅有一个发布出口", async () => {
+    window.electronAPI.draftList.mockResolvedValue({
+      code: 0,
+      data: [{ id: 'd1', title: '草稿一', content: '正文', updatedAt: '2026-10-19T00:00:00.000Z' }],
+    })
+    await router.push('/?tab=drafts')
+    const w = await createWrapper()
+    await nextTick()
+    await nextTick()
+    await w.vm.loadDrafts()
+    await nextTick()
+
+    const publishBtn = w.get('[data-testid="publish-draft-d1"]')
+    expect(publishBtn.exists()).toBe(true)
+    expect(publishBtn.text()).toBe('去发布')
+    // 规则 1：不得出现第二个标签不同但结果相同的按钮
+    expect(w.find('[data-testid="edit-draft-d1"]').exists()).toBe(false)
+
+    await publishBtn.trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.query.draft).toBe('d1')
+    expect(router.currentRoute.value.query.tab).toBe('publish')
   })
 
   it("草稿箱返回发布时切回发布编辑器页签", async () => {

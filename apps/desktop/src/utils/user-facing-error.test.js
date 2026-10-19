@@ -246,3 +246,36 @@ describe('formatUserError — LLM_NOT_CONFIGURED（默认文字推理模型未�
     expect(enUserErrors.LLM_NOT_CONFIGURED.length).toBeGreaterThan(20)
   })
 })
+
+// ═══════════════════════════════════════════════════════════════════════
+// 改写引擎业务错误码（2026-10-19，fix-collect-rewrite-too-long）
+//
+// 引擎把业务失败放在 `data.errorCode/error` 里；采集页归一化后使用这两个稳定码。
+// 文案必须带「具体上限 + 可操作建议」，不得退化成兜底「AI 改写失败」。
+// ═══════════════════════════════════════════════════════════════════════
+describe('formatUserError — 改写引擎业务错误码', () => {
+  it('USER_ERROR_CODES 暴露稳定码（防常量与 locales 漂移）', () => {
+    expect(USER_ERROR_CODES.REWRITE_CONTENT_TOO_LONG).toBe('REWRITE_CONTENT_TOO_LONG')
+    expect(USER_ERROR_CODES.REWRITE_CONTENT_SENSITIVE).toBe('REWRITE_CONTENT_SENSITIVE')
+  })
+
+  it('REWRITE_CONTENT_TOO_LONG：zh 插值 {max}、en 成对', () => {
+    // rewrite-limits-50000：上限真源 50000（由 rewrite-engine-error 归一化时注入）
+    const zh = formatUserError({ errorCode: 'REWRITE_CONTENT_TOO_LONG', params: { max: 50000 } }, { locale: 'zh' })
+    expect(zh.errorCode).toBe('REWRITE_CONTENT_TOO_LONG')
+    expect(zh.matched).toBe('errorCode')
+    expect(zh.message).toContain('50000')
+    expect(zh.message).toContain('改写')
+
+    const en = formatUserError({ errorCode: 'REWRITE_CONTENT_TOO_LONG', messageParams: { max: 50000 } }, { locale: 'en' })
+    expect(en.message).toContain('50000')
+    expect(en.message).toContain('rewrite')
+  })
+
+  it('zh/en 两个 userErrors 文案表都含新键（CI Gate 7 前置锁）', () => {
+    expect(typeof zhUserErrors.REWRITE_CONTENT_TOO_LONG).toBe('string')
+    expect(typeof enUserErrors.REWRITE_CONTENT_TOO_LONG).toBe('string')
+    expect(typeof zhUserErrors.REWRITE_CONTENT_SENSITIVE).toBe('string')
+    expect(typeof enUserErrors.REWRITE_CONTENT_SENSITIVE).toBe('string')
+  })
+})

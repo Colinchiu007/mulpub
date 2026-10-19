@@ -6,7 +6,7 @@ export default {
     title: 'Copy Rewrite',
     subtitle: 'AI-powered multi-strategy rewrite engine, combining viral library and personal experience for originality',
     inputSection: 'Input content',
-    inputPlaceholder: 'Enter or paste content to rewrite (up to 6000 characters)...',
+    inputPlaceholder: 'Enter or paste content to rewrite (up to 50000 characters)...',
     configSection: 'Rewrite settings',
     useViralLibrary: 'Use viral library',
     useViralLibraryHint: 'Prioritize viral content strategies to boost appeal and reach',
@@ -53,9 +53,13 @@ export default {
     wordCountMinPlaceholder: 'Min',
     wordCountMaxPlaceholder: 'Max',
     wordCountUnit: 'chars',
-    wordCountMinInvalid: 'Min must be an integer between 0 and 5999',
-    wordCountMaxInvalid: 'Max must be an integer between 1 and 6000',
+    wordCountMinInvalid: 'Min must be an integer between 0 and 49999',
+    wordCountMaxInvalid: 'Max must be an integer between 1 and 50000',
     wordCountMaxLtMin: 'Max cannot be less than min',
+    // Output truncation visibility (rewrite-limits-50000, 2026-10-19): banner on the
+    // result card when the engine trims output to the word-count/strategy cap;
+    // length = actual output chars, max = effective cap
+    outputTruncated: 'The rewrite was trimmed to the output limit: {length} chars written (limit {max}). The tail of the source text is not included. Raise the word-count cap for a full rewrite.',
     // ── Rewrite quality report (content-quality-eval desktop loop) ──
     qualitySection: 'Quality Assessment',
     qualitySufficiency: 'Rewrite sufficiency',

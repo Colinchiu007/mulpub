@@ -1,0 +1,55 @@
+{
+  "sha": "65cb662d6a8b4c25359cf759aa826b7aa21ed702",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 1,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "3289bb6df6a2cb0fb602ab460de671c26be2b8c4a1b8acc50f3aecc1aec749b2",
+  "decidedAt": "2026-10-19T04:52:28.539Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "self_play_resolved",
+    "performedBy": "main-agent-degraded",
+    "evidence": null,
+    "findings": "本机无 codeagent-wrapper 双模型后端（opencode/claude 均不可用），按 AGENTS.md「子代理降级」转主代理自执行；方案级评审已由 PRD 三轮双轴对抗评审覆盖，本轮代码级自审结论见 openspec/records/ui-flow-handoff.md QM-5 行与 PR 描述的校准两处（D12/D13）。未以自审冒充双模型通过。",
+    "tier": "self-play"
+  }
+}

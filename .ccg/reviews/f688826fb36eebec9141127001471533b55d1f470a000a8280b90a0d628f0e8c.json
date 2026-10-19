@@ -1,0 +1,37 @@
+{
+  "sha": "700e457624142b86950992e4da835640d3a20d04",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 789 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 789,
+    "fileCount": 14,
+    "codeFileCount": 14,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 3,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "f688826fb36eebec9141127001471533b55d1f470a000a8280b90a0d628f0e8c",
+  "decidedAt": "2026-10-18T18:45:37.982Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "main-agent-degraded",
+    "findings": "本机无 codeagent-wrapper 双模型后端（opencode/claude 均不可用），按 AGENTS.md「子代理降级」转主代理自执行；审计结论见 .ccg/reviews/ui-flow-clarity-review.md §E.3（E3-1..E3-5），未以自审冒充双模型通过。",
+    "tier": "self-play"
+  }
+}

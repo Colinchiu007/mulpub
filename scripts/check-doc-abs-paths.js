@@ -100,7 +100,7 @@ for (let i = 0; i < argv.length; i++) {
 }
 
 // ---- 受管范围 ----
-const SCAN_ROOTS = ['01-docs', 'docs', 'openspec', '.github', 'scripts', '.hermes', '.ccg'];
+const SCAN_ROOTS = ['01-docs', 'docs', 'openspec', '.github', 'scripts', '.ccg'];
 const SCAN_EXTS = new Set(['.md', '.sh', '.ps1', '.js', '.yml', '.yaml', '.json']);
 const SCAN_EXCLUDE_DIRS = new Set([
   '.git', 'node_modules', 'dist', 'dist-electron', 'coverage',

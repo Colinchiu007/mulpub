@@ -76,7 +76,7 @@ const OtherPage = defineComponent({
 })
 
 const childStubs = {
-  MpSidebar: true, MpModuleNav: true, TabBar: true, NavBar: true, OfflineIndicator: true,
+  MpSidebar: true, TabBar: true, NavBar: true, OfflineIndicator: true,
   UpdateNotification: true, SettingsDialog: true, BackToTop: true, PipelineBackgroundToast: true,
   PublishProgressPanel: true, RouteLoadError: true,
 }

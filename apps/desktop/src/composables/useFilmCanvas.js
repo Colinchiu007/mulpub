@@ -16,6 +16,7 @@ import { getApi } from '@/api/electron-bridge'
 import {
   NODE_TYPES, validateCanvasEdge, shotsToNodes, mergeNodesKeepPosition,
   buildLocalReferences, serializeCanvasState, deserializeCanvasState,
+  collectShotReferences,
 } from './film-canvas-model'
 
 const MAX_SCRIPT_LENGTH = 10000
@@ -175,6 +176,24 @@ export function useFilmCanvas (opts = {}) {
     return validateCanvasEdge({ sourceType: src.type, targetType: tgt.type })
   }
 
+  /**
+   * 重算某分镜节点的 refCount（注入参考图张数）。
+   *
+   * 2026-10-19 修复：ShotNode 一直渲染「已注入 {n} 张参考」，但全仓没有任何代码写入
+   * data.refCount，导致连线成功后用户看不到任何视觉反馈。这里在落边/删边后回写，
+   * 真源仍是 collectShotReferences（与实际参与生成的参考同源），不做第二套计数。
+   */
+  function recomputeRefCount (shotNodeId) {
+    const node = nodeById(shotNodeId)
+    if (!node || node.type !== 'shot') return
+    const refs = collectShotReferences(shotNodeId, nodes.value, edges.value)
+    const count = refs.character.length + refs.scene.length
+    if (node.data.refCount === count) return
+    nodes.value = nodes.value.map((n) => (
+      n.id === shotNodeId ? { ...n, data: { ...n.data, refCount: count } } : n
+    ))
+  }
+
   /** 通过校验才落边；返回 {ok, reasonKey?} */
   function addEdge (connection) {
     const verdict = canConnect(connection)
@@ -184,14 +203,20 @@ export function useFilmCanvas (opts = {}) {
       source: connection.source,
       target: connection.target,
     }]
+    recomputeRefCount(connection.target)
     persist()
     return { ok: true }
   }
 
   function removeNodes (ids) {
     const kill = new Set(Array.isArray(ids) ? ids : [ids])
+    // 删边会波及的分镜节点（先收集，删完再重算，避免读到已被过滤掉的边）
+    const affected = new Set(
+      edges.value.filter((e) => kill.has(e.source) || kill.has(e.target)).map((e) => e.target)
+    )
     nodes.value = nodes.value.filter((n) => !kill.has(n.id))
     edges.value = edges.value.filter((e) => !kill.has(e.source) && !kill.has(e.target))
+    for (const target of affected) recomputeRefCount(target)
     persist()
   }
 

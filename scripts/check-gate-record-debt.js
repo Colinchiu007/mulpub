@@ -170,11 +170,15 @@ function loadLedger(root) {
   const raw = JSON.parse(fs.readFileSync(file, 'utf8'))
   const out = {}
   for (const [heading, entry] of Object.entries(raw)) {
-    const reason = typeof entry === 'string' ? entry : entry && entry.reason
-    if (!reason || !String(reason).trim()) {
+    if (typeof entry !== 'string') {
+      // 不写"是对象就取 reason"的宽容读：那等于允许 {reason,status,line} 再生。line 在置顶追加型台账里
+      // 结构上必然随每笔合并过期（实测 9/9 已指不到自己的行），status 与判据自己测的东西重复。
+      throw new Error(`登记项必须是原因字符串（status/line 这类第二份事实会静默腐化，账本不收）：${heading}`)
+    }
+    if (!entry.trim()) {
       throw new Error(`登记项缺少原因（每个欠账必须写明为什么没回填）：${heading}`)
     }
-    out[heading] = String(reason).trim()
+    out[heading] = entry.trim()
   }
   return out
 }
@@ -366,7 +370,14 @@ const CLOSURE_UNPROVEN = {
   notInjected: 'not-injected',
 }
 
-function collect({ root = process.cwd(), ledger = loadLedger(), duplicatesAllowed = DUPLICATE_HEADINGS_ALLOWED, crossSrcAllowed = CROSS_SRC_ALLOWED, recordsRoot = path.join(root, RECORDS_REL), carrierFreeze = null, mergeLedger = null, closureDiff = null } = {}) {
+function collect({ root = process.cwd(), ledger, duplicatesAllowed = DUPLICATE_HEADINGS_ALLOWED, crossSrcAllowed = CROSS_SRC_ALLOWED, recordsRoot = path.join(root, RECORDS_REL), carrierFreeze = null, mergeLedger = null, closureDiff = null } = {}) {
+  // 欠账登记表同样**只能由调用方注入**（QM-6 第三轴 W1）：留 `= loadLedger(root)` 的默认值，
+  // 等于把"没注入"实现成"读生产仓库的真实清单"——夹具里本该红的未登记欠账只要撞上真仓已有的键
+  // 就被吞掉，而这与同函数里 mergeLedger 的纪律（缺注入就明说 not-injected）自相矛盾。
+  // 判据用 === undefined 而不是 !ledger：注入空账本是合法值（"什么都没登记"），必须继续报欠账。
+  if (ledger === undefined || ledger === null) {
+    throw new Error('collect() 缺 ledger 注入：不得默认读生产账本，也不得把「没注入」读成「零欠账」（CLI 侧传 loadLedger(root)，用例传显式夹具）')
+  }
   // 账本**只能由调用方注入**，与 carrierFreeze 同规：原先这里留了一条"默认去 buildLedger"的尾巴，
   // 实测它是一个永不被走到的分支（main 自己构造后注入、所有用例也注入），
   // 于是变异"把默认值写成坏 baseRef"全绿——未走过的分支不是备用路径，是藏起来的第二口径（N8 实测）。
@@ -946,7 +957,7 @@ function main() {
   let closure = process.env.MP_TEST_FORCE_UNPROVEN
     ? { ok: false, reason: String(process.env.MP_TEST_FORCE_UNPROVEN) }
     : buildClosureDiff({ baseRef, headRef, cwd: root, recordsRel: RECORDS_REL_POSIX })
-  const r = collect({ root, carrierFreeze: loadCarrierFreeze(), mergeLedger: ml, closureDiff: closure })
+  const r = collect({ root, ledger: loadLedger(root), carrierFreeze: loadCarrierFreeze(), mergeLedger: ml, closureDiff: closure })
   console.log(format(r, { carrierBlocking: mode === "block" }))
   // 打印即门禁：CI 上账本不可用（浅检出、ref 没取到、仓库态异常）意味着派生档整体停用。
   // 停用不是"通过"——留在 CI 里就是一条随时会烂成装饰的分支，必须当场红并给出原因。

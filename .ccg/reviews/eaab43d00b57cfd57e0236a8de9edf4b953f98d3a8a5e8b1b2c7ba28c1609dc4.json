@@ -1,0 +1,55 @@
+{
+  "sha": "7ff9192917aefc6a3a93bb086a4ed267625527cd",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 132 行（≤ 200）但命中 auth/数据库/加密：敏感内容 4 处",
+  "stats": {
+    "changedLines": 132,
+    "fileCount": 6,
+    "codeFileCount": 5,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 4,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "eaab43d00b57cfd57e0236a8de9edf4b953f98d3a8a5e8b1b2c7ba28c1609dc4",
+  "decidedAt": "2026-10-19T01:29:14.415Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

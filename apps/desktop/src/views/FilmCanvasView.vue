@@ -112,8 +112,15 @@ async function onGenerate (ids) {
     seconds: chosen.value.seconds,
     localReferences: payload.localReferences,
   })
+  // 2026-10-19 修复：原先除 tooManyShots / noShots 外的**所有**失败都落到
+  // engineUnavailable，于是 provider 未配置也会被报成「影视引擎不可用」（用户会以为是
+  // 安装损坏，而不是去配模型）。现在按服务端 errorCode 分流：
+  //   VIDEO_MODEL_NOT_CONFIGURED → video.noModel（精准，并可加「前往模型设置」）
+  //   FILM_KIT_UNAVAILABLE       → engineUnavailable（kit 缺失确实属于引擎不可用）
+  //   其余                       → engineUnavailable 兜底（不吞掉、不静默）
   if (!res.ok && res.errorCode === 'tooManyShots') ElMessage.error(t('filmEngineering.video.tooManyShots', { max: FILM_MAX_VIDEO_BATCH }))
   else if (!res.ok && res.errorCode === 'noShots') ElMessage.warning(t('filmEngineering.canvas.generate.none'))
+  else if (!res.ok && res.errorCode === 'VIDEO_MODEL_NOT_CONFIGURED') ElMessage.error(t('filmEngineering.video.noModel'))
   else if (!res.ok) ElMessage.error(errText('filmEngineering.canvas.engineUnavailable'))
   syncShotStatuses()
 }

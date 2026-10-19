@@ -13,7 +13,7 @@
       </ul>
       <p v-if="voice" class="podcast-script-entry__voice" data-testid="podcast-script-voice">
         {{ t('podcast.episode.planVoice', { provider: voice.providerId, model: voice.model, voice: voice.voiceId }) }}
-        <span v-if="originLabel" class="podcast-script-entry__origin">{{ originLabel }}</span>
+        <span v-if="originLabel" class="podcast-script-entry__origin" data-testid="podcast-script-voice-origin">{{ originLabel }}</span>
       </p>
 
       <!-- 预览被拒 = 「这一期现在还发不了」：显示原因句；按钮仍可用（判据 3 + 4） -->
@@ -51,6 +51,10 @@ const ORIGIN_KEYS = {
   preference: 'podcast.episode.originPreference',
   providerDefault: 'podcast.episode.originProviderDefault',
 }
+// §8.2.9 判据 2：三档里**只有 ②③ 需要标注**。`channel` 是用户自己填进频道的东西，
+// 再告诉他一遍来源只会让他以为那是一层回退结果；所以这张表是「要不要出声」的白名单，
+// 不是「有哪些档」的清单——判据 1 的闭集仍是上面那三把键，别把这里当闭集用。
+const ANNOTATED_ORIGINS = ['preference', 'providerDefault']
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
@@ -71,8 +75,17 @@ let unsubscribe = null
 let suspended = false
 
 const originLabel = computed(() => {
-  const key = voice.value && ORIGIN_KEYS[voice.value.origin]
-  return key ? t(key) : ''
+  const origin = voice.value && voice.value.origin
+  if (!origin) return ''
+  // 判据 1：闭集外的值**不兜底成"取自频道"**（那等于伪造来源），出声一条 warn 供排障，
+  // 界面按"没有可标注的来源"处理——三段音色照常显示，那部分不依赖 origin。
+  if (!ORIGIN_KEYS[origin]) {
+    // 开发者日志，不是用户文案：走 ASCII，避免把一条排障用的字符串塞进 locale 基线（Gate 7 的 --cjk 按文件差分拦新增）
+    console.warn('[podcast-script-entry] voice.origin out of closed set, origin line hidden:', origin)
+    return ''
+  }
+  if (!ANNOTATED_ORIGINS.includes(origin)) return ''
+  return t(ORIGIN_KEYS[origin])
 })
 // 相位文案取 §6.4.2 既有表；相位枚举由主进程给，前端不抄相位清单。
 const phaseText = computed(() => (phase.value ? t('podcast.episode.phase.' + phase.value) : ''))

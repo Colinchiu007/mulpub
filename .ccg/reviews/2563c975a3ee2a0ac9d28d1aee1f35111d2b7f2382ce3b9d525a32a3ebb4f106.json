@@ -1,0 +1,56 @@
+{
+  "sha": "89b6ad06a7249fe7622779bd091d697f0ea995c8",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 955 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 955,
+    "fileCount": 10,
+    "codeFileCount": 10,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 14,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "2563c975a3ee2a0ac9d28d1aee1f35111d2b7f2382ce3b9d525a32a3ebb4f106",
+  "decidedAt": "2026-10-19T00:51:41.843Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "error",
+    "performedBy": "claude",
+    "findings": null,
+    "error": "JSON解析失败:模型输出被截断，JSON 不完整（{ 34 个 / } 33 个，结尾无 }），共 13594 字符 —— 这通常意味着方案问题太多、模型输出超长被截断。重跑同样输入多半还是截断。可选：把方案拆小后分批评审，或先让 critic 只挑 Critical / Warning、暂不要求 Info。",
+    "validationErrors": null,
+    "at": "2026-10-19T01:19:22.413Z"
+  }
+}

@@ -24,6 +24,15 @@ const { hasUsableApiKey, canUseWithoutApiKey } = require('./model-provider-manag
 
 const PIPELINE_MODEL_REQUIREMENTS_MISSING = 'PIPELINE_MODEL_REQUIREMENTS_MISSING'
 
+/**
+ * 数字人流水线的机器名与 provider（与 videogen-stages.js 的
+ * AVATAR_PIPELINE / DIGITAL_HUMAN_PROVIDER 保持一致，避免两处漂移）。
+ */
+const DIGITAL_HUMAN_PIPELINE = 'avatar-spokesperson'
+const DIGITAL_HUMAN_PROVIDER = 'heygen'
+const AVATAR_ID_REQUIRED = 'AVATAR_ID_REQUIRED'
+const AVATAR_VOICE_REQUIRED = 'AVATAR_VOICE_REQUIRED'
+
 // 能力标识（同时是 model_providers.category，与 renderer 能力标签键一致）
 const CAPABILITIES = Object.freeze({
   LLM: 'llm',
@@ -169,6 +178,47 @@ function resolvePipelineModelRequirements (pipelineName, params = {}) {
  * @param {{warn?: Function}} [log]
  * @returns {{success: boolean, checked?: boolean, unmapped?: boolean, errorCode?: string, errorParams?: object, error?: string}}
  */
+function isSafeAvatarId (value) {
+  return typeof value === 'string' && value.trim() !== '' && value.trim().length <= 256
+}
+
+/**
+ * 数字人流水线（avatar-spokesperson）的专项前置校验。
+ *
+ * 为什么单独校验而不只靠 [llm, video] 能力表：那个组合对「配了任意通用
+ * 视频模型」也成立 —— 用户配了 Kling 也会被判「数字人可用」，但真跑到
+ * generate 阶段会因为 HeyGen 未配置而失败。这是 PRD §1.2 记录的假阳性来源。
+ *
+ * 校验顺序刻意先查参数再查 provider：参数缺失是用户能立刻修正的，
+ * _provider 缺失需要跳转设置页，把可即时修正的放前面能减少一次往返。
+ *
+ * @returns {{success: boolean, errorCode?: string, error?: string}}
+ */
+function checkDigitalHumanRequirements (modelProviderManager, params) {
+  if (!isSafeAvatarId(params.avatarId)) {
+    return { success: false, errorCode: AVATAR_ID_REQUIRED, error: '请先选择数字人形象后再启动流水线。' }
+  }
+  if (!isSafeAvatarId(params.voiceId)) {
+    return { success: false, errorCode: AVATAR_VOICE_REQUIRED, error: '请先选择数字人音色后再启动流水线。' }
+  }
+  // provider 可用性：显式 videoProvider 优先，否则固定 HeyGen
+  const explicit = nonEmptyString(params.videoProvider)
+  const providerId = explicit || DIGITAL_HUMAN_PROVIDER
+  const provider = typeof modelProviderManager.getProviderWithKey === 'function'
+    ? modelProviderManager.getProviderWithKey(providerId)
+    : null
+  const ok = Boolean(provider && (hasUsableApiKey(provider.api_key) || canUseWithoutApiKey(provider)))
+  if (!ok) {
+    return {
+      success: false,
+      errorCode: PIPELINE_MODEL_REQUIREMENTS_MISSING,
+      errorParams: { missing: ['video'], providers: { video: providerId } },
+      error: '启动被拦截：数字人视频生成需要 HeyGen 模型，请到「模型设置」中配置 HeyGen 后重试。',
+    }
+  }
+  return { success: true }
+}
+
 function checkPipelineModelRequirements (modelProviderManager, pipelineName, params = {}, log) {
   // Fail-open 边界：管理器缺失/未初始化（如纯引擎单测环境）时跳过校验并告警，
   // 不把环境问题误报为用户模型缺失；生产链路（container.setup + phase1）恒注入已初始化管理器。
@@ -193,11 +243,29 @@ function checkPipelineModelRequirements (modelProviderManager, pipelineName, par
     return { success: true, checked: true, unmapped: true }
   }
 
+  // 数字人流水线专项校验（PRD-AVATAR-SPOKESPERSON-HEYGEN-WIRING-2026-10-19）：
+  // 放在通用能力校验之前，让「参数缺失」这类用户可立即修正的问题优先暴露。
+  if (pipelineName === DIGITAL_HUMAN_PIPELINE) {
+    const digitalHuman = checkDigitalHumanRequirements(modelProviderManager, params)
+    if (!digitalHuman.success) {
+      return { success: false, checked: true, ...digitalHuman }
+    }
+  }
+
   const { capabilities, providers } = resolvePipelineModelRequirements(pipelineName, params)
+  // 数字人流水线的 video 能力已由专项校验（HeyGen 可用性）覆盖：这里再从
+  // capabilities 里剔除，避免「默认 video 是别的模型」这种无关状态再拦一次。
+  // llm（写口播文案）仍需校验。
+  const effectiveCapabilities = pipelineName === DIGITAL_HUMAN_PIPELINE
+    ? capabilities.filter((capability) => capability !== CAPABILITIES.VIDEO)
+    : capabilities
+  const effectiveProviders = { ...providers }
+  if (pipelineName === DIGITAL_HUMAN_PIPELINE) delete effectiveProviders[CAPABILITIES.VIDEO]
+
   const missing = []
   const missingProviders = {}
-  for (const capability of capabilities) {
-    const providerId = providers[capability]
+  for (const capability of effectiveCapabilities) {
+    const providerId = effectiveProviders[capability]
     let ok
     if (providerId) {
       // 显式 provider：凭据可用（可解密 API Key 或本地免 Key provider），与 callAdapter 判定一致
@@ -228,7 +296,12 @@ function checkPipelineModelRequirements (modelProviderManager, pipelineName, par
 
 module.exports = {
   checkPipelineModelRequirements,
+  checkDigitalHumanRequirements,
   resolvePipelineModelRequirements,
   STATIC_PIPELINE_REQUIREMENTS,
   PIPELINE_MODEL_REQUIREMENTS_MISSING,
+  AVATAR_ID_REQUIRED,
+  AVATAR_VOICE_REQUIRED,
+  DIGITAL_HUMAN_PIPELINE,
+  DIGITAL_HUMAN_PROVIDER,
 }
