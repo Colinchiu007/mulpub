@@ -12,6 +12,60 @@
       排序所见即所得：按钮只在当前列表（含分类筛选、是否含隐藏项）范围内调整次序，序列外的预设不受影响。
     </p>
 
+    <!-- 能力默认模型总览（voice-model-program-resolved，2026-10-18）：
+         桌面应用使用某种能力时，具体模型由程序按此处配置的默许模型解析，不再要求用户选择。
+         这张表让运营一眼看出「某能力下哪些提供方缺默许模型」。 -->
+    <el-card shadow="never" style="margin-bottom:16px">
+      <template #header>
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span style="font-weight:600">能力默认模型总览</span>
+          <el-button link size="small" :loading="overviewLoading" @click="loadOverview">刷新</el-button>
+        </div>
+      </template>
+      <p style="color:var(--color-text-placeholder);font-size: var(--font-size-sm);margin-bottom:12px">
+        按能力类别维护每个模型提供方的默许模型（Model ID）。桌面应用在使用某种能力时，会按此处配置自动确定具体模型，
+        不再要求用户选择。<b>未配置</b>的提供方在该能力下不可用，桌面端会跳过它；隐藏的预设不计入缺口。
+      </p>
+      <el-alert
+        v-if="overview && overview.missing_count > 0"
+        type="warning"
+        :closable="false"
+        show-icon
+        style="margin-bottom:12px"
+        :title="`当前有 ${overview.missing_count} 个「能力 × 提供方」组合尚未配置默许模型，桌面端在这些能力下会跳过对应提供方。`"
+      />
+      <el-table v-loading="overviewLoading" :data="overview ? overview.capabilities : []" stripe style="width:100%">
+        <el-table-column label="能力" width="150">
+          <template #default="{ row }">
+            <el-tag size="small">{{ CAP_OVERVIEW_LABELS[row.capability] || row.capability }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="提供方 / 默许模型">
+          <template #default="{ row }">
+            <div v-if="row.providers.length === 0" style="color:var(--color-text-placeholder)">（无可见预设）</div>
+            <div v-else style="display:flex;flex-wrap:wrap;gap:6px">
+              <el-tag
+                v-for="p in row.providers"
+                :key="p.id"
+                :type="p.is_configured ? 'success' : 'warning'"
+                size="small"
+                :title="p.is_configured ? `${p.name} → ${p.model}` : `${p.name}：未配置默许模型`"
+              >
+                {{ p.name }}<span v-if="p.is_configured"> · {{ p.model }}</span><span v-else> · 未配置</span>
+              </el-tag>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="缺口" width="90" align="center">
+          <template #default="{ row }">
+            <span :style="{ color: row.providers.some(p => !p.is_configured) ? 'var(--el-color-warning)' : 'inherit' }">
+              {{ row.providers.filter(p => !p.is_configured).length }} / {{ row.providers.length }}
+            </span>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
+
     <el-card shadow="never">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
         <el-radio-group v-model="filterCategory" @change="load">
@@ -130,14 +184,41 @@
               <el-option v-for="c in CAP_OPTIONS" :key="c.value" :label="c.label" :value="c.value" />
             </el-select>
           </el-form-item>
-          <el-form-item v-for="cap in form.capabilities" :key="cap" :label="`${CAP_LABELS[cap] || cap} 默认模型`">
-            <el-input v-model="form.capability_models[cap]" :placeholder="`${cap} 对应的默认模型 ID`" />
-          </el-form-item>
           <el-divider content-position="left">分能力技术文档 URL（多模态）</el-divider>
           <el-form-item v-for="doc in DOC_CAP_OPTIONS" :key="doc.value" :label="`${doc.label}技术文档URL`">
             <el-input v-model="capDocModel[doc.value]" :placeholder="`${doc.value} 对应的接口技术文档网页链接（允许为空）`" />
           </el-form-item>
         </template>
+
+        <!-- 能力默认模型（voice-model-program-resolved，2026-10-18）：
+             从「仅多模态」扩到全类别——单能力服务商按自身类别渲染一项，多模态按支持能力逐项渲染。
+             桌面端使用该能力时按这里配置的默许模型自动确定具体模型，不再要求用户选择。 -->
+        <el-divider content-position="left">能力默认模型（桌面端按此自动确定，用户无需选择）</el-divider>
+        <el-form-item
+          v-for="cap in capabilityDefaultKeys"
+          :key="cap"
+          :label="`${CAP_LABELS[cap] || cap} 默认模型`"
+        >
+          <el-select
+            v-model="form.capability_models[cap]"
+            filterable
+            allow-create
+            allow-clear
+            clearable
+            style="width:100%"
+            :placeholder="`选择或输入 ${cap} 对应的默认模型 ID（留空表示未配置）`"
+          >
+            <el-option v-for="m in parsedModels" :key="m" :label="m" :value="m" />
+          </el-select>
+          <div style="color:var(--color-text-placeholder);font-size: var(--font-size-xs);margin-top:4px">
+            必须出现在上方「模型 ID 列表」中；留空表示该能力下不可用（桌面端会跳过该提供方）。
+          </div>
+        </el-form-item>
+        <el-form-item v-if="capabilityDefaultKeys.length === 0" label="能力默认模型">
+          <span style="color:var(--color-text-placeholder)">
+            先在「支持能力」中选择能力，再为每项配置默认模型。
+          </span>
+        </el-form-item>
 
         <el-divider content-position="left">模型技术文档链接（最多 10 条）</el-divider>
         <el-form-item label="文档链接">
@@ -161,9 +242,12 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { listModelPresets, createModelPreset, updateModelPreset, deleteModelPreset, fetchModelIds, reorderModelPreset } from '../api/modelPresets'
+import {
+  listModelPresets, createModelPreset, updateModelPreset, deleteModelPreset,
+  fetchModelIds, reorderModelPreset, fetchCapabilityOverview,
+} from '../api/modelPresets'
 
 const CATEGORY_OPTIONS = [
   { value: 'llm', label: '推理模型' },
@@ -184,6 +268,8 @@ const CAP_OPTIONS = [
   { value: 'audio', label: '音频生成' },
 ]
 const CAP_LABELS = Object.fromEntries(CAP_OPTIONS.map(c => [c.value, c.label]))
+// 能力默认模型总览的分组标签（与后端 capability_overview 的分组顺序一致）
+const CAP_OVERVIEW_LABELS = { ...CAP_LABELS, speech_recognition: '语音识别', audio: '音频生成' }
 // 多模态模型按能力展示的技术文档 URL 输入框（7 类固定能力）
 const DOC_CAP_OPTIONS = [
   { value: 'llm', label: '文字推理接口' },
@@ -199,6 +285,8 @@ const presets = ref([])
 const loading = ref(false)
 const saving = ref(false)
 const fetchingModels = ref(false)
+const overview = ref(null)
+const overviewLoading = ref(false)
 const filterCategory = ref('')
 const includeHidden = ref(false)
 const showDialog = ref(false)
@@ -214,7 +302,33 @@ const form = reactive({
 
 const parsedModels = computed(() => modelsText.value.split(',').map(s => s.trim()).filter(Boolean))
 
-onMounted(load)
+// 能力默认模型输入项的键集合（voice-model-program-resolved，2026-10-18）：
+// - 多模态：按「支持能力」逐项
+// - 单能力：按自身类别单项（该类别即其唯一的默许模型维度）
+const capabilityDefaultKeys = computed(() => {
+  if (form.is_multimodal) return Array.isArray(form.capabilities) ? form.capabilities : []
+  return form.category ? [form.category] : []
+})
+
+// 切换类别/支持能力时清理不再适用的能力默认模型键，避免提交脏键被后端 400 拦截。
+// 判据：键不在 allowed 集合内即删（空值也删，保持 payload 干净）。
+watch(capabilityDefaultKeys, (keys) => {
+  if (!form.capability_models || typeof form.capability_models !== 'object') {
+    form.capability_models = {}
+    return
+  }
+  const allowed = new Set(keys)
+  Object.keys(form.capability_models).forEach((key) => {
+    if (!allowed.has(key) || !String(form.capability_models[key] || '').trim()) {
+      delete form.capability_models[key]
+    }
+  })
+}, { deep: true })
+
+onMounted(() => {
+  load()
+  loadOverview()
+})
 
 async function load() {
   loading.value = true
@@ -239,6 +353,26 @@ async function load() {
 
 function resetCapDocModel() {
   Object.keys(capDocModel).forEach(k => { capDocModel[k] = '' })
+}
+
+/**
+ * 加载「能力默认模型总览」（voice-model-program-resolved，2026-10-18）。
+ * 失败不阻断主列表：仅提示，总览区保持上一次读数（null 则显示空表）。
+ */
+async function loadOverview() {
+  overviewLoading.value = true
+  try {
+    overview.value = await fetchCapabilityOverview()
+  } catch (e) {
+    if (e.response?.status === 403) {
+      // 非管理员：总览为 admin-only，静默隐藏（主列表仍可用）
+      overview.value = null
+    } else {
+      ElMessage.error('加载能力默认模型总览失败')
+    }
+  } finally {
+    overviewLoading.value = false
+  }
 }
 
 function resetForm() {
@@ -366,6 +500,18 @@ async function save() {
     ElMessage.warning('默认模型 ID 必须在模型列表中')
     return
   }
+  // 能力默认模型前端预校验（voice-model-program-resolved）：与后端自洽校验同口径，
+  // 让运营在提交前就看到具体哪一项越界，而不是等 400 回来再猜。
+  const capDefaultModels = payload.capability_models && typeof payload.capability_models === 'object'
+    ? payload.capability_models
+    : {}
+  for (const [cap, model] of Object.entries(capDefaultModels)) {
+    const text = String(model || '').trim()
+    if (text && payload.models.length && !payload.models.includes(text)) {
+      ElMessage.warning(`「${CAP_LABELS[cap] || cap} 默认模型」${text} 不在模型列表中`)
+      return
+    }
+  }
   if (payload.rate_per_minute == null || payload.rate_per_minute === '') payload.rate_per_minute = null
   if (payload.limit_per_5h == null || payload.limit_per_5h === '') payload.limit_per_5h = null
   // 多模态：7 类固定能力文档 URL 写入 capability_doc_links（保留存量其他键）
@@ -390,6 +536,8 @@ async function save() {
     }
     showDialog.value = false
     await load()
+    // 能力默认模型可能变了：刷新总览，让运营立刻看到缺口闭合
+    await loadOverview()
   } catch (e) {
     ElMessage.error(e.response?.data?.detail || '保存失败')
   } finally {

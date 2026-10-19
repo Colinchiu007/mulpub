@@ -1,0 +1,58 @@
+{
+  "sha": "950af9f3b60a9a0f9fb69ea4f7d030010f2b40da",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 2,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "   表现为「跳到登录页、`input[type=file]` 数量为 0」，**看似未登录、实为解密失败**）。",
+      "**看似未登录、实为解密失败**（上一轮在视频号上踩过这个坑，误判成「会话失效」）。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "6beb94cff96091a11d3b7c905c0cc7ced1187e07bd77a55d21023985760719e9",
+  "decidedAt": "2026-10-18T22:32:16.414Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

@@ -256,6 +256,8 @@
 .s2v-view-btn.active { background: var(--accent, #2563eb); border-color: var(--accent, #2563eb); color: #fff; }
 .s2v-field-hint { display: block; margin-top: 4px; font-size: var(--font-size-xs); color: var(--text-muted); line-height: 1.4; }
 .s2v-checkbox-label { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; cursor: pointer; }
+/* 子分区卡片样式已移至 video-creation-forms.css（s2v-voice-section-layout，2026-10-18）：
+   本文件受 check-max-lines 的 500 行上限约束，新增样式一律落到 forms 文件。 */
 .s2v-subgroup { margin: 0 16px 12px; }
 .s2v-subgroup:first-of-type { margin-top: 2px; }
 .s2v-subgroup-title { font-size: var(--font-size-xs); font-weight: 600; color: var(--text-muted); margin: 0 0 8px; padding-bottom: 4px; border-bottom: 1px dashed var(--border); }

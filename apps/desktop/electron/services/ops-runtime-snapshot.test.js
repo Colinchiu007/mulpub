@@ -550,3 +550,50 @@ describe('§L3 种子探测不得走 Electron 的 asar Stats 兼容层（Node DE
     fs.rmSync(dir, { recursive: true, force: true })
   })
 })
+
+// ─── config-hash-purity：白名单块内不得含「每请求变化」的字段（2026-10-18）──────
+// 服务端曾在下发的 appMenu / contentCategories 里带块内 synced_at: _now()，两块都在
+// RUNTIME_BLOCKS 内参与 config_hash ⇒「运营没改配置，hash 也每次都在变」——
+// config_version 每次 +1、生效看板「已确认率」永远上不去、版本表随请求数无限增长。
+// 服务端回归锁：ops-center/backend/tests/test_config_hash_stability.py
+// （不变量：同库连构两次 bootstrap，config_hash 逐字相等）。
+//
+// 判据**刻意只锁 synced_at / syncedAt**，不锁 updated_at / created_at：
+// 那些是内容属性（运营改了这条配置，它们跟着变，hash 随之变化是**正确**行为）；
+// 只有 synced_at 是「每次请求现生成」的时钟产物，与内容无关。
+// 把 updated_at 一起禁掉会把「内容变更升版」这条正确语义一起判死。
+describe('RUNTIME_BLOCKS 载荷纯净性（块内不得带每请求变化的字段）', () => {
+  const VOLATILE_KEYS = ['synced_at', 'syncedAt']
+
+  it('真实种子：白名单内每个对象形态的块都不得含 synced_at', () => {
+    const seedPath = path.join(__dirname, '..', '..', 'resources', 'ops-seed', 'runtime-bootstrap.json')
+    if (!fs.existsSync(seedPath)) return // 种子缺失由上一组「第 1 条」判据负责
+    const seed = JSON.parse(fs.readFileSync(seedPath, 'utf8'))
+    for (const block of RUNTIME_BLOCKS) {
+      const value = seed[block]
+      if (!value || typeof value !== 'object' || Array.isArray(value)) continue
+      for (const key of VOLATILE_KEYS) {
+        expect(Object.prototype.hasOwnProperty.call(value, key),
+          `种子块 ${block} 含 ${key} ⇒ 每次 bootstrap 的 config_hash 都会变`).toBe(false)
+      }
+    }
+  })
+
+  it('合成 payload：给白名单块掺入块内 synced_at 即改变 hash（证明字段确实参与计算）', () => {
+    const base = fullPayload()
+    const dirty = fullPayload({ contentCategories: { items: [], count: 0, synced_at: '2026-10-18T00:00:00Z' } })
+    expect(computeConfigHash(base)).not.toBe(computeConfigHash(dirty))
+  })
+
+  it('反向：只有顶层 synced_at 变化时不改变 hash（信封字段不参与计算）', () => {
+    const a = { ...fullPayload(), synced_at: '2026-10-18T00:00:00Z' }
+    const b = { ...fullPayload(), synced_at: '2026-10-18T00:00:01Z' }
+    expect(computeConfigHash(a)).toBe(computeConfigHash(b))
+  })
+
+  it('内容属性字段（updated_at 等）不算 volatile：内容变则 hash 该变', () => {
+    const a = fullPayload()
+    const b = fullPayload({ content_policy: { name: '默认', enabled: true, updated_at: '2026-10-18T00:00:00Z' } })
+    expect(computeConfigHash(a)).not.toBe(computeConfigHash(b))
+  })
+})

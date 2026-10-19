@@ -1,0 +1,89 @@
+{
+  "sha": "e3e9e3c24384588cadf953e6243ac815c2d02548",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 6 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 6,
+    "fileCount": 1,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "7a45cf40dae5540e65bd64ce1f24f2ac1c7bccd4208e15873a0e5c5d60e2c2f2",
+  "decidedAt": "2026-10-18T23:12:17.980Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play(agent)",
+    "fallbackReason": "跨家族对抗后端超时（本会话第 13 次同型 ETIMEDOUT），按引擎第三档出口 self_play 自查。本条 6 行，性质是「解 main 红」。",
+    "evidenceInRepo": "openspec/records/toutiao-csrf-header.md §六（读数）+ 本提交说明；CI 失败日志已下载核对（actions/jobs/117813626698/logs）",
+    "confidenceWeight": 0.75,
+    "adjudication": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "这是**别人会话刚合入的测试**（#3936），我在自己的 PR 里改它 —— 会不会越界、或者掩盖了真实的组件缺陷？",
+        "verdict": "upheld_verified",
+        "rationale": "三点评据：① 失败用例的组件判据是 `v-if=\"s2vConfig.voiceProvider && s2vVoiceContextModel\"`，而 `s2vVoiceContextModel` 列在 `s2v-panel-contract.js:60` 的绑定键里、**不由 voiceModel 派生**；② 同文件 L127 / L136 两个用例都**显式设了**该键 ⇒ 本处是漏设，属测试笔误而非组件缺陷；③ 我**没有改组件、也没有放宽断言**（断言仍是「该字段在 voiceNarration 子分区内」），只补了一行前置。若组件真有缺陷，这条断言在正确 fixture 下会以别的方式红。另外 main 红会挡住**所有** open PR 的 required check，属死锁，不修就只能一直挂着。",
+        "fixCommit": "f9528e7ba"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "把它并入本 PR 而不是单独开 PR，会不会让本 PR 的改动集变得不纯、review 时混淆重点？",
+        "verdict": "accepted_known_tradeoff",
+        "rationale": "单独开 PR 在本场景**无法合并**：main 红 ⇒ 该 PR 的 Desktop Shards 同样红 ⇒ required check 不过 ⇒ 永远合不进去（死锁）。所以只能让「一个 PR 同时含修复与自身改动」来打破循环。代价已尽量降低：① 作为**独立提交**（`f9528e7ba`），review 时可按提交分开看；② PR 正文末段单独声明来由与读数；③ 提交信息里写明「这不是本 PR 的改动，是解 main 红」。",
+        "fixCommit": "f9528e7ba"
+      },
+      {
+        "id": "i3",
+        "severity": "Info",
+        "finding": "只跑单个测试文件就断定 main 绿了，够吗？",
+        "verdict": "upheld_partial",
+        "rationale": "**不够**，且我没有据此宣称 main 绿：我只宣称「该文件 24 passed」，最终判据仍是 CI 的 `QG Desktop Shards (2/2)` 全跑。但如实记一条风险：其余 shard 里可能还有同类「漏设 contract 键」的用例，单文件通过不代表整片绿。若 CI 仍有其他 story2video 失败，应视为**同一提交的连带缺口**继续修。",
+        "fixCommit": null
+      }
+    ],
+    "summary": {
+      "total": 3,
+      "upheldVerified": 1,
+      "acceptedKnownTradeoff": 1,
+      "upheldPartial": 1,
+      "note": "本条是解 main 死锁的最小改动（一行前置 + 注释），未改组件、未放宽断言；已如实记录「并入本 PR」的取舍原因（单独 PR 在本场景合不进去）与「单文件绿 ≠ 整片绿」的风险。"
+    },
+    "at": "2026-10-18T23:13:31.372Z"
+  }
+}

@@ -223,3 +223,33 @@
 
 - **WHEN** 抽取或探测因宿主超时而 kill
 - **THEN** 只杀进程、不置 `cancelled`，结果如实为 `EXTRACT_FAILED`（两种成因排查方向相反）
+
+### Requirement: 出期链必须留下可跨重启的在途凭据，且启动对账只报告不重发
+
+一次出期是跨四次 await、带外部副作用的写（音频 PUT → `episodes.json` 读改写 → `feed.xml` 重建 → feed PUT），而频道忙标记是**进程内**状态（`services/podcast-channel-locks.js` 的模块级 Map）——`podcast-channel-locks.js:92` 那句「残留由启动对账接管」至今是注释不是实现（`publishInFlight` 在全部代码里命中 0）。进程被强杀时，链上的中间态（临时音频、已 PUT 但没写进 feed 的远端对象、半更新的 `episodes.json`）在下一次启动**既不被提示也不被清理**。
+
+系统 SHALL 在链进入时（取到忙标记之后、任何外部副作用之前）向 `{userData}/podcast/` 下与 `episodes.json` **分开**的一份在途凭据追加一条记录，至少含 `runId`、`channelId`、`title`、`startedAt`、本次将要写的音频 objectKey；并 SHALL 在链抵达任一终态（success / partial / failed / cancelled）时把它标为收尾。判据 MUST NOT 由「`episodes.json` 里有没有这一期」反推——半成功时那一期本就不在文件里，而远端对象可能已经在了，用结果文件反推在途状态正是本 Requirement 要消灭的那类黑洞。
+
+在途凭据**写入失败 MUST 拒绝这次发起**并返回带领域码的失败（键名与 zh/en 文案随实现片登记）。这一条是刻意与「进度事件是旁路、发送失败不得冒泡」相反的安排，理由要写在这里以免被后来者"顺手统一"：进度事件丢了只影响观感，凭据丢了会让**下一次启动无从对账**，等于把本 Requirement 想消灭的形态重新制造出来；把它做成静默旁路，磁盘满这类故障就会变成"发布照常成功但中间态永远不可知"。
+
+启动对账 SHALL 把任何未收尾凭据标为 `interrupted`，并 SHALL **复用 `channel:get` 已有的 `feedSync` 那条读侧投影**回传给渲染层（MUST NOT 为对账新造第三条状态源——同一份"上次发布怎么了"的答案有两个真源时，界面必然读到过期那一个），频道页据此显示「上次出期未收尾」横幅，文案 zh/en 成对。对账 MUST NOT 自动重发、MUST NOT 自动删除远端对象：出期身份（`meta.guid`）至今没有任何一层传过（`podcast-rss.js:238` 让 guid 回落成音频 URL），此时自动重发的产物是**第二条 item**而不是修好的那一期——重发只能是用户的一次显式发起，其身份来源随 `tasks 5.1b③` 决定；跨供应商删除远端对象是另一个决定，本条只要求在凭据里留下 objectKey 以便如实告知「存储上可能残留一个不被任何 feed 引用的对象」。临时音频文件 SHALL 沿用既有回收路径清理，清理失败只出声、不阻断对账。
+
+#### Scenario: 强杀后重启会如实报告未收尾
+
+- **WHEN** 一次出期在 `uploadAudio` 之后应用被强杀，随后重新启动并打开该频道页
+- **THEN** `channel:get` 回显 `interrupted`（带原 `runId` 与 `startedAt`），频道页出现「上次出期未收尾」横幅，且**没有任何出站请求**被对账路径发出
+
+#### Scenario: 正常收尾后重启不得出现横幅
+
+- **WHEN** 一次出期以 success 收尾（凭据已标收尾），应用重启
+- **THEN** `channel:get` 不回显 `interrupted`；凭据文件不存在或为空时同样不回显，且 MUST NOT 因为"没有这个文件"而报错或把频道判成不可用
+
+#### Scenario: 凭据写不进去就不发起
+
+- **WHEN** 在途凭据所在目录不可写（磁盘满 / 权限）
+- **THEN** 这次出期在**任何外部副作用之前**被拒绝，返回带领域码的失败（不是 `PODCAST_CHANNEL_BUSY`，也不是被降级成"照常发布但没记"），忙标记照常释放
+
+#### Scenario: 对账不得把"重发"当修复
+
+- **WHEN** 用户看到「上次出期未收尾」横幅
+- **THEN** 界面给的是"重新发起一次"的入口（走正常链、新 `runId`），MUST NOT 存在一条自动补发路径；横幅文案 MUST NOT 声称"已自动恢复"或"已清理远端对象"

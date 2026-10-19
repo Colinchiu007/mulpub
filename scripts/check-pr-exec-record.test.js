@@ -839,7 +839,7 @@ test('缺陷D：白名单本身必须是非空且只含「已出裁决」的形�
 test('缺陷G：mode=single 不得被要求闭环「双模型深度审查」（否则形成无法闭合的循环）', () => {
   // 引擎对 mode !== 'skip' 一律置 deepReview.required = true —— 那是「是否需要评审」，
   // 不是「是否需要双模型深度评审」。判定器自己把两者分得很清楚：
-  //   dual   → 「要求 双模型(claude + opencode) 深度审查」
+  //   dual   → 「要求 双模型(<critic> + <proposer>) 深度审查」（后端对由清单派生，不写死名字）
   //   single → 「常规专家分派」（§12.6）
   // 初版对 single 也要求闭环 ⇒ 每次提交都要跑 15 分钟双模型审查，
   // 而写完审查结果再提交时又生出新的 single 记录 ⇒ 无法闭合。本 PR 实测撞上过。
@@ -891,7 +891,7 @@ test('缺陷D：本次变更集不涉及任何 .ccg 记录时不得报（不扫�
   } finally { fs.rmSync(repo, { recursive: true, force: true }) }
 })
 
-test('缺陷D：损坏的 JSON 记录不抛异常（由别的门禁负责）', () => {
+test('缺陷D：损坏的 JSON 记录不抛异常，但必须点名出声（实测没有任何别的门禁在校验它可解析）', () => {
   const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'ccg-debt-'))
   const p = path.join(repo, '.ccg', 'reviews')
   fs.mkdirSync(p, { recursive: true })
@@ -902,7 +902,7 @@ test('缺陷D：损坏的 JSON 记录不抛异常（由别的门禁负责）', (
       repo
     )
     assert.strictEqual(r.checked, 1, '损坏记录仍算「本次涉及」')
-    assert.deepStrictEqual(r.reasons, [], '损坏记录不重复报，交给别的门禁')
+    assert.match(r.reasons.join('\n'), /解析不动/, '损坏记录必须点名出声，不能再交给一个并不存在的「别的门禁」')
   } finally { fs.rmSync(repo, { recursive: true, force: true }) }
 })
 
@@ -1339,5 +1339,306 @@ test('刀A §7.4-B：新增位数形态不得退化成通配（逐位负控）',
   for (const bad of ['2026-10-18T02163856Z', '2026-10-18T0216385622Z', '2026-10-18T021638562',
     '202610180T021638562Z', '2026-10-18t021638562Z', '2026-1-18T021638562Z']) {
     assert.strictEqual(RE.test(p(bad)), false, '负控被放过（退化风险）：' + bad)
+  }
+})
+
+// ══════════════════════════════════════════════════════════════════════════
+//  后端请求值 × 实际执行者对账（change: qm6-review-backend-config）
+//  本刀的全部理由：status 是「有人写了个词」，performedBy 才是「谁真的跑了」。
+// ══════════════════════════════════════════════════════════════════════════
+
+test('judgeBackendMismatch：不适用必须返回 null，且三种不适用各自点名理由', () => {
+  const J = mod.judgeBackendMismatch
+  assert.strictEqual(typeof J, 'function', '判据必须导出，否则本锁退化成读源码字面')
+
+  // ① 历史产物没有 reviewBackends ⇒ 不判（**不得追溯变红**，这是本刀能安全上线的前提）
+  assert.strictEqual(J({
+    mode: 'dual',
+    deepReview: { required: true, status: 'cleared', performedBy: 'claude' },
+  }), null, '无 reviewBackends 的旧记录不得被判不符')
+
+  // ② 闭环状态 + 空 performedBy ⇒ **必须报**（QM-6 评审 i1/i4 采纳后改窄）：
+  //   「cleared」是一个断言，没有署名执行者的断言没有凭据；只在覆盖时追责会让默认
+  //   路径整体不设防，而那正是绝大多数 PR 走的路径。
+  assert.strictEqual(typeof J({
+    reviewBackends: { critic: 'codex', proposer: 'opencode', overridden: true },
+    deepReview: { status: 'cleared', performedBy: '' },
+  }), 'string', '闭环却无署名执行者必须报')
+  // 未闭环 + 空 performedBy ⇒ 不重复报（交回闭环判据，避免同一屏两条诊断互相误导）
+  assert.strictEqual(J({
+    reviewBackends: { critic: 'codex', proposer: 'opencode', overridden: true },
+    deepReview: { status: 'pending', performedBy: '' },
+  }), null, '未闭环时空 performedBy 不在本判据里重复报')
+  // 未覆盖 + 空 performedBy + 闭环 ⇒ 仍报（署名义务不分档）
+  assert.strictEqual(typeof J({
+    reviewBackends: { critic: 'codex', proposer: 'opencode' },
+    deepReview: { status: 'cleared', performedBy: '   ' },
+  }), 'string', '署名义务不得被 overridden 挡掉')
+
+  // ③ performedBy 读不出任何后端名（自扮演 / agent 自评那类）⇒ 本判据不管
+  assert.strictEqual(J({
+    reviewBackends: { critic: 'codex', proposer: 'opencode', overridden: true },
+    deepReview: { status: 'self_play_resolved', performedBy: 'self-play' },
+  }), null, '自扮演不是「换了后端」，归自扮演豁免那条管')
+
+  // 相符 ⇒ null（三种合规写法都要认，不得只认全等）
+  // 复合名（评审 i5）：请求名作为**有界子串**出现在任一记号里即算相符 ——
+  // claude-agent / codex_cli / 带前缀的产物名都不该被误判成不符（那是假红）。
+  for (const performed of ['codex', 'claude+codex', 'codex, opencode', ' CODEX ',
+    'claude-agent+opencode', 'x_codex_v2', 'we-codex-them']) {
+    assert.strictEqual(J({
+      reviewBackends: { critic: 'codex', proposer: 'opencode', overridden: true },
+      deepReview: { status: 'cleared', performedBy: performed },
+    }), null, `应判相符：${performed}`)
+  }
+  // 请求的 proposer 出现在执行者里也算相符（覆盖只换了 critic 时不得误拦）
+  assert.strictEqual(J({
+    reviewBackends: { critic: 'codex', proposer: 'opencode', overridden: true },
+    deepReview: { status: 'cleared', performedBy: 'opencode' },
+  }), null)
+})
+
+test('judgeBackendMismatch：闭环但执行者是别的后端 ⇒ 出声并写出两侧值', () => {
+  const J = mod.judgeBackendMismatch
+  const r = J({
+    reviewBackends: { critic: 'codex', proposer: 'opencode', from: { critic: 'env' }, overridden: true },
+    deepReview: { status: 'cleared', performedBy: 'claude' },
+  })
+  assert.strictEqual(typeof r, 'string', '必须报不符，实得 ' + JSON.stringify(r))
+  assert.match(r, /codex/)
+  assert.match(r, /claude/)
+  // 同族单后端配置下只写一个名字，不得凭空补一个 proposer
+  const same = J({
+    reviewBackends: { critic: 'codex', proposer: 'codex', overridden: true },
+    deepReview: { status: 'cleared', performedBy: 'claude' },
+  })
+  assert.match(same, /^codex ≠ claude$/)
+})
+
+test('evaluateDeepReviewDebt 真跑：不符判红、相符判过、无字段的历史产物不追溯（三条互不成全）', () => {
+  const os = require('node:os')
+  const fsp = require('node:fs')
+  const pth = require('node:path')
+  const repo = fsp.mkdtempSync(pth.join(os.tmpdir(), `qm6-debt-${process.pid}-`))
+  try {
+    // rel 一律用 **正斜杠**：判据的 REVIEWS_DIR_RE 匹配的是 git 风格的仓库相对路径，
+    // 而 pth.join 在 Windows 上给反斜杠 ⇒ 扫描域会静默收 0 条，"三条都没读"读起来像全绿。
+    const write = (name, rec) => {
+      fsp.mkdirSync(pth.join(repo, '.ccg', 'reviews'), { recursive: true })
+      fsp.writeFileSync(pth.join(repo, '.ccg', 'reviews', name), JSON.stringify(rec))
+      return '.ccg/reviews/' + name
+    }
+    const mk = (performedBy, withField) => {
+      const rec = {
+        mode: 'dual',
+        decidedAt: '2026-10-18T00:00:00.000Z',
+        deepReview: { required: true, status: 'cleared', performedBy },
+      }
+      if (withField) rec.reviewBackends = { critic: 'codex', proposer: 'opencode', overridden: true }
+      return rec
+    }
+    const mismatchFile = write('a'.repeat(40) + '.json', mk('claude', true))
+    const okFile = write('b'.repeat(40) + '.json', mk('codex', true))
+    const legacyFile = write('c'.repeat(40) + '.json', mk('claude', false))
+    // 逐条用自己的 sha 前缀做指纹：用路径片段会命中三条共有的 `.ccg/reviews` 前缀，
+    // 那种断言既不红也不证任何东西（本仓「探针恒真」同型）。
+    const FP = { bad: 'a'.repeat(12), ok: 'b'.repeat(12), legacy: 'c'.repeat(12) }
+
+    const statuses = [mismatchFile, okFile, legacyFile].map((f) => ({ status: 'A', file: f }))
+    const r = mod.evaluateDeepReviewDebt(statuses, repo, () => null)
+
+    // ★ 必须断言「扫到了几条」，只看"有没有红"会把"三条都没被读"读成相符/历史两档都成立。
+    assert.strictEqual(r.checked, 3, `判定域应为 3 条，实得 ${r.checked} —— 文件名形态没被认领会恒 0`)
+    const joined = r.reasons.join('\n')
+    assert.match(joined, /后端不符/, `应报后端不符，实得：${joined}`)
+    assert.ok(joined.includes(FP.bad), '理由必须点名那条不符的记录文件：' + joined)
+    assert.ok(mismatchFile.includes(FP.bad), '夹具自证：指纹必须落在被报的那条上')
+    assert.ok(!joined.includes(FP.ok), '相符那条不得被报：' + joined)
+    assert.ok(!joined.includes(FP.legacy), '无字段的历史产物不得被追溯报：' + joined)
+
+    // 反向自证：把不符那条改成相符，整屏必须全绿（证明上面那条红不是恒真判据）
+    const allOk = [write('d'.repeat(40) + '.json', mk('codex', true)), okFile, legacyFile]
+      .map((f) => ({ status: 'A', file: f }))
+    const r2 = mod.evaluateDeepReviewDebt(allOk, repo, () => null)
+    assert.strictEqual(r2.checked, 3)
+    assert.deepStrictEqual(r2.reasons, [], `全相符应无理由，实得：${r2.reasons.join(' | ')}`)
+  } finally {
+    fsp.rmSync(repo, { recursive: true, force: true })
+  }
+})
+
+test('后端对账的四档「不适用」必须各自可证，其中「没覆盖过」那一档不得被恒真掩盖', () => {
+  const J = mod.judgeBackendMismatch
+  // ② overridden 不为 true ⇒ 不判。这一档是**风险最大的假绿位**：
+  //   如果判据实际不看 overridden，那"没覆盖过所以不判"的断言会与"相符所以不判"完全同形，
+  //   上一组用例就一条都没测到东西。所以这里要造一个**两侧确实不同**的记录：
+  //   只有当判据真的按 overridden 收口时，它才返回 null。
+  assert.strictEqual(
+    J({
+      reviewBackends: { critic: 'codex', proposer: 'opencode' }, // 无 overridden
+      deepReview: { status: 'cleared', performedBy: 'claude' },
+    }),
+    null,
+    '未显式覆盖 ⇒ 驱动默认值就是权威，不得把上游默认与本仓清单的差异判成失守'
+  )
+  // 对照：同一份记录只是补上 overridden:true，就必须出声（证明上一条不是因为"名字相同"而 null）
+  assert.strictEqual(
+    typeof J({
+      reviewBackends: { critic: 'codex', proposer: 'opencode', overridden: true },
+      deepReview: { status: 'cleared', performedBy: 'claude' },
+    }),
+    'string',
+    '补上 overridden 后必须变红 —— 否则上一条是恒真断言'
+  )
+  // ③ 自扮演闭合不插手（它是既有门禁显式承认的出口，收紧它属改豁免政策，须人工过目）
+  assert.strictEqual(
+    J({
+      reviewBackends: { critic: 'codex', proposer: 'opencode', overridden: true },
+      deepReview: { status: 'self_play_resolved', performedBy: 'self-play' },
+    }),
+    null,
+    'self_play_resolved 归「高危域不得自扮演」那条管，本判据不得顺手判红'
+  )
+  // 但 cleared 顶着「自扮演字样」而没有真后端执行 ⇒ 必须报（status 说了谎就要抓）
+  assert.strictEqual(
+    typeof J({
+      reviewBackends: { critic: 'codex', proposer: 'opencode', overridden: true },
+      deepReview: { status: 'cleared', performedBy: 'self-play' },
+    }),
+    'string',
+    'cleared + 无后端执行者必须报不符：闭环词表不是免检'
+  )
+})
+
+test('有界子串口径的两条负控：碎片不得匹配、请求复合名而只跑简单名必须仍判不符', () => {
+  // 评审 i5 采纳外部口径后的另一半：只修假红不修假绿。
+  const J = mod.judgeBackendMismatch
+  const base = (critic, performedBy) => J({
+    reviewBackends: { critic, proposer: 'opencode', overridden: true },
+    deepReview: { status: 'cleared', performedBy },
+  })
+  // 碎片不得把长名点着（clau ⊄ 边界内的 claude）
+  assert.strictEqual(typeof base('clau', 'claude'), 'string', '碎片被误配 ⇒ 假绿')
+  assert.strictEqual(typeof base('laude', 'claude'), 'string', '中段碎片被误配 ⇒ 假绿')
+  // 请求复合名而实际只跑了简单名 ⇒ 仍是缺评审，必须报
+  assert.strictEqual(typeof base('claude-agent', 'claude'), 'string',
+    '请求 claude-agent 而实际 claude 必须仍判不符')
+  // 同一份请求名作为完整记号出现 ⇒ 相符
+  assert.strictEqual(base('claude-agent', 'claude-agent'), null, '完整记号应相符')
+})
+
+// ── QM-6 丙：分级与覆盖率读数（先可见不拦）──────────────────────────────────
+test('丙 classifyEvidenceTier：闭集四档 + 其余一律 unknown（大小写/空格都不放过）', () => {
+  const c = mod.classifyEvidenceTier
+  assert.strictEqual(typeof c, 'function', '必须导出 classifyEvidenceTier')
+  assert.strictEqual(c({ tier: 'external', evidence: '<TEMP>/qm6-backend.log#ses_probe0001' }), 'external')
+  assert.strictEqual(c({ tier: 'external' }), 'external-unverified', '只有声明没有出处 ⇒ 不算外部证据')
+  assert.strictEqual(c({ tier: 'external', evidence: '   ' }), 'external-unverified', '空白 evidence 等于没填')
+  assert.strictEqual(c({ tier: 'external', evidence: 42 }), 'external-unverified', '非字符串 evidence 不得被 String() 蒙过去')
+  assert.strictEqual(c({ tier: 'self-play' }), 'self-play')
+  assert.strictEqual(c({ tier: 'none' }), 'none')
+  for (const bad of [undefined, null, {}, { tier: null }, { tier: '' }, { tier: 'External' }, { tier: ' external ' }, { tier: 'claude' }, { tier: '自扮演' }]) {
+    assert.strictEqual(c(bad), 'unknown', '取值不在闭集内一律 unknown：' + JSON.stringify(bad))
+  }
+})
+
+test('丙 summarizeTierCoverage：五档计数 + 空集也必须给读数（反失明）', () => {
+  const s = mod.summarizeTierCoverage
+  const r = s([
+    { tier: 'external', evidence: 'ses_probe0001' }, { tier: 'external', evidence: 'PR #3777' },
+    { tier: 'external' }, { tier: 'self-play' }, { tier: 'none' }, {}, { tier: 'CLAUDE' }
+  ])
+  assert.strictEqual(r.total, 7)
+  assert.strictEqual(r.by.external, 2)
+  assert.strictEqual(r.by['external-unverified'], 1)
+  assert.strictEqual(r.by['self-play'], 1)
+  assert.strictEqual(r.by.none, 1)
+  assert.strictEqual(r.by.unknown, 2)
+  assert.match(r.line, /TIER-COVERAGE/, '读数行必须有固定前缀，否则没人能在 CI 日志里 grep 到它')
+  assert.match(r.line, /total=7/)
+  const e = s([])
+  assert.strictEqual(e.total, 0)
+  assert.match(e.line, /TIER-COVERAGE .*total=0/, '空集不得"什么都不打印"——那与"没接这条锁"逐字同形')
+})
+
+test('丙：覆盖率**先可见不拦**——tier 缺失不得让 PR 变红（转拦另起一片）', () => {
+  const repo = withReviewRecords({
+    [SHA64 + '.json']: { mode: 'dual', deepReview: { required: true, status: 'cleared', performedBy: 'claude', findings: null } },
+  })
+  try {
+    const r = mod.evaluateDeepReviewDebt(st([['A', '.ccg/reviews/' + SHA64 + '.json']]), repo)
+    assert.deepStrictEqual(r.reasons, [], '已闭环记录缺 tier 时只该出现在覆盖率读数里，不该在此刻判红（一上线红两百条＝逼人把门削宽）')
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('丙：main 必须打印覆盖率行（接线锁，防"函数导出了但没人调"）', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'check-pr-exec-record.js'), 'utf8')
+  assert.match(src, /summarizeTierCoverage\(/, 'main 里必须真的调用它')
+  assert.match(src, /TIER-COVERAGE/, '读数行前缀必须出现在源码里（不是只存在于测试）')
+})
+// 升级：「先可见不拦」原来只断言纯函数 reasons 为空 ⇒ 把 ok=false 写进 applyDeepDebt
+// 时全量 0 红（M-T5 实测），等于没锁。改成真跑一次 CLI：rc 与 stdout 都是产物。
+test('丙：真跑 CLI —— dual+cleared 但无 tier 的记录必须 rc=0 且打印覆盖率行（可见不拦）', () => {
+  const cp = require("child_process");const os = require("os");const path2 = require("path");
+  const repo = fs.mkdtempSync(path2.join(os.tmpdir(), "tier-cli-"));
+  const RUN = (a) => cp.execFileSync(process.execPath, a, { cwd: repo, encoding: 'utf8' });
+  const RUNx = (a) => { try { const o = cp.execFileSync(process.execPath, a, { cwd: repo, encoding: 'utf8', stdio: ['ignore','pipe','pipe'] }); return { rc: 0, out: o } } catch (e) { return { rc: (e && e.status) || 1, out: String((e && e.stdout) || '') + String((e && e.stderr) || '') } } };
+  const git = (a) => cp.execFileSync('git', a, { cwd: repo, encoding: 'utf8' });
+  try {
+    git(['init', '-q', '-b', 'main', repo]);
+    git(['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'base']);
+    git(['checkout', '-q', '-b', 'pr']);
+    const HEATH = 'f'.repeat(64);
+    fs.mkdirSync(path2.join(repo, '.ccg', 'reviews'), { recursive: true });
+    fs.writeFileSync(path2.join(repo, '.ccg', 'reviews', HEATH + '.json'),
+      JSON.stringify({ mode: 'dual', deepReview: { required: true, status: 'cleared', performedBy: 'claude', findings: null } }, null, 2), 'utf8');
+    fs.mkdirSync(path2.join(repo, 'openspec', 'records'), { recursive: true });
+    fs.writeFileSync(path2.join(repo, 'openspec', 'records', 'pr.md'), '---\nrecord: pr\n---\n\n## 记录\n', 'utf8');
+    git(['add', '-A']);
+    git(['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'add artifact without tier']);
+    const script = path2.join(__dirname, 'check-pr-exec-record.js');
+    const res = RUNx([script, `--repo=${repo}`, '--base=main', '--head=pr', '--mode=enforce', '--no-remote']);
+    assert.ok(/TIER-COVERAGE/.test(res.out), `stdout 必须含覆盖率行，实际 rc=${res.rc} 输出开头=${JSON.stringify(res.out.slice(0, 200))}`);
+    assert.strictEqual(res.rc, 0, `覆盖率不得把 PR 判红（先可见不拦）。rc=${res.rc} out=${JSON.stringify(res.out.slice(0, 300))}`);
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+// ── 2026-10-17 后端轴 findings 的处置落锁（critical #1/#2/#3 + 自查发现的 A/M 逃逸）────
+// 口径：这一批是「读不动 ≠ 没有」的第四与第五个落点 —— 此前注释写着"由别的门禁负责"，
+// 实测全仓唯一另一处逐条 parse 的 ccg-gate.js 也是 catch 跳过 ⇒ 那句话声称的门禁不存在。
+const SHA64U = 'd'.repeat(64)
+
+test('后端命中：变更集里有解析不动的评审产物 ⇒ 必须点名出声（损坏不等于没欠账）', () => {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'ccg-corrupt-'))
+  const rel = '.ccg/reviews/' + SHA64U + '.json'
+  fs.mkdirSync(path.join(repo, '.ccg', 'reviews'), { recursive: true })
+  fs.writeFileSync(path.join(repo, rel), '{"mode":"dual","deepReview":{"status":"clea', 'utf8')
+  try {
+    const r = mod.evaluateDeepReviewDebt(st([['A', rel]]), repo, () => null)
+    assert.strictEqual(r.reasons.length, 1, `解析不动的产物必须报 1 条，实际 ${r.reasons.length}：${JSON.stringify(r.reasons)}`)
+    assert.match(r.reasons[0], /解析不动/, '文案必须点明是"读不动"，不能写成"没有欠账"')
+    assert.ok(r.reasons[0].includes(SHA64U), '必须点名是哪个文件，否则归因不了')
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('后端命中：D 掉的记录 base 内容解析不动 ⇒ 走未证实出口出声，不得静默 continue', () => {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'ccg-corrupt-d-'))
+  const rel = '.ccg/reviews/' + SHA64U + '.json'
+  try {
+    const r = mod.evaluateDeepReviewDebt(st([['D', rel]]), repo, () => '{"mode":"dual","xx')
+    assert.strictEqual(r.reasons.length, 1, `base 读得动但解析不动必须报 1 条，实际 ${r.reasons.length}`)
+    assert.match(r.reasons[0], /无法取证/, '必须走「未证实」这条既有出口')
+    assert.ok(r.reasons[0].includes('base 内容解析不动'), '必须区分"读不到"与"读不动"，否则下一次排障找错方向')
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('后端命中：evidence 必须是可核指针 —— 单个字符 x 不得被判成 external', () => {
+  assert.strictEqual(mod.classifyEvidenceTier({ tier: 'external', evidence: 'x' }), 'external-unverified',
+    '非空 ≠ 可复核：一个字符就声称做过外部评审，必须降级')
+  assert.strictEqual(mod.classifyEvidenceTier({ tier: 'external', evidence: '我做过了' }), 'external-unverified',
+    '自由文本散文同样不可核')
+  for (const good of ['PR #3777 后端轴交付', 'ses_abc12345678', '3d77f06b-c417-436a-a513-aca14165aa3c']) {
+    assert.strictEqual(mod.classifyEvidenceTier({ tier: 'external', evidence: good }), 'external',
+      '可核形态（PR 引用 / 会话 id / uuid）应判 external：' + good)
   }
 })

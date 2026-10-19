@@ -1,0 +1,48 @@
+{
+  "sha": "e3967445064e68b15812280fe111cc04bc2f2f2c",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 397 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 397,
+    "fileCount": 10,
+    "codeFileCount": 9,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "把它连同 `Local State` 复制成 Playwright profile（Chromium 自行解密，同一 Windows 用户），"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "3ae7ca6d9ee1b0cf6aa26d4fb63e5ada4d08284a51c274fe33e6d05f15f6adf8",
+  "decidedAt": "2026-10-18T10:54:16.730Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play(agent)",
+    "confidenceWeight": 0.6,
+    "reason": "判据引擎本机无法完成跨家族对抗（claude 后端超时），按引擎第三档出口 self_play 由 agent 逐条对抗裁决；四轮共 24 条：成立并修复 16 条、驳回 7 条、如实记录取舍 1 条",
+    "evidenceInRepo": "openspec/records/video-publish-4.md §八 + video-publish-4-r2.md §十（入库可审计）",
+    "adjudicationSummary": {
+      "round4": {
+        "upheld": [
+          "i1",
+          "i2",
+          "i3",
+          "i6"
+        ],
+        "dismissed": [
+          "i4",
+          "i5"
+        ],
+        "fixCommit": "2c1e6b22c"
+      }
+    },
+    "adjudicationTemplateLocal": ".adversarial/ccg-deep-22fb7e37/adjudication.json",
+    "parentSha": "e3967445064e68b15812280fe111cc04bc2f2f2c",
+    "at": "2026-10-18T12:37:57.720Z"
+  }
+}

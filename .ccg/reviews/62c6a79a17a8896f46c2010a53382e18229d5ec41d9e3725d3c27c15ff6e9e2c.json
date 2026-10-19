@@ -1,0 +1,29 @@
+{
+  "sha": "22fb7e3786b0045170249e82da0e3c53187bd1b3",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 123 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 123,
+    "fileCount": 5,
+    "codeFileCount": 4,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "62c6a79a17a8896f46c2010a53382e18229d5ec41d9e3725d3c27c15ff6e9e2c",
+  "decidedAt": "2026-10-18T11:37:23.264Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play(agent)",
+    "findings": null,
+    "adjudicationTemplateLocal": ".adversarial/ccg-deep-37e05dd9/adjudication.json",
+    "evidenceInRepo": "openspec/records/video-publish-4.md §八 + video-publish-4-r2.md §十（入库可审计）",
+    "at": "2026-10-18T12:37:57.721Z"
+  }
+}

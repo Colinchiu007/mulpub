@@ -1,0 +1,38 @@
+{
+  "sha": "55ad8e8ac650eaf99ad40509dcd57c03b653c5d9",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 84 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 84,
+    "fileCount": 2,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "3339601d51eeaece04926b9380c0e79b990949b59580e37f4001c3a0bce0e31e",
+  "decidedAt": "2026-10-18T12:43:09.233Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "error",
+    "performedBy": "claude",
+    "findings": null,
+    "error": "spawnSync <HOME>/.claude/bin/codeagent-wrapper.exe ETIMEDOUT",
+    "validationErrors": null,
+    "at": "2026-10-18T12:58:14.890Z",
+    "reason": "判据引擎本机后端超时（codeagent-wrapper spawn ETIMEDOUT（跨家族对抗后端超时）），跨家族对抗未能执行；与本会话前三轮同一环境阻塞（前三轮走 self_play 出口并已逐条裁决整改）",
+    "environmentBlocker": {
+      "tool": "codeagent-wrapper.exe",
+      "error": "ETIMEDOUT",
+      "firstSeen": "2026-10-18",
+      "rounds": 4,
+      "priorRoundsResolved": "round1-3 走 self_play 出口，18 条成立项全部整改"
+    },
+    "evidenceInRepo": "openspec/records/video-publish-4.md §八 + video-publish-4-r2.md §十"
+  }
+}

@@ -2,7 +2,7 @@
 
 ### Requirement: QM-6 外部评审不可用时的降级梯与证据分档
 
-当 CCG 外部评审后端不可用时，系统 SHALL 允许按**证据档**降级收口深度审查，但降级 SHALL 同时具备三件事：**资格以物证为准**（不取自述、不取退出码）、**货币为机械可验产物**、**结果可追偿**（欠账可重开且计数只可缩小）。判据 MUST 以 `(deepReview.status, deepReview.performedBy)` 二元组判定，MUST NOT 只看 `status` 单字段；`performedBy` 缺失或形态不认识时 MUST 落入第三档 `unknown` 并按未收口处理，MUST NOT 被读成外部证据。
+当 CCG 外部评审后端不可用时，系统 SHALL 允许按**证据档**降级收口深度审查，但降级 SHALL 同时具备三件事：**资格以物证为准**（不取自述、不取退出码）、**货币为机械可验产物**、**结果可追偿**（欠账可重开且计数只可缩小）。判据 MUST 以 `(deepReview.status, deepReview.tier)` 判定，其中 `tier` 是**结构化来源字段**（`external|self-play|none`），MUST NOT 从 `performedBy` 的自由文本推断（主干实测 34 种散文取值，含两条以 `self-play` 开头却声明做过外部复核的记录，前缀判据会把真外部证据误判成自扮演）；`tier` 缺失或取值不在闭集内时 MUST 落 `unknown` 并按未收口处理，MUST NOT 被读成外部证据。外部档的佐证 MUST 复用既有口径「`deepReview.findings` 是非空数组」（与 `shouldPreserveClosedRecord` 主判据同源，不得再造第二套词汇）。
 
 #### Scenario: 外部轴交付时语义不变
 

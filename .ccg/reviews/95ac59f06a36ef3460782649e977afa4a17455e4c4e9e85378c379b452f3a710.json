@@ -1,0 +1,32 @@
+{
+  "sha": "2282bf17782611f8020fae6e1b40b8550cd31d93",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 6,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 14,
+    "docSensitiveContentSample": [
+      "1. **OAuth 内嵌视图不跟随侧栏宽度**：`apps/desktop/electron/services/oauth-manager.js:86` 调用 `computeEmbeddedViewBounds(this.mainWindow)` 时未传宽度，始终按默认 200 计算。收起侧栏后 OAuth 授权页左侧会留 200px 空白。既有实现本就不跟随 ≤900px 的 68px，本轮不扩大改动面；登记为已知限制，建议后续单独立项把 `oauth-manager` 接入与登录视图相同的同步链路。",
+      "2. **视觉基线需要一次重建**：含 TabBar 的基线都会变化（最终清单以 CI `Gate 7b` 点名为准），重建必须在同源渲染环境完成并逐张审核；本轮不提供「本机 update-baseline」的替代证据。",
+      "1. ~~**OAuth 内嵌视图不跟随侧栏宽度**~~（**已关闭**，#3916 合并后立项 `sidebar-collapse-followups`）：`oauth-manager.js` 的 `_positionView()` 原先只传 1 参给 `computeEmbeddedViewBounds`，`sidebarWidth` 回落默认 200、`collapsed` 恒 false —— 宽松默认值把「漏传」伪装成合法布局（不抛错、无告警、截图\"看着对\"），且既有测试断言的正是默认展开态的值，缺陷被写成正确行为的期望。现已补 `setSidebarWidth` / `setSidebarCollapsed` 并传满 4 参，`WebviewManager` 两个 setter 纳入同步链，`window.js` 装配链经 `setOAuthManager` 注入。**连带修复同形态缺陷**：OAuth 视图原先只在 `startAuth` 定位一次、不监听 `mainWindow` resize，授权过程中拖动窗口会复现 `view-bounds.js` 头部所述 2026-09-13「视图被窗口边框裁掉」；现已监听并在 `close()` / 换绑时解绑。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "95ac59f06a36ef3460782649e977afa4a17455e4c4e9e85378c379b452f3a710",
+  "decidedAt": "2026-10-18T11:29:58.715Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": false,
+    "status": "skipped_by_mode",
+    "performedBy": null,
+    "findings": null,
+    "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+    "at": "2026-10-18T11:32:27.453Z"
+  }
+}

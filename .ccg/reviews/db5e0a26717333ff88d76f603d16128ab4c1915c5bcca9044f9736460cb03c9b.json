@@ -1,0 +1,95 @@
+{
+  "sha": "b14d69fd72de2217ea06f008224acc1b9647e051",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 377 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 377,
+    "fileCount": 6,
+    "codeFileCount": 4,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "db5e0a26717333ff88d76f603d16128ab4c1915c5bcca9044f9736460cb03c9b",
+  "decidedAt": "2026-10-18T19:42:23.089Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play(agent)",
+    "fallbackReason": "跨家族对抗后端超时（本会话第 9 次同型 ETIMEDOUT），按引擎第三档出口 self_play 自查。",
+    "evidenceInRepo": "openspec/records/toutiao-poster-cover.md（§二 证据 / §三 关键判据修正 / §八 未闭合）+ PRD §12.5",
+    "confidenceWeight": 0.6,
+    "adjudication": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "finding": "pickPosterUri 取「第一个带任一候选键的 poster」，不做尺寸/质量偏好。若平台返回多张不同尺寸的推荐封面，可能选中一张缩略图尺寸的。",
+        "verdict": "accepted_known_tradeoff",
+        "rationale": "根因是 Posters[] 每项字段名**未取证**（只拿到 .Posters 这一层），所以无法判断「哪张是主封面」。盲选尺寸字段风险更大（猜错键 ⇒ 取到空）。当前策略是「有就用、并把命中键回传」，命中键会写进 result.cover.pickedKey 与 info 日志，第一次真机跑通即可据此收敛。这条已在 PRD §12.5.1 与记录 §八 明确标注为「本 PR 唯一的带未知的代码」。",
+        "fixCommit": null
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "hasLocalCoverOnly 用 `every(x => typeof x === \"string\")` 判断，若调用方给的是 cover 对象但没有 uri，会走「完全没给封面」的文案，而不是「只给了本地封面」的文案。",
+        "verdict": "accepted_known_tradeoff",
+        "rationale": "仅影响**错误文案的措辞选择**，不影响行为（两种情况都 fail-closed、都不发 PublishVideo）。触发条件是「传了 cover 对象但对象里没有 uri/url」——这是调用方构造错误，两种文案都能定位问题。为它再引入一层递归键探测会让这个只服务文案的辅助函数超过它本身的价值。",
+        "fixCommit": null
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "run() 的返回值 result.cover 在 skipCoverCheck 且既无封面也无推荐封面时，会算出 {source:\"caller\"} —— 但实际上一张封面都没有。",
+        "verdict": "accepted_known_tradeoff",
+        "rationale": "只在 `opts.skipCoverCheck` 这条**测试专用**路径上出现（该开关的注释已写明「仅供链路自测」），生产路径与 skipCoverCheck 结合时本来就会让结果不可信。为它加分支会让生产代码为测试开关付复杂度；正确做法是把该开关的语义写清楚（已做）。",
+        "fixCommit": null
+      },
+      {
+        "id": "i4",
+        "severity": "Info",
+        "finding": "getPosterList 用 POST + JSON body，而 probePublishAuth 用 GET + query —— 同一模块内两种调用形态，是否其中一种写错了？",
+        "verdict": "upheld_verified",
+        "rationale": "两者都有各自证据：bundle 里 GetPosterList 明确是 `(0,u.t9)(path, {body:{vid}})`（POST+body）；而 GetPublishAuth 是上一轮真机抓包得到的 GET+query 形态。**不是笔误，是按各自取证写的。**",
+        "fixCommit": null
+      },
+      {
+        "id": "i5",
+        "severity": "Info",
+        "finding": "窄版/方版判定：width === height（1:1）时 isVertical=false ⇒ 按横版 1.78 提交，可能被平台判为宽高比不符。",
+        "verdict": "accepted_known_tradeoff",
+        "rationale": "bundle 的判据只有两档（`U<1 ? 6 : 3`，U 由 `.62 : 1.78` 二选一），**没有第三档**。方版本来就不在平台的两档语义里，硬造第三档等于臆断。另外宽高来自调用方（本地探元数据未接进链），缺失时也按横版——两点都在记录 §八 标注。",
+        "fixCommit": null
+      },
+      {
+        "id": "i6",
+        "severity": "Info",
+        "finding": "本轮把封面闸门从「上传前」挪到「上传后」，意味着无法在**上传大文件之前**拦住「完全没有封面来源」的调用方，浪费一次上传。",
+        "verdict": "upheld_verified",
+        "rationale": "这是**证据强制**的顺序，不是取舍：推荐封面依赖 vid，vid 只能上传后拿到。缓解措施（已实现）：① 上传前仍会先跑 checkPublishAuth，账号无权限时不会白传；② 调用方若已给出 thumbUri，则完全不查推荐封面，少一次请求；③ 真正「完全没封面来源」在平台侧也会自动生成，属极少数路径。记录 §三 已写明这次顺序调整的动因（解死锁）。",
+        "fixCommit": null
+      }
+    ],
+    "summary": {
+      "total": 6,
+      "acceptedKnownTradeoff": 4,
+      "upheldVerified": 2,
+      "note": "本轮没有「必须改」的缺陷：4 条是取证不足（Posters 字段名）或测试开关带来的已知取舍，2 条经核对确认是按各自证据正确实现。最需要盯的是 i1 —— 它把「未知」变成了可观测（pickedKey 回传），但没有消除未知，已在文档与本裁决同时标注。"
+    },
+    "at": "2026-10-18T19:45:38.705Z"
+  }
+}

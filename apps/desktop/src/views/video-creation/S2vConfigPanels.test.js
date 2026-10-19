@@ -71,12 +71,16 @@ const mountPanel = (vm) => mount(S2vConfigPanels, {
 
 // 面板默认使用真实父级语义的桩：所有选项可见、分组标签/摘要可读。
 // 单独 makeVm 只会得到方法桩返回值 ''，导致 UiField 的 optionKey 守卫把控件隐藏。
+// s2vSubgroupLabel 桩按真实父级口径返回 locale key（CreateView.s2vSubgroupLabel 用
+// translateWithLocaleFallback 包 `create.story2video.subgroups.<name>`），
+// 因此这里直接回 key 前缀 + 名字，与真实渲染同形。
 const makeBoundVm = (overrides = {}) => makeVm({
   isOrchestratedPipeline: () => true,
   s2vOptionVisible: () => true,
   s2vSectionLabel: (section) => section,
   s2vSectionSummary: () => 'summary',
   s2vSectionAtDefault: () => false,
+  s2vSubgroupLabel: (subgroup) => `create.story2video.subgroups.${subgroup}`,
   translateWithLocaleFallback: (_key, zh) => zh,
   ...overrides,
 });
@@ -112,6 +116,45 @@ describe('S2vConfigPanels', () => {
     const w = mountPanel(vm);
     await w.get('[data-testid="s2v-voice-speed"]').setValue('1.4');
     expect(vm.s2vConfig.voiceSpeed).toBe(1.4);
+  });
+
+  // voice-model-program-resolved（2026-10-18）：「语音模型」不再是用户可配置项。
+  // 不论哪个 provider、模型是否可解析，面板都不得渲染该字段——这是本变更的 UI 契约。
+  it('never renders a 「语音模型」 field: the model is resolved by the program', () => {
+    // 场景 1：已选 provider 且模型可解析 → 「语音 / 音色 ID」在，但「语音模型」不在
+    vm.s2vConfig.voiceProvider = 'minimax-multimodal';
+    vm.s2vConfig.voiceModel = 'speech-2.8-turbo';
+    vm.s2vVoiceContextModel = 'speech-2.8-turbo';
+    let w = mountPanel(vm);
+    const labels = (wrapper) => wrapper.findAll('.config-item label').map((n) => n.text());
+    expect(labels(w)).toContain('语音生成器');
+    expect(labels(w)).toContain('语音 / 音色 ID');
+    expect(labels(w)).not.toContain('语音模型');
+    w.unmount();
+
+    // 场景 2：模型两个来源都为空 → 两个字段都不渲染，不留空白控件
+    // （voice-model-program-resolved 修正，2026-10-19：正常路径由程序解析的 s2vVoiceContextModel
+    // 提供；历史快照/配置档案回填尚未重算时由 s2vConfig.voiceModel 提供。二者皆空才视为未知。）
+    vm.s2vVoiceContextModel = '';
+    vm.s2vConfig.voiceModel = '';
+    w = mountPanel(vm);
+    expect(labels(w)).not.toContain('语音模型');
+    expect(labels(w)).not.toContain('语音 / 音色 ID');
+    w.unmount();
+
+    // 场景 2b：仅 config.voiceModel 已知（未注册 provider 注册表 / 快照回填未重算）→ 字段照常渲染
+    vm.s2vConfig.voiceModel = 'speech-2.8-turbo';
+    w = mountPanel(vm);
+    expect(labels(w)).toContain('语音 / 音色 ID');
+    expect(labels(w)).not.toContain('语音模型');
+    w.unmount();
+
+    // 场景 3：未选 provider → 同样不渲染
+    vm.s2vConfig.voiceProvider = '';
+    vm.s2vConfig.voiceModel = '';
+    w = mountPanel(vm);
+    expect(labels(w)).not.toContain('语音模型');
+    w.unmount();
   });
 
   it('writes scalar data through setState on the parent instance, and rejects unknown keys', () => {
@@ -198,6 +241,117 @@ describe('S2vConfigPanels', () => {
     expect(status.text()).toContain('create.story2video.bgmLibrary.legacyHintChecking');
     expect(w.find('[data-testid="s2v-bgm-adopt"]').exists()).toBe(false);
     expect(w.find('[data-testid="s2v-bgm-clear"]').exists()).toBe(false);
+  });
+
+  // ── 声音区内部分区结构（s2v-voice-section-layout，2026-10-18）──
+  // 用户报告：声音区四类控件（语音生成器/音色ID、背景音乐/音量、音色克隆）挤在同一
+  // 自适应栅格里，「音色复制 / 克隆」只占半行宽、和「背景音乐音量」并排，看不出分组。
+  // 修法：声音区内按「旁白设置 / 背景音乐 / 音色克隆」拆三个子分区，各子分区自带标题行，
+  // 克隆面板满宽。断言锁 DOM 结构与顺序，防止回退成扁平栅格。
+  const SUBGROUPS = ['voiceNarration', 'voiceBgm', 'voiceClone']
+
+  it('「声音」区分拆为三个子分区，顺序为 旁白设置 → 背景音乐 → 音色克隆', () => {
+    const w = mountPanel(vm);
+    const voice = w.get('[data-testid="s2v-section-voice"]');
+    const titles = voice.findAll('.s2v-subgroup-title').map((n) => n.text());
+    expect(titles).toEqual([
+      'create.story2video.subgroups.voiceNarration',
+      'create.story2video.subgroups.voiceBgm',
+      'create.story2video.subgroups.voiceClone',
+    ]);
+    // 子分区本体也带着可寻址的 data-testid（视觉回归/探针按它定位）
+    expect(voice.findAll('.s2v-subgroup').map((n) => n.attributes('data-testid'))).toEqual(
+      SUBGROUPS.map((s) => `s2v-subgroup-${s}`)
+    );
+  });
+
+  it('三个子分区必须是「声音」分区的一级子节点（互不嵌套）', () => {
+    // 2026-10-18 回归锁：本次实现期间曾因少写一个 </div>（末尾又恰好多一个，整体仍配平）
+    // 使 voiceClone 被嵌进 voiceBgm 内部 —— 视觉上成了「卡片里套卡片」，
+    // 用户要的「三个区域视觉上分开」直接落空。
+    // ⚠️ 这个形态**测不出来**于「顺序 + testid」断言：findAll('.s2v-subgroup') 是深度优先，
+    //    嵌套时 document order 依然是 narration → bgm → clone，全绿。
+    //    所以判据必须落在**层级**上，不能落在顺序上。
+    const w = mountPanel(vm);
+    const voice = w.get('[data-testid="s2v-section-voice"]');
+    // ① details 的直接元素子节点 = summary + 三个 .s2v-subgroup，顺序与集合一致
+    const directSubgroups = [...voice.element.children]
+      .filter((el) => el.classList && el.classList.contains('s2v-subgroup'))
+      .map((el) => el.getAttribute('data-testid'));
+    expect(directSubgroups).toEqual(SUBGROUPS.map((s) => `s2v-subgroup-${s}`));
+    // ② 互不嵌套：任一子分区的祖先链上不得再出现 .s2v-subgroup
+    for (const s of SUBGROUPS) {
+      let el = w.get(`[data-testid="s2v-subgroup-${s}"]`).element.parentElement;
+      while (el && el !== voice.element) {
+        expect(el.classList.contains('s2v-subgroup')).toBe(false);
+        el = el.parentElement;
+      }
+    }
+  });
+
+  it('「语音生成器」与「语音 / 音色 ID」同在「旁白设置」子分区', () => {
+    // 「语音 / 音色 ID」仅在已选语音模型（或模型下拉被隐藏）时渲染，故显式给模型值。
+    vm = makeBoundVm({ s2vConfig: s2vConfigFixture() });
+    vm.s2vConfig.voiceProvider = 'minimax-multimodal';
+    vm.s2vConfig.voiceModel = 'speech-2.8-turbo';
+    // 组件的显隐判据是 `s2vConfig.voiceProvider && s2vVoiceContextModel`
+    // （S2vConfigPanels.vue 的 `v-if`），其中 `s2vVoiceContextModel` 是 contract 绑定的
+    // **独立状态键**（`s2v-panel-contract.js`），并不由 `voiceModel` 派生。
+    // 本用例原先只设了 voiceProvider/voiceModel ⇒ 该字段不渲染 ⇒ 断红。
+    // 同文件 L127/L136 两个用例都是显式设这个键的，此处补齐同一前置。
+    vm.s2vVoiceContextModel = 'speech-2.8-turbo';
+    const w = mountPanel(vm);
+    const narration = w.get('[data-testid="s2v-subgroup-voiceNarration"]');
+    expect(narration.text()).toContain('语音生成器');
+    expect(narration.text()).toContain('语音 / 音色 ID');
+    // 「背景音乐」子分区不得包含语音生成器（分区之间不得互相渗透）
+    const bgm = w.get('[data-testid="s2v-subgroup-voiceBgm"]');
+    expect(bgm.text()).not.toContain('语音生成器');
+  });
+
+  it('「背景音乐」与「背景音乐音量」同在「背景音乐」子分区', () => {
+    const w = mountPanel(vm);
+    const bgm = w.get('[data-testid="s2v-subgroup-voiceBgm"]');
+    expect(bgm.find('[data-testid="s2v-bgm-select"]').exists()).toBe(true);
+    expect(bgm.find('[data-testid="s2v-bgm-volume"]').exists()).toBe(true);
+    expect(bgm.find('[data-testid="s2v-bgm-manage-button"]').exists()).toBe(true);
+    // 与「音色复制 / 克隆」分区不共居
+    const clone = w.get('[data-testid="s2v-subgroup-voiceClone"]');
+    expect(clone.find('[data-testid="s2v-bgm-select"]').exists()).toBe(false);
+  });
+
+  it('「音色复制 / 克隆」独占满宽子分区（不与「背景音乐音量」并排）', () => {
+    vm = makeBoundVm({
+      s2vVoiceCapability: { type: 'user_clone', clone: { enabled: true } },
+      s2vCloneOpen: true,
+    });
+    const w = mountPanel(vm);
+    const clone = w.get('[data-testid="s2v-subgroup-voiceClone"]');
+    // 克隆面板本体 + 展开后的克隆列表都归该子分区
+    expect(clone.find('[data-testid="s2v-voice-clone-toggle"]').exists()).toBe(true);
+    expect(clone.classes()).toContain('s2v-subgroup');
+    // 分区体内只允许克隆自己的子项：不得出现 BGM 滑杆（这是本次用户报告的直接症状）
+    expect(clone.find('[data-testid="s2v-bgm-volume"]').exists()).toBe(false);
+  });
+
+  it('「当前服务商尚未接入可用的音色克隆能力」提示归入克隆子分区', () => {
+    vm = makeBoundVm({ s2vVoiceCapability: { type: 'user_clone', clone: { enabled: false } } });
+    const w = mountPanel(vm);
+    const clone = w.get('[data-testid="s2v-subgroup-voiceClone"]');
+    expect(clone.text()).toContain('音色复制 / 克隆');
+    expect(clone.text()).toContain('当前服务商尚未接入可用的音色克隆能力');
+  });
+
+  it('「个人音色槽位」说明归入克隆子分区', () => {
+    vm = makeBoundVm({ s2vVoiceCapability: { type: 'provider_personal_slot' } });
+    const w = mountPanel(vm);
+    const clone = w.get('[data-testid="s2v-subgroup-voiceClone"]');
+    expect(clone.text()).toContain('个人音色槽位');
+  });
+
+  it('声音区默认收缩：details 不带 open 属性', () => {
+    const w = mountPanel(vm);
+    expect(w.find('[data-testid="s2v-section-voice"]').attributes('open')).toBeUndefined();
   });
 
   // ── 音色克隆入口按钮文案时序（voice-clone-pick-feedback，2026-10-18）──

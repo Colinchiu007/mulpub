@@ -135,3 +135,86 @@ describe('publish-precondition — 前置门禁判据', () => {
     expect(describeFailure(REASONS.TITLE_NOT_FILLED, 'some_new_platform')).toContain('some_new_platform')
   })
 })
+
+// 2026-10-18 video-publish-4 第四轮（CCG 自扮演裁决 i1/i3）：
+// `assertReady` 的取证旁路失败必须**可见**——旧实现 `catch(_){}` 静默吞掉，
+// 使「取证通道断了」与「本平台不需要取证」在生产上完全同形，审计契约失效而无人知晓。
+// 注意：取证默认关闭（`MP_DOM_DUMP` 未设时一次都不读页面），因此这些用例必须显式开开关，
+// 否则测到的是「未开启」分支而不是「开启后失败」分支。
+describe('publish-precondition — assertReady 取证旁路', () => {
+  const { assertReady } = require('./publish-precondition')
+
+  beforeAll(() => { process.env.MP_DOM_DUMP = '1' })
+  afterAll(() => { delete process.env.MP_DOM_DUMP })
+
+  function okInput (overrides = {}) {
+    return {
+      win: { webContents: {} },
+      platform: 'douyin',
+      article: { video_path: 'D:/v.mp4', title: '标题', content: '正文' },
+      selectors: { file_input: ['input[type="file"]'] },
+      fillReport: { upload: { ok: true }, title: { ok: true }, content: { ok: true } },
+      logger: { warn: vi.fn(), info: vi.fn() },
+      ...overrides,
+    }
+  }
+
+  it('取证正常时不发声（无噪声）', async () => {
+    const input = okInput()
+    // 让 executeJavaScript 返回一个「像采集结果」的对象
+    input.win.webContents.executeJavaScript = async () => ({
+      urlPath: '/x', docTitle: 't', files: [], inputs: [], textareas: [], editables: [], buttons: [], uploadAreas: [], bodyTextLength: 1,
+    })
+    input.win.webContents.getURL = () => 'https://example.test/x'
+    const r = await assertReady(input)
+    expect(r.ok).toBe(true)
+    expect(input.logger.warn).not.toHaveBeenCalled()
+  })
+
+  it('取证旁路本身抛错时：不抛、判定继续，且必须 warn 出声（不得静默）', async () => {
+    // dumpDom 抛错 ⇒ assertReady 的 try 冒泡到 catch 分支（区别于「返回 null」分支）。
+    // 用 spyOn 精确控制，避免依赖 executeJavaScript 的调用形态。
+    const dump = require('./rpa-dom-dump')
+    const spy = vi.spyOn(dump, 'dumpDom').mockRejectedValue(new Error('boom'))
+    try {
+      const input = okInput()
+      await expect(assertReady(input)).resolves.toBeTruthy()
+      expect(spy).toHaveBeenCalled()
+      expect(input.logger.warn).toHaveBeenCalled()
+      const msg = String(input.logger.warn.mock.calls[0][1])
+      expect(msg).toContain('dom-dump')
+      expect(msg).toContain('不影响发布判定')
+      expect(msg).toContain('boom')
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('取证返回 null（通道无结果）时也必须 warn，且文案点名「缺页面形状证据」', async () => {
+    const input = okInput({ win: { webContents: { executeJavaScript: async () => 'not-an-object' } } })
+    const r = await assertReady(input)
+    expect(r.ok).toBe(true)
+    expect(input.logger.warn).toHaveBeenCalled()
+    const msg = String(input.logger.warn.mock.calls[0][1])
+    expect(msg).toContain('dom-dump')
+    expect(msg).toContain('缺页面形状证据')
+  })
+
+  it('没有 logger 时也不抛（降级为静默，但不得崩）', async () => {
+    const input = okInput({ logger: undefined })
+    await expect(assertReady(input)).resolves.toBeTruthy()
+  })
+
+  it('门禁命中时仍返回带 definitelyNotSent 的失败结果（取证失败不影响判定）', async () => {
+    const input = okInput({
+      win: { webContents: { executeJavaScript: undefined } },
+      fillReport: { upload: null, title: null, content: null },
+    })
+    const r = await assertReady(input)
+    expect(r.ok).toBe(false)
+    expect(r.result.preSubmitBlocked).toBe(true)
+    expect(r.result.definitelyNotSent).toBe(true)
+    // 两条 warn：一条取证旁路、一条门禁拦截
+    expect(input.logger.warn.mock.calls.length).toBeGreaterThanOrEqual(2)
+  })
+})

@@ -127,6 +127,58 @@ module.exports = {
       // 因此只保留**文本明确**的候选，不再放宽泛的「发布」「发表」。
       publish_btn: ['button:has-text("预览并发布")', '.publish-btn', 'button:has-text("确认发布")'],
     },
+    // 2026-10-18 真机取证（video-publish-4，Playwright + 真实账号 cookie 打开
+    // `profile_v4/xigua/upload-video` 并真实上传一个 mp4 后 dump DOM）。
+    // 旧 top-level `toutiao` 块是**图文文章页**（graphic/publish）那套；视频上传页
+    // 的入口/标题/简介/发布按钮与它完全不同 —— 这正是 6 平台归因里
+    // 「声明了视频入口（videoPublishUrls.toutiao）但选择器仍是图文 ⇒ 上传整段被跳过」的根因。
+    // 取证原文（节选）：
+    //   上传前：fileInputs=1（`input[type=file]`，隐藏，由 `.byte-upload-trigger` 点击区触发）
+    //   上传后：`上传成功 segment_0000.mp4 大小: 1.1MB 视频时长: 5s` ⇒ 上传完成信号可用
+    //   标题  ：`input.xigua-input.show-limit` `placeholder="请输入 1～30 个字符"`
+    //   简介  ：`textarea.byte-textarea.abstract` `placeholder="请输入视频简介"`
+    //   话题  ：`input.arco-input-tag-input` `placeholder="请输入"`
+    //   发布  ：`button.action-footer-btn.submit`（text=发布）；同排还有 存草稿/定时发布
+    //            —— 三键同排且文本含「发布」，故必须用 `.action-footer-btn.submit` 精确类，
+    //               不得退化为 `:has-text("发布")`（会命中「定时发布」）。
+    toutiao_video: {
+      file_input: ['input[type="file"]', '.byte-upload input[type="file"]', '.upload-video-trigger input[type="file"]'],
+      // 标题：优先真机类名，再退 placeholder（30 字上限），最后通用
+      title_input: ['input.xigua-input', 'input[placeholder*="1～30"]', 'input[placeholder*="请输入 1"]', 'input[placeholder*="标题"]'],
+      // 简介（视频正文）
+      desc_textarea: ['textarea.byte-textarea.abstract', 'textarea[placeholder*="视频简介"]', 'textarea[placeholder*="简介"]'],
+      editor: ['textarea.byte-textarea.abstract', '[contenteditable="true"]', '[contenteditable]', '.ProseMirror'],
+      // 话题标签（可选）
+      tag_input: ['input.arco-input-tag-input', 'input[placeholder*="话题"]'],
+      // 上传完成信号：上传成功后容器出现「上传成功」文案
+      upload_complete: ['.xigua-upload-video-success', '[class*="upload-success"]', '.byte-upload-list-item-done'],
+      // 发布按钮：精确类优先（避开同排「定时发布」）
+      publish_btn: ['button.action-footer-btn.submit', 'button.byte-btn-primary.action-footer-btn', '.action-footer-btn.submit', 'button:has-text("发布")'],
+      // 草稿按钮（与发布同排，文本为「存草稿」）
+      draft_btn: ['button.action-footer-btn.draft', 'button:has-text("存草稿")'],
+    },
+    // 2026-10-18 真机取证（video-publish-4，Playwright + 真实账号 cookie 打开
+    // `creator.xiaohongshu.com/publish/publish?from=menu&target=video` 并真实上传 mp4 后 dump DOM）。
+    // 用户硬约束：小红书**只发布到平台草稿箱**，不得真实发布。
+    // 取证原文（节选）：
+    //   上传前：`input.upload-input`（**可见**，非隐藏）+ `button ... upload-butto`（text=上传视频）
+    //           + 侧边栏「草稿箱(0)」入口
+    //   上传后：标题 `input.d-text` `placeholder="填写标题会有更多赞哦"`
+    //           正文 `div.tiptap.ProseMirror`（contenteditable）
+    //           发布按钮是 **DIV** 不是 button：text=「发布笔记」（页面上出现 2 份：编辑态 + 笔记预览态）
+    //           另有「定时发布」开关（默认关闭）
+    xiaohongshu_video: {
+      file_input: ['input.upload-input', 'input[type="file"]', '.upload-input input[type="file"]'],
+      upload_btn: ['button.upload-butto', 'button:has-text("上传视频")', '.custom-button'],
+      title_input: ['input.d-text', 'input[placeholder*="填写标题"]', 'input[placeholder*="标题"]'],
+      // 正文是 tiptap/ProseMirror（contenteditable），不是 textarea
+      editor: ['.tiptap.ProseMirror', '.ProseMirror', '[contenteditable="true"]', '[contenteditable]'],
+      desc_textarea: ['textarea[placeholder*="正文"]', '[contenteditable="true"]'],
+      // 发布按钮：真机为 DIV（`发布笔记`）；草稿保存走侧边栏「草稿箱」或该按钮的下拉
+      publish_btn: ['div:has-text("发布笔记")', 'button:has-text("发布笔记")', '[class*="publish"]'],
+      // 草稿箱入口（侧边栏）
+      draft_entry: [':text("草稿箱")', 'a:has-text("草稿箱")', '[class*="draft"]'],
+    },
     youtube: {
       create_btn: ['#create-icon', 'ytcp-button#create-icon', 'button[aria-label="创建视频"]'],
       upload_option: ['tp-yt-paper-item:has-text("上传视频")', '.ytcp-menu-item:has-text("上传视频")'],

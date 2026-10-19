@@ -114,6 +114,38 @@ function hasSecurityMaterials (cookie) {
   return CRYPT_KEY_RE.test(s) && SIGN_DATA_KEY_RE.test(s)
 }
 
+/**
+ * 签名材料是否**只剩 key id**（值极短、不含 `data=` 包裹结构）。
+ *
+ * 2026-10-19 真机实证：真实账号两类安全 cookie 的值只有 18 字符（形如 `056709ca-4e73-9159`），
+ * 是 key id；真正的密文（含 `ec_privateKey` PEM / `ticket`）在页面 **IndexedDB `secure-store`**，
+ * 私钥为不可导出的 WebCrypto CryptoKey。
+ *
+ * 用途：让 Step 0 能给出**准确**的诊断，而不是笼统的「账号信息缺失，请重新授权」——
+ * 后者会把「架构性不可行」误导成「用户该重新登录」。
+ *
+ * 判据刻意宽松（只认「短且无 data= 结构」）：宁可漏判成「材料有问题」由 clientSign 抛错，
+ * 也不要把「材料其实是好的」误判成 key-id。
+ *
+ * @param {string} cookie
+ * @returns {boolean}
+ */
+function hasKeyIdOnlyMaterials (cookie) {
+  const s = String(cookie == null ? '' : cookie)
+  if (!hasSecurityMaterials(s)) return false
+  const cands = cookieValues(s, CRYPT_KEY_RE).concat(cookieValues(s, SIGN_DATA_KEY_RE))
+  if (!cands.length) return false
+  // 出现任意一条「像真材料」的就判否（解码后能拿到 ec_privateKey / ticket 亦判否）
+  for (const raw of cands) {
+    if (raw.includes('data=') || raw.length > 64) return false
+    try {
+      const obj = decodeSecuritySdk(raw)
+      if (obj && (obj.ec_privateKey || obj.ticket)) return false
+    } catch (_e) { /* 解不出 → 继续看下一条 */ }
+  }
+  return true
+}
+
 /** clientSign：返回 base64(client-data)。任一材料缺失/PEM 非法 → throw（脱敏）。*/
 function clientSign (cookie) {
   try {
@@ -166,6 +198,7 @@ module.exports = {
   FAIL_MSG,
   // 2026-10-13 新增：cookie 名解析的单一事实源（供各发布链 Step 0 复用）
   hasSecurityMaterials,
+  hasKeyIdOnlyMaterials,
   resolveCryptPayload,
   resolveSignDataPayload,
   cookieValue,
