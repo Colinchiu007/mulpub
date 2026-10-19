@@ -19,6 +19,23 @@ date: 2026-10-19
 | 会话隔离 | ✅ worktree 内编辑；`pre-code-edit-guard` 共享根 BLOCKED（exit 1，预期）/ worktree 内 exit 0；`rev-parse --abbrev-ref HEAD` = `rewrite-default-strategy-fix` |
 | 依赖就绪 | ✅ `pnpm install --frozen-lockfile` + `verify-worktree-deps.js` OK 11 项 |
 
+| 远程同步 | PENDING | PR #3980 开启中，合并后由门禁按主干历史推导收口 |
+
+## CCG 深度审查（QM-6 双模型，DUAL 档）
+
+变更 661 行 > 200 行阈值 ⇒ DUAL；`sh scripts/deep-review.sh`（critic=claude，proposer=opencode，Git Bash 经 `C:\Program Files\Git\bin\bash.exe` 调用，裸 bash 解析到 WSL 被脚本环境闸拦截）。
+轮 1 产出 7 条发现 → 5 条进入自扮演裁决，**5/5 upheld**，逐条处置：
+
+| id | 严重度 | 处置 |
+|---|---|---|
+| i1 | Critical | id 字典序破平**收窄到无信号组**；有信号组新增 `_hits`（真命中维度数）+ `_specificity`（平台专精度）破平。修复后 douyin→douyin-viral / xiaohongshu→种草 / bilibili·zhihu→knowledge-dry 全部命中。变异 M3（去专精度）实测 3 红 |
+| i2 | Warning | PRD「warnings 告知用户」承诺**如实修订为 Out of Scope**（改返回契约波及三处消费方），登记为后续项 |
+| i3 | Warning | 预览 `watch` 补 `content`（预览与实际命中一致性）；回归锁验证预览请求携带原文 |
+| i4 | Warning | 保真兜底 id 改为 `DEFAULT_FIDELITY_STRATEGY_IDS` 常量 + `fidelityStrategyIds` 注入，非法注入回退默认；3 条锁 |
+| i5 | Warning | 形态判据改**长度优先三档**：≥80 draft / ≤12 topic（阈值取自实测样本：种子 7-11 字、最短成稿 16-18 字）/ 灰色带靠结构（多段或 ≥2 句末标点）；5 条锁 + 4 条既有断言按新语义修正 |
+
+裁决明细：`.adversarial/ccg-deep-279050fa/adjudication.json`（5/5 upheld + 逐条 prosecution/defense/rationale）；`deepReview.status` → `self_play_resolved`，`check-pr-exec-record --mode=enforce` PASS。
+
 ## 根因（实测，非推断）
 
 三层默认值叠加涌现，**不存在任何显式默认策略常量**：
