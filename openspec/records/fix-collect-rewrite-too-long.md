@@ -22,7 +22,7 @@ date: 2026-10-19
 | QM-1 打包 | ✅ | 改动含渲染层 + `packages/rewrite-engine`（主进程消费包）；`pnpm run build:vue` rc=0；`pnpm exec electron-builder --win --dir --publish never` rc=0（产物 `apps/desktop/dist-electron/win-unpacked`）；未改 `apps/desktop/electron/**` |
 | QM-2 代码必检项 | ✅ | 无同步阻塞原语、无新增 IPC、无 `v-html`、无硬编码等待；错误信封形状与既有 `__error` 消费方（`formatUserError`）一致；长度上限保留在引擎（单一真源），渲染层只做同值结构锁；截断按 Unicode 码点、不劈开代理对 |
 | QM-4 视觉回归 | N/A（有据） | 未改模板/样式/DOM；新增提示走既有 toast 通道（`collection.rewriteTruncated`），默认视图不渲染新元素；`build:vue` 产物正常 |
-| QM-6 CCG 双模型外部评审 | QM6_PLACEHOLDER | QM6_EVIDENCE_PLACEHOLDER |
+| QM-6 CCG 双模型外部评审 | ✅（单轴 + 如实降级） | 轴 A（跨家族）：`codex exec review --uncommitted` 完成，findings=[]、overall_correctness="patch is correct"、confidence 0.92（逐条核对引擎错误码映射、IPC 信封形状、locale 成对、RETRYABLE_CODES 无回归、常量结构锁）。轴 B：Claude 三次调用均因本地推理网关 502 不可用；opencode 审查 >15min 无产出（同一后端依赖）已取消 —— 按 AGENTS「子代理降级」不盲等，降级为主代理自审 + 全量静态门禁（vitest 54+129+194、变异反证 1 红/2 红、build:vue rc=0、electron-builder rc=0、locale/max-lines/unwired/brand/doc-abs 全 PASS）。CCG 判定记录按门禁合规出口置 `cleared` 并写明降级原因与 findings，不冒充双模型评审。 |
 | 远程同步 | 由门禁推导 | 合并后由 `scripts/lib/merge-ledger.js` 按主干历史推导收口，不手写状态词、不为收口另开 PR |
 
 ## QM-5 五步（详细）
