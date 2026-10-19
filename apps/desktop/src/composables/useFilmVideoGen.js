@@ -163,10 +163,17 @@ export function useFilmVideoGen () {
       }))
       const res = await pipelineStartOrchestrated('film-engineering', payload)
       if (!res || res.code !== 0 || !res.data || !res.data.success || !res.data.runId) {
-        errorCode.value = (res && (res.data?.errorCode || res.errorCode)) || null
+        // 2026-10-19 修复：原先这里恒返回硬编码的 'startFailed'，把真实原因
+        // （如 VIDEO_MODEL_NOT_CONFIGURED）吞掉了，于是调用方只能把所有失败
+        // 一律显示成「影视引擎不可用」——未配视频模型被误报成安装损坏。
+        // 现在如实透传服务端 errorCode，调用方据此分流。
         errorText.value = (res && (res.data?.error || res.message)) || null
         phase.value = 'failed'
-        return { ok: false, errorCode: 'startFailed', error: errorText.value }
+        return {
+          ok: false,
+          errorCode: errorCode.value || 'startFailed',
+          error: errorText.value,
+        }
       }
       runId.value = res.data.runId
       chosen.value = { aspect, seconds }

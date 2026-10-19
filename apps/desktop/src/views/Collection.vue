@@ -211,15 +211,9 @@
            不再在采集页底部重复一份只写 store 的轻量草稿列表（两套方言互相污染） -->
     </div>
 
-    <!-- 草稿箱：独立页签，与发布页草稿同源（draftList） -->
-    <CollectionDraftsPanel
-      v-else-if="activeTab === 'drafts'"
-      active
-      :reload-token="draftsReloadToken"
-      @create="createDraft"
-      @edit="editDraft"
-      @publish="goPublish"
-    />
+    <!-- S1c：草稿箱页内列表（CollectionDraftsPanel）已删除 ——
+         点击「草稿箱」页签由 switchTab 直接跳转 /publish?tab=drafts，
+         草稿箱全仓只保留一个整页实现。 -->
 
     <!-- 文案库标签页（2026-09-16 合并：原「采集记录」+「文案库」两标签合一，以采集记录卡片为准） -->
     <!-- 博主监控：独立组件，避免把 2700+ 行的采集页继续堆胖 -->
@@ -453,6 +447,8 @@ import { resolveNotifyText } from '@/utils/notifyCore'
 import { storeGetSetting, storeSetSetting, draftList, aiRewrite, aiListRewriteStrategies, aiGetRecommendedStrategies } from '@/api/publisher'
 import { extractRewriteHistoryId, attachRewriteLineage } from '@/utils/rewrite-lineage'
 import { formatUserError } from '@/utils/user-facing-error'
+import { REWRITE_ENGINE_MAX_INPUT_CHARS, prepareRewriteInput } from '@/utils/rewrite-engine-limits'
+import { normalizeRewriteEngineError } from '@/utils/rewrite-engine-error'
 import { classifyCollectError } from '@/utils/collect-error'
 // 采集内容守卫：识别「百度安全验证」等反爬验证页文字（判据与主进程同源，见模块注释）
 import { isVerificationContent } from '@/utils/collected-content-guard'
@@ -467,7 +463,7 @@ import { safeHttpUrl } from '@multi-publish/shared-utils/src/safe-http-url'
 import { normalizeCollectedItem, normalizeItemTags, itemTags, CollectionCreatorTab } from '@/features/collection/collected-item'
 import { QuickCollectTab, QuickCollectPanel } from '@/features/collection/quick-collect-ui'
 // 草稿箱页签 + 面板（2026-10-12）：独立组件，Collection.vue 只付 1 行 import
-import { CollectionDraftsTab, CollectionDraftsPanel } from '@/features/collection/draft-box-ui'
+import { CollectionDraftsTab } from '@/features/collection/draft-box-ui'
 import { createOpenSourceHandler } from '@/features/collection/useSourceEntry'
 import { useCollectionDrafts } from '@/composables/useCollectionDrafts'
 import BatchCollectPanel from '@/features/collection/BatchCollectPanel.vue'
@@ -661,6 +657,16 @@ async function rewriteViaEngine (content) {
       },
     }
   }
+  // 超长自动截取（fix-collect-rewrite-too-long，2026-10-19）：采集到的长文（知乎回答等）
+  // 会超过引擎入口的 6000 码点硬上限，旧行为是被引擎拒收（TOO_LONG）后只弹兜底
+  // 「AI 改写失败」；采集页没有「先精简再改写」的交互位（结果区原文 readonly），
+  // 因此这里截取前 N 码点继续改写，并明确告知用户截断事实。
+  const prepared = prepareRewriteInput(content)
+  if (prepared.truncated) {
+    notifyWarning('collection.rewriteTruncated', {
+      params: { original: prepared.originalLength, max: REWRITE_ENGINE_MAX_INPUT_CHARS },
+    })
+  }
   let res
   try {
     // main 新增的字数控制（min/max）→ targetLength 语义映射：窄区间视为 short，宽高区间视为 long，其余 medium
@@ -669,7 +675,7 @@ async function rewriteViaEngine (content) {
     const wordCountTarget = maxW <= 800 ? 'short' : (minW >= 1500 || maxW >= 2500) ? 'long' : 'medium'
     const params = {
       mode: 'imitate',
-      content: content,
+      content: prepared.text,
       userSettings: {
         tone: STYLE_TO_TONE[rewriteStyle.value] || 'casual',
         targetWordCount: { min: minW, max: maxW },
@@ -694,8 +700,14 @@ async function rewriteViaEngine (content) {
     collectRewriteLineageId = extractRewriteHistoryId(res)
     return { result_content: res.data.result, knowledgeRefs: res.data.knowledgeRefs || [] }
   }
-  // 失败时透传原始 res（含 errorCode/message），供调用方 formatUserError 映射友好文案
-  if (res && (res.code !== 0 || (res.data && res.data.success === false))) {
+  // 引擎业务错误（`{code:0, data:{success:false, error, errorCode}}`）必须归一化到顶层：
+  // formatUserError 只读顶层 errorCode/message，直接透传整个信封会让具体原因丢失，
+  // 用户只看到兜底「AI 改写失败」（2026-10-19 事故形态，正文 6766 字 > 6000 上限）。
+  if (res && res.code === 0 && res.data && res.data.success === false) {
+    return { __error: normalizeRewriteEngineError(res) }
+  }
+  // IPC 层错误（code !== 0）本身已是顶层 message 形状，原样透传
+  if (res && res.code !== 0) {
     return { __error: res }
   }
   return null
@@ -908,10 +920,9 @@ function closeAsrInstallDialog () {
 // draftSave 落在**同一行存储**（scopedSettingKey('drafts')），两套方言互相污染：
 // 发布页草稿在采集页显示不出时间（createdAt vs created_at）、采集页草稿在发布页
 // 显示 0 平台、同内容还会被指纹去重互相覆盖。现在写入一律走 draftSave，
-// 读取交给草稿箱页签（CollectionDraftsPanel）走 draftList。
+// S1c：草稿读取已迁移到 /publish?tab=drafts（唯一整页实现）。
 const { saveDraft: saveDraftToStore } = useCollectionDrafts()
-const draftsReloadToken = ref(0)
-const draftCount = ref(0)   // 页签角标条数（drafts ref 在上方声明，列表渲染已交给页签）
+const draftCount = ref(0)   // 页签角标条数
 
 /** 取草稿条数（页签角标）；失败静默保留旧值，不阻塞采集页 */
 async function countDrafts () {
@@ -937,7 +948,6 @@ async function persistDraft (payload, allowEmpty) {
   }
   const saved = await saveDraftToStore(payload, { allowEmpty: Boolean(allowEmpty) })
   if (saved && saved.ok) {
-    draftsReloadToken.value++
     draftCount.value = await countDrafts()
     return saved.draftId
   }
@@ -984,17 +994,9 @@ const openCollection = createOpenSourceHandler({
   t,
 })
 
-// 编辑与发布都跳发布页并带上草稿 id；发布页 watch(route.query.draft) 会走
-// draftList + loadDraft 加载（同源于本页写入的草稿）。
-async function editDraft (d) {
-  if (!d || !d.id) return
-  router.push('/publish?draft=' + d.id)
-}
-
-function goPublish (d) {
-  if (!d || !d.id) return
-  router.push('/publish?draft=' + d.id)
-}
+// 编辑与发布两处入口（原 CollectionDraftsPanel 的 @edit / @publish）已随面板删除：
+// 两者实现完全相同（都 push `/publish?draft=<id>`），属规则 1「一个动作=一个结果」
+// 下的重复标签，收敛后由 /publish?tab=drafts 整页的单一「去发布」按钮承担。
 
 // 错误码常量（与 IPC handler 同步）
 const ERROR_CODES = {
@@ -1778,6 +1780,13 @@ const TAB_KEYS = ['collect', 'quick', 'drafts', 'records', 'creator']
 
 function switchTab (tab) {
   if (!TAB_KEYS.includes(tab)) return
+  // PRD-UI-FLOW-CLARITY S1c：草稿箱收敛为唯一整页视图 /publish?tab=drafts。
+  // 采集页不再自渲染列表 —— 点击「草稿箱」页签直接跳过去（页签保留角标计数，
+  // 仍是最容易发现草稿箱的入口）。原页内 CollectionDraftsPanel 已删除。
+  if (tab === 'drafts') {
+    router.push('/publish?tab=drafts')
+    return
+  }
   activeTab.value = tab
 }
 

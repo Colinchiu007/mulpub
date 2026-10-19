@@ -215,56 +215,28 @@ describe("CollectionView", () => {
     expect(ElMessage.warning).toHaveBeenCalled();
   });
 
-  it("editDraft navigates to publish", async () => {
+  // S1c：均一的 editDraft / goPublish 两个入口已删除 ——
+  // 它们实现完全相同（都 push `/publish?draft=<id>`），是规则 1 下的重复标签；
+  // 收敛后由 /publish?tab=drafts 整页的单一「去发布」按钮承担。
+  it("drafts 的编辑/发布入口不再存在于采集页（收敛到整页草稿箱）", async () => {
     const w = mountCollection();
     await nextTick();
-    await w.vm.editDraft({ id: "d1" });
-    expect(pushSpy).toHaveBeenCalledWith("/publish?draft=d1");
+    expect(w.vm.editDraft).toBeUndefined();
+    expect(w.vm.goPublish).toBeUndefined();
   });
 
-  it("goPublish navigates to publish", async () => {
-    const w = mountCollection();
-    await nextTick();
-    await w.vm.goPublish({ id: "d2" });
-    expect(pushSpy).toHaveBeenCalledWith("/publish?draft=d2");
-  });
-
-  // 删除由草稿箱面板内的 CollectionDraftsPanel 承担（collect tab 不再有独立删除入口），
-  // 行为契约见 composables/useCollectionDrafts.test.js 的删除三例。
-  it("drafts deletion lives in the drafts panel, not in collect tab", async () => {
-    const { ElMessageBox } = await import("element-plus");
-    ElMessageBox.confirm.mockResolvedValue(undefined);
-    const draftDelete = vi.fn().mockResolvedValue({ code: 0, data: true });
+  // S1c：草稿删除能力随 CollectionDraftsPanel 一并迁到整页草稿箱，
+  // 采集页不再有任何草稿删除入口。删除行为契约见
+  // composables/useCollectionDrafts.test.js 的删除三例 + Publish.test.js 整页草稿箱。
+  it("采集页不再有草稿删除入口", async () => {
     window.electronAPI = {
-      draftDelete,
+      draftDelete: vi.fn(),
       draftList: vi.fn().mockResolvedValue({ code: 0, data: [{ id: "d1", title: "待删" }] }),
     };
     const w = mountCollection();
     await nextTick();
-    await w.find('[data-testid="collection-tab-drafts"]').trigger("click");
     await flushPromises();
-    await w.find('[data-testid="draft-delete"]').trigger("click");
-    await flushPromises();
-    expect(draftDelete).toHaveBeenCalledWith("d1");
-    const { ElMessage } = await import("element-plus");
-    expect(ElMessage.success).toHaveBeenCalled();
-  });
-
-  it("drafts panel delete does nothing on cancel", async () => {
-    const { ElMessageBox } = await import("element-plus");
-    ElMessageBox.confirm.mockRejectedValue(new Error("canceled"));
-    const draftDelete = vi.fn();
-    window.electronAPI = {
-      draftDelete,
-      draftList: vi.fn().mockResolvedValue({ code: 0, data: [{ id: "d1", title: "保留" }] }),
-    };
-    const w = mountCollection();
-    await nextTick();
-    await w.find('[data-testid="collection-tab-drafts"]').trigger("click");
-    await flushPromises();
-    await w.find('[data-testid="draft-delete"]').trigger("click");
-    await flushPromises();
-    expect(draftDelete).not.toHaveBeenCalled();
+    expect(w.find('[data-testid="draft-delete"]').exists()).toBe(false);
   });
 
   it("collectUrl warns if no urlCollectFetch API", async () => {
@@ -1129,48 +1101,26 @@ describe("CollectionView", () => {
     expect(draftSave).not.toHaveBeenCalled();
   });
 
-  // 草稿列表已移入「草稿箱」页签（CollectionDraftsPanel），采集页 collect tab 不再内嵌一份。
-  it("collect tab no longer renders an inline drafts section", async () => {
+  // S1c：草稿箱整页迁出采集页。页内不再渲染草稿列表（第 4 处 UI 已删除），
+  // 点击「草稿箱」页签改为 router.push('/publish?tab=drafts')。
+  it("collect tab no longer renders any inline drafts section", async () => {
     const w = mountCollection();
     await new Promise(r => setTimeout(r, 0));
     await nextTick();
     expect(w.find('[data-testid="collection-drafts-empty"]').exists()).toBe(false);
     expect(w.find('[data-testid="collection-drafts-panel"]').exists()).toBe(false);
+    expect(w.find('[data-testid="collection-drafts-list"]').exists()).toBe(false);
   });
 
-  it("switching to the drafts tab renders the drafts panel", async () => {
-    window.electronAPI = {
-      draftList: vi.fn().mockResolvedValue({ code: 0, data: [
-        { id: "d1", title: "Saved Draft", content: "hello", createdAt: "2026-07-05T10:00:00.000Z" },
-      ] }),
-    };
+  it("clicking the drafts tab navigates to the single whole-page drafts view", async () => {
+    pushSpy.mockClear();
     const w = mountCollection();
     await nextTick();
     await w.find('[data-testid="collection-tab-drafts"]').trigger("click");
     await flushPromises();
-    expect(w.find('[data-testid="collection-drafts-panel"]').exists()).toBe(true);
-    expect(w.find('[data-testid="collection-draft-d1"]').exists()).toBe(true);
-    expect(w.text()).toContain("Saved Draft");
-  });
-
-  it("drafts tab shows empty state when there are no drafts", async () => {
-    window.electronAPI = { draftList: vi.fn().mockResolvedValue({ code: 0, data: [] }) };
-    const w = mountCollection();
-    await nextTick();
-    await w.find('[data-testid="collection-tab-drafts"]').trigger("click");
-    await flushPromises();
-    expect(w.find('[data-testid="collection-drafts-empty"]').exists()).toBe(true);
-  });
-
-  it("drafts tab shows load error instead of pretending empty", async () => {
-    window.electronAPI = { draftList: vi.fn().mockResolvedValue({ code: -1, message: "存储不可用" }) };
-    const w = mountCollection();
-    await nextTick();
-    await w.find('[data-testid="collection-tab-drafts"]').trigger("click");
-    await flushPromises();
-    // 读取失败必须可见，不得伪装成「暂无草稿」
-    expect(w.find('[data-testid="drafts-load-error"]').exists()).toBe(true);
-    expect(w.find('[data-testid="collection-drafts-empty"]').exists()).toBe(false);
+    expect(pushSpy).toHaveBeenCalledWith("/publish?tab=drafts");
+    // 不得在本页渲染列表（原 CollectionDraftsPanel 已删除）
+    expect(w.find('[data-testid="collection-drafts-panel"]').exists()).toBe(false);
   });
 
   it("collectedItems accumulates after collectUrl", async () => {

@@ -1,0 +1,58 @@
+{
+  "sha": "131c0fff66966c477259d9ae10fadd9bae3c6d31",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 2104 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 2104,
+    "fileCount": 26,
+    "codeFileCount": 23,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 27,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "| UI 框架全量引入 | 未新增 element-plus 组件；数字人区块用原生 `<select>` |",
+      "| 硬编码密钥 | 无 |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "e99e748938a43a60bf6aaebba86e38bcd34f38813bc2c927cf1d08603299f056",
+  "decidedAt": "2026-10-19T00:24:33.346Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

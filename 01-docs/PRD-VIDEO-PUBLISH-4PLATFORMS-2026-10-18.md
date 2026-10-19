@@ -755,3 +755,221 @@ Step 0 曾硬要求 `bd_ticket_guard_client_data` 存在 —— 而它**只在�
 2. 视频号 / 头条的**活会话**在 `account-*` 分区，被当时运行中的应用实例独占锁定 ⇒ 这两个平台的真实发布本轮无法验证。
 3. `create_v2` 是否真需要 `bd-ticket-guard-ree-public-key` 未验证（会话失效使实验走不到那步）⇒ 判据继续 fail-closed。
 4. 视频号 15 个 `rpa-rpa-tencent_video-36b5b265-*` 分区全部为 2026-09-23，必然失效，勿再复用。
+
+---
+
+## 12.7 账号未完善的提交前检测与解法链接（R8，2026-10-19 真机实证）
+
+### 12.7.1 能不能在发布前检测到「账号没完善、发不了」——能
+
+真机读数（活会话、只读、零副作用）：
+
+```
+GetPublishAuth.authorPermission.IsIdentifyAuth = false  →  identityVerified = false
+canPublish = true   disablePublish = false   blockStatus = 0        ← 这三项**都不受影响**
+```
+
+⇒ **`DisablePublish` / `BlockStatus` 不能用于判断「能否发布」**，`IsIdentifyAuth` 是唯一的提交前信号。
+
+### 12.7.2 解法链接：用头条自己的页面（不新建飞书文档）
+
+真机录到的完整链路：发布页点「发布」→ 模态框「账号信息未完善」→ 点弹窗里的**「去完善」**，
+实测弹出目标是：
+
+```
+https://mp.toutiao.com/profile_v4/personal/landing-type        ← 主链接（用户点进去即可完善）
+https://mp.toutiao.com/profile_v4/personal/auth?enter_from=main_page   ← 二级：头条认证页
+```
+
+按「平台有现成解法页面就用现成的」原则直接采用，**无需自建说明页**。
+
+### 12.7.3 闸门与返回结构
+
+| 情形 | 判据 | `code` | 是否带 `helpUrl` |
+| --- | --- | --- | --- |
+| 无发布权限 | `canPublish === false` | `NO_PUBLISH_PERMISSION` | ✅ |
+| **账号信息未完善** | `identityVerified === false` | **`ACCOUNT_NOT_VERIFIED`** | ✅ |
+| 正常 | 以上皆否 | —— | —— |
+
+失败结果统一带 `{ success:false, code, error, helpUrl, helpLabel, auth }`，
+`helpUrl` 供 UI 渲染「可点击查看」。**闸门位置在上传之前**——不该发生的上传一次都不发生
+（测试锁：`Action=ApplyUploadInner` 请求数必须为 0）。
+
+### 12.7.4 显示项与提示文字
+
+| 场景 | 提示文字 | 链接 |
+| --- | --- | --- |
+| 账号信息未完善 | `该头条号账号信息未完善，暂时无法发布视频（平台提示：账号信息未完善，暂时不能进行发布文章、视频等权益操作，请完善后重试）。` | `去头条号完善账号信息` → `landing-type` |
+| 无发布权限 | `该头条号当前无发布权限（GetPublishAuth.DisablePublish=true）。平台侧原文：请完善账号信息，解锁发布文章、视频等权益操作。` | 同上 |
+
+> ⚠️ **文案纪律**：只如实写「账号信息未完善」，**不写「未实名」** ——
+> 弹窗用词是更宽的「账号信息」，把 `IsIdentifyAuth=false` 直接翻译成「未实名」属过度断言
+> （测试里有一条断言专门锁 `error` 不含「未实名」）。
+
+### 12.7.5 未闭合
+
+1. **UI 的弹窗与可点链接尚未接线**：引擎已返回 `helpUrl`，但渲染层发布失败走
+   `usePublishFlow.js#notifyFailure` → `notifyError`，目前只显示纯文本；
+   且外链打开受 `href-scheme-contract.test.js` 白名单约束，需按契约接入。
+2. 接线时须同步补 `locales/zh.js` / `en.js` 成对文案（Gate 7 locale-sync）。
+3. `IsIdentifyAuth=false` 与弹窗「账号信息未完善」是否完全等价未单独证实。
+
+### 12.7.5 「解法入口」在界面上的落地（R9，2026-10-19）
+
+#### 断点不在引擎，在结果收敛器
+
+引擎返回 `helpUrl` 并不会自动到界面 —— `publish-mode-runner` 用
+`Object.assign(base, {...})` **重建**结果对象，只挑 `error` / `code` 等少数字段往下传。
+新增字段默认不透出。
+
+⇒ 渲染层的接法改为**按稳定失败码反查链接**，只依赖已经在传的 `code`。
+好处：收敛器将来再挑字段也不会让链接静默失效。
+
+#### 单一真源（三处必须一致）
+
+| 处 | 文件 | 约束 |
+| --- | --- | --- |
+| 主进程（CJS） | `packages/shared-utils/src/publish-gate-help.js` | 权威表 |
+| 渲染进程（ESM） | `packages/shared-utils/src/publish-gate-help.browser.js` | 浏览器不能执行 CJS，故双份（本仓既有先例） |
+| 引擎 | `packages/api-publish-engine/.../toutiao-video-publish.js` 的 `ACCOUNT_FIX_URL` | **不能** require 本包（该包是零 workspace 依赖运行时），故自带常量 |
+
+一致性由 `packages/shared-utils/test/publish-gate-help-parity.test.js` **机械锁死**：
+两份逐字段比对 + **静态读引擎源码**比对 `ACCOUNT_FIX_URL` 字面量。
+**为什么必须机械**：任一处漂移，用户会被送到错页面且**不报错**。
+
+#### 显示项与交互
+
+| 项 | 规则 |
+| --- | --- |
+| 出现位置 | 发布进度面板里**失败**的那一行（`phase === 'failed'`） |
+| 出现条件 | `task.code` 在链接表里**有对应项**；否则**不渲染**（绝不给点不动的链接） |
+| 链接属性 | `href` 过 `safeHttpUrl`；`target="_blank"`；`rel="noopener noreferrer"` |
+| 文案 | i18n `publishPage.publishFlow.gateHelp.<code>`；未命中用表内中文兜底 |
+| 判据形状 | `v-if` 与 `:href` **必须同一个表达式** `safeHttpUrl(gateHelp.url)`（`href-scheme-contract.test.js` 硬判据，防死锚点） |
+
+#### 文案
+
+| 语言 | 文案 |
+| --- | --- |
+| zh | 去头条号完善账号信息 |
+| en | Complete your Toutiao account info |
+
+#### 数据校验
+
+- `url` 必须是 http/https 且**不含 userinfo**（parity 测试里断言，渲染层 `safeHttpUrl` 再验一次）。
+- `code` 缺失 / 未知 ⇒ `helpForCode` 返回 `null`，界面不渲染。
+
+#### 仍未闭合
+
+1. 单篇发布流程的失败 toast 仍是纯文本（它拿到的是入队响应，平台失败异步回来），未接。
+2. 目前只有头条两个码；其它平台的账号状态类失败要接需成对加表项。
+3. 链接页面对未登录 / 其它账号是否同样有效未验证。
+
+### 12.6.7 封面链真解与账号墙 API 证据（R10，2026-10-19）
+
+#### 12.6.7.1 封面：image_temp 链（订正 12.6.4/12.6.6 的旧解读）
+
+真页面「封面截取/本地上传」走的是**独立于视频**的凭证链（此前把 `SpaceName=pgc` 的 6 次
+`ApplyUploadInner` 误读为封面上传 —— 本轮证实其**从未产生 tos 传输**，是 SDK 候选路由预探测）：
+
+| 步 | 调用 | 关键点 |
+| --- | --- | --- |
+| ① 凭证 | `GET /xigua/api/upload/getAuthKey/?params={"type":"image_temp",…,"useStsToken":false}` | 返回 `{accessKey, uploadToken}`（HMAC-SHA1 形态） |
+| ② 三元组 | `GET vas-lf-x.ixigua.com/video/openapi/v1/?action=GetImageUploadParams&s=<5hex>&use_edge_node=1&file_size=<n>` | 头必须同时带 `Authorization: <uploadToken>` **和** `X-TT-Access: <accessKey>`（缺后者 `10413`） |
+| ③ 传图 | `PUT https://<tos_host>/<object_id>`，`Authorization: <tos_sign 原文（完整 JWT）>` | 204 即落盘；签名截断 ⇒ 401 |
+| ④ **登记** | `POST …?action=GetImageUploadInfos&`，body `[{"uri":"<object_id>"}]` | **服务端此刻才入库**（返回 `result_uri` + `{width,height,size,format,md5}`）；跳过这步直接提交 ⇒ `21084 封面图片不存在` |
+| ⑤ 提交 | `PublishVideo` 的 `VideoInfo.ThumbUri = result_uri` | `tos-cn-i-e874c6/…` 形态 |
+
+**错误码订正**：
+- `21085 封面数据异常`（R6 时代）= ThumbUri 传了 VOD vid（格式错）；
+- `21084 封面图片不存在`（本轮实测）= URI 形态对但**没走第 ④ 步登记**；
+- `21000 未实名认证/帐号不可用，可前往西瓜创作平台/西瓜App投稿`（本轮实测）= **封面链全通后，服务端对账号状态的权威拒绝**。
+
+#### 12.6.7.2 账号墙的 API 层证据（与 12.7 互补）
+
+`21000` 证明：**不需要 UI 弹窗也能在提交时检测到未实名**。与 §12.7 的提交前检测
+（`IsIdentifyAuth=false` → `ACCOUNT_NOT_VERIFIED`）构成双保险：
+
+| 层 | 触点 | 已落地 |
+| --- | --- | --- |
+| 提交前 | `checkPublishAuth` → `identityVerified` → 闸门（零上传） | ✅ #3977 / #3983 |
+| 提交时 | `PublishVideo` → `Code 21000`（平台原文透出） | ✅ 通用透出（结构化映射待接，见 §12.6.7.4） |
+
+#### 12.6.7.3 视频上传本轮新读数
+
+- 新 Vid：`v02d16g10004dbarnvvog65osoip723g`（同账号同链路，稳定可复现）。
+- `GetUploadCandidates` 与 `ApplyUploadInner(SpaceName=pgc)` 是 SDK 候选路由预探测，
+  **不产生上传**——不得再据此推断「封面走 pgc」。
+
+#### 12.6.7.4 未闭合
+
+1. `21000` → `ACCOUNT_NOT_VERIFIED` 的提交时结构化映射（含 `helpUrl` 复用同一链接）。
+2. 封面链五步沉淀为 `toutiao-video-cover.js`（现链文件 491/500 行，需新模块避免行数闸）。
+3. 视频号 / 抖音仍等扫码登录。
+
+### 12.6.7.5 封面链代码化 + 21000 兜底（R11，2026-10-19，#4008 后续）
+
+§12.6.7.4 ①② 关闭：封面五步链已从取证**沉淀为代码**，提交时账号墙已接兜底映射。
+
+#### 实现落点
+
+| 层 | 文件 | 说明 |
+| --- | --- | --- |
+| 编排 | `packages/api-publish-engine/src/publish/platforms/toutiao-video-cover.js` | `uploadCoverImage(o)`：注入 `mpClient/vasClient/axiosLike`（可全假服务器，零外发）；生产缺省 tos host 用三元组返回值 |
+| 纯判据 | 同上 `pickImageTempCreds / pickUploadTarget / pickRegisteredImage` | 形状不对一律 `null`（fail closed，不伪造凭证/不猜默认值）；`info.md5` 缺失=未登记 |
+| 提交时兜底 | `toutiao-video-publish.js#parsePublishResponse` | 新增 `accountGate`：`Code 21000` **或**原文含「未实名认证/帐号不可用」双判据；其它业务码不误判（测试锁 20007014/成功样例） |
+| 链出口 | `toutiao-video.js#run()` 提交段 | `accountGate` ⇒ 返回 `code:'ACCOUNT_NOT_VERIFIED'`（与 §12.7 提交前闸门同码；UI 据码反查同一「去完善」链接，shared-utils 单一真源） |
+
+#### 调用契约（编码接手者需知）
+
+```js
+const { uploadCoverImage } = require('…/toutiao-video-cover')
+const { uri, info } = await uploadCoverImage({
+  imagePath: '/本地/cover.jpg',       // jpeg
+  mpClient,   // baseURL=https://mp.toutiao.com，头用 chain._mpHeaders({Accept:'application/json'})
+  vasClient,  // baseURL=https://vas-lf-x.ixigua.com
+  axiosLike,  // 通用请求器（PUT 用）
+  headers, userAgent,
+  // tosBaseUrl 仅测试注入；生产不传
+})
+// uri 即 PublishVideo 的 VideoInfo.ThumbUri
+```
+
+#### 失败路径（全部 fail closed，测试各一例）
+
+| 失败点 | 判据 | 不发生的事 |
+| --- | --- | --- |
+| ①凭证形状不对 | `pickImageTempCreds`=null | 不发起 params 请求 |
+| ②params code≠2000 | 直接抛（含 10413/10402 原文） | 不 PUT |
+| ③PUT 非 2xx | 抛「PUT 图未落盘」 | 不登记 |
+| ④登记无 md5 / 串号 | 抛「GetImageUploadInfos 未登记成功」 | **不返回 uri**（21084 教训） |
+
+#### runner 接线纪律（本轮实测踩坑）
+
+`packages/api-publish-engine/scripts/run-tests.js` 的 `VITEST_FILES` 是**登记表**：
+新增 vitest 文件必须登记，否则走 node 直跑分支必崩（单文件 vitest 直跑却绿 ——
+「单文件绿 ≠ 接线绿」，与 #3983 的 vite alias 同族教训）。
+
+#### 未闭合
+
+`uploadCoverImage` 尚未接进 `run()` 的封面闸门（调用方现在需显式调）；接入点在
+`hasLocalCoverOnly` 分支（coverInputs 形状契约需先立，留下一轮小 PR）。
+
+### 12.6.7.6 封面接线进 run()（R12，2026-10-19，同分支第二提交）
+
+§12.6.7.5「未闭合①」关闭。三态契约在闸门 5 生效：
+
+| 态 | 触发输入 | 行为 |
+| --- | --- | --- |
+| 平台 URI | `opts.thumbUri` / `td.cover.uri` | 直接填 `VideoInfo.ThumbUri` |
+| 推荐封面 | 无 URI 时 `GetPosterList` | 先试（服务端故障时为 null） |
+| **本地文件** | `opts.cover.path` / `td.coverPath` / `td.cover`（字符串） | **`uploadLocalCoverFor(chain, path)` 五步链 → result_uri 进 ThumbUri** |
+
+接线体在 `toutiao-video-cover.js`（`pickLocalCoverPath` + `uploadLocalCoverFor`），链内 5 行。
+旧报错文案「头条封面上传尚未实现」订正为「本地封面上传失败且推荐封面不可用」。
+
+**零外发纪律**：`uploadLocalCoverFor` 的 vas 域按 `chain.mpBase` 推断 ——
+测试注入假 mpBase 时 vas 自动跟随假地址；生产用官方域。
+
+**回归锁**：`test/toutiao-video-chain.test.js` 新增「本地封面接线」用例 ——
+coverPath ⇒ 五步链三请求发生（params/Infos 打假服务器）+ 提交体 ThumbUri = 登记 uri。

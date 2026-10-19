@@ -1,0 +1,57 @@
+{
+  "sha": "279050fabfc83d909ab44b0e25f5d7dffd267db5",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 337 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 337,
+    "fileCount": 7,
+    "codeFileCount": 6,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 1,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "e464e435fc9d6c682d8a307a339a301c20f1fea6515694217ebed954683bb12b",
+  "decidedAt": "2026-10-19T01:59:12.884Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "tier": "unknown",
+    "performedBy": "self-play(claude critic, adjudicated by lead agent)",
+    "evidence": null,
+    "findings": null,
+    "note": "max-lines 单键手术（2 行 JSON 数据）触发的 SINGLE 审查：8 findings / 5 待裁决，裁决 4 upheld / 1 dismissed。i1 短内容字典序兜底失效（实测复现，_isFidelityEligible 修复）；i2 零命中值回退数组首项（实测复现，_signalHitAny 修复）；i3 content 预览防抖 300ms；i4 误导性注释修正+跨面行为声明；i5 SHA 错位属内容寻址设计（dismissed）。明细 .adversarial/ccg-deep-b14953e1/adjudication.json",
+    "at": "2026-10-19T03:49:25.106Z"
+  }
+}

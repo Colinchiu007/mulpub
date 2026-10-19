@@ -101,10 +101,14 @@ describe('RewriteEngine', function () {
     expect(result.errorCode).toBe('EMPTY_CONTENT')
   })
 
-  test('W3 超长内容仍被拒绝（TOO_LONG, >6000）', async function () {
+  test('W3 超长内容仍被拒绝（TOO_LONG, >MAX_INPUT_CHARS=50000）', async function () {
     var engine = new RewriteEngine({ llmClient: mockLlmClient('x'), knowledgeBase: new KnowledgeBase() })
     wireStrategy(engine)
-    var result = await engine.rewrite({ mode: 'imitate', content: 'a'.repeat(6001), userSettings: {} })
+    // 6001 在 rewrite-limits-50000 后是合法输入（原 6000 上限），必须仍走通改写；
+    // 只有超过新上限 50000 才拒。
+    var ok = await engine.rewrite({ mode: 'imitate', content: 'a'.repeat(6001), userSettings: {} })
+    expect(ok.success).toBe(true)
+    var result = await engine.rewrite({ mode: 'imitate', content: 'a'.repeat(50001), userSettings: {} })
     expect(result.success).toBe(false)
     expect(result.errorCode).toBe('TOO_LONG')
   })
@@ -130,6 +134,48 @@ describe('RewriteEngine', function () {
     engine._strategyManager.get = function () { return strategy }
     var result = await engine.rewrite({ mode: 'imitate', content: '任意内容', userSettings: {} })
     expect(result.result.length).toBeLessThanOrEqual(3000)
+  })
+
+  // ── rewrite-limits-50000（2026-10-19）：截断可见化 + 上限 50000 ──
+  test('L1 截断可见化：默认 3000 兜底砍尾 ⇒ outputTruncated=true 且 outputLength=实际字数', async function () {
+    var longText = 'x'.repeat(3500)
+    var strategy = sampleStrategy()
+    strategy.postProcess = { removeAITaste: false }
+    var engine = new RewriteEngine({ llmClient: mockLlmClient(longText), knowledgeBase: new KnowledgeBase() })
+    engine._strategyManager._strategies = [strategy]
+    engine._strategyManager.listEnabled = function () { return [strategy] }
+    engine._strategyManager.get = function () { return strategy }
+    var result = await engine.rewrite({ mode: 'imitate', content: '任意内容', userSettings: {} })
+    expect(result.outputTruncated).toBe(true)
+    expect(result.outputLength).toBe(3000)
+  })
+
+  test('L2 截断可见化：未截断 ⇒ outputTruncated=false', async function () {
+    var strategy = sampleStrategy()
+    strategy.postProcess = { removeAITaste: false }
+    var engine = new RewriteEngine({ llmClient: mockLlmClient('短结果'), knowledgeBase: new KnowledgeBase() })
+    engine._strategyManager._strategies = [strategy]
+    engine._strategyManager.listEnabled = function () { return [strategy] }
+    engine._strategyManager.get = function () { return strategy }
+    var result = await engine.rewrite({ mode: 'imitate', content: '任意内容', userSettings: {} })
+    expect(result.outputTruncated).toBe(false)
+    expect(result.outputLength).toBe(3)
+  })
+
+  test('L3 截断可见化：wordCountRange.max 砍尾同样置 outputTruncated，且上限 50000 生效', async function () {
+    // 6001 字输出在旧上限（6000）会被砍，新上限下若区间给到 50000 则不截
+    var longText = 'x'.repeat(6001)
+    var strategy = sampleStrategy()
+    strategy.postProcess = { removeAITaste: false }
+    var engine = new RewriteEngine({ llmClient: mockLlmClient(longText), knowledgeBase: new KnowledgeBase() })
+    engine._strategyManager._strategies = [strategy]
+    engine._strategyManager.listEnabled = function () { return [strategy] }
+    engine._strategyManager.get = function () { return strategy }
+    var notTrimmed = await engine.rewrite({ mode: 'imitate', content: '任意内容', userSettings: { wordCountRange: { min: 100, max: 50000 } } })
+    expect(notTrimmed.outputTruncated).toBe(false)
+    var trimmed = await engine.rewrite({ mode: 'imitate', content: '任意内容', userSettings: { wordCountRange: { min: 100, max: 6000 } } })
+    expect(trimmed.outputTruncated).toBe(true)
+    expect(trimmed.outputLength).toBe(6000)
   })
 
   test('W6 wordCountRange.max 覆盖 postProcess 上限', async function () {
@@ -167,7 +213,8 @@ describe('RewriteEngine', function () {
     // 断言用【字数要求】指令段标记（硬约束冲突裁决声明中含"字数要求"字样，不构成指令段）
     await engine.rewrite({ mode: 'imitate', content: '任意内容', userSettings: { wordCountRange: { min: -5, max: 3000 } } })
     expect(captured.sys).not.toContain('【字数要求】')
-    await engine.rewrite({ mode: 'imitate', content: '任意内容', userSettings: { wordCountRange: { min: 100, max: 9999 } } })
+    // 9999 在 rewrite-limits-50000 后是合法 max（原 6000 上限）；越界上界改为 50001
+    await engine.rewrite({ mode: 'imitate', content: '任意内容', userSettings: { wordCountRange: { min: 100, max: 50001 } } })
     expect(captured.sys).not.toContain('【字数要求】')
     await engine.rewrite({ mode: 'imitate', content: '任意内容', userSettings: { wordCountRange: { min: 2000, max: 100 } } })
     expect(captured.sys).not.toContain('【字数要求】')

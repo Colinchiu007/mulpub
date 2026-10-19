@@ -348,7 +348,7 @@
 | `build/` | 构建辅助 |
 | `standards/` | 代码规范 |
 | `team-workflow/` | 团队工作流 |
-| `.hermes/` | Hermes 配置 |
+| `.hermes/` | ~~Hermes 配置~~ **已于 2026-10-18 退役**（change: hermes-plans-retire）；原内容迁至 `openspec/changes/archive/2026-09-23-member-center-p1/` 并并入 `openspec/records/` 同名执行记录 |
 | `task-summary-2026-06-03-shared-auth.md` | 任务摘要 |
 | `test_api.py` | API 测试 (根目录) |
 | `test_core.py` | 核心测试 (根目录) |

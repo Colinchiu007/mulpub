@@ -1,0 +1,30 @@
+{
+  "sha": "c4f140419bd19f140f33d60b6ae665666ce797da",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 20 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 20,
+    "fileCount": 20,
+    "codeFileCount": 10,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 10,
+    "docSensitiveContentSample": [
+      "| A 缓存主密钥 | ❌ 无效 | 实测 `getMasterKey` 单次 0.195ms、PBKDF2 单次 125–143ms ⇒ PBKDF2 占 `loadCredential` **99.85%**，缓存主密钥只能省 0.15% |",
+      "1. **不改变 KDF 与密文格式**：同一主密钥、同一 10 万次迭代、同一 AES-256-GCM；",
+      "2. **单个失败不拖垮整批**：文件不存在 / 解密失败一律降级 `{configured:false}`（C2/C3 锁定）。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "b755800ee9a14963d1c7b50c780166d249207f6e0e87e8e791b93caba688eec9",
+  "decidedAt": "2026-10-18T15:45:27.946Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

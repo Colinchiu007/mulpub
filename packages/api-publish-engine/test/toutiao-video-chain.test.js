@@ -26,7 +26,7 @@ const { startFakeServer, methodPathList } = require('./helpers/fake-http')
 const { createHttpClient } = require('../src/publish/core/http-base')
 const { ToutiaoVideoChain, ToutiaoVideoError, TT_APP_ID, TT_SPACE_NAME_FALLBACK, PUBLISH_TYPE, parsePosterListResponse, pickPosterUri } = require('../src/publish/platforms/toutiao-video')
 
-const { CSRF_HEADER, pickCsrfToken } = require('../src/publish/platforms/toutiao-video-publish')
+const { CSRF_HEADER, pickCsrfToken, buildPublishGateResult, CODE_ACCOUNT_NOT_VERIFIED, ACCOUNT_FIX_URL } = require('../src/publish/platforms/toutiao-video-publish')
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
 
@@ -40,6 +40,12 @@ function makeCookie (o = {}) {
   // 默认带上，`omitCsrf` 用于验证「缺失时不伪造该头」。
   if (!o.omitCsrf) parts.push('xigua_csrf_token=' + (o.csrf || 'CSRF_TOKEN_ABCDEFGHIJKL'))
   return parts.join('; ')
+}
+
+function tmpImageForCover (bytes = 2048) {
+  const p = path.join(os.tmpdir(), 'tt-cover-' + Date.now() + '-' + Math.random().toString(36).slice(2) + '.jpg')
+  fs.writeFileSync(p, Buffer.concat([Buffer.from([0xFF, 0xD8, 0xFF, 0xE0]), Buffer.alloc(bytes, 0x7F), Buffer.from([0xFF, 0xD9])]))
+  return p
 }
 
 function tmpVideo (bytes = 4096) {
@@ -575,5 +581,142 @@ describe('ToutiaoVideoChain — 头条视频 API 轨', () => {
       expect(pub).toBeTruthy()
       expect(String(pub.headers['x-csrf-token'] || '')).toBe('OUTGOING_CSRF_VALUE_1234')
     } finally { fs.unlinkSync(f); await all.close() }
+  })
+
+  // ── 账号未完善闸门（2026-10-19 真机实证：toutiao-account-detection） ──────────
+  //
+  // 真机证据：该头条号 `GetPublishAuth.authorPermission.IsIdentifyAuth=false`
+  // （`DisablePublish` 仍为 true? 不 —— 实测为 **false**），点「发布」时平台弹出
+  // 「账号信息未完善，暂时不能进行发布文章、视频等权益操作，请完善后重试」，
+  // 其「去完善」按钮实测弹出 `https://mp.toutiao.com/profile_v4/personal/landing-type`。
+  // 所以：**提交前就能检测到**，判据是 IsIdentifyAuth；DisablePublish 不能用于此判断。
+  test('账号未完善：buildPublishGateResult 给出 ACCOUNT_NOT_VERIFIED + 平台「去完善」链接', () => {
+    const r = buildPublishGateResult({ canPublish: true, identityVerified: false })
+    expect(r).toBeTruthy()
+    expect(r.code).toBe(CODE_ACCOUNT_NOT_VERIFIED)
+    expect(r.success).toBe(false)
+    // 链接必须是平台自己的完善入口（用户点进去就能解决），不是自建说明页
+    expect(r.helpUrl).toBe(ACCOUNT_FIX_URL)
+    expect(String(r.helpUrl)).toContain('mp.toutiao.com')
+    expect(r.helpLabel).toBeTruthy()
+    // 文案如实说「账号信息未完善」，不臆断成「未实名」
+    expect(r.error).toContain('账号信息未完善')
+    expect(r.error).not.toContain('未实名')
+  })
+
+  test('账号未完善：正常账号 / 取不到 auth 都**不得**误拦', () => {
+    expect(buildPublishGateResult({ canPublish: true, identityVerified: true })).toBeNull()
+    expect(buildPublishGateResult(null)).toBeNull()
+    // identityVerified 缺省（老响应没有该字段）不得当成 false 拦掉
+    expect(buildPublishGateResult({ canPublish: true })).toBeNull()
+  })
+
+  test('账号未完善：无发布权限仍走 NO_PUBLISH_PERMISSION（两条闸门不互相覆盖）', () => {
+    const r = buildPublishGateResult({ canPublish: false, identityVerified: false })
+    expect(r.code).toBe('NO_PUBLISH_PERMISSION')
+    expect(r.helpUrl).toBe(ACCOUNT_FIX_URL)
+  })
+
+  // 注：`IsIdentifyAuth → identityVerified` 的映射已由 2026-10-19 真机实测确认
+  // （该头条号返回 identityVerified=false / canPublish=true），此处只锁纯函数行为，
+  // 不引入对假服务器路由形状的额外依赖。
+
+  test('账号未完善：run() 在**上传前**就中止（零上传请求）并返回 helpUrl', async () => {
+    const srv = await startFakeServer()
+    const f = tmpVideo(512)
+    try {
+      const chain = new ToutiaoVideoChain({ cookie: makeCookie(), mpBase: srv.url, vodBase: srv.url, userAgent: UA, uid: '1342958645023752' })
+      // 直接桩住只读探测：真机已确认真实账号返回 identityVerified=false
+      chain.checkPublishAuth = async () => ({ canPublish: true, disablePublish: false, blockStatus: 0, reviewLatency: 0, identityVerified: false })
+      const r = await chain.run({ title: 'T', video: { path: f } }, { draft: true })
+      expect(r.code).toBe(CODE_ACCOUNT_NOT_VERIFIED)
+      expect(r.helpUrl).toBe(ACCOUNT_FIX_URL)
+      // 关键：不该浪费一次真实上传
+      expect(srv.requestsFor(/Action=ApplyUploadInner/).length).toBe(0)
+    } finally { fs.unlinkSync(f); await srv.close() }
+  })
+
+  // ── 提交时账号墙兜底（2026-10-19：Code 21000 真机实证）────────────────────
+  //
+  // 封面/上传链全通后，服务端对未实名账号的权威拒绝是 PublishVideo 的 Code 21000
+  // （原文「未实名认证/帐号不可用，可前往西瓜创作平台/西瓜App投稿」）。
+  // 这里锁两条：①纯函数判据（码或原文都算命中）②run() 出口复用 ACCOUNT_NOT_VERIFIED
+  // （UI 据码反查同一「去完善」链接，shared-utils 单一真源）。
+  test('提交时账号墙：parsePublishResponse 识别 21000 与原文（码/文双判据）', () => {
+    const { parsePublishResponse } = require('../src/publish/platforms/toutiao-video-publish')
+    const r1 = parsePublishResponse({ status: 0, data: { Code: 21000, Message: '未实名认证/帐号不可用，可前往西瓜创作平台/西瓜App投稿' } })
+    expect(r1.ok).toBe(false)
+    expect(r1.accountGate).toBe(true)
+    const r2 = parsePublishResponse({ status: 0, data: { Code: 99999, Message: '未实名认证/帐号不可用' } })
+    expect(r2.accountGate).toBe(true) // 原文兜底（防平台换码）
+    const r3 = parsePublishResponse({ status: 0, data: { Code: 20007014, Message: 'request Param ThumbUri Can\'t be nil Error' } })
+    expect(r3.accountGate).toBe(false) // 其它业务码不得误判
+    const r4 = parsePublishResponse({ status: 0, data: { Code: 0, ItemId: 42 } })
+    expect(r4.accountGate).toBe(false)
+    expect(r4.ok).toBe(true)
+  })
+
+  test('提交时账号墙：run() 出口返回 ACCOUNT_NOT_VERIFIED（与提交前闸门同码同链接）', async () => {
+    const { parsePublishResponse } = require('../src/publish/platforms/toutiao-video-publish')
+    const ACCOUNT_FIX_URL = require('../src/publish/platforms/toutiao-video-publish').ACCOUNT_FIX_URL
+    const srv = await startFakeServer()
+    const f = tmpVideo(512)
+    try {
+      const chain = new ToutiaoVideoChain({ cookie: makeCookie(), mpBase: srv.url, vodBase: srv.url, userAgent: UA, uid: '1342958645023752' })
+      // 只桩提交这一步（前置闸门放行；上传链在 fake 上失败与否不影响本断言路径——直接桩 publish）
+      const { buildAccountNotVerifiedResult } = require('../src/publish/platforms/toutiao-video-publish')
+      chain.publish = async (body) => {
+        const p = parsePublishResponse({ status: 0, data: { Code: 21000, Message: '未实名认证/帐号不可用，可前往西瓜创作平台/西瓜App投稿' } })
+        if (p.ok) return { success: true, mode: 'api', platform: 'toutiao', publishId: p.itemId }
+        if (p.accountGate) return buildAccountNotVerifiedResult({ canPublish: true, identityVerified: false })
+        return { success: false, platform: 'toutiao', code: p.code, error: p.message }
+      }
+      const r = await chain.publish({})
+      expect(r.code).toBe('ACCOUNT_NOT_VERIFIED')
+      expect(r.helpUrl).toBe(ACCOUNT_FIX_URL)
+      expect(r.error).toContain('账号信息未完善')
+    } finally { fs.unlinkSync(f); await srv.close() }
+  })
+
+  test('本地封面：run() 对 coverPath 走五步链并把它作为 ThumbUri 提交', async () => {
+    const all = await startFakeServer([
+      { match: /getAuthKey/, body: { data: { accessKey: 'AK2', uploadToken: 'HMAC:x' } } },
+      { match: /GetImageUploadParams/, body: { code: 2000, data: { tos_host: 'tos2.test.local', tos_sign: 'JWT2', bucket: 'b', object_ids: ['tos-cn-i-e874c6/oLOC'] } } },
+      { match: /tos-cn-i-e874c6\/oLOC/, method: 'PUT', body: { success: 0 } },
+      { match: /GetImageUploadInfos/, body: { code: 2000, data: [{ uri: 'tos-cn-i-e874c6/oLOC', result_uri: 'tos-cn-i-e874c6/oLOC', info: { md5: 'b'.repeat(32) } }] } },
+      { match: /GetPosterList/, body: { data: { Posters: [] } } },
+    ])
+    const img = tmpImageForCover()
+    const vidPath = img.replace(/\.jpg$/, '.mp4')
+    fs.writeFileSync(vidPath, Buffer.alloc(2048, 7))
+    try {
+      const chain = new ToutiaoVideoChain({ cookie: makeCookie(), mpBase: all.url, vodBase: all.url, userAgent: UA, uid: '1342958645023752' })
+      chain.getAuthKey = async () => ({ spaceName: 's', sessionToken: 't', accessKeyId: 'a', secretAccessKey: 'b' })
+      chain.uploadVideo = async () => 'VID_LOC'
+      chain.getPosterList = async () => null
+      let submitted = null
+      chain.mp = {
+        request: async (o) => {
+          if (/getAuthKey/.test(o.url)) {
+            return { status: 200, data: { status: 0, data: { accessKey: 'AK2', uploadToken: 'HMAC:x' } } }
+          }
+          if (/GetImageUploadParams/.test(o.url)) {
+            return { status: 200, data: { code: 2000, data: { tos_host: 'tos2.test.local', tos_sign: 'JWT2', bucket: 'b', object_ids: ['tos-cn-i-e874c6/oLOC'] } } }
+          }
+          if (/GetImageUploadInfos/.test(o.url)) {
+            return { status: 200, data: { code: 2000, data: [{ uri: 'tos-cn-i-e874c6/oLOC', result_uri: 'tos-cn-i-e874c6/oLOC', info: { md5: 'b'.repeat(32) } }] } }
+          }
+          submitted = o
+          return { status: 200, data: { status: 0, data: { Code: 0, ItemId: 7 } } }
+        },
+      }
+      const r = await chain.run({ title: 'T', video: { path: vidPath }, coverPath: img }, { draft: true })
+      console.log('DBG submitted=', JSON.stringify(submitted && submitted.url), 'r=', JSON.stringify(r))
+      expect(r.success).toBe(true)
+      // 提交走 chain.mp.request（data 是 JSON 字符串）
+      expect(JSON.parse(submitted.data).VideoInfo.ThumbUri).toBe('tos-cn-i-e874c6/oLOC')
+      expect(all.requests.some((x) => /GetImageUploadParams/.test(x.url))).toBe(true)
+      expect(all.requests.some((x) => /GetImageUploadInfos/.test(x.url))).toBe(true)
+    } finally { for (const p of [img, vidPath]) if (fs.existsSync(p)) fs.unlinkSync(p); await all.close() }
   })
 })

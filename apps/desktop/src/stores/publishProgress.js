@@ -91,6 +91,8 @@ export const usePublishProgressStore = defineStore('publishProgress', () => {
         percent: null,
         result: null,
         error: null,
+        // 失败码（与 error 同风格：缺席保持 null，不猜）。渲染层据此给出「解法入口」链接。
+        code: null,
         remainingWait: null,
         retriesLeft: null,
         bucket: null,
@@ -171,6 +173,10 @@ export const usePublishProgressStore = defineStore('publishProgress', () => {
     task.lastEventAt = Date.now()
     if (data.result !== undefined) task.result = data.result || null
     if (data.error !== undefined) task.error = data.error || null
+    // 2026-10-19（publish-gate-help-ui）：失败码要留到渲染层 —— 有些失败（如头条「账号信息未完善」）
+    // 唯一有用的信息不是错误文案，而是「去哪里解决」。主进程 phase4-events 已随事件发出 `code`，
+    // 这里不落盘就等于把可点击的解法入口丢掉（用户只剩一段看不懂的报错）。
+    if (data.code !== undefined) task.code = data.code || null
     if (data.remainingWait !== undefined) task.remainingWait = data.remainingWait || null
     if (data.retriesLeft !== undefined) task.retriesLeft = data.retriesLeft
     if (data.bucket !== undefined) task.bucket = data.bucket || null

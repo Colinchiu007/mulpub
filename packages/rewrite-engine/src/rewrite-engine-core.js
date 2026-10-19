@@ -13,8 +13,23 @@ const { KnowledgeContextBuilder } = require('./knowledge-context-builder')
 // 极简 logger（与 api-publish-engine/logger 同接口；logging-coverage-audit）
 const logger = require('./logger-fallback')
 
-// 无显式字数控制时的默认输出上限（3000 字以下）
+// 无显式字数控制时的默认输出上限（3000 字以下）。
+// 注意：这只是「用户没给任何字数意图」时的保守兜底；用户显式 wordCountRange.max
+// 永远优先（rewrite-limits-50000，2026-10-19）。
 const DEFAULT_MAX_OUTPUT_LENGTH = 3000
+
+// 单次改写输入上限（Unicode 码点）。渲染层
+// `apps/desktop/src/utils/rewrite-engine-limits.js` 的 REWRITE_ENGINE_MAX_INPUT_CHARS
+// 必须与此一致（结构锁：`rewrite-engine-limits.test.js`）——渲染层截到 A、引擎拒收于 B
+// 会让「一键改写」在长文上静默失败（2026-10-19 事故形态）。
+// 2026-10-19 6000 → 50000（rewrite-limits-50000）：知乎/公众号/视频转写长文 >6000 是常态，
+// 现代模型 128K+ 上下文下 50000 字（约 75K tokens）在成本与质量均可控范围；50000 以上
+// 应走分段改写（rewrite-segment-plan），不在此处放宽。
+const MAX_INPUT_CHARS = 50000
+
+// wordCountRange 显式区间的合法域（码点）。UI 校验（useWordCountValidation）与
+// _getWordCountInstruction 的范围防御都以此为真源上界。
+const MAX_OUTPUT_CHARS = 50000
 
 // 引擎内置默认硬约束（rewrite-hard-constraints 审查 M1）：
 // 运营中心未配置/未同步/离线场景的回退，保证独立部署桌面端仍有提示词级纯文案约束。
@@ -145,7 +160,7 @@ class RewriteEngine {
     }
 
     // 3. 策略匹配
-    const strategy = this._resolveStrategy(strategyId, userSettings)
+    const strategy = this._resolveStrategy(strategyId, userSettings, content)
     if (!strategy) {
       return { success: false, error: '未找到合适的改写策略', errorCode: 'NO_STRATEGY' }
     }
@@ -178,7 +193,10 @@ class RewriteEngine {
     }
 
     // 6. 后处理（wordCountRange.max 优先于策略 postProcess.maxLength）
-    const processed = this._postProcess(result, strategy, userSettings.wordCountRange)
+    // rewrite-limits-50000（2026-10-19）：截断必须可见——旧行为把超限输出静默砍尾，
+    // 用户拿到的稿子不完整且不知道（比 TOO_LONG 更隐蔽的缺陷）。截断事实经
+    // _postProcess 返回值进入 result.outputTruncated / result.outputLength。
+    const { text: processed, truncatedAt } = this._postProcess(result, strategy, userSettings.wordCountRange)
 
     // 7. 敏感词后置检测
     const postCheck = this._sensitiveCheck(processed, 'post')
@@ -256,6 +274,11 @@ class RewriteEngine {
       warnings: postCheck.hits.length > 0 ? ['改写结果可能包含敏感内容，请人工审核'] : [],
       sensitiveHits: postCheck.hits,
       quality,
+      // 输出截断可见化（rewrite-limits-50000，2026-10-19）：_postProcess 因
+      // wordCountRange.max / 策略 maxLength / 默认 3000 砍尾时返回被截断到的长度；
+      // 未截断为 null。UI 据此提示「输出已截断」，不再静默丢内容。
+      outputTruncated: truncatedAt != null ? true : false,
+      outputLength: [...processed].length,
       // 爆款潜力对比（viral-rewrite-integration）：仅 viralScorer 注入且评分有效时存在
       viral,
       // P2 反馈闭环：本次改写引用的知识条目（供前端采纳/拒绝时驱动 feedbackBoost）
@@ -272,14 +295,18 @@ class RewriteEngine {
   /**
    * 获取推荐策略列表
    * @param {object} userSettings
+   * @param {string} [content] - 待改写原文（无有效信号时驱动保真优先兜底）
    * @returns {Array}
    */
-  getRecommendedStrategies(userSettings = {}) {
+  getRecommendedStrategies(userSettings = {}, content = '') {
     const strategies = this._strategyManager.listEnabled()
     const matcher = new StrategyMatcher({
       userSettings,
       userHistory: this._knowledgeBase.getUserHistory(),
-      topN: 3
+      topN: 3,
+      // 无有效信号兜底（rewrite-default-strategy-fix）：原文形态驱动保真优先。
+      // 缺省空串 ⇒ 启发式退化为「保真兜底」（_isFidelityPreferred 对空内容返回 true）。
+      content,
     })
     return matcher.recommend(strategies)
   }
@@ -307,8 +334,8 @@ class RewriteEngine {
       return { valid: false, error: '内容不能为空', errorCode: 'EMPTY_CONTENT' }
     }
     const len = [...content].length // Unicode code point 计数
-    if (len > 6000) {
-      return { valid: false, error: '内容过长，最多 6000 字', errorCode: 'TOO_LONG' }
+    if (len > MAX_INPUT_CHARS) {
+      return { valid: false, error: `内容过长，最多 ${MAX_INPUT_CHARS} 字`, errorCode: 'TOO_LONG' }
     }
     return { valid: true }
   }
@@ -328,12 +355,12 @@ class RewriteEngine {
     }
   }
 
-  _resolveStrategy(strategyId, userSettings) {
+  _resolveStrategy(strategyId, userSettings, content = '') {
     if (strategyId) {
       return this._strategyManager.get(strategyId)
     }
-    // 自动匹配
-    const recommended = this.getRecommendedStrategies(userSettings)
+    // 自动匹配（原文形态参与无有效信号时的兜底取向）
+    const recommended = this.getRecommendedStrategies(userSettings, content)
     return recommended.length > 0 ? recommended[0] : null
   }
 
@@ -493,8 +520,8 @@ class RewriteEngine {
   _getWordCountInstruction(userSettings) {
     const range = userSettings && userSettings.wordCountRange
     if (!range || typeof range.min !== 'number' || typeof range.max !== 'number') return ''
-    // 范围防御：与前端/PRD 契约一致（min 0-5999、max 1-6000、max >= min），无效区间不注入
-    if (!(range.min >= 0 && range.min <= 5999) || !(range.max >= 1 && range.max <= 6000) || range.max < range.min) return ''
+    // 范围防御：与前端/PRD 契约一致（min 0-49999、max 1-50000、max >= min），无效区间不注入
+    if (!(range.min >= 0 && range.min <= MAX_OUTPUT_CHARS - 1) || !(range.max >= 1 && range.max <= MAX_OUTPUT_CHARS) || range.max < range.min) return ''
     return `【字数要求】改写后的文本长度必须控制在 ${range.min} 到 ${range.max} 字之间。`
   }
 
@@ -541,12 +568,16 @@ class RewriteEngine {
     }
 
     // 长度限制（Unicode 码点计数，与 _validate 一致；避免代理对被切断产生乱码）
-    // 优先级：wordCountRange.max > 策略 postProcess.maxLength > 默认 2500
+    // 优先级：wordCountRange.max > 策略 postProcess.maxLength > 默认 3000（DEFAULT_MAX_OUTPUT_LENGTH）
+    // rewrite-limits-50000（2026-10-19）：截断必须可见——返回值改为 { text, truncatedAt }，
+    // truncatedAt = 截断后的长度（码点）；未截断为 null。调用方写入 result.outputTruncated。
     const maxLength = (wordCountRange && typeof wordCountRange.max === 'number' && wordCountRange.max > 0)
       ? wordCountRange.max
       : (postProcess.maxLength || DEFAULT_MAX_OUTPUT_LENGTH)
+    let truncatedAt = null
     const codePoints = [...result]
     if (codePoints.length > maxLength) {
+      truncatedAt = maxLength
       result = codePoints.slice(0, maxLength).join('')
     }
 
@@ -555,7 +586,7 @@ class RewriteEngine {
     // 逐行识别结构标题行并移除（仅剥离标题行本身，不触碰正文内容）。
     result = this._stripStructureHeadings(result)
 
-    return result.trim()
+    return { text: result.trim(), truncatedAt }
   }
 
   /**
@@ -619,4 +650,4 @@ class RewriteEngine {
   }
 }
 
-module.exports = { RewriteEngine }
+module.exports = { RewriteEngine, MAX_INPUT_CHARS, MAX_OUTPUT_CHARS }

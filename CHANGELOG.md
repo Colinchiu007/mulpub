@@ -23,8 +23,232 @@
 - `check-unwired-tests.js` 的 `NESTED_WORKFLOW_NOT_EXECUTED` 判定域是**磁盘**而非 `git ls-files`，
   于是本机垃圾会把公共仓 required 门禁判红一次（与 #3876 同族的磁盘域/检出域分叉），另立任务；
 - 同类面已清点到 `*.sh` 全集（按 `$(mktemp -d)` 扫仅命中本文件），但 vitest/pytest/ps1 的夹具落仓库内风险仍无统一判据。
-# [未发布] docs(播客): 出期崩溃对账按顺序先落合同——spec 第 14 条 Requirement + 4 个 Scenario（podcast-crash-reconcile-spec）
+# [未发布] feat(subtitle): 数字/单位完整性与双字搭配守卫 v1.4 —— 8 段复杂文案实测驱动的第二族坏切（subtitle-word-integrity）
 
+- **动因与取证**：v1.3 合并后用 8 段不同风格文案（政治评论续篇/历史叙事/科技解说/口语短视频/生活叙事/无标点压力段×2）对真实引擎做三端对跑，暴露一族 v1.3 未覆盖的坏切。**A/B 反证**（关掉 phrase_boundary 输出逐字节不变）证实非 v1.3 引入：是 `no_cut_bigrams` 词表缺口 + 标点累积分支直切不经守卫的既有缺陷。实测证据：`风速每秒 8│米`、`套现约 3.2│亿元`、`提升了│60%`、`制程是│3 纳米`、`当│成`、`遗│忘`、`那│段`、`千│万人`。
+- **`unit_guard`（确定性规则，非枚举）**：`word_split.unit_guard.units`（44 个量词/单位，最长优先）+ 两条 bind 判定——left_bind（左边数字串│右边单位开头，**数字串含中文数词**`一二三四五六七八九十百千万亿兆两零〇`，容忍尾部一个排版空格 `'8 米'`）；right_bind（向左跳空白/标点取引导字 c ∈ `是约到达了超足低高等` 且右侧以 ASCII 数字开头、中间无汉字）。**接入点两处**：`isSafeCutPosition` 第五条件 + **标点累积分支**（该分支此前直切不经守卫——`8│米` 正是空格切点，只改 findSafeCutPosition 拦不住）。TS/Python/JS 三端同构。
+- **`no_cut_bigrams` +7，逐条带实测出处**：`当成`（A 例）、`万人`（G 例）、`遗忘`（G 例）、`那段`（G 例）、`仿佛`（E 例）、`亿元`/`纳米`（F/B 例，与 unit_guard 双登记是纵深防御——本表管短语内部任意位置，unit_guard 只管数字-单位接缝，职责注释已写进规则表防误删）。
+- **对抗评审拦下 3 处真问题（claude 后端本轮可用，轮 1 真实跑出 8 条发现）**：① i1 Critical——数字判定若只认 ASCII，`一百五十│元` 中文数词同形坏切会漏 ⇒ 数字字符集扩中文数词并加向量；② 零误伤预检（i5，把口头承诺变机械读数）**当场否决 `飘地` 词条**——它命中既有 v1.3 向量 `qing_piao_piao` 的块间接缝，会改变已发布期望输出；③ i2 准入自洽——`测试/恐慌/看不见` 无实测出处，从本次移除记待补录。评审回应逐条落盘 `openspec/changes/subtitle-word-integrity/review-response.md`。
+- **回归面（零误伤实证）**：既有 44 条共享向量 `expected_blocks` 零变化；金标重生成后 **169 块零变化**（`rulesLfSha256=75151bb8…` 已随 #3970 的对账锁同批登记，两仓 LF 归一化逐字节一致，跨仓对账 PASS）。
+- **新增 7 条 `v1.4_word_integrity_*` 共享向量**（数字│单位 ×3 含中文数词压力例 + 双字搭配 ×3 + 万人 ×1，手工真值 + `short_block_exceptions` 显式声明）；TS 263 / JS 202 / Python 611 全绿；变异反证 M1（删 unit_guard ⇒ 2 红）/ M2（删 no_cut 新词条 ⇒ 1 红）各自指名变红；8 段文案三端对跑 8/8 逐字一致、7 类坏切实例 0 残留（用**当前源码重打的 esbuild 夹具**——旧夹具内嵌 v1.1 规则表，再次实证其"假锁"属性）。
+- **如实记不修**：`老槐│树下`（处所短语开放集合，枚举不完备，待可观测性切片）；`先想三秒：│这钱花出去`（冒号尾块两块都完整，不是坏切）。
+# [未发布] feat(gates): 跨仓 sidecar 对账锁 + Python 金标 + ops-center 能力声明互证（subtitle-sidecar-parity-lock）
+
+- **锁文件自身的比较也必须走同一口径**（真实运行抓到的假红）：第一版用**原字节**比锁文件，四条数据哈希明明全等却稳定报「锁不一致」——两仓检出行为不同（mulpub 的 .gitattributes 是 	ext=auto，Windows 工作树 CRLF；sidecar 检出 LF），同一份登记表的原字节必然不同。教训不是「再小心」，而是**判据里只要有一处口径与其余部分不一致，它就会在最不该红的地方稳定假红、然后被当成噪声关掉**。现改为与数据同一口径（只抹平 CRLF），并补两条回归（同内容/不同行尾 ⇒ 不报；内容真不同 ⇒ 报）。
+- **跨仓数据第一次有了机械判据**：新增 `packages/story2video-engine/tests/fixtures/sidecar-parity.lock.json`（与 smart-sentence-splitter 仓**逐字节相同**），登记规则表与共享向量的 **LF 归一化 sha256**；两仓各一条断言本地文件匹配登记值。此前这两份数据是两仓手工副本，**没有任何东西会告诉你「只改了一边」**——两仓单测各读自己仓的副本，全绿，而线上 8002 跑的是 sidecar 副本、本地降级路径跑的是 mulpub 副本。顺带把已漂的 `no_cut_bigrams` 尾 9 元素顺序对齐（集合相同；Python 侧是 `set` + 真值/最长匹配，读实现确认与顺序无关，且 sidecar 全量 `577 passed, 9 skipped`）。
+- **口径选「LF 归一化字节哈希」而不是 JSON 语义比较**：语义比较放过键序/缩进/行尾；各语言自己做 canonical JSON 更糟——`json.dumps(sort_keys=True)` 与 `JSON.stringify` 在浮点、转义、非 ASCII 上不同，等于在判据里埋一个自己就会漂的组件。代价是数据文件任何格式差异都会红，那是有意的：跨语言场景下「格式不同但语义相同」就是漂移温床。
+- **单仓锁缺的那一格由 `scripts/check-sidecar-parity.js` 补**：它同时读两个 checkout，比较「两个锁逐字相同 / 各自数据匹配自己的锁 / 跨仓数据哈希相同」。存在的理由是一条单仓判据**结构上看不见**的形态——A 仓把「数据+锁」一起更新（CI 全绿），B 仓还是旧的。该脚本**不挂 PR**（要 clone 另一个仓库，把第三方可用性变成 PR 红点只会让它被豁免），而是 `sidecar-parity.yml` 的 `schedule` + `workflow_dispatch`；**判据本身的检出能力**由 `scripts/check-sidecar-parity.test.js`（13 例，含 0/1/2 三档退出码与锁行尾口径）锁住，接在 `quality-gate.yml` 新增的 **Gate 12f**（changes job，每个 PR 都跑）——把「判据会跑」和「判据没坏」分成两条。
+- **Python 金标对账（sidecar → TS / JS 各自直比，不靠传递）**：新增 `subtitle_parity_corpus.json`（18 例、**只有输入**）与 `subtitle_python_golden.json`（生成器产出，18 例 / 169 块）。分工必须写清否则会误用：**金标不是真值**，它回答「本地实现与线上 sidecar 是不是同一份行为」；「这样切对不对」仍由手工向量定义（向量测试明令禁止把实现输出写入向量）。三端一起漂时金标不红、手工向量红，二者互补。金标带 provenance（生成时的规则表/向量/**语料**三个哈希），改了任一方不重生成会红——这是设计意图的摩擦，不是误报。
+- **生成器不接受命令行路径参数**（这条是被判据逼出来的，但结论是设计变对了）：首版写成 `--corpus/--out`，提交时 CCG 安全扫描器把「`Path(` 同行出现 `args`」判为**路径遍历高危并阻断提交**，而该扫描器**没有任何抑制机制**（源码核实：只有注释行跳过）。可以靠改名变量躲过那条正则，但那是「为通过判据而改代码」，与本案要建立的东西相反。正解是让脚本只读 `tests/vectors/` 下的固定输入、只写固定输出——一个只做这件事的脚本本来就不需要任意路径能力。复检 0 高危。
+- **语料与金标也是跨仓副本，因此也进跨仓对账**：sidecar 侧不消费金标、mulpub 侧不看 sidecar，两者若漂了**单仓判据里没有一只眼睛能看见**（过期金标仍会被复制过去并通过对方的测试，只是它描述的是旧行为）。`check-sidecar-parity.js` 因此从比 2 条产物扩到比较**四份**（规则表 / 向量 / 语料 / 金标），缺一侧如实报「只在一侧存在」而不读成一致；sidecar 侧另加一条「金标 provenance 与本仓数据版本一致」的断言防过期。
+- **ops-center 的「假锁」改诚实**：`prompt_eval_segmentation.py` 头部原写「完整移植桌面端 text-segmentation.ts」，实测**缺整个词边界子系统**（`good_lead`/`good_tail`/`semantic_lead`/`no_cut_bigrams`/`phrase_boundary` 全无），而它的 esbuild 对照测试**只在 `ops-center/**` 变更时触发**——改桌面端 TS 时那条对照一次都不跑。本次把声明改成如实的 `PORTED_SURFACE` / `NOT_PORTED_SURFACE` 两个常量，并加 3 条**声明与源码互相印证**的锁（未移植清单必须点名词边界子系统；源码里必须确实没有那些实现标识；只扫代码形态标识、不扫散文——docstring 里刻意写了这些名字用于说明缺口，裸词匹配会把说明本身判成实现）。
+- **不加 `ops-center-ci.yml` 的触发路径**（有意）：该 job 已长期卡在 10 分钟超时临界（main 上最近 7 次有 3 次 cancelled），加触发只会加剧取消率；真问题是移植保真度而非触发频率。缺口如实记录，补偿是 `packages/story2video-engine` 侧的 TS↔Python 金标对账。
+- **纠正我自己写错的 learnings**：原文「三个文件 + 一份共享数据 + 三份向量副本」三处都错——实现是 **4 份**（漏了 ops-center 的简化 Python）、数据是 **2 份**手工副本、向量是 **2 份**。另加两条 lesson（单仓锁看不见跨仓漂移；参考实现快照不是真值）。
+- **零运行时行为改动**：本次全部是判据、注释与文档，切分逻辑一行未动；`sidecar-parity.lock.json` 缺失或 `phrase_boundary` 缺省时的 v1.2/v1.3 行为不变。
+
+# [未发布] fix(a11y): 「更多」菜单补 roving tabindex + 方向键 + Esc + 焦点归还（UX 审计 4.5 / audit-31）
+
+- **修什么**：侧边栏「更多」容器早就声明了 `role="menu"` / `role="menuitem"`，但没有任何键盘行为 ——
+  展开后焦点掉回 `document.body`，方向键无效，Esc 不收尾，Tab 走开后菜单还挂着。
+  **给了角色却不给该角色的操作方式，比不给角色更坏**：读屏会 announce「菜单」并据此期待方向键可用。
+  这是人工读模板才发现的（审计条目 audit-31），此前不在任何机械判据的视野内。
+
+- **交互口径**：停在「更多」上按 ↓ 展开并把焦点放进菜单；↑/↓ 在**可见项之间循环**（末位再按回第一项）；
+  Home/End 直达首末项；Esc 收起并**把焦点归还触发器**；Tab 收起但不抢焦点、不 preventDefault；
+  鼠标点某项后该项即成 roving 位，随后方向键从**它**继续；焦点离开菜单且未落在触发器上则自动收起。
+  展开起点取「当前路由命中项」而非第 0 项（`initialMoreIndex`），运营隐藏某项后索引不漂移（`visibleMoreIndexes`）。
+
+- **实现层硬约束（踩过的坑）**：元素表必须是**普通数组** —— 写成 `ref([])` 并在模板 `:ref` 回调里赋新数组会
+  形成 render → ref 回调 → 改状态 → 再 render 的自循环，组件立刻抛 `Maximum recursive updates exceeded in component <MpSidebar>`。
+  另：`<router-link>` 的模板 ref 拿到的是**组件实例**，可直接 `focus()` 的是它渲染的 `<a>`，统一走 `focusableOf()`。
+
+- **验证**：`vitest run src/layouts` → 49 passed / 5 files（其中新增 `MpSidebar.more-keyboard.test.js` 13 条，
+  夹具路由全部由渲染结果反推，不手抄菜单配置）；变异反证 7 条（退回 `tabindex="0"` / 摘 `@focus` roving 迁移 /
+  回绕改夹住 / Esc 不归还焦点 / 起点写死 0 / 摘 `aria-controls` / focusout 不豁免触发器）**各红在指名用例**，
+  控制跑 rc=0、还原后逐字节相同。**两条方法论收获**：① 反证报 MISSED 时先问"我的断言有没有覆盖那条边"，
+  不是"这处代码不重要"（MK-2 正是这样发现判据的洞）；② 变异驱动必须自证探针活着 ——
+  v1 用了 vitest 4 已移除的 `--reporter=basic`，每跑都是 Startup Error rc=1，把 7 条「一条都没跑」报成 7 条 CAUGHT。
+
+- **刻意没做**：`sidebar.cloudPublish` 的标签「CLI」不改成业务语义名（属产品命名决定，zh/en 现均为 `CLI`，待口径后走成对 locales 小 PR）；13 项仍扁平不分组（动它会把选中态、运营配置主键与像素基线一起牵进来）。
+
+- 涉及文件：`apps/desktop/src/layouts/MpSidebar.vue`、`apps/desktop/src/layouts/MpSidebar.more-keyboard.test.js`（新）、
+  `openspec/records/ux-audit-more-keyboard.md`（新）、`01-docs/UX-AUDIT-2026-10-17.md`（audit-31 就地指针 + 4.5 行状态）。
+# [未发布] docs(audit): 更正 audit-60 的 harm 陈述 —— ElMessage 根节点其实已带 role="alert"，阶段 4.6 因此收窄（ux-audit-toast-a11y-correction）
+
+- **动工前核了库的真实产物**（本机 element-plus 2.14.2）：`message.vue` 编译产物里 `role` 出现 1 次、值为 `"alert"`、挂在 `.el-message` 根 div 的属性表上；5 个 message 实现文件里 `aria-` 计数**全为 0**；`MessageHandler` 只有 `close()`，**没有 DOM 句柄**。
+- **于是原 finding 的结论断了一半**：「250 次 ElMessage 作为主要反馈通道，读屏用户听不到成功/失败」**不成立** —— `role="alert"` 是隐式 `aria-live="assertive"`，每条都会被播报。按字面去「补 role」会造出**第二个播报源**（同一双次朗读），比现状更差。
+- **成立的是另一半**：不分类型统一 assertive ⇒ **礼貌级无法区分**（成功/信息本该 polite 不打断），批量发布连发多条会**连续打断**。这是真实残留问题，但解法是**限频/合并与按类型分流**，不是加 role。
+- **4.6 改成**：不在应用侧新增 live region；不给 `.el-message` 加 `aria-hidden`（框内有可聚焦的关闭按钮，隐藏容器会连带破坏焦点可达性）；限频/分组收在 `showToast` 单点化（PR #3996）的那一个出口；若确要按类型分礼貌级，先做真机（NVDA/Narrator）取证再决定，不得凭规范推断直接改 DOM。取证前，现状按**已接受**处理，不是待修的沉默缺陷。
+- **方法论（写进审计稿文末《第三轮更正》）**：审计里任何 `X 计数很低 ⇒ 用户得不到 Y` 的句子，动工前必须先回答**「还有哪条通道在承载 Y」**（含依赖库与宿主默认行为）。这是 AGENTS「宿主 API 字段归属必须先核实」的第二落点：第一次用它挡住了读不存在的 `getVisibilityState`，这次用它挡住了一处会加倍播报的"修复"。
+
+# [未发布] feat(gates): UX 审计阶段 5.3/5.4 两条新门禁 —— 未接线组件与死观测字段必须被机械检出（ux-audit-phase34）
+- **修什么**：审计 §1 的核心结论「机制在、最后一公里没接」里的两族形状，此前**没有任何东西在检测**：
+  ① 组件写好、props 接口定好、**全仓零引用**（audit-6/audit-66 四例：AnnouncementBanner / TrialBanner /
+  LoadingState / StaggeredList）；② store 字段**有写无读**（`lastEventAt` 写 4 读 0；本轮又抓到
+  `backlot.js#lastApprovalDismissed`）—— 即本仓记作「装饰性链路」的那一类。两族在人工审查里都不可见，
+  原因相同：**它们各自的测试全绿**（组件测试自己 import 并挂载它，store 测试自己断言写入后的值），
+  所以「有测试」在这两类上根本不是证据。
+- **新增判据**：`scripts/check-ui-wired.js`（`apps/desktop/src` 生产代码面里声明 props 且零引用的 `.vue` ⇒ 红）
+  + `scripts/check-field-consumed.js`（store 里 `ref`/`shallowRef` 有赋值左值写入、却无任何读位置与跨文件消费 ⇒ 红）。
+  四条口径决定判据有没有牙：① 搜索前**剥整行注释**（TrialBanner 的唯一命中就是一句注释，不剥即漏判）；
+  ② **测试面不算消费者**（不排即 110 个组件全被自己的用例"引用"，判据恒不成立）；
+  ③ store 自己的 `return { X }` 清单行不算消费（那只是暴露）；
+  ④ `{ X: alias } = storeToRefs(store)` 这种**带冒号的解构必须算消费** —— 判据第一版在这里加了
+  `(?\!\s*:)` lookahead，当场把 `currentBoard` 判成死字段（假阳性），已改正判据并回归锁化；
+  同批还有两条假阳性被逐条 grep 核实后修掉（`dashboardUrls` / `qrCodePlatforms` 的读在本文件 getter 里
+  ⇒ 读判据必须同时覆盖本文件读位置）。**处置方式是修判据，不是把误报从清单里删掉。**
+- **反失明与棘轮**：两条判据每次打印 `域 / 候选 / 命中 / 登记` 现场读数；空域、store 数为 0、
+  扫描根缺失、文件读不到一律走 **rc=2**（与"发现违规"的 1 分档）—— 把工具的失明读成通过是本仓
+  「装饰性门禁」的同型。两份欠账清单（`ui-wired-debt.json` 6 条 / `field-consumed-debt.json` 1 条）
+  只可缩小、条目必须带 reason、命中数必须等于登记数；「清空清单」与「删掉某条登记」都当场红并被点名。
+- **判据的牙住在装配层（本轮最贵的一条方法论）**：上述 ①②③④ 都不在纯函数里，而在 `main()` 的取数过程中
+  ⇒ 只测纯函数的自测对它们**结构性免疫**。为此给判据开 `--scan-root=` / `--debt=` 注入口，
+  自测用 `os.tmpdir()` 下的 fixture 树**整跑 `main()`**（「注释-only」与「测试-only」两种假引用必须都判死、
+  真实使用不得判死）。四条变异反证逐条实跑变红、还原后 md5 逐字节 IDENTICAL（`uw=49bfaf42 / fc=3f8a2aa1`）：
+  A 摘 `stripComments` / B 取消测试面排除 / C 把 store 自身源码算进跨文件消费 / D 退回被禁的 lookahead。
+  A 与 B 落在同一条 fixture 用例的**不同断言**上（A 让 CommentOnly 逃检、B 让 TestOnly 逃检），C 与 D 红集互不相同。
+- **接线与防再犯**：本体 + 自测接进 `quality-gate.yml` **Gate 2b**（该步骤整体 `shell: bash`，任一非零即中止；
+  Gate 3 默认 pwsh 且只有最后一条命令的 `$LASTEXITCODE` 决定成败 ⇒ 接进去等于新造一条装饰门禁，理由写进 workflow 注释）。
+  `.gitignore` 一次补齐 4 条显式反选（第 106 行 `scripts/*.js` 会把新脚本静默忽略，同 #3011 家族：
+  本地在盘跑得通、CI 上 Cannot find module）。`check-workflow-structure` violations=0、
+  `check-step-failfast` 39 步全 OK、`workflow-contract.test.js` 43/43、`check-unwired-tests` 域内 110 文件全接线、
+  `check-max-lines` / `check-doc-abs-paths` / `check-no-brand-residue` / `check-gate-record-debt` / `openspec-sync-check` 全 PASS；
+  两条自测 `node --test` 分别 10/10 与 8/8。
+- **基线不"顺手清理"**：6 条未接线组件与 1 条死字段全部带 reason 登记，**本批一律不处置** ——
+  删除不可逆，而「是否仍要该 UI」属产品/IA 决策；`AccountGroupManager.vue` / `PlatformAccountGroup.vue`
+  的零引用是 origin/main 的 S1a 重构**取代而未删**造成的，判定取代关系本身要人拍板；
+  `lastApprovalDismissed` 是**功能缺陷候选**（写了它却无人读 ⇒ dismiss 实际不抑制任何东西，
+  症状可能是审批提醒反复出现），按 QM-5 五步留作后续 Bug 单，不与门禁批混做（同一次提交改两个变量会让归因失效）。
+- **文档**：`openspec/changes/ux-audit-implement-phase5/`（proposal + tasks + 新增能力
+  `desktop-ui-wired-gates` 3 条 Requirement / 10 个 Scenario）、执行记录 `openspec/records/ux-audit-phase34.md`
+  （域测量读数、四条口径的失败形态、假阳性归因、变异表、QM-1/QM-4 不适用的理由、QM-6 未跑的如实登记）。
+### 同 PR 续做：QG Visual 的通过路径被一个清理动作判了红（Gate 7 退出码收敛）
+- **现场（判据取产物）**：本 PR 的 `QG Visual` 报红，而该步骤日志末行是 `[GATE-7] All visual tests passed`，
+  读数 `pixel=0 views=0 views-supplement=0 dark=0 workflows=0 workflows-supplement=0` —— 六套全 0。
+- **根因**：Gate 7 的四条 `exit` 分支各管一种失败，**通过路径没有任何 exit**；GitHub 的 pwsh wrapper 以
+  `$LASTEXITCODE` 收尾，而本步骤 `finally` 里清理 dev server 的 `taskkill /PID ... /T /F` 在进程已退出时
+  返回非零 ⇒ 守门步骤的成败由**清理动作**决定。这是"装饰性门禁"的反向形态：不是恒绿，而是恒不可信。
+- **修法**：判定值单点初始化 `$gateVerdict = 0`，四条分支改为 if/elseif 单链、各自只赋码
+  （优先级逐字不变：就绪 3 > 像素 `$pixelExit` > 校验型 1 > agent `$judgeExit`），出口收敛为一处
+  `exit $gateVerdict`，通过文案之后补显式 `exit 0`。`$darkExit` 与各套件退出码仍是**留痕**，未收紧也未放松。
+- **新锁 + 三条反证**：`workflow-contract.test.js` 新增一条（判定值单点初始化 / 四格码值齐全 / 唯一出口排在
+  通过文案之前 / `exit 0` 排在其后 / 四条分支不得退回各自 exit）；M1 摘掉 `exit 0`、M2 把码 3 改成 1、
+  M3 把 agent 分支退回 `exit $judgeExit`，三条**各自指名变红**，跑后 workflow 与测试两文件 md5 逐字节还原。
+- **另配一把 pwsh 真跑 oracle**（本机 pwsh 7，判定块逐字从真实 workflow 提取、不抄第二份）：六格优先级表
+  （含"`$checksFailSuites = $null` 不得炸"）、"摘掉 `exit 0` ⇒ 被污染值 7 判红"的缺陷复现档、以及
+  `[Parser]::ParseFile` 语法档，全部通过。
+- **改判据时两处自伤，按本仓规矩记下来**：① 我新写的注释里原样引用了 `All visual tests passed` 这句裸短语，
+  而两条既有顺序锁用 `indexOf('All visual tests passed')` 定位 —— 注释顶掉了可执行行，锁当场变红；正解是把
+  锚点取成 `Write-Host "[GATE-7] All visual tests passed"` 这一整行，并把我注释里的字样改掉（双保险）。
+  ② 为"两种形状都合法"把 `indexOf('if ($pixelExit -ne 0)')` 放宽成裸短语 `search(/\$pixelExit -ne 0/)` 后，
+  正文里一处散文注释（"经 $pixelExit -ne 0 拦住"）同样把锚点顶掉 —— **放宽形状不得顺手放弃行锚定**，
+  最终形态是行锚定的 `(?:\} elseif|if) \(`。存在性/顺序锁的锚点必须指向可执行语句，注释里的同名引用一律算污染。
+- **同一次改动里我自己制造的第二个事故，也记下来**：给 CHANGELOG 插本小节时，脚本用
+  `src.includes('\r\n') ? '\r\n' : '\n'` 探测"多数派行尾"后整文件回写，把这份 `i/lf w/crlf` 的工作副本
+  从 44 个 CR 改写为 22546 个 CR —— 正是 AGENTS.md「行尾不是噪声」那条点名的旧错法（本仓 2026-10-05 已实测
+  这三份历史 CRLF 文档的 blob 现为纯 LF，磁盘 CRLF 只是 checkout 转换）。正解：`split('\n')` 后**逐行保留
+  各自结尾**，插入行取锚点那一行的结尾，改完用 `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 对账。
+# [未发布] chore(debt): 债务熔断基线 re-sync 到主干现状——接受漂移不是清理，并登记拆分红利（debt-baseline-resync）
+- **现场**：`debt-guard.yml` 的「债务熔断检查」从今天起在**每一个** rebase/merge 到今天主干的
+  pull request 上判红：`MAX_FILE_LINES: 5359 > baseline 5239`、`FILES_OVER_1000: 29 > baseline 28`。
+  本会话的 #3898 / #3992 / #4010 同时被卡（#4010 是以另一种形状：
+  `scripts/lib/git-domain.test.js` ⑩「消费者套件必须整份真的跑了」把 `check-debt-budget` 的失败
+  原样抬成红 ⇒ 一条下游锁把上游债务变成了自己的失败，这正是该锁设计要防的"读起来像通过"的反面）。
+- **归因两条并列，都是当场量的**：① 在**刚由 `session-init.sh` 从主干创建、未做任何改动**的
+  worktree 里跑同一条判据，读数与 CI 逐字相同 ⇒ 不在任何本会话分支上；
+  ② `git show origin/main:apps/desktop/src/views/CreateView.vue | wc -l` = **5358**，
+  而 `git show origin/main:scripts/debt-baseline.json` 的 `maxFileLines` = **5239**
+  ⇒ **主干自己的树违反自己的基线**。增量大户是当日已合并的 #3969 / #3946 / #3936，
+  三条都落在 `CreateView.vue` 这条链上。
+- **本次只做一件事：把两个数改成实测现状。** `git diff` 全文只有 `maxFileLines`、
+  `filesOver1000`、`scannedAt` 三行；`maxFilePath` 仍指向 `CreateView.vue`
+  （**没有换文件来绕开上涨**），也没有动判据口径、没有动扫描域。这是 AGENTS.md 里
+  「debt-baseline 更新即如实记录现状，须在 PR 说明是接受漂移而非清理」那条的正面执行。
+- **不认领"顺手拆一个大文件"**：`CreateView.vue` 今天有三个并发会话在改，在热文件上做结构搬迁
+  会把三批归因搅在一起，且 `create-*` 像素基线需重取并人工审核。拆的**判据**已经写清：
+  必须让 `maxFileLines` 与 `filesOver1000` **同时下降**，否则等于白搬。
+- **顺手记下这个基线缺的那道锁**（留给门禁批次，不在本 PR 夹带）：现在 `--update` 是
+  "重算即接受"，缺"调大必须与一次真实清理同 PR"的约束。可抄的同型判据是
+  `check-doc-abs-paths.js` 的 `judgeLedgerDrift`（为容忍自己的新增而调大账本 ⇒ 当场判
+  「账本被放宽」红）。差别在于 debt 基线**确实存在"如实记录主干现状"的正当场景**，
+  所以正解不是禁掉调大，而是要求调大时**点名哪条真实清理没做**。
+- **验证**：`node --test scripts/check-debt-budget.test.js` ⇒ 15 pass / 0 fail（含"基线形状不许变"
+  与"域口径必须与 `git status` 一致"两条，本次形状与域都没动）；re-sync 后
+  `node scripts/check-debt-budget.js` ⇒ 「所有债务指标在基线内，通过」；
+  `classify-docs-only` ⇒ `docs-only=false files=1`（工具面数据文件，不借快速通道）；
+  行尾两口径 numstat 一致。QM-1 / QM-4 / TDD 均 N/A（无代码行为变更）。
+  QM-6 双模型外部评审**未执行**（本机无可用通道，pre-commit 如实打印跳过）。
+- 执行记录 `openspec/records/debt-baseline-resync.md`（含归因两条、影响面与两个跟进项判据）。
+
+# [未发布] feat(rewrite): 改写引擎输入/输出字数上限放开到 50000 + 输出截断可见化（rewrite-limits-50000）
+
+## 问题
+
+- 输入 6000 码点上限把知乎长文 / 视频转写常态化拒之门外（#3979 只能用「截取前 6000 字」缓解，尾部丢失）。
+- 输出侧 `_postProcess` 按 字数区间.max > 策略.maxLength > 3000 砍尾时**完全静默**——用户拿到不完整的稿子且不知道，比 `TOO_LONG` 更隐蔽。
+- 大多数 LLM adapter 不传 `max_tokens` 走服务商默认（OpenAI 4096），输出在模型默认值处被截断且无法归因。
+
+## 改动
+
+- 输入上限 6000 → **50000**（`MAX_INPUT_CHARS`），输出显式区间合法域 → **50000**（新增 `MAX_OUTPUT_CHARS`）；无显式区间的兜底 3000 与策略级 800/1500/2000/3000 **保持不变**（用户显式区间优先级高于策略上限）。
+- 上限单一真源：渲染层 `rewrite-engine-limits.js` 同值常量 + 结构锁读引擎源码比对（输入/输出两把锁，判据必须消费常量，`len > 6000` / `range.max <= 6000` 字面量回潮即红）。
+- **输出截断可见化**：`_postProcess` 返回 `{text, truncatedAt}`，`rewrite()` 结果新增 `outputTruncated` / `outputLength`；改写页结果卡顶部暖橙横幅（`data-testid="rewrite-output-truncated"`）提示实际字数与上限，zh/en 成对文案。
+- 主进程桥接 `max_tokens: 64000`（CJK 1 字 ≈ 1~1.6 token × 倍余量；Anthropic 必填字段原默认 4096 同步受益）。
+- UI 字数区间校验（`useWordCountValidation`）与 `deriveWordCountRange` 自适应上界改读常量：12000 字原文自适应 max = 14400，不再被压回 6000。
+- locale 同步：placeholder / 越界错误文案 / 截断横幅（zh/en）。
+
+## 验证
+
+- 引擎 219 passed（新增 L1/L2/L3 截断可见化 + W3/W8 重写为 50000 口径 + 6001 走通正控）；渲染层定向：limits 10 + defaults 19 + error 8 + user-facing-error 32 + Collection 输入上限 6 + RewriteView 100 + Collection 回归 125 全绿。
+- 变异面：`rewrite-engine-limits.test.js` 结构锁×2（改一边必红）；横幅出现/缺省两态断言。
+- `build:vue` rc=0；`electron-builder --dir` rc=0；asar 实测含 `MAX_INPUT_CHARS = 50000` / `MAX_OUTPUT_CHARS = 50000` / `outputTruncated`。
+- 文档：`01-docs/PRD-REWRITE-LIMITS-50000-2026-10-19.md`（限额体系/数据校验/交互/显示项/流程全量）。
+
+# [未发布] feat(侧栏): 折叠按钮改为可表意的语义化图标并补齐可发现性（sidebar-toggle-ux）
+
+- **用户反馈是「样式太不明显，根本让人注意不到」，不是功能坏了**：折叠功能本身在 PR #3916 已正确（切换/持久化/跨进程同步/多窗口广播），缺陷全在呈现层。三处独立成因：**①图形不表意** —— 双向 chevron（「<>」）在通行图标语义里读作「代码」或「展开更多」，与「收起侧栏」无关；**②两态共用同一图形** —— 收起/展开只靠颜色区分（primary vs secondary），是单通道编码，对色觉障碍用户完全失效，普通用户也无法从图标判断当前处于哪个状态；**③常态几乎不可见** —— 图标色对 TabBar 背景亮色实测 4.40:1（差 0.1 不达 WCAG AA 4.5:1），边框与底色都是 `transparent`。
+- **三处初始假设在实装前被实测推翻，方案据此改写**（详见 `openspec/changes/sidebar-toggle-ux/proposal.md`）：(a) 原估「现状约 3:1」偏高 —— 实测亮色 4.40:1、暗色 7.79:1，问题只在亮色；(b) 原计划的「用 `--color-border` 做常态边框」实测对 TabBar 背景只有 **1.04:1**，**等于不存在**，这正是现状看不见的技术原因，故改用品牌色倾向的半透明描边；(c) 原计划的「用 `--color-bg-card` 做底色」实测 1.11:1，无区分度，只作辅助。⇒ 主判据定为「图形对比度 + 图形语义化」，边框降级为辅助暗示。
+- **状态差异进形状而非颜色**：图标改为「左侧面板矩形 + 方向箭头」——展开态**实心面板 + 左向箭头**，收起态**虚线面板 + 右向箭头**。两态外轮廓完全一致（只换内部填充），用户感知到的是「同一按钮换了内部状态」而不是「换了个东西」；与颜色（`--color-primary` vs `--color-text-primary`）构成冗余编码，任一通道失效都可读。
+- **收起态新增 2px 品牌色恢复锚点**：侧栏收起后按钮落在窗口最左侧、是**唯一**的恢复入口，而原实现仅靠颜色从 primary 变 secondary 几乎不可察觉。用 `position: absolute` 伪元素实现，不占布局、32×28 命中区不变；实测对比度亮 6.18:1 / 暗 5.13:1，均过非文本 UI 组件的 3:1 要求。
+- **图标对比度提升 3.6 倍**：`--color-text-secondary` → `--color-text-primary`，亮色 4.40:1 → **15.99:1**、暗色 7.79:1 → **12.80:1**；按钮 30×28 → 32×28、图标 16 → 18px。`margin` 逐字保留，`TabBar(36) + NavBar(40) = BROWSER_CHROME_TOP(76)` 契约未动。
+- **面板几何按截图观感修正过一次**：初版面板 5×12 配左箭头，数据全绿但**看图**发现它读作媒体播放器的 `|◀`（「跳到开头」）；加宽到 6.5×11、圆角 1→1.8 后才读作「面板」。**计算样式全对不等于观感正确**，这一步只能靠人眼看图发现，已写入记录。
+- **测试从「锚实现细节」改为「锚退化形态」**：原用例断言「svg 有 2 条 path」，把双 chevron 这个具体实现写成了契约 ⇒ 样式层怎么改都不会红。新的 `SidebarToggleIcon.test.js`（6 例）改用**图形签名**比较两态（对几何微调不敏感、对「退化成同图形换色」敏感），`SidebarToggleButton.test.js` 从 5 例扩到 13 例，新增常态图标色/非透明边框且**不得用 `--color-border`**/非透明底色/尺寸/收起态竖条三要素/hover-focus-reduced-motion 不回退。先红 `10 failed / 9 passed`，后绿 `23 passed`。
+- **视觉证据用「局部截图 + 计算样式」，但基线必须重建——这一条我初判错了，被 CI 当场纠正**：像素门禁 `PIXEL_THRESHOLD=0.06`（整图 6%）下按钮仅占 1280×720 的 **0.1%**，实测亮 20/20 + 暗 20/20 全通过，我据此写下「基线零变化、无需重建」。**CI 推翻它**：红的是 **`Gate 7b - Baseline freshness`**，它判「基线 == 同一次 CI 渲染，**0 px**」，报 `检查 43 张 / 违规 38 张`。**两个判据度量的是不同命题**——6% 管"有没有大面积变化"，0 px 管"基线是否与当前渲染对得上"；我的改动让按钮区域必然变了，所以前者过、后者不过。**修法也不是 `update-baseline`**：那条走像素套渲染，而 Gate 7b 优先取 views 套件渲染，两套在同一 run 内实测差几百像素（dashboard 350 px / collection 67870 px，确定性非噪声），用它更新会让基线立刻再次脱离（`check-baseline-freshness.js` 文件头记的 #2623 正是这段历史）；`test-runner.js:561` 的 `UPDATE_BASELINE` 又只在基线缺失时创建。**实际做法**：下载同一次 CI run 的渲染产物（artifact `quality-gate-visual-reports`）覆盖基线 ⇒ **36 张更新 / 2 张未变 / 5 张无渲染**（3 张是 autonomous-loop 专属的 `KNOWN_UNCOVERED`，2 张本次未产图、Gate 7b 在 partial 下记 skipped 放行）。可见性证据仍另用真实浏览器 `getComputedStyle` 逐项前后对比（含 `::before` 伪元素计算值，jsdom 取不到）+ 明暗双主题局部放大截图。
+- 未改任何主进程代码（`apps/desktop/electron/**` 零改动）⇒ QM-1 按口径不适用；现场记 `openspec/records/sidebar-toggle-ux.md`。
+
+# [未发布] fix(播客): 音色来源标注只给 ②③ 出声，闭集外取值不伪造来源并出声（podcast-voice-origin-tristate）
+
+- **`originLabel` 原先是一张表兼两件事，于是三档全出声**：`ORIGIN_KEYS` 同时回答「有哪些档」（闭集）与「哪些档要出声」（标注资格），而 PRD §8.2.9 判据 2 要的是后者——① 频道自己填的东西不需要再被界面告诉一遍来源。现拆成 `ORIGIN_KEYS`（闭集）+ `ANNOTATED_ORIGINS`（白名单），判据三段：无 origin → 空、闭集外 → `console.warn` + 空（**不得兜底成"取自频道"，那是伪造来源**）、非白名单 → 空。
+- **那个 span 当初没有 `data-testid`，所以落地时一条断言都没写过它**：`PodcastScriptEntry.test.js` 里 `PLAN_OK` 只喂过 `preference` 一档，且只断言三段音色含 `prov_x`——「三档全出声」与「只有该出声的档出声」在那套夹具下**完全同形**，这是判据 2 能静默缺失一整个 PR 的原因。补齐 4 条：②③ 各一条正向（断言真实 locale 值而不是键名）、`origin=channel` 一条「标注不出现但**三段照常显示**」、闭集外一条「不出现 + 不兜底 + warn 恰好一次」。
+- **闭集外那条排障日志走 ASCII**：首版写成中文，被本机按 CI 清单点名跑的 `check-locale-sync.js --cjk` 逐行点名判红；正解不是 `--update-baseline`（那是把自己新增那一格改成契约），也不是塞进 `locales` 造一对界面永不消费的死键。
+- **五条变异全部指名红**：M1（白名单放进 `channel`）与 M2（清空白名单）**红集不同**——这是"两轴真分开"的证据，若仍是一张表两条变异会打在同一格；M3（摘 warn）与 M4（兜底成频道文案）**红集重合**（同一条用例的两个方向），如实写成"不是两道独立的闸"；M5（撤标注时把三段一起撤掉）红在第二组断言上，这条变异的存在理由就是判据 2 常被写过头。**末态 17 passed**；现场记 `openspec/records/podcast-voice-origin-tristate.md`。
+- **`tasks 4.5b②` 记的是一个产品裁决而不是实现欠账**：频道 `voiceRef` 只有读侧没有写侧，回退链第 ① 档恒为空；写侧需要频道页的音色录入控件，而 §8.2.9「故意不做」第二条禁的是「全局默认音色选择器」（那东西在本仓不存在），与频道级 `voiceRef` 不是同一件事——但 PRD 从未写过这个控件的字段、交互与文案，按「先文档再代码」不临场发明。另拆 `4.5b③`：视频出期浮层 `PodcastEpisodeEntry.vue` 至今 `voice|origin` 命中 0，§8.2.9 原定落点那半未做。
+
+# [未发布] docs(openspec): 归档 normalize-debt-ledger-entry-shape —— 主规格拿到「登记项只准承载原因」这条需求（archive-debt-ledger-shape）
+- **归档落点**：`openspec/changes/normalize-debt-ledger-entry-shape/` 移入 `openspec/changes/archive/2026-10-19-normalize-debt-ledger-entry-shape/`，主规格 `openspec/specs/quality-gate-execution-record/spec.md` 的 Requirement 由 3 条增至 4 条；新增块 **36 行 / 5 个 Scenario**，与 change 的 delta **逐行全等**（一次性驱动从两侧各取该块比对，任一行不等即抛错并打印首个差异）。
+- **为什么不联动 vendored 契约镜像**：镜像锁 `scripts/quality-rhythm-spec-mirror.test.js` 的比对目标写死是 `openspec/specs/openspec-integration/spec.md`，本刀动的是另一个 capability ⇒ 不联动。不靠记忆答题：归档前后各跑一次，两次均 **8 passed / 0 failed**，主规格与镜像的 Requirement 计数两侧均 **13** 未变。
+- **`openspec validate --all --strict` 做真 A/B**（在同一份 `origin/main` 上另建 detached 工作树跑基线，而不是拿历史数字对比）：归档前 **223 items / 201 passed / 22 failed** → 归档后 **222 / 200 / 22**，离开 changes 域的恰是本刀这 1 项，失败集逐条不变。
+- **Purpose 占位没有新增**：`TBD - created by archiving…` 只在归档器**新建** spec 文件时才写；本刀目标 spec 已存在，实测归档后该文件 `TBD` 计数为 **0**，`check-spec-purpose.js` 前后均「扫描 154 份主规格、违规 0」。
+- **两条正规隔离入口本刀都被别人的现场挡住**：`start-mp-task.ps1` 因标准根之外注册着 2 个 worktree 判 `ok:false`（`clean/hooks/writeGuard` 全绿），`session-init.sh` 因共享根有 7 项他人未跟踪文件而拒绝。纯文档改刀按既有纪律走 `%TEMP%` 下的 detached 工作树出口，共享根全程停在 `main` 未动；这三条机器卫生事实已如实上报，不代删。
+# [未发布] fix(播客): 出期音频对象键随期变化，修掉同频道第二期原地覆盖第一期（podcast-audio-key-per-episode）
+- **用户可见症状**：同一个播客频道连发两期，第二期 PUT 把第一期的音频**原地覆盖**了——两次发布都报成功、日志零异常，而订阅端旧期 `<item>` 的 enclosure 指向的直链现在播的是新期的声音。RSS 里两期都在、音频只有一份。
+- **根因（第一性引入点 `46736edf5`，PR #3302，2026-10-11）**：当时为"临时产物归拢"定了两个名字——目录 `runDir = <tmpRoot>/episode-<runId>` 与文件基名 `outBase = <runDir>/episode`。**目录带 runId、文件不带**；而下游 `publishAudio` 拼的对象键是 `<prefix>/audio/<channelId>/<basename>.<ext>`，`runDir` 那一层在进 key 时被 `path.basename` 整个丢掉 ⇒ 同频道每一期都算出同一个键 `episode.mp3`。跨频道由 `channelId` 挡住，跨期没人挡。存续 8 天。
+- **这条不是"没想到"，是自家写下的判据只跑通了一半**：`publishAudio` 头注释原文就写着「key 必须带 channelId，两期写进同一层＝后一次发布静默覆盖前一期」——实现挡住了跨频道那一半，跨期那一半没接。修法因此是把这句判据补全（`channelId` 挡跨频道、`stem` 挡跨期，两个方向是同一条不变式），而不是新加一条规则。
+- **为什么四层门禁都没拦住**：①单测层 `podcast-hosting-audio.test.js:51` 断言的是 `toContain('/audio/ch_aaaaaaaaaaaa/')`——**前缀断言对"末段恒为常量"完全免疫**（前缀对、文件名错也照绿）；同域另有一条整键断言 `toContain('/audio/ch_abcd1234/ep001.mp3')` 看着是对的，但它是**测试自己把 stem 喂给被测函数**的——生产链那个恒定基名从没进入这条用例的作用域，所以"断言写全了"在这里照样抓不到；②集成层每条用例只发一期，缺的不是输入维度而是**实体维度**；③产物层键冲突语义只在真 OSS 才有，本机零出站纪律看不到 PUT 落点；④#3302 的 QM-6 盯的是持锁/取消/降级，对象键唯一性不在其清单。
+- **修复取最小落点**：`outBase = <runDir>/episode-<runId>`——键的身份跟着这一次发起走。同一次发起重发仍是同一个键（重试不该新开对象）；**不取标题当身份**，标题是用户可改的显示量，拿它当身份会让"改标题再发一期"凭空新开对象，而真正该分开的两期反而可能撞。`publishAudio` 本身不改：它按调用方给的 stem 建键是对的，错在上层没给随期变化的量。
+- **回归保护 2 条行为锁 + 1 道变异**：视频链与文本链各一条「同频道两期不得写进同一个音频对象键」，并同时断言 `stem` 含本次 `runId`；两条都**先见证红**（改前 `expected 'episode' not to be 'episode'`）。变异把 `outBase` 退回固定基名 ⇒ `collected=53 failed=2`，红的恰好这两条新锁、零旁路红。驱动第一版把过滤器写成只匹配「对象键」三字，而第二条锁的标题里没有这个词，于是 CAUGHT 被误报成 CHECK——**驱动的过滤器也是探针，写窄了就是自盲**，现按两条标题分别命中并要求红集恰为这两条。
+- **顺带记一条"同形不同义"，防止下一个会话顺手统一**：feed 的键固定成 `feed.xml` 是**对的**（一个频道一份 feed，本来就该被覆盖），音频固定成 `episode.mp3` 是**错的**（一期一份）。判据不是"键要不要唯一"，而是"这一段区分的是谁"。
+- **系统性预防落进 AGENTS.md QM-2**：新增一条——凡"身份由多个字段拼成的外部键"（对象键、缓存键、文件名、幂等指纹），必须有一条「两个不同实体 ⇒ 两个不同键」的行为锁，且**禁止只用前缀 `toContain` 断言**。这是「文本结构断言」那条在**对象键**上的落点。
+- **验证**：消费者并集（6 个测试文件）在最终树全跑 **114 passed**——`podcast-episode-host` 53、`podcast-hosting-service` 30、`podcast-hosting-audio-key` 11、`podcast-hosting-audio` 7、`podcast-episode-ipc` 6、`podcast-script-ipc` 7；QM-1 按三层判据重取（打包产物归属自证 = 包内 blob 与工作树逐字节相同，另带两个我没改动的同域文件作对照组），ESLint/Gate 7 四档、`check-max-lines`、`check-gate-record-debt`、`check-record-qm5-rows`、`check-doc-abs-paths`、`check-pr-exec-record --mode=enforce` 均 rc=0；QM-6 判定档位为 `single`，**未调用外部模型**，不得读成"已双模型复核"。全过程记 `openspec/records/podcast-audio-key-per-episode.md`。
+# [未发布] fix(gate): 欠账账本拒收「会自己腐化的第二份事实」—— 登记项只留原因字符串（normalize-debt-ledger-entry-shape）
+- **动因是当场量出来的两处腐烂**：`scripts/gate-record-debt-ledger.json` 的 23 条登记项有两种值形态（14 字符串 / 9 对象 `{reason,status,line}`）。逐条核对载体现状后：`line` **9/9 全部指不到自己的 `远程同步` 行**（3 条越界/指空，6 条指到别的 QM 行），`status` **已有 1 条说谎**（登记 `PENDING`，载体是 `执行中`）。而 `loadLedger` 只取 `reason`，全仓无任何 `entry.status` / `entry.line` 读取 —— 即"读它的人拿不到真值，不读它的人以为它是真的"。
+- **为什么必然腐化**：`.quality-gates.md` 是置顶追加型台账，每合并一次块整体下移，行号指针结构上不可能长期正确；`status` 则是判据本来就会从载体测出来的量的第二份拷贝。两份都会漂，漂移方向是"下一个会话把它当坐标用"。
+- **删字段而不是补校验**（design D2）：给 `line` 加"仍指向该行"的校验会当场红 9 条，而那 9 条账该由作者本人取证销账、不该由本刀代改别人的记录；删字段零信息损失（消费者为零），并把这类指针永久逐出数据面。
+- **判据侧同时从宽容读改成 fail-closed**：`loadLedger` 不再"是对象就取 reason"，非字符串值**当场抛错并点名是哪个键**；空原因仍按旧口径抛错，两条判据不得互相掩盖。宽容读等于允许这个形状再生。
+- **迁移只解包，不动语义**：9 条对象塌成各自的 `reason`；当场对账——键数 23→23、键序与键内容逐字相等、原因文本逐字相等、判据读数不变（仍打印「已登记欠账 23 条」，rc=0）。不销任何一笔账、不改 `.quality-gates.md` 任何一行、不动 carrier-freeze 基线。
+- **回归锁 112 例全绿（77→108→112）**：新增 4 条（拒收对象并点名键 / 空原因旧判据不被挤掉 / 真仓形状锁含"清空账本不得读成合规"的下界 / 账本文件名在判据里只允许一处）。**变异反证 M1–M5 全部指名变红**，红集互不相同；M5（迁移漏一条）实测抓在真仓形状锁上；跑后判据/测试/账本三文件 md5 与跑前逐一相等。
+- **我自己上一轮的错判，按本仓规矩记下来**：我曾断言"判据读不到 `status`，六成欠账状态只活在散文里"——**没读 `loadLedger` 就下结论**。实际它两种形态都读得动（只取 reason），真实缺陷相反：那两个字段无人消费且已在静默腐化。结论形状从"补齐读取"翻成"删掉字段 + 拒收"，代价是小刀方向整个换掉；凡"某字段读不到/没人用"这类断言，必须先读消费者再开口。
+# [未发布] docs(播客): 出期崩溃对账按顺序先落合同——spec 第 14 条 Requirement + 4 个 Scenario（podcast-crash-reconcile-spec）
 - **只写合同、不写实现，而且是规定的顺序**：`tasks 3.6b②` 与 PRD §13 第 13 条都明文写着「落地顺序不得反：先在 spec delta 加 Requirement（现 13 条无一涉及对账），再落跨重启凭据 → `channel:get` 投影 → 频道页横幅 + zh/en 键」。本刀收在第一步，`3.6b②` **保持未勾**，PRD 那条也补了"不得因合同已写而改判"。
 - **写合同的输入全部当场量**：忙标记是模块级 `Map`（`podcast-channel-locks.js:121`），`:91-92` 的注释写着「崩溃随进程消失，**残留由启动对账接管（只提示不自动修复）**」——它把"启动对账"当成已存在的东西来陈述，而 `publishInFlight` 在代码里**命中 0**（`git grep -c` 对 `apps/desktop/electron`+`packages` = 0 行，命中只落在 `.adversarial/`、`.ccg/` 产物）。**没有任何既有状态可扫** ⇒ 合同只能写成"链进入时留一份跨重启凭据"，而不是"启动时扫一遍"。另确认 `episodes.json` 只在链末尾写（`podcast-channel-service.js:40`）⇒ 用结果文件反推在途态正是本条要消灭的黑洞。
 - **两条写进合同的取舍（不是实现细节，后来者不得顺手改）**：① **凭据写入失败 ⇒ fail-closed 拒绝发起**——与 AGENTS「进度事件是旁路、发送失败不得冒泡」**刻意相反**，理由是进度丢了只影响观感、凭据丢了下次启动就无从对账，做成静默旁路会把"磁盘满"变成"发布照常成功但中间态永远不可知"；② **对账只报告、绝不自动重发**——`meta.guid` 至今没有任何一层传过（`podcast-rss.js:238` 令 guid 回落成音频 URL ⇒ 重复发布的产物是**第二条 item**），所以重发只能是用户显式发起，身份来源待 `tasks 5.1b③`。这条同时把两刀之间的**依赖方向**钉死：3.6b② 不许靠"自动重发"实现，否则会把一个还没定的问题变成事故。
@@ -32,7 +256,35 @@
 - 四个 Scenario：强杀后如实报告（且对账路径**零出站**）/ 正常收尾后重启不得出现横幅（凭据文件不存在也不报错）/ 凭据写不进去就不发起（返回带领域码的失败、忙标记照常释放）/ 对账不把"重发"当修复（入口走正常链、新 `runId`，文案不得声称"已自动恢复"）。
 - **本刀没做的五项**点名留档，防止被"合同已写"读成"事已办"：跨重启凭据文件与写入/收尾时机、`channel:get` 的 `interrupted` 字段、频道页横幅与 `podcast.episode.*` zh/en 键、强杀再启动的真机复现、"凭据写失败"那条领域码。
 - 规格面读数：spec delta 的 `### Requirement` 计数 13 → **14**。零运行时代码 ⇒ QM-1 / QM-4 / TDD 不触发，QM-6 走 docs-only 通道且**未调用外部模型**。三处补丁都由"行尾均匀 + 锚点恰命中 1 + `CR==LF` + 单行替换不改 CR 数"驱动落地，两口径 `--numstat` 逐文件相等（spec 30/0、tasks 1/0、PRD 1/1）。全过程记 `openspec/records/podcast-crash-reconcile-spec.md`。
-
+# [未发布] fix(collect): 一键改写对超长正文截取前 6000 字并明确提示；引擎业务错误不再退化成「AI 改写失败」（fix-collect-rewrite-too-long）
+## 问题
+- 用户实测：采集页输入知乎回答链接
+  （`https://www.zhihu.com/question/715577762/answer/2095239383058329672`）点「一键改写」，
+  采集成功后弹「AI 改写失败」，无任何具体原因。
+- 证据链：采集正文 6766 码点 > 改写引擎 6000 码点硬上限
+  （`packages/rewrite-engine/src/rewrite-engine-core.js` 的 `_validate`）⇒ 引擎返回
+  `TOO_LONG`；该时段 `model_provider_logs` 无记录（LLM 未被调用，失败在入口校验）；
+  采集页漏斗把 IPC 信封 `{code:0,data:{success:false,error,errorCode}}` 原样交给
+  `formatUserError`，后者只读顶层 `errorCode/message` ⇒ 具体原因丢失、只剩兜底文案。
+  对照样本：同链路 5899 字文章 8 分钟前改写成功。
+- 第一性引入点：#3915 把采集页 stealth 分支的改写从 Python 聚合层切到桌面引擎时，
+  错误字段位置从「平铺」变成「嵌在 data 里」，消费点未同步归一化。
+## 改动
+- 新增 `apps/desktop/src/utils/rewrite-engine-limits.js`：6000 码点上限（与引擎常量结构锁）、
+  `prepareRewriteInput` 按码点截断（不劈开代理对）。
+- 采集页 `rewriteViaEngine`：超长截取前 6000 码点继续改写 + `collection.rewriteTruncated`
+  提示；采集原文保持不变（视频转写 / stealth 自动 / 聚合回退 / 手动改写四个调用点共用漏斗）。
+- 新增 `apps/desktop/src/utils/rewrite-engine-error.js`：把引擎业务错误归一化到顶层
+  `errorCode/message/params`，并映射稳定文案码（`TOO_LONG` / `SENSITIVE_CONTENT` 新增 zh/en
+  文案；`EMPTY_RESULT` / `LLM_ERROR` / `NO_LLM_CLIENT` / `EMPTY_CONTENT` 复用既有码）。
+- 引擎侧把 6000 提为具名常量 `MAX_INPUT_CHARS`（行为不变），供渲染层结构锁对齐。
+## 验证
+- `apps/desktop` 定向：`rewrite-engine-limits` 9 + `rewrite-engine-error` 8 +
+  `user-facing-error` 32 + `Collection.rewrite-input-limit` 5 = 54 passed；
+  `Collection.test.js` + `rewrite-lineage.test.js` = 129 passed；
+  `packages/rewrite-engine` = 194 passed。
+- 变异反证：禁用截断 ⇒ 1 例红；回退「原样透传信封」⇒ 2 例红。
+- `build:vue` rc=0；locale pair/keys rc=0；max-lines rc=0；unwired-tests rc=0。
 # [未发布] fix(s2v): 「语音 / 音色 ID」显示条件回补 —— 模型来源不止一处（s2v-tone-field-guard）
 
 - **#3946 引入的 main 红**：该字段的 `v-if` 写成「已选提供方 **且** `s2vVoiceContextModel`」，而后者只认「程序按运营默许模型解析出的结果」（依赖 provider 注册表）。上游布局契约 `S2vConfigPanels.test.js` 的夹具显式给 `voiceModel` 但不加载注册表 ⇒ 字段不渲染 ⇒ main push 的 `QG Desktop Shards (2/2)` 判红（`expected '…' to contain '语音 / 音色 ID'`）。PR 侧没红是因为两片 shard 的文件集合不同、且该断言来自更晚合入的上游提交。
@@ -121,6 +373,33 @@
 - **遗留第 3 项降级为「无需处理」**：收起期间跨 900px 断点原被登记为遗留，复核后确认 `computeEmbeddedViewBounds` 内部 `collapsed ? 0 : normalizeSidebarWidth(width)` 已让 width 参数在收起态完全失效，展开时 `MpSidebar` 的 `ResizeObserver`（`w > 0` 守卫）在同一帧后上报真实宽度 —— 不产生错误布局，不值得为一次不可见的抖动新增状态位。
 - **测试**：新增 106 例（OAuth 布局同步 7 / 守卫 4 / 广播 8 / 注入 4 / store 广播 8 / App 订阅 5 / preload 合同 3 / 跨进程多窗口链路 1，其余为既有文件增量），受影响面 12 files / 311 tests 全绿；`tsc --noEmit` rc=0；`eslint` 0 error。
 - **文档**：`openspec/changes/sidebar-collapse-toggle/` 新增 3 条 Requirement / 10 Scenario（spec 7 → 10 条）、tasks 第 7 节；执行记录 `openspec/records/sidebar-collapse-followups.md`。
+# [未发布] fix(film-engineering): 五条功能缺陷修复——复制模式退化 / 阶段名未本地化 / 画布归因过粗 / refCount 无写入 / 7 块 vs 5 块口径不一致（fix-film-engineering-defects）
+
+- **缺陷 1（CRITICAL）：一键复制的三个结构化模式在真实语料上退化**。分镜详情抽屉提供 `full/blocks/characters/geo` 四种复制模式，用主进程同一套切块逻辑跑**真实 kit 的 153 个分镜**实测：能切出任意块的仅 **3 镜（2.0%）**，`GEO SPATIAL LAYOUT` 命中 **0**，`[CHARACTER:` 命中 **0** —— 点「复制 GEO 布局」几乎恒得到「（无 GEO SPATIAL LAYOUT 块）」。根因是切块用**整行精确比较**（`BLOCK_HEADINGS.includes(line.toUpperCase())`），而真实提示词的块标题带括号后缀与结尾冒号，例如 `GEO SPATIAL LAYOUT (locked across every CO shot — pure spatial map):`。引入点 `a3a93913`（2026-08-15，`shot-library.js` 新增文件即如此，**自诞生起即如此、非后续回归**）。
+
+  - **修复**：`BLOCK_HEADINGS` 补齐为 **7 项**（补 `SCENE CONTEXT` 与 `STYLE`，与随包方法论同源）；判定改为**行首前缀正则**，且正则**从 `BLOCK_HEADINGS` 单一真源生成**（避免第三处硬编码），容忍括号后缀 / 结尾冒号 / 小写 / 前导空白，并用 `\b` 词边界保证正文行中出现的标题字样不被误判。
+  - **实测**：切块率 **2.0%（3/153）→ 43.1%（66/153）**。
+
+- **缺陷 2（MAJOR）：自动模式进度阶段名显示英文 id 原文**（`film_auto_plan` / `film_auto_generate` / `film_auto_render`）。阶段 id 定义在 `useFilmAutoRun.js`，从未登记进 `src/i18n/pipeline-labels.js` 的 STAGES 表，`translate()` 走 fallback 返回原始 id。引入点 `b3ee1579`（2026-10-10，PR #3234 新增自动模式时只定义 id、忘了登记翻译）。**修复**：STAGES 补三条 + `locales/pipelines/{zh,en}.js` 成对文案（分镜规划 / 逐镜生成 / 收口合成；Shot Planning / Shot Generation / Final Composition），用词与自动模式步骤条一致。
+
+- **缺陷 3（MAJOR）：画布所有失败都归因为「影视引擎不可用」**。除「超过 10 镜」「未选分镜」外**全部**弹同一条，而真因常是没配视频模型（`VIDEO_MODEL_NOT_CONFIGURED`），用户会以为安装坏了而非去配模型。**是两处叠加**：① 视图 `else` 兜底过宽；② `useFilmVideoGen.start` 第 166 行捕捉了 `res.errorCode`，但第 169 行**恒返回硬编码 `'startFailed'`**，真因在返回时被丢弃 ⇒ 调用方拿不到值，**只改视图无效**。**修复**：两处都改 —— 如实透传 `errorCode`，视图按 `VIDEO_MODEL_NOT_CONFIGURED` 分流到 `video.noModel`（精准文案早已存在于 locales，只是画布未引用）。
+
+- **缺陷 4（MINOR）：画布「已注入 N 张参考」提示永不显示**。`ShotNode.vue` 渲染该提示，但全仓**无任何代码写入 `data.refCount`**（grep 仅命中渲染处）⇒ 连线成功后用户得不到任何视觉反馈。**修复**：在 `addEdge` / `removeNodes` 后由 `collectShotReferences` 回写（**真源与实际参与生成的参考同源，不引入第二套计数**）；删边时先收集受影响的 target 再重算，避免读到已被过滤掉的边。
+
+- **缺陷 5（MINOR）：方法论 7 块 vs 切块 5 块口径不一致**。随缺陷 1 补齐为 7 项，并加**同源锁**机械比对 `BLOCK_HEADINGS` 与 `prompt-doctrine.json` 的 `blocks[].label`。
+
+- **回归保护测试（新增 17 条）**：
+  - `electron/services/film-engineering/shot-library.real-kit.test.js`（9 条，真实语料）
+  - `src/i18n/pipeline-labels.stage-coverage.test.js`（3 条，全仓扫描阶段 key）
+  - `src/views/FilmCanvasView.actions.test.js` 扩展 5 条（共 14）
+
+  **为什么既有测试拦不住缺陷 1**：`shot-library.test.js` 的 blocks/characters/geo 三个用例用的是**自造的理想化夹具**（块标题就是纯 `GEO SPATIAL LAYOUT`）。那种夹具在「整行精确比较」和「行首前缀匹配」两种实现下**都会通过** —— 它测的是算法意图，不是算法对真实输入的有效性。改实现后它们仍全绿，所以新断言刻意**锚定真实语料的统计特征**（命中数 > 0、切块率 > 阈值）。
+
+- **四条系统性漏洞与堵法**：S1 夹具理想化 → 真实语料统计断言；S2 动态 i18n key 无登记检查（三道文案门禁都只管字面量）→ 全仓扫描锁；S3 错误兜底 `else` 吞掉原因多样性 + composable 换硬编码常量返回让调用方失去分流能力 → 透传链端到端保真；S4 跨文件「渲染侧读字段、写入侧没写」→ 写入端单测配对。
+
+- **验证**：定向 8 个文件 **87/87 全绿**（含既有 `shot-library.test.js` 20 条、画布 4 文件 41 条零回归）；`pnpm run lint` exit 0；`check-locale-sync --pair-base HEAD` PASS（zh/en 成对）。
+
+- **文档**：`01-docs/PRD-FILM-ENGINEERING-DEFECT-FIX-2026-10-19.md`（含显示项 / 交互 / 数据校验 / 提示文案全表）、`01-docs/BUGFIX-FILM-ENGINEERING-FINDINGS-2026-10-19.md`（根因溯源 + 逃逸链）、`01-docs/USER-MANUAL-FILM-ENGINEERING-COMPLETE-2026-10-19.md`（同步修订）、`01-docs/learnings.md` 置顶条目、`.agent_context/memory-film-engineering-defect-fix.md`、EverOS（md-first 直写 + 读回验证 HIT）。
 
 # [未发布] feat(gates): QM-6 评审后端对收敛为单一真源，「设了没生效」改为判不闭合（qm6-review-backend-config）
 

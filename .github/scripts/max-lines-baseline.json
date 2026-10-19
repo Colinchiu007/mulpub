@@ -57,7 +57,7 @@
     "apps/desktop/src/views/PublishHistory.vue": 1205,
     "apps/desktop/src/views/ReplayTimeline.vue": 653,
     "apps/desktop/src/views/ResultView.vue": 1882,
-    "apps/desktop/src/views/RewriteView.vue": 1072,
+    "apps/desktop/src/views/RewriteView.vue": 1219,
     "apps/desktop/src/views/ViralAnalysis.vue": 999,
     "apps/desktop/src/views/video-creation/S2vConfigPanels.vue": 753,
     "ops-center/backend/models.py": 680,
@@ -120,7 +120,7 @@
     "ops-center/backend/services/model_preset_service.py": 1221,
     "packages/api-publish-engine/src/publish-api-server.js": 1574,
     "packages/python-backend/src/multi_publish/video_creation/providers/video/video_compose.py": 2638,
-    "packages/story2video-engine/src/text-segmentation.ts": 1398
+    "packages/story2video-engine/src/text-segmentation.ts": 1409
   },
   "pruned": {
     "apps/desktop/src/components/LogsSettings.vue": 469,
@@ -141,7 +141,7 @@
     "apps/desktop/src/views/CreateView.test.js": 6884,
     "apps/desktop/src/views/Publish.test.js": 1735,
     "apps/desktop/src/views/ResultView.test.js": 2175,
-    "apps/desktop/src/views/RewriteView.test.js": 1649
+    "apps/desktop/src/views/RewriteView.test.js": 1766
   },
   "testPruned": {
     "apps/desktop/electron/services/webview-manager.test.js": 1471

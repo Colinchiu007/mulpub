@@ -17,6 +17,7 @@
 
 // 字幕分割规则单源（subtitle-rules.json，与 smart-sentence-splitter Python 共享同一份规则）
 import subtitleRules from './subtitle-rules.json';
+import { isUnitInterior } from './subtitle-unit-guard';
 import { segmenterSpans } from './segment';
 import { isPhraseBoundary, PHRASE_BOUNDARY_MIN_HEAD_RELAX } from './subtitle-phrase-boundary';
 // ==================== 通用工具 ====================
@@ -629,9 +630,15 @@ export class SubtitleSegmenter {
       // v1.2.3：数字中的小数点（如 713.3）不是切分标点
       if (isPunct && cur.length >= this.config.minCharsPerBlock
         && !(ch === '.' && SubtitleSegmenter.isDecimalPointAt(text, sourceIndex))) {
-        blocks.push(cur);
-        cur = '';
-        lastHardCut = false;
+        // v1.4 unit_guard：标点切点同样不得落在 数字│单位 或 引导字│数字 之间
+        //（实测：'风速每秒 8 米' 的空格切点把 8│米 劈开）。拒绝时退回下个分支（短语边界/MAX 兜底重找）。
+        if (isUnitInterior(text, sourceIndex + 1)) {
+          // 不在此切；落入后续短语边界/MAX 分支处理
+        } else {
+          blocks.push(cur);
+          cur = '';
+          lastHardCut = false;
+        }
       } else if (stack.length === 0 && isPhraseBoundary(text, sourceIndex + 1)
         && cur.length >= Math.max(1, this.config.minCharsPerBlock - PHRASE_BOUNDARY_MIN_HEAD_RELAX)) {
         // v1.3 短语边界与优先级标点等价：累积阶段即兑现切分，不等 MAX 分支的裸切兜底。
@@ -1031,6 +1038,7 @@ export class SubtitleSegmenter {
     if (this.protectedPhraseSpanAtBoundary(text, i)) return false;
     if (!SubtitleSegmenter.isLeBoundaryAllowed(text, i)) return false;
     if (this.isDecimalInterior(text, i)) return false;
+    if (isUnitInterior(text, i)) return false;
     return true;
   }
 

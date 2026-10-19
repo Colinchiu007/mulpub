@@ -152,7 +152,12 @@ function createEpisodeHost (deps = {}) {
     // 临时目录基名由主进程算：渲染层永远拿不到「写哪里」的决定权
     const tmpRoot = deps.tmpRoot || path.join(os.tmpdir(), 'mulpub-podcast')
     const runDir = path.join(tmpRoot, 'episode-' + ctx.runId)
-    const outBase = path.join(runDir, 'episode')
+    // 基名带 runId：适配层用 `path.basename(filePath)` 当对象键的 stem，而
+    // `publishAudio` 的 key 是 `<prefix>/audio/<channelId>/<stem>.<ext>`——基名固定成 `episode`
+    // 时同一频道每一期都落在同一个键上，第二期 PUT 原地覆盖第一期的音频，而第一期的
+    // enclosure 还指向它（两次发布都报成功、日志零异常）。跨频道由 channelId 挡住，
+    // 跨期只能靠这里——身份取 runId（同一次发起可重发同一对象），不取标题（用户可改的显示量）。
+    const outBase = path.join(runDir, 'episode-' + ctx.runId)
     try {
       ctx.prepare({ fs, runDir, log, hostErr, HOST_ERRORS })
       const r = await publisher.publish(Object.assign({

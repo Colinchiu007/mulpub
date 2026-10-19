@@ -22,6 +22,8 @@ export default {
     API_KEY_REQUIRED: '远程服务商必须配置 API Key。请在「模型设置」中填写后重试。',
     LLM_KEY_MISSING: 'AI 改写功能需要连接智能写作服务，但尚未完成服务配置。请在应用的「模型设置」中配置 AI 服务商的 API Key（支持 OpenAI 兼容接口），保存后重新点击改写；若不清楚如何配置，请参考使用说明或联系支持获取帮助。',
     LLM_NOT_CONFIGURED: '未找到可用的默认文字推理模型。请打开「模型设置」，在「文字推理」（LLM）分类中为它选择默认模型；若使用的是多模态模型，请在该模型中勾选「文字推理」的默认标记；填写 API Key 并保存后重试。',
+    REWRITE_CONTENT_TOO_LONG: '正文超过单次改写上限 {max} 字，未能改写。请精简正文后重试，或分多次改写。',
+    REWRITE_CONTENT_SENSITIVE: '正文包含敏感词，无法改写。请修改相关内容后重试。',
     AGGREGATION_CONTENT_EMPTY: '请先输入或采集要改写的内容，再点击改写。',
     AGGREGATION_URL_EMPTY: '请先输入要采集的链接，链接不能为空。',
     AGGREGATION_URL_INVALID: '链接格式不正确：仅支持以 http:// 或 https:// 开头的网页链接。请检查后重新输入。',

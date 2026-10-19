@@ -1,0 +1,58 @@
+{
+  "sha": "2f438f85714ddba19cc523996356b2bafde698bc",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 0 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 3,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": [
+      "\"01-docs/research/competitor-reverse-2026-10-13/derived/\\350\\236\\215\\345\\252\\222\\345\\256\\235-sig3\\345\\205\\250\\351\\203\\250\\345\\256\\236\\347\\216\\260.md\"",
+      "\"01-docs/research/competitor-reverse-2026-10-13/\\344\\272\\244\\344\\273\\230\\347\\211\\251\\346\\200\\273\\347\\264\\242\\345\\274\\225.md\""
+    ]
+  },
+  "stagedDiffHash": "2f50eeba750d5a5916b9de0acfcd52f43a7c3fa9576f33f4b34eeade81b89a73",
+  "decidedAt": "2026-10-19T12:31:13.988Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

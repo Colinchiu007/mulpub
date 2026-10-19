@@ -1,3 +1,117 @@
+## 「反证全绿」可以是「一条都没跑」——变异驱动必须自证探针活着（mutation-probe-blindness，2026-10-19）
+
+### lesson: a-mutation-driver-must-prove-its-own-probe-alive
+
+**现场**：给「更多」菜单键盘可达写 7 条变异反证，驱动脚本 v1 输出 7 行 `CAUGHT`。
+但每条的"红集"都是空的。看一眼控制跑才发现：`CONTROL rc=1 passed=undefined` —— 未变异时也"红"。
+
+**根因**：驱动用了 `vitest --reporter=basic`，而 vitest 4 已移除该 reporter ⇒ 每次跑都是
+`Startup Error: Failed to load custom Reporter from basic`、rc=1、一条测试都没执行。
+v1 的判定式只有 `rc === 0 ? MISSED : CAUGHT`，于是**把"根本没跑"读成了"跑并判红"七次**。
+如果照那份输出写记录，会得到一句谎言："7 条反证均实测变红"。
+
+**修法（三条同时成立才算反证）**：
+1. **控制跑硬判据**：未变异那趟必须 rc=0、且 `passed` 能解析为正数、且没有 Startup Error，
+   否则整体报 `PROBE_BLIND` 并**不产出任何 verdict**（这一条是驱动自身的 fail-closed）。
+2. **红集非空 + 指名用例**：每条变异都预写"它必须让哪几条用例变红"，红集为空单列 `red=0(探针可疑!)`，
+   红了但没红在指名那条判 `CAUGHT_WRONG_TEST`（不是 CAUGHT）。
+3. **还原可证**：每趟写完立刻用备份做**逐字节**比对（`Buffer.compare === 0`），绝不允许带着变异态进入下一轮。
+
+**同一次实跑里还踩到探针的反向失真**：v2 首跑把自己判成 `PROBE_BLIND`，因为 `failed` 解析出 `NaN` ——
+**vitest 全绿时根本不打印 `N failed` 这一段**。缺字段该读成 0，不是"探针坏了"。
+把缺省读数当失败信号，和把它当成功信号，是同一类失真的两个方向。
+
+**同族第二落点（原地改数组再和自己比）**：文档补丁写成 `fn(lines)` 原地 `splice` 后返回同一个数组引用，
+判 NOOP 时拿 `out` 和 `lines` 比 ⇒ 恒等 ⇒ 补丁"执行成功"而**一个字都没写回**。
+凡"函数可能原地改传入数组"的批量编辑，比较前必须先 `slice()` 拍快照。
+
+---
+
+## 给元素加了 ARIA 角色，却没给该角色的操作方式——它不是"缺功能"，是对辅助技术的假承诺（aria-role-without-behavior，2026-10-19）
+
+### lesson: declared-role-implies-a-contract-users-will-rely-on
+
+**现场**：侧边栏「更多」菜单的容器长期写着 `role="menu"`、子项写着 `role="menuitem"`，
+看起来"已经无障碍"。实际行为是：展开后焦点掉回 `document.body`、↑↓/Home/End 全无响应、
+Esc 不收尾、Tab 走开后那块 `role="menu"` 还挂在可读区域里。
+
+**根因**：**角色是一个承诺**。WAI-ARIA 的 menu 模式隐含 roving tabindex + 方向键导航；
+写角色的同时就把这个契约发给了读屏用户，而实现侧一行键盘代码都没有。
+后果不是"和没写一样"，而是**比没写更坏** —— 用户据「菜单」这个词换了一套操作预期，并按这套预期去按方向键。同理还有 `role="button"` 挂在 `<div>` 上却没有 `tabindex` 与 Enter/Space。
+
+**为什么四层门禁全部放行**：① 组件测试只断言"点击展开"和"选中态类名"，没有任何键盘路径；
+② 像素门禁对 `tabindex` / `aria-controls` / 焦点去向完全失明（非视觉属性）；
+③ 静态结构判据当时**不存在**（本仓有对比度类 a11y 门禁，缺语义/键盘可达类，审计 §1 已点名这条）；
+④ 人工审查里它是靠逐条读模板才发现的。⇒ 「有 role 属性」在审查里被当成了证据，而那恰恰是需要被验的东西。
+
+**修法要点（两条容易被漏的语义）**：
+- **Esc 必须归还焦点**到触发器；只收起不还焦点 = 把键盘用户丢回页面顶上，得从头 Tab 一遍。
+- **Tab 必须"不劫持"**：收起但不 preventDefault、也不抢回触发器，否则用户按一次 Tab 退回原地。
+  这两个键的方向相反，写成同一个 `close()` 就必错一个。
+
+**一条方法论收获（由变异反证逼出来）**：摘掉 `@focus` 里的 roving 位迁移后，**方向键类断言全部照绿** ——
+因为方向键路径上 `focusMoreItem()` 自己就改了索引，那条事件监听**不在断言的因果链上**。
+真实缺口是「用户先用鼠标点了第 7 项，再按 ↓ 却从旧位置跳走」。
+⇒ **反证报 MISSED 时，第一问不是"这处代码不重要"，而是"我的断言覆盖了哪条边"**；
+要覆盖的是"焦点从别处来"这条边，得专门加一条不经过方向键的用例。
+
+---
+
+## 守门步骤的"通过"是谁说了算的？——通过路径没有 exit 时，判词来自最后一条原生命令（gate7-pass-path-exit，2026-10-19）
+
+### lesson: a-gate-step-needs-an-explicit-exit-on-its-pass-path
+
+**现场**：PR #3992 的 required check `QG Visual` 报红，而同一步骤日志末行是 `[GATE-7] All visual tests passed`，
+六个套件退出码读数全为 0（`pixel=0 views=0 views-supplement=0 dark=0 workflows=0 workflows-supplement=0`）。
+红了约一小时才被归因，因为"日志说全绿"与"检查说红"看起来不可能同时成立。
+
+**根因**：Gate 7 有四条 `exit` 分支，各管一种失败（就绪 3 / 像素 / 校验域 1 / agent），**唯独通过路径没有 exit**。
+GitHub 的 pwsh wrapper 以 `$LASTEXITCODE` 决定步骤成败，而该步骤 `finally` 里清理 dev server 的
+`taskkill /PID ... /T /F` 在进程已退出时返回非零 ⇒ 一个 required check 的成败由**清理动作**决定。
+
+**为什么这是"装饰性门禁"的反向形态**：既往记下的同族病是"捕获而不判定 ⇒ 恒绿"；这次是"判定而不收口 ⇒ 恒不可信"。
+同一个坑的两个方向：AGENTS.md 那条「一个 `run:` 块里塞多条测试命令必须用 `shell: bash`」管的是**中间命令的失败被吞**，
+本条管的是**通过时的余值被当成判词**。收尾判据要问的不是"失败分支有没有 exit"，而是
+"**通过路径的最后一个语句是什么**"。
+
+**修法（判定与退出拆开）**：`$gateVerdict = 0` 单点初始化 → 四条分支改 if/elseif 单链、各自只赋码（优先级逐字保留）
+→ 唯一出口 `if ($gateVerdict -ne 0) { exit $gateVerdict }` → 通过文案 → **显式 `exit 0`**。
+`$darkExit` 与各套件留痕值仍不参与判定，这一格未收紧也未放松（改动守门判据时必须把"没改什么"一起写出来）。
+
+**可复用的三条**：
+1. 给守门步骤加锁时，禁令要配正向对偶：既锁"四条分支不得退回各自 exit"，也锁"判定值四格齐全 + 唯一出口排在
+   通过文案之前 + `exit 0` 排在通过文案之后"。只写禁令会把"删掉被禁物"与"删掉需求"判成同形。
+2. 反证必须包含**摘掉结尾 `exit 0`** 这一格，且前置 `$LASTEXITCODE = <脏值>` 模拟清理动作。本机 pwsh 就能复现
+   GH wrapper 语义（`. script.ps1` 后 `exit $LASTEXITCODE`），不必只在 CI 上赌一次红。
+3. `workflow-contract.test.js` 那类"锁文本形状"的判据，锚点必须**行锚定到可执行语句**。本次两次自伤：
+   ① 我在注释里原样引用了 `All visual tests passed`，而既有顺序锁用裸短语 `indexOf` 定位 ⇒ 注释顶掉锚点、当场红；
+   ② 为"两种形状都合法"把 `indexOf('if ($pixelExit -ne 0)')` 放宽成裸短语 `search(/\$pixelExit -ne 0/)` 时，
+   只去掉前缀、没保留行锚定，正文一处散文注释（"经 `$pixelExit -ne 0` 拦住"）又成了错锚点。
+   **放宽判据的形状 ≠ 放弃定位的方式**；正解是 `/^\s*(?:\} elseif|if) \(\$pixelExit -ne 0\)/m`。
+
+## 2026-10-19 · rewrite-limits-50000：三层上限的真实语义与「静默截断」是同一类缺陷（fix-collect-rewrite-too-long 续篇）
+
+- **pattern · 「上限」从来不是一个数，是三层各自独立语义的数**：改写引擎里 6000（输入硬拒）/ 3000（无意图兜底输出）/ 策略级 800-3000（平台形态）三层长相相似但职责不同。放开时问「每一层为谁存在」：输入上限跟随模型能力（50000），无意图兜底保留保守（3000 不动），策略上限是产品语义（不动，且用户显式区间必须始终压过它）。把三层一刀切放开会把「抖音口播 800 字」这类形态约束一起冲掉。
+- **pitfall · 静默截断比硬拒绝更隐蔽**：`TOO_LONG` 至少让用户知道失败；`_postProcess` 砍尾则让用户拿到不完整的稿子且**以为它就是全部**。判据：任何「按上限截断」的实现必须同时产出可见信号（返回 `outputTruncated`/`outputLength`，UI 横幅），否则宁可拒绝。
+- **pitfall · max_tokens 缺失时「输出截断」会发生在模型默认值处，与引擎截断混在一起**：大多数 OpenAI 兼容 adapter 不传 `max_tokens` 走服务商默认（OpenAI 4096）——把引擎输出上限放到 50000 后，真实瓶颈转移到了模型默认值，且这种截断引擎侧 `outputTruncated` 检测不到（引擎只见到完整返回）。解法：桥接层显式传 64000；后续可读 `finish_reason: 'length'` 区分模型侧截断。
+- **pattern · 放开上限必须同帧更新「自适应默认值」**：`deriveWordCountRange` 的 MAX_CAP 若仍钉在 6000，12000 字原文会被「自适应」压回 6000——放开引擎上限但自适应层没跟上，等于没放开。判据：改上限时 grep 所有消费该数字的**派生函数**，不只是校验器。
+
+## 「没人读」和「读不到」是两件事——先查消费者，再决定删字段还是补校验（debt-ledger-shape-normalize，2026-10-19）
+
+### lesson:check-consumers-before-diagnosing-a-dead-field
+
+**我上一轮把"账本里 `status`/`line` 没人读"说成了"判据读不到状态"，两句都不是当场量的。** 真去读 `loadLedger` 才发现它 `typeof entry === 'string' ? entry : entry.reason` —— 两种形态都读得动，只是**只取 reason**；而 `status`/`line` 确实无人消费。所以缺陷不是"读取有洞"，而是"**数据里躺着两份无人核对、且其中一份结构上必然过期的事实**"。修法因此从"补齐 status 读取"（会造出与载体测量重复的第二真源）翻成"删字段 + 判据拒收"（`{reason,status,line}` 当场抛错并点名键）。**判"某字段是死是活"的最低动作**：① grep 被读处（`entry\.status` / `entry\.line`），② 读归一化函数本体，③ 再逐条比它和现场事实是否一致——第 ③ 步这次量出 `line` 9/9 已指错、`status` 1/9 已说谎，才有资格说"腐化"。
+
+**可复用的形态结论**：置顶追加型台账（每合并一次整体下移）里**任何行号指针都是负债**，别存；状态类字段若判据本来就会从载体测，账本里存副本就是第二真源，漂移只是时间问题。账本该只存**无法推导的东西**——这里是"为什么没回填"的原因。
+
+**配套的两条锁的分工要分开测**：真仓形状锁（值全为字符串 + 键数下界，防"清空账本变绿"）由**数据变异**抓（M5 迁移漏一条 ⇒ 红在这条）；拒收行为由**夹具变异**抓（M1 退回宽容读 ⇒ 红在拒收用例）。两条各打各的格子，合成一条就会互相掩盖。
+
+## 2026-10-19 · fix-collect-rewrite-too-long：兜底文案出现时，先逆着格式化链找被吞的原因
+
+- **pitfall · 「AI 改写失败」这类兜底文案出现，等于上游的具体原因被吞了一层**：本次用户只报「AI 改写失败」，但真正原因是「正文 6766 字超过引擎 6000 字上限」。判据：凡是唯一的错误文案是通用兜底词（失败/出错了/操作失败），先读 `formatUserError` 的输入形状，再反查错误产生处——不要从兜底文案开始猜后端。本次实证：`formatUserError` 只认顶层 `input.errorCode/message`，而引擎业务错误在 `data.errorCode/error` 里，信封透传即等于把原因扔掉。
+- **pitfall · 跨 IPC 边界换链路时，错误字段位置不会跟着换**：#3915 把采集页改写从 Python 聚合层切到桌面引擎，`{code, message}` 平铺形态变成 `{code:0, data:{success:false, error, errorCode}}`，但消费点注释仍写「透传原始 res（含 errorCode/message）」——注释描述的是旧契约。判据：换 provider/链路时，错误路径必须单列一份契约测试（断言用户看到的文案），只测成功路径的 mock 永远测不出这类回归。
+- **pattern · 同一业务上限有两个消费者时，常量必须结构锁**：渲染层截断用 6000、引擎 `_validate` 也用 6000；两处各写一个数，改一处就会变成「渲染层截到 A、引擎拒收于 B」，且失败形态与本次完全同形。做法：引擎提具名常量，渲染层常量由测试读引擎源码比对（`rewrite-engine-limits.test.js`），只改一边当场红。
+
 ## 缓存空壳与漏斗守卫：空正文不得进改写链路（fix-collect-rewrite-empty-content，2026-10-18）
 
 ## 字幕分句短语边界：四条可复用教训（subtitle-phrase-boundary-v1.3，2026-10-18）
@@ -12,11 +126,29 @@
 
 ### lesson:three-way-parity-means-three-repos-not-three-files
 
-**「三端逐字一致」不是「三个文件改一样」，而是「三个文件 + 一份共享数据 + 三份向量副本」四处同时落地；少一处，一致性就是纸面的。**
+**「三端逐字一致」不是「三个文件改一样」，而是「N 份实现 + 若干份数据副本 + 每两端各自的比对判据」三件事同时对账；少一样，一致性就是纸面的。**
 
-现场：本仓字幕分句有三份实现（Python sidecar / TS 权威版 / Electron JS 镜像），共享一份 `subtitle-rules.json` 与一份 `subtitle_segmentation_vectors.json`。我只改了 mulpub 里的规则表与 TS/JS 代码时，TS 与 JS 全绿、parity 也绿——因为 parity 只比 TS vs JS，**根本不涉及 Python**。Python 侧要等真实 8002 链路 E2E 才会红，而那条 E2E 需要手工起服务、默认不进 PR 门禁。
+现场：本仓字幕分句有**四份**实现（Python sidecar / TS 权威版 / Electron JS 镜像 / ops-center 的简化 Python 移植），共享**两份物理数据副本**——`subtitle-rules.json` 与 `subtitle_segmentation_vectors.json` 在 mulpub 与 smart-sentence-splitter 各存一份手工副本（mulpub 侧的 `subtitle-rules.js` 只是同一 JSON 的再导出，不算独立副本）。我只改了 mulpub 里的规则表与 TS/JS 代码时，TS 与 JS 全绿、parity 也绿——因为 parity 只比 TS vs JS，**根本不涉及 Python**。Python 侧要等真实 8002 链路 E2E 才会红，而那条 E2E 需要手工起服务、默认不进 PR 门禁。
 
-判据：跨仓/跨语言一致性的检查清单必须把「谁在 CI 里守它」写清：① 共享数据（规则表）有**几份物理副本**；② 向量文件有**几份物理副本**；③ 哪些测试比对**哪两端**；④ 哪两端**没有**任何自动比对（本案：Python vs TS 只有人工 E2E）。第 ④ 项是最容易被漏掉的一格，写空就等于默默接受漂移。
+> 2026-10-19 更正：这段最初写成「三个文件 + 一份共享数据 + 三份向量副本」，三处都错（漏了第 4 份实现、把跨仓副本算成一份、向量只有两份）。错述比缺失更贵——它会让下一个会话按错误的副本数去核对，并以为已经核完了。同批补的 `sidecar-parity.lock.json` 就是为这类「我数错了却没人拦」准备的机械判据。
+
+判据：跨仓/跨语言一致性的检查清单必须把「谁在 CI 里守它」写清：① 共享数据（规则表）有**几份物理副本**；② 向量文件有**几份物理副本**；③ 哪些测试比对**哪两端**；④ 哪两端**没有**任何自动比对。第 ④ 项是最容易被漏掉的一格，写空就等于默默接受漂移。**并且：一份「按路径触发」的对照测试，如果触发路径不含被改的那一侧，它等于没跑**——本案 `ops-center-ci.yml` 只在 `ops-center/**` 变更时触发，改桌面端 TS 时那条 Python↔TS 对照一次都不跑，而它看起来像是有保护的。
+
+### lesson:single-repo-lock-cannot-see-cross-repo-drift
+
+**给每个仓库各加一条「本地数据 vs 本地锁」的断言，只挡住了「改了数据忘改锁」，挡不住「两边各改各的」——跨仓一致性必须有一个能同时看见两边的判据。**
+
+现场：字幕规则表在两个仓库各存一份手工副本。加了 `sidecar-parity.lock.json`（登记 LF 归一化 sha256）后，任一仓改数据不改锁会当场红。但存在一格它永远看不见：**有人在 A 仓把「数据 + 锁」一起更新（A 仓 CI 全绿），而 B 仓的「数据 + 锁」还是旧的**——两仓各自内部自洽，跨仓已经漂了。单仓判据的输入里根本没有另一边。
+
+判据：设计一致性锁时先问「这条判据的输入包含哪几份产物」。只包含一份产物的判据，无论多严格都只能证明自洽。需要跨产物一致性的场合，要么让判据真的同时读两边（本案：`scripts/check-sidecar-parity.js` + 定时 workflow，因为它需要 clone 另一个仓库，所以**不能挂 PR** —— 把第三方可用性变成 PR 红点，结果是判据被加进豁免），要么接受「漂移只能被延后发现」并把这个延迟写进文档，别假装已经闭合。
+
+### lesson:reference-snapshot-is-consistency-not-truth
+
+**「参考实现的输出快照」不是真值，它是「两处行为是否相同」的判据；一旦被当成真值使用，它就变成自证陷阱。**
+
+现场：为补 Python↔TS 的跨实现对账，我把 Python sidecar 的输出固化成金标快照，让 TS/JS 逐字复现。这直接撞上本仓向量测试里写明的原则：「禁止直接把实现输出写入向量（自证陷阱会让实现与向量共同漂移）」。两者其实不冲突——**它们回答不同问题**：手工向量回答「这样切对不对」（人是权威），金标快照回答「本地实现和线上 sidecar 是不是同一份行为」（sidecar 是一致性参照，不是正确性权威）。三端一起漂移时金标不红、手工向量红。
+
+判据：引入「实现输出当期望值」的机制时，必须在**代码里**写清它回答哪个问题、并绑定一起用的手工真值机制；否则下一个读代码的人会拿它当 truth 去改。另两个可复用的口径：① 金标要带 provenance（生成它的数据版本哈希），否则「数据变了但金标没重生成」无法被发现；② 语料只放输入、期望值全部由生成器产出——手写一半会让「谁才是参照」变得说不清。
 
 ### lesson:no-candidate-is-a-different-bug-than-wrong-candidate
 
@@ -110,6 +242,77 @@
 那样会把刚拆掉的第二真源又装回去。正解是在夹具里注册 provider 行——因为生产路径本来就是
 「先 `loadS2VProviders` 再操作音色」，夹具缺的是前置条件而不是断言太严。
 判据：夹具报红时先问「生产里这个前置一定成立吗」，成立就补夹具；不成立就是实现缺 fail-closed 或提示。
+## 两类「测试全绿但功能对真实数据无效」：夹具理想化与动态 i18n key 漏登记（fix-film-engineering-defects，2026-10-19）
+
+### lesson:idealized-fixture-blinds-tests-to-real-input
+
+**用符合实现的假数据测实现，永远测不出实现与真实数据的错配——关键算法必须有一条「真实语料统计特征」断言。**
+
+现场：影视工程一键复制提供 blocks / characters / geo 三种结构化提取模式。既有
+`shot-library.test.js` 里这三个模式各有单测且全绿。但用主进程同一套切块逻辑跑**真实 kit
+的 153 个分镜**实测：能切出任意块的仅 **3 镜（2.0%）**，`GEO SPATIAL LAYOUT` 命中 **0**，
+`[CHARACTER:` 命中 **0**。即三个按钮在真实数据上几乎恒返回「（无 GEO SPATIAL LAYOUT 块）」。
+
+根因是切块用**整行精确比较**（`BLOCK_HEADINGS.includes(line.toUpperCase())`），而真实提示词的
+块标题带括号后缀与结尾冒号：`GEO SPATIAL LAYOUT (locked across every CO shot — pure spatial map):`。
+
+**为什么既有测试拦不住**：那三个用例的夹具是测试作者手写的干净文本，块标题就是纯
+`GEO SPATIAL LAYOUT`。这种夹具在「整行精确比较」和「行首前缀匹配」两种实现下**都会通过**——
+它测的是算法意图，不是算法对真实输入的有效性。改实现后它们仍全绿，所以**新写的断言必须
+锚定真实语料的统计特征**（命中数 > 0、切块率 > 阈值），才能反向锁住退化。
+
+修复后实测：**66/153（43.1%）**能切块。
+
+### lesson:dynamic-i18n-key-registration-is-unguarded
+
+**三道文案门禁（locale 成对 / 渲染端硬编码中文扫描 / i18n-glossary）都只管字面量中文，
+管不到「代码生成的动态 key」是否登记——这是结构性盲区，必须补全仓扫描锁。**
+
+现场：影视工程自动模式的进度区三行阶段名显示为英文 id 原文（`film_auto_plan` /
+`film_auto_generate` / `film_auto_render`）。阶段 id 定义在 `useFilmAutoRun.js`，但从未登记进
+`src/i18n/pipeline-labels.js` 的 STAGES 表，`translate()` 走 fallback 返回原始 id。
+引入点 `b3ee1579`（PR #3234 新增自动模式时只定义 id、忘了登记翻译）。
+
+`check-locale-sync` 查的是「zh/en 是否成对」，硬编码扫描查的是「src/ 非 locales 文件里有没有
+中文字面量」，i18n-glossary 管产品名词——**三者扫描的都是字面量**，而这里的缺失是「一个
+代码生成的 key 没有对应条目」，形状上不属于任何一类的检查对象。正解是补一条**全仓扫描**判据：
+凡是传给进度/阶段组件的阶段 id 字面量，必须在翻译表有登记，且 zh/en 两侧都有文案。
+
+### lesson:error-fallback-else-swallows-cause
+
+**防御式 `else` 兜底会吞掉原因多样性；composable 若把真实 errorCode 换成硬编码常量再返回，
+调用方就彻底失去了分流能力——错误透传链必须端到端保真。**
+
+现场：画布点「生成所选」失败时，除「超 10 镜」「未选分镜」外**所有**失败都弹「影视引擎不可用」。
+真实原因常是没配视频模型，用户却以为是安装坏了。
+
+是两处叠加：① 视图 `else` 分支过宽；② `useFilmVideoGen.start` 第 166 行捕捉了 `res.errorCode`，
+但第 169 行**恒返回硬编码 `'startFailed'`**，真实原因在返回时被丢弃。只改视图没用——判据
+拿不到值。修复必须两处都改。
+
+### lesson:derived-display-field-needs-write-side-test
+
+**「渲染侧读字段、写入侧没写」是跨文件盲区：人眼难发现，只能靠写入端单测配对。**
+
+现场：`ShotNode.vue` 渲染「已注入 {n} 张参考」，但全仓无代码写入 `data.refCount`（grep 仅命中
+渲染处）⇒ 提示永不显示，用户连线后得不到任何反馈。参考注入走的是
+`collectShotReferences → buildLocalReferences → initialContext` 链路，与 `refCount` 通道未接上。
+修复时在 `addEdge` / `removeNodes` 后回写，**真源仍是 `collectShotReferences`**（与实际参与生成的
+参考同源，不引入第二套计数）。
+
+### lesson:two-hardcoded-sets-need-a-same-source-lock
+
+**同一组约束在两处各写一份，必然漂移；正解是让一处生成另一处，或用同源锁机械比对。**
+
+现场：方法论标签页展示 **7 大块**（`prompt-doctrine.json`），而切块用的 `BLOCK_HEADINGS` 只有
+**5 项**（缺 SCENE CONTEXT 与 STYLE）。修复补齐为 7 项，并加同源锁：断言 `BLOCK_HEADINGS` 集合
+=== `prompt-doctrine.json` 的 `blocks[].label` 集合。正则也从 `BLOCK_HEADINGS` 生成，避免第三处硬编码。
+
+### rule:code-review-two-new-questions
+
+Code Review 清单新增两问（针对上述两类盲区）：
+1. 这段逻辑有没有用**真实数据**跑过？测试夹具是不是照着实现写的？
+2. 新增的动态 i18n key 登记进翻译表了吗？
 
 ## 任务详情页模型信息：先核实「信息有没有落盘」，再摆四个字段（s2v-result-model-info，2026-10-18）
 
@@ -21263,6 +21466,25 @@ CI 把 `QG Static` 钉红在 Gate 2c，红的是 `check-unwired-tests.test.js` �
 - **pitfall · `powershell -File` 拉起的校验脚本 cwd 是任意目录，`pnpm exec asar` 在那里解析不到 CLI**：表现为"extract 退出 0 但目标目录 0 文件"的静默假失败。必须 `Push-Location <App>` 再调，`finally` 里 `Pop-Location`。同类坑：Node 脚本 `spawn('pnpm', ...)` 在 Windows 必须 `shell: true`，否则 ENOENT 且 stdout 为空。
 - **pitfall · 空集合必须判 FAIL，否则「扫到 0 个 chunk 却报 PASS」是假绿**：核验脚本里 `$bundleOk=$false; foreach(...){...}` 的初值语义在集合为空时会让检查项"通过"——本次真实发生过一次（`scanned 0 chunks` 却 PASS）。判据：任何"扫描 N 个候选找 X"的检查，N=0 时必须显式失败，并在输出里打印 N。
 - **pattern · `pnpm run build:win` ≠ 裸 `electron-builder`**：前者 = `build:vue`（vite build 产出 `dist/`）+ electron-builder。只跑后者会让 asar 缺 `dist/`，启动时报 `ERR_FILE_NOT_FOUND: app.asar/dist/index.html`。这个失败**只有启动判据能抓住**（打包 exit 0、asar 大小正常、清单里 electron/ 齐全），再次印证"打包成功 ≠ 应用能起来"。
+
+## 2026-10-19 · ui-flow-clarity：一个 PR 从红到绿的五轮 CI 修复链（PR #3951）
+
+- **pitfall · 点名还账文件是零增长容差，加 UI 前必查**：`check-max-lines.js` 的 `targets` 把指定文件天花板压到登记值本身，多一行都红，与功能正确性正交——本地测试全绿救不了。`Accounts.vue` 被页内导航内联实现顶到 1664（目标 1578）。正解是抽自包含组件（`AccountModuleTabs.vue`，连路由切换都搬进去），1664→1573，而不是上调 target（那是改「谁来守门」）。判据：给文件加内容前先查 `.github/scripts/max-lines-baseline.json` 的 `targets`；被点名文件的增长需求 = 抽组件信号。同族门禁 `check-doc-abs-paths.js` 会把 PRD/openspec 记录里的本机绝对路径判成「新增含绝对路径的文件」，正解写相对描述，且不得用 `--write-baseline` 消红。
+- **pitfall · 视觉基线唯一合法来源是 CI 产物，且 `UPDATE_BASELINE=1` 补不了已存在的基线**：`test-runner.js` 里该开关只在基线**缺失**时创建（实测跑了 `git status` 纹丝不动）。正解：`gh run download` 拿 `quality-gate-visual-reports` artifact，按 `check-baseline-freshness.js` 输出的 `来源=` 列逐张晋升——`来源=views` 取 `<name>.png`（Gate 7b 权威渲染），`来源=pixel-gate` 取 `<name>-current.png`；晋升后同判据复验必须「违规 0 张」，并抽验 1-2 张图确认差异只来自预期变更。
+- **pitfall · 对比度审计在 dark 主题下采样，硬编码品牌色必踩**：`contrast-audit.js` 每视图先 `data-theme='dark'` 再采样，阈值 3:1。`.account-module-tab.active` 写死 `#5048e5` 在暗底 2.69:1 判红。正解 `var(--color-primary, #5048e5)`：本仓浅色 `--color-primary` 恰为 `#5048E5`（渲染逐像素不变），暗色覆盖 `#8b85ff`（5.69:1）。附带收益：基线 churn 只剩 dark 两张，light 一张不用重建。
+- **pitfall · 分片红了一个「我没碰过」的测试，先归因再动手**：`S2vConfigPanels.test.js` 在 shard 2 红，本地单跑也红 ⇒ 建干净 origin/main worktree 复跑**同样红**，且 main 最近 4 次 quality-gate 全 failure ⇒ 是上游 #3946 改组件取值来源（`s2vVoiceContextModel`）漏改测试，main 从那时起一直红，PR rebase 后继承。判据：CI 红在没碰过的文件上，第一反应不是回滚自查，而是先证 main 自身是否红——干净 worktree 十分钟定性。PR 内修复须写明归属（本条非本 PR 引入）；若上游随后也修了，rebase 冲突时我的修复提交冗余，`git rebase --skip` 收场。
+- **pitfall · PR 侧全绿 ≠ 能合：enforce 模式的执行记录门禁只在本地严**：CI `QG Changes` 绿，但 `check-pr-exec-record.js --mode=enforce` 拦下 6 个提交的 CCG deepReview 停在 pending。闭环口径：分档读结构化 `deepReview.tier` 闭集 `external|self-play|none`（**不看 `performedBy` 散文**，只写它落 `unknown`）；双模型后端不可用时按「子代理降级」写 `tier=self-play`（不冒充外部复核）+ `status=self_play_resolved` + findings 写缘由。
+- **pattern · squash merge 的 rc 不可作判据**：`gh pr merge --squash --delete-branch` 报 `fatal: 'main' is already used by worktree at <共享根>`（rc=1）仍合并成功。判据取产物三件套：`state=MERGED`+SHA、`git ls-remote --heads origin <branch>` 0 行、merge 后 `git log` 恰 1 行。删 worktree 前先 `check-branch-merged.js --ref <tip> --merge <SHA>`（先 `git fetch`，否则判据自身故障 rc=2）；回读读数写 **PR 评论**不写回仓库文件（`ban-record-closure-backfill-pr` 拦状态词跃迁）。
+
+## 2026-10-19 · sidebar-toggle-ux：可发现性改造里三个「数据全绿但结论是错的」
+
+- **pitfall · 用估算的对比度做设计会同时犯两类错（夸大与缩小）**：立项时我凭视觉印象写「按钮对比度约 3:1，低于 4.5:1」。实装前用 WCAG 相对亮度公式精算，真实值是亮色 **4.40:1**（只差 0.1，边缘不达标）、暗色 **7.79:1**（**本来就达标**）。⇒ 原诊断把一个"仅亮色微差"的问题说成了"两主题都不合格"，若照此设计会给暗色主题做无意义改动。判据：**任何对比度/尺寸/比例类断言，写进规格前必须先算出数**（`(L1+0.05)/(L2+0.05)`，或写个 20 行脚本），不许用"约""大概"。同一次精算还推翻了另外两条计划：`--color-border` 对 TabBar 背景实测 **1.04:1**（原计划拿它做常态边框 —— 等于没有，而这正是"看不见"的真正技术原因）；`--color-bg-card` 实测 **1.11:1**（无区分度，只能作辅助）。
+- **pitfall · 整图像素门禁对「面积占比极小」的控件是结构性盲区，绿灯不构成「改动可见」的证据**：CI `PIXEL_THRESHOLD=0.06`（整图 6%），而折叠按钮 32×28 仅占 1280×720 的 **0.1%**。实测把按钮从"全透明无边框、次级色图标"改成"白底 + 品牌描边 + 图标色对比度翻 3.6 倍"，像素门禁**亮 20/20 + 暗 20/20 全通过、0 失败**。⇒ 整图基线只回答"有没有造成大面积布局破坏"，**不能回答"这个控件现在显不显眼"**。两个命题混读的后果是：一个"用户根本注意不到"的缺陷可以带着全绿的视觉门禁合入。正解是把 QM-4 证据分两层——整图基线管布局回归，**局部放大截图 + `getComputedStyle` 前后逐项对比**管控件级可见性，后者才是这类 PR 的主证据。附带一条硬边界：`::before` 伪元素与 `color-mix()` 的计算值 **jsdom 都取不到**，单测只能断言"声明存在"，真实值必须用真实浏览器取 —— 别把"单测覆盖了样式"当成"验证了观感"。
+- **pitfall · 由同一条绿灯推出「基线不用更新」是错的 —— 6% 阈值与 0 px 判据管两件不同的事**：接着上一条，我把「像素套 20/20 通过」直接读成「基线零变化、无需重建」。**CI 当场推翻**：红的是 `Gate 7b - Baseline freshness`，它断言「基线 == **同一次 CI 渲染**，0 px」，报 `检查 43 张 / 违规 38 张`。两个判据的度量对象根本不同：`PIXEL_THRESHOLD=0.06` 问"有没有大面积变化"（< 6% ⇒ 过），Gate 7b 问"基线是否还等于当前渲染"（变了 1 个像素 ⇒ 非法）。⇒ **只要改了任何会进入截图的东西，基线就必须重建**，"差异够小所以不用重建"这个推理在本仓不成立。**而且不能用 `update-baseline` 修**：那条走**像素套**渲染，Gate 7b 的 `findRender` 优先取**views 套件**的 `<name>.png`，两套在同一 run 内实测差几百像素（dashboard 350 px / collection 67870 px，确定性非噪声）⇒ 用它更新会让基线**立刻再次脱离** CI 渲染；`test-runner.js:561` 的 `UPDATE_BASELINE` 更只在基线**缺失**时创建、不更新已有基线。**唯一正解**：下载*同一次 CI run* 的渲染产物（artifact `visual-reports`）覆盖基线，让"基线 == CI 渲染"逐像素成立。本轮结果 36 张更新 / 2 张未变 / 5 张无渲染（3 张是 autonomous-loop 专属的 `KNOWN_UNCOVERED`，2 张本次未产图 ⇒ Gate 7b 在 partial 下记 skipped 放行）。**可迁移判据**：看到一条门禁绿灯时，先问"它断言的是哪个命题"，再问"还有别的门禁在断言相邻但不同的命题吗"——本仓同一个 `QG Visual` job 里就有 6 个 step（含 Gate 7b/7c），只看第一个 step 的结论会漏掉后面 5 个。
+- **pitfall · 计算样式全部达标，观感仍可能读错语义**：初版图标把面板做成 5×12 的实心竖条 + 左向箭头，断言全绿、`getComputedStyle` 全对、对比度 15.99:1。但**看截图**发现它读作媒体播放器的 `|◀`（"跳到开头/上一个"），完全不是"侧栏"。加宽到 6.5×11、圆角 1→1.8 之后才读作"面板"。⇒ 「可表意」这个属性**不存在于任何计算样式里**，只能靠人眼看图判断；数据能证明"我实现了规格写的形状"，不能证明"用户会理解这个形状"。所以涉及图形语义的改动，`read_image` 看真图是不可跳过的一步，且看完大概率要回头改几何。
+- **pattern · 测试锚在实现细节上，等于把实现写成契约（于是样式层怎么退都不会红）**：原用例断言 `svg.findAll('path')).toHaveLength(2)` —— 它锁的是"双 chevron"这个具体实现，不是"图标表达双向"这个意图。后果是缺陷从单测层完全逃逸（改颜色、改边框、改尺寸都不红），只有用户肉眼能发现。改法是比**图形签名**（图元标签名 + 关键几何属性拼串）在**两态之间**是否相等：对"调几个像素"不敏感，对"退化成同一图形只换颜色"敏感（那正是要防的退化）。可迁移判据：**断言要锚在"我想防的那个退化形态"上，而不是"我现在写的那三行代码"上**；一旦某条断言改个颜色就失效，它大概率锁错了对象。
+- **pitfall · doc-abs-paths 的坑不止「自己写路径」，「继承别人写的路径」同样会红**：这是同一门禁的**第二种踩法**。上次（sidebar-collapse-followups）是我自己在 CCG 记录里手写本机用户目录下的 `codeagent-wrapper.exe` 全路径；这次是**引擎自己**把 `spawnSync` 的完整错误串（含同样路径）写进 `deepReview.error`，我在收敛 status 时用 `error: prev.error || null` **原样继承**了它 ⇒ CI `check-doc-abs-paths` 判「新增本机绝对路径 1 个文件」，整条 `QG Changes` 红、下游全 skipped。判据升级为：**任何写入受管文件的字段，无论来源是自己写的还是继承的，落盘前都要过一次绝对路径扫描**（本机用户目录、项目根所在的盘符根、系统临时目录三类形态都要扫）；改法照旧是换占位符（如 `<ccg-bin>/...`），**不是** `--write-baseline`。**第三次踩法更反讽**：我在**记录这条教训本身**时又把这些路径的原文形态写了出来，于是 learnings 的计数从基线 38 涨到 40 ⇒ 同一门禁再次红。⇒ 最终判据：**在文档里描述"某类路径"时，连"举例的形态"也必须写成占位符**，因为门禁扫的是字面量、读不懂"这是举例"。定位动作可复用：门禁报「超出基线 N 个文件」但不点名时，本地 `node scripts/check-doc-abs-paths.js --base=origin/main --head=HEAD`（**带 base 的 diff 模式**，与 CI 同款）会逐处列出文件:行号；只跑 `--all` 全量模式可能看不到，因为两者的判定域不同。
+
 ## 2026-10-18 · 夹具落到工作树：命令替换吞 stdout + 「用例 rc」不测「夹具是否成形」（docs-sync-fixture-leak）
 
 - **症状**：某个 worktree 里出现 11 个未跟踪文件，目录名是 `On branch main―Initial commit―nothing to commit (create/copy files and use 'git add' to track)―…`。

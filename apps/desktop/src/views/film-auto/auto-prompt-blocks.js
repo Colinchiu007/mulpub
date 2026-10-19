@@ -9,13 +9,15 @@
  * 单一真源纪律：块标题的权威定义在 `electron/services/film-engineering/shot-library.js` 的
  * `BLOCK_HEADINGS`（后端据此做 copy-blocks 抽取）。渲染端不能 require 主进程 CJS，故此处复刻一份，
  * 并由 `auto-frontend-utils.test.js` 的「后端单一真源对账」用例做**源码文本对账**防漂移。
- * 修改任一侧都必须同跑该用例。
+ * 修改任一侧都必须同跑该用例（2026-10-19 这次就是后端补齐为 7 项而前端未同步，被该用例在 CI 上抓到）。
  */
 export const PROMPT_BLOCK_HEADINGS = Object.freeze([
+  'SCENE CONTEXT',
   'GEO SPATIAL LAYOUT',
   'ACTION TIMING',
   'AUDIO',
   'CHARACTER ACTING',
+  'STYLE',
   'POSITIVE CONSTRAINTS',
 ])
 
@@ -32,8 +34,13 @@ export function checkPromptBlocks (prompt) {
   const present = []
   const missing = []
   for (const heading of PROMPT_BLOCK_HEADINGS) {
-    // 行首（允许前导空白）匹配块标题，避免正文里偶然提到 "AUDIO" 被当成块
-    const re = new RegExp('^\\s*' + heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*$', 'im')
+    // 行首（允许前导空白）匹配块标题，后面允许接括号后缀或结尾冒号 —— 与后端
+    // `shot-library.js` 的 BLOCK_HEADING_RE 同形态，否则真实提示词里带后缀的标题
+    // 会被判成「缺块」（2026-10-19 与后端同步修正）。
+    const re = new RegExp(
+      '^\\s*' + heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b\\s*(?::|—|-|\\(|$)',
+      'im'
+    )
     if (re.test(text)) present.push(heading)
     else missing.push(heading)
   }

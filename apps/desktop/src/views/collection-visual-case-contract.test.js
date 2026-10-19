@@ -42,19 +42,17 @@ describe("视觉用例 collection-confirm-dialog ↔ 页面选择器契约（防
       .toContain('data-testid="collection-tab-drafts"');
   });
 
-  it("② 草稿箱面板 / 列表 / 空态 / 删除按钮的 data-testid 必须存在", () => {
-    const panel = read(path.join(COLLECTION_FEATURE, "CollectionDraftsPanel.vue"));
-    for (const id of [
-      "collection-drafts-panel",
-      "collection-drafts-list",
-      "collection-drafts-empty",
-      "draft-delete",
-    ]) {
-      expect(panel, `缺失 data-testid=${id}，视觉用例会因此静默漂移`).toContain(`data-testid="${id}"`);
-    }
+  // S1c：草稿箱面板已从采集页删除（整页迁到 /publish?tab=drafts），
+  // 故原「面板 testid 必须存在」的断言反转为「面板组件不得复活」。
+  it("② 草稿箱面板组件必须已删除（草稿箱唯一实现为 /publish?tab=drafts）", () => {
+    const panelPath = path.join(COLLECTION_FEATURE, "CollectionDraftsPanel.vue");
+    expect(
+      fs.existsSync(panelPath),
+      "CollectionDraftsPanel.vue 不得复活：草稿箱已收敛为 /publish?tab=drafts 单一实现",
+    ).toBe(false);
   });
 
-  it("③ 用例必须走「先切页签、再用 data-testid 断言」的形态", () => {
+  it("③ 用例不得再点击草稿箱页签（点它会导航离开 /collection）", () => {
     const suite = read(VISUAL_CASE_FILE);
     const at = suite.indexOf("name: 'collection-confirm-dialog'");
     expect(at, "未找到 collection-confirm-dialog 用例").toBeGreaterThan(-1);
@@ -62,13 +60,10 @@ describe("视觉用例 collection-confirm-dialog ↔ 页面选择器契约（防
     const block = suite.slice(at, at + 1400);
     expect(
       block,
-      "缺少 trigger：草稿箱自 #3395 起是独立页签，默认页签是 collect —— 不切页签就断言必然恒红",
-    ).toContain("trigger:");
+      "该用例不得再 trigger 草稿箱页签：S1c 起点击它会 router.push 到 /publish?tab=drafts，截图会偏离 /collection 基线",
+    ).not.toContain("collection-drafts-panel");
+    expect(block).not.toContain("collection-drafts-list");
+    // 仍必须有 data-testid 形态的锚点（不用随文案变的 :has-text）
     expect(block).toContain("collection-tab-drafts");
-    expect(block).toContain("collection-drafts-panel");
-    expect(
-      block,
-      "不得再对默认页签断言「草稿箱」区块标题（这正是 2026-09-10 → 2026-10-12 的漂移形态）",
-    ).not.toContain('.cohere-section-title:has-text("草稿箱")');
   });
 });
