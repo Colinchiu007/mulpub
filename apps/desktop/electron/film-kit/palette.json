@@ -1,0 +1,46 @@
+{
+ "schemaVersion": 1,
+ "description": {
+  "zh": "剧组色盘：跨镜跨集的色彩一致性靠「机械注入同一字符串」实现，不靠每次重新描述。primary 为主色（4 个，锁定不变），extended 为扩展色（上限 2 个，仅用于情绪转折场次）。生成任何图像/视频提示词时，把 paletteLine 逐字粘贴到 STYLE 块，不得改写、缩写或重新排序。",
+  "en": "Production color palette: cross-shot and cross-episode consistency comes from mechanically injecting the same string, not from re-describing it each time. primary holds the four locked colors; extended allows at most two, used only in emotional-turn scenes. When composing any image or video prompt, paste paletteLine verbatim into the STYLE block — never rewrite, abbreviate, or reorder it."
+ },
+ "limits": {
+  "maxPrimary": 4,
+  "maxExtended": 2
+ },
+ "primary": [
+  { "key": "primary_1", "hex": "#0E1A24", "zhName": "夜色近黑", "enName": "Night near-black", "zhRole": "全局暗部基调；阴影与夜的默认色", "enRole": "Global shadow base; the default for night and darkness" },
+  { "key": "primary_2", "hex": "#1F4E5F", "zhName": "冷青", "enName": "Cold teal", "zhRole": "主光与中间调；冷静、疏离、日常", "enRole": "Key light and midtones; calm, detached, everyday" },
+  { "key": "primary_3", "hex": "#C9A227", "zhName": "旧金", "enName": "Antique gold", "zhRole": "高光与暖点；记忆、希望、旧物", "enRole": "Highlights and warm accents; memory, hope, aged objects" },
+  { "key": "primary_4", "hex": "#8C3A2E", "zhName": "暗砖红", "enName": "Dark brick red", "zhRole": "危险与血的低饱和替代；冲突、伤害、警示", "enRole": "A desaturated stand-in for danger and blood; conflict, injury, warning" }
+ ],
+ "extended": [
+  { "key": "extended_1", "hex": "#4A5D4E", "zhName": "灰绿", "enName": "Grey green", "zhRole": "仅用于「扭曲/腐败」主题场次", "enRole": "Used only for distorted or decay-themed scenes" },
+  { "key": "extended_2", "hex": "#D9D2C5", "zhName": "骨白", "enName": "Bone white", "zhRole": "仅用于「回忆/梦境」主题场次", "enRole": "Used only for memory or dream-themed scenes" }
+ ],
+ "paletteLine": {
+  "zh": "色盘：夜色近黑 #0E1A24 / 冷青 #1F4E5F / 旧金 #C9A227 / 暗砖红 #8C3A2E。所有画面统一使用这四色为基调，禁止出现这四色之外的主体颜色；色温整体偏冷，高光只用旧金，不要暖白。",
+  "en": "Palette: night near-black #0E1A24 / cold teal #1F4E5F / antique gold #C9A227 / dark brick red #8C3A2E. Every frame is built from these four; no subject color outside them; overall color temperature cool, highlights only antique gold, never warm white."
+ },
+ "emotionColorMap": [
+  { "emotion": "calm", "zhEmotion": "平静", "zhColor": "冷青为主，暗部占 60% 以上", "enColor": "teal-dominant with shadows over 60%" },
+  { "emotion": "tension", "zhEmotion": "紧张", "zhColor": "暗砖红进入画面，冷青与红形成对撞", "enColor": "brick red enters the frame, clashing against the teal" },
+  { "emotion": "grief", "zhEmotion": "悲伤", "zhColor": "整体降饱和，旧金收至最小面积，大面积冷青与近黑", "enColor": "desaturate overall, shrink gold to a minimum, large areas of teal and near-black" },
+  { "emotion": "hope", "zhEmotion": "希望", "zhColor": "旧金面积上升为主高光，暗部仍保留冷青", "enColor": "gold grows into the main highlight while shadows keep the teal" },
+  { "emotion": "dread", "zhEmotion": "恐惧", "zhColor": "近黑扩展到 75%，冷青压成边缘轮廓光", "enColor": "near-black expands to 75%, teal compressed into rim light" }
+ ],
+ "drift": {
+  "zh": [
+   "1. 声明：本文件的 primary 是全片唯一色彩事实源；",
+   "2. 复用：每次生成提示词都粘贴 paletteLine 原文，不得由模型或人重写；",
+   "3. 扩展：extended 只允许在情绪转折场次使用，且一个场次最多引入一个；",
+   "4. 校验：每集出片后抽查 3 个镜头的主色占比，偏离本表即判定漂移，回到第 1 步重新对齐。"
+  ],
+  "en": [
+   "1. Declare: the primary colors in this file are the film's single source of color truth;",
+   "2. Reuse: paste paletteLine verbatim into every prompt — never let a model or a human rewrite it;",
+   "3. Extend: extended colors are allowed only in emotional-turn scenes, at most one per scene;",
+   "4. Verify: after each episode, sample three shots and check primary color share; drift means returning to step 1 to realign."
+  ]
+ }
+}
