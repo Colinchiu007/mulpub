@@ -1,0 +1,152 @@
+{
+  "sha": "2e6986fdb4dacdbaa3e527836c788f7479c76131",
+  "layer": "plan",
+  "mode": "single",
+  "reason": "变更 54 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 54,
+    "fileCount": 1,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "plannedFiles": [
+    "text.slice",
+    "subtitle-rules.json",
+    "gen_subtitle_python_golden.py"
+  ],
+  "decidedAt": "2026-10-19T03:00:12.244Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "layer": "decision",
+    "status": "cleared",
+    "performedBy": "claude",
+    "objectType": "plan",
+    "minScore": 4,
+    "dimensionScores": {
+      "completeness": 5,
+      "consistency": 4,
+      "clarity": 6,
+      "feasibility": 6,
+      "security": 10
+    },
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "dimension": "feasibility",
+        "finding": "right_bind 以单字引导集宽触发：`等了│3年`、`就是│3天`、`还是│5个` 的切点不拆数字单位（数字单位同留右块），却被拒为坏点，违反准入前提「守卫只拒确定性坏点，否则重找漂移」；漂移落点还可能落入 left_bind 空白盲区（`等了3 │年`），产出比原切更坏。误伤面无语料量化，零误伤预检只做了飘地。",
+        "suggestion": "right_bind 触发改为引导字须紧贴数字且属实词（约/了/足等）而非任意「是」，并对既有语料抽检被拒切点误伤率后再定阈值。"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "dimension": "consistency",
+        "finding": "right_bind 两处规范冲突：§2.1 向左「跳过空白与标点取非空白字」，§3 用「left 中距 i 最近的字符」。`大约，│55%`、`约 │55%` 两读法结论相反（c=约 拒 vs c=逗号/空格不拒），TS/Python 同构无从谈起。",
+        "suggestion": "统一为单一算法并明确 c 的选取步骤（跳空白还是跳标点），用 `大约，│55%` 与 `约 │55%` 作为边界用例锁进两端单元测试。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "dimension": "completeness",
+        "finding": "left_bind 不处理空白：`8│ 米`、`8 │米`、`等了3 │年` 数字串左尾为空格 ∉ 数字字符集 ⇒ 漏判，数字-单位切照样放行；right_bind 却明确跳空白，规范左右不对称，「任何 8│米 都是坏切」对带空白形式不成立。",
+        "suggestion": "left_bind 先剥离数字串右侧空白再判尾（与 right_bind 对称），并补 `8 │米`、`30 │帧` 两条压测向量。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "dimension": "completeness",
+        "finding": "left_bind_max_digits=4 与「封闭集合、无例外」矛盾：`12345│元`、`20240918│日`、中文数词 `一百五十二│元`（5字）均不触发，同样是坏切。上限动机未说明，且按字符数对阿拉伯/中文数词双重计限。",
+        "suggestion": "删除上限或改为数字串长度≥1 即触发；若上限为防误伤，须列出具体反例与语料依据，否则两端实现必然各写各的。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "dimension": "consistency",
+        "finding": "变异反证断言错误：删 unit_guard 只红 3 条（8│米、3.2│亿元、提升了│60%），`当│成`/`仿佛那│段` 属 no_cut，`轻飘飘│地用` 属既有 phrase_boundary，与「6 条新向量红」不符；且 §4.1 称该处已有 phrase_boundary 在管、不登记，此向量当前实现可能已绿，红灯构造不出来。",
+        "suggestion": "红灯向量按机制分组标注归属；轻飘飘│地用 改为恒绿回归向量放验收层，变异测试断言按组拆分。"
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "dimension": "completeness",
+        "finding": "验证只证明「规则命中」，未证明不制造新坏切：三端对跑仅 8 段压力文案，right_bind 宽触发导致的误伤→重找→更差切无法被该探针暴露，无法支撑变更准入「守卫只拒确定性坏点」。",
+        "suggestion": "增加全部既有黄金向量全量回归（产出 diff 必须为空），并统计语料中 right_bind 触发切点、人工抽检误伤率作为准入门槛。"
+      },
+      {
+        "id": "i7",
+        "severity": "Info",
+        "dimension": "completeness",
+        "finding": "方案宣称中文数词与阿拉伯数字同形同责，但只对 left_bind 成立：right_bind 要求右以 ASCII 数字开头、units 无中文数词，`大约│五十五`、`五│十五`、`二十│五` 全漏网——纯中文数词内部切割无任何规则覆盖。",
+        "suggestion": "把中文数词并入 right_bind 数字字符集，并评估纯中文数词内切（五│十五）是否需补数词尾字单位规则（十/百/万等）。"
+      },
+      {
+        "id": "i8",
+        "severity": "Info",
+        "dimension": "clarity",
+        "finding": "min_head_relax=2 仅写明应用于 right_bind 拒绝后；left_bind、no_cut、短语边界拒绝后的邻居重找是否同样放宽、与 v1.3「短语边界放宽」是否同一参数，均未定义，TS/Python 无从同构。",
+        "suggestion": "明确 min_head_relax 的适用范围（仅 right_bind 还是所有守卫拒绝后）与参数来源，两端各补一条放宽边界用例对齐。"
+      }
+    ],
+    "unresolvedBySeverity": {
+      "Critical": 0,
+      "High": 0,
+      "Warning": 6,
+      "Info": 2
+    },
+    "scoreThreshold": 8,
+    "rounds": [
+      {
+        "round": 1,
+        "issues": 8,
+        "critical": 0,
+        "minScore": 4,
+        "dimensionScores": {
+          "completeness": 5,
+          "consistency": 4,
+          "clarity": 6,
+          "feasibility": 6,
+          "security": 10
+        }
+      }
+    ],
+    "roundsRun": 1,
+    "roundsMax": 3,
+    "stoppedBy": "converged",
+    "note": "第 1 轮：无 Critical、无未解决的 High 级问题，方案可执行（最低维度分 4，仅作参考，不作放行判据）",
+    "artifacts": ".adversarial\\ccg-plan-design-review-core-claude",
+    "at": "2026-10-19T03:38:50.580Z"
+  }
+}
