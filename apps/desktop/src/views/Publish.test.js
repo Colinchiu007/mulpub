@@ -10,6 +10,10 @@ import i18n from "@/i18n";
 
 const routes = [
   { path: "/", name: "home", component: { template: "<div>home</div>" } },
+  // editDraft/onOpenDraftsPage 等视图内导航以 /publish 为目标：无此桩路由时
+  // router.replace 被拒（"No match found"），query 不变 ⇒ 依赖 query 变化的
+  // 装载路径（继续编辑草稿）静默失效（实测该用例因此自 routes 精简后一直红）。
+  { path: "/publish", name: "publish", component: { template: "<div>publish</div>" } },
 ];
 const router = createRouter({ history: createWebHistory(), routes });
 
