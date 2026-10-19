@@ -183,6 +183,35 @@ jobs:
           node --test scripts/check-pr-exec-record.audit.test.js
           node scripts/check-pr-exec-record.js --base="${EXEC_BASE:-}" --head-branch="${EXEC_HEAD_REF:-}" --head="${EXEC_HEAD_SHA:-HEAD}" --mode=advisory
 
+      # --- Gate 2c7：债务基线「被调大」的机械锁（branch: debt-baseline-increase-lock）---
+      # 动因：debt-baseline.json 的 --update 是"重算即接受"，而"为了让自己的 PR 不红而把数改大"
+      # 历史上没有任何东西在看（#4012 的记录把它登记成待办第 2 条，并点名可抄的先例是
+      # check-doc-abs-paths.js 的 judgeLedgerDrift）。本锁不禁调大 —— 主干上他人已合并的增长
+      # 确实需要如实记账，禁掉只会逼出 --no-verify 或拆单；它要求四条同时成立：
+      #   点名被调大的键 / 写明「接受漂移」 / 点名被推迟的真实清理 / 上限必须等于当场实测。
+      # 最后一条才是牙：前三条是纸面痕迹，一句话就写得出来；"等于实测"把"多留 500 行以防以后红"
+      # 这条路堵死（留余量不是保守，是把未来的增长提前免检）。
+      # 落点必须在 changes 作业：docs-only PR 会把 static-gates 整个短路，而"顺手把账本改宽"
+      # 最可能就出现在这类 PR 上（与 Gate 2c2/2c5/2c6 同一先例）。
+      # base/head 一律复用 classify 的产出，不自算第二套取源 —— 两份取源一旦漂移，就会出现
+      # "同一 PR 在 A 判 docs-only、在 B 判缺记录"这种不可归因的红。
+      # 本作业无 Install deps ⇒ 判据与测试只 require node 内置 + 仓内模块。
+      - name: "Gate 2c7 - Debt-baseline widening lock (changes job)"
+        shell: bash
+        env:
+          DEBT_BASE: ${{ steps.classify.outputs.pr-base }}
+          DEBT_HEAD_SHA: ${{ steps.classify.outputs.pr-head }}
+          DEBT_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          node --test scripts/check-debt-baseline-change.test.js
+          # "base 为空而 head 有值"只能意味着取源被破坏；此时 --base 退回 origin/main 会把期间
+          # main 的他人提交算进本 PR，而错的方向是假通过（别人的基线改动被当成我的）。
+          if [ -z "${DEBT_BASE:-}" ] && [ -n "${DEBT_HEAD_SHA:-}" ]; then
+            echo "::error::classify 未产出 pr-base 却产出了 pr-head（取源步骤异常？）；不得静默跳过本锁"
+            exit 1
+          fi
+          node scripts/check-debt-baseline-change.js --base="${DEBT_BASE:-}" --head="${DEBT_HEAD_SHA:-HEAD}" --head-branch="${DEBT_HEAD_REF:-}" --repo="$PWD"
+
       # --- Gate 2c5：CCG 门禁「存量命中过滤」的判据回归锁 ---
       # 动因（2026-10-16，第十轮 CCG 外部评审遗留项）：这段决定「本次提交是否被安全门禁拦下」
       # 的策略原先内联在 `scripts/ccg-gate.js` 里，而该文件末尾是顶层 `process.exit(main())`
