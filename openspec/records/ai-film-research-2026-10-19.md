@@ -70,3 +70,7 @@ date: 2026-10-19
 ### 第五层新视角（v6，follow-up）
 
 新增 §3.23 三视角：①成本经济学（waoowaoo 19 条 BA 不变量——BA-01 双轨事故直接命中 publish-capabilities 双版本形态；BA-08 attempt 与收费分离回答 F12 遗留；moyin SEEDANCE_LIMITS 常量结构；showvi 即梦逆向 API 能力矩阵）②失败哲学（FG-01~05 证据保全派 vs fail-soft/fail-closed/静默吞掉四形态；FG-03 为 F19 提供规范依据）③prompt 演化（waoowaoo canary 基线在开源仓无消费代码——执行器在闭源 EE；mulpub 建议最小 canary：每条 rule 的本地渲染断言，无需调 LLM 零成本；失败模式台账+canary 成闭环）。报告 2091 → 2189 行。
+
+### 第六层新视角（v7，follow-up）
+
+新增 §3.24 三视角：①Seedance/ARK 四实现协议对照（waoowaoo 最完整：externalId 结构化/videoUrl 双形态兼容/actualVideoTokens 实际消耗分离/错误码独立建模——mulpub video-gen.js 的或链兜底未必覆盖响应体形态兼容）②接新模型工程化对照（ZJT 把接模型做成 add-video-driver Skill 四步流程+三层映射；建议 mulpub 落《新增视频模型接入 SOP》）③prompt 资产量盘点（waoowaoo 33 / smy 17 / FireRed 14 / mulpub 仅 1 个文件——F30/F1 的量化依据）。报告 2188 → 2258 行。
