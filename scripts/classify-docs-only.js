@@ -39,7 +39,6 @@ const CI_IGNORED_PATHS = [
   '.editorconfig',
   '.ccg/**',
   '.claude/**',
-  '.hermes/**',
   '.agents/**',
   // 质量节拍 vendored 制品树（165 个文件：98 个 .md + 上游技能脚本副本）。
   // 进名单的前提锁已成立：唯一消费其内容的门禁（契约镜像漂移锁）住在不被 docs-only

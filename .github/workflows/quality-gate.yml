@@ -12,7 +12,6 @@ on:
       - '.editorconfig'
       - '.ccg/**'
       - '.claude/**'
-      - '.hermes/**'
       - '.agents/**'
       - '.quality-rhythm/**'
       - 'openspec/**'

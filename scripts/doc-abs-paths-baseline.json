@@ -131,7 +131,6 @@
     ".github/scripts/check-ps1-bom.test.js": 1,
     ".github/scripts/check-workflow-structure.test.js": 7,
     ".github/workflows/quality-gate.yml": 1,
-    ".hermes/plans/2026-09-23-member-center-p1-server.md": 22,
     "01-docs/ACCOUNT-LOGIN-WINDOW-FIX-OVERVIEW.md": 1,
     "01-docs/ANALYSIS-VIDEO-TO-IMAGE-PROMPT-ENGINE-2026-08-14.md": 1,
     "01-docs/ARCH-FILM-ENGINEERING-2026-08-14.md": 1,
