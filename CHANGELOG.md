@@ -42,22 +42,6 @@
 - **回归测试**（TDD，RED 先行：未改实现时根因用例 `bar.exists()` 为 false）：新增 3 例锁契约——四完成阶段 `aria-valuenow` 全 100 且集合大小 1（等长）、optimize 缺 percent 补齐 100、running 保持 37% 不被抬到 100。
 - **验证**：`video-creation/` 142 例 / `CreateView.test.js` 300 例 / `story2video-stages.test.js` 154 例全绿；eslint 两文件 rc=0；debt-budget / brand-residue / locale-sync 全 PASS；QM-4 视觉回归 19/20，唯一失败 `collection` 1.44% 经 **stash A/B 对照**确认与本次无关（两次运行差异图 SHA-256 完全相同）。
 - **影响面**：复用 `StageProgress.vue` 的三处入口（CreateView / HotTopics 一键生成视频弹窗 / FilmAutoPanel）共用同一方法，一并获得对齐修复。纯渲染层变更，不触碰主进程阶段执行、IPC 契约与 `optimize_progress` 数据语义，无新增用户可见文案。
-# [未发布] feat(member): 会员档位机制落地 —— limits 透传/档位序保护/到期宽限/三条权益轴/价格结构 A（member-tier-contract）
-
-- **修什么（四个结构性缺口，逐条带代码取证）**：① `limits`（平台数/日发/并发）从未进入签名快照，客户端 `normalizeEntitlement()` 又整段丢弃 ⇒ 「5 平台/50 篇日发」在客户端连内存态都进不去，是空头承诺；② standard 与 pro 的 `features` **逐字节相同**（只由 video/schedule/dashboard 派生）⇒ 升级无感知；③ `UPSERT_SUBSCRIPTION` 无条件 `plan = EXCLUDED.plan` ⇒ pro 用户兑一张 standard 码会把剩余 pro 期**整体降级**，而「兑换新码可续叠」正是到期通知文案引导的用户动作；④ `settleExpiry` 一次性写 free 快照 ⇒ 到期即失去数据看板与收尾窗口（`dashboard_full` 当场消失，无任何缓冲）。
-- **契约扩展（`plan-matrix.js`，`PLAN_MATRIX_VERSION = '2026-10-20'`）**：新增 `rank`（0/1/2，**不可被 overrides 覆盖**——档位序可配会让降级保护静默失效）、`maxDevices`（2/3/-1）、`maxCloudAccounts`（0/20/-1，**0 是「本档不提供」不是「不限」**）、`batchSizePerRun`（1/10/-1）、`modelTier`（0/1/2，-1 被拒）；`limits` 下发 `max_devices` / `max_cloud_accounts` / `batch_size_per_run` / `model_tier` / `plan_rank`。导出 `PLAN_RANK` / `planRank()`（未知档位返回 -1 = 「无法比较」）。
-- **三条新权益轴（features 派生，消除两档相同）**：`cloud_account_sync`（`maxCloudAccounts !== 0`）、`batch_publish`（`batchSizePerRun !== 1`）、`tier_access_standard` / `tier_access_pro`（`modelTier >= 1 / >= 2`，features 是单调包含判定，pro 同时含 standard 级）。
-- **价格结构 A（v2.1 C2.3）**：pro ¥79 → **¥119 / ¥999**（相邻档 2.02×，对齐 Notion/Slack/Linear 等二→三档中位 ≈2.0×；改造前 1.34× 正是两档 features 相同的经济根源）；年付折扣 30.0% 与标准版 29.5% 对齐；积分配额不动（30/1600/2200），专业版成本占比由 27.8% 降至 18.5%（涨价部分是功能价）。**零存量窗口**：真实支付未接通，无退差价问题。
-- **视频配额 500 → 300**（v2.1 C4.3）：3× 于画像 p75（100 条/月），收敛过松的公开承诺。
-- **跨档续叠档位序保护（`applySubscription`）**：新增 `entitlementPayloadFor(plan)` 回调，快照按**生效档位**现算；低档码只延长 `period_end` 不改 `plan`；**订单记录请求档位、订阅与快照记录生效档位**（分列才能解释「订单是 standard 而权益还是 pro」）；返回 `plan` / `requestedPlan` / `downgradeSuppressed`；兑换/开通/幂等重放三条返回体键集合保持一致（F3 契约）。
-- **到期宽限（`settleExpiry`，7 天）**：写 free 快照 + `graceUntil` + `previousPlan`，**只保留只读看板** `dashboard_full`，**不保留** `schedule_batch`（新建批量/定时入口）/ `video_create` / `tier_access_*`；配额仍按免费档；通知文案说清收尾期。与客户端 72h 离线宽限是两件事（后者管断网，前者管到期收尾），不得合并成一个值。
-- **CCG 深度双模型审查（两轮，claude critic × opencode proposer）修正 7 处**：① 档位序此前有两份真源（`BASE_MATRIX[*].rank` 字面量与 `PLAN_RANK` 常量），改为引用并加三处派生同值断言；② 宽限期原保留 `schedule_batch`，而该 feature 全仓**无消费点**（在途队列执行只校验 `cloud_publish`），保留它没有收尾收益、只把付费入口留给到期用户 ⇒ 移出宽限集；③ 幂等重放视图 `plan` 口径固化并补两条回归；④ **宽限改以 `current_period_end` 起算**（原按首次 `/me` 结算时刻，晚回 6 天的用户会实得 13 天）；⑤ **`graceUntil` 增加读取端过期投影**（`PostgresEntitlementProvider` 出口剔除已过期/不可解析的宽限字段，避免 N4 横幅长期误报）；⑥ 重放压制补 `rank>=0` 守卫，与仓储首次核销 fail-open 对齐；⑦ `canAddPlatform` 对 `selectedCount` 非有限数改为放行（原 `NaN < 5` 恒 false，等于静默一律拦截）。另按审查意见把「平台数服务端强制」「日发口径」写入 PRD N7/N8，并把 CHANGELOG 的「G1 根治」改为「下发链路打通」。
-- **客户端可校验（G1 下发链路打通；服务端强制未接，见 PRD N7）**：签名快照与 `/api/v1/me` 均下发 `limits` / `graceUntil` / `previousPlan`；主进程 `normalizeEntitlement()` 与渲染层 `normalizeState` 深拷贝透传（非法形状丢弃）；新增纯函数 `features/member/plan-limits.js`（三条纪律：只读不改、**缺失即放行**、-1 是不限；`Number('') === 0` 会把缺失读成零额度——那是反方向的静默故障，已单测锁死）。**平台数只有客户端软拦、可绕过**；文件头已标注哪些导出尚未接线。
-- **发布页平台数拦截**：`usePlatformSelection` 增加可选 `getEntitlement`（不传 = 不做限制，既有调用方零改动）；超限返回 `false` 并由 `Publish.vue` 播报「当前档位最多选择 {limit} 个平台，升级后可继续添加」；取消选择永远允许（上限不锁死退出路径）；**按组添加同受约束**（否则一条「应用分组」就能绕过单点上限）。文案 zh/en 成对。
-- **测试**：`plan-matrix` 19 例（含价格/配额/features/limits/rank/overrides fail-closed）；仓储续叠两例（低档压制 / 高档升级）；服务端到期宽限与幂等键集合；主进程 `limits` 透传与深拷贝；渲染层透传/丢弃；`plan-limits` 8 例；`usePlatformSelection` 5 例；`Publish.test.js` 110 例回归全绿；`api-publish-engine npm test` rc=0。QM-1 打包证据见执行记录。
-- **明确不做（防扩权）**：设备数服务端强制、云账号配额扣减、生命周期触点、到期横幅 UI、proration——均已在 PRD §12 归口。
-- **兼容性**：旧快照无 `limits` ⇒ 客户端按「不限」放行（不阻断、不清缓存）；`rank` 不进 `NUMERIC_KEYS`，运营覆盖尝试直接 fail closed；存量 active 订阅不受影响（档位序保护只在续叠/开通时判定）。
-- **行为变更需运营知悉**：低档兑换码不再能缩短高档用户的有效期（只顺延时长）。
 
 ## 问题
 - 2026-10-19 真实事故：MiniMax 订阅套餐账号克隆音色被服务端拒绝（`model_provider_logs` id=10030：`your current token plan not support model, voice_clone`，latency 1125ms——请求真实到达、鉴权通过、参数合规）。adapter 把它误判为额度类（`token\s*plan` 被 isQuota 吃掉），service 折叠成 `VOICE_CLONE_PROVIDER_UNAVAILABLE`，用户看到「音色克隆服务暂时不可用，请稍后重试」——重试永不成功，误导用户反复尝试。

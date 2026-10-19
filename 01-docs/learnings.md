@@ -70,42 +70,6 @@ expect(cls('draft')).toContain('is-primary')   // ← 只验证 class 名挂上�
 规范层超 500 行硬限后按门禁处方拆成两个文件，用 PowerShell 按行号切分时丢了 `part1` 尾部
 三条规则（`col-btn-clear`/`col-btn-retry`/`col-btn-retry-sm`）。**契约测试立刻红**——
 没有它，这次丢失会静默进入生产。**拆文件是「判据必须复核」的典型场景。**
-## 权益字段「已下发」要两处都命中；续期写死新档位=高价用户兑低价码就掉档（member-tier-contract，2026-10-20）
-
-### lesson: entitlement-field-must-cross-snapshot-and-normalizer
-
-**现场**：会员档位文档承诺「免费档 5 平台 / 标准版 50 篇日发」，`plan-matrix.js` 也算了 `limits`。
-但签名快照 `_buildEntitlementSnapshot()` 只放 `plan/features/quota`，客户端
-`normalizeEntitlement()` 又只挑这三项——两个数字从服务端一路被丢到客户端之外，发布页连
-「当前上限是多少」都读不到。**不是没实现校验，是数据从没送到。**
-
-**判据**：任何要驱动 UI 行为的权益字段，「已下发」= ①出现在**签名快照** payload；
-②出现在客户端归一化的**显式白名单**。只满足①会被归一化静默丢；只满足②离线态没有。
-自检：在两处各 grep 一次字段名。
-
-**客户端消费的反向纪律**：限制值缺失/非法一律按「不限」放行，并显式排除空串
-（`Number('') === 0` 会把缺失读成零额度，正好是「缺失即拦截」的静默故障）。
-
-### lesson: rank-guard-renewal-writes-inside-transaction
-
-**现场**：`applySubscription` 的 UPSERT 是 `plan = EXCLUDED.plan`。三档订阅下，pro 用户
-（还剩 11 个月）兑一张 standard 码，订阅档位被覆盖、剩余 pro 期整体蒸发；而「兑换新码可续叠」
-正是到期通知文案引导的动作，日志里订单成功、时长变长、零报错。
-
-**修法**：档位序保护（低档码只延时长不改档位）必须在**写事务内**判定（事务外预读有竞态），
-且三个写面分开记录——`identity_orders.plan` 记**请求档位**（资金凭证），
-`identity_subscriptions.plan` 与权益快照记**生效档位**；快照用
-`entitlementPayloadFor(effectivePlan)` 现算，不能沿用请求档位的 payload。
-
-**同批第二条**：到期降级别做成悬崖。服务端 7 天到期宽限（**只读看板**，配额按 free）
-与客户端 72h 离线宽限（管断网）是两件事，语义不同的两个值不得合并。
-宽限集里**不要放 `schedule_batch`**：它是「新建批量/定时入口」这个付费面，而在途队列的执行
-只校验 `cloud_publish`（免费档自带）——保留它没有收尾收益，只扩大权益面（CCG 深度审查 i4）。
-
-**可复用的三条**：
-1. 契约字段「已下发」= 签名快照 + 客户端白名单，两处都要 grep。
-2. 任何续期/叠加写操作，先问「会不会让更高等级被更低等级覆盖」；要在事务内判、快照与订阅同源。
-3. 产品里出现第二个「宽限/grace」时，先写两列对照表（管什么、由谁判），再决定能不能合值。
 
 ## 扩展名是「用户说的」，魔数是「文件说的」——克隆样本校验必须信后者（s2v-clone-sample-sniff，2026-10-19）
 

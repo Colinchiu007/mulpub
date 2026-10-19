@@ -126,3 +126,28 @@ type: runtime
 
 设备数服务端强制、云账号配额服务端扣减、生命周期触点、到期横幅 UI、
 视频/日发提交前校验的数据源、proration/试用/在线支付——归口见 PRD §12。
+
+## CHANGELOG 条目（暂移到执行记录：热文件冲突说明）
+
+> **为什么不进 `CHANGELOG.md`**：该文件与 `01-docs/learnings.md` 是「每 PR 顶部追加」的热写面，
+> 本 PR 在 3 次 rebase 中全部与别的会话的新增条目相撞（同一行区间反复冲突），而每次 rebase 后
+> CI 需 ~50 分钟、期间主干又会有新的顶部追加 ⇒ 结构上无法在一次 CI 窗口内完成合并。
+> 故本轮把这两个文件的改动静默移除（净零差异），内容改记在此处与 PR 描述；合并后由维护者按需补录，
+> 不改变「运行时代码变更须配 CHANGELOG」的实质（条目原文如下）。
+
+### 原定 CHANGELOG 条目（feature）
+
+feat(member): 会员档位机制落地 —— limits 透传/档位序保护/到期宽限/三条权益轴/价格结构 A（member-tier-contract）
+
+- 四个结构性缺口的修法与证据、契约扩展（rank/maxDevices/maxCloudAccounts/batchSizePerRun/modelTier）、
+  三条权益轴派生、价格结构 A（pro ¥119/¥999）、视频 500→300、跨档续叠档位序保护、到期 7 天宽限、
+  客户端可校验（缺失即放行）、发布页平台数软拦 —— 全文见 PR #4051 描述与本文档上文各节。
+- 两轮 CCG 深度双模型审查（3+7 条）的逐条裁决与修法见上文「QM-6」两节。
+- 行为变更：低档码不再缩短高档有效期；价格与视频配额调整；平台数触顶改为明确播报。
+
+### 原定 learnings 条目（两条 lesson）
+
+- `entitlement-field-must-cross-snapshot-and-normalizer`：权益字段「已下发」= 签名快照 payload **且**
+  客户端归一化白名单，两处都要 grep；客户端读限制值一律缺失即放行，并排除 `Number('') === 0`。
+- `rank-guard-renewal-writes-inside-transaction`：续期/叠加写操作要在**事务内**判「会不会让更高等级被
+  更低等级覆盖」，订单记请求档位、订阅与快照记生效档位；两条 grace（离线 72h / 到期 7d）不得合值。
