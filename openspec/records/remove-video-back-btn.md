@@ -51,7 +51,7 @@ branch: remove-video-back-btn
 | TDD | PASS | RED(2) → GREEN(415)；样式 43 例全绿 |
 | eslint | PASS | 5 个改动文件 rc=0 |
 | i18n | PASS | `--keys` 2123 个使用中 key 全存在；`--pair-base origin/main` PASS；`--cjk` 基线 1331 / 当前 1163 无新增 |
-| QM-4 视觉回归 | PASS（限定刷新） | `create-story2video-detail` light 1.10% / dark 1.13%、`create-result` light 0.31%——差异图逐张核对确认为按钮删除+内容上移；四张基线 PIXEL_ONLY 限定刷新（浅/暗各 2/2 通过）。**`collection` 1.44% 失败经 `git log` 取证为他人 PR #3951（同日 10:53 合入）造成的既有漂移，基线停在 PR #3916（前一日 17:29），不在本刀范围、未代刷** |
+| QM-4 视觉回归 | PASS（CI 同源重建） | **流程纠偏如实留痕**：首轮本机 `PIXEL_ONLY + UPDATE_BASELINE` 重捕 4 张基线违反 QM-4 第 7 条，CI Gate 7b 两轮点名 `create-result` 亮/暗确定性漂移（亮 150 px / 暗 8292 px）。正解照 #3916/#3951 先例从 CI artifact 同源渲染重建两张（重建后 vs CI 双轮渲染均 **0 px**）；`create-story2video-detail` 亮/暗实测与 CI 渲染逐像素相等（0 px）保留。**误判修正**：`collection` 本机 1.44% 不是「他人 PR 既有漂移」——CI 上它两轮干净，差异是本机渲染环境 vs CI 渲染的系统性差，正是 Gate 7b 存在的理由 |
 | QM-1 打包 | PASS（超出 N/A 基线补做） | 只改 renderer 未触 `electron/`（按门禁本可 N/A），仍跑了 `pnpm run build` rc=0 + asar 产物零残留验证 |
 | QM-2 代码必检项 | PASS | 纯删除，无新增同步 CPU 原语 / 全局注册 / IPC / 中文硬编码（删除的中文字面量不入 CI 扫描面） |
 | QM-6 双模型评审 | single 档 | UI 微改（7 文件、净删 22 行、无逻辑新增），未调用外部模型，不得读成"已双模型复核" |
@@ -64,5 +64,5 @@ branch: remove-video-back-btn
 
 ## 5. 已知残留（不假装已闭合）
 
-- `collection` 基线漂移属他人会话（PR #3951 改 `Collection.vue` 未刷基线），本刀不代刷——跨会话写面，代刷会把别人的变更烘进我的 diff。
 - `PromptEvalView` / `HotTopics` 的返回按钮是否同样冗余，由用户后续单独裁决。
+- 教训（对齐 check-baseline-freshness.js 头注释的原始事故）：基线永远只允许从 CI 同源渲染重建。本机渲染与 CI 渲染存在亚像素级系统性差（本机 4 张基线对本机渲染全绿，但与 CI 渲染差 0.007%–0.4%），views 套件 1% 阈值会把这种差吃掉，Gate 7b 的 0 px 判据才能抓住。

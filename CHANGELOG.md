@@ -189,7 +189,7 @@
 - **连带的去重逻辑解除**：`create-view.css` 原有一行「详情态隐藏顶部导航箭头」——其存在理由是「详情页已有 .back-btn 提供返回语义，箭头与之重复」。按钮删除后前提失效，该隐藏规则一并移除，详情态现在可见 ←/→ 浏览箭头；`.back-btn` 三行样式与 reduced-motion 引用清干净（最后一个使用者已消失）。`backToHistory` locale key（zh/en 成对）下线。
 - **返回语义的承接（完整性自查）**：详情态离开途径有三条——顶部 ← 箭头（viewHistory，对已入栈的 film-engineering 路径有效）、三个视图 tab 恒可见（点「历史记录」即经 `switchView` → `detachPipelineView` 清态回历史）、左侧菜单。结果页经浏览器/应用级导航或「去创作」「重新创作」按钮返回。没有留下任何只进不出的死态。
 - **回归锁 2 条**：CreateView 详情态「不渲染 .back-btn + 历史 tab 仍可点离」；ResultView「按钮与 goBackToHistory 均不存在」。先红后绿（改前 2 failed / 改后 415 passed 全绿）。
-- **QM-4 视觉**：`create-story2video-detail`（light 1.10% / dark 1.13%，差异图证实恰为按钮+内容上移）与 `create-result`（light 0.31%）四张基线按 PIXEL_ONLY 限定刷新；`collection` 的 1.44% 失败经 git log 取证为他人 PR #3951（同日 10:53）造成的既有漂移，不在本刀范围、未代刷。QM-1 打包 rc=0，asar 产物逐符号确认 `goToHistory`/`goBackToHistory`/`backToHistory`/`.back-btn` 零残留。
+- **QM-4 视觉（含一次流程纠偏，如实留痕）**：首轮用本机 `PIXEL_ONLY + UPDATE_BASELINE` 重捕了 4 张基线——这违反 QM-4 第 7 条「本机重捕产物不得提交」，CI Gate 7b 两轮点名 `create-result` 亮/暗确定性漂移（亮 150 px / 暗 8292 px）当场抓住。正解照 #3916/#3951 先例：从 CI `quality-gate-visual-reports` artifact 取同源渲染重建这两张（重建后与 CI round1/round2 双轮渲染均 **0 px**）；`create-story2video-detail` 亮/暗两张实测与 CI 渲染逐像素相等（0 px），保留。另一处误判一并修正：`collection` 本机 1.44% 失败不是「他人 PR 的既有漂移」——CI 上它两轮干净，那 1.44% 是**本机渲染环境 vs CI 渲染**的系统性差异，恰是 Gate 7b 存在的理由。QM-1 打包 rc=0，asar 产物逐符号确认 `goToHistory`/`goBackToHistory`/`backToHistory`/`.back-btn` 零残留。
 
 # [未发布] fix(播客): 出期音频对象键随期变化，修掉同频道第二期原地覆盖第一期（podcast-audio-key-per-episode）
 - **用户可见症状**：同一个播客频道连发两期，第二期 PUT 把第一期的音频**原地覆盖**了——两次发布都报成功、日志零异常，而订阅端旧期 `<item>` 的 enclosure 指向的直链现在播的是新期的声音。RSS 里两期都在、音频只有一份。
