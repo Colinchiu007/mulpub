@@ -64,6 +64,17 @@ function mountView () {
   return mount(PublishHistory, { global: { plugins: [i18n] } })
 }
 
+/**
+ * 等过一次筛选防抖（阶段 2.2 / audit-61）。
+ * 本地过滤与补页加载现在共用同一份防抖快照（DEFAULT_DELAY_MS = 300ms），
+ * 所以"改了筛选"与"列表跟着变"之间必然有这一拍延迟 —— 用例必须显式吸收它，
+ * 不得为了少写一行 await 把过滤改回读原始 ref（那正是本批修掉的缺陷）。
+ */
+async function waitFilterDebounce () {
+  await new Promise((resolve) => setTimeout(resolve, 350))
+  await nextTick()
+}
+
 async function flushHistory () {
   await Promise.resolve()
   await nextTick()
@@ -208,9 +219,11 @@ describe('PublishHistory', () => {
     await nextTick()
     await nextTick()
     await wrapper.get('[data-testid="platform-filter"]').setValue('zhihu')
+    await waitFilterDebounce()
     expect(wrapper.findAll('.record-card')).toHaveLength(1)
     await wrapper.get('[data-testid="platform-filter"]').setValue('')
     await wrapper.get('[data-testid="date-filter"]').setValue('today')
+    await waitFilterDebounce()
     expect(wrapper.findAll('.record-card')).toHaveLength(1)
     expect(wrapper.text()).toContain('今天记录')
   })
@@ -402,13 +415,82 @@ describe('PublishHistory', () => {
     await nextTick()
 
     await wrapper.get('[data-testid="history-search"]').setValue('重试')
+    await waitFilterDebounce()
     expect(wrapper.findAll('.record-card')).toHaveLength(1)
     expect(wrapper.text()).toContain('需要重试')
 
     await wrapper.get('[data-testid="history-search"]').setValue('')
     await wrapper.get('[data-testid="status-filter"]').setValue('failed')
+    await waitFilterDebounce()
     expect(wrapper.findAll('.record-card')).toHaveLength(1)
     expect(wrapper.text()).toContain('需要重试')
+  })
+
+  // audit-61：筛选输入走防抖，防的是「每敲一个字符整表重算」。
+  // 两条不变式必须一起锁住，否则这条修复会被下一个人当成「立刻筛不出来了」而回退：
+  // ① 输入框的值立即回显（用户看得到自己敲的字）；② 列表要到防抖窗口之后才收敛。
+  it('筛选输入立即回显，列表在防抖窗口之后才收敛', async () => {
+    historyListMock.mockResolvedValue({
+      code: 0,
+      data: {
+        records: [
+          { id: 'ok', title: '正常发布', platform: 'zhihu', status: 'success' },
+          { id: 'failed', title: '需要重试', platform: 'weibo', status: 'failed' },
+        ],
+      },
+    })
+    const wrapper = mountView()
+    await nextTick()
+    await nextTick()
+
+    const search = wrapper.get('[data-testid="history-search"]')
+    await search.setValue('需要')
+
+    // 输入框自身已拿到新值 —— 回显不经过防抖
+    expect(search.element.value).toBe('需要')
+    // 列表尚未收敛：防抖窗口未过，两条记录都还在
+    expect(wrapper.findAll('.record-card')).toHaveLength(2)
+
+    await waitFilterDebounce()
+    expect(wrapper.findAll('.record-card')).toHaveLength(1)
+    expect(wrapper.text()).toContain('需要重试')
+  })
+
+  // audit-61 的 renderLimit：超过上限只渲染前 N 条，并以 role=status 如实告知被收起的条数。
+  // 「静默少画」比「少画」更糟 —— 用户会以为记录丢了。
+  it('超过渲染上限时只画前 N 条并提示被收起的数量', async () => {
+    const many = Array.from({ length: 250 }, (_, index) => ({
+      id: `r-${index}`,
+      title: `记录 ${index}`,
+      platform: 'zhihu',
+      status: 'success',
+    }))
+    historyListMock.mockResolvedValue({ code: 0, data: { total: many.length, records: many } })
+    const wrapper = mountView()
+    await nextTick()
+    await nextTick()
+
+    expect(wrapper.findAll('.record-card')).toHaveLength(200)
+    const hint = wrapper.get('[data-testid="history-render-limit-hint"]')
+    expect(hint.attributes('role')).toBe('status')
+    expect(hint.text()).toContain('200')
+    expect(hint.text()).toContain('50')
+  })
+
+  it('未超过渲染上限时不显示收起提示', async () => {
+    const few = Array.from({ length: 3 }, (_, index) => ({
+      id: `s-${index}`,
+      title: `记录 ${index}`,
+      platform: 'zhihu',
+      status: 'success',
+    }))
+    historyListMock.mockResolvedValue({ code: 0, data: { total: few.length, records: few } })
+    const wrapper = mountView()
+    await nextTick()
+    await nextTick()
+
+    expect(wrapper.findAll('.record-card')).toHaveLength(3)
+    expect(wrapper.find('[data-testid="history-render-limit-hint"]').exists()).toBe(false)
   })
 
   it('筛选时补取后续页，避免遗漏第 51 条以后的记录', async () => {
@@ -501,6 +583,7 @@ describe('PublishHistory', () => {
     const wrapper = mountView()
     await flushHistory()
     await wrapper.get('[data-testid="history-search"]').setValue('不存在的标题')
+    await waitFilterDebounce()
 
     const filtered = wrapper.get('[data-testid="publish-history-filter-empty"]')
     expect(filtered.classes()).toContain('mp-empty-state--compact')

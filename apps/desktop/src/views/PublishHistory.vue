@@ -210,11 +210,11 @@
       </EmptyState>
       <div v-else class="record-list" :class="{ 'grid-view': viewMode === 'grid' }">
         <article
-          v-for="record in filteredRecords"
+          v-for="record in visibleRecords"
           :key="record.id"
           class="record-card"
-          :class="{ 'is-clickable': isCardClickable(record) }"
-          :title="cardClickHint(record)"
+          :class="{ 'is-clickable': metaFor(record).clickable }"
+          :title="metaFor(record).hint"
           @click="onCardClick($event, record)"
         >
           <label v-if="selectionMode" class="record-selector">
@@ -222,60 +222,60 @@
               v-model="selectedIds"
               type="checkbox"
               :value="record.id"
-              :aria-label="t('historyPage.selectRecordAria', { title: recordTitle(record) })"
+              :aria-label="t('historyPage.selectRecordAria', { title: metaFor(record).title })"
             >
           </label>
           <div class="record-preview">
-            <img v-if="thumbnailUrl(record)" :src="thumbnailUrl(record)" alt="">
-            <img v-else-if="isPlatformIconUrl(platformIcon(record.platform))" :src="platformIcon(record.platform)" class="platform-icon-thumb mp-platform-icon" :alt="platformName(record.platform)" width="20" height="20" aria-hidden="true">
-<span v-else aria-hidden="true">{{ platformIcon(record.platform) }}</span>
-            <small>{{ contentTypeLabel(record) }}</small>
+            <img v-if="metaFor(record).thumb" :src="metaFor(record).thumb" alt="">
+            <img v-else-if="metaFor(record).iconIsUrl" :src="metaFor(record).icon" class="platform-icon-thumb mp-platform-icon" :alt="metaFor(record).platform" width="20" height="20" aria-hidden="true">
+<span v-else aria-hidden="true">{{ metaFor(record).icon }}</span>
+            <small>{{ metaFor(record).contentType }}</small>
           </div>
           <div class="record-main">
             <div class="record-title-row">
-              <h2>{{ recordTitle(record) }}</h2>
+              <h2>{{ metaFor(record).title }}</h2>
               <div class="record-actions">
                 <!-- 「再次发布」：无快照（早期记录/已淘汰）时禁用并悬停说明原因 —— 不隐藏，
                      因为用户需要知道「这里本该有个按钮、为什么用不了」。逻辑见 usePublishRecordActions。 -->
-                <button type="button" class="record-action republish" :class="{ 'is-disabled': !canRepublish(record) }" :data-testid="`republish-${record.id}`" :disabled="!canRepublish(record)" :title="republishHint(record)" @click="republishRecord(record)">{{ t('historyPage.republish') }}</button>
+                <button type="button" class="record-action republish" :class="{ 'is-disabled': !metaFor(record).canRepublish }" :data-testid="`republish-${record.id}`" :disabled="!metaFor(record).canRepublish" :title="metaFor(record).republishTitle" @click="republishRecord(record)">{{ t('historyPage.republish') }}</button>
                 <button type="button" class="record-action" :data-testid="`detail-${record.id}`" @click="openRecord(record)">{{ t('historyPage.detail') }}</button>
-                <button v-if="normalizedStatusGroup(record) === 'failed'" type="button" class="record-action retry" :data-testid="`retry-${record.id}`" @click="retryRecord(record)">{{ t('historyPage.retryRecord') }}</button>
+                <button v-if="metaFor(record).isFailed" type="button" class="record-action retry" :data-testid="`retry-${record.id}`" @click="retryRecord(record)">{{ t('historyPage.retryRecord') }}</button>
               </div>
             </div>
             <div class="record-meta">
-              <span><User />{{ publisherName(record) }}</span>
-              <span><Clock />{{ formatTime(record.timestamp || record.createdAt || record.publishedAt) }}</span>
-              <span>{{ publishModeLabel(record) }}</span>
+              <span><User />{{ metaFor(record).publisher }}</span>
+              <span><Clock />{{ metaFor(record).time }}</span>
+              <span>{{ metaFor(record).publishMode }}</span>
             </div>
             <div class="record-delivery">
-              <span class="status-badge" :class="statusClass(record)">{{ statusLabel(record) }}</span>
+              <span class="status-badge" :class="metaFor(record).statusClass">{{ metaFor(record).status }}</span>
               <!-- P0-1 审核状态：发布成功后平台仍可能拒绝/下线，这里如实显示审核结论；
                    拒绝/下线/转码失败醒目标红（无结论的旧记录不渲染徽标）。 -->
               <span
-                v-if="auditLabel(record)"
+                v-if="metaFor(record).audit"
                 class="status-badge audit-badge"
-                :class="{ 'is-alert': auditAlert(record) }"
+                :class="{ 'is-alert': metaFor(record).auditIsAlert }"
                 :data-testid="`audit-status-${record.id}`"
-                :title="auditHint(record)"
-              >{{ auditLabel(record) }}</span>
-              <span v-if="deliveryModeValue(record)" class="delivery-mode-badge" :class="'delivery-mode-' + deliveryModeValue(record)" :title="deliveryModeHint(record)" :data-testid="`delivery-mode-${record.id}`">{{ deliveryModeLabel(record) }}</span>
-              <span class="platform-name"><img v-if="isPlatformIconUrl(platformIcon(record.platform))" :src="platformIcon(record.platform)" class="platform-icon-thumb mp-platform-icon" :alt="platformName(record.platform)" width="16" height="16" aria-hidden="true"><span v-else aria-hidden="true">{{ platformIcon(record.platform) }}</span>{{ platformName(record.platform) }}</span>
+                :title="metaFor(record).auditTitle"
+              >{{ metaFor(record).audit }}</span>
+              <span v-if="metaFor(record).delivery" class="delivery-mode-badge" :class="'delivery-mode-' + metaFor(record).delivery" :title="metaFor(record).deliveryTitle" :data-testid="`delivery-mode-${record.id}`">{{ metaFor(record).deliveryLabel }}</span>
+              <span class="platform-name"><img v-if="metaFor(record).iconIsUrl" :src="metaFor(record).icon" class="platform-icon-thumb mp-platform-icon" :alt="metaFor(record).platform" width="16" height="16" aria-hidden="true"><span v-else aria-hidden="true">{{ metaFor(record).icon }}</span>{{ metaFor(record).platform }}</span>
               <!-- 同批徽标：一次 N 平台发布落 N 条独立记录，徽标补回「这几条同属一次发布」 -->
               <span v-if="batchBadgeMap.get(record.id)" class="batch-badge" :data-testid="`batch-${record.id}`" :title="batchBadgeMap.get(record.id).tooltip">{{ batchBadgeMap.get(record.id).label }}</span>
             </div>
             <!-- 失败原因：task:failed 落库的 error 字段（publish-progress-ux G8 数据链路的渲染侧收口）。
                  单行截断 + title 悬停全文；无 error 的旧失败记录不渲染该行（详情弹窗有占位）。 -->
             <p
-              v-if="recordErrorText(record)"
+              v-if="metaFor(record).errorText"
               class="record-error"
               :data-testid="`record-error-${record.id}`"
-              :title="recordErrorText(record)"
-            >{{ recordErrorText(record) }}</p>
+              :title="metaFor(record).errorText"
+            >{{ metaFor(record).errorText }}</p>
           </div>
-          <div class="record-stats" :aria-label="t('historyPage.statsAria')" :title="metricHint(record)" :data-testid="`record-stats-${record.id}`">
+          <div class="record-stats" :aria-label="t('historyPage.statsAria')" :title="metaFor(record).metricTitle" :data-testid="`record-stats-${record.id}`">
             <div><span>{{ t('historyPage.metricAccounts') }}</span><strong>{{ metricValue(record.accountCount, 1) }}</strong></div>
             <div><span>{{ t('historyPage.metricTasks') }}</span><strong>{{ metricValue(record.taskCount, 1) }}</strong></div>
-            <div><span>{{ t('historyPage.metricFailed') }}</span><strong class="failure-value">{{ failedCount(record) }}</strong></div>
+            <div><span>{{ t('historyPage.metricFailed') }}</span><strong class="failure-value">{{ metaFor(record).failed }}</strong></div>
             <div><span>{{ t('historyPage.metricViews') }}</span><strong>{{ metricValue(record.views) }}</strong></div>
             <div><span>{{ t('historyPage.metricComments') }}</span><strong>{{ metricValue(record.comments) }}</strong></div>
             <div><span>{{ t('historyPage.metricLikes') }}</span><strong>{{ metricValue(record.likes) }}</strong></div>
@@ -283,6 +283,15 @@
             <div><span>{{ t('historyPage.metricShares') }}</span><strong>{{ metricValue(record.shares) }}</strong></div>
           </div>
         </article>
+        <!-- 阶段 2.2：渲染上限必须**出声**。计数说的是"筛选命中多少条"（真话），
+             这里补一句"本次只渲染了 N 条、还有 M 条没显示"，
+             否则用户会把"列表到此为止"误读成"我的记录只有这些"。 -->
+        <p
+          v-if="hiddenRecordCount > 0"
+          class="render-limit-hint"
+          role="status"
+          data-testid="history-render-limit-hint"
+        >{{ t('historyPage.renderLimitHint', { shown: RENDER_LIMIT, hidden: hiddenRecordCount }) }}</p>
       </div>
       <div v-if="hasMoreRecords && !loading && !errorMessage" class="pagination-footer">
         <button
@@ -443,14 +452,12 @@
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { safeHttpUrl } from '@multi-publish/shared-utils/src/safe-http-url'
-import { normalizeAuditStatus, isAuditAlertStatus, auditStatusLabelKey } from '@multi-publish/shared-utils/src/publish-audit-status'
 import { CirclePlus, Clock, Close, Delete, Download, FolderOpened, Grid, List, Operation, Search, Tickets, User } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import { getAppLocale } from '@/i18n'
 import { useRouter } from 'vue-router'
 import { draftList, historyDelete, historyGet, historyList, retryTask } from '@/api/publisher'
 import { usePublishHistoryMetrics } from '@/composables/usePublishHistoryMetrics'
-import { formatDateTime } from '@/utils/datetime'
 import { PLATFORM_ICONS, PLATFORM_NAMES } from '@multi-publish/shared-utils/src/platform-definitions'
 import { getPlatformIconUrl, isPlatformIconUrl } from '@/composables/usePlatformIconUrl'
 import { useDebouncedWatchSources } from '@/composables/useDebouncedRef'
@@ -465,6 +472,7 @@ import { formatUserError } from '@/utils/user-facing-error'
 import { confirmDanger } from '@/utils/confirm-danger'
 import PublishTypeDialog from '@/features/publish/components/PublishTypeDialog.vue'
 import { usePublishRecordActions } from '@/composables/usePublishRecordActions'
+import { usePublishHistoryRowFormat } from '@/composables/usePublishHistoryRowFormat'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -510,11 +518,34 @@ const publishTypePlatforms = computed(() => Object.entries(PLATFORM_NAMES).map((
   label,
   icon: PLATFORM_ICONS[id] || '•',
 })))
+// M-11：7 个筛选源原先直接 watch，任何一个变化都立刻触发一次「把整张表翻完」的
+// 串行加载 —— 用户每敲一个字符就是一轮上百次的 IPC 往返。
+// 这里改为监听**防抖后的快照**：连续修改多个条件也只触发一次加载。
+// 输入框本身仍绑定原始的 searchQuery（回显不能延迟，否则打字会顿），只有昂贵的
+// 加载动作走防抖值。
+//
+// 阶段 2.2（audit-61）把同一条口径补全：**本地过滤也是昂贵动作**。
+// `filteredRecords` 原先直接读 `searchQuery`，于是每敲一个字符都要把已加载的
+// 全部记录重跑一遍全文匹配（拼接 title/description/content/taskId 再 lowercase），
+// 防抖只挡住了服务端、没挡住渲染端 —— 这正是"输入框顿、列表转圈"的来源。
+// 现在过滤读的是防抖快照；原始 ref 只服务输入框回显。
+// ⚠️ 快照下标顺序 = 下面源数组顺序，两处必须同步改（由结构锁钉住）。
+const FILTER_SOURCE_ORDER = [searchQuery, publisherFilter, contentTypeFilter, statusFilter, publishModeFilter, platformFilter, dateFilter]
+const { snapshot: debouncedFilters } = useDebouncedWatchSources(FILTER_SOURCE_ORDER)
+const debouncedQuery = computed(() => String(debouncedFilters.value[0] ?? ''))
+const debouncedPublisher = computed(() => String(debouncedFilters.value[1] ?? ''))
+const debouncedContentType = computed(() => String(debouncedFilters.value[2] ?? ''))
+const debouncedStatus = computed(() => String(debouncedFilters.value[3] ?? ''))
+const debouncedPublishMode = computed(() => String(debouncedFilters.value[4] ?? ''))
+const debouncedPlatform = computed(() => String(debouncedFilters.value[5] ?? ''))
+const debouncedDate = computed(() => debouncedFilters.value[6])
+
 const hasActiveFilters = computed(() => Boolean(
   searchQuery.value || publisherFilter.value || contentTypeFilter.value || statusFilter.value || publishModeFilter.value || platformFilter.value || dateFilter.value,
 ))
 const filteredRecords = computed(() => {
-  const query = searchQuery.value.trim().toLowerCase()
+  // 读防抖值，不读原始 ref（见上方 2.2 注释）
+  const query = debouncedQuery.value.trim().toLowerCase()
   return records.value.filter(record => {
     if (query) {
       const searchable = [recordTitle(record), record.description, record.content, record.taskId]
@@ -523,17 +554,69 @@ const filteredRecords = computed(() => {
         .toLowerCase()
       if (!searchable.includes(query)) return false
     }
-    if (publisherFilter.value && publisherName(record) !== publisherFilter.value) return false
-    if (contentTypeFilter.value && contentTypeValue(record) !== contentTypeFilter.value) return false
-    if (statusFilter.value && normalizedStatusGroup(record) !== statusFilter.value) return false
-    if (publishModeFilter.value && publishModeValue(record) !== publishModeFilter.value) return false
-    if (platformFilter.value && String(record?.platform || '') !== platformFilter.value) return false
-    if (dateFilter.value && !matchesDateFilter(record, dateFilter.value)) return false
+    if (debouncedPublisher.value && publisherName(record) !== debouncedPublisher.value) return false
+    if (debouncedContentType.value && contentTypeValue(record) !== debouncedContentType.value) return false
+    if (debouncedStatus.value && normalizedStatusGroup(record) !== debouncedStatus.value) return false
+    if (debouncedPublishMode.value && publishModeValue(record) !== debouncedPublishMode.value) return false
+    if (debouncedPlatform.value && String(record?.platform || '') !== debouncedPlatform.value) return false
+    if (debouncedDate.value && !matchesDateFilter(record, debouncedDate.value)) return false
     return true
   })
 })
+// 阶段 2.2（audit-61）c) 渲染上限：一次挂载上千张卡片时，DOM/布局成本远超过滤本身。
+// 与 Accounts.vue 的 renderLimit 同范式 —— **计数说真话**（仍用 filteredRecords.length），
+// 只截渲染，并显式告诉用户"还有 N 条没显示、请缩小筛选范围"，不得静默少渲染。
+const RENDER_LIMIT = 200
+const visibleRecords = computed(() => filteredRecords.value.slice(0, RENDER_LIMIT))
+const hiddenRecordCount = computed(() => Math.max(0, filteredRecords.value.length - RENDER_LIMIT))
 // 2026-10-12：缩略图 = 本次实际使用的封面；拿不到即回退平台图标
-const { coverUrlFor: thumbnailUrl } = useHistoryCoverThumbnails(filteredRecords)
+// 阶段 2.1/2.2：喂 visibleRecords —— 没渲染的行不该去取封面
+const { coverUrlFor: thumbnailUrl } = useHistoryCoverThumbnails(visibleRecords)
+
+// 阶段 2.2（audit-61）b) 行内函数 Map 缓存：模板里 title / 缩略图 / 平台图标 / 类型 /
+// 发布人 / 时间 / 状态 / 可点击性 / 审核 / 送达 / 失败原因 各自被调 2-4 次，
+// 原先每次绑定都重算一遍。这里按 record.id 预计算一份派生值表，模板只做 O(1) 查表。
+//
+// 例外（**刻意不进表**）：`metricValue(record.views)` 这类只是给单个已存在字段做
+// 数字/占位符格式化的调用，既不遍历记录也不跨记录比较，成本与一次属性读取同量级；
+// 把它们塞进表只会让这张表变成第二份真相源（字段变了表就陈旧）。
+const rowMeta = computed(() => {
+  const map = new Map()
+  for (const record of visibleRecords.value) {
+    const icon = platformIcon(record.platform)
+    const delivery = deliveryModeValue(record)
+    map.set(record.id, {
+      title: recordTitle(record),
+      thumb: thumbnailUrl(record) || '',
+      icon,
+      iconIsUrl: isPlatformIconUrl(icon),
+      platform: platformName(record.platform),
+      contentType: contentTypeLabel(record),
+      publisher: publisherName(record),
+      time: formatTime(record.timestamp || record.createdAt || record.publishedAt),
+      publishMode: publishModeLabel(record),
+      status: statusLabel(record),
+      statusClass: statusClass(record),
+      clickable: isCardClickable(record),
+      hint: cardClickHint(record),
+      canRepublish: canRepublish(record),
+      republishTitle: republishHint(record),
+      isFailed: normalizedStatusGroup(record) === 'failed',
+      audit: auditLabel(record),
+      auditIsAlert: auditAlert(record),
+      auditTitle: auditHint(record),
+      delivery: delivery,
+      deliveryLabel: deliveryModeLabel(record),
+      deliveryTitle: deliveryModeHint(record),
+      errorText: recordErrorText(record),
+      metricTitle: metricHint(record),
+      failed: failedCount(record)
+    })
+  }
+  return map
+})
+/** 查表而非重算：拿不到 meta 只可能是"该行未被渲染"（超出 RENDER_LIMIT），返回空对象即可。 */
+function metaFor (record) { return rowMeta.value.get(record?.id) || {} }
 const allSelected = computed(() => (
   filteredRecords.value.length > 0
   && filteredRecords.value.every(record => selectedIds.value.includes(record.id))
@@ -714,12 +797,8 @@ const { loadRemainingRecordsForFilters } = useFilterScan({
 
 // M-11：7 个筛选源原先直接 watch，任何一个变化都立刻触发一次「把整张表翻完」的
 // 串行加载 —— 用户每敲一个字符就是一轮上百次的 IPC 往返。
-// 这里改为监听**防抖后的快照**：连续修改多个条件也只触发一次加载。
-// 输入框本身仍绑定原始的 searchQuery（回显不能延迟，否则打字会顿），只有昂贵的
-// 加载动作走防抖值。
-const { snapshot: debouncedFilters } = useDebouncedWatchSources(
-  [searchQuery, publisherFilter, contentTypeFilter, statusFilter, publishModeFilter, platformFilter, dateFilter],
-)
+// 防抖快照本身（含 `debouncedFilters` 与各命名访问器）声明在 `filteredRecords` 上方，
+// 因为本地过滤从阶段 2.2 起也走同一份防抖值；这里只保留"昂贵的补页加载"这一消费方。
 const filterScanTruncated = ref(false)
 
 watch(debouncedFilters, () => {
@@ -836,8 +915,17 @@ function closeRecordDetail () {
   detailError.value = ''
 }
 
+// 展示值纯映射（标题/发布人/类型/时间/审核/送达/指标）实现见
+// composables/usePublishHistoryRowFormat.js —— 抽出的动因与口径见该文件头注释。
+const {
+  recordTitle, publisherName, auditLabel, auditAlert, auditHint,
+  contentTypeValue, contentTypeLabel, publishModeValue, publishModeLabel,
+  deliveryModeValue, deliveryModeLabel, deliveryModeHint,
+  resultValue, failedCount, metricValue, formatTime, contentPreview,
+} = usePublishHistoryRowFormat({ t, platformStore })
+
 // ── 作品链接的目的地判据 + 打开通道 ──
-// 已抽成 composable `usePublishHistoryContentLink`：该视图已达 1457 行，逐文件行数门禁
+// 已抽成 composable `usePublishHistoryContentLink`：该视图历史上曾达 1457 行，逐文件行数门禁
 // （.github/scripts/check-max-lines.js，limit=500 / growthAllowance=200）按账本登记值
 // 比对本 PR 触碰文件的增长，逻辑留在视图里会超容差。判据口径与设计理由见该 composable
 // 头注释（PRD-PUBLISH-HISTORY-PUBLIC-LINK-2026-10-07 / CARD-OPEN-LINK-2026-10-03）。
@@ -863,6 +951,8 @@ const {
   canRepublish, republishHint, republishRecord, batchBadgeMap,
   normalizedStatusGroup, recordErrorText, statusLabel, statusClass, statusValue,
 } = usePublishRecordActions({ records, router, t, platformName })
+
+
 
 async function retryRecord (record) {
   const taskId = record?.taskId || record?.id
@@ -906,96 +996,6 @@ async function deleteSelectedRecords () {
   }
 }
 
-function recordTitle (record) {
-  return record?.title || record?.name || t('historyPage.unnamedTask')
-}
-
-function publisherName (record) {
-  return record?.publisher || record?.author || record?.operator || t('historyPage.systemAccount')
-}
-
-
-
-// ── P0-1 审核状态（枚举与映射真源在 shared-utils 双孪生，渲染端走 ESM 版）──
-// 只在记录带**合法**审核结论时渲染徽标；无结论（旧记录/监控无定论）不渲染，
-// 避免用「无徽标」伪装成「已通过」。拒绝/下线/转码失败醒目标红。
-function auditValue (record) {
-  return normalizeAuditStatus(record && record.auditStatus)
-}
-function auditLabel (record) {
-  const key = auditStatusLabelKey(record && record.auditStatus)
-  return key ? t(key) : ''
-}
-function auditAlert (record) {
-  return isAuditAlertStatus(record && record.auditStatus)
-}
-function auditHint (record) {
-  return auditAlert(record) ? t('historyPage.auditStatusAlertHint') : ''
-}
-
-function contentTypeValue (record) {
-  const value = String(record?.contentType || record?.type || '').toLowerCase()
-  if (['video', 'short_video', 'short-video'].includes(value)) return 'video'
-  if (['image', 'gallery'].includes(value)) return 'image'
-  if (value) return 'article'
-  // 使用 platformStore.getContentCategory 统一判断视频平台
-  const category = platformStore.getContentCategory(record?.platform)
-  if (category === 'VIDEO' || category === 'MIXED') return 'video'
-  return 'article'
-}
-
-function contentTypeLabel (record) {
-  const keys = { article: 'contentTypeArticle', video: 'contentTypeVideo', image: 'contentTypeImage' }
-  return t('historyPage.' + keys[contentTypeValue(record)])
-}
-
-function publishModeValue (record) {
-  const value = String(record?.publishMode || record?.mode || '').toLowerCase()
-  return ['scheduled', 'schedule', 'timed'].includes(value) || statusValue(record) === 'scheduled'
-    ? 'scheduled'
-    : 'immediate'
-}
-
-function publishModeLabel (record) {
-  return t(publishModeValue(record) === 'scheduled' ? 'historyPage.modeScheduled' : 'historyPage.modeImmediate')
-}
-
-function deliveryModeValue (record) {
-  const mode = record && record.result && record.result.mode
-  return mode === 'api' || mode === 'dom' || mode === 'fallback' ? mode : ''
-}
-
-function deliveryModeLabel (record) {
-  const keys = { api: 'publish.api.modeApi', dom: 'publish.api.modeDom', fallback: 'publish.api.modeFallback' }
-  return t(keys[deliveryModeValue(record)] || 'publish.api.modeApi')
-}
-
-function deliveryModeHint (record) {
-  const keys = { api: 'publish.api.modeApiHint', dom: 'publish.api.modeDomHint', fallback: 'publish.api.modeFallbackHint' }
-  return t(keys[deliveryModeValue(record)] || 'publish.api.modeApiHint')
-}
-
-function resultValue (record, key) {
-  const v = record && record.result && record.result[key]
-  return typeof v === 'string' || typeof v === 'number' ? String(v) : ''
-}
-
-function failedCount (record) {
-  if (record?.failedCount !== undefined && record?.failedCount !== null) return record.failedCount
-  return normalizedStatusGroup(record) === 'failed' ? 1 : 0
-}
-
-function metricValue (value, fallback = '-') {
-  if (value === undefined || value === null || value === '') return fallback
-  return value
-}
-
-const formatTime = (value) => formatDateTime(value, { emptyText: t('historyPage.unknownTime'), invalidText: String(value ?? '') })
-
-function contentPreview (content) {
-  const text = String(content).replace(/\s+/g, ' ').trim()
-  return text.length > 48 ? text.slice(0, 48) + '...' : text
-}
 
 function csvCell (value) {
   return `"${String(value ?? '').replace(/"/g, '""')}"`
@@ -1216,6 +1216,16 @@ onMounted(loadRecords)
 .state-error p { color: #b33b3b; }
 
 .record-list { display: flex; flex-direction: column; gap: 16px; }
+.render-limit-hint {
+  margin: 8px 0 0;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm, 8px);
+  background: var(--color-fill-light, #f7f8fa);
+  color: var(--color-text-secondary, #85858f);
+  font-size: var(--font-size-xs, 12px);
+  line-height: 1.6;
+  text-align: center;
+}
 .pagination-footer { display: flex; justify-content: center; padding: 18px 0 4px; }
 .record-card {
   min-width: 0;

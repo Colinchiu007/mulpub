@@ -51,6 +51,7 @@ export default {
     delete: '删除',
     cancelSelection: '取消选择',
     recordsCount: (ctx) => '共 ' + ctx.named('count') + ' 条记录',
+    renderLimitHint: (ctx) => '为保证滚动流畅，本次只渲染前 ' + ctx.named('shown') + ' 条；还有 ' + ctx.named('hidden') + ' 条符合条件但未显示，请缩小筛选范围或用上方分页继续加载。',
     filteredFrom: (ctx) => '已从 ' + ctx.named('count') + ' 条任务中筛选',
     // M-11：筛选扫描未覆盖全表时的口径。与 filteredFrom 的区别是"已加载"而非"全部"，
     // 避免用户把"没扫到"误读成"不存在"。

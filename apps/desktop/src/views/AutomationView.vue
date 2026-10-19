@@ -341,14 +341,17 @@ async function remove (task) {
 }
 
 onMounted(async () => {
-  await load()
-  // 后台任务的失败/恢复通知：只做 toast，不弹模态，不打断当前操作
+  // 阶段 2.4（audit-64）：监听注册必须在 `await load()` **之前**。
+  // 原来排在之后 ⇒ 首屏列表 IPC 未返回的那段窗口里，后台任务恰好失败时通知落在
+  // "还没人监听"上被整体丢掉，用户只看到列表后来变红、没有任何 toast，
+  // 而这条通知存在的目的正是"不打断操作也要让人知道失败"。
   stopNotifier = onAutomationNotification((payload) => {
     if (!payload) return
     if (payload.level === 'error') notifyError('automation.notifyFailed', { message: payload.message || '' })
     else notifySuccess('automation.notifyRecovered', { message: payload.message || '' })
     load()
   })
+  await load()
 })
 
 onUnmounted(() => {

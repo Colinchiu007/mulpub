@@ -51,6 +51,7 @@ export default {
     delete: 'Delete',
     cancelSelection: 'Cancel selection',
     recordsCount: (ctx) => ctx.named('count') + ' records',
+    renderLimitHint: (ctx) => 'Showing the first ' + ctx.named('shown') + ' of them to keep scrolling smooth; ' + ctx.named('hidden') + ' more match your filters but are not rendered. Narrow the filters or use pagination above to load more.',
     filteredFrom: (ctx) => 'Filtered from ' + ctx.named('count') + ' tasks',
     // M-11: wording when the filter scan did not reach the end of the table.
     // "loaded" rather than "all" so a miss isn't misread as "does not exist".

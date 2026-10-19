@@ -14,10 +14,20 @@ const mockState = {
   removeRes: { code: 0, ok: true },
   runRes: { code: 0, ok: true, data: {} },
   notifier: null,
+  // 阶段 2.4：把"列表被拉了几次""通知落到哪个 toast"变成可断言的现场。
+  // useNotify 的 spy 必须是**跨用例稳定的同一对象**——每轮新建会让断言恒不命中（本仓踩过）。
+  listCalls: 0,
+  listGate: null,
+  notifyError: vi.fn(),
+  notifySuccess: vi.fn(),
 }
 
 vi.mock('@/api/automation', () => ({
-  automationList: () => Promise.resolve(mockState.listRes),
+  automationList: () => {
+    mockState.listCalls += 1
+    if (mockState.listGate) return mockState.listGate
+    return Promise.resolve(mockState.listRes)
+  },
   automationCreate: () => Promise.resolve(mockState.createRes),
   automationUpdate: () => Promise.resolve(mockState.updateRes),
   automationRemove: () => Promise.resolve(mockState.removeRes),
@@ -29,7 +39,7 @@ vi.mock('@/api/automation', () => ({
 }))
 
 vi.mock('@/composables/useNotify', () => ({
-  useNotify: () => ({ notifyError: vi.fn(), notifySuccess: vi.fn() }),
+  useNotify: () => ({ notifyError: mockState.notifyError, notifySuccess: mockState.notifySuccess }),
 }))
 
 import AutomationView from '@/views/AutomationView.vue'
@@ -230,18 +240,50 @@ describe('自动化页 · 表单校验', () => {
 })
 
 describe('自动化页 · 后台通知', () => {
-  beforeEach(() => { mockState.listRes = { code: 0, data: { tasks: [sampleTask] } } })
+  beforeEach(() => {
+    mockState.listRes = { code: 0, data: { tasks: [sampleTask] } }
+    mockState.listCalls = 0
+    mockState.listGate = null
+  })
   afterEach(() => { vi.clearAllMocks() })
 
-  it('订阅通知并在收到后刷新列表（不弹模态，只刷数据）', async () => {
+  it('订阅通知并在收到后**重新拉取列表**（不弹模态，只刷数据）', async () => {
     const w = mountView()
     await new Promise((r) => setTimeout(r, 0))
     expect(typeof mockState.notifier).toBe('function')
-    // 收到失败通知后应重新拉取列表
-    const before = mockState.listRes
+    const before = mockState.listCalls
     mockState.notifier({ level: 'error', title: 't', message: '采集失败', taskId: 'at_1' })
     await new Promise((r) => setTimeout(r, 10))
-    expect(mockState.listRes).toBe(before) // 列表数据未被就地改写，走重新拉取
+    // 断言"又拉了一次"而不是"数据没被就地改写"——后者对"根本没刷新"同样成立（装饰性断言）
+    expect(mockState.listCalls).toBe(before + 1)
+    expect(mockState.notifyError).toHaveBeenCalledWith('automation.notifyFailed', { message: '采集失败' })
+    w.unmount()
+  })
+
+  it('监听注册排在首屏加载**之前**：加载期间的失败通知不得被丢掉（阶段 2.4 / audit-64）', async () => {
+    // 把列表 IPC 卡住，模拟"首屏还在转"的那段窗口
+    let release
+    mockState.listGate = new Promise((resolve) => { release = resolve })
+    const w = mountView()
+    await new Promise((r) => setTimeout(r, 0))
+    // 此刻 load() 尚未返回：旧实现里监听还没注册，notifier 会是 null
+    expect(typeof mockState.notifier).toBe('function')
+    expect(mockState.listCalls).toBe(1)
+
+    mockState.notifier({ level: 'error', title: 't', message: '加载期失败', taskId: 'at_9' })
+    expect(mockState.notifyError).toHaveBeenCalledWith('automation.notifyFailed', { message: '加载期失败' })
+
+    release({ code: 0, data: { tasks: [sampleTask] } })
+    await new Promise((r) => setTimeout(r, 0))
+    w.unmount()
+  })
+
+  it('恢复类通知走成功 toast，不占用错误文案', async () => {
+    const w = mountView()
+    await new Promise((r) => setTimeout(r, 0))
+    mockState.notifier({ level: 'info', message: '已恢复' })
+    expect(mockState.notifySuccess).toHaveBeenCalledWith('automation.notifyRecovered', { message: '已恢复' })
+    expect(mockState.notifyError).not.toHaveBeenCalled()
     w.unmount()
   })
 

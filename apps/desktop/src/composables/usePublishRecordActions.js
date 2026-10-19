@@ -12,6 +12,7 @@
  *      /重试/删除都是平台级动作），徽标只把「这几条属于同一次发布」这层关联补回来。
  */
 import { computed } from 'vue'
+import { normalizedStatusGroup, statusValue } from '@/utils/publish-record-status'
 
 /**
  * @param {object} deps
@@ -55,19 +56,9 @@ export function usePublishRecordActions (deps) {
     return map
   })
 
-  // ── 状态判定与展示（语义未改，仅为视图瘦身而搬出）──
-  // `record.success === false` 优先于 `status`（历史行有两条成功通道，老行只有 success）
-  const statusValue = (record) => {
-    if (record?.success === false) return 'failed'
-    return String(record?.status || 'success').toLowerCase()
-  }
-
-  const normalizedStatusGroup = (record) => {
-    const value = statusValue(record)
-    if (['success', 'completed', 'published'].includes(value)) return 'success'
-    if (['failed', 'error'].includes(value)) return 'failed'
-    return 'pending'
-  }
+  // ── 状态判定与展示 ──
+  // 两个纯判据已上移到 `utils/publish-record-status.js`（与 usePublishHistoryRowFormat 共用，
+  // 避免注入造成的视图内顺序耦合）；此处继续把它们透传出去，视图的解构面不变。
 
   /**
    * 列表卡片失败原因文本：仅失败组渲染；error 非字符串或空白时返回空串（卡片不渲染该行，
