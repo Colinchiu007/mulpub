@@ -93,3 +93,7 @@ sync_backfill_owner: none-derived-from-trunk
 3. **没有引入 `aria-activedescendant`**。roving tabindex 与 activedescendant 是同一需求的两种实现，
    本仓菜单项是真 `<a>`（可点、可读 href、浏览器自带焦点环），选 roving；
    若后续改成"焦点始终留在容器"的写法，本文件的 13 条断言里有 6 条要同步改口径，这里先记下不偷改。
+
+## 远程同步
+
+| 远程同步 | 由门禁推导 | 本行**不事后改写**：合并后由 `scripts/lib/merge-ledger.js` 按主干历史推导归属（只认 squash 尾注 `(#NNNN)`，PR 号见本 PR 页面）；现场读数看 CI 步骤首行 `MERGE-LEDGER prs=<n>`。合并前这篇还不在基线上 ⇒ 判 `byDesign` 不红；把状态列预写成 `PASS` 会被 `prematureClaims` 判红（change: `ban-record-closure-backfill-pr` / `gate-record-sync-derived-status`）。main push 回读证据写在 PR 评论里，不写回本文件。 **本行的存在本身就是判据**：`check-gate-record-debt.js` 对「整块缺 远程同步 行」的新记录当场判红（本轮实测过：本仓两篇新记录因为只写了 frontmatter 的 `sync_pr/sync_status` 就被拦下，frontmatter 那几个键是**意图声明**，不能替代这一行）。 |
