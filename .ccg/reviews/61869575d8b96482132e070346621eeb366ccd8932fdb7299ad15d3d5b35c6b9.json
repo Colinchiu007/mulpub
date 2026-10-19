@@ -29,8 +29,9 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "performedBy": null,
-    "findings": null
+    "status": "self_play_resolved",
+    "performedBy": "main-agent-degraded",
+    "findings": "本机无 codeagent-wrapper 双模型后端（opencode/claude 均不可用），按 AGENTS.md「子代理降级」转主代理自执行；审计结论见 .ccg/reviews/ui-flow-clarity-review.md §E.3（E3-1..E3-5），未以自审冒充双模型通过。",
+    "tier": "self-play"
   }
 }
