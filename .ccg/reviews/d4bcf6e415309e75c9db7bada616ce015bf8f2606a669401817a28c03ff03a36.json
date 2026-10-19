@@ -46,10 +46,44 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "self_play_resolved",
+    "performedBy": "self-play(agent)",
+    "fallbackReason": "跨家族对抗后端超时（本会话第 16 次同型 ETIMEDOUT）。本条 4 行，CI 红的修复提交。",
+    "evidenceInRepo": "openspec/records/publish-gate-help-ui.md（未列）+ 本提交说明（根因/逃逸链/本地复刻）",
+    "confidenceWeight": 0.7,
+    "adjudication": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "上一 PR 的 5 条 jsdom 测试全绿，为何还漏了「app 挂载失败」这种级别的错？测试策略哪里有系统性缺口？",
+        "verdict": "upheld_verified",
+        "rationale": "逃逸链如实复了盘（提交说明）：vitest jsdom 有自己的模块解析（5 例绿）→ 产物契约锁只锁 bundle 组成不锁 vite alias 表 →check-renderer-cjs-boundary 当时判定域内无命中（我提交渲染层导入之前跑的）→ **唯一会真起 vite dev 的 Browser E2E 拦住了**。系统性缺口是：「新增 shared-utils 孪生模块」这个动作没有机械登记锁 —— alias 表靠人记得加。本轮不动手扩判据（改守门需人工过目），但把后果与报错原文写进了 alias 表注释与提交说明，让下一次新增孪生模块时有人工检查点。",
+        "fixCommit": "ef3a75898"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "本地跑 `run-all.js routes` 只抽了部分路由吗？怎么证明修复对全部 18 路由成立？",
+        "verdict": "upheld_partial",
+        "rationale": "本地跑了完整 `routes` 模式（含 home 与多条路由，0 console / 0 page errors），但 CI 跑的是 **18 路由全量 + flows**；本地没跑 `all` 是因为其时长接近 CI。根因是**模块解析**（一个 alias），它影响的是「整个 app 能否挂载」，不是单路由逻辑，所以「任一路由能起、零 page error」已能证明 alias 生效；但 18 条全绿的最终判据仍以 **CI 重跑**为准，本轮不得宣称全绿。",
+        "fixCommit": null
+      },
+      {
+        "id": "i3",
+        "severity": "Info",
+        "finding": "这是在修上一提交引入的回归 —— 属于「自己拆自己台」，说明 PR 内自测不足。怎么防止下次？",
+        "verdict": "accepted_known_tradeoff",
+        "rationale": "承认：渲染层行为改动只有单测、没有在提交前本地起过 dev server，是我流程上的省略。本轮起 dev 复刻 CI 场景后已确认修复；后续凡动「渲染层 import 面」的提交，本地先跑一次 `run-all.js routes` 再推（本轮已实践，成本约 2 分钟）。不把它写成硬门禁（改守门需人工），先作为本人会话纪律落地。",
+        "fixCommit": null
+      }
+    ],
+    "summary": {
+      "total": 3,
+      "upheldVerified": 1,
+      "upheldPartial": 1,
+      "acceptedKnownTradeoff": 1,
+      "note": "CI 红修复合入；系统性缺口（孪生模块需登记 vite alias，无机械锁）已如实记录，判据扩展留人工裁决。"
+    },
+    "at": "2026-10-19T02:48:14.786Z"
   }
 }
