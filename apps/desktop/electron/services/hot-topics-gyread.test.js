@@ -261,87 +261,38 @@ describe('scorer：gyread 渠道权重', () => {
   })
 })
 
-describe('enrichWithEdition：原文链接增强（fail-open）', () => {
+/**
+ * 源未启用 ⇒ 运行路径上不得出现 gyread 的抓取调用。
+ *
+ * 为什么这条比「enrich 行为正确」更重要：源已经摘除，`enrichWithEdition` 这类
+ * 增强逻辑在源不启用时是**死代码**（既不可达，又占体积、又需维护）。
+ * 因此实现层面也一并摘除 —— 等合规获批需启用时再实现，并记得带上两条已被评审
+ * 确认过的约束（按 url 去重 / 禁止「取该期第一条」兜底），判据记录在 spec 里。
+ */
+describe('源未启用：运行路径无 gyread 抓取', () => {
   function makeService (logs = []) {
     return new HotTopicsService({
       log: { info: () => {}, warn: (m) => logs.push(String(m)), error: () => {}, notify: () => {} },
     })
   }
 
-  // 摘除后不再从启用配置里取 —— 直接用保留的常量，验证「实现仍可用」而非「已生效」。
-  const src = GYREAD_SOURCE
-
-  it('增强成功：条目带 sourceUrls 数组与 entryUrl', async () => {
+  it('CHANNEL_CONFIGS 与 CATEGORY_BOOSTS 均不含 gyread ⇒ 全量抓取不触达该域名', async () => {
+    const seen = []
     const svc = makeService()
-    // onlyCategory:'ai' 过滤后只剩 OpenAI 那条（属 2026-10-16 那期），
-    // 故 edition 夹具必须**按请求的日报页 URL**返回与之对应的内容 ——
-    // 标题对得上才挂链接，这是 BLOCKING-4 修正后的正确语义。
-    const idx = sampleIndex()
-    const target = idx.items[2] // 2026-10/2026-10-16.html
-    svc._fetchChannel = async (c) => {
-      if (c.url.includes('search-index.json')) return JSON.stringify(idx)
-      return modernEditionHtml().replace(
-        'NASA 罗曼望远镜升空 48 天：暗能量告别猜想',
-        target.t)
-    }
-    const res = await svc._collectBoostChannel(src, Date.now())
-    expect(res.items).not.toBeNull()
-    expect(res.items.length).toBeGreaterThan(0)
-    const withUrls = res.items.filter(x => Array.isArray(x.sourceUrls) && x.sourceUrls.length)
-    expect(withUrls.length).toBeGreaterThan(0)
-    expect(withUrls[0].entryUrl).toBe('https://gyread.com/news/')
+    svc._fetchChannel = async (c) => { seen.push(c.url); throw new Error('offline') }
+    await svc.fetchTopics({ force: true, boostCategories: ['ai'] })
+    expect(seen.some(u => u.includes('gyread.com'))).toBe(false)
   })
 
-  // BLOCKING-4 回归锁：标题对不上时**不得**把该期第一条的出处挂上去。
-  // 那会系统性制造张冠李戴（站点本身就有出处错配问题），错误归因比没链接更糟。
-  it('标题匹配不上 → 不挂链接（禁止「取该期第一条」兜底）', async () => {
+  it('service 未导出 gyread 的增强实现（死代码不留）', () => {
     const svc = makeService()
-    svc._fetchChannel = async (c) => {
-      if (c.url.includes('search-index.json')) return JSON.stringify(sampleIndex())
-      return modernEditionHtml() // 标题与索引条目完全无关
-    }
-    const res = await svc._collectBoostChannel(src, Date.now())
-    expect(res.items.length).toBeGreaterThan(0)
-    for (const it of res.items) {
-      expect(it.sourceUrls === undefined || it.sourceUrls.length === 0).toBe(true)
-    }
+    expect(svc._enrichGyreadSources).toBeUndefined()
   })
 
-  it('edition 抓取失败：条目仍在、无 sourceUrls、不记渠道失败', async () => {
-    const logs = []
-    const svc = makeService(logs)
-    svc._fetchChannel = async (c) => {
-      if (c.url.includes('search-index.json')) return JSON.stringify(sampleIndex())
-      throw new Error('HTTP 503')
-    }
-    const res = await svc._collectBoostChannel(src, Date.now())
-    expect(res.error).toBeFalsy()
-    expect(res.items.length).toBeGreaterThan(0)
-    for (const it of res.items) {
-      expect(it.sourceUrls === undefined || it.sourceUrls.length === 0).toBe(true)
-    }
-    // fail-open 不等于故障静默：全部尝试都失败时必须出声，否则排查者只看到
-    // 「条目没带原文链接」而没有任何指向根因的信号（与既有「空列表视为失败」同型）。
-    expect(logs.some(m => m.includes('ALL') && m.includes('parseGyreadEdition'))).toBe(true)
-  })
-
-  it('edition 返回空 HTML：同样 fail-open（不丢条目）', async () => {
-    const svc = makeService()
-    svc._fetchChannel = async (c) => {
-      if (c.url.includes('search-index.json')) return JSON.stringify(sampleIndex())
-      return '<html>no structure</html>'
-    }
-    const res = await svc._collectBoostChannel(src, Date.now())
-    expect(res.error).toBeFalsy()
-    expect(res.items.length).toBeGreaterThan(0)
-  })
-
-  it('索引本身失败：整渠道记失败（既有合同不放松）', async () => {
-    const svc = makeService()
-    svc._fetchChannel = async () => { throw new Error('HTTP 404') }
-    const res = await svc._collectBoostChannel(src, Date.now())
-    expect(res.items).toBeNull()
-    expect(res.error).toContain('404')
+  it('解析器仍完整可用 —— 摘除的是启用路径与运行期实现，不是解析能力', () => {
+    expect(typeof parseGyreadIndex).toBe('function')
+    expect(typeof parseGyreadEdition).toBe('function')
+    expect(CHANNEL_PARSERS.gyread_index).toBe(parseGyreadIndex)
   })
 })
 

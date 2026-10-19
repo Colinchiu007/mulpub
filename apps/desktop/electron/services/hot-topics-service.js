@@ -43,14 +43,6 @@ const MANUAL_REFRESH_MIN_INTERVAL_MS = 60 * 1000
 const THROTTLE_STATE_KEY = 'hot_topics_throttle_state' // P3：限流/熔断状态落盘（跨进程重启）
 const MAX_PER_CHANNEL = 50
 const MAX_TOPICS = 400 // 10 渠道 × 50 条候选（去重后实际更少；含垂类补拉）；上限兼顾 IPC 载荷，按统一热度截断尾部
-/**
- * gyread 原文链接增强的单轮抓取上限。
- *
- * 为什么必须有：该增强是「每个条目多打一次 HTTP」，无上限时最坏 50 次/轮。
- * gyread 是日报而非榜单，AI 分类每期平均 11.5 条，取 10 已覆盖主体；
- * 站点虽为 Cloudflare 缓存 HIT、压力极小，仍按最保守口径设限。
- */
-const GYREAD_ENRICH_LIMIT = 10
 const LLM_BATCH_LIMIT = 40   // 单次抓取最多送 LLM 分类的 general 条目数（成本控制）
 const LLM_LABELS_MAX = 500   // LLM 标签缓存条目上限（超限按插入序裁剪）
 const RANK_CONFIG_KEY = 'hot_topics_rank_config' // P2 评分配置：{ channelWeights?, halfLifeMs? }（可选，缺省用内置默认）
@@ -129,14 +121,14 @@ const CHANNEL_CONFIGS = [
 /**
  * GYREAD AI 情报日报的补拉源定义 —— **当前未挂进任何启用路径**。
  *
- * ⛔ 合规裁决（2026-10-19，对抗评审 BLOCKING-1）：gyread `robots.txt` 在
- * `User-agent: *` 组写着 `Disallow: /news/`，Allow 只给具名检索 UA（OAI-SearchBot 等）。
- * 本应用 `DESKTOP_UA` 是伪装 Chrome 的通用 UA，落在 `*` 组 ⇒ 抓取在被禁路径上；
+ * ⛔ 合规裁决（2026-10-19，对抗评审 BLOCKING-1）：gyread `robots.txt` 在 `User-agent: *`
+ * 组写着 `Disallow: /news/`，Allow 只给具名检索 UA（OAI-SearchBot 等）。本应用
+ * `DESKTOP_UA` 是伪装 Chrome 的通用 UA，落在 `*` 组 ⇒ 抓取在被禁路径上；
  * **返回 200 不等于被许可**，且伪装 UA 放弃了「我是检索代理」的身份主张。
  * `Content-Signal: ai-input=yes` 不覆盖此条（robots 按 UA 组判定）。
  *
- * 定义保留为常量：把「实现就绪」与「获准抓取」分开 —— 解析可用 ≠ 允许抓取。
- * 启用前置条件：① 站点新增自报身份 UA 组并获许可；② 抓取 UA 改为自报身份；
+ * 保留为常量：把「实现就绪」与「获准抓取」分开 —— 解析可用 ≠ 允许抓取。
+ * 启用前置：① 站点新增自报身份 UA 组并获许可；② 抓取 UA 改自报身份；
  * ③ 挂回 `CATEGORY_BOOSTS.ai.sources` 并补 locales 文案。依据见 design.md §2.4。
  */
 const GYREAD_SOURCE = {
@@ -483,9 +475,6 @@ class HotTopicsService {
           fetchedAt,
         }
       })
-      if (source.enrichWithEdition) {
-        items = await this._enrichGyreadSources(items, source)
-      }
       this.breaker.recordSuccess(quotaKey)
       return { channel: source.id, items, skipped: false, boost: true }
     } catch (e) {
@@ -496,67 +485,6 @@ class HotTopicsService {
   }
 
   /**
-   * gyread 原文链接增强：按条目的日报页地址抓单期 HTML，用 `parseGyreadEdition`
-   * 抽「出处」里的一手原文链接，写入 `sourceUrls` 与 `entryUrl`。
-   *
-   * **fail-open 是硬合同**：单个条目抓取失败/无链接只让该条不带 `sourceUrls`，
-   * 绝不抛错、绝不让整个补拉渠道记失败。理由是站点版式仍在演进（2026-10-17 刚换过
-   * `dateline` → `item-meta`），而「一次版式变动丢掉全部 AI 选题」的代价远高于
-   * 「部分条目缺原文链接」。
-   *
-   * 抓取量上限 `GYREAD_ENRICH_LIMIT`（10）：AI 分类每期平均 11.5 条，10 条已覆盖主体；
-   * 无上限时最坏 50 条（MAX_PER_CHANNEL）× 1 次 HTTP 会明显放大对站点的压力。
-   */
-  async _enrichGyreadSources (items, source) {
-    const editionParser = CHANNEL_PARSERS.gyread_edition
-    if (!editionParser) return items
-    const limit = Math.min(GYREAD_ENRICH_LIMIT, items.length)
-    let attempted = 0
-    let failed = 0
-    // 同一期日报会被多个条目引用（`indexFilter: {days:3}` 下尤其常见），
-    // 不去重会对同一个 URL 重复抓十次 —— 必须按 url 收敛到「一期只抓一次」。
-    /** @type {Map<string, Array<{channel:string,topic:string,sourceText:string,sourceUrls:string[]}>>} */
-    const editionCache = new Map()
-    for (let i = 0; i < limit; i++) {
-      const it = items[i]
-      if (!it.url) continue // 索引没给日报页地址 → 无从增强（保持无 sourceUrls）
-      attempted++
-      try {
-        let editions = editionCache.get(it.url)
-        if (!editions) {
-          const html = await this._fetchChannel({ url: it.url, headers: source.headers || {} })
-          editions = editionParser(html)
-          editionCache.set(it.url, editions)
-        }
-        // 标题对齐：edition 解析出的标题与索引标题可能因版式/实体编码有细微差异，
-        // 故按「包含或相等」宽松匹配；匹配不上就取该期第一条（同期同源，仍是有效溯源）。
-        const match = editions.find(e => e.topic === it.topic)
-          || editions.find(e => e.topic.includes(it.topic) || it.topic.includes(e.topic))
-        // 刻意**不**做「匹配不上就取该期第一条」的兜底：那会把第一条选题的出处挂到
-        // 完全不相关的条目上（系统性制造张冠李戴）。站点本身就存在出处错配问题
-        // （调研实测：某条投资新闻的出处链到微软 Swin-Transformer 仓库），
-        // 代码不应再主动生产新的错配 —— 错误归因比「没有链接」更糟。
-        if (match && Array.isArray(match.sourceUrls) && match.sourceUrls.length) {
-          it.sourceUrls = match.sourceUrls
-          it.entryUrl = source.entryUrl || null
-          it.sourceText = match.sourceText || null
-        }
-      } catch (e) {
-        failed++
-        // 单条失败只跳过该条：其余条目继续增强，渠道整体仍记成功
-        this.log.warn && this.log.warn('[hot-topics] gyread edition enrich failed for "' +
-          String(it.topic || '').slice(0, 24) + '": ' + (e && e.message ? e.message : String(e)))
-      }
-    }
-    // fail-open 不等于「故障静默」：全部尝试都失败时必须出声，否则排查者只会看到
-    // 「条目没带原文链接」而没有任何指向根因的信号（与既有「空列表视为失败」同型）。
-    // 但这里仍**不**让渠道记失败 —— 那会丢掉全部高质量 AI 选题，代价高于缺链接。
-    if (attempted > 0 && failed === attempted) {
-      this.log.warn && this.log.warn('[hot-topics] gyread edition enrich failed for ALL ' + attempted +
-        ' items: 原文链接增强整体不可用（常见根因：日报页版式再次变动或站点不可达）；' +
-        '条目本身仍可用，但需人工核对 parseGyreadEdition')
-    }
-    return items
   }
 
   /** 聚合一批渠道结果为 { channelStats, allTopics, seen }（跨渠道按选题文本去重，先到者保留） */
@@ -807,7 +735,6 @@ module.exports = {
   THROTTLE_STATE_KEY,
   MAX_PER_CHANNEL,
   MAX_TOPICS,
-  GYREAD_ENRICH_LIMIT,
   CHANNEL_CONFIGS,
   CATEGORY_BOOSTS,
   GYREAD_SOURCE,

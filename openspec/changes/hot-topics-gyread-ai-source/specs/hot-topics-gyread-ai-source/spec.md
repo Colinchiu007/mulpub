@@ -93,26 +93,43 @@
 - **WHEN** gyread 补拉源返回的条目被 `onlyCategory: 'ai'` 筛选
 - **THEN** 仅分类器判定为 `ai` 的条目进入结果；条目 `id` 以 `gyread:ai:` 开头
 
-### Requirement: 原文链接增强（enrichWithEdition）
+### Requirement: 原文链接增强（enrichWithEdition）—— 遗留，启用时一并实现
+
+⚠️ 本 Requirement **当前未实现且不应实现**：源未启用，`enrichWithEdition` 类增强
+在运行路径上是**死代码**。实现已随源一同摘除，避免「不可达代码占体积 + 需维护」。
+
+合规获批并启用时，增强 SHALL 按下列判据实现（两条已由对抗评审确认）：
 
 补拉源可声明 `enrichWithEdition: true`。此时 SHALL 在索引解析成功后，对每个条目按其
 日报页地址抓取单期 HTML 并调用 `parseGyreadEdition` 补齐原文链接，写入条目的
 `sourceUrls` 数组与 `entryUrl`（当日日报入口）。
 
 该增强 MUST fail-open：抓取或解析失败时仅丢失原文链接，MUST NOT 丢失条目本身，
-MUST NOT 让整个补拉渠道记失败。增强抓取的条目数 SHALL 有显式上限（默认 10）。
+MUST NOT 让整个补拉渠道记失败。
 
-#### Scenario: 增强成功
+两条评审确认的硬约束：
+1. **必须按 `it.url` 去重**（`indexFilter: {days:N}` 下前 N 条常来自同一期日报，
+   不去重会对同一 URL 重复抓取）。
+2. **禁止「标题匹配不上就取该期第一条」的兜底** —— 那会把第一条选题的出处挂到
+   完全不相关的条目上，系统性制造张冠李戴（站点本身就有出处错配问题）。
+   错误归因比「没有链接」更糟。
+3. 全部条目增强失败时 MUST 出声（fail-open ≠ 故障静默），但仍不记渠道失败。
+
+#### Scenario: 源未启用时不得有实现
+- **WHEN** 检查 `HotTopicsService` 实例
+- **THEN** `_enrichGyreadSources` 未定义，且全量抓取不触达 `gyread.com`
+
+#### Scenario: 增强成功（启用后）
 - **WHEN** 补拉源带 `enrichWithEdition: true` 且 edition 页可抓可取
 - **THEN** 条目携带 `sourceUrls`（数组，长度 ≥ 1）与 `entryUrl`
 
-#### Scenario: 增强失败不扩散
+#### Scenario: 增强失败不扩散（启用后）
 - **WHEN** edition 页抓取抛错或返回空
 - **THEN** 条目仍存在且无 `sourceUrls`，补拉结果 `items` 非空、`error` 为空
 
-#### Scenario: 条目数上限
-- **WHEN** 索引返回超过上限的条目
-- **THEN** 仅前 N 条（默认 10）执行增强抓取，其余条目不带 `sourceUrls`
+#### Scenario: 禁止张冠李戴兜底（启用后）
+- **WHEN** edition 页标题与索引条目标题对不上
+- **THEN** 该条不带 `sourceUrls`，**不得**取该期第一条的出处顶替
 
 ### Requirement: 渠道权重与配额
 
