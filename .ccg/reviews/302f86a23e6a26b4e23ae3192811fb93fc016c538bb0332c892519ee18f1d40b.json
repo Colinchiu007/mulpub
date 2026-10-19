@@ -46,10 +46,60 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "self_play_resolved",
+    "performedBy": "self-play(agent)",
+    "fallbackReason": "跨家族对抗后端超时（本会话第 17 次同型 ETIMEDOUT），按引擎第三档出口 self_play 自查。本条 403 行，含新模块与错误语义映射。",
+    "evidenceInRepo": "openspec/records/toutiao-cover-module.md（§二 取舍 / §三 实测坑 / §四 读数）+ PRD §12.6.7.5",
+    "confidenceWeight": 0.7,
+    "adjudication": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "封面五步链只做了「模块 + 测试」，**没接进 run() 的封面闸门** —— 调用方不显式调 uploadCoverImage 就走不到。需求算完成吗？",
+        "verdict": "upheld_failed_partial",
+        "rationale": "**不算完整交付**。用户视角「头条发布能自动带封面」还差一步接线。没有在本轮接的原因：接入点在 run() 的 hasLocalCoverOnly 分支，那里挂着「coverPath 是本地路径不是 URI」的历史判据（self-play 裁决曾在此处犯过判据用错的错），接错会把「推荐封面回落」整条路带崩 —— 需要先立 coverInputs 形状契约（本地文件 / 平台 URI / 平台推荐 三态）再动。本轮把模块与 8 例测试做实并**显式登记未接线**（记录 §六 + PRD §12.6.7.5「未闭合」），而不是在会话末尾抢一个没验证过契约的接线。这是取舍，不是完成。",
+        "fixCommit": null
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "21000 的双判据（码 OR 原文）里，原文匹配「未实名认证|帐号不可用」会不会误伤其它错误？比如「帐号被封禁」也含「帐号不可…」？",
+        "verdict": "upheld_verified",
+        "rationale": "逐字比对：判据是「未实名认证|帐号不可用」两个**完整词**，与「帐号被封禁」「帐号异常」无子串交集（「帐号不可用」四字必须连续出现）。真机原文「未实名认证/帐号不可用，可前往西瓜创作平台/西瓜App投稿」两词都命中。且**反向不误判**有测试锁：20007014（ThumbUri）与成功样例都断言 accountGate=false。残余风险如实记：若平台把封禁文案改成恰好含这四字的变体，会误标为账号墙 —— 概率低，且后果是「提示语更准的链接」而非错误动作。",
+        "fixCommit": null
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "新测试又漏登记 run-tests.js（本轮才踩），这个坑已经第二次出现（#3983 vite alias 同族）—— 为什么还不加机械锁？",
+        "verdict": "accepted_known_tradeoff",
+        "rationale": "承认这是同族教训第二次出现：新文件存在 ≠ 会被正确 runner 执行。#3983 是 vite alias 表、本轮是 VITEST_FILES 登记表 —— 共同根因是「登记表靠人记得补」。不加机械锁的原因：登记锁属「改守门」（要新写「扫描 test/ 目录并与登记表 diff」的判据并接 CI），该动作按规矩须人工过目；本轮在记录 §三 与 PRD §12.6.7.5把判据设计写清（diff test/ 与 VITEST_FILES，缺登记即红），下一轮由人确认后接线。",
+        "fixCommit": null
+      },
+      {
+        "id": "i4",
+        "severity": "Info",
+        "finding": "封面模块的失败路径全部 fail closed（不返回半成品 uri），但 ② params code!=2000 的错误信息直接拼服务端响应 —— 会不会把敏感信息带给用户？",
+        "verdict": "upheld_verified",
+        "rationale": "拼进 error 的是**服务端业务响应**（code/message，如 10413 X-TT-Access does not match），不含 cookie/签名/JWT；tos_sign 只作 Authorization 头发出，从不在错误信息里回显（测试断言错误信息里无 JWT）。且该 error 的消费面是开发者/进度面板（诊断用），不是终端用户 toast —— 终端用户看到的是 UI 层按 code 反查的文案。",
+        "fixCommit": null
+      },
+      {
+        "id": "i5",
+        "severity": "Info",
+        "finding": "run() 出口对 accountGate 构造了 {canPublish:true, identityVerified:false} 的假 auth —— 伪造输入会不会污染 UI 展示？",
+        "verdict": "upheld_verified",
+        "rationale": "该 auth 只是 buildAccountNotVerifiedResult 的**透传字段**（结果里带出去便于排查），UI 消费的是 code/helpUrl/helpLabel/error 四个字段，不读 auth；且注释明写这是「提交时兜底」的合成值，与提交前真实读数（buildPublishGateResult 的真 auth）来源不同。更干净的做法是让 buildAccountNotVerifiedResult 的 auth 参数可选 —— 已在下一轮清单，本轮不动已测形状。",
+        "fixCommit": null
+      }
+    ],
+    "summary": {
+      "total": 5,
+      "upheldFailedPartial": 1,
+      "upheldVerified": 3,
+      "acceptedKnownTradeoff": 1,
+      "note": "自查抓到最主要的问题（i1）：封面模块未接进 run()，属部分交付，已显式登记；i3 承认「登记表靠人记」第二次踩坑并写好判据设计等人工确认；i2/i4/i5 三条被证据压住的疑虑也如实记录残余风险。"
+    },
+    "at": "2026-10-19T09:01:07.334Z"
   }
 }
