@@ -138,5 +138,11 @@ cd apps/desktop && pnpm exec electron-builder --win --x64
 
 ## 七、远程同步
 
-- 远程同步 PR #（合并后由门禁按主干历史推导）
-- 表格行：`| 远程同步 | 由门禁推导 |`
+| 项 | 状态 |
+|---|---|
+| 远程同步 | 由门禁推导 |
+
+- PR #3969（`avatar-heygen-wiring`）
+- 收口方式：`scripts/lib/merge-ledger.js` 按主干历史推导（change `gate-record-sync-derived-status`，
+  2026-10-17 起新 PR 不手写状态词——手写 `PASS` 会在合并前被判 `prematureClaim` 红）
+- main push 回读证据写在 PR 评论里，不写回本文件（merge SHA 只在合并后存在）

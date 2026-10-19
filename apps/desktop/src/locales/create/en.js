@@ -298,6 +298,8 @@ export default {
       // Detail-page visual & interaction refinement (2026-09-20); paired with zh.js (CI Gate 7)
       ui: {
         ...uiEn,
+        // Digital human (avatar-spokesperson): single source is create/avatar/en.js
+        ...avatarEn,
       },
       tpl: {
         navBack: "Back",

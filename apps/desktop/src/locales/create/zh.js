@@ -297,6 +297,8 @@ export default {
       // 中英必须成对维护：CI Gate 7 check-locale-sync.js --pair 硬拦截
       ui: {
         ...uiZh,
+        // 数字人（avatar-spokesperson）：唯一真源在 create/avatar/zh.js
+        ...avatarZh,
       },
       tpl: {
         navBack: "上一页",
