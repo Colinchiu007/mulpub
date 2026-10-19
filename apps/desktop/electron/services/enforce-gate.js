@@ -141,10 +141,13 @@ async function onSyncOutcomeForTest (deps, outcome) {
     applyDecisionForTest(deps, decision)
     return decision
   }
-  // 同步失败 → 宽限逻辑
+  // 同步失败 → 宽限逻辑。QM-6 第二轮 i2 修复：verify-failed 只对"缓存判定为
+  // blocking"的客户端出现（它确实不能放行）；enforce 关闭/无策略的客户端断网
+  // 永远 pass——否则 (a) 默认部署断网 72h 被拦（A1 零变化违约），(b) R2 应急
+  // 开关对离线客户端失效（拉不到 enforce_enabled=0 的新策略）。
   const state = loadState(deps)
   if (!state || !state.policy) {
-    const decision = { status: 'verify-failed' }
+    const decision = { status: 'pass' } // 从未同步过 → 无证据表明该阻断 → 放行（fail-open）
     applyDecisionForTest(deps, decision)
     return decision
   }
@@ -172,7 +175,10 @@ async function onSyncOutcomeForTest (deps, outcome) {
     }
   }
   if (elapsed > GRACE_PERIOD_MS) {
-    const decision = { status: 'verify-failed' }
+    // 超宽限：仅当缓存 policy 判定为 blocking 才 verify-failed（阻断态不因断网缓解）；
+    // 缓存判定 pass（enforce 关闭/版本达标）→ 继续 pass（应急开关对离线客户端有效）
+    const cachedDecision = evaluateForTest(deps, state.policy, deps.now())
+    const decision = cachedDecision.status === 'blocking' ? { status: 'verify-failed' } : cachedDecision
     applyDecisionForTest(deps, decision)
     return decision
   }
@@ -192,6 +198,7 @@ function gateWindowOptions (deps) {
     closable: false, // 拦截 close 之外的声明语义（close 事件 handler 是真正兜底）
     resizable: false,
     maximizable: false,
+    minimizable: false, // QM-6 第二轮 i1：禁最小化（任务栏最小化 gate 后点主窗即绕过）
     fullscreenable: false,
     show: false,
     alwaysOnTop: true, // 置顶（实现层用 'screen-saver' 级别）
@@ -268,6 +275,11 @@ function isGateActive () {
   return !!(_win && !_win.isDestroyed())
 }
 
+/** 当前 locale（assembly init 时注入；ipc 层取文案用——单一来源，QM-6 二轮 i3）。 */
+function getLocale () {
+  return (_deps && _deps.locale) || 'en'
+}
+
 /** 最近一次判定（IPC request-state 回放用；无判定返回 null）。 */
 function lastDecision () {
   return _lastDecision
@@ -342,6 +354,7 @@ module.exports = {
   dispose,
   isGateActive,
   lastDecision,
+  getLocale,
   setMainWindowFacade,
   getMainWindowFacade,
   // 测试口（纯函数注入 deps；生产代码不得调用）

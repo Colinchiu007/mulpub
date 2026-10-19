@@ -25,7 +25,7 @@
         </el-form-item>
         <el-form-item label="阻断版本">
           <el-input v-model="form.enforce_min_version" placeholder="如 0.2.0，低于此版本的客户端将被硬阻断（可空）" />
-          <div class="hint">低于此版本的客户端启动/登录时被阻断，仅可升级；不影响上方提示/强制/灰度逻辑，也不受灰度影响（阻断全员一致）。阻断线必须低于最低提示版本。启用前请确认新版本已发布且可用；应急解锁 = 关闭上方阻断开关。</div>
+          <div class="hint">低于此版本的客户端启动/登录时被阻断，仅可升级；不影响上方提示/强制/灰度逻辑，也不受灰度影响（阻断全员一致）。启用前须已配置最低提示版本或强制下载版本作为上界（min_version 为空时以 force_version 为上界；两者全空会被拒绝）。启用前请确认新版本已发布且可用；应急解锁 = 关闭上方阻断开关。</div>
         </el-form-item>
         <el-form-item label="备注">
           <el-input v-model="form.note" type="textarea" :rows="2" maxlength="200" />

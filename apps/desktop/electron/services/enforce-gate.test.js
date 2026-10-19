@@ -165,20 +165,29 @@ describe('72h 宽限期（onSyncOutcome）', () => {
     expect(r.status).toBe('pass')
   })
 
-  it('同步失败 + 缓存达标 + 72.1h（超宽限）→ verify-failed', async () => {
+  it('同步失败 + 缓存达标 + 72.1h（超宽限）→ 继续 pass（QM-6 二轮 i2：应急开关对离线客户端有效）', async () => {
     const { deps, advance } = makeDeps()
     const gate = await makeGate()
     await gate.onSyncOutcomeForTest(deps, { ok: true, policy: { enforce_enabled: false } })
     advance(72.1 * 3600 * 1000)
     const r = await gate.onSyncOutcomeForTest(deps, { ok: false })
+    expect(r.status).toBe('pass')
+  })
+
+  it('同步失败 + 缓存为 blocking + 72.1h（超宽限）→ verify-failed（阻断不因断网缓解）', async () => {
+    const { deps, advance } = makeDeps({ appVersion: () => '0.1.0' })
+    const gate = await makeGate()
+    await gate.onSyncOutcomeForTest(deps, { ok: true, policy: { enforce_enabled: true, enforce_min_version: '0.2.0' } })
+    advance(72.1 * 3600 * 1000)
+    const r = await gate.onSyncOutcomeForTest(deps, { ok: false })
     expect(r.status).toBe('verify-failed')
   })
 
-  it('同步失败 + 无缓存 → verify-failed', async () => {
+  it('同步失败 + 无缓存 → pass（QM-6 二轮 i2：无证据不阻断，fail-open）', async () => {
     const { deps, advance } = makeDeps()
     const gate = await makeGate()
     const r = await gate.onSyncOutcomeForTest(deps, { ok: false })
-    expect(r.status).toBe('verify-failed')
+    expect(r.status).toBe('pass')
   })
 
   it('时钟回拨 >24h（墙钟早于缓存 fetchedAt）→ 按缓存宽限判定 + WARN', async () => {

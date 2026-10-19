@@ -133,4 +133,4 @@
 1. Electron fuses（onlyLoadAppFromAsar / runAsNode 禁用）+ QM-1 打包验证覆盖；
 2. Windows 代码签名证书（sign: false → EV/OV 证书），提升篡改成本；
 3. 下载镜像源（国内可达性）；
-4. 服务端执法扩展到更多桌面端业务端点（当前仅 member）。
+4. 服务端执法扩展到更多桌面端业务端点（当前覆盖 catalog/ack/degradation 三端点）。

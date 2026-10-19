@@ -11,7 +11,9 @@ function registerHandlers (ipcMain, deps) {
   // QM-6 i5 修复：文案直读主进程字典（编译期常量，不依赖 deps.gateTexts 注入——
   // 此前 phase5 deps 无该键 → get-texts 恒 null → gate 渲染层解构 TypeError 白屏）
   const { readGateText } = require('../services/enforce-gate-text')
-  const locale = (deps.gateLocale != null) ? deps.gateLocale : 'zh-CN'
+  // QM-6 第二轮 i3 修复：locale 从状态机取（assembly 已正确取 app.getLocale()），
+  // 删除无注入点的 deps.gateLocale 死键（恒默认 zh-CN → EN 系统显示中文）
+  const locale = (typeof enforceGate.getLocale === 'function') ? enforceGate.getLocale() : 'en'
 
   ipcMain.on('enforce-gate:get-texts', (event) => {
     event.returnValue = readGateText(locale)

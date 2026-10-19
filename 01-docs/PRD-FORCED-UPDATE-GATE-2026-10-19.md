@@ -82,6 +82,7 @@
 | V3 | enforce_enabled=1 ⇒ enforce_min_version 非空 | 400 "启用强制阻断时必须填写 enforce_min_version" |
 | V4 | enforce_enabled=1 且 min_version 非空 ⇒ enforce < min_version | 400 "强制阻断版本必须低于最低提示版本" |
 | V5 | 既有 force < min 校验不变 | 400 |
+| V6 | enforce_enabled=1 时必须已有上界：min_version 非空则 enforce < min_version；min_version 为空则以 force_version 为上界；两者全空禁止启用（防误配 99.0.0 全员硬锁，QM-6 二轮 i4） | 400 |
 
 ### 4.2 版本比较（服务端 `_cmp_version` / 客户端 `_compareVersions`）
 

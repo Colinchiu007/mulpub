@@ -10,7 +10,7 @@
 - [ ] 2.1 测试先行：`tests/test_version_gate.py`（upsert 校验 5 例 + 版本门 8 例 + router 注入断言）
 - [ ] 2.2 `models.py` UpdatePolicy 双列 + `services/update_policy_migration.py` + main.py 接线
 - [ ] 2.3 `runtime_service.py`：_update_policy_to_dict 扩展 + upsert 校验
-- [ ] 2.4 `services/version_gate.py` enforce_version_gate + `member_grant.py` router 级 Depends
+- [ ] 2.4 `services/version_gate.py` enforce_version_gate + catalog/ack/degradation 三端点挂门（member 面经探查证伪，见 proposal Q2 事实修正）
 - [ ] 2.5 pytest 全绿（cd ops-center/backend && pytest）
 
 ## 3. 服务端前端（ops-center/frontend）
