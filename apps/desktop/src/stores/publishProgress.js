@@ -29,34 +29,7 @@ export const MAX_SESSIONS = 5
 /** 首次隐藏教育 toast 的 localStorage 键 */
 export const FIRST_HIDE_TOAST_STORAGE_KEY = 'mp-publish-first-hide-toast-shown'
 
-/** cancelled（publish-progress-panel-refine）：取消终态——主进程 phase4-events
- * 转发 TaskQueue 的 task:cancelled；中性态（非失败红态），计入终态与 aggregate。 */
-// PRD-OSS-RPA-HARDENING（2026-10-14）：新增 captcha 相位（验证码旁路，F4）。
-// 枚举是唯一真源：TERMINAL_PHASES 从本集合派生（评审 FE2：禁并列维护两份）。
-const PHASE_ENUM = new Set(['start', 'progress', 'success', 'failed', 'retry', 'blocked', 'released', 'cancelled', 'captcha'])
-// 派生而非并列：新增相位只需改 PHASE_ENUM 一处（测试锁 emitter/store 双侧一致）
-const TERMINAL_PHASES = new Set(Array.from(PHASE_ENUM).filter((p) => ['success', 'failed', 'cancelled'].includes(p)))
-const STAGE_KEY_ENUM = new Set([
-  'prepare', 'upload', 'fill', 'submit', 'verify', 'waiting', 'released', 'done', 'failed', 'detail',
-])
-
-let _sessionCounter = 0
-
-function newSessionId() {
-  _sessionCounter += 1
-  return 's_' + _sessionCounter + '_' + Date.now()
-}
-
-function normalizePercent(value) {
-  if (value === null || value === undefined) return null
-  const num = Number(value)
-  if (!Number.isFinite(num) || num < 0 || num > 100) return null
-  return num
-}
-
-function nowTimeString() {
-  return new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-}
+import { PHASE_ENUM, TERMINAL_PHASES, STAGE_KEY_ENUM, newSessionId, normalizePercent, nowTimeString } from './publishProgressEnums'
 
 export const usePublishProgressStore = defineStore('publishProgress', () => {
   const sessions = ref([])

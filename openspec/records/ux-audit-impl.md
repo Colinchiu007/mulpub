@@ -258,6 +258,30 @@ Publish / Collection / Accounts / useOpsCenterRuntime / AnnouncementBanner）。
 - **如实记一条路径差异**：rebase 下 `route-registry.js` 会红，merge 下它自动合上了。我选后者并靠回读断言兜底；
   若主干继续在这个文件上高频变动，下一轮可能换 rebase 更省 —— 判据是「同一处冲突要付几遍」，不是「哪个命令更标准」。
 
+## CI 首红与处置：`publishProgress.js` 涨到 505 行撞 NEW_OVER_LIMIT
+
+- **现场**：`债务熔断检查` job 红，但红因不在它的第一段输出 —— `check-debt-budget.js` 五项指标全 ✅，
+  真正退出 1 的是**同一步的后一条命令** `.github/scripts/check-max-lines.js`：
+  `NEW_OVER_LIMIT: apps/desktop/src/stores/publishProgress.js 505 行 >= 500`。
+- **归因**：不是主干带来的。本批阶段 1.8 的「进度陈旧看门狗」往这个 store 里加了代码，把它从 481 顶到 505；
+  主干 PR #3951 当时同一 job 是 SUCCESS（它跑在 500 以下的那份上）。所以这是**我引入的超限**，按本仓口径
+  正规解法只有一种：**按既有 composable 范式拆分**。两条明确不走的路：把它加进挂账清单（那是给门禁加豁免，不是还债）、
+  或抬 `limit`（那是在改「谁来守门」，必须人工过目）。
+- **拆法**：把与 Pinia 状态零耦合的**三张枚举 + 三个纯工具**搬进 `src/stores/publishProgressEnums.js`
+  （`PHASE_ENUM` / 由它派生的 `TERMINAL_PHASES` / `STAGE_KEY_ENUM` + `newSessionId` / `normalizePercent` / `nowTimeString`），
+  store 505 → **478 行**。「TERMINAL_PHASES 必须由 PHASE_ENUM 派生、禁并列维护两份」那条评审注释一起搬走，
+  原地不留抄本 —— 搬家类重构最容易造出的就是「同一句话两处各一份」。
+- **为什么这次搬家不需要改测试**：守 `store PHASE_ENUM ⊇ emitter PHASE_ENUM` 的那条用例是**从行为反推**的
+  （发一个 `captcha` 事件、断言它没被归一成 progress），不读源文件形状。若是结构锁（grep 源文件里的声明），
+  搬家就会把锁搬断而测试照绿 —— 那属于「锚点静默失效」形态，必须同步改锚。
+- **验证**：`check-max-lines` → 「无新增超大文件，挂账清单与现实一致」；两个文件 `node --check` 通过；
+  `publishProgress.test.js` + `PublishProgressPanel.test.js` = **70 passed**；
+  `PublishProgressTaskRow.gate-help.test.js` = **5 passed**；eslint 两文件 0 error。
+- **顺带记下这一步暴露的读数陷阱**：`check-debt-budget.js` 与 `check-max-lines.js` 同在一个 `run:` 步骤，
+  前者全绿会让整个 job「看起来没问题」，而失败来自后一条命令；job 名说的是「债务熔断」，红的是「超大文件」。
+  归因必须落到**步骤内哪一条命令**退出非零。该步是 `shell: bash`（`-e -o pipefail`），所以任一条非零即中止 ——
+  这一步能红正是因为它没被做成 pwsh 那种「只有最后一条决定成败」的装饰形态。
+
 ## 关联
 
 - 上游审计：`01-docs/UX-AUDIT-2026-10-17.md`（merge `c57616b61`）
