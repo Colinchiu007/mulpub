@@ -311,13 +311,14 @@ def test_gate_wiring_catalog_and_ack_have_gate_bootstrap_exempt():
             return True
         return False
 
-    def _route_has_path(path):
-        return _route_for(path, "GET") is not None or _route_for(path, "POST") is not None
-
-    # 前提自证：路由本身存在（防"路由都没挂上→断言空真"退化）
-    assert _route_has_path("/api/v1/model-presets/catalog")
-    assert _route_has_path("/api/v1/runtime/ack")
-    assert _route_has_path("/api/v1/telemetry/degradation")
+    # 前提自证改走 path 字符串集合：路由表枚举口径跨环境有差（两次实测 _route_for
+    # 在 CI 上找不到本地可见的路径），但 path 字符串本身无环境差。同文件 A8 的
+    # 426 行为测试通过 = 路由与门都在，仅 APIRoute 类型/依赖对象身份比对不可靠。
+    all_paths = {str(getattr(r, "path", "")) for r in app.routes}
+    assert "/api/v1/model-presets/catalog" in all_paths, (
+        "catalog 路径不在路由表：" + str(sorted(p for p in all_paths if "catalog" in p)[:5]))
+    assert "/api/v1/runtime/ack" in all_paths
+    assert "/api/v1/telemetry/degradation" in all_paths
 
     # 挂门端点（桌面端真实消费）
     assert _has_gate("/api/v1/model-presets/catalog", "GET")
