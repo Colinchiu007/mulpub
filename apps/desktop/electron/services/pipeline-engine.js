@@ -231,7 +231,11 @@ const PIPELINES = [
     stageDefs: [
       { name: 'avatar_select', type: 'videogen_avatar', description: '数字人选择与口播文案', checkpointRequired: false, options: {} },
       { name: 'script', type: 'videogen_script', description: '口播文案', checkpointRequired: false, options: {} },
-      { name: 'generate', type: 'videogen_generate', description: '数字人视频生成', checkpointRequired: false, options: {} },
+      // digitalHuman:true 是 GENERATE 阶段走数字人分支的判据（videogen-stages.js）。
+      // 2026-10-19 前该阶段复用通用文生视频链路，导致「数字人流水线其实在跑普通
+      // 文生视频」——不传 character/voice/script，且主题被当画面提示词。详见
+      // 01-docs/PRD-AVATAR-SPOKESPERSON-HEYGEN-WIRING-2026-10-19.md §1.2。
+      { name: 'generate', type: 'videogen_generate', description: '数字人视频生成', checkpointRequired: false, options: { digitalHuman: true } },
       { name: 'render', type: 'videogen_merge', description: '拼接合成与产物校验', checkpointRequired: false, options: {} },
     ],
   },
