@@ -1,9 +1,10 @@
 # AI 影视创作开源项目深度研究报告与落地实施方案
 
-> **日期**：2026-10-19 ｜ **状态**：研究完成，待实施
-> **调研对象**：16 个 AI 影视创作开源项目（已克隆至本机临时目录 `<AI_FILM_RESEARCH_DIR>`；`--depth 1`。实际路径按本机自行指定，见附录 B）
+> **日期**：2026-10-19（v2 增补 3 个新项目） ｜ **状态**：研究完成，待实施
+> **调研对象**：**19 个** AI 影视创作开源项目（已克隆至本机临时目录 `<AI_FILM_RESEARCH_DIR>`；`--depth 1`。实际路径按本机自行指定，见附录 B）
 > **目标项目**：mulpub / Multi-Publish（`<REPO_ROOT>`，即本仓库根）
 > **取证口径**：所有结论均基于实际克隆源码，标注 `仓库相对路径:行号`；许可证逐仓核实 LICENSE 文件前若干行；未读到的功能明确标注「未确认」，不推测。
+> **v2 增补**：`FireRed-OpenStoryline`（小红书 FireRed，Apache-2.0）、`smy-seedance-storyboard`（**无许可证**）、`ToonCrafter`（Apache-2.0，学术模型）。详见 §3.17–§3.19。
 
 ---
 
@@ -39,7 +40,7 @@
 
 ---
 
-## 一、总览：16 个项目全景
+## 一、总览：19 个项目全景
 
 ### 1.1 客观指标盘点
 
@@ -61,52 +62,70 @@
 | 14 | autoclip | MIT | 1314 | 2026-10-15 | Python + Tauri | 长视频→高光切片→竖版成片（字幕驱动） |
 | 15 | short-drama-skills | MIT | 20 | 2026-07-01 | **纯 Prompt 资产** | 7 条工业化验证的分镜拆解 Skill |
 | 16 | short-drama | MIT | 12 | 2026-04-18 | **纯 Prompt 资产** | 微短剧剧本创作 Skill（50-100 集） |
+| **17** | **FireRed-OpenStoryline** | **Apache-2.0** | 141 | 2026-07-31 | Python FastAPI + MCP + 19 节点 | **小红书 FireRed**：对话式 agentic 剪辑流水线（素材搜索→切镜→理解→编排→AI 转场→渲染） |
+| **18** | **smy-seedance-storyboard** | 🔴 **无许可证** | 20 | 2026-10-08 | **纯 Claude Skill 资产** | 上美影风格短剧生成器（SKILL.md + 7 篇 references + 2 个完整示例工程） |
+| **19** | **ToonCrafter** | **Apache-2.0** | 81 | 2025-03-19 | PyTorch 扩散模型 | 卡通**首尾帧插值**（SIGGRAPH Asia 2024，CUHK + 腾讯 AI Lab） |
+
+> ⚠️ **第 18 号 `smy-seedance-storyboard` 无任何许可证文件、README/SKILL 中亦无版权声明** —— 按伯尔尼公约默认**版权保留（All Rights Reserved）**，其文本**不可复制**。仅可参考其组织结构。见 §2.3。
 
 ### 1.2 形态四分类
 
 按**工程形态**划分，这决定了复用方式根本不同：
 
 ```
-16 个项目
-├── A. 完整工程流水线（8 个）
+19 个项目
+├── A. 完整工程流水线（9 个）
 │   ZJT / waoowaoo / huobao-drama / moyin-creator / Toonflow / Jellyfish
 │   FastMovieAI / novelvids / Pixelle-Video / autoclip / ai-art-engine / showvi
+│   FireRed-OpenStoryline ★v2 新增（小红书，19 节点 agentic 剪辑）
 │   → 复用「架构思路 + 数据结构 + 算法」，不复制代码（许可证多受限）
 │
 ├── B. 闭源/半成品（2 个）
 │   BigBanana-AI-Director（仅文档+截图）/ app.yumcut.com（PolyForm NC）
 │   → 只可参考产品形态与交互设计
 │
-├── C. Prompt / 剧作知识资产（2 个）★ 最高性价比
+├── C. Prompt / 剧作知识资产（3 个）★ 最高性价比
 │   short-drama-skills（MIT）/ short-drama（MIT）
-│   → 可直接集成到 mulpub 的 ai-writer / 剧本套用引擎
+│   smy-seedance-storyboard（🔴 **无许可证** —— 只能参考结构，文本不可复制）
+│   → 可直接集成到 mulpub 的 ai-writer / 剧本套用引擎（smy 除外，见 §2.3）
 │
-└── D. 专项能力库（1 个）★ 高价值
-    ZJT/jianying —— 剪映多轨道草稿生成库（Apache-2.0）
-    → 可直接复用于 mulpub 的发布链路
+├── D. 专项能力库（1 个）★ 高价值
+│   ZJT/jianying —— 剪映多轨道草稿生成库（Apache-2.0）
+│   → 可直接复用于 mulpub 的发布链路
+│
+└── E. 生成模型仓库（1 个）⚠️ 形态特殊 ★v2 新增
+    ToonCrafter（Apache-2.0，PyTorch 扩散模型）
+    → 不是工程流水线而是「能力」，需 GPU + 512×320，桌面端不可直接接入
 ```
+
+> 💡 **v2 新增三个项目恰好填满了三个不同类别**：FireRed 是最接近 mulpub「成片剪辑」段的对标（进 A 类）；smy 是纯 Prompt 资产但**许可证最危险**（进 C 类但单列）；ToonCrafter 是**首个「生成模型」形态**（进 E 类）——这也暴露了本轮 19 个项目里只有 1 个是模型仓库，说明这个生态的主体仍在「流程编排」而非「底层生成」。
 
 ---
 
 ## 二、许可证合规矩阵（前置结论）
 
-> ⚠️ **这是本章最重要的部分**：mulpub 是**商业闭源**项目（虽开源在 GitHub，但定位是商业产品）。因此**任何 copyleft 或禁止商用的许可证代码都不得复制进 mulpub**。
+> ⚠️ **这是本章最重要的部分**。判据分两层，**不要混为一谈**：
+> 1. **NC（非商业）层**——由「是否商用」决定。mulpub 当前定位为**科研项目（非商用）**，因此 NC 类（PolyForm NC / CC BY-NC）**可用**。
+> 2. **SA / copyleft 层**——由「是否开源衍生作品」决定，**与是否商用无关**。GPL / AGPL / CC BY-NC-SA 的传染性**不因非商用而解除**。
+>
+> 🔴 **还有第三层，比前两层都严格**：**无许可证 = 默认版权保留（All Rights Reserved）**，连「非商用使用」都不构成授权。见 §2.3。
 
 ### 2.1 逐仓核实结果
 
 | 许可证 | 项目 | 商用 | 修改 | 分发 | 对 mulpub 的结论 |
 |---|---|---|---|---|---|
-| **Apache-2.0** | Jellyfish, FastMovieAI, Pixelle-Video | ✅ | ✅ | ✅ | ✅ **可安全复用**（需保留 NOTICE） |
+| **Apache-2.0** | Jellyfish, FastMovieAI, Pixelle-Video, **FireRed-OpenStoryline** ★v2, **ToonCrafter** ★v2 | ✅ | ✅ | ✅ | ✅ **可安全复用**（需保留 NOTICE） |
 | **修改版 Apache-2.0** | **ZJT** | ✅ | ✅ | ✅ | 🟡 **可用但须署名**：① 必须保留 LOGO 与版权署名，显著位置展示「智剧通（ZJT）」，不得声称独立原创；② 禁止用其源码运营多工作区 SaaS（mulpub 为单用户桌面端，**不触发**）；③ 禁止逆向企业版授权校验（不碰即不触发）。**结论：需在 NOTICE/About 页声明 "Based on 智剧通 (ZJT)"** |
 | **MIT** | Toonflow-app, showvi, autoclip, short-drama-skills, short-drama | ✅ | ✅ | ✅ | ✅ **可安全复用**（需保留版权声明） |
 | **Elastic License 2.0** | waoowaoo | ⚠️ | ⚠️ | ⚠️ | 🟢 **桌面端实际可用**：三条限制①不得作为托管/管理服务提供给第三方 ②不得规避 license key 功能 ③不得移除被 license key 保护的功能。**mulpub 是本地桌面端、用户自装自用，不构成「向第三方提供托管服务」，不触发**。且是唯一与 mulpub 同为 TypeScript 栈的项目，抽取成本最低 |
-| **GPL** | ai-art-engine | ✅ | ✅ | ✅ | ⚠️ **Copyleft**：衍生作品必须开源。**不可复制代码，仅可参考思路** |
-| **AGPL** | moyin-creator | ✅ | ✅ | ✅ | ⚠️ **强 Copyleft**：网络使用也视为分发。**不可复制代码** |
-| **Elastic License 2.0** | waoowaoo | ❌ | ⚠️ | ❌ | 🚫 **禁止商用**：不得作为托管服务提供、不得绕过付费功能<br>🟢 **但科研项目非商用 + 桌面端自用 → 可用**（详见 2.2 决策树） |
-| **PolyForm Noncommercial 1.0.0** | app.yumcut.com | ❌ | ❌ | ❌ | 🚫 **禁止商用** |
-| **CC BY-NC-SA 4.0** | huobao-drama | ❌ | ✅ | ❌ | 🚫 **禁止商用 + SA 传染** |
-| **CC BY-NC 4.0** | novelvids | ❌ | ✅ | ❌ | 🚫 **禁止商用** |
+| **GPL-3.0** | ai-art-engine | ✅ | ✅ | ✅ | ⚠️ **Copyleft**：衍生作品必须开源。**不可复制代码，仅可参考思路**（除非项目整体开源） |
+| **AGPL-3.0** | moyin-creator | ✅ | ✅ | ✅ | ⚠️ **强 Copyleft**：网络使用也视为分发。**不可复制代码**（除非整体开源或购商业许可） |
+| ~~**Elastic License 2.0**~~ | ~~waoowaoo（重复行，已并入上方）~~ | — | — | — | 🔧 **v2 修正**：上一版把 `waoowaoo` 列了两行且结论互斥（一行「桌面端可用」、一行「禁止商用」）。该许可证三条限制**都不是「禁止商用」**——禁的是「作为托管服务提供」与「移除 license key 功能」，与是否收费无关。已合并为上方单行 |
+| **PolyForm Noncommercial 1.0.0** | app.yumcut.com | ❌ | ❌ | ❌ | 🟢 **科研非商用可用**（NC 已解除）；商业使用禁止 |
+| **CC BY-NC-SA 4.0** | huobao-drama | ❌ | ✅ | ❌ | ⚠️ NC 已解除（非商用 OK），但 **SA 未解除**：衍生作品须同协议授权 |
+| **CC BY-NC 4.0** | novelvids | ❌ | ✅ | ❌ | 🟢 **科研非商用可用**（需署名 Attribution），无 SA 传染 |
 | **BigBanana Community License 1.0** | BigBanana-AI-Director | 需确认 | 需确认 | 需确认 | ⚠️ **自定义社区版**，且无源码可复用 |
+| 🔴 **无许可证** | **smy-seedance-storyboard** ★v2 | ❌ | ❌ | ❌ | 🔴 **默认版权保留（All Rights Reserved）**：无 LICENSE 文件、README/SKILL 中亦无任何版权声明。**文本不可复制**；仅可参考「SKILL.md + references/ 分层」「剧组色盘单一声明」「尾帧衔接」等**抽象做法**，且须自行重写表达。见 §2.3 |
 
 ### 2.2 硬结论（按「科研项目、非商用」场景重估）
 
@@ -155,6 +174,8 @@
 
 ```
 你要复用某个项目 ？
+├─ 仓库没有 LICENSE 文件，README 也没写许可（smy-seedance-storyboard）
+│   → 🔴 默认版权保留。连"非商用"都不构成授权 ⇒ 只能参考抽象做法 + 完全重写
 ├─ 许可证只含 NC（app.yumcut.com / novelvids）
 │   → 科研非商用 ✅ 直接用，记得署名（CC 系需 Attribution）
 ├─ 许可证含 SA 或 copyleft（huobao-drama / ai-art-engine / moyin-creator）
@@ -164,6 +185,35 @@
 └─ 许可证为 MIT / Apache / Elastic
     → ✅ 直接用（Elastic 别做成托管服务；ZJT 记得署名）
 ```
+
+### 2.3 🔴 无许可证项目：比 copyleft 更严格的第三类
+
+`v2` 新发现的 `smy-seedance-storyboard` 引出一个前 16 个项目都没出现的问题：**仓库完全没有许可证**。
+
+| 核查项 | 结果 |
+|---|---|
+| `LICENSE` / `LICENSE.md` / `COPYING` 文件 | **不存在** |
+| `README.md` 中的许可声明 | **无**（全文仅 1 处匹配 "licen"，是 "Video editing" 单词误命中） |
+| `SKILL.md` frontmatter | **无** license 字段（只有 name/description） |
+| `package.json` / `pyproject.toml` | 不存在（纯文档仓库） |
+
+**法律后果**：依《伯尔尼公约》与大多数国家著作权法，**作品自创作完成即自动受版权保护**，无需声明。「没有许可证」不等于「随便用」，而是**保留了全部权利（All Rights Reserved）**——反向理解才是对的：**许可证是「授予他人权利」的文件，缺了它，你连复制一份的权利都没有**。
+
+这意味着：
+- ❌ 不能复制其 `SKILL.md`、`references/*.md` 的文本（含那 26KB 上美影风格指南、30KB Seedance 手册）
+- ❌ 不能复制其两个示例工程（鲁智深 / 罗刹市）的剧本与提示词
+- ❌ 「非商用就能用」——**不成立**，NC 类许可至少有明确授权，无许可证连授权都没有
+- ✅ 可以阅读后**理解其做法**，然后**用自己的表达完全重写**（思想/方法不受版权保护，表达受保护）
+- ✅ 可以在文档里**引用仓库名并给出链接**做事实陈述
+
+**可借鉴的抽象做法**（重写，不抄文本）：
+1. **SKILL.md + references/ 双层结构**：主文件写工作流，细节规范放 references/ 单一事实来源
+2. **剧组色盘单一声明**：一部剧先定死一组颜色（如朱砂红/鎏金/墨黑/青瓷绿），全剧复用防跑色
+3. **尾帧说明跨集衔接**：「每集最后一帧的画面描述，下一集接着用」
+4. **风格硬约束后缀**：所有生图提示词末尾附咆哮体禁令（"2D FLAT COLORS ONLY. NO SHADING, NO GRADIENTS"）
+5. **文-资-视-剪四阶段**：把「文图视音剪」五段压缩为四段
+
+> 💡 **这一条值得写进流程**：以后做同类调研，**第一步应检查 LICENSE 是否存在**，而不是只读 README 的 license 徽章（smy 的 README 甚至没有徽章，容易被当成"没写就是开源"）。
 
 > 💡 **两个关键修正**（深度核实后的结论，比初判更精确）：
 > 1. **ZJT 是「修改版 Apache-2.0」而非标准 Apache**：附加署名义务（须声明 "Based on 智剧通 (ZJT)"）与禁多工作区 SaaS 条款。mulpub 是单用户桌面端，**不触发 SaaS 禁令**，代价仅是在 NOTICE/About 页署名 —— 成本极低，可接受。
@@ -855,6 +905,261 @@ export function getVideoAdapter(provider: string): VideoProviderAdapter { ... }
 ```
 mulpub 的 `AdapterRegistry` 已有等价能力且更完善（含 `getAdaptersByCapability` 按能力筛选 + 版本校验 + 注册时自动 validateConfig），**此项仅作交叉验证，无需引入**。
 
+### 3.17 ⭐⭐⭐⭐ FireRed-OpenStoryline（Apache-2.0）—— 小红书出品，最接近「成片剪辑」段的对标
+
+> **v2 新增**。这是 19 个项目里**唯一一个把「剪辑」本身做成 agentic 流水线**的项目，来自小红书 FireRed 团队（Apache-2.0，可安全复用）。
+
+**定位**：把视频创作变成对话体验。核心链路是「智能素材搜索下载 → 片段拆分与理解 → 文案生成 → 配音/选曲/字体推荐 → 对话式精修 → 渲染」，并支持**把一次剪辑逻辑沉淀成可复用 Skill**。
+
+**技术栈**：Python ≥3.11 + FastAPI + **MCP**（Model Context Protocol）+ LangChain + `skillkit` + **TransNetV2**（镜头边界检测）。141 个文件，1.1 MB。
+
+**架构**（`src/open_storyline/`）：
+```
+agent_fastapi.py (3728 行)          Agent 服务入口
+src/open_storyline/
+├── nodes/                          节点系统
+│   ├── node_schema.py    (513 行)  19 个节点的 Pydantic Input/Output 契约
+│   ├── node_manager.py   (168 行)  节点注册 / 拓扑排序 / check_excutable
+│   ├── node_summary.py   (236 行)
+│   └── core_nodes/                 19 个节点实现
+│       render_video.py        (1023 行)  ← 最大
+│       plan_timeline.py        (907 行)
+│       plan_timeline_pro.py    (728 行)
+│       generate_voiceover.py   (651 行)
+│       split_shots.py          (611 行)  ← TransNetV2
+│       generate_ai_transition.py (571 行)
+├── mcp/                            MCP 集成（register_tools / sampling / node_interceptors）
+├── skills/skills_io.py   (83 行)   Skill 发现与「沉淀」
+├── storage/                        session / file / agent_memory
+└── utils/                          prompts(100) / ffmpeg(305) / ai_transition_client(349)
+
+prompts/tasks/<task>/{zh,en}/{system,user}.md   ← 任务化 + 中英成对的 prompt 库
+.storyline/skills/<name>/SKILL.md               ← 5 个内置 Skill
+```
+
+**⭐ 核心实现 1：任务化 + 中英成对的 Prompt 库**（`src/open_storyline/utils/prompts.py:1-100`，仅 100 行）
+
+这是本次调研里**最干净、最可搬**的 prompt 组织形式：
+
+```python
+PROMPTS_DIR = Path("prompts/tasks")
+
+def _load_template(self, task: str, role: str, lang: str) -> str:
+    cache_key = f"{task}:{role}:{lang}"
+    if cache_key in self._cache: return self._cache[cache_key]
+    template_path = self.prompts_dir / task / lang / f"{role}.md"   # prompts/tasks/filter_clips/zh/system.md
+    if not template_path.exists():
+        raise FileNotFoundError(f"Template not found: {template_path}")   # fail-closed
+    ...
+
+def render(self, task, role, lang="zh", **variables):
+    return re.sub(r"{{(.*?)}}", lambda m: str(variables[m.group(1)]), template)
+```
+
+四个设计点都值得直接抄：
+1. **目录即契约**：`prompts/tasks/<task>/<lang>/<role>.md`，加任务只需建目录，不改代码
+2. **中英成对是强制结构**：`zh/` 与 `en/` 并列，语言缺失直接抛 `FileNotFoundError` —— 这恰好满足 mulpub 的 **CI Gate 7（locale 成对）**，是天然的合规结构
+3. **`{{var}}` 正则插值**，不引入模板引擎依赖
+4. **按 `task:role:lang` 缓存**，且 fail-closed
+
+**已覆盖的 11 个任务**：`elementrec_text`、`filter_clips`、`generate_ai_transition`、`generate_script`、`generate_title`、`generate_voiceover`、`group_clips`、`instruction`、`select_bgm`、`speech_rough_cut`、`understand_clips`。每个任务都有 system/user 两份、zh/en 两语言 —— 约 40 个 prompt 文件。
+
+**⭐ 核心实现 2：19 节点 agentic 剪辑流水线**
+
+| 节点 | 作用 |
+|---|---|
+| `LoadMedia` / `SearchMedia` | 本地加载 / 在线搜索下载素材 |
+| `SplitShots` | **TransNetV2 镜头边界检测** |
+| `LocalASR` / `SpeechRoughCut` | 本地语音识别 / **口播粗剪** |
+| `UnderstandClips` | VLM 理解片段内容（overall + detail 两级） |
+| `FilterClips` / `GroupClips` | 筛选 / 按主题分组 |
+| `GenerateScript` / `RecommendScriptTemplate` | 生成文案 / 推荐仿写模板（few-shot 风格复刻） |
+| `GenerateVoiceover` / `SelectBGM` / `RecommendText` | 配音 / 选曲（含卡点）/ 推荐字体 |
+| `RecommendTransition` / `GenerateAITransition` | 推荐转场 / **AI 转场生成** |
+| `PlanTimeline` / `PlanTimelineAITransition` | 时间线编排（含转场版本） |
+| `RenderVideo` | 最终渲染 |
+
+**⭐ 核心实现 3：TransNetV2 镜头边界检测**（`nodes/core_nodes/split_shots.py:30-115`）
+
+mulpub **完全没有**这个能力（film-kit 的镜头是人工预设的），而它是「拿到一段原片 → 自动切分」的前置：
+
+```python
+# split_shots.py:30-36
+# TransNetV2 expects frames with shape [..., 27, 48, 3]
+TRANSNETV2_INPUT_HEIGHT = 27
+TRANSNETV2_INPUT_WIDTH  = 48
+DEFAULT_SCENE_DETECTION_FRAMES_PER_SECOND = 25
+DEFAULT_SCENE_DETECTION_THRESHOLD = 0.5
+```
+处理链（`:77`）：`ffmpeg → frames(uint8) → model.predict_raw → predictions_to_scenes_with_data`；`device` 可配 `cpu`（`config.py:139`），意味着**桌面端 CPU 也能跑**，不强制 GPU —— 这一点很关键。
+
+**⭐ 核心实现 4：AI 转场的「强制介质掩护」**（`prompts/tasks/generate_ai_transition/zh/system.md`）
+
+首尾帧生视频的四条硬规则，第 3 条是真正的一线经验：
+
+> **绝对禁止**让两个物理形态差异巨大的实体直接发生形变！必须在形变发生时引入符合全局基调的**过渡介质**掩盖计算过程。
+> 示例：`blinded by a massive warm lens flare`、`camera passes through a thick motion blur`、`explodes into glowing particles`
+
+另三条：① 强指令前缀 `"Smooth continuous single shot, seamlessly morphing from the start frame to the end frame..."`；② 锁定运镜轨迹 + 稳定词；③ 兜底后缀 `"High quality, cinematic masterpiece, absolutely no hard cuts, no sudden jumps, flawless transition."`
+
+**⚙️ 核心实现 5：Skill 沉淀 + 路径穿越防护**（`skills/skills_io.py:22-83`）
+
+```python
+target_path = base_path / skill_dir / f"cutskill_{clean_name}"
+final_path = target_file_path.resolve()
+if base_path not in final_path.parents:            # ← 路径穿越防护
+    return {"status": "error", "message": f"Security Alert: Writing to paths outside..."}
+```
+
+「沉淀」的含义：agent 干完一次剪辑 → 把逻辑写成 `SKILL.md` → 下次 `SkillManager.adiscover()` 自动发现并转成 LangChain tools。**这是「一次工作产出可复用能力」的机制**。
+
+**⚙️ 核心实现 6：ASR 口播粗剪规则**（`prompts/tasks/speech_rough_cut/zh/system.md`）
+
+- **中间删除即拆分**：若删除了句子中间的内容，**必须**拆成多个独立片段（因为音频不能拼接）；仅首尾删除则只调 start/end
+- **时间戳逐字对齐**：`Start` = 片段第一个字的 `timestamp[0]`，`End` = 最后一个字的 `timestamp[1]`；约束在原 `[start,end]` 内、片段间不重叠、禁止跨句
+- **重复语句删前不删后**，但「**根据上下文观察当前是否是最后一次重复，如果是则保留当前句子**」—— 这条细节很讲究
+- **`reason` 字段优先输出**，强制模型解释改了什么、为什么
+
+**可复用点评估**：
+
+| 项目 | 等级 | 落点 | 工作量 | 预期收益 |
+|---|---|---|---|---|
+| **任务化中英成对 prompt 库** | ⭐⭐⭐ | `electron/film-kit/prompts/tasks/<task>/{zh,en}/` + 加载器 | 小 | 天然满足 CI Gate 7；加任务不改代码；结构比单文件 `prompt-doctrine.json` 更适合「按任务」扩展（两者互补：doctrine 存方法论，tasks 存具体任务 prompt） |
+| **AI 转场介质掩护规则** | ⭐⭐⭐ | `story2video-engine` 的 `endFramePrompt` 规则集 | 小 | 直接降低「首尾帧形变崩坏」的废片率 |
+| **Skill 沉淀机制** | ⭐⭐ | `packages/ai-writer/src/skills/`（**实测该目录不存在，需新建**） | 中 | 把一次性产出固化为可复用能力；需配路径穿越防护 |
+| **ASR 口播粗剪规则** ✅ | ⭐⭐ | `python-backend/.../analysis/` 新增规则层（**对接既有 `transcriber.py`**） | 中 | 中间删除拆分 + 逐字时间戳是可落地的算法约束 |
+| ~~**TransNetV2 镜头边界检测**~~ | ⚠️ **降级** | — | — | 🔴 **实测发现 mulpub 已有等价能力**，见下方修正 |
+| 19 节点编排思路 | ⭐ | 参考 | — | mulpub 的 `PipelineEngine` 已是阶段式，节点图收益有限 |
+
+> 🔴 **TransNetV2 项的重大修正（自查，实测取证）**>
+> 初稿把「TransNetV2 镜头边界检测」列为 ⭐⭐⭐「补 mulpub 原片自动切分缺口」。**实测后发现该判断是错的** —— mulpub 已经有完整实现：
+>
+> - `packages/python-backend/src/multi_publish/video_creation/analysis/scene_detect.py`（**282 行**）
+> - `class SceneDetect(BaseTool)`，`tier = ToolTier.CORE`、`capability = "analysis"`
+> - **封装 PySceneDetect**（三种方法：`content` / `threshold` / `adaptive`），`dependencies = ["cmd:ffmpeg"]`
+> - **带 ffmpeg 回退**：`_has_pyscenedetect()` 检测不到 PySceneDetect 时自动降级到 ffmpeg 检测
+> - `scenedetect` 与 `torch` 在 `requirements-runtime.txt` / `pyproject.toml` 中**均不存在** → 都是可选依赖
+>
+> **正确结论**：TransNetV2 **不是补缺口，而是一个「可选精度增强」**。取舍如下：
+>
+> | | 现有 PySceneDetect | TransNetV2 |
+> |---|---|---|
+> | 原理 | 内容/阈值/自适应算法 | 深度网络（transnetv2-pytorch） |
+> | 依赖 | `scenedetect[opencv]`（可选） | `torch` + `transnetv2-pytorch`（**重**） |
+> | 精度 | 良好 | 特定内容（如渐变转场、快速剪辑）更稳 |
+> | 桌面端代价 | 低（纯 CPU 可行） | **需引入 torch，包体积 +1~2 GB** |
+>
+> ✅ **建议**：**不进批次一**。降级为「若现有 PySceneDetect 在真实素材上漏检率高，再评估引入」的备选项 —— 因为它要付出的代价（torch 依赖）与 mulpub 桌面端的分发体积极不相称。**这一条是本轮唯一被实测推翻的复用判断，保留原始记录以示取证诚实。**
+
+> ✅ **反向确认：ASR 口播粗剪是真实缺口（实测）**
+>
+> 为免重复上一条的错误，对「ASR 粗剪」也做了实测：
+> - ✅ **ASR 基建已有**：`packages/python-backend/src/multi_publish/video_creation/analysis/transcriber.py`（**247 行**，封装 faster-whisper / WhisperX），output_schema 明确含 **`word_timestamps`** —— 词级时间戳正是 FireRed 那套规则的前提
+> - ❌ **粗剪/口水词逻辑没有**：全仓搜 `口水词|filler|rough.?cut|口头禅|语气词` 无命中（`podcast-tts-colloquialize.js` 是反向的「把文本口语化」，不是清洗）
+>
+> **结论**：这是一处**真实缺口，且能与既有基础设施无缝对接**（直接消费 `transcriber.py` 的 `word_timestamps`），无需引入新依赖。**建议进批次三**，落 `python-backend/.../analysis/` 新增规则层。
+
+**踩坑与缺点**：
+- `agent_fastapi.py` **3728 行**巨型文件，与 moyin/novelvids 同病
+- 依赖 `skillkit`、`transnetv2-pytorch` 等非主流包，Python 生态适配成本需实测
+- `SplitShots` 返回的 `clip_captions` 复用 `Clip` 模型，**镜头切分结果与字幕单元耦合**，抽取时需解耦
+- 重量级依赖（MCP + LangChain）与 mulpub 现有技术栈不重合，只能取**单个模块**而非整体架构
+
+---
+
+### 3.18 🔴 smy-seedance-storyboard（**无许可证**）—— 纯 Skill 资产包，只能学结构不能抄文本
+
+> **v2 新增**。这是 19 个项目里**唯一没有许可证**的，因此复用等级被许可证硬性锁死在「只可参考抽象做法」。
+
+**定位**：一个 **Claude Skill 资产包**（不是软件），把「上美影风格（上海美术电影制片厂复古手绘动画）」短剧生成的全套方法论做成可调用的 Skill。**20 个文件、0.2 MB、零代码**。
+
+**结构**（全部是 Markdown/文本）：
+```
+SKILL.md                              27.9 KB  Skill 定义与工作流（含 YAML frontmatter）
+README.md                             12.6 KB
+references/
+  上美影风格指南.md                    26.3 KB  ← 自称「单一事实来源」
+  seedance-manual.md                  30.0 KB  Seedance 2.0 手册（含「模板十七：上美影国风动画类」）
+  上美影原始提示词.txt                 11.5 KB  实测素材（山海经 5 条 + 水浒 3 条成品示例）
+  故事转视频脚本-转换工具.md           12.7 KB
+  分镜优化与声音设计.md                 8.8 KB
+  好剧本.md                            6.9 KB
+  优化分镜.md                          1.9 KB
+鲁智深醉闹五台山项目/                  7 个文件（剧本 + 素材清单 + E01–E05 分镜 + 使用指南）
+罗刹市奇幻故事项目/                    3 个文件（剧本 + 资产提示词 + 分镜提示词）
+```
+
+**它的核心做法**（以下均为「抽象做法」，可自行重写；**具体文本不可复制**）：
+
+1. **单一事实来源（Single Source of Truth）**：所有风格定义集中在 `references/上美影风格指南.md`，其他文件只引用不重复 —— 避免多处风格描述漂移
+2. **剧组色盘（Palette Declaration）**：一部剧开拍前先声明一组颜色（如朱砂红/鎏金/墨黑/青瓷绿），全剧复用防跑色
+3. **尾帧说明跨集衔接**：「每集最后一帧的画面描述，下一集接着用，集与集无缝衔接」—— 这正是 mulpub F8 `endFramePrompt` 想做的事
+4. **咆哮体硬约束后缀**：所有生图提示词末尾附 `CRITICAL: 2D FLAT COLORS ONLY. ABSOLUTELY NO SHADING, NO GRADIENTS, NO 3D VOLUME.` —— 用大写+绝对化词压住模型默认倾向
+5. **两级风格配方分离**：图片端禁阴影渐变（纯 2D），视频端保留手绘肌理但禁 3D 渲染/写实感/体积光 —— **同一风格在「静帧」与「运动」两端约束不同**
+6. **文-资-视-剪四阶段**：把常见「文图视音剪」五段压缩为四段（音并入视）
+7. **Seedance 2.0 延长法**：第二集起把上一集视频上传并选「延长」，而非重新生成 —— 平台特有的跨集连续性手段
+
+**许可证结论**（核查明细见 §2.3）：无 `LICENSE` 文件、README/SKILL 无版权声明 → **默认 All Rights Reserved**。
+
+**可复用点评估**：
+
+| 项目 | 等级 | 说明 |
+|---|---|---|
+| SKILL.md + references/ 双层结构 | ⭐⭐ | 结构可参考（这是通用范式，非其独创） |
+| 剧组色盘单一声明 | ⭐⭐ | 概念可借，需自行实现为 film-kit 资产 |
+| 尾帧说明跨集衔接 | ⭐⭐ | 与 mulpub F8 同源，可交叉验证 |
+| 咆哮体硬约束后缀 | ⭐ | 属通用 prompt 技巧，无需参考 |
+| **其任何文本 / 示例工程** | ❌ **禁止复制** | 无许可证，连非商用都不构成授权 |
+
+> 💡 **这是本轮最有价值的一条方法论教训**：`smy` 的 README **没有 license 徽章**，很容易被误以为「没写就是开源」。正确做法是**第一步检查 LICENSE 文件是否存在**，而不是看 README。这与前 16 个项目形成对照 —— 它们全都有明确的 LICENSE 文件。
+
+---
+
+### 3.19 ⭐ ToonCrafter（Apache-2.0）—— 唯一「生成模型」形态，桌面端不可直接接入
+
+> **v2 新增**。它不属于「流水线工具」，而是一个**扩散模型**，因此复用路径与其余 18 个根本不同。
+
+**定位**：SIGGRAPH Asia 2024 Journal Track 论文实现（CUHK + 腾讯 AI Lab）。**卡通首尾帧插值** —— 给两张卡通图（起始帧 + 结束帧），用预训练 image-to-video 扩散先验生成中间帧。
+
+**技术栈**：PyTorch 2.0 + `pytorch_lightning 1.9.3` + `xformers` + `open_clip_torch` + `diffusers`。81 文件 / 11.9 MB。
+
+**结构**：
+```
+lvdm/          扩散模型实现（models/samplers/autoencoder_dualref/ddpm3d/modules/attention_svd...）
+main/          推理入口
+configs/       三档分辨率配置（320×512 / 576×1024 / 256）
+scripts/       运行脚本
+gradio_app.py  Web Demo
+```
+
+**推理约束**（实测 `gradio_app.py:8-43`、`configs/*.yaml`）：
+| 项 | 值 |
+|---|---|
+| 分辨率 | **512×320**（默认）/ 1024×576 / 256×256 |
+| 采样步数 | **50** |
+| CFG scale | 7.5 |
+| eta | 1.0 |
+| fps | **10** |
+| 输入 | 起始帧 + 结束帧 + 文本 prompt + seed |
+| 硬件 | **需 GPU**（torch 2.0 + xformers） |
+
+**与 mulpub 的适配性判断**：
+- mulpub 的影视工程目标画幅是 **1280×720**、帧率 **24fps**（`FILM_FRAME_RATE=24`），而 ToonCrafter 输出 **512×320 @ 10fps** —— **分辨率差 4 倍、帧率差 2.4 倍**，直接用于正片不可行
+- 它需要 GPU，而 mulpub 是 Electron 桌面端，用户机器规格不可控
+- 它解决的是「两张图之间补帧」，而 mulpub 的当前链路是「每镜独立生成视频再 concat」，**没有插值需求**
+
+**唯一有价值的场景**（低优先）：若将来做「离线 GPU sidecar」（用户自备显卡），可用于**低成本补间镜头**（如两镜之间插一个过渡镜头），作为 `GenerateAITransition` 的替代/补充。
+
+**可复用点评估**：
+
+| 项目 | 等级 | 说明 |
+|---|---|---|
+| 首尾帧插值能力 | ⭐ | 仅概念参考；实际接入需 GPU sidecar + 超分 + 补帧，工程量远超收益 |
+| 双参考 autoencoder 设计 | ⭐ | `autoencoder_dualref.py` 的双参考条件注入思路可参考（学术层面） |
+| 代码 | ⭐ | Apache-2.0 允许复制，但**没有可插入的位置** |
+
+> ⚠️ **它自己 README 顶部有防伪声明**：「We have not set up any official profit-making projects or web applications. Please be cautious!!!」—— 说明存在冒名站点。若日后调研其在线 Demo，需确认域名。
+
 ---
 
 ## 四、横向对比与复用价值排名
@@ -898,6 +1203,16 @@ mulpub 的 `AdapterRegistry` 已有等价能力且更完善（含 `getAdaptersBy
 | 12 | **就绪度闸门 shot_video_readiness** | Jellyfish | Apache-2.0 | `story2video-engine/src/shotReadiness.ts` | 小 |
 | 13 | **视频能力协商表（ratio→size 派生）** | Jellyfish | Apache-2.0 | `python-backend/src/multi_publish/video_creation/` | 小 |
 | 14 | **首/尾/关键帧 21 条强约束** | Jellyfish | Apache-2.0 | `story2video-engine/src/prompts/shotFrame.md` | 小 |
+| **15** | **任务化中英成对 prompt 库** ★v2 | **FireRed-OpenStoryline** | Apache-2.0 | `film-kit/prompts/tasks/<task>/{zh,en}/` | 小 |
+| **16** | **AI 转场「介质掩护」规则** ★v2 | **FireRed-OpenStoryline** | Apache-2.0 | `story2video-engine` 的 endFramePrompt 规则 | 小 |
+| **17** | ~~TransNetV2 镜头边界检测~~ **已降级为备选**（实测 mulpub 已有 `SceneDetect`/PySceneDetect） | ~~FireRed-OpenStoryline~~ | — | — | ❌ 不进批次 |
+| **18** | **Skill 沉淀机制 + 路径穿越防护** ★v2 | **FireRed-OpenStoryline** | Apache-2.0 | 新建 `packages/ai-writer/src/skills/`（实测不存在） | 中 |
+
+> 🆕 **v2 新增 3 项第一梯队 + 1 项被推翻**，全部来自 `FireRed-OpenStoryline`（Apache-2.0，小红书）。它是本轮新增项目里**唯一进第一梯队**的 —— 因为它是唯一同时满足「Apache-2.0 + 与 mulpub 能力缺口正面对齐 + Python 侧可直接移植」的项目。
+>
+> 🔴 **第 17 项（TransNetV2）被实测推翻**：mulpub 已有 `video_creation/analysis/scene_detect.py`（282 行，`SceneDetect(BaseTool)`，封装 PySceneDetect + ffmpeg 回退）。引入 TransNetV2 需 torch（**+1~2 GB**），与桌面端分发体积极不相称 ⇒ 降级为备选，不进批次。
+>
+> `smy-seedance-storyboard` 与 `ToonCrafter` **均未进任何梯队**：前者许可证锁死（无 LICENSE，只能参考抽象做法），后者与桌面端形态不兼容（需 GPU、512×320@10fps）。
 
 > ⚠️ **第 10 项的硬墙（实测）**：`apps/desktop/scripts/stage-media-tools.js:10-22` 的 `REQUIRED_FILTERS` 仅 11 个滤镜（scale/pad/zoompan/rotate/boxblur/drawtext/fade/xfade/acrossfade/anullsrc/amix），**不含 `loudnorm`/`adelay`/`tpad`**。仓内 `podcast-episode-tts-adapters.js:89-90` 已明文禁止，`01-docs/REUSE-CATALOG-2026-10-13.md:536` 明写引入需「同 PR 改 `media-tools-lock.json` + before-pack 校验 + 重打包实测」。**故第 10 项工作量由「小」上调为「大（混合 PR）」** —— 初稿标「小」是错的。同理第 12 项若用 tpad 也受此约束。
 >
@@ -917,6 +1232,12 @@ mulpub 的 `AdapterRegistry` 已有等价能力且更完善（含 `getAdaptersBy
   修正后 F3b 的实际工作量从「小（新建）」变为「**中（扩展现有）**」，但**避免了重复造轮子**，且能复用已有的测试与 CI 门禁。
 - **F11' SSRF 防护**（`waoowaoo/src/lib/media/outbound-fetch.ts:58-90`）：AI 平台普遍接受 URL 作参考图输入，用户传 `http://169.254.169.254/` 就打穿云元数据。防护含私网 IP 段黑名单（`isIpv4InRange`）+ DoH（`cloudflare-dns.com/dns-query`）防 DNS rebinding + 每次重定向后重跑校验。纯函数可直接搬。
   ⚠️ **需先核查 mulpub 是否已有等价防护**（`packages/shared-utils` 或 `python-backend` 的网络层），避免重复引入。
+
+**v2 新增项细节**：
+- **#15 任务化中英成对 prompt 库**（`FireRed-OpenStoryline/src/open_storyline/utils/prompts.py:1-100`）：100 行加载器，目录即契约 `prompts/tasks/<task>/<lang>/<role>.md`，`{{var}}` 正则插值，`task:role:lang` 缓存，缺文件抛 `FileNotFoundError`（fail-closed）。**与 mulpub 现有 `film-kit/prompt-doctrine.json` 是互补关系而非替代**：doctrine 存「方法论」（7 blocks + 10 rules + 6 glossary），本项存「具体任务的 system/user prompt」。且 `zh/` `en/` 并列结构**天然满足 CI Gate 7 的 locale 成对要求**。
+- **#16 AI 转场「介质掩护」**（`FireRed-OpenStoryline/prompts/tasks/generate_ai_transition/zh/system.md`）：核心是「**绝对禁止让形态差异巨大的实体直接形变，必须引入过渡介质掩盖计算过程**」（镜头光斑 / 运动模糊 / 粒子爆散）。配三条：强指令前缀、锁定运镜轨迹、兜底反幻觉后缀。这是**降低废片率的一线经验**，直接补 F8 `endFramePrompt` 的执行细节。
+- **~~#17 TransNetV2 镜头边界检测~~（已删除）**：初稿称「mulpub 完全没有原片自动切分能力」。**实测推翻** —— `packages/python-backend/src/multi_publish/video_creation/analysis/scene_detect.py`（282 行）已封装 PySceneDetect（content/threshold/adaptive）+ ffmpeg 回退。TransNetV2 需 torch（+1~2 GB），与桌面端不匹配。**这条记录的保留价值在于：它证明了「必须先查目标仓」这条纪律的有效性 —— 若不做实测，这个错误会直接进入实施批次。**
+- **#18 Skill 沉淀 + 路径穿越防护**（`FireRed-OpenStoryline/skills/skills_io.py:22-83`）：把 agent 一次性的剪辑逻辑写成 `SKILL.md` 落盘，下次 `SkillManager.adiscover()` 自动发现并转成工具。**必须同时移植路径穿越防护**：`if base_path not in final_path.parents: return error`。落点 `packages/ai-writer/src/skills/` **实测不存在，需新建**。
 
 #### 🥈 第二梯队：需重写实现（思路明确，代码需自研）
 
@@ -998,6 +1319,22 @@ mulpub 的 `AdapterRegistry` 已有等价能力且更完善（含 `getAdaptersBy
 | ID | 内容 | 落点 | 工作量 |
 |---|---|---|---|
 | **F1** | 分镜 Prompt 规则 → **扩展既有 `prompt-doctrine.json`**（不新建目录） | `electron/film-kit/prompt-doctrine.json` | 中 |
+| **F2** | 单镜时长计算公式（正常/争吵/深情） | `auto-plan.js` + `auto-constants.js` | 小 |
+| **F3** | 镜头语言枚举（景别/运镜/机位/VFX） | `film-kit/shot-grammar.json` + Shot schema | 中 |
+| **F4** | 剧本合规审核清单 | `film-kit/compliance-checklist.json` | 小 |
+| **F3b** | 模型能力外置目录 + CI 校验 | `shared-utils/src/model-capabilities/` | 小 |
+| **F6b** | 首/尾/关键帧 21 条强约束 prompt | `story2video-engine/src/prompts/shotFrame.md` | 小 |
+| **F30** ★v2 | **任务化中英成对 prompt 库**（FireRed 模式） | `film-kit/prompts/tasks/<task>/{zh,en}/` + 加载器 | 小 |
+| **F31** ★v2 | **AI 转场「介质掩护」规则集** | 并入 F6b 的 `shotFrame.md` 规则 | 小 |
+| ~~**F32**~~ ★v2 | ~~TransNetV2 镜头边界检测~~ **🔴 已删除（实测重复）** | — | — |
+| **F33** ★v2 | **Skill 沉淀机制 + 路径穿越防护** | 新建 `packages/ai-writer/src/skills/`（实测不存在） | 中 |
+
+> 🔴 **F32 已从方案中删除（自查，实测取证）**：初稿把「TransNetV2 镜头边界检测」列为补缺口项。**实测发现 mulpub 已有完整实现** ——
+> `packages/python-backend/src/multi_publish/video_creation/analysis/scene_detect.py`（282 行，`SceneDetect(BaseTool)`，封装 **PySceneDetect** 的 content/threshold/adaptive 三方法，且带 **ffmpeg 回退**；`scenedetect` 与 `torch` 均不在运行时依赖里，都是可选项）。
+>
+> 引入 TransNetV2 需额外 `torch` + `transnetv2-pytorch`（**包体积 +1~2 GB**），与桌面端分发体积极不相称。**故删除，仅作为「若 PySceneDetect 在真实素材上漏检率高」时的备选记录在 §3.17。**
+>
+> 这是本轮**唯一被实测推翻的复用判断** —— 也是对本报告 §3 教训（「先调研目标仓自身」）的又一次印证。
 
 > 🔴 **F1 重大修正（v3，评审实测发现）**：初稿主张新建 `film-kit/prompt-skills/`。**复核发现 mulpub 已有同类的完整提示词方法论资产**：
 > - `apps/desktop/electron/film-kit/prompt-doctrine.json` —— **7 blocks**（SCENE CONTEXT / GEO SPATIAL LAYOUT / ACTION TIMING / AUDIO / CHARACTER ACTING / STYLE / POSITIVE CONSTRAINTS）+ **10 rules** + **6 glossary**，中英双语（`zh`/`en` 双字段）
@@ -1008,32 +1345,31 @@ mulpub 的 `AdapterRegistry` 已有等价能力且更完善（含 `getAdaptersBy
 >
 > ✅ **正确做法**：把 short-drama-skills 的**增量规则**（长台词 7 手法 T1-T7、动作戏 17 条、时长估算公式、视觉描述四维度禁代词）**并入既有 `prompt-doctrine.json` 的 blocks/rules**，复用其已有的 UI 绑定与同源锁测试。工作量由「小」调整为「中」（需做增量合并 + 回归）。
 
-**原设计的保留部分**（仅作参考，实际不新建目录）：
-```
-electron/film-kit/prompt-skills/   ← ❌ 不采用，改为扩展 prompt-doctrine.json
-```
-| **F2** | 单镜时长计算公式（正常/争吵/深情） | `auto-plan.js` + `auto-constants.js` | 小 |
-| **F3** | 镜头语言枚举（景别/运镜/机位/VFX） | `film-kit/shot-grammar.json` + Shot schema | 中 |
-| **F4** | 剧本合规审核清单 | `film-kit/compliance-checklist.json` | 小 |
-| **F3b** | 模型能力外置目录 + CI 校验 | `shared-utils/src/model-capabilities/` | 小 |
-| **F6b** | 首/尾/关键帧 21 条强约束 prompt | `story2video-engine/src/prompts/shotFrame.md` | 小 |
+> 🆕 **F30–F33（v2 新增，全部来自 FireRed-OpenStoryline / Apache-2.0）**
+>
+> **F30 与 F1 的关系**：**互补，不是替代**。
+> - `prompt-doctrine.json`（已有）存**方法论**：7 blocks + 10 rules + 6 glossary，是「怎么写分镜」的元规则
+> - `prompts/tasks/<task>/{zh,en}/`（F30）存**具体任务的 system/user prompt**：如 `generate_script`、`filter_clips`、`understand_clips`
+> - 采用 FireRed 的**目录即契约**形态，加任务只建目录不改代码；`zh/` `en/` 并列**天然满足 CI Gate 7**
+>
+> **F31 的价值**：`FireRed-OpenStoryline/prompts/tasks/generate_ai_transition/zh/system.md` 的第 3 条规则是**降低废片率的一线经验** ——
+> 「**绝对禁止**让两个物理形态差异巨大的实体直接发生形变！必须在形变发生时引入符合全局基调的**过渡介质**掩盖计算过程」（镜头光斑 / 运动模糊 / 粒子爆散）。这条直接补上 F6b `endFramePrompt` 的执行细节。
+>
+> **~~F32 的价值~~（已删除）**：初稿误判「mulpub 完全没有原片自动切分能力」。**实测推翻** —— `packages/python-backend/src/multi_publish/video_creation/analysis/scene_detect.py`（282 行）已封装 PySceneDetect（content/threshold/adaptive）+ ffmpeg 回退。TransNetV2 需 torch（+1~2 GB），与桌面端分发体积极不相称，故不进方案。
+>
+> **F33 的注意点**：必须同时移植路径穿越防护 `if base_path not in final_path.parents: return error`（`skills_io.py:45-51`）—— 因为该机制的本质是「把 agent 生成的内容写盘」，不设防等于开了任意写入口。
 
-**F1 详细设计**：
+**F1 详细设计（v2 修订：改为扩展既有文件，不新建目录）**：
+```javascript
+// ❌ 不采用：新建 film-kit/prompt-skills/ 目录（会造第二套并存规范）
+// ✅ 采用：按既有 prompt-doctrine.json 的 blocks/rules 结构追加增量
+{
+  "blocks": [ ...既有 7 blocks..., { /* 新增：长台词切分手法 T1-T7 等 */ } ],
+  "rules":  [ ...既有 10 rules..., { /* 新增：动作戏 17 条 / 时长估算 / 禁代词 */ } ],
+  "glossary": [ ...既有 6 条... ]
+}
 ```
-electron/film-kit/prompt-skills/
-├── manifest.json           # 7 条 skill 的元信息（id/name/zh/en/适用阶段）
-├── 01-narrative-breakdown.json   # 通用叙事拆解（含时长估算公式）
-├── 02-emotion.json               # 深度情绪刻画
-├── 03-action.json                # 详细动态描述（17 条规则）
-├── 04-episode-split.json         # 按剧情连贯拆分副本
-├── 05-prompt-polish.json         # 单视频提示词润色
-├── 06-high-energy.json           # 高能戏剧化
-└── 07-slow-pace.json             # 慢节奏细腻质感
-```
-校验规则（fail-closed，与现有 kit-loader 同构）：
-- `manifest.json` 必须存在且 `schemaVersion === 1`
-- 每条 skill 必须有 `id`（枚举）、`name`、`systemPrompt`（非空 ≤50000）
-- 引用不存在的 skill id 即失败
+校验由既有 `kit-loader.js` 承担（fail-closed，与其余 4 个 kit 文件同构）；新增 `KIT_FILES` 无需改动（同一文件）。
 
 **F2 详细设计**（替换 `auto-plan.js:41` 的硬编码）：
 ```javascript
@@ -1250,31 +1586,37 @@ await tool(ffmpeg, ['-y', '-f', 'concat', '-safe', '0', '-i', listPath, '-c', 'c
 
 ### 7.1 核心结论
 
-1. **16 个项目中，10 个可安全复用代码**（MIT 5 个 + Apache-2.0 3 个 + 修改版 Apache 1 个 + Elastic 2.0 桌面端可用 1 个）。4 个项目许可证禁止商用，2 个是 copyleft。**许可证检查不是形式主义 —— 它直接改变了本次调研的复用路径**。但深度核实后有两个重要修正：ZJT 的「修改版 Apache」只需署名即可用，waoowaoo 的 Elastic 2.0 对桌面端不触发 —— 这比我最初的判断宽松，也让这两个项目从「禁区」回到「可用」。
+1. **19 个项目中，12 个可安全复用代码**（MIT 5 + Apache-2.0 5 + 修改版 Apache 1 + Elastic 2.0 桌面端可用 1）。3 个是 NC 类（科研非商用可解禁），3 个含 SA/copyleft 传染，**1 个完全没有许可证（最严格）**。**许可证检查不是形式主义 —— 它直接改变了本次调研的复用路径**。深度核实后有三个重要修正：ZJT 的「修改版 Apache」只需署名即可用；waoowaoo 的 Elastic 2.0 三条限制都不是「禁止商用」（禁的是托管服务与移除 license key）；smy 的「无 LICENSE」= 版权保留，比 copyleft 更严。
 
-2. **最高性价比的复用不是代码，是 Prompt 资产**。`short-drama-skills`（MIT）是 LuxReal 内部生产流水线核心规则，上万创作者验证过，直接补上 mulpub「LLM 润色恒不生效」的缺口，且**做成 JSON 数据资产零运行时风险**。
+2. **最高性价比的复用不是代码，是 Prompt 资产**。`short-drama-skills`（MIT）是 LuxReal 内部生产流水线核心规则，上万创作者验证过；**v2 新增的 `FireRed-OpenStoryline` 提供了这套资产的「工程化组织形态」** —— `prompts/tasks/<task>/{zh,en}/{system,user}.md`，目录即契约、中英强制成对、加载器仅 100 行。两者组合才是完整答案：**内容是 short-drama-skills 的，结构是 FireRed 的**。
 
-3. **一条交叉验证的硬规则**：novelvids（`storyboard_system.md:25`）与 short-drama-skills（`prompt.zh-CN.md:99`）**两个独立团队得出完全相同的结论** —— 「禁止代词、必须在每个动作段重复完整实体名」。两个不同形态的项目收敛到同一约束，说明这是视频生成 prompt 的关键约束，**建议 mulpub 直接采纳为硬性规则并写入渲染器校验**。
+3. **一条交叉验证的硬规则**：novelvids（`storyboard_system.md:25`）与 short-drama-skills（`prompt.zh-CN.md:99`）**两个独立团队得出完全相同的结论** —— 「禁止代词、必须在每个动作段重复完整实体名」。**v2 又出现第三个证据**：FireRed 的 `speech_rough_cut` 与 smy 的「尾帧说明」也都要求**每次重复完整实体/画面描述**而非指代。三个不同形态的项目收敛到同一约束，**建议 mulpub 直接采纳为硬性规则并写入渲染器校验**。
 
-4. **mulpub 影视工程的主要差距不在「生成」，在「工程化控制」**：单镜锁定、指纹缓存、按场次并发、VLM 质检闭环、就绪度闸门 —— 这些业界都已实现，mulpub 需重写（GPL 来源）或直接搬（MIT/Apache 来源）。
+4. **mulpub 影视工程的主要差距不在「生成」，在「工程化控制」**：单镜锁定、指纹缓存、按场次并发、VLM 质检闭环、就绪度闸门 —— 这些业界都已实现，mulpub 需重写（GPL 来源）或直接搬（MIT/Apache 来源）。**v2 的一个重要反向发现**：原以为「原片自动切分」是缺口，实测 **mulpub 已有 `SceneDetect`（PySceneDetect + ffmpeg 回退，282 行）**，故 TransNetV2 项被删除 —— 这条错误若不做实测会直接进实施批次，印证了「先查目标仓」的纪律。
 
 5. **audio-aligner 是本次调研最大的单点受益包**。三个独立项目给出了互补方案：Pixelle-Video 的三态时长对齐（Apache）、showvi 的 adelay+amix 音画同步（MIT）、waoowaoo 的两遍 loudnorm + BGM ducking（Elastic 桌面端可用）。这三项几乎可以原样搬入，直接根治「音画不同步」「静音误判」「响度不达标」三类问题。
 
 6. **ZJT 的剪映草稿生成库是被低估的资产**（修改版 Apache，需署名）。它打通了「AI 成片 → 剪映精修」最后一公里，是专业剪辑师的刚需入口，且 mulpub 作为发布工具天然需要这个出口。
 
-7. **合成环节是三个项目的共同缺口**：Jellyfish 无 ffmpeg/时间线（只到生成镜头），BigBanana 的 CutOS 闭源，yumcut 的分片合成不可商用。**mulpub 的 `remotion-composer` + `story2video-engine/slideshow.ts` 必须自己补强** —— 这是差异化环节，不应寻找外部复用。
+7. **合成环节是三个项目的共同缺口**：Jellyfish 无 ffmpeg/时间线（只到生成镜头），BigBanana 的 CutOS 闭源，yumcut 的分片合成不可商用。**mulpub 的 `remotion-composer` + `story2video-engine/slideshow.ts` 必须自己补强** —— 这是差异化环节，不应寻找外部复用。**v2 补充**：FireRed 的 `render_video.py`（1023 行）+ `plan_timeline.py`（907 行）是目前唯一一个**把「时间线编排 + 渲染」都做完整**的开源实现，可作为自研合成层的**结构参考**（Apache-2.0 允许参考甚至借鉴代码）。
+
+8. **v2 新增项目印证了一个生态判断**：19 个项目里**只有 1 个是生成模型**（ToonCrafter），其余 18 个都是「流程编排 + 提示词工程」。说明这个生态当前的价值集中点不在底层生成能力，而在**如何把已有模型编排成可用的生产线** —— 这与 mulpub 的定位一致，也解释了为什么「Prompt 资产」和「工程控制机制」的复用价值高于「模型」。
 
 ### 7.2 一句话总结
 
 ```
 mulpub 影视工程 = 《Hell Grind》工程方法（已有）
                 + LuxReal 分镜 Prompt 规则（F1，直接拿）
+                + FireRed 的 prompt 组织形态（F30，直接拿）★v2
+                + FireRed 的 AI 转场介质掩护经验（F31，直接拿）★v2
                 + Jellyfish 数据地基（Shot 模型 + 枚举 + 就绪度闸门，直接拿）
-                + audio-aligner 三件套（F8b/F8c/F8d，直接拿）
+                + audio-aligner 三件套（F8c/F8d，直接拿）
                 + 剪映草稿导出（F10，直接拿，需署名 ZJT）
                 + ai-art-engine / moyin 的工程控制机制（F5/F12/F13/F15/F16，重写不抄）
                 = 从「能出片」升级为「可控、可复现、可交付剪辑师」的工业流水线
 ```
+
+> **v2 删掉了一项**：TransNetV2 镜头边界检测（F32）。原因是实测发现 mulpub 已有 `SceneDetect`/PySceneDetect —— **不是所有「看起来缺的能力」都真的缺**。
 
 ### 7.3 下一步
 
@@ -1308,7 +1650,8 @@ $AI_FILM_RESEARCH_DIR/
 ├── ZJT/ waoowaoo/ huobao-drama/ moyin-creator/
 ├── Toonflow-app/ Jellyfish/ BigBanana-AI-Director/ app.yumcut.com/
 ├── FastMovieAI/ ai-art-engine/ showvi/ Pixelle-Video/
-└── novelvids/ autoclip/ short-drama-skills/ short-drama/
+├── novelvids/ autoclip/ short-drama-skills/ short-drama/
+└── ★v2 新增：FireRed-OpenStoryline/ smy-seedance-storyboard/ ToonCrafter/
 
 # 复现命令（替换 $AI_FILM_RESEARCH_DIR 为本机实际路径）
 mkdir -p "$AI_FILM_RESEARCH_DIR" && cd "$AI_FILM_RESEARCH_DIR"
@@ -1316,7 +1659,9 @@ for r in jeffstric/ZJT waooAI/waoowaoo chatfire-AI/huobao-drama MemeCalculate/mo
          HBAI-Ltd/Toonflow-app Forget-C/Jellyfish shuyu-labs/BigBanana-AI-Director \
          IgorShadurin/app.yumcut.com xhadmincn/FastMovieAI Justin-sky/ai-art-engine \
          sjtuplayer/showvi ATH-MaaS/Pixelle-Video Anning01/novelvids zhouxiaoka/autoclip \
-         YvonneMovingon/short-drama-skills 0xsline/short-drama; do
+         YvonneMovingon/short-drama-skills 0xsline/short-drama \
+         FireRedTeam/FireRed-OpenStoryline liangdabiao/smy-seedance-storyboard \
+         Doubiiu/ToonCrafter; do
   git clone --depth 1 https://github.com/$r
 done
 ```
@@ -1328,7 +1673,18 @@ done
 foreach($d in (Get-ChildItem $AI_FILM_RESEARCH_DIR -Directory)){
   $lic = Get-ChildItem $d.FullName -Filter "LICENSE*" -File | Select-Object -First 1
   if($lic){ Get-Content $lic.FullName -TotalCount 5 }
+  else {
+    # ⚠️ 无 LICENSE 文件 ≠ 开源：默认版权保留（All Rights Reserved）
+    Write-Host "[无许可证] $($d.Name) —— 默认版权保留，不可复制" -ForegroundColor Red
+    # 再确认 README/SKILL 里是否另有声明
+    Get-ChildItem $d.FullName -Filter "*.md" -File |
+      Select-String -Pattern "license|licence|copyright|版权|授权|许可" |
+      Select-Object -First 3
+  }
 }
 ```
 
 判定关键词：`MIT License` / `Apache License` / `GNU GENERAL PUBLIC`（GPL）/ `GNU AFFERO`（AGPL）/ `PolyForm Noncommercial` / `Attribution-NonCommercial`（CC BY-NC）/ `Elastic License`。
+
+> 🔴 **本轮最重要的取证纪律（v2 新增）**：**第一步就检查 LICENSE 文件是否存在，而不是看 README 的 license 徽章**。
+> `smy-seedance-storyboard` 的 README 连徽章都没有，极易被误判成「没写就是开源」。实际是**全部权利保留** —— 比任何 copyleft 都严格，因为它连「授权使用」这件事本身都没发生。

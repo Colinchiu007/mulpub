@@ -44,3 +44,13 @@ date: 2026-10-19
 ### 附录编号修正（2026-10-19，follow-up）
 
 报告原有两个「附录 B」（「克隆位置与复现命令」与「许可证核实方法」），后者改为「附录 C」。纯编号修正，无内容变更。
+
+### v2 增补：3 个新项目（2026-10-19，follow-up）
+
+调研对象由 16 扩到 19：新增 FireRed-OpenStoryline（Apache-2.0）、smy-seedance-storyboard（**无 LICENSE**）、ToonCrafter（Apache-2.0）。
+
+两处实测修正：
+1. F32（TransNetV2 镜头边界检测）**删除** —— 实测 mulpub 已有 video_creation/analysis/scene_detect.py（282 行，PySceneDetect + ffmpeg 回退），引入 TransNetV2 需 torch（+1~2 GB），与桌面端不匹配。
+2. ASR 口播粗剪**确认是真缺口** —— transcriber.py（247 行）已提供 word_timestamps，但全仓无口水词/粗剪逻辑。
+
+另修：§2.1 waoowaoo 重复行（结论互斥）合并；§5 批次一表格被修正块从中间截断已修复。
