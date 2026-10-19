@@ -259,6 +259,17 @@ jobs:
           node --test scripts/check-no-brand-residue.test.js
           node scripts/check-no-brand-residue.js
 
+      # --- Gate 12f：跨仓 sidecar 对账判据自测（与 Gate 12 同族接线到 changes job）---
+      # 为什么住 changes 而不是 static-gates：判据本体只 require node 内置模块
+      # （本 job 无 Install deps 也能跑），而它的价值恰恰是「每个 PR 都跑」——
+      # 规则表/向量/金标的改动经常与 openspec/changes/** 文档同批出现，
+      # 放进 static-gates 会被 docs-only 短路，于是「数据漂了」这件事没有判据会跑。
+      # 本步只跑**判据自身的检出能力**（含 0/1/2 三档退出码与 LF 归一化口径）；
+      # 跨仓实跑在 sidecar-parity.yml（需要 clone 另一个仓库，不适合挂在每个 PR 上）。
+      - name: "Gate 12f - Sidecar parity checker self-test (changes job, #2745 同族)"
+        shell: bash
+        run: node --test scripts/check-sidecar-parity.test.js
+
       # --- Gate 12c：平台分类转换器回归锁（与 Gate 12 同族接线到 changes job）---
       # 为什么必须住 changes 而不是 static-gates：
       #   本锁的**输入**是 01-docs/research/competitor-reverse-2026-10-13/platform-data/，

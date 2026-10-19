@@ -230,6 +230,10 @@ scripts/*.js
 # 第 106 行 `scripts/*.js` 同样会把它静默忽略 —— 漏 negation 时 `git status` 里它根本不存在，
 # 本地在盘跑得通，而 changes 作业的 Gate 2b5 在 CI 上 Cannot find module。
 !scripts/check-branch-merged.js
+# 跨仓 sidecar 对账判据本体（change: subtitle-sidecar-parity-lock）。第 106 行 `scripts/*.js`
+# 会把它静默忽略：漏这条 negation 时 `git status` 里它根本不存在，本地 `node --test` 跑得通，
+# 而 Gate 12f 在 CI 上以 MODULE_NOT_FOUND 红 —— 且红点看起来像"判据坏了"而不是"判据没被跟踪"。
+!scripts/check-sidecar-parity.js
 # CCG 收敛出口探针本体（change: ccg-convergence-exit）。上方那条 `scripts/*.js` 通配规则同样
 # 会把它静默忽略 —— 漏 negation 时 `git status` 里它根本不存在：本地在盘、`node --test` 跑得通，
 # 而 Gate 2b6 在 CI 上以 MODULE_NOT_FOUND 红在**别人的**文件上，读起来像"探针坏了"。

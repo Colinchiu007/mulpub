@@ -1,0 +1,61 @@
+name: Sidecar Parity (cross-repo)
+
+# 跨仓「单源规则表 + 共享向量」对账。
+#
+# ## 为什么只跑 schedule + workflow_dispatch，不挂 pull_request
+#
+# 两仓各自的 `sidecar-parity.lock.json` 只能看见自己那一半（本地数据 vs 本地锁）。
+# 有一格它永远看不见：**有人在 A 仓把「数据 + 锁」一起更新（A 仓 CI 全绿），
+# 而 B 仓的「数据 + 锁」还是旧的**。两仓各自内部自洽，跨仓已经漂了。
+# 本 workflow 就是补这一格 —— 它需要 clone 另一个仓库，因此：
+#   · 不挂 PR：网络/第三方仓库的可用性不该变成任何一个 PR 的红点（那会把判据变成噪声源，
+#     而噪声源的下场是被加进豁免或跳过，判据随之失效）；
+#   · 漂移本身不是急事：每天一次 + 需要时手动触发足够。
+#
+# ## 判据本体
+#
+# `scripts/check-sidecar-parity.js`（零依赖，只 require node 内置模块）。
+# 退出码 0 一致 / 1 漂移 / 2 用法或 IO 错误（2 不得读成 1 以外的"没问题"）。
+# 它的检出能力由 `scripts/check-sidecar-parity.test.js` 锁住，那条自测接在
+# quality-gate.yml 的 Gate 12f（changes job，每个 PR 都跑）。
+
+on:
+  schedule:
+    # 每天 22:10 UTC（= 次日 06:10 Asia/Shanghai），避开整点排队高峰。
+    - cron: '10 22 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  cross-repo:
+    name: 跨仓规则表/向量对账
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout mulpub
+        uses: actions/checkout@v4
+
+      - name: Checkout smart-sentence-splitter（sidecar 仓）
+        uses: actions/checkout@v4
+        with:
+          repository: Colinchiu007/smart-sentence-splitter
+          path: .sidecar
+          # 只为读文件：不需要写权限，也不需要保留凭据。
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 自测（判据本体先证明自己能检出）
+        run: node --test scripts/check-sidecar-parity.test.js
+
+      - name: 跨仓对账
+        run: node scripts/check-sidecar-parity.js --sidecar .sidecar
