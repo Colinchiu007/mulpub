@@ -1004,3 +1004,28 @@ UI「已登录」标记即来源于此。⇒ 视频号**有可用会话**，位�
 | 头条（7ae99805） | 已登录 | ⛔ 账号墙 21000（待实名） |
 | 抖音（01ab122e） | 已失效 | 待扫码 |
 | 其余（快手/B站/小红书/公众号/知乎） | 已登录 | 不在本次目标范围 |
+
+---
+
+## 15. 三平台会话权威定论（R13，2026-10-20，应用运行态）
+
+经用户运行中的应用实例（CDP `9279` 无侵入）调应用自身批量登录检测，三平台一次定论：
+
+| 平台 | 账号 | 结论 | 判据码 |
+| --- | --- | --- | --- |
+| 头条 | 7ae99805 | ✅ **valid / active**（会话活着） | `CHECK_LOGIN_SUCCESS_HTTP_API` |
+| 抖音 | 01ab122e | ⛔ **Cookie 过期**（应用已持久化 expired） | `CHECK_LOGIN_COOKIE_EXPIRED` |
+| 视频号 | b1e05ac2 | ❓ INCONCLUSIVE（结构性，见 §14.2） | `http-check-inconclusive` |
+
+**关键语义澄清**：`authLoginSilent` 的 `valid:false` **≠「未登录」**——它判的是
+「能否用信封 cookie 静默重登」。头条会话活着但 silent=false 即为例证。
+真正的登录结论以 `accountBatchCheckLogin`（各平台真实校验）为准。
+
+**对发布主目标的意义**：头条会话活着 ⇒ 账号墙（§12.7 的 21000）是**唯一**剩余阻塞；
+抖音确认等扫码；视频号等探针定论（§14.3）。
+
+### 探测方法（可复用，无侵入）
+
+`electron=5` 进程 → 命令行含 `--remote-debugging-port=9279` → `GET /json/list` 找 renderer →
+CDP 连接后在页面上下文调 `window.electronAPI.*`（listAccounts / accountCheckLogin /
+accountBatchCheckLogin / authLoginSilent）。**不碰** cookie 文件（独占锁）、不杀进程、不发稿。
