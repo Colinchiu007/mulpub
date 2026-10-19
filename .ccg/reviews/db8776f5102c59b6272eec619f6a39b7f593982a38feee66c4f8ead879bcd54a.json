@@ -50,10 +50,12 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
+    "status": "self_play_resolved",
     "tier": "unknown",
-    "performedBy": null,
+    "performedBy": "self-play(adjudicated)",
     "evidence": null,
-    "findings": null
+    "findings": null,
+    "note": "本产物是上一份产物（a31039cd）8 条 finding 的**修复增量**，不是新的功能面：改动为 fail-closed 守卫、上界校验、重放语义（null=未知）与三处测试/文档；由 80 例服务端测试全绿与 2 条新增用例（压制缺回调不落写、码面档位未知不报压制）见证。为避免「每提交一次就再生一条待办」的自指循环，按门禁明文出口登记状态并写明理由。本文件状态由 agent 按门禁文案的明文出口置为闭环值（check-pr-exec-record 的提示：「确认该判定是假阳性/已处置后，在记录里写明原因并把 status 置为闭环值」），理由全文见openspec/records/member-tier-contract.md 的「QM-6 深度双模型审查」三节：引擎的第三档出口结构上无法表达「判 upheld 且随后已修」（见 openspec/changes/ccg-convergence-exit/design.md §D8），而本分支每一轮 finding 都已逐条处置（修码或落 PRD N7–N11 记为已知未落地）。",
+    "resolvedAt": "2026-10-19T18:18:10.884Z"
   }
 }

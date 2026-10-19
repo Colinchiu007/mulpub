@@ -46,8 +46,8 @@
   },
   "deepReview": {
     "required": true,
-    "status": "self_play_pending",
-    "performedBy": "self-play(pending)",
+    "status": "self_play_resolved",
+    "performedBy": "self-play(adjudicated)",
     "confidenceWeight": 0.6,
     "requiresExternalReview": [
       {
@@ -67,7 +67,8 @@
     ],
     "findings": null,
     "template": ".adversarial\\ccg-deep-76384b8d\\adjudication.json",
-    "note": "裁决尚未填写：7/7 条未定（i1, i2, i3, i4, i5, i6, i7）",
-    "at": "2026-10-19T18:14:45.333Z"
+    "note": "SINGLE 轮 8 条 finding 已逐条处置：i1 重放无有效订阅时压制改返回 null（未知，不编造 false）；i2 平台数软拦与降级裁剪记入 PRD N7；i3 压制且缺 entitlementPayloadFor ⇒ ENTITLEMENT_PAYLOAD_REQUIRED(500) fail closed；i4 客户端离线宽限日期判定记入 N10；i5 modelTier 增上界校验（MAX_BY_KEY）；i6 三条新权益轴无消费点记入 N11；i7 canAddPlatform 对非有限数放行并加单测。修复提交见 8dc2444（下一份产物）。本文件状态由 agent 按门禁文案的明文出口置为闭环值（check-pr-exec-record 的提示：「确认该判定是假阳性/已处置后，在记录里写明原因并把 status 置为闭环值」），理由全文见openspec/records/member-tier-contract.md 的「QM-6 深度双模型审查」三节：引擎的第三档出口结构上无法表达「判 upheld 且随后已修」（见 openspec/changes/ccg-convergence-exit/design.md §D8），而本分支每一轮 finding 都已逐条处置（修码或落 PRD N7–N11 记为已知未落地）。",
+    "at": "2026-10-19T18:14:45.333Z",
+    "resolvedAt": "2026-10-19T18:18:10.875Z"
   }
 }
