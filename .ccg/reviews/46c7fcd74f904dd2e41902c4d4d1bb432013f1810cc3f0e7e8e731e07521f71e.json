@@ -1,0 +1,59 @@
+{
+  "sha": "0d8bca8b9e4ddb3a3b0b0602dc7932d7fb15a498",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 56 行（≤ 200）但命中 auth/数据库/加密：敏感内容 3 处",
+  "stats": {
+    "changedLines": 56,
+    "fileCount": 3,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 3,
+    "docSensitiveContentHits": 10,
+    "docSensitiveContentSample": [
+      "但 **应用的信封加密库（`credential-store`）里存有 1 条视频号 cookie**（运行态读数：",
+      "只发 `helper_upload_params` 一条授权请求（**不传内容、不发稿**），结论三档",
+      "`ACTIVE / EXPIRED(300012/300014) / BLOCKED_OR_CHANGED`。需授权后运行（平台侧会留授权日志）。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "46c7fcd74f904dd2e41902c4d4d1bb432013f1810cc3f0e7e8e731e07521f71e",
+  "decidedAt": "2026-10-19T17:46:38.499Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}
