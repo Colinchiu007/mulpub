@@ -33,6 +33,15 @@
 
 
 # [未发布] fix(视频创作): MiniMax 克隆「套餐不支持」原样透传，不再误报「暂时不可用请重试」（s2v-clone-plan-unsupported）
+# [未发布] fix(desktop): 流水线进度浮层阶段子进度条统一对齐（s2v-stage-bar-align）
+
+- **动因与取证**：用户截图（红框标注）显示视频创作流水线进度浮层中「提示词优化」阶段的子进度条比其他阶段短。逐行像素扫描四个已完成阶段（条高 5px，行 y=235/376/518/661）：文案拆分/内容增强/AI 视频场景选择填充宽均为 **928px**（x=86..1018），提示词优化仅 **878px**（x=86..968），**短 50px**。
+- **排除的三个假设都做了实测**：① 不是轨道长度不同（四条左端同为 x=86，stage-status 列左边界同为 x≈1019/1036）；② 不是 CSS 双来源冲突（`stage-progress.css` 与 `create-view.css` 同名 `.stage-sub-*`，但后者只给外层加 `display:flex; width:100%`，未动内层 bar，不改变条长）；③ 不是 optimize percent 偏小（`story2video-stages.js:2716` 完成时即发 `percent: 100`）。
+- **根因**：`StageProgress.vue` 的 `stageProgressPercent()` 只在 `stage.progress.percent` 为合法有限数时返回值，否则返回 `null`，模板据此 `v-if` **整条不渲染**。optimize 的历史/续跑快照里 `stage.progress` 常只带 `messageKey/summaryKey/detail` 而不带 `percent`（`optimize_progress` 只驱动 detail 文案、不驱动条形），该阶段遂无子进度条，视觉上短一截。
+- **修复**：`stageProgressPercent()` 增加完成态对齐补齐——`status === 'completed'` 且取不到合法 percent 时返回 `100`，使全部已完成阶段子进度条满格等长。`skipped` 不补（无进度语义，补 100% 即假完成）；`running/pending/failed/waiting` 不补，保持真实 percent；越界与非有限值仍不渲染。
+- **回归测试**（TDD，RED 先行：未改实现时根因用例 `bar.exists()` 为 false）：新增 3 例锁契约——四完成阶段 `aria-valuenow` 全 100 且集合大小 1（等长）、optimize 缺 percent 补齐 100、running 保持 37% 不被抬到 100。
+- **验证**：`video-creation/` 142 例 / `CreateView.test.js` 300 例 / `story2video-stages.test.js` 154 例全绿；eslint 两文件 rc=0；debt-budget / brand-residue / locale-sync 全 PASS；QM-4 视觉回归 19/20，唯一失败 `collection` 1.44% 经 **stash A/B 对照**确认与本次无关（两次运行差异图 SHA-256 完全相同）。
+- **影响面**：复用 `StageProgress.vue` 的三处入口（CreateView / HotTopics 一键生成视频弹窗 / FilmAutoPanel）共用同一方法，一并获得对齐修复。纯渲染层变更，不触碰主进程阶段执行、IPC 契约与 `optimize_progress` 数据语义，无新增用户可见文案。
 
 ## 问题
 - 2026-10-19 真实事故：MiniMax 订阅套餐账号克隆音色被服务端拒绝（`model_provider_logs` id=10030：`your current token plan not support model, voice_clone`，latency 1125ms——请求真实到达、鉴权通过、参数合规）。adapter 把它误判为额度类（`token\s*plan` 被 isQuota 吃掉），service 折叠成 `VOICE_CLONE_PROVIDER_UNAVAILABLE`，用户看到「音色克隆服务暂时不可用，请稍后重试」——重试永不成功，误导用户反复尝试。
