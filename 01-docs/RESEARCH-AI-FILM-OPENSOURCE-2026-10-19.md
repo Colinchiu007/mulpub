@@ -1128,6 +1128,68 @@ FireRed 用 `moviepy` 的 Python 对象模型组装时间线，字幕用 **`Pill
 
 > 💡 **一句话**：第一层看到的是「小红书做了个 agentic 剪辑」，第二层看到的是**「一个把 MoviePy 踩坑经验沉淀成常量的团队」**——后者的信息量远大于前者。
 
+#### 3.17.2 第三层深挖（v4）：ASR 口播粗剪的编排层 —— 与 mulpub 现有基建的逐点对接
+
+> 第二层只读了那篇 prompt（规则层），这一层读 `speech_rough_cut.py`（259 行，编排层）—— **「LLM 说了什么」与「剪辑实际怎么切」是两个环节**，中间还有三道工程处理。这是把 ASR 粗剪从「规则集」落到「可实施」的关键一层。
+
+**深挖 1：LLM 只做「句子级裁决」，不做「切点计算」**（`:73-103`）
+
+```
+for i, sentence in enumerate(asr_sentence_info):        ← 逐句循环
+    user_prompt = get_prompt("speech_rough_cut.user",
+        curr_asr_sentence_info=..., pre_ctx=前一句, nxt_ctx=后一句,
+        asr_text=全文, history_rough_cut_jsons=历史裁决)
+    raw = await llm.complete(..., temperature=0.1, top_p=0.9)
+    rough_cut_json += parse_json_dict(raw).get('res', [])
+```
+
+三个设计点：
+1. **逐句调用而非整篇给 LLM** —— 每次只裁决一个句子，带前后各一句作上下文。这是为规避「长上下文下 LLM 对中间句子的注意力衰减」；代价是句子数 = 调用次数（一段 10 分钟口播约 150+ 次调用）
+2. **`temperature=0.1` + 历史裁决回喂**（`history_rough_cut_jsons`）—— 保证同类句子裁决一致（前面删了「然后」，后面同样的「然后」也应删）
+3. **LLM 失败 fail-soft**（`:100-102`）：`except` 只 `add_warning`，该句**回退为原 ASR 结果保留** —— 一句裁决失败不会废掉整条粗剪
+
+**深挖 2：切口不信任 LLM —— 按句间静默重新分组**（`:159-199`）
+
+LLM 返回的是「句子级保留/删除/拆分」裁决，但**真正下刀的位置由代码重算**：
+
+```python
+def group_sentences(self, items, gap_threshold=400):      # ← 默认 400ms
+    # 相邻两句间隔 > gap_threshold 即切段 —— 切口落在【自然停顿】上
+def ranges_to_cut_points(self, ranges, buffer_ms=100):
+    # 每个切口前后各加 100ms 缓冲；缓冲重叠时取中点（防负片段）
+```
+
+**这是整条链最聪明的一步**：LLM 说「这里删」只决定**删哪些**，而**从哪毫秒切**由「句间静默 > 400ms」这个声学事实决定 —— 切口必然落在没人说话的间隙，不会腰斩半句话。`buffer_ms=100` 再给切口留呼吸位；两段缓冲若重叠（极短句），取中点一刀切（`:192-195` 防止产生负长度片段）。
+
+**深挖 3：切完重校 ASR 时间戳 —— 前缀和 remap**（`:202-246`）
+
+删除片段后，字幕/ASR 的时间轴全变了。`calibrate_asr_times` 用**前缀和**一次线性重映射：
+
+```python
+# remap_time(t) 三种情形：
+#   删除区间之前 → t - deleted_before（减累计删除量）
+#   删除区间之内 → 收敛到区间左端（start - deleted_before）
+#   删除区间之后 → t - 全部删除量
+```
+
+这让**粗剪后的视频与字幕保持同步** —— 没有这步，删完视频字幕全错位。
+
+**深挖 4：代码里的真实痕迹（开源仓库的诚实）**
+- `:98` 有一行调试残留 `print(parsed_json)` —— 生产路径上裸 print
+- `:241` `if new_start is None or new_end is None: continue` 是**死代码**——`remap_time` 的三条路径都必然返回数值。防御性检查写了个永远不会触发的分支
+
+**与 mulpub 的对接结论（把 ASR 粗剪升级为可直接实施）**：
+
+| FireRed 环节 | mulpub 现状 | 对接方式 |
+|---|---|---|
+| ASR 句子级时间戳 | ✅ `transcriber.py` 已有 `word_timestamps`（faster-whisper/WhisperX） | 直接复用，需聚合为句级 |
+| LLM 逐句裁决 | FireRed 走 `node_state.llm` | mulpub 走 `ai-writer` 的 LLM 通道 |
+| 句间静默分组 | 无 | **纯算法 ~40 行，可直接搬（Apache-2.0）**，落 `python-backend/.../analysis/` |
+| ffmpeg 切段 | `scene_detect.py` 同包已有 ffmpeg 依赖 | 复用 `ffmpeg_utils` 模式 |
+| 时间戳重校 | 无 | **前缀和 remap ~30 行，直接搬** |
+
+> 💡 **一句话**：这层的价值是把「ASR 口播粗剪」的工作量从「模糊的中」收敛为**「三段纯函数（约 70 行）+ 一条逐句 LLM 编排 + prompt 已有」**——且「切口落在静默处、失败回退、字幕重校」这三个设计，比「让 LLM 直接给切点」可靠一个量级。
+
 ---
 
 ### 3.18 🔴 smy-seedance-storyboard（**无许可证**）—— 纯 Skill 资产包，只能学结构不能抄文本
@@ -1338,6 +1400,78 @@ encoder 的多层 hidden states **只取第一层和最后一层**，传给 `bat
 | F31（介质掩护）的底层依据 | **补上了**：既然中间是「受约束的新生成」，两端语义差异越大、模型自由度越大、翻车概率越高 —— 这正是 FireRed 那条「禁止形态差异巨大的实体直接形变，必须加介质掩护」的**模型层解释**。两条证据（prompt 层经验 + 模型层机制）互相印证 |
 
 > 💡 **一句话**：ToonCrafter 对 mulpub 的价值不在「用它的代码」，而在**「看懂了首尾帧生视频这个黑盒的内部」** —— 之后 mulpub 对接任何首尾帧 API 出了怪结果（中间画面脑补、尾帧重复、风格漂移），都能对着这三个机制（c_concat 钉两端 / Fusion 注意力 / 末帧裁剪）定位原因。
+
+---
+
+### 3.20 第三层综合（v4）：分镜数据模型四方对照 —— mulpub 的 Shot 在生态里处于什么位置
+
+> 前三层都是「单个项目往深里看」，这一节反过来做**横向收束**：把四个代表性项目的「分镜/镜头数据模型」摆在同一张表上对照。对照基线是 mulpub 自己的 kit（**实测**：`shot-library.json` 153 条、`film-manifest.json` 162 个 Scene，见下）。
+
+**mulpub 现状实测**（2026-10-19，`apps/desktop/electron/film-kit/`）：
+
+```
+Shot（shot-library.json，153 条）字段：
+  shotId / sceneId / model / prompt / refTokens / width / height
+  / thumbnailUrl / resultUrl
+  ⚠️ 153 条 Shot 的 sceneId 全部互不相同（153 shot ↔ 153 scene，1:1）
+  ⚠️ 无 imagePrompt / videoPrompt / endFramePrompt / locked / duration 字段
+  ⚠️ 单条 prompt 实测最长 13,922 字符（含实体 token 引用）
+  model 分布：seedance_2_0 ×143 / nano_banana_2 ×5 / 其他 ×5
+
+Scene（film-manifest.json，162 条）字段：
+  id / parentId / name / level / count
+  ✅ 已有 parentId 树结构（kit-loader 做树校验+无环校验）
+```
+
+**四方对照**：
+
+| 维度 | **mulpub**（现状） | **novelvids** | **FireRed** | **moyin** |
+|---|---|---|---|---|
+| 镜头标识 | `shotId`(UUID) + `sceneId`(UUID) | 镜头序号 + 19 字段 Schema | `clip_id`（`clip_0001` 定宽零填充）+ `media_id` | 分镜序号 + S 级组号 |
+| 实体引用 | ✅ **`refTokens`（UUID 数组）**，prompt 内以 `<<<uuid>>> [img_soroh]` 内联锚定 | `@{实体名}` 文本协议 | 无实体系统（素材库按 `media_id` 引用） | 参考图优先级声明（最早=身份锚点） |
+| prompt 结构 | **单字段**（`prompt`，最长 13.9k 字符，一段到底） | 19 字段结构化（画面/运镜/时长/音效…分离） | 不存 prompt（prompt 在 `prompts/tasks/` 按任务外置） | 三层提示词（外观/场景/动作）可合并 |
+| 时长字段 | ❌ 无（由 `AUTO_SHOT_SECONDS=[5,8,10]` 全局档位决定） | ✅ 每镜头独立时长 | `timeline_window`（毫秒，双窗口） | 按组配置 |
+| 场景层级 | ✅ `parentId` 树（162 Scene，有根有环校验） | 场景表 + 场景-分镜关联 | 无场景概念（flat clips） | 场景库 + 多视角联合图 |
+| 连续性载体 | 无显式字段（靠 kit 预编排） | `@{实体}` 引用 + 剧集锚 | `source_ref`（素材源窗口） | **尾帧接力** + 联合图一次生成 |
+| 生成结果回填 | ✅ `resultUrl` / `thumbnailUrl` 直接在 Shot 上 | 独立结果表 | `clips` 输出（节点间流转） | 作品库 |
+
+**四条收束结论**：
+
+1. **mulpub 的 `refTokens` 机制比想象中领先**。它不是简单文本协议，而是 **UUID 强引用 + prompt 内 `<<<uuid>>>` 内联锚定 + 参考图 token 映射** —— 与 novelvids 的 `@{实体}`（纯文本、易碎）和 moyin 的「最早参考图=锚点」（隐式、靠排序）相比，**这是四者中唯一机器可校验的实体绑定**。novelvids 的 19 字段 Schema 值得参考的部分，其实 mulpub 用「refTokens + prompt 内锚」已经解决了最难的实体一致性，**缺的只是字段拆分与时长，不是实体机制**。
+
+2. **mulpub 最刺眼的缺口是「prompt 单字段 13.9k」**。一条 prompt 塞了角色锚定 + 场景 + 动作 + 约束全部内容（实测样本 13,922 字符），等于把 FireRed 失败模式表警告的「提示词过长丢约束」风险**常态化**了。F8（三分 prompt）的紧迫性应上调 —— 这不是「锦上添花的结构化」，而是**当前生成质量的一个现实风险点**。
+
+3. **`sceneId` 全部 1:1 暴露了 Scene 层「有结构无使用」**。162 个 Scene 有 parentId 树，但 153 条 Shot 每条挂在独立 Scene 下——**树结构建好了，生成侧完全没用上**（既没有「同 Scene 多镜」也没有跨镜引用）。F7（视角变体）与 F13（场次并发）实施时，第一步不是加字段，而是**让既有 Scene 树被生成侧消费**。
+
+4. **时长是四方中 mulpub 唯一完全缺失的维度**。novelvids 有每镜时长、FireRed 有毫秒双窗口、moyin 按组配置，mulpub 只有全局三档。F2（时长公式）+ F29（TTS 时长驱动）合并看，实际是「给 Shot 补一个 `durationMs` 字段并确定它的来源优先级（用户设定 > TTS 实测 > 公式估算 > 档位默认）」——**这是一个字段决策问题，不是三个独立功能**。
+
+---
+
+### 3.21 第三层综合（v4）：连续性机制全景 —— 19 个项目里「让第 N 镜记得第 N-1 镜」的七种武器
+
+> 「角色/画面跨镜跨集一致」是 AI 视频生产的第一难题。把 19 个项目的解法收拢，实际只有**七种武器**，按「约束强度」排序：
+
+| # | 武器 | 代表项目 | 作用层 | 强度 | mulpub 现状 |
+|---|---|---|---|---|---|
+| 1 | **实体强引用**（UUID/token 锚定 + prompt 内联） | **mulpub `refTokens`**、novelvids `@{实体}` | 数据层 | ★★★★★ | ✅ 已有（四方最强） |
+| 2 | **参考图优先级声明**（最早=身份锚，后续仅环境） | moyin | prompt 层 | ★★★★ | ❌ 无，F15 可补 |
+| 3 | **固定风格行逐字复用**（色盘+风格块每次原样粘贴） | smy（色盘闭环）、waoowaoo（风格块） | prompt 层 | ★★★★ | 部分（prompt-doctrine 有块但无逐字复用纪律） |
+| 4 | **尾帧/首帧接力**（上一镜末帧 = 下一镜首帧输入） | smy（跨集）、FireRed（AI 转场取相邻帧）、可灵类 API | 输入层 | ★★★★ | ❌ 无，F24（依赖 F8 endFramePrompt） |
+| 5 | **多视角/多镜一次生成**（同 Scene 6 视角一张图 / 3 镜一段视频） | moyin（Contact Sheet / S 级组） | 生成策略层 | ★★★☆ | ❌ 无，F16/F7 |
+| 6 | **受约束的生成**（首尾帧钉死 + 中间新生成） | ToonCrafter（c_concat 模型层） | 模型层 | ★★★ | 间接（用 API 时生效） |
+| 7 | **生成后校验回滚**（VLM 质检 + 就绪度闸门 + 重试） | showvi（VLM 闭环）、Jellyfish（readiness） | 验收层 | ★★★ | ❌ 无（F12 依赖 VLM 适配器不存在） |
+
+**三条收束结论**：
+
+1. **mulpub 在「约束强度」最高的第 1 档已经就位**（`refTokens`），却在第 2–5、7 档全部空缺 —— **连续性短板不在数据层，而在 prompt 纪律（3）、输入接力（4）、生成策略（5）与验收闭环（7）**。这意味着：补连续性不需要动 Shot schema 的实体部分（F8/F9 的 schema 改动是另一件事），而应优先落 **F15（锚点声明）、F31→F6b（尾帧约束）、F16（组级生成）**。
+
+2. **七种武器不是互斥而是叠加**——smy 的「三重机制」（逐字校验 + 四视图资产 + 尾帧接力）实际是武器 3+1+4 的组合；moyin 的 S 级是 5+4 的组合。**单武器强度有限，2 档以上叠加才达到工业可用**。mulpub 现在只有 1 档，任何单项 F 的连续性收益都会被其余空档稀释——这解释了为什么「角色串脸」在 mulpub 侧难以根治。
+
+3. **唯一在「验收层」有武器的两个项目（showvi/Jellyfish）都把校验做成了独立阶段而非生成内联** —— 这与 mulpub F12 的教训一致（VLM 质检必须过成本闸、QC 插在下载后写 manifest 前）。**验收层武器的正确形态是「独立 QC 阶段 + 分级闸门」**，不是生成过程的一部分。
+
+> 💡 **一句话**：连续性不是「一个功能」而是「七个档位的组合覆盖」。mulpub 手里握着最强的一张牌（refTokens）却只打了一档——**先补 prompt 纪律与尾帧接力（低成本两档），再谈生成策略与 QC（高成本两档）**，是连续性路线图里投入产出最陡的一段。
+
+---
 
 ## 四、横向对比与复用价值排名
 
