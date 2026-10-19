@@ -1,9 +1,5 @@
 <template>
   <div class="result-page">
-    <button class="back-to-list" data-testid="back-to-pipeline-list" @click="goBackToHistory">
-      <span class="back-to-list__arrow" aria-hidden="true">←</span>
-      {{ tOrKey('create.story2video.backToHistory') }}
-    </button>
     <div class="page-header">
       <div>
         <h1>视频预览</h1>
@@ -769,10 +765,6 @@ export default {
       } finally {
         this.pipelineRunActionBusy = false
       }
-    },
-    // 返回历史记录（2026-08-17 术语统一：视频任务编辑页返回 → 历史记录标签）
-    goBackToHistory() {
-      this.$router.push({ path: '/create', query: { view: 'history' } })
     },
     // 分段快捷定位（2026-08-17 UX 统一）：分段卡片 ref 收集 + 数字跳转 + 上一条/下一条
     setSegmentItemRef(el, index) {
@@ -1753,13 +1745,6 @@ export default {
 
 .page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
 .page-header h1 { font-size: var(--font-size-xl); font-weight: 700; margin: 0; }
-/* 形状值与 create-view.css 的 .back-btn 对齐（同流程另一页的返回胶囊）；底色档位刻意不同：
-   本页底色即 --surface，照抄「透明底 + hover 变 --surface」会让 hover 不可见。 */
-.back-to-list { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; margin: 0 0 var(--spacing-4, 16px); padding: 6px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm, 6px); background: var(--surface); color: var(--primary); font-size: var(--font-size-sm); cursor: pointer; transition: background-color 0.15s ease, border-color 0.15s ease; }
-/* 箭头字形在中文回退字体下自带较高的行盒，单独归零行高才能与文字光学居中对齐。 */
-.back-to-list__arrow { line-height: 1; }
-.back-to-list:hover { background: var(--border-light); border-color: var(--primary); }
-.back-to-list:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .page-subtitle { margin: 4px 0 0; color: var(--text); font-size: var(--font-size-base); font-weight: 600; }
 .page-meta { margin: 2px 0 0; color: var(--text-muted); font-size: var(--font-size-xs); }
 .result-header-status { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; min-width: 0; }

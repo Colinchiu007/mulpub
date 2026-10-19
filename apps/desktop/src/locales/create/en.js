@@ -66,7 +66,6 @@ export default {
       },
       startPipeline: 'Start pipeline',
       pause: 'Pause',
-      backToHistory: 'Back',
       selectionWait: {
         stageLabel: 'Awaiting asset selection',
         banner: (ctx) => 'Storyboard assets are ready — pick the final material for each scene (' + ctx.named('count') + ' scenes total).',
@@ -234,6 +233,7 @@ export default {
         VOICE_CLONE_TOTAL_DURATION_EXCEEDED: 'The total audio duration exceeds the limit. Remove files and retry.',
         VOICE_CLONE_PROVIDER_UNAVAILABLE: 'Voice cloning is temporarily unavailable. Please try again later.',
         VOICE_CLONE_UNAVAILABLE: 'Voice cloning is temporarily unavailable. Please try again later.',
+        VOICE_CLONE_PLAN_UNSUPPORTED: 'Your MiniMax account cannot clone voices: note that MiniMax voice cloning requires a separate 9.9 CNY purchase per voice and is not covered by subscription plans. Purchase it on the MiniMax platform and retry, or use a built-in voice or another provider.',
         VOICE_CLONE_UNSUPPORTED: 'This voice model does not support voice cloning yet. Using the default voice.',
         VOICE_CLONE_DIALOG_UNAVAILABLE: 'Could not open the audio file picker. Please try again.',
         VOICE_CLONE_DUPLICATE_ID: 'A cloned voice with this name already exists. Use another name.',

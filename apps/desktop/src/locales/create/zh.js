@@ -66,7 +66,6 @@ export default {
       },
       startPipeline: '启动流水线',
       pause: '暂停',
-      backToHistory: '返回',
       selectionWait: {
         stageLabel: '等待选择素材',
         banner: (ctx) => '分镜素材已生成，请为每个分镜选择最终素材（共 ' + ctx.named('count') + ' 个场景）。',
@@ -233,6 +232,7 @@ export default {
         VOICE_CLONE_TOTAL_DURATION_EXCEEDED: '上传的音频总时长超出限制，请减少文件后重试。',
         VOICE_CLONE_PROVIDER_UNAVAILABLE: '音色克隆服务暂时不可用，请稍后重试。',
         VOICE_CLONE_UNAVAILABLE: '音色克隆服务暂时不可用，请稍后重试。',
+        VOICE_CLONE_PLAN_UNSUPPORTED: '当前 MiniMax 账号无法克隆音色：请注意，MiniMax 的音色复制需要另付费 9.9 元购买音色，不能直接使用订阅套餐。请前往 MiniMax 平台购买后重试，或改用内置音色/其它语音供应商。',
         VOICE_CLONE_UNSUPPORTED: '当前语音模型暂不支持音色克隆，已使用默认音色。',
         VOICE_CLONE_DIALOG_UNAVAILABLE: '无法打开本地音频文件选择窗口，请重试。',
         VOICE_CLONE_DUPLICATE_ID: '该克隆音色已存在，请更换名称后重试。',

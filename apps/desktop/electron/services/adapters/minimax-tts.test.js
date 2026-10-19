@@ -432,6 +432,49 @@ describe('MinimaxTtsAdapter — MiniMax TTS Adapter', () => {
       expect(error.message).toContain('voice clone user forbidden')
     })
 
+    // 2026-10-19 事故（项目 mvevl2ya_7sl8 后续）：订阅套餐账号克隆被 MiniMax 拒绝，
+    // 服务端原文 "your current token plan not support model, voice_clone"。
+    // 必须归类为 PLAN_UNSUPPORTED（而不是 QUOTA_EXCEEDED / PROVIDER_ERROR），
+    // 让用户看到「套餐不支持，需按量付费」而不是误导性的「暂时不可用，请重试」。
+    it('套餐不支持克隆（token plan not support voice_clone）归类为 PLAN_UNSUPPORTED，优先于额度类判定', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({ file: { file_id: 12345 } }),
+        createFetchResponse({ base_resp: { status_code: 2013, status_msg: 'your current token plan not support model, voice_clone' } }),
+      ])
+      global.fetch = fetchMock
+      const adapter = new MinimaxTtsAdapter({ id: 'minimax-tts', apiKey: 'mm-test' })
+      const blob = new Blob([new Uint8Array([1, 2, 3])], { type: 'audio/mpeg' })
+      const error = await adapter.cloneVoice({ name: '音色001', samples: [{ blob, fileName: 'clone.mp3', contentType: 'audio/mpeg' }] }).catch((e) => e)
+      expect(error).toBeInstanceOf(ProviderError)
+      expect(error.code).toBe('PLAN_UNSUPPORTED')
+      expect(error.message).toContain('token plan not support')
+    })
+
+    it('status_code=2038 时同样归类为 PLAN_UNSUPPORTED（官方：语音克隆功能被禁用，需完成认证）', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({ file: { file_id: 12345 } }),
+        createFetchResponse({ base_resp: { status_code: 2038, status_msg: 'voice clone user forbidden' } }),
+      ])
+      global.fetch = fetchMock
+      const adapter = new MinimaxTtsAdapter({ id: 'minimax-tts', apiKey: 'mm-test' })
+      const blob = new Blob([new Uint8Array([1, 2, 3])], { type: 'audio/mpeg' })
+      const error = await adapter.cloneVoice({ name: '音色001', samples: [{ blob, fileName: 'clone.mp3', contentType: 'audio/mpeg' }] }).catch((e) => e)
+      expect(error.code).toBe('PLAN_UNSUPPORTED')
+      expect(error.context).toMatchObject({ statusCode: 2038 })
+    })
+
+    it('普通额度类错误（insufficient balance）不误判为 PLAN_UNSUPPORTED，仍为 QUOTA_EXCEEDED', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({ file: { file_id: 12345 } }),
+        createFetchResponse({ base_resp: { status_code: 1008, status_msg: 'insufficient balance' } }),
+      ])
+      global.fetch = fetchMock
+      const adapter = new MinimaxTtsAdapter({ id: 'minimax-tts', apiKey: 'mm-test' })
+      const blob = new Blob([new Uint8Array([1, 2, 3])], { type: 'audio/mpeg' })
+      const error = await adapter.cloneVoice({ name: '音色001', samples: [{ blob, fileName: 'clone.mp3', contentType: 'audio/mpeg' }] }).catch((e) => e)
+      expect(error.code).toBe('QUOTA_EXCEEDED')
+    })
+
     it('缺少样本时抛出配置错误', async () => {
       const adapter = new MinimaxTtsAdapter({ id: 'minimax-tts', apiKey: 'mm-test' })
       await expect(adapter.cloneVoice({ name: 'x', samples: [] })).rejects.toThrow()
