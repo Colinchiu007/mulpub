@@ -419,6 +419,15 @@ shared-user-data.backups/
 # 会把脚本本体静默忽略：漏这条 negation 时 git status 里它根本不存在，本地在盘、跑得通，
 # 而 Gate 2c 在 CI 上 Cannot find module（同 #3011 家族）。基线 JSON 不在该 glob 内，无需放行。
 !scripts/freeze-gate-carrier.js
+
+# 阶段 5.3/5.4 新门禁（ux-audit-phase34，2026-10-19）。第 106 行 scripts/*.js 会把判据本体与
+# 其自测一并静默忽略：漏 negation 时本地在盘、跑得通，而 Gate 2b 在 CI 上 Cannot find module
+# （同 #3011 家族）。欠账 JSON 不在该 glob 内，无需放行，但**必须**被 Gate 2b 读到，
+# 所以两份清单也在这里显式反选以防后续 glob 变化。
+!scripts/check-ui-wired.js
+!scripts/check-ui-wired.test.js
+!scripts/check-field-consumed.js
+!scripts/check-field-consumed.test.js
 # CCG 深度审查的工作产物（提案/评审/裁决），不进主干；判定记录 .ccg/reviews/*.json 才是留痕
 .adversarial/
 # 构建产物（由 build:preload / build:paginator 生成，不进版本控制）
