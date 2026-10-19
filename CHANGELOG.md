@@ -1,3 +1,33 @@
+
+
+- **修什么**：侧边栏「更多」容器早就声明了 `role="menu"` / `role="menuitem"`，但没有任何键盘行为 ——
+  展开后焦点掉回 `document.body`，方向键无效，Esc 不收尾，Tab 走开后菜单还挂着。
+  **给了角色却不给该角色的操作方式，比不给角色更坏**：读屏会 announce「菜单」并据此期待方向键可用。
+  这是人工读模板才发现的（审计条目 audit-31），此前不在任何机械判据的视野内。
+
+- **交互口径**：停在「更多」上按 ↓ 展开并把焦点放进菜单；↑/↓ 在**可见项之间循环**（末位再按回第一项）；
+  Home/End 直达首末项；Esc 收起并**把焦点归还触发器**；Tab 收起但不抢焦点、不 preventDefault；
+  鼠标点某项后该项即成 roving 位，随后方向键从**它**继续；焦点离开菜单且未落在触发器上则自动收起。
+  展开起点取「当前路由命中项」而非第 0 项（`initialMoreIndex`），运营隐藏某项后索引不漂移（`visibleMoreIndexes`）。
+
+- **实现层硬约束（踩过的坑）**：元素表必须是**普通数组** —— 写成 `ref([])` 并在模板 `:ref` 回调里赋新数组会
+  形成 render → ref 回调 → 改状态 → 再 render 的自循环，组件立刻抛 `Maximum recursive updates exceeded in component <MpSidebar>`。
+  另：`<router-link>` 的模板 ref 拿到的是**组件实例**，可直接 `focus()` 的是它渲染的 `<a>`，统一走 `focusableOf()`。
+
+- **验证**：`vitest run src/layouts` → 49 passed / 5 files（其中新增 `MpSidebar.more-keyboard.test.js` 13 条，
+  夹具路由全部由渲染结果反推，不手抄菜单配置）；变异反证 7 条（退回 `tabindex="0"` / 摘 `@focus` roving 迁移 /
+  回绕改夹住 / Esc 不归还焦点 / 起点写死 0 / 摘 `aria-controls` / focusout 不豁免触发器）**各红在指名用例**，
+  控制跑 rc=0、还原后逐字节相同。**两条方法论收获**：① 反证报 MISSED 时先问"我的断言有没有覆盖那条边"，
+  不是"这处代码不重要"（MK-2 正是这样发现判据的洞）；② 变异驱动必须自证探针活着 ——
+  v1 用了 vitest 4 已移除的 `--reporter=basic`，每跑都是 Startup Error rc=1，把 7 条「一条都没跑」报成 7 条 CAUGHT。
+
+- **刻意没做**：`sidebar.cloudPublish` 的标签「CLI」不改成业务语义名（属产品命名决定，zh/en 现均为 `CLI`，待口径后走成对 locales 小 PR）；13 项仍扁平不分组（动它会把选中态、运营配置主键与像素基线一起牵进来）。
+
+- 涉及文件：`apps/desktop/src/layouts/MpSidebar.vue`、`apps/desktop/src/layouts/MpSidebar.more-keyboard.test.js`（新）、
+  `openspec/records/ux-audit-more-keyboard.md`（新）、`01-docs/UX-AUDIT-2026-10-17.md`（audit-31 就地指针 + 4.5 行状态）。
+
+
+
 # [未发布] fix(a11y): 「更多」菜单补 roving tabindex + 方向键 + Esc + 焦点归还（UX 审计 4.5 / audit-31）
 
 - **修什么**：侧边栏「更多」容器早就声明了 `role="menu"` / `role="menuitem"`，但没有任何键盘行为 ——
@@ -27,6 +57,11 @@
   `openspec/records/ux-audit-more-keyboard.md`（新）、`01-docs/UX-AUDIT-2026-10-17.md`（audit-31 就地指针 + 4.5 行状态）。
 # [未发布] docs(audit): 更正 audit-60 的 harm 陈述 —— ElMessage 根节点其实已带 role="alert"，阶段 4.6 因此收窄（ux-audit-toast-a11y-correction）
 
+- **动工前核了库的真实产物**（本机 element-plus 2.14.2）：`message.vue` 编译产物里 `role` 出现 1 次、值为 `"alert"`、挂在 `.el-message` 根 div 的属性表上；5 个 message 实现文件里 `aria-` 计数**全为 0**；`MessageHandler` 只有 `close()`，**没有 DOM 句柄**。
+- **于是原 finding 的结论断了一半**：「250 次 ElMessage 作为主要反馈通道，读屏用户听不到成功/失败」**不成立** —— `role="alert"` 是隐式 `aria-live="assertive"`，每条都会被播报。按字面去「补 role」会造出**第二个播报源**（同一双次朗读），比现状更差。
+- **成立的是另一半**：不分类型统一 assertive ⇒ **礼貌级无法区分**（成功/信息本该 polite 不打断），批量发布连发多条会**连续打断**。这是真实残留问题，但解法是**限频/合并与按类型分流**，不是加 role。
+- **4.6 改成**：不在应用侧新增 live region；不给 `.el-message` 加 `aria-hidden`（框内有可聚焦的关闭按钮，隐藏容器会连带破坏焦点可达性）；限频/分组收在 `showToast` 单点化（PR #3996）的那一个出口；若确要按类型分礼貌级，先做真机（NVDA/Narrator）取证再决定，不得凭规范推断直接改 DOM。取证前，现状按**已接受**处理，不是待修的沉默缺陷。
+- **方法论（写进审计稿文末《第三轮更正》）**：审计里任何 `X 计数很低 ⇒ 用户得不到 Y` 的句子，动工前必须先回答**「还有哪条通道在承载 Y」**（含依赖库与宿主默认行为）。这是 AGENTS「宿主 API 字段归属必须先核实」的第二落点：第一次用它挡住了读不存在的 `getVisibilityState`，这次用它挡住了一处会加倍播报的"修复"。
 
 # [未发布] chore(debt): 债务熔断基线 re-sync 到主干现状——接受漂移不是清理，并登记拆分红利（debt-baseline-resync）
 - **现场**：`debt-guard.yml` 的「债务熔断检查」从今天起在**每一个** rebase/merge 到今天主干的
@@ -126,41 +161,8 @@
   从 44 个 CR 改写为 22546 个 CR —— 正是 AGENTS.md「行尾不是噪声」那条点名的旧错法（本仓 2026-10-05 已实测
   这三份历史 CRLF 文档的 blob 现为纯 LF，磁盘 CRLF 只是 checkout 转换）。正解：`split('\n')` 后**逐行保留
   各自结尾**，插入行取锚点那一行的结尾，改完用 `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 对账。
-# [未发布] docs(audit): 更正 audit-60 的 harm 陈述 —— ElMessage 根节点其实已带 role="alert"，阶段 4.6 因此收窄（ux-audit-toast-a11y-correction）
 
-- **动工前核了库的真实产物**（本机 element-plus 2.14.2）：`message.vue` 编译产物里 `role` 出现 1 次、值为 `"alert"`、挂在 `.el-message` 根 div 的属性表上；5 个 message 实现文件里 `aria-` 计数**全为 0**；`MessageHandler` 只有 `close()`，**没有 DOM 句柄**。
-- **于是原 finding 的结论断了一半**：「250 次 ElMessage 作为主要反馈通道，读屏用户听不到成功/失败」**不成立** —— `role="alert"` 是隐式 `aria-live="assertive"`，每条都会被播报。按字面去「补 role」会造出**第二个播报源**（同一双次朗读），比现状更差。
-- **成立的是另一半**：不分类型统一 assertive ⇒ **礼貌级无法区分**（成功/信息本该 polite 不打断），批量发布连发多条会**连续打断**。这是真实残留问题，但解法是**限频/合并与按类型分流**，不是加 role。
-- **4.6 改成**：不在应用侧新增 live region；不给 `.el-message` 加 `aria-hidden`（框内有可聚焦的关闭按钮，隐藏容器会连带破坏焦点可达性）；限频/分组收在 `showToast` 单点化（PR #3996）的那一个出口；若确要按类型分礼貌级，先做真机（NVDA/Narrator）取证再决定，不得凭规范推断直接改 DOM。取证前，现状按**已接受**处理，不是待修的沉默缺陷。
-- **方法论（写进审计稿文末《第三轮更正》）**：审计里任何 `X 计数很低 ⇒ 用户得不到 Y` 的句子，动工前必须先回答**「还有哪条通道在承载 Y」**（含依赖库与宿主默认行为）。这是 AGENTS「宿主 API 字段归属必须先核实」的第二落点：第一次用它挡住了读不存在的 `getVisibilityState`，这次用它挡住了一处会加倍播报的"修复"。
 
-# [未发布] fix(a11y): 「更多」菜单补 roving tabindex + 方向键 + Esc + 焦点归还（UX 审计 4.5 / audit-31）
-
-- **修什么**：侧边栏「更多」容器早就声明了 `role="menu"` / `role="menuitem"`，但没有任何键盘行为 ——
-  展开后焦点掉回 `document.body`，方向键无效，Esc 不收尾，Tab 走开后菜单还挂着。
-  **给了角色却不给该角色的操作方式，比不给角色更坏**：读屏会 announce「菜单」并据此期待方向键可用。
-  这是人工读模板才发现的（审计条目 audit-31），此前不在任何机械判据的视野内。
-
-- **交互口径**：停在「更多」上按 ↓ 展开并把焦点放进菜单；↑/↓ 在**可见项之间循环**（末位再按回第一项）；
-  Home/End 直达首末项；Esc 收起并**把焦点归还触发器**；Tab 收起但不抢焦点、不 preventDefault；
-  鼠标点某项后该项即成 roving 位，随后方向键从**它**继续；焦点离开菜单且未落在触发器上则自动收起。
-  展开起点取「当前路由命中项」而非第 0 项（`initialMoreIndex`），运营隐藏某项后索引不漂移（`visibleMoreIndexes`）。
-
-- **实现层硬约束（踩过的坑）**：元素表必须是**普通数组** —— 写成 `ref([])` 并在模板 `:ref` 回调里赋新数组会
-  形成 render → ref 回调 → 改状态 → 再 render 的自循环，组件立刻抛 `Maximum recursive updates exceeded in component <MpSidebar>`。
-  另：`<router-link>` 的模板 ref 拿到的是**组件实例**，可直接 `focus()` 的是它渲染的 `<a>`，统一走 `focusableOf()`。
-
-- **验证**：`vitest run src/layouts` → 49 passed / 5 files（其中新增 `MpSidebar.more-keyboard.test.js` 13 条，
-  夹具路由全部由渲染结果反推，不手抄菜单配置）；变异反证 7 条（退回 `tabindex="0"` / 摘 `@focus` roving 迁移 /
-  回绕改夹住 / Esc 不归还焦点 / 起点写死 0 / 摘 `aria-controls` / focusout 不豁免触发器）**各红在指名用例**，
-  控制跑 rc=0、还原后逐字节相同。**两条方法论收获**：① 反证报 MISSED 时先问"我的断言有没有覆盖那条边"，
-  不是"这处代码不重要"（MK-2 正是这样发现判据的洞）；② 变异驱动必须自证探针活着 ——
-  v1 用了 vitest 4 已移除的 `--reporter=basic`，每跑都是 Startup Error rc=1，把 7 条「一条都没跑」报成 7 条 CAUGHT。
-
-- **刻意没做**：`sidebar.cloudPublish` 的标签「CLI」不改成业务语义名（属产品命名决定，zh/en 现均为 `CLI`，待口径后走成对 locales 小 PR）；13 项仍扁平不分组（动它会把选中态、运营配置主键与像素基线一起牵进来）。
-
-- 涉及文件：`apps/desktop/src/layouts/MpSidebar.vue`、`apps/desktop/src/layouts/MpSidebar.more-keyboard.test.js`（新）、
-  `openspec/records/ux-audit-more-keyboard.md`（新）、`01-docs/UX-AUDIT-2026-10-17.md`（audit-31 就地指针 + 4.5 行状态）。
 # [未发布] fix(视频创作): MiniMax 克隆「套餐不支持」原样透传，不再误报「暂时不可用请重试」（s2v-clone-plan-unsupported）
 
 ## 问题
