@@ -262,10 +262,10 @@ class RewriteEngineService {
     return this._strategyManager.listEnabled()
   }
 
-  /** 获取推荐策略 */
-  getRecommendedStrategies(userSettings) {
+  /** 获取推荐策略（content 可选：参与无有效信号时的保真优先兜底） */
+  getRecommendedStrategies(userSettings, content) {
     const engine = this._ensureEngine()
-    return engine.getRecommendedStrategies(userSettings || {})
+    return engine.getRecommendedStrategies(userSettings || {}, content || "")
   }
 }
 

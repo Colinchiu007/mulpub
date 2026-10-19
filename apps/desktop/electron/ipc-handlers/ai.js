@@ -100,9 +100,14 @@ ipcMain.handle('ai:generate-summary', withSenderCheck(async (_event, content) =>
       } catch (e) { log.warn('[ipc:ai]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
     })
 
-    ipcMain.handle('ai:get-recommended-strategies', async (_event, userSettings) => {
+    // content（可选，第二参）：参与无有效信号时的保真优先兜底（rewrite-default-strategy-fix）。
+    // ⚠ 签名兼容 ≠ 行为不变：本次修复后，空/近似空 userSettings 的自动推荐
+    //   由 strategy-viral-storytelling 改为 strategy-knowledge-dry（保真兜底），
+    //   这是本 PR 修复目标本身的有意变化，覆盖 AiWriterPanel/Collection/RewriteView 三个入口。
+    // 老调用方只传 userSettings 时 content 为 undefined ⇒ 桥接层回落空串，签名兼容。
+    ipcMain.handle('ai:get-recommended-strategies', async (_event, userSettings, content) => {
       try {
-        return { code: 0, data: rewriteEngineService.getRecommendedStrategies(userSettings || {}) }
+        return { code: 0, data: rewriteEngineService.getRecommendedStrategies(userSettings || {}, content) }
       } catch (e) { log.warn('[ipc:ai]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
     })
   }
