@@ -864,3 +864,45 @@ https://mp.toutiao.com/profile_v4/personal/auth?enter_from=main_page   ← 二�
 1. 单篇发布流程的失败 toast 仍是纯文本（它拿到的是入队响应，平台失败异步回来），未接。
 2. 目前只有头条两个码；其它平台的账号状态类失败要接需成对加表项。
 3. 链接页面对未登录 / 其它账号是否同样有效未验证。
+
+### 12.6.7 封面链真解与账号墙 API 证据（R10，2026-10-19）
+
+#### 12.6.7.1 封面：image_temp 链（订正 12.6.4/12.6.6 的旧解读）
+
+真页面「封面截取/本地上传」走的是**独立于视频**的凭证链（此前把 `SpaceName=pgc` 的 6 次
+`ApplyUploadInner` 误读为封面上传 —— 本轮证实其**从未产生 tos 传输**，是 SDK 候选路由预探测）：
+
+| 步 | 调用 | 关键点 |
+| --- | --- | --- |
+| ① 凭证 | `GET /xigua/api/upload/getAuthKey/?params={"type":"image_temp",…,"useStsToken":false}` | 返回 `{accessKey, uploadToken}`（HMAC-SHA1 形态） |
+| ② 三元组 | `GET vas-lf-x.ixigua.com/video/openapi/v1/?action=GetImageUploadParams&s=<5hex>&use_edge_node=1&file_size=<n>` | 头必须同时带 `Authorization: <uploadToken>` **和** `X-TT-Access: <accessKey>`（缺后者 `10413`） |
+| ③ 传图 | `PUT https://<tos_host>/<object_id>`，`Authorization: <tos_sign 原文（完整 JWT）>` | 204 即落盘；签名截断 ⇒ 401 |
+| ④ **登记** | `POST …?action=GetImageUploadInfos&`，body `[{"uri":"<object_id>"}]` | **服务端此刻才入库**（返回 `result_uri` + `{width,height,size,format,md5}`）；跳过这步直接提交 ⇒ `21084 封面图片不存在` |
+| ⑤ 提交 | `PublishVideo` 的 `VideoInfo.ThumbUri = result_uri` | `tos-cn-i-e874c6/…` 形态 |
+
+**错误码订正**：
+- `21085 封面数据异常`（R6 时代）= ThumbUri 传了 VOD vid（格式错）；
+- `21084 封面图片不存在`（本轮实测）= URI 形态对但**没走第 ④ 步登记**；
+- `21000 未实名认证/帐号不可用，可前往西瓜创作平台/西瓜App投稿`（本轮实测）= **封面链全通后，服务端对账号状态的权威拒绝**。
+
+#### 12.6.7.2 账号墙的 API 层证据（与 12.7 互补）
+
+`21000` 证明：**不需要 UI 弹窗也能在提交时检测到未实名**。与 §12.7 的提交前检测
+（`IsIdentifyAuth=false` → `ACCOUNT_NOT_VERIFIED`）构成双保险：
+
+| 层 | 触点 | 已落地 |
+| --- | --- | --- |
+| 提交前 | `checkPublishAuth` → `identityVerified` → 闸门（零上传） | ✅ #3977 / #3983 |
+| 提交时 | `PublishVideo` → `Code 21000`（平台原文透出） | ✅ 通用透出（结构化映射待接，见 §12.6.7.4） |
+
+#### 12.6.7.3 视频上传本轮新读数
+
+- 新 Vid：`v02d16g10004dbarnvvog65osoip723g`（同账号同链路，稳定可复现）。
+- `GetUploadCandidates` 与 `ApplyUploadInner(SpaceName=pgc)` 是 SDK 候选路由预探测，
+  **不产生上传**——不得再据此推断「封面走 pgc」。
+
+#### 12.6.7.4 未闭合
+
+1. `21000` → `ACCOUNT_NOT_VERIFIED` 的提交时结构化映射（含 `helpUrl` 复用同一链接）。
+2. 封面链五步沉淀为 `toutiao-video-cover.js`（现链文件 491/500 行，需新模块避免行数闸）。
+3. 视频号 / 抖音仍等扫码登录。
