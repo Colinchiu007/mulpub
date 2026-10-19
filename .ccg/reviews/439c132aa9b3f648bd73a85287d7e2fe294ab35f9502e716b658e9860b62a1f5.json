@@ -1,0 +1,28 @@
+{
+  "sha": "b29a35addaa7c1780bb90772d8e3721ea86990f3",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 193 行（≤ 200）但命中 auth/数据库/加密：敏感内容 1 处",
+  "stats": {
+    "changedLines": 193,
+    "fileCount": 12,
+    "codeFileCount": 4,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 1,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "- 用户授权：本仓规矩是\"新增阻断条件属改谁来守门，须人工过目\"。2026-10-19 本会话已明示「需要」并追加「应用质量节拍」，故按完整流程开刀。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "439c132aa9b3f648bd73a85287d7e2fe294ab35f9502e716b658e9860b62a1f5",
+  "decidedAt": "2026-10-18T18:52:59.754Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}
