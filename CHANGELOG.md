@@ -104,6 +104,31 @@
   行尾两口径 numstat 一致。QM-1 / QM-4 / TDD 均 N/A（无代码行为变更）。
   QM-6 双模型外部评审**未执行**（本机无可用通道，pre-commit 如实打印跳过）。
 - 执行记录 `openspec/records/debt-baseline-resync.md`（含归因两条、影响面与两个跟进项判据）。
+
+# [未发布] feat(rewrite): 改写引擎输入/输出字数上限放开到 50000 + 输出截断可见化（rewrite-limits-50000）
+
+## 问题
+
+- 输入 6000 码点上限把知乎长文 / 视频转写常态化拒之门外（#3979 只能用「截取前 6000 字」缓解，尾部丢失）。
+- 输出侧 `_postProcess` 按 字数区间.max > 策略.maxLength > 3000 砍尾时**完全静默**——用户拿到不完整的稿子且不知道，比 `TOO_LONG` 更隐蔽。
+- 大多数 LLM adapter 不传 `max_tokens` 走服务商默认（OpenAI 4096），输出在模型默认值处被截断且无法归因。
+
+## 改动
+
+- 输入上限 6000 → **50000**（`MAX_INPUT_CHARS`），输出显式区间合法域 → **50000**（新增 `MAX_OUTPUT_CHARS`）；无显式区间的兜底 3000 与策略级 800/1500/2000/3000 **保持不变**（用户显式区间优先级高于策略上限）。
+- 上限单一真源：渲染层 `rewrite-engine-limits.js` 同值常量 + 结构锁读引擎源码比对（输入/输出两把锁，判据必须消费常量，`len > 6000` / `range.max <= 6000` 字面量回潮即红）。
+- **输出截断可见化**：`_postProcess` 返回 `{text, truncatedAt}`，`rewrite()` 结果新增 `outputTruncated` / `outputLength`；改写页结果卡顶部暖橙横幅（`data-testid="rewrite-output-truncated"`）提示实际字数与上限，zh/en 成对文案。
+- 主进程桥接 `max_tokens: 64000`（CJK 1 字 ≈ 1~1.6 token × 倍余量；Anthropic 必填字段原默认 4096 同步受益）。
+- UI 字数区间校验（`useWordCountValidation`）与 `deriveWordCountRange` 自适应上界改读常量：12000 字原文自适应 max = 14400，不再被压回 6000。
+- locale 同步：placeholder / 越界错误文案 / 截断横幅（zh/en）。
+
+## 验证
+
+- 引擎 219 passed（新增 L1/L2/L3 截断可见化 + W3/W8 重写为 50000 口径 + 6001 走通正控）；渲染层定向：limits 10 + defaults 19 + error 8 + user-facing-error 32 + Collection 输入上限 6 + RewriteView 100 + Collection 回归 125 全绿。
+- 变异面：`rewrite-engine-limits.test.js` 结构锁×2（改一边必红）；横幅出现/缺省两态断言。
+- `build:vue` rc=0；`electron-builder --dir` rc=0；asar 实测含 `MAX_INPUT_CHARS = 50000` / `MAX_OUTPUT_CHARS = 50000` / `outputTruncated`。
+- 文档：`01-docs/PRD-REWRITE-LIMITS-50000-2026-10-19.md`（限额体系/数据校验/交互/显示项/流程全量）。
+
 # [未发布] feat(侧栏): 折叠按钮改为可表意的语义化图标并补齐可发现性（sidebar-toggle-ux）
 
 - **用户反馈是「样式太不明显，根本让人注意不到」，不是功能坏了**：折叠功能本身在 PR #3916 已正确（切换/持久化/跨进程同步/多窗口广播），缺陷全在呈现层。三处独立成因：**①图形不表意** —— 双向 chevron（「<>」）在通行图标语义里读作「代码」或「展开更多」，与「收起侧栏」无关；**②两态共用同一图形** —— 收起/展开只靠颜色区分（primary vs secondary），是单通道编码，对色觉障碍用户完全失效，普通用户也无法从图标判断当前处于哪个状态；**③常态几乎不可见** —— 图标色对 TabBar 背景亮色实测 4.40:1（差 0.1 不达 WCAG AA 4.5:1），边框与底色都是 `transparent`。

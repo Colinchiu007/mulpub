@@ -8,12 +8,13 @@ function engineFailure (errorCode, error) {
 
 describe('normalizeRewriteEngineError — 引擎业务错误字段位置归一化', () => {
   it('TOO_LONG → REWRITE_CONTENT_TOO_LONG + {max} 插值参数（信封 code 保留）', () => {
-    const normalized = normalizeRewriteEngineError(engineFailure('TOO_LONG', '内容过长，最多 6000 字'))
+    // rewrite-limits-50000：params.max 取渲染层常量 50000（结构锁对齐引擎 MAX_OUTPUT_CHARS）
+    const normalized = normalizeRewriteEngineError(engineFailure('TOO_LONG', '内容过长，最多 50000 字'))
     expect(normalized).toEqual({
       code: 0,
       errorCode: 'REWRITE_CONTENT_TOO_LONG',
-      message: '内容过长，最多 6000 字',
-      params: { max: 6000 },
+      message: '内容过长，最多 50000 字',
+      params: { max: 50000 },
     })
   })
 
@@ -56,12 +57,12 @@ describe('normalizeRewriteEngineError — 引擎业务错误字段位置归一�
 describe('引擎业务错误的最终文案（formatUserError 端到端）', () => {
   it('zh：TOO_LONG 不再回落「AI 改写失败」，给出上限与可操作建议', () => {
     const formatted = formatUserError(
-      normalizeRewriteEngineError(engineFailure('TOO_LONG', '内容过长，最多 6000 字')),
+      normalizeRewriteEngineError(engineFailure('TOO_LONG', '内容过长，最多 50000 字')),
       { locale: 'zh', fallback: 'AI 改写失败' },
     )
     expect(formatted.errorCode).toBe('REWRITE_CONTENT_TOO_LONG')
     expect(formatted.matched).toBe('errorCode')
-    expect(formatted.message).toContain('6000')
+    expect(formatted.message).toContain('50000')
     expect(formatted.message).toContain('改写')
     expect(formatted.message).not.toBe('AI 改写失败')
   })
@@ -71,7 +72,7 @@ describe('引擎业务错误的最终文案（formatUserError 端到端）', () 
       normalizeRewriteEngineError(engineFailure('TOO_LONG', 'x')),
       { locale: 'en', fallback: 'AI rewrite failed' },
     )
-    expect(formatted.message).toContain('6000')
+    expect(formatted.message).toContain('50000')
     expect(formatted.message).toContain('rewrite')
     expect(formatted.message).not.toBe('AI rewrite failed')
   })

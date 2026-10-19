@@ -93,6 +93,11 @@ class RewriteEngineService {
     if (!this._strategyManager) {
       throw new Error("改写策略管理器未注入")
     }
+    // max_tokens 透传（rewrite-limits-50000，2026-10-19）：输入/输出上限放开后，
+    // 大多数 LLM adapter 不传 max_tokens 会走服务商默认（如 OpenAI 4096），
+    // 输出在模型默认值处被截断且与引擎自身截断混在一起，无法归因。
+    // 口径：ceil(上限字数 × 2)（CJK ≈1 字 ≈1~1.6 token，留倍余量），夹到 64K 内。
+    // Anthropic adapter 必填 max_tokens 且默认 4096——透传后同样受益。
     const llmClient = {
       chat: async (systemPrompt, userPrompt) => {
         if (!this._aiGenerator) {
@@ -103,6 +108,7 @@ class RewriteEngineService {
             { role: "system", content: systemPrompt },
             { role: "user", content: userPrompt },
           ],
+          max_tokens: 64000,
         })
         return result && typeof result.content === "string" ? result.content : ""
       },

@@ -58,7 +58,7 @@ describe('采集页一键改写 — 超长正文自动截取（fix-collect-rewri
     window.electronAPI = {}
   })
 
-  it('6766 字正文 → 截到 6000 码点后调用 aiRewrite，并明确提示截断；原文不被改写', async () => {
+  it('6766 字正文 → 新上限 50000 下不截断，原样送引擎（旧上限 6000 的回归锁）', async () => {
     const original = '字'.repeat(6766)
     window.electronAPI = mockStealthApi(original, {
       code: 0,
@@ -71,17 +71,11 @@ describe('采集页一键改写 — 超长正文自动截取（fix-collect-rewri
 
     const calls = window.electronAPI.aiRewrite.mock.calls
     expect(calls.length).toBe(1)
-    expect([...calls[0][0].content].length).toBe(REWRITE_ENGINE_MAX_INPUT_CHARS)
-    expect(calls[0][0].content).toBe('字'.repeat(6000))
+    // rewrite-limits-50000：6766 < 50000 ⇒ 不再截断（知乎长文完整改写）
+    expect(calls[0][0].content).toBe(original)
     expect(w.vm.rewriteResult).toBe('改写后的内容。')
-    // 采集到的原文必须保持完整：截断只作用于改写入参，不得改写用户内容
     expect(w.vm.collectedResult.content).toBe(original)
-    expect(w.vm.collectedResult.content.length).toBe(6766)
-    // 用户必须被告知「截断」而不是静默丢尾部
-    const warned = warningTexts()
-    expect(warned).toContain('6766')
-    expect(warned).toContain('6000')
-    expect(warned).toContain('截取')
+    expect(ElMessage.warning).not.toHaveBeenCalled()
   })
 
   it('恰好 6000 码点 → 不截断、原样送引擎，不弹截断提示', async () => {
@@ -99,10 +93,35 @@ describe('采集页一键改写 — 超长正文自动截取（fix-collect-rewri
     expect(ElMessage.warning).not.toHaveBeenCalled()
   })
 
-  it('引擎业务错误信封（TOO_LONG）→ 透出具体上限文案，不再回落「AI 改写失败」', async () => {
-    window.electronAPI = mockStealthApi('字'.repeat(6000), {
+  it('50001 字正文（超新上限）→ 截到 50000 码点并明确提示截断；原文不被改写', async () => {
+    const original = '字'.repeat(50001)
+    window.electronAPI = mockStealthApi(original, {
       code: 0,
-      data: { success: false, errorCode: 'TOO_LONG', error: '内容过长，最多 6000 字' },
+      data: { success: true, result: '改写后的内容。' },
+    })
+    const w = mountCollection()
+    await nextTick()
+    w.vm.linkUrl = ZHIHU_ANSWER_URL
+    await w.vm.collectAndRewrite()
+
+    const calls = window.electronAPI.aiRewrite.mock.calls
+    expect(calls.length).toBe(1)
+    expect([...calls[0][0].content].length).toBe(REWRITE_ENGINE_MAX_INPUT_CHARS)
+    expect(calls[0][0].content).toBe('字'.repeat(50000))
+    expect(w.vm.rewriteResult).toBe('改写后的内容。')
+    // 采集到的原文必须保持完整：截断只作用于改写入参，不得改写用户内容
+    expect(w.vm.collectedResult.content).toBe(original)
+    // 用户必须被告知「截断」而不是静默丢尾部
+    const warned = warningTexts()
+    expect(warned).toContain('50001')
+    expect(warned).toContain('50000')
+    expect(warned).toContain('截取')
+  })
+
+  it('引擎业务错误信封（TOO_LONG）→ 透出具体上限文案，不再回落「AI 改写失败」', async () => {
+    window.electronAPI = mockStealthApi('字'.repeat(50000), {
+      code: 0,
+      data: { success: false, errorCode: 'TOO_LONG', error: '内容过长，最多 50000 字' },
     })
     const w = mountCollection()
     await nextTick()
@@ -111,7 +130,7 @@ describe('采集页一键改写 — 超长正文自动截取（fix-collect-rewri
 
     expect(w.vm.rewriteResult).toBe('')
     expect(w.vm.rewriteError).toBeTruthy()
-    expect(w.vm.rewriteError.message).toContain('6000')
+    expect(w.vm.rewriteError.message).toContain('50000')
     expect(w.vm.rewriteError.message).not.toBe('AI 改写失败')
     expect(ElMessage.error).toHaveBeenCalled()
   })

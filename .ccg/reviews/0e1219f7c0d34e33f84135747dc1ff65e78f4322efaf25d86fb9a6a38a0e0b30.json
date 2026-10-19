@@ -1,0 +1,59 @@
+{
+  "sha": "74a0f5d9322e04aa1888099a8530133fe1aa7242",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 431 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 431,
+    "fileCount": 20,
+    "codeFileCount": 16,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 1,
+    "docSensitiveContentHits": 5,
+    "docSensitiveContentSample": [
+      "- 主进程 `rewrite-engine.js` 的 `llmClient.chat` 增加 `max_tokens: 64000`。",
+      "- Anthropic adapter 的 `max_tokens` 是必填字段（原默认 4096），透传后同样受益；OpenAI 兼容 adapter（openai/deepseek/doubao/gemini/openrouter/ollama/agnes/sensenova/minimax）已有 `if (params.max_tokens !== undefined) body.max_tokens = ...` 条件透传，无需改 adapter。",
+      "                ├─ LLM 调用（max_tokens=64000）"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "0e1219f7c0d34e33f84135747dc1ff65e78f4322efaf25d86fb9a6a38a0e0b30",
+  "decidedAt": "2026-10-19T10:06:30.195Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}
