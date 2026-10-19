@@ -25,6 +25,10 @@ const { classifyTopicMulti, CATEGORY_KEYS } = require('./hot-topics/classifier')
 const { CHANNEL_PARSERS } = require('./hot-topics/channels')
 const { scoreTopics, markTrend } = require('./hot-topics/scorer')
 const { ChannelThrottle, ChannelBreaker, quotaKeyOf } = require('./hot-topics/throttle')
+// gyread 源定义单独成模块：① 把「实现就绪」与「获准抓取」分开（合规依据自成一处，
+// 不会被误当成已生效配置）；② 本文件登记值 534 + 容差 200，main 已漂移到 671，
+// 余量将尽 —— 按门禁意图拆分而非抬基线。启用前必读该模块的合规说明。
+const { GYREAD_SOURCE } = require('./hot-topics/gyread-source')
 
 const CACHE_KEY = 'hot_topics_cache'
 const LLM_LABELS_KEY = 'hot_topics_llm_labels'
@@ -117,28 +121,6 @@ const CHANNEL_CONFIGS = [
   { id: 'weibo', name: '微博热搜', url: 'https://weibo.com/ajax/statuses/hot_band', headers: { Referer: 'https://weibo.com/' }, intervalMinutes: 10, riskLevel: 'medium' },
   { id: 'tophub', name: '微博(tophub)', url: 'https://tophub.today/n/KqndgxeLl9', headers: {}, intervalMinutes: 30, riskLevel: 'medium' },
 ]
-
-/**
- * GYREAD AI 情报日报的补拉源定义 —— **当前未挂进任何启用路径**。
- *
- * ⛔ 合规裁决（2026-10-19，对抗评审 BLOCKING-1）：gyread `robots.txt` 在 `User-agent: *`
- * 组写着 `Disallow: /news/`，Allow 只给具名检索 UA。本应用 `DESKTOP_UA` 是伪装 Chrome
- * 的通用 UA，落在 `*` 组 ⇒ 抓取在被禁路径上；**返回 200 不等于被许可**，伪装 UA 还
- * 放弃了「我是检索代理」的身份主张；`Content-Signal: ai-input=yes` 不覆盖此条。
- *
- * 保留为常量：把「实现就绪」与「获准抓取」分开 —— 解析可用 ≠ 允许抓取。
- * 启用前置（见 design.md §2.4）：① 站点新增自报身份 UA 组并获许可；② 抓取 UA 改
- * 自报身份；③ 挂回 `CATEGORY_BOOSTS.ai.sources` 并补 locales 文案。
- */
-const GYREAD_SOURCE = {
-  id: 'gyread-ai', name: 'GYREAD AI 情报日报',
-  url: 'https://gyread.com/news/search-index.json',
-  parser: 'gyread_index', channel: 'gyread', board: 'ai',
-  boostCategory: 'ai', onlyCategory: 'ai',
-  headers: {}, intervalMinutes: 60, riskLevel: 'medium',
-  throttleKey: 'gyread-index', entryUrl: 'https://gyread.com/news/',
-  enrichWithEdition: true, indexFilter: { days: 3 },
-}
 
 /**
  * 稀疏分类定向补拉配置（方案B/D）。

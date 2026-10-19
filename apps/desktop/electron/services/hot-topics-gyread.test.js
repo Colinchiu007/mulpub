@@ -232,9 +232,13 @@ describe('合规边界：gyread 默认不抓取（解析器可用 ≠ 获准抓�
       id: 'gyread-ai', channel: 'gyread', board: 'ai',
       boostCategory: 'ai', parser: 'gyread_index', onlyCategory: 'ai',
       throttleKey: 'gyread-index', riskLevel: 'medium',
-      enrichWithEdition: true, entryUrl: 'https://gyread.com/news/',
+      entryUrl: 'https://gyread.com/news/',
     })
     expect(GYREAD_SOURCE.intervalMinutes).toBeGreaterThanOrEqual(30)
+  })
+
+  it('源定义不含 enrichWithEdition（增强实现已随源摘除，不留死代码开关）', () => {
+    expect(GYREAD_SOURCE.enrichWithEdition).toBeUndefined()
   })
 
   it('解析器本身仍完整可用（摘除的是启用路径，不是实现）', () => {
