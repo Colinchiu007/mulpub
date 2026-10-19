@@ -21,12 +21,8 @@
   .create-page--pipeline-list { max-width: calc(100% - 64px); }
 }
 .page-header { margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--hairline, rgba(0,0,0,0.06)); }
-/* 详情页原 .back-btn 返回按钮已移除（返回语义由顶部导航箭头 + 历史记录 tab 承接），
-   详情态不再隐藏顶部导航箭头；.back-btn 样式一并下线（最后一个使用者已消失）。 */
-.page-header-nav { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
-.nav-arrow-btn { width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border, #dcdfe6); border-radius: 8px; background: var(--surface, #fff); cursor: pointer; font-size: var(--font-size-base); color: var(--text, #333); transition: all 0.15s ease; }
-.nav-arrow-btn:hover:not(:disabled) { border-color: var(--primary, #409eff); color: var(--primary, #409eff); background: rgba(37,99,235,0.04); }
-.nav-arrow-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+/* 顶部导航箭头（.page-header-nav / .nav-arrow-btn）已整组移除：页面导航由左侧菜单 + 视图 tab 承接；
+   上一轮下线的 .back-btn 返回按钮不再有替代承载，同批清干净（使用者均已消失）。 */
 .page-header h1 { font-size: var(--font-size-xl); font-weight: 700; margin: 0 0 6px; letter-spacing: -0.02em; }
 .text-muted { color: var(--text-muted); font-size: var(--font-size-sm); }
 
