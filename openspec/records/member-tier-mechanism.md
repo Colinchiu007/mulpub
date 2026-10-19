@@ -1,5 +1,5 @@
 ---
-record: member-tier-mechanism
+record: member-tier-v11-solo
 task: 会员档位整体机制设计——「积分之外」的功能与额度差异分析，含 26 产品竞品调研与会员套餐内容总表
 date: 2026-10-19
 type: docs-only
