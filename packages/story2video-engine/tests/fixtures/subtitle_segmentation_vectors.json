@@ -930,6 +930,201 @@
           "reason": "语义/标点边界短块：从扎营、搞粮草"
         }
       ]
+    },
+    {
+      "id": "v1.3_phrase_boundary_dian_ju",
+      "input": "很多人以为，这是一个简单的政治表态，是选举年为了拉拢某些特定票仓的无奈之举。",
+      "config": {
+        "min_chars_per_block": 8,
+        "max_chars_per_block": 15,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "很多人以为",
+        "这是一个简单的政治表态",
+        "是选举年为了",
+        "拉拢某些特定票仓的无奈之举"
+      ],
+      "note": "v1.3 短语边界：为了|拉拢 是高频短语右边界；禁止 拉拢某|些 劈开「某些」。",
+      "short_block_exceptions": [
+        {
+          "index": 0,
+          "len": 5,
+          "reason": "句首逗号边界短块：很多人以为"
+        },
+        {
+          "index": 2,
+          "len": 6,
+          "reason": "v1.3 短语边界头块放宽（min_head_relax=2）：是选举年为了"
+        }
+      ]
+    },
+    {
+      "id": "v1.3_phrase_boundary_hong_da",
+      "input": "我们常常会被宏大的地缘政治术语淹没，觉得这事儿离自己太远。",
+      "config": {
+        "min_chars_per_block": 8,
+        "max_chars_per_block": 15,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "我们常常会被宏大的",
+        "地缘政治术语淹没",
+        "觉得这事儿离自己太远"
+      ],
+      "note": "v1.3 短语边界：宏大的|地缘 是定语右边界；禁止 宏大的地|缘政治 劈开「地缘政治」。"
+    },
+    {
+      "id": "v1.3_phrase_boundary_wai_jiao",
+      "input": "是外交官和国际关系专家才该操心的事。",
+      "config": {
+        "min_chars_per_block": 8,
+        "max_chars_per_block": 15,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "是外交官和国际关系",
+        "专家才该操心的事"
+      ],
+      "note": "v1.3 短语边界：国际关系|专家 是复合名词右边界。"
+    },
+    {
+      "id": "v1.3_phrase_boundary_zai_ye",
+      "input": "当你的认知足够深厚，他人的“毫无遗憾”就再也无法刺痛你的软肋。",
+      "config": {
+        "min_chars_per_block": 8,
+        "max_chars_per_block": 15,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "当你的认知足够深厚",
+        "他人的“毫无遗憾”就",
+        "再也无法刺痛你的软肋"
+      ],
+      "note": "v1.3 短语边界：遗憾”就|再也 是引号收束后的短语右边界；禁止 “毫无遗憾”就|再也 切在「再也」中间导致孤悬。"
+    },
+    {
+      "id": "v1.3_phrase_boundary_ri_chang",
+      "input": "最终会体现为日常生活中的隔阂与偏见。",
+      "config": {
+        "min_chars_per_block": 8,
+        "max_chars_per_block": 15,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "最终会体现为",
+        "日常生活中的隔阂与偏见"
+      ],
+      "note": "v1.3 短语边界：体现为|日常 是介词右边界；禁止 体现为日常|生活中 劈开「日常生活」。",
+      "short_block_exceptions": [
+        {
+          "index": 0,
+          "len": 5,
+          "reason": "语义/标点边界短块：最终会体现为"
+        }
+      ]
+    },
+    {
+      "id": "v1.3_phrase_boundary_li_suo_dang_ran",
+      "input": "那么和平就不再是理所当然的默认选项，而变成了一种需要时刻捍卫的特权。",
+      "config": {
+        "min_chars_per_block": 8,
+        "max_chars_per_block": 15,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "那么和平就不再是",
+        "理所当然的默认选项，而变",
+        "成了一种",
+        "需要时刻捍卫的特权"
+      ],
+      "note": "v1.3 短语边界：不再是|理所 是判断动词右边界，默认选项，|而变 是标点后短语右边界，一种|需要 是量词右边界；禁止 不再是|理所当然 与 一种需要|时刻 劈词。",
+      "short_block_exceptions": [
+        {
+          "index": 2,
+          "len": 4,
+          "reason": "语义/标点边界短块：成了一种"
+        }
+      ]
+    },
+    {
+      "id": "v1.3_phrase_boundary_li_jie",
+      "input": "去理解那段历史对今天的世界格局意味着什么。",
+      "config": {
+        "min_chars_per_block": 8,
+        "max_chars_per_block": 15,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "去理解那段历史",
+        "对今天的世界格局意味着什么"
+      ],
+      "note": "v1.3 短语边界：那段历史|对今 是名词右边界（对为介词引导新短语）；禁止 理解那段历|史对今天 类黏连。",
+      "short_block_exceptions": [
+        {
+          "index": 0,
+          "len": 7,
+          "reason": "语义/标点边界短块：去理解那段历史"
+        }
+      ]
+    },
+    {
+      "id": "v1.3_phrase_boundary_qing_piao_piao",
+      "input": "如果你也认为历史不能被遗忘，不能被轻飘飘地用“无遗憾”三个字抹去。",
+      "config": {
+        "min_chars_per_block": 8,
+        "max_chars_per_block": 15,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "如果你也认为历史不能被遗忘",
+        "不能被轻飘飘",
+        "地用“无遗憾”三个字抹去"
+      ],
+      "note": "v1.3 短语边界：认为|历史 是动词右边界，被轻飘飘|地用 是状语收束；禁止 不能被轻飘飘地|用 前的 地|用 边界与 三个|字 劈开。",
+      "short_block_exceptions": [
+        {
+          "index": 1,
+          "len": 6,
+          "reason": "语义/标点边界短块：不能被轻飘飘"
+        }
+      ]
+    },
+    {
+      "id": "v1.3_phrase_boundary_wen_ji",
+      "input": "当被问及那些关于历史定罪的言论时，她嘴角微微上扬。",
+      "config": {
+        "min_chars_per_block": 8,
+        "max_chars_per_block": 15,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "当被问及那些关于",
+        "历史定罪的言论时",
+        "她嘴角微微上扬"
+      ],
+      "note": "v1.3 短语边界：问及|那些 是动词右边界，关于|历史 是介词右边界，言论时|她 是时间状语收束。",
+      "short_block_exceptions": [
+        {
+          "index": 2,
+          "len": 7,
+          "reason": "语义/标点边界短块：她嘴角微微上扬"
+        }
+      ]
+    },
+    {
+      "id": "v1.3_phrase_boundary_qing_miao",
+      "input": "轻描淡写地说出了那句让无数人血脉偾张的话。",
+      "config": {
+        "min_chars_per_block": 8,
+        "max_chars_per_block": 15,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "轻描淡写地说出了那句",
+        "让无数人血脉偾张的话"
+      ],
+      "note": "v1.3 短语边界：了那句|让无 是动词+指示词右边界；禁止 说出了那|句 与 人血|脉 劈词。"
     }
   ]
 }

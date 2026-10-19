@@ -8,6 +8,7 @@ from config import settings
 from database import get_db
 from middleware.auth import get_current_user, require_admin
 from services import model_preset_service
+from services.capability_default_models import capability_overview
 from services.logto_verifier import verify_bearer_or_catalog_key
 
 router = APIRouter(prefix="/api/v1/model-presets", tags=["model-presets"])
@@ -33,6 +34,25 @@ async def list_model_presets(
         raise HTTPException(403, "需要管理员权限才能查看隐藏项")
     presets = await model_preset_service.list_model_presets(db, category=category, include_hidden=include_hidden)
     return {"presets": presets, "count": len(presets)}
+
+
+@router.get("/capability-overview")
+async def get_capability_overview(
+    db: AsyncSession = Depends(get_db),
+    _user: dict = Depends(require_admin),
+):
+    """能力默认模型总览（admin-only）：按能力类别列出每个模型提供方的默许模型。
+
+    用途（voice-model-program-resolved，2026-10-18）：桌面应用使用某种能力时，
+    具体模型由程序按此处配置的默许模型解析，不再要求用户选择。本端点让运营一眼看出
+    「某能力下哪些提供方缺默许模型」（is_configured=false 即缺口）。
+    只统计 is_visible=1 的预设（隐藏项不计入缺口）。
+    """
+    capabilities = await capability_overview(db)
+    missing = sum(
+        1 for group in capabilities for provider in group["providers"] if not provider["is_configured"]
+    )
+    return {"capabilities": capabilities, "missing_count": missing}
 
 
 @router.get("/catalog")

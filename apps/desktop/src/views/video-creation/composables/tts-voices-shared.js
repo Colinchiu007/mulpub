@@ -8,10 +8,9 @@ import {
   state,
   requireDeps,
   getS2VVoiceProvider,
-  getS2VDefaultVoiceModel,
+  resolveVoiceModelForProvider,
   s2vVoiceProviderOptions,
   s2vVoiceCatalogRefreshable,
-  s2vVoiceModelOptions,
   s2vVoiceModelHidden,
   s2vVoiceContextModel,
   s2vVoiceOptions,
@@ -22,10 +21,12 @@ import { formatUserError } from '@/utils/user-facing-error'
 function getS2VVoiceContext() {
   const d = requireDeps()
   const providerId = typeof d.getS2vConfig().voiceProvider === 'string' ? d.getS2vConfig().voiceProvider.trim() : ''
-  // MiMo TTS：语音模型下拉隐藏，catalog 请求固定用 mimo-v2.5-tts（预置音色目录）
+  // 语音模型不再由用户选择（voice-model-program-resolved，2026-10-18）：
+  // MiMo 走 tts/voiceclone 双模型分支（预置音色目录固定用 mimo-v2.5-tts）；
+  // 其它 provider 一律按运营默许模型解析，**不读**用户可能陈旧的 s2vConfig.voiceModel。
   const model = s2vVoiceModelHidden.value
     ? 'mimo-v2.5-tts'
-    : (typeof d.getS2vConfig().voiceModel === 'string' ? d.getS2vConfig().voiceModel.trim() : '')
+    : resolveVoiceModelForProvider(getS2VVoiceProvider(providerId))
   return providerId && model ? { providerId, model } : null
 }
 
@@ -250,7 +251,6 @@ async function selectS2VVoice(voiceId) {
 
 export {
   getS2VVoiceProvider,
-  getS2VDefaultVoiceModel,
   getS2VVoiceContext,
   getS2VVoiceCloneContext,
   isCurrentS2VVoiceRequest,

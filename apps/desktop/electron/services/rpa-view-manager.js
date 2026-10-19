@@ -97,12 +97,58 @@ class RpaViewManager {
         // 根因：部分平台（如快手）登录 cookie 只落在 persist:* 分区、未同步进凭证 store，
         // 空串会被 adapter fail-closed，API 链 0 步未跑（live-verdict-20260926 D1）。
         // 纪律：仅只读补串，不写凭证 store；兜底后仍为空则保持既有 fail-closed 语义。
-        if (!cookie) {
+        //
+        // D2 补充兜底（video-publish-4，2026-10-18）：**签名材料不齐时也补一轮**。
+        // 真机日志：抖音 API 轨 Step 0 fail-closed「账号信息缺失」，而 store 里其实有 19 条
+        // cookie（非空）⇒ 旧判据 `if (!cookie)` 不会触发兜底。缺的是安全 SDK 在**页面 JS 运行时**
+        // 才写进分区的 `__security_mc_<N>_s_sdk_sign_data_key_web_protect` /
+        // `s_sdk_crypt_sdk` 两条——它们是登录快照**之后**才出现的，store 里永远没有。
+        // 因此判据从「cookie 为空」升级为「cookie 为空**或**签名材料不齐」；
+        // 命中后把分区 cookie **合并**进 store cookie（分区值优先，store 值兜底），
+        // 而不是整体替换——避免为了补两条 SDK cookie 丢掉 store 里更全的其余字段。
+        let cookieFromPartition = null
+        // i6（CCG 自扮演裁决，crypto 域）：判据模块加载失败时**不得静默返回 false** ——
+        // 那会把「依赖失效」伪装成「材料已齐」，与 D2 要修的「静默」同型。
+        // 改为：出声告警 + 仍返回 false（保持不盲目兜底），但运维能看到通道已断。
+        const needsMaterialFallback = () => {
+          if (!cookie) return true
+          if (platform !== 'douyin') return false
+          try {
+            const { hasSecurityMaterials } = require('@multi-publish/api-publish-engine/src/signer/douyin-ticket-guard')
+            return !hasSecurityMaterials(cookie)
+          } catch (e) {
+            log.warn('RpaView', 'douyin 签名材料判据不可用（模块加载失败），本次不做材料兜底: '
+              + String((e && e.message) || e).slice(0, 160))
+            return false
+          }
+        }
+        if (needsMaterialFallback()) {
           const acctId = (article && article.accountId) || (authData && authData.accountId) || null
           const fallback = await collectAuthPartitionCookies(platform, acctId)
           if (fallback.cookieString) {
-            cookie = fallback.cookieString
-            log.info('RpaView', 'API publish cookie fallback from auth partition ' + fallback.partition + ' (' + fallback.count + ' cookies) platform=' + platform)
+            if (cookie) {
+              // 合并：分区优先（更新），store 兜底（更全）
+              // i3（CCG 自扮演裁决）：cookie 值**可以含 '='**（base64 padding、JWT），
+              // 因此必须用 indexOf('=') 取**第一个** '=' 作分隔（旧写法 split('=')[1] 会截断值）。
+              // 另：'name=value' 段内的 ';' 只可能是段分隔符（RFC 6265 禁止 cookie 值含 ';'），
+              // 故 split(';') 是安全的；真正危险的是 split('=')，已由 indexOf 修掉。
+              const merged = new Map()
+              const absorb = (str) => {
+                for (const seg of String(str).split(';')) {
+                  const i = seg.indexOf('=')
+                  if (i > 0) merged.set(seg.slice(0, i).trim(), seg.slice(i + 1).trim())
+                }
+              }
+              absorb(cookie)
+              absorb(fallback.cookieString)
+              cookieFromPartition = Array.from(merged.entries()).map(([k, v]) => k + '=' + v).join('; ')
+              log.info('RpaView', 'API publish cookie material-fallback merged from auth partition ' + fallback.partition
+                + ' (partition=' + fallback.count + ' cookies, store+partition merged) platform=' + platform)
+            } else {
+              cookieFromPartition = fallback.cookieString
+              log.info('RpaView', 'API publish cookie fallback from auth partition ' + fallback.partition + ' (' + fallback.count + ' cookies) platform=' + platform)
+            }
+            if (cookieFromPartition) cookie = cookieFromPartition
           } else {
             log.warn('RpaView', 'API publish cookie fallback empty: reason=' + fallback.reason + ' probed='
               + ((fallback.probed || []).length) + ' platform=' + platform + ' accountId=' + (acctId || '(none)'))
@@ -175,7 +221,7 @@ class RpaViewManager {
       const mn = '_publish_'+platform
       const publishFn = typeof this[mn]==='function'
         ? this[mn](win,article)
-        : this._publish_generic(win,article,platform,this._getPlatformConfig(platform))
+        : this._publish_generic(win,article,platform,this._getPlatformConfig(platform,article))
       const result = await Promise.race([
         publishFn,
         new Promise(function(_,rj){const _t=setTimeout(function(){rj(new Error('timeout ('+(timeout/1000)+'s)'))},timeout);if(_t&&_t.unref)_t.unref()})

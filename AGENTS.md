@@ -1000,7 +1000,7 @@ npm run test:all:visual
 
 #### 执行方式（双模型并行，禁止串行）
 
-用 `codeagent-wrapper` 并行启动后端模型与前端模型两路审查，审查实现 diff（`run_in_background: true`，同一条消息两个调用）。**模型名不在本文档写死**：调用前先读 `~/.claude/.ccg/config.toml`（该文件不在本仓；本仓 `.ccg/codex/config.toml` 是另一回事）的 `[routing.backend].primary` 与 `[routing.frontend].primary`，把下面两处的 `<BACKEND_PRIMARY>` / `<FRONTEND_PRIMARY>` 替换为读到的值：
+用 `codeagent-wrapper` 并行启动后端模型与前端模型两路审查，审查实现 diff（`run_in_background: true`，同一条消息两个调用）。**模型名不在本文档写死**：调用前先读 `~/.claude/.ccg/config.toml`（该文件不在本仓；本仓 `.ccg/codex/config.toml` 是另一回事）的 `[routing.backend].primary` 与 `[routing.frontend].primary`，把下面两处的 `<BACKEND_PRIMARY>` / `<FRONTEND_PRIMARY>` 替换为读到的值。**注意这条只适用于"直接调 `codeagent-wrapper`"的旁路**：走本仓评审链（`scripts/deep-review.sh` / `scripts/plan-review.sh` → `ccg-deep-review.js`）时后端对的真源是 `scripts/ccg-review-backends.list`，改 `config.toml` 对它**完全无效**（2026-10-18 实测三种旋钮全静默失效后确立，见 change `qm6-review-backend-config`）；要换后端用 `--critic <名>` / `--proposer <名>` 或 `MP_QM6_CRITIC` / `MP_QM6_PROPOSER`。
 
 ```
 # 后端模型（逻辑/安全/规格合规审查）
@@ -1010,7 +1010,7 @@ codeagent-wrapper --backend <BACKEND_PRIMARY> --lite "审查 <change> 实现：�
 codeagent-wrapper --backend <FRONTEND_PRIMARY> --lite "审查 <change> 实现：命名/模式/可维护性/集成" <workdir>
 ```
 
-> 两路实际用哪个模型，唯一真源是 `~/.claude/.ccg/config.toml` 的 `[routing]`；本文档不复制其值，历史上抄写的示例值（曾写成 claude / opencode）已与配置脱节，照抄会跑错模型。前端模型失败最多重试 2 次（间隔 5 秒），3 次全败才跳过；后端模型结果必须等待（5-15 分钟属正常）。
+> 两路实际用哪个模型：**直接调 `codeagent-wrapper` 的旁路**以 `~/.claude/.ccg/config.toml` 的 `[routing]` 为真源；**走本仓评审链**（`deep-review.sh` / `plan-review.sh`）时真源是 `scripts/ccg-review-backends.list`（critic/proposer 两行），两份配置互不相干，别改错地方——这是 2026-10-18 实测的坑：改 `config.toml` 对评审链无效，入口传 `--critic` 曾被丢弃，驱动 `--critic` 只在决策层生效。本文档不复制清单里的值，照抄会跑错模型；请求过的后端会写进判定记录 `reviewBackends`，由 `check-pr-exec-record.js` 与驱动回填的 `deepReview.performedBy` 对账，**不符即判该条深度审查未闭合**。前端模型失败最多重试 2 次（间隔 5 秒），3 次全败才跳过；后端模型结果必须等待（5-15 分钟属正常）。
 
 #### 评审输出与处理
 

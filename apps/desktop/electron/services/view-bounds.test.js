@@ -18,6 +18,7 @@ const {
   normalizeSize,
   getContentSize,
   normalizeSidebarWidth,
+  isValidSidebarWidth,
   computeEmbeddedViewBounds,
 } = require('./view-bounds')
 
@@ -98,6 +99,42 @@ describe('normalizeSidebarWidth', () => {
   it('合法值原样返回（含窄屏 68px），小数四舍五入', () => {
     expect(normalizeSidebarWidth(68)).toBe(68)
     expect(normalizeSidebarWidth(200.4)).toBe(200)
+  })
+})
+
+describe('isValidSidebarWidth（manager 层入参守卫单一真源）', () => {
+  it('合法值放行：含边界 1 / 600 与窄屏 68', () => {
+    expect(isValidSidebarWidth(1)).toBe(true)
+    expect(isValidSidebarWidth(68)).toBe(true)
+    expect(isValidSidebarWidth(200)).toBe(true)
+    expect(isValidSidebarWidth(600)).toBe(true)
+  })
+
+  it('拒绝 0 / 负值 / 越界 / 非数字', () => {
+    expect(isValidSidebarWidth(0)).toBe(false)
+    expect(isValidSidebarWidth(-1)).toBe(false)
+    expect(isValidSidebarWidth(601)).toBe(false)
+    expect(isValidSidebarWidth('200')).toBe(false)
+    expect(isValidSidebarWidth(null)).toBe(false)
+    expect(isValidSidebarWidth(undefined)).toBe(false)
+    expect(isValidSidebarWidth({})).toBe(false)
+  })
+
+  it('拒绝 NaN —— 手写比较 `w < MIN || w > MAX` 拦不住它（NaN 的所有比较都是 false）', () => {
+    // 这是本函数存在的唯一理由：四处 manager 各自手写的守卫都漏了这一类。
+    // 复现"NaN 能穿过 typeof + 区间比较"：typeof 检查过得去，两个比较都 false。
+    // （不直接写 `NaN < 1`：use-isnan 规则本身就在拦这种反模式，正好印证手写比较不可靠）
+    const nan = 0 / 0
+    expect(typeof nan === 'number').toBe(true)
+    expect(nan < 1 || nan > 600).toBe(false)
+    expect(Number.isNaN(nan)).toBe(true)
+    // 共享守卫必须挡住
+    expect(isValidSidebarWidth(nan)).toBe(false)
+  })
+
+  it('拒绝 ±Infinity', () => {
+    expect(isValidSidebarWidth(Infinity)).toBe(false)
+    expect(isValidSidebarWidth(-Infinity)).toBe(false)
   })
 })
 

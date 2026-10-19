@@ -59,6 +59,7 @@ export default {
       subgroups: {
         splitTiming: '分句与时长',
         templateOutput: '模板与输出',
+        voiceNarration: '旁白设置', voiceBgm: '背景音乐', voiceClone: '音色复制 / 克隆',  // 声音区三子分区（s2v-voice-section-layout，2026-10-18）
       },
       startPipeline: '启动流水线',
       pause: '暂停',
@@ -278,6 +279,17 @@ export default {
         cloneDeleteConfirmMessage: '即将永久删除克隆音色「{name}」，其已保存的声音样本会一并移除，且不可恢复。',
         cloneDeleteConfirmButton: '确认删除',
       },
+      // 详情页模型信息（s2v-result-model-info，2026-10-18）：视频信息区「格式」同行展示本次生成调用的模型
+      // 中英必须成对维护：CI Gate 7 check-locale-sync.js --pair 硬拦截
+      modelInfo: {
+        textModel: '文本模型',
+        voiceModel: '语音模型',
+        imageModel: '图片模型',
+        videoModel: '视频模型',
+        // 「格式」标签随模型信息一并收口 locale：原在 ResultView.vue 硬编码，
+        // 抽成 ResultModelInfoRow.vue 后按文件匹配的 CJK 基线会失配
+        format: '格式',
+      },
       // 详情页视觉与交互精致化（story2video-detail-visual-refinement，2026-09-20）
       // 中英必须成对维护：CI Gate 7 check-locale-sync.js --pair 硬拦截
       ui: {
@@ -300,8 +312,6 @@ export default {
         sectionVideoEnhance: "视频增强",
         sectionVoice: "声音",
         sectionAdvanced: "高级",
-        subgroupSplitTiming: "分句与时长",
-        subgroupTemplateOutput: "模板与输出",
         imageStyleDefault: "电影感",
         imageEffectNone: "无效果",
         summaryPureImages: "纯图片轮播",

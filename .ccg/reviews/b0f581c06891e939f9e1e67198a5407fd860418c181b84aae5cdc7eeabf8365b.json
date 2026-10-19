@@ -1,0 +1,38 @@
+{
+  "sha": "18b899827544f6323ae4fac457134e9fa38dacbf",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 15 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 15,
+    "fileCount": 2,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "  使 `tests/test_auth_surface.py::test_surface_matches_committed_fixture` 判「端点鉴权面与已提交清单不一致」"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "b0f581c06891e939f9e1e67198a5407fd860418c181b84aae5cdc7eeabf8365b",
+  "decidedAt": "2026-10-18T19:07:00.416Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "deepReview": {
+    "required": true,
+    "status": "cleared",
+    "performedBy": "codex (manual single-model review, §12.6 常规专家分派)",
+    "findings": "单模型复核结论：**处置正确**，无 Critical / Warning。\n\n① 是「按判据的正解」而非放宽断言 —— fixture diff 只有 \total: 156 → 157 与一个 13 行路由块，既有条目的 auth / auth_kinds / other_deps 一行未动；断言逻辑（全量 dict 相等，含 total）未被修改。\n② 新增条目与实现一致 —— \routers/model_presets.py 该端点声明 Depends(get_db) + Depends(require_admin)；fixture 写 \u0007uth: [\"require_admin\"]、\u0007uth_kinds: [\"session+role\"]（与 auth_surface.py 的 KNOWN_AUTH_DEPS 一致）、other_deps: []（get_db 按脚本设计排除）。\n③ 无漏项 —— 仓库唯一路由枚举型 fixture 就是它，后端无 openapi 快照类测试；PRD_AUTH_EXPECTATIONS 只登记带鉴权声称/双通道端点，admin-only 新端点不在其登记域；该端点的鉴权行为已有两条 API 测试覆盖（非 admin 403 / admin 200）。\n④ total=157 与 routes 长度一致 —— 改动 14+/1-，删除的正是 total 行、插入的正是单个完整路由块，即 routes 净增 1 条且无既有条目删改；父提交下该 fixture 经同一契约测试校验为 156 一致 ⇒ 现 157 = 157。评审同时说明：其环境禁止执行 python/node，故此项为结构推导而非运行时断言（作者侧实测 pytest -q = 684 passed、该契约测试 6 passed，两者互为印证）。"
+  }
+}

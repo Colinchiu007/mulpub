@@ -77,3 +77,53 @@ outstanding 棘轮：仓内 `fallback_closed` 计数**只能缩小**，且新增
 - 变异驱动：本仓实测 10–35 分钟（`scripts/*` 变更属混合 PR，不得借 docs-only 通道）。
 - pre-commit 带代码 DUAL：实测 23–40 分钟（records 已两次撞上，**不得按时长判失败**，判据看产物）。
 - 外部 CLI 不可用时的等待：一次真实 timeout 是 80 分钟——降级的收益基准就是这个数，不虚构。
+## 9. 实测推翻 §1/§2 的判据落点（2026-10-17 普查主干 827 份 `.ccg/reviews/*.json`）
+
+**`performedBy` 是散文，不是枚举**：去重后 34 种取值，代表样本（原样，含大小写与中英混排）：
+`null` ×744、`"self-play(pending)"` ×14、`"self-play"` ×13、`absent` ×10、`"claude"` ×7、
+`"self-play → external-review(claude) 已通过，agent 按 (a) 口径置 cleared"`、
+`"dual (critic=claude, proposer=opencode) + self-play adjudication + external cross-family recheck (claude)"`、
+`"lead-self-assessment (docs-only commit inside nav-perf-ux PR #3742)"`、
+`"not-applicable (foreign commit record)"`、`"analyst-triage（关键词误报确认；非模型评审）"`、`"false-positive-adjudication"`。
+
+**⇒ 以 `performedBy` 前缀分级的规则会把"真做过外部复核"的记录判成自扮演**（上列第 6、7 条都以 `self-play` 开头却声明做过 external review）。
+这正撞上 AGENTS.md 两条既有纪律：「合法性/噪声类守卫的判据不得用文本形态猜，必须记录来源意图」与「枚举式判据必须配结构化正向契约」。
+
+**`findings` 也不能独立当佐证**：`null` ×767、string ×17、absent ×16、数组仅 16 份（`arr/6` ×8、`arr/8` ×5、`arr/4` ×3）、object ×3。
+但本仓已有一条**可复用的既有口径**：`ccg-review-decider.js` 的 `shouldPreserveClosedRecord` 以「`findings` 是非空数组 ⇒ 有实质内容」为**主判据**
+（其注释 435-439 行记录了反面现场：`self_play_pending + findings:null` 等于什么都没产出）。新判据应接这条，而不是再造一套词汇。
+
+**`mode/status` 分布**（前几位）：`single/pending` 305、`dual/pending` 220、`skip/pending` 212、`dual/self_play_resolved` 22、
+`dual/cleared` 18、`single/needs_revision` 9、`dual/needs_revision` 8、`dual/error` 6。
+⇒ 主干上 `dual+pending` 存量 220 条，**任何"要求 dual 必须带结构化 tier 否则红"的规则一上线就红两百条**，
+正是 `check-pr-exec-record.js` 头部注释第 3 条（forward-only）点名的失败形态。所以本合同必须分两步：先**可见不拦**并打印覆盖率，再在覆盖率起来后转拦。
+
+### 9.0 两条更硬的现场数字（`node scripts/ccg-artifact-shape-survey.js` 现场重取，2026-10-17）
+- 以 `self-play` 开头、同时又在同字段里声明做过外部复核的记录 = **12 条** ⇒ 前缀分级会**当场误判 12 份真外部证据**，这不是理论风险。
+- 存在 `status=cleared / needs_revision` 而 `performedBy=null`、`findings=null` 的产物（实测 `needs_revision pb=null f=null` ×3、`cleared pb=lead-self-assessment… f=null` ×4 等）⇒ **今天的"闭环"可以完全无出处**；只补 `tier` 字段而不要求 `evidence`，等于把同一个洞换个名字。
+
+### 9.1 合同岔口——**裁决：取丙**（2026-10-17 由使用者定）
+
+**已定的实现规则（四条，缺一不可）**：① `tier` 是结构化闭集字段（`external|self-play|none|unknown`），门禁 MUST NOT 读 `performedBy` 散文；② 外部档成立 = `tier==='external'` **合取** `evidence` 为非空字符串（声明 + 出处两者都要）；③ `findings` 为空**不影响**成立（"无发现"是合法结论，"没跑"不是），只在覆盖率读数里并列打印以便日后估算；④ **只对新记录生效，先可见不拦**——打印覆盖率读数（`total/covered/unsupported/missing/invalid` 逐档 + 点名文件），转拦需另起一片且前提是覆盖率读数上来。
+被否决的两条保持原样记录在此：甲（只认声明）放水在"路径存在不等于内容真"；乙（只认 findings 非空）误伤在"干净通过的外部评审往往就是空清单"——实测 827 份里只有 16 份是数组，而 `dual/cleared` 有 18 份，按乙会把多数真评审判成没评审。
+
+### 9.1bis 原始候选（保留供后人复算，不是现状）
+
+- **甲：来源意图字段**——闭环时由写入方（引擎或处置人）写 `deepReview.tier = external|self-play|none` + `evidence`（wrapper stdout 路径或 session id）。
+  优点：判据零猜测；缺点：`evidence` 是自报的路径，门禁只能验"路径存在且非空"，不能验内容真伪 ⇒ 与既有「声明与字节不同源」的坑同源。
+- **乙：产物内容判据**——沿用 `shouldPreserveClosedRecord` 的既有主判据「`findings` 是非空数组」当外部佐证，`tier` 缺省时按它推。
+  优点：内容而非声明；缺点：**干净通过的外部评审往往 findings 为空**（实测 16 份数组 vs 18 份 dual/cleared），会把真评审判成没评审 ⇒ 误红面需要估算。
+- 丙（我的倾向）：**甲 + 乙合取，但只在"新记录"上生效**——`tier=external` 必须带 `evidence`，且当 `findings` 为空数组/null 时**不拦只点名**（因为"无发现"是合法结论，"没跑"不是）。
+  代价：判据仍依赖写入方诚实，真正的牙在"覆盖率棘轮 + 事后抽查"，不在字段本身。
+
+## 9.2 高危轴的取证：产物里那两个字段都不能当 §3 的实现（2026-10-17）
+
+读数由入库工具现取（`node scripts/ccg-artifact-shape-survey.js`，只读 git 对象、不碰工作树；数字随主干漂移，引用时重跑）：
+
+- 现场：`json=879 / 参与统计=877`；**`stats.sensitivePathHits` 非空的只有 2 份**（`ops-center/backend/middleware/auth.py`、`packages/api-publish-engine/src/auth/publish-api-capabilities.js`）；`sensitiveContentHits` 非空 **217** 份、最大 **217**。
+- **结论一（先否证一条会被误走的修法）**：把 §3 的「高危面」实现成「回读产物里已落盘的 `sensitivePathHits`」会得到一条**构造性零**判据——2/877 意味着它几乎永不触发，`self-play` 在几乎所有产物上都能合法闭环，而文案读起来像「有高危险查」。§3 的清单必须由判据**当场对 `changedFileStatuses` 求前缀命中**，不从产物字段回读。
+- **结论二（两条轴不得合并）**：`sensitiveContentHits`（217/877）是真会触发的轴，但它答的是「这次改了加密/凭证/SQL 一类的**内容**」；§3 答的是「这次改了**守门人本身**（判据本体、decider、workflows、`classify-docs-only`、白名单归属文件）」。后者今天没有任何产物记录，只能现算。合成一条就会互相遮蔽：高危内容改动被「没碰判据文件」放行，或反之。故本轴**只作旁证出声，不作闭环资格**。
+- **结论三（证实丙的前提）**：`deepReview.tier` 在 877 份里**全部缺席**。结构化分级只能对**新记录**生效，历史产物无源可回填——这不是实现偷懒，是数据形态决定的。覆盖率棘轮的起点因此必须是「当前 dual 未闭环数」，不是「有 tier 的记录数」。
+- **结论四（缺口主体在 single）**：`mode` 分布 `single=339 / dual=284 / skip=242 / 无 mode=12`。真正没被任何闭环要求覆盖的是被判成 `single` 的那批（339 > 284）；tasks 2.2 的自指前缀清单正是把「改了判据本体却因行数 < 200 判 single」从侥幸变成必拦。
+
+判据落点收敛：`HIGH_RISK_SURFACES` 现算（§3）+ `tier` 闭集（§9.1 丙）+ 内容命中轴只旁证（本节的结论二）。

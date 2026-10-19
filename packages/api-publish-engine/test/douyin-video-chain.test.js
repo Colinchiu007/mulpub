@@ -241,6 +241,46 @@ describe("publish/platforms/douyin-video", function () {
     } finally { fs.unlinkSync(file); await srv.close(); }
   });
 
+  // 2026-10-19 真机实证：真实账号的安全 cookie 只存 18 字符 key id（形如 056709ca-4e73-9159），
+  // 真材料（含 ec_privateKey PEM）在页面 IndexedDB `secure-store`（WebCrypto 私钥不可导出）。
+  // 这条回归钉住「这种形态必须给出**专用**诊断」，而不是笼统的「账号信息缺失，请重新授权」——
+  // 后者会把「重新授权也拿不到」误导成「用户该重新登录」。
+  test("§4.5 真机形态（材料只剩 key id）→ 专用诊断且零请求，不再误导为「重新授权」", async () => {
+    const srv = await startSrv();
+    const file = writeTemp(1024);
+    // 逐字取真实账号的值形态（18 字符 UUID 前缀，无 data= 包裹）
+    const keyIdCookie = [
+      "__security_mc_1_s_sdk_crypt_sdk=056709ca-4e73-9159",
+      "__security_mc_1_s_sdk_sign_data_key_web_protect=6c6586e1-4222-8f79",
+      "__security_mc_1_s_sdk_cert_key=fdef635f-4ae0-8ed3",
+      "sid_tt=94e56aa070d4a5f7ce44dec6d7964060",
+    ].join("; ");
+    try {
+      const err = await newChain(srv, keyIdCookie)
+        .run({ title: "T", video: { path: file }, cover: { path: file } }, { draft: true })
+        .then(() => null, (e) => e);
+      expect(err).toBeInstanceOf(DouyinVideoError);
+      expect(err.message).toContain("key id");
+      expect(err.message).toContain("RPA/DOM");
+      // 不得断言未经证实的机制：曾写「私钥在 IndexedDB 不可导出」，后经复测该库
+      // cryptvalues keyCount=0 ⇒ 那条机制断言不成立，已从文案中移除（本行防回归）
+      expect(err.message).not.toContain("IndexedDB");
+      // 必须与「账号信息缺失」区分开
+      expect(err.message).not.toBe("账号信息缺失，请重新授权此账号再试");
+      expect(srv.requests.length).toBe(0); // 零请求
+    } finally { fs.unlinkSync(file); await srv.close(); }
+  });
+
+  test("§4.5 对照：完整材料形态**不会**被判成 key-id（避免误判把好材料拦掉）", async () => {
+    const srv = await startSrv();
+    const file = writeTemp(1024);
+    try {
+      // makeCookie() 默认是完整形态（PEM + ticket，经 data= 包裹）⇒ 应能走完前置校验
+      const chain = newChain(srv, makeCookie());
+      expect(() => chain._assertPreconditions()).not.toThrow();
+    } finally { fs.unlinkSync(file); await srv.close(); }
+  });
+
   test("§4.5 fail-closed：视频文件不存在 → 抛错且零请求", async function () {
     const srv = await startSrv();
     try {

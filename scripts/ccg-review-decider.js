@@ -30,6 +30,10 @@ const CCG_GATE_VERSION = "1.1.0";
 const fs = require("fs");
 const path = require("path");
 const { execFileSync, spawnSync } = require("child_process");
+// QM-6 评审后端对的单一真源（change: qm6-review-backend-config）。
+// 判定器的「要求 X 深度审查」文案、可用性表、落进记录的请求值，全部由它派生 ——
+// 此前这几处各自写死 claude/opencode，于是换后端时判定器与入口体检互不认账。
+const RB = require("./lib/ccg-review-backends.js");
 
 // ═══════════════════════════════════════════════════════════════════
 //  规则配置
@@ -499,7 +503,7 @@ function recordFileName(stagedDiffHash, sha) {
   return `${sha}.json`;
 }
 
-function saveRecord(result, sha, layer, plannedFiles) {
+function saveRecord(result, sha, layer, plannedFiles, backends) {
   const dir = path.join(process.cwd(), ".ccg", "reviews");
   fs.mkdirSync(dir, { recursive: true });
   // 内容寻址键：暂存区 diff 的哈希，且排除 .ccg 自身。
@@ -571,12 +575,14 @@ function saveRecord(result, sha, layer, plannedFiles) {
     plannedFiles: (layer === "plan" && plannedFiles) || undefined,
     decidedAt: new Date().toISOString(),
     decidedBy: "ccg-review-decider",
-    deepReview: {
-      required: result.mode !== "skip",
-      status: "pending",
-      performedBy: null,
-      findings: null,
-    },
+    // 本次判定**请求**的后端对（含每一格的来源档位与是否被覆盖）。
+    // 驱动跑完会回填 deepReview.performedBy = 实际执行者；check-pr-exec-record.js
+    // 拿这两者对账 ⇒ 「请求了 codex、实际由 claude 评审」判**不闭合**（backendMismatch）。
+    // 不把这个字段落进记录，「换后端」就只是终端上滚过的一行字，机器无从追责 ——
+    // 这正是 2026-10-18 三种旋钮全部静默失效没被任何门禁发现的原因。
+    reviewBackends: RB.resolveBackends(),
+    backendAvailability: summarizeBackendAvailability(backends === undefined ? detectBackends() : backends),
+    deepReview: buildDeepReviewInit(result.mode),
   };
   // ★ 2026-10-16（QM-6 i3，成立并已修）：内容寻址让「同一变更反复提交/amend」落到**同一个文件**，
   // 这正是收敛性的来源；但副作用是**后写会静默覆盖先写**。若先写那份的 deepReview 已经闭环
@@ -586,9 +592,13 @@ function saveRecord(result, sha, layer, plannedFiles) {
   // sha256 抗碰撞 ⇒ 「同名而内容不同」只可能来自回落路径或哈希碰撞，无需防；
   // 真正要防的就是这一种：同名 + 已闭环。故写前检查，命中则拒写并保留原文件。
   if (fs.existsSync(file)) {
-    let prev = null;
-    try { prev = JSON.parse(fs.readFileSync(file, "utf8")); } catch (_) { prev = null; }
-    if (shouldPreserveClosedRecord(prev)) {
+    let prev = null; let unreadablePrev = false;
+    try { prev = JSON.parse(fs.readFileSync(file, "utf8")); } catch (_) { prev = null; unreadablePrev = true; }
+    if (unreadablePrev || shouldPreserveClosedRecord(prev)) {
+      if (unreadablePrev) {
+        console.log("   [CCG] ⚠ 同名判定记录已存在但**解析不动** ⇒ 不覆盖它，本次判定另存为 alt。");
+        console.log("         覆盖等于销毁既有评审证据（status/findings 可能都在那份里），而「读不动」不等于「没有」。");
+      }
       // 不覆盖已有实质内容的记录；把本次判定另存，避免两份都丢失。
       //
       // ★ 第四轮 i1/i6（Critical）：alt 名不得无限累积。
@@ -623,6 +633,48 @@ function saveRecord(result, sha, layer, plannedFiles) {
   return file;
 }
 
+/**
+ * QM-6 丙：来源意图必须是结构化字段。
+ * 实测主干 827 份产物里 performedBy 有 34 种自由写法（12 条以 "self-play" 开头却声明做过外部复核），
+ * 所以分级只能读 tier（闭集）+ evidence（出处），二者合取才算外部证据。
+ */
+function buildDeepReviewInit(mode) {
+  return {
+    required: mode !== "skip",
+    status: "pending",
+    tier: "unknown",
+    performedBy: null,
+    evidence: null,
+    findings: null,
+  };
+}
+
+/**
+ * 后端可用性以**计数**分档，不是布尔「有没有」。
+ * 沿用 deep-review.sh:373-375 的既有口径：只看 0/1 标志时，2/2 可用与 1/2 可用长成一个样，
+ * 于是「双模型齐备」也会打印「只剩单后端」。降级资格的判据要能区分这两档。
+ */
+function summarizeBackendAvailability(backends) {
+  const b = backends || {};
+  const wrapperExists = b.wrapperExists === true;
+  // 形状由 detectBackends() 持有：names = 本轮**真要用**的后端名单（单一真源 list），byName = 逐个 PATH 探测结果。
+  // 这里原先读的是 b.claude / b.opencode —— 那两个键在 change qm6-review-backend-config 之后已不存在，
+  // 于是现场「两个后端都可用」被报成 count=0，而单测因注入的是旧形状夹具，对这个漂移完全免疫
+  // （同仓教训：契约夹具不得替对方把数算好）。现只认新形状，不留双读兼容层。
+  const names = Array.isArray(b.names) ? b.names : [];
+  const byName = b.byName && typeof b.byName === "object" ? b.byName : {};
+  const onPath = names.filter((n) => byName[n] === true);
+  const count = onPath.length;
+  const total = names.length;
+  return {
+    count,
+    total,
+    partial: count > 0 && count < total,
+    wrapperReady: wrapperExists,
+    backends: { wrapperExists, names: names.slice(), onPath: onPath.slice() },
+  };
+}
+
 function currentSha() {
   return (git(["rev-parse", "HEAD"]) || "").trim() || "unknown";
 }
@@ -632,12 +684,17 @@ function detectBackends() {
     process.env.CODEAGENT_WRAPPER ||
     path.join(process.env.USERPROFILE || process.env.HOME || "", ".claude", "bin", "codeagent-wrapper.exe");
   const exists = fs.existsSync(wrapper);
+  // 探测名单来自单一真源，不再写死 claude/opencode —— 否则换了 critic 之后，
+  // 判定器会去 PATH 里找两个没人打算用的名字，然后报「两个后端都不可用」。
+  const resolved = RB.resolveBackends();
+  const byName = {};
+  for (const n of RB.backendNames(resolved)) byName[n] = hasOnPath(n);
   return {
     wrapper,
     wrapperExists: exists,
-    // 是否装了对应 CLI（只判断可执行文件在不在，不做认证探测——那要联网）
-    claude: hasOnPath("claude"),
-    opencode: hasOnPath("opencode"),
+    resolved,
+    names: RB.backendNames(resolved),
+    byName,
   };
 }
 
@@ -651,6 +708,49 @@ function hasOnPath(cmd) {
 // ═══════════════════════════════════════════════════════════════════
 //  main
 // ═══════════════════════════════════════════════════════════════════
+
+/**
+ * 「要求什么后端、后端到底装没装」这段提示的唯一实现。
+ *
+ * 从 main() 里抽出来只为一个理由：这段文案是**判定器对下游的承诺**（下一个会话会照着
+ * 它决定要不要跑 QM-6、跑哪一路），而它原先埋在 main 的流程里，除真跑一次 pre-commit
+ * 之外无法取证 —— 那就是「声明看得见、判据跑不了」的形态。抽成纯函数后
+ * ccg-review-decider.test.js 可以按 env 直接驱动它并断言逐行文案。
+ *
+ * 三条不可破：
+ *  ① 名单/文案一律由 RB（lib/ccg-review-backends.js）派生，本函数不得出现后端名字面量；
+ *  ② 覆盖必须出声 —— 静默的旋钮等于没旋钮；
+ *  ③ 「同族单后端」是显式配置，不得报成「少了一个后端」的降级。
+ */
+function backendNoticeLines(backends, mode) {
+  const out = [];
+  const available = backends.names.filter((b) => backends.byName[b]);
+  const target = RB.formatTarget(mode, backends.resolved);
+  // 需要几个**互不相同**的后端：dual 且 proposer≠critic 才是两个。
+  const needDistinct =
+    mode === "dual" && backends.resolved.proposer !== backends.resolved.critic;
+  if (backends.resolved.overridden) {
+    out.push(
+      `ℹ 评审后端已被覆盖：proposer=${backends.resolved.proposer}(${backends.resolved.from.proposer}) ` +
+        `critic=${backends.resolved.critic}(${backends.resolved.from.critic})`
+    );
+  }
+  if (available.length === 0) {
+    out.push(
+      `⚠ 要求 ${target} 深度审查，但配置的后端 CLI 都不可用（已探测 ${backends.names.join(" / ")}）`
+    );
+    out.push("→ 降级为 SELF-REVIEW：必须由 agent 自行完成评审并记录结论");
+  } else if (needDistinct && available.length < backends.names.length) {
+    out.push(`⚠ 要求 ${target}，但仅 ${available.join("+")} 可用`);
+    out.push("→ 降级为单后端 + 补一次 agent 自评");
+  } else {
+    out.push(`要求 ${target} 深度审查，后端就绪（${available.join(" + ")}）`);
+  }
+  // 注意：「决策层 / 验证层 该跑哪个脚本」那一行不在本函数里 —— 它取决于
+  // staged.proposal（有没有 --input），不是后端可用性。把它抄进来会让函数
+  // 对不在它参数里的东西做断言，plan 路径会被打出错误的「验证层」。
+  return out;
+}
 
 function main() {
   const argv = process.argv.slice(2);
@@ -756,16 +856,8 @@ function main() {
   if (result.mode === "skip") {
     console.log("          S 复杂度低风险，按 CCG 决策矩阵不调外部模型");
   } else {
-    const available = ["claude", "opencode"].filter((b) => backends[b]);
-    const target = result.mode === "dual" ? "双模型(claude + opencode)" : "单模型(claude)";
-    if (available.length === 0) {
-      console.log(`          ⚠ 要求 ${target} 深度审查，但两个后端 CLI 都不可用`);
-      console.log("            → 降级为 SELF-REVIEW：必须由 agent 自行完成评审并记录结论");
-    } else if (result.mode === "dual" && available.length < 2) {
-      console.log(`          ⚠ 要求 ${target}，但仅 ${available.join("+")} 可用`);
-      console.log("            → 降级为单后端 + 补一次 agent 自评");
-    } else {
-      console.log(`          要求 ${target} 深度审查，后端就绪（${available.join(" + ")}）`);
+    for (const line of backendNoticeLines(backends, result.mode)) {
+      console.log(`          ${line}`);
     }
     console.log(
       staged.proposal
@@ -779,7 +871,8 @@ function main() {
       result,
       sha,
       staged.proposal ? "plan" : "diff",
-      staged.plannedFiles
+      staged.plannedFiles,
+      backends
     );
     console.log(`          判定已落盘: ${path.relative(process.cwd(), f)}`);
     if (staged.proposal && staged.plannedFiles && staged.plannedFiles.length) {
@@ -803,6 +896,9 @@ if (require.main === module) {
 
 module.exports = {
   RULES,
+  buildDeepReviewInit,
+  detectBackends,
+  summarizeBackendAvailability,
   judge,
   collectStaged,
   collectFromDiff,
@@ -816,5 +912,10 @@ module.exports = {
   // 导出 saveRecord 仅为**行为锁**服务（真调它对「同变更反复 amend 不累积 alt」取证）；
   // 它依赖 process.cwd() 与真实 git，故只在测试里用，不在生产路径上被别处调用。
   saveRecord,
+  // 导出这两个是为了**行为锁**：backendNoticeLines 是判定器对下游的承诺文案，
+  // detectBackends 是「配置名单 → PATH 探测」的接缝。二者原先只活在 main() 里，
+  // 除真跑一次 pre-commit 外无法取证。
+  backendNoticeLines,
+  detectBackends,
 };
 

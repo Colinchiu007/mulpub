@@ -475,4 +475,30 @@ describe('podcast-hosting-service · 发布 feed', () => {
     await expect(mk().publishFeed(CHANNEL_ID)).rejects.toThrow(/PODCAST_HOSTING_REQUIRED/)
     expect(puts).toHaveLength(0)
   })
+
+  // 上一轮失败不得让下一次发布被自己的忙标记挡住——这条走**公开出口**（再发一次，看它成不成），
+  // 而不是只读协作方的内部状态：`isBusy()===false` 对着"释放了但通行证也一起丢了"这类错照样绿，
+  // 而"下一次真的能发出去"才是用户侧的那件事。
+  it('主键 PUT 失败之后，下一次发布必须能正常发出（公开出口观察，不留占位）', async () => {
+    await mk().saveHosting(fullPatch())
+    client = makeClient([403])
+    await expect(mk().publishFeed(CHANNEL_ID)).resolves.toMatchObject({ state: 'failed' })
+    expect(puts).toHaveLength(1)
+    client = makeClient([200, 200])
+    await expect(mk().publishFeed(CHANNEL_ID)).resolves.toMatchObject({ state: 'success' })
+    expect(puts.length).toBeGreaterThan(1)
+  })
+})
+
+describe('podcast-hosting-service · 单例取源的防回潮锁（tasks 3.12）', () => {
+  it('忙标记/通行证只能经 require 取，ESM import 会拿到另一份实例', async () => {
+    const { readFileSync } = await import('node:fs')
+    const { fileURLToPath } = await import('node:url')
+    const self = readFileSync(fileURLToPath(import.meta.url), 'utf8')
+    // 读不到内容就红：路径写错时"不含禁词"是恒真的假锁
+    expect(self.split('\n').length, '本文件没读到内容').toBeGreaterThan(100)
+    expect(self, '真源取法被摘掉 ⇒ 两份实例那一半重新变成不可表示').toContain("require('./podcast-channel-locks')")
+    expect(self, '改用 ESM import 取该单例 ⇒ vitest 下与生产侧 CJS require 是两份实例，所有跨模块断言失效')
+      .not.toMatch(/from\s+['"]\.\/podcast-channel-locks['"]/)
+  })
 })

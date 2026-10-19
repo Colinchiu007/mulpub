@@ -59,3 +59,20 @@
 .config-item > .s2v-btn-secondary { margin-top: 8px; }
 .template-editor .s2v-btn-secondary,
 .template-editor .s2v-btn-danger { margin-top: 0; min-height: 38px; }
+
+/* 折叠区内部的二级子分区卡片（s2v-voice-section-layout，2026-10-18）。
+   「声音」区三类控件（旁白/背景音乐/克隆）原先平铺在同一个自适应栅格里，
+   「音色复制 / 克隆」只占半行宽、和「背景音乐音量」并排，看不出分组。拆成三个
+   子分区后需要物理容器把它们在视觉上分开；「高级」区既有的 splitTiming /
+   templateOutput 共用同一类名，因此一并获得卡片样式（统一优化）。
+   ⚠️ 放在本文件而非 create-view.css，同上：不把后者推过 500 行预算线
+   （check-debt-budget 的 filesOver500 与 check-max-lines 的 NEW_OVER_LIMIT 双门禁）。 */
+.s2v-subgroup { margin: 0 16px 12px; padding: 12px 14px 14px; background: var(--color-bg-card, var(--surface, #fff)); border: 1px solid var(--color-border, var(--hairline, rgba(0, 0, 0, 0.06))); border-radius: var(--radius-md, 10px); }
+.s2v-subgroup:first-of-type { margin-top: 2px; }
+.s2v-subgroup:last-of-type { margin-bottom: 16px; }
+.s2v-subgroup-title { font-size: var(--font-size-xs); font-weight: 600; color: var(--text-muted); margin: 0 0 10px; padding-bottom: 6px; border-bottom: 1px dashed var(--border); }
+/* 卡片内的字段栅格去掉自身左右 padding：卡片已提供内缩，再叠一层会双重缩进 */
+.s2v-subgroup > .s2v-field-grid { padding: 0; }
+@media (max-width: 720px) {
+  .s2v-subgroup { margin: 0 0 12px; padding: 10px 12px 12px; }
+}

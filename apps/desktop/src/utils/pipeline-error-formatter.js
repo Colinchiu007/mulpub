@@ -101,6 +101,14 @@ const RULES = [
       return { provider, param }
     },
   },
+  // 所选克隆音色不可用（2026-10-18）：后端稳定前缀 VOICE_CLONE_UNAVAILABLE 或供应商原文
+  // "you don't have access to this voice_id"。必须早于 asset_generation_failed —— 事故里的原始错误
+  // 以 "Asset scene generation failed: …" 开头，若落到后者会被误判成素材/API 配额问题（不可操作）。
+  {
+    pattern: /VOICE_CLONE_UNAVAILABLE|(?:don'?t|do not|cannot|can'?t)\s+have\s+access\s+to\s+(?:this\s+)?voice|voice_id[^\n]{0,40}(?:no\s+access|not\s+found|not\s+accessible)/i,
+    key: 'voice_clone_unavailable',
+    extract () { return {} },
+  },
   // 图片/旁白生成失败（通用）
   {
     pattern: /Asset scene generation failed|素材.*生成失败|场景.*生成失败|image generation failed|tts generation failed/i,

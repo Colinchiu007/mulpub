@@ -1,0 +1,28 @@
+{
+  "sha": "c3ed2537b10cbc373ec1cfedcdc21e077e759000",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 520 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 520,
+    "fileCount": 15,
+    "codeFileCount": 13,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "把它连同 `Local State` 复制成 Playwright profile（Chromium 自行解密，同一 Windows 用户），"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "c703d5058de451810ac14390a97ec65e946f850e5171364f45b40941a31a4085",
+  "decidedAt": "2026-10-18T11:48:07.878Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

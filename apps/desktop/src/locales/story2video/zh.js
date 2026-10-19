@@ -33,6 +33,7 @@ export default {
     media_unreadable: '无法读取所选{kindLabel}文件，请确认文件未被占用或已损坏后重试。',
     media_path_unresolved: '无法获取所选{kindLabel}文件的本地路径，请重新选择文件后再试；若持续出现请重启应用。',
     voice_invalid: '{provider}模型账号的音色不可用，请在「语音设置」中重新选择音色，或使用该模型账号的默认音色。',
+    voice_clone_unavailable: '所选克隆音色不可用：供应商已不再受理该音色，且本地克隆样本缺失，无法自动重建。请在「声音」设置中重新克隆该音色或改选其它可用音色，然后重新启动。',
     project_delete_failed: '项目未能删除，请稍后再试。',
     project_delete_confirm: '确定删除当前项目及其本地产物吗？此操作无法撤销。',
     run_delete_failed: '流水线任务未能删除，请稍后再试。',

@@ -1,3 +1,28 @@
+# [未发布] fix(video-creation): 流水线生成器默认值跟随「模型设置」默认（图片/视频/语音三类）
+
+### 变更
+- **根因**：`CreateView.vue` 的 `loadS2VProviders()` 从未读取「谁是默认」——语音生成器用 `find(category === 'multimodal' && capability_models?.tts)`（只看形态不看默认），图片/视频生成器直接取 `providers[0]`（只依赖 `ORDER BY is_default DESC` 的排序副作用）。用户在「模型服务商」把 TTS 默认从 Mimo TTS 改成 MiniMax 多模态的 TTS 能力后，故事讲述流水线「声音参数 → 语音模型生成器」仍默认 Mimo TTS。
+- **修复**：新增纯函数 `resolveS2VDefaultProviderId(providers, category, preferredId)`（`apps/desktop/src/views/video-creation/create-view-module-utils.js`），判定口径与主进程 `ModelProviderManager._multimodalProviderFor` 逐条对齐（普通 provider `is_default`；多模态 `config.capability_defaults` 含该能力或整体 `is_default`，且必须 `capabilities` 声明该能力）。`loadS2VProviders()` 增补 `modelProviderGetDefault(image/tts/video)` 三路并行查询，三类生成器在用户无显式选择时按该函数解析默认值。
+- **优先级不变**：用户显式选过的 provider / 显式「自动 Edge TTS」仍优先于默认解析；主进程 `getDefault` 不可用时按列表内默认标记解析（不退回首项）；无任何默认时保持首项兜底（旧行为不回退）。
+- **关键补充（自审发现的缺口）**：初版只在「当前 provider 为空」时解析默认，而 `configuredProvider?.id` 把当前值直接当用户显式选择 —— 用户报告的操作路径「已打开页面上在设置里改默认」会让旧默认永久钉住（`settingsDialogRevision` 触发重拉时 `voiceProvider` 已是旧默认）。新增三个不持久化的 `s2v{Image,Video,Voice}AutoProviderId` 记录「上次由默认自动填入的值」，重拉时等值即视为非显式并重新解析；陈旧清空与「重置选项」一并清空；快照恢复值登记为自动应用值。**旧合同（2026-08-12「lastOptions 快照回填始终优先」）随之收窄为「同会话显式选择优先，跨会话快照值跟随当前默认」**，代价与正解已写入 PRD §9.10.3.1。
+- **不改主进程**：`getDefault` / `_multimodalProviderFor` / IPC / 数据库 schema 均未改动，前端缺的只是「去问」。
+- **文件组织**：默认判定提为独立模块 `apps/desktop/src/views/video-creation/s2v-default-provider.js`（债务熔断单文件 500 行上限，从 `create-view-module-utils.js` 拆出）；`CreateView.test.js` 逼近测试文件行数容差，已把「批量创作」「画幅下发」「文案字数上限」三组自包含用例拆到 `CreateView.batch-create.test.js` 与 `CreateView.pipeline-runtime.test.js`（拆分前用「HEAD 测试文件 + 当前源码」对照实验确认失败源于既有测试隔离脆弱性，非源码副作用）。
+
+### 数据校验与安全
+- 全分支 fail-closed 不抛错：`providers` 非数组/空、`category` 非字符串、`config` 非对象、`capability_defaults` 非数组、`is_default` 非严格 `true`、`preferredId` 不在候选列表或未通过默认口径 —— 均降级到下一档，绝不返回悬空 id（避免下拉空白选中项）。
+- 多模态必须 `capabilities` 含该能力才算该能力默认，防止 image 默认的多模态抢走 tts 下拉默认位。
+- 三个 `getDefault` 与三个 `list` 分两批 `Promise.allSettled` 并行，不增加串行延迟；任一路失败不影响其余（读默认是优化查询，不是必要查询，不得阻断创作）。
+
+### 验证
+- TDD：先写 9 例纯函数单测确认 RED（`resolveS2VDefaultProviderId is not a function`），实现后 20/20 全绿。
+- `CreateView.test.js` 313/313 全绿（含 6 例新增 + 1 例改写：原「多模态无条件优先」断言锁定的正是本次要纠正的行为，改写为「默认为模型设置里设为默认的多模态 TTS 模型」并留注释）。
+- 邻近域回归：`src/views/video-creation` + `s2v-options-autosave` + `CreateView.voice-clone-delete-guard` + `views-deep2` 共 143/143 全绿。
+
+### 文档
+- 新增 `01-docs/PRD-MODEL-DEFAULT-FOLLOW-2026-10-18.md`（详版：根因溯源 / 目标与非目标 / 判定口径 / 实现合同 / 数据校验边界表 / 9 条验收标准 / 测试设计与逃逸分析 / 影响面与风险）。
+- `01-docs/PRD-S2V-PIPELINE-PAGE-UX.md` 新增 §9.10（生成器默认值跟随模型设置默认，含口径表/优先级/数据流/校验/验收/已知限制）与 §4.3.2（索引）。
+- `01-docs/PRD.md` §7.1.4「语音生成器默认选择多模态 TTS 模型」条目修订为「以模型设置默认为准」，两处重复段同步改写。
+
 # [未发布] feat(film-engineering): 《Hell Grind》全量语料导入与全片量产（film-full-corpus-production）
 
 ### 变更

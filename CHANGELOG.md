@@ -23,6 +23,209 @@
   `task-queue.js` 注释自称"结构锁"名实不符（改注释属代码改动，不在 docs 批做）；
   `publish-frequency-unwired-surfaces` 仍未归档（与 v5 同指一个 capability，需一次覆盖排序判断）；归档积压依然无判据。
 
+# [未发布] docs(播客): 出期崩溃对账按顺序先落合同——spec 第 14 条 Requirement + 4 个 Scenario（podcast-crash-reconcile-spec）
+
+- **只写合同、不写实现，而且是规定的顺序**：`tasks 3.6b②` 与 PRD §13 第 13 条都明文写着「落地顺序不得反：先在 spec delta 加 Requirement（现 13 条无一涉及对账），再落跨重启凭据 → `channel:get` 投影 → 频道页横幅 + zh/en 键」。本刀收在第一步，`3.6b②` **保持未勾**，PRD 那条也补了"不得因合同已写而改判"。
+- **写合同的输入全部当场量**：忙标记是模块级 `Map`（`podcast-channel-locks.js:121`），`:91-92` 的注释写着「崩溃随进程消失，**残留由启动对账接管（只提示不自动修复）**」——它把"启动对账"当成已存在的东西来陈述，而 `publishInFlight` 在代码里**命中 0**（`git grep -c` 对 `apps/desktop/electron`+`packages` = 0 行，命中只落在 `.adversarial/`、`.ccg/` 产物）。**没有任何既有状态可扫** ⇒ 合同只能写成"链进入时留一份跨重启凭据"，而不是"启动时扫一遍"。另确认 `episodes.json` 只在链末尾写（`podcast-channel-service.js:40`）⇒ 用结果文件反推在途态正是本条要消灭的黑洞。
+- **两条写进合同的取舍（不是实现细节，后来者不得顺手改）**：① **凭据写入失败 ⇒ fail-closed 拒绝发起**——与 AGENTS「进度事件是旁路、发送失败不得冒泡」**刻意相反**，理由是进度丢了只影响观感、凭据丢了下次启动就无从对账，做成静默旁路会把"磁盘满"变成"发布照常成功但中间态永远不可知"；② **对账只报告、绝不自动重发**——`meta.guid` 至今没有任何一层传过（`podcast-rss.js:238` 令 guid 回落成音频 URL ⇒ 重复发布的产物是**第二条 item**），所以重发只能是用户显式发起，身份来源待 `tasks 5.1b③`。这条同时把两刀之间的**依赖方向**钉死：3.6b② 不许靠"自动重发"实现，否则会把一个还没定的问题变成事故。
+- **投影复用既有读侧**：走 `channel:get` 已有的 `feedSync` 通道（`ipc-handlers/podcast.js:185` → `PodcastHostingCard.vue:45-47,95-104`），Requirement 明文 MUST NOT 为对账新造第三条状态源——同一份"上次发布怎么了"有两个真源时，界面必然读到过期那一个。
+- 四个 Scenario：强杀后如实报告（且对账路径**零出站**）/ 正常收尾后重启不得出现横幅（凭据文件不存在也不报错）/ 凭据写不进去就不发起（返回带领域码的失败、忙标记照常释放）/ 对账不把"重发"当修复（入口走正常链、新 `runId`，文案不得声称"已自动恢复"）。
+- **本刀没做的五项**点名留档，防止被"合同已写"读成"事已办"：跨重启凭据文件与写入/收尾时机、`channel:get` 的 `interrupted` 字段、频道页横幅与 `podcast.episode.*` zh/en 键、强杀再启动的真机复现、"凭据写失败"那条领域码。
+- 规格面读数：spec delta 的 `### Requirement` 计数 13 → **14**。零运行时代码 ⇒ QM-1 / QM-4 / TDD 不触发，QM-6 走 docs-only 通道且**未调用外部模型**。三处补丁都由"行尾均匀 + 锚点恰命中 1 + `CR==LF` + 单行替换不改 CR 数"驱动落地，两口径 `--numstat` 逐文件相等（spec 30/0、tasks 1/0、PRD 1/1）。全过程记 `openspec/records/podcast-crash-reconcile-spec.md`。
+
+# [未发布] fix(s2v): 「语音 / 音色 ID」显示条件回补 —— 模型来源不止一处（s2v-tone-field-guard）
+
+- **#3946 引入的 main 红**：该字段的 `v-if` 写成「已选提供方 **且** `s2vVoiceContextModel`」，而后者只认「程序按运营默许模型解析出的结果」（依赖 provider 注册表）。上游布局契约 `S2vConfigPanels.test.js` 的夹具显式给 `voiceModel` 但不加载注册表 ⇒ 字段不渲染 ⇒ main push 的 `QG Desktop Shards (2/2)` 判红（`expected '…' to contain '语音 / 音色 ID'`）。PR 侧没红是因为两片 shard 的文件集合不同、且该断言来自更晚合入的上游提交。
+- **根因不是「条件写错」，是「把含义悄悄窄化了」**：原注释写的是「仅在已选语音模型时渲染」。判断「已选模型」本来有两条来源——①程序解析出的 `s2vVoiceContextModel`（新路径）②既有 `s2vConfig.voiceModel`（历史快照 / 配置档案回填后尚未重算 / 分发夹具显式给值）。#3946 只保留了 ①，于是 ② 的现场一律显示缺失。
+- **修法**：条件改为「已选提供方 且（① **或** ②）」。仍保留「模型完全未知时不渲染空音色下拉」的意图（两来源皆空才隐藏），同时不破坏既有布局契约。测试补「场景 2b：仅 `config.voiceModel` 已知 → 字段照常渲染」，并把原「模型为空」场景改成「两来源都为空」。
+- **验证**：`S2vConfigPanels.test.js` 24/24；`CreateView.test.js` + `video-creation/**` + parity 共 14 文件 471/471；`check-max-lines` rc=0；本片只改 renderer 条件，无 `electron/**` 主进程改动 ⇒ QM-1 不触发。
+
+# [未发布] docs(播客): 入口判据 §15 的坐标校正与一条依据被实测推翻，新开 5.1b③（podcast-entry-adjudication-51b2）
+
+- **两处入口坐标实测已漂**：§15.2 写的 `ResultView.vue:726` 现在在 `:64`（`<PodcastEpisodeEntry>` 挂载行，导入 `:447`、注册 `:479`），`CreateView.vue:4519` 现在在 `:4610`（`openPodcastEpisodePublish`，浮层挂载 `:352-360`、事件绑定 `:373`）。旧坐标**不删**，行内标"坐标实测校正"，并点明 §14 那条施工指令里同样出现的旧坐标按"散文不改写"留着、以本表为唯一真源。
+- **补上被藏住的一枚入口**：`CreateViewHistory.vue:291-293` 的按钮（`data-testid="history-podcast-episode-button"`）在历史卡片上 `$emit('publish-podcast-episode', item)`，由 `CreateView.vue:373` 消费，处理函数**先按 `projectId` 回取完整项目**再挂浮层（卡片只有索引信息，而降级判定要读 `segments[].audioMeta.degraded`）。此前表里只写 `CreateView.vue`，"入口在列表卡片、判据在项目"这处分叉没被任何一行记录过。
+- **§15.3 `PublishHistory` 那行的依据被推翻**：原文「历史条目重发会**覆盖已上线的一期**（同 guid 换音频/换时长）」。实测出期链**没有任何一层传过 `meta.guid`**（入口两组件 + `src/api/podcast-channel.js` + `ipc-handlers/podcast-episode-ipc.js` 共五处 grep `guid` 命中 0），而 `podcast-rss.js:238` 是 `guid = ep.guid || url` ⇒ guid 回落成音频 URL。所以"同一期再发一次"产出的是**第二条 item（两个 guid 并存，聚合端当两期）**，不是覆盖。结论（不放）不变，**依据换了**——按错依据做设计会去防覆盖，而真正要防的是重复。
+- **「扫出 5 个候选页」这句不可复算，已换成自带坐标的命令**：上一版没写扫描词元集。本日按 §15.4 新写入的命令重跑得到 `顶层 36 / 递归 52 / 候选 12 页`，与旧"5 页"清单只 3 页重合；当场还做了敏感度对照——换一组更严的产物词元复扫，8 页里只剩 3 页命中。**词元集换一次清单就换一次**，所以本节给命令与读数而不是一张写死的表。
+- **新开 `tasks 5.1b③`：判据③ 对三枚已落的视频出期入口当前不成立**。没有 guid、没有"这一期已出过"的判据、没有二次确认；唯一挡着的是 `PODCAST_CHANNEL_BUSY` 的**并发**互斥，对"先后点两次"完全放行。合同五条要点写进行内，其中**文本链的身份取什么（`rewriteHistoryId` 还是内容指纹）属产品判断**，定不下来不许实现。
+- **一条刻意不冒充的耦合**：音频键改成随期变化（PR #3958）**之前**，重复发布落同一个 URL ⇒ guid 相同 ⇒ `EPISODE_DUPLICATE`（`podcast-rss.js:181-183` 按 `guid/audioUrl` 去重）**有机会**照出来；改完之后两次 URL 天然不同，那条探针不再可见。"有机会"是弱写法——本刀没实测发布前是否真跑过 `validateFeed`（`podcast-episode-compliance.js` 判的是逐期 `validateEpisode`），所以这条只读作"少了一道巧合的兜底"，不读作"少了一道生效的门禁"。
+- **驱动侧记一条 fail-closed 现场**：锚点 `ResultView.vue:726` 首次命中 2（§14 欠账行也引它）⇒ 补丁驱动直接拒绝改写。正解是把锚点收成整行前缀，**不是**放宽命中计数。两份文档行尾均先断言"均匀 CRLF"再统一 join，两口径 `--numstat` 逐文件相等（PRD 6/4、tasks 2/1）。
+- 零运行时代码 ⇒ QM-1 / QM-4 / TDD 不触发，QM-6 走 docs-only 通道；全部现场记 `openspec/records/podcast-entry-adjudication-51b2.md`。
+
+# [未发布] test(播客): 出期链测试侧两笔债收口 —— fixture 尺寸单一真源 + 忙标记走公开出口（podcast-test-seam-debt）
+
+- **`podcast-episode-publish.test.js` 的音频字节数从六处手写收敛成一个 `AUDIO_BYTES`**（tasks 3.11 / 刀 3 评审遗留 F9）：写盘、申报值、上传回显、下游断言、两条旁路夹具全部从同一个数派生，其中 SIZE_MISMATCH 那条改成显式的 `AUDIO_BYTES - 1`——把"故意差一点"写进表达式，而不是留一个看不出关系的 `999`。同文件末尾加一条接线锁：本文件只允许出现一次该字面量，并带"读到了没"与"常量定义在位"两条正控，否则"0 命中"会被读成"通过"。
+- **`podcast-hosting-service.test.js` 新增一条走公开出口的行为锁**「主键 PUT 失败之后，下一次发布必须能正常发出」（tasks 3.12）：原先这条只由白盒 `channelBusyGate.isBusy()===false` 守着，那测的是协作方状态，不是用户侧那件事。白盒断言**刻意保留**（它给精确归因），本仓不存在忙标记的公开只读出口，为测试新增一个 accessor 属 test-only API 反模式——这条取舍写在记录里，不当遗漏。
+- **单例取源加了防回潮锁**：忙标记/通行证必须经 `require('./podcast-channel-locks')` 取，出现 ESM `from` 即红。MB 实测这不是理论担忧——把取源换回 `import` 会让另外两条跨模块断言一起失效（两份实例），共 3 条红。
+- **变异反证三条各自指名红**：MA（把 `endPublish` 从 `finally` 挪进成功路径 ⇒ 精确制造"失败后占位没清"）红 2 条，其中一条是新增的公开出口用例、一条是原有白盒断言——**红集重合如实写出，不包装成两道独立的闸**；MB 红 3 条；M1/M2 成对（退回手写 ⇒ 只有那条锁红；再把锁改成恒真 ⇒ 0 红，证明红来自判据本身）。跑数一律带 `collected>=13/30` 下界与「汇总行 / `Failed Tests N` 头部 / `× ` 清单三者互证」——驱动本轮就自坏过三次（filter 与 cwd 不同源、`passed\s+N` 方向写反、只滤控制字符留下 `[39m` 残片），每一次形态都是"跑了且红了"被读成"没跑到用例"。
+- 生产代码零改动；末态 `podcast-episode-publish.test.js` 13 passed、`podcast-hosting-service.test.js` 30 passed。现场记 `openspec/records/podcast-test-seam-debt.md`。
+
+# [未发布] docs(播客): 一键发布计划账本与 PRD 自我承诺就地对账（podcast-plan-accounting）
+
+- **勾掉四行、拆开四条、补上两条 PRD 自己开过的支票**：`3.3a`（第三条进度通道七相位真在，`cancellable` 由主进程算）、`3.7`（后端评审遗留 ①–⑦ 逐条实测在位，⑧ 由 `3.11` 继续跟踪）、`4.3②`（三枚入口 + IPC/preload 通道 + 计费二次确认 + 三个显示项逐项闭合，含 PR #3942 那枚收尾）、`4.6`（本期不做响度归一，改为"决定不做 + 接受项已登记"闭合）。
+- **三处 over-claim 按实测收窄**：PRD §13 第 9 条把「读侧横幅」与「崩溃对账」绑在同一句并整条标 `已闭合`，实测只对了一半——崩溃对账一行代码都没有，新增 §13 第 13 条并拆出未勾的 `tasks 3.6b②`；§7.4.0 第 2 条要求"后果必须如实写进 §13"存续 8 天未被执行，补为 §13 第 12 条；§15.4 那句"两张表覆盖 `src/views` 下所有产出文案或成片的页面"说过头（实测 36 个 `.vue`、按产物词元扫出 5 个候选页不在任一表内），改成"已裁定的 11 个位置"并拆出 `tasks 5.1b②`。
+- **§8.2.9 的标题"尚未实现"已过期**：文本出期浮层确实渲染了来源三态，但判据 2（`origin=channel` 时整行不该出现）未落、且 `PodcastEpisodeEntry.vue` 全文没有音色标注，键名也实际落在 `podcast.episode.origin*` 而非表里写的 `podcast.voice.origin*`——标题改为"部分实现"，落地状态段把三处偏离点名，并拆出 `tasks 4.5b①/②`（另一处未落是频道 `voiceRef` 只有读侧、没有写侧，回退链第 ① 档恒为空）。
+- **原行的散文一律保留不改写**，新增的现状行/证据行只追加并带 `文件:行号` 级坐标；未完成的半片一律拆成新的未勾行，绝不就地改成"部分已落"这种没有可勾对象的状态词。全部现场记 `openspec/records/podcast-plan-accounting.md`。
+
+# [未发布] fix(播客): 文案库出期入口按来源分档判可见性，并摘掉两处不可达的频道兜底（podcast-entry-per-origin-visibility）
+
+- **收的是主线入口族最后两笔已登记欠账**：`tasks 4.3②-b 收尾②`（QM6-1 点名的"点了没反应的死按钮"）与 `QM6-2`（两处不可达的 `ensureChannel()` 兜底），都在 PR #3807 当时判 Warning 不阻塞并写了收口条件，本刀按条件收。
+- **根因不是"忘了判正文"，是判据选错了输入**：`useCopyLibrarySources.js` 的 video 分支把列表态 `content` 写成 `sourceText` 的前 N 字预览，而该分支过滤器只要求 `sourceText || title` 非空 ⇒ `content` 在 video 档**不是"有没有正文"的可靠代理**。于是"统一按 `entry.content` 判"这一眼看上去最自然的写法同时犯两个反向的错：把「有标题、列表态空、回源有全文」的视频项的**可用入口藏掉**，又留着 `origin=rewrite` 且正文为空的**死按钮**（四层来源里只有 rewrite 那层没做 `|| title` 兜底）。一条判据对两种来源给出两种相反错误 ⇒ 修法只能是**分档**，不是调宽或调窄阈值。
+- **实现形状**：判据唯一落在 `CopyLibraryView.vue` 的 `canShowEpisodeEntry(entry)`——无默认频道一律不出现；`copyEntryOrigin(entry) === ORIGIN_VIDEO` 判 `Number(wordCount) > 0`；其余三档判 `content.trim()` 非空。模板 `v-if` 与点击路径**共用这一个函数**（`if (!canShowEpisodeEntry(entry)) return`），不再有第二份口径。`CopyLibraryView.vue` 里那段解释"为什么两枚入口形状不同"的注释随之改写——它描述的是本刀之前的现场，留着会指着一个已消失的坏味道说"这是刻意的"。
+- **QM6-2 的死分支**：两处 `const channelId = podcast.activeChannelId.value || await podcast.ensureChannel()` 的兜底永远走不到（`v-if` 已保证频道非空），一律摘掉并各留一道 `if (!channelId) return`；`RewriteView.openScriptEntry` 因此不再需要 `async`，一并改回同步。留一条结构合同禁止它长回来。
+- **回归 4 条新用例 + 1 条改写 + 1 条结构合同**：`video 档按 wordCount 判`（空预览 + 回源有全文 ⇒ 动作在，且送预览的是回源全文）、`video 档 wordCount 为 0 ⇒ 不出现`（配"有字数的 v1 必须在"正控，防分档被读成"video 一律显示/一律隐藏"）、`rewrite 档空白正文不出现`（同档"有正文必须在"正控）、原「draft 空正文点了没反应」改判为**按钮根本不该存在**（旧断言把坏行为钉成了正确行为），外加一条按源码读的结构合同。夹具专门加了两支能让"按 content 判"与"按 wordCount 判"**结果不同**的输入——原夹具里 video 项 `content` 非空，两种实现同形，这类缺陷对它结构性免疫。
+- **变异反证 6 道 N1–N6 全部指名红**（`N1` 分档退化为统一 content ⇒ 2 红；`N2` `> 0` 放宽成 `>= 0` ⇒ 1 红；`N3` 非 video 档恒真 ⇒ 3 红；`N4`/`N5` 分别把兜底加回两枚入口 ⇒ 各由结构合同指名红；`N6` 点击路径绕开共用判据 ⇒ 结构合同红）。`N4/N5/N6` 同由一条结构合同承载（它们攻的本来就是同一个承重点），不冒充三道互不相同的闸。驱动两条自坏也记进执行记录：跨行锚点第一版隔了三行注释恒 0 命中、只被记成 `ANCHOR_MISS`（会被读成"这条变异不成立"）；把结构合同拆成两个 `it` 时第二次 `fileURLToPath(import.meta.url)` 在 vitest SSR 下抛 `TypeError: The URL must be of scheme file`，症状像"源码路径写错"而两处代码逐字相同——合并成单一读取点后全绿。
+- **验证**：`CopyLibraryView.test.js` 16 passed，与 `RewriteView.test.js` 合跑 110 条 **109 passed**（唯一那次红是我自己写错的判据锚点，已改并复跑为 0 failed）；`check-max-lines.js` rc=0；两口径 `--numstat` 相同；QM-1 不触发（零 `electron/**`），像素门禁本机不冒充、证据责任交 CI `QG Visual`。
+- **一处刻意没顺手做**：`collect` / `draft` 两档的正文目前只来自列表态 `content`、不回源，所以判据就用 `content`；若将来某层来源的正文也变成"列表态只是预览"（video 档已经是），必须再分一档而不是继续统称——这条写进了执行记录遗留与代码注释，防止后来者"顺手统一"。
+
+# [未发布] fix(subtitle): 短语边界感知切分 v1.3 —— 修掉无标点长块硬切的 11 处坏切（subtitle-phrase-boundary-v1.3）
+
+- **用户反馈**（项目 `mvdnrqvc_b77q`）：视频创作任务的字幕层分句结果不理想，存在大量不合理断句。
+- **先回答"是不是降级"**：实测 8002 真实 `/v1/split` 响应经 `normalizeServiceSplitResult` 质量门后，`subtitleSource = smart-sentence-splitter`、`degraded = false`、14/14 场景采纳引擎字幕、0 回退。**坏切就是引擎算法本身的输出，与降级无关**；离线降级路径与在线路径块级差异仅 2 处（`了` 后宾语保护），双实现语义一致。
+- **根因**（插桩 `wordSafeSplit` / `isGoodCut` / `lengthSplit` MAX 分支定位）：`isGoodCut` 仅 `semantic_lead`（提/把/还/绝/已/依）、`good_lead`（和与及而但或把被从向对为于并且且成）、`good_tail`（的得了是就都也还要会能可将则若虽因着过地得正于…）三类算好切点。中文里大量安全切点是动词/名词短语的自然右边界（如「为了｜拉拢」「宏大｜的」「那段历史｜对今天」），三类都不命中。叠加 `wordSafeSplit` 准入 `i >= minHead(8)` 与尾块 `tail >= tailMin(8)` 的双重挤压，11 个坏切场景里 9 个的合法窗口内**一个好切点都没有**，返回 -1；随后 `findSafeCutPosition` 在 `[1, max]` 内只校验「安全」（不劈保护短语/代理对/小数点）不校验语义，等于用算术位置裸切——正是规范禁止的「用固定算术位置绕过保护合同」。
+- **为什么不能直接用分词边界**：实测 jieba(Python) 与 segmentit(JS/TS) 在同一文本上的分词跨度 8/8 行全部不一致，且 `segmenterSpans` 的贪心对齐在中文连续文本上丢掉大量边界。若把分词边界升级为跨实现硬判据，会立刻破坏三端逐字一致的既有契约 ⇒ 修复必须走字符规则可判定路径。
+- **修法（v1.3，三端同构）**：规则表单源 `subtitle-rules.json` 新增 `word_split.phrase_boundary` 段——`pairs` 显式成对短语表 `[[left, next], ...]`（块以 `left` 逐字结尾且下一字符命中 `next` 才构成短语右边界；仅单侧命中不构成，避免把「某|些」「票仓的|无奈」这类受保护词内部误判为边界）+ `min_head_relax: 2`（短语边界路径头块放宽到 `min_chars - 2`，与既有 `tailMin` 软约束同源）。初版写三处接入，实现后做「删掉看 216 条测试是否仍全绿」的反证，确认 `wordSafeSplit` 短语分支与 MAX 分支短语优先**都是冗余**并删除，承重的只剩两处：① `lengthSplit` 累积阶段提前切分（短语右边界与标点等价，不等 MAX 兜底）；② `isGoodCut` 第四类好切点。短语边界逻辑抽到独立模块 `subtitle-phrase-boundary.ts`（纯函数 + 数据表，与实例状态无关）。
+- **修复效果**（真实 8002 链路实测，99 块）：11 处坏切全部修复、0 回归（26 条既有向量 `expected_blocks` 全部不变）。示例：`是选举年为了拉拢某｜些特定票仓的无奈之举` → `是选举年为了｜拉拢某些特定票仓的无奈之举`；`我们常常会被宏大的地｜缘政治术语淹没` → `我们常常会被宏大的｜地缘政治术语淹没`；`最终会体现为日常｜生活中的隔阂与偏见` → `…最终会体现为｜日常生活中的隔阂与偏见`。
+- **向后兼容**：规则表缺省 `phrase_boundary` 段时 `pairs = []`、`relax = 0`，行为与 v1.2 完全一致；`subtitleSource` 枚举值不变（无新增来源）。
+- **TDD**：RED（TS 16 failed / JS 16 failed / Python 10 failed）→ GREEN（TS 216 passed / JS 168 passed / Python 577 passed, 9 skipped）→ 真实 8002 E2E 验证（99 块 / 14 场景 / 0 回退，6 项正向断言全 OK）。共享向量新增 10 条 `v1.3_phrase_boundary_*`，`expected_blocks` 为人工评审确认的手工真值，`short_block_exceptions` 显式声明每个 `< min_chars` 块。
+- **踩坑**：`smart-sentence-splitter` 的 `splitter` 包是 editable install 指向**原仓库**（`pip install -e .`），在新建 worktree 里跑 pytest 测的是旧代码。解法：`PYTHONPATH=<worktree>/src` 覆盖。这一条不写在文档里，下一次「改了代码测试却全绿」会再犯。
+- **跨仓**：`smart-sentence-splitter` 仓规则表 + `subtitle_segmenter.py` + 向量同步副本在独立 worktree `sss-subtitle-phrase-boundary`（分支 `subtitle-phrase-boundary-v1.3`），独立 PR。
+
+# [未发布] fix(story2video): 克隆音色先对账本地样本再进生成，失效音色不再跑满 9 条 TTS 才报重复英文（voice-clone-integrity）
+
+## 问题
+- 2026-10-18 22:32–22:44（本地）项目 `mvdxd21s_o1ws` 的故事讲述两次运行均在 `generate_assets` 失败：9 条 TTS 全部被供应商拒绝（`you don't have access to this voice_id`），重克隆回退因 `voice-clone-samples/<ownerHash>/47f825cb-634e-4c5f-8d90-cc904e547411` 目录不存在而 ENOENT，最终 `0/9` 场景同时具备图片与旁白。
+- 三方证据互相矛盾：SQLite registry（`tts-voice-clones:v2:minimax-multimodal:speech-2.8-turbo`）记录仍为 `deletionState=active`，音色偏好与 `story2video.lastOptions.v1` 仍指向该 `voiceId`，但磁盘样本目录已不在、供应商也已拒绝。
+- 根因：`TtsVoiceCloneService.listClones` 只校验 `voice_id` 格式、从不与样本磁盘对账；`generate_assets` 没有音色前置守卫；`tryReCloneVoice` 对 ENOENT 只是静默返回 null；失败聚合按场景逐条拼接同一句英文 9 次；渲染层匹配不到「没有访问权」形态，用户只看到不可操作的通用英文。
+
+## 改动
+- `listClones` 对每条克隆做只读磁盘对账（目录存在、非符号链接、目录内至少一个 `ALLOWED_AUDIO_EXTENSIONS` 扩展名文件），失效时输出 `invalid:true` 与 `invalidReason`（`invalid_voice_id` 优先于 `sample_storage_missing`）；有效记录不输出 reason；无 `sampleStorage` 的历史记录不判失效；`userData` 不可解析/IO 不可判定一律 fail-open 不误杀。
+- 新增只读 `getCloneVoiceStatus({providerId, model, voiceId})`：code/data 信封、owner 隔离、模型候选回退与 `findCloneSamples` 同风格、不写 registry/偏好。
+- catalog 既有 7.1.16 合同自动继承：失效克隆移入 `invalidVoices`、移出可选 `voices`，偏好回退默认音色并写回（`tts-voice-service.js` 不改）。
+- `generate_assets` 在任何图片/视频/TTS 调用前执行前置守卫（manual 模式由 `finalize_assets` 在旁白生成前复用同一 helper）：命中 `registered && invalid` 立即失败，前缀 `VOICE_CLONE_UNAVAILABLE`，零资源调用；守卫故障/未注册/有效克隆一律 fail-open。
+- 运行期全部 TTS 失败且均为克隆音色不可用时，聚合为单条 `VOICE_CLONE_UNAVAILABLE` 错误（先写 `context.generate_assets.resume`，不重复原始英文、不含 `TTS #`）；`summarizeAssetFailures` 对相同错误去重并输出场景区间（`#3` / `#1-#3` / `#1, #3` / `#?`）。
+- 渲染层新增 `VOICE_CLONE_UNAVAILABLE_PATTERN`、通知键 `VOICE_CLONE_UNAVAILABLE`、locale key `story2video.voice_clone_unavailable`（zh/en 成对），规则顺序早于 `VOICE_INVALID` 与 `asset_generation_failed`。
+- 不改阶段数量/顺序、不新增 checkpoint 类型、不静默替换用户音色。
+
+## 验证
+- 定向测试：7 文件 / 330 passed（服务 48、完整性 8、阶段 154、守卫 11、通知 61+22、格式化器 27）；风险集回归 673 passed（命令与读数见 `openspec/records/fix-s2v-voice-clone-integrity.md` 自测块）。
+- 变异反证（详细 PRD §12.3）：M1 去对账 2F / M2 反转优先级 1F / M3 守卫 warn-only 3F / M4 聚合 `every`→`some` **初始存活**（补「混合原因不聚合」用例后 1F）/ M5 不去重 2F / M6 删渲染规则 4F；M7/M8 未逐条注入（结构性变异，由代码位置审查 + 零资源调用断言覆盖）。
+- 文档门禁实测：`check-text-encoding-integrity` OK；`check-no-brand-residue` PASS（10326 tracked）；`check-spec-purpose` 154 份 0 违规；`openspec-sync-check` OK（387 tasks/63 changes/234 archives）；`check-doc-abs-paths` PASS（572 文件）；`check-changelog-growth` PASS（521→522）、重复标题新增 0。
+- QM-1：electron-builder exit 0（asar 147,209,782 B，命中 2 个新模块，解包 require rc=0，启动 9s 存活 + stderr 0 行）。QM-6：本机 claude/opencode/codex 后端均超时不可用（ccg deep-review 的 claude critic 轴 ETIMEDOUT），如实保留债务、不伪造 cleared。
+# [未发布] fix(shell): 折叠状态多窗口实时同步 + OAuth 授权视图接入侧栏布局（sidebar-collapse-followups）
+
+关闭 #3916 遗留清单的三项缺陷（前两条修复、第三条降级）：
+
+- **多窗口同步（点击错乱）**：折叠是应用级状态，主进程 `WebviewManager._sidebarCollapsed` 是唯一真源，但原先只有「渲染进程 → 主进程」单向 invoke。窗口 A 点收起后主进程会把**所有**内嵌视图重排成 `x=0` 全宽，窗口 B 的渲染进程却仍持旧值、DOM 侧栏仍显示 ⇒ 侧栏看得见却被原生图层盖住、点不动。新增 `WebviewManager.broadcastSidebarCollapsed()` 向 `getAllWindows()` 投递 `page-manager:sidebar-collapsed-changed`（载荷 `{ data: { collapsed } }`），preload 暴露 `pageManager.onSidebarCollapsedChanged(cb)`；渲染层 `applyRemoteCollapsed()` 只改本地 ref 并通知订阅者，**不写 localStorage、不上报 IPC**（持久化真源是用户点击的那个窗口；回传会形成 A↔B 互刷）。
+- **OAuth 授权视图接入侧栏布局**：`oauth-manager.js` 的 `_positionView()` 只传 1 参给 `computeEmbeddedViewBounds`，`sidebarWidth` 回落默认 200、`collapsed` 恒 false —— 宽松默认值把「漏传」伪装成合法布局（不抛错、无告警）。补 `setSidebarWidth` / `setSidebarCollapsed` 并传满 4 参；`WebviewManager` 两个 setter 把它纳入同步链（与 `AuthViewManager` / `QRCodeLogin` 同构），`window.js` 装配链经 `setOAuthManager` 注入。**顺带修同形态缺陷**：OAuth 视图原先只在 `startAuth` 定位一次、不监听 `mainWindow` resize，授权过程中拖动窗口会复现 `view-bounds.js` 头部所述 2026-09-13「视图被窗口边框裁掉」。
+- **抽出 NaN 免疫的宽度守卫（连带修复）**：四处 manager 各自手写的 `width < MIN || width > MAX` 拦不住 NaN —— NaN 的所有比较都是 false，它穿过 `typeof === 'number'` 检查被写进 `_sidebarWidth`，守卫语义被推迟到 `normalizeSidebarWidth` 才生效。新增 `view-bounds.isValidSidebarWidth()` 单一真源（含 `Number.isFinite`），四个 manager 共用。
+- **遗留第 3 项降级为「无需处理」**：收起期间跨 900px 断点原被登记为遗留，复核后确认 `computeEmbeddedViewBounds` 内部 `collapsed ? 0 : normalizeSidebarWidth(width)` 已让 width 参数在收起态完全失效，展开时 `MpSidebar` 的 `ResizeObserver`（`w > 0` 守卫）在同一帧后上报真实宽度 —— 不产生错误布局，不值得为一次不可见的抖动新增状态位。
+- **测试**：新增 106 例（OAuth 布局同步 7 / 守卫 4 / 广播 8 / 注入 4 / store 广播 8 / App 订阅 5 / preload 合同 3 / 跨进程多窗口链路 1，其余为既有文件增量），受影响面 12 files / 311 tests 全绿；`tsc --noEmit` rc=0；`eslint` 0 error。
+- **文档**：`openspec/changes/sidebar-collapse-toggle/` 新增 3 条 Requirement / 10 Scenario（spec 7 → 10 条）、tasks 第 7 节；执行记录 `openspec/records/sidebar-collapse-followups.md`。
+
+# [未发布] feat(gates): QM-6 评审后端对收敛为单一真源，「设了没生效」改为判不闭合（qm6-review-backend-config）
+
+- **三种旋钮全部静默失效，而失败症状不是报错**：为了让一个不可用的 critic 后端换人，依次试了改 `~/.claude/.ccg/config.toml` 的 `[routing]`（`ccg-deep-review.js` **从不读它**，输出仍是 `proposer=opencode critic=claude`）、`sh scripts/deep-review.sh --critic codex`（入口是 `for a in "$@"` 只认无值旗标，且 `exec node "$DRIVER" --sha "$SHA"` 一个后端参数都不转）、直连驱动 `--critic codex`（覆盖块只挂在决策层 `objectType:"plan"` 分支，验证层是裸的 `const cfg = cfgForMode(mode)`）。三种情况下评审照跑、结论照出、`deepReview.status` 照闭环，**没有任何东西记录"这次到底是谁评审的"**。
+
+- **根因不是"少一个旗标"，是仓里把后端对抄成六份字面量**：`ccg-review-decider.js` 的可用性表与目标文案各一份、`deep-review.sh` 的体检循环与裸名自检各一份、`plan-review.sh` 一份，加上驱动自己的 `cfgForMode`。于是判定器报的"两个后端都不可用"与入口实际检查的名字可以互相矛盾，且两边都自洽。修法是把策略收到**一份声明**（`scripts/ccg-review-backends.list`），按 CLI 旗标 > `MP_QM6_*` 环境变量 > 清单 三档解析。
+
+- **`--check-deps` 决定了这里必须有两份读取方**：该入口是"node 本身可能就是坏的"时的第一手诊断，让它依赖 node 等于把要诊断的东西当前提。于是 sh 版（`scripts/lib/ccg-backends.sh`，被两个入口 source）与 node 版并存 —— 这不是放行两份实现，而是补一把**逐字对账锁**：默认 / env 覆盖 / 同族单后端 / 未登记后端名四档下两侧输出必须逐字节相同，且"覆盖档与默认档必须确实不同"（否则四组相等是在比较常量，属恒真断言）。
+
+- **追责点放在欠账门禁而不是入口事后回读**：评审一次 15–40 分钟，本地跑完才发现白跑代价太大；`check-pr-exec-record.js` 在 CI 上必然执行。新纯函数 `judgeBackendMismatch` 只在「记录显式记着 `reviewBackends.overridden === true`」且 `performedBy` 的记号集合不含被请求的后端时报未闭合。四种不适用都各自可证：字段缺失的历史产物**不追溯变红**（这是本刀能安全上线的前提）、未覆盖不判（上游默认与本仓清单本来可以合理不同）、`self_play_resolved` 不插手（收紧自扮演豁免属改"谁来守门"，须人工过目）、`performedBy` 为空交回闭环判据。
+
+- **两处设计被自己的用例否证后改窄**：① 第三档原本写成"performedBy 里读不出后端名"，实测 `self-play` 按非字母切分得到 `['self','play']` 两个**完全像后端名**的记号，该判据永不成立 ⇒ 改成按显式字段判；② 判定器的提示文案原先埋在 `main()` 里，除真跑一次 pre-commit 外无法取证 ⇒ 抽成 `backendNoticeLines(backends, mode)` 导出后才发现"同族单后端"会被旧的 `available.length < 2` 读成降级 —— 配置被读成故障。
+
+- **顺带修掉两个被静默掩盖的真缺陷**（都是"错位的 cwd 与缺失的文件逐字同形"这一类）：入口 `$0` 是 Windows 绝对路径（测试与 `ccg-review.ps1` 就这么传）时 `case */*` 不匹配 ⇒ `_self_dir="."` ⇒ `ROOT` 落到**仓库父目录**，旧版之所以无害是因为每处仓库相对读都被 `[ -f ]` 挡成"不存在"；`--help` 用 `sed -n '2,18p'` 固定区间，加用法行后**静默截断最新几行**而看起来照样有输出。
+
+- **验证**：`ccg-review-backends` 17/17、`ccg-review-decider` 43/43、`deep-review-deps` 33/33、`plan-review-deps` 10/10、`ccg-bash-entry` 9/9、`check-pr-exec-record` 72/72。变异 M1–M5 各自**指名**变红（8/17、1/33、3/72、1/43、1/33），反证驱动断言"这次真的跑了 N 条"而非只看有没有红。新判据接在 `quality-gate.yml` 的 changes 作业（Gate 2c6）—— `scripts/**` 在 docs-only 白名单内，放 static-gates 等于给判据自己关掉校验。`check-workflow-structure` / `check-unwired-tests` / `check-step-failfast` 三条接线判据 rc=0。
+
+- **边界（不假装已闭合）**：本刀**没有**让 `--critic` 在 diff 评审上生效——那需要修仓外驱动或把引擎 vendor 进本仓，两条出口都留给人工裁决（vendor 后本仓就要对该驱动行为负责，属改"谁来守门"）。在二者落地前，对 diff 评审指定后端的效果是"被对账判红"，不是"换成功"；决策层（`plan-review.sh`）那条路径今天确实生效。
+# [未发布] fix(scripts): 锚点热备份新鲜度改按目录名时间戳判定——修掉「每次都报 25.9 天前」的恒假告警（anchor-backup-latest）
+
+- **两处错误叠在一起才恒假**：`scripts/mp-anchor-health.ps1` 用 `Sort-Object Name -Descending` 取「最新备份」，而锚点备份目录里同时住着两族名字——时间戳族 `yyyyMMdd-HHmmss` 与一次性基线 `seed-20260923-001516`。ASCII 下 `s`(0x73) > `2`(0x32) ⇒ 基线永远排第一、永远被当成「最新」，于是**每次运行都报 `newest backup is 25.9 days old (limit 7)`，连刚写完快照的那一次也照报**（2026-10-18 重启应用的一键启动日志里现场可见）。第二处是年龄取 `LastWriteTime`——复制/还原快照会改写它，即便选对目录也可能算错龄。
+
+- **修法与判据**：改按 `[datetime]::TryParseExact($_.Name,'yyyyMMdd-HHmmss',…)` 解析出真实备份时刻再取最大，年龄由**名字**推导；只剩非时间戳目录时**如实报 WARN**（`seed-*` 是基线不是热快照，给它猜年龄等于撒谎），而不是继续拿它当「最新」。
+
+- **真实锚点 A/B（不是只在新夹具上绿）**：同一份 `shared-user-data` 上，修复前 `[WARN] newest backup is 25.9 days old (limit 7)` / `ANCHOR_WARN`；修复后 `[OK] backups fresh (latest: 20261018-222345)` / `ANCHOR_OK`。
+
+- **回归锁是行为级的，不是源码形状**：新增 `scripts/mp-anchor-health.test.js` **5 条**——真起 `powershell` 打临时夹具，断言 ①新快照必须胜过 `seed-*` 基线（本条即本 bug）②全部陈旧时仍必须报陈旧（防「改成恒新鲜」把门禁变装饰）③年龄必须由名字推导（夹具目录 mtime 就是「刚刚」，用 mtime 永远判不出 30 天前）④只有 seed 时不得谎报新鲜 ⑤形状兜底（必须出现 `yyyyMMdd-HHmmss`、不得出现 `$latest.LastWriteTime`）。
+
+- **变异反证 4 道全部指名红**：M1 复原原始 bug（seed 也入候选 + 名字降序）⇒ 锁 1 红；M2 年龄改回 `LastWriteTime` ⇒ 锁 2/3/5 红；M3 强制 `$ageDays = 0` ⇒ 锁 2/3 红；M4 无时间戳时谎报 fresh ⇒ 锁 4 红。每条都先断言「锚点命中 + 变异已落盘」再判红，跑完按字节还原并核 sha256 与基线相等。首次 M1 因多行锚点与行尾不匹配而**未命中，当场作废重做**——没有把它读成「这条反证不适用」。
+
+- **接线**：接进 `quality-gate.yml` Gate 2c（该 job 不自动收集 `scripts/` 下的测试，不点名等于没写）。`node scripts/check-unwired-tests.js` → `检查域内测试文件 107 个 / OK: 全部测试均已接线或按欠账登记` rc=0。
+
+- **门禁读数**：`check-workflow-structure` test+run `violations=0`；`check-doc-abs-paths --all` PASS（4107 受管文件）；`check-no-brand-residue` PASS（10301 tracked）；`check-text-encoding-integrity` OK（无新增损坏）；`check-record-qm5-rows` OK；`check-gate-record-debt` OK；行尾两口径 `mp-anchor-health.ps1 28/5 == 28/5`、`quality-gate.yml 6/0 == 6/0`。QM-1 / QM-4 记 N/A（零 `apps/desktop/electron/**`、零 `packages/rpa-engine/**`、零 UI —— 是不适用，不是「跑了通过」）；QM-6 未执行（本机无 `codeagent-wrapper`，不以自审冒充）。
+
+- **顺手留痕的一条环境事实**：新 worktree 未装依赖时 `check-workflow-structure.js` 会以 `Cannot find module 'js-yaml'` red，那是依赖未就绪不是判据失灵（`pnpm install --frozen-lockfile` 91 秒后 test+run 双 rc=0）。
+
+# [未发布] feat(s2v): 历史记录任务详情页视频信息区展示本次生成的模型信息（s2v-result-model-info）
+
+- **功能**：视频创作 → 历史记录 → 任务详情页（`/create/result?project=<id>`）视频预览下方的视频信息区，在「格式：MP4」**同一行**追加本次生成实际调用的模型信息：文本模型 / 语音模型 / 图片模型 / 视频模型，固定顺序、` · ` 分隔。视频模型受 `videoMode` 门控——仅 `fixed` / `ai-judged` 视为启用视频增强，`off` 或缺省时**整项不显示**（不是显示"未使用"）。容器放不下时由浏览器自然折行，不撑破布局；四项全空时整段不渲染，页面与改动前逐字节一致。
+- **取值口径（哪个值才是"实际用的模型"）**：`segments[].imageMeta/audioMeta/videoMeta`（provider 真实返回值）**优先于** `project.options`（用户提交时的选择），`model` 优先于 `provider`。两者在"provider 忽略/改写 model 参数"或"多模态 provider 内部路由到别的模型"时会不一致，展示真实执行的才有诊断价值。文本模型取 `segments[].promptOptimizationMeta.model_used`。
+- **前置缺口已补：文本模型此前根本没落盘**。`optimize` 阶段的 prompt-engine 返回里一直有 `model_used`，但 `story2video-stages.js` 的 `pairedScenes` 构造处不携带 `promptOptimizationMeta`，`Story2VideoProjectService` 虽已定义该白名单字段却从不被填值 ⇒ 详情页拿不到文本模型。本片在 `generate_assets` 把 optimize entry 的白名单 meta（`strategy_used`/`key_source`/`cache_hit`/`model_used`/`caller`/`platform`/`style`）透传到 scene，service 侧零改动即通。`strategy_used=template`（限流降级）时 `model_used` 如实为 `template`，**不粉饰为具体模型名**。
+- **顺手修掉同函数里两处 `null` 崩溃**（QM-5 归因：optimize 结果含 null/非对象时 `p.prompt` 与 `prompt.prompt` 直接抛 `Cannot read properties of null`，把整阶段打成 `Asset scene generation failed`）。两处消费点统一改共用 `optimizeItemPrompt()`（`electron/services/story2video-prompt-meta.js`），fail-open 口径一致，回归锁在新建的 `story2video-prompt-meta.test.js`。老项目/run-only 重建项目无 meta 时不渲染文本模型项，是有意行为而非功能损坏。
+- **结构性拆分，不上调 targets**：`ResultView.vue`（点名目标 1890）、`story2video-stages.js`（点名目标 4006）与两个测试文件都是 `check-max-lines` 的零容差/挂账对象，就地新增会把 4 个文件同时判红（首轮 CI 实测：`TARGET_GREW` ×2 + `TEST_LEDGER_GREW` ×2）。按仓内同族先例（`podcast-publish-entry` / `publish-add-account-entry` 等）的口径拆成：渲染进 `views/video-creation/ResultModelInfoRow.vue`、取值口径进 `views/video-creation/composables/useResultModelInfo.js`（纯函数、无 Vue 依赖）、主进程白名单进 `electron/services/story2video-prompt-meta.js`；宿主只留接线，四个点名/挂账文件全部回到目标内（`check-max-lines.js` rc=0）。顺带收益：取值逻辑脱离 Vue 挂载后可直接单测，24 例里 21 例不需要 `mount`。
+- **测试**：新建 `src/views/ResultView.model-info.test.js`（24 例：取值口径/门控/优先级/回退/脏数据/空态/DOM 同行/locale 成对）与 `electron/services/story2video-prompt-meta.test.js`（17 例：白名单收窄/fail-open/null 防御/集成透传）。回归 6 个文件 436 passed（`ResultView.test.js` 132 / `story2video-stages.test.js` 160 / `story2video-project-service.test.js` 119 / `element-plus.test.js` 7 / 两个新文件 41）。文案 zh/en 成对进 `locales/create/{zh,en}.js`（Gate 7）。
+- **文档**：新增 `01-docs/PRD-S2V-RESULT-MODEL-INFO-2026-10-18.md`（数据源核实结论/取值优先级/门控判据/数据校验/验收标准/测试计划全量详述）；主 PRD 新增 §7.1.39 合同；`01-docs/learnings.md` 沉淀 6 条 lesson；执行记录 `openspec/records/s2v-result-model-info.md`。
+# [未发布] feat(视频创作): 语音模型改由程序+运营决定，移除「语音模型」下拉（voice-model-program-resolved）
+
+## 问题
+- 故事讲述流水线「声音选项」里，「语音生成器」选「MiniMax（多模态）」后会多出一个「语音模型」下拉，而它在多模态下**只有一个候选**（`capability_models.tts` = `speech-2.8-turbo`），MiniMax TTS 单能力下同样只有一个候选。用户面对一个只能选一个值的控件：没有信息增益，却把"用哪个具体模型"这个本该由程序/运营决定的决策推给了用户。
+- 更深的结构性根因：桌面端存在**三套并行的"默认模型解析"**——`tts-voices-state.js:getS2VDefaultVoiceModel`（前端 TTS）、`CreateView.vue:getS2VDefaultVideoModel`（前端视频）、`model-provider-manager.js:resolveProviderDefaultModel`（主进程）。前两处在多模态缺能力声明时会**猜 `models[0]`**（可能是 image/video/llm 模型），只有主进程是 fail-closed。这是"多模态下语音模型下拉偶现非 TTS 模型"反复出现的同源原因。
+- 顺带查出的死字段：前端读 `provider.defaultModel`，而 `_safeRow()` 从不返回该字段 ⇒ 运营中心配置的 `default_model` 在渲染层**一直被静默忽略**。
+
+## 改动
+- **移除下拉**：`S2vConfigPanels.vue` 删除「语音模型」`UiField` 整块；「语音 / 音色 ID」的显示条件改为「提供方非空 **且** 解析出的模型非空」（解析不出来时整项不渲染，不留空白控件）。`s2v-panel-contract.js` 白名单同步移除 `s2vVoiceModelOptions` / `s2vVoiceModelHidden` / `handleS2VVoiceModelChange`（三个都成了零消费者，一并删掉而不是留死代码）。
+- **单一真源解析**：新增 `resolveCapabilityDefaultModel(provider, type)`（语音域薄封装 `resolveVoiceModelForProvider` = type `'tts'`），四级优先级 = 用户默认（`config.user_default_model`，须 ∈ models）→ 运营能力默许（`capability_models[type]`，声明即有效）→ 单能力的 provider 级默认（`config.default_model`，须 ∈ models；**多模态跳过**）→ 兜底（**多模态 fail-closed 返回空串**、单能力取 `models[0]`）。`getS2VDefaultVoiceModel` / `s2vVoiceContextModel` / `getS2VVoiceContext` / **`getS2VDefaultVideoModel`** 全部改走它（视频域顺带修掉同一个死字段 bug），**不再读**用户可编辑的 `s2vConfig.voiceModel`。
+- **主进程口径同步修正（跨家族评审 C1）**：`resolveProviderDefaultModel` 原为「user_default → **default_model** → capability_models → 兜底」，而 `minimax-multimodal` 目录下发的 `default_model` 是 `MiniMax-M2.7`（**LLM 模型**），于是 tts/image/video 三个能力会被解析成 LLM 模型。新建任务时前端显式传 `params.voiceModel` 掩盖了它，只有断点续跑与播客（`__resumeUseCurrentModels`）会踩到 → 恢复后 `VOICE_NOT_IN_CATALOG`。本次改为「user_default → **capability_models** → 单能力 default_model → 兜底」，并对**多模态跳过** provider 级默认，使「多模态缺能力声明 ⇒ fail-closed」真正成立；同步重写 `model-provider-manager.resolve-default.test.js`（用例 2/4 语义更新 + 新增 8b/8c 边界）。
+- **parity 锁补关键夹具**：首版 22 个夹具里**没有一个"能力默认与 provider 级默认均有效且不同"**的用例，于是两层口径分叉时 27 条测试仍全绿——一致性锁形同装饰。补 4 条夹具（多模态/单能力各一条该形态、多模态无 tts 声明但有 provider 级默认、用户默认压倒一切）后旧实现立刻变红；源码锁也从"全文 token 顺序"改为"函数体内分支顺序"（原写法因文件他处同名 token 而恒假）。
+- **恢复路径归一 voiceModel（评审 M1）**：`_applyS2VSnapshotObject`（配置档案）与 `applyS2VPipelineDefaults`（运营 pipeline_options）末尾统一按解析值重算，provider 失效时清空——否则旧快照里的 `MiniMax-Hailuo-2.3` 这类非 TTS 模型会经恢复路径直达生成。
+- **运营中心拒绝非字符串能力默认值（评审 M2）**：校验面曾用 `str(cap_model)` 判 ∈models、落库却存原始 `42/True`，桌面端两层解析只认字符串 ⇒「校验通过 / 总览显示已配置 / 运行期当未配置」三面不一致。现非字符串直接 400「必须是字符串」，落库前统一 trim 成字符串，新增 2 条测试。
+- **并发守卫 trim 归一（评审 m2）**：`getS2VVoiceProvider` 统一 trim 入参，消除「context 用 trim 后 id、守卫用未 trim id」导致携带空白的存量 `voiceProvider` 请求结果被静默丢弃。
+- **运营中心（回答"有没有这个设置功能"）**：**功能本来就有**（`ModelPreset.default_model` + `capability_models`，`ModelPresets.vue` 有对应输入），但只覆盖多模态、且校验不全、且没有总览。本次补齐三件事：① `capability_models` 从「仅多模态」扩到**全类别**（单能力按自身 `category` 一项），编辑弹窗按类别动态渲染，候选改为 `el-select` 从模型列表选（`allow-create` 兜底）；② **自洽校验**：键必须 ∈ `{category} ∪ capabilities`，非空值必须 ∈ `models`，否则 400 并点名具体能力；③ 新增 **「能力默认模型总览」** 卡片 + `GET /api/v1/model-presets/capability-overview`（admin）：按能力类别列出各服务商默许模型，未配置项高亮、给出缺口计数、只统计 `is_visible=1`（隐藏项不计入缺口）。
+- **迁移与兼容**：`ensure_catalog_seeded` 为存量单能力预设幂等回填 `capability_models[category] = default_model`（不覆盖已存在键、多模态不参与）；保存时若类别能力默认模型有值则镜像写入 `default_model`，保证只读 `default_model` 的**旧版桌面端行为不回退**。`s2vConfig.voiceModel` 字段**保留**（IPC `voice.model`、`s2v-config-snapshot`、`ResultView` 项目语音上下文都依赖），只是不再由用户编辑；历史快照的陈旧值在 `loadS2VProviders` 时静默归一为解析值（不弹错、不中断）。
+- **正交保留 MiMo 双模型分支**：`mimo-tts` 的 `s2vVoiceModelHidden` 判定、catalog 用 `mimo-v2.5-tts` / 克隆用 `mimo-v2.5-tts-voiceclone` 完全不变——那是"模型由音色类型区分"的能力驱动分支，与"用户不该选模型"正交，混改会连带破坏克隆链路。
+- **摘要保留模型回显**：`s2vSectionSummary('voice')` 的模板字面量**逐字节保持不变**（仍展示「提供方 · 模型ID · 已选音色」）——模型 ID 在此是**只读回显**（告诉用户当前实际用哪个模型），不暗示可选；同时规避两条硬约束：该行含硬编码中文，改动会被 `check-locale-sync --cjk` 判为"新增硬编码中文"（实测改后即报 `渲染端新增 1 处`），且 `create-story2video-detail` 像素基线含折叠态摘要。配套改动是 `S2V_SUMMARY_FIELDS.voice` 移除 `voiceModel`——模型不参与「该分组是否仍为默认」的判定。
+- **测试**：新增/改写 `voice-model-resolution-parity.test.js`(27) / `useTtsVoices.test.js`(16) / `S2vConfigPanels.test.js`(16) / `CreateView.test.js`(307 全绿) / ops-center `test_model_presets_api.py`(59) / ops-center frontend(161)。`CreateView.test.js` 里 10 处只设 `voiceProvider` 而不注册 `s2vVoiceProviders` 的夹具按新语义补了 provider 注册（模型来自 provider 注册表，这是新契约的必然结果，不是为过测试而改断言）。
+- **文档**：`01-docs/PRD-S2V-VOICE-MODEL-PROGRAM-RESOLVED-2026-10-18.md`（全文新写：数据校验/流程/功能逻辑/交互逻辑/显示项/提示文字/验收标准/影响面）；`PRD-S2V-PIPELINE-PAGE-UX.md` §4.3.1 由「MiMo 专属规则」升级为全 provider 规则 + §11.4 下拉目录同步；`PRD-video-creation.md` 变更记录新增一行；`ops-center/docs/PRD.md` §12 扩展为全类别能力默认模型 + 总览端点；openspec change `s2v-voice-model-program-resolved`（proposal/design/specs/tasks 五件套）。
+- **对外可见效果**：选 MiniMax（多模态）/ MiniMax TTS / MiMo TTS / 任一服务商，都只看得到「语音生成器」和「语音 / 音色 ID」；具体模型由运营中心的「能力默认模型」决定，改运营配置后桌面端下次解析即生效。
+
+# [未发布] feat(播客): 发布页文本类分支接入一键出期入口，并按点名还账把入口收成 launcher（podcast-publish-entry）
+
+- **落的是主线最后一枚入口**：PRD §7.10.3.4 把 ②-b② / ②-b③ 两枚的逐字段合同写全了，上一片只落了改写区那枚；本片落发布页文本类分支那枚。频道一律取 `usePodcastChannel` 的既有解析——没有默认频道时动作**整块不出现**，而不是弹一个必被宿主①层拒掉的框，也不为显示动作去 `ensureChannel()` 偷偷解析一个频道。
+- **那条"必须显式回答的副作用"给出答案：不固化草稿**。`article.content` 被发布动作与改写面板双向改写，是在途状态；入口全程只读，要「出期即固化一版草稿」必须另立切片并先补发布链幂等判据。
+- **落点形状由债务门禁决定，不是审美选择**：`Publish.vue` 是 `check-max-lines` 的点名还账对象（`targets: 1773`、容差 0），首版内联 37 行被 CI 判 `TARGET_GREW: 现 1808 行已超过点名目标 1773 行（超 15）`。按仓内四条同族先例（`hot-topics-publish-handoff` / `pub-record-republish` / `publish-add-account-entry` / `xhs-draft-only-hard-evidence`）的口径，这一格的正解是**结构性拆分而不是上调 targets**——上调等于给这个文件再送免涨额度，与立项目的直接冲突。末态：入口整体收进新组件 `components/PodcastScriptEntryLauncher.vue`（按钮 + 浮层 + 可见性判据 + 点击快照），`Publish.vue` **净零行**（+2 接线：1 行 import + 1 行标签；−2 抵账：收掉主干遗留的三连空行中的两条），末态读数 `1773 == 天花板`、`check-max-lines.js rc=0`。第二条抵账要如实讲：它减的是格式噪声不是复杂度，选它而不是"抽一段既有逻辑抵行数"，是因为主干 `2a4e03c8d`（#3883）已把这个零增长对象的余量吃到 0，为 2 行捆进一次无关重构风险更不匹配。浮层经 `<Teleport to="body">` 回到页面根，与另两枚入口的根级挂载视觉等价。
+- **判据复用同一个谓词、取源只有一处**：launcher 内 `available` 一处定义两处用（按钮 `v-if` 与 `open` 早退），`sourceText` 是逐字原值的唯一取源、`frozenScript`/`frozenTitle` 在点击那一刻冻结。这条"两处共用一份"不是靠注释自觉——变异 `M2b`（把取源写成归一化值）与 `M6`（在接线处 trim）各有 3 条指名红。
+- **主干上这枚入口原本是零验收**：`Publish.test.js` 1900+ 行没有一条引用过 `activeChannelId` / `PodcastScriptEntry`，「入口不存在」与「入口存在但坏了」在既有测试里完全同形。本片建 `src/views/PublishPodcastEntry.test.js` **9 条**，其中两条是这枚入口独有的：**实时档**（正文从有变空 ⇒ 入口当场消失）与**快照时机**（打开后再改正文与标题，出期仍用点开那一刻那一份，正文与标题各一条断言）。
+- **变异反证 12 道：11 道指名红、M7 如实 NOT_CAUGHT**。M7 的归因写在前、不加断言凑数：摘掉 `open` 的早退之所以红不出来，是点击路径已被同一个 `v-if` 在模板层挡死，构造不出「按钮存在而谓词为假」的现场——属**防御重叠不可分辨**，承重闸在 M1/M2/M5。**红集重合处如实写出**：`M2b/M3/M6` 打的是同一条值路径，失败用例集逐字相同；`M10/M11` 同由「快照时机」一条承载。**v3 有一处真实覆盖减项**：改成 launcher 后入口对 `article` 没有写权，「写回在途状态」结构上不可表达，原 M6 无处安放（改为「接线处 trim」的 M6），于是「只读」那条用例从可变异见证的行为锁降级为接线形状回归锁——报成「9 条都被变异见证」就是假话。而 **M10 不是假想坏实现**：`:script="script"` 取到实时 props 而非快照，是我这次重构真实写错的形状，第一轮跑就是它红。驱动三条自证：锚点命中=1 才动手、直跑 `node vitest.mjs` + 规模下界 `numTotalTests ≥ 9`（防「跑了 0 条」读成全绿）、跑完按字节还原并核 md5 与基线相等。
+- **首轮 CI 三条红逐条归到自己的产物上，没有一条靠放宽门禁消掉**：`Gate 2c3` 点名「本篇记录缺 ⑤」⇒ 补的是我漏写的行；`债务熔断检查` ⇒ 上面的拆分；`Gate Result` 是聚合。同一步里 `check-max-lines.test.js` 第 11/17 条随拆分转绿，剩 `not ok 36` 用 A/B 判为本机环境档（A 档继承我真实全局 gitconfig 的 `core.excludesFile`、它盖住夹具写的 system 档 ⇒ `rc=1 fail=1`；B 档把 `GIT_CONFIG_GLOBAL` 指到不含该键的空配置＝CI 那台机器的形状 ⇒ `rc=0 pass=1`），且本 PR 零 `.github/scripts/**`，不认领、也不借它去改那条测试。
+- **测试与门禁**：QM-1 不触发（零 `electron/**`、零 `packages/rpa-engine/**`）；QM-4 本机不冒充跑像素门禁（缺 dev server），证据责任点名交给 CI `QG Visual`；消费者并集八个文件（`Publish.test.js` / `PodcastScriptEntry.test.js` / `overlay-view-suspension.test.js` / `views-coverage.test.js` / `href-scheme-contract.test.js` / `icon-usage.test.js` / `RewriteView.test.js` / `CopyLibraryView.test.js`）本机 `Test Files 8 passed (8)`；`Publish.vue` 是 CRLF 工作副本，改动一律走逐行 splice 的驱动并当场核 `cr == lf == 行数`，两口径 `--numstat` 相同。
+- **同期顺手取证的两件事**（都不在本片改）：共享根 `CHANGELOG.md` 曾被一次坏重定向截断到 31 行（尾部是字面量 `fatal: Not a valid object name .md`），另有一份 learnings 带 1 行主干不存在的 pitfall——两者都按精确路径备份后从 HEAD 还原以解锁 worktree 入口，**那 1 行未落地内容仍只在备份里、等它的作者入库**；`session-init.sh` 的 `-RequireClean` 与 bootstrap 串行锁两次按设计拒绝，手搓 `git worktree add` 造不出依赖解析，属明禁路径。
+
+# [未发布] docs(openspec): 归档 ban-record-closure-backfill-pr —— 新需求进主规格，并当场核"镜像会不会联动"（archive-gate-record-closure-backfill）
+
+- **做了什么**：`openspec archive ban-record-closure-backfill-pr -y` ⇒ `quality-gate-execution-record: update，+1 added`，主规格需求数 2 → 3；change 落 `openspec/changes/archive/2026-10-18-ban-record-closure-backfill-pr/`。移动形态按 `git diff --cached -M` 判 **5 个 R100**（逐字节相同）而非"删 + 加"。
+- **镜像联动这次是量出来的，不是推断的**：上一刀的教训是"归档会改镜像的真源"，但那只对 `openspec-integration` 成立。当场读锁本体第一行——`scripts/quality-rhythm-spec-mirror.test.js:4` 写死比对对象是 `openspec/specs/openspec-integration/spec.md`，本刀只动 `quality-gate-execution-record` ⇒ **不联动**。归档前后各跑一次 `node --test scripts/quality-rhythm-spec-mirror.test.js`，两次都 8 passed / 0 failed。口径：**"要不要同步镜像"取决于归档落进哪个 capability，先读锁的比对目标再决定动不改**，不得把上一刀的条件当成长期规则照抄。
+- **既有失败不认领、也不误报"全绿"**：归档前后 `openspec validate --all --strict` 的失败集**逐字相同**（18 条，全是既有的 `ccg-convergence-exit` 一类）；Totals 从 `198 passed / 18 failed / 216 items` 变到 `197 / 18 / 215`，净少的 1 项正是本 change 离开 `changes` 域——这是预期形态，不是新增失败。
+- **Purpose 占位这条账这次不需要还**：`openspec archive` 只在**新建**主规格文件时写 `TBD - created by archiving …`；本刀目标文件本就存在（上一刀建的），当场 `grep TBD` 该文件 = 0 命中。上一刀的还账纪律保留，但不适用于"往已有规格追加需求"这一形态。
+- **顺手把勾账补齐**：上一刀的 `tasks.md` 有 38 条实现项从未勾（实现与用例都落了，只是没回头勾），本次逐条绑定"当场可重取的落点"（用例名 + 行号 / 判据读数 / 变异编号）后勾上，勾完 `[ ]` 残留 0；勾账是就地改行，脚本断言行数与 CR 数逐字不变。两处**有意不写成完成**：1.8 明确标"撤销，不实现"（`--unified=0` 与默认上下文在本判据上红集逐字相同，测不出差异的形态不许写成锁）；2.3 标"被实测否证并已改口径"（空差量是每个代码 PR 与每次 main push 的常态，判它未证实会让 CI 每个代码 PR 退 2）。
+- **保留项**：`.quality-gates.md` 与 `scripts/gate-record-debt-ledger.json` 不插块、不加键（`carrierDrift` 会拦），ledger 里 23 条历史欠账原样不动。执行记录 `openspec/records/archive-gate-record-closure-backfill.md` 按新形态写（状态列「由门禁推导」，无 `sync_*`）——归档类 PR 也是同一口径，收口由主干历史推导，不开回填。
+
+# [未发布] fix(collect): 采集内容为空时不再把空串发往改写引擎（缓存空壳 + 一键改写守卫，fix-collect-rewrite-empty-content）
+
+## 问题
+- 用户实测：百家号文章点「一键改写」，先提示「内容采集成功」，随后又弹「Python backend request failed (422)」。日志实证链：`POST /aggregation/collect-video` 422（无视频）→ 回落图文 → `collect-cache-hit`（提示采集成功）→ `POST /aggregation/rewrite` 422 → `collection.rewriteFailed`。
+- 根因：内容缓存命中返回空壳 `{success:true, title:'', content:''}`（`url-collector.js` cache_hit 分支），`collectAndRewrite` 把 `content || description || ''` 当改写入参 ⇒ 空串；旧后端 `RewriteRequest.content` 有 `min_length=1` ⇒ FastAPI 422。本地实测：同 payload 直打运行中后端稳定复现 422（`{"detail":[{"type":"string_too_short","loc":["body","content"],...}]}`）。
+
+## 改动
+- 改写漏斗 `rewriteViaEngine(content)` 入口判空（trim），空内容直接返回稳定错误码 `AGGREGATION_CONTENT_EMPTY`（复用既有码，zh/en 文案已存在），**不调用 aiRewrite**。四个调用点（视频转写 / stealth 自动改写 / 聚合回退 / 手动改写）共用同一漏斗，一处覆盖全路径。
+- 回归锁：`Collection.test.js` 新增「空正文改写守卫」4 例（空串 / 纯空白 / 缓存空壳一键改写 / 正常内容不误杀）；变异反证：禁用守卫 ⇒ 3 例当场红。
+- 不改缓存语义：`cache_hit` 空壳仍是既定的成功形态（修复面收敛在「空内容不得进改写」，不动缓存契约）。
+
+## 验证
+- `pnpm vitest run src/views/Collection.test.js` → 118 passed（含新增 4 例）。
+- 相邻回归：user-facing-error 29 + rewrite-lineage 11 + collected-content-guard 8 + llm-runtime-config 12 → 60 passed。
+- eslint 相关文件 exit 0。
+
 # [未发布] feat(shell): 主窗口新增全局「左侧菜单收起/展开」按钮并同步内嵌视图全宽重排（sidebar-collapse-toggle）
 
 - **功能**：顶部标签栏 `TabBar` 最左侧新增常驻按钮（内联 SVG 双 chevron 组成「<>」、`currentColor`、16px），点击在「展开 / 收起」间切换；按钮位于既有 36px 标签栏内、不新增行高，在可横向滚动的 `.tab-bar-tabs` 之前（不随标签滚动）。原生 `<button type="button">` + `aria-pressed`（true=已收起）+ 随状态变化的 `aria-label`/`title`；文案 zh/en 成对进 `apps/desktop/src/locales/tab-bar/{zh,en}.js`（「收起左侧菜单」/“Collapse sidebar”、“展开左侧菜单”/“Expand sidebar”），`.vue` 不硬编码中文。
@@ -32,6 +235,27 @@
 - **视觉基线影响（不声称视觉中性）**：按钮是全局可见 UI，`apps/desktop/tests/visual-testing/base-screenshots/` 中**含 TabBar 的基线**都会变化（最终变化清单以 CI `Gate 7b` 点名为准）；基线由 CI 同源渲染重建并逐张审核，禁止在本机用 `--update-baseline` 掩盖。
 - **非目标**：不做动画过渡（避免与原生 WebContentsView 边界不同步）、不做拖拽调宽、不做窄屏 68px 图标栏的第二种折叠形态、不做快捷键、不改 OAuth 内嵌视图（`oauth-manager.js:86` 既有实现不跟随侧栏宽度，登记为已知限制）。
 - **文档**：专项 PRD `01-docs/PRD-SIDEBAR-COLLAPSE-TOGGLE-2026-10-18.md`、OpenSpec change `openspec/changes/sidebar-collapse-toggle/`、执行记录 `openspec/records/sidebar-collapse-toggle.md`，并同步 `01-docs/PRD.md` F8、`01-docs/DESIGN.md`「全局壳层」、`01-docs/i18n-glossary.md` 术语与 `01-docs/learnings.md` 沉淀。
+# [未发布] fix(ops): config_hash 白名单内两个块自带 synced_at，导致「内容没变、指纹每次都变」（config-hash-purity）
+
+## 问题
+- 运营中心「生效看板」的已确认率长期上不去、未确认客户端明细里挂着一堆设备，`RuntimeConfigVersion` 表每次 bootstrap 都新增一行——而运营其实什么都没改。
+- 根因：`appMenu` 与 `contentCategories` 两个**都在** `config_hash` 白名单内的块，各自在下发载荷里带了 `synced_at: _now()`。顶层挡住 ≠ 块内干净：`compute_config_hash` 的注释第 1 条早就写着「synced_at 纳入则 hash 永远变」，但只约束了顶层，块内那两份没人管。
+- 实测（修复前，同库连构两次）：`config_hash` `f8a5b99df879ac71` → `dd3dfca7ccd2e587`，`config_version` 1 → 2，业务数据一个字节没改。
+
+## 修复
+- 两个 service 的下发载荷删除块内 `synced_at`：`appMenu` → `{items}`、`contentCategories` → `{items, count}`（`count` 是 `len(items)` 的纯函数，保留）。时间戳只留在 bootstrap 信封顶层——那里本来就不参与 hash。
+- 桌面端 `normalizeAppMenu(raw, fallbackSyncedAt)` 改从信封顶层取时间戳，同时**向后兼容**旧形态（块内若还带着就优先用它），保证新旧服务端混跑期间时间戳不会突然变空。
+- `config_fingerprint.compute_config_hash` 的约束从 3 条扩到 **4 条**，新增「白名单内每个块的载荷本身也不得含每请求变化的字段」，并点名这次事故的文件与行号。
+- `test_app_menu_api.py` 里那条 `assert isinstance(app_menu.get("synced_at"), str)`（**把缺陷当期望行为**）改为反向断言。
+
+## 回归保护
+- 新增 `ops-center/backend/tests/test_config_hash_stability.py`：判据刻意不枚举字段名，而是断言不变量「同库连构两次 bootstrap，`config_hash` 与 `config_version` 逐字相等」；外加静态锁「白名单内任何对象形态块都不得含 `synced_at` 键」。**变异反证实测**：注回缺陷当场红（`6f384242bb0386f9 != c3f0a53f660d6043`），还原后全绿。
+- 桌面端 `ops-runtime-snapshot.test.js` 新增 4 条：真实种子无 `synced_at` / 掺入即改变 hash / 顶层变化不改变 hash / `updated_at` 等内容属性字段**必须**改变 hash（防止后人把判据写宽，把「内容变更升版」这条正确语义一起判死——这条是实测踩出来的，初版判据就被 `content_policy.updated_at` 当场判红）。
+
+## 影响面
+- 不损坏任何配置内容，菜单/类别/文案照常渲染；修的是整条「配置生效链路」的观测面。
+- 无 schema 变更、无数据迁移、无新增 UI、无新增提示文字。
+- 文档：`01-docs/BUGFIX-CONFIG-HASH-SYNCED-AT-2026-10-18.md`（含根因溯源、逃逸分析、方案对比、数据校验表、流程、边界 9 条、验收 7 条、风险 5 条）。
 
 # [未发布] fix(collect): 百家号采集不再把「百度安全验证」页当正文，采集页改写改走桌面模型设置（fix-collect-antibot-rewrite）
 
@@ -22248,4 +22472,3 @@ Desktop Shards + Coverage 门禁（实测 3 项重型 job 跑 15+ 分钟未完�
 （mock 契约问题，非修复问题）。入库一个红的测试比没有测试更糟，故本次不提交。
 
 ---
-

@@ -109,6 +109,24 @@ const WORD_ORACLE_MAX_TOKEN_LENGTH = subtitleRules.word_split.oracle_max_token_l
 // v1.2.3：成词保护（兼容字段名 no_cut_bigrams）——项目可以是任意长度短语，
 // 切点不得落在任一短语内部（如 "蒙古"、"江南"、"包税人"）。
 const WORD_NO_CUT_PHRASES = new Set(subtitleRules.word_split.no_cut_bigrams || [])
+// v1.3 短语边界：显式成对短语表（phrase_boundary.pairs）。
+// 块以某短语结尾、且紧随其后的字符命中该短语登记的后续首字时，构成短语右边界。
+// 用成对登记而非单侧字符集，避免把 "某|些"、"票仓的|无奈" 这类假边界放进来。
+const PHRASE_BOUNDARY_PAIRS = subtitleRules.word_split.phrase_boundary?.pairs || []
+// v1.3：短语边界路径允许头块放宽到 min_chars - relax（与既有 tailMin 软约束对齐）。
+const PHRASE_BOUNDARY_MIN_HEAD_RELAX = subtitleRules.word_split.phrase_boundary?.min_head_relax ?? 0
+
+/** v1.3 短语边界判定：切点落在某显式短语对的右端，且下一字符命中登记的后续首字。 */
+function isPhraseBoundary (text, i) {
+  if (i <= 0 || i >= text.length) return false
+  for (const [left, next] of PHRASE_BOUNDARY_PAIRS) {
+    if (i < left.length) continue
+    if (text.slice(i - left.length, i) !== left) continue
+    if (next && !next.includes(text[i])) continue
+    return true
+  }
+  return false
+}
 
 const CJK_TOKEN = /^[\u3400-\u4dbf\u4e00-\u9fff]{2,}$/u
 const SEGMENTER_CACHE_LIMIT = 256
@@ -727,6 +745,8 @@ function isGoodCut (text, i) {
   if (!isSafeCutPosition(text, i)) return false
   if (isSemanticLeadAt(text, i)) return true
   if (WORD_GOOD_LEAD.has(text[i])) return true
+  // v1.3：短语右边界（显式成对短语表命中）。
+  if (isPhraseBoundary(text, i)) return true
   // v1.2.2：块尾收束路径额外要求切点后首字符非强黏着后缀（good_tail_blockers），
   // 避免 "…保持个|性独立" 类劈词（"个" 入 good_tail 后 "个性" 被拆）。
   return i > 0 && WORD_GOOD_TAIL.has(text[i - 1])
@@ -818,6 +838,12 @@ function subtitleLengthSplit (text, config) {
     // v1.2.3：数字中的小数点（如 713.3）不是切分标点
     if (isPunct && cur.length >= config.minCharsPerBlock
       && !(ch === '.' && isDecimalPointAt(text, sourceIndex))) {
+      blocks.push(cur)
+      cur = ''
+      lastHardCut = false
+    } else if (stack.length === 0 && isPhraseBoundary(text, sourceIndex + 1)
+      && cur.length >= Math.max(1, config.minCharsPerBlock - PHRASE_BOUNDARY_MIN_HEAD_RELAX)) {
+      // v1.3 短语边界与优先级标点等价：累积阶段即兑现切分，不等 MAX 分支的裸切兜底。
       blocks.push(cur)
       cur = ''
       lastHardCut = false

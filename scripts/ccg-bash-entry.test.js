@@ -254,6 +254,13 @@ test("记录只按父提交 sha 命名时，deep-review.sh 必须回退命中而
     // 隔离仓库：复制被测脚本。脚本以自身位置推 ROOT ⇒ ROOT = 夹具目录，不碰真仓库。
     fs.mkdirSync(path.join(root, "scripts"), { recursive: true })
     fs.copyFileSync(DEEP_REVIEW, path.join(root, "scripts", "deep-review.sh"))
+    // 入口现在 source 兄弟依赖 scripts/lib/ccg-backends.sh；夹具物化入口时必须一起物化，
+    // 否则拿到的是 resolve_review_backends: command not found —— 那是夹具缺文件，不是入口坏。
+    fs.mkdirSync(path.join(root, "scripts", "lib"), { recursive: true })
+    fs.copyFileSync(
+      path.join(ROOT, "scripts", "lib", "ccg-backends.sh"),
+      path.join(root, "scripts", "lib", "ccg-backends.sh")
+    )
 
     const g = (...args) =>
       spawnSync("git", args, { cwd: root, encoding: "utf8", env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1" } })

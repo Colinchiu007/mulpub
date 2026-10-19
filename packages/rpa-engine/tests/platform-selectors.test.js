@@ -160,9 +160,23 @@ describe('PLATFORM_PUBLISH_SELECTORS', () => {
   })
 
   // —— 无多余平台 ——
+  // 2026-10-18 video-publish-4：允许 `<platform>_video` 形态的键（按内容类型选选择器，
+  // 见 src/publish-selectors-by-content-type.js）。这类键必须满足：
+  //   ① 去掉 `_video` 后缀后是已知平台（不得凭空造平台）；
+  //   ② 至少登记 file_input（否则视频上传整段被跳过，即 6 平台归因里头条真因）。
   test('无多余平台', () => {
     const keys = Object.keys(PLATFORM_PUBLISH_SELECTORS)
     for (const key of keys) {
+      // 先按原判据走：已知平台键直接通过（`tencent_video` 自身以 _video 结尾，
+      // 但它是平台名而非「视频选择器键」，必须先过这一条）
+      if (EXPECTED.includes(key)) continue
+      if (key.endsWith('_video')) {
+        const base = key.slice(0, -'_video'.length)
+        expect(EXPECTED, '视频选择器键 ' + key + ' 的基座不是已知平台').toContain(base)
+        const v = PLATFORM_PUBLISH_SELECTORS[key]
+        expect((v.file_input || []).length, key + ' 缺 file_input').toBeGreaterThan(0)
+        continue
+      }
       expect(EXPECTED).toContain(key)
     }
   })

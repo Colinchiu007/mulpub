@@ -72,16 +72,13 @@ function normalizeProviderModels (providerId, models) {
 }
 
 /**
- * 解析 provider 实际使用的默认模型 ID（2026-08-27 双默认语义：运营预设 + 用户选择）。
- * 优先级：
- *   1. config.user_default_model（桌面端用户下拉选择，用户级，最高优先）
- *   2. config.default_model（运营中心预设默认模型 ID，目录同步下发）
- *   3. capability_models[type]（多模态按能力路由，显示声明即使不在 models 也有效）
- *   4. 单能力 provider 回退 models[0]；多模态 provider 无能力声明不猜测（返回 ''，调用方 fail-closed）
- * 用户/运营默认值不在 models 中视为失效并回退（fail-closed，不报错不污染配置）。
+ * 解析 provider 实际使用的默认模型 ID（2026-08-27 双默认语义；2026-10-18 修订优先级）。
+ * ① config.user_default_model（∈models 才生效）② capability_models[type]（声明即有效，须先于 ③：
+ * minimax-multimodal 的 default_model 是 LLM 模型，旧序会让 tts/image/video 全解析成它）
+ * ③ config.default_model（∈models 才生效；多模态除 llm 外跳过）④ 单能力 models[0]；多模态无声明 ''。
+ * 前端 resolveVoiceModelForProvider 逐项等价，由 voice-model-resolution-parity.test.js 锁定。详见 PRD。
  * @param {{ models?: unknown, config?: object|null, capability_models?: object|null, category?: string }} provider
- * @param {string} [type] 能力类型：llm/tts/speech_recognition/image/video/audio
- * @returns {string}
+ * @param {string} [type] 能力类型：llm/tts/speech_recognition/image/video/audio；返回模型 ID 或 ''。
  */
 function resolveProviderDefaultModel (provider, type) {
   if (!provider || typeof provider !== 'object') return ''
@@ -92,13 +89,16 @@ function resolveProviderDefaultModel (provider, type) {
   // 1. 用户默认（桌面端「默认模型」下拉选择）
   const userDefault = typeof config.user_default_model === 'string' ? config.user_default_model.trim() : ''
   if (userDefault && models.includes(userDefault)) return userDefault
-  // 2. 运营中心预设默认（目录同步下发）
-  const opsDefault = typeof config.default_model === 'string' ? config.default_model.trim() : ''
-  if (opsDefault && models.includes(opsDefault)) return opsDefault
-  // 3. 多模态能力路由（显示声明，不校验 ∈ models）
+  // 2. 能力路由（声明即有效，不校验 ∈ models）—— 必须先于 provider 级默认
   if (type && provider.capability_models && typeof provider.capability_models === 'object') {
     const byCapability = provider.capability_models[type]
     if (typeof byCapability === 'string' && byCapability.trim()) return byCapability.trim()
+  }
+  // 3. 运营 provider 级默认：多模态除 llm 外跳过（该字段对多模态是主模型，通常是 llm）
+  const skipOpsDefault = provider.category === 'multimodal' && type && type !== 'llm'
+  if (!skipOpsDefault) {
+    const opsDefault = typeof config.default_model === 'string' ? config.default_model.trim() : ''
+    if (opsDefault && models.includes(opsDefault)) return opsDefault
   }
   // 4. 兜底：多模态不猜测（models[0] 可能是 TTS/图片模型），单能力取首模型
   if (provider.category === 'multimodal') return ''

@@ -202,10 +202,20 @@ function evaluatePublishPreconditions (input) {
  */
 async function assertReady (p) {
   const input = p || {}
+  // i1/i3（CCG 自扮演裁决）：取证旁路失败必须**可见**。旧实现 `catch(_) {}` 静默吞掉，
+  // 于是「取证通道断了」与「本平台不需要取证」在生产上完全同形 —— 前者会让审计契约失效
+  // 而无人知晓。现在至少出声（logger.warn），且只在显式开启取证时才报（关闭时本就无输出）。
   try {
     const domDump = require('./rpa-dom-dump')
-    await domDump.dumpDom(input.win, input.platform, 'prepublish', { logger: input.logger })
-  } catch (_) { /* 取证失败不阻塞判定 */ }
+    const rec = await domDump.dumpDom(input.win, input.platform, 'prepublish', { logger: input.logger })
+    if (rec === null && input.logger && typeof input.logger.warn === 'function') {
+      input.logger.warn('RpaView', '[' + input.platform + '] dom-dump 取证无结果（模块加载失败或采集异常）；门禁判定继续，但本次缺页面形状证据')
+    }
+  } catch (e) {
+    if (input.logger && typeof input.logger.warn === 'function') {
+      input.logger.warn('RpaView', '[' + input.platform + '] dom-dump 取证旁路异常（不影响发布判定）: ' + String(e && e.message ? e.message : e).slice(0, 160))
+    }
+  }
   const gate = evaluatePublishPreconditions({
     platform: input.platform,
     article: input.article,

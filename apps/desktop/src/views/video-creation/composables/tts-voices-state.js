@@ -57,25 +57,82 @@ export function requireDeps() {
 export function getS2VVoiceProvider(providerId) {
   const d = requireDeps()
   if (providerId === undefined) providerId = d.getS2vConfig().voiceProvider
-  return state.s2vVoiceProviders.find(provider => provider?.id === providerId) || null
+  // trim 归一：getS2VVoiceContext 用 trim 后的 id 查 provider，而并发守卫
+  // （isCurrentS2VVoice*Request）比对的是 s2vVoiceContextModel —— 若两侧 trim 口径不同，
+  // 带首尾空白的存量 voiceProvider 会让 expectedModel 恒不等于 context.model，
+  // 请求结果被静默丢弃（跨家族评审 m2）。统一在此处 trim，两侧自然一致。
+  const normalized = typeof providerId === 'string' ? providerId.trim() : ''
+  return state.s2vVoiceProviders.find(provider => provider?.id === normalized) || null
+}
+
+/**
+ * 能力级默认模型的单一真源解析口径（voice-model-program-resolved，2026-10-18）。
+ *
+ * 与主进程 `resolveProviderDefaultModel(provider, type)` **逐项等价**，由
+ * `electron/services/voice-model-resolution-parity.test.js` 做跨层一致性锁
+ * （语音域 type='tts'）。渲染层不能 require 主进程模块，故在此维护等价实现；
+ * 改任一层都必须同步另一层。
+ *
+ * 四级优先级（2026-10-18 修订：能力级默认必须**先于** provider 级默认）：
+ *   1. config.user_default_model（桌面端「模型设置」用户选择，∈ models 才生效）
+ *   2. capability_models[type]（运营中心按能力类别配置的默许模型，声明即有效）
+ *   3. config.default_model（运营 provider 级默认，∈ models 才生效；**多模态跳过**）
+ *   4. 兜底：多模态 fail-closed 返回 ''（models[0] 可能是别的能力模型，禁止猜）；
+ *      单能力返回 models[0] || ''。
+ *
+ * 为什么第 2 步必须早于第 3 步（2026-10-18 跨家族评审 C1 实证）：
+ *   `minimax-multimodal` 的目录下发同时含 `default_model='MiniMax-M2.7'`（∈models，llm 模型）
+ *   与 `capability_models={llm:MiniMax-M2.7, tts:speech-2.8-turbo, image:image-01, video:…}`。
+ *   旧顺序（provider 级默认优先）会让 tts/image/video 全部解析成 **LLM 模型**。
+ *
+ * 注意：本函数**不认识** MiMo 的 tts/voiceclone 双模型特例——那是能力 driven 的分支
+ * （预置音色 → mimo-v2.5-tts，克隆 → mimo-v2.5-tts-voiceclone），由 tts-voices-shared
+ * 的 getS2VVoiceContext / getS2VVoiceCloneContext 分支处理，与本口径正交。
+ *
+ * @param {object|null|undefined} provider listProviders 返回的 provider 行
+ * @param {string} type 能力类型：tts / image / video / llm / speech_recognition / audio
+ * @returns {string}
+ */
+export function resolveCapabilityDefaultModel (provider, type) {
+  if (!provider || typeof provider !== 'object') return ''
+  const models = Array.isArray(provider.models)
+    ? provider.models.filter(model => typeof model === 'string' && model.trim()).map(model => model.trim())
+    : []
+  const config = provider.config && typeof provider.config === 'object' ? provider.config : {}
+  // 1. 用户默认（桌面端「模型设置」用户选择）
+  const userDefault = typeof config.user_default_model === 'string' ? config.user_default_model.trim() : ''
+  if (userDefault && models.includes(userDefault)) return userDefault
+  // 2. 运营默许模型（能力类别默认，声明即有效，不校验 ∈ models）—— 必须先于 provider 级默认
+  if (type && provider.capability_models && typeof provider.capability_models === 'object') {
+    const byCapability = provider.capability_models[type]
+    if (typeof byCapability === 'string' && byCapability.trim()) return byCapability.trim()
+  }
+  // 3. 运营 provider 级默认（兼容存量字段）。多模态**除 llm 外**跳过：该字段对多模态是
+  //    provider 的「主模型」（通常是 llm），拿它解 tts/image/video 会静默取错模型；
+  //    但解 llm 时它正是正确来源。
+  const skipOpsDefault = provider.category === 'multimodal' && type && type !== 'llm'
+  if (!skipOpsDefault) {
+    const opsDefault = typeof config.default_model === 'string' ? config.default_model.trim() : ''
+    if (opsDefault && models.includes(opsDefault)) return opsDefault
+  }
+  // 4. 兜底：多模态不猜测（fail-closed），单能力取首模型
+  if (provider.category === 'multimodal') return ''
+  return models[0] || ''
+}
+
+/** 语音域薄封装：type 固定 'tts'（跨层一致性锁按本函数签名取证） */
+export function resolveVoiceModelForProvider (provider) {
+  return resolveCapabilityDefaultModel(provider, 'tts')
 }
 
 export function getS2VDefaultVoiceModel(providerId) {
   const d = requireDeps()
   if (providerId === undefined) providerId = d.getS2vConfig().voiceProvider
   const provider = getS2VVoiceProvider(providerId)
-  const models = Array.isArray(provider?.models)
-    ? provider.models.filter(model => typeof model === 'string' && model)
-    : []
-  // MiMo TTS：语音模型下拉隐藏，voiceModel 置空（模型由「语音/音色 ID」区分）
+  // MiMo TTS：模型由「语音/音色 ID」区分（预置→tts，克隆→voiceclone），
+  // 解析结果置空，实际模型由 getS2VVoiceContext / getS2VVoiceCloneContext 分支决定。
   if (provider?.id === 'mimo-tts') return ''
-  // 多模态：默认取 capability_models.tts（能力默认模型），models 首项可能是 image/video/llm 模型。
-  if (provider?.category === 'multimodal' && provider.capability_models && typeof provider.capability_models.tts === 'string') {
-    const ttsModel = provider.capability_models.tts
-    return models.includes(ttsModel) ? ttsModel : (ttsModel || models[0] || '')
-  }
-  const configuredDefault = typeof provider?.defaultModel === 'string' ? provider.defaultModel : ''
-  return models.includes(configuredDefault) ? configuredDefault : (models[0] || '')
+  return resolveVoiceModelForProvider(provider)
 }
 
 // ── 计算属性（壳以只读 computed 转发到模板；模块内以 .value 读取）──────
@@ -96,24 +153,11 @@ export const s2vVoiceCatalogRefreshable = computed(() => {
   return code === '' || code === 'VOICE_CATALOG_UNAVAILABLE'
 })
 
-export const s2vVoiceModelOptions = computed(() => {
-  const d = requireDeps()
-  const provider = state.s2vVoiceProviders.find(item => item?.id === d.getS2vConfig().voiceProvider)
-  if (!provider) return []
-  const models = Array.isArray(provider.models) ? provider.models : []
-  const strings = models.filter(model => typeof model === 'string' && model)
-  // MiMo TTS：语音模型下拉隐藏（模型由「语音/音色 ID」区分：预置→mimo-v2.5-tts，克隆→mimo-v2.5-tts-voiceclone）
-  if (provider.id === 'mimo-tts') return []
-  // 多模态：只展示声明支持 TTS 的默认模型（capability_models.tts），
-  // 避免把 image/video/llm 模型混入「语音模型」下拉。
-  if (provider.category === 'multimodal' && provider.capability_models && typeof provider.capability_models.tts === 'string') {
-    const ttsModel = provider.capability_models.tts
-    return strings.includes(ttsModel) ? [ttsModel] : [ttsModel, ...strings]
-  }
-  return strings
-})
+// 注：原 `s2vVoiceModelOptions` computed 已随「语音模型」下拉一并移除
+// （voice-model-program-resolved，2026-10-18）——它只服务下拉候选渲染与旧的选择归一，
+// 两处消费方都不再存在；模型解析统一走 resolveVoiceModelForProvider。
 
-// MiMo TTS 的「语音模型」下拉隐藏：mimo-v2.5-tts 与 mimo-v2.5-tts-voiceclone
+// MiMo TTS 的模型分支标记：mimo-v2.5-tts 与 mimo-v2.5-tts-voiceclone
 // 由「语音 / 音色 ID」下拉区分（预置音色 → tts，克隆音色 → voiceclone）。
 export const s2vVoiceModelHidden = computed(() => {
   const d = requireDeps()
@@ -121,12 +165,15 @@ export const s2vVoiceModelHidden = computed(() => {
   return Boolean(provider && provider.id === 'mimo-tts')
 })
 
-// MiMo TTS 下 catalog 请求使用的模型：预置音色目录用 mimo-v2.5-tts
-// （克隆音色由 tts-voice-clone-service 单独按 provider:model 管理）。
+// 当前语音上下文使用的模型：MiMo TTS 走预置音色模型 mimo-v2.5-tts（克隆音色由
+// tts-voice-clone-service 单独按 provider:model 管理）；其它 provider 按运营默许模型解析
+// （voice-model-program-resolved：不再读用户可编辑的 s2vConfig.voiceModel）。
+// deps 语义与原实现一致：未注入即抛错（fail-closed），由壳负责 setupTtsVoicesDeps。
 export const s2vVoiceContextModel = computed(() => {
   const d = requireDeps()
-  if (s2vVoiceModelHidden.value) return 'mimo-v2.5-tts'
-  return typeof d.getS2vConfig().voiceModel === 'string' ? d.getS2vConfig().voiceModel.trim() : ''
+  const provider = getS2VVoiceProvider()
+  if (provider && provider.id === 'mimo-tts') return 'mimo-v2.5-tts'
+  return resolveVoiceModelForProvider(provider)
 })
 
 export const s2vVoiceOptions = computed(() => {
@@ -142,7 +189,6 @@ export const s2vVoiceOptions = computed(() => {
 export const ttsVoicesComputeds = {
   s2vVoiceProviderOptions,
   s2vVoiceCatalogRefreshable,
-  s2vVoiceModelOptions,
   s2vVoiceModelHidden,
   s2vVoiceContextModel,
   s2vVoiceOptions,

@@ -1,10 +1,19 @@
 // 头条号适配器 — 基于参考产品逆向分析
-const { BasePlatformAdapter } = require("../base-adapter");
+//
+// 2026-10-18（toutiao-video-api）：新增**视频 API 轨**。
+// 此前本适配器只有图文（`/api/article/publish`），`uploadVideo` 是返回 null 的空壳，
+// 导致头条视频任务只能走 DOM 轨。本轮按实网抓包（见 platforms/toutiao-video.js 头注释）
+// 补齐视频链，并在此按内容类型分流：**有 video.path 走视频链，否则走原图文路径**。
+const { BasePlatformAdapter, HttpConfig } = require("../base-adapter");
 const { upload } = require("../../upload/orchestrator");
+const { errorCode } = require("../error-codes");
+const { ToutiaoVideoChain } = require("../publish/platforms/toutiao-video");
 // 话题内联描述（publish-topic-inline-description）：头条是独立字段型平台——
 // 话题从描述剥离进 tags 字段，剥离用 content-formatter 单一实现
 // 正文承载形态：写 content 字段前必须过 formatArticleBody（单一实现）
 const { stripTopicsFromContent, formatArticleBody } = require("../content-formatter");
+
+const UA = HttpConfig.userAgent;
 
 class ToutiaoAdapter extends BasePlatformAdapter {
   constructor() {
@@ -15,12 +24,47 @@ class ToutiaoAdapter extends BasePlatformAdapter {
   getOrigin() { return "https://mp.toutiao.com"; }
 
   async uploadVideo(td, cookie) {
-    const r = await upload({ ...td, platform: "toutiao" }, cookie);
-    return r?.video || null;
+    // 视频上传由 _videoChain().run() 内部编排（getAuthKey → apply → 分片 → commit），
+    // 不走 granular 入口；此处保留契约形状（空任务返回 null、零请求）。
+    if (!td || !td.video || !td.video.path) return null;
+    return null;
   }
   async uploadCover(td, cookie) {
     const r = await upload({ ...td, platform: "toutiao" }, cookie);
     return r?.cover || null;
+  }
+
+  /** 构造视频链；测试可注入 _videoChainOverride（假链）或 clients 覆盖 base，零外发。 */
+  _videoChain(cookie, clients) {
+    if (this._videoChainOverride) return this._videoChainOverride;
+    return new ToutiaoVideoChain(Object.assign({ cookie, userAgent: this._ua || UA }, clients || {}));
+  }
+
+  /**
+   * 按内容类型分流。
+   * - 有 `video.path` ⇒ 视频 API 轨（单体 run，内部编排五步）
+   * - 否则 ⇒ 原有图文路径（super.execute → uploadVideo(null) → publish('/api/article/publish')）
+   */
+  async execute(taskData, cookie, opts) {
+    opts = opts || {};
+    if (opts.dryRun) return { success: true, dryRun: true, platform: "toutiao" };
+    const td = taskData || {};
+    const hasVideo = Boolean(td.video && td.video.path);
+    if (!hasVideo) return super.execute(taskData, cookie, opts);
+    if (!cookie) {
+      return { success: false, platform: "toutiao", code: errorCode.data_error, error: "toutiao: 账号信息缺失，请重新授权此账号再试" };
+    }
+    try {
+      const chain = this._videoChain(cookie, opts.clients);
+      return await chain.run(td, { onProgress: opts.onProgress, draft: opts.draft });
+    } catch (e) {
+      return {
+        success: false,
+        platform: "toutiao",
+        code: e && e.code,
+        error: (e && e.message) || "toutiao: 视频发布失败",
+      };
+    }
   }
 
   buildPostData(taskData) {
