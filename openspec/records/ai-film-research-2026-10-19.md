@@ -66,3 +66,7 @@ date: 2026-10-19
 ### 第四层收束（v5，follow-up）
 
 新增 §3.22：F×七档覆盖映射（F15/F6b+F31/F3b-palette 提级进批次一，连续性覆盖 1/7→4/7）、三个新 F/修订（F3b-palette 色盘资产、F1 增补失败模式台账与分端配方、F34 durationMs 字段+来源优先级链）、依赖重排四处（F8 为咽喉）、三层演变总账（七次自我修正同模式：外部判断被内部实测推翻）。报告 2001 → 2091 行。
+
+### 第五层新视角（v6，follow-up）
+
+新增 §3.23 三视角：①成本经济学（waoowaoo 19 条 BA 不变量——BA-01 双轨事故直接命中 publish-capabilities 双版本形态；BA-08 attempt 与收费分离回答 F12 遗留；moyin SEEDANCE_LIMITS 常量结构；showvi 即梦逆向 API 能力矩阵）②失败哲学（FG-01~05 证据保全派 vs fail-soft/fail-closed/静默吞掉四形态；FG-03 为 F19 提供规范依据）③prompt 演化（waoowaoo canary 基线在开源仓无消费代码——执行器在闭源 EE；mulpub 建议最小 canary：每条 rule 的本地渲染断言，无需调 LLM 零成本；失败模式台账+canary 成闭环）。报告 2091 → 2189 行。
