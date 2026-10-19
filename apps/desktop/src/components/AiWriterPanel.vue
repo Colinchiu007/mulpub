@@ -164,7 +164,7 @@
         </div>
         <div class="cohere-form-item">
           <label class="cohere-form-label">输入文案</label>
-          <textarea class="cohere-input" v-model="rewriteContent" rows="4" placeholder="输入需要改写的文案内容（最多 50000 字）"></textarea>
+          <textarea class="cohere-input" v-model="rewriteContent" rows="4" :placeholder="t('rewritePage.inputPlaceholder')"></textarea>
         </div>
         <div class="cohere-form-item">
           <button class="cohere-btn-primary" @click="doRewrite" :disabled="rewriting || !rewriteContent.trim()">
