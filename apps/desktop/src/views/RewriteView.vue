@@ -427,6 +427,9 @@ const REWRITE_PAGE_PLATFORMS = ['douyin', 'xiaohongshu', 'wechat_mp', 'bilibili'
 function consumeLibraryHandoff () {
   const handoff = takeRewriteHandoff()
   if (!handoff || typeof handoff.content !== 'string' || !handoff.content.trim()) return
+  // 交接是显式入口，mode 由本函数确定 ⇒ 必须置「已手动」，
+  // 否则 startRewrite 的按输入形态推导会把它覆盖掉（实测把 imitate 改成 create）。
+  modeManuallySet = true
   rewriteMode.value = 'imitate'
   content.value = handoff.content
   if (REWRITE_PAGE_PLATFORMS.includes(handoff.platform)) platform.value = handoff.platform
@@ -565,9 +568,12 @@ async function refreshStrategyPreview() {
   }
 }
 
-// 目标平台变化 → 预览随新 userSettings 刷新（refreshStrategyPreview 内含竞态守卫）
-// rewrite-default-strategy-fix：行业/目的/语气同样参与匹配，变化也需刷新预览
-watch([platform, industry, purpose, tone], refreshStrategyPreview)
+// 目标平台/行业/目的/语气变化 → 预览随新 userSettings 刷新（refreshStrategyPreview 内含竞态守卫）
+// rewrite-default-strategy-fix：行业/目的/语气同样参与匹配，变化也需刷新预览。
+// ⚠ content 必须一起监听（CCG 深度审查 i3）：启发式兜底依赖原文形态，
+//   只监听设置项会导致「粘贴长文但没动下拉」时预览名不刷新，
+//   而实际改写会用新的 content 重新匹配 ⇒ 预览名与实际命中策略漂移。
+watch([platform, industry, purpose, tone, content], refreshStrategyPreview)
 
 // 改写结果被用户编辑（textarea v-model）→ 已存草稿内容过期：置空 id，下次操作按当前内容重存
 // （saveToDraft 成功后 savedDraftId 更新，此处仅在内容再次变化时失效，不构成循环）
@@ -608,6 +614,8 @@ onMounted(() => {
   }
   const topic = typeof route.query.topic === 'string' ? route.query.topic.trim() : ''
   if (topic) {
+    // 选题带入是显式入口，mode 由本分支确定 ⇒ 置「已手动」，防止被形态推导覆盖
+    modeManuallySet = true
     rewriteMode.value = 'create'
     // 选题带入：不再有 ≥20 字符限制（2026-09-12 移除最少字数）
     content.value = topic

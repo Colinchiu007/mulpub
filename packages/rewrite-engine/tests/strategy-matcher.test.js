@@ -181,6 +181,89 @@ describe("StrategyMatcher — 无有效信号兜底", function() {
     expect(byPreferred._isNoSignalGroup()).toBe(false)
   })
 
+  // CCG 深度审查 i1（Critical）回归锁：第三级 id 字典序破平**只在无信号组启用**。
+  // 缺陷形态：若对所有并列一律按 id 排序，platform=wechat_mp 下五策略并列 44 分
+  // ⇒ 'strategy-douyin-viral' 的 d 在 k/v/x 之前 ⇒ 恒选抖音爆款策略给公众号长文。
+  // 那是用「确定性」换掉「正确性」，比修复前的数组首项更荒谬。
+  test("i1：有信号组的并列不得用 id 字典序破平（wechat_mp 不得选到抖音策略）", function() {
+    var matcher = new StrategyMatcher({
+      userSettings: { platform: "wechat_mp" },
+      userHistory: {},
+      topN: 5,
+    })
+    var ranked = matcher.rank(BUILTIN_STRATEGIES.slice())
+    var scores = ranked.map(function(s) { return s.score })
+    // 前提：确实是并列形态（否则本用例不构成对破平的检验）
+    expect(new Set(scores).size).toBeLessThan(scores.length)
+    expect(ranked[0].id).not.toBe("strategy-douyin-viral")
+  })
+
+  test("i1：无信号组仍用 id 字典序保证确定性（不依赖数组顺序）", function() {
+    var forward = new StrategyMatcher({ userSettings: {}, userHistory: {}, topN: 5 })
+      .rank(BUILTIN_STRATEGIES.slice())
+    var reversed = new StrategyMatcher({ userSettings: {}, userHistory: {}, topN: 5 })
+      .rank(BUILTIN_STRATEGIES.slice().reverse())
+    // 入参顺序颠倒，第一名必须不变 —— 这是「不依赖数组顺序」的硬保证
+    expect(reversed[0].id).toBe(forward[0].id)
+  })
+
+  // 平台专精度（i1 修复后自评发现）：内置策略平台声明高度重叠 ——
+  // storytelling / ecommerce / douyin-viral 都声明支持 douyin，同为 44 分且 hits 同为 1。
+  // 只靠 score+hits 分不开，必须让「只声明该平台」的专精策略胜出。
+  test("平台专精度：点名 douyin 应选 douyin-viral 而非通用策略", function() {
+    var m = new StrategyMatcher({ userSettings: { platform: "douyin" }, userHistory: {}, topN: 5 })
+    var ranked = m.rank(BUILTIN_STRATEGIES.slice())
+    expect(ranked[0].id).toBe("strategy-douyin-viral")
+  })
+
+  test("平台专精度：点名 xiaohongshu 应选种草策略", function() {
+    var m = new StrategyMatcher({ userSettings: { platform: "xiaohongshu" }, userHistory: {}, topN: 5 })
+    var ranked = m.rank(BUILTIN_STRATEGIES.slice())
+    expect(ranked[0].id).toBe("strategy-xiaohongshu-种草")
+  })
+
+  test("平台专精度：无平台信号时该项为 0，不干扰其它场景", function() {
+    var m = new StrategyMatcher({ userSettings: { industry: "technology" }, userHistory: {}, topN: 5 })
+    expect(m._specificity({ platforms: ["douyin"] })).toBe(0)
+    var ranked = m.rank(BUILTIN_STRATEGIES.slice())
+    expect(ranked[0].id).toBe("strategy-knowledge-dry")
+  })
+
+  test("平台专精度：不支持该平台时为 0", function() {
+    var m = new StrategyMatcher({ userSettings: { platform: "zhihu" }, userHistory: {}, topN: 5 })
+    expect(m._specificity({ platforms: ["douyin"] })).toBe(0)
+    expect(m._specificity({ platforms: ["zhihu"] })).toBeGreaterThan(0)
+  })
+
+  // CCG 深度审查 i4：保真兜底策略 id 不得与具体 id 硬耦合在算法内部 ——
+  // ops 可运营数据（策略 id/顺序）变化会静默改变默认选中。现可注入，此处锁住可配置性。
+  test("i4：保真兜底策略 id 可注入（不写死在算法内部）", function() {
+    var m = new StrategyMatcher({
+      userSettings: {},
+      userHistory: {},
+      topN: 5,
+      content: TECH_LONG_FORM,
+      fidelityStrategyIds: ["strategy-ecommerce-convert"],
+    })
+    expect(m._heuristicScore({ id: "strategy-ecommerce-convert" })).toBe(1)
+    expect(m._heuristicScore({ id: "strategy-knowledge-dry" })).toBe(0)
+    var ranked = m.rank(BUILTIN_STRATEGIES.slice())
+    expect(ranked[0].id).toBe("strategy-ecommerce-convert")
+  })
+
+  test("i4：未注入时回退默认保真策略（历史行为不变）", function() {
+    var m = new StrategyMatcher({ userSettings: {}, userHistory: {}, topN: 5, content: TECH_LONG_FORM })
+    var ranked = m.rank(BUILTIN_STRATEGIES.slice())
+    expect(ranked[0].id).toBe("strategy-knowledge-dry")
+  })
+
+  test("i4：非法注入（空数组/非数组）回退默认，不抛错", function() {
+    var a = new StrategyMatcher({ userSettings: {}, userHistory: {}, topN: 5, content: TECH_LONG_FORM, fidelityStrategyIds: [] })
+    expect(a.rank(BUILTIN_STRATEGIES.slice())[0].id).toBe("strategy-knowledge-dry")
+    var b = new StrategyMatcher({ userSettings: {}, userHistory: {}, topN: 5, content: TECH_LONG_FORM, fidelityStrategyIds: "nope" })
+    expect(b.rank(BUILTIN_STRATEGIES.slice())[0].id).toBe("strategy-knowledge-dry")
+  })
+
   test("R1：全空输入确实属于无信号组，且启发式生效", function() {
     var m = new StrategyMatcher({
       userSettings: {},

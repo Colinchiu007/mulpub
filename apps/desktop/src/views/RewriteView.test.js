@@ -184,6 +184,25 @@ describe('RewriteView', () => {
 
   // ── 字数区间控制（2026-09-12）──
 
+  // CCG 深度审查 i3：预览 watch 必须包含 content。
+  // 缺陷形态：启发式兜底依赖原文形态，只监听设置项 ⇒ 「粘贴长文但没动下拉」时
+  // 预览名不刷新，而实际改写会用新 content 重新匹配 ⇒ 预览与实际命中策略漂移。
+  it('i3：粘贴长文后预览请求刷新并携带 content（预览与实改一致）', async () => {
+    const { aiGetRecommendedStrategies } = await import('@/api/publisher')
+    aiGetRecommendedStrategies.mockClear()
+    const wrapper = factory()
+    await nextTick()
+    const input = wrapper.find('textarea.rewrite-textarea')
+    await input.setValue('这是一段足够长的成稿内容。' + '补充说明。'.repeat(200))
+    await nextTick()
+    await nextTick()
+    expect(aiGetRecommendedStrategies).toHaveBeenCalled()
+    const last = aiGetRecommendedStrategies.mock.calls[aiGetRecommendedStrategies.mock.calls.length - 1]
+    // 第二参必须是原文；否则预览与 startRewrite 的匹配口径不一致
+    expect(typeof last[1]).toBe('string')
+    expect(last[1].length).toBeGreaterThan(0)
+  })
+
   // P1-1 回归锁（rewrite-default-strategy-fix）：改写页必须把 industry/purpose/tone
   // 真实下发给引擎。此前完全不下发 ⇒ 匹配器只能拿到空输入 ⇒ 全体并列退化为数组首项。
   it('P1-1：改写请求携带 industry/purpose/tone（此前完全不下发）', async () => {
@@ -559,12 +578,28 @@ describe('RewriteView', () => {
 
   // R2 回归锁（rewrite-default-strategy-fix）：成稿默认必须走 imitate。
   // 缺陷形态：默认 create 授权模型「重新创作」，实测把 5000 字深度报道改成 800 字带货腔。
+  // R2 回归锁（rewrite-default-strategy-fix）：成稿默认必须走 imitate。
+  // 缺陷形态：默认 create 授权模型「重新创作」，实测把 5000 字深度报道改成 800 字带货腔。
+  // 输入用真实成稿形态（多句多段、远超灰色带），而非 runRewrite 的通用短句测试文案
+  // —— i5 判据收紧后，20 余字的单句测试文案按「选题种子」处理，走 create 才是正确行为。
   it('R2：成稿输入默认走 imitate（不再写死 create）', async () => {
     const { aiRewrite } = await import('@/api/publisher')
     aiRewrite.mockClear()
-    // runRewrite 不传 mode ⇒ 不点 chip ⇒ 走按输入形态的自动推导；
-    // 其输入是带句号的成稿，故应推导为 imitate。
-    await runRewrite()
+    const wrapper = factory()
+    await nextTick()
+    const draft = [
+      '上周AI圈都在讨论一件事，但大多数人只看到了一半。',
+      '7月15日，前OpenAI CTO在旧金山发布了新模型，20亿美元融资，975B参数。',
+      '强化学习之父也宣布创办新实验室，认为当前方法需要从根基上重新来过。',
+      'SWE-bench Verified 评测中，新模型以 85.6 分登顶第一。',
+      '这套架构有个正式名字：不同能力在共享基座之上独立训练、灵活组合。',
+    ].join('\n')
+    const textarea = wrapper.find('textarea.rewrite-textarea')
+    await textarea.setValue(draft)
+    await nextTick()
+    await wrapper.find('.rewrite-start-btn').trigger('click')
+    await nextTick()
+    await nextTick()
     expect(aiRewrite).toHaveBeenCalled()
     expect(aiRewrite.mock.calls[0][0].mode).toBe('imitate')
   })
@@ -1064,8 +1099,11 @@ describe('RewriteView — 策略选择与匹配预览', () => {
     await nextTick()
     await nextTick()
     await nextTick()
-    // 改写结束后 finally 中再次刷新（第 2 次）
-    expect(aiGetRecommendedStrategies).toHaveBeenCalledTimes(2)
+    // 改写结束后 finally 中再次刷新（第 3 次）
+    // rewrite-default-strategy-fix(i3)：content 也进了预览 watch（启发式兜底依赖原文形态），
+    // 所以 setValue 输入正文会触发第 2 次预览 —— 这是 i3 修复的预期代价：
+    // 每次键入多一次本地匹配计算（无 LLM 调用），换取预览名与实际命中策略一致。
+    expect(aiGetRecommendedStrategies).toHaveBeenCalledTimes(3)
   })
 
   it('drops stale preview result when platform switches quickly (race guard)', async () => {

@@ -14,11 +14,15 @@
 /**
  * 判定输入形态：成稿（draft）还是选题种子（topic）。
  *
+ * ⚠ 判据顺序不可颠倒（CCG 深度审查 i5）：**长度先看，标点后看**。
+ *   首版把标点放最高优先级，于是「震惊！AI重大突破」这类**短选题种子**因含 ！/。
+ *   被判成 draft ⇒ 走 imitate（仿写成稿）⇒ 反向误判。
+ *   选题标题带感叹号/句号是常态（「GPT-5 发布了！」），标点区分不了「成稿 vs 种子」。
+ *
  * 判据（按优先级）：
- * 1. 含句号等终止标点 ⇒ 成稿（选题标题通常无句末标点）
- * 2. 长度 ≥ DRAFT_MIN_LENGTH ⇒ 成稿
- * 3. 换行数 ≥ 1（多段）⇒ 成稿
- * 其余视为选题种子。
+ * 1. 长度 ≥ DRAFT_MIN_LENGTH ⇒ 成稿（选题种子通常很短，这是最强信号）
+ * 2. 长度 < TOPIC_MAX_LENGTH ⇒ 选题种子（即便带标点也是种子）
+ * 3. 中间长度：换行数 ≥ 1（多段）或含句号（陈述句收尾）⇒ 成稿，否则选题种子
  *
  * @param {string} text - 待判定文本（应为已 trim 的正文）
  * @returns {'draft'|'topic'}
@@ -26,11 +30,29 @@
 export function classifyInputShape(text) {
   if (typeof text !== 'string' || !text.trim()) return 'topic'
   const s = text.trim()
-  if (/[。！？.!?]/.test(s)) return 'draft'
-  if ([...s].length >= 80) return 'draft'
+  const len = [...s].length
+  if (len >= DRAFT_MIN_LENGTH) return 'draft'
+  if (len <= TOPIC_MAX_LENGTH) return 'topic'
+  // 灰色带（12-80 字）：长度不可靠，靠结构判定。
+  // 「第一句。第二句。第三句。」这类含 ≥2 个句号的文本是成稿；
+  // 单句即使较长（如一句长标题）仍按种子处理——一句不成文。
   if (s.split('\n').length > 1) return 'draft'
+  const sentenceEnders = s.match(/[。！？.!?]/g)
+  if (sentenceEnders && sentenceEnders.length >= 2) return 'draft'
   return 'topic'
 }
+
+/** ≥ 此长度直接判为成稿（码点） */
+const DRAFT_MIN_LENGTH = 80
+/**
+ * ≤ 此长度直接判为选题种子（码点）；即便带标点也不改判。
+ *
+ * 取值依据实测样本而非拍脑袋：真实选题种子 7-11 字（「AI大模型最新突破进展」11、
+ * 「震惊！AI重大突破」9、「GPT-5 发布了。」10），真实成稿最短的短样本 16-18 字。
+ * 取 12 = 略高于最长种子、明显低于最短成稿，给两类各留出安全边距。
+ * ⚠ 12-80 之间是**灰色带**：此时长度不可靠，靠结构（多段/多句）判定，见 classifyInputShape。
+ */
+const TOPIC_MAX_LENGTH = 12
 
 /**
  * 按输入形态推导默认改写模式。

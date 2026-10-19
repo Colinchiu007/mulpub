@@ -13,8 +13,31 @@ const TECH_LONG_FORM = [
 ].join('\n')
 
 describe('rewrite-defaults — 输入形态判定', () => {
-  it('成稿（含句号）判定为 draft', () => {
-    expect(classifyInputShape('这是一篇完整的文章。里面有句号。')).toBe('draft')
+  // CCG 深度审查 i5：短选题种子常带感叹号/句号（「震惊！AI重大突破」），
+  // 首版把标点放最高优先级 ⇒ 被误判成稿 ⇒ 走 imitate，反向误判。
+  it('i5：带感叹号的短选题种子仍判为 topic（标点不得压过长度）', () => {
+    expect(classifyInputShape('震惊！AI重大突破')).toBe('topic')
+    expect(deriveDefaultMode('震惊！AI重大突破')).toBe('create')
+  })
+
+  it('i5：带句号的短选题种子仍判为 topic', () => {
+    expect(classifyInputShape('GPT-5 发布了。')).toBe('topic')
+    expect(deriveDefaultMode('GPT-5 发布了。')).toBe('create')
+  })
+
+  it('i5：长文成稿不受影响（长度优先于标点）', () => {
+    expect(classifyInputShape(TECH_LONG_FORM)).toBe('draft')
+    expect(deriveDefaultMode(TECH_LONG_FORM)).toBe('imitate')
+  })
+
+  it('i5：中间长度靠结构判定（多段/陈述句⇒draft）', () => {
+    expect(classifyInputShape('第一段内容。\n第二段内容。')).toBe('draft')
+  })
+
+  // i5 后判据改为「长度优先」：≤30 字的短句即便带句号也归 topic（选题种子常态）。
+  // 这不是放宽——短句本来就不是成稿，「这是一个完整的句子。」不是一篇待改写的文章。
+  it('成稿（中间长度 + 多句）判定为 draft', () => {
+    expect(classifyInputShape('这是一篇完整的文章。里面有句号。还有第三句。')).toBe('draft')
   })
 
   it('短选题种子（无句号、短、单行）判定为 topic', () => {
@@ -25,8 +48,14 @@ describe('rewrite-defaults — 输入形态判定', () => {
     expect(classifyInputShape('a'.repeat(100))).toBe('draft')
   })
 
-  it('多行文本判为 draft', () => {
-    expect(classifyInputShape('第一行\n第二行')).toBe('draft')
+  // 7 字 ≤ TOPIC_MAX_LENGTH(12) ⇒ 直接落 topic，长度档优先于结构档。
+  // 两行短文本不是成稿；真正成稿由「≥80 字」或「灰色带内多句」承担。
+  it('短的多行文本仍判 topic（长度档优先于结构档）', () => {
+    expect(classifyInputShape('第一行\n第二行')).toBe('topic')
+  })
+
+  it('灰色带内的多行文本判 draft', () => {
+    expect(classifyInputShape('这是一段中等长度的正文内容。\n这是第二段的正文内容。')).toBe('draft')
   })
 
   it('空/空白输入回退 topic（不得抛错）', () => {
@@ -45,8 +74,14 @@ describe('rewrite-defaults — 默认模式推导', () => {
     expect(deriveDefaultMode('AI大模型最新突破进展')).toBe('create')
   })
 
-  it('R2 回归锚点：单句成稿也走 imitate', () => {
-    expect(deriveDefaultMode('这是一个完整的句子。')).toBe('imitate')
+  // i5 后：单句短句（≤30 字）归 topic ⇒ create。这是**正确**行为——
+  // 一句话不是一篇待改写成稿；真正的成稿判定由长度/多段/多句承担（见上方 draft 用例）。
+  it('R2 回归锚点：单句短句走 create（不是成稿）', () => {
+    expect(deriveDefaultMode('这是一个完整的句子。')).toBe('create')
+  })
+
+  it('R2 回归锚点：多句成稿走 imitate（真正的成稿形态）', () => {
+    expect(deriveDefaultMode('第一句说完。第二句继续。第三句收尾。')).toBe('imitate')
   })
 })
 

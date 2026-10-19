@@ -48,10 +48,13 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "self_play_resolved",
+    "performedBy": "self-play(claude+opencode critic/proposer, adjudicated by lead agent)",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "findings": null,
+    "template": ".adversarial\\ccg-deep-279050fa\\adjudication.json",
+    "note": "裁决已完成：5/5 条 upheld 并逐条处置——i1(Critical) id破平收窄到无信号组+hits/specificity破平(M3变异3红)；i2 PRD承诺修订为Out of Scope；i3 watch补content+回归锁；i4 fidelityIds可注入+3条锁；i5 判据改为长度优先三档(阈值取自实测样本)。明细见 .adversarial/ccg-deep-279050fa/adjudication.json",
+    "at": "2026-10-19T01:57:42.604Z"
   }
 }

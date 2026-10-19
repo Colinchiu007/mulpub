@@ -6,6 +6,16 @@
  */
 
 /**
+ * 无有效信号时的保真型兜底策略 id。
+ *
+ * ⚠ CCG 深度审查 i4：原先写死在 _heuristicScore 内部，与「策略 id」这一 ops 可运营数据
+ * 硬耦合 —— ops 侧新增/改名/重排策略会静默改变默认选中，桌面端不可见。
+ * 现提升为模块常量并允许调用方注入（options.fidelityStrategyIds），
+ * 使耦合显式、可测、可配置；默认值与历史行为一致。
+ */
+const DEFAULT_FIDELITY_STRATEGY_IDS = ['strategy-knowledge-dry']
+
+/**
  * 保真优先的内容判定阈值（码点）。≥ 此长度视为成稿型长文，默认走保真策略。
  */
 const FIDELITY_MIN_LENGTH = 600
@@ -29,12 +39,16 @@ class StrategyMatcher {
    * @param {object} options.userHistory - { preferredStrategies, strategyRatings }
    * @param {number} options.topN - 返回 Top N 推荐，默认 3
    * @param {string} [options.content] - 待改写原文（无有效信号时驱动内容特征启发式兜底）
+   * @param {string[]} [options.fidelityStrategyIds] - 保真型兜底策略 id（默认 DEFAULT_FIDELITY_STRATEGY_IDS）
    */
   constructor(options = {}) {
     this._userSettings = options.userSettings || {}
     this._userHistory = options.userHistory || {}
     this._topN = options.topN || 3
     this._content = typeof options.content === 'string' ? options.content : ''
+    this._fidelityIds = Array.isArray(options.fidelityStrategyIds) && options.fidelityStrategyIds.length > 0
+      ? options.fidelityStrategyIds
+      : DEFAULT_FIDELITY_STRATEGY_IDS
   }
 
   /**
@@ -48,21 +62,105 @@ class StrategyMatcher {
     const scored = strategies.map(s => ({
       ...s,
       score: this._score(s),
+      // 真命中维度数：用于有信号组的并列破平（命中越多越贴合用户明确意图）
+      _hits: this._hits(s),
       // 无有效信号兜底（rewrite-default-strategy-fix，2026-10-19）：
       // 启发式建议分单独携带，不并入 score —— score 仍严格是「用户设置维度匹配分」，
       // 语义单一可测；启发式只在并列破平时被读取。
-      _heuristic: this._heuristicScore(s)
+      _heuristic: this._heuristicScore(s),
+      // 平台专精度：仅当用户点名平台且本策略支持它时 >0（见 _specificity）
+      _specificity: this._specificity(s)
     }))
 
     // 三级排序：① 用户设置维度分；② 内容特征启发式；③ id 字典序（确定性兜底）。
-    // 第 ③ 级是「不依赖入参数组顺序」的硬保证：即便前两级全并列，结果也由策略 id
-    // 唯一确定，不会因 BUILTIN_STRATEGIES 数组重排而静默改变默认选择。
+    //
+    // ⚠ 第 ③ 级**只在无信号组启用**（CCG 深度审查 i1，Critical）：
+    //   若对所有并列一律按 id 排序，platform=wechat_mp 下五策略并列 44 分时会恒选
+    //   strategy-douyin-viral（d 在 k/v/x 之前）⇒ 公众号场景选到抖音爆款策略。
+    //   那是用「确定性」换掉了「正确性」，比修复前的数组首项更荒谬 —— 原本的缺陷
+    //   正是「用户信号被静默覆盖」，不能换个姿势重犯。
+    //
+    // ⚠ 第 ③ 级**只在无信号组启用**（CCG 深度审查 i1，Critical）：
+    //   若对所有并列一律按 id 排序，platform=wechat_mp 下五策略并列 44 分时会恒选
+    //   strategy-douyin-viral（d 在 k/v/x 之前）⇒ 公众号场景选到抖音爆款策略。
+    //   那是用「确定性」换掉了「正确性」，比修复前的数组首项更荒谬 —— 原本的缺陷
+    //   正是「用户信号被静默覆盖」，不能换个姿势重犯。
+    //
+    // ⚠ 但「不动」也不够（i1 修复后的自评发现）：有信号组并列时若保持原顺序，
+    //   platform=douyin 会拿到数组首项 storytelling 而不是真正命中抖音的
+    //   strategy-douyin-viral —— 同样是用户信号被覆盖，只是换了掩盖方式。
+    //   故有信号组用 **_hits（真命中维度数）** 破平：命中维度越多越贴合用户意图。
+    //   这不用内容特征（那是无信号时的兜底），只用「用户给了几个信号、命中几个」。
+    // ⚠ 第 ④ 级（自评发现，i1 修复后）：前三级仍可能全并列 ——
+    //   实测 platform=douyin 时 storytelling / ecommerce / douyin-viral **都声明支持
+    //   douyin**，三条同为 44 分、hits 同为 1，无法区分。
+    //   此时按**平台专精度**破平：声明平台越少越专注该平台（douyin-viral 只声明 douyin，
+    //   而 storytelling 声明了三个平台）。专精策略才该在用户点名某平台时胜出。
+    //   无平台信号时该项为 0，不影响其它场景。
+    // 第 ⑤ 级 id 字典序仍只在无信号组启用（i1 的边界不变）。
+    const noSignal = this._isNoSignalGroup()
     scored.sort((a, b) => (
       (b.score - a.score) ||
+      (b._hits - a._hits) ||
       (b._heuristic - a._heuristic) ||
-      (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+      (b._specificity - a._specificity) ||
+      (noSignal ? (a.id < b.id ? -1 : a.id > b.id ? 1 : 0) : 0)
     ))
-    return scored.map(({ _heuristic, ...rest }) => rest)
+    return scored.map(({ _heuristic, _hits, _specificity, ...rest }) => rest)
+  }
+
+  /**
+   * 平台专精度：用户点名了平台、且该策略声明支持它时，声明的平台数越少分越高。
+   *
+   * 为什么需要：内置策略的平台声明高度重叠（storytelling 与 ecommerce 都声明
+   * douyin/xiaohongshu/wechat_mp 三个平台，与只声明 douyin 的 douyin-viral 同为 hits=1），
+   * 靠 hits 分不开。「专注该平台」正是用户点名平台时想表达的意思。
+   *
+   * @param {object} strategy
+   * @returns {number} 0 表示无平台信号或不命中；否则为 1/声明平台数（越大越专精）
+   */
+  _specificity(strategy) {
+    const want = this._userSettings && this._userSettings.platform
+    if (!want) return 0
+    const platforms = strategy.platforms || []
+    if (platforms.length === 0) return 0
+    if (!this._dimensionHit(want, platforms)) return 0
+    return 1 / platforms.length
+  }
+
+  /**
+   * 统计该策略真正命中的用户设置维度数（0-4）。
+   *
+   * 与 score 的区别：score 里未命中的维度也给 30% 基础分，所以「命中 1 个高权维度」
+   * 与「命中 3 个低权维度」可能同分。_hits 只看**命中个数**，用于并列时判断
+   * 哪个策略贴合了更多用户明确表达的意图。
+   * @param {object} strategy
+   * @returns {number}
+   */
+  _hits(strategy) {
+    const s = this._userSettings || {}
+    let n = 0
+    if (this._dimensionHit(s.industry, strategy.industry)) n++
+    if (this._dimensionHit(s.purpose, strategy.purpose)) n++
+    if (this._dimensionHit(s.platform, strategy.platforms)) n++
+    if (this._dimensionHit(s.tone, strategy.tone)) n++
+    return n
+  }
+
+  /**
+   * 单个维度是否真正命中（不给基础分那一档）。
+   * @param {string} userValue
+   * @param {Array} strategyValues
+   * @returns {boolean}
+   */
+  _dimensionHit(userValue, strategyValues) {
+    if (!userValue || !strategyValues || strategyValues.length === 0) return false
+    const normalizedUser = String(userValue).toLowerCase().trim()
+    if (!normalizedUser) return false
+    return strategyValues.some(v => {
+      const nv = String(v).toLowerCase().trim()
+      return nv === normalizedUser || nv.includes(normalizedUser) || normalizedUser.includes(nv)
+    })
   }
 
   /**
@@ -146,9 +244,8 @@ class StrategyMatcher {
    */
   _heuristicScore(strategy) {
     if (!this._isNoSignalGroup()) return 0
-    const fidelityIds = ['strategy-knowledge-dry']
     if (this._isFidelityPreferred()) {
-      return fidelityIds.indexOf(strategy.id) !== -1 ? 1 : 0
+      return this._fidelityIds.indexOf(strategy.id) !== -1 ? 1 : 0
     }
     return 0
   }
