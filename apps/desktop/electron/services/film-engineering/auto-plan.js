@@ -32,6 +32,7 @@ const {
 const {
   sha256, buildShotFingerprint, buildPayloadHash, buildPlanId, buildRefsFingerprint,
 } = require('./auto-plan-fingerprint')
+const { resolveShotDurationMs } = require('./shot-duration')
 
 const MAX_AUTO_SHOTS = 120
 const MAX_AUTO_SCRIPT_LENGTH = 10000
@@ -39,6 +40,8 @@ const MIN_AUTO_DURATION_SEC = 10
 const MAX_AUTO_DURATION_SEC = 600
 const AUTO_ASPECTS = Object.freeze(['16x9', '9x16'])
 const AUTO_SHOT_SECONDS = Object.freeze([5, 8, 10])
+/** 单镜时长上限（秒）：与 film-kit/shot-grammar.json 的 durationTiers.maxSec 同源口径 */
+const MAX_AUTO_SHOT_SEC = 12
 const MAX_AUTO_REFS = 8
 /** 与 ipc-handlers/film-engineering.js:47-49 同源预估口径 */
 const DISK_ESTIMATE_BYTES_PER_SHOT = 8 * 1024 * 1024
@@ -223,6 +226,14 @@ function planAutoShots (input) {
     const template = templates[i % templates.length]
     const prompt = buildTemplatePrompt({ template, beatText: beat.text, characterMap })
     const refPaths = bound[i] ? bound[i].refPaths : []
+    // v7 批次一 F2 + F34：给每镜补 durationMs（来源优先级链）。
+    // 自动模式下还没有 TTS 实测，故走 formula（按本镜文案推算）→ tier（o.seconds 兜底）。
+    // 这是**纯增量**：原先 `seconds` 的语义与 plannedDurationSec 一律不动，
+    // 消费方可以继续只读 seconds；需要更细的时长就读 durationMs。
+    const duration = resolveShotDurationMs(
+      { dialogue: beat.text, emotion: beat.emotion },
+      { tiers: AUTO_SHOT_SECONDS, maxSec: MAX_AUTO_SHOT_SEC, defaultSec: Number(o.seconds) },
+    )
     return {
       index: i,
       shotId: 'auto-' + String(i).padStart(3, '0'),
@@ -232,11 +243,30 @@ function planAutoShots (input) {
       characterNames: Object.values(characterMap).filter((name) => String(beat.text || '').includes(name)),
       refPaths,
       seconds: Number(o.seconds),
+      durationMs: duration.ok ? duration.durationMs : Math.round(Number(o.seconds) * 1000),
+      durationSec: duration.ok ? duration.durationSec : Number(o.seconds),
+      durationSource: duration.ok ? duration.source : 'tier',
+      durationWarnings: duration.ok ? duration.warnings : [duration.error],
       status: 'pending',
     }
   })
 
   const plannedDurationSec = shots.length * Number(o.seconds)
+  // 按台词推算的总时长（与档位基线并列展示，不替换任何既有字段）
+  const estimatedDurationSec = Math.round(shots.reduce((acc, x) => acc + (Number(x.durationMs) || 0), 0) / 100) / 10
+  const durationSourceCount = shots.reduce((acc, x) => {
+    acc[x.durationSource] = (acc[x.durationSource] || 0) + 1
+    return acc
+  }, { formula: 0, tier: 0, tts: 0, user: 0 })
+  const durationWarnings = []
+  if (plannedDurationSec > 0 && Math.abs(estimatedDurationSec - plannedDurationSec) / plannedDurationSec > 0.2) {
+    durationWarnings.push({
+      code: 'W8',
+      message: '按台词推算总时长 ' + estimatedDurationSec + ' 秒，与档位基线 ' + plannedDurationSec + ' 秒相差超过 20%'
+        + '（推算 ' + durationSourceCount.formula + ' 镜 / 档位 ' + durationSourceCount.tier + ' 镜）。'
+        + '最终以 TTS 实测为准；若差异过大请调整单镜秒数或拆分长台词镜头。',
+    })
+  }
   const wallclock = shots.length * WALLCLOCK_SECONDS_PER_SHOT
   const shotsWithReferences = shots.filter((s) => s.refPaths.length > 0).length
   // 空文案分镜（代码审查发现）：整篇只写一行场景标题（如单独一行 `INT.`）时，`splitScript` 会产出一段
@@ -273,6 +303,7 @@ function planAutoShots (input) {
             .join('; '),
         }]
       : []),
+    ...durationWarnings,
   ]
 
   return {
@@ -281,6 +312,8 @@ function planAutoShots (input) {
     characterMap,
     warnings,
     plannedDurationSec,
+    estimatedDurationSec,
+    durationSourceCount,
     targetDurationSec: Number(o.targetDurationSec),
     shotsWithReferences,
     scriptHash: sha256(o.script),
@@ -290,6 +323,7 @@ function planAutoShots (input) {
       batchCount: Math.ceil(shots.length / PRODUCTION_BATCH_SIZE),
       diskEstimateBytes: shots.length * DISK_ESTIMATE_BYTES_PER_SHOT,
       wallclockEstimateSeconds: wallclock,
+      estimatedDurationSec,
     },
   }
 }
@@ -301,6 +335,7 @@ module.exports = {
   MAX_AUTO_DURATION_SEC,
   AUTO_ASPECTS,
   AUTO_SHOT_SECONDS,
+  MAX_AUTO_SHOT_SEC,
   MAX_AUTO_REFS,
   SLOT_ORDER,
   DISK_ESTIMATE_BYTES_PER_SHOT,

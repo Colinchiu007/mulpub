@@ -431,3 +431,80 @@ describe('auto-plan · 主入口 planAutoShots', () => {
     expect(r.warnings.map((w) => w.code)).not.toContain('W7')
   })
 })
+
+// ===== v7 批次一 F2 + F34：单镜时长与来源优先级（纯增量，不动既有 seconds 语义）=====
+
+describe('planAutoShots: durationMs 增量字段（F2 + F34）', () => {
+  const withScript = (script, extra = {}) => planAutoShots({
+    script,
+    characterRefs: [],
+    sceneRefs: [],
+    aspect: '16x9',
+    seconds: 5,
+    targetDurationSec: 20,
+    templateShots: [{ prompt: 'T1' }],
+    ...extra,
+  })
+
+  it('每镜都带 durationMs / durationSec / durationSource', () => {
+    const r = withScript('第一场\n他推开门走了进来。')
+    expect(r.ok).toBe(true)
+    for (const s of r.shots) {
+      expect(Number.isFinite(s.durationMs)).toBe(true)
+      expect(s.durationMs).toBeGreaterThan(0)
+      expect(s.durationSec).toBe(s.durationMs / 1000)
+      expect(['formula', 'tier', 'tts', 'user']).toContain(s.durationSource)
+    }
+  })
+
+  it('既有 seconds 语义不变（下游消费方不受影响）', () => {
+    const r = withScript('第一场\n他推开门走了进来。')
+    expect(r.ok).toBe(true)
+    for (const s of r.shots) expect(s.seconds).toBe(5)
+  })
+
+  it('plannedDurationSec 仍是档位基线（不因增量字段而改变）', () => {
+    const r = withScript('第一场\n他推开门走了进来。')
+    expect(r.ok).toBe(true)
+    expect(r.plannedDurationSec).toBe(r.shots.length * 5)
+  })
+
+  it('estimatedDurationSec 是逐镜 durationMs 之和（允许 0.1s 取整）', () => {
+    const r = withScript('第一场\n短句。\n\n第二场\n这是一句明显更长的台词，字数多了不少。')
+    expect(r.ok).toBe(true)
+    const sum = r.shots.reduce((a, s) => a + s.durationMs, 0) / 1000
+    expect(Math.abs(r.estimatedDurationSec - sum)).toBeLessThan(0.15)
+  })
+
+  it('长文案镜与短文案镜的推算时长不同（说明时长真的按台词算了）', () => {
+    // N=2（10s / 5s）才能保证两个 beat 各占一镜、不被均分稀释
+    const r = planAutoShots({
+      script: '第一场\n' + '这是一句特别长的台词'.repeat(8) + '\n\n第二场\n短。',
+      characterRefs: [],
+      sceneRefs: [],
+      aspect: '16x9',
+      seconds: 5,
+      targetDurationSec: 10,
+      templateShots: [{ prompt: 'T1' }],
+    })
+    expect(r.ok).toBe(true)
+    expect(r.shots.length).toBe(2)
+    const durations = new Set(r.shots.map((s) => s.durationMs))
+    expect(durations.size).toBeGreaterThan(1)
+    // 长台词那镜必须比短句那镜长
+    expect(Math.max(...r.shots.map((s) => s.durationMs))).toBeGreaterThan(Math.min(...r.shots.map((s) => s.durationMs)))
+  })
+
+  it('durationSourceCount 汇总与逐镜来源一致', () => {
+    const r = withScript('第一场\n他推开门。\n\n第二场\n她抬起头。')
+    expect(r.ok).toBe(true)
+    const counted = r.shots.filter((s) => s.durationSource === 'formula').length
+    expect(r.durationSourceCount.formula).toBe(counted)
+  })
+
+  it('estimates.estimatedDurationSec 与顶层字段一致', () => {
+    const r = withScript('第一场\n他推开门。')
+    expect(r.ok).toBe(true)
+    expect(r.estimates.estimatedDurationSec).toBe(r.estimatedDurationSec)
+  })
+})
