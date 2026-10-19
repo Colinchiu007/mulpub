@@ -1089,16 +1089,63 @@ test('Gate 7 必须按退出码 3 阻断就绪故障（捕获而不判定的回�
   assert.match(body, /\$suitesNotReady = ''/, '名单必须显式初始化为空串：$null -ne 空串在 PowerShell 里为真')
   assert.match(body, /if \(\$suitesNotReady -ne ''\)/, '就绪名单非空必须触发拦截')
   assert.match(body, /\[GATE-7\] FATAL.*就绪/, '拦截必须点名这是就绪类故障')
-  assert.match(body, /exit 3/, '拦截退出码必须是 3（与套件侧 ERR_VISUAL_NOT_READY 同档）')
+  // 退出码 3 的承载形态在 2026-10-19 改为「判定值」（见下方新锁），所以这里锁的是码值本身而不是
+  // `exit 3` 这一行字面量——后者会把"收敛出口"这一正当修复读成"阻断被删掉"。
+  assert.match(body, /\$gateVerdict = 3/, '拦截退出码必须是 3（与套件侧 ERR_VISUAL_NOT_READY 同档）')
 
-  const idxReady = body.indexOf("if ($suitesNotReady -ne '')")
-  const idxPixel = body.indexOf('if ($pixelExit -ne 0)')
+  // 定位有两个要求：① 形状无关 —— `if ($pixelExit -ne 0)` 与 `} elseif ($pixelExit -ne 0) {` 都合法，
+  //    否则本条顺序锁会把自己的修复路径焊死（存在性锁必须同时锁住合规路径能绿）；
+  // ② 行锚定到语句 —— 正文里有一处散文注释原样写着 "$pixelExit -ne 0"（Gate 7 环境缺失那段），
+  //    裸短语 search 会先命中它，把顺序锁判成"像素判定在就绪拦截之前"——那是注释的位置不是判据的位置。
+  // 否则本条顺序锁会把自己的修复路径焊死（见「存在性锁必须同时锁住合规路径能绿」）。
+  const idxReady = body.search(/^\s*(?:} elseif|if) \(\$suitesNotReady -ne ''\)/m)
+  const idxPixel = body.search(/^\s*(?:} elseif|if) \(\$pixelExit -ne 0\)/m)
+
   assert.ok(idxReady >= 0, '未找到就绪拦截块 —— 上面的正则与这里的 indexOf 口径不一致')
   assert.ok(idxPixel >= 0, '未找到像素判定块 —— Gate 7 既有阻断被改名，本条顺序锁失效')
   assert.ok(idxReady < idxPixel, '就绪拦截必须排在像素判定之前')
 
   const assigns = (body.match(/\$LASTEXITCODE/g) || []).length
   assert.ok(assigns >= 7, 'Gate 7 每个套件都必须显式取 $LASTEXITCODE（当前 ' + assigns + ' 处，不得退回 || x=$?）')
+})
+
+// ⛔ Gate 7 的步骤退出码必须由判定值决定（2026-10-19，branch: ux-audit-phase34）。
+//
+// 事故（判据取产物，非推断）：PR #3992 的 QG Visual 报红，而该步骤日志末行是
+// `[GATE-7] All visual tests passed`。四条 `exit` 分支各管一种失败，**通过路径没有任何 exit**，
+// 于是 pwsh 步骤的退出码取自「最后一条原生命令」的残留 $LASTEXITCODE —— 这里是 finally 里
+// 清理 dev server 的 `taskkill /PID ... /T /F`（进程已退出时返回非零）。一个守门步骤的成败由
+// 清理动作决定，是「装饰性门禁」的反向形态：不是恒绿，而是**恒不可信**。
+//
+// 本锁三件事都配正向对偶（禁令单独存在会把「删掉被禁物」与「删掉需求」判成同形）：
+// ① 判定值单点初始化 `$gateVerdict = 0`，四条分支各自赋码（3 / $pixelExit / 1 / $judgeExit）；
+// ② 唯一出口 `exit $gateVerdict` 必须排在通过文案之前；
+// ③ 通过路径必须以**显式 `exit 0`** 收尾（删掉它必须变红 —— 那正是本次修复的本体）。
+test('Gate 7 的步骤退出码必须由判定值决定，不得取自清理动作的残留 $LASTEXITCODE', () => {
+  const wf = yaml.load(fs.readFileSync(qualityGatePath, 'utf8'))
+  const g7 = wf.jobs.visual.steps.find((s) => /Gate 7 - Visual regression/.test(String(s.name || '')))
+  assert.ok(g7, 'Gate 7 步骤必须存在（改名会静默废掉本条锁）')
+  const body = String(g7.run || '')
+
+  assert.match(body, /^\s*\$gateVerdict = 0\s*$/m, '判定值必须在判定链之前单点初始化为 0')
+  for (const v of ['$gateVerdict = 3', '$gateVerdict = $pixelExit', '$gateVerdict = 1', '$gateVerdict = $judgeExit']) {
+    assert.ok(body.includes(v), `判定链必须保留「${v}」 —— 少一格等于该故障不再阻断，退出码退回清理动作的余值`)
+  }
+  assert.doesNotMatch(
+    body,
+    /^\s*exit (?:3|1|\$pixelExit|\$judgeExit)\s*$/m,
+    '四条分支不得退回各自 exit：出口必须收敛到判定值一处（本步的 playwright/build 早退是单行 if，不受本条约束）',
+  )
+
+  const iGateExit = body.search(/if \(\$gateVerdict -ne 0\)[\s\S]*?exit \$gateVerdict/)
+  assert.ok(iGateExit >= 0, '缺少「判定值非零 ⇒ exit $gateVerdict」的唯一出口')
+  // 锚点取"可执行的那一行"而不是裸短语：散文注释里出现同名字样会让 indexOf 先命中注释，
+  // 于是顺序锁量的是"我写注释的位置"（2026-10-19 本 PR 自己踩过一次，当场红）。
+  const iPassed = body.indexOf('Write-Host "[GATE-7] All visual tests passed"')
+  const iExit0 = body.indexOf('exit 0')
+  assert.ok(iPassed >= 0 && iExit0 >= 0, '通过文案与显式 exit 0 都必须存在')
+  assert.ok(iGateExit < iPassed, '非零出口必须排在通过文案之前')
+  assert.ok(iPassed < iExit0, 'exit 0 必须排在通过文案之后 —— 它就是「通过路径不再取清理动作余值」的那一格')
 })
 
 // ⛔ 视觉**校验域**的阻断面锁（2026-10-17，visual-checks-must-block）。
@@ -1159,7 +1206,8 @@ test('QG Visual 的校验域套件（views / views-supplement / workflows / work
 
   // ③ 顺序：阻断必须排在通过收尾之前（否则"pass"先命中，阻断成死代码）
   const iBlock = body.indexOf('$checksFailSuites -and $checksFailSuites.Count -gt 0');
-  const iPassed = body.indexOf('All visual tests passed');
+  // 同上一条：锚点必须取可执行行，否则散文注释里的同名字样会顶掉真实锚点（2026-10-19 实测）。
+  const iPassed = body.indexOf('Write-Host "[GATE-7] All visual tests passed"');
   assert.ok(iBlock >= 0, '未找到校验域阻断块');
   assert.ok(iPassed >= 0, '未找到 Gate 7 的通过收尾');
   assert.ok(iBlock < iPassed, '校验域阻断必须排在「All visual tests passed」之前');
