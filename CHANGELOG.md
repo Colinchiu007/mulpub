@@ -10,7 +10,21 @@
 - **32 例回归全绿；10 道变异 FC-M1…FC-M10 全部 CAUGHT，红集互不相同，`RESTORED_OK=true`（md5 自证还原）**。基线只新增一键 `opsElectronApi: 0`（`evaluateBaseline` 对缺键 fail-closed ⇒ 基线必须与代码同批落），他方键 `colorLiterals=129` / `cssVarUndefined=64` 原样保留。
 - **现场发现的更大问题（不在本批修，判据已登记在执行记录末尾）**：`grep -rla "ops-center/frontend" .github/workflows/*.yml` 命中 **0** —— 运营中心前端的 `vite build` 与 `vitest run` 在 CI 上完全没有覆盖。本批因此只能退而用仓库根的 `@vue/compiler-sfc` 手工解析该 SFC（`parse errors: 0`、`template errors: 0`、`compileScript ok`），**这不是 `vite build` 的等价物**。补它属"改谁来守门"，且包管理器口径与落点必须先定。
 - **没有**动 `.github/workflows/`（判据早已接在既有步骤里），没有动 `CI_IGNORED_PATHS`，没有动分支保护。桌面端运行时、locale、视觉基线均未触碰 ⇒ QM-1 / QM-4 N/A。
+# [未发布] fix(视频创作): MiniMax 克隆「套餐不支持」原样透传，不再误报「暂时不可用请重试」（s2v-clone-plan-unsupported）
 
+## 问题
+- 2026-10-19 真实事故：MiniMax 订阅套餐账号克隆音色被服务端拒绝（`model_provider_logs` id=10030：`your current token plan not support model, voice_clone`，latency 1125ms——请求真实到达、鉴权通过、参数合规）。adapter 把它误判为额度类（`token\s*plan` 被 isQuota 吃掉），service 折叠成 `VOICE_CLONE_PROVIDER_UNAVAILABLE`，用户看到「音色克隆服务暂时不可用，请稍后重试」——重试永不成功，误导用户反复尝试。
+
+## 改动
+- `provider-error.js`：新增 `PLAN_UNSUPPORTED` 错误码（category=config，retryable=false）。
+- `minimax-tts.js`：`classifyBaseRespError` 增加 `isPlanUnsupported`（statusCode=2038 官方「语音克隆功能被禁用」短路 + `token plan not support` / `voice_clone ... forbidden|disabled|not support` / 中文「套餐不支持」族正则），**置于 isQuota 之前**，避免额度类误吃。
+- `tts-voice-clone-service.js`：`cloneFailureFromAdapterError`——throw 与结构化 errorCode 两条路径统一：PLAN_UNSUPPORTED → `VOICE_CLONE_PLAN_UNSUPPORTED` + `data.detail`=供应商原话；其余保持 PROVIDER_UNAVAILABLE。点名还账文件零增长（等价折叠抵消）。
+- 渲染层：`friendlyVoiceCatalogError` map + zh/en locale 新增 `VOICE_CLONE_PLAN_UNSUPPORTED`（zh 含「MiniMax 的音色复制需要另付费 9.9 元购买音色，不能直接使用订阅套餐」）。
+
+## 验证
+- 定向测试：18 文件 / 599 passed（adapter 3 例新用例：plan 归类 / 2038 归类 / balance 不误判为 plan；service 2 例：throw 透传 + 结构化透传且不落 registry；CreateView 映射 2 断言）。
+- 门禁：eslint rc=0；tsc --noEmit rc=0；locale --keys/--cjk PASS；check-max-lines ✅（点名文件 1748=target 零增长）；check-unwired-tests OK；QM-1 electron-builder exit 0（读数见执行记录）。
+- 执行记录：`openspec/records/fix-s2v-clone-plan-unsupported.md`。
 # [未发布] feat(subtitle): 数字/单位完整性与双字搭配守卫 v1.4 —— 8 段复杂文案实测驱动的第二族坏切（subtitle-word-integrity）
 
 - **动因与取证**：v1.3 合并后用 8 段不同风格文案（政治评论续篇/历史叙事/科技解说/口语短视频/生活叙事/无标点压力段×2）对真实引擎做三端对跑，暴露一族 v1.3 未覆盖的坏切。**A/B 反证**（关掉 phrase_boundary 输出逐字节不变）证实非 v1.3 引入：是 `no_cut_bigrams` 词表缺口 + 标点累积分支直切不经守卫的既有缺陷。实测证据：`风速每秒 8│米`、`套现约 3.2│亿元`、`提升了│60%`、`制程是│3 纳米`、`当│成`、`遗│忘`、`那│段`、`千│万人`。
