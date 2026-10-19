@@ -1,0 +1,63 @@
+{
+  "sha": "131c0fff66966c477259d9ae10fadd9bae3c6d31",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 451 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 451,
+    "fileCount": 17,
+    "codeFileCount": 13,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "| 3 | 23:26 同链路 5899 字文章改写成功（`model_provider_logs` id 9953，LLM 8010ms） | 对照样本：模型与鉴权正常，差距在输入长度 |",
+      "| 4 | 对照样本：同链路 5899 字智源文章 23:26:32 改写成功（`model_provider_logs` id 9953，LLM latency 8010ms） | 模型与鉴权正常，差异只在输入长度 |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "43aae573f2f1b234ece3c477fa4997720b6b3fbfb3791a6035f050a67bf3c380",
+  "decidedAt": "2026-10-19T00:32:35.106Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "cleared",
+    "tier": "external",
+    "performedBy": "codex (cross-family) + main-agent self-check; claude unavailable (inference gateway 502 x3), opencode review hung >15min and was cancelled",
+    "evidence": null,
+    "findings": [
+      "codex exec review --uncommitted: findings=[], overall_correctness=\"patch is correct\", confidence 0.92（逐条核对引擎错误码映射、IPC 信封形状、locale 成对、RETRYABLE_CODES 无回归、常量结构锁）",
+      "claude 轴：三次调用均返回 API Error 502（上游请求失败，本地推理网关可见但上游不可达）；按 AGENTS「子代理降级」不盲等，降级为主代理自审",
+      "opencode 轴：审查进程 >15min 无产出（同一推理后端依赖），已取消；未冒充其结论",
+      "补偿门禁：vitest 54 + 129 + 194 passed；变异反证 1 红/2 红；build:vue rc=0；electron-builder --dir rc=0；locale pair/keys、max-lines、unwired-tests、brand-residue、doc-abs-paths 全 PASS"
+    ]
+  }
+}
