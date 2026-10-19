@@ -160,8 +160,16 @@ function parsePublishResponse (raw) {
   // 有些网关不回 Code（undefined）；回了就必须为 0
   const codeOk = data.Code === 0 || data.Code === undefined
   const ok = d.status === 0 && codeOk && Boolean(itemId)
+  // 2026-10-19（toutiao-imagex-cover-chain）：提交时账号墙兜底 ——
+  // 封面/上传链全通后，服务端对未实名账号的权威拒绝是 `Code 21000`
+  // （原文「未实名认证/帐号不可用，可前往西瓜创作平台/西瓜App投稿」，真机实测）。
+  // 这是 IsIdentifyAuth 提交前检测（buildPublishGateResult）的**提交时**对偶：
+  // 即便提交前读数放行（滞后），提交时也会在这里拦下，UI 复用同一解法入口。
+  const msg = data.Message || d.message || d.msg || ''
+  const accountGate = data.Code === 21000 || /未实名认证|帐号不可用/.test(String(msg))
   return {
     ok,
+    accountGate,
     itemId: itemId ? String(itemId) : null,
     status: d.status === undefined ? null : d.status,
     code: d.status === 0 ? data.Code : d.status,
