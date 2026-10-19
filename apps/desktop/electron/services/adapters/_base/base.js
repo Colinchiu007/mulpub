@@ -47,6 +47,11 @@ const KNOWN_METHODS = [
   'generateImage', 'editImage',
   // Video mixin
   'generateVideo', 'getVideoStatus',
+  // Digital human mixin（数字人形象/音色目录；avatar-spokesperson 流水线）
+  // 必须与 KNOWN_METHODS 同步登记：callAdapter 用 supports() 做闸门
+  // （model-provider-manager.js 的 OPERATION_NOT_SUPPORTED 分支），不在本表里的
+  // 方法即便子类实现了也永远不会被调到。
+  'listAvatars',
 ]
 
 /**

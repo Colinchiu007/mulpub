@@ -151,7 +151,7 @@ class RewriteEngine {
     }
 
     // 3. 策略匹配
-    const strategy = this._resolveStrategy(strategyId, userSettings)
+    const strategy = this._resolveStrategy(strategyId, userSettings, content)
     if (!strategy) {
       return { success: false, error: '未找到合适的改写策略', errorCode: 'NO_STRATEGY' }
     }
@@ -278,14 +278,18 @@ class RewriteEngine {
   /**
    * 获取推荐策略列表
    * @param {object} userSettings
+   * @param {string} [content] - 待改写原文（无有效信号时驱动保真优先兜底）
    * @returns {Array}
    */
-  getRecommendedStrategies(userSettings = {}) {
+  getRecommendedStrategies(userSettings = {}, content = '') {
     const strategies = this._strategyManager.listEnabled()
     const matcher = new StrategyMatcher({
       userSettings,
       userHistory: this._knowledgeBase.getUserHistory(),
-      topN: 3
+      topN: 3,
+      // 无有效信号兜底（rewrite-default-strategy-fix）：原文形态驱动保真优先。
+      // 缺省空串 ⇒ 启发式退化为「保真兜底」（_isFidelityPreferred 对空内容返回 true）。
+      content,
     })
     return matcher.recommend(strategies)
   }
@@ -334,12 +338,12 @@ class RewriteEngine {
     }
   }
 
-  _resolveStrategy(strategyId, userSettings) {
+  _resolveStrategy(strategyId, userSettings, content = '') {
     if (strategyId) {
       return this._strategyManager.get(strategyId)
     }
-    // 自动匹配
-    const recommended = this.getRecommendedStrategies(userSettings)
+    // 自动匹配（原文形态参与无有效信号时的兜底取向）
+    const recommended = this.getRecommendedStrategies(userSettings, content)
     return recommended.length > 0 ? recommended[0] : null
   }
 
@@ -547,7 +551,7 @@ class RewriteEngine {
     }
 
     // 长度限制（Unicode 码点计数，与 _validate 一致；避免代理对被切断产生乱码）
-    // 优先级：wordCountRange.max > 策略 postProcess.maxLength > 默认 2500
+    // 优先级：wordCountRange.max > 策略 postProcess.maxLength > 默认 3000（DEFAULT_MAX_OUTPUT_LENGTH）
     const maxLength = (wordCountRange && typeof wordCountRange.max === 'number' && wordCountRange.max > 0)
       ? wordCountRange.max
       : (postProcess.maxLength || DEFAULT_MAX_OUTPUT_LENGTH)
