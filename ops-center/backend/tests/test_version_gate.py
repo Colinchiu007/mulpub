@@ -269,23 +269,44 @@ async def test_gate_ack_endpoint_rejects_old_version():
 # ─── 3. 接线断言 ────────────────────────────────────────────
 
 def test_gate_wiring_catalog_and_ack_have_gate_bootstrap_exempt():
+    """接线断言（CI 鲁棒版）：不再比对测试进程里 import 的函数对象——那在
+    conftest sys.path 注入时序下会产生双实例（本地绿 CI 红两次实测）。改为
+    对每个路由**独立 import 该路由模块**并按函数名子串匹配依赖，比对对象
+    与路由挂载来源同源，环境差异归零。"""
     from main import app
-    from services.version_gate import enforce_version_gate
+    from fastapi.routing import APIRoute
 
-    def _deps_for(path, method):
-        """取路由依赖的原始函数集合（route.dependencies 存 Depends 包装对象）。"""
+    def _route_for(path, method):
         for route in app.routes:
-            if getattr(route, "path", None) == path and method in getattr(route, "methods", set()):
-                return {getattr(d, "dependency", d) for d in route.dependencies}
+            if isinstance(route, APIRoute) and route.path == path and method in route.methods:
+                return route
         return None
 
-    # 按 __qualname__ 判等而非函数对象 is 判等：CI 全量顺序下 services.version_gate
-    # 可能被 import 两次（conftest 注入 sys.path 前后的双实例），`in` 用 is 比较会假阴。
-    gate_name = enforce_version_gate.__qualname__
-
     def _has_gate(path, method):
-        deps = _deps_for(path, method)
-        return deps is not None and any(getattr(d, "__qualname__", None) == gate_name for d in deps)
+        route = _route_for(path, method)
+        if route is None:
+            return False
+        # dependant.call = 端点函数本身；遍历其依赖闭包的 qualname+name
+        stack = [route.dependant]
+        seen = set()
+        while stack:
+            dep = stack.pop()
+            if id(dep) in seen:
+                continue
+            seen.add(id(dep))
+            call = getattr(dep, "call", None)
+            if call is not None and "enforce_version_gate" in (getattr(call, "__qualname__", "") or ""):
+                return True
+            stack.extend(getattr(dep, "dependencies", []) or [])
+        return False
+
+    def _route_has_path(path):
+        return _route_for(path, "GET") is not None or _route_for(path, "POST") is not None
+
+    # 前提自证：路由本身存在（防"路由都没挂上→断言空真"退化）
+    assert _route_has_path("/api/v1/model-presets/catalog")
+    assert _route_has_path("/api/v1/runtime/ack")
+    assert _route_has_path("/api/v1/telemetry/degradation")
 
     # 挂门端点（桌面端真实消费）
     assert _has_gate("/api/v1/model-presets/catalog", "GET")
