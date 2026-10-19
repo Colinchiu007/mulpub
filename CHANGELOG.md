@@ -656,6 +656,15 @@
 ## 问题
 
 rewrite-limits-50000 放开上限后暴露三条契约尾巴（change rewrite-segment-and-finish-reason 第一刀）：
+# [未发布] fix(i18n): TabBar 标签兜底文案收进 locales —— 并把"谁在决定可见文案"这条层间关系钉成断言（ux-audit-nav-locales）
+
+- `TabBar.vue` 的 `getTabLabel` 两处字面量换成既有键：`‘首页’` → `t(‘nav.home’)`、`‘新标签页’` → `t(‘tabs.newTabTitle’)`。可见文案逐字不变 ⇒ **像素中性**，不动 locale 文件（两个键与英文侧早已存在，只多消费一次）。
+- **写测试时才发现审计稿指错了层**：模板是 `{{ tab.title || getTabLabel(tab) }}` —— title 优先，`getTabLabel` 只是 fallback。真正决定首页标签文字的是 `stores/tab.js:97/:220` 里写死的 `title: ‘首页’`。所以"改了 TabBar 就等于标签国际化"是错的。
+- 判别性证据只能是**非默认语言档**：zh 档下新旧实现产出完全相同，抽取是否真接上 i18n 不可观测。新增 `TabBar.test.js`「标签文字随语言切换」4 例（zh 档文案、en 档产出 `Home`/`New Tab`、结构锁禁字面量、层间关系 title 优先）。两道变异（把两个 `t()` 退回字面量）各让 ≥1 条指名用例变红，`RESTORED_OK=true`。
+- 层间关系那条**不是**"en 档应该显示 Home"的缺陷断言，而是**入口证据**：谁把 store 的 title 也改成随语言走，它会立刻红，逼那次改动显式改判据并交代已持久化标签数据的迁移（属阶段 3.2）。
+- 词典新增《首页 / 主页 术语边界》一节：`nav.home=首页` 与 `sidebar.home=主页` 同指 `/`（四份真源的两份），写作规范定为「新文案一律取 `nav.home`，要区分就改键名不改词」；并登记审计稿 3.1 的 `MpModuleNav.vue:37-47` 半条**已被实况否证** —— 该组件由 #3951 删除，按 `git ls-files` 核过在位状态才动手。
+
+# [未发布] feat(gates): UX 审计阶段 5.3/5.4 两条新门禁 —— 未接线组件与死观测字段必须被机械检出（ux-audit-phase34）
 
 1. provider `finish_reason` 在 adapter 已返回（openai.js:158 / anthropic.js:174 / minimax-llm.js:137，其余 OpenAI 兼容子类继承），但 ai-generator→llmClient→引擎全链路只传 string ⇒ **模型侧输出截断完全不可见**，与引擎侧截断混淆无法归因；
 2. Python 聚合链路 `RewriteRequest` 字数上界仍钉 5999/6000，与 JS 引擎 50000 不一致；
