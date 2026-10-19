@@ -101,6 +101,10 @@ export default {
       select_video_scenes: 'AI 视频场景选择',
       generate_assets: '图片/视频/旁白生成',
       finalize_assets: '旁白与素材定稿',
+      // 影视工程「自动」模式进度区三阶段（与 filmEngineering.auto.step* 用词一致）
+      film_auto_plan: '分镜规划',
+      film_auto_generate: '逐镜生成',
+      film_auto_render: '收口合成',
     },
     statuses: {
       idle: '待开始',

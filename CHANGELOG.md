@@ -125,6 +125,33 @@
 - **遗留第 3 项降级为「无需处理」**：收起期间跨 900px 断点原被登记为遗留，复核后确认 `computeEmbeddedViewBounds` 内部 `collapsed ? 0 : normalizeSidebarWidth(width)` 已让 width 参数在收起态完全失效，展开时 `MpSidebar` 的 `ResizeObserver`（`w > 0` 守卫）在同一帧后上报真实宽度 —— 不产生错误布局，不值得为一次不可见的抖动新增状态位。
 - **测试**：新增 106 例（OAuth 布局同步 7 / 守卫 4 / 广播 8 / 注入 4 / store 广播 8 / App 订阅 5 / preload 合同 3 / 跨进程多窗口链路 1，其余为既有文件增量），受影响面 12 files / 311 tests 全绿；`tsc --noEmit` rc=0；`eslint` 0 error。
 - **文档**：`openspec/changes/sidebar-collapse-toggle/` 新增 3 条 Requirement / 10 Scenario（spec 7 → 10 条）、tasks 第 7 节；执行记录 `openspec/records/sidebar-collapse-followups.md`。
+# [未发布] fix(film-engineering): 五条功能缺陷修复——复制模式退化 / 阶段名未本地化 / 画布归因过粗 / refCount 无写入 / 7 块 vs 5 块口径不一致（fix-film-engineering-defects）
+
+- **缺陷 1（CRITICAL）：一键复制的三个结构化模式在真实语料上退化**。分镜详情抽屉提供 `full/blocks/characters/geo` 四种复制模式，用主进程同一套切块逻辑跑**真实 kit 的 153 个分镜**实测：能切出任意块的仅 **3 镜（2.0%）**，`GEO SPATIAL LAYOUT` 命中 **0**，`[CHARACTER:` 命中 **0** —— 点「复制 GEO 布局」几乎恒得到「（无 GEO SPATIAL LAYOUT 块）」。根因是切块用**整行精确比较**（`BLOCK_HEADINGS.includes(line.toUpperCase())`），而真实提示词的块标题带括号后缀与结尾冒号，例如 `GEO SPATIAL LAYOUT (locked across every CO shot — pure spatial map):`。引入点 `a3a93913`（2026-08-15，`shot-library.js` 新增文件即如此，**自诞生起即如此、非后续回归**）。
+
+  - **修复**：`BLOCK_HEADINGS` 补齐为 **7 项**（补 `SCENE CONTEXT` 与 `STYLE`，与随包方法论同源）；判定改为**行首前缀正则**，且正则**从 `BLOCK_HEADINGS` 单一真源生成**（避免第三处硬编码），容忍括号后缀 / 结尾冒号 / 小写 / 前导空白，并用 `\b` 词边界保证正文行中出现的标题字样不被误判。
+  - **实测**：切块率 **2.0%（3/153）→ 43.1%（66/153）**。
+
+- **缺陷 2（MAJOR）：自动模式进度阶段名显示英文 id 原文**（`film_auto_plan` / `film_auto_generate` / `film_auto_render`）。阶段 id 定义在 `useFilmAutoRun.js`，从未登记进 `src/i18n/pipeline-labels.js` 的 STAGES 表，`translate()` 走 fallback 返回原始 id。引入点 `b3ee1579`（2026-10-10，PR #3234 新增自动模式时只定义 id、忘了登记翻译）。**修复**：STAGES 补三条 + `locales/pipelines/{zh,en}.js` 成对文案（分镜规划 / 逐镜生成 / 收口合成；Shot Planning / Shot Generation / Final Composition），用词与自动模式步骤条一致。
+
+- **缺陷 3（MAJOR）：画布所有失败都归因为「影视引擎不可用」**。除「超过 10 镜」「未选分镜」外**全部**弹同一条，而真因常是没配视频模型（`VIDEO_MODEL_NOT_CONFIGURED`），用户会以为安装坏了而非去配模型。**是两处叠加**：① 视图 `else` 兜底过宽；② `useFilmVideoGen.start` 第 166 行捕捉了 `res.errorCode`，但第 169 行**恒返回硬编码 `'startFailed'`**，真因在返回时被丢弃 ⇒ 调用方拿不到值，**只改视图无效**。**修复**：两处都改 —— 如实透传 `errorCode`，视图按 `VIDEO_MODEL_NOT_CONFIGURED` 分流到 `video.noModel`（精准文案早已存在于 locales，只是画布未引用）。
+
+- **缺陷 4（MINOR）：画布「已注入 N 张参考」提示永不显示**。`ShotNode.vue` 渲染该提示，但全仓**无任何代码写入 `data.refCount`**（grep 仅命中渲染处）⇒ 连线成功后用户得不到任何视觉反馈。**修复**：在 `addEdge` / `removeNodes` 后由 `collectShotReferences` 回写（**真源与实际参与生成的参考同源，不引入第二套计数**）；删边时先收集受影响的 target 再重算，避免读到已被过滤掉的边。
+
+- **缺陷 5（MINOR）：方法论 7 块 vs 切块 5 块口径不一致**。随缺陷 1 补齐为 7 项，并加**同源锁**机械比对 `BLOCK_HEADINGS` 与 `prompt-doctrine.json` 的 `blocks[].label`。
+
+- **回归保护测试（新增 17 条）**：
+  - `electron/services/film-engineering/shot-library.real-kit.test.js`（9 条，真实语料）
+  - `src/i18n/pipeline-labels.stage-coverage.test.js`（3 条，全仓扫描阶段 key）
+  - `src/views/FilmCanvasView.actions.test.js` 扩展 5 条（共 14）
+
+  **为什么既有测试拦不住缺陷 1**：`shot-library.test.js` 的 blocks/characters/geo 三个用例用的是**自造的理想化夹具**（块标题就是纯 `GEO SPATIAL LAYOUT`）。那种夹具在「整行精确比较」和「行首前缀匹配」两种实现下**都会通过** —— 它测的是算法意图，不是算法对真实输入的有效性。改实现后它们仍全绿，所以新断言刻意**锚定真实语料的统计特征**（命中数 > 0、切块率 > 阈值）。
+
+- **四条系统性漏洞与堵法**：S1 夹具理想化 → 真实语料统计断言；S2 动态 i18n key 无登记检查（三道文案门禁都只管字面量）→ 全仓扫描锁；S3 错误兜底 `else` 吞掉原因多样性 + composable 换硬编码常量返回让调用方失去分流能力 → 透传链端到端保真；S4 跨文件「渲染侧读字段、写入侧没写」→ 写入端单测配对。
+
+- **验证**：定向 8 个文件 **87/87 全绿**（含既有 `shot-library.test.js` 20 条、画布 4 文件 41 条零回归）；`pnpm run lint` exit 0；`check-locale-sync --pair-base HEAD` PASS（zh/en 成对）。
+
+- **文档**：`01-docs/PRD-FILM-ENGINEERING-DEFECT-FIX-2026-10-19.md`（含显示项 / 交互 / 数据校验 / 提示文案全表）、`01-docs/BUGFIX-FILM-ENGINEERING-FINDINGS-2026-10-19.md`（根因溯源 + 逃逸链）、`01-docs/USER-MANUAL-FILM-ENGINEERING-COMPLETE-2026-10-19.md`（同步修订）、`01-docs/learnings.md` 置顶条目、`.agent_context/memory-film-engineering-defect-fix.md`、EverOS（md-first 直写 + 读回验证 HIT）。
 
 # [未发布] feat(gates): QM-6 评审后端对收敛为单一真源，「设了没生效」改为判不闭合（qm6-review-backend-config）
 
