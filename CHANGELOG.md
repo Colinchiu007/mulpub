@@ -9,7 +9,7 @@
 - `provider-error.js`：新增 `PLAN_UNSUPPORTED` 错误码（category=config，retryable=false）。
 - `minimax-tts.js`：`classifyBaseRespError` 增加 `isPlanUnsupported`（statusCode=2038 官方「语音克隆功能被禁用」短路 + `token plan not support` / `voice_clone ... forbidden|disabled|not support` / 中文「套餐不支持」族正则），**置于 isQuota 之前**，避免额度类误吃。
 - `tts-voice-clone-service.js`：`cloneFailureFromAdapterError`——throw 与结构化 errorCode 两条路径统一：PLAN_UNSUPPORTED → `VOICE_CLONE_PLAN_UNSUPPORTED` + `data.detail`=供应商原话；其余保持 PROVIDER_UNAVAILABLE。点名还账文件零增长（等价折叠抵消）。
-- 渲染层：`friendlyVoiceCatalogError` map + zh/en locale 新增 `VOICE_CLONE_PLAN_UNSUPPORTED`（zh 含「MiniMax 的音色复制需要按量付费，不支持订阅套餐」）。
+- 渲染层：`friendlyVoiceCatalogError` map + zh/en locale 新增 `VOICE_CLONE_PLAN_UNSUPPORTED`（zh 含「MiniMax 的音色复制需要另付费 9.9 元购买音色，不能直接使用订阅套餐」）。
 
 ## 验证
 - 定向测试：18 文件 / 599 passed（adapter 3 例新用例：plan 归类 / 2038 归类 / balance 不误判为 plan；service 2 例：throw 透传 + 结构化透传且不落 registry；CreateView 映射 2 断言）。
