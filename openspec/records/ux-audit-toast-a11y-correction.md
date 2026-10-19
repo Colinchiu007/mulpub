@@ -6,7 +6,7 @@ date: 2026-10-19
 
 ## 本次执行记录：audit-60 更正（ux-audit-toast-a11y-correction，2026-10-19）【docs-only】
 
-- 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD` → 结果与文件清单见本 PR 正文（改动集只含 `01-docs/UX-AUDIT-2026-10-17.md`、`CHANGELOG.md`、本篇记录）
+- 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD`（commit 之后取证的，未提交时会因空 diff 假判 false）⇒ **docs-only=true files=3**：`01-docs/UX-AUDIT-2026-10-17.md`、`CHANGELOG.md`、`openspec/records/ux-audit-toast-a11y-correction.md`；同轮 `check-pr-exec-record --mode=enforce` ⇒ OK（变更文件 3 个 A=1 M=2，新增记录 1 篇）
 - 保留门禁：行尾对账 ✅（两口径逐文件一致，34/2 与 34/2）| 品牌残留 ✅（本 worktree 内实测 PASS，扫描 10704 个受管文件）| 文档同步 随 CI doc-gate | 执行记录 ✅ 本文件 | 远程同步 PR #（合并后由门禁推导）
 
 | 门禁 | 状态 | Fresh 证据 |
