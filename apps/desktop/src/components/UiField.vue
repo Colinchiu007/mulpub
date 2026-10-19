@@ -5,7 +5,7 @@
     :class="{ 'ui-field--inline': inline, 'ui-field--error': !!error }"
     :aria-invalid="error ? 'true' : undefined"
   >
-    <label v-if="label" class="ui-field-label" :for="forId">
+    <label v-if="label" class="ui-field-label" :for="resolvedForId || undefined">
       {{ label }}
       <span v-if="required" class="ui-field-required" aria-hidden="true">*</span>
     </label>
@@ -23,8 +23,9 @@
 <script setup>
 // 展示容器 + 运营隐藏守卫：optionKey 为空时始终渲染；非空时走父子契约的 s2vOptionVisible（fail-open），
 // 与抽取前的 v-if="s2vOptionVisible(...)" 语义逐字一致，不得绕过。
-import { computed, inject } from 'vue';
+import { computed, inject, provide, ref } from 'vue';
 import { S2V_PANEL_KEY } from '../views/video-creation/s2v-panel-contract';
+import { UI_FIELD_CONTROL_ID } from './uiFieldControlId';
 
 defineOptions({ name: 'UiField' });
 
@@ -37,6 +38,24 @@ const props = defineProps({
   inline: Boolean,
   reserveError: Boolean,
   optionKey: { type: String, default: '' },
+});
+
+// ── label ↔ 控件的 id 通道（audit-29 / 阶段 4.3）────────────────────────
+// 控件（UiInput）在 setup 期把自己的 id 登记进来；登记发生后标签才有 for。
+// 两条硬约束：
+//  ① **宁可没有 for，也不能有指向不存在元素的 for** —— 所以没有登记时 `:for` 整个属性缺席，
+//     渲染成 `for=""` 会被辅助技术读成"关联到一个不存在的控件"，比缺失更坏；
+//  ② 登记优先于 `forId`：`forId` 的正当用途是"控件不在我的槽里、在别处"，
+//     这时标签本就该指那个外部 id；而**槽里真有控件时**，控件的实际 id 才是唯一正确答案，
+//     让标签去指一个控件并没有采用的 forId，等于制造坏关联。
+// 时序说明（不是缺陷，测试里作为显式断言钉住）：父组件先渲染、子组件在挂载阶段才登记，
+// 所以首帧的 label 没有 for，登记触发的重渲染在同一微任务里补上 —— 用户看不到中间态
+// （`for` 不是可视属性），但"下一帧必须成立"要有锁，否则以后谁改成一次性渲染就会静默失效。
+const claimedId = ref('');
+const resolvedForId = computed(() => claimedId.value || props.forId);
+provide(UI_FIELD_CONTROL_ID, {
+  // 先到先得：一个 label 只能描述一个控件，第二个控件仍有自己的 id，只是不被这个标签指向
+  claim: (id) => { if (id && !claimedId.value) claimedId.value = id; },
 });
 
 const panel = props.optionKey ? inject(S2V_PANEL_KEY) : null;

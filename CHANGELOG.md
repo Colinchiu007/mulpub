@@ -1422,6 +1422,33 @@ IPC 次数本身未降（本轮是「按需申请」，单段仍 5 次 IPC；服
 - **回归锁**：`tts-voice-clone-service.test.js` 新增 2 例——「改名容器」三形态拒绝（ftypmp42 假 MP3、ID3 假 M4A、RIFF 假 M4A，均不调 adapter/不写 registry）与「真实容器不误伤」（ID3 头 MP3、870B 双静音帧裸 MP3、RIFF/WAVE 全部正常克隆通过）。
 - **文件**：`apps/desktop/electron/services/tts-voice-clone-service.js`、`tts-voice-clone-service.test.js`。回归：clone 域 155 例全绿（service 50 + integrity 8 + provider 122 内 asset/mimo 部分 + catalog/service 33）。
 
+# [未发布] fix(a11y): label 与控件的 id 通道 —— UiInput 补 id prop + 控件把自己的 id 登记给 UiField 标签（UX 审计 4.3 机制层）
+
+- **修什么**：`UiField` 的 `<label :for="forId">` 里 `forId` 是**可选** prop，绝大多数调用点没传 ⇒ 孤岛标签；
+  而更根的一层是 `UiInput` **没有 `id` prop**，调用方写的 `id="x"` 作为属性透传落在根 `div` 上、`<input>` 上没有 id ——
+  也就是说"记得传 forId"这条路从控件侧本来就是断的。缺的是机制，不是纪律。
+- **交互口径（用户可见）**：点击标签把焦点送进对应输入框；读屏在字段上念出标签文本而不是"编辑框 未标注"。
+  **视觉零变化** —— 新增的只有 `id` 与 `for` 两个属性，所以不动像素基线（这是本批的设计前提，
+  也因此没有改成"包裹式 label"，那会改 DOM 结构）。
+- **优先级口径（容易写反的一处）**：`resolvedForId = 控件登记值 || forId`。`forId` **不覆盖**槽内控件 ——
+  第一版写成"控件去用 forId"，实测症状是同一 UiField 里第二个控件**复用第一个的 id**（HTML 重复 id，浏览器只关联到第一个），
+  并且标签可以指向一个控件没用上的值（正是本批要消灭的"有 for 但指向空气"）。`forId` 的正当用途是
+  "标签描述的控件不在我的槽里"，那种情形没有登记发生，它原样生效；一个 label 只指向第一个控件，与 HTML 语义一致。
+- **宁可没有 for，也不能有指向不存在元素的 for**：登记没发生前 `:for` 整个属性缺席（`for=""` 会被辅助技术读成坏关联）。
+  父先渲染、子挂载期登记 ⇒ 严格存在一个"标签还没有 for"的帧；`for` 不是可视属性所以无闪烁，
+  但"下一帧必须成立"被写成显式断言（摘掉登记 ⇒ 5 条红），防以后有人改成一次性渲染。
+- **验证**：`vitest run src/components/UiField.label-association.test.js + UiField/UiInput 两套既有` → 31 passed；
+  `vitest run src/components` 整目录 → **721 passed / 67 files**（回归零红，本批改的是共用组件、消费面最大）。
+  变异反证 5 条（for 不再 `|| undefined` / 控件不登记 / id 写成常量 / 控件不输出 id / 控件回读父级目标）
+  全部 CAUGHT 且各红在指名用例；控制跑 rc=0 passed=11；两份被测文件还原后逐字节相同。
+  结构锁三条：通道 key 文件只允许一个 `Symbol(`、两个组件必须 import 同一 key、禁止 `provide(inject(Symbol` 内联 ——
+  两份通道定义的失败形态是"组件各自渲染但关联永不建立"，静默且像素无感。
+- **刻意没做**：不迁移 139 处调用点（本批只交付机制，之后每处收敛是一步替换）；不改 `check-label-association.js` 基线
+  （那把棘轮住在未合并的 PR #4011 分支上，且它只看裸 `<label>` 有无 `for`，对"有 for 指向空气"结构性失明，  不能拿来验收本批）；不加 `aria-describedby`（hint 关联是另一条契约，混做会把两件事的回归范围叠在一起）。
+
+- 涉及文件：`apps/desktop/src/components/uiFieldControlId.js`（新）、`UiField.vue`、`UiInput.vue`、
+  `UiField.label-association.test.js`（新，11 条）、`openspec/records/ux-audit-label-for-wiring.md`（新）、
+  `01-docs/UX-AUDIT-2026-10-17.md`（4.3 行状态）。
 
 # [未发布] docs(audit): 更正 audit-60 的 harm 陈述 —— ElMessage 根节点其实已带 role="alert"，阶段 4.6 因此收窄（ux-audit-toast-a11y-correction）
 
