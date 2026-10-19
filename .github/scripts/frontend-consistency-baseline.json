@@ -1,6 +1,7 @@
 {
   "windowConfirm": 0,
   "rendererIpcDirect": 0,
+  "opsElectronApi": 0,
   "colorLiterals": 129,
   "cssVarUndefined": 64,
   "appleAlias": 0
