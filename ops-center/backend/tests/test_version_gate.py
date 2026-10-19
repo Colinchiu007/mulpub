@@ -295,9 +295,17 @@ def test_gate_wiring_catalog_and_ack_have_gate_bootstrap_exempt():
                 continue
             seen.add(id(dep))
             call = getattr(dep, "call", None)
-            if call is not None and "enforce_version_gate" in (getattr(call, "__qualname__", "") or ""):
+            if call is not None and "enforce_version_gate" in ((getattr(call, "__qualname__", "") or "") + (getattr(call, "__name__", "") or "")):
                 return True
             stack.extend(getattr(dep, "dependencies", []) or [])
+        # 兜底 1：route 级依赖（router dependencies）挂在 route.dependencies，不进 dependant 闭包
+        for d in getattr(route, "dependencies", []) or []:
+            dd = getattr(d, "dependency", d)
+            if "enforce_version_gate" in ((getattr(dd, "__qualname__", "") or "") + (getattr(dd, "__name__", "") or "")):
+                return True
+        # 兜底 2：任何包装形式的字符串化匹配（Depends repr 含函数名）
+        if "enforce_version_gate" in repr(getattr(route, "dependencies", [])) + repr(getattr(route, "dependant", "")):
+            return True
         return False
 
     def _route_has_path(path):
