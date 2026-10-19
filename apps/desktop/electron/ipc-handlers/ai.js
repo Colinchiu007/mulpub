@@ -100,9 +100,11 @@ ipcMain.handle('ai:generate-summary', withSenderCheck(async (_event, content) =>
       } catch (e) { log.warn('[ipc:ai]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
     })
 
-    ipcMain.handle('ai:get-recommended-strategies', async (_event, userSettings) => {
+    // content（可选，第二参）：参与无有效信号时的保真优先兜底（rewrite-default-strategy-fix）。
+    // 老调用方只传 userSettings 时 content 为 undefined ⇒ 桥接层回落空串，行为不变。
+    ipcMain.handle('ai:get-recommended-strategies', async (_event, userSettings, content) => {
       try {
-        return { code: 0, data: rewriteEngineService.getRecommendedStrategies(userSettings || {}) }
+        return { code: 0, data: rewriteEngineService.getRecommendedStrategies(userSettings || {}, content) }
       } catch (e) { log.warn('[ipc:ai]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
     })
   }
