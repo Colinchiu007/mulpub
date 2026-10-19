@@ -42,7 +42,7 @@ sync_backfill_owner: collection-page-ui-ue-refine 会话（回填 PR）
 | 品牌残留 | PASS | `check-no-brand-residue.js` rc=0 |
 | QM-4 视觉 | PASS（CI 同源取证） | 基线用**本 PR 自己的 CI 渲染**回填（#3856 已验证路径）；本机 `check-baseline-freshness.js --partial` 对账 **38 张 0 违规**。本机重建已被证否（dark 差 5467 px），见 §4-8 |
 | QM-1 打包 | **未执行** | 本轮未改 `electron/` 主进程代码（仅 renderer），按 QM-1 触发条件（改 `apps/desktop/electron/` 或 `packages/rpa-engine/`）不强制；如实登记 |
-| QM-6 双模型评审 | **未完成（环境限制）·已披露** | decider 判 DUAL；`deep-review.sh` 两次 `ETIMEDOUT`（引擎 timeoutMs 硬编码 600s，diff 3786 行跑不完）。机械判据 OK，substantive 双模型审查未完成 ⇒ 按残留风险披露并给出三个补救选项，见第 5 节 |
+| QM-6 双模型评审 | **未完成（基础设施故障）·已披露** | decider 判 DUAL；3 次实跑均死在 critic 侧：全量 2 次 `ETIMEDOUT`，缩到 958 行子集后改为 `claude exited with status 1`。最小探针证实 **claude 网关 502**（`127.0.0.1:15721` 上游连不上），同刻 opencode 正常 ⇒ 与代码无关、拆 diff 或加超时都无效。须等人网关恢复补审或按例外放行，见第 5 节 |
 | 远程同步 | PENDING | PR #3864 尚未合并；合并后同一次提交改写为 PASS + merge SHA |
 
 - 保留门禁：变更类型与隔离 ✅ | TDD ✅ | 全量测试 ✅ | eslint ✅ | locale 三项 ✅ | max-lines ✅ | 品牌 ✅ | QM-4 CI 同源取证 ✅ | QM-6 未完成·已披露 | 远程同步 PENDING
@@ -130,36 +130,52 @@ sync_backfill_owner: collection-page-ui-ue-refine 会话（回填 PR）
 decider 另报「文档行命中敏感词 10 处」——逐条核对是本 PRD 里的 CSS 尺寸表格文本
 （`col-select padding`、`col-toolbar-icon`、ASCII 版式图），**非凭证，属假阳性**。
 
-**深度审查实跑结果：失败（环境限制，非代码问题）**
-两次执行 `sh scripts/deep-review.sh --force` 均在同一位置失败：
+**深度审查实跑结果：失败（基础设施故障，非代码问题；归因已更正）**
+
+共 3 次尝试，全部死在 critic 侧（claude）：
+
+| # | 范围 | 失败形态 |
+|---|---|---|
+| 1 | 全量（origin/main 3786 行） | `spawnSync <claude-wrapper-exe> ETIMEDOUT` |
+| 2 | 全量（同上，重试） | 同上 |
+| 3 | **子集**（规范层三文件 958 行 / decider 计 252 代码行） | `claude exited with status 1`（非超时） |
+
+第 3 次把范围缩到 1/4 后**不再是超时**，改成后端直接退出，于是做了 30 秒级最小探针：
 
 ```
-[轮 1/3] 调用 critic=claude 评审...
-评审失败: spawnSync <claude-wrapper-exe> ETIMEDOUT
+$ claude -p --output-format text "reply with exactly: OK"
+API Error: 502 请求转发失败: 上游请求失败: client error (Connect).
+           This is a server-side issue... check your inference gateway (127.0.0.1:15721)
+RC=1        （连试 3 次全 502）
+
+$ opencode run "reply with exactly: OK"
+RC=0        → 正常回 OK（proposer 后端可用）
 ```
 
-- 后端体检通过（claude + opencode 均可解析、跨家族校验 proposer=opencode / critic=claude 通过）；
-- 失败点是**单次调用超时**：引擎把 `timeoutMs` 硬编码为 `600000`
-  （`~/.claude/skills/adversarial-review-loop/scripts/ccg-deep-review.js:105`，注释写明
-  「code 审查实测可超 10 分钟」），而本轮 diff 基线 `origin/main` 共 **3786 行**，
-  600s 内跑不完。该值**无环境变量覆盖入口**（已核对脚本与引擎，仅有 `CCG_BACKEND_BIN_DIRS` /
-  `CCG_ARL_DIR` 这类路径开关）。
-- 因此机械判据 `check-pr-exec-record --mode=enforce` 现为 **OK**（记录指向本分支真实提交
-  `6f005c9b`，而不是已废弃的暂存状态那条孤儿记录——后者描述的是 rebase 前一次 staging 的
-  diff 哈希，其 sha `b5ff39b1` 根本不在本分支历史里，留着只会是一条**永远无法清偿**的欠账）。
-- ⚠️ **但这不等于双模型审查做过了**：substantive 的双模型审查在本环境**未完成**。
-  该缺口按事实登记为残留风险，并在 PR 描述里逐条披露；本轮**不存在** IPC / 主进程 /
-  数据模型改动（仅 renderer 的 CSS/模板/locale），这是判断风险可控的依据，不是免责话术。
+- **更正我此前的归因**：昨晚写的是「引擎 timeoutMs 硬编码 600s，3786 行跑不完」。
+  那只是**相关**不是**根因**——把 diff 缩小到 958 行后仍然失败，而同一时刻 claude 连
+  「回一个 OK」都 502。真正卡点是 **claude 侧推理网关（127.0.0.1:15721）上游连不上**，
+  端口在听、opencode 正常、只有 claude 这条链断。**因此「调高 timeoutMs」并不能解决**
+  （我原以为的选项 1 是错的方向，幸好没去改共享工具）。
+- 双模型审查要求跨家族（proposer=opencode / critic=claude），claude 不可用 ⇒ 该门禁
+  **在本环境无法完成**，与代码质量无关，也无法靠重试抖动消除（3 次一致）。
+- 机械判据 `check-pr-exec-record --mode=enforce`：删掉了指向 pre-rebase sha 的那条
+  失效记录（`6f005c9b…` 在 rebase 后已不存在于分支历史），现无 pending/error 债。
+- ⚠️ **但这不等于双模型审查做过了**：substantive 的双模型审查**未完成**，如实登记。
+  判断风险可控的依据是本轮**无 IPC / 无主进程 / 无数据模型改动**（仅 renderer 的
+  CSS/模板/locale），且 CI 24 项 0 红——这是依据，不是免责话术。
 
 **已做的替代自查**（不能替代双模型审查，如实说明）：
 判据面自审聚焦「CSS 契约会不会误报」——判据只覆盖**静态** class token（`:class` 动态部分不进），
 域内命名空间白名单前置，且有自反锁（命中数下界 ≥20 + 已知类必须命中）防「判据失效但全绿」；
 变异反证：删掉 `.col-btn-primary` 规则后契约测试立刻点名，恢复后全绿。
 
-**给人工的三个补救选项**（若认为必须补审，任一可独立执行）：
-1. 调高引擎 `timeoutMs`（改 `ccg-deep-review.js:105`，属改共享工具，须人工过目）后重跑；
-2. 把本 PR 拆成两个更小的 PR（先 CSS 规范层+判据，再页面级改动），让每份 diff 落进 600s；
-3. 拆出「渲染层 CSS/模板」子集单独走一次双模型审查（diff 更小，600s 内可完成）。
+**补救选项（前两条已实测排除，只剩后两条）**：
+1. ~~调高引擎 `timeoutMs`~~ —— **已证伪**：缩小 diff 后仍失败，卡点是网关 502，不是超时。
+2. ~~拆 PR 让每份 diff 落进 600s~~ —— 同理无效（958 行子集仍失败）。
+3. **等 claude 网关恢复后重跑** `sh scripts/deep-review.sh --force`（唯一能真正补审的路径）；
+4. 人工确认「无 IPC/主进程/数据模型改动 + CI 全绿」后按例外放行。
+
 
 
 
