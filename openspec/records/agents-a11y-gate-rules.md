@@ -11,7 +11,7 @@ date: 2026-10-19
 | 变更类型与隔离 | 就地编辑 + 经 PR 落地 | 纯流程/文档变更（只改 `AGENTS.md` 与 `CHANGELOG.md`，不触 `apps/`、`packages/`、`.github/workflows/`、`CI_IGNORED_PATHS`）：按分层判据不需独立 worktree，在共享主工作区就地编辑；分支 `agents-a11y-gate-rules` 由本地 main 上的提交切出后 `git reset --keep origin/main` 保住，推送开 PR。判定证据见下行 |
 | docs-only 判定 | 见下 | `node scripts/classify-docs-only.js --base=origin/main --head=HEAD` 在**提交之后**取证（未提交时 HEAD==base ⇒ 空 diff ⇒ 假 `false`），读数与本记录一同落盘 |
 | 行尾与 diff 对账 | PASS | `AGENTS.md` 工作副本纯 CRLF（改前实测 `crlf=1197 bareLF=0`），逐行保留原行尾；`git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径逐文件相等；收尾另跑行多重集对账（旧行零丢失，除点名替换外） |
-| 品牌残留 / 文档同步 | PASS | `node scripts/check-no-brand-residue.js`、doc-gate 文档同步检查、`node scripts/check-doc-abs-paths.js`（新文字里不写本机绝对路径，取证一律用分支名与本记录） |
+| 品牌残留 / 文档同步 | PASS（本行先写后测已改正，见下） | `node scripts/check-no-brand-residue.js` 实跑 PASS（10816 个受管文件）；`node scripts/check-doc-abs-paths.js --base=origin/main --head=HEAD` 差量模式实跑 **PASS**（`counts=1163 domain=564 files=563 canJudge=true`，本次改动集无新增本机绝对路径）。⚠ 同一条门禁在共享根跑 `--all` 会**因他会话留下的未跟踪文件判红**（`01-docs/EVEROS-DISTILL-INDEX-2026-10-05.md:15` 的 `C:\Users\to_co\.everos`，该文件既不在我 diff 里也不受 git 跟踪）——`--all` 量的是磁盘域、CI 量的是 checkout 域，属已知判定域分叉，不据此改文档也不删别人的文件 |
 | 远程同步 | 由门禁推导 | 本行不需要事后改写：合并后由主干历史（squash 尾注 `(#NNNN)`）推导归属；PR 编号写在正文里即可 |
 
 ### 增补了什么（以及每条的现场依据，全部为本日实跑）
@@ -29,3 +29,4 @@ date: 2026-10-19
 - 不改任何判据代码、不加门禁、不动 `.github/workflows/` 与 `CI_IGNORED_PATHS`（那属"改谁来守门"，须人工过目）。
 - 三条纪律对应的**实现层锁**不在本 PR：`element-plus-attr-forwarding.test.js`、`label-association.contract.test.js` 与孤岛基线在 `ux-audit-label-for` 分支（等并发 PR #4034 的机制层合入后按互补面 reconcile 再推），因此本 PR 合入后，"规则先于门禁存在"的窗口是**已知且刻意**的——规则文字给出判据形状，门禁代码另有归属分支，不在这里抢跑。
 - 本记录里的 `PR #NNNN` 是占位说明形态（按现行规范由主干历史推导收口），不回填状态词。
+- **自查一条（流程缺陷，不是产品缺陷）**：本记录首版把「品牌残留 / 文档同步」两行的状态写成了 PASS，而**当时一条都没跑**——正是 AGENTS「只报当场验过的」与"把声明当证据"要拦的形状。已按实跑读数改写（见该行），并留这段说明而不是静默改掉：静默改写会让下一个会话以为首版一开始就是对的。
