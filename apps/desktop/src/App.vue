@@ -11,10 +11,14 @@
     <!-- 内嵌主页壳态（PRD-TAB-INDEPENDENT-HOME F1）：+ 新标签中的独立 SPA 实例
          运行于 WebContentsView（仅覆盖内容矩形），外层窗口的 TabBar/NavBar/Sidebar
          已在其视野之外——本实例若再渲染一份会造成双份 chrome 视觉错乱，故只渲染
-         模块导航 + 工作区内容。 -->
+         工作区内容。 -->
+    <!-- PRD-UI-FLOW-CLARITY S1b：本分支原渲染「模块导航 + 工作区」。
+         模块导航已删除——它对该实例只提供「指向当前路由的自指 tab」或账号域 4 tab，
+         而账号域 tab 现由 Accounts.vue 页内 tablist 承担（Accounts.vue 渲染在本分支
+         的 router-view 内，页内 tab 同样生效）。壳态导航能力：
+         页内 tab（accounts 域）+ 主进程 home-shell-navigate 定向投递（App.vue 下方订阅）。 -->
     <template v-else-if="isHomeShell">
       <div class="mp-home-shell-root" data-testid="mp-home-shell">
-        <MpModuleNav />
         <main class="mp-workspace cohere-main" data-testid="mp-workspace">
           <RouteLoadError v-if="routeLoadError" v-bind="routeLoadError" @retry="retryRouteLoad" @refresh="refreshRouteLoad" />
           <router-view />
@@ -59,8 +63,11 @@
             @navigate="onNavigate"
             @save-account="onSaveAccount"
           />
-          <!-- 模块导航（仅首页标签显示） -->
-          <MpModuleNav v-if="isHomeTab" />
+          <!-- 模块导航已删除（PRD-UI-FLOW-CLARITY S1b）：
+               原为 70px 外壳层，只渲染「指向当前页面的自指 tab」或账号域 4 tab。
+               账号域 tab 已由 Accounts.vue 页内 tablist 承担（S1a），
+               home 域是自指空壳、publish 域本就返回 []，故组件整体下线。
+               删除后页面顶部少一层，视觉基线需重建（QM-4）。 -->
           <!-- 主内容区 -->
           <main class="mp-workspace cohere-main" data-testid="mp-workspace">
             <RouteLoadError v-if="routeLoadError" v-bind="routeLoadError" @retry="retryRouteLoad" @refresh="refreshRouteLoad" />
@@ -93,7 +100,7 @@
 
 <script setup>
 import { getApi, invokePageManager } from '@/api/electron-bridge'
-import MpModuleNav from '@/layouts/MpModuleNav.vue'
+// PRD-UI-FLOW-CLARITY S1b：MpModuleNav 已删除（账号域 tab 改由 Accounts.vue 页内承担）
 import MpSidebar from '@/layouts/MpSidebar.vue'
 import TabBar from '@/components/TabBar.vue'
 import NavBar from '@/components/NavBar.vue'

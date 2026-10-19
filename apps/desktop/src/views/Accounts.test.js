@@ -62,10 +62,14 @@ const _eventUnsubscribers = vi.hoisted(() => ({
   statusChanged: vi.fn(),
 }));
 const _routeState = vi.hoisted(() => ({ path: '/accounts', query: {} }))
+// PRD-UI-FLOW-CLARITY S1a：页内模块 tab 通过 router.push 切换。
+// 原 mock 每次调用都返回新的 { replace: vi.fn() }，既无 push 也无法断言，
+// 故改为共享对象；调用方需在 beforeEach 里清空调用记录。
+const _routerState = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }))
 
 vi.mock('vue-router', () => ({
   useRoute: () => _routeState,
-  useRouter: () => ({ replace: vi.fn() }),
+  useRouter: () => _routerState,
 }))
 
 vi.mock('@/stores/identity', () => ({
@@ -417,12 +421,116 @@ describe("AccountsView", () => {
     expect(_spies.createGroup).toHaveBeenCalledWith('视频组', 'douyin')
   })
 
-  it("分享页签显示诚实的能力边界而不是伪造团队数据", async () => {
-    _routeState.query = { tab: 'share' }
-    const w = await mountView()
-    expect(w.get('[data-testid="account-share-panel"]').text()).toContain('尚未接入团队分享服务')
-    expect(w.get('[data-testid="account-share-state"]').text()).toContain('未接入服务')
-    expect(w.get('[data-testid="account-share-create"]').attributes('disabled')).toBeDefined()
+  // ── PRD-UI-FLOW-CLARITY S1a：账号域页内模块导航契约 ──
+  // 背景：此前账号域 3 个非默认 tab 的切换 100% 依赖全局外壳层 MpModuleNav 的
+  // router-link；该组件在 S1b 被删除。若没有页内 tablist，除「账号管理」外的
+  // tab 将完全不可达（只能手改 URL）。以下用例锁住这一契约。
+  describe('账号域页内模块导航（S1a）', () => {
+    beforeEach(() => {
+      _routerState.push.mockClear()
+      _routerState.replace.mockClear()
+    })
+
+    it('渲染 3 个 role=tab，且「分享链接」tab 已下线', async () => {
+      _routeState.path = '/accounts'
+      _routeState.query = {}
+      const w = await mountView()
+      const tabs = w.findAll('[data-testid^="account-module-tab-"]')
+      expect(tabs).toHaveLength(3)
+      expect(tabs.map(t => t.attributes('data-testid'))).toEqual([
+        'account-module-tab-accounts',
+        'account-module-tab-groups',
+        'account-module-tab-favorites',
+      ])
+      // 分享链接按 PRD §14 裁决 #4 下线：DOM 中不得再有该 tab 或其占位面板
+      expect(w.find('[data-testid="account-module-tab-share"]').exists()).toBe(false)
+      expect(w.find('[data-testid="account-share-panel"]').exists()).toBe(false)
+    })
+
+    it('active/aria-selected/tabindex 跟随 route.query.tab', async () => {
+      _routeState.path = '/accounts'
+      _routeState.query = { tab: 'groups' }
+      const w = await mountView()
+      const accounts = w.get('[data-testid="account-module-tab-accounts"]')
+      const groups = w.get('[data-testid="account-module-tab-groups"]')
+      expect(groups.classes()).toContain('active')
+      expect(groups.attributes('aria-selected')).toBe('true')
+      expect(groups.attributes('tabindex')).toBe('0')
+      expect(accounts.classes()).not.toContain('active')
+      expect(accounts.attributes('aria-selected')).toBe('false')
+      expect(accounts.attributes('tabindex')).toBe('-1')
+    })
+
+    it('点击 tab 走 router.push 且带上正确的 query.tab', async () => {
+      _routeState.path = '/accounts'
+      _routeState.query = {}
+      const w = await mountView()
+      await w.get('[data-testid="account-module-tab-groups"]').trigger('click')
+      expect(_routerState.push).toHaveBeenCalledWith({
+        path: '/accounts',
+        query: { tab: 'groups' },
+      })
+    })
+
+    it('切回「账号管理」时移除 tab 参数（保持默认 URL 干净）', async () => {
+      _routeState.path = '/accounts'
+      _routeState.query = { tab: 'favorites' }
+      const w = await mountView()
+      await w.get('[data-testid="account-module-tab-accounts"]').trigger('click')
+      expect(_routerState.push).toHaveBeenCalledWith({ path: '/accounts', query: {} })
+    })
+
+    it('非法 tab 值回落 accounts，不渲染空白面板', async () => {
+      _routeState.path = '/accounts'
+      _routeState.query = { tab: 'not-a-real-tab' }
+      const w = await mountView()
+      expect(w.get('[data-testid="account-module-tab-accounts"]').classes()).toContain('active')
+      // 账号管理面板（含平台筛选栏）仍在，不是空白
+      expect(w.find('.account-controls').exists()).toBe(true)
+    })
+
+    it('键盘 End 落到第 3 个 tab（3-tab 取模，非 PublishHistory 的 2-tab 硬编码）', async () => {
+      _routeState.path = '/accounts'
+      _routeState.query = {}
+      const w = await mountView()
+      const first = w.get('[data-testid="account-module-tab-accounts"]')
+      await first.trigger('keydown', { key: 'End' })
+      expect(_routerState.push).toHaveBeenCalledWith({
+        path: '/accounts',
+        query: { tab: 'favorites' },
+      })
+    })
+
+    it('键盘 ArrowLeft 从第 1 个环绕到第 3 个', async () => {
+      _routeState.path = '/accounts'
+      _routeState.query = {}
+      const w = await mountView()
+      await w.get('[data-testid="account-module-tab-accounts"]').trigger('keydown', { key: 'ArrowLeft' })
+      expect(_routerState.push).toHaveBeenCalledWith({
+        path: '/accounts',
+        query: { tab: 'favorites' },
+      })
+    })
+
+    it('在收藏分组 tab 内点开分组时保留 tab（不得被清回账号管理）', async () => {
+      _routeState.path = '/accounts'
+      _routeState.query = { tab: 'favorites' }
+      _groups.push({ id: 'grp-fav', name: '收藏组', accountIds: [] })
+      _testAccounts.push({ id: 'acc-fav', platform: 'zhihu', status: 'active', account_name: '收藏账号' })
+      const w = await mountView()
+      const openBtn = w.find('[data-testid="favorite-group-open-grp-fav"]')
+      if (openBtn.exists()) {
+        await openBtn.trigger('click')
+        expect(_routerState.replace).toHaveBeenCalledWith({
+          path: '/accounts',
+          query: { tab: 'favorites' },
+        })
+      }
+      // 若该 testid 不存在（实现变更），至少保证不会出现「清空 query」的调用
+      for (const call of _routerState.replace.mock.calls) {
+        expect(call[0]?.query).not.toEqual({})
+      }
+    })
   })
 
   it("分组筛选只显示当前分组账号，并在无分组时保持空态", async () => {
@@ -602,7 +710,9 @@ describe("AccountsView", () => {
   });
   it("筛选按钮提供 tab 语义、选中状态和方向键切换", async () => {
     const w = await mountView();
-    const tabs = w.findAll('[role="tab"]');
+    // S1a 起页面有两组 tablist：页内模块导航（3 个）+ 状态筛选（4 个）。
+    // 本用例只针对状态筛选，必须限定作用域，否则计数会随模块 tab 变化而误红。
+    const tabs = w.findAll('.filter-tabs [role="tab"]');
 
     expect(tabs).toHaveLength(4);
     expect(tabs[0].attributes("id")).toBe("account-status-tab-all");

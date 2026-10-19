@@ -10,5 +10,6 @@ export default {
     video: '生成视频',
     videoDesc: '打开视频创作流水线页，改写文本将自动填入文案输入框',
     pipelineLabel: '流水线选择',
+    pipelineEmptyOption: '-- 选择流水线 --',
     close: '关闭',
   }
