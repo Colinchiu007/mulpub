@@ -194,6 +194,8 @@ class UpdatePolicy(Base):
     min_version = Column(String, default="")  # 低于此版本时提示升级（可空）
     force_version = Column(String, default="")  # 低于此版本时强制升级（可空）
     gray_ratio = Column(Integer, default=100)  # 0-100 灰度比例
+    enforce_min_version = Column(String, default="")  # forced-update-gate：低于此版本硬阻断（可空）
+    enforce_enabled = Column(Integer, default=0)  # forced-update-gate：阻断总开关（默认关）
     enabled = Column(Integer, default=1)
     note = Column(String, default="")
     updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
