@@ -1,5 +1,23 @@
 # 任务：发布频率声明面收编与删除
 
+## 0. 归档处置对账（2026-10-20，change 已随 PR #3712 落地）
+
+归档会把本文件冻结在存档里，所以「过期勾选」必须在归档**前**纠，且每一格都要有当场取证坐标。
+两类处置不可混：
+
+| 条目 | 处置 | 依据 |
+|---|---|---|
+| 4.4 | **补勾**（原为过期未勾） | 它声明的四个条件全部有产物：合并 SHA / 合并前 checks 读数 / 回填销账 PR / worktree+分支退役现场，逐条写在该行下方 |
+| 3.6 | **保持未勾**（真实残留，随档案带走） | 该条要求的是「双模型**外部**评审 + 评审原件入库」。执行记录 §QM-6 已实测三条外部通道全部不可用
+（CC Switch `:15721` 以 `net.connect` 实测 CLOSED；`opencode` 宽任务书 65 分钟零产物；窄任务书 240s 硬超时 `stdoutBytes=0`），
+随后用户指定「QM-6 你自己来模拟外部评审」⇒ 本会话按双轴标准自审并命中 C-1（启动期裁剪挂在 `store.init()` 之前，
+生产永久 no-op），已修复并入记录 §QM-6 发现处置。**自演不等于外部交叉审查**，所以这一格不补勾 ——
+把它补成 `[x]` 就是拿替代做法冒充未建立的能力（与本仓「装饰性链路」同型）|
+
+另记一条口径来源：AGENTS QM-6 明文「不得仅依赖本地测试与自审」，而本仓机械链
+（`check-pr-exec-record.js` 的 `evaluateDeepReviewDebt`）只看 `.ccg/reviews/<sha>.json` 的 status，
+对该产物缺失的情形**无从判红** —— 这一格没有任何机械兜底，只能靠如实登记。
+
 ## 1. TDD 先红（每条都在实现前实测过失败）
 
 - [x] 1.1 日配额上界：`MAX_DAILY_QUOTA` 缺失 ⇒ `publish-frequency-policy.test.js` 新增 5 条**实测 5 红 / 36 绿**
@@ -89,7 +107,13 @@
 - [x] 4.2 `openspec/records/publish-frequency-unwired-surfaces.md`（新载体，frontmatter 登记欠账）
 - [x] 4.3 CHANGELOG 置顶 + `01-docs/learnings.md`（"结果同形不等于做法相同"与"反证取被禁形态"两节，
       并在首轮 CI 红后追加第 4/5/6 条：mock 替对方接受错形状、可观测性契约的双向总数锁、声明面幽灵）
-- [ ] 4.4 PR + CI 全绿 + 自动合并 + 远程同步回填销账；worktree 按 R1–R7 退役
+- [x] 4.4 PR + CI 全绿 + 自动合并 + 远程同步回填销账；worktree 按 R1–R7 退役
+      （**归档时补勾 + 当场取证**，2026-10-20 复核：PR #3712 squash 合并 SHA
+      `4562146609ec3e1f2c855260d8a5236874446649`（git log origin/main 按 (#3712) 尾注取到唯一一行，
+      2026-10-16T14:42:12Z）；合并前 gh pr checks 3712 = 23 pass / 0 fail / 0 pending / 1 skipping；
+      回填销账由 #3744 落地（commit 193ee0406）；退役现场：git worktree list 已无
+      mp-publish-frequency-unwired-surfaces、磁盘目录不存在、本地与远端分支各 0 行、
+      可恢复出口 retire/publish-frequency-unwired-surfaces-20261017 在位）
 - [x] 4.5 用户追加要求：**现行机制参考文档** `01-docs/ARCH-PUBLISH-FREQUENCY-AND-QUEUE-2026-10-16.md`
       （组件地图 / 数值表 / 合法域 / 守卫判定顺序 / 队列四条纪律 / 回滚资格矩阵 / 紧急放行四道闸 /
       持久化与投影 / 显示项与文案纪律 / 活例外 / 必跑锁表 / 排障手册 / 版本沿革）。

@@ -1,3 +1,13 @@
+# [未发布] docs(openspec): 归档最后一个频率 change，把「启动期裁剪」与「死接口禁令」并入主干规格（openspec-archive-unwired-surfaces）
+
+- **动因**：归档从来不在 AGENTS 的「合并后收尾清单」里 ⇒ 每个 change 合并后目录永久留在 `openspec/changes/`、其 delta 也从未进主干。本篇是频率这条线的最后一处残留：`publish-frequency-unwired-surfaces` 随 PR #3712 合并（2026-10-16）后原地躺了 4 天，主干规格读起来像「频率契约只有 22 条」，而实现里已有启动期日计数裁剪与「不得保留没有调用点却承诺了能力的接口」两条纪律。
+- **动手前的三项前提核对**（缺一即不许跑 CLI，见记忆「归档收尾」）：主干 capability 存在且已同步（实测 Requirement 22、MODIFIED 目标 `间隔维度与策略单一真源` 在第 32 行）；两条 ADDED 名字在主干 `grep -c` = 0；MODIFIED 块的 scenario 集合是主干那块（2 条）的**超集**（我 4 条）⇒ CLI 的「主干有而 delta 没有 ⇒ 中止」fail-closed 不误伤，也不需要 `--skip-specs`。
+- **归档落点判据**：`openspec archive … -y` 自报 `Totals: + 2, ~ 1, - 0`；`git diff --cached --name-status` = **3 条 R100 + 1 条 R080 + 1 条 M**（三个文件纯移动、tasks.md 移动+两处编辑、只有主干规格被改）。归档后主干 Requirement **22 → 24**，两条新 Scenario（第 60 / 67 行）与两条新 Requirement（第 521 / 558 行）逐个 `grep -n` 命中，`TBD` = 0，`openspec validate publish-frequency-control --type spec --strict` = valid。
+- **归档前纠过期勾选，两类处置不混**：`tasks.md` 顶部新增「归档处置对账」表。4.4 **补勾**（四个条件各有当场产物：merge SHA `456214660…`、合并前 23 pass/0 fail/0 pending、回填销账 #3744、worktree 与分支退役现场 + retire 标签在位）；3.6 **保持未勾随档案带走**——它要的是「双模型**外部**评审 + 原件入库」，三条外部通道实测不可用（CC Switch `:15721` CLOSED、opencode 宽任务书 65 分钟零产物、窄任务书 240s 零字节），随后用户指定自演双轴并命中 C-1。**自演不等于外部交叉审查，补勾就是拿替代做法冒充未建立的能力。**
+- **顺手删掉一处会持续说谎的散文**：主干 Purpose 写着「共 6 条」——这个数字早在 #3910（22 条）时就已失效，本片归档后是 24 条。改成「判据只认本文件当前列出的 Requirement 与其 Scenario，不在此写死计数」，**把随归档漂移的量从文本里删掉，而不是换成一个新数字继续漂**。
+- **现场对照（计数差必须先看集合差）**：`openspec-sync-check` 两测都 rc=0 且 **tasks 计数不变（387）**、archives 241→242；`openspec validate --all --strict` 从 26 红变 27 红，集合差**只有一条** `change/member-tier-contract` —— 它随基线 `4fa810d95`（PR #4051，他人会话）进来，与本分支路径不相交（两份失败清单里 grep 本分支触碰名 = 0）。已如实上报，不由本片顺手改别人的规格。
+- **本次实测到的一个复发型工具错误（已修，写法记进执行记录）**：给 tasks.md 打补丁时用 `String.replace(anchor, text)`，而 text 里含取证命令串 `--grep='(#3712)$'` —— JS 把 `$'` 解释成「匹配之后的全部文本」，于是把 4.5 整块复制进我的续行中间，产出「4.5 出现两次 + 4.4 续行被拦腰截断」。抓到它的不是眼看，是 `openspec-sync-check` 报的 `TASKS_MD_DUPLICATE_TASK_ID`。修复**不是删掉多出来的那份**，而是从 HEAD 原始 blob 重建该文件、只施加声明式编辑，并用行多重集断言 `head_missing=0 / unexpected_extra=0`；第一次重建还因 `encoding: "binary"` 把 UTF-8 读成 latin1 而被首行标题断言当场拦下（写盘前抛错、零损坏）。口径：**文档正文里 `$'` / `$&` / `$1` 是常态，任何以字符串为替换体的文本编辑一律 split/join 或函数式替换**。
+- 执行记录 `openspec/records/openspec-archive-unwired-surfaces.md`。遗留不假装闭合：归档仍未写进 AGENTS「合并后收尾清单」（改它属人工过目）；Purpose 与 Requirement 全集的同步无任何机械判据（本片只删掉了会漂移的计数，闭合需新增门禁）。
 # [未发布] fix(tests): 给「夹具只准落在临时目录」装上执行体 —— check-docs-sync.test.sh 会把垃圾写进工作树（docs-sync-fixture-leak）
 ## 干了什么
 - `scripts/check-docs-sync.test.sh` 的 `make_repo` 没关 git 的 stdout，而调用方是 `repo="$(make_repo …)"`；
