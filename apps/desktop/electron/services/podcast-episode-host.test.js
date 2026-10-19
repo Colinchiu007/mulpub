@@ -773,4 +773,57 @@ describe('podcast-episode-host · publishFromScript（文本出期：只换 extr
     expect(h.hosting.calls.length).toBe(0)
     expect(h.fs.calls.rmdir.length).toBe(1)
   })
+
+  // 两条链共用宿主里那一个 outBase ⇒ 只测视频链等于给文本链留了一格空白：
+  // 文本出期才是"一个频道一期一期往里加"的主路径，覆盖 happens there first。
+  it('文本出期同理：同频道两期不得写进同一个音频对象键', async () => {
+    const a = makeScriptHost({ payload: { title: '文字稿第一期' } })
+    expect((await a.host.publishFromScript(a.scriptPayload)).state).toBe('success')
+    const b = makeScriptHost({ payload: { title: '文字稿第二期' } })
+    expect((await b.host.publishFromScript(b.scriptPayload)).state).toBe('success')
+    const sa = a.hosting.calls.find((c) => c.options && c.options.filePath)
+    const sb = b.hosting.calls.find((c) => c.options && c.options.filePath)
+    expect(sa, '文本链一次音频 PUT 都没发生 ⇒ 下面的比对是空的').toBeTruthy()
+    expect(sb).toBeTruthy()
+    expect(sa.options.stem).toBeTruthy()
+    expect(sa.options.stem).not.toBe(sb.options.stem)
+    expect(sa.options.stem).toContain(a.runId)
+    expect(sb.options.stem).toContain(b.runId)
+  })
 })
+
+/**
+ * 同频道连续两期的音频对象键必须不同。
+ *
+ * 存在的理由：`podcast-hosting-service.publishAudio` 的头写着「key 必须带 channelId，
+ * 两期写进同一层＝后一次发布静默覆盖前一期」，而那句只挡住了**跨频道**那一半——
+ * `podcast-episode-host` 把临时文件基名固定成 `episode`，适配层又拿 `path.basename(filePath)`
+ * 当 stem，于是同一频道每一期算出的 key 都是 `<prefix>/audio/<channelId>/episode.mp3`：
+ * 第二期 PUT 原地覆盖第一期的音频，而第一期 feed `<item>` 的 enclosure 仍指向同一个 URL
+ * ⇒ 用户点开上一期听到的是最新那期的声音，两次发布还都报"成功"、日志零异常。
+ * 下面测的是**跨期**那一半。
+ */
+describe('同频道两期不得写进同一个对象键', () => {
+  async function audioCallOf (title) {
+    const h = makeHost({ payload: { title } })
+    const r = await h.host.publishFromVideo(h.payload)
+    expect(r.state).toBe('success')
+    const call = h.hosting.calls.find((c) => c.options && c.options.filePath)
+    // 找不到这一次 PUT ⇒ 下面所有比对都会对着 undefined 恒真，所以先让它红在这里
+    expect(call, '一次出期都没走到上传音频 ⇒ 键唯一性无从判定').toBeTruthy()
+    return { stem: call.options.stem, runId: h.runId }
+  }
+
+  it('两期各算出自己的 stem，且互不相同（不得都回落成常量 "episode"）', async () => {
+    const a = await audioCallOf('第一期 · 开场')
+    const b = await audioCallOf('第二期 · 追问')
+    expect(a.stem, 'stem 缺席 ⇒ publishAudio 会回落成 "episode"').toBeTruthy()
+    expect(b.stem).toBeTruthy()
+    expect(a.stem).not.toBe(b.stem)
+    // 键的身份取自 runId（同一次发起可重发同一对象），不取自标题——标题是用户可改的显示量，
+    // 拿它当身份会让「改标题再发一期」凭空新开一个对象，而真正该分开的两期反而可能撞上。
+    expect(a.stem).toContain(a.runId)
+    expect(b.stem).toContain(b.runId)
+  })
+})
+

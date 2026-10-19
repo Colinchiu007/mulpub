@@ -1,3 +1,15 @@
+# [未发布] fix(播客): 出期音频对象键随期变化，修掉同频道第二期原地覆盖第一期（podcast-audio-key-per-episode）
+
+- **用户可见症状**：同一个播客频道连发两期，第二期 PUT 把第一期的音频**原地覆盖**了——两次发布都报成功、日志零异常，而订阅端旧期 `<item>` 的 enclosure 指向的直链现在播的是新期的声音。RSS 里两期都在、音频只有一份。
+- **根因（第一性引入点 `46736edf5`，PR #3302，2026-10-11）**：当时为"临时产物归拢"定了两个名字——目录 `runDir = <tmpRoot>/episode-<runId>` 与文件基名 `outBase = <runDir>/episode`。**目录带 runId、文件不带**；而下游 `publishAudio` 拼的对象键是 `<prefix>/audio/<channelId>/<basename>.<ext>`，`runDir` 那一层在进 key 时被 `path.basename` 整个丢掉 ⇒ 同频道每一期都算出同一个键 `episode.mp3`。跨频道由 `channelId` 挡住，跨期没人挡。存续 8 天。
+- **这条不是"没想到"，是自家写下的判据只跑通了一半**：`publishAudio` 头注释原文就写着「key 必须带 channelId，两期写进同一层＝后一次发布静默覆盖前一期」——实现挡住了跨频道那一半，跨期那一半没接。修法因此是把这句判据补全（`channelId` 挡跨频道、`stem` 挡跨期，两个方向是同一条不变式），而不是新加一条规则。
+- **为什么四层门禁都没拦住**：①单测层 `podcast-hosting-audio.test.js:51` 断言的是 `toContain('/audio/ch_aaaaaaaaaaaa/')`——**前缀断言对"末段恒为常量"完全免疫**（前缀对、文件名错也照绿）；同域另有一条整键断言 `toContain('/audio/ch_abcd1234/ep001.mp3')` 看着是对的，但它是**测试自己把 stem 喂给被测函数**的——生产链那个恒定基名从没进入这条用例的作用域，所以"断言写全了"在这里照样抓不到；②集成层每条用例只发一期，缺的不是输入维度而是**实体维度**；③产物层键冲突语义只在真 OSS 才有，本机零出站纪律看不到 PUT 落点；④#3302 的 QM-6 盯的是持锁/取消/降级，对象键唯一性不在其清单。
+- **修复取最小落点**：`outBase = <runDir>/episode-<runId>`——键的身份跟着这一次发起走。同一次发起重发仍是同一个键（重试不该新开对象）；**不取标题当身份**，标题是用户可改的显示量，拿它当身份会让"改标题再发一期"凭空新开对象，而真正该分开的两期反而可能撞。`publishAudio` 本身不改：它按调用方给的 stem 建键是对的，错在上层没给随期变化的量。
+- **回归保护 2 条行为锁 + 1 道变异**：视频链与文本链各一条「同频道两期不得写进同一个音频对象键」，并同时断言 `stem` 含本次 `runId`；两条都**先见证红**（改前 `expected 'episode' not to be 'episode'`）。变异把 `outBase` 退回固定基名 ⇒ `collected=53 failed=2`，红的恰好这两条新锁、零旁路红。驱动第一版把过滤器写成只匹配「对象键」三字，而第二条锁的标题里没有这个词，于是 CAUGHT 被误报成 CHECK——**驱动的过滤器也是探针，写窄了就是自盲**，现按两条标题分别命中并要求红集恰为这两条。
+- **顺带记一条"同形不同义"，防止下一个会话顺手统一**：feed 的键固定成 `feed.xml` 是**对的**（一个频道一份 feed，本来就该被覆盖），音频固定成 `episode.mp3` 是**错的**（一期一份）。判据不是"键要不要唯一"，而是"这一段区分的是谁"。
+- **系统性预防落进 AGENTS.md QM-2**：新增一条——凡"身份由多个字段拼成的外部键"（对象键、缓存键、文件名、幂等指纹），必须有一条「两个不同实体 ⇒ 两个不同键」的行为锁，且**禁止只用前缀 `toContain` 断言**。这是「文本结构断言」那条在**对象键**上的落点。
+- **验证**：消费者并集（6 个测试文件）在最终树全跑 **114 passed**——`podcast-episode-host` 53、`podcast-hosting-service` 30、`podcast-hosting-audio-key` 11、`podcast-hosting-audio` 7、`podcast-episode-ipc` 6、`podcast-script-ipc` 7；QM-1 按三层判据重取（打包产物归属自证 = 包内 blob 与工作树逐字节相同，另带两个我没改动的同域文件作对照组），ESLint/Gate 7 四档、`check-max-lines`、`check-gate-record-debt`、`check-record-qm5-rows`、`check-doc-abs-paths`、`check-pr-exec-record --mode=enforce` 均 rc=0；QM-6 判定档位为 `single`，**未调用外部模型**，不得读成"已双模型复核"。全过程记 `openspec/records/podcast-audio-key-per-episode.md`。
+
 # [未发布] fix(gate): 欠账账本拒收「会自己腐化的第二份事实」—— 登记项只留原因字符串（normalize-debt-ledger-entry-shape）
 
 - **动因是当场量出来的两处腐烂**：`scripts/gate-record-debt-ledger.json` 的 23 条登记项有两种值形态（14 字符串 / 9 对象 `{reason,status,line}`）。逐条核对载体现状后：`line` **9/9 全部指不到自己的 `远程同步` 行**（3 条越界/指空，6 条指到别的 QM 行），`status` **已有 1 条说谎**（登记 `PENDING`，载体是 `执行中`）。而 `loadLedger` 只取 `reason`，全仓无任何 `entry.status` / `entry.line` 读取 —— 即"读它的人拿不到真值，不读它的人以为它是真的"。
