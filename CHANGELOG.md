@@ -25,6 +25,15 @@
 
 - 涉及文件：`apps/desktop/src/layouts/MpSidebar.vue`、`apps/desktop/src/layouts/MpSidebar.more-keyboard.test.js`（新）、
   `openspec/records/ux-audit-more-keyboard.md`（新）、`01-docs/UX-AUDIT-2026-10-17.md`（audit-31 就地指针 + 4.5 行状态）。
+
+# [未发布] fix(story2video): 克隆样本魔数嗅探 —— 「改名容器」在克隆入口拦截（s2v-clone-sample-sniff）
+
+- **事故**：任务 `mvf29iv8_cgll`（2026-10-19 17:37，story2video-compose，14 场景）在 `generate_assets` 整阶段失败：图片 14/14 成功，TTS 0/14 —— 13 个场景 MiMo 返回 `Param Incorrect`、1 个叠加 429 限流。根因是用户克隆音色的样本文件**扩展名 `.mp3`、真实容器是 MP4/AAC**（魔数 `ftypmp42`，ffprobe 判定 `mov,mp4,m4a` + `aac`）。
+- **根因链**：`tts-voice-clone-service.js` 的 `_prepareOneSample` 只按扩展名定 `contentType`（`.mp3` → `audio/mpeg`，引入自 68b890039，2026-08-04）；合成时 `asset-generator` 把样本转 `data:audio/mpeg;base64,…` 放进 `audio.voice`，克隆服务端按真实容器解码、发现声明 MIME 与容器不符即拒绝。这是 `2026-08-23-fix-mimo-tts-param-incorrect`（预置音色默认值 `default`→`mimo_default`）之后同错误码的第二种成因，两者互相独立。
+- **修法（黑名单式嗅探）**：`_prepareOneSample` 读取 buffer 后新增 `sniffSampleContainerMismatch`——只拦**可可靠识别的「容器错名」**（.mp3 内容为 ftyp/RIFF-WAVE/OggS/fLaC、.wav/.m4a 内容为 ID3 或 MPEG 帧同步等互串形态），命中抛 `VOICE_CLONE_SAMPLE_EXTENSION_UNSUPPORTED`，在克隆入口前置拒绝并复用既有本地化文案。未知/占位字节维持旧行为放行，由 ffprobe 时长探测 fail-closed 兜底——白名单式强校验会误伤既有测试夹具与罕见封装，黑名单恰好覆盖事故形态且零误伤。
+- **回归锁**：`tts-voice-clone-service.test.js` 新增 2 例——「改名容器」三形态拒绝（ftypmp42 假 MP3、ID3 假 M4A、RIFF 假 M4A，均不调 adapter/不写 registry）与「真实容器不误伤」（ID3 头 MP3、870B 双静音帧裸 MP3、RIFF/WAVE 全部正常克隆通过）。
+- **文件**：`apps/desktop/electron/services/tts-voice-clone-service.js`、`tts-voice-clone-service.test.js`。回归：clone 域 155 例全绿（service 50 + integrity 8 + provider 122 内 asset/mimo 部分 + catalog/service 33）。
+
 # [未发布] docs(audit): 更正 audit-60 的 harm 陈述 —— ElMessage 根节点其实已带 role="alert"，阶段 4.6 因此收窄（ux-audit-toast-a11y-correction）
 
 - **动工前核了库的真实产物**（本机 element-plus 2.14.2）：`message.vue` 编译产物里 `role` 出现 1 次、值为 `"alert"`、挂在 `.el-message` 根 div 的属性表上；5 个 message 实现文件里 `aria-` 计数**全为 0**；`MessageHandler` 只有 `close()`，**没有 DOM 句柄**。
