@@ -18,12 +18,19 @@
 
 ## 2. 高危面清单与收口矩阵
 
-- [ ] 2.1 `HIGH_RISK_SURFACES` 路径前缀清单（design §3 六类），每项**带实测出处**，清单只能缩小
+- [x] 2.1 `HIGH_RISK_SURFACES` 路径前缀清单（design §3 六类），每项**带实测出处**，清单只能缩小
+     - **已落码（分支 `qm6-highrisk-matrix`，`scripts/check-pr-exec-record.js`）**：清单 **9 条**而非六类 —— design §3 那六类是当时的分类，落到路径后「凭证 / 登录态 / 判据本体 / 判定写入方 / 评审驱动 / workflows / 指纹」各成一格，逐条带 `git ls-files` 实测命中数（3/1/18/1/9/15/100/3/2）。匹配实现只有一份 `highRiskPrefixOf`（`isHighRiskSurface` 与 `highRiskHits` 都走它，由用例 `2.1 单一匹配实现` 锁住；成因见本篇 §二变异层）。反装饰：用例逐条断言前缀在主干命中 ≥1 个受管文件，命中 0 即红（变异 P5 实测指名红）。
      - **前置取证已完成（design §9.2）**：清单**不得**实现成回读产物的 `stats.sensitivePathHits`（主干实测非空仅 2/877 ⇒ 构造性零），必须对 `changedFileStatuses` 现算；内容命中轴（217/877）只作旁证出声、不作闭环资格。
-- [ ] 2.2 判据本体自指：`scripts/check-*.js` + `.github/workflows/*` 命中即禁 `self-play` 收口
-- [ ] 2.3 行为锁：非高危面 self-play+双前提 ⇒ 闭环；高危面 ⇒ 欠账；`unknown` ⇒ 一律欠账
-- [ ] 2.4 变异 M2（摘掉自指前缀必须红）
-- [ ] 2.5 `design §3` 的残余（跨面行为变更）写进记录遗留，不假装闭合
+- [x] 2.2 判据本体自指：`scripts/check-*.js` + `.github/workflows/*` 命中即禁 `self-play` 收口
+     - **已落码**：矩阵分支 —— 变更集命中任一高危面前缀 ⇒ `closureCorroboration` 只认 `external`，`self-play` / `external-unverified` 判不成立并在文案里点名是哪条前缀。自指由用例 `2.2 自指` 钉住四个方向（判据本体 / 判定写入方 / workflows / credential 必须判高危；未登记前缀必须判**不**高危，防止靠加词放宽）。
+- [x] 2.3 行为锁：非高危面 self-play+双前提 ⇒ 闭环；高危面 ⇒ 欠账；`unknown` ⇒ 一律欠账
+     - **已落码（含一处对合同的有意偏差，必须写明）**：`2.3 矩阵①②③` 三条用例分别钉「高危面 + self-play ⇒ 红并点名」「高危面 + 真外部出处 ⇒ 放行（矩阵不得把外部评审一起拦掉）」「`tier=none` 却写闭环值 ⇒ 任意面都红」。
+     - **偏差**：原合同第三句 `unknown ⇒ 一律欠账` **没有照抄**。实测按字面实现会当场造出**无法闭合的循环**（与缺陷G「对 single 也要求闭环」同型）：判定器对新产物初始化 `tier:"unknown"`，而 `unknown` 只有在跑过真外部评审后才翻成 `external` —— 于是「改了判据本体 ⇒ 必须先跑完外部评审才能提交 ⇒ 提交又生成一条新的 unknown 产物」。现在 `unknown` 一律不拦，代价如实登记在记录 `openspec/records/qm6-highrisk-matrix.md` §六 第 9 条（并见 §三 收口矩阵那一档的理由），由两条**边界负控**钉住不许被"顺手加严"：`2.3 边界（不可闭合循环负控）`（tier 缺失不拦）与 `2.3 边界（不过拦负控）`（非高危面 self-play 不拦，欠账交给 4.x 的货币判据）。转拦前提是 `TIER-COVERAGE` 里 unknown 占比降下来。
+- [x] 2.4 变异 M2（摘掉自指前缀必须红）
+     - **已实跑，且比原计划严**：编号在本片改叫 P1/P6（同一驱动里逐条编号，见记录 §四 的七行表）。P1 = 唯一匹配实现恒返回 `null` ⇒ **三条**指名红（`2.2 自指` + `2.3 矩阵①` + `8.1 转变②`）；P6 = 把前缀匹配在 `highRiskHits` 里再抄一份（行为逐字不变）⇒ 只有 `2.1 单一匹配实现` 那条结构红。P1 首版只红 1/3（PARTIAL），暴露的就是"两处各抄一遍"，收敛成单一实现后才 3/3。全套 7 条 `escaped=0 anchorfail=0`、还原逐条 md5 一致。
+
+- [x] 2.5 `design §3` 的残余（跨面行为变更）写进记录遗留，不假装闭合
+     - **已登记**：记录 `openspec/records/qm6-highrisk-matrix.md` §六 第 1 条写明「行为变更发生在非高危路径却改变高危面语义 ⇒ 前缀匹配结构性看不见」，并给出可收窄方向（按被高危面文件 require 的模块反查一跳）与为什么本片不做（需要依赖图 + 会引入假阳，属改「谁来守门」）。
 
 ## 3. 降级资格以物证为准（接线已经在算的东西）
 
@@ -64,6 +71,9 @@
 ## 8. QM-6 命中登记（2026-10-17，两轴经直呼 CLI 交付；处置明细见 `openspec/records/ccg-deg-evidence-tier.md`）
 
 - [ ] 8.1 **闭环值只能由工具写，不能由会话手写**（后端 B0/B1 + 前端 F1，实测：四种伪造 `cleared` 全部被接受，含 `evidence:"x"`）：`deep-review` 交付时才写 `tier:"external"` + 可核 `evidence` + `findings`；判据侧对「M 状态、base 非闭环 → head 闭环，而本次变更集没带任何外部评审产物」必须点名——`readAtBase` 已具备该能力，缺的只是把它用到转变检测上。**A 状态凭空伪造在判据层不可判**（除自述外无对象可核），只能由「写入方收敛到工具」+ 事后抽查承担，登记而不假装已闭合
+     - **半片已落（判据侧）**：分支 `qm6-highrisk-matrix` 落的是 `readAtBase` 用到转变检测那一半 —— 用例 `8.1 转变①②③` 三条指名红（无出处收口点名 / `closureNote` 在非高危面放行而高危面仍拦 / base 取不到计入「未证实」读数），变异 P2、P4 各自指名红。
+     - **另一半仍未做，本条因此不勾**：`tier:"external"` + 可核 `evidence` + `findings` 目前**仍由会话手写进产物**。当场核实（2026-10-19）：引擎在仓外用户技能目录 `~/.claude/skills/adversarial-review-loop/scripts/ccg-deep-review.js`（`deep-review.sh:531-533` 的三级候选路径里，仓内 `scripts/ccg-deep-review.js` 那份**不存在**），全文 `tier` 出现 **0 次**、只写 `status:` 与 `performedBy:`（`grep -na 'status:' ` 现场 12 处，含 `self_play_resolved`/`self_play_pending`/`skipped_by_mode`）；`scripts/deep-review.sh` 里 `tier`/`evidence` 同为 0。所以「A 状态凭空伪造」这条缺口原样存在，且本片自己就是它的现场 —— 本 PR 收口那条 `dual` 产物时写的 `tier`/`evidence` 也是手写的。
+- [ ] 8.1b 闭环值写入方收敛到工具：交付时才写 `tier:"external"` + 可核 `evidence` + `findings`，判据侧对手工改成闭环值的 A 状态产物至少出声点名"由会话手写"。**落点在仓外**（`~/.claude/skills/.../ccg-deep-review.js`，或把引擎收进仓内再改），因此这一条不是本仓单 PR 能闭合的 —— 要么先解决引擎归属（vendoring 决策，属人工过目），要么在判据侧加「写入方指纹」的替代物证。
 - [ ] 8.2 `summarizeTierCoverage` 增 `corrupt=N` 独立计数（后端 B3 的观察半边；归因已由「解析不动即点名」覆盖，此项只是趋势可见性）
 - [ ] 8.3 `ccg-review-decider.js` 的 `main()` 处理 `saveRecord` 的 null 返回 ⇒ 退出码与副作用一致，不以裸栈收尾（前端 F4：错误文本已先打印，属 fail-loud 不是假绿，但 rc 层级被裸栈掩盖）
 - [ ] 8.4 普查工具加 `require.main === module` 守卫；`parseFail` 拆成 `missing` 与 `unparsed` 两计数分别打印（前端 F5，与本会话自己踩的「json=0 是探针失明不是测量」同一条）
