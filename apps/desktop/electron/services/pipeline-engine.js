@@ -227,11 +227,11 @@ const PIPELINES = [
     category: 'talking_head',
     stages: ['avatar_select', 'script', 'generate', 'render'],
     estimatedCost: 'high',
-    // 真实编排：数字人选择+LLM 口播文案→视频生成 provider→FFmpeg 合成（videogen-stages.js 注册）
     stageDefs: [
       { name: 'avatar_select', type: 'videogen_avatar', description: '数字人选择与口播文案', checkpointRequired: false, options: {} },
       { name: 'script', type: 'videogen_script', description: '口播文案', checkpointRequired: false, options: {} },
-      { name: 'generate', type: 'videogen_generate', description: '数字人视频生成', checkpointRequired: false, options: {} },
+      // digitalHuman:true 让 GENERATE 走数字人分支（详见 digital-human-stages.js 头注）
+      { name: 'generate', type: 'videogen_generate', description: '数字人视频生成', checkpointRequired: false, options: { digitalHuman: true } },
       { name: 'render', type: 'videogen_merge', description: '拼接合成与产物校验', checkpointRequired: false, options: {} },
     ],
   },
