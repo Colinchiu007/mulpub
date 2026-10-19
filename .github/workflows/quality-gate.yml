@@ -1604,30 +1604,44 @@ jobs:
             }
           }
 
+          # 判定值先一次算好、步骤结尾显式 exit（2026-10-19，branch: ux-audit-phase34）。
+          # 动因是现场而不是推断：PR #3992 的 QG Visual 报红，而该步骤日志末行是
+          # 末行是"[GATE-7] 全部通过"那条 Write-Host —— 原先四条分支之外**没有任何 exit**，通过路径走到
+          # 步骤末尾就结束；pwsh 步骤的退出码取自**最后一条原生命令**的残留 $LASTEXITCODE，而本
+          # 步骤 finally 里清理 dev server 的 `taskkill /PID ... /T /F` 在进程已退出时返回非零，
+          # 于是"全部通过"被一个清理动作判了红。
+          # 优先级与改动前逐字一致：就绪超时(3) > 像素域($pixelExit) > 校验型断言(1) > agent 报告。
+          # 改成 if/elseif 单链是为了把"判定"与"退出"分开：判定一次算完，出口只有一个，
+          # 通过路径不会再依赖任何原生命令的余值。
+          # 不参与本判定的既有语义未变：$darkExit 与各套件退出码仍是留痕（深色对比度由 Gate 7c 单独判；
+          # 校验域两轮甄别已把非零收进 $checksFailSuites，那才是判定面）。
+          $gateVerdict = 0
           if ($suitesNotReady -ne '') {
             Write-Host "[GATE-7] FATAL: 视图从未渲染出来（就绪超时）— 套件: $suitesNotReady"
             Write-Host "[GATE-7] 这不是像素抖动：路由或就绪选择器指错了节点，两轮采集甄别救不了它。"
             Write-Host "[GATE-7] 排障入口：套件日志的 [VISUAL-READY] 行点名了具体视图。"
-            exit 3
-          }
-          if ($pixelExit -ne 0) {
+            $gateVerdict = 3
+          } elseif ($pixelExit -ne 0) {
             Write-Host "[GATE-7] Pixel diff failed - see artifacts for details"
-            exit $pixelExit
-          }
-          # 校验型断言两轮均失败 ⇒ 阻断。这一格是 2026-10-17 之前**完全缺失**的判定面
-          #（详见上面 $checksFailSuites 处的注释）：页面区块 / 删除入口这类 UI 契约破坏
-          # 既不进像素域、也就不会被 Gate 7b 判到，只能靠这里拦。
-          if ($checksFailSuites -and $checksFailSuites.Count -gt 0) {
+            $gateVerdict = $pixelExit
+          } elseif ($checksFailSuites -and $checksFailSuites.Count -gt 0) {
+            # 校验型断言两轮均失败 ⇒ 阻断。这一格是 2026-10-17 之前**完全缺失**的判定面
+            #（详见上面 $checksFailSuites 处的注释）：页面区块 / 删除入口这类 UI 契约破坏
+            # 既不进像素域、也就不会被 Gate 7b 判到，只能靠这里拦。
             Write-Host "[GATE-7] FATAL: 校验型断言两次均失败 — 套件: $($checksFailSuites -join ',')"
             Write-Host "[GATE-7] 这不是像素抖动：runViewTest 的 checks 是「页面区块/入口是否存在」的确定性断言。"
             Write-Host "[GATE-7] 排障入口：该套件日志里点名了失败用例与缺失的 check 名。"
-            exit 1
-          }
-          if ($judgeExit -ne 0) {
+            $gateVerdict = 1
+          } elseif ($judgeExit -ne 0) {
             Write-Host "[GATE-7] Agent visual report generation failed"
-            exit $judgeExit
+            $gateVerdict = $judgeExit
+          }
+          if ($gateVerdict -ne 0) {
+            exit $gateVerdict
           }
           Write-Host "[GATE-7] All visual tests passed"
+          # 显式 0：通过路径的退出码必须来自本判据，而不是 finally 里 taskkill 的残留值。
+          exit 0
 
       # Gate 7c：深色模式文字对比度（2026-10-07，Wave 0.4）。
       #

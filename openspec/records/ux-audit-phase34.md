@@ -77,6 +77,35 @@ sync_backfill_owner: none-derived-from-trunk
 - `.gitignore` 第 106 行 `scripts/*.js` 静默忽略新脚本（#3011 家族）：4 条反选一次补齐，
   并在注释里写明"漏 negation 时本地跑得通、CI Cannot find module"。
 
+## Gate 7 通过路径的退出码收敛（同 PR 续做，2026-10-19）
+
+- **症状**：本 PR 的 `QG Visual` 红，而同一步骤日志末行打印 `[GATE-7] All visual tests passed`、
+  六个套件退出码读数全为 0。红不来自任何一条视觉用例。
+- **根因**：通过路径上没有 `exit`。GitHub 的 pwsh wrapper 以 `$LASTEXITCODE` 决定步骤成败，本步骤
+  `finally` 里的 `taskkill /PID ... /T /F`（清理 dev server）在进程已退出时返回非零，于是**清理动作**
+  替守门步骤下了判词。既有四条分支只管失败，从没管过"通过"这一格。
+- **改动面**：判定值单点 `$gateVerdict = 0` → if/elseif 单链四格赋码（优先级逐字保留：就绪 3 >
+  像素 `$pixelExit` > 校验型 1 > agent `$judgeExit`）→ 唯一出口 `exit $gateVerdict` → 通过文案 →
+  显式 `exit 0`。`$darkExit` 与各套件留痕退出码**不参与判定**，这一格未收紧也未放松。
+- **诚实声明（这条落在守门判据路径上）**：改动的是"通过路径的退出码从哪来"，不是分支保护规则本身、
+  也不是 `CI_IGNORED_PATHS` 白名单；失败语义与优先级逐字不变，因此不属 AGENTS.md「禁止自动合并」两格。
+  但它确实改了 required check 的判词来源，所以按"改判据必须同 PR 补锁 + 反证"处理。
+- **锁**：`workflow-contract.test.js` 新增「Gate 7 的步骤退出码必须由判定值决定，不得取自清理动作的残留
+  `$LASTEXITCODE`」（同文件另有一条既有的"退出码 3"锁被同步改为锁码值 `$gateVerdict = 3`，因为承载形态
+  已从 `exit 3` 收敛到判定值）。全文件 44 例全绿。
+- **反证三条（各自指名变红，跑后两文件 md5 逐字节还原）**：M1 摘掉结尾 `exit 0` ⇒ 只红新锁；
+  M2 就绪码 3 改 1 ⇒ 红新锁 + 既有 =3 锁；M3 agent 分支退回 `exit $judgeExit` ⇒ 只红新锁。
+- **pwsh 真跑 oracle**（本机 pwsh 7；逐字从 workflow 提取判定块，不维护第二份抄本）：六格优先级表
+  （全通过→0 / 就绪优先→3 / 像素优先于校验域→2 / 校验域→1 / agent→7 / `$checksFailSuites=$null` 不炸→0）、
+  缺陷复现档（摘掉 `exit 0` 后被 `$LASTEXITCODE=7` 的污染值判红）、`[Parser]::ParseFile` 语法档，全部通过。
+- **两处自伤（改判据的人最容易踩，记下来防重复）**：① 注释里原样引用 `All visual tests passed` 顶掉了两条
+  既有顺序锁的 `indexOf` 锚点；② 把锚点放宽成"形状无关"时只去掉了 `if (` 前缀、没保留行锚定，于是正文
+  一处散文注释（"经 $pixelExit -ne 0 拦住"）成了新的错误锚点。正解：**锚点 = 可执行语句整行 + 两种合法关键字
+  的交替**，并且散文里不要复述被锁的字符串。
+- **其余门禁同跑**：`check-workflow-structure.js` files=14 violations=0；`check-step-failfast.js` OK（39 个多命令步骤）；
+  `check-debt-budget.js` 五项指标均在基线内（filesOver1000 28/32、filesOver500 95/101）。
+
+
 ## 远程同步
 
 | 远程同步 | 由门禁推导 | 本行**不事后改写**：合并后由 `scripts/lib/merge-ledger.js` 按主干历史推导归属（只认 squash 尾注 `(#NNNN)`，PR 号见本 PR 页面）；现场读数看 CI 步骤首行 `MERGE-LEDGER prs=<n>`。合并前这篇还不在基线上 ⇒ 判 `byDesign` 不红；把状态列预写成 `PASS` 会被 `prematureClaims` 判红（change: `ban-record-closure-backfill-pr` / `gate-record-sync-derived-status`）。main push 回读证据写在 PR 评论里，不写回本文件。 |
