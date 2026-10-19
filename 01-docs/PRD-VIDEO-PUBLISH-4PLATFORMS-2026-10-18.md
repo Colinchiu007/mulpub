@@ -955,7 +955,6 @@ const { uri, info } = await uploadCoverImage({
 `uploadCoverImage` 尚未接进 `run()` 的封面闸门（调用方现在需显式调）；接入点在
 `hasLocalCoverOnly` 分支（coverInputs 形状契约需先立，留下一轮小 PR）。
 
-<<<<<<< HEAD
 ### 12.6.7.6 封面接线进 run()（R12，2026-10-19，同分支第二提交）
 
 §12.6.7.5「未闭合①」关闭。三态契约在闸门 5 生效：
@@ -974,7 +973,6 @@ const { uri, info } = await uploadCoverImage({
 
 **回归锁**：`test/toutiao-video-chain.test.js` 新增「本地封面接线」用例 ——
 coverPath ⇒ 五步链三请求发生（params/Infos 打假服务器）+ 提交体 ThumbUri = 登记 uri。
-=======
 ---
 
 ## 14. 视频号会话位置订正 + 活性探针（R14，2026-10-20）
@@ -1006,4 +1004,3 @@ UI「已登录」标记即来源于此。⇒ 视频号**有可用会话**，位�
 | 头条（7ae99805） | 已登录 | ⛔ 账号墙 21000（待实名） |
 | 抖音（01ab122e） | 已失效 | 待扫码 |
 | 其余（快手/B站/小红书/公众号/知乎） | 已登录 | 不在本次目标范围 |
->>>>>>> 65954e081 (feat(shipinhao): 会话活性探针（只读授权请求）+ 会话位置订正)
