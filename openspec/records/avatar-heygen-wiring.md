@@ -92,7 +92,7 @@ cd apps/desktop && pnpm exec electron-builder --win --x64
 
 ## 六、测试与门禁读数
 
-### 本次新增测试（8 个文件 123 例全绿）
+### 本次新增测试（9 个文件 127 例全绿）
 
 | 文件 | 例数 | 覆盖 |
 |---|---|---|
@@ -103,7 +103,22 @@ cd apps/desktop && pnpm exec electron-builder --win --x64
 | `electron/services/videogen-stages.digital-human.test.js` | 19 | ★character/voice/script 透传 + 通用链路零回归 |
 | `electron/tests/pipeline-model-preflight.digital-human.test.js` | 15 | 假阳性修复 |
 | `src/views/CreateView.avatar-digital-human.test.js` | 9 | 启动参数/禁用原因/四态 |
+| `src/locales/create/ui-assembly.test.js` | 4 | locale 拆分装配契约（含变异反证，见 §八） |
 | `electron/tests/ipc-exposure-contract.test.js` | 20 | 新增 `avatar-catalog.js` 登记（修复本次引入的判红） |
+
+### CI 往返中实抓并修复的回归（每轮一个，全部由门禁机械发现）
+
+| 轮次 | 失败判据 | 根因 | 修复提交 |
+|---|---|---|---|
+| 1 | `债务熔断检查` ×4 | locale 文件超 500 行 / videogen-stages 超挂账容差 / pipeline-engine 超点名目标 | `7ff91929`（拆 digital-human-stages.js + locale 子模块） |
+| 2 | `QG Changes` Gate 2c | 记录缺「远程同步」真实表格行（bullet 不算） | `efcb93927` |
+| 3 | `QG Changes` Gate 12c | 文档含本机绝对路径 `D:/...` | `ec2993b51`（改占位符形态） |
+| 4 | `QG Browser E2E` | 数字人流水线启动按钮现按未选形象禁用，E2E 未跟随 | `1fe3fa8f0`（E2E 补选形象/音色 + mock avatarCatalog 三通道 + heygen fixture） |
+| 5 | `QG Static` eslint ×2 | `no-useless-assignment`（catch 兜底重复赋 null） | `b8a44432c` |
+
+**逃逸链自省（为什么本地没拦住）**：本地自查只跑了 vitest 相关文件 + locale/品牌/max-lines
+三门禁；`eslint electron/ src/ --quiet`、doc-abs-paths、记录表格行形状、E2E 场景同步
+都不在当时的本地清单里。已把本轮全部教训沉淀进 EverOS 记忆（推送前本地自查 5 条清单）。
 
 ### 回归测试
 
