@@ -7,7 +7,11 @@
  *   film-manifest.json       电影元数据 + 场景树（sceneId/名称/计数/层级/来源URL）
  *   shot-library.json        分镜库：每场景代表性真实提示词 + 模型 + 参考 token + 结果 URL
  *   reference-registry.json  token → 参考素材索引（角色/场景/道具 + 图 URL + 描述）
- *   prompt-doctrine.json     Hell Grind 提示词架构（块模板 + 铁律 + 词汇表，中英双语）
+ *   prompt-doctrine.json     提示词架构（块模板 + 铁律 + 配方 + 失败模式台账 + 词汇表，中英双语）
+ *   shot-grammar.json        镜头语言枚举（景别/运镜/机位/光线/特效/情绪档/时长档）
+ *   compliance-checklist.json 剧本合规审核清单（12 条，blocker/warn 两级）
+ *   palette.json             剧组色盘声明（4 主色 + ≤2 扩展色 + 情绪色彩映射 + 漂移治理）
+ *   prompts/tasks/<task>/{zh,en}/{system,user}.md  任务化中英成对 prompt 库（目录即契约）
  *   images/                  精选参考图（min 版）
  *
  * fail-closed 契约：任一文件缺失 / JSON 损坏 / schema 非法 → kit 整体不可用，
@@ -16,8 +20,20 @@
 
 const fs = require('fs')
 const path = require('path')
+const { loadPromptLibrary } = require('./prompt-library')
+const {
+  checkSchemaVersion, validateShotGrammar, validateComplianceChecklist, validatePalette,
+} = require('./kit-asset-validators')
 
-const KIT_FILES = ['film-manifest.json', 'shot-library.json', 'reference-registry.json', 'prompt-doctrine.json']
+const KIT_FILES = [
+  'film-manifest.json',
+  'shot-library.json',
+  'reference-registry.json',
+  'prompt-doctrine.json',
+  'shot-grammar.json',
+  'compliance-checklist.json',
+  'palette.json',
+]
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 // D4 四处同源：与 fetch-hell-grind-kit.py FILM_PROMPT_MAX_LEN 同值（导入/校验单一契约）
@@ -194,6 +210,9 @@ function validateReferences (references) {
  */
 function validateDoctrine (doctrine) {
   if (!doctrine || typeof doctrine !== 'object') return { ok: false, error: 'prompt-doctrine 必须为对象' }
+  // 历史文件没有 schemaVersion，缺失按 v1 处理；但一旦声明就必须受支持（i4）
+  const v = checkSchemaVersion(doctrine, 'prompt-doctrine', [1, 2], { allowMissing: true })
+  if (!v.ok) return v
   if (!Array.isArray(doctrine.blocks) || doctrine.blocks.length === 0) {
     return { ok: false, error: 'prompt-doctrine.blocks 必须为非空数组' }
   }
@@ -210,9 +229,43 @@ function validateDoctrine (doctrine) {
   if (!Array.isArray(doctrine.glossary)) {
     return { ok: false, error: 'prompt-doctrine.glossary 必须为数组' }
   }
+  // v7 批次一（F1 增补）：配方与失败模式台账为可选结构，一旦声明就必须完整——
+  // 半张台账比没有台账更危险（会让人以为踩过的坑都有记录）。
+  if (doctrine.recipes !== undefined) {
+    if (!Array.isArray(doctrine.recipes) || doctrine.recipes.length === 0) {
+      return { ok: false, error: 'prompt-doctrine.recipes 声明后必须为非空数组' }
+    }
+    for (const r of doctrine.recipes) {
+      if (!r || typeof r.key !== 'string' || !r.key.trim()) return { ok: false, error: 'recipes 每项必须含非空 key' }
+      if (!Array.isArray(r.blockKeys) || r.blockKeys.length === 0) {
+        return { ok: false, error: 'recipes[' + r.key + '].blockKeys 必须为非空数组' }
+      }
+      const blockKeys = new Set(doctrine.blocks.map((b) => b.key))
+      for (const bk of r.blockKeys) {
+        if (!blockKeys.has(bk)) {
+          return { ok: false, error: 'recipes[' + r.key + '].blockKeys 引用不存在的块: ' + String(bk) }
+        }
+      }
+    }
+  }
+  if (doctrine.failureLedger !== undefined) {
+    if (!Array.isArray(doctrine.failureLedger) || doctrine.failureLedger.length === 0) {
+      return { ok: false, error: 'prompt-doctrine.failureLedger 声明后必须为非空数组' }
+    }
+    const ledgerIds = new Set()
+    for (const f of doctrine.failureLedger) {
+      if (!f || typeof f.id !== 'string' || !f.id.trim()) return { ok: false, error: 'failureLedger 每项必须含非空 id' }
+      if (ledgerIds.has(f.id)) return { ok: false, error: 'failureLedger id 重复: ' + f.id }
+      ledgerIds.add(f.id)
+      for (const field of ['symptom', 'cause', 'fix']) {
+        if (typeof f[field] !== 'string' || !f[field].trim()) {
+          return { ok: false, error: 'failureLedger[' + f.id + '].' + field + ' 必须为非空字符串' }
+        }
+      }
+    }
+  }
   return { ok: true }
 }
-
 
 function readJsonFile (filePath, label, errors) {
   let raw
@@ -230,18 +283,83 @@ function readJsonFile (filePath, label, errors) {
   }
 }
 
+/**
+ * 读取**可选**资产（v7 批次一引入的 shot-grammar / compliance-checklist / palette）。
+ *
+ * 这里刻意区分两种失败形态（这是 fail-closed 的精确边界）：
+ *   - 文件**不存在** → 返回 {missing:true}：这是一份旧版 kit，增强能力不可用，
+ *     但不该让整套影视工程瘫痪。缺失由调用方记入 assetWarnings（可见，不静默）。
+ *   - 文件**存在但损坏/不可读/JSON 非法** → 推入 errors：绝不允许拿半份数据继续。
+ *
+ * 需要「缺失也算失败」的场景（导入校验）用 opts.requireAssets 切到严格模式。
+ * @returns {{present: boolean, value?: any, missing?: boolean}}
+ */
+function readOptionalJsonFile (filePath, label, errors, assetWarnings, requireAssets) {
+  if (!fs.existsSync(filePath)) {
+    if (requireAssets) {
+      errors.push(label + ' 缺失（严格模式要求齐备）')
+      return { present: false }
+    }
+    assetWarnings.push(label + ' 缺失：该增强能力不可用（旧版 kit，请重新导入以启用）')
+    return { present: false, missing: true }
+  }
+  const value = readJsonFile(filePath, label, errors)
+  // v7 对抗评审 i7：文件存在、JSON 合法但内容是字面 null 时，原先落进「present 但 value 假值」
+  // 的第三态——既不算缺失也不报损坏，静默放行。这里明确按损坏处理。
+  if (value === null) {
+    errors.push(label + ' 内容为空值（JSON 为 null）：文件存在但不是有效对象')
+    return { present: false }
+  }
+  return { present: true, value }
+}
+
 function loadFilmKit (opts) {
   opts = opts || {}
   const kitDir = opts.kitDir
   if (typeof kitDir !== 'string' || !kitDir) return { ok: false, error: 'kitDir 必须为非空字符串' }
+  const requireAssets = opts.requireAssets === true
   const errors = []
+  /** @type {string[]} */
+  const assetWarnings = []
 
   const manifest = readJsonFile(path.join(kitDir, 'film-manifest.json'), 'film-manifest.json', errors)
   const shots = readJsonFile(path.join(kitDir, 'shot-library.json'), 'shot-library.json', errors)
   const references = readJsonFile(path.join(kitDir, 'reference-registry.json'), 'reference-registry.json', errors)
   const doctrine = readJsonFile(path.join(kitDir, 'prompt-doctrine.json'), 'prompt-doctrine.json', errors)
 
+  const grammarOpt = readOptionalJsonFile(path.join(kitDir, 'shot-grammar.json'), 'shot-grammar.json', errors, assetWarnings, requireAssets)
+  const complianceOpt = readOptionalJsonFile(path.join(kitDir, 'compliance-checklist.json'), 'compliance-checklist.json', errors, assetWarnings, requireAssets)
+  const paletteOpt = readOptionalJsonFile(path.join(kitDir, 'palette.json'), 'palette.json', errors, assetWarnings, requireAssets)
+  const shotGrammar = grammarOpt.present ? grammarOpt.value : null
+  const compliance = complianceOpt.present ? complianceOpt.value : null
+  const palette = paletteOpt.present ? paletteOpt.value : null
+
   if (errors.length > 0) return { ok: false, error: errors.join('; ') }
+
+  // 任务化 prompt 库（v7 F30）：同上——目录不存在按「可选缺失」处理，
+  // 存在但有任一任务缺语种/缺文件则整体不可用（半个库比没有更危险）。
+  const promptsTasksRoot = path.join(kitDir, 'prompts', 'tasks')
+  let library = null
+  if (!fs.existsSync(promptsTasksRoot)) {
+    if (requireAssets) errors.push('prompts/tasks 缺失（严格模式要求齐备）')
+    else assetWarnings.push('prompts/tasks 缺失：任务化提示词库不可用（旧版 kit，请重新导入以启用）')
+  } else {
+    const libraryResult = loadPromptLibrary({ tasksRoot: promptsTasksRoot })
+    if (!libraryResult.ok) {
+      // v7 对抗评审第二轮 i8：目录**存在但为空**（升级残留的旧空壳）原先会让整级不可用，
+      // 而目录缺失只记告警——陈旧空目录比缺失更糟，等于把正常升级路径误伤成硬失败。
+      // 非严格模式下与「缺失」同处置；严格模式（导入校验）仍按失败处理。
+      const isEmptyDir = libraryResult.errors.length > 0
+        && libraryResult.errors.every((e) => e.includes('任务目录为空'))
+      if (isEmptyDir && !requireAssets) {
+        assetWarnings.push('prompts/tasks 存在但没有任务目录：该增强能力不可用（请重新导入影视工程资产）')
+      } else {
+        errors.push('prompts/tasks: ' + libraryResult.error)
+      }
+    } else {
+      library = libraryResult.library
+    }
+  }
 
   const checks = [
     ['film-manifest.json', validateManifest(manifest)],
@@ -250,6 +368,9 @@ function loadFilmKit (opts) {
     ['prompt-doctrine.json', validateDoctrine(doctrine)],
     ['shot-library.json', validateShotSceneRefs(shots, manifest)],
   ]
+  if (grammarOpt.present) checks.push(['shot-grammar.json', validateShotGrammar(shotGrammar)])
+  if (complianceOpt.present) checks.push(['compliance-checklist.json', validateComplianceChecklist(compliance)])
+  if (paletteOpt.present) checks.push(['palette.json', validatePalette(palette)])
   for (const [label, c] of checks) {
     if (!c.ok) errors.push(label + ': ' + c.error)
   }
@@ -264,6 +385,17 @@ function loadFilmKit (opts) {
     if (!shotSceneIndex.has(s.sceneId)) shotSceneIndex.set(s.sceneId, [])
     shotSceneIndex.get(s.sceneId).push(s)
   }
+  // 枚举索引：按 key 快速查表（调用方不必自己 Array.find）；资产缺失时为 null
+  const grammarIndex = shotGrammar
+    ? {
+        shotSizes: new Map(shotGrammar.shotSizes.map((x) => [x.key, x])),
+        cameraMoves: new Map(shotGrammar.cameraMoves.map((x) => [x.key, x])),
+        cameraAngles: new Map(shotGrammar.cameraAngles.map((x) => [x.key, x])),
+        lightingSetups: new Map(shotGrammar.lightingSetups.map((x) => [x.key, x])),
+        vfxPresets: new Map(shotGrammar.vfxPresets.map((x) => [x.key, x])),
+        emotionTiers: new Map(shotGrammar.emotionTiers.map((x) => [x.key, x])),
+      }
+    : null
 
   return {
     ok: true,
@@ -273,6 +405,12 @@ function loadFilmKit (opts) {
       shots,
       references,
       doctrine,
+      shotGrammar,
+      grammarIndex,
+      compliance,
+      palette,
+      promptLibrary: library,
+      assetWarnings,
       shotById,
       sceneIndex,
       shotSceneIndex,
@@ -286,12 +424,16 @@ function loadFilmKit (opts) {
  * - 目录不存在 → 记入 missing（未导入属正常态，不算回退错误、不告警）
  * - 级内损坏/非法 → 记入 fallbacks 并 log.warn('FILM_KIT_FALLBACK')，错误可见非静默
  * - 全部不可用 → ok:false，error 前缀 FILM_KIT_UNAVAILABLE 并聚合各级具体错误
- * @param {{dirs: Array<{dir: string, label: string}>, log?: {warn: function}}} opts
+ * - requireAssets=true 时，v7 增强资产（shot-grammar / compliance / palette / prompts）
+ *   的**缺失**也算该级不可用，从而回退到下一级——导入校验与运行期读盘用同一函数，
+ *   只是严格度不同。
+ * @param {{dirs: Array<{dir: string, label: string}>, log?: {warn: function}, requireAssets?: boolean}} opts
  */
 function loadFilmKitChain (opts) {
   opts = opts || {}
   const dirs = Array.isArray(opts.dirs) ? opts.dirs : []
   const log = opts.log || console
+  const requireAssets = opts.requireAssets === true
   const fallbacks = []
   const missing = []
   for (const entry of dirs) {
@@ -301,7 +443,7 @@ function loadFilmKitChain (opts) {
       missing.push({ dir: String(dir), label, reason: '目录不存在（未导入）' })
       continue
     }
-    const r = loadFilmKit({ kitDir: dir })
+    const r = loadFilmKit({ kitDir: dir, requireAssets })
     if (r.ok) {
       return { ok: true, kit: Object.assign({}, r.kit, { source: label }), fallbacks, missing }
     }
@@ -328,4 +470,8 @@ module.exports = {
   validateShotSceneRefs,
   validateReferences,
   validateDoctrine,
+  validateShotGrammar,
+  validateComplianceChecklist,
+  validatePalette,
+  checkSchemaVersion,
 }

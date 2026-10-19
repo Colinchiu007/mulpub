@@ -1,0 +1,58 @@
+{
+  "sha": "42ba5860fdf5e90dc4f3e9659493cf8cad14a6c7",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 2343 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 2343,
+    "fileCount": 34,
+    "codeFileCount": 13,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 1,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "8e56944eb594d9d5ec265b99ce19d9b84c24aeae7192ca11e6356c32e0fb9730",
+  "decidedAt": "2026-10-19T17:25:59.427Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "cleared",
+    "tier": "superseded",
+    "performedBy": "n/a",
+    "evidence": {
+      "reason": "该 stagedDiffHash 对应**拆分前**的单提交（2343 行 / 34 文件），该提交已在 2026-10-20 因 critic 输出截断被整体重写为三次 scoped 提交（docs / 数据资产 / 运行时代码），当前分支上不存在与之对应的可达提交。",
+      "supersededBy": "8a35284a19634d8b34d120894d64b4e6c318a3853ddde1d8a991f7d05b950ce2（运行时代码，已 self_play_resolved）"
+    },
+    "findings": null
+  }
+}

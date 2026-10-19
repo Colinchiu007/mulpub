@@ -33,6 +33,60 @@
 - `check-unwired-tests.js` 的 `NESTED_WORKFLOW_NOT_EXECUTED` 判定域是**磁盘**而非 `git ls-files`，
   于是本机垃圾会把公共仓 required 门禁判红一次（与 #3876 同族的磁盘域/检出域分叉），另立任务；
 - 同类面已清点到 `*.sh` 全集（按 `$(mktemp -d)` 扫仅命中本文件），但 vitest/pytest/ps1 的夹具落仓库内风险仍无统一判据。
+
+# [未发布] feat(film-engineering): 提示词资产层批次一 —— 镜头语法/合规清单/剧组色盘/任务级提示词库 + 单镜时长来源链
+
+- **动因（研究报告实测缺口）**：`01-docs/RESEARCH-AI-FILM-OPENSOURCE-2026-10-19.md` §3.20 实测出三处硬缺口——
+  ① 单条分镜提示词最长 **13,922 字符**一段到底（FireRed 失败模式表警告的「过长丢约束」已常态化）；
+  ② 只有全局三档 `AUTO_SHOT_SECONDS=[5,8,10]`，**没有单镜时长维度**（四方对照里 mulpub 是唯一缺失该维度的实现）；
+  ③ 提示词资产仅 `prompt-doctrine.json` 单文件（FireRed 14 个 / waoowaoo 33 个）。
+- **新增四份数据资产（`apps/desktop/electron/film-kit/`）**：`shot-grammar.json`（10 景别 / 12 运镜 / 8 机位 /
+  6 光线 / 8 特效 / 3 情绪档 / 4 时长档，含 `chain` 链式校验与 `risk` 风险分级——high 档必须单独试镜）；
+  `compliance-checklist.json`（12 条：blocker 5 / warn 7，每条含「问题→通过判据→不通过怎么改」）；
+  `palette.json`（4 主色 + 2 扩展色 + 5 条情绪色彩映射 + 漂移治理四步）；
+  `prompts/tasks/**`（4 任务 × 2 语种 × 2 文件 = 16 个 `.md`，**目录即契约**，加任务只建目录不改代码）。
+- **方法论扩容（`prompt-doctrine.json` schemaVersion 1→2）**：blocks 7→**11**（新增长台词 T1-T7 / 动作戏 17 条 /
+  首尾帧 21 条 / AI 转场介质掩护）、rules 10→**14**（新增禁代词 / 时长由台词推算 / 首尾帧单一物理事件 /
+  形变必须有介质）、新增 **recipes 2 档**（full 全量 / firstline 首行精华，后者明令不用于终版）、
+  新增 **failureLedger 8 条**（症状→原因→修法，改提示词前先查台账）、glossary 6→10。
+- **新增模块 `prompt-library.js`（~290 行）**：任务化提示词库加载 + `{{var}}` 模板渲染 + **路径穿越防护**
+  （任务名/语种先过白名单，再断言解析后路径仍在 `tasksRoot` 内）。渲染时**未提供的变量保留原样**并列入
+  `missing`——不静默替换为空串，漏填要能被看见。中文任务名与非法大写占位符一律不参与替换。
+- **新增模块 `shot-duration.js`（~250 行，纯函数零 IO）**：F2 时长推算（中文按字 / 英文按词，
+  **中英混排分别折算后相加**——单一语速乘总数会系统性低估英文、高估中文；括号内舞台提示不计入；
+  原始秒数**只向上吸附**档位，向下会切掉台词尾巴）+ F34 来源优先级链
+  （**user > tts > formula > tier**）。非法值一律**降级并出声**，不静默：用户超上限时文案明确写
+  「请改用拆镜而不是压缩时长」。
+- **`kit-loader.js`：缺失 vs 损坏两种失败形态分开（本 PR 最重要的设计决定）**：初版把新资产做成硬必填，
+  结果 6 个测试文件 41 例当场失败——那 41 例测的是 shot-library 逻辑、与资产完整性无关，这个失败本身就是
+  「硬必填把所有消费方耦合到最新资产」的信号。改判：**fail-closed 的对象是「损坏的数据」，不是「不存在的增强」**。
+  损坏（存在但非法）→ 整级不可用；缺失（不存在）→ 可用 + `kit.assetWarnings`（可见不静默）+
+  `requireAssets: true` 严格模式（`loadFilmKitChain` 透传，缺失时回退 asar 内置包，**老用户升级拿到随包新资产
+  而不是瘫痪**）。另新增 `kit.grammarIndex` 六张 Map 供按 key 查表。
+- **`auto-plan.js`：时长字段纯增量**。每镜派生 `durationMs`/`durationSec`/`durationSource`，顶层新增
+  `estimatedDurationSec`/`durationSourceCount`，偏差 >20% 追加 W8 警告。**既有 `seconds` 与 `plannedDurationSec`
+  语义一字不动**（有测试锁定）——`seconds` 是用户档位意图，`durationMs` 是按台词的物理估计，替换它属
+  不必要的破坏性变更。
+- **色盘注入串要校验「含全部主色」**：色盘价值不在文件里存 4 个颜色，而在**每次生成都原样粘贴同一串**；
+  注入串漏一个色，模型就自行补一个，漂移从这一刻开始。故 `validatePalette` 断言 `paletteLine.<locale>`
+  包含每个 `primary[].hex`——把文档纪律变成机械判据。
+- **测试**：新增 `prompt-library.test.js` 28 例 + `shot-duration.test.js` 37 例（两者**先跑红再实现**）；
+  `kit-loader.test.js` 23→**51** 例（补缺失/损坏/严格模式/回退链/四组新校验器）；`auto-plan.test.js` 44→**51** 例。
+  film-engineering 全量 26 文件 **407** 例、含 `src/views/film-auto` 共 29 文件 **456** 例全绿。
+- **两处测试契约同步（是「实现更正确后契约要改」，不是掩盖失败）**：① `shot-library.real-kit.test.js` 的
+  `BLOCK_HEADINGS` 断言原为「严格等于方法论块标签」（当时同为 7），方法论扩到 11 后失效——经判定
+  `BLOCK_HEADINGS` 是「从随包 153 镜语料抽取块」的集合，与方法论块数**不是同一概念**，改为断言真实不变量
+  （抽取集合 ⊆ 方法论块 + 新增四块确实存在），**没有**把新块塞进 `BLOCK_HEADINGS`（那会让抽取器去找语料里
+  不存在的标题）；② `kit-loader.test.js` 夹具随 `KIT_FILES` 4→7 同步补三份 JSON 与 `prompts/tasks`。
+- **QM-1 打包验证（真抓到过东西）**：`electron-builder --win --x64` **rc=0**；asar 清单 film-kit 共 **52** 条目，
+  新增三 JSON 与 **16 个 prompt `.md`** 全部在包内（首轮用错正则误判过一次 MISS，核对真实路径后确认无缺失）；
+  启动验证 **PASS**（8s 窗口存活 + stderr 0 字节）。**如实记录环境告警**：父环境带有
+  `ELECTRON_RUN_AS_NODE=1`，已在子进程显式剔除——该变量会让 Electron 以纯 Node 模式静默退出，
+  与「启动干净」完全同形，故存活断言单独做、不因 stderr 空而判绿。
+- **worktree 必须在 NTFS 上（本轮踩坑）**：首次建在 `F:\mp-worktrees`，写 JSON 报 `EISDIR`——F 盘是 **exFAT**，
+  不支持硬链接，而原子写入走「临时文件 + 硬链接」。已按 R1-R5 用 `safe-worktree-remove.ps1` 清理并迁到 D 盘 NTFS。
+- **零运行时行为改动**：未触碰 TTS / 渲染 / 生产驱动 / IPC；未做 F8 三维提示词与 F15 身份锚点强制（属批次二）。
+
 # [未发布] docs(openspec): 归档 v2/v3/v4 并把 12 条频率契约并入主干规格（openspec-archive-frequency 第二批）
 
 ## 干了什么
