@@ -1660,6 +1660,76 @@ mulpub 的对应物是 `auto-plan.js` 的 `MAX_AUTO_SHOTS=120` 等——但**只
 
 ---
 
+### 3.24 第六层新视角（v7）：同平台协议差异、接模型的工程化、prompt 资产量盘点
+
+> 本层回答三个此前三层未碰的具体问题：**①同一家模型平台（Seedance/ARK）在不同项目里的接入协议差在哪**（直接服务 mulpub 的 adapter 层维护）；②**「接一个新模型」这件事本身被工程化到什么程度**；③各项目的 prompt 资产量盘点。
+
+#### 3.24.1 Seedance/ARK 四实现协议对照 —— 同一平台，四种工程形态
+
+实测 19 个项目中有 **8 个接了 Seedance/即梦**，其中 4 个真正实现了 API 客户端。同一官方 ARK API（`ark.cn-beijing.volces.com/api/v3`），四种形态：
+
+| 维度 | **waoowaoo**（TS，最完整） | **Pixelle-Video**（Python） | **showvi**（Python，双实现） | **FireRed**（Python） |
+|---|---|---|---|---|
+| externalId 格式 | `ARK:VIDEO:requestId`（**结构化可解析**，含 type 前缀） | 无统一 id 格式（内部变量） | 与 Sora 对齐的返回格式 | — |
+| videoUrl 提取 | **双形态兼容**：`content.video_url` 或 `content[].video_url.url` 数组遍历（`poll.ts:31-44`） | 单一形态 | — | — |
+| token 计量 | ✅ 回传 `actualVideoTokens`（实际消耗与预估分离） | ❌ | ❌ | ❌ |
+| 失败处理 | `createProviderAsyncTaskFailure` + `captureProviderHttpFailure`（FG 体系内） | logger.warning | — | — |
+| 错误码解析 | **独立 `readArkErrorCode` 模块**（ARK 错误码单独建模） | 无 | — | — |
+| 代理 | `fetchWithProviderProxy`（出站统一走代理层） | `local_proxy` 参数 | — | — |
+| 认证来源 | `context.getProviderConfig(userId,'ark')`（**按用户存配置**） | 环境变量 `ARK_API_KEY` | Cookie `sessionid`（逆向） | config.toml |
+
+**三个关键差异点（mulpub adapter 层直接可用）**：
+
+1. **`video_url` 的双形态**：ARK 返回的 `content` 可能是对象（`{video_url}`）也可能是数组（`[{video_url:{url}}]`）——waoowaoo 的 `readArkVideoUrl` 两种都接。mulpub `video-gen.js:190` 用 `data.taskId || data.videoId || data.id || data.task_id` 的**或链兜底**，但对**响应体 videoUrl 的形态兼容**未必做过同样防御——接入 Seedance 时这是第一个会踩的坑。
+2. **`actualVideoTokens` 分离**：waoowaoo 把「预估 token」与「实际消耗 token」分开回传——这是 BA-01D（计价单位=真实基准）在 provider 层的落地。mulpub 若做成本核算，**应从响应里取实际值而非按请求参数估算**。
+3. **错误码独立建模**：waoowaoo 为 ARK 单独建了 `readArkErrorCode`/`toArkPollHttpError`——平台错误码进入 FG-01 的 FailureRecord 时**保留原生语义**，而不是坍缩成 INTERNAL_ERROR。
+
+> 💡 mulpub 的 `film-engineering-auto.js` 等四处已有 seedance 字样（需确认是配置还是实现）；若 mulpub 的 Seedance 接入尚在计划，**waoowaoo 的 ark 四件套（async-task/poll/error/pricing）就是最完整的 TS 参考实现（Elastic 2.0 桌面端可用）**。
+
+#### 3.24.2 「接一个新模型」的工程化程度对照 —— ZJT 把它做成了 Skill
+
+**ZJT 的 `.claude/skills/add-video-driver/SKILL.md`**：把「接入新视频模型」的完整流程写成 AI 可执行的 Skill——这是 19 个项目里唯一把「扩模型」变成**可委托给 AI 的标准作业程序**的。
+
+其流程骨架（四步）：
+1. **常量与任务配置**：`unified_config.py` 注册驱动实现名 + `ALL_TASK_CONFIGS` 加任务条目
+2. **驱动类实现**：继承 `base_video_driver.py`，经 `driver_factory` 注册
+3. **三层映射**：`任务类型(ID) → 业务驱动名 → 实现驱动名 → 驱动类`（如 `14 → vidu_i2v → vidu_default → ViduDefaultDriver()`）——**业务名与实现名解耦**，换底层实现不动业务配置
+4. **配置与热更新**：`config.example.yml` 加供应商段 + `default_configs.py` 加热更新项（`quick_config: True` 进管理后台快速弹窗、`is_sensitive: True` 日志脱敏）
+
+**对照各项目「接新模型」的成本**：
+
+| 项目 | 接新模型要动几处 | 形态 |
+|---|---|---|
+| **ZJT** | 4 处，**有 Skill 指导 AI 完成** | 流程文档化 + AI 可执行 |
+| waoowaoo | provider 目录一个子模块（async-task/poll/error/pricing 四件套）+ 目录注册 | 结构约定清晰，但无 Skill |
+| mulpub | **adapter 一件 + KNOWN_METHODS 校验 + capabilities() + PUBLIC_CHANNELS**（IPC 三层防御） | 防御最强，但步骤靠记忆 |
+| moyin | feature-router 绑定 + use-xxx-generation composable | 前端直连，无独立 adapter 层 |
+
+**对 mulpub 的结论**：mulpub 的 adapter 接入防御（版本校验 + validateConfig + IPC 防御）是四者最严的，但「**接一个模型的完整步骤清单**」没有文档化——ZJT 的 Skill 形态（流程 + 检查点 + 文件清单）值得在 `01-docs/` 落一份《新增视频模型接入 SOP》，把「四处必改 + 测试要求」固化，甚至未来做成 mulpub 自己的 add-video-adapter Skill。
+
+#### 3.24.3 Prompt 资产量盘点 —— 谁在真正经营 prompt 资产
+
+按「含 prompt 相关内容的文件数」实测：
+
+| 项目 | 文件数 | 形态 |
+|---|---|---|
+| waoowaoo | **33** | 分散于 canary 基线 + 架构文档 + 代码模板 |
+| smy-seedance-storyboard | 17 | 全部是资产本身（Skill + references + 实例工程） |
+| FireRed-OpenStoryline | 14 | **任务化外置**（prompts/tasks/，每个任务 zh/en 双份 system+user） |
+| short-drama-skills | 14 | 全部是资产本身 |
+| moyin-creator | 9 | 散落 composable/文档 |
+| short-drama | 0* | 文件名不含 prompt 但内容全是（SKILL.md 本体） |
+
+*注：short-drama 的 0 是文件名层统计的盲区——它整仓就是剧本方法论，不自称 prompt。
+
+**收束**：FireRed 的 14 个文件是**组织最好的**（任务化 + 双语 + 外置 + fail-closed 加载），waoowaoo 的 33 个是**治理最好的**（canary 基线 + 输出契约文档），而 **mulpub 的对应物只有 prompt-doctrine.json 一个文件**——这就是 F30（任务化外置）与 F1（失败模式台账）的量化依据：mulpub 的 prompt 资产管理成熟度约为 FireRed 的 1/14、waoowaoo 的 1/33。
+
+> 💡 **一句话总结第六层**：把「同一平台四种接法」「接模型做成 Skill」「prompt 资产量化盘点」三个具体问题答完——**Seedance 接入看 waoowaoo 四件套，接模型 SOP 抄 ZJT 的 Skill 形态，prompt 资产经营的差距用数字摆了出来**。
+
+---
+
+---
+
 ## 四、横向对比与复用价值排名
 
 ### 4.1 mulpub 现状 vs 竞品能力对照
