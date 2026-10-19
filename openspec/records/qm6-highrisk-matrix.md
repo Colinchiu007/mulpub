@@ -11,12 +11,12 @@ date: 2026-10-19
 | 变更类型与隔离 | ✅ | 混合 PR：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD` → `docs-only=false files=3`（`scripts/check-pr-exec-record.js` + 其测试 + pre-commit 自动写入的判定产物）。运行时代码在隔离 worktree `<仓库父目录>/mp-worktrees/mp-ccg-review-degradation`、裸分支 `qm6-highrisk-matrix`（基线 `origin/main = c79527117`，实现提交 `d4b819932`） |
 | 第一性原因（QM-5 ①） | ✅ | 见下 §一：闭环白名单只断言「有人写了一个词」，而"谁真的评审了"这件事在本仓只有散文（AGENTS #3747 那句「高危域不得自扮演豁免」无执行体） |
 | 逃逸分析（QM-5 ②） | ✅ | 见下 §二，逐层给出逃逸原因（单元层 / 判据层 / 变异层 / 审查层） |
-| 修复 + 回归保护（QM-5 ④） | ✅ | `scripts/check-pr-exec-record.js`：`HIGH_RISK_SURFACES`（9 条，逐条带实测出处）+ `highRiskPrefixOf`（唯一匹配实现）+ `closureCorroboration` + 转变检测；测试 81 → **92**（本片 +11 条，名单见 §三） |
-| 防止再次发生（QM-5 ⑤） | ✅ | 7 道变异反证（P1–P7）全部 CAUGHT、`escaped=0 anchorfail=0`；并把「匹配只准有一处」与「读数恰好打印一次」升成机械锁（§四） |
+| 修复 + 回归保护（QM-5 ④） | ✅ | `scripts/check-pr-exec-record.js`：`HIGH_RISK_SURFACES`（9 条，逐条带实测出处；`fingerprint` 一条带 `exts` 限定，raw 9 → 归因 7）+ `highRiskPrefixOf`（唯一匹配实现）+ `closureCorroboration` + 转变检测；测试 81 → **113**（首轮 +11、两轴处置再 +21，名单见 §三/§五） |
+| 防止再次发生（QM-5 ⑤） | ✅ | 21 道变异反证（P1–P21）全部 CAUGHT、`escaped=0 anchorfail=0`；并把「匹配只准有一处」与「读数恰好打印一次」升成机械锁（§四） |
 | 行尾与 diff 对账 | ✅ | 两文件均为 `i/lf w/crlf attr/text=auto`；`git diff --numstat` 与 `git diff --ignore-cr-at-eol --numstat` 逐字相等（155/17 与 152/0）⇒ 本次没有改写行尾 |
 | 接线棘轮 | ✅ | 未新增测试**文件**（锁都写进已接线的 `scripts/check-pr-exec-record.test.js`，`quality-gate.yml:163` 已点名）；`node scripts/check-unwired-tests.js` → `检查域内测试文件 108 个 OK` |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/` 与 `packages/rpa-engine/`，未触任何前端渲染面 |
-| QM-6 CCG 双模型外部评审 | ⏳ 进行中 | 见 §五。**本片禁止以 `self-play` 收口**（tasks 7.1 自反条款：改动的是判据本体，命中自己刚建立的高危面） |
+| QM-6 CCG 双模型外部评审 | ✅ 已收口（单轴复审如实标注） | 见 §五。**本片禁止以 `self-play` 收口**（tasks 7.1 自反条款：改动的是判据本体，命中自己刚建立的高危面） |
 | 远程同步 | 由门禁推导 | 本行**不需要事后改写**：合并后门禁按主干历史推导归属（`scripts/lib/merge-ledger.js`，只认 squash 尾注 `(#NNNN)`）；现场读数看 CI 步骤首行 `MERGE-LEDGER prs=<n>`。合并前这篇文件还不在基线上，判 byDesign 不红；把本行状态列写成 `PASS` 会被判「预写不存在的证据」而红 |
 
 ### 一、第一性原因：`status` 是断言，不是测量
@@ -171,9 +171,9 @@ P6 与 P7 是「行为不变、只测锁有没有牙」的两格：P6 证明单�
 | 读数 | 值 |
 | --- | --- |
 | 能取到差量的提交 | 40/40 |
-| 变更集内「已闭环的 dual 产物」 | 21 条 |
-| 出处分级 | `unknown`（整条没有 tier 字段）**18** ／ `external` 1 ／ `note` 2 ／ `self-play` 0 ／ `none` 0 |
-| 同变更集命中高危面的条数 | 5 |
+| 变更集内「已闭环的 dual 产物」 | 19 条（10:20 后在最终基线 `79f9c6cdd` 上重取；早先一次读的是 21 —— 窗口随主干前进而漂移，这正说明"数字必须现跑"） |
+| 出处分级 | `unknown`（整条没有 tier 字段）**16** ／ `external` 1 ／ `note` 2 ／ `self-play` 0 ／ `none` 0 |
+| 同变更集命中高危面的条数 | 4（同上重取；`fingerprint` 加 `exts` 之后归因面变窄，这条从 5 降到 4） |
 | **本片矩阵会新判红** | **2 条**（`d65f0b76f` = PR **#3927** 的两条产物：`status=needs_revision`、`performedBy=claude`、只有 `closureNote`、无 `tier`，落 `.github/workflows/` 高危面） |
 | **转变检测会新判红** | 0 条 |
 
@@ -184,4 +184,22 @@ P6 与 P7 是「行为不变、只测锁有没有牙」的两格：P6 证明单�
 3. **所以 2.x 与 8.1b 是耦合的，且顺序不能倒**：本仓现在**没有任何生产方会写 `tier`**（当场核实：仓外引擎 `~/.claude/skills/adversarial-review-loop/scripts/ccg-deep-review.js` 全文 `tier` 出现 0 次；`scripts/deep-review.sh` 同为 0）。矩阵要求的结构，工具造不出来 ⇒ 诚实的评审也只能靠**手写**来满足它。这正是 §六 第 2 条与 8.1b 的同一个洞，本片先落判据（并把这条测量留在记录里），**紧接着应该做 8.1b**，否则这条门禁的实际效果是「逼会话手写 tier」——那与本片想防的形态只差一层皮。
 
 探针未入库（同 §六 第 6 条的理由）；复现方式：按上表定义逐笔取差量，出处分级与高危面命中调 `require('./scripts/check-pr-exec-record.js')` 的两个导出函数。数字随主干增长漂移，引用时现跑。
+
+### 八、收口现场（本 PR 自己被自家判据量到的那一次）
+
+两条 `mode=dual` 产物（`714b49f9…` 来自实现提交、`b141c006…` 来自处置提交）按 §五 的真实交付写成 `tier=external` + 可核 `evidence` + 25 条 `findings`。**写入方式仍由会话手写**（工具侧未落地 = tasks 8.1b），所以 `closureNote` 里明写了这一层，收口文案没有假装它是合规路径。
+
+| 现场读数（最终基线 `79f9c6cdd` 上现取） | 值 |
+| --- | --- |
+| `node scripts/check-pr-exec-record.js --base=origin/main --mode=enforce` | **rc=0**，`OK: 本 PR 携带执行记录或带原因的豁免` |
+| `TIER-COVERAGE dual-closed` | `total=2 external=2 external-unverified=0 self-play=0 none=0 unknown(字段缺席)=0 unrecognized(值不认识)=0` |
+| `TRANSITION-CHECK` | `转变=无转变 扫描域=3 已核对=0 无出处=0 未证实=0` —— 两条产物在 PR 净差量里是 **A**（同 PR 内 pending→cleared 相互抵消），所以转变检测对本 PR 结构性无话可说；这正是 §六 第 1 条那个"A 面不可判"的残余在**我自己身上**的显形，不是"通过了所以没问题" |
+| 变更集 | 8 个文件（A=4 M=4 D=0），新增记录 1 篇，`待清理豁免 1 条` |
+| 用例 | `scripts/check-pr-exec-record.test.js` 113 passed / 0 failed；消费者并集 52+19+27+17 各 0 失败 |
+| 变异 | 驱动 21 条、`escaped=0`（P1/P5 锚点漂移后改锚重跑各 CAUGHT） |
+| numstat 两口径 | `--numstat` 与 `--ignore-cr-at-eol --numstat` 逐文件相等（判据 313/32、用例 507/5、记录 187/0） |
+| 其余本地门禁 | `check-unwired-tests` / `check-step-failfast` / `check-workflow-structure`(files=14 violations=0) / `check-gate-record-debt` / `check-record-qm5-rows` / `check-visual-coverage` / `check-no-brand-residue` / `check-doc-abs-paths` / `check-changelog-growth` / `check-changelog-duplicate-entries` / `openspec-sync-check` / `openspec validate --strict` 逐条 rc=0 |
+
+一句必须留下的对照：**这些本地读数不等于 CI 判定**。本仓 45 条 CI 判据与本地预跑几乎零重叠（既有记忆点名过这条边界），`QG Changes`/`QG Static` 的权威读数仍以 PR 侧与 main push 回读为准。
+
 
