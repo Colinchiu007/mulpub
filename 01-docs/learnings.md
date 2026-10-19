@@ -21613,3 +21613,19 @@ CI 把 `QG Static` 钉红在 Gate 2c，红的是 `check-unwired-tests.test.js` �
 - **pattern · 测试锚在实现细节上，等于把实现写成契约（于是样式层怎么退都不会红）**：原用例断言 `svg.findAll('path')).toHaveLength(2)` —— 它锁的是"双 chevron"这个具体实现，不是"图标表达双向"这个意图。后果是缺陷从单测层完全逃逸（改颜色、改边框、改尺寸都不红），只有用户肉眼能发现。改法是比**图形签名**（图元标签名 + 关键几何属性拼串）在**两态之间**是否相等：对"调几个像素"不敏感，对"退化成同一图形只换颜色"敏感（那正是要防的退化）。可迁移判据：**断言要锚在"我想防的那个退化形态"上，而不是"我现在写的那三行代码"上**；一旦某条断言改个颜色就失效，它大概率锁错了对象。
 - **pitfall · doc-abs-paths 的坑不止「自己写路径」，「继承别人写的路径」同样会红**：这是同一门禁的**第二种踩法**。上次（sidebar-collapse-followups）是我自己在 CCG 记录里手写本机用户目录下的 `codeagent-wrapper.exe` 全路径；这次是**引擎自己**把 `spawnSync` 的完整错误串（含同样路径）写进 `deepReview.error`，我在收敛 status 时用 `error: prev.error || null` **原样继承**了它 ⇒ CI `check-doc-abs-paths` 判「新增本机绝对路径 1 个文件」，整条 `QG Changes` 红、下游全 skipped。判据升级为：**任何写入受管文件的字段，无论来源是自己写的还是继承的，落盘前都要过一次绝对路径扫描**（本机用户目录、项目根所在的盘符根、系统临时目录三类形态都要扫）；改法照旧是换占位符（如 `<ccg-bin>/...`），**不是** `--write-baseline`。**第三次踩法更反讽**：我在**记录这条教训本身**时又把这些路径的原文形态写了出来，于是 learnings 的计数从基线 38 涨到 40 ⇒ 同一门禁再次红。⇒ 最终判据：**在文档里描述"某类路径"时，连"举例的形态"也必须写成占位符**，因为门禁扫的是字面量、读不懂"这是举例"。定位动作可复用：门禁报「超出基线 N 个文件」但不点名时，本地 `node scripts/check-doc-abs-paths.js --base=origin/main --head=HEAD`（**带 base 的 diff 模式**，与 CI 同款）会逐处列出文件:行号；只跑 `--all` 全量模式可能看不到，因为两者的判定域不同。
 
+## 2026-10-18 · 夹具落到工作树：命令替换吞 stdout + 「用例 rc」不测「夹具是否成形」（docs-sync-fixture-leak）
+
+- **症状**：某个 worktree 里出现 11 个未跟踪文件，目录名是 `On branch main―Initial commit―nothing to commit (create/copy files and use 'git add' to track)―…`。
+  它们是 `scripts/check-docs-sync.test.sh` 的夹具。清理只能走 `scripts/safe-delete.js`（目录一律拒绝递归删除），11 个文件逐个删完后空目录仍留（R0 没有目录出口），随 worktree 退役一并消失。
+- **链**：`make_repo` 内每条 git 调用没关 stdout ⇒ 调用方 `repo="$(make_repo …)"` 把 git 的 status 原文与真实路径拼成一个字符串 ⇒
+  `mkdir -p "$repo/…"` 的相对路径落在 **cwd（= 仓库工作树）**。触发条件是继承 `MSYS_NO_PATHCONV=1`/`MSYS2_ARG_CONV_EXCL`：
+  此时 `/tmp/tmp.XXXX` 被 bash（MSYS 根）与原生 `git.exe`（盘内路径）解析成两处 ⇒ `echo seed > "$dir/README.md"` 与 `git add -A` 量的不是同一个目录 ⇒ seed 提交为空 ⇒ 才有那段 status 可打。
+- **为什么四层门禁都没看见**：① 垃圾是未跟踪文件，CI 的检出态里没有它 ⇒ 远程结构性失明；② 自测的断言只比"被检方 rc"，
+  事发那次现场日志第 1 行是 `README.md: No such file or directory`，第 20 行照打 `PASS:` ⇒ **夹具没成形时用例仍绿**；
+  ③ AGENTS 有「文件系统测试隔离」这条纪律但没有执行体；④ 唯一撞上它的 `check-unwired-tests.js` 按磁盘扫，报出来的是**本机假红**（说仓库里有嵌套 workflow）。
+- **正解（按层，摘任一层另一层仍兜）**：环境由夹具自己钉（入口 unset）／函数 stdout 只留路径／
+  取到的路径与期望**逐字相等**再写入（顺序即判据的一半：放 mkdir 之后就等于先落盘再报错）／
+  夹具成形自检（有提交且 seed 在索引里）／cwd 条目快照对账并**点名**泄漏。
+- **可迁移的两句**：①「凡被 `$( )` 捕获的函数，它的 stdout 就是返回值」—— 任何旁路 `echo`/工具 stdout 都会变成返回值的一部分，
+  这类缺陷在 bash/PowerShell 里都是**不报错、只变形**；②「用例的 rc 只证被检方，不证夹具」——写夹具收尾必须回答
+  「如果夹具根本没建起来，这条用例会红还是会绿？」答不出"红"就补一条成形断言。
