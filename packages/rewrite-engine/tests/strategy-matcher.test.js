@@ -237,6 +237,41 @@ describe("StrategyMatcher — 无有效信号兜底", function() {
 
   // CCG 深度审查 i4：保真兜底策略 id 不得与具体 id 硬耦合在算法内部 ——
   // ops 可运营数据（策略 id/顺序）变化会静默改变默认选中。现可注入，此处锁住可配置性。
+  // CCG 二轮 i1：无信号组内「短内容」场景。
+  // 缺陷形态：短内容 <600 码点且无信息密度特征 ⇒ _isFidelityPreferred=false ⇒
+  // 启发式全 0 ⇒ id 字典序破平恒选 strategy-douyin-viral（d 字典序最小）。
+  // PRD P0-1 承诺「无把握时降级到显式兜底」——无把握就不该落回字典序猜。
+  test("二轮 i1：无信号 + 短内容仍走保真兜底（不落回字典序）", function() {
+    var m = new StrategyMatcher({
+      userSettings: {}, userHistory: {}, topN: 5,
+      content: "帮忙写个产品文案",
+    })
+    var ranked = m.rank(BUILTIN_STRATEGIES.slice())
+    expect(ranked[0].id).toBe("strategy-knowledge-dry")
+  })
+
+  // CCG 二轮 i2：有信号但零命中。
+  // 缺陷形态：industry=zxyx（无任何策略声明）⇒ 有信号 ⇒ id 破平被关闭 ⇒
+  // score/hits/specificity 全并列 ⇒ 稳定排序回退数组首项 storytelling。
+  // 用户表达了意图但意图无法映射任何策略，同样属于「未产生有效区分」，应兜底。
+  test("二轮 i2：有信号但零命中走保真兜底（不回退数组首项）", function() {
+    var m = new StrategyMatcher({
+      userSettings: { industry: "zxyx" }, userHistory: {}, topN: 5,
+    })
+    var ranked = m.rank(BUILTIN_STRATEGIES.slice())
+    expect(ranked[0].id).toBe("strategy-knowledge-dry")
+  })
+
+  // 二轮 i2 的边界：信号一旦真正命中，兜底立即让位（不得覆盖用户意图）。
+  test("二轮 i2 边界：真命中组不得被兜底覆盖（industry=technology 仍选干货）", function() {
+    var m = new StrategyMatcher({
+      userSettings: { industry: "technology" }, userHistory: {}, topN: 5,
+    })
+    expect(m._computeSignalHitAny(BUILTIN_STRATEGIES.slice())).toBe(true)
+    var ranked = m.rank(BUILTIN_STRATEGIES.slice())
+    expect(ranked[0].id).toBe("strategy-knowledge-dry")
+  })
+
   test("i4：保真兜底策略 id 可注入（不写死在算法内部）", function() {
     var m = new StrategyMatcher({
       userSettings: {},

@@ -19,7 +19,7 @@ date: 2026-10-19
 | 会话隔离 | ✅ worktree 内编辑；`pre-code-edit-guard` 共享根 BLOCKED（exit 1，预期）/ worktree 内 exit 0；`rev-parse --abbrev-ref HEAD` = `rewrite-default-strategy-fix` |
 | 依赖就绪 | ✅ `pnpm install --frozen-lockfile` + `verify-worktree-deps.js` OK 11 项 |
 
-| 远程同步 | PENDING | PR #3980 开启中，合并后由门禁按主干历史推导收口 |
+| 远程同步 | 由门禁推导 | PR #3980；收口按主干历史推导，见 change `gate-record-sync-derived-status` |
 
 ## CCG 深度审查（QM-6 双模型，DUAL 档）
 
@@ -35,6 +35,22 @@ date: 2026-10-19
 | i5 | Warning | 形态判据改**长度优先三档**：≥80 draft / ≤12 topic（阈值取自实测样本：种子 7-11 字、最短成稿 16-18 字）/ 灰色带靠结构（多段或 ≥2 句末标点）；5 条锁 + 4 条既有断言按新语义修正 |
 
 裁决明细：`.adversarial/ccg-deep-279050fa/adjudication.json`（5/5 upheld + 逐条 prosecution/defense/rationale）；`deepReview.status` → `self_play_resolved`，`check-pr-exec-record --mode=enforce` PASS。
+
+### CCG 二轮（max-lines 单键手术后重新触发的 DUAL→SINGLE 审查）
+
+二轮产出 5 条，裁决 **4 upheld / 1 dismissed**，明细 `.adversarial/ccg-deep-b14953e1/adjudication.json`：
+
+| id | verdict | 处置 |
+|---|---|---|
+| i1 | upheld（**实测复现**） | 无信号 + 短内容 ⇒ id 字典序恒选 douyin-viral，与原缺陷同形。修复：`_isFidelityEligible` 取代内容密度判据，无信号组一律保真兜底；变异 M4 实测 1 红 |
+| i2 | upheld（**实测复现**，指控的 finance 例子不成立、换 zxyx 成立） | 有信号但零命中 ⇒ 稳定排序回退数组首项。修复：`rank()` 预计算 `_signalHitAny`，零命中组也放行兜底 + id 破平；真命中组不受影响（technology 仍选干货） |
+| i3 | upheld | content 进 watch 后逐键触发预览请求。修复：300ms 防抖（`scheduleContentPreview` + onUnmounted 清理），下拉保持即时；回归锁改 fake timers 断言「三次键入一次请求」 |
+| i4 | upheld | 「老调用方行为不变」注释误导（跨面变化未声明）。修复：改写 ai.js/preload 两处注释；跨面影响显式声明见下 |
+| i5 | dismissed | 三条 SHA 各有语义（stagedDiffHash 内容寻址 / 提交时 HEAD / 当前 head），deep-review.sh 已显式打印对应关系，不构成追溯断链；记录补说明即可 |
+
+**跨面行为声明（i4）**：本次修复使 AiWriterPanel 与 Collection 采集页在空/近似空 userSettings 下的自动推荐由 `strategy-viral-storytelling` 变为 `strategy-knowledge-dry`——这是修复目标本身的有意变化，非回归。
+
+**SHA 对应说明（i5）**：`.ccg/reviews/<stagedDiffHash>.json` 是暂存 diff 的内容寻址（非提交号）；`ccg-deep-279050fa/` 是该轮审查时 HEAD；当前分支 head 见 git log。三者由 `deep-review.sh` 输出的「判定记录按内容寻址命中…（预期行为）」行关联。
 
 ## 根因（实测，非推断）
 

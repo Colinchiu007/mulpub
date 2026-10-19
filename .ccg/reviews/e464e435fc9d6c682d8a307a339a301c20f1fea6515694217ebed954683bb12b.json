@@ -46,10 +46,12 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
+    "status": "self_play_resolved",
     "tier": "unknown",
-    "performedBy": null,
+    "performedBy": "self-play(claude critic, adjudicated by lead agent)",
     "evidence": null,
-    "findings": null
+    "findings": null,
+    "note": "max-lines 单键手术（2 行 JSON 数据）触发的 SINGLE 审查：8 findings / 5 待裁决，裁决 4 upheld / 1 dismissed。i1 短内容字典序兜底失效（实测复现，_isFidelityEligible 修复）；i2 零命中值回退数组首项（实测复现，_signalHitAny 修复）；i3 content 预览防抖 300ms；i4 误导性注释修正+跨面行为声明；i5 SHA 错位属内容寻址设计（dismissed）。明细 .adversarial/ccg-deep-b14953e1/adjudication.json",
+    "at": "2026-10-19T03:49:25.106Z"
   }
 }

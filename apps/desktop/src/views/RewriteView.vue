@@ -573,7 +573,20 @@ async function refreshStrategyPreview() {
 // ⚠ content 必须一起监听（CCG 深度审查 i3）：启发式兜底依赖原文形态，
 //   只监听设置项会导致「粘贴长文但没动下拉」时预览名不刷新，
 //   而实际改写会用新的 content 重新匹配 ⇒ 预览名与实际命中策略漂移。
-watch([platform, industry, purpose, tone, content], refreshStrategyPreview)
+// ⚠ content 走 300ms 防抖（CCG 二轮 i3）：正文逐字输入会高频触发预览请求，
+//   previewSeq 只保证「过期结果不渲染」，拦不住请求本身。下拉选择是离散低频
+//   动作可即时刷新；正文连续键入合并到停顿后一次，交互上无感知差异。
+let contentPreviewTimer = null
+function scheduleContentPreview() {
+  if (contentPreviewTimer) clearTimeout(contentPreviewTimer)
+  contentPreviewTimer = setTimeout(() => {
+    contentPreviewTimer = null
+    refreshStrategyPreview()
+  }, 300)
+}
+onUnmounted(() => { if (contentPreviewTimer) clearTimeout(contentPreviewTimer) })
+watch([platform, industry, purpose, tone], refreshStrategyPreview)
+watch(content, scheduleContentPreview)
 
 // 改写结果被用户编辑（textarea v-model）→ 已存草稿内容过期：置空 id，下次操作按当前内容重存
 // （saveToDraft 成功后 savedDraftId 更新，此处仅在内容再次变化时失效，不构成循环）

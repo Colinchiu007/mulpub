@@ -184,23 +184,35 @@ describe('RewriteView', () => {
 
   // ── 字数区间控制（2026-09-12）──
 
-  // CCG 深度审查 i3：预览 watch 必须包含 content。
+  // CCG 深度审查 i3：预览必须响应 content 变化（带 300ms 防抖，二轮 i3）。
   // 缺陷形态：启发式兜底依赖原文形态，只监听设置项 ⇒ 「粘贴长文但没动下拉」时
   // 预览名不刷新，而实际改写会用新 content 重新匹配 ⇒ 预览与实际命中策略漂移。
-  it('i3：粘贴长文后预览请求刷新并携带 content（预览与实改一致）', async () => {
-    const { aiGetRecommendedStrategies } = await import('@/api/publisher')
-    aiGetRecommendedStrategies.mockClear()
-    const wrapper = factory()
-    await nextTick()
-    const input = wrapper.find('textarea.rewrite-textarea')
-    await input.setValue('这是一段足够长的成稿内容。' + '补充说明。'.repeat(200))
-    await nextTick()
-    await nextTick()
-    expect(aiGetRecommendedStrategies).toHaveBeenCalled()
-    const last = aiGetRecommendedStrategies.mock.calls[aiGetRecommendedStrategies.mock.calls.length - 1]
-    // 第二参必须是原文；否则预览与 startRewrite 的匹配口径不一致
-    expect(typeof last[1]).toBe('string')
-    expect(last[1].length).toBeGreaterThan(0)
+  // 防抖后：连续键入合并到停顿 300ms 后一次请求，避免逐键高频触发（二轮 i3）。
+  it('i3：粘贴长文后预览请求刷新并携带 content（300ms 防抖）', async () => {
+    vi.useFakeTimers()
+    try {
+      const { aiGetRecommendedStrategies } = await import('@/api/publisher')
+      aiGetRecommendedStrategies.mockClear()
+      const wrapper = factory()
+      await nextTick()
+      const before = aiGetRecommendedStrategies.mock.calls.length
+      const input = wrapper.find('textarea.rewrite-textarea')
+      // 模拟连续键入：三次 setValue 只应触发一次防抖后的请求
+      await input.setValue('第一段输入。')
+      await input.setValue('第一段输入。第二段。')
+      await input.setValue('这是一段足够长的成稿内容。' + '补充说明。'.repeat(200))
+      await vi.advanceTimersByTimeAsync(300)
+      await nextTick()
+      await nextTick()
+      const after = aiGetRecommendedStrategies.mock.calls.length
+      expect(after).toBeGreaterThan(before)
+      const last = aiGetRecommendedStrategies.mock.calls[after - 1]
+      // 第二参必须是原文；否则预览与 startRewrite 的匹配口径不一致
+      expect(typeof last[1]).toBe('string')
+      expect(last[1].length).toBeGreaterThan(0)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   // P1-1 回归锁（rewrite-default-strategy-fix）：改写页必须把 industry/purpose/tone
@@ -1099,11 +1111,12 @@ describe('RewriteView — 策略选择与匹配预览', () => {
     await nextTick()
     await nextTick()
     await nextTick()
-    // 改写结束后 finally 中再次刷新（第 3 次）
-    // rewrite-default-strategy-fix(i3)：content 也进了预览 watch（启发式兜底依赖原文形态），
-    // 所以 setValue 输入正文会触发第 2 次预览 —— 这是 i3 修复的预期代价：
-    // 每次键入多一次本地匹配计算（无 LLM 调用），换取预览名与实际命中策略一致。
-    expect(aiGetRecommendedStrategies).toHaveBeenCalledTimes(3)
+    // 改写结束后 finally 中再次刷新（第 2 次）
+    // rewrite-default-strategy-fix(i3)：content 进预览 watch 但走 300ms 防抖——
+    // 键入产生的预览请求被合并推迟，本次同步触发的 click→finally 路径里
+    // 防抖 timer 尚未到期 ⇒ 实际发出的只有「挂载 + finally」两次。
+    // （防抖请求本身由 i3 专项用例用 fake timers 单独覆盖。）
+    expect(aiGetRecommendedStrategies).toHaveBeenCalledTimes(2)
   })
 
   it('drops stale preview result when platform switches quickly (race guard)', async () => {

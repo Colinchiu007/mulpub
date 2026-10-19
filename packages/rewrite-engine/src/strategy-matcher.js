@@ -59,6 +59,10 @@ class StrategyMatcher {
   rank(strategies) {
     if (!Array.isArray(strategies) || strategies.length === 0) return []
 
+    // 预计算：用户给出的任一设置值是否命中过至少一个候选策略。
+    // 这是启发式资格判定（_isFidelityEligible）的全局事实，逐策略算不出来。
+    this._signalHitAny = this._computeSignalHitAny(strategies)
+
     const scored = strategies.map(s => ({
       ...s,
       score: this._score(s),
@@ -97,16 +101,46 @@ class StrategyMatcher {
     //   此时按**平台专精度**破平：声明平台越少越专注该平台（douyin-viral 只声明 douyin，
     //   而 storytelling 声明了三个平台）。专精策略才该在用户点名某平台时胜出。
     //   无平台信号时该项为 0，不影响其它场景。
-    // 第 ⑤ 级 id 字典序仍只在无信号组启用（i1 的边界不变）。
-    const noSignal = this._isNoSignalGroup()
+    // 第 ⑤ 级 id 字典序：在「无信号组」与「有信号但零命中组」（CCG 二轮 i2）启用 ——
+    //   这两类都是「匹配器未产生有效区分」的场景，必须有确定性次序且不得依赖数组顺序。
+    //   用户信号已真正命中的组（_signalHitAny=true）保持稳定排序：
+    //   此时并列是用户意图导致，继续补充维度是用户的事，替他猜反而覆盖意图（i1）。
+    const idTiebreakAllowed = !this._signalHitAny
     scored.sort((a, b) => (
       (b.score - a.score) ||
       (b._hits - a._hits) ||
       (b._heuristic - a._heuristic) ||
       (b._specificity - a._specificity) ||
-      (noSignal ? (a.id < b.id ? -1 : a.id > b.id ? 1 : 0) : 0)
+      (idTiebreakAllowed ? (a.id < b.id ? -1 : a.id > b.id ? 1 : 0) : 0)
     ))
     return scored.map(({ _heuristic, _hits, _specificity, ...rest }) => rest)
+  }
+
+  /**
+   * 用户给出的任一设置值是否命中过至少一个候选策略。
+   *
+   * 「零命中」的判定域是**四个设置维 × 全部候选**：任一维的值在任何候选的
+   * 对应声明列表里出现过，就算有命中。全 0 才是零命中。
+   * @param {Array} strategies - 本轮候选（rank() 的入参）
+   * @returns {boolean} true=至少一维命中过；false=有信号但全零命中；无信号也为 false
+   */
+  _computeSignalHitAny(strategies) {
+    const s = this._userSettings || {}
+    const dims = [
+      { value: s.industry, key: 'industry' },
+      { value: s.purpose, key: 'purpose' },
+      { value: s.platform, key: 'platforms' },
+      { value: s.tone, key: 'tone' },
+    ]
+    for (let i = 0; i < dims.length; i++) {
+      const v = dims[i].value
+      if (typeof v !== 'string' || !v.trim()) continue
+      for (let j = 0; j < strategies.length; j++) {
+        const declared = strategies[j][dims[i].key] || []
+        if (this._dimensionHit(v, declared)) return true
+      }
+    }
+    return false
   }
 
   /**
@@ -243,11 +277,32 @@ class StrategyMatcher {
    * @returns {number} 启发式得分（仅用于并列破平）
    */
   _heuristicScore(strategy) {
-    if (!this._isNoSignalGroup()) return 0
-    if (this._isFidelityPreferred()) {
-      return this._fidelityIds.indexOf(strategy.id) !== -1 ? 1 : 0
-    }
-    return 0
+    if (!this._isFidelityEligible()) return 0
+    return this._fidelityIds.indexOf(strategy.id) !== -1 ? 1 : 0
+  }
+
+  /**
+   * 启发式是否有资格介入（破平失败后的最终兜底）。
+   *
+   * 两类场景允许（CCG 二轮 i1/i2 实测确立）：
+   * 1. 无信号组（用户什么都没填）——原 P0-1 场景。
+   * 2. **有信号但零命中**（用户填了值，但没有任何策略声明匹配它）——此时
+   *    score/hits/specificity 全并列，且 id 破平被 i1 收窄关掉 ⇒ 稳定排序
+   *    回退数组首项（实测 industry=zxyx ⇒ storytelling）。用户表达了意图
+   *    但意图无法映射到任何策略，同样属于「匹配器未产生有效区分」，
+   *    应降级保真兜底而不是靠数组顺序猜。
+   *
+   * 反例仍然禁止（用户意图已真正命中）：
+   *   platform=douyin ⇒ douyin-viral 与 knowledge-dry 同 44 分，但那是真命中
+   *   导致的并列，_signalHitAny=true 说明信号已生效，破平交给 hits/specificity。
+   *
+   * @returns {boolean}
+   */
+  _isFidelityEligible() {
+    // 无信号组：直接有资格
+    if (this._isNoSignalGroup()) return true
+    // 有信号但全部零命中：信号存在但无法映射任何候选 ⇒ 有资格（读 rank() 缓存）
+    return this._signalHitAny === false
   }
 
   /**
