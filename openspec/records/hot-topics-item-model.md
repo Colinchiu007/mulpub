@@ -51,3 +51,20 @@ date: 2026-10-18
 | `play` 键已留白名单位但未启用 | `INTERACTION_KEYS` 含 `play`，而**没有任何源会产出它**——它不是空壳字段（值缺席即键不存在），但 O-3 取证前不得有实现依赖它 |
 | 判别位对渲染层的影响 | 渲染层 `HotTopics.vue` 本片不改；新字段是加宽而非改形，旧渲染路径不看 `kind` 也照常工作 |
 | 归档标签那片（PRD §5） | 按用户指示**接在后面**，不在本片范围；本片已完成它的前置（名次派生量必须与 `hotValue` 分字段，Requirement 4 已落进实现与用例） |
+
+## 4. 第 7-9 次深审尝试（2026-10-18 晚，阻塞条件已变，读现场不写结论）
+
+前提变化：#3927 已合并 —— 后端对有了单一真源，且"设了没生效"会被对账判红。于是重跑本片深审：
+
+| 次序 | 动作 | 现场读数 |
+|---|---|---|
+| 7 | rebase 到含 #3927 的 main（落后 48 笔） | 唯一真冲突是 `CHANGELOG.md` 顶部（两侧都是 prepend 的**不同记录** ⇒ 并集，非重建）；核对方式：`my_blocks=511 / main_blocks=510 / delta=1`，`git diff --numstat origin/main...HEAD -- CHANGELOG.md` = `9 0`（**只加不删**，没反向撤销上游任何一行） |
+| — | 在最终基线重跑本片测试 | `vitest run hot-topics-item-model.test.js hot-topics-service.test.js` ⇒ **Test Files 2 passed / Tests 77 passed / rc=0** |
+| — | rebase 不跑钩子 ⇒ 判定记录失配 | 内容寻址落空的原因不是钩子没跑，而是 **CHANGELOG 那一笔的 diff 文本随基线变了** ⇒ `stagedDiffHash` 换值。用登记的出口补：`node scripts/ccg-review-decider.js --base HEAD^` ⇒ 新记录 `fe4c8652b…json`，`mode=dual`（436 行 > 200），**并首次带上 `reviewBackends{critic:claude, proposer:opencode, from:{list}}`** —— 这就是 #3927 那套机制在真实提交上第一次跑通 |
+| 8 | `sh scripts/deep-review.sh`（默认后端） | 轮 1 调用 `critic=claude` **ETIMEDOUT**（驱动 `timeoutMs=600000`）⇒ 记录 `status=error`、`performedBy=claude` |
+| 9 | 降区间直连驱动 `--base HEAD^` | 载荷仍是 836 行（判定器报的 436 行是"非 .ccg 变更行"，驱动喂给模型的是整段 diff）⇒ 轮 1 **`exit 1`** 且 wrapper 自删日志，无 findings |
+| 探针 | `codeagent-wrapper --backend claude` 最小提示 | 约 90 分钟前 **rc=0 / 17.3s** 出词；此刻同一探针 **180s 零输出被杀** ⇒ 后端再次不可用（不是本片代码问题，也不是载荷问题能解释的第一因） |
+
+**为什么不收口**：本片判定是 `dual`（436 行 / 8 个源文件），不是假阳性 ⇒ 门禁给的合规出口（"写明原因并把 status 置为闭环值"）在这里用就是拿自扮演顶替外部评审。两份旧 dual 产物 `39caed93…` / `5fcbd5ea…` 仍 `pending`，第 8-9 次尝试的 `fe4c8652b…json`（`status=error`）**刻意不入库**——多提交一份未闭环 dual 只会让 CI 多一条红，而它并不比现状更真实。
+
+**本轮顺带抓到 #3927 自身的一个缺陷**（只有在真去换后端时才现形）：`reviewBackends` 由**提交时**的判定器写入，而操作者可以在**评审时**才换后端；那时记录里是 `claude`、驱动回填 `performedBy=codex` ⇒ 对账判未闭合，即我自己的机制把它支持的用法判成红。已立 follow-up（入口在调用驱动前把评审时的请求值回写进它解析到的那份记录；驱动 writeBack 只替换 `deepReview` 对象，顶层字段可存活）。
