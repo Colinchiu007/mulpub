@@ -187,6 +187,7 @@ export default {
     rewriting: 'AI 改写中...',
     rewriteSuccess: '改写完成',
     rewriteFailed: 'AI 改写失败',
+    rewriteTruncated: '正文共 {original} 字，超过单次改写上限 {max} 字，已截取前 {max} 字进行改写',
     oneClickRewrite: '一键改写',
     oneClickRewriting: '一键改写中...',
     originalContent: '采集原文',
