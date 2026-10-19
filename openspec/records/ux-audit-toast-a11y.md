@@ -178,6 +178,60 @@ toast，用户根本看不见」。**打开原文核对后撤回**：三处是 C
   属「某页文案对不对」的另一批变更，与本批「出口有没有策略」混在一起会让两批归因互相污染。
 
 
+## 第三次改判：出口形状变更打破了一条**观察面断言**（CI 现场，2026-10-19）
+
+### 现场（判据取产物，不是推断）
+
+本 PR 第一轮 CI 唯一红项是 `QG Desktop Shards (2/2)`，1 红 / 8693：
+
+```
+FAIL src/views/Collection.rewrite-input-limit.test.js > 采集页一键改写 — 超长正文自动截取
+AssertionError: expected '[object Object]' to contain '6766'
+```
+
+### 归因与 A/B 对照（先问"是不是我"，两条都跑）
+
+在**另起的一个基于 main 的 worktree**（只加判据、未碰 useNotify）跑同一条用例：**5 passed**；
+在本分支跑：红。⇒ **是本批引入，不是 main 既有**。机制很干净：该文件的观察助手写的是
+
+```js
+ElMessage.warning.mock.calls.map((call) => String(call[0])).join('\n')
+```
+
+而统一出口 `useNotify` 现在传给 `ElMessage.warning` 的是**选项对象** `{message, duration, grouping}`
+（时长与同源合并由 utils/toast-policy 唯一持有，必然带选项），于是 `String(obj)` 得 `[object Object]`。
+
+### 这是本批第二次踩"改调用形态就是改契约"，且这次落在**断言侧**
+
+上一轮我把泛化 `ElMessage({...})` 改回 `ElMessage[type]({...})`，理由是"16 个消费者夹具只挂具名方法"——
+那修的是**夹具形状**；这一处漏掉的是**断言读法**：`String(call[0])` 把"第一个实参是字符串"当成了契约。
+两种形状在这一点上**并不等价**：观察者读的是实参类型，不只是"有没有弹"。
+
+### 处置：改观察助手，不改断言强度
+
+用本批已入库的共享助手 `utils/toast-assert-helpers` 的 `messageOf` 取文案
+（它对"字符串形态"与"选项对象形态"都给得出文本），三处断言**原样保留**：
+仍要求文案含 `6766` / `6000` / `截取`。没有放宽任何断言——这是形状迁移，不是降强度。
+
+### 反证（teeth check，正控与变异都要有产物）
+
+- 正控：未变异 `pnpm vitest run src/views/Collection.rewrite-input-limit.test.js` ⇒ **rc=0，5 passed**。
+- 变异 N-a：把 `Collection.vue` 的截断分支改成恒假（即"摘掉截断提示"这一原始缺陷形态）
+  ⇒ **rc=1，红的正是**「6766 字正文 → 截到 6000 码点后调用 aiRewrite，并明确提示截断；原文不被改写」。
+- 跑后 `Collection.vue` 与跑前 md5 逐字节相同。
+
+**顺手记下驱动自己的一次假阴性**：第一版 teeth 判据要求"摘要行含 `failed`"，而 vitest 的摘要行在剥色后
+仍被 `─` 分隔符截成 `Tests 1 ───` ⇒ 明明 rc=1、用例名也解析到了，却报 `TEETH=NO`。
+第三条判据**绑在了一条会被排版吃掉的文本上**——正是本仓反复记的"探针把自己的输出格式当契约"。
+现改为以 **rc + 红集非空** 为准，摘要行只作展示。
+
+### 同批另外两次探针失败（不是结论，记下来防重复）
+
+1. 用 `execFileSync('node', ['node_modules/vitest/vitest.mjs', …])` 驱动时 MODULE_NOT_FOUND，
+   而我一度把这个 rc=1 读成"变异把测试打红了"。**rc=1 有三种来源**（真红 / 工具没跑起来 / shell 包装问题），
+   不看原始输出就无法区分；判"变异生效"必须**读到 FAIL 行本身**。
+2. `shell: true` 时参数只做拼接不做转义（Node 自带发 DEP0190 警告），带路径的命令应改走
+   `bash -lc '<整串>'` 并把输出重定向到文件再解析。
 ## 远程同步
 
 | 远程同步 | 由门禁推导 | 本行**不事后改写**：合并后由 `scripts/lib/merge-ledger.js` 按主干历史推导归属（只认 squash 尾注 `(#NNNN)`）；现场读数看 CI 步骤首行 `MERGE-LEDGER prs=<n>`。合并前这篇还不在基线上 ⇒ 判 `byDesign` 不红；把状态列预写成 `PASS` 会被 `prematureClaims` 判红（change: `ban-record-closure-backfill-pr` / `gate-record-sync-derived-status`）。main push 回读证据写在 PR 评论里，不写回本文件。 |
