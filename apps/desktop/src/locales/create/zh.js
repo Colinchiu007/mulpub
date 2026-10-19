@@ -233,6 +233,7 @@ export default {
         VOICE_CLONE_TOTAL_DURATION_EXCEEDED: '上传的音频总时长超出限制，请减少文件后重试。',
         VOICE_CLONE_PROVIDER_UNAVAILABLE: '音色克隆服务暂时不可用，请稍后重试。',
         VOICE_CLONE_UNAVAILABLE: '音色克隆服务暂时不可用，请稍后重试。',
+        VOICE_CLONE_PLAN_UNSUPPORTED: '当前 MiniMax 账号不支持音色克隆：MiniMax 的音色复制需要按量付费，不支持订阅套餐。请完成个人/企业认证或改用按量付费计费后重试，或改用内置音色/其它语音供应商。',
         VOICE_CLONE_UNSUPPORTED: '当前语音模型暂不支持音色克隆，已使用默认音色。',
         VOICE_CLONE_DIALOG_UNAVAILABLE: '无法打开本地音频文件选择窗口，请重试。',
         VOICE_CLONE_DUPLICATE_ID: '该克隆音色已存在，请更换名称后重试。',

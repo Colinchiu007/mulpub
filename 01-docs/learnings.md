@@ -1,3 +1,17 @@
+## 「套餐不支持」不是「服务不可用」：错误分类错误会把可行动提示变成无意义重试（fix-s2v-clone-plan-unsupported，2026-10-19）
+
+### lesson:plan-unsupported-is-not-retryable
+
+**「你的套餐不含该能力」和「服务暂时不可用」是两类完全不同的失败：前者重试永远失败，后者才值得重试。**
+
+现场：MiniMax 对订阅套餐账号返回 `your current token plan not support model, voice_clone`，
+被 adapter 的 isQuota 正则（`token\s*plan` 分支）误吃成额度类，再被 service 折叠成
+VOICE_CLONE_PROVIDER_UNAVAILABLE，用户看到「请稍后重试」并反复尝试。
+判据：错误分类的每个类别必须回答「用户下一步该做什么」——套餐类→升级/认证/换供应商；额度类→等待或充值；
+瞬时类→重试。原文含 `not support` / `forbidden` / `disabled` 的「能力缺失」信号，必须先于「额度」信号判定；
+凡 statusCode 明确（如 MiniMax 2038）时用 statusCode 短路，不赌正则。
+透明度要求：能力缺失类错误必须把供应商原话带到用户面（detail），删除「请稍后重试」指引。
+
 ## 「没人读」和「读不到」是两件事——先查消费者，再决定删字段还是补校验（debt-ledger-shape-normalize，2026-10-19）
 
 ### lesson:check-consumers-before-diagnosing-a-dead-field

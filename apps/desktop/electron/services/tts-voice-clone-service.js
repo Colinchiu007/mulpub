@@ -73,6 +73,14 @@ const ALLOWED_AUDIO_EXTENSIONS = Object.freeze({
 // 克隆样本完整性判定/失效原因逻辑在 tts-voice-clone-integrity（纯逻辑 + 依赖注入，避免循环 require）
 const { buildPublicCloneEntries, findCloneSamplesWithRuntime, inspectSampleStorage, readCloneVoiceStatus } = require("./tts-voice-clone-integrity");
 
+// 2026-10-19 事故：MiniMax 订阅套餐账号克隆被拒（"token plan not support voice_clone"）——
+// 套餐/认证不含克隆能力的错误必须原样透传（detail=供应商原话），不得折叠成「请稍后重试」。
+function cloneFailureFromAdapterError(error) {
+  const isPlan = error && (error.code === "PLAN_UNSUPPORTED" || error.errorCode === "PLAN_UNSUPPORTED");
+  const detail = error && (error.message || error.errorCode || error.code) ? String(error.message || error.errorCode || error.code) : "";
+  return isPlan ? failure("VOICE_CLONE_PLAN_UNSUPPORTED", { detail }) : failure("VOICE_CLONE_PROVIDER_UNAVAILABLE");
+}
+
 const cloneRegistryLocks = new Map();
 
 class VoiceCloneError extends Error {
@@ -483,34 +491,30 @@ class TtsVoiceCloneService {
 
     let adapterResult;
     try {
-      adapterResult = await this._modelProviderManager.callAdapter(
-        request.providerId,
-        "cloneVoice",
-        {
-          name: request.name,
-          samples: adapterSamples,
-        },
-      );
+      adapterResult = await this._modelProviderManager.callAdapter(request.providerId, "cloneVoice", {
+        name: request.name,
+        samples: adapterSamples,
+      });
     } catch (error) {
       // 记录真实失败原因（ProviderError code / 消息），避免「服务不可用」吞掉可排查细节
       const detail = error && (error.message || error.code) ? (error.message || error.code) : String(error);
       this._log.warn("TtsVoiceClone", "cloneVoice adapter failed: " + detail);
-      return failure("VOICE_CLONE_PROVIDER_UNAVAILABLE");
+      return cloneFailureFromAdapterError(error);
     }
 
     const adapterVoice =
       adapterResult && adapterResult.code === 0
         ? normalizeAdapterVoice(adapterResult.data, request.name)
         : null;
-    if (!adapterVoice) return failure("VOICE_CLONE_PROVIDER_UNAVAILABLE");
+    if (!adapterVoice) {
+      const detail = adapterResult && (adapterResult.message || adapterResult.errorCode) ? String(adapterResult.message || adapterResult.errorCode) : "";
+      if (detail) this._log.warn("TtsVoiceClone", "cloneVoice adapter returned failure: " + detail);
+      return cloneFailureFromAdapterError(adapterResult);
+    }
 
     const registryResult = this._readRegistry(request, owner);
     if (registryResult.error) {
-      return await this._withRemoteCloneCompensation(
-        request.providerId,
-        adapterVoice.id,
-        registryResult.error,
-      );
+      return await this._withRemoteCloneCompensation(request.providerId, adapterVoice.id, registryResult.error);
     }
     if (registryResult.registry.voices.some((voice) => voice.id === adapterVoice.id)) {
       return await this._withRemoteCloneCompensation(
@@ -1294,11 +1298,7 @@ async renameClone(input) {
     const isLocalOnlyCloneProvider = providerId === "mimo-tts";
     if (!isLocalOnlyCloneProvider) {
       try {
-        const compensation = await this._modelProviderManager.callAdapter(
-          providerId,
-          "deleteVoice",
-          voiceId,
-        );
+        const compensation = await this._modelProviderManager.callAdapter(providerId, "deleteVoice", voiceId);
         remoteDeleted = this._isDeleteSuccess(compensation);
       } catch (_) {
         remoteDeleted = false;

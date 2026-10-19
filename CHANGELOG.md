@@ -1,3 +1,18 @@
+# [未发布] fix(视频创作): MiniMax 克隆「套餐不支持」原样透传，不再误报「暂时不可用请重试」（s2v-clone-plan-unsupported）
+
+## 问题
+- 2026-10-19 真实事故：MiniMax 订阅套餐账号克隆音色被服务端拒绝（`model_provider_logs` id=10030：`your current token plan not support model, voice_clone`，latency 1125ms——请求真实到达、鉴权通过、参数合规）。adapter 把它误判为额度类（`token\s*plan` 被 isQuota 吃掉），service 折叠成 `VOICE_CLONE_PROVIDER_UNAVAILABLE`，用户看到「音色克隆服务暂时不可用，请稍后重试」——重试永不成功，误导用户反复尝试。
+
+## 改动
+- `provider-error.js`：新增 `PLAN_UNSUPPORTED` 错误码（category=config，retryable=false）。
+- `minimax-tts.js`：`classifyBaseRespError` 增加 `isPlanUnsupported`（statusCode=2038 官方「语音克隆功能被禁用」短路 + `token plan not support` / `voice_clone ... forbidden|disabled|not support` / 中文「套餐不支持」族正则），**置于 isQuota 之前**，避免额度类误吃。
+- `tts-voice-clone-service.js`：`cloneFailureFromAdapterError`——throw 与结构化 errorCode 两条路径统一：PLAN_UNSUPPORTED → `VOICE_CLONE_PLAN_UNSUPPORTED` + `data.detail`=供应商原话；其余保持 PROVIDER_UNAVAILABLE。点名还账文件零增长（等价折叠抵消）。
+- 渲染层：`friendlyVoiceCatalogError` map + zh/en locale 新增 `VOICE_CLONE_PLAN_UNSUPPORTED`（zh 含「MiniMax 的音色复制需要按量付费，不支持订阅套餐」）。
+
+## 验证
+- 定向测试：18 文件 / 599 passed（adapter 3 例新用例：plan 归类 / 2038 归类 / balance 不误判为 plan；service 2 例：throw 透传 + 结构化透传且不落 registry；CreateView 映射 2 断言）。
+- 门禁：eslint rc=0；tsc --noEmit rc=0；locale --keys/--cjk PASS；check-max-lines ✅（点名文件 1748=target 零增长）；check-unwired-tests OK；QM-1 electron-builder exit 0（读数见执行记录）。
+- 执行记录：`openspec/records/fix-s2v-clone-plan-unsupported.md`。
 # [未发布] feat(侧栏): 折叠按钮改为可表意的语义化图标并补齐可发现性（sidebar-toggle-ux）
 
 - **用户反馈是「样式太不明显，根本让人注意不到」，不是功能坏了**：折叠功能本身在 PR #3916 已正确（切换/持久化/跨进程同步/多窗口广播），缺陷全在呈现层。三处独立成因：**①图形不表意** —— 双向 chevron（「<>」）在通行图标语义里读作「代码」或「展开更多」，与「收起侧栏」无关；**②两态共用同一图形** —— 收起/展开只靠颜色区分（primary vs secondary），是单通道编码，对色觉障碍用户完全失效，普通用户也无法从图标判断当前处于哪个状态；**③常态几乎不可见** —— 图标色对 TabBar 背景亮色实测 4.40:1（差 0.1 不达 WCAG AA 4.5:1），边框与底色都是 `transparent`。
