@@ -84,20 +84,6 @@
       "enabled": true,
       "is_configured": false,
       "created_at": "2026-01-01T00:00:00Z"
-    },
-    {
-      "id": "heygen",
-      "category": "video",
-      "name": "HeyGen",
-      "display_name": "HeyGen（数字人视频）",
-      "base_url": "https://api.heygen.com",
-      "default_model": "heygen-avatar",
-      "models": ["heygen-avatar"],
-      "is_preset": true,
-      "is_default": false,
-      "enabled": true,
-      "is_configured": true,
-      "created_at": "2026-01-01T00:00:00Z"
     }
   ],
   "visualProviders": [
