@@ -1,3 +1,76 @@
+
+
+用户反馈采集页「视觉散乱、不够统一精致」，逐条取证（PRD §1 共 15 项）后，最值钱的一条不是
+「圆角不统一」这类肉眼可见项，而是**三个死类**：
+
+- `is-primary`（`CollectedResultsList.vue:99/100`）在**全仓 0 处样式定义**，却被当成「主操作」标记；
+- `class="primary"`（`Collection.vue:328`、`CollectionDraftsPanel.vue:56`）同样 0 处定义；
+- `collection-tab-badge`（两个页签组件渲染）0 处定义 ⇒ 角标是**裸文本**，无底色无圆角。
+
+后果：PRD 里白纸黑字写的「创建草稿/发布 = primary，查看/视频创作 = secondary」在**视觉上完全不成立**
+（两者长得一模一样）。而 `CollectedResultsList.test.js` 断言的正是：
+
+```js
+expect(cls('draft')).toContain('is-primary')   // ← 只验证 class 名挂上去了
+```
+
+**测试全绿**。因为它只验证「class 名挂上去了」，不验证「class 名有样式」。
+
+### 为什么这是「装饰性门禁」的同型
+
+本仓反复出现这类形态：**判据看着在守某个东西，实际守的是它的影子**。
+- 守「有分级」→ 实际守的是「class 名字符串出现过」；
+- 守「角标可读」→ 实际守的是「span 渲染出来了」。
+
+影子永远绿，真身已经烂了三年。
+
+### 处方：把「消费⇒有定义」做成机械判据
+
+`features/collection/collection-page-css-contract.test.js`：
+
+```
+遍历采集域 9 个渲染层文件的 <template>
+  抽取 class="..." 的**静态** token（:class 动态部分不进判据——那要求值，是行为测试的面）
+  对每个域内命名空间前缀的 token（col-/zb-/qc-/card-/batch-/stat-/copy-/tag-/library-/asr-/creator-）
+    ⇒ 必须在规范层（collection-page.css + collection-page-legacy.css）或该组件自身 <style> 找到 .token { 规则
+反向：is-primary / primary ⇒ 域内 0 消费
+```
+
+### 三条工程细节（都踩过）
+
+1. **`findRule` 必须按逗号切选择器**。初版用整体正则，`.col-btn-cancel, .col-btn-clear {` 这种
+   选择器列表**只认第一个成员** ⇒ 实测 `col-btn-cancel` 返回 true 而 `col-btn-clear` 返回 false。
+2. **必须打印命中条数并对下界断言**（AGENTS QM-2）。`collectStaticClassTokens()` 后断言
+   `tokens.length >= 20`；否则正则改坏导致匹配 0 条时，下面所有「必须有定义」都会**恒真**——
+   判据失效但全绿，比没有判据更糟。
+3. **判据自反锁**：显式断言 `findRule(pageCss, 'col-btn--primary') === true`，防「判据本身坏了」。
+
+### 判据当场抓到的真问题（不是防假设）
+
+跑第一轮就抓到 6 类「消费了但没定义」——**此前都在生产里**：
+
+- `col-section-title` / `col-section-title--flex` / `col-error-banner` 定义在 `Collection.vue` 的
+  **scoped** style 里，却被 `BatchCollectPanel`/`QuickCollectPanel`/`CollectionDraftsPanel`/
+  `CollectedResultsList` 共同消费。scoped 样式出不了组件 ⇒ **消费方实际拿不到这些样式**，
+  四个组件的区块标题与错误横幅一直在用继承值渲染。
+
+### 可迁移的判据
+
+> 任何「靠 class 名表达语义」的约定（primary/secondary/danger、active、badge…），
+> **必须有一条判据验证「名字背后有样式」**，只断名字等于没断。
+
+### 顺带：CSS 注释里出现 `*/` 会提前闭合块注释
+
+我在 tokens.css 注释里写 `--space-*/--radius-*`，`*/` 直接闭合了块注释 ⇒ 后面整段变成
+「注释外的内容」，`--col-*` 槽全部读不到，契约测试 9 连红。**注释里禁用该字样**，
+已在 tokens.css 与 collection-page.css 两处显式立规。
+
+### 顺带：拆文件必须靠判据复核
+
+规范层超 500 行硬限后按门禁处方拆成两个文件，用 PowerShell 按行号切分时丢了 `part1` 尾部
+三条规则（`col-btn-clear`/`col-btn-retry`/`col-btn-retry-sm`）。**契约测试立刻红**——
+没有它，这次丢失会静默进入生产。**拆文件是「判据必须复核」的典型场景。**
+
 ## 扩展名是「用户说的」，魔数是「文件说的」——克隆样本校验必须信后者（s2v-clone-sample-sniff，2026-10-19）
 
 ### lesson: validate-audio-container-by-magic-bytes-not-extension
