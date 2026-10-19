@@ -191,7 +191,7 @@ GET /api/v1/me → getSubscriptionView → settleExpiry(userId)
   ├─ expireSubscription(userId)：把过期 active 行置 expired，返回该行（含 plan）
   ├─ 无过期行 ⇒ 直接返回 null（不写任何东西）
   ├─ freePayload = entitlementPayload('free')
-  ├─ graceUntil = now + 7 天（ISO）
+  ├─ graceUntil = current_period_end + 7 天（ISO；不可解析时退回 now）
   ├─ features = free.features ∪ { dashboard_full }（仅当上一档拥有；不保留 schedule_batch）
   ├─ payload = { ...freePayload, features, graceUntil, previousPlan }
   ├─ PUT 快照（payload）
@@ -247,6 +247,10 @@ handleTogglePlatform(platformId)
 - 幂等：`expireSubscription` 只命中「过期且仍 active」的行，第二次访问无行可降，不重复写快照。
 - 事务性：降级 + 快照 + 通知三写同事务（既有约束，本轮不动）。
 - 语义：宽限期是「降档 + 收尾」，不是「免费续期」——配额按免费档，不保留任何生成类能力。
+- 时点：`graceUntil` 锚定**订阅到期时刻**（`current_period_end`），不是「首次 /me 结算时刻」；
+  否则第 6 天才打开应用的用户会实得 13 天。
+- 读取端：`PostgresEntitlementProvider.getForUser` 在出口处剔除已过期/不可解析的
+  `graceUntil` / `previousPlan`（只投影、不改库），避免「字段存在即宽限中」的长期误报。
 
 ### 6.3 客户端校验纪律（G1）
 
@@ -274,7 +278,7 @@ handleTogglePlatform(platformId)
 
 ## 7. 交互逻辑
 
-### 7.1 发布页平台选择（本轮唯一 UI 变更）
+### 7.1 发布页平台选择（本轮唯一 UI 变更；**客户端软拦，非安全边界**）
 
 | 场景 | 触发 | 系统行为 | 用户可见 |
 |---|---|---|---|
@@ -350,10 +354,10 @@ handleTogglePlatform(platformId)
 | A4 | 客户端透传 | `entitlement-service.test.js` 断言 sync 返回 `limits/graceUntil/previousPlan`，且深拷贝隔离 |
 | A5 | 渲染层透传 | `stores/identity.test.js` 断言 limits 透传、非法形状丢弃 |
 | A6 | 跨档续叠保护 | 仓储用例：existing=pro + 请求 standard ⇒ upsert plan=pro、快照按 pro 现算、订单记录 standard、`downgradeSuppressed=true` |
-| A7 | 到期宽限 | 服务用例：`graceUntil = now+7d`、`previousPlan` 正确、保留 `dashboard_full`、不保留 `schedule_batch` / `video_create` / `tier_access_*` |
+| A7 | 到期宽限 | 服务用例：`graceUntil = current_period_end + 7d`（含「晚 3 天访问仍为到期+7d」用例）、`previousPlan` 正确、保留 `dashboard_full`、不保留 `schedule_batch` / `video_create` / `tier_access_*`；provider 读取端剔除已过期宽限字段 |
 | A8 | 幂等重放键集合一致 | `subscription-service.test.js` F3 用例全绿 |
-| A9 | 平台数拦截 | `usePlatformSelection.test.js`：免费档第 6 个返回 false；取消不受限；按组同受约束；limits 缺失放行 |
-| A10 | 纯函数边界 | `plan-limits.test.js`：空串/NaN 视为缺失、-1 不限、日发闭区间 |
+| A9 | 平台数拦截（**仅客户端软拦**） | `usePlatformSelection.test.js`：免费档第 6 个返回 false；取消不受限；按组同受约束；limits 缺失放行。服务端强制未接（N7） |
+| A10 | 纯函数边界（**部分函数未接线**） | `plan-limits.test.js`：空串/NaN 视为缺失、-1 不限、日发闭区间、selectedCount 非有限数放行。仅 `canAddPlatform` 已接线，其余见 N5/N1/N2 |
 | A11 | 全量测试 | `packages/api-publish-engine npm test` rc=0；`apps/desktop` 受影响用例全绿 |
 | A12 | QM-1 | `electron-builder --win --x64` rc=0；启动 8s 存活且 stderr 为空 |
 
@@ -369,6 +373,8 @@ handleTogglePlatform(platformId)
 | N4 | 到期横幅 UI | `graceUntil` 已就位；需设计稿 + 视觉基线 | 前端切片 |
 | N5 | 视频/日发提交前校验 | 需要「今日已发条数」的数据源（当前 renderer 无聚合通道） | 独立 PR（IPC 或既有 stats 扩展） |
 | N6 | proration / 试用 | 真实支付接通 | P2-PAYMENT |
+| N7 | **平台数服务端强制**（发布提交端校验已选平台数；到期降级时裁剪已选超限平台） | 发布入口需按平台数 consume/assert；降级时前端需重放选择集 | 独立 PR。**本轮 max_platforms 只有客户端软拦，可被绕过；PRD/CHANGELOG 不得表述为「已强制」** |
+| N8 | 日发口径统一（客户端按日、服务端按 `daily×30` 月度扣减） | 需要「今日已发条数」数据源并定义突发日语义 | 与 N5 同批 |
 
 ---
 

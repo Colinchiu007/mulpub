@@ -12,6 +12,12 @@
  *    这种最难归因的故障。
  * 3. **-1 是不限**：与 plan-matrix 的 `UNLIMITED_ALLOWED` 语义一致，不得当成
  *    「-1 个」参与任何加法/减法。
+ *
+ * ⚠ 接线状态（CCG i6，别误读为已生效能力）：**已接线**的是 `maxPlatformsOf` / `canAddPlatform` /
+ * `platformLimitState`（发布页平台选择）；其余导出（`canBatchSize` / `canPublishToday` /
+ * `concurrentTasksOf` / `maxDevicesOf` / `maxCloudAccountsOf`）**尚未接线**——它们缺数据源
+ * （今日已发条数、批量入口、设备/云账号管理页），按 PRD §12 N5/N1/N2 排期。在接线前，
+ * 这些函数只是一份可单测的判据，不构成任何运行时限制。
  */
 
 /** plan-matrix 的「不限」哨兵值。 */
@@ -75,7 +81,11 @@ export function maxCloudAccountsOf(entitlement) {
 export function canAddPlatform(entitlement, selectedCount) {
   const limit = maxPlatformsOf(entitlement)
   if (limit === null || limit < 0) return true
-  return Number(selectedCount) < limit
+  // selectedCount 非有限数（undefined/NaN）时按「无限制信息」放行：
+  // 否则 `NaN < 5` 恒 false，会把调用方漏传参数静默变成「一律拦截」，与缺失即放行相反（CCG i7）。
+  const count = Number(selectedCount)
+  if (!Number.isFinite(count)) return true
+  return count < limit
 }
 
 /**

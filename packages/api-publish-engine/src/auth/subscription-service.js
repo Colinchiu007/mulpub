@@ -141,7 +141,12 @@ class SubscriptionService {
       const expired = await tx.expireSubscription(userId)
       if (!expired) return null
       const free = this.entitlementPayload('free')
-      const graceUntil = new Date(this.now().getTime() + PLAN_EXPIRY_GRACE_MS).toISOString()
+      // 宽限从**订阅到期时刻**起算，不是从「本次 /me 首次结算」起算（CCG i3）：
+      // 否则第 6 天才打开应用的用户会实得 13 天。到期时刻不可解析时退回 now（老数据兜底），
+      // 而已经过期很久的用户会立刻得到「宽限已结束」，由读取端投影剔除字段（见 PostgresEntitlementProvider）。
+      const periodEndMs = Date.parse(expired.current_period_end)
+      const graceBaseMs = Number.isFinite(periodEndMs) ? periodEndMs : this.now().getTime()
+      const graceUntil = new Date(graceBaseMs + PLAN_EXPIRY_GRACE_MS).toISOString()
       const previousPlan = typeof expired.plan === 'string' ? expired.plan : null
       const features = new Set(free.features)
       if (previousPlan && PLAN_IDS.includes(previousPlan)) {
@@ -218,7 +223,12 @@ class SubscriptionService {
     // 「本人重复提交幂等：不重复记账」固定的契约，不得改成 free（那会让 `plan`
     // 从「码授予了什么」漂成「此刻是什么」，两路径语义反而更不一致）。
     const appliedPlan = alive ? active.plan : row.plan
-    const suppressed = alive && planRank(active.plan) > planRank(row.plan)
+    // 与仓储的压制判定同守卫（CCG i4）：两边都必须是已知档位才比较。
+    // 少了 rank>=0 这一条，active=pro(2) 且码面档位未知(-1) 时重放会报 suppressed=true，
+    // 而首次核销因 requestedRank=-1 fail-open 真的降级 ⇒ 同一兑换两条返回体互相矛盾。
+    const activeRank = alive ? planRank(active.plan) : -1
+    const requestedRank = planRank(row.plan)
+    const suppressed = activeRank >= 0 && requestedRank >= 0 && activeRank > requestedRank
     return {
       idempotent: true,
       code,

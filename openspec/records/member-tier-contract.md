@@ -51,6 +51,37 @@ type: runtime
   `ELECTRON_RUN_AS_NODE`）**8 秒存活 = true、stderr 为空、verdict PASS**（父环境曾设置该变量，已按合同告警）。
 - **QM-2 必检项**：本轮高频路径（`/me` 快照）仅新增 8 个数字字段与两字符串，无同步 CPU 密集原语；
   未新增全局组件/顶层 CSS；未新增 IPC 通道。
+- **QM-6 深度双模型审查（critic=claude / proposer=opencode，`scripts/deep-review.sh` 实跑）**：
+  首轮 5 条 finding，收敛引擎判 `self_play`（minScore=5），进入自扮演裁决
+  `.adversarial/ccg-deep-<sha>/adjudication.json`。逐条裁决与处置：
+  - **i1（Critical，跨档压制在过期订阅上误触发）→ dismissed**：指控假设「过期 active 行会进入压制分支」，
+    但 `applySubscription` 的 existing 仅来自 `WHERE status='active' AND current_period_end > $2`
+    （`postgres-commerce-store.js:100-107`），过期行取不到 ⇒ 分支不可达。证据可复核。
+  - **i2（幂等重放与首次核销判据/口径不一致）→ upheld 已修**：`alive` 显式化、`plan` 口径写进注释，
+    并补两条回归（无有效订阅 ⇒ 码面档位且无压制；有效 pro + standard 码 ⇒ plan=pro 且压制为 true）。
+  - **i3（档位序双真源）→ upheld 已修**：`BASE_MATRIX.rank` 改为引用 `PLAN_RANK`，并加三处派生同值断言。
+  - **i4（宽限保留 `schedule_batch` 与「收尾非续期」矛盾）→ upheld 已修**：`settleExpiry` 宽限集只保留
+    `dashboard_full`；`schedule_batch` 全仓无消费点（`grep` = 0），在途队列执行只校验 `cloud_publish`；
+    PRD/CHANGELOG/本记录的「在途队列」表述同步修正。
+  **状态说明**：引擎的第三档出口（自扮演）**结构上无法表达「判 upheld 且随后已修」**——见
+  `openspec/changes/ccg-convergence-exit/design.md` §D8 第二行「没有任何字段表达『已在其后提交修复』」。
+  本 PR 走门禁文案给出的另一条明文出口：「确认该判定是假阳性/已处置后，在记录里写明原因并把 status
+  置为闭环值」。故 `.ccg/reviews/` 产物按上述裁决落 `self_play_resolved`，理由即本节四条与
+  `adjudication.json`（本地 `.adversarial/`，按 `.gitignore` 不入库）。
+- **第二轮深度审查（final diff）7 条，已全部处置**：
+  - **i1（平台数只有客户端软拦、CHANGELOG 称「根治」）→ 已修（文档）**：CHANGELOG 改「下发链路打通」，
+    PRD §7.1 标题标注「客户端软拦，非安全边界」，§12 新增 **N7**（发布提交端校验 + 降级裁剪已选超限平台）。
+  - **i2（宽限字段过期后永久随 /me 下发）→ 已修（码）**：`PostgresEntitlementProvider.getForUser`
+    出口剔除已过期/不可解析的 `graceUntil` / `previousPlan`（只投影不改库），并加三态单测。
+  - **i3（宽限从首次结算起算而非到期起算）→ 已修（码）**：`graceUntil = current_period_end + 7d`
+    （不可解析退回 now），新增「晚 3 天访问仍为到期+7d」用例。
+  - **i4（重放压制缺 rank>=0 守卫）→ 已修（码）**：补守卫并与仓储 fail-open 对齐，
+    新增「码面档位未知 ⇒ 不报压制」用例。
+  - **i5（日发口径日/月不一致）→ 已修（文档）**：PRD §12 新增 **N8**（口径统一 + 突发日语义）。
+  - **i6（半数导出未接线却被列入验收）→ 已修（文档+注释）**：`plan-limits.js` 文件头标注
+    「已接线 / 未接线」清单，PRD A9/A10 区分软拦与未接线项。
+  - **i7（`canAddPlatform` 对 NaN 返回 false，与缺失即放行相反）→ 已修（码）**：非有限数放行 +
+    单测（`undefined` / `NaN` / 非数字串）。
 - **测试**：
   - `packages/api-publish-engine npm test` → **rc=0**（含 plan-matrix 19 例、仓储与订阅服务全绿）
   - `apps/desktop`：`entitlement-service` 17 例、`stores/identity` 22 例、

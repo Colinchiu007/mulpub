@@ -179,6 +179,21 @@ test('redeem 兑换码核销状态机', async (t) => {
     assert.strictEqual(view.downgradeSuppressed, true)
   })
 
+  await t.test('幂等重放：码面档位未知时不报压制（与首次 fail-open 对齐，CCG i4）', async () => {
+    const { service } = createService({
+      // 未知档位（历史码/脏数据）：rank = -1
+      codes: [{ code: 'ABCD-EFGH-JKMN', status: 'used', used_by: 'u-1', used_at: '2026-09-22T00:00:00Z', plan: 'legacy' }],
+      current: {
+        id: 'sub-u-1', plan: 'pro', status: 'active',
+        current_period_start: '2026-09-01T00:00:00Z', current_period_end: '2026-10-01T00:00:00Z',
+      },
+    })
+    const view = await service.redeem({ userId: 'u-1', code: 'ABCD-EFGH-JKMN' })
+    // 首次核销对未知档位 fail-open（不压制），重放必须同口径，否则同一兑换两条返回体矛盾
+    assert.strictEqual(view.downgradeSuppressed, false)
+    assert.strictEqual(view.requestedPlan, 'legacy')
+  })
+
   await t.test('applySubscription 冲突短路：不标记已用、不发通知、码仍 active（G3 · N-N2）', async () => {
     const conflict = Object.assign(new Error('ORDER_REFERENCE_CONFLICT'), { code: 'ORDER_REFERENCE_CONFLICT', status: 409 })
     const { service, repository } = createService({
@@ -346,6 +361,22 @@ test('grant / createRedeemBatch / settleExpiry / 视图', async (t) => {
     assert.ok(!payload.features.includes('tier_access_pro'))
     // 通知文案必须说清收尾期，否则用户以为到期即什么都用不了
     assert.match(withExpiry.repository.notifications[0].body, /7 天/)
+  })
+
+  await t.test('宽限从订阅到期时刻起算（CCG i3），不是从首次结算时刻起算', async () => {
+    // 到期日 2026-09-20，首次 /me 结算发生在 09-23（晚 3 天）⇒ graceUntil 应为 09-27 而非 09-30
+    const late = createService({
+      expiryResult: {
+        id: 'sub-u-2', plan: 'pro', status: 'expired',
+        current_period_start: '2026-08-20T00:00:00Z', current_period_end: '2026-09-20T00:00:00Z',
+      },
+    })
+    await late.service.settleExpiry('u-1')
+    assert.strictEqual(
+      late.repository.entitlementWrites[0].payload.graceUntil,
+      '2026-09-27T00:00:00.000Z',
+      '宽限必须锚定 current_period_end，否则晚回来的用户实得超过 7 天',
+    )
   })
 
   await t.test('grant 默认 providerReference 逐次唯一（否则撞 UNIQUE 回滚整事务）', async () => {

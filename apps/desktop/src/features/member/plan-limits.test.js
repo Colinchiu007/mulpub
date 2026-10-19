@@ -85,6 +85,15 @@ describe('plan-limits — 平台数', () => {
     expect(canAddPlatform(PRO, 999)).toBe(true)
   })
 
+  it('selectedCount 非有限数时放行（undefined/NaN 不得变成「一律拦截」，CCG i7）', () => {
+    expect(canAddPlatform(FREE, undefined)).toBe(true)
+    expect(canAddPlatform(FREE, NaN)).toBe(true)
+    expect(canAddPlatform(FREE, 'many')).toBe(true)
+    // 数字字符串仍按数值判定（兼容 IPC/JSON 序列化）
+    expect(canAddPlatform(FREE, '5')).toBe(false)
+    expect(canAddPlatform(FREE, '4')).toBe(true)
+  })
+
   it('platformLimitState 给出可填进 i18n 的参数', () => {
     expect(platformLimitState(FREE, 3)).toEqual({ limit: 5, selected: 3, atLimit: false })
     expect(platformLimitState(FREE, 5)).toEqual({ limit: 5, selected: 5, atLimit: true })
