@@ -59,10 +59,27 @@ const HEX_RE = /#[0-9a-fA-F]{3,8}\b/g
 
 /** 域内命名空间前缀：这些 token 必须在采集域样式层有定义。
  *  全局层（cohere-/mp-/el-/empty-state/…）不归本判据管——那是 cohere-design-system 的面。 */
+/**
+ * 采集页域内命名空间前缀（**裸前缀，不带连字符**）。
+ *
+ * ⚠️ 2026-10-19 跨家族评审揪出的第二个盲区：这张表原先写成
+ * `['col-', 'zb-', ..., 'col', 'batch', 'stat']`，而判据是
+ * `tok.startsWith(p + '-')` —— 带连字符的项会拼成 `col--`，**永不匹配**。
+ * 于是真正生效的只有裸写的 `col`/`batch`/`stat`，其余 9 个前缀
+ * （zb-/qc-/card-/copy-/tag-/library-/asr-/creator-/history-）形同摆设，
+ * 它们名下的类全部免检。`collection-` 也因此一直不在覆盖面内，
+ * 导致 `collection-tab-badge` 全仓 0 定义却能一路绿到 CI。
+ *
+ * 现在统一裸前缀，并由下面的「前缀表自反锁」保证不会再写回带连字符的形态。
+ */
 const DOMAIN_PREFIXES = [
-  'col-', 'zb-', 'qc-', 'card-', 'batch-', 'stat-', 'copy-', 'tag-',
-  'library-', 'asr-', 'creator-', 'history-', 'col', 'batch', 'stat',
+  'col', 'zb', 'qc', 'card', 'batch', 'stat', 'copy', 'tag',
+  'library', 'asr', 'creator', 'history', 'collection',
 ]
+
+/** 前缀匹配：`col` → 命中 col-btn / col__inner / col 本身 */
+const isDomainToken = (tok) =>
+  DOMAIN_PREFIXES.some((p) => tok === p || tok.startsWith(p + '-') || tok.startsWith(p + '__'))
 
 /** 两个历史死类：全仓 0 处样式定义，却被三处消费 ⇒ 分级/角标在视觉上不成立 */
 const DEAD_CLASSES = ['is-primary', 'primary']
@@ -97,6 +114,22 @@ function collectStaticClassTokens (src) {
     }
   }
   return [...out]
+}
+
+/**
+ * 判断源码里是否存在「静态 class 属性包含 target 令牌」的用法。
+ *
+ * 按空白切令牌再比对，**不要退回成正则里塞 (?:^|\s)**：
+ * `^` 在非多行模式下只匹配字符串开头，配合前面的 `[^"]*` 贪婪会导致
+ * `class="is-primary"` / `class="a is-primary"` / `class="is-primary b"` 全部漏过
+ * （2026-10-19 跨家族评审实测四种写法全漏，断言因此长期空转）。
+ * 该函数同时被「死类清零」与其自反锁使用，两边口径必须同一份实现。
+ */
+function hasStaticClass (src, target) {
+  for (const m of src.matchAll(/class="([^"]*)"/g)) {
+    if (m[1].split(/\s+/).filter(Boolean).includes(target)) return true
+  }
+  return false
 }
 
 /**
@@ -214,13 +247,24 @@ describe('消费的类必须有定义（防「抄了类名没抄定义」）', (
     expect(tokens.length, 'class token 抽取命中数异常低，解析判据已退化').toBeGreaterThanOrEqual(20)
   })
 
+  it('判据自反锁：前缀表必须用裸前缀，且覆盖真消费的类', () => {
+    // 形态锁：带连字符的前缀在 `tok.startsWith(p + '-')` 下会拼成 `x--`、永不匹配。
+    // 这条锁就是为了防止再有人把 `col` 写成 `col-`（那次让 9 个前缀集体失效）。
+    for (const p of DOMAIN_PREFIXES) {
+      expect(p.endsWith('-'), `前缀 ${p} 不得带连字符（会拼成 ${p}-、永不匹配）`).toBe(false)
+    }
+    // 行为锁：真消费的类必须被认成域内，否则它不会进入「必须有定义」的检查。
+    for (const known of ['col-btn', 'col-tab-badge', 'collection-tab-badge', 'zb-select']) {
+      expect(isDomainToken(known), `${known} 应被认成域内令牌`).toBe(true)
+    }
+  })
+
   it.each(SCOPE_VUE)('%s 的域内静态 class 均有样式定义', (rel) => {
     const src = read(rel)
     const ownStyle = stripComments(styleOf(src))
     const missing = []
     for (const tok of collectStaticClassTokens(src)) {
-      const isDomain = DOMAIN_PREFIXES.some((p) => tok === p || tok.startsWith(p + '-') || tok.startsWith(p + '__'))
-      if (!isDomain) continue
+      if (!isDomainToken(tok)) continue
       if (!findRule(pageCss, tok) && !findRule(ownStyle, tok)) missing.push(tok)
     }
     expect(missing, `以下域内 class 被消费但无定义: ${missing.join(', ')}`).toEqual([])
@@ -228,18 +272,38 @@ describe('消费的类必须有定义（防「抄了类名没抄定义」）', (
 
   it('判据自反锁：findRule 对已知定义的类返回真', () => {
     expect(findRule(pageCss, 'col-btn--primary'), 'col-btn--primary 应在规范层有定义').toBe(true)
-    expect(findRule(pageCss, 'col-tab-badge'), 'col-tab-badge 应在规范层有定义').toBe(true)
+    // 2026-10-19 跨家族评审揪出的真 bug：这里原先断言的是 **col-tab-badge**，
+    // 而两个页签组件实际消费的是 **collection-tab-badge**（CollectionDraftsTab.vue:11 /
+    // CollectionCreatorTab.vue:11）。我发明了一个没人用的类名去自锁，锁得自洽却锁错对象
+    // —— 结果是「页签角标仍是裸文本」这个 PRD 的核心问题根本没修好，而门禁全绿。
+    // 现在改为断言**真消费的那个类名**，并同时保留新别名。
+    expect(findRule(pageCss, 'collection-tab-badge'), 'collection-tab-badge（真消费类）应在规范层有定义').toBe(true)
+    expect(findRule(pageCss, 'col-tab-badge'), 'col-tab-badge（新别名）应在规范层有定义').toBe(true)
   })
 })
 
 describe('历史死类清零', () => {
+  // 判据自反锁：先用样本证明「检测器真能检出死类」，否则下面的 toBe(false) 会空转。
+  // 动因（2026-10-19 跨家族评审）：原判据用
+  //   new RegExp('class="[^"]*(?:^|\\s)is-primary(?:\\s|$)"')
+  // 而 (?:^|\s) 里的 `^` 在非多行模式下只匹配**字符串开头**，`[^"]*` 又贪婪吃掉前缀，
+  // 于是 `class="is-primary"`、`class="a is-primary"`、`class="is-primary b"` **全部漏过**
+  // —— 实测四种写法全漏，断言恒真，整条「死类清零」在主分支上是死的。
+  it('判据自反锁：死类检测器对样本必须命中（防正则失效后空转）', () => {
+    for (const dead of DEAD_CLASSES) {
+      for (const sample of [`class="${dead}"`, `class="a ${dead}"`, `class="${dead} b"`]) {
+        expect(hasStaticClass(sample, dead), `检测器漏掉了死类样本: ${sample}`).toBe(true)
+      }
+    }
+  })
+
   it.each(SCOPE_VUE)('%s 不消费 is-primary / primary 死类', (rel) => {
     const src = read(rel)
     for (const dead of DEAD_CLASSES) {
-      // 只查模板里的 class 用法（`class="primary"` / `class="a primary"`），
-      // 不查 CSS 里的 `.primary {`（本轮就是要新增它的合法替身，不是这个名字）。
-      const usage = new RegExp('class="[^"]*(?:^|\\s)' + dead.replace(/-/g, '\\-') + '(?:\\s|$)"')
-      expect(usage.test(src), `${rel} 仍消费死类 ${dead}`).toBe(false)
+      // 只查模板里的 class 用法，不查 CSS 里的 `.primary {`
+      // （本轮就是要新增它的合法替身，不是这个名字）。
+      const usage = hasStaticClass(src, dead)
+      expect(usage, `${rel} 仍消费死类 ${dead}`).toBe(false)
     }
   })
 
