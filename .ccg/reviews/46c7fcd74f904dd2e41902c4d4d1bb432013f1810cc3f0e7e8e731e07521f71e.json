@@ -1,0 +1,92 @@
+{
+  "sha": "0d8bca8b9e4ddb3a3b0b0602dc7932d7fb15a498",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 56 行（≤ 200）但命中 auth/数据库/加密：敏感内容 3 处",
+  "stats": {
+    "changedLines": 56,
+    "fileCount": 3,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 3,
+    "docSensitiveContentHits": 10,
+    "docSensitiveContentSample": [
+      "但 **应用的信封加密库（`credential-store`）里存有 1 条视频号 cookie**（运行态读数：",
+      "只发 `helper_upload_params` 一条授权请求（**不传内容、不发稿**），结论三档",
+      "`ACTIVE / EXPIRED(300012/300014) / BLOCKED_OR_CHANGED`。需授权后运行（平台侧会留授权日志）。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "46c7fcd74f904dd2e41902c4d4d1bb432013f1810cc3f0e7e8e731e07521f71e",
+  "decidedAt": "2026-10-19T17:46:38.499Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play(agent)",
+    "fallbackReason": "跨家族对抗后端超时（本会话第 19 次同型 ETIMEDOUT），按引擎第三档出口 self_play 自查。本条为探针脚本 + 会话位置订正。",
+    "evidenceInRepo": "openspec/records/shipinhao-session-probe.md（§1 运行态读数 / §1.2 INCONCLUSIVE 实测 / §3 边界）+ PRD §14",
+    "confidenceWeight": 0.7,
+    "adjudication": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "记录说「视频号会话不落盘」，本轮又说「信封库里有 1 条 cookie」—— 前后矛盾？",
+        "verdict": "upheld_verified",
+        "rationale": "不矛盾，是**两个不同存储面**：① Chromium 分区（`Partitions/*/Network/Cookies`）——`_log_finder_id` 全分区 0 命中，该结论经全量字节扫描维持成立；② **应用信封加密库**（`credential-store`，`listAccounts` 的 `has_cookies/cookie_count`）——本轮实测 1 条。之前的记录只扫了 ①，把「分区里没有」写成了「登录态不落盘」，措辞过头；本轮订正为「不在分区，在信封库」。两个读数都有原始输出留档（记录 §1 表与 §1.2 JSON）。",
+        "fixCommit": null
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "探针脚本只发 `helper_upload_params` 一条授权请求 —— 说「不传内容不发稿」，但这条请求在平台侧会留日志，算不算未经授权的动作？",
+        "verdict": "accepted_known_tradeoff",
+        "rationale": "承认：任何对平台 API 的请求都会留日志，这是该类探针的固有属性，无法归零。降险措施：只调链的第一步（读授权参数，body 仅 timestamp/_log_finder_id/rawKeyBuff:null），不携带视频文件、不调 upload/post_create；且脚本**默认不运行**（需人工执行并传入 cookie），本轮只是把工具备好。执行与否的决定权在用户。",
+        "fixCommit": null
+      },
+      {
+        "id": "i3",
+        "severity": "Info",
+        "finding": "本轮目标（真实发布测试）没有完成 —— 应用被用户占用（cookie 独占锁、10:13 自启实例），探针也没实际跑。这轮的价值是什么？",
+        "verdict": "upheld_verified",
+        "rationale": "价值有三：① 订正了「视频号无可用会话」的错误结论（信封库有 cookie），把该平台从「等扫码」改判为「会话可能在，待探针定论」；② 取证了「HTTP 检测对视频号结构性无效」（应用自己的检测都返回 INCONCLUSIVE），省掉后人重复试错；③ 探针工具就绪，授权后一条命令出结论。不跑真实发布的原因：应用正被用户使用，cookie 全部独占锁，擅自发稿风险不可接受 —— 这条边界已在记录 §三 写明。",
+        "fixCommit": null
+      }
+    ],
+    "summary": {
+      "total": 3,
+      "upheldVerified": 2,
+      "acceptedKnownTradeoff": 1,
+      "note": "核心产出是订正「视频号无会话」的错误结论（信封库有 1 条 cookie）+ 交付只读探针；真实发布测试明确留给用户授权后执行。"
+    },
+    "at": "2026-10-19T17:48:26.744Z"
+  }
+}

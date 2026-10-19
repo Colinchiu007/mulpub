@@ -23,7 +23,55 @@
   `task-queue.js` 注释自称"结构锁"名实不符（改注释属代码改动，不在 docs 批做）；
   `publish-frequency-unwired-surfaces` 仍未归档（与 v5 同指一个 capability，需一次覆盖排序判断）；归档积压依然无判据。
 
+# [未发布] feat(collection): 采集页整体 UI/UE 统一与精致化（collection-page-ui-ue-refine）
 
+用户真机走查反馈采集页「整体布局和细节元素和用户交互体验，视觉上都很散乱，不够统一和清晰，也不够精致高级」。
+逐条取证定位到三层根因，本轮一次性收口：
+
+- **六套按钮方言并存**：`cohere-btn-primary`（32px 药丸）/`cohere-btn-secondary`（幽灵文字）/`card-actions button`（药丸描边）/
+  `zb-*`/`tag-*`/`library-filter-btn` 各一套。新增 `features/collection/collection-page.css` 规范层（+拆分产物
+  `collection-page-legacy.css`），定义按钮三档 `col-btn--primary/secondary/danger/ghost`、输入控件一档 `col-field`、
+  卡片两档 `col-panel`/`col-card`、徽标一档 `col-badge`、横幅一档 `col-banner`；既有类名保留（测试在用），
+  视觉声明统一引用新变量组。`tokens.css` 新增 9 个 `--col-*` 槽（亮暗两档）。
+- **两个死类被三处消费（本批最关键）**：`is-primary`（`CollectedResultsList.vue:99/100`）与 `class="primary"`
+  （`Collection.vue:328`、`CollectionDraftsPanel.vue:56`）在**全仓 0 处样式定义** ⇒ 「创建草稿/发布是 primary、
+  查看/视频创作为 secondary」这条分级在视觉上完全不成立（两者长得一模一样）；`collection-tab-badge`
+  （两个页签组件在用）同样无定义 ⇒ 角标是裸文本。原有测试只断言 class 名存在、不断言它有样式，
+  所以功能测试全绿也看不见。修法：死类清零 + 新增 `collection-page-css-contract.test.js` 的
+  **「消费⇒有定义」**机械判据（枚举模板静态 class token，逐个在规范层找规则）。
+- **页面级统一**：页头与内容区同底（原页头白、内容灰形成硬切）；页签 aria 补全（`aria-controls` + 内容容器
+  `role="tabpanel"`）；快捷操作区 6 张平铺卡重排为「新建/草稿/素材来源」三组并**移除 emoji 图标**
+  （✏️✧❓📰 跨平台字体渲染不一致，是「不高级」的直接来源之一）；文案库/结果卡/草稿箱卡操作分级统一落地；
+  错误/进行中/警告三套横幅统一为 `.col-banner` 三档；页签角标 >99 截断为 `99+`。
+- **硬编码 hex 收编（原门禁盲区）**：`QuickCollectPanel.vue` 11 处 + `WordCountRangeInput.vue` 1 处 +
+  `Collection.vue` 1 处兜底 hex → 语义槽；hex 门禁 SCOPE 扩到 `QuickCollectPanel`/`QuickCollectCommandDialog`/
+  `CollectionDraftsPanel`（此前不在任何扫描范围内 ⇒ 门禁照绿、代码照脏）。
+- **文案迁 locale**：7 处裸中文字符串（副标题/placeholder/采集按钮/重试/结果标题/快捷卡标签/chip 行按钮）
+  → `collection.*` key，zh/en 成对；CJK 基线 1374→1208（净减 166，零新增）。
+- **删死文件**：`views/Collection.polish.css`（49 行全仓零 import，与 scoped 重复定义的亮色硬编码源头）。
+
+**验证**：新增 2 个测试文件 48 例（CSS 契约 41 + 页面结构 7）；采集域+styles+components 全集
+**1081/1081 全绿**；eslint 0 error；locale 三项 PASS（pair-base/keys/cjk）；`check-max-lines` PASS
+（规范层超 500 行硬限 ⇒ 按门禁处方拆为两个文件，未挂账）；品牌残留 PASS。
+
+
+
+
+# [未发布] fix(视频创作): MiniMax 克隆「套餐不支持」原样透传，不再误报「暂时不可用请重试」（s2v-clone-plan-unsupported）
+
+## 问题
+- 2026-10-19 真实事故：MiniMax 订阅套餐账号克隆音色被服务端拒绝（`model_provider_logs` id=10030：`your current token plan not support model, voice_clone`，latency 1125ms——请求真实到达、鉴权通过、参数合规）。adapter 把它误判为额度类（`token\s*plan` 被 isQuota 吃掉），service 折叠成 `VOICE_CLONE_PROVIDER_UNAVAILABLE`，用户看到「音色克隆服务暂时不可用，请稍后重试」——重试永不成功，误导用户反复尝试。
+
+## 改动
+- `provider-error.js`：新增 `PLAN_UNSUPPORTED` 错误码（category=config，retryable=false）。
+- `minimax-tts.js`：`classifyBaseRespError` 增加 `isPlanUnsupported`（statusCode=2038 官方「语音克隆功能被禁用」短路 + `token plan not support` / `voice_clone ... forbidden|disabled|not support` / 中文「套餐不支持」族正则），**置于 isQuota 之前**，避免额度类误吃。
+- `tts-voice-clone-service.js`：`cloneFailureFromAdapterError`——throw 与结构化 errorCode 两条路径统一：PLAN_UNSUPPORTED → `VOICE_CLONE_PLAN_UNSUPPORTED` + `data.detail`=供应商原话；其余保持 PROVIDER_UNAVAILABLE。点名还账文件零增长（等价折叠抵消）。
+- 渲染层：`friendlyVoiceCatalogError` map + zh/en locale 新增 `VOICE_CLONE_PLAN_UNSUPPORTED`（zh 含「MiniMax 的音色复制需要另付费 9.9 元购买音色，不能直接使用订阅套餐」）。
+
+## 验证
+- 定向测试：18 文件 / 599 passed（adapter 3 例新用例：plan 归类 / 2038 归类 / balance 不误判为 plan；service 2 例：throw 透传 + 结构化透传且不落 registry；CreateView 映射 2 断言）。
+- 门禁：eslint rc=0；tsc --noEmit rc=0；locale --keys/--cjk PASS；check-max-lines ✅（点名文件 1748=target 零增长）；check-unwired-tests OK；QM-1 electron-builder exit 0（读数见执行记录）。
+- 执行记录：`openspec/records/fix-s2v-clone-plan-unsupported.md`。
 # [未发布] feat(subtitle): 数字/单位完整性与双字搭配守卫 v1.4 —— 8 段复杂文案实测驱动的第二族坏切（subtitle-word-integrity）
 
 - **动因与取证**：v1.3 合并后用 8 段不同风格文案（政治评论续篇/历史叙事/科技解说/口语短视频/生活叙事/无标点压力段×2）对真实引擎做三端对跑，暴露一族 v1.3 未覆盖的坏切。**A/B 反证**（关掉 phrase_boundary 输出逐字节不变）证实非 v1.3 引入：是 `no_cut_bigrams` 词表缺口 + 标点累积分支直切不经守卫的既有缺陷。实测证据：`风速每秒 8│米`、`套现约 3.2│亿元`、`提升了│60%`、`制程是│3 纳米`、`当│成`、`遗│忘`、`那│段`、`千│万人`。
@@ -82,6 +130,7 @@
 - **修法（黑名单式嗅探）**：`_prepareOneSample` 读取 buffer 后新增 `sniffSampleContainerMismatch`——只拦**可可靠识别的「容器错名」**（.mp3 内容为 ftyp/RIFF-WAVE/OggS/fLaC、.wav/.m4a 内容为 ID3 或 MPEG 帧同步等互串形态），命中抛 `VOICE_CLONE_SAMPLE_EXTENSION_UNSUPPORTED`，在克隆入口前置拒绝并复用既有本地化文案。未知/占位字节维持旧行为放行，由 ffprobe 时长探测 fail-closed 兜底——白名单式强校验会误伤既有测试夹具与罕见封装，黑名单恰好覆盖事故形态且零误伤。
 - **回归锁**：`tts-voice-clone-service.test.js` 新增 2 例——「改名容器」三形态拒绝（ftypmp42 假 MP3、ID3 假 M4A、RIFF 假 M4A，均不调 adapter/不写 registry）与「真实容器不误伤」（ID3 头 MP3、870B 双静音帧裸 MP3、RIFF/WAVE 全部正常克隆通过）。
 - **文件**：`apps/desktop/electron/services/tts-voice-clone-service.js`、`tts-voice-clone-service.test.js`。回归：clone 域 155 例全绿（service 50 + integrity 8 + provider 122 内 asset/mimo 部分 + catalog/service 33）。
+
 
 # [未发布] docs(audit): 更正 audit-60 的 harm 陈述 —— ElMessage 根节点其实已带 role="alert"，阶段 4.6 因此收窄（ux-audit-toast-a11y-correction）
 

@@ -8,7 +8,7 @@
     @click="$emit('select')"
   >
     {{ $t('collection.creatorTab') }}
-    <span v-if="pending > 0" class="collection-tab-badge" data-testid="collection-tab-creator-badge">{{ pending }}</span>
+    <span v-if="pending > 0" class="collection-tab-badge" data-testid="collection-tab-creator-badge">{{ badgeText }}</span>
   </button>
 </template>
 
@@ -43,4 +43,8 @@ const { t } = useI18n()
 const { creatorPendingTotal } = useCreatorPendingTotal()
 
 const pending = computed(() => creatorPendingTotal.value)
+
+/** 角标文案：>99 截断为 99+（2026-10-17 collection-page-ui-ue-refine，
+ *  与 CollectionDraftsTab 同口径；三位数以上会撑宽药盒状页签容器）。 */
+const badgeText = computed(() => (pending.value > 99 ? '99+' : String(pending.value)))
 </script>

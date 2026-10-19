@@ -973,3 +973,34 @@ const { uri, info } = await uploadCoverImage({
 
 **回归锁**：`test/toutiao-video-chain.test.js` 新增「本地封面接线」用例 ——
 coverPath ⇒ 五步链三请求发生（params/Infos 打假服务器）+ 提交体 ThumbUri = 登记 uri。
+---
+
+## 14. 视频号会话位置订正 + 活性探针（R14，2026-10-20）
+
+### 14.1 会话位置的订正（对 §6/§7 的补充）
+
+「视频号登录态不落盘（`_log_finder_id` 全分区 0 命中）」对 **Chromium 分区**仍成立，
+但 **应用的信封加密库（`credential-store`）里存有 1 条视频号 cookie**（运行态读数：
+`listAccounts` → `has_cookies=true, cookie_count=1, status_source=backend, 最近验证 2026-10-18T14:29Z`）。
+UI「已登录」标记即来源于此。⇒ 视频号**有可用会话**，位置在**应用信封库**而非分区文件。
+
+### 14.2 HTTP 登录检测对视频号结构性无效
+
+`accountCheckLogin('tencent_video', 'b1e05ac2')` 实测：
+`{"code":"CHECK_LOGIN_INCONCLUSIVE","reason":"http-check-inconclusive","loginStatus":"active"}`
+（平台不给出明确结论）。⇒ 真验证只有**实际走链第一步 `getUploadAuthKey`**。
+
+### 14.3 活性探针（新增）
+
+`packages/api-publish-engine/scripts/shipinhao-session-probe.cjs`：
+只发 `helper_upload_params` 一条授权请求（**不传内容、不发稿**），结论三档
+`ACTIVE / EXPIRED(300012/300014) / BLOCKED_OR_CHANGED`。需授权后运行（平台侧会留授权日志）。
+
+### 14.4 账号状态快照（应用运行态，2026-10-19 探测）
+
+| 平台 | 应用内状态 | 说明 |
+| --- | --- | --- |
+| 视频号（b1e05ac2） | **active**（信封 1 cookie） | 真活性待探针 |
+| 头条（7ae99805） | 已登录 | ⛔ 账号墙 21000（待实名） |
+| 抖音（01ab122e） | 已失效 | 待扫码 |
+| 其余（快手/B站/小红书/公众号/知乎） | 已登录 | 不在本次目标范围 |
