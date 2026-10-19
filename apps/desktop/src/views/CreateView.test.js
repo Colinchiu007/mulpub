@@ -3190,6 +3190,27 @@ describe("CreateView - UI interactions", () => {
     expect(w.vm.view).toBe("history");
   });
 
+  it("流水线详情态不渲染「返回」按钮（移除后由顶部导航与历史记录 tab 承接返回语义）", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await nextTick();
+    // 进入详情态（选中通用流水线）
+    w.vm.selectedPipeline = { name: "talking-head", available: true, stages: [] };
+    w.vm.view = "pipelines";
+    await nextTick();
+    expect(w.find(".pipeline-detail").exists()).toBe(true);
+    expect(w.find(".back-btn").exists()).toBe(false);
+    expect(w.find(".pipeline-detail .detail-header h2").exists()).toBe(true);
+    // 返回途径仍在：view-tabs 恒可见，点击历史记录 tab 即离开详情
+    expect(w.findAll(".view-tab").length).toBe(3);
+    await w.findAll(".view-tab")[2].trigger("click");
+    await nextTick();
+    expect(w.vm.view).toBe("history");
+    expect(w.vm.selectedPipeline).toBeNull();
+    w.unmount();
+  });
+
   it("分镜粒度双视图：目标时长输入反推字数主控，切换视图保持一致", async () => {
     const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
     await nextTick();

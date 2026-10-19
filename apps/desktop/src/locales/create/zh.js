@@ -66,7 +66,6 @@ export default {
       },
       startPipeline: '启动流水线',
       pause: '暂停',
-      backToHistory: '返回',
       selectionWait: {
         stageLabel: '等待选择素材',
         banner: (ctx) => '分镜素材已生成，请为每个分镜选择最终素材（共 ' + ctx.named('count') + ' 个场景）。',
