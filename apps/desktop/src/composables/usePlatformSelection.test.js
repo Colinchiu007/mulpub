@@ -293,4 +293,16 @@ describe('usePlatformSelection — 档位平台数上限（v2.0 C1.3）', () => 
     }
     expect(unlimited.platformLimit.value.limit).toBeNull()
   })
+
+  it('触顶时回调 onLimitReached 并带上限值（视图不再自己拼分支）', () => {
+    const seen = []
+    const r = usePlatformSelection(makeAccountStore(), null, {
+      getEntitlement: () => ({ plan: 'free', limits: { max_platforms: 2 } }),
+      onLimitReached: (limit) => seen.push(limit),
+    })
+    expect(r.togglePlatform('zhihu')).toBe(true)
+    expect(seen).toEqual([]) // 未触顶不播报
+    expect(r.togglePlatform('douyin')).toBe(false)
+    expect(seen).toEqual([2])
+  })
 })

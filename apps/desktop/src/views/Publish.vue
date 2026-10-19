@@ -537,7 +537,7 @@
                 :selected-accounts="selectedAccounts"
                 :disabled="publishing"
                 :risk-suspended="riskStore.suspended"
-                @toggle-platform="handleTogglePlatform"
+                @toggle-platform="togglePlatform"
                 @toggle-account="toggleAccount"
                 :account-groups="groupPickerItems"
                 @apply-group="applyGroupById"
@@ -780,7 +780,7 @@ const { t } = useI18n()
 // 校验拒绝）。实现见 fieldSurface.hintTextFor（下方 fieldSurface 定义处接线）。
 const { notifySuccess, notifyWarning, notifyInfo, notifyError, notifyConfirm } = useNotify()
 // v2.0 机制 C1.3 / C7 C 批：发布页的平台数上限来自服务端下发并经签名快照透传的
-// entitlement.limits（不再依赖任何本地常量）。缺失时 plan-limits 按「不限」放行。
+// entitlement.limits；缺失时 plan-limits 按「不限」放行。
 const identityStore = useIdentityStore()
 // 视频上传区 el-upload 实例（video/article 两个互斥分支共用一个 ref，同时只有一个渲染）。
 // limit=1 的「重选替换」需要经它 clearFiles + handleStart，否则 el-upload 静默丢弃新文件。
@@ -1187,18 +1187,11 @@ const {
   selectPlatform,
   selectAccount,
   clearPlatforms,
-  platformLimit,
 } = usePlatformSelection(accountStore, platformStore, {
   getEntitlement: () => identityStore.entitlement,
+  // 触顶播报由 composable 回调（本文件是零增长挂账文件，不为一个分支再加行）
+  onLimitReached: (limit) => notifyWarning('publishPage.platformLimitReached', { params: { limit: limit ?? '' } }),
 })
-
-// 平台数触顶提示：只播报、不改变选择（composable 返回 false 表示未追加）。
-// 文案走 locales（zh/en 成对），数值来自服务端 limits，不在前端硬编码。
-function handleTogglePlatform(platformId) {
-  if (togglePlatform(platformId)) return
-  const limit = platformLimit.value.limit
-  notifyWarning('publishPage.platformLimitReached', { params: { limit: limit ?? '' } })
-}
 
 // P2-8b「按组添加」：判据本体在 features/publish/usePublishGroupApply（纯函数、可单测），
 // 这里只做 store ↔ 视图的接线；视图不自己数成员、也不拼播报文案。

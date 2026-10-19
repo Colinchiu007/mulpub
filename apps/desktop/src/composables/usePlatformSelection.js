@@ -53,12 +53,15 @@ export function isVideoContentPlatform(platformId, platformCatalog) {
  * @param {() => (object|null)} [options.getEntitlement] - 返回当前 entitlement 的 getter。
  *   不传 = 不做档位限制（既有调用方与单测零改动）；传了但 limits 缺失时按「不限」放行
  *   （见 features/member/plan-limits.js 的缺失即放行纪律）。
+ * @param {(limit: number|null) => void} [options.onLimitReached] - 被上限拒绝时的回调。
+ *   放在这里而不是视图里：触顶判定与播报同源，且 Publish.vue 是零增长挂账文件，不许为它加分支行。
  * @returns {object} 响应式状态 + 方法
  */
 export function usePlatformSelection(accountStore, platformCatalog = null, options = {}) {
   const selectedPlatforms = ref(['wechat_mp'])
   const selectedAccounts = ref({}) // { platformId: accountId[] }
   const getEntitlement = typeof options.getEntitlement === 'function' ? options.getEntitlement : () => null
+  const onLimitReached = typeof options.onLimitReached === 'function' ? options.onLimitReached : () => {}
 
   const hasVideoPlatforms = computed(function () {
     return selectedPlatforms.value.some(function (p) {
@@ -84,7 +87,10 @@ export function usePlatformSelection(accountStore, platformCatalog = null, optio
   function togglePlatform(platformId) {
     const idx = selectedPlatforms.value.indexOf(platformId)
     if (idx === -1) {
-      if (!canAddPlatform(platformId)) return false
+      if (!canAddPlatform(platformId)) {
+        onLimitReached(platformLimit.value.limit)
+        return false
+      }
       selectedPlatforms.value.push(platformId)
       return true
     }
