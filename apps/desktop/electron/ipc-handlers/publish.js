@@ -212,7 +212,9 @@ function registerHandlers(ipcMain, deps) {
         return { code: EC.VALIDATION_ERROR, message: 'imagePath 必须为非空字符串' }
       }
       const { readImageAsDataUrl } = require('../services/cover-cropper')
-      const result = readImageAsDataUrl(imagePath)
+      // await 不可省：本 handler 被发布历史逐行调用，同步读原图会冻结主进程事件循环
+      // （连带卡住其他标签与正在进行的发布任务的 IPC）。异步化实现在 cover-cropper。
+      const result = await readImageAsDataUrl(imagePath)
       if (!result.ok) {
         ipcLog('warn', 'cover:read-data', 'failed', `imagePath=${imagePath.slice(-80)} error=${result.error}`)
         return { code: EC.REQUEST_ERROR, message: result.error || '封面读取失败' }

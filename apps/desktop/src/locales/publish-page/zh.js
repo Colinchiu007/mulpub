@@ -153,6 +153,9 @@ export default {
       pillDone: (ctx) => '发布完成 ' + ctx.named('done') + '/' + ctx.named('total'),
       pillFailedPart: (ctx) => '，' + ctx.named('count') + ' 个失败',
       summarySucceeded: (ctx) => '成功 ' + ctx.named('succeeded') + '/' + ctx.named('total'),
+      // 阶段 2.5（audit-14）：进度条改软权重后补的**计数**出口——
+      // 有些链路不上报 percent，百分比会说不出"到哪一步了"，但"第几项/共几项"永远说得清。
+      summaryStep: (ctx) => '第 ' + ctx.named('current') + ' / 共 ' + ctx.named('total') + ' 项',
       summaryFailed: (ctx) => '· ' + ctx.named('count') + ' 个失败',
       summaryCancelled: (ctx) => '· ' + ctx.named('count') + ' 个已取消',
       sessionTitleTimeFallback: (ctx) => '发布 · ' + ctx.named('time'),

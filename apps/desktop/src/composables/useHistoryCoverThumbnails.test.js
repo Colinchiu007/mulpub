@@ -161,3 +161,98 @@ describe('useHistoryCoverThumbnails — 解析与加载', () => {
     expect(api.coverUrlFor({ id: '1', cover_path: 'D:/covers/none.png' })).toBe('')
   })
 })
+
+// ── 阶段 2.1 / audit-34 ③：封面按可见区取数 ──
+// 本机实测基线（monitorEventLoopDelay，页缓存预热）：同步读形态下 200 张 3MB 让主进程
+// 一次性冻结 397ms、1000 张 1947ms。异步化只能压到 168ms / 1373ms ⇒ 承重的是"别为
+// 看不见的行取数"。这条 describe 就是这条判据的行为锁。
+describe('useHistoryCoverThumbnails — 可见区驱动（IntersectionObserver 在位时）', () => {
+  let readCoverData
+  let installedCallbacks
+  let observedElements
+
+  class FakeIO {
+    constructor (cb, opts) {
+      this.cb = cb
+      this.opts = opts
+      installedCallbacks.push(this)
+    }
+
+    observe (el) { observedElements.push(el) }
+
+    unobserve (el) { el.__unobserved = (el.__unobserved || 0) + 1 }
+
+    disconnect () { observedElements.length = 0 }
+  }
+
+  beforeEach(() => {
+    readCoverData = vi.fn(async () => ({ code: 0, data: { dataUrl: 'data:image/png;base64,LOCAL' } }))
+    installedCallbacks = []
+    observedElements = []
+    vi.stubGlobal('IntersectionObserver', FakeIO)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  function setup (list) {
+    const records = ref(list)
+    const scope = effectScope()
+    let api = null
+    scope.run(() => { api = useHistoryCoverThumbnails(records, { readCoverData: () => readCoverData }) })
+    return { records, api, scope }
+  }
+
+  it('绑定时不取数；进入视口才取一次（重复可见不得重复读盘）', async () => {
+    const { api, scope } = setup([{ id: '1', cover_path: 'D:/covers/a.png' }])
+    // 关键差集：IO 在位时整列表 watch 必须**不发**请求（这正是被消除的那一条）
+    expect(readCoverData).not.toHaveBeenCalled()
+
+    const el = { tagName: 'DIV' }
+    api.observeCover(el, { id: '1', cover_path: 'D:/covers/a.png' })
+    expect(observedElements).toEqual([el])
+    expect(readCoverData).not.toHaveBeenCalled()
+
+    const io = installedCallbacks[0]
+    // 报告"未相交" ⇒ 仍不发请求；相交才发。两档必须能区分，否则等于没有门禁
+    io.cb([{ target: el, isIntersecting: false }])
+    expect(readCoverData).not.toHaveBeenCalled()
+
+    io.cb([{ target: el, isIntersecting: true }])
+    expect(readCoverData).toHaveBeenCalledTimes(1)
+    expect(io.opts.rootMargin, '预取带必须写明（滚到才取 = 白屏一帧）').toBe('240px')
+
+    // 同一元素再绑定 + 再次可见 ⇒ 不得第二次读盘（state 命中 + unobserve 两道）
+    api.observeCover(el, { id: '1', cover_path: 'D:/covers/a.png' })
+    io.cb([{ target: el, isIntersecting: true }])
+    expect(readCoverData).toHaveBeenCalledTimes(1)
+    expect(el.__unobserved, '取过数就该 unobserve，否则滚动时反复回调').toBe(1)
+
+    await nextTick()
+    expect(api.coverUrlFor({ id: '1', cover_path: 'D:/covers/a.png' })).toBe('data:image/png;base64,LOCAL')
+    scope.stop()
+  })
+
+  it('远程封面不参与可见区：它本来就是 URL，无需主进程读盘', () => {
+    const { api, scope } = setup([{ id: '2', cover_url: 'https://cdn.example.com/a.png' }])
+    const el = {}
+    api.observeCover(el, { id: '2', cover_url: 'https://cdn.example.com/a.png' })
+    expect(observedElements).toEqual([])
+    expect(readCoverData).not.toHaveBeenCalled()
+    expect(installedCallbacks.length).toBe(1)
+    scope.stop()
+  })
+
+  it('卸载时 disconnect（离开历史页不得留下观察者与回调）', () => {
+    const { api, scope } = setup([{ id: '3', cover_path: 'D:/covers/c.png' }])
+    const io = installedCallbacks[0]
+    let disconnected = false
+    io.disconnect = () => { disconnected = true }
+    scope.stop()
+    expect(disconnected).toBe(true)
+    // 卸载后再绑定不得复活请求
+    api.observeCover({}, { id: '3', cover_path: 'D:/covers/c.png' })
+    expect(readCoverData).not.toHaveBeenCalled()
+  })
+})

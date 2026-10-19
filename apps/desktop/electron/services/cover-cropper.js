@@ -133,7 +133,11 @@ async function cropImageFile(imagePath, options = {}) {
   if (!v.ok) return { ok: false, error: v.error }
 
   // 读原图信息（复用 extractor 的读取能力：dataURL 形式让 BrowserWindow 加载）
-  const read = readImageAsDataUrl(imagePath)
+  // ⚠️ 本函数取 `read.width/height` 而 readImageAsDataUrl **从不返回这两个字段** ⇒
+  //    normalizeRect 恒判「图片尺寸无效」。该缺陷自引入提交 f9d1343bd 即存在，
+  //    修复与回归保护单列（tasks: cover:crop 恒失败），不混进本次异步化——
+  //    两件事一起改会让"异步化"的变异反证无法归因。
+  const read = await readImageAsDataUrl(imagePath)
   if (!read.ok) return { ok: false, error: read.error }
 
   const n = normalizeRect(rect, read.width, read.height)
@@ -185,19 +189,34 @@ async function cropImageFile(imagePath, options = {}) {
 
 /**
  * 读取图片为 dataURL（渲染层 <img> 直接展示）。
+ *
+ * 阶段 2.1（audit-34）：改**异步读**。本函数原先是 `fs.existsSync` + `fs.readFileSync`，
+ * 而它挂在 `cover:read-data` IPC 上、被发布历史每一行调用（历史页可见区最多 200 行、
+ * 每张封面几 MB 原图）—— 主进程事件循环在每张图的读盘 + base64 期间整体冻结，
+ * 一起被卡的还有其他标签页与**正在进行的发布任务**的 IPC。与已修的 `pbkdf2Sync`
+ * 同型（AGENTS QM-2「高频路径不得含同步 CPU 密集原语」），且后果更宽。
+ *
+ * 少一趟同步调用：`existsSync` 一并去掉 —— 它既是又一次同步 stat，又挡不住 TOCTOU
+ * （检查完到读之间文件可能被删）。读失败的分支就是"文件不存在"的现场。
+ *
  * @param {string} imagePath
- * @returns {{ok:boolean, dataUrl?:string, width?:number, height?:number, error?:string}}
+ * @returns {Promise<{ok:boolean, dataUrl?:string, sizeBytes?:number, error?:string}>}
  */
-function readImageAsDataUrl(imagePath) {
+async function readImageAsDataUrl(imagePath) {
   try {
     if (typeof imagePath !== 'string' || !imagePath) return { ok: false, error: 'imagePath 必须为非空字符串' }
-    if (!fs.existsSync(imagePath)) return { ok: false, error: '图片文件不存在' }
     const ext = path.extname(imagePath).toLowerCase()
     // R7（竞品 X-C2 同型防回归）：ext→mime 一律走单一真源 image-mime；
     //   未知格式返回 null（下方 !mime 分支语义不变），不再各自维护字面量映射。
     const mime = extToMime(ext)
     if (!mime) return { ok: false, error: '不支持的图片格式: ' + ext }
-    const buf = fs.readFileSync(imagePath)
+    /** @type {Buffer} */
+    let buf
+    try {
+      buf = await fs.promises.readFile(imagePath)
+    } catch (e) {
+      return { ok: false, error: e && e.code === 'ENOENT' ? '图片文件不存在' : (e && e.message) || String(e) }
+    }
     return { ok: true, dataUrl: 'data:' + mime + ';base64,' + buf.toString('base64'), sizeBytes: buf.length }
   } catch (e) {
     return { ok: false, error: e.message }

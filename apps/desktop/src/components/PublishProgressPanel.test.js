@@ -16,7 +16,7 @@ const storeStateRaw = vi.hoisted(() => ({
   retrying: false,
   cancelling: false,
   hasRunning: false,
-  aggregate: { total: 0, done: 0, succeeded: 0, failed: 0, cancelled: 0 },
+  aggregate: { total: 0, done: 0, succeeded: 0, failed: 0, cancelled: 0 , running: 0, step: 0, softDone: 0, progressPercent: 0},
   init: vi.fn(),
   minimizePanel: vi.fn(),
   expandPanel: vi.fn(),
@@ -101,7 +101,7 @@ describe('PublishProgressPanel.vue — 全局进度面板（publish-progress-ux�
     storeStateRaw.panelMinimized = false
     storeStateRaw.hasRunning = false
     storeStateRaw.cancelling = false
-    storeStateRaw.aggregate = { total: 0, done: 0, succeeded: 0, failed: 0, cancelled: 0 }
+    storeStateRaw.aggregate = { total: 0, done: 0, succeeded: 0, failed: 0, cancelled: 0 , running: 0, step: 0, softDone: 0, progressPercent: 0}
     storeStateRaw.consumeFirstHideToast.mockReset().mockReturnValue(false)
     storeStateRaw.retryFailed.mockReset().mockResolvedValue({ ok: 0, fail: 0 })
     storeStateRaw.retryOne.mockReset().mockResolvedValue({ ok: 0, fail: 0 })
@@ -128,7 +128,7 @@ describe('PublishProgressPanel.vue — 全局进度面板（publish-progress-ux�
   it('展开浮卡：标题/汇总（成功口径）/任务行（平台+阶段词+dot-stepper+百分比）渲染', async () => {
     storeStateRaw.panelVisible = true
     storeStateRaw.hasRunning = true
-    storeStateRaw.aggregate = { total: 2, done: 1, succeeded: 1, failed: 0, cancelled: 0 }
+    storeStateRaw.aggregate = { total: 2, done: 1, succeeded: 1, failed: 0, cancelled: 0 , running: 1, step: 2, softDone: 1, progressPercent: 50}
     storeStateRaw.sessions = [makeSession({
       tasks: {
         't-1': makeTask(),
@@ -324,7 +324,7 @@ describe('PublishProgressPanel.vue — 全局进度面板（publish-progress-ux�
   it('汇总口径：成功数直给 + 失败/取消单列（failed 不计入「已完成」）', async () => {
     storeStateRaw.panelVisible = true
     storeStateRaw.hasRunning = false
-    storeStateRaw.aggregate = { total: 4, done: 4, succeeded: 2, failed: 1, cancelled: 1 }
+    storeStateRaw.aggregate = { total: 4, done: 4, succeeded: 2, failed: 1, cancelled: 1 , running: 0, step: 4, softDone: 4, progressPercent: 100}
     storeStateRaw.sessions = [makeSession({ status: 'done' })]
     wrapper = mountPanel()
     await nextTick()
@@ -452,7 +452,7 @@ describe('PublishProgressPanel.vue — 全局进度面板（publish-progress-ux�
   it('胶囊态：渲染 pillRunning 汇总 + 勿关提示，点击恢复展开', async () => {
     storeStateRaw.panelMinimized = true
     storeStateRaw.hasRunning = true
-    storeStateRaw.aggregate = { total: 3, done: 1, succeeded: 1, failed: 0, cancelled: 0 }
+    storeStateRaw.aggregate = { total: 3, done: 1, succeeded: 1, failed: 0, cancelled: 0 , running: 2, step: 2, softDone: 1, progressPercent: 33}
     wrapper = mountPanel()
     await nextTick()
 
@@ -470,7 +470,7 @@ describe('PublishProgressPanel.vue — 全局进度面板（publish-progress-ux�
   it('胶囊完成态：显示 pillDone + 失败计数', async () => {
     storeStateRaw.panelMinimized = true
     storeStateRaw.hasRunning = false
-    storeStateRaw.aggregate = { total: 3, done: 3, succeeded: 2, failed: 1, cancelled: 0 }
+    storeStateRaw.aggregate = { total: 3, done: 3, succeeded: 2, failed: 1, cancelled: 0 , running: 0, step: 3, softDone: 3, progressPercent: 100}
     storeStateRaw.sessions = [makeSession({ status: 'done' })]
     wrapper = mountPanel()
     await nextTick()
@@ -586,7 +586,7 @@ describe('PublishProgressPanel.vue — 全局进度面板（publish-progress-ux�
     try {
       storeStateRaw.panelMinimized = true
       storeStateRaw.hasRunning = true
-      storeStateRaw.aggregate = { total: 2, done: 1, succeeded: 1, failed: 0, cancelled: 0 }
+      storeStateRaw.aggregate = { total: 2, done: 1, succeeded: 1, failed: 0, cancelled: 0 , running: 1, step: 2, softDone: 1, progressPercent: 50}
       wrapper = mountPanel()
       await nextTick()
       const pill = body().querySelector('[data-testid="publish-progress-pill"]')
@@ -612,7 +612,7 @@ describe('PublishProgressPanel.vue — 完成自动收敛（publish-progress-pan
     storeStateRaw.panelMinimized = false
     storeStateRaw.hasRunning = true
     storeStateRaw.cancelling = false
-    storeStateRaw.aggregate = { total: 2, done: 2, succeeded: 2, failed: 0, cancelled: 0 }
+    storeStateRaw.aggregate = { total: 2, done: 2, succeeded: 2, failed: 0, cancelled: 0 , running: 0, step: 2, softDone: 2, progressPercent: 100}
     storeStateRaw.consumeFirstHideToast.mockReset().mockReturnValue(false)
     storeStateRaw.minimizePanel.mockReset()
     storeStateRaw.init.mockReset()
@@ -679,7 +679,7 @@ describe('PublishProgressPanel.vue — 完成自动收敛（publish-progress-pan
     store.sessions[0].status = 'done'
     store.sessions[0].tasks['t-1'].phase = 'success'
     store.sessions[0].tasks['t-2'].phase = 'failed'
-    store.aggregate = { total: 2, done: 2, succeeded: 1, failed: 1, cancelled: 0 }
+    store.aggregate = { total: 2, done: 2, succeeded: 1, failed: 1, cancelled: 0 , running: 0, step: 2, softDone: 2, progressPercent: 100}
     await nextTick()
 
     vi.advanceTimersByTime(10000)
@@ -694,7 +694,7 @@ describe('PublishProgressPanel.vue — 完成自动收敛（publish-progress-pan
     store.sessions[0].status = 'done'
     store.sessions[0].tasks['t-1'].phase = 'success'
     store.sessions[0].tasks['t-2'].phase = 'cancelled'
-    store.aggregate = { total: 2, done: 2, succeeded: 1, failed: 0, cancelled: 1 }
+    store.aggregate = { total: 2, done: 2, succeeded: 1, failed: 0, cancelled: 1 , running: 0, step: 2, softDone: 2, progressPercent: 100}
     await nextTick()
 
     vi.advanceTimersByTime(10000)
@@ -750,5 +750,83 @@ describe('PublishProgressPanel.vue — 完成自动收敛（publish-progress-pan
     expect(en).toContain('blockedClockAnomaly')
     expect(zh).toContain('（本机时间跳变，已自动缩短等待，无需处理）')
     expect(en).toContain('(local clock jump — wait shortened automatically, no action needed)')
+  })
+})
+
+// ── 阶段 2.5（audit-14）：进度条改读软权重 + 补「第 N / 共 M 项」计数出口 ──
+describe('PublishProgressPanel.vue — 软权重进度条与步数行（阶段 2.5）', () => {
+  beforeEach(() => {
+    storeStateRaw.sessions = []
+    storeStateRaw.panelVisible = true
+    storeStateRaw.panelMinimized = false
+    storeStateRaw.hasRunning = true
+    storeStateRaw.aggregate = { total: 4, done: 1, succeeded: 1, failed: 0, cancelled: 0, running: 2, step: 2, softDone: 2.4, progressPercent: 60 }
+    storeStateRaw.init.mockReset()
+  })
+
+  afterEach(() => {
+    i18n.global.locale.value = 'zh'
+    // Teleport 落在 document.body 上，必须自己收口，否则残留节点会喂饱下一条用例的查询
+    document.body.textContent = ''
+  })
+
+  function mountIt () {
+    return mount(PublishProgressPanel, { global: { plugins: [i18n] } })
+  }
+
+  it('条子宽与 aria-valuenow 都取 progressPercent，不是 done/total', async () => {
+    // 判据必须是**两口径可区分**的一组数：done/total=25%，soft=60%。
+    // 若实现仍读 done/total，本条会拿到 25% 而红。
+    // 面板走 <Teleport to="body"> ⇒ 必须查 document.body（wrapper 里只有 teleport 注释）
+    mountIt()
+    await nextTick()
+    const bar = document.body.querySelector('.ppp__bar')
+    expect(bar, '.ppp__bar 未渲染').not.toBeNull()
+    expect(bar.getAttribute('aria-valuenow')).toBe('60')
+    expect(bar.getAttribute('aria-valuemin')).toBe('0')
+    expect(bar.getAttribute('aria-valuemax')).toBe('100')
+    const fill = document.body.querySelector('.ppp__bar-fill')
+    expect(fill.getAttribute('style')).toContain('width: 60%')
+    expect(fill.getAttribute('style')).not.toContain('width: 25%')
+  })
+
+  it('有在跑的项才显示步数行；文案是「第 N / 共 M 项」', async () => {
+    mountIt()
+    await nextTick()
+    const step = document.body.querySelector('[data-testid="publish-progress-step"]')
+    expect(step, '有在跑的项却没出步数行').not.toBeNull()
+    expect(step.textContent).toContain('第 2')
+    expect(step.textContent).toContain('共 4')
+  })
+
+  it('running 归零 ⇒ 步数行整行消失（完成后不再谎称"还有第 N 项在跑"）', async () => {
+    storeStateRaw.aggregate = { total: 4, done: 4, succeeded: 4, failed: 0, cancelled: 0, running: 0, step: 4, softDone: 4, progressPercent: 100 }
+    mountIt()
+    await nextTick()
+    expect(document.body.querySelector('[data-testid="publish-progress-step"]')).toBeNull()
+    expect(document.body.querySelector('.ppp__bar-fill').getAttribute('style')).toContain('width: 100%')
+  })
+
+  it('步数行文案 zh/en 成对（Gate 7 的本地前哨：键必须两边都有）', async () => {
+    const zhText = i18n.global.t('publishPage.publishProgressPanel.summaryStep', { current: 2, total: 4 })
+    i18n.global.locale.value = 'en'
+    const enText = i18n.global.t('publishPage.publishProgressPanel.summaryStep', { current: 2, total: 4 })
+    expect(zhText).not.toBe('publishPage.publishProgressPanel.summaryStep')
+    expect(enText).not.toBe(zhText)
+    expect(enText).toContain('2')
+    expect(enText).toContain('4')
+  })
+
+  // 装配锁：mock 的 aggregate 字段集必须与**真实现跑出来的**字段集一致。
+  // 本批就撞过一次：面板夹具还停在 5 个旧字段，新组件读的 progressPercent/running
+  // 在夹具里恒 undefined ⇒ 条子与步数行静默失效，而 70 条用例一条都没红。
+  // 判据一律"跑一次真的"，不再读源码解析字段（解析器对写法退化失明，是同类事故的形状）。
+  it('夹具 aggregate 的键集与真 reduceAggregate 的返回逐字相等', async () => {
+    const { reduceAggregate } = await import('@/stores/publish-progress-aggregate')
+    const terminal = new Set(['success', 'failed', 'cancelled'])
+    const realKeys = Object.keys(reduceAggregate([{ tasks: {} }], { terminalPhases: terminal }))
+    expect(realKeys.length, '真实现返回的键数异常，这条锁没有意义').toBeGreaterThanOrEqual(9)
+    const mockKeys = Object.keys(storeStateRaw.aggregate)
+    expect(mockKeys.slice().sort()).toEqual(realKeys.slice().sort())
   })
 })

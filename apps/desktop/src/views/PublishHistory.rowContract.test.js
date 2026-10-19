@@ -108,3 +108,27 @@ describe('PublishHistory — 展示值映射确实由 composable 提供（装配
     expect(rowIdx).toBeLessThan(linkIdx)
   })
 })
+
+// 阶段 2.1 / audit-34 ③ 的**接线锁**：封面取数收窄到可见区，靠的是视图把预览元素交出来。
+// 少了这一行绑定，composable 里的观察者永远不会收到任何元素 ⇒ 一张封面都不请求（白屏图），
+// 或反过来被人"顺手删掉 :ref 因为看起来没用"——两种都测不到行为差异，只能锁源码。
+describe('PublishHistory — 封面可见区取数已接线（2.1 ③）', () => {
+  const VUE = fs.readFileSync(path.resolve(process.cwd(), 'src/views/PublishHistory.vue'), 'utf8')
+
+  it('composable 的 observeCover 必须被解构并挂到卡片预览元素的 :ref 上', () => {
+    expect(VUE).toMatch(/const \{ coverUrlFor: thumbnailUrl, observeCover \} = useHistoryCoverThumbnails\(visibleRecords\)/)
+    expect(VUE).toMatch(/:ref="\(el\) => observeCover\(el, record\)"/)
+  })
+
+  it('卡片块里 observeCover 是白名单内的每行调用（它是登记副作用，不是格式化函数）', () => {
+    const start = VUE.indexOf('v-for="record in visibleRecords"')
+    const end = VUE.indexOf('</article>', start)
+    expect(start).toBeGreaterThan(-1)
+    expect(end).toBeGreaterThan(start)
+    const block = VUE.slice(start, end)
+    const found = [...block.matchAll(/\b([A-Za-z_$][\w$]*)\((?:[^()]*,\s*)?record\)/g)].map((m) => m[1])
+    const allowed = new Set(['metaFor', 'openRecord', 'retryRecord', 'republishRecord', 'observeCover', 'onCardClick'])
+    expect([...new Set(found.filter((n) => !allowed.has(n)))].sort()).toEqual([])
+    expect(found.filter((n) => n === 'observeCover')).toHaveLength(1)
+  })
+})

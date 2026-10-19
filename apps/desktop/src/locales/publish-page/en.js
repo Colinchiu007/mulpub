@@ -154,6 +154,9 @@ export default {
       pillDone: (ctx) => 'Done ' + ctx.named('done') + '/' + ctx.named('total'),
       pillFailedPart: (ctx) => ', ' + ctx.named('count') + ' failed',
       summarySucceeded: (ctx) => ctx.named('succeeded') + '/' + ctx.named('total') + ' succeeded',
+      // Phase 2.5 (audit-14): count-based readout added alongside the soft-weighted bar —
+      // some pipelines never report percent, but "item N of M" is always expressible.
+      summaryStep: (ctx) => 'Item ' + ctx.named('current') + ' of ' + ctx.named('total'),
       summaryFailed: (ctx) => '· ' + ctx.named('count') + ' failed',
       summaryCancelled: (ctx) => '· ' + ctx.named('count') + ' cancelled',
       sessionTitleTimeFallback: (ctx) => 'Publish · ' + ctx.named('time'),

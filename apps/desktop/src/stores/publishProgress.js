@@ -13,6 +13,7 @@
  */
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
+import { reduceAggregate } from './publish-progress-aggregate'
 import {
   onProgress,
   onBatchProgress,
@@ -442,21 +443,10 @@ export const usePublishProgressStore = defineStore('publishProgress', () => {
     sessions.value.some((s) => s.status === 'running'),
   )
 
-  const aggregate = computed(() => {
-    let total = 0
-    let done = 0
-    let succeeded = 0
-    let failed = 0
-    let cancelled = 0
-    for (const s of sessions.value) {
-      for (const id of Object.keys(s.tasks)) {
-        total += 1
-        const task = s.tasks[id]
-        if (task.phase === 'success') { done += 1; succeeded += 1 } else if (task.phase === 'failed') { done += 1; failed += 1 } else if (task.phase === 'cancelled') { done += 1; cancelled += 1 }
-      }
-    }
-    return { total, done, succeeded, failed, cancelled }
-  })
+  // ─── 聚合进度 ───
+  // 口径与三条不可破的语义写在 stores/publish-progress-aggregate.js（阶段 2.5 / audit-14）。
+  // 相位集合由本 store 传入：枚举三处同步的判据（emitter/store/TERMINAL_PHASES）不许在这里另立第二份。
+  const aggregate = computed(() => reduceAggregate(sessions.value, { terminalPhases: TERMINAL_PHASES }))
 
   function sessionFailedCount(sessionId) {
     const session = sessions.value.find((s) => s.id === sessionId)

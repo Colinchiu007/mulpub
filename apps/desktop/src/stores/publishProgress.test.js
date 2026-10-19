@@ -563,3 +563,91 @@ describe('相位枚举同步锁（PRD-OSS-RPA-HARDENING / 评审 FE2）', () => 
     expect(store.sessions[0].tasks['task-1'].phase).toBe('success')
   })
 })
+// ── 阶段 2.5（audit-14）：聚合进度的软权重口径 ──
+// 症状：发一篇 3 分钟，头部写「成功 0/1」、条子恒定 0%，用户判断不了「在跑」还是「卡了」。
+// 判据分两半，缺一半都会说谎：
+//   ① done 保持**终态口径**（"已完成"必须是真完成数，不许被软权重污染）；
+//   ② progressPercent 走软权重（运行中按它自己上报的 percent 计入，上限 95，排队 0）。
+describe('publishProgress store — 聚合进度软权重（阶段 2.5 / audit-14）', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    mockOnProgress.mockReset()
+    mockOnBatchProgress.mockReset()
+    mockGetQueueStatus.mockReset()
+    mockOnProgress.mockReturnValue(() => {})
+    mockOnBatchProgress.mockReturnValue(() => {})
+    mockGetQueueStatus.mockResolvedValue({ code: 0, data: { running: [], queue: [] } })
+    window.localStorage.clear()
+  })
+
+  async function makeStore () {
+    const { usePublishProgressStore } = await import('./publishProgress')
+    return usePublishProgressStore()
+  }
+
+  it('单任务在跑 40%：done 仍为 0，但条子不再恒定 0%', async () => {
+    const store = await makeStore()
+    store.registerSession({ taskIds: ['t-1'], title: 'x' })
+    store.handleProgressEvent(progressEvent({ taskId: 't-1', phase: 'progress', percent: 40 }))
+    expect(store.aggregate.done).toBe(0)
+    expect(store.aggregate.softDone).toBeCloseTo(0.4, 5)
+    expect(store.aggregate.progressPercent).toBe(40)
+    expect(store.aggregate.running).toBe(1)
+    expect(store.aggregate.step).toBe(1)
+  })
+
+  it('排队中算 0；已开始但没报百分比算「确实开始了」的最小可见量', async () => {
+    const store = await makeStore()
+    store.registerSession({ taskIds: ['t-1'], title: 'x' })
+    expect(store.aggregate.progressPercent, '任务还没开始就应有 0%').toBe(0)
+    store.handleProgressEvent(progressEvent({ taskId: 't-1', phase: 'start', percent: null, stageKey: 'detail' }))
+    expect(store.aggregate.running).toBe(1)
+    expect(store.aggregate.progressPercent).toBe(5)
+  })
+
+  it('运行中报 100% 也不得贴满：上限 95，留到最后落终态那一刻再跳 100', async () => {
+    const store = await makeStore()
+    store.registerSession({ taskIds: ['t-1'], title: 'x' })
+    store.handleProgressEvent(progressEvent({ taskId: 't-1', phase: 'progress', percent: 100 }))
+    expect(store.aggregate.done).toBe(0)
+    expect(store.aggregate.progressPercent, '条子贴满却没完成 = 反向的误读').toBe(95)
+  })
+
+  it('混合批次：一条完成 + 一条跑到一半 ⇒ 加权 75%，完成数照旧是 1', async () => {
+    const store = await makeStore()
+    store.registerSession({ taskIds: ['t-1', 't-2'], title: 'x' })
+    store.handleProgressEvent(progressEvent({ taskId: 't-1', phase: 'success', stageKey: 'done', percent: 100 }))
+    store.handleProgressEvent(progressEvent({ taskId: 't-2', phase: 'progress', percent: 50 }))
+    expect(store.aggregate).toMatchObject({ total: 2, done: 1, succeeded: 1, running: 1, step: 2, progressPercent: 75 })
+    expect(store.aggregate.softDone).toBeCloseTo(1.5, 5)
+  })
+
+  it('全部终态 ⇒ 100% 且 step 收口到 total（不得停在"第 N 项"）', async () => {
+    const store = await makeStore()
+    store.registerSession({ taskIds: ['t-1', 't-2'], title: 'x' })
+    store.handleProgressEvent(progressEvent({ taskId: 't-1', phase: 'success', stageKey: 'done', percent: 100 }))
+    store.handleProgressEvent(progressEvent({ taskId: 't-2', phase: 'cancelled', stageKey: 'failed', percent: 30 }))
+    expect(store.aggregate.progressPercent).toBe(100)
+    expect(store.aggregate.running).toBe(0)
+    expect(store.aggregate.step).toBe(2)
+  })
+
+  it('非法 percent（负数/字符串）既不抛也不 NaN，按最小可见量处理', async () => {
+    const store = await makeStore()
+    store.registerSession({ taskIds: ['t-1'], title: 'x' })
+    store.handleProgressEvent(progressEvent({ taskId: 't-1', phase: 'progress', percent: -5 }))
+    expect(Number.isFinite(store.aggregate.softDone)).toBe(true)
+    expect(store.aggregate.progressPercent).toBeGreaterThanOrEqual(0)
+    store.handleProgressEvent(progressEvent({ taskId: 't-1', phase: 'progress', percent: 'abc' }))
+    expect(Number.isFinite(store.aggregate.softDone)).toBe(true)
+    expect(store.aggregate.progressPercent).toBeLessThanOrEqual(95)
+  })
+
+  it('空会话（无任何任务）时进度为 0，不得出现 NaN/除零', async () => {
+    const store = await makeStore()
+    store.registerSession({ taskIds: [], title: 'x' })
+    expect(store.aggregate.total).toBe(0)
+    expect(store.aggregate.progressPercent).toBe(0)
+    expect(store.aggregate.step).toBe(0)
+  })
+})

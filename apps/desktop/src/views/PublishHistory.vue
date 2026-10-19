@@ -225,7 +225,9 @@
               :aria-label="t('historyPage.selectRecordAria', { title: metaFor(record).title })"
             >
           </label>
-          <div class="record-preview">
+          <!-- 阶段 2.1 / audit-34 ③：封面按可见区取数。observeCover 对同一元素是幂等的
+               （WeakMap 记 path，重复绑定直接返回），所以可以安全挂在 :ref 上。 -->
+          <div class="record-preview" :ref="(el) => observeCover(el, record)">
             <img v-if="metaFor(record).thumb" :src="metaFor(record).thumb" alt="">
             <img v-else-if="metaFor(record).iconIsUrl" :src="metaFor(record).icon" class="platform-icon-thumb mp-platform-icon" :alt="metaFor(record).platform" width="20" height="20" aria-hidden="true">
 <span v-else aria-hidden="true">{{ metaFor(record).icon }}</span>
@@ -571,7 +573,8 @@ const visibleRecords = computed(() => filteredRecords.value.slice(0, RENDER_LIMI
 const hiddenRecordCount = computed(() => Math.max(0, filteredRecords.value.length - RENDER_LIMIT))
 // 2026-10-12：缩略图 = 本次实际使用的封面；拿不到即回退平台图标
 // 阶段 2.1/2.2：喂 visibleRecords —— 没渲染的行不该去取封面
-const { coverUrlFor: thumbnailUrl } = useHistoryCoverThumbnails(visibleRecords)
+// observeCover 再把"取了封面"进一步收窄到**真的进了视口**的行（rootMargin 240px 预取一屏）
+const { coverUrlFor: thumbnailUrl, observeCover } = useHistoryCoverThumbnails(visibleRecords)
 
 // 阶段 2.2（audit-61）b) 行内函数 Map 缓存：模板里 title / 缩略图 / 平台图标 / 类型 /
 // 发布人 / 时间 / 状态 / 可点击性 / 审核 / 送达 / 失败原因 各自被调 2-4 次，

@@ -115,7 +115,59 @@ export function useHistoryCoverThumbnails (records, options = {}) {
     return remoteUrlOf(record)
   }
 
+  /**
+   * 可见区驱动（阶段 2.1 / audit-34 ③）。
+   *
+   * 原先的 `watch(records)` 对**整列表**每条记录各发一次 `cover:read-data`：
+   * 本机实测基线（`monitorEventLoopDelay`，页缓存预热）——同步读形态下 200 张 3MB
+   * 会让主进程**一次性冻结 397ms**，1000 张 1947ms；这正是"进历史页/切筛选整界面卡顿、
+   * 正在进行的发布任务一起卡"的形状。异步化（①）把同档的冻结压到 168ms，
+   * 但 1000 并发仍有 1373ms —— 真正承重的是**别为看不见的行取数**。
+   *
+   * 没有 IntersectionObserver 的环境（jsdom / 老宿主）退回立即加载：
+   * 这条退路不是兼容包袱，是"看不见判据时宁可全量也不能不出图"的产品取向，
+   * 也因此既有 93 条视图用例的行为不变。
+   */
+  const IO_ROOT_MARGIN = '240px'
+  const elPath = new WeakMap()
+  // 仍在等待可见的元素。浏览器在 unobserve 之后不会再为该元素回调，
+  // 但 WeakSet 让这条判据在我自己手里也成立（回调重入 = 直接跳过，不重复 unobserve/load）
+  const waiting = new WeakSet()
+  let observer = null
+  // disposed 与 observer=null 必须分开：后者同时是"没有 IO 能力"的判据，
+  // 卸载后若只把 observer 置空，:ref 的后续回调会退化成"立即加载整列表"——
+  // 那正是本条要消除的行为（组件都拆了还发 IPC）。
+  let disposed = false
+  if (typeof IntersectionObserver === 'function') {
+    observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue
+        const el = entry.target
+        if (!waiting.has(el)) continue
+        waiting.delete(el)
+        observer.unobserve(el)
+        const p = elPath.get(el)
+        // 已取过数/正在取 ⇒ 不再发第二次读盘请求
+        if (!p || inFlight.has(p) || state.value[p]) continue
+        void load(p)
+      }
+    }, { rootMargin: IO_ROOT_MARGIN })
+  }
+
+  /** 由视图在卡片渲染时绑定：`:ref="el => observeCover(el, record)"` */
+  function observeCover (el, record) {
+    if (disposed || !el) return
+    const localPath = localPathOf(record)
+    if (!localPath || state.value[localPath]) return
+    if (!observer) { void load(localPath); return }
+    if (elPath.get(el) === localPath) return // 同一元素重复绑定（v-for 每次 patch 都会回调）
+    elPath.set(el, localPath)
+    waiting.add(el)
+    observer.observe(el)
+  }
+
   watch(records, (list) => {
+    if (observer) return // 可见区路径已接管：整列表预取正是本条要消除的东西
     if (!Array.isArray(list)) return
     for (const record of list) {
       const localPath = localPathOf(record)
@@ -124,7 +176,11 @@ export function useHistoryCoverThumbnails (records, options = {}) {
     }
   }, { immediate: true })
 
-  onScopeDispose(() => { generation += 1 })
+  onScopeDispose(() => {
+    generation += 1
+    disposed = true
+    if (observer) { observer.disconnect(); observer = null }
+  })
 
-  return { coverUrlFor, isLocalImagePath }
+  return { coverUrlFor, isLocalImagePath, observeCover }
 }

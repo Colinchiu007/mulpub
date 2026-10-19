@@ -54,8 +54,16 @@
         <span v-if="store.aggregate.cancelled > 0" class="ppp__summary-cancelled">
           {{ t('publishPage.publishProgressPanel.summaryCancelled', { count: store.aggregate.cancelled }) }}
         </span>
+        <!-- 阶段 2.5（audit-14）：进度条改用软权重口径（在跑的任务按它自己的阶段百分比计入），
+             并补一句「第 N / 共 M 项」这一**计数**出口——percent 不上报的链路也能说清在哪一步。
+             注意「成功 x/total」仍走终态口径（done 没被软权重污染），两句话量的是不同的事。 -->
+        <span
+          v-if="store.aggregate.running > 0"
+          class="ppp__summary-step"
+          data-testid="publish-progress-step"
+        >{{ t('publishPage.publishProgressPanel.summaryStep', { current: store.aggregate.step, total: store.aggregate.total }) }}</span>
         <span class="ppp__bar" role="progressbar"
-          :aria-valuenow="store.aggregate.total > 0 ? Math.round(store.aggregate.done / store.aggregate.total * 100) : 0"
+          :aria-valuenow="store.aggregate.progressPercent"
           aria-valuemin="0" aria-valuemax="100"
         >
           <span class="ppp__bar-fill" :style="{ width: progressWidth }"></span>
@@ -131,11 +139,7 @@ const store = usePublishProgressStore()
 
 store.init()
 
-const progressWidth = computed(() => {
-  const { done, total } = store.aggregate
-  if (!total) return '0%'
-  return Math.round((done / total) * 100) + '%'
-})
+const progressWidth = computed(() => store.aggregate.progressPercent + '%')
 
 const isSingleSession = computed(() => store.sessions.length === 1)
 
@@ -298,6 +302,12 @@ const { cancelAutoCollapse } = usePublishProgressAutoCollapse({
 }
 
 .ppp__summary-cancelled {
+  color: var(--color-text-muted);
+}
+
+/* 阶段 2.5：与"成功 x/y"同排但语义不同（一个是完成数，一个是当前第几项），
+   用次要色 + 前置间隔点，避免读成两个互相矛盾的计数 */
+.ppp__summary-step {
   color: var(--color-text-muted);
 }
 
