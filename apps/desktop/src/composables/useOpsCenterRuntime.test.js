@@ -43,6 +43,25 @@ describe('useOpsCenterRuntime', () => {
     expect(s.loaded.value).toBe(true)
   })
 
+  // 回归锁（PR #3898 CI 实测）：`AnnouncementBanner` 挂在 App.vue 下且在 onMounted 里
+  // **不 await** 地调用 loadRuntime。当时部分套件把 `@/api/electron-bridge` mock 成
+  // 不含 `invokeWithFallback` 的形状，读取即抛 ⇒ 每次挂载壳层就是一次 unhandled rejection
+  // （CI 一次跑出 9 条）。判据不是"有没有日志"，而是**这个 promise 永不被拒绝**。
+  it('桥接读取抛错时收口为无配置，且绝不向外抛 rejection', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    apiMock.opsCenterSyncRuntime.mockRejectedValue(new Error('No "invokeWithFallback" export is defined on the mock'))
+    const s = useOpsCenterRuntime()
+    // resolves（不是 rejects）—— 消费方不 await 也不会产生未处理拒绝
+    await expect(s.loadRuntime()).resolves.toMatchObject({ code: -1, message: 'runtime_read_failed' })
+    expect(s.announcements.value).toEqual([])
+    expect(s.updatePolicy.value).toBe(null)
+    expect(s.loaded.value).toBe(true)
+    // 静默不等于不出声
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(String(warn.mock.calls[0][1])).toContain('invokeWithFallback')
+    warn.mockRestore()
+  })
+
   it('导出完整性', () => {
     const s = useOpsCenterRuntime()
     for (const key of ['announcements', 'updatePolicy', 'contentPolicy', 'syncedAt', 'loaded', 'loadRuntime']) {

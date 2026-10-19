@@ -44,7 +44,6 @@ const MIN_TEST_FILES = 800;
  */
 const KNOWN_BLANKET = {
   'apps/desktop/tests/offline-manager.test.js': '同上：__enableElectronMock() 已开，electron 真入口不在本 realm',
-  'apps/desktop/tests/onboarding.test.js': '同上：__enableElectronMock() 已开',
   'apps/desktop/tests/publish-alert.test.js': '文件内 3 处 require("electron") 全部落在 __enableElectronMock() 之后 ⇒ 走 mock；本文件的 fs 谎报未触达真 electron 探测路径',
   'apps/desktop/tests/publish-poller.test.js': '未开 electron mock，但本文件不 require 任何读 fs 的同 realm 第三方（sharp/sql.js/electron 计数均为 0，见 scripts/check-blanket-fs-mock.test.js 的真实仓库那条）',
   'apps/desktop/tests/rewrite-strategy-manager.test.js': '同上：__enableElectronMock() 已开',

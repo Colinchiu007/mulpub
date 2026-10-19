@@ -291,9 +291,14 @@ test('判据域必须整体落在 docs-only 白名单之外（否则本门禁会
   // 不是"记得接线"，而是**它测量的对象（测试文件）永远不是文档** —— 所以任何新增 blanket 夹具的
   // PR 必然 docs-only=false。这条锁把那句推理变成断言：名单若被扩大到会吞掉某个测试文件，立刻红。
   const classifier = require('./classify-docs-only.js');
+  // 样本清单：欠账登记 + 三个**门禁真实测量到**的测试文件。
+  // `tests/onboarding.test.js` 随其被测模块（`electron/services/onboarding.js`，阶段 1 批次 B
+  // 已删除第二个引导真源）一并删除后，登记面从 9 缩到 8；这里补一个真实样本把域维持在原规模，
+  // **而不是把下界从 12 降到 11** —— 降下界等于为了让锁不响，抬样本才是让锁继续有覆盖。
   const domain = Object.keys(mod.KNOWN_BLANKET).concat([
     'apps/desktop/electron/core/container.setup.test.js',
     'apps/desktop/electron/services/asset-generator.test.js',
+    'apps/desktop/electron/services/first-run.test.js',
     'scripts/check-blanket-fs-mock.test.js',
   ]);
   assert.ok(domain.length >= 12, '判据域样本太少，这条锁不构成覆盖：' + domain.length);
