@@ -1,0 +1,59 @@
+{
+  "sha": "372243f11aef74efbaa65b44dfdff6280b5b1033",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 692 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 692,
+    "fileCount": 19,
+    "codeFileCount": 8,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 12,
+    "docSensitiveContentSample": [
+      "   无限期试用）、Obsidian（商业授权不强制）证明荣誉制在桌面工具是可持续的；硬墙只留给",
+      "（商业授权不强制购买）证明：桌面工具的破解损失 < 技术强制的摩擦损失时，荣誉制可持续。",
+      "| standard | ¥59/¥499 | **¥59/¥499（不动）** | 云端定时执行、云凭证同步（1 设备）、完整看板、商用授权 |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "c4fcb3b1605d80fa1bd491c62fa45ac472ff684dc5b4b71e935ec4b46f7da6a3",
+  "decidedAt": "2026-10-19T09:43:33.472Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}
