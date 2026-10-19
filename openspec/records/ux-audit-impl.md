@@ -100,6 +100,30 @@ sync_backfill_owner: none-derived-from-trunk
 
 **登记一条残留**：`create-editor` 的采集抖动是既有的（AGENTS QM-4 排障顺序里「同态连拍互比」那一格），本批不修，但每次跑 Gate 7b 都可能随机红一张 —— 遇到时先做跨轮 md5 对照再决定是排红还是重建，**不得因为"红过"就顺手换基线**。
 
+## CI 两处红的归因与处置（commit `0805c705c`，run `39115415826`）
+
+**红 1 — `QG Desktop Shards (1/2)`：`Cannot find module '../electron/services/onboarding'`**
+现场：`tests/onboarding.test.js:15` require 的模块由批次 B（`fc0ae40e7`）为收敛「第二个引导真源」
+删除，专用测试未同步删除 ⇒ 悬空消费者，必红。处置：删该测试文件（AGENTS 既有口径「组件被删除时
+同步删除其专用测试」），并在**同一次提交**删除 `scripts/check-blanket-fs-mock.js` 的欠账登记项
+（销账与收敛必须同一次发生；本地实测这条门禁确实会同时报「陈旧登记」与「键指向不存在的文件」）。
+连带：登记面由 9 → 8 触发该门禁自测的「判据域 ≥12 样本」下界报警，处置是补一个**真实存在且
+tracked 已核实**的样本（`electron/services/first-run.test.js`），**没有**把下界从 12 降到 11。
+
+**红 2 — 9 次 unhandled rejection：`No "invokeWithFallback" export is defined on the "@/api/electron-bridge" mock`**
+链路：`App.vue` → `AnnouncementBanner`（onMounted **不 await**）→ `useOpsCenterRuntime.loadRuntime`
+→ `opsCenterSyncRuntime` → `invokeWithFallback`。实测有 19 个套件把该桥 mock 成部分形状，
+读缺失导出即抛 ⇒ 凡挂载壳层的套件各收到一次无人处理的拒绝。处置收在**共用出口**而非逐个补夹具：
+`loadRuntime` 自带 try/catch，按其文档头既有语义「未拉取到即为空（静默）」返回
+`{code:-1, message:'runtime_read_failed'}`，并 `console.warn` 一次（静默 ≠ 不出声）。
+回归锁判据是 **promise 必须 resolves**（不是"有没有日志"），见 `useOpsCenterRuntime.test.js` 新增那条。
+
+**取证（当场实跑，非引用）**：`node --test scripts/check-blanket-fs-mock.test.js` → tests 21 / pass 21 / fail 0；
+`node scripts/check-blanket-fs-mock.js` → PASS；`node scripts/check-unwired-tests.js` → OK（107 个文件）；
+`vitest useOpsCenterRuntime + AnnouncementBanner` → 13 passed。
+控制对照按「备份 → `git checkout HEAD -- 单文件` → 同一条命令 → 还原」执行，两侧 md5 唯一值 1；
+HEAD 版红「真实仓库棘轮」、修改后红「域样本 ≥12」，两轮红**互不相同**这一点本身定位了下界问题。
+
 ## 关联
 
 - 上游审计：`01-docs/UX-AUDIT-2026-10-17.md`（merge `c57616b61`）
