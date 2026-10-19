@@ -1,0 +1,59 @@
+{
+  "sha": "9cb431ed327e96dc4e099a9c1bd98c7df7d345ca",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 2,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 8,
+    "docSensitiveContentSample": [
+      "> 🔴 **还有第三层，比前两层都严格**：**无许可证 = 默认版权保留（All Rights Reserved）**，连「非商用使用」都不构成授权。见 §2.3。",
+      "| **CC BY-NC-SA 4.0** | huobao-drama | ❌ | ✅ | ❌ | ⚠️ NC 已解除（非商用 OK），但 **SA 未解除**：衍生作品须同协议授权 |",
+      "│   → 🔴 默认版权保留。连\"非商用\"都不构成授权 ⇒ 只能参考抽象做法 + 完全重写"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "fde9b799b99498b4374397314ffc80a7c7fe55db72484d599157dfdeaf48ef67",
+  "decidedAt": "2026-10-19T01:45:15.506Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}
