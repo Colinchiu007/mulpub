@@ -7,7 +7,7 @@
  */
 
 const crypto = require('crypto')
-const { PLAN_IDS, getPlanEntitlement } = require('./plan-matrix')
+const { PLAN_IDS, getPlanEntitlement, planRank } = require('./plan-matrix')
 
 // 排除易混淆字符 I/O/0/1；格式 4-4-4（与 LicenseManager.activate 的输入习惯兼容）。
 const REDEEM_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
@@ -17,6 +17,15 @@ const REDEEM_STATUSES = ['active', 'used', 'disabled']
 // 碰撞补足轮数上限：库中已有 N 个码时，撞车概率极低，10 轮仍补不满说明
 // 是真故障（如 RNG 退化或库被批量预占），此时报 409 比死循环安全。
 const REDEEM_TOPUP_MAX_ROUNDS = 10
+/**
+ * 到期宽限（v2.0 机制 C9.2 冲突二：到期降级是「悬崖」不是「斜坡」）。
+ * 到期后保留「只读 + 队列收尾」能力的天数：发布历史与数据看板继续可读、
+ * 已排队的定时任务继续执行；**新建 AI 生成**按下发后的免费档配额判定。
+ * 与客户端 72h 离线宽限（ENTITLEMENT_GRACE_SECONDS）是两件事：后者管「断网能否继续用」，
+ * 本常量管「到期后还能不能收尾」，别合并成一个值。
+ */
+const PLAN_EXPIRY_GRACE_DAYS = 7
+const PLAN_EXPIRY_GRACE_MS = PLAN_EXPIRY_GRACE_DAYS * 24 * 60 * 60 * 1000
 
 class CommerceError extends Error {
   constructor(message, code, status) {
@@ -117,17 +126,44 @@ class SubscriptionService {
    * 到期惰性降级：仅在存在过期 active 订阅时降级回 free（无定时任务，/me 访问触发）。
    * 三个写必须在同一事务：若先置 expired 再写快照（非事务），中途失败会留下
    * 「订阅已 expired + 快照仍为 pro」的永久权限泄漏（expired 行下次不再命中，无重试路径）。
+   *
+   * v2.0 机制 C9.2 冲突二：降级不是悬崖——写 free 快照时带上 graceUntil（7 天收尾期）
+   * 与 previousPlan，并保留上一档的**只读**能力（dashboard_full），配额仍按免费档。
+   *
+   * 为什么**不**保留 `schedule_batch`（CCG 深度审查 i4 修正）：该 feature 当前在全仓
+   * **没有任何消费点**（只有 plan-matrix 生产、测试与文档引用），保留它不产生任何行为，
+   * 却把「新建批量/定时入口」这一付费面留在到期用户身上——一旦将来接上校验就是权限泄漏。
+   * 在途任务的继续执行走的是 `cloud_publish`（免费档自带，见 `_authorizeScheduledEntry`），
+   * 与 `schedule_batch` 无关，因此收尾连续性不依赖它。
    */
   async settleExpiry(userId) {
     return this.repository.commerceTransaction(async (tx) => {
       const expired = await tx.expireSubscription(userId)
       if (!expired) return null
-      await tx.putEntitlement(userId, this.entitlementPayload('free'))
+      const free = this.entitlementPayload('free')
+      // 宽限从**订阅到期时刻**起算，不是从「本次 /me 首次结算」起算（CCG i3）：
+      // 否则第 6 天才打开应用的用户会实得 13 天。到期时刻不可解析时退回 now（老数据兜底），
+      // 而已经过期很久的用户会立刻得到「宽限已结束」，由读取端投影剔除字段（见 PostgresEntitlementProvider）。
+      const periodEndMs = Date.parse(expired.current_period_end)
+      const graceBaseMs = Number.isFinite(periodEndMs) ? periodEndMs : this.now().getTime()
+      const graceUntil = new Date(graceBaseMs + PLAN_EXPIRY_GRACE_MS).toISOString()
+      const previousPlan = typeof expired.plan === 'string' ? expired.plan : null
+      const features = new Set(free.features)
+      if (previousPlan && PLAN_IDS.includes(previousPlan)) {
+        const previous = this.entitlementPayload(previousPlan)
+        for (const feature of previous.features) {
+          // 只保留只读能力：看板可看、不可再新建生成/批量入口
+          if (feature === 'dashboard_full') features.add(feature)
+        }
+      }
+      const gracePayload = { ...free, features: Array.from(features), graceUntil }
+      if (previousPlan) gracePayload.previousPlan = previousPlan
+      await tx.putEntitlement(userId, gracePayload)
       await tx.createNotification({
         id: crypto.randomUUID(),
         userId,
         title: '会员已到期',
-        body: '本期订阅已结束，档位已回到免费版；兑换新码可续叠。',
+        body: `本期订阅已结束，档位已回到免费版；${PLAN_EXPIRY_GRACE_DAYS} 天内发布历史与数据看板仍可查看（新建发布按免费档额度）。兑换新码可续叠。`,
         level: 'warn',
       })
       return expired
@@ -176,11 +212,31 @@ class SubscriptionService {
    */
   async _idempotentRedeemView(userId, code, row) {
     const active = await this.repository.getActiveSubscription(userId)
-    const alive = active && new Date(active.current_period_end) > this.now()
+    // 与仓储 SELECT 同判据（`current_period_end > now`）：`getActiveSubscription` 不过滤过期，
+    // 所以这里必须自己判活，否则重放会把陈旧到期时间当现行权益（既有 G1 修正）。
+    const alive = Boolean(active) && new Date(active.current_period_end) > this.now()
+    // 键集合必须与首次核销完全一致（F3 契约）：重放路径也要给出 requestedPlan /
+    // downgradeSuppressed，否则调用方按「缺字段=无压制」读会误判档位回退。
+    // `plan` 的口径（CCG 深度审查 i2 裁决后固化）：**本次核销所授予的档位**——
+    // 仍有有效订阅时取当前生效档位（首次核销的压制结果会体现在 active.plan 上），
+    // 已无有效订阅时取码面档位（`row.plan`）。后者正是既有用例
+    // 「本人重复提交幂等：不重复记账」固定的契约，不得改成 free（那会让 `plan`
+    // 从「码授予了什么」漂成「此刻是什么」，两路径语义反而更不一致）。
+    const appliedPlan = alive ? active.plan : row.plan
+    // 与仓储的压制判定同守卫（CCG i4）：两边都必须是已知档位才比较。
+    // 无有效订阅时返回 **null（未知）** 而不是 false（CCG i1）：首次核销可能压制过，
+    // 结算后再也读不到当时的生效档位；写 false 等于编造「当时没压制」，与首次返回体矛盾。
+    const activeRank = alive ? planRank(active.plan) : -1
+    const requestedRank = planRank(row.plan)
+    const suppressed = alive && activeRank >= 0 && requestedRank >= 0
+      ? activeRank > requestedRank
+      : null
     return {
       idempotent: true,
       code,
-      plan: row.plan,
+      plan: appliedPlan,
+      requestedPlan: row.plan,
+      downgradeSuppressed: suppressed,
       redeemedAt: toIsoOrNull(row.used_at),
       subscription: alive ? toSubscriptionDto(active) : null,
       order: null,
@@ -228,20 +284,26 @@ class SubscriptionService {
           channel: 'redeem',
           providerReference: `redeem:${normalized}`,
         },
-        entitlementPayload: this.entitlementPayload(row.plan),
+        // v2.0 机制 C9.2：快照按**生效档位**现算（低档码不得覆盖更高档的剩余权益）
+        entitlementPayloadFor: (plan) => this.entitlementPayload(plan),
       })
       await tx.markRedeemCodeUsed(normalized, userId)
+      const appliedPlan = applied.plan || row.plan
       await tx.createNotification({
         id: crypto.randomUUID(),
         userId,
         title: '兑换成功',
-        body: `已开通 ${row.plan}，有效期 ${row.duration_days} 天`,
+        body: applied.downgradeSuppressed
+          ? `已续叠 ${row.duration_days} 天；当前有效期内的档位高于该码，档位保持 ${appliedPlan} 不变`
+          : `已开通 ${appliedPlan}，有效期 ${row.duration_days} 天`,
         level: 'info',
       })
       return {
         idempotent: false,
         code: normalized,
-        plan: row.plan,
+        plan: appliedPlan,
+        requestedPlan: row.plan,
+        downgradeSuppressed: applied.downgradeSuppressed === true,
         redeemedAt: toIsoOrNull(this.now()),
         subscription: toSubscriptionDto(applied.subscription),
         order: toOrderDto(applied.order),
@@ -277,17 +339,23 @@ class SubscriptionService {
           channel: 'admin_grant',
           providerReference: providerReference || `grant:${operator || 'system'}:${grantOrderId}`,
         },
-        entitlementPayload: this.entitlementPayload(plan),
+        // v2.0 机制 C9.2：快照按生效档位现算（后台误发低档不覆盖更高档剩余权益）
+        entitlementPayloadFor: (p) => this.entitlementPayload(p),
       })
+      const appliedPlan = applied.plan || plan
       await tx.createNotification({
         id: crypto.randomUUID(),
         userId,
         title: '会员开通',
-        body: `已开通 ${plan}，有效期 ${durationDays} 天`,
+        body: applied.downgradeSuppressed
+          ? `已顺延 ${durationDays} 天；当前有效期内的档位高于该次开通，档位保持 ${appliedPlan} 不变`
+          : `已开通 ${appliedPlan}，有效期 ${durationDays} 天`,
         level: 'info',
       })
       return {
-        plan,
+        plan: appliedPlan,
+        requestedPlan: plan,
+        downgradeSuppressed: applied.downgradeSuppressed === true,
         subscription: toSubscriptionDto(applied.subscription),
         order: toOrderDto(applied.order),
         version: applied.version ?? null,

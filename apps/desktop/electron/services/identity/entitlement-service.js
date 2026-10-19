@@ -43,6 +43,13 @@ function normalizeEntitlement(value) {
       : [])),
     ...(source.quota && typeof source.quota === 'object' && !Array.isArray(source.quota)
       ? { quota: JSON.parse(JSON.stringify(source.quota)) } : {}),
+    // v2.0 机制 C1.3 / G6：limits 是发布页平台数与日发校验的唯一数据源。
+    // 此前被整段丢弃 ⇒「5 平台 / 50 篇日发」在客户端连内存态都进不去，只是服务端的一句承诺。
+    ...(source.limits && typeof source.limits === 'object' && !Array.isArray(source.limits)
+      ? { limits: JSON.parse(JSON.stringify(source.limits)) } : {}),
+    // v2.0 机制 C9.2：到期宽限（只读/收尾期）与上一档位，用于会员中心横幅与升级引导。
+    ...(typeof source.graceUntil === 'string' && source.graceUntil ? { graceUntil: source.graceUntil } : {}),
+    ...(typeof source.previousPlan === 'string' && source.previousPlan ? { previousPlan: source.previousPlan } : {}),
   }
 }
 

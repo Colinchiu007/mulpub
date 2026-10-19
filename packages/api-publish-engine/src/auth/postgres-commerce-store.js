@@ -1,4 +1,5 @@
 const crypto = require('crypto')
+const { planRank } = require('./plan-matrix')
 
 /**
  * postgres-commerce-store.js — 会员中心 P1 商务数据访问层。
@@ -84,7 +85,7 @@ class PostgresCommerceTransaction {
   }
 
   /** 订阅续叠三连写：subscription upsert → 订单落库 → 权益快照回写（同事务，要么全成要么全回滚）。 */
-  async applySubscription({ userId, plan, durationDays, now, order, entitlementPayload }) {
+  async applySubscription({ userId, plan, durationDays, now, order, entitlementPayload, entitlementPayloadFor }) {
     const nowDate = now instanceof Date ? now : new Date(now)
     // 仓储层不反依赖服务层的 CommerceError（避循环 require），沿用本文件 REDEEM_CODE_RACE 的 code/status 携带风格
     if (Number.isNaN(nowDate.getTime())) {
@@ -104,6 +105,28 @@ class PostgresCommerceTransaction {
       [userId, nowDate.toISOString()],
     )
     const existing = existingResult.rows[0] || null
+    // v2.0 机制 C9.2 冲突一（跨档续叠平移降级）：原实现无条件 plan = EXCLUDED.plan，
+    // pro 用户兑一张 standard 码会把剩余 pro 期整体降级——而「兑换新码可续叠」正是
+    // 到期通知文案引导的用户动作。这里做**档位序保护**：低档码只延长时长、不改档位；
+    // 高档码照常整期升级。未知档位（rank=-1）不参与比较，避免未知值静默覆盖。
+    const existingRank = existing ? planRank(existing.plan) : -1
+    const requestedRank = planRank(plan)
+    const downgradeSuppressed = Boolean(existing)
+      && existingRank >= 0 && requestedRank >= 0 && existingRank > requestedRank
+    const effectivePlan = downgradeSuppressed ? existing.plan : plan
+    // 压制发生却没给「按生效档位现算」的回调 ⇒ 调用方只能传请求档位的 payload，
+    // 写下去就是 subscription=pro + snapshot=standard 的权限分裂（G3 同型）。fail closed，
+    // 不给「静默写低档快照」留回退路径（CCG i3）。
+    if (downgradeSuppressed && typeof entitlementPayloadFor !== 'function') {
+      throw Object.assign(new Error('ENTITLEMENT_PAYLOAD_REQUIRED'), {
+        code: 'ENTITLEMENT_PAYLOAD_REQUIRED', status: 500,
+      })
+    }
+    // 快照必须与**生效档位**同源：传 entitlementPayloadFor 时按 effectivePlan 现算，
+    // 否则调用方传入的 payload 会把被压制的低档权益写进快照（权限回退的真实路径）。
+    const payload = typeof entitlementPayloadFor === 'function'
+      ? entitlementPayloadFor(effectivePlan)
+      : entitlementPayload
     const base = existing && new Date(existing.current_period_end) > nowDate
       ? new Date(existing.current_period_end)
       : nowDate
@@ -117,7 +140,7 @@ class PostgresCommerceTransaction {
     let subscriptionResult
     try {
       subscriptionResult = await this.client.query(UPSERT_SUBSCRIPTION, [
-        `sub-${userId}`, userId, plan,
+        `sub-${userId}`, userId, effectivePlan,
         base.toISOString(), periodEnd.toISOString(), order.providerReference || null,
       ])
     } catch (err) {
@@ -127,16 +150,21 @@ class PostgresCommerceTransaction {
       }
       throw err
     }
+    // 订单记录**请求档位**（用户实际兑换/被授予的是哪一档，对账要看原值），
+    // 订阅与快照记录**生效档位**——两者分列才能解释「为什么订单是 standard 而权益还是 pro」。
     const orderResult = await this.client.query(INSERT_ORDER, [
       order.id, userId, plan, order.amount, order.currency || 'CNY', order.channel,
     ])
-    const snapshotResult = await this.client.query(PUT_ENTITLEMENT, [userId, JSON.stringify(entitlementPayload)])
+    const snapshotResult = await this.client.query(PUT_ENTITLEMENT, [userId, JSON.stringify(payload)])
     return {
       subscription: subscriptionResult.rows[0] || null,
       order: orderResult.rows[0] || null,
       version: snapshotResult.rows[0] ? Number(snapshotResult.rows[0].version) : null,
       periodStart: base.toISOString(),
       periodEnd: periodEnd.toISOString(),
+      plan: effectivePlan,
+      requestedPlan: plan,
+      downgradeSuppressed,
     }
   }
 
