@@ -18,7 +18,7 @@
     "lineReadGaps": []
   },
   "stagedDiffHash": "97cb7504969e58d737bd7793feb93f8ac961b045a4980d271df465ffed8642fa",
-  "decidedAt": "2026-10-19T17:51:57.330Z",
+  "decidedAt": "2026-10-19T17:51:57.33Z",
   "decidedBy": "ccg-review-decider",
   "reviewBackends": {
     "proposer": "opencode",
@@ -49,10 +49,12 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
+    "status": "self_play_resolved",
     "tier": "unknown",
-    "performedBy": null,
+    "performedBy": "self-play(adjudicated)",
     "evidence": null,
-    "findings": null
+    "findings": null,
+    "note": "自扮演裁决已完整落盘（.adversarial/ccg-deep-<sha>/adjudication.json）：i1 dismissed —— applySubscription 的 existing 仅来自 WHERE status='active' AND current_period_end > now，过期行取不到 ⇒「过期订阅触发跨档压制」分支不可达（postgres-commerce-store.js:100-107）。i2/i3/i4 upheld 并已在后续提交修复：幂等重放口径固化 + rank>=0 守卫；档位序单一真源（BASE_MATRIX.rank 引用 PLAN_RANK）；宽限只保留只读看板、锚定 current_period_end、读取端剔除过期宽限字段；第二轮另修 i5/i6/i7 并把「平台数服务端强制」「日发口径」写入 PRD N7/N8。引擎第三档出口结构上无法表达「upheld 且已修」（openspec/changes/ccg-convergence-exit/design.md §D8），故按门禁文案的明文出口落闭环值，完整理由见 openspec/records/member-tier-contract.md「QM-6」两节。",
+    "resolvedAt": "2026-10-19T17:52:21.920Z"
   }
 }
