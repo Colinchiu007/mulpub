@@ -23,6 +23,7 @@
 - `check-unwired-tests.js` 的 `NESTED_WORKFLOW_NOT_EXECUTED` 判定域是**磁盘**而非 `git ls-files`，
   于是本机垃圾会把公共仓 required 门禁判红一次（与 #3876 同族的磁盘域/检出域分叉），另立任务；
 - 同类面已清点到 `*.sh` 全集（按 `$(mktemp -d)` 扫仅命中本文件），但 vitest/pytest/ps1 的夹具落仓库内风险仍无统一判据。
+
 # [未发布] feat(subtitle): 数字/单位完整性与双字搭配守卫 v1.4 —— 8 段复杂文案实测驱动的第二族坏切（subtitle-word-integrity）
 
 - **动因与取证**：v1.3 合并后用 8 段不同风格文案（政治评论续篇/历史叙事/科技解说/口语短视频/生活叙事/无标点压力段×2）对真实引擎做三端对跑，暴露一族 v1.3 未覆盖的坏切。**A/B 反证**（关掉 phrase_boundary 输出逐字节不变）证实非 v1.3 引入：是 `no_cut_bigrams` 词表缺口 + 标点累积分支直切不经守卫的既有缺陷。实测证据：`风速每秒 8│米`、`套现约 3.2│亿元`、`提升了│60%`、`制程是│3 纳米`、`当│成`、`遗│忘`、`那│段`、`千│万人`。
@@ -73,6 +74,15 @@
 
 - 涉及文件：`apps/desktop/src/layouts/MpSidebar.vue`、`apps/desktop/src/layouts/MpSidebar.more-keyboard.test.js`（新）、
   `openspec/records/ux-audit-more-keyboard.md`（新）、`01-docs/UX-AUDIT-2026-10-17.md`（audit-31 就地指针 + 4.5 行状态）。
+
+# [未发布] fix(story2video): 克隆样本魔数嗅探 —— 「改名容器」在克隆入口拦截（s2v-clone-sample-sniff）
+
+- **事故**：任务 `mvf29iv8_cgll`（2026-10-19 17:37，story2video-compose，14 场景）在 `generate_assets` 整阶段失败：图片 14/14 成功，TTS 0/14 —— 13 个场景 MiMo 返回 `Param Incorrect`、1 个叠加 429 限流。根因是用户克隆音色的样本文件**扩展名 `.mp3`、真实容器是 MP4/AAC**（魔数 `ftypmp42`，ffprobe 判定 `mov,mp4,m4a` + `aac`）。
+- **根因链**：`tts-voice-clone-service.js` 的 `_prepareOneSample` 只按扩展名定 `contentType`（`.mp3` → `audio/mpeg`，引入自 68b890039，2026-08-04）；合成时 `asset-generator` 把样本转 `data:audio/mpeg;base64,…` 放进 `audio.voice`，克隆服务端按真实容器解码、发现声明 MIME 与容器不符即拒绝。这是 `2026-08-23-fix-mimo-tts-param-incorrect`（预置音色默认值 `default`→`mimo_default`）之后同错误码的第二种成因，两者互相独立。
+- **修法（黑名单式嗅探）**：`_prepareOneSample` 读取 buffer 后新增 `sniffSampleContainerMismatch`——只拦**可可靠识别的「容器错名」**（.mp3 内容为 ftyp/RIFF-WAVE/OggS/fLaC、.wav/.m4a 内容为 ID3 或 MPEG 帧同步等互串形态），命中抛 `VOICE_CLONE_SAMPLE_EXTENSION_UNSUPPORTED`，在克隆入口前置拒绝并复用既有本地化文案。未知/占位字节维持旧行为放行，由 ffprobe 时长探测 fail-closed 兜底——白名单式强校验会误伤既有测试夹具与罕见封装，黑名单恰好覆盖事故形态且零误伤。
+- **回归锁**：`tts-voice-clone-service.test.js` 新增 2 例——「改名容器」三形态拒绝（ftypmp42 假 MP3、ID3 假 M4A、RIFF 假 M4A，均不调 adapter/不写 registry）与「真实容器不误伤」（ID3 头 MP3、870B 双静音帧裸 MP3、RIFF/WAVE 全部正常克隆通过）。
+- **文件**：`apps/desktop/electron/services/tts-voice-clone-service.js`、`tts-voice-clone-service.test.js`。回归：clone 域 155 例全绿（service 50 + integrity 8 + provider 122 内 asset/mimo 部分 + catalog/service 33）。
+
 # [未发布] docs(audit): 更正 audit-60 的 harm 陈述 —— ElMessage 根节点其实已带 role="alert"，阶段 4.6 因此收窄（ux-audit-toast-a11y-correction）
 
 - **动工前核了库的真实产物**（本机 element-plus 2.14.2）：`message.vue` 编译产物里 `role` 出现 1 次、值为 `"alert"`、挂在 `.el-message` 根 div 的属性表上；5 个 message 实现文件里 `aria-` 计数**全为 0**；`MessageHandler` 只有 `close()`，**没有 DOM 句柄**。
@@ -230,6 +240,16 @@
 - **`openspec validate --all --strict` 做真 A/B**（在同一份 `origin/main` 上另建 detached 工作树跑基线，而不是拿历史数字对比）：归档前 **223 items / 201 passed / 22 failed** → 归档后 **222 / 200 / 22**，离开 changes 域的恰是本刀这 1 项，失败集逐条不变。
 - **Purpose 占位没有新增**：`TBD - created by archiving…` 只在归档器**新建** spec 文件时才写；本刀目标 spec 已存在，实测归档后该文件 `TBD` 计数为 **0**，`check-spec-purpose.js` 前后均「扫描 154 份主规格、违规 0」。
 - **两条正规隔离入口本刀都被别人的现场挡住**：`start-mp-task.ps1` 因标准根之外注册着 2 个 worktree 判 `ok:false`（`clean/hooks/writeGuard` 全绿），`session-init.sh` 因共享根有 7 项他人未跟踪文件而拒绝。纯文档改刀按既有纪律走 `%TEMP%` 下的 detached 工作树出口，共享根全程停在 `main` 未动；这三条机器卫生事实已如实上报，不代删。
+
+# [未发布] feat(视频创作): 移除流水线详情页与结果页的「返回」按钮——顶部导航与历史记录 tab 已承接（remove-video-back-btn）
+
+- **动因（用户实测反馈）**：视频创作流水线（详情页、结果页）的「← 返回」按钮与既有的页面内导航重复——顶部 ←/→ 浏览箭头、三个视图 tab、左侧菜单都在，多一个冗余返回反而占位。要求按图删除。
+- **删除面（两页各一）**：`CreateView.vue` 流水线详情态的 `.back-btn`（唯一调用者 `goToHistory()` 一并下线，避免留死方法）；`ResultView.vue` 视频预览页的 `.back-to-list`（`goBackToHistory()` 同步删除）。`PromptEvalView`、`HotTopics` 的返回按钮属其它模块，不动。
+- **连带的去重逻辑解除**：`create-view.css` 原有一行「详情态隐藏顶部导航箭头」——其存在理由是「详情页已有 .back-btn 提供返回语义，箭头与之重复」。按钮删除后前提失效，该隐藏规则一并移除，详情态现在可见 ←/→ 浏览箭头；`.back-btn` 三行样式与 reduced-motion 引用清干净（最后一个使用者已消失）。`backToHistory` locale key（zh/en 成对）下线。
+- **返回语义的承接（完整性自查）**：详情态离开途径有三条——顶部 ← 箭头（viewHistory，对已入栈的 film-engineering 路径有效）、三个视图 tab 恒可见（点「历史记录」即经 `switchView` → `detachPipelineView` 清态回历史）、左侧菜单。结果页经浏览器/应用级导航或「去创作」「重新创作」按钮返回。没有留下任何只进不出的死态。
+- **回归锁 2 条**：CreateView 详情态「不渲染 .back-btn + 历史 tab 仍可点离」；ResultView「按钮与 goBackToHistory 均不存在」。先红后绿（改前 2 failed / 改后 415 passed 全绿）。
+- **QM-4 视觉（含一次流程纠偏，如实留痕）**：首轮用本机 `PIXEL_ONLY + UPDATE_BASELINE` 重捕了 4 张基线——这违反 QM-4 第 7 条「本机重捕产物不得提交」，CI Gate 7b 两轮点名 `create-result` 亮/暗确定性漂移（亮 150 px / 暗 8292 px）当场抓住。正解照 #3916/#3951 先例：从 CI `quality-gate-visual-reports` artifact 取同源渲染重建这两张（重建后与 CI round1/round2 双轮渲染均 **0 px**）；`create-story2video-detail` 亮/暗两张实测与 CI 渲染逐像素相等（0 px），保留。另一处误判一并修正：`collection` 本机 1.44% 失败不是「他人 PR 的既有漂移」——CI 上它两轮干净，那 1.44% 是**本机渲染环境 vs CI 渲染**的系统性差异，恰是 Gate 7b 存在的理由。QM-1 打包 rc=0，asar 产物逐符号确认 `goToHistory`/`goBackToHistory`/`backToHistory`/`.back-btn` 零残留。
+
 # [未发布] fix(播客): 出期音频对象键随期变化，修掉同频道第二期原地覆盖第一期（podcast-audio-key-per-episode）
 - **用户可见症状**：同一个播客频道连发两期，第二期 PUT 把第一期的音频**原地覆盖**了——两次发布都报成功、日志零异常，而订阅端旧期 `<item>` 的 enclosure 指向的直链现在播的是新期的声音。RSS 里两期都在、音频只有一份。
 - **根因（第一性引入点 `46736edf5`，PR #3302，2026-10-11）**：当时为"临时产物归拢"定了两个名字——目录 `runDir = <tmpRoot>/episode-<runId>` 与文件基名 `outBase = <runDir>/episode`。**目录带 runId、文件不带**；而下游 `publishAudio` 拼的对象键是 `<prefix>/audio/<channelId>/<basename>.<ext>`，`runDir` 那一层在进 key 时被 `path.basename` 整个丢掉 ⇒ 同频道每一期都算出同一个键 `episode.mp3`。跨频道由 `channelId` 挡住，跨期没人挡。存续 8 天。
