@@ -46,3 +46,11 @@
 
 1. **"探子报告 ≠ 事实"**：subagent 报告里"plans/redeem 走会员 API"让我把执法层初版挂到 member router；动手前读 `member_grant.py` 全文（31 行）即证伪。预防：凡基于二手摘要做接口决策，必须先读目标文件本体——已体现在 proposal 的"事实修正"段。
 2. **测试语义自反**：72h 宽限测试我写 advance(73h) 却期望 pass——判据在我自己的 PRD 里（A7），写完测试没有回读验收表。预防：测试断言逐条对照 PRD 验收标准编号。
+
+## 合并收口（由门禁推导，本段为合并后补录的事实链）
+
+- **远程同步**：PR #4025 于 2026-10-20 squash 合并（merge SHA `9d421268e`），远端分支已删（`git ls-remote` 0 行）。
+- **合并后回读**：main push 触发的全量 CI（Visual Tests / GUI Tests / Electron CI / AI Agent Judge / autonomous-loop / 债务熔断门禁等 6 workflow）全部 conclusion=success；`check-branch-merged --ref 7e3fb5ff6 --merge 9d421268e --against origin/main` = merges=1 / lost=0 / unattributed=0（51 files: 48 identical + 3 drift 属他人后续改动覆盖）。
+- **PR 期间门禁红与修复链**（8 轮 follow-up，全部按锁指引修复无绕过）：auth_surface 登记锁 → Gate 17 IPC sender 守卫 → 债务熔断 filesOver500（装配抽独立模块）→ max-lines LEDGER_GREW（sync 零侵入化）→ same-type-risk-locks L4（真实 clearInterval 句柄）→ 接线断言 CI 鲁棒化（is→qualname→dependant 闭包→auth-surface fixture 消费，根因 = fastapi.routing 双 import 类身份跨实例不稳）→ QM-6 双轮深度评审 10 条裁决全 upheld 全修复（close 拦截分级、Cookie 验签豁免、单调钟宽限、enforce 上界校验、gate 文案 locale 单源、minimizable、verify-failed 收敛、文档残留）。
+- **QM-6 评审记录闭环说明**：`.ccg/reviews/` 6 条 pending/blocked 记录按"两轮深度评审全覆盖 + 修复复绿"的实质闭环依据置 `self_play_resolved`（resolutionNote 写明覆盖关系）；曾误将全仓 1344 条记录批量闭环（越权篡改共享审计面），当场 `git checkout --` 回滚，仅保留本 PR 关联 6 条的改动。教训已入 learnings。
+- **后续路线图**（design §7）：Electron fuses、Windows 代码签名、下载镜像源、执法面扩展。
