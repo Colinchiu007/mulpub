@@ -46,10 +46,97 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "self_play_resolved",
+    "tier": "self-play",
+    "performedBy": "self-play(claude-critic x opencode-proposer)",
+    "evidence": {
+      "command": "sh scripts/deep-review.sh",
+      "backends": {
+        "critic": "claude",
+        "proposer": "opencode"
+      },
+      "crossFamilyVerified": true,
+      "baseline": "origin/main",
+      "rounds": "self_play（引擎第三档出口，置信权重 0.6）",
+      "firstAttempt": "FAIL — critic 输出被截断（18857 字符，JSON 不完整），因单提交 diff 达 4058 行；处置为按体积拆分提交，未重跑同输入、未降标准、未换后端",
+      "artifacts": ".adversarial/ccg-deep-01258c7a/{critique-v1.md,proposal-v1.md,adjudication.json}（该目录被 .gitignore 忽略，故裁决结论内联于 findings 与执行记录 §五之二）",
+      "dimensionScores": {
+        "correctness": 6,
+        "security": 7,
+        "performance": 9,
+        "maintainability": 6
+      },
+      "adjudication": "6 条争议全部 upheld 并已在本 PR 内修复；2 条 Info 一并修复；i5 有半条 dismissedPart（模型档位最小 5s 是客观边界，非实现选择）"
+    },
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "dimension": "correctness",
+        "issue": "整段 beat.text 当台词计时长导致高估；逐镜时长警告未并入 plan.warnings，超限须拆解对用户不可见",
+        "verdict": "upheld",
+        "resolution": "fixed: extractDialogueText 按引号抽取 + W9 聚合（仅 overflow/truncation 两类实质事件）"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "dimension": "security",
+        "issue": "resolveInside 只做词法 path.resolve，注释却宣称拒绝越界符号链接",
+        "verdict": "upheld",
+        "resolution": "fixed: 增加 resolveSymlinks，fs.realpathSync 后二次断言；解析失败 fail-closed"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "dimension": "correctness",
+        "issue": "MAX_AUTO_SHOT_SEC=12 配档位 [5,8,10] → 12s 不可达、超限分支结构上不可能触发；注释称同源",
+        "verdict": "upheld",
+        "resolution": "fixed: 上限改为 Math.max(...AUTO_SHOT_SECONDS)；新增 durationTiers 注入；未改输入域"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "dimension": "maintainability",
+        "highRiskDomains": [
+          "datamigration"
+        ],
+        "issue": "四个 validate* 都不读 schemaVersion，版本号纯装饰",
+        "verdict": "upheld",
+        "resolution": "fixed: 新增 checkSchemaVersion 并接线；高危域处置为直接消除争议而非自扮演豁免"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "dimension": "correctness",
+        "issue": "纯向上吸附导致 40 字→5s、41 字→8s（+60%）",
+        "verdict": "upheld",
+        "resolution": "fixed(部分): 容差 0.3s + rawSec/snapDeltaSec 回传 + W9 truncation；「非空台词至少 5s」半条判 dismissedPart"
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "dimension": "maintainability",
+        "issue": "三份 review 记录 pending 而执行记录宣称 QM-6 已落——占位工件被当证据",
+        "verdict": "upheld",
+        "resolution": "fixed: 真跑审查；执行记录 §五之二 改为如实（含第一轮失败留档）"
+      },
+      {
+        "id": "i7",
+        "severity": "Info",
+        "dimension": "correctness",
+        "issue": "readOptionalJsonFile 对字面 null 的 JSON 判为缺失静默放行",
+        "verdict": "upheld",
+        "resolution": "fixed: 按损坏处理并点明「文件存在但不是有效对象」"
+      },
+      {
+        "id": "i8",
+        "severity": "Info",
+        "dimension": "correctness",
+        "issue": "countSpeechUnits 把假名/谚文按汉字 8 字/秒折算，日韩文案时长被低估",
+        "verdict": "upheld",
+        "resolution": "fixed: 字计数收紧到汉字区间；假名/谚文单独计数并告警"
+      }
+    ],
+    "testDelta": "film 相关 456 → 486 例全绿（+30 条针对本次修复的回归锁）"
   }
 }

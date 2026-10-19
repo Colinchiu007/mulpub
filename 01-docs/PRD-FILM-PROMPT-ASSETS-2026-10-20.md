@@ -375,3 +375,80 @@
 | 4 | F1 的方法论 UI 分区（11 块 + 台账 + 配方） | ✅ 数据已就绪 |
 | 5 | F30 的任务级提示词接入规划流程 | ✅ 库与渲染器已就绪 |
 | 6 | F34 接通 TTS 实测（`ttsDurationMs`） | ✅ 优先级链已就绪，只需填值 |
+
+
+---
+
+## 十一、对抗性审查驱动的修订（v7.1，2026-10-20）
+
+本节记录 CCG 双模型对抗审查（critic=claude × proposer=opencode）发现的 8 条问题与处置。
+**这些修订改变了 §四、§五 里的若干口径，以本节为准。**
+
+### 11.1 时长推算口径的修正
+
+| 项 | 原口径（§4.3） | 修正后 |
+|----|---------------|--------|
+| 计时的文本 | 整段 `beat.text` 当台词 | **引号优先**：按 `「」『』“”""` 抽取真正会被念出的内容；无引号时退化为整段并标记 `usedQuotes=false`（宁可高估不可低估） |
+| 吸附规则 | 纯向上吸附 | 向上吸附 + **容差 0.3s**：`raw` 只超出档位不到容差时仍取该档，消除「40 字→5s、41 字→8s（+60%）」的一字之差跳三秒 |
+| 落差可见性 | 只返回档位 | 同时返回 `rawSec` 与 `snapDeltaSec`，`shots[]` 增加 `durationRawSec` |
+| 字符集 | 中日韩统一表意（含假名/谚文）按字 | **只认汉字**（`\u4e00-\u9fff`）；假名/谚文单独计数并告警「日韩文案时长会被低估，请手工设定」 |
+| 档位上限 | 字面量 `12`，注释称与 kit 同源 | 从档位推导 `Math.max(...AUTO_SHOT_SECONDS)`（=10）；需要更宽档位用 `planAutoShots({ durationTiers })` 注入，**不要改常量**（改它会让 `validateAutoInputs` 接受的输入域与实际能力脱节） |
+
+### 11.2 新增 W9 告警（时长溢出/截断）
+
+**触发条件**（只覆盖两类实质事件，良性提示不报，避免恒真告警退化为噪音）：
+
+| 类别 | 判据 | 含义 |
+|------|------|------|
+| overflow | `durationRawSec > durationMaxSec` | 台词量超过最高档，不拆解就会丢字 |
+| truncation | `durationRawSec * 1000 > durationMs + 1` | 容差吸附把档位压到内容长度以下，尾部可能被切 |
+
+**提示文字（中文）**：
+
+> 有 {n} 个分镜的实际台词长度超出其档位时长；其中 {a} 镜推算时长超过单镜上限 {max} 秒（#1, #3），必须按 long_dialogue_split 拆解台词，不得截断；{b} 镜因容差吸附到了略短的档位（#5），台词尾部可能被切，建议复核或改大单镜秒数。逐镜明细见 shots[].durationWarnings。
+
+**不触发的情形**：无台词、推算低于最小档、含假名/谚文——这些留在 `shots[].durationWarnings` 里，不进 W9。
+
+### 11.3 资产版本号真正生效
+
+新增 `checkSchemaVersion(obj, label, allowed, opts)`：
+
+| 资产 | 要求 |
+|------|------|
+| `shot-grammar.json` | 必须为 `1` |
+| `compliance-checklist.json` | 必须为 `1` |
+| `palette.json` | 必须为 `1` |
+| `prompt-doctrine.json` | **允许缺失**（历史文件按 v1 兼容）；声明后必须 ∈ `[1, 2]` |
+| `film-manifest.json` | 必须为 `1`（原有校验，未变） |
+
+**错误文案**（刻意指向正确的处置方式）：
+
+> `{file}.schemaVersion={n} 不受支持（本版本支持 {list}）：这通常意味着资产由更新/更旧的应用版本产出，请重新导入配套资产，不要手工改版本号
+
+### 11.4 路径穿越防护补齐符号链接
+
+`resolveInside(root, target, { resolveSymlinks: true })`：
+
+1. 先做词法包含性检查（挡 `..` 与绝对路径）；
+2. 再做 `fs.realpathSync`，用**真实路径**二次断言；
+3. 真实路径解析失败（悬空链接、无权限）→ **fail-closed 报错，不猜**。
+
+`readPromptFile` 生产路径已启用该选项。原实现的注释宣称「越界符号链接一律拒绝」但未实现——本次补的是实现，不是改小注释。
+
+### 11.5 选择器/校验器的第三态清理
+
+`readOptionalJsonFile` 原对「文件存在、JSON 合法、内容为字面 `null`」判为缺失静默放行（既不算缺失也不报损坏）。现按**损坏**处理：
+
+> `{file} 内容为空值（JSON 为 null）：文件存在但不是有效对象`
+
+### 11.6 本次审查的元数据
+
+| 项 | 值 |
+|----|-----|
+| 引擎 | `adversarial-review-loop`（`scripts/deep-review.sh`） |
+| 后端 | critic=`claude`，proposer=`opencode`（跨家族校验通过） |
+| 第一轮 | **失败**——单提交 4058 行 diff 导致 critic 输出被截断（18857 字符），RC=2。处置：不重跑、不降标准，按体积拆成三次 scoped 提交 |
+| 第二轮 | 成功：8 条问题 / 4 维度 / 最低分 6；引擎走第三档「自扮演裁决」 |
+| 裁决结果 | 6 条争议全部 `upheld` 并已修复；i5 有半条被判 `dismissedPart`（模型档位最小 5s 是客观边界，非实现选择） |
+| 产物 | `.adversarial/ccg-deep-01258c7a/`（critique / proposal / adjudication） |
+| 测试面变化 | film 相关 456 → **486** 例全绿 |

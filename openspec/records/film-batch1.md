@@ -27,9 +27,19 @@
 |------|------|------|
 | 依赖解析门禁 | `node scripts/verify-worktree-deps.js` | OK（worktree 路径与 9 个 workspace 包均解析到本 worktree） |
 | 打包 | `pnpm exec electron-builder --win --x64 --publish never` | **rc=0**；产物 `dist-electron\Multi-Publish.Setup.0.2.0.exe` |
-| 验证 1：asar 清单 | `pnpm exec asar list dist-electron\win-unpacked\resources\app.asar` | film-kit 共 **52** 条目；新增三 JSON 与 **16 个 prompt `.md`** 全部在包内 |
+| 验证 1：asar 清单 | `pnpm exec asar list dist-electron\win-unpacked\resources\app.asar` | film-kit 共 **52** 条目；新增三 JSON 与 **16 个 prompt `.md`** 全部在包内；本轮复验另确认 `dist/index.html` 与 `services/film-engineering/shot-duration.js` 在包内 |
 | 验证 2：require 链 | 本次未改 `@multi-publish/rpa-engine`，跳过（该验证针对 rpa-engine 链接；本 PR 未触碰） | N/A |
-| 验证 3：启动 | `node qm1-startup-check.cjs`（8s 窗口 + 存活断言 + env 剔除） | **PASS**：窗口期内未退出；stdout 7732 B；**stderr 0 B** |
+| 验证 3：启动（**第二轮，真 PASS**） | 8s 窗口 + 存活断言 + env 剔除 | **PASS**：窗口期内未退出；stdout 19431 B；**stderr 0 B** |
+| 验证 3 的第一轮 | 同上（清空 `dist-electron` 后首跑） | **NEEDS_REVIEW**：stderr 283 B，`Failed to load URL: …app.asar/dist/index.html — ERR_FILE_NOT_FOUND` |
+
+### ⚠ 一次被抓住的「假绿」（必须留档）
+
+第一次跑 QM-1 时启动验证是 **PASS（stderr 0 B）**，但那个 PASS 是在**含有上一轮会话遗留 `dist/` 的 `dist-electron` 产物**上取得的。
+本轮因为代码改动重跑打包、按规范先 `Remove-Item dist-electron`，新 asar 里没有 `dist/index.html`（本 worktree 从未构建过前端），启动即报 `ERR_FILE_NOT_FOUND`。
+
+三层判据在这里起了作用：它不是红线（不在黑名单里），但 stderr 非空 ⇒ 判 **NEEDS_REVIEW 而不是 PASS**。随后 `pnpm build`（会先 vite 构建再打包）生成 `dist/`，复跑才拿到真正的 PASS。
+
+**教训**：`rm -rf dist-electron` 之后，asar 里缺什么取决于**本 worktree 是否构建过前端**，与「代码对不对」无关。清空产物后的第一次 PASS 才算数；沿用旧产物上的 PASS 属于把别人的成果当自己的证据。
 
 ### 启动验证的三层判据与隐含前提
 
@@ -41,8 +51,7 @@
 
 **告警（如实记录）**：父环境带有 `ELECTRON_RUN_AS_NODE=1`，已在子进程环境中**显式剔除**。
 该变量会让任何 Electron 可执行文件以纯 Node 模式静默退出（rc=0、stdout/stderr 皆空、不建窗口），
-与「启动干净」完全同形。本次验证的 `qm1-startup-check.cjs` 按 AGENTS.md 要求独立断言存活 + 剔除变量
-+ 出声告警，三件事都做了。
+与「启动干净」完全同形。验证脚本按 AGENTS.md 要求独立断言存活 + 剔除变量 + 出声告警，三件事都做了。
 
 ## 三、测试证据
 
@@ -98,13 +107,66 @@ shot-library 逻辑，与资产完整性无关。这个失败本身就是信号�
 
 | 门禁 | 结果 |
 |------|------|
-| 行尾/编码两口径对账 | 见 PR 提交后取证 |
-| 品牌残留 | 见 CI Gate 12 |
+| 行尾/编码两口径对账 | ✅ 提交后 `--numstat` 与 `--ignore-cr-at-eol --numstat` 完全一致（+3504/-19）。过程中抓到一次真差异：`prompt-doctrine.json` 的 **HEAD 版本末尾无换行符**（由 `fetch-hell-grind-kit.py` 生成），我加了尾换行导致 `}` 被算作 1 行删除（179/1 vs 178/0）。正解是对齐生成器的无尾换行约定，而不是把新增记进基线。 |
+| 品牌残留 | ✅ PASS（扫描 10810 个 tracked 文件） |
+| 文档绝对路径 | ✅ PASS（首次 FAIL：执行记录里写了 worktree 绝对路径，改为 `<WORKTREE_ROOT>` / `<F_DRIVE_WORKTREE_ROOT>` 占位符形态） |
 | 文档同步 | 见 CI doc-gate |
-| QM-1 打包 | ✅ rc=0 + 三验证 |
+| QM-1 打包 | ✅ rc=0 + 三验证（见 §二） |
 | TDD | ✅ 先写测试（`shot-duration.test.js` / `prompt-library.test.js` 在实现前先跑红） |
 | QM-2 代码必检项 | ✅ 纯函数模块零 IO；无同步 CPU 密集原语；无新增全局组件；无 Electron 安全面改动 |
-| QM-6 双模型评审 | 数据资产 + 纯函数，S 复杂度；按决策矩阵不调外部模型（CCG 判定已落 `.ccg/reviews/`） |
+| QM-6 双模型评审 | ✅ **真实跑过**，见 §五之二 |
+
+### 五之二、QM-6 双模型对抗审查（真实执行记录）
+
+**这一节是修正后才写成的。** 本记录的第一版在这里写的是「数据资产 + 纯函数，S 复杂度；按决策矩阵不调外部模型」——那句话与同一提交里三份 `.ccg/reviews/*.json` 的 `mode=dual, status=pending` 直接冲突。它被本次审查自己的 i6 条抓出来了：占位工件没说话，是记录替它说了谎。
+
+#### 第一轮：失败（必须留档）
+
+```
+sh scripts/deep-review.sh
+→ critic=claude 评审失败：JSON解析失败:模型输出被截断，JSON 不完整
+  （括号计数恰好配平 33/33，但结尾不是 }，被砍断的是最后一个字符串，共 18857 字符）
+→ RC=2
+```
+
+原因：单提交的 diff 是 **4058 行**，critic 输出超长被截断。引擎自己的诊断写着「重跑同样输入多半还是截断」。
+
+处置：**不重跑、不换后端、不降标准**，而是按体积把单提交拆成三次逻辑提交（docs / 数据资产 / 运行时代码），让每条 diff 都进得了 critic 的输出预算。附带好处是历史可读性变好——三部分本来就互不依赖。
+
+#### 第二轮：成功
+
+| 项 | 读数 |
+|----|------|
+| 后端 | critic=`claude`（ABS 解析 via `~/.local/bin`）× proposer=`opencode`（ABS via `npm-global`），跨家族校验通过 |
+| 基线 | `origin/main`（4243 行） |
+| 首轮产出 | **8 条问题**，4 个维度（correctness / security / performance / maintainability），最低分 **6** |
+| 收敛出口 | 引擎第三档「自扮演裁决」（`self_play`，置信权重 0.6；6 条待裁决，其中 1 条高危域） |
+| 产物 | `.adversarial/ccg-deep-01258c7a/`：`critique-v1.md` / `proposal-v1.md` / `adjudication.json` |
+
+#### 8 条发现与处置（全部成立，全部已修）
+
+| ID | 严重度 | 维度 | 问题 | 处置 |
+|----|--------|------|------|------|
+| i1 | Warning | correctness | 自动模式把整段 `beat.text` 当台词计时长（动作描述按 8 字/秒算），且逐镜时长警告只挂 `shots[].durationWarnings`，`plan.warnings` 看不到 → 「超限必须拆解」静默 | ✅ 新增 `extractDialogueText()` 按引号抽取真台词（无引号退化为整段并标 `usedQuotes=false`）；新增 W9 聚合，**只覆盖 overflow 与 truncation 两类实质事件**，不把良性提示变成噪音 |
+| i2 | Warning | security | `resolveInside` 只做词法 `path.resolve`，注释却宣称「越界符号链接一律拒绝」 | ✅ 实现 `resolveSymlinks`：`fs.realpathSync` 后二次断言包含关系；解析失败 fail-closed |
+| i3 | Warning | correctness | `MAX_AUTO_SHOT_SEC=12` 配档位 `[5,8,10]` → 12s 不可达、`rawSec > maxSec` 分支结构上不可能触发；注释却写「同源」 | ✅ 上限改为 `Math.max(...AUTO_SHOT_SECONDS)`；新增 `durationTiers` 入参让 kit 成为运行时事实源；**没有**直接把 12 塞进档位（那会改 `validateAutoInputs` 的输入域，属破坏性变更，不该藏在缺陷修复里） |
+| i4 | Warning | maintainability（**高危域 datamigration**） | 四个 `validate*` 都不读 `schemaVersion`，本 PR 引入的 `schemaVersion: 2` 纯装饰 | ✅ 新增 `checkSchemaVersion`：整数 + 受支持集合 + 可选 `allowMissing`；三个新资产要求精确 1，doctrine 允许缺失（历史兼容）但声明后在 [1,2]。**高危域的处置是直接消除争议而不是自扮演豁免** |
+| i5 | Warning | correctness | 纯向上吸附导致 40 字→5s、41 字→8s（+60%） | ✅ 加 `toleranceSec`（默认 0.3s）——容差内取该档；同时回传 `rawSec`/`snapDeltaSec` 让落差可见；W9 的 truncation 一类点名被压到更短档位的镜号。**拒不采纳**「下限=默认档」（会让用户 `seconds` 输入失效） |
+| i6 | Warning | maintainability | `.ccg/reviews` 三份 pending、`findings=null`，而记录宣称 QM-6 已落 → **占位工件被当证据** | ✅ 见本节：真跑审查、修完 8 条、记录改为如实 |
+| i7 | Info | correctness | `readOptionalJsonFile` 对字面 `null` 的 JSON 判为缺失静默放行（第三个静默分支） | ✅ 按损坏处理并点明「文件存在但不是有效对象」 |
+| i8 | Info | correctness | `countSpeechUnits` 把假名/谚文按汉字 8 字/秒折算 → 日韩文案时长被低估 | ✅ 字计数收紧到汉字区间；假名/谚文单独计数并给出「请手工设定」的警告 |
+
+#### 修复后的测试面
+
+| 套件 | 修复前 | 修复后 |
+|------|-------|-------|
+| `shot-duration.test.js` | 37 | **50**（+6 引号抽取 / +2 日韩 / +2 落差回传 / +1 端到端 / 容差改写 3 例） |
+| `kit-loader.test.js` | 51 | **59**（+4 checkSchemaVersion / +4 接线 / +1 字面 null） |
+| `prompt-library.test.js` | 28 | **32**（+4 符号链接越界） |
+| `auto-plan.test.js` | 51 | **55**（+4 时长警告可见 / 注入档位） |
+| film 相关合计（29 文件） | 456 | **486 全绿** |
+
+>`i5` 有一半被驳回并写进 `adjudication.json` 的 `dismissedPart`：「任何非空台词镜至少 5s」不是实现选择，而是模型档位最小 5s 的客观边界；如实反映在 `rawSec`/`snapDeltaSec` 上即可，不因此改语义。
 
 ## 六、遗留与后续
 
@@ -114,9 +176,11 @@ shot-library 逻辑，与资产完整性无关。这个失败本身就是信号�
 | 导入 IPC 未接 `requireAssets` | 能力已提供，接线属批次二 |
 | F8 三维提示词未做 | 本批次只提供 `generate_shot_prompt` 的 system/user 与 `frame_constraint` 规则 |
 | TTS 未接 | 优先级链已就绪，只需在 TTS 完成时填 `ttsDurationMs` |
+| 自动模式的时长口径仍是「引号优先、无引号退化为整段」 | 无引号的长动作镜仍会高估；已由 `durationRawSec` 与 W9 暴露，彻底解决需要剧本层面的台词/动作分离（批次二） |
 | `qm1-startup-check.cjs` | 一次性验证脚本，已按 R0 走 `safe-delete` 清理，未入库 |
 
 ## 七、远程同步
 
 | 远程同步 | 由门禁推导 |
 |---|---|
+

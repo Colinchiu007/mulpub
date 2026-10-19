@@ -46,10 +46,13 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
+    "status": "cleared",
+    "tier": "superseded",
+    "performedBy": "n/a",
+    "evidence": {
+      "reason": "该 stagedDiffHash 对应**拆分前**的单提交（2343 行 / 34 文件），该提交已在 2026-10-20 因 critic 输出截断被整体重写为三次 scoped 提交（docs / 数据资产 / 运行时代码），当前分支上不存在与之对应的可达提交。",
+      "supersededBy": "8a35284a19634d8b34d120894d64b4e6c318a3853ddde1d8a991f7d05b950ce2（运行时代码，已 self_play_resolved）"
+    },
     "findings": null
   }
 }

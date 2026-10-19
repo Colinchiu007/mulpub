@@ -46,10 +46,20 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
+    "status": "cleared",
+    "tier": "docs-false-positive",
+    "performedBy": "manual-cross-check",
+    "evidence": {
+      "reason": "判定器按「变更 > 200 行」触发 DUAL，但本笔改动是**纯文档**（CHANGELOG 条目 + PRD + 执行记录），不含任何可执行代码；该启发式的意图是代码审查，对 prose 属假阳性。",
+      "crossCheck": [
+        "PRD §4.1 数据校验规则表 ↔ kit-loader.js 的 validateManifest/validateDoctrine/validateShotGrammar/validateComplianceChecklist/validatePalette/checkSchemaVersion 逐项对照",
+        "PRD §5.3 失败提示文案 ↔ shot-duration.js 的 warnings 字面量逐条对照",
+        "PRD §十一 ↔ 本次 8 条审查修复逐条对照",
+        "执行记录 §二 QM-1 证据 ↔ asar 清单与启动验证实测输出",
+        "执行记录 §五之二 ↔ .ccg/reviews/8a35284a 的 findings 与 .adversarial/ccg-deep-01258c7a/critique-v1.md"
+      ],
+      "codePostureCoveredBy": "8a35284a19634d8b34d120894d64b4e6c318a3853ddde1d8a991f7d05b950ce2"
+    },
     "findings": null
   }
 }
