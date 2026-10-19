@@ -213,48 +213,161 @@ function provenanceOf(entry) {
   });
 }
 
+/**
+ * 全仓判定：清单棘轮 + 逐格规则。
+ * @returns {{ok:boolean, judgeError:boolean, reasons:string[], cells:Array, violations:Array}}
+ */
+function judgeRegistry(opts) {
+  const o = opts || {};
+  const root = o.root || path.join(__dirname, '..');
+  const reg = o.registry || registryLib.loadRegistry(root);
+  const readWorkflow = o.readWorkflow || ((wf) => fs.readFileSync(path.join(root, wf), 'utf8'));
+  const th = {
+    minSamples: reg.raw.minSamples,
+    staleDays: reg.raw.staleDays,
+    seededGraceDays: reg.raw.seededGraceDays,
+  };
+  const reasons = [];
+  const violations = [];
+  const cells = [];
+  const stepLevels = [];
+
+  const registered = new Map();
+  for (const j of reg.jobs) registered.set(j.workflow + '#' + j.jobId, j);
+
+  // 1) 扫清单：workflow 里出现的每一格都必须在册
+  const workflows = o.workflows || [...new Set(reg.jobs.map((j) => j.workflow))].sort();
+  const actual = new Map();
+  for (const wf of workflows) {
+    let text;
+    try {
+      text = readWorkflow(wf);
+    } catch (e) {
+      reasons.push('读不到 ' + wf + ' — ' + e.message);
+      continue;
+    }
+    const found = scanTimeoutCells(text);
+    for (const u of found.unparsed) reasons.push(wf + ' 里有一格 timeout-minutes 不是整数：' + u);
+    for (const s of found.stepLevel) stepLevels.push({ workflow: wf, jobId: s.jobId, value: s.value });
+    for (const [jobId, t] of found.cells) {
+      actual.set(wf + '#' + jobId, { workflow: wf, jobId, timeoutMinutes: t });
+    }
+  }
+
+  // 2) 棘轮：未登记 / 已登记但消失
+  for (const [key, cell] of actual) {
+    if (!registered.has(key)) {
+      violations.push({ rule: 'UNREGISTERED_TIMEOUT_CELL', key,
+        detail: cell.workflow + '#' + cell.jobId + ' 有 timeout-minutes=' + cell.timeoutMinutes +
+          ' 但注册表未登记 ⇒ 新增的预算常量不得绕过取证' });
+    }
+  }
+  for (const [key, j] of registered) {
+    if (!actual.has(key)) {
+      violations.push({ rule: 'MISSING_TIMEOUT_CELL', key,
+        detail: j.workflow + '#' + j.jobId + ' 在注册表里，但 workflow 里已读不到这一格的 timeout-minutes' +
+          '（被删/改名后必须同步）' });
+    }
+  }
+
+  // 3) 逐格规则（只判两侧都存在的那几格，缺的一侧已由上面出声）
+  for (const j of reg.jobs) {
+    const key = j.workflow + '#' + j.jobId;
+    const cell = actual.get(key);
+    if (!cell) continue;
+    const r = judgeEntry({
+      entry: j,
+      provenance: provenanceOf(j),
+      timeoutMinutes: cell.timeoutMinutes,
+      state: j.state,
+      thresholds: th,
+      nowMs: o.nowMs,
+      checkDrift: false,
+    });
+    if (r.judgeError) { reasons.push(key + '：' + r.reasons.join('；')); continue; }
+    cells.push({
+      key, workflow: j.workflow, jobId: j.jobId, displayName: j.displayName, state: j.state,
+      timeoutMinutes: cell.timeoutMinutes, requiredMinutes: r.requiredMinutes, readout: r.readout,
+    });
+    for (const v of r.violations) violations.push(Object.assign({ key }, v));
+  }
+
+  if (reasons.length) return { ok: false, judgeError: true, reasons, cells, violations, stepLevels };
+  return { ok: violations.length === 0, judgeError: false, reasons: [], cells, violations, stepLevels };
+}
+
 function main(argv) {
   const args = argv || [];
   const rootArg = args.find((a) => a.indexOf('--root=') === 0);
   const root = rootArg ? rootArg.slice('--root='.length) : path.join(__dirname, '..');
   const timeoutArg = args.find((a) => a.indexOf('--timeout=') === 0);
-  // --timeout 只用于**注入坏值做负控**（回归锁与变异反证要用它，不能靠改 workflow 制造红）。
+  const jobArg = args.find((a) => a.indexOf('--job=') === 0);
+  const wfArg = args.find((a) => a.indexOf('--workflow=') === 0);
+  // --timeout 只用于**注入坏值做负控**（回归锁与变异反证要用它，不能靠改 workflow 制造红）；
+  // 必须与 --job 一起给出，否则不知道注入给哪一格 —— 不知道就别猜。
   let timeoutOverride;
   if (timeoutArg) {
     timeoutOverride = Number(timeoutArg.slice('--timeout='.length));
     if (!Number.isFinite(timeoutOverride)) {
-      console.error('[COVERAGE-BUDGET] --timeout 必须是数字（未知/非法取值一律出声，不静默忽略）');
+      console.error('[GATE-TIMEOUT] --timeout 必须是数字（未知/非法取值一律出声，不静默忽略）');
+      return EXIT_JUDGE_ERROR;
+    }
+    if (!jobArg) {
+      console.error('[GATE-TIMEOUT] --timeout 必须与 --job=<jobId> 一起用（否则不知道注入给哪一格）');
       return EXIT_JUDGE_ERROR;
     }
   }
-  const wfPath = path.join(root, '.github', 'workflows', 'quality-gate.yml');
-  let text;
+
   try {
-    text = fs.readFileSync(wfPath, 'utf8');
+    const reg = registryLib.loadRegistry(root);
+    if (timeoutOverride !== undefined) {
+      const jobId = jobArg.slice('--job='.length);
+      const wf = wfArg ? wfArg.slice('--workflow='.length) : registryLib.COVERAGE_WORKFLOW;
+      const entry = registryLib.findJob(reg, wf, jobId);
+      if (!entry) {
+        console.error('[GATE-TIMEOUT] 判据自身故障：注册表里没有 ' + wf + '#' + jobId);
+        return EXIT_JUDGE_ERROR;
+      }
+      const r = judgeEntry({
+        entry, provenance: provenanceOf(entry), timeoutMinutes: timeoutOverride,
+        state: entry.state, checkDrift: false,
+        thresholds: {
+          minSamples: reg.raw.minSamples,
+          staleDays: reg.raw.staleDays,
+          seededGraceDays: reg.raw.seededGraceDays,
+        },
+      });
+      console.log('[GATE-TIMEOUT] (注入) ' + entry.displayName + ' ' + r.readout);
+      for (const v of r.violations) console.error('[GATE-TIMEOUT] ' + v.rule + ' — ' + v.detail);
+      return r.ok ? EXIT_OK : EXIT_VIOLATION;
+    }
+
+    const result = judgeRegistry({ root, registry: reg });
+    if (result.judgeError) {
+      console.error('[GATE-TIMEOUT] 判据自身故障（按"未证实"处理，不得读成合规）：' + result.reasons.join('；'));
+      return EXIT_JUDGE_ERROR;
+    }
+    for (const c of result.cells) {
+      console.log('[GATE-TIMEOUT] ' + (c.workflow + '#' + c.jobId).padEnd(54) + ' [' + c.state + '] ' + c.readout);
+    }
+    if (result.stepLevels.length) {
+      console.log('[GATE-TIMEOUT] 步级 timeout-minutes 不在本注册表治理面（作业级才是），但显式列出以免"没人看"：' +
+        result.stepLevels.map((s) => s.workflow + '#' + s.jobId + '=' + s.value).join(' , '));
+    }
+    if (!result.ok) {
+      for (const v of result.violations) console.error('[GATE-TIMEOUT] ' + v.rule + ' — ' + v.detail);
+      console.error('[GATE-TIMEOUT] 正解只有两条：① 跑 `node scripts/gate-timeout-sample.js --workflow=<f> --limit=60`' +
+        ' 重采集后更新 `scripts/gate-timeout-registry.json`；② 把该格 `timeout-minutes` 抬到 required 之上。' +
+        '禁止改宽本判据（minSamples / staleDays / safetyMultiplier）或删登记项来消红。');
+      return EXIT_VIOLATION;
+    }
+    console.log('[GATE-TIMEOUT] OK 全部 ' + result.cells.length +
+      ' 格与注册表同源、都满足规则①，且清单棘轮通过（无未登记、无消失）');
+    return EXIT_OK;
   } catch (e) {
-    console.error('[COVERAGE-BUDGET] 判据自身故障：读不到 ' + wfPath + ' — ' + e.message);
+    console.error('[GATE-TIMEOUT] 判据自身故障（按"未证实"处理，不得读成合规）：' + String(e.message || e).slice(0, 300));
     return EXIT_JUDGE_ERROR;
   }
-  const prov = require(path.join(__dirname, 'lib', 'coverage-budget-provenance.js'));
-  const r = judgeWorkflow({
-    workflowText: text,
-    provenance: prov.PROVENANCE,
-    timeoutMinutes: timeoutOverride,
-  });
-  if (r.judgeError) {
-    console.error('[COVERAGE-BUDGET] 判据自身故障（按"未证实"处理，不得读成合规）：' + r.reasons.join('；'));
-    return EXIT_JUDGE_ERROR;
-  }
-  console.log('[COVERAGE-BUDGET] job=' + JOB_NAME + ' ' + r.readout +
-    ' ⇒ ' + (r.ok ? 'OK' : 'VIOLATION'));
-  for (const v of r.violations) console.error('[COVERAGE-BUDGET] ' + v.rule + ' — ' + v.detail);
-  if (!r.ok) {
-    console.error('[COVERAGE-BUDGET] 两条正解：跑 `node scripts/coverage-budget-sample.js 60` 重采集后更新 provenance，' +
-      '或把 timeout-minutes 抬到 required 之上。' +
-      '禁止改宽本判据（MIN_SAMPLES / STALE_DAYS / safetyMultiplier）来消红。');
-    return EXIT_VIOLATION;
-  }
-  return EXIT_OK;
 }
 
 module.exports = {
@@ -262,7 +375,7 @@ module.exports = {
   JOB_ID, JOB_NAME,
   get MIN_SAMPLES() { return thresholds().minSamples; },
   get STALE_DAYS() { return thresholds().staleDays; },
-  parseJobTimeout, scanTimeoutCells, daysSince, judgeEntry, judgeWorkflow, provenanceOf, main,
+  parseJobTimeout, scanTimeoutCells, daysSince, judgeEntry, judgeWorkflow, judgeRegistry, main,
 };
 
 if (require.main === module) process.exit(main(process.argv.slice(2)));
