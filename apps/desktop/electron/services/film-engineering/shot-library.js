@@ -13,13 +13,48 @@
  * 复制文本由后端组装（跨平台一致），前端只负责写入剪贴板。
  */
 
+/**
+ * 块标题（与随包 film-kit/prompt-doctrine.json 的 blocks[].label 同源，共 7 项）。
+ *
+ * 2026-10-19 修复：此处原先只有 5 项（缺 SCENE CONTEXT 与 STYLE），与方法论标签页
+ * 展示的「七大提示词块」不一致；同时切块判定原为整行精确比较，而真实 kit 提示词的
+ * 块标题**带括号后缀与结尾冒号**（例：`GEO SPATIAL LAYOUT (locked across every CO
+ * shot — pure spatial map):`），导致 153 镜中仅 3 镜能切块、GEO 命中 0。
+ * 现在：标签集合与方法论同源，判定改为「行首标题 + 可选后缀」的正则匹配。
+ */
 const BLOCK_HEADINGS = [
+  'SCENE CONTEXT',
   'GEO SPATIAL LAYOUT',
   'ACTION TIMING',
   'AUDIO',
   'CHARACTER ACTING',
+  'STYLE',
   'POSITIVE CONSTRAINTS',
 ]
+
+/**
+ * 块标题识别正则：**必须从 BLOCK_HEADINGS 单一真源生成**，避免两处漂移。
+ * 形态：`行首（允许前导空白）+ 标题 + 可选的非字母数字后缀（括号说明/冒号等）`。
+ * 不允许在标题前出现其他内容，以免正文里偶然出现的标题字样被误判为块。
+ */
+function buildBlockHeadingRe (headings) {
+  const body = headings
+    .slice()
+    .sort((a, b) => b.length - a.length) // 长标题优先，避免 AUDIO 抢在 AUDIO X 前匹配
+    .map((h) => h.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('|')
+  return new RegExp('^[ \\t]*(' + body + ')\\b[ \\t]*(?::|—|-|\\(|$)', 'i')
+}
+
+const BLOCK_HEADING_RE = buildBlockHeadingRe(BLOCK_HEADINGS)
+
+/** 从任意形态的标题行还原规范化标题（大写、去后缀） */
+function canonicalHeading (line) {
+  const m = String(line || '').match(BLOCK_HEADING_RE)
+  if (!m) return null
+  const wanted = String(m[1]).toUpperCase()
+  return BLOCK_HEADINGS.find((h) => h === wanted) || wanted
+}
 
 const COPY_MODES = new Set(['full', 'blocks', 'characters', 'geo'])
 
@@ -36,10 +71,12 @@ function extractBlocks (prompt) {
   const lines = String(prompt || '').split(/\r?\n/)
   let current = null
   for (const rawLine of lines) {
-    const line = rawLine.trim()
-    if (BLOCK_HEADINGS.includes(line.toUpperCase())) {
+    // 只认**行首**的标题（可带括号后缀/结尾冒号），不再要求整行精确相等 —— 真实语料的
+    // 标题普遍带修饰（见 BLOCK_HEADINGS 处注释），整行比较会让绝大多数分镜切不出块。
+    const heading = canonicalHeading(rawLine)
+    if (heading) {
       if (current) blocks.push(current)
-      current = { heading: line.toUpperCase(), content: [] }
+      current = { heading, content: [] }
       continue
     }
     if (current) current.content.push(rawLine)
@@ -224,11 +261,15 @@ class ShotLibrary {
 
 module.exports = {
   BLOCK_HEADINGS,
+  BLOCK_HEADING_RE,
+  canonicalHeading,
   FULL_LOAD_LIMIT,
   MAX_PAGE_LIMIT,
   DEFAULT_PAGE_LIMIT,
   COPY_MODES,
   ShotLibrary,
   extractBlocks,
+  extractCharacterLines,
+  extractGeoBlock,
   buildBlocksText,
 }

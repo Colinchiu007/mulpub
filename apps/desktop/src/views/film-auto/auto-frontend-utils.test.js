@@ -26,9 +26,14 @@ describe('toFileUrl（本地成品可播放 URL）', () => {
 })
 
 describe('checkPromptBlocks（块结构非阻断提示）', () => {
+  // 2026-10-19：块标题由 5 项补齐为 7 项（补 SCENE CONTEXT 与 STYLE，与后端 BLOCK_HEADINGS
+  // 及随包方法论同源）。夹具随之补齐，否则「完整提示词」会被判缺块。
   const FULL = [
     'EXT. STREET - NIGHT',
     '[CHARACTER: ROKO] street kid',
+    '',
+    'SCENE CONTEXT',
+    'EXACT 3 CHARACTERS',
     '',
     'GEO SPATIAL LAYOUT',
     'Alley left',
@@ -41,6 +46,9 @@ describe('checkPromptBlocks（块结构非阻断提示）', () => {
     '',
     'CHARACTER ACTING',
     'tense',
+    '',
+    'STYLE',
+    'Photoreal. NON-IP.',
     '',
     'POSITIVE CONSTRAINTS',
     '8K',
@@ -57,8 +65,14 @@ describe('checkPromptBlocks（块结构非阻断提示）', () => {
   it('缺块如实列出（顺序稳定），非阻断（只报不改）', () => {
     const r = checkPromptBlocks('EXT. X\n[CHARACTER: ROKO] walks.\n\nACTION TIMING\n0-2s')
     expect(r.ok).toBe(false)
-    expect(r.missing).toEqual(['GEO SPATIAL LAYOUT', 'AUDIO', 'CHARACTER ACTING', 'POSITIVE CONSTRAINTS'])
+    expect(r.missing).toEqual(['SCENE CONTEXT', 'GEO SPATIAL LAYOUT', 'AUDIO', 'CHARACTER ACTING', 'STYLE', 'POSITIVE CONSTRAINTS'])
     expect(r.hasCharacterLine).toBe(true)
+  })
+
+  it('块标题带括号后缀或结尾冒号时仍算成块（与后端 BLOCK_HEADING_RE 同形态）', () => {
+    const r = checkPromptBlocks('GEO SPATIAL LAYOUT (locked across every CO shot):\nAlley left\nACTION TIMING:\n0-2s')
+    expect(r.present).toContain('GEO SPATIAL LAYOUT')
+    expect(r.present).toContain('ACTION TIMING')
   })
 
   it('正文里偶然出现块名不算成块（必须独占一行）', () => {

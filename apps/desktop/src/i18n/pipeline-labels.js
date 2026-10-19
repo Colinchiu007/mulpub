@@ -185,6 +185,11 @@ const STAGES = {
   select_video_scenes: 'pipelines.stages.select_video_scenes',
   generate_assets: 'pipelines.stages.generate_assets',
   finalize_assets: 'pipelines.stages.finalize_assets',
+  // 影视工程「自动」模式（film-auto-mode）：这三个阶段 id 由 useFilmAutoRun.js 的 stageList
+  // 生成，2026-10-19 补登记 —— 此前未登记导致进度区三行阶段名显示为英文 id 原文。
+  film_auto_plan: 'pipelines.stages.film_auto_plan',
+  film_auto_generate: 'pipelines.stages.film_auto_generate',
+  film_auto_render: 'pipelines.stages.film_auto_render',
 }
 
 const STATUSES = {

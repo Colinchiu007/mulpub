@@ -120,6 +120,77 @@
 那样会把刚拆掉的第二真源又装回去。正解是在夹具里注册 provider 行——因为生产路径本来就是
 「先 `loadS2VProviders` 再操作音色」，夹具缺的是前置条件而不是断言太严。
 判据：夹具报红时先问「生产里这个前置一定成立吗」，成立就补夹具；不成立就是实现缺 fail-closed 或提示。
+## 两类「测试全绿但功能对真实数据无效」：夹具理想化与动态 i18n key 漏登记（fix-film-engineering-defects，2026-10-19）
+
+### lesson:idealized-fixture-blinds-tests-to-real-input
+
+**用符合实现的假数据测实现，永远测不出实现与真实数据的错配——关键算法必须有一条「真实语料统计特征」断言。**
+
+现场：影视工程一键复制提供 blocks / characters / geo 三种结构化提取模式。既有
+`shot-library.test.js` 里这三个模式各有单测且全绿。但用主进程同一套切块逻辑跑**真实 kit
+的 153 个分镜**实测：能切出任意块的仅 **3 镜（2.0%）**，`GEO SPATIAL LAYOUT` 命中 **0**，
+`[CHARACTER:` 命中 **0**。即三个按钮在真实数据上几乎恒返回「（无 GEO SPATIAL LAYOUT 块）」。
+
+根因是切块用**整行精确比较**（`BLOCK_HEADINGS.includes(line.toUpperCase())`），而真实提示词的
+块标题带括号后缀与结尾冒号：`GEO SPATIAL LAYOUT (locked across every CO shot — pure spatial map):`。
+
+**为什么既有测试拦不住**：那三个用例的夹具是测试作者手写的干净文本，块标题就是纯
+`GEO SPATIAL LAYOUT`。这种夹具在「整行精确比较」和「行首前缀匹配」两种实现下**都会通过**——
+它测的是算法意图，不是算法对真实输入的有效性。改实现后它们仍全绿，所以**新写的断言必须
+锚定真实语料的统计特征**（命中数 > 0、切块率 > 阈值），才能反向锁住退化。
+
+修复后实测：**66/153（43.1%）**能切块。
+
+### lesson:dynamic-i18n-key-registration-is-unguarded
+
+**三道文案门禁（locale 成对 / 渲染端硬编码中文扫描 / i18n-glossary）都只管字面量中文，
+管不到「代码生成的动态 key」是否登记——这是结构性盲区，必须补全仓扫描锁。**
+
+现场：影视工程自动模式的进度区三行阶段名显示为英文 id 原文（`film_auto_plan` /
+`film_auto_generate` / `film_auto_render`）。阶段 id 定义在 `useFilmAutoRun.js`，但从未登记进
+`src/i18n/pipeline-labels.js` 的 STAGES 表，`translate()` 走 fallback 返回原始 id。
+引入点 `b3ee1579`（PR #3234 新增自动模式时只定义 id、忘了登记翻译）。
+
+`check-locale-sync` 查的是「zh/en 是否成对」，硬编码扫描查的是「src/ 非 locales 文件里有没有
+中文字面量」，i18n-glossary 管产品名词——**三者扫描的都是字面量**，而这里的缺失是「一个
+代码生成的 key 没有对应条目」，形状上不属于任何一类的检查对象。正解是补一条**全仓扫描**判据：
+凡是传给进度/阶段组件的阶段 id 字面量，必须在翻译表有登记，且 zh/en 两侧都有文案。
+
+### lesson:error-fallback-else-swallows-cause
+
+**防御式 `else` 兜底会吞掉原因多样性；composable 若把真实 errorCode 换成硬编码常量再返回，
+调用方就彻底失去了分流能力——错误透传链必须端到端保真。**
+
+现场：画布点「生成所选」失败时，除「超 10 镜」「未选分镜」外**所有**失败都弹「影视引擎不可用」。
+真实原因常是没配视频模型，用户却以为是安装坏了。
+
+是两处叠加：① 视图 `else` 分支过宽；② `useFilmVideoGen.start` 第 166 行捕捉了 `res.errorCode`，
+但第 169 行**恒返回硬编码 `'startFailed'`**，真实原因在返回时被丢弃。只改视图没用——判据
+拿不到值。修复必须两处都改。
+
+### lesson:derived-display-field-needs-write-side-test
+
+**「渲染侧读字段、写入侧没写」是跨文件盲区：人眼难发现，只能靠写入端单测配对。**
+
+现场：`ShotNode.vue` 渲染「已注入 {n} 张参考」，但全仓无代码写入 `data.refCount`（grep 仅命中
+渲染处）⇒ 提示永不显示，用户连线后得不到任何反馈。参考注入走的是
+`collectShotReferences → buildLocalReferences → initialContext` 链路，与 `refCount` 通道未接上。
+修复时在 `addEdge` / `removeNodes` 后回写，**真源仍是 `collectShotReferences`**（与实际参与生成的
+参考同源，不引入第二套计数）。
+
+### lesson:two-hardcoded-sets-need-a-same-source-lock
+
+**同一组约束在两处各写一份，必然漂移；正解是让一处生成另一处，或用同源锁机械比对。**
+
+现场：方法论标签页展示 **7 大块**（`prompt-doctrine.json`），而切块用的 `BLOCK_HEADINGS` 只有
+**5 项**（缺 SCENE CONTEXT 与 STYLE）。修复补齐为 7 项，并加同源锁：断言 `BLOCK_HEADINGS` 集合
+=== `prompt-doctrine.json` 的 `blocks[].label` 集合。正则也从 `BLOCK_HEADINGS` 生成，避免第三处硬编码。
+
+### rule:code-review-two-new-questions
+
+Code Review 清单新增两问（针对上述两类盲区）：
+1. 这段逻辑有没有用**真实数据**跑过？测试夹具是不是照着实现写的？
+2. 新增的动态 i18n key 登记进翻译表了吗？
 
 ## 任务详情页模型信息：先核实「信息有没有落盘」，再摆四个字段（s2v-result-model-info，2026-10-18）
 
@@ -21357,3 +21428,13 @@ const identity = vi.hoisted(() => ({ status: ref('x') }))   // ReferenceError: C
 - **pitfall · `powershell -File` 拉起的校验脚本 cwd 是任意目录，`pnpm exec asar` 在那里解析不到 CLI**：表现为"extract 退出 0 但目标目录 0 文件"的静默假失败。必须 `Push-Location <App>` 再调，`finally` 里 `Pop-Location`。同类坑：Node 脚本 `spawn('pnpm', ...)` 在 Windows 必须 `shell: true`，否则 ENOENT 且 stdout 为空。
 - **pitfall · 空集合必须判 FAIL，否则「扫到 0 个 chunk 却报 PASS」是假绿**：核验脚本里 `$bundleOk=$false; foreach(...){...}` 的初值语义在集合为空时会让检查项"通过"——本次真实发生过一次（`scanned 0 chunks` 却 PASS）。判据：任何"扫描 N 个候选找 X"的检查，N=0 时必须显式失败，并在输出里打印 N。
 - **pattern · `pnpm run build:win` ≠ 裸 `electron-builder`**：前者 = `build:vue`（vite build 产出 `dist/`）+ electron-builder。只跑后者会让 asar 缺 `dist/`，启动时报 `ERR_FILE_NOT_FOUND: app.asar/dist/index.html`。这个失败**只有启动判据能抓住**（打包 exit 0、asar 大小正常、清单里 electron/ 齐全），再次印证"打包成功 ≠ 应用能起来"。
+
+## 2026-10-19 · ui-flow-clarity：一个 PR 从红到绿的五轮 CI 修复链（PR #3951）
+
+- **pitfall · 点名还账文件是零增长容差，加 UI 前必查**：`check-max-lines.js` 的 `targets` 把指定文件天花板压到登记值本身，多一行都红，与功能正确性正交——本地测试全绿救不了。`Accounts.vue` 被页内导航内联实现顶到 1664（目标 1578）。正解是抽自包含组件（`AccountModuleTabs.vue`，连路由切换都搬进去），1664→1573，而不是上调 target（那是改「谁来守门」）。判据：给文件加内容前先查 `.github/scripts/max-lines-baseline.json` 的 `targets`；被点名文件的增长需求 = 抽组件信号。同族门禁 `check-doc-abs-paths.js` 会把 PRD/openspec 记录里的本机绝对路径判成「新增含绝对路径的文件」，正解写相对描述，且不得用 `--write-baseline` 消红。
+- **pitfall · 视觉基线唯一合法来源是 CI 产物，且 `UPDATE_BASELINE=1` 补不了已存在的基线**：`test-runner.js` 里该开关只在基线**缺失**时创建（实测跑了 `git status` 纹丝不动）。正解：`gh run download` 拿 `quality-gate-visual-reports` artifact，按 `check-baseline-freshness.js` 输出的 `来源=` 列逐张晋升——`来源=views` 取 `<name>.png`（Gate 7b 权威渲染），`来源=pixel-gate` 取 `<name>-current.png`；晋升后同判据复验必须「违规 0 张」，并抽验 1-2 张图确认差异只来自预期变更。
+- **pitfall · 对比度审计在 dark 主题下采样，硬编码品牌色必踩**：`contrast-audit.js` 每视图先 `data-theme='dark'` 再采样，阈值 3:1。`.account-module-tab.active` 写死 `#5048e5` 在暗底 2.69:1 判红。正解 `var(--color-primary, #5048e5)`：本仓浅色 `--color-primary` 恰为 `#5048E5`（渲染逐像素不变），暗色覆盖 `#8b85ff`（5.69:1）。附带收益：基线 churn 只剩 dark 两张，light 一张不用重建。
+- **pitfall · 分片红了一个「我没碰过」的测试，先归因再动手**：`S2vConfigPanels.test.js` 在 shard 2 红，本地单跑也红 ⇒ 建干净 origin/main worktree 复跑**同样红**，且 main 最近 4 次 quality-gate 全 failure ⇒ 是上游 #3946 改组件取值来源（`s2vVoiceContextModel`）漏改测试，main 从那时起一直红，PR rebase 后继承。判据：CI 红在没碰过的文件上，第一反应不是回滚自查，而是先证 main 自身是否红——干净 worktree 十分钟定性。PR 内修复须写明归属（本条非本 PR 引入）；若上游随后也修了，rebase 冲突时我的修复提交冗余，`git rebase --skip` 收场。
+- **pitfall · PR 侧全绿 ≠ 能合：enforce 模式的执行记录门禁只在本地严**：CI `QG Changes` 绿，但 `check-pr-exec-record.js --mode=enforce` 拦下 6 个提交的 CCG deepReview 停在 pending。闭环口径：分档读结构化 `deepReview.tier` 闭集 `external|self-play|none`（**不看 `performedBy` 散文**，只写它落 `unknown`）；双模型后端不可用时按「子代理降级」写 `tier=self-play`（不冒充外部复核）+ `status=self_play_resolved` + findings 写缘由。
+- **pattern · squash merge 的 rc 不可作判据**：`gh pr merge --squash --delete-branch` 报 `fatal: 'main' is already used by worktree at <共享根>`（rc=1）仍合并成功。判据取产物三件套：`state=MERGED`+SHA、`git ls-remote --heads origin <branch>` 0 行、merge 后 `git log` 恰 1 行。删 worktree 前先 `check-branch-merged.js --ref <tip> --merge <SHA>`（先 `git fetch`，否则判据自身故障 rc=2）；回读读数写 **PR 评论**不写回仓库文件（`ban-record-closure-backfill-pr` 拦状态词跃迁）。
+

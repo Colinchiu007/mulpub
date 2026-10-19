@@ -1,0 +1,57 @@
+{
+  "sha": "3291ba40b61c9ae1cfff5916c146cbc2df354a1d",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 2,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "> 按 AGENTS.md 阶段 6 CTO 扫描清单对模块取证：无 v-html/dangerouslySetInnerHTML、无生产 console.log、无 waitForTimeout 硬等待、无同步密码学原语（此四项干净）。以下为实测发现："
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "6c3f9b0b083403f9a96151dd4c42c63853db7918635deda2efa00669419e5499",
+  "decidedAt": "2026-10-19T03:53:52.199Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}
