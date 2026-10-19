@@ -6,7 +6,7 @@ date: 2026-10-19
 
 # 执行记录：默认改写策略修复（rewrite-default-strategy-fix）
 
-> 分支 `rewrite-default-strategy-fix`；worktree `D:\Data\projects\mp-worktrees\mp-rewrite-default-strategy-fix`
+> 分支 `rewrite-default-strategy-fix`；worktree `mp-worktrees/mp-rewrite-default-strategy-fix`
 > （`git worktree add -b ... origin/main`，`origin/main` = `131c0fff6`；`start-mp-task.ps1` 因 GitHub 443 不可达在 fetch 步失败，改用本地 origin ref 建区，其余流程一致）。
 > PRD：`01-docs/PRD-REWRITE-DEFAULT-STRATEGY-FIX-2026-10-19.md`
 
@@ -23,7 +23,7 @@ date: 2026-10-19
 
 ## CCG 深度审查（QM-6 双模型，DUAL 档）
 
-变更 661 行 > 200 行阈值 ⇒ DUAL；`sh scripts/deep-review.sh`（critic=claude，proposer=opencode，Git Bash 经 `C:\Program Files\Git\bin\bash.exe` 调用，裸 bash 解析到 WSL 被脚本环境闸拦截）。
+变更 661 行 > 200 行阈值 ⇒ DUAL；`sh scripts/deep-review.sh`（critic=claude，proposer=opencode，Git Bash 经 `<Git Bash 安装路径>\bin\bash.exe` 调用，裸 bash 解析到 WSL 被脚本环境闸拦截）。
 轮 1 产出 7 条发现 → 5 条进入自扮演裁决，**5/5 upheld**，逐条处置：
 
 | id | 严重度 | 处置 |
@@ -91,7 +91,7 @@ date: 2026-10-19
 
 ## 端到端验证
 
-5557 字真实原文（`D:\Temp\rewrite-eval\orig.txt`，用户贴的那篇）：
+5557 字真实原文（`<临时评估样本文件 orig.txt（会话期临时目录，不入库）>`，用户贴的那篇）：
 
 ```
 [修复前] 选中: strategy-viral-storytelling | 故事化爆款策略

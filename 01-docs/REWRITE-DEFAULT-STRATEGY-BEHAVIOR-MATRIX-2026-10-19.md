@@ -1,7 +1,7 @@
 # 行为对照：修复前 vs 修复后
 
 > 生成于 rewrite-default-strategy-fix 分支，输入为用户实际粘贴的 5557 字科技深度报道
-> （D:\Temp\rewrite-eval\orig.txt）与各典型用户设置组合。
+> （<临时评估样本文件 orig.txt（会话期临时目录，不入库）>）与各典型用户设置组合。
 
 ## 用户的那篇 5000 字深度报道
 

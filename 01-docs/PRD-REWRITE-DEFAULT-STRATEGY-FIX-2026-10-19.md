@@ -1,6 +1,6 @@
 # PRD：默认改写策略修复（rewrite-default-strategy-fix）
 
-> 分支 `rewrite-default-strategy-fix`；worktree `D:\Data\projects\mp-worktrees\mp-rewrite-default-strategy-fix`；基线 origin/main `131c0fff6`。
+> 分支 `rewrite-default-strategy-fix`；worktree `mp-worktrees/mp-rewrite-default-strategy-fix`（本仓标准 worktree 根下的同名目录）；基线 origin/main `131c0fff6`。
 
 ## 1. 背景与问题
 
