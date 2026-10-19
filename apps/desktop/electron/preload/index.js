@@ -33,6 +33,7 @@ const { createReplayApi } = require('./replay')
 const { createIdentityApi } = require('./identity')
 const { createTtsVoiceCatalogApi } = require('./tts-voice-catalog')
 const { createTtsVoiceCloneApi } = require('./tts-voice-clone')
+const { createAvatarCatalogApi } = require('./avatar-catalog')
 const { createPromptEvalApi } = require('./prompt-eval')
 const { createPageManagerApi } = require('./page-manager')
 const { createVideoCloneApi } = require('./video-clone')
@@ -102,6 +103,8 @@ const fullApi = {
   ...createIdentityApi(ipcRenderer),
   ...createTtsVoiceCatalogApi(ipcRenderer),
   ...createTtsVoiceCloneApi(ipcRenderer),
+  // 数字人形象/音色目录（avatar-spokesperson 流水线 UI 用）
+  ...createAvatarCatalogApi(ipcRenderer),
   ...createPromptEvalApi(ipcRenderer),
   ...createPageManagerApi(ipcRenderer),
   ...createVideoCloneApi(ipcRenderer),

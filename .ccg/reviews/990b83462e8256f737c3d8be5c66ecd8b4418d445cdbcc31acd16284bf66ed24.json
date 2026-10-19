@@ -1,0 +1,29 @@
+{
+  "sha": "b29a35addaa7c1780bb90772d8e3721ea86990f3",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 2103 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 2103,
+    "fileCount": 29,
+    "codeFileCount": 23,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 27,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "| UI 框架全量引入 | 未新增 element-plus 组件；数字人区块用原生 `<select>` |",
+      "| 硬编码密钥 | 无 |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "990b83462e8256f737c3d8be5c66ecd8b4418d445cdbcc31acd16284bf66ed24",
+  "decidedAt": "2026-10-19T00:09:26.380Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

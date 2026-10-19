@@ -363,6 +363,20 @@ async function exerciseCreate(r) {
     if (!detailRendered) { await r.resetToRoute('/create'); continue; }
     record(r, `${name} 标题渲染`, await bodyHas(r, PIPELINE_LABELS[name]));
     await fillByPlaceholder(r, '输入视频文案', 'E2E 自动化流水线文案');
+    // 数字人流水线（avatar-heygen-wiring 2026-10-19）：启动前必须选形象与音色，
+    // 未选时启动按钮禁用（title=缺失原因）。用 mock 目录里的第一项填充；
+    // 若下拉未就绪则让后续启动检查如实记失败，不得静默跳过（会掩盖回归）。
+    if (name === 'avatar-spokesperson') {
+      const avatarSelect = r.page.locator('[data-testid="avatar-id-select"]').first();
+      const avatarReady = await waitForVisible(avatarSelect, CONDITION_TIMEOUT);
+      record(r, '数字人形象下拉就绪', avatarReady);
+      if (avatarReady) {
+        await avatarSelect.selectOption('e2e-avatar-1');
+        const voiceSelect = r.page.locator('[data-testid="avatar-voice-select"]').first();
+        await voiceSelect.waitFor({ state: 'visible', timeout: CONDITION_TIMEOUT });
+        await voiceSelect.selectOption('e2e-voice-1');
+      }
+    }
     record(r, `${name} 启动携带正确流水线名`, await assertPipelineStarted(r, name, 'pipelineStartOrchestrated'));
     await r.resetToRoute('/create');
   }

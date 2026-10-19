@@ -188,6 +188,100 @@ describe('RewriteView', () => {
 
   // ── 字数区间控制（2026-09-12）──
 
+  // CCG 深度审查 i3：预览必须响应 content 变化（带 300ms 防抖，二轮 i3）。
+  // 缺陷形态：启发式兜底依赖原文形态，只监听设置项 ⇒ 「粘贴长文但没动下拉」时
+  // 预览名不刷新，而实际改写会用新 content 重新匹配 ⇒ 预览与实际命中策略漂移。
+  // 防抖后：连续键入合并到停顿 300ms 后一次请求，避免逐键高频触发（二轮 i3）。
+  it('i3：粘贴长文后预览请求刷新并携带 content（300ms 防抖）', async () => {
+    vi.useFakeTimers()
+    try {
+      const { aiGetRecommendedStrategies } = await import('@/api/publisher')
+      aiGetRecommendedStrategies.mockClear()
+      const wrapper = factory()
+      await nextTick()
+      const before = aiGetRecommendedStrategies.mock.calls.length
+      const input = wrapper.find('textarea.rewrite-textarea')
+      // 模拟连续键入：三次 setValue 只应触发一次防抖后的请求
+      await input.setValue('第一段输入。')
+      await input.setValue('第一段输入。第二段。')
+      await input.setValue('这是一段足够长的成稿内容。' + '补充说明。'.repeat(200))
+      await vi.advanceTimersByTimeAsync(300)
+      await nextTick()
+      await nextTick()
+      const after = aiGetRecommendedStrategies.mock.calls.length
+      expect(after).toBeGreaterThan(before)
+      const last = aiGetRecommendedStrategies.mock.calls[after - 1]
+      // 第二参必须是原文；否则预览与 startRewrite 的匹配口径不一致
+      expect(typeof last[1]).toBe('string')
+      expect(last[1].length).toBeGreaterThan(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // P1-1 回归锁（rewrite-default-strategy-fix）：改写页必须把 industry/purpose/tone
+  // 真实下发给引擎。此前完全不下发 ⇒ 匹配器只能拿到空输入 ⇒ 全体并列退化为数组首项。
+  it('P1-1：改写请求携带 industry/purpose/tone（此前完全不下发）', async () => {
+    const { aiRewrite } = await import('@/api/publisher')
+    aiRewrite.mockClear()
+    const wrapper = factory()
+    await nextTick()
+    const input = wrapper.find('textarea.rewrite-textarea')
+    await input.setValue('这是一段测试文案。用于验证三个维度是否下发。')
+    const selects = wrapper.findAll('select.config-select')
+    // 平台 + 行业 + 目的 + 语气 共四个下拉（平台为既有，后三个为本次新增）
+    expect(selects.length).toBe(4)
+    await selects[1].setValue('technology')
+    await selects[2].setValue('authority-building')
+    await selects[3].setValue('formal')
+    await nextTick()
+    await wrapper.find('.rewrite-start-btn').trigger('click')
+    await nextTick()
+    await nextTick()
+    expect(aiRewrite).toHaveBeenCalled()
+    const us = aiRewrite.mock.calls[0][0].userSettings
+    expect(us.industry).toBe('technology')
+    expect(us.purpose).toBe('authority-building')
+    expect(us.tone).toBe('formal')
+  })
+
+  it('P1-1：未选择时三个维度不下发 undefined 以外的值（不得猜测用户行业）', async () => {
+    const { aiRewrite } = await import('@/api/publisher')
+    aiRewrite.mockClear()
+    const wrapper = factory()
+    await nextTick()
+    const input = wrapper.find('textarea.rewrite-textarea')
+    await input.setValue('这是一段测试文案。用于验证默认值。')
+    await wrapper.find('.rewrite-start-btn').trigger('click')
+    await nextTick()
+    await nextTick()
+    expect(aiRewrite).toHaveBeenCalled()
+    const us = aiRewrite.mock.calls[0][0].userSettings
+    // 空串语义 = 未指定，必须落成 undefined，绝不能凭空猜一个行业
+    expect(us.industry).toBeUndefined()
+    expect(us.purpose).toBeUndefined()
+    expect(us.tone).toBeUndefined()
+  })
+
+  // R3 回归锁（rewrite-default-strategy-fix）：长文成稿改写前把上限抬高，
+  // 不再用 800-2000 硬截（5000 字原文会被压掉 60%）。
+  it('R3：长文成稿改写时字数上限按原文长度自适应（不再硬截到 2000）', async () => {
+    const { aiRewrite } = await import('@/api/publisher')
+    aiRewrite.mockClear()
+    const wrapper = factory()
+    const input = wrapper.find('textarea.rewrite-textarea')
+    await input.setValue('这是一段长文成稿。' + '内容填充。'.repeat(700))
+    await nextTick()
+    await wrapper.find('.rewrite-start-btn').trigger('click')
+    await nextTick()
+    await nextTick()
+    expect(aiRewrite).toHaveBeenCalled()
+    const range = aiRewrite.mock.calls[0][0].userSettings.wordCountRange
+    expect(range.max).toBeGreaterThan(2000)
+    expect(range.max).toBeLessThanOrEqual(6000)
+    expect(range.min).toBeLessThanOrEqual(range.max)
+  })
+
   it('renders word count inputs with default 800-2000', () => {
     const wrapper = factory()
     const inputs = wrapper.findAll('input.word-count-input')
@@ -476,12 +570,54 @@ describe('RewriteView', () => {
 
   // 设计评审 Q5：选题创作模式的输入是「主题种子」而非待改写正文，
   // 字数概览若标成「原文」会把种子误读为需保留语义的原文（与评分口径同一概念陷阱）
-  it('选题创作模式下字数概览用「主题」（组件默认模式即 create）', async () => {
-    const wrapper = await runRewrite() // 不指定模式 → 组件默认 create
+  // rewrite-default-strategy-fix：默认模式不再写死 create，改为按输入形态推导；
+  // 本用例改为显式切到 create 验证文案口径（默认路径的行为由下方 imitate 用例覆盖）。
+  it('选题创作模式下字数概览用「主题」（显式切到 create）', async () => {
+    const mocks = await import('@/api/publisher')
+    mocks.aiRewrite.mockResolvedValueOnce({
+      code: 0,
+      data: {
+        success: true,
+        result: '这是改写后的文案内容，用于测试。',
+        strategy: { id: 's1', name: '测试策略', category: 'viral' },
+        warnings: [], sensitiveHits: [], knowledgeRefs: [],
+        metadata: { mode: 'create', originalLength: 30, resultLength: 18, aiTasteLevel: 0.15 },
+        quality: { sufficiency: 78.5, semanticPreservation: 65.2, originality: 82.1, verdict: 'pass', suggestions: ['好'], method: 'simhash' },
+      },
+    })
+    const wrapper = await runRewrite('create')
     const meta = wrapper.find('.rewrite-result-meta')
     expect(meta.text()).toContain('主题 30 字 → 结果 18 字')
     expect(meta.text()).not.toContain('原文')
     expect(meta.text()).not.toMatch(/\{[^{}]+\}/)
+  })
+
+  // R2 回归锁（rewrite-default-strategy-fix）：成稿默认必须走 imitate。
+  // 缺陷形态：默认 create 授权模型「重新创作」，实测把 5000 字深度报道改成 800 字带货腔。
+  // R2 回归锁（rewrite-default-strategy-fix）：成稿默认必须走 imitate。
+  // 缺陷形态：默认 create 授权模型「重新创作」，实测把 5000 字深度报道改成 800 字带货腔。
+  // 输入用真实成稿形态（多句多段、远超灰色带），而非 runRewrite 的通用短句测试文案
+  // —— i5 判据收紧后，20 余字的单句测试文案按「选题种子」处理，走 create 才是正确行为。
+  it('R2：成稿输入默认走 imitate（不再写死 create）', async () => {
+    const { aiRewrite } = await import('@/api/publisher')
+    aiRewrite.mockClear()
+    const wrapper = factory()
+    await nextTick()
+    const draft = [
+      '上周AI圈都在讨论一件事，但大多数人只看到了一半。',
+      '7月15日，前OpenAI CTO在旧金山发布了新模型，20亿美元融资，975B参数。',
+      '强化学习之父也宣布创办新实验室，认为当前方法需要从根基上重新来过。',
+      'SWE-bench Verified 评测中，新模型以 85.6 分登顶第一。',
+      '这套架构有个正式名字：不同能力在共享基座之上独立训练、灵活组合。',
+    ].join('\n')
+    const textarea = wrapper.find('textarea.rewrite-textarea')
+    await textarea.setValue(draft)
+    await nextTick()
+    await wrapper.find('.rewrite-start-btn').trigger('click')
+    await nextTick()
+    await nextTick()
+    expect(aiRewrite).toHaveBeenCalled()
+    expect(aiRewrite.mock.calls[0][0].mode).toBe('imitate')
   })
 
   it('扩写模式下字数概览用「原文」', async () => {
@@ -980,6 +1116,10 @@ describe('RewriteView — 策略选择与匹配预览', () => {
     await nextTick()
     await nextTick()
     // 改写结束后 finally 中再次刷新（第 2 次）
+    // rewrite-default-strategy-fix(i3)：content 进预览 watch 但走 300ms 防抖——
+    // 键入产生的预览请求被合并推迟，本次同步触发的 click→finally 路径里
+    // 防抖 timer 尚未到期 ⇒ 实际发出的只有「挂载 + finally」两次。
+    // （防抖请求本身由 i3 专项用例用 fake timers 单独覆盖。）
     expect(aiGetRecommendedStrategies).toHaveBeenCalledTimes(2)
   })
 

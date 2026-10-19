@@ -49,6 +49,8 @@ function registerAllHandlers(ipcMain, deps) {
   require('./rate-limit').registerHandlers(ipcMain, deps)
   require('./tts-voice-catalog')(ipcMain, deps)
   require('./tts-voice-clone')(ipcMain, deps)
+  // 数字人形象/音色目录（avatar-spokesperson 流水线接通 HeyGen）
+  require('./avatar-catalog')(ipcMain, deps)
   require('./prompt-eval')(ipcMain, deps)
   require('./generation-feedback')(ipcMain, deps)
   // 影视工程（film-engineering）流水线

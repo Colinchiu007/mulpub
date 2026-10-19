@@ -126,6 +126,18 @@
 - **随批收红**：`QG Static` 的 Gate 7 抓到两处开发者诊断硬编码中文（改英文）；`Gate 12e` 的 tasks 编号断档；`check-max-lines` 把 `publishProgress.js` 557→498（看门狗抽到 `publish-progress-stall.js`）；`SettingsDialog` 的 `Keyboard` 图标名不存在（`@element-plus/icons-vue` 无此导出，Proxy 夹具使其在单测里隐形、只有 `vite build` 才炸）→ 改 `Key` 并补 `icon-imports-exist.test.js`。三条既有锁按实测改判据方向而非放宽：`window.test.js`（改为断言启动不写标记）、`ipc-exposure-contract`（M-9 抓到 `publisher.js` 直访 `getApi`，实现改用桥接原语且桥接缺席回非 0 码）、`visual-view-runner`（catch-all 加"只能缩小 + 僵尸即红"的非可渲染路由豁免）。
 - **文档**：`01-docs/PRD-UX-AUDIT-IMPLEMENT-2026-10-18.md` 新增 §11（流程 / 显示项 / 提示文字 zh-en 全清单 / 数据校验表 / 不变量与锁位 / 如实记录），`openspec/changes/ux-audit-implement/specs/desktop-ui-experience/spec.md` 新增 4 条 Requirement（含"引导只有单一真源且完成标记只由用户动作写入"、"全局注册组件必须被模板消费"、"帮助页每条指引必须有可达落点"），执行记录追加批次 B 段。
 - **既有假红如实登记**：`preload.test.js` 的 system 模块计数在把 `system.js` 精确还原到 HEAD 后实测 **140**、而断言写 139 ⇒ 该棘轮在本批动手前已差 1；本批按当场测得值改 137 并留下控制对照过程。`electron/services/feedback.test.js` 的 `fs.symlinkSync` 在本机报 `EPERM`（Windows 非特权进程不能建符号链接），与本批无关，判据以 CI 现场为准。
+# [未发布] feat(侧栏): 折叠按钮改为可表意的语义化图标并补齐可发现性（sidebar-toggle-ux）
+
+- **用户反馈是「样式太不明显，根本让人注意不到」，不是功能坏了**：折叠功能本身在 PR #3916 已正确（切换/持久化/跨进程同步/多窗口广播），缺陷全在呈现层。三处独立成因：**①图形不表意** —— 双向 chevron（「<>」）在通行图标语义里读作「代码」或「展开更多」，与「收起侧栏」无关；**②两态共用同一图形** —— 收起/展开只靠颜色区分（primary vs secondary），是单通道编码，对色觉障碍用户完全失效，普通用户也无法从图标判断当前处于哪个状态；**③常态几乎不可见** —— 图标色对 TabBar 背景亮色实测 4.40:1（差 0.1 不达 WCAG AA 4.5:1），边框与底色都是 `transparent`。
+- **三处初始假设在实装前被实测推翻，方案据此改写**（详见 `openspec/changes/sidebar-toggle-ux/proposal.md`）：(a) 原估「现状约 3:1」偏高 —— 实测亮色 4.40:1、暗色 7.79:1，问题只在亮色；(b) 原计划的「用 `--color-border` 做常态边框」实测对 TabBar 背景只有 **1.04:1**，**等于不存在**，这正是现状看不见的技术原因，故改用品牌色倾向的半透明描边；(c) 原计划的「用 `--color-bg-card` 做底色」实测 1.11:1，无区分度，只作辅助。⇒ 主判据定为「图形对比度 + 图形语义化」，边框降级为辅助暗示。
+- **状态差异进形状而非颜色**：图标改为「左侧面板矩形 + 方向箭头」——展开态**实心面板 + 左向箭头**，收起态**虚线面板 + 右向箭头**。两态外轮廓完全一致（只换内部填充），用户感知到的是「同一按钮换了内部状态」而不是「换了个东西」；与颜色（`--color-primary` vs `--color-text-primary`）构成冗余编码，任一通道失效都可读。
+- **收起态新增 2px 品牌色恢复锚点**：侧栏收起后按钮落在窗口最左侧、是**唯一**的恢复入口，而原实现仅靠颜色从 primary 变 secondary 几乎不可察觉。用 `position: absolute` 伪元素实现，不占布局、32×28 命中区不变；实测对比度亮 6.18:1 / 暗 5.13:1，均过非文本 UI 组件的 3:1 要求。
+- **图标对比度提升 3.6 倍**：`--color-text-secondary` → `--color-text-primary`，亮色 4.40:1 → **15.99:1**、暗色 7.79:1 → **12.80:1**；按钮 30×28 → 32×28、图标 16 → 18px。`margin` 逐字保留，`TabBar(36) + NavBar(40) = BROWSER_CHROME_TOP(76)` 契约未动。
+- **面板几何按截图观感修正过一次**：初版面板 5×12 配左箭头，数据全绿但**看图**发现它读作媒体播放器的 `|◀`（「跳到开头」）；加宽到 6.5×11、圆角 1→1.8 后才读作「面板」。**计算样式全对不等于观感正确**，这一步只能靠人眼看图发现，已写入记录。
+- **测试从「锚实现细节」改为「锚退化形态」**：原用例断言「svg 有 2 条 path」，把双 chevron 这个具体实现写成了契约 ⇒ 样式层怎么改都不会红。新的 `SidebarToggleIcon.test.js`（6 例）改用**图形签名**比较两态（对几何微调不敏感、对「退化成同图形换色」敏感），`SidebarToggleButton.test.js` 从 5 例扩到 13 例，新增常态图标色/非透明边框且**不得用 `--color-border`**/非透明底色/尺寸/收起态竖条三要素/hover-focus-reduced-motion 不回退。先红 `10 failed / 9 passed`，后绿 `23 passed`。
+- **视觉证据用「局部截图 + 计算样式」，但基线必须重建——这一条我初判错了，被 CI 当场纠正**：像素门禁 `PIXEL_THRESHOLD=0.06`（整图 6%）下按钮仅占 1280×720 的 **0.1%**，实测亮 20/20 + 暗 20/20 全通过，我据此写下「基线零变化、无需重建」。**CI 推翻它**：红的是 **`Gate 7b - Baseline freshness`**，它判「基线 == 同一次 CI 渲染，**0 px**」，报 `检查 43 张 / 违规 38 张`。**两个判据度量的是不同命题**——6% 管"有没有大面积变化"，0 px 管"基线是否与当前渲染对得上"；我的改动让按钮区域必然变了，所以前者过、后者不过。**修法也不是 `update-baseline`**：那条走像素套渲染，而 Gate 7b 优先取 views 套件渲染，两套在同一 run 内实测差几百像素（dashboard 350 px / collection 67870 px，确定性非噪声），用它更新会让基线立刻再次脱离（`check-baseline-freshness.js` 文件头记的 #2623 正是这段历史）；`test-runner.js:561` 的 `UPDATE_BASELINE` 又只在基线缺失时创建。**实际做法**：下载同一次 CI run 的渲染产物（artifact `quality-gate-visual-reports`）覆盖基线 ⇒ **36 张更新 / 2 张未变 / 5 张无渲染**（3 张是 autonomous-loop 专属的 `KNOWN_UNCOVERED`，2 张本次未产图、Gate 7b 在 partial 下记 skipped 放行）。可见性证据仍另用真实浏览器 `getComputedStyle` 逐项前后对比（含 `::before` 伪元素计算值，jsdom 取不到）+ 明暗双主题局部放大截图。
+- 未改任何主进程代码（`apps/desktop/electron/**` 零改动）⇒ QM-1 按口径不适用；现场记 `openspec/records/sidebar-toggle-ux.md`。
+
 # [未发布] fix(播客): 音色来源标注只给 ②③ 出声，闭集外取值不伪造来源并出声（podcast-voice-origin-tristate）
 
 - **`originLabel` 原先是一张表兼两件事，于是三档全出声**：`ORIGIN_KEYS` 同时回答「有哪些档」（闭集）与「哪些档要出声」（标注资格），而 PRD §8.2.9 判据 2 要的是后者——① 频道自己填的东西不需要再被界面告诉一遍来源。现拆成 `ORIGIN_KEYS`（闭集）+ `ANNOTATED_ORIGINS`（白名单），判据三段：无 origin → 空、闭集外 → `console.warn` + 空（**不得兜底成"取自频道"，那是伪造来源**）、非白名单 → 空。
@@ -133,7 +145,6 @@
 - **闭集外那条排障日志走 ASCII**：首版写成中文，被本机按 CI 清单点名跑的 `check-locale-sync.js --cjk` 逐行点名判红；正解不是 `--update-baseline`（那是把自己新增那一格改成契约），也不是塞进 `locales` 造一对界面永不消费的死键。
 - **五条变异全部指名红**：M1（白名单放进 `channel`）与 M2（清空白名单）**红集不同**——这是"两轴真分开"的证据，若仍是一张表两条变异会打在同一格；M3（摘 warn）与 M4（兜底成频道文案）**红集重合**（同一条用例的两个方向），如实写成"不是两道独立的闸"；M5（撤标注时把三段一起撤掉）红在第二组断言上，这条变异的存在理由就是判据 2 常被写过头。**末态 17 passed**；现场记 `openspec/records/podcast-voice-origin-tristate.md`。
 - **`tasks 4.5b②` 记的是一个产品裁决而不是实现欠账**：频道 `voiceRef` 只有读侧没有写侧，回退链第 ① 档恒为空；写侧需要频道页的音色录入控件，而 §8.2.9「故意不做」第二条禁的是「全局默认音色选择器」（那东西在本仓不存在），与频道级 `voiceRef` 不是同一件事——但 PRD 从未写过这个控件的字段、交互与文案，按「先文档再代码」不临场发明。另拆 `4.5b③`：视频出期浮层 `PodcastEpisodeEntry.vue` 至今 `voice|origin` 命中 0，§8.2.9 原定落点那半未做。
-
 
 # [未发布] docs(openspec): 归档 normalize-debt-ledger-entry-shape —— 主规格拿到「登记项只准承载原因」这条需求（archive-debt-ledger-shape）
 

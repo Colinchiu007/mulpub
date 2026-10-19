@@ -1,0 +1,59 @@
+{
+  "sha": "fecaa7d78fa981bea34256906d4def579007bc72",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 0 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 39,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 3,
+    "docSensitiveContentSample": [
+      "- **pitfall · 由同一条绿灯推出「基线不用更新」是错的 —— 6% 阈值与 0 px 判据管两件不同的事**：接着上一条，我把「像素套 20/20 通过」直接读成「基线零变化、无需重建」。**CI 当场推翻**：红的是 `Gate 7b - Baseline freshness`，它断言「基线 == **同一次 CI 渲染**，0 px」，报 `检查 43 张 / 违规 38 张`。两个判据的度量对象根本不同：`PIXEL_THRESHOLD=0.06` 问\"有没有大面积变化\"（< 6% ⇒ 过），Gate 7b 问\"基线是否还等于当前渲染\"（变了 1 个像素 ⇒ 非法）。⇒ **只要改了任何会进入截图的东西，基线就必须重建**，\"差异够小所以不用重建\"这个推理在本仓不成立。**而且不能用 `update-baseline` 修**：那条走**像素套**渲染，Gate 7b 的 `findRender` 优先取**views 套件**的 `<name>.png`，两套在同一 run 内实测差几百像素（dashboard 350 px / collection 67870 px，确定性非噪声）⇒ 用它更新会让基线**立刻再次脱离** CI 渲染；`test-runner.js:561` 的 `UPDATE_BASELINE` 更只在基线**缺失**时创建、不更新已有基线。**唯一正解**：下载*同一次 CI run* 的渲染产物（artifact `visual-reports`）覆盖基线，让\"基线 == CI 渲染\"逐像素成立。本轮结果 36 张更新 / 2 张未变 / 5 张无渲染（3 张是 autonomous-loop 专属的 `KNOWN_UNCOVERED`，2 张本次未产图 ⇒ Gate 7b 在 partial 下记 skipped 放行）。**可迁移判据**：看到一条门禁绿灯时，先问\"它断言的是哪个命题\"，再问\"还有别的门禁在断言相邻但不同的命题吗\"——本仓同一个 `QG Visual` job 里就有 6 个 step（含 Gate 7b/7c），只看第一个 step 的结论会漏掉后面 5 个。",
+      "- **视觉证据用「局部截图 + 计算样式」，但基线必须重建——这一条我初判错了，被 CI 当场纠正**：像素门禁 `PIXEL_THRESHOLD=0.06`（整图 6%）下按钮仅占 1280×720 的 **0.1%**，实测亮 20/20 + 暗 20/20 全通过，我据此写下「基线零变化、无需重建」。**CI 推翻它**：红的是 **`Gate 7b - Baseline freshness`**，它判「基线 == 同一次 CI 渲染，**0 px**」，报 `检查 43 张 / 违规 38 张`。**两个判据度量的是不同命题**——6% 管\"有没有大面积变化\"，0 px 管\"基线是否与当前渲染对得上\"；我的改动让按钮区域必然变了，所以前者过、后者不过。**修法也不是 `update-baseline`**：那条走像素套渲染，而 Gate 7b 优先取 views 套件渲染，两套在同一 run 内实测差几百像素（dashboard 350 px / collection 67870 px，确定性非噪声），用它更新会让基线立刻再次脱离（`check-baseline-freshness.js` 文件头记的 #2623 正是这段历史）；`test-runner.js:561` 的 `UPDATE_BASELINE` 又只在基线缺失时创建。**实际做法**：下载同一次 CI run 的渲染产物（artifact `quality-gate-visual-reports`）覆盖基线 ⇒ **36 张更新 / 2 张未变 / 5 张无渲染**（3 张是 autonomous-loop 专属的 `KNOWN_UNCOVERED`，2 张本次未产图、Gate 7b 在 partial 下记 skipped 放行）。可见性证据仍另用真实浏览器 `getComputedStyle` 逐项前后对比（含 `::before` 伪元素计算值，jsdom 取不到）+ 明暗双主题局部放大截图。",
+      "| QM-4 视觉 | ✅ **本 PR 的核心门禁**（含一次**纠正**：初判\"基线无需重建\"是错的，已按 Gate 7b 的 0 px 判据重建 36 张） | **① 我先犯的错**：像素门禁（`PIXEL_THRESHOLD=0.06`）本地实测亮 20/20 + 暗 20/20 全通过，我据此写下「40 张基线零变化 ⇒ 基线无需重建」。CI 第 4 轮推翻了这个结论 —— 失败的不是视觉回归，是 **`Gate 7b - Baseline freshness`**，它判「基线 == 同一次 CI 渲染，**0 px**」，报 `检查 43 张 / 违规 38 张`、`违规 36 张`。**两个判据度量的是不同命题**：像素套 6% 管\"有没有大面积变化\"（我的改动 < 6%，确实通过）；Gate 7b 的 0 px 管\"基线是否与当前渲染对得上\"（我的改动让按钮区域变了，必然不过）。把前者读成后者是**混淆了两个判据的语义**。**② 也不能用 `update-baseline` 修**：`test:visual:update-baseline` 走**像素套**渲染，而 Gate 7b 的 `findRender` 优先取**views 套件**的 `<name>.png`，两套渲染在同一 run 内实测差几百像素（dashboard 350 px、collection 67870 px，确定性非噪声）⇒ 用它更新会让基线**立刻再次脱离** CI 渲染（这正是 `check-baseline-freshness.js` 文件头记的 #2623 历史）；`test-runner.js:561` 的 `UPDATE_BASELINE` 又只在基线**缺失**时创建、不更新已有基线。**③ 实际做法**：下载**同一次 CI run 的渲染产物**（artifact `quality-gate-visual-reports`，来自含本改动的 commit）覆盖基线 —— 基线 == CI 渲染，0 px 成立。结果：**36 张更新 / 2 张未变 / 5 张无渲染**（其中 3 张是 `KNOWN_UNCOVERED` 的 autonomous-loop 专属图，另 2 张 `home-baseline`/`create-story2video-detail` 本次未产图 ⇒ Gate 7b 在 partial 下记 skipped 放行）。**④ 同时保留的独立证据**：像素套绿灯**不构成「改动可见」的证据**（按钮占整图 0.1% ≪ 6% 阈值，结构上抓不到小控件样式退化），故可见性证据另用真实浏览器 `getComputedStyle` 逐项前后对比 + 明暗双主题局部放大截图，见下方「视觉证据」段 |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "baef6022701577c1974663c7ef8cc76f09980437410c7d62287f485f995e48a8",
+  "decidedAt": "2026-10-19T01:12:06.556Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

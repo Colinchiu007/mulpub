@@ -466,6 +466,28 @@
     }),
     modelProviderGetDefault: makeHandler('modelProviderGetDefault', async (cat) => ok(state.providers.find(function (p) { return p.id === state.providerDefaults[cat]; }) || null)),
     modelProviderTest: makeHandler('modelProviderTest', async () => ok({ ok: true, latency: 95, model: 'gpt-4' })),
+
+    // 数字人目录（avatar-heygen-wiring 2026-10-19）：嵌套 namespace 形态与
+    // electron/preload/avatar-catalog.js 的暴露面一致（avatarCatalog.{avatars,voices,invalidate}）。
+    // E2E 里数字人流水线要能走完「选形象 → 选音色 → 启动」链路，三个通道都给可用数据；
+    // 形象/音色各两条，与 CreateView.avatar-digital-human.test.js 夹具同形。
+    avatarCatalog: {
+      avatars: makeHandler('avatarCatalogAvatars', async () => ok({
+        avatars: [
+          { id: 'e2e-avatar-1', name: 'E2E 形象一' },
+          { id: 'e2e-avatar-2', name: 'E2E 形象二' },
+        ],
+        cached: false,
+      })),
+      voices: makeHandler('avatarCatalogVoices', async () => ok({
+        voices: [
+          { id: 'e2e-voice-1', name: 'E2E 音色一' },
+          { id: 'e2e-voice-2', name: 'E2E 音色二' },
+        ],
+        cached: false,
+      })),
+      invalidate: makeHandler('avatarCatalogInvalidate', async () => ok(true)),
+    },
     modelProviderPresets: makeHandler('modelProviderPresets', async (cat) => ok(state.providers.filter(function (p) { return p.is_preset && (!cat || p.category === cat); }))),
     modelProviderIsConfigured: makeHandler('modelProviderIsConfigured', async (cat) => ok(state.providerDefaults[cat] != null)),
 
