@@ -1,0 +1,40 @@
+{
+  "sha": "d65f0b76fc53379d4b2c0e9adec7801f8853a452",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 399 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 399,
+    "fileCount": 15,
+    "codeFileCount": 10,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 7,
+    "docSensitiveContentSample": [
+      "| 任务 ID | 形如 `auto-20261019143022`，断点续跑的凭据 | `zh.js:52` |",
+      "| 用途 | 出片台账与断点续跑的凭据 | `zh.js:155` |",
+      "**累计已确认 {count} 镜**（`zh.js:167`）——让你清楚已授权了多少。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "3c72fcd6a87f5aade8bd249d7a1efeb662a78e59f5818cee52d04412f7a909f7",
+  "decidedAt": "2026-10-19T00:42:05.107Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "performedBy": null,
+    "findings": null
+  }
+}

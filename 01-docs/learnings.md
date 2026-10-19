@@ -110,6 +110,77 @@
 那样会把刚拆掉的第二真源又装回去。正解是在夹具里注册 provider 行——因为生产路径本来就是
 「先 `loadS2VProviders` 再操作音色」，夹具缺的是前置条件而不是断言太严。
 判据：夹具报红时先问「生产里这个前置一定成立吗」，成立就补夹具；不成立就是实现缺 fail-closed 或提示。
+## 两类「测试全绿但功能对真实数据无效」：夹具理想化与动态 i18n key 漏登记（fix-film-engineering-defects，2026-10-19）
+
+### lesson:idealized-fixture-blinds-tests-to-real-input
+
+**用符合实现的假数据测实现，永远测不出实现与真实数据的错配——关键算法必须有一条「真实语料统计特征」断言。**
+
+现场：影视工程一键复制提供 blocks / characters / geo 三种结构化提取模式。既有
+`shot-library.test.js` 里这三个模式各有单测且全绿。但用主进程同一套切块逻辑跑**真实 kit
+的 153 个分镜**实测：能切出任意块的仅 **3 镜（2.0%）**，`GEO SPATIAL LAYOUT` 命中 **0**，
+`[CHARACTER:` 命中 **0**。即三个按钮在真实数据上几乎恒返回「（无 GEO SPATIAL LAYOUT 块）」。
+
+根因是切块用**整行精确比较**（`BLOCK_HEADINGS.includes(line.toUpperCase())`），而真实提示词的
+块标题带括号后缀与结尾冒号：`GEO SPATIAL LAYOUT (locked across every CO shot — pure spatial map):`。
+
+**为什么既有测试拦不住**：那三个用例的夹具是测试作者手写的干净文本，块标题就是纯
+`GEO SPATIAL LAYOUT`。这种夹具在「整行精确比较」和「行首前缀匹配」两种实现下**都会通过**——
+它测的是算法意图，不是算法对真实输入的有效性。改实现后它们仍全绿，所以**新写的断言必须
+锚定真实语料的统计特征**（命中数 > 0、切块率 > 阈值），才能反向锁住退化。
+
+修复后实测：**66/153（43.1%）**能切块。
+
+### lesson:dynamic-i18n-key-registration-is-unguarded
+
+**三道文案门禁（locale 成对 / 渲染端硬编码中文扫描 / i18n-glossary）都只管字面量中文，
+管不到「代码生成的动态 key」是否登记——这是结构性盲区，必须补全仓扫描锁。**
+
+现场：影视工程自动模式的进度区三行阶段名显示为英文 id 原文（`film_auto_plan` /
+`film_auto_generate` / `film_auto_render`）。阶段 id 定义在 `useFilmAutoRun.js`，但从未登记进
+`src/i18n/pipeline-labels.js` 的 STAGES 表，`translate()` 走 fallback 返回原始 id。
+引入点 `b3ee1579`（PR #3234 新增自动模式时只定义 id、忘了登记翻译）。
+
+`check-locale-sync` 查的是「zh/en 是否成对」，硬编码扫描查的是「src/ 非 locales 文件里有没有
+中文字面量」，i18n-glossary 管产品名词——**三者扫描的都是字面量**，而这里的缺失是「一个
+代码生成的 key 没有对应条目」，形状上不属于任何一类的检查对象。正解是补一条**全仓扫描**判据：
+凡是传给进度/阶段组件的阶段 id 字面量，必须在翻译表有登记，且 zh/en 两侧都有文案。
+
+### lesson:error-fallback-else-swallows-cause
+
+**防御式 `else` 兜底会吞掉原因多样性；composable 若把真实 errorCode 换成硬编码常量再返回，
+调用方就彻底失去了分流能力——错误透传链必须端到端保真。**
+
+现场：画布点「生成所选」失败时，除「超 10 镜」「未选分镜」外**所有**失败都弹「影视引擎不可用」。
+真实原因常是没配视频模型，用户却以为是安装坏了。
+
+是两处叠加：① 视图 `else` 分支过宽；② `useFilmVideoGen.start` 第 166 行捕捉了 `res.errorCode`，
+但第 169 行**恒返回硬编码 `'startFailed'`**，真实原因在返回时被丢弃。只改视图没用——判据
+拿不到值。修复必须两处都改。
+
+### lesson:derived-display-field-needs-write-side-test
+
+**「渲染侧读字段、写入侧没写」是跨文件盲区：人眼难发现，只能靠写入端单测配对。**
+
+现场：`ShotNode.vue` 渲染「已注入 {n} 张参考」，但全仓无代码写入 `data.refCount`（grep 仅命中
+渲染处）⇒ 提示永不显示，用户连线后得不到任何反馈。参考注入走的是
+`collectShotReferences → buildLocalReferences → initialContext` 链路，与 `refCount` 通道未接上。
+修复时在 `addEdge` / `removeNodes` 后回写，**真源仍是 `collectShotReferences`**（与实际参与生成的
+参考同源，不引入第二套计数）。
+
+### lesson:two-hardcoded-sets-need-a-same-source-lock
+
+**同一组约束在两处各写一份，必然漂移；正解是让一处生成另一处，或用同源锁机械比对。**
+
+现场：方法论标签页展示 **7 大块**（`prompt-doctrine.json`），而切块用的 `BLOCK_HEADINGS` 只有
+**5 项**（缺 SCENE CONTEXT 与 STYLE）。修复补齐为 7 项，并加同源锁：断言 `BLOCK_HEADINGS` 集合
+=== `prompt-doctrine.json` 的 `blocks[].label` 集合。正则也从 `BLOCK_HEADINGS` 生成，避免第三处硬编码。
+
+### rule:code-review-two-new-questions
+
+Code Review 清单新增两问（针对上述两类盲区）：
+1. 这段逻辑有没有用**真实数据**跑过？测试夹具是不是照着实现写的？
+2. 新增的动态 i18n key 登记进翻译表了吗？
 
 ## 任务详情页模型信息：先核实「信息有没有落盘」，再摆四个字段（s2v-result-model-info，2026-10-18）
 
