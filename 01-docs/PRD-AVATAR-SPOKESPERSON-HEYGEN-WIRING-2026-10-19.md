@@ -4,7 +4,7 @@
 |---|---|
 | 文档编号 | PRD-AVATAR-SPOKESPERSON-HEYGEN-WIRING-2026-10-19 |
 | 状态 | 待实现 |
-| 分支 | `avatar-heygen-wiring`（worktree: `D:/Data/projects/mp-worktrees/mp-avatar-heygen-wiring`） |
+| 分支 | `avatar-heygen-wiring`（隔离 worktree：仓库父目录下 `mp-worktrees/mp-avatar-heygen-wiring`，非共享根） |
 | 优先级 | P1（补齐已登记但未接通的流水线能力） |
 | 关联流水线 | `avatar-spokesperson`（数字人口播） |
 | 关联模型 | HeyGen（provider id `heygen`，model `heygen-video`） |

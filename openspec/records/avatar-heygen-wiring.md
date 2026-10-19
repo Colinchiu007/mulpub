@@ -12,7 +12,7 @@ mode: full
 | 项 | 值 |
 |---|---|
 | 变更类型 | 运行时代码变更（apps/desktop/electron + apps/desktop/src）+ 文档 |
-| 隔离方式 | **独立 worktree**：`D:/Data/projects/mp-worktrees/mp-avatar-heygen-wiring` |
+| 隔离方式 | **独立 worktree**：`<repo 父目录>/mp-worktrees/mp-avatar-heygen-wiring`（D 盘，非共享根） |
 | 分支 | `avatar-heygen-wiring`（非共享根 main） |
 | 是否 docs-only | 否（混合 PR，走完整质量节拍） |
 | 落盘路径 | D 盘（符合「非 C 盘」要求） |
