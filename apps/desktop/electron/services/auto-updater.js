@@ -157,11 +157,15 @@ function init (win, onStatus) {
       total: progress.total,
       transferred: progress.transferred
     })
+    // forced-update-gate：进度透传给阻断弹窗（gate 窗口不收 update:status 广播）
+    _notifyProgress({ type: 'downloading', percent: Math.round(progress.percent) })
   })
 
   autoUpdater.on('update-downloaded', () => {
     _updateDownloaded = true
     _sendStatus('downloaded', '更新已下载，重启后生效')
+    // forced-update-gate：下载完成 → gate 窗口切"即将安装"视图（随后 quitAndInstall）
+    _notifyProgress({ type: 'downloaded' })
     // 用户已点击「新版本」→ 下载完成即退出应用并安装（点击即视为同意）
     if (_installRequested) {
       _installRequested = false
@@ -179,9 +183,27 @@ function init (win, onStatus) {
       return
     }
     _sendStatus('error', errorMessage(err))
+    // forced-update-gate：失败透传 → gate 窗口显示重试按钮
+    _notifyProgress({ type: 'error', message: errorMessage(err) })
   })
 
   _listenersRegistered = true
+}
+
+// ── forced-update-gate：进度订阅器（gate 窗口专用通道，与渲染端 update:status 广播解耦）──
+let _progressListeners = new Set()
+
+/** 注册 gate 进度消费者；返回取消订阅函数。 */
+function onProgress (fn) {
+  if (typeof fn !== 'function') return () => {}
+  _progressListeners.add(fn)
+  return () => _progressListeners.delete(fn)
+}
+
+function _notifyProgress (payload) {
+  for (const fn of _progressListeners) {
+    try { fn(payload) } catch (e) { /* 单个消费者失败不影响主链 */ }
+  }
 }
 
 /**
@@ -311,4 +333,4 @@ function _sendStatus (type, data) {
   }
 }
 
-module.exports = { init, check, download, quitAndInstall, installNow, applyPolicy, _compareVersions }
+module.exports = { init, check, download, quitAndInstall, installNow, applyPolicy, onProgress, _compareVersions }

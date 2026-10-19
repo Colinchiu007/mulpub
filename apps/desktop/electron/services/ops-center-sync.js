@@ -359,9 +359,12 @@ class OpsCenterSync {
         // 断连恢复补报 + 生效 ACK 都以「本轮成功应用」为触发点（失败路径不可能也不应该发）
         this._resilience.recordApplied({ payload: settled.value, servingTier: this._servingTier })
           .catch((e) => this._log.notify('OpsCenterSync', 'runtime-report-error', { level: 'WARN', error: String((e && e.message) || e) }))
+        // forced-update-gate：同步结果透传（宽限期数据源 = 每次成功拉取）
+        this._emitSyncOutcome({ ok: true, policy: this.getUpdatePolicy() })
         return { runtimeApplied: true, runtimeSyncedAt: settled.value.synced_at || '' }
       } catch (e) {
         this._log.notify('OpsCenterSync', 'runtime-apply-error', { level: 'WARN', error: String((e && e.message) || e) })
+        this._emitSyncOutcome({ ok: false })
         return { runtimeApplied: false, runtimeSyncedAt: '' }
       }
     }
@@ -375,7 +378,23 @@ class OpsCenterSync {
       failureKind: (error && error.failureKind) || classifyFailureKind(error),
       servingTier: this._servingTier,
     })
+    // forced-update-gate：拉取失败 → 宽限逻辑（72h）由消费方裁决
+    this._emitSyncOutcome({ ok: false })
     return { runtimeApplied: false, runtimeSyncedAt: '' }
+  }
+
+  /** forced-update-gate：同步结果回调透传（setOnSyncOutcome 注册；无注册者时零开销） */
+  _emitSyncOutcome(outcome) {
+    if (typeof this._syncOutcomeConsumer === 'function') {
+      try { this._syncOutcomeConsumer(outcome) } catch (e) {
+        this._log.notify('OpsCenterSync', 'sync-outcome-consumer-error', { level: 'WARN', error: String((e && e.message) || e) })
+      }
+    }
+  }
+
+  /** forced-update-gate：注册同步结果消费者（bootstrap 成功/失败各一次机会） */
+  setOnSyncOutcome(fn) {
+    this._syncOutcomeConsumer = typeof fn === 'function' ? fn : null
   }
 
   _getStoredKeyEnc() {

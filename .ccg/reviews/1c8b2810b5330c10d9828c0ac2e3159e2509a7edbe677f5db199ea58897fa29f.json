@@ -1,0 +1,59 @@
+{
+  "sha": "d13375e4dbbeb55cc278f1b852439115e8c57d42",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 1539 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 1539,
+    "fileCount": 38,
+    "codeFileCount": 30,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 47,
+    "docSensitiveContentHits": 29,
+    "docSensitiveContentSample": [
+      "# PRD：强制升级安全机制（Forced Update Gate）",
+      "> 日期：2026-10-19 ｜ 任务：forced-update-gate ｜ 状态：已定案（grilling Q1-Q12 全部按推荐）",
+      "> 关联：`openspec/changes/forced-update-gate/`（proposal/design/tasks）；执行记录落地后见 `openspec/records/forced-update-gate.md`"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "1c8b2810b5330c10d9828c0ac2e3159e2509a7edbe677f5db199ea58897fa29f",
+  "decidedAt": "2026-10-19T09:47:08.660Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

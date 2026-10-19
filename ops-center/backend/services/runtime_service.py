@@ -182,6 +182,9 @@ def _update_policy_to_dict(row) -> dict | None:
         "min_version": row.min_version or "",
         "force_version": row.force_version or "",
         "gray_ratio": row.gray_ratio if row.gray_ratio is not None else 100,
+        # forced-update-gate：存量库补列前 row 上可能没有这两列（迁移前读旧快照），getattr 兜底
+        "enforce_min_version": getattr(row, "enforce_min_version", None) or "",
+        "enforce_enabled": bool(getattr(row, "enforce_enabled", 0)),
         "enabled": bool(row.enabled),
         "note": row.note or "",
         "updated_at": row.updated_at,
@@ -286,16 +289,27 @@ async def upsert_update_policy(db: AsyncSession, body: dict) -> dict:
     gray_ratio = _validate_gray_ratio(body.get("gray_ratio"))
     enabled = 1 if str(body.get("enabled", "true")).lower() in ("true", "1") else 0
     note = str(body.get("note") or "").strip()[:200]
+    # ── forced-update-gate：强制阻断字段（2026-10-19）──
+    enforce_enabled = 1 if str(body.get("enforce_enabled", "false")).lower() in ("true", "1") else 0
+    enforce_min_version = _validate_version(body.get("enforce_min_version"))
+    if enforce_enabled:
+        if not enforce_min_version:
+            raise ValueError("启用强制阻断时必须填写 enforce_min_version（低于此版本的客户端将被阻断）")
+        if min_version and _cmp_version(enforce_min_version) >= _cmp_version(min_version):
+            raise ValueError("强制阻断版本必须低于最低提示版本（阻断线必须严于提示线）")
     now = _now()
     row = (await db.execute(sa.select(UpdatePolicy).order_by(UpdatePolicy.id).limit(1))).scalar_one_or_none()
     if row is None:
         row = UpdatePolicy(min_version=min_version, force_version=force_version,
-                           gray_ratio=gray_ratio, enabled=enabled, note=note, updated_at=now)
+                           gray_ratio=gray_ratio, enforce_min_version=enforce_min_version,
+                           enforce_enabled=enforce_enabled, enabled=enabled, note=note, updated_at=now)
         db.add(row)
     else:
         row.min_version = min_version
         row.force_version = force_version
         row.gray_ratio = gray_ratio
+        row.enforce_min_version = enforce_min_version
+        row.enforce_enabled = enforce_enabled
         row.enabled = enabled
         row.note = note
         row.updated_at = now

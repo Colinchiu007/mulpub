@@ -10,6 +10,7 @@ from middleware.auth import get_current_user, require_admin
 from services import model_preset_service
 from services.capability_default_models import capability_overview
 from services.logto_verifier import verify_bearer_or_catalog_key
+from services.version_gate import enforce_version_gate
 
 router = APIRouter(prefix="/api/v1/model-presets", tags=["model-presets"])
 def _secret() -> str:
@@ -55,7 +56,7 @@ async def get_capability_overview(
     return {"capabilities": capabilities, "missing_count": missing}
 
 
-@router.get("/catalog")
+@router.get("/catalog", dependencies=[Depends(enforce_version_gate)])
 async def get_model_preset_catalog(
     db: AsyncSession = Depends(get_db),
     _key: None = Depends(verify_bearer_or_catalog_key),
