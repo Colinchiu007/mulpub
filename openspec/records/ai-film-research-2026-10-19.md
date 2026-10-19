@@ -54,3 +54,7 @@ date: 2026-10-19
 2. ASR 口播粗剪**确认是真缺口** —— transcriber.py（247 行）已提供 word_timestamps，但全仓无口水词/粗剪逻辑。
 
 另修：§2.1 waoowaoo 重复行（结论互斥）合并；§5 批次一表格被修正块从中间截断已修复。
+
+### 第二层深挖（v3，follow-up）
+
+三个新项目各加一节第二层（§3.17.1 / §3.18.1 / §3.19.1）：FireRed 的 MoviePy 栈与节拍分配算法（SUBCLIP_END_SAFETY_MARGIN_S 安全边距 / 双窗口 clamp / BGM 三态 / SNAP_SAFETY_MAX_STEPS 防死循环）、smy 的失败模式表与分层配方与色盘闭环（仅抽象做法，文本不可复制）、ToonCrafter 的首尾帧约束模型机制（c_concat 钉两端 / Fusion zero-init / 末帧裁剪）。报告 1690 → 1867 行。

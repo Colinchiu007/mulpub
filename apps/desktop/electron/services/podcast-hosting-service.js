@@ -377,7 +377,7 @@ class PodcastHostingService {
    *
    * 三条不收口后果都不可逆：① contentType 必须由 ffprobe 实测的 mime 给出，沿用 feed 的
    *   application/rss+xml 会让 OSS 把音频按 xml 回给订阅端（聚合端表现为「有直链但下不下来」，本地一切
-   *   看起来都成功）；② key 必须带 channelId，两期写进同一层＝后一次发布静默覆盖前一期；
+   *   看起来都成功）；② key 必须带 channelId，且末段 stem 必须随这一期变化——跨频道漏 channelId、同频道跨期漏 stem 是同一个故障的两个方向，任一缺失都让后一次发布静默覆盖前一期；
    *   ③ putObject 不回传字节数时绝不回 success——缺第三处一致校验就等于放过一个尺寸错的对象。
    */
   async publishAudio (channelId, options = {}) {
