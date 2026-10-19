@@ -360,15 +360,18 @@ function mergedCopiesOf(root, mergedShas, file) {
   };
 }
 
-// 「合并产物里这个文件的那一份」相对「我这版」和「改动起点」是什么关系。
-// 三分而不是两分，是因为"产物 ≠ 我这版"有两种成因，方向相反：
-//   revised     —— 产物是**另一版修订**（评审后改过再落地）⇒ 报缺的行是"我这旧版没被采纳"，不是工作丢了；
-//   not-carried —— 产物**等于起点**，即我的改动根本没带上 ⇒ 那就是真丢失，绝不得被"有修订"这种说法洗白。
-// 只比较 tip 与 merge 两个 blob 会把这两格合成一格，而那正是最危险的一次合并。
+// 「合并产物里这个文件的那一份」相对「我这版」和「改动起点」是什么关系。**读数不宣称方向**。
+// 三分而不是两分，是因为"产物 ≠ 我这版"有两种成因，危险方向相反：
+//   not-carried —— 产物**等于起点** ⇒ 这笔合并根本没带上我的改动，那是真丢失，不得被另一格洗白；
+//   different   —— 产物既不是我这版也不是起点 ⇒ 只知道"这笔落地的不是我当前这版"。
+//                  方向未定：可能是评审改了产物再落地（本仓 #3733 就是这种），也可能是**分支在这笔之后
+//                  自己又前进了**（同一分支被两笔 PR 用过时，早期那笔合法落地的版本也会落进这一格 ——
+//                  由 QM-6 后端轴 B1 提出并经本地复现证实，见测试 T33）。要定性必须去比 blob，不得由本读数代答。
+// 只比较 tip 与 merge 两个 blob 会把前两格合成一格，那正是最危险的一次合并。
 function classifyRevision(mergeBlob, tipBlob, baseBlob) {
   if (mergeBlob === tipBlob) return 'carried';
   if (mergeBlob === baseBlob) return 'not-carried';
-  return 'revised';
+  return 'different';
 }
 
 // 两份文本的按键差异规模（按行多重集，不做任何归一化 —— 与判定本体同一口径）。
@@ -384,7 +387,7 @@ function lineDiffScale(tipText, mergeText) {
 }
 
 function revisionsAtMerge(root, mergedShas, file, tipBlob, baseBlob) {
-  const out = { carried: 0, revised: [], notCarried: [] };
+  const out = { carried: 0, different: [], notCarried: [] };
   for (const sha of mergedShas || []) {
     if (!sha) continue;
     const mb = blobOid(root, sha, file);
@@ -392,7 +395,7 @@ function revisionsAtMerge(root, mergedShas, file, tipBlob, baseBlob) {
     if (kind === 'carried') { out.carried++; continue; }
     if (kind === 'not-carried') { out.notCarried.push({ at: String(sha).slice(0, 9) }); continue; }
     const d = lineDiffScale(tipBlob === null ? '' : blobText(root, tipBlob), mb === null ? '' : blobText(root, mb));
-    out.revised.push({ at: String(sha).slice(0, 9), onlyInMerge: d.onlyInMerge, onlyInTip: d.onlyInTip });
+    out.different.push({ at: String(sha).slice(0, 9), onlyInMerge: d.onlyInMerge, onlyInTip: d.onlyInTip });
   }
   return out;
 }
@@ -636,12 +639,12 @@ function show(line) {
 function describeRevisions(rev) {
   if (!rev) return '';
   const parts = [];
-  const revised = rev.revised || [];
+  const different = rev.different || [];
   const notCarried = rev.notCarried || [];
-  if (revised.length) {
-    parts.push('修订@' + revised.slice(0, 2).map((x) =>
+  if (different.length) {
+    parts.push('版本不同@' + different.slice(0, 2).map((x) =>
       x.at + '(主干独有' + x.onlyInMerge + '行/我这版独有' + x.onlyInTip + '行)').join(',') +
-      (revised.length > 2 ? ' …(共 ' + revised.length + ' 笔)' : ''));
+      (different.length > 2 ? ' …(共 ' + different.length + ' 笔)' : ''));
   }
   if (notCarried.length) {
     parts.push('根本没带上@' + notCarried.slice(0, 2).map((x) => x.at).join(',') +
@@ -713,14 +716,14 @@ function main(argv) {
     }
   }
   const revOf = (v) => (v && v.revisionsAtMerge) || {};
-  const nRevised = r.files.filter((x) => ((revOf(x).revised) || []).length > 0).length;
+  const nDifferent = r.files.filter((x) => ((revOf(x).different) || []).length > 0).length;
   const nNotCarried = r.files.filter((x) => ((revOf(x).notCarried) || []).length > 0).length;
   console.log('[BRANCH-MERGED] ref=' + String(o.ref).slice(0, 12) + ' ' + againstNote +
     ' merges=' + r.merges.length + ' files=' + r.files.length +
     ' identical=' + counts.IDENTICAL + ' drift=' + counts['DRIFT-ATTRIBUTED'] +
     ' lost=' + counts.LOST + ' unattributed=' + counts.UNATTRIBUTED +
     ' judge_error=' + (r.judgeError ? 1 : 0) +
-    ' 修订落地=' + nRevised + ' 没带上=' + nNotCarried);
+    ' 落地版本不同=' + nDifferent + ' 没带上=' + nNotCarried);
   if (r.judgeError) {
     for (const why of r.reasons) console.error('[BRANCH-MERGED] 判据自身故障（按"未证实"处理，不得据此删分支）：' + why);
     return EXIT_JUDGE_ERROR;
