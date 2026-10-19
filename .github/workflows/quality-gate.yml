@@ -907,6 +907,13 @@ jobs:
           # 同时出现"的文件另立只可缩小的风险档清单，新增即红。判据本身带三档失明出口（rc=2）。
           node --test scripts/check-vfor-stable-key.test.js
           node scripts/check-vfor-stable-key.js
+          # label/legend 关联棘轮（UX 审计 4.3 / audit-50，2026-10-19）：没关联的 <label> 对读屏是
+          # "点不动、念不出"的死文字，而像素上完全正常 ⇒ 视觉门禁与肉眼审查都看不见。
+          # 计数只认 HTML 规范的两种合法关联（显式 for / 内含**原生**控件）；<el-input> 与自定义组件
+          # 不算 capturing label，必须补 for。第一版把词表写成 /\b(input|…)\b/ 会把 <el-input> 也算控件
+          # ⇒ 判据被写宽，由自家用例 ② 当场抓出后重算基线。存量 139 处 / 25 文件只可缩小。
+          node --test scripts/check-label-association.test.js
+          node scripts/check-label-association.js
           # 账本门禁不在此处：账本 JSON 已进 docs-only 白名单，而本 job 整个被 docs-only 门控，
           # 留在这里等于「纯文档 PR 没人校验账本」。它现在在无条件执行的 changes job 里。
           # docs-only 短路判定单一真源的回归锁（change: docs-only-ci-shortcircuit）
