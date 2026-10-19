@@ -5,9 +5,6 @@
   "apps/desktop/src/components/StaggeredList.vue": {
     "reason": "阶段 5.3 首版基线（2026-10-19 实测零生产引用）。audit-6 原始四例之一，列表入场动效改由 CSS 承担；终局是删除该组件与其测试，不是补一个用它的界面。"
   },
-  "apps/desktop/src/components/TrialBanner.vue": {
-    "reason": "阶段 5.3 首版基线（2026-10-19 实测唯一命中是 DashboardExtraPanels.vue:153 的一句注释，判据按代码域搜引用故不算消费者）。_trial banner 与 license 展示位属产品决策，归 3.7 三态统一批次一并裁决（展示或下线）。"
-  },
   "apps/desktop/src/features/accounts/components/AccountGroupManager.vue": {
     "reason": "阶段 5.3 首版基线（2026-10-19 实测零生产引用）。origin/main 的 PRD-UI-FLOW-CLARITY S1a 把账号域页内导航重做成 AccountModuleTabs.vue，分组管理改由 Accounts.vue 的 accountTab=groups 分支承载 —— 本组件是被那次重构**取代但未删除**的旧实现，归「账号页工具条/分组」批次（3.9）裁决删除或复用。"
   },
