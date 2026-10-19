@@ -60,9 +60,13 @@ function onClick(event) {
 }
 .ui-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 /* 键盘焦点环（audit-25 / WCAG 2.4.7）：UiButton 根节点的 classes 恒含基类 ui-btn，
- * 所以一条基类规则即可覆盖全部 <UiButton> 用法（与 cohere 那族不同——那族模板只带变体类，
+ * 所以一条基类规则即可覆盖全部 UiButton 用法（与 cohere 那族不同 —— 那族模板只带变体类，
  * 见 styles/cohere-design-system.css 的 group selector 与 focus-ring.test.js 的清点判据）。
- * 颜色取 tokens.css 的 --color-focus-ring。 */
+ * 颜色取 tokens.css 的 --color-focus-ring。
+ * ⚠ 这段解释里不要写尖括号形式的组件名：src/views/Publish.test.js 的「SFC 必须自行导入
+ *   Ui* 基础组件」合同按原始文本扫全域 .vue 文件，注释里的尖括号组件名会被当成一次用法，
+ *   而本文件当然不会 import 自己 —— 2026-10-19 本 PR 就是这样把 QG Desktop Shards 与
+ *   QG Coverage 两个 required check 一起判红的（一条散文，两处红）。 */
 .ui-btn:focus-visible { outline: 2px solid var(--color-focus-ring); outline-offset: 2px; transition: outline-color 0s, outline-width 0s, outline-offset 0s; }
 
 .ui-btn.is-loading { opacity: 0.65; cursor: not-allowed; }
