@@ -375,6 +375,9 @@ handleTogglePlatform(platformId)
 | N6 | proration / 试用 | 真实支付接通 | P2-PAYMENT |
 | N7 | **平台数服务端强制**（发布提交端校验已选平台数；到期降级时裁剪已选超限平台） | 发布入口需按平台数 consume/assert；降级时前端需重放选择集 | 独立 PR。**本轮 max_platforms 只有客户端软拦，可被绕过；PRD/CHANGELOG 不得表述为「已强制」** |
 | N8 | 日发口径统一（客户端按日、服务端按 `daily×30` 月度扣减） | 需要「今日已发条数」数据源并定义突发日语义 | 与 N5 同批 |
+| N9 | **`grant` 幂等**（后台重复提交会叠加时长并重复发通知，返回体无 `idempotent`） | 需要 operator + 请求指纹去重键 | 独立 PR（与 N7 同批） |
+| N10 | 客户端离线宽限日期判定（`restore()` 只做字符串透传，未按 `now < graceUntil` 判活） | 需要把时钟注入 `normalizeEntitlement` 的调用链 | 与 N4 横幅同批 |
+| N11 | 三条新权益轴**服务端消费点**（`cloud_account_sync` / `batch_publish` / `tier_access_*` 当前全仓无校验点） | 各功能入口接 `requireFeature` | 分别归 N1/N2 与模型路由 |
 
 ---
 

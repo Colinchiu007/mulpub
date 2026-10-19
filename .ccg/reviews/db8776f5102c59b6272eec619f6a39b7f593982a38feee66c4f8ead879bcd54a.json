@@ -1,0 +1,59 @@
+{
+  "sha": "76384b8d08511a9506f8de2d6d873ca6dfd95bfb",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 48 行（≤ 200）但命中 auth/数据库/加密：敏感路径 packages/api-publish-engine/src/auth/plan-matrix.js, packages/api-publish-engine/src/auth/postgres-commerce-store.js, packages/api-publish-engine/src/auth/subscription-service.js；敏感内容 1 处",
+  "stats": {
+    "changedLines": 48,
+    "fileCount": 7,
+    "codeFileCount": 5,
+    "sensitivePathHits": [
+      "packages/api-publish-engine/src/auth/plan-matrix.js",
+      "packages/api-publish-engine/src/auth/postgres-commerce-store.js",
+      "packages/api-publish-engine/src/auth/subscription-service.js"
+    ],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 1,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "db8776f5102c59b6272eec619f6a39b7f593982a38feee66c4f8ead879bcd54a",
+  "decidedAt": "2026-10-19T18:17:42.713Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

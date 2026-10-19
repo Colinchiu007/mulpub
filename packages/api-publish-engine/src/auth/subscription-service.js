@@ -224,11 +224,13 @@ class SubscriptionService {
     // 从「码授予了什么」漂成「此刻是什么」，两路径语义反而更不一致）。
     const appliedPlan = alive ? active.plan : row.plan
     // 与仓储的压制判定同守卫（CCG i4）：两边都必须是已知档位才比较。
-    // 少了 rank>=0 这一条，active=pro(2) 且码面档位未知(-1) 时重放会报 suppressed=true，
-    // 而首次核销因 requestedRank=-1 fail-open 真的降级 ⇒ 同一兑换两条返回体互相矛盾。
+    // 无有效订阅时返回 **null（未知）** 而不是 false（CCG i1）：首次核销可能压制过，
+    // 结算后再也读不到当时的生效档位；写 false 等于编造「当时没压制」，与首次返回体矛盾。
     const activeRank = alive ? planRank(active.plan) : -1
     const requestedRank = planRank(row.plan)
-    const suppressed = activeRank >= 0 && requestedRank >= 0 && activeRank > requestedRank
+    const suppressed = alive && activeRank >= 0 && requestedRank >= 0
+      ? activeRank > requestedRank
+      : null
     return {
       idempotent: true,
       code,

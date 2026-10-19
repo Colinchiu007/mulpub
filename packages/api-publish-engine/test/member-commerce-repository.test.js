@@ -306,6 +306,26 @@ test('PostgresCommerceTransaction 单事务编排', async (t) => {
     assert.strictEqual(result.plan, 'pro')
   })
 
+  await t.test('压制但未给 entitlementPayloadFor ⇒ fail closed，且不落任何写', async () => {
+    const client = fakeClient()
+    client.queue = [
+      { rows: [{ pg_advisory_xact_lock: null }] },
+      { rows: [{ id: 'sub-u-1', user_id: 'u-1', plan: 'pro', status: 'active', current_period_start: '2026-09-01T00:00:00Z', current_period_end: '2026-10-01T00:00:00Z' }] },
+    ]
+    const tx = new PostgresCommerceTransaction(client)
+    await assert.rejects(
+      tx.applySubscription({
+        userId: 'u-1', plan: 'standard', durationDays: 30,
+        now: new Date('2026-09-15T00:00:00Z'),
+        order: { id: 'ord-1', amount: 0, currency: 'CNY', channel: 'redeem' },
+        // 只给请求档位的 payload：若放行会写出 subscription=pro + snapshot=standard 的权限分裂
+        entitlementPayload: { plan: 'standard' },
+      }),
+      (err) => err.code === 'ENTITLEMENT_PAYLOAD_REQUIRED' && err.status === 500,
+    )
+    assert.strictEqual(client.calls.length, 2, '锁 + SELECT 之后即拒绝，不得写订阅/订单/快照')
+  })
+
   await t.test('createNotification 单条插入带 id', async () => {
     const client = fakeClient()
     const tx = new PostgresCommerceTransaction(client)

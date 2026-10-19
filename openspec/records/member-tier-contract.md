@@ -82,6 +82,19 @@ type: runtime
     「已接线 / 未接线」清单，PRD A9/A10 区分软拦与未接线项。
   - **i7（`canAddPlatform` 对 NaN 返回 false，与缺失即放行相反）→ 已修（码）**：非有限数放行 +
     单测（`undefined` / `NaN` / 非数字串）。
+- **第三轮深度审查（小提交 SINGLE 模式）7 条，处置**：
+  - **i1（重放与首次授档矛盾）→ 已修（码）**：无有效订阅时 `downgradeSuppressed` 返回 **null（未知）**
+    而非 false —— 结算后读不到当时的生效档位，写 false 等于编造「当时没压制」。
+  - **i3（`applySubscription` 缺回调时静默写低档快照）→ 已修（码）**：压制且无
+    `entitlementPayloadFor` ⇒ `ENTITLEMENT_PAYLOAD_REQUIRED`(500) fail closed，并加「不落任何写」用例。
+  - **i5（`modelTier` 无上界，overrides 可写 3/10）→ 已修（码）**：新增 `MAX_BY_KEY` 上界校验。
+  - **i2 / i4 / i6 / i7 → 记入 PRD §12**：N7（平台数服务端强制）、N10（客户端离线宽限日期判定）、
+    N11（三条新权益轴无服务端消费点）、N9（`grant` 幂等）。这四条是**已知未落地**，不是本轮承诺。
+
+## 遗留风险的如实登记
+
+- `max_platforms` 只有客户端软拦，可绕过（N7）；`grant` 无幂等（N9）；三条新权益轴无消费点（N11）；
+  客户端离线态未按日期判宽限（N10）。以上均在 PRD §12 明列，不对外表述为已强制。
 - **测试**：
   - `packages/api-publish-engine npm test` → **rc=0**（含 plan-matrix 19 例、仓储与订阅服务全绿）
   - `apps/desktop`：`entitlement-service` 17 例、`stores/identity` 22 例、

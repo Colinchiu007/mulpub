@@ -114,6 +114,9 @@ const UNLIMITED_ALLOWED = Object.freeze([
 ])
 // concurrentTasks 至少 1：0 并发为病态配置。dailyPublish 不在此列（0 属刻意清零配额，仍合法）。
 const MIN_ONE_KEYS = Object.freeze(['concurrentTasks'])
+// 上界（CCG i5）：modelTier 的派生判定是 `>= 1 / >= 2`，不设上界时 overrides 写 3/10 照样派生
+// tier_access_pro 并下发 model_tier=3 —— 文档承诺「0-2」而代码只拒了 -1。仅对语义有界的键设上限。
+const MAX_BY_KEY = Object.freeze({ modelTier: 2 })
 
 /** 配置类错误：overrides 非法，属部署期缺陷（HTTP 层应映射 500 / 启动 fail-fast）。 */
 const invalid = (message) => Object.assign(new Error(`plan-matrix: ${message}`), { code: 'PLAN_MATRIX_CONFIG_INVALID', status: 500 })
@@ -132,6 +135,9 @@ function validateNumericValue(key, value, context) {
   }
   if (MIN_ONE_KEYS.includes(key) && value < 1) {
     throw invalid(`'${key}' in ${context} must be >= 1`)
+  }
+  if (Object.prototype.hasOwnProperty.call(MAX_BY_KEY, key) && value > MAX_BY_KEY[key]) {
+    throw invalid(`'${key}' in ${context} must be <= ${MAX_BY_KEY[key]}`)
   }
 }
 

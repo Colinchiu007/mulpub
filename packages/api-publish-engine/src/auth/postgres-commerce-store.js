@@ -114,6 +114,14 @@ class PostgresCommerceTransaction {
     const downgradeSuppressed = Boolean(existing)
       && existingRank >= 0 && requestedRank >= 0 && existingRank > requestedRank
     const effectivePlan = downgradeSuppressed ? existing.plan : plan
+    // 压制发生却没给「按生效档位现算」的回调 ⇒ 调用方只能传请求档位的 payload，
+    // 写下去就是 subscription=pro + snapshot=standard 的权限分裂（G3 同型）。fail closed，
+    // 不给「静默写低档快照」留回退路径（CCG i3）。
+    if (downgradeSuppressed && typeof entitlementPayloadFor !== 'function') {
+      throw Object.assign(new Error('ENTITLEMENT_PAYLOAD_REQUIRED'), {
+        code: 'ENTITLEMENT_PAYLOAD_REQUIRED', status: 500,
+      })
+    }
     // 快照必须与**生效档位**同源：传 entitlementPayloadFor 时按 effectivePlan 现算，
     // 否则调用方传入的 payload 会把被压制的低档权益写进快照（权限回退的真实路径）。
     const payload = typeof entitlementPayloadFor === 'function'

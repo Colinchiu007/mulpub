@@ -162,7 +162,7 @@ test('redeem 兑换码核销状态机', async (t) => {
     assert.strictEqual(view.subscription, null)
     assert.strictEqual(view.plan, 'standard', '无有效订阅 ⇒ 回落到本次核销所授予的档位')
     assert.strictEqual(view.requestedPlan, 'standard')
-    assert.strictEqual(view.downgradeSuppressed, false)
+    assert.strictEqual(view.downgradeSuppressed, null, '无有效订阅时压制为未知，不得编造 false')
   })
 
   await t.test('幂等重放：有效 pro 订阅 + standard 码 ⇒ plan=pro、压制为 true', async () => {
@@ -189,8 +189,8 @@ test('redeem 兑换码核销状态机', async (t) => {
       },
     })
     const view = await service.redeem({ userId: 'u-1', code: 'ABCD-EFGH-JKMN' })
-    // 首次核销对未知档位 fail-open（不压制），重放必须同口径，否则同一兑换两条返回体矛盾
-    assert.strictEqual(view.downgradeSuppressed, false)
+    // 首次核销对未知档位 fail-open（不压制）；重放无有效订阅时按未知（null）返回，不编造 false
+    assert.strictEqual(view.downgradeSuppressed, null)
     assert.strictEqual(view.requestedPlan, 'legacy')
   })
 
