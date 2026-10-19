@@ -8,7 +8,7 @@ date: 2026-10-19
 
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
-| 变更类型与隔离 | ✅ | 运行时代码（`apps/desktop/src/**`）⇒ 隔离 worktree `D:/Data/projects/mp-worktrees/mp-ux-audit-focus-ring`、裸分支 `ux-audit-focus-ring`；`rev-parse --abbrev-ref HEAD` 实测 `ux-audit-focus-ring`，`merge-base --is-ancestor origin/main HEAD` 通过（基线 `d6708b717`） |
+| 变更类型与隔离 | ✅ | 运行时代码（`apps/desktop/src/**`）⇒ 隔离 worktree `<仓库父目录>/mp-worktrees/mp-ux-audit-focus-ring`、裸分支 `ux-audit-focus-ring`；`rev-parse --abbrev-ref HEAD` 实测 `ux-audit-focus-ring`，`merge-base --is-ancestor origin/main HEAD` 通过（基线 `d6708b717`）。取证按分支名与本 PR 号，不写本机绝对路径（Gate 12c；本片第一版写了盘符路径被当场判红，已按门禁给出的正解改回占位符形态） |
 | 第一性原因（QM-5 ①） | ✅ | 两族按钮基类**从未有过任何 `:focus-visible` 规则**（实测 `git grep` 于 `origin/main`：`.ui-btn:focus-visible` / `.cohere-btn*:focus-visible` 命中 0；只有 `s2v-btn-*` 一族在 `video-creation-buttons.css` 有 4 条）。设计系统里同时存在 `--focus-blue` 两档声明却**零消费者**（死槽），即"以为有焦点色"与"实际没有任何焦点指示"并存 |
 | 逃逸分析（QM-5 ②） | ✅ | ①**像素门禁结构性失明**：基线截图采集时没有任何元素处于焦点态，焦点环不出现在判定域内（同族已知盲区：hover/disabled/active）；②**单测层**：`src/styles/` 下此前只有 token 槽位/别名锁，没有任何锁问过"这个 token 有没有人消费""按钮有没有焦点环"；③**审查层**：审计报告把这条记在 3.6「控件体系收敛」的子项里，而 3.6 的主体是 571 处 `<button>` 迁移，子项因此长期随主体一起被搁置 |
 | 系统性漏洞（QM-5 ③） | ✅ | 测试场景缺失 + 装饰性真源：`--focus-blue` 是一个"声明了就被认为存在"的死槽；缺少"设计令牌必须有消费者"的机械判据（该条已登记为实施方案阶段 5.5 的候选，本批不擅自扩面） |
