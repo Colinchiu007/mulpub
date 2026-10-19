@@ -20,7 +20,7 @@ date: 2026-10-19
 | QM-1 打包 | ✅ | `pnpm run build:vue` rc=0；`electron-builder --win --dir` rc=0；asar 实测含 `MAX_INPUT_CHARS = 50000` / `MAX_OUTPUT_CHARS = 50000` / `outputTruncated` |
 | QM-2 代码必检项 | ✅ | 无同步阻塞原语、无新增 IPC、无 v-html、无硬编码等待；上限数字全链路零写死（渲染层常量 + 结构锁）；横幅 CSS 复用既有设计变量 |
 | QM-4 视觉回归 | N/A（有据） | 新增横幅为条件渲染（仅截断时出现），默认视图无新元素；样式独立 class 不触碰既有选择器 |
-| QM-6 CCG 双模型外部评审 | 由 pre-commit CCG 判定 | 见提交后判定记录（本刀含 electron 主进程 1 文件 3 行改动 + 渲染层 + 引擎包，预期 DUAL；按降级口径闭环） |
+| QM-6 CCG 双模型外部评审 | ✅（Claude 轴完成 + codex 降级，如实记录） | **轴 B（Claude）完成**：0 CRITICAL / 1 MAJOR / 4 MINOR，结论「结构正确、测试扎实、可合」。**MAJOR-1 已修**：`max_tokens` 从硬编码 64000 改为按生效输出上限推导（`ceil(区间.max×2)`，无区间回退兜底 3000 口径，夹 [1024,64000]），并在 `rewrite()` 记录 `_lastWordCountRangeMax`；**MINOR-2 已修**：`WordCountRangeInput.vue` 原生 `max` 从写死 5999/6000 改读常量（鼠标 spinner 可达 50000）；**MINOR-3 已修**：AiWriterPanel 占位符同步 50000；MINOR-1（横幅 length/max 展示差 13 字级偏差）与 MINOR-4（Collection/AiWriterPanel 不消费 outputTruncated，PRD §8 有意限定范围）判定为「现状可接受」，如实留档。**轴 A（codex）降级**：连续 429/503（推理网关过载），未产出结论。修复后复跑：引擎 219 passed + 渲染层定向 184+ 全绿 + build:vue rc=0 + electron-builder rc=0 |
 | 远程同步 | 由门禁推导 | 合并后由 merge-ledger 推导 |
 
 ## 设计决策（输出上限「尽量大」的分析结论）

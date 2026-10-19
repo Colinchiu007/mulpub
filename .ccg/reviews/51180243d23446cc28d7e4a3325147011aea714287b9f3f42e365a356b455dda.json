@@ -50,10 +50,14 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
+    "status": "cleared",
+    "tier": "external",
+    "performedBy": "claude (cross-family) + main-agent self-check; codex unavailable (429/503 inference gateway overload)",
     "evidence": null,
-    "findings": null
+    "findings": [
+      "Claude 轴完成：0 CRITICAL / 1 MAJOR / 4 MINOR，结论「可合」；MAJOR-1（max_tokens 硬编码）与 MINOR-2/3 已修复并复跑全绿",
+      "codex 轴连续 429/503（推理网关过载），按 AGENTS 子代理降级不盲等",
+      "同一变更集的闭环详情见 0e1219f7c0d34e33f84135747dc1ff65e78f4322efaf25d86fb9a6a38a0e0b30.json"
+    ]
   }
 }

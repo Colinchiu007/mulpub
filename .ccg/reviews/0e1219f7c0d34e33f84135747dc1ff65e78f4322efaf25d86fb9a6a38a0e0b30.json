@@ -50,10 +50,18 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
+    "status": "cleared",
+    "tier": "external",
+    "performedBy": "claude (cross-family) + main-agent self-check; codex unavailable (429/503 inference gateway overload)",
     "evidence": null,
-    "findings": null
+    "findings": [
+      "Claude 轴完成：0 CRITICAL / 1 MAJOR / 4 MINOR，结论「结构正确、测试扎实、可合」",
+      "MAJOR-1 已修：max_tokens 硬编码 64000 → 按生效输出上限推导（ceil(区间.max×2)，无区间回退 3000 口径，夹 [1024,64000]）+ rewrite() 记录 _lastWordCountRangeMax",
+      "MINOR-2 已修：WordCountRangeInput.vue 原生 max 写死 5999/6000 → 改读常量（鼠标 spinner 可达 50000）",
+      "MINOR-3 已修：AiWriterPanel 占位符 6000 → 50000",
+      "MINOR-1（横幅 length/max 展示差）与 MINOR-4（Collection/AiWriterPanel 不消费 outputTruncated，PRD §8 有意限定）判定为现状可接受，如实留档",
+      "codex 轴连续 429/503（推理网关过载），按 AGENTS 子代理降级不盲等",
+      "修复后复跑：引擎 219 passed + 渲染层 184+ 全绿 + build:vue rc=0 + electron-builder rc=0"
+    ]
   }
 }
