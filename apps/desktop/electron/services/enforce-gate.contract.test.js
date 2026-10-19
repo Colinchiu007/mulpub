@@ -52,9 +52,11 @@ describe('phase1-context 接线锁（缺一即红）', () => {
     expect(src).toMatch(/enforceGate\.onPolicy/)
   })
 
-  it('setOnSyncOutcome → enforceGate.onSyncOutcome 接线', () => {
-    expect(src).toMatch(/setOnSyncOutcome\s*\(/)
-    expect(src).toMatch(/enforceGate\.onSyncOutcome/)
+  it('syncNow 包装接线（assembly 包装 syncNow 以 runtimeApplied 判成败；ops-center-sync 零改动）', () => {
+    expect(src).toMatch(/originalSyncNow/)
+    expect(src).toMatch(/runtimeApplied/)
+    const syncSrc = readFileSync(join(here, './ops-center-sync.js'), 'utf-8')
+    expect(syncSrc).not.toMatch(/setOnSyncOutcome|_emitSyncOutcome/)
   })
 
   it('identity 登录成功 → syncNow 刷新接线（phase3：onStateChanged 过滤 authenticated）', () => {
@@ -74,9 +76,9 @@ describe('phase1-context 接线锁（缺一即红）', () => {
     expect(src).toMatch(/enforceGate\.startPolling/)
   })
 
-  it('ops-center-sync 必须公开 setOnSyncOutcome setter（转发同步结果）', () => {
+  it('ops-center-sync 保持零 gate 侵入（无 emit/setter；包装在 assembly）', () => {
     const syncSrc = readFileSync(join(here, './ops-center-sync.js'), 'utf-8')
-    expect(syncSrc).toMatch(/setOnSyncOutcome\s*\(/)
+    expect(syncSrc).not.toMatch(/setOnSyncOutcome|_emitSyncOutcome/)
   })
 
   it('identity 登录事件可订阅（auth-service 公开 onStateChanged；phase3 过滤 authenticated）', () => {

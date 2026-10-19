@@ -279,9 +279,13 @@ def test_gate_wiring_catalog_and_ack_have_gate_bootstrap_exempt():
                 return {getattr(d, "dependency", d) for d in route.dependencies}
         return None
 
+    # 按 __qualname__ 判等而非函数对象 is 判等：CI 全量顺序下 services.version_gate
+    # 可能被 import 两次（conftest 注入 sys.path 前后的双实例），`in` 用 is 比较会假阴。
+    gate_name = enforce_version_gate.__qualname__
+
     def _has_gate(path, method):
         deps = _deps_for(path, method)
-        return deps is not None and enforce_version_gate in deps
+        return deps is not None and any(getattr(d, "__qualname__", None) == gate_name for d in deps)
 
     # 挂门端点（桌面端真实消费）
     assert _has_gate("/api/v1/model-presets/catalog", "GET")

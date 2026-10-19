@@ -56,9 +56,19 @@ function assembleEnforceGate ({ app, opsCenterSync, autoUpdater, log }) {
       enforceGate.onPolicy(policy)
     })
   }
-  // bootstrap 同步结果 → 宽限逻辑（成功缓存/失败宽限/超期 verify-failed）
-  if (opsCenterSync && typeof opsCenterSync.setOnSyncOutcome === 'function') {
-    opsCenterSync.setOnSyncOutcome((outcome) => enforceGate.onSyncOutcome(outcome))
+  // bootstrap 同步结果 → 宽限逻辑。**不改 ops-center-sync**（其文件行数受
+  // max-lines 账本 filesOver500 容差顶格约束，一行都加不进）：包装 syncNow，
+  // 以返回值 runtimeApplied 判成败（syncNow 内 _applyRuntimeSettled 已区分
+  // fulfilled+applyRuntime 未抛 = true）。轮询/登录刷新/手动同步都经此包装，
+  // 消费方（enforce-gate.onSyncOutcome）接口不变。
+  if (opsCenterSync && typeof opsCenterSync.syncNow === 'function' && typeof opsCenterSync.getUpdatePolicy === 'function') {
+    const originalSyncNow = opsCenterSync.syncNow.bind(opsCenterSync)
+    opsCenterSync.syncNow = async () => {
+      const result = await originalSyncNow()
+      const ok = !!(result && result.runtimeApplied)
+      enforceGate.onSyncOutcome({ ok, policy: opsCenterSync.getUpdatePolicy() })
+      return result
+    }
   }
   // 启动即水合：用已持久化缓存先跑一次判定（离线启动也能立即阻断）
   enforceGate.onSyncOutcome({ ok: true, policy: opsCenterSync.getUpdatePolicy ? opsCenterSync.getUpdatePolicy() : null })

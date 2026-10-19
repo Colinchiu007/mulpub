@@ -81,7 +81,6 @@ const ALLOWED_KEYS = new Set([
   'EnforceGate:skip-assembly-no-electron-app',
   'EnforceGate:auth-refresh-failed',
   'window:enforce-gate-facade-failed',
-  'OpsCenterSync:sync-outcome-consumer-error',
   'BatchManager:scheduled-batches-restore-failed',
   'Automation:automation-scheduler-start-failed',
   'CommentManager:comment-polling-stop-failed',
