@@ -1,8 +1,16 @@
-// QG Coverage 时长分布的**复测入口**（AGENTS「实测分布支撑必须自带一条可重跑的采集路径」的落点）。
+// 全仓 CI 作业时长分布的**复测入口**（AGENTS「实测分布支撑必须自带一条可重跑的采集路径」的落点）。
 //
 // 它存在的理由不是"今天量过一次"，而是让下一次调预算的人能一句话重取；
-// 因此它的输出字段集与 `scripts/lib/coverage-budget-provenance.js` 逐字同源，
-// 由 `check-coverage-budget.test.js` 第 7 条锁钉住 —— 字段漂移的 provenance 读起来完全像有效。
+// 因此它的输出字段集与 `scripts/lib/gate-timeout-registry.js` 的 PROVENANCE 逐字同源，
+// 由 `check-gate-timeouts.test.js` 第 7 条锁钉住 —— 字段漂移的 provenance 读起来完全像有效。
+//
+// 2026-10-20（change: gate-timeout-all-cells）：治理面从 1 格扩到全仓 24 格，本文件随之从
+// "量 QG Coverage" 升格为"量注册表里任意一格"：
+//   `node scripts/gate-timeout-sample.js --limit=60`                       ← 全仓（按注册表逐格）
+//   `node scripts/gate-timeout-sample.js --workflow=quality-gate.yml --job=QG Coverage --limit=120`
+// 矩阵作业（`QG Desktop Shards (1/2)`）按去掉 `(n/m)` 后缀归并；模板名作业
+// （`Autonomous Loop (迭代 ${{ inputs.rounds }} 轮)`）按注册表里声明的 `samplerPattern` 前缀归并 ——
+// 这两类名字不归并就会被读成"没有样本"，而"没采到"和"没有长尾"必须分得开。
 //
 // 三条判据纪律（都在代码里，不在注释里）：
 //   ① 坐标按**数字 workflow id** 取：`/actions/workflows/quality-gate.yml/jobs` 与
@@ -20,7 +28,8 @@ const REPO = 'Colinchiu007/mulpub';
 const JOB_NAME = 'QG Coverage';
 const WORKFLOW_FILE = 'quality-gate.yml';
 const WORKFLOW_PATH = '.github/workflows/quality-gate.yml';
-const STATIC = require(path.join(__dirname, 'lib', 'coverage-budget-provenance.js'));
+// 走 shim 或直接走注册表都一样：shim 只转发，不持有数值。
+const STATIC = require(path.join(__dirname, 'lib', 'gate-timeout-registry.js'));
 
 function ghJson(args) {
   const out = execFileSync('gh', args, { encoding: 'utf8', maxBuffer: 1 << 27 });
@@ -55,8 +64,8 @@ function buildProvenance(rows, meta) {
   const censored = timed.filter((r) => r.concl === 'cancelled' && ceiling - r.min <= 0.5).length;
 
   return {
-    jobName: JOB_NAME,
-    workflowPath: WORKFLOW_PATH,
+    jobName: meta.jobName || JOB_NAME,
+    workflowPath: meta.workflowPath || WORKFLOW_PATH,
     collectedAt: meta.collectedAt,
     runsListed: meta.runsListed,
     samples: succ.length,
@@ -65,8 +74,8 @@ function buildProvenance(rows, meta) {
     censoredAtCeiling: censored,
     ceilingMinutesSampled: ceiling,
     safetyMultiplier: STATIC.SAFETY_MULTIPLIER,
-    timeoutMinutes: STATIC.TIMEOUT_MINUTES,
-    remeasureCommand: STATIC.PROVENANCE.remeasureCommand,
+    timeoutMinutes: typeof meta.timeoutMinutes === 'number' ? meta.timeoutMinutes : STATIC.TIMEOUT_MINUTES,
+    remeasureCommand: meta.remeasureCommand || STATIC.PROVENANCE.remeasureCommand,
   };
 }
 
@@ -139,6 +148,76 @@ function collect(maxRuns) {
     });
   }
   return { rows, runsListed: runs.length, probeErrors, missingJob };
+}
+
+/** 矩阵作业的 GitHub 名带 `(1/2)` / `(2/2)` 后缀，归并到同一格再统计。 */
+function stripMatrix(name) {
+  return String(name || '').replace(/\s*\(\d+\/\d+\)\s*$/, '').trim();
+}
+
+/**
+ * 注册表条目 → GitHub 作业名匹配器。
+ * 两条真实形态逼出来的：
+ *   · 矩阵（`QG Desktop Shards (1/2)`）—— 后缀必须剥掉，否则样本恒为 0；
+ *   · 模板名（`Autonomous Loop (迭代 3 轮)`，声明里是 `${{ inputs.rounds }}`）——
+ *     只能靠 `samplerPattern` 静态前缀，正名匹配永远匹配不到。
+ * 匹配不到就会报 NO_SAMPLE，那和"这些作业没有长尾"在现场长得一样，所以宁可在注册表里
+ * 显式声明 `samplerPattern`，也不写"尽力猜"的模糊匹配。
+ */
+function matcherFor(entry) {
+  if (entry && typeof entry.samplerPattern === 'string' && entry.samplerPattern.trim()) {
+    const prefix = entry.samplerPattern.trim();
+    return (name) => String(name || '').startsWith(prefix);
+  }
+  const want = entry && entry.displayName;
+  return (name) => stripMatrix(name) === want || String(name || '') === want;
+}
+
+/**
+ * 逐 run 拉作业并筛出**某一格**的读数。矩阵兄弟在一趟里会有多条，全部收进来
+ * （它们共享同一条天花板，缺一半会把分布截掉一条腿）。
+ */
+function collectForWorkflow(workflowFile, maxRuns, entry) {
+  const runs = ghJson(['run', 'list', '-R', REPO, '--workflow=' + workflowFile,
+    '--limit', String(maxRuns), '--json', 'databaseId,event,conclusion'])
+    .filter((r) => r && r.databaseId);
+  const match = matcherFor(entry);
+  const rows = [];
+  let probeErrors = 0;
+  let missingJob = 0;
+  for (const r of runs) {
+    let jobs;
+    try {
+      jobs = ghJson(['api', `repos/${REPO}/actions/runs/${r.databaseId}/jobs`]).jobs || [];
+    } catch (e) {
+      probeErrors++;
+      continue;
+    }
+    const hits = jobs.filter((x) => match(x.name));
+    if (hits.length === 0) { missingJob++; continue; }
+    for (const j of hits) {
+      const has = Boolean(j.started_at && j.completed_at);
+      rows.push({
+        run: r.databaseId, event: r.event, concl: j.conclusion, attempt: j.run_attempt,
+        status: j.status,
+        min: has ? +(((new Date(j.completed_at) - new Date(j.started_at)) / 60000).toFixed(1)) : null,
+      });
+    }
+  }
+  return { rows, runsListed: runs.length, probeErrors, missingJob };
+}
+
+/** 按注册表挑出本次要采的格子（--workflow / --job 过滤；不传则全仓）。 */
+function targetsFromRegistry(reg, opts) {
+  const o = opts || {};
+  const wfFilter = o.workflows && o.workflows.length ? o.workflows : null;
+  const jobFilter = o.job || null;
+  return reg.jobs.filter((j) => {
+    const wfBase = j.workflow.replace(/^\.github\/workflows\//, '');
+    if (wfFilter && !wfFilter.some((w) => w === wfBase || w === j.workflow)) return false;
+    if (jobFilter && jobFilter !== j.displayName && jobFilter !== j.jobId) return false;
+    return true;
+  });
 }
 
 /**
@@ -238,6 +317,7 @@ function main(argv) {
 
 module.exports = {
   buildProvenance, summarize, collect, main, refusalCode, JOB_NAME, WORKFLOW_PATH,
+  stripMatrix, matcherFor, collectForWorkflow, targetsFromRegistry,
 };
 
 if (require.main === module) process.exit(main(process.argv.slice(2)));
