@@ -77,7 +77,7 @@ class AvatarCatalogService {
     // 变成一次必然失败的网络往返。取不到实例（getProvider 不可用）时不拦，交 callAdapter。
     if (typeof manager.getProvider === 'function') {
       let adapter = null
-      try { adapter = manager.getProvider(providerId) } catch (_) { adapter = null }
+      try { adapter = manager.getProvider(providerId) } catch (_) { /* 保持 null 走 UNSUPPORTED */ }
       if (!adapter) return { code: -1, message: 'AVATAR_CATALOG_UNSUPPORTED_PROVIDER' }
       if (typeof adapter[method] !== 'function') {
         return { code: -1, message: 'AVATAR_CATALOG_UNSUPPORTED_PROVIDER' }

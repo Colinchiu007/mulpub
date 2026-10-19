@@ -62,7 +62,7 @@ function resolveDigitalHumanProvider (aiGenerator, params, deps = {}) {
     return null
   }
   let provider = null
-  try { provider = manager.getProvider(providerId) } catch (_) { provider = null }
+  try { provider = manager.getProvider(providerId) } catch (_) { /* 保持 null ⇒ 调用方 fail closed */ }
   if (!provider) return null
   const resolveModel = typeof deps.resolveProviderDefaultModel === 'function'
     ? deps.resolveProviderDefaultModel
