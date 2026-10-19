@@ -1,3 +1,13 @@
+# [未发布] fix(e2e): 阶段 2.6 把「一键发布」的语义改了，却没同步三条集成流 —— QG Browser E2E 当场抓到，补确认步骤并把新契约钉成必须出现（ux-audit-phase2）
+
+- **不是基础设施**：同一时段 #3992 / #4010 / #3996 三个 PR 的 `QG Browser E2E` 都是 pass（都含同一个 main tip），失败的恰好是本批改到的三条发布相关流：flow-1 `Flow1.7 publishBatch IPC 被调用` details `{"publishBatch":0,"publishWechat":0}`；flow-5 `offlineCalls=2 / offlineCacheCalls=0 / offline=true`；flow-6 `IPC 失败后错误提示可达` false。三条全部 `consoleErrors=0 pageErrors=0` ⇒ 页面没崩，是**那条 IPC 从未被发起**。
+- **归因落到文件级**：`usePublishFlow.js` 本批新增 `const confirmed = await notifyConfirm(...); if (!confirmed) return`，而 `apps/desktop/tests/e2e/helpers/integration-flows.js` **不在本 PR 的改动集里**（`git diff --name-only` 无该文件）。集成流的断言形状是 `click → waitForIpcIncrement`，中间多出一跳模态确认就必然红 —— 这是 AGENTS「门禁断言随实现迁移同步」的一次实地违约，且由我自己引入。
+- **为什么单元测试没拦住**：`usePublishFlow.test.js` 把 `notifyConfirm` mock 成 resolve(true) ⇒ 新闸门在单测里**永远被确认**；像素基线是发布页默认态、框未出现 ⇒ 0 差异。四层里唯一能抓到的是 E2E，而它按旧语义写。
+- **修法**：新增 `acceptPublishSummaryConfirm(r, timeout)`（等 `.el-message-box` 可见 → 点 `.el-message-box__btns button.el-button--primary`；任何一步取不到都如实返回 false，**不抛错** —— 抛错会把整条流判成基础设施故障、掩盖真实原因），三条流各接一处；随后 IPC 等待的判据从 `publishClicked` 改为 `confirm.clicked`，让"没确认"与"确认了但 IPC 没来"在报告里可区分。
+- **新增的是正向契约而不是兼容垫片**：`Flow1.6b 发布前摘要确认出现并可确认`、`Flow5.1b 离线发布同样经过摘要确认`、`Flow6.1b 失败路径同样经过摘要确认` 三条都断言**框必须出现**。确认闸门若被无声去掉（反向回归），`dialogFound=false` 当场红，而不是"少测一项"。离线路径也显式覆盖，避免"确认只在在线路径"被误当成全覆盖。
+- **未闭合项如实记录**：本机未跑 `QG Browser E2E`（需 dev server + Playwright，历史预算 30 分钟），最终裁决在 CI 这一轮。若 `Flow1.6b` 反而红 —— 例如 E2E 现场 `buildPublishSummaryMessage` 取不到篇数、走了"摘要 unresolved ⇒ 跳过确认、发布不阻断"那条分支 —— 那是**新信息**（说明摘要在某些合法现场会 unresolved），要按那条分支重新设计确认契约，**不得**回头把检查删掉。
+- 顺带一条方法论：改"用户点一下之后会发生什么"的语义时，改动集必须包含 `grep -rla <该入口文案或 testid> apps/desktop/tests/e2e` 得到的读者清单。本批的漏就是漏在"只列了实现侧的消费者，没列测试侧的消费者"。
+
 # [未发布] perf(publish): 发布主流程确定性五连修——历史列表渲染上限与防抖、首屏并行、通知前置、封面可见区取数、进度软权重（ux-audit-implement-phase2）
 
 - **修什么**：UX 审计 `01-docs/UX-AUDIT-2026-10-17.md` §5 阶段 2 的 2.1(①③)/2.2/2.3/2.4/2.5 五行。共同形态是「机制在、最后一公里没接」与「乘法推导未实测就被当成结论」。

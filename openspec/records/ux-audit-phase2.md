@@ -114,3 +114,15 @@ electron 树与批次 G 已实测 PASS 的产物逐字相同。
 ## 远程同步
 
 | 远程同步 | 由门禁推导 | 本行**不事后改写**：合并后由 `scripts/lib/merge-ledger.js` 按主干历史推导归属（只认 squash 尾注 `(#3986)`）；现场读数看 CI 步骤首行 `MERGE-LEDGER prs=<n>`。合并前这篇还不在基线上 ⇒ 判 `byDesign` 不红；把状态列预写成 `PASS` 会被 `prematureClaims` 判红（change: `ban-record-closure-backfill-pr` / `gate-record-sync-derived-status`）。main push 回读证据写在 PR 评论里，不写回本文件。 |
+
+## CI 抓到的一条真实回归：阶段 2.6 改了「一键发布」的语义，却没同步集成流（2026-10-19，QG Browser E2E 三条红）
+
+| 维度 | 内容 |
+|------|------|
+| 现象 | `QG Browser E2E` 判红三条集成流：flow-1「创建→发布→看板」`Flow1.7 publishBatch IPC 被调用` false（details `{"publishBatch":0,"publishWechat":0}`）；flow-5「设置变更级联」`Flow5.2` false（`offlineCalls=2, offlineCacheCalls=0, response.data.offline=true`）+ `Flow5.3` false；flow-6「错误路径」`Flow6.2 IPC 失败后错误提示可达` false。三条全部 `consoleErrors=0 pageErrors=0` ⇒ 不是页面崩，是**那条 IPC 从未被发起**。 |
+| 归因（不是猜） | 同一时段 #3992 / #4010 / #3996 三个 PR 的 `QG Browser E2E` 都是 pass（它们都含同一个 main tip）⇒ 不是基础设施；失败面恰好是阶段 2 改到的三条发布相关流。`usePublishFlow.js` 本批新增 `const confirmed = await notifyConfirm(...); if (!confirmed) return`，而 `apps/desktop/tests/e2e/helpers/integration-flows.js` 在本 PR 的改动集里**不存在**（`git diff --name-only` 无该文件）⇒ 实现变了、锁没跟着变。 |
+| 第一性原因（QM-5 ①） | 「一键发布」的产品语义由"点下去就发"变成"点下去先看清去哪发、确认后才发"。这条变更只改了生产代码与本批的单元测试，**没有把"谁在按旧语义断言"列进改动集**。集成流的断言形状是 `click → waitForIpcIncrement`，中间多出一次模态交互它就必然红。 |
+| 逃逸分析（QM-5 ②） | ① 单元测试层：`usePublishFlow.test.js` 直接把 `notifyConfirm` mock 成 resolve(true) ⇒ 新闸门在单测里**永远被确认**，测不出真实交互链上没人点确认；② 视觉层：像素基线是发布页默认态，模态框未出现 ⇒ 0 差异；③ E2E 层：**唯一能抓到的地方，而它按旧语义写**；④ 审查层：本 PR 的 diff 里没有测试文件以外的发布链读者清单。归类为"测试场景缺失 + 实现迁移未同步锁"。 |
+| 修复 + 回归保护（QM-5 ④） | `integration-flows.js` 新增 `acceptPublishSummaryConfirm(r, timeout)`：等 `.el-message-box` 可见 → 取其文本 → 点 `.el-message-box__btns button.el-button--primary`；取不到一律如实返回 false，**不抛错**（抛错会把整条流判成基础设施故障，掩盖真实原因）。三条流各接一处，并新增三条**正向**检查：`Flow1.6b 发布前摘要确认出现并可确认`、`Flow5.1b 离线发布同样经过摘要确认`、`Flow6.1b 失败路径同样经过摘要确认`；随后的 IPC 等待判据从 `publishClicked` 改为 `confirm.clicked` —— 让"没确认"与"确认了但 IPC 没来"在报告里是可区分的两件事。 |
+| 防止再次发生（QM-5 ⑤） | ① 三条 `*b` 检查把新契约钉成**必须出现**：确认闸门若被无声去掉（反向回归），`dialogFound=false` 当场红，而不是"少测一项"；② 本记录把这条写进 QM-2 同族清单：改任何"用户点一下之后会发生什么"的语义时，改动集必须包含 `grep -rla <该入口文案或 testid> apps/desktop/tests/e2e` 的读者清单；③ 离线路径也被显式覆盖（`Flow5.1b`），避免"确认只在在线路径"这种半覆盖被误当成全覆盖。 |
+| 未闭合（不假装） | 本机未跑 QG Browser E2E（需 dev server + Playwright，且历史预算 30 分钟），本判断的最终裁决在 CI 的这一次运行。若 `Flow1.6b` 反而红（例如 E2E 现场 `buildPublishSummaryMessage` 取不到篇数走了"跳过确认"分支），那是**新信息**：说明摘要在某些合法现场会 unresolved，需要按那条分支重新设计确认契约，不得回头把检查删掉。 |

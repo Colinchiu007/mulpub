@@ -167,7 +167,29 @@ async function waitForIpcIncrement(r, methods, baseline, timeout = FEATURE_READY
  * 6. 跳到 /dashboard
  * 7. 验证出现该条记录
  */
-async function flowCreateToDashboard(r) {
+/**
+ * 发布前摘要确认（UX 审计阶段 2.6）改变了「一键发布」的语义：点下去不再直接产出 IPC，
+ * 而是先弹一个 ElMessageBox 说明"几篇内容 / 几个平台 / 几个平台×账号目标"。
+ * 三条集成流（flow-1 / flow-5 / flow-6）都在这一跳上断言 IPC，所以必须先把这个框等到、确认掉，
+ * 再断言 IPC —— 否则失败的不是产品，是"实现变了、锁跟着改"这条纪律没做到（本文件三条红就是现场）。
+ *
+ * dialogFound **必须被断言**，不许当它是可选步骤：确认闸门被无声去掉，用户就再也看不到发布去向，
+ * 那是产品契约的反向回归；只有把"框出现"写成检查，这条回归才会变红。
+ * 返回 { dialogFound, clicked, text }，任何一步取不到都如实报 false，不抛错（抛错会把整条流判成基础设施故障）。
+ */
+async function acceptPublishSummaryConfirm(r, timeout = FEATURE_READY_TIMEOUT) {
+  const box = r.page.locator('.el-message-box').first();
+  const dialogFound = await waitForVisible(box, timeout);
+  if (!dialogFound) return { dialogFound: false, clicked: false, text: null };
+  const text = await box.innerText().catch(() => '');
+  const primary = r.page.locator('.el-message-box__btns button.el-button--primary').first();
+  if (!(await waitForVisible(primary, 3000))) return { dialogFound: true, clicked: false, text };
+  await primary.click({ timeout: 3000 }).catch(() => {});
+  return { dialogFound: true, clicked: true, text };
+}
+
+
+async function flowCreateToDashboard (r) {
   console.log('\n→ Flow 1: 创建 → 发布 → 看板');
 
   // Step 1: /create 生成一篇文章
@@ -230,7 +252,12 @@ async function flowCreateToDashboard(r) {
   const publishBaseline = await ipcCounts(r, ['publishBatch', 'publishWechat']);
   const publishClicked = await clickText(r, '一键发布', { selector: '[data-testid="publish-submit"]', timeout: FEATURE_READY_TIMEOUT });
   record(r, 'Flow1.6 一键发布按钮可执行', publishClicked);
-  const publishIpcObserved = publishClicked && await waitForIpcIncrement(r, ['publishBatch', 'publishWechat'], publishBaseline);
+  // 2.6：这一跳之后发布并不直接产出 IPC，先经过摘要确认框（见 acceptPublishSummaryConfirm 注释）
+  const summaryConfirm = publishClicked ? await acceptPublishSummaryConfirm(r) : { dialogFound: false, clicked: false, text: null };
+  record(r, 'Flow1.6b 发布前摘要确认出现并可确认',
+    Boolean(summaryConfirm.dialogFound && summaryConfirm.clicked),
+    { ...summaryConfirm, textSnippet: String(summaryConfirm.text || '').slice(0, 200) });
+  const publishIpcObserved = summaryConfirm.clicked && await waitForIpcIncrement(r, ['publishBatch', 'publishWechat'], publishBaseline);
   const batchCalls = await r.getIpcCalls('publishBatch');
   const wechatCalls = await r.getIpcCalls('publishWechat');
   record(r, 'Flow1.7 publishBatch IPC 被调用', Boolean(publishIpcObserved), { publishBatch: batchCalls, publishWechat: wechatCalls });
@@ -400,7 +427,10 @@ async function flowSettingCascade(r) {
   const offlineContentFilled = await fillPublishContent(r, 'E2E 离线缓存正文');
   const offlineBaseline = await ipcCounts(r, 'offlineAddToCache');
   const offlinePublishClicked = await clickText(r, '一键发布', { selector: '[data-testid="publish-submit"]', timeout: FEATURE_READY_TIMEOUT });
-  const offlineIpcObserved = offlinePublishClicked && await waitForIpcIncrement(r, 'offlineAddToCache', offlineBaseline);
+  // 2.6：离线也先过摘要确认 —— "缓存到哪几个目标"同样是用户要看清的信息，确认后才进缓存队列
+  const offlineConfirm = offlinePublishClicked ? await acceptPublishSummaryConfirm(r) : { dialogFound: false, clicked: false };
+  record(r, 'Flow5.1b 离线发布同样经过摘要确认', Boolean(offlineConfirm.dialogFound && offlineConfirm.clicked), offlineConfirm);
+  const offlineIpcObserved = offlineConfirm.clicked && await waitForIpcIncrement(r, 'offlineAddToCache', offlineBaseline);
   const offlineStatus = await r.page.evaluate(() => window.electronAPI.offlineStatus());
   const offlineCalls = await r.getIpcCalls('offlineStatus');
   const offlineCacheCalls = await r.getIpcCalls('offlineAddToCache');
@@ -487,6 +517,9 @@ async function flowErrorPaths(r) {
   // 下一次 publishBatch 调用会失败（因为前面 failNextIpc 是 LIFO/单次）
   const publishBaseline2 = await ipcCounts(r, 'publishBatch');
   const publishClicked2 = await clickText(r, '一键发布', { selector: '[data-testid="publish-submit"]', timeout: FEATURE_READY_TIMEOUT });
+  // 2.6：先过摘要确认，否则"失败提示可达"这条断言测的是没被触发的发布（框没确认 ⇒ IPC 从未发起 ⇒ 自然没有错误 UI）
+  const errorConfirm = publishClicked2 ? await acceptPublishSummaryConfirm(r) : { dialogFound: false, clicked: false };
+  record(r, 'Flow6.1b 失败路径同样经过摘要确认', Boolean(errorConfirm.dialogFound && errorConfirm.clicked), errorConfirm);
   let errorWaitReady = false;
   if (publishClicked2) {
     errorWaitReady = await waitForPageCondition(r, () => {
@@ -494,7 +527,7 @@ async function flowErrorPaths(r) {
       return /失败|错误|error|failed/i.test(document.body.innerText) && Boolean(errorElement);
     }, undefined, FEATURE_READY_TIMEOUT);
   }
-  const publishBatchObserved = publishClicked2 && await waitForIpcIncrement(r, 'publishBatch', publishBaseline2, FEATURE_READY_TIMEOUT);
+  const publishBatchObserved = errorConfirm.clicked && await waitForIpcIncrement(r, 'publishBatch', publishBaseline2, FEATURE_READY_TIMEOUT);
   const errorUIVisible = await r.page.evaluate(() => {
     const errorElement = document.querySelector('.cohere-card-danger, .error-banner, .el-message--error, [class*="danger"], [class*="error"]');
     return /失败|错误|error|failed/i.test(document.body.innerText) && Boolean(errorElement);
