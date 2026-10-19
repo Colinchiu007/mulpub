@@ -120,7 +120,7 @@
     "ops-center/backend/services/model_preset_service.py": 1221,
     "packages/api-publish-engine/src/publish-api-server.js": 1574,
     "packages/python-backend/src/multi_publish/video_creation/providers/video/video_compose.py": 2638,
-    "packages/story2video-engine/src/text-segmentation.ts": 1398
+    "packages/story2video-engine/src/text-segmentation.ts": 1409
   },
   "pruned": {
     "apps/desktop/src/components/LogsSettings.vue": 469,

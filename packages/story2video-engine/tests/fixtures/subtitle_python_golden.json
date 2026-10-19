@@ -5,9 +5,9 @@
   "generatedBy": "scripts/gen_subtitle_python_golden.py",
   "provenance": {
     "repo": "smart-sentence-splitter",
-    "commit": "8f1922a2a2d969e844ead0391393d0232a137d07",
-    "rulesLfSha256": "07c14ae28144607402a0d8a8a03220907608eaf625bf49fbd0ac98eb70705d4f",
-    "vectorsLfSha256": "c6072781e330de6cabfe5c6022f258f0f350737870e70449dabbe370957b635b",
+    "commit": "6bc971d1cef4a4384ffcb075316ebb541eca6e3c",
+    "rulesLfSha256": "75151bb84e2619ac06942220a341e5d169cffc915d4755d79599362b83d25635",
+    "vectorsLfSha256": "b787f83dfb99dd34aa2d901ec9b1127f96898d3cdcd6822c9ac5d50018c7ffab",
     "corpusLfSha256": "0f4595f371ad8d300be5925a3301c76f56a1df7e516c145d37881bae0263ab88"
   },
   "cases": [

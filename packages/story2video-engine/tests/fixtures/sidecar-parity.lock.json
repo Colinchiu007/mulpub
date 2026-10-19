@@ -2,8 +2,8 @@
   "schema": "sidecar-parity-lock/1",
   "note": "跨仓共享产物对账锁。本文件在 mulpub 与 smart-sentence-splitter 两仓**逐字相同**。两仓各自的 CI 断言本地规则表与向量的「LF 归一化 sha256」等于本文件登记值；任何一边改了数据却没同步本文件会当场变红。语料与金标不由本文件登记（它们随生成器一起变），由 mulpub 的 `scripts/check-sidecar-parity.js` 跨仓比较。",
   "howToUpdate": "1) 先确认两仓的规则表与向量真的改成一致（LF 归一化后逐字节相同）；2) 在两个仓库里同时把新哈希写进本文件；3) 在 sidecar 仓重跑 `PYTHONPATH=<repo>/src python scripts/gen_subtitle_python_golden.py`——该生成器**没有命令行参数**，输入输出都在仓内固定位置（tests/vectors/subtitle_parity_corpus.json → tests/vectors/subtitle_python_golden.json）；4) 把这两个文件复制到 mulpub 的 packages/story2video-engine/tests/fixtures/；5) 两仓各跑一次测试，并在 mulpub 跑 `node scripts/check-sidecar-parity.js --sidecar <sidecar 仓>` 核对四条共享产物。⚠️ 只改一边就算「改对了」，另一仓也不会有东西变红——所以两边必须同批提交。",
-  "rulesLfSha256": "07c14ae28144607402a0d8a8a03220907608eaf625bf49fbd0ac98eb70705d4f",
-  "vectorsLfSha256": "c6072781e330de6cabfe5c6022f258f0f350737870e70449dabbe370957b635b",
+  "rulesLfSha256": "75151bb84e2619ac06942220a341e5d169cffc915d4755d79599362b83d25635",
+  "vectorsLfSha256": "b787f83dfb99dd34aa2d901ec9b1127f96898d3cdcd6822c9ac5d50018c7ffab",
   "files": {
     "rules": "packages/story2video-engine/src/subtitle-rules.json (mulpub) / src/splitter/scene_subtitle/subtitle_rules.json (sidecar)",
     "vectors": "packages/story2video-engine/tests/fixtures/subtitle_segmentation_vectors.json (mulpub) / tests/vectors/subtitle_segmentation_vectors.json (sidecar)",
