@@ -20372,13 +20372,14 @@ LLM 空输出/报告缺失时，审计 job 会往 job 汇总写 `AUTONOMOUS_VERD
 
 - **显示项**：`<label>` 文本就是控件的可访问名。**禁止**用 `placeholder` 承担名称（用户一开始输入它就消失），也禁止只靠 `aria-label` 复制一份标签文本（两份口径必然漂移）。
 - **交互逻辑**：点击标签把焦点送进对应控件；读屏在控件上念出标签文本，而不是"编辑框，未标注"。
-- **数据校验（五条）**
+- **数据校验（六条）**
   1. 关联是否成立只认 **DOM 事实**：`control.labels` 命中该 label、`label.htmlFor === control.id`。"源码里 `for=` 与 `id=` 都出现过"不是证据——**写得越像修好的，字符串判据越看不见**。
   2. `for` 的合法目标（labelable）是封闭清单：`button`、`input`（`type=hidden` 除外）、`meter`、`output`、`progress`、`select`、`textarea`。指向 `div`/`span` **不是降级而是规范级无效**：浏览器不报错、不关联、也不回退到相邻文本。本仓两种真实成因：① 自研 `UiInput` 曾无 `id` prop ⇒ 调用方写的 `id` 走属性透传落到根 `div`；② 组件库丢弃该属性。
   3. **第三方组件的属性转发面必须实测**（`mount` 一次、打印根节点与内层控件三层落点）：Element Plus 的 `ElInput` **丢弃 `id`**（根 div 与内层 `input`/`textarea` 三处皆空），但转发 `aria-labelledby` / `aria-label` / `name` / `autocomplete` ⇒ 表单容器的统一修法是「label 自带 `id` + 控件用 `aria-labelledby` 指认它」，且该宿主行为要钉成契约锁（EP 升级后若开始转发 `id`，锁会红，正解同时变回 `for`+`id`）。
-  4. 控件 `id` 的来源优先级固定：**显式传入的 `id` > 框架实例级生成**（Vue 3.5 `useId()`）。**禁止 `Math.random()` 造 id**：同页多实例可撞车，而撞车时 `label[for]` 会指向别人的控件（浏览器取文档首个匹配），比缺失更坏。`UiField` 这类容器不得要求调用方"自己想起来传 forId"——必须把可用 id 交给调用方（控件登记，或 slot 下发），否则该 prop 事实上恒空。
-  5. "必填"的语义必须落在**控件**上（`aria-required="true"`），视觉上那颗红色 `*`（`aria-hidden`）只是装饰；`required` 为假时**不得残留** `aria-required`。
-- **存量与节奏**：孤岛 `<label>`（既无 `for`/`:for`、内部也不包裹控件）按**逐文件**基线登记，只能缩小；2026-10-19 实测 **139 → 127**（23 个文件）。基线判据必须同时认识合法替代通道（`aria-labelledby` 等），否则会把一次合规修复计成退化。`UiField` 的 26 处待逐点绑定，其余 127 处分批清理。
+  4. 控件 `id` 的来源优先级固定：**显式传入的 `id` > 框架实例级生成**（Vue 3.5 `useId()`）。**禁止 `Math.random()` 造 id**：同页多实例可撞车，而撞车时 `label[for]` 会指向别人的控件（浏览器取文档首个匹配），比缺失更坏。
+  5. **表单容器（`UiField`）不得代调用方造 id 当标签目标**。容器不渲染控件、控件在 slot 里，而 slot 里的组件是**另一个实例**、`useId()` 得到**另一个**值 ⇒ 容器把自造值发射成 `for` 时，那是一条指向不存在元素的**死 `for`**（屏读宣布一个不存在的控件、点击标签不聚焦，WCAG 4.1.2）。合规形态只有两种，且必须显式选一：**① 认领式** —— 控件把自己的 id 经一条 `Symbol` 的 provide/inject 通道**反向登记**给容器，容器发射"实际被认领的那个 id"；**② 门控式** —— 容器只在调用方**显式给了值**时才发射 `for`（`:for="forId || undefined"`），没给就**不发射**。两条同判据：**宁可没有 `for`，也不能有一个指向不存在元素的 `for`**。不得要求调用方"自己想起来传 `forId`"（该 prop 实测恒空即等同契约不存在），但 prop 恒空的正解是改契约形态，**不是**替调用方编一个值。
+  6. "必填"的语义必须落在**控件**上（`aria-required="true"`），视觉上那颗红色 `*`（`aria-hidden`）只是装饰；`required` 为假时**不得残留** `aria-required`。
+- **存量与节奏**：孤岛 `<label>`（既无 `for`/`:for`、内部也不包裹控件）按**逐文件**基线登记，只能缩小；2026-10-19 实测 **139 → 127**（23 个文件）。基线判据必须同时认识合法替代通道（`aria-labelledby` 等），否则会把一次合规修复计成退化。**并且必须把「缺失」与「指空」分成两态**：一条有 `for` 但目标不存在的 label 会从"孤岛"计数里**消失**，读起来像改善，实际是更糟的伪装态 —— 因此指空要由另一条判据（死 `for` 扫描）单独阻断，豁免只能**按目标逐个**登记、不得整文件豁免。`UiField` 的 26 处带 label 用法**不在**上述 127 里（那是 `<UiField label="…">` 的 prop，不是字面 `<label>` 标签，扫描器对它天然失明），逐点绑定另批做。
 - **提示文字**：本项是属性面改造，**不新增 locale 键、不改任何用户可见文案**（zh/en 成对要求因此不触发）；标签文本、`hint`、错误文案全部沿用既有 i18n 键。
 
 ### 五、验收锚点
@@ -20386,7 +20387,7 @@ LLM 空输出/报告缺失时，审计 job 会往 job 汇总写 `AUTONOMOUS_VERD
 - 焦点环：`apps/desktop/src/styles/focus-ring.test.js`（12 条，含变体域派生、双档令牌声明恰好一次、禁十六进制、2px/offset 唯一性、禁 `outline:none`）+ 真 Chromium 计算样式取证（8 类控件 × 浅暗两档 × t=0/稳态）。
 - 菜单键盘：`apps/desktop/src/components/MpSidebar.more-keyboard.test.js`（13 条）。
 - 可点元素：`apps/desktop/src/clickable-roles.contract.test.js`（7 条，含 leaf 角色不变式与只可缩小的债务登记）+ `clickable-roles.behavior.test.js`（3 条，真 i18n 插件、Enter/Space 各自 emit、`@click`-only 负控）。
-- 标签关联：`apps/desktop/src/label-association.contract.test.js`（20 条）+ `apps/desktop/src/element-plus-attr-forwarding.test.js`（3 条）+ 基线 `apps/desktop/src/label-association-baseline.json`。
+- 标签关联：`apps/desktop/src/label-association.contract.test.js`（19 条，含 C1 回归锁与门控结构锁）+ `apps/desktop/src/element-plus-attr-forwarding.test.js`（3 条）+ 基线 `apps/desktop/src/label-association-baseline.json`。⚠ 这里的条数是**当日读数**，会随锁增删漂移；判定一律以门禁当场执行的通过数为准，不以本文数字作验收证据。
 - 令牌：`apps/desktop/src/styles/token-scales.test.js`（6 条）+ 真引擎逐槽变量链对账。
 - 共同要求：上述每条锁都要做**写回被禁形态**的变异反证（不是"摘掉判据"），且红必须红在指名的那条用例上。
 
