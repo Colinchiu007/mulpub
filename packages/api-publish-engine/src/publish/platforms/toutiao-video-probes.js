@@ -47,6 +47,8 @@ async function probePublishAuth (client, headers, logger) {
     })
     const d1 = (r1.data || {}).data || {}
     const perm = d1.authorPermission || {}
+    // 2026-10-19：提交前唯一的「账号未完善」信号（DisablePublish 在這種账号上仍是 false）
+    if (perm.IsIdentifyAuth !== undefined) out.identityVerified = Boolean(perm.IsIdentifyAuth)
     if (perm.DisablePublish !== undefined) {
       out.disablePublish = Boolean(perm.DisablePublish)
       out.canPublish = !Boolean(perm.DisablePublish)

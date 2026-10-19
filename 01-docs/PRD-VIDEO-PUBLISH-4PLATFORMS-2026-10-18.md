@@ -755,3 +755,61 @@ Step 0 曾硬要求 `bd_ticket_guard_client_data` 存在 —— 而它**只在�
 2. 视频号 / 头条的**活会话**在 `account-*` 分区，被当时运行中的应用实例独占锁定 ⇒ 这两个平台的真实发布本轮无法验证。
 3. `create_v2` 是否真需要 `bd-ticket-guard-ree-public-key` 未验证（会话失效使实验走不到那步）⇒ 判据继续 fail-closed。
 4. 视频号 15 个 `rpa-rpa-tencent_video-36b5b265-*` 分区全部为 2026-09-23，必然失效，勿再复用。
+
+---
+
+## 12.7 账号未完善的提交前检测与解法链接（R8，2026-10-19 真机实证）
+
+### 12.7.1 能不能在发布前检测到「账号没完善、发不了」——能
+
+真机读数（活会话、只读、零副作用）：
+
+```
+GetPublishAuth.authorPermission.IsIdentifyAuth = false  →  identityVerified = false
+canPublish = true   disablePublish = false   blockStatus = 0        ← 这三项**都不受影响**
+```
+
+⇒ **`DisablePublish` / `BlockStatus` 不能用于判断「能否发布」**，`IsIdentifyAuth` 是唯一的提交前信号。
+
+### 12.7.2 解法链接：用头条自己的页面（不新建飞书文档）
+
+真机录到的完整链路：发布页点「发布」→ 模态框「账号信息未完善」→ 点弹窗里的**「去完善」**，
+实测弹出目标是：
+
+```
+https://mp.toutiao.com/profile_v4/personal/landing-type        ← 主链接（用户点进去即可完善）
+https://mp.toutiao.com/profile_v4/personal/auth?enter_from=main_page   ← 二级：头条认证页
+```
+
+按「平台有现成解法页面就用现成的」原则直接采用，**无需自建说明页**。
+
+### 12.7.3 闸门与返回结构
+
+| 情形 | 判据 | `code` | 是否带 `helpUrl` |
+| --- | --- | --- | --- |
+| 无发布权限 | `canPublish === false` | `NO_PUBLISH_PERMISSION` | ✅ |
+| **账号信息未完善** | `identityVerified === false` | **`ACCOUNT_NOT_VERIFIED`** | ✅ |
+| 正常 | 以上皆否 | —— | —— |
+
+失败结果统一带 `{ success:false, code, error, helpUrl, helpLabel, auth }`，
+`helpUrl` 供 UI 渲染「可点击查看」。**闸门位置在上传之前**——不该发生的上传一次都不发生
+（测试锁：`Action=ApplyUploadInner` 请求数必须为 0）。
+
+### 12.7.4 显示项与提示文字
+
+| 场景 | 提示文字 | 链接 |
+| --- | --- | --- |
+| 账号信息未完善 | `该头条号账号信息未完善，暂时无法发布视频（平台提示：账号信息未完善，暂时不能进行发布文章、视频等权益操作，请完善后重试）。` | `去头条号完善账号信息` → `landing-type` |
+| 无发布权限 | `该头条号当前无发布权限（GetPublishAuth.DisablePublish=true）。平台侧原文：请完善账号信息，解锁发布文章、视频等权益操作。` | 同上 |
+
+> ⚠️ **文案纪律**：只如实写「账号信息未完善」，**不写「未实名」** ——
+> 弹窗用词是更宽的「账号信息」，把 `IsIdentifyAuth=false` 直接翻译成「未实名」属过度断言
+> （测试里有一条断言专门锁 `error` 不含「未实名」）。
+
+### 12.7.5 未闭合
+
+1. **UI 的弹窗与可点链接尚未接线**：引擎已返回 `helpUrl`，但渲染层发布失败走
+   `usePublishFlow.js#notifyFailure` → `notifyError`，目前只显示纯文本；
+   且外链打开受 `href-scheme-contract.test.js` 白名单约束，需按契约接入。
+2. 接线时须同步补 `locales/zh.js` / `en.js` 成对文案（Gate 7 locale-sync）。
+3. `IsIdentifyAuth=false` 与弹窗「账号信息未完善」是否完全等价未单独证实。
