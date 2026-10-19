@@ -246,73 +246,105 @@ function main(argv) {
   const args = argv || [];
   const limitArg = args.find((a) => a.indexOf('--limit=') === 0);
   const ceilingArg = args.find((a) => a.indexOf('--ceiling=') === 0);
+  const wfArgs = args.filter((a) => a.indexOf('--workflow=') === 0).map((a) => a.slice('--workflow='.length));
+  const jobArg = args.find((a) => a.indexOf('--job=') === 0);
   const positional = args.find((a) => /^\d+$/.test(a));
   const maxRuns = limitArg ? Number(limitArg.slice('--limit='.length))
     : (Number(positional || 60));
   if (!Number.isFinite(maxRuns) || maxRuns <= 0) {
-    console.error('[COVERAGE-BUDGET] maxRuns 必须是正整数（不许静默忽略参数）');
+    console.error('[GATE-TIMEOUT] maxRuns 必须是正整数（不许静默忽略参数）');
     return 2;
   }
-  let ceilingMinutes;
+  let ceilingOverride;
   if (ceilingArg) {
-    ceilingMinutes = Number(ceilingArg.slice('--ceiling='.length));
-    if (!Number.isFinite(ceilingMinutes) || ceilingMinutes <= 0) {
-      console.error('[COVERAGE-BUDGET] --ceiling 必须是正数（采样窗口内实际生效的那条天花板）');
-      return 2;
-    }
-  } else {
-    // 默认取 workflow 现值：语义是"今天这条天花板杀没杀过人"。
-    // 要回答"上一代天花板杀了几趟"（本次定数的依据），必须显式传 --ceiling=40。
-    const judge = require(path.join(__dirname, 'check-coverage-budget.js'));
-    try {
-      const text = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'quality-gate.yml'), 'utf8');
-      ceilingMinutes = judge.parseJobTimeout(text, judge.JOB_ID);
-    } catch (e) { ceilingMinutes = null; }
-    if (ceilingMinutes === null) {
-      console.error('[COVERAGE-BUDGET] 取不到 workflow 现值当天花板，且未显式传 --ceiling ⇒ 判据自身故障');
+    ceilingOverride = Number(ceilingArg.slice('--ceiling='.length));
+    if (!Number.isFinite(ceilingOverride) || ceilingOverride <= 0) {
+      console.error('[GATE-TIMEOUT] --ceiling 必须是正数（采样窗口内实际生效的那条天花板）');
       return 2;
     }
   }
-  let got;
+
+  let reg;
   try {
-    got = collect(maxRuns);
+    reg = STATIC.loadRegistry();
   } catch (e) {
-    console.error('[COVERAGE-BUDGET] 采集自身失败：' + String(e.message || e).slice(0, 200));
+    console.error('[GATE-TIMEOUT] 注册表不可用，拒绝采样：' + String(e.message || e).slice(0, 200));
     return 2;
   }
-  const date = new Date().toISOString().slice(0, 10);
-  const built = buildProvenance(got.rows, {
-    runsListed: got.runsListed, collectedAt: date, ceilingMinutes,
+  const targets = targetsFromRegistry(reg, {
+    workflows: wfArgs,
+    job: jobArg ? jobArg.slice('--job='.length) : null,
   });
-  const sum = summarize(got.rows);
-  console.log('[COVERAGE-BUDGET] workflow=' + WORKFLOW_FILE + ' repo=' + REPO +
-    ' runs_listed=' + got.runsListed + ' 有该作业=' + sum.rows +
-    ' 按设计跳过=' + sum.skipped + ' 活跃=' + sum.active +
-    ' in_flight=' + sum.inFlight +
-    ' 取不到时长=' + sum.noDuration +
-    ' 有时长=' + sum.withDuration + ' 无该作业=' + got.missingJob +
-    ' probe_errors=' + got.probeErrors + ' ceiling=' + ceilingMinutes);
-  console.log('[COVERAGE-BUDGET] 候选 provenance = ' + JSON.stringify(built));
+  if (targets.length === 0) {
+    console.error('[GATE-TIMEOUT] --workflow/--job 过滤后没有任何登记项（不静默返回空表）');
+    return 2;
+  }
+
+  const date = new Date().toISOString().slice(0, 10);   // UTC 日期，与注册表口径逐字一致
+  const candidates = [];
+  let probeErrors = 0;
+  let gaps = 0;
+  let zeroSample = 0;
+  for (const entry of targets) {
+    const wfBase = entry.workflow.replace(/^\.github\/workflows\//, '');
+    let got;
+    try {
+      got = collectForWorkflow(wfBase, maxRuns, entry);
+    } catch (e) {
+      console.error('[GATE-TIMEOUT] ' + entry.workflow + '#' + entry.jobId + ' 采集自身失败：' +
+        String(e.message || e).slice(0, 200));
+      probeErrors++;
+      continue;
+    }
+    probeErrors += got.probeErrors;
+    const ceilingMinutes = ceilingOverride !== undefined ? ceilingOverride : entry.timeoutMinutes;
+    const sum = summarize(got.rows);
+    const built = buildProvenance(got.rows, {
+      runsListed: got.runsListed,
+      collectedAt: date,
+      ceilingMinutes,
+      jobName: entry.displayName,
+      workflowPath: entry.workflow,
+      timeoutMinutes: ceilingOverride !== undefined ? entry.timeoutMinutes : entry.timeoutMinutes,
+      remeasureCommand: 'node scripts/gate-timeout-sample.js --workflow=' + wfBase +
+        ' --job=' + entry.jobId + ' --limit=' + maxRuns,
+    });
+    if (sum.noDuration > 0) gaps += sum.noDuration;
+    if (!sum.hasData) zeroSample++;
+    console.log('[GATE-TIMEOUT] ' + (entry.workflow + '#' + entry.jobId).padEnd(54) +
+      ' workflow=' + wfBase + ' runs_listed=' + got.runsListed + ' 有该作业=' + sum.rows +
+      ' 按设计跳过=' + sum.skipped + ' 活跃=' + sum.active +
+      ' in_flight=' + sum.inFlight +
+      ' 取不到时长=' + sum.noDuration +
+      ' 有时长=' + sum.withDuration + ' 无该作业=' + got.missingJob +
+      ' probe_errors=' + got.probeErrors + ' ceiling=' + ceilingMinutes);
+    if (sum.hasData) candidates.push(built);
+    else {
+      console.error('[GATE-TIMEOUT] ' + entry.workflow + '#' + entry.jobId +
+        ' 零成功样本 —— 这是"没采到"，不是"没有长尾"（窗口太小或该作业本窗口全在飞/被杀）');
+    }
+  }
+
   // 决策只认 refusalCode（单一真源）；这里仅负责把对应的话说清楚。
-  const refusal = refusalCode(sum, got.probeErrors);
-  if (refusal === 2 && got.probeErrors > 0) {
-    console.error('[COVERAGE-BUDGET] 采集不完整（probe_errors>0），本次读数不得用于调预算');
+  const refusal = refusalCode({ noDuration: gaps, hasData: candidates.length > 0 }, probeErrors);
+  if (refusal === 2 && probeErrors > 0) {
+    console.error('[GATE-TIMEOUT] 采集不完整（probe_errors=' + probeErrors + '），本次读数不得用于调预算');
     return 2;
   }
   if (refusal === 2) {
-    console.error('[COVERAGE-BUDGET] 有 ' + sum.noDuration +
+    console.error('[GATE-TIMEOUT] 有 ' + gaps +
       ' 趟**已跑完**却取不到时长 —— 这是取数漏样，不是"没有长尾"，先修采集再谈预算' +
-      '（在飞 ' + sum.inFlight + ' 趟不计入此列：它们还没跑完，不是漏样）');
+      '（在飞趟数已单列，不计入此列：它们还没跑完，不是漏样）');
     return 2;
   }
-  if (refusal === 1) {
-    console.error('[COVERAGE-BUDGET] 零样本：这是"没采到"，不是"没有长尾"');
-    return 1;
-  }
-  console.log('[COVERAGE-BUDGET] OK samples=' + built.samples +
-    ' max=' + built.maxMinutes + ' p90=' + built.p90Minutes +
-    ' censored_at_ceiling=' + built.censoredAtCeiling);
-  return 0;
+  if (refusal === 1) return 1;
+
+  console.log('[GATE-TIMEOUT] 候选注册表条目（逐格 JSON，直接替换 registry.jobs 里同名项；' +
+    '零样本的格子未列出）：');
+  console.log(JSON.stringify(candidates, null, 2));
+  console.log('[GATE-TIMEOUT] OK 采到 ' + candidates.length + '/' + targets.length + ' 格；零样本=' + zeroSample +
+    '；probe_errors=' + probeErrors + '；collectedAt=' + date);
+  return zeroSample > 0 ? 1 : 0;
 }
 
 module.exports = {
