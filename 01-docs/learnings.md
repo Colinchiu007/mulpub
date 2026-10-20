@@ -205,6 +205,69 @@ expect(cls('draft')).toContain('is-primary')   // ← 只验证 class 名挂上�
 三条规则（`col-btn-clear`/`col-btn-retry`/`col-btn-retry-sm`）。**契约测试立刻红**——
 没有它，这次丢失会静默进入生产。**拆文件是「判据必须复核」的典型场景。**
 
+## 「慢而不错」第三次命中：169 段任务进页面要等 845 次 IPC——性能缺陷只能靠「调用计数/wall-time」守，靠最终状态永远看不见（s2v-result-view-perf，2026-10-20）
+
+### lesson: perf-defects-are-invisible-to-final-state-assertions
+
+**现场**：用户进失败任务（169 段、无成片）的编辑页，看到三件事——视频预览区「一直加载」最后空白、未生成图片区先显示破图数秒后才显示「未生成」、整页进入非常慢。三个现象看起来是三个 bug，实际是**同一条链路的三个表现**：
+
+```
+loadProject()
+  → await refreshSegmentImageUrls()   // 全量 169 段
+      → 每段 5 个媒体位（image1/image2/video1/video2/audio）各申请一次 share URL
+        ⇒ ≈ 845 次 story2video:create-share-url IPC
+  → await resolveLocalUrl(audioPath)   // audioPath 为 null 时也走
+  → await resolveLocalUrl(videoPath)   // videoPath 为 null 时也走
+  → finally { loading = false }        // 骨架挂 845 次 IPC 那么久
+```
+
+而失败任务 `videoPath` 为 null，`<video>` 因 `v-if="videoPath"` **根本不渲染** ⇒ 用户等了一个不会出现的东西，最后看到空白。`<img>` 无 `loading="lazy"`，169 张同时发起请求，未完成时浏览器渲染破图。
+
+**这是本仓第三次踩「慢而不错」**（前两次：10-14 账号页逐账号 pbkdf2Sync、10-15 新标签 element-plus 全量引入）。三次共同形态：**画面完全正常，只是迟到**。像素对比看最终画面，天然看不见「迟到」；功能测试看「最后对不对」，也看不见。
+
+**可复用判据**：性能类需求的验收必须是 **IPC 调用计数**或 **wall-time**，不能是最终 DOM 状态。本轮的做法：mock `story2videoCreateShareUrl` 后断言 `mock.calls.length`，并把「169 段首屏 ≤ 40 次」「哨兵追加增量 ≤ 40 次」写成硬断言——这两个数字就是本次修复的契约，将来谁把分批改回全量，当场红。
+
+### lesson: a-silent-default-path-can-be-the-whole-bug
+
+**「无条件走加载链路」比「加载失败」更隐蔽**。旧代码 `this.videoSrc = this.videoPath ? await this.resolveLocalUrl(...) : null` 看着有判空；但 `loading` 的置 false 位置在**所有分段 URL 解析完之后**，所以判空只省了 1 次 IPC，没省那 845 次。真正的判据不是「有没有判空」，而是「**这个等待为用户产出了什么可见结果**」——失败任务的成片永远等不到，那 845 次 IPC 对首屏的贡献是零。
+
+推论：任何 `await` 链在 `finally` 里置 loading 的写法，都要问「链上每一项失败/为空时，用户是否仍然要等它」。答案是否的项，应该在一开始就被跳过，而不是在链上被判空。
+
+### lesson: batching-breaks-every-index-based-feature-unless-you-force-it-in
+
+**分批渲染第一次实现就静默破坏了三个既有功能**，全靠既有用例当场抓住：
+
+| 被破坏的功能 | 怎么破的 | 谁抓住的 |
+| --- | --- | --- |
+| 滚动高亮 / refs 下标 | 窗口写成「滑窗」`[renderedCount, renderedCount+step)`，推进后前 20 段从 DOM 消失 | 自建哨兵用例 `expected 20 to be greater than 20` |
+| focusScenes 政策徽标 | 80 段任务的场景 49/73/74 不在前 20 段 ⇒ 徽标与定位能力失效 | **既有**用例 `expected [] to have a length of 3` |
+| 上移/下移/删除/导出命名 | `v-for` 的局部 index 与全量下标脱钩 | 静态审查（改为每项携带 `absoluteIndex`） |
+
+**判据**：给长列表做分批/懒加载时，先列出「所有按下标寻址的功能」（滚动定位、政策定位、重排、删除、导出命名、快捷键），再决定窗口语义。本轮的窗口语义是**追加式**（恒从 0 开始，`to = renderedCount + step`），且点名段强制并入首屏——这两条都是被上面的红灯逼出来的，不是设计时想到的。
+
+### lesson: a-named-debt-target-zero-tolerance-forces-the-right-refactor
+
+**max-lines 的 targets 零容差，第一版就拦下了我，而它是对的**。第一版把新逻辑直接写进 `ResultView.vue` ⇒ 2062 行 > 点名目标 1890，`TARGET_GREW` 红。当时的本能反应是「申请抬基线」，但正确动作是把分段编辑区整块抽成组件——抽完 `ResultView.vue` **反而降 119 行**（1860 → 1741），从「还账对象」变成「有空间的普通文件」，而且分批/懒加载策略落到了可独立单测的 composable 里。
+
+**判据**：撞上「零增长容差」时，先问「我要加的东西是不是一个自洽的功能块」。是，就抽组件/抽 composable——这通常正是架构上该做的事；不是，才考虑抬基线（且抬基线要人工过目）。
+
+### lesson: extracting-a-component-breaks-tests-that-call-its-methods-directly
+
+**抽组件会让「直接调 `w.vm.xxx()`」的既有测试整批变红**，而改测试迁就实现是错的。本轮 5 条既有用例直接调 `w.vm.sceneMaterialSlots()` / `segmentStatusReason()` / `subtitleBlocksText()` / `segmentVoiceSpeedText()` / `clearSceneMaterialUrl()`——这些是**真实契约**，正确解法是把逻辑搬进 composable、宿主与子组件共用同一真源，宿主保留薄包装供既有调用沿用。
+
+配套两条：① `v-model="segment.xxx"` 抽成 prop 后撞 `vue/no-mutating-props`，卡片内引入 `segmentDraft` 浅拷贝 + `watch(segment, deep)` 同步（`_draft` 命名又撞 `vue/no-reserved-keys`，`_` 前缀是保留键）；② 宿主与子组件**各写一份槽位解析**会造出「宿主放行、编辑器禁用」的不对称缺陷，必须收敛为 `resolveSceneMaterialSlots` 单一真源。
+
+### lesson: bulk-text-moves-through-shell-arrays-corrupt-files-silently
+
+**用 PowerShell 数组索引搬移大段内容，两次差点整块丢数据**。第一次 `$lines[1727]` 取错行，把 `.segment-thumb img` 当成要保留的规则；第二次更险——`Select-Object -Skip/Index` 之类的数组展开把 scoped CSS 拼成单行巨串，我的拆分脚本两轮都把卡片规则清空（「editorRules: 2 / cardRules: 0」这个异常读数救了命）。
+
+**判据**：① 批量搬移后必须打印**两侧条数**并断言非零/与预期相等，「搬了 0 条」与「搬完了」在输出上可能一样；② 判据取不到读数时按未证实处理，不得当成成功；③ 恢复源用 `git show HEAD:<path>`，不要依赖中间临时文件（本轮中间文件写到 `$env:TEMP` 而脚本在 worktree 里找，白跑一轮）。
+
+### lesson: ccg-deep-review-truncation-is-a-backend-limit-not-a-code-verdict
+
+**评审后端输出被截断 ⇒ JSON 解析失败 ⇒ 审查判红，这与代码质量无关**。本轮 `claude` critic 对 2051 行 diff 输出 20392 字符被砍断，脚本按「方案问题太多」建议拆小——实际是后端单次输出上限。按 AGENTS.md 的子代理降级规则改用独立 subagent 做跨家族审查，并把「后端截断」这一事实如实写进执行记录，**不得**因为跑不动就把 status 写成 cleared 假装通过。
+
+
 ## 扩展名是「用户说的」，魔数是「文件说的」——克隆样本校验必须信后者（s2v-clone-sample-sniff，2026-10-19）
 
 ### lesson: validate-audio-container-by-magic-bytes-not-extension
@@ -227,6 +290,32 @@ expect(cls('draft')).toContain('is-primary')   // ← 只验证 class 名挂上�
 1. 凡「按扩展名/文件名定行为」的代码，问一句「文件内容说谎了吗」——音频容器、图片格式、压缩包都可能改名；测试断言里至少给一个「内容与扩展名不符」的用例。
 2. 音频类夹具应该用真实字节头（ID3/ff fb/RIFF-WAVE/ftyp）构造，占位字符串字节会让格式逻辑测试退化为「只测了文件名」。
 3. 「克隆成功」不等于「样本可用」：本地克隆型 provider（MiMo）错误延迟到合成时爆发，诊断这类问题时先对样本做 ffprobe/魔数取证，别在日志层打转。
+
+## 「浅拷贝 + deep watch 同步 prop」是个陷阱——宿主原地改属性时它一次都不触发（prop-copy-watch-blindness，2026-10-20）
+
+### lesson: a-shallow-copy-plus-deep-watch-never-sees-in-place-mutation-of-the-source
+
+**现场**：抽 `ResultSegmentCard.vue` 时，为了让 `v-model` 不撞 `vue/no-mutating-props`，卡片内做了
+`segmentDraft = { ...this.segment }` + `watch: { segment: { handler(next){ this.segmentDraft = {...next} }, deep: true } }`。
+看起来很稳（「深层监听，肯定能同步」）。实际跑出来：宿主 `refreshSegmentImageUrls()` **原地改**
+`segment.imageUrl/audioUrl/videoUrl/...`（保存 / 重试 / 重新合成后的 URL 刷新）之后，卡片显示的**还是旧 URL** —— 用户看到旧图或空白。
+
+**根因**：deep watch 监听的是**卡片侧对该 prop 的读取路径**。宿主改的是它自己 `data` 数组里那个对象的属性，
+而不是把 prop **整体替换**成一个新对象——所以 watch 的 `handler` 根本不触发；即便触发，`{...next}` 拍下的也已经是
+触发前那一帧的快照。**「同一对象引用 + 原地改属性」是 deep watch 的结构性盲区**，而 Vue 应用里最常见的更新方式
+恰恰就是这个（改数组元素的字段）。
+
+**修法**：`draft` 用 getter **直接返回 prop**，模板 `v-model="draft.text"` 于是写在 prop 上
+（`@input` 同时 emit `dirty` 让宿主知道要保存）。这在语义上是对的——宿主把数组元素作为**可编辑对象**传进来，
+本就期望字段被改写，随后经 `update-segments` 落盘并整体替换。空 setter 只为满足可写语义。
+
+**可复用判据**：
+1. 抽组件时遇到「prop 需要可写」，先问**宿主要不要原地改它**。要 ⇒ 直接传对象 + getter，别做副本；
+   不要 ⇒ 才做副本，且要用**显式替换**（`setProps`/整体赋值）而非原地改来驱动同步。
+2. 写这类同步用例时，**必须用 `reactive()` 包裹传入的对象**。普通对象上改属性不触发子组件重渲染，
+   会造出「改了却没变」的假红——本轮第一版测试就是这么错的，换 `reactive()` 后才复现真实缺陷。
+3. 判断「watch 能不能跟上」的最低动作：在用例里**原地改一个嵌套字段**（不是换整个对象），看 UI 是否更新。
+   只测「整体替换」的用例，对这条盲区永久失明。
 
 ## 「反证全绿」可以是「一条都没跑」——变异驱动必须自证探针活着（mutation-probe-blindness，2026-10-19）
 
