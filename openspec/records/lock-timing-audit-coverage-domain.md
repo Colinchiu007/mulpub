@@ -80,8 +80,9 @@ date: 2026-10-20
 
 ## 4. 遗留（不假装已闭合）
 
-1. **本片合入后必须做一次带标签的重测并回填**：`node scripts/lock-timing-audit.js --runs=26 --json` 在带 `mock=false` 标签的日志攒够窗口后跑，把结果粘回 `LOCK_BUDGET_PROVENANCE`（当前 `max=12762 / samples=410` 是旧探针读数，方向为上表所述）。按既有不对称纪律，重测出更低值不构成收紧预算的理由。
+1. **本片合入后必须做一次带标签的重测并回填**：`node scripts/lock-timing-audit.js --runs=26 --json` 在带 `mock=false` 标签的日志攒够窗口后跑，把结果粘回 `LOCK_BUDGET_PROVENANCE`（当前 `max=12762 / samples=410` 是旧探针读数，方向为上表所述）。按既有不对称纪律，重测出更低值不构成收紧预算的理由；**重测出更高值则必须抬 `DEFAULT_READY_TIMEOUT_MS` 并同步 `LOCK_CASE_TIMEOUT_MS` 的全部消费方**（既有线索：2026-10-15 那次 `QG Coverage` 同作业有 `ready=19295ms` 的成功握手，同时另一次 45s 内没吐 READY 判红）。
 2. **同族第二处未判定**：`scripts/case-timeout-audit.js:53` 有同形写法 `JOB_RE = /QG Desktop Shards/`。它量的是 GUI CLI e2e 单用例耗时，**是否也在 `QG Coverage` 里产出同样那行**本片未取证（判据：取一次 Coverage 日志 grep 该用例的 verbose 行）。取证为是 ⇒ 同一修法；取证为非 ⇒ 保持现状并在该文件注释里写下"已判定，Coverage 不产出行"。**不在本片顺手改**：把一个未取证的作业名加进另一个判据的域，会让它的样本来源同样无法归因。
-3. 零样本两档共用 `exitCode = 3` 是刻意选择（两档都是"探针未证实"），但脚本没有 `rc=7` 之类独立码；若日后要把"CI 里 legacy 窗口攒够没有"做成可机读信号，需另开判据而非在此改宽。
-4. 三条等人工的项未动（承接上一轮）：`~/.local/bin/env` 缺 `exec "$@"`、共享根那个游离空目录、把 `scripts/doc-abs-paths-baseline.json` 加进 `CI_IGNORED_PATHS`（属"改谁来守门"）。
-5. QM-6 是自演（用户指定），**不构成**双模型外部评审证据；`check-pr-exec-record.js` 的 `evaluateDeepReviewDebt` 只看 `.ccg/reviews/<sha>.json` 的 status，"是否真的跑过外部模型"这一维度本仓仍无判据（AGENTS「残留风险」已记录）。
+3. **采样域还有第二层残缺，本片刻意没扩（这是「同一缺陷的更高一维」，不是边角）**：脚本的 workflow 坐标只有 `WORKFLOW = 'quality-gate.yml'`，而 `.github/workflows/electron-ci.yml` 的 `electron-tests` 作业（步骤「Unit tests (Vitest, non-Electron, single-worker deterministic)」，`if: github.event_name != 'pull_request'` ⇒ 仅 main push / dispatch 跑，且 #4061 后按 `--shard` 切三片）**跑的是同一批桌面 vitest** ⇒ 那里也产握手行。取证方式是静态可读的：`grep -na "Unit tests (Vitest" .github/workflows/electron-ci.yml`，我在 #4061 落地后当场读到。扩它需要给采集端加第二个 workflow 轴，并为该轴配同形的 A/B 负控（哪些 workflow 产、哪些不产），这是一片独立的改动量 ⇒ 登记为遗留；同时把这个边界写进 `JOB_RE` 上方注释与 `docs/windows-lock-budget-provenance.md` §4 第 6 条，**避免「域已完整」被读成结论**。因此现存 max 至今仍是**下界**。
+4. 零样本两档共用 `exitCode = 3` 是刻意选择（两档都是"探针未证实"），但脚本没有 `rc=7` 之类独立码；若日后要把"CI 里 legacy 窗口攒够没有"做成可机读信号，需另开判据而非在此改宽。
+5. 三条等人工的项未动（承接上一轮）：`~/.local/bin/env` 缺 `exec "$@"`、共享根那个游离空目录、把 `scripts/doc-abs-paths-baseline.json` 加进 `CI_IGNORED_PATHS`（属"改谁来守门"）。
+6. QM-6 是自演（用户指定），**不构成**双模型外部评审证据；`check-pr-exec-record.js` 的 `evaluateDeepReviewDebt` 只看 `.ccg/reviews/<sha>.json` 的 status，"是否真的跑过外部模型"这一维度本仓仍无判据（AGENTS「残留风险」已记录）。

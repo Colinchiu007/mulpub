@@ -93,6 +93,10 @@ mock 注入（`options.spawnImpl`）的样本**一律不入台账**：假跑出�
    旧域只认 `QG Desktop Shards` ⇒ **最需要大预算的那个作业根本不在样本里**。
    正解不是"扫所有作业"（那会让样本来源无法归因），而是显式作业名集合 + **A/B 负控**：
    A 臂要求两族都命中，B 臂要求 `QG Static / QG Unit Tests / QG Changes / GUI Gate Result / build` 这些不跑夹具的**不命中**。
+   ⚠ **同一类残缺还有第二层，本片未扩**：脚本的 workflow 坐标只有 `quality-gate.yml`，而
+   `.github/workflows/electron-ci.yml` 的 `electron-tests` 作业（步骤「Unit tests (Vitest, non-Electron, single-worker deterministic)」，
+   `if: github.event_name != 'pull_request'` ⇒ 仅 main push 跑，且已按 `--shard` 切三片）**跑同一批桌面 vitest** ⇒ 那里也产握手行。
+   所以现存的 max 至今仍是**下界**；扩它要给采集端加第二个 workflow 轴并配同形的 A/B 负控，不在本片范围（理由见执行记录遗留 #3）。
 7. **「打了几行日志」不等于「有几个样本」**：夹具只在**真跑**时记进程内台账（`options.spawnImpl` 一律不记），
    但 `console.log` 那行是**无条件**打印的 ⇒ 单元用例注入的假握手（`ready=0ms`）同样落在 CI 日志里。
    只看行数的复测会把样本量下限用假数据凑满。⇒ 握手行必须自带 `mock=true|false` 标签，

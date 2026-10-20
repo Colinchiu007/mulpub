@@ -38,13 +38,18 @@ const path = require('node:path');
 
 const REPO_REMOTE = process.env.MP_AUDIT_REPO || 'Colinchiu007/mulpub';
 const WORKFLOW = 'quality-gate.yml';
-// 采样域 = **真跑该夹具的作业族**，不是"我以为跑的那些"。
+// 采样域 = **本 WORKFLOW 坐标内**真跑该夹具的作业族，不是"我以为跑的那些"。
 // 2026-10-20 对 origin/main 最近 4 趟已完成 main push 的 12 份作业日志逐个取数实测（legacy 无标签档）：
 //   QG Coverage count=44 max=17466ms > QG Desktop Shards (2/2) count=16 max=14402ms
 //   > QG Desktop Shards (1/2) count=28 max=3773ms；另单次 run 实测 22 行里 8 行是 ready=0ms 的假握手。
 // 旧值只认 Shards ⇒ 需要最大预算的那个作业根本不在域里，provenance 的 max 是**下界**，
 // 于是"余量充足"这句话有一部分来自采样域本身。负控（这些作业不产握手行，必须不匹配）
 // 由 apps/desktop/electron/services/windows-file-lock.test.js 的 A/B 那条锁住。
+// ⚠ 域还有**第二层**没扩：本脚本只列 `WORKFLOW = quality-gate.yml`，而 `electron-ci.yml` 的
+//   `electron-tests` 作业（步骤「Unit tests (Vitest, non-Electron…)」，`if: event != pull_request` ⇒ 仅 main push）
+//   跑同一批桌面 vitest ⇒ 那里也产握手行，且它按 --shard 切三片。扩它要给 api() 换 workflow 坐标并新增一条
+//   workflow 轴的 A/B，本片未做（原因与取证见 openspec/records/lock-timing-audit-coverage-domain.md 遗留 #3）。
+//   ⇒ 结论的适用范围：这里的 max 至今仍是**下界**，不是全量分布。
 const JOB_RE = /QG Desktop Shards|QG Coverage/;
 
 function argOf (name, fallback) {
