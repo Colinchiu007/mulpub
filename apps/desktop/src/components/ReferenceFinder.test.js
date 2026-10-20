@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mount } from "@vue/test-utils";
+import fs from "node:fs";
+import path from "node:path";
 
 import { config as __vtuConfig } from '@vue/test-utils'
 import { createI18n as __createI18n } from 'vue-i18n'
@@ -99,6 +101,52 @@ describe("ReferenceFinder", () => {
     expect(w.text()).toContain("\u6df1\u5ea6\u5b66\u4e60\u5165\u95e8");
     expect(w.text()).toContain("\u77e5\u4e4e");
     expect(w.text()).toContain("CSDN");
+  });
+
+  // ── 稳定键（UX 审计 4.8）：结果行的 :key="idx" 让节点身份跟着位置而不是跟着条目 ──
+  // ⛔ 本组件**没有**可复现的用户可见缺陷，这点必须先说清楚：两次搜索之间 `searching` 为真会把
+  // 结果块整体 v-if 掉再重建，节点必然全新挂载，于是"旧条目的行内样式残留在新条目上"这一形态
+  // 在这里结构性不可达（我写过一条这样的行为用例，它在**修复前**就绿 —— 那说明测的不是被修的键，
+  // 已删除）。所以本组件只落两条可机械判定的：行身份存在且互不相同、:key 不得退回裸位置。
+  const twoResults = (a, b) => ({
+    code: 0,
+    data: {
+      references: [
+        { title: a, url: "https://example.com/" + a, source: "S1", engagement: "1", snippet: "x", relevance: 40 },
+        { title: b, url: "https://example.com/" + b, source: "S2", engagement: "2", snippet: "y", relevance: 20 },
+      ]
+    }
+  });
+
+  async function searchOnce (w, keyword) {
+    const input = w.find("input");
+    await input.setValue(keyword);
+    await nextTick();
+    const searchBtn = w.findAll("button").filter(b => b.text().includes("\u641c\u7d22"));
+    await searchBtn[0].trigger("click");
+    await nextTick();
+    await nextTick();
+  }
+
+  it("结果行必须携带一个本次搜索内唯一的身份", async () => {
+    vi.mocked(intelligenceFindReferences).mockResolvedValue(twoResults("R3A", "R3B"));
+    const w = mount(ReferenceFinder, { props: { visible: true, searchText: "" } });
+    await nextTick();
+    await searchOnce(w, "\u8eab\u4efd");
+    const rows = w.findAll('[data-testid^="rf-row-"]');
+    expect(rows.length, "扫描域必须真的命中结果行（命中 0 处说明这条锁的锚点已失效，不是已收敛）").toBe(2);
+    const ids = rows.map(r => r.attributes("data-testid"));
+    expect(new Set(ids).size, "同一次搜索内两行的身份不得相同（重复键会让 Vue 直接把两个条目并进一个节点）").toBe(ids.length);
+    w.unmount();
+  });
+
+  it("结果行的 :key 必须是条目身份，不得退回裸位置", () => {
+    const src = fs.readFileSync(path.join(__dirname, "ReferenceFinder.vue"), "utf8");
+    const keyHit = /v-for="ref in results" :key="([^"]+)"/.exec(src);
+    expect(keyHit, "结果行 v-for 的锚点必须命中（命中 0 处不是已收敛，是扫描器失明）").not.toBeNull();
+    expect(keyHit[1], "键必须取行身份本身，而不是位置别名").toBe("ref._rid");
+    // 反向：整个组件不得再出现"第二个参数当键"的形态（换成别的变量名也不许）
+    expect(/v-for="\([^)]*,\s*\w+\)\s+in\s+[^"]*"\s*:key="\s*\w+\s*"/.test(src), "仍有一处 v-for 用位置别名作 :key").toBe(false);
   });
 
   it("auto-searches when visible flips to true with searchText", async () => {

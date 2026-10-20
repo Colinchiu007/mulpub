@@ -79,7 +79,7 @@
             <div class="upload-zone" @click="$refs.pipelineFileInput?.click()" @dragover.prevent @drop.prevent="handlePipelineDrop">
               <p v-if="pipelineImages.length === 0">点击或拖拽图片到此处</p>
               <div v-else class="image-grid">
-                <div v-for="(img, i) in pipelineImages" :key="i" class="image-thumb">
+                <div v-for="(img, i) in pipelineImages" :key="img.preview || i" class="image-thumb">
                   <img :src="img.preview" />
                   <button class="remove-btn" @click.stop="pipelineImages.splice(i, 1)">×</button>
                 </div>
@@ -364,7 +364,7 @@
         <div class="upload-zone" @click="$refs.quickFileInput?.click()" @dragover.prevent @drop.prevent="handleQuickDrop">
           <p v-if="quickImages.length === 0">点击或拖拽图片到此处</p>
           <div v-else class="image-grid">
-            <div v-for="(img, i) in quickImages" :key="i" class="image-thumb">
+            <div v-for="(img, i) in quickImages" :key="img.preview || i" class="image-thumb">
               <img :src="img.preview" />
               <button class="remove-btn" @click.stop="quickImages.splice(i, 1)">×</button>
               <span class="image-index">{{ i + 1 }}</span>
@@ -854,9 +854,9 @@
 
         <!-- 输入文案（1-10 条） -->
         <div v-if="s2vBatchTab === 'text'" class="s2v-batch-tab-body" data-testid="s2v-batch-text-pane">
-          <div v-for="(text, index) in s2vBatchTexts" :key="index" class="s2v-batch-text-row">
+          <div v-for="(row, index) in s2vBatchTextRows" :key="row.id" class="s2v-batch-text-row">
             <textarea
-              v-model="s2vBatchTexts[index]"
+              v-model="row.text"
               class="form-input textarea s2v-batch-text-area"
               rows="3"
               :placeholder="translateWithLocaleFallback('create.story2video.batch.textPlaceholder', '输入第 ' + (index + 1) + ' 条文案（每条最多 ' + story2videoTextMaxChars + ' 字）', 'Enter text ' + (index + 1) + ' (max ' + story2videoTextMaxChars + ' chars each)', { index: index + 1, max: story2videoTextMaxChars })"
@@ -998,7 +998,7 @@ import { ttsVoicesRefs, ttsVoicesComputeds, ttsVoicesMethods, setupTtsVoicesDeps
 // 能力级默认模型解析（voice-model-program-resolved，2026-10-18）：语音/视频域共用同一口径，
 // 与主进程 resolveProviderDefaultModel 逐项等价。
 import { resolveCapabilityDefaultModel } from './video-creation/composables/tts-voices-state'
-import { batchCreateRefs, batchCreateMethods, setupBatchCreateDeps } from './video-creation/composables/useBatchCreate'
+import { batchCreateRefs, batchCreateMethods, setupBatchCreateDeps, s2vBatchTextsView, setS2VBatchTexts } from './video-creation/composables/useBatchCreate'
 // 数字人（avatar-spokesperson）目录：形象/音色选择
 import { avatarCatalogRefs, avatarCatalogComputeds, avatarCatalogMethods } from './video-creation/composables/useAvatarCatalog'
 import { modelProviderList, modelProviderGetDefault } from '@/api/model-providers'
@@ -1279,7 +1279,10 @@ export default {
     s2vBatchDialogOpen: { get() { return batchCreateRefs.s2vBatchDialogOpen.value }, set(v) { batchCreateRefs.s2vBatchDialogOpen.value = v } },
     s2vBatchTab: { get() { return batchCreateRefs.s2vBatchTab.value }, set(v) { batchCreateRefs.s2vBatchTab.value = v } },
     s2vBatchVideoMode: { get() { return batchCreateRefs.s2vBatchVideoMode.value }, set(v) { batchCreateRefs.s2vBatchVideoMode.value = v } },
-    s2vBatchTexts: { get() { return batchCreateRefs.s2vBatchTexts.value }, set(v) { batchCreateRefs.s2vBatchTexts.value = v } },
+    // 文案行：真源是带身份的行数组（模板按 row.id 出键），字符串数组只是派生读视图。
+    // set 仍保留（既有消费口径与测试用 `vm.s2vBatchTexts = [...]` 的写法），一律转成行操作。
+    s2vBatchTexts: { get() { return s2vBatchTextsView.value }, set(v) { setS2VBatchTexts(v) } },
+    s2vBatchTextRows: { get() { return batchCreateRefs.s2vBatchTextRows.value } },
     s2vBatchFiles: { get() { return batchCreateRefs.s2vBatchFiles.value }, set(v) { batchCreateRefs.s2vBatchFiles.value = v } },
     s2vBatchStarting: { get() { return batchCreateRefs.s2vBatchStarting.value }, set(v) { batchCreateRefs.s2vBatchStarting.value = v } },
     s2vBatchLoading: { get() { return batchCreateRefs.s2vBatchLoading.value }, set(v) { batchCreateRefs.s2vBatchLoading.value = v } },

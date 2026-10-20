@@ -38,7 +38,7 @@
 
     <!-- Results -->
     <div v-else style="display:flex;flex-direction:column;gap:var(--space-sm)">
-      <div v-for="(ref, idx) in results" :key="idx"
+      <div v-for="ref in results" :key="ref._rid" :data-testid="'rf-row-' + ref._rid"
         style="padding:var(--space-sm);background:#f8f9fa;border-radius:6px;border:1px solid var(--border)">
         <!-- Title -->
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:var(--space-sm);margin-bottom:4px">
@@ -129,6 +129,16 @@ function relevanceColor (score) {
   return '#999'
 }
 
+/**
+ * 行身份：外部搜索接口返回的条目没有 id（只有 url，而 url 可能重复、也可能被平台改写成
+ * 不安全形态），所以在本组件"离开第三方响应的第一站"给每行分配一个本次会话内唯一的 id。
+ * 它只服务列表键与可寻址性，不参与任何业务判据（safeHttpUrl 那条判据照旧读 ref.url）。
+ */
+let rfRowSeq = 0
+function withRowIds (list) {
+  return list.map((item) => ({ ...item, _rid: 'rf-' + (++rfRowSeq) }))
+}
+
 async function doSearch () {
   if (!query.value.trim() || searching.value) return
   searching.value = true
@@ -136,7 +146,7 @@ async function doSearch () {
   try {
     const res = await intelligenceFindReferences(query.value.trim(), { limit: 5 })
     const data = res?.code === 0 ? res.data : null
-    results.value = (data && data.references) || []
+    results.value = withRowIds((data && data.references) || [])
   } catch (e) {
     reportError('参考内容查找失败', e)
     results.value = []

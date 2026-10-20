@@ -3,6 +3,12 @@ import { mount, config } from "@vue/test-utils";
 import { nextTick } from "vue";
 import { createRouter, createWebHistory } from "vue-router";
 import { setActivePinia, createPinia } from "pinia";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+// 结构锁要读同目录的源文件；本仓 vitest 走 ESM，__dirname 不保证存在，按 import.meta.url 求
+const __DIR = path.dirname(fileURLToPath(import.meta.url));
 
 const mockEnsureLogin = vi.hoisted(() => vi.fn(async () => true));
 
@@ -355,6 +361,89 @@ describe("批量创作（story2video-batch-create）", () => {
     w.vm.openHistoryResult({ projectId: "run-only-cancelled", historyType: "pipeline-run", status: "cancelled", error: "cancelled" });
     expect(pushSpy).not.toHaveBeenCalled();
     w.unmount();
+  });
+
+  // ── 稳定键（UX 审计 4.8）：`:key="index"` 让「模型不拥有的 DOM 状态」跟着位置而不是跟着条目 ──
+  // 症状不是显示错乱（v-model 会把 value 补对），而是**光标/撤销栈/输入法合成态跟着节点走**：
+  // 删掉靠前的行时，用户正在敲的那个节点被卸载，焦点与未提交的合成串一起丢失。
+  it("删除靠前的文案行时，用户正在编辑的那个 DOM 节点必须存活（稳定键，非 index）", async () => {
+    const w = await mountS2V();
+    // 焦点语义要求树真的挂在 document 里：vue-test-utils 默认把组件挂在游离节点上，
+    // 那时 element.focus() 不会改 document.activeElement —— 少了这一步，下面这条
+    // "焦点不得被打掉"的断言测的是夹具而不是被测代码。
+    document.body.appendChild(w.element);
+    try {
+      await w.find('[data-testid="s2v-batch-trigger"]').trigger("click");
+      await nextTick();
+      await w.find('[data-testid="s2v-batch-add-text"]').trigger("click");
+      await w.find('[data-testid="s2v-batch-add-text"]').trigger("click");
+      await nextTick();
+
+      const before = w.findAll("textarea.s2v-batch-text-area");
+      expect(before.length).toBe(3);
+      await before[0].setValue("AAA");
+      await before[1].setValue("BBB");
+      await before[2].setValue("CCC");
+      // 给每个真实 DOM 节点打一个只有节点自己知道的记号（不是模型里的数据）
+      before.forEach((n, i) => { n.element.dataset.nodeProbe = String(i); });
+      before[2].element.focus();
+      expect(document.activeElement, "夹具前提：挂进 document 后 focus() 必须真的生效").toBe(before[2].element);
+
+      await w.find('[data-testid="s2v-batch-text-remove-0"]').trigger("click");
+      await nextTick();
+
+      const after = w.findAll("textarea.s2v-batch-text-area");
+      expect(after.length).toBe(2);
+      // 内容必须仍然正确（这条不是新行为，是防"改键把值改坏"的对偶）
+      expect(after.map((n) => n.element.value)).toEqual(["BBB", "CCC"]);
+      // 关键判据：留着 CCC 的那个节点，必须就是删之前留着 CCC 的那个节点
+      expect(after[1].element.dataset.nodeProbe, "index 作 key 时 Vue 会复用靠前的节点，最后一个节点被卸载").toBe("2");
+      expect(after[0].element.dataset.nodeProbe).toBe("1");
+      // 用户正在敲的那一格不得因为"删了别的一格"而丢焦点
+      expect(document.activeElement, "删除其它行不得把焦点从用户正在编辑的行上打掉").toBe(after[1].element);
+    } finally {
+      w.unmount();
+      if (w.element.parentNode === document.body) document.body.removeChild(w.element);
+    }
+  });
+
+  it("对外契约不变：s2vBatchTexts 仍是字符串数组，写入/清空走同一份真源", async () => {
+    const w = await mountS2V();
+    await w.find('[data-testid="s2v-batch-trigger"]').trigger("click");
+    await nextTick();
+    expect(Array.isArray(w.vm.s2vBatchTexts)).toBe(true);
+    expect(w.vm.s2vBatchTexts).toEqual([""]);
+    const rows = w.findAll("textarea.s2v-batch-text-area");
+    await rows[0].setValue("hello");
+    expect(w.vm.s2vBatchTexts).toEqual(["hello"]);
+    // 派生读视图必须是只读的：不冻的话，模板里误写 `s2vBatchTexts[i] = ...` 会写进
+    // 一个"下一次读还是它"的缓存数组 —— 静默丢失，比抛错难发现得多（变异 M2 实测）。
+    expect(Object.isFrozen(w.vm.s2vBatchTexts), "派生视图必须冻结，误写要当场抛错").toBe(true);
+    expect(() => { w.vm.s2vBatchTexts[0] = "oops"; }).toThrow();
+    expect(w.vm.s2vBatchTexts).toEqual(["hello"]);
+    // 行身份必须存在且互不相同（这是上面那条 DOM 身份断言的载体；缺了它就没有稳定键可用）
+    const ids = w.vm.s2vBatchTextRows.map((r) => r.id);
+    expect(ids.length).toBe(1);
+    expect(new Set(ids).size).toBe(ids.length);
+    w.unmount();
+  });
+
+  it("图片缩略图的键必须是条目自身身份，不得只按位置（本文件 audio.path || i 先例）", () => {
+    const src = fs.readFileSync(path.join(__DIR, "CreateView.vue"), "utf8");
+    // 逐条点名：这三处 v-for 的 :key 不得是裸 index（`audio.path || i` 那种"身份优先、位置兜底"算合规）
+    const sites = [
+      { name: "pipelineImages", re: /v-for="\(img, i\) in pipelineImages" :key="([^"]+)"/g },
+      { name: "quickImages", re: /v-for="\(img, i\) in quickImages" :key="([^"]+)"/g },
+      { name: "s2vBatchTexts", re: /v-for="\(row, index\) in s2vBatchTextRows" :key="([^"]+)"/g },
+    ];
+    for (const s of sites) {
+      const hits = [...src.matchAll(s.re)];
+      expect(hits.length, `扫描域必须命中 ${s.name}（命中 0 处说明这条锁的锚点已失效，不是"已收敛"）`).toBeGreaterThan(0);
+      for (const h of hits) {
+        expect(h[1], `${s.name} 的 :key 退回裸 index 会复用节点，把光标/撤销栈/行内样式留给错误的条目`).not.toBe("i");
+        expect(h[1]).not.toBe("index");
+      }
+    }
   });
 });
 });

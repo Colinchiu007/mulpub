@@ -22,12 +22,25 @@ import { story2videoPickBatchFiles } from '@/api/publisher'
 import { formatStory2VideoNotification, STORY2VIDEO_NOTIFICATION_KEYS } from '@/story2video/story2video-notifications'
 import { getAppLocale } from '@/i18n'
 
+/** 行身份：模块级自增，跨搜索/跨批次不复用（同一次会话内唯一即满足 :key 的判据） */
+let batchTextRowSeq = 0
+function newBatchTextRow (text) {
+  batchTextRowSeq += 1
+  return { id: 's2v-text-' + batchTextRowSeq, text: typeof text === 'string' ? text : '' }
+}
+
 /** 模块级状态（单例） */
 export const state = reactive({
   s2vBatchDialogOpen: false,
   s2vBatchTab: 'text',
   s2vBatchVideoMode: 'off',
-  s2vBatchTexts: [''],
+  // 文案行的真源是"带身份的行"，不是"字符串数组"：模板的 textarea 行原地增删时，
+  // :key 取数组下标会让 DOM 节点身份跟着位置走——删掉靠前的行会把用户正在敲的那一格的
+  // 光标、撤销栈与未提交的输入法合成串一起挪到别的条目上（回归锁见
+  // CreateView.batch-create.test.js「删除靠前的文案行时，用户正在编辑的那个 DOM 节点必须存活」）。
+  // 字符串形态由 s2vBatchTextsView 派生，只给读侧用；写入一律经 addS2VBatchText /
+  // removeS2VBatchText / setS2VBatchTexts 三个行操作，不得写那个 computed。
+  s2vBatchTextRows: [newBatchTextRow('')],
   s2vBatchFiles: [],
   s2vBatchStarting: false,
   s2vBatchLoading: false,
@@ -65,6 +78,26 @@ export const batchCreateComputeds = {
 /** 状态桥接用 toRefs（壳 CreateView computed get/set 委托到这里） */
 export const batchCreateRefs = toRefs(state)
 
+/**
+ * 派生读视图：对外仍然给"字符串数组"，壳与既有测试的消费口径逐字不变。
+ * 真源只有一份（s2vBatchTextRows），这里不是第二份状态，是它的投影 ——
+ * 所以任何写入都必须走行操作，不得写这个 computed。
+ *
+ * ⛔ 返回值必须 Object.freeze：模板里 `v-model="s2vBatchTexts[i]"` 这种写法会被 Vue 的
+ * computed **缓存**骗过去——它写到的是这次派生出来的那个数组实例，写坏了也没人发现，
+ * 而下一次读到的还是同一个被写坏的实例（本仓变异 M2 实测：摘掉行模型后
+ * 「s2vBatchTexts 仍是字符串数组」那条契约用例照样绿，而两条启动用例才真的红）。
+ * 冻上之后，误写会当场抛 TypeError，静默丢失变成响亮失败。
+ */
+export const s2vBatchTextsView = computed(() => Object.freeze(state.s2vBatchTextRows.map((row) => row.text)))
+
+/** 整表写入（壳的 computed set 走这里）：每个值分配一个新的行身份 */
+export function setS2VBatchTexts (list) {
+  state.s2vBatchTextRows = Array.isArray(list) && list.length
+    ? list.map((text) => newBatchTextRow(text))
+    : [newBatchTextRow('')]
+}
+
 // ---- 批量创作（2026-08-15 story2video-batch-create）----
 function openS2VBatchDialog() {
   const d = requireDeps()
@@ -90,14 +123,14 @@ function closeS2VBatchDialog() {
 
 function addS2VBatchText() {
   const d = requireDeps()
-  if (state.s2vBatchTexts.length >= state.S2V_BATCH_MAX_TEXTS) return
-  state.s2vBatchTexts.push('')
+  if (state.s2vBatchTextRows.length >= state.S2V_BATCH_MAX_TEXTS) return
+  state.s2vBatchTextRows.push(newBatchTextRow(''))
 }
 
 function removeS2VBatchText(index) {
   const d = requireDeps()
-  if (state.s2vBatchTexts.length <= 1) return
-  state.s2vBatchTexts.splice(index, 1)
+  if (state.s2vBatchTextRows.length <= 1) return
+  state.s2vBatchTextRows.splice(index, 1)
 }
 
 async function pickS2VBatchFiles() {
@@ -181,7 +214,7 @@ function s2vBatchItemStatusText(item) {
 function s2vBatchCanStart() {
   const d = requireDeps()
   if (state.s2vBatchStarting) return false
-  if (state.s2vBatchTab === 'text') return state.s2vBatchTexts.some(text => String(text || '').trim().length > 0)
+  if (state.s2vBatchTab === 'text') return state.s2vBatchTextRows.some(row => String(row.text || '').trim().length > 0)
   return state.s2vBatchFiles.length > 0
 }
 
@@ -196,7 +229,7 @@ async function startS2VBatch() {
   template.video = { ...template.video, mode: state.s2vBatchVideoMode || 'off' }
   let payload
   if (state.s2vBatchTab === 'text') {
-    const texts = state.s2vBatchTexts.map(text => String(text || '').trim()).filter(Boolean)
+    const texts = state.s2vBatchTextRows.map(row => String(row.text || '').trim()).filter(Boolean)
     if (!texts.length) {
       state.s2vBatchError = d.t('create.story2video.batch.noTextError')
       return
@@ -215,7 +248,7 @@ async function startS2VBatch() {
     const res = await story2videoBatchCreate(d.cloneForIpc(payload))
     if (res?.code === 0 && res?.data?.batchId) {
       await refreshS2VBatches()
-      state.s2vBatchTexts = ['']
+      setS2VBatchTexts([''])
       state.s2vBatchFiles = []
     } else {
       const failedItems = Array.isArray(res?.failedItems) ? res.failedItems : []
@@ -302,7 +335,7 @@ export function resetBatchCreateForTest() {
     s2vBatchDialogOpen: false,
     s2vBatchTab: 'text',
     s2vBatchVideoMode: 'off',
-    s2vBatchTexts: [''],
+    s2vBatchTextRows: [newBatchTextRow('')],
     s2vBatchFiles: [],
     s2vBatchStarting: false,
     s2vBatchLoading: false,
