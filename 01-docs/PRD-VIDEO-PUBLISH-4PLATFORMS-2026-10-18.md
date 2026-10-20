@@ -1051,3 +1051,23 @@ accountBatchCheckLogin / authLoginSilent）。**不碰** cookie 文件（独占�
 **教训（两条都重要）**：
 1. 单测假服务器不校验 CRC ⇒ **8 例全绿但真机第一步就 400** —— 「单测绿 ≠ 真机通」的又一方（前有 vite alias、后有 CRC）。
 2. 「第三参省略」这条生产主路径没有用例 —— 回归锁必须覆盖**默认参数形态**，不只覆盖显式传参形态。
+
+### 14.5 视频号会话订正（2026-10-21）
+
+§14.1/§14.2/§14.3 建立在「视频号 active、HTTP 检测不确定、待探针」这一前提上。
+**2026-10-21 同法复测否证了该前提**：
+
+```json
+{"platform":"tencent_video","accountId":"b1e05ac2","valid":false,
+ "code":"CHECK_LOGIN_COOKIE_EXPIRED","loginStatus":"expired",
+ "persisted":{"ok":true,"status":"expired"}}
+```
+
+⇒ **视频号会话已过期**，不再"待探针"，改**重新扫码**。
+
+**两处判断纠正（有普遍意义）**：
+1. `has_cookies=true` **不等于会话有效** —— 只说明"存过凭据"。
+2. `authLoginSilent` 的 `valid:false` 不宜解释为「能否静默重登的语义差异」，
+   更可能直接就是**会话失效**信号；此前按语义差异解读是一次误读。
+
+**订正后三平台终态**：仅头条 active；抖音、视频号均 expired（均须重新扫码）。
