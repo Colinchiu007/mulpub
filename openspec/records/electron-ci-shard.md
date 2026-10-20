@@ -142,18 +142,18 @@ FAIL: 出现基线之外的运行时台账键：
 ```
 
 我的行为锁要真跑一段 bash 才能验证 `-e -o pipefail` 语义，而 `resolveGitBash()` 给的是
-`C:\Program Files\Git\usr\bin\bash.exe` —— 这是一条**正当**的非 node 子进程，被
+`<GIT_BASH>`（形如 `<GitRoot>\usr\bin\bash.exe`，路径含空格） —— 这是一条**正当**的非 node 子进程，被
 `packages/shared-utils/src/network-egress-guard.js` 的 `ledgerCommandName` 记账时折成了
 `Program`。
 
 ### 这是台账名派生的缺陷，不是"我该去加个键"
 
 `shellFirstToken` 只处理了**带引号**的含空格路径（仓库自己在注释里记过
-`"C:/Program Files/evil.exe" → Program` 这个形态），但 `spawn(file, args)` 传的是**裸路径**，
+`"<带空格的绝对路径>/evil.exe" → Program` 这个形态），但 `spawn(file, args)` 传的是**裸路径**，
 从来没人管。于是：
 
 - 若我图省事，把 `child::Program` 加进基线 —— 等于给一个**无意义键**背书：以后任何
-  `C:\Program Files\…` 下的子进程都会被它盖住，台账彻底读不出是谁在起子进程。而基线本仓
+  含空格的安装目录下的子进程都会被它盖住，台账彻底读不出是谁在起子进程。而基线本仓
   的规矩是「清单只能缩小，新增必须逐条写清为什么这里会起非 node 子进程」——`Program` 写不清。
 - 正解是修派生：裸串且**整串据存在性解析成文件**时取真实 basename。判据取文件存在性而不是猜词法，
   因为 `exec`/`execSync` 传的是含空格分隔的整条命令行，整串不会解析成一个存在的文件。
