@@ -446,6 +446,32 @@
       ],
       "decision": "upgrade-tracked",
       "note": "2026-10-21 登记（#4116 的登记被并发覆盖，本条为补回）：check-dep-audit 报 NEW_ADVISORY。有明确修复版本（>=1.16.1）⇒ decision 取 upgrade-tracked；升级动作交依赖维护流程，不在登记内改 lockfile。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-587h-7wmj-h5pm",
+      "module": "vite",
+      "severity": "high",
+      "patched": ">=6.4.4",
+      "targetVersion": "6.4.4",
+      "roots": [
+        "apps__desktop"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "2026-10-21 登记：vite 的**增补公告**（advisory 库在上一条 vite 公告之后又发布新 ID）。有明确修复版本（>=6.4.4）⇒ upgrade-tracked；升级动作交依赖维护流程，不在登记内改 lockfile。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-r825-w8mm-5pxw",
+      "module": "vite",
+      "severity": "moderate",
+      "patched": ">=6.4.4",
+      "targetVersion": "6.4.4",
+      "roots": [
+        "apps__desktop"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "2026-10-21 登记：vite 的**增补公告**（advisory 库在上一条 vite 公告之后又发布新 ID）。有明确修复版本（>=6.4.4）⇒ upgrade-tracked；升级动作交依赖维护流程，不在登记内改 lockfile。"
     }
   ]
 }
