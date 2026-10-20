@@ -154,6 +154,25 @@ describe('applyConfigProfileFromRoute', () => {
     expect(deps.applySnapshot).toHaveBeenCalledTimes(1)
   })
 
+  // QM-6 round 3 i3：恢复失败**不再全静默**——宿主可传 onRestoreError 承接，
+  // 让「上次选项没恢复上」对用户可见（否则用户只看到默认值没生效，无从知道原因）
+  it('恢复失败时调用 onRestoreError（且仍不阻断配置套用）', async () => {
+    const boom = new Error('restore boom')
+    const onRestoreError = vi.fn()
+    const deps = makeDeps({
+      awaitRestore: vi.fn(() => Promise.reject(boom)),
+      onRestoreError,
+    })
+    expect(await applyConfigProfileFromRoute(deps)).toBe(true)
+    expect(onRestoreError).toHaveBeenCalledWith(boom)
+    expect(deps.applySnapshot).toHaveBeenCalledTimes(1)
+  })
+
+  it('宿主未提供 onRestoreError 时也不抛异常（可选依赖）', async () => {
+    const deps = makeDeps({ awaitRestore: vi.fn(() => Promise.reject(new Error('restore boom'))) })
+    await expect(applyConfigProfileFromRoute(deps)).resolves.toBe(true)
+  })
+
   // QM-6 round 2 i2：载入配置库抛错时必须被吞掉并给出**独立**提示，
   // 不能变成 mounted 链里的未捕获拒绝，也不能伪装成「配置不存在」。
   it('载入配置库失败 ⇒ 不抛异常、提示 handoffLoadFailed、不套用', async () => {

@@ -234,6 +234,7 @@ mounted
 | 配置已被删除 | 库里找不到该 id | toast「所选配置不存在或已被删除，已按流水线默认参数继续」 | 是（按默认参数） |
 | 配置属于别的流水线 | `profile.pipelineId !== selectedPipeline.name` | toast「该配置属于其他流水线，无法在当前流水线应用」 | 是（按默认参数） |
 | 载入配置库失败 | `loadS2VConfigProfiles()` 抛错 | toast「未能载入配置列表，无法套用所选配置，已按流水线默认参数继续」（**独立**提示，不伪装成「配置不存在」） | 是（按默认参数） |
+| 恢复上次选项失败 | `restoreS2VLastOptions()` 抛错 | toast「未能恢复上次的选项设置，已按默认参数继续」（**不阻断**配置套用） | 是（按默认参数，且配置档案照常套用） |
 | 套用执行失败 | `applyS2VConfigProfileSnapshot` 返回 false | toast「配置应用失败，请检查选项后重试」 | 是（按默认参数） |
 
 **所有失败都不阻断创作**——配置是锦上添花，不能因为它让用户做不了正事。
@@ -309,6 +310,7 @@ mounted
 | 创作页：套用失败 | `create.story2video.configProfile.applyFailed`（既有） | 配置应用失败，请检查选项后重试 | Could not apply the configuration. Check the options and try again. | 2600ms |
 | 创作页：无法确定流水线 | `create.story2video.configProfile.pipelineUnresolved`（**新增**） | 未能确定流水线，无法套用所选配置 | Could not resolve the pipeline, so the selected configuration was not applied | 2600ms |
 | 创作页：载入配置库失败 | `create.story2video.configProfile.handoffLoadFailed`（**新增**，QM-6 round 2 i2） | 未能载入配置列表，无法套用所选配置，已按流水线默认参数继续 | Could not load the configuration list, so the selected configuration was not applied. Continuing with the pipeline defaults. | 2600ms |
+| 创作页：恢复上次选项失败 | `create.story2video.configProfile.restoreFailed`（**新增**，QM-6 round 3 i3） | 未能恢复上次的选项设置，已按默认参数继续 | Could not restore your last-used options. Continuing with the defaults. | 2600ms |
 
 > 说明（QM-6 round 2 i2）：「载入失败」**不**复用既有的 `create.story2video.configProfile.loadFailed`（那是配置管理界面的「可稍后重试」语义），也不用 `notFound`（那是「配置已被删除」语义）。载入失败时配置可能好好地存在、只是这次没载入成功 ⇒ 说成「不存在」是**误导**。故单独立键，语义是「本次套用已放弃并回退默认参数」。
 >

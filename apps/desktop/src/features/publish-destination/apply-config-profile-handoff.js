@@ -65,6 +65,7 @@ const STATUS_MESSAGE_KEYS = Object.freeze({
  * @param {(profile: object) => Promise<boolean>} deps.applySnapshot 套用快照（既有实现）
  * @param {(name: string) => void} [deps.setActiveProfile] 记录已应用的配置名
  * @param {(key: string, ms?: number) => void} deps.showToast 顶部提示（入参是 locale key）
+ * @param {(error: unknown) => void} [deps.onRestoreError] 「恢复上次选项」失败时的回调（不传则不提示）
  * @param {() => Promise<void>|void} [deps.awaitRestore] 等「恢复上次选项」跑完
  * @returns {Promise<boolean>} 是否真的套用了（未套用时各失败分支已给出可见提示）
  */
@@ -77,7 +78,12 @@ export async function applyConfigProfileFromRoute (deps) {
   if (typeof d.awaitRestore === 'function') {
     const restorePromise = d.awaitRestore()
     if (restorePromise) {
-      try { await restorePromise } catch (_) { /* 恢复失败不阻断配置套用 */ }
+      // 恢复失败不阻断配置套用，但**不静默**（QM-6 round 3 i3 采纳）：
+      // 宿主可传 `onRestoreError` 承接，让「上次选项没恢复上」对用户可见。
+      // 静默吞掉的代价：用户会发现「我设过的默认值没生效」却无从知道原因。
+      try { await restorePromise } catch (error) {
+        if (typeof d.onRestoreError === 'function') d.onRestoreError(error)
+      }
     }
   }
 

@@ -182,6 +182,10 @@ export default {
         // Kept apart from loadFailed: that one means "you may retry", this one means
         // "this attempt was abandoned and the pipeline defaults are being used".
         handoffLoadFailed: 'Could not load the configuration list, so the selected configuration was not applied. Continuing with the pipeline defaults.',
+        // "Restore last options" failed (QM-6 round 3 i3): this error used to be
+        // swallowed silently, leaving users unable to tell why their defaults
+        // did not come back.
+        restoreFailed: 'Could not restore your last-used options. Continuing with the defaults.',
       },
       // Batch create (2026-08-15 story2video-batch-create)
       batch: {

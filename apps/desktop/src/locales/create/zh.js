@@ -179,6 +179,9 @@ export default {
         // 交接时载入配置库失败（QM-6 round 2 i2）：与 loadFailed 区分开——
         // loadFailed 是配置管理界面的「可重试」语义，这里是「本次套用已放弃并回退默认」
         handoffLoadFailed: '未能载入配置列表，无法套用所选配置，已按流水线默认参数继续',
+        // 「恢复上次选项」失败（QM-6 round 3 i3）：此前该错误被全静默吞掉，
+        // 用户只会看到「上次设过的默认值没生效」却无从知道原因
+        restoreFailed: '未能恢复上次的选项设置，已按默认参数继续',
       },
       // 批量创作（2026-08-15 story2video-batch-create）
       batch: {

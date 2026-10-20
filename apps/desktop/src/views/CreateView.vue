@@ -2341,6 +2341,7 @@ export default {
         applySnapshot: (profile) => this.applyS2VConfigProfileSnapshot(profile),
         setActiveProfile: (name) => { this.s2vActiveConfigProfile = name },
         showToast: (key, ms) => this.showS2VOptionsToast(this.$t(key), ms),
+        onRestoreError: () => { this.showS2VOptionsToast(this.$t('create.story2video.configProfile.restoreFailed'), 2600) },
         awaitRestore: () => this._s2vRestorePromise,
       })
     },

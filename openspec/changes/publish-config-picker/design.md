@@ -93,6 +93,17 @@ PRD §3.3.4 写下了「`Enter` / `Space` = 选中当前焦点项并关闭菜单
 
 理由：配置可能**好好地存在**、只是这次没载入成功。把「没载入成功」说成「不存在」是**误导**——用户会以为自己的配置丢了而重新建一遍。
 
+### D12：拆分不是审美选择，是门禁的强制输出（附行数读数）
+
+QM-6 第 3 轮 critic 质疑「两处拆分是为门禁而拆、增加了跨组件追踪成本」。这条质疑的**症状**属实，但**病因**不是「门禁逼出了坏边界」。为免下一个人重开这个话题，把**行数证据**固化在这里（都是本仓实测读数，不是估算）：
+
+| 改动 | 拆分前 | 触发门禁 | 拆分后 | 复核读数 |
+|---|---|---|---|---|
+| `components/PublishDestinationModal.vue` | **527 行** | `check-max-lines` 上限 500（首跑红：`NEW_OVER_LIMIT: PublishDestinationModal.vue 527 行 >= 500`） | **304 行**（配置选择器独立成 `PublishDestinationConfigPicker.vue`） | `node .github/scripts/check-max-lines.js` → rc=0「无新增超大文件」 |
+| `views/CreateView.vue` | **5379 行** | `check-debt-budget`「单文件最大行数只降不升」基线 5359（首跑红：`MAX_FILE_LINES: 5379 > baseline 5359`） | **5356 行**（交接逻辑独立成 `features/publish-destination/apply-config-profile-handoff.js`，CreateView 只留 1 个方法 + 1 行 import） | `node scripts/check-debt-budget.js` → rc=0「所有债务指标在基线内」 |
+
+拆完之后三个边界（控件 / 弹窗侧数据变换 / 创作页侧交接）与领域边界重合，且接口按 D9 稳定为「纯决策函数 + 显式依赖注入」——该结构是第 2 轮 i1/i2 能被**精确单测定位**的前提（D9 的收益栏）。故维持现状。
+
 ## 2. 风险与缓解
 
 | 风险 | 缓解 |
@@ -103,6 +114,8 @@ PRD §3.3.4 写下了「`Enter` / `Space` = 选中当前焦点项并关闭菜单
 | 配置下拉与左侧原生 select 视觉割裂 | 自建下拉复用 `.pipeline-select` 的边框/圆角/字号；同仓先例可对照 |
 | 浮窗每次打开都拉配置库 ⇒ 轻微 IO | 一次 IPC 拉全量（本地 JSON 读取），量级可忽略；换来「刚存的新配置立刻可选」 |
 | 「未能确定流水线」复用 `applyFailed` 键 ⇒ 键名与文案不完全对齐 | **已消除**：初版复用 `applyFailed` 键 + `translateWithLocaleFallback` 兜底参数区分文案，现改为独立键 `pipelineUnresolved`（D11 同一原则再加 `handoffLoadFailed`） |
+| 配置档案来自本地文件，渲染层不做额外授权 | **安全边界声明**：配置档案是**设备级本地数据**（`userData/story2video-config-profiles/config-profiles.json`），由**操作系统用户目录权限**保护，不跨设备、不跨信任边界（不声称云同步，见 PRD §2.2）。本片**渲染层不新增任何授权检查**——那会与既有 `ConfigProfileManager` 形成两套授权口径。桌面端单机场景下，用户目录权限即边界 |
+| 每次交互都重建配置列表（过滤 + 排序） | 配置文件是**单个本地 JSON**，一次 IPC 全量读取（不是每条一次 IPC）；过滤是 O(n)、排序 O(n log n)，n = 该流水线的配置条数。**本片不设条数上限**——配置档案由用户自建，无产品级上限（不编造「≤50」这类未验证数字）；实测场景 n 为个位数到几十，渲染开销可忽略。若将来 n 增长到需要缓存的量级，届时再加（届时以实测读数为依据，不预先设计） |
 
 ## 3. 不做
 
