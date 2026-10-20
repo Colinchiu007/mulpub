@@ -169,6 +169,15 @@
 - **验证**：`video-creation/` 142 例 / `CreateView.test.js` 300 例 / `story2video-stages.test.js` 154 例全绿；eslint 两文件 rc=0；debt-budget / brand-residue / locale-sync 全 PASS；QM-4 视觉回归 19/20，唯一失败 `collection` 1.44% 经 **stash A/B 对照**确认与本次无关（两次运行差异图 SHA-256 完全相同）。
 - **影响面**：复用 `StageProgress.vue` 的三处入口（CreateView / HotTopics 一键生成视频弹窗 / FilmAutoPanel）共用同一方法，一并获得对齐修复。纯渲染层变更，不触碰主进程阶段执行、IPC 契约与 `optimize_progress` 数据语义，无新增用户可见文案。
 
+# [未发布] docs(prd): 新增「键盘可达与可访问名合同」一节（UX 审计 3.6 / 4.3 / 4.4 / 4.5 的产品口径）
+
+- **焦点可见性**：写死显示项（2px 实线 + offset 2px、颜色只取 `--color-focus-ring`）与双档实测对比度（亮 6.05:1；暗 4.78:1 / 卡片底 4.30:1，并说明暗色沿用亮色值会掉到约 1.9:1）；写死"焦点规则必须显式把 `outline-*` 过渡归零"这一交互前提（`transition: all` 会让 Tab 后 0ms 读到过渡起点，实测 3px currentColor）。覆盖范围改为**逐变体类**，并记下理由：134 处按钮 class 只带变体类、基类规则零覆盖，"基类=公共形态"是心智模型不是事实。
+- **可点元素键盘可达**：四件套（role/tabindex/Enter/Space 且 keydown 表达式与 click 逐字一致）；硬禁令"补了 `role="button"` 的元素不得有可见可聚焦后代"（leaf 角色会把子树打成 presentational，实测 3 处把容器内真按钮从 a11y 树上抹掉）；并要求行为测试配 `@click`-only 负控。
+- **标签↔控件可访问名**：label 文本即控件名、禁止用 placeholder 承担名称；五条数据校验（DOM 事实判据、labelable 封闭清单、第三方转发面必须实测、id 生成优先级与禁 `Math.random()`、`aria-required` 必须落在控件上）。写清本批**不新增 locale 键**，关联属属性面改造、不引入新文案。
+- **存量与节奏**：孤岛 label 逐文件基线 139 → 127（23 个文件）只能缩小；`UiField` 26 处待逐点绑定；「CLI」标签改名等待产品决策、不由实现侧改词。
+- **验收锚点**：列出六处锁文件与用例数（12 / 13 / 7+3 / 20 / 3 / 6），并要求每条锁都做一次"写回被禁形态"的变异反证。纯文档，未改任何代码与门禁。
+
+
 ## 问题
 - 2026-10-19 真实事故：MiniMax 订阅套餐账号克隆音色被服务端拒绝（`model_provider_logs` id=10030：`your current token plan not support model, voice_clone`，latency 1125ms——请求真实到达、鉴权通过、参数合规）。adapter 把它误判为额度类（`token\s*plan` 被 isQuota 吃掉），service 折叠成 `VOICE_CLONE_PROVIDER_UNAVAILABLE`，用户看到「音色克隆服务暂时不可用，请稍后重试」——重试永不成功，误导用户反复尝试。
 
