@@ -19,6 +19,9 @@ const { rewriteSegmented } = require('./segment-rewriter')
 const { buildWordCountInstruction } = require('./word-count-instruction')
 // 结构标题剥离（独立模块，collect-rewrite-wordcount 拆分）：核心文件的行数挂账只剩几行余量
 const { stripStructureHeadings } = require('./structure-headings')
+// 输出上限判定（用户区间 / 统一上限 / 策略形态上限 / 兜底）抽到 ./output-cap.js：
+// 核心文件贴近 max-lines 容差上限，这条规则有三种输入形态（详见该文件头注释）。
+const { resolveOutputCap } = require('./output-cap')
 
 // 无显式字数控制时的默认输出上限（3000 字以下）。
 // 注意：这只是「用户没给任何字数意图」时的保守兜底；用户显式 wordCountRange.max
@@ -285,7 +288,7 @@ class RewriteEngine {
     // rewrite-limits-50000（2026-10-19）：截断必须可见——旧行为把超限输出静默砍尾，
     // 用户拿到的稿子不完整且不知道（比 TOO_LONG 更隐蔽的缺陷）。截断事实经
     // _postProcess 返回值进入 result.outputTruncated / result.outputLength。
-    const { text: processed, truncatedAt } = this._postProcess(result, strategy, userSettings.wordCountRange)
+    const { text: processed, truncatedAt } = this._postProcess(result, strategy, userSettings.wordCountRange, userSettings.freeformOutput === true)
 
     // 7. 敏感词后置检测
     const postCheck = this._sensitiveCheck(processed, 'post')
@@ -675,7 +678,7 @@ class RewriteEngine {
     return this._knowledgeBase.getContextSummary()
   }
 
-  _postProcess(text, strategy, wordCountRange) {
+  _postProcess(text, strategy, wordCountRange, freeformOutput) {
     let result = text
 
     // 去 AI 味
@@ -698,12 +701,9 @@ class RewriteEngine {
     }
 
     // 长度限制（Unicode 码点计数，与 _validate 一致；避免代理对被切断产生乱码）
-    // 优先级：wordCountRange.max > 策略 postProcess.maxLength > 默认 3000（DEFAULT_MAX_OUTPUT_LENGTH）
-    // rewrite-limits-50000（2026-10-19）：截断必须可见——返回值改为 { text, truncatedAt }，
-    // truncatedAt = 截断后的长度（码点）；未截断为 null。调用方写入 result.outputTruncated。
-    const maxLength = (wordCountRange && typeof wordCountRange.max === 'number' && wordCountRange.max > 0)
-      ? wordCountRange.max
-      : (postProcess.maxLength || DEFAULT_MAX_OUTPUT_LENGTH)
+    // 上限取谁（用户区间 / 统一上限 / 策略形态上限 / 兜底）见 ./output-cap.js 的优先级说明；
+    // 截断必须可见：truncatedAt = 截断后的长度（码点）；未截断为 null。
+    const maxLength = resolveOutputCap(wordCountRange, postProcess.maxLength, freeformOutput, MAX_OUTPUT_CHARS, DEFAULT_MAX_OUTPUT_LENGTH)
     let truncatedAt = null
     const codePoints = [...result]
     if (codePoints.length > maxLength) {
