@@ -601,9 +601,11 @@ describe('GUI/CI 工作流门禁契约', () => {
     expect(workflow.jobs['electron-tests']['runs-on']).toEqual('windows-latest');
     // 45 → 70（#2458）：串行单测步骤预算从 20m 抬到 35m 后，job 级必须一起抬，
     // 否则「不可归因的超时」只是从 timeout(1) 换成 Actions 的 job killer。
+    // 70 → 90（2026-10-20，PR #4096）：步骤预算 2100 → 3600s 的配套。实测步骤被**精确打满**
+    // 2100s（自证行 `elapsed=2100s budget=2100s rc=124`），job 级必须容得下新的 60 分钟预算。
     // 该值与步骤预算的**关系**由同文件「预算挂实测、超时可自证、且不与 job 级倒挂」那条守住，
     // 不要把它改回一个孤立的魔数。
-    expect(workflow.jobs['electron-tests']['timeout-minutes']).toBe(70);
+    expect(workflow.jobs['electron-tests']['timeout-minutes']).toBe(90);
   });
 
   it('Electron CI 跳过桌面媒体下载脚本，并显式恢复测试所需运行时', () => {
@@ -699,7 +701,11 @@ describe('GUI/CI 工作流门禁契约', () => {
     const diagnosticStep = steps.find((step) => step.name === 'Vitest failure diagnostics');
 
     expect(job.env).toMatchObject({ NODE_ENV: 'test' });
-    expect(unitStep.run).toContain('BUDGET_SECONDS=2100');
+    // 只锁「预算走的是 BUDGET_SECONDS 变量、不是硬编码的 timeout 字面量」这个形状；
+    // **数值多少**由下面「预算挂实测、超时可自证、且不与 job 级倒挂」那条按范围判
+    // （>旧墙 1200s、>=1.5×旧墙、>=2×健康 794s）。两处分工不同：这里防"绕过变量"，
+    // 那里防"参数取值不合理"。原先这里把 2100 写死，等于每调一次预算要红两处。
+    expect(unitStep.run).toMatch(/BUDGET_SECONDS=\d+/);
     expect(unitStep.run).toMatch(/timeout --signal=TERM --kill-after=30s \$\{BUDGET_SECONDS\}s/);
     expect(unitStep.run).toContain('--maxWorkers=1');
     expect(unitStep.run).toContain('--no-file-parallelism');
