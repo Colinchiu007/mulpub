@@ -39,9 +39,9 @@ const path = require('node:path');
 const REPO_REMOTE = process.env.MP_AUDIT_REPO || 'Colinchiu007/mulpub';
 const WORKFLOW = 'quality-gate.yml';
 // 采样域 = **真跑该夹具的作业族**，不是"我以为跑的那些"。
-// 2026-10-20 对 4 趟已完成 main push 的作业日志逐个取数实测：
-//   QG Coverage 每趟 11 条握手行、QG Desktop Shards (1/2) 7 条、(2/2) 4 条；
-//   ready 最大值 Coverage=17466ms > Shards 的 9650 / 3329ms。
+// 2026-10-20 对 origin/main 最近 4 趟已完成 main push 的 12 份作业日志逐个取数实测（legacy 无标签档）：
+//   QG Coverage count=44 max=17466ms > QG Desktop Shards (2/2) count=16 max=14402ms
+//   > QG Desktop Shards (1/2) count=28 max=3773ms；另单次 run 实测 22 行里 8 行是 ready=0ms 的假握手。
 // 旧值只认 Shards ⇒ 需要最大预算的那个作业根本不在域里，provenance 的 max 是**下界**，
 // 于是"余量充足"这句话有一部分来自采样域本身。负控（这些作业不产握手行，必须不匹配）
 // 由 apps/desktop/electron/services/windows-file-lock.test.js 的 A/B 那条锁住。
