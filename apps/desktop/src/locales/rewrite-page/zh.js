@@ -58,6 +58,13 @@ export default {
     // 输出截断可见化（rewrite-limits-50000，2026-10-19）：引擎按字数区间/策略上限砍尾时
     // 结果卡顶部横幅提示；length=实际输出字数，max=生效上限
     outputTruncated: '改写结果已按字数上限截断：实际输出 {length} 字（上限 {max} 字），原文后半部分未包含在结果中。如需完整改写，请调大「字数控制」上限。',
+    // 模型侧截断可见化（rewrite-segment-and-finish-reason 第二刀）：provider 的
+    // finish_reason 表示输出被模型自身上限截断（与引擎按字数区间砍尾是两回事）。
+    // 这条不能建议「调大字数控制」——模型上限通常无法由用户设置改变。
+    outputTruncatedByModel: '模型输出达到单次生成上限而截断：实际输出 {length} 字。这是模型侧的生成限制，调大「字数控制」不一定有效，建议分段改写。',
+    // 分段改写（>50000 字输入）：事前提示 + 结果卡元信息
+    rewriteSegmented: '正文共 {length} 字，超过单次改写上限 {max} 字，将分段改写。耗时与费用会相应增加，且分段期间其他 AI 功能可能变慢；分段改写可能有一致性折损。',
+    segmentedMeta: '分段改写 ×{count}',
     // ── 改写质量评估报告（content-quality-eval 桌面端闭环）──
     qualitySection: '质量评估',
     qualitySufficiency: '改写充分度',

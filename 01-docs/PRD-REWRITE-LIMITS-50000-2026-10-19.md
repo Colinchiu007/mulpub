@@ -1,5 +1,13 @@
 # PRD：改写引擎字数上限 50000 + 输出截断可见化（rewrite-limits-50000，2026-10-19）
 
+> ⚠️ **后续修订（2026-10-20，change `rewrite-segment-and-finish-reason`）**：
+> 本文 §2 的「输入上限 50000 硬拒」与 §10 的三条遗留已部分闭合——
+> ① 输入 >50000 不再 `TOO_LONG`，改走**分段改写**（阈值同 50000，见下文 §11）；
+> ② 模型侧截断（provider `finish_reason`）已可见化（`modelTruncated` + 独立横幅）；
+> ③ Python 链路字数上界已对齐 49999/50000。
+> 改动详情见 `openspec/changes/rewrite-segment-and-finish-reason/proposal.md` 与
+> `openspec/records/rewrite-segment-contract.md`、`openspec/records/rewrite-segment-long-input.md`。
+
 ## 1. 背景与目标
 
 改写引擎原上限：输入 6000 码点（`TOO_LONG` 硬拒）、输出默认 3000（`_postProcess` 静默砍尾）。
@@ -108,6 +116,66 @@
 
 ## 10. 遗留（不假装已闭合）
 
-- **>50000 的长文**：走分段改写（分段改写 + 合并 + 风格一致性约束），需独立 PRD 评估成本（LLM 调用 ×N）与前后文一致性。
-- **输出 50000 的实际可达性**：受 provider 端 max output token 上限约束（部分模型上限 8K/16K/32K）；达到 provider 上限时输出在模型侧被截断，引擎 `outputTruncated` 检测不到（引擎只见完整返回）。后续可读 `finish_reason: 'length'` 识别。
-- Python 聚合链路（`/aggregation/rewrite`）的字数上限独立于 JS 引擎，本刀未动（桌面端主链路已切 Node 引擎）。
+> 前两条已于 2026-10-20 由 change `rewrite-segment-and-finish-reason` 闭合，详见 §11；保留原文以便追溯当时的判断。
+
+- ~~**>50000 的长文**：走分段改写（分段改写 + 合并 + 风格一致性约束），需独立 PRD 评估成本（LLM 调用 ×N）与前后文一致性。~~ → ✅ 已实现（§11）。
+- ~~**输出 50000 的实际可达性**：受 provider 端 max output token 上限约束；达到 provider 上限时输出在模型侧被截断，引擎 `outputTruncated` 检测不到。后续可读 `finish_reason: 'length'` 识别。~~ → ✅ 部分闭合：`finish_reason`（`length`/`max_tokens`）已全链路透传并可见化（`modelTruncated`）；provider 自身 output cap 仍不可由用户配置绕过。
+- ~~Python 聚合链路（`/aggregation/rewrite`）的字数上限独立于 JS 引擎，本刀未动~~ → ✅ 已对齐 49999/50000（仍不分段，见 §11 不做项）。
+
+## 11. 后续修订：分段改写与模型侧截断（2026-10-20）
+
+### 11.1 限额体系变更
+
+| 层 | rewrite-limits-50000 | 2026-10-20 修订 |
+|---|---|---|
+| 输入 | >50000 ⇒ `TOO_LONG` 硬拒 | >50000 ⇒ **分段改写**（阈值仍 50000，`_validate` 不再做长度硬拒） |
+| 分段粒度 | — | `SEGMENT_SIZE = 12000` 码点（= `max_tokens 64000 ÷ 2` 安全线） |
+| 输出 | `outputTruncated`（引擎砍尾） | 增加 `modelTruncated`（provider `finish_reason` 截断），两态分型展示 |
+| 段级区间 | — | 用户显式区间按**份额**分配：每段 `max = floor(全篇max / 段数)`，各段之和 ≤ 全篇上限 |
+
+### 11.2 三级切分（`segment-splitter.js`）
+
+1. 段落边界 `\n\s*\n` 贪心合并到 12000 码点；
+2. 单段仍超长 ⇒ 句子边界（中文 `。！？；…」` + 英文 `.!?`）；
+3. 仍超长（无段落无标点的英文/URL/代码/转写）⇒ **码点硬切兜底**（emoji 代理对不劈）。
+
+**无损性契约**：每段都是原文的连续子串且顺序覆盖（无丢段/重复段/编造段），由测试断言。
+
+### 11.3 交互与流程
+
+```
+用户点「一键改写」（采集页 / 改写页）
+  → 输入 >50000 ⇒ info 提示「将分段改写（耗时与费用增加、其他 AI 功能可能变慢）」
+  → 渲染层透传全文（不再预截断）
+  → 引擎 rewrite() 分流 ⇒ segment-rewriter
+      ├─ 三级切分为 N 段
+      ├─ 逐段 _rewriteOnce（串行；同策略；prompt 注入「长文分片 i/n」）
+      ├─ 任一段失败 ⇒ 整篇失败 + segmentIndex/segmentCount（不返回半成品、不写知识库）
+      └─ 段结果 \n\n 合并 ⇒ 复用 _postProcess（全篇字数区间）⇒ 质量评估一次
+  → 结果卡：meta 行「分段改写 ×N」；截断横幅按 outputTruncated / modelTruncated 分型
+```
+
+### 11.4 提示文字（新增 key，zh/en 成对）
+
+| key | 用途 |
+|---|---|
+| `rewritePage.rewriteSegmented` | 改写页事前提示（字数 / 阈值 / 耗时费用 / 一致性折损） |
+| `rewritePage.segmentedMeta` | 结果卡「分段改写 ×{count}」 |
+| `rewritePage.outputTruncatedByModel` | 模型侧截断横幅（**不**建议调大字数控制） |
+| `collection.rewriteSegmented` | 采集页事前提示 |
+| `userErrors.REWRITE_SEGMENT_FAILED` | 分段失败（`{index}`/`{total}` 1-based 插值） |
+
+`collection.rewriteTruncated` 已删除（预截断取消后无调用点，保留会与分段提示互相矛盾）。
+
+### 11.5 成本与失败语义（用户可预期性）
+
+- LLM 调用次数 = 段数（N 段串行）；耗時 ≈ N × 单段；5 万字约 5 段。
+- **任一段失败即整篇失败**，已成功段**不入库不返回**；重试全额计费（不做断点续跑，理由见提案「不做」）。
+- 期间其他 AI 功能可能变慢（串行连续占用同一 provider 排队槽）。
+
+### 11.6 本修订新增的遗留
+
+- **段间一致性**：不做全局摘要/术语表，跨段术语与人称漂移在结构上仍可能（UI 已提示）。
+- **合并结果的 `modelTruncated` 不置位**：单段被模型截断的归属在段内，合并后无法归属整篇。
+- **无取消通道**：`ai:rewrite` 不支持取消，长文分段期间只能等待。
+- **Python 旁路不分段**：`content` 无长度上限，>50000 在 Python 链路既不拒也不分段。

@@ -84,6 +84,28 @@ describe('keyword-extractor', function () {
     var keywords = await extractWithLLM('任意文本', 2, llmClient)
     expect(keywords).toEqual(['甲乙', '丙丁'])
   })
+
+  // ── rewrite-segment-and-finish-reason：chat object 形态回归（第二消费点）──
+  // 背景：finish_reason 透传后主 llmClient 返回 {text, finishReason}；
+  // extractWithLLM 历史上对非 string fail-open 静默返回 []。以下两例锁住归一化。
+
+  test('extractWithLLM chat 返回 {text} object ⇒ 仍能提取关键词（不静默失效）', async function () {
+    var llmClient = { chat: async function () { return { text: '{"keywords": ["自媒体", "内容质量"]}', finishReason: 'stop' } } }
+    var keywords = await extractWithLLM('任意文本', 5, llmClient)
+    expect(keywords).toEqual(['自媒体', '内容质量'])
+  })
+
+  test('extractWithLLM chat 返回 {text:""} ⇒ fail-open 空数组（归一化后判空）', async function () {
+    var llmClient = { chat: async function () { return { text: '', finishReason: 'stop' } } }
+    var keywords = await extractWithLLM('任意文本', 5, llmClient)
+    expect(keywords).toEqual([])
+  })
+
+  test('extractWithLLM chat 返回数字等非法 shape ⇒ fail-open 空数组', async function () {
+    var llmClient = { chat: async function () { return 42 } }
+    var keywords = await extractWithLLM('任意文本', 5, llmClient)
+    expect(keywords).toEqual([])
+  })
 })
 
 // ===== 审查修复回归（PR #1746 双模型审查发现）=====
