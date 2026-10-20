@@ -49,6 +49,33 @@ function computeDefaultMaxConcurrentRuns(env = {}) {
   return Math.max(1, Math.min(4, limit))
 }
 
+/**
+ * 把 stage 失败结果构造成可上抛的错误对象（2026-10-20 error-message-user-friendly-audit）。
+ *
+ * 为什么需要它：stage 失败结果原本只有 `error`（字符串），compose 预检给出的稳定
+ * errorCode 与 messageParams 在 stage 边界被丢掉，历史记录失败卡片只能拿到英文原文，
+ * 渲染端无法映射自然语言文案。本 helper 让 message（诊断/日志用）与 errorCode /
+ * messageParams（渲染端本地化用）一起上抛，_finalizeRun 再分别落到 run.error /
+ * run.errorCode / run.errorParams。
+ *
+ * 契约：返回对象必须有 `message` 字符串字段；无稳定码时 errorCode/messageParams 为 null，
+ * 读取端（_finalizeRun）据此跳过写入，保持旧快照字段形态不变。
+ * @param {{success: boolean, error?: string, errorCode?: string|null, messageParams?: object|null}} result
+ * @returns {{ message: string, errorCode: string|null, messageParams: object|null }}
+ */
+function buildStageFailureError (result) {
+  const message = typeof result?.error === 'string' && result.error.trim()
+    ? result.error
+    : 'Stage execution failed'
+  const errorCode = typeof result?.errorCode === 'string' && result.errorCode.trim()
+    ? result.errorCode.trim()
+    : null
+  const messageParams = result?.messageParams && typeof result.messageParams === 'object' && !Array.isArray(result.messageParams)
+    ? result.messageParams
+    : null
+  return { message, errorCode, messageParams }
+}
+
 // --- 流水线元数据（与 Python pipeline_defs 同步） ---
 const PIPELINES = [
   {
@@ -1656,9 +1683,10 @@ class PipelineEngine {
     const run = this._runs.get(runId);
     if (!result.success) {
       if (run && !run.cancelled) {
-        this._emit('stage:fail', { runId, stageName: run.stages[run.currentStage]?.name, error: result.error });
-        this._emit('pipeline:fail', { runId, pipelineType: run.pipeline, error: result.error });
-        this._finalizeRun(run, 'failed', result.error);
+        const stageError = buildStageFailureError(result);
+        this._emit('stage:fail', { runId, stageName: run.stages[run.currentStage]?.name, error: stageError.message });
+        this._emit('pipeline:fail', { runId, pipelineType: run.pipeline, error: stageError.message });
+        this._finalizeRun(run, 'failed', stageError);
       }
       return result;
     }
@@ -1915,6 +1943,10 @@ class PipelineEngine {
       createdAt: run.createdAt,
       endedAt: run.endedAt || null,
       error: run.error || null,
+      // 稳定错误码与插值参数（2026-10-20 error-message-user-friendly-audit，增量字段）：
+      // renderer 据此按稳定码映射本地化自然语言文案，不依赖英文原文。
+      errorCode: run.errorCode || null,
+      errorParams: run.errorParams || null,
       projectId: run.projectId || null,
       outputSizeBytes: this._runOutputSizeBytes(run) || null,
       activeMs,
@@ -2117,12 +2149,21 @@ class PipelineEngine {
     run.status = status;
     // 完成态进度固定为 100%（持久化到历史卡片；_advanceRun 在最后一个阶段不再重算 run.progress）
     if (status === 'completed') run.progress = 100;
-    if (error) run.error = error;
+    if (error) {
+      // error 可能是字符串（旧调用方）或 buildStageFailureError 产出的结构化对象。
+      // run.error 保持字符串契约（历史卡片/恢复门控都读它），结构化字段单独落。
+      run.error = typeof error === 'string' ? error : (typeof error.message === 'string' ? error.message : String(error))
+      if (typeof error === 'object') {
+        if (typeof error.errorCode === 'string' && error.errorCode) run.errorCode = error.errorCode;
+        if (error.messageParams && typeof error.messageParams === 'object') run.errorParams = error.messageParams;
+      }
+    }
     run.endedAt = new Date().toISOString();
     if ((status === 'failed' || status === 'cancelled') && Array.isArray(run.stages) && run.stages[run.currentStage]) {
       const terminalStage = run.stages[run.currentStage];
       terminalStage.status = status;
-      if (error) terminalStage.error = error;
+      // stage.error 保持字符串契约（前端 stage 摘要读取它）
+      if (error) terminalStage.error = typeof error === 'string' ? error : (typeof error.message === 'string' ? error.message : String(error));
       terminalStage.completedAt = new Date().toISOString();
     }
     // 诊断附加字段（additive）：失败分类 + 根因候选 + 环境快照。构建失败仅记 warn，不改变 run 终态。
@@ -2147,7 +2188,11 @@ class PipelineEngine {
     // 执行日志：运行终态（完成/失败/取消）+ 总耗时 + 错误摘要（截断，不含敏感原文）
     const finalizeDurationMs = run.startedAt ? Date.now() - new Date(run.startedAt).getTime() : null;
     const finalizeDurationText = Number.isFinite(finalizeDurationMs) ? 'duration_ms=' + finalizeDurationMs : 'duration_ms=null';
-    const finalizeErrorText = error ? ' error=' + String(error).slice(0, 500) : '';
+    // 结构化 error 时只记 message + errorCode（不序列化整个对象，避免 [object Object]）
+    const finalizeErrorText = error
+      ? ' error=' + (typeof error === 'string' ? error : (typeof error.message === 'string' ? error.message : String(error))).slice(0, 500) +
+        (error && typeof error === 'object' && typeof error.errorCode === 'string' && error.errorCode ? ' errorCode=' + error.errorCode : '')
+      : '';
     if (status === 'failed' || status === 'cancelled') {
       this.log.warn('PipelineEngine', '[run] finalize run=' + run.id + ' pipeline=' + run.pipeline + ' status=' + status + ' ' + finalizeDurationText + finalizeErrorText);
     } else {
@@ -2465,15 +2510,22 @@ class PipelineEngine {
 
       if (!execResult.success) {
         // Backlot 事件：阶段失败 + 流水线失败
-        this._emit('stage:fail', { runId, stageName: stage.name, error: execResult.error });
-        this._emit('pipeline:fail', { runId, pipelineType: run.pipeline, error: execResult.error });
-        this._finalizeRun(run, 'failed', execResult.error);
+        const stageError = buildStageFailureError(execResult);
+        this._emit('stage:fail', { runId, stageName: stage.name, error: stageError.message });
+        this._emit('pipeline:fail', { runId, pipelineType: run.pipeline, error: stageError.message });
+        this._finalizeRun(run, 'failed', stageError);
         return {
           success: false,
           runId,
           results,
           context: run.context,
-          error: execResult.error,
+          error: stageError.message,
+          // 与 `executeStage()` 的返回契约对齐（CCG 外部评审 i4，2026-10-20）：
+          // 另一处失败路径直接 `return result`，而 result 里带着 errorCode/messageParams。
+          // 这里若只回 error 字符串，调用方就分不清「稳定码失败」与「无码失败」，
+          // 于是同一条流水线在两条失败路径上拿到不同形状的结果。
+          errorCode: stageError.errorCode || null,
+          messageParams: stageError.messageParams || null,
         };
       }
 

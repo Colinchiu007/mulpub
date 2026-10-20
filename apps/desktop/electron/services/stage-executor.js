@@ -742,8 +742,16 @@ class StageExecutor {
       }
       await cancelParallelTask();
       if (parallelTimeoutId) clearTimeout(parallelTimeoutId);
-      // 引擎不可用时返回失败（不再用占位成功）
-      return { success: false, error: (result && result.message) || 'Compose failed' };
+      // 引擎不可用时返回失败（不再用占位成功）。
+      // errorCode/messageParams 必须随失败结果上抛（2026-10-20 error-message-user-friendly-audit）：
+      // 否则 compose 预检给出的稳定错误码会被丢在 stage 边界，历史记录失败卡片只能拿到
+      // 英文 message，渲染端无法映射自然语言文案。
+      return {
+        success: false,
+        error: (result && result.message) || 'Compose failed',
+        errorCode: (result && result.errorCode) || null,
+        messageParams: (result && result.messageParams) || null,
+      };
     });
 
     // PUBLISH - 多平台发布
