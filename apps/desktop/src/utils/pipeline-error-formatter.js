@@ -132,6 +132,53 @@ const RULES = [
     key: 'optimize_failed',
     extract () { return {} },
   },
+  // compose 预检失败：输入媒体总大小超限（2026-10-20 事故 error-message-user-friendly-audit）。
+  // ⛔ 位置契约（CCG 外部评审 i6）：本规则**必须**排在下面的 compose_failed 之前。
+  // 理由是「具体先于泛化」：像 `compose failed: Input media exceeds the total size limit` 这种
+  // 同时命中两条规则的文本，应当落到具体的那条（能给体积/场景细节），而不是被泛化的
+  // 「视频合成失败」吞掉。事故现场里 run.error 是纯英文
+  // `Input media exceeds the total size limit`，既不匹配 compose_failed（无 "fail" 字样），
+  // 长度又 <120 且无技术标记，于是被「短自然语言直出」分支原样透出到历史卡片。
+  // 现在主进程已返回稳定 errorCode，但历史库存量数据只有英文原文，两条通道都要认。
+  // 排序有回归锁：pipeline-error-formatter.test.js 的「规则顺序」用例。
+  {
+    pattern: /Input media exceeds the total size limit|input media exceeds.*(?:size|limit)|媒体总大小超过|输入媒体.*超过.*(?:上限|限制)/i,
+    key: 'compose_input_size_exceeded',
+    extract (raw) {
+      // 体积对（<实际> > <上限> 或 <上限>，<实际>）→ limitMb / actualMb。
+      // 体积对提取（CCG 外部评审 i8，2026-10-20）：
+      // 上一版纯按出现顺序取「首个=actual、第二个=limit」，遇到
+      // `limit 512MB, actual 780MB` 这种语序就会把上下限**对调**，用户读到相反的结论。
+      // 现改为「锚点优先、顺序兜底」：先看哪个数字附近出现上限语义词
+      // （limit / max / 上限 / 允许 / allowed），只有一个带锚点时按它定 limit，
+      // 另一个即 actual；两个都带或都不带时才退回出现顺序（actual 在前更常见）。
+      const sizeMatches = [...raw.matchAll(/(\d+(?:\.\d+)?)\s*(KB|MB|GB)/gi)]
+      if (sizeMatches.length >= 2) {
+        // 锚点必须**紧贴**数字（中间只允许空白）：
+        //   `allowed limit 512MB` / `上限 512MB` / `512MB limit` ⇒ 是上限
+        //   `total size limit: 780MB > 512MB` ⇒ 不是（limit 后有冒号且语义在讲「这个上限」而非该数值）
+        // 宽窗口会把「size limit」这类泛指词当成数值标签，反而把上下限对调（实测踩过两次）。
+        const BEFORE_LIMIT = /(?:limit|max(?:imum)?|allowed|上限|允许|不超过|最多)\s*$/i
+        const AFTER_LIMIT = /^\s*(?:limit|max(?:imum)?|上限)/i
+        const isLimitLabelled = (m) => {
+          const idx = m.index ?? 0
+          const before = raw.slice(Math.max(0, idx - 12), idx)
+          const after = raw.slice(idx + m[0].length, idx + m[0].length + 8)
+          return BEFORE_LIMIT.test(before) || AFTER_LIMIT.test(after)
+        }
+        const limitHits = sizeMatches.map((m, i) => (isLimitLabelled(m) ? i : -1)).filter((i) => i >= 0)
+        const norm = (m) => (m[1] + m[2]).replace(/\s+/g, '').toUpperCase()
+        if (limitHits.length === 1) {
+          const li = limitHits[0]
+          const ai = li === 0 ? 1 : 0
+          return { actualMb: norm(sizeMatches[ai]), limitMb: norm(sizeMatches[li]) }
+        }
+        return { actualMb: norm(sizeMatches[0]), limitMb: norm(sizeMatches[1]) }
+      }
+      const sceneMatch = raw.match(/(?:scene|场景)\s*(\d+)/i)
+      return { scene: sceneMatch ? sceneMatch[1] : '' }
+    },
+  },
   // 视频合成失败
   {
     pattern: /compose.*fail|视频合成.*失败|composit.*fail/i,

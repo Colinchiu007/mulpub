@@ -1,12 +1,12 @@
 {
-  "sha": "1539565af9ec0b008c139c88ed2eefc5cb82670a",
+  "sha": "1ede1f21c198d3f9a49f109012ced9e515b908c7",
   "layer": "diff",
   "mode": "single",
-  "reason": "变更 47 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "reason": "变更 27 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
   "stats": {
-    "changedLines": 47,
-    "fileCount": 4,
-    "codeFileCount": 2,
+    "changedLines": 27,
+    "fileCount": 1,
+    "codeFileCount": 1,
     "sensitivePathHits": [],
     "plannedPathHits": [],
     "sensitiveContentHits": 0,
@@ -14,8 +14,8 @@
     "docSensitiveContentSample": [],
     "lineReadGaps": []
   },
-  "stagedDiffHash": "2fee57ddadde95644d3ce0ff157a609fe5eb9028cdc137138d7122b5b63e8f06",
-  "decidedAt": "2026-10-20T05:09:43.765Z",
+  "stagedDiffHash": "50deb050e9f2c97245066f940f25c33e936c1f9ec0f214763df477e0f184227d",
+  "decidedAt": "2026-10-20T06:39:15.761Z",
   "decidedBy": "ccg-review-decider",
   "reviewBackends": {
     "proposer": "opencode",

@@ -1,0 +1,163 @@
+{
+  "sha": "42ba5860fdf5e90dc4f3e9659493cf8cad14a6c7",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 1710 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 1710,
+    "fileCount": 36,
+    "codeFileCount": 23,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "第一轮做门禁变异反证时，用 PowerShell `-replace \"第 \\{scene\\} ...\", \"第 \\{sceneIndex\\} ...\"`。PowerShell 正则把 `{scene}` 当作 .NET 量化表达式，替换结果写成字面 `\\{scene\\}`——**文件确实被改了**（`Select-String` 能 grep 到 `sceneIndex`），但门禁 PASS。差点写成「M3 MISSED_BY_DESIGN」。",
+      "**现场**：给新门禁做变异反证时，用 PowerShell `-replace \"第 \\{scene\\} ...\", \"第 \\{sceneIndex\\} ...\"`。PowerShell 正则把 `{scene}` 当 .NET 量化表达式，替换结果写成字面 `\\{scene\\}`——**文件确实被改了**（`Select-String` 能 grep 到 `sceneIndex`），但门禁 PASS。差点写成「M3 MISSED_BY_DESIGN」把假阴性当设计豁免。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "919e1a2b7458791c18ce9dc0b9cf00b68a68723f2c98251e881c3229c88a69cc",
+  "decidedAt": "2026-10-20T03:10:58.968Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "externallyReviewed": [],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "zh.js `labels.currentScene` 转义为 '\\u8be5\\u573a\\u6664'，\\u6664(旤) 非 \\u666f(景)，用户可见兜底文案为错字「该场旤」（同文件 sceneLabel 用的是 \\u666f）。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "这条是**真实用户可见缺陷**，且已当场复现：把 zh.js 的 currentScene 按 JS 字符串解码得「该场晤」，其中第三个字是 \\u6664（晤/旤），而语义要求是 \\u666f（景）。失败场景具体：主进程未给 scene 时（如 compose 预检的存量记录），渲染端走 fallbackSceneLabel → resolveLocaleRef('@story2video.labels.currentScene') ⇒ 中文用户看到「该场晤」；英文界面不受影响，因此只在中文侧可见，人眼看代码无法分辨 666f 与 6664，既有 850 例测试当时全绿。",
+        "defense": "唯一可用的辩护是「兜底分支很少命中」——但它命中的正是本 change 要修的那类存量数据，且错字成本为零（改一个十六进制字符），没有任何理由保留。",
+        "verdict": "upheld",
+        "rationale": "已实测解码确认错字，并已修 \\u6664 → \\u666f；同时新增 apps/desktop/src/locales/story2video-labels-glyph.test.js（4 例）把 currentScene 逐字锁定为「该场景」、断言不含「晤/旤」、并要求与 sceneLabel 共用同一个「景」字。该文件是本次新增的字形回归锁——此前仓库没有任何判据会解码 \\uXXXX 后核对字形，这正是本条能逃过 850 例测试的原因。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "formatError 对存量原文（无 errorCode、无体积数字）只替换 params 内的键，{actualMb}/{limitMb} 不替换、字面残留给用户；unknownSize/currentScene 兜底只在通知路径实现，卡片路径缺失，违反验收 A4；CreateViewHistory 新测试未断言无 {…} 残留。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "已复现的**比原 bug 更糟**的形态：原文 `Input media exceeds the total size limit` 不含任何体积数字 ⇒ formatter 的 extract 返回空 params ⇒ formatError 的插值循环没有 actualMb/limitMb 可替换 ⇒ 用户看到「本次要合成的素材总体积已达 {actualMb}，超过 {limitMb} 上限。」。也就是说本 change 会把「英文技术原文」换成一串带花括号的中文，用户体验反而下降。且我原有两条 CreateViewHistory 用例都显式传了 errorParams（512MB/780MB），恰好绕开了这条路径——测试设计与真实存量数据不同形。",
+        "defense": "无有效辩护：参数缺失是存量数据的**常态**而非边角，且原验收标准 A4 已明确要求「参数缺失不渲染空占位符」，实现未达自己的验收标准。",
+        "verdict": "upheld",
+        "rationale": "已修两层：① formatError 增加「未解析占位符」兜底与清零安全网（任何情况下都不让 {xxx} 到达用户）；② 体积未知时改走新增的无数字变体文案 compose_input_size_exceeded_no_numbers（zh/en 成对），只说「超过上限」而不假装知道数值——比用「允许上限」填充通顺得多。回归锁：CreateViewHistory.test.js 的存量用例补 not.toMatch(/\\{[^{}]*\\}/) + 正向断言「必须走 no_numbers 变体、不得出现『允许上限』」。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "resolveMessageKey 硬编码三个 'COMPOSE_*' 字符串字面量，门禁只校验「主进程常量↔COMPOSE_ERROR_KEY_MAP↔locale」三侧，漏掉此第五侧；改码漏改此分支即静默回落原文。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "指控成立且是**门禁的结构性缺口**：三侧校验的数据源里都不含 story2video-notifications.js，于是主进程把 COMPOSE_INPUT_SIZE_EXCEEDED 改名后，check-compose-error-codes.js 仍然 PASS，而 resolveMessageKey 里那条 `=== 'COMPOSE_INPUT_SIZE_EXCEEDED'` 永远为假 ⇒ 用户回落英文原文，正是本 change 要消灭的形态。这类「改一处漏一处且门禁全绿」正是本次事故的病因本身。",
+        "defense": "可辩的是「门禁已有三侧，够用了」——但缺口恰恰在三侧之外，辩护不成立。另一层「靠代码审查兜住」也不成立：本次 1710 行变更的人审已进行过，仍未发现。",
+        "verdict": "upheld",
+        "rationale": "已把第五侧做成机械判据：check-compose-error-codes.js 新增 findHardcodedComposeCodes()，扫渲染端被点名文件里所有 'COMPOSE_*' 字面量并要求每个都在主进程常量集合内；自测新增变异⑦（沙箱里放一个错码名断言 rc=1 且点名），以及一条真实仓库断言（扫描目标必须存在且确实含字面量，堵住「删文件绕过」）。现为五侧一致，9 例自测全绿。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "pipeline-engine 第二个失败路径（L2510 附近）return 对象只带 error: stageError.message，丢弃 errorCode/errorParams；与第一处失败路径返回原 result（含 errorCode）契约不一致，调用方拿不到稳定码。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "指控成立，已用两种方式取证：① executeStage() 的失败分支 `return result`，result 由 stage-executor 产出、带着 errorCode/messageParams；② _autoAdvanceRun() 的失败分支自己拼对象，只有 error 字符串。于是同一条 compose 失败，从手动逐阶段推进走（拿到码）与从自动推进走（拿不到码）得到**不同形状**的返回值——调用方无法统一按 errorCode 分支，只能继续匹配英文原文，等于把本 change 修掉的病根留在一条路径上。",
+        "defense": "可辩「前端最终读的是 getRunSnapshot 的落库字段，这个 return 只给内部调用方」；但正是内部调用方（Backlot/自动推进链）需要区分稳定码，否则又回到文本匹配。",
+        "verdict": "upheld",
+        "rationale": "已在该 return 补 errorCode / messageParams（与 buildStageFailureError 的字段对齐，无值时显式 null）。选不再造字符串兜底、也不改 executeStage 契约，保持两条路径同形。受影响的 pipeline-engine 全量测试（72 例）与 stage-executor（77 例）已复跑通过。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "delta spec 要求「①稳定 errorCode→②原文模式」，而 PRD§3.2 与代码 formatError 是 formatter 原文优先（key = result.key || stableKey），规范与实现优先级互相矛盾，稳定码可能被原文误映射覆盖。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "指控成立：我在 spec 里写「①稳定 errorCode → ②原文模式」，代码却写 `result.key || stableKey`（原文优先）。失败场景：一次 compose 失败同时带 errorCode=COMPOSE_SCENE_MEDIA_UNREADABLE 与一段恰好含 content policy 字样的原文 ⇒ 原文通道先命中 content_policy key，用户看到「部分场景未通过安全检查」这条**错误建议**，而主进程权威分类是素材不可读（建议是重新生成素材）。规范与实现矛盾本身就是缺陷：读 spec 的人与读代码的人会得出不同的优先级结论。",
+        "defense": "可辩「两条通道通常指向同一 key，冲突罕见」；但罕见不等于不发生，且这类冲突的代价是给出错误操作建议。",
+        "verdict": "upheld",
+        "rationale": "已按 spec 语义统一为稳定码优先：`const key = stableKey || result.key`。理由写在代码注释里（主进程 errorCode 是权威分类，原文只是存量数据兜底线索）。非 compose 的 errorCode 不在 COMPOSE_ERROR_KEY_MAP 里 ⇒ stableKey 为空 ⇒ 行为不变，850 例受影响面测试全绿。"
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "finding": "pipeline-error-formatter 新规则的注释称「必须早于上面的 compose_failed」，实际插在 compose_failed 条目之后；该排序保证无结构化约束，compose_failed 模式一旦放宽即静默回归。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "指控成立且是「注释与代码不符」的典型：注释断言了一条不成立的排序，而排序本身没有任何判据守护。失败场景：将来有人给 compose_failed 的 pattern 加宽（例如加上 `compose.*` 前缀），`compose failed: Input media exceeds the total size limit: 780MB > 512MB` 就会先命中泛化规则 ⇒ 落到「视频合成失败」且体积参数全部丢失，用户拿不到可操作细节；此时现有 4 条用例仍全绿（它们只测纯英文原文，不含 compose/fail 字样）。",
+        "defense": "可辩「两条 pattern 当前文本互斥、不会同时命中」——但这是当前文本的偶然属性，不是契约。",
+        "verdict": "upheld",
+        "rationale": "已把规则实体移到 compose_failed 之前（顺带修正注释），并补两条回归锁：① RULES.findIndex 断言 compose_input_size_exceeded 的下标小于 compose_failed（把顺序本身锁死）；② 构造 `compose failed: Input media exceeds ... 780MB > 512MB` 断言仍落到具体规则且参数完整（顺序契约的行为面）。formatter 测试 36 例全绿。"
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      }
+    ],
+    "note": "自扮演裁决：6 条指控成立或需外部复核",
+    "at": "2026-10-20T05:00:17.085Z",
+    "tier": "external",
+    "evidence": "openspec/records/error-message-user-friendly-audit.md",
+    "closureNote": "第 1 轮 critic=claude 提出 8 条（2 Critical / 4 Warning / 2 Info）；第 1 轮自扮演裁决定 i1–i6 全部 upheld。逐条处置：i1（Critical，\\u6664→\\u666f 并新增字形回归锁）已修、i2（Critical，占位符残留 → 兜底+清零安全网+无数字变体文案）已修、i3（第五侧门禁）已修、i4（失败路径补 errorCode/messageParams）已修、i5（稳定码优先）已修、i6（规则前移+排序断言）已修、i7（排版）已修、i8（上下限锚点识别）已修。逐条明细见执行记录 §8.2。"
+  }
+}

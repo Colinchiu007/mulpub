@@ -123,6 +123,12 @@ class RunStateStore {
         ? run.checkpoint
         : null,
       error: run.error || null,
+      // 稳定错误码与插值参数（2026-10-20 error-message-user-friendly-audit，增量字段 version 保持 1）：
+      // 恢复/历史卡片据此按稳定码渲染本地化自然语言文案，而不是把英文原文透给用户。
+      errorCode: typeof run.errorCode === 'string' && run.errorCode ? run.errorCode : null,
+      errorParams: run.errorParams && typeof run.errorParams === 'object' && !Array.isArray(run.errorParams)
+        ? run.errorParams
+        : null,
       orchestrationMode: run.orchestrationMode || 'orchestrator',
       createdAt: run.createdAt || null,
       // 关联项目 ID：失败早于草稿创建时 run 没有 project，快照仍须持久化 projectId，

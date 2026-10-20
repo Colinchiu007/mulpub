@@ -13,8 +13,12 @@ import {
   SCENE_SLOT_EMPTY_PATTERN, SCENE_SUBTITLE_REGENERATE_FAILED_PATTERN,
   SCENE_AUDIO_REGENERATE_FAILED_PATTERN, SCENE_PROMPT_REGENERATE_FAILED_PATTERN,
   SCENE_AI_VIDEO_GENERATE_FAILED_PATTERN,
+  COMPOSE_INPUT_SIZE_EXCEEDED_PATTERN,
+  COMPOSE_SCENE_MEDIA_UNREADABLE_PATTERN, COMPOSE_SCENE_AUDIO_UNREADABLE_PATTERN,
 } from './notification-error-patterns'
 import { DEFAULT_STORY2VIDEO_TEXT_LIMIT } from './story-text-limit'
+import { STORY2VIDEO_NOTIFICATION_KEYS } from './story2video-notifications-keys'
+import { normalizeStory2VideoParams, interpolateStory2VideoMessage, resolveLocaleRef } from './story2video-notification-params'
 
 /**
  * 内置默认文案上限（Unicode 码点）。
@@ -25,95 +29,9 @@ import { DEFAULT_STORY2VIDEO_TEXT_LIMIT } from './story-text-limit'
  */
 export const MAX_STORY2VIDEO_TEXT_CHARACTERS = DEFAULT_STORY2VIDEO_TEXT_LIMIT.maxChars
 
-export const STORY2VIDEO_NOTIFICATION_KEYS = Object.freeze({
-  MODEL_CONFIGURATION_REQUIRED: 'story2video.model_configuration_required',
-  MODEL_API_KEY_REQUIRED: 'story2video.model_api_key_required',
-  // 流水线启动前置校验：模型能力缺失清单（errorCode=PIPELINE_MODEL_REQUIREMENTS_MISSING）
-  MODELS_REQUIRED: 'story2video.models_required',
-  BGM_SKIPPED: 'story2video.bgm_skipped',
-  ACCESS_DENIED: 'story2video.access_denied',
-  ORCHESTRATION_FAILED: 'story2video.orchestration_failed',
-  TEXT_INPUT_ONLY: 'story2video.text_input_only',
-  TEXT_TOO_LONG: 'story2video.text_too_long',
-  TEXT_REQUIRED: 'story2video.text_required',
-  RUN_STATUS_UNAVAILABLE: 'story2video.run_status_unavailable',
-  PREVIEW_MISSING: 'story2video.preview_missing',
-  VIDEO_PREVIEW_FAILED: 'story2video.videoPreviewFailed',
-  MEDIA_INVALID: 'story2video.media_invalid',
-  MEDIA_FORMAT_INVALID: 'story2video.media_format_invalid',
-  MEDIA_SIZE_EXCEEDED: 'story2video.media_size_exceeded',
-  MEDIA_UNREADABLE: 'story2video.media_unreadable',
-  MEDIA_PATH_UNRESOLVED: 'story2video.media_path_unresolved',
-  VOICE_INVALID: 'story2video.voice_invalid',
-  VOICE_CLONE_UNAVAILABLE: 'story2video.voice_clone_unavailable',
-  PROJECT_DELETE_FAILED: 'story2video.project_delete_failed',
-  PROJECT_DELETE_CONFIRM: 'story2video.project_delete_confirm',
-  RUN_DELETE_FAILED: 'story2video.run_delete_failed',
-  RUN_DELETE_CONFIRM: 'story2video.run_delete_confirm',
-  TEMPLATE_DELETE_CONFIRM: 'story2video.template_delete_confirm',
-  // 历史记录批量删除（2026-08-26）
-  BATCH_DELETE_CONFIRM: 'story2video.batch_delete_confirm',
-  BATCH_DELETE_SUCCESS: 'story2video.batch_delete_success',
-  BATCH_DELETE_PARTIAL: 'story2video.batch_delete_partial',
-  BATCH_DELETE_FAILED: 'story2video.batch_delete_failed',
-  BGM_LIBRARY_LOAD_FAILED: 'story2video.bgm_library_load_failed',
-  BGM_LIBRARY_RENAME_FAILED: 'story2video.bgm_library_rename_failed',
-  BGM_LIBRARY_DELETE_FAILED: 'story2video.bgm_library_delete_failed',
-  BGM_LIBRARY_DELETE_CONFIRM: 'story2video.bgm_library_delete_confirm',
-  HISTORY_LOAD_FAILED: 'story2video.history_load_failed',
-  HISTORY_LOCAL_MODE: 'story2video.history_local_mode',
-  EXPORT_COMPLETED: 'story2video.export_completed',
-  EXPORT_CANCELLED: 'story2video.export_cancelled',
-  SAVE_COMPLETED: 'story2video.save_completed',
-  PATH_COPIED: 'story2video.path_copied',
-  TRIM_COMPLETED: 'story2video.trim_completed',
-  SEGMENTS_SAVED: 'story2video.segments_saved',
-  SEGMENT_AUDIO_REPLACED: 'story2video.segment_audio_replaced',
-  SEGMENT_IMAGE_RETRIED: 'story2video.segment_image_retried',
-  SEGMENT_VIDEO_RETRIED: 'story2video.segment_video_retried',
-  PROJECT_RECOMPOSED: 'story2video.project_recomposed',
-  SCENE_IMAGE_GENERATED: 'story2video.scene_image_generated',
-  SCENE_VIDEO_GENERATED: 'story2video.scene_video_generated',
-  MATERIAL_SELECTED: 'story2video.material_selected',
-  SCENE_AUDIO_MISSING: 'story2video.scene_audio_missing',
-  SCENE_IMAGE_MISSING: 'story2video.scene_image_missing',
-  SCENE_VIDEO_MISSING: 'story2video.scene_video_missing',
-  SCENE_SLOT_EMPTY: 'story2video.scene_slot_empty',
-  SCENE_SUBTITLE_REGENERATED: 'story2video.scene_subtitle_regenerated',
-  SCENE_SUBTITLE_REGENERATE_FAILED: 'story2video.scene_subtitle_regenerate_failed',
-  SCENE_AUDIO_REGENERATED: 'story2video.scene_audio_regenerated',
-  SCENE_AUDIO_REGENERATE_FAILED: 'story2video.scene_audio_regenerate_failed',
-  SCENE_PROMPT_REGENERATED: 'story2video.scene_prompt_regenerated',
-  SCENE_PROMPT_REGENERATE_FAILED: 'story2video.scene_prompt_regenerate_failed',
-  SCENE_AI_VIDEO_GENERATED: 'story2video.scene_ai_video_generated',
-  SCENE_AI_VIDEO_GENERATE_FAILED: 'story2video.scene_ai_video_generate_failed',
-  DEGRADED_ASSETS_WARNING: 'story2video.degraded_assets_warning',
-  RATE_LIMITED: 'story2video.rate_limited',
-  QUOTA_EXCEEDED: 'story2video.quota_exceeded',
-  EMPTY_RESULT: 'story2video.empty_result',
-  API_KEY_INVALID: 'story2video.api_key_invalid',
-  COMPOSE_TIMEOUT: 'story2video.compose_timeout',
-  COMPOSE_DURATION_EXCEEDED: 'story2video.compose_duration_exceeded',
-  COMPOSE_SEGMENT_DURATION_EXCEEDED: 'story2video.compose_segment_duration_exceeded',
-  NEEDS_USER_INPUT: 'story2video.needs_user_input',
-  OPTIMIZE_SERVICE_UNAVAILABLE: 'story2video.optimize_service_unavailable',
-  PROVIDER_PARAMS_UNSUPPORTED: 'story2video.provider_params_unsupported',
-  ASSET_GENERATION_FAILED: 'story2video.asset_generation_failed',
-  OPTIMIZE_FAILED: 'story2video.optimize_failed',
-  COMPOSE_FAILED: 'story2video.compose_failed',
-  API_ERROR: 'story2video.api_error',
-  OPERATION_FAILED: 'story2video.operation_failed',
-  UNKNOWN_ERROR: 'story2video.unknown_error',
-  PIPELINE_NOT_IMPLEMENTED: 'story2video.pipeline_not_implemented',
-  PIPELINE_CONCURRENCY_LIMIT: 'story2video.pipeline_concurrency_limit',
-  // 启动参数校验失败（2026-09-04）：normalizeStory2VideoTextParams 抛出的通用 Error 没有 .code 时兜底
-  INVALID_PARAMS: 'story2video.invalid_params',
-  // 断点恢复失败（pipeline-engine resumeOrchestration errorCode 契约）
-  RESUME_SNAPSHOT_NOT_FOUND: 'story2video.resume_snapshot_not_found',
-  RESUME_RUN_NOT_FAILED: 'story2video.resume_run_not_failed',
-  RESUME_RUN_NOT_ORCHESTRATOR: 'story2video.resume_run_not_orchestrator',
-  RESUME_STAGE_NOT_FOUND: 'story2video.resume_stage_not_found',
-})
+// STORY2VIDEO_NOTIFICATION_KEYS 由 ./story2video-notifications-keys 单一真源提供（2026-10-20 拆分），
+// 此处 re-export 保持既有导入路径不变（message-contract.js / notifyCore / 各 composable 均从本模块导入）。
+export { STORY2VIDEO_NOTIFICATION_KEYS }
 
 const notificationKeySet = new Set(Object.values(STORY2VIDEO_NOTIFICATION_KEYS))
 
@@ -121,6 +39,11 @@ const notificationKeySet = new Set(Object.values(STORY2VIDEO_NOTIFICATION_KEYS))
  * i18n-content-sync（2026-08-13）：用户可见文案单一事实源 = locales/{zh,en}.js。
  * 本模块不再持有任何 zh/en 文案，只保留：稳定 key 常量、错误归一化正则、参数归一化与插值逻辑。
  * 新增文案一律写入 locales（zh/en 成对），见 openspec/specs/i18n-content-sync/spec.md。
+ *
+ * 2026-10-20 拆分（error-message-user-friendly-audit，逐文件行数门禁）：
+ *   - key 常量      → ./story2video-notifications-keys.js
+ *   - 参数归一化与插值引擎 → ./story2video-notification-params.js
+ *   - 本模块保留「消息渲染编排 + 归一化判定 + 导出 API」
  */
 const LOCALE_TREES = Object.freeze({ zh: zhLocale, en: enLocale })
 
@@ -167,191 +90,6 @@ export function getStory2VideoNotificationUiText (locale = getStory2VideoLocale(
     goToModelSettings: read('goToModelSettings'),
   }
 }
-function extractSceneNumber (rawError) {
-  const match = String(rawError || '').match(/(?:scene|场景)\s*(\d+)/i)
-  return match ? Number(match[1]) : null
-}
-
-function formatSceneContext (scene, locale) {
-  if (scene === null || scene === undefined) return ''
-  const labelKey = String(scene).includes('/') ? 'sceneRatio' : 'sceneLabel'
-  const label = resolveLocaleRef('@story2video.labels.' + labelKey, locale, { scene })
-  return locale === 'en' ? ' (' + label + ')' : '（' + label + '）'
-}
-
-function fallbackProviderDisplayName (locale) {
-  return resolveLocaleRef(defaultProviderName(locale), locale, {})
-}
-
-function normalizeParams (value, locale, messageKey, rawError) {
-  const supplied = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
-  const params = {}
-
-  // 双次归一化幂等（2026-10 回归修复）：ResultView/CreateView 弹窗先 resolve 入态、渲染时再 format。
-  // normalizeParams 只消费原始枚举（assetKinds/missing）产出解析标签；第二次进入时原始枚举已不存在，
-  // 必须把已解析的插值参数原样保留，否则 {kinds}/{missingLabels} 被清空，渲染出「（）」空括号。
-  if (
-    messageKey === STORY2VIDEO_NOTIFICATION_KEYS.DEGRADED_ASSETS_WARNING &&
-    !Array.isArray(supplied.assetKinds) &&
-    typeof supplied.kinds === 'string' && supplied.kinds.trim() !== ''
-  ) {
-    params.kinds = supplied.kinds
-  }
-  if (
-    messageKey === STORY2VIDEO_NOTIFICATION_KEYS.MODELS_REQUIRED &&
-    !Array.isArray(supplied.missing) &&
-    typeof supplied.missingLabels === 'string' && supplied.missingLabels.trim() !== ''
-  ) {
-    params.missingLabels = supplied.missingLabels
-  }
-
-  if (messageKey === STORY2VIDEO_NOTIFICATION_KEYS.TEXT_TOO_LONG && Number.isFinite(Number(supplied.max))) {
-    params.max = Number(supplied.max)
-    params.maxFormatted = new Intl.NumberFormat(locale === 'en' ? 'en-US' : 'zh-CN').format(params.max)
-  }
-
-  if (messageKey === STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_FORMAT_INVALID) {
-    params.extension = String(supplied.extension || '').trim() || '@story2video.labels.thisFile'
-    params.kindLabel = String(supplied.kindLabel || '').trim() || ''
-    params.extensions = Array.isArray(supplied.extensions) ? supplied.extensions.join(' / ') : String(supplied.extensions || '')
-  }
-
-  if (messageKey === STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_SIZE_EXCEEDED) {
-    params.kindLabel = String(supplied.kindLabel || '').trim() || ''
-    if (Number.isFinite(Number(supplied.maxMb))) params.maxMb = Math.round(Number(supplied.maxMb))
-    if (Number.isFinite(Number(supplied.actualMb))) params.actualMb = Math.max(1, Math.round(Number(supplied.actualMb)))
-  }
-
-  if (
-    messageKey === STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_UNREADABLE ||
-    messageKey === STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_PATH_UNRESOLVED
-  ) {
-    params.kindLabel = String(supplied.kindLabel || '').trim() || ''
-  }
-
-  if (messageKey === STORY2VIDEO_NOTIFICATION_KEYS.PROVIDER_PARAMS_UNSUPPORTED) {
-    const paramMatch = rawError.match(/Setting\s*['"]([^'"]+)['"]/i) || rawError.match(/参数\s*['"]([^'"]+)['"]/i)
-    params.provider = resolveProviderDisplayName(rawError, supplied) || fallbackProviderDisplayName(locale)
-    params.param = paramMatch ? paramMatch[1] : String(supplied.param || '')
-  }
-
-  if (messageKey === STORY2VIDEO_NOTIFICATION_KEYS.MODEL_API_KEY_REQUIRED || messageKey === STORY2VIDEO_NOTIFICATION_KEYS.API_KEY_INVALID) {
-    params.provider = resolveProviderDisplayName(rawError, supplied) ||
-      fallbackProviderDisplayName(locale)
-  }
-
-  if (messageKey === STORY2VIDEO_NOTIFICATION_KEYS.ASSET_GENERATION_FAILED) {
-    const ratioMatch = rawError.match(/(\d+)\/(\d+)\s*scenes?\s+have\s+both/i)
-    const scenes = ratioMatch ? ratioMatch[1] + '/' + ratioMatch[2] : ''
-    params.provider = resolveProviderDisplayName(rawError, supplied) || fallbackProviderDisplayName(locale)
-    const detailRef = String(supplied.detail || '').trim()
-    const detail = detailRef ? resolveLocaleRef(detailRef, locale, supplied) : ''
-    const contextParts = []
-    if (scenes) contextParts.push(resolveLocaleRef('@story2video.labels.sceneRatio', locale, { scene: scenes }))
-    if (detail) contextParts.push(detail)
-    params.context = contextParts.length > 0
-      ? (locale === 'en' ? ' (' + contextParts.join(', ') + ')' : '（' + contextParts.join('，') + '）')
-      : ''
-  }
-
-  if (messageKey === STORY2VIDEO_NOTIFICATION_KEYS.VOICE_INVALID) {
-    params.provider = resolveProviderDisplayName(rawError, supplied) || fallbackProviderDisplayName(locale)
-  }
-
-  if (messageKey === STORY2VIDEO_NOTIFICATION_KEYS.SCENE_PROMPT_REGENERATE_FAILED) {
-    params.provider = resolveProviderDisplayName(rawError, supplied) || fallbackProviderDisplayName(locale)
-  }
-
-  if (messageKey === STORY2VIDEO_NOTIFICATION_KEYS.DEGRADED_ASSETS_WARNING && Array.isArray(supplied.assetKinds)) {
-    const labels = LOCALE_TREES[locale].story2video.degradedAssetLabels
-    const separator = locale === 'en' ? ', ' : '、'
-    const kindLabels = supplied.assetKinds
-      .map(kind => labels[kind] || '')
-      .filter(Boolean)
-      .join(separator)
-    // 空值兜底（2026-10）：assetKinds 缺失或全部未登记时不得产出空括号「（）」，
-    // 回退到通用降级素材文案（labels.fallback，zh/en 成对维护）。
-    params.kinds = kindLabels !== '' ? kindLabels : (labels.fallback || '')
-  }
-
-  if (messageKey === STORY2VIDEO_NOTIFICATION_KEYS.PIPELINE_CONCURRENCY_LIMIT) {
-    if (Number.isFinite(Number(supplied.count))) params.count = Number(supplied.count)
-    if (Number.isFinite(Number(supplied.max))) params.max = Number(supplied.max)
-  }
-
-  // 启动前置校验：缺失能力 → 本地化标签列表（附显式 provider 标识），供 models_required 模板插值
-  if (messageKey === STORY2VIDEO_NOTIFICATION_KEYS.MODELS_REQUIRED && Array.isArray(supplied.missing)) {
-    const labelTree = LOCALE_TREES[locale].story2video.modelCapabilityLabels || {}
-    const providers = supplied.providers && typeof supplied.providers === 'object' ? supplied.providers : {}
-    const separator = locale === 'en' ? ', ' : '、'
-    params.missingLabels = supplied.missing
-      .filter((capability) => typeof capability === 'string' && capability)
-      .map((capability) => {
-        let label = labelTree[capability] || capability
-        if (providers[capability]) {
-          label += locale === 'en' ? ' (' + providers[capability] + ')' : '（' + providers[capability] + '）'
-        }
-        return label
-      })
-      .join(separator)
-  }
-
-  // 历史记录批量删除（2026-08-26）：{count}/{success}/{failed} 插值
-  if (
-    messageKey === STORY2VIDEO_NOTIFICATION_KEYS.BATCH_DELETE_CONFIRM ||
-    messageKey === STORY2VIDEO_NOTIFICATION_KEYS.BATCH_DELETE_SUCCESS ||
-    messageKey === STORY2VIDEO_NOTIFICATION_KEYS.BATCH_DELETE_PARTIAL
-  ) {
-    if (Number.isFinite(Number(supplied.count))) params.count = Number(supplied.count)
-    if (Number.isFinite(Number(supplied.success))) params.success = Number(supplied.success)
-    if (Number.isFinite(Number(supplied.failed))) params.failed = Number(supplied.failed)
-  }
-
-  if (messageKey === STORY2VIDEO_NOTIFICATION_KEYS.COMPOSE_DURATION_EXCEEDED) {
-    const limitMatch = String(rawError || '').match(/(\d+(?:\.\d+)?)\s*(?:分钟|minutes?)/i)
-    const suppliedLimit = Number(supplied.limitMinutes)
-    const parsedLimit = limitMatch ? Number(limitMatch[1]) : suppliedLimit
-    params.limitMinutes = Number.isFinite(parsedLimit) && parsedLimit > 0 && parsedLimit <= 24 * 60
-      ? parsedLimit
-      : 50
-  }
-
-  if (messageKey === STORY2VIDEO_NOTIFICATION_KEYS.RATE_LIMITED || messageKey === STORY2VIDEO_NOTIFICATION_KEYS.QUOTA_EXCEEDED || messageKey === STORY2VIDEO_NOTIFICATION_KEYS.NEEDS_USER_INPUT || messageKey === STORY2VIDEO_NOTIFICATION_KEYS.EMPTY_RESULT) {
-    const scene = extractSceneNumber(rawError)
-    const providerName = resolveProviderDisplayName(rawError, supplied) || ''
-    params.context = formatSceneContext(scene, locale) || (typeof supplied.context === 'string' ? supplied.context : '')
-    params.provider = providerName || fallbackProviderDisplayName(locale)
-  }
-
-  if (messageKey === STORY2VIDEO_NOTIFICATION_KEYS.SCENE_AUDIO_REGENERATE_FAILED || messageKey === STORY2VIDEO_NOTIFICATION_KEYS.SCENE_AI_VIDEO_GENERATE_FAILED || messageKey === STORY2VIDEO_NOTIFICATION_KEYS.API_ERROR) {
-    params.provider = resolveProviderDisplayName(rawError, supplied) || fallbackProviderDisplayName(locale)
-  }
-
-  return params
-}
-function resolveLocaleRef (ref, locale, params) {
-  if (typeof ref !== 'string' || !ref.startsWith('@')) return ref
-  const keyPath = ref.slice(1).split('.')
-  let node = LOCALE_TREES[normalizeStory2VideoLocale(locale)] || LOCALE_TREES.zh
-  for (const seg of keyPath) {
-    node = node?.[seg]
-    if (node == null) return ref
-  }
-  const resolved = typeof node === 'string' ? node : ref
-  if (params && resolved.includes('{')) {
-    return resolved.replace(/\{([^{}]+)\}/g, (_, k) => String(params[k] ?? ''))
-  }
-  return resolved
-}
-
-function interpolateMessage (template, params, locale) {
-  return template.replace(/\{([^{}]+)\}/g, (_placeholder, name) => {
-    const raw = params[name]
-    const resolved = locale ? resolveLocaleRef(raw, locale, params) : raw
-    return String(resolved ?? '')
-  })
-}
-
 function isKnownMessageKey (key) {
   return notificationKeySet.has(key)
 }
@@ -419,20 +157,31 @@ function resolveMessageKey (notification, fallbackKey) {
   if (SCENE_AUDIO_REGENERATE_FAILED_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.SCENE_AUDIO_REGENERATE_FAILED
   if (SCENE_PROMPT_REGENERATE_FAILED_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.SCENE_PROMPT_REGENERATE_FAILED
   if (SCENE_AI_VIDEO_GENERATE_FAILED_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.SCENE_AI_VIDEO_GENERATE_FAILED
+  // compose 预检失败（2026-10-20）：必须早于 COMPOSE_STAGE / 泛化 compose 规则，
+  // 且早于「短自然语言直出」分支，否则存量 run.error 的英文原文会被原样透出。
+  if (notification?.errorCode === 'COMPOSE_INPUT_SIZE_EXCEEDED' || COMPOSE_INPUT_SIZE_EXCEEDED_PATTERN.test(raw)) {
+    return STORY2VIDEO_NOTIFICATION_KEYS.COMPOSE_INPUT_SIZE_EXCEEDED
+  }
+  if (notification?.errorCode === 'COMPOSE_SCENE_MEDIA_UNREADABLE' || COMPOSE_SCENE_MEDIA_UNREADABLE_PATTERN.test(raw)) {
+    return STORY2VIDEO_NOTIFICATION_KEYS.COMPOSE_SCENE_MEDIA_UNREADABLE
+  }
+  if (notification?.errorCode === 'COMPOSE_SCENE_AUDIO_UNREADABLE' || COMPOSE_SCENE_AUDIO_UNREADABLE_PATTERN.test(raw)) {
+    return STORY2VIDEO_NOTIFICATION_KEYS.COMPOSE_SCENE_AUDIO_UNREADABLE
+  }
   return fallbackKey
 }
 
 function messageFor (key, params, locale) {
   const template = localeMessageSource(locale, key) ||
     localeMessageSource(locale, STORY2VIDEO_NOTIFICATION_KEYS.UNKNOWN_ERROR)
-  return interpolateMessage(template, params, locale)
+  return interpolateStory2VideoMessage(template, params, locale)
 }
 
 export function formatStory2VideoNotification (notification = {}, locale = getStory2VideoLocale()) {
   const normalizedLocale = normalizeStory2VideoLocale(locale)
   const messageKey = resolveMessageKey(notification, STORY2VIDEO_NOTIFICATION_KEYS.UNKNOWN_ERROR)
   const rawError = String(notification?.error || notification?.message || '')
-  const params = normalizeParams(notification?.messageParams || notification?.errorParams, normalizedLocale, messageKey, rawError)
+  const params = normalizeStory2VideoParams(notification?.messageParams || notification?.errorParams, normalizedLocale, messageKey, rawError)
   const message = messageFor(messageKey, params, normalizedLocale)
   return { messageKey, message, codePointCount: countUnicodeCodePoints(message) }
 }
@@ -491,6 +240,6 @@ export function resolveStory2VideoNotification (notification = {}, options = {})
     : STORY2VIDEO_NOTIFICATION_KEYS.OPERATION_FAILED
   const key = resolveMessageKey(notification, fallbackKey)
   const rawError = String(notification?.error || notification?.message || '')
-  const params = normalizeParams(notification?.messageParams || notification?.errorParams, normalizedLocale, key, rawError)
+  const params = normalizeStory2VideoParams(notification?.messageParams || notification?.errorParams, normalizedLocale, key, rawError)
   return { key, params, message: messageFor(key, params, normalizedLocale) }
 }

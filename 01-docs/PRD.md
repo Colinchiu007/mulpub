@@ -6628,6 +6628,24 @@ Vue 展示组件
 
 #### Story2Video 页面术语、固定操作区与历史编辑合同（2026-08-17）
 
+#### 用户可见失败信息的稳定错误码合同（2026-10-20，error-message-user-friendly-audit）
+
+**需求**：所有面向用户的失败提示 SHALL 用当前语言的自然语言说明具体原因并给出可操作建议；MUST NOT 直出英文技术原文、i18n key 或未解析占位符。完整合同见 [PRD-USER-FACING-ERROR-MESSAGES-2026-10-20.md](./PRD-USER-FACING-ERROR-MESSAGES-2026-10-20.md)，事故复盘见 [BUGFIX-HISTORY-CARD-RAW-ENGLISH-ERROR-2026-10-20.md](./BUGFIX-HISTORY-CARD-RAW-ENGLISH-ERROR-2026-10-20.md)。
+
+**合同要点**：
+
+| 维度 | 要求 |
+| --- | --- |
+| 主进程 | apps/desktop/electron 下会被前端渲染的失败返回体 SHALL 带稳定 errorCode（封闭常量集合，如 COMPOSE_ERROR_CODES）+ 可插值 messageParams；message 仅诊断用 |
+| messageParams | 只含用户可读值（带单位体积、1-based 序号、格式化时长）；MUST NOT 含裸字节数、绝对路径、堆栈、HTTP 状态码 |
+| 穿透边界 | stage-executor → pipeline-engine._finalizeRun → run-state-store 快照 SHALL 一路带上；run.error / stage.error 保持字符串契约（恢复门控与阶段摘要依赖） |
+| 渲染端 | 取值优先级 = 原文归一化（存量兼容）→ 稳定码显式映射（COMPOSE_ERROR_KEY_MAP）→ 原文透传 → 通用兜底；MUST NOT 用字符串推导 locale key |
+| 存量数据 | 只有英文 run.error 的旧记录 SHALL 经原文模式归一化为同一自然语言文案 |
+| 多语言 | 文案一律 zh/en 成对写入 locales/story2video/{zh,en}.js；渲染端 src/ 非 locales 文件不得新增中文字面量（CJK 门禁） |
+| 机械判据 | scripts/check-compose-error-codes.js 校验「主进程常量 / 渲染端映射 / zh+en 文案 / messageParams 占位符」四侧一致，接入 quality-gate.yml 的 changes job（Gate 12g），漏改任一侧即红 |
+
+**验收标准**：① 新产生的 compose 预检失败卡片显示自然语言（含体积/场景号与建议），不含英文原文与 i18n key；② 英文界面显示英文文案；③ 存量记录同样归一化；④ 参数缺失不渲染空占位符；⑤ run.error 字符串契约零回归；⑥ 门禁 6 道变异反证全部 rc=1；⑦ locale 三项门禁 PASS。
+
 视频创作页面的详细产品合同已独立整理到 [PRD-S2V-PIPELINE-PAGE-UX.md](./PRD-S2V-PIPELINE-PAGE-UX.md)，本节作为主 PRD 索引。流水线选择后的配置/运行页统一称为“流水线启动页”；历史记录进入的任务查看与修改页统一称为“视频任务编辑页”，不再把旧详情弹窗称为任务详情页。固定底部操作条、顶部阶段进度、统一历史卡片字段、失败原因本地化、暂停/删除数据校验、分段跳转、AI 视频生成、音色目录回退和语速滑条均以该文档及 OpenSpec change 为准。
 
 #### Story2Video 历史断点恢复模型合同（2026-08-19）

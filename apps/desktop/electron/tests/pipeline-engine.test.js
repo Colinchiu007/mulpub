@@ -1419,3 +1419,62 @@ describe('PipelineEngine 启动前模型能力前置校验（pipeline-model-pref
     expect(started.errorParams.providers).toEqual({ video: 'kling' })
   })
 })
+
+describe('PipelineEngine stage 失败稳定错误码上抛（error-message-user-friendly-audit，2026-10-20）', () => {
+  // 事故背景：compose 预检失败只返回 { success:false, error:'Input media exceeds the total size limit' }，
+  // 稳定 errorCode 与 messageParams 在 stage 边界被丢弃，run.error 落库英文原文，
+  // 历史记录失败卡片透出英文。本组锁住「message / errorCode / messageParams 三者一起上抛」。
+  function makeEngineWithStage (stageResult) {
+    const engine = new PipelineEngine({
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
+      stageExecutor: { execute: vi.fn(async () => stageResult) },
+      runStateStore: { saveFailed: vi.fn(() => true) },
+      maxConcurrentRuns: 2,
+    })
+    engine.registerPipeline({
+      name: 'errcode-propagation',
+      description: '稳定错误码上抛测试',
+      stages: ['a'],
+      stageDefs: [{ name: 'a', type: 'ep_a' }],
+    })
+    return engine
+  }
+
+  it('stage 带 errorCode/messageParams → run.errorCode / run.errorParams 落库，run.error 仍为字符串', async () => {
+    const engine = makeEngineWithStage({
+      success: false,
+      error: 'Input media exceeds the total size limit',
+      errorCode: 'COMPOSE_INPUT_SIZE_EXCEEDED',
+      messageParams: { limitMb: '512MB', actualMb: '780MB' },
+    })
+    const started = await engine.startOrchestrated('errcode-propagation', { initialContext: {}, autoAdvance: false })
+    await engine.executeStage(started.runId)
+    const snapshot = engine.getRunSnapshot(started.runId)
+    expect(snapshot.status.status).toBe('failed')
+    expect(snapshot.error).toBe('Input media exceeds the total size limit')
+    expect(snapshot.errorCode).toBe('COMPOSE_INPUT_SIZE_EXCEEDED')
+    expect(snapshot.errorParams).toEqual({ limitMb: '512MB', actualMb: '780MB' })
+  })
+
+  it('stage 无 errorCode（旧行为）→ run.errorCode / run.errorParams 不写入，不破坏既有字段形态', async () => {
+    const engine = makeEngineWithStage({ success: false, error: 'plain stage failure' })
+    const started = await engine.startOrchestrated('errcode-propagation', { initialContext: {}, autoAdvance: false })
+    await engine.executeStage(started.runId)
+    const snapshot = engine.getRunSnapshot(started.runId)
+    expect(snapshot.status.status).toBe('failed')
+    expect(snapshot.error).toBe('plain stage failure')
+    // 无稳定码时快照输出 null（IPC 边界不出现 undefined），renderer 侧按 null 走兜底
+    expect(snapshot.errorCode).toBeNull()
+    expect(snapshot.errorParams).toBeNull()
+  })
+
+  it('_finalizeRun 接受字符串 error（旧调用方）→ run.error 原样落库', async () => {
+    const engine = makeEngineWithStage({ success: true, output: {} })
+    const started = await engine.startOrchestrated('errcode-propagation', { initialContext: {}, autoAdvance: false })
+    const run = engine._runs.get(started.runId)
+    engine._finalizeRun(run, 'failed', 'legacy string error')
+    expect(run.error).toBe('legacy string error')
+    expect(run.errorCode).toBeUndefined()
+    expect(run.errorParams).toBeUndefined()
+  })
+})

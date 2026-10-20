@@ -1,0 +1,58 @@
+{
+  "sha": "f1997e518fdf1dff3eade2bd7944e2e21bdc29dc",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 73 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 73,
+    "fileCount": 2,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "0366d63ca82fe3e0942fba881adfb527fef11f67d6e9f44593758d68215e0649",
+  "decidedAt": "2026-10-20T04:31:10.456Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_pending",
+    "performedBy": "self-play(pending)",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "findings": null,
+    "template": ".adversarial\\ccg-deep-b5de74d5\\adjudication.json",
+    "note": "裁决尚未填写：5/5 条未定（i1, i2, i3, i4, i5）",
+    "at": "2026-10-20T04:37:26.001Z"
+  }
+}
