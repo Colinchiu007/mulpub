@@ -11,7 +11,7 @@ date: 2026-10-20
 
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
-| 变更类型与隔离 | 运行时代码 | worktree `D:/Data/projects/mp-worktrees/mp-film-debrand` + 裸分支 `film-debrand`（`scripts/session-init.sh film-debrand`） |
+| 变更类型与隔离 | 运行时代码 | worktree `<仓库父目录>/mp-worktrees/mp-film-debrand` + 裸分支 `film-debrand`（`scripts/session-init.sh film-debrand`） |
 | 第一性原因（QM-5 ①） | 见下「第一性原因」 | 上一轮（#4040）只改了「标题 / 库标题 / 标签」，把片名从 **3 处** 移除；但片名实际散布在 **5 个层次**：随包数据（manifest 的 title + 两个场景名 + 来源 URL）、随包提示词正文（`HELLGRIND BATTLEFIELD` 环境引用锁）、随包方法论文档、主进程流水线描述、locale 剧本套用提示。漏掉的层次天然不会被「改标题」覆盖。 |
 | 逃逸分析（QM-5 ②） | 见下「逃逸分析」 | 上一轮的 11 例回归锁只断言 locale 与两个具体 DOM 节点，**判据域是「我改过的地方」**，不是「品牌名不得出现」。 |
 | 修复 + 回归保护（QM-5 ④） | 见下 | 新增 `src/i18n/film-debrand.test.js`（4 例）：判据域改成「品牌名不得出现」，机械扫描 src/ + electron/ 全量（排测试/文档） |
@@ -110,7 +110,7 @@ E2E 改成断言页面含「影视项目案例」。
 | 项 | 命令 | 结果 |
 |---|---|---|
 | 去品牌锁 | `vitest run src/i18n/film-debrand.test.js` | **7/7** ✅（⓪ 判据自检 / ① 全量扫描 / ② manifest / ③ locale 全字段 / ④ 随包文档 / ⑤ 重建脚本护栏 + 常量同源×3 处 + 裸写检测 / ⑥ 测试与 E2E 断言层） |
-| **中性化功能测试**（答复第五轮 i1 的 Critical） | python D:\\tmp\\check-neutralize.py | **全 PASS**：HELL GRIND 51→PROJECT CASE 51、HELLGRIND BATTLEFIELD→PROJECT BATTLEFIELD、hell-grind→PROJECT CASE；manifest 片名/根名→Film Project Case、source 已删；shell-grind/MichelleGrindstone 不误杀；**中性化后的内容能通过 ssert_neutral_payload**（修复前此处会 SystemExit ⇒ 重建必然失败） |
+| **中性化功能测试**（答复第五轮 i1 的 Critical） | 一次性 python 探针（不入仓库） | **全 PASS**：HELL GRIND 51→PROJECT CASE 51、HELLGRIND BATTLEFIELD→PROJECT BATTLEFIELD、hell-grind→PROJECT CASE；manifest 片名/根名→Film Project Case、source 已删；shell-grind/MichelleGrindstone 不误杀；**中性化后的内容能通过 `assert_neutral_payload`**（修复前此处会 SystemExit ⇒ 重建必然失败） |
 | 变异反证（锁 ⑥ 真的会红） | 临时注入 `expect(LEGACY).toBe(<被禁片名>)` 探针 | ⑥ 当场红并点名 `src/i18n/zz-mutation-probe.test.js:10`；删除探针后恢复绿（`safe-delete` 可恢复删除） |
 | 场景树锁 | `vitest run src/views/film-scene-tree.test.js` | **8/8** ✅（含 2 例重复 id） |
 | 主进程域 | `vitest run electron/services/film-engineering electron/ipc-handlers/film-engineering` | **559/559** ✅（32 文件） |
@@ -205,7 +205,7 @@ E2E 改成断言页面含「影视项目案例」。
 
 | 条目 | 严重度 | 结论 | 处置与证据 |
 |---|---|---|---|
-| **i1** 写前自检导致重建**必然失败**：`build_manifest`/`build_shot_library` 产出的是原始语料（含 `HELL GRIND 51`、`HELLGRIND BATTLEFIELD`），`assert_neutral_payload` 无条件拦截 ⇒ 文档化的重建流程永远跑不通，且锁 ⑤ 把这个失败固化成了契约 | **Critical** | **upheld（确认是我引入的 bug）并修** | 完全正确，而且是我在第四轮加护栏时**只加了「检查」没加「变换」**造成的。**已修**：管线内新增中性化层 —— `neutralize_text`（短语形态 → `PROJECT CASE`、粘连形态 → `PROJECT`，两侧锚定）、`neutralize_payload`（递归 dict/list/str）、`neutralize_manifest`（片名与根场景名固定为 `Film Project Case`、整块删除 `filmMeta.source`），**两条写盘路径（`--full` 与经典）都在写盘前调用**。自检保留为「确认真的干净」。**实证**（`python D:\tmp\check-neutralize.py`）：`HELL GRIND 51` → `PROJECT CASE 51`、`HELLGRIND BATTLEFIELD` → `PROJECT BATTLEFIELD`、`hell-grind` → `PROJECT CASE`、manifest 片名/根名 → `Film Project Case`、`source` 已删、**且中性化后的内容能通过 `assert_neutral_payload`（旧版此处会 SystemExit）**。锁 ⑤ 增加「中性化与自检必须成对存在 + 调用点数下界」的断言。 |
+| **i1** 写前自检导致重建**必然失败**：`build_manifest`/`build_shot_library` 产出的是原始语料（含 `HELL GRIND 51`、`HELLGRIND BATTLEFIELD`），`assert_neutral_payload` 无条件拦截 ⇒ 文档化的重建流程永远跑不通，且锁 ⑤ 把这个失败固化成了契约 | **Critical** | **upheld（确认是我引入的 bug）并修** | 完全正确，而且是我在第四轮加护栏时**只加了「检查」没加「变换」**造成的。**已修**：管线内新增中性化层 —— `neutralize_text`（短语形态 → `PROJECT CASE`、粘连形态 → `PROJECT`，两侧锚定）、`neutralize_payload`（递归 dict/list/str）、`neutralize_manifest`（片名与根场景名固定为 `Film Project Case`、整块删除 `filmMeta.source`），**两条写盘路径（`--full` 与经典）都在写盘前调用**。自检保留为「确认真的干净」。**实证**（一次性 python 探针，不入仓库）：`HELL GRIND 51` → `PROJECT CASE 51`、`HELLGRIND BATTLEFIELD` → `PROJECT BATTLEFIELD`、`hell-grind` → `PROJECT CASE`、manifest 片名/根名 → `Film Project Case`、`source` 已删、**且中性化后的内容能通过 `assert_neutral_payload`（旧版此处会 SystemExit）**。锁 ⑤ 增加「中性化与自检必须成对存在 + 调用点数下界」的断言。 |
 | **i2** 锁 ⑤ 用 `pyFiles[0]` 取常量值，目录里多一个不含该常量的 `.py` 就会 `null[1]` TypeError 变红（错误信息指不到问题）；`withPayloadGuard/withConstant` 是 ≥1 聚合，与记录声称的「对全部非测试脚本要求」不符 | Warning | **upheld 并修** | **已修**：改为**按内容定位**导入器（谁定义 `FILM_PROMPT_MAX_LEN` 谁就是），找不到时给出「现有脚本清单」的明确报错；常量同源对**每个**定义该常量的脚本逐个断言；裸写扫描对**每个**非 test 脚本执行（不再只看第 0 个）。 |
 | **i3** 随提交新增的 `.ccg/reviews/*.json` 记的是父提交 sha、`status=pending`，与记录声称「四轮已执行」矛盾 | Warning | **partially dismissed（按设计 + 已就地收口）** | 前半是 pre-commit 的**既定行为**（引擎自陈「pre-commit 时新 commit 尚未生成，判定记录写在父 sha 上」，内容寻址键是 `stagedDiffHash` 而非 sha）。后半成立：合并前该记录确实是 `pending`。处置 = **本轮就在 PR 内把它收口**（填裁决 + 置闭环状态），而不是留给合并后。 |
 | **i4** `hub.tabs.classic` 从用户指定的短标签改成正式术语，无新用户裁决 ⇒ **评审链代行覆盖用户决定** | Warning | **upheld 并回退** | 成立。我先前以「第三轮 i7 要求消除同页两说」为由改了它，但那是**用评审意见推翻用户既有选择**，不是去品牌所必需。**已回退**：页签恢复「项目案例 / Project Cases」；同页一致性改由**副标题与页签逐字一致**实现（`hub.subtitle` 相应回退为「项目案例」）。第三轮的「同页两说」因此仍然解决，但手段换成「对齐副标题」而不是「改用户标签」。 |
