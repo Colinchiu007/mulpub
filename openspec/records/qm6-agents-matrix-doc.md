@@ -19,13 +19,13 @@ date: 2026-10-20
 | QM-6 CCG 双模型外部评审 | N/A | 纯流程文档变更，按 AGENTS「纯文档/流程变更不强制 QM-6」。补充两点免得被读成免检：① 本刀**不改判据本体**，`HIGH_RISK_SURFACES` 与矩阵代码一行未动，所以不属于 #3987 那条自反条款（7.2）的范围；② 文字内容不是本刀自拟 —— 三条逐字来自 2026-10-19 的人工裁决（`openspec/changes/ccg-review-degradation-ladder/tasks.md` 6.3 子项），本刀只做落点与如实性核对 |
 | 远程同步 | 由门禁推导 | 不事后改写：合并后由 `scripts/lib/merge-ledger.js` 按 squash 尾注推导；现场读数以判据打印为准 |
 - 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD` 的 `docs-only=` 读数写在 PR 正文（同一判据在 commit 之后取证）
-- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 由门禁推导（本行不写状态词）
+- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PR #4087
 
 ### 本地判据实跑（都在合并前取，落点为 `origin/main` == `6084c620a`）
 
 | 判据 | 现场读数 |
 | --- | --- |
-| `node scripts/classify-docs-only.js --base=origin/main --head=HEAD` | 预提交取到 `docs-only=false files=0` —— **那是取证顺序不是判定失灵**（未提交时 `HEAD==base` ⇒ 空 diff）。`docs-only=true` 的那次读数按 AGENTS 规定写在 commit 之后的 PR 正文里 |
+| `node scripts/classify-docs-only.js --base=origin/main --head=HEAD` | **提交后**取到 `docs-only=true files=4`（`AGENTS.md`、`openspec/changes/ccg-review-degradation-ladder/tasks.md`、本篇、`.ccg/reviews/b9886a62….json`）。预提交那次是 `docs-only=false files=0` —— 未提交时 `HEAD==base` ⇒ 空 diff，那是取证顺序不是判定失灵，所以这条按 AGENTS 规定同写进 PR 正文与本篇 |
 | `node scripts/check-no-brand-residue.js` | `PASS（扫描 11074 个 tracked 文件，无品牌残留）`。注意它**只扫 tracked**，本刀三个新/改文件都已先 `git add` 再跑，否则"绿"是扫描域没含它们 |
 | `bash scripts/check-docs-sync.sh --base=main --head=HEAD` | rc=0，`✅ 文档同步检查通过`。旗标形状是一条实测坑：写 `--base=origin/main` 会被脚本内部再前缀成 `fetch origin/origin/main` ⇒ `fatal: couldn't find remote ref`；本仓该脚本要的是分支名不是 ref |
 | `node scripts/check-doc-abs-paths.js` | `counts=1161 domain=4715 files=561 canJudge=true` ⇒ `PASS`（无新增本机绝对路径）。本篇与 AGENTS 新增段都用占位/仓内相对路径（worktree 写成 `<仓库父目录>/mp-worktrees/...`，引擎写成 `~/.claude/skills/...`） |
