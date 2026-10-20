@@ -12,13 +12,30 @@
  * ⚠️ 组件用 `<teleport to="body">` 渲染，`wrapper.find/get` 找不到节点，
  *    必须查 `document.body`（与 HotTopics.test.js 的 `publish-dest-article` 同模式）。
  */
-import { afterEach, beforeEach, describe, it, expect } from 'vitest'
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import i18n from '@/i18n'
 import PublishDestinationModal from './PublishDestinationModal.vue'
 
+// 配置档案列表走 IPC（story2video:config-profile-list），组件测试里换成可控桩。
+const { configProfileListMock } = vi.hoisted(() => ({ configProfileListMock: vi.fn() }))
+vi.mock('@/api/publisher', async (importOriginal) => {
+  const actual = await importOriginal()
+  return { ...actual, story2videoConfigProfileList: configProfileListMock }
+})
+
 let wrapper
+
+const profile = (overrides = {}) => ({
+  id: 'profile-000000000001',
+  name: '口播竖屏',
+  pipelineId: 'story2video-compose',
+  snapshot: { schemaVersion: 1 },
+  createdAt: 1700000000000,
+  updatedAt: 1700000000000,
+  ...overrides,
+})
 
 async function mountModal (props = {}) {
   wrapper = mount(PublishDestinationModal, {
@@ -38,6 +55,8 @@ const q = (sel) => document.body.querySelector(sel)
 let localeSnapshot = null
 beforeEach(() => {
   localeSnapshot = i18n.global.locale.value
+  configProfileListMock.mockReset()
+  configProfileListMock.mockResolvedValue({ code: 0, data: [] })
 })
 
 afterEach(() => {
@@ -105,5 +124,230 @@ describe('PublishDestinationModal 披露与选择契约', () => {
     const closeBtn = q('[data-testid="publish-dest-close"]')
     expect(closeBtn.getAttribute('aria-label')).toBeTruthy()
     expect(closeBtn.getAttribute('title')).toBeTruthy()
+  })
+
+  // ── 配置选择（publish-config-picker，2026-10-21）─────────────────────
+  it('流水线默认列出全部文案型流水线（不再只有故事讲述）', async () => {
+    await mountModal()
+    const select = q('[data-testid="publish-dest-pipeline-select"]')
+    const values = Array.from(select.querySelectorAll('option')).map(o => o.value).filter(Boolean)
+    expect(values).toContain('story2video-compose')
+    expect(values).toContain('talking-head')
+    expect(values).toContain('animated-explainer')
+    expect(values).toContain('avatar-spokesperson')
+    // 素材型/录屏型/内部冒烟流水线接不了改写文案，不该出现在下拉里
+    expect(values).not.toContain('clip-factory')
+    expect(values).not.toContain('framework-smoke')
+    expect(values).not.toContain('video-clone')
+  })
+
+  it('该流水线没有配置时：显示「默认」、下拉内容为空、并说明原因', async () => {
+    configProfileListMock.mockResolvedValue({ code: 0, data: [] })
+    await mountModal()
+    await vi.waitFor(() => expect(configProfileListMock).toHaveBeenCalled())
+    const trigger = q('[data-testid="publish-dest-config-trigger"]')
+    expect(trigger, '配置选择器缺失').toBeTruthy()
+    expect(q('[data-testid="publish-dest-config-value"]').textContent.trim()).toBe('默认')
+    expect(trigger.hasAttribute('disabled'), '无配置时不应可展开').toBe(true)
+    expect(q('[data-testid="publish-dest-config-menu"]'), '无配置时不应有下拉内容').toBeNull()
+    expect(q('[data-testid="publish-dest-config-hint"]').textContent).toContain('还没有保存过配置')
+  })
+
+  it('配置列表只含本流水线的档案，展开后可逐条选择', async () => {
+    configProfileListMock.mockResolvedValue({
+      code: 0,
+      data: [
+        profile({ id: 'profile-000000000001', name: '口播竖屏' }),
+        profile({ id: 'profile-000000000002', name: '横屏 1080p', updatedAt: 1700000001000 }),
+        profile({ id: 'profile-000000000003', name: '别的流水线的配置', pipelineId: 'video-clone' }),
+      ],
+    })
+    await mountModal()
+    await vi.waitFor(() => expect(configProfileListMock).toHaveBeenCalled())
+    const trigger = q('[data-testid="publish-dest-config-trigger"]')
+    expect(trigger.hasAttribute('disabled')).toBe(false)
+    trigger.click()
+    await nextTick()
+    const menu = q('[data-testid="publish-dest-config-menu"]')
+    expect(menu).toBeTruthy()
+    expect(menu.textContent).toContain('口播竖屏')
+    expect(menu.textContent).toContain('横屏 1080p')
+    expect(menu.textContent, '别的流水线的配置不得混进来').not.toContain('别的流水线的配置')
+    // 菜单首项恒为「默认」：选完还能退回「不套用配置」
+    expect(q('[data-testid="publish-dest-config-option-default"]').textContent.trim()).toBe('默认')
+  })
+
+  it('切换流水线后配置列表联动，且原先选中的配置作废', async () => {
+    configProfileListMock.mockResolvedValue({
+      code: 0,
+      data: [
+        profile({ id: 'profile-000000000001', name: '口播竖屏' }),
+        profile({ id: 'profile-000000000002', name: '讲解视频配置', pipelineId: 'animated-explainer' }),
+      ],
+    })
+    await mountModal()
+    await vi.waitFor(() => expect(configProfileListMock).toHaveBeenCalled())
+    q('[data-testid="publish-dest-config-trigger"]').click()
+    await nextTick()
+    q('[data-testid="publish-dest-config-option-profile-000000000001"]').click()
+    await nextTick()
+    expect(q('[data-testid="publish-dest-config-value"]').textContent.trim()).toBe('口播竖屏')
+
+    const select = q('[data-testid="publish-dest-pipeline-select"]')
+    select.value = 'animated-explainer'
+    select.dispatchEvent(new Event('change'))
+    await nextTick()
+    expect(q('[data-testid="publish-dest-config-value"]').textContent.trim(), '切流水线后旧配置必须作废').toBe('默认')
+  })
+
+  it('选了配置后，提交时把配置档案一起带出去', async () => {
+    configProfileListMock.mockResolvedValue({
+      code: 0,
+      data: [profile({ id: 'profile-000000000001', name: '口播竖屏' })],
+    })
+    await mountModal()
+    await vi.waitFor(() => expect(configProfileListMock).toHaveBeenCalled())
+    q('[data-testid="publish-dest-config-trigger"]').click()
+    await nextTick()
+    q('[data-testid="publish-dest-config-option-profile-000000000001"]').click()
+    await nextTick()
+    q('[data-testid="publish-dest-video"]').click()
+    await nextTick()
+    const emitted = wrapper.emitted('publish-video')
+    expect(emitted).toBeTruthy()
+    expect(emitted[0][0]).toBe('story2video-compose')
+    expect(emitted[0][1]).toEqual({
+      configProfileId: 'profile-000000000001',
+      configProfileName: '口播竖屏',
+    })
+  })
+
+  it('没选配置时提交不带配置档案（调用方据此不传 configProfile 参数）', async () => {
+    configProfileListMock.mockResolvedValue({ code: 0, data: [] })
+    await mountModal()
+    await vi.waitFor(() => expect(configProfileListMock).toHaveBeenCalled())
+    q('[data-testid="publish-dest-video"]').click()
+    await nextTick()
+    const emitted = wrapper.emitted('publish-video')
+    expect(emitted[0][1]).toEqual({ configProfileId: '', configProfileName: '' })
+  })
+
+  it('配置列表加载失败时如实提示，不静默装作「没有配置」', async () => {
+    configProfileListMock.mockResolvedValue({ code: -1, message: 'boom' })
+    await mountModal()
+    await vi.waitFor(() => expect(configProfileListMock).toHaveBeenCalled())
+    await nextTick()
+    expect(q('[data-testid="publish-dest-config-hint"]').textContent).toContain('加载失败')
+    expect(q('[data-testid="publish-dest-config-value"]').textContent.trim()).toBe('默认')
+  })
+
+  // ── 键盘可达（QM-6 评审 i2 采纳：role=combobox/listbox 必须配得上键盘操作）──
+  it('触发器上按 ↓ 展开下拉并把焦点落到「默认」项', async () => {
+    configProfileListMock.mockResolvedValue({
+      code: 0,
+      data: [profile({ id: 'profile-000000000001', name: '口播竖屏' })],
+    })
+    await mountModal()
+    await vi.waitFor(() => expect(configProfileListMock).toHaveBeenCalled())
+    const trigger = q('[data-testid="publish-dest-config-trigger"]')
+    trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+    await nextTick()
+    expect(q('[data-testid="publish-dest-config-menu"]')).toBeTruthy()
+    expect(document.activeElement).toBe(q('[data-testid="publish-dest-config-option-default"]'))
+  })
+
+  it('菜单内 ↑/↓ 移动焦点、End 跳末项、Esc 关闭并把焦点还给触发器', async () => {
+    configProfileListMock.mockResolvedValue({
+      code: 0,
+      data: [
+        profile({ id: 'profile-000000000001', name: '口播竖屏' }),
+        profile({ id: 'profile-000000000002', name: '横屏 1080p' }),
+      ],
+    })
+    await mountModal()
+    await vi.waitFor(() => expect(configProfileListMock).toHaveBeenCalled())
+    const trigger = q('[data-testid="publish-dest-config-trigger"]')
+    trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+    await nextTick()
+    const menu = q('[data-testid="publish-dest-config-menu"]')
+    menu.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+    await nextTick()
+    expect(document.activeElement).toBe(q('[data-testid="publish-dest-config-option-profile-000000000001"]'))
+    menu.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }))
+    await nextTick()
+    expect(document.activeElement).toBe(q('[data-testid="publish-dest-config-option-profile-000000000002"]'))
+    menu.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await nextTick()
+    expect(q('[data-testid="publish-dest-config-menu"]'), 'Esc 应关闭下拉').toBeNull()
+    expect(document.activeElement, 'Esc 后焦点应回到触发器').toBe(trigger)
+  })
+
+  // ── Enter / 空格选中（QM-6 round 2 i1 采纳：此前只有方向键，缺「选中」核心契约）──
+  it('菜单内按 Enter 选中当前焦点项并关闭下拉', async () => {
+    configProfileListMock.mockResolvedValue({
+      code: 0,
+      data: [
+        profile({ id: 'profile-000000000001', name: '口播竖屏' }),
+        profile({ id: 'profile-000000000002', name: '横屏 1080p' }),
+      ],
+    })
+    await mountModal()
+    await vi.waitFor(() => expect(configProfileListMock).toHaveBeenCalled())
+    const trigger = q('[data-testid="publish-dest-config-trigger"]')
+    trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+    await nextTick()
+    const menu = q('[data-testid="publish-dest-config-menu"]')
+    menu.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+    await nextTick()
+    menu.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    await nextTick()
+    expect(q('[data-testid="publish-dest-config-menu"]'), 'Enter 应关闭下拉').toBeNull()
+    expect(q('[data-testid="publish-dest-config-value"]').textContent.trim()).toBe('口播竖屏')
+  })
+
+  it('菜单内按空格选中当前焦点项（与 Enter 等价）', async () => {
+    configProfileListMock.mockResolvedValue({
+      code: 0,
+      data: [profile({ id: 'profile-000000000001', name: '口播竖屏' })],
+    })
+    await mountModal()
+    await vi.waitFor(() => expect(configProfileListMock).toHaveBeenCalled())
+    const trigger = q('[data-testid="publish-dest-config-trigger"]')
+    trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+    await nextTick()
+    const menu = q('[data-testid="publish-dest-config-menu"]')
+    menu.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+    await nextTick()
+    menu.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }))
+    await nextTick()
+    expect(q('[data-testid="publish-dest-config-menu"]'), '空格应关闭下拉').toBeNull()
+    expect(q('[data-testid="publish-dest-config-value"]').textContent.trim()).toBe('口播竖屏')
+  })
+
+  it('Home 回到「默认」后按空格即选中「默认」（默认项也必须键盘可达）', async () => {
+    configProfileListMock.mockResolvedValue({
+      code: 0,
+      data: [profile({ id: 'profile-000000000001', name: '口播竖屏' })],
+    })
+    await mountModal()
+    await vi.waitFor(() => expect(configProfileListMock).toHaveBeenCalled())
+    const trigger = q('[data-testid="publish-dest-config-trigger"]')
+    trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+    await nextTick()
+    const menu = q('[data-testid="publish-dest-config-menu"]')
+    menu.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+    await nextTick()
+    menu.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    await nextTick()
+    expect(q('[data-testid="publish-dest-config-value"]').textContent.trim()).toBe('口播竖屏')
+    trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+    await nextTick()
+    const reopened = q('[data-testid="publish-dest-config-menu"]')
+    reopened.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }))
+    await nextTick()
+    reopened.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }))
+    await nextTick()
+    expect(q('[data-testid="publish-dest-config-menu"]')).toBeNull()
+    expect(q('[data-testid="publish-dest-config-value"]').textContent.trim()).toBe('默认')
   })
 })
