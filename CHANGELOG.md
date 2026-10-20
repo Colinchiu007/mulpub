@@ -49,6 +49,40 @@
 - **两轮外部评审的处置口径**：第 1 轮两轴共 17 条（claude 6 + codex 11）逐条处置，接受 12、部分接受 2、否证 2 —— 其中"按记录自身路径判高危"这条**必须否证**：判定记录本来就是 PR 级的，`.ccg/reviews/<hash>.json` 永远不落在任何前缀上，照那个修法改等于把刚建立的矩阵整条关掉（实测归因恒空）。第 2 轮 8 条里又拦住一条真后门：高危面上「本次新增即写 cleared 而 `tier` 缺席」既不受转变检测管辖（没有 base 可比）也不被矩阵拦（unknown 放过）—— 那是"给自己贴一张已通过"的零成本路径，现在拦。跨家族轴第 2 轮**未交付**（`429` 两次、`503` 一次，清单里的 `opencode` 仍是 IP 级拒绝），所以处置引入的那部分改动只有单轴复审，这条如实记在记录 §六 第 13 条而不是写成"双模型完成"。
 - 现场记 `openspec/records/qm6-highrisk-matrix.md`；合同对账见 `openspec/changes/ccg-review-degradation-ladder/tasks.md` 第 2 节（2.1–2.5 已勾，2.3 的偏差逐字写明）与 8.1（**不勾**，只落判据侧那一半，另一半拆成 8.1b）。
 
+# [未发布] fix(ci): 接通 Electron CI 串行单测的自证块（#2525 承诺而从未执行的诊断）
+
+- **现象**：`electron-tests` 在 main push 上间歇性红，日志**零条** `×`、零条 `FAIL`、零条 vitest 摘要行，
+  只有 `exit code 124`。近 12 次 main push 里 5 次失败，且同一形态在**不是本仓 PR 内容**的
+  `715391c88` 上复现 ⇒ 与具体改动无关。
+- **第一性原因**：`bef5fb72c`（#2525，2026-09-28）的标题是「让超时失败能自证」，正文也写了
+  `RC=${PIPESTATUS[0]}` 与整段 `TIMEOUT_BUDGET_EXCEEDED` 诊断，但它们被放在
+  `timeout … | tee` **之后**；而该 job 的 shell 是 `bash -e -o pipefail`，`timeout` 返回 124 时
+  `-e` **立刻退出步骤**，其后每一行都不执行。**该自证块自合入起从未运行过一次** ——
+  它专门为之设计的那个场景，恰恰是它唯一不出现的场景。
+  旁证：同一 `run:` 目录下的 `Electron smoke test` 早就用着正确的 `set +e … set -e` 写法。
+- **修法**：`set +e` … `RC=${PIPESTATUS[0]}` … `set -e`。行内 `set -e` 只影响本步骤的子 shell。
+- **回归保护：判据域从「字符串存在」升级为「行为成立」**。旧锁只断言那四行**存在于 YAML**，
+  而被测性质是**运行时执行路径** —— 判据域错位，于是锁一直绿、自证一直死。
+  新锁取该步骤 `run` 原文，只替换两个量（预算→1s、`pnpm …`→`sleep 2`），在
+  `bash -e -o pipefail` 下**真跑**，断言 `status===124` 且 stdout 含 `[electron-ci-timeout-budget] elapsed=`、
+  `rc=124`、`TIMEOUT_BUDGET_EXCEEDED`、`已完成测试行数`（最后一条证明控制流走到了诊断尾部）。
+  **变异反证已做**：摘掉 `set +e` → 立刻红，报「自证行缺席 ⇒ 自证块又被 -e 提前杀掉了」。
+- **同轮修掉的另一处真 bug**（由 CI 首次跑这条锁时抓到）：`packages/shared-utils` 的
+  `ledgerCommandName` 对 `spawn(file,args)` 传的**裸路径**切首 token，含空格的路径
+  （如 Git Bash 的安装路径）会被折成 `Program` —— 真实命令被无意义键盖住，而运行时出站台账的
+  全部意义就是「谁在起子进程」。`shellFirstToken` 只处理了**带引号**的形态。修法是裸串且整串
+  据**文件存在性**解析成文件时取真实 basename；回归锁 +1 例（含负控「不得是 `my`」），
+  基线登记 `child::bash.exe` 并写全理由。
+- **未落地（明确记为遗留）**：按 `--shard` 把整轮切开这件事本轮**没有做**。三轮尝试证明它被
+  required context 卡住：ruleset `main-ci-gate` 要求的 context 是 `electron-tests`，而 matrix
+  作业无论加不加静态 `name` 都只报 `electron-tests (1)` 这种带后缀的名 ⇒ 22 项全绿的 PR 仍判
+  `base branch policy prohibits the merge`；另加一个 `name: electron-tests` 的汇入作业又会让整份
+  workflow 被判不可解析（幻影 push run + 0 job，两种 `if` 写法都复现）。正解需要把 matrix 作业改 id
+  并同步 `.github/scripts` 里多条结构性锁，属另一件事。接通自证之后，下一次超时会**首次**产出
+  `elapsed=` 读数，届时可以据此定片数与预算。
+- **教训**：GitHub 有**两套并存**的分支保护面（legacy protection 与 rulesets），只查一套就得出
+  「不受约束」的结论，等同于「查到第一个空结果就收工」——与本条主线要修的毛病同型。
+
 # [未发布] chore(debt): 债务熔断基线 re-sync 到主干现状——接受漂移不是清理，并登记拆分红利（debt-baseline-resync）
 - **现场**：`debt-guard.yml` 的「债务熔断检查」从今天起在**每一个** rebase/merge 到今天主干的
   pull request 上判红：`MAX_FILE_LINES: 5359 > baseline 5239`、`FILES_OVER_1000: 29 > baseline 28`。
