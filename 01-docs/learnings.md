@@ -1342,6 +1342,43 @@ electron: Failed to load URL: … resources/app.asar/dist/index.html with error:
 - **pitfall · 长任务的接口形态会随耗时改变而失效，取消通道是它的隐性契约**：`ai:rewrite` 原本是秒级单次调用，没有取消通道完全合理。分段改写把它变成**分钟级串行**后，同一个接口就从「不需要取消」变成「必须能取消」——而接口本身没有任何地方会提醒你这个变化。本仓 `pipeline/render/video-clone/queue/podcast/zhihu-favlist` 六条长任务通道全有 cancel，唯独 `ai:*` 13 条都没有，正是这条的存量证据。判据：任何把「一次调用」改成「N 次串行」或「分钟级」的改动，必须同帧检查该通道有没有中止途径；没有就要补，或在 UI 明确承诺「不可取消」。
 - **pattern · 协作式取消要复用本仓既有标记范式，并如实定义粒度**：本仓已有 `signal = { cancelled: false }`（`zhihu-favlist.js` / `batch-rate-controller.js`）与 `services/abort-utils.js`。做 `ai:rewrite` 取消时**不要把信号一路穿到 `fetch`**——勘察实证 `model-provider-manager.callAdapter` 只调 `adapter[method](params)`，`runtimeOptions` 在那层就被丢掉，穿到 fetch 等于给**全部** LLM 调用加通路。正解是段边界协作式 + **文案如实**（「当前片段会先完成」而不是「立即停止」）+ 明说代价（已耗片段不保留、费用不退）。另两条配套机械项：① 登记表必须在 `finally` 删（否则按改写次数无限增长）；② 同一 runId 并发要**拒绝**（`DUPLICATE_RUN`）而不是覆盖——共用 token 会让两次改写互相误杀。
 
+## 迁移的"前置预检"查了本次迁移才创建的列 —— 顺序自反，而兜底位置决定了它并不静默
+
+### lesson: precheck-queries-column-its-own-migration-creates
+
+**现场**：Mulpub 本地库（分支 `ux-viral-external-id`，2026-10-20）。打包态启动日志里稳定出现
+`[ERROR] sqlite-wrapper all() error: no such column: external_id | SQL: SELECT platform, external_id, COUNT(*) AS n FROM viral_library`。
+仓内 `%APPDATA%/@multi-publish/desktop/logs/app-2026-10-17.log` 留着原文一行，2026-10-18 又复现两次。
+
+**根因形状（可迁移，与"列名写错"无关）**：`findViralLibraryConflicts` 是**迁移前的重复预检**，
+它查的 `external_id` 由**它自己所在那次迁移**的 `ALTER TABLE ADD COLUMN` 才加上；而新库建表 DDL 没有这两列。
+顺序于是是「建表（无列）→ 预检（查该列）→ ALTER」⇒ **每个新库首次启动都必然发一条结构上注定失败的查询**。
+写这两段的人当时都"对"：预检要在加列前跑（否则索引建不起来），ALTER 要幂等（先 PRAGMA 探列）——
+错的是**两处的"列何时存在"假设没有对齐**，而不是任何一行 SQL。
+
+**为什么"加了 catch"不等于"安静"**：兜底在 `sqlite-wrapper` 的 `Statement.all()` 里，形状是
+`catch (e) { log.error(...); }` 然后返回空数组。所以调用方拿到的是正确的空值，**日志却留下一条 ERROR**——
+"正常的未升级状态"被记成故障。判据：**给可预见的结构缺席写兜底前，先看兜底代码在不在一条会打日志的路径上**；
+在的话，正解是"不去发那条注定失败的查询"（先探 schema），而不是"发出去再吞掉"。
+
+**为什么四层测试全绿（本案真正的逃逸原因）**：既有 `creator-schema.test.js` 的夹具 `makeDb()`
+对**任意 SQL** 的 `prepare().all()` 都返回同一份预置数组。于是"列不存在 ⇒ 查询抛错"这一整类事实
+**在该夹具里根本无法表示** —— 这是"夹具对所有输入同答 ⇒ 对该类缺陷结构性免疫"的第 N 次落地。
+更隐蔽的是第二层：三条旧用例把 `conflicts` 填了重复行、却没声明该列存在，即"一个还没有该列的库报了重复"，
+**现实里不可能的输入**被断言成正确行为。修夹具不是放宽断言：断言一字未动，只把输入改成可表示的形态，
+并另起一份**真 sqlite 文件库**的用例集，让"抛错"这件事真的发生一次、再证明它不发生。
+
+**判据（可迁移）**：
+1. 任何"迁移前置检查/探测"类 SQL，收尾时问一句：**它读的列/表，是不是它自己这趟迁移要建的？**
+2. "列/表在不在"的判断 MUST 只有一份实现（本案收敛成 `viralLibraryColumns(db)`），预检与 ALTER 共用；
+   两份判断分叉 = 不可归因状态。
+3. 建表真源与查询列必须同源：新库 DDL 自带列，`ALTER` 只服务存量库（`CREATE TABLE IF NOT EXISTS`
+   不会给已存在的表补列，所以这条不能反过来省掉）。
+4. 三档语义不得合并成一句静默出口：**缺列（无从可查）** / **查到重复（必须中止）** /
+   **列在位却查失败（真故障，必须出声）**。把第 1 档和第 3 档写成同一个 `return []`，
+   等于让下一次真的磁盘错误也无声。
+5. 启动日志里的 `[ERROR]` 行现在没有任何门禁在看守 —— 这条缺陷躺了 4 天，只因为一次 QM-1 打包验证
+   顺手把 stderr 读了。**「测试全绿」与「运行日志干净」是两件需要分别取证的事。**
 ## 「规则已加」和「用户看得见」隔着两件事——基类覆盖与 transition:all 的淡入（focus-ring-zero-coverage，2026-10-19）
 
 ### lesson: a-rule-on-the-base-class-can-be-zero-coverage

@@ -138,9 +138,13 @@ describe('creator-schema · 迁移原子性', () => {
 const PRAGMA_TABLE_INFO = /PRAGMA table_info\(viral_library\)/i
 
 describe('creator-schema · 冲突预检（不静默丢数据）', () => {
+  // 夹具自证修正（2026-10-20，分支 ux-viral-external-id）：这三条原来只塞 `conflicts` 而不给
+  // `viralLibraryCols`，于是"一个还没有 external_id 的库报了重复"——现实里不可能的输入。
+  // 预检现在先看列在不在（真库形态见 creator-schema-upgrade.test.js），缺列即返回空，
+  // 所以这几条必须把列声明出来才测得到它们声称的那条路径。断言本身一字未放宽。
   it('检测到重复分组时中止迁移并报出明细', () => {
     const rows = [{ platform: 'youtube', external_id: 'UC_x', n: 3 }]
-    const { db, executed } = makeDb({ conflicts: rows })
+    const { db, executed } = makeDb({ conflicts: rows, viralLibraryCols: ['id', 'external_id', 'creator_id'] })
     expect(() => migrateCreatorLinkageSchema(db, execSchemaSql))
       .toThrow(/存在 1 组重复/)
     expect(executed.filter(s => s.includes('ADD COLUMN'))).toHaveLength(0)
@@ -148,12 +152,12 @@ describe('creator-schema · 冲突预检（不静默丢数据）', () => {
 
   it('错误信息含冲突键，便于人工定位', () => {
     const rows = [{ platform: 'youtube', external_id: 'UC_dupe', n: 2 }]
-    const { db } = makeDb({ conflicts: rows })
+    const { db } = makeDb({ conflicts: rows, viralLibraryCols: ['id', 'external_id', 'creator_id'] })
     expect(() => migrateCreatorLinkageSchema(db, execSchemaSql)).toThrow(/UC_dupe/)
   })
 
   it('无冲突时预检返回空数组', () => {
-    const { db } = makeDb({ conflicts: [] })
+    const { db } = makeDb({ conflicts: [], viralLibraryCols: ['id', 'external_id', 'creator_id'] })
     expect(findViralLibraryConflicts(db)).toEqual([])
   })
 
