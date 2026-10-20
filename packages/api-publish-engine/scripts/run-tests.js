@@ -3,7 +3,7 @@
 const fs = require('fs')
 const path = require('path')
 const { spawnSync } = require('child_process')
-const { detectRunner } = require('./lib/test-runner-detect')
+const { detectRunner } = require('./lib/runner-detect')
 
 const VITEST_FILES = new Set([
   'adapters-interface.test.js',
@@ -92,7 +92,7 @@ function discoverTestFiles(testDirectory) {
 function classifyTestFiles(files) {
   const groups = { direct: [], vitest: [] }
   for (const file of files) {
-    // 2026-10-21：runner 归属改由**文件内容**机械判定（scripts/lib/test-runner-detect.js）。
+    // 2026-10-21：runner 归属改由**文件内容**机械判定（scripts/lib/runner-detect.js）。
     // VITEST_FILES 降级为**例外表**：只在判定器返回 'unknown' 时生效（8 个无特征文件），
     // 且登记表与判定结果冲突时**以判定器为准并打印告警**——不再让"人记得登记"决定成败。
     const base = path.basename(file)
