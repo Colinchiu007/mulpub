@@ -1,0 +1,61 @@
+{
+  "sha": "4551c20c8ba3188fd1c6ce1bde3f7cef6e354e9e",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 59 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 59,
+    "fileCount": 5,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "**两条历史欠账记录的收口方式（如实登记）**：`e671b19b….json`（轮 2，`self_play_blocked`）与 `5b6e84da….json`（轮 3，`self_play_pending`）由 agent 按 `check-pr-exec-record.js` 的**合法出口②**（\"确认判定确属假阳性／非高危面 → `deepReview.closureNote`（须含轮次标记与逐条处置结论）再把 status 置为闭环值\"）手工收口：补 `closureNote`（含轮次、逐条处置与「upheld 已实现」措辞）+ `tier=self-play` + `status=self_play_resolved`，并标注 `closedBy`/`closedAt`。**未改动引擎写回的任何裁决内容**（findings/prosecution/defense/rationale 全部原样保留）。高危面（判据本体 / workflows / 凭据登录态）不适用本出口——本刀不涉。"
+    ],
+    "ccgSensitiveContentHits": 1,
+    "ccgSensitiveContentSample": [
+      "    \"closureNote\": \"轮2 外部 claude（proposer=opencode 跨家族校验通过）交付 6 条：1 upheld（i3 改写信封非字符串正文缺类型守卫）已实现并经变异反证 M5 验证（去掉守卫⇒用例当场红，还原即绿）、5 dismissed 各附可复算实测证据（JSON.sha==merge-base、code_total=1839==changedLines、vite build rc=0、StageProgress props 逐个对上、seq 守卫已实装、非法输入由 UI+契约两层显性拦截）、2 Info 登记处置；本记录非高危面（不涉判据本体/workflows/凭据登录态），按 check-pr-exec-record.js 的合法出口②以本 closureNote 收口，未改任何引擎写回的裁决内容。\","
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "0df996a7bdbf30839141b46ca10bb0f19f42daf68ddb05f77afe93b26865649d",
+  "decidedAt": "2026-10-20T21:53:34.688Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

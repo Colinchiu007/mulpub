@@ -150,3 +150,62 @@ describe('clampStory2VideoText — 码点裁切（不切碎 emoji）', () => {
     expect(r.text).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/)
   })
 })
+
+// ── 外部依赖的契约锁（QM-6 深审 i5 的建议：别靠「防御性文字」担保依赖完整性）──
+//
+// 本 composable **复用**热门选题一键成片的六个既有模块（不写第二份实现）。
+// 「它们存在且导出名没变」这件事必须有**自动化断言**，而不是注释里的一句「已存在」：
+// 将来任何一方改名/移除，这里当场红，而不是等到构建期才发现。
+describe('外部复用模块的存在性与导出契约', () => {
+  it('阶段跟踪模块：导出齐全且函数', async () => {
+    const m = await import('@/features/hot-topics/gen-video-stage-tracking')
+    for (const name of [
+      'stageNamesForPipeline',
+      'markFirstGenVideoStageRunning',
+      'markFirstGenVideoStageFailed',
+      'resetGenVideoStagesToPending',
+      'completeUnfinishedGenVideoStages',
+      'finalizeGenVideoTerminalStages',
+      'cancelGenVideoStages',
+    ]) {
+      expect(typeof m[name], `阶段跟踪模块缺少导出 ${name}`).toBe('function')
+    }
+  })
+
+  it('展示派生模块：导出齐全且函数', async () => {
+    const m = await import('@/features/hot-topics/gen-video-view-model')
+    for (const name of [
+      'buildGenVideoPipelineLabel',
+      'computeGenVideoProgressPercent',
+      'isGenVideoTerminalPhase',
+      'canRetryGenVideo',
+      'canCancelGenVideo',
+      'canBackgroundGenVideo',
+      'isGenVideoResultReady',
+    ]) {
+      expect(typeof m[name], `展示派生模块缺少导出 ${name}`).toBe('function')
+    }
+  })
+
+  it('启动参数构造模块：导出齐全且函数', async () => {
+    const m = await import('@/features/hot-topics/gen-video-pipelines')
+    expect(typeof m.buildGenVideoStartParams).toBe('function')
+    expect(typeof m.DEFAULT_GEN_VIDEO_PIPELINE).toBe('string')
+  })
+
+  it('成片路径提取模块：导出齐全且函数', async () => {
+    const m = await import('@/features/pipeline/run-context-video-path')
+    expect(typeof m.extractRunContextVideoPath).toBe('function')
+  })
+
+  it('发布出口 query 模块：导出齐全且函数', async () => {
+    const m = await import('@/composables/useGenVideoPublishTitle')
+    expect(typeof m.buildGenVideoPublishQuery).toBe('function')
+  })
+
+  it('故事文案上限模块：导出齐全（内置默认值是裁切的依据）', async () => {
+    const m = await import('@/story2video/story-text-limit')
+    expect(typeof m.DEFAULT_STORY2VIDEO_TEXT_LIMIT).toBe('object')
+    expect(m.DEFAULT_STORY2VIDEO_TEXT_LIMIT.maxChars).toBeGreaterThan(0)
+  })
+})

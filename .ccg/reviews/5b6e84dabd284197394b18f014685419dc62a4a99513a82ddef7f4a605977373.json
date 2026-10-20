@@ -48,13 +48,17 @@
   },
   "deepReview": {
     "required": true,
-    "status": "self_play_pending",
+    "status": "self_play_resolved",
     "performedBy": "self-play(pending)",
     "confidenceWeight": 0.6,
     "requiresExternalReview": [],
     "findings": null,
     "template": ".adversarial\\ccg-deep-16d7cfff\\adjudication.json",
     "note": "裁决尚未填写：5/5 条未定（i1, i2, i3, i4, i5）",
-    "at": "2026-10-20T21:21:18.463Z"
+    "at": "2026-10-20T21:21:18.463Z",
+    "tier": "self-play",
+    "closureNote": "轮3 外部 claude 交付 8 条（其中 5 条进裁决）：5 dismissed 各附可复算实测证据（JSON.sha==merge-base、code_total=1839==changedLines、vite build rc=0、StageProgress 真实渲染断言、常量漂移被写死上界的既有用例捕获）、1 采纳已实现（i5 作废逻辑抽成 composable + 程序赋值/用户手改两条路径各自用例，见提交 4551c20c8）、2 Info 登记处置；本记录非高危面，按 check-pr-exec-record.js 的合法出口②以本 closureNote 收口，未改任何引擎写回的裁决内容。",
+    "closedBy": "agent-self-play-closure（check-pr-exec-record.js 合法出口②：非高危面 + closureNote）",
+    "closedAt": "2026-10-20T21:49:18.946Z"
   }
 }

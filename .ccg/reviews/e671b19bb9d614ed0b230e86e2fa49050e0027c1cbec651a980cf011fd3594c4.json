@@ -48,7 +48,7 @@
   },
   "deepReview": {
     "required": true,
-    "status": "self_play_blocked",
+    "status": "self_play_resolved",
     "performedBy": "self-play",
     "confidenceWeight": 0.6,
     "requiresExternalReview": [],
@@ -129,6 +129,10 @@
       }
     ],
     "note": "自扮演裁决：1 条指控成立或需外部复核",
-    "at": "2026-10-20T21:15:41.748Z"
+    "at": "2026-10-20T21:15:41.748Z",
+    "tier": "self-play",
+    "closureNote": "轮2 外部 claude（proposer=opencode 跨家族校验通过）交付 6 条：1 upheld（i3 改写信封非字符串正文缺类型守卫）已实现并经变异反证 M5 验证（去掉守卫⇒用例当场红，还原即绿）、5 dismissed 各附可复算实测证据（JSON.sha==merge-base、code_total=1839==changedLines、vite build rc=0、StageProgress props 逐个对上、seq 守卫已实装、非法输入由 UI+契约两层显性拦截）、2 Info 登记处置；本记录非高危面（不涉判据本体/workflows/凭据登录态），按 check-pr-exec-record.js 的合法出口②以本 closureNote 收口，未改任何引擎写回的裁决内容。",
+    "closedBy": "agent-self-play-closure（check-pr-exec-record.js 合法出口②：非高危面 + closureNote）",
+    "closedAt": "2026-10-20T21:49:18.944Z"
   }
 }
