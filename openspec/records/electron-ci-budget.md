@@ -60,3 +60,29 @@
 2. **上界仍未知**：步骤被打断在 2100s，真实需求没有测出来。若某次 runner 更慢，3600s 也可能不够。
 3. **3600s 让单次 main push 的 job 墙变长**：失败反馈更慢（从 35 分钟变 60 分钟），这是放宽的代价。
 4. **告警阈值是静态的（×2 健康基线）**：若代码库增长让健康耗时自然上升，1588s 会变成误报源，届时应重算 `HEALTHY_SECONDS` 而不是调阈值。
+
+## 附：改 workflow 超时常量触发的第二层门禁（已在本次同步）
+
+首轮 CI 在 `Gate 2b7 - Gate timeout registry` 红（`QG Changes` / `Gate Result` 连带红）。原因不是我的改动错了，而是**这类常量有清单棘轮**：
+
+`scripts/gate-timeout-registry.json` 逐格登记了每个作业的 `timeoutMinutes`，`scripts/check-coverage-budget.test.js` 的两条断言要求**注册值与 workflow 实际值逐字相等**：
+
+- `19 缩进纪律`：断言 `scan.cells.get('electron-tests') === 70`（我改成 90 后变红）；
+- `22 真实仓全量对账`：遍历注册表每一格，要求 `parseJobTimeout(workflow) === j.timeoutMinutes`。
+
+**同步的两处**：
+
+| 文件 | 改动 |
+|---|---|
+| `scripts/gate-timeout-registry.json` | `electron-tests.timeoutMinutes`: **70 → 90**（单点替换，1 行 diff） |
+| `scripts/check-coverage-budget.test.js` | 两条断言的期望值 70 → 90，并把测试名里的「实测把 70 读成 10」改为「历史上把 70 读成 10」（那段是当初缩进 bug 的叙述，不该被本次改动改写） |
+
+**关键辨析 —— 这不是「为消红改注册值」**：
+
+注册表 `note` 明确写着「禁止为了让判据变绿去改本文件的数值 —— 只能重采样」。禁令针对的是**判据红了就去改数字骗过它**。本次是相反的形态：我**先**做了业务决策（把墙从 70 抬到 90），被治理的常量变了，登记必须同步 —— 这是同一次变更的两侧，不是绕过判据。
+
+另外 `provenance.ceilingMinutesSampled` **保留 70 不动**：它记录的是「采样时那条天花板的值」，属历史事实；工具自己也把这两个字段分开读（输出里明确写 `censored_at_ceiling=0(绑 70 分那条天花板，非当前值)`）。
+
+**这条经验值得记住**：改 `.github/workflows/` 里的 `timeout-minutes`，成本不只是「改一个数字」——同步要求散落在 `gate-timeout-registry.json` + 测试断言两处，且两处的语义（当前值 vs 采样时值）不同。这正是「改谁来守门」需要人工过目的具体含义。
+
+验证：`node scripts/check-coverage-budget.js` rc=0（`timeout=90 需≥46 余量=44 分`）；`node --test scripts/check-coverage-budget.test.js` **26 pass / 0 fail**。
