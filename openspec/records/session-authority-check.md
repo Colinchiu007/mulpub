@@ -30,6 +30,23 @@
 > 而更可能就是**会话确已失效**的信号（当时把它解释成语义差异，是这次订正要纠正的判断）。
 >
 > 订正后三平台终态：**仅头条 active**；抖音、视频号均 `expired`（都须重新扫码）。
+>
+> ### 订正的**独立佐证**（2026-10-21，绕过应用判定直接问平台）
+>
+> 为确保不是应用判定的误报，直接用活 cookie 调视频号自身的 `auth_data`：
+> ```
+> POST https://channels.weixin.qq.com/cgi-bin/mmfinderassistant-bin/auth/auth_data
+> → HTTP 200 {"errCode":300334,"errMsg":"request failed"}    （分区 rpa-tencent_video-b1e05ac2）
+> ```
+> 而 `apps/desktop/electron/publishers/http-login-checker.js` 的 `tencent_video.check`
+> 注释写明：**errCode 300333/300334 = 登录失效**。**300334 正是失效码**，
+> 与应用 `CHECK_LOGIN_COOKIE_EXPIRED` 的判定**互相印证** ⇒ 过期结论**不是误判**。
+>
+> （旁证：其余 11 个 `wechat_mp` 相关分区同法返回 `300330`，那是公众号分区、与视频号无关，
+> 也说明 300334 是视频号分区特有的、而非通用网络/风控噪声。）
+>
+> ⚠ **与目标描述的冲突**：目标写「视频号已经登录了」，但当前实测（应用判定 + 平台 errCode
+> 双证据）为**已过期**。该描述在当下**已不成立**，须重新扫码后才恢复。
 
 ## 二、方法沉淀：应用运行态的无侵入探测路径
 
