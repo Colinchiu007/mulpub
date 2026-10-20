@@ -46,13 +46,26 @@
   },
   "deepReview": {
     "required": true,
-    "status": "self_play_pending",
-    "performedBy": "self-play(pending)",
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
     "confidenceWeight": 0.6,
     "requiresExternalReview": [],
     "findings": null,
     "template": ".adversarial\\ccg-deep-0ac3db3d\\adjudication.json",
     "note": "裁决尚未填写：4/4 条未定（i1, i2, i3, i4）",
-    "at": "2026-10-20T11:53:53.277Z"
+    "at": "2026-10-20T11:53:53.277Z",
+    "tier": "external",
+    "evidence": "openspec/records/ci-infra-shard-and-review-audit.evidence/critique-round1.md",
+    "externalVerdicts": {
+      "i1": "upheld→已修（第 2 轮）：审计新增记录 sha 可解析性读数，把「pre-commit 写父 sha」契约从口头变成工具自证；实跑发现 3 条不可解析记录并点名文件",
+      "i2": "upheld→已修（第 2 轮）：按 critic 要求真消除重复——新增 scripts/lib/exec-record-statuses.js 单一真源，判据与审计共用，删除两侧字面量副本",
+      "i3": "upheld→已修：未落地的 design 文档加 implemented:false / kind:plan / affects_ci_behavior:false",
+      "i4": "upheld→已修：写死阈值（审计 >5s 或记录 >5000 条须重新评估），那之前加复杂度属过早优化",
+      "i5": "dismissed：空结果文案已可诊断（含目标路径），点出目录即为修复目标；导出常量属可选改进",
+      "i6": "dismissed：AGENTS.md 语言约定要求仓内注释中文；门禁匹配 run 正文与表达式、不解析注释语义"
+    },
+    "engineVerdictBeforeClosure": "self_play",
+    "externalAdjudicationNote": "外部件：critic=claude（scripts/deep-review.sh 真实调用，非本地自扮演），两轮原文已入库：\n  openspec/records/ci-infra-shard-and-review-audit.evidence/critique-round1.md（第 1 轮，6 条，最低分 4）\n  openspec/records/ci-infra-shard-and-review-audit.evidence/critique-round2.md（第 2 轮，审已修版本，6 条，最低分 5）\n裁决件：由引擎第三档出口（self-play）按 items 逐条生成 prosecution/defense/verdict。\n本记录**不声称**外部模型批准了闭环：tier=external 的含义是「闭环依据含可核的外部评审产物」，\n不是「外部模型签署了闭环」。第 2 轮把 i1/i2 打回 Critical，促成了本次两处实质修改。",
+    "closedAt": "2026-10-20T12:34:51.475Z"
   }
 }
