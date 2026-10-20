@@ -7,7 +7,7 @@ vi.mock('@/utils/clipboard', () => ({ writeClipboard: vi.fn(async () => true) })
 
 function installMockApi () {
   const api = {
-    status: vi.fn(async () => ({ code: 0, data: { available: true, filmMeta: { title: 'Hell Grind' }, sceneCount: 162, shotCount: 153, referenceCount: 332, error: null } })),
+    status: vi.fn(async () => ({ code: 0, data: { available: true, filmMeta: { title: 'Film Project Case' }, sceneCount: 162, shotCount: 153, referenceCount: 332, error: null } })),
     listScenes: vi.fn(async () => ({ code: 0, data: [
       { id: 'scene-1', name: '废墟街道', count: 3, parentId: null, level: 0, shotCount: 2 },
       { id: 'scene-2', name: '博物馆', count: 2, parentId: null, level: 0, shotCount: 1 },

@@ -1,6 +1,6 @@
-# film-kit 数据资产 Schema（《Hell Grind》影视工程）
+# film-kit 数据资产 Schema（影视项目案例）
 
-> 本目录由 `scripts/film-engineering/fetch-hell-grind-kit.py` 从公开语料重建（可复现）。
+> 本目录由 `scripts/film-engineering/` 下的导入脚本从公开语料重建（可复现）。
 > 加载与校验实现：`apps/desktop/electron/services/film-engineering/kit-loader.js`（fail-closed）。
 > 校验不通过 → 整体返回 `FILM_KIT_UNAVAILABLE`，不允许部分降级。
 >
@@ -46,11 +46,10 @@
 {
   "schemaVersion": 1,                       // 必须 === 1
   "filmMeta": {
-    "title": "Hell Grind",                  // 非空字符串
+    "title": "Film Project Case",           // 非空字符串（中性中文案，界面按 locale 本地化）
     "durationSec": 5706,                    // 正数
     "logline": "…",                         // 非空字符串
     "characters": [{ "name": "ROKO", "descriptor": "…" }],  // 非空数组，每项含非空 name
-    "source": { "projectUrl": "…", "skillRepo": "…", "apiBase": "…" }
   },
   "scenes": [
     { "id": "<uuid>", "name": "…", "count": 3, "parentId": "<uuid|null>", "level": 0 }
@@ -325,11 +324,23 @@ prompts/tasks/<task>/en/user.md
 
 ## 十一、生成与重建
 
+导入脚本位于 `scripts/film-engineering/`，该目录下只有一个 `.py`（脚本名保留了历史命名，
+含旧项目代号 —— 它不随包、不在去品牌范围内，故未改名；本文档不写它的字面量以免随包泄漏）。
+
 ```bash
-python scripts/film-engineering/fetch-hell-grind-kit.py \
-    --source-dir D:/Data/projects/mp-research/hell-grind-full \
+# 先确认脚本名（目录下唯一的 .py）
+ls scripts/film-engineering/*.py
+
+python scripts/film-engineering/<上一步得到的脚本名> \
+    --source-dir <全量语料目录> \
     --out-dir apps/desktop/electron/film-kit
 ```
+
+⚠ 脚本**自带去品牌中性化与写前自检**（`neutralize_manifest` / `neutralize_payload` +
+`assert_neutral_payload`）：源语料里的旧项目名、来源 URL、提示词引用锁标签都会被映射成中性值
+（片名与根场景名 → `Film Project Case`、来源块整块删除、`…BATTLEFIELD` 之类的环境锁标签 → `PROJECT …`），
+写盘前若仍有命中则直接失败、不留半成品。
+`apps/desktop/src/i18n/film-debrand.test.js` 在 CI 上兜底（锁 ① 扫随包数据、锁 ⑤ 校验脚本仍有这两段）。
 
 - 语料为公开 API 一次性抓取（155,123 jobs / 161 jsonl），脚本本地离线重建，无需登录。
 - **v7 新增的四份资产不由该脚本生成**：它们是人工维护的方法论资产

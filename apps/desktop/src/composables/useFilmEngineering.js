@@ -1,13 +1,13 @@
 // @ts-check
 /**
- * useFilmEngineering.js — 影视工程流水线 composable（《Hell Grind》复刻）
+ * useFilmEngineering.js — 影视工程流水线 composable（影视项目案例）
  *
  * 职责：
  *   - kit 状态检查（可用 → 空态 + 重试）
  *   - 分镜库：场景树 / 分镜列表 / 分镜详情（提示词 + 引用素材解析）
  *   - 一键复制：full / blocks / characters / geo 四模式（文本由主进程组装）
  *   - 多选：批量复制 / 导出 JSON|Markdown / 勾选生成图片（≤20）
- *   - 剧本套用：剧本 + 角色映射 → 套用 Hell Grind 提示词架构生成分镜
+ *   - 剧本套用：剧本 + 角色映射 → 套用影视项目案例提示词架构生成分镜
  *   - 方法论：prompt-doctrine 展示
  *
  * 依赖 window.electronAPI.filmEngineering（Electron 窗口）；浏览器直开 Vite 时静默降级。

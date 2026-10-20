@@ -5,7 +5,7 @@
  *
  * 阶段链（与 PIPELINES 注册的 film-engineering 流水线配套）：
  *   - film_load_template:   加载 film-kit 模板（fail-closed）
- *   - film_adapt_script:    剧本套用（分场 → Hell Grind 模板映射 → adaptedShots）
+ *   - film_adapt_script:    剧本套用（分场 → 影视项目案例模板映射 → adaptedShots）
  *   - film_select_shots:    分镜选择过滤（kit shotId 或 adapt-*）
  *   - film_export_prompts:  导出选中分镜提示词（JSON/Markdown）
  *
