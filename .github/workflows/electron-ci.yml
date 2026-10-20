@@ -78,8 +78,11 @@ jobs:
   electron-tests-summary:
     name: electron-tests
     runs-on: ubuntu-latest
-    needs: [electron-tests]
-    if: always()
+    needs: [changes, electron-tests]
+    # lways() 不可省：不加它，上游分片一旦失败，本作业会被 Actions 的 needs 语义置为
+    # skipped —— 而 skipped 对 required check 视为**满足**，于是「分片红也能合」，
+    # 比不加汇入作业更糟。docs-only 条件同样不可省（workflow-contract 的短路判据）。
+    if: always() && needs.changes.outputs.docs-only != 'true'
     steps:
       - name: Aggregate shard results
         shell: bash

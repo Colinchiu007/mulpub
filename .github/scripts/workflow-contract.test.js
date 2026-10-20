@@ -578,6 +578,26 @@ test('docs-only 短路：electron-ci 与 build 的 job 级条件同样接线', (
         Array.isArray(job.needs) &&
         job.needs.includes('build');
       if (isTagOnlyJob) continue;
+      // 汇入作业（fan-in，2026-10-20）：matrix 会把作业报成 `x (1)`/`(2)`/`(3)`，
+      // 而 ruleset `main-ci-gate` 要求的 context 恰好是不带后缀的 `x` ⇒ 那个 context
+      // 永不出现、PR 恒 blocked。补一个 `name: x` 的汇入作业是唯一修法，但它必须用
+      // `always() &&` 前缀：不加 `always()` 时，上游分片一失败，本作业会被 Actions 的
+      // needs 语义置成 `skipped` —— 而 skipped 对 required check 视为**满足**，
+      // 于是「分片红也能合」，比不加汇入作业更糟。
+      // 因此这一格只放宽「要不要 always()」，docs-only 条件本身仍必须有、仍要断言。
+      const isFanInJob =
+        typeof job.if === 'string' &&
+        job.if.startsWith('always() &&') &&
+        Array.isArray(job.needs) &&
+        job.needs.includes('changes') &&
+        job.needs.length >= 2;
+      if (isFanInJob) {
+        assert.ok(
+          job.if.includes("needs.changes.outputs.docs-only != 'true'"),
+          `${name} 的 ${jn} 是汇入作业，仍必须带 docs-only 短路条件（只放宽 always() 前缀）`,
+        );
+        continue;
+      }
       assert.equal(
         job.if,
         "needs.changes.outputs.docs-only != 'true'",
