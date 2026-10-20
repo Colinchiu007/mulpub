@@ -2994,3 +2994,122 @@ describe('moving 水印后置烧录（成片级时间轴，跨镜头连续漂移
     }
   })
 })
+
+describe('Story2VideoComposeEngine 预检失败稳定错误码契约（error-message-user-friendly-audit，2026-10-20）', () => {
+  // 背景：2026-10-20 事故——compose 预检直接返回英文原始 message
+  // （`Input media exceeds the total size limit`），stage-executor 把它当 run.error 落库，
+  // 历史记录卡片再经 pipeline-error-formatter 直出，用户在「视频创作-历史记录-执行失败」
+  // 卡片上看到这句英文。修复方向：预检失败一律带稳定 errorCode + 可插值 messageParams，
+  // 渲染端按 errorCode 映射 locales 自然语言文案，不再依赖英文文本模式匹配。
+  function makeEngine (overrides = {}) {
+    const engine = new Story2VideoComposeEngine({
+      outputDir: fs.mkdtempSync(path.join(os.tmpdir(), 's2v-preflight-code-')),
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
+      ffmpegBinary: 'ffmpeg',
+      ...overrides,
+    })
+    return engine
+  }
+
+  function mediaFixture (root, name, sizeBytes) {
+    const filePath = path.join(root, name)
+    fs.writeFileSync(filePath, Buffer.alloc(sizeBytes, 1))
+    return filePath
+  }
+
+  it('输入媒体总大小超限返回 errorCode=COMPOSE_INPUT_SIZE_EXCEEDED 与可插值参数', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-preflight-media-'))
+    try {
+      const engine = makeEngine({ maxInputTotalBytes: 1024, allowedMediaRoots: [root] })
+      // 图片 900B + 音频 900B = 1800B > 1024B
+      const imagePath = mediaFixture(root, 'scene-0.png', 900)
+      const audioPath = mediaFixture(root, 'scene-0.mp3', 900)
+      const result = await engine.compose({
+        scenes: [{ index: 0, imagePath, audioPath, duration: 2 }],
+        images: [], audio: [],
+      }, { validateOutput: false })
+      expect(result.code).toBe(-1)
+      expect(result.errorCode).toBe('COMPOSE_INPUT_SIZE_EXCEEDED')
+      expect(result.messageParams).toBeTruthy()
+      expect(result.messageParams.limitMb).toBeTruthy()
+      expect(result.messageParams.actualMb).toBeTruthy()
+      // message 仍保留（诊断用），但渲染端不再依赖它
+      expect(typeof result.message).toBe('string')
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('BGM 计入总量后超限同样返回 COMPOSE_INPUT_SIZE_EXCEEDED', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-preflight-bgm-'))
+    try {
+      const engine = makeEngine({ maxInputTotalBytes: 1024, allowedMediaRoots: [root] })
+      const imagePath = mediaFixture(root, 'scene-0.png', 600)
+      const audioPath = mediaFixture(root, 'scene-0.mp3', 600)
+      const bgmPath = mediaFixture(root, 'bgm.mp3', 600)
+      const result = await engine.compose({
+        scenes: [{ index: 0, imagePath, audioPath, duration: 2 }],
+        images: [], audio: [],
+        bgmPath,
+      }, { validateOutput: false })
+      expect(result.code).toBe(-1)
+      expect(result.errorCode).toBe('COMPOSE_INPUT_SIZE_EXCEEDED')
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('场景素材路径不可读返回 errorCode=COMPOSE_SCENE_MEDIA_UNREADABLE 与场景号', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-preflight-scene-'))
+    try {
+      const engine = makeEngine({ allowedMediaRoots: [root] })
+      const audioPath = mediaFixture(root, 'scene-0.mp3', 10)
+      const result = await engine.compose({
+        scenes: [{ index: 0, imagePath: path.join(root, 'missing.png'), audioPath, duration: 2 }],
+        images: [], audio: [],
+      }, { validateOutput: false })
+      expect(result.code).toBe(-1)
+      expect(result.errorCode).toBe('COMPOSE_SCENE_MEDIA_UNREADABLE')
+      expect(result.messageParams.scene).toBe(1)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('场景旁白路径不可读返回 errorCode=COMPOSE_SCENE_AUDIO_UNREADABLE 与场景号', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-preflight-audio-'))
+    try {
+      const engine = makeEngine({ allowedMediaRoots: [root] })
+      const imagePath = mediaFixture(root, 'scene-0.png', 10)
+      const result = await engine.compose({
+        scenes: [{ index: 0, imagePath, audioPath: path.join(root, 'missing.mp3'), duration: 2 }],
+        images: [], audio: [],
+      }, { validateOutput: false })
+      expect(result.code).toBe(-1)
+      expect(result.errorCode).toBe('COMPOSE_SCENE_AUDIO_UNREADABLE')
+      expect(result.messageParams.scene).toBe(1)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('预检失败不再向用户泄漏英文原始 message：message 字段与 errorCode 同时存在', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-preflight-leak-'))
+    try {
+      const engine = makeEngine({ maxInputTotalBytes: 1024, allowedMediaRoots: [root] })
+      const imagePath = mediaFixture(root, 'scene-0.png', 900)
+      const audioPath = mediaFixture(root, 'scene-0.mp3', 900)
+      const result = await engine.compose({
+        scenes: [{ index: 0, imagePath, audioPath, duration: 2 }],
+        images: [], audio: [],
+      }, { validateOutput: false })
+      // 关键：渲染端拿得到稳定码，不依赖 message 文本
+      expect(result.errorCode).toBe('COMPOSE_INPUT_SIZE_EXCEEDED')
+      // 且 messageParams 是带单位的可读体积串（KB/MB），不是裸字节数
+      expect(result.messageParams.limitMb).toMatch(/^\d+(\.\d+)?(KB|MB)$/)
+      expect(result.messageParams.actualMb).toMatch(/^\d+(\.\d+)?(KB|MB)$/)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+})

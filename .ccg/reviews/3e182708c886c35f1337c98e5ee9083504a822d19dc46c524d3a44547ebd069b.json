@@ -1,5 +1,5 @@
 {
-  "sha": "4452bb06d8bd6314e7e69e405b1ce07e4fc64577",
+  "sha": "b2316da05b0729f18c3c4d7deb8b38a0d2832262",
   "layer": "diff",
   "mode": "skip",
   "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
@@ -10,14 +10,12 @@
     "sensitivePathHits": [],
     "plannedPathHits": [],
     "sensitiveContentHits": 0,
-    "docSensitiveContentHits": 1,
-    "docSensitiveContentSample": [
-      "  2026-10-20 经用户显式授权（\"按你的建议 3 → 1\"）改为先给本机 vendor 驱动打补丁，让「外部复核发生过」在机械上可表达；"
-    ],
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
     "lineReadGaps": []
   },
-  "stagedDiffHash": "8a060c87673a434d37420ddf772e5c9413d579b092d9826feebd494a161d3c70",
-  "decidedAt": "2026-10-20T05:12:55.819Z",
+  "stagedDiffHash": "3e182708c886c35f1337c98e5ee9083504a822d19dc46c524d3a44547ebd069b",
+  "decidedAt": "2026-10-20T09:57:48.347Z",
   "decidedBy": "ccg-review-decider",
   "reviewBackends": {
     "proposer": "opencode",

@@ -1,0 +1,67 @@
+{
+  "sha": "4d7c32535c0b397291bf7fa25ea8442f771737d5",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 2059 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 2059,
+    "fileCount": 43,
+    "codeFileCount": 27,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 2,
+    "docSensitiveContentHits": 3,
+    "docSensitiveContentSample": [
+      "第一轮做门禁变异反证时，用 PowerShell `-replace \"第 \\{scene\\} ...\", \"第 \\{sceneIndex\\} ...\"`。PowerShell 正则把 `{scene}` 当作 .NET 量化表达式，替换结果写成字面 `\\{scene\\}`——**文件确实被改了**（`Select-String` 能 grep 到 `sceneIndex`），但门禁 PASS。差点写成「M3 MISSED_BY_DESIGN」。",
+      "**现场**：给新门禁做变异反证时，用 PowerShell `-replace \"第 \\{scene\\} ...\", \"第 \\{sceneIndex\\} ...\"`。PowerShell 正则把 `{scene}` 当 .NET 量化表达式，替换结果写成字面 `\\{scene\\}`——**文件确实被改了**（`Select-String` 能 grep 到 `sceneIndex`），但门禁 PASS。差点写成「M3 MISSED_BY_DESIGN」把假阴性当设计豁免。",
+      "  2026-10-20 经用户显式授权（\"按你的建议 3 → 1\"）改为先给本机 vendor 驱动打补丁，让「外部复核发生过」在机械上可表达；"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "c2ab04ebb8b2acd3ceee23dda940e3e7e4ef048437e26a2e1693c62b519d2dd4",
+  "decidedAt": "2026-10-20T06:56:25.072Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "tier": "external",
+    "performedBy": "self-play",
+    "evidence": "openspec/records/error-message-user-friendly-audit.md",
+    "findings": null,
+    "reviewsCoveringThisDiff": [
+      ".ccg/reviews/919e1a2b7458791c18ce9dc0b9cf00b68a68723f2c98251e881c3229c88a69cc.json",
+      ".ccg/reviews/5e5f477815b995b3284f754360abe884b1f7f211b2dde59031c35bb89abc5694.json",
+      ".ccg/reviews/63ba1e2ce7f26f77a0478d5437b662ea6a01825b6139add90a64b8e74906be41.json"
+    ],
+    "closureNote": "第 1 轮（本记录）：本记录的 diff 是本 PR 变更集的并集（两次 rebase 后重建为单提交所致），**未引入任何未评审内容**——同样的文件与行已被三轮真外部评审逐行覆盖：① 主修复 1710 行（critic=claude，8 条，含 2 条 Critical）；② baseline 10 行（5 条）；③ 采纳意见的 338 行（5 条）。三轮共 13 条发现全部实修，逐条处置见执行记录 §8.2/§8.4；三条上游记录均已以 self_play_resolved + tier=external 闭环。故本条按同一口径闭环，而不重复第四次同内容评审（重复评审不会产生新信息，只会消耗外部后端配额）。",
+    "blocking": [],
+    "at": "2026-10-20T06:56:54.258Z"
+  }
+}

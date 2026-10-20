@@ -595,3 +595,68 @@ describe('Story2Video 克隆音色不可用（VOICE_CLONE_UNAVAILABLE 归一化�
     expect(resolved.message).not.toMatch(/\{[^}]+\}/)
   })
 })
+
+describe('Story2Video compose 预检失败稳定错误码归一化（error-message-user-friendly-audit，2026-10-20）', () => {
+  // 事故背景：compose 预检把英文技术 message 原样落进 run.error，历史记录失败卡片
+  // 直接显示 "Input media exceeds the total size limit"。修复：主进程返回稳定
+  // errorCode（COMPOSE_*），渲染端按码映射 locales 自然语言文案，并提供可操作建议。
+  it('COMPOSE_INPUT_SIZE_EXCEEDED 映射为具体上限提示，含可插值体积与建议，且不泄漏英文原文', () => {
+    const result = formatStory2VideoNotification({
+      errorCode: 'COMPOSE_INPUT_SIZE_EXCEEDED',
+      error: 'Input media exceeds the total size limit',
+      errorParams: { limitMb: '512MB', actualMb: '780MB' },
+    })
+    expect(result.messageKey).toBe(STORY2VIDEO_NOTIFICATION_KEYS.COMPOSE_INPUT_SIZE_EXCEEDED)
+    expect(result.message).toContain('512MB')
+    expect(result.message).toContain('780MB')
+    expect(result.message).not.toContain('Input media exceeds')
+    expect(result.message).not.toContain('total size limit')
+  })
+
+  it('英文界面渲染英文上限提示与建议', () => {
+    const result = formatStory2VideoNotification({
+      errorCode: 'COMPOSE_INPUT_SIZE_EXCEEDED',
+      error: 'Input media exceeds the total size limit',
+      errorParams: { limitMb: '512MB', actualMb: '780MB' },
+    }, 'en')
+    expect(result.messageKey).toBe(STORY2VIDEO_NOTIFICATION_KEYS.COMPOSE_INPUT_SIZE_EXCEEDED)
+    expect(result.message).toContain('512MB')
+    expect(result.message).not.toContain('Input media exceeds')
+  })
+
+  it('COMPOSE_SCENE_MEDIA_UNREADABLE / COMPOSE_SCENE_AUDIO_UNREADABLE 映射为具体场景素材提示', () => {
+    const media = formatStory2VideoNotification({
+      errorCode: 'COMPOSE_SCENE_MEDIA_UNREADABLE',
+      errorParams: { scene: 3 },
+    })
+    expect(media.messageKey).toBe(STORY2VIDEO_NOTIFICATION_KEYS.COMPOSE_SCENE_MEDIA_UNREADABLE)
+    expect(media.message).toContain('3')
+
+    const audio = formatStory2VideoNotification({
+      errorCode: 'COMPOSE_SCENE_AUDIO_UNREADABLE',
+      errorParams: { scene: 3 },
+    })
+    expect(audio.messageKey).toBe(STORY2VIDEO_NOTIFICATION_KEYS.COMPOSE_SCENE_AUDIO_UNREADABLE)
+    expect(audio.message).toContain('3')
+  })
+
+  it('历史卡片原始 message 形态（无 errorCode）仍能归一化，不泄漏英文', () => {
+    // 回归保护：旧落库数据（或漏带 errorCode 的路径）只带英文 message，
+    // 归一化层必须识别这段英文模式并映射到同一 key，而不是直出。
+    const legacy = formatStory2VideoNotification({
+      error: 'Input media exceeds the total size limit',
+      errorParams: { limitMb: '512MB', actualMb: '780MB' },
+    })
+    expect(legacy.messageKey).toBe(STORY2VIDEO_NOTIFICATION_KEYS.COMPOSE_INPUT_SIZE_EXCEEDED)
+    expect(legacy.message).not.toContain('Input media exceeds')
+  })
+
+  it('resolveStory2VideoNotification（弹窗路径）同样识别 compose 预检错误码', () => {
+    const resolved = resolveStory2VideoNotification({
+      errorCode: 'COMPOSE_INPUT_SIZE_EXCEEDED',
+      errorParams: { limitMb: '512MB', actualMb: '780MB' },
+    })
+    expect(resolved.key).toBe(STORY2VIDEO_NOTIFICATION_KEYS.COMPOSE_INPUT_SIZE_EXCEEDED)
+    expect(resolved.message).not.toMatch(/\{[^}]+\}/)
+  })
+})

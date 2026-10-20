@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="create-view-history">
     <div v-if="historyLocalMode" class="history-local-mode-banner" data-testid="history-local-mode-banner">
       {{ historyLocalModeText || tr('localMode') }}
@@ -311,7 +311,7 @@ import { getAppLocale } from '@/i18n'
 import zhLocale from '@/locales/zh'
 import enLocale from '@/locales/en'
 import { getPipelineMode, getPipelineName, getPipelineStage } from '@/i18n/pipeline-labels'
-import { CONTENT_POLICY_ERROR_PATTERN, HISTORY_STATUSES, RESUME_BLOCKING_ERROR_PATTERN, SORT_MODES, SORT_OPTIONS, collectDuplicateTitleIdentities, contentPolicyScenes, filterHistoryByStatus, historyDisplayTime, historyStatusCounts } from './history-utils'
+import { CONTENT_POLICY_ERROR_PATTERN, HISTORY_STATUSES, RESUME_BLOCKING_ERROR_PATTERN, SORT_MODES, SORT_OPTIONS, collectDuplicateTitleIdentities, COMPOSE_ERROR_KEY_MAP, contentPolicyScenes, filterHistoryByStatus, historyDisplayTime, historyStatusCounts } from './history-utils'
 import { formatPipelineError } from '@/utils/pipeline-error-formatter'
 
 // HISTORY_STATUSES 由 ./history-utils 统一导出（含 interrupted），单一来源，避免与测试合同漂移
@@ -389,18 +389,71 @@ export default {
     formatError (item) {
       if (!item || !item.error) return this.tr('genericFailure')
       const result = formatPipelineError(item.error, { locale: this.currentLocale() })
-      if (result.message) return result.message
-      if (result.key) {
+      // 稳定错误码优先（2026-10-20 error-message-user-friendly-audit）：
+      // run.errorCode/errorParams 由主进程落库，按码渲染本地化文案；
+      // 缺失时回落 formatPipelineError 的文本归一化（兼容历史库存量数据）。
+      // 错误码 → locale key 用显式映射表（COMPOSE_ERROR_KEY_MAP），不做字符串拼接猜测——
+      // 拼错会静默渲染成 key 原文。
+      const stableKey = COMPOSE_ERROR_KEY_MAP[item.errorCode] || ''
+      const stableParams = item.errorParams && typeof item.errorParams === 'object' ? item.errorParams : null
+      // ⛔ 优先级（CCG 外部评审 i5，2026-10-20）：稳定码在前、原文归一化在后。
+      // 上一版写 `result.key || stableKey`（原文优先），与本 change 的 spec
+      // （`openspec/changes/.../specs/user-facing-messages/spec.md`：「①稳定 errorCode → ②原文模式」）
+      // 自相矛盾。语义上主进程的 errorCode 是权威分类，原文只是存量数据的兜底线索：
+      // 两者若指向不同分支（例如码说 scene_media_unreadable、原文里恰好含 content policy 字样），
+      // 原文优先会把权威分类覆盖掉，指向错误的建议。
+      const key = stableKey || result.key
+      // 参数合并：formatter 提取的参数（如 context）与主进程 messageParams 互补，
+      // 前者为空字符串时仍保留键位，故用展开合并而不是「二选一」。
+      const params = { ...(result.params || {}), ...(stableParams || {}) }
+      if (result.message && !key) return result.message
+      if (key) {
         try {
-          let msg = this.$t?.(result.key) || ''
-          if (result.params && typeof msg === 'string') {
-            for (const [k, v] of Object.entries(result.params)) {
-              msg = msg.replace(new RegExp('\\{' + k + '\\}', 'g'), String(this.resolveLocaleRef(v, this.currentLocale(), result.params) ?? ''))
-            }
+          // 先取原文再插值：不能先比 msg !== key——$t 无参时返回 key 本身，
+          // 生产 vue-i18n 对字符串消息同样不会自动插值，必须显式带 params 调用。
+          //
+          // ⛔ 无数字变体选择（CCG 外部评审 i2，2026-10-20）：体积超限的主文案带
+          // {actualMb}/{limitMb} 两个占位符。存量历史记录的原文
+          // `Input media exceeds the total size limit` 本身不含数字，formatter 只能映射到 key、
+          // params 里拿不到体积 ⇒ 直接套主文案会渲染成「已达 允许上限，超过 允许上限 上限」。
+          // 体积未知时改用 _no_numbers 变体，只说「超过上限」，不假装知道具体数值。
+          let resolvedKey = key
+          const sizeKey = COMPOSE_ERROR_KEY_MAP.COMPOSE_INPUT_SIZE_EXCEEDED
+          if (resolvedKey === sizeKey && !params.actualMb && !params.limitMb) {
+            resolvedKey = key + '_no_numbers'
           }
-          return msg || this.tr('genericFailure')
+          const raw = this.$t?.(resolvedKey)
+          if (typeof raw === 'string' && raw && raw !== resolvedKey) {
+            let msg = raw
+            if (params) {
+              for (const [k, v] of Object.entries(params)) {
+                msg = msg.replace(new RegExp('\\{' + k + '\\}', 'g'), String(this.resolveLocaleRef(v, this.currentLocale(), params) ?? ''))
+              }
+            }
+            // ⛔ 未解析占位符清零（CCG 外部评审 i2，2026-10-20）：上面的循环只替换 params 里**存在**的键。
+            // compose 预检的存量原文（如 `Input media exceeds the total size limit`）本身不带体积数字，
+            // formatter 只能映射到 key、给出的 params 里没有 actualMb/limitMb ⇒ 直接渲染会让用户看到
+            // 字面「{actualMb}」，比原来的英文原文更糟。故按语义兜底（体积 → labels.unknownSize，
+            // 场景 → labels.currentScene，与通知路径 normalizeStory2VideoParams 同口径），
+            // 兜底也拿不到就清空 —— 任何情况下都不得让 {xxx} 出现在用户可见文案里。
+            const fallbackRefs = {
+              actualMb: '@story2video.labels.unknownSize',
+              limitMb: '@story2video.labels.unknownSize',
+              scene: '@story2video.labels.currentScene',
+            }
+            const uiLocale = this.currentLocale()
+            msg = msg.replace(/\{([^{}]+)\}/g, (_m, name) => {
+              const ref = fallbackRefs[name]
+              if (!ref) return ''
+              const fallback = this.resolveLocaleRef(ref, uiLocale, {})
+              // resolveLocaleRef 解析失败时原样返回 ref 本身，此时宁可清空也不要把 key 抖给用户
+              return typeof fallback === 'string' && !fallback.startsWith('@') ? fallback : ''
+            })
+            if (msg && msg !== key) return msg
+          }
         } catch (_) { /* fallback */ }
       }
+      if (result.message) return result.message
       return this.tr('genericFailure')
     },
     tr (path, params) {
