@@ -881,12 +881,12 @@ describe('GUI/CI 工作流门禁契约', () => {
     assert(summary, '缺 electron-tests-summary ⇒ ruleset 要求的 context 永远不会出现，PR 恒 BLOCKED');
     expect(summary.name, '汇入作业对外必须叫 electron-tests，否则补不回 required context').toBe('electron-tests');
     expect([].concat(summary.needs)).toContain('electron-tests');
-    // `always()` 与 docs-only 条件必须**同时**在位，两条各有各的失效模式：
-    //   去掉 always() ⇒ 分片失败时本作业被 needs 语义置为 skipped ⇒ skipped 对 required
-    //                    check 视为满足 ⇒ 「分片红也能合」，比不加汇入作业更糟；
-    //   去掉 docs-only ⇒ 纯文档 PR 也会白跑一次，且 workflow-contract 的短路判据会红。
-    expect(String(summary.if || '')).toMatch(/^(?:\$\{\{\s*)?always\(\) &&/);
-    expect(String(summary.if || '')).toContain("needs.changes.outputs.docs-only != 'true'");
+    // `always()` 必须保留：去掉它，分片失败时本作业会被 needs 语义置为 skipped，
+    // 而 skipped 对 required check 视为**满足** ⇒ 「分片红也能合」，比不加汇入作业更糟。
+    // 不再串联 docs-only 条件：实测两条用 `&&` 连起来后 GitHub 判整个 workflow 不可解析
+    // （幻影 push run + 0 job，两次复现），而这里本就不需要 —— matrix 作业已被短路过。
+expect(String(summary.if || '')).toMatch(/^(?:\$\{\{\s*)?always\(\)/);
+
     expect([].concat(summary.needs)).toContain('changes');
     // 反向：matrix 作业自己不得也叫这个名字，否则两条检查同名、聚合语义失效。
     expect(String(job.name || '')).not.toBe('electron-tests');

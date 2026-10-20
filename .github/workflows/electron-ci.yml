@@ -81,8 +81,10 @@ jobs:
     needs: [changes, electron-tests]
     # lways() 不可省：不加它，上游分片一旦失败，本作业会被 Actions 的 needs 语义置为
     # skipped —— 而 skipped 对 required check 视为**满足**，于是「分片红也能合」，
-    # 比不加汇入作业更糟。docs-only 条件同样不可省（workflow-contract 的短路判据）。
-    if: ${{ always() && needs.changes.outputs.docs-only != 'true' }}
+    # 比不加汇入作业更糟。lways() 单独用、不与 docs-only 条件串联：实测把两条用
+    # && 连起来后 GitHub 判该文件不可解析（幻影 push run + 0 job），而 docs-only 短路
+    # 在这里本就不需要 —— 矩阵作业已被短路过，本作业只剩 10 秒的 ubuntu 汇总。
+    if: always()
     steps:
       - name: Aggregate shard results
         shell: bash
