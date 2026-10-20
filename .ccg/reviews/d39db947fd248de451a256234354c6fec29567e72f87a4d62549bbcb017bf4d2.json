@@ -46,10 +46,124 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "needs_revision",
+    "tier": "external",
+    "performedBy": "claude (repo chain r2+r3, 14 条)",
+    "evidence": "124bc04383951ceb151ad7d1bf3dea5506d4c4ad",
+    "findings": [
+      {
+        "id": "r2/i1",
+        "severity": "Warning",
+        "dimension": "correctness",
+        "finding": "verdictLine 中 `t.unverifiable + t.uncorroborated`：任一字段缺失即 NaN，NaN>0 恒 false ⇒ 打光秃秃 OK——X2-11 要防的「全过与探针失明同形」在字段改名后静默复发，锁测不到。",
+        "disposition": "upheld",
+        "note": "已修：改为 `Number(...)` + `Number.isFinite` 双检，缺字段走独立分支输出 `OK（但转变读数缺字段…不可知…）`，不当 0 也不当通过。评审建议的 `(a||0)+(b||0)` 只采纳一半——`||0` 会把\"缺字段\"洗成\"零条没核到\"，那仍是把探针失明读成通过；其原话后半句\"字段缺失时显式按未证实降级或报错，不许落回干净 OK\"才是正解。回归用例：X2-11 新增 `transition:{unverifiable:undefined,...}` 必须命中缺字段分支，且 `{ok:true}` 无对象时保持原文案（不得把\"没有扫描域\"也报成缺字段）。"
+      },
+      {
+        "id": "r2/i2",
+        "severity": "Warning",
+        "dimension": "security",
+        "finding": "existsAtHead 只验存在性：仓库既有任意 .md 都可当 evidence，不要求属于本 PR 变更集 ⇒ 编造收口的通道仍在，探针仅挡「指向不存在路径」；空 stub 文件同样满足。",
+        "disposition": "upheld",
+        "note": "接受为**已声明的边界**，不当已闭合：执行记录 §六 第 4 条明写\"只验对象存在，不验内容/相关性\"，PR 正文同一句也写了。真实防线仍是两层——`tier=external` 只认可核指针 + 人工/事后抽查（tasks 8.1b 的写入方指纹才是能判\"谁真跑了\"的那一层）。"
+      },
+      {
+        "id": "r2/i3",
+        "severity": "Warning",
+        "dimension": "correctness",
+        "finding": "evidenceForm 的 path 形态允许反斜杠，探针却对含 `\\` 一律判不可核 ⇒ Windows 下 `reports\\judge.md` 这类合法证据被降 external-unverified，高危面新收口误红；正斜杠同一对象可验到，判据不自洽。",
+        "disposition": "upheld",
+        "note": "已修：归一抽成纯函数 `repoObjectPath(ev)` —— 反斜杠一律换成 git 用的正斜杠，只有盘符（`^[A-Za-z]:`）、绝对路径、含 `..` 三种\"根本不是仓内对象\"的形态返回空串。回归用例 X2-5① 逐条钉住两分隔符同结果 + 三种拒绝形态，可直测（不留给 main 的闭包）。"
+      },
+      {
+        "id": "r2/i4",
+        "severity": "Warning",
+        "dimension": "maintainability",
+        "finding": "X2-14 用全仓 git ls-files 实时归因数钉 why 文案：无关 PR 增删任一匹配文件（如新增 .github/scripts/check-*.js、删除文档）即红，失败信息又不指向实际改动，跨 PR 强耦合。",
+        "disposition": "upheld",
+        "note": "已修，但**不删锁、改判方向**：覆盖变窄是事故，覆盖变宽不是 ⇒ 等值改成**下界棘轮**（`owned >= why 里最后一个 命中 N 个`；fingerprint 那条写了 9→7 的演进链，取最后一个才是本条口径），并每次打印 `[HIGH-RISK-ATTRIBUTION]` 实测构成，让漂移在现场可见而不靠人记得改注释。牙仍在：摘掉判据的变异（把下界改成恒真）与\"把某条前缀削窄\"都必须红。"
+      },
+      {
+        "id": "r2/i5",
+        "severity": "Info",
+        "dimension": "correctness",
+        "finding": "existsAtHead 先剥 `#.*$` 再拒 `:`：git 合法文件名可含 `#`/`:`，真存在的 `a#b.md` 被剥成 `a` 判不存在 ⇒ 合法证据误降级。",
+        "disposition": "not-disputed",
+        "note": null
+      },
+      {
+        "id": "r2/i6",
+        "severity": "Info",
+        "dimension": "maintainability",
+        "finding": "X2-12 单实现锁只禁 for...of、includes、reduce/every/flatMap/filter；`HIGH_RISK_SURFACES.find(s=>f.startsWith(s.prefix))` 等行为等价变体可逃逸，与锁自称的「行为等价的第二份匹配」目标不符。",
+        "disposition": "not-disputed",
+        "note": null
+      },
+      {
+        "id": "r2/i7",
+        "severity": "Info",
+        "dimension": "performance",
+        "finding": "同一 path 证据在 summarizeTierCoverage 与 evaluateDeepReviewDebt 中分别 spawn git cat-file（每条 ≥2 次），dual 产物成批时门禁耗时翻倍且结果重复。",
+        "disposition": "not-disputed",
+        "note": null
+      },
+      {
+        "id": "r3/i1",
+        "severity": "Warning",
+        "dimension": "correctness",
+        "finding": "C(复制)的合成A条目仍带 viaRename(旧路径)，债务判据无字段区分C与R ⇒ 复制仍报「改名带走」并点名未删除的旧路径；X2-6 断言不得含 改名/ART_OLD，与按 diff 的实现追踪结果直接冲突，实现与测试必有一处错。",
+        "disposition": "dismissed",
+        "note": "驳回指控本身，但采纳它暴露的两处可改进：① A 侧那个没人消费的 `viaRename` 字段确实误导（读者要自己证明\"D 循环进不来\"）⇒ 新增 `expandRenames` 的行为断言把\"C 不产生 D\"钉成用例（i1+i2 用例第一/二条），并把 R 侧 `viaRename` 必须等于**新路径**钉住；② 若将来有人给 C 也合成 D，该用例当场红。"
+      },
+      {
+        "id": "r3/i2",
+        "severity": "Warning",
+        "dimension": "correctness",
+        "finding": "renamedCarriesClosure(repo, e.viaRename) 读的是旧路径而非新路径：R 只有靠 D 条目(viaRename=新路径)才读对；C 场景源文件已闭环时会误判新副本已收口而跳过欠账，与注释「新路径已带闭环」语义相反。",
+        "disposition": "dismissed",
+        "note": "驳回。采纳其附带提醒：`viaRename` 这个名字本身有歧义（既可读成\"由谁改名而来\"也可读成\"改到哪里去\"），已在构造点补注释指明 D 侧存的是新路径。"
+      },
+      {
+        "id": "r3/i3",
+        "severity": "Warning",
+        "dimension": "correctness",
+        "finding": "merge-base 取不到时 blobBaseRef=''，readAtBase 变成 git show ':rel' 读暂存区 index，注释「恒 null」不成立；若证据文件恰被 staged，wasClosed 仍可能读到闭环内容，X2-4 要防的洞在回退路径残留。",
+        "disposition": "dismissed",
+        "note": "驳回。但它指出一个真实的可读性风险：短路 guard 与拼串相隔两行，注释又被改过，读者要跳到函数头才能确认。已在 `readAtBase` 上方注释补一句\"空 baseRef 直接返回 null，绝不拼 `:rel`\"。"
+      },
+      {
+        "id": "r3/i4",
+        "severity": "Warning",
+        "dimension": "security",
+        "finding": "路径探针只验 HEAD:path 存在：同一 PR 顺手新增的空 stub 文件即可充当 evidence 通过收口，不要求证据属于变更集或与评审相关——i2 声明的边界未关闭，一行 A 条目即达成编造收口。",
+        "disposition": "upheld",
+        "note": "接受**窄版**：`makeEvidenceProbe` 现在要求三件事同时成立 —— 归一后是仓内路径 ∧ **属于本次变更集** ∧ 该 head 里真有其物。它不消除伪造，但把成本从\"指一份仓里本来就有的文档\"抬成\"必须在本 PR 的 diff 里留一个可审的新文件\"（伪造物从隐蔽变公开）。非路径形态（PR/会话/uuid/oid）不受影响，故既有出口不被打断。用例 `i4` 四条真跑（存在但不在变更集 ⇒ false；在变更集且存在 ⇒ true；在变更集但不存在 ⇒ false；改名两侧归属）。相关性那一半仍登记为未闭合（§六 第 4 条）。"
+      },
+      {
+        "id": "r3/i5",
+        "severity": "Warning",
+        "dimension": "correctness",
+        "finding": "repoObjectPath 对含 '..' 的串一律返回 ''，段内合法文件名(v1..md、a..b.json)被当盘外路径 ⇒ 真实证据被降 external-unverified 误红；'..' 只在路径段首才表示上跳。",
+        "disposition": "upheld",
+        "note": "已修：归一后按 `/` 切段，只有**整段等于** `..` 才拒；盘符与绝对路径仍拒。用例 `i5` 六条钉住（`v1..md` 通过、`../outside.md` 与 `a/../b.md` 拒绝、反斜杠归一保留）。变异反证里另加一条\"把段判退回 indexOf\"必须指名红。"
+      },
+      {
+        "id": "r3/i6",
+        "severity": "Info",
+        "dimension": "correctness",
+        "finding": "verdictLine 用 Number()：显式 null 得 0 而非 NaN ⇒ 字段为 null 时被读成零条没核到，与缺字段(undefined)按「不可知」的口径不一致。",
+        "disposition": "not-disputed",
+        "note": null
+      },
+      {
+        "id": "r3/i7",
+        "severity": "Info",
+        "dimension": "maintainability",
+        "finding": "单一实现锁只盯 reduce/every/flatMap/filter 与两种 for...of 变量名，未覆盖 .map/.some/forEach/下标遍历 ⇒ 行为等价的第二份匹配仍可绕过锁。",
+        "disposition": "not-disputed",
+        "note": null
+      }
+    ],
+    "closureNote": "第 2 轮跨家族轴 4 条 + 第 3 轮 critic 轴 7 条逐条处置：6 条采纳并各配指名红用例，3 条以真跑用例否证（i1+i2 的 expandRenames 行为断言、i3 的孤立分支 merge-base 读数），余 5 条为引擎判无需裁决的 Info。tier/evidence 由会话手写（仓外引擎不写 tier，tasks 8.1b 未落地）；本轮只有单一家族外部交付（codex 零交付且执行破坏性命令被停、gemini 不在 PATH、opencode IP 级拒绝），不声称双模型完成。"
   }
 }
