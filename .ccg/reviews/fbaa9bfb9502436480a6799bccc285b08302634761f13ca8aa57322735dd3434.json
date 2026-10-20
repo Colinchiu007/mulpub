@@ -1,0 +1,55 @@
+{
+  "sha": "80e3839ead8a3bdcdb9a1a7da4336ae9708aed36",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 1,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "fbaa9bfb9502436480a6799bccc285b08302634761f13ca8aa57322735dd3434",
+  "decidedAt": "2026-10-20T11:08:30.986Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "skipped_by_mode",
+    "performedBy": null,
+    "findings": null,
+    "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+    "at": "2026-10-20T11:15:54.810Z"
+  }
+}

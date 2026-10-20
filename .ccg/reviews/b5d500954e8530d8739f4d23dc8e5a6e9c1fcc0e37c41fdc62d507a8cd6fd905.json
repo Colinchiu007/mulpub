@@ -1,0 +1,59 @@
+{
+  "sha": "aee0642fa128e2471f0028a564dc6acedd1e4737",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 809 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 809,
+    "fileCount": 12,
+    "codeFileCount": 11,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 17,
+    "docSensitiveContentHits": 3,
+    "docSensitiveContentSample": [
+      "| 第一性原因（QM-5 ①） | ✅ | 旧 Tier-A 是 `MD5(api_ph + \"\\|\" + JSON(body))` —— 一个**从未与真签名对拍过的近似式**（32 位裸 hex）。真 sig3 是 56 字符的 VM 产物。2026-09-25 的 W3 spike S0 判定它结构上不等价并\"作废\"，但当时**没有替换品**，主链路遂改用 Tier-B 页面签名器（Playwright/CEF） |",
+      "| `kuaishou.ns-sig3`（Tier-A） | `MD5(api_ph + \"\\|\" + JSON(body))`，32 位，**从未与真签名对拍** | 竞品 VM 算法**完整还原**为纯 JS，56 位，与 VM 逐字节对拍 **10/10** |",
+      "| `test/signer.test.js` | getKuaishouSignature 本地计算：MD5(api_ph\\|body) | 断言被证伪的近似式 |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "b5d500954e8530d8739f4d23dc8e5a6e9c1fcc0e37c41fdc62d507a8cd6fd905",
+  "decidedAt": "2026-10-20T12:34:14.890Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

@@ -24,16 +24,19 @@ async function getDouyinSignature (_url, userAgent) {
 }
 
 /**
- * 获取快手 __NS_sig3（本地计算：MD5(api_ph | JSON(body))，api_ph 取自登录 cookie）。
+ * 获取快手 __NS_sig3（Tier-A 纯 JS 实现，2026-10 完整还原）。
  *
- * @param {string} _path   保留参数（历史通道使用，现忽略）
- * @param {object} body    发布数据
- * @param {string} [cookie] 登录 cookie（含 kuaishou.web.cp.api_ph）
- * @returns {Promise<{signature: string, __NS_sig3: string}>}
+ * sig3 的真实输入是 `md5(按 key 排序的 query 串 + JSON.stringify(body))`，
+ * 因此 **path 参与签名**（query 部分）；api_ph 不再参与计算 ——
+ * 旧实现 `MD5(api_ph | body)` 已被 W3 spike S0 判定为结构上不等价。
+ *
+ * @param {string} path        请求路径（可带 query，会按键排序后参与签名）
+ * @param {object} body        请求体
+ * @param {string} [cookie]    登录 cookie（保留参数，已不参与签名计算）
+ * @returns {Promise<{signature: string, __NS_sig3: string}>} 56 个 hex
  */
-async function getKuaishouSignature (_path, body, cookie) {
-  const phMatch = cookie && cookie.match(/kuaishou\.web\.cp\.api_ph=([^;]+)/)
-  const sig = await registry.sign('kuaishou.ns-sig3', { body, apiPh: phMatch ? phMatch[1] : null })
+async function getKuaishouSignature (path, body, cookie) { // eslint-disable-line no-unused-vars
+  const sig = await registry.sign('kuaishou.ns-sig3', { url: path, type: 'json', params: body })
   return { signature: sig, __NS_sig3: sig }
 }
 

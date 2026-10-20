@@ -1,0 +1,57 @@
+{
+  "sha": "f61b2c49e784202607a748c7edda39e26a4074b9",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 40 行（≤ 200）但命中 auth/数据库/加密：敏感内容 4 处",
+  "stats": {
+    "changedLines": 40,
+    "fileCount": 4,
+    "codeFileCount": 3,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 4,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "| `test/signer.test.js` | getKuaishouSignature 本地计算：MD5(api_ph\\|body) | 断言被证伪的近似式 |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "cb71899287f9f49fdfece4d638332eeafae8602c4846754cd97474c979e2b24e",
+  "decidedAt": "2026-10-20T11:34:21.381Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

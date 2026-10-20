@@ -34,7 +34,7 @@ describe('signer 默认路径（无显式 signer 注入）', () => {
     expect(seen).toEqual(['kuaishou.ns-sig3-browser'])
   })
 
-  it('链无 opts.signer 时缺省走进程内注册表（构造器文档契约）', async () => {
+  it('链无 opts.signer 时缺省走进程内注册表（Tier-A 纯 JS 为默认命令）', async () => {
     const calls = []
     registry.sign = async (command, payload) => {
       calls.push(command)
@@ -43,7 +43,7 @@ describe('signer 默认路径（无显式 signer 注入）', () => {
     const chain = new KuaishouVideoChain({ cookie: 'kuaishou.web.cp.api_st=sess; userId=u1' })
     const sig = await chain._sign('/rest/cp/works/v2/video/pc/upload/pre', { a: 1 }, 'json', { accountId: 'a1' })
     expect(sig).toBe('y'.repeat(64))
-    expect(calls).toEqual(['kuaishou.ns-sig3-browser'])
+    expect(calls).toEqual(['kuaishou.ns-sig3'])
   })
 
   it('注册表路径的「签名页未就绪」映射为 signerNotReady（上层可降级 DOM）', async () => {
