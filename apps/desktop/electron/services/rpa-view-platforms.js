@@ -1230,11 +1230,18 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
     this._emitProgress('wechat_mp','saving draft...',70)
     const draftMediaId = require('./wechat-mp-draft-mediaid')
     // saveWechatMpDraft 成功路径必返回 mediaId（字符串，可能为空串）；失败路径已在函数内 return
-    const saved = await draftMediaId.saveWechatMpDraft(this, win).catch((e) => {
+    const saved = await draftMediaId.saveWechatMpDraft(this, win, { title: article.title }).catch((e) => {
       log.warn('RpaView','wechat_mp save: '+e.message+' url='+win.webContents.getURL()+' title='+win.webContents.getTitle())
       return { ok: false, error: '微信公众号草稿保存失败：' + e.message }
     })
-    if (!saved.ok) return { success:false, error:saved.error, platform:'wechat_mp' }
+    if (!saved.ok) {
+      // 保存没触发 / 按钮不可用：页面结构与上一次能成功时已经不同，留证据再失败
+      // （wechat-save-click；与正文/发布按钮落空时的 _dumpPublishDom 同一判据）。
+      if (saved.detail === 'save-request-not-sent' || saved.detail === 'save-button-unavailable') {
+        if (typeof this._dumpPublishDom === 'function') await this._dumpPublishDom(win, 'wechat_mp')
+      }
+      return { success:false, error:saved.error, platform:'wechat_mp' }
+    }
     const mediaId = saved.mediaId || ''
 
     if (!mediaId) {

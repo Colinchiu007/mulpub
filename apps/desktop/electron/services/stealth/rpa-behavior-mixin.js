@@ -165,21 +165,41 @@ const behaviorMixin = {
   },
 
   /**
-   * 点击主通道（B1 tasks 3.4，自 helpers._click 下沉）：默认走行为层
-   * （getBounds → planClickSequence → CDP 可信事件 + 9 字段合成事件），
-   * 行为层失败/MP_RPA_DRIVER=native 回落原生合成 click——经 isolated 通道执行
-   * （tasks 4.3），失败 warn 出声。
+   * 点击主通道（B1 tasks 3.4，自 helpers._click 下沉）。分流（2026-10-20 wechat-save-click 后）：
+   *   - 纯 CSS 选择器：行为层（getBounds → planClickSequence → CDP 可信事件）→ 失败回落合成 click；
+   *   - 含文本谓词（`:has-text` / `text=`）：行为层必失败（DOM.querySelector 不认伪类），
+   *     直接走 CDP 可信点击 → 可信通道不可用才回落合成 click。
+   * 合成 click（`el.click()`）没有 isTrusted，React 版后台会静默吞掉，故只在可信通道
+   * 确实不可用时才用它兜底。
    * @param {Electron.WebContents} win
    * @param {string} sel
-   * @returns {Promise<string>} 页面描述串（tagName|className|innerText 前缀）
+   * @returns {Promise<string|null>} 'TRUSTED_CLICK' / 'NOT_FOUND' / 页面描述串 / null
    */
   async _clickViaDriver(win, sel) {
     const resolveJs = buildResolveElementCode(sel)
     const driver = resolveRpaDriver()
+    // 2026-10-20（wechat-save-click）：文本谓词（:has-text / text=）不是合法 CSS，
+    // 行为层的 getBounds 走 CDP `DOM.querySelector`，遇到它必然抛错、被 catch 吞成
+    // null（连 warn 都没有，日志里只剩「行为层失败」一行）⇒ 对这类选择器行为层
+    // 是**必然失败**而非可能失败，跳过这次空转。
+    const hasTextPredicate = /:has-text\(/.test(String(sel)) || /^text=/.test(String(sel))
     let d = null
-    if (driver === 'behavior') {
+    if (driver === 'behavior' && !hasTextPredicate) {
       d = await this._behaviorClick(win, sel)
-      if (d == null) log.warn('RpaView', '[click] 行为层失败，回落原生合成 click sel=' + String(sel).slice(0, 60))
+      if (d == null) log.warn('RpaView', '[click] 行为层失败，回落可信点击 sel=' + String(sel).slice(0, 60))
+    }
+    if (d == null && hasTextPredicate && driver !== 'native') {
+      // 可信点击必须优先于合成 click：`el.click()` 没有 isTrusted，React 版后台
+      // （公众号 appmsg_edit_v2 的「保存为草稿」）会静默吞掉——真机表现是按钮
+      // 命中（tagName/文案都对）、但页面一个请求都不发（probe appReqN=0，
+      // 30s 后判「缺少媒体 ID」）。这里发 CDP 真鼠标事件，让 click 带 isTrusted。
+      const trusted = await this._clickViaCdp(win, sel)
+      if (trusted === 'TRUSTED_CLICK') return trusted
+      if (trusted === 'NOT_FOUND') {
+        log.warn('RpaView', '[click] 元素未找到（含文本谓词） sel=' + String(sel).slice(0, 60))
+        return 'NOT_FOUND'
+      }
+      // 可信通道本身不可用（debugger 冲突等）：仍回落合成 click，保持既有兜底。
     }
     if (d == null) {
       d = await this._isoEval(win, '(function(){let el=(function(){return ' + resolveJs + '})() ;if(!el)throw new Error("not found: "+' + JSON.stringify(sel) + ');var d=el.tagName+"|"+String(el.className||"").slice(0,26)+"|"+String(el.innerText||"").replace(/\\s+/g,"").slice(0,10);el.click();return d})()')
@@ -191,13 +211,26 @@ const behaviorMixin = {
    * CDP 真实鼠标点击（B1 F1-c，tasks 3.4）：先 scrollIntoView 取中心点，再**临时移除
    * 中心点的遮挡层**后发可信 Input.dispatchMouseEvent。
    * 2026-10-01：头条发布按钮实测 5 个采样点全部被浮层覆盖（topHit=DIV），真实点击
-   * 物理上到不了；而合成 click 又会被 onClick 闭包门控吞掉。遮挡层的 pointerEvents
-   * 暂存于 window.__mpPe（由页面侧还原逻辑消费）。
+   * 物理上到不了；而合成 click 又会被 onClick 闭包门控吞掉。
+   *
+   * 2026-10-20（wechat-save-click）两处修正：
+   *   ① **owned-detach**：此前无条件 detach，他方（`_waitForResponse` 的网络取证、
+   *      上传路径）已附着时会把别人的 CDP 通道拆掉。公众号保存草稿正是「先起响应监听、
+   *      再点按钮」——拆掉后响应体通道直接失效。
+   *   ② **遮挡层必须还原**：`window.__mpPe` 此前没有任何消费方（注释所称「页面侧还原
+   *      逻辑」并不存在），一次可信点击就把被点位置的其他元素 pointerEvents 永久置
+   *      none，后续「确定 / 发表」可能整片点不动。点击完成即还原。
    * @returns {Promise<string|null>} 'TRUSTED_CLICK' / 'NOT_FOUND' / null
    */
   async _clickViaCdp(win, sel) {
     const dbg = win.webContents.debugger
-    try { await dbg.attach('1.3') } catch (_) { /* 已附加 */ }
+    let owned = false
+    try {
+      if (!(typeof dbg.isAttached === 'function' && dbg.isAttached())) {
+        await dbg.attach('1.3')
+        owned = true
+      }
+    } catch (_) { /* attach 被拒（他方刚附着）：复用现状，owned=false 不拆别人的会话 */ }
     try {
       const expr = '(function(){var el=(function(){return ' + buildResolveElementCode(sel) + '})();if(!el)return "";'
         + 'el.scrollIntoView({block:"center"});var r=el.getBoundingClientRect();var cx=Math.round(r.left+r.width/2),cy=Math.round(r.top+r.height/2);'
@@ -213,7 +246,16 @@ const behaviorMixin = {
       return 'TRUSTED_CLICK'
     } catch (e) {
       log.warn('RpaView', '[clickTrusted] ' + e.message); return null
-    } finally { try { await dbg.detach() } catch (_) { /* ignore */ } }
+    } finally {
+      // 遮挡层还原放在 detach 之前：detach 后再 evaluate 就没有通道了。
+      // 他方持有时走主世界 executeJavaScript（window.__mpPe 在主世界，两世界同名属性互不影响）。
+      const restore = '(function(){var a=window.__mpPe||[];a.forEach(function(p){try{p[0].style.pointerEvents=p[1]||""}catch(e){}});window.__mpPe=[];return a.length})()'
+      try {
+        if (owned) await dbg.sendCommand('Runtime.evaluate', { expression: restore, returnByValue: true })
+        else await win.webContents.executeJavaScript(restore)
+      } catch (_) { /* 还原失败不得掩盖点击结果 */ }
+      if (owned) { try { await dbg.detach() } catch (_) { /* ignore */ } }
+    }
   },
 }
 

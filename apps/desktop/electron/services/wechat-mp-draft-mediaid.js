@@ -154,6 +154,87 @@ function buildVisibleToastScript (selectors) {
     'return ""})()'
 }
 
+/** 一次保存尝试里等「保存请求」的时长。原为 30s：点击无效时要空等两轮共 60s。 */
+const SAVE_REQUEST_TIMEOUT_MS = 12000
+
+/**
+ * 点一次保存并等保存请求。
+ *
+ * 为什么返回值要拆成 clicked / saveResp：这两件事在真机上是**独立**的失败面——
+ * clicked=false 是「没找到按钮」，clicked=true 但 saveResp=null 是「按钮点了但页面
+ * 没发请求」（合成事件被 React 吞掉）。此前两者都落到「缺少媒体 ID」，无从区分。
+ *
+ * @returns {Promise<{clicked: boolean, saveResp: object|null}>}
+ */
+async function clickSaveAndWait (host, win, timeoutMs) {
+  const saveResponse = host._waitForResponse(win, SAVE_RESPONSE_PATTERNS, timeoutMs)
+  const clicked = await host._click(win, SAVE_BUTTON_SELECTOR)
+  const saveResp = await saveResponse
+  return { clicked, saveResp }
+}
+
+/**
+ * 保存响应体里的业务拒绝原因（`base_resp.ret != 0`）。
+ *
+ * 公众号保存接口成功时返回 `{"base_resp":{"ret":0}}`；非 0 是平台**明确拒绝**，
+ * 此时不能再落到「拿不到 ID 所以无法验证」这种模糊说法——文案要说清是被拒。
+ *
+ * @param {string} body
+ * @returns {string} 形如 `ret=-1`；无拒绝返回空串
+ */
+function saveRejectReason (body) {
+  try {
+    const parsed = JSON.parse(String(body == null ? '' : body))
+    const ret = parsed && parsed.base_resp && parsed.base_resp.ret
+    if (typeof ret === 'number' && ret !== 0) return 'ret=' + ret
+  } catch (_) { /* 非 JSON：交给调用方的其它判据 */ }
+  return ''
+}
+
+/**
+ * 保存后按标题反查草稿箱，拿 appmsgid（`wechat-save-click` 第三层兜底）。
+ *
+ * 动机：新版后台保存后 URL 不跳转、响应体也偶有不带 `appMsgId` 的情况，而草稿其实
+ * 已经存进去了——此时判「无法验证」是假失败（与微博那次同类）。草稿列表页每行都带
+ * `[appmsgid]` 属性（`_publish_wechat_mp` 的群发分支正是用它选中草稿），按标题前 12
+ * 字匹配最新一条即可。
+ *
+ * 只在「保存请求**已发出**」之后调用：没发请求就一定没存上，反查只会把失败说成成功。
+ *
+ * @param {object} host RpaViewManager 混入对象（`_navigateAndWait` / `_sleep`）
+ * @param {object} win BrowserWindow
+ * @param {string} title 文章标题
+ * @returns {Promise<string>} appmsgid；取不到返回空串
+ */
+async function lookupDraftIdByTitle (host, win, title) {
+  const want = String(title || '').replace(/\s+/g, '').slice(0, 12)
+  if (!want) return ''
+  const cur = String(win.webContents.getURL() || '')
+  const tokenMatch = /[?&]token=(\d+)/.exec(cur)
+  if (!tokenMatch) {
+    log.warn('RpaView', '[wechat_mp] draft lookup skipped: no token in url')
+    return ''
+  }
+  const listUrl = 'https://mp.weixin.qq.com/cgi-bin/appmsg?t=media/appmsg_list&type=10&action=list&token=' + tokenMatch[1] + '&lang=zh_CN'
+  log.info('RpaView', '[wechat_mp] mediaId missing after save response, look up draft list by title')
+  try {
+    await host._navigateAndWait(win, listUrl, 3000)
+    for (let i = 0; i < 10; i++) {
+      const found = await win.webContents.executeJavaScript('(function(){' +
+        'var want=' + JSON.stringify(want) + ';' +
+        'var rows=document.querySelectorAll("[appmsgid]");' +
+        'for(var i=0;i<rows.length;i++){var t=String(rows[i].innerText||rows[i].textContent||"").replace(/\\s+/g,"");' +
+        'if(t.indexOf(want)!==-1)return String(rows[i].getAttribute("appmsgid")||"")}' +
+        'return ""})()').catch(() => '')
+      if (found) return String(found)
+      await host._sleep(1000)
+    }
+  } catch (e) {
+    log.warn('RpaView', '[wechat_mp] draft lookup failed: ' + e.message)
+  }
+  return ''
+}
+
 /**
  * 点「保存草稿」并采集 mediaId。
  *
@@ -167,22 +248,46 @@ function buildVisibleToastScript (selectors) {
  * @param {object} win BrowserWindow
  * @returns {Promise<{ok: boolean, mediaId?: string, saved?: boolean, detail?: string, error?: string}>}
  */
-async function saveWechatMpDraft (host, win) {
+async function saveWechatMpDraft (host, win, options = {}) {
+  const title = String((options && options.title) || '').trim()
   // 保存前注入页面内拦截（幂等：重复注入返回 "already"，不重置既有缓存）
   try {
     await win.webContents.executeJavaScript(XHR_INTERCEPT_SCRIPT)
   } catch (e) {
     log.warn('RpaView', '[wechat_mp] save intercept inject failed: ' + e.message)
   }
-  const saveResponse = host._waitForResponse(win, SAVE_RESPONSE_PATTERNS, 30000)
-  const saveClicked = await host._click(win, SAVE_BUTTON_SELECTOR)
-  if (!saveClicked) {
+
+  let { clicked, saveResp } = await clickSaveAndWait(host, win, SAVE_REQUEST_TIMEOUT_MS)
+  if (!clicked) {
     log.warn('RpaView', '[wechat_mp] save draft failed: save button unavailable url=' + win.webContents.getURL())
     return { ok: false, detail: 'save-button-unavailable', error: '微信公众号草稿保存失败：保存按钮不可用' }
   }
-  const saved = await host._waitForCondition(win, SAVE_SUCCESS_CONDITION, 30000, 800)
-  const saveResp = await saveResponse
+
+  // 2026-10-20（wechat-save-click）：点击命中但**一个保存请求都没发**，是「点了没用」
+  // 而不是「保存失败」。真机 05:24 / 05:29 两次均为 probe appReqN=0 + xhr=none：
+  // 根因是合成 click 没有 isTrusted，React 版后台不响应。驱动层已对含文本谓词的选择器
+  // 优先走可信点击，这里再给一轮是二道保险（驱动降级到合成 click 时仍能救回来）。
+  if (!saveResp && typeof host._clickViaCdp === 'function') {
+    log.warn('RpaView', '[wechat_mp] save click produced no request, retry with trusted click')
+    const trusted = await host._clickViaCdp(win, SAVE_BUTTON_SELECTOR).catch(() => null)
+    if (trusted === 'TRUSTED_CLICK') {
+      saveResp = await host._waitForResponse(win, SAVE_RESPONSE_PATTERNS, SAVE_REQUEST_TIMEOUT_MS)
+    }
+  }
+
+  const saved = await host._waitForCondition(win, SAVE_SUCCESS_CONDITION, 8000, 800)
   const finalUrl = String(win.webContents.getURL() || '')
+
+  // 平台明确拒绝：ret != 0 与「拿不到 ID」是两回事，不能糊成同一条文案。
+  const reject = saveResp ? saveRejectReason(saveResp.body) : ''
+  if (reject) {
+    log.warn('RpaView', '[wechat_mp] save rejected by platform ' + reject + ' url=' + finalUrl)
+    return {
+      ok: false,
+      detail: 'save-rejected',
+      error: '微信公众号草稿保存被平台拒绝（' + reject + '），请到公众号后台确认内容状态后重试',
+    }
+  }
 
   // 通道 ①：URL
   let mediaId = ''
@@ -220,6 +325,24 @@ async function saveWechatMpDraft (host, win) {
         }
       }
     } catch (_) { /* 拦截不可用时静默降级，老通道仍可用 */ }
+  }
+
+  // 通道 ⑤：草稿箱反查（2026-10-20）。**只在保存请求已发出时**执行——没发请求就
+  // 一定没存上，反查只会把失败粉饰成成功。它同时解决两件事：响应体不带 appMsgId 的
+  // 假失败、以及群发分支要用的 `[appmsgid]`。
+  if (!mediaId && saveResp && title) {
+    mediaId = await lookupDraftIdByTitle(host, win, title)
+    if (mediaId) log.info('RpaView', '[wechat_mp] mediaId from draft list by title=' + mediaId)
+  }
+
+  // 点了但页面没发请求：这是「没触发」而不是「保存失败」，文案必须能让用户知道该重试。
+  if (!mediaId && !saveResp && !saved) {
+    log.warn('RpaView', '[wechat_mp] save never issued a request url=' + finalUrl)
+    return {
+      ok: false,
+      detail: 'save-request-not-sent',
+      error: '微信公众号草稿保存未触发：按钮已点击但页面没有发出保存请求（编辑器可能尚未就绪），请重试',
+    }
   }
 
   if (!mediaId) {
@@ -298,12 +421,16 @@ module.exports = {
   SAVE_BUTTON_SELECTOR,
   SAVE_SUCCESS_CONDITION,
   SAVE_RESPONSE_PATTERNS,
+  SAVE_REQUEST_TIMEOUT_MS,
   XHR_INTERCEPT_SCRIPT,
   READ_INTERCEPTED_SCRIPT,
   buildVisibleToastScript,
+  clickSaveAndWait,
   extractAppMsgIdFromBody,
   isSaveResponseUrl,
   looksLikeErrorText,
+  lookupDraftIdByTitle,
+  saveRejectReason,
   saveWechatMpDraft,
   describeSaveFailure,
   describeUnconfirmedSave,

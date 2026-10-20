@@ -173,13 +173,18 @@ const helpersMixin = {
   async _click(win, sel) {
     // B1 行为层接线（tasks 3.4）：默认走行为层（getBounds → planClickSequence →
     // CDP 可信事件 + 9 字段合成事件），行为层失败/MP_RPA_DRIVER=native 回落
-    // 原生合成 click——经 isolated 通道执行（tasks 4.3），失败 warn 出声。
+    // 可信 CDP 点击 → 原生合成 click（含文本谓词时），经 isolated 通道执行。
     // 取值通道已下沉至 stealth/rpa-behavior-mixin.js 的 _clickViaDriver。
     const d = await this._clickViaDriver(win, sel)
     // 2026-10-01：点击后等一拍再回读业务探针（onClick/doPublish 记录），判断异步流程走到哪一步。
     await this._sleep(2500)
     const oc = await this._probeClickState(win)
-    log.info('RpaView', '[click] ' + String(sel).slice(0, 36) + ' -> ' + String(d).slice(0, 70) + ' probe=' + String(oc).slice(0, 220)); return true
+    // 2026-10-20（wechat-save-click）：**返回值此前恒为 true** —— 即使所有候选都没命中
+    // （驱动返回 null / 'NOT_FOUND'）也报成功，调用方的「保存按钮不可用」「发布按钮不可用」
+    // 分支因此是死代码，真机上「点了个空」与「点到了但没反应」无法区分。
+    // 判据落在驱动返回值上：拿到元素描述串（BEHAVIOR@… / TRUSTED_CLICK / TAG|class|text）才算命中。
+    const hit = typeof d === 'string' && d.length > 0 && d !== 'NOT_FOUND'
+    log.info('RpaView', '[click] ' + String(sel).slice(0, 36) + ' -> ' + String(d).slice(0, 70) + ' probe=' + String(oc).slice(0, 220)); return hit
   },
 
   // 2026-10-01：头条发布按钮 onClick 为 `function(e){var n=t.props,r=n.loading,o=n.onClick;!r&&o&&o(e)}` ——
