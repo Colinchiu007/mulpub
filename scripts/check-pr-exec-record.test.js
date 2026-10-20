@@ -1783,6 +1783,7 @@ test('评审#4：高危面清单按成员钉死（静默删条目必须红，新
     '.github/workflows/',
     'scripts/check-',
     'scripts/ccg-review-',
+    'scripts/lib/ccg-review-',
     'scripts/deep-review',
   ]
   const got = mod.HIGH_RISK_SURFACES.map((s) => s.prefix)
@@ -1873,6 +1874,11 @@ test('评审C2：已闭环却带"不认识的 tier 值"⇒ 任意面都判不成
     assert.strictEqual(r.reasons.length, 1, `tier 值不认识必须红（不得读成"没声明过"而放过）：${JSON.stringify(r.reasons)}`)
     assert.match(r.reasons[0], /tier 取值不认识|unrecognized/)
     assert.ok(r.reasons[0].includes(ART))
+    // 红文案必须把闭集**念出来**：实测主干 40 笔里已有 3 条自造 tier 值
+    // （docs-false-positive / superseded / dual，closureNote 全空）⇒ 发明词汇的人不是坏，是看不见清单。
+    for (const t of ['external', 'self-play', 'none', 'unknown']) {
+      assert.ok(r.reasons[0].includes(t), `闭集缺 ${t} 一项 ⇒ 下一次还会有人自造值：${r.reasons[0]}`)
+    }
   } finally { fs.rmSync(repo, { recursive: true, force: true }) }
 })
 
@@ -2027,6 +2033,348 @@ test('第2轮R2-1：矩阵的门槛是"变更集命中高危面"（产物本身�
     assert.ok(block.includes(RISK_GATE), '必须点名拉进来的文件')
   } finally { fs.rmSync(risky, { recursive: true, force: true }) }
 })
+
+// ── 2026-10-20 跨家族轴第 2 轮（codex session 见记录 §五 X2 表）：四条已验真的缺陷落锁 ──
+const ART_OLD = '.ccg/reviews/' + 'b'.repeat(64) + '.json'
+const ART_NEW = '.ccg/reviews/' + 'c'.repeat(64) + '.json'
+const PENDING_BASE = () => JSON.stringify({ mode: 'dual', deepReview: { required: true, status: 'pending' } })
+
+test('X2-6：C75（复制）不得当成"旧路径被删"—— 源文件还在，制造的是假欠账', () => {
+  const repo = repoWithFile(ART_NEW, { mode: 'dual', deepReview: { required: true, status: 'pending', tier: 'unknown' } })
+  try {
+    const r = mod.evaluateDeepReviewDebt([{ status: 'C75', file: ART_NEW, from: ART_OLD }], repo, PENDING_BASE)
+    const block = r.reasons.join('\n')
+    assert.ok(block.length > 0, '复制出来的新产物仍是 pending ⇒ 该报欠账（这一半是对的）')
+    assert.ok(!/改名/.test(block), `C 不是改名，不得报"借改名带走未闭环记录"：${block.slice(0, 240)}`)
+    assert.ok(!block.includes(ART_OLD), `旧路径仍然存在，不得被点名：${block.slice(0, 240)}`)
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('X2-7：改名且把闭环状态带到新路径（external + 可核 evidence）⇒ 不得再报欠账', () => {
+  // 我的红文案亲口建议"把闭环状态与新路径一起带过去"，可 renamedUnclosed 只看 base 侧
+  // ⇒ 照文案做的人仍然红，这是"门禁与自己的出口打架"的又一落点。
+  const repo = repoWithFile(ART_NEW, { mode: 'dual', deepReview: { required: true, status: 'cleared', tier: 'external', evidence: 'ses_probe0001' } })
+  try {
+    const r = mod.evaluateDeepReviewDebt([{ status: 'R100', file: ART_NEW, from: ART_OLD }], repo, PENDING_BASE)
+    const block = r.reasons.join('\n')
+    assert.ok(!/改名|重命名/.test(block), `新路径已合规收口，不该再有"改名带走"这条红：${block.slice(0, 260)}`)
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('X2-9：后端真源所在的 scripts/lib/ccg-review-* 必须在高危清单上', () => {
+  assert.strictEqual(mod.highRiskPrefixOf('scripts/lib/ccg-review-backends.js'), 'scripts/lib/ccg-review-',
+    '决定"谁来评审"的解析器不在守门面上 ⇒ 改它不会触发任何收口要求')
+  assert.ok(mod.HIGH_RISK_SURFACES.some((s) => s.prefix === 'scripts/lib/ccg-review-'), '清单必须显式登记该条')
+})
+
+test('X2-8：段起点匹配要留住 .github/scripts/ 那 42 个真判据，同时排除上游 vendored 副本', () => {
+  // 跨家族轴 X2-8 说"子串过匹配"，实测成立；但**正解不是把匹配钉到仓库根**：
+  // 本仓 scripts/check- 的非根位命中有 42 个真判据本体（.github/scripts/ 40 + apps/desktop/scripts/ 2），
+  // 钉到根就是把 CI 侧那批门禁脚本整体免检 —— 那是为了消 1 个误伤而造 42 个漏洞。
+  assert.strictEqual(mod.highRiskPrefixOf('.github/scripts/check-locale-sync.js'), 'scripts/check-',
+    'CI 侧门禁脚本同样是判据本体，段起点匹配的存在理由就是它')
+  assert.strictEqual(mod.highRiskPrefixOf('apps/desktop/scripts/check-camofox-listen.js'), 'scripts/check-',
+    '包内的门禁脚本仍算门禁面，收窄不得把它一起削掉')
+  // 实测唯一的段起点误伤：上游技能制品的嵌套 workflow。GitHub 只调度顶层 .github/workflows/，
+  // 这份副本永远不会被排队执行 ⇒ 改它不等于改本仓守门人 ⇒ 按子树排除，且清单只能缩小。
+  assert.strictEqual(mod.highRiskPrefixOf('.quality-rhythm/.github/workflows/mechanism-check.yml'), null,
+    'vendored 副本不得算作本仓高危面')
+  assert.ok(mod.VENDORED_SUBTREES.includes('.quality-rhythm/'), '排除机制必须显式登记在清单里，不许散落在判据内')
+  // 黏在别的词后面 ⇒ 不是那个面。上一版这里用的是 `vendor/`（本仓并不存在该目录），
+  // 而变异 P34（把段起点判据摘成任意子串）实测 NOT_CAUGHT —— 说明这两条断言当时都抓不到它。
+  // 下面两条是**能区分两种写法**的真判别串。
+  assert.strictEqual(mod.highRiskPrefixOf('xscripts/check-y.js'), null,
+    '前缀黏在别的词尾（xscripts/）不算 scripts/check- —— 段起点这一维必须有判别用例')
+  assert.strictEqual(mod.highRiskPrefixOf('backup.github/workflows/ci.yml'), null,
+    '同理：.github/workflows/ 黏在 backup 之后不算 workflows 面')
+  assert.strictEqual(mod.isHighRiskSurface('01-docs/archive/github/workflows/notes.md'), false)
+  assert.strictEqual(mod.highRiskPrefixOf(RISK_GATE), 'scripts/check-', '判据本体自指不得因收窄而失效')
+})
+
+test('X2-11：末行不得在"未证实>0"时仍打光秃秃的 OK', () => {
+  const t = mod.summarizeTransitionCheck([{ file: ART, baseReadable: false }], 1)
+  assert.strictEqual(t.unverifiable, 1)
+  assert.match(mod.verdictLine({ ok: true, transition: t }), /^OK（.*未证实=1/,
+    `通过但要显出没核到的条数，否则"全过"与"探针失明"同形：${mod.verdictLine({ ok: true, transition: t })}`)
+  assert.match(mod.verdictLine({ ok: false }), /^不通过/, '真不通过时不得被装饰成 OK')
+  // 跨家族轴 i1：字段缺失/改名 ⇒ NaN ⇒ `NaN > 0` 恒 false ⇒ 末行退回光秃秃的 OK。
+  // 缺字段必须按"不可知"出声，不得当 0。
+  assert.match(mod.verdictLine({ ok: true, transition: { unverifiable: undefined, uncorroborated: undefined } }),
+    /^OK（但转变读数缺字段/, '读数缺字段时不得打光秃秃的 OK：' + mod.verdictLine({ ok: true, transition: {} }))
+  assert.match(mod.verdictLine({ ok: true }), /^OK: /, '没有转变对象时保持原文案（不得把"没有扫描域"也报成缺字段）')
+  assert.match(mod.verdictLine({ ok: false }), /^不通过/, '真不通过时不得被装饰成 OK')
+})
+
+test('X2-12（接线锁）：判定行必须真的接到 transition —— 只测纯函数抓不到"report 看不见"', () => {
+  // X2-11 测的是 verdictLine 本体；本轮缺陷在**装配**：main 把 transition 挂在 deepDebt 上，
+  // 而 report() 拿到的是 evaluate() 的结果对象，那里没有 transition ⇒ loose 恒 0 ⇒ 照样打光秃秃的 OK。
+  // 这类"函数对、装配错"只能按本文件既有惯例用接线锁钉（先例：'丙：main 必须打印覆盖率行'）。
+  const src = fs.readFileSync(path.join(__dirname, 'check-pr-exec-record.js'), 'utf8')
+  assert.match(src, /function main[\s\S]*target\.transition\s*=\s*deepDebt\.transition/,
+    'applyDeepDebt 必须把 transition 一并挂到被打印的那份结果上')
+  assert.match(src, /function report[\s\S]{0,400}?lines\.push\(verdictLine\(r\)\)/,
+    'report 的判定行必须由 verdictLine 产出')
+  assert.ok(!src.includes('if (r.ok) lines.push(verdictLine(r))'),
+    '判定行不得只在 ok 分支走 verdictLine —— 两支各写一遍时非 OK 支永远看不见 loose 计数')
+})
+test('X2-5①：路径形态的 evidence 必须被存在性探针验到，否则降 external-unverified', () => {
+  // 跨家族轴 Critical：形状判据对「根本不存在但长得像路径」完全免疫，而高危面只认 external
+  // ⇒ 编一个 reports/judge-report.md 就能收口。这一格把形状判据升级为半语义。
+  const dr = { tier: 'external', evidence: 'reports/judge-report.md' }
+  assert.strictEqual(mod.classifyEvidenceTier(dr), 'external',
+    '不注入探针时保持形状语义 —— 单测与仓外调用方不得被静默改判（探针是注入参数，不是全局开关）')
+  assert.strictEqual(mod.classifyEvidenceTier(dr, () => false), 'external-unverified',
+    '路径证据验不到 ⇒ 与"形状不对"同档，不得算可核出处')
+  assert.strictEqual(mod.classifyEvidenceTier(dr, () => true), 'external')
+  // 其余四档指向仓库外的对象（PR / 会话 / uuid / oid），本仓上下文无法 cat-file ⇒ 不得被误伤
+  for (const ev of ['PR #3987 后端轴', 'ses_probe0001', 'a'.repeat(40), '0b0a1c2d-3e4f-5a6b-7c8d-9e0f1a2b3c4d']) {
+    assert.strictEqual(mod.classifyEvidenceTier({ tier: 'external', evidence: ev }, () => false), 'external',
+      ev + ' 不是路径形态，存在性判据不得伸手')
+  }
+  assert.strictEqual(mod.evidenceForm('reports/judge-report.md'), 'path')
+  assert.strictEqual(mod.evidenceForm('PR #3987'), 'pr')
+  assert.strictEqual(mod.evidenceForm('ses_probe0001'), 'session')
+  assert.strictEqual(mod.evidenceForm('a'.repeat(40)), 'oid')
+  assert.strictEqual(mod.evidenceForm('x'), null)
+  assert.strictEqual(mod.evidenceForm('x'), null)
+  // 跨家族轴 i3：path 形态本来就接受两种分隔符，探针却拒绝反斜杠 ⇒ 同一对象两种判法。
+  // 归一现在是纯函数，能直测。
+  assert.strictEqual(mod.repoObjectPath('reports\\judge-report.md'), 'reports/judge-report.md')
+  assert.strictEqual(mod.repoObjectPath('reports/judge-report.md'), 'reports/judge-report.md')
+  assert.strictEqual(mod.repoObjectPath('reports/judge-report.md#L10'), 'reports/judge-report.md')
+  assert.strictEqual(mod.repoObjectPath('C:\\Temp\\judge.md'), '', '盘符不是仓内对象')
+  assert.strictEqual(mod.repoObjectPath('/etc/passwd'), '', '绝对路径不是仓内对象')
+  assert.strictEqual(mod.repoObjectPath('../../outside.md'), '', '上跳不是仓内对象')
+})
+
+test('X2-5②：真跑债务判据 —— 高危面上"路径证据但不存在"必须红，存在则过', () => {
+  const dr = { mode: 'dual', deepReview: { required: true, status: 'cleared', tier: 'external', evidence: 'reports/judge-report.md' } }
+  const statuses = st([['A', ART], ['M', RISK_GATE]]) // 变更集命中高危面（判据本体自指）
+  const repo = repoWithFile(ART, dr)
+  try {
+    const missing = mod.evaluateDeepReviewDebt(statuses, repo, () => null, () => false)
+    assert.strictEqual(missing.reasons.length, 1,
+      `路径证据验不到时必须点名，实际 ${JSON.stringify(missing.reasons)}`)
+    assert.ok(missing.reasons[0].includes(ART), '红必须指名产物')
+    const present = mod.evaluateDeepReviewDebt(statuses, repo, () => null, () => true)
+    assert.deepStrictEqual(present.reasons, [], '同一个证据只要验得到就该过 —— 否则这条判据只是在拦"我没注入探针"')
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('X2-10：TIER-COVERAGE 必须走 expandRenames —— 改名带过去的闭环产物不得从读数里消失', () => {
+  const repo = repoWithFile(ART, { mode: 'dual', deepReview: { required: true, status: 'cleared', tier: 'self-play' } })
+  try {
+    const renamed = [{ status: 'R', from: '.ccg/reviews/' + '0'.repeat(64) + '.json', file: ART }]
+    assert.strictEqual(mod.dualClosedDeepReviews(renamed, repo).length, 1,
+      'R 展开成 A(新路径) 后必须进读数；债务扫描走同一个展开，两条读数才同域')
+    assert.strictEqual(mod.summarizeTierCoverage(mod.dualClosedDeepReviews(st([['A', ART]]), repo)).total, 1)
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('X2-14：每条 why 里写的"实测命中 N 个"是**下界**，归因跌破即红（超出只打印不拦）', () => {
+  // 跨家族轴 i4 否证了原来的等值判据：无关 PR 增删任意一个匹配文件（新增 .github/scripts/check-*.js、
+  // 删一份取证 txt）都会把**本条**打红，而失败信息不指向那个改动 —— 这是把"注释里的数"造成
+  // 一条跨 PR 的耦合。牙要留，方向只留一个：**覆盖变窄是事故，覆盖变宽不是**。
+  // 所以对账取 why 里**最后一个** `命中 N 个`（fingerprint 那条写了演进链 9→7，最后一个才是本条口径），
+  // 断言 owned >= claimed；每次把实测构成打印出来，让"数漂了"这件事在现场可见而不是靠人记得改注释。
+  const tracked = require('node:child_process').execFileSync('git', ['ls-files'], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 }).split(/\r?\n/).filter(Boolean)
+  let claimed = 0
+  const rows = []
+  for (const s of mod.HIGH_RISK_SURFACES) {
+    const all = s.why.match(/命中\s*\d+\s*个/g) || []
+    if (all.length === 0) { rows.push(s.prefix + '=' + tracked.filter((f) => mod.highRiskPrefixOf(f) === s.prefix).length + '(无声明)'); continue }
+    claimed++
+    const last = all[all.length - 1]
+    const want = Number(/(\d+)/.exec(last)[1])
+    const owned = tracked.filter((f) => mod.highRiskPrefixOf(f) === s.prefix).length
+    assert.ok(owned >= want,
+      s.prefix + ' why 声明实测下界 ' + want + ' 个，当前归因只有 ' + owned + ' 个 ⇒ 命中域被削窄（改匹配/exts/删条目都会到这里）：' + s.why)
+    rows.push(s.prefix + '=' + owned + '(下界' + want + ')')
+  }
+  assert.ok(claimed >= 6, `带实测下界的条目不得少于 6（实际 ${claimed}）—— 一个都没有就说明这条锁在空转`)
+  console.log('[HIGH-RISK-ATTRIBUTION] ' + rows.join(' '))
+})
+
+test('X2-4（接线锁）：merge-base 在判据里只准算一次，变更集与 base 侧 blob 共用同一个 SHA', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'check-pr-exec-record.js'), 'utf8')
+  const code = mod.stripCommentsForScan(src)
+  const calls = code.split("'merge-base'").length - 1
+  assert.strictEqual(calls, 1,
+    `'merge-base' 的实参只准出现一次（实际 ${calls}）—— 两次调用之间 base ref 前进，`
+    + '变更集与 blob 就不同源，wasClosed 会被读成别人的闭环（跨家族轴 X2-4）')
+  assert.match(code, /changedFileStatuses\(\{\s*repo,\s*base:\s*blobBaseRef \|\| baseRef/,
+    '变更集必须取那个已经算好的 merge-base')
+  assert.match(code, /return execFileSync\('git', \['-C', repo, 'show', `\$\{blobBaseRef\}:\$\{rel\}`\]/,
+    'base 侧 blob 必须取同一个 merge-base')
+})
+
+test('X2-12（扩锁）：单一实现锁必须挡住"行为等价的第二份匹配"，而不只是挡住同形写法', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'check-pr-exec-record.js'), 'utf8')
+  const start = src.indexOf('function highRiskPrefixOf')
+  const end = src.indexOf('\n}', start)
+  assert.ok(start >= 0 && end > start, '锚点定位失败 ⇒ 本锁测量域不可信')
+  const outside = src.slice(0, start) + src.slice(end)
+  assert.ok(!outside.includes('for (const s of HIGH_RISK_SURFACES)'),
+    'for...of 版的第二份匹配与 .find() 版行为等价，只禁方法名等于没禁')
+  assert.ok(!outside.includes('for (const surface of HIGH_RISK_SURFACES)'), '同上，换个变量名也一样')
+  assert.ok(!outside.includes('includes(s.prefix)') && !outside.includes('includes(surface.prefix)'),
+    'includes 形态的第二份匹配同样不得出现')
+  assert.ok(!/HIGH_RISK_SURFACES\s*\.\s*(reduce|every|flatMap|filter)/.test(outside),
+    '清单的遍历面收敛在 highRiskPrefixOf；其余消费点只准走导出的谓词')
+})
+
+
+test('引擎模板与判据互不认账：PR 评论 URL 必须是可核形态（否则照引擎写证据的人被自家门禁判红）', () => {
+  // .adversarial/*/adjudication.json 的 instructions 原文要求 externalReview.evidenceRef 写成
+  // https://github.com/<owner>/<repo>/pull/<n>#issuecomment-<id>，而本判据此前一律不认。
+  const ok = 'https://github.com/Colinchiu007/mulpub/pull/3987#issuecomment-6283101492'
+  assert.strictEqual(mod.evidenceForm(ok), 'url')
+  assert.strictEqual(mod.classifyEvidenceTier({ tier: 'external', evidence: ok }, () => false), 'external',
+    'URL 形态不得被"存在性探针"伸手（它指向的是 GitHub 上的对象，不在本仓 cat-file 域内）')
+  // 负控：形似但不是 PR 评论的串一律不认，不得把"含 github.com"当成出处
+  for (const bad of [
+    'https://github.com/o/r/pull/abc',
+    'https://github.com/o/r/issues/123',
+    'https://evil.example.com/o/r/pull/123',
+    'x https://github.com/o/r/pull/123',
+    'https://github.com/o/r/pull/123/../..',
+  ]) assert.strictEqual(mod.evidenceForm(bad), null, bad + ' 不该算可核指针')
+})
+
+
+test('i5：段内双点不是上跳（真实文件名不得被探针拒掉）', () => {
+  // 上一版用 raw.indexOf('..') 一律拒 ⇒ `v1..md` 这种合法文件名被判"不是仓内对象"，
+  // 在高危面上把**真证据**降成 external-unverified ⇒ 误红。上跳只在整段时成立。
+  assert.strictEqual(mod.repoObjectPath('reports/v1..md'), 'reports/v1..md')
+  assert.strictEqual(mod.repoObjectPath('a/b..c.json'), 'a/b..c.json')
+  assert.strictEqual(mod.repoObjectPath('../outside.md'), '')
+  assert.strictEqual(mod.repoObjectPath('a/../b.md'), '')
+  assert.strictEqual(mod.repoObjectPath('..//b.md'), '')
+  assert.strictEqual(mod.repoObjectPath('reports\\judge.md'), 'reports/judge.md')
+})
+
+test('i6：显式 null 与缺字段同档，不得被 Number(null)=0 洗成"零条没核到"', () => {
+  assert.match(mod.verdictLine({ ok: true, transition: { unverifiable: null, uncorroborated: null } }),
+    /^OK（但转变读数缺字段/, 'null 走"不可知"：' + mod.verdictLine({ ok: true, transition: { unverifiable: null, uncorroborated: null } }))
+  assert.match(mod.verdictLine({ ok: true, transition: { unverifiable: 2, uncorroborated: null } }),
+    /^OK（但转变读数缺字段/, '一半可读一半不可读时整体按不可知，不得只报可读那半')
+  assert.match(mod.verdictLine({ ok: true, transition: { unverifiable: 2, uncorroborated: 1 } }),
+    /未证实=2 无出处=1/, '两个都是数字时照常报数（这条是上一格的负控：判据不得恒真')
+})
+
+test('i4：路径形态的证据必须属于本次变更集（真跑探针）', () => {
+  const cp = require('node:child_process'); const os = require('node:os')
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'evprobe-'))
+  const run = (a) => cp.execFileSync('git', a, { cwd: dir, encoding: 'utf8' })
+  const rel = '01-docs/evidence/judge-report.md'
+  try {
+    run(['init', '-q', '-b', 'main', dir])
+    fs.mkdirSync(path.join(dir, '01-docs', 'evidence'), { recursive: true })
+    fs.writeFileSync(path.join(dir, rel), '# 报告\n', 'utf8')
+    run(['add', '-A'])
+    run(['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'base'])
+    const probe = mod.makeEvidenceProbe({ statuses: [{ status: 'M', file: 'scripts/check-x.js' }], repo: dir, head: 'HEAD' })
+    // ① 存在但不在变更集 ⇒ 不可核（"指一份仓里本来就有的文档"不再算出处）
+    assert.strictEqual(probe(rel), false, '仓内既有文件不等于本 PR 的证据')
+    assert.strictEqual(probe('01-docs/evidence/judge-report.md#L1'), false, '带锚点也不得绕过归属判据')
+    // ② 属于变更集且真存在 ⇒ 可核
+    const probe2 = mod.makeEvidenceProbe({ statuses: [{ status: 'A', file: rel }], repo: dir, head: 'HEAD' })
+    assert.strictEqual(probe2(rel), true, '本 PR 新增且真在 head 里的路径必须验得到')
+    // ③ 属于变更集但 head 里没有 ⇒ 不可核（归属不等于存在）
+    const probe3 = mod.makeEvidenceProbe({ statuses: [{ status: 'A', file: 'reports/never-committed.md' }], repo: dir, head: 'HEAD' })
+    assert.strictEqual(probe3('reports/never-committed.md'), false, '写进变更集不等于对象存在')
+    // ④ 改名形态：两侧路径都算"归属"，但存在性只认 head 里真有的那一份。
+    // （上一条断言原先写的是 probe4(rel)——旧路径在这份夹具里**确实存在**于 head，
+    //   所以它返回 true 是正确行为，是我的用例把场景编错了；改成断言"新路径不存在"这一格。）
+    const probe4 = mod.makeEvidenceProbe({ statuses: [{ status: 'R', from: rel, file: '01-docs/evidence/moved.md' }], repo: dir, head: 'HEAD' })
+    assert.strictEqual(probe4('01-docs/evidence/moved.md'), false, '归属过了但 head 里没这个新路径 ⇒ 仍按不可核')
+    assert.strictEqual(probe4(rel), true, 'from 侧也算归属，且旧路径在 head 里真存在 ⇒ 可核（不得因为"它被改过名"就一律拒）')
+  } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('i1+i2（否证产物）：C 不合成 D，viaRename 只被 D 方向消费', () => {
+  // 评审说"C 的合成 A 仍带 viaRename ⇒ 债务判据报『改名带走』并点名未删除的旧路径"。
+  // 实测不成立：D 方向的合成只对 R 发生（本断言就是那条否证的产物），A 侧的 viaRename 无人消费。
+  const expanded = mod.expandRenames([{ status: 'C', from: ART_OLD, file: ART_NEW }])
+  assert.deepStrictEqual(expanded.filter((e) => e.status === 'D').map((e) => e.file), [],
+    'C 的源文件仍在树里，合成 D 等于凭空造一笔"删除未闭环记录"')
+  const rExpanded = mod.expandRenames([{ status: 'R', from: ART_OLD, file: ART_NEW }])
+  assert.strictEqual(rExpanded.filter((e) => e.status === 'D')[0].viaRename, ART_NEW,
+    'D 侧 viaRename 必须指向**新路径**——renamedCarriesClosure 读的就是它')
+  // 复制一条未闭环产物 ⇒ 报的是"A 新增即闭环/未闭环"这一档，文案里不得出现"改名"
+  const repo = repoWithFile(ART_NEW, { mode: 'dual', deepReview: { required: true, status: 'pending', tier: 'unknown' } })
+  try {
+    const r = mod.evaluateDeepReviewDebt([{ status: 'C', from: ART_OLD, file: ART_NEW }], repo, () => null)
+    const txt = r.reasons.join(' | ')
+    assert.ok(!/改名/.test(txt), 'C 场景不得出现改名措辞：' + txt)
+    assert.ok(txt.indexOf(ART_OLD) < 0, 'C 场景不得点名未被删除的旧路径：' + txt)
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('i3（否证产物）：merge-base 解不出时 readAtBase 走短路返回 null，不读暂存区', () => {
+  // 评审的机理是"blobBaseRef='' ⇒ git show ':rel' ⇒ 读 index ⇒ 若证据恰被 staged 就把 wasClosed 读成 true"。
+  // 这一条用真跑 CLI 判生死：把 base 指成一个**无共同祖先**的孤立分支，merge-base 必失败 ⇒
+  // 若真读了 index，读数会是"已核对=1"；短路返回 null 才是"未证实=1"。
+  const cp = require('node:child_process'); const os = require('node:os')
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mb-null-'))
+  const run = (a) => cp.execFileSync('git', a, { cwd: dir, encoding: 'utf8' })
+  try {
+    run(['init', '-q', '-b', 'main', dir])
+    fs.mkdirSync(path.join(dir, '.ccg', 'reviews'), { recursive: true })
+    fs.mkdirSync(path.join(dir, 'openspec', 'records'), { recursive: true })
+    fs.writeFileSync(path.join(dir, '.ccg', 'reviews', SHA64 + '.json'),
+      JSON.stringify({ mode: 'dual', deepReview: { required: true, status: 'cleared', tier: 'external', evidence: 'ses_probe0001' } }, null, 2), 'utf8')
+    fs.writeFileSync(path.join(dir, 'openspec', 'records', 'pr.md'), '---\nrecord: pr\n---\n\n## 记录\n', 'utf8')
+    run(['add', '-A'])
+    run(['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'head side'])
+    run(['checkout', '-q', '--orphan', 'unrelated'])
+    run(['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'orphan root'])
+    run(['checkout', '-q', 'main'])
+    const res = (() => {
+      try {
+        return { rc: 0, out: cp.execFileSync(process.execPath, [path.join(__dirname, 'check-pr-exec-record.js'),
+          '--repo=' + dir, '--base=unrelated', '--mode=enforce',
+          '--statuses=' + JSON.stringify([{ status: 'M', file: '.ccg/reviews/' + SHA64 + '.json' }])], { cwd: dir, encoding: 'utf8' }) }
+      } catch (e) { return { rc: (e && e.status) || 1, out: String((e && e.stdout) || '') } }
+    })()
+    assert.match(res.out, /\[TRANSITION-BASE\] merge-base 取不到/, '必须先出声：' + res.out.slice(0, 200))
+    assert.match(res.out, /TRANSITION-CHECK .*未证实=1/, '取不到 base 只能记未证实：' + res.out.slice(0, 300))
+    assert.match(res.out, /已核对=0/, '不得把"读不到"洗成"已核对"（那正是 i3 担心的 index 读法）')
+  } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('i7（扩锁）：第二份匹配的所有等价形态都要被点名，不只是 find/map 两个方法名', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'check-pr-exec-record.js'), 'utf8')
+  const start = src.indexOf('function highRiskPrefixOf')
+  const end = src.indexOf('\n}', start)
+  assert.ok(start >= 0 && end > start, '锚点定位失败 ⇒ 本锁测量域不可信')
+  const outside = src.slice(0, start) + src.slice(end)
+  assert.ok(!/HIGH_RISK_SURFACES\s*\.\s*(some|every|reduce|flatMap|forEach|map|filter|find|some)/.test(outside),
+    '清单的方法式遍历只准发生在 highRiskPrefixOf 里')
+  assert.ok(!/HIGH_RISK_SURFACES\s*\[/.test(outside), '下标遍历 HIGH_RISK_SURFACES[i] 也是第二份实现')
+  assert.ok(!outside.includes('of HIGH_RISK_SURFACES'), 'for...of / for...in 同罪')
+})
+
+
+test('X2-5③（接线锁）：探针必须由 main 造好并注进两处消费点，且构造晚于 statuses', () => {
+  // 变异 P30（把 main 里的 existsAtHead 改成 undefined）实测 132 条**全绿** ——
+  // 因为债务用例自己注入探针，main 的装配根本不在任何用例的跑道上。这一格只能接线锁。
+  const src = fs.readFileSync(path.join(__dirname, 'check-pr-exec-record.js'), 'utf8')
+  const code = mod.stripCommentsForScan(src)
+  assert.match(code, /const existsAtHead = makeEvidenceProbe\(\{ statuses, repo, head \}\)/,
+    'main 必须用工厂造探针（含 statuses ⇒ 归属判据在真实调用链上）')
+  assert.match(code, /evaluateDeepReviewDebt\(statuses, repo, readAtBase, existsAtHead\)/,
+    '债务判据必须收到探针')
+  assert.match(code, /summarizeTierCoverage\(dualClosedDeepReviews\(statuses, repo\), existsAtHead\)/,
+    '覆盖率读数也必须收到，否则两行读数各说各话')
+  const iStatuses = code.indexOf('let statuses')
+  const iProbe = code.indexOf('const existsAtHead = makeEvidenceProbe')
+  const iDebt = code.indexOf('const deepDebt = evaluateDeepReviewDebt')
+  assert.ok(iStatuses >= 0 && iProbe > iStatuses,
+    '探针的构造必须晚于 statuses —— 放在前面会读到 TDZ 里的 statuses（实测 SyntaxError 形态）')
+  assert.ok(iDebt > iProbe, '探针必须在债务判据之前建好')
+})
+
 
 test('2.1 单一匹配实现：高危面前缀匹配只准有一处（highRiskPrefixOf）', () => {
   const src = fs.readFileSync(path.join(__dirname, 'check-pr-exec-record.js'), 'utf8')
