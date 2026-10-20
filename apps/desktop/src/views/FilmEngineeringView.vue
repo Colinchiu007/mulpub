@@ -38,10 +38,6 @@
           <el-tag size="small" type="info">{{ t('filmEngineering.stats.scenes') }} {{ status.sceneCount }}</el-tag>
           <el-tag size="small" type="info">{{ t('filmEngineering.stats.shots') }} {{ status.shotCount }}</el-tag>
           <el-tag size="small" type="info">{{ t('filmEngineering.stats.references') }} {{ status.referenceCount }}</el-tag>
-          <el-link v-if="safeHttpUrl(status.filmMeta.source && status.filmMeta.source.projectUrl)" :href="safeHttpUrl(status.filmMeta.source && status.filmMeta.source.projectUrl)" target="_blank" rel="noopener" type="primary" class="fe-meta-link">
-            {{ t('filmEngineering.source') }}
-          </el-link>
-          <span v-else-if="status.filmMeta.source && status.filmMeta.source.projectUrl" class="fe-meta-link">{{ status.filmMeta.source.projectUrl }}</span>
         </div>
         <div v-if="status.filmMeta.characters && status.filmMeta.characters.length" class="fe-meta-row">
           <span class="fe-meta-label">{{ t('filmEngineering.characters') }}：</span>
@@ -71,7 +67,7 @@
             >
               <template #default="{ data }">
                 <span class="fe-scene-node">
-                  <span class="fe-scene-name">{{ data.name }}</span>
+                  <span class="fe-scene-name">{{ data.isRoot ? t('filmEngineering.libraryTitle') : data.name }}</span>
                   <span v-if="data.shotCount" class="fe-scene-badge" :title="t('filmEngineering.library.shotCountHint')">{{ data.shotCount }}</span>
                 </span>
               </template>
@@ -450,7 +446,6 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
-import { safeHttpUrl } from '@multi-publish/shared-utils/src/safe-http-url'
 import { useI18n } from 'vue-i18n'
 import { useFilmEngineering } from '@/composables/useFilmEngineering'
 import ConfigProfileManager from '@/components/ConfigProfileManager.vue'
@@ -458,6 +453,7 @@ import { useRouter } from 'vue-router'
 import { useFilmVideoGen, FILM_MAX_VIDEO_BATCH } from '@/composables/useFilmVideoGen'
 import { story2videoShowInFolder, story2videoSaveAs } from '@/api/publisher'
 import { useFilmProduction } from '@/composables/useFilmProduction'
+import { buildSceneTree } from './film-scene-tree'
 
 // embedded=true 时作为 Hub 第 3 标签「工程案例」内嵌（隐藏页面级 h1/subtitle）；
 // 默认 false 时渲染与本次变更前逐字一致（既有测试与 /film-engineering/classic 直达页以此为准）。
@@ -578,7 +574,7 @@ function pdAspectLabel (aspect) {
   return aspect || "—"
 }
 
-// 角色映射输入（前 4 个为 Hell Grind 主角预设）
+// 角色映射输入（前 4 个为影视项目案例主角预设）
 const roleEntries = reactive([
   { key: 'ROKO', value: '' },
   { key: 'JAXX', value: '' },
@@ -604,20 +600,7 @@ function deleteFilmEngineeringProfile (profile) {
   return deleteConfigProfile(profile?.id)
 }
 
-const sceneTree = computed(() => {
-  const map = new Map()
-  const roots = []
-  for (const s of scenes.value) {
-    map.set(s.id, { id: s.id, name: s.name, count: s.count, shotCount: s.shotCount, children: [] })
-  }
-  for (const s of scenes.value) {
-    const node = map.get(s.id)
-    const parent = map.get(s.parentId)
-    if (parent && parent !== node) parent.children.push(node)
-    else roots.push(node)
-  }
-  return roots
-})
+const sceneTree = computed(() => buildSceneTree(scenes.value))
 
 const allSelectedInScene = computed(() => {
   const ids = shots.value.map((s) => s.shotId)
@@ -717,7 +700,6 @@ onMounted(() => {
 .fe-meta-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 .fe-meta-label { color: #606266; font-size: var(--font-size-sm); }
 .fe-char-tag { margin-right: 4px; }
-.fe-meta-link { margin-left: 8px; }
 .fe-layout { display: flex; gap: 16px; align-items: flex-start; }
 .fe-scenes { width: 300px; min-width: 240px; border: 1px solid var(--el-border-color-lighter); border-radius: 8px; padding: 12px; max-height: 70vh; overflow: auto; }
 .fe-shots { flex: 1; min-width: 0; }

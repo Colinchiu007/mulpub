@@ -50,7 +50,7 @@ const TRUSTED_EVENT = { senderFrame: { url: 'http://localhost:5174/' } }
 
 function makeServiceMock (overrides = {}) {
   return {
-    getStatus: vi.fn(() => ({ available: true, filmMeta: { title: 'Hell Grind' }, sceneCount: 1, shotCount: 1, referenceCount: 2, error: null })),
+    getStatus: vi.fn(() => ({ available: true, filmMeta: { title: 'Film Project Case' }, sceneCount: 1, shotCount: 1, referenceCount: 2, error: null })),
     listScenes: vi.fn(() => [{ id: 'cold-open', name: '1. COLD OPEN', count: 12, level: 0 }]),
     listShots: vi.fn(() => [{ shotId: 's1', sceneId: 'cold-open', prompt: 'p', model: 'm', refTokens: [] }]),
     getShot: vi.fn(() => ({ shotId: 's1', prompt: 'p', resolvedRefs: [] })),

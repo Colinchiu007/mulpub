@@ -33,7 +33,7 @@ vi.mock('@vue-flow/minimap', () => ({ MiniMap: { template: '<div />' } }))
 
 const apiMock = {
   filmEngineering: {
-    status: vi.fn(async () => ({ code: 0, data: { available: true, filmMeta: { title: 'Hell Grind' } } })),
+    status: vi.fn(async () => ({ code: 0, data: { available: true, filmMeta: { title: 'Film Project Case' } } })),
     adaptScript: vi.fn(async () => ({ code: 0, data: { adaptedShots: [{ shotId: 'adapt-001', sceneId: 's1', prompt: 'p' }, { shotId: 'adapt-002', sceneId: 's1', prompt: 'q' }], llmEnhanced: false, warnings: [] } })),
     uploadReference: vi.fn(async () => ({ code: 0, data: { path: '/r/a.png', fileName: 'a.png', bytes: 10, mime: 'image/png' } })),
   },

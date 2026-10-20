@@ -80,7 +80,7 @@ function makeKit () {
     manifest: {
       schemaVersion: 1,
       filmMeta: {
-        title: 'Hell Grind', durationSec: 5706, logline: 'Street kids gain powers.',
+        title: 'Film Project Case', durationSec: 5706, logline: 'Street kids gain powers.',
         characters: [{ name: 'ROKO', descriptor: 'Determined street kid' }],
       },
       scenes: [{ id: 'cold-open', name: '1. COLD OPEN', count: 12, parentId: null, level: 0 }],

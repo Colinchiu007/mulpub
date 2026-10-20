@@ -19,7 +19,7 @@ function makeStorage () {
 
 beforeEach(() => {
   mockApi.filmEngineering = {
-    status: vi.fn(async () => ({ code: 0, data: { available: true, filmMeta: { title: 'Hell Grind' } } })),
+    status: vi.fn(async () => ({ code: 0, data: { available: true, filmMeta: { title: 'Film Project Case' } } })),
     adaptScript: vi.fn(async () => ({
       code: 0,
       data: {

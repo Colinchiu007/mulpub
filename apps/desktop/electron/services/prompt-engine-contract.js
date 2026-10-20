@@ -60,7 +60,7 @@ const PROMPT_ENGINE_CONTEXT_KEYS = Object.freeze(new Set([
 ]))
 
 /**
- * 技术底座基线片段（Higgsfield《Hell Grind》语料实证：12 行技术底座标记出现率 90%+，
+ * 技术底座基线片段（影视项目案例语料实证：12 行技术底座标记出现率 90%+，
  * 写实/摄影/灯光/色彩比例/皮肤细节/物理/禁文字段）。
  * ≤200 字符；默认拼入 prompt 后置（受 promptMax 截断保护），可显式关闭（options.quality_baseline=false）。
  */
