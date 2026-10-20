@@ -173,22 +173,54 @@ test('用法错误（--limit 非数字）exit 2，不得静默当成 0', () => {
   assert.match(r.stderr, /--limit/)
 })
 
-// ── 外部评审（claude）第 1 轮 i2 / i5 的回归保护 ──────────────────────────
-// i2: 闭环白名单在「审计模块」与「判据本体」各有一份定义，同步改一处会漏另一处。
-//     本轮的选择是**不重构 enforce 路径**（那是高危面的逻辑改动），而是加一把
-//     「同真源」锁：两份定义必须始终相等，任何一侧漂移当场红。
-test('i2：审计模块的闭环白名单必须与判据本体的白名单逐字一致（防两处独立定义漂移）', () => {
+// ── 外部评审（claude）各轮 findings 的回归保护 ──────────────────────────
+// 第 2 轮把 i2 提为 Critical：第 1 轮我加的是「相等测试」，critic 指出那只能**发现**
+// 漂移（要等测试跑到）、不能**消除**漂移。所以改为真正的单一真源：判据本体与审计模块
+// 都 require scripts/lib/exec-record-statuses.js，任何一侧都不许再写字面量副本。
+test('i2（第 2 轮升级）：闭环白名单必须单一真源 —— 两处都 require 同一模块，且判据本体不再自定义副本', () => {
   const fs2 = require('node:fs')
-  const { CLOSED_STATUSES } = require('./lib/exec-record-audit')
-  const src = fs2.readFileSync(path.join(__dirname, 'check-pr-exec-record.js'), 'utf8')
-  // 判据本体里这三词出现在闭环解释注释与白名单判定处；取源码中出现的三个词作对照
-  const expected = ['cleared', 'needs_revision', 'self_play_resolved']
-  for (const word of expected) {
-    assert.ok(src.includes(word), `判据本体源码里应出现 ${word}`)
-    assert.ok(CLOSED_STATUSES.has(word), `审计模块的闭环白名单缺 ${word} ⇒ 两份定义漂移`)
+  const shared = require('./lib/exec-record-statuses')
+  const audit = require('./lib/exec-record-audit')
+  // ① 两处消费的是同一份定义
+  assert.strictEqual(audit.CLOSED_STATUSES, shared.CLOSED_DEEP_REVIEW_STATUSES,
+    '审计模块必须直接使用共享常量（同一个对象），不得复制')
+  for (const word of ['cleared', 'needs_revision', 'self_play_resolved']) {
+    assert.ok(shared.CLOSED_DEEP_REVIEW_STATUSES.has(word), `共享真源缺 ${word}`)
   }
-  assert.strictEqual(CLOSED_STATUSES.size, expected.length,
-    `闭环白名单必须恰好 ${expected.length} 个词；多出的词等于放宽闭环口径`)
+  assert.strictEqual(shared.CLOSED_DEEP_REVIEW_STATUSES.size, 3, '多出词等于放宽闭环口径')
+  // ② 判据本体必须 require 真源，且不得再有自己的字面量 Set
+  const src = fs2.readFileSync(path.join(__dirname, 'check-pr-exec-record.js'), 'utf8')
+  assert.match(src, /require\(['"]\.\/lib\/exec-record-statuses['"]\)/,
+    '判据本体必须 require 单一真源')
+  assert.ok(!/new Set\(\s*\[\s*['"]cleared['"]/.test(src),
+    '判据本体不得再定义字面量闭环白名单（那就是第二份真源）')
+})
+
+// i1（第 2 轮仍为 Critical）：记录的 sha 与 PR head 不符曾被判「证据脱钩」。真实原因是
+// pre-commit 写的是**父提交**，而这条契约此前只存在于驱动脚本的一句打印里、工具侧看不见。
+// 现在审计把它变成读数，本用例锁住「读数存在且与真实 git 状态一致」。
+test('i1（第 2 轮）：审计必须自证记录 sha 的可解析性，让「父 sha 契约」不再只靠人记', () => {
+  // 注意：不能在 makeRepo 的入参里引用 git/HEAD —— 那时 dir/git 还不存在。
+  // 先建仓拿到真实 HEAD，再把记录改成指向它。
+  const { dir, git } = makeRepo({ p1: dual({ sha: 'e'.repeat(40) }) })
+  const head = git('rev-parse', 'HEAD').trim()
+  fs.writeFileSync(path.join(dir, '.ccg', 'reviews', 'p1.json'), JSON.stringify(
+    dual({ sha: head, deepReview: { required: true, status: 'pending', performedBy: null, findings: [{}] } }), null, 2))
+
+  const r = runAudit(dir, ['--json'])
+  assert.strictEqual(r.code, 0, r.stderr)
+  const j = JSON.parse(r.stdout)
+  assert.ok(j.shaResolvability, '必须输出 shaResolvability')
+  assert.strictEqual(j.shaResolvability.resolvable, 1, '真实存在的 sha 必须算可解析')
+  assert.strictEqual(j.shaResolvability.unresolvable, 0)
+
+  // 反向：塞一个不存在的 sha，必须被点名而不是静默通过
+  fs.writeFileSync(path.join(dir, '.ccg', 'reviews', 'ghost.json'), JSON.stringify(
+    dual({ sha: 'd'.repeat(40), deepReview: { required: true, status: 'pending', performedBy: null, findings: [{}] } }), null, 2))
+  const r2 = runAudit(dir, ['--json'])
+  const j2 = JSON.parse(r2.stdout)
+  assert.strictEqual(j2.shaResolvability.unresolvable, 1, '不存在的 sha 必须计入不可解析')
+  assert.deepStrictEqual(j2.shaResolvability.unresolvableFiles, ['.ccg/reviews/ghost.json'])
 })
 
 // i5: --repo 指向没有记录目录的路径时，必须有可诊断的说明，而不是静默「0 条」。

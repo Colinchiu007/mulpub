@@ -715,11 +715,9 @@ function summarizeTransitionCheck (rows, scanned) {
   }
 }
 
-const CLOSED_DEEP_REVIEW_STATUSES = new Set([
-  'cleared',
-  'needs_revision',
-  'self_play_resolved',
-])
+// 闭环状态词只此一份：真源在 scripts/lib/exec-record-statuses.js（外部评审第 2 轮 i2）。
+// 本地不再定义字面量——审计模块也 require 同一个模块，两处不可能漂移。
+const { CLOSED_DEEP_REVIEW_STATUSES } = require('./lib/exec-record-statuses')
 
 // ── QM-6 丙：来源分档与覆盖率读数（先可见不拦，见 design §9.1）────────────
 // 分级只读结构化 tier（闭集）+ evidence；MUST NOT 读 performedBy 散文

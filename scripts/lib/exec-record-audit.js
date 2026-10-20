@@ -26,8 +26,8 @@ const fs = require('node:fs')
 const path = require('node:path')
 const { execFileSync } = require('node:child_process')
 
-/** 判据认可的闭环状态词（与 check-pr-exec-record.js 的白名单同源） */
-const CLOSED_STATUSES = new Set(['cleared', 'needs_revision', 'self_play_resolved'])
+/** 判据认可的闭环状态词 —— **不再本地定义**，与判据本体共用同一真源（外部评审第 2 轮 i2） */
+const { CLOSED_DEEP_REVIEW_STATUSES: CLOSED_STATUSES } = require('./exec-record-statuses')
 
 const REVIEWS_DIR = path.join('.ccg', 'reviews')
 
@@ -111,6 +111,7 @@ function auditHistoricalDebt({ repo, limit = 20 } = {}) {
   }
 
   const statusRows = [...byStatus.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+  const shaStats = shaResolvability(repo, records)
   return {
     readOnly: true,
     repo,
@@ -125,9 +126,47 @@ function auditHistoricalDebt({ repo, limit = 20 } = {}) {
     notLanded,
     unknownLanding,
     landingDeterminable: inMain !== null,
+    shaResolvability: shaStats,
     samples: openSamples,
     limit,
   }
+}
+
+/**
+ * 记录里 `sha` 的可解析性。**1 次 spawn**（`git cat-file --batch-check` 批量喂）。
+ *
+ * 为什么要有这一项（外部评审第 2 轮 i1 提到 Critical）：判定记录是 pre-commit 写的，
+ * 而那一刻新 commit 尚未生成 ⇒ 记录里的 `sha` 是**父提交**。这条契约此前只存在于
+ * 驱动脚本的一句打印里，工具侧完全看不见，于是"记录 sha 与 PR head 不符"这类判断
+ * 只能靠人记着。把它变成读数之后：① 契约被工具自证；② 真有不可解析的 sha 时能点名。
+ * @returns {{resolvable: number, unresolvable: number, unresolvableFiles: string[]}}
+ */
+function shaResolvability(repo, records) {
+  const shas = []
+  for (const rec of records) {
+    const s = rec.body && rec.body.sha
+    if (typeof s === 'string' && /^[0-9a-f]{7,64}$/i.test(s)) shas.push({ sha: s, file: rec.rel })
+  }
+  if (shas.length === 0) return { resolvable: 0, unresolvable: 0, unresolvableFiles: [] }
+  let out = ''
+  try {
+    out = execFileSync('git', ['-C', repo, 'cat-file', '--batch-check'], {
+      input: shas.map(x => x.sha).join('\n') + '\n',
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'ignore'],
+      maxBuffer: 32 * 1024 * 1024,
+    })
+  } catch { return { resolvable: 0, unresolvable: 0, unresolvableFiles: [] } }
+  const lines = out.split('\n')
+  let resolvable = 0
+  const unresolvableFiles = []
+  shas.forEach((x, i) => {
+    const line = lines[i] || ''
+    // 存在的对象形如 "<sha> <type> <size>"；缺失是 "<sha> missing"
+    if (/\b(missing|ambiguous)\b/.test(line)) unresolvableFiles.push(x.file)
+    else resolvable++
+  })
+  return { resolvable, unresolvable: unresolvableFiles.length, unresolvableFiles: unresolvableFiles.slice(0, 8) }
 }
 
 function formatText(r) {
@@ -155,6 +194,14 @@ function formatText(r) {
   }
   L.push('')
   L.push(`待人工看的 findings 条数（未闭环 dual 累加）: ${r.findingsTotal}`)
+  L.push('')
+  L.push('记录 sha 可解析性（判定记录由 pre-commit 写，那一刻新 commit 尚未生成 ⇒ sha 是**父提交**；')
+  L.push('这是引擎既有契约，本行把它自证出来，而不是让人记着）')
+  L.push(`  可解析          : ${r.shaResolvability.resolvable}`)
+  L.push(`  不可解析        : ${r.shaResolvability.unresolvable}`)
+  if (r.shaResolvability.unresolvableFiles.length > 0) {
+    for (const f of r.shaResolvability.unresolvableFiles) L.push(`    缺失对象: ${f}`)
+  }
   if (r.total === 0) {
     // 外部评审 i5：空结果必须能自证「我找的是哪个目录」，否则用户无从判断是仓库里
     // 真的没有记录、还是路径给错了（静默「0 条」是最坏的可诊断性）。

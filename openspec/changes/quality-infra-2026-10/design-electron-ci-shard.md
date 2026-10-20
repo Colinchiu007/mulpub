@@ -1,4 +1,14 @@
+---
+implemented: false
+kind: plan
+affects_ci_behavior: false
+---
+
 # 设计：Electron CI 串行单测按 `--shard` 切开（**方案，未提交实现**）
+
+> `implemented: false` 是机器可读标记（外部评审第 2 轮 i3 要求）：本文件描述的是**未落地**
+> 的计划，`electron-ci.yml` 的当前行为**没有**任何改变。若日后落地，把该字段改成 `true`
+> 并在此处记录落地 PR 号。
 
 > 状态：**未落地**。本文件只是方案 + 精确补丁，`electron-ci.yml` **本次未被修改**。
 > 落地前提见文末「为什么先不提交实现」。

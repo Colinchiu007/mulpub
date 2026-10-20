@@ -94,7 +94,7 @@
 3. 分片方案只是文档，未改 `electron-ci.yml` ⇒ 本次不改变任何 CI 行为。
 
 
-## 8) 外部评审第 1 轮处置（真跑了外部 critic，不是自扮演）
+## 7) 外部评审第 1 轮处置（真跑了外部 critic，不是自扮演）
 
 `sh scripts/deep-review.sh` 实跑：`判定: DUAL`（变更 380 行 > 200 行阈值）、
 `跨家族校验 proposer=opencode critic=claude 通过`、`critic=claude` 真实返回
@@ -115,6 +115,25 @@
 **审查轮次记录**：第 1 轮 = 上述 6 条；i2/i3/i5 已修并各带回归锁或文档边界，
 i1/i6 逐条给出可核证据。**本轮不自行把 `status` 改成闭环词**：
 本 PR 命中高危面，闭环只认 `tier=external` + 可核 evidence，须由人工/外部复核确认。
+
+## 8) 外部评审第 2 轮处置（审**已修**版本，非旧版）
+
+第 2 轮实跑：`判定: SINGLE`（本次 diff 33 行）、`critic=claude` 返回 **6 条**、
+维度分 `correctness=6 security=7 performance=6 maintainability=5`（第 1 轮最低分 4 → 本轮 5）。
+critic 明确反驳了我第 1 轮的两条处置，并且**它是对的**：
+
+| # | 第 2 轮主张 | 处置 |
+| --- | --- | --- |
+| i1 | Critical：我驳回 i1 靠的是「HEAD^ 是父 sha」这条**没有落进代码/测试**的口头契约 ⇒ 审计证据仍然模糊 | **已修，且立刻抓到真问题**：审计新增「记录 sha 可解析性」读数（`git cat-file --batch-check` 批量，**仍是 1 次 spawn**），把契约自证出来。实跑发现 **3 条 sha 不可解析**的记录，且文件名是人工命名（`2429ce1a3-logic.json` / `-maintainability.json` / `-maintainability-pass2.json`），不是引擎按内容哈希生成的 ⇒ 存在手写记录挂了不存在的 sha |
+| i2 | Critical：相等测试只**发现**漂移、不**消除**漂移；应从源头 import 删掉副本 | **已修（按它说的做）**：新增 `scripts/lib/exec-record-statuses.js` 作为唯一真源，判据本体与审计模块都 `require` 它，两侧字面量副本全部删除。回归锁改为「同一对象引用 + 判据本体不得再有字面量 Set」。既有 113 例判据测试全绿，说明这次真共享没伤 enforce 路径 |
+| i3 | Warning：未落地的 `design-*.md` 无机器可读标记，读者可能误认它已生效 | **已修**：加 `implemented: false` / `kind: plan` / `affects_ci_behavior: false` frontmatter |
+| i4 | Warning：只凭单次快照就断言「不是瓶颈」，增长未测；应给阈值 | **已修（按它给的形态）**：写死阈值 —— 审计 **> 5 s** 或记录 **> 5000 条** 必须重新评估读取方式并给实测依据；那之前加复杂度属过早优化 |
+| i5 | Info：空结果文案够用，字符串匹配测试略脆 | 维持（可选改进：从模块导出文案常量） |
+| i6 | Info：中文注释符合 `AGENTS.md` 约定 | 维持 |
+
+**这一轮的收获不是"又修了几条"，而是 critic 把我两条「我已处置」打回成 Critical 后，
+其中一条（i2）促成了真正的单一真源、另一条（i1）促成了一个立即发现 3 条坏数据的新读数。**
+如果第 1 轮我就此宣布闭环，这两件事都不会被发现。
 
 ## 9) 保留门禁
 
