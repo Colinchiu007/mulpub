@@ -1,0 +1,59 @@
+{
+  "sha": "ffb55c931fb641b3d950c6dd7545e4367b5f6dd3",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 5,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 22,
+    "docSensitiveContentSample": [
+      "| 文档编号 | `PRD-S2V-VOICE-CLONE-AUTO-SELECT-2026-10-20` |",
+      "| 状态 | 已实现（随分支 `s2v-voice-clone-auto-select` 落地）【已实现】 |",
+      "| 关联执行记录 | `openspec/records/s2v-voice-clone-auto-select.md` |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "0961538998b154ef1d686f778c7364c7c5b642c9f54ccf3945a168f04b6b687f",
+  "decidedAt": "2026-10-20T04:27:35.097Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}
