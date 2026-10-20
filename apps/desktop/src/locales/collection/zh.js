@@ -187,7 +187,8 @@ export default {
     rewriting: 'AI 改写中...',
     rewriteSuccess: '改写完成',
     rewriteFailed: 'AI 改写失败',
-    rewriteTruncated: '正文共 {original} 字，超过单次改写上限 {max} 字，已截取前 {max} 字进行改写',
+    // 分段改写提示（rewrite-segment-and-finish-reason）：>阈值透传全文由引擎分段，不再预截断
+    rewriteSegmented: '正文共 {length} 字，超过单次改写上限 {max} 字，将分段改写（耗时与费用相应增加，其他 AI 功能可能变慢）',
     oneClickRewrite: '一键改写',
     oneClickRewriting: '一键改写中...',
     originalContent: '采集原文',

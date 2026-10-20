@@ -1,5 +1,12 @@
 # PRD：文案改写字数区间控制（2026-09-12）
 
+> ⚠️ **部分口径已被取代（2026-10-20，change `rewrite-segment-and-finish-reason`）**：
+> 输出区间上界 6000 已随 rewrite-limits-50000 放开到 **50000**（真源 `packages/rewrite-engine/src/rewrite-engine-core.js` 的 `MAX_OUTPUT_CHARS`）；
+> 输入上限、输出截断可见化（`outputTruncated` / `modelTruncated`）、Python 链路上界对齐见
+> `01-docs/PRD-REWRITE-LIMITS-50000-2026-10-19.md` 与 `openspec/changes/rewrite-segment-and-finish-reason/proposal.md`。
+> 本文其余部分（三档语义、注入优先级、默认值）仍然有效。
+
+
 ## 1. 背景与目标
 
 ### 1.1 背景

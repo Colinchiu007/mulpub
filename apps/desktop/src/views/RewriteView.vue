@@ -214,12 +214,27 @@
         >
           ⚠️ {{ t('rewritePage.outputTruncated', { length: outputTruncatedInfo.length, max: outputTruncatedInfo.max }) }}
         </div>
+        <!-- 模型侧截断可见化（rewrite-segment-and-finish-reason 第二刀）：provider 的
+             finish_reason 表示输出被模型自身上限截断，与上面「引擎按字数区间砍尾」是两种
+             不同的限制，文案必须分型（上面那条建议「调大字数控制」，对模型上限无效） -->
+        <div
+          v-if="modelTruncatedInfo"
+          class="rewrite-output-truncated-banner rewrite-model-truncated-banner"
+          data-testid="rewrite-model-truncated"
+        >
+          ⚠️ {{ t('rewritePage.outputTruncatedByModel', { length: modelTruncatedInfo.length }) }}
+        </div>
         <div class="rewrite-result-meta" v-if="rewriteMeta">
           <span>{{ t('rewritePage.metaStrategy') }}：{{ rewriteMeta.strategyName }}</span>
           <span>{{ t('rewritePage.metaAiTaste') }}：{{ rewriteMeta.aiTastePct }}</span>
           <!-- 字数概览按模式分派用词：选题创作的输入是「主题种子」而非待改写正文，
                标成「原文」会把种子误读为需保留语义的原文（设计评审 Q5，与评分口径同一概念陷阱） -->
           <span>{{ t(rewriteMeta.mode === 'create' ? 'rewritePage.metaLengthFromTopic' : 'rewritePage.metaLength', { original: rewriteMeta.originalLength, result: rewriteMeta.resultLength }) }}</span>
+          <!-- 分段改写（rewrite-segment-and-finish-reason 第二刀）：>阈值输入由引擎分 N 段，
+               展示段数让「耗时/费用为什么变高」可见 -->
+          <span v-if="rewriteMeta.segmentCount > 1" data-testid="rewrite-segmented-meta">
+            {{ t('rewritePage.segmentedMeta', { count: rewriteMeta.segmentCount }) }}
+          </span>
         </div>
         <!-- 改写质量评估报告（content-quality-eval 桌面端闭环）
              视觉：用左侧强调条表达结论等级，替代原先「卡片内再套一个带边框的卡片」 -->
@@ -351,12 +366,12 @@ import { usePodcastChannel } from '@/composables/usePodcastChannel'
 import RewriteStrategyPicker from '@/components/RewriteStrategyPicker.vue'
 import WordCountRangeInput from '@/components/WordCountRangeInput.vue'
 import { deriveDefaultMode, deriveWordCountRange } from '@/utils/rewrite-defaults'
-import { REWRITE_ENGINE_MAX_OUTPUT_CHARS } from '@/utils/rewrite-engine-limits'
+import { REWRITE_ENGINE_MAX_OUTPUT_CHARS, REWRITE_ENGINE_MAX_INPUT_CHARS, countRewriteChars, shouldSegmentRewrite } from '@/utils/rewrite-engine-limits'
 
 const router = useRouter()
 const route = useRoute()
 const { t } = useI18n()
-const { notifySuccess, notifyError, notifyWarning } = useNotify()
+const { notifySuccess, notifyError, notifyWarning, notifyInfo } = useNotify()
 const { ensureLogin } = useLoginGate()
 
 // ── 状态 ──
@@ -372,6 +387,9 @@ const rewriteMeta = ref(null)
 // 输出截断可见化（rewrite-limits-50000，2026-10-19）：引擎 outputTruncated=true 时
 // {length: 实际输出字数, max: 生效上限}；未截断为 null。数据源见 result 消费分支。
 const outputTruncatedInfo = ref(null)
+// 模型侧截断可见化（rewrite-segment-and-finish-reason 第二刀）：引擎 modelTruncated=true
+// （provider finish_reason=length/max_tokens）时 {length}；与上面引擎截断分型展示。
+const modelTruncatedInfo = ref(null)
 // content-quality-eval 桌面端闭环：改写质量评估报告（RewriteQualityEvaluator 结果）
 const rewriteQuality = ref(null)
 // P2 隐式反馈：本次改写引用的知识条目（保存/发布=采纳 / 再次改写=弃用）
@@ -732,6 +750,14 @@ async function startRewrite() {
 
   rewriting.value = true
   rewriteError.value = ''
+  // 分段改写事前提示（rewrite-segment-and-finish-reason 第二刀）：超过阈值时引擎会分 N 段
+  // 串行改写（耗时与费用 ×N、期间其他 AI 功能可能变慢、段间一致性可能有折损）。
+  // 这些代价必须在**开始前**告知——失败或变慢的用户预期成本远高于一句提示。
+  if (shouldSegmentRewrite(trimmed)) {
+    notifyInfo('rewritePage.rewriteSegmented', {
+      params: { length: countRewriteChars(trimmed), max: REWRITE_ENGINE_MAX_INPUT_CHARS },
+    })
+  }
   // 交接一次性语义（审查 W-1）：无论本次改写成败都消费掉交接载荷，
   // 防止失败后残留的 fromKey 被后续无关改写静默覆盖文案库记录
   const handoffForRun = libraryHandoff.value
@@ -747,6 +773,10 @@ async function startRewrite() {
   // CCG 评审修复：新改写开始前重置质量报告，避免上一次改写（无 quality）的旧报告残留
   rewriteQuality.value = null
   viralInfo.value = null
+  // 截断可见化两态复位（rewrite-segment-and-finish-reason）：上一次的截断横幅不得
+  // 残留到这一次（否则用户会把「上次被截断」读成「这次也被截断」）
+  outputTruncatedInfo.value = null
+  modelTruncatedInfo.value = null
   // 归因链：上一次改写的 id 不得跟着这一次的发布走（置空后由成功分支重新赋值；
   // 本次改写若没落库成功就是 null，宁缺毋滥）
   rewriteLineageId = null
@@ -822,11 +852,21 @@ async function startRewrite() {
         resultLength: data.metadata?.resultLength || 0,
         // 实际生效的改写模式（用于字数概览的用词分派；缺省 imitate）
         mode: data.metadata?.mode || 'imitate',
+        // 分段改写（rewrite-segment-and-finish-reason 第二刀）：>阈值输入由引擎分 N 段
+        // 改写；结果卡元信息行展示段数，让「耗时/费用为什么变高」可见。
+        segmentCount: (data.segmented && data.segmented.enabled === true && Number.isFinite(Number(data.segmented.segmentCount)))
+          ? Number(data.segmented.segmentCount)
+          : 0,
       }
       // 输出截断可见化（rewrite-limits-50000）：引擎 outputTruncated=true ⇒ 记录
       // {length, max} 供结果卡横幅展示；未截断/缺省字段 ⇒ 复位 null。
       outputTruncatedInfo.value = (data.outputTruncated === true && Number.isFinite(Number(data.outputLength)))
         ? { length: Number(data.outputLength), max: wordCountMax.value || REWRITE_ENGINE_MAX_OUTPUT_CHARS }
+        : null
+      // 模型侧截断可见化（rewrite-segment-and-finish-reason）：两条横幅分型展示，
+      // 各自的文案不同（模型上限不能靠「调大字数控制」解决）。
+      modelTruncatedInfo.value = (data.modelTruncated === true && Number.isFinite(Number(data.outputLength)))
+        ? { length: Number(data.outputLength) }
         : null
       if (data.warnings && data.warnings.length > 0) {
         rewriteError.value = data.warnings.join('；')

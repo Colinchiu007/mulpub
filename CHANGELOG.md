@@ -72,6 +72,66 @@
   QM-6 双模型外部评审**未执行**（本机无可用通道，pre-commit 如实打印跳过）。
 - 执行记录 `openspec/records/debt-baseline-resync.md`（含归因两条、影响面与两个跟进项判据）。
 
+# [未发布] feat(rewrite): >50000 长文分段改写 + 渲染层不再预截断 + 截断两态分型（rewrite-segment-long-input）
+
+## 问题
+
+第一刀把 `_rewriteOnce` 抽出、`_validate` 只保空内容校验后，**>50000 输入无路可走**——旧限制拆掉了、新能力没装上。
+三条评审预警的同型缺陷也随之暴露：① 渲染层 `prepareRewriteInput` 预截断让分段路径在采集页**永不可达**（死代码）；
+② 段级区间若照搬 ratio，5 段合计上限 72000 > 全篇 50000，合并必砍 22000 字（「为免截断而分段、分段反而制造截断」）；
+③ 任一段失败若返回半成品，用户会把残缺稿当成品。
+
+## 改动
+
+- 新增 `packages/rewrite-engine/src/segment-splitter.js`：三级切分（段落贪心合并 → 句子边界 → **码点硬切兜底**），
+  保证 segment 永不超 `SEGMENT_SIZE=12000`（= `max_tokens 64000 ÷ 2` 安全线），emoji 代理对不劈；
+  **无损性契约**：每段都是原文连续子串且顺序覆盖（测试断言，防丢段/重复段/编造段）。
+- 新增 `packages/rewrite-engine/src/segment-rewriter.js`：分段编排（独立模块，避免核心文件撞 max-lines 基线）——
+  逐段复用 `_rewriteOnce`、prompt 注入「长文分片 i/n」、合并后**复用 `_postProcess`**（不新造第三条截断语义）；
+  失败整篇失败 + `segmentIndex`/`segmentCount`（不返回半成品、不写知识库）；段级区间按**份额**分配
+  （`deriveSegmentRange`，各段上限之和 ≤ 全篇上限）。
+- 引擎 `rewrite()`：`> MAX_INPUT_CHARS` 分流到分段路径；`_validate` 移除长度硬拒（只保空内容校验）。
+- 渲染层：`prepareRewriteInput` **不再预截断**（只做空内容归一）+ 新增 `shouldSegmentRewrite`；
+  采集页/改写页在超阈值时**事前** info 提示「将分段改写（耗时与费用增加、其他 AI 功能可能变慢、可能有一致性折损）」；
+  结果卡 meta 行新增「分段改写 ×N」；采集页成功分支新增 `meta` 四字段透传（修「引擎可见字段被静默丢弃」）；
+  新增模型截断横幅（`data-testid="rewrite-model-truncated"`），文案明确「这是模型侧限制，调大字数控制不一定有效」。
+- 错误与文案：`REWRITE_SEGMENT_FAILED`（1-based `{index}`/`{total}` 插值）；删除已无调用点的
+  `collection.rewriteTruncated`（预截断取消后它与分段提示互相矛盾）。
+
+## 验证
+
+- 引擎 **255 passed**（segment-splitter 11 + S1–S5 五例 + 既有 239；W3 改写为「50001 走分段成功」）。
+- 渲染层 **274 + 136 passed**（跨两组汇总覆盖全部受影响面：模型截断横幅分型、分段 meta、meta 透传、分段失败文案、
+  结构锁改写）。
+- `build:vue` rc=0；`electron-builder --dir` rc=0；asar 实测：`segment-splitter.js` / `segment-rewriter.js` /
+  `llm-result.js` 均在包内，核心文件已委派 `require('./segment-rewriter')`、含 `> MAX_INPUT_CHARS` 分流，
+  切分器含硬切兜底、分段器含段级区间推导。
+- 静态门禁：unwired-tests OK、locale keys PASS（2167）、locale CJK PASS、max-lines ✅、brand-residue PASS、doc-abs-paths PASS。
+
+# [未发布] feat(rewrite): finish_reason 全链路透传 + Python 字数上限对齐 50000 + rewrite() 抽取 _rewriteOnce（rewrite-segment-contract）
+
+## 问题
+
+rewrite-limits-50000 放开上限后暴露三条契约尾巴（change rewrite-segment-and-finish-reason 第一刀）：
+
+1. provider `finish_reason` 在 adapter 已返回（openai.js:158 / anthropic.js:174 / minimax-llm.js:137，其余 OpenAI 兼容子类继承），但 ai-generator→llmClient→引擎全链路只传 string ⇒ **模型侧输出截断完全不可见**，与引擎侧截断混淆无法归因；
+2. Python 聚合链路 `RewriteRequest` 字数上界仍钉 5999/6000，与 JS 引擎 50000 不一致；
+3. 引擎 `rewrite()` 是 160 行单体，无单次改写子方法 ⇒ >50000 分段改写无可复用单元。
+
+## 改动
+
+- 新增 `packages/rewrite-engine/src/llm-result.js`：`normalizeChatResult`（string/object 双形态单点归一化）+ `isTruncatedFinishReason`（`length`/`max_tokens` ⇒ 截断；`stop`/`content_filter`/null ⇒ 否）。
+- 两个消费点共用归一化：`RewriteEngine._rewriteOnce`（归一化后判空，`{text:''}` 仍走 EMPTY_RESULT）与 `extractWithLLM`（关键词兜底——不归一化会让「chat 返回 object」静默杀死关键词兜底且无报错）。
+- 主进程 `rewrite-engine.js` llmClient.chat 返回 `{text, finishReason}`；`rewrite()` 结果新增 `modelTruncated`（纯增量字段）。
+- Python `models.py`：`min_word_count` 5999→49999、`max_word_count` 6000→50000（真源注释指向 JS `MAX_OUTPUT_CHARS`）。
+- **保形抽取** `_rewriteOnce`（第二刀分段改写的前置件）：`rewrite()` 变薄编排（校验/敏感词前置/策略匹配全篇一次 → `_rewriteOnce` → 全篇级副作用一次 → `_assembleResult`）；KB recordFeedback 与 viralScorer 上移全篇级，分段路径由此天然获得「一篇一次」语义。
+
+## 验证
+
+- 引擎 **239 passed**（新增 llm-result 10 + modelTruncated/EMPTY_RESULT/LLM_ERROR 七例 + keyword object 三例）；渲染层 **192 passed**；Python **51 passed**（50000 合法 / 50001 越界新边界）。
+- 保形抽取零行为变化：229 例既有引擎测试全绿。
+- `build:vue` rc=0；`electron-builder --dir` rc=0；asar 实测含 `normalizeChatResult`。
+
 # [未发布] fix(gates): 测试接线棘轮的判定域改成 git 的域，并消掉反向的「本机私产伪造接线」（unwired-tests-git-domain）
 
 - **动因（实测两例，同一根因）**：`scripts/check-unwired-tests.js` 的域是**磁盘遍历**，于是本机才有的未跟踪产物被当成「仓库里的东西」。① 共享根里另一会话留下的 `.adversarial/arl-patched/.github/workflows/ci.yml`（实测命中 `.gitignore:417`）⇒ `NESTED_WORKFLOW_NOT_EXECUTED` rc=1，而 CI 的检出态里没有这个路径；② 上一轮为 `.agent_context` 给剪枝清单加过一条目录名（那次共享根 3546 行、其中 3543 行来自它），但**按具体路径打补丁只能事后追认已发现的噪声**，第二例照样红。这是 #3876（check-max-lines）/#3900（check-debt-budget）同根因的第三处，也是最后一处判据本体在 `scripts/`、扫全仓的那一处。

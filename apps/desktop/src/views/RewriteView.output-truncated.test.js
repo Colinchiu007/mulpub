@@ -132,3 +132,133 @@ describe('改写结果输出截断可见化（rewrite-limits-50000）', () => {
     wrapper.unmount()
   })
 })
+
+// ── 模型侧截断可见化（rewrite-segment-and-finish-reason 第二刀）──
+// 引擎 outputTruncated（按字数区间砍尾）与 modelTruncated（provider 自身上限截断）
+// 是两种不同限制，必须分型展示：前者建议「调大字数控制」，对后者无效。
+describe('改写结果模型侧截断可见化（rewrite-segment-and-finish-reason）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    setActivePinia(createPinia())
+    window.electronAPI = {}
+    document.body.replaceChildren()
+  })
+
+  it('modelTruncated=true ⇒ 展示模型截断横幅（与引擎截断横幅分型，两个 testid 独立）', async () => {
+    aiRewrite.mockResolvedValueOnce({
+      code: 0,
+      data: {
+        success: true,
+        result: '被模型截断的结果。',
+        modelTruncated: true,
+        outputLength: 4000,
+        strategy: { id: 's1', name: '测试策略', category: 'viral' },
+        warnings: [],
+        sensitiveHits: [],
+        knowledgeRefs: [],
+        metadata: { mode: 'imitate', originalLength: 30, resultLength: 4000, aiTasteLevel: 0.15 },
+      },
+    })
+    const wrapper = factory()
+    await startRewrite(wrapper)
+    const banner = wrapper.find('[data-testid="rewrite-model-truncated"]')
+    expect(banner.exists()).toBe(true)
+    expect(banner.text()).toContain('4000')
+    // 引擎截断横幅不得同时出现（引擎未砍尾）
+    expect(wrapper.find('[data-testid="rewrite-output-truncated"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('两态同时为 true ⇒ 两条横幅并存（来源不同、各自可读）', async () => {
+    aiRewrite.mockResolvedValueOnce({
+      code: 0,
+      data: {
+        success: true,
+        result: '两重限制的结果。',
+        outputTruncated: true,
+        outputLength: 3000,
+        modelTruncated: true,
+        strategy: { id: 's1', name: '测试策略', category: 'viral' },
+        warnings: [],
+        sensitiveHits: [],
+        knowledgeRefs: [],
+        metadata: { mode: 'imitate', originalLength: 30, resultLength: 3000, aiTasteLevel: 0.15 },
+      },
+    })
+    const wrapper = factory()
+    await startRewrite(wrapper)
+    expect(wrapper.find('[data-testid="rewrite-output-truncated"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="rewrite-model-truncated"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('modelTruncated 缺省 ⇒ 不展示（正常路径零干扰）', async () => {
+    aiRewrite.mockResolvedValueOnce({
+      code: 0,
+      data: {
+        success: true,
+        result: '正常完整结果。',
+        strategy: { id: 's1', name: '测试策略', category: 'viral' },
+        warnings: [],
+        sensitiveHits: [],
+        knowledgeRefs: [],
+        metadata: { mode: 'imitate', originalLength: 30, resultLength: 8, aiTasteLevel: 0.15 },
+      },
+    })
+    const wrapper = factory()
+    await startRewrite(wrapper)
+    expect(wrapper.find('[data-testid="rewrite-model-truncated"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+})
+
+// ── 分段改写元信息（rewrite-segment-and-finish-reason 第二刀）──
+describe('改写结果分段元信息', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    setActivePinia(createPinia())
+    window.electronAPI = {}
+    document.body.replaceChildren()
+  })
+
+  it('segmented.enabled=true 且段数 >1 ⇒ 结果卡 meta 行展示「分段改写 ×N」', async () => {
+    aiRewrite.mockResolvedValueOnce({
+      code: 0,
+      data: {
+        success: true,
+        result: '分段改写后的合并结果。',
+        segmented: { enabled: true, segmentCount: 5, totalChars: 60000 },
+        strategy: { id: 's1', name: '测试策略', category: 'viral' },
+        warnings: [],
+        sensitiveHits: [],
+        knowledgeRefs: [],
+        metadata: { mode: 'imitate', originalLength: 60000, resultLength: 12, aiTasteLevel: 0.15 },
+      },
+    })
+    const wrapper = factory()
+    await startRewrite(wrapper)
+    const meta = wrapper.find('[data-testid="rewrite-segmented-meta"]')
+    expect(meta.exists()).toBe(true)
+    expect(meta.text()).toContain('5')
+    wrapper.unmount()
+  })
+
+  it('segmented 缺省 / 单段 ⇒ 不展示段数（不给普通改写加噪音）', async () => {
+    aiRewrite.mockResolvedValueOnce({
+      code: 0,
+      data: {
+        success: true,
+        result: '普通改写结果。',
+        strategy: { id: 's1', name: '测试策略', category: 'viral' },
+        warnings: [],
+        sensitiveHits: [],
+        knowledgeRefs: [],
+        metadata: { mode: 'imitate', originalLength: 300, resultLength: 10, aiTasteLevel: 0.15 },
+      },
+    })
+    const wrapper = factory()
+    await startRewrite(wrapper)
+    expect(wrapper.find('[data-testid="rewrite-segmented-meta"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+})
