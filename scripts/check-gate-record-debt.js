@@ -145,7 +145,7 @@ const CROSS_SLUG_RE = /（([a-z0-9][a-z0-9-]*)，/
 // 但必须打印出来（不拦截又不出声，等于把放过做成静默的）。正例是另起 slug：…-backfill。
 const CROSS_BACKFILL_RE = /^本次执行记录：(?:\d+ 笔)?回填|远程同步回填|并销账/
 // 上线时既有的真矛盾，逐条给理由；其作者回填后必须删掉本项（陈旧承认即红，清单只能缩小）。
-const CROSS_SRC_ALLOWED = new Set(['ops-ingress-only']) // 他人会话的运行时代码记录块，本仓纪律是不代改
+const CROSS_SRC_ALLOWED = new Set() // 空清单：旧载体历史欠账已由 close-legacy-gate-debt 一刀逐条收口（本清单只能缩小）
 
 const LEDGER_FILE = path.join(__dirname, 'gate-record-debt-ledger.json')
 
