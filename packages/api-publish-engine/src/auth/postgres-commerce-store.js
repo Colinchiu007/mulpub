@@ -350,11 +350,30 @@ class CommerceMethods {
     return (result.rows || []).length
   }
 
-  async upsertSession({ userId, deviceId, deviceName = null }) {
+  /**
+   * 会话登记（同一 (user, device) 幂等复活同一行）。
+   *
+   * **设备数上限（PRD N1）**：`maxDevices` 由调用方按权益算好传进来（本层不读权益，保持
+   * 「存储层不认识会员体系」的边界）。判据：
+   * - 该设备已有会话行 ⇒ 永远放行（重登只是复活自己，不占新名额）；
+   * - 新设备且活跃会话数已达上限 ⇒ 抛 `DEVICE_LIMIT_EXCEEDED`(403)，**不写库**；
+   * - `maxDevices` 为 null/负数/非有限数 ⇒ 不限（与 plan-capabilities「缺失即放行」同源）。
+   */
+  async upsertSession({ userId, deviceId, deviceName = null, maxDevices = null }) {
     if (typeof deviceId !== 'string' || !deviceId) {
       throw Object.assign(new TypeError('deviceId is required'), { code: 'SESSION_DEVICE_REQUIRED', status: 400 })
     }
     const id = sessionRecordId(userId, deviceId)
+    const limit = typeof maxDevices === 'number' && Number.isFinite(maxDevices) && maxDevices >= 0 ? maxDevices : null
+    if (limit !== null) {
+      const active = await this.listActiveSessions(userId)
+      const known = active.some((row) => row && row.id === id)
+      if (!known && active.length >= limit) {
+        throw Object.assign(new Error('DEVICE_LIMIT_EXCEEDED'), {
+          code: 'DEVICE_LIMIT_EXCEEDED', status: 403, limit, current: active.length,
+        })
+      }
+    }
     const result = await this.pool.query(UPSERT_SESSION, [id, userId, deviceId, deviceName])
     return result.rows[0] || { id, user_id: userId, device_id: deviceId, device_name: deviceName, revoked_at: null }
   }

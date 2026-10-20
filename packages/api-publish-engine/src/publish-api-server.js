@@ -12,7 +12,7 @@ const logger = require("./logger");
 const { redactText } = require("./log-redact");
 const { loadConfig } = require("./config-loader");
 const ApiKeyManager = require("./api-key-manager");
-const { assertPlanCapabilitiesForRequest, assertPlanCapabilitiesForContext } = require("./auth/plan-capability-guard");
+const { assertPlanCapabilitiesForRequest, assertPlanCapabilitiesForContext, registerDeviceSession } = require("./auth/plan-capability-guard");
 const { requireScopes } = require("./auth/logto-auth");
 const { BusinessIdentityError, assertBusinessUserActive, ensureBusinessUser } = require("./auth/business-identity");
 const { LOGTO_WEBHOOK_SIGNATURE_HEADER, LogtoWebhookError } = require("./auth/logto-webhook");
@@ -859,6 +859,7 @@ class PublishApiServer {
         // 使 entitlement / entitlementSnapshot 与 membership.subscription 落在同一 settle 之后的状态，
         // 杜绝到期临界返回自相矛盾的过期付费快照。membership 块不依赖 entitlement，可安全前置。
         let membership = null;
+        let deviceLimitNotice = null;
         if (this._subscriptionService) {
           const commerceRepository = this._commerceRepository();
           // 逐槽降级：某槽失败置 null，其余槽保留；subscription 是会员视图锚点，其失败才导致整个 membership 缺失。
@@ -876,23 +877,24 @@ class PublishApiServer {
               usage: usageRes.status === "fulfilled" ? usageRes.value : null,
               unreadNotifications: unreadRes.status === "fulfilled" ? unreadRes.value : null,
             };
+            if (deviceLimitNotice) membership.deviceLimit = deviceLimitNotice;
           } else {
             this._logError("MEMBERSHIP_UNAVAILABLE", subRes.reason, this._ctx(req));
           }
           if (usageRes.status === "rejected") this._logError("MEMBERSHIP_UNAVAILABLE", usageRes.reason, this._ctx(req));
           if (unreadRes.status === "rejected") this._logWarn("MEMBERSHIP_UNAVAILABLE", unreadRes.reason, this._ctx(req));
-          // 会话登记为真 best-effort：独立 try/catch，失败仅记 WARN，不得连带清空已取到的 membership。
+          // 会话登记为真 best-effort：失败仅记 WARN，不得连带清空已取到的 membership。
+          // 设备数上限（PRD N1）在 registerDeviceSession 内判定；超限不是失败，只是这台设备未被授权。
           const deviceId = this._deviceIdFrom(req);
           if (deviceId && commerceRepository && typeof commerceRepository.upsertSession === "function") {
-            try {
-              await commerceRepository.upsertSession({
-                userId: businessUser.id,
-                deviceId,
-                deviceName: this._deviceNameFrom(req),
-              });
-            } catch (error) {
-              this._logWarn("MEMBERSHIP_UNAVAILABLE", error, this._ctx(req));
-            }
+            deviceLimitNotice = await registerDeviceSession({
+              provider: this._entitlementProvider,
+              repository: commerceRepository,
+              context: { auth: req.auth, businessUser },
+              deviceId,
+              deviceName: this._deviceNameFrom(req),
+              onWarn: (error) => this._logWarn("MEMBERSHIP_UNAVAILABLE", error, this._ctx(req)),
+            });
           }
         }
         let entitlement;

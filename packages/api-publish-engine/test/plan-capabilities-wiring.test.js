@@ -63,3 +63,37 @@ test('守卫的两条放行边界写死在模块里（provider 缺失 / 无 busi
   assert.match(guard, /if \(!context \|\| !context\.businessUser\) return true/)
   assert.match(guard, /capabilityError\(violation\)/, '越界必须抛 typed error（402/403 由它带出）')
 })
+
+test('设备会话登记（PRD N1）：上限来自权益、超限只返回提示不抛错', async () => {
+  const { registerDeviceSession } = require('../src/auth/plan-capability-guard')
+  const context = { auth: {}, businessUser: { id: 'u-1' } }
+
+  // 免费档 2 台：limit 被透传给存储层（存储层只判「新设备 vs 已知设备」）
+  const calls = []
+  const repository = { async upsertSession(input) { calls.push(input); return { id: 'ses-1' } } }
+  const provider = { async getForUser() { return { limits: { max_devices: 2 } } } }
+  const notice = await registerDeviceSession({ provider, repository, context, deviceId: 'device-1' })
+  assert.strictEqual(notice, null)
+  assert.strictEqual(calls.length, 1)
+  assert.strictEqual(calls[0].maxDevices, 2, '上限必须由权益算出并透传')
+  assert.strictEqual(calls[0].userId, 'u-1')
+
+  // 存储层拒绝 ⇒ 转成提示对象（不是异常：/me 不该因设备超限整体失败）
+  const rejecting = { async upsertSession() { throw Object.assign(new Error('DEVICE_LIMIT_EXCEEDED'), { code: 'DEVICE_LIMIT_EXCEEDED', limit: 2 }) } }
+  const rejected = await registerDeviceSession({ provider, repository: rejecting, context, deviceId: 'device-2' })
+  assert.deepStrictEqual(rejected, { reached: true, limit: 2 })
+
+  // 其它错误 ⇒ 走 onWarn，仍不抛（best-effort 语义不变）
+  const warned = []
+  const broken = { async upsertSession() { throw Object.assign(new Error('boom'), { code: 'DB_DOWN' }) } }
+  const result = await registerDeviceSession({ provider, repository: broken, context, deviceId: 'device-3', onWarn: (e) => warned.push(e.code) })
+  assert.strictEqual(result, null)
+  assert.deepStrictEqual(warned, ['DB_DOWN'])
+
+  // provider 缺失 / 无 businessUser ⇒ maxDevices 为 null（不限）
+  const noProvider = []
+  await registerDeviceSession({
+    provider: null, repository: { async upsertSession(i) { noProvider.push(i) } }, context, deviceId: 'device-4',
+  })
+  assert.strictEqual(noProvider[0].maxDevices, null)
+})
