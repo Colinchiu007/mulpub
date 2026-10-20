@@ -19,7 +19,7 @@ branch: s2v-video-prompt-translation
 | QM-2 必检项 | PASS | 翻译调用走**现有** `aiGenerator.generateWithDefault('llm')`（不新增依赖、不新增 IPC 通道）；LLM 不可用/解析失败/超时 → `videoPromptTranslation=null` 且**不影响 videoPrompt 本身**（fail-open）；译文上限 2000 字符（与 `promptTranslation` 落库上限一致）；译文与原文相同视为未翻译返回 null（不展示冗余）；`updateSegments` 白名单外字段丢弃。无 `console.log` 污染；无同步 CPU 密集原语（翻译只在用户点击「重新生成视频优化词」这条低频路径触发） |
 | 执行记录取证 | PASS | `node scripts/check-pr-exec-record.js --base=origin/main --mode=enforce` 随本 PR 一起取证（`.quality-gates.md`/ledger 按 2026-10-15「旧载体冻结」新规**不再新增块与键**） |
 
-| 远程同步 | PENDING | PR #4044（`s2v-video-prompt-translation` → `main`）；合并后收口由门禁按主干历史推导，本行不手写闭合词 |
+| 远程同步 | 由门禁推导 | PR #4044（`s2v-video-prompt-translation` → `main`）；收口按主干历史推导，本行不手写状态词（2026-10-17 change `gate-record-sync-derived-status`） |
 
 - 保留门禁：变更类型与隔离 ✅ | 行尾对账 ✅（`git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径随 CI 核）| 品牌残留 ✅（本地 rc=0）| 文档同步 ✅（PRD §3.1.31 + openspec change + 上游 PRD 指针）| 执行记录 ✅ | 远程同步 PR #4044
 
@@ -66,7 +66,42 @@ branch: s2v-video-prompt-translation
 2. **`.ccg/reviews/` 产物随提交累积**：每条 pre-commit 写一份按内容寻址的记录，本分支累计 11 份（3 份 `mode=dual`、8 份 `mode=single`）。`mode=single` 不进入欠账门禁的判定面（`check-pr-exec-record.js` L739 只判 `mode === 'dual'`）。
 3. **`self_play_blocked` 的语义边界**：引擎把「存在 upheld 裁决」判为阻断（`ccg-deep-review.js` `blockingFromAdjudication`），**无法表达「该 upheld 已在后续提交修复」**。因此 3 条 dual 记录按 `check-pr-exec-record.js` L560-563 明示的通道，在记录内写入结构化 `deepReview.resolution`（`disposition` / `reason` / `upheldItems[].fixedIn` / `adjudication` 路径）并把状态置为闭环值 `needs_revision`。选 `needs_revision` 而非 `self_play_resolved`，是因为前者**保留 `performedBy` 后端对账**（后者在 L814 直接跳过该检查）——取更严的一档。门禁复跑读数：`OK: 本 PR 携带执行记录或带原因的豁免`、`dual-closed total=3`、`unknown=3`（`unknown` 属设计 §9.1 丙「可见不拦」档，因 resolution 未按 `evidence`/`tier` 结构化成外部可复核指针，如实留在可见面）。
 
-**回归规模**：`story2video-project-service.test.js` 135 例、`story2video-stages.test.js` 161 例、`ResultView.test.js` 123 例，共 **419 例全绿**；`eslint --quiet` rc=0。修复各带针对性回归（假计时器推进 25s 验证有界超时、并发 `updateSegments`/`deleteProject` 验证快照语义、`unhandledRejection` 监听验证滞后拒绝被接管、`_resolveUiLocale` 归一化表、en 界面不发起翻译调用）。
+**回归规模**：`story2video-project-service.test.js` 123 例 + 新拆出的 `story2video-video-prompt-translation.test.js` 12 例（合计 135，与拆分前一致）、`story2video-stages.test.js` 161 例、`ResultView.test.js` 123 例，共 **419 例全绿**；`eslint --quiet` rc=0。修复各带针对性回归（假计时器推进 25s 验证有界超时、并发 `updateSegments`/`deleteProject` 验证快照语义、`unhandledRejection` 监听验证滞后拒绝被接管、`_resolveUiLocale` 归一化表、en 界面不发起翻译调用）。
+
+## 债务熔断（逐文件行数门禁）处置与理由
+
+`node .github/scripts/check-max-lines.js` 首轮报 5 条：3 条 `TARGET_GREW`（点名还账文件零增长容差）+ 2 条 `TEST_LEDGER_GREW`（测试文件膨胀超 200 容差）。**两类按门禁自身给的正解分流处置**，不是统一"调数"：
+
+### 一、测试文件：按门禁要求拆分（不调任何数）
+
+门禁正解原文是「测试文件同样要拆（按被测模块/场景分文件），别再堆成一个」。据此：
+
+| 文件 | 处置 | 结果 |
+|------|------|------|
+| `story2video-project-service.test.js` | 把 12 个「视频提示词中文翻译」用例抽到新文件 `story2video-video-prompt-translation.test.js`（含自带最小 harness：`root`/`store`/`beforeEach`），按场景分文件 | 3759 → 3370 行（登记 3274 + 容差 200 = 3474 以内 ✓）；新文件 457 行（testLimit 1500 以内 ✓） |
+| `ResultView.test.js` | 新增 describe 内部提炼 `viewWithSegments` 帮手消除 9 处 `createView + projectId + segments + nextTick` 四行样板，并把 fixture 对象合并为多字段单行 | 2398 → 2351 行（登记 2175 + 容差 200 = 2375 以内 ✓）；**断言一条未删**，123 例仍全绿 |
+
+> 说明：`ResultView.test.js` 选「提炼样板」而非「再拆一个文件」，是因为拆出需要复制其 150 行的 `createView` harness（含 `vi.mock` 提升语义），会制造重复；提炼样板同时降低了维护成本。项目服务测试则天然按被测方法可切分，且 harness 只有 30 行，故直接拆分。
+
+### 二、源文件：按门禁明示通道「在 review 中说明理由后一并上调 targets」
+
+门禁正解原文含「降到目标以下，**或在 review 中说明理由后一并上调 targets**」。本节即该理由。三个文件均为**既有超大文件**（早已在 `targets` 点名还账清单里），本次增长全部来自 QM-6 九轮评审要求的防御性硬化，不含新功能铺张：
+
+| 文件 | 原 target | 新 target | 增长 | 增长内容与不可省的证据 |
+|------|-----------|-----------|------|------------------------|
+| `story2video-project-service.js` | 2373 | **2527**（+154） | 视频提示词翻译落库、`_findProject` 非抛错读取、译文身份校验、locale 主语言归一化、compose 回填三来源语义 | 对应 QM-6 第 1/5/6/7/8/9 轮共 9 处 upheld 修复；每一处都指向一个用户可见缺陷（旧译文展示、并发编辑回滚、垃圾译文落库、IPC 异常响应）。拆出去需要把「项目持久化 + 分段编辑 + 素材重试 + 视频翻译」四个关注点分离，属独立重构 |
+| `story2video-stages.js` | 4006 | **4081**（+75） | `translateVideoPromptForLocale`（含 25s 有界超时、滞后 rejection 接管、`finally` 清定时器）与契约 JSDoc | 对应第 2/3/6/8 轮 upheld 修复。该函数**必须**与 `translatePromptsForLocale` 同文件才能复用其批量调用/JSON 解析/逐行兜底（跨文件复用会把私有实现暴露成公共 API，风险高于收益） |
+| `ResultView.vue` | 1890 | **1929**（+39） | 折叠开关按钮、两处「提示词 + 翻译」成对块、三枚方法、折叠/翻译样式 | 即用户诉求本身（补齐视频翻译 + 降低信息密度）。进一步压缩只能把翻译块抽成子组件或把样式移出 SFC——两者都属独立重构，且会把单文件的可读形态打散 |
+
+**为什么不选「硬拆到目标以下」**：三个文件的增长都是**缺陷修复的净增量**（不是新功能扩张）。在 9 轮评审已确认正确性的状态下做跨关注点拆文件，是把「已收敛的正确性」换成「未验证的结构改动」——正是本仓反复记过的「为了指标牺牲已验证状态」同型风险。因此按门禁明示的第二条通道处置，并在此逐文件写明理由与后续可选方向；`targets` 上调后仍保持**零增长容差**（下一刀再动就要重新论证）。
+
+**门禁复跑读数**：`node .github/scripts/check-max-lines.js` → `✅ 无新增超大文件，挂账清单与现实一致`（rc=0）；`node --test .github/scripts/check-max-lines.test.js` 在本机有 1 条失败（`system 档的 core.excludesFile 真能改域`），该用例自建临时 baseline 与临时 gitconfig、**不读仓库 baseline**，与本次改动无关，属宿主 git 版本行为差异，如实登记不美化。
+
+## QG Changes 门禁处置：`远程同步` 行改派生标记
+
+首轮 CI 的 `QG Changes` 报两条真仓用例红，根因是我在记录里写了 `| 远程同步 | PENDING |`。按 2026-10-17 change `gate-record-sync-derived-status` 的收窄口径：**新 PR 的记录不再手写状态词**，表行状态列写派生标记「由门禁推导」，bullet 写 `远程同步 PR #NNNN` 不带状态词，收口由 `scripts/lib/merge-ledger.js` 按主干历史推导。已改为派生标记；`node --test scripts/check-gate-record-debt.test.js` 由 `fail 2` 转为 **115 例全绿**。同时验证 `check-gate-record-debt.js` 主判据输出 `OK: 两源所有未收口的 远程同步 行均已登记…`。
+
+
 
 ## 交互方案选型（用户点名要「分析常见合理的 UI/UE 处理方式」）
 

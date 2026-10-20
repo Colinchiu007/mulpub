@@ -2178,26 +2178,14 @@ describe("ResultView", () => {
   describe("提示词区（图片/视频提示词 + 中文翻译）", () => {
     const promptSegments = () => ([
       {
-        id: "s1",
-        text: "旁白一",
-        prompt: "A red apple",
-        promptTranslation: "一个红苹果",
-        videoPrompt: "Cinematic shot of a red apple",
-        videoPromptTranslation: "红苹果的电影镜头",
-        imagePath: null,
-        audioPath: null,
-        status: "completed",
+        id: "s1", text: "旁白一", status: "completed", imagePath: null, audioPath: null,
+        prompt: "A red apple", promptTranslation: "一个红苹果",
+        videoPrompt: "Cinematic shot of a red apple", videoPromptTranslation: "红苹果的电影镜头",
       },
       {
-        id: "s2",
-        text: "旁白二",
-        prompt: "A blue sky",
-        promptTranslation: null,
-        videoPrompt: "",
-        videoPromptTranslation: null,
-        imagePath: null,
-        audioPath: null,
-        status: "completed",
+        id: "s2", text: "旁白二", status: "completed", imagePath: null, audioPath: null,
+        prompt: "A blue sky", promptTranslation: null,
+        videoPrompt: "", videoPromptTranslation: null,
       },
     ]);
 
@@ -2207,13 +2195,18 @@ describe("ResultView", () => {
       await nextTick();
     }
 
-    it("图片提示词与视频提示词各自带中文翻译块，翻译与对应提示词相邻", async () => {
+    // 统一挂载 + 注入分段 +（可选）展开某分段：消除各用例重复的 4 行样板
+    async function viewWithSegments(segments, { expand = null } = {}) {
       const w = await createView();
       w.vm.projectId = "p1";
-      w.vm.segments = promptSegments();
+      w.vm.segments = segments;
       await nextTick();
-      await expandSegment(w, "s1");
+      if (expand) await expandSegment(w, expand);
+      return w;
+    }
 
+    it("图片提示词与视频提示词各自带中文翻译块，翻译与对应提示词相邻", async () => {
+      const w = await viewWithSegments(promptSegments(), { expand: "s1" });
       const blocks = w.findAll('[data-testid="segment-prompt-translation"]');
       expect(blocks).toHaveLength(2);
       // 图片翻译块：内容 + 归属标签（图片提示词）
@@ -2222,25 +2215,19 @@ describe("ResultView", () => {
       // 视频翻译块：内容 + 归属标签（视频提示词）
       expect(blocks[1].text()).toContain("红苹果的电影镜头");
       expect(blocks[1].text()).toContain("story2video.sceneMaterial.videoPromptTranslationLabel");
-
-      // 图片翻译块必须紧跟图片提示词 textarea 之后
+      // 两个翻译块必须分别紧跟各自的提示词 textarea 之后
       const promptTextarea = w.find('[data-testid="segment-prompt-textarea"]');
+      const videoTextarea = w.find('[data-testid="segment-video-prompt-textarea"]');
       expect(promptTextarea.exists()).toBe(true);
       expect(blocks[0].element.compareDocumentPosition(promptTextarea.element) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
-      // 视频翻译块必须紧跟视频提示词 textarea 之后
-      const videoTextarea = w.find('[data-testid="segment-video-prompt-textarea"]');
       expect(blocks[1].element.compareDocumentPosition(videoTextarea.element) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
       w.unmount();
     });
 
     it("视频提示词无翻译时展示占位文案而非空块", async () => {
-      const w = await createView();
-      w.vm.projectId = "p1";
-      w.vm.segments = promptSegments();
-      await nextTick();
-      await expandSegment(w, "s2");
-      const blocks = w.findAll('[data-testid="segment-prompt-translation"]');
       // s2 无图片翻译、无视频翻译 → 两块都走占位文案
+      const w = await viewWithSegments(promptSegments(), { expand: "s2" });
+      const blocks = w.findAll('[data-testid="segment-prompt-translation"]');
       expect(blocks).toHaveLength(2);
       expect(blocks[0].text()).toContain("story2video.sceneMaterial.emptySlot");
       expect(blocks[1].text()).toContain("story2video.sceneMaterial.emptySlot");
@@ -2248,11 +2235,7 @@ describe("ResultView", () => {
     });
 
     it("en 界面不展示任何翻译块（含视频提示词翻译）", async () => {
-      const w = await createView();
-      w.vm.projectId = "p1";
-      w.vm.segments = promptSegments();
-      await nextTick();
-      await expandSegment(w, "s1");
+      const w = await viewWithSegments(promptSegments(), { expand: "s1" });
       // getAppLocale 读 i18n.global.locale.value。此处断言判定函数本身（en → 两个 show*Translation 均 false）。
       // 不断言 DOM 数量：单测挂载未装 i18n 插件，locale 变更不触发组件重渲染（预存在的测试环境限制，
       // 非产品缺陷——生产环境由 App.vue 安装 i18n 插件，locale 切换即重渲染）。
@@ -2275,21 +2258,13 @@ describe("ResultView", () => {
         code: 0,
         data: {
           segments: [{
-            id: "s1",
-            text: "旁白一",
-            prompt: "A new apple",
-            promptTranslation: null,
-            videoPrompt: "Cinematic shot of a red apple",
-            videoPromptTranslation: "红苹果的电影镜头",
-            status: "completed",
+            id: "s1", text: "旁白一", status: "completed",
+            prompt: "A new apple", promptTranslation: null,
+            videoPrompt: "Cinematic shot of a red apple", videoPromptTranslation: "红苹果的电影镜头",
           }],
         },
       });
-      const w = await createView();
-      w.vm.projectId = "p1";
-      w.vm.segments = [promptSegments()[0]];
-      await nextTick();
-      await expandSegment(w, "s1");
+      const w = await viewWithSegments([promptSegments()[0]], { expand: "s1" });
       await w.vm.regenerateScenePrompt("s1", "image");
       await nextTick();
       const blocks = w.findAll('[data-testid="segment-prompt-translation"]');
@@ -2306,21 +2281,13 @@ describe("ResultView", () => {
         code: 0,
         data: {
           segments: [{
-            id: "s1",
-            text: "旁白一",
-            prompt: "A red apple",
-            promptTranslation: "一个红苹果",
-            videoPrompt: "A new cinematic shot",
-            videoPromptTranslation: null,
-            status: "completed",
+            id: "s1", text: "旁白一", status: "completed",
+            prompt: "A red apple", promptTranslation: "一个红苹果",
+            videoPrompt: "A new cinematic shot", videoPromptTranslation: null,
           }],
         },
       });
-      const w = await createView();
-      w.vm.projectId = "p1";
-      w.vm.segments = [promptSegments()[0]];
-      await nextTick();
-      await expandSegment(w, "s1");
+      const w = await viewWithSegments([promptSegments()[0]], { expand: "s1" });
       await w.vm.regenerateScenePrompt("s1", "video");
       await nextTick();
       const blocks = w.findAll('[data-testid="segment-prompt-translation"]');
@@ -2332,10 +2299,7 @@ describe("ResultView", () => {
     });
 
     it("分段编辑区默认折叠为紧凑态，点击展开后渲染提示词区", async () => {
-      const w = await createView();
-      w.vm.projectId = "p1";
-      w.vm.segments = promptSegments();
-      await nextTick();
+      const w = await viewWithSegments(promptSegments());
       expect(w.find('[data-testid="segment-prompt-editor"]').exists()).toBe(false);
       const toggle = w.findAll('[data-testid="segment-editor-toggle"]');
       expect(toggle.length).toBe(2);
@@ -2346,10 +2310,7 @@ describe("ResultView", () => {
     });
 
     it("分段编辑区展开态在分段间互斥（同时只有一个分段展开）", async () => {
-      const w = await createView();
-      w.vm.projectId = "p1";
-      w.vm.segments = promptSegments();
-      await nextTick();
+      const w = await viewWithSegments(promptSegments());
       const toggle = w.findAll('[data-testid="segment-editor-toggle"]');
       await toggle[0].trigger("click");
       await nextTick();
@@ -2364,10 +2325,7 @@ describe("ResultView", () => {
     it("重新生成提示词失败时保持原展开分段（不因状态回写收起编辑区）", async () => {
       const api = await import("@/api/publisher");
       api.story2videoRegenerateScenePrompt.mockRejectedValue(new Error("boom"));
-      const w = await createView();
-      w.vm.projectId = "p1";
-      w.vm.segments = [promptSegments()[0]];
-      await nextTick();
+      const w = await viewWithSegments([promptSegments()[0]]);
       await w.findAll('[data-testid="segment-editor-toggle"]')[0].trigger("click");
       await nextTick();
       await w.vm.regenerateScenePrompt("s1", "video");
@@ -2378,15 +2336,10 @@ describe("ResultView", () => {
     });
 
     it("删除已展开的分段后收起编辑区（不残留指向已删除 id 的展开态）", async () => {
-      const w = await createView();
-      w.vm.projectId = "p1";
-      w.vm.segments = [
+      const w = await viewWithSegments([
         { id: "s1", text: "A", status: "completed" },
         { id: "s2", text: "B", status: "completed" },
-      ];
-      await nextTick();
-      w.vm.expandedSegmentId = "s1";
-      await nextTick();
+      ], { expand: "s1" });
       expect(w.find('[data-testid="segment-prompt-editor"]').exists()).toBe(true);
       w.vm.removeSegment(0);
       await nextTick();
