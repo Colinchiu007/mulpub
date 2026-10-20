@@ -1208,3 +1208,77 @@ probeXiaohongshuDraftChain(accountId, {
 })
 ```
 - `images` 在顶层，`title/content` **必须嵌套在 `article` 内**（传顶层无效且报"标题为空"）。
+### 16.9 真机验证手册（可执行步骤 + 已踩坑位，2026-10-21）
+
+> 本节把前几轮**摸索出来的真机验证路径**固化成步骤，供账号恢复后**照着跑**，
+> 避免重复踩参数名/判据误读的坑。所有操作均**只读或落草稿箱**，不公开发布。
+
+#### 16.9.1 前置：确认账号状态（走应用自身判据，别信表象）
+
+```js
+// 经应用 CDP（--remote-debugging-port，本机 9279）在渲染进程调用
+await window.electronAPI.accountBatchCheckLogin([头条id, 抖音id, 视频号id])
+// 看 code：CHECK_LOGIN_SUCCESS_HTTP_API = 有效；CHECK_LOGIN_COOKIE_EXPIRED = 失效
+```
+
+⚠ **不要**据「页面能打开 / 后台能渲染 / has_cookies=true」推断登录态（见 §16.7）。
+
+#### 16.9.2 头条：全链四层真机验证（唯一阻塞是实名）
+
+取活 cookie（分区被独占锁时用**流式共享读**绕过）：
+```powershell
+$fs=[IO.File]::Open("<分区>\Network\Cookies","Open","Read",[IO.FileShare]::ReadWrite)
+$ms=New-Object IO.MemoryStream; $fs.CopyTo($ms); $fs.Close()
+[IO.File]::WriteAllBytes("<临时profile>\Default\Network\Cookies",$ms.ToArray())
+```
+
+然后依次验证（每层都有明确判据）：
+
+| 层 | 判据 | 当前读数 |
+| --- | --- | --- |
+| ① 提交前闸门 | `GetPublishAuth.IsIdentifyAuth` | `false` ⇒ 拦截 `ACCOUNT_NOT_VERIFIED` + 解法链接 |
+| ② 封面五步链 | PUT 需带 `Content-CRC32`（缺失 → `4007 MismatchChecksum`） | 登记 uri ✅ |
+| ③ 视频 VOD | 返回新 `Vid` | ✅ |
+| ④ 提交 | `Code 21000` + `accountGate=true` | 账号墙（实名后即出 `ItemId`）|
+
+#### 16.9.3 视频号：账号失效的独立佐证（绕过应用判定直接问平台）
+
+```js
+// 在已加载 channels.weixin.qq.com 的页面上下文
+fetch('/cgi-bin/mmfinderassistant-bin/auth/auth_data', { method:'POST',
+  headers:{'Content-Type':'application/json', Referer:'https://channels.weixin.qq.com'},
+  body: JSON.stringify({ timestamp:String(Date.now()).slice(0,13), _log_finder_uin:'',
+    _log_finder_id:'', rawKeyBuff:null, pluginSessionId:null, scene:7, reqScene:7 }) })
+```
+
+- `errCode 300333 / 300334` = **登录失效**（代码注释口径）
+- `errCode 300330` = 本次实测值，**分区凭据为空**（比失效更彻底）
+
+#### 16.9.4 小红书：草稿链 probe（含必填项与字段嵌套坑）
+
+```js
+await window.electronAPI.probeXiaohongshuDraftChain(accountId, {
+  images: ['<本地图片绝对路径>'],        // ← 顶层，数组
+  article: { title: '...', content: '...' },  // ← 必须嵌套！传顶层无效
+})
+```
+
+**已踩坑位（逐个记，避免重复）**：
+1. 参数名是 `images`，**不是** `imagePaths`（传错仍报 `XHS_NO_IMAGE`）
+2. `title/content` **必须嵌在 `article` 里**（传顶层仍报「标题为空」）
+3. 失败是**逐项暴露**的：先缺图 → 再缺标题 → 再到签名，不是一次报全
+
+**签名环节（关键限制）**：真签名来自创作者页 `window._webmsxyw(url, data)`；
+本地 `signer-local` 的 XYW_ 定长块是**旧协议仿制，对 note 端点已被 406 拒绝**。
+`no-webms-fn` = 页面已开但缺该函数（多为页面未处于登录态创作者页）；
+`stage=signer-bridge` = bridge 未装配（与前者不同，务必区分）。
+
+#### 16.9.5 通用：取活 cookie 的两种方式
+
+| 场景 | 方式 |
+| --- | --- |
+| 分区未被占用 | 直接 `copy` |
+| **被应用独占锁**（常见） | 流式共享读（见 16.9.2 的代码） |
+
+> 判据纪律：合并/改热写面后必须 `git show origin/main:<文件>` **回读主干实际内容**，
+> 不能只看本分支判据绿（本仓已两次栽在这：CI 红 + 基线被并发覆盖）。
