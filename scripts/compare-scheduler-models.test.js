@@ -314,3 +314,104 @@ describe('completionOrderSequenceMatches — 完成序列只留痕、不得升�
     assert.deepEqual(completionOrder(undefined), [])
   })
 })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2026-10-20（任务 #88）：同一签名 `Error: python simulator failed: `（**空消息**）第三次复发。
+// 旧载体里已有两条记录（`.quality-gates.md:3261` 与 `:10018-10026`），第二次那条**已经写出根因与
+// 改进建议**却"避免扩大战线"没做 ⇒ 今天又花掉一轮定责 + 一次 main 红 + 一次失败作业重跑。
+// 根因是 `spawnSync` 只判 `res.status`：超时被 SIGTERM 杀（status=null、stderr 空）与
+// python 不在 PATH（ENOENT、stderr 空）都落到同一句空消息上。
+// ⛔ 刻意**不引入 skip**：对拍只在 main push 跑（`if: event != pull_request`），
+//    静默 skip 等于把守门关掉还报通过——那是本仓记过的「装饰性门禁」同型；这里让红保持红，但必须**红得可归因**。
+describe('pythonSimulate 失败必须可归因（三档分开，不再抛空消息）', () => {
+  const mod = require('./compare-scheduler-models')
+  const { formatSpawnFailure, pythonSimulate, PYTHON_SIMULATE_TIMEOUT_MS } = mod
+
+  /** 造一个与真实 spawnSync 同形的结果对象（缺字段就按真实缺失处理，不给测试方便） */
+  const res = (o) => Object.assign({ status: null, signal: null, error: undefined, stderr: '', stdout: '' }, o)
+
+  it('档1 · python 不在 PATH（ENOENT）：点名解释器缺失并给核验命令', () => {
+    const err = Object.assign(new Error('spawnSync python ENOENT'), { code: 'ENOENT' })
+    const msg = formatSpawnFailure(res({ error: err }), { timeoutMs: 30000 })
+    assert.match(msg, /ENOENT/)
+    assert.match(msg, /python 不可用|不在 PATH/, '必须直说"解释器拿不到"，不能只报 exit code')
+    assert.match(msg, /python --version/, '要给一条当场可核验的命令，否则下一个人只能猜')
+  })
+
+  it('档2 · 被超时杀掉：报 signal + 本档预算，并指向"负载型"而非"判据坏了"', () => {
+    const err = Object.assign(new Error('spawnSync python ETIMEDOUT'), { code: 'ETIMEDOUT' })
+    const msg = formatSpawnFailure(res({ error: err, signal: 'SIGTERM' }), { timeoutMs: 30000 })
+    assert.match(msg, /ETIMEDOUT/)
+    assert.match(msg, /SIGTERM/)
+    assert.match(msg, /30000ms/, '不打印本次预算值，就无法判断是"慢"还是"崩"')
+    assert.match(msg, /负载|抖动/, '要给方向：这一档是 runner 负载，不是对拍判据不成立')
+  })
+
+  it('档3 · python 真崩：带 status 与 stderr 尾条（可截断但不得为空）', () => {
+    const msg = formatSpawnFailure(
+      res({ status: 1, stderr: 'Traceback (most recent call last):\n  File "<string>", line 3\nModuleNotFoundError: services.scheduler_simulator' }),
+      { timeoutMs: 30000 },
+    )
+    assert.match(msg, /status=1/)
+    assert.match(msg, /ModuleNotFoundError/, 'python 侧的真实报错必须出现在文案里')
+  })
+
+  it('三档文案必须互不相同（合成一句话就是把三种成因读成同一种）', () => {
+    // ⚠ 本条的覆盖面要说清：它只挡「文案塌缩」（两档输出同一句话），**不挡「判据塌缩」**——
+    //    把 ETIMEDOUT 那一档的 if 条件摘掉时，超时落进真崩档，三句话仍然两两不同，本条照绿。
+    //    挡住那个形态的是上面"档2"那条（它断言 signal/timeout/负载方向都在文案里）。
+    //    （变异 P3 实测：判据摘掉后只红在档2，本条不红 —— 记录在案，别让下一个人以为本条兜得住。）
+    const a = formatSpawnFailure(res({ error: Object.assign(new Error('e'), { code: 'ENOENT' }) }), { timeoutMs: 30000 })
+    const b = formatSpawnFailure(res({ error: Object.assign(new Error('e'), { code: 'ETIMEDOUT' }), signal: 'SIGTERM' }), { timeoutMs: 30000 })
+    const c = formatSpawnFailure(res({ status: 2, stderr: 'boom' }), { timeoutMs: 30000 })
+    assert.notEqual(a, b)
+    assert.notEqual(b, c)
+    assert.notEqual(a, c)
+    for (const m of [a, b, c]) assert.ok(m.trim().length > 0, '空消息就是本次要修的缺陷本身')
+  })
+
+  it('pythonSimulate 必须真的走这条上报（注入假 spawn 后端逐档验，不靠读源码字符串）', () => {
+    const cases = [
+      { fake: res({ error: Object.assign(new Error('e'), { code: 'ENOENT' }) }), want: /ENOENT/ },
+      { fake: res({ error: Object.assign(new Error('e'), { code: 'ETIMEDOUT' }), signal: 'SIGTERM' }), want: /SIGTERM/ },
+      { fake: res({ status: 1, stderr: 'Traceback: bad' }), want: /status=1[\s\S]*Traceback/ },
+    ]
+    for (const c of cases) {
+      assert.throws(
+        () => pythonSimulate({ rpm: 6, maxConcurrent: 1, requestCount: 2, requestDurationMs: 20 }, { spawnImpl: () => c.fake }),
+        (e) => e.message.startsWith('python simulator failed: ') && c.want.test(e.message),
+        `假 spawn 后端返回 ${JSON.stringify(c.fake.error ? c.fake.error.code : c.fake.status)} 时仍抛空消息 ⇒ 上报没接上`,
+      )
+    }
+  })
+
+  it('status=0 但 stdout 不是 JSON ⇒ 也必须是可归因的错误，不能让 JSON.parse 抛裸栈', () => {
+    assert.throws(
+      () => pythonSimulate({ rpm: 6, maxConcurrent: 1, requestCount: 2, requestDurationMs: 20 },
+        { spawnImpl: () => res({ status: 0, stdout: 'WARN something\nnot-json' }) }),
+      /PYTHON_OUTPUT_UNPARSEABLE[\s\S]*not-json/,
+    )
+  })
+
+  it('预算可被 env 覆盖，非法值必须回落默认并出声（与频控/队列同口径）', () => {
+    assert.equal(PYTHON_SIMULATE_TIMEOUT_MS, 30000, '默认值动了要同步本条与文档')
+    const { resolveSpawnTimeout } = mod
+    const warns = []
+    assert.equal(resolveSpawnTimeout(undefined, warns), 30000)
+    assert.equal(resolveSpawnTimeout('45000', warns), 45000)
+    assert.equal(resolveSpawnTimeout('abc', warns), 30000, '非法值不得变 NaN —— `timeout: NaN` 会让子进程永不被杀')
+    assert.equal(resolveSpawnTimeout('0', warns), 30000, '0 等于关掉超时，不许静默生效')
+    assert.ok(warns.length >= 2, '回落必须出声，否则"我设了没生效"永远查不出来')
+  })
+
+  it('反向锁：旧的"空消息"拼接不得回来（把 throw 改回 stderr||stdout 即红）', () => {
+    const fs = require('node:fs')
+    const src = fs.readFileSync(require.resolve('./compare-scheduler-models'), 'utf8')
+    assert.ok(!/python simulator failed: '? \+ \(res\.stderr \|\| res\.stdout\)/.test(src),
+      '又回到 `+ (res.stderr || res.stdout)` ⇒ 三档重新塌成一句空消息')
+    // 正向锚：抛错处必须真的调用格式化器（"文件里出现过这个函数名"不构成接线）
+    assert.match(src, /function pythonSimulate[\s\S]{0,1400}throw new Error\('python simulator failed: ' \+ formatSpawnFailure\(/,
+      'pythonSimulate 没有走 formatSpawnFailure ⇒ 上报只是存在，没在跑')
+  })
+})
+

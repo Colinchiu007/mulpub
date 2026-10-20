@@ -17,6 +17,12 @@ const { spawnSync } = require('child_process')
 const path = require('path')
 const { runSelfCheck, clampConcurrency } = require('../apps/desktop/electron/services/rate-limit-self-check')
 
+// 模拟器子进程的单次预算。30000 是**旧值**（本轮一字未动），本轮补的是"超时/缺 python/真崩
+// 三种成因必须报得不一样"，不是把它调宽——调宽要先有分布，见 .quality-gates.md:10021 那次
+// 「该 runner 本次作业耗时 1236s（负载型）」的现场。
+const DEFAULT_PYTHON_TIMEOUT_MS = 30000
+const PYTHON_SIMULATE_TIMEOUT_MS = resolveSpawnTimeout(process.env.MP_PARITY_PYTHON_TIMEOUT_MS)
+
 /**
  * total_duration_ms 的容差口径。
  *
@@ -225,7 +231,61 @@ const KNOWN_DIFF_CASES = [
  * `ops-center/backend/services/scheduler_simulator.py` 必须可达 —— 它是子进程，不是纯函数。
  * @throws {Error} Python 缺失、30s 超时、或模拟器自身校验失败（参数越界等）
  */
-function pythonSimulate (params) {
+/**
+ * 子进程失败的**唯一**上报口径（三档分开，绝不合成一句话）。
+ *
+ * 动因：同一句 `Error: python simulator failed: `（**空消息**）在旧载体里已记录两次
+ * （`.quality-gates.md:3261`、`:10018-10026`，第二次那条已经写出根因却"避免扩大战线"没做），
+ * 2026-10-20 第三次复发。根因是旧代码只判 `res.status`、不读 `res.error`/`res.signal` ⇒
+ * ① python 不在 PATH（ENOENT，stderr 空）② 超时被 SIGTERM 杀（status=null、stderr 空）
+ * ③ python 真崩（status>0，stderr 有内容）**全部塌成同一句空消息**，
+ * 于是每次都要靠 rerun + 跨会话考古定责。这里让红保持红，但红得可归因。
+ * ⛔ 刻意不引入 skip：对拍只在 main push 跑（`if: event != pull_request`），
+ *    静默 skip 等于把守门关掉还报通过——那是本仓记过的「装饰性门禁」同型。
+ * @param {object} res spawnSync 的结果对象
+ * @param {{timeoutMs?: number}} [ctx]
+ * @returns {string} 永不为空
+ */
+function formatSpawnFailure (res, ctx) {
+  const timeoutMs = (ctx && ctx.timeoutMs) || PYTHON_SIMULATE_TIMEOUT_MS
+  const tail = (s) => String(s || '').trim().split(/\r?\n/).slice(-6).join(' | ').slice(0, 400)
+  const status = res.status === null || res.status === undefined ? 'null' : String(res.status)
+  const code = (res.error && res.error.code)
+    || (/ETIMEDOUT/.test(String((res.error && res.error.message) || '')) ? 'ETIMEDOUT' : '')
+  const base = 'cmd=python status=' + status + ' signal=' + (res.signal || '-') + ' timeout=' + timeoutMs + 'ms'
+  if (code === 'ENOENT') {
+    return base + ' cause=ENOENT ⇒ python 不可用（不在 PATH）。这是**环境不具备**，不是对拍判据不成立；'
+      + '核验命令：python --version（Windows runner 上由 setup-python 提供，缺失时先查该步是否被改动）'
+  }
+  if (code === 'ETIMEDOUT' || (res.error && res.status === null && res.signal)) {
+    return base + ' cause=ETIMEDOUT ⇒ 子进程在预算内没跑完，属 runner **负载/抖动**（同作业重跑即可归因），'
+      + '不是模拟器算错。stderr=' + (tail(res.stderr) || '(空)')
+  }
+  return base + ' ⇒ python 侧真实报错（非零退出）：' + (tail(res.stderr) || tail(res.stdout) || '(stderr/stdout 均空，只有 status 可看)')
+}
+
+/**
+ * 预算可被 env 覆盖以便排障，但**非法值必须回落默认并出声**（与 publish-frequency / task-queue 同口径）。
+ * ⛔ 必须挡 `0` 与 `NaN`：`spawnSync({timeout: 0})` 在 Node 里是"永不超时"，
+ * 而 `Number('abc') → NaN` 会让超时判据整体失效，两者都比 30s 更坏。
+ * @param {string|number|undefined|null} raw
+ * @param {string[]} [warns] 传入则把告警收进数组（供测试），否则直接 console.warn
+ */
+function resolveSpawnTimeout (raw, warns) {
+  if (raw === undefined || raw === null || raw === '') return DEFAULT_PYTHON_TIMEOUT_MS
+  const n = Number(raw)
+  if (!Number.isFinite(n) || n <= 0) {
+    const msg = '[parity] MP_PARITY_PYTHON_TIMEOUT_MS=' + raw + ' 非法 ⇒ 回落 ' + DEFAULT_PYTHON_TIMEOUT_MS
+      + 'ms（0 等于关掉超时，NaN 让子进程永不被杀）'
+    if (Array.isArray(warns)) warns.push(msg)
+    else console.warn(msg)
+    return DEFAULT_PYTHON_TIMEOUT_MS
+  }
+  return Math.trunc(n)
+}
+
+function pythonSimulate (params, opts) {
+  const spawn = (opts && opts.spawnImpl) || spawnSync
   const script = [
     "import json, sys",
     "sys.path.insert(0, 'ops-center/backend')",
@@ -245,14 +305,23 @@ function pythonSimulate (params) {
     exceed_5h: params.limitPer5h != null,
     cooldown_ms: params.cooldownMs != null ? params.cooldownMs : 30000,
   }
-  const res = spawnSync('python', ['-c', script, JSON.stringify(pyParams)], {
+  const res = spawn('python', ['-c', script, JSON.stringify(pyParams)], {
     cwd: path.resolve(__dirname, '..'),
     encoding: 'utf8',
-    timeout: 30000,
+    timeout: PYTHON_SIMULATE_TIMEOUT_MS,
   })
-  if (res.status !== 0) throw new Error('python simulator failed: ' + (res.stderr || res.stdout))
-  const lines = res.stdout.trim().split('\n')
-  return JSON.parse(lines[lines.length - 1])
+  if (!res || res.status !== 0) throw new Error('python simulator failed: ' + formatSpawnFailure(res || {}, { timeoutMs: PYTHON_SIMULATE_TIMEOUT_MS }))
+  const lines = String(res.stdout || '').trim().split('\n')
+  let parsed
+  try {
+    parsed = JSON.parse(lines[lines.length - 1])
+  } catch (e) {
+    // status=0 却拿不到 JSON ⇒ 是"输出被污染/被截断"这一档，不能把裸 JSON.parse 栈当结论抛出去
+    throw new Error('PYTHON_OUTPUT_UNPARSEABLE: python 退出码为 0 但末行不是 JSON（'
+      + String(e && e.message).slice(0, 80) + '）末行=' + JSON.stringify(String(lines[lines.length - 1] || '').slice(0, 160))
+      + ' 行数=' + lines.length)
+  }
+  return parsed
 }
 
 function pythonMetrics (params) {
@@ -377,7 +446,7 @@ async function main () {
   process.exit(ok ? 0 : 1)
 }
 
-module.exports = { runParity, CASES, runKnownDiffs, KNOWN_DIFF_CASES, durationTolerance, concurrencyCheck, deferralEvidence, completionOrder, completionSetMatches, completionOrderSequenceMatches, effectiveMaxConcurrent, pythonMetrics, pythonSimulate, PARITY_TOLERANCE_FLOOR_MS, PARITY_TOLERANCE_RATIO }
+module.exports = { runParity, CASES, runKnownDiffs, KNOWN_DIFF_CASES, durationTolerance, concurrencyCheck, deferralEvidence, completionOrder, completionSetMatches, completionOrderSequenceMatches, effectiveMaxConcurrent, pythonMetrics, pythonSimulate, formatSpawnFailure, resolveSpawnTimeout, PYTHON_SIMULATE_TIMEOUT_MS, DEFAULT_PYTHON_TIMEOUT_MS, PARITY_TOLERANCE_FLOOR_MS, PARITY_TOLERANCE_RATIO }
 
 if (require.main === module) {
   main().catch((e) => { console.error(e); process.exit(1) })
