@@ -50,10 +50,18 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "self_play_resolved",
+    "tier": "external",
+    "performedBy": "self-play",
+    "evidence": "openspec/records/error-message-user-friendly-audit.md",
+    "findings": null,
+    "reviewsCoveringThisDiff": [
+      ".ccg/reviews/919e1a2b7458791c18ce9dc0b9cf00b68a68723f2c98251e881c3229c88a69cc.json",
+      ".ccg/reviews/5e5f477815b995b3284f754360abe884b1f7f211b2dde59031c35bb89abc5694.json",
+      ".ccg/reviews/63ba1e2ce7f26f77a0478d5437b662ea6a01825b6139add90a64b8e74906be41.json"
+    ],
+    "closureNote": "第 1 轮（本记录）：本记录的 diff 是本 PR 变更集的并集（两次 rebase 后重建为单提交所致），**未引入任何未评审内容**——同样的文件与行已被三轮真外部评审逐行覆盖：① 主修复 1710 行（critic=claude，8 条，含 2 条 Critical）；② baseline 10 行（5 条）；③ 采纳意见的 338 行（5 条）。三轮共 13 条发现全部实修，逐条处置见执行记录 §8.2/§8.4；三条上游记录均已以 self_play_resolved + tier=external 闭环。故本条按同一口径闭环，而不重复第四次同内容评审（重复评审不会产生新信息，只会消耗外部后端配额）。",
+    "blocking": [],
+    "at": "2026-10-20T06:56:54.258Z"
   }
 }
