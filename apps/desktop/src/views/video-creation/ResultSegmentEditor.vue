@@ -257,13 +257,13 @@ export default {
       return Boolean(segmentId) && this.expandedSegmentId === segmentId
     },
     toggleSegmentEditor(segmentId) {
-      this.expandedSegmentId = this.expandedSegmentId === segmentId ? null : segmentId
+      this.expandedSegmentId = this.expandedSegmentId === segmentId ? '' : segmentId
     },
     // 删除分段前先收起它的展开态，否则会残留一个指向已删除 id 的 expandedSegmentId，
     // 让「同时只展开一个」的判据在后续点开新分段时表现得像失效。
     onRemoveSegment(index) {
       const removed = (this.segments || [])[index]
-      if (removed && removed.id === this.expandedSegmentId) this.expandedSegmentId = null
+      if (removed && removed.id === this.expandedSegmentId) this.expandedSegmentId = ''
       this.$emit('remove-segment', index)
     },
     // 清空筛选与搜索（回到「全部 + 空关键词」）
