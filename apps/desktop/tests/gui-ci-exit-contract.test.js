@@ -21,38 +21,18 @@ const { isIgnorableConsoleError, resolveGuiExitCode } = require('./electron-gui-
 // 放测试文件里复测入口读不到 —— 它没法 require 一份 vitest 用例）。
 const cliE2eBudget = require('./gui-cli-e2e-budget');
 
-// Git Bash 解析复用单一真源：bash 步骤的语义（-e -o pipefail）只能用它复现，
-// 自己再写一份候选路径就会与 CCG 那边的口径漂移。
+// Git Bash 解析复用单一真源：bash 步骤的语义（-e -o pipefail）只能用它复现。
 const { resolveGitBash } = require(path.join(PROJECT_ROOT, 'scripts', 'lib', 'ccg-test-helpers'));
+
+// 行为锁的用例级预算：它要起 bash + date×2 + grep/sed/tail×6，而 Git Bash 在 Windows 上
+// 每次起进程约 0.5s；60s 对实测 ~13s 有 4.6 倍余量。用命名常量而不是裸数字。
+const SHELL_HARNESS_TIMEOUT_MS = 60000;
 
 const WORKFLOW_DIR = path.join(PROJECT_ROOT, '.github', 'workflows');
 
 function readWorkflow(name) {
   const source = fs.readFileSync(path.join(WORKFLOW_DIR, name), 'utf8');
   return { source, workflow: yaml.load(source) };
-}
-
-// 步骤名自本轮起带 `, shard <i>/<n>` 后缀（matrix 分片），精确等值会全部失效；
-// 用前缀匹配并把后缀当成「可缺省」的，才能同时兼容分片前后两种形状。
-function findUnitTestStep(job) {
-  return (job.steps || []).find(
-    (step) => String(step.name || '').startsWith('Unit tests (Vitest, non-Electron, single-worker deterministic'),
-  );
-}
-
-// matrix.shard 按事件分档（PR 1 片 / 非 PR N 片）之后，片数不再是一个数组字面量，
-// 而是 `${{ fromJSON(...) }}` 表达式。两个锁都要用「非 PR 那一档」的片数 ——
-// 抽在这里，避免各解各的把它们解成两种口径。
-// 行为锁的用例级预算：它要起 bash + date×2 + grep/sed/tail×6，而 Git Bash 在 Windows 上
-// 每次起进程约 0.5s；1s 的 timeout 触发后还有一轮诊断。60s 对实测 ~13s 有 4.6 倍余量。
-// 用命名常量而不是裸数字：本仓「预算必须挂依据」的纪律同样适用于测试自身的超时。
-const SHELL_HARNESS_TIMEOUT_MS = 60000;
-
-function matrixShardSet(job) {
-  const expr = JSON.stringify(job && job.strategy && job.strategy.matrix && job.strategy.matrix.shard);
-  const arrays = [...String(expr).matchAll(/\[([0-9,\s]*)\]/g)]
-    .map((m) => m[1].split(',').map((x) => Number(x.trim())).filter((x) => Number.isFinite(x)));
-  return arrays.length > 0 ? arrays[arrays.length - 1] : [];
 }
 
 function workflowSteps(workflow) {
@@ -634,9 +614,7 @@ describe('GUI/CI 工作流门禁契约', () => {
     const checksumSteps = steps.filter((step) => step.name === 'Verify Electron checksum pin (win32, windows-latest)');
     const electronSteps = steps.filter((step) => step.name === 'Install Electron runtime');
     const rebuildSteps = steps.filter((step) => step.name === 'Rebuild native modules for Electron ABI');
-    // 步骤名自本轮起带 `, shard <i>/<n>` 后缀；精确等值会得到空集，
-    // 而 `toHaveLength(1)` 会因此红得莫名其妙 —— 前缀匹配才是这条断言的本意。
-    const testSteps = steps.filter((step) => String(step.name || '').startsWith('Unit tests (Vitest, non-Electron, single-worker deterministic'));
+    const testSteps = steps.filter((step) => step.name === 'Unit tests (Vitest, non-Electron, single-worker deterministic)');
 
     expect(dependencySteps).toHaveLength(1);
     expect(runtimeSteps).toHaveLength(1);
@@ -717,11 +695,11 @@ describe('GUI/CI 工作流门禁契约', () => {
     const { source, workflow } = readWorkflow('electron-ci.yml');
     const job = workflow.jobs['electron-tests'];
     const steps = job.steps;
-    const unitStep = findUnitTestStep(job);
+    const unitStep = steps.find((step) => step.name === 'Unit tests (Vitest, non-Electron, single-worker deterministic)');
     const diagnosticStep = steps.find((step) => step.name === 'Vitest failure diagnostics');
 
     expect(job.env).toMatchObject({ NODE_ENV: 'test' });
-    expect(unitStep.run).toMatch(/BUDGET_SECONDS=\d+/);
+    expect(unitStep.run).toContain('BUDGET_SECONDS=2100');
     expect(unitStep.run).toMatch(/timeout --signal=TERM --kill-after=30s \$\{BUDGET_SECONDS\}s/);
     expect(unitStep.run).toContain('--maxWorkers=1');
     expect(unitStep.run).toContain('--no-file-parallelism');
@@ -735,29 +713,29 @@ describe('GUI/CI 工作流门禁契约', () => {
   });
 
   /**
-   * #2458 + 2026-10-20 分片：**单片**串行单 worker 的步骤级预算。
+   * #2458：串行单 worker 那一轮的**步骤级**预算。
    *
    * 依据只能取步骤级实测：`timeout(1)` 约束的就是这一步，而 job 级总时长还含两次
-   * install / checkout / 冒烟，拿它当步骤基线会系统性高估（来龙去脉与两组数字见
-   * docs/electron-ci-step-budget-baseline.md）：
-   *   - 整轮步骤健康耗时 794 s（run 36380533567，main push `bef5fb72` 的自证行
+   * install / checkout / 冒烟，拿它当步骤基线会系统性高估（层级混淆的来龙去脉与
+   * 两组数字都记在 docs/electron-ci-step-budget-baseline.md）：
+   *   - 步骤健康耗时 794 s（run 36380533567，main push `bef5fb72` 的自证行
    *     `[electron-ci-timeout-budget] elapsed=794s budget=2100s rc=0`）；
    *   - 被替换掉的旧墙 1200 s（`--kill-after=30s 20m`）。
-   * 切成 N 片后，单片健康耗时 ≈ 794/N，所以基线也必须按片摊薄 —— 拿整轮 794 s
-   * 去卡单片预算，会得出「必须 ≥1588 s」这种把分片的收益又吐回去的结论。
+   * 真实红因是 runner 负载把步骤耗时放大到越过 1200 s + 超时不可归因，
+   * 不是"自然耗时已贴墙"（794 s 对 1200 s 还有约 33% 余量）。
    */
   it('Electron CI 串行单测预算挂实测、超时可自证、且不与 job 级倒挂', () => {
     const { source, workflow } = readWorkflow('electron-ci.yml');
     const job = workflow.jobs['electron-tests'];
-    const unitStep = findUnitTestStep(job);
+    const unitStep = job.steps.find((step) => step.name === 'Unit tests (Vitest, non-Electron, single-worker deterministic)');
 
-    // 1) 预算挂在**单片**步骤级实测上（基线按片摊薄，见上面的注释）
-    const shardSet = matrixShardSet(job);
-    assert(shardSet.length > 0, 'matrix.shard 解析不出片数 ⇒ 分片已失效');
+    // 1) 预算挂在步骤级实测上：既要对被替换的旧墙有实质余量，也要覆盖健康耗时的倍数
     const budgetSeconds = Number(unitStep.run.match(/BUDGET_SECONDS=(\d+)/)[1]);
-    const measuredStepElapsedSeconds = 794; // 整轮自证行实测，不是 job 总时长
-    const perShardHealthySeconds = measuredStepElapsedSeconds / shardSet.length;
-    expect(budgetSeconds).toBeGreaterThanOrEqual(perShardHealthySeconds * 3);
+    const measuredStepElapsedSeconds = 794; // 自证行实测，不是 job 总时长
+    const retiredWallSeconds = 20 * 60;     // 旧魔数 20m
+    expect(budgetSeconds).toBeGreaterThan(retiredWallSeconds);
+    expect(budgetSeconds).toBeGreaterThanOrEqual(retiredWallSeconds * 1.5);
+    expect(budgetSeconds).toBeGreaterThanOrEqual(measuredStepElapsedSeconds * 2);
     // 旧魔数不得复活（它的问题不是"比自然耗时只多 1 分钟"，而是既无实测依据、红时又不可归因）
     expect(unitStep.run).not.toMatch(/--kill-after=30s 20m/);
 
@@ -768,19 +746,6 @@ describe('GUI/CI 工作流门禁契约', () => {
     expect(unitStep.run).toContain('RC=${PIPESTATUS[0]}');
     expect(unitStep.run).toMatch(/exit "\$\{RC\}"/);
 
-    // 2b) 光有这些行还不够 —— 必须确认 `set +e` 真的把它们从 `-e` 的手里救出来了。
-    //     顺序错了（或漏了 set +e）时上面每一条 `toContain` 依然成立，而运行时一行都执行不到，
-    //     这正是 #2525 到 2026-10-20 之间那段的真实状态。真正的行为验证在
-    //     「自证块必须在 bash -e -o pipefail 下真能执行」那条里，这里只锁静态顺序作早期信号。
-    const runText = String(unitStep.run);
-    const idxSetPlusE = runText.indexOf('set +e');
-    const idxPipeline = runText.indexOf('timeout --signal=TERM');
-    const idxPipeStatus = runText.indexOf('RC=${PIPESTATUS[0]}');
-    const idxSetMinusE = runText.indexOf('set -e', idxPipeStatus);
-    expect(idxSetPlusE, '缺 set +e ⇒ -e 会在 timeout 返回 124 时直接退出步骤').toBeGreaterThan(-1);
-    expect(idxSetPlusE).toBeLessThan(idxPipeline);
-    expect(idxSetMinusE, 'set -e 必须恢复，否则本步骤后续失败会被吞').toBeGreaterThan(idxPipeStatus);
-
     // 3) 预算不得倒挂：job 级上限必须容得下「本步骤预算 + 其余显式 timeout-minutes 之和」，
     //    否则抬内层只是把不可归因的超时从 timeout(1) 换成 Actions 的 job killer。
     const otherCapsMinutes = job.steps.reduce(
@@ -790,30 +755,23 @@ describe('GUI/CI 工作流门禁契约', () => {
     expect(job['timeout-minutes']).toBeGreaterThan(otherCapsMinutes + budgetSeconds / 60);
     expect(source).toContain('# 预算不得倒挂');
   });
-
   /**
    * #2525 的标题是「让超时失败能自证」，正文也写了 `RC=${PIPESTATUS[0]}` 与一整段
    * `TIMEOUT_BUDGET_EXCEEDED` 诊断。但 GitHub 给的 shell 是 `bash -e -o pipefail`：
-   * `timeout` 返回 124 时 `-e` **立刻退出步骤**，其后每一行都不执行 —— 实测两次
-   * 失败 attempt 的日志里都没有 `[electron-ci-timeout-budget] elapsed=… rc=…`。
+   * `timeout` 返回 124 时 `-e` **立刻退出步骤**，其后每一行都不执行 —— 实测两次失败
+   * attempt 的日志里都没有 `[electron-ci-timeout-budget] elapsed=… rc=…`。
    *
    * 旧锁的判据域是「这四行字符串在 YAML 里存在」，被测性质却是「这四行会在运行时执行」。
-   * 两者不是一回事，于是锁一直是绿的、自证一直是死的。
-   *
-   * 本用例把判据域换成**真执行**：取该步骤 `run` 的原文，在同样的 `-e -o pipefail` 下跑一遍，
-   * 只把两个量按题意替换（预算压到 1s 让 timeout 真的触发；`pnpm` 用函数桩接管，
-   * 因为这里不该也不可能跑整套桌面测试），然后断言自证行真的打印出来。
+   * 两者不是一回事，于是锁一直是绿的、自证一直是死的。本用例把判据域换成**真执行**。
    */
   it('自证块必须在 bash -e -o pipefail 下真能执行，而不是只在 YAML 里存在', () => {
     const { workflow } = readWorkflow('electron-ci.yml');
-    const unitStep = findUnitTestStep(workflow.jobs['electron-tests']);
+    const unitStep = workflow.jobs['electron-tests'].steps
+      .find((step) => step.name === 'Unit tests (Vitest, non-Electron, single-worker deterministic)');
 
-    // 只做两处按题意的替换，其余结构（timeout / tee / PIPESTATUS / 自证块）一字不动：
-    //   ① 预算压到 1s，让 timeout(1) 必然触发；
-    //   ② 内层命令换成必超时的 `sleep`。
-    // ② 用**文本替换**而不是伪造 `pnpm` 可执行文件：`timeout` 是外部命令，
-    // 既看不见 shell 函数表（函数桩会得到 exit 127），
-    // 而靠 PATH 注入 stub 又会被本机含中文的用户名目录搅乱（实测 127）。
+    // 只做两处按题意的替换，其余结构（timeout / tee / PIPESTATUS / 自证块）一字不动。
+    // 用文本替换而不是伪造 `pnpm`：`timeout` 是外部命令，看不见 shell 函数表（函数桩 → 127），
+    // 靠 PATH 注入 stub 又会被本机含中文的用户名目录搅乱（实测 127）。
     const body = String(unitStep.run)
       .replace(/BUDGET_SECONDS=\d+/, 'BUDGET_SECONDS=1')
       .replace(/pnpm --filter[\s\S]*?2>&1 \| tee "\$LOG"/, 'sleep 2 2>&1 | tee "$LOG"');
@@ -826,85 +784,22 @@ describe('GUI/CI 工作流门禁契约', () => {
       cwd: fs.mkdtempSync(path.join(os.tmpdir(), 'electron-ci-budget-')),
       encoding: 'utf8',
       timeout: 60000,
-      // PATH 必须显式给成 POSIX 形态：Node 直接 spawn MSYS 的 bash 时不会做
-      // Windows→POSIX 转换，继承来的 `C:\…;C:\…` 会被按 ':' 切坏，
-      // 连 `date` 都 command not found（实测 127，红得完全不是被测的性质）。
-      // 这里只需要 coreutils：date / timeout / tee / grep / sed / tail / sleep。
+      // PATH 显式给成 POSIX 形态：Node 直接 spawn MSYS bash 时不做 Windows→POSIX 转换，
+      // 继承来的 `C:\…;C:\…` 被按 ":" 切坏，连 `date` 都 command not found（实测 127）。
       env: { ...process.env, PATH: '/usr/bin:/bin' },
     });
     const out = String(res.stdout || '') + String(res.stderr || '');
 
-    // ① 成败形状：被步骤级 timeout 掐断，不是断言失败
+    // ① 被步骤级 timeout 掐断，不是断言失败
     expect(res.status, 'exit 124 = 被 timeout(1) 掐断').toBe(124);
     // ② 自证行必须真的出现 —— #2525 承诺而从未兑现的那一半
     expect(out, '自证行缺席 ⇒ 自证块又被 -e 提前杀掉了').toContain('[electron-ci-timeout-budget] elapsed=');
     expect(out).toMatch(/rc=124/);
     expect(out).toContain('TIMEOUT_BUDGET_EXCEEDED');
-    // ③ 覆盖到诊断尾部（对抗审查 i7）：`grep -c` 在空 log 上返回 1，若少了 `|| true`，
-    //    恢复后的 `set -e` 会把步骤码改写成非 124，而 `status===124` 会红得指错根因。
-    //    这一行证明控制流真的穿过了那条 grep 并走到 sed 输出。
+    // ③ 覆盖到诊断尾部：空 log 上 `grep -c` 返回 1，若少了 `|| true`，恢复后的 `set -e`
+    //    会把步骤码改写成非 124，而 `status===124` 会红得指错根因。
     expect(out).toContain('已完成测试行数');
-    // 显式放宽用例超时：`spawnSync` 阻塞事件循环，vitest 的 10s 默认值**无法中断**它 ——
-    // 超时只会延后到子进程返回才报（实测报成 15s 的 "Test timed out in 10000ms"）。
-    // 而 Git Bash 在 Windows 上每次起进程约 0.5s，本用例要起 bash + date×2 + grep/sed/tail×6。
   }, SHELL_HARNESS_TIMEOUT_MS);
-
-  /**
-   * 工作流自己的注释写着「根因修法是按 --shard 把这一轮切开（issue 档 2）」，
-   * 并且明确「不是继续加大预算」。本用例锁的就是「真切开了」，而不是只把墙抬高。
-   *
-   * 699s~794s 的健康耗时对一整轮串行；切成 N 片后单片健康耗时约为 1/N，
-   * 于是同样的 runner 负载放大不再撞墙，而 `--maxWorkers=1 --no-file-parallelism`
-   * 的确定性语义与「main 侧第二次独立运行」的 flake 检出原意都不丢。
-   */
-  it('Electron CI 串行单测按 shard 切开，单片预算挂单片实测', () => {
-    const { workflow } = readWorkflow('electron-ci.yml');
-    const job = workflow.jobs['electron-tests'];
-    const matrix = job.strategy && job.strategy.matrix;
-
-    assert(matrix, '必须先有 matrix，才谈得上「切开」而不是「抬墙」');
-    // matrix.shard 按事件分档（对抗审查 i2）：PR 上只 1 片 —— 本 job 的测试步骤由
-    // `if: event_name != 'pull_request'` 跳过，而 checkout/install/electron runtime/冒烟
-    // 这些**无 if** 的步骤照样跑，三片会把它们各跑三遍、零分片收益。
-    const shardExpr = JSON.stringify(matrix.shard);
-    assert(shardExpr.includes('pull_request'), '矩阵必须按事件分档，否则 PR 侧 setup 会白跑 N 遍');
-    const fullSet = matrixShardSet(job); // 非 PR 那一档
-    // 片数写死而不是 `>= 2`（对抗审查 i3）：下限若允许降到 2，则「2 片 + 单片预算 1191s」
-    // 能同时满足 `budget >= 单片健康×3` 与 `budget < 20*60`，反向判据实质失效。
-    assert(fullSet && fullSet.length === 3, '非 PR 档必须恰好 3 片，否则「减片 + 抬预算」可组合回退');
-
-    // required context 名必须由本作业自己报出（2026-10-20 实测）：GitHub 的 ruleset
-    // `main-ci-gate` 要求的 context 就是 `electron-tests`，而 matrix 默认报 `electron-tests (1)`
-    // ⇒ 那个 context 永不出现、22 项全绿的 PR 也判 `base branch policy prohibits`。
-    // 正解是给 matrix 作业一个**静态** `name`，让每一片都报同一个 check 名（分片全绿才算绿）。
-    // 试过并**不可行**的两条，记在这里免得后人重走：① 另加一个 `name: electron-tests` 的汇入作业
-    // —— 会把整个 workflow 判成不可解析（幻影 push run + 0 job，两次复现，`always()` 与
-    // `always() && …` 两种写法都试过）；② 把两条条件用 `&&` 串在汇入作业的 `if` 上 —— 同上。
-    expect(job.name, 'matrix 作业必须带静态 name: electron-tests').toBe('electron-tests');
-    expect(workflow.jobs['electron-tests-summary'], '不该再有汇入作业（那条路会让 workflow 无法解析）').toBeUndefined();
-    const unitStep = findUnitTestStep(job);
-    const run = String(unitStep.run);
-
-    // 每片真的只跑自己那一份，且总数取自 matrix 而非第二个魔数
-    expect(run).toContain('--shard=${{ matrix.shard }}/${{ strategy.job-total }}');
-    // 确定性语义不得因为分片而丢失
-    expect(run).toContain('--maxWorkers=1');
-    expect(run).toContain('--no-file-parallelism');
-
-    // 单片预算：健康耗时按片数摊薄后仍要留 3 倍余量
-    const measuredStepElapsedSeconds = 794; // 整轮自证行实测（bef5fb72）
-    const perShardHealthySeconds = measuredStepElapsedSeconds / fullSet.length;
-    const budgetSeconds = Number(run.match(/BUDGET_SECONDS=(\d+)/)[1]);
-    expect(budgetSeconds).toBeGreaterThanOrEqual(perShardHealthySeconds * 3);
-    // 关键的反向判据：切成 N 片之后，单片预算必须**低于**被替换掉的 20 分钟旧墙，
-    // 否则说明只是把「抬预算」包装成「分片」，根因没动。
-    expect(budgetSeconds).toBeLessThan(20 * 60);
-    // 上界同时钉住现值（对抗审查 i3）：只写 `< 1200` 时 1191s 也能过，而这条判据要防的是
-    // 「抬预算」而不是「比旧墙小一点」。要改这个数就必须同时改这里，改的人会看到这行注释。
-    // TODO(校准)：3 片与 900s 都建立在整轮 794s 的**均值**假设上；`vitest --shard` 按文件切，
-    // 各片时长未必均匀。接通自证之后取首轮逐片真实 elapsed，把 794 换成逐片实测最大值再复核。
-    expect(budgetSeconds).toBeLessThanOrEqual(900);
-  });
 
   it('自主审计成功分支不会继续写入基础设施失败状态', () => {
     const { source } = readWorkflow('quality-gate.yml');

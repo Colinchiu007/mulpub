@@ -5,6 +5,11 @@ date: 2026-10-20
 ---
 
 ## 本次执行记录：Electron CI 自证块接通 + 分片（electron-ci-shard，2026-10-20）
+> ⚠️ **本轮实际落地范围（2026-10-20 收尾修正）**：只做了「接通自证块」与本轮 CI 抓出的
+> 「台账名派生」两处真 bug 修复。**matrix 分片部分没有落地** —— 它被 ruleset 的 required
+> context `electron-ci-tests` 与 matrix 后缀名冲突卡住，三轮尝试的现场见 §九。
+> 下面 §四 / §五 里关于「切成三片」的描述是**当时的计划**，不是已交付的事实。
+
 
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
@@ -209,3 +214,32 @@ matrix 把作业报成 `electron-tests (1)`/`(2)`/`(3)` ⇒ `electron-tests` 这
 **教训（比这一条本身更重要）**：GitHub 有**两套并存**的分支保护面 —— legacy protection 与 rulesets。
 只查一套就得出「不受约束」的结论，形态上等同于「查到第一个空结果就收工」。这与本轮主线要修的
 那个毛病（`toContain` 通过 ≠ 代码会执行）是同一类：**判据覆盖了局部，就以为覆盖了整体**。
+
+
+## 九、收尾：分片没有落地，以及三轮尝试的现场
+
+原计划是「接通自证 + 按 `--shard` 切成三片」。三轮实测后只落地了前一半，后一半被
+required context 卡死：
+
+| 尝试 | 现场 |
+|------|------|
+| ① matrix `shard: [1,2,3]`（PR 1 片 / 非 PR 3 片） | 分片能跑（PR 上 `electron-tests (1) pass 2m14s`），但 check 名变成 `electron-tests (1)`；ruleset `main-ci-gate` 要求的 context 是 `electron-tests` ⇒ 该 context 永不出现，**22 项全绿仍判 `base branch policy prohibits the merge`** |
+| ② 另加 `name: electron-tests` 的汇入作业（`if: always()`） | **整份 workflow 被判不可解析**：幻影 `push` run + **0 job**，run 的 `name` 退化成 workflow 路径；`on.push.branches: [main]` 下却出现本分支的 push run ⇒ GitHub 连 `on:` 都没读到 |
+| ②' 同上但 `if: ${{ always() && needs.changes.outputs.docs-only != 'true' }}` | 同样 0 job + 幻影 push run（排除「只是 if 表达式写法」这一解释） |
+| ③ 只给 matrix 作业加静态 `name: electron-tests` | 解析正常（`event=pull_request`、`jobs=1`），但 check 名**仍是** `electron-tests (1)` |
+
+**所以正解不是「再试一种 if 写法」，而是把 matrix 作业改 id**（如 `electron-tests-shards`）
++ 用 id 为 `electron-tests` 的汇入作业。这一步本身能成立，但它要同步改
+`.github/scripts/workflow-contract.test.js` 的多条结构性锁（「跑桌面 vitest 全量的每个 job
+必须在测试前重建那 5 个产物」「测试步的 `if` 必须是字面量非 PR 事件」等按 job 名/needs 断言
+的判据），以及 `apps/desktop/tests/gui-ci-exit-contract.test.js` 里所有
+`workflow.jobs['electron-tests']` 引用。**那是另一件事，且挨着「谁来守门」**，不该塞进一个
+修超时的 PR。已按这个判断收窄，并把分片留给下一轮（依据是自证块接通后首次产出的逐片 `elapsed=`）。
+
+### 这轮真正值钱的两条方法论
+
+1. **判据域错位比判据缺失更危险**：`toContain('elapsed=')` 一直是绿的，而它守护的代码
+   一次都没执行。修法不是「再加一条断言」，而是**把判据域从文本换成行为**（真跑那段 shell）。
+2. **两套并存的分支保护面**：`branches/main/protection` 只有 4 个 context，而真正拦人的是
+   `rulesets/23749994`（7 个）。只查一套就得出「不受约束」的结论，等同于「查到第一个空结果就收工」
+   —— 与本轮主线要修的毛病同型。

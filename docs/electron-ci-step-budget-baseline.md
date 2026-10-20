@@ -60,6 +60,11 @@
 内层命令换成必超时的 `sleep`），断言自证行真的打印。摘掉 `set +e` 后该锁立刻变红
 （已做变异反证），故它测的是行为而不是文本。
 
+> ⚠️ **2026-10-20 收尾修正：本节是当时的计划，未落地。** 分片被 ruleset
+> `main-ci-gate` 的 required context `electron-tests` 与 matrix 后缀名冲突卡住，三轮尝试的现场
+> 见 `openspec/records/electron-ci-shard.md` §九。当前 `BUDGET_SECONDS` 仍是 **2100**（整轮），
+> 本轮只落地了「接通自证块」。
+
 ### 分片：单片基线而非整轮基线
 
 | 项 | 值 |
