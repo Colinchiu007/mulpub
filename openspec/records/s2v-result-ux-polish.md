@@ -165,3 +165,13 @@ electron: Failed to load URL: … resources/app.asar/dist/index.html with error:
 | 记忆三路沉淀 | PASS | ① **外部记忆（仓库文档）**：`01-docs/learnings.md` 置顶 7 条教训（append-only，CRLF 保真）；② **EverOS**（`127.0.0.1:8000`，health 200）：`POST /api/v1/memory/add` 回 `{"message_count":1,"status":"accumulated"}` → `POST /api/v1/memory/flush` 回 `{"status":"extracted"}` → **读回取落盘产物**：`~/.everos/default_app/default_project/users/lead/episodes/episode-2026-10-20.md` 的 L16 grep 到哨兵词 `s2v-result-ux-polish`。契约踩坑：`messages[]` 必填 `role`/`sender_id`/`timestamp`（epoch 毫秒整数），且 **`session_id` 是必填字段**（缺它回 422 `Field required: session_id`）；③ **内置记忆**：本会话 DSH 会话档由 harness 自动落盘，无对外写 API，未手工伪造 |
 | 远程同步 | 由门禁推导 | 新 PR 不手写状态词，收口由 `scripts/lib/merge-ledger.js` 按主干历史推导 |
 
+
+7. **rebase 时按语义重打对方的方法体，把哨兵值 `''` 改成了 `null`**（CI 抓出，本轮真实回归）：
+   rebase 到最新 `origin/main` 时 `ResultSegmentEditor.vue` 有冲突——main 带进了「分段编辑主体默认收起 + 展开互斥」
+   三个方法，我方在同一位置新增了 `clearFilters`。我手工拼接时**按语义重打**了 main 的方法体，把收起态写成 `null`，
+   而 main 的 `data()` 默认值与两处赋值用的都是空字符串。`Boolean(segmentId) && ...` 让两者运行时都能工作，
+   但既有测试 `expect(w.vm.expandedSegmentId).toBe('')` 正是**状态哨兵值的契约锁**，CI `QG Desktop Shards (1/2)`
+   当场判 `expected null to be ''`。
+   **口径**：解决冲突必须**逐字复制**对方的方法体，不要按语义重打——重打会静默改掉「默认值 / 哨兵值 / 边界字面量」
+   这类"跑得动但契约变了"的东西；且 rebase 后的本地快检必须包含**所有被改文件的既有测试**
+   （本轮只跑了 ResultView 相关，漏了同目录的 `ResultSegmentEditor.test.js`）。
