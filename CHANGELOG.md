@@ -18,6 +18,44 @@
 - **TDD 与反证**：先写红（`2 failed | 22 passed`，红因分别是 `legacyMax` 为 undefined、`formatLegacyNotice` 不是函数）再实现 ⇒ `24 passed`；变异 N1–N8 逐条**指名**变红且跑后按字节还原（`restored=true` ×8），控制跑自带健康断言（`rc=0 && passed=24`，不健康则 PROBE_BLIND 且不产出任何 verdict）。消费者并集全部实跑：`windows-file-lock` + `account-state-restorer` + `credential-store` = **51 passed**；`packages/api-publish-engine/test/api-key-manager-atomic-write.test.js` = **1 passed**（它 require 同一份夹具）。清点用未截断的 `git grep`（上一轮把清点接了 `head` 恰好削掉一个真消费者，那笔教训见上一条 PR 的记录）。
 - **还有一层没扩，写清楚免得被读成「域已完整」**：脚本的 workflow 坐标只有 `quality-gate.yml`，而 `.github/workflows/electron-ci.yml` 的 `electron-tests` 作业（步骤「Unit tests (Vitest, non-Electron, single-worker deterministic)」，`if: github.event_name != 'pull_request'` ⇒ 仅 main push 跑，#4061 后按 `--shard` 切三片）**跑同一批桌面 vitest**，那里也产握手行。扩它要给采集端加第二个 workflow 轴并配同形的 A/B 负控，属另一片的工作量 ⇒ 登记为遗留（执行记录 §4 第 3 条），并把边界同时写进 `JOB_RE` 上方注释与 `docs/windows-lock-budget-provenance.md` §4 第 6 条。**结论的适用范围因此是：现存 max 至今仍是下界，不是全量分布。**
 - **边界**：预算取值本身一字未动（45000 / 12000 / 20000），改的是「量它的尺」；无 UI / locale / 主进程运行面改动，QM-1 与 QM-4 判 N/A。文档同步落在 `docs/windows-lock-budget-provenance.md`（§2 偏差表、§3 rc=3 两档与 rc=5、§4 新增第 6/7 两个坑），并按当场读数更正了该文件 §5 里「`CHANGELOG.md` 含 NUL 字节、被 git 判为 binary」这句已过期前提（上游 control-bytes-sweep 后实测 NUL=0，本轮置顶插入即为现场反证）。
+# [未发布] feat(rewrite): 分段截断汇总可见化 + ai:rewrite 取消通道（rewrite-cancel-and-truncation-summary）
+
+## 问题
+
+`rewrite-segment-and-finish-reason` 交付后留下两条真实欠账：
+
+1. **分段截断静默**：`segment-rewriter.js` 合并时**硬写 `modelTruncated: false`**，理由是「单段无法归属整篇」。
+   但「至少一段被截」本可如实表达 —— 结果是 5 段里第 3 段被模型截断时，正文中间缺一块而界面**无任何提示**
+   （正是上一刀想消灭的静默截断，换到分段路径重现）。
+2. **`ai:rewrite` 无取消通道**：`ai.js` 13 个 `ai:*` 通道一条取消都没有，而
+   `pipeline/render/video-clone/queue/podcast/zhihu-favlist` 全有。分段把改写从秒级变成分钟级后，
+   「粘错文章也只能等全程、后续片段继续计费」成为可感知伤害。
+
+## 改动
+
+- **引擎**：分段循环收集 `truncatedSegments`（1-based 段号），`modelTruncated = truncatedSegments.length > 0`；
+  该字段**条件展开**进结果 ⇒ 单次路径形状零变化。段边界检查 `signal.cancelled`，命中即返回
+  `{success:false, errorCode:'CANCELLED', cancelled:true, cancelledAtSegment, completedSegments}`，无半成品、不写 KB。
+- **IPC**：`activeRewrites` 登记表（`finally` 必删，无泄漏）；`ai:rewrite` 带 `runId` 才注入 signal
+  （无 runId ⇒ 与改动前逐字节等价）；新增 `ai:rewrite-cancel`（owner 校验 + `not_running`/`not_owner` 分支，
+  同 runId 并发 ⇒ `DUPLICATE_RUN`）。
+- **preload**：`aiRewriteCancel`，键数锁 140→141 / 338→339 同步更新。
+- **渲染层**：新增 `composables/useRewriteCancel`（runId 生命周期 / beginRun / cancel / endRun）与
+  `utils/rewrite-truncation`（三个纯派生 + 单测）；改写中显示「取消改写」按钮，`CANCELLED` 走 info 不弹错误；
+  模型截断横幅新增**点名段号**文案（避免「整篇残缺」误读）。`RewriteView.vue` 从 1465 行拆回 1339 行。
+
+## 明确不做
+
+- **in-flight 中止**：信号需穿过 4 层到 `fetch`，而 `model-provider-manager.js:294/303` 只为熔断使用
+  `runtimeOptions`、未下传 adapter —— 改它等于给全部 LLM 调用加通路，波及面远超本需求。取消在**段边界**生效。
+- **取消退款/断点续跑**：已消耗片段不保留、费用不退，重试从头开始（与「任一段失败即整篇丢弃」同语义）。
+
+## 验证
+
+- 引擎 **263 passed**（+8：T1-T4 截断汇总、C1-C4 取消）。
+- 渲染层/IPC **152 + 515 passed**（取消通道 7 例、纯派生 10 例、IPC 8 例、preload 375 例全绿）。
+- `build:vue` rc=0；`electron-builder --dir` rc=0；asar 核验通道与方法在包内。
+- 静态门禁：unwired OK / locale keys PASS(2181) / locale CJK PASS / max-lines ✅ / brand PASS / doc-abs PASS。
 
 # [未发布] docs(openspec): 归档 shape-lock 规格 delta —— 那条 Requirement 不再自己打自己（archive-shape-lock-scenario）
 

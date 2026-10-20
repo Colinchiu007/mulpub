@@ -104,6 +104,11 @@
 ① 新 PR 记录的状态列写「由门禁推导」；bullet 写 `远程同步 PR #NNNN`。
 ② 合并前**别**写 `PASS` —— 那会判 `prematureClaim`（文件还不在基线上，不可能已经远程同步）。
 ③ 判据首行会打印 `MERGE-LEDGER prs=<n>` / `HAND-CLOSURE 人工改写=<n>`；后者非 0 说明有人在改状态词，那是拦截面而不是可见面。
+## 2026-10-20 · rewrite-cancel-and-truncation-summary：聚合丢弃子信号 + 长任务缺取消的两条形态
+
+- **pitfall · 「无法归属到整体」不是丢弃子信号的理由**：分段改写合并时，每段各自知道自己是否被模型截断（`finishReason=length`），但合并代码把它**丢弃并硬写 `false`**，注释理由是「单段无法归属到整篇」。这个理由混淆了「精确归属」与「存在性陈述」——用户不需要知道「整篇被截了几段」，只需要知道「**有片段被截了**」。代价是界面完全静默：正文中间缺一块但没有任何横幅，正是上一刀花力气消灭的静默截断换个路径重现。判据：聚合多个子结果时，逐项问「这个子信号删掉后，用户会少知道什么？」；只要答案是「少知道某件坏事发生了」，就必须上卷为 `any()`（并尽量保留定位信息，如段号数组）。
+- **pitfall · 长任务的接口形态会随耗时改变而失效，取消通道是它的隐性契约**：`ai:rewrite` 原本是秒级单次调用，没有取消通道完全合理。分段改写把它变成**分钟级串行**后，同一个接口就从「不需要取消」变成「必须能取消」——而接口本身没有任何地方会提醒你这个变化。本仓 `pipeline/render/video-clone/queue/podcast/zhihu-favlist` 六条长任务通道全有 cancel，唯独 `ai:*` 13 条都没有，正是这条的存量证据。判据：任何把「一次调用」改成「N 次串行」或「分钟级」的改动，必须同帧检查该通道有没有中止途径；没有就要补，或在 UI 明确承诺「不可取消」。
+- **pattern · 协作式取消要复用本仓既有标记范式，并如实定义粒度**：本仓已有 `signal = { cancelled: false }`（`zhihu-favlist.js` / `batch-rate-controller.js`）与 `services/abort-utils.js`。做 `ai:rewrite` 取消时**不要把信号一路穿到 `fetch`**——勘察实证 `model-provider-manager.callAdapter` 只调 `adapter[method](params)`，`runtimeOptions` 在那层就被丢掉，穿到 fetch 等于给**全部** LLM 调用加通路。正解是段边界协作式 + **文案如实**（「当前片段会先完成」而不是「立即停止」）+ 明说代价（已耗片段不保留、费用不退）。另两条配套机械项：① 登记表必须在 `finally` 删（否则按改写次数无限增长）；② 同一 runId 并发要**拒绝**（`DUPLICATE_RUN`）而不是覆盖——共用 token 会让两次改写互相误杀。
 
 ## 「规则已加」和「用户看得见」隔着两件事——基类覆盖与 transition:all 的淡入（focus-ring-zero-coverage，2026-10-19）
 

@@ -66,6 +66,15 @@ export default {
     // Segmented rewriting (input over 50000 chars): pre-run notice + result metadata
     rewriteSegmented: 'The text is {length} chars, over the {max}-char single-pass limit, so it will be rewritten in segments. It takes longer and costs more, other AI features may slow down while it runs, and cross-segment consistency may degrade.',
     segmentedMeta: 'Segmented rewrite ×{count}',
+    // Cancellation (rewrite-cancel-and-truncation-summary): cooperative, takes effect
+    // after the current segment finishes — the button label must not imply instant stop.
+    cancelRewriteBtn: 'Cancel rewrite',
+    cancellingBtn: 'Cancelling…',
+    cancellingHint: 'Cancelling: the current segment will finish first, then no further segments start.',
+    rewriteCancelled: 'Rewrite cancelled: the {completed}/{total} finished segments are discarded, and model costs already incurred are not refunded.',
+    // Only some segments were cut by the model's per-response limit — name them,
+    // otherwise users assume the whole article is damaged.
+    outputTruncatedByModelSegments: 'Segment(s) {segments} were cut by the model per-response limit ({length} chars in total). This is a provider-side limit; shorten the source text or rewrite it in two passes.',
     // ── Rewrite quality report (content-quality-eval desktop loop) ──
     qualitySection: 'Quality Assessment',
     qualitySufficiency: 'Rewrite sufficiency',
