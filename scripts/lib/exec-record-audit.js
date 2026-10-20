@@ -155,6 +155,12 @@ function formatText(r) {
   }
   L.push('')
   L.push(`待人工看的 findings 条数（未闭环 dual 累加）: ${r.findingsTotal}`)
+  if (r.total === 0) {
+    // 外部评审 i5：空结果必须能自证「我找的是哪个目录」，否则用户无从判断是仓库里
+    // 真的没有记录、还是路径给错了（静默「0 条」是最坏的可诊断性）。
+    // 路径一律用正斜杠展示：与仓库文档/日志的写法一致，也不受宿主 path.sep 影响。
+    L.push(`  未找到任何记录文件：${r.repo}/.ccg/reviews（若路径给错，用 --repo=<仓库根> 重试）`)
+  }
   if (r.samples.length > 0) {
     L.push('')
     L.push(`未闭环记录样例（前 ${r.samples.length} 条，按文件序）`)

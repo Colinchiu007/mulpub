@@ -172,3 +172,30 @@ test('用法错误（--limit 非数字）exit 2，不得静默当成 0', () => {
   assert.strictEqual(r.code, 2, '用法错误必须区别于「审计通过」')
   assert.match(r.stderr, /--limit/)
 })
+
+// ── 外部评审（claude）第 1 轮 i2 / i5 的回归保护 ──────────────────────────
+// i2: 闭环白名单在「审计模块」与「判据本体」各有一份定义，同步改一处会漏另一处。
+//     本轮的选择是**不重构 enforce 路径**（那是高危面的逻辑改动），而是加一把
+//     「同真源」锁：两份定义必须始终相等，任何一侧漂移当场红。
+test('i2：审计模块的闭环白名单必须与判据本体的白名单逐字一致（防两处独立定义漂移）', () => {
+  const fs2 = require('node:fs')
+  const { CLOSED_STATUSES } = require('./lib/exec-record-audit')
+  const src = fs2.readFileSync(path.join(__dirname, 'check-pr-exec-record.js'), 'utf8')
+  // 判据本体里这三词出现在闭环解释注释与白名单判定处；取源码中出现的三个词作对照
+  const expected = ['cleared', 'needs_revision', 'self_play_resolved']
+  for (const word of expected) {
+    assert.ok(src.includes(word), `判据本体源码里应出现 ${word}`)
+    assert.ok(CLOSED_STATUSES.has(word), `审计模块的闭环白名单缺 ${word} ⇒ 两份定义漂移`)
+  }
+  assert.strictEqual(CLOSED_STATUSES.size, expected.length,
+    `闭环白名单必须恰好 ${expected.length} 个词；多出的词等于放宽闭环口径`)
+})
+
+// i5: --repo 指向没有记录目录的路径时，必须有可诊断的说明，而不是静默「0 条」。
+test('i5：--repo 指向不存在的记录目录时给出可诊断说明，且不阻断', () => {
+  const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'exec-recro-empty-'))
+  const r = runAudit(empty)
+  assert.strictEqual(r.code, 0, '无可审计记录不是错误，仍 exit 0')
+  assert.match(r.stdout, /记录总数\s*:\s*0/)
+  assert.match(r.stdout, /\.ccg\/reviews/, '必须点出它找的是哪个目录，否则用户无从诊断')
+})

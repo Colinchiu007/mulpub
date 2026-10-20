@@ -94,7 +94,29 @@
 3. 分片方案只是文档，未改 `electron-ci.yml` ⇒ 本次不改变任何 CI 行为。
 
 
-## 7) 保留门禁
+## 8) 外部评审第 1 轮处置（真跑了外部 critic，不是自扮演）
+
+`sh scripts/deep-review.sh` 实跑：`判定: DUAL`（变更 380 行 > 200 行阈值）、
+`跨家族校验 proposer=opencode critic=claude 通过`、`critic=claude` 真实返回
+**6 条 issues**、维度分 `correctness=6 security=7 performance=5 maintainability=4`。
+引擎随后进入自扮演（`status=self_play_pending`，4 条待裁决）。
+
+逐条处置（**没有一条靠"看起来没问题"打发**）：
+
+| # | 严重度 | critic 主张 | 处置 | 证据 |
+| --- | --- | --- | --- | --- |
+| i1 | Critical | 判定记录 `.ccg/reviews/8998…json` 的 `sha=337d8f9ff` 与 PR head `0ac3db3de` 不符，「审计证据与被审提交脱钩」 | **dismissed（误报）** | `337d8f9ff` 恰等于 `HEAD^`：pre-commit 时新 commit 尚未生成，判定记录写在父 sha 上是引擎自述的预期行为（`deep-review.sh` 当场打印「pre-commit 时新 commit 尚未生成，判定记录写在父 sha 上——这是预期行为」）。已用 `git rev-parse HEAD^` 双向核对 |
+| i2 | Warning | 审计模块自定义 `CLOSED_STATUSES`，与判据本体的白名单两处独立定义，未来同步易漏 | **已修**（不重构 enforce 路径，改为加「同真源」锁） | 新增用例「i2：审计模块的闭环白名单必须与判据本体的白名单逐字一致」——三个词缺一则红、多出一词也红（多词=放宽闭环口径）。不直接重构是因为 enforce 路径属高危逻辑，改它会把「防漂移」变成「引入回归」 |
+| i3 | Warning | `proposal.md` 把已落地实现与未落地分片方案混在一篇，文档边界模糊 | **已修** | 拆成 `proposal.md`（只写已落地的 `--audit`）+ `design-electron-ci-shard.md`（明确标注「未提交实现」并列出为何不提交） |
+| i4 | Warning | 审计同步读全部记录、无流式，随记录数线性增长 | **部分采纳** | 「线性读文件」当前不是瓶颈：1509 份记录 **1657 ms**，且全程只有 **2 次 git spawn**（瓶颈在 spawn 不在 IO，见 `fix-precommit-reviews-spawn-storm` 登记的 1175 ms/次拥堵读数）。已把「耗时 + spawn 数」写成**性能基线**供后续回归对照；流式处理属过早优化，未做 |
+| i5 | Info | `--repo` 接受任意目录，可能读非项目目录 | **已修** | 空结果时输出「未找到任何记录文件：`<repo>/.ccg/reviews`（若路径给错…）」，把"静默 0 条"改成可诊断；新增用例锁定该文案 |
+| i6 | Info | `.github/workflows` 注释是中文，自动化门禁可能无法识别 | **dismissed（误报）** | 本仓代码/注释/提交信息一律中文（`AGENTS.md`「语言约定」）；门禁不解析注释语义，它匹配的是 `run` 正文与表达式。译为英文反而违反仓内约定 |
+
+**审查轮次记录**：第 1 轮 = 上述 6 条；i2/i3/i5 已修并各带回归锁或文档边界，
+i1/i6 逐条给出可核证据。**本轮不自行把 `status` 改成闭环词**：
+本 PR 命中高危面，闭环只认 `tier=external` + 可核 evidence，须由人工/外部复核确认。
+
+## 9) 保留门禁
 
 变更类型与隔离 ✅ | 行尾对账（以 CI 为准）| 品牌残留（以 CI 为准）| 文档同步 ✅（PRD 无需改；
 本文 + change proposal 即文档）| 执行记录 ✅ | 远程同步 ⏳
