@@ -46,10 +46,48 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "externallyReviewed": [],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "finding": "applyReviewRequestToRecord 用 `before.commitRequest || before` 短路判断旧审计锚。功能正确（第一轮无 .commitRequest 时取 before，第二轮已有时保留），但对后续维护者极易误读为「把当前状态写进自己」，缺少显式 `hasOwnProperty` 检查。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "最强指控：`before.commitRequest || before` 把「键缺席」和「值为 null」合并成同一条短路。读码的人若把它理解成「把当前状态写进自己」，最自然的\"收紧\"就是换成 hasOwnProperty 显式判断 —— 而那一改会在 commitRequest 为 null（存在但空）时把 null 当成已有锚永久保留，审计锚反而永久丢失。这一格没有任何机器判据在问「短路是不是选错了」。",
+        "defense": "行为不靠读码者不出神，靠\"改坏必须当场变红\"：`ccg-review-backends.test.js:290` 那条锁把语义钉成「第二次换不同后端时留档必须仍是提交时那份」，本轮实测把实现退回 `= before`（即 HEAD 版 lib）后 `tests 28 / fail 2`，两条失败用例逐字指名 i1 与 i4。反向更关键：`||` 对「键缺席」和「值为 null」两种假值都落回 `before`，而 `commitRequest: null` 的语义就是「没有留档」，所以 hasOwnProperty 才是错的那一侧 —— 它会把 null 认成已有锚。函数上方另有 4 行注释写明这条不变式的出处（spec「MUST NOT 被就地覆盖销毁」）。",
+        "verdict": "dismissed",
+        "rationale": "指控的失效场景要求一次真实的误改，而那一次误改会被现存两条锁指名变红（本轮已现场跑过：退回修复前 ⇒ 指名 fail 2）。同时判据侧要指出：提议的 hasOwnProperty 形态在 commitRequest 为 null 时会比现状更糟，采纳它等于引入新缺陷。故按不成立处置。"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "deep-review.sh 覆盖分支刻意不加 `[ -f \"$REC\" ]` 前置，依赖 `node --record-request \"$REC\"` 在文件缺失时以 rc=2 退出实现 fail-closed。这在当前实现中成立，但若后续有人把 `node` 替换为纯 bash 写入，缺文件路径会被静默接受为空字符串。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "最强指控：入口注释明写「刻意不加 [ -f \"$REC\" ] 前置」，整套 fail-closed 只挂在「node 那一跳在缺文件时返回 rc=2」这一个事实上。若后续有人把回写换成纯 bash 实现（本仓确有 sh 侧读取方 `ccg-backends.sh` 的先例），缺路径很可能被写成空串或就地新建一份判定产物，而入口照旧 exit 0 —— 那时\"没记录\"就再没有人出声。",
+        "defense": "契约钉的是这一跳的**可观察行为**，不是它的实现语言，而且三面都有锁：① `ccg-review-backends.test.js:408`「CLI --record-request：记录缺失 rc=2 且不新建」；② 同文件 `:335`「记录读不到 / 不是对象一律 ok:false 且**不新建**、原字节不动」；③ `deep-review-deps.test.js` 那条「回写这一跳失败必须 fail-closed：rc=2、点名原因、驱动一次都不能起来」，它的做法是把夹具里的 lib 改成语法残体 —— 测的是\"入口只看返回码\"这一条链，与 node/bash 无关。谁把这一跳换成会静默成功的实现，①②立刻指名变红。",
+        "verdict": "dismissed",
+        "rationale": "指控的形态在现有锁的管辖内（入口以非零返回码为唯一判据，缺文件已被两条 CLI 锁钉住\"rc=2 且不新建\"）。它真正依赖的是一个尚不存在的实现替换；为一个假设性未来再加一层 [ -f ] 前置，反而会把「记录被中途删除」与「从未存在」两种语义合并 —— 那正是本 PR 注释里拒绝的合并。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "QM-6 第三轮 i2（一致性锁）的变异 M-i2（改 shell 侧覆盖判据为「有没有传旗标」）在新锁下未变红，已如实登记「只覆盖入口那一格，不覆盖 shell 判据那一格」。这意味着该行为锁的强度有明确边界，但文案中「一致性」表述可能被读者误解为「两口径完全同步」。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "最强指控：测试标题写着「两侧都必须判『没覆盖』…（QM-6 i2 的一致性锁）」，而 §11.7 自己承认「改 shell 侧覆盖判据为『有没有传旗标』那版变异**没有**让它变红」。一个方向的口径漂移它抓不到，却用「一致性」命名，读者会以为 shell 与 lib 的判据被双向钉死，从而在改 shell 那一侧时不再补锁。",
+        "defense": "标题的完整句子声明的是**一格里两侧的实际行为一致**（默认值 ⇒ 入口不进覆盖分支、记录逐字节不变、驱动命令行不带 --critic），这正是被真跑入口验证过的那件事；它没有声明「两个实现永远同逻辑」。「强度只覆盖入口那一格」这句边界已经写在两处：tasks §11.7 逐条列出哪版变异没抓到、提交信息同样明写。改名会改动 diff ⇒ 判定记录换 content-address 键 ⇒ 需要再烧一轮真外部评审才能收口。",
+        "verdict": "dismissed",
+        "rationale": "措辞没有超出它验证过的那一格，且未覆盖面已在两处如实登记，读者不会被单独一行标题误导。同时如实记下拒绝的代价权衡：为一个已声明边界的命名改动 diff，会让本 PR 的 dual 记录换键、必须重跑一整轮外部评审 —— 这条成本不藏在结论里，它就是本次判 dismissed 的原因之一，不是证据。"
+      }
+    ],
+    "blocking": [],
+    "note": "自扮演裁决：全部指控不成立",
+    "at": "2026-10-20T08:38:43.795Z"
   }
 }
