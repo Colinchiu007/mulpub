@@ -53,6 +53,19 @@
 
 ## 三、验证
 
+### 3.0 CI 红修复（本机绿 ≠ CI 绿，又一实例）
+
+首轮 CI `QG Unit Tests` 报 `Cannot find module './lib/test-runner-detect'`：
+`.gitignore:59` 有规则 `test-*.js`，该文件名正好命中 ⇒ **从未被 git 收录**。
+本机文件在磁盘上所以全绿；CI checkout 拿不到 ⇒ 必红。**与本轮要治的坑同族**：
+文件存在 ≠ 进了版本库 ≠ CI 能看到。
+
+| 处置 | 内容 |
+| --- | --- |
+| 改名 | `scripts/lib/test-runner-detect.js` → **`runner-detect.js`**（脱离规则），两处引用同步 |
+| 回归锁 | 新增 `test/scripts-gitignore-guard.test.js`（2 例）：scripts 下被忽略者即红；**变异反证**造 `test-__probe__.js` 断言必被判忽略 |
+| 性能 | 批量判定改 `git check-ignore --stdin`（逐个 spawn 实测 20s+ 会超时） |
+
 | 项 | 读数 |
 | --- | --- |
 | 判定器 vs 登记表全量交叉 | vitest **47**（46 原有 + 1 新增）/ 登记表 46 / **误登记 0、漏登记 0**（新增那个已登记例外） |
