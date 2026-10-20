@@ -163,6 +163,33 @@
               <textarea class="compare-textarea" v-model="rewriteResult"></textarea>
             </div>
           </div>
+          <!-- 改写结果元信息（collect-rewrite-wordcount，2026-10-20）
+               ① 实际字数：让用户能直接判断「短了多少」（改写后 N 字 / 原文 M 字）；
+               ② 引擎砍尾横幅：引擎按字数上限砍尾时如实告知（原文后半段没进结果）；
+               ③ 模型侧截断横幅：provider 自身生成上限截断，与 ② 分型（调大字数上限不一定有效）。
+               文案复用 rewritePage 命名空间（与 /rewrite 页同一套，不另写一份同义句）。 -->
+          <div v-if="rewriteResult" class="col-rewrite-meta">
+            <span
+              v-if="rewriteOutputLength > 0"
+              class="col-hint"
+              data-testid="collection-rewrite-output-length"
+            >{{ $t('rewritePage.rewriteOutputLength', { length: rewriteOutputLength, original: rewriteOriginalLength }) }}</span>
+            <span
+              v-if="rewriteModelTruncatedInfo && rewriteModelTruncatedInfo.truncatedSegments.length > 0"
+              class="col-error-banner"
+              data-testid="collection-rewrite-model-truncated"
+            >{{ $t('rewritePage.outputTruncatedByModelSegments', { segments: rewriteModelTruncatedInfo.truncatedSegments.join('、'), length: rewriteModelTruncatedInfo.length }) }}</span>
+            <span
+              v-else-if="rewriteModelTruncatedInfo"
+              class="col-error-banner"
+              data-testid="collection-rewrite-model-truncated"
+            >{{ $t('rewritePage.outputTruncatedByModel', { length: rewriteModelTruncatedInfo.length }) }}</span>
+            <span
+              v-if="rewriteOutputTruncatedInfo"
+              class="col-error-banner"
+              data-testid="collection-rewrite-truncated"
+            >{{ $t('rewritePage.outputTruncated', { length: rewriteOutputTruncatedInfo.length, max: rewriteOutputTruncatedInfo.max }) }}</span>
+          </div>
         </div>
       </div>
 
@@ -494,7 +521,9 @@ import { resolveNotifyText } from '@/utils/notifyCore'
 import { storeGetSetting, storeSetSetting, draftList, aiRewrite, aiListRewriteStrategies, aiGetRecommendedStrategies } from '@/api/publisher'
 import { extractRewriteHistoryId, attachRewriteLineage } from '@/utils/rewrite-lineage'
 import { formatUserError } from '@/utils/user-facing-error'
-import { REWRITE_ENGINE_MAX_INPUT_CHARS, prepareRewriteInput, shouldSegmentRewrite } from '@/utils/rewrite-engine-limits'
+import { REWRITE_ENGINE_MAX_INPUT_CHARS, REWRITE_ENGINE_MAX_OUTPUT_CHARS, countRewriteChars, prepareRewriteInput, shouldSegmentRewrite } from '@/utils/rewrite-engine-limits'
+// 截断派生纯函数（collect-rewrite-wordcount）：与 RewriteView 共用同一份，不复制实现
+import { deriveOutputTruncatedInfo, deriveModelTruncatedInfo } from '@/utils/rewrite-truncation'
 import { normalizeRewriteEngineError } from '@/utils/rewrite-engine-error'
 // 改写取消（rewrite-cancel-collection）：采集页是长文最常出现的入口（知乎回答/公众号长文/
 // 视频转写），也是最初报错（#3979）的页面——#4078 建好通道却只接了改写页，这里补齐。
@@ -605,6 +634,15 @@ const rewriteStyle = ref('轻松易懂')
 const rewriteWordCountMin = ref(800)
 const rewriteWordCountMax = ref(2000)
 const rewriteResult = ref('')
+// 改写结果元信息（collect-rewrite-wordcount，2026-10-20）：
+// 引擎早就会回传「实际输出字数 / 是否被上限砍尾 / 是否被模型自身上限截断」，
+// 但本页此前只在 rewriteViaEngine 内部透传 meta、**从不展示** ⇒ 用户既看不到稿子有多短，
+// 也看不到它被砍过（用户实测：设 0-6000 拿到 1229 字，界面零提示）。
+// 派生逻辑复用 utils/rewrite-truncation.js（与 RewriteView 同一份纯函数，不复制实现）。
+const rewriteOutputTruncatedInfo = ref(null)
+const rewriteModelTruncatedInfo = ref(null)
+const rewriteOutputLength = ref(0)
+const rewriteOriginalLength = ref(0)
 const useViralLibrary = ref(true)
 const usePersonalExperience = ref(false)
 // 改写策略（2026-09-15 补齐）：与 RewriteView / AiWriterPanel 同契约
@@ -692,6 +730,32 @@ let collectRewriteLineageId = null
 function clearRewriteResult () {
   rewriteResult.value = ''
   collectRewriteLineageId = null
+  // 元信息与正文是同一个产物的另两半（collect-rewrite-wordcount）：
+  // 不复位就会在「清空」后残留上一轮的「已截断」横幅与字数，看起来像当前结果被砍过。
+  rewriteOutputTruncatedInfo.value = null
+  rewriteModelTruncatedInfo.value = null
+  rewriteOutputLength.value = 0
+  rewriteOriginalLength.value = 0
+}
+
+/**
+ * 把引擎回传的改写元信息落到页面状态（唯一写点，collect-rewrite-wordcount）。
+ *
+ * @param {object} data - aiRewrite 信封的 data（含 outputLength/outputTruncated/modelTruncated/truncatedSegments）
+ * @param {number} originalLength - 原文码点数（展示「改写后 N 字（原文 M 字）」用）
+ */
+function applyRewriteMeta (data, originalLength) {
+  const payload = data || {}
+  // 截断横幅里的「上限」用本次生效的区间上限；区间非法时用引擎上限兜底
+  const maxRaw = Number(rewriteWordCountMax.value)
+  const fallbackMax = Number.isFinite(maxRaw) && maxRaw > 0 ? maxRaw : REWRITE_ENGINE_MAX_OUTPUT_CHARS
+  rewriteOutputTruncatedInfo.value = deriveOutputTruncatedInfo(payload, fallbackMax)
+  rewriteModelTruncatedInfo.value = deriveModelTruncatedInfo(payload)
+  const outRaw = Number(payload.outputLength)
+  rewriteOutputLength.value = Number.isFinite(outRaw) && outRaw > 0
+    ? outRaw
+    : countRewriteChars(payload.result || '')
+  rewriteOriginalLength.value = Number.isFinite(Number(originalLength)) ? Number(originalLength) : 0
 }
 
 async function rewriteViaEngine (content) {
@@ -709,6 +773,25 @@ async function rewriteViaEngine (content) {
       },
     }
   }
+  // 字数区间（collect-rewrite-wordcount，2026-10-20）：
+  // ① 契约键必须是 wordCountRange——引擎（packages/rewrite-engine）只读这个键。
+  //    历史误传 `targetWordCount`（整个引擎包 0 处引用），导致引擎收不到区间：
+  //    prompt 没有【字数要求】、后处理上限回落策略默认（800/1500/2000/3000）、
+  //    主进程 max_tokens 推导也回落 3000 口径——用户的设置静默失效。
+  // ② 区间取自 useWordCountValidation 的 `range`（与红字校验同一套判定）：
+  //    合法下限 0 必须原样透传（旧写法 `Number(min) || 800` 会把 0 吞成 800）；
+  //    非法区间（浮点 / 非数字 / max<min）时 range 为 null ⇒ 早退，不发任何区间。
+  //    放在 try 之外：早退时还没 beginRun()，不能触发 finally 里的 endRun()。
+  const range = rewriteWordCountRange.value
+  if (!range) {
+    return {
+      __error: {
+        code: -400,
+        errorCode: 'REWRITE_WORD_COUNT_INVALID',
+        message: resolveNotifyText('collection.wordCountInvalid').text,
+      },
+    }
+  }
   // 长文处理（rewrite-segment-and-finish-reason 第二刀）：不再预截断，改为事前提示。
   // 历史：曾把 >上限正文截到 50000（fix-collect-rewrite-too-long）——分段改写落地后，
   // 预截断会让超长正文永远到不了引擎分段路径（评审 M1：死代码），故改为透传全文 +
@@ -722,9 +805,9 @@ async function rewriteViaEngine (content) {
   }
   let res
   try {
-    // main 新增的字数控制（min/max）→ targetLength 语义映射：窄区间视为 short，宽高区间视为 long，其余 medium
-    const minW = Number(rewriteWordCountMin.value) || 800
-    const maxW = Number(rewriteWordCountMax.value) || 2000
+    const minW = range.min
+    const maxW = range.max
+    // targetLength 三档只影响 expand 模式的提示词（imitate 模式不消费），保留为兼容字段
     const wordCountTarget = maxW <= 800 ? 'short' : (minW >= 1500 || maxW >= 2500) ? 'long' : 'medium'
     const params = {
       // 取消通道寻址键（每次改写新生成）：主进程据此把 cancel 打到本次改写上
@@ -733,7 +816,7 @@ async function rewriteViaEngine (content) {
       content: prepared.text,
       userSettings: {
         tone: STYLE_TO_TONE[rewriteStyle.value] || 'casual',
-        targetWordCount: { min: minW, max: maxW },
+        wordCountRange: { min: minW, max: maxW },
         targetLength: wordCountTarget,
         knowledgeOptions: {
           useViralLibrary: useViralLibrary.value,
@@ -770,6 +853,8 @@ async function rewriteViaEngine (content) {
     // 截断/分段元数据透传（rewrite-segment-and-finish-reason 第二刀，评审 M5）：
     // 成功分支历史上只挑 result_content/knowledgeRefs，引擎新增的 visible 字段会被静默丢弃。
     // 这里统一收进 meta，供调用方决定是否提示（引擎截断 / 模型截断 / 分段改写）。
+    // 元信息落状态也放在这里（唯一写点）：5 个改写调用点各写一遍必然漂移。
+    applyRewriteMeta(res.data, prepared.originalLength)
     return {
       result_content: res.data.result,
       knowledgeRefs: res.data.knowledgeRefs || [],
@@ -909,7 +994,10 @@ function getRewriteStyles() {
 }
 
 // ── 字数区间校验（共享 composable，与 RewriteView 一致）──
-const { error: rewriteWordCountError } = useWordCountValidation(
+// range 是「可下发的值」：与 error 同一套判定（同源 composable），error 非空 ⇒ range 为 null。
+// 调用方不再自己 `Number(x) || 800`——那套折法把用户设的下限 0 吞成 800（0 是假值），
+// 于是「校验的区间」与「下发的区间」分家，正是本缺陷最初那一类「参数静默走样」。
+const { error: rewriteWordCountError, range: rewriteWordCountRange } = useWordCountValidation(
   rewriteWordCountMin,
   rewriteWordCountMax,
   (key) => resolveNotifyText('collection.' + key).text

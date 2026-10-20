@@ -1051,3 +1051,94 @@ accountBatchCheckLogin / authLoginSilent）。**不碰** cookie 文件（独占�
 **教训（两条都重要）**：
 1. 单测假服务器不校验 CRC ⇒ **8 例全绿但真机第一步就 400** —— 「单测绿 ≠ 真机通」的又一方（前有 vite alias、后有 CRC）。
 2. 「第三参省略」这条生产主路径没有用例 —— 回归锁必须覆盖**默认参数形态**，不只覆盖显式传参形态。
+
+### 14.5 视频号会话订正（2026-10-21）
+
+§14.1/§14.2/§14.3 建立在「视频号 active、HTTP 检测不确定、待探针」这一前提上。
+**2026-10-21 同法复测否证了该前提**：
+
+```json
+{"platform":"tencent_video","accountId":"b1e05ac2","valid":false,
+ "code":"CHECK_LOGIN_COOKIE_EXPIRED","loginStatus":"expired",
+ "persisted":{"ok":true,"status":"expired"}}
+```
+
+⇒ **视频号会话已过期**，不再"待探针"，改**重新扫码**。
+
+**两处判断纠正（有普遍意义）**：
+1. `has_cookies=true` **不等于会话有效** —— 只说明"存过凭据"。
+2. `authLoginSilent` 的 `valid:false` 不宜解释为「能否静默重登的语义差异」，
+   更可能直接就是**会话失效**信号；此前按语义差异解读是一次误读。
+
+**订正后三平台终态**：仅头条 active；抖音、视频号均 expired（均须重新扫码）。
+
+---
+
+## 16. 四平台真实发布 —— 最终交付状态总章（2026-10-21 收口）
+
+> 本章是「抖音 / 视频号 / 今日头条 / 小红书 视频内容真实发布成功」这一目标的**收口视图**。
+> 前文章节记录的是**各技术点的拆解**，本章回答：**现在到底能发到哪一步、卡在哪、下一步做什么**。
+
+### 16.1 四平台终态总表
+
+| 平台 | 发布轨 | 技术链状态 | 当前判据 | 剩余动作 |
+| --- | --- | --- | --- | --- |
+| **小红书** | API（草稿） | ✅ 完成 | 草稿已落「产品分区」 | 无 |
+| **今日头条** | API（视频） | ✅ **100% 就绪且无回归** | 提交前拦截 `ACCOUNT_NOT_VERIFIED`；提交后 `Code 21000` | **用户完善账号实名** |
+| **抖音** | API（视频） | 代码就绪 | `CHECK_LOGIN_COOKIE_EXPIRED`（应用已持久化） | **用户重新扫码** |
+| **视频号** | API（视频） | 代码就绪 | `CHECK_LOGIN_COOKIE_EXPIRED` + 平台 `errCode 300334` | **用户重新扫码** |
+
+### 16.2 头条：技术链已完整打通（唯一阻塞是账号实名）
+
+全链四层在**最新主干代码**上逐层实测通过（2026-10-21 复跑，main tip `1c473767` 之后）：
+
+| 层 | 实现 | 真机读数 |
+| --- | --- | --- |
+| ① 提交前闸门 | `GetPublishAuth.IsIdentifyAuth` → `buildPublishGateResult` | `identityVerified=false` → **拦截 `ACCOUNT_NOT_VERIFIED`**，并给出解法链接 |
+| ② 封面五步链 | `toutiao-video-cover.js`：`getAuthKey(image_temp)` → `GetImageUploadParams` → PUT（带 `Content-CRC32`）→ `GetImageUploadInfos` → 登记 | 登记 uri ✅（1280×720 jpeg） |
+| ③ 视频 VOD | getAuthKey(video) → 分片 → CommitUploadInner | 新 `Vid` ✅ |
+| ④ 提交发布 | `PublishVideo` + `parsePublishResponse.accountGate` | `Code 21000` + **`accountGate=true` 被正确识别** |
+
+**账户墙的两个判据必须区分**（易错点）：
+- `DisablePublish=false` / `blockStatus=0` **不能**当作"可以发布"的依据；
+- 唯一权威判据是 `IsIdentifyAuth`（实名）。
+
+**账号一旦实名**：同一套代码无需改动即可产出 `ItemId`（真实发布成功）。
+
+### 16.3 用户可见的交互与文案（头条账号墙）
+
+| 项 | 内容 |
+| --- | --- |
+| 触发时机 | ① 提交前：`checkPublishAuth` 判 `identityVerified=false`；② 提交后：服务端返回 `Code 21000` |
+| 结果码 | `ACCOUNT_NOT_VERIFIED`（提交前与提交时**同码**，UI 据此反查同一解法入口） |
+| 提示文案（zh） | 该头条号账号信息未完善，暂时无法发布视频（平台提示：账号信息未完善，暂时不能进行发布文章、视频等权益操作，请完善后重试） |
+| 解法链接 | `https://mp.toutiao.com/profile_v4/personal/landing-type`（平台自有「去完善」落地页） |
+| 链接文案（zh） | 去头条号完善账号信息 |
+| 链接渲染 | `v-if` 与 `:href` 同表达式 `safeHttpUrl(gateHelp.url)`；`safeHttpUrl("")` 返回 null ⇒ 不渲染死链 |
+| 副链接 | `https://mp.toutiao.com/profile_v4/personal/auth?enter_from=main_page` |
+
+### 16.4 抖音 / 视频号：代码就绪，仅等会话
+
+两者的发布链代码均已落地，当前阻塞**纯粹是登录态**：
+
+- **抖音**：应用判定 `CHECK_LOGIN_COOKIE_EXPIRED` 并已持久化 `expired`。
+- **视频号**：双证据确认过期 ——
+  ① 应用 `accountBatchCheckLogin` → `CHECK_LOGIN_COOKIE_EXPIRED`；
+  ② 绕过应用直接调平台 `auth_data` → `errCode 300334`，
+     而 `http-login-checker.js` 注释写明 **300333/300334 = 登录失效**。
+
+> ⚠ **与目标描述的冲突（如实记录）**：目标描述写「视频号已经登录了」，
+> 但 2026-10-21 实测（应用判定 + 平台 errCode 双证据）为**已过期**。
+> 该描述在当下不成立，须重新扫码后恢复。
+
+### 16.5 工程侧已完成 / 未做的边界（不谎报）
+
+**已完成**：
+- 小红书草稿落地；头条全链（含封面五步链、账号墙双层判据、UI 解法链接）；
+- 抖音 / 视频号发布链代码；
+- 账号与发布相关的基础设施修复（runner 机械判定、假签名拆除等，见 §12-§15）。
+
+**未做 / 未闭合（如实）**：
+- 三平台**真实发布成功**均未取得 —— 全部被账号侧（实名 / 扫码）阻塞；
+- 抖音**本地签名从未在真实平台验证过**（历史遗留，需活体账号）；
+- 竞品逆向成果的 B 级项（账号态建模、平台 API 清单、发布链路时序的架构级参考）尚未展开改造。
