@@ -36,6 +36,22 @@ function mountCollection () {
 }
 
 /**
+ * 创建一个可手动放行的改写 gate（用来观察「改写进行中」的中间态）。
+ *
+ * 带超时兜底：若断言先失败、`release` 没被调到，gate 会在 5s 后自动放行 ——
+ * 否则那个 pending promise 会把进程挂住（外部评审 i5）。
+ */
+function createGate () {
+  let release
+  const promise = new Promise((resolve) => { release = resolve })
+  const payload = { code: 0, data: { success: true, result: '改写后的内容。' } }
+  const timer = setTimeout(() => release(payload), 5000)
+  // release 挂在 promise 上：调用方（mockStealthApi）直接把它当 promise 用，无需拆包
+  promise.release = (value) => { clearTimeout(timer); release(value || payload) }
+  return promise
+}
+
+/**
  * 知乎 stealth 采集通道 + **可手动放行**的 aiRewrite（用来观察「改写进行中」的中间态）。
  * 放行前改写一直挂着，测试可以在此窗口内断言按钮文案与步骤条状态。
  */
@@ -64,8 +80,7 @@ describe('采集页一键改写 — 流程状态与按钮态解耦（collection-
   })
 
   it('P1：一键改写进行中，「采集」按钮文案保持「采集」（只禁用，不改态）', async () => {
-    let release
-    const gate = new Promise((resolve) => { release = resolve })
+    const gate = createGate()
     window.electronAPI = mockStealthApi('原文正文内容。', gate)
     const w = mountCollection()
     await nextTick()
@@ -80,7 +95,7 @@ describe('采集页一键改写 — 流程状态与按钮态解耦（collection-
     expect(collectBtn.text(), '采集按钮文案不得跟随改写状态变化').toBe('采集')
     expect(collectBtn.element.disabled, '改写期间采集按钮应被禁用（防重复提交）').toBe(true)
 
-    release({ code: 0, data: { success: true, result: '改写后的内容。' } })
+    gate.release()
     await running
     await nextTick()
     // 流程结束后按钮恢复常态
@@ -88,8 +103,7 @@ describe('采集页一键改写 — 流程状态与按钮态解耦（collection-
   })
 
   it('P2：步骤条把「第 1 步已完成 / 第 2 步进行中」显式画出来', async () => {
-    let release
-    const gate = new Promise((resolve) => { release = resolve })
+    const gate = createGate()
     window.electronAPI = mockStealthApi('原文正文内容。', gate)
     const w = mountCollection()
     await nextTick()
@@ -103,15 +117,14 @@ describe('采集页一键改写 — 流程状态与按钮态解耦（collection-
     expect(w.find('[data-testid="collection-step-collect"]').classes()).toContain('is-done')
     expect(w.find('[data-testid="collection-step-rewrite"]').classes()).toContain('is-active')
 
-    release({ code: 0, data: { success: true, result: '改写后的内容。' } })
+    gate.release()
     await running
     await nextTick()
     expect(w.find('[data-testid="collection-step-rewrite"]').classes()).toContain('is-done')
   })
 
   it('P2：一键改写时采集成功的提示必须点明「第 2 步」，不得用「采集成功」收尾', async () => {
-    let release
-    const gate = new Promise((resolve) => { release = resolve })
+    const gate = createGate()
     window.electronAPI = mockStealthApi('原文正文内容。', gate)
     const w = mountCollection()
     await nextTick()
@@ -124,13 +137,12 @@ describe('采集页一键改写 — 流程状态与按钮态解耦（collection-
     expect(texts).toContain('第 2 步')
     expect(texts).toContain('AI 改写')
 
-    release({ code: 0, data: { success: true, result: '改写后的内容。' } })
+    gate.release()
     await running
   })
 
   it('P3：采集到的原文与改写设置分区渲染（两个独立区块 + 原文预览）', async () => {
-    let release
-    const gate = new Promise((resolve) => { release = resolve })
+    const gate = createGate()
     window.electronAPI = mockStealthApi('这是一段用于验证分区的原文正文。', gate)
     const w = mountCollection()
     await nextTick()
@@ -142,7 +154,7 @@ describe('采集页一键改写 — 流程状态与按钮态解耦（collection-
     expect(w.find('[data-testid="rewrite-settings-card"]').exists()).toBe(true)
     expect(w.find('[data-testid="collected-content-preview"]').text()).toContain('这是一段用于验证分区的原文正文。')
 
-    release({ code: 0, data: { success: true, result: '改写后的内容。' } })
+    gate.release()
     await running
     await nextTick()
     expect(w.find('[data-testid="rewrite-result-card"]').exists()).toBe(true)

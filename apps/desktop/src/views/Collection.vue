@@ -858,9 +858,12 @@ async function rewriteViaEngine (content) {
       },
     }
   }
-  // range = null ⇒ 两侧都空（不设限）；range 非空 ⇒ 该下发的区间
+  // range = null 有两种含义（两侧都空 = 不设限 / 非法区间 = 早退），因此**判「非法」必须看
+  // error 而非 range**（上面的早退守卫已先拦掉非法区间）。
+  // freeformOutput 额外带一层 `!error`：即便将来有人调换守卫顺序，非法区间也不会被
+  // 误当成「用户不设限」而走进引擎的新分支（外部评审 i3/i4 —— 派生条件与守卫顺序耦合过紧）。
   const range = rewriteWordCountRange.value
-  const freeformOutput = !range
+  const freeformOutput = !range && !rewriteWordCountError.value
   // 长文处理（rewrite-segment-and-finish-reason 第二刀）：不再预截断，改为事前提示。
   // 历史：曾把 >上限正文截到 50000（fix-collect-rewrite-too-long）——分段改写落地后，
   // 预截断会让超长正文永远到不了引擎分段路径（评审 M1：死代码），故改为透传全文 +

@@ -30,7 +30,7 @@
  *     `tokens.length >= 20`，`findRule()` 的命中数同样有下界。
  */
 import { describe, it, expect } from 'vitest'
-import { readFileSync, readdirSync } from 'node:fs'
+import { readFileSync, readdirSync, existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 
@@ -303,9 +303,12 @@ describe('CSS @import 位置契约（后置 @import 会被浏览器**静默忽�
    *   `@charset` / `@layer`（无花括号形式）允许出现在 @import 之前 —— 它们不违反规范。
    */
 
-  // 扫描根：桌面端 src 目录。vitest 以「包目录」为 cwd 运行（pnpm -r run test），
-  // 与同目录 CollectedResultsList.test.js 的既有写法一致（不依赖 import.meta.url 的 URL 形态）。
-  const CSS_ROOT = join(process.cwd(), 'src')
+  // 扫描根：桌面端 src 目录。**不能**只依赖 process.cwd() —— vitest 的 cwd 随调用方式
+  // 变化（从 workspace 根跑 `pnpm -r run test` 时 cwd 是包目录，从仓库根直接跑
+  // `npx vitest apps/desktop` 时 cwd 是仓库根）：前者对、后者会让 readdirSync 抛错、
+  // 整个测试文件崩掉（外部评审 i1）。故两种布局都试一遍，取存在的那一个。
+  const CSS_ROOT = [join(process.cwd(), 'src'), join(process.cwd(), 'apps/desktop/src')]
+    .find((dir) => existsSync(dir)) || join(process.cwd(), 'src')
 
   /** 递归收集 src 下的 .css 文件（跳过 node_modules / dist） */
   function collectCssFiles (dir, out = []) {
