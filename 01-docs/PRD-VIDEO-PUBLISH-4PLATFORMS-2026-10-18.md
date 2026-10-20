@@ -1142,3 +1142,18 @@ accountBatchCheckLogin / authLoginSilent）。**不碰** cookie 文件（独占�
 - 三平台**真实发布成功**均未取得 —— 全部被账号侧（实名 / 扫码）阻塞；
 - 抖音**本地签名从未在真实平台验证过**（历史遗留，需活体账号）；
 - 竞品逆向成果的 B 级项（账号态建模、平台 API 清单、发布链路时序的架构级参考）尚未展开改造。
+### 16.6 已达成能力的回归验证（2026-10-21，main tip `bb40000a` 之后）
+
+目标里唯一已达成的是**小红书草稿落地**。在后续多次合并之后复测，确认它**没有回归**：
+
+```
+vitest run tests/xiaohongshu-draft-chain.test.js \
+             tests/xiaohongshu-note-align.test.js \
+             tests/xiaohongshu-note-inpage.test.js
+→ Test Files 3 passed (3) / Tests 19 passed (19)
+```
+
+⇒ 已达成的能力在最新主干上仍然成立（不是靠记忆，是复跑读数）。
+
+> 提醒（给后续维护者）：小红书相关测试位于 `packages/api-publish-engine/tests/`（**复数**），
+> 与多数测试的 `test/`（单数）不同；按单数目录去找会报 `No test files found`。
