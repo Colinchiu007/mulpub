@@ -49,11 +49,44 @@
     }
   },
   "deepReview": {
-    "required": false,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play(agent)",
+    "fallbackReason": "跨家族对抗后端超时，按引擎第三档出口 self_play 自查。本条为结论订正（视频号由「待探针」改判「已过期」）。",
+    "evidenceInRepo": "openspec/records/session-authority-check.md §一 订正块 + §2.2 + §三；shipinhao-session-probe.md 标题下订正块；PRD §14.5",
+    "confidenceWeight": 0.8,
+    "adjudication": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "这次订正推翻的是**我自己上上轮写下的结论**。当初凭什么判「active 待探针」，现在凭什么改判「过期」？两次谁更可信？",
+        "verdict": "upheld_verified",
+        "rationale": "两次用的是**同一个方法**（应用自身 `accountBatchCheckLogin`，走各平台真实校验并持久化），但两次的**读数性质不同**：· 上次 = `CHECK_LOGIN_INCONCLUSIVE`（平台没给结论，是\"不知道\"），我却据此写了\"active、待探针\"  —— 把\"不知道\"读成了\"大概是活的\"，并且拿 `has_cookies=true` 当旁证，而它只说明\"存过凭据\"。· 本次 = `CHECK_LOGIN_COOKIE_EXPIRED` + `persisted.status=expired`（平台**明确给了结论**）。⇒ 后者的证据强度严格高于前者（明确 > 不确定），故以本次为准。这次订正的本质是：**纠正上次把\"不确定\"当成\"大概率有效\"的过度解读**，而不是方法变了。",
+        "fixCommit": null
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "订正文本里我写「authLoginSilent 的 valid:false 更可能是会话失效信号，此前按语义差异解读是误读」—— 这也是推测吧？有没有把新推测又写成结论？",
+        "verdict": "upheld_partial",
+        "rationale": "是推测，措辞已用\"更可能\"限定（未写成\"确定是\"）。但严格说，\"更可能\"仍是一个**未做对照实验**的归因：要证它需要对同一账号在\"会话确认有效\"的历史时刻跑一次 `authLoginSilent` 看是否 valid=true —— 该历史时刻已不可复现。因此这条只能停留在 plausible，不能升级为结论。已在记录里把它与\"本次的明确过期读数\"分列：**过期是结论（平台给的），valid:false 的语义是推测**。不让它俩混在一起。",
+        "fixCommit": null
+      },
+      {
+        "id": "i3",
+        "severity": "Info",
+        "finding": "探针脚本（#4050）现在没用了，要不要删？留着算不算死代码？",
+        "verdict": "upheld_verified",
+        "rationale": "不删。它的适用条件是\"HTTP 检测返回不确定\"——本仓已出现过一次该形态（视频号），将来其它平台（或视频号改版后）可能再次出现。删除会把这把工具丢掉，而它成本仅一个文件。已在两处记录里写明\"保留备用 + 当前不适用\"，并说明**为什么当前不适用**（前提已消失），避免后人误以为它是待办。",
+        "fixCommit": null
+      }
+    ],
+    "summary": {
+      "total": 3,
+      "upheldVerified": 2,
+      "upheldPartial": 1,
+      "note": "核心是承认并纠正一次过度解读（把 INCONCLUSIVE 读成 active、把 has_cookies 当活凭据），新结论有平台明确读数支撑（i1）；对 valid:false 的归因如实标注为推测、不与结论混列（i2）；探针保留并说明当前不适用的原因（i3）。"
+    },
+    "at": "2026-10-20T20:33:44.492Z"
   }
 }
