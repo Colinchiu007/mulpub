@@ -8,6 +8,8 @@ change: openspec/changes/collection-page-visual-polish/
 
 # 执行记录：采集页视觉精致化（collection-page-visual-polish）
 
+| 远程同步 | 由门禁推导 |
+
 ## 0. 这轮与上一轮的边界
 
 PR #3864（collection-page-ui-ue-refine）修的是**机制**：`is-primary` 等死类全仓零定义、
