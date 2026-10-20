@@ -20,7 +20,7 @@ date: 2026-10-20
 | 行尾与 diff 对账 | 完成 | 动手前三份文件均 `i/lf w/crlf attr/text=auto`（当场 `git ls-files --eol`）；逐行保留各自 CR 写回；两口径 numstat 相等：`.quality-gates.md 38/38`、`check-gate-record-debt.js 1/1`、`ledger 1/25` |
 | 接线棘轮 | N/A | 本刀未新增 `*.test.js`；判据本体已接 `quality-gate.yml` 的 Gate 2c |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/`、`packages/rpa-engine/` 与任何 UI 文件 |
-| QM-6 CCG 双模型外部评审 | 见下 | 本机若无可用的外部后端则如实记「未执行」，不以自审冒充 |
+| QM-6 CCG 外部评审 | 已执行（SINGLE），2 条 upheld 已修 | 判定 mode=SINGLE（changedLines=28 = 脚本 2 + 账本 26，两份 .md 按 `ccg-review-decider.js:186-221` 只报告不改判定）；critic=claude 出 7 条、最低维度分 3；裁决 5 条：3 条 dismissed（附可复算证据）、2 条 upheld 并已按指控修本文件（§三 加行号漂移口径、§四 加现场读数与「驱动一次性」声明） |
 | 远程同步 | 由门禁推导 | 本行不需事后改写：合并后由 `scripts/lib/merge-ledger.js` 按 squash 尾注推导；现场读数看 CI 首行 `MERGE-LEDGER prs=<n>` |
 
 - 保留门禁：判定 docs-only=false（混合 PR）| 行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅
@@ -42,7 +42,7 @@ date: 2026-10-20
 
 ### 三、逐条证据（23 条，全部由脚本反读载体后独立复核）
 
-每行的锚点 = 「把这块带进 origin/main 的那笔提交」，由 pickaxe 独立复算且必须唯一命中；
+每行的锚点 = 「把这块带进 origin/main 的那笔提交」，由 pickaxe 独立复算且必须唯一命中；表里的 `L<行号>` 是**本 PR 当场读数**，旧载体是置顶追加型台账、每合并一次块整体下移，行号会失效；复核一律按 `sha + 块标题`，不得按行号定位（与 AGENTS「登记项只写原因、不写 line」同一条纪律）。
 "已在 origin/main" 由 `git merge-base --is-ancestor` 当场量，不成立即不得写收口。
 两条特例改用**行级**锚点：一条的记录块标题在旧载体里合法出现两次（历史重复，已登记在 `DUPLICATE_HEADINGS_ALLOWED`），
 另一条是丢了 `## ` 标题的孤儿行——两种形状下「块标题→提交」都不成立，按行证才是量的对的东西。
@@ -83,6 +83,14 @@ date: 2026-10-20
 # 3) 每笔锚点先证「确实在主干上」，再写收口
 #    git merge-base --is-ancestor <锚点全 SHA> origin/main
 ```
+
+**本次执行的现场读数**（写在本文件里，而不是只留在会话里）：
+
+- 反读载体 + 独立复核：`entries=23 verifyFails=0`（23 条全部通过「锚点唯一命中 + 在 origin/main + PR 号自洽」三项，任一不过即拒绝生成本文件）。
+- 判据本体：`node --test scripts/check-gate-record-debt.test.js` → 116 pass / 0 fail；`node scripts/check-gate-record-debt.js` → rc=0，`已登记欠账 0 条`、`承认 0`。
+
+> ⚠ 做这三项复核的驱动是**一次性取证脚本**，没有落进仓库、也没有接线成常驻判据。
+> 也就是说：本文件留下的是「当时量到了什么」，不是「现在有东西在守」。下一个会话若要再证一次，请按上面的命令现跑。
 
 ### 五、变异反证（三条，各自指名红）
 

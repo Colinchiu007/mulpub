@@ -46,10 +46,81 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "self_play_blocked",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "externallyReviewed": [],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": ".ccg/reviews JSON 声称 changedLines=28/fileCount=4，但实际 diff 修改了 .quality-gates.md（多处）、新增 openspec/records/close-legacy-gate-debt.md（101 行）、修改 check-gate-record-debt.js、清空 ledger.json，规模远超 471 行。统计与实际不一致。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "判定记录写 changedLines=28 / fileCount=4，而本 PR 的 git 差量是 5 个文件 196 增 64 删；若 28 是「本 PR 规模」，那 SINGLE 档就是被一个错了的数选出来的。",
+        "defense": "28 不是「本 PR 总行数」而是「源码域行数」：scripts/ccg-review-decider.js:186-221 显式把 .md 归入 docChangedLines 并注释「只报告、不改判定」，因为把文档计入会在 2026-10-16 造出假阳性（同文件 :224 那段实测）。当场复算：check-gate-record-debt.js 在 -U0 下 1 增 1 删 = 2，gate-record-debt-ledger.json 1 增 25 删 = 26，2+26=28，与 stats.changedLines 逐字相等；stats.codeFileCount=2 也与「两份非 .md」一致。",
+        "verdict": "dismissed",
+        "rationale": "指控把两个口径当同一个量比。算术可复算且逐项闭合（2+26=28、codeFileCount=2），排除 .md 是判定器自己写明并给了动因的设计，不是本次引入的失真。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "scripts/check-gate-record-debt.js 将 CROSS_SRC_ALLOWED 从 Set(['ops-ingress-only']) 清空为 Set()，同时 gate-record-debt-ledger.json 全部 23 条登记被删除，且无替代验证机制。移除了对「他人会话运行时代码记录块」的跨源承认防护。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "本 PR 同时把 CROSS_SRC_ALLOWED 清空并删掉 ledger 全部 23 个键，等于取消了对「他人会话运行时代码记录块」的跨源承认防护，之后若记录与旧载体矛盾将无人拦。",
+        "defense": "该承认项不是防护而是**欠账的挂号条**：判据注释写明「清单里的 slug 若不再构成矛盾 ⇒ 陈旧红」且「承认清单同样只能缩小」（check-gate-record-debt.js:147、:640-648）。本 PR 把 ops-ingress-only 的旧载体行改为 PASS，矛盾不再存在；此时保留该项会触发 crossSrcStaleAck 并进 hasBlocking。变异 R2 实测：把该项塞回去 ⇒ rc=1 且打印「跨源承认清单已陈旧 1 条」。清空后的状态严格更紧：该 slug 日后若再出现「记录已收口而旧行未收口」，将按 crossSrcViolations 判红而不是被一张承认条放过。",
+        "verdict": "dismissed",
+        "rationale": "防护面（crossSrcViolations 拦截）在本 PR 后覆盖面变大而非变小；被删的只是容纳单笔旧矛盾的例外，而该笔旧矛盾已被本 PR 真正消除，且有实测红作为「不删就拦」的证据。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": ".quality-gates.md 标注为「混合 PR（改了守门脚本，不走 docs-only 快速通道）」，但 .ccg/reviews 未反映混合类型，且变更内容中没有展示任何自动执行 git merge-base --is-ancestor 或 pickaxe 的验证输出，全部「已在 origin/main」仅为文本断言。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "记录里「已在 origin/main」「逐条自校验」全是文本断言：验证脚本不在仓库里，CI 也没跑它，读者无法从差量本身证伪。",
+        "defense": "每条收口行的证据列本身就是 git 的读数（12 位 sha + %cI 提交时间 + PR 号），这些值只有真跑 git 才能写出；记录 §四 给出三条可离线重跑的命令（pickaxe 锚点、commit→PR 关联、merge-base --is-ancestor），任何读者一条命令即可复核任意一行。",
+        "verdict": "upheld",
+        "rationale": "成立的部分是「现场读数没有留在仓里」：驱动一次性、未接线，这是事实而非误解。已按指控补上可见性——在记录 §四 写下本次执行的当场 stdout 读数（entries=23 verifyFails=0），并明确标注该驱动是一次性取证、不构成常驻锁，避免下一个会话把它读成「有东西在守」。不新增常驻判据：23 条锚点是一次性历史事实，为它建锁等于给存档面装一台永不复用的机器。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "close-legacy-gate-debt.md 新增 101 行自证文本，其中包含大量「本刀」自我描述、变异反证描述和遗留说明，使得旧载体状态变更与其证据文档高度耦合；一旦旧载体再改，此文件将立即过期。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "记录用 L6066/L8588 这类行号索引旧载体，而旧载体是置顶追加型台账，每合并一次块整体下移——AGENTS 已因此禁止 ledger 里写 line；本记录会立刻变成错指针。",
+        "defense": "执行记录是时点快照，不是查找表；且记录正文同时携带 sha 与块标题两个不随插入漂移的键。",
+        "verdict": "upheld",
+        "rationale": "成立。行号在本 PR 落地后即失效，而「错指针比没指针更坏」。已按指控在记录 §三 前加一句口径声明：L 列为本 PR 当场读数、会随置顶追加漂移，复核一律按 sha + 块标题，不得按行号定位。这与 AGENTS「登记项只写原因字符串、不写 line」是同一条纪律的两次落地。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "ledger 清空后旧载体 .quality-gates.md 仍存在 213 篇无「远程同步」行的执行记录（历史缺口），而 close-legacy-gate-debt.md 明确承认此缺口「可见项不拦截」。这意味着账本与载体之间仍存在未覆盖的不一致。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "账本清空后旧载体仍有 213 篇记录整块没有「远程同步」行，说明账本与载体之间仍有未覆盖的不一致，本刀没把这类不一致收敛完。",
+        "defense": "213 篇缺行与本刀的 23 条未收口行是两类对象：前者判据只可见不拦截（check-gate-record-debt.js:452-456 写明「若追溯则一上线就红成不可用」，且顶部记录带行的强制项已从拦截面移入可见面），后者是拦截面里的欠账。本刀把拦截面清零（已登记欠账 23→0、未登记欠账 0），并把每轮读数打印在判据首行；旧载体已冻结、不会再新增块，所以缺口只可能收敛不可能扩大。",
+        "verdict": "dismissed",
+        "rationale": "缺行不是「账本与载体矛盾」——矛盾判据要求两侧都有状态行，而缺行侧根本没有可比较的断言。把它并入本刀要么追溯改写 213 篇他人记录（违反不代改纪律），要么把可见项升成拦截面（属改「谁来守门」，须人工过目）。两条都不是一次销账刀该顺手做的事，已如实记入遗留。"
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      }
+    ],
+    "note": "自扮演裁决：2 条指控成立或需外部复核",
+    "at": "2026-10-20T09:55:29.472Z"
   }
 }
