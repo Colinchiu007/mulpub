@@ -57,31 +57,44 @@ function toNumber(v) {
 </script>
 
 <style scoped>
+/* 2026-10-17 collection-page-ui-ue-refine：错误字色 #d32f2f 是亮色硬编码
+ * （暗色下对比不足且不在任何 hex 门禁内），收编为 --color-error-banner-text。 */
 .word-count-inputs {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--spacing-2);
   flex-wrap: wrap;
 }
 .word-count-label {
   font-size: var(--font-size-sm);
-  color: var(--text-secondary);
+  color: var(--color-text-secondary);
   white-space: nowrap;
 }
 .word-count-input {
   width: 80px;
-  padding: 4px 8px;
+  height: var(--col-field-h-sm);
+  padding: 0 var(--spacing-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xs);
+  background: var(--color-bg-card);
+  color: var(--color-text-primary);
+  font-family: inherit;
   font-size: var(--font-size-sm);
 }
+.word-count-input:focus {
+  border-color: var(--color-primary);
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-primary-light);
+}
 .word-count-sep {
-  color: var(--muted);
+  color: var(--color-text-muted);
 }
 .word-count-unit {
   font-size: var(--font-size-sm);
-  color: var(--muted);
+  color: var(--color-text-muted);
 }
 .word-count-error {
   font-size: var(--font-size-xs);
-  color: #d32f2f;
+  color: var(--color-error-banner-text);
 }
 </style>

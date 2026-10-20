@@ -19,6 +19,8 @@ function registerAllHandlers(ipcMain, deps) {
   require('./analytics')(ipcMain, deps)
   require('./sync')(ipcMain, deps)
   require('./update')(ipcMain, deps)
+  // 强制升级阻断弹窗（forced-update-gate）：升级/重试/文案通道
+  require('./enforce-gate')(ipcMain, deps)
   require('./upload')(ipcMain, deps)
   require('./scheduler')(ipcMain, deps)
   require('./sensitive')(ipcMain, deps)

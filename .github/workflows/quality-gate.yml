@@ -539,7 +539,8 @@ jobs:
           # PR-2 §7.1（camofox 依赖接入）与 §7.5（构建期非回环监听断言）各有一个测试文件，
           # 此前**从未被 CI 执行**：vitest 的 include 是白名单、不含 scripts/**（见
           # apps/desktop/vitest.config.js 注释"未登记的测试文件一个都不会跑"），而
-          # scripts/check-unwired-tests.js 的 WORKSPACE_COVERED 在遍历时跳过整个 apps/ 子树
+          # scripts/check-unwired-tests.js 的 WORKSPACE_COVERED 把整个 apps/ 子树挡在测试域外
+          # （#85 起判据的域取自 git，排除发生在"测试域"这一步，不是靠遍历没走到）
           # ⇒ 既不被执行、也不被接线棘轮发现（2026-10-16 实测；本目录 7 个兄弟文件都是逐个
           # 点名接线的，故这里同样显式点名，不做通配）。
           node --test apps/desktop/scripts/fetch-camofox.test.js apps/desktop/scripts/check-camofox-listen.test.js

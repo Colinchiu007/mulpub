@@ -3190,7 +3190,7 @@ describe("CreateView - UI interactions", () => {
     expect(w.vm.view).toBe("history");
   });
 
-  it("流水线详情态不渲染「返回」按钮（移除后由顶部导航与历史记录 tab 承接返回语义）", async () => {
+  it("流水线详情态不渲染「返回」按钮（移除后由历史记录 tab 承接返回语义）", async () => {
     const w = mount(CreateView, {
       global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
@@ -3208,6 +3208,20 @@ describe("CreateView - UI interactions", () => {
     await nextTick();
     expect(w.vm.view).toBe("history");
     expect(w.vm.selectedPipeline).toBeNull();
+    w.unmount();
+  });
+
+  it("顶部导航箭头整组下线（页面导航由左侧菜单 + 视图 tab 承接）", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await nextTick();
+    expect(w.find(".page-header-nav").exists()).toBe(false);
+    expect(w.find(".nav-arrow-btn").exists()).toBe(false);
+    expect(w.vm.goBack).toBeUndefined();
+    expect(w.vm.goForward).toBeUndefined();
+    // 标题区仍完整：删的是导航条，不是页头
+    expect(w.find(".page-header h1").text()).toBe("视频创作");
     w.unmount();
   });
 

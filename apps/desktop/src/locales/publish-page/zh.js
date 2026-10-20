@@ -15,6 +15,9 @@ export default {
     untitled: '无标题',
     updatedUnknown: '更新时间未知',
     platformCount: (ctx) => ctx.named('count') + ' 个平台',
+    // v2.0 机制 C1.3：平台数触顶提示。只播报、不改变选择；数值来自服务端 limits。
+    platformLimitReached: '当前档位最多选择 {limit} 个平台，升级后可继续添加',
+    platformLimitHint: '已选 {selected} / {limit} 个平台',
     delete: '删除',
     publishTitle: '一键发布',
     batchSubtitle: '批量编辑多篇文章，各平台独立发布',

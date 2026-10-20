@@ -15,11 +15,12 @@ from database import get_db
 from middleware.auth import require_admin
 from services import resilience_service
 from services.logto_verifier import verify_bearer_or_catalog_key
+from services.version_gate import enforce_version_gate
 
 router = APIRouter(tags=["telemetry"])
 
 
-@router.post("/api/v1/telemetry/degradation")
+@router.post("/api/v1/telemetry/degradation", dependencies=[Depends(enforce_version_gate)])
 async def post_degradation(
     body: dict,
     db: AsyncSession = Depends(get_db),

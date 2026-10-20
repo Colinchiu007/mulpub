@@ -326,6 +326,20 @@ export default {
     cancelBatch: 'Cancel',
     enterRss: 'Please enter RSS URL',
     enterUrlList: 'Please enter at least one URL',
+    // ── Collection page unified UI/UE (collection-page-ui-ue-refine, 2026-10-17) ──
+    // Template literals moved into locale (zh/en paired). Two keys per line on purpose:
+    // this domain file was at 480 lines before the change, and one-key-per-line pushed it
+    // past check-max-lines' 500-line hard limit (NEW_OVER_LIMIT).
+    pageSubtitle: 'Collect content from any platform, or quickly create a draft',
+    urlPlaceholder: 'Paste an article link — title, body and cover are collected automatically…',
+    collect: 'Collect', collecting: 'Collecting…',
+    retry: 'Retry', createDraft: 'Create draft',
+    useViralLibrary: 'Use viral library', usePersonalExperience: 'Use personal experience',
+    saveDraft: 'Save to drafts', goPublish: 'Publish',
+    cancel: 'Cancel', resultTitlePrefix: 'Collected',
+    hasCoverImage: 'Has cover image', quickNewDraft: 'New draft',
+    quickClipboard: 'Import from clipboard', quickGroupNew: 'New',
+    quickGroupDrafts: 'Drafts', quickGroupSources: 'Material sources',
     tabCollect: 'Collection',
     quickCollectTab: 'Quick collect',
     draftsTab: 'Drafts',

@@ -1,10 +1,6 @@
 <template>
   <div class="create-page" :class="{ 'create-page--pipeline-list': view === 'pipelines' && !selectedPipeline, 'create-page--pipeline-detail': view === 'pipelines' && selectedPipeline }">
     <div class="page-header">
-      <div class="page-header-nav">
-        <button class="nav-arrow-btn" @click="goBack" :disabled="!canGoBack" title="上一页">←</button>
-        <button class="nav-arrow-btn" @click="goForward" :disabled="!canGoForward" title="下一页">→</button>
-      </div>
       <h1>视频创作</h1>
       <p class="text-muted">基于 OpenMontage 流水线引擎，AI 驱动从脚本到成片的全流程</p>
     </div>
@@ -1266,8 +1262,6 @@ export default {
       // openedOnce 决定浮层是否已构造（按需挂载，理由见 PodcastEpisodeEntry 同名注释）。
       podcastEpisode: { visible: false, openedOnce: false, project: null, segments: [], videoPath: '', title: '', loadError: '' },
       history: [], historyLoading: false, historyLocalMode: false, historyFilter: 'all', historyRequestId: 0, historyPollTimer: null,
-      // 页面导航历史
-      viewHistory: [], viewHistoryIndex: -1,
       // 清理
       cleanups: [],
     }
@@ -1942,8 +1936,6 @@ export default {
       if (this.quickMode === 'gallery') return this.quickImages.length > 0
       return false
     },
-    canGoBack() { return this.viewHistoryIndex > 0; },
-    canGoForward() { return this.viewHistoryIndex < this.viewHistory.length - 1; },
 
     // M-12：S2V 选项的浅层快照，供 watch 比较用。
     //
@@ -2076,16 +2068,6 @@ export default {
     renameS2VVoiceClone(...args) { return ttsVoicesMethods.renameS2VVoiceClone(...args) },
     formatS2VVoiceCloneBytes(...args) { return ttsVoicesMethods.formatS2VVoiceCloneBytes(...args) },
     formatS2VVoiceCloneDuration(...args) { return ttsVoicesMethods.formatS2VVoiceCloneDuration(...args) },
-    // 页面导航箭头
-    goBack() { if (this.viewHistoryIndex > 0) { this.viewHistoryIndex--; this.applyViewState(this.viewHistory[this.viewHistoryIndex]); } },
-    goForward() { if (this.viewHistoryIndex < this.viewHistory.length - 1) { this.viewHistoryIndex++; this.applyViewState(this.viewHistory[this.viewHistoryIndex]); } },
-    applyViewState(state) {
-      if (!state) return;
-      this.detachPipelineView(state.view)
-      if (state.view) this.view = state.view;
-      if (state.selectedPipeline !== undefined) this.selectedPipeline = state.selectedPipeline;
-      if (state.view === 'history') this.loadHistory();
-    },
     // 离开流水线创作视图只脱离 renderer 跟踪，不取消主进程 run；重新进入时回到新建列表。
     detachPipelineView(nextView) {
       if (this.view !== 'pipelines' || nextView === 'pipelines') return
@@ -2098,12 +2080,6 @@ export default {
       this.detachPipelineView(nextView)
       this.view = nextView
       if (nextView === 'history') this.loadHistory()
-      this.pushViewState({ view: nextView })
-    },
-    pushViewState(state) {
-      this.viewHistory = this.viewHistory.slice(0, this.viewHistoryIndex + 1);
-      this.viewHistory.push(state);
-      this.viewHistoryIndex = this.viewHistory.length - 1;
     },
     // unify-video-pipeline-progress-modal：把 URL 上的 ?filter= 落到历史筛选态。
     // 单一入口供 mounted 与 $route.query.filter watch 共用；非法值静默忽略（保持当前筛选）。
@@ -2262,7 +2238,6 @@ export default {
         return
       }
       if (p?.name === 'film-engineering') {
-        this.pushViewState({ view: 'pipelines', selectedPipeline: p });
         this.$router.push('/film-engineering')
         return
       }

@@ -9,7 +9,7 @@ const fs = require('fs')
 const os = require('os')
 const path = require('path')
 
-const { loadFilmKit, loadFilmKitChain, validateManifest, validateShotLibrary, validateReferences, validateDoctrine, validateShotSceneRefs, FILM_PROMPT_MAX_LEN } = require('./kit-loader')
+const { loadFilmKit, loadFilmKitChain, validateManifest, validateShotLibrary, validateReferences, validateDoctrine, validateShotSceneRefs, validateShotGrammar, validateComplianceChecklist, validatePalette, checkSchemaVersion, FILM_PROMPT_MAX_LEN } = require('./kit-loader')
 
 const UUID = '3caa2f3a-52b5-4293-9237-0c8f76c7158a'
 
@@ -55,6 +55,75 @@ function makeKit () {
       rules: [{ key: 'batch-10-15', title: 'Batch iteration 10-15', zh: '批量迭代 10-15 法则', en: 'Batch 10-15 rule' }],
       glossary: [{ term: 'seedance', zh: '种子舞', en: 'Seedance' }],
     },
+    // v7 批次一新增的三份数据资产与任务化 prompt 库：夹具必须与 KIT_FILES 契约同步，
+    // 否则「kit 可用」与「资产齐全」两个概念会脱钩。
+    shotGrammar: makeShotGrammar(),
+    compliance: makeCompliance(),
+    palette: makePalette(),
+    prompts: makePrompts(),
+  }
+}
+
+function makeShotGrammar () {
+  return {
+    schemaVersion: 1,
+    shotSizes: [{ key: 'wide', zh: '远景', en: 'Wide shot', abbr: 'WS', chain: 'wide' }],
+    cameraMoves: [{ key: 'static', zh: '固定', en: 'Static', risk: 'low' }],
+    cameraAngles: [{ key: 'eye_level', zh: '平视', en: 'Eye level', emotion: 'neutral' }],
+    lightingSetups: [{ key: 'natural', zh: '自然光', en: 'Natural light' }],
+    vfxPresets: [{ key: 'none', zh: '无特效', en: 'None', risk: 'low' }],
+    emotionTiers: [{ key: 'normal', zh: '常规', en: 'Normal', zhCharsPerSecond: 8 }],
+    durationTiers: { supportedSec: [5, 8, 10, 12], maxSec: 12 },
+  }
+}
+
+function makeCompliance () {
+  return {
+    schemaVersion: 1,
+    categories: [{ key: 'content', zh: '内容合规', en: 'Content compliance' }],
+    items: [{
+      id: 'CC-01',
+      category: 'content',
+      severity: 'blocker',
+      zhQuestion: '是否包含禁止内容？',
+      enQuestion: 'Forbidden content?',
+      zhPass: '不包含',
+      enPass: 'None',
+      zhFix: '改写',
+      enFix: 'Rewrite',
+    }],
+  }
+}
+
+function makePalette () {
+  const hexes = ['#0E1A24', '#1F4E5F', '#C9A227', '#8C3A2E']
+  const line = 'Palette: ' + hexes.join(' / ')
+  return {
+    schemaVersion: 1,
+    limits: { maxPrimary: 4, maxExtended: 2 },
+    primary: hexes.map((hex, i) => ({ key: 'primary_' + (i + 1), hex, zhName: '主色' + (i + 1), enName: 'Primary ' + (i + 1) })),
+    extended: [],
+    paletteLine: { zh: line, en: line },
+    emotionColorMap: [],
+  }
+}
+
+function makePrompts () {
+  const out = {}
+  for (const task of ['adapt_script']) {
+    for (const loc of ['zh', 'en']) {
+      out[task + '/' + loc + '/system.md'] = 'system ' + task + ' ' + loc
+      out[task + '/' + loc + '/user.md'] = 'user ' + task + ' ' + loc
+    }
+  }
+  return out
+}
+
+function writePrompts (dir, prompts) {
+  for (const [rel, content] of Object.entries(prompts || {})) {
+    const full = path.join(dir, 'prompts', 'tasks', rel)
+    fs.mkdirSync(path.dirname(full), { recursive: true })
+    fs.writeFileSync(full, content)
   }
 }
 
@@ -64,6 +133,10 @@ function writeKit (dir, kit) {
   fs.writeFileSync(path.join(dir, 'shot-library.json'), JSON.stringify(kit.shots))
   fs.writeFileSync(path.join(dir, 'reference-registry.json'), JSON.stringify(kit.references))
   fs.writeFileSync(path.join(dir, 'prompt-doctrine.json'), JSON.stringify(kit.doctrine))
+  fs.writeFileSync(path.join(dir, 'shot-grammar.json'), JSON.stringify(kit.shotGrammar))
+  fs.writeFileSync(path.join(dir, 'compliance-checklist.json'), JSON.stringify(kit.compliance))
+  fs.writeFileSync(path.join(dir, 'palette.json'), JSON.stringify(kit.palette))
+  writePrompts(dir, kit.prompts)
 }
 
 function tmpDir () {
@@ -304,3 +377,4 @@ it('loadFilmKit 集成交叉引用：孤儿 shot 使整级校验失败', () => {
   expect(r.ok).toBe(false)
   expect(r.error).toContain('ghost-scene')
 })
+

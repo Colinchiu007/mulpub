@@ -671,6 +671,10 @@ class PublishApiServer {
     const response = { plan, features }
     if (entitlement.quota && typeof entitlement.quota === "object" && !Array.isArray(entitlement.quota)) response.quota = entitlement.quota
     if (entitlement.limits && typeof entitlement.limits === "object" && !Array.isArray(entitlement.limits)) response.limits = entitlement.limits
+    // v2.0 机制 C9.2：到期宽限（只读/收尾期）与上一档位由 settleExpiry 写入快照；
+    // 不透传会让客户端既看不到宽限横幅、也无法判断「已到期但仍在收尾」。
+    if (typeof entitlement.graceUntil === "string" && entitlement.graceUntil) response.graceUntil = entitlement.graceUntil
+    if (typeof entitlement.previousPlan === "string" && entitlement.previousPlan) response.previousPlan = entitlement.previousPlan
     return response
   }
 
@@ -690,6 +694,11 @@ class PublishApiServer {
       plan: entitlement.plan,
       features: entitlement.features,
       ...(entitlement.quota ? { quota: entitlement.quota } : {}),
+      // v2.0 机制 C1.3：limits 此前**未进签名快照**，客户端 normalizeEntitlement 自然拿不到
+      // （G6 根因）。现在随快照下发，客户端透传后发布页才能做平台数/日发校验。
+      ...(entitlement.limits ? { limits: entitlement.limits } : {}),
+      ...(entitlement.graceUntil ? { graceUntil: entitlement.graceUntil } : {}),
+      ...(entitlement.previousPlan ? { previousPlan: entitlement.previousPlan } : {}),
       iat: now,
       exp: now + 7 * 24 * 60 * 60,
     }
