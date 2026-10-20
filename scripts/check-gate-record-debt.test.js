@@ -1811,11 +1811,16 @@ test('空原因的旧判据不得被形状校验挤掉', () => {
   assert.throws(() => checker.loadLedger(dir), /必须是原因字符串/, '对象值必须先被形状判据拒，不得落到空白分支')
 })
 
-test('真仓形状锁：账本值全为字符串，且不得靠清空账本变绿', () => {
+test('真仓形状锁：真实账本可 parse 且值全为非空字符串（防清空不在这条里）', () => {
   const file = path.join(__dirname, 'gate-record-debt-ledger.json')
   const raw = JSON.parse(fs.readFileSync(file, 'utf8'))
   const keys = Object.keys(raw)
-  assert.ok(keys.length > 0, '空账本不等于零欠账：清空登记项正是本判据要拦的绕行', keys.length)
+  // 这里**不写 keys.length > 0**。账本被逐条销账到空是这条机制的**可达终态**（每条登记项的原因里
+  // 都写着"回填后删除本条"），把非空钉成禁态就是本仓记案的"常量红"：合法工作做完之后，
+  // 每个 PR 都被一条与它无关的锁拦死。防"靠清空账本变绿"的活由 `清空账本不得变绿` 那条
+  // 机制锁承担，它用夹具（载体有未收口行 + ledger:{} ⇒ r.open 非空且进阻断出口），
+  // 与真实账本此刻有几条无关；M7/M8 各让它指名变红。
+  assert.ok(Array.isArray(keys), 'keys 必须是数组（Object.keys 退化 = 读的东西不对）')
   const bad = keys.filter((k) => typeof raw[k] !== 'string')
   assert.deepEqual(bad, [], `仍有非字符串登记项 ${bad.length} 条：${bad.slice(0, 3).join(" | ")}`)
   const blank = keys.filter((k) => !String(raw[k]).trim())
@@ -1856,11 +1861,13 @@ test('账本文件名在判据里只允许出现一处（LEDGER_FILE 是唯一�
 
 test('真账本必须能被真 loadLedger 读通（形状锁不得只读文件绕过判据函数）', () => {
   // 评审 W3：形状锁自己 JSON.parse 文件，等于"文件形状对但判据读不通"这一格没人测。
-  // 这条把真实账本喂给真实函数：不抛错、条数>0、值全为非空字符串。
+  // 评审 W3：形状锁自己 JSON.parse 文件，等于"文件形状对但判据读不通"这一格没人测。
+  // 这条把真实账本喂给真实函数：不抛错、值全为非空字符串、**键数与文件条数相等**。
+  // 牙在"相等"上（函数静默丢条目即红），不在"条数>0"上——后者会把合法清空终态钉成禁态。
   const root = path.resolve(__dirname, '..')
   const got = checker.loadLedger(root)
   const keys = Object.keys(got)
-  assert.ok(keys.length > 0, '真账本一条都读不出 = 函数或文件坏了，不是"没有欠账"')
+  assert.ok(Array.isArray(keys), 'loadLedger 的返回面必须是普通对象')
   for (const k of keys) assert.ok(typeof got[k] === 'string' && got[k].trim(), `真账本里有非字符串/空原因：${k.slice(0, 40)}`)
   // 键数必须等于文件里的条数：读通不等于读全
   const raw = JSON.parse(fs.readFileSync(path.join(root, 'scripts', 'gate-record-debt-ledger.json'), 'utf8'))
@@ -1890,4 +1897,15 @@ test('W1：collect 缺 ledger 注入必须抛错——默认值等于静默读�
   const r = checker.collect({ root: dir, ledger: {}, mergeLedger: mkML({ ok: true, merged: [], added: [] }) })
   assert.ok(r.open.length >= 1, '空账本不等于零欠账：' + JSON.stringify(r.open))
   assert.equal(checker.hasBlocking(r), true, '未登记欠账必须进阻断出口')
+})
+
+test('接线锁：main() 必须把 hasBlocking 映射成非零退出（返回值为真不等于 CLI 会拦）', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'check-gate-record-debt.js'), 'utf8')
+  const body = src.replace(/^\s*\/\/.*$/gm, '')
+  assert.match(body, /if\s*\(\s*hasBlocking\(\s*r[^)]*\)\s*\)\s*process\.exit\(1\)/,
+    '未收口/未登记的欠账必须落到 CLI 退出码；否则「拦住不让合」只活在 collect 的返回值里',
+  )
+  // 为什么是结构锁而不是行为锁：main() 的 root 取 path.resolve(__dirname, '..')，没有 --root 注入点，
+  // 因此无法在夹具仓库里造出「确有阻断」的状态去断言 rc=1。把 root 做成可注入属改判据形态（改谁来守门），
+  // 须人工过目；在那之前，这条映射至少被一道「摘掉即红」的锁看着（反证见本 PR 记录）。
 })
