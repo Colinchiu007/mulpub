@@ -1,0 +1,59 @@
+{
+  "sha": "87f8de7bacf0d2de39b373784fc8d390a28b8b5e",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 572 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 572,
+    "fileCount": 10,
+    "codeFileCount": 4,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 6,
+    "docSensitiveContentSample": [
+      "3. **热写面禁改门禁 `scripts/check-no-hot-carrier-edit.js`**：按 **PR 差量**（merge-base..head，而非文件现状）判定，差量里出现 `CHANGELOG.md` 或 `01-docs/learnings.md` 即点名。发版聚合 PR 与历史清理 PR 走**显式授权文件**出口（沿用 `changelog-dedup-authorization.json` 那条已验证的形态：授权必须本次差量新增、且核对坐标系，base 已存在不生效）。",
+      "- **WHEN** 发版/聚合 PR 的差量含 `CHANGELOG.md`，且本次差量**新增**授权文件 `scripts/hot-carrier-write-authorization.json` 并声明的 `applies_to_base` 等于本次实际 merge-base",
+      "- **AND** 授权文件在 base 已存在时 MUST NOT 生效（常驻通行证会让后续每个 PR 白蹭），且缺 `applies_to_base` 或与该 sha 不符 MUST 判红"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "68da68e800f4b766f24a213354f5493448c6e7df192510eed25f8192029784dc",
+  "decidedAt": "2026-10-20T16:35:30.497Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

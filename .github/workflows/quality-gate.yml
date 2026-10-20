@@ -493,6 +493,21 @@ jobs:
           node --test scripts/check-changelog-duplicate-entries.test.js
           node scripts/check-changelog-duplicate-entries.js --base="${MB:-$BASE_REF}" --head=HEAD
 
+      # --- Gate 2b8：台账聚合器（change: changelog-record-carrier）---
+      # 落点必须是本 job：聚合器的输入是 openspec/records/**、CHANGELOG.md、01-docs/learnings.md，
+      # 三者**全部**命中 CI_IGNORED_PATHS（docs-only 白名单）。接在被 `docs-only != 'true'` 门控的
+      # job 里，等于"只改记录/台账的 PR 可以让这把锁一次都不跑"—— 这正是 AGENTS「进白名单的前提锁」
+      # 记过的自关校验形态（同 Gate 2b2 / Gate 2c3 口径，实测事故 #3114）。
+      # 本步骤刻意只跑 --dry-run：真写入属发版动作（由 release-gate 在片4 接入）。在 PR 门禁里写文件
+      # 会把别人刚并入 main 的条目算进我的差量，那既是假红也是把聚合器变成第二个写者。
+      # dry-run 首行读数（records=/missing=/landed=）是这条链"在 CI 上确实跑过"的唯一现场证据，
+      # 不得用"测试通过"替代它 —— 测试跑的是夹具，真仓读数才证明解析面对得上现状。
+      - name: "Gate 2b8 - Changelog aggregator (changes job)"
+        shell: bash
+        run: |
+          node --test scripts/aggregate-changelog.test.js
+          node scripts/aggregate-changelog.js --dry-run
+
   static-gates:
     name: QG Static
     runs-on: windows-latest
