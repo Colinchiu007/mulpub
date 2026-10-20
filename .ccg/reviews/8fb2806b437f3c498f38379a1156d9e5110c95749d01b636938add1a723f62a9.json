@@ -50,10 +50,11 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
+    "status": "self_play_resolved",
+    "tier": "self-play",
+    "performedBy": "self-play",
     "evidence": null,
-    "findings": null
+    "findings": null,
+    "closureNote": "本记录对应同步 main 的 merge 提交（#4064 组件化）。第 1-9 轮的 CCG 深度审查（upheld 17 处已修、\ndismissed 5 类且理由可验证）覆盖的是本分支的生产逻辑；本次 merge **没有引入任何新的生产行为**，\n只做了三件事：① 采纳 main 侧 ResultView.vue（宿主已只剩 <ResultSegmentEditor> 接线，保留半套内联\n实现会让同一文件里存在两个分段区）；② 采纳 main 侧 ResultView.test.js（旧「提示词区」describe 依赖\n已不存在的 w.vm.expandedSegmentId，在新结构上必然红）；③ CHANGELOG.md 两段都保留（追加型文件）。\n主进程侧 story2video-stages.js / story2video-project-service.js 自动合并且无冲突，与已审查状态逐字节相同。\n\n因此该判定属形状命中（merge diff 体量大）而非内容需要：本提交不含需要重新评审的新逻辑 ——\n功能在新组件上的落位是紧随其后的独立提交（见 2c5cd4a0），那里逐项写了移植内容与验证读数。\n回归复核：merge 后 6 个套件 426 例全绿（当时移植尚未开始）。"
   }
 }
