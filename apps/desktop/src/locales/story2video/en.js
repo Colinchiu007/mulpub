@@ -87,6 +87,17 @@ export default {
     compose_timeout: 'Video composition timed out. Check disk space and device load, then resume from the breakpoint. If it still fails, try again later.',
     compose_duration_exceeded: 'The video exceeds the {limitMinutes}-minute limit. Shorten the script or use fewer scenes, then start generation again.',
     compose_segment_duration_exceeded: 'A narration segment exceeds the duration limit. Split that part of the script, then start generation again.',
+    compose_audio_duration_exceeded: 'The total narration audio duration exceeds the {limit} limit. Shorten the script or use fewer scenes, then start generation again.',
+    compose_ffmpeg_not_found: 'The video composition component could not be found, so videos cannot be generated right now. Restart the app; if it still fails, reinstall the app.',
+    compose_invalid_asset_manifest: 'The composition asset list is incomplete, so videos cannot be generated right now. Resume from the breakpoint to regenerate; if this continues, start generation again.',
+    compose_input_size_exceeded: 'The media for this composition totals {actualMb}, which exceeds the {limitMb} limit. Use fewer scenes, compress the images or narration audio, then start generation again. If background music is enabled, try disabling it or use a smaller audio file.',
+    // Numberless variant (CCG external review i2, 2026-10-20): the legacy raw text
+    // `Input media exceeds the total size limit` carries no sizes, so the main template would
+    // render as "totals the allowed size, which exceeds the allowed size limit". When the sizes
+    // are unknown we say only "exceeds the limit" instead of pretending to know them.
+    compose_input_size_exceeded_no_numbers: 'The total media for this composition exceeds the allowed limit. Use fewer scenes, compress the images or narration audio, then start generation again. If background music is enabled, try disabling it or use a smaller audio file.',
+    compose_scene_media_unreadable: 'The visual material for scene {scene} is no longer available or cannot be read. Regenerate that scene image or video, then resume from the breakpoint.',
+    compose_scene_audio_unreadable: 'The narration audio for scene {scene} is no longer available or cannot be read. Regenerate that scene voice, then resume from the breakpoint.',
     operation_failed: 'Could not complete the request. Please try again.',
     invalid_params: 'Pipeline parameter validation failed. Please check your configuration and try again.',
     unknown_error: 'Could not complete the request. Please try again.',
@@ -300,5 +311,7 @@ export default {
       sceneLabel: 'scene {scene}',
       sceneRatio: 'scenes {scene}',
       currentProvider: 'current',
+      currentScene: 'this scene',
+      unknownSize: 'the allowed size',
     },
   }

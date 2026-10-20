@@ -1,4 +1,4 @@
-﻿import { describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import CreateViewHistory from './CreateViewHistory.vue'
 import zh from '@/locales/zh'
@@ -10,17 +10,35 @@ function resolveLocaleMessage (key) {
   return key.split('.').reduce((node, part) => (node == null ? undefined : node[part]), zh)
 }
 
+// 既有断言约定：无参返回 key（供「$t 取不到文案时回退 key」的用例）。
 const interpolatingT = (key, params) => {
   if (!params) return key
   const message = resolveLocaleMessage(key)
   if (typeof message === 'function') return message({ named: name => (params[name] ?? '') })
-  return key + ' ' + (params.scenes || '')
+  // 字符串消息：与 vue-i18n 生产语义一致——按 {name} 占位符插值；
+  // 占位符不在 params 中时保留原样（便于断言「未解析占位符」这类缺陷）。
+  if (typeof message === 'string') {
+    return message.replace(/\{(\w+)\}/g, (whole, name) => (params[name] !== undefined ? String(params[name]) : whole))
+  }
+  return key
 }
 
-const mountHistory = (history, props = {}) => mount(CreateViewHistory, {
+// formatError 走「先取模板再自行插值」路径（$t(key) 无参 → 模板原文）。
+// 该路径需要 mock 在无参时也返回字符串原文，与生产 vue-i18n 一致。
+const templateAwareT = (key, params) => {
+  const message = resolveLocaleMessage(key)
+  if (typeof message === 'string') {
+    if (!params) return message
+    return message.replace(/\{(\w+)\}/g, (whole, name) => (params[name] !== undefined ? String(params[name]) : whole))
+  }
+  if (typeof message === 'function' && params) return message({ named: name => (params[name] ?? '') })
+  return key
+}
+
+const mountHistory = (history, props = {}, t = interpolatingT) => mount(CreateViewHistory, {
   props: { history, ...props },
   global: {
-    mocks: { $t: interpolatingT },
+    mocks: { $t: t },
   },
 })
 
@@ -280,6 +298,48 @@ describe('CreateViewHistory', () => {
     // 失败原因使用多语言自然语言（formatPipelineError：短文本透传原文）
     expect(card.find('[data-testid="history-failure-reason"]').text()).toContain('provider timeout with a very long message')
     expect(card.find('[data-testid="history-failure-reason"]').text()).not.toContain('…')
+  })
+
+  it('compose 预检失败带稳定 errorCode → 卡片渲染自然语言上限提示，不显示英文原文（2026-10-20 事故回归）', () => {
+    const wrapper = mountHistory([
+      {
+        id: 'failed-size', projectId: 'proj-size', pipeline: 'story2video-compose', status: 'failed',
+        title: '超限任务', updatedAt: '2026-08-15T12:00:00Z', createdAt: '2026-08-15T10:00:00Z',
+        pausedStage: 'compose', error: 'Input media exceeds the total size limit',
+        errorCode: 'COMPOSE_INPUT_SIZE_EXCEEDED',
+        errorParams: { limitMb: '512MB', actualMb: '780MB' },
+        stages: [{ name: 'compose', status: 'failed' }],
+      },
+    ], {}, templateAwareT)
+    const reason = wrapper.find('[data-testid="history-failure-reason"]').text()
+    expect(reason).not.toContain('Input media exceeds the total size limit')
+    expect(reason).toContain('512MB')
+    expect(reason).toContain('780MB')
+    expect(reason).not.toContain('story2video.compose_input_size_exceeded')
+  })
+
+  it('存量数据只有英文原文（无 errorCode、无体积数字）→ 归一化为自然语言，且无占位符残留', () => {
+    const wrapper = mountHistory([
+      {
+        id: 'failed-legacy', projectId: 'proj-legacy', pipeline: 'story2video-compose', status: 'failed',
+        title: '存量任务', updatedAt: '2026-08-15T12:00:00Z', createdAt: '2026-08-15T10:00:00Z',
+        pausedStage: 'compose', error: 'Input media exceeds the total size limit',
+        stages: [{ name: 'compose', status: 'failed' }],
+      },
+    ], {}, templateAwareT)
+    const reason = wrapper.find('[data-testid="history-failure-reason"]').text()
+    expect(reason).not.toContain('Input media exceeds the total size limit')
+    expect(reason).not.toContain('story2video.compose_input_size_exceeded')
+    // ⛔ CCG 外部评审 i2（2026-10-20）：原文本身不带体积数字 ⇒ params 里没有 actualMb/limitMb。
+    // 若不做兜底，用户会看到字面「{actualMb}」——比原英文原文更糟。此处锁死「不得残留花括号」。
+    expect(reason).not.toMatch(/\{[^{}]*\}/)
+    expect(reason).not.toContain('{actualMb}')
+    expect(reason).not.toContain('{limitMb}')
+    expect(reason.length).toBeGreaterThan(0)
+    // 正向断言：体积未知时必须走 _no_numbers 变体（而不是靠安全网把占位符清成空串）。
+    // zh 文案以「超过上限」收束第一句，且不得出现「允许上限」这类兜底填充物。
+    expect(reason).not.toContain('允许上限')
+    expect(reason).toContain('超过上限')
   })
 
   it('completed+projectId 卡片显示编辑与重新合成按钮并发出 open-result', async () => {

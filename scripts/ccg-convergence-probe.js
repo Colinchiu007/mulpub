@@ -87,18 +87,6 @@ function readDriverTaskShape (src) {
   return { currentRoundExpr: cur ? cur[1] : null, singleRoundLiteral: rounds };
 }
 
-/**
- * vendor 是否能表达「外部复核已发生」（现读驱动源码，不靠记忆写死结论）。
- * 两条同时成立才算在位：解除阻断的谓词被**定义**（注释里提一句不算）+ 驱动把期望后端写进裁决模板。
- * 缺任一格 ⇒ 沿用旧结论「高危域在 self-play 内无出口」；在位 ⇒ 结论必须改成「填三格后可闭合」。
- */
-function externalReviewCapable (driverSrc) {
-  if (typeof driverSrc !== 'string' || driverSrc === '') return false;
-  const hasPredicate = /^[ \t]*function[ \t]+externalReviewSatisfied[ \t]*\(/m.test(driverSrc);
-  const hasExpected = /expectedExternalBackend[ \t]*:/.test(driverSrc);
-  return hasPredicate && hasExpected;
-}
-
 function main (argv) {
   const json = (argv || []).includes('--json');
   const vendor = locateVendor();
@@ -161,7 +149,6 @@ function main (argv) {
     vendor: { engine: vendor.engine, driver: vendor.driver },
     cfgReadFromSource: cfgDefaults,
     driverTaskShape: shape,
-    externalReviewCapable: externalReviewCapable(driverSrc),
     sample: { file: path.relative(process.cwd(), SAMPLE), minScore, roundsObserved: sample.critique.roundsObserved,
       observedStatus: sample.critique.observedStatus, cryptoItems: sample.critique.requiresExternalReview.length },
     ladder: {
@@ -211,19 +198,12 @@ function main (argv) {
       + '\n  ⇒ 出口可达性已变：#3724 tasks §8.5/§8.8 与本 change design 的结论必须重估，不得沿用。\n');
     return 1;
   }
-  if (externalReviewCapable(driverSrc)) {
-    process.stdout.write('[ccg-probe] 结论：验证层三个停止出口里只有 ③(maxRounds→self-play) 可达；'
-      + '且 vendor **已能表达外部复核**（externalReviewSatisfied + expectedExternalBackend 在位）'
-      + '⇒ 高危域项填齐三格后可闭合为 self_play_resolved，不再是永久不可达。'
-      + '（旧结论「含 crypto 发现的 diff 上闭环不可达」自此次表达起失效，不得再沿用。）\n');
-    return 0;
-  }
   process.stdout.write('[ccg-probe] 结论：验证层三个停止出口里只有 ③(maxRounds→self-play) 可达；'
     + '而 self-play 对 crypto 项无条件计阻断 ⇒ 「深度审查闭环」在含 crypto 发现的 diff 上不可达（除非真跑多轮把分数抬到 '
     + cfgDefaults.scoreThreshold + ' 以上）。\n');
   return 0;
 }
 
-module.exports = { externalReviewCapable, main, readDefaults, readVendorSources, readDriverTaskShape, locateVendor, SAMPLE };
+module.exports = { main, readDefaults, readVendorSources, readDriverTaskShape, locateVendor, SAMPLE };
 
 if (require.main === module) process.exitCode = main(process.argv.slice(2));

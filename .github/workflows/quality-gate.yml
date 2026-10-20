@@ -299,6 +299,23 @@ jobs:
           node --test scripts/check-text-encoding-integrity.test.js
           node scripts/check-text-encoding-integrity.js
 
+      # --- Gate 12g：compose 稳定错误码 ↔ locale 文案一致性（2026-10-20 事故复盘）---
+      # 动因（error-message-user-friendly-audit）：历史记录失败卡片直出英文技术原文
+      # `Input media exceeds the total size limit`。四层逃逸链的最后一层是「新增错误码要
+      # 同时改三处（主进程 COMPOSE_ERROR_CODES / 渲染端 COMPOSE_ERROR_KEY_MAP /
+      # locales zh+en 文案）纯靠自觉」，漏一处就静默渲染成英文原文或 i18n key 原文。
+      # 为什么住 changes 而不是 static-gates：本锁的输入含 locales/story2video/{zh,en}.js
+      # 与 src/views/history-utils.js，而只改文案的 PR 会被判 docs-only 短路 static-gates；
+      # 判据本体只 require node 内置模块（本 job 无 Install deps 也能跑）。
+      # 锁什么：错误码三侧集合相等 + zh/en 成对存在 + 新增码的文案占位符能在主进程
+      # messageParams 里找到。变异反证 6 道（删映射/删 zh/删 en/改占位符/删主进程常量/
+      # 清空映射表）全部 CAUGHT，见 scripts/check-compose-error-codes.test.js。
+      - name: "Gate 12g - Compose error code / locale consistency (changes job)"
+        shell: bash
+        run: |
+          node --test scripts/check-compose-error-codes.test.js
+          node scripts/check-compose-error-codes.js
+
       # --- Gate 12c：文档绝对路径有效性门禁（#3000 逃逸分析逼出） ---
       # 动因：仓库根 2026-10-06 改名后，文档里的**绝对路径**不会跟着改，于是静默失效
       # （运维手册里 `cd D:\...\<旧名>\apps\desktop` 照着敲必然失败）。此前**零门禁**
