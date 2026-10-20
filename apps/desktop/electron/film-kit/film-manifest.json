@@ -1,7 +1,7 @@
 {
  "schemaVersion": 1,
  "filmMeta": {
-  "title": "Hell Grind",
+  "title": "Film Project Case",
   "durationSec": 5706,
   "logline": "Street kids who gain forbidden powers must stand against an ancient evil that is grinding the city down.",
   "characters": [
@@ -21,17 +21,12 @@
     "name": "REIN",
     "descriptor": "Mysterious street kid; calm under pressure; carries the coordinates."
    }
-  ],
-  "source": {
-   "projectUrl": "https://higgsfield.ai/@higgsfield.studio/projects/hell-grind",
-   "skillRepo": "https://github.com/OSideMedia/higgsfield-ai-prompt-skill (MIT)",
-   "apiBase": "https://fnf-api-gw.higgsfield.ai/fnf"
-  }
+  ]
  },
  "scenes": [
   {
    "id": "3caa2f3a-52b5-4293-9237-0c8f76c7158a",
-   "name": "Hell Grind",
+   "name": "Film Project Case",
    "count": 0,
    "parentId": null,
    "level": 0
@@ -990,7 +985,7 @@
   },
   {
    "id": "bd840944-d4be-46a3-8699-7fe18287a3de",
-   "name": "HELL GRIND 51",
+   "name": "PROJECT CASE 51",
    "count": 2162,
    "parentId": "2ed53e91-e54a-4a6b-8263-83dd6ee609de",
    "level": 2

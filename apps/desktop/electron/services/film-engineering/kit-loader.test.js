@@ -18,7 +18,7 @@ function makeKit () {
     manifest: {
       schemaVersion: 1,
       filmMeta: {
-        title: 'Hell Grind',
+        title: 'Film Project Case',
         durationSec: 5706,
         logline: 'Street kids gain powers to fight ancient evil.',
         characters: [
@@ -148,7 +148,7 @@ it('kit-loader: 正常加载返回完整 kit', () => {
   writeKit(dir, makeKit())
   const result = loadFilmKit({ kitDir: dir })
   expect(result.ok).toBe(true)
-  expect(result.kit.manifest.filmMeta.title).toBe('Hell Grind')
+  expect(result.kit.manifest.filmMeta.title).toBe('Film Project Case')
   expect(result.kit.shots.length).toBe(1)
   expect(result.kit.references[UUID].kind).toBe('character')
   expect(result.kit.doctrine.blocks.length > 0).toBeTruthy()

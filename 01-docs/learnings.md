@@ -1,3 +1,69 @@
+## amend 已提交内容会漂移 diff 内容寻址哈希，让深度审查的判定记录「双双落空」（s2v-voice-clone-auto-select，2026-10-20）
+
+### lesson: amend-after-commit-breaks-content-addressed-review-record
+
+**现场**：提交后发现文档里有一条本机绝对路径撞了 Gate 12c（doc abs-path 基线），于是 `git commit --amend` 修正。修正后跑 `sh scripts/deep-review.sh`，脚本报「本提交有 921 行非 .ccg 改动却没有判定记录 ⇒ 深度审查无法进行（fail-closed）」，`check-pr-exec-record.js` 也报 CCG 深度审查欠账。
+
+**根因**：`.ccg/reviews/<name>.json` 的记录名是**内容寻址**的——`stagedDiffHash = git diff ... -- . ':(exclude).ccg' | sha256sum`。pre-commit 在 amend 前的 diff 上算出 `b23748b5`，amend 改变了 diff 内容（记录文件自身也在 diff 里，自我指涉），哈希变成 `39af17dc`，而 amend 时 pre-commit 又新生成一个 `68258ca4`。三个记录躺在 `.ccg/reviews/` 里，**没有一个与最终提交的 diff 匹配**，旧的还被我一起带进了提交（CCG 评审 i4 抓到这个：sha/changedLines 与 head 不符、两文件内容重复）。
+
+**修法**：`git reset --soft HEAD~1` 回到 base（保留 index）⇒ `git rm --cached` 掉两个残留记录 ⇒ 重新 `git commit`（pre-commit 用当前 diff 重新判定，生成匹配的 `39af17dc`）⇒ 再跑 deep-review.sh 即命中。**不要用 amend 去修一个「已被内容寻址登记过的提交」。**
+
+**可复用的三条**：
+1. 凡「记录名/缓存键由 diff 内容哈希生成」的机制，**amend 是禁区**——它让「已登记的旧记录」与「新 diff」同时失效，且旧记录不会自动清理。
+2. 修正已提交内容的正确姿势是 soft reset + 重新提交，让钩子用新 diff 重新登记；这也顺带避免「同一逻辑改动出现两条 commit」的历史噪声。
+3. 自我指涉要警惕：被寻址的 diff **排除自身目录**（`':(exclude).ccg'`）正是为了切断这个环，但寻址记录**放进同一次提交**时仍会二次漂移——所以寻址产物应由钩子自行管理，不应手工 `git add` 进业务提交。
+
+## 「有回滚代码」≠「回滚有效」——调用方先写状态时，回滚锚点会被污染成空操作（s2v-voice-clone-auto-select，2026-10-20）
+
+### lesson: rollback-anchor-captured-after-caller-write-is-a-no-op
+
+**现场**：用户诉求「克隆音色成功后，语音/音色 ID 下拉自动切到新音色」。主路径在基线里**早就实现了**（`tts-voices-clone.js` 的 `addS2VVoiceClone`：入库 → 写 `voiceId` → `selectS2VVoice` → toast），happy-path 测试也是绿的。但偏好持久化失败（`VOICE_PREFERENCE_STORE_UNAVAILABLE` 等）时，下拉会停留在一个**从未保存成功**的音色上。
+
+**根因**：`addS2VVoiceClone` 在调 `selectS2VVoice` **之前**写了 `d.getS2vConfig().voiceId = voice.id`；而 `selectS2VVoice` 内部的回滚锚点是 `const previousVoiceId = d.getS2vConfig().voiceId`（进入函数时取值）⇒ 锚点取到的是**新值** ⇒ 失败时 `voiceId = previousVoiceId` 写回同一个 id，**字面意义上的空操作**。回滚代码存在、sibling 测试也绿，但这条调用形态下它什么都没做。
+
+**为什么既有测试抓不到**：`CreateView.test.js` 里那条「设为默认保存失败时回滚下拉与徽标」**直接调 `selectS2VVoice(id)`** 且预置了不同的 `voiceId`——它测的是「进入时锚点取到旧值」这一形态，结构上不可能触发布音路径的锚点污染。**同一个函数、同一个分支，两种调用形态，一种被覆盖一种没有。**
+
+**修法**：给 `selectS2VVoice` 加可选第二参 `rollbackVoiceId`（显式回滚锚点），`addS2VVoiceClone` 在写 `voiceId` **之前**捕获旧值并传入；不传时行为与旧版逐字节一致（向后兼容）。同时让克隆路径在 `selectS2VVoice` 返回 `false` 时**不弹成功 toast**——克隆事实成立，但不得谎报「已添加并已设为默认」。
+
+**可复用的三条**：
+1. 看到「先写状态、再调一个带回滚语义的函数」的时序，第一问是：**被调函数的回滚锚点在这个形态下取到什么值？** 取到目标值就等于没有回滚。
+2. 「有 sibling 测试覆盖同一分支」≠「本调用形态被覆盖」——跨函数的时序契约（写点与回滚点分处两个模块）是单文件测试的结构性盲区，必须为**每种调用形态**各写一条。
+3. 失败路径除了断言状态回滚，还要断言**用户可见后果**（toast 弹不弹、徽标在不在）——状态对了但谎报成功，用户看到的是「保存成功了」，比不提示更糟。
+
+## 错误文案别用 `a || b ? a : c` —— `||` 优先级高于 `?:`，冒号后是死代码（s2v-voice-clone-auto-select，2026-10-20）
+
+### lesson: ternary-mixed-with-or-makes-fallback-branch-dead-code
+
+**现场**：音色偏好持久化失败时，用户看到的一律是「语音列表加载失败，请稍后重试」，而不是「默认音色保存失败」。
+
+**根因**：`tts-voices-shared.js` 两处写成
+`friendlyVoiceCatalogError(m) || formatUserError(...).message ? friendlyVoiceCatalogError(m) : d.t('...Failed')`。
+`||` 优先级高于 `?:` ⇒ 条件部分是 `(a || b)`，而 `b`（`formatUserError` 的 message）在映射不到时也返回非空串 ⇒ **条件恒为真** ⇒ 冒号后的 `selectionSaveFailed` / `defaultVoiceRestoreFailed` 两个兜底键**从不显示**。它们在 locale 里存在、在 PRD 里列着、在错误码文档里写着，但一行都到不了用户眼前。
+
+**为什么没测出来**：`friendlyVoiceCatalogError` 的映射表有 26 条，测试只断言了「命中已知码」的路径；「message 不在表内」这条兜底路径从未被断言，所以死代码可以无限期存活。**变异反证实测：把死三元改回原样，6 条新测试 0 失败——它确实没有机械锁。**
+
+**修法**：改成 `friendlyVoiceCatalogError(m) || d.t('<兜底键>')`，一行搞定；随之移除不再使用的 `formatUserError` import。
+
+**可复用的三条**：
+1. `x || y ? x : z` 是经典陷阱——想写「优先 x，否则 z」就该直接 `x || z`，别把兜底塞进三元冒号后。
+2. 兜底分支要**断言可达性**：至少一条「message 不在映射表内」的用例，否则兜底键是死是活无人知道。
+3. 兜底键没有机械锁时（如单测的 `t` 是 key 回声、无法断言文案值），就把「禁止写法」写进 PRD 数据校验表——流程面约束比没有约束好，但要如实标注它没有机械锁。
+
+## 刷新失败 ≠ 音色不存在：清空选中项前先问「目录这次返回了没有」（s2v-voice-clone-auto-select，2026-10-20）
+
+### lesson: distinguish-catalog-absent-from-catalog-failed-before-clearing-selection
+
+**现场**：用户刚克隆了一个音色（下拉已自动切到它），点了一下「刷新音色列表」；刷新失败（瞬时网络/服务不可用），下拉选中项被清空回「使用服务商默认音色」，且没有任何错误提示——用户以为自己刚克隆的音色没了。
+
+**根因**：`useTtsVoices.js` 的选中项归一写成「目录返回的 `selectedVoiceId` 不可用 ⇒ 已配置值不可用 ⇒ **否则清空**」。三分支没有区分两种完全不同的情况：**目录返回了、但这个音色不在其中**（该清空，可能是 provider 换了/音色被删）与**目录这次根本没返回**（`catalogData` 为空，不该清空——克隆音色独立于 catalog 存在）。PRD 早有明文：「当前已保存的 voiceId 即使不在最新目录，也必须作为保留选项，不能静默丢失」（`PRD-S2V-PIPELINE-PAGE-UX.md:228`），代码没实现这条。
+
+**修法**：加 `else if (configuredVoiceId && !catalogData)` 空分支（刻意只写注释不写代码——它的语义就是「不要做清空」），并把这条规则连同「为什么 provider 切换时的陈旧 voiceId 不走这条分支」写进注释与 PRD 数据校验表。
+
+**可复用的三条**：
+1. 「取不到数据」和「取到的数据里没有」是两件事，前者清空用户状态就是**用故障惩罚用户**。
+2. 空分支要写注释说明「为什么故意不做」——否则下一个人会以为是漏写，顺手补上 `voiceId = ''`。
+3. PRD 里已写明的保留条款，要去代码里找**实现它的那一行**；找不到就是文档与实现漂移，哪怕测试全绿。
+
 ## 「upheld 永远是阻断项」——门禁要的是「裁决已产出」，不是「建议已改完」（ccg-closure-exits-and-debt-split，2026-10-20）
 
 ### lesson: a-verdict-is-a-closed-state-not-a-fix
@@ -21909,3 +21975,49 @@ CI 把 `QG Static` 钉红在 Gate 2c，红的是 `check-unwired-tests.test.js` �
 
 
 - **pitfall · 「清点调用点 / 扫到 0 命中」这类结论，管道里的 `head` 会把结论削掉**：把 `scripts/check-unwired-tests.js` 的 `listJobBlocks(root)` 改成 `(root, domain)` 前，我跑了一次`git grep -n -e check-unwired-tests ... | head -10` 来「确认没有别的调用方」，并据此改了签名。真实命中里恰好有一条在截断窗口之外（`scripts/quality-rhythm-spec-mirror.test.js` 那条「与生产判据逐 job 互证」的镜像锁），于是签名变更打断了它——是提交前的本地门禁电池把它抓出来的，不是我的清点。⇒ 口径：**任何以「清点结果 = 无」为依据的动作（改签名、删导出、搬函数、判「没人消费」），清点命令一律不接 `head`/`tail`，原样打印命中数，并按「真调用点 / 同名但属于别的模块的局部函数」两档逐个分类**（本轮实测两处同名陷阱：`check-test-microtask-spin.js` 自己的 `listTestFiles()`、`scripts/lib/mask-coverage-ab.js` 自己的 `PRUNE_DIRS`）。这与 AGENTS 既有那条「凡「扫到 0」当完成判据，一律 `grep -na`」是同一家族：`-a` 防的是「文件被判成二进制而静默跳过」，本条防的是「命中存在但被我的显示窗口切掉」——两者都会把探针失明读成结论。
+
+## 2026-10-20 · electron-ci-shard-budget：判据域错位、两套分支保护面、以及「推不动时收窄」（PR #4061）
+
+- **pattern · 判据域错位比判据缺失更危险：断言「字符串存在于 YAML」不等于「这段代码会执行」**。
+  Mulpub 的 `electron-tests` 自 #2525（2026-09-28，标题写着「让超时失败能自证」）起，正文里那行
+  `RC=${PIPESTATUS[0]}` 与整段 `TIMEOUT_BUDGET_EXCEEDED` 诊断**一次都没跑过**：它们被放在 `timeout … | tee`
+  之后，而该 job 的 shell 是 `bash -e -o pipefail`，`timeout` 返回 124 时 `-e` 立刻退出步骤。
+  它专门为之设计的那个场景（撞墙），恰恰是它唯一不出现的场景。而同期那条测试锁是**绿的** —— 因为它的判据域
+  是「这四行字符串在 YAML 里存在」，被测性质却是「运行时执行路径」。
+  **口径**：只要被测性质是「会执行 / 会生效」，判据域就必须换成行为 —— 取 `run` 原文、只替换两个量
+  （预算压到 1s、内层命令换成必超时的 `sleep`）、用同一个 `-e -o pipefail` 真跑、断言 stdout 里出现自证行。
+  落点：`apps/desktop/tests/gui-ci-exit-contract.test.js` 的「自证块必须在 bash -e -o pipefail 下真能执行」。
+  变异反证必做：摘掉 `set +e` 必须当场红，且红文案要能指回根因（本轮红在「自证行缺席 ⇒ 自证块又被 -e 提前杀掉了」）。
+
+- **pitfall · GitHub 有两套并存的「分支保护面」，只查一套会得出「不受约束」的假结论**。
+  `GET /repos/{o}/{r}/branches/main/protection` 的 `required_status_checks.contexts` 实测只有 4 条
+  （`Gate Result` / `build` / `QG Unit Tests` / `QG Coverage`），据此写下「`electron-tests` 不在 required checks 里」——
+  **是错的**。真正拦人的是 `GET /repos/{o}/{r}/rulesets` → `rulesets/23749994`（`main-ci-gate`），它要求 7 条，含 `electron-tests`。
+  **口径**：取证要遍历**所有**承载 gate 的机制；只查一套就下结论，与「查到第一个空结果就收工」同型。
+
+- **pitfall · matrix 与 required status check 结构性冲突；两种「补名字」的写法都不可行（各有一处硬失败）**。
+  matrix 会把作业报成 `job (1)/(2)/(3)`，而分支保护要的是不带后缀的名 ⇒ required context 永不出现，
+  **22 项全绿、5 个 required check 全 SUCCESS 仍判 `base branch policy prohibits the merge`**。三条实测：
+  ① 只加 `strategy.matrix` → check 名变成 `electron-tests (1)`，context 仍缺；
+  ② 另加一个 `name: electron-tests` 的**汇入作业** → 整份 workflow 被判**不可解析**，症状是「幻影 `push` run + 0 job +
+     `run.name` 退化成 workflow 路径」，且 `on.push.branches: [main]` 下却出现本分支的 push run（说明 GitHub 连 `on:` 都没读到）；
+     `if: always()` 与 `if: ${{ always() && … }}` 两种写法都复现 ⇒ 不是那两条条件的事；
+  ③ 只给 matrix 作业加静态 `name: electron-tests` → 解析正常（`event=pull_request`、`jobs=1` 都对），但 check 名**仍是** `electron-tests (1)`。
+  正解是把 matrix 作业改 id（如 `electron-tests-shards`）+ 用 **id 就叫** `electron-tests` 的汇入作业（不设 `name`），
+  但那要同步改多条按 job 名 / `needs` 断言的结构性锁 —— 属另一件事。
+
+- **pattern · 「局部绿」不等于「整体绿」：判据挂在整套跑完之后时，单文件通过不构成证据**。
+  本轮行为锁单文件 45 例全绿，而整套桌面测试跑完后的**运行时出站台账**判红：新增了 `child::Program`。
+  根因是台账命令名派生只处理了**带引号**的含空格路径（`shellFirstToken`），而 `spawn(file,args)` 传的是**裸路径**，
+  `…/Program Files/Git/usr/bin/bash.exe` 被切成 `C:\Program`。**不把 `child::Program` 加进基线** ——
+  那等于给一个无意义键背书，以后任何含空格安装目录下的子进程都会被它盖住；判据取「整串能否按文件存在性解析成文件」而非猜词法。
+  **口径**：凡判据挂在「整套跑完之后」（台账 / 覆盖率 / 产物对账），必须回读 CI 结论，不能拿本地单文件结果推。
+
+- **pattern · 在既定约束下推不动时，收窄范围比继续堆尝试更专业；但收窄必须连同「三轮现场」一起留证**。
+  分片被 required context 卡死后，正确动作不是再试第四种 `if` 写法，而是：① 把范围收窄到确定能修的**真 bug**；
+  ② 把未落地部分与三轮尝试的具体形态写进执行记录 §九与 CHANGELOG（含每次的失败判据，而不是「尝试失败」）；
+  ③ 说明**顺序理由** —— 分片要定片数与单片预算，唯一依据是逐片实测耗时，而那个读数只有自证块接通后才会产出
+  （本轮 main push 首次产出 `elapsed=2100s budget=2100s rc=124`，这才是下一轮定数的依据，而不是按均值猜）。
+  ④ 与「谁来守门」相邻的改动（改 job id 牵动多条结构性锁）不塞进一个修超时的 PR。
+  同轮附带一条工具口径：**PowerShell 里 `[System.IO.File]` 的相对路径用的是 .NET 进程 CWD，不是 `cd` 位置**，
+  两者可能不同步 ⇒ 文件在却报 `Could not find file`；一律传 `Resolve-Path` 的绝对路径。

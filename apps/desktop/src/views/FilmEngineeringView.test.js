@@ -165,8 +165,11 @@ describe('FilmEngineeringView configuration profiles', () => {
     expect(wrapper.vm.productionPanelOpen).toBe(true)
   })
 
-  // PRD-HREF-SCHEME-GUARD：元信息里的 projectUrl 属外部数据，非 http/https 不得成链
-  it('来源链接：projectUrl 合法时成链且带 rel=noopener，非法时不成链但文本保留', async () => {
+  // film-debrand（2026-10-20，用户决策「彻底移除来源链接」）：
+  // 原「来源链接成链 + 非法值降级为纯文本」的两段契约整体作废 —— 该链接会暴露原项目页，
+  // 与「用户不应知道该片名」的目标冲突。新契约是**任何情况下都不渲染**，且这条要比
+  // 「数据里没有 source」更强：即使 status 仍带了 source（旧 kit / 外部注入），界面也不得成链。
+  it('来源链接已彻底移除：即使 status 带 source，也不渲染链接或 URL 文本', async () => {
     composable.status.value = {
       available: true,
       filmMeta: { title: 'Film', logline: 'L', durationSec: 60, characters: [], source: { projectUrl: 'https://example.com/proj' } },
@@ -174,39 +177,27 @@ describe('FilmEngineeringView configuration profiles', () => {
     }
     const w = mountView()
     await nextTick()
-    const link = w.find('el-link.fe-meta-link')
-    expect(link.exists()).toBe(true)
-    expect(link.attributes('href')).toBe('https://example.com/proj')
-    expect(String(link.attributes('rel') || '')).toContain('noopener')
-
-    composable.status.value = {
-      available: true,
-      filmMeta: { title: 'Film', logline: 'L', durationSec: 60, characters: [], source: { projectUrl: 'javascript:alert(1)' } },
-      sceneCount: 0, shotCount: 0, referenceCount: 0,
-    }
-    await nextTick()
     expect(w.find('el-link.fe-meta-link').exists()).toBe(false)
-    const plain = w.find('span.fe-meta-link')
-    expect(plain.exists()).toBe(true)
-    expect(plain.text()).toBe('javascript:alert(1)')
+    expect(w.find('span.fe-meta-link').exists()).toBe(false)
+    expect(w.text()).not.toContain('example.com/proj')
+    expect(w.text()).not.toContain('原始项目')
   })
 
   // video-copy-refine（2026-10-19）：分镜库总标题由「随包数据的原始片名」改为 i18n 文案。
-  // 回归面：即使 kit 的 filmMeta.title 仍是旧片名（数据层不动），界面也不得把它显示出来。
-  it('分镜库总标题渲染 i18n 文案「影响项目案例」，不渲染 kit 里的 filmMeta.title', async () => {
+  // film-debrand（2026-10-20）：文案统一为「影视项目案例」；随包数据也已中性化，但本用例
+  // 故意把 filmMeta.title 设成一个**非 locale 值**，以证明标题只来自 locale、不受数据影响。
+  it('分镜库总标题渲染 i18n 文案「影视项目案例」，不渲染 kit 里的 filmMeta.title', async () => {
     composable.status.value = {
       available: true,
-      filmMeta: { title: 'Hell Grind', logline: 'L', durationSec: 60, characters: [], source: { projectUrl: 'https://example.com/proj' } },
+      filmMeta: { title: 'Kit Raw Title (must not render)', logline: 'L', durationSec: 60, characters: [] },
       sceneCount: 0, shotCount: 0, referenceCount: 0,
     }
     const w = mountView()
     await nextTick()
     const title = w.find('.fe-meta-title')
     expect(title.exists()).toBe(true)
-    expect(title.text()).toBe('影响项目案例')
-    // 总标题不得泄漏 kit 的 filmMeta.title。
-    // 注意：剧本套用 tab 的角色映射提示（adapt.roleMapHint / roleKeyPlaceholder）仍会提到原始项目
-    // 与其角色名（ROKO 等）—— 那是 kit 数据的客观事实、不在本次改动范围内，故不断言整页文本。
+    expect(title.text()).toBe('影视项目案例')
+    expect(title.text()).not.toContain('Kit Raw Title')
   })
 })
 

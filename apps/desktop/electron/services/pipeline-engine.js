@@ -479,7 +479,7 @@ const PIPELINES = [
   },
   {
     name: 'film-engineering',
-    description: '影视工程（Hell Grind 复刻） - 真实分镜提示词库浏览/一键复制/剧本套用/导出',
+    description: '影视工程 - 行业专业分镜提示词库浏览/一键复制/剧本套用/导出',
     category: 'generated',
     stages: ['load_template', 'adapt_script', 'select_shots', 'export_prompts', 'generate_videos', 'render'],
     estimatedCost: 'high',
@@ -487,14 +487,14 @@ const PIPELINES = [
       {
         name: 'load_template',
         type: 'film_load_template',
-        description: '加载 Hell Grind 影视工程模板（film-kit，fail-closed）',
+        description: '加载影视项目案例模板（film-kit，fail-closed）',
         checkpointRequired: false,
         options: {},
       },
       {
         name: 'adapt_script',
         type: 'film_adapt_script',
-        description: '剧本分场并按 Hell Grind 模板组装提示词',
+        description: '剧本分场并按影视项目案例模板组装提示词',
         checkpointRequired: false,
         options: {},
       },
