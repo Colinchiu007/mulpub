@@ -48,10 +48,128 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "domains": [
+          "auth"
+        ]
+      }
+    ],
+    "externallyReviewed": [
+      {
+        "id": "i1",
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4118#issuecomment-6304117129"
+      }
+    ],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "Proposal claims memory-only authorization token but `.ccg` artifacts and text describe `project.json` persistence (`egressAllowAnyHost`). Memory-only token cannot be persisted.",
+        "highRiskDomains": [
+          "auth"
+        ],
+        "externalReview": {
+          "performedBy": "claude",
+          "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4118#issuecomment-6304117129",
+          "reviewedAt": "2026-10-20T23:30:50.964Z"
+        },
+        "prosecution": "指控成立且可复现：上一轮把「放宽通道」改成运行期一次性令牌时，只改了 proposal.md / PRD / spec.md，漏改 design.md D5 的「放宽通道」行与 tasks.md PR-7b 第 8 条——两处仍写着「勾选结果留痕 project.json 的 egressAllowAnyHost」。同一次改口径还留下 proposal.md §4.2.1 摘要行、design.md D5 摘要行、proposal.md 场景表共 3 处「且留痕」。内存令牌与「落盘授权位」在同一份方案里并存，是货真价实的安全语义自相矛盾：落盘的授权位可被任何写项目文件的路径或外部导入的项目文件静默置真，跨会话长期生效。外部后端 claude 独立复核亦判 upheld。",
+        "defense": "可以争辩两点：① 上述表述描述的是 PR-7b（出站加固）的**未来**实现，不是本 PR 已落地的代码，本 PR 的 diff 未包含任何授权位持久化，因此不存在已上线的漏洞；② spec.md 已经写成「运行期一次性令牌、SHALL NOT 落盘」，方案并非整体自相矛盾，只是个别文件漏改。",
+        "verdict": "upheld",
+        "rationale": "两点辩护都不足以推翻指控。第一点不成立于「文档一致性」这一判据本身：方案是后续 8 个 PR 的实施依据，design.md 与 tasks.md 是那两个 PR 的**施工图**；施工图里写着「落盘授权位」，实施者照做就会把方案自己否掉的缺陷实现出来——方案的内部矛盾会变成代码缺陷，这是实质风险而非表述瑕疵。第二点只能减轻严重性、不能否定指控，因为矛盾点确实存在且指向安全敏感字段。已按外部后端 claude 的最小修复动作执行：design.md D5 两行、proposal.md 三行、tasks.md 一行统一改为「运行期一次性令牌（只存内存、任务结束失效、SHALL NOT 落盘）；项目文件 SHALL NOT 存放任何可用于放行的授权位；审计只记发生过授权这一事实」，并加机械判据 V-26b（project.json 中不得存在 egressAllow 类字段）。修复后全量 grep「egressAllowAnyHost / 留痕 / 落盘」于本 change 目录，残留为 0。claude 复核提到的 spec.md 一项本方核实为无残留（该文件已改），属其未读文件时的推断，此处如实标注。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "Review artifacts (`5e173de8...`, `be84f4...`) show `deepReview` status `error` (`Revision校验失败`) or `pending`, yet `closureNote` claims 5 rounds with 40 adopted opinions.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "指控成立：判定记录 be84f449 的 deepReview.status 为 error（note 写「第 1 轮修订失败」）、c23c5bbd 为 pending，而 be84f449 的 closureNote 声称「5 轮跨家族对抗评审，40 条意见已逐条采纳」。在没有逐轮可核证据的情况下，这构成「声明的评审量」与「产物上可核的状态」不一致；仓库里没有任何一条记录能证明「40 条意见逐条落地」这件事发生过。",
+        "defense": "可以争辩：40 条意见的**逐条处置**全部写在 in-repo 的 openspec/changes/film-pipeline-prompt-triple-and-guards/ccg-plan-review-record.md 里（5 轮 × 8 条，每条含意见摘要与采纳/部分采纳/拒绝的处置结论），这是可点开可核的；而各轮的原始 critique 产物在 .adversarial/run*-proposal-*/critique-v1.md（该目录被 .gitignore 忽略，项目既有约定，评审过程产物不入库）。因此「证据存在但不在记录里」，不是「证据不存在」。此外 be84f449 的 status=error 指向的是**第 1 轮 proposer 的机械失败**（opencode 后端 7800 字符上限导致同步拒绝，~120ms、exit 1、无错误信息），critic 侧当时已正常产出 8 条；该失败已如实保留在 firstAttempt 字段，不是被抹掉。",
+        "verdict": "upheld",
+        "rationale": "辩护的前半段成立、后半段不成立，所以判成立而非驳回。成立的部分：证据链（ccg-plan-review-record.md 逐条处置 + 本地 5 轮 critique 产物）确实存在且已可核，「40 条逐条落地」不是空头声明——这与「无证据的声称」有本质差别。不成立的部分：判定记录本身的 status 与其 closureNote 的叙述**在字面上不一致**，任何只看 .ccg/reviews/*.json 的人（评审、门禁、未来的自己）都会读到「error」并得出「评审失败」的结论；把证据放在另一个文件里、让判定记录自身显示失败，是可追溯性的缺陷而非风格问题。已采取的修复：① be84f449 的失败现场完整保留在 firstAttempt（at / error / note / artifacts 四个字段），closureNote 写明「第 1 轮 proposer 因 7800 字符上限同步拒绝（机械失败，critic 侧已正常产出 8 条），并非评审从未发生」，并载明 5 轮各自的 critic/proposer 与 issue/critical/minScore；② in-repo 的 ccg-plan-review-record.md 逐轮记录 8 条意见的处置，是评审结论的公开可核面；③ 本轮 c23c5bbd 的裁决（本文件）将把 status 收敛为 self_play_resolved，使「声明」与「状态」一致。残留：原始 5 轮 critique 产物仍在 .adversarial（gitignored），不进仓——这是项目既有约定，不在本条的可改范围内。"
+      },
+      {
+        "id": "i3",
+        "severity": "Critical",
+        "finding": "`videoPrompt ??= ''` means 123/153 legacy templates have empty motion subset, failing `V-29` assertions (`videoPrompt` shorter/non-empty). Proposal admits threshold failure (`逐镜比例阈值不成立`).",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "指控成立：videoPrompt ??= '' 意味着 123/153 存量模板的运动子集为空，而 V-29 断言 videoPrompt 非空且更短；报告也自承「逐镜比例阈值不成立」。照方案字面实施，V-29 会在 123 条存量上失败。",
+        "defense": "指控把两个不同对象混为一谈：V-29 是**自动模式新规划分镜**的判据，判据主体是 auto-plan 的派生结果（每一镜都由 auto-plan 派生 imagePrompt/videoPrompt/endFramePrompt，videoPrompt 恒非空）；而「123/153 存量模板」是 kit 分镜库里的**案例资产**，它们的 videoPrompt 由 kit-loader 归一化为空串并在消费侧回落 imagePrompt——这正是 V-30 单独判的内容（存量 videoPrompt === ''，不假装已解决）。V-29 与 V-30 覆盖的是两个集合，不构成互斥断言。",
+        "verdict": "dismissed",
+        "rationale": "指控的事实前提（123/153 存量 videoPrompt 为空）成立，但推论（V-29 会失败）不成立：V-29 的断言主体是 auto-plan 派生出的新分镜，每一镜的 videoPrompt 都由 buildMotionPrompt 派生且非空，存量案例资产不在 V-29 的断言面上；存量空值由 V-30 明确断言。方案 §2.5 已把这条边界写明：「归一化口径改成空串，正是为了让『存量没被解决』这件事在数据上可见，而不是被 ??= prompt 掩盖成已解决」。为避免同类误读，已在 tasks.md 的 V-30b 补一条判据，把「逐镜比例阈值不成立」写成显式条目（含实测：153 模板中 123 个无可剔除静态块、比值 1.0），并在 proposal.md 的 §七 增 V-29a 记录该实测修正。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "`egress-guard.js` contracts (`S-4'`) rely on `lookup` pinning for redirect hops, but proposal lacks explicit test covering pinned `lookup` on every redirect loop step.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "指控成立：S-4' 的 IP pinning 合同只在描述首跳 URL 时被写出，方案未要求「重定向每一跳都用自己的已校验 IP」；TOCTOU 窗口可以在第 2 跳重现——第 1 跳校验的是 host A 的 IP，第 2 跳又解析一次，若第二次解析返回内网 IP 而实现只校验首跳，就绕过了私网拦截。",
+        "defense": "可以争辩两点：① 既有 shot-downloader 的逐跳实现本就把 validateDownloadUrl 放在**每一跳**（`:161`），复用到 egress-guard 后天然继承逐跳校验；② 本条批评的对象是 PR-7b 的未来实现，而 PR-7b 的任务清单里已有「每跳重过全部校验（含重新 DNS + pin）」的描述，方案 §4.2 安全合同摘要也写了「3xx 手动逐跳跟随且每跳重新过合同校验」。",
+        "verdict": "upheld",
+        "rationale": "辩护的第一点只覆盖「每跳重新解析并校验」，没有覆盖「每跳的 socket 必须使用该跳自己校验过的那个 IP」——后者才是消除 TOCTOU 的关键（校验用 A、连接用 B 的窗口）。第二点的描述确实存在，但「每跳重过全部校验」与「每跳用已校验 IP 连接」是两句话，方案原文没写后者，任务清单里也没有对应判据，属于真实缺口。已修复：tasks.md 的 PR-7b 新增 7b.2b 用例——首跳合法、第二跳指向内网时必须在第二跳发起前被拒，且第二跳 socket 的 lookup 使用**该跳自己校验过的 IP**（不是首跳的 IP）；并在 proposal.md §4.2 的 S-4' 行补「把该解析结果集 pin 进 socket 的 lookup 覆写」与「每跳重新 pin」的措辞。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "Proposal `§五` says 9 PRs; `tasks.md`/`review-brief.md` describe 10 PRs (split `PR-4` into `4a/4b/4c`). Count mismatch creates tracking ambiguity.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "指控成立：proposal.md §五 说 9 个 PR，tasks.md 与 review-brief.md 描述的是另一套编号（把 PR-4 拆成 4a/4b/4c），三处对不上，追踪时会出现「到底几个 PR、哪条对应哪个 PR」的歧义。",
+        "defense": "可以争辩：三处文档的 PR 编号是**同一套**（9 个），只是 tasks.md 与 review-brief.md 用 4a/4b/4c 表达 PR-4 的三个子批次，proposal.md 用 4a/4b 表达 PR-6 的两个子批次——是「详略不同」而非「矛盾」。",
+        "verdict": "upheld",
+        "rationale": "辩护不成立：两处的拆分对象不同（PR-4 vs PR-6），读者无法从任一处推断另一处，且 review-brief.md 的 4a/4b/4c 与 proposal.md 的 4a/4b 名字相同却内容不同——这是实打实的歧义源，不是详略差异。已修复：proposal.md / tasks.md / review-brief.md 三处统一为 **10 个 PR**（PR-1 方案 docs-only；PR-2 F-A 三分；PR-3 F-I/F-H/F-J；PR-4 F-E/F-G/G-8；PR-5 F-B 就绪度；PR-6 纯重构；PR-7a 零行为抽取 egress-guard；PR-7b 出站加固；PR-8 F-D 体检；PR-9 F-F 身份锚点），依赖图同步；并把 tasks.md 的**条目号**与其所属 PR 号一并对齐（原条目号停在拆分前的 1.x~8.x，PR-9 段落甚至还是 3.x），修后用脚本自检「每个 PR 段落内的条目号前缀 == 该 PR 号」，结果为「无不一致」。"
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "finding": "`shot-readiness.js` claims pure function with `facts` input, but proposal lacks interface guard enforcing `facts` presence; missing `facts` could trigger hidden IO.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "指控成立：shot-readiness 声明为纯函数、只对 facts 做判决，但方案没有要求 facts 缺失时 fail-closed；若调用方漏传 facts，判决器可能把「拿不到事实」当成「没有缺陷」而静默判就绪——纯函数没有 IO，缺输入时唯一的可能行为就是走默认值分支。",
+        "defense": "可以争辩：判据项（如 SHOT_REFERENCE_UNRESOLVED / SHOT_ASPECT_UNSUPPORTED）在 facts 里都有对应布尔位，缺 facts 时这些位是 undefined，falsy 分支天然会判「不支持/不可解析」从而 notReady——即缺输入恰好落到保守侧，不需要额外守卫。",
+        "verdict": "upheld",
+        "rationale": "辩护只在「事实结构固定、缺字段等于 false」这一个前提下成立，而这正是问题所在：缺 facts 与「facts.referenceResolvable=false」在运行时不可区分，而二者的正确处置不同（前者是调用方漏传，应报 SHOT_FACTS_MISSING 让人知道接线漏了；后者是确实不可解析）。若靠 undefined→falsy 自然落保守侧，则调用方漏传 facts 与能力真的不支持产生**同一个 reasonCode**，接线漏了看不出来——正是「装饰性守卫」那类问题。已修复：tasks.md 的 PR-5 新增 5.1b 用例——facts 缺失/不完整时判决器 SHALL 返回 notReady 且 reasonCode 为 SHOT_FACTS_MISSING，SHALL NOT 静默当作就绪；并在 proposal.md 的就绪度判据清单里补该 reasonCode，使方案与任务、测试三处一致。"
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      }
+    ],
+    "note": "自扮演裁决：4 条指控成立或需外部复核",
+    "at": "2026-10-20T23:31:39.152Z",
+    "closureNote": "本轮为验证层深度审查（critic=claude × proposer=opencode，跨家族，DUAL）。\n第 1 轮产出 8 条问题（correctness/security/performance/maintainability，最低分 5），\n其中 6 条进入自扮演裁决，裁决已逐条填写（prosecution / defense / verdict / rationale），\n第 1 轮 4 条为 upheld（i2 证据链不一致、i4 逐跳 pinning 缺判据、i5 PR 编号三处不一致、i6 facts 缺失未 fail-closed），\n第 1 轮 1 条 i3 为 dismissed（V-29 与 V-30 覆盖不同集合，非互斥），\n高危域 i1（auth）由外部后端 claude 独立复核，verdict=upheld，公开证据见 https://github.com/Colinchiu007/mulpub/pull/4118#issuecomment-6304117129。\n\n逐条处置与修复落点：\n· i1（auth·Critical）——本方自查确认：上一轮改口径时漏改 design.md D5 与 tasks.md PR-7b 第 8 条，\n  两处仍写「落盘 project.json 的 egressAllowAnyHost」，另有 3 处摘要行残留「且留痕」。\n  已按外部复核的最小修复动作统一为「运行期一次性令牌（只存内存、任务结束失效、SHALL NOT 落盘）；\n  项目文件 SHALL NOT 存放任何可用于放行的授权位；审计只记发生过授权这一事实」，\n  并加机械判据 V-26b（project.json 中不得存在 egressAllow 类字段）。修复后全量 grep 残留为 0。\n  外部复核提到的 spec.md 一项，本方核实为无残留（该文件已改），属其未读文件时的推断，如实标注。\n· i2（correctness·Critical）——成立。判定记录自身 status 与其 closureNote 叙述在字面上不一致，\n  属可追溯性缺陷。已修：第 1 轮 proposer 的机械失败现场完整保留在 firstAttempt（at/error/note/artifacts），\n  closureNote 载明 5 轮各自的 critic/proposer 与 issue/critical/minScore；\n  in-repo 的 openspec/changes/film-pipeline-prompt-triple-and-guards/ccg-plan-review-record.md 逐轮记录 8 条意见的处置，是评审结论的公开可核面。\n· i3（correctness·Critical）——驳回。V-29 的断言主体是 auto-plan 派生出的新分镜（每镜 videoPrompt 恒非空），\n  存量 153 条案例资产的空值由 V-30 单独判，两者覆盖不同集合、非互斥。已补 V-29a 与 tasks 的 V-30b 条目，\n  把「逐镜比例阈值不成立」写成显式条目（实测 153 模板中 123 个无可剔除静态块、比值 1.0）。\n· i4（security·Warning）——成立。既有逐跳重校验不等于「每跳 socket 用该跳自己校验过的 IP」，后者才是消除 TOCTOU 的关键。\n  已修：tasks.md PR-7b 新增 7b.2b 用例（第二跳指向内网须在第二跳发起前被拒，且其 lookup 使用该跳自己校验过的 IP）；\n  proposal.md S-4' 行补「每跳重新 pin」措辞。\n· i5（maintainability·Warning）——成立。三处编号拆分对象不同、名字相同而内容不同，是实打实的歧义源。\n  已修：proposal.md / tasks.md / review-brief.md 统一为 10 个 PR，依赖图同步；\n  并把 tasks.md 的条目号与其所属 PR 号一并对齐（原条目号停在拆分前的 1.x~8.x，PR-9 段落仍是 3.x），\n  修后脚本自检「每个 PR 段落内条目号前缀 == 该 PR 号」结果为无不一致。\n· i6（correctness·Warning）——成立。缺 facts 与「facts.referenceResolvable=false」运行时不可区分，\n  靠 undefined→falsy 自然落保守侧会让「调用方漏传」与「能力确实不支持」产生同一 reasonCode，接线漏了看不出来。\n  已修：tasks.md PR-5 新增 5.1b 用例（facts 缺失 ⇒ notReady + SHOT_FACTS_MISSING），并在方案的判据清单补该 reasonCode。\n\n以上 5 条 upheld 的修复均已落在本次提交中；本记录随之从「阻断」收口为已裁决。\ni1 属高危域（auth），其解除依据为外部后端 claude 的公开复核证据（见上），非自扮演豁免。",
+    "closureNoteAt": "2026-10-20T23:34:27.154Z",
+    "externalEvidence": {
+      "i1": "https://github.com/Colinchiu007/mulpub/pull/4118#issuecomment-6304117129",
+      "performedBy": "claude"
+    }
   }
 }

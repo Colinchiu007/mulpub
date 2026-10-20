@@ -60,7 +60,7 @@
 |---|------|---------|------|
 | i1 | **Critical** / consistency | 「存量零迁移 + `videoPrompt` 回落 `imagePrompt`」⇒ **G-1 在存量 153 条上根本不成立**，F-A 收益只剩新写的分镜 | **部分采纳**（问题成立，但**不能靠机械重算存量解决**）：实测 `shot[0].prompt` 13,922 字符且是**无块标记的自由文本**，按运镜关键词启发式抽取会丢信息、比长 prompt 更糟。⇒ ① 归一化口径由 `videoPrompt ??= prompt` 改为 **`??= ''`**（让"存量没被解决"在数据上**可见**）；② **自动模式新规划的分镜重算** `videoPrompt`（运镜+主体+时长内变化，**不含**静态画面全量），并新增**逐镜断言**「`videoPrompt` 显著短于 `imagePrompt`」；③ 存量长 prompt 治理列为**后续项**（一次性 LLM 重算 + 人工审核），不阻塞本批次。落 proposal §2.5 + design D5.1 |
 | i2 | **Critical** / security | 乐观锁只做「读 revision → 比对 → 覆盖写」，比对与写入之间仍有 TOCTOU 窗口；方案为 F-C 加了 IP pinning 消除同类窗口，此处却无对应手段 | **采纳**：`project.json` 写入改为**单次原子替换**——`revision` 自增与内容替换放进同一次「tmp → fsync → rename」；补并发写用例断言**无半写文件**。落 design D8 + spec |
-| i3 | Warning / security | L1 缺省仍无域名白名单，「URL 来自已认证 provider 响应」把控制面押在第三方响应上；「仅提示可见」不构成阻断 | **采纳**（我方第 2 轮回应不够）：最终口径改为**缺省 fail-closed**——可信主机集合 = { provider API 主机（自动派生） } ∪ { `assetDownloadHosts`（可配） }；不在集合内且**未显式授权** ⇒ **拒绝**；放宽只能由用户在成本确认卡**显式勾选**并**留痕** `project.json`。同源 provider **零配置可用**，非同源 provider 运营配一次即可。落 proposal §4.2.1 + design D5 |
+| i3 | Warning / security | L1 缺省仍无域名白名单，「URL 来自已认证 provider 响应」把控制面押在第三方响应上；「仅提示可见」不构成阻断 | **采纳**（我方第 2 轮回应不够）：最终口径改为**缺省 fail-closed**——可信主机集合 = { provider API 主机（自动派生） } ∪ { `assetDownloadHosts`（可配） }；不在集合内且**未显式授权** ⇒ **拒绝**；放宽只能由用户在成本确认卡**显式勾选**。同源 provider **零配置可用**，非同源 provider 运营配一次即可。落 proposal §4.2.1 + design D5。**⚠️ 本行的「留痕 `project.json`」口径已在第 5 轮被推翻为「运行期一次性令牌，不落盘」，见 §三之四 i3。** |
 | i4 | Warning / completeness | §2.4 声明 `endFramePrompt` 的展示点，但 §4.1 文件清单**无对应 UI 文件** ⇒ 读取点缺落点 | **采纳**：文件清单补 `apps/desktop/src/views/film-auto/ShotTailFrameRow.vue`（新建，承载尾帧只读行，~70 行）；验收补"尾帧只读行有真实承载 + `.js` 中不存在把 `endFramePrompt` 送入 provider 的读取点" |
 | i5 | Warning / consistency | `SHOT_LOCKED` 判 `ready=false` 会把**用户已确认的镜挡在出片之外**，与"跳过而非阻止"自相矛盾 | **采纳**：就绪度改为**三态**——`ready` / `notReady`（阻止类）/ `skipped`（本次不参与、**不阻止**）。锁镜归 `skipped`，`reason` 说明「沿用已有产物」；`notReady` 只留给真正的阻止类。落 design D4 + spec |
 | i6 | Warning / feasibility | 端口硬钉 443 会打死用 8443 的 provider/CDN，与 D-9「避免制造假失败」自相矛盾且无逃生开关 | **采纳**：端口约束**随可信域配置声明**（`assetDownloadPorts`，缺省 `{443}`），运营可配、可逃生 |
@@ -113,7 +113,7 @@
 
 **三轮的 Critical 全部落在同两处**：①**出站合同**（claude 说"解析器来源不明确"、codex 说"主机约束太宽"、codex 复评说"仍不够，要缺省 fail-closed"）；②**并发写的原子性**（第 3 轮 i2）。这不是巧合——**G-3 是本方案里唯一真实存在且已上线的攻击面**（`video-gen.js:116-145` 裸 http + 无限跟随 + 无私网拦截），而**乐观锁的写入窗口是同一个 TOCTOU 模式在写侧的镜像**。两处最终口径：
 
-- **出站**：协议 https + 端口集（缺省 443）+ 私网段 + DNS 校验 + **IP pinning** + 逐跳重校验 + 体积上限 + `.part`/ffprobe→rename + **可信主机（缺省 fail-closed，放宽需显式勾选且留痕）**。
+- **出站**：协议 https + 端口集（缺省 443）+ 私网段 + DNS 校验 + **IP pinning** + 逐跳重校验 + 体积上限 + `.part`/ffprobe→rename + **可信主机（缺省 fail-closed，放宽需显式勾选 → 运行期一次性令牌，不落盘）**。
 - **写入**：`revision` 自增与内容替换在**同一次原子替换**内完成。
 
 ---
