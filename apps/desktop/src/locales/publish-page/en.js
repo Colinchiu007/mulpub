@@ -20,6 +20,9 @@ export default {
     // limit value comes from the server-issued entitlement.limits.
     platformLimitReached: 'Your current plan allows up to {limit} platforms. Upgrade to add more.',
     platformLimitHint: '{selected} / {limit} platforms selected',
+    batchSizeExceeded: 'Your plan allows up to {limit} items per batch. Upgrade to raise the limit.',
+    cloudAccountLimitExceeded: 'Cloud account sync is not included in your plan. Upgrade to bind up to {limit}.',
+    deviceLimitExceeded: 'Your plan allows up to {limit} devices at the same time.',
     delete: 'Delete',
     publishTitle: 'Quick Publish',
     batchSubtitle: 'Batch edit multiple articles and publish to each platform independently',
