@@ -28,6 +28,7 @@
 
 const net = require('net')
 const path = require('path')
+const fs = require('fs')
 const ledgerStore = require('./network-egress-ledger.js') // sink 本体在隔壁文件（check-max-lines 的 limit=500 拆出来的，别搬回来）
 
 const NETWORK_GUARD_APPLIED = '__mpTestNetworkGuardApplied'
@@ -180,6 +181,17 @@ function shellFirstToken (line) {
 
 /** 台账名：shell 命令行先取首 token，再取路径末段；否则 `npx vite build …` 会把整条串当"命令名" */
 function ledgerCommandName (raw) {
+  // `spawn(file, args)` / `fork(modulePath)` 传的是**裸路径**，不是 shell 命令行。
+  // 路径含空格时（`C:\Program Files\Git\usr\bin\bash.exe`）切首 token 会把它折成 `Program`
+  // ——真实的新外部命令被一个无意义键盖住，而台账的全部意义就是"谁在起子进程"。
+  // `shellFirstToken` 只处理了**带引号**的形态，裸路径此前无人管（2026-10-20 由
+  // electron-ci-shard 的行为锁命中：它的 spawn 的正是 Git Bash）。
+  // 判据取**文件存在性**而不是猜词法：`exec`/`execSync` 传的是含空格分隔的整条命令行，
+  // 整串不会解析成一个存在的文件，因此不会被这条提前命中。
+  const whole = String(raw == null ? '' : raw).trim()
+  if (whole && !/["'`|&;<>()]/.test(whole) && fs.existsSync(whole)) {
+    return path.basename(whole) || '(empty)'
+  }
   const token = shellFirstToken(raw)
   return String(token).split(/[\\/]/).pop() || '(empty)'
 }

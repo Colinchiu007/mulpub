@@ -24,6 +24,10 @@ describe('RewriteEngine', function () {
     }
   }
   function mockLlmClient(t) { return { chat: async function () { return t } } }
+  // rewrite-segment-and-finish-reason：chat 返回 object 形态（含 finishReason）的 mock
+  function mockLlmClientObject(text, finishReason) {
+    return { chat: async function () { return finishReason === undefined ? { text } : { text, finishReason } } }
+  }
   function wireStrategy(engine) {
     engine._strategyManager._strategies = [sampleStrategy()]
     engine._strategyManager.listEnabled = function () { return [sampleStrategy()] }
@@ -101,16 +105,110 @@ describe('RewriteEngine', function () {
     expect(result.errorCode).toBe('EMPTY_CONTENT')
   })
 
+  // ── rewrite-segment-and-finish-reason 第二刀：>50000 分段改写 ──
+
+  test('S1 50001 字输入 ⇒ 走分段改写（不报 TOO_LONG）且带 segmented 元数据', async function () {
+    var longText = '甲'.repeat(13000) + '\n\n' + '乙'.repeat(13000) + '\n\n' + '丙'.repeat(13000) + '\n\n' + '丁'.repeat(13000)
+    var calls = []
+    var engine = new RewriteEngine({
+      llmClient: { chat: async function (sys, user) { calls.push(user); return '段改写结果' } },
+      knowledgeBase: new KnowledgeBase()
+    })
+    wireStrategy(engine)
+    var result = await engine.rewrite({ mode: 'imitate', content: longText, userSettings: {} })
+    expect(result.success).toBe(true)
+    expect(result.segmented.enabled).toBe(true)
+    expect(result.segmented.segmentCount).toBeGreaterThanOrEqual(2)
+    expect(result.segmented.totalChars).toBe([...longText].length)
+    // 每段一次 LLM 调用（4 段）
+    expect(calls.length).toBe(result.segmented.segmentCount)
+    // 合并结果含各段输出
+    expect(result.result).toContain('段改写结果')
+  })
+
+  test('S2 分段 prompt 注入「长文分片 i/n」上下文', async function () {
+    // 6 段 × 10000 = 60000 码点 > MAX_INPUT_CHARS(50000) ⇒ 走分段；
+    // 每段 10000 ≤ SEGMENT_SIZE(12000)，贪心合并会超限 ⇒ 各成一段 = 6 段
+    var longText = ['甲', '乙', '丙', '丁', '戊', '己'].map(function (c) { return c.repeat(10000) }).join('\n\n')
+    var prompts = []
+    var engine = new RewriteEngine({
+      llmClient: { chat: async function (sys, user) { prompts.push({ sys, user }); return '段结果' } },
+      knowledgeBase: new KnowledgeBase()
+    })
+    wireStrategy(engine)
+    var r = await engine.rewrite({ mode: 'imitate', content: longText, userSettings: {} })
+    expect(r.segmented.segmentCount).toBe(6)
+    expect(prompts.length).toBe(6)
+    // 每段 prompt 都带分片标记（含段号与总段数）
+    prompts.forEach(function (p, i) {
+      expect(p.sys).toContain('长文分片')
+      expect(p.sys).toContain('第 ' + (i + 1) + '/6 片')
+    })
+  })
+
+  test('S3 任一段 LLM 失败 ⇒ 整篇失败 + segmentIndex 结构化字段（无半成品）', async function () {
+    var longText = ['甲', '乙', '丙', '丁', '戊', '己'].map(function (c) { return c.repeat(10000) }).join('\n\n')
+    var n = 0
+    var engine = new RewriteEngine({
+      llmClient: { chat: async function () { n++; if (n === 2) throw new Error('provider down'); return '段结果' } },
+      knowledgeBase: new KnowledgeBase()
+    })
+    wireStrategy(engine)
+    var result = await engine.rewrite({ mode: 'imitate', content: longText, userSettings: {} })
+    expect(result.success).toBe(false)
+    expect(result.errorCode).toBe('LLM_ERROR')
+    expect(result.segmentIndex).toBe(1) // 第二段（0-based）
+    expect(result.segmentCount).toBe(6)
+    expect(result.error).toContain('第 2/6 段')
+    expect(result.result).toBeUndefined() // 不返回半成品
+  })
+
+  test('S4 用户显式 wordCountRange ⇒ 每段 clamp 到「区间 ÷ 段数」份额', async function () {
+    // 5 段 × 11000 = 55000 > 50000；每段 11000 ≤ 12000 ⇒ 各成一段 = 5 段
+    var longText = ['甲', '乙', '丙', '丁', '戊'].map(function (c) { return c.repeat(11000) }).join('\n\n')
+    var prompts = []
+    var engine = new RewriteEngine({
+      llmClient: { chat: async function (sys) { prompts.push(sys); return 'x'.repeat(2000) } },
+      knowledgeBase: new KnowledgeBase()
+    })
+    wireStrategy(engine)
+    var r = await engine.rewrite({ mode: 'imitate', content: longText, userSettings: { wordCountRange: { min: 800, max: 50000 } } })
+    expect(r.segmented.segmentCount).toBe(5)
+    // 5 段 ⇒ 每段上限 floor(50000/5)=10000；prompt 注入的区间必须是 10000 而非 50000
+    var segInstruction = prompts[0].match(/【字数要求】改写后的文本长度必须控制在 (\d+) 到 (\d+) 字之间/)
+    expect(segInstruction).toBeTruthy()
+    expect(Number(segInstruction[2])).toBe(10000)
+  })
+
+  test('S5 全篇级副作用只执行一次（KB 写入与 viralScorer 调用计数）', async function () {
+    var longText = '甲'.repeat(13000) + '\n\n' + '乙'.repeat(13000) + '\n\n' + '丙'.repeat(13000)
+    var viralCalls = 0
+    var engine = new RewriteEngine({
+      llmClient: { chat: async function () { return '段结果' } },
+      knowledgeBase: new KnowledgeBase(),
+      viralScorer: async function () { viralCalls++; return { score: 50, mode: 'orchestrator' } },
+    })
+    wireStrategy(engine)
+    var recordSpy = []
+    engine._knowledgeBase.recordFeedback = function (rec) { recordSpy.push(rec) }
+    await engine.rewrite({ mode: 'imitate', content: longText, userSettings: {} })
+    // viralScorer 只对全篇调用两次（原文 + 合并结果），不是每段两次
+    expect(viralCalls).toBe(2)
+    // KB recordFeedback 只写一条（一篇一次）
+    expect(recordSpy.length).toBe(1)
+  })
+
   test('W3 超长内容仍被拒绝（TOO_LONG, >MAX_INPUT_CHARS=50000）', async function () {
     var engine = new RewriteEngine({ llmClient: mockLlmClient('x'), knowledgeBase: new KnowledgeBase() })
     wireStrategy(engine)
-    // 6001 在 rewrite-limits-50000 后是合法输入（原 6000 上限），必须仍走通改写；
-    // 只有超过新上限 50000 才拒。
+    // rewrite-segment-and-finish-reason 第二刀：50001 起走分段而非 TOO_LONG；
+    // 只有分段阈值内不可分段（单段即超 SEGMENT_SIZE 的兜底硬切也保证可切）——
+    // TOO_LONG 分支保留给「输入为空」之外的未来硬上限场景，当前由 _validate 兜底。
     var ok = await engine.rewrite({ mode: 'imitate', content: 'a'.repeat(6001), userSettings: {} })
     expect(ok.success).toBe(true)
-    var result = await engine.rewrite({ mode: 'imitate', content: 'a'.repeat(50001), userSettings: {} })
-    expect(result.success).toBe(false)
-    expect(result.errorCode).toBe('TOO_LONG')
+    var segmented = await engine.rewrite({ mode: 'imitate', content: 'a'.repeat(50001), userSettings: {} })
+    expect(segmented.success).toBe(true)
+    expect(segmented.segmented.enabled).toBe(true)
   })
 
   test('W4 wordCountRange 注入 prompt 字数区间指令', async function () {
@@ -188,6 +286,69 @@ describe('RewriteEngine', function () {
     engine._strategyManager.get = function () { return strategy }
     var result = await engine.rewrite({ mode: 'imitate', content: '任意内容', userSettings: { wordCountRange: { min: 100, max: 2000 } } })
     expect(result.result.length).toBeLessThanOrEqual(2000)
+  })
+
+  // ── rewrite-segment-and-finish-reason 第一刀：finish_reason 归一化 + modelTruncated ──
+
+  test('L4 chat 返回 object（无 finishReason）⇒ 正常改写且 modelTruncated=false', async function () {
+    var engine = new RewriteEngine({ llmClient: mockLlmClientObject('改写结果'), knowledgeBase: new KnowledgeBase() })
+    wireStrategy(engine)
+    var result = await engine.rewrite({ mode: 'imitate', content: '任意内容', userSettings: {} })
+    expect(result.success).toBe(true)
+    expect(result.result).toBe('改写结果')
+    expect(result.modelTruncated).toBe(false)
+  })
+
+  test('L5 chat 返回 {text, finishReason:"length"} ⇒ modelTruncated=true', async function () {
+    var engine = new RewriteEngine({ llmClient: mockLlmClientObject('被模型截断的结果', 'length'), knowledgeBase: new KnowledgeBase() })
+    wireStrategy(engine)
+    var result = await engine.rewrite({ mode: 'imitate', content: '任意内容', userSettings: {} })
+    expect(result.success).toBe(true)
+    expect(result.modelTruncated).toBe(true)
+    // 引擎侧未截断 ⇒ outputTruncated 保持 false（两个字段分型，不混）
+    expect(result.outputTruncated).toBe(false)
+  })
+
+  test('L6 Anthropic stop_reason=max_tokens 归一化 ⇒ modelTruncated=true', async function () {
+    var engine = new RewriteEngine({ llmClient: mockLlmClientObject('结果', 'max_tokens'), knowledgeBase: new KnowledgeBase() })
+    wireStrategy(engine)
+    var result = await engine.rewrite({ mode: 'imitate', content: '任意内容', userSettings: {} })
+    expect(result.modelTruncated).toBe(true)
+  })
+
+  test('L7 finishReason=stop ⇒ modelTruncated=false（非截断语义不误报）', async function () {
+    var engine = new RewriteEngine({ llmClient: mockLlmClientObject('结果', 'stop'), knowledgeBase: new KnowledgeBase() })
+    wireStrategy(engine)
+    var result = await engine.rewrite({ mode: 'imitate', content: '任意内容', userSettings: {} })
+    expect(result.modelTruncated).toBe(false)
+  })
+
+  test('L8 chat 返回 {text:""} ⇒ 仍走 EMPTY_RESULT（新 shape 不漏判空）', async function () {
+    var engine = new RewriteEngine({ llmClient: mockLlmClientObject(''), knowledgeBase: new KnowledgeBase() })
+    wireStrategy(engine)
+    var result = await engine.rewrite({ mode: 'imitate', content: '任意内容', userSettings: {} })
+    expect(result.success).toBe(false)
+    expect(result.errorCode).toBe('EMPTY_RESULT')
+  })
+
+  test('L9 chat 返回旧 shape string ⇒ 行为不变（保形抽取回归）', async function () {
+    var engine = new RewriteEngine({ llmClient: mockLlmClient('旧 shape 结果'), knowledgeBase: new KnowledgeBase() })
+    wireStrategy(engine)
+    var result = await engine.rewrite({ mode: 'imitate', content: '任意内容', userSettings: {} })
+    expect(result.success).toBe(true)
+    expect(result.result).toBe('旧 shape 结果')
+    expect(result.modelTruncated).toBe(false)
+  })
+
+  test('L10 chat 抛错 ⇒ LLM_ERROR（契约变更不吞既有错误路径）', async function () {
+    var engine = new RewriteEngine({
+      llmClient: { chat: async function () { throw new Error('provider down') } },
+      knowledgeBase: new KnowledgeBase()
+    })
+    wireStrategy(engine)
+    var result = await engine.rewrite({ mode: 'imitate', content: '任意内容', userSettings: {} })
+    expect(result.success).toBe(false)
+    expect(result.errorCode).toBe('LLM_ERROR')
   })
 
   test('W7 截断按 Unicode 码点计数（emoji 不被切断）', async function () {
