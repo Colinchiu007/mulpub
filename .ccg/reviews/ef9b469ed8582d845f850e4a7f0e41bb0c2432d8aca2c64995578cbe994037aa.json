@@ -102,7 +102,8 @@
         "externalReview": {
           "performedBy": "claude",
           "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6303677171",
-          "reviewedAt": "2026-10-20T23:00:42.947Z"
+          "reviewedAt": "2026-10-20T23:00:42.947Z",
+          "evidenceDigestSha256": "9dea9b41a5ff9a2a47c367ef14fe69464a6415a30376cc72971069787319081b"
         },
         "prosecution": "Agent 自己写了 `.ccg/reviews` 里的 closureNote/defense/verdict，随后把 status 置为 self_play_resolved 且 requiresExternalReview 为空（尽管存在 Critical findings），审计链显示 `by agent-self-play-closure`；建议要求独立外部评审者复核所有 upheld/blocked 条目并禁用自闭合机制。",
         "defense": "**已交独立外部模型复核**（见 externalReview：claude 自行读脚本与代码，结论公开于 PR 评论）。外部结论：脚本行为与描述**一致**（`decider.js:607-626`、`deep-review.sh:834-878`、裁决字段、`0df996….json` 的 closureNote 引出口②、`CLOSED_DEEP_REVIEW_STATUSES:732-736` 含 `self_play_resolved`），且该形态**不阻断本次 PR** —— 它属**守门规则/治理层**的改进项（要改的是门禁机制本身，按 AGENTS.md 须人工过目），而不是「本次代码改动有缺陷」；外部同时确认本 PR **未命中门禁所指高危面**（`pathHits=0`）。本刀对此的处置：① 不单方面改门禁机制；② 每条 dismissal 都附**可复算实测证据**而非「看起来没问题」；③ 高危面（datamigration）另有**两次独立外部复核**并公开留痕（第一次针对键名迁移、第二次针对审计可信度/厂商独立性）；④ 两条被引擎判 upheld 的问题**已实现并经变异反证验证**，未以 dismiss 掩盖。",
@@ -141,7 +142,8 @@
         "externalReview": {
           "performedBy": "claude",
           "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6303677171",
-          "reviewedAt": "2026-10-20T23:00:42.947Z"
+          "reviewedAt": "2026-10-20T23:00:42.947Z",
+          "evidenceDigestSha256": "9dea9b41a5ff9a2a47c367ef14fe69464a6415a30376cc72971069787319081b"
         },
         "prosecution": "buildRewriteUserSettings 移除 targetWordCount 只核实了「桌面引擎读 wordCountRange」，没有核实所有上游调用方（Python 后端、旧客户端）都已迁移；建议保留一个发布周期的废弃字段，或先核实 Python 后端与全部客户端。",
         "defense": "**已交独立外部模型穷举复核**（见 externalReview：claude 自行读全仓，结论公开于 PR 评论；另见第一次外部复核评论）。外部结论：`targetWordCount` 的发送方**仅历史文档与采集页自身描述**，**无引擎消费方**；引擎实际读 `userSettings.wordCountRange`（`rewrite-engine-core.js:641`、`segment-rewriter.js:58`）；`packages/python-backend` **无命中**（它维护自己的 `min_word_count`/`max_word_count`/`target_word_count`，桌面端自 2026-10-18 起不经该路径改写）⇒ **移除不会让任何现存消费者失效**，无需保留废弃字段。旁证：Python 侧的字数契约**本就有独立用例锁定**（`packages/python-backend/tests/test_aggregation.py`：默认值/校验/max≥min/短内容/空内容/service 消费），本刀**一行未动**它，那些用例仍全绿。",
@@ -158,7 +160,8 @@
         "externalReview": {
           "performedBy": "claude",
           "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6303677171",
-          "reviewedAt": "2026-10-20T23:00:42.947Z"
+          "reviewedAt": "2026-10-20T23:00:42.947Z",
+          "evidenceDigestSha256": "9dea9b41a5ff9a2a47c367ef14fe69464a6415a30376cc72971069787319081b"
         },
         "prosecution": "deepReview.required=true 却以 0.6 权重的 self-play 收口，且高危 i7 没有 externalReview 条目；defense 声称的「独立外部模型 claude」与自己是同一家。",
         "defense": "① 「无 externalReview 条目」**已不成立**：高危面（datamigration）有**两次独立外部复核**，原文**公开在 PR 评论**（第一次 #issuecomment-6302916932、第二次 #issuecomment-6303677171），并已写入产物 `0df996a7….json` 的 `externallyReviewed: [\"i7\"]` 与 `closureNote`；本轮裁决亦按引擎要求填了三格（见 externalReview）。② 「与自己是同一家」**事实相反**：本仓后端对是 critic=**claude**（Anthropic）/ proposer=**opencode**（1.18.34），两个厂商；且**外部复核员本人独立核实**了这一点（`backends.list:14-15`、`backends.js:47-52`）。③ 「0.6 权重」是引擎对自扮演档的**如实标记**（低于真跨家族 1.0），不是隐瞒。",
@@ -190,6 +193,7 @@
     ],
     "blocking": [],
     "note": "自扮演裁决：全部指控不成立",
-    "at": "2026-10-20T23:00:59.385Z"
+    "at": "2026-10-20T23:00:59.385Z",
+    "closureNote": " 外部复核正文的 sha256 摘要已写入对应 findings.externalReview.evidenceDigestSha256（URL 可点开 + 摘要可离线重算核对）。"
   }
 }
