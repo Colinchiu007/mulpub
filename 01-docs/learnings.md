@@ -1,3 +1,69 @@
+## amend 已提交内容会漂移 diff 内容寻址哈希，让深度审查的判定记录「双双落空」（s2v-voice-clone-auto-select，2026-10-20）
+
+### lesson: amend-after-commit-breaks-content-addressed-review-record
+
+**现场**：提交后发现文档里有一条本机绝对路径撞了 Gate 12c（doc abs-path 基线），于是 `git commit --amend` 修正。修正后跑 `sh scripts/deep-review.sh`，脚本报「本提交有 921 行非 .ccg 改动却没有判定记录 ⇒ 深度审查无法进行（fail-closed）」，`check-pr-exec-record.js` 也报 CCG 深度审查欠账。
+
+**根因**：`.ccg/reviews/<name>.json` 的记录名是**内容寻址**的——`stagedDiffHash = git diff ... -- . ':(exclude).ccg' | sha256sum`。pre-commit 在 amend 前的 diff 上算出 `b23748b5`，amend 改变了 diff 内容（记录文件自身也在 diff 里，自我指涉），哈希变成 `39af17dc`，而 amend 时 pre-commit 又新生成一个 `68258ca4`。三个记录躺在 `.ccg/reviews/` 里，**没有一个与最终提交的 diff 匹配**，旧的还被我一起带进了提交（CCG 评审 i4 抓到这个：sha/changedLines 与 head 不符、两文件内容重复）。
+
+**修法**：`git reset --soft HEAD~1` 回到 base（保留 index）⇒ `git rm --cached` 掉两个残留记录 ⇒ 重新 `git commit`（pre-commit 用当前 diff 重新判定，生成匹配的 `39af17dc`）⇒ 再跑 deep-review.sh 即命中。**不要用 amend 去修一个「已被内容寻址登记过的提交」。**
+
+**可复用的三条**：
+1. 凡「记录名/缓存键由 diff 内容哈希生成」的机制，**amend 是禁区**——它让「已登记的旧记录」与「新 diff」同时失效，且旧记录不会自动清理。
+2. 修正已提交内容的正确姿势是 soft reset + 重新提交，让钩子用新 diff 重新登记；这也顺带避免「同一逻辑改动出现两条 commit」的历史噪声。
+3. 自我指涉要警惕：被寻址的 diff **排除自身目录**（`':(exclude).ccg'`）正是为了切断这个环，但寻址记录**放进同一次提交**时仍会二次漂移——所以寻址产物应由钩子自行管理，不应手工 `git add` 进业务提交。
+
+## 「有回滚代码」≠「回滚有效」——调用方先写状态时，回滚锚点会被污染成空操作（s2v-voice-clone-auto-select，2026-10-20）
+
+### lesson: rollback-anchor-captured-after-caller-write-is-a-no-op
+
+**现场**：用户诉求「克隆音色成功后，语音/音色 ID 下拉自动切到新音色」。主路径在基线里**早就实现了**（`tts-voices-clone.js` 的 `addS2VVoiceClone`：入库 → 写 `voiceId` → `selectS2VVoice` → toast），happy-path 测试也是绿的。但偏好持久化失败（`VOICE_PREFERENCE_STORE_UNAVAILABLE` 等）时，下拉会停留在一个**从未保存成功**的音色上。
+
+**根因**：`addS2VVoiceClone` 在调 `selectS2VVoice` **之前**写了 `d.getS2vConfig().voiceId = voice.id`；而 `selectS2VVoice` 内部的回滚锚点是 `const previousVoiceId = d.getS2vConfig().voiceId`（进入函数时取值）⇒ 锚点取到的是**新值** ⇒ 失败时 `voiceId = previousVoiceId` 写回同一个 id，**字面意义上的空操作**。回滚代码存在、sibling 测试也绿，但这条调用形态下它什么都没做。
+
+**为什么既有测试抓不到**：`CreateView.test.js` 里那条「设为默认保存失败时回滚下拉与徽标」**直接调 `selectS2VVoice(id)`** 且预置了不同的 `voiceId`——它测的是「进入时锚点取到旧值」这一形态，结构上不可能触发布音路径的锚点污染。**同一个函数、同一个分支，两种调用形态，一种被覆盖一种没有。**
+
+**修法**：给 `selectS2VVoice` 加可选第二参 `rollbackVoiceId`（显式回滚锚点），`addS2VVoiceClone` 在写 `voiceId` **之前**捕获旧值并传入；不传时行为与旧版逐字节一致（向后兼容）。同时让克隆路径在 `selectS2VVoice` 返回 `false` 时**不弹成功 toast**——克隆事实成立，但不得谎报「已添加并已设为默认」。
+
+**可复用的三条**：
+1. 看到「先写状态、再调一个带回滚语义的函数」的时序，第一问是：**被调函数的回滚锚点在这个形态下取到什么值？** 取到目标值就等于没有回滚。
+2. 「有 sibling 测试覆盖同一分支」≠「本调用形态被覆盖」——跨函数的时序契约（写点与回滚点分处两个模块）是单文件测试的结构性盲区，必须为**每种调用形态**各写一条。
+3. 失败路径除了断言状态回滚，还要断言**用户可见后果**（toast 弹不弹、徽标在不在）——状态对了但谎报成功，用户看到的是「保存成功了」，比不提示更糟。
+
+## 错误文案别用 `a || b ? a : c` —— `||` 优先级高于 `?:`，冒号后是死代码（s2v-voice-clone-auto-select，2026-10-20）
+
+### lesson: ternary-mixed-with-or-makes-fallback-branch-dead-code
+
+**现场**：音色偏好持久化失败时，用户看到的一律是「语音列表加载失败，请稍后重试」，而不是「默认音色保存失败」。
+
+**根因**：`tts-voices-shared.js` 两处写成
+`friendlyVoiceCatalogError(m) || formatUserError(...).message ? friendlyVoiceCatalogError(m) : d.t('...Failed')`。
+`||` 优先级高于 `?:` ⇒ 条件部分是 `(a || b)`，而 `b`（`formatUserError` 的 message）在映射不到时也返回非空串 ⇒ **条件恒为真** ⇒ 冒号后的 `selectionSaveFailed` / `defaultVoiceRestoreFailed` 两个兜底键**从不显示**。它们在 locale 里存在、在 PRD 里列着、在错误码文档里写着，但一行都到不了用户眼前。
+
+**为什么没测出来**：`friendlyVoiceCatalogError` 的映射表有 26 条，测试只断言了「命中已知码」的路径；「message 不在表内」这条兜底路径从未被断言，所以死代码可以无限期存活。**变异反证实测：把死三元改回原样，6 条新测试 0 失败——它确实没有机械锁。**
+
+**修法**：改成 `friendlyVoiceCatalogError(m) || d.t('<兜底键>')`，一行搞定；随之移除不再使用的 `formatUserError` import。
+
+**可复用的三条**：
+1. `x || y ? x : z` 是经典陷阱——想写「优先 x，否则 z」就该直接 `x || z`，别把兜底塞进三元冒号后。
+2. 兜底分支要**断言可达性**：至少一条「message 不在映射表内」的用例，否则兜底键是死是活无人知道。
+3. 兜底键没有机械锁时（如单测的 `t` 是 key 回声、无法断言文案值），就把「禁止写法」写进 PRD 数据校验表——流程面约束比没有约束好，但要如实标注它没有机械锁。
+
+## 刷新失败 ≠ 音色不存在：清空选中项前先问「目录这次返回了没有」（s2v-voice-clone-auto-select，2026-10-20）
+
+### lesson: distinguish-catalog-absent-from-catalog-failed-before-clearing-selection
+
+**现场**：用户刚克隆了一个音色（下拉已自动切到它），点了一下「刷新音色列表」；刷新失败（瞬时网络/服务不可用），下拉选中项被清空回「使用服务商默认音色」，且没有任何错误提示——用户以为自己刚克隆的音色没了。
+
+**根因**：`useTtsVoices.js` 的选中项归一写成「目录返回的 `selectedVoiceId` 不可用 ⇒ 已配置值不可用 ⇒ **否则清空**」。三分支没有区分两种完全不同的情况：**目录返回了、但这个音色不在其中**（该清空，可能是 provider 换了/音色被删）与**目录这次根本没返回**（`catalogData` 为空，不该清空——克隆音色独立于 catalog 存在）。PRD 早有明文：「当前已保存的 voiceId 即使不在最新目录，也必须作为保留选项，不能静默丢失」（`PRD-S2V-PIPELINE-PAGE-UX.md:228`），代码没实现这条。
+
+**修法**：加 `else if (configuredVoiceId && !catalogData)` 空分支（刻意只写注释不写代码——它的语义就是「不要做清空」），并把这条规则连同「为什么 provider 切换时的陈旧 voiceId 不走这条分支」写进注释与 PRD 数据校验表。
+
+**可复用的三条**：
+1. 「取不到数据」和「取到的数据里没有」是两件事，前者清空用户状态就是**用故障惩罚用户**。
+2. 空分支要写注释说明「为什么故意不做」——否则下一个人会以为是漏写，顺手补上 `voiceId = ''`。
+3. PRD 里已写明的保留条款，要去代码里找**实现它的那一行**；找不到就是文档与实现漂移，哪怕测试全绿。
+
 ## 「规则已加」和「用户看得见」隔着两件事——基类覆盖与 transition:all 的淡入（focus-ring-zero-coverage，2026-10-19）
 
 ### lesson: a-rule-on-the-base-class-can-be-zero-coverage
