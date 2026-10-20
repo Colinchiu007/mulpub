@@ -20,7 +20,7 @@ date: 2026-10-20
 | 行尾与 diff 对账 | 完成 | 动手前三份文件均 `i/lf w/crlf attr/text=auto`（当场 `git ls-files --eol`）；逐行保留各自 CR 写回；两口径 numstat 相等：`.quality-gates.md 38/38`、`check-gate-record-debt.js 1/1`、`ledger 1/25` |
 | 接线棘轮 | N/A | 本刀未新增 `*.test.js`；判据本体已接 `quality-gate.yml` 的 Gate 2c |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/`、`packages/rpa-engine/` 与任何 UI 文件 |
-| QM-6 CCG 外部评审 | 已执行（SINGLE），2 条 upheld 已修 | 判定 mode=SINGLE（changedLines=28 = 脚本 2 + 账本 26，两份 .md 按 `ccg-review-decider.js:186-221` 只报告不改判定）；critic=claude 出 7 条、最低维度分 3；裁决 5 条：3 条 dismissed（附可复算证据）、2 条 upheld 并已按指控修本文件（§三 加行号漂移口径、§四 加现场读数与「驱动一次性」声明） |
+| QM-6 CCG 外部评审 | 已执行（SINGLE），2 条 upheld 已修 | 判定 mode=SINGLE（changedLines=28 = 脚本 2 + 账本 26，两份 .md 按 `ccg-review-decider.js:186-221` 只报告不改判定）；critic=claude 出 7 条、最低维度分 3；裁决 5 条：3 条 dismissed（附可复算证据）、2 条 upheld 并已按指控修本文件（§三 加行号漂移口径、§四 加现场读数与「驱动一次性」声明）。产物读数如实抄回：第一笔提交的 `.ccg/reviews/39cfa1d2….json` 停在 `deepReview.status=self_play_blocked`——引擎没有「指控已在后续提交修掉 ⇒ 转清」这一档，重跑只会复用同一份存档裁决再判一次 blocked；本 PR 两笔判定是 single 与 skip，`check-pr-exec-record.js --mode=enforce` 的闭环范围只取 `mode=dual`，现场打印 `TIER-COVERAGE dual-closed total=0`，故该 blocked 不进阻断，但也不要把它读成「评审已通过」 |
 | 远程同步 | 由门禁推导 | 本行不需事后改写：合并后由 `scripts/lib/merge-ledger.js` 按 squash 尾注推导；现场读数看 CI 首行 `MERGE-LEDGER prs=<n>` |
 
 - 保留门禁：判定 docs-only=false（混合 PR）| 行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅
