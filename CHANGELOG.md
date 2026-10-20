@@ -244,6 +244,33 @@
 - 定向测试：18 文件 / 599 passed（adapter 3 例新用例：plan 归类 / 2038 归类 / balance 不误判为 plan；service 2 例：throw 透传 + 结构化透传且不落 registry；CreateView 映射 2 断言）。
 - 门禁：eslint rc=0；tsc --noEmit rc=0；locale --keys/--cjk PASS；check-max-lines ✅（点名文件 1748=target 零增长）；check-unwired-tests OK；QM-1 electron-builder exit 0（读数见执行记录）。
 - 执行记录：`openspec/records/fix-s2v-clone-plan-unsupported.md`。
+
+## [2026-10-20] 视频任务编辑页：失败任务进入不再「无限加载后空白」
+
+### 问题
+历史记录页进入失败任务（无成片）的编辑页时：① 视频预览区持续显示加载态很久，最后空白；② 未生成的图片区先呈现「错误链接样式」，数秒后才显示「未生成」；③ 页面进入非常慢（169 段任务）。
+
+### 根因
+三个缺陷是同一条链路的三个表现：`ResultView.loadProject()` 对**全量 169 段**申请媒体 URL（每段 5 个媒体位 ≈ 845 次 `story2video:create-share-url` IPC），`loading` 要等它跑完才置 false；而失败任务 `videoPath` 为 null，`<video>` 因 `v-if="videoPath"` 根本不渲染，于是用户看到骨架挂很久后空白。`<img>` 无 `loading="lazy"`，169 张图同时发起请求，未完成时浏览器渲染破图。
+
+### 改动
+- **预览区三态**：新增 `resolveSegmentMediaPlan`，无 `videoPath` 时直接进入 `empty` 态——**不发起任何成片/旁白媒体 URL 申请**，改为渲染与 `<video>` 同构的占位区块（固定高度 + 标题 + 说明 + 「重新合成」行动位），两种终态页面高度一致，无布局跳变。无成片时也不再弹「预览缺失」提示（那是加载失败，不是没有成片）。
+- **分段素材 URL 分批**：首屏只解析前 20 段（≈100 次 IPC，较 845 次降约 88%）；未进入渲染窗口的分段不提前取 URL。
+- **追加式渲染窗口 + 哨兵**：新增 `resolveSegmentRenderWindow`，窗口恒从 0 开始、按 `renderedCount + 20` 增长（滑窗会让已渲染段从 DOM 消失，导致滚动高亮/refs/政策徽标错位）；列表尾哨兵进入视口（`rootMargin: 240px`）自动追加下一批，并保留「显示更多分段」手动兜底按钮。
+- **图片懒加载**：分段图与素材槽图加 `loading="lazy" decoding="async"`，未入视口不请求；`@error` 兜底保留（清坏 URL + 标记素材位不可用，保留来源路径供恢复）。
+- **focusScenes 点名段强制入首屏**：内容政策失败任务的定位场景即使落在窗口外也并入首屏，政策徽标与定位能力不因分批失效。
+- **结构分层**（`ResultView.vue` 是 max-lines 点名还账对象、零增长容差）：新增 `composables/useResultPreviewMedia.js`（纯函数策略，21 条单测）、`video-creation/ResultSegmentCard.vue`（单个分段卡片）、`video-creation/ResultSegmentEditor.vue`（分段编辑区 + 窗口 + 哨兵）；宿主只留 props/emits 接线，**行数由 1860 降至 1741**。
+
+### 验证
+- 新增 28 条回归（`useResultPreviewMedia.test.js` 21 条 + `ResultView.test.js` 7 条行为用例），先红后绿：红的三种形态分别是「模块不存在」「哨兵点击后段数不增（滑窗缺陷）」「80 段任务的 focusScenes 49/73/74 全部不在前 20 段（政策徽标被分批破坏）」。
+- 消费方并集 **577 passed / 0 failed**：ResultView 122、ResultView.model-info 32、story2video-ue-contract 5、views-deep/views-deep2/views-coverage/views-coverage2/CreateViewHistory 合计 76、CreateView + i18n + locales 合计 362。
+- 本地门禁逐条 rc=0：max-lines（无新增超大文件，ResultView 低于点名目标）、unwired-tests（111 个测试文件）、locale-sync `--cjk`（无新增硬编码）与 `--pair-base`（zh/en 成对）、no-brand-residue、debt-budget、gate-record-debt；eslint 8 个改动文件 0 error 0 warning。
+- 文档：`01-docs/PRD-S2V-RESULT-VIEW-PERF-2026-10-20.md`（含数据校验 / 流程 / 功能逻辑 / 交互逻辑 / 显示项 / 提示文字全表 / 组件契约 / 验收标准 / 已知局限）、`openspec/records/s2v-result-view-perf.md`。
+
+### 已知局限
+IPC 次数本身未降（本轮是「按需申请」，单段仍 5 次 IPC；服务端批量签 URL 需改 IPC 契约，记入 backlog）；窗口步长固定 20，未按视口高度动态估算；未做实机 wall-time 复测；QM-4 视觉回归因基线仓库级失效未跑（同 `result-view-back-btn-style` 结论）。
+
+
 # [未发布] feat(subtitle): 数字/单位完整性与双字搭配守卫 v1.4 —— 8 段复杂文案实测驱动的第二族坏切（subtitle-word-integrity）
 
 - **动因与取证**：v1.3 合并后用 8 段不同风格文案（政治评论续篇/历史叙事/科技解说/口语短视频/生活叙事/无标点压力段×2）对真实引擎做三端对跑，暴露一族 v1.3 未覆盖的坏切。**A/B 反证**（关掉 phrase_boundary 输出逐字节不变）证实非 v1.3 引入：是 `no_cut_bigrams` 词表缺口 + 标点累积分支直切不经守卫的既有缺陷。实测证据：`风速每秒 8│米`、`套现约 3.2│亿元`、`提升了│60%`、`制程是│3 纳米`、`当│成`、`遗│忘`、`那│段`、`千│万人`。

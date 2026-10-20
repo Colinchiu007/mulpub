@@ -206,6 +206,155 @@ describe("ResultView", () => {
     expect(w.text()).toContain("\u6ca1\u6709\u53ef\u9884\u89c8\u7684\u89c6\u9891");
   });
 
+  // ── 2026-10-20 · PRD-S2V-RESULT-VIEW-PERF：失败任务进编辑页不再「无限加载后空白」 ──
+  describe("预览区/分段素材加载策略（无成片任务）", () => {
+    const failedProject = (segmentCount = 3) => ({
+      code: 0,
+      data: {
+        projectId: "project-failed-perf",
+        videoPath: null,
+        audioPath: null,
+        segments: Array.from({ length: segmentCount }, (_, i) => ({
+          id: "segment-" + i,
+          index: i,
+          text: "旁白 " + (i + 1),
+          imagePath: "C:/projects/project-failed-perf/seg-" + i + ".png",
+          audioPath: "C:/projects/project-failed-perf/seg-" + i + ".mp3",
+          status: "failed",
+        })),
+      },
+    });
+
+    it("无 videoPath 时不申请任何成片/旁白媒体 URL（修复「一直加载」的核心）", async () => {
+      const api = await import("@/api/publisher");
+      api.story2videoGetProject.mockResolvedValue(failedProject());
+      api.story2videoCreateShareUrl.mockImplementation(async (filePath) => ({ code: 0, data: { url: "media://" + filePath } }));
+      await router.push({ path: "/create/result", query: { project: "project-failed-perf" } });
+
+      const w = mount(ResultView, { global: { plugins: [router], components: { UiButton }, mocks: { $t: (key) => key } } });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      // 成片与旁白路径都不存在 ⇒ 这两个 URL 一次都不该申请（旧实现无条件走 resolveLocalUrl）
+      expect(api.story2videoCreateShareUrl).not.toHaveBeenCalledWith(null, expect.anything());
+      expect(api.story2videoCreateShareUrl).not.toHaveBeenCalledWith(undefined, expect.anything());
+      expect(w.vm.videoPath).toBeNull();
+      expect(w.vm.audioSrc).toBeNull();
+      // 不得因为「没有成片」弹预览缺失提示：那是加载失败，不是没有成片
+      expect(w.vm.story2videoNotificationDialog.visible).toBe(false);
+      w.unmount();
+    });
+
+    it("无成片时渲染占位区块而不是空白，区块带标题/说明/行动位", async () => {
+      const api = await import("@/api/publisher");
+      api.story2videoGetProject.mockResolvedValue(failedProject());
+      await router.push({ path: "/create/result", query: { project: "project-failed-perf" } });
+
+      const w = mount(ResultView, { global: { plugins: [router], components: { UiButton }, mocks: { $t: (key) => key } } });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      const placeholder = w.find('[data-testid="result-preview-placeholder"]');
+      expect(placeholder.exists()).toBe(true);
+      expect(w.vm.previewPlaceholder.title).toBe("story2video.sceneMaterial.previewPlaceholderTitle");
+      expect(w.vm.previewPlaceholder.description).toBe("story2video.sceneMaterial.previewPlaceholderDescription");
+      expect(w.vm.previewPlaceholder.actionEnabled).toBe(true);
+      // 占位区块出现时不得同时渲染 <video>（否则用户看到播放器又在加载）
+      expect(w.find(".video-player").exists()).toBe(false);
+      // 分段编辑区仍然可用（失败任务也要能改文案重新合成）
+      expect(w.find('[data-testid="segment-edit-section"]').exists()).toBe(true);
+      w.unmount();
+    });
+
+    it("占位区块的「重新合成」按钮调用 recomposeProject", async () => {
+      const api = await import("@/api/publisher");
+      api.story2videoGetProject.mockResolvedValue(failedProject());
+      api.story2videoRecomposeProject.mockResolvedValue({ code: 0, data: { projectId: "project-failed-perf", videoPath: "C:/new.mp4", segments: [] } });
+      api.story2videoCreateShareUrl.mockResolvedValue({ code: 0, data: { url: "media:///new.mp4" } });
+      await router.push({ path: "/create/result", query: { project: "project-failed-perf" } });
+
+      const w = mount(ResultView, { global: { plugins: [router], components: { UiButton }, mocks: { $t: (key) => key } } });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await w.find('[data-testid="preview-placeholder-recompose"]').trigger("click");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(api.story2videoRecomposeProject).toHaveBeenCalledWith("project-failed-perf");
+      w.unmount();
+    });
+
+    it("首屏只申请首批分段的媒体 URL（169 段不全量 IPC）", async () => {
+      const api = await import("@/api/publisher");
+      api.story2videoGetProject.mockResolvedValue(failedProject(169));
+      api.story2videoCreateShareUrl.mockImplementation(async (filePath) => ({ code: 0, data: { url: "media://" + filePath } }));
+      await router.push({ path: "/create/result", query: { project: "project-failed-perf" } });
+
+      const w = mount(ResultView, { global: { plugins: [router], components: { UiButton }, mocks: { $t: (key) => key } } });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      const calls = api.story2videoCreateShareUrl.mock.calls.length;
+      // 169 段 × 图+音频 = 338 次；首批上限 20 段 ⇒ 上限 40 次（成片/旁白缺失时不另申请）
+      expect(calls).toBeGreaterThan(0);
+      expect(calls).toBeLessThanOrEqual(40);
+      // 分段总数不因分批而丢失
+      expect(w.vm.segments).toHaveLength(169);
+      w.unmount();
+    });
+
+    it("分段渲染窗口默认只渲染首批，哨兵触发后追加一批且只解析新段的 URL", async () => {
+      const api = await import("@/api/publisher");
+      api.story2videoGetProject.mockResolvedValue(failedProject(169));
+      api.story2videoCreateShareUrl.mockImplementation(async (filePath) => ({ code: 0, data: { url: "media://" + filePath } }));
+      await router.push({ path: "/create/result", query: { project: "project-failed-perf" } });
+
+      const w = mount(ResultView, { global: { plugins: [router], components: { UiButton }, mocks: { $t: (key) => key } } });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const firstPaintRequests = api.story2videoCreateShareUrl.mock.calls.length;
+      const firstPaintItems = w.findAll(".segment-item").length;
+      expect(firstPaintItems).toBeLessThan(169);
+      expect(w.find('[data-testid="segment-list-sentinel"]').exists()).toBe(true);
+
+      await w.find('[data-testid="segment-load-more-button"]').trigger("click");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(w.findAll(".segment-item").length).toBeGreaterThan(firstPaintItems);
+      const afterRequests = api.story2videoCreateShareUrl.mock.calls.length;
+      // 追加只请求新增那一段的媒体，不重解析已渲染段
+      expect(afterRequests).toBeGreaterThan(firstPaintRequests);
+      expect(afterRequests - firstPaintRequests).toBeLessThanOrEqual(40);
+      w.unmount();
+    });
+
+    it("全部分段渲染完后哨兵与「显示更多」按钮消失", async () => {
+      const api = await import("@/api/publisher");
+      api.story2videoGetProject.mockResolvedValue(failedProject(2));
+      api.story2videoCreateShareUrl.mockImplementation(async (filePath) => ({ code: 0, data: { url: "media://" + filePath } }));
+      await router.push({ path: "/create/result", query: { project: "project-failed-perf" } });
+
+      const w = mount(ResultView, { global: { plugins: [router], components: { UiButton }, mocks: { $t: (key) => key } } });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(w.findAll(".segment-item")).toHaveLength(2);
+      expect(w.find('[data-testid="segment-list-sentinel"]').exists()).toBe(false);
+      w.unmount();
+    });
+
+    it("有成片时仍走原加载路径并渲染播放器（修复不改变成功任务行为）", async () => {
+      const api = await import("@/api/publisher");
+      api.story2videoGetProject.mockResolvedValue({ code: 0, data: {
+        projectId: "project-ok-perf", videoPath: "C:/p/video.mp4", audioPath: "C:/p/narration.m4a", segments: [],
+      } });
+      api.story2videoCreateShareUrl.mockImplementation(async (filePath) => ({ code: 0, data: { url: "media://" + filePath } }));
+      await router.push({ path: "/create/result", query: { project: "project-ok-perf" } });
+
+      const w = mount(ResultView, { global: { plugins: [router], components: { UiButton }, mocks: { $t: (key) => key } } });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(w.find('[data-testid="result-preview-placeholder"]').exists()).toBe(false);
+      expect(w.vm.videoSrc).toContain("video.mp4");
+      expect(w.vm.audioSrc).toContain("narration.m4a");
+      expect(w.find(".video-player").exists()).toBe(true);
+      w.unmount();
+    });
+  });
+
   it("loads video path and shows video player", async () => {
     const w = await createView();
     w.vm.videoPath = "/videos/test.mp4";
@@ -1905,16 +2054,13 @@ describe("ResultView", () => {
     });
 
     it("语速为拖动条（range 0.5-2），音色 dropdown 选中写回 voiceId 并标记 dirty", async () => {
-      const voiceApi = await import("@/api/tts-voice-catalog");
-      voiceApi.getTtsVoiceCatalog.mockResolvedValue({
-        code: 0,
-        data: { voices: [{ id: "voice-a", name: "青年男声" }] },
-      });
+      // 2026-10-20：音色/语速控件随分段编辑区搬到 ResultSegmentEditor，本用例改为
+      // 经宿主树断言同等契约（子组件渲染在 ResultView 内，find 可达）。
       const w = await createView();
       w.vm.projectId = "p1";
       w.vm.project = { projectId: "p1", options: { voiceProvider: "minimax-tts", voiceModel: "speech-2.8-turbo" } };
+      w.vm.voiceCatalogOptions = [{ id: "voice-a", name: "青年男声" }];
       w.vm.segments = [{ id: "s1", voiceId: "voice-a", voiceSpeed: 1, status: "completed" }];
-      await w.vm.loadVoiceCatalog();
       await nextTick();
       const range = w.find('[data-testid="segment-voice-speed-range"]');
       expect(range.exists()).toBe(true);
@@ -1922,9 +2068,9 @@ describe("ResultView", () => {
       expect(range.attributes("min")).toBe("0.5");
       expect(range.attributes("max")).toBe("2");
       expect(range.attributes("step")).toBe("0.1");
-      expect(w.vm.segmentVoiceSpeedText(w.vm.segments[0])).toBe("1.0");
 
       const select = w.find('[data-testid="segment-voice-id-select"]');
+      expect(select.exists()).toBe(true);
       await select.setValue("voice-a");
       expect(w.vm.segments[0].voiceId).toBe("voice-a");
       expect(w.vm.segmentsDirty).toBe(true);
@@ -1939,8 +2085,11 @@ describe("ResultView", () => {
       const text = w.text();
       expect(text).not.toContain("重试图片");
       expect(text).not.toContain("重试视频");
-      expect(w.text()).toContain("替换旁白");
-      expect(w.text()).toContain("下载图片");
+      // 2026-10-20：「替换旁白 / 下载图片」等文案收口到 locale（抽 ResultSegmentCard 时），
+      // 本用例的 $t mock 回落 key，故改断言 locale 键与 testid，不再依赖具体中文文案。
+      expect(text).toContain("story2video.sceneMaterial.replaceNarration");
+      expect(text).toContain("story2video.sceneMaterial.downloadImage");
+      expect(w.find('[data-testid="segment-image-preview"]').exists()).toBe(true);
       w.unmount();
     });
 

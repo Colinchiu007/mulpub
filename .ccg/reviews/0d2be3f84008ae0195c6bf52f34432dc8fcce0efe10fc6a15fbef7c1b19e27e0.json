@@ -1,0 +1,59 @@
+{
+  "sha": "42ba5860fdf5e90dc4f3e9659493cf8cad14a6c7",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 2051 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 2051,
+    "fileCount": 11,
+    "codeFileCount": 8,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 18,
+    "docSensitiveContentHits": 8,
+    "docSensitiveContentSample": [
+      "| 改字幕 | `update-subtitle-blocks` | 覆盖 `subtitleBlocks` + 清空 `subtitleTimeline` + dirty |",
+      "| 选素材 | `select-material` | 校验槽位 selectable ⇒ IPC ⇒ 刷新 URL |",
+      "**emits**：`dirty`、`card-ref(el, absoluteIndex)`、`move-segment`、`remove-segment`、`select-material`、`generate-image`、`generate-ai-video`、`regenerate-subtitle`、`regenerate-prompt`、`regenerate-audio`、`replace-audio`、`download-artifact`、`preview-material`、`mark-material-unavailable`、`update-subtitle-blocks`"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "0d2be3f84008ae0195c6bf52f34432dc8fcce0efe10fc6a15fbef7c1b19e27e0",
+  "decidedAt": "2026-10-20T02:38:00.941Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

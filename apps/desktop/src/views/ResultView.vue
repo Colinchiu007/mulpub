@@ -34,7 +34,10 @@
       <UiButton @click="$router.push('/create')">去创作</UiButton>
     </div>
 
-    <div v-if="videoPath" class="video-section">
+    <!-- 预览区三态契约（2026-10-20，PRD-S2V-RESULT-VIEW-PERF）：
+         loading 未生成成品时不渲染 <video>（不申请媒体 URL、不出现无限加载的播放器），
+         改为与 <video> 同构的占位区块（固定高度 + 标题 + 说明 + 行动位），布局不跳变。 -->
+    <div v-if="hasFinalVideo" class="video-section" data-testid="result-video-section">
       <video
         ref="videoPlayer"
         :src="videoSrc"
@@ -59,6 +62,26 @@
         <UiButton variant="secondary" @click="goPublish">去发布</UiButton>
         <PodcastEpisodeEntry :project="project" :segments="segments" :video-path="videoPath || ''" />
         <UiButton variant="ghost" @click="$router.push('/create')">重新创作</UiButton>
+      </div>
+    </div>
+
+    <!-- 无成片时的占位区块（替代原先「v-if=videoPath 整块消失」后的空白） -->
+    <div
+      v-else-if="projectId && !loading"
+      class="video-section video-section--placeholder"
+      data-testid="result-preview-placeholder"
+    >
+      <div class="video-preview-placeholder">
+        <h2 class="video-preview-placeholder__title">{{ previewPlaceholder.title }}</h2>
+        <p class="video-preview-placeholder__description">{{ previewPlaceholder.description }}</p>
+        <UiButton
+          v-if="previewPlaceholder.actionEnabled"
+          size="sm"
+          variant="secondary"
+          data-testid="preview-placeholder-recompose"
+          :disabled="recomposing || anySegmentBusy"
+          @click="recomposeProject"
+        >{{ previewPlaceholder.actionLabel }}</UiButton>
       </div>
     </div>
 
@@ -176,213 +199,36 @@
       </div>
     </aside>
 
-    <section v-if="projectId && segments.length" class="project-section" data-testid="segment-edit-section">
-      <div class="section-heading">
-        <div>
-          <h2>分段编辑</h2>
-          <p>
-            {{ segments.length }} 个分段 · {{ $t('story2video.sceneMaterial.editRecomposeHint') }}
-            <span v-if="segmentsDirty" class="segments-unsaved-chip" data-testid="segments-unsaved-chip">{{ tOrKey('story2video.sceneMaterial.unsavedChanges') }}</span>
-          </p>
-        </div>
-      </div>
-
-      <div class="segment-list">
-        <article
-          v-for="(segment, index) in segments"
-          :key="segment.id"
-          class="segment-item"
-          :class="{ 'segment-policy-flagged': isPolicyFlagScene(index) }"
-          :ref="el => setSegmentItemRef(el, index)"
-        >
-          <div class="segment-header">
-            <strong>{{ tOrKey('story2video.sceneMaterial.segmentTitle', { n: index + 1 }) }}</strong>
-            <span class="segment-status" :class="segment.status">{{ segmentStatusLabel(segment.status) }}</span>
-            <span v-if="segment.status === 'failed' && segment.error" class="segment-status-reason" data-testid="segment-status-reason">{{ segmentStatusReason(segment) }}</span>
-            <span v-if="isPolicyFlagScene(index)" class="segment-policy-flag" data-testid="segment-policy-flag">{{ $t('story2video.sceneMaterial.scenePolicyFlag') }}</span>
-            <div class="segment-order">
-              <button type="button" :disabled="index === 0" :title="tOrKey('story2video.sceneMaterial.segmentMoveUp')" @click="moveSegment(index, -1)">{{ tOrKey('story2video.sceneMaterial.segmentMoveUp') }}</button>
-              <button type="button" :disabled="index === segments.length - 1" :title="tOrKey('story2video.sceneMaterial.segmentMoveDown')" @click="moveSegment(index, 1)">{{ tOrKey('story2video.sceneMaterial.segmentMoveDown') }}</button>
-              <button type="button" :disabled="segments.length === 1" :title="tOrKey('story2video.sceneMaterial.segmentDelete')" @click="removeSegment(index)">{{ tOrKey('story2video.sceneMaterial.segmentDelete') }}</button>
-            </div>
-          </div>
-
-          <div class="segment-thumb" :class="{ 'asset-placeholder': !segment.imageUrl }" data-testid="segment-image-preview">
-            <img v-if="segment.imageUrl" :src="segment.imageUrl" :alt="tOrKey('story2video.sceneMaterial.segmentImageAlt', { n: index + 1 })" @error="clearSegmentImageUrl(segment)" />
-            <span v-if="!segment.imageUrl">{{ tOrKey('story2video.sceneMaterial.emptySlot') }}</span>
-          </div>
-          <div class="scene-material-section" data-testid="scene-material-section">
-            <div class="scene-material-heading">
-              <strong>{{ $t('story2video.sceneMaterial.title') }}</strong>
-              <span class="scene-material-hint">{{ $t('story2video.sceneMaterial.previewHint') }}</span>
-            </div>
-            <div class="scene-material-slots">
-              <article
-                v-for="slot in sceneMaterialSlots(segment)"
-                :key="slot.kind"
-                class="scene-material-slot"
-                :class="{ selected: slot.selected, empty: !slot.path || !slot.url }"
-                :data-testid="'scene-material-slot-' + slot.kind"
-                :aria-pressed="slot.selected ? 'true' : 'false'"
-                @click.self.prevent="slot.path && selectSceneMaterial(segment.id, slot.kind)"
-              >
-                <button
-                  type="button"
-                  class="scene-material-thumb"
-                  :disabled="!slot.path || !slot.url"
-                  :aria-label="slot.path && slot.url
-                    ? $t('story2video.sceneMaterial.previewAriaLabel', { label: slot.label })
-                    : $t('story2video.sceneMaterial.emptyAriaLabel', { label: slot.label })"
-                  @click.stop="slot.path && slot.url ? previewSceneMaterial(slot) : undefined"
-                >
-                  <img v-if="!slot.kind.includes('video') && slot.url" :src="slot.url" :alt="slot.label" @error="clearSceneMaterialUrl(segment, slot.kind)" />
-                  <video v-else-if="slot.kind.includes('video') && slot.url" :src="slot.url" preload="metadata" muted @error="clearSceneMaterialUrl(segment, slot.kind)"></video>
-                  <span v-if="!slot.path || !slot.url" class="scene-material-empty-text">{{ $t('story2video.sceneMaterial.emptySlot') }}</span>
-                </button>
-                <div class="scene-material-choice">
-                  <input
-                    :id="'scene-material-radio-' + segment.id + '-' + slot.kind"
-                    type="radio"
-                    class="scene-material-radio"
-                    :name="'scene-material-' + segment.id"
-                    :value="slot.kind"
-                    :checked="slot.selected"
-                    :aria-label="$t('story2video.sceneMaterial.selectAriaLabel', { label: slot.label })"
-                    :disabled="isSegmentBusy(segment.id) || !slot.selectable"
-                    @change="selectSceneMaterial(segment.id, slot.kind)"
-                  />
-                  <label :for="'scene-material-radio-' + segment.id + '-' + slot.kind" class="scene-material-label">{{ slot.label }}</label>
-                </div>
-                <span v-if="slot.selected" class="scene-material-badge">{{ $t('story2video.sceneMaterial.selectedBadge') }}</span>
-                <div v-if="slot.kind === 'image1' || slot.kind === 'image2'" class="scene-material-slot-action">
-                  <UiButton
-                    size="sm"
-                    variant="secondary"
-                    data-testid="generate-image-button"
-                    :disabled="isSegmentBusy(segment.id)"
-                    @click.stop="generateSceneImage(segment.id)"
-                  >
-                    {{ segmentBusyKind(segment.id) === 'genImage' ? $t('story2video.sceneMaterial.generating') : $t('story2video.sceneMaterial.generateImage') }}
-                  </UiButton>
-                </div>
-                <div v-if="slot.kind === 'video1' || slot.kind === 'video2'" class="scene-material-slot-action">
-                  <UiButton
-                    size="sm"
-                    variant="secondary"
-                    data-testid="generate-ai-video-button"
-                    :disabled="isSegmentBusy(segment.id) || !hasUsableVideoPrompt(segment)"
-                    :title="hasUsableVideoPrompt(segment) ? '' : $t('story2video.sceneMaterial.aiVideoNeedsPromptHint')"
-                    @click.stop="generateSceneAiVideo(segment.id)"
-                  >
-                    {{ segmentBusyKind(segment.id) === 'aiVideo' ? $t('story2video.sceneMaterial.generatingAiVideo') : $t('story2video.sceneMaterial.generateAiVideo') }}
-                  </UiButton>
-                </div>
-              </article>
-            </div>
-          </div>
-
-          <label class="field-label">
-            旁白文字
-            <textarea v-model="segment.text" rows="3" @input="segmentsDirty = true"></textarea>
-          </label>
-          <label class="field-label">
-            <span>{{ $t('story2video.sceneMaterial.subtitleLabel') }}</span>
-            <textarea
-              :value="subtitleBlocksText(segment)"
-              :placeholder="$t('story2video.sceneMaterial.emptySlot')"
-              rows="3"
-              data-testid="segment-subtitle-textarea"
-              @input="updateSegmentSubtitleBlocks(segment, $event.target.value)"
-            ></textarea>
-          </label>
-          <div class="segment-inline-actions">
-            <UiButton size="sm" variant="secondary" data-testid="regenerate-subtitle-button" :disabled="isSegmentBusy(segment.id)" @click="regenerateSceneSubtitle(segment.id)">
-              {{ segmentBusyKind(segment.id) === 'subtitle' ? $t('story2video.sceneMaterial.regeneratingSubtitle') : $t('story2video.sceneMaterial.regenerateSubtitle') }}
-            </UiButton>
-          </div>
-          <label class="field-label">
-            画面提示词
-            <textarea v-model="segment.prompt" rows="3" :placeholder="$t('story2video.sceneMaterial.emptySlot')" @input="segmentsDirty = true"></textarea>
-          </label>
-          <label class="field-label">
-            <span>{{ $t('story2video.sceneMaterial.videoPromptLabel') }}</span>
-            <textarea v-model="segment.videoPrompt" rows="3" data-testid="segment-video-prompt-textarea" :placeholder="$t('story2video.sceneMaterial.emptySlot')" @input="segmentsDirty = true"></textarea>
-          </label>
-          <div class="segment-inline-actions">
-            <UiButton size="sm" variant="secondary" data-testid="regenerate-image-prompt-button" :disabled="isSegmentBusy(segment.id)" @click="regenerateScenePrompt(segment.id, 'image')">
-              {{ segmentBusyKind(segment.id) === 'promptImage' ? $t('story2video.sceneMaterial.regeneratingPrompt') : $t('story2video.sceneMaterial.regenerateImagePrompt') }}
-            </UiButton>
-            <UiButton size="sm" variant="secondary" data-testid="regenerate-video-prompt-button" :disabled="isSegmentBusy(segment.id)" @click="regenerateScenePrompt(segment.id, 'video')">
-              {{ segmentBusyKind(segment.id) === 'promptVideo' ? $t('story2video.sceneMaterial.regeneratingPrompt') : $t('story2video.sceneMaterial.regenerateVideoPrompt') }}
-            </UiButton>
-          </div>
-          <div class="segment-prompt-translation" data-testid="segment-prompt-translation">
-            <span class="segment-prompt-translation-label">{{ promptTranslationLabel }}</span>
-            <p class="segment-prompt-translation-text">{{ showPromptTranslation(segment) ? segment.promptTranslation : $t('story2video.sceneMaterial.emptySlot') }}</p>
-          </div>
-
-          <div class="segment-voice-settings">
-            <span class="segment-voice-title">{{ $t('story2video.sceneMaterial.voiceSettingsLabel') }}</span>
-            <div class="segment-voice-grid">
-              <label class="field-label">
-                <span>{{ $t('story2video.sceneMaterial.voiceIdLabel') }}</span>
-                <!-- 音色下拉：数据源为项目语音上下文（voiceProvider/voiceModel）的音色目录；目录不可用时回退文本框（2026-08-17 UX 统一） -->
-                <select
-                  v-if="segmentVoiceSelectable"
-                  v-model="segment.voiceId"
-                  data-testid="segment-voice-id-select"
-                  @change="segmentsDirty = true"
-                >
-                  <option value="">{{ $t('story2video.sceneMaterial.voiceIdPlaceholder') }}</option>
-                  <option v-for="voice in segmentVoiceOptions" :key="voice.id" :value="voice.id" :disabled="voice.invalid">
-                    {{ voice.invalid ? voice.name + $t('story2video.sceneMaterial.voiceInvalidSuffix') : voice.name }}
-                  </option>
-                  <option v-if="segment.voiceId && !voiceOptionIds.has(segment.voiceId)" :value="segment.voiceId">{{ segment.voiceId }}</option>
-                </select>
-                <input v-else v-model="segment.voiceId" data-testid="segment-voice-id-input" :placeholder="$t('story2video.sceneMaterial.voiceIdPlaceholder')" @input="segmentsDirty = true" />
-                <span v-if="voiceCatalogError" class="field-hint field-hint-warning" data-testid="voice-catalog-error">{{ tOrKey('story2video.sceneMaterial.voiceCatalogUnavailable') }}</span>
-              </label>
-              <label class="field-label">
-                <span>{{ $t('story2video.sceneMaterial.voiceSpeedLabel') }}: {{ segmentVoiceSpeedText(segment) }}x</span>
-                <input v-model.number="segment.voiceSpeed" data-testid="segment-voice-speed-range" type="range" min="0.5" max="2" step="0.1" @input="segmentsDirty = true" />
-              </label>
-              <label class="field-label">
-                <span>{{ $t('story2video.sceneMaterial.voicePitchLabel') }}</span>
-                <input v-model.number="segment.voicePitch" data-testid="segment-voice-pitch-input" type="number" step="0.1" min="-12" max="12" @input="segmentsDirty = true" />
-              </label>
-              <label class="field-label">
-                <span>{{ $t('story2video.sceneMaterial.voiceEmotionLabel') }}</span>
-                <input v-model="segment.voiceEmotion" data-testid="segment-voice-emotion-input" :placeholder="$t('story2video.sceneMaterial.voiceEmotionPlaceholder')" @input="segmentsDirty = true" />
-              </label>
-            </div>
-          <div class="segment-inline-actions">
-            <UiButton size="sm" variant="secondary" data-testid="regenerate-audio-button" :disabled="isSegmentBusy(segment.id)" @click="regenerateSceneAudio(segment.id)">
-              {{ segmentBusyKind(segment.id) === 'tts' ? $t('story2video.sceneMaterial.generatingVoice') : $t('story2video.sceneMaterial.regenerateVoice') }}
-            </UiButton>
-          </div>
-          <div class="segment-audio-preview" data-testid="segment-audio-preview">
-            <audio v-if="segment.audioUrl" :src="segment.audioUrl" controls class="audio-player" @error="clearSegmentAudioUrl(segment)"></audio>
-            <span v-else class="asset-placeholder">{{ tOrKey('story2video.sceneMaterial.emptySlot') }}</span>
-          </div>
-          </div>
-
-          <div class="segment-actions">
-            <label class="segment-file-action" :class="{ disabled: isSegmentBusy(segment.id) }">
-              替换旁白
-              <input
-                type="file"
-                accept=".wav,.m4a,.mp3,audio/wav,audio/x-m4a,audio/mpeg"
-                :disabled="isSegmentBusy(segment.id)"
-                @change="replaceSegmentAudio(segment.id, $event)"
-              />
-            </label>
-            <UiButton v-if="segment.imagePath" size="sm" variant="ghost" @click="downloadArtifact(segment.imagePath, segmentName(index, 'image', segment.imagePath))">下载图片</UiButton>
-            <UiButton v-if="segment.audioPath" size="sm" variant="ghost" @click="downloadArtifact(segment.audioPath, segmentName(index, 'audio', segment.audioPath))">下载音频</UiButton>
-            <UiButton v-if="segment.videoPath" size="sm" variant="ghost" @click="downloadArtifact(segment.videoPath, segmentName(index, 'video', segment.videoPath))">下载视频</UiButton>
-          </div>
-        </article>
-      </div>
-    </section>
+    <!-- 分段编辑区（2026-10-20 抽为 ResultSegmentEditor，PRD-S2V-RESULT-VIEW-PERF §5）：
+         本文件是 max-lines 点名还账对象（零增长容差），分段区整块搬出后宿主只留接线。 -->
+    <ResultSegmentEditor
+      v-if="projectId && segments.length"
+      :segments="segments"
+      :segments-dirty="segmentsDirty"
+      :segment-busy="segmentBusy"
+      :policy-scene-numbers="policyFlagSceneNumbers"
+      :voice-catalog-options="voiceCatalogOptions"
+      :voice-catalog-error="voiceCatalogError"
+      :voice-context="voiceContext"
+      :unavailable-material-kinds="unavailableMaterialKinds"
+      :batch-loading="segmentBatchLoading"
+      @dirty="segmentsDirty = true"
+      @move-segment="moveSegment"
+      @remove-segment="removeSegment"
+      @select-material="selectSceneMaterial"
+      @generate-image="generateSceneImage"
+      @generate-ai-video="generateSceneAiVideo"
+      @regenerate-subtitle="regenerateSceneSubtitle"
+      @regenerate-prompt="regenerateScenePrompt"
+      @regenerate-audio="regenerateSceneAudio"
+      @replace-audio="replaceSegmentAudio"
+      @download-artifact="downloadArtifact"
+      @preview-material="previewSceneMaterial"
+      @mark-material-unavailable="markMaterialUnavailableFromEditor"
+      @update-subtitle-blocks="updateSegmentSubtitleBlocks"
+      @load-next-batch="onSegmentBatchLoaded"
+      @segment-ref="setSegmentItemRef"
+    />
 
     <!-- 底部固定操作条（2026-08-17 UX 统一）：保存分段/重新合成 不随页面滚动（2026-09-18 合并重复的再次合成视频按钮） -->
     <div v-if="projectId && segments.length" class="result-action-bar" data-testid="result-action-bar">
@@ -442,10 +288,21 @@ import UiButton from '../components/UiButton.vue'
 import UiModal from '../components/UiModal.vue'
 import PodcastEpisodeEntry from '../components/PodcastEpisodeEntry.vue'
 import ResultModelInfoRow from './video-creation/ResultModelInfoRow.vue'
+import ResultSegmentEditor from './video-creation/ResultSegmentEditor.vue'
 import { buildPublishFromProject, publishDataToQuery } from '@/features/publish/publish-from-project'
 import { getAppLocale } from '@/i18n'
 import { STORY2VIDEO_NOTIFICATION_KEYS, formatBgmSkippedNotification, formatStory2VideoNotification, getStory2VideoNotificationUiText, resolveStory2VideoNotification } from '@/story2video/story2video-notifications'
 import { getTtsVoiceCatalog } from '@/api/tts-voice-catalog'
+import {
+  SEGMENT_RENDER_STEP,
+  buildPreviewPlaceholder,
+  effectiveSelectedMaterial,
+  parseSubtitleBlocksInput,
+  resolveResultPreviewLayout,
+  resolveSceneMaterialSlots,
+  resolveSegmentStatusReason,
+  resolveSubtitleBlocksText,
+} from './video-creation/composables/useResultPreviewMedia'
 import {
   story2videoExportZip,
   story2videoCreateShareUrl,
@@ -472,7 +329,7 @@ import {
 
 export default {
   name: 'ResultView',
-  components: { UiButton, UiModal, PodcastEpisodeEntry, ResultModelInfoRow },
+  components: { UiButton, UiModal, PodcastEpisodeEntry, ResultModelInfoRow, ResultSegmentEditor },
   data() {
     return {
       videoPath: null,
@@ -516,6 +373,12 @@ export default {
       pipelineRunActionBusy: false,
       scriptModalVisible: false,
       copyingScript: false,
+      // 分段渲染窗口（2026-10-20，PRD-S2V-RESULT-VIEW-PERF §4.3）：已渲染到第几段，
+      // 由列表尾哨兵进入视口时递增；无 IntersectionObserver 环境（jsdom）保持全量首屏。
+      segmentRenderCount: 0,
+      // 首屏已申请过媒体 URL 的分批指针：哨兵触发后只解析新增段，不重解析已渲染段。
+      segmentUrlBatchCursor: 0,
+      segmentBatchLoading: false,
     }
   },
   async mounted() {
@@ -534,6 +397,8 @@ export default {
     } finally {
       this.loading = false
     }
+    // 分段列表渲染后再挂哨兵（ref 此时才存在）；无 IntersectionObserver 时保持手动按钮。
+    this.$nextTick(() => this.watchSegmentListSentinel())
   },
   // 未保存修改离开守卫：dirty 时挂起导航并弹确认（hold-next，next 只调用一次），
   // 避免用户直接返回历史记录/流水线启动页时静默丢失编辑（2026-08-16）。
@@ -547,6 +412,10 @@ export default {
     if (typeof this.pendingLeaveNext === 'function') {
       this.pendingLeaveNext(false)
       this.pendingLeaveNext = null
+    }
+    if (this._segmentSentinelObserver) {
+      this._segmentSentinelObserver.disconnect()
+      this._segmentSentinelObserver = null
     }
     window.removeEventListener('scroll', this.onSegmentScroll)
     window.removeEventListener('resize', this.onSegmentScroll)
@@ -588,16 +457,17 @@ export default {
     },
     // 历史记录提示词翻译（2026-08-12）：非 en 界面且分段存在翻译时展示只读文案
     promptTranslationLabel() {
-      const locale = getAppLocale()
-      return locale === 'zh' ? '中文翻译' : (locale === 'en' ? 'Translation' : '翻译')
+      const key = getAppLocale() === 'zh'
+        ? 'story2video.sceneMaterial.promptTranslationLabelZh'
+        : 'story2video.sceneMaterial.promptTranslationLabelOther'
+      return this.tOrKey(key)
     },
     bgmSkippedNotice() {
       const query = this.$route?.query || {}
       if (query.bgmSkipped !== '1') return ''
       return formatBgmSkippedNotification(query.bgmReason).message
     },
-    // 内容政策失败任务从历史跳转时携带 focusScenes（1-based 场景号，逗号分隔）：
-    // 场景号 = 分段下标 + 1，用于定位需要修改文案的分段；非法/缺省一律为空集合（fail-safe）
+    // 内容政策失败任务从历史跳转时携带 focusScenes（1-based 场景号，逗号分隔）：    // 场景号 = 分段下标 + 1，用于定位需要修改文案的分段；非法/缺省一律为空集合（fail-safe）
     policyFlagSceneNumbers() {
       const raw = String(this.$route?.query?.focusScenes || '')
       const numbers = new Set()
@@ -642,6 +512,43 @@ export default {
       if (Number.isFinite(duration) && duration > 0) return duration
       const end = Number(this.trimEnd)
       return Number.isFinite(end) && end > 0 ? end : 0.1
+    },
+    // 无成片时的预览占位区块文案（zh/en 成对，来自 locales 单一真源）
+    previewPlaceholder() {
+      return buildPreviewPlaceholder({
+        translate: key => this.tOrKey(key),
+        projectId: this.projectId,
+        hasEditableContent: this.hasEditableContent,
+      })
+    },
+    // 首屏批次 + 渲染窗口 + 预览三态：全部由 composable 计算（单一真源），
+    // 本文件只做薄接线（max-lines 点名还账对象，零增长容差）。
+    previewLayout() {
+      return resolveResultPreviewLayout({
+        segments: this.segments,
+        project: this.project,
+        ownVideoPath: this.videoPath,
+        renderedCount: this.segmentRenderCount,
+        policySceneNumbers: this.policyFlagSceneNumbers,
+      })
+    },
+    // 首屏批次：loadProject 只用它申请媒体 URL；哨兵触发后由 batchCursor 追加。
+    segmentFirstBatch() {
+      return this.previewLayout.firstBatch
+    },
+    pendingSegmentBatch() {
+      return this.previewLayout.pendingBatch
+    },
+    visibleSegments() {
+      return this.previewLayout.visibleSegments
+    },
+    // 预览区三态的唯一判据（无成片 ⇒ EMPTY，不得发起预览相关 IPC）
+    hasFinalVideo() {
+      return this.previewLayout.hasFinalVideo
+    },
+    hasMoreSegmentsToRender() {
+      const all = Array.isArray(this.segments) ? this.segments : []
+      return this.segmentRenderCount + SEGMENT_RENDER_STEP < all.length
     },
     degradedAssetKinds() {
       const kinds = new Set()
@@ -766,6 +673,47 @@ export default {
         this.pipelineRunActionBusy = false
       }
     },
+    // 字幕文本与失败原因的解析逻辑已抽到 composable（宿主与 ResultSegmentEditor 共用），
+    // 此处保留薄包装供既有调用与测试沿用。
+    subtitleBlocksText(segment) {
+      return resolveSubtitleBlocksText(segment)
+    },
+    segmentVoiceSpeedText(segment) {
+      const speed = Number(segment && segment.voiceSpeed)
+      return Number.isFinite(speed) && speed > 0 ? speed.toFixed(1) : '1.0'
+    },
+    segmentStatusReason(segment) {
+      return resolveSegmentStatusReason(segment, {
+        resolveNotification: resolveStory2VideoNotification,
+        truncate: (value, max) => this.truncateStory2VideoText(value, max),
+      })
+    },
+    truncateStory2VideoText(value, max) {
+      const points = Array.from(String(value || ''))
+      return points.length > max ? points.slice(0, max - 1).join('') + '…' : points.join('')
+    },
+    // ── ResultSegmentEditor 桥接（2026-10-20 抽组件后宿主只留接线） ──
+    // 分段区整块搬到 video-creation/ResultSegmentEditor.vue（本文件是 max-lines
+    // 点名还账对象，零增长容差）。以下是它 emit 回宿主的纯数据动作。
+    markMaterialUnavailableFromEditor(segment, kind) {
+      if (!segment || !kind) return
+      this.markMaterialUnavailable(segment, kind)
+    },
+    // 分享 URL 失效：清渲染端坏 URL + 标记素材位不可用（保留来源路径供恢复）。
+    // 编辑器内也有一份同语义实现（它要先改 DOM 上的 URL）；宿主保留本方法供
+    // 既有调用与测试沿用，两边行为由同一组断言守住。
+    clearSceneMaterialUrl(segment, kind) {
+      if (!segment || !kind) return
+      if (kind === 'image1') segment.imageUrl = null
+      else if (kind === 'image2') segment.alternateImageUrls = []
+      else if (kind === 'video1') segment.videoUrl = null
+      else if (kind === 'video2') segment.altVideoUrl = null
+      this.markMaterialUnavailable(segment, kind)
+    },
+    onSegmentBatchLoaded(batch) {
+      // 哨兵追加的批次：只解析这一批的媒体 URL，不重解析已渲染段
+      return this.refreshSegmentImageUrls(Array.isArray(batch) ? batch : [])
+    },
     // 分段快捷定位（2026-08-17 UX 统一）：分段卡片 ref 收集 + 数字跳转 + 上一条/下一条
     setSegmentItemRef(el, index) {
       if (el) this.segmentItemRefs[index] = el
@@ -790,8 +738,39 @@ export default {
       }
       if (current >= 0) this.activeSegmentIndex = current
     },
-    scrollToSegment(index) {
-      if (!Number.isInteger(index) || index < 0 || index >= this.segments.length) return
+    // 分段渲染窗口推进（2026-10-20，PRD-S2V-RESULT-VIEW-PERF §4.3）：
+    // 先扩窗口让新分段进 DOM，再只解析新增那一批的媒体 URL。
+    // segmentRenderCount 语义是「已展开到的窗口下界」：窗口 = [0, renderCount + step)，
+    // 所以推进时取 [renderCount, renderCount + step) 这一新区间。
+    async loadNextSegmentBatch() {
+      const total = Array.isArray(this.segments) ? this.segments.length : 0
+      if (this.segmentBatchLoading || this.segmentRenderCount + SEGMENT_RENDER_STEP >= total) return
+      this.segmentBatchLoading = true
+      try {
+        const from = this.segmentRenderCount
+        const nextCount = Math.min(total, from + SEGMENT_RENDER_STEP)
+        const batch = this.segments.slice(from, nextCount)
+        this.segmentRenderCount = nextCount
+        this.segmentUrlBatchCursor = this.previewLayout.urlBatchCursor
+        await this.refreshSegmentImageUrls(batch)
+      } finally {
+        this.segmentBatchLoading = false
+      }
+    },
+    // 哨兵观察器：jsdom 无 IntersectionObserver 时静默跳过（保留手动按钮兜底）。
+    watchSegmentListSentinel() {
+      const el = this.$refs && this.$refs.segmentListSentinel
+      if (this._segmentSentinelObserver) {
+        this._segmentSentinelObserver.disconnect()
+        this._segmentSentinelObserver = null
+      }
+      if (!el || typeof IntersectionObserver === 'undefined') return
+      this._segmentSentinelObserver = new IntersectionObserver(entries => {
+        if (entries.some(entry => entry.isIntersecting)) this.loadNextSegmentBatch()
+      }, { rootMargin: '240px' })
+      this._segmentSentinelObserver.observe(el)
+    },
+    scrollToSegment(index) {      if (!Number.isInteger(index) || index < 0 || index >= this.segments.length) return
       this.activeSegmentIndex = index
       this.$nextTick(() => {
         const el = Array.isArray(this.segmentItemRefs) ? this.segmentItemRefs[index] : null
@@ -804,10 +783,6 @@ export default {
       const base = this.activeSegmentIndex >= 0 ? this.activeSegmentIndex : 0
       const target = base + Number(offset)
       this.scrollToSegment(target)
-    },
-    segmentVoiceSpeedText(segment) {
-      const speed = Number(segment && segment.voiceSpeed)
-      return Number.isFinite(speed) && speed > 0 ? speed.toFixed(1) : '1.0'
     },
     // 音色目录加载：项目语音上下文缺失或目录不可用时保持空目录，UI 自动回退文本框（2026-08-17）
     async loadVoiceCatalog() {
@@ -848,22 +823,6 @@ export default {
     tOrKey(key, params) {
       return typeof this.$t === 'function' ? this.$t(key, params) : key
     },
-    segmentStatusLabel(status) {
-      const key = ['completed', 'failed', 'processing', 'pending'].includes(status) ? status : 'completed'
-      return this.tOrKey(`story2video.segmentStatus.${key}`)
-    },
-    segmentStatusReason(segment) {
-      if (!segment || segment.status !== 'failed') return ''
-      const raw = String(segment.error || '').trim()
-      if (!raw) return ''
-      // 复用通知归一化：命中失败类别返回可读原因，未命中回退通用失败文案（不暴露内部错误文本）
-      const resolved = resolveStory2VideoNotification({ error: raw })
-      return this.truncateStory2VideoText(resolved.message, 120)
-    },
-    truncateStory2VideoText(value, max) {
-      const points = Array.from(String(value || ''))
-      return points.length > max ? points.slice(0, max - 1).join('') + '…' : points.join('')
-    },
     showStory2VideoNotification(notification = {}) {
       const resolved = resolveStory2VideoNotification(notification)
       this.story2videoNotificationDialog = { visible: true, messageKey: resolved.key, messageParams: resolved.params }
@@ -887,8 +846,7 @@ export default {
       const translation = segment && segment.promptTranslation
       return typeof translation === 'string' && translation.trim() !== ''
     },
-    async resolveLocalUrl(filePath, previousUrl) {
-      if (!filePath) return null
+    async resolveLocalUrl(filePath, previousUrl) {      if (!filePath) return null
       const result = await story2videoCreateShareUrl(filePath, previousUrl)
       const url = result?.code === 0 ? (result.data?.url || result.data) : null
       if (!url) throw new Error(result?.message || '无法读取本地文件')
@@ -915,34 +873,11 @@ export default {
       delete next[key]
       this.unavailableMaterialKinds = next
     },
-    clearSegmentImageUrl(segment) {
-      if (!segment) return
-      segment.imageUrl = null
-      this.markMaterialUnavailable(segment, 'image1')
-    },
-    clearSegmentAudioUrl(segment) {
-      if (segment) segment.audioUrl = null
-    },
-    clearSceneMaterialUrl(segment, kind) {
-      if (!segment) return
-      // A failed share URL must invalidate the renderer-side slot; keep the
-      // persisted source path so regeneration and later URL refresh can recover it.
-      if (kind === 'image1') {
-        segment.imageUrl = null
-        this.markMaterialUnavailable(segment, kind)
-      } else if (kind === 'image2') {
-        segment.alternateImageUrls = []
-        this.markMaterialUnavailable(segment, kind)
-      } else if (kind === 'video1') {
-        segment.videoUrl = null
-        this.markMaterialUnavailable(segment, kind)
-      } else if (kind === 'video2') {
-        segment.altVideoUrl = null
-        this.markMaterialUnavailable(segment, kind)
-      }
-    },
-    async refreshSegmentImageUrls() {
-      await Promise.all((this.segments || []).map(async (segment) => {
+    async refreshSegmentImageUrls(segments = null) {
+      // 入参缺省时保留旧契约（全量刷新），供保存/重试/重新合成等写后刷新调用；
+      // loadProject 的首屏路径只传第一批，避免 169 段一次性全量 IPC。
+      const list = Array.isArray(segments) ? segments : (this.segments || [])
+      await Promise.all(list.map(async (segment) => {
         if (!segment) return
         if (!segment.imagePath) {
           segment.imageUrl = null
@@ -958,10 +893,12 @@ export default {
           this.markMaterialUnavailable(segment, 'image1')
         }
       }))
-      await this.refreshSceneMaterialUrls()
+      await this.refreshSceneMaterialUrls(segments)
     },
-    async refreshSceneMaterialUrls() {
-      await Promise.all((this.segments || []).map(async (segment) => {
+    async refreshSceneMaterialUrls(segments = null) {
+      // 与 refreshSegmentImageUrls 同口径：缺省全量（写后刷新），显式传第一批（首屏）。
+      const list = Array.isArray(segments) ? segments : (this.segments || [])
+      await Promise.all(list.map(async (segment) => {
         if (!segment) return
         const alternate = Array.isArray(segment.alternateImages) ? segment.alternateImages[0] : null
         if (alternate && alternate.path) {
@@ -1027,30 +964,15 @@ export default {
       }))
     },
     effectiveSelectedMaterial(segment) {
-      const selected = segment && segment.selectedMaterial
-      return ['image1', 'image2', 'video'].includes(selected) ? selected : null
+      return effectiveSelectedMaterial(segment)
     },
+    // 素材槽位解析（与 ResultSegmentEditor 同一 composable 真源）：宿主用于
+    // selectSceneMaterial 的事前校验——该槽位没有可用路径就不发 IPC。
     sceneMaterialSlots(segment) {
-      const t = (key, params) => this.$t('story2video.sceneMaterial.' + key, params)
-      const selected = this.effectiveSelectedMaterial(segment)
-      const alternate = Array.isArray(segment.alternateImages) ? segment.alternateImages[0] : null
-      const image1Path = this.isMaterialUnavailable(segment, 'image1') ? null : (segment.imagePath || null)
-      const image2Path = this.isMaterialUnavailable(segment, 'image2') ? null : ((alternate && alternate.path) || null)
-      const sceneVideoPath = this.isMaterialUnavailable(segment, 'video1')
-        ? null
-        : ((segment.videoMeta && segment.videoMeta.sceneVideoPath) || segment.videoPath || null)
-      const altSceneVideoPath = this.isMaterialUnavailable(segment, 'video2')
-        ? null
-        : ((segment.videoMeta && segment.videoMeta.altSceneVideoPath) || segment.altVideoPath || null)
-      const videoSelected = selected === 'video'
-      return [
-        { kind: 'image1', label: t('image1Label'), path: image1Path, url: image1Path ? (segment.imageUrl || null) : null, selectable: Boolean(image1Path), selected: selected === 'image1' && Boolean(image1Path) },
-        { kind: 'image2', label: t('image2Label'), path: image2Path, url: image2Path ? ((Array.isArray(segment.alternateImageUrls) && segment.alternateImageUrls[0]) || null) : null, selectable: Boolean(image2Path), selected: selected === 'image2' && Boolean(image2Path) },
-        { kind: 'video1', label: t('video1Label'), path: sceneVideoPath, url: sceneVideoPath ? (segment.videoUrl || null) : null, selectable: Boolean(segment.videoPath && sceneVideoPath), selected: videoSelected && Boolean(segment.videoPath && sceneVideoPath) },
-        // The service persists one canonical video identity. video2 is a visual alias
-        // for an optional alternate display path and must not duplicate the badge.
-        { kind: 'video2', label: t('video2Label'), path: altSceneVideoPath, url: altSceneVideoPath ? (segment.altVideoUrl || null) : null, selectable: Boolean(segment.videoPath && altSceneVideoPath), selected: false },
-      ]
+      return resolveSceneMaterialSlots(segment, {
+        label: key => this.tOrKey('story2video.sceneMaterial.' + key),
+        unavailable: this.unavailableMaterialKinds,
+      })
     },
     previewSceneMaterial(slot) {
       this.sceneMaterialPreview = {
@@ -1165,24 +1087,10 @@ export default {
         this.segmentBusy = next
       }
     },
-    subtitleBlocksText(segment) {
-      if (!segment) return ''
-      // blocks 显式存在（含空数组=用户清空）时直接展示，避免清空后回退旧 timeline（审查 I1）
-      if (Array.isArray(segment.subtitleBlocks)) {
-        return segment.subtitleBlocks.join('\n')
-      }
-      if (Array.isArray(segment.subtitleTimeline) && segment.subtitleTimeline.length) {
-        return segment.subtitleTimeline
-          .map(item => (item && typeof item === 'object' ? item.text : item))
-          .filter(Boolean)
-          .join('\n')
-      }
-      return ''
-    },
+    // 字幕编辑：blocks 显式存在（含空数组=用户清空）时直接展示，避免清空后回退旧 timeline（审查 I1）
     updateSegmentSubtitleBlocks(segment, value) {
       if (!segment) return
-      const blocks = String(value || '').split('\n').map(line => line.trim()).filter(Boolean)
-      segment.subtitleBlocks = blocks
+      segment.subtitleBlocks = parseSubtitleBlocksInput(value)
       // 手动编辑后时间轴为派生数据：置空避免合成沿用陈旧时间轴（与 regenerateSceneSubtitle 语义一致，审查 I1）
       segment.subtitleTimeline = []
       this.segmentsDirty = true
@@ -1309,23 +1217,43 @@ export default {
         this.segmentsDirty = false
         this.activeSegmentIndex = -1
         this.segmentItemRefs = []
+        // 渲染窗口与媒体 URL 游标复位到首批（换项目/重进页面时不得残留上一个项目的窗口）
+        this.segmentRenderCount = 0
+        this.segmentUrlBatchCursor = this.segmentFirstBatch.length
         this.loadVoiceCatalog()
-        await this.refreshSegmentImageUrls()
+        // 首屏只解析第一批分段素材 URL（2026-10-20，PRD-S2V-RESULT-VIEW-PERF §4.2）：
+        // 169 段 × 5 个媒体位 ≈ 845 次 IPC 全量串在 await 上，是「页面进入非常慢」
+        // 与「loading 迟迟不结束」的直接原因。分段编辑区本身分批渲染，
+        // 未进入渲染窗口的分段不需要提前拿 URL。
+        await this.refreshSegmentImageUrls(this.pendingSegmentBatch)
         // 分段渲染完成后初始化滚动高亮（2026-09-18）
         this.$nextTick(() => this.onSegmentScroll())
         this.audioPath = project.audioPath || null
-        try {
-          this.audioSrc = this.audioPath ? await this.resolveLocalUrl(this.audioPath, this.audioSrc) : null
-        } catch (_error) {
+        // 完整旁白：仅在有 audioPath 时申请一个 URL；无旁白时保留占位（与旧行为一致）
+        if (this.previewLayout.shouldLoadNarration) {
+          try {
+            this.audioSrc = await this.resolveLocalUrl(this.audioPath, this.audioSrc)
+          } catch (_error) {
+            this.audioSrc = null
+          }
+        } else {
           this.audioSrc = null
         }
+        // 成品视频预览：**无 videoPath 时完全不申请媒体 URL**（2026-10-20 修复核心）。
+        // 失败任务没有成片，旧实现仍会走 resolveLocalUrl，而整个 loading 又要等
+        // 全部分段素材解析完 ⇒ 用户看到「预览区一直加载」最后空白。
         this.videoPath = project.videoPath || null
-        try {
-          this.videoSrc = this.videoPath ? await this.resolveLocalUrl(this.videoPath, this.videoSrc) : null
-          this.videoReloadAttempted = false
-        } catch (_error) {
+        if (this.previewLayout.shouldLoadPreview) {
+          try {
+            this.videoSrc = await this.resolveLocalUrl(this.videoPath, this.videoSrc)
+            this.videoReloadAttempted = false
+          } catch (_error) {
+            this.videoSrc = null
+            this.showStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.PREVIEW_MISSING })
+          }
+        } else {
           this.videoSrc = null
-          this.showStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.PREVIEW_MISSING })
+          this.videoReloadAttempted = false
         }
         this.maybeShowDegradedAssetsWarning()
       } catch (_error) {
@@ -1621,9 +1549,6 @@ export default {
       this.unsavedLeaveDialog.visible = false
       if (typeof next === 'function') next(false)
     },
-    isPolicyFlagScene(index) {
-      return this.policyFlagSceneNumbers.size > 0 && this.policyFlagSceneNumbers.has(index + 1)
-    },
     isSegmentBusy(segmentId) {
       return Boolean(this.segmentBusy[segmentId])
     },
@@ -1752,6 +1677,14 @@ export default {
 .bgm-skipped-notice { display: flex; align-items: center; gap: 8px; padding: 10px 14px; margin-bottom: 16px; color: var(--banner-info-color); background: var(--banner-info-bg); border: 1px solid var(--banner-info-border); border-radius: 8px; font-size: var(--font-size-sm); line-height: 1.5; }
 .loading-state, .empty-state { text-align: center; padding: 60px 0; color: var(--text-muted); }
 .video-player { width: 100%; max-height: 68vh; border-radius: 8px; background: var(--ink); }
+/* 无成片占位区块（2026-10-20）：与 .video-player 同一容器与圆角，高度用同一上限档位，
+   保证「加载出成片」与「本来就没有成片」两种终态的页面高度一致，不产生布局跳变。 */
+.video-section--placeholder { display: flex; }
+.video-preview-placeholder { display: flex; width: 100%; min-height: 240px; max-height: 68vh; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 32px 24px; border-radius: 8px; background: var(--bg); border: 1px dashed var(--border); text-align: center; }
+.video-preview-placeholder__title { margin: 0; font-size: var(--font-size-md); font-weight: 600; color: var(--text); }
+.video-preview-placeholder__description { margin: 0; max-width: 52em; font-size: var(--font-size-sm); line-height: 1.6; color: var(--text-muted); }
+/* 分段渲染窗口哨兵：进入视口前 240px 即触发，视觉上保持轻量（不占内容流高度）。 */
+.segment-list-sentinel { display: flex; justify-content: center; padding: 12px 0 4px; }
 .video-info { margin: 12px 0; font-size: var(--font-size-sm); color: var(--text-muted); }
 .completion-summary { color: var(--banner-success-text); font-weight: 600; margin-bottom: 4px; }
 .video-info p { margin: 4px 0; }
@@ -1763,6 +1696,11 @@ export default {
 .section-heading h2 { margin: 0; font-size: var(--font-size-md); }
 .section-heading p { margin: 4px 0 0; color: var(--text-muted); font-size: var(--font-size-sm); }
 .segments-unsaved-chip { display: inline-block; margin-left: 10px; padding: 2px 8px; border-radius: 10px; background: #fdf6ec; color: #e6a23c; font-size: var(--font-size-xs); font-weight: 500; }
+/* 查看文案弹窗：原文案含原始换行与超长行。pre 默认 white-space: pre 不折行，
+   长行会横向溢出弹窗（内容被裁切）。pre-wrap 保留原始换行并自动折行；
+   overflow-wrap/word-break 兜底 URL 等无空格长串。滚动交给 .ui-modal-body，不叠第二层滚动条。 */
+.script-modal-body { min-width: 0; }
+.script-text { margin: 0; color: var(--text); font-family: inherit; font-size: var(--font-size-sm); line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
 /* 分段快捷定位条（2026-08-17 UX 统一） */
 .segment-jump-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; padding: 10px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
 .segment-jump-label { color: var(--text-muted); font-size: var(--font-size-xs); font-weight: 600; }
@@ -1788,67 +1726,8 @@ export default {
 .trim-progress { width: 100%; height: 4px; margin-top: 10px; accent-color: var(--primary); }
 .trim-duration { margin: 8px 0 0; color: var(--text-muted); font-size: var(--font-size-xs); }
 .trim-result { display: grid; gap: 10px; margin-top: 14px; }
-.trimmed-player { width: 100%; max-height: 360px; background: var(--ink); border-radius: 6px; }
-.segment-list { display: grid; gap: 12px; }
-.segment-item { border: 1px solid var(--border); border-radius: 8px; padding: 14px; background: var(--surface); }
-.segment-thumb { margin-bottom: 12px; border-radius: 6px; overflow: hidden; background: var(--bg); max-width: 320px; }
-.segment-thumb { display: flex; align-items: center; justify-content: center; min-height: 120px; }
-.segment-thumb img { display: block; width: 100%; height: 120px; object-fit: cover; }
 .asset-placeholder { color: var(--text-muted); font-size: var(--font-size-xs); }
 .narration-placeholder { display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 6px; background: var(--bg); }
-.scene-material-section { margin: 12px 0; padding: 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); }
-.scene-material-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
-.scene-material-heading strong { font-size: var(--font-size-sm); }
-.scene-material-hint { color: var(--text-muted); font-size: var(--font-size-xs); }
-.scene-material-slots { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
-.scene-material-slot { position: relative; display: flex; min-width: 0; flex-direction: column; gap: 7px; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); transition: border-color 0.15s ease, box-shadow 0.15s ease; }
-.scene-material-slot:hover { border-color: var(--primary); }
-.scene-material-slot.selected { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
-.scene-material-slot.empty { opacity: 0.75; }
-.scene-material-thumb { display: flex; align-items: center; justify-content: center; width: 100%; aspect-ratio: 3 / 4; min-height: 96px; padding: 0; border: 0; border-radius: 4px; overflow: hidden; background: var(--bg); color: inherit; cursor: pointer; }
-.scene-material-thumb:disabled { cursor: not-allowed; }
-.scene-material-thumb img, .scene-material-thumb video { width: 100%; height: 100%; object-fit: cover; }
-.scene-material-empty-text { color: var(--text-muted); font-size: var(--font-size-xs); }
-.scene-material-choice { display: flex; align-items: center; gap: 6px; min-height: 24px; }
-.scene-material-radio { flex: 0 0 auto; accent-color: var(--primary); width: 16px; height: 16px; cursor: pointer; }
-.scene-material-radio:disabled { cursor: not-allowed; }
-.scene-material-label { min-width: 0; color: var(--text); font-size: var(--font-size-xs); line-height: 1.3; cursor: pointer; }
-.scene-material-radio:disabled + .scene-material-label { color: var(--text-muted); cursor: not-allowed; }
-.scene-material-badge { position: absolute; top: 6px; right: 6px; max-width: calc(100% - 12px); padding: 2px 6px; border-radius: 4px; background: var(--primary); color: #fff; font-size: var(--font-size-xs); line-height: 1.2; }
-.scene-material-slot-action { display: flex; min-height: 30px; align-items: flex-end; }
-.scene-material-slot-action > * { width: 100%; min-width: 0; }
-.scene-material-slot-action button { width: 100%; min-width: 0; white-space: normal; }
-.scene-material-preview-body { display: flex; align-items: center; justify-content: center; min-height: 260px; }
-.scene-material-preview-body img, .scene-material-preview-body video { max-width: 100%; max-height: 75vh; border-radius: 6px; }
-.scene-material-preview-empty { color: var(--text-muted); }
-/* 查看文案弹窗：原文案含原始换行与超长行。pre 默认 white-space: pre 不折行，
-   长行会横向溢出弹窗（内容被裁切）。pre-wrap 保留原始换行并自动折行；
-   overflow-wrap/word-break 兜底 URL 等无空格长串。滚动交给 .ui-modal-body，不叠第二层滚动条。 */
-.script-modal-body { min-width: 0; }
-.script-text { margin: 0; color: var(--text); font-family: inherit; font-size: var(--font-size-sm); line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
-.segment-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-.segment-status { padding: 3px 6px; border-radius: 4px; background: var(--border-light); color: var(--text-muted); font-size: var(--font-size-xs); }
-.segment-status-reason { flex: 1 1 auto; min-width: 0; color: var(--status-failed-text, var(--danger, #d93025)); font-size: var(--font-size-xs); line-height: 1.45; word-break: break-word; }
-.segment-policy-flag { padding: 3px 6px; border-radius: 4px; background: var(--danger-bg, #fdecea); color: var(--danger, #d93025); font-size: var(--font-size-xs); font-weight: 600; }
-.segment-policy-flagged { border-color: var(--danger, #d93025); box-shadow: 0 0 0 1px var(--danger, #d93025) inset; }
-.segment-status.failed { background: var(--status-failed-bg); color: var(--status-failed-text); }
-.segment-status.processing { background: var(--warning-bg); color: var(--warning); }
-.segment-order { display: flex; gap: 4px; margin-left: auto; }
-.segment-order button { border: 1px solid var(--border); background: var(--surface); color: var(--text-muted); border-radius: 4px; padding: 5px 8px; cursor: pointer; }
-.segment-order button:disabled { opacity: 0.4; cursor: not-allowed; }
-.field-label { display: grid; gap: 6px; margin-top: 10px; color: var(--text-muted); font-size: var(--font-size-xs); font-weight: 600; }
-.field-label textarea { width: 100%; box-sizing: border-box; resize: vertical; border: 1px solid var(--border); border-radius: 6px; padding: 9px 10px; background: var(--bg); color: var(--text); font: inherit; font-size: var(--font-size-sm); line-height: 1.5; }
-.segment-inline-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-.segment-voice-settings { margin-top: 12px; padding: 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); }
-.segment-voice-title { display: block; color: var(--text-muted); font-size: var(--font-size-xs); font-weight: 600; margin-bottom: 4px; }
-.segment-voice-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
-.segment-voice-grid .field-label { margin-top: 6px; }
-.segment-voice-grid input { width: 100%; box-sizing: border-box; border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; background: var(--bg); color: var(--text); font: inherit; font-size: var(--font-size-sm); }
-.segment-actions { margin-top: 12px; }
-.segment-file-action { display: inline-flex; align-items: center; min-height: 30px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; color: var(--text-muted); cursor: pointer; font-size: var(--font-size-xs); font-weight: 600; }
-.segment-file-action:hover { border-color: var(--primary); color: var(--primary); }
-.segment-file-action.disabled { opacity: 0.45; cursor: not-allowed; }
-.segment-file-action input { display: none; }
 
 @media (max-width: 900px) {
   .segment-jump-sidebar { display: none; }
@@ -1856,12 +1735,9 @@ export default {
 }
 @media (max-width: 720px) {
   .result-page { padding: 16px 16px calc(var(--result-action-bar-space-mobile, 196px) + 16px); }
-  .section-heading, .segment-header { align-items: flex-start; flex-direction: column; }
+  .section-heading { align-items: flex-start; flex-direction: column; }
   .trim-controls { grid-template-columns: 1fr; }
-  .segment-order { margin-left: 0; }
   .actions > *, .section-actions > * { flex: 1 1 auto; }
-  .scene-material-slots { grid-template-columns: repeat(2, 1fr); }
-  .segment-voice-grid { grid-template-columns: 1fr; }
   .result-header-status { width: 100%; justify-content: flex-start; }
   .result-action-bar { left: 68px; min-height: var(--result-action-bar-space-mobile, 196px); padding: 10px 14px; align-items: flex-start; }
   .result-action-bar-status, .result-action-bar-buttons { width: 100%; }
