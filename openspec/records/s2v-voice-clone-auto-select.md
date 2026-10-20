@@ -97,8 +97,8 @@ date: 2026-10-20
 |---|---|
 | 时序契约写进 PRD 数据校验表（含「禁止写法」与后果） | `01-docs/PRD.md` 音色域「数据校验、错误与边界」表新增 3 行；「流程（功能逻辑）」第 3/4 步补回滚锚点合同与自动切换 6 步合同；「交互逻辑」表新增「克隆成功后自动切换音色」「目录本次拉取失败」两行；「不变式」表新增 T9/T10/T11 |
 | 独立详细 PRD | `01-docs/PRD-S2V-VOICE-CLONE-AUTO-SELECT-2026-10-20.md`（含数据校验、流程、功能逻辑、交互逻辑、显示项、提示文字、变异反证、验收） |
-| 经验沉淀（3 条） | `01-docs/learnings.md` 顶部 |
-| CHANGELOG | `CHANGELOG.md` 顶部 `[Unreleased]` |
+| 经验沉淀（4 条） | ⚠ **移出本 PR**：`01-docs/learnings.md` 与 `CHANGELOG.md` 是所有会话的热写面，与本 PR 的 40 分钟 CI 窗口必然冲突（实测 4 轮 CONFLICTING 全部只在这两个文件）。故二者改由后续 docs-only PR 承载（走快通道，几分钟即可），本 PR 只保留代码 + PRD + 执行记录。 |
+| CHANGELOG | ⚠ **移出本 PR**，见上格 |
 | 本执行记录 | `openspec/records/s2v-voice-clone-auto-select.md`（本文件） |
 
 ## 变更清单
@@ -112,7 +112,7 @@ date: 2026-10-20
 | `apps/desktop/src/views/video-creation/composables/tts-voices-state.js` | 新增 `s2vVoiceCloneProviderId` / `s2vVoiceCloneModelId` 两个跟踪字段（上下文切换判定用，QM-6 轮 B i3） |
 | `01-docs/PRD.md` | 音色域合同 4 处补充（数据校验 3 行 / 流程 2 步 / 交互 2 行 / 不变式 3 行） |
 | `01-docs/PRD-S2V-VOICE-CLONE-AUTO-SELECT-2026-10-20.md` | 新增详细 PRD |
-| `01-docs/learnings.md` | 顶部 3 条教训 |
+| `01-docs/learnings.md` | ⚠ **移出本 PR**（热写面冲突，改由后续 docs-only PR 承载） |
 | `CHANGELOG.md` | 顶部 `[Unreleased]` 条目 |
 
 ## 回归基线（ Fresh ）

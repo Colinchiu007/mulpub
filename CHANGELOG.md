@@ -1,13 +1,3 @@
-# [未发布] fix(s2v): 克隆音色成功后「语音 / 音色 ID」自动切换 —— 修回滚空操作、失败文案死分支与刷新抹选（s2v-voice-clone-auto-select）
-
-- **需求与现状判定**：用户诉求「在音色复制/克隆区新添加本地音色样本后，有了新的自定义音色，默认语音 / 音色 ID 的下拉列表中所选 ID 自动切换为新添加的自定义音色」。主路径在基线里**早已实现**（`tts-voices-clone.js` 的 `addS2VVoiceClone`：入库 → 写 `voiceId` → `selectS2VVoice` → toast），happy-path 测试也是绿的；但有三个缺陷让它在普通使用中失效或给出错误反馈。本次是**修缺陷 + 补合同 + 补测试**，不是新写功能。
-- **R1 回滚空操作（Critical）**：`addS2VVoiceClone` 在调 `selectS2VVoice` **之前**写 `voiceId = voice.id`，而 `selectS2VVoice` 的回滚锚点取「进入函数时的 `s2vConfig.voiceId`」⇒ 锚点已是新值 ⇒ 失败时写回同一个 id，**字面意义上的空操作**。后果：偏好持久化失败（`VOICE_PREFERENCE_STORE_UNAVAILABLE` 等）时，下拉停留在一个**从未保存成功**的音色上；下次启动流水线主进程按偏好回退默认音色 ⇒ 界面与运行行为不一致。修法：`selectS2VVoice(voiceId, rollbackVoiceId?)` 新增可选第二参（显式回滚锚点，不传时行为与旧版逐字节一致），`addS2VVoiceClone` 在写 `voiceId` **之前**捕获旧值传入；同时让该路径在 `selectS2VVoice` 返回 `false` 时**不弹成功 toast**——克隆事实成立，但不得谎报「已添加并已设为默认」。
-- **R2 失败文案死分支（Major）**：`friendlyVoiceCatalogError(m) || formatUserError(...).message ? friendlyVoiceCatalogError(m) : d.t('...Failed')` —— `||` 优先级高于 `?:`，条件恒为真 ⇒ `selectionSaveFailed` / `defaultVoiceRestoreFailed` 两个兜底键**从不显示**，用户一律看到「语音列表加载失败」而非真实原因。改为 `friendlyVoiceCatalogError(m) || d.t('<兜底键>')`，并移除不再使用的 `formatUserError` import。
-- **R3 刷新失败抹掉选中项（Major）**：选中项归一的 `else` 分支无条件清空 `voiceId`，未区分「目录返回了但音色不在其中」与「目录这次根本没返回」。后果：用户刚克隆的音色（独立于 catalog 存在）被一次失败的「刷新音色列表」抹掉且无任何提示，违反 PRD「当前已保存的 voiceId 即使不在最新目录，也必须作为保留选项，不能静默丢失」。新增 `else if (configuredVoiceId && !catalogData)` 空分支（刻意只写注释不写代码）。
-- **回归保护（6 例，`useTtsVoices.test.js` 新 describe「克隆成功后自动切换『语音 / 音色 ID』选中项」）**：克隆成功切换 + MiMo `mimo-clone-` 分支（此前**零覆盖**）+ 偏好失败回滚 + 并发上下文变更丢弃过期结果 + 删除回退 + 目录失败不清空。变异反证：M1 删锚点入参 / M2 锚点改回 / M3 删不清空分支 / M5 让 toast 无条件弹 ⇒ 各 1 failed；**M4（恢复死三元）0 failed 存活**——兜底文案可达性无机械锁，已改用 PRD「禁止写法」做流程面约束并如实标注。
-- **文档**：`01-docs/PRD.md` 音色域合同 4 处补充（数据校验 3 行含「禁止写法」与后果 / 流程第 3、4 步补回滚锚点合同与自动切换 6 步合同 / 交互逻辑 2 行 / 不变式 T9-T11）；新增详细 PRD `01-docs/PRD-S2V-VOICE-CLONE-AUTO-SELECT-2026-10-20.md`；`01-docs/learnings.md` 顶部 3 条教训（回滚锚点被污染 / 三元混搭死代码 / 刷新失败≠音色不存在）；执行记录 `openspec/records/s2v-voice-clone-auto-select.md`。
-- **回归基线**：`useTtsVoices.test.js` 22/22、`src/views/video-creation` 145/145、`CreateView.test.js` + 删除守卫 + 选项自动保存 310/310、运行时/批量/UE 契约 21/21、主进程音色域 4 套件 115/115；Gate 7 `--cjk` PASS（1331→1146）/ `--keys` PASS（2152 key）；QM-1 Vite build + electron-builder 双 exit 0，启动 9s 存活且 stderr 0 行。模板/DOM/样式/locale 文件零改动（`S2vConfigPanels.vue` 未进 diff）。
-- **如实记不修**：QM-6 双模型外部评审未完成（本机 claude/opencode/codex CLI 均超时不可用，CI 侧该判据 advisory 不阻断）；`s2vPersistedVoiceId` 写了没人读（四处写、零运行时消费方），属独立清理未在本次动。
 # [未发布] docs(openspec): 归档 shape-lock 规格 delta —— 那条 Requirement 不再自己打自己（archive-shape-lock-scenario）
 
 - **动因**：#4001 带进来的 `align-shape-lock-empty-ledger-scenario` 已合并但没归档，它的 MODIFIED delta 因此还没落进主规格——主干上那条 Requirement 至今**正文写「键数本身不设数字下限」、末个 Scenario 写「键数为 0 ⇒ MUST 红（规模下界）」**，两句互斥；而 `openspec validate quality-gate-execution-record --type spec --strict` 实测照判 `is valid`（它查结构必需段与场景覆盖，**不查条目内自洽**），所以这类矛盾能随归档一路进主干。
@@ -394,7 +384,6 @@ rewrite-limits-50000 放开上限后暴露三条契约尾巴（change rewrite-se
 - 定向测试：18 文件 / 599 passed（adapter 3 例新用例：plan 归类 / 2038 归类 / balance 不误判为 plan；service 2 例：throw 透传 + 结构化透传且不落 registry；CreateView 映射 2 断言）。
 - 门禁：eslint rc=0；tsc --noEmit rc=0；locale --keys/--cjk PASS；check-max-lines ✅（点名文件 1748=target 零增长）；check-unwired-tests OK；QM-1 electron-builder exit 0（读数见执行记录）。
 - 执行记录：`openspec/records/fix-s2v-clone-plan-unsupported.md`。
-
 ## [2026-10-20] 视频任务编辑页：失败任务进入不再「无限加载后空白」
 
 ### 问题
@@ -430,7 +419,17 @@ rewrite-limits-50000 放开上限后暴露三条契约尾巴（change rewrite-se
 ### 已知局限
 IPC 次数本身未降（本轮是「按需申请」，单段仍 5 次 IPC；服务端批量签 URL 需改 IPC 契约，记入 backlog）；窗口步长固定 20，未按视口高度动态估算；未做实机 wall-time 复测；QM-4 视觉回归因基线仓库级失效未跑（同 `result-view-back-btn-style` 结论）。
 
+# [未发布] feat(story2video): 视频提示词中文翻译 + 提示词/翻译成对 + 分段编辑区默认折叠（s2v-video-prompt-translation）
 
+- **补齐视频提示词中文翻译（用户诉求，附截图）**：成品编辑页此前只有图片提示词带中文翻译，视频提示词没有。根因是图片翻译链路（`translatePromptsForLocale` + compose 并行任务 + `promptTranslation` 落库）自 2026-08-12 建立，而 `videoPrompt` 是 2026-08-15 才新增的字段，其生成链路从未接入翻译。本次在 `regenerateScenePrompt kind=video` 成功后调用 LLM 生成译文并持久化到新字段 `videoPromptTranslation`（≤2000 字符）。
+- **复用而非复制翻译实现**：新增 `translateVideoPromptForLocale`，内部复用 `translatePromptsForLocale` 的批量调用、严格 JSON 系统提示、markdown fence 剥离、平衡 JSON 提取、HTML/marker 包装防御与逐行兜底——不写第二份翻译实现（漂移风险）。fail-open：LLM 不可用/抛错/超时/非法内容 → `videoPromptTranslation=null`，**不影响 `videoPrompt` 本体与分段状态**；译文与原文相同视为未翻译（不展示冗余）；重写时**先清后写**，翻译失败不留上一轮陈旧译文。
+- **`updateSegments` 不接收 `videoPromptTranslation`**：白名单外字段丢弃，防前端伪造译文。compose/草稿/`ensureProjectFromRun` 三条分段构造路径按稳定 source index 回填该字段（与 `videoPrompt` 同源治理），重新合成后译文不丢失。
+- **提示词/翻译改为上下紧邻成对**：原实现把唯一翻译块放在「图片提示词 textarea + 视频提示词 textarea + 两枚重新生成按钮」之后，与它描述的提示词隔了一整个区块。现图片提示词下方紧邻图片翻译块、视频优化词下方紧邻视频翻译块，各带归属标签（「图片提示词中文翻译」/「视频提示词中文翻译」），弱化样式（左边框 + 次级底色 + 只读）与可编辑 textarea 形成层级差。
+- **分段可编辑主体默认折叠**（内容过多的正解）：分段卡片默认紧凑态，只保留序号/状态/素材区概览；编辑主体按需展开，且**展开态互斥**（一次只编辑一个分段）。方案选型：左右分栏已否决（中英文都是长文本，各砍 50% 宽度导致英文滚 6-8 行、中文大量留白）；tooltip 已否决（长文本需静读，浮层易消失）；采用 Progressive Disclosure + 上下紧邻，与本项目既有 `QuickCollectPanel`/`BatchCollectPanel`/`FilmAutoPanel` 折叠实现同族。删除展开分段时自动收起，避免残留指向已删除 id 的展开态。
+- **locales zh/en 成对新增 5 条**：`videoPromptTranslationLabelZh`/`videoPromptTranslationLabelOther`/`expandEditor`/`collapseEditor`（对齐 `#4064` 的 `promptTranslationLabelZh/Other` 两档口径）；`check-locale-sync --cjk` PASS（无新增硬编码中文）、`--keys` PASS。
+- **测试**：`ResultSegmentCard.test.js` 新增 5 例（成对 DOM 顺序/占位/en 判据/折叠态只留素材区/展开态 `aria-expanded` + 上抛）、新建 `ResultSegmentEditor.test.js` 5 例（默认全折叠/只展开一个/互斥/幂等收起/删除展开分段清空状态）、`ResultView.test.js` 6 个既有用例补「先展开」步骤；主进程侧 `story2video-video-prompt-translation.test.js` 12 例 + `story2video-project-service.test.js` 123 例 + `story2video-stages.test.js` 161 例。回归 6 个套件 **436 例全绿**，`eslint --quiet` rc=0。
+- **已知限制**：存量项目无 `videoPromptTranslation`，只在用户重新生成视频优化词后补齐第一份译文，未做批量回填；`uiLocale` 固化于任务创建时（与图片提示词翻译同源）；流水线自动路径未覆盖（若后续要在成片生成时同步产出，应扩展 `prompt_translations_pending` 机制而非复制逻辑）。详见 `01-docs/PRD-video-creation.md` §3.1.31。
+- **落地位随 `#4064` 组件化调整**：分段编辑区已被 `#4064` 抽为 `ResultSegmentCard.vue` / `ResultSegmentEditor.vue`，本特性随之迁移（提示词成对渲染在卡片、展开态唯一真源在编辑器、宿主只留接线）；折叠范围收窄为**文本编辑主体**，缩略图与四素材槽保持可见。行为契约不变，详见 PRD §3.1.31 第 10) 小节。
 # [未发布] feat(subtitle): 数字/单位完整性与双字搭配守卫 v1.4 —— 8 段复杂文案实测驱动的第二族坏切（subtitle-word-integrity）
 
 - **动因与取证**：v1.3 合并后用 8 段不同风格文案（政治评论续篇/历史叙事/科技解说/口语短视频/生活叙事/无标点压力段×2）对真实引擎做三端对跑，暴露一族 v1.3 未覆盖的坏切。**A/B 反证**（关掉 phrase_boundary 输出逐字节不变）证实非 v1.3 引入：是 `no_cut_bigrams` 词表缺口 + 标点累积分支直切不经守卫的既有缺陷。实测证据：`风速每秒 8│米`、`套现约 3.2│亿元`、`提升了│60%`、`制程是│3 纳米`、`当│成`、`遗│忘`、`那│段`、`千│万人`。
