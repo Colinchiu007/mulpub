@@ -1932,3 +1932,105 @@ test('接线锁：main() 必须把 hasBlocking 映射成非零退出（返回值
   // 因此无法在夹具仓库里造出「确有阻断」的状态去断言 rc=1。把 root 做成可注入属改判据形态（改谁来守门），
   // 须人工过目；在那之前，这条映射至少被一道「摘掉即红」的锁看着（反证见本 PR 记录）。
 })
+
+// ===== 取证根可注入（change: debt-cli-root-injection）=====
+// 这四条的存在理由：结构锁只证"映射还在源码里"，证不了"真造出阻断时 CLI 真退 1"。
+// 关键纪律：rc=1 有两种成因（**判据阻断** 与 **未捕获异常**），二者退出码相同 ——
+// 所以每条都必须同时断言 stdout 的点名行与 stderr 的"无异常"，否则测试会因为崩了而通过。
+
+function runCli (args, env = {}) {
+  const { spawnSync } = require('node:child_process')
+  const cli = path.join(__dirname, 'check-gate-record-debt.js')
+  return spawnSync(process.execPath, [cli, ...args], {
+    encoding: 'utf8',
+    cwd: __dirname,
+    // CI 必须清空：本地跑是合法使用形态，而 CI 档会把"派生取不到"升成 rc=2，
+    // 那样下面所有关于 rc=1 的断言测的就不是同一件事了。
+    env: { ...process.env, CI: '', ...env },
+    maxBuffer: 32 * 1024 * 1024,
+  })
+}
+
+test('行为锁：注入夹具根后，未登记欠账必须让 CLI 真退 1 并点名记录（不是靠崩）', () => {
+  const dir = fixture([{ head: '夹具未收口的老记录（legacy，2026-09-28）', status: 'PENDING' }])
+  // 夹具里放一份**合法但故意不匹配**的冻结基线：让载体漂移确实发生，再用 --carrier-mode=visible
+  // 把它降成可见项 —— 于是 rc=1 的唯一可能来源就是"未登记欠账"这条拦截面。
+  fs.mkdirSync(path.join(dir, 'scripts'), { recursive: true })
+  fs.writeFileSync(path.join(dir, 'scripts', 'gate-carrier-freeze.json'),
+    JSON.stringify({ _policy: '夹具', frozenAt: '2026-01-01T00:00:00Z', headingCount: 1, headingSha256: '0'.repeat(64), headings: ['不相干的一条'] }, null, 2) + '\n', 'utf8')
+  const r = runCli([`--root=${dir}`, '--carrier-mode=visible'])
+  const out = String(r.stdout)
+  const err = String(r.stderr)
+  assert.match(out, /夹具未收口的老记录/, `输出必须点名那条未登记欠账，实际首行：${out.split('\n')[0] || '<空>'}`)
+  assert.doesNotMatch(err, /Error:/, `不得因未捕获异常退出（那与"真拦住"同码）：${err.slice(0, 160)}`)
+  assert.strictEqual(r.status, 1, `未登记欠账必须进退出码；stdout 首行=${out.split('\n')[0] || '<空>'} stderr=${err.slice(0, 160)}`)
+  fs.rmSync(dir, { recursive: true, force: true })
+})
+
+test('注入必须全域生效：夹具账本的非法形状要被看见，真仓那份不得掺进来', () => {
+  const dir = fixture([{ head: '记录甲（alpha，2026-09-28）', status: 'PASS' }])
+  fs.mkdirSync(path.join(dir, 'scripts'), { recursive: true })
+  // 真仓账本此刻全是合法字符串：若 root 没切到 ledger，这条用例就看不到夹具的错、直接读到真仓的"没问题"
+  fs.writeFileSync(path.join(dir, 'scripts', 'gate-record-debt-ledger.json'),
+    JSON.stringify({ '夹具键甲': { reason: '形状不合法', status: 'PENDING' } }, null, 2) + '\n', 'utf8')
+  const r = runCli([`--root=${dir}`])
+  assert.match(r.stderr, /必须是原因字符串/, `必须按夹具那份账本判，实际 stderr：${String(r.stderr).slice(0, 200)}`)
+  assert.match(r.stderr, /夹具键甲/, '错误必须点名是哪个键')
+  fs.rmSync(dir, { recursive: true, force: true })
+})
+
+test('冻结基线也得跟着根走：夹具缺该文件必须抛"缺失"，不得悄悄读真仓那份', () => {
+  const dir = fixture([{ head: '记录乙（beta，2026-09-28）', status: 'PASS' }])
+  // 故意**不**建 scripts/gate-carrier-freeze.json —— 现状（读 __dirname 的真仓文件）会静默读到合法基线并放行
+  const r = runCli([`--root=${dir}`])
+  assert.match(r.stderr, /旧载体冻结基线缺失/, `注入根下缺冻结基线必须 fail closed；真读到夹具外的基线就是混合态假绿。stderr=${String(r.stderr).slice(0, 200)}`)
+  assert.match(r.stderr, new RegExp(dir.replace(/[\\^$*+?.()|[\]{}]/g, '\\$&').slice(-18)), '错误文本必须点名它找的是**夹具里**那个路径')
+  fs.rmSync(dir, { recursive: true, force: true })
+})
+
+test('裸旗标 --root 与未知拼写都不得静默回落默认根', () => {
+  const bare = runCli(['--root'])
+  assert.match(bare.stderr, /必须写成 --root=<值>/, `裸旗标必须抛错，实际：${String(bare.stderr).slice(0, 160)}`)
+  const typo = runCli(['--roots=.'])
+  assert.match(typo.stderr, /未知旗标 --roots/, `拼错不得被当"已生效"，实际：${String(typo.stderr).slice(0, 160)}`)
+})
+
+
+test('不给 --root 时取证根必须仍是仓库根（默认路径零影响，不靠读代码相信）', () => {
+  const expect = path.resolve(__dirname, '..')
+  // M-C 反证逼出来的这条：测试进程的 cwd 恰好就是仓库根，所以只断言 parseRoot([]) 是恒真的
+  // ——必须把 cwd 换到一个**外来目录**再问一次，否则「默认取 cwd」这种退化看不见。
+  const prevCwd = process.cwd()
+  const foreign = fs.mkdtempSync(path.join(os.tmpdir(), "gate-debt-cwd-"))
+  let defaultRootUnderForeignCwd
+  try {
+    process.chdir(foreign)
+    defaultRootUnderForeignCwd = checker.parseRoot([])
+  } finally {
+    process.chdir(prevCwd)
+    fs.rmSync(foreign, { recursive: true, force: true })
+  }
+  assert.strictEqual(defaultRootUnderForeignCwd, expect, '默认根必须与 cwd 无关：漂移 ⇒ 所有 CI 与本机默认用法都在量另一个目录')
+  assert.strictEqual(checker.parseRoot(['--carrier-mode=visible']), expect, '其他旗标不得顺带改变默认根')
+  assert.strictEqual(checker.parseRoot([`--root=${expect}`]), expect, '显式传入应与默认同值（生产用法可原样带上）')
+  assert.throws(() => checker.parseRoot(['--root=']), /给了空值|必须写成/, '空值必须抛，不得静默回落')
+  assert.throws(() => checker.parseRoot(['--root=' + path.join(expect, 'no-such-dir-xyz')]), /不存在/, '不存在的根必须 fail closed，回落默认根就是把打错读成通过')
+})
+
+test('CLI 层：从外来 cwd 真跑一次，读数必须仍来自仓库（默认根不随 cwd 漂）', () => {
+  const hereRaw = runCli([])
+  const here = { status: hereRaw.status, first: String(hereRaw.stdout).split("\n")[0] || '<空>' }
+  const { spawnSync } = require('node:child_process')
+  const foreign = fs.mkdtempSync(path.join(os.tmpdir(), "gate-debt-cli-cwd-"))
+  let there
+  try {
+    const r = spawnSync(process.execPath, [path.join(__dirname, 'check-gate-record-debt.js')], {
+      cwd: foreign, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, env: { ...process.env, CI: '' },
+    })
+    there = { status: r.status, first: String(r.stdout).split("\n")[0] || '<空>' }
+  } finally {
+    fs.rmSync(foreign, { recursive: true, force: true })
+  }
+  assert.strictEqual(there.status, here.status, `外来 cwd 下退出码漂移：仓库=${String(here.status)} 外来=${String(there.status)}`)
+  assert.strictEqual(there.first, here.first, `外来 cwd 下首行读数漂移（默认根被 cwd 带走就是这个形状）：仓库=${JSON.stringify(here.first)} 外来=${JSON.stringify(there.first)}`)
+})
