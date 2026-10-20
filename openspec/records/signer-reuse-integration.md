@@ -54,6 +54,8 @@
 | `packages/api-publish-engine` 全量 | **rc=0（46 文件）** |
 | `check-max-lines` / `check-unwired-tests` | ✅ / OK |
 | 源码残留 `getKuaishouSign` 调用 | 0（命中的是门面真函数 `getKuaishouSignature`） |
+| **QM-1（混合 PR，改 packages + scripts）** | `pnpm run build:vue` ✅（48.65s）+ `electron-builder --win --dir` ✅ + 启动验证 **PASS：存活且 stderr 0 字节** |
+| 依赖解析门禁 | `verify-worktree-deps.js` OK（产物为本 worktree 源码） |
 
 ## 五、远程同步
 
