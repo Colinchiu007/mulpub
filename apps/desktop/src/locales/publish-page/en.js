@@ -16,6 +16,13 @@ export default {
     untitled: 'Untitled',
     updatedUnknown: 'Updated time unknown',
     platformCount: (ctx) => ctx.named('count') + ' platforms',
+    // v2.0 mechanism C1.3: platform-count cap notice. Informational only; the
+    // limit value comes from the server-issued entitlement.limits.
+    platformLimitReached: 'Your current plan allows up to {limit} platforms. Upgrade to add more.',
+    platformLimitHint: '{selected} / {limit} platforms selected',
+    batchSizeExceeded: 'Your plan allows up to {limit} items per batch. Upgrade to raise the limit.',
+    cloudAccountLimitExceeded: 'Cloud account sync is not included in your plan. Upgrade to bind up to {limit}.',
+    deviceLimitExceeded: 'Your plan allows up to {limit} devices at the same time.',
     delete: 'Delete',
     publishTitle: 'Quick Publish',
     batchSubtitle: 'Batch edit multiple articles and publish to each platform independently',
@@ -380,6 +387,13 @@ export default {
       publishFailed: 'Publish failed',
       publishFailedTitle: 'Publish Failed',
       publishErrorTitle: 'Publish Error',
+      // Pre-publish gate "how to fix" link labels (2026-10-19, publish-gate-help-ui).
+      // The URL itself lives in packages/shared-utils/src/publish-gate-help(.browser).js
+      // (single source, same table as the engine-side helpUrl; locked by a parity test).
+      gateHelp: {
+        accountNotVerified: 'Complete your Toutiao account info',
+        noPublishPermission: 'Complete your Toutiao account info',
+      },
       publishFailedProgress: (ctx) => '✗ Publish failed: ' + ctx.named('message'),
       publishErrorProgress: (ctx) => '✗ Error: ' + ctx.named('message'),
       scheduleInvalidProgress: (ctx) => '✗ ' + ctx.named('message'),

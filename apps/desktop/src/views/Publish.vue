@@ -745,6 +745,8 @@ import { usePublishDrafts } from '@/composables/usePublishDrafts'
 // 与草稿箱共用同一份「快照 → 表单」字段映射（features/publish/publish-snapshot.js）。
 import { usePublishRepublish } from '@/composables/usePublishRepublish'
 import { usePublishHistoryPrefill } from '@/composables/usePublishHistoryPrefill'
+// S3 交接参数单一入口（批量/单篇/再次发布的优先级与互斥裁定；内部委托上面三个 composable）
+import { useRouteHandoff } from '@/composables/useRouteHandoff'
 import {
   normalizePublishMentions,
   normalizePublishStringList,
@@ -762,6 +764,7 @@ import { usePublishPlatformCatalog } from '@/features/publish/usePublishPlatform
 import { readPanelVisibilityPrefs, writePanelVisibilityPrefs } from '@/composables/usePanelVisibilityPrefs'
 import { formatBytes } from '@/utils/bytes'
 import { classifyVideoSelection, describeVideoFile } from '@/utils/video-selection-feedback'
+import { useIdentityStore } from '@/stores/identity'
 
 // 组件名显式声明：App.vue 主工作区 <keep-alive :include="['Publish']"> 按组件名匹配，
 // 让发布页在路由切换时保留实例（草稿不丢）。依赖文件名推断的 __name 在构建配置变化时不稳，
@@ -776,6 +779,9 @@ const { t } = useI18n()
 // （头条经平台 bundle 取证为 7 天；若 hint 仍显全局 30 天，用户按 30 天排期会被提交
 // 校验拒绝）。实现见 fieldSurface.hintTextFor（下方 fieldSurface 定义处接线）。
 const { notifySuccess, notifyWarning, notifyInfo, notifyError, notifyConfirm } = useNotify()
+// v2.0 机制 C1.3 / C7 C 批：发布页的平台数上限来自服务端下发并经签名快照透传的
+// entitlement.limits；缺失时 plan-limits 按「不限」放行。
+const identityStore = useIdentityStore()
 // 视频上传区 el-upload 实例（video/article 两个互斥分支共用一个 ref，同时只有一个渲染）。
 // limit=1 的「重选替换」需要经它 clearFiles + handleStart，否则 el-upload 静默丢弃新文件。
 const videoUploadRef = ref(null)
@@ -1181,7 +1187,11 @@ const {
   selectPlatform,
   selectAccount,
   clearPlatforms,
-} = usePlatformSelection(accountStore, platformStore)
+} = usePlatformSelection(accountStore, platformStore, {
+  getEntitlement: () => identityStore.entitlement,
+  // 触顶播报由 composable 回调（本文件是零增长挂账文件，不为一个分支再加行）
+  onLimitReached: (limit) => notifyWarning('publishPage.platformLimitReached', { params: { limit: limit ?? '' } }),
+})
 
 // P2-8b「按组添加」：判据本体在 features/publish/usePublishGroupApply（纯函数、可单测），
 // 这里只做 store ↔ 视图的接线；视图不自己数成员、也不拼播报文案。
@@ -1341,22 +1351,16 @@ function onOpenDraftsPage () {
   return router.replace({ path: '/publish', query: { ...publishEditorQuery(), tab: 'drafts' } })
 }
 
-watch(() => route.query.draft, async (draftId, previousDraftId) => {
-  if (!draftId || draftId === previousDraftId) return
-  await loadDrafts()
-  await loadDraft(String(draftId))
-})
-
-// ── 「再次发布」：实现见 composables/usePublishRepublish.js（视图只做接线）──
-const { applyRepublishFromQuery, watchRepublishQuery } = usePublishRepublish({
-  route, router, article, selectedPlatforms, selectedAccounts, platformOverrides: diffEdits,
-  getAccounts, editorQuery: publishEditorQuery, t, notifyError, notifyWarning, notifySuccess, notifyConfirm,
-})
-// query 变化即载入（同一记录只应用一次）
-watchRepublishQuery()
-
-// 历史视频跳转预填充（?video_path= 一族）：逻辑在 composables/usePublishHistoryPrefill.js
-const { applyHistoryVideoQuery } = usePublishHistoryPrefill({ route, article, activeMode, syncTopicsToContent })
+// ── 交接参数单一入口（S3，PRD-UI-FLOW-CLARITY §5-S3）──
+// 批量 ?drafts= / 单篇 ?draft= / 「再次发布」?republish= 的优先级与互斥裁定
+// 全部收敛在 useRouteHandoff.applyRouteHandoff()：此前互斥只写在 onMounted 一处、
+// onActivated 对 republish 无守卫（URL 同带两者时后到者静默覆盖先到者）。
+// ?republish= 仍由 usePublishRepublish 独立消费（快照拉取/覆盖确认/appliedIds 幂等），
+// 入口只做「本次激活消费哪一路」的裁定，不重写 URL、不重复记账。
+// keep-alive 激活走 onActivated → applyRouteHandoff；同实例内 query 变化（草稿箱
+// 点另一张卡片 replace ?draft=）走 watchRouteHandoff（定义处接线）——两条路径共用
+// 同一裁定与幂等键，不是 PRD 反对的「第二个各自判断的 watcher」（那指绕过入口另行
+// 裁定）；?video_path= 预填是入口的叠加层（与三路不互斥，自带无 query 早退）。
 
 function publishEditorQuery (extra = {}) {
   const query = { tab: 'publish', ...extra }
@@ -1373,20 +1377,35 @@ function editDraft (draft) {
   return router.replace({ path: '/publish', query: publishEditorQuery({ draft: String(draft.id) }) })
 }
 
-// ── 热门选题批量交接（?drafts=id,id,...）──
-// 状态机（解析/装载/幂等/预置目标）在 useHotTopicsDraftHandoff；本视图只保留触发点与提示。
-const handoff = useHotTopicsDraftHandoff({
-  route, drafts, loadDrafts, seedArticlesFromDrafts, applyTargetsToAll, batchMode,
-  accountStore, platforms, getAccounts, getDefaultAccount, loadAccounts, notifySuccess, notifyWarning,
+// ── 交接参数单一入口（S3）：批量/单篇/再次发布的优先级与互斥在这里一次性裁定 ──
+const routeHandoff = useRouteHandoff({
+  route,
+  // 批量（useHotTopicsDraftHandoff）依赖
+  drafts, loadDrafts, seedArticlesFromDrafts, applyTargetsToAll, batchMode,
+  accountStore, platforms, getAccounts, getDefaultAccount, loadAccounts,
+  notifySuccess, notifyWarning,
+  // 单篇（usePublishDrafts）依赖
+  loadDraft,
+  // republish（usePublishRepublish）依赖
+  router, article, selectedPlatforms, selectedAccounts, platformOverrides: diffEdits,
+  editorQuery: publishEditorQuery, t, notifyError, notifyConfirm,
+  // 视频预填（usePublishHistoryPrefill）依赖
+  activeMode, syncTopicsToContent,
+  // 单篇缺失的可见提示（缺失是终态，不静默也不回落 republish）
+  notifyDraftMissing: (id) => notifyError('publishDrafts.notFound', { message: t('publishDrafts.notFound', { id }) }),
 })
 const {
   handoffAppliedKey, batchTargetPlatforms, handoffPlatformOptions,
   applyBatchTargetsToAll, applyDraftHandoff, handoffIdsFromQuery, parseHandoffDraftIds,
-} = handoff
+} = routeHandoff
+// 同实例内 query 变化的交接（见上方入口注释）：挂在解构之后，避免 TDZ
+routeHandoff.watchRouteHandoff()
 
 // 草稿导入 — 从 Collection 页跳转时加载
 onMounted(async () => {
-  applyCopyDetailHandoff() // 置顶：不依赖前置异步步骤
+  // 文案库详情态消费必须置顶（不依赖任何前置异步步骤）——copy-detail 契约锁
+  // 「挂载即消费载荷」依赖这一点，故它不进 applyRouteHandoff（那里位于 await 链之后）
+  applyCopyDetailHandoff()
   // S1c：草稿箱整页模式只需加载列表（原实现还置 showDraftList=true 驱动浮层）
   if (publishTab.value === 'drafts') await loadDrafts()
   await loadAccounts()  // 加载多账号列表
@@ -1396,42 +1415,23 @@ onMounted(async () => {
     if (def) setSelectedAccountIds(pid, [def.id])
   }
   await loadPrecheckPreference()
-  applyHistoryVideoQuery()
-  // 热门选题批量交接优先：这批 id 是「刚改写完的 N 条」，必须整体进批量区；
-  // 单篇 ?draft= 只在没有批量交接时生效（两个参数同时出现时以批量为准）。
-  const handoffIds = handoffIdsFromQuery()
-  if (handoffIds.length > 0) {
-    await applyDraftHandoff(handoffIds)
-    return
-  }
-  const draftId = route.query.draft
-  if (!draftId) {
-    // 「再次发布」与 ?draft= 互斥：同时出现时以草稿为准（那是用户当下的手工选择）
-    await applyRepublishFromQuery()
-    return
-  }
-
-  await loadDrafts()
-  await loadDraft(String(draftId))
+  // 批量 > 单篇 > 再次发布 的优先级与互斥由入口裁定（S3）
+  await routeHandoff.applyRouteHandoff()
 })
 
 // keep-alive 兼容：发布页被 App.vue 的 <keep-alive :include="['Publish']"> 缓存后，
-// 从结果页/历史「去发布」带 ?video_path= 再次进入时 onMounted 不会再跑，预填必须挂在
-// onActivated（每次激活都触发）上，否则 query 预填静默失效。无 video_path query 时
-// applyHistoryVideoQuery 自行早退，不会覆盖用户缓存中的既有草稿。
+// 从结果页/历史「去发布」带新 query 再次进入时 onMounted 不会再跑，交接必须挂在
+// onActivated（每次激活都触发）上，否则 query 预填静默失效。
 // 非 keep-alive 上下文（内嵌主页实例）onActivated 不触发，仍由上面的 onMounted 覆盖。
-onActivated(() => {
-  applyHistoryVideoQuery()
+onActivated(async () => {
+  // 文案库详情态消费置顶（同 onMounted 契约）
   applyCopyDetailHandoff()
   // S1c：草稿箱整页模式在 keep-alive 下必须重新加载。此前 onActivated 无 drafts 分支，
   // 靠 watch(publishTab) 兜；但同值激活时 watch 不触发 ⇒ 列表不刷新。此处显式补一次。
   if (publishTab.value === 'drafts') void loadDrafts()
-  // keep-alive 下 onMounted 不会再跑：热门选题交接必须挂在每次激活上。
-  // applyDraftHandoff 自带「同一批 id 只装载一次」的幂等键，重复激活不会重置用户编辑。
-  const handoffIds = handoffIdsFromQuery()
-  if (handoffIds.length > 0) applyDraftHandoff(handoffIds)
-  // 同上：「再次发布」也可能命中已被 keep-alive 缓存的实例（自带「同一记录只应用一次」幂等键）
-  void applyRepublishFromQuery()
+  // 批量/单篇/再次发布的优先级与互斥由入口裁定；各路幂等键（批量 id 串 / appliedIds /
+  // 入口单篇 id 集合 / republish 透传挡板）保证重复激活不重置用户编辑。
+  await routeHandoff.applyRouteHandoff()
 })
 
 // 暴露给测试（w.vm.xxx）和外部组件

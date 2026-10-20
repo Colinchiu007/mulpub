@@ -43,7 +43,7 @@
 
 const { execFileSync } = require('child_process');
 
-const VERDICTS = ['IDENTICAL', 'DRIFT-ATTRIBUTED', 'LOST', 'UNATTRIBUTED', 'JUDGE_ERROR'];
+const VERDICTS = ['IDENTICAL', 'DRIFT-ATTRIBUTED', 'LOST', 'UNATTRIBUTED', 'JUDGE_ERROR', 'DIFFERENT-RELEASED'];
 const EXIT_OK = 0;
 const EXIT_LOST = 1;
 const EXIT_JUDGE_ERROR = 2;
@@ -360,6 +360,61 @@ function mergedCopiesOf(root, mergedShas, file) {
   };
 }
 
+// 「合并产物里这个文件的那一份」相对「我这版」和「改动起点」是什么关系。**读数不宣称方向**。
+// 三分而不是两分，是因为"产物 ≠ 我这版"有两种成因，危险方向相反：
+//   not-carried —— 产物**等于起点** ⇒ 这笔合并根本没带上我的改动，那是真丢失，不得被另一格洗白；
+//   different   —— 产物既不是我这版也不是起点 ⇒ 只知道"这笔落地的不是我当前这版"。
+//                  方向未定：可能是评审改了产物再落地（本仓 #3733 就是这种），也可能是**分支在这笔之后
+//                  自己又前进了**（同一分支被两笔 PR 用过时，早期那笔合法落地的版本也会落进这一格 ——
+//                  由 QM-6 后端轴 B1 提出并经本地复现证实，见测试 T33）。要定性必须去比 blob，不得由本读数代答。
+// 只比较 tip 与 merge 两个 blob 会把前两格合成一格，那正是最危险的一次合并。
+function classifyRevision(mergeBlob, tipBlob, baseBlob) {
+  if (mergeBlob === tipBlob) return 'carried';
+  if (mergeBlob === baseBlob) return 'not-carried';
+  return 'different';
+}
+
+// 「版本不同」能不能被显式放行 —— 这是**唯一**一处决定旗标覆盖面放多大宽的地方。
+// 2026-10-20 的现场读数把"降这一格就能解锁分支"这句话否证了一半，因此这里刻意做成三条都不满足即不放行：
+//   not-carried 存在 ⇒ 有一笔合并**根本没带上**我这版 ⇒ 永不放行（旗标若把它稀释掉就是替真丢失作保）；
+//   carried > 0      ⇒ 逐字节带过我这版、主干现在却没有 ⇒ 那是"落地之后被删"，不是"被修订"，方向相反；
+//   三格皆空/取不到  ⇒ 没有任何一笔合并可证明"落的是另一版" ⇒ 按未证实处理。
+// 注意它**不是**一个安全属性：`#2729` 的 `rpa-view-navigation-helpers.js` 报"我这版独有 228 行"，
+// 而那句话在主干同一文件 :194 原样存在，缺口是热写面的重复键**份数**。所以放行只发生在有人当面授权、
+// 且这一行仍把双向规模一起打出来的前提下 —— 默认档永远不放行（见 T34）。
+function releaseEligibleForLanding(rev) {
+  if (!rev) return false;
+  const different = rev.different || [];
+  const notCarried = rev.notCarried || [];
+  return different.some((d) => (d && d.onlyInMerge) > 0) && notCarried.length === 0 && !rev.carried;
+}
+
+// 两份文本的按键差异规模（按行多重集，不做任何归一化 —— 与判定本体同一口径）。
+function lineDiffScale(tipText, mergeText) {
+  const am = multisetOf(splitLines(tipText));
+  const bm = multisetOf(splitLines(mergeText));
+  let onlyInMerge = 0, onlyInTip = 0;
+  for (const k of new Set([...am.keys(), ...bm.keys()])) {
+    const a = am.get(k) || 0, b = bm.get(k) || 0;
+    if (b > a) onlyInMerge += b - a; else onlyInTip += a - b;
+  }
+  return { onlyInMerge, onlyInTip };
+}
+
+function revisionsAtMerge(root, mergedShas, file, tipBlob, baseBlob) {
+  const out = { carried: 0, different: [], notCarried: [] };
+  for (const sha of mergedShas || []) {
+    if (!sha) continue;
+    const mb = blobOid(root, sha, file);
+    const kind = classifyRevision(mb, tipBlob, baseBlob);
+    if (kind === 'carried') { out.carried++; continue; }
+    if (kind === 'not-carried') { out.notCarried.push({ at: String(sha).slice(0, 9) }); continue; }
+    const d = lineDiffScale(tipBlob === null ? '' : blobText(root, tipBlob), mb === null ? '' : blobText(root, mb));
+    out.different.push({ at: String(sha).slice(0, 9), onlyInMerge: d.onlyInMerge, onlyInTip: d.onlyInTip });
+  }
+  return out;
+}
+
 function classifyFile(root, { ref, against, base, file, excludeShas }) {
   const tipBlob = blobOid(root, ref, file);
   const againstBlob = blobOid(root, against, file);
@@ -374,14 +429,12 @@ function classifyFile(root, { ref, against, base, file, excludeShas }) {
   const entries = allEntries.filter((e) => !skip.has(e.sha));
   const attributions = entries.map((e) => ({ sha: e.sha, subject: e.subject }));
 
-  const baseTextOf = () => {
-    if (!base) return '';
-    const b = blobOid(root, base, file);
-    return b === null ? '' : blobText(root, b);
-  };
+  const baseBlob = base ? blobOid(root, base, file) : null;
   const tipText = tipBlob === null ? '' : blobText(root, tipBlob);
   const mainText = againstBlob === null ? '' : blobText(root, againstBlob);
-  const baseText = baseTextOf();
+  const baseText = baseBlob === null ? '' : blobText(root, baseBlob);
+  // 落地版本读数：只解释"为什么报缺"，不参与判据宽严 —— 退出码仍由 LOST/UNATTRIBUTED 决定。
+  const revisions = revisionsAtMerge(root, excludeShas, file, tipBlob, baseBlob);
   // 二进制（含 NUL，或链上出现 "Binary files … differ"）：git 不给补丁，份数根本数不出来。
   // 这一族必须单列，否则恒等式自检会把每个 PNG 分支都判成 rc=2 —— 那不是严格，是工具失明。
   const binaryFile = [tipBlob, againstBlob, base].some((oid, i) => {
@@ -396,13 +449,14 @@ function classifyFile(root, { ref, against, base, file, excludeShas }) {
       return {
         verdict: 'DRIFT-ATTRIBUTED', fileAbsentOnMain: true, fileDeletedByOthers: true,
         attributions: dedupeBySha(attributions.concat(del)), lineAttributions: del,
-        missingAdded: [], reappearedRemoved: [],
+        missingAdded: [], reappearedRemoved: [], revisionsAtMerge: revisions,
       };
     }
     const tipLines = tipBlob === null ? [] : splitLines(tipText);
     return {
       verdict: 'LOST', fileAbsentOnMain: true, fileDeletedByOthers: false, attributions,
       lineAttributions: [], missingAdded: [...representatives(tipLines).values()], reappearedRemoved: [],
+      revisionsAtMerge: revisions,
     };
   }
 
@@ -410,7 +464,7 @@ function classifyFile(root, { ref, against, base, file, excludeShas }) {
     // 二进制没有行级判据可用 ⇒ 只问一件事：**我那份字节有没有随本次合并进过主干**。
     // 进了 ⇒ 差异是后来别人改的（可归因）；没进 ⇒ 我的产物被换过，删分支就会丢那份字节。
     const mergeCarriedIt = (excludeShas || []).some((sha) => sha && blobOid(root, sha, file) === tipBlob);
-    const tag = { binaryFile: true, missingAdded: mergeCarriedIt ? [] : [tipText.slice(0, 24) + '\n'], reappearedRemoved: [] };
+    const tag = { binaryFile: true, revisionsAtMerge: revisions, missingAdded: mergeCarriedIt ? [] : [tipText.slice(0, 24) + '\n'], reappearedRemoved: [] };
     if (mergeCarriedIt && attributions.length > 0) {
       return Object.assign({ verdict: 'DRIFT-ATTRIBUTED', attributions, lineAttributions: [] }, tag, { missingAdded: [], reappearedRemoved: [] });
     }
@@ -466,23 +520,23 @@ function classifyFile(root, { ref, against, base, file, excludeShas }) {
   if (missingAdded.length > 0 || reappearedRemoved.length > 0) {
     return {
       verdict: 'LOST', fileAbsentOnMain: false, attributions, lineAttributions,
-      missingAdded, reappearedRemoved, unexplainedOver, violations,
+      missingAdded, reappearedRemoved, unexplainedOver, violations, revisionsAtMerge: revisions,
     };
   }
   if (unexplainedOver.length > 0) {
     return {
       verdict: 'UNATTRIBUTED', fileAbsentOnMain: false, attributions, lineAttributions,
-      missingAdded: [], reappearedRemoved: [], unexplainedOver, violations,
+      missingAdded: [], reappearedRemoved: [], unexplainedOver, violations, revisionsAtMerge: revisions,
     };
   }
   if (attributions.length === 0 && lineAttributions.length === 0) {
-    return { verdict: 'UNATTRIBUTED', attributions: [], lineAttributions: [], missingAdded: [], reappearedRemoved: [], violations: [] };
+    return { verdict: 'UNATTRIBUTED', attributions: [], lineAttributions: [], missingAdded: [], reappearedRemoved: [], violations: [], revisionsAtMerge: revisions };
   }
   return {
     verdict: 'DRIFT-ATTRIBUTED',
     attributions: dedupeBySha(attributions.concat(lineAttributions)),
     lineAttributions,
-    missingAdded: [], reappearedRemoved: [], violations: [],
+    missingAdded: [], reappearedRemoved: [], violations: [], revisionsAtMerge: revisions,
   };
 }
 
@@ -555,6 +609,19 @@ function collect(opts) {
     for (const f of res.files) {
       if (f.verdict === 'JUDGE_ERROR') throw new JudgeError('文件判定异常：' + f.file);
     }
+    // 显式放行档：**默认档这一段整条跳过**（T34 锁的就是这个"跳过"）。
+    // 只把 LOST 且通过 releaseEligibleForLanding 的行改档；UNATTRIBUTED / JUDGE_ERROR / not-carried 一律不动。
+    if (opts.allowDifferentLanding) {
+      res.optIn = { allowDifferentLanding: true };
+      res.releasedDifferent = 0;
+      for (const f of res.files) {
+        if (f.verdict !== 'LOST') continue;
+        if (!releaseEligibleForLanding(f.revisionsAtMerge)) continue;
+        f.verdict = 'DIFFERENT-RELEASED';
+        f.releasedByOptIn = true;
+        res.releasedDifferent++;
+      }
+    }
   } catch (e) {
     if (e instanceof JudgeError) {
       res.judgeError = true;
@@ -567,7 +634,7 @@ function collect(opts) {
 }
 
 // ---------------------------------------------------------------- CLI
-const KNOWN_FLAGS = ['--ref', '--merge', '--base', '--against', '--root', '--json', '--help'];
+const KNOWN_FLAGS = ['--ref', '--merge', '--base', '--against', '--root', '--json', '--help', '--allow-different-landing'];
 const BOOL_FLAGS = ['--json', '--help'];
 
 function parseArgv(argv) {
@@ -577,6 +644,13 @@ function parseArgv(argv) {
     const eq = a.indexOf('=');
     const name = eq >= 0 ? a.slice(0, eq) : a;
     if (!KNOWN_FLAGS.includes(name)) throw new JudgeError('未知旗标：' + a + '（可用：' + KNOWN_FLAGS.join(' ') + '）');
+    // 显式放行旗标：只认"出现即生效"，不接受取值（`--allow-different-landing=false` 这种写法
+    // 会被读成"有人以为它能关掉放宽"，而它其实已经生效 ⇒ 一律按未知用法拒绝）。
+    if (name === '--allow-different-landing') {
+      if (eq >= 0) throw new JudgeError('旗标 --allow-different-landing 不接受取值（它是"本次由人授权"的声明，写成 =false 会被读成能关）');
+      o.allowDifferentLanding = true;
+      continue;
+    }
     if (BOOL_FLAGS.includes(name)) { o[name.slice(2)] = true; continue; }
     // --flag=v 与 --flag v 两种写法都必须生效（只认一种会把"smoke 只跑 4 个"静默放大成整域两趟，同族实测见 AGENTS.md）
     let val = eq >= 0 ? a.slice(eq + 1) : argv[i + 1];
@@ -594,6 +668,24 @@ function parseArgv(argv) {
 // 打印用：内部按 latin1 保字节，输出时还原成 UTF-8，否则中文行会变成乱码。
 function show(line) {
   return Buffer.from(String(line), 'latin1').toString('utf8').replace(/[\r\n]+$/, '');
+}
+
+// 落地版本读数的人话形态。**不参与退出码**：它回答"为什么报缺"，不回答"能不能删"。
+function describeRevisions(rev) {
+  if (!rev) return '';
+  const parts = [];
+  const different = rev.different || [];
+  const notCarried = rev.notCarried || [];
+  if (different.length) {
+    parts.push('版本不同@' + different.slice(0, 2).map((x) =>
+      x.at + '(主干独有' + x.onlyInMerge + '行/我这版独有' + x.onlyInTip + '行)').join(',') +
+      (different.length > 2 ? ' …(共 ' + different.length + ' 笔)' : ''));
+  }
+  if (notCarried.length) {
+    parts.push('根本没带上@' + notCarried.slice(0, 2).map((x) => x.at).join(',') +
+      (notCarried.length > 2 ? ' …(共 ' + notCarried.length + ' 笔)' : ''));
+  }
+  return parts.length ? ' 落地版本=' + parts.join(' ; ') : '';
 }
 
 // `--json` 也是给人/机器核对证据用的出口，所以同样必须做 latin1→UTF-8 还原。
@@ -622,7 +714,7 @@ function main(argv) {
     return EXIT_JUDGE_ERROR;
   }
   if (o.help) {
-    console.log('用法：node scripts/check-branch-merged.js --ref <branch|sha|tag> --merge <sha>[,<sha>...] [--against origin/main] [--base <ref>] [--root <repo>] [--json]');
+    console.log('用法：node scripts/check-branch-merged.js --ref <branch|sha|tag> --merge <sha>[,<sha>...] [--against origin/main] [--base <ref>] [--root <repo>] [--json] [--allow-different-landing]');
     console.log('  判定域 = --against（默认 origin/main，取不到回落 main 并打印落点）；--merge 仅用于归因排除。');
     console.log('退出码：0 内容已完整进主干（可删分支）/ 1 存在 LOST 或 UNATTRIBUTED（禁止删）/ 2 判据自身故障（同样禁止据此删）');
     return EXIT_OK;
@@ -630,8 +722,11 @@ function main(argv) {
   if (!o.ref) { console.error('[BRANCH-MERGED] 缺 --ref（不得当成"没有问题"）'); return EXIT_JUDGE_ERROR; }
   if (o.merges.length === 0) { console.error('[BRANCH-MERGED] 缺 --merge（归因排除要用）'); return EXIT_JUDGE_ERROR; }
 
-  const r = collect({ ref: o.ref, merges: o.merges, base: o.base, against: o.against, root: o.root || process.cwd() });
-  const counts = { IDENTICAL: 0, 'DRIFT-ATTRIBUTED': 0, LOST: 0, UNATTRIBUTED: 0, JUDGE_ERROR: 0 };
+  const r = collect({
+    ref: o.ref, merges: o.merges, base: o.base, against: o.against,
+    root: o.root || process.cwd(), allowDifferentLanding: !!o.allowDifferentLanding,
+  });
+  const counts = { IDENTICAL: 0, 'DRIFT-ATTRIBUTED': 0, LOST: 0, UNATTRIBUTED: 0, JUDGE_ERROR: 0, 'DIFFERENT-RELEASED': 0 };
   for (const f of r.files) counts[f.verdict] = (counts[f.verdict] || 0) + 1;
   const againstNote = r.against ? 'against=' + r.against + '@' + String(r.againstSha).slice(0, 9) : 'against=<未解析>';
 
@@ -654,14 +749,27 @@ function main(argv) {
         (f.unexplainedOver && f.unexplainedOver.length ? ' 多余内容未归因=' + f.unexplainedOver.map(show).slice(0, 3).join(' | ') : '') +
         (f.violations && f.violations.length ? ' 份数=' + f.violations.slice(0, 2).map((v) =>
           v.dir + ' ' + v.by + '(base=' + v.base + ' tip=' + v.tip + ' main=' + v.main +
-          ' 可解释容量=' + v.capacity + ' 随合并落地过(跨 PR 取最大)=' + v.landedWithMerge + ')').join(' ; ') : ''));
+          ' 可解释容量=' + v.capacity + ' 随合并落地过(跨 PR 取最大)=' + v.landedWithMerge + ')').join(' ; ') : '') +
+        describeRevisions(f.revisionsAtMerge));
     }
+  }
+  const revOf = (v) => (v && v.revisionsAtMerge) || {};
+  const nDifferent = r.files.filter((x) => ((revOf(x).different) || []).length > 0).length;
+  const nNotCarried = r.files.filter((x) => ((revOf(x).notCarried) || []).length > 0).length;
+  const released = (r.releasedDifferent || 0);
+  if (o.allowDifferentLanding) {
+    console.log('[BRANCH-MERGED][OPT-IN] --allow-different-landing 生效：放行 ' + released +
+      ' 个「落地版本不同」的 LOST 行。**放行不等于内容已落地** —— 本旗标只承认"这笔合并落的是另一版"，' +
+      '不承认方向（可能是评审改了产物，也可能那份拷贝根本没落、主干靠重复键份数看着还在）。' +
+      '删分支前须逐行核 落地版本= 的双向规模，必要时比 blob；「根本没带上」那格本旗标永不放行。');
   }
   console.log('[BRANCH-MERGED] ref=' + String(o.ref).slice(0, 12) + ' ' + againstNote +
     ' merges=' + r.merges.length + ' files=' + r.files.length +
     ' identical=' + counts.IDENTICAL + ' drift=' + counts['DRIFT-ATTRIBUTED'] +
     ' lost=' + counts.LOST + ' unattributed=' + counts.UNATTRIBUTED +
-    ' judge_error=' + (r.judgeError ? 1 : 0));
+    ' judge_error=' + (r.judgeError ? 1 : 0) +
+    ' 落地版本不同=' + nDifferent + ' 没带上=' + nNotCarried +
+    (o.allowDifferentLanding ? ' 放行=' + released : ''));
   if (r.judgeError) {
     for (const why of r.reasons) console.error('[BRANCH-MERGED] 判据自身故障（按"未证实"处理，不得据此删分支）：' + why);
     return EXIT_JUDGE_ERROR;
@@ -674,6 +782,7 @@ module.exports = {
   VERDICTS, EXIT_OK, EXIT_LOST, EXIT_JUDGE_ERROR,
   splitLines, key, multisetOf, reconcileCounts, capacityCounts, netCounts, parsePatchNet, assertChainCloses,
   JudgeError,
+  classifyRevision, lineDiffScale, revisionsAtMerge, describeRevisions, releaseEligibleForLanding,
   classifyFile, collect, main, parseArgv,
 };
 

@@ -215,3 +215,28 @@ test('P8 判据本体的 gitignore 放行必须是"最后命中的那条规则"�
   assert.ok(out.includes(':!scripts/ccg-convergence-probe.js'),
     '最后命中的规则必须是放行规则；命中 scripts/*.js 说明有人把忽略规则挪到了放行规则之后，本体将不会入库：' + out);
 });
+
+// ── 刀E：探针必须知道 vendor 能不能表达「外部复核已发生」 ──
+// 探针原来把「self-play 对高危项无条件计阻断」当成固定结论。本机给 vendor 打了 externalReview
+// 补丁之后，那句话会变成**谎报**（结论说不可达，实际填三格即可闭合）。所以判定必须现读 vendor。
+// 只测纯谓词不测端到端：CI 的 changes 作业上没有 vendor 引擎（探针走失明档），端到端断言在 runner
+// 上永远测不到 —— 把判定收敛成可纯测的谓词，才有 CI 覆盖得住的锁。
+test('P9 externalReviewCapable：vendor 具备解除谓词与期望后端字段 ⇒ 判为在位', () => {
+  assert.strictEqual(typeof probe.externalReviewCapable, 'function',
+    '探针必须导出 externalReviewCapable —— 不导出就没有常驻判据知道结论已变');
+  const src = ['function externalReviewSatisfied (i, adj) { return true; }',
+    '    expectedExternalBackend: expectedExternalBackend || null,'].join('\n');
+  assert.strictEqual(probe.externalReviewCapable(src), true, '两格齐备 ⇒ 在位');
+});
+
+test('P10 在位判定不得靠「字样出现过」：散文/注释里提一句不算，缺任一格都不算', () => {
+  const cases = [
+    ['只在注释里提到', '// TODO: 将来支持 externalReviewSatisfied 与 expectedExternalBackend'],
+    ['只有解除谓词、没有期望后端字段', 'function externalReviewSatisfied (i) { return false; }'],
+    ['只有期望后端字段、没有谓词', 'expectedExternalBackend: cfg.critic,'],
+    ['旧形态（无表达）', 'if ((i.highRiskDomains || []).length) { blocking.push(...) }'],
+  ];
+  for (const [name, src] of cases) {
+    assert.strictEqual(probe.externalReviewCapable(src), false, name + ' ⇒ 不得判在位：' + src);
+  }
+});

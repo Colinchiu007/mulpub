@@ -23,6 +23,7 @@ const ERROR_CODES = Object.freeze({
   PROVIDER_ERROR: 'PROVIDER_ERROR',   // 供应商内部错误（500）
   CONTENT_POLICY: 'CONTENT_POLICY', // 可明确识别的内容安全拒绝
   NOT_IMPLEMENTED: 'NOT_IMPLEMENTED', // 方法未实现
+  PLAN_UNSUPPORTED: 'PLAN_UNSUPPORTED', // 账号套餐/认证不含该能力（如 MiniMax 克隆需按量付费，订阅套餐不支持）
 })
 
 /**
@@ -40,6 +41,7 @@ const ERROR_META = {
   PROVIDER_ERROR:  { category: 'provider',       retryable: true },
   CONTENT_POLICY:  { category: 'content_policy', retryable: false },
   NOT_IMPLEMENTED: { category: 'system',         retryable: false },
+  PLAN_UNSUPPORTED: { category: 'config',        retryable: false },
 }
 
 /**

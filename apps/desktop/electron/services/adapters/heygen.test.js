@@ -173,6 +173,106 @@ describe('HeyGenAdapter — HeyGen 数字人', () => {
     })
   })
 
+  describe('listAvatars — 数字人形象目录', () => {
+    it('GET /avatars 归一化为 { id, name, previewUrl, gender }', async () => {
+      const fetchMock = createFetchMock([createFetchResponse({
+        data: {
+          avatars: [
+            { avatar_id: 'ava-1', avatar_name: '主持人小雅', preview_url: 'https://x/1.png', gender: 'female' },
+            { avatar_id: 'ava-2', avatar_name: '主持人小博', gender: 'male' },
+          ],
+        },
+      })])
+      global.fetch = fetchMock
+
+      const adapter = new HeyGenAdapter({ id: 'heygen', apiKey: 'k' })
+      const list = await adapter.listAvatars()
+
+      expect(list).toHaveLength(2)
+      expect(list[0]).toEqual({
+        id: 'ava-1', name: '主持人小雅', previewUrl: 'https://x/1.png', gender: 'female',
+      })
+      expect(list[1].previewUrl).toBe('')
+      expect(fetchMock.calls[0].url).toContain('/avatars')
+    })
+
+    it('data 直接为数组的形态也能解析', async () => {
+      global.fetch = createFetchMock([createFetchResponse({
+        data: [{ avatar_id: 'ava-9', avatar_name: '备用形象' }],
+      })])
+      const adapter = new HeyGenAdapter({ id: 'heygen', apiKey: 'k' })
+      const list = await adapter.listAvatars()
+      expect(list).toEqual([{ id: 'ava-9', name: '备用形象', previewUrl: '', gender: '' }])
+    })
+
+    it('缺 id 的条目丢弃，不产出空 character', async () => {
+      global.fetch = createFetchMock([createFetchResponse({
+        data: { avatars: [{ avatar_name: '无名' }, { avatar_id: 'ava-1' }] },
+      })])
+      const adapter = new HeyGenAdapter({ id: 'heygen', apiKey: 'k' })
+      const list = await adapter.listAvatars()
+      expect(list).toHaveLength(1)
+      expect(list[0]).toEqual({ id: 'ava-1', name: 'ava-1', previewUrl: '', gender: '' })
+    })
+
+    it('响应体异常（无 data）返回空数组而非抛错', async () => {
+      global.fetch = createFetchMock([createFetchResponse({})])
+      const adapter = new HeyGenAdapter({ id: 'heygen', apiKey: 'k' })
+      await expect(adapter.listAvatars()).resolves.toEqual([])
+    })
+
+    it('401 认证失败向上冒泡为 AUTH_FAILED', async () => {
+      global.fetch = createFetchMock([createFetchResponse({ message: 'Unauthorized' }, 401)])
+      const adapter = new HeyGenAdapter({ id: 'heygen', apiKey: 'bad' })
+      try {
+        await adapter.listAvatars()
+        expect.fail('Should throw')
+      } catch (e) {
+        expect(e.code).toBe(ERROR_CODES.AUTH_FAILED)
+      }
+    })
+  })
+
+  describe('listVoices — 音色目录', () => {
+    it('GET /voices 归一化为 { id, name, language, gender }', async () => {
+      const fetchMock = createFetchMock([createFetchResponse({
+        data: {
+          voices: [
+            { voice_id: 'v-1', name: '甜美女声', language: 'zh-CN', gender: 'female' },
+            { voice_id: 'v-2', name: '沉稳男声', language: 'en-US', gender: 'male' },
+          ],
+        },
+      })])
+      global.fetch = fetchMock
+
+      const adapter = new HeyGenAdapter({ id: 'heygen', apiKey: 'k' })
+      const list = await adapter.listVoices()
+
+      expect(list).toHaveLength(2)
+      expect(list[0]).toEqual({ id: 'v-1', name: '甜美女声', language: 'zh-CN', gender: 'female' })
+      expect(fetchMock.calls[0].url).toContain('/voices')
+    })
+
+    it('data 直接为数组的形态也能解析', async () => {
+      global.fetch = createFetchMock([createFetchResponse({
+        data: [{ voice_id: 'v-9', display_name: '展示名' }],
+      })])
+      const adapter = new HeyGenAdapter({ id: 'heygen', apiKey: 'k' })
+      const list = await adapter.listVoices()
+      expect(list).toEqual([{ id: 'v-9', name: '展示名', language: '', gender: '' }])
+    })
+
+    it('缺 voice_id 的条目丢弃', async () => {
+      global.fetch = createFetchMock([createFetchResponse({
+        data: { voices: [{ name: '无名音色' }, { voice_id: 'v-1' }] },
+      })])
+      const adapter = new HeyGenAdapter({ id: 'heygen', apiKey: 'k' })
+      const list = await adapter.listVoices()
+      expect(list).toHaveLength(1)
+      expect(list[0].id).toBe('v-1')
+    })
+  })
+
   describe('testConnection', () => {
     it('请求成功返回 true', async () => {
       global.fetch = createFetchMock([createFetchResponse({ data: { status: 'completed' } })])

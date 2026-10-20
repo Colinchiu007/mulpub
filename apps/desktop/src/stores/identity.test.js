@@ -277,5 +277,44 @@ describe('identity store', () => {
     await store.load()
     expect(store.entitlement.quota).toBeUndefined()
   })
+
+  it('透传 entitlement.limits 与到期宽限字段（v2.0 C1.3 / C9.2）', async () => {
+    window.electronAPI.identityGetState.mockResolvedValue({
+      code: 0,
+      data: {
+        status: 'authenticated',
+        user: { sub: 'sub-1' },
+        entitlement: {
+          plan: 'free',
+          features: ['cloud_publish'],
+          source: 'online',
+          limits: { max_platforms: 5, daily_publish: 5, plan_rank: 0 },
+          graceUntil: '2026-10-30T00:00:00.000Z',
+          previousPlan: 'pro',
+        },
+      },
+    })
+    const { useIdentityStore } = await import('./identity')
+    const store = useIdentityStore()
+    await store.load()
+    expect(store.entitlement.limits).toEqual({ max_platforms: 5, daily_publish: 5, plan_rank: 0 })
+    expect(store.entitlement.graceUntil).toBe('2026-10-30T00:00:00.000Z')
+    expect(store.entitlement.previousPlan).toBe('pro')
+  })
+
+  it('非法 limits 形状被丢弃（缺失即放行，由 plan-limits 兜底为不限）', async () => {
+    window.electronAPI.identityGetState.mockResolvedValue({
+      code: 0,
+      data: {
+        status: 'authenticated',
+        user: { sub: 'sub-1' },
+        entitlement: { plan: 'standard', features: [], limits: 'oops' },
+      },
+    })
+    const { useIdentityStore } = await import('./identity')
+    const store = useIdentityStore()
+    await store.load()
+    expect(store.entitlement.limits).toBeUndefined()
+  })
 })
 

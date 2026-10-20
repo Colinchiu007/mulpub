@@ -232,6 +232,30 @@ sidecar Python、MP TS 镜像、MP JS 镜像 SHALL 对同一文本同一配置�
 - **WHEN** 规则表不含 `word_split.phrase_boundary` 段（旧版规则表）
 - **THEN** 短语边界判定 SHALL 恒为 false，`min_head_relax` SHALL 为 0，分句行为与 v1.2 完全一致
 
+### Requirement: 数字与单位完整性守卫（v1.4）
+
+字幕切分点 SHALL NOT 落在数字（阿拉伯或中文数词）与其量词/单位之间，SHALL NOT 落在数量引导字（是/约/到/达/了/超/足/低/高/等）与其后的 ASCII 数字之间。该守卫 SHALL 同时作用于 MAX 兜底分支与标点累积分支；词表 `word_split.unit_guard` 缺省时守卫 SHALL 恒为 false，行为与 v1.3 一致。
+
+#### Scenario: 数字与单位被空格分隔
+- **WHEN** 文本含「风速每秒 8 米」且累积块达到最短长度时空格成为切分标点
+- **THEN** 该切点 SHALL 被拒绝，块 SHALL 保留「风速每秒 8 米」完整数量表达
+
+#### Scenario: 小数与金额单位
+- **WHEN** 文本含「套现约 3.2 亿元」
+- **THEN** 切点 SHALL NOT 落在「3.2」与「亿元」之间
+
+#### Scenario: 引导字后接数字开头块
+- **WHEN** 文本含「制程是 3 纳米」且切点候选落在「是」之后
+- **THEN** 该切点 SHALL 被拒绝，数量词组 SHALL 保留在引导字所在块或整块后移
+
+#### Scenario: 中文数词与单位
+- **WHEN** 文本含「一百五十元」
+- **THEN** 切点 SHALL NOT 落在中文数词串与「元」之间（评审 i1：中文数词与阿拉伯数字同形同责）
+
+#### Scenario: 守卫缺省回退
+- **WHEN** 规则表不含 `word_split.unit_guard`
+- **THEN** 守卫 SHALL 恒为 false，分句行为与 v1.3 完全一致
+
 ### Requirement: 词边界判断异常时安全回退
 
 本地词边界判断器缺失、初始化失败、词典加载失败或运行时抛错时，字幕主流程 SHALL 继续使用显式短语、字符规则和安全边界守卫，不得让 soft tie-break 异常使整段分句失败。所有长度 fallback SHALL 复用同一安全边界合同；在当前范围内找不到合法边界时，系统 SHALL 保留完整块或扩大安全搜索范围。

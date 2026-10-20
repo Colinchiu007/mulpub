@@ -551,7 +551,11 @@ def test_rewrite_request_word_count_defaults():
 
 
 def test_rewrite_request_word_count_validation():
-    """min/max 字数校验：整数、0-6000 范围、max >= min。"""
+    """min/max 字数校验：整数、0-49999 / 1-50000 范围、max >= min。
+
+    rewrite-segment-and-finish-reason（2026-10-20）：上界与 JS 引擎 MAX_OUTPUT_CHARS
+    （50000）对齐；旧口径 6000 已随 rewrite-limits-50000 放开。
+    """
     from multi_publish.aggregation.models import RewriteRequest
     from pydantic import ValidationError
 
@@ -562,8 +566,13 @@ def test_rewrite_request_word_count_validation():
     with pytest.raises(ValidationError, match="max_word_count"):
         RewriteRequest(content="测试内容", style="轻松易懂", min_word_count=500, max_word_count=100)
 
+    # 50000 合法（新上界正控）
+    req_max = RewriteRequest(content="测试内容", style="轻松易懂", min_word_count=40000, max_word_count=50000)
+    assert req_max.max_word_count == 50000
+
+    # 50001 越界（新边界）
     with pytest.raises(ValidationError):
-        RewriteRequest(content="测试内容", style="轻松易懂", max_word_count=7000)
+        RewriteRequest(content="测试内容", style="轻松易懂", max_word_count=50001)
 
     with pytest.raises(ValidationError):
         RewriteRequest(content="测试内容", style="轻松易懂", min_word_count=-1)

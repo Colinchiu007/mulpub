@@ -2,6 +2,9 @@
  * create 命名空间文案（locales 结构拆分，FRONTEND-FILE-SPLIT-PLAN-2026-10 v3）
  * 从 locales/en.js 拆出，键名与拆出前完全一致；zh/en 成对维护（CI Gate 7）。
  */
+import avatarEn from './avatar/en'
+import uiEn from './ui/en'
+
 export default {
     story2video: {
       style: {
@@ -17,6 +20,8 @@ export default {
         cinematicDarkDesc: 'Dark cinematic rendering',
       },
       configurationTitle: 'Story Telling Configuration',
+      // Video creation page subtitle (2026-10-19: moved out of the hardcoded CreateView.vue copy; drops the OpenMontage brand wording)
+      engineSubtitle: 'An all-in-one pipeline engine: AI-driven from script to final cut',
       imageStyleHint: 'Controls the visual appearance of generated images.',
       promptStyleHint: 'Controls how image prompts are written and organized; it does not replace image style.',
       maxPromptLength: 'Max prompt length',
@@ -63,7 +68,6 @@ export default {
       },
       startPipeline: 'Start pipeline',
       pause: 'Pause',
-      backToHistory: 'Back',
       selectionWait: {
         stageLabel: 'Awaiting asset selection',
         banner: (ctx) => 'Storyboard assets are ready — pick the final material for each scene (' + ctx.named('count') + ' scenes total).',
@@ -231,6 +235,7 @@ export default {
         VOICE_CLONE_TOTAL_DURATION_EXCEEDED: 'The total audio duration exceeds the limit. Remove files and retry.',
         VOICE_CLONE_PROVIDER_UNAVAILABLE: 'Voice cloning is temporarily unavailable. Please try again later.',
         VOICE_CLONE_UNAVAILABLE: 'Voice cloning is temporarily unavailable. Please try again later.',
+        VOICE_CLONE_PLAN_UNSUPPORTED: 'Your MiniMax account cannot clone voices: note that MiniMax voice cloning requires a separate 9.9 CNY purchase per voice and is not covered by subscription plans. Purchase it on the MiniMax platform and retry, or use a built-in voice or another provider.',
         VOICE_CLONE_UNSUPPORTED: 'This voice model does not support voice cloning yet. Using the default voice.',
         VOICE_CLONE_DIALOG_UNAVAILABLE: 'Could not open the audio file picker. Please try again.',
         VOICE_CLONE_DUPLICATE_ID: 'A cloned voice with this name already exists. Use another name.',
@@ -292,78 +297,11 @@ export default {
         // ResultView.vue, and extracting it broke the file-matched CJK baseline.
         format: 'Format',
       },
-      // Detail-page visual & interaction refinement (story2video-detail-visual-refinement, 2026-09-20)
-      // Kept paired with zh.js: CI Gate 7 check-locale-sync.js --pair enforces it
+      // Detail-page visual & interaction refinement (2026-09-20); paired with zh.js (CI Gate 7)
       ui: {
-        quickModeText: "Text generation",
-        quickModeGallery: "Image carousel",
-        profileCustomParams: "Custom params",
-        providerCapSeconds: "({seconds} s)",
-        providerCapabilityRetry: "Model provider responded abnormally: {names}. The pipeline retried automatically; if this keeps happening, switch models or check the provider in Model Settings.",
-        mediaRequirementsImage: "Supports jpg / jpeg / png / webp, up to 10MB each.",
-        mediaRequirementsAudio: "Supports wav / m4a / mp3, up to 50MB each.",
-        mediaRequirementsBgm: "Supports wav / m4a / mp3, up to 15MB each.",
-        mediaRequirementsVideo: "Supports mp4 / mov / webm / mkv / avi, up to 512MB each.",
-        quickProfileYouTube: "YouTube landscape (1920x1080)",
-        quickProfileTikTok: "TikTok (1080x1920)",
-        quickProfileWechat: "WeChat Channels (1080x1920)",
-        quickProfileXiaohongshu: "Xiaohongshu (1080x1440)",
-        loadingPipelineProgress: "Loading pipeline progress…",
-        sectionBasic: "Basics",
-        sectionAppearance: "Visuals",
-        sectionVideoEnhance: "Video enhance",
-        sectionVoice: "Voice",
-        sectionAdvanced: "Advanced",
-        imageStyleDefault: "Cinematic",
-        imageEffectNone: "No effect",
-        summaryPureImages: "Pure image carousel",
-        splitLanguageAuto: "Auto detect",
-        splitModeBalanced: "Balanced",
-        summaryPlatforms: "{count} platform(s) selected",
-        summaryNoPlatform: "No publishing",
-        // Background-music fragment in the Voice group summary (s2v-bgm-legacy-repair; omitted when unset)
-        summaryBgmLibrary: "Music: {name}",
-        summaryBgmLegacyAvailable: "Music (legacy audio)",
-        summaryBgmLegacyMissing: "Music file missing",
-        summaryBgmLegacyUnusable: "Music unavailable",
-        historyCompleted: "Completed",
-        historyFailed: "Failed",
-        historyCancelled: "Cancelled",
-        historyRunning: "Running",
-        historyPaused: "Paused",
-        historyPending: "Pending",
-        historyUnknown: "Unknown",
-        loadFailed: "Load failed",
-        draftLoadFailed: "Draft to import was not found. Please go back and start again",
-        providerAvailable: "Available",
-        providerInDev: "In development",
-        pipelineAvailable: "This pipeline can generate videos",
-        pipelineNoEngine: "This pipeline has no execution engine yet and cannot generate videos",
-        loginGateMessage: "Pipeline start requires sign-in. Sign in now?",
-        backgroundRunNotice: "Task started and running in the background. Progress cannot be tracked live; check it in History.",
-        doubleResetHint: 'Double-click the slider to restore the default',
-        sectionDefaultSuffix: ' (default)',
-        estimatePlaceholder: 'Scene count, narration duration and cost are estimated once you enter the text',
-        charLimitWarning: 'Close to the character limit',
-        charLimitReached: ' (character limit reached)',
-        flowGuide: 'Once configured, clicking Start Pipeline runs all stages automatically — no step-by-step confirmation needed.',
-        voiceSpeedLabel: 'Narration speed',
-        voiceVolumeLabel: 'Narration volume',
-        bgmVolumeLabel: 'Background music volume',
-        videoFixedRatioLabel: 'AI video share (opening)',
-        videoMinRatioLabel: 'Minimum AI video share',
-        videoMaxRatioLabel: 'Maximum AI video share',
-        blockedReason: {
-          noPipeline: 'Select a pipeline first',
-          unavailable: 'This pipeline has no execution engine yet',
-          starting: 'Start request is in flight, please wait',
-          running: 'A pipeline run is already active',
-          invalidRange: 'Some numeric options are out of range; check speed, volume and scene length',
-          bgmLost: 'The selected background music file is missing. Choose another track or clear it before starting.',
-          bgmUnusable: 'The selected background music cannot be used. Choose another track or clear it before starting.',
-          noAsset: 'Add the required material first',
-          noText: 'Enter the script text first',
-        },
+        ...uiEn,
+        // Digital human (avatar-spokesperson): single source is create/avatar/en.js
+        ...avatarEn,
       },
       tpl: {
         navBack: "Back",

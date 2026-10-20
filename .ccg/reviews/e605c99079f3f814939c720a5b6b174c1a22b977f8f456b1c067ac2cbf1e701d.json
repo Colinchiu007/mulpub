@@ -1,0 +1,138 @@
+{
+  "sha": "09af45d44d70a5dbda273b3d93d4a68a8a29f3ff",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 316 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 316,
+    "fileCount": 11,
+    "codeFileCount": 4,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "e605c99079f3f814939c720a5b6b174c1a22b977f8f456b1c067ac2cbf1e701d",
+  "decidedAt": "2026-10-18T23:45:16.991Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "tier": "unknown",
+    "performedBy": "claude",
+    "degradedTo": "self-play",
+    "error": "spawnSync <ccg-bin>/codeagent-wrapper.exe ETIMEDOUT",
+    "degradation": {
+      "reason": "外部 critic 后端不可用：ccg-deep-review.js 两次均 spawnSync codeagent-wrapper.exe ETIMEDOUT；直接调用 claude -p 返回 API 502（inference gateway 127.0.0.1:15721 上游转发失败）。",
+      "evidence": [
+        "run1: 07:47 → 07:56 spawnSync .../codeagent-wrapper.exe ETIMEDOUT",
+        "run2: 07:56 → 08:06 同样 ETIMEDOUT",
+        "deep-review.sh --check-deps: 体检通过（codeagent-wrapper / claude / opencode 三者均可解析）",
+        "claude -p \"Reply with exactly: OK\" → API Error: 502 请求转发失败: 上游请求失败: client error (Connect)",
+        "netstat: 127.0.0.1:15721 LISTEN by cc-switch (PID 20436)，进程存活、根路径 404 属正常代理行为"
+      ],
+      "perDecision": "AGENTS.md「子代理降级：出现 403/超时等后端不可用错误时立即降级为主代理直接执行，不盲等」",
+      "statusChoice": "记 self_play_resolved 而非 cleared —— cleared 语义是\"双模型审查跑完且无未决项\"，本条的实际情形是外部后端不可用、由主代理自扮演完成，用 self_play_resolved 更诚实。"
+    },
+    "findings": [
+      {
+        "id": "F1",
+        "severity": "HIGH",
+        "location": "apps/desktop/src/components/icons/SidebarToggleIcon.test.js（shapeSignature）",
+        "title": "图形签名把样式属性也算进\"图形\"，导致「只换 fill 不换形状」的退化无法被检出",
+        "issue": "本条用例要防的退化是「同一图形只换颜色」。但签名键集包含 fill / stroke-dasharray，于是\"两态几何完全一致、只有 fill 不同\"时签名依然不等，断言照样通过 ⇒ 假绿。",
+        "evidence": "反证实验（构造退化图标：几何相同、仅 fill 不同）：含样式属性的签名判「不同⇒测试通过」，仅几何的签名判「相同⇒测试红」。真实实现两种签名都判不同（所以修法不牺牲真阳性）。",
+        "adjudication": "upheld",
+        "resolution": "签名键集收敛为 d/x/y/width/height/rx 六个几何属性（两个测试文件同步改）；样式差异（实心 vs 虚线）交独立用例覆盖。改后 19/19 仍全绿。"
+      },
+      {
+        "id": "F2",
+        "severity": "MEDIUM",
+        "location": "apps/desktop/src/components/icons/SidebarToggleIcon.vue（stroke-dasharray: 2.2 1.6）",
+        "title": "怀疑收起态虚线面板在 18px 图标 1x 缩放下糊成实线，使形状通道失效",
+        "issue": "18px 图标内面板宽 6.5px、描边 1.4px、虚线周期 2.2/1.6，纵向 11px 仅约 3 个周期，存在被抗锯齿糊成实线的风险；若成立，则\"实心 vs 虚线\"这层冗余编码在实机上不成立。",
+        "evidence": "截 deviceScaleFactor=1 真图（32×28 物理像素）判读：虚线断点可辨、左侧 2px 品牌色锚点醒目、右箭头清晰。svg 渲染尺寸实测 18×18。",
+        "adjudication": "dismissed-by-measurement",
+        "resolution": "1x 实测可辨，不做改动。余量偏紧，记为边界风险（若未来缩小图标或调整 dasharray 需复测）。"
+      },
+      {
+        "id": "F3",
+        "severity": "MEDIUM",
+        "location": "apps/desktop/src/components/SidebarToggleButton.test.js（border 断言）",
+        "title": "源级 CSS 正则在全文取第一个 border: 1px solid，未来新增声明会误匹配",
+        "issue": "若将来在 :hover / ::before 等更靠前的规则里也写 `border: 1px solid`，断言会悄悄改判到那条规则上（它仍是\"非 transparent\"⇒ 假绿），而基础态的边框其实已退回透明。",
+        "evidence": "当前 .sidebar-toggle 块是该声明的首个出现位置，故当下正确；脆弱性在未来的插入。",
+        "adjudication": "upheld",
+        "resolution": "先锚定 .sidebar-toggle {…} 基础块再在块内匹配，并加\"未找到基础块/未找到声明\"的显式失败信息。"
+      },
+      {
+        "id": "F4",
+        "severity": "LOW",
+        "location": "apps/desktop/src/components/SidebarToggleButton.vue（focus-visible outline）",
+        "title": "怀疑 2px outline + 1px offset 被 overflow 裁剪",
+        "issue": ".tab-bar 是 overflow-x:auto（计算后 overflow-y 亦为 auto）、.mp-shell 是 overflow:hidden，outline 可能被切。",
+        "evidence": "实测按钮 margin-top=4px、高 28px，outline 外缘上下各距 TabBar 边界 1px（顶部 4-3=1、底部 36-(32+3)=1），完整落在 36px 内，未被裁剪。",
+        "adjudication": "dismissed-by-measurement",
+        "resolution": "当前安全。余量仅 1px，记为临界风险：若调整 margin 或加大 outline 需复测。"
+      },
+      {
+        "id": "F5",
+        "severity": "LOW",
+        "location": "apps/desktop/src/components/SidebarToggleButton.vue（position: relative）",
+        "title": "position 由 static 改为 relative，是新引入的绘制层级变化",
+        "issue": "定位元素在绘制顺序上高于 static 兄弟元素，理论上可能盖住 TabBar 内绝对定位的下拉层。",
+        "evidence": "TabBar 当前无绝对定位的兄弟元素；relative 不改变布局流（仍占原位），未设 z-index 不创建层叠上下文。",
+        "adjudication": "recorded-risk",
+        "resolution": "记录为已知取舍，不修改。::before 定位需要它。"
+      },
+      {
+        "id": "F6",
+        "severity": "LOW",
+        "location": "apps/desktop/src/components/SidebarToggleButton.vue（color-mix 22% / 45%）",
+        "title": "两个百分比是魔数，未抽 design token",
+        "issue": "常态 22% 与 hover 45% 直接写在样式里，未来主题调整需改两处。",
+        "evidence": "该量级只在本组件一处使用，未形成第二处复用。",
+        "adjudication": "recorded-risk",
+        "resolution": "记录为已知取舍；若其它组件也需要品牌倾向描边，届时抽 --color-brand-outline-* token。"
+      }
+    ],
+    "summary": {
+      "total": 6,
+      "upheld": 2,
+      "dismissedByMeasurement": 2,
+      "recordedRisk": 2,
+      "blocking": 0,
+      "note": "两条 upheld 已修复并用测试锁定；两条 dismissed 由实测推翻（1x 虚线可辨、outline 未被裁）；两条记为取舍。"
+    },
+    "at": "2026-10-19T00:12:13.686Z"
+  }
+}

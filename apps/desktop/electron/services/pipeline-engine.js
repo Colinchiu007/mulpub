@@ -227,11 +227,11 @@ const PIPELINES = [
     category: 'talking_head',
     stages: ['avatar_select', 'script', 'generate', 'render'],
     estimatedCost: 'high',
-    // 真实编排：数字人选择+LLM 口播文案→视频生成 provider→FFmpeg 合成（videogen-stages.js 注册）
     stageDefs: [
       { name: 'avatar_select', type: 'videogen_avatar', description: '数字人选择与口播文案', checkpointRequired: false, options: {} },
       { name: 'script', type: 'videogen_script', description: '口播文案', checkpointRequired: false, options: {} },
-      { name: 'generate', type: 'videogen_generate', description: '数字人视频生成', checkpointRequired: false, options: {} },
+      // digitalHuman:true 让 GENERATE 走数字人分支（详见 digital-human-stages.js 头注）
+      { name: 'generate', type: 'videogen_generate', description: '数字人视频生成', checkpointRequired: false, options: { digitalHuman: true } },
       { name: 'render', type: 'videogen_merge', description: '拼接合成与产物校验', checkpointRequired: false, options: {} },
     ],
   },
@@ -479,7 +479,7 @@ const PIPELINES = [
   },
   {
     name: 'film-engineering',
-    description: '影视工程（Hell Grind 复刻） - 真实分镜提示词库浏览/一键复制/剧本套用/导出',
+    description: '影视工程 - 行业专业分镜提示词库浏览/一键复制/剧本套用/导出',
     category: 'generated',
     stages: ['load_template', 'adapt_script', 'select_shots', 'export_prompts', 'generate_videos', 'render'],
     estimatedCost: 'high',
@@ -487,14 +487,14 @@ const PIPELINES = [
       {
         name: 'load_template',
         type: 'film_load_template',
-        description: '加载 Hell Grind 影视工程模板（film-kit，fail-closed）',
+        description: '加载影视项目案例模板（film-kit，fail-closed）',
         checkpointRequired: false,
         options: {},
       },
       {
         name: 'adapt_script',
         type: 'film_adapt_script',
-        description: '剧本分场并按 Hell Grind 模板组装提示词',
+        description: '剧本分场并按影视项目案例模板组装提示词',
         checkpointRequired: false,
         options: {},
       },

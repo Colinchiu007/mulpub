@@ -15,6 +15,12 @@ export default {
     untitled: '无标题',
     updatedUnknown: '更新时间未知',
     platformCount: (ctx) => ctx.named('count') + ' 个平台',
+    // v2.0 机制 C1.3：平台数触顶提示。只播报、不改变选择；数值来自服务端 limits。
+    platformLimitReached: '当前档位最多选择 {limit} 个平台，升级后可继续添加',
+    platformLimitHint: '已选 {selected} / {limit} 个平台',
+    batchSizeExceeded: '当前档位单次最多批量 {limit} 条，升级后可提高上限',
+    cloudAccountLimitExceeded: '当前档位不提供云端账号同步，升级后可绑定 {limit} 个',
+    deviceLimitExceeded: '当前档位最多同时在 {limit} 台设备上登录',
     delete: '删除',
     publishTitle: '一键发布',
     batchSubtitle: '批量编辑多篇文章，各平台独立发布',
@@ -389,6 +395,13 @@ export default {
       publishFailed: '发布失败',
       publishFailedTitle: '发布失败',
       publishErrorTitle: '发布异常',
+      // 发布前闸门的「解法入口」链接文案（2026-10-19，publish-gate-help-ui）。
+      // 链接地址不在这里维护 —— 在 packages/shared-utils/src/publish-gate-help(.browser).js
+      // 的单一真源里（与引擎侧 helpUrl 同表，parity 测试钉住），这里只管文案。
+      gateHelp: {
+        accountNotVerified: '去头条号完善账号信息',
+        noPublishPermission: '去头条号完善账号信息',
+      },
       publishFailedProgress: (ctx) => '✗ 发布失败: ' + ctx.named('message'),
       publishErrorProgress: (ctx) => '✗ 错误: ' + ctx.named('message'),
       scheduleInvalidProgress: (ctx) => '✗ ' + ctx.named('message'),

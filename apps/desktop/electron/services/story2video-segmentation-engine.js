@@ -109,6 +109,7 @@ const WORD_ORACLE_MAX_TOKEN_LENGTH = subtitleRules.word_split.oracle_max_token_l
 // v1.2.3：成词保护（兼容字段名 no_cut_bigrams）——项目可以是任意长度短语，
 // 切点不得落在任一短语内部（如 "蒙古"、"江南"、"包税人"）。
 const WORD_NO_CUT_PHRASES = new Set(subtitleRules.word_split.no_cut_bigrams || [])
+const { isUnitInterior } = require('./subtitle-unit-guard')
 // v1.3 短语边界：显式成对短语表（phrase_boundary.pairs）。
 // 块以某短语结尾、且紧随其后的字符命中该短语登记的后续首字时，构成短语右边界。
 // 用成对登记而非单侧字符集，避免把 "某|些"、"票仓的|无奈" 这类假边界放进来。
@@ -701,6 +702,7 @@ function isSafeCutPosition (text, i) {
   if (protectedPhraseSpanAtBoundary(text, i)) return false
   if (!isLeBoundaryAllowed(text, i)) return false
   if (isDecimalInterior(text, i)) return false
+  if (isUnitInterior(text, i)) return false
   return true
 }
 
@@ -838,9 +840,14 @@ function subtitleLengthSplit (text, config) {
     // v1.2.3：数字中的小数点（如 713.3）不是切分标点
     if (isPunct && cur.length >= config.minCharsPerBlock
       && !(ch === '.' && isDecimalPointAt(text, sourceIndex))) {
+      // v1.4 unit_guard：标点切点不得落在 数字│单位 或 引导字│数字 之间
+      if (isUnitInterior(text, sourceIndex + 1)) {
+        // 不在此切；落入后续短语边界/MAX 分支处理
+      } else {
       blocks.push(cur)
       cur = ''
       lastHardCut = false
+      }
     } else if (stack.length === 0 && isPhraseBoundary(text, sourceIndex + 1)
       && cur.length >= Math.max(1, config.minCharsPerBlock - PHRASE_BOUNDARY_MIN_HEAD_RELAX)) {
       // v1.3 短语边界与优先级标点等价：累积阶段即兑现切分，不等 MAX 分支的裸切兜底。

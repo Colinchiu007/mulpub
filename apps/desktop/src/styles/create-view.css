@@ -21,12 +21,8 @@
   .create-page--pipeline-list { max-width: calc(100% - 64px); }
 }
 .page-header { margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--hairline, rgba(0,0,0,0.06)); }
-/* 详情页已有 .back-btn 提供返回语义，顶部导航箭头与之重复，详情态隐藏去重。 */
-.create-page--pipeline-detail .page-header-nav { display: none; }
-.page-header-nav { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
-.nav-arrow-btn { width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border, #dcdfe6); border-radius: 8px; background: var(--surface, #fff); cursor: pointer; font-size: var(--font-size-base); color: var(--text, #333); transition: all 0.15s ease; }
-.nav-arrow-btn:hover:not(:disabled) { border-color: var(--primary, #409eff); color: var(--primary, #409eff); background: rgba(37,99,235,0.04); }
-.nav-arrow-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+/* 顶部导航箭头（.page-header-nav / .nav-arrow-btn）已整组移除：页面导航由左侧菜单 + 视图 tab 承接；
+   上一轮下线的 .back-btn 返回按钮不再有替代承载，同批清干净（使用者均已消失）。 */
 .page-header h1 { font-size: var(--font-size-xl); font-weight: 700; margin: 0 0 6px; letter-spacing: -0.02em; }
 .text-muted { color: var(--text-muted); font-size: var(--font-size-sm); }
 
@@ -107,11 +103,6 @@
 .view-pane { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 .pipeline-detail { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 .pipeline-detail-scroll { flex: 1; overflow-y: auto; min-height: 0; padding-bottom: 24px; }
-/* align-self: flex-start —— 本元素处于 flex column 的 .pipeline-detail 中，
-   默认 align-items: stretch 会把按钮拉成通栏灰条（视觉散乱主因之一）。 */
-.back-btn { align-self: flex-start; background: none; border: 1px solid var(--border); color: var(--primary); cursor: pointer; font-size: var(--font-size-sm); padding: 6px 14px; border-radius: var(--radius-sm, 6px); margin-bottom: var(--spacing-4, 16px); transition: background-color 0.15s ease, border-color 0.15s ease; display: inline-flex; align-items: center; gap: 4px; }
-.back-btn:hover { background: var(--surface); border-color: var(--primary); }
-.back-btn:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 .detail-header { margin-bottom: 20px; padding: 16px 20px; background: var(--surface, #fff); border-radius: 10px; border: 1px solid var(--hairline, rgba(0,0,0,0.06)); }
 .detail-header h2 { font-size: var(--font-size-lg); margin: 0 0 6px; font-weight: 700; letter-spacing: -0.01em; }
 .detail-desc { color: var(--text-muted); font-size: var(--font-size-sm); margin: 0; line-height: 1.5; }
@@ -478,7 +469,7 @@
   .s2v-config-section { animation: none; }
   .s2v-config-section:hover { box-shadow: none; }
   .action-bar .btn-start:hover:not(:disabled) { transform: none; }
-  .view-tab, .input-tab, .back-btn, .s2v-section-summary::before { transition: none; }
+  .view-tab, .input-tab, .s2v-section-summary::before { transition: none; }
 }
 @media (min-width: 721px) and (max-width: 900px) {
   .action-bar { left: 68px; padding-inline: max(20px, calc((100vw - 68px - 1080px) / 2 + 32px)); }

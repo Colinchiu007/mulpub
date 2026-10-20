@@ -1065,6 +1065,131 @@ if base_path not in final_path.parents:            # ← 路径穿越防护
 - `SplitShots` 返回的 `clip_captions` 复用 `Clip` 模型，**镜头切分结果与字幕单元耦合**，抽取时需解耦
 - 重量级依赖（MCP + LangChain）与 mulpub 现有技术栈不重合，只能取**单个模块**而非整体架构
 
+#### 3.17.1 第二层深挖（v3）：合成与时间线算法的「怎么做到」
+
+> 第一层回答了「有什么节点」，这一层读三个最大节点的**实现细节** —— `render_video.py`（1023 行）、`plan_timeline.py`（907 行）、`generate_ai_transition.py`（571 行）。**这层的结论改变了第一层的一个判断**：FireRed 与其他项目在合成上的差异不是「另一个 ffmpeg 包装」，而是**完全不同的合成栈**。
+
+**深挖 1：成片合成不用 ffmpeg filter_complex，而是 MoviePy + Pillow**
+
+| 项目 | 成片合成技术 |
+|---|---|
+| mulpub | `concat demuxer -c copy`（直拷，无转场） |
+| showvi / yumcut / huobao | ffmpeg `filter_complex`（xfade/amix） |
+| mulpub `remotion-composer` | Remotion（React 渲染） |
+| **FireRed** | **MoviePy（`CompositeVideoClip`）+ Pillow 画字幕** |
+
+FireRed 用 `moviepy` 的 Python 对象模型组装时间线，字幕用 **`PillowSubtitleRenderer`**（`render_video.py:422-567`）逐字测量宽度换行 —— `draw.textlength(candidate, font=font) <= max_width_px` 逐字符累积、超宽即断行（`:557-565`）。**这是 CJK 逐字换行，不是空格分词**，对中文字幕是正确的做法。
+
+**深挖 2：`SUBCLIP_END_SAFETY_MARGIN_S` —— MoviePy 的隐性失败模式**
+
+`render_video.py:24`：`SUBCLIP_END_SAFETY_MARGIN_S = 1e-3`。所有 `subclipped(0, end)` 的 end 都要**减去 1ms**（`:596`、`:613`、`:650`、`:662` 四处统一使用）。这是 MoviePy 的一个坑：**取到素材的最后一帧可能触发解码器截断错误或时长超界**。1ms 的安全边距人眼不可见，但能避免随机崩溃。**只有真在 MoviePy 上踩过随机崩溃的人才会加这个常量** —— 它不在任何文档里。
+
+**深挖 3：AudioTrackComposer 的三轨模型与「双窗口」**
+
+`render_video.py:574-667`，三个音轨层合成：
+1. **video 原声层**：`with_volume_scaled(VIDEO_VOLUME_SCALE)`
+2. **voiceover 层**：`source_window`（素材内取哪段）→ `timeline_window`（放到时间线哪里）。**关键处理：`expected = min(expected, max_available)`（`:623`）—— 时间线窗口想要的时长若超过素材实有，clamp 而非报错**，宁可配音短一点也不让整条渲染崩掉
+3. **BGM 层**：先 concat 所有 BGM 段，然后**三态** —— 短于成片则 `_loop_audio` 循环补齐、超长则裁剪、容差内不动（`:659-662`）。与 Pixelle 的视频三态（pad/trim/容差）完全同构，**再次印证「三态 + 容差」是音视频对齐的行业共识**
+
+**深挖 4：`_allocate_clip_durations_using_beats` —— 「卡点」的完整算法**（`plan_timeline.py:654-728`）
+
+这是整个 FireRed 里**算法密度最高**的一段，注释写明四步：
+
+```
+1) 按各素材源时长加权分配（总和 = 组目标时长）
+2) 每个 clip 的结束点吸附到最近的节拍边界；差值结转（carry over）给下一个 clip
+3) 最后一个 clip 向上取整，保证总时长 ≥ 组目标
+4) 整数截断漂移用「小数部分排序补偿」修平（fractional_parts 按余数降序，前 remainder 个各 +1ms）
+```
+
+配套防御：`SNAP_SAFETY_MAX_STEPS = 10_000`（`:24`）—— 吸附循环超过一万步即抛 `RuntimeError("snap_to_nearest_beat safety exceeded")`（`:720-721`），防止节拍表异常时死循环。**这是「数据异常时 fail-fast 而不是挂死」的标准写法。**
+
+**深挖 5：`_compute_title_music_offset` —— 让片头字幕结束在节拍上**（`plan_timeline.py:488-521`）
+
+反向问题：不是「镜头卡节拍」，而是「**BGM 该从音乐的哪一毫秒开始播，才能让片头字幕的结束点恰好落在节拍上**」。算法：按节拍时长累计走查，找到第一个 ≥ title_duration 的节拍点，反推 `music_offset_ms = cumulative - title_duration`。注释还特意说明「原版代码假设节拍表非空，否则 modulo 崩溃，这里加了守卫」—— 又一个「开源化时补防御」的痕迹。
+
+**深挖 6：AI 转场的实现侧 —— 首尾帧预处理与可取消轮询**
+
+`generate_ai_transition.py:455-537` `_preprocess_first_last_frame`：
+- 色彩归一：非 RGB 一律 `convert("RGB")`（API 不收 alpha 通道）
+- 尺寸对齐：**先按 `max(dst_w/src_w, dst_h/src_h)` 放大再中心裁剪**（LANCZOS），而不是直接拉伸 —— 保住宽高比
+- **逐像素断言**：`assert aligned_first_frame.size == aligned_last_frame.size == target_size`（`:535`）—— 首尾帧尺寸不一致直接 fail-fast，不带病提交
+- **每步 transformation 记入 meta**（`resize_with_center_crop` / `none`），渲染产物可审计「哪帧被动过什么」
+
+`utils/ai_transition_client.py:63-70` `_sleep_with_cancel`：轮询间隔 15s，但 **sleep 切成 0.2s 小片、每片检查取消标志** —— 用户点取消最迟 0.2s 生效，而不是等完整个轮询周期。错误响应统一 `_format_response_error`（截断 2000 字符防止日志爆炸）。
+
+**对 mulpub 的增量结论（相对第一层）**：
+
+| 第一层结论 | 第二层修正 |
+|---|---|
+| 「19 节点编排思路 ⭐，节点图收益有限」 | **维持，但补充**：`plan_timeline` 的节拍分配算法是独立可搬的**纯函数算法**（约 130 行，含测试友好的纯计算），不需要接受整个节点图 |
+| 「render_video 是普通渲染」 | **修正**：MoviePy 栈与 mulpub 现有 ffmpeg 直拷是**两个物种**。若 mulpub 要上「字幕烧录 + 多音轨混音」，MoviePy 路线提供了一整套**已被踩过坑的参考实现**（安全边距/双窗口 clamp/BGM 三态）；若坚持 ffmpeg filter_complex，则 `SUBCLIP_END_SAFETY_MARGIN_S` 这类 MoviePy 坑不适用，但 `expected = min(expected, max_available)` 的 clamp 语义仍值得抄 |
+| 「Skill 沉淀 ⭐⭐」 | 维持。且补充：`_sleep_with_cancel` 的**协作式取消切片**模式适用于 mulpub 所有长任务轮询（包括 video-gen 的 10s×10min 轮询） |
+
+> 💡 **一句话**：第一层看到的是「小红书做了个 agentic 剪辑」，第二层看到的是**「一个把 MoviePy 踩坑经验沉淀成常量的团队」**——后者的信息量远大于前者。
+
+#### 3.17.2 第三层深挖（v4）：ASR 口播粗剪的编排层 —— 与 mulpub 现有基建的逐点对接
+
+> 第二层只读了那篇 prompt（规则层），这一层读 `speech_rough_cut.py`（259 行，编排层）—— **「LLM 说了什么」与「剪辑实际怎么切」是两个环节**，中间还有三道工程处理。这是把 ASR 粗剪从「规则集」落到「可实施」的关键一层。
+
+**深挖 1：LLM 只做「句子级裁决」，不做「切点计算」**（`:73-103`）
+
+```
+for i, sentence in enumerate(asr_sentence_info):        ← 逐句循环
+    user_prompt = get_prompt("speech_rough_cut.user",
+        curr_asr_sentence_info=..., pre_ctx=前一句, nxt_ctx=后一句,
+        asr_text=全文, history_rough_cut_jsons=历史裁决)
+    raw = await llm.complete(..., temperature=0.1, top_p=0.9)
+    rough_cut_json += parse_json_dict(raw).get('res', [])
+```
+
+三个设计点：
+1. **逐句调用而非整篇给 LLM** —— 每次只裁决一个句子，带前后各一句作上下文。这是为规避「长上下文下 LLM 对中间句子的注意力衰减」；代价是句子数 = 调用次数（一段 10 分钟口播约 150+ 次调用）
+2. **`temperature=0.1` + 历史裁决回喂**（`history_rough_cut_jsons`）—— 保证同类句子裁决一致（前面删了「然后」，后面同样的「然后」也应删）
+3. **LLM 失败 fail-soft**（`:100-102`）：`except` 只 `add_warning`，该句**回退为原 ASR 结果保留** —— 一句裁决失败不会废掉整条粗剪
+
+**深挖 2：切口不信任 LLM —— 按句间静默重新分组**（`:159-199`）
+
+LLM 返回的是「句子级保留/删除/拆分」裁决，但**真正下刀的位置由代码重算**：
+
+```python
+def group_sentences(self, items, gap_threshold=400):      # ← 默认 400ms
+    # 相邻两句间隔 > gap_threshold 即切段 —— 切口落在【自然停顿】上
+def ranges_to_cut_points(self, ranges, buffer_ms=100):
+    # 每个切口前后各加 100ms 缓冲；缓冲重叠时取中点（防负片段）
+```
+
+**这是整条链最聪明的一步**：LLM 说「这里删」只决定**删哪些**，而**从哪毫秒切**由「句间静默 > 400ms」这个声学事实决定 —— 切口必然落在没人说话的间隙，不会腰斩半句话。`buffer_ms=100` 再给切口留呼吸位；两段缓冲若重叠（极短句），取中点一刀切（`:192-195` 防止产生负长度片段）。
+
+**深挖 3：切完重校 ASR 时间戳 —— 前缀和 remap**（`:202-246`）
+
+删除片段后，字幕/ASR 的时间轴全变了。`calibrate_asr_times` 用**前缀和**一次线性重映射：
+
+```python
+# remap_time(t) 三种情形：
+#   删除区间之前 → t - deleted_before（减累计删除量）
+#   删除区间之内 → 收敛到区间左端（start - deleted_before）
+#   删除区间之后 → t - 全部删除量
+```
+
+这让**粗剪后的视频与字幕保持同步** —— 没有这步，删完视频字幕全错位。
+
+**深挖 4：代码里的真实痕迹（开源仓库的诚实）**
+- `:98` 有一行调试残留 `print(parsed_json)` —— 生产路径上裸 print
+- `:241` `if new_start is None or new_end is None: continue` 是**死代码**——`remap_time` 的三条路径都必然返回数值。防御性检查写了个永远不会触发的分支
+
+**与 mulpub 的对接结论（把 ASR 粗剪升级为可直接实施）**：
+
+| FireRed 环节 | mulpub 现状 | 对接方式 |
+|---|---|---|
+| ASR 句子级时间戳 | ✅ `transcriber.py` 已有 `word_timestamps`（faster-whisper/WhisperX） | 直接复用，需聚合为句级 |
+| LLM 逐句裁决 | FireRed 走 `node_state.llm` | mulpub 走 `ai-writer` 的 LLM 通道 |
+| 句间静默分组 | 无 | **纯算法 ~40 行，可直接搬（Apache-2.0）**，落 `python-backend/.../analysis/` |
+| ffmpeg 切段 | `scene_detect.py` 同包已有 ffmpeg 依赖 | 复用 `ffmpeg_utils` 模式 |
+| 时间戳重校 | 无 | **前缀和 remap ~30 行，直接搬** |
+
+> 💡 **一句话**：这层的价值是把「ASR 口播粗剪」的工作量从「模糊的中」收敛为**「三段纯函数（约 70 行）+ 一条逐句 LLM 编排 + prompt 已有」**——且「切口落在静默处、失败回退、字幕重校」这三个设计，比「让 LLM 直接给切点」可靠一个量级。
+
 ---
 
 ### 3.18 🔴 smy-seedance-storyboard（**无许可证**）—— 纯 Skill 资产包，只能学结构不能抄文本
@@ -1113,6 +1238,62 @@ references/
 
 > 💡 **这是本轮最有价值的一条方法论教训**：`smy` 的 README **没有 license 徽章**，很容易被误以为「没写就是开源」。正确做法是**第一步检查 LICENSE 文件是否存在**，而不是看 README。这与前 16 个项目形成对照 —— 它们全都有明确的 LICENSE 文件。
 
+#### 3.18.1 第二层深挖（v3）：读了「单一事实来源」的实体内容
+
+> 第一层只看了文件结构，这一层把两份核心文档读透 —— `上美影风格指南.md`（379 行，11 个章节）与 `seedance-manual.md`（726 行，16 个模板）。**法律边界不变：以下全部是「抽象做法」层面的理解， mulpub 落地必须用自写表达。** 但这两份文档的组织方式本身就是「风格类 Skill 该怎么写」的最佳标本。
+
+**深挖 1：全仓含金量最高的资产是「失败模式表」**（风格指南 §十，`上美影风格指南.md:353-371`）
+
+一张 **11 条「症状 → 原因 → 修复」** 的实测翻车清单：
+
+| 症状（摘） | 原因 | 修复方向 |
+|---|---|---|
+| 视频平涂对了但没手绘味（像干净 CG） | v2 视频行**删光了质感词族**（水粉肌理/笔触/手工感） | 恢复质感词，否定词只留「反 3D 三连」 |
+| 子风格视频无敦煌感 | 视频首行「斑驳壁画肌理」+「无渐变」**自相矛盾** | 按子风格替换媒介质感词，删「纯 2D 平涂」 |
+| 画面出现阴影/渐变/3D 体积 | 柔边晕染类短语或模型默认渲染倾向 | 末尾硬约束 + 清除 soft glow/晕染 + 负面词 |
+| 跨集人物漂移 | 风格行/色盘不一致 | **逐字校验 + 四视图资产 + 尾帧接力**三重机制 |
+| 视频端风格丢失 | 提示词过长 | 首行只用精简版，动作精简，总长控制 |
+| 异兽画成普通野兽 | 缺神性标记 | 补鎏金部位/发光器官/独有纹样 |
+
+更关键的是表头那段**迭代史**：2026-08-25 当天三轮实测 —— 第一轮达标 → 第三轮扩大测试（鲁智深 5 段 + 罗刹 1 段敦煌）**发现视频端失效**，定位根因是「v2 精简版删光质感词族 + 敦煌子风格自相矛盾」，出 v3 后定版。
+
+**为什么这张表是全仓最值钱的**：它记录的不是「成功的 prompt」，而是**「prompt 为什么会失效」**。mulpub 的 `prompt-doctrine.json` 有 10 条 rules，但**没有一张「症状→原因→修复」的失败模式对照表**。做 F1 增补时，最有价值的不是再抄几条成功规则，而是**建立 mulpub 自己的翻车台账** —— 每次生成失败记录「症状/根因/修法」，让规范随失败而进化。
+
+**深挖 2：风格约束的「分层配方」结构**（§二）
+
+同一套风格被拆成 **6 层**，各有明确用途：
+
+```
+§2.1 完整版·平涂强化（中文）     → 生图主用
+§2.2 英文对照版                 → Midjourney 等英文模型
+§2.3 精简版                     → Seedance 视频提示词首行专用（防「提示词过长丢风格」）
+§2.4 硬约束层（咆哮体）         → 所有生图提示词必附
+§2.5 负面提示词库               → 与正面块配套
+§2.6 MJ 实测原版（归档）        → 只留证不使用
+```
+
+配套**使用规则**明确「哪一层用在哪个端」。这个「**同一语义、多端配方、分层维护**」的结构，直接回答了 mulpub 一个悬而未决的问题：`prompt-doctrine.json` 里 zh/en 双字段之外，**还应该有「长版/首行版」之分** —— 因为 FireRed 的失败模式表恰好证明了「视频首行用长版会丢风格」。
+
+**深挖 3：色盘防漂移是一个闭环而非一句声明**（§3.3–3.5）
+
+```
+开工：素材清单头部声明色盘（中文 + 英文逐字对照）
+  ↓
+使用：所有资产提示词 + 每集分镜首行【逐字引用同一字符串】
+  ↓
+扩展：最多加 2 个扩展色；「怪色点缀」优先占额、只用于小面积
+     （滚边/器物/印章/一朵花/一只蝴蝶）
+  ↓
+修漂移：跨集人物漂移 → 逐字校验 + 四视图资产 + 尾帧接力三重机制
+```
+
+配套一张 **情绪—色彩映射表**（仙气宁静=青瓷绿/月白，冲突爆发=朱砂红/墨黑，神性宝物=鎏金/藤黄……）—— 写分镜氛围时按情绪选加重色，**色彩从「装饰选择」变成「叙事工具」**。
+
+**对 mulpub 的增量结论**：
+1. F1 增补 `prompt-doctrine.json` 时，**新增两类结构**：①「失败模式台账」（symptom/cause/fix 三列）②「分端配方」（full/firstline 双版本字段）。这两类在现有 7 blocks/10 rules/6 glossary 里都没有。
+2. 「剧组色盘」应做成 **film-kit 资产**（`palette.json`：每部剧声明 4 主色 + ≤2 扩展色，中英对照），生成资产提示词与分镜首行时**机械注入同一字符串** —— 防漂移靠机制不靠自觉。
+3. **再次强调许可证边界**：以上全部是「做法」层面；`smy` 的具体文字、模板原文、示例工程仍然不可复制。
+
 ---
 
 ### 3.19 ⭐ ToonCrafter（Apache-2.0）—— 唯一「生成模型」形态，桌面端不可直接接入
@@ -1159,6 +1340,393 @@ gradio_app.py  Web Demo
 | 代码 | ⭐ | Apache-2.0 允许复制，但**没有可插入的位置** |
 
 > ⚠️ **它自己 README 顶部有防伪声明**：「We have not set up any official profit-making projects or web applications. Please be cautious!!!」—— 说明存在冒名站点。若日后调研其在线 Demo，需确认域名。
+
+#### 3.19.1 第二层深挖（v3）：首尾帧约束在模型层是怎么实现的
+
+> 第一层只确认了「需要 GPU、512×320」。这一层把**「两张图怎么同时约束一段视频的生成」**这个问题读透 —— 这是理解所有「首尾帧生视频」产品（可灵/即梦/FireRed 的 AI 转场）底层原理的一把钥匙。Apache-2.0，机制描述可自由引用。
+
+**深挖 1：推理侧的三路条件拼接**（`scripts/gradio/i2v_test_application.py:38-100`）
+
+`get_image()` 的完整条件构造，一步不漏：
+
+```
+① 文本条件    text_emb = get_learned_conditioning([prompt])
+② 图像条件    img_emb  = embedder(首帧图) → image_proj_model → 投影
+              imtext_cond = cat([text_emb, img_emb])     ← 文本与首帧图语义拼接
+③ 结构条件    c_concat：
+   a. 首帧编码 → videos  repeat 到 frames//2 份（占前半）
+      尾帧编码 → videos2 repeat 到 frames//2 份（占后半）
+      torch.cat([videos, videos2], dim=2)            → 全长隐变量序列
+   b. img_tensor_repeat = zeros_like(z)
+      img_tensor_repeat[:,:,:1,:,:]  = z[:,:,:1,:,:]   ← 只把【第 1 帧】填成首帧 latent
+      img_tensor_repeat[:,:,-1:,:,:] = z[:,:,-1:,:,:]  ← 只把【最后 1 帧】填成尾帧 latent
+   c. 其余中间帧全零 → 交给扩散去「补」
+cond = {"c_crossattn": [imtext_cond], "fs": fs, "c_concat": [img_tensor_repeat]}
+```
+
+**核心设计**：`c_concat` 是一个与输出同形状的 latents 张量，**只有头尾两帧有值、中间全零**。扩散模型以「concat 条件」方式接收它 —— 每一步去噪都被迫「贴近首帧开始、贴着尾帧结束」。中间不是插值出来的，而是**在被两端钉死的约束下新生成的**。这就是「插值」的本质：**不是数学插值，是受约束的生成**。
+
+另一个细节（`:70,79`）：首尾帧各自 `repeat` 到 `frames//2` 后拼成全长序列再编码 —— 即 **VAE 编码时首尾帧各自「假装」占了半段视频**，这样 encoder 提取的隐状态带有时间上下文，而不是单帧孤立编码。
+
+**深挖 2：`get_latent_z_with_hidden_states` —— 隐状态也要首尾的**（`:127-141`）
+
+```python
+encoder_posterior, hidden_states = model.first_stage_model.encode(x, return_hidden_states=True)
+### use only the first and last hidden states
+hidden_states_first_last.append(hid_new)
+```
+encoder 的多层 hidden states **只取第一层和最后一层**，传给 `batch_ddim_sampling(..., hs=hs)` —— 与 decoder 的 `attn_refinement` 配套：采样时中间帧对「首尾帧的深层特征」做 cross-attention。
+
+**深挖 3：模型层的 Fusion 注意力 + zero-init**（`lvdm/models/autoencoder_dualref.py:256-292`）
+
+- `ref_context: b c 2 h w`（注释明确 **2 = starting and ending frame**，`:490`）
+- decoder 每一级都有 `attn_refinement`（`:467`），中间特征作为 query，**首帧与尾帧的 k/v 拼接**作为 context：
+  ```python
+  k = torch.cat([k[:, [0] * (bt//b)], k[:, [1]*(bt//b)]], dim=2)   # :287
+  v = torch.cat([v[:, [0] * (bt//b)], v[:, [1]*(bt//b)]], dim=2)   # :291
+  ```
+  即生成的**每一帧**都同时「看见」起点与终点 —— 空间上越靠近哪端，注意力自然越偏向哪端
+- **`nn.init.zeros_(self.to_out[0].weight/bias)`（`:261-262`）：Fusion 层输出零初始化** —— ControlNet 式的经典技巧：训练初期该分支不扰动预训练权重，从零学起。这说明「首尾帧约束」是**外挂微调**，不动 backbone
+
+**深挖 4：两个工程细节**
+- 步数硬顶：`if steps > 60: steps = 60`（`:48-49`）—— 防 GUI 侧把步数拉满烧卡
+- 尾帧处理：`if image2 is None: batch_samples[...,:-1,...]`（`:102-104`）—— 单图模式（图生视频）时**生成的最后一帧就是输入帧本身，要裁掉**，否则成片首尾会有两帧重复。这个「末帧重复」问题在 concat 型流水线里同样会出现，值得记住
+
+**对 mulpub 的增量结论（相对第一层）**：
+
+| 第一层结论 | 第二层修正 |
+|---|---|
+| 「仅概念参考，没有可插入的位置」 | **维持不接入的判定，但知识价值上调** —— 它解释了「首尾帧生视频」类 API（可灵/即梦/FireRed 转场所用）的能力边界：**中间内容是「受两端约束的新生成」，不是保真插值**。因此：① 中间运动符合两端语义但细节可能「脑补」→ 对卡通/风格化内容安全，对需要精确动作衔接的实拍感内容要抽查；② **首尾帧的尺寸/色彩一致性必须在喂给 API 前自己做对齐**（参照 FireRed `_preprocess_first_last_frame` 的中心裁剪 + 逐像素断言）；③ 输出帧率（如 10fps）与成片帧率（24fps）不一致时需要光流补帧或接受抽帧感 |
+| F31（介质掩护）的底层依据 | **补上了**：既然中间是「受约束的新生成」，两端语义差异越大、模型自由度越大、翻车概率越高 —— 这正是 FireRed 那条「禁止形态差异巨大的实体直接形变，必须加介质掩护」的**模型层解释**。两条证据（prompt 层经验 + 模型层机制）互相印证 |
+
+> 💡 **一句话**：ToonCrafter 对 mulpub 的价值不在「用它的代码」，而在**「看懂了首尾帧生视频这个黑盒的内部」** —— 之后 mulpub 对接任何首尾帧 API 出了怪结果（中间画面脑补、尾帧重复、风格漂移），都能对着这三个机制（c_concat 钉两端 / Fusion 注意力 / 末帧裁剪）定位原因。
+
+---
+
+### 3.20 第三层综合（v4）：分镜数据模型四方对照 —— mulpub 的 Shot 在生态里处于什么位置
+
+> 前三层都是「单个项目往深里看」，这一节反过来做**横向收束**：把四个代表性项目的「分镜/镜头数据模型」摆在同一张表上对照。对照基线是 mulpub 自己的 kit（**实测**：`shot-library.json` 153 条、`film-manifest.json` 162 个 Scene，见下）。
+
+**mulpub 现状实测**（2026-10-19，`apps/desktop/electron/film-kit/`）：
+
+```
+Shot（shot-library.json，153 条）字段：
+  shotId / sceneId / model / prompt / refTokens / width / height
+  / thumbnailUrl / resultUrl
+  ⚠️ 153 条 Shot 的 sceneId 全部互不相同（153 shot ↔ 153 scene，1:1）
+  ⚠️ 无 imagePrompt / videoPrompt / endFramePrompt / locked / duration 字段
+  ⚠️ 单条 prompt 实测最长 13,922 字符（含实体 token 引用）
+  model 分布：seedance_2_0 ×143 / nano_banana_2 ×5 / 其他 ×5
+
+Scene（film-manifest.json，162 条）字段：
+  id / parentId / name / level / count
+  ✅ 已有 parentId 树结构（kit-loader 做树校验+无环校验）
+```
+
+**四方对照**：
+
+| 维度 | **mulpub**（现状） | **novelvids** | **FireRed** | **moyin** |
+|---|---|---|---|---|
+| 镜头标识 | `shotId`(UUID) + `sceneId`(UUID) | 镜头序号 + 19 字段 Schema | `clip_id`（`clip_0001` 定宽零填充）+ `media_id` | 分镜序号 + S 级组号 |
+| 实体引用 | ✅ **`refTokens`（UUID 数组）**，prompt 内以 `<<<uuid>>> [img_soroh]` 内联锚定 | `@{实体名}` 文本协议 | 无实体系统（素材库按 `media_id` 引用） | 参考图优先级声明（最早=身份锚点） |
+| prompt 结构 | **单字段**（`prompt`，最长 13.9k 字符，一段到底） | 19 字段结构化（画面/运镜/时长/音效…分离） | 不存 prompt（prompt 在 `prompts/tasks/` 按任务外置） | 三层提示词（外观/场景/动作）可合并 |
+| 时长字段 | ❌ 无（由 `AUTO_SHOT_SECONDS=[5,8,10]` 全局档位决定） | ✅ 每镜头独立时长 | `timeline_window`（毫秒，双窗口） | 按组配置 |
+| 场景层级 | ✅ `parentId` 树（162 Scene，有根有环校验） | 场景表 + 场景-分镜关联 | 无场景概念（flat clips） | 场景库 + 多视角联合图 |
+| 连续性载体 | 无显式字段（靠 kit 预编排） | `@{实体}` 引用 + 剧集锚 | `source_ref`（素材源窗口） | **尾帧接力** + 联合图一次生成 |
+| 生成结果回填 | ✅ `resultUrl` / `thumbnailUrl` 直接在 Shot 上 | 独立结果表 | `clips` 输出（节点间流转） | 作品库 |
+
+**四条收束结论**：
+
+1. **mulpub 的 `refTokens` 机制比想象中领先**。它不是简单文本协议，而是 **UUID 强引用 + prompt 内 `<<<uuid>>>` 内联锚定 + 参考图 token 映射** —— 与 novelvids 的 `@{实体}`（纯文本、易碎）和 moyin 的「最早参考图=锚点」（隐式、靠排序）相比，**这是四者中唯一机器可校验的实体绑定**。novelvids 的 19 字段 Schema 值得参考的部分，其实 mulpub 用「refTokens + prompt 内锚」已经解决了最难的实体一致性，**缺的只是字段拆分与时长，不是实体机制**。
+
+2. **mulpub 最刺眼的缺口是「prompt 单字段 13.9k」**。一条 prompt 塞了角色锚定 + 场景 + 动作 + 约束全部内容（实测样本 13,922 字符），等于把 FireRed 失败模式表警告的「提示词过长丢约束」风险**常态化**了。F8（三分 prompt）的紧迫性应上调 —— 这不是「锦上添花的结构化」，而是**当前生成质量的一个现实风险点**。
+
+3. **`sceneId` 全部 1:1 暴露了 Scene 层「有结构无使用」**。162 个 Scene 有 parentId 树，但 153 条 Shot 每条挂在独立 Scene 下——**树结构建好了，生成侧完全没用上**（既没有「同 Scene 多镜」也没有跨镜引用）。F7（视角变体）与 F13（场次并发）实施时，第一步不是加字段，而是**让既有 Scene 树被生成侧消费**。
+
+4. **时长是四方中 mulpub 唯一完全缺失的维度**。novelvids 有每镜时长、FireRed 有毫秒双窗口、moyin 按组配置，mulpub 只有全局三档。F2（时长公式）+ F29（TTS 时长驱动）合并看，实际是「给 Shot 补一个 `durationMs` 字段并确定它的来源优先级（用户设定 > TTS 实测 > 公式估算 > 档位默认）」——**这是一个字段决策问题，不是三个独立功能**。
+
+---
+
+### 3.21 第三层综合（v4）：连续性机制全景 —— 19 个项目里「让第 N 镜记得第 N-1 镜」的七种武器
+
+> 「角色/画面跨镜跨集一致」是 AI 视频生产的第一难题。把 19 个项目的解法收拢，实际只有**七种武器**，按「约束强度」排序：
+
+| # | 武器 | 代表项目 | 作用层 | 强度 | mulpub 现状 |
+|---|---|---|---|---|---|
+| 1 | **实体强引用**（UUID/token 锚定 + prompt 内联） | **mulpub `refTokens`**、novelvids `@{实体}` | 数据层 | ★★★★★ | ✅ 已有（四方最强） |
+| 2 | **参考图优先级声明**（最早=身份锚，后续仅环境） | moyin | prompt 层 | ★★★★ | ❌ 无，F15 可补 |
+| 3 | **固定风格行逐字复用**（色盘+风格块每次原样粘贴） | smy（色盘闭环）、waoowaoo（风格块） | prompt 层 | ★★★★ | 部分（prompt-doctrine 有块但无逐字复用纪律） |
+| 4 | **尾帧/首帧接力**（上一镜末帧 = 下一镜首帧输入） | smy（跨集）、FireRed（AI 转场取相邻帧）、可灵类 API | 输入层 | ★★★★ | ❌ 无，F24（依赖 F8 endFramePrompt） |
+| 5 | **多视角/多镜一次生成**（同 Scene 6 视角一张图 / 3 镜一段视频） | moyin（Contact Sheet / S 级组） | 生成策略层 | ★★★☆ | ❌ 无，F16/F7 |
+| 6 | **受约束的生成**（首尾帧钉死 + 中间新生成） | ToonCrafter（c_concat 模型层） | 模型层 | ★★★ | 间接（用 API 时生效） |
+| 7 | **生成后校验回滚**（VLM 质检 + 就绪度闸门 + 重试） | showvi（VLM 闭环）、Jellyfish（readiness） | 验收层 | ★★★ | ❌ 无（F12 依赖 VLM 适配器不存在） |
+
+**三条收束结论**：
+
+1. **mulpub 在「约束强度」最高的第 1 档已经就位**（`refTokens`），却在第 2–5、7 档全部空缺 —— **连续性短板不在数据层，而在 prompt 纪律（3）、输入接力（4）、生成策略（5）与验收闭环（7）**。这意味着：补连续性不需要动 Shot schema 的实体部分（F8/F9 的 schema 改动是另一件事），而应优先落 **F15（锚点声明）、F31→F6b（尾帧约束）、F16（组级生成）**。
+
+2. **七种武器不是互斥而是叠加**——smy 的「三重机制」（逐字校验 + 四视图资产 + 尾帧接力）实际是武器 3+1+4 的组合；moyin 的 S 级是 5+4 的组合。**单武器强度有限，2 档以上叠加才达到工业可用**。mulpub 现在只有 1 档，任何单项 F 的连续性收益都会被其余空档稀释——这解释了为什么「角色串脸」在 mulpub 侧难以根治。
+
+3. **唯一在「验收层」有武器的两个项目（showvi/Jellyfish）都把校验做成了独立阶段而非生成内联** —— 这与 mulpub F12 的教训一致（VLM 质检必须过成本闸、QC 插在下载后写 manifest 前）。**验收层武器的正确形态是「独立 QC 阶段 + 分级闸门」**，不是生成过程的一部分。
+
+> 💡 **一句话**：连续性不是「一个功能」而是「七个档位的组合覆盖」。mulpub 手里握着最强的一张牌（refTokens）却只打了一档——**先补 prompt 纪律与尾帧接力（低成本两档），再谈生成策略与 QC（高成本两档）**，是连续性路线图里投入产出最陡的一段。
+
+
+---
+
+### 3.22 第四层收束（v5）：从七档覆盖图到实施排期 —— 三层研究的最终合并
+
+> 前三层分别产出了「复用清单（第一层）」「实现细节与失败模式（第二层）」「横向结构定位（第三层）」。这一层把它们**合并为一张可执行的排期视图**：每个 F 对应补哪一档连续性武器、依赖被三层发现重排成什么样、以及一份三层演变总账。
+
+#### 3.22.1 F 清单 × 七档覆盖映射（连续性视角的排期依据）
+
+把 §3.21 的七档与 §五 的 F 清单交叉，得到每个 F 的「连续性档位贡献」——**这是排期优先级的第一判据，高于工作量**：
+
+| F | 内容 | 补哪一档 | 档位强度 | 依赖 | 排期判定 |
+|---|---|---|---|---|---|
+| — | （已有）`refTokens` | 1 实体强引用 | ★★★★★ | — | ✅ 已就位，无需动 |
+| **F15** | 角色身份锚点 + 参考图优先级 | **2 参考图优先级** | ★★★★ | 无 | **批次一提级**（原批次四）——最低成本换最强档 |
+| **F6b+F31** | 首/尾帧约束 prompt + 介质掩护 | **4 尾帧接力（prompt 半边）** | ★★★★ | 无 | **批次一提级**（与 F15 相邻） |
+| **F3b-palette** | 剧组色盘声明资产 | **3 固定风格行复用** | ★★★★ | 无 | **新增**（来源 §3.18.1 深挖 3），落 film-kit |
+| **F24** | 场次内末帧传递 | **4 尾帧接力（输入半边）** | ★★★★ | F8 | 维持批次五 |
+| **F16** | 组级多镜头提示词 | **5 多镜一次生成** | ★★★☆ | F8 | 维持批次四 |
+| **F7** | Scene 视角变体（消费既有 parentId 树） | 5（前提） | ★★☆ | 无 | 维持批次二，实施说明改为「先让 Scene 树被消费」 |
+| **F12-0+F12** | VLM 适配器 + 质检闭环 | **7 生成后校验回滚** | ★★★ | F12-0 前置 | 维持（成本闸约束不变） |
+| **F11c** | 就绪度闸门 | 7（轻量半边） | ★★★ | F3b | 维持批次三 |
+
+**排期结论（连续性视角）**：批次一应**新增/提级三项** —— F15（批次四→一）、F6b+F31（排序提前）、**F3b-palette（新增）**。理由：这三项是「2/3/4 档」里成本最低的三块，且互相独立、可并行。补齐后 mulpub 的连续性覆盖从 **1/7 → 4/7**（1+2+3+4 档），「串脸」问题的主体即可收敛。
+
+#### 3.22.2 三层发现催生的三个新 F / 修订
+
+| 项 | 类型 | 内容 | 来源 | 落点 | 工作量 |
+|---|---|---|---|---|---|
+| **F3b-palette** | 新增 | `film-kit/palette.json`：每部剧声明 4 主色 + ≤2 扩展色（中英对照），生成资产与分镜首行时**机械注入同一字符串**（防漂移靠机制不靠自觉） | §3.18.1 深挖 3（smy 色盘闭环，仅做法） | `electron/film-kit/palette.json` + `KIT_FILES` 登记 | 小 |
+| **F1 增补** | 修订 | `prompt-doctrine.json` 除 blocks/rules/glossary 外，**新增两类结构**：①「失败模式台账」（symptom/cause/fix）②「分端配方」（full/firstline 双版本字段） | §3.18.1 深挖 1/2 | 同 F1 | 计入 F1（中） |
+| **F34** | 新增 | **Shot 增加 `durationMs` 字段 + 来源优先级链**（用户设定 > TTS 实测 > 公式估算 > 档位默认）；F2/F17/F29 的产出统一写到这一个字段 | §3.20 结论 4（时长是四方唯一缺失维度） | Shot schema + `auto-plan.js` | 小（字段+链路）；三条来源全接为大 |
+
+> ⚠️ **F34 的关键澄清**：它不是把 F2（公式）、F17（双向归一）、F29（TTS 驱动）合并成一个功能——三个来源**依然独立实施**，但产出统一写到 Shot 的 `durationMs`，消费方（plan/render/剪映导出）只读这一个字段。三个功能可任意顺序分批上，互不阻塞。
+
+#### 3.22.3 依赖重排（三层发现导致的顺序修正）
+
+相对 §5.3 的原依赖图，四处顺序修正：
+
+```
+修正 1：F15 从批次四 → 批次一（连续性档位 2，成本最低）
+修正 2：F6b+F31 提到批次一最前（连续性档位 4 的 prompt 半边，先于 F24）
+修正 3：F8（三分 prompt）紧迫性上调 —— §3.20 实测单条 prompt 已达
+        13,922 字符，「过长丢约束」已常态化；且 F24/F16/F31 都以
+        endFramePrompt 存在为前提 ⇒ F8 是连续性路线的咽喉
+修正 4：F24 → F25 顺序维持，但 F24 的前置从「F8 完成」细化为
+        「F8 的 endFramePrompt 字段在 kit-loader 归一化后非空」
+```
+
+**修正后的连续性关键路径**：
+
+```
+F8（三分 prompt + kit-loader 归一化）
+  ├→ F6b+F31（尾帧约束 prompt）      ← 批次一
+  ├→ F15（参考图优先级）              ← 批次一
+  ├→ F3b-palette（色盘资产）          ← 批次一
+  └→ F24（末帧传递）→ F25（场间并发） ← 批次五
+```
+
+**批次一修订后的完整清单**（加粗为新增/提级项）：
+
+| 顺序 | 项 | 一句话 |
+|---|---|---|
+| 1 | **F8** | 三分 prompt（咽喉，先做） |
+| 2 | **F6b+F31** | 首/尾帧约束 + 介质掩护 |
+| 3 | **F15** | 角色身份锚点 + 参考图优先级 |
+| 4 | **F3b-palette** | 剧组色盘资产 |
+| 5 | F1（含失败模式台账 + 分端配方） | prompt-doctrine 增补 |
+| 6 | F2 | 时长公式（产出写 F34 的 durationMs） |
+| 7 | F30 | 任务化 prompt 库（FireRed 形态） |
+| 8 | F3 / F4 / F6b 其余 / F3b 能力表 | 维持原判定 |
+
+#### 3.22.4 三层演变总账（研究过程的自我修正记录）
+
+| 轮 | 判断 | 后续被推翻/修正 | 教训 |
+|---|---|---|---|
+| v1 | F8b adelay+amix 可直接落地 | mulpub 是 concat 直拷无 xfade ⇒ 降格为前置知识 | 先看自己链路再定位问题 |
+| v1 | F3b 新建能力目录 | 已有 publish-capabilities.json ⇒ 改为扩展 | 先查既有实现 |
+| v3 | F1 新建 prompt-skills/ | 已有 prompt-doctrine.json ⇒ 改为并入 | 同上（第 2 次） |
+| v3 | F13「批大小 10 全并行」 | 实测批内并发 2 ⇒ 收益方向反转 | 现状描述必须实测 |
+| v4 | F32 TransNetV2 补镜头切分缺口 | 已有 SceneDetect/PySceneDetect ⇒ 删除 | 同上（第 3 次） |
+| v4 | ASR 粗剪 ⚠️ 待核实 | transcriber.py 已有 word_timestamps ⇒ 确认真缺口 | 核实要双向：既查重复也查前置 |
+| v4 | F7 引入 parentSceneId | 已有 parentId ⇒ 复用 | schema 增补前先盘点 |
+
+> 💡 **七次自我修正的模式完全一致**：每一次都是「调研外部项目时得出的判断，被『回到 mulpub 实测一遍』推翻」。这不是研究不严谨——恰恰是**外部对标与内部实测两个视角都必须独立走完**的证据。任何一次跳过实测，都会把错误直接送进实施批次。
+
+> 💡 **一句话总结四层研究**：第一层给了清单，第二层给了细节与失败模式，第三层给了结构与位置感，这一层把它们**压成一张排期表**——批次一的顺序因此从「按项目价值排序」变成「**按连续性档位缺口排序**」，F8 成为咽喉，F15 / F6b+F31 / F3b-palette 三项低成本高覆盖项提级。
+
+---
+
+---
+
+### 3.23 第五层新视角（v6）：成本经济学、失败哲学与 prompt 演化机制
+
+> 前四层回答了「有什么 / 怎么做到 / 在生态什么位置 / 怎么排期」。这一层换三个此前完全未覆盖的视角：**钱**（每次生成的成本结构与谁在管钱）、**失败**（对「生成失败」的根本态度）、**演化**（prompt 改错了怎么知道）。素材主要来自 waoowaoo 的企业级架构文档（19 条 BA 不变量 + 5 条 FG 不变量）、moyin 的限额常量、showvi 的逆向 API 实战。
+
+#### 3.23.1 成本经济学：AI 视频生产的「钱」是怎么被管的
+
+**对照事实**：mulpub 的成本控制目前只有一处——`video-gen.js` 的 `cost_confirmation` 闸（用户确认后放行，`costCheck` 逐镜清单）。这属于**「事前一次性授权」**，而业界已经走得更远。
+
+**① waoowaoo 的 19 条计费不变量（BA-01 ~ BA-19）**——这是 19 个项目里唯一的「把钱当一等公民设计」的完整体系，关键条目：
+
+| 不变量 | 一句话 | 对 mulpub 的意义 |
+|---|---|---|
+| **BA-01 价格唯一表示** | 价格只有一份运行时目录；「运行时读 TS、校验脚本读 JSON 镜像」的双轨曾让镜像停在 52 条而运行时已有 70 条，**校验脚本恒 OK 但完全不能说明用户被收了多少钱** | ⚠️ 直接命中 mulpub 的 `publish-capabilities.json`（CJS/ESM 双版本消费）——**双版本之间漂移的风险是真实发生过的行业事故，不是理论** |
+| **BA-01B 跨 provider 同价** | 同一能力经不同 provider 提供时成本可不同，**零售价必须一致** | mulpub 多家视频模型适配器若未来计费，适用 |
+| **BA-01D 计价单位=真实基准** | 按 token 计价的模型不得把「每百万单价」注册成整次金额；无法表达的基准必须 fail closed | 防止「单价×数量」口径错配 |
+| **BA-02 计划先于副作用** | 付费前完成全部校验，PlanSnapshot 创建前不得提交 Provider | mulpub 的 cost_confirm 闸已是此形态 ✅ |
+| **BA-03 冻结同一输入** | Snapshot 冻结资源版本+参数+quote；**执行快照就是该 Snapshot，不建第二份冻结** | 防「确认时的参数 ≠ 执行时的参数」 |
+| **BA-08 attempt 与收费分离** | Provider attempt 可重试，**同一业务执行只持一份授权和费用**；未提交 Provider 的失败释放冻结 | **直接回答 F12 的遗留问题**：VLM QC 重试如何不重复扣费 |
+| **BA-09 批量仍是一次计划** | 整批一次校验/报价/授权，失败项续跑**复用原 Snapshot，不重新收费成功项** | mulpub 批量生成（120 镜）续跑场景适用 |
+| **BA-17 LLM 后付** | 模型价格跑完才知道 → 事前只做门禁，**逐调用实时结算** | 解释了为什么 mulpub「事前闸」之后仍需账本 |
+
+**② moyin 的提交前限额校验**（`sclass-prompt-builder.ts:80-85`）——把平台硬限制做成**常量 + 提交前校验 + overLimit/limitWarnings 结构**：
+
+```javascript
+export const SEEDANCE_LIMITS = {
+  maxImages: 9, maxTotalFiles: 12, maxPromptChars: 5000,
+  // overLimit / limitWarnings 由 builder 计算并随提交返回
+}
+```
+
+mulpub 的对应物是 `auto-plan.js` 的 `MAX_AUTO_SHOTS=120` 等——但**只挡总量，不挡「单次提交的参数组合」**。若 mulpub 接 Seedance 2.0 组级生成（F16），这套限额常量结构可直接搬。
+
+**③ showvi 的逆向 API 形态**（`clients/SEEDDANCE.md`）——即梦 Cookie `sessionid` 认证、模型矩阵（3.0/pro/fast/s2.0 + seedance-2.0 需 Playwright）、时长档位 5/10s 与 4-15s。**价值是「平台能力矩阵的实测记录」而非代码**——它证明即梦系模型的多图参考（seedance-2.0）与即梦 3.0 的单图参考在**客户端层面就是两套协议**。mulpub 的 `video-reference-inputs.js` 只覆盖 minimax/agnes 三家，扩展即梦系时可参考此矩阵。
+
+**成本经济学收束**：mulpub 当前「事前一次性确认」模式对单镜生成够用，但**三个缺口在批量场景会放大**：① 续跑是否重复计费（BA-08/09）；② 参数漂移（确认 5s 执行 8s，BA-03）；③ 能力目录双版本漂移（BA-01，mulpub 的 publish-capabilities.json CJS/ESM 双版本就是同一形态）。**建议**：F12 实施时按 BA-08 语义实现「attempt 与收费分离」；给 `publish-capabilities.json` 的 CJS/ESM 双版本加一个「同源校验」测试（两侧加载同一 JSON 文件，防 BA-01 事故重演）。
+
+#### 3.23.2 失败哲学：对「生成失败」的根本态度决定架构形态
+
+**waoowaoo 的 failure-governance（FG-01~05）是 19 个项目里唯一的「失败处理设计文档」**，核心主张一句话：**外部异常是开放集合，产品错误码是封闭集合——把未知异常翻译成错误码会永久丢失诊断事实**。
+
+| 不变量 | 一句话 |
+|---|---|
+| **FG-01 原生证据是失败事实** | 任何失败必须形成版本化 FailureRecord（脱敏有界的 name/message/code/status/request id/cause）；后续只能追加 context，**不得用统一 code 或包装文案覆盖原始证据** |
+| **FG-02 解释不裁决重放** | 产品错误码只管展示与 i18n；**自动重放的输入不得使用错误码或 retryable 标志** |
+| **FG-03 registry 是唯一重放裁判** | 每个可重放动作声明封闭 operation identity（重试次数/幂等语义/副作用）；**调用方不得传 retry 次数**；提交结果未知时禁止重提 |
+| **FG-05 绕过必须机器失败** | CI conformance 穷尽 registry，拒绝裸 Provider 响应、通用 retrying fetch、无绑定 catch；**文档提醒不算边界** |
+
+**「踩过的坑」四段实录**（同文档）——每一段都是「局部修复 → 下一层再丢」的教训链：
+1. FailureRecord v1 把 code/message 当事实 → COS 返回未知 `UserNetworkTooSlow` 被坍缩为 INTERNAL_ERROR → 又被判不可重试 → **传输统一 ≠ 证据完整**
+2. 给 COS 加错误名白名单只修一个已知实例 → **开放世界的下一个错误仍会落空** → 白名单整体删除
+3. 媒体预检把未知异常包装成 `INVALID_PARAMS` → **多个用户被错误引导去改创作参数**（真实用户伤害）
+4. Provider 错误只修了三段中的一段 → 其余层仍丢原文 → **局部翻译统一 ≠ 失败事实统一**
+
+**对照 19 个项目的失败处理形态**：
+
+| 形态 | 项目 | 对失败的根本态度 |
+|---|---|---|
+| **证据保全派** | waoowaoo | 失败是事实，先保真再解释（FG 体系） |
+| **fail-soft 降级派** | FireRed（ASR 裁决失败回退原句）、Pixelle（三态对齐） | 局部失败不阻塞整体 |
+| **fail-closed 拒绝派** | mulpub film-kit、Jellyfish readiness | 条件不满足就整体拒绝 |
+| **静默吞掉派** | 多个项目（`except: pass` / 正则假测试） | 无体系，随机丢诊断 |
+
+**对 mulpub 的增量结论**：
+1. mulpub 的 fail-closed（kit-loader、成本闸）与 FireRed 的 fail-soft 是**两种都正确的态度，但适用层不同**——**配置/输入层 fail-closed（坏数据宁可不做），执行层 fail-soft（单镜失败不废整批）**。mulpub 当前两层的边界没有明文化，`production-driver.js` 的「已开始的批跑完、未开始的保持 pending」实际上是执行层 fail-soft 的雏形，值得明文确立。
+2. **FG-03 对 mulpub 的 F19（checkpoint + history_id 只轮询不重提交）是现成的设计依据**——「提交受理结果未知时始终禁止重提」这条不变量，正是 F19 想解决的问题的规范表述。F19 实施时可直接引用 FG-03 作为设计依据。
+3. mulpub 若要建立自己的 FailureRecord，最小形态是：**在 `production-driver` 的失败批记录中追加「原始 provider 错误体」字段**（现在只有归因结论），使续跑决策与排障都能看到第一手证据。
+
+#### 3.23.3 Prompt 演化机制：改 prompt 之后，怎么知道没改坏
+
+这是 19 个项目里**最隐蔽也最关键的空白**：prompt 是所有项目的核心资产，但**有回归验证机制的只有 waoowaoo 一家**。
+
+**waoowaoo 的 canary 机制**（`standards/prompt-canary/*.canary.json`，4 份）：
+- 形态：**固定输入 → 期望输出**的 JSON 对（如 `storyboard_panels.canary.json`：给定 source_text，期望产出含 `panel_number/description/characters/location/shot_type/camera_move/video_prompt/duration` 的结构化分镜数组）
+- **关键发现：开源仓里 canary 没有消费代码**——全仓搜索仅 `package-lock.json` 命中。结合其 `ee/` 闭源目录的存在，判定：**canary 的执行器在闭源 EE 侧**，开源仓只放基线数据。这本身就是一条信息：**canary 基线被视为「标准」而与代码分离存放**（`standards/` 目录），连闭源侧也要遵循同一份基线
+- 另一个演化机制在 FireRed：`.claude/skills/openstoryline-use/`——**把自己的安装与使用方法做成 Claude Skill**，即「AI 使用 AI 产品」的技能化封装；加上第二层发现的「Skill 沉淀」（剪辑逻辑 → SKILL.md），FireRed 的 prompt/技能演化是**用户参与式**的
+
+**对照各项目的 prompt 演化能力**：
+
+| 项目 | prompt 存放 | 版本化 | 回归验证 | 演化机制 |
+|---|---|---|---|---|
+| waoowaoo | `standards/prompt-canary/*.json` | ✅ 文件级 | ✅ canary（执行器在 EE） | 基线随版本发布 |
+| FireRed | `prompts/tasks/**` | ✅ git | ❌ 无 | Skill 沉淀（用户参与） |
+| smy | references/ 单一来源 | ✅ git | **✅ 实测迭代记录写进文档**（三轮定版史） | 人工实测台账 |
+| mulpub | prompt-doctrine.json | ✅ git + 同源锁测试 | **部分**（结构锁有，语义回归无） | 无 |
+| 其余 14 个 | 散落代码/文档 | 部分 | ❌ | 无 |
+
+**对 mulpub 的增量结论（升级 F30/F1 的设计）**：
+1. mulpub 现有的「同源锁测试」（`BUGFIX-FILM-ENGINEERING-FINDINGS:302-308`）锁的是**结构与绑定**（doctrine 文件 ↔ UI 标签页），**锁不了语义**——改一条 rule 的措辞导致生成质量下降，现有机制完全无感。这正好是 canary 填的坑。
+2. **最小 canary 形态建议**（不必等 F30）：为 prompt-doctrine 的**每条 rule** 建一条「输入示例 → 期望产出要点」断言（JSON 放 `film-kit/prompt-canary/`），测试断言「渲染后的完整 prompt 必含/必不含某些关键片段」（如禁代词规则 → 渲染后 prompt 不含「他/她/它」指代角色的段落）。**这不需要调 LLM**——断言的是 prompt 组装结果，不是生成结果，纯本地可跑、零成本。
+3. **「失败模式台账 + canary」是一对闭环**：台账记录「症状→修法」，canary 把修法固化为回归断言——**下次改 prompt 时，之前翻过的车不会再翻**。smy 用人肉做到了这一点（三轮定版史），mulpub 可以用机制做到。
+
+> 💡 **一句话总结第五层**：前三层研究的是「怎么把视频做出来」，这一层研究的是「**做出来之后，钱、失败、迭代怎么管**」——这三样在 19 个项目里几乎无人成体系，而 waoowaoo 用 19+5 条不变量证明这三样恰恰是「能用」与「能长期用」的分界线。mulpub 的 cost_confirm 闸是很好的起点，但 BA-08（attempt 与收费分离）、FG-03（重放裁判）、canary（prompt 回归）三个缺口在批量生产场景会持续放大。
+
+---
+
+---
+
+### 3.24 第六层新视角（v7）：同平台协议差异、接模型的工程化、prompt 资产量盘点
+
+> 本层回答三个此前三层未碰的具体问题：**①同一家模型平台（Seedance/ARK）在不同项目里的接入协议差在哪**（直接服务 mulpub 的 adapter 层维护）；②**「接一个新模型」这件事本身被工程化到什么程度**；③各项目的 prompt 资产量盘点。
+
+#### 3.24.1 Seedance/ARK 四实现协议对照 —— 同一平台，四种工程形态
+
+实测 19 个项目中有 **8 个接了 Seedance/即梦**，其中 4 个真正实现了 API 客户端。同一官方 ARK API（`ark.cn-beijing.volces.com/api/v3`），四种形态：
+
+| 维度 | **waoowaoo**（TS，最完整） | **Pixelle-Video**（Python） | **showvi**（Python，双实现） | **FireRed**（Python） |
+|---|---|---|---|---|
+| externalId 格式 | `ARK:VIDEO:requestId`（**结构化可解析**，含 type 前缀） | 无统一 id 格式（内部变量） | 与 Sora 对齐的返回格式 | — |
+| videoUrl 提取 | **双形态兼容**：`content.video_url` 或 `content[].video_url.url` 数组遍历（`poll.ts:31-44`） | 单一形态 | — | — |
+| token 计量 | ✅ 回传 `actualVideoTokens`（实际消耗与预估分离） | ❌ | ❌ | ❌ |
+| 失败处理 | `createProviderAsyncTaskFailure` + `captureProviderHttpFailure`（FG 体系内） | logger.warning | — | — |
+| 错误码解析 | **独立 `readArkErrorCode` 模块**（ARK 错误码单独建模） | 无 | — | — |
+| 代理 | `fetchWithProviderProxy`（出站统一走代理层） | `local_proxy` 参数 | — | — |
+| 认证来源 | `context.getProviderConfig(userId,'ark')`（**按用户存配置**） | 环境变量 `ARK_API_KEY` | Cookie `sessionid`（逆向） | config.toml |
+
+**三个关键差异点（mulpub adapter 层直接可用）**：
+
+1. **`video_url` 的双形态**：ARK 返回的 `content` 可能是对象（`{video_url}`）也可能是数组（`[{video_url:{url}}]`）——waoowaoo 的 `readArkVideoUrl` 两种都接。mulpub `video-gen.js:190` 用 `data.taskId || data.videoId || data.id || data.task_id` 的**或链兜底**，但对**响应体 videoUrl 的形态兼容**未必做过同样防御——接入 Seedance 时这是第一个会踩的坑。
+2. **`actualVideoTokens` 分离**：waoowaoo 把「预估 token」与「实际消耗 token」分开回传——这是 BA-01D（计价单位=真实基准）在 provider 层的落地。mulpub 若做成本核算，**应从响应里取实际值而非按请求参数估算**。
+3. **错误码独立建模**：waoowaoo 为 ARK 单独建了 `readArkErrorCode`/`toArkPollHttpError`——平台错误码进入 FG-01 的 FailureRecord 时**保留原生语义**，而不是坍缩成 INTERNAL_ERROR。
+
+> 💡 mulpub 的 `film-engineering-auto.js` 等四处已有 seedance 字样（需确认是配置还是实现）；若 mulpub 的 Seedance 接入尚在计划，**waoowaoo 的 ark 四件套（async-task/poll/error/pricing）就是最完整的 TS 参考实现（Elastic 2.0 桌面端可用）**。
+
+#### 3.24.2 「接一个新模型」的工程化程度对照 —— ZJT 把它做成了 Skill
+
+**ZJT 的 `.claude/skills/add-video-driver/SKILL.md`**：把「接入新视频模型」的完整流程写成 AI 可执行的 Skill——这是 19 个项目里唯一把「扩模型」变成**可委托给 AI 的标准作业程序**的。
+
+其流程骨架（四步）：
+1. **常量与任务配置**：`unified_config.py` 注册驱动实现名 + `ALL_TASK_CONFIGS` 加任务条目
+2. **驱动类实现**：继承 `base_video_driver.py`，经 `driver_factory` 注册
+3. **三层映射**：`任务类型(ID) → 业务驱动名 → 实现驱动名 → 驱动类`（如 `14 → vidu_i2v → vidu_default → ViduDefaultDriver()`）——**业务名与实现名解耦**，换底层实现不动业务配置
+4. **配置与热更新**：`config.example.yml` 加供应商段 + `default_configs.py` 加热更新项（`quick_config: True` 进管理后台快速弹窗、`is_sensitive: True` 日志脱敏）
+
+**对照各项目「接新模型」的成本**：
+
+| 项目 | 接新模型要动几处 | 形态 |
+|---|---|---|
+| **ZJT** | 4 处，**有 Skill 指导 AI 完成** | 流程文档化 + AI 可执行 |
+| waoowaoo | provider 目录一个子模块（async-task/poll/error/pricing 四件套）+ 目录注册 | 结构约定清晰，但无 Skill |
+| mulpub | **adapter 一件 + KNOWN_METHODS 校验 + capabilities() + PUBLIC_CHANNELS**（IPC 三层防御） | 防御最强，但步骤靠记忆 |
+| moyin | feature-router 绑定 + use-xxx-generation composable | 前端直连，无独立 adapter 层 |
+
+**对 mulpub 的结论**：mulpub 的 adapter 接入防御（版本校验 + validateConfig + IPC 防御）是四者最严的，但「**接一个模型的完整步骤清单**」没有文档化——ZJT 的 Skill 形态（流程 + 检查点 + 文件清单）值得在 `01-docs/` 落一份《新增视频模型接入 SOP》，把「四处必改 + 测试要求」固化，甚至未来做成 mulpub 自己的 add-video-adapter Skill。
+
+#### 3.24.3 Prompt 资产量盘点 —— 谁在真正经营 prompt 资产
+
+按「含 prompt 相关内容的文件数」实测：
+
+| 项目 | 文件数 | 形态 |
+|---|---|---|
+| waoowaoo | **33** | 分散于 canary 基线 + 架构文档 + 代码模板 |
+| smy-seedance-storyboard | 17 | 全部是资产本身（Skill + references + 实例工程） |
+| FireRed-OpenStoryline | 14 | **任务化外置**（prompts/tasks/，每个任务 zh/en 双份 system+user） |
+| short-drama-skills | 14 | 全部是资产本身 |
+| moyin-creator | 9 | 散落 composable/文档 |
+| short-drama | 0* | 文件名不含 prompt 但内容全是（SKILL.md 本体） |
+
+*注：short-drama 的 0 是文件名层统计的盲区——它整仓就是剧本方法论，不自称 prompt。
+
+**收束**：FireRed 的 14 个文件是**组织最好的**（任务化 + 双语 + 外置 + fail-closed 加载），waoowaoo 的 33 个是**治理最好的**（canary 基线 + 输出契约文档），而 **mulpub 的对应物只有 prompt-doctrine.json 一个文件**——这就是 F30（任务化外置）与 F1（失败模式台账）的量化依据：mulpub 的 prompt 资产管理成熟度约为 FireRed 的 1/14、waoowaoo 的 1/33。
+
+> 💡 **一句话总结第六层**：把「同一平台四种接法」「接模型做成 Skill」「prompt 资产量化盘点」三个具体问题答完——**Seedance 接入看 waoowaoo 四件套，接模型 SOP 抄 ZJT 的 Skill 形态，prompt 资产经营的差距用数字摆了出来**。
+
+---
 
 ---
 

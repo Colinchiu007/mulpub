@@ -426,6 +426,17 @@ class PostgresEntitlementProvider {
     const value = await this.repository.getEntitlement(businessUser.id)
     const payload = typeof value === 'string' ? JSON.parse(value) : value
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return { plan: 'free', features: [] }
+    // 宽限字段的读取端过期投影（CCG i2）：settleExpiry 只写一次快照，7 天后 graceUntil 会
+    // 永久停在过去时刻并继续随 /me 下发；消费方若按「字段存在即宽限中」接线就会长期误报。
+    // 这里只做**读投影**、不改库：过期的宽限字段在出口处剔除，写路径保持幂等。
+    const graceUntil = payload.graceUntil
+    if (typeof graceUntil === 'string' && graceUntil) {
+      const graceMs = Date.parse(graceUntil)
+      if (!Number.isFinite(graceMs) || graceMs <= this.now().getTime()) {
+        const { graceUntil: _droppedGrace, previousPlan: _droppedPrevious, ...rest } = payload
+        return rest
+      }
+    }
     return payload
   }
 

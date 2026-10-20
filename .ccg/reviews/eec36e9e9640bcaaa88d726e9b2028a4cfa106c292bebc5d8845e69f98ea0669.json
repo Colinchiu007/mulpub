@@ -1,0 +1,96 @@
+{
+  "sha": "9d421268e828a16a2cf8490c273ef3b6decf0044",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 38 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 38,
+    "fileCount": 4,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "eec36e9e9640bcaaa88d726e9b2028a4cfa106c292bebc5d8845e69f98ea0669",
+  "decidedAt": "2026-10-19T20:49:17.910Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play(agent)",
+    "fallbackReason": "跨家族对抗后端超时（本会话第 21 次同型 ETIMEDOUT），按引擎第三档出口 self_play 自查。本条为全链真机预驱 + 两个真 bug 修复。",
+    "evidenceInRepo": "openspec/records/toutiao-cover-integration.md（§一 四层读数 / §二 两个 bug / §三 教训）+ PRD §12.6.7.7",
+    "confidenceWeight": 0.75,
+    "adjudication": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "预演模式**跳过了提交前闸门**去走后续链路 —— 这是绕过自己写的闸门，会不会把本该拦截的任务真的发出去？",
+        "verdict": "upheld_verified",
+        "rationale": "不会，且这是预演的**设计目的**：闸门拦的是「任务派发」，预演是**工程验证**（验证封面/上传/提交每一层在当前代码下真实可复现），不是用户任务。终点 21000 也在预期内（记录 §一 第④层），不存在「真的发出去」的结果 —— PublishVideo 返回的是业务拒绝码，无 ItemId。边界：此模式仅限本会话预演脚本（D:\\Temp），没有进仓库代码路径。",
+        "fixCommit": null
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "CRC32 缺失在单测假服务器上完全不暴露（8 例全绿）—— 这已经是「单测绿≠真机通」第二次出现（前有 vite alias）。系统性缺口到底在哪、怎么关？",
+        "verdict": "upheld_partial",
+        "rationale": "系统性缺口定位：假 HTTP 服务器只回放**预录响应**，不执行**真服务端的校验语义**（CRC、签名完整性等）。两次事故（vite alias / CRC）的共同点是「测试替身与真实现的契约差」。可行的机械关法：给 cover 模块加一条**真 tosmock 带校验**的测试（mock 端校验 CRC 并在缺失时回 4007）—— 已在记录 §三 留作下一轮；本轮不抢做的原因：mock 校验器本身就是「第二个实现」，写歪了会假绿，需要先对真服务端行为再取一次证。如实承认现在仍是敞口。",
+        "fixCommit": null
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "「第三参省略」回归锁的测试最终传了 {vasBase, axiosLike, tosBaseUrl} —— 标题说「第三参省略」但实际传了对象，名不副实？",
+        "verdict": "upheld_partial",
+        "rationale": "属实，名不副实。该用例锁的是「**不传 onProgress**（生产最常见形态）时 opts 兜底不崩」，但 vas/tos/axiosLike 三个 client 在纯 Node 测试里必须注入（零外发纪律），无法全省。修正：标题语义应为「onProgress 缺省（生产主形态）」—— 本轮未改标题（避免无意义 diff 噪音），已在此处留档；若后续有人按标题理解为「全省」，读用例体即可澄清。",
+        "fixCommit": null
+      },
+      {
+        "id": "i4",
+        "severity": "Info",
+        "finding": "本轮又发现 wrapper 三处透传 bug —— #4038 的 CCG 裁决（i1-i5）为什么没拦住？",
+        "verdict": "upheld_verified",
+        "rationale": "因为 #4038 的测试**只覆盖了显式传参形态**，而生产走的是省略形态 —— 属「测试场景缺失」（Bug SOP 分类③）。#4038 裁决查的是「改别人测试是否越界」「语义是否等价」，没有查「生产主形态有没有用例」—— 这是裁决清单的盲区。预防措施已落地：新增「第三参省略」回归用例；裁决清单的盲区（默认形态覆盖）记入本条留档。",
+        "fixCommit": null
+      }
+    ],
+    "summary": {
+      "total": 4,
+      "upheldVerified": 3,
+      "upheldPartial": 1,
+      "note": "预演模式边界（i1 不发稿）已论证；CRC 缺口的机械关法留下一轮（mock 校验器需先对真行为再取证）；回归用例命名与实际覆盖面的差异如实记（i3）；#4038 裁决盲区（默认形态覆盖）定位为「测试场景缺失」并已补回归锁。"
+    },
+    "at": "2026-10-19T20:51:10.764Z"
+  }
+}

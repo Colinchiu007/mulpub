@@ -6,7 +6,7 @@ export default {
     title: '文案改写',
     subtitle: 'AI 驱动的多策略文案改写引擎，结合爆款库与个人经历提升原创性',
     inputSection: '输入文案',
-    inputPlaceholder: '输入或粘贴需要改写的文案内容（最多 6000 字）...',
+    inputPlaceholder: '输入或粘贴需要改写的文案内容（最多 50000 字）...',
     configSection: '改写设置',
     useViralLibrary: '结合爆款库',
     useViralLibraryHint: '优先匹配爆款文案策略，提升内容吸引力和传播潜力',
@@ -52,9 +52,26 @@ export default {
     wordCountMinPlaceholder: '最小',
     wordCountMaxPlaceholder: '最大',
     wordCountUnit: '字',
-    wordCountMinInvalid: '最小字数需为 0-5999 的整数',
-    wordCountMaxInvalid: '最大字数需为 1-6000 的整数',
+    wordCountMinInvalid: '最小字数需为 0-49999 的整数',
+    wordCountMaxInvalid: '最大字数需为 1-50000 的整数',
     wordCountMaxLtMin: '最大字数不能小于最小字数',
+    // 输出截断可见化（rewrite-limits-50000，2026-10-19）：引擎按字数区间/策略上限砍尾时
+    // 结果卡顶部横幅提示；length=实际输出字数，max=生效上限
+    outputTruncated: '改写结果已按字数上限截断：实际输出 {length} 字（上限 {max} 字），原文后半部分未包含在结果中。如需完整改写，请调大「字数控制」上限。',
+    // 模型侧截断可见化（rewrite-segment-and-finish-reason 第二刀）：provider 的
+    // finish_reason 表示输出被模型自身上限截断（与引擎按字数区间砍尾是两回事）。
+    // 这条不能建议「调大字数控制」——模型上限通常无法由用户设置改变。
+    outputTruncatedByModel: '模型输出达到单次生成上限而截断：实际输出 {length} 字。这是模型侧的生成限制，调大「字数控制」不一定有效，建议分段改写。',
+    // 分段改写（>50000 字输入）：事前提示 + 结果卡元信息
+    rewriteSegmented: '正文共 {length} 字，超过单次改写上限 {max} 字，将分段改写。耗时与费用会相应增加，且分段期间其他 AI 功能可能变慢；分段改写可能有一致性折损。',
+    segmentedMeta: '分段改写 ×{count}',
+    // 取消通道（rewrite-cancel-and-truncation-summary）：协作式，当前片段完成后生效
+    cancelRewriteBtn: '取消改写',
+    cancellingBtn: '正在取消…',
+    cancellingHint: '正在取消：当前片段会先完成，之后不再继续后续片段。',
+    rewriteCancelled: '改写已取消：已完成的 {completed}/{total} 个片段不保留，已产生的模型费用不退。',
+    // 分段路径下只有部分片段被模型截断：必须点名段号，否则用户会以为全文残缺
+    outputTruncatedByModelSegments: '第 {segments} 段因模型单次生成上限被截断（合并后共 {length} 字）。这是模型侧的生成限制，建议缩短原文或拆成两次改写。',
     // ── 改写质量评估报告（content-quality-eval 桌面端闭环）──
     qualitySection: '质量评估',
     qualitySufficiency: '改写充分度',

@@ -1125,6 +1125,118 @@
         "让无数人血脉偾张的话"
       ],
       "note": "v1.3 短语边界：了那句|让无 是动词+指示词右边界；禁止 说出了那|句 与 人血|脉 劈词。"
+    },
+    {
+      "id": "v1.4_unit_danwei_shuzi",
+      "input": "温度零下 12 度，风速每秒 8 米，湿度 45%。",
+      "config": {
+        "min_chars_per_block": 8,
+        "max_chars_per_block": 15,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "温度零下 12 度",
+        "风速每秒 8 米",
+        "湿度 45%"
+      ],
+      "note": "v1.4 unit_guard：数字│单位不得劈开（旧输出 风速每秒 8│米）。",
+      "short_block_exceptions": [
+        {
+          "index": 2,
+          "reason": "湿度 45% 是完整数量表达；并入前块(13+5=18)超 max(15)，独立成块保数量完整性"
+        }
+      ]
+    },
+    {
+      "id": "v1.4_unit_xiaoshu_yuan",
+      "input": "他宣布减持 15% 的股份，套现约 3.2 亿元。",
+      "config": {
+        "min_chars_per_block": 8,
+        "max_chars_per_block": 15,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "他宣布减持 15%",
+        "的股份，套现约 3.2 亿元"
+      ],
+      "note": "v1.4 unit_guard：小数+单位不得劈开（旧输出 3.2│亿元）。"
+    },
+    {
+      "id": "v1.4_unit_yindao_shuzi",
+      "input": "这块芯片的制程是 3 纳米，晶体管密度提升了 60%。",
+      "config": {
+        "min_chars_per_block": 8,
+        "max_chars_per_block": 15,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "这块芯片的制程是 3 纳米",
+        "晶体管密度提升了 60%"
+      ],
+      "note": "v1.4 unit_guard right_bind：引导字│数字开头不得切（旧输出 制程是│3 纳米）。",
+      "short_block_exceptions": []
+    },
+    {
+      "id": "v1.4_word_dangcheng",
+      "input": "很多人把这场风波当成一次偶然的口误。",
+      "config": {
+        "min_chars_per_block": 8,
+        "max_chars_per_block": 15,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "很多人把这场风波",
+        "当成一次偶然的口误"
+      ],
+      "note": "v1.4 no_cut：当成（旧输出 风波当│成）。"
+    },
+    {
+      "id": "v1.4_word_yiwang_naduun",
+      "input": "仿佛遗忘本身就是第二次伤害，仿佛那段历史只是编号。",
+      "config": {
+        "min_chars_per_block": 8,
+        "max_chars_per_block": 15,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "仿佛遗忘本身就是第二次伤害",
+        "仿佛那段历史只是编号"
+      ],
+      "note": "v1.4 no_cut：遗忘/那段（旧输出 遗│忘、仿佛那│段）。"
+    },
+    {
+      "id": "v1.4_unit_yibaiwushi",
+      "input": "这套设备一共一百五十元，比网上便宜三十元。",
+      "config": {
+        "min_chars_per_block": 8,
+        "max_chars_per_block": 15,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "这套设备一共一百五十元",
+        "比网上便宜三十元"
+      ],
+      "note": "v1.4 unit_guard（评审 i1）：中文数词│单位不得劈开。"
+    },
+    {
+      "id": "v1.4_word_qianren",
+      "input": "现场聚集了上千万人，秩序井然。",
+      "config": {
+        "min_chars_per_block": 8,
+        "max_chars_per_block": 15,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "现场聚集了上千万人",
+        "秩序井然"
+      ],
+      "note": "v1.4 no_cut：万人（旧输出 上千万│人）。",
+      "short_block_exceptions": [
+        {
+          "index": 1,
+          "reason": "秩序井然 是完整成语短句；并入前块(9+4=13)可行但破坏标点语义（句号前独立分句），且 merges 会把 上千万人 归属错位"
+        }
+      ]
     }
   ]
 }

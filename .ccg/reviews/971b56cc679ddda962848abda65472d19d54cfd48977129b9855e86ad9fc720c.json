@@ -1,0 +1,72 @@
+{
+  "sha": "4c5f20fd5d6e65cdc25c2cd71b14338a2e80e7f9",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 171 行（≤ 200）但命中 auth/数据库/加密：敏感内容 3 处",
+  "stats": {
+    "changedLines": 171,
+    "fileCount": 6,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 3,
+    "docSensitiveContentHits": 5,
+    "docSensitiveContentSample": [
+      "**现行实现**：`draft` 是 getter 直接返回 prop `segment`（setter 为空操作，模板从不整体赋值）。代价是 `v-model=\"draft.text\"` 实际写在 prop 上——这在语义上正确：宿主把 segments 数组元素作为**可编辑对象**传进来，本就期望字段被改写，随后经 `story2video:update-segments` 落盘并整体替换 segments。`@input` 同时 emit `dirty` 让宿主知道要保存。",
+      "**用 PowerShell 数组索引搬移大段内容，两次差点整块丢数据**。第一次 `$lines[1727]` 取错行，把 `.segment-thumb img` 当成要保留的规则；第二次更险——`Select-Object -Skip/Index` 之类的数组展开把 scoped CSS 拼成单行巨串，我的拆分脚本两轮都把卡片规则清空（「editorRules: 2 / cardRules: 0」这个异常读数救了命）。",
+      "本就期望字段被改写，随后经 `update-segments` 落盘并整体替换。空 setter 只为满足可写语义。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "971b56cc679ddda962848abda65472d19d54cfd48977129b9855e86ad9fc720c",
+  "decidedAt": "2026-10-20T03:23:49.387Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "needs_revision",
+    "tier": "external",
+    "performedBy": "subagent-cross-family",
+    "evidence": "本记录 diff（171 行 / 2 个代码文件）是 QM-6 降级审查那一轮（记录 0d2be3f8…，2051 行）的子集：仅含 ResultSegmentCard.vue 的 draft 修复 + ResultSegmentCard.test.js 6 条回归锁 + 文档/CHANGELOG/learnings。sensitiveContentHits=3 经逐条核对为文档里的「更新/落盘/替换」等词被敏感词表误匹配，无真实敏感面（无 auth/数据库/加密代码改动；codeFileCount=2，均为渲染端 .vue/.test.js）。审查结论沿用同轮 12 条审查项：A1（Critical，已修 + 6 条回归锁）、A7（MINOR，记入遗留）。完整结论表见 openspec/records/s2v-result-view-perf.md「QM-6 降级审查结论」。",
+    "findings": [
+      {
+        "id": "A1",
+        "severity": "critical",
+        "status": "fixed",
+        "summary": "segmentDraft 浅拷贝 + deep watch 不同步宿主原地 URL 刷新；改为 draft getter 直接返回 prop，加 6 条回归锁"
+      },
+      {
+        "id": "A7",
+        "severity": "minor",
+        "status": "accepted",
+        "summary": "分段定位跳到未渲染段静默无效；彻底修法记入遗留"
+      }
+    ]
+  }
+}

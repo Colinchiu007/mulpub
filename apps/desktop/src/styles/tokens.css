@@ -16,6 +16,14 @@
   --color-primary-light: #eff6fb;
   --color-on-primary: #ffffff;
 
+  /* 焦点环单一真源（audit-25 / WCAG 2.4.7 Focus Visible，实施方案阶段 3.6 子集）。
+   * 动因：cohere-design-system.css 的 --focus-blue 曾在浅/暗两档各声明一次却零消费者
+   * （死槽位），而 .ui-btn 与 .cohere-btn-* 两族按钮没有任何 :focus-visible 规则 ——
+   * 键盘用户 Tab 到主操作按钮时看不见焦点落点。规范槽在此建立，两档都显式给值：
+   * 浅色档用主色悬停紫 #603af9（对白底约 7:1），暗色档必须另给一档（见下方 dark 块），
+   * 因为 #603af9 压在 #1a1a1e 上只有约 1.9:1，"继承浅色档"等于暗色下没有焦点指示。 */
+  --color-focus-ring: var(--color-primary-hover);
+
   /* ---- 背景与表面 ---- */
   --color-bg-canvas: #ffffff;
   --color-bg-card: #ffffff;
@@ -178,6 +186,27 @@
   --color-ribbon: linear-gradient(90deg, #ea580c 0%, #fb923c 50%, #fdba74 100%);
   --color-ribbon-soft: #fdeee2;
 
+  /* ---- 采集页控件规范槽（collection-page-ui-ue-refine 2026-10-17）----
+   * 消费方：apps/desktop/src/features/collection/collection-page.css（采集域专属规范层）。
+   * 为什么落在 tokens.css 而不是规范层自己持有：这几个值是「采集域控件基准尺寸」，
+   * 属设计系统的一个维度（控件高度），与间距槽、圆角槽同族；
+   * 且规范层可能被单独 import（测试只读文件），双持必然漂移。
+   * ⚠ collection-page.css 里有一份逐字相同的默认值副本（import 顺序不保证时的兜底），
+   *   两处一致性由 collection-page-css-contract.test.js 的「副本逐字相等」锁看守，
+   *   改一处必须同改另一处。
+   * ⚠ 本注释内不得出现星号加斜杠的字样（会提前闭合块注释）。 */
+  --col-field-h: 32px;
+  --col-field-h-sm: 28px;
+  --col-field-pad: 0 10px;
+  --col-btn-h: 32px;
+  --col-panel-pad: 20px;
+  --col-card-pad: 16px;
+  --col-banner-pad: 8px 12px;
+  /* 页签/筛选条 active 态：底色与影此前在各视图硬编码白底 + 自制 rgba，
+   * 收编为语义槽（暗色改用深一档表面，保持「比容器亮」的层级语义）。 */
+  --color-tab-active-bg: #ffffff;
+  --shadow-tab-active: 0 1px 3px rgba(30, 27, 75, 0.10);
+
   /* ---- 暗色模式：主色保持品牌可辨识度（修复旧覆盖为浅灰 #e8e8ed 的缺陷）---- */
 
   /* === 语义槽补齐（批次 2：ui-apple-token-retirement Task 2）===
@@ -221,6 +250,10 @@
 
   /* 品牌色暗底亮化变体：仅用于暗色模式下的文字/描边场景（保持紫色相，替代旧蓝系 #4c8bf5/#6b8cff） */
   --color-primary-dark-tint: #7b74ff;
+
+  /* 焦点环暗档：暗底用亮化紫（与 --color-primary-dark-tint 同值，对比约 5.9:1）。
+   * 这一行不可省略——省略时暗色档继承浅色的 #603af9，非文本对比不足 3:1。 */
+  --color-focus-ring: var(--color-primary-dark-tint);
 
   /* 悬浮操作浮标：暗色下保持「比页面卡片更亮一档」的表面层级，图标用亮色保证对比度 */
   --color-float-surface: #2c2c34;
@@ -323,6 +356,15 @@
   --shadow-card-hover: 0 12px 28px rgba(0, 0, 0, 0.5), 0 4px 8px rgba(0, 0, 0, 0.35);
   --color-ribbon: linear-gradient(90deg, #9a3412 0%, #c2410c 50%, #ea580c 100%);
   --color-ribbon-soft: #3b2a1e;
+
+  /* 采集页控件规范槽暗色覆盖（collection-page-ui-ue-refine 2026-10-17）：
+   * 尺寸类槽不随主题变（与间距槽、圆角槽同理，故不在暗色重复声明）；
+   * active 底色改深一档表面（#2d2d35 与 cohere-design-system 暗色 soft-stone 同值），
+   * 投影加深，保证「active 比容器亮」的层级语义在暗色下仍成立。
+   * ⚠ 本注释内不得出现「星号加斜杠」的字样 —— 它会提前闭合块注释，
+   *   把后面的变量声明变成孤立文本（同源事故见 tests/styles-comment-closure.test.js）。 */
+  --color-tab-active-bg: #2d2d35;
+  --shadow-tab-active: 0 1px 3px rgba(0, 0, 0, 0.4);
 }
 
 /* ---- P4 深色可读性系列 · 视图级 dark 覆盖（P4D 2026-10-09）----

@@ -37,6 +37,8 @@ const TARGET_FILES = [
   path.join(SERVICES_DIR, 'ops-center-sync.js'),
   path.join(SERVICES_DIR, 'login-network-diagnostics.js'),
   path.join(SERVICES_DIR, 'auth-partition-reclaim.js'),
+  // forced-update-gate（2026-10-19）：阻断门装配器（phase1 抽出，EnforceGate notify 全在此文件）
+  path.join(SERVICES_DIR, 'enforce-gate-assembly.js'),
   // 断连韧性（ops-center-resilience）：快照模块纳入登记域 —— 它用的是字面量 notify。
   //
   // 刻意**不**纳入 ops-resilience-reporter.js：它把 notify 收敛到 `this._notify(event, params)`
@@ -71,6 +73,14 @@ const ALLOWED_KEYS = new Set([
   'App:login-status-monitor-start-failed',
   'App:analytics-providers-register-failed',
   'Identity:identity-service-disabled',
+  // forced-update-gate（2026-10-19）：阻断门装配/运行日志
+  'EnforceGate:hide-main-failed',
+  'EnforceGate:show-main-failed',
+  'EnforceGate:sync-now-failed',
+  'EnforceGate:state-persist-failed',
+  'EnforceGate:skip-assembly-no-electron-app',
+  'EnforceGate:auth-refresh-failed',
+  'window:enforce-gate-facade-failed',
   'BatchManager:scheduled-batches-restore-failed',
   'Automation:automation-scheduler-start-failed',
   'CommentManager:comment-polling-stop-failed',

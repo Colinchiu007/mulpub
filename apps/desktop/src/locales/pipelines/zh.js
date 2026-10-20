@@ -37,7 +37,7 @@ export default {
       'framework-smoke': '快速验证流水线配置',
       'video-clone': '对标拆解与再创作：链接/本地视频 → 拆解报告 → 同款成片',
       'story2video-compose': '将文案自动生成故事讲述视频（故事讲述 + 可选 AI 视频混合）',
-      'film-engineering': '影视工程：复刻《Hell Grind》——真实分镜提示词库、素材索引与剧本套用（一键复制）',
+      'film-engineering': '影视工程：——行业专业分镜提示词库、素材索引与剧本套用',
       unavailable: '暂无描述',
     },
     categories: {
@@ -101,6 +101,10 @@ export default {
       select_video_scenes: 'AI 视频场景选择',
       generate_assets: '图片/视频/旁白生成',
       finalize_assets: '旁白与素材定稿',
+      // 影视工程「自动」模式进度区三阶段（与 filmEngineering.auto.step* 用词一致）
+      film_auto_plan: '分镜规划',
+      film_auto_generate: '逐镜生成',
+      film_auto_render: '收口合成',
     },
     statuses: {
       idle: '待开始',

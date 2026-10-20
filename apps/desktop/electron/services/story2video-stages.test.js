@@ -21,6 +21,7 @@ const {
   resolveSceneFinalFrame,
   optimizeVideoScenePrompts,
   translatePromptsForLocale,
+  translateVideoPromptForLocale,
   runBoundedPromptTranslation,
   createPromptTranslationPending,
 } = require('./story2video-stages')
@@ -4147,5 +4148,84 @@ describe('OPTIMIZE 限流韧性（429 裹在响应体 + template 降级）', () 
     expect(result.output[0].optimize_note).toBe('rate_limited_template_fallback')
     expect(result.output[2].optimize_note).toBe('rate_limited_template_fallback')
     expect(context.optimize_degraded).toEqual({ scenes: [0, 2], total: 3 })
+  })
+})
+
+// ==================== translateVideoPromptForLocale 回归测试（2026-10-19） ====================
+describe('translateVideoPromptForLocale', () => {
+  it('zh 界面返回译文（复用 translatePromptsForLocale 的解析）', async () => {
+    const aiGenerator = { generateWithDefault: vi.fn().mockResolvedValue({ content: '{"0":"红苹果的电影镜头"}' }) }
+    const out = await translateVideoPromptForLocale(aiGenerator, 'Cinematic shot of a red apple', 'zh', null)
+    expect(out).toBe('红苹果的电影镜头')
+    expect(aiGenerator.generateWithDefault).toHaveBeenCalledTimes(1)
+    const [type, params] = aiGenerator.generateWithDefault.mock.calls[0]
+    expect(type).toBe('llm')
+    expect(params.messages[0].content).toContain('简体中文')
+    expect(params.messages[1].content).toContain('"0"')
+  })
+
+  it('en 界面直接返回 null（不发起 LLM 调用）', async () => {
+    const aiGenerator = { generateWithDefault: vi.fn() }
+    expect(await translateVideoPromptForLocale(aiGenerator, 'Cinematic shot', 'en', null)).toBe(null)
+    expect(await translateVideoPromptForLocale(aiGenerator, 'Cinematic shot', 'en-US', null)).toBe(null)
+    expect(aiGenerator.generateWithDefault).not.toHaveBeenCalled()
+  })
+
+  it('空 prompt / LLM 不可用 / 抛错均返回 null（fail-open）', async () => {
+    expect(await translateVideoPromptForLocale(null, 'x', 'zh', null)).toBe(null)
+    expect(await translateVideoPromptForLocale({}, '', 'zh', null)).toBe(null)
+    expect(await translateVideoPromptForLocale({}, '   ', 'zh', null)).toBe(null)
+    const throwing = { generateWithDefault: vi.fn(async () => { throw new Error('LLM down') }) }
+    expect(await translateVideoPromptForLocale(throwing, 'Cinematic shot', 'zh', null)).toBe(null)
+  })
+
+  it('译文与原文相同视为未翻译，返回 null', async () => {
+    const aiGenerator = { generateWithDefault: vi.fn().mockResolvedValue({ content: '{"0":"Cinematic shot"}' }) }
+    expect(await translateVideoPromptForLocale(aiGenerator, 'Cinematic shot', 'zh', null)).toBe(null)
+  })
+
+  it('LLM 返回包装文本时取真实译文而非包装（QM-6 第二/八轮）', async () => {
+    const aiGenerator = {
+      generateWithDefault: vi.fn().mockResolvedValue({ content: '```json\n{"0":"示例"}\n```\n{"0":"真实译文"}' }),
+    }
+    expect(await translateVideoPromptForLocale(aiGenerator, 'Cinematic shot', 'zh', null)).toBe('真实译文')
+  })
+
+  it('超时后滞后的 rejection 不变成 unhandled rejection（QM-6 第八轮 i2）', async () => {
+    vi.useFakeTimers()
+    const unhandled = []
+    const onUnhandled = (reason) => unhandled.push(reason)
+    process.on('unhandledRejection', onUnhandled)
+    try {
+      // 25s 后才 reject：race 已由超时结算，该 rejection 必须被内部 no-op catch 接管
+      const aiGenerator = {
+        generateWithDefault: vi.fn(() => new Promise((_resolve, reject) => {
+          setTimeout(() => reject(new Error('late failure')), 30000)
+        })),
+      }
+      const pending = translateVideoPromptForLocale(aiGenerator, 'Cinematic shot', 'zh', null)
+      await vi.advanceTimersByTimeAsync(25000)
+      expect(await pending).toBe(null)
+      // 推进到内层 rejection 实际发生，再让微任务队列排空
+      await vi.advanceTimersByTimeAsync(10000)
+      await Promise.resolve()
+      await Promise.resolve()
+      expect(unhandled).toHaveLength(0)
+    } finally {
+      process.off('unhandledRejection', onUnhandled)
+      vi.useRealTimers()
+    }
+  })
+
+  it('超时有界：LLM 永久 pending 时 25s 后返回 null 而非挂死', async () => {
+    vi.useFakeTimers()
+    try {
+      const aiGenerator = { generateWithDefault: vi.fn(() => new Promise(() => {})) }
+      const pending = translateVideoPromptForLocale(aiGenerator, 'Cinematic shot', 'zh', null)
+      await vi.advanceTimersByTimeAsync(25000)
+      expect(await pending).toBe(null)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

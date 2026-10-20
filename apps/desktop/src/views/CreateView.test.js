@@ -858,6 +858,9 @@ describe("CreateView", () => {
     expect(w.vm.friendlyVoiceCatalogError("VOICE_CLONE_SAMPLE_TOO_LARGE")).toContain("大小超出限制");
     expect(w.vm.friendlyVoiceCatalogError("VOICE_CLONE_SELECTION_UNAVAILABLE")).toContain("音频样本暂存不可用");
     expect(w.vm.friendlyVoiceCatalogError("VOICE_CLONE_UNAVAILABLE")).toContain("音色克隆服务暂时不可用");
+    // 2026-10-19 事故：MiniMax 订阅套餐账号克隆被拒 → 明确的付费方式说明，不再是「请稍后重试」
+    expect(w.vm.friendlyVoiceCatalogError("VOICE_CLONE_PLAN_UNSUPPORTED")).toContain("另付费 9.9 元购买音色");
+    expect(w.vm.friendlyVoiceCatalogError("VOICE_CLONE_PLAN_UNSUPPORTED")).toContain("不能直接使用订阅套餐");
     expect(w.vm.friendlyVoiceCatalogError("VOICE_CLONE_DIALOG_UNAVAILABLE")).toContain("文件选择窗口");
     expect(w.vm.friendlyVoiceCatalogError("VOICE_CLONE_MODEL_MISMATCH")).toContain("模型设置");
     // 配置类错误（缺 API Key 等）→ 引导去模型设置，而非「请稍后重试」
@@ -3185,6 +3188,41 @@ describe("CreateView - UI interactions", () => {
     await tabs[2].trigger("click");
     await nextTick();
     expect(w.vm.view).toBe("history");
+  });
+
+  it("流水线详情态不渲染「返回」按钮（移除后由历史记录 tab 承接返回语义）", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await nextTick();
+    // 进入详情态（选中通用流水线）
+    w.vm.selectedPipeline = { name: "talking-head", available: true, stages: [] };
+    w.vm.view = "pipelines";
+    await nextTick();
+    expect(w.find(".pipeline-detail").exists()).toBe(true);
+    expect(w.find(".back-btn").exists()).toBe(false);
+    expect(w.find(".pipeline-detail .detail-header h2").exists()).toBe(true);
+    // 返回途径仍在：view-tabs 恒可见，点击历史记录 tab 即离开详情
+    expect(w.findAll(".view-tab").length).toBe(3);
+    await w.findAll(".view-tab")[2].trigger("click");
+    await nextTick();
+    expect(w.vm.view).toBe("history");
+    expect(w.vm.selectedPipeline).toBeNull();
+    w.unmount();
+  });
+
+  it("顶部导航箭头整组下线（页面导航由左侧菜单 + 视图 tab 承接）", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await nextTick();
+    expect(w.find(".page-header-nav").exists()).toBe(false);
+    expect(w.find(".nav-arrow-btn").exists()).toBe(false);
+    expect(w.vm.goBack).toBeUndefined();
+    expect(w.vm.goForward).toBeUndefined();
+    // 标题区仍完整：删的是导航条，不是页头
+    expect(w.find(".page-header h1").text()).toBe("视频创作");
+    w.unmount();
   });
 
   it("分镜粒度双视图：目标时长输入反推字数主控，切换视图保持一致", async () => {

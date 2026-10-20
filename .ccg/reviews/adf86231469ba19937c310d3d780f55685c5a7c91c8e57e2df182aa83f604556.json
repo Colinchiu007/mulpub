@@ -1,0 +1,60 @@
+{
+  "sha": "4d7c32535c0b397291bf7fa25ea8442f771737d5",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 374 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 374,
+    "fileCount": 13,
+    "codeFileCount": 9,
+    "sensitivePathHits": [
+      "packages/api-publish-engine/src/auth/plan-capabilities.js"
+    ],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 5,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "| B3 | 走 `POST /api/v1/schedule`（定时） | 授权契约与即时入口「对称」是既有**文字约定**，两侧都只校验 `cloud_publish` | 定时通道是完全独立的一条授权链，任何「只在即时侧加」的判据都会在这里漏掉 |",
+      "- 定时通道 `_authorizeScheduledEntry` 是独立授权链，只在即时侧加的判据会在这里漏掉。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "adf86231469ba19937c310d3d780f55685c5a7c91c8e57e2df182aa83f604556",
+  "decidedAt": "2026-10-20T07:17:31.884Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

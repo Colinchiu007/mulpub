@@ -18,12 +18,19 @@
 
 ## 2. 高危面清单与收口矩阵
 
-- [ ] 2.1 `HIGH_RISK_SURFACES` 路径前缀清单（design §3 六类），每项**带实测出处**，清单只能缩小
+- [x] 2.1 `HIGH_RISK_SURFACES` 路径前缀清单（design §3 六类），每项**带实测出处**，清单只能缩小
+     - **已落码（分支 `qm6-highrisk-matrix`，`scripts/check-pr-exec-record.js`）**：清单 **9 条**而非六类 —— design §3 那六类是当时的分类，落到路径后「凭证 / 登录态 / 判据本体 / 判定写入方 / 评审驱动 / workflows / 指纹」各成一格，逐条带 `git ls-files` 实测命中数（3/1/18/1/9→7/15/100/3/2；`fingerprint` 那条在第 2 轮加了 `exts` 限定，raw 9 里 2 份是取证 txt，归因后 7）。**归因一律走判据自己的 `highRiskPrefixOf`**，。匹配实现只有一份 `highRiskPrefixOf`（`isHighRiskSurface` 与 `highRiskHits` 都走它，由用例 `2.1 单一匹配实现` 锁住；成因见本篇 §二变异层）。反装饰：用例逐条断言前缀在主干命中 ≥1 个受管文件，命中 0 即红（变异 P5 实测指名红）。
      - **前置取证已完成（design §9.2）**：清单**不得**实现成回读产物的 `stats.sensitivePathHits`（主干实测非空仅 2/877 ⇒ 构造性零），必须对 `changedFileStatuses` 现算；内容命中轴（217/877）只作旁证出声、不作闭环资格。
-- [ ] 2.2 判据本体自指：`scripts/check-*.js` + `.github/workflows/*` 命中即禁 `self-play` 收口
-- [ ] 2.3 行为锁：非高危面 self-play+双前提 ⇒ 闭环；高危面 ⇒ 欠账；`unknown` ⇒ 一律欠账
-- [ ] 2.4 变异 M2（摘掉自指前缀必须红）
-- [ ] 2.5 `design §3` 的残余（跨面行为变更）写进记录遗留，不假装闭合
+- [x] 2.2 判据本体自指：`scripts/check-*.js` + `.github/workflows/*` 命中即禁 `self-play` 收口
+     - **已落码**：矩阵分支 —— 变更集命中任一高危面前缀 ⇒ `closureCorroboration` 只认 `external`，`self-play` / `external-unverified` 判不成立并在文案里点名是哪条前缀。自指由用例 `2.2 自指` 钉住四个方向（判据本体 / 判定写入方 / workflows / credential 必须判高危；未登记前缀必须判**不**高危，防止靠加词放宽）。
+- [x] 2.3 行为锁：非高危面 self-play+双前提 ⇒ 闭环；高危面 ⇒ 欠账；`unknown` ⇒ 一律欠账
+     - **已落码（含一处对合同的有意偏差，必须写明）**：`2.3 矩阵①②③` 三条用例分别钉「高危面 + self-play ⇒ 红并点名」「高危面 + 真外部出处 ⇒ 放行（矩阵不得把外部评审一起拦掉）」「`tier=none` 却写闭环值 ⇒ 任意面都红」。
+     - **偏差**：原合同第三句 `unknown ⇒ 一律欠账` **按字段形态拆成两档**，没有整句照抄。理由与实测都在下面：① **字段缺席**（没写 `tier`，或生产方给新产物写的初始值 `unknown`）⇒ **不拦**。按字面实现会当场造出**无法闭合的循环**（与缺陷G「对 single 也要求闭环」同型）：判定器对新产物初始化 `tier:"unknown"`，而它只有跑过真外部评审才翻成 `external` —— 于是「改判据 ⇒ 必须先跑完外部评审才能提交 ⇒ 提交又生成一条新的 unknown 产物」。当场量得主干 142 篇已闭环产物里 **139 篇整字段缺席**，一刀收紧就是 139 篇的形状（测量见记录 §七）。② **字段在而值不认识**（拼错的 `External`/`extrenal`、数字、对象）⇒ 新增 `unrecognized` 档，**不分面一律拦**。后端轴 Critical#2 指出的绕行路径正是把这两档合成一档：删掉 `tier` 或写成 `external `（尾随空格）就掉进 unknown 被放过。现在空白先归一（`external ` 按 external 走 evidence 校验），野值单独成档必红；而存量里这一档实测是 **0 篇**（`{external:1, unknown:28}`，无野值）⇒ 拦得住伪造又不误伤历史。三条锁分别钉这三格：`2.3 边界（不可闭合循环负控）`（非高危面缺席不拦 —— 第 2 轮 R2-2 指出「高危面 + A 新增即闭环 + 无 tier」是零成本后门，那一档现在**拦**，由 `第2轮R2-2` 钉）、`2.3 边界（不过拦负控）`（非高危面 self-play 不拦，欠账交给 4.x 的货币判据）、`评审C2` + 变异 P9/P15（野值必须红、空白必须归一）。转拦前提仍是 unknown 占比降下来 —— 而占比要降先得有写入方（8.1b）。代价登记在记录 `openspec/records/qm6-highrisk-matrix.md` §六 第 9 条与 §七。
+- [x] 2.4 变异 M2（摘掉自指前缀必须红）
+     - **已实跑，且比原计划严**：编号在本片改叫 P1/P6（同一驱动里逐条编号，见记录 §四 的七行表）。P1 = 唯一匹配实现恒返回 `null` ⇒ **三条**指名红（`2.2 自指` + `2.3 矩阵①` + `8.1 转变②`）；P6 = 把前缀匹配在 `highRiskHits` 里再抄一份（行为逐字不变）⇒ 只有 `2.1 单一匹配实现` 那条结构红。P1 首版只红 1/3（PARTIAL），暴露的就是"两处各抄一遍"，收敛成单一实现后才 3/3。全套 7 条 `escaped=0 anchorfail=0`、还原逐条 md5 一致。
+
+- [x] 2.5 `design §3` 的残余（跨面行为变更）写进记录遗留，不假装闭合
+     - **已登记**：记录 `openspec/records/qm6-highrisk-matrix.md` §六 第 1 条写明「行为变更发生在非高危路径却改变高危面语义 ⇒ 前缀匹配结构性看不见」，并给出可收窄方向（按被高危面文件 require 的模块反查一跳）与为什么本片不做（需要依赖图 + 会引入假阳，属改「谁来守门」）。
 
 ## 3. 降级资格以物证为准（接线已经在算的东西）
 
@@ -53,7 +60,12 @@
 
 - [ ] 6.1 新增 `*.test.js` 逐个显式点名进 `quality-gate.yml`（Gate 2b/2c），由 `check-unwired-tests.js` 兜
 - [ ] 6.2 `openspec validate --strict` 通过
-- [ ] 6.3 AGENTS.md：把 #3747 那条 ⚠️ 改写为矩阵引用，删除"本门禁未镜像它"这句将过时的事实
+- [x] 6.3 AGENTS.md：把 #3747 那条 ⚠️ 改写为矩阵引用，删除"本门禁未镜像它"这句将过时的事实 —— **已落**（分支 `qm6-agents-matrix-doc`，**PR #4087**，记录 `openspec/records/qm6-agents-matrix-doc.md`）：三条逐字取自本条 2026-10-19 裁决；除三条外另如实登记四格残余（`mode=single` 直接 `continue`、引擎 `highRiskDomains` 与路径前缀是两个轴、跨面行为变更看不见、CI 侧仍 `--mode=advisory`）与一条现状声明（`tier=external` 此刻仍是会话手写代用，写入方收敛 = tasks 8.1b）。旧 ⚠️ 那句「本门禁未镜像它」在 AGENTS.md 里现读 **0 处**（替换脚本的写前断言，不靠事后 `grep -a`）
+     - **人工裁决（2026-10-19）**：不塞进 PR #3987 本体（那片已经在改"谁来守门"，再叠 AGENTS 会把过目面扩大、并让本 PR 的冲突面变大）。**触发条件 = #3987 落 main**，随即单开一个 docs-only PR 落下面三条，逐字可用：
+       ① 「与既有门禁的关系」那段把 ⚠️ 改成矩阵引用：高危面清单 = `check-pr-exec-record.js::HIGH_RISK_SURFACES`（9 条，逐条带实测命中数），高危面上只认 `tier=external` + 可核 `evidence`；
+       ② 明写「`closureNote` 在高风险面（含 `scripts/check-*` 判据本体、`.github/workflows/*`）上**不再够格**收口」—— 这条必须写，因为主干既有惯例正是 note-only（实测最近 40 笔里 2 条会被事后判红，都来自已合并的 #3927）；
+       ③ 撞线时的处置纪律：**不得靠削宽判据让它不红**，两个出口写在红文案里（非高危面写带轮次+处置结论的 `closureNote`；高危面跑真评审拿 `tier=external` + 可核 evidence）。
+     - 动手前先 `git show origin/main:AGENTS.md` 对齐（会话注入副本会落后于当天进 main 的协议），且 AGENTS.md 属"上游也会改同一处"的热点文件 —— 共享根滞后时不得就地编辑，走 worktree。
 - [ ] 6.4 执行记录 `openspec/records/ccg-review-degradation-ladder.md` 两形态同写
 
 ## 7. 自反条款验收（本片的特殊约束）
@@ -64,6 +76,11 @@
 ## 8. QM-6 命中登记（2026-10-17，两轴经直呼 CLI 交付；处置明细见 `openspec/records/ccg-deg-evidence-tier.md`）
 
 - [ ] 8.1 **闭环值只能由工具写，不能由会话手写**（后端 B0/B1 + 前端 F1，实测：四种伪造 `cleared` 全部被接受，含 `evidence:"x"`）：`deep-review` 交付时才写 `tier:"external"` + 可核 `evidence` + `findings`；判据侧对「M 状态、base 非闭环 → head 闭环，而本次变更集没带任何外部评审产物」必须点名——`readAtBase` 已具备该能力，缺的只是把它用到转变检测上。**A 状态凭空伪造在判据层不可判**（除自述外无对象可核），只能由「写入方收敛到工具」+ 事后抽查承担，登记而不假装已闭合
+     - **半片已落（判据侧）**：分支 `qm6-highrisk-matrix` 落的是 `readAtBase` 用到转变检测那一半 —— 用例 `8.1 转变①②③` 三条指名红（无出处收口点名 / `closureNote` 在非高危面放行而高危面仍拦 / base 取不到计入「未证实」读数），变异 P2、P4 各自指名红。
+     - **另一半仍未做，本条因此不勾**：`tier:"external"` + 可核 `evidence` + `findings` 目前**仍由会话手写进产物**。当场核实（2026-10-19）：引擎在仓外用户技能目录 `~/.claude/skills/adversarial-review-loop/scripts/ccg-deep-review.js`（`deep-review.sh:531-533` 的三级候选路径里，仓内 `scripts/ccg-deep-review.js` 那份**不存在**），全文 `tier` 出现 **0 次**、只写 `status:` 与 `performedBy:`（`grep -na 'status:' ` 现场 12 处，含 `self_play_resolved`/`self_play_pending`/`skipped_by_mode`）；`scripts/deep-review.sh` 里 `tier`/`evidence` 同为 0。所以「A 状态凭空伪造」这条缺口原样存在，且本片自己就是它的现场 —— 本 PR 收口那条 `dual` 产物时写的 `tier`/`evidence` 也是手写的。
+- [ ] 8.1b 闭环值写入方收敛到工具：交付时才写 `tier:"external"` + 可核 `evidence` + `findings`，判据侧对手工改成闭环值的 A 状态产物至少出声点名"由会话手写"。**落点在仓外**（`~/.claude/skills/.../ccg-deep-review.js`，或把引擎收进仓内再改），因此这一条不是本仓单 PR 能闭合的 —— 要么先解决引擎归属（vendoring 决策，属人工过目），要么在判据侧加「写入方指纹」的替代物证。
+     - **排程是硬的**（2026-10-19 人工裁决：三点全部按建议处置）：8.1b 必须紧随 2.x，**顺序不能倒**。收口矩阵已经在要 `tier` 这个结构，而当场核实全仓没有任何生产方写它（仓外引擎全文 `tier` 出现 0 次、`scripts/deep-review.sh` 同为 0）⇒ 现状下诚实的评审也只能靠**手写**满足门禁，PR #3987 自己就是这一格现场（收口手写了 `tier`/`evidence`，并在 `closureNote` 里声明是手写代用）。
+     - **随 8.1b 一起纳入的两条**（都是量出来的，不是设想）：① **生产方还要写"本次改动的文件清单"** —— 第 2 轮 R2-1 要求"按记录自身路径判高危"，实测产物顶层只有 `sha/layer/mode/reason/stats/stagedDiffHash/decidedAt/decidedBy/reviewBackends/backendAvailability/deepReview`，`stats` 里只有计数没有文件名 ⇒ 提交级归因现在**做不了**，硬做等于把矩阵整条关死（`.ccg/reviews/*` 永不命中任何前缀）。要真做，先由写入方把清单落进产物。② **「没有 `reviewBackends` 的闭环产物」现在免检** —— 实测 #3934（`b29a35add`）那条是 `status=needs_revision` + `performedBy=null` + 无 `tier` + 无 note + 无 `reviewBackends`：`judgeBackendMismatch` 因前置条件不成立返回 `null`，R2-2 之前没有任何规则能拦它（它就是 R2-2 在 40 笔历史里唯一新增拦住的那一条）。8.1b 要一并定这一档的归属。
 - [ ] 8.2 `summarizeTierCoverage` 增 `corrupt=N` 独立计数（后端 B3 的观察半边；归因已由「解析不动即点名」覆盖，此项只是趋势可见性）
 - [ ] 8.3 `ccg-review-decider.js` 的 `main()` 处理 `saveRecord` 的 null 返回 ⇒ 退出码与副作用一致，不以裸栈收尾（前端 F4：错误文本已先打印，属 fail-loud 不是假绿，但 rc 层级被裸栈掩盖）
 - [ ] 8.4 普查工具加 `require.main === module` 守卫；`parseFail` 拆成 `missing` 与 `unparsed` 两计数分别打印（前端 F5，与本会话自己踩的「json=0 是探针失明不是测量」同一条）

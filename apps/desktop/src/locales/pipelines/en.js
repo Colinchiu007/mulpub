@@ -37,7 +37,7 @@ export default {
       'screen-demo': 'Record a screen demo with automatic annotations',
       'framework-smoke': 'Quickly verify a pipeline configuration',
       'story2video-compose': 'Turn your script into a Story Telling video (story telling with optional AI video blend)',
-      'film-engineering': 'Recreate "Hell Grind": real shot prompt library, asset index & script adaptation (one-click copy)',
+      'film-engineering': 'Film Engineering: — industry-grade shot prompt library, asset index & script adaptation',
       unavailable: 'No description available',
     },
     categories: {
@@ -101,6 +101,10 @@ export default {
       select_video_scenes: 'Select AI Video Scenes',
       generate_assets: 'Generate Images/Videos/Voiceover',
       finalize_assets: 'Finalize Narration and Assets',
+      // Film Engineering auto mode progress stages
+      film_auto_plan: 'Shot Planning',
+      film_auto_generate: 'Shot Generation',
+      film_auto_render: 'Final Composition',
     },
     statuses: {
       idle: 'Idle',

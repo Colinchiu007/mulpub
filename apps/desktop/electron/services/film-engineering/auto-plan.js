@@ -32,6 +32,7 @@ const {
 const {
   sha256, buildShotFingerprint, buildPayloadHash, buildPlanId, buildRefsFingerprint,
 } = require('./auto-plan-fingerprint')
+const { resolveShotDurationMs, DEFAULT_TIERS: DEFAULT_DURATION_TIERS } = require('./shot-duration')
 
 const MAX_AUTO_SHOTS = 120
 const MAX_AUTO_SCRIPT_LENGTH = 10000
@@ -39,6 +40,15 @@ const MIN_AUTO_DURATION_SEC = 10
 const MAX_AUTO_DURATION_SEC = 600
 const AUTO_ASPECTS = Object.freeze(['16x9', '9x16'])
 const AUTO_SHOT_SECONDS = Object.freeze([5, 8, 10])
+/**
+ * 内置档位的单镜上限（秒）——**从档位本身推导，不另写一个字面量**。
+ *
+ * v7 对抗评审 i3 修正：初版写死 12 并注释「与 shot-grammar.json 的 maxSec 同源」，但内置档位
+ * 最高只有 10，于是 12s 档在自动模式根本不可达，而 maxSec=12 让「已到上限」的判定永远不触发。
+ * 现在上限等于实际最高档；kit 支持到 12s，需要放宽时用 planAutoShots({ durationTiers }) 注入，
+ * 不要改这个常量（改它会让 validateAutoInputs 接受的档位与实际能力脱节）。
+ */
+const MAX_AUTO_SHOT_SEC = Math.max(...DEFAULT_DURATION_TIERS)
 const MAX_AUTO_REFS = 8
 /** 与 ipc-handlers/film-engineering.js:47-49 同源预估口径 */
 const DISK_ESTIMATE_BYTES_PER_SHOT = 8 * 1024 * 1024
@@ -219,10 +229,38 @@ function planAutoShots (input) {
     mediaRoot: o.mediaRoot,
   })
 
+  // 时长档的唯一缺省事实源是 shot-duration 的 DEFAULT_TIERS（= film-kit 的 supportedSec）。
+  // v7 对抗评审第二轮 i3：初版用 AUTO_SHOT_SECONDS 兼当档位表，于是「用户可选的 seconds 输入域」
+  // 与「模型支持的时长档」被绑成同一个东西，资产承诺 12s 而自动模式最高只有 10s。
+  // 两者语义不同：前者是输入白名单（validateAutoInputs 用），后者是能力表。
+  const durationTiers = Array.isArray(o.durationTiers) && o.durationTiers.length > 0
+    ? o.durationTiers.map(Number).filter((n) => Number.isFinite(n) && n > 0).sort((a, b) => a - b)
+    : DEFAULT_DURATION_TIERS
+  const durationMaxSec = Math.max(...durationTiers)
+
   const shots = beats.map((beat, i) => {
     const template = templates[i % templates.length]
     const prompt = buildTemplatePrompt({ template, beatText: beat.text, characterMap })
     const refPaths = bound[i] ? bound[i].refPaths : []
+    // v7 批次一 F2 + F34：给每镜补 durationMs（来源优先级链）。
+    // 自动模式下还没有 TTS 实测，故走 formula（按本镜文案推算）→ tier（o.seconds 兜底）。
+    // 传 text 而非 dialogue：beat.text 通常是「动作 + 台词」混排，
+    // resolveShotDurationMs 会按引号抽取真正被念出的部分（v7 对抗评审 i1），避免整段按语速高估。
+    // 这是**纯增量**：原先 `seconds` 的语义与 plannedDurationSec 一律不动，
+    // 消费方可以继续只读 seconds；需要更细的时长就读 durationMs。
+    const duration = resolveShotDurationMs(
+      { text: beat.text, emotion: beat.emotion },
+      {
+        tiers: durationTiers,
+        maxSec: durationMaxSec,
+        defaultSec: Number(o.seconds),
+        // v7 对抗评审第二轮 i4：自动模式的 beat.text 常常是纯动作描述。
+        // 没有引号就说明这句话不会被念出来，按「字/秒」折算等于给动作配了语速，
+        // 于是 120 字的无台词动作镜会触发「必须拆解台词」——误导用户去拆一个没有台词的镜头。
+        // 要求必须有引号才走 formula，否则退到档位兜底（tier）。
+        requireQuotedDialogue: true,
+      },
+    )
     return {
       index: i,
       shotId: 'auto-' + String(i).padStart(3, '0'),
@@ -232,11 +270,63 @@ function planAutoShots (input) {
       characterNames: Object.values(characterMap).filter((name) => String(beat.text || '').includes(name)),
       refPaths,
       seconds: Number(o.seconds),
+      durationMs: duration.ok ? duration.durationMs : Math.round(Number(o.seconds) * 1000),
+      durationSec: duration.ok ? duration.durationSec : Number(o.seconds),
+      durationSource: duration.ok ? duration.source : 'tier',
+      durationRawSec: duration.ok && Number.isFinite(duration.rawSec) ? duration.rawSec : null,
+      durationWarnings: duration.ok ? duration.warnings : [duration.error],
       status: 'pending',
     }
   })
 
   const plannedDurationSec = shots.length * Number(o.seconds)
+  // 按台词推算的总时长（与档位基线并列展示，不替换任何既有字段）
+  const estimatedDurationSec = Math.round(shots.reduce((acc, x) => acc + (Number(x.durationMs) || 0), 0) / 100) / 10
+  const durationSourceCount = shots.reduce((acc, x) => {
+    acc[x.durationSource] = (acc[x.durationSource] || 0) + 1
+    return acc
+  }, { formula: 0, tier: 0, tts: 0, user: 0 })
+  const durationWarnings = []
+  if (plannedDurationSec > 0 && Math.abs(estimatedDurationSec - plannedDurationSec) / plannedDurationSec > 0.2) {
+    durationWarnings.push({
+      code: 'W8',
+      message: '按台词推算总时长 ' + estimatedDurationSec + ' 秒，与档位基线 ' + plannedDurationSec + ' 秒相差超过 20%'
+        + '（推算 ' + durationSourceCount.formula + ' 镜 / 档位 ' + durationSourceCount.tier + ' 镜）。'
+        + '最终以 TTS 实测为准；若差异过大请调整单镜秒数或拆分长台词镜头。',
+    })
+  }
+  // v7 对抗评审 i1：逐镜时长警告原先只挂在 shot.durationWarnings 上，调用方不遍历就看不见，
+  // 于是「推算超过单镜上限必须拆解台词」这条承诺在自动模式里是静默的。
+  //
+  // 判据刻意只覆盖**两类实质事件**，不把「无台词 / 低于最小档」这类良性提示也报上来——
+  // 一个恒真的告警会立刻退化成噪音（W8 的误报风险已被同一轮评审点过）。
+  //   ① overflow：台词量超过最高档，不拆解就会丢字
+  //   ② truncation：容差吸附把档位压到内容长度以下，尾部可能被切
+  // 两组必须**互斥**：溢出镜（rawSec > maxSec）必然同时满足「内容长于档位」，若不排除就会
+  // 既报「必须拆解台词」又报「容差吸附到更短档位」，而且 N 会把同一镜数两次
+  // （v7 对抗评审第二轮 i1）。截断只对未溢出的镜成立。
+  const overflowShots = shots.filter((s) => Number.isFinite(s.durationRawSec) && s.durationRawSec > durationMaxSec)
+  const truncatedShots = shots.filter((s) => Number.isFinite(s.durationRawSec)
+    && s.durationRawSec <= durationMaxSec
+    && s.durationRawSec * 1000 > Number(s.durationMs) + 1)
+  if (overflowShots.length > 0 || truncatedShots.length > 0) {
+    const parts = []
+    if (overflowShots.length > 0) {
+      parts.push('其中 ' + overflowShots.length + ' 镜推算时长超过单镜上限 ' + durationMaxSec + ' 秒（'
+        + overflowShots.slice(0, 5).map((s) => '#' + s.index).join(', ')
+        + '），必须按 long_dialogue_split 拆解台词，不得截断')
+    }
+    if (truncatedShots.length > 0) {
+      parts.push(truncatedShots.length + ' 镜因容差吸附到了略短的档位（'
+        + truncatedShots.slice(0, 5).map((s) => '#' + s.index).join(', ')
+        + '），台词尾部可能被切，建议复核或改大单镜秒数')
+    }
+    durationWarnings.push({
+      code: 'W9',
+      message: '有 ' + (overflowShots.length + truncatedShots.length) + ' 个分镜的实际台词长度超出其档位时长（两类互斥，合计即独立镜数）；'
+        + parts.join('；') + '。逐镜明细见 shots[].durationWarnings。',
+    })
+  }
   const wallclock = shots.length * WALLCLOCK_SECONDS_PER_SHOT
   const shotsWithReferences = shots.filter((s) => s.refPaths.length > 0).length
   // 空文案分镜（代码审查发现）：整篇只写一行场景标题（如单独一行 `INT.`）时，`splitScript` 会产出一段
@@ -273,6 +363,7 @@ function planAutoShots (input) {
             .join('; '),
         }]
       : []),
+    ...durationWarnings,
   ]
 
   return {
@@ -281,6 +372,8 @@ function planAutoShots (input) {
     characterMap,
     warnings,
     plannedDurationSec,
+    estimatedDurationSec,
+    durationSourceCount,
     targetDurationSec: Number(o.targetDurationSec),
     shotsWithReferences,
     scriptHash: sha256(o.script),
@@ -290,6 +383,7 @@ function planAutoShots (input) {
       batchCount: Math.ceil(shots.length / PRODUCTION_BATCH_SIZE),
       diskEstimateBytes: shots.length * DISK_ESTIMATE_BYTES_PER_SHOT,
       wallclockEstimateSeconds: wallclock,
+      estimatedDurationSec,
     },
   }
 }
@@ -301,6 +395,7 @@ module.exports = {
   MAX_AUTO_DURATION_SEC,
   AUTO_ASPECTS,
   AUTO_SHOT_SECONDS,
+  MAX_AUTO_SHOT_SEC,
   MAX_AUTO_REFS,
   SLOT_ORDER,
   DISK_ESTIMATE_BYTES_PER_SHOT,

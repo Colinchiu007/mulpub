@@ -7,15 +7,27 @@
 // 检查域内每个测试文件必须被某个 workflow 的**可执行正文**点名（注释不算）；
 // 豁免只允许按欠账登记，且清单只能缩小。
 //
-// 检查域**不再是两个写死的目录**，而是「整仓减去显式声明的排除项」。旧口径把域钉死在
-// scripts/ 与 .github/scripts/，于是落在两目录之外的测试文件对棘轮**完全隐身**。实测漏例：
+// 判定域 = **git 的域**（`scripts/lib/git-domain.js`：被跟踪 ∪ 未被 .gitignore 排除的未跟踪文件，
+// 即 `git status` = CI 检出态），再减去显式声明的排除项。
+// 它原先是两个写死目录，于是落在这两个目录之外的测试文件对棘轮**完全隐身**。实测漏例：
 // `.quality-rhythm/.github/scripts/tpl-contract.test.js` 被同目录那份
 // `.quality-rhythm/.github/workflows/mechanism-check.yml` 用 `node --test` 点名，看起来"已接线"，
 // 但 GitHub 只执行**仓库顶层**的 .github/workflows/，那份嵌套 workflow 永远不会被调度 ⇒
 // 一条"看着是门禁、实际零执行"的死锁。故本文件同时新增 NESTED_WORKFLOW_NOT_EXECUTED。
+//
+// 而"全仓磁盘遍历"是同一个病的第二种发作（2026-10-18 实测两例，同一根因）：磁盘上有、
+// CI 的检出态里没有的东西，会被当成"仓库里的东西"并报红 ——
+//   ① 共享根里另一会话留下的 `.adversarial/arl-patched/.github/workflows/ci.yml`（.gitignore:417）；
+//   ② `check-docs-sync.test.sh` 夹具泄漏出的畸形目录，其内部含 `.github/workflows/quality-gate.yml`。
+// 上一轮按 `.agent_context` 给剪枝清单加一条目录名（那次共享根输出 3546 行、其中 3543 行来自它，
+// rc=1，而干净 worktree 只有 3 行 rc=0 ⇒ 门禁天天红等于没有），那是**按具体路径打补丁**：
+// 下一个未跟踪目录又会红。改取 git 的域之后，"本机才有"这一整类一次性消失，
+// 且未跟踪但未被忽略的文件仍在域内 —— "新写的测试必须去接线"这一半没有被削掉。
+// 与 #3876（check-max-lines）/#3900（check-debt-budget）同一条路，实现共用一份。
 
 const fs = require("node:fs")
 const path = require("node:path")
+const { gitDomain } = require("./lib/git-domain")
 
 const TEST_SUFFIXES = [".test.js", ".test.mjs", ".test.sh", ".test.ps1"]
 
@@ -26,15 +38,10 @@ const WORKSPACE_COVERED = ["apps/", "packages/", "ops-center/"]
 // 不是本仓的被测代码；本仓 CI 不去执行它，也不把它内部的 *.test.* 计入检查域。
 // 这一条同时也是 NESTED_WORKFLOW_NOT_EXECUTED 的白名单——新增嵌套 workflow 必须先在这里显式承认。
 const VENDORED_MIRROR = [".quality-rhythm/"]
-// 目录级剪枝：构建产物与依赖，永远不是本仓测试源。
-// 2026-10-18 补 `.agent_context`：它是**本地会话隔离归档**（worktree 快照、一次性探针脚本），
-// 从未被 git 跟踪（实测 `git ls-files .agent_context` = 0 条），因此 CI 上根本不存在它。
-// 不剪枝的代价实测：共享根跑本判据输出 **3546 行**、其中 **3543 行**来自
-// `.agent_context/worktree-archive-*`，rc=1；而干净 worktree 只有 3 行、rc=0
-// （"检查域内测试文件 104 个 / OK: 全部测试均已接线"）。
-// 也就是说这个门禁在共享根上**完全不可用** —— 天天红的东西等于没有，
-// 这正是本仓反复记录的「装饰性门禁」同型（把红色训练成背景色）。
-const PRUNE_DIRS = [".git", "node_modules", "dist", "dist-electron", "coverage", ".playwright-browsers", ".next", "build", ".agent_context"]
+// 不再有 PRUNE_DIRS：上一版靠逐个目录名（node_modules / dist / .agent_context …）剪枝磁盘遍历，
+// 而"这些不是本仓测试源"这件事 git 已经知道了 —— 它们要么未被跟踪、要么被 .gitignore 排除，
+// 因此根本不在 git 的域里。逐个目录名的写法只能事后追认已发现的噪声目录，
+// 下一个本机产物又会红（这就是本次换域的动因，见文件头）。
 
 // 欠账登记：path -> 不可省略的原因。只能缩小，新增即红（与 platform-definitions 棘轮同形）。
 // 2026-09-27 把 scripts 下 7 条 PowerShell 测试逐个实跑分档（本机 pwsh 7.6 / PS 5.1 各一遍，
@@ -110,35 +117,11 @@ function inAnyPrefix(relPosix, prefixes) {
   return prefixes.some((p) => relPosix.startsWith(p))
 }
 
-// 全仓遍历（不跟随链接：Windows 上 worktree 的 node_modules 里全是 junction，跟随会跨到别处）。
-// 返回相对 root 的正斜杠路径清单。剪枝 PRUNE_DIRS 与 workspace 目录，保证不遍历依赖与构建产物。
-function walkRepoFiles(root) {
-  const out = []
-  const absRoot = path.resolve(root)
-  const stack = [""]
-  while (stack.length) {
-    const rel = stack.pop()
-    const abs = rel ? path.join(absRoot, rel) : absRoot
-    let entries
-    try {
-      entries = fs.readdirSync(abs, { withFileTypes: true })
-    } catch (error) {
-      // 读不动的目录必须出声：静默跳过就是"以不完整遍历判定全绿"（同 R3 链接扫描的教训）
-      throw new Error(`无法枚举目录 ${abs}：${error && error.message}（遍历不完整时本门禁拒绝判定）`)
-    }
-    for (const e of entries) {
-      const childRel = rel ? `${rel}/${e.name}` : e.name
-      if (e.isSymbolicLink() || e.isFIFO() || e.isSocket()) continue
-      if (e.isDirectory()) {
-        if (PRUNE_DIRS.includes(e.name) || inAnyPrefix(childRel + "/", WORKSPACE_COVERED)) continue
-        stack.push(childRel)
-        continue
-      }
-      if (!e.isFile()) continue
-      out.push(childRel)
-    }
-  }
-  return out.sort()
+// 判定域取自 git，一次取好、两处枚举共用（gitDomain 每次调用要起四个 git 子进程）。
+// 取不到读数（非工作树 / git 缺失 / 空集合 / root 指到子目录）一律由 gitDomain 抛错，
+// 经 CLI 转成独立退出码 2 —— 绝不退回磁盘遍历，也不把"工具失明"读成"没有欠账"。
+function domainFiles(root) {
+  return Array.from(gitDomain(root)).sort()
 }
 
 // 嵌套的 workflow 文件：GitHub 只调度仓库顶层 .github/workflows/ 下的文件，
@@ -147,15 +130,50 @@ function isNestedWorkflow(relPosix) {
   return /(^|\/)\.github\/workflows\/.*\.(yml|yaml)$/.test(relPosix) && !relPosix.startsWith(".github/workflows/")
 }
 
-function listTestFiles(root) {
-  return walkRepoFiles(root)
+function listTestFiles(domain) {
+  return domain
     .filter((rel) => !inAnyPrefix(rel, TEST_DOMAIN_EXCLUDED))
     .filter((rel) => TEST_SUFFIXES.some((s) => rel.endsWith(s)))
     .sort()
 }
 
-function listNestedWorkflows(root) {
-  return walkRepoFiles(root).filter(isNestedWorkflow).sort()
+function listNestedWorkflows(domain) {
+  return domain.filter(isNestedWorkflow).sort()
+}
+
+// 顶层 workflow 清单同样**由域给**，不是由磁盘 readdir 给。方向是假绿：本机在 .github/workflows/
+// 里放一个被 .gitignore 吞掉的文件，`fs.readdirSync` 会读它、CI 的检出态不会 ——
+// 于是"这条测试已接线"的证据来自一份永远不会被 GitHub 排队执行的配置。
+const TOP_WORKFLOW_RE = /^\.github\/workflows\/.*\.(yml|yaml)$/
+
+function topLevelWorkflowPaths(domain) {
+  return domain.filter((p) => TOP_WORKFLOW_RE.test(p)).sort()
+}
+
+// 三份退化出口按**方向**分开给文案：目录不存在 / 目录在但域里零个 workflow / 域里有但磁盘读不到。
+// 第三种是"索引与工作树不一致"（例如删了文件没 git rm），它必须出声而不是跳过那一份 ——
+// 跳过会让被删掉的那份 workflow 的点名从证据里消失，方向同样是假绿。
+function workflowPathPairs(root, domain, emptyDirMessage) {
+  const dir = path.join(root, ".github", "workflows")
+  const rels = topLevelWorkflowPaths(domain)
+  if (rels.length === 0) {
+    if (!fs.existsSync(dir)) throw new Error(`未找到 workflows 目录：${dir}（解析退化会让本门禁假绿）`)
+    throw new Error(emptyDirMessage)
+  }
+  return rels.map((rel) => ({ rel, abs: path.join(root, ...rel.split("/")) }))
+}
+
+function readWorkflowBody(pairs) {
+  return pairs.map(({ rel, abs }) => {
+    try {
+      return fs.readFileSync(abs, "utf8")
+    } catch (error) {
+      throw new Error(
+        `workflow 在 git 域里但磁盘读不到：${rel}（${(error && error.code) || "unknown"}）—— ` +
+          "索引与工作树不一致时本门禁拒绝判定，不做「跳过那一份」",
+      )
+    }
+  })
 }
 
 // 注释里提到文件名不构成接线：反证实测过「删掉 run 行、只留注释」仍被判绿。
@@ -170,14 +188,13 @@ function stripComments(text) {
     .join("\n")
 }
 
-function readWorkflowText(root) {
-  const dir = path.join(root, ".github", "workflows")
-  if (!fs.existsSync(dir)) {
-    throw new Error(`未找到 workflows 目录：${dir}（解析退化会让本门禁假绿）`)
-  }
-  const files = fs.readdirSync(dir).filter(f => /\.(yml|yaml)$/.test(f))
-  if (files.length === 0) throw new Error(`${dir} 下没有 workflow 文件，拒绝以空集合判定全部未接线`)
-  return stripComments(files.map(f => fs.readFileSync(path.join(dir, f), "utf8")).join("\n"))
+function readWorkflowText(root, domain) {
+  const pairs = workflowPathPairs(
+    root,
+    domain,
+    path.join(root, ".github", "workflows") + " 下没有 workflow 文件，拒绝以空集合判定全部未接线",
+  )
+  return stripComments(readWorkflowBody(pairs).join("\n"))
 }
 
 // 同名 basename 会让「按文件名点名」串到另一个文件上，那种情况要求 workflow 写全相对路径。
@@ -185,14 +202,18 @@ function readWorkflowText(root) {
  * 列出每个 workflow 里每个 job 的：是否被 job 级 `if:` 整片门控 + 它的可执行正文（已剥注释）。
  * 判"接线住在哪"必须靠这个，而不是靠整份文件做 includes —— 后者会把"接在会被跳过的 job"读成已接线。
  */
-function listJobBlocks(root) {
-  const dir = path.join(root, ".github", "workflows")
-  if (!fs.existsSync(dir)) throw new Error(`未找到 workflows 目录：${dir}（解析退化会让本判据假绿）`)
-  const names = fs.readdirSync(dir).filter(f => /\.(yml|yaml)$/.test(f)).sort()
-  if (names.length === 0) throw new Error(`${dir} 下没有 workflow 文件，拒绝以空集合判定接线资格`)
+function listJobBlocks(root, domain) {
+  const pairs = workflowPathPairs(
+    root,
+    domain,
+    path.join(root, ".github", "workflows") + " 下没有 workflow 文件，拒绝以空集合判定接线资格",
+  )
   const jobs = []
-  for (const name of names) {
-    const lines = fs.readFileSync(path.join(dir, name), "utf8").replace(/\r\n/g, "\n").split("\n")
+  const bodies = readWorkflowBody(pairs)
+  for (let i = 0; i < pairs.length; i++) {
+    const rel = pairs[i].rel
+    const name = path.posix.basename(rel) // where 串里沿用文件名（既有断言按它写），路径判据仍用 rel
+    const lines = bodies[i].replace(/\r\n/g, "\n").split("\n")
     let inJobs = false
     let cur = null
     let runIndent = -1 // step 的 run 键所在缩进；-1 = 不在 run 正文里
@@ -316,8 +337,10 @@ function collectUngatedCheck(files, registry, jobs) {
 // 不变量：**跑真判据必须显式传第 4 参**（run() 与真实仓库用例都传了）；将来谁新增一条
 // 只传三参的"真实仓库"用例，它测的就不是本判据 —— 评审要看这一点，别照 3 参形态抄。
 function collectCheck(root, exemptions = KNOWN_UNWIRED, nestedAcks = KNOWN_NESTED_WORKFLOWS, ungatedRegistry = {}) {
-  const files = listTestFiles(root)
-  const workflows = readWorkflowText(root)
+  // 一次取域，两条枚举共用。取不到读数就地抛错（不退回磁盘遍历），由 CLI 转退出码 2。
+  const domain = domainFiles(root)
+  const files = listTestFiles(domain)
+  const workflows = readWorkflowText(root, domain)
   const basenameCount = new Map()
   for (const file of files) {
     const base = path.basename(file)
@@ -338,7 +361,7 @@ function collectCheck(root, exemptions = KNOWN_UNWIRED, nestedAcks = KNOWN_NESTE
     }
   }
   // 嵌套 workflow 单独一档：它不是"测试没接线"，而是"配置看着像门禁、实际永不排队执行"。
-  const nestedFiles = listNestedWorkflows(root)
+  const nestedFiles = listNestedWorkflows(domain)
   const nested = []
   for (const f of nestedFiles) {
     if (!nestedAcks[f]) nested.push({ code: "NESTED_WORKFLOW_NOT_EXECUTED", file: f })
@@ -354,7 +377,7 @@ function collectCheck(root, exemptions = KNOWN_UNWIRED, nestedAcks = KNOWN_NESTE
   let ungatedViolations = []
   let staleUngated = []
   if (Object.keys(ungatedRegistry).length > 0) {
-    const jobs = listJobBlocks(root)
+    const jobs = listJobBlocks(root, domain)
     ;({ violations: ungatedViolations, stale: staleUngated } = collectUngatedCheck(files, ungatedRegistry, jobs))
   }
 
@@ -418,9 +441,9 @@ if (require.main === module) {
 module.exports = {
   listTestFiles,
   listNestedWorkflows,
+  domainFiles,
   listJobBlocks,
   collectUngatedCheck,
-  walkRepoFiles,
   readWorkflowText,
   stripComments,
   collectCheck,
@@ -432,5 +455,4 @@ module.exports = {
   WORKSPACE_COVERED,
   VENDORED_MIRROR,
   TEST_DOMAIN_EXCLUDED,
-  PRUNE_DIRS,
 }

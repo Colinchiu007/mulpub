@@ -13,6 +13,7 @@
 import { ref, computed, watch } from 'vue'
 import { normalizeAccountIds } from '@/features/publish/publish-contract'
 import { isAccountActive } from '@/utils/account-active'
+import { canAddPlatform as canAddPlatformByLimits, platformLimitState } from '@/features/member/plan-limits'
 
 const VIDEO_PLATFORMS = new Set(['douyin', 'tencent_video', 'kuaishou', 'bilibili', 'tiktok', 'youtube'])
 const VIDEO_CONTENT_CATEGORIES = new Set(['VIDEO', 'MIXED'])
@@ -48,11 +49,19 @@ export function isVideoContentPlatform(platformId, platformCatalog) {
  * 平台选择 composable
  * @param {object} accountStore - 账号 store（需有 byPlatform / getDefault）
  * @param {object} [platformCatalog] - 平台 store/catalog（可提供 getContentCategory）
+ * @param {object} [options]
+ * @param {() => (object|null)} [options.getEntitlement] - 返回当前 entitlement 的 getter。
+ *   不传 = 不做档位限制（既有调用方与单测零改动）；传了但 limits 缺失时按「不限」放行
+ *   （见 features/member/plan-limits.js 的缺失即放行纪律）。
+ * @param {(limit: number|null) => void} [options.onLimitReached] - 被上限拒绝时的回调。
+ *   放在这里而不是视图里：触顶判定与播报同源，且 Publish.vue 是零增长挂账文件，不许为它加分支行。
  * @returns {object} 响应式状态 + 方法
  */
-export function usePlatformSelection(accountStore, platformCatalog = null) {
+export function usePlatformSelection(accountStore, platformCatalog = null, options = {}) {
   const selectedPlatforms = ref(['wechat_mp'])
   const selectedAccounts = ref({}) // { platformId: accountId[] }
+  const getEntitlement = typeof options.getEntitlement === 'function' ? options.getEntitlement : () => null
+  const onLimitReached = typeof options.onLimitReached === 'function' ? options.onLimitReached : () => {}
 
   const hasVideoPlatforms = computed(function () {
     return selectedPlatforms.value.some(function (p) {
@@ -60,13 +69,33 @@ export function usePlatformSelection(accountStore, platformCatalog = null) {
     })
   })
 
+  // 档位限制的只读视图：UI 可以直接展示「已选 N / 上限 M」而不必自己读 limits。
+  const platformLimit = computed(function () {
+    return platformLimitState(getEntitlement(), selectedPlatforms.value.length)
+  })
+
+  /** 是否还能追加平台（已选中的不受限，取消选择永远允许）。 */
+  function canAddPlatform(platformId) {
+    if (selectedPlatforms.value.indexOf(platformId) !== -1) return true
+    return canAddPlatformByLimits(getEntitlement(), selectedPlatforms.value.length)
+  }
+
+  /**
+   * 切换平台。
+   * @returns {boolean} true = 已处理（选中或取消）；false = 被档位上限拒绝（调用方负责提示）
+   */
   function togglePlatform(platformId) {
     const idx = selectedPlatforms.value.indexOf(platformId)
     if (idx === -1) {
+      if (!canAddPlatform(platformId)) {
+        onLimitReached(platformLimit.value.limit)
+        return false
+      }
       selectedPlatforms.value.push(platformId)
-    } else {
-      selectedPlatforms.value.splice(idx, 1)
+      return true
     }
+    selectedPlatforms.value.splice(idx, 1)
+    return true
   }
 
   // 「按组添加」（P2-8b）需要的是**只选不取消**的写入器。借用 togglePlatform 现在能过，
@@ -74,8 +103,11 @@ export function usePlatformSelection(accountStore, platformCatalog = null) {
   // 这段判据（比如将来加"按组替换"），同样的调用就变成取消选择。显式写一次，成本两行。
   function selectPlatform(platformId) {
     if (selectedPlatforms.value.indexOf(platformId) === -1) {
+      // 按组添加同受档位上限约束：否则一条「应用分组」就能绕过单点选择的上限。
+      if (!canAddPlatform(platformId)) return false
       selectedPlatforms.value.push(platformId)
     }
+    return true
   }
 
   function selectAccount(platformId, accountId) {
@@ -185,6 +217,8 @@ export function usePlatformSelection(accountStore, platformCatalog = null) {
     selectedPlatforms,
     selectedAccounts,
     hasVideoPlatforms,
+    platformLimit,
+    canAddPlatform,
     isVideoPlatform: (platformId) => isVideoContentPlatform(platformId, platformCatalog),
     togglePlatform,
     selectPlatform,

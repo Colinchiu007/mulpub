@@ -110,20 +110,18 @@ const TT_SPACE_NAME_FALLBACK = 'middlevideo_toutiao'
 
 const AUTH_KEY_PATH = '/xigua/api/upload/getAuthKey/'
 
-// 本文件的职责已按「有无副作用」切成三块，防止单文件再撞 `check-max-lines` 的 500 上限：
-//   · toutiao-video-publish.js —— 纯契约（端点/枚举/body 构造/响应解析），无 IO
-//   · toutiao-video-probes.js  —— 只读探测（发布权限 / 推荐封面），无副作用
-//   · 本文件                    —— 有副作用的链编排（getAuthKey → apply → 分片 → commit → PublishVideo）
+// 职责三块（防再撞 500 行闸）：publish=纯契约无IO / probes=只读探测 / 本文件=链编排
 const {
   PUBLISH_PATH, PUBLISH_AUTH_PATH, REVIEW_LATENCY_PATH, POSTER_LIST_PATH,
   PUBLISH_TYPE, VIDEO_TYPE, ASPECT_RATIO,
   truncateByCodePoint, buildToutiaoPublishBody, parsePublishResponse,
   parsePosterListResponse, pickPosterUri,
   CSRF_HEADER, pickCsrfToken,
-  buildPublishGateResult,
+  buildPublishGateResult, buildAccountNotVerifiedResult,
   CODE_ACCOUNT_NOT_VERIFIED,
 } = require('./toutiao-video-publish')
 const { probePublishAuth, fetchPosterList } = require('./toutiao-video-probes')
+const { pickLocalCoverPath, uploadLocalCoverFor } = require('./toutiao-video-cover')
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
 
@@ -354,6 +352,10 @@ class ToutiaoVideoChain {
     if (p.ok) {
       return { success: true, mode: 'api', platform: 'toutiao', publishId: p.itemId }
     }
+    // 2026-10-19：提交时账号墙兜底（Code 21000 / 原文「未实名认证/帐号不可用」）——
+    // 与提交前 buildPublishGateResult 同码 `ACCOUNT_NOT_VERIFIED`，
+    // UI 据码反查同一「去完善」链接（shared-utils 单一真源）。
+    if (p.accountGate) return buildAccountNotVerifiedResult({ canPublish: true, identityVerified: false })
     return {
       success: false,
       platform: 'toutiao',
@@ -395,15 +397,10 @@ class ToutiaoVideoChain {
     const vid = await this.uploadVideo(videoPath, creds, uid, opts.onProgress)
     if (opts.onProgress) opts.onProgress(80, '视频已上传，正在提交')
 
-    // 闸门 5（封面必填）必须放在**上传之后**：平台的推荐封面是按 vid 自动生成的
-    // （bundle 原文：「视频上传完毕后才能生成推荐封面，你可上传或自定义截取封面」）。
-    // 所以顺序是：先看调用方有没有**平台侧可用的封面 URI** ⇒ 没有就向平台要推荐封面 ⇒
-    // 都没有才失败。这样解掉了「先要封面才能上传、上传完才有封面」的死锁。
-    //
-    // ⚠️ 判据是「有没有可用 **URI**」，不是「有没有封面字段」：
-    // `coverPath` 是本地文件路径，body 需要的是平台侧 URI，而头条封面上传尚未实现 ⇒
-    // 只给 coverPath 时**仍然**要回落推荐封面（自扮演裁决：曾用 hasCallerCover 触发回落，
-    // 结果 coverPath 让回落被跳过、thumbUri 又是空 ⇒ 必失败，属判据用错）。
+    // 闸门 5（封面必填）在上传之后：推荐封面按 vid 生成（bundle 原文「视频上传完毕后才能生成推荐封面」）。
+    // 顺序：调用方平台 URI ⇒ 推荐封面 ⇒ **本地封面上传（image_temp 五步链，见 cover 模块）** ⇒ 失败。
+    // ⚠️ 判据是「有没有可用 **URI**」而非「有没有封面字段」：曾用 hasCallerCover 触发回落，
+    // coverPath 让回落被跳过、thumbUri 又空 ⇒ 必失败（判据用错，自扮演裁决留档）。
     let thumbUri = opts.thumbUri || (td.cover && td.cover.uri) || ''
     let thumbUrl = opts.thumbUrl || (td.cover && td.cover.url) || ''
     const hasUsableCoverUri = Boolean(thumbUri)
@@ -420,9 +417,18 @@ class ToutiaoVideoChain {
       }
     }
     if (!thumbUri && !opts.skipCoverCheck) {
+      // 本地封面 ⇒ image_temp 五步链上传并登记；平台 URI 直接用；都没有 ⇒ 回落推荐封面（上方已试）。
+      // 判据与接线体都在 toutiao-video-cover.js（本文件行数闸余量不足，勿搬回）。
+      const localCover = pickLocalCoverPath(coverInputs)
+      if (localCover) {
+        if (opts.onProgress) opts.onProgress(85, '正在上传本地封面')
+        const { uploadLocalCoverFor } = require('./toutiao-video-cover')
+        thumbUri = (await uploadLocalCoverFor(this, localCover, { onProgress: opts.onProgress })).uri
+      }
+    }
+    if (!thumbUri && !opts.skipCoverCheck) {
       const hint = hasLocalCoverOnly(coverInputs)
-        ? '调用方只提供了本地封面文件（cover/coverPath），但头条封面上传尚未实现 —— '
-          + '请改传平台侧 thumbUri，或依赖平台推荐封面'
+        ? '调用方提供了本地封面文件但上传失败，且平台推荐封面不可用'
         : '调用方未提供 cover/thumbUri'
       throw new ToutiaoVideoError(
         '头条视频发布需要封面图（平台必填）：平台未生成推荐封面，且' + hint

@@ -6,7 +6,7 @@ export default {
     title: 'Copy Rewrite',
     subtitle: 'AI-powered multi-strategy rewrite engine, combining viral library and personal experience for originality',
     inputSection: 'Input content',
-    inputPlaceholder: 'Enter or paste content to rewrite (up to 6000 characters)...',
+    inputPlaceholder: 'Enter or paste content to rewrite (up to 50000 characters)...',
     configSection: 'Rewrite settings',
     useViralLibrary: 'Use viral library',
     useViralLibraryHint: 'Prioritize viral content strategies to boost appeal and reach',
@@ -53,9 +53,28 @@ export default {
     wordCountMinPlaceholder: 'Min',
     wordCountMaxPlaceholder: 'Max',
     wordCountUnit: 'chars',
-    wordCountMinInvalid: 'Min must be an integer between 0 and 5999',
-    wordCountMaxInvalid: 'Max must be an integer between 1 and 6000',
+    wordCountMinInvalid: 'Min must be an integer between 0 and 49999',
+    wordCountMaxInvalid: 'Max must be an integer between 1 and 50000',
     wordCountMaxLtMin: 'Max cannot be less than min',
+    // Output truncation visibility (rewrite-limits-50000, 2026-10-19): banner on the
+    // result card when the engine trims output to the word-count/strategy cap;
+    // length = actual output chars, max = effective cap
+    outputTruncated: 'The rewrite was trimmed to the output limit: {length} chars written (limit {max}). The tail of the source text is not included. Raise the word-count cap for a full rewrite.',
+    // Model-side truncation (rewrite-segment-and-finish-reason): provider finished with
+    // a length/max_tokens reason — distinct from engine trimming; raising the cap may not help.
+    outputTruncatedByModel: 'The model hit its own generation limit and stopped: {length} chars written. This is a provider-side limit; raising the word-count cap may not help — consider segmented rewriting.',
+    // Segmented rewriting (input over 50000 chars): pre-run notice + result metadata
+    rewriteSegmented: 'The text is {length} chars, over the {max}-char single-pass limit, so it will be rewritten in segments. It takes longer and costs more, other AI features may slow down while it runs, and cross-segment consistency may degrade.',
+    segmentedMeta: 'Segmented rewrite ×{count}',
+    // Cancellation (rewrite-cancel-and-truncation-summary): cooperative, takes effect
+    // after the current segment finishes — the button label must not imply instant stop.
+    cancelRewriteBtn: 'Cancel rewrite',
+    cancellingBtn: 'Cancelling…',
+    cancellingHint: 'Cancelling: the current segment will finish first, then no further segments start.',
+    rewriteCancelled: 'Rewrite cancelled: the {completed}/{total} finished segments are discarded, and model costs already incurred are not refunded.',
+    // Only some segments were cut by the model's per-response limit — name them,
+    // otherwise users assume the whole article is damaged.
+    outputTruncatedByModelSegments: 'Segment(s) {segments} were cut by the model per-response limit ({length} chars in total). This is a provider-side limit; shorten the source text or rewrite it in two passes.',
     // ── Rewrite quality report (content-quality-eval desktop loop) ──
     qualitySection: 'Quality Assessment',
     qualitySufficiency: 'Rewrite sufficiency',

@@ -45,7 +45,8 @@ def normalize_aspect_ratio(value):
     return None
 
 
-# FILM_PROMPT_MAX_LEN：prompt 长度单一上限（D4 收口：导入器/loader schema/IPC 校验/前端截断四处同源）
+# FILM_PROMPT_MAX_LEN：prompt 长度单一上限（导入器 / kit-loader / IPC 校验三处必须同值；
+# 相等性由 apps/desktop/src/i18n/film-debrand.test.js ⑤ 机械校验，别在这里单方面改动）
 FILM_PROMPT_MAX_LEN = 50000
 
 FILM_META = {
@@ -395,6 +396,28 @@ def write_json_atomic(path, obj):
     os.replace(tmp, path)
 
 
+def write_neutral_json_atomic(path, obj):
+    """先去品牌自检、再原子写。
+
+    CCG 深度审查第三轮 i2：自检若放在「全部写完之后」，失败时脏 kit 已经落盘，
+    外层忽略退出码就会让应用读到污染数据。这里把校验前移到序列化之后、落盘之前，
+    失败路径**一个字节都不写**。所有随包 JSON 一律走这个入口，避免某个调用点漏检。
+    """
+    text = json.dumps(obj, ensure_ascii=False, indent=1)
+    assert_neutral_payload(os.path.basename(path), text)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        fh.write(text)
+    os.replace(tmp, path)
+
+
+def write_neutral_text(path, text):
+    """纯文本版（prompt-doctrine.zh.md 等）：同样写前校验。"""
+    assert_neutral_payload(os.path.basename(path), text)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(text)
+
+
 def build_manifest(tree):
     scenes = []
     stack = [(tree, None, 0)]
@@ -573,6 +596,122 @@ def download_image(url, dest, timeout=20):
         return False
 
 
+# 去品牌护栏（change: film-debrand）：随包数据与文档面向用户，成品里不得出现原作品名。
+# 用户 2026-10-20 明确要求「不希望使用应用的用户知道 Hell Grind 这个信息」。
+# 重建会从源语料把原名带回来，所以在写盘之后**立刻自检并 fail** —— 不依赖人记着手工中性化。
+# 对应的 CI 侧回归锁是 apps/desktop/src/i18n/film-debrand.test.js（两道防线，各管一段）。
+_BANNED_BRAND_RE = re.compile(r"hell[\s_-]*grind", re.IGNORECASE)
+
+_NEUTRAL_OUTPUT_FILES = (
+    "film-manifest.json",
+    "shot-library.json",
+    "reference-registry.json",
+    "prompt-doctrine.json",
+    "prompt-doctrine.zh.md",
+)
+
+
+def _find_banned_hits(text):
+    """返回 [(行号, 片段)]；只供自检用。"""
+    hits = []
+    for lineno, line in enumerate(text.splitlines(), 1):
+        if _BANNED_BRAND_RE.search(line):
+            hits.append((lineno, line.strip()[:120]))
+            if len(hits) >= 20:
+                break
+    return hits
+
+
+def assert_neutral_payload(name, text):
+    """**写盘之前**校验待写内容：随包数据/文档不得出现被禁作品名，命中即失败（fail closed）。
+
+    为什么必须在写盘前（CCG 深度审查第三轮 i2）：写成「先落盘再扫目录」时，自检一旦失败，
+    被污染的 kit 已经躺在 shared-user-data 里；外层调用若忽略退出码，应用下次启动就会读到脏数据。
+    改成写前校验后，失败路径**一个字节都不落盘**，也就不需要「失败后回滚」这种脆弱补偿。
+    """
+    hits = _find_banned_hits(text)
+    if hits:
+        raise SystemExit(
+            "[debrand] 待写入的 %s 仍含被禁作品名（%d 处，前 20 条）：%s\n"
+            "  ⇒ 先中性化这些字段（片名 / 根场景名 / filmMeta.source / 提示词里的引用锁标签）再重建。"
+            % (name, len(hits), "; ".join("第%d行 %s" % (ln, frag) for ln, frag in hits))
+        )
+
+
+def assert_neutral_output(out_dir):
+    """落盘后**复核**（兜底）：确认目录里 5 个随包产物都不含被禁作品名。
+
+    与 `assert_neutral_payload` 分开保留是有意的：前者挡「写进去」，后者挡
+    「有人在写盘与自检之间手工塞了文件」，两道不同时机，不互相替代。
+    """
+    hits = []
+    for name in _NEUTRAL_OUTPUT_FILES:
+        path = os.path.join(out_dir, name)
+        if not os.path.exists(path):
+            continue
+        with open(path, "r", encoding="utf-8") as fh:
+            for lineno, _frag in _find_banned_hits(fh.read()):
+                hits.append("%s:%d" % (name, lineno))
+    if hits:
+        raise SystemExit(
+            "[debrand] 重建产物仍含被禁作品名（%d 处，前 20 条）：%s"
+            % (len(hits), ", ".join(hits))
+        )
+    print("[debrand] 中性化自检通过：随包数据与文档零命中被禁作品名")
+
+
+# ── 去品牌中性化（change: film-debrand）─────────────────────────────────────
+# 源语料里带着第三方作品名：片名、分场名里的片名、提示词里的 "HELLGRIND" 引用锁标签、
+# 以及来源 URL。随包数据面向用户，成品必须中性化。这一段把「原始语料 → 中性产物」
+# 固化进管线，而不是靠人记得重建后手工改一遍。
+#
+# 与写前自检的分工必须清楚（CCG 第五轮 i1 的 Critical）：**中性化负责「变成干净」，
+# 自检负责「确认真的干净」**。只有自检、没有中性化时，重建会在第一处原始片名上无条件
+# 失败 —— 等于把文档化的重建流程彻底堵死。
+NEUTRAL_FILM_TITLE = "Film Project Case"
+# 带分隔符的写法（片名短语）→ "PROJECT CASE"；粘连写法（引用锁标签）→ "PROJECT"。
+# 两侧用「非字母数字」锚定，与 JS 侧锁的 `(^|[^\w])…($|[^\w])` 同口径
+# （第五轮 i5：两端口径不一致会在无害子串上误杀）。
+_BANNED_PHRASE_RE = re.compile(r"(?<![0-9A-Za-z])hell[\s_-]+grind(?![0-9A-Za-z])", re.IGNORECASE)
+_BANNED_GLUED_RE = re.compile(r"(?<![0-9A-Za-z])hellgrind(?![0-9A-Za-z])", re.IGNORECASE)
+
+
+def neutralize_text(value):
+    """把单个字符串里的被禁作品名替换成中性标签；非字符串原样返回。"""
+    if not isinstance(value, str):
+        return value
+    out = _BANNED_PHRASE_RE.sub("PROJECT CASE", value)
+    out = _BANNED_GLUED_RE.sub("PROJECT", out)
+    return out
+
+
+def neutralize_payload(value):
+    """递归中性化任意 JSON 结构（dict / list / str）。"""
+    if isinstance(value, str):
+        return neutralize_text(value)
+    if isinstance(value, list):
+        return [neutralize_payload(v) for v in value]
+    if isinstance(value, dict):
+        return {k: neutralize_payload(v) for k, v in value.items()}
+    return value
+
+
+def neutralize_manifest(manifest):
+    """manifest 的额外规则：片名与根场景名用统一占位名，并删除来源块。
+
+    这两处不是「文本替换能解决的」：片名要换成一个固定的产品级占位名（而不是把原始
+    片名替换成 "PROJECT CASE"），来源块则整块不该存在（用户 2026-10-20 要求彻底移除）。
+    """
+    manifest = neutralize_payload(manifest)
+    film_meta = manifest.setdefault("filmMeta", {})
+    film_meta["title"] = NEUTRAL_FILM_TITLE
+    film_meta.pop("source", None)
+    for scene in manifest.get("scenes") or []:
+        if scene.get("level") == 0:
+            scene["name"] = NEUTRAL_FILM_TITLE
+    return manifest
+
+
 def _run_full_import(source_dir, out_dir, tree, with_images):
     """--full 全量导入：原子写 + import-report.json（任务 2.2-2.4）。"""
     shots, rejected = build_full_shot_library(source_dir, tree)
@@ -580,12 +719,21 @@ def _run_full_import(source_dir, out_dir, tree, with_images):
     enrich_manifest_with_hosts(manifest, shots)
     registry = build_reference_registry(source_dir, tree, shots)
 
-    write_json_atomic(os.path.join(out_dir, "film-manifest.json"), manifest)
-    write_json_atomic(os.path.join(out_dir, "shot-library.json"), shots)
-    write_json_atomic(os.path.join(out_dir, "reference-registry.json"), registry)
-    write_json_atomic(os.path.join(out_dir, "prompt-doctrine.json"), DOCTRINE)
-    with open(os.path.join(out_dir, "prompt-doctrine.zh.md"), "w", encoding="utf-8") as fh:
-        fh.write(DOCTRINE_MD)
+    # 去品牌中性化（CCG 第五轮 i1）：必须在写盘前、且必须在 enrich 之后
+    # —— enrich 会把源 URL 域名写进 allowedHosts，也要一起过一遍。
+    manifest = neutralize_manifest(manifest)
+    shots = neutralize_payload(shots)
+    registry = neutralize_payload(registry)
+    doctrine = neutralize_payload(DOCTRINE)
+    doctrine_md = neutralize_text(DOCTRINE_MD)
+
+    write_neutral_json_atomic(os.path.join(out_dir, "film-manifest.json"), manifest)
+    write_neutral_json_atomic(os.path.join(out_dir, "shot-library.json"), shots)
+    write_neutral_json_atomic(os.path.join(out_dir, "reference-registry.json"), registry)
+    write_neutral_json_atomic(os.path.join(out_dir, "prompt-doctrine.json"), doctrine)
+    write_neutral_text(os.path.join(out_dir, "prompt-doctrine.zh.md"), doctrine_md)
+
+    assert_neutral_output(out_dir)
 
     report = {
         "mode": "full",
@@ -645,16 +793,20 @@ def main():
     shots = build_shot_library(source_dir, tree)
     registry = build_reference_registry(source_dir, tree, shots)
 
-    with open(os.path.join(out_dir, "film-manifest.json"), "w", encoding="utf-8") as fh:
-        json.dump(manifest, fh, ensure_ascii=False, indent=1)
-    with open(os.path.join(out_dir, "shot-library.json"), "w", encoding="utf-8") as fh:
-        json.dump(shots, fh, ensure_ascii=False, indent=1)
-    with open(os.path.join(out_dir, "reference-registry.json"), "w", encoding="utf-8") as fh:
-        json.dump(registry, fh, ensure_ascii=False, indent=1)
-    with open(os.path.join(out_dir, "prompt-doctrine.json"), "w", encoding="utf-8") as fh:
-        json.dump(DOCTRINE, fh, ensure_ascii=False, indent=1)
-    with open(os.path.join(out_dir, "prompt-doctrine.zh.md"), "w", encoding="utf-8") as fh:
-        fh.write(DOCTRINE_MD)
+    # 去品牌中性化（CCG 第五轮 i1）：与 --full 路径同一条规则
+    manifest = neutralize_manifest(manifest)
+    shots = neutralize_payload(shots)
+    registry = neutralize_payload(registry)
+    doctrine = neutralize_payload(DOCTRINE)
+    doctrine_md = neutralize_text(DOCTRINE_MD)
+
+    write_neutral_json_atomic(os.path.join(out_dir, "film-manifest.json"), manifest)
+    write_neutral_json_atomic(os.path.join(out_dir, "shot-library.json"), shots)
+    write_neutral_json_atomic(os.path.join(out_dir, "reference-registry.json"), registry)
+    write_neutral_json_atomic(os.path.join(out_dir, "prompt-doctrine.json"), doctrine)
+    write_neutral_text(os.path.join(out_dir, "prompt-doctrine.zh.md"), doctrine_md)
+
+    assert_neutral_output(out_dir)
 
     print("manifest scenes:", len(manifest["scenes"]))
     print("shots:", len(shots))

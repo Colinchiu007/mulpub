@@ -1,0 +1,142 @@
+{
+  "sha": "3894d0c03222e0a8fd360d764d143c6d380bd92c",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 572 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 572,
+    "fileCount": 8,
+    "codeFileCount": 8,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "0a69e7a9fc54dfffd52f3008dcbbe4e21a97a4cae902a1145f642e0cfea460c9",
+  "decidedAt": "2026-10-19T18:07:41.037Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "tier": "self-play",
+    "performedBy": "self-play(claude-critic x opencode-proposer)",
+    "evidence": {
+      "command": "sh scripts/deep-review.sh",
+      "backends": {
+        "critic": "claude",
+        "proposer": "opencode"
+      },
+      "crossFamilyVerified": true,
+      "baseline": "origin/main（5119 行）",
+      "scope": "本轮审查对象是**第一轮修复提交**（572 行）——即「修完再验一轮」",
+      "artifacts": ".adversarial/ccg-deep-f1734902/{critique-v1.md,proposal-v1.md,adjudication.json}（.adversarial/ 被 gitignore，裁决内联于 findings）",
+      "dimensionScores": {
+        "correctness": 6,
+        "security": 7,
+        "performance": 9,
+        "maintainability": 6
+      },
+      "adjudication": "4 条争议全部 upheld 并已修；4 条 Info 一并修",
+      "convergenceNote": "第二轮之后再跑一轮会进入无限回归（每轮审查都会对上一轮修复提出新意见）。收敛判据取「本轮 8 条全部为 Info 级以外的可修项且已修完 + 506 例测试全绿」，不再起第三轮；剩余风险如实列在执行记录「遗留」里。"
+    },
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "dimension": "correctness",
+        "issue": "W9 两组判据相交导致双重计数，且溢出镜被误标为「容差吸附」",
+        "verdict": "upheld",
+        "resolution": "fixed: 截断判据加 rawSec<=maxSec 前置使两组互斥；文案写明「两类互斥，合计即独立镜数」"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "dimension": "maintainability",
+        "highRiskDomains": [
+          "datamigration"
+        ],
+        "issue": "SCHEMA.md 称 emotionTiers.zhCharsPerSecond「直接驱动」时长推算，实现只读硬编码常量（假同源）",
+        "verdict": "upheld",
+        "resolution": "fixed: 补注入路径（mergeRates + ctx 透传）+ 文档改成如实表述"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "dimension": "correctness",
+        "issue": "三套默认档位分叉，资产承诺 12s 而自动模式最高 10s（第一轮 i3 只治标）",
+        "verdict": "upheld",
+        "resolution": "fixed: 输入白名单与能力表拆开，缺省档位复用 DEFAULT_TIERS；SCHEMA 增「时长档的单一真源」"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "dimension": "correctness",
+        "issue": "无引号动作描述被整段当台词，无台词动作镜触发「必须拆解台词」；tier 近乎死代码",
+        "verdict": "upheld",
+        "resolution": "fixed: 新增 requireQuotedDialogue，自动模式无引号即退 tier 并给可操作提示"
+      },
+      {
+        "id": "i5",
+        "severity": "Info",
+        "dimension": "security",
+        "issue": "listTasks 丢弃符号链接任务目录（目录级与文件级姿态不一致）",
+        "verdict": "upheld",
+        "resolution": "fixed: 对 symlink 条目 statSync 跟随后判类型"
+      },
+      {
+        "id": "i6",
+        "severity": "Info",
+        "dimension": "maintainability",
+        "issue": "validateShotGrammar 不校验 risk/chain/emotion 取值域，拼错静默通过",
+        "verdict": "upheld",
+        "resolution": "fixed: 三字段闭集校验"
+      },
+      {
+        "id": "i7",
+        "severity": "Info",
+        "dimension": "correctness",
+        "issue": "容差只是把跳变悬崖移到 5.3s，未消除",
+        "verdict": "upheld",
+        "resolution": "fixed(明示): 不消除悬崖，注释写清取舍理由，真值走 rawSec；补断言边界存在的测试"
+      },
+      {
+        "id": "i8",
+        "severity": "Info",
+        "dimension": "correctness",
+        "issue": "prompts/tasks 存在但为空 → 整级不可用（升级残留空壳误伤）",
+        "verdict": "upheld",
+        "resolution": "fixed: 非严格模式与「缺失」同处置，严格模式仍拦"
+      }
+    ],
+    "testDelta": "film 相关 486 → 506 例全绿（+20 条第二轮回归锁）"
+  }
+}

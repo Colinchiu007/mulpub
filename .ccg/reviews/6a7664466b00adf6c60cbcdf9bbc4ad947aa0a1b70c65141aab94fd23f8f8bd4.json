@@ -1,0 +1,56 @@
+{
+  "sha": "74dd83edee2a4af054bd4dbe69b6595bb2895615",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 1125 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 1125,
+    "fileCount": 13,
+    "codeFileCount": 8,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 3,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "6a7664466b00adf6c60cbcdf9bbc4ad947aa0a1b70c65141aab94fd23f8f8bd4",
+  "decidedAt": "2026-10-20T04:24:48.116Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "tier": "self-play",
+    "performedBy": "self-play",
+    "evidence": null,
+    "findings": null,
+    "closureNote": "本记录是 squash 后判定器按新提交 sha 重新生成的判定记录（同一 PR 内 11 个提交压成 1 个），\n其 diff 内容与已接受 9 轮 CCG 双模型深度审查的最终状态等价（squash 只合并提交、文件内容不变）。\n\n第 1 轮：8 条发现，upheld 2 条（i1 手动改写 videoPrompt 后旧译文仍展示、i4 函数体同行合并），\n均已在 2f769f26 修复并补回归；dismissed 2 条（i2 生成侧固化 uiLocale 与图片提示词翻译同源、\ni3 翻译在 IPC 内 await 属设计取舍）。\n第 2 轮：upheld 1 条（i3 单条调用批量翻译函数属未文档化依赖），已在 df59f7cc9 于 JSDoc 补齐声明；\n其余 dismissed。\n第 3 轮：upheld 1 条（i1 翻译无有界超时，LLM stall 会让整个 IPC 响应无限挂起），已在 eb0962d74\n补 25s 有界超时 + fail-open。\n第 4 轮：upheld 2 条（i1 compose 回填无条件取 fallback 译文导致旧译文透传、i3 测试文件同行合并），\n均已在 1dc679e44 修复。\n第 5 轮：upheld 2 条（i1 compose 回填 IIFE 无空守卫直接解引用、i3 翻译 await 在落盘之前导致窗口内\n崩溃丢失已付费优化词），均已在 98846a842 修复。\n第 6 轮：upheld 3 条（i1 二次落盘未置 dirty 且测试不断言磁盘、i2 locale 未归一致垃圾值注入翻译 LLM\n且 en-US 不短路、i4 setTimeout 未清理留下悬挂定时器），均已在 52676ccd8 修复；dismissed 1 条\n（轮次内的 uiLocale 同源项）。\n第 7 轮：upheld 1 条（i2 译文二次落盘用陈旧引用覆盖窗口内并发编辑），已在 7ac6b3372 修复\n（落盘前重读 + 单字段 patch）。\n第 8 轮：upheld 2 条（i1 译文写回前不校验 prompt 身份、i2 滞后 rejection 无人接管触发\nunhandledRejection），均已在 0e9e42dfd 修复。\n第 9 轮：upheld 3 条（i1 注释与测试描述生产不可达输入、i2 失败路径返陈旧快照回滚并发编辑、\ni3 重读用会抛错的 getProject 导致删项目时 IPC 异常），均已在 61b85fae6 修复。\n\n累计：采纳并修复 17 处缺陷（各带针对性回归），其余 dismissed 且理由可验证；\n逐条对抗裁决落盘于 .adversarial/ccg-deep-{bfd5c6c2,2f769f26,1dc679e4,98846a84,52676ccd,\n7ac6b337,0e9e42df}/adjudication.json，完整台账见 openspec/records/s2v-video-prompt-translation.md\n的「QM-6 深度审查取证」小节。两次引擎调用失败（critic 输出超长截断，非代码问题）的 error 状态\n如实保留在 a10fb6a4 与 c5133ca6 记录中，未美化。回归：419 例全绿，eslint rc=0。"
+  }
+}

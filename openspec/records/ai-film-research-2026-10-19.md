@@ -54,3 +54,23 @@ date: 2026-10-19
 2. ASR 口播粗剪**确认是真缺口** —— transcriber.py（247 行）已提供 word_timestamps，但全仓无口水词/粗剪逻辑。
 
 另修：§2.1 waoowaoo 重复行（结论互斥）合并；§5 批次一表格被修正块从中间截断已修复。
+
+### 第二层深挖（v3，follow-up）
+
+三个新项目各加一节第二层（§3.17.1 / §3.18.1 / §3.19.1）：FireRed 的 MoviePy 栈与节拍分配算法（SUBCLIP_END_SAFETY_MARGIN_S 安全边距 / 双窗口 clamp / BGM 三态 / SNAP_SAFETY_MAX_STEPS 防死循环）、smy 的失败模式表与分层配方与色盘闭环（仅抽象做法，文本不可复制）、ToonCrafter 的首尾帧约束模型机制（c_concat 钉两端 / Fusion zero-init / 末帧裁剪）。报告 1690 → 1867 行。
+
+### 第三层综合（v4，follow-up）
+
+新增 §3.17.2（ASR 粗剪编排层：逐句裁决/静默分组/前缀和重校，升级为可直接实施）与两个横向收束节 §3.20（分镜数据模型四方对照——mulpub refTokens 为四方最强实体机制、prompt 单字段 13.9k 是最刺眼缺口、sceneId 全 1:1 暴露 Scene 树未被消费、时长字段缺失）、§3.21（连续性七种武器全景——mulpub 仅有第 1 档，短板在 prompt 纪律/输入接力/生成策略/验收闭环）。报告 1867 → 2001 行。
+
+### 第四层收束（v5，follow-up）
+
+新增 §3.22：F×七档覆盖映射（F15/F6b+F31/F3b-palette 提级进批次一，连续性覆盖 1/7→4/7）、三个新 F/修订（F3b-palette 色盘资产、F1 增补失败模式台账与分端配方、F34 durationMs 字段+来源优先级链）、依赖重排四处（F8 为咽喉）、三层演变总账（七次自我修正同模式：外部判断被内部实测推翻）。报告 2001 → 2091 行。
+
+### 第五层新视角（v6，follow-up）
+
+新增 §3.23 三视角：①成本经济学（waoowaoo 19 条 BA 不变量——BA-01 双轨事故直接命中 publish-capabilities 双版本形态；BA-08 attempt 与收费分离回答 F12 遗留；moyin SEEDANCE_LIMITS 常量结构；showvi 即梦逆向 API 能力矩阵）②失败哲学（FG-01~05 证据保全派 vs fail-soft/fail-closed/静默吞掉四形态；FG-03 为 F19 提供规范依据）③prompt 演化（waoowaoo canary 基线在开源仓无消费代码——执行器在闭源 EE；mulpub 建议最小 canary：每条 rule 的本地渲染断言，无需调 LLM 零成本；失败模式台账+canary 成闭环）。报告 2091 → 2189 行。
+
+### 第六层新视角（v7，follow-up）
+
+新增 §3.24 三视角：①Seedance/ARK 四实现协议对照（waoowaoo 最完整：externalId 结构化/videoUrl 双形态兼容/actualVideoTokens 实际消耗分离/错误码独立建模——mulpub video-gen.js 的或链兜底未必覆盖响应体形态兼容）②接新模型工程化对照（ZJT 把接模型做成 add-video-driver Skill 四步流程+三层映射；建议 mulpub 落《新增视频模型接入 SOP》）③prompt 资产量盘点（waoowaoo 33 / smy 17 / FireRed 14 / mulpub 仅 1 个文件——F30/F1 的量化依据）。报告 2188 → 2258 行。

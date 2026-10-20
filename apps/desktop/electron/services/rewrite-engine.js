@@ -93,18 +93,39 @@ class RewriteEngineService {
     if (!this._strategyManager) {
       throw new Error("改写策略管理器未注入")
     }
+    // max_tokens 透传（rewrite-limits-50000，2026-10-19）：输入/输出上限放开后，
+    // 大多数 LLM adapter 不传 max_tokens 会走服务商默认（如 OpenAI 4096），
+    // 输出在模型默认值处被截断且与引擎自身截断混在一起，无法归因。
+    // 口径（QM-6 Claude 轴 MAJOR-1）：按「生效输出上限」推导——ceil(区间.max × 2)
+    // （CJK ≈1 字 ≈1~1.6 token，留倍余量），无显式区间时按兜底 3000 推导；再夹到
+    // [1024, 64000]。Anthropic adapter 必填 max_tokens 且默认 4096——透传后同样受益。
+    // 仍无法覆盖 provider 自身 output cap（模型侧截断引擎不可见，遗留 §10）。
     const llmClient = {
       chat: async (systemPrompt, userPrompt) => {
         if (!this._aiGenerator) {
           throw new Error("AI 推理网关未注入")
         }
+        // 生效输出上限：引擎 _postProcess 的优先级 wordCountRange.max > 策略.maxLength > 3000。
+        // 这里拿不到策略对象，用「本次 userSettings 区间 → 引擎常量兜底」近似——
+        // 区间缺失时取 DEFAULT 3000，与引擎兜底一致（宁可 token 略多，不可截断）。
+        const rangeMax = this._lastWordCountRangeMax
+        const effectiveMax = (typeof rangeMax === 'number' && rangeMax > 0) ? rangeMax : 3000
+        const maxTokens = Math.min(64000, Math.max(1024, Math.ceil(effectiveMax * 2)))
         const result = await this._aiGenerator.generateWithDefault("llm", {
           messages: [
             { role: "system", content: systemPrompt },
             { role: "user", content: userPrompt },
           ],
+          max_tokens: maxTokens,
         })
-        return result && typeof result.content === "string" ? result.content : ""
+        // rewrite-segment-and-finish-reason：finish_reason 透传——chat 契约从
+        // Promise<string> 扩展为可返回 {text, finishReason}。adapter（openai.js /
+        // anthropic.js / minimax-llm.js 及其余 OpenAI 兼容子类）已返回 finish_reason，
+        // 经 generateWithDefault → result.data 原样到达此处。引擎侧
+        // normalizeChatResult 同时兼容 string 旧形态（第三方注入/测试 mock）。
+        const finishReason = result && typeof result.finish_reason === 'string' ? result.finish_reason : null
+        const text = result && typeof result.content === "string" ? result.content : ""
+        return { text, finishReason }
       },
     }
     // 构建知识库（优先 SQLite，降级内存）
@@ -233,6 +254,13 @@ class RewriteEngineService {
    * @param {object} params - { mode, content, userSettings, strategyId }
    */
   async rewrite(params) {
+    // 记录本次请求的显式字数区间上限（供 llmClient.chat 推导 max_tokens；
+    // 无区间为 undefined → chat 回退引擎兜底 3000 口径）
+    const userSettings = params && params.userSettings
+    this._lastWordCountRangeMax = userSettings && userSettings.wordCountRange
+      && typeof userSettings.wordCountRange.max === 'number' && userSettings.wordCountRange.max > 0
+      ? userSettings.wordCountRange.max
+      : undefined
     const engine = this._ensureEngine()
     const result = await engine.rewrite(params || {})
 
@@ -262,10 +290,10 @@ class RewriteEngineService {
     return this._strategyManager.listEnabled()
   }
 
-  /** 获取推荐策略 */
-  getRecommendedStrategies(userSettings) {
+  /** 获取推荐策略（content 可选：参与无有效信号时的保真优先兜底） */
+  getRecommendedStrategies(userSettings, content) {
     const engine = this._ensureEngine()
-    return engine.getRecommendedStrategies(userSettings || {})
+    return engine.getRecommendedStrategies(userSettings || {}, content || "")
   }
 }
 

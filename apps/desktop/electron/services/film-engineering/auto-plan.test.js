@@ -431,3 +431,4 @@ describe('auto-plan · 主入口 planAutoShots', () => {
     expect(r.warnings.map((w) => w.code)).not.toContain('W7')
   })
 })
+

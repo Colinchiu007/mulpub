@@ -305,6 +305,44 @@ describe("TtsVoiceCloneService", () => {
     ).resolves.toMatchObject({ code: 0, data: { selectedVoiceId: "voice-clone-a" } });
   });
 
+  // 2026-10-19 事故：MiniMax 订阅套餐账号克隆被拒（"your current token plan not
+  // support model, voice_clone"）。PLAN_UNSUPPORTED 必须原样透传（附供应商原话 detail），
+  // 不得折叠成 VOICE_CLONE_PROVIDER_UNAVAILABLE（「暂时不可用，请重试」会误导用户重试）。
+  it("adapter 抛 PLAN_UNSUPPORTED 时透传 VOICE_CLONE_PLAN_UNSUPPORTED 并附供应商原话 detail", async () => {
+    const samplePath = path.join(sandboxPath, "voice.wav");
+    await nodeFs.promises.writeFile(samplePath, "audio");
+    const { ProviderError, ERROR_CODES } = require("./adapters/_base/provider-error");
+    manager.callAdapter.mockRejectedValueOnce(
+      new ProviderError(ERROR_CODES.PLAN_UNSUPPORTED, "your current token plan not support model, voice_clone", { providerId: PROVIDER_ID }),
+    );
+    const result = await cloneFromPaths(service, [samplePath], "Plan Locked");
+    expect(result).toMatchObject({
+      code: -1,
+      message: "VOICE_CLONE_PLAN_UNSUPPORTED",
+      data: { detail: "your current token plan not support model, voice_clone" },
+    });
+    // 失败不落 registry
+    const key = cloneRegistrySettingKey(PROVIDER_ID, MODEL);
+    const registry = store.getValue("user-a", key);
+    expect(!registry || registry.voices.length === 0).toBe(true);
+  });
+
+  it("callAdapter 返回结构化 errorCode=PLAN_UNSUPPORTED 时同样透传", async () => {
+    const samplePath = path.join(sandboxPath, "voice.wav");
+    await nodeFs.promises.writeFile(samplePath, "audio");
+    manager.callAdapter.mockResolvedValueOnce({
+      code: -1,
+      errorCode: "PLAN_UNSUPPORTED",
+      message: "your current token plan not support model, voice_clone",
+    });
+    const result = await cloneFromPaths(service, [samplePath], "Plan Locked 2");
+    expect(result).toMatchObject({
+      code: -1,
+      message: "VOICE_CLONE_PLAN_UNSUPPORTED",
+      data: { detail: "your current token plan not support model, voice_clone" },
+    });
+  });
+
   it("远端成功后持久化 owner-scoped 样本，且 IPC/registry 不泄露来源路径或字节", async () => {
     const samplePath = path.join(sandboxPath, "speaker.wav");
     const sampleBytes = Buffer.from("RIFF-test-audio");
@@ -538,6 +576,96 @@ describe("TtsVoiceCloneService", () => {
     });
     expect(manager.callAdapter).not.toHaveBeenCalled();
     expect(store.setUserSetting).not.toHaveBeenCalled();
+  });
+
+  it("拒绝「改名容器」：扩展名声称 mp3/m4a/wav 但魔数不符时不进入克隆（mvf29iv8_cgll 回归）", async () => {
+    // 真实事故形态：文件名 .mp3、内容是 MP4/AAC（ftypmp42）——克隆服务端按真实容器解码，
+    // 声明 MIME 与容器不符即报 Param Incorrect，整条流水线 generate_assets 失败。
+    const mp4Bytes = Buffer.alloc(2048);
+    Buffer.from([0x00, 0x00, 0x00, 0x18]).copy(mp4Bytes, 0);
+    Buffer.from("ftypmp42", "latin1").copy(mp4Bytes, 4);
+    const fakeMp3Path = path.join(sandboxPath, "fake-container.mp3");
+    await nodeFs.promises.writeFile(fakeMp3Path, mp4Bytes);
+
+    await expect(chooseSamples(service, [fakeMp3Path])).resolves.toMatchObject({
+      code: -1,
+      message: "VOICE_CLONE_SAMPLE_EXTENSION_UNSUPPORTED",
+    });
+
+    // 真 MP3（ID3 头）改名为 .m4a 同样拒绝
+    const id3Bytes = Buffer.alloc(512);
+    Buffer.from("ID3\x04\x00\x00\x00\x00\x00\x00", "latin1").copy(id3Bytes, 0);
+    const fakeM4aPath = path.join(sandboxPath, "fake-m4a.m4a");
+    await nodeFs.promises.writeFile(fakeM4aPath, id3Bytes);
+    await expect(chooseSamples(service, [fakeM4aPath])).resolves.toMatchObject({
+      code: -1,
+      message: "VOICE_CLONE_SAMPLE_EXTENSION_UNSUPPORTED",
+    });
+
+    // 真 WAV（RIFF/WAVE）改名为 .m4a 同样拒绝：声明 audio/mp4 而内容是 WAV，
+    // 与事故同型（声明 MIME 与真实容器不符），一律拦在克隆入口之前。
+    const riffBytes = Buffer.alloc(512);
+    Buffer.from("RIFF", "latin1").copy(riffBytes, 0);
+    riffBytes.writeUInt32LE(504, 4);
+    Buffer.from("WAVEfmt ", "latin1").copy(riffBytes, 8);
+    const fakeWavAsM4a = path.join(sandboxPath, "fake-wav.m4a");
+    await nodeFs.promises.writeFile(fakeWavAsM4a, riffBytes);
+    await expect(chooseSamples(service, [fakeWavAsM4a])).resolves.toMatchObject({
+      code: -1,
+      message: "VOICE_CLONE_SAMPLE_EXTENSION_UNSUPPORTED",
+    });
+
+    expect(manager.callAdapter).not.toHaveBeenCalled();
+    expect(store.setUserSetting).not.toHaveBeenCalled();
+  });
+
+  it("不误伤真实容器：ID3 头 MP3、裸帧同步 MP3 与 RIFF/WAVE 文件照常进入克隆", async () => {
+    // manager 默认桩每次返回同一 voiceId，selection/uuid 桩为常量；三次克隆需各自唯一，
+    // 否则 DUPLICATE_ID / SELECTION_UNAVAILABLE 干扰嗅探断言
+    let voiceSeq = 0;
+    const multiManager = {
+      ...manager,
+      callAdapter: vi.fn(async () => ({
+        code: 0,
+        data: { voiceId: "voice-clone-seq-" + (++voiceSeq), name: "N" },
+      })),
+    };
+    const multiService = createService({
+      modelProviderManager: multiManager,
+      createSelectionToken: () => "selection-" + Math.random().toString(36).slice(2),
+      randomUUID: () => "clone-stage-" + Math.random().toString(36).slice(2),
+    });
+
+    const id3Bytes = Buffer.alloc(2048);
+    Buffer.from("ID3\x04\x00\x00\x00\x00\x00\x00", "latin1").copy(id3Bytes, 0);
+    id3Bytes[1024] = 0xff;
+    id3Bytes[1025] = 0xfb; // 帧数据区出现的 MPEG 同步不影响起始嗅探
+    const realMp3Path = path.join(sandboxPath, "voice-id3.mp3");
+    await nodeFs.promises.writeFile(realMp3Path, id3Bytes);
+    await expect(cloneFromPaths(multiService, [realMp3Path], "Id3 Voice")).resolves.toMatchObject({ code: 0 });
+
+    // 裸帧 MP3 用真实可解码帧：MPEG1 Layer III 128kbps/44.1kHz 静音帧 ×2（870B 可被 ffprobe 解出时长），
+    // 仅验证嗅探不拦「ff fb」起始形态；夹具必须真实可解码，否则卡在时长门禁与嗅探语义混淆。
+    const syncBytes = Buffer.alloc(870);
+    for (let frameStart = 0; frameStart < syncBytes.length; frameStart += 417) {
+      syncBytes[frameStart] = 0xff;
+      syncBytes[frameStart + 1] = 0xfb;
+      syncBytes[frameStart + 2] = 0x90;
+      syncBytes[frameStart + 3] = 0x00;
+    }
+    const syncMp3Path = path.join(sandboxPath, "voice-sync.mp3");
+    await nodeFs.promises.writeFile(syncMp3Path, syncBytes);
+    await expect(cloneFromPaths(multiService, [syncMp3Path], "Sync Voice")).resolves.toMatchObject({ code: 0 });
+
+    const riffBytes = Buffer.alloc(512);
+    Buffer.from("RIFF", "latin1").copy(riffBytes, 0);
+    riffBytes.writeUInt32LE(504, 4);
+    Buffer.from("WAVEfmt ", "latin1").copy(riffBytes, 8);
+    const realWavPath = path.join(sandboxPath, "voice-riff.wav");
+    await nodeFs.promises.writeFile(realWavPath, riffBytes);
+    await expect(cloneFromPaths(multiService, [realWavPath], "Riff Voice")).resolves.toMatchObject({ code: 0 });
+
+    expect(multiManager.callAdapter).toHaveBeenCalledTimes(3);
   });
 
   it("ffprobe 缺失、超时或空输出时 fail closed，不伪造时长", async () => {

@@ -12,6 +12,7 @@ const logger = require("./logger");
 const { redactText } = require("./log-redact");
 const { loadConfig } = require("./config-loader");
 const ApiKeyManager = require("./api-key-manager");
+const { assertPlanCapabilitiesForRequest, assertPlanCapabilitiesForContext } = require("./auth/plan-capability-guard");
 const { requireScopes } = require("./auth/logto-auth");
 const { BusinessIdentityError, assertBusinessUserActive, ensureBusinessUser } = require("./auth/business-identity");
 const { LOGTO_WEBHOOK_SIGNATURE_HEADER, LogtoWebhookError } = require("./auth/logto-webhook");
@@ -628,6 +629,12 @@ class PublishApiServer {
     const requestContext = { auth: { subject: ownerSubject, businessUser: user } }
     await this._assertEntitlementFeature(requestContext, "cloud_publish")
     const amount = Array.isArray(entry.platforms) ? entry.platforms.length : 1
+    // 定时入口与即时入口必须对称（本文件上方注释已把这条写成契约）：
+    // 少了这一行，走 /api/v1/schedule 就能绕开平台数与批量上限。
+    await assertPlanCapabilitiesForContext(this._entitlementProvider, requestContext, {
+      platforms: Array.isArray(entry.platforms) ? entry.platforms : [],
+      batchSize: amount,
+    })
     await this._consumeEntitlementFeature(requestContext, "cloud_publish", Math.max(1, amount))
     return true
   }
@@ -671,6 +678,10 @@ class PublishApiServer {
     const response = { plan, features }
     if (entitlement.quota && typeof entitlement.quota === "object" && !Array.isArray(entitlement.quota)) response.quota = entitlement.quota
     if (entitlement.limits && typeof entitlement.limits === "object" && !Array.isArray(entitlement.limits)) response.limits = entitlement.limits
+    // v2.0 机制 C9.2：到期宽限（只读/收尾期）与上一档位由 settleExpiry 写入快照；
+    // 不透传会让客户端既看不到宽限横幅、也无法判断「已到期但仍在收尾」。
+    if (typeof entitlement.graceUntil === "string" && entitlement.graceUntil) response.graceUntil = entitlement.graceUntil
+    if (typeof entitlement.previousPlan === "string" && entitlement.previousPlan) response.previousPlan = entitlement.previousPlan
     return response
   }
 
@@ -690,6 +701,11 @@ class PublishApiServer {
       plan: entitlement.plan,
       features: entitlement.features,
       ...(entitlement.quota ? { quota: entitlement.quota } : {}),
+      // v2.0 机制 C1.3：limits 此前**未进签名快照**，客户端 normalizeEntitlement 自然拿不到
+      // （G6 根因）。现在随快照下发，客户端透传后发布页才能做平台数/日发校验。
+      ...(entitlement.limits ? { limits: entitlement.limits } : {}),
+      ...(entitlement.graceUntil ? { graceUntil: entitlement.graceUntil } : {}),
+      ...(entitlement.previousPlan ? { previousPlan: entitlement.previousPlan } : {}),
       iat: now,
       exp: now + 7 * 24 * 60 * 60,
     }
@@ -1067,6 +1083,9 @@ class PublishApiServer {
 
         try {
           await this._authorizeImmediateEntry(req, 1);
+          // v2.2 服务端硬门禁（PRD N7）：平台数上限此前只在客户端软拦，
+          // 直接打 API 的调用方可以完全绕过。这里按**已请求的平台**判一次。
+          await assertPlanCapabilitiesForRequest(this._entitlementProvider, req, { platforms: [platform] });
         } catch (error) {
           this._logError(error && error.code ? error.code : "ENTITLEMENT_USAGE_UNAVAILABLE", error, this._ctx(req));
           this._json(res, error && error.status ? error.status : 503, {
@@ -1116,6 +1135,9 @@ class PublishApiServer {
         if (this._opts.dryRun) opts.dryRun = true;
         try {
           await this._authorizeImmediateEntry(req, platforms.length);
+          // 批量入口同时受两条上限约束：平台数（跨平台数）与单次批量（条数）。
+          // 免费档 batch_size_per_run=1，所以「一条批量请求打 5 个平台」在免费档必须被拒。
+          await assertPlanCapabilitiesForRequest(this._entitlementProvider, req, { platforms, batchSize: platforms.length });
         } catch (error) {
           this._logError(error && error.code ? error.code : "ENTITLEMENT_USAGE_UNAVAILABLE", error, this._ctx(req));
           this._json(res, error && error.status ? error.status : 503, {

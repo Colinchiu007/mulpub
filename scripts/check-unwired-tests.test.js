@@ -9,6 +9,33 @@ const { test } = require("node:test")
 
 const checker = require("./check-unwired-tests.js")
 
+/**
+ * 把夹具目录变成**真 git 仓**并把当前磁盘内容提交进去。
+ * 判定域自 #85 起取自 git（scripts/lib/git-domain.js），所以夹具必须与真仓同形，
+ * 否则 collectCheck 就地抛「不是 git 工作树」—— 那是 fail closed 的正确方向，
+ * 但也意味着"玩具目录"这种夹具形态从此不成立。
+ * 两处机器态解耦（git-domain 语义 ⑥：判据本体按调用方 git 环境如实取域，不替调用方改配置，
+ * 所以解耦只能由夹具自己做）：
+ *  - core.excludesFile 指到夹具内空文件：机器 global/system 档里的 excludesFile 能把文件
+ *    从 --exclude-standard 里藏掉，同一份夹具会在 CI 与本机给出不同的域；
+ *  - core.hooksPath 指到不存在目录：夹具的 commit 不该被任何宿主钩子拦下或改写。
+ */
+function initFixtureRepo(root) {
+  const git = (args) => {
+    const r = cp.spawnSync("git", args, { cwd: root, encoding: "utf8", env: process.env })
+    if (r.status !== 0) {
+      throw new Error(`git ${args.join(" ")} 失败：` + String(r.stderr || r.stdout).slice(0, 200))
+    }
+  }
+  const posix = (p) => p.replace(/\\/g, "/")
+  git(["init", "-q", "-b", "main"])
+  fs.writeFileSync(path.join(root, ".git", "fixture-excludes"), "", "utf8")
+  git(["config", "--local", "core.excludesFile", posix(path.join(root, ".git", "fixture-excludes"))])
+  git(["config", "--local", "core.hooksPath", posix(path.join(root, ".git", "fixture-no-hooks"))])
+  git(["add", "-A"])
+  git(["-c", "user.name=fixture", "-c", "user.email=fixture@invalid", "commit", "-q", "-m", "fixture"])
+}
+
 function makeFixture({ tests, workflowBody, exemptions = {} }) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "unwired-tests-"))
   for (const rel of tests) {
@@ -21,6 +48,7 @@ function makeFixture({ tests, workflowBody, exemptions = {} }) {
   if (workflowBody !== null) {
     fs.writeFileSync(path.join(wfDir, "gate.yml"), workflowBody, "utf8")
   }
+  initFixtureRepo(root)
   return { root, exemptions }
 }
 
@@ -126,7 +154,13 @@ test("workflow 集合为空时必须报错而非静默判绿", () => {
   try {
     assert.throws(() => checker.collectCheck(noFiles.root, {}, {}), /没有 workflow 文件/, "workflows 目录为空必须抛错")
     fs.rmSync(path.join(noDir.root, ".github"), { recursive: true, force: true })
-    assert.throws(() => checker.collectCheck(noDir.root, {}, {}), /未找到 workflows 目录/, "缺 workflows 目录必须抛错")
+    // #85 起"有哪些 workflow"由域给：gate.yml 仍被跟踪，所以走的是"域里有、磁盘读不到"那一格。
+    // 这条仍然测同一件事（退化必须抛错），只是文案随取数来源一起搬 —— 不许退化成"跳过那一份"。
+    assert.throws(
+      () => checker.collectCheck(noDir.root, {}, {}),
+      /workflow 在 git 域里但磁盘读不到/,
+      "索引里还在、磁盘已被删掉时必须抛错",
+    )
     const r = checker.collectCheck(emptyBody.root, {}, {})
     assert.equal(r.violations.length, 1, "workflow 存在但正文为空时，测试判为未接线而不是判绿")
   } finally {
@@ -206,8 +240,8 @@ test("真实仓库：检查域非空、欠账清单已钉住且无违规", () =>
     "vendored 副本内的测试文件不得进检查域",
   )
   assert.ok(
-    checker.walkRepoFiles(root).includes(".quality-rhythm/.github/scripts/tpl-contract.test.js"),
-    "排除应发生在测试域这一步，而不是靠『没遍历到』—— 遍历必须仍然看得见它",
+    checker.domainFiles(root).includes(".quality-rhythm/.github/scripts/tpl-contract.test.js"),
+    "排除应发生在测试域这一步，而不是靠『取域恰好没拿到它』—— git 的域必须仍然看得见它",
   )
   // 嵌套 workflow：GitHub 只调度顶层，副本里那份永不执行，必须处于"带理由承认"状态。
   assert.ok(r.nestedFiles.length >= 1, "真实仓库存在嵌套 workflow（.quality-rhythm 副本），解析不到说明遍历退化")
@@ -299,21 +333,21 @@ test("排除表只挡测试域，不把同级 scripts/ 一起吞掉", () => {
   }
 })
 
-test("遍历不完整必须抛错，不能静默判定全绿", () => {
+// 旧版这条锁的是「磁盘遍历读不动目录必须抛错」。域改取 git 之后，"读不动"这件事由
+// gitDomain 的四个失败出口承担（git 不可执行 / 非工作树 / root 不是仓库根 / 空集合），
+// 这里保留同一条不变量的新形态：**取不到读数一律抛错，绝不返回空集合判绿**。
+// 非工作树那一格由「取域失败必须出声而不是退回磁盘遍历」单独锁，两条不合并 ——
+// 合并了就无法区分"缺目录"与"缺仓库"两种失明（红的时候不知道是哪条断了）。
+test("root 不存在必须抛错，不能静默判定全绿", () => {
   const { root } = makeFixture({ tests: ["scripts/a.test.js"], workflowBody: "run: node --test a.test.js\n" })
-  const blocked = path.join(root, "lockeddir")
-  fs.mkdirSync(blocked, { recursive: true })
-  // 把一个"目录"位置换成文件，readdirSync 对其子项会 ENOTDIR —— 用来验证不退化成跳过
-  fs.writeFileSync(path.join(root, "notadir"), "x", "utf8")
   try {
-    assert.ok(checker.walkRepoFiles(root).length >= 2, "正常遍历应看得见夹具文件")
+    assert.ok(checker.domainFiles(root).length >= 2, "正常取域应看得见夹具文件（负控前提）")
     assert.throws(
-      () => checker.walkRepoFiles(path.join(root, "definitely-missing-root")),
-      /无法枚举目录/,
+      () => checker.domainFiles(path.join(root, "definitely-missing-root")),
+      /无法从 git 取得扫描域/,
       "根目录不存在时必须抛错，而不是返回空集合判绿",
     )
   } finally {
-    void blocked
     cleanup(root)
   }
 })
@@ -406,7 +440,7 @@ test("step 级 if 不得被当成 job 级门控", () => {
     ].join("\n"),
   )
   try {
-    const jobs = checker.listJobBlocks(root)
+    const jobs = checker.listJobBlocks(root, checker.domainFiles(root))
     assert.deepEqual(jobs.map((j) => ({ name: j.name, gated: j.gated })), [{ name: "changes", gated: false }],
       "step 级 if 出现在 steps: 之后，不得标记 job 为 gated")
     const r = checker.collectCheck(root, {}, {}, { "scripts/mirror.test.js": "输入命中 docs-only 白名单" })
@@ -432,7 +466,7 @@ test("job 级 if 写在 steps: 之后同样是整片门控（按缩进判，不�
     ].join("\n"),
   )
   try {
-    const jobs = checker.listJobBlocks(root)
+    const jobs = checker.listJobBlocks(root, checker.domainFiles(root))
     assert.deepEqual(jobs.map((j) => ({ name: j.name, gated: j.gated })), [{ name: "changes", gated: true }],
       "写在 steps: 之后的 job 级 if 必须仍然标记该 job 为被门控")
     const r = checker.collectCheck(root, { "scripts/mirror.test.js": "已点名" }, {}, {
@@ -500,7 +534,7 @@ test("job 解析退化必须抛错，不得读成「没有需要核对的接线�
   const { root } = makeFixture({ tests: ["scripts/a.test.js"], workflowBody: "run: node --test scripts/a.test.js\n" })
   try {
     assert.throws(
-      () => checker.listJobBlocks(root),
+      () => checker.listJobBlocks(root, checker.domainFiles(root)),
       /一个 job 都没解析出来/,
       "workflow 没有 jobs: 结构时，「谁会被跳过」无从谈起 —— 必须出声而不是判合规",
     )
@@ -528,7 +562,7 @@ test("无法识别的 job 键必须抛错 —— 把正文累加给上一个 job
   )
   try {
     assert.throws(
-      () => checker.listJobBlocks(root),
+      () => checker.listJobBlocks(root, checker.domainFiles(root)),
       /无法识别的 job 键/,
       "解析看不懂的 job 键必须出声，不得静默把它的内容算给前一个 job",
     )
@@ -552,7 +586,7 @@ test("两空格缩进的整行注释不得被误判成未知 job 键", () => {
     ].join("\n"),
   )
   try {
-    const jobs = checker.listJobBlocks(root)
+    const jobs = checker.listJobBlocks(root, checker.domainFiles(root))
     assert.equal(jobs.length, 1, "注释行不得产生 job，也不得抛错")
     assert.equal(jobs[0].gated, false)
     assert.ok(!jobs[0].code.includes("# ---"), "整行注释不得进入可执行正文")
@@ -610,7 +644,7 @@ test("行尾注释里的文件名不算点名", () => {
 
 test("真实仓库：接线资格清单只能缩小，且登记的锁确实住在不被跳过的 job", () => {
   const root = path.join(__dirname, "..")
-  const jobs = checker.listJobBlocks(root)
+  const jobs = checker.listJobBlocks(root, checker.domainFiles(root))
   // 规模下界（2026-10-08 实测：解析到 26 个 job，其中 14 个被 job 级 if 门控、12 个不被门控）。
   // 下界取「实测减两成」而不是贴脸值：正常新增 job 不会顶到上界，而解析退化（只解析到部分 workflow、或整片早退）会立刻掉到下界之下。
   assert.ok(jobs.length >= 24, `真实仓库解析到的 job 数异常：${jobs.length} —— 解析退化会让本判据假绿`)
@@ -711,14 +745,14 @@ test("listJobBlocks 的退化出口各自都必须抛错（前两条经 collectC
     const noWorkflows = path.join(tmp, "no-workflows")
     fs.mkdirSync(noWorkflows, { recursive: true })
     assert.throws(
-      () => checker.listJobBlocks(noWorkflows),
+      () => checker.listJobBlocks(noWorkflows, []),
       /未找到 workflows 目录/,
       "workflows 目录缺失必须抛错",
     )
     const emptyWf = path.join(tmp, "empty-wf")
     fs.mkdirSync(path.join(emptyWf, ".github", "workflows"), { recursive: true })
     assert.throws(
-      () => checker.listJobBlocks(emptyWf),
+      () => checker.listJobBlocks(emptyWf, []),
       /没有 workflow 文件/,
       "目录存在但零个 yml 必须抛错，不得读成「无需核对」",
     )
@@ -767,32 +801,36 @@ test('CLI：root 取自 --root 而不是 cwd（从别处调用结果一致）', 
 test('CLI：--root 指向不存在的目录必须 rc=2 并出声，不得静默 rc=0', () => {
   const r = runCli(['--root=' + path.join(os.tmpdir(), 'definitely-missing-unwired-root')])
   assert.equal(r.rc, 2, '抛错路径的退出码必须区别于「有违规」的 1，stdout=' + r.out.slice(0, 200))
-  assert.match(r.err, /未找到 workflows 目录|无法枚举目录/)
+  // #85 起域取自 git，所以第一个出声的出口是取域失败（collectCheck 一进门就取域，
+  // 走不到 readWorkflowText）。「无法枚举目录」是旧磁盘遍历的文案，已随实现一起删除。
+  assert.match(r.err, /无法从 git 取得扫描域/)
 })
 
-// ---------------------------------------------------------------- 本地归档剪枝（2026-10-18 补）
+// ---------------------------------------------------------------- 本机归档目录不得冒充仓库（2026-10-18 起）
 // 动因（实测）：`.agent_context/` 是**本地会话隔离归档**（worktree 快照 + 一次性探针脚本），
-// 从未被 git 跟踪（`git ls-files .agent_context` = 0 条），CI 上根本不存在它。
-// 但它就在共享仓库根里，于是本判据在共享根的输出是 **3546 行 / 其中 3543 行**来自
-// `.agent_context/worktree-archive-*`，rc=1；而干净 worktree 只有 3 行、rc=0。
+// 从未被 git 跟踪（`git ls-files .agent_context` = 0 条，实测 `.gitignore:354` 有 `.agent_context/`），
+// CI 上根本不存在它。但它就在共享仓库根里，于是本判据在共享根的输出是 **3546 行 / 其中 3543 行**
+// 来自 `.agent_context/worktree-archive-*`，rc=1；而干净 worktree 只有 3 行、rc=0。
 // 也就是说这个门禁在共享根上**完全不可用** —— 天天红的东西等于没有，
 // 属本仓反复记录的「装饰性门禁」同型（把红色训练成背景色）。
-// 下面两例：① 行为锁（归档目录里的测试不进检查域）② 常量钉住（防止有人把它从 PRUNE_DIRS 摘掉）。
+// 第一版处置是给剪枝清单加一条目录名；#85 把它换成"域取自 git"，于是这一类**整个消失**，
+// 下面的行为锁因此只证明"排除确实发生"，不再依赖任何具体目录名。
 
 test("本地归档目录 .agent_context 下的 *.test.js 不得进入检查域", () => {
-  const { root } = makeFixture({
-    tests: [
-      "scripts/real.test.js",
+  const { root } = makeDomainFixture({
+    tracked: ["scripts/real.test.js"],
+    untracked: [],
+    ignored: [
       ".agent_context/worktree-archive-fake/scripts/orphan.test.js",
       ".agent_context/worktree-archive-fake/.github/scripts/lock.test.js",
     ],
+    ignoreRules: [".agent_context/"],
     workflowBody: "run: node --test scripts/real.test.js\n",
   })
   try {
     const r = checker.collectCheck(root, {}, {})
-    const seen = r.files
-    assert.deepEqual(seen, ["scripts/real.test.js"],
-      "只有真实脚本目录里的测试进检查域；归档副本必须被剪枝，实际: " + JSON.stringify(seen))
+    assert.deepEqual(r.files, ["scripts/real.test.js"],
+      "只有真实脚本目录里的测试进检查域；本机归档副本必须被排除，实际: " + JSON.stringify(r.files))
     assert.deepEqual(r.violations, [], "归档目录里的孤儿测试不得判未接线")
     assert.deepEqual(r.nested.map((v) => v.file), [],
       "归档目录里的嵌套 workflow 也不得报（CI 只调度顶层 .github/workflows）")
@@ -801,10 +839,252 @@ test("本地归档目录 .agent_context 下的 *.test.js 不得进入检查域",
   }
 })
 
-test("PRUNE_DIRS 必须含 .agent_context（摘掉它共享根会回到 3546 行噪声）", () => {
-  assert.ok(
-    checker.PRUNE_DIRS.includes(".agent_context"),
-    ".agent_context 是本地会话归档（git 未跟踪、CI 不存在），必须留在剪枝清单里；" +
-    "摘掉后共享根跑本判据会输出 3546 行、rc=1，门禁变得不可用",
-  )
+// 反向锁：把"逐个目录名剪枝 + 自己递归遍历磁盘"这套机制**钉在已删除状态**。
+// 理由不是洁癖：那套机制的判据是"这台机器上现在有什么"，而它只能事后追认已经发现的噪声目录
+// —— 本轮实测的第二例 `.adversarial/arl-patched/.github/workflows/ci.yml` 就是这样重新红一次的
+// （A/B 同环境读数见 openspec/records/ 本篇）。把它请回来等于重新引入本缺陷。
+test("磁盘遍历与逐个目录名的剪枝清单不得回来（本判据的域只有一个来源）", () => {
+  assert.equal(checker.walkRepoFiles, undefined, "walkRepoFiles 已删除：它量的是磁盘，不是仓库")
+  assert.equal(checker.PRUNE_DIRS, undefined, "PRUNE_DIRS 已删除：逐目录名只能事后追认噪声")
+  const src = fs.readFileSync(path.join(__dirname, "check-unwired-tests.js"), "utf8")
+  assert.match(src, /require\(["']\.\/lib\/git-domain["']\)/,
+    "取域必须走共享实现（scripts/lib/git-domain.js），不得在本文件里再写一份 git 调用")
+  assert.doesNotMatch(src, /withFileTypes/,
+    "不得再出现递归磁盘枚举；readWorkflowText/listJobBlocks 读顶层 .github/workflows 用的是 readdirSync(files)，与此不同")
+})
+
+// ================================================================ 判定域＝git 的域（#85）
+// 动因（2026-10-18 实测两例，同一根因）：本判据的域是 `walkRepoFiles` 的**磁盘遍历**，
+// 于是任何**本机才有的未跟踪产物**都会被当成"仓库里的东西"：
+//   ① 共享根里另一会话留下的 `.adversarial/arl-patched/.github/workflows/ci.yml`
+//      ⇒ NESTED_WORKFLOW_NOT_EXECUTED rc=1（而 CI 的检出态里没有这个路径）；
+//   ② 另一片里 `check-docs-sync.test.sh` 泄漏的畸形目录，其内部含
+//      `.github/workflows/quality-gate.yml` ⇒ 同一个判据再红一次。
+// 上一轮的处置是给 PRUNE_DIRS 加一条目录名 —— 那是按**具体路径**打补丁，下一个未跟踪目录
+// 又会红。正解是把域收敛到 `scripts/lib/git-domain.js`（= `git ls-files` ∪
+// `--others --exclude-standard` = git status = CI 检出态），与 #3876/#3900 同一条路。
+// 关键约束：**未跟踪但未被忽略**的文件仍在域内（"新增测试必须接线"这一半不能被削掉），
+// 只有**被 .gitignore 吞掉**的才排除。
+
+/**
+ * 建一个**真 git 仓**夹具，按三种身份放文件：
+ *   tracked   —— 提交进库（CI 检出态里存在）
+ *   untracked —— 只在磁盘、未被忽略（git status 的 `??`，本仓要求接线的正是这一类）
+ *   ignored   —— 只在磁盘、被 .gitignore 吞掉（CI 上根本不存在 ⇒ 不得进域）
+ * ignored 一档必须由夹具自己提交的 `.gitignore` 制造（不是宿主机器态），
+ * 否则同一份夹具会在 CI 与本机给出不同的域 —— 解耦见 initFixtureRepo 与下面那条对账用例。
+ */
+function makeDomainFixture({ tracked = [], untracked = [], ignored = [], ignoreRules = [], workflowBody }) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "unwired-domain-"))
+  const put = (rel, text) => {
+    const abs = path.join(root, rel)
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    fs.writeFileSync(abs, text, "utf8")
+  }
+  if (ignoreRules.length) put(".gitignore", ignoreRules.join("\n") + "\n")
+  for (const rel of tracked) put(rel, "// fixture\n")
+  put(".github/workflows/gate.yml", workflowBody === undefined ? "run: node --test scripts/real.test.js\n" : workflowBody)
+  initFixtureRepo(root)
+  for (const rel of untracked) put(rel, "// fixture\n")
+  for (const rel of ignored) put(rel, "// fixture\n")
+  return { root }
+}
+
+/** 把 process.env.GIT_CONFIG_GLOBAL 指到一份可控配置，跑 fn，随后原样恢复。 */
+function withGitGlobal(configText, fn) {
+  const cfg = path.join(os.tmpdir(), `unwired-git-global-${process.pid}-${Date.now()}.txt`)
+  fs.writeFileSync(cfg, configText, "utf8")
+  const saved = { global: process.env.GIT_CONFIG_GLOBAL, nosystem: process.env.GIT_CONFIG_NOSYSTEM }
+  process.env.GIT_CONFIG_GLOBAL = cfg
+  process.env.GIT_CONFIG_NOSYSTEM = "1"
+  try {
+    return fn(cfg)
+  } finally {
+    for (const [k, v] of Object.entries({ GIT_CONFIG_GLOBAL: saved.global, GIT_CONFIG_NOSYSTEM: saved.nosystem })) {
+      if (v === undefined) delete process.env[k]
+      else process.env[k] = v
+    }
+    fs.rmSync(cfg, { force: true })
+  }
+}
+
+test("域正控：被**提交**的嵌套 workflow 必须报 NESTED_WORKFLOW_NOT_EXECUTED", () => {
+  const { root } = makeDomainFixture({
+    tracked: ["scripts/real.test.js", "vendor-copy/.github/workflows/x.yml"],
+    untracked: [],
+    ignored: [],
+  })
+  try {
+    const r = checker.collectCheck(root, {}, {})
+    assert.deepEqual(r.nested.map((v) => v.file), ["vendor-copy/.github/workflows/x.yml"],
+      "被跟踪的嵌套 workflow 是这条判据要抓的本体，换域后不得漏")
+  } finally {
+    cleanup(root)
+  }
+})
+
+test("域负控 A：被 .gitignore 吞掉的本机产物不得进判据（今天红在这里）", () => {
+  const { root } = makeDomainFixture({
+    tracked: ["scripts/real.test.js"],
+    untracked: [],
+    ignored: [".adversarial/arl-patched/.github/workflows/ci.yml", "scratch/orphan.test.js"],
+    ignoreRules: [".adversarial/", "scratch/"],
+  })
+  try {
+    const r = checker.collectCheck(root, {}, {})
+    assert.deepEqual(r.nested, [],
+      "未跟踪且被忽略的嵌套 workflow 在 CI 检出态里不存在，报出来就是本机假红：" +
+      JSON.stringify(r.nested))
+    assert.deepEqual(r.files, ["scripts/real.test.js"],
+      "被忽略的 *.test.js 不得进检查域：" + JSON.stringify(r.files))
+  } finally {
+    cleanup(root)
+  }
+})
+
+test("域负控 B：未跟踪但**未被忽略**的东西必须仍在域内（不得缩成只看被跟踪文件）", () => {
+  const { root } = makeDomainFixture({
+    tracked: ["scripts/real.test.js"],
+    untracked: ["scripts/new.test.js", "dropped/.github/workflows/y.yml"],
+    ignored: [],
+  })
+  try {
+    const r = checker.collectCheck(root, {}, {})
+    assert.ok(r.files.includes("scripts/new.test.js"),
+      "新写的未跟踪测试正是「必须去接线」的对象，域若只看被跟踪文件就会永久漏掉它：" + JSON.stringify(r.files))
+    assert.ok(r.violations.some((v) => v.file === "scripts/new.test.js"),
+      "未接线的未跟踪测试必须判红")
+    assert.deepEqual(r.nested.map((v) => v.file), ["dropped/.github/workflows/y.yml"],
+      "未跟踪但未忽略的嵌套 workflow 仍要报（它会被 add 进库）")
+  } finally {
+    cleanup(root)
+  }
+})
+
+// 夹具自带 core.excludesFile 钉住的**效力**证明。git-domain 语义 ⑥ 明确"判据本体按调用方
+// git 环境如实取域、不替调用方改配置"，所以机器 global 档的 excludesFile 能否污染判定域，
+// 完全取决于夹具自己有没有钉 —— 这条用例证明那颗钉子真的有牙（同时含"不钉就会被藏掉"的负控，
+// 否则「钉了」与「本来就不受影响」两种状态在断言上不可区分）。
+test("夹具的 excludesFile 钉住必须压过机器 global 档（否则同一套件在 CI 与本机量到不同的域）", () => {
+  const hostile = path.join(os.tmpdir(), `unwired-hostile-excludes-${process.pid}-${Date.now()}.txt`)
+  fs.writeFileSync(hostile, "*.test.js\nvendor*/\n", "utf8")
+  withGitGlobal(`[core]\n\texcludesFile = ${hostile.replace(/\\/g, "/")}\n`, () => {
+    try {
+      const pinned = makeDomainFixture({
+        tracked: ["scripts/real.test.js"],
+        untracked: ["scripts/new.test.js"],
+        ignoreRules: [],
+      })
+      try {
+        const r = checker.collectCheck(pinned.root, {}, {})
+        assert.deepEqual(r.files, ["scripts/new.test.js", "scripts/real.test.js"],
+          "被跟踪/未跟踪的测试都该在域里，机器 global 档的 excludesFile 不得越权改写夹具：" +
+          JSON.stringify(r.files))
+      } finally {
+        cleanup(pinned.root)
+      }
+      // 负控：同一份 hostile global 档下，一个**没钉** excludesFile 的仓库确实被藏掉 ——
+      // 证明上面那句结论来自钉子，而不是"这个环境本来就不受影响"。
+      const bare = fs.mkdtempSync(path.join(os.tmpdir(), "unwired-bare-"))
+      try {
+        fs.mkdirSync(path.join(bare, "scripts"), { recursive: true })
+        fs.writeFileSync(path.join(bare, "scripts", "real.test.js"), "// fixture\n", "utf8")
+        const g = (args) => cp.spawnSync("git", args, { cwd: bare, encoding: "utf8", env: process.env })
+        g(["init", "-q", "-b", "main"])
+        g(["add", "-A"])
+        g(["-c", "user.name=f", "-c", "user.email=f@invalid", "commit", "-q", "-m", "x"])
+        fs.writeFileSync(path.join(bare, "scripts", "new.test.js"), "// fixture\n", "utf8")
+        const listed = cp.spawnSync(
+          "git", ["ls-files", "--others", "--exclude-standard"],
+          { cwd: bare, encoding: "utf8", env: process.env },
+        )
+        assert.ok(!String(listed.stdout).includes("new.test.js"),
+          "负控前提：未钉 excludesFile 时这份 global 档必须真的能藏掉未跟踪文件，否则上一条不构成证据")
+      } finally {
+        cleanup(bare)
+      }
+    } finally {
+      fs.rmSync(hostile, { force: true })
+    }
+  })
+})
+
+// 上面两条负控打的是**假红**方向（本机垃圾冒充仓库缺陷）。同一个域缺陷还有第二种发作，
+// 方向相反且更糟：`readWorkflowText` / `listJobBlocks` 用 `fs.readdirSync(.github/workflows)`
+// 取"有哪些 workflow"，于是本机放一个被 .gitignore 吞掉的 yml 就能**伪造接线** ——
+// CI 的检出态里根本没有那个文件，测试永远不会被执行，而棘轮报"已接线"。
+// 假红只会天天被忽略，假绿是把这个门禁赖以成立的证据换成本机私产，所以单独锁两条。
+test("被 .gitignore 吞掉的本机 workflow 不得充当「已接线」证据（假绿方向）", () => {
+  const { root } = makeDomainFixture({
+    tracked: ["scripts/orphan.test.js"],
+    untracked: [],
+    ignored: [],
+    ignoreRules: [".github/workflows/local-*"],
+    workflowBody: "run: echo nothing\n",
+  })
+  try {
+    fs.writeFileSync(
+      path.join(root, ".github", "workflows", "local-only.yml"),
+      "run: node --test scripts/orphan.test.js\n",
+      "utf8",
+    )
+    // 负控前提：这份伪造文件必须真的被 git 忽略（否则它会被下一次 add 带走，测的就不是本机私产）
+    const st = cp.spawnSync("git", ["status", "--porcelain", "-uall"], { cwd: root, encoding: "utf8", env: process.env })
+    assert.ok(!String(st.stdout).includes("local-only.yml"),
+      "夹具失效：伪造的 workflow 未被忽略，本条测不到目标变量")
+    const r = checker.collectCheck(root, {}, {})
+    assert.ok(r.files.includes("scripts/orphan.test.js"), "该测试必须在检查域内")
+    assert.deepEqual(r.violations.map((v) => v.file), ["scripts/orphan.test.js"],
+      "只有本机可见的点名不算接线，必须仍判未接线：" + JSON.stringify(r.violations))
+  } finally {
+    cleanup(root)
+  }
+})
+
+test("本机忽略的 workflow 不得为接线资格登记表充当「不被跳过的 job」", () => {
+  const { root } = makeDomainFixture({
+    tracked: ["scripts/mirror.test.js"],
+    untracked: [],
+    ignored: [],
+    ignoreRules: [".github/workflows/local-*"],
+    workflowBody: [
+      "on:", "  push:", "    branches: [main]", "jobs:",
+      "  gated:", "    if: needs.changes.outputs.docs-only != 'true'", "    steps:",
+      "      - run: node --test scripts/mirror.test.js", "",
+    ].join("\n"),
+  })
+  try {
+    fs.writeFileSync(
+      path.join(root, ".github", "workflows", "local-ungated.yml"),
+      ["on:", "  push: {}", "jobs:", "  ungated:", "    steps:", "      - run: node --test scripts/mirror.test.js", ""].join("\n"),
+      "utf8",
+    )
+    const registry = {
+      "scripts/mirror.test.js": { reason: "输入命中 docs-only 白名单", resolveWhen: "移出白名单" },
+    }
+    const r = checker.collectCheck(root, {}, {}, registry)
+    assert.deepEqual(r.ungatedViolations.map((v) => v.file), ["scripts/mirror.test.js"],
+      "唯一那份「不被跳过的 job」来自本机忽略文件时，必须仍判违规：" + JSON.stringify(r.ungatedViolations))
+  } finally {
+    cleanup(root)
+  }
+})
+
+test("取域失败必须出声而不是退回磁盘遍历（fail closed）", () => {
+  const plain = fs.mkdtempSync(path.join(os.tmpdir(), "unwired-notrepo-"))
+  try {
+    fs.mkdirSync(path.join(plain, ".github", "workflows"), { recursive: true })
+    fs.writeFileSync(path.join(plain, ".github", "workflows", "gate.yml"), "run: x\n", "utf8")
+    assert.throws(
+      () => checker.collectCheck(plain, {}, {}),
+      /无法从 git 取得扫描域/,
+      "非 git 工作树时不得静默降级成磁盘遍历 —— 那正是本次要消除的行为",
+    )
+    // ⛔ 这条断言的匹配串原先写成 /git|工作树|work tree/i，而它**恒真**：任何包含
+    // `.github` 的文案都命中（实测变异 M3 把取域改成"失败返回空集"后，抛的是
+    // 「…\unwired-notrepo-XXXX\.github\workflows 下没有 workflow 文件」，宽判据照样绿）。
+    // 一条测"是哪个出口在出声"的锁，判据必须点名那个出口，否则它测的是"有没有抛错"。
+  } finally {
+    fs.rmSync(plain, { recursive: true, force: true })
+  }
 })

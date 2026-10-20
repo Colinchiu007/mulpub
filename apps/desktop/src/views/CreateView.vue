@@ -1,12 +1,8 @@
 <template>
   <div class="create-page" :class="{ 'create-page--pipeline-list': view === 'pipelines' && !selectedPipeline, 'create-page--pipeline-detail': view === 'pipelines' && selectedPipeline }">
     <div class="page-header">
-      <div class="page-header-nav">
-        <button class="nav-arrow-btn" @click="goBack" :disabled="!canGoBack" title="上一页">←</button>
-        <button class="nav-arrow-btn" @click="goForward" :disabled="!canGoForward" title="下一页">→</button>
-      </div>
       <h1>视频创作</h1>
-      <p class="text-muted">基于 OpenMontage 流水线引擎，AI 驱动从脚本到成片的全流程</p>
+      <p class="text-muted">{{ $t('create.story2video.engineSubtitle') }}</p>
     </div>
 
     <!-- Remotion 状态提示 -->
@@ -44,8 +40,6 @@
 
       <!-- 流水线启动页：配置与执行 -->
       <div v-else class="pipeline-detail">
-        <button class="back-btn" @click="goToHistory()">← 返回</button>
-
         <div class="detail-header">
           <h2>{{ pipelineName(selectedPipeline.name) }}</h2>
           <p class="detail-desc">{{ pipelineDescription(selectedPipeline.name) }}</p>
@@ -200,6 +194,58 @@
 
         <!-- Story2Video 配置：快速模式 + 五个折叠区 -->
         <S2vConfigPanels v-if="isOrchestratedPipeline(selectedPipeline?.name)" />
+
+        <!-- 数字人配置（avatar-spokesperson 专用）：形象 + 音色选择 -->
+        <div v-if="isAvatarPipeline" class="config-section" data-testid="avatar-config-section">
+          <h3>{{ avatarText('avatarSectionTitle') }}</h3>
+          <div class="config-grid">
+            <!-- provider 未配置：整区替换为引导，不渲染空下拉 -->
+            <div v-if="avatarProviderMissing" class="config-item" data-testid="avatar-provider-missing">
+              <p class="config-hint">{{ avatarText('avatarProviderMissing') }}</p>
+              <a href="#/model-providers" class="config-hint-link">{{ avatarText('avatarGotoSettings') }}</a>
+            </div>
+            <template v-else>
+              <div class="config-item" data-testid="avatar-select-item">
+                <label>{{ avatarText('avatarLabel') }}</label>
+                <select
+                  v-model="avatarId"
+                  class="form-select"
+                  data-testid="avatar-id-select"
+                  :disabled="avatarLoading || avatarOptions.length === 0"
+                >
+                  <option value="">{{ avatarText('avatarPlaceholder') }}</option>
+                  <option v-for="item in avatarOptions" :key="item.id" :value="item.id">{{ item.name }}</option>
+                </select>
+                <p v-if="avatarLoading" class="config-hint" data-testid="avatar-loading">{{ avatarText('avatarLoading') }}</p>
+                <span v-else-if="avatarError" class="inline-error" data-testid="avatar-error">{{ avatarLoadFailedText }}</span>
+                <span v-else-if="avatarCachedError" class="inline-error" data-testid="avatar-cached-error">{{ avatarCachedFailedText }}</span>
+                <span v-else-if="avatarOptions.length === 0" class="config-hint" data-testid="avatar-empty">{{ avatarText('avatarEmpty') }}</span>
+              </div>
+              <div class="config-item" data-testid="avatar-voice-item">
+                <label>{{ avatarText('avatarVoiceLabel') }}</label>
+                <select
+                  v-model="avatarVoiceId"
+                  class="form-select"
+                  data-testid="avatar-voice-select"
+                  :disabled="avatarLoading || avatarVoiceOptions.length === 0"
+                >
+                  <option value="">{{ avatarText('avatarVoicePlaceholder') }}</option>
+                  <option v-for="item in avatarVoiceOptions" :key="item.id" :value="item.id">{{ item.name }}</option>
+                </select>
+                <span v-if="!avatarLoading && avatarVoiceOptions.length === 0 && !avatarError" class="config-hint" data-testid="avatar-voice-empty">{{ avatarText('avatarVoiceEmpty') }}</span>
+              </div>
+              <div class="config-item">
+                <button
+                  type="button"
+                  class="s2v-btn-secondary s2v-btn-sm"
+                  data-testid="avatar-refresh"
+                  :disabled="avatarLoading"
+                  @click="refreshAvatarCatalog"
+                >{{ avatarText('avatarRefresh') }}</button>
+              </div>
+            </template>
+          </div>
+        </div>
 
         <!-- 输出配置 -->
         <div v-if="!isOrchestratedPipeline(selectedPipeline?.name)" class="config-section">
@@ -953,6 +999,8 @@ import { ttsVoicesRefs, ttsVoicesComputeds, ttsVoicesMethods, setupTtsVoicesDeps
 // 与主进程 resolveProviderDefaultModel 逐项等价。
 import { resolveCapabilityDefaultModel } from './video-creation/composables/tts-voices-state'
 import { batchCreateRefs, batchCreateMethods, setupBatchCreateDeps } from './video-creation/composables/useBatchCreate'
+// 数字人（avatar-spokesperson）目录：形象/音色选择
+import { avatarCatalogRefs, avatarCatalogComputeds, avatarCatalogMethods } from './video-creation/composables/useAvatarCatalog'
 import { modelProviderList, modelProviderGetDefault } from '@/api/model-providers'
 import { resolveS2VDefaultProviderId } from './video-creation/s2v-default-provider'
 import { getApi } from '@/api/electron-bridge'
@@ -1085,6 +1133,9 @@ export default {
       pipelineRunId: null,
       // 流水线输入
       inputMode: 'text', pipelineText: '', pipelineImages: [], pipelineAudio: [], pipelineVideo: null,
+      // 数字人（avatar-spokesperson）：形象/音色选择。独立字段而非复用 s2vConfig.voiceId
+      // —— 后者是 story2video 专属，靠 story2videoTextConfig 下发，本流水线根本不读。
+      avatarId: '', avatarVoiceId: '',
       // 带文案进入（/create?draft=xxx 预填成功）：非文案型流水线在选择列表中灰显不可选
       textPrefilledFromDraft: false,
       // 配置
@@ -1211,8 +1262,6 @@ export default {
       // openedOnce 决定浮层是否已构造（按需挂载，理由见 PodcastEpisodeEntry 同名注释）。
       podcastEpisode: { visible: false, openedOnce: false, project: null, segments: [], videoPath: '', title: '', loadError: '' },
       history: [], historyLoading: false, historyLocalMode: false, historyFilter: 'all', historyRequestId: 0, historyPollTimer: null,
-      // 页面导航历史
-      viewHistory: [], viewHistoryIndex: -1,
       // 清理
       cleanups: [],
     }
@@ -1261,12 +1310,23 @@ export default {
     s2vVoiceCloneRenamingId: { get() { return ttsVoicesRefs.s2vVoiceCloneRenamingId.value }, set(v) { ttsVoicesRefs.s2vVoiceCloneRenamingId.value = v } },
     s2vVoiceCloneRenameDraft: { get() { return ttsVoicesRefs.s2vVoiceCloneRenameDraft.value }, set(v) { ttsVoicesRefs.s2vVoiceCloneRenameDraft.value = v } },
     s2vVoiceProviderExplicitEdge: { get() { return ttsVoicesRefs.s2vVoiceProviderExplicitEdge.value }, set(v) { ttsVoicesRefs.s2vVoiceProviderExplicitEdge.value = v } },
+    // 数字人目录（avatar-spokesperson）
+    avatarLoading: { get() { return avatarCatalogRefs.loading.value }, set(v) { avatarCatalogRefs.loading.value = v } },
+    avatarError: { get() { return avatarCatalogRefs.error.value }, set(v) { avatarCatalogRefs.error.value = v } },
+    avatarCachedError: { get() { return avatarCatalogRefs.cachedError.value }, set(v) { avatarCatalogRefs.cachedError.value = v } },
     // 计算属性：委托到 composable（只读，与迁出前的只读语义一致）。
     s2vVoiceProviderOptions: { get() { return ttsVoicesComputeds.s2vVoiceProviderOptions.value } },
     s2vVoiceCatalogRefreshable: { get() { return ttsVoicesComputeds.s2vVoiceCatalogRefreshable.value } },
     s2vVoiceModelHidden: { get() { return ttsVoicesComputeds.s2vVoiceModelHidden.value } },
     s2vVoiceContextModel: { get() { return ttsVoicesComputeds.s2vVoiceContextModel.value } },
     s2vVoiceOptions: { get() { return ttsVoicesComputeds.s2vVoiceOptions.value } },
+    avatarOptions: { get() { return avatarCatalogComputeds.avatarOptions.value } },
+    avatarVoiceOptions: { get() { return avatarCatalogComputeds.avatarVoiceOptions.value } },
+    isAvatarPipeline() { return this.selectedPipeline?.name === 'avatar-spokesperson' },
+    /** 数字人 provider 未配置：整区替换为「前往配置」引导 */
+    avatarProviderMissing() {
+      return this.isAvatarPipeline && !this.avatarLoading && this.avatarOptions.length === 0 && !!this.avatarError
+    },
     styles() { return STYLES },
     s2vTemplates() {
       const templates = this.s2vTemplateCategory === 'all'
@@ -1471,6 +1531,12 @@ export default {
       if (this.isOrchestratedPipeline(this.selectedPipeline.name)) {
         return this.inputMode === 'text' && this.pipelineText.trim().length > 0
       }
+      // 数字人流水线：形象与音色必须都选好才能启动（与 preflight 校验同源，
+      // 在 UI 层先拦一次，避免用户白跑一次 LLM 调用才被告知缺参数）
+      if (this.isAvatarPipeline) {
+        if (!String(this.avatarId || '').trim()) return false
+        if (!String(this.avatarVoiceId || '').trim()) return false
+      }
       if (this.inputMode === 'text') return this.pipelineText.trim().length > 0
       if (this.inputMode === 'images') return this.pipelineImages.length > 0
       if (this.inputMode === 'audio') return this.pipelineAudio.length > 0
@@ -1525,6 +1591,11 @@ export default {
       if (this.s2vConfigRangeInvalid) return this.translateWithLocaleFallback('create.story2video.ui.blockedReason.invalidRange', '部分数值参数超出允许范围，请检查语速、音量与分镜长度', 'Some numeric options are out of range; check speed, volume and scene length')
       if (this.s2vLegacyBgmBlockedState === 'missing') return this.$t('create.story2video.ui.blockedReason.bgmLost')
       if (this.s2vLegacyBgmBlockedState === 'unusable') return this.$t('create.story2video.ui.blockedReason.bgmUnusable')
+      // 数字人缺参提示优先于通用「请输入文案」：用户看到的是「还差什么」而不是笼统原因
+      if (this.isAvatarPipeline) {
+        if (!String(this.avatarId || '').trim()) return this.$t('create.story2video.ui.avatarNeedAvatar')
+        if (!String(this.avatarVoiceId || '').trim()) return this.$t('create.story2video.ui.avatarNeedVoice')
+      }
       if (this.inputMode !== 'text') return this.translateWithLocaleFallback('create.story2video.ui.blockedReason.noAsset', '请先添加素材文件', 'Add the required material first')
       return this.translateWithLocaleFallback('create.story2video.ui.blockedReason.noText', '请先输入视频文案', 'Enter the script text first')
     },
@@ -1865,8 +1936,6 @@ export default {
       if (this.quickMode === 'gallery') return this.quickImages.length > 0
       return false
     },
-    canGoBack() { return this.viewHistoryIndex > 0; },
-    canGoForward() { return this.viewHistoryIndex < this.viewHistory.length - 1; },
 
     // M-12：S2V 选项的浅层快照，供 watch 比较用。
     //
@@ -1957,6 +2026,37 @@ export default {
     refreshS2VVoiceCatalog(...args) { return ttsVoicesMethods.refreshS2VVoiceCatalog(...args) },
     handleS2VVoiceProviderChange(...args) { return ttsVoicesMethods.handleS2VVoiceProviderChange(...args) },
     handleS2VVoiceSelection(...args) { return ttsVoicesMethods.handleS2VVoiceSelection(...args) },
+    // 数字人目录
+    loadAvatarCatalog(...args) { return avatarCatalogMethods.loadAvatarCatalog({ isAlive: () => this._avatarAlive !== false, ...(args && args[0]) }) },
+    refreshAvatarCatalog(...args) { return avatarCatalogMethods.refreshAvatarCatalog(...args) },
+    /**
+     * 数字人文案：一律走 locale（zh/en 成对）。
+     * 不接中文 fallback —— CI Gate 7 的 CJK 基线扫描会拦截渲染端新增的
+     * 中文字符串字面量，locale 是文案的唯一真源。
+     */
+    avatarText(key) {
+      return this.$t('create.story2video.ui.' + key)
+    },
+    /**
+     * 错误文案：composable 存的是「locale key 或原始错误码」，这里翻译成人话。
+     * 不认识的字符串（如 provider 透出的英文错误）原样显示，不臆造中文翻译。
+     */
+    avatarErrorText(raw) {
+      const text = String(raw || '').trim()
+      if (!text) return ''
+      if (text.startsWith('avatarErr')) return this.$t('create.story2video.ui.' + text)
+      return text
+    },
+    avatarLoadFailedText() {
+      return this.avatarErrorText(this.avatarError)
+    },
+    avatarCachedFailedText() {
+      return this.avatarErrorText(this.avatarCachedError)
+    },
+    /** 数字人形象选择变化时同步清理音色选择（不同形象可用音色可能不同） */
+    handleAvatarChange() {
+      // 形象换了但音色仍选着旧值时不必强清；HeyGen 音色与形象无绑定关系，保留即可
+    },
     selectS2VVoice(...args) { return ttsVoicesMethods.selectS2VVoice(...args) },
     chooseS2VVoiceCloneSamples(...args) { return ttsVoicesMethods.chooseS2VVoiceCloneSamples(...args) },
     nextS2VVoiceCloneName(...args) { return ttsVoicesMethods.nextS2VVoiceCloneName(...args) },
@@ -1968,16 +2068,6 @@ export default {
     renameS2VVoiceClone(...args) { return ttsVoicesMethods.renameS2VVoiceClone(...args) },
     formatS2VVoiceCloneBytes(...args) { return ttsVoicesMethods.formatS2VVoiceCloneBytes(...args) },
     formatS2VVoiceCloneDuration(...args) { return ttsVoicesMethods.formatS2VVoiceCloneDuration(...args) },
-    // 页面导航箭头
-    goBack() { if (this.viewHistoryIndex > 0) { this.viewHistoryIndex--; this.applyViewState(this.viewHistory[this.viewHistoryIndex]); } },
-    goForward() { if (this.viewHistoryIndex < this.viewHistory.length - 1) { this.viewHistoryIndex++; this.applyViewState(this.viewHistory[this.viewHistoryIndex]); } },
-    applyViewState(state) {
-      if (!state) return;
-      this.detachPipelineView(state.view)
-      if (state.view) this.view = state.view;
-      if (state.selectedPipeline !== undefined) this.selectedPipeline = state.selectedPipeline;
-      if (state.view === 'history') this.loadHistory();
-    },
     // 离开流水线创作视图只脱离 renderer 跟踪，不取消主进程 run；重新进入时回到新建列表。
     detachPipelineView(nextView) {
       if (this.view !== 'pipelines' || nextView === 'pipelines') return
@@ -1990,15 +2080,7 @@ export default {
       this.detachPipelineView(nextView)
       this.view = nextView
       if (nextView === 'history') this.loadHistory()
-      this.pushViewState({ view: nextView })
     },
-    pushViewState(state) {
-      this.viewHistory = this.viewHistory.slice(0, this.viewHistoryIndex + 1);
-      this.viewHistory.push(state);
-      this.viewHistoryIndex = this.viewHistory.length - 1;
-    },
-    // 返回历史记录页
-    goToHistory() { this.detachPipelineView('history'); this.selectedPipeline = null; this.view = 'history'; this.loadHistory(); this.pushViewState({ view: 'history' }); },
     // unify-video-pipeline-progress-modal：把 URL 上的 ?filter= 落到历史筛选态。
     // 单一入口供 mounted 与 $route.query.filter watch 共用；非法值静默忽略（保持当前筛选）。
     applyHistoryFilterFromRoute(value) {
@@ -2156,7 +2238,6 @@ export default {
         return
       }
       if (p?.name === 'film-engineering') {
-        this.pushViewState({ view: 'pipelines', selectedPipeline: p });
         this.$router.push('/film-engineering')
         return
       }
@@ -2182,6 +2263,8 @@ export default {
       this.dismissedProviderWarnings = false
       this.closeStory2VideoErrorDialog()
       if (this.isOrchestratedPipeline(p?.name) && this.inputMode !== 'text') this.inputMode = 'text'
+      // 选中数字人流水线时加载形象/音色目录（带缓存，重复选中不会重复打接口）
+      if (p?.name === 'avatar-spokesperson') this.loadAvatarCatalog()
       // 选中编排流水线时执行生效上限（默认 10000，可被运营中心 storyTextLimit 覆盖）码点截断
       // （含带文案预填场景：预填时不截断，选中时统一截断+提示）
       if (this.isOrchestratedPipeline(p?.name)) this.enforceStory2VideoTextLimit()
@@ -2399,6 +2482,14 @@ export default {
           // 01-docs/PRD-STORY2VIDEO-PORTRAIT-IMAGE-ASPECT-2026-10-06.md §3.4。
           aspectRatio: getStory2VideoOutputAspectRatio(output.resolution),
           fps: output.fps, format: output.format,
+        }
+        // 数字人（avatar-spokesperson）：下发生成的三要素来源。
+        // 不能复用 s2vConfig.voiceId —— 那是 story2video 专属，靠
+        // story2videoTextConfig 下发，本流水线走 startExplainerPipeline 根本不读。
+        if (this.selectedPipeline.name === 'avatar-spokesperson') {
+          params.avatarId = String(this.avatarId || '').trim()
+          params.voiceId = String(this.avatarVoiceId || '').trim()
+          params.videoProvider = 'heygen'
         }
         const res = await pipelineStartOrchestrated(this.selectedPipeline.name, this.cloneForIpc(params))
         const outcome = res?.data

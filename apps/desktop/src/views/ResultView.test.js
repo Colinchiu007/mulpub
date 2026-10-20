@@ -43,6 +43,7 @@ const router = createRouter({ history: createWebHistory(), routes: [
 
 import UiButton from "@/components/UiButton.vue";
 import ResultView from "./ResultView.vue";
+import { SEGMENT_URL_BATCH_SIZE } from "./video-creation/composables/useResultPreviewMedia";
 
 describe("ResultView", () => {
   beforeEach(() => { vi.clearAllMocks(); });
@@ -69,6 +70,15 @@ describe("ResultView", () => {
     });
     await nextTick();
     return w;
+  }
+
+  // 分段编辑主体默认折叠（2026-10-19）：断言/操作主体内控件（旁白、字幕、提示词、翻译、
+  // 语音、下载等）前必须先点开该段的折叠开关。
+  async function expandSegmentEditor(w, index = 0) {
+    const toggles = w.findAll('[data-testid="segment-editor-toggle"]');
+    expect(toggles.length).toBeGreaterThan(index);
+    await toggles[index].trigger("click");
+    await nextTick();
   }
 
   it("renders page title", async () => {
@@ -109,27 +119,10 @@ describe("ResultView", () => {
     w.unmount();
   });
 
-  it("provides a back button that navigates to /create?view=history（返回历史记录）", async () => {
-    const w = mount(ResultView, { global: { plugins: [router], components: { UiButton }, mocks: { $t: (key) => (key === "create.story2video.backToHistory" ? "返回" : key) } } });
-    const back = w.find('[data-testid="back-to-pipeline-list"]');
-    expect(back.exists()).toBe(true);
-    expect(back.text()).toContain("返回");
-    await back.trigger("click");
-    await new Promise((resolve) => setTimeout(resolve, 30));
-    expect(router.currentRoute.value.path).toBe("/create");
-    expect(router.currentRoute.value.query.view).toBe("history");
-  });
-
-  it("返回按钮的箭头是独立装饰字形，不进入可访问名", async () => {
-    const w = mount(ResultView, { global: { plugins: [router], components: { UiButton }, mocks: { $t: (key) => (key === "create.story2video.backToHistory" ? "返回" : key) } } });
-    const back = w.find('[data-testid="back-to-pipeline-list"]');
-    const arrow = back.find('[aria-hidden="true"]');
-    // 箭头必须是独立元素：靠字面空格与文字拼接时，两者在行内盒里各按自身字体度量对齐，
-    // ← 在中文回退字体下偏小偏上，视觉上就是「箭头和文字没对齐」。
-    expect(arrow.exists()).toBe(true);
-    expect(arrow.text()).toBe("←");
-    // 摘掉装饰字形后，剩下的可见文案必须恰好等于本地化标签，不得残留拼接用的空白。
-    expect(back.element.textContent.replace(arrow.element.textContent, "").trim()).toBe("返回");
+  it("no longer renders a back button（返回按钮已移除：有顶部导航与历史记录 tab 承接返回语义）", async () => {
+    const w = await createView();
+    expect(w.find('[data-testid="back-to-pipeline-list"]').exists()).toBe(false);
+    expect(w.vm.goBackToHistory).toBeUndefined();
     w.unmount();
   });
 
@@ -223,6 +216,214 @@ describe("ResultView", () => {
     expect(w.text()).toContain("\u6ca1\u6709\u53ef\u9884\u89c8\u7684\u89c6\u9891");
   });
 
+  // ── 2026-10-20 · PRD-S2V-RESULT-VIEW-PERF：失败任务进编辑页不再「无限加载后空白」 ──
+  describe("预览区/分段素材加载策略（无成片任务）", () => {
+    const failedProject = (segmentCount = 3) => ({
+      code: 0,
+      data: {
+        projectId: "project-failed-perf",
+        videoPath: null,
+        audioPath: null,
+        segments: Array.from({ length: segmentCount }, (_, i) => ({
+          id: "segment-" + i,
+          index: i,
+          text: "旁白 " + (i + 1),
+          imagePath: "C:/projects/project-failed-perf/seg-" + i + ".png",
+          audioPath: "C:/projects/project-failed-perf/seg-" + i + ".mp3",
+          status: "failed",
+        })),
+      },
+    });
+
+    it("无 videoPath 时不申请任何成片/旁白媒体 URL（修复「一直加载」的核心）", async () => {
+      const api = await import("@/api/publisher");
+      api.story2videoGetProject.mockResolvedValue(failedProject());
+      api.story2videoCreateShareUrl.mockImplementation(async (filePath) => ({ code: 0, data: { url: "media://" + filePath } }));
+      await router.push({ path: "/create/result", query: { project: "project-failed-perf" } });
+
+      const w = mount(ResultView, { global: { plugins: [router], components: { UiButton }, mocks: { $t: (key) => key } } });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      // 成片与旁白路径都不存在 ⇒ 这两个 URL 一次都不该申请（旧实现无条件走 resolveLocalUrl）
+      expect(api.story2videoCreateShareUrl).not.toHaveBeenCalledWith(null, expect.anything());
+      expect(api.story2videoCreateShareUrl).not.toHaveBeenCalledWith(undefined, expect.anything());
+      expect(w.vm.videoPath).toBeNull();
+      expect(w.vm.audioSrc).toBeNull();
+      // 不得因为「没有成片」弹预览缺失提示：那是加载失败，不是没有成片
+      expect(w.vm.story2videoNotificationDialog.visible).toBe(false);
+      w.unmount();
+    });
+
+    it("无成片时渲染占位区块而不是空白，区块带标题/说明/行动位", async () => {
+      const api = await import("@/api/publisher");
+      api.story2videoGetProject.mockResolvedValue(failedProject());
+      await router.push({ path: "/create/result", query: { project: "project-failed-perf" } });
+
+      const w = mount(ResultView, { global: { plugins: [router], components: { UiButton }, mocks: { $t: (key) => key } } });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      const placeholder = w.find('[data-testid="result-preview-placeholder"]');
+      expect(placeholder.exists()).toBe(true);
+      expect(w.vm.previewPlaceholder.title).toBe("story2video.sceneMaterial.previewPlaceholderTitle");
+      expect(w.vm.previewPlaceholder.description).toBe("story2video.sceneMaterial.previewPlaceholderDescription");
+      expect(w.vm.previewPlaceholder.actionEnabled).toBe(true);
+      // 占位区块出现时不得同时渲染 <video>（否则用户看到播放器又在加载）
+      expect(w.find(".video-player").exists()).toBe(false);
+      // 分段编辑区仍然可用（失败任务也要能改文案重新合成）
+      expect(w.find('[data-testid="segment-edit-section"]').exists()).toBe(true);
+      w.unmount();
+    });
+
+    it("占位区块的「重新合成」按钮调用 recomposeProject", async () => {
+      const api = await import("@/api/publisher");
+      api.story2videoGetProject.mockResolvedValue(failedProject());
+      api.story2videoRecomposeProject.mockResolvedValue({ code: 0, data: { projectId: "project-failed-perf", videoPath: "C:/new.mp4", segments: [] } });
+      api.story2videoCreateShareUrl.mockResolvedValue({ code: 0, data: { url: "media:///new.mp4" } });
+      await router.push({ path: "/create/result", query: { project: "project-failed-perf" } });
+
+      const w = mount(ResultView, { global: { plugins: [router], components: { UiButton }, mocks: { $t: (key) => key } } });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await w.find('[data-testid="preview-placeholder-recompose"]').trigger("click");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(api.story2videoRecomposeProject).toHaveBeenCalledWith("project-failed-perf");
+      w.unmount();
+    });
+
+    it("首屏只申请首批分段的媒体 URL（169 段不全量 IPC）", async () => {
+      const api = await import("@/api/publisher");
+      api.story2videoGetProject.mockResolvedValue(failedProject(169));
+      api.story2videoCreateShareUrl.mockImplementation(async (filePath) => ({ code: 0, data: { url: "media://" + filePath } }));
+      await router.push({ path: "/create/result", query: { project: "project-failed-perf" } });
+
+      const w = mount(ResultView, { global: { plugins: [router], components: { UiButton }, mocks: { $t: (key) => key } } });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      const calls = api.story2videoCreateShareUrl.mock.calls.length;
+      // 上限从常量派生，不写死数字：每段最多 5 个媒体位会发 IPC
+      // （image1 / image2 / video1 / video2 / audio），**无路径的位不发**（已逐位核对
+      // refreshSegmentImageUrls + refreshSceneMaterialUrls 的判空分支）。
+      // 169 段全量上限 ≈ 845 次；首屏一批 20 段 ⇒ 上限 100 次。
+      const MAX_MEDIA_IPC_PER_SEGMENT = 5
+      expect(calls).toBeGreaterThan(0);
+      expect(calls).toBeLessThanOrEqual(SEGMENT_URL_BATCH_SIZE * MAX_MEDIA_IPC_PER_SEGMENT);
+      // 分段总数不因分批而丢失
+      expect(w.vm.segments).toHaveLength(169);
+      w.unmount();
+    });
+
+    it("分段渲染窗口默认只渲染首批，哨兵触发后追加一批且只解析新段的 URL", async () => {
+      const api = await import("@/api/publisher");
+      api.story2videoGetProject.mockResolvedValue(failedProject(169));
+      api.story2videoCreateShareUrl.mockImplementation(async (filePath) => ({ code: 0, data: { url: "media://" + filePath } }));
+      await router.push({ path: "/create/result", query: { project: "project-failed-perf" } });
+
+      const w = mount(ResultView, { global: { plugins: [router], components: { UiButton }, mocks: { $t: (key) => key } } });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const firstPaintRequests = api.story2videoCreateShareUrl.mock.calls.length;
+      const firstPaintItems = w.findAll(".segment-item").length;
+      expect(firstPaintItems).toBeLessThan(169);
+      expect(w.find('[data-testid="segment-list-sentinel"]').exists()).toBe(true);
+
+      await w.find('[data-testid="segment-load-more-button"]').trigger("click");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(w.findAll(".segment-item").length).toBeGreaterThan(firstPaintItems);
+      const afterRequests = api.story2videoCreateShareUrl.mock.calls.length;
+      // 追加只请求新增那一段的媒体，不重解析已渲染段（上限同首屏口径：一批 × 5 个媒体位）
+      const MAX_MEDIA_IPC_PER_SEGMENT = 5
+      expect(afterRequests).toBeGreaterThan(firstPaintRequests);
+      expect(afterRequests - firstPaintRequests).toBeLessThanOrEqual(SEGMENT_URL_BATCH_SIZE * MAX_MEDIA_IPC_PER_SEGMENT);
+      w.unmount();
+    });
+
+    it("全部分段渲染完后哨兵与「显示更多」按钮消失", async () => {
+      const api = await import("@/api/publisher");
+      api.story2videoGetProject.mockResolvedValue(failedProject(2));
+      api.story2videoCreateShareUrl.mockImplementation(async (filePath) => ({ code: 0, data: { url: "media://" + filePath } }));
+      await router.push({ path: "/create/result", query: { project: "project-failed-perf" } });
+
+      const w = mount(ResultView, { global: { plugins: [router], components: { UiButton }, mocks: { $t: (key) => key } } });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(w.findAll(".segment-item")).toHaveLength(2);
+      expect(w.find('[data-testid="segment-list-sentinel"]').exists()).toBe(false);
+      w.unmount();
+    });
+
+    it("跳转到尚未渲染的分段时先把窗口扩到覆盖它，再滚动（QM-6 审查项 C7）", async () => {
+      // 修复前：169 段点「跳到第 150 段」——activeSegmentIndex 跳了（右侧高亮走了）
+      // 但 segmentItemRefs[149] 为 undefined ⇒ 静默跳过，视口纹丝不动，
+      // 「状态与视图矛盾」比完全没反应更糟。
+      const api = await import("@/api/publisher");
+      api.story2videoGetProject.mockResolvedValue(failedProject(169));
+      api.story2videoCreateShareUrl.mockImplementation(async (filePath) => ({ code: 0, data: { url: "media://" + filePath } }));
+      await router.push({ path: "/create/result", query: { project: "project-failed-jump" } });
+
+      const w = mount(ResultView, { global: { plugins: [router], components: { UiButton }, mocks: { $t: (key) => key } } });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(w.findAll(".segment-item").length).toBeLessThan(169);
+
+      const beforeRequests = api.story2videoCreateShareUrl.mock.calls.length;
+      await w.vm.scrollToSegment(149);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      // 窗口必须扩到覆盖第 150 段（下标 149 ⇒ 至少 150 段在 DOM 里）
+      expect(w.vm.previewLayout.renderWindow.to).toBeGreaterThanOrEqual(150);
+      expect(w.findAll(".segment-item").length).toBeGreaterThanOrEqual(150);
+      expect(w.vm.activeSegmentIndex).toBe(149);
+      // 只解析新增段的 URL（不得把已渲染段全部重解析一遍）
+      const delta = api.story2videoCreateShareUrl.mock.calls.length - beforeRequests;
+      const MAX_MEDIA_IPC_PER_SEGMENT = 5;
+      expect(delta).toBeLessThanOrEqual((150 - 20) * MAX_MEDIA_IPC_PER_SEGMENT);
+      w.unmount();
+    });
+
+    it("滚动高亮按全量下标定位，不被稀疏 refs 数组的空洞带偏（QM-6 审查项 A3）", async () => {
+      // 修复前：refs 是按全量下标的稀疏数组（点名段并入首屏 ⇒ length 很大但中间全是
+      // undefined），旧实现把 refs.length 当连续下标上界、遇空洞 continue ⇒
+      // activeSegmentIndex 被设成「有 ref 的最大位次」而非用户实际看到的段。
+      const api = await import("@/api/publisher");
+      api.story2videoGetProject.mockResolvedValue(failedProject(169));
+      api.story2videoCreateShareUrl.mockImplementation(async (filePath) => ({ code: 0, data: { url: "media://" + filePath } }));
+      await router.push({ path: "/create/result", query: { project: "project-failed-scroll" } });
+
+      const w = mount(ResultView, { global: { plugins: [router], components: { UiButton }, mocks: { $t: (key) => key } } });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      // 造一个稀疏 refs 数组：只有下标 0 和 60 真正挂上，中间全是空洞
+      const makeEl = (top) => ({ getBoundingClientRect: () => ({ top }) });
+      const refs = [];
+      refs[0] = makeEl(10);
+      refs[60] = makeEl(50);
+      w.vm.segmentItemRefs = refs;
+
+      // 下标 60 的卡片顶部更靠下（50 > 10）⇒ 应为当前分段；
+      // 空洞不得让它被读成「位次 1」或丢失。
+      w.vm.onSegmentScroll();
+      expect(w.vm.activeSegmentIndex).toBe(60);
+      w.unmount();
+    });
+
+    it("有成片时仍走原加载路径并渲染播放器（修复不改变成功任务行为）", async () => {
+      const api = await import("@/api/publisher");
+      api.story2videoGetProject.mockResolvedValue({ code: 0, data: {
+        projectId: "project-ok-perf", videoPath: "C:/p/video.mp4", audioPath: "C:/p/narration.m4a", segments: [],
+      } });
+      api.story2videoCreateShareUrl.mockImplementation(async (filePath) => ({ code: 0, data: { url: "media://" + filePath } }));
+      await router.push({ path: "/create/result", query: { project: "project-ok-perf" } });
+
+      const w = mount(ResultView, { global: { plugins: [router], components: { UiButton }, mocks: { $t: (key) => key } } });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(w.find('[data-testid="result-preview-placeholder"]').exists()).toBe(false);
+      expect(w.vm.videoSrc).toContain("video.mp4");
+      expect(w.vm.audioSrc).toContain("narration.m4a");
+      expect(w.find(".video-player").exists()).toBe(true);
+      w.unmount();
+    });
+  });
+
   it("loads video path and shows video player", async () => {
     const w = await createView();
     w.vm.videoPath = "/videos/test.mp4";
@@ -241,10 +442,15 @@ describe("ResultView", () => {
       { id: "s2", text: "旁白二", prompt: "A blue sky", promptTranslation: null, imagePath: null, audioPath: null, status: "completed" },
     ];
     await nextTick();
-    const blocks = w.findAll('[data-testid="segment-prompt-translation"]');
-    expect(blocks).toHaveLength(2);
-    expect(blocks[0].text()).toContain("一个红苹果");
-    expect(blocks[1].text()).toContain("story2video.sceneMaterial.emptySlot");
+    // 编辑主体默认折叠（2026-10-19），翻译块随主体一起只在展开后渲染；逐段展开再断言。
+    const toggles = w.findAll('[data-testid="segment-editor-toggle"]');
+    expect(toggles).toHaveLength(2);
+    await toggles[0].trigger("click");
+    await nextTick();
+    expect(w.find('[data-testid="segment-prompt-translation"]').text()).toContain("一个红苹果");
+    await w.findAll('[data-testid="segment-editor-toggle"]')[1].trigger("click");
+    await nextTick();
+    expect(w.find('[data-testid="segment-prompt-translation"]').text()).toContain("story2video.sceneMaterial.emptySlot");
   });
 
   it("分段状态徽标使用本地化标签而非英文原值，failed 分段内联展示可读原因（2026-08-16）", async () => {
@@ -572,6 +778,7 @@ describe("ResultView", () => {
 
     await w.vm.loadProject("project-1");
     await nextTick();
+    await expandSegmentEditor(w);
 
     expect(w.findAll(".segment-item textarea")[0].element.value).toBe("第一段");
     expect(w.text()).toContain("完整旁白");
@@ -1457,6 +1664,7 @@ describe("ResultView", () => {
     w.vm.projectId = "project-1";
     w.vm.segments = [{ id: "segment-0", subtitleBlocks: ["第一句", "第二句"] }];
     await nextTick();
+    await expandSegmentEditor(w);
     const ta = w.find('[data-testid="segment-subtitle-textarea"]');
     expect(ta.exists()).toBe(true);
     expect(ta.element.value).toContain("第一句");
@@ -1906,6 +2114,7 @@ describe("ResultView", () => {
       w.vm.segments = [{ id: "s1", voiceId: "voice-a", status: "completed" }];
       await w.vm.loadVoiceCatalog();
       await nextTick();
+      await expandSegmentEditor(w);
       const select = w.find('[data-testid="segment-voice-id-select"]');
       expect(select.exists()).toBe(true);
       expect(w.find('[data-testid="segment-voice-id-input"]').exists()).toBe(false);
@@ -1922,26 +2131,24 @@ describe("ResultView", () => {
     });
 
     it("语速为拖动条（range 0.5-2），音色 dropdown 选中写回 voiceId 并标记 dirty", async () => {
-      const voiceApi = await import("@/api/tts-voice-catalog");
-      voiceApi.getTtsVoiceCatalog.mockResolvedValue({
-        code: 0,
-        data: { voices: [{ id: "voice-a", name: "青年男声" }] },
-      });
+      // 2026-10-20：音色/语速控件随分段编辑区搬到 ResultSegmentEditor，本用例改为
+      // 经宿主树断言同等契约（子组件渲染在 ResultView 内，find 可达）。
       const w = await createView();
       w.vm.projectId = "p1";
       w.vm.project = { projectId: "p1", options: { voiceProvider: "minimax-tts", voiceModel: "speech-2.8-turbo" } };
+      w.vm.voiceCatalogOptions = [{ id: "voice-a", name: "青年男声" }];
       w.vm.segments = [{ id: "s1", voiceId: "voice-a", voiceSpeed: 1, status: "completed" }];
-      await w.vm.loadVoiceCatalog();
       await nextTick();
+      await expandSegmentEditor(w);
       const range = w.find('[data-testid="segment-voice-speed-range"]');
       expect(range.exists()).toBe(true);
       expect(range.attributes("type")).toBe("range");
       expect(range.attributes("min")).toBe("0.5");
       expect(range.attributes("max")).toBe("2");
       expect(range.attributes("step")).toBe("0.1");
-      expect(w.vm.segmentVoiceSpeedText(w.vm.segments[0])).toBe("1.0");
 
       const select = w.find('[data-testid="segment-voice-id-select"]');
+      expect(select.exists()).toBe(true);
       await select.setValue("voice-a");
       expect(w.vm.segments[0].voiceId).toBe("voice-a");
       expect(w.vm.segmentsDirty).toBe(true);
@@ -1953,11 +2160,15 @@ describe("ResultView", () => {
       w.vm.projectId = "p1";
       w.vm.segments = [{ id: "s1", imagePath: "C:/img.png", status: "completed" }];
       await nextTick();
+      await expandSegmentEditor(w);
       const text = w.text();
       expect(text).not.toContain("重试图片");
       expect(text).not.toContain("重试视频");
-      expect(w.text()).toContain("替换旁白");
-      expect(w.text()).toContain("下载图片");
+      // 2026-10-20：「替换旁白 / 下载图片」等文案收口到 locale（抽 ResultSegmentCard 时），
+      // 本用例的 $t mock 回落 key，故改断言 locale 键与 testid，不再依赖具体中文文案。
+      expect(text).toContain("story2video.sceneMaterial.replaceNarration");
+      expect(text).toContain("story2video.sceneMaterial.downloadImage");
+      expect(w.find('[data-testid="segment-image-preview"]').exists()).toBe(true);
       w.unmount();
     });
 
@@ -2011,6 +2222,7 @@ describe("ResultView", () => {
       w.vm.audioSrc = null;
       w.vm.segments = [{ id: "s1", status: "failed", prompt: "", videoPrompt: "", subtitleBlocks: [] }];
       await nextTick();
+      await expandSegmentEditor(w);
 
       expect(w.find('[data-testid="segment-image-preview"]').text()).toContain("emptySlot");
       expect(w.find('[data-testid="segment-prompt-translation"]').text()).toContain("emptySlot");

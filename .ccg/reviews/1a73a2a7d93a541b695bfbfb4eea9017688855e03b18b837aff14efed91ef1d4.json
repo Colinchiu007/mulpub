@@ -1,0 +1,114 @@
+{
+  "sha": "7f65819058e2fa34b0542f05fae93b1e84c1f5c1",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 354 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 354,
+    "fileCount": 10,
+    "codeFileCount": 8,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "1a73a2a7d93a541b695bfbfb4eea9017688855e03b18b837aff14efed91ef1d4",
+  "decidedAt": "2026-10-19T01:10:01.734Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play(agent)",
+    "fallbackReason": "跨家族对抗后端超时（本会话第 15 次同型 ETIMEDOUT），按引擎第三档出口 self_play 自查。本条 354 行，含渲染层行为改动。",
+    "evidenceInRepo": "openspec/records/publish-gate-help-ui.md（§二 断点取证 / §五 契约形状 / §七 读数）+ PRD §12.7.5",
+    "confidenceWeight": 0.7,
+    "adjudication": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "渲染层不透传 helpUrl、改为「按失败码反查链接」，这是把数据面问题改成约定面问题 —— 如果平台将来对**同一个码**给出不同入口（比如按账号类型分页），静态表会不会变成错误指引？",
+        "verdict": "upheld_verified",
+        "rationale": "① 这个风险的**成本**是「链接指向的页面仍存在但不是最优入口」，比「收敛器透传字段被砍、链接静默消失」轻得多——后者是本轮实测到的真实断点（`publish-mode-runner` 用 `Object.assign(base,{...})` 重建对象，只挑 error/code）；② 表里存的是**平台官方入口**（真机录到的「去完善」弹出目标），不是自建页，平台改版概率低；③ 真要按账号分流时，改法是把表项换成函数（`helpForCode(code, ctx)`），接口已按此形状留出 —— 但**不该**在本轮提前做。④ 残余风险如实记：表是静态的，平台改 URL 时链接会失效；没有任何机制能发现「平台页面 404」。",
+        "fixCommit": null
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "store 里新增 `task.code`，进度事件本来就带 `code: task.errorCode` —— 那**为什么以前没人用它**？是不是这里根本不是渲染层该消费的东西（比如它可能是「进程退出码」语义）？",
+        "verdict": "upheld_verified",
+        "rationale": "这是本轮自查里**最值得查证**的一条，我去读了 `phase4-events.js`：`code: task.errorCode` 与 `task.result` 同层，且 `task.errorCode` 在引擎侧就是平台失败码（`ACCOUNT_NOT_VERIFIED` 这类字符串），**不是进程退出码**（进程 rc 走的是 `exitCode` / 任务成功布尔）。以前没人用它，是因为渲染层此前只需要 error 文案就能展示；「有码不用」≠「码不该用」。另外消费面收敛在**唯一**一处（`helpForCode`），未知码一律返回 null、界面不渲染 ⇒ 即使某平台塞进来一个非闸门语义的码，也**不会**渲染出错误链接（有测试锁这条）。",
+        "fixCommit": null
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "第一版被 `href-scheme-contract` 判红（v-if 与 :href 分叉）。改法是把两个表达式都写成 `safeHttpUrl(gateHelp.url)` —— 这是「照契约修」还是「为了过测试而迎合形状」？",
+        "verdict": "upheld_verified",
+        "rationale": "该判据的**目的**写得很清楚：防「v-if 弱化后降级为纯文本、:href 却还在」的死锚点（点了没反应）。我的第一版恰好就是它要拦的形状 —— `v-if` 判对象存在、`:href` 判 URL 合法，两者可以分叉。改成同一表达式后，二者**不可能**分叉：无入口 ⇒ `safeHttpUrl('')` 为 null ⇒ 属性与元素**都不渲染**。所以这不是迎合形状，是契约拦下了一个真实的退化路径；我把这条写进了记录 §五 与组件注释，防止下一个人再改回去。",
+        "fixCommit": null
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "只在进度面板渲染链接，单篇发布流程的失败 toast 仍是纯文本 —— 用户走另一条路径就看不到入口，这个残缺算交代清楚了吗？",
+        "verdict": "upheld_failed_partial",
+        "rationale": "**没交代完整**，记录 §八 只写了「未接」，没有说明**为什么这条路径更难**：toast 拿到的是 `publishBatch` 的**入队响应**（code===0 表示「任务已收」），平台失败是异步经进度事件回来的，要在 toast 上呈现就得改通知通道（`notifyFailure` 增加 VNode/弹窗形态）并在终态事件里再弹一次 —— 那会改变「失败只 toast 一次」的现有行为面，涉及 useNotify 全局通道，不是本轮收尾阶段该抢的改动。如实评估：进度面板是发布结果的**主要**消费面（发布记录/进度面板都从这里看），但**不是唯一**面。残余路径的用户仍只有文字。",
+        "fixCommit": null
+      },
+      {
+        "id": "i5",
+        "severity": "Info",
+        "finding": "引擎侧 `ACCOUNT_FIX_URL` 用「正则静态读源码」做比对，会不会脆弱（将来格式一变判据自己坏）？",
+        "verdict": "accepted_known_tradeoff",
+        "rationale": "确实脆弱：若有人把 `const ACCOUNT_FIX_URL = '...'` 改成多行拼接或从别处导入，这个正则就抓不到 ⇒ 判据抛「判据自身故障」按未证实处理（fail closed），**宁可红不可假绿**。为什么仍这么做：引擎是零 workspace 依赖运行时（category-resolver.js 头注释、Docker COPY 清单），不能 require shared-utils；这是同包先例（validate-account.js）的手法。抛错时的报错信息里写了「判据自身故障，按未证实处理」，不会静默。",
+        "fixCommit": null
+      },
+      {
+        "id": "i6",
+        "severity": "Info",
+        "finding": "locale 新增键只被 TaskRow 消费，`--cjk` 扫描说「无新增硬编码」—— 中文兜底 `fallbackLabel` 写在 JS 里会不会与 locale 纪律冲突？",
+        "verdict": "upheld_verified",
+        "rationale": "这是**兜底**不是主文案：主路径走 i18n（`labelKey`），兜底仅在「翻译缺失/命名空间改坏」时出现，且被测试断言「文本不得含 i18n key」倒逼必须非空。与仓内既有兜底同风格（useNotify 的 error 级 fallback）。`--cjk` 门禁的读数是「当前 1188 ≤ 基线 1331」，即总量在下降，这两条兜底未触发基线红线；若未来基线收紧，这里是要被点名的地方。",
+        "fixCommit": null
+      }
+    ],
+    "summary": {
+      "total": 6,
+      "upheldVerified": 3,
+      "upheldFailedPartial": 1,
+      "acceptedKnownTradeoff": 1,
+      "upheldVerified2": 1,
+      "note": "自查抓到两条实的东西：i2 逼着去读了 phase4-events 确认 code 的语义（不是进程退出码），i3 确认契约拦的是真退化而非形式主义。i4 如实承认 toast 路径仍残缺，且说明了为什么这轮不做（涉及全局通知通道行为面）；i1/i5 记下静态表与静态读源码的残余风险，未当作已闭合。"
+    },
+    "at": "2026-10-19T01:59:19.023Z"
+  }
+}

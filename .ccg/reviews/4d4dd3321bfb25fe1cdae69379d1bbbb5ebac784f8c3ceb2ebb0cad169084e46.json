@@ -1,0 +1,59 @@
+{
+  "sha": "74a0f5d9322e04aa1888099a8530133fe1aa7242",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 2,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 3,
+    "docSensitiveContentSample": [
+      "**对照事实**：mulpub 的成本控制目前只有一处——`video-gen.js` 的 `cost_confirmation` 闸（用户确认后放行，`costCheck` 逐镜清单）。这属于**「事前一次性授权」**，而业界已经走得更远。",
+      "| **BA-08 attempt 与收费分离** | Provider attempt 可重试，**同一业务执行只持一份授权和费用**；未提交 Provider 的失败释放冻结 | **直接回答 F12 的遗留问题**：VLM QC 重试如何不重复扣费 |",
+      "| **BA-09 批量仍是一次计划** | 整批一次校验/报价/授权，失败项续跑**复用原 Snapshot，不重新收费成功项** | mulpub 批量生成（120 镜）续跑场景适用 |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "4d4dd3321bfb25fe1cdae69379d1bbbb5ebac784f8c3ceb2ebb0cad169084e46",
+  "decidedAt": "2026-10-19T08:00:28.195Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

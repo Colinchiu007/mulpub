@@ -17,11 +17,12 @@ function deferred() {
 }
 
 describe('EntitlementService', () => {
-  function createFixture(overrides = {}) {
+  function createFixture(overrides = {}, snapshotExtras = {}) {
     const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 })
     const payload = {
       sub: 'sub-1', device_id: 'device-1', plan: 'pro', features: ['cloud_publish'],
       quota: { cloud_publish_monthly: 100 }, iat: 100, exp: 200, kid: 'key-1',
+      ...snapshotExtras,
     }
     const token = sign(payload, privateKey)
     let persisted = null
@@ -35,7 +36,7 @@ describe('EntitlementService', () => {
       status: 200,
       json: async () => ({
         user: { id: 'user-1', status: 'active' },
-        entitlement: { plan: 'pro', features: ['cloud_publish'], quota: payload.quota },
+        entitlement: { plan: 'pro', features: ['cloud_publish'], quota: payload.quota, ...snapshotExtras },
         entitlementSnapshot: { token },
       }),
     }))
@@ -61,6 +62,47 @@ describe('EntitlementService', () => {
       headers: expect.objectContaining({ Authorization: 'Bearer access-1', 'X-Device-Id': 'device-1' }),
     }))
     expect(getPersisted()).toEqual({ token })
+  })
+
+  it('透传 limits / 到期宽限字段（v2.0 C1.3 / C9.2）', async () => {
+    const limits = {
+      max_platforms: 15, daily_publish: 50, concurrent_tasks: 3,
+      max_devices: 3, max_cloud_accounts: 20, batch_size_per_run: 10, model_tier: 1, plan_rank: 1,
+    }
+    const { service } = createFixture({}, { limits, graceUntil: '2026-10-30T00:00:00.000Z', previousPlan: 'pro' })
+
+    const state = await service.sync({ subject: 'sub-1', accessToken: 'access-1' })
+    // 发布页平台数校验的唯一数据源：丢了这个字段，档位承诺就是空头支票
+    expect(state.limits).toMatchObject(limits)
+    expect(state.graceUntil).toBe('2026-10-30T00:00:00.000Z')
+    expect(state.previousPlan).toBe('pro')
+    // 深拷贝隔离：调用方改坏返回值不得污染服务内部权益
+    state.limits.max_platforms = 999
+    expect(service.getState().limits.max_platforms).toBe(15)
+  })
+
+  it('已过期的 graceUntil 在离线读快照时被剔除（N10：客户端自判活，不依赖服务端投影）', async () => {
+    // 夹具时钟 now=150s（1970-01-01T00:02:30Z）。快照里缓存的宽限截止早于它 ⇒ 收尾期已结束。
+    const expired = createFixture({}, { graceUntil: '1970-01-01T00:00:01.000Z', previousPlan: 'pro' })
+    const state = await expired.service.sync({ subject: 'sub-1', accessToken: 'access-1' })
+    expect(state.graceUntil).toBeUndefined()
+    expect(state.previousPlan).toBeUndefined()
+
+    // 不可解析的时间按「无宽限」处理（否则横幅会永久显示）
+    const broken = createFixture({}, { graceUntil: 'not-a-date', previousPlan: 'pro' })
+    const brokenState = await broken.service.sync({ subject: 'sub-1', accessToken: 'access-1' })
+    expect(brokenState.graceUntil).toBeUndefined()
+
+    // 仍在有效期内则原样保留（不得把未来的宽限也砍掉）
+    const live = createFixture({}, { graceUntil: '1970-01-01T00:05:00.000Z', previousPlan: 'pro' })
+    const liveState = await live.service.sync({ subject: 'sub-1', accessToken: 'access-1' })
+    expect(liveState.graceUntil).toBe('1970-01-01T00:05:00.000Z')
+  })
+
+  it('limits 缺失或非法形状时不写入（缺失即放行，由客户端按不限处理）', async () => {
+    const { service } = createFixture({}, { limits: 'oops' })
+    const state = await service.sync({ subject: 'sub-1', accessToken: 'access-1' })
+    expect(state.limits).toBeUndefined()
   })
 
   it('离线恢复只接受绑定当前账号和设备且未过期的签名快照', async () => {

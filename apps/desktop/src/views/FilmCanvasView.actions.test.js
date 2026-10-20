@@ -35,7 +35,7 @@ vi.mock('@vue-flow/minimap', () => ({ MiniMap: { template: '<div />' } }))
 
 const apiMock = {
   filmEngineering: {
-    status: vi.fn(async () => ({ code: 0, data: { available: true, filmMeta: { title: 'Hell Grind' } } })),
+    status: vi.fn(async () => ({ code: 0, data: { available: true, filmMeta: { title: 'Film Project Case' } } })),
     adaptScript: vi.fn(async () => ({
       code: 0,
       data: { adaptedShots: [{ shotId: 'adapt-001', sceneId: 's1', prompt: 'p' }, { shotId: 'adapt-002', sceneId: 's1', prompt: 'q' }], llmEnhanced: false, warnings: [] },
@@ -235,6 +235,89 @@ describe('FilmCanvasView 5.3 成片入口进画布', () => {
     const w = await mountView()
     expect(w.find('[data-testid="fcv-open-folder"]').exists()).toBe(false)
     expect(w.find('[data-testid="fcv-save-as"]').exists()).toBe(false)
+    w.unmount()
+  })
+})
+
+// ── 缺陷 3：错误归因（2026-10-19 修复）────────────────────────────────
+// 原实现把除 tooManyShots / noShots 之外的**所有**失败都显示成「影视引擎不可用」，
+// 于是 provider 未配置也被误报成安装损坏，用户不会去配模型。
+describe('FilmCanvasView 错误归因分流', () => {
+  it('VIDEO_MODEL_NOT_CONFIGURED 必须显示 video.noModel，而非 engineUnavailable', async () => {
+    const w = await mountView()
+    w.vm.form.script = 'x'
+    await w.vm.onAdapt()
+    await flushPromises()
+    vg().start.mockResolvedValueOnce({ ok: false, errorCode: 'VIDEO_MODEL_NOT_CONFIGURED', error: '需要视频模型' })
+    await w.vm.onGenerate(['adapt-001'])
+    await flushPromises()
+    const msgs = ElMessage.error.mock.calls.map((c) => c[0])
+    expect(msgs).toContain('filmEngineering.video.noModel')
+    expect(msgs).not.toContain('filmEngineering.canvas.engineUnavailable')
+    w.unmount()
+  })
+
+  it('FILM_KIT_UNAVAILABLE 仍归因为 engineUnavailable（kit 缺失确实是引擎不可用）', async () => {
+    const w = await mountView()
+    w.vm.form.script = 'x'
+    await w.vm.onAdapt()
+    await flushPromises()
+    vg().start.mockResolvedValueOnce({ ok: false, errorCode: 'FILM_KIT_UNAVAILABLE', error: 'kit 缺失' })
+    await w.vm.onGenerate(['adapt-001'])
+    await flushPromises()
+    expect(ElMessage.error).toHaveBeenCalledWith('filmEngineering.canvas.engineUnavailable')
+    w.unmount()
+  })
+
+  it('未识别错误码仍落到 engineUnavailable 兜底（不吞掉、不静默）', async () => {
+    const w = await mountView()
+    w.vm.form.script = 'x'
+    await w.vm.onAdapt()
+    await flushPromises()
+    vg().start.mockResolvedValueOnce({ ok: false, errorCode: 'SOMETHING_ELSE', error: 'x' })
+    await w.vm.onGenerate(['adapt-001'])
+    await flushPromises()
+    expect(ElMessage.error).toHaveBeenCalledWith('filmEngineering.canvas.engineUnavailable')
+    w.unmount()
+  })
+})
+
+// ── 缺陷 4：refCount 写入（2026-10-19 修复）───────────────────────────
+// ShotNode 渲染「已注入 {n} 张参考」，但全仓无任何代码写入 data.refCount ⇒ 该提示永不显示。
+// 修复后：连参考图→分镜 时写入，断开连线时回退。
+describe('FilmCanvasView 参考图连线后 refCount 回写', () => {
+  it('连一条人物参考到分镜后，该分镜节点 refCount 为 1', async () => {
+    const w = await mountView()
+    w.vm.form.script = 'x'
+    await w.vm.onAdapt()
+    await flushPromises()
+    // 造一个人物参考节点
+    await w.vm.uploadReference({ name: 'a.png', type: 'image/png', size: 10, arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer }, 'character')
+    await flushPromises()
+    const refNode = w.vm.nodes.find((n) => n.type === 'characterRef')
+    const shotNode = w.vm.nodes.find((n) => n.id === 'shot:adapt-001')
+    expect(refNode, '应存在人物参考节点').toBeTruthy()
+    const r = w.vm.addEdge({ source: refNode.id, target: shotNode.id })
+    expect(r.ok).toBe(true)
+    expect(w.vm.nodes.find((n) => n.id === shotNode.id).data.refCount).toBe(1)
+    w.unmount()
+  })
+
+  it('删掉该连线后 refCount 回到 0（不留残留计数）', async () => {
+    const w = await mountView()
+    w.vm.form.script = 'x'
+    await w.vm.onAdapt()
+    await flushPromises()
+    await w.vm.uploadReference({ name: 'a.png', type: 'image/png', size: 10, arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer }, 'character')
+    await flushPromises()
+    const refNode = w.vm.nodes.find((n) => n.type === 'characterRef')
+    const shotNode = w.vm.nodes.find((n) => n.id === 'shot:adapt-001')
+    w.vm.addEdge({ source: refNode.id, target: shotNode.id })
+    expect(w.vm.nodes.find((n) => n.id === shotNode.id).data.refCount).toBe(1)
+    w.vm.removeNodes([refNode.id])
+    await flushPromises()
+    const after = w.vm.nodes.find((n) => n.id === shotNode.id)
+    expect(after.data.refCount).toBe(0)
     w.unmount()
   })
 })

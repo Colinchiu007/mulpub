@@ -246,3 +246,159 @@ v3 的处理：认出二进制（blob 含 NUL 或链上出现 `Binary files … 
   实际清理等 v3 落到 main 之后用 main 上的判据跑，不用本片 worktree 里的实现自证。
 
 
+
+## 10. v3 上线后被真实清理任务第三次否证 —— 「落地那版本来就不是我这版」（2026-10-19 增量）
+
+**动因（现场，非推演）**：清理 44 个孤儿分支时，两条 CI 探针分支（`ci-trigger-probe` / `ci-probe-2`，tip 是 #3733 那条 `cjk-font-selfcontained` 的旧切片）在 main 判据下报 `files=21 identical=7 drift=2 lost=12 rc=1`。
+我先给出一句归因（「因为我多传了一份 merge SHA，把删除提交从他人净删除容量里排除了」）并据此**保留了分支**。随后 A/B 实测把它否证：
+只传属主 PR #3733 的 merge SHA 与同时传 #3733+#3769，读数**逐字相同**（`files=21 identical=7 drift=2 lost=12`）。真正的成因是第三种形态。
+
+**真成因**：探针分支切在 **QM-6 评审修正之前**，而 squash 落地的是修正**之后**那一版。按文件比 blob 取证：`tip:f` 与 `110c3aabb:f` 对 `font-resolver.js`（+99 / −8）、`font-resolver.test.js`（+172 / −22）、`asset-generator.js`、`local-cover-generator.js`、`story2video-compose-engine.js`、`bundled-font-packaging.test.js`、该 PRD **全部不等**，
+且差异内容里明写着「QM-6 评审 i2」的 `warnFontFallback` / `buildDrawtextFontOption` 收敛，以及 Gate 12c 要求的「安装目录示例路径 → 尖括号占位符」改写（原文是一条 Windows 绝对路径，按 Gate 12c 不在本文重述）。也就是说这 12 条 LOST 的语义是**我这旧版没被采纳**，不是**工作丢了**。
+
+**为什么 v3 看不见这一格**：v3 问的是"我这行在不在主干现状里"＋"缺口能不能被他人净删除容量解释"。上面两种答案都是"不解释"，于是判 LOST，且判据不会说"落地那份根本不是你这版"。
+而操作者在这个形态下的正确动作（比 blob）当时只能手工做——这正是我今天连续两次写下错误归因的土壤。
+
+**本片只加读数，不改判据宽严。** 新增 `classifyRevision(mergeBlob, tipBlob, baseBlob)`，按**三**分而不是两分：
+
+| 产物 blob 与 | 归类 | 含义 |
+|---|---|---|
+| `== tip` | `carried` | 原样带上我那版 |
+| `== base` | `not-carried` | **我的改动根本没带上** ⇒ 真丢失 |
+| 两者都不等 | `different` | 产物既不是我这版也不是起点 ⇒ **只知道"这笔落地的不是我当前这版"，不知道方向**：可能是评审改了产物再落地，也可能是分支在这笔之后自己前进 |
+
+三分是本片的全部要点：只比 `tip` 与 `merge` 会把 `not-carried` 和 `different` 合成一格，
+于是"根本没带上"可以被读成"被修订"——那是**替真丢失作保**的方向，比原盲区更糟。`different` 还带 `onlyInMerge` / `onlyInTip` 双向规模（按行多重集，与判定本体同口径）；读数本身**只说"版本不同"、不说方向**，要定性必须自己比 blob。
+
+出口两条都要有（`T31` 接线锁）：plain 在判定行尾打 ` 落地版本=版本不同@<sha>(主干独有P行/我这版独有M行)`，末行汇总打 ` 落地版本不同=<n> 没带上=<n>`；`--json` 的文件对象带 `revisionsAtMerge`。
+只在一个出口存在等于没有——这条与本片 v2 那次"只还原了 plain 的 latin1"是同一课。
+
+**退出码不变**：`carried / different / not-carried` 一律不参与判定，`lost>0` 仍返回 1。
+「因为只是被取代，所以允许删分支」是一次**把守门判据改宽**的动作，需要单独授权，不属本片；本片只保证下一个读到这里的人不必再靠手工比 blob、也不必再猜。
+
+**遗留（不假装已闭合）**
+- `different` 是否应把该文件从 LOST 降级为一个新的可删档位——**未做，需人工裁决**（同 §9 遗留里"份数偏宽松"那条的处置方式：先点名，不先放行）。
+  **本格的初稿把它印成「修订@…」、并写成"我这旧版没被采纳"——那是在替一个没实测的因果背书**：QM-6 后端轴 B1 指出「同一分支被两笔 PR 用过时，早期那笔合法落地的版本也会落进这一格」，本地复现（`repro-b1.cjs`）证实为 `carried:1, different:[merge1]`。故分类名与出口文案一并改为中性 `different` / `版本不同@`，方向由人比 blob 定；回归锁 `T33`（断言读数里不得出现"修订/旧版"），变异 M9 专打这一格退化。
+- `describeRevisions` 只打前 2 笔；`lineDiffScale` 对**热写面**（`CHANGELOG.md` 那种重复键极多的文件）会把"我这份拷贝没落"和"整段被改写"报成同一规模，读数须与 `份数=` 一起看，不能单独作结论。
+- 真实仓现场两格各点名一例（同一 tip 一次跑齐）：`font-resolver.js` 走 `版本不同@110c3aabb(主干独有95行/我这版独有8行)`，
+  `.ccg/reviews/4e34763ec…json` 走 `根本没带上@110c3aabb`。`not-carried` 的其余形态仍靠 `T29` 夹具锁。
+
+## 11. 「放宽 default」被现场读数否证 —— 改成显式 opt-in（2026-10-20 增量）
+
+§10 的遗留第一条写的是「`different` 是否应把该文件从 LOST 降级为可删档位——未做，需人工裁决」。
+2026-10-20 得到人工授权后先去量它，**量出来的结论是：那句话的前提不成立**，于是本片做的不是"放宽默认档"，
+而是"加一个必须由人当面声明的放宽开关"。
+
+### 现场读数（用 §10 落地的判据本体，root=共享根，against=origin/main）
+
+| 分支 / 属主 PR | 读数 | LOST 行的 `落地版本=` |
+| --- | --- | --- |
+| `fix-rewrite-paragraph-preserve` / #2842 | `files=16 identical=3 drift=12 lost=1 … 落地版本不同=1 没带上=1` | LOST 那行是 `版本不同@1292b6555(主干独有0行/我这版独有1行)`；另有**一行 DRIFT 是 `根本没带上@1292b6555`** |
+| `fix-tab-title-url-placeholder` / #2847 | `files=15 identical=1 drift=13 lost=1 … 落地版本不同=2 没带上=0` | LOST 那行是 `.quality-gates.md`（二进制，行级判据不适用）`版本不同@7be77e5c9(主干独有1行/我这版独有1行)` |
+| `fix-toutiao-submit-chain` / #2729 | `files=8 identical=1 drift=3 lost=4 … 落地版本不同=5 没带上=0` | 4 行 LOST 全是 `版本不同@eeeb3f01e` |
+
+三行的 rc 都是 1，且 **LOST 行的类别 100% 是 `different`** —— 看起来"降这一格就解锁三条分支"。
+
+### 但 `different` 不是一个安全属性（这是本片真正的设计输入）
+
+同一个类别里装着两种方向相反的东西，逐条比 blob 才分得开：
+
+1. **`rpa-selector-utils.js`（#2729）**：我这版注释写 `「_s 是 :has-text 之前的部分」`，主干那份是
+   `「⚠️ 2026-09-30 外审更正（finding #1）：_s 是完整选择器 …」`。**落地的是更正确的版本** ⇒ 报"我这版没落"确实只是旧版未采纳。
+2. **`rpa-view-navigation-helpers.js`（#2729）**：判据报 `我这版独有 228 行 / 主干独有 21 行`，`份数 short 16(base=20 tip=30 main=14)`。
+   而我要找的那句话在主干**同一个文件**里原样存在：`origin/main:apps/desktop/electron/services/rpa-view-navigation-helpers.js:194`。
+   ⇒ 缺口是热写面**重复键的份数**，不是内容丢失。若默认档只看类别就放行，这一行会被"合法地"放行，
+   而它之所以无害是我读了 blob 才知道的——判据本身不知道。
+3. **`CHANGELOG.md`（#2842）**：类别是 `different`，可同一分支另一行是 `根本没带上` ⇒ 默认档一旦放宽，
+   下一次读到 `放行` 的人会把"整条分支都可删"当成结论，而 `没带上` 那一格正是本片唯一不许被洗掉的方向。
+
+结论写死：**`different` 是线索（"这笔落地的不是我当前这版"），不是许可**。
+把许可做成默认值，等于让最有杀伤力的那一格（没带上）在文案上获得一件可借的外衣 —— 与
+`T29` 那条反洗白锁的初衷相反。
+
+### 落地的形态
+
+- 新旗标 `--allow-different-landing`（**不接受取值**：`--allow-different-landing=false` 一律 `JudgeError`，
+  因为那种写法会被读成"有人以为它能关掉放宽"，而它已经生效）。
+- 放行谓词 `releaseEligibleForLanding(rev)` 三条件同时成立才放行：`different.length > 0` ∧ `notCarried.length === 0` ∧ `!carried`；
+  `rev` 取不到按不合格（未证实 ≠ 合格）。**carried 单独挡一刀**：逐字节带过我这版、主干现在却没有 ⇒ 那是"落地之后被删"，方向与"被修订"相反，不得借同一格过关。
+- 只改 `LOST`，`UNATTRIBUTED` / `JUDGE_ERROR` 一律不动（`#2729` 那类"说不清差异来自谁"的行，类别同样是 `different`，
+  放行判据若只看类别就会错误放行 —— 首条反证 N1 打的正是这一格）。
+- 放行行改档为**独立一档** `DIFFERENT-LANDING`（不改回 `IDENTICAL`：那会把"没落地"从读数里整条抹掉），
+  并保留 `落地版本=` 的双向规模；末行追加 ` 放行=N`，另打一行 `[BRANCH-MERGED][OPT-IN]` 告示，
+  明写"放行不等于内容已落地"。`--json` 只在旗标档带 `releasedDifferent` 与 `optIn.allowDifferentLanding`。
+- **默认档一字未改**：不带旗标时 verdict/rc/文案与 §10 上线后逐字一致（`T34` 锁这一条，它在实现之前就是绿的，
+  作用是"旗标不得渗进默认档"，不是"实现前该红"）。
+
+### 反证（9 条，逐条实跑、9/9 CAUGHT、红集互不相同；驱动在仓库外 `mut-optin.cjs`，收尾断言还原后与备份逐字节相同）
+
+| id | 变异 | 预期点名 |
+| --- | --- | --- |
+| N1 | 放行不再限于 LOST | T39 |
+| N2 | 谓词忽略 `notCarried`（真丢失被 different 稀释） | **T37 / T38**（初稿写了 T36，实测 T36 不红，见下） |
+| N9 | 谓词恒真（把旗标变成 blanket pass） | T36 / T37 / T38 |
+| N3 | 谓词忽略 `carried`（把"落地后被删"当"被修订"） | T37 |
+| N4 | 默认档也放行（旗标渗进默认行为） | T34 |
+| N5 | 汇总不再报放行笔数 | T35 |
+| N6 | OPT-IN 告示整条摘掉 | T35 |
+| N7 | 放行行改写成 IDENTICAL（抹掉"没落地"） | T35 |
+| N8 | 空读数也放行 | T37 |
+
+**两条由电池当场暴露的自错（不改判据，只改期望与探针）**：① N2 的期望初稿把 T36 写进去，实测 **T36 不红** —— T36 的夹具 `different=0`，任何"只看 `different>0`"的实现都自然不放行它；所以 **T36 的保护面比本文初稿的说法窄**，它守的是"单凭 `not-carried` 就放行"这一格（改由新增的 N9 打红），"混合两笔 merge 时危险格优先"那一格实际由 T38 守。订正的是期望清单，锁的断言一字未动。② N6 的 `from` 多打一个尾随 `+ '` ⇒ `ANCHOR_0`，那条变异**一次都没生效**，差点被读成"没红"；按 `IDX` 复核锚点存在性后修正。另记一条驱动设计缺口：电池被中途叫停时源文件停在变异态（md5 与备份不等），原先只逐条还原、无退出兜底 ⇒ 已补 `process.on('exit')` 还原。
+
+### 遗留（不假装已闭合）
+
+- 旗标**仍然不判断内容在不在**：`份数` 缺口与"整段被搬去别的文件"在它眼里同形。真正的收紧需要一个跨文件的
+  "这些行在主干任何地方都存在"的判据，那是另一片（不在本片范围，本片刻意不做）。
+- 三条 rc=1 分支经本片后可用 `--allow-different-landing` 取到 rc=0；**删它们仍要求逐行读过双向规模**，
+  上一条遗留就是这条要求的理由。
+- §10 其余遗留未触及：`describeRevisions` 只打前 2 笔；9 个裸 `timeout-minutes`；`mergedCopiesOf` 跨 merge 取最大偏宽松。
+
+## 12. 旗标的第一版被 QM-6 前端轴打穿 —— 「严格子集」也落进 different（2026-10-20 同片增补）
+
+§11 落地的谓词是 `different.length > 0 ∧ notCarried.length === 0 ∧ !carried`。前端轴评审（`--backend claude`，产物 8856 B）给出一条 **Major**，
+本地复现成立（`probe-subset.cjs`）：
+
+```
+DEFAULT verdict=LOST rev={"carried":0,"different":[{"onlyInMerge":0,"onlyInTip":1}],"notCarried":[]}
+FLAG    verdict=DIFFERENT-RELEASED releasedDifferent=1
+```
+
+**根因**：`classifyRevision` 只比"产物 == tip"与"产物 == base"两个等式。当合并带的是我 tip 的**严格子集**
+（丢了我后加的几行，但又没退回 base —— squash 只带走部分差量的常见形状）时，产物既 ≠ tip 也 ≠ base ⇒ 归进 `different`，
+而 `notCarried` 数组是空的。于是旗标宣称的"not-carried 一律不放行"在这一格上**是假的**：它放行的实质是"部分根本没带上"。
+这正是 §11 要防的那件事，只是从一个谓词没覆盖的形状进来的。
+
+**修法**：谓词加一条正向要求 —— `different` 里必须存在 `onlyInMerge > 0` 的条目，即"主干另有独有内容"，
+才承认"落的是另一版"。规模取不到（`undefined`）按未证实，不放行。
+
+### 收紧后的真实仓 A/B（与 §11 那张表对照，root=共享根）
+
+| 分支 / PR | 默认档 | 旗标档（收紧后） | 与 §11 的差异 |
+| --- | --- | --- | --- |
+| `fix-rewrite-paragraph-preserve` #2842 | `lost=1` rc=1 | `lost=1 … 放行=0` **rc=1** | 由 rc=0 变回 rc=1：那行 CHANGELOG 正是纯子集丢弃 |
+| `fix-tab-title-url-placeholder` #2847 | `lost=1` rc=1 | `lost=0 … 放行=1` rc=0 | 不变（`主干独有1行`） |
+| `fix-toutiao-submit-chain` #2729 | `lost=4` rc=1 | `lost=0 … 放行=4` rc=0 | 不变（`主干独有99/288/7/21/18行`） |
+
+三条的默认档读数与 §11 逐字相同（放宽从未渗进默认档）；旗标档少解锁一条，**且少解锁的那条本来就不该解**。
+
+### 一条"先于本片存在"的锁自己挡住了泄漏
+
+变异 N4（把放行改成默认档也执行）的第 3 轮红集从 `T4,T12,T28,T31,T34` 变成 `T4,T28,T31,T34` —— **T12 不再红**。
+核对其夹具（base=`L1`，tip=`A1,ONLY_ON_BRANCH,L1`，merge=`A1,L1`）⇒ `onlyInMerge=0`，正是收紧后不合格的形态。
+所以这不是锁退化，而是收紧连更强的错误形态都洗不动它；期望清单按此订正，机制写在驱动注释里，**未改任何断言**。
+
+### 同轮采纳/不采纳（各附理由）
+
+- 采纳：`res.optIn` 原是无条件赋值，而文档写"只在旗标档出现" ⇒ 收进旗标分支，让文档为真且默认档 `--json` 与 #3984 逐字同形。
+- 采纳：档位名 `DIFFERENT-LANDING` 自带完成式误读（"以不同版本落了地"恰是我拒绝的方向性宣称）⇒ 改 `DIFFERENT-RELEASED`，只描述闸门自己的动作。
+- 采纳：T25 的 plain↔json 交叉锁把档位名硬列了一份 ⇒ 改为从 `mod.VERDICTS` 派生（按长度降序拼接，避免前缀吞后），并给 T35 补 `counts['DIFFERENT-RELEASED'] === releasedDifferent` 的恒等断言。
+- 不采纳：把 `releasedDifferent` 改成默认档恒存在=0。那会让默认档 `--json` 多出字段，与本 PR"默认档一字未动"的核心承诺冲突；
+  "未渗改"的证据用"该旗标自己的字段缺位"比"值为 0"更难被未来会话读错。评审的 schema 稳定性顾虑因此记为已知取舍。
+
+### 反证（第 3 轮，10 条）
+
+N1⇒T39｜N2⇒T37,T38,T40｜**N10（谓词退回只看类别）⇒T37,T40**｜N9⇒T36,T37,T38,T40｜N3⇒T37,T40｜
+N4⇒T4,T28,T31,T34｜N5⇒T35｜N6⇒T35｜N7⇒T35｜N8⇒T37。红集互不相同，收尾 `RESTORE BYTE-IDENTICAL`。
+另加一条真红证据：把**当前测试**放到修改前的实现字节上跑，`T35/T37/T40` 一起红 ⇒ T40 测的确实是那一格，不是"改完就绿"。
+

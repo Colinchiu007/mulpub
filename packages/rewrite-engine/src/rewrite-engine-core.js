@@ -12,9 +12,26 @@ const { RewriteQualityEvaluator } = require('./rewrite-quality-evaluator')
 const { KnowledgeContextBuilder } = require('./knowledge-context-builder')
 // 极简 logger（与 api-publish-engine/logger 同接口；logging-coverage-audit）
 const logger = require('./logger-fallback')
+const { normalizeChatResult, isTruncatedFinishReason } = require('./llm-result')
+const { rewriteSegmented } = require('./segment-rewriter')
 
-// 无显式字数控制时的默认输出上限（3000 字以下）
+// 无显式字数控制时的默认输出上限（3000 字以下）。
+// 注意：这只是「用户没给任何字数意图」时的保守兜底；用户显式 wordCountRange.max
+// 永远优先（rewrite-limits-50000，2026-10-19）。
 const DEFAULT_MAX_OUTPUT_LENGTH = 3000
+
+// 单次改写输入上限（Unicode 码点）。渲染层
+// `apps/desktop/src/utils/rewrite-engine-limits.js` 的 REWRITE_ENGINE_MAX_INPUT_CHARS
+// 必须与此一致（结构锁：`rewrite-engine-limits.test.js`）——渲染层截到 A、引擎拒收于 B
+// 会让「一键改写」在长文上静默失败（2026-10-19 事故形态）。
+// 2026-10-19 6000 → 50000（rewrite-limits-50000）：知乎/公众号/视频转写长文 >6000 是常态，
+// 现代模型 128K+ 上下文下 50000 字（约 75K tokens）在成本与质量均可控范围；50000 以上
+// 应走分段改写（rewrite-segment-plan），不在此处放宽。
+const MAX_INPUT_CHARS = 50000
+
+// wordCountRange 显式区间的合法域（码点）。UI 校验（useWordCountValidation）与
+// _getWordCountInstruction 的范围防御都以此为真源上界。
+const MAX_OUTPUT_CHARS = 50000
 
 // 引擎内置默认硬约束（rewrite-hard-constraints 审查 M1）：
 // 运营中心未配置/未同步/离线场景的回退，保证独立部署桌面端仍有提示词级纯文案约束。
@@ -127,13 +144,15 @@ class RewriteEngine {
     // 将合并后的 knowledgeOptions 写回 userSettings 便于后续方法消费
     userSettings.knowledgeOptions = effectiveKnowledgeOptions
 
-    // 1. 输入校验
+    // 1. 输入校验（rewrite-segment-and-finish-reason 第二刀：长度分支后移到分流判定——
+    //    _validate 只保留空内容校验，超长输入由下面的分段阈值判定接管，
+    //    否则 >50000 会在分段路径触发前被 TOO_LONG 硬拒）
     const validation = this._validate(content)
     if (!validation.valid) {
       return { success: false, error: validation.error, errorCode: validation.errorCode }
     }
 
-    // 2. 敏感词前置检测
+    // 2. 敏感词前置检测（全篇一次；分段路径下也在全篇执行，逐段不重复前置）
     const preCheck = this._sensitiveCheck(content, 'pre')
     if (preCheck.blocked) {
       return {
@@ -144,11 +163,74 @@ class RewriteEngine {
       }
     }
 
-    // 3. 策略匹配
-    const strategy = this._resolveStrategy(strategyId, userSettings)
+    // 3. 策略匹配（全篇一次；分段路径下所有段复用同一策略，保证术语/风格一致）
+    const strategy = this._resolveStrategy(strategyId, userSettings, content)
     if (!strategy) {
       return { success: false, error: '未找到合适的改写策略', errorCode: 'NO_STRATEGY' }
     }
+
+    // 3.5 长文分流（rewrite-segment-and-finish-reason 第二刀）：输入码点超过
+    // MAX_INPUT_CHARS（分段阈值）⇒ 走分段改写路径；否则走单次路径。
+    // 分段编排在 segment-rewriter.js（独立模块，避免核心文件撞 max-lines 基线）
+    if ([...content].length > MAX_INPUT_CHARS) {
+      return await rewriteSegmented(this, params, { strategy, preCheck })
+    }
+
+    // 3.6 单次路径的取消前检查（rewrite-cancel-and-truncation-summary）：单次调用只需
+    // 数秒，取消价值低，但「入口即取消」不应白调一次 LLM（计费）。调用开始后不可中断
+    // （in-flight 中止需给全部 LLM 调用加信号通路，proposal §2.1 明确不做）。
+    const entrySignal = params.signal
+    if (entrySignal && entrySignal.cancelled === true) {
+      return {
+        success: false,
+        cancelled: true,
+        errorCode: 'CANCELLED',
+        error: '改写已取消（尚未调用模型），未产生费用',
+        completedSegments: 0,
+      }
+    }
+
+    // 4. 单次改写主体（rewrite-segment-and-finish-reason 抽取：分段路径复用同一函数；
+    //    内部保留 prompt 构建/LLM/后处理/质量评估，知识库写入与 viralScorer 已上移）
+    const once = await this._rewriteOnce(params, { strategy, preCheck, segmentContext: null })
+
+    // 5. 全篇级副作用（只执行一次；分段路径由此天然获得「一篇一次」语义）
+    if (once.success) {
+      // 5a. 爆款潜力对比（viral-rewrite-integration）：改写前 vs 改写后各一次
+      const viral = this._viralScorer
+        ? await this._scoreViral(content, once.result)
+        : undefined
+      // 5b. 记录到知识库（持久化失败不影响主流程；前后置双零命中才写）
+      if (preCheck.hits.length === 0 && once.postCheckHits.length === 0) {
+        try {
+          this._knowledgeBase.recordFeedback({
+            action: 'generated',
+            strategyId: strategy.id,
+            resultContent: once.result,
+            userSettings
+          })
+        } catch { /* 知识库持久化失败不阻塞主流程 */ }
+      }
+      return this._assembleResult(once, { strategy, preCheck, mode, content, userSettings, viral })
+    }
+    return once
+  }
+
+  /**
+   * 单次改写主体（rewrite-segment-and-finish-reason 第一刀从 rewrite() 抽取）。
+   *
+   * 职责边界（保形抽取，副作用已上移到 rewrite()）：
+   *   - 保留：prompt 构建（含知识库上下文）→ LLM 调用（归一化 + modelTruncated）→
+   *     后处理（outputTruncated）→ 敏感词后置 → 质量评估 → 标题提炼；
+   *   - 移除：知识库 recordFeedback 写入、viralScorer 调用（全篇级，rewrite() 负责）。
+   *
+   * @param {object} params - 原始 rewrite 参数
+   * @param {object} ctx - { strategy, preCheck, segmentContext }
+   * @returns {Promise<object>} 成功 {success:true, result, title, postCheckHits, quality, outputTruncated, outputLength, modelTruncated, strategy}；失败 {success:false, errorCode, error, segmentIndex?}
+   */
+  async _rewriteOnce(params, ctx) {
+    const { mode = 'imitate', content = '', userSettings = {} } = params
+    const { strategy, preCheck, segmentContext = null } = ctx || {}
 
     // 3.5 标题参考 + 爆款信号（viral-rewrite-integration）：软约束注入 Prompt
     const titleHint = this._sanitizeTitleHint(params.titleHint)
@@ -158,27 +240,43 @@ class RewriteEngine {
     const engagement = this._sanitizeEngagement(params.engagement)
 
     // 4. 构建 Prompt（内部含三层知识库上下文，P0 后为 async——LLM 关键词兜底）
-    const { systemPrompt, userPrompt } = await this._buildPrompt(strategy, content, mode, userSettings, knowledgeOptions, titleHint, viralAngles, viralKeywords, engagement)
+    const { systemPrompt, userPrompt } = await this._buildPrompt(strategy, content, mode, userSettings, null, titleHint, viralAngles, viralKeywords, engagement)
+
+    // 4.5 长文分片上下文（rewrite-segment-and-finish-reason 第二刀）：分段路径下每段
+    // prompt 必须明确「这是第 i/n 片、只改本片、不总结不续写」，否则模型会把分片当全文
+    // 重新起承转合（段间结构性漂移）。单次路径 segmentContext=null 时零注入。
+    const effectiveSystemPrompt = segmentContext
+      ? `${systemPrompt}\n\n【长文分片改写】本次输入是长文第 ${segmentContext.index + 1}/${segmentContext.count} 片。` +
+        '仅改写本片段内容；不要总结全文、不要续写其他片段、不要添加原文没有的过渡段；保留本片段的段落边界。'
+      : systemPrompt
 
     // 5. LLM 推理
     if (!this._llmClient) {
       return { success: false, error: 'LLM 客户端未配置', errorCode: 'NO_LLM_CLIENT' }
     }
 
-    let result
+    let chatRaw
     try {
-      result = await this._llmClient.chat(systemPrompt, userPrompt)
+      chatRaw = await this._llmClient.chat(effectiveSystemPrompt, userPrompt)
     } catch (e) {
       this._logger.error('rewrite-engine', 'LLM call failed', { strategyId: strategy && strategy.id, mode, error: e.message })
       return { success: false, error: `LLM 调用失败: ${e.message}`, errorCode: 'LLM_ERROR' }
     }
 
+    // finish_reason 归一化（rewrite-segment-and-finish-reason）：chat 契约允许返回
+    // string（旧实现）或 {text, finishReason}（新实现）；单点归一化后取 text。
+    const { text: result, finishReason } = normalizeChatResult(chatRaw)
+
+    // 归一化之后才判空（空 text 仍走 EMPTY_RESULT——旧行为不因新 shape 漏判）
     if (!result || !result.trim()) {
       return { success: false, error: 'LLM 返回空结果', errorCode: 'EMPTY_RESULT' }
     }
 
     // 6. 后处理（wordCountRange.max 优先于策略 postProcess.maxLength）
-    const processed = this._postProcess(result, strategy, userSettings.wordCountRange)
+    // rewrite-limits-50000（2026-10-19）：截断必须可见——旧行为把超限输出静默砍尾，
+    // 用户拿到的稿子不完整且不知道（比 TOO_LONG 更隐蔽的缺陷）。截断事实经
+    // _postProcess 返回值进入 result.outputTruncated / result.outputLength。
+    const { text: processed, truncatedAt } = this._postProcess(result, strategy, userSettings.wordCountRange)
 
     // 7. 敏感词后置检测
     const postCheck = this._sensitiveCheck(processed, 'post')
@@ -197,65 +295,89 @@ class RewriteEngine {
       }
     }
 
-    // 8.5 爆款潜力对比（viral-rewrite-integration 第 4 评估维度）：改写前 vs 改写后
-    //     viralScorer 可选注入；抛错/返回无效值 fail-open —— 不产生 result.viral、不阻塞主流程
-    let viral
-    if (this._viralScorer) {
-      try {
-        const [vOrig, vNew] = await Promise.all([
-          this._viralScorer(content),
-          this._viralScorer(processed),
-        ])
-        if (
-          vOrig && vNew &&
-          typeof vOrig.score === 'number' && Number.isFinite(vOrig.score) &&
-          typeof vNew.score === 'number' && Number.isFinite(vNew.score)
-        ) {
-          // 双模型评审 W-2：original/rewritten 必须同模式（orchestrator vs local-fallback 量纲不同），
-          // 跨模式 delta 无可比性 → fail-open 丢弃，不输出误导性对比
-          const modeA = (vOrig && vOrig.mode) || 'unknown'
-          const modeB = (vNew && vNew.mode) || 'unknown'
-          if (modeA === modeB) {
-            viral = {
-              original: Math.round(vOrig.score * 10) / 10,
-              rewritten: Math.round(vNew.score * 10) / 10,
-              delta: Math.round((vNew.score - vOrig.score) * 10) / 10,
-              mode: modeB,
-            }
-          } else {
-            this._logger.warn('rewrite-engine', 'viral scorer mode mismatch, drop viral result', { modeA, modeB })
-          }
-        }
-      } catch (e) {
-        this._logger.warn('rewrite-engine', 'viral scorer failed, fail-open', { error: (e && e.message) || 'unknown' })
-      }
-    }
-
-    // 9. 记录到知识库（持久化失败不影响主流程）
-    if (preCheck.hits.length === 0 && postCheck.hits.length === 0) {
-      try {
-        this._knowledgeBase.recordFeedback({
-          action: 'generated',
-          strategyId: strategy.id,
-          resultContent: processed,
-          userSettings
-        })
-      } catch { /* 知识库持久化失败不阻塞主流程 */ }
-    }
-
     return {
       success: true,
       result: processed,
-      // 改写结果标题（≤20 字，2026-09-18）：从改写结果首段提炼；失败回退空串
       title: this._generateTitle(processed),
+      postCheckHits: postCheck.hits,
+      quality,
+      // 输出截断可见化（rewrite-limits-50000）
+      outputTruncated: truncatedAt != null ? true : false,
+      outputLength: [...processed].length,
+      // 模型侧截断可见化（rewrite-segment-and-finish-reason）：provider finish_reason
+      // 表示输出被自身上限截断时置 true；纯增量字段，UI 与 outputTruncated 分型展示。
+      modelTruncated: isTruncatedFinishReason(finishReason),
       strategy: {
         id: strategy.id,
         name: strategy.name,
         category: strategy.category
       },
-      warnings: postCheck.hits.length > 0 ? ['改写结果可能包含敏感内容，请人工审核'] : [],
-      sensitiveHits: postCheck.hits,
-      quality,
+      // 分段上下文回显（segmentContext 为 null 时不出现在结果里）
+      ...(segmentContext ? { segmentIndex: segmentContext.index, segmentCount: segmentContext.count } : {})
+    }
+  }
+
+
+  /**
+   * 爆款潜力评分（rewrite() 全篇级副作用；从原 rewrite() 内联块原样搬出）。
+   * @param {string} content - 原文
+   * @param {string} processed - 改写结果
+   * @returns {Promise<object|undefined>} { original, rewritten, delta, mode } 或 undefined
+   */
+  async _scoreViral(content, processed) {
+    try {
+      const [vOrig, vNew] = await Promise.all([
+        this._viralScorer(content),
+        this._viralScorer(processed),
+      ])
+      if (
+        vOrig && vNew &&
+        typeof vOrig.score === 'number' && Number.isFinite(vOrig.score) &&
+        typeof vNew.score === 'number' && Number.isFinite(vNew.score)
+      ) {
+        // 双模型评审 W-2：original/rewritten 必须同模式（orchestrator vs local-fallback 量纲不同），
+        // 跨模式 delta 无可比性 → fail-open 丢弃，不输出误导性对比
+        const modeA = (vOrig && vOrig.mode) || 'unknown'
+        const modeB = (vNew && vNew.mode) || 'unknown'
+        if (modeA === modeB) {
+          return {
+            original: Math.round(vOrig.score * 10) / 10,
+            rewritten: Math.round(vNew.score * 10) / 10,
+            delta: Math.round((vNew.score - vOrig.score) * 10) / 10,
+            mode: modeB,
+          }
+        }
+        this._logger.warn('rewrite-engine', 'viral scorer mode mismatch, drop viral result', { modeA, modeB })
+      }
+    } catch (e) {
+      this._logger.warn('rewrite-engine', 'viral scorer failed, fail-open', { error: (e && e.message) || 'unknown' })
+    }
+    return undefined
+  }
+
+  /**
+   * 组装 rewrite() 最终返回体（从原 rewrite() 返回块搬出，字段逐一保持）。
+   */
+  _assembleResult(once, { strategy, preCheck, mode, content, userSettings, viral }) {
+    const processed = once.result
+    return {
+      success: true,
+      result: processed,
+      // 改写结果标题（≤20 字，2026-09-18）：从改写结果首段提炼；失败回退空串
+      title: once.title,
+      strategy: once.strategy,
+      warnings: once.postCheckHits.length > 0 ? ['改写结果可能包含敏感内容，请人工审核'] : [],
+      sensitiveHits: once.postCheckHits,
+      quality: once.quality,
+      // 输出截断可见化（rewrite-limits-50000）
+      outputTruncated: once.outputTruncated,
+      outputLength: once.outputLength,
+      // 模型侧截断可见化（rewrite-segment-and-finish-reason）
+      modelTruncated: once.modelTruncated,
+      // 分段改写元数据（rewrite-segment-and-finish-reason 第二刀；仅分段路径有）
+      ...(once.segmented ? { segmented: once.segmented } : {}),
+      // 段级截断段号（rewrite-cancel-and-truncation-summary；仅分段路径且确有截断时出现）
+      ...(once.truncatedSegments ? { truncatedSegments: once.truncatedSegments } : {}),
       // 爆款潜力对比（viral-rewrite-integration）：仅 viralScorer 注入且评分有效时存在
       viral,
       // P2 反馈闭环：本次改写引用的知识条目（供前端采纳/拒绝时驱动 feedbackBoost）
@@ -272,14 +394,18 @@ class RewriteEngine {
   /**
    * 获取推荐策略列表
    * @param {object} userSettings
+   * @param {string} [content] - 待改写原文（无有效信号时驱动保真优先兜底）
    * @returns {Array}
    */
-  getRecommendedStrategies(userSettings = {}) {
+  getRecommendedStrategies(userSettings = {}, content = '') {
     const strategies = this._strategyManager.listEnabled()
     const matcher = new StrategyMatcher({
       userSettings,
       userHistory: this._knowledgeBase.getUserHistory(),
-      topN: 3
+      topN: 3,
+      // 无有效信号兜底（rewrite-default-strategy-fix）：原文形态驱动保真优先。
+      // 缺省空串 ⇒ 启发式退化为「保真兜底」（_isFidelityPreferred 对空内容返回 true）。
+      content,
     })
     return matcher.recommend(strategies)
   }
@@ -306,10 +432,9 @@ class RewriteEngine {
     if (!content || !content.trim()) {
       return { valid: false, error: '内容不能为空', errorCode: 'EMPTY_CONTENT' }
     }
-    const len = [...content].length // Unicode code point 计数
-    if (len > 6000) {
-      return { valid: false, error: '内容过长，最多 6000 字', errorCode: 'TOO_LONG' }
-    }
+    // 长度硬拒已移交 rewrite() 的长文分流（rewrite-segment-and-finish-reason 第二刀）：
+    // >MAX_INPUT_CHARS 走分段改写，不再返回 TOO_LONG。这里只保留空内容校验。
+    // （保留 MAX_INPUT_CHARS 导入是因为分流点在同文件使用它作阈值。）
     return { valid: true }
   }
 
@@ -328,12 +453,12 @@ class RewriteEngine {
     }
   }
 
-  _resolveStrategy(strategyId, userSettings) {
+  _resolveStrategy(strategyId, userSettings, content = '') {
     if (strategyId) {
       return this._strategyManager.get(strategyId)
     }
-    // 自动匹配
-    const recommended = this.getRecommendedStrategies(userSettings)
+    // 自动匹配（原文形态参与无有效信号时的兜底取向）
+    const recommended = this.getRecommendedStrategies(userSettings, content)
     return recommended.length > 0 ? recommended[0] : null
   }
 
@@ -493,8 +618,8 @@ class RewriteEngine {
   _getWordCountInstruction(userSettings) {
     const range = userSettings && userSettings.wordCountRange
     if (!range || typeof range.min !== 'number' || typeof range.max !== 'number') return ''
-    // 范围防御：与前端/PRD 契约一致（min 0-5999、max 1-6000、max >= min），无效区间不注入
-    if (!(range.min >= 0 && range.min <= 5999) || !(range.max >= 1 && range.max <= 6000) || range.max < range.min) return ''
+    // 范围防御：与前端/PRD 契约一致（min 0-49999、max 1-50000、max >= min），无效区间不注入
+    if (!(range.min >= 0 && range.min <= MAX_OUTPUT_CHARS - 1) || !(range.max >= 1 && range.max <= MAX_OUTPUT_CHARS) || range.max < range.min) return ''
     return `【字数要求】改写后的文本长度必须控制在 ${range.min} 到 ${range.max} 字之间。`
   }
 
@@ -541,12 +666,16 @@ class RewriteEngine {
     }
 
     // 长度限制（Unicode 码点计数，与 _validate 一致；避免代理对被切断产生乱码）
-    // 优先级：wordCountRange.max > 策略 postProcess.maxLength > 默认 2500
+    // 优先级：wordCountRange.max > 策略 postProcess.maxLength > 默认 3000（DEFAULT_MAX_OUTPUT_LENGTH）
+    // rewrite-limits-50000（2026-10-19）：截断必须可见——返回值改为 { text, truncatedAt }，
+    // truncatedAt = 截断后的长度（码点）；未截断为 null。调用方写入 result.outputTruncated。
     const maxLength = (wordCountRange && typeof wordCountRange.max === 'number' && wordCountRange.max > 0)
       ? wordCountRange.max
       : (postProcess.maxLength || DEFAULT_MAX_OUTPUT_LENGTH)
+    let truncatedAt = null
     const codePoints = [...result]
     if (codePoints.length > maxLength) {
+      truncatedAt = maxLength
       result = codePoints.slice(0, maxLength).join('')
     }
 
@@ -555,7 +684,7 @@ class RewriteEngine {
     // 逐行识别结构标题行并移除（仅剥离标题行本身，不触碰正文内容）。
     result = this._stripStructureHeadings(result)
 
-    return result.trim()
+    return { text: result.trim(), truncatedAt }
   }
 
   /**
@@ -619,4 +748,4 @@ class RewriteEngine {
   }
 }
 
-module.exports = { RewriteEngine }
+module.exports = { RewriteEngine, MAX_INPUT_CHARS, MAX_OUTPUT_CHARS }

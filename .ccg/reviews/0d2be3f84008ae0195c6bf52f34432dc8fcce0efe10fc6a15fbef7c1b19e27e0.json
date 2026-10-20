@@ -1,0 +1,75 @@
+{
+  "sha": "42ba5860fdf5e90dc4f3e9659493cf8cad14a6c7",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 2051 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 2051,
+    "fileCount": 11,
+    "codeFileCount": 8,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 18,
+    "docSensitiveContentHits": 8,
+    "docSensitiveContentSample": [
+      "| 改字幕 | `update-subtitle-blocks` | 覆盖 `subtitleBlocks` + 清空 `subtitleTimeline` + dirty |",
+      "| 选素材 | `select-material` | 校验槽位 selectable ⇒ IPC ⇒ 刷新 URL |",
+      "**emits**：`dirty`、`card-ref(el, absoluteIndex)`、`move-segment`、`remove-segment`、`select-material`、`generate-image`、`generate-ai-video`、`regenerate-subtitle`、`regenerate-prompt`、`regenerate-audio`、`replace-audio`、`download-artifact`、`preview-material`、`mark-material-unavailable`、`update-subtitle-blocks`"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "0d2be3f84008ae0195c6bf52f34432dc8fcce0efe10fc6a15fbef7c1b19e27e0",
+  "decidedAt": "2026-10-20T02:38:00.941Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "needs_revision",
+    "performedBy": "subagent-cross-family",
+    "findings": [
+      {
+        "id": "A1",
+        "severity": "critical",
+        "status": "fixed",
+        "summary": "segmentDraft 浅拷贝 + deep watch 不同步宿主原地 URL 刷新；改为 draft getter 直接返回 prop，加 6 条回归锁"
+      },
+      {
+        "id": "A7",
+        "severity": "minor",
+        "status": "accepted",
+        "summary": "分段定位跳到未渲染段静默无效；滚动与上一条/下一条会持续推进窗口，彻底修法记入遗留"
+      }
+    ],
+    "error": "JSON解析失败:模型输出被截断，JSON 不完整：括号计数恰好配平（8/8，那是已闭合的内层对象），但结尾不是 }——真正被砍断的是最后一个字符串，共 20392 字符 —— 这通常意味着方案问题太多、模型输出超长被截断。重跑同样输入多半还是截断。可选：把方案拆小后分批评审，或先让 critic 只挑 Critical / Warning、暂不要求 Info。",
+    "validationErrors": null,
+    "at": "2026-10-20T02:49:02.153Z",
+    "tier": "external",
+    "evidence": "CCG 驱动后端失败：critic=claude 对 2051 行 diff 输出 20392 字符被单次输出上限砍断，JSON 括号配平但结尾不是 }，驱动判 JSON解析失败并重试一次仍失败；opencode proposer 未产出。降级路径（AGENTS.md 子代理降级规则）：主代理直派独立 subagent 做跨家族对抗审查，12 条审查项全覆盖。结论落盘：openspec/records/s2v-result-view-perf.md 的「QM-6 降级审查结论」表。抓出并修掉 1 个 Critical（A1：ResultSegmentCard 的 segmentDraft 浅拷贝 + deep watch  无法同步宿主原地 URL 刷新 ⇒ 保存/重试/重新合成后显示旧图或空白），回归锁 ResultSegmentCard.test.js 6 条；记 1 个 MINOR（A7：分段定位数字跳到尚未渲染的分段时静默无效），已记入遗留。"
+  }
+}
