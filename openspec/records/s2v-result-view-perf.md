@@ -6,7 +6,7 @@ date: 2026-10-20
 
 ## 本次执行记录：失败任务编辑页「无限加载后空白」修复（s2v-result-view-perf，2026-10-20）
 
-> 分支：`s2v-result-view-perf`；worktree：`D:/Data/projects/mp-worktrees/mp-s2v-result-view-perf`（由 `scripts/start-mp-task.ps1 -TaskName s2v-result-view-perf` 创建，`verify-worktree-deps.js` OK：11 个 `@multi-publish/*` 全部解析到本 worktree）；基线 = `42ba5860f`（当时 origin/main）。
+> 分支：`s2v-result-view-perf`；worktree：`<worktree>/mp-s2v-result-view-perf`（由 `scripts/start-mp-task.ps1 -TaskName s2v-result-view-perf` 创建，`verify-worktree-deps.js` OK：11 个 `@multi-publish/*` 全部解析到本 worktree）；基线 = `42ba5860f`（当时 origin/main）。
 > 范围：🎨 UI/UX + 📊 性能优化（渲染端，无 IPC 契约变更）；判定 `node scripts/classify-docs-only.js --base=origin/main --head=HEAD` → docs-only=false（含 `apps/desktop/**`）。
 
 | 门禁 | 状态 | Fresh 证据 |

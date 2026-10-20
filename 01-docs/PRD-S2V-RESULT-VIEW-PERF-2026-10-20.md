@@ -2,7 +2,7 @@
 
 > **标题**：视频任务编辑页（ResultView）失败任务进入性能与占位优化
 > **日期**：2026-10-20
-> **分支**：`s2v-result-view-perf`（worktree `D:/Data/projects/mp-worktrees/mp-s2v-result-view-perf`，D 盘非 C 盘）
+> **分支**：`s2v-result-view-perf`（worktree `<worktree>/mp-s2v-result-view-perf`，D 盘非 C 盘）
 > **主 PRD 章节**：`01-docs/PRD.md` §7.1.40
 > **用户现场**：历史记录页点击进入失败任务（项目 ID `mvfbqtio_3wwu`，169 段）的编辑页；截图显示视频预览区持续加载、未生成图片区先呈现「错误链接样式」、数秒后才显示「未生成」。
 
