@@ -246,11 +246,55 @@ test('T15 参数面：未知旗标与缺值一律出声，MUST NOT 静默按默�
 test('T16 真仓 dry-run 首行读数必须存在且与明细同口径（否则"CI 上跑过"无从证明）', () => {
   const r = ac.aggregate({ root: path.resolve(__dirname, '..'), dryRun: true });
   const line = ac.formatReport(r);
-  assert.match(line, /^AGGREGATE records=\d+ missing=\d+ malformed=\d+ learningsShape=\d+ landed=\d+ skipped=\d+ learningsLanded=\d+ mode=dry$/);
+  assert.match(line, /^AGGREGATE records=\d+ missing=\d+ malformed=\d+ learningsShape=\d+ landed=\d+ skipped=\d+ duprisk=\d+ learningsLanded=\d+ mode=dry$/);
   assert.strictEqual(Number(/records=(\d+)/.exec(line)[1]), r.records);
   assert.strictEqual(Number(/missing=(\d+)/.exec(line)[1]), r.missingSection.length);
 });
 
 test('T12 --root 指向不存在的目录必须走"判据自身故障"档，不得读成"没有待搬"', () => {
   assert.throws(() => ac.aggregate({ root: path.join(os.tmpdir(), 'mp-agg-not-existing-' + process.pid) }), /AGG_ROOT_MISSING/);
+});
+
+// ---------- 外部评审 i1 / i2 的落点锁（QM-6 critic=claude，2026-10-20）----------
+
+test('T17 裸标题已存在于台账（手写条目没带后缀）⇒ 不搬、点名 duprisk，不得静默塞重复块', () => {
+  const root = mkTmp();
+  // 迁移窗口内的真实形态：上一轮有人把同一条**手写**进了 CHANGELOG，标题没有 record 名后缀。
+  write(root, 'CHANGELOG.md', '# CHANGELOG\n# fix(w): 已被手写的标题\n\n- 旧份\n');
+  write(root, 'openspec/records/hand-written.md', '---\nrecord: hand-written\ntask: w\n---\n\n## CHANGELOG 条目\n\n# fix(w): 已被手写的标题\n\n- 新份\n');
+  const r = ac.aggregate({ root, dryRun: true });
+  assert.deepStrictEqual(r.duplicateRisk, ['hand-written'], '裸标题命中必须出声，不能既不算 landed 也不算 skipped');
+  assert.strictEqual(r.landed.length, 0);
+  assert.ok(!r.text.includes('- 新份'), '不得往人读台账里塞第二个同标题块');
+  assert.match(ac.formatReport(r), /duprisk=1/);
+});
+
+test('T17b 主键仍是 record 名：裸标题判重只作第二道闸，不得把同标题的两条新记录吃掉一条', () => {
+  const root = mkTmp();
+  const same = '# fix(dup2): 同标题\n\n- x';
+  write(root, 'CHANGELOG.md', '# CHANGELOG\n');
+  write(root, 'openspec/records/aa.md', record('aa', 'AA', same));
+  write(root, 'openspec/records/bb.md', record('bb', 'BB', same));
+  const r = ac.aggregate({ root, dryRun: true });
+  assert.strictEqual(r.landed.length, 2, '两条新记录都必须落 —— 若裸标题闸作用在 pending 之间，本断言会红');
+  assert.deepStrictEqual(r.duplicateRisk, []);
+});
+
+test('T18 写盘必须是原子替换，且重试白名单只有 EPERM/EACCES/EBUSY', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'aggregate-changelog.js'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  assert.ok(/fs\.renameSync\(/.test(src), '必须走 rename 替换，不能直写台账');
+  assert.ok(!/fs\.writeFileSync\(file,/.test(src), '不得对台账直接 writeFileSync（半截写入不可恢复）');
+  for (const code of ['EPERM', 'EACCES', 'EBUSY']) assert.ok(src.includes(`'${code}'`), `重试白名单缺 ${code}`);
+  assert.ok(!/RETRYABLE\.has\(e\.code\)\s*\|\|/.test(src.replace(/attempt >= \d+/, '')) || /attempt >= \d+/.test(src), '重试必须有界');
+});
+
+test('T18b 真写入不留 .tmp 残骸，且内容与返回值一致', () => {
+  const root = mkTmp();
+  write(root, 'CHANGELOG.md', '# CHANGELOG\nold\r\n');
+  write(root, 'openspec/records/atomic.md', record('atomic', '原子写', '# fix(a): a\n\n- 新块'));
+  const r = ac.aggregate({ root, dryRun: false });
+  assert.deepStrictEqual(r.landed, ['atomic']);
+  assert.strictEqual(fs.readdirSync(root).filter((f) => f.endsWith('.tmp')).length, 0, 'rename 失败路径也必须清掉临时文件');
+  assert.strictEqual(read(root, 'CHANGELOG.md'), r.text);
+  assert.ok(read(root, 'CHANGELOG.md').endsWith('old\r\n'), '台账原有行的行尾不得被写盘路径改动');
 });

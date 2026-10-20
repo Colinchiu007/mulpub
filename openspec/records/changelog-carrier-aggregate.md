@@ -10,8 +10,8 @@ date: 2026-10-20
 |------|------|-----------|
 | 变更类型与隔离 | ✅ | 混合档 PR（`.github/workflows/quality-gate.yml` + `scripts/` 判据 + `openspec/`）。走正规入口 `scripts/start-mp-task.ps1 -TaskName changelog-carrier-aggregate -NoDeps`；判据取产物不取 rc：`git worktree list` 命中 + `rev-parse --abbrev-ref HEAD` == 分支名。起点曾落后 `origin/main`（期间 main 前进了两笔），已 `merge --ff-only origin/main` 对齐后再动手 |
 | TDD 顺序 | ✅ | 先写 `scripts/aggregate-changelog.test.js` 并**见证红**：模块不存在时是整片 LOADFAIL（`# tests 1 / fail 1`），不是 15 条指名红——这两种红的语义不同，登记时不混写 |
-| 行为锁 | ✅ | 17 条全绿（`# tests 17 / pass 17 / fail 0`）。覆盖：小节逐字节取出、围栏/表格内的同名串不当边界、`##` 后多空格与行尾 CR、**同标题两条记录各落一次**、缺小节点名、重跑字节幂等且出声、混行尾原样保留、learnings 缺席合法/存在但形状非法、`_` 开头占位物不进候选、真仓规模下界、参数面严格 |
-| 变异反证 | ✅ | 7 条变异各自让**指名**用例变红，红集互不相同：M1 幂等键退回标题文本→T4；M2 边界退回 substring→T2b+T13；M3 行尾统一回写（落盘态）→T7；M4 缺小节静默→T5+T13；M5 自带第二份条目标题正则→T8；M6 形状判据恒假→T9；M7 缺席也判非法→T9。驱动每次断言 `# tests >= 15`，否则 LOADFAIL 会被读成"已反证"。还原后 md5 与原值相同 |
+| 行为锁 | ✅ | 21 条全绿（`# tests 21 / pass 21 / fail 0`）。覆盖：小节逐字节取出、围栏/表格内的同名串不当边界、`##` 后多空格与行尾 CR、**同标题两条记录各落一次**、缺小节点名、重跑字节幂等且出声、混行尾原样保留、learnings 缺席合法/存在但形状非法、`_` 开头占位物不进候选、真仓规模下界、参数面严格、**裸标题第二道闸**、**原子写与 .tmp 不留残骸** |
+| 变异反证 | ✅ | 9 条变异各自让**指名**用例变红，红集互不相同：M1 幂等键退回标题文本→T4；M2 边界退回 substring→T2b+T13；M3 行尾统一回写→T7；M4 缺小节静默→T5+T13；M5 自带第二份条目标题正则→T8；M6 形状判据恒假→T9；M7 缺席也判非法→T9；M8 摘掉裸标题第二道闸→T17；M9 退回非原子直写→T18。驱动每次断言 `# tests >= 21`。还原后 md5 与原值相同。**M3 换过一次锚点**：i1 修完之后「直写台账」这句代码已不存在，旧锚点必然找不到 —— 那正是修复生效的形状，于是把 M3 改打到临时文件那一步，与 M9（原子性）各测各的格 |
 | M3 第一次 NOT_CAUGHT（不是锁没牙） | ✅ | 第一版 M3 只改 `return rendered`，而真正落盘的 `fs.writeFileSync(file, rendered)` 一字未动 ⇒ "统一回写"这个缺陷**没有被实现出来**。正解是动落盘那一步，不是放宽 T7。变异必须取被禁形态本身，否则证不出它守哪一格 |
 | 接线（新测试必须被执行） | ✅ | `KNOWN_UNWIRED` 实测为空对象 ⇒ 任何新 `*.test.js` 不同 PR 接线就红。本 PR 三处同改：`.gitignore` 反选本体（`scripts/*.js` 第 106 行会静默吞掉本体）、`quality-gate.yml` 新增 `Gate 2b8 - Changelog aggregator (changes job)`、`scripts/check-unwired-tests.js::MUST_LIVE_IN_UNGATED_JOB` 登记 + `resolveWhen`。`node scripts/check-unwired-tests.js` 读数：检查域 113 个测试文件，OK |
 | 落点为什么必须是 changes 作业 | ✅ | 聚合器读的三类输入（`openspec/records/**`、`CHANGELOG.md`、`01-docs/learnings.md`）**全部**命中 `CI_IGNORED_PATHS`。接在被 `docs-only != 'true'` 门控的 job 里 = 只改记录/台账的 PR 可以让它一次都不跑，这是 AGENTS「进白名单的前提锁」记过的自关校验形态（实测事故 #3114） |
@@ -20,7 +20,7 @@ date: 2026-10-20
 | CI 契约测试 | ✅ | `node --test .github/scripts/workflow-contract.test.js` → `# tests 44 / pass 44 / fail 0`（含 Gate 2c3 那条"CHANGELOG 两把锁同在 changes job"的结构锁，本次未动其语义） |
 | 聚合器真仓读数 | ✅ | 见下「现场读数」；本 PR 的 CHANGELOG.md / 01-docs/learnings.md **零改动**，所以新形态下 `check-changelog-growth` 与副本棘轮天然满足 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/`、`packages/rpa-engine/` 与任何 UI 文件 |
-| QM-6 CCG 双模型外部评审 | PENDING | 本片命中 `HIGH_RISK_SURFACES` 两类前缀（`scripts/check-`、`.github/workflows/`）⇒ 高危面只认 `tier=external` + 可核 `evidence`，`closureNote` 不够格。2026-10-20 本机实测后端存在「403 额度不足」档；未取到外部评审产物时**如实留欠账，不用自扮演冒充闭合** |
+| QM-6 CCG 双模型外部评审 | IN-FLIGHT | 判定 `mode=dual`，命中 `HIGH_RISK_SURFACES` 两类前缀（`scripts/check-`、`.github/workflows/`）⇒ 只认 `tier=external` + 可核 `evidence`，`closureNote` 在这一侧不够格。**现场如实记**：`sh scripts/deep-review.sh` 已跑，critic=claude 真出 **8 条问题 / 4 维度 / 最低分 4**、proposer=opencode 跨家族校验通过；但收敛判据因 `minScore=4` 落到**自扮演第三档出口**，产物 `deepReview.status=self_play_pending`（6 条待裁决），`requiresExternalReview` 点名 i6。逐条处置见下节；采纳项已在后续提交修掉，闭合要在最后一笔提交上重跑评审后取产物 |
 | 远程同步 | 由门禁推导 | 不事后改写，也不为这一行另开 PR |
 
 - 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD` 的读数写在 PR 正文（本 PR 含 workflow 与 scripts，预期 `docs-only=false`，属混合档 ⇒ 走完整质量节拍）
@@ -30,9 +30,10 @@ date: 2026-10-20
 
 | 判据 | 读数 |
 | --- | --- |
-| `node --test scripts/aggregate-changelog.test.js` | `# tests 17 / pass 17 / fail 0` |
-| 变异驱动（一次性，落 `%TEMP%`，不入库） | 7/7 CAUGHT，红集互不相同；还原后 md5 == 原值 |
-| `node scripts/aggregate-changelog.js --dry-run` | `records=592 missing=591 malformed=0 learningsShape=0 landed=1 skipped=0 learningsLanded=1 mode=dry`（`landed=1` 就是本篇 —— 真仓端到端，不是夹具） |
+| `node --test scripts/aggregate-changelog.test.js` | `# tests 21 / pass 21 / fail 0` |
+| 变异驱动（一次性，落 `%TEMP%`，不入库） | 9/9 CAUGHT，红集互不相同；驱动每趟断言 `# tests >= 21`；还原后 md5 == 原值 |
+| `node scripts/aggregate-changelog.js --dry-run` | `records=592 missing=591 malformed=0 learningsShape=0 landed=1 skipped=0 duprisk=0 learningsLanded=1 mode=dry`（`landed=1` 就是本篇 —— 真仓端到端，不是夹具） |
+| `Gate 2b8` 的断言 replica（本机复跑 CI 那句 grep） | `grep -qE '^AGGREGATE records=[1-9]'` rc=0 —— 断言本身要在 CI 上绿才算数，这里只证明它写得下去 |
 | `node scripts/check-unwired-tests.js` | 检查域 113 个测试文件，`OK: 全部测试均已接线或按欠账登记` |
 | `node scripts/check-step-failfast.js` | 含 ≥2 条受管命令的 run 步骤 41 个，OK |
 | `node .github/scripts/check-workflow-structure.js` | `files=15 violations=0` |
@@ -55,6 +56,23 @@ date: 2026-10-20
 2. **advisory → blocking 之间的窗口是本刀自己制造的欠账**：窗口内既有人手改 CHANGELOG、也有人写 records 小节，聚合器靠"标题末尾 record 名"判重能跳过已手搬的条目，但这个窗口长度没人守。转 blocking 那片必须带当场重取的在飞冲突数作为前置条件。
 3. **高危面外部评审未闭合**（见上表 QM-6 行）。若后端整轮不可得，本 PR 属「机械闸门全绿但第 5 条判据有争议」，按 AGENTS 不得自动合并，须报人。
 4. **`startsAsEntry` 用首个非空行判"是不是一条条目标题"**，判不了"这条标题写得好不好"。规格里那条「learnings 形状只能判形态、判不了内容」的残余同样适用于这里。
+
+### 外部评审 8 条的逐条处置（critic=claude，轮 1）
+
+采纳 4 条、反驳 3 条、接受为已知代价 1 条，反驳一律给可核依据，不做口头辩护：
+
+| 条 | 级别 | 处置 | 依据 / 落点 |
+|---|---|---|---|
+| i1 无原子写、并发 `--write` last-writer-wins | Critical | **采纳** | 原实现直写 3 MB 台账。改为临时文件 + `fs.renameSync`，重试白名单只有 `EPERM/EACCES/EBUSY` 且有界（AGENTS「Windows 原子文件替换重试」）；落 `T18`/`T18b`，变异 M9 指名红 |
+| i2 信任台账标题，缺后缀会**静默重复插入** | Critical | **采纳，且承认我此前的说法有水分** | PR 正文原写「存量标题末尾本就带 change slug ⇒ 键对现状直接生效」——对手写条目（无后缀）不成立。加第二道**出声**闸：裸标题命中 ⇒ 不搬 + `duprisk=` 点名；主键仍是 record 名（`T17b` 证明这道闸不会反过来吃掉同标题的两条新记录） |
+| i5 CI 只跑 `--dry-run`、不断言输出 | Warning | **采纳** | 正是本仓「存在性锁必须配现场读数」那一格。`Gate 2b8` 现在 `tee` 落盘后 grep `^AGGREGATE records=[1-9]`，`records=0` 单独判失败——「采集面退化」与「本轮无待搬」在 rc 上同形 |
+| i6 授权机制在 spec 里、仓库里没有实现 | Warning | **采纳（措辞）** | 属片3 范围，但规格 delta 没写"本片未实现"，会被读成已交付。proposal 新增「本片只落哪几件、哪几件尚未实现」逐条点名 |
+| i3 `--root` 解析任意路径 | Warning | **反驳（带证据）** | 取证根注入是本仓 #4079 明文要求的可测性；任意目录已被 `AGG_ROOT_MISSING` fail-closed；写目标恒为 `<root>/CHANGELOG.md` 与 `<root>/01-docs/learnings.md`，无用户可控路径段。按其建议要求 `.git` 存在会把我全部 tmp 夹具判死——那是把锁换成盲区 |
+| i4 依赖 `changelog-entries.js` 接口未验证 | Warning | **反驳** | `headingsOf`/`isEntryHeading` 被 21 条**已接线**测试真跑；改名是响亮失败不是静默。`T8` 另钉"不得自带第二份条目标题正则" |
+| i7 `T8` 用正则解析源码，排版敏感 | Info | **接受为已知代价** | 本仓结构锁的既有形态；已配反失明下限（`reqs.length > 0`），解析退化成空集合即红 |
+| i8 `printList` 截断掩盖大面积失败 | Info | **反驳** | 首行 `records=/missing=/malformed=/duprisk=` 永远全量，截断只作用于明细；CI 断言取的就是首行 |
+
+`requiresExternalReview` 点名的 i6 属规格表述，不涉运行时授权判定；其 `domains:[auth]` 标签来自引擎的 `highRiskDomains` 轴，与本矩阵的路径前缀轴是两个轴（AGENTS 已把它登记为矩阵未覆盖的四格之一），故按内容处置、不按标签处置。
 
 ## CHANGELOG 条目
 

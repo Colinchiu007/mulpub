@@ -136,6 +136,26 @@ function landedRecordNames (archiveText) {
   return set;
 }
 
+/**
+ * 台账里已存在的**裸标题**（剥掉末尾一层括号后的标题）。
+ * 为什么需要它：迁移窗口内有人在手写条目，那些标题**没带 record 名后缀**，landedRecordNames 看不见，
+ * 于是同一条内容会被再搬一遍 —— 而"往一份 3 MB 的人读台账里塞重复块"正是本仓已经付出过
+ * 3348 个重复行键代价的形态。这里只把它当**第二道出声闸**（不是主键）：主键仍是 record 名，
+ * 裸标题命中时不搬、并点名，宁可少搬一条让人看见，也不要静默多搬一条。
+ */
+function bareTitles (archiveText) {
+  const set = new Set();
+  for (const h of entries.headingsOf(String(archiveText === undefined || archiveText === null ? '' : archiveText))) {
+    set.add(h.replace(/（[^（）]*）\s*$/, '').trim());
+  }
+  return set;
+}
+
+function bareTitleOf (blockText) {
+  const first = scanLines(blockText).find((l) => l.content !== '');
+  return first ? first.content.replace(/（[^（）]*）\s*$/, '').trim() : '';
+}
+
 function readDate (file) {
   try {
     const m = DATE_RE.exec(fs.readFileSync(file, 'utf8').slice(0, 4096));
@@ -173,7 +193,7 @@ function aggregate ({
   const files = collectRecords(root);
   const r = {
     records: files.length, missingSection: [], malformed: [], learningsShapeError: [],
-    landed: [], skipped: [], learningsLanded: [], learningsSkipped: [],
+    landed: [], skipped: [], learningsLanded: [], learningsSkipped: [], duplicateRisk: [],
     text: '', learningsText: '', wrote: false, dryRun: Boolean(dryRun),
   };
   const pendingChangelog = [];
@@ -223,22 +243,51 @@ function applyTo (r, pending, file, opt) {
   const seen = opt.marker
     ? new Set([...original.matchAll(MARKER_RE)].map((m) => m[1]))
     : landedRecordNames(original);
+  const bare = opt.marker ? null : bareTitles(original);
   const out = [];
   for (const b of pending) {
     if (seen.has(b.name)) { r[opt.skipBucket].push(b.name); continue; }
+    // 第二道出声闸：裸标题已在台账里（手写条目没带后缀的那类），不搬、点名，不算已落。
+    if (bare && bare.has(bareTitleOf(b.text))) { r.duplicateRisk.push(b.name); continue; }
     seen.add(b.name);
     r[opt.bucket].push(b.name);
     out.push(opt.marker ? `<!-- aggregate:record=${b.name} -->\n${b.text}` : b.text);
   }
   const rendered = out.join('') + original;
-  if (!opt.dryRun && out.length) fs.writeFileSync(file, rendered, 'utf8');
+  if (!opt.dryRun && out.length) writeAtomic(file, rendered);
   return rendered;
+}
+
+/**
+ * 原子替换：临时文件 + rename，Windows 上只对 EPERM/EACCES/EBUSY 做有界退避重试
+ * （AGENTS「Windows 原子文件替换重试」：其它错误原样抛，禁止无限重试或退化成直接覆盖）。
+ * 台账是 3 MB 的人读文件，半截写入比少搬一条更难收拾。
+ */
+const RETRYABLE = new Set(['EPERM', 'EACCES', 'EBUSY']);
+function writeAtomic (file, text) {
+  const tmp = `${file}.mp-agg-${process.pid}.tmp`;
+  fs.writeFileSync(tmp, text, 'utf8');
+  let delay = 20;
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      fs.renameSync(tmp, file);
+      return;
+    } catch (e) {
+      if (!RETRYABLE.has(e.code) || attempt >= 5) {
+        try { fs.rmSync(tmp, { force: true }); } catch (_) { /* 原始错误更要紧，别把它盖掉 */ }
+        throw e;
+      }
+      const until = Date.now() + delay;
+      while (Date.now() < until) { /* 有界退避，不用 worker 死循环 */ }
+      delay *= 2;
+    }
+  }
 }
 
 function formatReport (r) {
   return `AGGREGATE records=${r.records} missing=${r.missingSection.length} malformed=${r.malformed.length}`
     + ` learningsShape=${r.learningsShapeError.length} landed=${r.landed.length} skipped=${r.skipped.length}`
-    + ` learningsLanded=${r.learningsLanded.length} mode=${r.dryRun ? 'dry' : 'write'}`;
+    + ` duprisk=${r.duplicateRisk.length} learningsLanded=${r.learningsLanded.length} mode=${r.dryRun ? 'dry' : 'write'}`;
 }
 
 function parseArgs (argv) {
@@ -271,6 +320,7 @@ if (require.main === module) {
     printList('MISSING_SECTION', r.missingSection, limit);
     printList('MALFORMED', r.malformed, limit);
     printList('LEARNINGS_SHAPE', r.learningsShapeError, limit);
+    printList('DUPLICATE_RISK', r.duplicateRisk, limit);
     printList('LAND', r.landed, limit);
     printList('SKIP', r.skipped, limit);
   } catch (e) {

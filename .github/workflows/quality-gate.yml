@@ -506,7 +506,17 @@ jobs:
         shell: bash
         run: |
           node --test scripts/aggregate-changelog.test.js
-          node scripts/aggregate-changelog.js --dry-run
+          # ⛔ 只看 rc 不够（QM-6 critic i5）：步骤 rc=0 与"聚合器打了空行就退出"完全同形，
+          # 而这条步骤存在的理由恰恰是**留下真仓现场读数**。判据取它自己打印的首行，
+          # 并带 records>0 的下界 —— records=0 意味着采集面退化（openspec/records 读不到），
+          # 那和"本轮没有待搬条目"是两件不同的事，必须能被区分。
+          # tee 的退出码不是被测命令的退出码；本步骤 shell: bash 带 -o pipefail，node 非零即中止。
+          LOG="${RUNNER_TEMP:-/tmp}/aggregate-dryrun.log"
+          node scripts/aggregate-changelog.js --dry-run | tee "$LOG"
+          grep -qE '^AGGREGATE records=[1-9][0-9]* ' "$LOG" || {
+            echo "[Gate 2b8] FAIL: 没有看到 AGGREGATE 首行读数，或 records=0（采集面退化，不等于没有待搬条目）"
+            exit 1
+          }
 
   static-gates:
     name: QG Static
