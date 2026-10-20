@@ -144,6 +144,7 @@ shot-library.json 共 153 条；shot[0].prompt 长 13,922 字符，
 
 | 编号 | 文件 | 改什么 | 预计行数变化 |
 |------|------|--------|------------|
+| F-A | `apps/desktop/electron/services/film-engineering/script-adapt.js` | 把拼装拆成**零件**（头 / 角色行 / 运动块 / 静态块），buildTemplatePrompt 改为消费零件（**输出逐字不变**，918 组合等价核验）；新增 buildMotionPrompt（运动子集） | +95 / -40 |
 | F-A | `apps/desktop/electron/services/film-engineering/kit-loader.js` | 加载时归一化 `imagePrompt/videoPrompt/endFramePrompt`（`videoPrompt ??= ''`，**不回落 prompt**，见 §2.5）；`KIT_FILES` 不变（同文件） | +45 / -5 |
 | F-A | `apps/desktop/electron/services/film-engineering/auto-plan.js` | 规划期派生：`imagePrompt` = 当前拼装结果（**逐字不变**）；`videoPrompt` = **运动子集**（场景头 + 剧情 + 角色行 + 运动类块，去掉空间/音频/约束等静态块）；`endFramePrompt` = **''**（尾帧约束文本来自任务级提示词库，**派生随 PR-3（F-I）落地**，本批次只落字段与消费口径） | +70 / -15 |
 | F-A | `apps/desktop/electron/services/film-engineering/video-gen.js` | 图片走 `imagePrompt`、视频走 `videoPrompt`（`videoPrompt` 为空回落 `imagePrompt`）；**`endFramePrompt` 本批次不送入 provider**（消费前置见 §2.4） | +25 / -8 |
