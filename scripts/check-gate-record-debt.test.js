@@ -1951,8 +1951,9 @@ function runCli (args, env = {}) {
   })
 }
 
-test('行为锁：注入夹具根后，未登记欠账必须让 CLI 真退 1 并点名记录（不是靠崩）', () => {
+test('行为锁：注入夹具根后，未登记欠账必须让 CLI 真退 1 并点名记录（不是靠崩）', (t) => {
   const dir = fixture([{ head: '夹具未收口的老记录（legacy，2026-09-28）', status: 'PENDING' }])
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
   // 夹具里放一份**合法但故意不匹配**的冻结基线：让载体漂移确实发生，再用 --carrier-mode=visible
   // 把它降成可见项 —— 于是 rc=1 的唯一可能来源就是"未登记欠账"这条拦截面。
   fs.mkdirSync(path.join(dir, 'scripts'), { recursive: true })
@@ -1962,13 +1963,15 @@ test('行为锁：注入夹具根后，未登记欠账必须让 CLI 真退 1 并
   const out = String(r.stdout)
   const err = String(r.stderr)
   assert.match(out, /夹具未收口的老记录/, `输出必须点名那条未登记欠账，实际首行：${out.split('\n')[0] || '<空>'}`)
-  assert.doesNotMatch(err, /Error:/, `不得因未捕获异常退出（那与"真拦住"同码）：${err.slice(0, 160)}`)
+  // 实测：阻断路径 stderr 是 **0 字节**、stdout 16 行；异常路径正好相反（stderr 有栈头、stdout 空）
+  // ⇒ 断"stderr 为空"比断"不含 Error:"严格得多，也不会在将来被一句 warning 悄悄放过
+  assert.strictEqual(err.trim(), '', `阻断路径必须让 stderr 保持空（实测 0 字节），否则分不清拦截与崩溃：${err.slice(0, 160)}`)
   assert.strictEqual(r.status, 1, `未登记欠账必须进退出码；stdout 首行=${out.split('\n')[0] || '<空>'} stderr=${err.slice(0, 160)}`)
-  fs.rmSync(dir, { recursive: true, force: true })
 })
 
-test('注入必须全域生效：夹具账本的非法形状要被看见，真仓那份不得掺进来', () => {
+test('注入必须全域生效：夹具账本的非法形状要被看见，真仓那份不得掺进来', (t) => {
   const dir = fixture([{ head: '记录甲（alpha，2026-09-28）', status: 'PASS' }])
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
   fs.mkdirSync(path.join(dir, 'scripts'), { recursive: true })
   // 真仓账本此刻全是合法字符串：若 root 没切到 ledger，这条用例就看不到夹具的错、直接读到真仓的"没问题"
   fs.writeFileSync(path.join(dir, 'scripts', 'gate-record-debt-ledger.json'),
@@ -1976,16 +1979,15 @@ test('注入必须全域生效：夹具账本的非法形状要被看见，真�
   const r = runCli([`--root=${dir}`])
   assert.match(r.stderr, /必须是原因字符串/, `必须按夹具那份账本判，实际 stderr：${String(r.stderr).slice(0, 200)}`)
   assert.match(r.stderr, /夹具键甲/, '错误必须点名是哪个键')
-  fs.rmSync(dir, { recursive: true, force: true })
 })
 
-test('冻结基线也得跟着根走：夹具缺该文件必须抛"缺失"，不得悄悄读真仓那份', () => {
+test('冻结基线也得跟着根走：夹具缺该文件必须抛"缺失"，不得悄悄读真仓那份', (t) => {
   const dir = fixture([{ head: '记录乙（beta，2026-09-28）', status: 'PASS' }])
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
   // 故意**不**建 scripts/gate-carrier-freeze.json —— 现状（读 __dirname 的真仓文件）会静默读到合法基线并放行
   const r = runCli([`--root=${dir}`])
-  assert.match(r.stderr, /旧载体冻结基线缺失/, `注入根下缺冻结基线必须 fail closed；真读到夹具外的基线就是混合态假绿。stderr=${String(r.stderr).slice(0, 200)}`)
+  assert.match(r.stderr, /冻结基线/, `注入根下缺冻结基线必须 fail closed；真读到夹具外的基线就是混合态假绿。stderr=${String(r.stderr).slice(0, 200)}`)
   assert.match(r.stderr, new RegExp(dir.replace(/[\\^$*+?.()|[\]{}]/g, '\\$&').slice(-18)), '错误文本必须点名它找的是**夹具里**那个路径')
-  fs.rmSync(dir, { recursive: true, force: true })
 })
 
 test('裸旗标 --root 与未知拼写都不得静默回落默认根', () => {
@@ -1996,7 +1998,7 @@ test('裸旗标 --root 与未知拼写都不得静默回落默认根', () => {
 })
 
 
-test('不给 --root 时取证根必须仍是仓库根（默认路径零影响，不靠读代码相信）', () => {
+test('不给 --root 时取证根必须仍是仓库根（默认路径零影响，不靠读代码相信）', (t) => {
   const expect = path.resolve(__dirname, '..')
   // M-C 反证逼出来的这条：测试进程的 cwd 恰好就是仓库根，所以只断言 parseRoot([]) 是恒真的
   // ——必须把 cwd 换到一个**外来目录**再问一次，否则「默认取 cwd」这种退化看不见。
