@@ -1,0 +1,59 @@
+{
+  "sha": "147b69e2cad225294aefc1f21f02bfdf8fccca0d",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 1,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 7,
+    "docSensitiveContentSample": [
+      "# [未发布] fix(s2v): 克隆音色成功后「语音 / 音色 ID」自动切换 —— 修回滚空操作、失败文案死分支与刷新抹选（s2v-voice-clone-auto-select）",
+      "- **文档**：`01-docs/PRD.md` 音色域合同 4 处补充（数据校验 3 行含「禁止写法」与后果 / 流程第 3、4 步补回滚锚点合同与自动切换 6 步合同 / 交互逻辑 2 行 / 不变式 T9-T11）；新增详细 PRD `01-docs/PRD-S2V-VOICE-CLONE-AUTO-SELECT-2026-10-20.md`；`01-docs/learnings.md` 顶部 3 条教训（回滚锚点被污染 / 三元混搭死代码 / 刷新失败≠音色不存在）；执行记录 `openspec/records/s2v-voice-clone-auto-select.md`。",
+      "- **顺手记下这个基线缺的那道锁**（留给门禁批次，不在本 PR 夹带）：现在 `--update` 是"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "6d2d2edce636f683d318877f99f80eecafb53e3247b762200b26bc3e4169917c",
+  "decidedAt": "2026-10-20T04:57:03.509Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}
