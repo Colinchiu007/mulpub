@@ -47,11 +47,44 @@
     }
   },
   "deepReview": {
-    "required": false,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play(agent)",
+    "fallbackReason": "跨家族对抗后端超时，按引擎第三档出口 self_play 自查。本条为 PRD 收口总章（汇总性文档，无代码改动）。",
+    "evidenceInRepo": "01-docs/PRD-VIDEO-PUBLISH-4PLATFORMS-2026-10-18.md §16（§16.1 终态表 / §16.2 头条四层 / §16.3 交互文案 / §16.4 会话 / §16.5 边界）",
+    "confidenceWeight": 0.8,
+    "adjudication": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "汇总性文档最容易写成「把好事写上去」—— §16.1 说头条「100% 就绪」，但真实发布从未成功过。这句话会不会误导后人以为已经达成？",
+        "verdict": "upheld_verified",
+        "rationale": "区分了两种\"就绪\"：§16.1 写的是**技术链状态**（代码+链路已打通），不是**发布结果**；发布结果在 §16.5「未做/未闭合」里明确写「三平台真实发布成功均未取得 —— 全部被账号侧阻塞」。两处都不含糊：终态表的\"技术链状态\"列与\"剩余动作\"列分开，且 §16.2 结尾写的是「账号一旦实名：同一套代码即可产出 ItemId」（**条件句**，不是已完成）。§16.5 还主动列出两项更不利的事实（抖音签名从未真实验证、B 级架构参考未展开），不因它是汇总章就只写好的。",
+        "fixCommit": null
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "§16.3 的文案与链接是**从代码里抄来的**，会不会与实现漂移（代码改了文档没改）？",
+        "verdict": "upheld_partial",
+        "rationale": "会漂移，这是静态文档的固有风险。本轮的取值来自**当前实现**（`publish-gate-help.js` 的ACCOUNT_NOT_VERIFIED 条目 + 渲染层的 safeHttpUrl 契约），抄录时逐字比对过。但**没有机械锁**防止将来漂移 —— 要锁需要新增一条\"文档文案 vs locales 常量\"的判据，属新增门禁（改谁来守门），本轮不做，如实记为敞口。缓解：文档里标注了取值的代码位置，后人核对外链时可溯源。",
+        "fixCommit": null
+      },
+      {
+        "id": "i3",
+        "severity": "Info",
+        "finding": "这轮没有代码改动，只写了一章文档 —— 对\"实现真实发布成功\"这个目标，算不算在打转？",
+        "verdict": "upheld_verified",
+        "rationale": "不算打转，但也要承认它的**边际价值有限**：三平台此刻全部被账号侧阻塞（头条等实名、抖音/视频号等扫码），任何代码改动都无法推进发布结果。本轮做的这件事的价值在于：目标明确要求「补充进 PRD 和相关文档，尽量写详细」，而此前十五个 PR 的成果是**分散的**，从未有一份回答\"现在到哪一步\"的视图 ——这份视图是给**你（以及后续接手者）**在账号恢复后能立刻行动用的。如实说：如果账号一直不恢复，这一章也不会让发布成功。",
+        "fixCommit": null
+      }
+    ],
+    "summary": {
+      "total": 3,
+      "upheldVerified": 2,
+      "upheldPartial": 1,
+      "note": "汇总章主动区分「技术链就绪」与「发布成功」，并在 §16.5 列出不利事实（i1）；承认文档文案会与代码漂移且当前无机械锁（i2）；承认本轮无代码改动、边际价值依赖账号恢复（i3）。"
+    },
+    "at": "2026-10-20T20:47:35.811Z"
   }
 }
