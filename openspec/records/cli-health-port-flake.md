@@ -22,7 +22,7 @@ date: 2026-10-20
 | 远程同步 | 由门禁推导 | 不事后改写：合并后由 `scripts/lib/merge-ledger.js` 按 squash 尾注推导 |
 
 - 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD` ⇒ `docs-only=false`（含 `packages/` 运行时代码）
-- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PR #4094
+- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PR #4101
 
 ### 为什么值得单独记一笔
 
