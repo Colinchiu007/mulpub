@@ -39,7 +39,12 @@ sync_backfill_owner: 无需回填（派生收口）；旧载体存量行仍由�
 
 ## QM-6：proposer 后端 opencode 仍被 IP 信誉封锁
 
-`node scripts/ccg-review-decider.js --base origin/main` ⇒ 见 PR 描述与本节读数：**mode = single**（变更行数低于 200 行阈值）时按 QM-6 仍需深度审查但不要求双模型闭环；若判成 dual，则与 `ux-audit-token-aliases` / `ux-audit-stable-keys` 同因阻塞 —— `opencode run --model opencode/big-pickle` 秒回 `OpenCode's free models aren't available ... abusive traffic from this IP address`（rc=0 零产物），且 `sh scripts/deep-review.sh --check-deps` 会因引擎不在 `scripts/` 下而报「找不到 ccg-deep-review.js」并建议去设一个三级作用域都不存在的 `CCG_ARL_DIR`（该脚本自身的 help 已承认这是误导）。本单元不使用 `self_play_resolved` 冒充闭环。
+`node scripts/ccg-review-decider.js`（不带 `--base` 判暂存区；带 `--base origin/main` 在**未提交**时会因 `origin/main...HEAD` 为空而报"未判定"，那不是"无需审查"）⇒ **mode = DUAL**（260 行 > 200 行阈值，4 源文件，无敏感命中），要求后端对 `critic=claude / proposer=opencode`（取 `scripts/ccg-review-backends.list`）。
+
+- **proposer 不可用**：`opencode run --model opencode/big-pickle` 秒回 `OpenCode's free models aren't available from your current network because we've detected abusive traffic from this IP address`，**rc=0 但零产物**；与 `ux-audit-token-aliases` / `ux-audit-stable-keys` 同一 IP 级封锁，换模型名无效。
+- **规定驱动在本 worktree 也跑不起来**：`sh scripts/deep-review.sh` 直接 `✗ 找不到 ccg-deep-review.js` 并建议「设置 CCG_ARL_DIR 指向引擎目录」，而该脚本自己的注释承认这个变量在 Process/User/Machine 三级作用域都不该被去找（它是误导项）。真正可用的路径是把 `CCG_ARL_DIR` 指到 gitignored 的**已打补丁引擎副本的 `scripts` 目录**（`CCG_ARL_DIR` 的取值是"目录/ccg-deep-review.js"，所以必须指到 `.../arl-patched/scripts`，指到技能根会二次失败）。在 accounts 单元上这条路已经跑通并产出了 critic 结论（见 `openspec/records/ux-audit-accounts-text-tokens.md` 同日第二轮）。
+- 本单元**不使用** `self_play_resolved` 冒充闭环（AGENTS 明写那一条"外部模型一个都没跑也可能判绿"），`deepReview.status` 保持 `pending`，产物不手工改写；proposer 缺位与三条出路（等 IP 封锁解除 / 订阅 OpenCode Go / 改 backends 清单属"改谁来守门"）随 PR 上报人工裁决。
+
 
 ## 遗留（不假装已闭合）
 
