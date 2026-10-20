@@ -59,4 +59,38 @@ describe('useRewriteResultInvalidation — 改写结果变化时的作废契约'
     s.rewriteResult.value = ''
     expect(s.invalidateDraftId).toHaveBeenCalledTimes(1)
   })
+
+  // QM-6 深审 i8 的要求：**交错边界必须有独立用例**——
+  // 「程序赋值与用户手改快速交错」时，归因链不能出现**假挂**（把用户手改的正文
+  // 挂到引擎那条 rewrite_history 行上）。
+  it('程序赋值后立即手改 ⇒ 归因链被清（不假挂），草稿也作废', () => {
+    const s = setup()
+    // ① 程序赋值（新一轮改写落地）
+    s.markProgrammaticAssignment('程序改写内容')
+    s.rewriteResult.value = '程序改写内容'
+    expect(s.lineageId.value).toBe('rw-1') // 此时成对，保留
+
+    // ② 用户紧接着手改（不等任何异步回调）
+    s.rewriteResult.value = '用户立刻手改的内容'
+
+    // 手改后的正文已不是 rewrite_history 那条 ⇒ 归因链必须被清（不得假挂）
+    expect(s.invalidateLineageId).toHaveBeenCalledTimes(1)
+    expect(s.lineageId.value).toBe(null)
+    expect(s.draftId.value).toBe(null)
+  })
+
+  it('用户手改后程序赋值再次落地 ⇒ 程序赋值**不再**作废归因链（新 id 由调用方从引擎信封写入）', () => {
+    const s = setup('初始内容')
+    // ① 用户先手改 ⇒ 归因链被清
+    s.rewriteResult.value = '用户手改的内容'
+    expect(s.lineageId.value).toBe(null)
+    expect(s.invalidateLineageId).toHaveBeenCalledTimes(1)
+
+    // ② 随后一轮程序改写落地 ⇒ 本 composable **不再**作废归因链。
+    //    注意分工：**新 id 由调用方负责**（`rewriteViaEngine` 从引擎信封读出新 id 并写入），
+    //    本 composable 只负责「不误清」——它在程序赋值路径上刻意不动归因链。
+    s.markProgrammaticAssignment('新一轮改写内容')
+    s.rewriteResult.value = '新一轮改写内容'
+    expect(s.invalidateLineageId).toHaveBeenCalledTimes(1) // 仍只有第 ① 步那一次
+  })
 })

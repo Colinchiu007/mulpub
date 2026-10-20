@@ -100,7 +100,21 @@ branch: fix-collection-rewrite-publish-flow
 
 | 类型 | 实例 | 证据 |
 |---|---|---|
-| 口径可复算 | i1（审计链脱节，3 轮反复出现） | JSON 的 `sha` 与 `git merge-base origin/main HEAD` **逐字相等**（脚本明文预期「判定记录写在父 sha 上」）；`code_total=1839`（12 个代码文件精确和）**恰等于** JSON 的 `stats.changedLines`；`all_files=20 / all_total=2732` 是含文档与评审产物的另一口径；记录与改动的真实绑定是**内容寻址**的 `stagedDiffHash` |
+| 口径可复算 | i1（审计链脱节，**6 轮反复出现**） | JSON 的 `sha` 与 `git merge-base origin/main HEAD` **逐字相等**（脚本明文预期「判定记录写在父 sha 上」）；`code_total=1839`（12 个代码文件精确和）**恰等于** JSON 的 `stats.changedLines`；`all_files=20 / all_total=2732` 是含文档与评审产物的另一口径；记录与改动的真实绑定是**内容寻址**的 `stagedDiffHash` |
+
+> **审计口径的显式声明**（QM-6 i1 的建议，采纳）：`.ccg/reviews/<hash>.json` 的 `sha` 字段
+> **恒等于评审运行时的分支基线（merge-base）**，不是 head —— 这是 pre-commit 钩子的**设计**
+> （新提交在钩子运行时还不存在）。审计者不必反推内容寻址，可直接用下面两条命令复算：
+>
+> ```bash
+> # ① 基线（= JSON 的 sha 字段）
+> git merge-base origin/main HEAD
+> # ② 12 个代码文件的改动行数（= JSON 的 stats.changedLines）
+> git diff "$(git merge-base origin/main HEAD)..HEAD" --numstat -- apps/desktop \
+>   | awk '{s+=$1+$2} END {print s}'
+> ```
+>
+> 记录与**具体 diff** 的绑定是内容寻址的 `stagedDiffHash`（深审首行「判定记录按内容寻址命中」）。
 | 构建实跑 | i2/i4（依赖缺失、契约未验证） | `npx vite build` ⇒ **rc=0、built in 24.11s**；StageProgress 的 props 闭集与本组件传的 5 个 prop 逐个对上；浮层**真渲染进 `document.body`** 的行为级断言；**新增 6 条依赖契约锁**（`useCollectionVideoCreation.test.js`：逐个断言被复用模块的导出名与类型） |
 | 不变量成立 | i3/i5（sync watcher 竞态、seq 保护） | 「归因链 id 与当前显示内容永远成对」由三条纪律支撑（id 只在引擎成功分支写 / 程序赋值与正文同 tick / 用户手改由内容比对区分），且**两条路径各有独立用例**；建议的 seq 保护防的是**不可达**交错态（UI 已用 `:disabled` 串行化改写），按本仓纪律不加装饰性守卫 |
 | 策略一致 | i6（非有限输入静默默认） | 用户侧非法输入的**显性失败**已由 UI 层（红字 + 禁用 + 「请先修正字数设置」）与契约层（归一）两处承担；被指的静默默认只在**生产路径不可达**的防御分支，改成抛错会与模块既定策略相反并让脏输入打挂改写主流程 |

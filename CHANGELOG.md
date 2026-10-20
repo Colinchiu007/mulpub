@@ -50,6 +50,13 @@
   （rewrite-limits-50000 之后的旧值），已更新为 0-49999 / 1-50000；
   `collection/{zh,en}.js` 已 498 行，逐文件行数门禁（500 硬限）对 locale 同样生效 ⇒
   按既有「装配文件 import 子模块」范式把 `quickCollect` 块拆到 `locales/collection/quick-collect/`（**键路径不变**）。
+- **迁移影响面（键名变更）**：改的只是「渲染层 → 桌面改写引擎」这一条 IPC 契约
+  （`targetWordCount` → `wordCountRange`）。`targetWordCount` 在桌面引擎侧是**死字段**
+  （引擎只读 `wordCountRange`），全仓没有第二个发送方 ⇒ 移除它**不需要向后兼容措施**；
+  Python 聚合层维护的是**另一套**下划线字段（`min_word_count` / `max_word_count` /
+  `target_word_count`），本刀**一行未动**，旧客户端走 `/aggregation/rewrite` 的行为完全不变。
+  详见 `01-docs/PRD-COLLECTION-REWRITE-PUBLISH-FLOW-2026-10-20.md` §2.4；
+  该高危面（datamigration）另有**独立外部模型（claude）复核**并公开原文于 PR #4114 评论。
 - 回归锁：新增 `features/collection/rewrite-word-count.test.js`(14)、
   `composables/useCollectionVideoCreation.test.js`(10)、
   `views/Collection.rewrite-publish-flow.test.js`(9)；既有 `Collection.rewrite-input-limit.test.js`

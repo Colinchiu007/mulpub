@@ -90,6 +90,17 @@ export function clampStory2VideoText (text, maxChars = DEFAULT_STORY2VIDEO_TEXT_
  * @param {object} [opts]
  * @param {() => boolean} [opts.isDisposed] 视图卸载标记（in-flight 响应不再写回状态）
  * @param {object} [opts.deps] 测试注入（API 覆盖；未覆盖的项走真实 API）
+ *
+ * ## 并发模型（明确记录，别让它变成「靠运气」）
+ *
+ * 「同一时刻只允许一个视频创作 run」由 **UI 层按钮禁用**串行化
+ * （`AI改写` / `一键改写` 按钮的 `:disabled="rewriting || oneClickRewriting"`），
+ * **不是**靠序号强制。本模块内的 `videoSeq` 是**第二道**防线：它让在途响应在
+ * 「序号已前进」时**作废**（`seq !== videoSeq` ⇒ 直接丢弃该响应），而不是让过期响应覆盖新状态。
+ *
+ * 若将来引入「后台重试 / 多路并行视频创作」，必须补一个真正的取消/版本守卫
+ * （例如把 run 的 token 独立化，并在入口显式 abort 前一个 run）——那时 UI 层的禁用不再成立，
+ * 只靠 `videoSeq` 丢弃响应是不够的（**丢弃响应 ≠ 停止前一个 run**）。
  */
 export function useCollectionVideoCreation (opts = {}) {
   const router = useRouter()

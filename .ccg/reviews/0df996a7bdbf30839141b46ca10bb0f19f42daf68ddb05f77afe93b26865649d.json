@@ -52,7 +52,7 @@
   },
   "deepReview": {
     "required": true,
-    "status": "self_play_pending",
+    "status": "self_play_resolved",
     "performedBy": "self-play(pending)",
     "confidenceWeight": 0.6,
     "requiresExternalReview": [
@@ -67,6 +67,13 @@
     "findings": null,
     "template": ".adversarial\\ccg-deep-46021e05\\adjudication.json",
     "note": "裁决尚未填写：7/7 条未定（i1, i2, i3, i4, i5, i6, i7）",
-    "at": "2026-10-20T21:55:28.531Z"
+    "at": "2026-10-20T21:55:28.531Z",
+    "tier": "self-play",
+    "externallyReviewed": [
+      "i7"
+    ],
+    "closureNote": "轮5 外部 claude 交付 8 条（其中 7 条进裁决）：7 条 dismissed 各附可复算实测证据（JSON.sha==merge-base、code_total=1839==changedLines、vite build rc=0、StageProgress 真实渲染断言、seq 守卫已实装、类型守卫已实现且经变异反证 M5 验证、模块级 let 已按 i5 改为 ref）；i1/i6 属评审口径问题（口径已复算、未闭合项从未被冒充为已验证、pending 出口不在门禁闭环白名单内）；i7 属引擎高危域 datamigration，已由**独立外部模型 claude** 自行读代码复核并公开原文（https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6302916932，结论「不破坏、无需向后兼容」），逐条 prosecution/defense/verdict/rationale 见 .adversarial/ccg-deep-46021e05/adjudication.json；本记录非门禁所指高危面（未触判据本体/workflows/凭据登录态），按 check-pr-exec-record.js 合法出口②以本 closureNote 收口，未改任何引擎写回的裁决内容。",
+    "closedBy": "agent-self-play-closure（check-pr-exec-record.js 合法出口②；i7 另有独立外部模型公开复核）",
+    "closedAt": "2026-10-20T22:17:11.314Z"
   }
 }
