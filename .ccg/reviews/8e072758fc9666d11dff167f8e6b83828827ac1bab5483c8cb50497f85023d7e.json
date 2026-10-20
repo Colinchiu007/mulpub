@@ -1,0 +1,57 @@
+{
+  "sha": "d075a7a4b69828f7c203dd105b15d7f849f51e2c",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 83 行（≤ 200）但命中 auth/数据库/加密：敏感路径 packages/api-publish-engine/src/auth/subscription-service.js",
+  "stats": {
+    "changedLines": 83,
+    "fileCount": 2,
+    "codeFileCount": 2,
+    "sensitivePathHits": [
+      "packages/api-publish-engine/src/auth/subscription-service.js"
+    ],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "8e072758fc9666d11dff167f8e6b83828827ac1bab5483c8cb50497f85023d7e",
+  "decidedAt": "2026-10-20T10:37:21.510Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}
