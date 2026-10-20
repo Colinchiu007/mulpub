@@ -2,6 +2,9 @@
 record: ux-audit-accounts-text-tokens
 task: UX 审计 4.2 首批 —— Accounts.vue 裸 hex 文字色收编进主题令牌，并建立一份可复算的两档对比度判据
 date: 2026-10-20
+sync_status: PENDING
+sync_reason: 本 PR（ux-audit-accounts-text-tokens / #4066）尚未合并，merge SHA 尚不存在 ⇒ 无法取证收口；收口由 scripts/lib/merge-ledger.js 按主干历史推导
+sync_backfill_owner: 合并后由承接该分支的会话按 AGENTS「PR 自动合并 · 合并后收尾清单」回读 main push，读数写进 PR 评论，不写回本文件
 ---
 
 ## 本次执行记录：账号页文字色令牌收编（ux-audit-accounts-text-tokens，2026-10-20）【混合 PR】
