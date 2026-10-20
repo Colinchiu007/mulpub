@@ -333,6 +333,22 @@ export default {
     retry: '重试', createDraft: '创建草稿',
     useViralLibrary: '结合爆款库', usePersonalExperience: '结合个人经历',
     saveDraft: '存入草稿', goPublish: '去发布',
+    // ── 视频创作进度浮层（fix-collection-rewrite-publish-flow，2026-10-20）──
+    // 采集页「去发布 → 视频创作」不再跳视频创作页，改为就地弹出执行进度浮层。
+    videoCreate: {
+      title: '视频创作',
+      pipelineLabel: '流水线：{pipeline}',
+      starting: '正在启动视频创作…',
+      textTruncated: '文案共 {length} 字，超过视频创作上限 {max} 字，已截取前 {max} 字用于生成。如需完整文案，请调小改写字数上限或缩短原文。',
+      view: '查看视频',
+      publish: '去发布',
+      retry: '重试',
+      cancel: '取消生成',
+      close: '关闭',
+      pipelineFailed: '视频创作失败，请重试；若持续失败请查看应用日志。',
+      cancelled: '视频创作已取消。',
+      noContent: '当前没有可用的改写文案，无法开始视频创作。请先完成一次 AI 改写。',
+    },
     cancel: '取消', resultTitlePrefix: '采集结果',
     hasCoverImage: '有封面图', quickNewDraft: '新建草稿',
     quickClipboard: '剪贴板导入', quickGroupNew: '新建',

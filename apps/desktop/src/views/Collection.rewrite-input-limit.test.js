@@ -167,7 +167,7 @@ describe('采集页一键改写 — 超长正文自动截取（fix-collect-rewri
 
   // ── rewrite-segment-and-finish-reason 第二刀：meta 透传 + 分段失败文案 ──
 
-  it('成功分支透传 meta 四字段（outputTruncated/outputLength/modelTruncated/segmented）', async () => {
+  it('成功分支透传 meta 六字段（outputTruncated/outputLength/modelTruncated/segmented/truncatedSegments/wordCountRange）', async () => {
     // 评审 M5：成功分支历史上只挑 result_content/knowledgeRefs，引擎新增的可见字段被静默丢弃
     window.electronAPI = mockStealthApi('', {
       code: 0,
@@ -178,10 +178,13 @@ describe('采集页一键改写 — 超长正文自动截取（fix-collect-rewri
         outputLength: 1234,
         modelTruncated: true,
         segmented: { enabled: true, segmentCount: 5, totalChars: 60000 },
+        truncatedSegments: [3],
       },
     })
     const w = mountCollection()
     await nextTick()
+    w.vm.rewriteWordCountMin = 0
+    w.vm.rewriteWordCountMax = 6000
     const r = await w.vm.rewriteViaEngine('字'.repeat(100))
     expect(r.result_content).toBe('改写后的内容。')
     expect(r.meta).toEqual({
@@ -189,6 +192,13 @@ describe('采集页一键改写 — 超长正文自动截取（fix-collect-rewri
       outputLength: 1234,
       modelTruncated: true,
       segmented: { enabled: true, segmentCount: 5, totalChars: 60000 },
+      // fix-collection-rewrite-publish-flow（2026-10-20）新增两字段：
+      // ① truncatedSegments：段级截断段号（引擎仅在分段路径且确有截断时给）——
+      //    缺省归空数组，让派生函数统一按「整篇被截 / 部分段被截」两档展示；
+      // ② wordCountRange：本次生效的字数区间——截断横幅的「上限」显示项必须用它，
+      //    不能写死 6000（用户可填到 50000）。
+      truncatedSegments: [3],
+      wordCountRange: { min: 0, max: 6000 },
     })
   })
 
@@ -202,6 +212,8 @@ describe('采集页一键改写 — 超长正文自动截取（fix-collect-rewri
       outputLength: undefined,
       modelTruncated: false,
       segmented: null,
+      truncatedSegments: [],
+      wordCountRange: { min: 800, max: 2000 },
     })
   })
 

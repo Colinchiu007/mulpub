@@ -1,0 +1,115 @@
+{
+  "sha": "2dbda69258bc69f41da8be58a309e331b6b53184",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 1839 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 1839,
+    "fileCount": 16,
+    "codeFileCount": 12,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "95afed2943d1b24e76c0cac22284f2e669498a67386e29a5e96087d3852def36",
+  "decidedAt": "2026-10-20T19:41:48.841Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "externallyReviewed": [],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": ".ccg/reviews JSON 引用 sha=2dbda6925（非 head 8ace8f2），stats.changedLines=1839 与实际 diff 2842 行不符；deepReview 为 pending 但无 tier。评审元数据与实际变更脱节，无法信任自动生成结论。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "评审元数据与实际变更脱节：.ccg/reviews JSON 的 sha 指向父提交 2dbda6925 而非 head 8ace8f2，stats.changedLines=1839 与实际 diff 2842 行不符，deepReview 字段为 pending 且无 tier —— 结论不可信。",
+        "defense": "三个数字量的是**不同范围**，且 sha 是脚本明文写出的预期行为：① sha=2dbda6925 与 `git merge-base origin/main HEAD` **完全相等**（实测），即本分支基线；deep-review.sh 自己的输出写着「pre-commit 时新 commit 尚未生成，判定记录写在父 sha 上——这是预期行为」。② 记录与实际改动的绑定不是靠 sha 而是**内容寻址**的 stagedDiffHash=95afed29…，深审首行即「判定记录按内容寻址命中 95afed29」。③ 1839 = **12 个代码文件**（apps/desktop/*）的精确和（实测 `git diff <merge-base>..HEAD --numstat`：code_files=12、code_total=1839），JSON 自己声明了范围（fileCount=16 / codeFileCount=12）；全部 17 个文件的 raw 是 2491 行（实测），两个数都不是「对不上」，是口径不同。④ deepReview=pending 正是因为裁决未填（引擎自己写的 note：「5/5 条未定」），填完即闭合。",
+        "verdict": "dismissed",
+        "rationale": "逐条可复算：merge-base=2dbda6925…（=JSON 的 sha）；code_total=1839（=JSON 的 changedLines）；raw_total=2491 / 17 文件。评审引用的「2842」是**第三个**口径（对工作树而非本分支基线求差，且含尚未提交的执行记录与 hook 生成的评审 JSON），不能用来指控记录失真。结论：该指控成立的前提不成立。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "rewrite-word-count.js 直接从 @/utils/rewrite-engine-limits 导入 REWRITE_ENGINE_MAX_OUTPUT_CHARS；useCollectionVideoCreation.js 从 @/features/hot-topics/* 导入 6 个未在 diff 中出现的模块。无构建验证，缺失模块即构建失败。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "两个新模块 import 了 6+ 个「未在 diff 中出现」的模块（@/utils/rewrite-engine-limits、@/features/hot-topics/* 系列），diff 不含其定义、且无构建验证 —— 缺失模块即构建失败。",
+        "defense": "被 import 的模块**全部已存在于仓库**：apps/desktop/src/utils/rewrite-engine-limits.js（导出 REWRITE_ENGINE_MAX_OUTPUT_CHARS）、features/hot-topics/{gen-video-pipelines,gen-video-stage-tracking,gen-video-view-model}.js、composables/useGenVideoRunTracking.js、features/pipeline/run-context-video-path.js、composables/useGenVideoPublishTitle.js。pre-existing 模块**本就不该**出现在 diff 里（重提交会造成重复定义）。且「无构建验证」不成立：本刀**实跑过渲染层生产构建** `npx vite build` ⇒ rc=0、built in 24.11s；另有 473 条单测在同一条 import 图上全绿。",
+        "verdict": "dismissed",
+        "rationale": "指控的事实前提（模块缺失）与流程前提（无构建验证）都被实测否证：构建 rc=0 即证明 import 图可解析。"
+      },
+      {
+        "id": "i3",
+        "severity": "Critical",
+        "finding": "CollectionVideoProgressModal.vue 引入 StageProgress（@/views/video-creation），但 diff 未提供该组件定义，也未验证 props（stages/progress-percent/elapsed-ms/summary/testid-prefix）的契约匹配。浮层渲染依赖未确认。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "CollectionVideoProgressModal.vue 引入 StageProgress（@/views/video-creation）但 diff 未提供该组件定义、也未验证 props 契约匹配，浮层渲染依赖未确认。",
+        "defense": "组件存在于 apps/desktop/src/views/video-creation/StageProgress.vue，其 props 闭集为：stages / progressPercent / elapsedMs / summary / showTimeGuidance / orchestrationContext / checkpoint / testidPrefix —— 本组件传的 :stages / :progress-percent / :elapsed-ms / :summary / testid-prefix **全部是已声明 prop**（Vue kebab→camel 内建映射）。且有**运行时证据**：组件测试断言浮层真的渲染进了 document.body（`collection-video-create-modal` 可见），这要求 StageProgress 被 import、挂载并渲染成功；另有 `vite build` rc=0 证明打包解析通过。",
+        "verdict": "dismissed",
+        "rationale": "组件存在、props 逐个对上、且「浮层真的渲染出来了」有行为级断言兜着 —— 三条证据指向同一结论，指控的三点担忧均不成立。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "watch(rewriteResult, {flush:'sync'}) 在每次程序赋值时同步触发，清空 genreDraftId 并比较 lastProgrammaticRewrite。若 rewriteViaEngine 异步完成而用户快速二次编辑，sync watcher 可能在旧值上执行，导致归因链与草稿作废状态不一致。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "watch(rewriteResult, {flush:'sync'}) 每次程序赋值同步触发；若 rewriteViaEngine 异步完成而用户快速二次编辑，sync watcher 可能在旧值上执行，导致归因链与草稿作废状态不一致。建议加 seq/version 保护。",
+        "defense": "本刀建立的不变量是「归因链 id 与当前显示内容永远成对」，它由三条纪律保证：① collectRewriteLineageId 只在 rewriteViaEngine 的成功分支写，而该分支只在 res.data.result 为真时可达 ⇒ 不存在「有 id 无内容」的孤儿态；② applyRewriteResult **先**写 lastProgrammaticRewrite、**后**写 rewriteResult.value（赋值瞬间 sync watcher 读到的就是新值）；③ 两者写在同一个同步 tick 内，用户输入无法插入其间。评审设想的交错（改写在途 + 用户手改）逐帧核对：手改 → watcher 判 next!==lastProgrammaticRewrite ⇒ 清归因（正确：手改的正文不是 rewrite_history 那行）；改写随后落地 → lastProgrammaticRewrite 等于它自己的内容 ⇒ 归因保留，**内容与 id 成对**。另：UI 已串行化改写（AI改写按钮 :disabled=\"rewriting || oneClickRewriting\"）。",
+        "verdict": "dismissed",
+        "rationale": "不变量成立且有逐帧推演；建议的 seq/version 保护是**装饰性**的——它防的是一个已不可达的交错态，加上去只会制造「看起来更安全」的噪音（与本仓「不要装饰性门禁」的纪律相悖）。如实附一条边界：改写在途时用户的手改会被改写结果覆盖，这是采集页**既有**行为（textarea 一直被改写结果覆盖），非本刀引入，不在本刀范围。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "useCollectionVideoCreation 使用模块级 let（videoSourceText/videoSeq），并发调用或快速重试可能覆盖前一次流水线状态，缺乏每次调用的隔离；resetVideoState 在 onUnmounted 调用但未检查跟踪层是否已停止。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "useCollectionVideoCreation 用模块级 let（videoSourceText/videoSeq），并发或快速重试可能覆盖前一次流水线状态；resetVideoState 在 onUnmounted 调用但未检查跟踪层是否已停止。维度标为 security。",
+        "defense": "① 事实前提不成立：videoSeq（:126）、videoSourceText（:128）、videoSourceTitle（:129）都声明在 **useCollectionVideoCreation() 函数体内**（每实例一份闭包），不是模块级；组件每次实例化各得一份。② 并发已被守住：startVideoCreation 在 videoBusy.value 时早退（:214）；videoSeq++ 使在途响应失效，并在 4 处比对（:169/:189/:250/:323）——与仓库既有 hot-topics composable 同一套 seq 模式。③ 「未检查跟踪层是否已停止」不成立：resetVideoState 第一件事就是 tracking.stopGenVideoTracking()（:334）；finishCompleted(:263)、finishTerminal(:281)、cancelVideoCreation(:294) 也各自停；重试路径上 videoRunId 先置 null（旧轮询自失效），且 startGenVideoTracking() 自身先 stop 再 start。④ 维度标注为 security 属误分类：这是状态隔离问题，不是安全问题。",
+        "verdict": "dismissed",
+        "rationale": "四项指控逐条与源码行号对账后均不成立（其中两项是「模块级/未停止」的事实误读）。本刀不为此增防护代码——按本仓纪律，无对应真实缺陷就不加装饰性守卫。"
+      }
+    ],
+    "blocking": [],
+    "note": "自扮演裁决：全部指控不成立",
+    "at": "2026-10-20T20:18:24.093Z"
+  }
+}

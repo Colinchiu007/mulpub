@@ -22,6 +22,41 @@
 - **QM-6 第三轮的两条 upheld 已当场修**：① 连换两次**不同**后端时 `commitRequest` 被换成「上一次的回写值」，审计锚从「提交时请求的是谁」漂成「上一次评审请求的是谁」（既有锁只盖了同值重跑那一格）——修成 `before.commitRequest || before` 且 `rewrittenAt` 锚在第一次改写，spec 同步补一条 Scenario；② `applyReviewRequestToRecord` 只校验 `critic` 不校验 `proposer`，缺半边时 `undefined` 被 `JSON.stringify` 静默丢键 ⇒ 记录看着像写过了、对账却只读到半个真源。
 - **本轮两条 dismissed 都给了可核对出处，并如实登记一条没抓到的反证**：「从非根 cwd 起脚本必败」不成立（入口 `:55` 已按脚本自身位置 `cd ROOT`）；「欠账按 inner sha 归属会记到父提交名下」不成立（判据按变更集路径扫 `.ccg/reviews/*.json`，从不读 `rec.sha`）。新补的 i2 一致性锁在「入口分支门禁改恒真」这版变异下指名变红，在「改 shell 侧覆盖判据」那版下**没有**变红 —— 它的强度只覆盖前者，写成两条都 CAUGHT 就是假证据。
 - **落地形态**：未新增 `*.test.js`（两段锁追加进已接线文件）⇒ 不动 `quality-gate.yml`、不动"谁来守门"；`scripts/` 工具脚本自身 ⇒ 混合 PR，不走 docs-only 通道。隔离入口 `start-mp-task.ps1` 被 `mp-worktree-health.ps1 -RequireClean` 拒绝（他人在飞改动），故在共享根就地编辑、用 plumbing 从 `origin/main` 构建单笔提交，`CHANGELOG.md` / `AGENTS.md` 两个热点写面**取 origin/main 的 blob 再插行**（本地工作副本滞后 4 笔，就地编辑会反向撤销上游那几行）。**本行的到达方式**：功能 PR #3988 是混合 PR，每 rebase 一次要重跑约 50 分钟全量 CI，而主干 CHANGELOG 顶插约每 20 分钟多一笔，两者相乘使合并窗口追不上（现场三次 CONFLICTING、一次 `gh pr merge` 被 GitHub 以 merge conflicts 拒），故该行经用户裁决从 #3988 的净差量拆出、由这一笔 docs-only PR 落——Gate 2c3 的 `check-changelog-growth.js` 是「只可增长」棘轮、不要求每个 PR 自带条目，实测拆出后 `base 576 条 → head 576 条` 仍 PASS。全过程记 `openspec/records/qm6-review-request-writeback.md`，规格增量记 `openspec/changes/qm6-review-backend-config/`（第 10 节 + 新 Requirement，`openspec validate --strict` rc=0）。
+# [未发布] fix(collection): 采集页字数区间真正生效（0-6000 不再被砍到 3000）+ 截断可见化；「视频创作」改为就地执行进度浮层；二次改写不再带旧文案（fix-collection-rewrite-publish-flow）
+
+- 用户报障三条，一次报障、三个独立缺陷：① 采集页把字数设成 0-6000，改写结果**非常少**且
+  **像是没有结束**；② 点「去发布 → 视频创作」会**跳到视频创作页**（用户要的是：发布浮层消失、
+  改为弹出流水线执行进度浮层）；③ 二次 AI 改写后带进视频创作的**是第一次改写的文案**。
+- 缺陷 ① 根因（两段）：采集页把区间传成 `userSettings.targetWordCount`（**Python 聚合层旧契约**），
+  而桌面改写引擎读的是 **`userSettings.wordCountRange`** ⇒ 引擎既不注入「【字数要求】…」指令，
+  又把输出按**默认 3000 码点**硬砍尾（`codePoints.slice(0, max)`，切在句子中间 ⇒「像没结束」），
+  连带主进程 `max_tokens` 也永远按兜底 3000 推导；另 `Number(min) || 800` 把用户显式填的 **0**
+  吞成 800（`0` 是 falsy）。现改为传 `wordCountRange`，区间归一收敛到纯函数
+  `features/collection/rewrite-word-count.js`（**min=0 原样保留**、非法值回落默认、
+  越界夹到引擎合法域、`max<min` 收敛），并把引擎的三个截断信号（`outputTruncated` /
+  `modelTruncated` / `segmented`）在采集页**全部显示**（此前收了却没人读 ⇒ 用户只看到「像没写完」）。
+- 缺陷 ② 根因：`onPublishVideo` 是「跳页型」实现（`router.push('/create?draft=…')`），
+  用户还得再点一次「启动」。现改为**就地启动流水线 + 执行进度浮层**
+  （`UiModal variant="progress"` + `StageProgress`，与视频创作页/热门选题一键成片同款），
+  复用热门选题的阶段跟踪/启动参数/run 跟踪层/发布出口，**不写第二份实现**。
+- 缺陷 ③ 根因：`genreDraftId`（已存草稿 id）是模块级 `let`，改写结果变化时**从不被作废** ⇒
+  `goPublishAfterRewrite` 见到它非空就跳过重存 ⇒ 草稿箱里躺的是第一次改写的那份。
+  改写页（`RewriteView`）早有 `invalidateSavedDraft()` 这道防护，**采集页漏了同一条**。
+  现补上「改写结果一变 ⇒ 已存草稿立即作废」的不变量（`watch(rewriteResult, { flush: 'sync' })`），
+  并且视频创作**直接用当前改写结果**启动流水线，不再经「旧草稿」这一层。
+- 归因链的例外（刻意不一起清）：`rewrite_history` 行 id 只在**用户手改正文**时作废——
+  程序赋值的新正文与刚写入的 id 是一对，自清反而制造假归因；用「最近一次程序赋值内容」比对区分。
+- 顺带订正：`collection.wordCount*Invalid` 的上限文案还写着旧的 0-5999 / 1-6000
+  （rewrite-limits-50000 之后的旧值），已更新为 0-49999 / 1-50000；
+  `collection/{zh,en}.js` 已 498 行，逐文件行数门禁（500 硬限）对 locale 同样生效 ⇒
+  按既有「装配文件 import 子模块」范式把 `quickCollect` 块拆到 `locales/collection/quick-collect/`（**键路径不变**）。
+- 回归锁：新增 `features/collection/rewrite-word-count.test.js`(14)、
+  `composables/useCollectionVideoCreation.test.js`(10)、
+  `views/Collection.rewrite-publish-flow.test.js`(9)；既有 `Collection.rewrite-input-limit.test.js`
+  的 meta 形状断言随契约扩展同步更新。采集页相关全集 **31 文件 / 473 用例全绿**；
+  `check-max-lines` / `check-locale-sync --keys` / `--cjk` / `eslint --quiet` 全 PASS。
+- 详见 `01-docs/PRD-COLLECTION-REWRITE-PUBLISH-FLOW-2026-10-20.md` 与
+  `openspec/records/fix-collection-rewrite-publish-flow.md`。
 
 # [未发布] fix(ci): 时钟位移引信巡检补上「先重建构建产物」，并把「跑桌面测试的 job 必须先备好产物」做成按 job 的跨 workflow 装配锁（electron-ci-preload-build）
 
