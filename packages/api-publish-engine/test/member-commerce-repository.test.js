@@ -253,6 +253,79 @@ test('PostgresCommerceTransaction 单事务编排', async (t) => {
     assert.strictEqual(upsert.values[5], 'op-x')
   })
 
+  await t.test('applySubscription 跨档续叠：低档码只延时长、不改档位（v2.0 C9.2 冲突一）', async () => {
+    const client = fakeClient()
+    const builtFor = []
+    client.queue = [
+      { rows: [{ pg_advisory_xact_lock: null }] },
+      // 存量订阅为 pro 且未到期
+      { rows: [{ id: 'sub-u-1', user_id: 'u-1', plan: 'pro', status: 'active', current_period_start: '2026-09-01T00:00:00Z', current_period_end: '2026-10-01T00:00:00Z' }] },
+      { rows: [{ id: 'sub-u-1', plan: 'pro' }] },
+      { rows: [{ id: 'ord-1' }] },
+      { rows: [{ version: 3 }] },
+    ]
+    const tx = new PostgresCommerceTransaction(client)
+    const result = await tx.applySubscription({
+      userId: 'u-1', plan: 'standard', durationDays: 30,
+      now: new Date('2026-09-15T00:00:00Z'),
+      order: { id: 'ord-1', amount: 0, currency: 'CNY', channel: 'redeem' },
+      entitlementPayloadFor: (plan) => { builtFor.push(plan); return { plan, features: [] } },
+    })
+    const upsert = client.calls[2]
+    // 订阅档位被压制为 pro（不得降级）
+    assert.strictEqual(upsert.values[2], 'pro')
+    // 快照按生效档位现算，不是请求档位
+    assert.deepStrictEqual(builtFor, ['pro'])
+    assert.strictEqual(result.plan, 'pro')
+    assert.strictEqual(result.requestedPlan, 'standard')
+    assert.strictEqual(result.downgradeSuppressed, true)
+    // 订单记录用户实际兑换的档位（对账要看原值）
+    assert.deepStrictEqual(client.calls[3].values, ['ord-1', 'u-1', 'standard', 0, 'CNY', 'redeem'])
+    // 时长照常叠加（压制的是档位，不是有效期）
+    assert.strictEqual(upsert.values[4], new Date('2026-10-31T00:00:00Z').toISOString())
+  })
+
+  await t.test('applySubscription 跨档续叠：高档码整期升级（不触发压制）', async () => {
+    const client = fakeClient()
+    client.queue = [
+      { rows: [{ pg_advisory_xact_lock: null }] },
+      { rows: [{ id: 'sub-u-1', user_id: 'u-1', plan: 'standard', status: 'active', current_period_start: '2026-09-01T00:00:00Z', current_period_end: '2026-10-01T00:00:00Z' }] },
+      { rows: [{ id: 'sub-u-1', plan: 'pro' }] },
+      { rows: [{ id: 'ord-2' }] },
+      { rows: [{ version: 4 }] },
+    ]
+    const tx = new PostgresCommerceTransaction(client)
+    const result = await tx.applySubscription({
+      userId: 'u-1', plan: 'pro', durationDays: 30,
+      now: new Date('2026-09-15T00:00:00Z'),
+      order: { id: 'ord-2', amount: 0, currency: 'CNY', channel: 'redeem' },
+      entitlementPayloadFor: (plan) => ({ plan }),
+    })
+    assert.strictEqual(client.calls[2].values[2], 'pro')
+    assert.strictEqual(result.downgradeSuppressed, false)
+    assert.strictEqual(result.plan, 'pro')
+  })
+
+  await t.test('压制但未给 entitlementPayloadFor ⇒ fail closed，且不落任何写', async () => {
+    const client = fakeClient()
+    client.queue = [
+      { rows: [{ pg_advisory_xact_lock: null }] },
+      { rows: [{ id: 'sub-u-1', user_id: 'u-1', plan: 'pro', status: 'active', current_period_start: '2026-09-01T00:00:00Z', current_period_end: '2026-10-01T00:00:00Z' }] },
+    ]
+    const tx = new PostgresCommerceTransaction(client)
+    await assert.rejects(
+      tx.applySubscription({
+        userId: 'u-1', plan: 'standard', durationDays: 30,
+        now: new Date('2026-09-15T00:00:00Z'),
+        order: { id: 'ord-1', amount: 0, currency: 'CNY', channel: 'redeem' },
+        // 只给请求档位的 payload：若放行会写出 subscription=pro + snapshot=standard 的权限分裂
+        entitlementPayload: { plan: 'standard' },
+      }),
+      (err) => err.code === 'ENTITLEMENT_PAYLOAD_REQUIRED' && err.status === 500,
+    )
+    assert.strictEqual(client.calls.length, 2, '锁 + SELECT 之后即拒绝，不得写订阅/订单/快照')
+  })
+
   await t.test('createNotification 单条插入带 id', async () => {
     const client = fakeClient()
     const tx = new PostgresCommerceTransaction(client)

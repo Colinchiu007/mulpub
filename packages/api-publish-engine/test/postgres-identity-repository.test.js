@@ -197,6 +197,35 @@ test('PostgresIdentityRepository', async (t) => {
     }), /periodEnd must be after periodStart/)
   })
 
+  await t.test('权益提供器在读取端剔除已过期的宽限字段（CCG i2）', async () => {
+    const { PostgresEntitlementProvider } = require('../src/auth/postgres-identity-repository')
+    const makeProvider = (payload) => new PostgresEntitlementProvider({
+      async getEntitlement() { return payload },
+    }, { now: () => new Date('2026-10-10T00:00:00.000Z') })
+
+    // 宽限仍在有效期内：字段原样下发
+    const live = await makeProvider({
+      plan: 'free', features: ['dashboard_full'], graceUntil: '2026-10-12T00:00:00.000Z', previousPlan: 'pro',
+    }).getForUser({ businessUser: { id: 'u-1' } })
+    assert.strictEqual(live.graceUntil, '2026-10-12T00:00:00.000Z')
+    assert.strictEqual(live.previousPlan, 'pro')
+
+    // 宽限已过期：出口处剔除两个字段（不改库，读投影），避免消费方按「字段存在即宽限中」误报
+    const stale = await makeProvider({
+      plan: 'free', features: ['dashboard_full'], graceUntil: '2026-10-05T00:00:00.000Z', previousPlan: 'pro',
+    }).getForUser({ businessUser: { id: 'u-1' } })
+    assert.strictEqual(stale.graceUntil, undefined)
+    assert.strictEqual(stale.previousPlan, undefined)
+    assert.strictEqual(stale.plan, 'free')
+    assert.deepStrictEqual(stale.features, ['dashboard_full'])
+
+    // 不可解析的宽限时间同样按「无宽限」处理（fail closed 到不显示，而不是永久显示）
+    const broken = await makeProvider({
+      plan: 'free', features: [], graceUntil: 'not-a-date', previousPlan: 'pro',
+    }).getForUser({ businessUser: { id: 'u-1' } })
+    assert.strictEqual(broken.graceUntil, undefined)
+  })
+
   await t.test('权益提供器按 UTC 月份扣减并在额度耗尽时 fail closed', async () => {
     const calls = []
     const repository = {

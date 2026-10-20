@@ -1,0 +1,69 @@
+{
+  "sha": "bc4571367dfb15f5506e47e9153d9373a2e2f9aa",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 1872 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 1872,
+    "fileCount": 6,
+    "codeFileCount": 6,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 1,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "9a0edf17c5651357731b6ceb8bc0cbe8e1edadcc1b4645bc4d567d1f8a4ad34f",
+  "decidedAt": "2026-10-19T18:51:45.592Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "tier": "self-play",
+    "performedBy": "self-play(claude-critic x opencode-proposer)",
+    "evidence": {
+      "reason": "本提交是**零行为变更的文件拆分**：把已通过两轮对抗审查的代码按 500 行债务阈值切成三个文件，逻辑逐字未改（kit-loader 保持全部原导出；两个测试文件内容平移）。",
+      "nature": "pure-refactor / zero-behavior-change",
+      "evidenceOfEquivalence": [
+        "kit-loader.js 原导出集合不变（validateShotGrammar / validateComplianceChecklist / validatePalette / checkSchemaVersion 改为从 kit-asset-validators 引入后再导出）",
+        "kit.loadFilmKit 结果不变：载入真实 film-kit 后 ok=true，shards/scenes/grammarIndex/promptLibrary 与拆分前一致",
+        "测试用例数从 506 增到 508（拆分未删除任何断言），31 文件全绿",
+        "check-debt-budget 全指标在基线内：filesOver500 95 = baseline 95"
+      ],
+      "priorReviews": [
+        "第一轮 .adversarial/ccg-deep-01258c7a（8 条，全修）",
+        "第二轮 .adversarial/ccg-deep-f1734902（8 条，全修）"
+      ],
+      "convergenceCriterion": "拆分本身不引入新语义，故不再起第三轮对抗审查；将其视为第二轮结论的机械落实，并以「导出不变 + 用例数不减 + 全绿 + 债务基线不破」四道判据作为等价性证据。"
+    },
+    "findings": null
+  }
+}

@@ -1,0 +1,76 @@
+{
+ "schemaVersion": 1,
+ "shotSizes": [
+  { "key": "extreme_wide", "zh": "大远景", "en": "Extreme wide shot", "abbr": "EWS", "zhUsage": "交代地理环境、孤立感、史诗感；人物小于画面 1/8", "enUsage": "Establishes geography, isolation, scale; subject under 1/8 of frame", "chain": "wide" },
+  { "key": "wide", "zh": "远景", "en": "Wide shot", "abbr": "WS", "zhUsage": "交代空间与人物全貌；每场第一个镜头默认用它", "enUsage": "Sets space and full figure; the default establishing shot for a scene", "chain": "wide" },
+  { "key": "full", "zh": "全景", "en": "Full shot", "abbr": "FS", "zhUsage": "人物全身入画，头顶与脚下留少量空间；动作戏主力", "enUsage": "Whole body with small headroom and footroom; the workhorse for action", "chain": "wide" },
+  { "key": "medium_wide", "zh": "中远景", "en": "Medium wide shot", "abbr": "MWS", "zhUsage": "膝盖以上；兼顾动作与表情；对话双人镜头常用", "enUsage": "Knees up; balances action and expression; common in two-shots", "chain": "medium" },
+  { "key": "medium", "zh": "中景", "en": "Medium shot", "abbr": "MS", "zhUsage": "腰部以上；手势与表情并重", "enUsage": "Waist up; gestures and expression carry equal weight", "chain": "medium" },
+  { "key": "medium_close", "zh": "中近景", "en": "Medium close-up", "abbr": "MCU", "zhUsage": "胸部以上；对话主力景别，观众代入感最强", "enUsage": "Chest up; the dialogue workhorse and the strongest point of view", "chain": "medium" },
+  { "key": "close", "zh": "近景", "en": "Close shot", "abbr": "CS", "zhUsage": "肩部以上；情绪转折、决定瞬间", "enUsage": "Shoulders up; emotional turns and decisions", "chain": "close" },
+  { "key": "close_up", "zh": "特写", "en": "Close-up", "abbr": "CU", "zhUsage": "面部充满画面；微表情、眼泪、瞳孔变化", "enUsage": "Face fills frame; micro-expression, tears, pupil change", "chain": "close" },
+  { "key": "extreme_close_up", "zh": "大特写", "en": "Extreme close-up", "abbr": "ECU", "zhUsage": "眼睛/嘴/手/物件的局部；强调关键信息，慎用", "enUsage": "Eye, mouth, hand, or prop detail; presses a key fact, use sparingly", "chain": "close" },
+  { "key": "insert", "zh": "插入镜", "en": "Insert shot", "abbr": "INS", "zhUsage": "物件/文字/屏幕内容；用于信息交付与转场衔接", "enUsage": "Object, text, or screen content; delivers information and bridges transitions", "chain": "close" }
+ ],
+ "cameraMoves": [
+  { "key": "static", "zh": "固定", "en": "Static", "zhUsage": "三脚架锁定；情绪戏与对话默认选择；最不容易翻车", "enUsage": "Locked off; the default for dialogue and emotion; the least failure-prone choice", "risk": "low" },
+  { "key": "pan", "zh": "横摇", "en": "Pan", "zhUsage": "机身不动左右转；用于扫视环境或跟随横向移动", "enUsage": "Pivot horizontally in place; scans a space or follows lateral motion", "risk": "low" },
+  { "key": "tilt", "zh": "纵摇", "en": "Tilt", "zhUsage": "机身不动上下转；用于揭示高度（楼层/站立）", "enUsage": "Pivot vertically in place; reveals height", "risk": "low" },
+  { "key": "dolly_in", "zh": "推镜", "en": "Dolly in", "zhUsage": "物理前推；强调、逼近、压迫感；速度必须匀速", "enUsage": "Physically move in; emphasis, approach, pressure; keep the speed constant", "risk": "medium" },
+  { "key": "dolly_out", "zh": "拉镜", "en": "Dolly out", "zhUsage": "物理后拉；揭示环境、疏离感、收尾", "enUsage": "Physically move out; reveals context, creates distance, closes a scene", "risk": "medium" },
+  { "key": "truck", "zh": "平移", "en": "Truck", "zhUsage": "机身横向平移；与 pan 的区别是不转向", "enUsage": "Translate sideways without rotating; unlike a pan the camera keeps facing forward", "risk": "medium" },
+  { "key": "crane_up", "zh": "升镜", "en": "Crane up", "zhUsage": "垂直上升；用于场次收尾与揭示规模", "enUsage": "Rise vertically; closes a scene or reveals scale", "risk": "medium" },
+  { "key": "crane_down", "zh": "降镜", "en": "Crane down", "zhUsage": "垂直下降；用于入场与压迫", "enUsage": "Descend vertically; entry and pressure", "risk": "medium" },
+  { "key": "handheld", "zh": "手持感", "en": "Handheld", "zhUsage": "轻微晃动；只允许小幅，幅度过大会毁掉整个镜头", "enUsage": "Slight sway; keep the amplitude tiny or the whole shot is ruined", "risk": "high" },
+  { "key": "orbit", "zh": "环绕", "en": "Orbit", "zhUsage": "绕主体弧形运动；角色一致性风险高，慎用", "enUsage": "Arc around the subject; high identity-consistency risk, use sparingly", "risk": "high" },
+  { "key": "whip_pan", "zh": "甩镜", "en": "Whip pan", "zhUsage": "快速横向甩动；常作转场衔接，需配合运动模糊", "enUsage": "Fast horizontal whip; usually a transition, needs motion blur to sell it", "risk": "high" },
+  { "key": "zoom", "zh": "变焦", "en": "Zoom", "zhUsage": "焦距变化而非位移；复古感，与 dolly 不可混用同镜", "enUsage": "Focal length change, not translation; a retro feel and never mixed with a dolly in one shot", "risk": "medium" }
+ ],
+ "cameraAngles": [
+  { "key": "eye_level", "zh": "平视", "en": "Eye level", "zhUsage": "与被摄主体视线等高；中性、客观、默认选择", "enUsage": "Level with the subject's eyeline; neutral, objective, the default", "emotion": "neutral" },
+  { "key": "low_angle", "zh": "仰拍", "en": "Low angle", "zhUsage": "自下向上；赋予力量、权威、压迫感", "enUsage": "Looking up; confers power, authority, threat", "emotion": "power" },
+  { "key": "high_angle", "zh": "俯拍", "en": "High angle", "zhUsage": "自上向下；削弱主体、呈现脆弱与无助", "enUsage": "Looking down; diminishes the subject, shows vulnerability", "emotion": "weakness" },
+  { "key": "birds_eye", "zh": "鸟瞰", "en": "Bird's eye", "zhUsage": "近乎垂直俯视；用于空间交代与命运感", "enUsage": "Near-vertical overhead; geography and a sense of fate", "emotion": "fate" },
+  { "key": "dutch", "zh": "斜角", "en": "Dutch angle", "zhUsage": "画面倾斜；用于失衡、精神异常、危险临近", "enUsage": "Tilted horizon; instability, derangement, impending danger", "emotion": "unease" },
+  { "key": "over_shoulder", "zh": "过肩", "en": "Over-the-shoulder", "zhUsage": "越过一方肩膀拍另一方；对话戏标准机位", "enUsage": "Over one subject onto the other; the standard dialogue setup", "emotion": "engagement" },
+  { "key": "pov", "zh": "主观视角", "en": "Point of view", "zhUsage": "第一人称视角；用于代入与惊吓", "enUsage": "First-person view; identification and shock", "emotion": "immersion" },
+  { "key": "top_down", "zh": "顶拍", "en": "Top-down", "zhUsage": "正上方垂直向下；平面化构图的强设计感", "enUsage": "Straight down from above; a graphic, flattened composition", "emotion": "detachment" }
+ ],
+ "lightingSetups": [
+  { "key": "high_key", "zh": "高调光", "en": "High key", "zhUsage": "整体明亮、阴影少；喜剧、日常、安全感", "enUsage": "Bright overall, few shadows; comedy, daily life, safety" },
+  { "key": "low_key", "zh": "低调光", "en": "Low key", "zhUsage": "大面积阴影、局部亮；悬疑、犯罪、压抑", "enUsage": "Large shadow areas with selective highlights; suspense, crime, oppression" },
+  { "key": "natural", "zh": "自然光", "en": "Natural light", "zhUsage": "单一主光源，方向明确；写实基调", "enUsage": "A single motivated key with clear direction; realism" },
+  { "key": "rim", "zh": "轮廓光", "en": "Rim light", "zhUsage": "背光勾边；分离主体与背景，常用于夜景", "enUsage": "Backlight on the edges; separates subject from background, common at night" },
+  { "key": "practical", "zh": "实用光源", "en": "Practical light", "zhUsage": "画面内可见光源（台灯/霓虹/屏幕）；增强真实感", "enUsage": "Visible in-frame sources (lamp, neon, screen); reinforces realism" },
+  { "key": "silhouette", "zh": "剪影", "en": "Silhouette", "zhUsage": "逆光成影；用于神秘、威胁、身份隐藏", "enUsage": "Backlit to a shape; mystery, threat, hidden identity" }
+ ],
+ "vfxPresets": [
+  { "key": "none", "zh": "无特效", "en": "None", "zhUsage": "默认；模型对无特效镜头的还原最稳", "enUsage": "Default; the model is most reliable with no VFX", "risk": "low" },
+  { "key": "atmosphere", "zh": "氛围粒子", "en": "Atmosphere particles", "zhUsage": "尘埃/雨幕/雪/雾；同时可作转场介质掩护", "enUsage": "Dust, rain, snow, fog; doubles as a transition medium", "risk": "low" },
+  { "key": "light_flare", "zh": "镜头光斑", "en": "Lens flare", "zhUsage": "跨镜形变的首选介质掩护（进入 2-4 帧/退出 2-4 帧）", "enUsage": "The first-choice morph cover (enter 2-4 frames, exit 2-4 frames)", "risk": "low" },
+  { "key": "motion_blur", "zh": "运动模糊", "en": "Motion blur", "zhUsage": "甩镜与快速动作的介质掩护；禁止出现在首尾帧", "enUsage": "Cover for whips and fast action; forbidden on first or last frames", "risk": "medium" },
+  { "key": "particle_burst", "zh": "粒子爆散", "en": "Particle burst", "zhUsage": "人↔非人形变的标准介质掩护", "enUsage": "The standard cover for human↔non-human morphs", "risk": "medium" },
+  { "key": "smoke", "zh": "烟雾", "en": "Smoke", "zhUsage": "遮挡式转场与形变掩护；需与美术基调一致", "enUsage": "Occlusion transition and morph cover; must match art direction", "risk": "medium" },
+  { "key": "water_splash", "zh": "水花", "en": "Water splash", "zhUsage": "与水相关的形变掩护；同时提供物理反馈", "enUsage": "Cover for water-adjacent morphs; also supplies physical feedback", "risk": "medium" },
+  { "key": "white_flash", "zh": "白闪", "en": "White flash", "zhUsage": "室内↔室外的介质掩护；也可用于时间跳跃", "enUsage": "Cover for interior↔exterior; also marks a time jump", "risk": "low" }
+ ],
+ "emotionTiers": [
+  { "key": "normal", "zh": "常规", "en": "Normal", "zhCharsPerSecond": 8, "zhNote": "对话与叙述的默认语速档", "enNote": "Default pacing for dialogue and narration" },
+  { "key": "argument", "zh": "争吵", "en": "Argument", "zhCharsPerSecond": 10, "zhNote": "语速加快、句间停顿缩短；同字数需更短时长", "enNote": "Faster delivery, shorter gaps; the same line needs less time" },
+  { "key": "tender", "zh": "深情", "en": "Tender", "zhCharsPerSecond": 5, "zhNote": "语速放慢、留呼吸；同字数需更长时长", "enNote": "Slower, more breath; the same line needs more time" }
+ ],
+ "durationTiers": {
+  "supportedSec": [5, 8, 10, 12],
+  "maxSec": 12,
+  "zhRule": "按台词推算原始秒数后，向上取到 supportedSec 中最近的档位；超过 maxSec 必须按 long_dialogue_split 处理，不得直接截断台词",
+  "enRule": "Derive raw seconds from the line, then snap up to the nearest tier in supportedSec; above maxSec the line must go through long_dialogue_split, never be truncated"
+ },
+ "notes": {
+  "zhPriority": "景别 > 机位角度 > 运镜 > 光线 > 特效；预算/翻车风险递增，同一镜内高风险的运镜与特效最多各取一项",
+  "enPriority": "shot size > camera angle > camera move > lighting > VFX; cost and failure risk rise in that order, and a shot may take at most one high-risk move and one high-risk VFX",
+  "zhChainRule": "相邻镜头的景别跨度不得超过两级（如 WS 直接跳 ECU 会产生跳切感），需要大跨度时插入插入镜或中景过渡",
+  "enChainRule": "Adjacent shots may differ by at most two shot-size steps; a wider jump needs an insert or a medium transition in between",
+  "zhRiskScale": "low / medium / high —— high 档（handheld / orbit / whip_pan）必须单独试镜，不参与批量生成",
+  "enRiskScale": "low / medium / high — high-risk entries (handheld, orbit, whip_pan) must be test-shot individually and excluded from batch generation"
+ }
+}

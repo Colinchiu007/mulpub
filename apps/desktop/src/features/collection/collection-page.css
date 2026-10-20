@@ -1,0 +1,381 @@
+/* ============================================================================
+   collection-page.css — 采集页控件规范层（collection-page-ui-ue-refine，2026-10-17）
+   被 Collection.vue 及其子组件在各自 <style scoped> 内 @import。
+
+   ## 为什么要有这个文件
+   用户真机走查采集页「视觉上都很散乱，不够统一和清晰，也不够精致高级」。
+   逐条取证（PRD §1 共 15 项）定位到三层根因，其中两层落在这里：
+     · 没有组件级规范可依 —— 六套按钮方言、六套卡片内边距、五种输入控件高度、
+       四套徽标圆角，每个作者按 nearest-neighbor 抄一份；
+     · 消费了不存在的 class —— `is-primary`（CollectedResultsList:99/100）与
+       `class="primary"`（Collection:328、CollectionDraftsPanel:56）在全仓 0 处定义，
+       于是「创建草稿/发布是 primary、查看/视频创作是 secondary」这条分级在视觉上
+       完全不成立；`collection-tab-badge` 无定义 ⇒ 页签角标是裸文本。
+   既有测试只断 class 名存在、不断言它有样式，所以功能测试全绿也看不见。
+
+   ## 纪律
+   1. 本文件只放「采集域专属」规范；通用色/字号/间距/圆角一律走 tokens.css。
+   2. 不重新定义与 tokens.css 同语义的变量（desktop-ui-consistency 红线）。
+   3. 新增 class 一律 `col-` 前缀；`zb-/qc-/card-/stat-` 等历史前缀的**类名保留**
+      （测试与引用面在用），但其视觉声明统一引用本文件的变量组。
+   4. 契约锁：src/features/collection/collection-page-css-contract.test.js
+      （新槽亮暗两档 / hex=0 / 消费⇒有定义 / 死类 0 消费）。
+   ========================================================================== */
+
+/* ---- 采集域专属变量（默认值镜像；tokens.css 的 :root 同名槽为权威来源）----
+ * 这里再声明一份的原因：本文件可能被单独 import，而 Vue scoped 的 @import
+ * 不保证注入顺序在 tokens.css 之后；镜像一份可在极端顺序下兜住。
+ * 值必须与 tokens.css 逐字一致 —— 双真源由契约测试核对（见下）。
+ *
+ * ⚠️ 2026-10-19 跨家族评审揪出：这里原写 `.col-page-scope {`，而全仓没有任何
+ * 元素套用过这个类（grep 只命中本文件）⇒ 整块是死代码，注释宣称的「兜底」
+ * 永远不会发生。改成 `:root` 才真的生效。此前没造成线上可见问题，是因为
+ * tokens.css 的 :root 一直在提供同名槽——也就是说这份「兜底」从未被验证过。 */
+:root {
+  --col-field-h: 32px;
+  --col-field-h-sm: 28px;
+  --col-field-pad: 0 10px;
+  --col-btn-h: 32px;
+  --col-panel-pad: 20px;
+  --col-card-pad: 16px;
+  --col-banner-pad: 8px 12px;
+}
+
+/* ============================ 按钮三档 ============================ */
+/* 一区一主：每个面板/区块内 primary 至多 1 个（结果详情框例外：创建草稿与
+ * 去发布分属两个产物阶段，PRD §4.5 已明示）。
+ * 高度统一 32px，覆盖 cohere-btn-primary 的 padding:8px 24px 与
+ * card-actions button 的 4px 14px 两套既有高度。 */
+.col-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: var(--col-btn-h);
+  padding: 0 14px;
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-default),
+    border-color var(--duration-fast) var(--ease-default),
+    color var(--duration-fast) var(--ease-default);
+}
+
+.col-btn:disabled,
+.col-btn[disabled] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.col-btn--primary {
+  background: var(--color-primary);
+  border: 1px solid var(--color-primary);
+  color: var(--color-on-primary);
+}
+.col-btn--primary:hover:not(:disabled) { background: var(--color-primary-hover); border-color: var(--color-primary-hover); }
+
+.col-btn--secondary {
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-primary);
+}
+.col-btn--secondary:hover:not(:disabled) { border-color: var(--color-primary); color: var(--color-primary); }
+
+.col-btn--danger {
+  background: transparent;
+  border: 1px solid var(--color-danger);
+  color: var(--color-danger);
+}
+.col-btn--danger:hover:not(:disabled) { background: var(--color-danger-soft); }
+
+.col-btn--ghost {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--color-primary);
+  padding: 0 8px;
+}
+.col-btn--ghost:hover:not(:disabled) { text-decoration: underline; }
+
+/* ============================ 输入控件一档 ============================ */
+/* select / input / textarea 共用基准高与水平内边距；行内小控件走 --sm。
+ * 历史类名 col-select / col-select-sm / col-input / zb-select / qc-input 的
+ * 视觉声明统一改为引用本变量组（它们自身仍是引用侧的钩子）。 */
+.col-field {
+  height: var(--col-field-h);
+  padding: var(--col-field-pad);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xs);
+  background: var(--color-bg-card);
+  color: var(--color-text-primary);
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  box-sizing: border-box;
+  transition: border-color var(--duration-fast) var(--ease-default);
+}
+.col-field:hover:not(:disabled) { border-color: var(--color-border-strong); }
+.col-field:focus {
+  border-color: var(--color-primary);
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-primary-light);
+}
+.col-field:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.col-field--grow { flex: 1 1 auto; min-width: 0; }
+.col-field--sm { height: var(--col-field-h-sm); font-size: var(--font-size-xs); width: 88px; }
+
+textarea.col-field { height: auto; padding: 8px 10px; line-height: 1.6; resize: vertical; }
+
+/* ============================ 面板与卡片 ============================ */
+.col-panel {
+  padding: var(--col-panel-pad);
+  margin-bottom: var(--spacing-5);
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  position: relative;
+  overflow: hidden;
+}
+
+/* 顶部饰带：上一轮既有品牌辨识元素，保留 3s 扫光；
+ * 本轮补 prefers-reduced-motion 关闭（新增可访问性项，不改默认观感）。 */
+.col-panel::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: var(--color-ribbon);
+  background-size: 200% 100%;
+  animation: col-panel-ribbon 3s infinite ease-in-out;
+}
+
+@keyframes col-panel-ribbon {
+  0%, 100% { background-position: 100% 0; }
+  50% { background-position: 0 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .col-panel::before { animation: none; }
+  .col-result-box--flash { animation: none; }
+}
+
+.col-panel__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--spacing-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--spacing-4);
+}
+.col-panel__title {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+}
+
+.col-card {
+  padding: var(--col-card-pad);
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+/* ============================ 徽标一档 ============================ */
+/* zb-config-badge / card-tag / cohere-tag / qc-badge / copy-origin-badge /
+ * collection-tab-badge 的圆角与字号统一到这里；语义变体走 --ok/--warn/--muted。 */
+.col-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-inset);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.5;
+}
+.col-badge--ok { border-color: var(--color-success); color: var(--color-success); background: var(--color-success-soft); }
+.col-badge--warn { border-color: var(--color-warning); color: var(--color-warning); background: var(--color-warning-soft); }
+.col-badge--muted { color: var(--color-text-muted); }
+
+/* 页签角标：此前全仓无定义（两个页签组件在用）⇒ 裸文本。
+ * 现补真实定义：主色底 + 白字 + 最小宽 + 居中；>99 截断为 99+（截断逻辑在组件）。
+ *
+ * ⚠️ 2026-10-19 跨家族评审揪出：这里原先只写 `.col-tab-badge`，而两个页签组件
+ * 消费的是 **collection-tab-badge**（CollectionDraftsTab.vue:11 /
+ * CollectionCreatorTab.vue:11）—— 两个不同的类名。于是「角标仍是裸文本」这个
+ * PRD 的核心问题其实没修好，而我发明的 `col-tab-badge` 无人使用。
+ * 现在按「真消费名」定义，并把新名留作别名。 */
+.collection-tab-badge,
+.col-tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  margin-left: 6px;
+  border-radius: var(--radius-full);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ============================ 横幅一档 ============================ */
+/* col-error-banner / col-stage-banner / qc-stage 的类名保留（测试在用），
+ * 视觉声明统一引用本变量组；语义变体 error/info/warn 三档。 */
+.col-banner {
+  margin-top: var(--spacing-2);
+  padding: var(--col-banner-pad);
+  border-radius: var(--radius-xs);
+  font-size: var(--font-size-xs);
+  line-height: 1.6;
+  border: 1px solid transparent;
+}
+.col-banner--error { background: var(--color-error-banner-bg); border-color: var(--color-error-banner-bg); color: var(--color-error-banner-text); }
+.col-banner--info { background: var(--color-info-soft); border-color: var(--color-info-soft); color: var(--color-info-text); }
+.col-banner--warn { background: var(--color-warning-soft); border-color: var(--color-warning-soft); color: var(--color-warning); }
+
+/* ============================ 页签 / 筛选条 ============================ */
+/* .collection-tabs（页签容器）与 .library-filters（文案库筛选容器）原为两份同源定义
+ * （都是 soft-stone 药盒），统一收到这里；active 态底色与影走 tokens 新槽
+ * （此前各处硬编码白底 + 自制 rgba）。 */
+.col-tabs,
+.collection-tabs,
+.library-filters {
+  display: flex;
+  gap: 4px;
+  margin-bottom: var(--spacing-2);
+  background: var(--color-bg-inset);
+  border-radius: var(--radius-xs);
+  padding: 3px;
+  width: fit-content;
+}
+
+.col-tab,
+.collection-tab-btn,
+.library-filter-btn {
+  padding: 6px 14px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-xs);
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  transition: color var(--duration-fast) var(--ease-default),
+    background var(--duration-fast) var(--ease-default);
+}
+.col-tab:hover,
+.collection-tab-btn:hover,
+.library-filter-btn:hover { color: var(--color-text-primary); }
+
+.col-tab.active,
+.collection-tab-btn.active,
+.library-filter-btn.active {
+  background: var(--color-tab-active-bg);
+  color: var(--color-primary);
+  box-shadow: var(--shadow-tab-active);
+}
+
+/* ============================ 快捷操作区三组 ============================ */
+/* 原 6 张平铺混了写操作/导航/外跳三种语义（PRD P6）。
+ * 重排为 3 组：新建 / 草稿 / 素材来源，各组带分组标题；图标统一线性图标。 */
+.col-quick {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-4);
+  margin-bottom: var(--spacing-5);
+}
+.col-quick__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+}
+.col-quick__group-title {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-muted);
+}
+.col-quick__cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: var(--spacing-3);
+}
+
+/* 入口卡：从「数据卡」观感改为「入口卡」——value 字号降档、label 提档 */
+.col-quick__cards .stat-value {
+  font-size: var(--font-size-lg);
+  color: var(--color-primary);
+  line-height: 1.2;
+  margin-bottom: var(--spacing-1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.col-quick__cards .stat-label {
+  font-size: var(--font-size-base);
+  color: var(--color-text-primary);
+}
+
+/* ============================ 采集结果 / 文案库卡 ============================ */
+/* 操作分级（PRD §4.7）：主操作 primary、次级 secondary、删除 danger。
+ * 三张卡（结果卡/文案库卡/草稿箱卡）共用同一分级表。 */
+.col-card-actions {
+  display: flex;
+  gap: var(--spacing-2);
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: var(--spacing-3);
+}
+.col-card-actions .col-btn { min-height: 28px; padding: 0 10px; font-size: var(--font-size-xs); }
+
+.col-card-badge {
+  margin-top: var(--spacing-1);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.col-card-badge--warning { color: var(--color-warning); }
+
+/* ============================ 间距工具类收敛 ============================ */
+/* 原 zb-mt4/mt6/mt8 三个魔术 margin → spacing 阶梯（PRD §4.4） */
+.zb-mt4 { margin-top: var(--spacing-2); }
+.zb-mt6 { margin-top: var(--spacing-3); }
+.zb-mt8 { margin-top: var(--spacing-4); }
+
+/* ============================ 页面头与内容同底 ============================ */
+/* PRD P4：页头白底 + 内容区灰底形成硬切。用 html 前缀抬特异性压过
+ * cohere-design-system 的 (0,1,0)（tokens.css P4D 同手法）。 */
+html .cohere-page-header {
+  background: var(--color-bg-page);
+}
+
+
+/* ============================ 历史类名收编（按钮族） ============================ */
+/* 以下类名的引用面横跨多个组件（测试也在用），类名保留、视觉声明统一。
+ * 逐条的「原本在哪、被谁消费」见 PRD §4；收编后各组件自身 <style> 里
+ * 的重复声明删除，由本层唯一持有。 */
+.col-btn-clear,
+.col-btn-cancel { font-size: var(--font-size-xs); padding: 2px 8px; min-height: 24px; }
+.col-btn-retry { font-size: var(--font-size-sm); padding: 0 12px; }
+.col-btn-retry-sm { font-size: var(--font-size-xs); padding: 2px 10px; margin-left: var(--spacing-2); min-height: 24px; }
+
+/* 其余历史类名收编（区块标题/输入族/进度块/结果框/chip 行/对比双栏/类别标签/
+   文案库预览弹窗/ASR 弹窗）已拆到 collection-page-legacy.css，由本文件 @import。
+   拆分原因：check-max-lines 的 500 行硬限（NEW_OVER_LIMIT 会阻断新代码）。 */
+@import './collection-page-legacy.css';

@@ -217,6 +217,13 @@ function finishWindowInitialization(context, mainWindow) {
   } catch (e) {
     log.notify('window', 'autoupdater-init-failed', { level: 'WARN', error: String(e && e.message) })
   }
+  // forced-update-gate：主窗访问器注入（阻断时 hide 主窗 / pass 时恢复）。
+  // 用 getAllWindows()[0] 同 commentManager.setGetMainWin 先例：窗口重建后引用自动跟随。
+  try {
+    require('./services/enforce-gate').setMainWindowFacade(() => BrowserWindow.getAllWindows()[0] || null)
+  } catch (e) {
+    log.notify('window', 'enforce-gate-facade-failed', { level: 'WARN', error: String(e && e.message) })
+  }
   firstRun.runSetup(mainWindow)
   return mainWindow
 }

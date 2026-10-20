@@ -727,10 +727,12 @@
         "GET"
       ],
       "auth": [
+        "enforce_version_gate",
         "verify_bearer_or_catalog_key"
       ],
       "auth_kinds": [
-        "dual"
+        "dual",
+        "version-gate"
       ],
       "other_deps": []
     },
@@ -1546,10 +1548,12 @@
         "POST"
       ],
       "auth": [
+        "enforce_version_gate",
         "verify_bearer_or_catalog_key"
       ],
       "auth_kinds": [
-        "dual"
+        "dual",
+        "version-gate"
       ],
       "other_deps": []
     },
@@ -1949,10 +1953,12 @@
         "POST"
       ],
       "auth": [
+        "enforce_version_gate",
         "verify_bearer_or_catalog_key"
       ],
       "auth_kinds": [
-        "dual"
+        "dual",
+        "version-gate"
       ],
       "other_deps": []
     },

@@ -175,8 +175,9 @@ test("本锁的 job 解析必须与生产判据 listJobBlocks 逐 job 同结论�
   // 两份实现若各修一半，漂移必须在这一条锁上暴露，而不是各自沉默地放行。
   // 上一版的注释写的是"两者判据不同域"——那是不诚实的措辞（判的都是 job 级 if 门控），已按实测改掉。
   const root = path.join(__dirname, "..")
-  const { listJobBlocks } = require("./check-unwired-tests.js")
-  const prod = listJobBlocks(root)
+  const { listJobBlocks, domainFiles } = require("./check-unwired-tests.js")
+  // 第 2 个实参是 #85 起的必传项：job 清单由 git 的域给出，而不是由磁盘目录给出。
+  const prod = listJobBlocks(root, domainFiles(root))
     .filter((j) => j.workflow === "quality-gate.yml")
     .map((j) => `${j.name}|${j.gated ? "gated" : "ungated"}`)
   const wfText = fs.readFileSync(path.join(root, ".github", "workflows", "quality-gate.yml"), "utf8")

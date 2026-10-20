@@ -102,13 +102,34 @@ describe('shot-library 真实语料回归锁', () => {
     expect(ratio).toBeGreaterThan(0.1)
   })
 
-  // ── ③ 同源锁：BLOCK_HEADINGS 必须与方法论块标签一致（7 块，非 5 块）──
-  it('BLOCK_HEADINGS 必须覆盖 prompt-doctrine.json 的全部块标签（防 5/7 漂移）', () => {
+  // ── ③ 同源锁：BLOCK_HEADINGS 必须与方法论块标签同源 ─────────────────
+  // v7 批次一后方法论从 7 块扩到 11 块（长台词/动作戏/首尾帧/介质掩护），
+  // 但 BLOCK_HEADINGS 的作用是「从随包 153 镜语料里抽取块」，语料只含原先 7 块。
+  // 两者不再是 1:1，故判据改为**真实的那个不变量**：
+  //   ① 抽取器认识的每个标题，都必须是方法论里声明过的块（不许凭空造标题）；
+  //   ② 方法论新增的块确实存在（防「改了 JSON 却没生效」）。
+  // 这样既保留「防 5/7 漂移」的原意，又不会因为方法论合理扩容而误判为漂移。
+  it('BLOCK_HEADINGS 必须全部是 prompt-doctrine.json 声明的块（防凭空造标题）', () => {
     const d = kitDir()
     expect(d).toBeTruthy()
     const doctrine = JSON.parse(fs.readFileSync(path.join(d, 'prompt-doctrine.json'), 'utf8'))
-    const labels = doctrine.blocks.map((b) => String(b.label).toUpperCase()).sort()
-    expect([...BLOCK_HEADINGS].sort()).toEqual(labels)
+    const labels = doctrine.blocks.map((b) => String(b.label).toUpperCase())
+    for (const h of BLOCK_HEADINGS) {
+      expect(labels).toContain(String(h).toUpperCase())
+    }
+    // 原先 7 块必须仍在方法论里（删块属破坏性变更）
+    for (const required of ['SCENE CONTEXT', 'GEO SPATIAL LAYOUT', 'ACTION TIMING', 'AUDIO', 'CHARACTER ACTING', 'STYLE', 'POSITIVE CONSTRAINTS']) {
+      expect(labels).toContain(required)
+    }
+  })
+
+  it('方法论 v7 新增的四块确实存在（长台词/动作戏/首尾帧/介质掩护）', () => {
+    const d = kitDir()
+    const doctrine = JSON.parse(fs.readFileSync(path.join(d, 'prompt-doctrine.json'), 'utf8'))
+    const keys = doctrine.blocks.map((b) => b.key)
+    for (const k of ['long_dialogue_split', 'action_choreography', 'frame_constraint', 'transition_medium_cover']) {
+      expect(keys).toContain(k)
+    }
   })
 
   // ── ④ 行为锁：修好后各模式的产出必须符合契约 ────────────────────────

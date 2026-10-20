@@ -41,14 +41,17 @@ const cancelLabel = computed(() => t('collection.cancelBatch'))
 </script>
 
 <style scoped>
-.col-progress-box { margin-top: var(--space-sm); padding: var(--space-sm); background: var(--color-bg-inset); border-radius: var(--r-xs, 6px); }
-.col-progress-title { font-weight: 600; font-size: var(--font-size-sm); margin-bottom: 4px; }
-.col-progress-track { background: var(--color-progress-track); border-radius: var(--r-xs, 6px); height: 8px; overflow: hidden; margin-bottom: 4px; }
+/* 采集页控件规范层（collection-page-ui-ue-refine）：间距走阶梯、圆角走 radius 阶梯 */
+@import './collection-page.css';
+
+.col-progress-box { margin-top: var(--spacing-3); padding: var(--col-card-pad); background: var(--color-bg-inset); border-radius: var(--radius-sm); }
+.col-progress-title { font-weight: var(--font-weight-semibold); font-size: var(--font-size-sm); margin-bottom: var(--spacing-1); color: var(--color-text-primary); }
+.col-progress-track { background: var(--color-progress-track); border-radius: var(--radius-xs); height: 8px; overflow: hidden; margin-bottom: var(--spacing-1); }
 .col-progress-fill { background: var(--color-primary); height: 100%; transition: width 0.3s; }
 .col-progress-text { font-size: var(--font-size-xs); color: var(--color-text-secondary); }
-.col-progress-summary { font-size: var(--font-size-xs); color: var(--color-text-secondary); margin-top: 4px; }
-.col-progress-detail-btn { margin-top: 6px; font-size: var(--font-size-xs); }
-.col-progress-detail { margin-top: 6px; max-height: 200px; overflow-y: auto; font-size: var(--font-size-xs); }
+.col-progress-summary { font-size: var(--font-size-xs); color: var(--color-text-secondary); margin-top: var(--spacing-1); }
+.col-progress-detail-btn { margin-top: var(--spacing-2); font-size: var(--font-size-xs); }
+.col-progress-detail { margin-top: var(--spacing-2); max-height: 200px; overflow-y: auto; font-size: var(--font-size-xs); }
 .col-progress-line { padding: 2px 0; }
-.col-progress-cancel { margin-top: 6px; font-size: var(--font-size-xs); }
+.col-progress-cancel { margin-top: var(--spacing-2); font-size: var(--font-size-xs); }
 </style>

@@ -325,146 +325,90 @@ defineExpose({ run, load, openAdd, openEdit, onSave, remove, errorTextOf })
 </script>
 
 <style scoped>
+/* 2026-10-17 collection-page-ui-ue-refine：本区块原有 11 处硬编码 hex 与
+ * 「var(--x, #兜底)」形态（#666/#888/#e0e0e0/#e6a23c/#f7f7f7/#fff/#f56c6c/#dcdfe6/#999），
+ * 且此前不在任何 hex 门禁的扫描范围内（门禁照绿、代码照脏）。全部收编到
+ * tokens.css 语义槽 / collection-page.css 规范层变量；间距与圆角走阶梯。
+ * ⚠ 本注释内不得出现 hex 字面量（会被契约测试当成真硬编码）。 */
+@import './collection-page.css';
+
 .qc-intro {
-  margin: var(--space-xs, 6px) 0 var(--space-sm, 10px);
-  font-size: var(--font-size-xs, 12px);
-  color: var(--color-text-secondary, #666);
+  margin: var(--spacing-2) 0 var(--spacing-3);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
   line-height: 1.6;
 }
 .qc-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: var(--space-sm, 12px);
+  gap: var(--spacing-3);
 }
 .qc-card {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: var(--space-sm, 12px);
+  gap: var(--spacing-2);
+  padding: var(--col-card-pad);
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
 }
 .qc-card-head {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--spacing-2);
 }
 .qc-icon {
   font-size: var(--font-size-lg);
+  line-height: 1;
 }
 .qc-title {
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
 }
 .qc-badge {
   margin-left: auto;
-  font-size: var(--font-size-xs, 12px);
-  color: var(--color-text-secondary, #888);
-  border: 1px solid var(--border, #e0e0e0);
-  border-radius: 10px;
-  padding: 0 6px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xs);
+  padding: 1px var(--spacing-2);
 }
 .qc-summary {
-  font-size: var(--font-size-xs, 12px);
-  color: var(--color-text-secondary, #666);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
   line-height: 1.5;
 }
 .qc-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  font-size: var(--font-size-xs, 12px);
-  color: var(--color-text-secondary, #888);
+  gap: var(--spacing-2);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
 }
+/* 进行中提示：与采集页其它「进行中」横幅同语义，走 warning 档（原 #e6a23c 是 EP 旧警告色） */
 .qc-stage {
-  font-size: var(--font-size-xs, 12px);
-  color: #e6a23c;
+  font-size: var(--font-size-xs);
+  color: var(--color-warning);
 }
 .qc-actions {
   display: flex;
-  gap: 6px;
+  gap: var(--spacing-2);
   flex-wrap: wrap;
-  margin-top: 4px;
+  margin-top: var(--spacing-1);
 }
 .qc-prompt {
-  margin: 6px 0 0;
-  padding: 8px;
+  margin: var(--spacing-2) 0 0;
+  padding: var(--spacing-2);
   max-height: 220px;
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-word;
-  font-size: var(--font-size-xs, 12px);
-  background: var(--surface-secondary, #f7f7f7);
-  border-radius: 6px;
+  font-size: var(--font-size-xs);
+  background: var(--color-bg-inset);
+  border-radius: var(--radius-xs);
 }
-.qc-modal-mask {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.45);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 2000;
-}
-.qc-modal {
-  width: min(680px, 92vw);
-  max-height: 88vh;
-  overflow: auto;
-  background: var(--surface, #fff);
-  border-radius: 10px;
-  padding: 16px 18px;
-}
-.qc-modal-title {
-  font-size: var(--font-size-md, 16px);
-  font-weight: 600;
-}
-.qc-modal-intro {
-  margin: 6px 0 12px;
-  font-size: var(--font-size-xs, 12px);
-  color: var(--color-text-secondary, #666);
-}
-.qc-field {
-  margin-bottom: 12px;
-}
-.qc-field-label {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: var(--font-size-sm, 13px);
-  margin-bottom: 4px;
-}
-.qc-counter {
-  font-size: var(--font-size-xs, 12px);
-  color: var(--color-text-secondary, #999);
-}
-.qc-counter--over {
-  color: #f56c6c;
-}
-.qc-input,
-.qc-textarea {
-  width: 100%;
-  box-sizing: border-box;
-  border: 1px solid var(--border, #dcdfe6);
-  border-radius: 6px;
-  padding: 6px 8px;
-  font-size: var(--font-size-sm, 13px);
-  font-family: inherit;
-}
-.qc-textarea {
-  resize: vertical;
-}
-.qc-hint {
-  margin-top: 4px;
-  font-size: var(--font-size-xs, 12px);
-  color: var(--color-text-secondary, #999);
-  line-height: 1.5;
-}
-.qc-field-error {
-  margin-top: 4px;
-  font-size: var(--font-size-xs, 12px);
-  color: #f56c6c;
-}
-.qc-modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 8px;
-}
+/* qc-modal-* / qc-field / qc-input / qc-counter / qc-hint / qc-field-error /
+ * qc-modal-actions 已收编到 collection-page-legacy.css：它们真正的消费方是
+ * QuickCollectCommandDialog.vue（另一个组件），scoped 样式到不了那里。
+ * 本组件只保留「快捷采集面板自身」的 qc- 规则。 */
 </style>

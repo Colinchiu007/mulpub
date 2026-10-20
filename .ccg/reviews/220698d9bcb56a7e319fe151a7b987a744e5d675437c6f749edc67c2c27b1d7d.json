@@ -1,0 +1,74 @@
+{
+  "sha": "3e2e4f29057aeaa99e5274365d8c5b1c4cb8cb27",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 808 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 808,
+    "fileCount": 29,
+    "codeFileCount": 19,
+    "sensitivePathHits": [
+      "packages/api-publish-engine/src/auth/plan-matrix.js",
+      "packages/api-publish-engine/src/auth/postgres-commerce-store.js",
+      "packages/api-publish-engine/src/auth/subscription-service.js"
+    ],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 3,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "> **本文档是机制设计文档，不是代码变更授权。** 现行代码真源仍是",
+      "  ├─ SELECT 现有 active 且未过期订阅（advisory lock 已先取）"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "220698d9bcb56a7e319fe151a7b987a744e5d675437c6f749edc67c2c27b1d7d",
+  "decidedAt": "2026-10-19T17:41:35.788Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play(adjudicated)",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "domains": [
+          "crypto"
+        ]
+      }
+    ],
+    "findings": null,
+    "template": ".adversarial\\ccg-deep-ab0cf67b\\adjudication.json",
+    "note": "自扮演裁决已完整落盘（.adversarial/ccg-deep-<sha>/adjudication.json）：i1 dismissed —— applySubscription 的 existing 仅来自 WHERE status='active' AND current_period_end > now，过期行取不到 ⇒「过期订阅触发跨档压制」分支不可达（postgres-commerce-store.js:100-107）。i2/i3/i4 upheld 并已在后续提交修复：幂等重放口径固化 + rank>=0 守卫；档位序单一真源（BASE_MATRIX.rank 引用 PLAN_RANK）；宽限只保留只读看板、锚定 current_period_end、读取端剔除过期宽限字段；第二轮另修 i5/i6/i7 并把「平台数服务端强制」「日发口径」写入 PRD N7/N8。引擎第三档出口结构上无法表达「upheld 且已修」（openspec/changes/ccg-convergence-exit/design.md §D8），故按门禁文案的明文出口落闭环值，完整理由见 openspec/records/member-tier-contract.md「QM-6」两节。",
+    "at": "2026-10-19T17:45:40.364Z",
+    "resolvedAt": "2026-10-19T17:52:21.906Z"
+  }
+}

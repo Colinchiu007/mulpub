@@ -20,6 +20,7 @@ from database import get_db
 from middleware.auth import get_current_user, require_admin
 from services import resilience_service, runtime_service
 from services.logto_verifier import verify_bearer_or_catalog_key
+from services.version_gate import enforce_version_gate
 
 router = APIRouter(tags=["runtime"])
 
@@ -141,7 +142,7 @@ async def get_runtime_bootstrap(
 # 契约见 openspec/changes/ops-center-resilience/design.md §2。
 
 
-@router.post("/api/v1/runtime/ack")
+@router.post("/api/v1/runtime/ack", dependencies=[Depends(enforce_version_gate)])
 async def post_runtime_ack(
     body: dict,
     db: AsyncSession = Depends(get_db),
