@@ -76,7 +76,6 @@ function resetS2VVoiceData(options = {}) {
   state.s2vVoiceCatalogError = ''
   state.s2vVoiceCatalogErrorCode = ''
   state.s2vVoiceCapability = null
-  state.s2vPersistedVoiceId = ''
   state.s2vVoiceCloneRequirements = null
   if (clearClones) state.s2vVoiceClones = []
   state.s2vVoiceCloneSelection = null
@@ -194,21 +193,20 @@ async function loadS2VVoiceData(options = {}) {
   const configuredStillAvailable = Boolean(configuredVoiceId) && availableVoiceIds.has(configuredVoiceId)
   if (selectedVoiceId && availableVoiceIds.has(selectedVoiceId)) {
     d.getS2vConfig().voiceId = selectedVoiceId
-    state.s2vPersistedVoiceId = selectedVoiceId
   } else if (configuredStillAvailable) {
-    state.s2vPersistedVoiceId = configuredVoiceId
+    // 已配置的音色仍在候选集合内 ⇒ 不动它（保留用户/主进程的选择）
   } else if (configuredVoiceId && !catalogData && !cloneListAuthoritative) {
-    // 目录本次没拿到 **且克隆列表也没拿到权威结果**（两个拉取都失败/被跳过）。
-    // 保留已保存的 voiceId 并同步 s2vPersistedVoiceId —— 两者必须一致，否则「默认」徽标
-    // 与选中项脱节（徽标判据是 s2vConfig.voiceId，而 persisted 态会被 reset 清空）。
+    // 目录本次没拿到 **且克隆列表也没拿到权威结果**（两个拉取都失败/被跳过）⇒ 保留已保存的
+    // voiceId，不清空（违反「已保存的 voiceId 不得静默丢失」）。
     //
     // 为什么必须同时要求 !cloneListAuthoritative：若克隆列表**成功**返回了权威空数组
     // （用户真的把克隆全删了），而目录又没拿到，此时保留的就是一个**无候选可渲染**的悬空 id。
     // 「权威来源说没有」与「这次没问到」是两件事，只有后者才配保留（2026-10-20 CCG 深度审查 i2）。
-    state.s2vPersistedVoiceId = configuredVoiceId
+    //
+    // 注：这里原有一行 `state.s2vPersistedVoiceId = configuredVoiceId`，是 s2vConfig.voiceId
+    // 的冗余镜像且生产零读取（2026-10-20 清理）；保留语义完全由「不写 s2vConfig.voiceId」承担。
   } else {
     d.getS2vConfig().voiceId = ''
-    state.s2vPersistedVoiceId = ''
   }
 }
 

@@ -1300,7 +1300,6 @@ export default {
     s2vVoiceRequestId: { get() { return ttsVoicesRefs.s2vVoiceRequestId.value }, set(v) { ttsVoicesRefs.s2vVoiceRequestId.value = v } },
     s2vVoiceSelectionRequestId: { get() { return ttsVoicesRefs.s2vVoiceSelectionRequestId.value }, set(v) { ttsVoicesRefs.s2vVoiceSelectionRequestId.value = v } },
     s2vVoiceCloneRequestId: { get() { return ttsVoicesRefs.s2vVoiceCloneRequestId.value }, set(v) { ttsVoicesRefs.s2vVoiceCloneRequestId.value = v } },
-    s2vPersistedVoiceId: { get() { return ttsVoicesRefs.s2vPersistedVoiceId.value }, set(v) { ttsVoicesRefs.s2vPersistedVoiceId.value = v } },
     s2vVoiceCloneRequirements: { get() { return ttsVoicesRefs.s2vVoiceCloneRequirements.value }, set(v) { ttsVoicesRefs.s2vVoiceCloneRequirements.value = v } },
     s2vVoiceClones: { get() { return ttsVoicesRefs.s2vVoiceClones.value }, set(v) { ttsVoicesRefs.s2vVoiceClones.value = v } },
     s2vVoiceCloneSelection: { get() { return ttsVoicesRefs.s2vVoiceCloneSelection.value }, set(v) { ttsVoicesRefs.s2vVoiceCloneSelection.value = v } },
