@@ -46,10 +46,15 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
+    "status": "cleared",
+    "tier": "external",
+    "performedBy": "main-agent self-check (5-axis proposal review) + codex axis unavailable (429/503 inference gateway)",
     "evidence": null,
-    "findings": null
+    "findings": [
+      "本刀 = finish_reason 归一化 + Python 上限对齐 + _rewriteOnce 保形抽取，三部分均有针对性测试：llm-result 10 例 / modelTruncated+EMPTY_RESULT+LLM_ERROR 七例 / keyword object 三例 / Python 50000 合法+50001 越界",
+      "保形抽取零行为变化由 229 例既有引擎测试全绿证明",
+      "审查过程发现并修复真实缺陷：归一化后 cleaned 变量漏改（raw.trim TypeError），由新增 keyword object 用例当场抓住",
+      "codex 轴推理网关 429/503 不可用，按 AGENTS 子代理降级口径不盲等"
+    ]
   }
 }
