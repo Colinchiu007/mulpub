@@ -627,6 +627,17 @@ jobs:
           # 判据本体也要在每次 PR 上真被执行一次（--dry-run 不起 vitest，秒级）：
           # 否则 CLI 只有本地手动跑过，会烂成"工具还在、扫描域已经漂"那种装饰性存量。
           node scripts/check-clock-shift-oracle.js --dry-run
+          # 桌面测试前置产物门禁（2026-10-17，electron-ci-preload-build）。
+          # 动因：#3782 把 preload 与 paginator 产物移出版本控制，只在本文件（quality-gate.yml）的
+          # 三个 job 补了重建步骤，electron-ci.yml 与 clock-shift-oracle.yml 漏配。
+          # 前者已由 PR #3837 补齐（1bed4ad2c），后者由本 PR 补齐。
+          # oracle 侧的形态不是「红」而是「绿得没有权威」：基线段一红即打印
+          # ORACLE_NOT_AUTHORITATIVE 并 return 0（scripts/check-clock-shift-oracle.js:354-357），
+          # 巡检看到绿灯而判据已失效。本判据按 job 扫 workflow 正文（注释与引号内容不参与判定），
+          # 要求跑桌面 vitest 的 job 之前有一条 preload 重建；「谁在域内」的唯一真源是
+          # .github/scripts/desktop-test-prereq-jobs.json，域内集合变化会在测试里显式报红。
+          node --test .github/scripts/check-desktop-test-prereqs.test.js
+          node .github/scripts/check-desktop-test-prereqs.js
           # 阶段 5.3 / 5.4 两条新门禁（ux-audit-phase34，2026-10-19）。落点选本步骤的理由与上面
           # check-workflow-structure 完全同一条：**本步骤整体是 shell: bash，任一非零即中止**；
           # 接进 Gate 3（默认 pwsh、多条命令只有最后一条的 $LASTEXITCODE 决定成败）等于接进装饰门禁。
