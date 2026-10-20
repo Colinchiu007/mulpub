@@ -1,0 +1,63 @@
+{
+  "sha": "d940e1a8c165adcfffc1fbf141af8ed9a50cd0c3",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 0 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 4,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 3,
+    "docSensitiveContentSample": [
+      "**两条历史欠账记录的收口方式（如实登记）**：`e671b19b….json`（轮 2，`self_play_blocked`）与 `5b6e84da….json`（轮 3，`self_play_pending`）由 agent 按 `check-pr-exec-record.js` 的**合法出口②**（\"确认判定确属假阳性／非高危面 → `deepReview.closureNote`（须含轮次标记与逐条处置结论）再把 status 置为闭环值\"）手工收口：补 `closureNote`（含轮次、逐条处置与「upheld 已实现」措辞）+ `tier=self-play` + `status=self_play_resolved`，并标注 `closedBy`/`closedAt`。**未改动引擎写回的任何裁决内容**（findings/prosecution/defense/rationale 全部原样保留）。高危面（判据本体 / workflows / 凭据登录态）不适用本出口——本刀不涉。",
+      "| 治理边界 | 自扮演产物入库 / 改派发机制 / 改 CI 门禁 | 三者都属**改守门规则**，按 AGENTS.md 须**人工过目**，不由本刀单方面执行；外部复核亦确认该形态「与仓库脚本一致、属治理层改进、不阻断本 PR」；元数据**不含**凭据/密钥/用户数据（只有 sha/mode/stats/后端名/时间戳/评审文字） |",
+      "**历史欠账记录的收口方式（如实登记）**：`e671b19b`（轮 2，`self_play_blocked`）、`5b6e84da`（轮 3，`self_play_pending`）、`db1f1618`（轮 6，`self_play_pending`）由 agent 按 `check-pr-exec-record.js` 的**合法出口②**（\"确认判定确属假阳性／非高危面 → `deepReview.closureNote`（须含轮次标记与逐条处置结论）再把 status 置为闭环值\"）手工收口：补 `closureNote`（含轮次、逐条处置与「upheld 已实现」措辞）+ `tier=self-play` + `status=self_play_resolved`，并标注 `closedBy`/`closedAt`。**未改动引擎写回的任何裁决内容**（findings/prosecution/defense/rationale 全部原样保留）。高危面（判据本体 / workflows / 凭据登录态）不适用本出口——本刀不涉。"
+    ],
+    "ccgSensitiveContentHits": 1,
+    "ccgSensitiveContentSample": [
+      "    \"closureNote\": \"轮6 外部 claude 交付 8 条（其中 7 条进裁决，0 条高危域命中）：7 条 dismissed 各附可复算实测证据（JSON.sha==merge-base 且已写入「审计口径的显式声明」小节给出两条复算命令、code_total=1839==changedLines、vite build rc=0、StageProgress 真实渲染断言、seq 守卫已实装、类型守卫已实现且经变异反证 M5 验证、模块级 let 已按 i5 改为 ref）；3 条建议被直接采纳并已实现：①i8 交错边界用例（程序赋值后立即手改 ⇒ 归因链被清、不假挂；手改后程序赋值 ⇒ 不再作废归因链）、②i1 审计口径显式声明、③i4 CHANGELOG 迁移影响面；逐条 prosecution/defense/verdict/rationale 见 .adversarial/ccg-deep-7f23b3bd/adjudication.json；本记录非门禁所指高危面（未触判据本体/workflows/凭据登录态），按 check-pr-exec-record.js 合法出口②以本 closureNote 收口，未改任何引擎写回的裁决内容。\","
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "38516ba5f33961a3f244a4da6a9beb807b7cfe288527288d2c3595fb30ea2f5a",
+  "decidedAt": "2026-10-20T23:07:00.222Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

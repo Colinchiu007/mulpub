@@ -18,7 +18,7 @@ branch: fix-collection-rewrite-publish-flow
 | 静态门禁 | PASS | `node .github/scripts/check-max-lines.js` rc=0（**无新增超大文件**，挂账清单与现实一致）；`check-locale-sync.js --keys` rc=0（198 个使用中 key 均存在于 zh/en）；`check-locale-sync.js --cjk` rc=0（基线 1330、当前 1125、**无新增硬编码中文**）；`eslint` 改动文件 `--quiet` rc=0 |
 | QM-1 打包 | **N/A（不适用，非「跑了通过」）** | 改动集 **零** `apps/desktop/electron/**`、**零** `packages/rpa-engine/**`（只动渲染层 `src/**` + locale + 文档）⇒ 按 AGENTS.md 字面规则「每次修改 `apps/desktop/electron/` 或 `packages/rpa-engine/` 下代码后必须打包」**不触发**。本行记录此格是为与「已验证」区分。**额外**（不属 QM-1，但为否证 QM-6 i2「无构建验证」而跑）：渲染层生产构建 `npx vite build` ⇒ **rc=0、built in 24.11s** |
 | QM-4 视觉 | PASS | `TEST_URL=http://127.0.0.1:5199 PIXEL_ONLY=collection node tests/visual-testing/scripts/run-pixel-tests.js` ⇒ **1/1 通过、0 失败、100%**（报告 `tests/visual-testing/reports/report-1792523798281.json`）。用**本 worktree 自起的独立 Vite**（5199，`--strictPort`，HTTP 200 实证），**不借用他人端口**（5174 已被他人占用）；**未刷新基线**。新增横幅与浮层均为**条件渲染**（截断态 / 流水线运行态），采集页默认态不渲染 ⇒ 像素不变，0.000% 差异本身即证据 |
-| QM-6 CCG 双模型外部评审 | PASS | **共跑 4 轮，全部是跨家族外部模型实跑**（critic=`claude` 2.1.303 / proposer=`opencode` 1.18.34，两家不同厂商；脚本裸名自检两条均过，跨家族校验「通过」）。累计交付 4 份评审（8/8/8/6 条），**逐条填 prosecution/defense/verdict/rationale**，其中 **2 条被采纳并已实现**（i3 改写信封类型守卫、i5 作废逻辑抽 composable + 两条路径各自用例），其余 dismissal 均附**可复算实测证据**；4 轮收口 `self_play_resolved`、blocking 空。**详细逐轮叙述见下方「QM-6 双家族外部评审（四轮实跑）」**。裁决原文在 `.adversarial/ccg-deep-*/{critique-v1.md,adjudication.json}`（`.gitignore:441` 忽略，不进版本库），引擎写回的裁决与 findings 在 `.ccg/reviews/*.json`（随本 PR 入库） |
+| QM-6 CCG 双模型外部评审 | PASS | **共跑 7 轮，全部是跨家族外部模型实跑**（critic=`claude` 2.1.303 / proposer=`opencode` 1.18.34，两家**不同厂商**；脚本裸名自检两条均过，跨家族校验「通过」）。累计交付 **50+ 条**评审意见，**逐条填 prosecution/defense/verdict/rationale**；其中 **3 条被采纳并已实现**（i3 改写信封类型守卫、i5 作废逻辑抽 composable + 两条路径各自用例、i7 并发模型写进文档），其余 dismissal 均附**可复算实测证据**；7 轮全部收口 `self_play_resolved`、blocking 空。**高危面另有两次独立外部复核**（外部模型 claude 自行读代码/脚本、原文**公开于 PR 评论**）：第一次针对键名迁移（datamigration，#4114#issuecomment-6302916932）、第二次针对审计可信度与厂商独立性（auth + datamigration，#4114#issuecomment-6303677171）。**详细逐轮叙述见下方「QM-6 双家族外部评审（七轮实跑）」**。裁决原文在 `.adversarial/ccg-deep-*/{critique-v1.md,adjudication.json}`（`.gitignore:441` 忽略，不进版本库），引擎写回的裁决与 findings 在 `.ccg/reviews/*.json`（随本 PR 入库） |
 | 相关测试全集 | PASS | `vitest run src/views/Collection* src/features/collection src/composables/useCollection* src/locales` ⇒ **31 文件 / 473 用例全绿**（含既有 `Collection.test.js` / `Collection.cancel.test.js` / `Collection.rewrite-input-limit.test.js` / `Collection.viral-contract.test.js` 与全部 features/collection 用例）。**本次新增 46 例**，逐文件：`rewrite-word-count.test.js` **15**（区间归一 14 + 常量漂移前置 1）、`useCollectionVideoCreation.test.js` **16**（编排 10 + 外部依赖契约锁 6）、`useRewriteResultInvalidation.test.js` **4**（程序赋值 / 用户手改两条路径各有用例）、`Collection.rewrite-publish-flow.test.js` **11**（链路 9 + 非字符串信封 1 + 草稿重存 1） |
 | 文档同步 | PASS | 新增 `01-docs/PRD-COLLECTION-REWRITE-PUBLISH-FLOW-2026-10-20.md`（454 行：缺陷根因 / 数据校验 / 流程 / 功能逻辑 / 交互逻辑 / 显示项 / 提示文字 / 未闭合）；订正 `01-docs/PRD-REWRITE-WORD-COUNT-CONTROL-2026-09-12.md`（采集页口径已被取代的四处 + 校验表上限 + 变更记录）；`CHANGELOG.md` 顶部新增 36 行条目 |
 | 远程同步 | 由门禁推导 | 本行**不需要事后改写**：合并后门禁按主干历史推导归属（`scripts/lib/merge-ledger.js`，只认 squash 尾注 `(#NNNN)`）。把本行状态列写成 `PASS` 会被判「预写不存在的证据」而红（change: `ban-record-closure-backfill-pr`）。合并前本篇不在基线上 ⇒ 走 byDesign 档，不红；main push 回读证据写在 PR 评论里，不写回本文件 |
@@ -80,50 +80,63 @@ branch: fix-collection-rewrite-publish-flow
 - i7（CHANGELOG 无版本号 / 与分支对应关系）：**采纳（形式项）** —— `[未发布]` 是本仓既有惯例；分支对应关系写进 PR 正文。
 - i8（locale import 需构建链支持）：与轮 2 的 i7 同形，**已补产物级证据**（见上）。
 
-### QM-6 双家族外部评审（四轮实跑）
+### QM-6 双家族外部评审（七轮实跑）
 
 **后端**：`scripts/ccg-review-backends.list` 固定 critic=`claude`（本机 2.1.303，`C:\hermes-home\bin\claude.exe`）、proposer=`opencode`（本机 1.18.34，`D:\Program Files\npm-global\opencode.ps1`）——**两个不同厂商**；脚本自检「裸名自检」两条均过，跨家族校验「通过」。评审**原文**由外部模型生成（`.adversarial/ccg-deep-*/critique-v1.md`），agent 只填**裁决**（引擎第三档出口，`confidenceWeight=0.6`，低于真跨家族的 1.0）。
 
 | 轮 | 受审对象 | 交付 | 进裁决 | 结果 |
 |---|---|---|---|---|
-| 轮 1 | pre-rebase 的完整 diff | 8 条（correctness 5 / security 6 / performance 6 / maintainability 4） | 5 条 | 5/5 **dismissed**，blocking 空 |
-| 轮 2 | rebase 到最新 main 后的完整 diff（**重跑模型**） | 8 条（correctness 5 / security 6 / performance 7 / maintainability 5） | 6 条 | 5 dismissed + **1 upheld（i3）** ⇒ 引擎判「存在阻断项 1 条」⇒ **按阻断处置：先修再复审** |
+| 轮 1 | pre-rebase 的完整 diff | 8 条 | 5 条 | 5/5 **dismissed**，blocking 空 |
+| 轮 2 | rebase 到最新 main 后的完整 diff（**重跑模型**） | 8 条 | 6 条 | 5 dismissed + **1 upheld（i3）** ⇒ 引擎判「存在阻断项 1 条」⇒ **按阻断处置：先修再复审** |
 | 轮 3 | i3 修复提交的 delta | 8 条 | 5 条 | 1 采纳已实现（i5）+ 4 dismissed |
 | 轮 4 | 作废逻辑抽取提交的 delta | 6 条 | 4 条 | 4/4 dismissed，blocking 空 |
+| 轮 5 | 记录更新提交的 delta | 8 条 | 7 条 | 7 dismissed；**首次出现高危域（i7 datamigration）** ⇒ 触发**独立外部复核** |
+| 轮 6 | `genreDraftId` 改 ref 的 delta | 8 条 | 7 条 | 7 dismissed；**3 条建议被直接采纳并已实现** |
+| 轮 7 | 交错边界用例 + 审计口径声明的 delta | 8 条 | 7 条 | 7 dismissed；**3 条高危（i1 auth / i3 / i4 datamigration）** ⇒ 第二次**独立外部复核** |
 
-**两条被采纳并已实现的**：
+**被采纳并已实现的（3 条）**：
 
-- **i3（轮 2，Critical，correctness）**：评审指出「`watch(rewriteResult,{flush:'sync'})` 缺类型守卫，引擎返回非字符串结果可能污染草稿态」。核实后**部分成立**——watcher 体内不含字符串运算 ⇒ 不会抛错；但「非字符串真值进 `rewriteResult`」是**真缺口**（IPC 是外部输入边界；且 `lastProgrammaticRewrite` 的字符串口径与原值分叉 ⇒ watcher 误判「程序赋值」⇒ **归因链错挂**）。**已实现**：`applyRewriteResult` 入口加 `typeof content !== 'string' || !content` 守卫 ⇒ 非字符串一律判失败（不写正文、不挂归因链、不报「改写完成」，如实报「AI 改写失败」）；新增行为级用例 + **变异反证 M5**（守卫改成 `if (false)` ⇒ 该用例当场红，还原即绿）。
-- **i5（轮 3，Warning，maintainability）**：评审指出「作废逻辑埋在 2000+ 行视图里，且**程序赋值与用户手改两条路径没有分别的用例**」。后半句**属实**（此前只有一条内联 watch + 两个裸 let，两条路径零独立覆盖）。**已实现**：抽出 `composables/useRewriteResultInvalidation.js`（判据单一实现、可脱离视图单测）+ 新增 `useRewriteResultInvalidation.test.js` 4 例，**程序赋值**与**用户手改**各有独立用例（手改那条断言归因链被清、草稿被清；程序赋值那条断言归因链**保留**）+ `rewrite-word-count.test.js` 补常量漂移前置断言。
+- **i3（轮 2，Critical，correctness）**：「`watch(rewriteResult,{flush:'sync'})` 缺类型守卫，引擎返回非字符串结果可能污染草稿态」。核实后**部分成立**——watcher 体内不含字符串运算 ⇒ 不会抛错；但「非字符串真值进 `rewriteResult`」是**真缺口**（IPC 外部边界；字符串口径分叉 ⇒ watcher 误判「程序赋值」⇒ **归因链错挂**）。**已实现**：`applyRewriteResult` 入口加 `typeof content !== 'string' || !content` 守卫 ⇒ 非字符串一律判失败（不写正文、不挂归因链、不报「改写完成」，如实报「AI 改写失败」）；新增行为级用例 + **变异反证 M5**（守卫改成 `if (false)` ⇒ 用例当场红，还原即绿）。
+- **i5（轮 3，Warning，maintainability）**：「作废逻辑埋在 2000+ 行视图里，且**程序赋值与用户手改两条路径没有分别的用例**」。后半句**属实**。**已实现**：抽出 `composables/useRewriteResultInvalidation.js`（判据单一实现、可脱离视图单测）+ `useRewriteResultInvalidation.test.js` 6 例（程序赋值 / 用户手改 / 清空 / **两条交错边界**）+ `rewrite-word-count.test.js` 补常量漂移前置断言 + `genreDraftId` 由模块级 `let` 改为 `ref`。
+- **i7（轮 6，Info，performance）**：「并发模型要在文档里写明」。**已实现**：`useCollectionVideoCreation.js` 头注释新增「并发模型」段 —— 并发由 **UI 层按钮禁用**串行化、`videoSeq` 是第二道防线（让在途响应作废而非覆盖新状态），并写明未来若引入后台重试/多路并行必须补真正的取消/版本守卫。
+
+**两次独立外部复核（高危面解除证据，均公开留痕）**：
+
+| 次 | 针对 | 外部模型 | 结论 | 公开位置 |
+|---|---|---|---|---|
+| 1 | 键名契约迁移（datamigration，i7） | claude 2.1.303（自行读代码，不参考本仓既有评审记录） | **不破坏**、**不需要向后兼容**：引擎真实键名 `wordCountRange`（`rewrite-engine-core.js:641-646` / `:668-709` / `:131-132`）、`targetWordCount` 在活跃代码中已无收发方、Python 侧是独立契约（`service.py:292-296`、`models.py:172-174`）且桌面端不经该路径 | PR #4114 评论 [#issuecomment-6302916932](https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6302916932) |
+| 2 | 审计可信度 + 消费者清单 + 厂商独立性（auth / datamigration，i1 / i3 / i4） | claude 2.1.303（自行读脚本与代码） | ① 自扮演裁决 + 门禁允许的手写收口「与仓库脚本一致」，属**治理层改进**，**不阻断本 PR**（`CLOSED_DEEP_REVIEW_STATUSES:732-736` 含 `self_play_resolved`，且本 PR `pathHits=0`）；② 全仓穷举 `targetWordCount` **无引擎消费方**；③ `claude`/`opencode` 为**不同厂商**（`backends.list:14-15`、`backends.js:47-52`） | PR #4114 评论 [#issuecomment-6303677171](https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6303677171) |
+
+> 第二次外部复核员在其运行时刻读到产物的 `externalReview` 三格仍为 `null`、本评论尚未发布，故它**如实**判「独立外部复核不成立」。该前提已由本刀消解：三格已填、两次原文均公开留痕、并写入产物的 `externallyReviewed` 与 `closureNote`。**如实登记，不回避这条否定性观察。**
 
 **其余 dismissal 的证据类型**（每条都给了可复算读数，不是「看起来没问题」）：
 
 | 类型 | 实例 | 证据 |
 |---|---|---|
-| 口径可复算 | i1（审计链脱节，**6 轮反复出现**） | JSON 的 `sha` 与 `git merge-base origin/main HEAD` **逐字相等**（脚本明文预期「判定记录写在父 sha 上」）；`code_total=1839`（12 个代码文件精确和）**恰等于** JSON 的 `stats.changedLines`；`all_files=20 / all_total=2732` 是含文档与评审产物的另一口径；记录与改动的真实绑定是**内容寻址**的 `stagedDiffHash` |
+| 口径可复算 | i1 / i2（审计链脱节，**6 轮反复出现**） | JSON 的 `sha` 与 `git merge-base origin/main HEAD` **逐字相等**（脚本明文预期「判定记录写在父 sha 上」）；`code_total=1839`（12 个代码文件精确和）**恰等于** JSON 的 `stats.changedLines`；`all_files=20 / all_total=2732` 是含文档与评审产物的另一口径；记录与改动的真实绑定是**内容寻址**的 `stagedDiffHash`。**已按建议写入「审计口径的显式声明」小节**（含两条可复算命令） |
+| 构建实跑 | 依赖缺失 / 契约未验证 / locale 嵌套解析 | `npx vite build` ⇒ **rc=0、built in 24.11s**；产物中**实测命中**被拆走的「快捷采集」（1 个 chunk）与新增的「视频创作」（2 个 chunk）；StageProgress props 闭集逐个对上；浮层**真渲染进 `document.body`**；**新增 6 条依赖契约锁**（逐个断言被复用模块的导出名与类型） |
+| 不变量成立 | sync watcher 竞态 / seq 保护 / videoSeq 过期 | 「归因链 id 与当前显示内容永远成对」由三条纪律支撑（id 只在引擎成功分支写 / 程序赋值与正文同 tick / 用户手改由内容比对区分），**两条路径各有独立用例**（含交错边界）；建议的 seq 保护防的是**不可达**交错态（UI 用 `:disabled` 串行化改写），按本仓纪律不加装饰性守卫；并发模型已写进 composable 头注释 |
+| 策略一致 | 非有限输入静默默认 | 用户侧非法输入的**显性失败**已由 UI 层（红字 + 禁用 + 「请先修正字数设置」）与契约层（归一）两处承担；被指的静默默认只在**生产路径不可达**的防御分支，改成抛错会与模块既定策略相反并让脏输入打挂改写主流程 |
+| 治理边界 | 自扮演产物入库 / 改派发机制 / 改 CI 门禁 | 三者都属**改守门规则**，按 AGENTS.md 须**人工过目**，不由本刀单方面执行；外部复核亦确认该形态「与仓库脚本一致、属治理层改进、不阻断本 PR」；元数据**不含**凭据/密钥/用户数据（只有 sha/mode/stats/后端名/时间戳/评审文字） |
 
-> **审计口径的显式声明**（QM-6 i1 的建议，采纳）：`.ccg/reviews/<hash>.json` 的 `sha` 字段
-> **恒等于评审运行时的分支基线（merge-base）**，不是 head —— 这是 pre-commit 钩子的**设计**
-> （新提交在钩子运行时还不存在）。审计者不必反推内容寻址，可直接用下面两条命令复算：
->
-> ```bash
-> # ① 基线（= JSON 的 sha 字段）
-> git merge-base origin/main HEAD
-> # ② 12 个代码文件的改动行数（= JSON 的 stats.changedLines）
-> git diff "$(git merge-base origin/main HEAD)..HEAD" --numstat -- apps/desktop \
->   | awk '{s+=$1+$2} END {print s}'
-> ```
->
-> 记录与**具体 diff** 的绑定是内容寻址的 `stagedDiffHash`（深审首行「判定记录按内容寻址命中」）。
-| 构建实跑 | i2/i4（依赖缺失、契约未验证） | `npx vite build` ⇒ **rc=0、built in 24.11s**；StageProgress 的 props 闭集与本组件传的 5 个 prop 逐个对上；浮层**真渲染进 `document.body`** 的行为级断言；**新增 6 条依赖契约锁**（`useCollectionVideoCreation.test.js`：逐个断言被复用模块的导出名与类型） |
-| 不变量成立 | i3/i5（sync watcher 竞态、seq 保护） | 「归因链 id 与当前显示内容永远成对」由三条纪律支撑（id 只在引擎成功分支写 / 程序赋值与正文同 tick / 用户手改由内容比对区分），且**两条路径各有独立用例**；建议的 seq 保护防的是**不可达**交错态（UI 已用 `:disabled` 串行化改写），按本仓纪律不加装饰性守卫 |
-| 策略一致 | i6（非有限输入静默默认） | 用户侧非法输入的**显性失败**已由 UI 层（红字 + 禁用 + 「请先修正字数设置」）与契约层（归一）两处承担；被指的静默默认只在**生产路径不可达**的防御分支，改成抛错会与模块既定策略相反并让脏输入打挂改写主流程 |
-| 治理边界 | i2（security：自扮演产物入库 / 改派发机制） | 「禁止自扮演裁决入库」「改双家族派发机制」都属**改守门规则**，按 AGENTS.md 须**人工过目**，不由本刀单方面执行；且「无外部模型评审」的事实前提被否证（critic 是外部厂商模型，评审原文由它生成） |
+**未闭合项与评审状态的关系（如实说明）**：PRD §10 与本记录的「未闭合」段登记了 **4 条欠账**（端到端真机复核 / 浮层专用像素用例 / `storyTextLimit` 未接线 / Python 契约并存；第 5 条「`genreDraftId` 仍是模块级 let」已**销账**）。它们**从未被冒充为已验证**，也**不因「已记录」而被当作通过**；`deepReview` 状态描述的是**裁决是否落定**（7 轮共 50+ 条全部逐条落定、0 条 upheld 阻断），与「验证矩阵是否完备」是不同命题。值得说明的是：把状态改成 `pending` 在本仓门禁下**不可执行**——`pending` / `self_play_pending` 不在 `check-pr-exec-record.js` 的闭环白名单 {cleared, needs_revision, self_play_resolved} 内，只会**永远卡住 PR**；而「端到端真机复核」需用户侧真机操作、「浮层专用像素用例」在像素 harness 无 IPC 通道时技术上不可构造 ⇒ 它们只能如实欠着，不能在本 PR 内被「验证掉」。
 
-**未闭合项与评审状态的关系（如实说明）**：PRD §10 与本记录的「未闭合」段登记了 5 条**欠账**（端到端真机复核 / 浮层专用像素用例 / `storyTextLimit` 未接线 / Python 契约并存 / `genreDraftId` 仍是模块级 `let`）。它们**从未被冒充为已验证**，也**不因「已记录」而被当作通过**；`deepReview` 状态描述的是**裁决是否落定**（4 轮共 27 条全部逐条落定、0 条 upheld 阻断），与「验证矩阵是否完备」是不同命题。值得说明的是：把状态改成 `pending` 在本仓门禁下**不可执行**——`pending` / `self_play_pending` 不在 `check-pr-exec-record.js` 的闭环白名单 {cleared, needs_revision, self_play_resolved} 内，只会**永远卡住 PR**；而「端到端真机复核」需用户侧真机操作、「浮层专用像素用例」在像素 harness 无 IPC 通道时技术上不可构造 ⇒ 它们只能如实欠着，不能在本 PR 内被「验证掉」。
+**历史欠账记录的收口方式（如实登记）**：`e671b19b`（轮 2，`self_play_blocked`）、`5b6e84da`（轮 3，`self_play_pending`）、`db1f1618`（轮 6，`self_play_pending`）由 agent 按 `check-pr-exec-record.js` 的**合法出口②**（"确认判定确属假阳性／非高危面 → `deepReview.closureNote`（须含轮次标记与逐条处置结论）再把 status 置为闭环值"）手工收口：补 `closureNote`（含轮次、逐条处置与「upheld 已实现」措辞）+ `tier=self-play` + `status=self_play_resolved`，并标注 `closedBy`/`closedAt`。**未改动引擎写回的任何裁决内容**（findings/prosecution/defense/rationale 全部原样保留）。高危面（判据本体 / workflows / 凭据登录态）不适用本出口——本刀不涉。
 
-**两条历史欠账记录的收口方式（如实登记）**：`e671b19b….json`（轮 2，`self_play_blocked`）与 `5b6e84da….json`（轮 3，`self_play_pending`）由 agent 按 `check-pr-exec-record.js` 的**合法出口②**（"确认判定确属假阳性／非高危面 → `deepReview.closureNote`（须含轮次标记与逐条处置结论）再把 status 置为闭环值"）手工收口：补 `closureNote`（含轮次、逐条处置与「upheld 已实现」措辞）+ `tier=self-play` + `status=self_play_resolved`，并标注 `closedBy`/`closedAt`。**未改动引擎写回的任何裁决内容**（findings/prosecution/defense/rationale 全部原样保留）。高危面（判据本体 / workflows / 凭据登录态）不适用本出口——本刀不涉。
+### 审计口径的显式声明（QM-6 i1 的建议，采纳）
 
+`.ccg/reviews/<hash>.json` 的 `sha` 字段 **恒等于评审运行时的分支基线（merge-base）**，不是 head ——
+这是 pre-commit 钩子的**设计**（新提交在钩子运行时还不存在）。审计者不必反推内容寻址，可直接复算：
+
+```bash
+# ① 基线（= JSON 的 sha 字段）
+git merge-base origin/main HEAD
+# ② 12 个代码文件的改动行数（= JSON 的 stats.changedLines）
+git diff "$(git merge-base origin/main HEAD)..HEAD" --numstat -- apps/desktop \
+  | awk '{s+=$1+$2} END {print s}'
+```
+
+记录与**具体 diff** 的绑定是内容寻址的 `stagedDiffHash`（深审首行「判定记录按内容寻址命中」）。
 ### 静态门禁读数（精确值，非「PASS」字面）
 
 | 门禁 | 命令 | 读数 | rc |

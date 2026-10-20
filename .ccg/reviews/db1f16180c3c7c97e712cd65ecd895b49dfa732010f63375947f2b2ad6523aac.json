@@ -48,13 +48,17 @@
   },
   "deepReview": {
     "required": true,
-    "status": "self_play_pending",
+    "status": "self_play_resolved",
     "performedBy": "self-play(pending)",
     "confidenceWeight": 0.6,
     "requiresExternalReview": [],
     "findings": null,
     "template": ".adversarial\\ccg-deep-7f23b3bd\\adjudication.json",
     "note": "裁决尚未填写：7/7 条未定（i1, i2, i3, i4, i5, i6, i8）",
-    "at": "2026-10-20T22:24:35.666Z"
+    "at": "2026-10-20T22:24:35.666Z",
+    "tier": "self-play",
+    "closureNote": "轮6 外部 claude 交付 8 条（其中 7 条进裁决，0 条高危域命中）：7 条 dismissed 各附可复算实测证据（JSON.sha==merge-base 且已写入「审计口径的显式声明」小节给出两条复算命令、code_total=1839==changedLines、vite build rc=0、StageProgress 真实渲染断言、seq 守卫已实装、类型守卫已实现且经变异反证 M5 验证、模块级 let 已按 i5 改为 ref）；3 条建议被直接采纳并已实现：①i8 交错边界用例（程序赋值后立即手改 ⇒ 归因链被清、不假挂；手改后程序赋值 ⇒ 不再作废归因链）、②i1 审计口径显式声明、③i4 CHANGELOG 迁移影响面；逐条 prosecution/defense/verdict/rationale 见 .adversarial/ccg-deep-7f23b3bd/adjudication.json；本记录非门禁所指高危面（未触判据本体/workflows/凭据登录态），按 check-pr-exec-record.js 合法出口②以本 closureNote 收口，未改任何引擎写回的裁决内容。",
+    "closedBy": "agent-self-play-closure（check-pr-exec-record.js 合法出口②）",
+    "closedAt": "2026-10-20T23:02:23.403Z"
   }
 }

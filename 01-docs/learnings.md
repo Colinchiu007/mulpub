@@ -1,3 +1,32 @@
+## 【契约/契约漂移】渲染层给引擎的参数字段名，必须逐字核对「引擎读哪个键」——不能照抄另一条链路的字段名（fix-collection-rewrite-publish-flow，2026-10-20）
+
+### lesson: renderer-engine-contract-key-mismatch
+
+**现场**：采集页把「字数」设成 0-6000，改写结果只有约 3000 字，而且句子戛然而止（像没写完）。
+
+**根因**：采集页把字数区间传成 `userSettings.targetWordCount`（**Python 聚合层**的旧契约），而桌面改写引擎读的是 **`userSettings.wordCountRange`**：`_getWordCountInstruction` 取不到 ⇒ 不注入「【字数要求】…」指令；`_postProcess` 取不到 ⇒ 回落 `DEFAULT_MAX_OUTPUT_LENGTH(3000)` ⇒ 输出被硬砍到 3000 码点，且砍尾是 `codePoints.slice(0, max)` 的硬切 ⇒ 停在半句上。连带主进程 `max_tokens` 也永远按兜底 3000 推导。
+
+**教训**：引擎测试断言的是「**收到 `wordCountRange` 时**」的行为，**没有任何用例断言「采集页传出去的键名」**；而采集页是全仓唯一传 `targetWordCount` 的地方 —— 两页共用同一套 UI 组件，评审默认两边一致。**凡是跨进程传参，第一步是找到「消费方真正读哪个键」并给它加一条断言**，而不是照抄另一条链路的字段名。
+
+## 【数值/默认值】用户可能显式填 0 的数值，不能用 `x || default` 兜底——0 是 falsy，会被静默改写（fix-collection-rewrite-publish-flow，2026-10-20）
+
+### lesson: falsy-zero-in-numeric-fallback
+
+**现场**：用户在字数区间的「最小」填 0（语义是「下限不设限」），引擎实际收到的是 800。
+
+**根因**：`const minW = Number(rewriteWordCountMin.value) || 800` —— `0` 是 falsy ⇒ 走 `||` 的右分支。同样的坑还有 `Number('')` 也是 0：所以「未填」与「填了 0」必须**分开判**，光靠 `||` 做不到。
+
+**教训**：凡是「用户可能显式填 0/空串/false」的数值，兜底必须用**显式判空**（`=== ''` / `Number.isInteger` / `== null`），不能用 `||`。判据：写完兜底后，问自己「用户填 0 时会得到什么」——答不上来就是错的。
+
+## 【状态/失效】内容一变，已存的草稿 id 必须立刻作废——否则下游拿到的永远是上一版内容（fix-collection-rewrite-publish-flow，2026-10-20）
+
+### lesson: stale-draft-id-must-invalidate-on-content-change
+
+**现场**：采集页「一键改写」后又点了一次「AI 改写」，走「去发布 → 视频创作」，带进去的是**第一次**改写的文案。
+
+**根因**：`genreDraftId`（已存草稿 id）是模块级 `let`，在改写结果变化时**从不被作废**；`goPublishAfterRewrite` 见到它非空就**跳过重存** ⇒ 草稿箱里躺的是第一次改写时存的那份。而改写页（RewriteView）**早就有** `invalidateSavedDraft()` 这道防护 —— 采集页漏了同一条。
+
+**教训**：「同族防护」要**跨页对齐**：一个页面有的不变量，另一个页面也必须有。不变量写成可测的句子：**改写结果一变，已存草稿 id 立刻作废**；并且把「程序赋值」与「用户手改」**分别**写成用例 —— 前者只作废草稿、后者还要作废归因链（否则是假归因）。
 ## 放宽一个「拦截类」判据前，先问它的词库/阈值有没有配置入口——否则你放宽的是一把用户拧不动的锁（rewrite-sensitive-precheck-relax，2026-10-20）
 
 ### lesson: blocking-gate-needs-a-tuning-knob
