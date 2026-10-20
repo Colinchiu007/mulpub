@@ -2,7 +2,7 @@
   <div class="create-page" :class="{ 'create-page--pipeline-list': view === 'pipelines' && !selectedPipeline, 'create-page--pipeline-detail': view === 'pipelines' && selectedPipeline }">
     <div class="page-header">
       <h1>视频创作</h1>
-      <p class="text-muted">基于 OpenMontage 流水线引擎，AI 驱动从脚本到成片的全流程</p>
+      <p class="text-muted">{{ $t('create.story2video.engineSubtitle') }}</p>
     </div>
 
     <!-- Remotion 状态提示 -->

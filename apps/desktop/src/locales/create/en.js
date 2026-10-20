@@ -20,6 +20,8 @@ export default {
         cinematicDarkDesc: 'Dark cinematic rendering',
       },
       configurationTitle: 'Story Telling Configuration',
+      // Video creation page subtitle (2026-10-19: moved out of the hardcoded CreateView.vue copy; drops the OpenMontage brand wording)
+      engineSubtitle: 'An all-in-one pipeline engine: AI-driven from script to final cut',
       imageStyleHint: 'Controls the visual appearance of generated images.',
       promptStyleHint: 'Controls how image prompts are written and organized; it does not replace image style.',
       maxPromptLength: 'Max prompt length',

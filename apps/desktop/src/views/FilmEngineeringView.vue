@@ -31,7 +31,7 @@
     <!-- 头部元信息 -->
     <el-card v-else-if="status && status.available" class="fe-card" shadow="never">
       <div class="fe-meta">
-        <div class="fe-meta-title">{{ status.filmMeta.title }}</div>
+        <div class="fe-meta-title">{{ t('filmEngineering.libraryTitle') }}</div>
         <div class="fe-meta-logline">{{ status.filmMeta.logline }}</div>
         <div class="fe-meta-row">
           <el-tag size="small">{{ t('filmEngineering.stats.duration') }} {{ formatDuration(status.filmMeta.durationSec) }}</el-tag>
