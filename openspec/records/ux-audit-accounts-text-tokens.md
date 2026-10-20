@@ -85,3 +85,15 @@ sync_backfill_owner: 合并后由承接该分支的会话按 AGENTS「PR 自动�
 | 远程同步 | 由门禁推导 | 收口状态不手写：`scripts/lib/merge-ledger.js` 按主干历史找出"哪个带 `(#NNNN)` 尾注的已合并提交最近一次把这篇记录带进 main"，命中即收口。合并证据回读写在 PR 评论里，不写回仓库文件（AGENTS 2026-10-18「禁止记录收口回填 PR」） |
 
 - 保留门禁：行尾对账 ✅（`git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径逐文件相等）| 品牌残留 随 CI（本批未写竞品名）| 文档同步 随 CI doc-gate | 受管文档绝对路径 随 CI Gate 12c（本记录一律用 `<仓库父目录>` 占位）| 执行记录载体 ✅（`openspec/records/ux-audit-accounts-text-tokens.md`）| 远程同步 PR #4066
+
+## 第二轮（2026-10-20，QM-6 决策层对抗评审后的判据修正）
+
+- **入口与通道**：`sh scripts/plan-review.sh`（Git Bash，跨家族 proposer/critic）对 `f763366fb` 的 diff 跑了一轮，产物 `.adversarial/ccg-deep-f763366f/`（proposal-v1 / critique-v1 / adjudication.json / family-snapshot）。critic 交付 6 条（i1 Critical、i2/i3/i4/i7/i8 Warning），逐条处置见 CHANGELOG 同 PR 条目与本节。
+- **评审原件的入库位置**：`.adversarial/` 已被 `.gitignore` 吞掉（`.gitignore:436`）⇒ 只留在临时目录等于"评审跑过"这件事仅剩我的转述。故把 critic 原文、裁决 JSON 与 family 快照三份复制入库：`.ccg/reviews/plan-review-f763366f-{critique-v1.md,adjudication.json,family-snapshot.json}`。proposer 原文（`proposal-v1.md`，145 KB）**不入库** —— 它的内容就是被评审的那份 diff 快照，坐标可由 `git show f763366fb` 重取，入库只会让下一轮 re-sync 在一份不可复核的大文件上做行级合并。
+- **代码变更**：`color-token-reader.js`（候选链语义改为"沿链取最近不透明表面"、新增 `classStems` 词干候选、新增两格"定位不了承载面"的出声候选、`loadThemeOverrides` 停止冒号归一、`parseRules` 属性名解析改为按 `;` 切段、`loadThemes` 增返 `darkDeclared`）；`text-contrast-sites.js` 无改；`Accounts.vue` 三处颜色**退回主干原值**（`.login-state-actions button`、`.search-icon`、`.clear-search`）；新增 `apps/desktop/scripts/gen-text-contrast-baseline.mjs`。
+- **判据面变更**：`Accounts.text-contrast.test.js` 11 → 14 条（新增"暗色根块声明核对""定位面/兄弟面出声""基线 `unresolved` 逐字段核对"），棘轮三格随现场改 reading：`exemptions` 15 → 18、`needs-design` 3 → 6、`compliant-bare` 12 → 12（**未放宽**：一处进一处出）；机制锁 18 → 21、采集锁 8 → 9。
+- **取证读数（当场实测，非估算）**：四份样式相关测试 `97 passed`；`node scripts/gen-text-contrast-baseline.mjs --check` → `BASELINE-IN-SYNC`；浅色档计算值变化 **20** 处 / 不变 **2** 处（逐条 `resolveColor(旧)` vs `resolveColor(新)`）；`light=134 / darkDeclared=61` 槽；两代扫描器对账差集 **9** 项（`--spacing-*`，修后为 0）；消费者并集（`src/views` + `src/styles` + 三份读 `Accounts.vue` 的结构锁）`2233 passed | 1 skipped`；变异电池 **15/15 CAUGHT**、控制趟 GREEN(38)、还原逐字节相同。
+- **视觉基线**：本轮 `Accounts.vue` 的颜色改动全部是**退回主干原值**（浅色档计算值逐条相等），故四张 `accounts-list*` 基线无需再刷；`QG Visual` / `Gate 7b` 以 CI 现场为准，若红则按同一次 CI 渲染换图并自证 0 px（**禁止** `--update-baseline`）。
+- **撤回与更正**（此前向用户上报过的两条结论按本轮实测更正）：① 「4 处白字坐在不过 AA 的彩色面上」中的 `.floating-close-button`（4.21）与 `.login-state-actions button`（2.75）两处，经全仓 grep 证实是**死样式**（模板在 `645b86684` 被删、CSS 留下），不构成用户可见缺陷 ⇒ 现存真缺陷为 `.page-button.danger`（3.76）与 `.batch-delete`（暗色 3.26）两处，另加本轮新暴露的 `.search-icon`/`.clear-search`（暗色 2.00:1）；② 「收编后暗色 AA 回归」的因果句不成立（该处根本不渲染），但**判据的祖先定位洞成立**并已修。
+- **待人工裁决（不代拍）**：死样式清理（`.login-state*`、`.floating-close-button`，属阶段 5"未接线组件/死观测字段"单元）；`.group-search-box input` 等 31 处"底色不随主题走"的容器何时接主题（图标色必须与容器同批裁决，否则换 token 只会把暗色档压低）；`needs-design` 6 处的设计选型。
+- **QM-6 机械闸门状态**：`.ccg/reviews/<sha>.json` 由 decider 判 `dual` 并置 `deepReview.status=pending`；proposer（opencode）本轮仍受上游 IP 白名单阻断，故本 PR **不满足** AGENTS「PR 自动合并」判据第 4 条（`check-pr-exec-record.js --mode=enforce` 需 OK），合并动作交回人工，未自行放宽状态词。

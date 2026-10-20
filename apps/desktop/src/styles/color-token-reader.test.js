@@ -11,7 +11,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   loadThemes, resolveColor, resolveLength, contrast, luminance, scanStyleRules, needFor, effectiveBg,
-  surfaceCandidates,
+  surfaceCandidates, worstContrast, classStems, loadThemeOverrides, declsWithOverrides, parseRules,
 } from './color-token-reader'
 
 const TOKENS = `
@@ -131,7 +131,54 @@ describe('color-token-reader 的第二批判据（QM-6 逻辑轴命中的三种�
     expect(resolveColor('var(--bg) !important', t.light), 'token + !important 同样要能解析').toBe('#ffffff')
     const site = { background: '#fff !important' }
     expect(effectiveBg(site, t.light, '#1e1e23'), '自带底色解析得出时绝不允许回落到页面底色').toBe('#ffffff')
-    expect(surfaceCandidates('.x', site, new Map(), t.light, '#1e1e23').length).toBe(1)
+    const cand = surfaceCandidates('.x', site, new Map(), t.light, '#1e1e23')
+    // 链式语义：页面底色始终挂在链尾作最后兜底，所以判据不是"候选只有一个"，
+    // 而是"沿链取到的第一格必须是自己的底色"（worstContrast 只取第一个能解析的，不取最差）。
+    expect(cand[0].hex).toBe('#ffffff')
+    expect(worstContrast('#5048e5', cand, t.light).worstHex, '自带 #fff 的元素不得被算到页面 inset 上').toBe('#ffffff')
+    expect(cand.length, '链尾必须还挂着页面兜底那一格').toBe(2)
+  })
+
+  it('祖先底色还要包括"类名词干"：DOM 里的嵌套在 CSS 里没有前缀关系（QM-6 引擎 critic 轴 Critical i1）', () => {
+    const t = loadThemes(':root { --bg: #ffffff; }')
+    const declBySelector = new Map([
+      ['.login-state', { background: '#f3f2ff' }],
+      ['.login-state-actions', { display: 'flex' }],
+    ])
+    const cand = surfaceCandidates('.login-state-actions button', { background: 'transparent' }, declBySelector, t.light, '#faf6f8')
+    const raws = cand.map((c) => c.raw)
+    expect(raws, '词干候选必须把 .login-state 的固定横幅底色带进来，否则判据按页面 inset 放行而屏幕上是 #f3f2ff')
+      .toContain('#f3f2ff')
+    // 反向：词干不得留下"单段前缀"这种到处误命中的东西（`.complete-login` 剥到最短只剩 `.complete`，
+    // 一段前缀会在 `.complete-bar` / `.complete-hint` 这类兄弟类上乱命中 ⇒ 明确不产出）
+    expect(classStems('.login-state-actions .complete-login')).toEqual(['.login-state'])
+    // 三段以上才有多档词干：`.group-search-box` → `.group-search`（不含它自己，也不留单段 `.group`）
+    expect(classStems('.group-search-box input')).toEqual(['.group-search'])
+  })
+
+  it('定位面与兄弟承载面：判据定位不了底时必须出声，不得回落页面底色冒充合规（QM-6 引擎 critic 轴 i2）', () => {
+    const t = loadThemes(':root { --bg: #ffffff; }')
+    const pageBg = '#faf6f8'
+    // 形状一：position: absolute 的文字自己不画底（本仓实测 `.search-icon` / `.clear-search`）
+    const abs = surfaceCandidates('.search-icon', { position: 'absolute', color: '#707080' }, new Map(), t.light, pageBg)
+    expect(abs[0].hex, '定位面读不出时不得把页面底色当成"实际坐在的底"').toBeNull()
+    expect(abs[0].from, `出声必须点名成因：${abs[0].from}`).toContain('position:absolute')
+    expect(worstContrast('#707080', abs, t.light).ratio, '定位面未知 ⇒ 算不出比值，而不是按页面底色算出一个 5.58').toBeNull()
+    // 形状二：同前缀的兄弟后代声明了底色 ⇒ 点名是哪一块
+    const declBySelector = new Map([
+      ['.group-search-box', { padding: '0' }],
+      ['.group-search-box input', { background: '#fafbfe' }],
+    ])
+    const sib = surfaceCandidates('.group-search-box .search-icon', { position: 'absolute' }, declBySelector, t.light, pageBg)
+    expect(sib[0].raw, '兄弟承载面必须把那块底色带出来').toBe('#fafbfe')
+    expect(sib[0].from, `必须写明它是兄弟面而非祖先面：${sib[0].from}`).toContain('sibling-painted')
+    expect(sib[0].hex, '判据不解析 DOM ⇒ 这一格必须是未解析，不得直接算成底色').toBeNull()
+    // 反向对偶：有 position 但**确实坐在祖先实色上**的站点，不得被这条规则误伤成"读不出"
+    const onAncestor = surfaceCandidates('.panel .badge', { position: 'absolute' }, new Map([['.panel', { background: '#ffffff' }]]), t.light, pageBg)
+    expect(onAncestor[0].hex, '祖先画了实色时仍按祖先算，不得退化成"读不出"').toBe('#ffffff')
+    // 反向对偶二：静态定位 + 无祖先底色 ⇒ 照旧走页面兜底，不被这条规则吃掉
+    const staticSite = surfaceCandidates('.note', { color: '#707080' }, new Map(), t.light, pageBg)
+    expect(staticSite[0].hex).toBe(pageBg)
   })
 
   it('background: transparent 不是"读不出的底色"，而是"我没有底色"', () => {
@@ -144,6 +191,71 @@ describe('color-token-reader 的第二批判据（QM-6 逻辑轴命中的三种�
     // 另一半：自己没写 background（不是 transparent）时，标签必须写明"底色来自调用方"
     const plain = surfaceCandidates('.login-state span', {}, new Map(), t.light, '#faf6f8')
     expect(plain[0].from, `没写 background 的回落标签必须与 transparent 的区分开：${plain[0].from}`).toContain('page-bg (caller supplied)')
+  })
+
+  it('主题覆盖层的键必须原样保留伪类（冒号归一会把整层静默作废，QM-6 引擎 critic 轴 i3）', () => {
+    const css = [
+      ':root { --x: #ffffff; }',
+      "[data-theme='dark'] { --x: #101014; }",
+      "html[data-theme='dark'] .mp-profile:hover { background: #2c2c34; }",
+      "html[data-theme='dark'] .card { background: #1a2030; }",
+    ].join('\n')
+    const ov = loadThemeOverrides(css).dark
+    expect([...ov.keys()].sort(), `覆盖层的键必须与 SFC 侧 parseRules 产出的选择器逐字同形：${[...ov.keys()]}`)
+      .toEqual(['.card', '.mp-profile:hover'])
+    // 真正跑一次"取生效值"，而不是只比字符串形状：SFC 选择器写法与覆盖层一致时必须命中
+    const sfc = declsWithOverrides({ background: '#eeeeee' }, ov, '.mp-profile:hover')
+    expect(sfc.background, '伪类覆盖层没命中就会把暗色档实际底色读成浅色值').toBe('#2c2c34')
+    expect(declsWithOverrides({ background: '#eeeeee' }, ov, '.mp-profile').background, '不带伪类时不得被 hover 层污染').toBe('#eeeeee')
+    // 反失明正控：本文件确实产出了**至少一条**伪类覆盖，否则上面两句是恒真
+    expect([...ov.keys()].filter((k) => k.includes(':')).length, '一条伪类覆盖都没读到 ⇒ 这条锁测不到它声称的东西').toBeGreaterThan(0)
+  })
+
+  it('两代扫描器不得给出不同的槽集合（loadThemes 的扁平正则 vs parseRules 的递归下降，QM-6 引擎 critic 轴 i8）', () => {
+    // 这一条不"重构掉"扁平实现，而是让它**与递归实现当场对账**：
+    // tokens.css 的根块一旦被包进 @media/@supports 或出现嵌套，扁平正则会静默截断，
+    // 表现为"某些槽解析不出"，而解析不出在下游只是少几笔欠账 —— 不会红。
+    const css = [
+      '/* 说明块 */ :root { --a: #ffffff; --b: #123456; }',
+      "[data-theme='dark'] { --a: #101014; }",
+      '@media (min-width: 900px) { :root { --c: #abcdef; } }',
+      '@supports (display: grid) { html[data-theme="dark"] { --d: #000000; } }',
+    ].join('\n')
+    const t = loadThemes(css)
+    const flat = { light: [...t.light.keys()].sort(), dark: [...t.dark.keys()].sort() }
+    // 参照实现：直接用递归下降读同一份 CSS，再按"根级块"取槽
+    const ref = { light: [], dark: [] }
+    for (const r of parseRules(css)) {
+      const sel = r.selector
+      const isDarkRoot = /\[data-theme\s*=\s*['"]?dark['"]?\]/.test(sel) && !/(?:[\s>+~])[\w.[]/.test(sel.replace(/\[[^\]]*\]/g, ''))
+      const isLightRoot = /^(:root|html)$/.test(sel.split(' ').pop()) || /(^|\s)(:root|html)$/.test(sel)
+      if (!isLightRoot && !isDarkRoot) continue
+      for (const k of Object.keys(r.decls)) if (k.startsWith('--')) ref[isDarkRoot ? 'dark' : 'light'].push(k)
+    }
+    expect(flat.light, `扁平正则与递归下降读出的浅色槽集合不同 ⇒ 其中一代扫描器是瞎的（flat=${flat.light} ref=${[...new Set(ref.light)].sort()}）`)
+      .toEqual([...new Set(ref.light)].sort())
+    // 判定域如实收窄：**浅色槽集合**才是本仓真实风险方向（扁平正则遇到嵌套会把根块截断，
+    // 于是浅色槽整片失踪，下游表现为"某些 token 解析不出" ⇒ 少几笔欠账而不是红）。
+    // at-rule 包起来的根块两代读法本就不同（parseRules 会把 `@supports …` 记进选择器串，递归侧
+    // 因此不再认它是"根级"），这一格不作对账，只留一条形状正控：扁平侧必须把包起来的槽读到。
+    expect(t.light.has('--c'), '@media 里包的 :root 槽必须读到（扁平侧漏读 = 浅色槽整片失踪）').toBe(true)
+    // 递归侧的属性名必须容纳"数字结尾的自定义属性"（上一版 `([a-z-]+)` 会把它们整条丢掉）
+    expect(parseRules(':root { --spacing-1: 4px; --el-color-primary-light-5: #eee; }')[0].decls,
+      '名字带数字的自定义属性不得被丢掉 —— 丢掉就是"这一格不存在"，下游只是少几笔欠账而不是报错')
+      .toMatchObject({ '--spacing-1': '4px', '--el-color-primary-light-5': '#eee' })
+    expect(t.darkDeclared.has('--d'), '@supports 里包的暗色根块槽必须进 darkDeclared').toBe(true)
+    // 现场正控：本仓真实的 tokens.css 也必须两代同读（这条才是"当前代码真的对齐"的证据）
+    const realSrc = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'tokens.css'), 'utf8').replace(/\r\n/g, '\n')
+    const real = loadThemes(realSrc)
+    const realRef = new Set()
+    for (const r of parseRules(realSrc)) {
+      const sel = r.selector
+      if (!/(^|\s)(:root|html)(\s|$)/.test(sel) && !/\[data-theme/.test(sel)) continue
+      for (const k of Object.keys(r.decls)) if (k.startsWith('--')) realRef.add(k)
+    }
+    const onlyFlat = [...real.light.keys()].filter((k) => !realRef.has(k))
+    expect(onlyFlat, `loadThemes 读到、parseRules 读不到的槽：${onlyFlat.join(' | ')}`).toEqual([])
+    expect(real.light.size, `tokens.css 的槽数读出 ${real.light.size} ⇒ 解析退化（当日读数 134）`).toBeGreaterThan(50)
   })
 
   it('必须遍历每一个 style 块，且嵌套进 @media 的规则不得从判据里消失', () => {

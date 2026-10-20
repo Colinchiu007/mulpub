@@ -1,5 +1,5 @@
 {
-  "_comment": "只能缩小。生成与校验共用 src/styles/text-contrast-sites.js 这一份采集实现（QM-6 可维护性轴把\"两套口径\"点名为本单元最高危单点）。exemptions 每条目 = 一处裸 hex 文字色；per 里 surface = 判据实际取到的最差底色。needs-design = 不过 AA 且**同色相族**里没有一个槽能过 ⇒ 属设计裁决，脚本不得代拍（换成中性灰或主色紫都是删语义）。compliant-bare = 现值两档都过 AA、只是没收成 token ⇒ 令牌体系欠账，不是视觉缺陷。surfaces = 本批未修的底色/边框/描边裸 hex 清单（暗色档出现浅底的真凶）。",
+  "_comment": "只能缩小。生成与校验共用 src/styles/text-contrast-sites.js 这一份采集实现，重算/落盘由 scripts/gen-text-contrast-baseline.mjs 执行（QM-6 可维护性轴把\"两套口径\"与\"重跑靠临场手写脚本\"点名为本单元最高危单点）。exemptions 每条目 = 一处裸 hex 文字色；per 里 surface = 判据沿候选链实际取到的那块底色（自己 → 祖先前缀/类名词干 → 页面 inset，取第一个能解析成实色的，遇 rgba 即停并记 unresolved）。needs-design = 不过 AA，或暗色档底色是 rgba 半透明而判据读不出合成结果 ⇒ 两者都属设计裁决/人工核对，脚本不得代拍（换成中性灰或主色紫都是删语义）。compliant-bare = 现值两档都过 AA、只是没收成 token ⇒ 令牌体系欠账，不是视觉缺陷。reason（可选）写明该条为什么落在这一档，尤其\"为什么这里必须留裸值\"。surfaces = 本批未修的底色/边框/描边裸 hex 清单（暗色档出现浅底的真凶）。",
   "exemptions": [
     {
       "selector": ".account-sort-controls button",
@@ -57,8 +57,8 @@
           "theme": "light",
           "need": 4.5,
           "value": "#5048e5",
-          "ratio": 5.87,
-          "surface": "#f8f9fc",
+          "ratio": 6.18,
+          "surface": "#ffffff",
           "unresolved": []
         },
         {
@@ -122,6 +122,35 @@
       "tokenCandidates": []
     },
     {
+      "selector": ".clear-search",
+      "value": "#92939c",
+      "per": [
+        {
+          "theme": "light",
+          "need": 3,
+          "value": "#92939c",
+          "ratio": null,
+          "surface": null,
+          "unresolved": [
+            "<positioned-surface-unknown>"
+          ]
+        },
+        {
+          "theme": "dark",
+          "need": 3,
+          "value": "#92939c",
+          "ratio": null,
+          "surface": null,
+          "unresolved": [
+            "<positioned-surface-unknown>"
+          ]
+        }
+      ],
+      "status": "needs-design",
+      "tokenCandidates": [],
+      "reason": "QM-6 引擎 critic 轴 i2：该规则 position: absolute 且不画有效底色，实际坐在 .group-search-box input / .platform-search input 的裸 #fafbfe（暗色档不随主题走）上。判据不解析 DOM ⇒ 记为读不出而不是回落页面底色（旧口径据此算出浅色 5.58 / 暗色 8.02 的假绿）。现场实测：主干原值 #92939c 对 #fafbfe 为 2.95:1（两档都不过 3:1 的非文本阈值），本批因此**不收编**、保留原值并登记 needs-design；收成 var(--color-text-secondary) 会让暗色档掉到 2.00:1（暗色槽值被提亮而底不变）。正解=先给那块 input 底色接上主题，再一次性裁决图标色，属设计决策。"
+    },
+    {
       "selector": ".filter-tabs button",
       "value": "#6f7079",
       "per": [
@@ -153,8 +182,8 @@
           "theme": "light",
           "need": 4.5,
           "value": "#5048e5",
-          "ratio": 5.77,
-          "surface": "#faf6f8",
+          "ratio": 6.18,
+          "surface": "#ffffff",
           "unresolved": []
         },
         {
@@ -215,7 +244,8 @@
         }
       ],
       "status": "compliant-bare",
-      "tokenCandidates": []
+      "tokenCandidates": [],
+      "reason": "⚠ 死样式：全仓无模板/脚本产出该类名（模板在 645b86684 删，CSS 留下）⇒ 本条读数不是用户可见缺陷，登记只为让判据不骗自己；删除属死代码清理单元。 "
     },
     {
       "selector": ".login-state span",
@@ -239,7 +269,8 @@
         }
       ],
       "status": "compliant-bare",
-      "tokenCandidates": []
+      "tokenCandidates": [],
+      "reason": "⚠ 死样式：全仓无模板/脚本产出该类名（模板在 645b86684 删，CSS 留下）⇒ 本条读数不是用户可见缺陷，登记只为让判据不骗自己；删除属死代码清理单元。 "
     },
     {
       "selector": ".login-state-actions .complete-login",
@@ -263,7 +294,33 @@
         }
       ],
       "status": "compliant-bare",
-      "tokenCandidates": []
+      "tokenCandidates": [],
+      "reason": "⚠ 死样式：全仓无模板/脚本产出该类名（模板在 645b86684 删，CSS 留下）⇒ 本条读数不是用户可见缺陷，登记只为让判据不骗自己；删除属死代码清理单元。 "
+    },
+    {
+      "selector": ".login-state-actions button",
+      "value": "#5048e5",
+      "per": [
+        {
+          "theme": "light",
+          "need": 4.5,
+          "value": "#5048e5",
+          "ratio": 5.58,
+          "surface": "#f3f2ff",
+          "unresolved": []
+        },
+        {
+          "theme": "dark",
+          "need": 4.5,
+          "value": "#5048e5",
+          "ratio": 5.58,
+          "surface": "#f3f2ff",
+          "unresolved": []
+        }
+      ],
+      "status": "compliant-bare",
+      "tokenCandidates": [],
+      "reason": "⚠ 死样式：全仓无模板/脚本产出该类名（模板在 645b86684 删，CSS 留下）⇒ 本条读数不是用户可见缺陷，登记只为让判据不骗自己；删除属死代码清理单元。 所在横幅 .login-state 的底色 #f3f2ff 是固定浅底、未随主题走 ⇒ 这里必须留裸值；收成 var(--color-primary) 会让暗色档变成浅字坐浅底（实测 2.75:1，QM-6 引擎 critic 轴 Critical i1）。横幅 token 化属设计裁决，本批不代拍。"
     },
     {
       "selector": ".page-button",
@@ -353,15 +410,45 @@
           "theme": "dark",
           "need": 4.5,
           "value": "var(--color-sidebar-accent)",
-          "ratio": 6.75,
-          "surface": "#232329",
+          "ratio": null,
+          "surface": null,
           "unresolved": [
             "rgba(139, 133, 255, .18)"
           ]
         }
       ],
-      "status": "compliant-bare",
-      "tokenCandidates": []
+      "status": "needs-design",
+      "tokenCandidates": [],
+      "reason": "浅色档 color 是裸 #5048e5 不随主题走；暗色档该规则的底色写成 rgba(139, 133, 255, .18) 半透明 ⇒ 判据读不出合成结果（属文件头声明的边界 2，不得穿透祖先层冒充读数）。两档该落到哪一组槽属设计裁决。"
+    },
+    {
+      "selector": ".search-icon",
+      "value": "#92939c",
+      "per": [
+        {
+          "theme": "light",
+          "need": 3,
+          "value": "#92939c",
+          "ratio": null,
+          "surface": null,
+          "unresolved": [
+            "<positioned-surface-unknown>"
+          ]
+        },
+        {
+          "theme": "dark",
+          "need": 3,
+          "value": "#92939c",
+          "ratio": null,
+          "surface": null,
+          "unresolved": [
+            "<positioned-surface-unknown>"
+          ]
+        }
+      ],
+      "status": "needs-design",
+      "tokenCandidates": [],
+      "reason": "QM-6 引擎 critic 轴 i2：该规则 position: absolute 且不画有效底色，实际坐在 .group-search-box input / .platform-search input 的裸 #fafbfe（暗色档不随主题走）上。判据不解析 DOM ⇒ 记为读不出而不是回落页面底色（旧口径据此算出浅色 5.58 / 暗色 8.02 的假绿）。现场实测：主干原值 #92939c 对 #fafbfe 为 2.95:1（两档都不过 3:1 的非文本阈值），本批因此**不收编**、保留原值并登记 needs-design；收成 var(--color-text-secondary) 会让暗色档掉到 2.00:1（暗色槽值被提亮而底不变）。正解=先给那块 input 底色接上主题，再一次性裁决图标色，属设计决策。"
     }
   ],
   "surfaces": [
@@ -408,7 +495,8 @@
     {
       "selector": ".login-state",
       "prop": "background",
-      "value": "#f3f2ff"
+      "value": "#f3f2ff",
+      "note": "⚠ 死样式：全仓无模板/脚本产出该类名（模板在 645b86684 删，CSS 留下）⇒ 本条读数不是用户可见缺陷，登记只为让判据不骗自己；删除属死代码清理单元。"
     },
     {
       "selector": ".login-qr-preview",
@@ -418,12 +506,14 @@
     {
       "selector": ".login-state-actions .complete-login",
       "prop": "background",
-      "value": "#5048e5"
+      "value": "#5048e5",
+      "note": "⚠ 死样式：全仓无模板/脚本产出该类名（模板在 645b86684 删，CSS 留下）⇒ 本条读数不是用户可见缺陷，登记只为让判据不骗自己；删除属死代码清理单元。"
     },
     {
       "selector": ".login-state-actions .complete-login",
       "prop": "border",
-      "value": "1px solid #5048e5"
+      "value": "1px solid #5048e5",
+      "note": "⚠ 死样式：全仓无模板/脚本产出该类名（模板在 645b86684 删，CSS 留下）⇒ 本条读数不是用户可见缺陷，登记只为让判据不骗自己；删除属死代码清理单元。"
     },
     {
       "selector": ".platform-filter-panel button:hover",
@@ -458,7 +548,8 @@
     {
       "selector": ".floating-close-button",
       "prop": "background",
-      "value": "#d34d5d"
+      "value": "#d34d5d",
+      "note": "⚠ 死样式：全仓无模板/脚本产出该类名（模板在 645b86684 删，CSS 留下）⇒ 本条读数不是用户可见缺陷，登记只为让判据不骗自己；删除属死代码清理单元。"
     },
     {
       "selector": ".account-sort-controls select",

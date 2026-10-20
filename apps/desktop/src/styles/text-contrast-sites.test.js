@@ -15,6 +15,7 @@ import { collectSites, siteFails } from './text-contrast-sites'
 //  - tokens 里有一条 `html[data-theme='dark'] .card { background: ... }` ⇒ 暗色档必须读覆盖层
 //  - `.flat` 写 `background: transparent` ⇒ 不得当成"读不出的底色"
 //  - `.rgb` 用 rgb() ⇒ 判据不覆盖，必须 ratio=null
+//  - `.rgba-bg` 把 rgba() 写在**底色**上 ⇒ 必须停在这一层、把原始值记进 unresolved，不得穿透到页面底色冒充读数
 //  - @media 里一条 ⇒ 不得整块漏扫
 const TOKENS = `
 /* 说明块 */
@@ -41,6 +42,7 @@ const SFC = `
 .card .title { color: var(--color-text-secondary); font-size: var(--font-size-lg); font-weight: 700; }
 .flat { background: transparent; color: #92939c; }
 .rgb { color: rgb(1, 2, 3); }
+.rgba-bg { background: rgba(10, 20, 30, .5); color: #ffffff; }
 @media (max-width: 900px) {
   .nested { color: var(--color-text-strong); }
 }
@@ -54,14 +56,14 @@ const bySel = new Map(sites.map((s) => [s.selector, s]))
 
 describe('text-contrast-sites', () => {
   it('采集域：两个 style 块 + @media 里的规则都要出点（漏一块 = 判据静默失真）', () => {
-    expect([...bySel.keys()], '必须含 .card .title / .flat / .rgb / .nested / .second-block').toEqual([
-      '.card .title', '.flat', '.rgb', '@media (max-width: 900px) .nested', '.second-block',
+    expect([...bySel.keys()], '必须含 .card .title / .flat / .rgb / .rgba-bg / .nested / .second-block').toEqual([
+      '.card .title', '.flat', '.rgb', '.rgba-bg', '@media (max-width: 900px) .nested', '.second-block',
     ])
   })
 
   it('祖先链：自身没写底色的文字，必须坐在祖先声明的底色上', () => {
     const t = bySel.get('.card .title')
-    expect(t.per.map((p) => p.surface), '浅色档最差底 = 祖先的裸底（不是页面白）').toEqual(['#f2f2f5', '#1a2030'])
+    expect(t.per.map((p) => p.surface), '浅色档实际坐的底 = 祖先的裸底（不是页面白）').toEqual(['#f2f2f5', '#1a2030'])
   })
 
   it('主题覆盖层：tokens.css 的 html[data-theme=dark] .card 必须换掉暗色档的底色', () => {
@@ -83,6 +85,19 @@ describe('text-contrast-sites', () => {
     const r = bySel.get('.rgb')
     expect(r.per[0].ratio, 'rgb() 不解析').toBeNull()
     expect(siteFails(r), '读不出不得读成合规').toBe(true)
+  })
+
+  it('底色写成 rgba() 时必须停在这一层：unresolved 记录原始值，且不得穿透到页面底色冒充读数', () => {
+    // 这一条守的是 worstContrast 的"遇解析不出即 break"语义（QM-6 引擎 critic 轴之后的口径变更）。
+    // 变异 M10 实测：把采集出的 unresolved 洗成空数组时，ratio / surface / need 三项**全都仍然对得上**
+    // ⇒ 说明只靠比值与底色两格，"读不出"这件事可以从现场彻底消失而无人察觉（半透明层被祖先底色顶替，
+    // 于是 `rgba(139,133,255,.18)` 这类真实存在的不可判层会被记成"已核对过"）。
+    const g = bySel.get('.rgba-bg')
+    const p = g.per[0]
+    expect(p.ratio, 'rgba 底色不得算出比值').toBeNull()
+    expect(p.surface, '不得穿透 rgba 层去取页面底色当"实际坐在的那块底"').toBeNull()
+    expect(p.unresolved, 'unresolved 必须把原始声明值带出来，供人工核对').toEqual(['rgba(10, 20, 30, .5)'])
+    expect(siteFails(g), '读不出 = 不通过').toBe(true)
   })
 
   it('大文本档位由该规则自己的字号决定（经 token 解析），而不是类名', () => {

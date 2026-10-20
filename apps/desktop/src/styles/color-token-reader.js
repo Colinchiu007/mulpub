@@ -37,6 +37,11 @@ function plainValue (v) {
 export function loadThemes (css) {
   const light = new Map()
   const dark = new Map()
+  // `darkDeclared` 与 `dark` 是**两件事**（QM-6 引擎 critic 轴 i4）：
+  // `dark = [...light, ...darkBlock]` 让"暗色档读到的是浅色值"与"暗色档自己声明过"在 Map 上不可区分，
+  // 于是合同里那句"文字色必须来自在暗色根块也有声明的令牌"在数据结构上无法被核对 ——
+  // 一个只在浅色块声明的槽，暗色档会安静地读浅色值，而两档比值算出来完全一样、判据照报"双档合格"。
+  const darkDeclared = new Set()
   // 先剥注释：本仓根块前面普遍压着一段 CSS 块注释说明，不剥的话注释文本会把选择器一起吃进来，
   // `^:root$` 这类锚定判定当场失败 ⇒ 整个 :root 块被漏读（表现为"槽全是 undefined"，而不是报错）。
   const cssNoComments = css.replace(/\/\*[\s\S]*?\*\//g, '')
@@ -56,10 +61,11 @@ export function loadThemes (css) {
     // 而 `:root { --a: #fff; --b: #000; }` 这种写成一行（或将来被格式化工具压成一行）的形态，
     // 只会读出第一条，其余**静默失踪** —— 下游表现为"token 解析不出"而不是报错。
     for (const d of body.matchAll(/(-{2}[\w-]+)\s*:\s*([^;{}]+)/g)) {
+      if (isDarkRoot) darkDeclared.add(d[1])
       ;(isDarkRoot ? dark : light).set(d[1], d[2].trim())
     }
   }
-  return { light, dark: new Map([...light, ...dark]) }
+  return { light, dark: new Map([...light, ...dark]), darkDeclared }
 }
 
 /**
@@ -151,8 +157,20 @@ export function parseRules (css, stack = [], out = []) {
     if (isContainer) parseRules(body, stack.concat(selector), out)
     else if (nested) parseRules(body, stack, out)
     else if (selector) {
+      // 声明解析按 `;` 切段再取第一个 `:` 前的属性名，而不是用一个正则扫全文：
+      // 上一版写成 `([a-z-]+)\s*:\s*([^;]+)`，于是**名字里带数字的自定义属性**（本仓实测
+      // `--spacing-1…16`、EP 桥的 `--el-color-primary-light-5`）因为冒号前最后一个字符是数字而整条不匹配。
+      // 后果不是报错而是"少几格"：走 parseRules 的两处（SFC 规则表、按类主题覆盖层）会把这些槽当不存在，
+      // 而 loadThemes 用的是 `-{2}[\w-]+` 读得到 —— 两代扫描器给出不同集合（QM-6 引擎 critic 轴 i8 的现场战果，
+      // 由本仓那条"两代扫描器必须同读"的对账锁当场抓到，不是推演）。
       const decls = {}
-      for (const d of body.matchAll(/([a-z-]+)\s*:\s*([^;]+)/g)) decls[d[1].trim()] = plainValue(d[2])
+      for (const part of body.split(';')) {
+        const colon = part.indexOf(':')
+        if (colon < 0) continue
+        const name = part.slice(0, colon).trim()
+        if (!/^(-{0,2}[a-zA-Z][-\w]*)$/.test(name)) continue
+        decls[name] = plainValue(part.slice(colon + 1))
+      }
       out.push({ selector: stack.concat(selector).join(' '), decls })
     }
     i = j
@@ -175,7 +193,11 @@ export function loadThemeOverrides (css) {
   for (const r of parseRules(css)) {
     const m = /^(?:html|:root)?\[data-theme\s*=\s*['"]?(dark|light)['"]?\]\s+(\S.*)$/.exec(r.selector)
     if (!m) continue
-    const target = m[2].replace(/\s*:\s*/g, ': ').trim().replace(/\s+/g, ' ')
+    // ⛔ 只做空白折叠，不得动冒号（QM-6 引擎 critic 轴 i3）：早期版本写成 `replace(/\s*:\s*/g, ': ')`，
+    // 于是 `.mp-profile:hover` 这类**伪类**覆盖层的键被归一成 `.mp-profile: hover`（CSS 里根本不是合法选择器），
+    // 与 SFC 侧 `parseRules` 的 `.mp-profile:hover` 永远不命中 ⇒ 整层静默不生效，
+    // 而"主题覆盖层要按选择器读"这条合同看起来仍然成立。tokens.css:396 实测就有这样一条伪类覆盖。
+    const target = m[2].replace(/\s+/g, ' ').trim()
     const bucket = m[1] === 'dark' ? dark : light
     bucket.set(target, { ...(bucket.get(target) || {}), ...r.decls })
   }
@@ -243,6 +265,29 @@ export function needFor (selector, decls = {}, theme) {
  * @param {Map<string,string>} theme
  * @param {string|null} pageBgValue 已解析的页面底色
  */
+/** 取某个"声明者"提供的底色；transparent/none 不是底色，是不自带表面 */
+function declOf (declBySelector, selector) {
+  const d = declBySelector && declBySelector.get(selector)
+  const raw = d && (d.background || d['background-color'])
+  return raw && !/^(transparent|none)$/i.test(raw) ? raw : null
+}
+
+/**
+ * 一个复合选择器串里每个 class token 的**连字符词干**。
+ * `.login-state-actions` → `.login-state`；`.group-search-box input` → `.group-search` / `.group` + `input` 原样跳过。
+ * 只取至少两段连字符的词干（`btn` 这种单段的没有可剥的），且剥到最短不留单段前缀（`.l` 之类会到处误命中）。
+ */
+export function classStems (selector) {
+  const out = []
+  for (const token of String(selector).split(/\s+/).filter(Boolean)) {
+    const m = /^\.([a-zA-Z0-9_-]+)$/.exec(token)
+    if (!m) continue
+    const segs = m[1].split('-')
+    for (let i = 1; i < segs.length - 1; i++) out.push('.' + segs.slice(0, i + 1).join('-'))
+  }
+  return out
+}
+
 export function surfaceCandidates (selector, decls, declBySelector, theme, pageBgValue) {
   const out = []
   const push = (raw, from) => out.push({ raw, from, hex: raw ? resolveColor(raw, theme) : null })
@@ -255,11 +300,43 @@ export function surfaceCandidates (selector, decls, declBySelector, theme, pageB
   const parts = String(selector).split(/\s+/).filter(Boolean)
   for (let k = parts.length - 1; k >= 1; k--) {
     const anc = parts.slice(0, k).join(' ')
-    const d = declBySelector && declBySelector.get(anc)
-    const raw = d && (d.background || d['background-color'])
-    if (raw && !/^(transparent|none)$/i.test(raw)) push(raw, anc)
+    const raw = declOf(declBySelector, anc)
+    if (raw) push(raw, anc)
+    // 还有一类祖先**不是选择器前缀**，而是"类名的词干"：`.login-state-actions button` 在 DOM 里
+    // 坐在 `.login-state` 那块固定横幅底色上，而 CSS 里没有任何选择器以 `.login-state` 开头
+    // （QM-6 引擎 critic 轴的 Critical i1：按页面 inset 算成 5.47:1 放行，屏幕上是 2.75:1）。
+    // 词干与真祖先同层排队，谁近谁先——链式取第一个能解析的，不取最差（见 worstContrast）。
+    for (const stem of classStems(anc)) {
+      const sRaw = declOf(declBySelector, stem)
+      if (sRaw) push(sRaw, stem)
+    }
   }
-  if (!out.length) push(pageBgValue || null, ownIsNone ? `${selector} background:${own} => page-bg` : 'page-bg (caller supplied)')
+  // 有一类承载既不靠"选择器前缀"也不靠"类名词干"能命中：文字（常是绝对定位的图标/清除按钮）实际坐在
+  // **同容器的兄弟后代**声明的底色上。本仓实测：`.group-search-box .search-icon` 压在
+  // `.group-search-box input` 的裸 `background: #fafbfe`（暗色档不随主题走）上，
+  // 而按前缀链只能走到不画底的 `.group-search-box`，于是判据拿页面 inset 算出 8.02:1 放行，屏幕上是 2.00:1
+  // （QM-6 引擎 critic 轴 i2）。本判据不解析 DOM，无法确定它压在哪一个兄弟上 ⇒ **只能出声**：
+  // 记一条"知道有这块底但定位不了"的候选，禁止用页面底色冒充读数（宁可登记成待人工看）。
+  if (!out.length && parts.length > 1 && declBySelector) {
+    const prefix = parts[0]
+    for (const key of declBySelector.keys()) {
+      if (key === prefix || !key.startsWith(`${prefix} `)) continue
+      const sib = declOf(declBySelector, key)
+      if (sib) { out.push({ raw: sib, from: `sibling-painted(${key})`, hex: null }); break }
+    }
+  }
+  // 第二种"判据看不见承载面"的形状：`position: absolute|fixed` 的文字（图标 / 清除按钮）脱离文档流，
+  // 它坐在**它定位到哪个盒子上**，而这由模板结构决定、CSS 选择器读不出来。本仓实测两处：
+  // `.search-icon`(1342) 与 `.clear-search`(1343) 都是 `position: absolute` + 无底色 ⇒
+  // 前缀链走到页面 inset 算出 5.58/8.02:1 放行，而它们实际压在 `.group-search-box input` 的
+  // 裸 `#fafbfe`（暗色档不随主题走）上，暗色真值 2.00:1（QM-6 引擎 critic 轴 i2）。
+  // 同前缀兄弟规则若声明了底色，上面那条已经能点名；走到这里说明兄弟面也定位不了 ⇒ 一律出声，不得回落页面底色。
+  if (!out.length && /absolute|fixed/i.test(String((decls && decls.position) || ''))) {
+    out.push({ raw: '<positioned-surface-unknown>', from: `position:${String(decls.position).trim()} => surface not resolvable from CSS`, hex: null })
+  }
+  // 页面底色作为链的**最后一格**始终挂着：它只在"自己与所有祖先都读不出实色"时才被取到
+  // （见 worstContrast 的"沿链取第一个能解析的"语义），不是并列候选。
+  push(pageBgValue || null, ownIsNone ? `${selector} background:${own} => page-bg` : 'page-bg (caller supplied)')
   return out
 }
 
@@ -277,21 +354,25 @@ export function effectiveBg (decls, theme, fallbackBg) {
 }
 
 /**
- * 一条文字在**所有候选底色**上最差的那个比值（候选集来自 surfaceCandidates）。
- * 取最差而不是取一个：判据要问的是"有没有任何一种它实际可能坐在的底色上读不出来"。
+ * 一条文字**实际坐在**的那块底色上的比值（候选链来自 surfaceCandidates：自己 → 最近祖先/类名词干 → 页面）。
+ * 沿链取**第一个能解析成实色的**声明者，语义上等价于浏览器绘制顺序里"最近的不透明表面"。
+ * 遇到解析不出的（`rgba()` / 未定义槽）就停在这里并记入 `unresolved`，**不得穿透它**去用更远那层：
+ * 半透明层底下的合成结果与更远的祖先不是同一个颜色，用它等于把"读不出"洗成"读得出"。
+ *
+ * ⛔ 早期版本对整条链取"最差比值"，本批实测那会判错**自带底色**的元素：
+ * `.login-state-actions .complete-login` 有 `background:#5048e5`（白字 6.18:1），
+ * "最差"却把它脚下 `.login-state` 的浅横幅底 `#f3f2ff` 也算进候选，算出 1.11:1 的假缺陷。
  * @returns {{ratio:number|null, worstHex:string|null, unresolved:Array<{raw:string|null, from:string|null}>}}
  */
 export function worstContrast (colorValue, surfaces, theme) {
-  const fg = resolveColor(colorValue, theme)
   const unresolved = []
-  let worst = null
-  let worstHex = null
+  const fg = resolveColor(colorValue, theme)
   for (const s of surfaces || []) {
-    if (!s.hex) { unresolved.push({ raw: s.raw, from: s.from }); continue }
-    if (!fg) continue
+    if (!s.hex) { unresolved.push({ raw: s.raw, from: s.from }); break }
+    if (!fg) { return { ratio: null, worstHex: null, unresolved } }
     const r = contrast(fg, s.hex)
-    if (r === null) { unresolved.push({ raw: s.raw, from: s.from }); continue }
-    if (worst === null || r < worst) { worst = r; worstHex = s.hex }
+    if (r === null) { unresolved.push({ raw: s.raw, from: s.from }); break }
+    return { ratio: r, worstHex: s.hex, unresolved }
   }
-  return { ratio: fg ? worst : null, worstHex, unresolved }
+  return { ratio: null, worstHex: null, unresolved }
 }

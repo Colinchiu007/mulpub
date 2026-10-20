@@ -20407,12 +20407,21 @@ LLM 空输出/报告缺失时，审计 job 会往 job 汇总写 `AUTONOMOUS_VERD
 
 1. **阈值按对象类型分档**，不按"看起来重不重要"：正文 `≥4.5`；大文本 `≥3`，而大文本的定义是 **24px 常规字重，或 18.66px 且加粗（≥700）**——把"任意 ≥18.66px"当大文本是历史上的一次误读（pt 与 px 混用），那会让 20px 常规正文被豁免。
 2. **靠 `currentColor` 上色的非文本 UI**（图标、箭头、清除按钮）按 `≥3`（WCAG 1.4.11）。
-3. **底色取候选集里的最差值**：该规则自己的 `background` → 祖先前缀规则的 `background` → 页面 `--color-bg-inset`。只看自身会把"坐在彩色容器上的文字"算错（实测：白字在品牌紫按钮上是 6.18:1，按页面底色算成 1.07:1；反之 `.login-state span` 按页面底色算 4.54 放行、坐在祖先 `#f3f2ff` 上其实是 4.39）。
+3. **底色沿候选链取「最近的不透明表面」，不是取候选集最差值**：该规则自己的 `background` → 祖先前缀规则 / **类名词干**（`.login-state-actions button` 在 DOM 里坐在 `.login-state` 上，而 CSS 里没有任何选择器以 `.login-state` 开头）→ 页面 `--color-bg-inset`；沿链取**第一个能解析成实色的**，遇到解析不出的层（`rgba()` 等）**就停在这里并登记**，不得穿透它去用更远那层——半透明层的合成结果与更远的祖先不是同一个颜色，用它等于把"读不出"洗成"读得出"。
+   ⛔ 本条原口径是"取最差值"，2026-10-20 被实测否证并改写：`.login-state-actions .complete-login` 自己写 `background:#5048e5`（白字 6.18:1，合规），"最差"却把它脚下 `.login-state` 的浅横幅底 `#f3f2ff` 也算进候选 ⇒ 报出 1.11:1 的**假缺陷**。两种错法同源：把"可能是别的底"当成"就是那块底"。
+3a. **两类"判据定位不了承载面"的形状一律出声，不得回落页面底色**（QM-6 引擎 critic 轴 i2 命中，实测两处都是**真的暗色不可见**）：
+   - `position: absolute|fixed` 且自己不画底的文字（`.search-icon`、`.clear-search`）：它坐在**它定位到哪个盒子**上，而那是模板结构决定的，CSS 选择器读不出来。旧口径按页面 inset 算出 5.58 / 8.02:1 判"合规"，现场它们压在 `.group-search-box input` 的裸 `#fafbfe`（暗色档不随主题走）上，`#b4b2c6` 对 `#fafbfe` 实测 **2.00:1**（本仓 `contrast()` 复量） ⇒ 暗色档搜索图标近乎不可见。
+   - 承载底写在**同前缀兄弟后代**上的（`.group-search-box .search-icon` 之于 `.group-search-box input`）：判据能点名是哪一块底，但无法确认本站点确实坐在它上面 ⇒ 记 `sibling-painted(...)` 的未解析候选。
+   两条的共同口径：**宁可登记成"待人工看"，不得给一个算出来的比值**。把不可定位的面算成页面底色，产出的是"判据说合规、用户看不见"那一类最坏的假绿。
 4. **`!important` 是声明强度，不是"读不出来"**：`background: #fff !important` 必须剥掉后再解析。曾因此把生效的白底丢掉，算出 5.45:1 而屏幕上是 **3.04:1** —— 判据说合规、用户看不见，是最坏的一种假绿。
 5. **`background: transparent` 的意思是"我没有底色"**：必须继续往祖先与页面回落，不得当成"解析不出的候选"（否则合格的点会被误判成"换任何令牌都过不了"）。
 6. **判据覆盖不到的形态必须出声**：`rgb()/rgba()/hsl()`、百分比、色彩管理一律解析为"读不出"并按**不通过**处理、逐项登记，禁止读成合规。本仓 `--color-primary-light` 在暗色档正是 rgba，所以那类槽属"人工待看"而不是"已过"。
 
-**主题覆盖层要按选择器读**：本仓除根块外还有一层 `html[data-theme='dark'] .某类 { … }` 的具类覆盖（写在 `tokens.css`）。判据不读它会双向出错——把已随主题走掉的容器底当固定浅底 ⇒ **虚构出一笔不存在的欠账**；或反过来把"容器有覆盖"当成"我这条也有覆盖"。
+**主题覆盖层要按选择器读**：本仓除根块外还有一层 `html[data-theme='dark'] .某类 { … }` 的具类覆盖（写在 `tokens.css`）。判据不读它会双向出错——把已随主题走掉的容器底当固定浅底 ⇒ **虚构出一笔不存在的欠账**；或反过来把"容器有覆盖"当成"我这条也有覆盖"。三条配套口径（都由 QM-6 引擎 critic 轴命中后补）：
+
+- **覆盖层的键必须与 SFC 侧选择器逐字同形**：不得对冒号做归一。曾写成 `replace(/\s*:\s*/g, ': ')`，于是 `html[data-theme='dark'] .mp-profile:hover`（`tokens.css:396` 现场就有）变成 `.mp-profile: hover`（CSS 里非法），与 SFC 的 `.mp-profile:hover` 永不命中 ⇒ 整条伪类覆盖层**静默作废**，而"覆盖层要按选择器读"这条合同看起来仍然成立。
+- **合同"文字色必须来自在暗色根块也有声明的令牌"要靠 `darkDeclared` 核对，不能靠 `dark`**：`dark = [...light, ...暗色块]` 这个结构天生分不清"暗色档换过值"与"暗色档从没声明、安静读到浅色值"。所以 `loadThemes` 额外返回一个只由暗色根块填充的槽名集合，判据问的是它；并且同一槽两档解析出**同色**也要点名（那是"声明了但没换"，同样不构成双档）。本仓现场读数：light 134 槽 / darkDeclared 61 槽 ⇒ 73 个浅色专属槽一旦被文字色引用就会判红，这条不是装饰。
+- **两代扫描器必须当场对账**：读 token 根块用扁平正则、读 SFC/覆盖层用递归下降，两套实现会漂。对账锁（`color-token-reader.test.js`）就是这条的现场战果：`parseRules` 的属性名正则写成 `([a-z-]+)`，凡是**名字带数字**的自定义属性（本仓 `--spacing-1…16`、EP 桥的 `--el-color-primary-light-5`）在冒号前最后是数字 ⇒ 整条声明静默不匹配，两代扫描器给出的槽集合差 9 项。症状是"这一格不存在"，下游只是少几笔欠账，永远不会红。
 
 ### 交互逻辑（批量收编时的禁止项）
 
@@ -20429,15 +20438,16 @@ LLM 空输出/报告缺失时，审计 job 会往 job 汇总写 `AUTONOMOUS_VERD
 | `needs-design` | 现值不过阈值，**且同族里没有任何令牌能过**（多为底色未随主题走） | 设计/产品裁决（换底色或换字色） | 改到真的过，或经裁决换色后重算读数 |
 | `compliant-bare` | 现值两档都过阈值，只是还没收成令牌 | 前端（等一个能同时表达该语义与档位的槽） | 收编成令牌并删登记项 |
 
-界面上本批没有新增文案：可见变化只有文字颜色本身（浅色档 22 处像素变化、3 处不变），因此**不得**以"没有提示文字"当作免检理由——颜色本身就是提示（危险动作的红色）。
+界面上本批没有新增文案：可见变化只有文字颜色本身（41 处 color 声明里收编 22 处；逐条以 `resolveColor(旧值)` / `resolveColor(新值)` 在浅色档对量得 **计算值变化 20 处、不变 2 处**；另有 3 处经 QM-6 外部评审退回主干原值 —— 它们的承载底不随主题走，收成令牌只会制造"读不出"或"更不可见"），因此**不得**以"没有提示文字"当作免检理由——颜色本身就是提示（危险动作的红色）。
 
 ### 验收锚点
 
 - 机制单一实现：`apps/desktop/src/styles/color-token-reader.js`（token 链 / 长度链 / 相对亮度比 / 阈值分档 / style 块与 at-rule 递归扫描 / 主题覆盖层）+ `apps/desktop/src/styles/text-contrast-sites.js`（把 SFC 的文字点采集成结构化现场）。
-- 判据：`apps/desktop/src/views/Accounts.text-contrast.test.js`（11 条）；机制锁：`color-token-reader.test.js` + `text-contrast-sites.test.js`。
+- 判据：`apps/desktop/src/views/Accounts.text-contrast.test.js`（14 条）；机制锁：`color-token-reader.test.js`（21 条）+ `text-contrast-sites.test.js`（9 条）。
+- **重跑基线必须由仓内工具执行**：`apps/desktop/scripts/gen-text-contrast-baseline.mjs`（默认重写；`--check` 只比对、有差异即 rc=1；现场新出现的裸 hex 条目一律 rc=1 并点名，因为 `status` 属人的判断，脚本不得代拍）。落盘沿用文件自身行尾；`surfaces` 上人写的 `note` 按 `selector+prop` 回挂。
 - **生成基线与校验基线必须跑同一份采集实现**，测试逐字段重算基线里的 `need/ratio/surface`；改判据不更新基线当场变红。这条口径来自外部评审点名的"最高危单点：两套口径漂移"。
-- 基线：`apps/desktop/src/views/Accounts.text-contrast-baseline.json`（`exemptions` 15 条 = `compliant-bare` 12 + `needs-design` 3；`surfaces` 31 条），两个方向都锁：现场新增即红、现场已修好却还挂着登记也红；测试另断言"现场条数 == 基线条数"，脱钩即红。
-- 反证：14 道变异各自红在指名用例上（含"只扫第一个 style 块""不剥 `!important`""祖先底色不看主题覆盖""大文本档位读宽""把删除红换成能过 AA 的主色"等被禁形态本身）。
+- 基线：`apps/desktop/src/views/Accounts.text-contrast-baseline.json`（`exemptions` 18 条 = `compliant-bare` 12 + `needs-design` 6；`surfaces` 31 条；每条可带 `reason` 写明"为什么落在这一档 / 为什么这里必须留裸值"，重跑时按 `selector`（`surfaces` 按 `selector+prop`）回挂不丢失。`needs-design` 现覆盖两类：不过 AA 且同族无合格槽、以及**判据定位不了承载底**），两个方向都锁：现场新增即红、现场已修好却还挂着登记也红；测试另断言"现场条数 == 基线条数"，脱钩即红。
+- 反证：15 道变异各自红在指名用例上（含"只扫第一个 style 块""不剥 `!important`""祖先底色不看主题覆盖""大文本档位读宽""把删除红换成能过 AA 的主色"等被禁形态本身）。
 - 对比度公式的存量账：`src/styles/` 内自带第二份亮度/对比度公式的测试原有 5 份（`tokens.slots` / `tokens.aliases` / `sidebar.tokens` / `ep-theme.tokens`，以及焦点环单元经 PR #4035 合并带进来的 `focus-ring.test.js`）。本批**真收敛掉 `focus-ring.test.js` 那一份**（改为 import 共享 `contrast()`，四档读数逐字不变），清单上界维持 4 **未调宽**；其余 4 份的收敛属"改谁来守门"，另批做，本批只把它钉成只能缩小的清单（清单只能删不能加）。
 - 非用户可见的诊断串一律用 ASCII：`surfaceCandidates().from` 与 `per.unresolved` 的占位（`=> page-bg` / `page-bg (caller supplied)` / `(absent)`）不会渲染到界面，但写在 `src/` 里的中文字面量会被 Gate 7 的 `--cjk` 记为新增硬编码。**正解不是 `--update-baseline`**（那是给存量行号漂移用的显式销账通道，用它等于给自己开"新硬编码先入库再说"的路），而是照判据的要求改成 ASCII。另一处陷阱：`--cjk` 的剥注释先走**非贪婪块注释正则**，所以行注释里出现字面 `/* … */` 会把该行截断、后半行的引号内容被误当字符串字面量命中——写解释性注释时不要内联块注释符号。
 

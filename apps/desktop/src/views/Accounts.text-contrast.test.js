@@ -16,8 +16,15 @@
  * 一个人改了口径而另一份没改，基线就会要么恒红要么恒绿，而两者读起来都"像有门禁"。
  *
  * 三条如实声明的判据边界（越界就是假绿）：
- *  1. 底色取「该规则自己的 background → 祖先前缀规则的 background → 页面 inset」的**候选集最差值**；
- *     祖先按选择器前缀猜（`.a .b` ⇒ `.a`），**不解析真实 DOM**，所以嵌在别的带色容器里仍可能漏。
+ *  1. 底色沿**候选链**取「最近的不透明表面」：该规则自己的 background → 祖先前缀规则 / 类名词干（`.login-state-actions`
+ *     在 DOM 里坐在 `.login-state` 上，而 CSS 没有这层前缀关系）→ 页面 inset；遇到解析不出的层就**停住并出声**，
+ *     不得穿透它用更远那层（半透明合成结果与更远祖先不是同一个颜色）。祖先仍按选择器前缀/类名词干猜，
+ *     **不解析真实 DOM**，所以嵌在别的带色容器里仍可能漏。
+ *     ⛔ 早期版本对整条链取"最差值"，会把**自带底色**的合规元素算成假缺陷（`.complete-login` 白字坐自己的
+ *     `#5048e5` 是 6.18:1，"最差"却把它脚下 `.login-state` 的 `#f3f2ff` 也算进来 → 1.11:1）。
+ *     另有两类"判据定位不了承载面"的形状一律记 unresolved 而不是回落页面底色（QM-6 引擎 critic 轴 i2）：
+ *     `position: absolute|fixed` 且自己不画底的文字（`.search-icon` / `.clear-search`），
+ *     以及承载底写在**同前缀兄弟后代**上的（`.group-search-box .search-icon` 压在 `.group-search-box input` 的裸底上）。
  *  2. 不覆盖 `rgb()/rgba()/hsl()`：解析不出即 `unresolved`，登记并出声，**不得**当合规。
  *  3. 字号/字重只认该规则自己声明的值；继承来的读不到 ⇒ 按正文档 4.5（保守方向）。
  */
@@ -25,7 +32,7 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
-import { resolveColor, contrast, scanStyleRules } from '../styles/color-token-reader'
+import { resolveColor, contrast, scanStyleRules, declsWithOverrides } from '../styles/color-token-reader'
 import { collectSites, siteFails } from '../styles/text-contrast-sites'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -37,7 +44,7 @@ const BASE = JSON.parse(read('./Accounts.text-contrast-baseline.json'))
 const EXEMPT = BASE.exemptions
 const EXEMPT_BY_SELECTOR = new Map(EXEMPT.map((e) => [e.selector, e]))
 
-const { themes, sites } = collectSites(vue, tokensCss)
+const { themes, overrides, sites } = collectSites(vue, tokensCss)
 const textSites = sites
 const pageBg = (theme) => resolveColor('var(--color-bg-inset)', theme)
 
@@ -73,16 +80,47 @@ describe('Accounts 页文本色对比度（两档主题）', () => {
     // 也读成失败，那是脆而不是严；而覆盖层/祖先链一坏，dark 底色会**整体退回等于 light**，这一条立刻红。
     const differ = textSites.filter((s) => s.per[0].surface !== s.per[1].surface)
     expect(differ.length, '暗色档底色与浅色档逐条相同 ⇒ 主题覆盖层没生效（判据失明，不是"容器不随主题变"）').toBeGreaterThan(4)
+    // ⛔ 不钉字面量（QM-6 引擎 critic 轴 i7）：上一版把 `.account-view-toggle button` 的两档 surface
+    // 硬钉成 `#f8f9fc` / `#1e1e23`，而本批的既定计划正是把那个容器的裸底换成 token ——
+    // 于是"合法地把容器 token 化"会让这条假红，而它自己的注释还声称这种变化不该判失败。
+    // 现在改为**从同一份真源推导期望值**：祖先声明的底，过一遍该主题覆盖层后再解析。
+    const bySel = new Map()
+    for (const r of scanStyleRules(vue)) bySel.set(r.selector, { ...(bySel.get(r.selector) || {}), ...r.decls })
+    const anc = bySel.get('.account-view-toggle')
+    expect(anc && anc.background, '取样容器必须自己声明底色，否则这条对账测不到覆盖层').toBeTruthy()
     const sample = textSites.find((s) => s.selector === '.account-view-toggle button')
     expect(sample, '选择器坐标：本文件现场已无该规则，须同步更新取样点').toBeTruthy()
-    expect(sample.per.find((p) => p.theme === 'dark').surface).toBe('#1e1e23')
-    expect(sample.per.find((p) => p.theme === 'light').surface).toBe('#f8f9fc')
+    const wantLight = resolveColor(anc.background, themes.light)
+    const wantDark = resolveColor(declsWithOverrides({ background: anc.background }, overrides.dark, '.account-view-toggle').background, themes.dark)
+    expect(sample.per.find((p) => p.theme === 'light').surface, '浅色档祖先底必须等于"该声明在该主题下解析出的值"').toBe(wantLight)
+    expect(sample.per.find((p) => p.theme === 'dark').surface, '暗色档祖先底必须等于"覆盖层生效后的值"').toBe(wantDark)
+    // 覆盖层真的换掉了它（否则上面两句只是同一句的复读）——这一格才是"主题覆盖层生效"的现场证据
+    expect(wantDark, '祖先底色两档同值 ⇒ 要么覆盖层没写要么它没被读到（这条取样点就该换）').not.toBe(wantLight)
   })
 
   it('页面底色在两档主题下都解析得出（否则下面的对比度判据是空的）', () => {
     expect(pageBg(themes.light), '浅色档 --color-bg-inset 解析失败').toBeTruthy()
     expect(pageBg(themes.dark), '暗色档 --color-bg-inset 解析失败').toBeTruthy()
     expect(pageBg(themes.light)).not.toBe(pageBg(themes.dark))
+  })
+
+  it('界面文字引用的令牌必须在暗色根块也有声明（否则"双档合格"是假绿）', () => {
+    // QM-6 引擎 critic 轴 i4：`dark = [...light, ...dark块]` 这个结构本身分不清
+    // "暗色档换过值"与"暗色档从没声明、安静读到浅色值"。合同写的是前者必须成立，
+    // 所以判据必须读 `darkDeclared`（只由暗色根块填充的那个集合），不能读 `dark`。
+    const refs = []
+    for (const s of textSites) {
+      for (const m of String(s.value).matchAll(/var\((--[\w-]+)/g)) refs.push({ selector: s.selector, slot: m[1] })
+    }
+    // 反失明正控：本文件确实有经 token 的文字色；若这一格退化成 0，下面那句"违规 = 0"就恒真了
+    expect(refs.length, `只扫到 ${refs.length} 条 var() 文字色引用 ⇒ 判据失明，不是"全部合规"`).toBeGreaterThan(0)
+    expect(themes.darkDeclared.size, '暗色根块一个槽都没读到 ⇒ darkDeclared 这条判据不可信').toBeGreaterThan(0)
+    const bad = refs.filter((r) => !themes.darkDeclared.has(r.slot))
+    expect(bad, `暗色档读的是浅色值（该槽未在暗色根块声明）：${bad.map((b) => `${b.selector}→${b.slot}`).join(' | ')}`).toEqual([])
+    // 同一个槽在 light/dark 里若解析出同一个颜色，也必须点名 —— 那是"声明了但没换"，同样不构成双档
+    const sameValue = refs.filter((r) => themes.darkDeclared.has(r.slot)
+      && resolveColor(`var(${r.slot})`, themes.light) === resolveColor(`var(${r.slot})`, themes.dark))
+    expect(sameValue.map((r) => r.slot), '被文字色引用且在暗色块声明过、但两档同值的槽（换主题等于没换）').toEqual([])
   })
 
   it('不得有"未登记的"裸 hex 文字色（每一条都必须带实测比值与状态）', () => {
@@ -123,9 +161,19 @@ describe('Accounts 页文本色对比度（两档主题）', () => {
   })
 
   it('棘轮：两类欠账的计数都只能缩小（抬起上界属人工裁决）', () => {
-    expect(EXEMPT.length, `豁免清单当前 ${EXEMPT.length} 条（当日读数 15）`).toBeLessThanOrEqual(15)
-    expect(EXEMPT.filter((e) => e.status === 'needs-design').length, 'needs-design = 换任何同族槽都过不了 ⇒ 待设计裁决（当日读数 3）').toBeLessThanOrEqual(3)
-    expect(EXEMPT.filter((e) => e.status === 'compliant-bare').length, 'compliant-bare = 现值已过 AA，只是没收成 token（当日读数 12）').toBeLessThanOrEqual(12)
+    // ⛔ 三格上界为什么动（15→18 / nd 3→6 / cb 12→12 未动），逐条给出处：
+    // ① 修 QM-6 引擎 critic 轴的 Critical i1 时，`.login-state-actions button` 的 color 从
+    //    var(--color-primary) 退回主干原值（裸 #5048e5）⇒ 它进 cb 清单；而 `.platform-filter-panel
+    //    button.active` 因判据不再穿透 rgba 半透明层冒充读数（旧那格 6.75 是穿透祖先底算的）从 cb
+    //    改判 needs-design ⇒ **cb 一进一出，12 未变**，所以"令牌体系欠账"这一格没有被放宽。
+    // ② needs-design 3→6 的第二跳是 `.search-icon` / `.clear-search`：两者 `position: absolute` 且
+    //    自己不画底，旧口径按页面 inset 算出 5.58 / 8.02 判"合规"（假绿），现场它们压在
+    //    `.group-search-box input` 的裸 `#fafbfe`（暗色不随主题走）上 2.00:1 —— 这是**判据变准后暴露出的
+    //    既存缺陷**，不是本批新造的欠账（相对 origin/main 该处色值一行未动）。
+    // 抬起上界属人工裁决：本文件把理由与现场读数写在同一格注释里，判据一律取「现场重算」而不是取这里的字面数。
+    expect(EXEMPT.length, `豁免清单当前 ${EXEMPT.length} 条（当日读数 18）`).toBeLessThanOrEqual(18)
+    expect(EXEMPT.filter((e) => e.status === 'needs-design').length, 'needs-design = 换任何同族槽都过不了，或判据读不出承载底 ⇒ 待设计裁决/人工核对（当日读数 6）').toBeLessThanOrEqual(6)
+    expect(EXEMPT.filter((e) => e.status === 'compliant-bare').length, 'compliant-bare = 现值已过 AA，只是没收成 token（当日读数 12，与起点同格：一处进、一处出）').toBeLessThanOrEqual(12)
     for (const e of EXEMPT) {
       expect(['needs-design', 'compliant-bare'], `未知 status：${e.status}（新增档位必须同时给出判据与销账路径）`).toContain(e.status)
       for (const p of e.per) expect(p.surface || p.ratio === null, `${e.selector}/${p.theme} 的登记必须写出底色来源`).toBeTruthy()
