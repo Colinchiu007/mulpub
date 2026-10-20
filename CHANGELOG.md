@@ -8,6 +8,15 @@
 - **TDD 与反证**：先写红（`2 failed | 22 passed`，红因分别是 `legacyMax` 为 undefined、`formatLegacyNotice` 不是函数）再实现 ⇒ `24 passed`；变异 N1–N8 逐条**指名**变红且跑后按字节还原（`restored=true` ×8），控制跑自带健康断言（`rc=0 && passed=24`，不健康则 PROBE_BLIND 且不产出任何 verdict）。消费者并集全部实跑：`windows-file-lock` + `account-state-restorer` + `credential-store` = **51 passed**；`packages/api-publish-engine/test/api-key-manager-atomic-write.test.js` = **1 passed**（它 require 同一份夹具）。清点用未截断的 `git grep`（上一轮把清点接了 `head` 恰好削掉一个真消费者，那笔教训见上一条 PR 的记录）。
 - **边界**：预算取值本身一字未动（45000 / 12000 / 20000），改的是「量它的尺」；无 UI / locale / 主进程运行面改动，QM-1 与 QM-4 判 N/A。文档同步落在 `docs/windows-lock-budget-provenance.md`（§2 偏差表、§3 rc=3 两档与 rc=5、§4 新增第 6/7 两个坑），并按当场读数更正了该文件 §5 里「`CHANGELOG.md` 含 NUL 字节、被 git 判为 binary」这句已过期前提（上游 control-bytes-sweep 后实测 NUL=0，本轮置顶插入即为现场反证）。
 
+# [未发布] fix(gates): 收敛出口探针改为现读 vendor 是否能表达外部复核，旧结论不再写死（ccg-probe-external-review）
+
+- **动因不是"想加读数"，而是一条常驻判据开始说谎**：本机给 vendor 驱动加了 `externalReviewSatisfied` + `expectedExternalBackend`（高危域项填齐三格即可解除无条件阻断，不再是永久不可达）。而 `scripts/ccg-convergence-probe.js` 每次 PR 都在 Gate 2b6 打印「self-play 对 crypto 项无条件计阻断 ⇒ 深度审查闭环不可达」——补丁一生效，这句结论就与现场不符。会说谎的常驻判据比没有判据更糟，因为它会让人以为"这事已经量过了"。
+- **判定收敛成一个纯谓词 `externalReviewCapable(driverSrc)`，且要求两条同时成立**：解除谓词是被**定义**的函数（不是注释/散文里出现该字样，那种写法在 design 文档里天天有）+ 驱动把期望后端写进裁决模板。缺任一格 ⇒ 沿用旧结论。它同时进 `--json`（机器档字段）与人读档的结论正文。
+- **一条不越界的约束**：「在位」不得进 `problems`，也就是不得改退出码。三档语义（0 合规 / 1 读数偏离 / 2 探针失明）必须稳定 —— runner 上根本没有 vendor 引擎，把「结论变了」混进 1 档，等于把「探针没看见」读成「判据变了」，那是本仓反复点名的同型错误。
+- **只测纯谓词、不做端到端，理由是覆盖得住**：CI 的 `changes` 作业无 vendor 文件，端到端断言在那里永远不执行（写了也是装饰）。谓词纯测之后，两条锁每次 PR 都真跑。TDD 现场：先只加测试 ⇒ `10 tests / 8 pass / 2 fail`（P9、P10 各自指名红，其余 8 条不受影响，红可归因），实现后 10/10。
+- **变异反证两条各用判别输入、红集互不相同**：E-M1 把在位判定退回恒 `false` ⇒ 只红 P9（旧结论会被永久说下去）；E-M2 退回恒 `true` ⇒ 只红 P10（散文里提一句也算在位）。驱动自己断言 `collected > 0`（只看"有没有红"会把一条测试都没跑的驱动读成通过），还原后逐字节自证。
+- **现场回读**：本机跑探针 rc=0，结论行已是「vendor **已能表达外部复核** ⇒ 高危域项填齐三格后可闭合为 `self_play_resolved`，旧结论自此次表达起失效、不得再沿用」。
+- **故意不在本刀**：① vendor 那份是**本机补丁**（原文件 sha256 `8e3d65c6…` 记在补丁注释里），未投上游、也无「技能升级后是否还在位」的防护 —— 一次重装就会静默回到旧形态，届时探针会如实报旧结论，但至少不再说谎；② 三格仍是形状 + 一致性判据，不联网核评论真伪（真绑定属上游 issue）；③ #3919 的台账双读 + 载荷锚不在本刀范围 —— 它改的判据函数一天内被 #3927/#3941/#3987 三片重写 459 行，逐字 rebase 会静默削掉别人的收口矩阵，等那波停笔再重放。
 # [未发布] test(gates): 账本合法清空不再被钉成禁态，并给 hasBlocking⇒退出码补一道接线锁（qm6-critic-dispositions）
 
 - **动因是补跑成功的 QM-6 critic 轴**：`claude` 过额度日重置后两字探针活了（rc=0 / 17.6s / 265 B），于是把 #3949 那笔合并的差量（45,521 字节，直接附进提示词、不让评审者自己 `git diff`）真派了一次外部评审，交回 2 条 findings。派发前那一步救了一次命：**上一轮我判"该轴零交付"用的解析器只认「行首的 `[`」，而它的数组落在偏移 56,481 处** —— 63,796 字节真交付差一点被读成"没话说"。
