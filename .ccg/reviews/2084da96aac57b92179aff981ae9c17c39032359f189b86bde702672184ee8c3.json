@@ -49,11 +49,44 @@
     }
   },
   "deepReview": {
-    "required": false,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play(agent)",
+    "fallbackReason": "跨家族对抗后端超时，按引擎第三档出口 self_play 自查。本条为小红书草稿链真机 E2E 实证。",
+    "evidenceInRepo": "01-docs/PRD-VIDEO-PUBLISH-4PLATFORMS-2026-10-18.md §16.8（五步读数 + 凭据 + 签名限制 + 调用契约）",
+    "confidenceWeight": 0.85,
+    "adjudication": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "E2E 最终没跑通（止于 no-webms-fn），那这次验证的价值是什么？会不会只是在记录一串失败？",
+        "verdict": "upheld_verified",
+        "rationale": "价值在三点： ① 凭据有效性得到实证（22 cookie、hasAuthorization=true）—— 此前\"草稿已落地\"是历史结论，本轮证明它现在仍有效； ② 真机调用契约被逐项钉死（images 在顶层、title/content 须嵌套 article），这是文档里原本没有的； ③ 纠正了一个模糊认知：本地 XYW_ 仿制协议对 note 端点已被 406 拒绝，真签名必须走页面 _webmsxyw    ⇒ 小红书 API 链能否通取决于签名页基建，不是\"代码写完就能发\"。 它不是成功记录，但每项都是可复核的真机读数，且直接改变了\"这条链现在能不能用\"的判断。",
+        "fixCommit": null
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "no-webms-fn 说明签名页 bridge 未装配 —— 这是可修的缺陷吗？要不要继续修？",
+        "verdict": "upheld_partial",
+        "rationale": "是运行时装配状态问题：需要应用加载小红书创作者页，由页面提供 _webmsxyw。 既可能是\"当前没打开该页\"的正常状态，也可能是装配流程的问题 —— 本轮未进一步验证 （开创作者页属有副作用的操作，且用户正在使用应用时不宜进行）。 如实记为未闭合：留待签名页基建专项或用户在场时验证。本轮只把它作为实测事实记录，不推断成因。",
+        "fixCommit": null
+      },
+      {
+        "id": "i3",
+        "severity": "Info",
+        "finding": "这轮仍无代码改动。",
+        "verdict": "upheld_verified",
+        "rationale": "承认。但本轮做的是真机 E2E（目标明确要求\"边进行 E2E 真机环境测试，边进行修复\"）， 且产出此前没有的实证（契约 + 签名限制）。当前剩余阻塞：头条等实名、抖音/视频号等扫码 —— 均非代码可解。",
+        "fixCommit": null
+      }
+    ],
+    "summary": {
+      "total": 3,
+      "upheldVerified": 2,
+      "upheldPartial": 1,
+      "note": "E2E 未跑通但产出三项可复核实证（凭据有效/调用契约/签名限制），并纠正\"本地公式可用\"的模糊认知（i1）；no-webms-fn 成因未进一步验证，如实留待专项（i2）；承认无代码改动但做的是真机 E2E（i3）。"
+    },
+    "at": "2026-10-20T23:37:19.642Z"
   }
 }
