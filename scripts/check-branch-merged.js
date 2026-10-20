@@ -43,7 +43,7 @@
 
 const { execFileSync } = require('child_process');
 
-const VERDICTS = ['IDENTICAL', 'DRIFT-ATTRIBUTED', 'LOST', 'UNATTRIBUTED', 'JUDGE_ERROR'];
+const VERDICTS = ['IDENTICAL', 'DRIFT-ATTRIBUTED', 'LOST', 'UNATTRIBUTED', 'JUDGE_ERROR', 'DIFFERENT-LANDING'];
 const EXIT_OK = 0;
 const EXIT_LOST = 1;
 const EXIT_JUDGE_ERROR = 2;
@@ -374,6 +374,21 @@ function classifyRevision(mergeBlob, tipBlob, baseBlob) {
   return 'different';
 }
 
+// 「版本不同」能不能被显式放行 —— 这是**唯一**一处决定旗标覆盖面放多大宽的地方。
+// 2026-10-20 的现场读数把"降这一格就能解锁分支"这句话否证了一半，因此这里刻意做成三条都不满足即不放行：
+//   not-carried 存在 ⇒ 有一笔合并**根本没带上**我这版 ⇒ 永不放行（旗标若把它稀释掉就是替真丢失作保）；
+//   carried > 0      ⇒ 逐字节带过我这版、主干现在却没有 ⇒ 那是"落地之后被删"，不是"被修订"，方向相反；
+//   三格皆空/取不到  ⇒ 没有任何一笔合并可证明"落的是另一版" ⇒ 按未证实处理。
+// 注意它**不是**一个安全属性：`#2729` 的 `rpa-view-navigation-helpers.js` 报"我这版独有 228 行"，
+// 而那句话在主干同一文件 :194 原样存在，缺口是热写面的重复键**份数**。所以放行只发生在有人当面授权、
+// 且这一行仍把双向规模一起打出来的前提下 —— 默认档永远不放行（见 T34）。
+function releaseEligibleForLanding(rev) {
+  if (!rev) return false;
+  const different = rev.different || [];
+  const notCarried = rev.notCarried || [];
+  return different.length > 0 && notCarried.length === 0 && !rev.carried;
+}
+
 // 两份文本的按键差异规模（按行多重集，不做任何归一化 —— 与判定本体同一口径）。
 function lineDiffScale(tipText, mergeText) {
   const am = multisetOf(splitLines(tipText));
@@ -594,6 +609,19 @@ function collect(opts) {
     for (const f of res.files) {
       if (f.verdict === 'JUDGE_ERROR') throw new JudgeError('文件判定异常：' + f.file);
     }
+    // 显式放行档：**默认档这一段整条跳过**（T34 锁的就是这个"跳过"）。
+    // 只把 LOST 且通过 releaseEligibleForLanding 的行改档；UNATTRIBUTED / JUDGE_ERROR / not-carried 一律不动。
+    res.optIn = { allowDifferentLanding: !!opts.allowDifferentLanding };
+    if (opts.allowDifferentLanding) {
+      res.releasedDifferent = 0;
+      for (const f of res.files) {
+        if (f.verdict !== 'LOST') continue;
+        if (!releaseEligibleForLanding(f.revisionsAtMerge)) continue;
+        f.verdict = 'DIFFERENT-LANDING';
+        f.releasedByOptIn = true;
+        res.releasedDifferent++;
+      }
+    }
   } catch (e) {
     if (e instanceof JudgeError) {
       res.judgeError = true;
@@ -606,7 +634,7 @@ function collect(opts) {
 }
 
 // ---------------------------------------------------------------- CLI
-const KNOWN_FLAGS = ['--ref', '--merge', '--base', '--against', '--root', '--json', '--help'];
+const KNOWN_FLAGS = ['--ref', '--merge', '--base', '--against', '--root', '--json', '--help', '--allow-different-landing'];
 const BOOL_FLAGS = ['--json', '--help'];
 
 function parseArgv(argv) {
@@ -616,6 +644,13 @@ function parseArgv(argv) {
     const eq = a.indexOf('=');
     const name = eq >= 0 ? a.slice(0, eq) : a;
     if (!KNOWN_FLAGS.includes(name)) throw new JudgeError('未知旗标：' + a + '（可用：' + KNOWN_FLAGS.join(' ') + '）');
+    // 显式放行旗标：只认"出现即生效"，不接受取值（`--allow-different-landing=false` 这种写法
+    // 会被读成"有人以为它能关掉放宽"，而它其实已经生效 ⇒ 一律按未知用法拒绝）。
+    if (name === '--allow-different-landing') {
+      if (eq >= 0) throw new JudgeError('旗标 --allow-different-landing 不接受取值（它是"本次由人授权"的声明，写成 =false 会被读成能关）');
+      o.allowDifferentLanding = true;
+      continue;
+    }
     if (BOOL_FLAGS.includes(name)) { o[name.slice(2)] = true; continue; }
     // --flag=v 与 --flag v 两种写法都必须生效（只认一种会把"smoke 只跑 4 个"静默放大成整域两趟，同族实测见 AGENTS.md）
     let val = eq >= 0 ? a.slice(eq + 1) : argv[i + 1];
@@ -679,7 +714,7 @@ function main(argv) {
     return EXIT_JUDGE_ERROR;
   }
   if (o.help) {
-    console.log('用法：node scripts/check-branch-merged.js --ref <branch|sha|tag> --merge <sha>[,<sha>...] [--against origin/main] [--base <ref>] [--root <repo>] [--json]');
+    console.log('用法：node scripts/check-branch-merged.js --ref <branch|sha|tag> --merge <sha>[,<sha>...] [--against origin/main] [--base <ref>] [--root <repo>] [--json] [--allow-different-landing]');
     console.log('  判定域 = --against（默认 origin/main，取不到回落 main 并打印落点）；--merge 仅用于归因排除。');
     console.log('退出码：0 内容已完整进主干（可删分支）/ 1 存在 LOST 或 UNATTRIBUTED（禁止删）/ 2 判据自身故障（同样禁止据此删）');
     return EXIT_OK;
@@ -687,8 +722,11 @@ function main(argv) {
   if (!o.ref) { console.error('[BRANCH-MERGED] 缺 --ref（不得当成"没有问题"）'); return EXIT_JUDGE_ERROR; }
   if (o.merges.length === 0) { console.error('[BRANCH-MERGED] 缺 --merge（归因排除要用）'); return EXIT_JUDGE_ERROR; }
 
-  const r = collect({ ref: o.ref, merges: o.merges, base: o.base, against: o.against, root: o.root || process.cwd() });
-  const counts = { IDENTICAL: 0, 'DRIFT-ATTRIBUTED': 0, LOST: 0, UNATTRIBUTED: 0, JUDGE_ERROR: 0 };
+  const r = collect({
+    ref: o.ref, merges: o.merges, base: o.base, against: o.against,
+    root: o.root || process.cwd(), allowDifferentLanding: !!o.allowDifferentLanding,
+  });
+  const counts = { IDENTICAL: 0, 'DRIFT-ATTRIBUTED': 0, LOST: 0, UNATTRIBUTED: 0, JUDGE_ERROR: 0, 'DIFFERENT-LANDING': 0 };
   for (const f of r.files) counts[f.verdict] = (counts[f.verdict] || 0) + 1;
   const againstNote = r.against ? 'against=' + r.against + '@' + String(r.againstSha).slice(0, 9) : 'against=<未解析>';
 
@@ -718,12 +756,20 @@ function main(argv) {
   const revOf = (v) => (v && v.revisionsAtMerge) || {};
   const nDifferent = r.files.filter((x) => ((revOf(x).different) || []).length > 0).length;
   const nNotCarried = r.files.filter((x) => ((revOf(x).notCarried) || []).length > 0).length;
+  const released = (r.releasedDifferent || 0);
+  if (o.allowDifferentLanding) {
+    console.log('[BRANCH-MERGED][OPT-IN] --allow-different-landing 生效：放行 ' + released +
+      ' 个「落地版本不同」的 LOST 行。**放行不等于内容已落地** —— 本旗标只承认"这笔合并落的是另一版"，' +
+      '不承认方向（可能是评审改了产物，也可能那份拷贝根本没落、主干靠重复键份数看着还在）。' +
+      '删分支前须逐行核 落地版本= 的双向规模，必要时比 blob；「根本没带上」那格本旗标永不放行。');
+  }
   console.log('[BRANCH-MERGED] ref=' + String(o.ref).slice(0, 12) + ' ' + againstNote +
     ' merges=' + r.merges.length + ' files=' + r.files.length +
     ' identical=' + counts.IDENTICAL + ' drift=' + counts['DRIFT-ATTRIBUTED'] +
     ' lost=' + counts.LOST + ' unattributed=' + counts.UNATTRIBUTED +
     ' judge_error=' + (r.judgeError ? 1 : 0) +
-    ' 落地版本不同=' + nDifferent + ' 没带上=' + nNotCarried);
+    ' 落地版本不同=' + nDifferent + ' 没带上=' + nNotCarried +
+    (o.allowDifferentLanding ? ' 放行=' + released : ''));
   if (r.judgeError) {
     for (const why of r.reasons) console.error('[BRANCH-MERGED] 判据自身故障（按"未证实"处理，不得据此删分支）：' + why);
     return EXIT_JUDGE_ERROR;
@@ -736,7 +782,7 @@ module.exports = {
   VERDICTS, EXIT_OK, EXIT_LOST, EXIT_JUDGE_ERROR,
   splitLines, key, multisetOf, reconcileCounts, capacityCounts, netCounts, parsePatchNet, assertChainCloses,
   JudgeError,
-  classifyRevision, lineDiffScale, revisionsAtMerge, describeRevisions,
+  classifyRevision, lineDiffScale, revisionsAtMerge, describeRevisions, releaseEligibleForLanding,
   classifyFile, collect, main, parseArgv,
 };
 

@@ -282,3 +282,71 @@ v3 的处理：认出二进制（blob 含 NUL 或链上出现 `Binary files … 
 - `describeRevisions` 只打前 2 笔；`lineDiffScale` 对**热写面**（`CHANGELOG.md` 那种重复键极多的文件）会把"我这份拷贝没落"和"整段被改写"报成同一规模，读数须与 `份数=` 一起看，不能单独作结论。
 - 真实仓现场两格各点名一例（同一 tip 一次跑齐）：`font-resolver.js` 走 `版本不同@110c3aabb(主干独有95行/我这版独有8行)`，
   `.ccg/reviews/4e34763ec…json` 走 `根本没带上@110c3aabb`。`not-carried` 的其余形态仍靠 `T29` 夹具锁。
+
+## 11. 「放宽 default」被现场读数否证 —— 改成显式 opt-in（2026-10-20 增量）
+
+§10 的遗留第一条写的是「`different` 是否应把该文件从 LOST 降级为可删档位——未做，需人工裁决」。
+2026-10-20 得到人工授权后先去量它，**量出来的结论是：那句话的前提不成立**，于是本片做的不是"放宽默认档"，
+而是"加一个必须由人当面声明的放宽开关"。
+
+### 现场读数（用 §10 落地的判据本体，root=共享根，against=origin/main）
+
+| 分支 / 属主 PR | 读数 | LOST 行的 `落地版本=` |
+| --- | --- | --- |
+| `fix-rewrite-paragraph-preserve` / #2842 | `files=16 identical=3 drift=12 lost=1 … 落地版本不同=1 没带上=1` | LOST 那行是 `版本不同@1292b6555(主干独有0行/我这版独有1行)`；另有**一行 DRIFT 是 `根本没带上@1292b6555`** |
+| `fix-tab-title-url-placeholder` / #2847 | `files=15 identical=1 drift=13 lost=1 … 落地版本不同=2 没带上=0` | LOST 那行是 `.quality-gates.md`（二进制，行级判据不适用）`版本不同@7be77e5c9(主干独有1行/我这版独有1行)` |
+| `fix-toutiao-submit-chain` / #2729 | `files=8 identical=1 drift=3 lost=4 … 落地版本不同=5 没带上=0` | 4 行 LOST 全是 `版本不同@eeeb3f01e` |
+
+三行的 rc 都是 1，且 **LOST 行的类别 100% 是 `different`** —— 看起来"降这一格就解锁三条分支"。
+
+### 但 `different` 不是一个安全属性（这是本片真正的设计输入）
+
+同一个类别里装着两种方向相反的东西，逐条比 blob 才分得开：
+
+1. **`rpa-selector-utils.js`（#2729）**：我这版注释写 `「_s 是 :has-text 之前的部分」`，主干那份是
+   `「⚠️ 2026-09-30 外审更正（finding #1）：_s 是完整选择器 …」`。**落地的是更正确的版本** ⇒ 报"我这版没落"确实只是旧版未采纳。
+2. **`rpa-view-navigation-helpers.js`（#2729）**：判据报 `我这版独有 228 行 / 主干独有 21 行`，`份数 short 16(base=20 tip=30 main=14)`。
+   而我要找的那句话在主干**同一个文件**里原样存在：`origin/main:apps/desktop/electron/services/rpa-view-navigation-helpers.js:194`。
+   ⇒ 缺口是热写面**重复键的份数**，不是内容丢失。若默认档只看类别就放行，这一行会被"合法地"放行，
+   而它之所以无害是我读了 blob 才知道的——判据本身不知道。
+3. **`CHANGELOG.md`（#2842）**：类别是 `different`，可同一分支另一行是 `根本没带上` ⇒ 默认档一旦放宽，
+   下一次读到 `放行` 的人会把"整条分支都可删"当成结论，而 `没带上` 那一格正是本片唯一不许被洗掉的方向。
+
+结论写死：**`different` 是线索（"这笔落地的不是我当前这版"），不是许可**。
+把许可做成默认值，等于让最有杀伤力的那一格（没带上）在文案上获得一件可借的外衣 —— 与
+`T29` 那条反洗白锁的初衷相反。
+
+### 落地的形态
+
+- 新旗标 `--allow-different-landing`（**不接受取值**：`--allow-different-landing=false` 一律 `JudgeError`，
+  因为那种写法会被读成"有人以为它能关掉放宽"，而它已经生效）。
+- 放行谓词 `releaseEligibleForLanding(rev)` 三条件同时成立才放行：`different.length > 0` ∧ `notCarried.length === 0` ∧ `!carried`；
+  `rev` 取不到按不合格（未证实 ≠ 合格）。**carried 单独挡一刀**：逐字节带过我这版、主干现在却没有 ⇒ 那是"落地之后被删"，方向与"被修订"相反，不得借同一格过关。
+- 只改 `LOST`，`UNATTRIBUTED` / `JUDGE_ERROR` 一律不动（`#2729` 那类"说不清差异来自谁"的行，类别同样是 `different`，
+  放行判据若只看类别就会错误放行 —— 首条反证 N1 打的正是这一格）。
+- 放行行改档为**独立一档** `DIFFERENT-LANDING`（不改回 `IDENTICAL`：那会把"没落地"从读数里整条抹掉），
+  并保留 `落地版本=` 的双向规模；末行追加 ` 放行=N`，另打一行 `[BRANCH-MERGED][OPT-IN]` 告示，
+  明写"放行不等于内容已落地"。`--json` 只在旗标档带 `releasedDifferent` 与 `optIn.allowDifferentLanding`。
+- **默认档一字未改**：不带旗标时 verdict/rc/文案与 §10 上线后逐字一致（`T34` 锁这一条，它在实现之前就是绿的，
+  作用是"旗标不得渗进默认档"，不是"实现前该红"）。
+
+### 反证（8 条，逐条实跑，红集互不相同；驱动在仓库外 `mut-optin.cjs`，收尾断言还原后与备份逐字节相同）
+
+| id | 变异 | 预期点名 |
+| --- | --- | --- |
+| N1 | 放行不再限于 LOST | T39 |
+| N2 | 谓词忽略 `notCarried`（真丢失被 different 稀释） | T36 / T37 / T38 |
+| N3 | 谓词忽略 `carried`（把"落地后被删"当"被修订"） | T37 |
+| N4 | 默认档也放行（旗标渗进默认行为） | T34 |
+| N5 | 汇总不再报放行笔数 | T35 |
+| N6 | OPT-IN 告示整条摘掉 | T35 |
+| N7 | 放行行改写成 IDENTICAL（抹掉"没落地"） | T35 |
+| N8 | 空读数也放行 | T37 |
+
+### 遗留（不假装已闭合）
+
+- 旗标**仍然不判断内容在不在**：`份数` 缺口与"整段被搬去别的文件"在它眼里同形。真正的收紧需要一个跨文件的
+  "这些行在主干任何地方都存在"的判据，那是另一片（不在本片范围，本片刻意不做）。
+- 三条 rc=1 分支经本片后可用 `--allow-different-landing` 取到 rc=0；**删它们仍要求逐行读过双向规模**，
+  上一条遗留就是这条要求的理由。
+- §10 其余遗留未触及：`describeRevisions` 只打前 2 笔；9 个裸 `timeout-minutes`；`mergedCopiesOf` 跨 merge 取最大偏宽松。
