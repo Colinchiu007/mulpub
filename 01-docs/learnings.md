@@ -1,3 +1,60 @@
+## 放宽一个「拦截类」判据前，先问它的词库/阈值有没有配置入口——否则你放宽的是一把用户拧不动的锁（rewrite-sensitive-precheck-relax，2026-10-20）
+
+### lesson: blocking-gate-needs-a-tuning-knob
+
+**现场**：改写引擎对用户粘贴的 8000 字长文（越南排华史料）整篇拒绝，报「内容包含敏感词，无法改写」。实测命中的是内置词库里的「爆炸」一词（出自「石油加工厂发生爆炸和火灾」）——8000+ 字仅此一词被拦。
+
+**根因**：`rewrite-engine-core.js` 的 `_sensitiveCheck()` 对 `stage==='pre'` 且 `hits>0` 返回 `blocked`。而这个判据的前提从未被检验：词库是**内置示例级 24 词**（硬编码于 `packages/rewrite-engine/src/sensitive-filter.js:63`），**既不吃运营中心 `content_policy.word_list` 远程词库**（那条只喂 IPC 手动检测链，与引擎注入链是两条独立路径），**也无 UI 开关或白名单注入**（`addWhitelistWord()` 等方法存在但服务层一次都没调）。
+
+**判据**：任何「命中即拦截」的闸门，上线前必须同时回答三个问题——① 词库/阈值从哪里来？② 用户能不能调？③ 调不了时有没有申诉通道？三问有一问答不上来，这个闸门就只是在替一个不可调节的默认值挡路。本例三个答案分别是「硬编码」「不能」「没有」，于是它拦住的不是风险，是用户自己的输入。
+
+**同类风险还在**：本仓编辑器里的「🔍 检测敏感词」走 `shared-utils` 词库 + 运营中心远程词库，与引擎的 rewrite-engine v2 词库**是两套、互不同步**。实测同一篇文案在两套词库下分别命中「走私」与「爆炸」。将来若要做「严格模式」，正解是把 `content_policy.word_list` 接进引擎注入链并加用户级开关，而不是再复制第三份词库。
+
+## 「过滤器能否识别词」和「拦截阈值是否合理」是两类测试——后者缺失时，前者全绿也挡不住用户被挡（rewrite-sensitive-precheck-relax，2026-10-20）
+
+### lesson: gate-threshold-tests-are-a-separate-species
+
+**现场**：`rewrite-engine-core.test.js` 有 79 例，`grep -i sensitive` 命中 **0**——敏感词相关的拦截语义**一例都没有**。而 `sensitive-filter.test.js`（另一套词库）倒是测了一堆「能否识别词」。两侧合起来给人「敏感词有覆盖」的错觉。
+
+**判据**：凡是「检测 → 判定 → 处置」三段式逻辑，测试必须分三类各至少一例：**识别**（认得出来）、**阈值**（什么程度算命中/该不该拦）、**处置**（命中后走哪条路、不命中走哪条路）。只测识别的测试套件，对「拦得太宽」完全失明——本例用户被一个日常词汇挡住，而所有测试都是绿的。
+
+## 变异推演抓到的第一件事往往是自己的弱锁：pre/post 返回同一批 hits 时，「任一命中即不写」与「只看后置」在断言上等价（rewrite-sensitive-precheck-relax，2026-10-20）
+
+### lesson: mutation-caught-my-own-weak-assertion
+
+**现场**：为「前置拦截放宽」写了 X5：断言知识库的「双零命中」条件未被破坏（前置或后置任一命中即不写 KB）。第一版 mock 的 `detect` 无论 pre 还是 post 都返回**同一批** hits。做变异推演——把 KB 条件从 `preCheck.hits.length === 0 && once.postCheckHits.length === 0` 削弱为只看后置——**测试照样 PASS**：三个用例的前置/后置都命中，`recordSpy.length === 0` 在两种条件下都成立。
+
+**修法**：让 pre 与 post 可区分（mock 按文本内容返回不同 hits：原文含「爆炸」⇒ 只前置命中；LLM 输出含「杀人」⇒ 只后置命中），并让 LLM 输出可配置（否则「干净」用例的后置也会命中）。修后变异当场红。
+
+**判据**：写「条件 A 与条件 B 必须同时成立」类断言时，先做一次变异推演——**破坏其中一个条件，看测试是否真的红**。若两个条件的 mock 输出不可区分，这条断言就是装饰。这与「反证要做在锁本身而不是业务改动上」同族，但更细：**锁的输入本身必须有区分度**。
+
+## 注释写太厚会把文件推过 max-lines 门禁——先看登记值和容差，再决定解释写多长（rewrite-sensitive-precheck-relax，2026-10-20）
+
+### lesson: comment-budget-is-a-real-gate
+
+**现场**：给 `_sensitiveCheck` 写了一整段 JSDoc（语义变更 + 为什么关前置 + 连带约束 + 参数说明，约 25 行）。CI `债务熔断检查` 判红：`LEDGER_GREW: rewrite-engine-core.js 较登记值 578 膨胀 204 行（容差 200）`。上限是 578+200=**778**，我写到 782，**超 4 行**。压缩注释到 773 行转绿，没有上调 baseline。
+
+**判据**：动 `max-lines-baseline.json` 里有登记的文件前，先算 `登记值 + growthAllowance - 当前行数 = 你还能写几行`。这个差额就是本次改动的**注释+代码总预算**。超了先压缩注释（把「为什么」的精简成结论，细节挪到执行记录/CHANGELOG），**不要上调 baseline 消红**——那是把「改谁来守门」当消红手段。`segment-rewriter.js` 的头部注释早已警告过这个门禁，属于「已知但仍在踩」。
+
+## 执行记录里写 worktree 绝对路径会被 Gate 12c 判「新增失效路径」——临时路径一律写占位符（rewrite-sensitive-precheck-relax，2026-10-20）
+
+### lesson: no-temp-abs-paths-in-records
+
+**现场**：执行记录里如实写了 worktree 的绝对路径（形态为 `<worktree-root>/mp-<task-name>`，此处不重复该字面量）。CI `QG Changes` 的 `Gate 12c - Doc abs-path validity` 判红：该路径「存在（但仍计入新增；计数口径不问存在性）」。改成占位符形态即 PASS。
+
+**判据**：`check-doc-abs-paths.js` 数的是「本机绝对路径字面量」，**不问路径当前是否还存在**——所以「我写的是事实」不构成豁免。临时 worktree、CI runner 路径、`%TEMP%` 一律写占位符形态（`<...>` / `$VAR` / 通配）。修法也不是跑 `--write-baseline` 把新增记进去——那正是该门禁要拦的形状。
+
+## rebase 冲突只标在 CHANGELOG 一个文件时，「两侧都保留」就是删掉三个标记行——但别用会卡住编辑器的交互式 rebase（rewrite-sensitive-precheck-relax，2026-10-20）
+
+### lesson: append-only-conflict-resolved-then-dont-hang
+
+**现场**：rebase 到新 main 时 CHANGELOG 冲突（main 新增了别人的条目，我新增了我的，都插在最顶部）。冲突块只有三个标记行，删掉即两侧都在。但 `git rebase --continue` **卡住不返回**（等编辑器），kill 掉后 rebase 停在「checkout origin/main 之后、pick 之前」的中间态：HEAD 在 main tip，我的改动全在 index，`.git/rebase-merge` 已消失。
+
+**处置**：`git write-tree` → `git commit-tree <tree> -p <new-base> -F <msg-file>` → `update-ref` → `reset --hard`，把 index 原样提交到新 base 上（保留原 message，不重开编辑器）。PowerShell 没有 heredoc，commit message 要先写文件再 `-F`。
+
+**判据**：① 追加型文件（CHANGELOG / learnings / .quality-gates.md）的置顶冲突，解完必须**双向验证**：`Select-String "^# \["` 看两侧条目都在 + `git diff --numstat` 与 `--ignore-cr-at-eol` 两口径一致；② 交互式 rebase 在本机要用 `GIT_EDITOR=true` 或干脆走 commit-tree，别让进程挂在编辑器上；③ kill 掉 rebase 进程后**先看 `.git/rebase-merge` 是否还在**判断是真完成还是中间态，不要凭 `git log` 就以为失败/成功。
+
+
 ## 资源「够了」是算出来的，不是感觉到的——128 个令牌对上 845 个 URL（s2v-result-ux-polish）
 
 ### lesson: capacity-must-be-derived-from-worst-case-fanout

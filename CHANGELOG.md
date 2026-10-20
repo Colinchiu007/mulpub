@@ -45,6 +45,17 @@
   把「非 0 即拦」做成常量红本身就是反模式（缺产物档确有一份负载/时序类红会让它常态变红），
   需另开 change 定义独立出口；首次受影响的 schedule 是 **2026-10-21**（周三 18:00 UTC），合并后按
   「(merge SHA, workflow)」回读，无 run 时如实记 `NO_RUN(by design)` 而不是把它读成「证据丢了」。
+# [未发布] fix(rewrite-engine): 敏感词前置拦截放宽为不拦截 —— 8000 字长文不再被「爆炸」一词整篇拒绝（rewrite-sensitive-precheck-relax）
+
+- **问题**：用户在改写引擎粘贴约 8000 字长文（越南排华史料），点改写得到「内容包含敏感词，无法改写」，整篇被拒。实测命中的是内置词库里的「爆炸」一词（出自「石油加工厂发生爆炸和火灾」），8000+ 字仅此一词被拦。
+- **第一性原因**：`rewrite-engine-core.js` 的 `_sensitiveCheck()` 对 `stage==='pre'` 且 `hits>0` 返回 `blocked:true`，`rewrite()` 据此返回 `SENSITIVE_CONTENT` 整篇拒绝。而这个判据的前提从未被检验：词库是**内置示例级 24 词**（硬编码于 `packages/rewrite-engine/src/sensitive-filter.js:63`），**既不吃运营中心 `content_policy.word_list` 远程词库**（那条只喂 IPC 手动检测链，`ops-center-sync.js:656` 与引擎注入链是两条独立路径），**也无 UI 开关或白名单注入**（`addWhitelistWord()` 存在但服务层一次都没调）。一个不可配置、不可申诉的前置闸门，挡的是用户自己的输入。
+- **取舍（经用户确认，方案 B+）**：关**前置**拦截（原文命中不再整篇拒绝）；留**后置**检测（改写结果命中仍进 `warnings` 提醒人工审核）；留**知识库「双零命中」条件**（`preCheck.hits` 与 `postCheckHits` 均零才 `recordFeedback`，命中敏感词的内容不进 KB，避免固化成学习样本）；留 **fail-open 留痕**。
+- **实现**：`_sensitiveCheck` 恒返回 `blocked:false`（hits 照算，供 KB 条件与后置警告使用）。`rewrite()` 内的 blocked 分支成为**死路径**，加注释说明为何保留——将来恢复拦截只需改 `_sensitiveCheck` 一处，调用点（`rewrite()` / `segment-rewriter.js`）无需改。
+- **回归保护（7 例，此前 79 例中零例覆盖敏感词语义）**：`X1` 前置命中不再拦截（端到端 success）/ `X2` 后置仍进 warnings+sensitiveHits / `X3` 检测异常仍 fail-open / `X4` 未注入过滤器行为不变 / `X5` KB 双零命中条件未被破坏（前置或后置任一命中即不写 KB）。逃逸根因：被测的是「过滤器能否识别词」，无人测「**拦截阈值是否合理**」。
+  **X6/X7 是外部对抗审查后补的关键一例**：原 5 例全用手写 `detect` 桩，「内置 24 词 → detect → 引擎放行」这条用户报障的真实链路**零覆盖**——若有人改坏 `sensitive-filter.js` 的词库（如手滑删掉「暴力」分类），X1-X5 会全绿而用户故障复发。X6 用真 `new SensitiveFilter()` + 含「爆炸」的长文 + 前提自证断言钉住它；已做双向变异验证：删词库里的「爆炸」⇒ X6 红；把 `blocked` 改回 `true` ⇒ X1 与 X6 同时红。
+- **验证**：`packages/rewrite-engine` 16 文件 **268 例全绿**；`apps/desktop` 相关 7 文件（sensitive IPC / ops-center-sync / rewrite-engine-error / AiWriterPanel / RewriteView×3）**239 例全绿**；QM-1 `electron-builder --win --dir` 成功 + 启动三层判据 **PASS**（窗口期内存活 + stderr 为空，env 显式剔除 `ELECTRON_RUN_AS_NODE`）；端到端用用户真实文案 `success:true`（旧行为 `SENSITIVE_CONTENT`），分段路径（51039 码点 / 963 处前置命中）同样放行。
+- **踩坑（max-lines 门禁）**：第一版注释写太厚，`rewrite-engine-core.js` 到 782 行，超登记值 578 + 容差 200 = **778 上限 4 行** ⇒ CI `债务熔断检查` 判 `LEDGER_GREW` 红。压缩注释至 773 行转绿，**没有上调 baseline 消红**（`segment-rewriter.js` 头部注释早已警告过这个门禁）。
+- **遗留（不假装已闭合）**：前置关闭后用户可把任意内容（含运营方本想拦的高危词）送进 LLM，这是用户明确选择的取舍；词库本身仍是内置示例级且无运营入口，将来若要「严格模式」，正解是把 `content_policy.word_list` 接进引擎注入链并加用户级开关（本次不做）。`REWRITE_CONTENT_SENSITIVE` 文案码在引擎侧已无触发路径，作为兼容层保留未清理。
 
 # [未发布] perf+feat(desktop): 视频任务编辑页 UX 补齐 —— 令牌容量/滑动过期 + 滚动节流 + 失败摘要卡 + 分段搜索筛选 (#待填)
 
