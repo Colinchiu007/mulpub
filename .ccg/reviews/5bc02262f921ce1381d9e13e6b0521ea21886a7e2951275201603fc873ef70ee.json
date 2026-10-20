@@ -1,0 +1,63 @@
+{
+  "sha": "5e173de83a2a8d03c392c04044ecc17ef3cdeb2f",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 0 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 9,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 16,
+    "docSensitiveContentSample": [
+      "| **可信主机**（缺省 fail-closed） | 可信集合 = { provider **API base URL 主机（自动派生）** } ∪ { `assetDownloadHosts`（运营可配） }；不在集合内且**未显式授权** ⇒ 拒绝 | 「素材域名 {host} 不在可信清单内。请在『模型提供商 → {provider}』中配置『素材下载可信域』，或本次显式允许外部素材域名。」 |",
+      "| 显式授权 | 只能来自用户在成本确认卡勾选「本次允许从外部素材域名下载」；留痕 `project.json` 的 `egressAllowAnyHost` | 未勾选 ⇒ 拒绝（不弹权限框） |",
+      "| 内网段 | `isPrivateAddress` 覆盖面：IPv4 私网段（`10./8`、`172.16/12`、`192.168/16`）、`127/8`、`0.0.0.0/8`、`100.64/10`（CGNAT）、链路本地 `169.254/16`；IPv6 `::1`、`fc00::/7`、`fe80::/10`；**IPv4-mapped IPv6**（`::ffff:10.x` 先还原再判）；**纯十进制/八进制 IP 字面量**（`http://2130706433/`）先**规范化**再判 | 「不允许访问内网地址（SSRF 防护）」——**即使已显式授权也拒绝** |"
+    ],
+    "ccgSensitiveContentHits": 1,
+    "ccgSensitiveContentSample": [
+      "      \"edits[4]before 在方案原文中不存在（逐字匹配失败）：\\\"| V-26b | 放宽授权留痕 | `auto-project.test.js\\\"\","
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "5bc02262f921ce1381d9e13e6b0521ea21886a7e2951275201603fc873ef70ee",
+  "decidedAt": "2026-10-20T20:42:04.652Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}
