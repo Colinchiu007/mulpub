@@ -374,6 +374,9 @@ export default {
       // outcome must be visible to the user)
       coverGeneratedFailed: 'Cover generation failed; publishing without a cover',
       coverAlreadySet: 'Using your selected cover; auto-generation skipped',
+      // 2026-10-20 (fix-publish-failures): the cover channel is not the image channel. Image-text
+      // platforms require at least one image, so a cover-only setup now reuses the cover as image.
+      coverReusedAsImage: 'Cover also attached as an image (image-text platforms require at least one)',
       offlineCached: 'Network disconnected, task cached',
       offlineProgress: '📡 Network disconnected, publish task cached, will auto-retry when network recovers',
       scheduleCreated: (ctx) => '⏰ Created ' + ctx.named('count') + ' scheduled task(s)',

@@ -180,10 +180,25 @@ const platformsMixin = {
     // 这里收集**硬性内容字段**的填写结果，draftOnly 据此 fail-closed。
     const fillReport = { title: null, content: null, tags: null, upload: null }
 
-    if (!config.publish_url) { log.warn('RpaView', '[' + platform + '] no publish_url configured'); return { success: false, error: platform+' no publish_url', platform: platform } }
+    // 2026-10-20（fix-publish-failures）：缺 publish_url 时先走双入口映射兜底，再判失败。
+    // 背景：小红书/快手/抖音/头条都有专用发布方法去调 getPublishUrl()，**没有专用方法的平台**
+    // （微博即属此类，见 platforms.yaml 注释）只能靠 config.publish_url——该字段一旦漏配，
+    // 整条链在打开浏览器后 0ms 就 return，而外层重试机制把它当成可重试的瞬时故障反复重试
+    // （实测同一行错误连刷 6 次）。所以这里补一次与专用方法同一真源的兜底：映射命中的平台照常发，
+    // 确实没有映射的（youtube/tiktok/twitter 等）行为不变，仍然 fail-closed。
+    const publishUrl = String(config.publish_url || '').trim()
+      || getPublishUrl(platform, article && article.video_path ? 'video' : 'image')
+      || ''
+    if (!publishUrl) {
+      log.warn('RpaView', '[' + platform + '] no publish_url configured (config + entries 双入口映射均未命中)')
+      return { success: false, error: platform + ' no publish_url', platform: platform }
+    }
+    if (!config.publish_url) {
+      log.info('RpaView', '[' + platform + '] publish_url fallback to entries mapping: ' + publishUrl)
+    }
 
     this._emitProgress(platform, 'navigating...', 5)
-    await this._navigateAndWait(win, config.publish_url, 3000)
+    await this._navigateAndWait(win, publishUrl, 3000)
 
     const curUrl = win.webContents.getURL()
     if (curUrl.includes('login')||curUrl.includes('passport')||curUrl.includes('signin')) {

@@ -131,22 +131,27 @@ describe('usePublishFlow — 图文自动封面兜底', () => {
     expect(article.cover_path).toBe(COVER_PATH)
   })
 
-  it('🔴 表单已有封面时不得再生成（否则生成封面会盖掉用户选择，且白跑一次生图）', async () => {
+  it('🔴 表单已有封面时不得再生成，但必须把封面复用为配图', async () => {
+    // 2026-10-20（fix-publish-failures）：封面通道 ≠ 配图通道。
+    // 小红书图文页在图片上传前不渲染标题框/编辑器，只配封面会让整条链选择器全超时。
     const { article, flow } = setup(['wechat_mp'], { cover_path: 'D:/covers/user-picked.png' })
 
     await flow.handlePublish()
 
     expect(mockGenerateAiCover).not.toHaveBeenCalled()
     expect(article.cover_path).toBe('D:/covers/user-picked.png')
-    expect(progressTexts(flow).join('|')).toContain('已使用你选择的封面图')
+    expect(article.images).toEqual(['D:/covers/user-picked.png'])
+    expect(article.image_files.map(f => f.path)).toEqual(['D:/covers/user-picked.png'])
+    expect(progressTexts(flow).join('|')).toContain('已将封面图同时作为配图')
   })
 
-  it('表单只有远程封面 URL 时也不生成', async () => {
+  it('表单只有远程封面 URL 时生成配图（远程 URL 不能作为 file input 的本地文件）', async () => {
+    // 2026-10-20 行为变更：远程封面无法复用为本地配图，若不生成则图文平台必然空配图失败。
     const { flow } = setup(['wechat_mp'], { cover_url: 'https://cdn.example.com/c.png' })
 
     await flow.handlePublish()
 
-    expect(mockGenerateAiCover).not.toHaveBeenCalled()
+    expect(mockGenerateAiCover).toHaveBeenCalledTimes(1)
   })
 
   it('表单已有图片时不生成', async () => {
