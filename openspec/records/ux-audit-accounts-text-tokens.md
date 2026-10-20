@@ -97,3 +97,10 @@ sync_backfill_owner: 合并后由承接该分支的会话按 AGENTS「PR 自动�
 - **撤回与更正**（此前向用户上报过的两条结论按本轮实测更正）：① 「4 处白字坐在不过 AA 的彩色面上」中的 `.floating-close-button`（4.21）与 `.login-state-actions button`（2.75）两处，经全仓 grep 证实是**死样式**（模板在 `645b86684` 被删、CSS 留下），不构成用户可见缺陷 ⇒ 现存真缺陷为 `.page-button.danger`（3.76）与 `.batch-delete`（暗色 3.26）两处，另加本轮新暴露的 `.search-icon`/`.clear-search`（暗色 2.00:1）；② 「收编后暗色 AA 回归」的因果句不成立（该处根本不渲染），但**判据的祖先定位洞成立**并已修。
 - **待人工裁决（不代拍）**：死样式清理（`.login-state*`、`.floating-close-button`，属阶段 5"未接线组件/死观测字段"单元）；`.group-search-box input` 等 31 处"底色不随主题走"的容器何时接主题（图标色必须与容器同批裁决，否则换 token 只会把暗色档压低）；`needs-design` 6 处的设计选型。
 - **QM-6 机械闸门状态**：`.ccg/reviews/<sha>.json` 由 decider 判 `dual` 并置 `deepReview.status=pending`；proposer（opencode）本轮仍受上游 IP 白名单阻断，故本 PR **不满足** AGENTS「PR 自动合并」判据第 4 条（`check-pr-exec-record.js --mode=enforce` 需 OK），合并动作交回人工，未自行放宽状态词。
+
+## 第三轮（2026-10-20）：视觉基线随颜色回退刷新（QM-4 同 PR 收口）
+
+- **现象**：本轮把 `.search-icon` / `.clear-search` 从 `#707080` 回退为 origin/main 的 `#92939c`（评审 i2 的处置是「不收编、保留裸值」），`QG Visual` 的 Gate 7b 报 4 张基线 `kind=stale`：`accounts-list.png` 30px / `accounts-list-flag-on.png` 31px / `accounts-list-dark.png` 32px / `accounts-list-flag-on-dark.png` 33px（均 0.001%–0.002%，两轮读数完全相同 ⇒ 确定性差异，非采集抖动）。
+- **归因取证**：`git log f763366f..origin/main --name-only -- apps/desktop/src/views/Accounts.vue apps/desktop/src/styles apps/desktop/src/components` **零输出** ⇒ 基线采集之后主干没有别的面改动，30–33px 完全由本次颜色回退造成。基线是在「含 `#707080`」的树上采集的，回退后必然不同 —— 这不是回归，是基线跟着改动走。
+- **处置（按 QM-4 规则 7）**：基线只取自 **同一次 CI 渲染**，不得用本机 `test:visual:update-baseline` 重捕。取 run `39390232505` / job `118524086012` 的 `quality-gate-visual-reports` 产物中 `tests/visual-testing/screenshots/` 的四张渲染，逐张覆盖仓内基线，并自证「新基线 vs 同一次 run 的渲染 **逐字节相同**」（`bytesEqual=true` ×4）。取数与替换由一次性脚本完成，映射规则是「优先 `<view>-current.png`，缺则 `<view>.png`」（两套套件命名不同：pixel-gate 带 `-current`，views 套件不带）。
+- **未做**：没有动任何阈值，没有把差异登记成例外，`uncovered`/`skipped` 三张（`analytics-overview` / `login-form` / `settings-general`）与本轮无关，属既有判定域欠账（`check-visual-coverage.js` 的登记面），不在本 PR 范围内扩大。
