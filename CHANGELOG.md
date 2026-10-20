@@ -1,3 +1,15 @@
+# [未发布] fix(前端 UI/UE): 账号页文字色收编进主题令牌 —— 暗色档不可读 25 处归零，判据一份实现（ux-audit-accounts-text-tokens）
+
+- **要防的是「裸 hex 不随主题切换」这一整类静默失效**：`apps/desktop/src/views/Accounts.vue` 的文字色全部写成裸 hex（`#1f2340` / `#92939c` / `#85858f` …），而 `tokens.css` 的暗色覆盖只作用于 `--color-text-*` 槽 ⇒ **一条都到不了它们**。当场最坏值：页面标题在暗色 inset 底上 **1.02:1**（审计 4.2 那句，实测复现）。这类缺陷没有任何运行时报错，四层测试历史上也一次没抓到，因为它不是"颜色选错"而是"颜色没接线"。
+- **只动确实读不出来的那些**：本批 41 处 color 声明里，裸 hex 从 **40 处降到 15 处**（收编 25 处），留下的 15 处逐条登记：12 处 `compliant-bare` = 现值两档都过 AA、只是没收成 token；3 处 `needs-design` = 不过 AA 且同色相族内没有任何合格槽。选型目标函数写在生成器头部而不是我心里：**先判现值在两档各自的有效底色上是否过 AA，不过才换**，换的时候在"同色相族的合格槽"里取**浅色档 RGB 距离最小**的那个 —— 浅色档是本文件此前唯一的参考渲染，保住它就是保住设计意图。
+- **⛔ 两次"顺手改语义"被机械堵住**：v1 取"第一个能过 AA 的槽"，把 `.batch-delete` 的删除红 `#c43d4d` 换成近黑；v2 只分"有彩/中性"两族，把它换成主色紫（删除长得像主操作，比灰色更误导）。v3 加了色相族判据（Δhue ≤ 60°）：红色只允许落到 `--color-danger`，而它在浅底上 3.18:1 不合格 ⇒ 现场**原样保留红色**并登记 `needs-design`，换色属设计裁决、不由脚本代拍。这条规矩的机械牙是"登记项的现值必须与现场一致"：变异 M13 把红换成任何 token（包括能过 AA 的主色）都当场红。
+- **判据的三种失明由外部评审逐条命中并已全部修掉**（详见 `openspec/records/ux-audit-accounts-text-tokens.md`）：① `background: #fff !important` 被读成"解析不出" ⇒ 生效的白底丢掉，`.batch-status` 算成 5.45:1 而屏幕上是 **3.04:1**；② 自身无底色时只看页面底色 ⇒ `.login-state span` 坐在祖先的 `#f3f2ff` 上算成 4.54 放行，实际 **4.39**；③ 不读 `html[data-theme='dark'] .sel {}` 这层**按选择器的主题覆盖** ⇒ 把已随主题走掉的容器底当固定浅底，**虚构出一笔不存在的欠账**。三者各自有专项锁（M9 / M10 / M11 实测变红）。
+- **WCAG 大文本档位曾被我把 pt 当 px**：原写"任意 ≥18.66px 算大文本"，正解是 **24px 常规或 18.66px 加粗**；档位读宽一格就等于对 20px 常规正文豁免。字号经 `var(--font-size-lg)` 声明时必须沿链解析成数字，否则大文本档永远点不到火（M6 实测）。
+- **收敛成一份采集实现**：新增 `styles/color-token-reader.js`（token 链解析 / WCAG 相对亮度比 / 阈值分档 / style 块与 at-rule 递归扫描）与 `styles/text-contrast-sites.js`（把 SFC 的文字点采集成结构化现场）。**生成基线的脚本与校验基线的测试跑同一个函数** —— 这是可维护性轴点名的最高危单点：两份实现一旦口径漂移，重跑生成器就会把已核对的基线覆盖成另一种形状，而两边都"看起来绿"。测试会把基线里的 `need`/`ratio`/`surface` **逐字段重算核对**，改判据不更新基线当场红。
+- **本批没修的那一类也留了现场**：`Accounts.text-contrast-baseline.json` 另记 31 处「底色/边框/描边写成裸 hex」，它们才是暗色档里嵌一块浅色面板的真凶（`.account-sort-controls select` 的 `#f8f9fc` 让 `--color-text-secondary` 在暗色档只剩 **1.97:1**）。清单只能缩小，且测试断言"现场条数 == 基线条数"，脱钩即红（M14 实测）。
+- **读数（当场实测，非估算）**：三份新增测试 `36 passed`（`styles/color-token-reader.test.js` + `styles/text-contrast-sites.test.js` + `views/Accounts.text-contrast.test.js`，一条命令跑出的合计）；消费者并集 43 文件 `685 passed | 2 skipped`；变异电池 14 道逐条 CAUGHT，控制趟 GREEN(36)、还原逐字节相同；浅色档像素变化 **22** 处、浅色不变 3 处 ⇒ **视觉基线须按同一次 CI 渲染刷新**（禁止用 `--update-baseline` 消化），登记为同 PR 待办。
+- **⛔ 未收敛的债**：`src/styles/` 下另有 4 份测试各自内联 WCAG 公式（`tokens.slots` / `tokens.aliases` / `sidebar.tokens` / `ep-theme.tokens`），加上本批即"五套并存"。本批只把它钉成只能缩小的棘轮（清单里的每一项必须仍然自带公式，收敛掉一个删一个），真正的收敛属"改谁来守门"，另批做。
+
 # [未发布] feat(门禁): 闭环值不等于闭环成立 —— 高危面收口矩阵与收口转变检测落码（qm6-highrisk-matrix）
 
 - **要防的是「有人写了个词」被当成「评审发生过」**：`scripts/check-pr-exec-record.js` 原有的闭环判据只看 `deepReview.status` 落不落白名单 `{cleared, needs_revision, self_play_resolved}`。上一轮 QM-6 外部评审实测四种伪造 `cleared`（含 `evidence:"x"`）全部被接受，而 `self_play_resolved` 本来就在白名单里 —— 「外部模型一个都没跑」在机械上完全满足这条门禁。AGENTS 里那句「高危域不得自扮演豁免」从来没有执行体。本片把它落成判据：闭环成立 = 状态在白名单 **∧** 出处可核，可核的宽度按路径是否落在高危面分两档。
