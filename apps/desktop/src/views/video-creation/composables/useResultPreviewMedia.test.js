@@ -558,4 +558,47 @@ describe('分段跳转计划（大跨度跳转要给反馈，不能静默无响�
     expect(plan.expandTo).toBe(169)
     expect(plan.batch).toEqual({ from: 20, to: 169 })
   })
+
+// ── 2026-10-20 QM-6 深审 i4：把「<1ms 未验证」变成实测 ──
+// 评审质疑「filterSegments / buildFailureSummary 每次响应式变化都全量扫一遍，
+// '<1ms' 只是声明，200 段以上未测」。这里用 500 段（超过目标场景 169 段近 3 倍）
+// 做实测，并把阈值定在**宽松**的 20ms/次 —— 断言的不是"快"，而是"没有病理级退化"
+// （真退化到 O(N²) 或每段触发重排时，这条会红）。
+describe('大任务下的计算成本（500 段实测，QM-6 深审 i4）', () => {
+  const makeSegments = (count) => Array.from({ length: count }, (_, i) => ({
+    id: 'seg-' + i,
+    index: i,
+    status: i % 17 === 0 ? 'failed' : 'completed',
+    failureCode: i % 17 === 0 ? 'policy' : '',
+    text: '第 ' + i + ' 段文案',
+    prompt: '提示词 ' + i,
+    videoPrompt: '视频提示词 ' + i,
+    subtitleBlocks: ['字幕 ' + i],
+  }))
+
+  const timeIt = (fn, rounds = 20) => {
+    const started = Date.now()
+    for (let i = 0; i < rounds; i += 1) fn()
+    return (Date.now() - started) / rounds
+  }
+
+  it('buildFailureSummary 在 500 段下单次远低于 20ms', () => {
+    const segments = makeSegments(500)
+    const perCall = timeIt(() => {
+      const summary = buildFailureSummary({ segments })
+      // 断言结果本身正确，避免"测了个空跑"
+      expect(summary.total).toBe(500)
+    }, 5)
+    expect(perCall).toBeLessThan(20)
+  })
+
+  it('filterSegments（含关键词搜索）在 500 段下单次远低于 20ms', () => {
+    const segments = makeSegments(500)
+    const perCall = timeIt(() => {
+      const hit = filterSegments(segments, { mode: SEGMENT_FILTER_MODES.FAILED, query: '文案' })
+      expect(hit.length).toBeGreaterThan(0)
+    }, 5)
+    expect(perCall).toBeLessThan(20)
+  })
+})
 })

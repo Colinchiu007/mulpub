@@ -98,9 +98,28 @@ electron: Failed to load URL: … resources/app.asar/dist/index.html with error:
 
 结果：宿主 **2060 → 1886 行**（净降 174），测试账本回到容差内。
 
-## 7. QM-6 评审
+## 7. QM-6 评审（三轮，全部逐条裁决）
 
-见 PR 说明与 `.ccg/reviews/*.json`（以实际评审结论为准）。
+`deep-review.sh` 在本机因把 POSIX 路径传给 Windows `node` 而失败（`MODULE_NOT_FOUND（POSIX 路径被 Windows node 解析成盘符前缀路径）`），
+改用 Git Bash 直接调用底层 `ccg-deep-review.js` 跑通 **opencode（提案）/ claude（评审）** 双后端。
+
+| 轮次 | 覆盖 | 产出 | 裁决 |
+| --- | --- | --- | --- |
+| 1 | 主提交（1566 行，DUAL / Red Team） | 6 条 / 4 维度 / 最低 6 分 | i1(Critical)、i5 成立→**已修**；i2、i3 经核实**不成立**（附行号反证）；i4 部分成立；i6 已知取舍 |
+| 2 | i1/i5 修复提交（82 行，SINGLE） | 8 条 / 4 维度 / 最低 6 分 | i1 成立→本轮关闭；i5 **部分**成立（「并发 rAF」不成立，但查出 `recalc` 只清标记会让旧回调清掉新标记）→ 补 `cancelScrollFrame`；i2、i3、i6 **不成立**；i7、i8 记入 learnings |
+| 3 | 滚动高亮下沉 composable（148 行，SINGLE） | 7 条 / 4 维度 / 最低 4 分 | i4 成立（性能数字未实测）→**补 500 段实测**；i5 有意取舍→写进 PRD §7.3；i1、i2、i3 经核实**不成立**；i6、i7 已修/已记录 |
+
+### 未完成项（如实记录，不伪造）
+
+三轮里各有一条被判为「高危域」需**外部复核**（`performedBy` 逐字 `claude` + 公开 PR 评论 URL）：
+第 1 轮 i3（`crypto`，内容实为文本清洗与字符串匹配，疑似误分类）、
+第 3 轮 i2（`auth`，内容实为回环能力令牌服务的容量，威胁模型未变）。
+实际调用 `claude` CLI 返回 **HTTP 402 Insufficient credits**（OpenRouter 无额度），外部复核**未能取得**。
+
+因此 `adjudication.json` 的 `externalReview` 三格保持 `null`，**未填任何假 URL**；
+两条记录的 `deepReview.status` 都取 `needs_revision`——不是「已全部收口」，
+而是「有 1 项机制要求的外部复核因后端不可用仍未完成」。
+这两条争议本身已由行号级反证 + 绿测反驳，不因外部复核缺失而改判。
 
 ## 8. 踩坑（本轮真实发生）
 
@@ -121,3 +140,27 @@ electron: Failed to load URL: … resources/app.asar/dist/index.html with error:
 - **搜索无防抖**：本地全量过滤 <1ms，加防抖反而引入输入延迟。
 - **QM-4 视觉回归未跑**：本机基线失效，建议基线修复后统一重建。
 - **未做实机 wall-time 复测**：滚动收益来自静态推算 + 单测。
+
+- **导航状态与 `vm` 耦合（第 3 轮 i5，有意取舍）**：`jumpFocusIndex` / `jumpPendingIndex` 留在宿主，composable 收 `vm` 而非拆原始参数。理由：宿主是跳转的唯一状态源（上一轮 A12「两份计数漂移」的正解），且 `vm` 形状换来 Options API 下的可桩单测。若要真解耦，代价是把 `refs`/`segments`/`renderWindow`/`refresh` 全当参数（6+ 个）。见 PRD §7.3。
+- **未做虚拟滚动**：169 段展开后仍是 169 个 DOM 卡；1000 段级需变高 windowing（含锚点补偿），会同时影响成功任务的滚动体验，独立排期。
+- **未获得高危域外部复核**：见 §7「未完成项」。机制要求 `claude` + 公开 PR 评论 URL，`claude` CLI 当前 402（无额度）；两条记录如实标 `needs_revision`，未伪造证据。
+
+## 10. 门禁结果总表
+
+| 门禁 | 结果 | 证据 |
+| --- | --- | --- |
+| TDD（先红后绿） | PASS | RED：`expected 128 to be 845` / `expected 404 to be 200` / 20 条新函数未定义 / `expected -1 to be 60`；GREEN：消费方并集 12 文件 **319 passed**（含 500 段实测 2 条） |
+| QM-1 打包验证（改 `electron/` 必做） | PASS | `build:vue` + `electron-builder --win --x64` rc=0；asar 内含改动模块；产物内 `defaultMaxEntries=1024`/`maxRegistry=2048`；启动 8s 存活、stderr **0 字节**。首次因未先 `build:vue` 判 NEEDS_REVIEW（`ERR_FILE_NOT_FOUND`），补构建后复验 PASS |
+| `check-max-lines.js` | PASS | 宿主 1847 ≤ 1890（点名还账零增长）；测试账本回容差内（新守护独立成 `ResultView.ux-polish.test.js`） |
+| `check-unwired-tests.js` | PASS | 全部测试已接线或按欠账登记 |
+| Gate 7 locale 成对 | PASS | `--cjk` 基线 1330 / 当前 1125，无新增硬编码；`--pair-base origin/main` PASS；26 个新键 zh/en 成对 |
+| `check-no-brand-residue.js` | PASS | 11034 个 tracked 文件无品牌残留 |
+| `check-debt-budget.js` | PASS | 所有债务指标在基线内 |
+| `check-doc-abs-paths.js` | PASS | 无新增本机绝对路径（曾因记录里写 POSIX→Windows 路径例子超基线，改成文字描述后通过） |
+| `check-pr-exec-record.js` | PASS | OK：本 PR 携带执行记录 |
+| `check-gate-record-debt.js` | PASS | 记录含 `远程同步` 行（状态列写「由门禁推导」，不手写状态词） |
+| eslint（13 个改动文件） | PASS | 0 error；唯一 warning 是基线已有的 `IMAGE_MIME_TO_EXT` 未用 |
+| QM-6 双模型评审 | 完成，1 项外部复核未能取得 | 三轮共 21 条问题全部逐条裁决（详见 §7）；两条记录 `deepReview.status` 取 `needs_revision`，未伪造外部证据 |
+| QM-4 视觉回归 | N/A（未跑） | 本机基线仓库级失效（同 `result-view-back-btn-style` 结论），不重建基线；新增组件建议基线修复后统一重建 |
+| 远程同步 | 由门禁推导 | 新 PR 不手写状态词，收口由 `scripts/lib/merge-ledger.js` 按主干历史推导 |
+

@@ -330,6 +330,12 @@ emits：`jump(index)`、`step(offset)`、`update:focus-index(index)`。
 
 ---
 
+> 设计取舍（QM-6 深审 i5a 提出，本轮保留）：
+> 1. **导航状态（`jumpFocusIndex` / `jumpPendingIndex`）放在宿主**，而不是收进 `ResultSegmentJumpBar` 或独立 store。原因：宿主是「跳转」的**发起方与唯一状态源**——上一轮 QM-6 审查 A12 的结论就是「编辑器与宿主各持一份窗口计数 ⇒ 漂移 ⇒ 视口不动」，收敛到宿主是那条缺陷的正解。
+> 2. **composable 接收 `vm` 而不是拆成原始参数**（`refs` / `segments` / `renderWindow` / `refresh` 全当参数会膨胀到 6+ 个）。代价是与 Options API 组件形状耦合；收益是可直接传桩对象单测，且不必在宿主再包一层。
+
+---
+
 ## 8. 验收标准
 
 | # | 标准 | 验证方式 |
