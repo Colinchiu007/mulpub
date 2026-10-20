@@ -60,7 +60,7 @@
 
 - [ ] 6.1 新增 `*.test.js` 逐个显式点名进 `quality-gate.yml`（Gate 2b/2c），由 `check-unwired-tests.js` 兜
 - [ ] 6.2 `openspec validate --strict` 通过
-- [ ] 6.3 AGENTS.md：把 #3747 那条 ⚠️ 改写为矩阵引用，删除"本门禁未镜像它"这句将过时的事实
+- [x] 6.3 AGENTS.md：把 #3747 那条 ⚠️ 改写为矩阵引用，删除"本门禁未镜像它"这句将过时的事实 —— **已落**（分支 `qm6-agents-matrix-doc`，记录 `openspec/records/qm6-agents-matrix-doc.md`）：三条逐字取自本条 2026-10-19 裁决；除三条外另如实登记四格残余（`mode=single` 直接 `continue`、引擎 `highRiskDomains` 与路径前缀是两个轴、跨面行为变更看不见、CI 侧仍 `--mode=advisory`）与一条现状声明（`tier=external` 此刻仍是会话手写代用，写入方收敛 = tasks 8.1b）。旧 ⚠️ 那句「本门禁未镜像它」在 AGENTS.md 里现读 **0 处**（替换脚本的写前断言，不靠事后 `grep -a`）
      - **人工裁决（2026-10-19）**：不塞进 PR #3987 本体（那片已经在改"谁来守门"，再叠 AGENTS 会把过目面扩大、并让本 PR 的冲突面变大）。**触发条件 = #3987 落 main**，随即单开一个 docs-only PR 落下面三条，逐字可用：
        ① 「与既有门禁的关系」那段把 ⚠️ 改成矩阵引用：高危面清单 = `check-pr-exec-record.js::HIGH_RISK_SURFACES`（9 条，逐条带实测命中数），高危面上只认 `tier=external` + 可核 `evidence`；
        ② 明写「`closureNote` 在高风险面（含 `scripts/check-*` 判据本体、`.github/workflows/*`）上**不再够格**收口」—— 这条必须写，因为主干既有惯例正是 note-only（实测最近 40 笔里 2 条会被事后判红，都来自已合并的 #3927）；
