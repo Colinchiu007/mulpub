@@ -48,10 +48,21 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "self_play_pending",
+    "performedBy": "self-play(pending)",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "domains": [
+          "crypto"
+        ]
+      }
+    ],
+    "findings": null,
+    "template": ".adversarial\\ccg-deep-0fb202d3\\adjudication.json",
+    "note": "裁决尚未填写：4/4 条未定（i1, i2, i3, i5）",
+    "at": "2026-10-20T09:11:56.150Z"
   }
 }

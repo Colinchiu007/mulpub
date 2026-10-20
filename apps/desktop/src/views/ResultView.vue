@@ -862,12 +862,21 @@ export default {
       const threshold = Number(this.segmentScrollThreshold) >= 0 ? Number(this.segmentScrollThreshold) : 120
       let current = -1
       let bestTop = -Infinity
+      // 视口下界（QM-6 深审 i5）：节流只降频不降单帧 O(N)，169 段时每帧仍读 169 次
+      // getBoundingClientRect（强制重排）。卡片按 DOM 顺序纵向堆叠 ⇒ `top` 单调递增 ⇒
+      // 一旦读到「顶部已过视口底」的卡片，后面全部更靠下，可以直接 break。
+      // 单帧重排从「已渲染段数」降到「视口内段数 + 1」。
+      const viewportBottom = typeof window !== 'undefined' && Number(window.innerHeight) > 0
+        ? Number(window.innerHeight) + threshold
+        : 0
       for (const key of Object.keys(refs)) {
         const i = Number(key)
         if (!Number.isInteger(i) || i < 0) continue
         const el = refs[i]
         if (!el || typeof el.getBoundingClientRect !== 'function') continue
         const rect = el.getBoundingClientRect()
+        // 已过视口底 ⇒ 后续卡片都在更下方，无需再读（提前退出）
+        if (viewportBottom > 0 && rect && typeof rect.top === 'number' && rect.top > viewportBottom) break
         // 分段顶部进入视口上方阈值区域 → 候选当前分段；取顶部最接近视口顶部的那个（top 最大）
         if (rect && typeof rect.top === 'number' && rect.top <= threshold && rect.top > bestTop) {
           bestTop = rect.top

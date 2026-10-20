@@ -63,7 +63,22 @@ describe("ResultView · UX polish（169 段任务的信息完整性与长列表�
         plugins: [router],
         components: { UiButton },
         mocks: {
-          $t: (key, params) => (params && params.label ? params.label : key),
+          // 文案断言必须打在**真实词条**上（QM-6 深审 i1）：
+          // 只回传 key 的 mock 会让「locale 绑定缺失 / 插值参数错 / 文案拼接错」全部漏过。
+          // 这里按 key 路径去 zh 词条里取值，再做 {name} 插值——这样 `已显示 20 / 共 169 段`
+          // 这类断言才真的在验文案，而不是在验假数据。
+          $t: (key, params) => {
+            const template = key.split(".").reduce(
+              (node, part) => (node && typeof node === "object" ? node[part] : undefined),
+              zh
+            );
+            const text = typeof template === "string" ? template : key;
+            if (!params || typeof params !== "object") return text;
+            return Object.entries(params).reduce(
+              (acc, [name, value]) => acc.split(`{${name}}`).join(String(value)),
+              text
+            );
+          },
         },
       },
     });
@@ -213,7 +228,25 @@ describe("ResultView · UX polish（169 段任务的信息完整性与长列表�
       await nextTick();
 
       const label = w.vm.segmentCountLabel;
-      expect(label).toContain("story2video.sceneMaterial.segmentCountPartial");
+      // 真实词条 + 真实插值：zh 是「已显示 {shown} / 共 {total} 段」
+      expect(label).toContain("已显示");
+      expect(label).toContain("20");
+      expect(label).toContain("169");
+      expect(label).not.toContain("{shown}");
+      expect(label).not.toContain("{total}");
+      w.unmount();
+    });
+
+    it("全部显示后文案切成「共 N 段」，不再说「已显示」", async () => {
+      const w = await createView();
+      w.vm.projectId = "p1";
+      w.vm.segments = Array.from({ length: 3 }, (_, i) => ({ id: "s" + i, status: "completed" }));
+      await nextTick();
+      w.vm.segmentRenderCount = 3;
+      await nextTick();
+
+      const label = w.vm.segmentCountLabel;
+      expect(label).toBe("共 3 段");
       w.unmount();
     });
 
@@ -330,6 +363,42 @@ describe("ResultView · UX polish（169 段任务的信息完整性与长列表�
       await nextTick();
 
       expect(w.vm.jumpFocusIndex).toBe(before);
+      w.unmount();
+    });
+  });
+
+  describe("滚动高亮的单帧成本（视口裁剪，QM-6 深审 i5）", () => {
+    it("读到视口下方的卡片即提前退出，不把 169 段全量读一遍", async () => {
+      const w = await createView();
+      w.vm.projectId = "p1";
+      w.vm.segments = Array.from({ length: 169 }, (_, i) => ({ id: "s" + i, status: "completed" }));
+      await nextTick();
+
+      // 造 169 个 ref，只有前 3 个在视口内，其余 top 远在下方
+      const reads = { count: 0 };
+      const orig = window.innerHeight;
+      Object.defineProperty(window, "innerHeight", { value: 800, configurable: true });
+      try {
+        const refs = [];
+        for (let i = 0; i < 169; i += 1) {
+          refs[i] = {
+            getBoundingClientRect: () => {
+              reads.count += 1;
+              return { top: i < 3 ? i * 10 : 1000 + i * 400, bottom: 0, height: 0 };
+            },
+            scrollIntoView: () => {},
+          };
+        }
+        w.vm.segmentItemRefs = refs;
+        w.vm.computeActiveSegmentIndex();
+      } finally {
+        Object.defineProperty(window, "innerHeight", { value: orig, configurable: true });
+      }
+
+      // 视口内 3 个 + 第一个越过视口底的 1 个 = 4；远小于 169
+      expect(reads.count).toBeLessThanOrEqual(6);
+      expect(reads.count).toBeLessThan(169);
+      expect(w.vm.activeSegmentIndex).toBe(2);
       w.unmount();
     });
   });
