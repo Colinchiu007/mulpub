@@ -599,11 +599,13 @@ describe('GUI/CI 工作流门禁契约', () => {
     const { workflow } = readWorkflow('electron-ci.yml');
 
     expect(workflow.jobs['electron-tests']['runs-on']).toEqual('windows-latest');
-    // 45 → 70（#2458）：串行单测步骤预算从 20m 抬到 35m 后，job 级必须一起抬，
-    // 否则「不可归因的超时」只是从 timeout(1) 换成 Actions 的 job killer。
+    // 45 → 70（#2458，步骤预算 20m → 35m）→ 95（2026-10-20，步骤预算 35m → 70m）：
+    // 每次抬步骤预算，job 级都必须一起抬，否则「不可归因的超时」只是从 timeout(1)
+    // 换成 Actions 的 job killer —— 那正是本 issue 当年要修的失效模式。
+    // 95 > 其余步骤 timeout 之和(20) + 4200/60(70) = 90，留 5 分钟给自证诊断与收尾。
     // 该值与步骤预算的**关系**由同文件「预算挂实测、超时可自证、且不与 job 级倒挂」那条守住，
     // 不要把它改回一个孤立的魔数。
-    expect(workflow.jobs['electron-tests']['timeout-minutes']).toBe(70);
+    expect(workflow.jobs['electron-tests']['timeout-minutes']).toBe(95);
   });
 
   it('Electron CI 跳过桌面媒体下载脚本，并显式恢复测试所需运行时', () => {
@@ -699,7 +701,10 @@ describe('GUI/CI 工作流门禁契约', () => {
     const diagnosticStep = steps.find((step) => step.name === 'Vitest failure diagnostics');
 
     expect(job.env).toMatchObject({ NODE_ENV: 'test' });
-    expect(unitStep.run).toContain('BUDGET_SECONDS=2100');
+    // 记录当前值（35m → 70m，2026-10-20 按重测长尾 2094s ×2 重挂）。
+    // 它与实测基线的**倍数关系**由「预算必须挂在 CI 实测长尾上」那条守住，
+    // 这里只负责钉住「实际写进 YAML 的就是这个值」，不要把两个职责混成一条。
+    expect(unitStep.run).toContain('BUDGET_SECONDS=4200');
     expect(unitStep.run).toMatch(/timeout --signal=TERM --kill-after=30s \$\{BUDGET_SECONDS\}s/);
     expect(unitStep.run).toContain('--maxWorkers=1');
     expect(unitStep.run).toContain('--no-file-parallelism');
@@ -731,7 +736,12 @@ describe('GUI/CI 工作流门禁契约', () => {
 
     // 1) 预算挂在步骤级实测上：既要对被替换的旧墙有实质余量，也要覆盖健康耗时的倍数
     const budgetSeconds = Number(unitStep.run.match(/BUDGET_SECONDS=(\d+)/)[1]);
-    const measuredStepElapsedSeconds = 794; // 自证行实测，不是 job 总时长
+    // 实测基线必须**定期重测**：794s 是 2026-09-28 的单样本，套件长到 2026-10-20 后已经失真。
+    // 重测口径：取最近 23 次**成功**运行（2026-10-19~10-20，electron-ci on main，branch=main
+    // event=push）的单测步骤耗时，最小 1282s / 中位 1692s / 均值 1639s / 长尾 2094s。
+    // 这里钉**长尾**而不是均值：预算要挡的是分布右端，均值会把长尾那一半运行判成超时。
+    // 老口径用 794 × 2.6 = 2100；现在长尾 2094 已经顶到 2100（只剩 6 秒），所以按长尾 ×2 重挂。
+    const measuredStepElapsedSeconds = 2094;
     const retiredWallSeconds = 20 * 60;     // 旧魔数 20m
     expect(budgetSeconds).toBeGreaterThan(retiredWallSeconds);
     expect(budgetSeconds).toBeGreaterThanOrEqual(retiredWallSeconds * 1.5);
