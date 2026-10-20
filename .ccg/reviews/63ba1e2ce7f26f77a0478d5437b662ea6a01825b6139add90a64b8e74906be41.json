@@ -1,0 +1,95 @@
+{
+  "sha": "41658e60dc6c13a1794de82943ecd59bfe32de74",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 338 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 338,
+    "fileCount": 13,
+    "codeFileCount": 11,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 2,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "63ba1e2ce7f26f77a0478d5437b662ea6a01825b6139add90a64b8e74906be41",
+  "decidedAt": "2026-10-20T05:06:26.898Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "tier": "external",
+    "performedBy": "self-play",
+    "evidence": "openspec/records/error-message-user-friendly-audit.md",
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "finding": "锚点兜底仍可对调上下限：limit of 512MB 里 of 隔开锚点 ⇒ 判不出退回顺序 ⇒ 512 被当 actual",
+        "verdict": "upheld",
+        "disposition": "改为「判不出就不给数」，渲染端转 no_numbers；补用例。"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "compose_input_size_exceeded_no_numbers 只由字符串拼接可达，不在登记表 ⇒ 五侧门禁失明（与 i3 同型）",
+        "verdict": "upheld",
+        "disposition": "门禁新增 DERIVED_LOCALE_VARIANTS 登记 + 变异⑧。"
+      },
+      {
+        "id": "i3",
+        "severity": "Info",
+        "finding": "只缺一个体积参数时不转 no_numbers ⇒ 「已达 允许上限」拗口句",
+        "verdict": "upheld",
+        "disposition": "任一缺失即转 no_numbers；补「只有 limitMb」用例。"
+      },
+      {
+        "id": "i4",
+        "severity": "Info",
+        "finding": "第五侧只匹配单引号、只扫一个文件",
+        "verdict": "upheld",
+        "disposition": "扩到单/双/反引号，清单加 CreateViewHistory.vue；补变异⑨。"
+      },
+      {
+        "id": "i5",
+        "severity": "Info",
+        "finding": "记录 findings 只持久化 Warning+，closureNote 却按 8 条叙述，无法从记录内部核对 Info 裁决",
+        "verdict": "upheld",
+        "disposition": "以 findingsPersistenceRule 显式写明规则；Info 裁决由执行记录 §8.4 表格承载。"
+      }
+    ],
+    "findingsPersistenceRule": "引擎只把 Warning 及以上写入 deepReview.findings；Info 条目的裁决在执行记录 §8.2 / §8.4 的表格里。读本条时不要用 findings 条数去核对「评审提了几条」。",
+    "closureNote": "第 1 轮 critic=claude 提出 5 条（2 Warning / 3 Info）。处置：i1（兜底顺序仍可对调上下限→判不出就不给数）已修、i2（_no_numbers 不在登记表→派生变体登记+变异⑧）已修、i3（只缺一个参数→任一缺失即转）已修、i4（第五侧只认单引号→三种引号+变异⑨）已修、i5（持久化规则未写明→findingsPersistenceRule）已修。逐条明细见执行记录 §8.4。",
+    "blocking": [],
+    "at": "2026-10-20T05:23:47.098Z"
+  }
+}

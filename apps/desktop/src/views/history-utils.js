@@ -339,6 +339,27 @@ export function historyDisplayTime (item) {
 }
 
 /**
+ * compose 预检稳定错误码 → locale 文案 key（2026-10-20 error-message-user-friendly-audit）。
+ *
+ * 主进程 `story2video-compose-engine.js` 的 COMPOSE_ERROR_CODES 落库到 run.errorCode，
+ * 历史卡片据此取自然语言文案。**必须显式列举，不得按字符串规则拼 key**——
+ * 拼错会静默渲染成 i18n key 原文（`story2video.compose_xxx`）直接显示给用户。
+ *
+ * 与主进程常量保持一对一：新增 COMPOSE_* 错误码时必须同步此处与
+ * `locales/story2video/{zh,en}.js` 的 compose_* 文案。
+ */
+export const COMPOSE_ERROR_KEY_MAP = Object.freeze({
+  COMPOSE_FFMPEG_NOT_FOUND: 'story2video.compose_ffmpeg_not_found',
+  COMPOSE_INVALID_ASSET_MANIFEST: 'story2video.compose_invalid_asset_manifest',
+  COMPOSE_INPUT_SIZE_EXCEEDED: 'story2video.compose_input_size_exceeded',
+  COMPOSE_SCENE_MEDIA_UNREADABLE: 'story2video.compose_scene_media_unreadable',
+  COMPOSE_SCENE_AUDIO_UNREADABLE: 'story2video.compose_scene_audio_unreadable',
+  COMPOSE_SEGMENT_DURATION_EXCEEDED: 'story2video.compose_segment_duration_exceeded',
+  COMPOSE_DURATION_EXCEEDED: 'story2video.compose_duration_exceeded',
+  COMPOSE_AUDIO_DURATION_EXCEEDED: 'story2video.compose_audio_duration_exceeded',
+})
+
+/**
  * 内容政策/需要用户输入类失败的统一门控关键字（与主进程 pipeline-engine.js
  * resumeOrchestration 的判定对齐）：命中即判定为不可原样恢复，必须修改文案后重新生成。
  * content 与 policy 之间允许空格/下划线/连字符或不带分隔符（content policy / content_policy /

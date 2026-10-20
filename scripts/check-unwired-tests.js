@@ -96,6 +96,16 @@ const MUST_LIVE_IN_UNGATED_JOB = {
     resolveWhen:
       "该锁的输入不再命中 CI_IGNORED_PATHS，或它本身被删（那会同时触发本清单的 stale 红）",
   },
+
+  "scripts/check-compose-error-codes.test.js": {
+    reason:
+      "输入含 apps/desktop/src/locales/story2video/{zh,en}.js 与 apps/desktop/src/views/history-utils.js，" +
+      "而 locales/** 与 src/** 均在 docs-only 白名单内 ⇒ 只改文案/映射的 PR 会被判 docs-only，" +
+      "若这条锁只住在带 job 级 if 的 job 里就等于一次都不跑，" +
+      "「新增错误码漏改任一侧」会重新变成无人发现的形态（2026-10-20 事故的四层逃逸链之一）",
+    resolveWhen:
+      "它被点名进 changes job（无 job 级 if 的那类面，本次已接 Gate 12g），或本锁被删",
+  },
 }
 
 // 嵌套 workflow 承认清单：path -> 为什么允许它存在但永不执行。只能缩小，新增即红。

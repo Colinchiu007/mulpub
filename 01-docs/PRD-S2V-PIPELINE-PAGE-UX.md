@@ -125,6 +125,33 @@
 
 必要时可在错误对话框提供“查看建议”，但历史卡片只展示自然语言摘要，避免卡片布局被技术细节撑宽。
 
+#### 3.2.1 compose 预检失败的稳定错误码通道（2026-10-20，error-message-user-friendly-audit）
+
+**动因（事故）**：历史记录失败卡片曾直出英文技术原文 `Input media exceeds the total size limit`。根因是 compose 引擎只返回英文 `message`，stage/落库边界丢掉结构化字段，渲染端的「短自然语言直出」分支把 41 字符的英文技术句判成自然语言。详细逃逸链见 `01-docs/BUGFIX-HISTORY-CARD-RAW-ENGLISH-ERROR-2026-10-20.md`。
+
+**契约**：
+
+- 主进程 `story2video-compose-engine.js` 的预检/时长类失败 SHALL 返回稳定 `errorCode`（`COMPOSE_ERROR_CODES` 封闭集合）+ 可插值 `messageParams`；`message` 仅作诊断保留。
+- `stage-executor` → `pipeline-engine._finalizeRun` → `run-state-store` 快照 SHALL 把 `errorCode` / `errorParams` 一路带到前端；`run.error` / `stage.error` 保持**字符串**契约（恢复门控 `RESUME_BLOCKING_ERROR_PATTERN` 与阶段摘要读字符串）。
+- 渲染端 `CreateViewHistory.formatError` 的取值优先级：**① `formatPipelineError(item.error)` 的原文归一化 → ② `COMPOSE_ERROR_KEY_MAP[item.errorCode]` 稳定码映射 → ③ 原文透传（仅当 ① 判为短自然语言）→ ④ 通用兜底**。参数用展开合并（`{ ...formatterParams, ...item.errorParams }`）。
+- 错误码 → locale key MUST 用显式映射表 `COMPOSE_ERROR_KEY_MAP`（`src/views/history-utils.js`），MUST NOT 用字符串替换/大小写转换推导（拼错会静默渲染成 i18n key 原文）。
+- 三侧一致性（主进程常量 / 渲染端映射 / zh+en 文案 / messageParams 占位符）由 `scripts/check-compose-error-codes.js` 机械校验，接入 `quality-gate.yml` 的 `changes` job（`Gate 12g`）。
+
+**compose 预检失败提示文字全表**：
+
+| errorCode | 中文提示 | English |
+|-----------|----------|---------|
+| `COMPOSE_INPUT_SIZE_EXCEEDED` | 本次要合成的素材总体积已达 {actualMb}，超过 {limitMb} 上限。请减少场景数量、压缩图片或旁白音频后重新启动生成；若使用了背景音乐，可暂时关闭或更换体积更小的音频。 | The media for this composition totals {actualMb}, which exceeds the {limitMb} limit. Use fewer scenes, compress the images or narration audio, then start generation again. If background music is enabled, try disabling it or use a smaller audio file. |
+| `COMPOSE_SCENE_MEDIA_UNREADABLE` | 第 {scene} 个场景的画面素材已失效或不可读取。请重新生成该场景的图片或视频素材后再从断点继续。 | The visual material for scene {scene} is no longer available or cannot be read. Regenerate that scene image or video, then resume from the breakpoint. |
+| `COMPOSE_SCENE_AUDIO_UNREADABLE` | 第 {scene} 个场景的旁白音频已失效或不可读取。请重新生成该场景的语音后再从断点继续。 | The narration audio for scene {scene} is no longer available or cannot be read. Regenerate that scene voice, then resume from the breakpoint. |
+| `COMPOSE_SEGMENT_DURATION_EXCEEDED` | 单段旁白超过时长上限。请拆分该段文案后重新启动生成。 | A narration segment exceeds the duration limit. Split that part of the script, then start generation again. |
+| `COMPOSE_DURATION_EXCEEDED` | 视频内容超过 {limitMinutes} 分钟上限。请缩短文案或减少场景后重新启动生成。 | The video exceeds the {limitMinutes}-minute limit. Shorten the script or use fewer scenes, then start generation again. |
+| `COMPOSE_AUDIO_DURATION_EXCEEDED` | 旁白音频总时长超过 {limit} 上限。请缩短文案或减少场景后重新启动生成。 | The total narration audio duration exceeds the {limit} limit. Shorten the script or use fewer scenes, then start generation again. |
+| `COMPOSE_FFMPEG_NOT_FOUND` | 未找到视频合成组件，暂时无法生成视频。请重启应用；若仍未解决，请重新安装应用。 | The video composition component could not be found, so videos cannot be generated right now. Restart the app; if it still fails, reinstall the app. |
+| `COMPOSE_INVALID_ASSET_MANIFEST` | 合成素材清单不完整，暂时无法生成视频。请从断点继续重新生成；若持续出现，请重新启动生成。 | The composition asset list is incomplete, so videos cannot be generated right now. Resume from the breakpoint to regenerate; if this continues, start generation again. |
+
+**数据校验**：`messageParams.scene` 为 1-based 正整数；`limitMb` / `actualMb` 为带单位体积串（`bytesToSize()` 自适应 MB/KB，避免「0.0 MB」）；缺失时回落 locale 兜底标签（`labels.currentScene` / `labels.unknownSize`），最终文案 MUST NOT 含未解析占位符。
+
 ### 3.3 删除合同
 
 - 有 projectId 的记录：显示确认对话框，调用项目删除，清理项目及本地产物。
