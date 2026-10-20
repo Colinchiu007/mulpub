@@ -2090,6 +2090,12 @@ test('X2-11：末行不得在"未证实>0"时仍打光秃秃的 OK', () => {
   assert.match(mod.verdictLine({ ok: true, transition: t }), /^OK（.*未证实=1/,
     `通过但要显出没核到的条数，否则"全过"与"探针失明"同形：${mod.verdictLine({ ok: true, transition: t })}`)
   assert.match(mod.verdictLine({ ok: false }), /^不通过/, '真不通过时不得被装饰成 OK')
+  // 跨家族轴 i1：字段缺失/改名 ⇒ NaN ⇒ `NaN > 0` 恒 false ⇒ 末行退回光秃秃的 OK。
+  // 缺字段必须按"不可知"出声，不得当 0。
+  assert.match(mod.verdictLine({ ok: true, transition: { unverifiable: undefined, uncorroborated: undefined } }),
+    /^OK（但转变读数缺字段/, '读数缺字段时不得打光秃秃的 OK：' + mod.verdictLine({ ok: true, transition: {} }))
+  assert.match(mod.verdictLine({ ok: true }), /^OK: /, '没有转变对象时保持原文案（不得把"没有扫描域"也报成缺字段）')
+  assert.match(mod.verdictLine({ ok: false }), /^不通过/, '真不通过时不得被装饰成 OK')
 })
 
 test('X2-12（接线锁）：判定行必须真的接到 transition —— 只测纯函数抓不到"report 看不见"', () => {
@@ -2123,6 +2129,15 @@ test('X2-5①：路径形态的 evidence 必须被存在性探针验到，否则
   assert.strictEqual(mod.evidenceForm('ses_probe0001'), 'session')
   assert.strictEqual(mod.evidenceForm('a'.repeat(40)), 'oid')
   assert.strictEqual(mod.evidenceForm('x'), null)
+  assert.strictEqual(mod.evidenceForm('x'), null)
+  // 跨家族轴 i3：path 形态本来就接受两种分隔符，探针却拒绝反斜杠 ⇒ 同一对象两种判法。
+  // 归一现在是纯函数，能直测。
+  assert.strictEqual(mod.repoObjectPath('reports\\judge-report.md'), 'reports/judge-report.md')
+  assert.strictEqual(mod.repoObjectPath('reports/judge-report.md'), 'reports/judge-report.md')
+  assert.strictEqual(mod.repoObjectPath('reports/judge-report.md#L10'), 'reports/judge-report.md')
+  assert.strictEqual(mod.repoObjectPath('C:\\Temp\\judge.md'), '', '盘符不是仓内对象')
+  assert.strictEqual(mod.repoObjectPath('/etc/passwd'), '', '绝对路径不是仓内对象')
+  assert.strictEqual(mod.repoObjectPath('../../outside.md'), '', '上跳不是仓内对象')
 })
 
 test('X2-5②：真跑债务判据 —— 高危面上"路径证据但不存在"必须红，存在则过', () => {
@@ -2149,19 +2164,28 @@ test('X2-10：TIER-COVERAGE 必须走 expandRenames —— 改名带过去的闭
   } finally { fs.rmSync(repo, { recursive: true, force: true }) }
 })
 
-test('X2-14：每条 why 里写的"实测命中 N 个"必须等于 highRiskPrefixOf 的归因数', () => {
-  // 出处写在注释里就是一次"量过一次没人再量"（本仓反复出现的形态）。这条把数绑到判据本体上：
-  // 前缀命中域一变（改匹配、改 exts、主干增删文件），why 里那个数当场过期即红。
+test('X2-14：每条 why 里写的"实测命中 N 个"是**下界**，归因跌破即红（超出只打印不拦）', () => {
+  // 跨家族轴 i4 否证了原来的等值判据：无关 PR 增删任意一个匹配文件（新增 .github/scripts/check-*.js、
+  // 删一份取证 txt）都会把**本条**打红，而失败信息不指向那个改动 —— 这是把"注释里的数"造成
+  // 一条跨 PR 的耦合。牙要留，方向只留一个：**覆盖变窄是事故，覆盖变宽不是**。
+  // 所以对账取 why 里**最后一个** `命中 N 个`（fingerprint 那条写了演进链 9→7，最后一个才是本条口径），
+  // 断言 owned >= claimed；每次把实测构成打印出来，让"数漂了"这件事在现场可见而不是靠人记得改注释。
   const tracked = require('node:child_process').execFileSync('git', ['ls-files'], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 }).split(/\r?\n/).filter(Boolean)
   let claimed = 0
+  const rows = []
   for (const s of mod.HIGH_RISK_SURFACES) {
-    if (!/命中\s*\d+\s*个/.test(s.why)) continue
+    const all = s.why.match(/命中\s*\d+\s*个/g) || []
+    if (all.length === 0) { rows.push(s.prefix + '=' + tracked.filter((f) => mod.highRiskPrefixOf(f) === s.prefix).length + '(无声明)'); continue }
     claimed++
+    const last = all[all.length - 1]
+    const want = Number(/(\d+)/.exec(last)[1])
     const owned = tracked.filter((f) => mod.highRiskPrefixOf(f) === s.prefix).length
-    assert.ok(s.why.includes('命中 ' + owned + ' 个'),
-      s.prefix + ' 实测归因 ' + owned + ' 个，why 却没写这个数：' + s.why)
+    assert.ok(owned >= want,
+      s.prefix + ' why 声明实测下界 ' + want + ' 个，当前归因只有 ' + owned + ' 个 ⇒ 命中域被削窄（改匹配/exts/删条目都会到这里）：' + s.why)
+    rows.push(s.prefix + '=' + owned + '(下界' + want + ')')
   }
-  assert.ok(claimed >= 6, `带实测数的条目不得少于 6（实际 ${claimed}）—— 一个都没有就说明这条锁在空转`)
+  assert.ok(claimed >= 6, `带实测下界的条目不得少于 6（实际 ${claimed}）—— 一个都没有就说明这条锁在空转`)
+  console.log('[HIGH-RISK-ATTRIBUTION] ' + rows.join(' '))
 })
 
 test('X2-4（接线锁）：merge-base 在判据里只准算一次，变更集与 base 侧 blob 共用同一个 SHA', () => {

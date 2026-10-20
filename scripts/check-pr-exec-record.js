@@ -482,9 +482,8 @@ function main(argv) {
   // 存在性探针（X2-5 的落点）：evidence 写成路径形态时，必须能在**这个 head** 里取到该对象。
   // 不注入探针的所有调用方（单测、仓外脚本）保持原形状语义 —— 例外清单必须是注入参数。
   const existsAtHead = (ev) => {
-    const p = String(ev || '').trim().replace(/#.*$/, '')
-    // 盘符/绝对路径/上跳都不可能是仓内对象；反斜杠写法同理（git 存正斜杠），一律判"不可核"。
-    if (!p || p.indexOf(':') >= 0 || p.charAt(0) === '/' || p.indexOf('..') >= 0 || p.indexOf(String.fromCharCode(92)) >= 0) return false
+    const p = repoObjectPath(ev)
+    if (!p) return false
     try {
       execFileSync('git', ['-C', repo, 'cat-file', '-e', head + ':' + p], { stdio: ['ignore', 'ignore', 'ignore'] })
       return true
@@ -765,6 +764,20 @@ const EVIDENCE_TIERS = new Set(['external', 'self-play', 'none', 'unknown'])
  * 于是"编一个像样的路径"就能收口）。其余四档指向仓库外的对象（PR、会话、oid），
  * 在本仓上下文里无法验证，只能继续按形状判。
  */
+/**
+ * 把 evidence 里的"仓内对象指针"归一成 git 用的正斜杠路径；不是仓内对象则返回 ''。
+ * 跨家族轴 i3：`evidenceForm` 的 path 形态本来接受 `[\\/]` 两种分隔符，而探针原先对含反斜杠的串
+ * 一律判"不可核" ⇒ **同一个对象两种判法**（`reports\\judge.md` 在 Windows 是合法写法，却被降级）。
+ * 盘符（`C:`）与绝对路径仍然拒绝 —— 那不是仓内对象，是另一台机器上的文件。
+ */
+function repoObjectPath (ev) {
+  const raw = String(ev || '').trim().replace(/#.*$/, '')
+  if (!raw) return ''
+  if (/^[A-Za-z]:/.test(raw)) return ''
+  if (raw.charAt(0) === '/' || raw.indexOf('..') >= 0) return ''
+  const BS = String.fromCharCode(92)
+  return raw.split(BS).join('/')
+}
 function evidenceForm (ev) {
   const s = String(ev).trim()
   // PR 引用：`#` 左侧必须是边界（否则 `issue#1234` 这种行号写法也算），右侧允许跟进说明文字
@@ -897,10 +910,20 @@ function renamedCarriesClosure (repo, rel) {
  */
 function verdictLine (r) {
   const t = (r && r.transition) || null
-  const loose = t ? (t.unverifiable + t.uncorroborated) : 0
+  // 跨家族轴 i1：原先直接 `t.unverifiable + t.uncorroborated`。任一字段缺失/改名 ⇒ NaN ⇒
+  // `NaN > 0` 恒 false ⇒ 末行退回光秃秃的 OK —— 正是 X2-11 要防的形态，却由**读数形状**自己复现。
+  // 所以缺字段按"不可知"处理并单独出声，不得当成 0。
+  const nv = t ? Number(t.unverifiable) : 0
+  const nu = t ? Number(t.uncorroborated) : 0
+  const shapeUnknown = Boolean(t) && (!Number.isFinite(nv) || !Number.isFinite(nu))
   if (!r || !r.ok) return '不通过：' + (((r && r.reasons) || []).length || 0) + ' 条理由'
+  if (shapeUnknown) {
+    return 'OK（但转变读数缺字段：unverifiable/uncorroborated 不是数字 ⇒ 没核到的条数**不可知**，'
+      + '不得读成"已全部核对通过"）'
+  }
+  const loose = nv + nu
   return loose > 0
-    ? `OK（但转变核对有 ${loose} 条没核到：未证实=${t.unverifiable} 无出处=${t.uncorroborated} —— 不得读成"已全部核对通过"）`
+    ? `OK（但转变核对有 ${loose} 条没核到：未证实=${nv} 无出处=${nu} —— 不得读成"已全部核对通过"）`
     : 'OK: 本 PR 携带执行记录或带原因的豁免'
 }
 
@@ -1240,6 +1263,6 @@ function report(r, mode) {
 //   stripCommentsForScan 把源码削成「只含代码行」的视图（引号感知剥注释 + 规范化 CRLF）
 // 生产路径只用 describeAuditWidths / auditAcceptedAltForm().description；
 // 其余导出不改变判据行为，仅为可测性存在。
-module.exports = { isResolvableEvidence, isStructuredClosureNote, classifyEvidenceTier, summarizeTierCoverage, HIGH_RISK_SURFACES, isHighRiskSurface, highRiskPrefixOf, highRiskHits, expandRenames, closureCorroboration, summarizeTransitionCheck, evaluate, verdictLine, isVendored, VENDORED_SUBTREES, evidenceForm, dualClosedDeepReviews, resolveHeadBranch, readExemptsOnDisk, remoteBranchSet, isPureBackfillChangeSet, evaluateDeepReviewDebt, judgeBackendMismatch, CLOSED_DEEP_REVIEW_STATUSES, RECORDS_RE, EXEMPT_RE, CARRIER_RE, DEFAULT_THRESHOLD, AUDIT_ARTIFACT_RE, auditAcceptedWidths, auditAcceptedAltForm, describeAuditWidths, stripCommentsForScan, AUDIT_NAME_WIDTH_MIN, AUDIT_NAME_WIDTH_MAX }
+module.exports = { isResolvableEvidence, isStructuredClosureNote, classifyEvidenceTier, summarizeTierCoverage, HIGH_RISK_SURFACES, isHighRiskSurface, highRiskPrefixOf, highRiskHits, expandRenames, closureCorroboration, summarizeTransitionCheck, evaluate, verdictLine, isVendored, VENDORED_SUBTREES, evidenceForm, repoObjectPath, dualClosedDeepReviews, resolveHeadBranch, readExemptsOnDisk, remoteBranchSet, isPureBackfillChangeSet, evaluateDeepReviewDebt, judgeBackendMismatch, CLOSED_DEEP_REVIEW_STATUSES, RECORDS_RE, EXEMPT_RE, CARRIER_RE, DEFAULT_THRESHOLD, AUDIT_ARTIFACT_RE, auditAcceptedWidths, auditAcceptedAltForm, describeAuditWidths, stripCommentsForScan, AUDIT_NAME_WIDTH_MIN, AUDIT_NAME_WIDTH_MAX }
 
 if (require.main === module) main(process.argv.slice(2))

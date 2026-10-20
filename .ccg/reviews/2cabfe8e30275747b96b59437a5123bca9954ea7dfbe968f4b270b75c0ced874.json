@@ -46,10 +46,80 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "self_play_blocked",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "externallyReviewed": [],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "finding": "verdictLine 中 `t.unverifiable + t.uncorroborated`：任一字段缺失即 NaN，NaN>0 恒 false ⇒ 打光秃秃 OK——X2-11 要防的「全过与探针失明同形」在字段改名后静默复发，锁测不到。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "成立且可复现：`verdictLine` 原先写 `t.unverifiable + t.uncorroborated`，任一字段缺失或改名即 NaN，`NaN > 0` 恒 false ⇒ 末行退回 `OK: 本 PR 携带执行记录…`，与\"全部核对通过\"逐字同形。X2-11 的用例传的是 `summarizeTransitionCheck()` 的真返回值（两字段必为数字），所以对\"字段缺失\"这一形态结构性免疫 —— 锁测不到它自己防的那一格。",
+        "defense": "辩护尝试：读数只由 `summarizeTransitionCheck` 产出，字段名不会自己变。反驳：正因如此这条锁只在\"有人改名/加档\"之后才失去保护，而它保护的是**末行文案**——一个没有别的消费者的出口，改名后没有任何东西会红。",
+        "verdict": "upheld",
+        "rationale": "已修：改为 `Number(...)` + `Number.isFinite` 双检，缺字段走独立分支输出 `OK（但转变读数缺字段…不可知…）`，不当 0 也不当通过。评审建议的 `(a||0)+(b||0)` 只采纳一半——`||0` 会把\"缺字段\"洗成\"零条没核到\"，那仍是把探针失明读成通过；其原话后半句\"字段缺失时显式按未证实降级或报错，不许落回干净 OK\"才是正解。回归用例：X2-11 新增 `transition:{unverifiable:undefined,...}` 必须命中缺字段分支，且 `{ok:true}` 无对象时保持原文案（不得把\"没有扫描域\"也报成缺字段）。"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "existsAtHead 只验存在性：仓库既有任意 .md 都可当 evidence，不要求属于本 PR 变更集 ⇒ 编造收口的通道仍在，探针仅挡「指向不存在路径」；空 stub 文件同样满足。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "成立：`existsAtHead` 只验\"该 revision 里有这个对象\"，仓库内任意一份 `.md`（或临时新建的空 stub）都能当 evidence ⇒ \"编造收口\"的通道只是从\"指向不存在的路径\"收窄到\"指向存在但无关的路径\"。",
+        "defense": "辩护：进一步要求 evidence ∈ 本次变更集，会把既有合规写法打红 —— 主干的出处惯例是 PR 评论 / 会话 id / 既有报告文件（本仓上一片收口写的就是 `ses_` 与 PR 号），路径档只是\"可核指针\"的一种；把它们统一收敛到\"必须是本 PR 新增文件\"等于规定证据只能长一个样。",
+        "verdict": "upheld",
+        "rationale": "接受为**已声明的边界**，不当已闭合：执行记录 §六 第 4 条明写\"只验对象存在，不验内容/相关性\"，PR 正文同一句也写了。真实防线仍是两层——`tier=external` 只认可核指针 + 人工/事后抽查（tasks 8.1b 的写入方指纹才是能判\"谁真跑了\"的那一层）。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "evidenceForm 的 path 形态允许反斜杠，探针却对含 `\\` 一律判不可核 ⇒ Windows 下 `reports\\judge.md` 这类合法证据被降 external-unverified，高危面新收口误红；正斜杠同一对象可验到，判据不自洽。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "成立且是判据不自洽：`evidenceForm` 的 path 形态正则含 `[\\\\/]`（两种分隔符都接受），而探针 `existsAtHead` 对任何带 `\\` 的串一律 `return false` ⇒ `reports\\judge.md` 被判 path、再被判不可核 ⇒ 高危面降 `external-unverified` 变红；同一对象写成正斜杠就能验到。",
+        "defense": "无有效辩护：这是我自己在同一轮里写出来的两处判据互不认账，不是评审过严。",
+        "verdict": "upheld",
+        "rationale": "已修：归一抽成纯函数 `repoObjectPath(ev)` —— 反斜杠一律换成 git 用的正斜杠，只有盘符（`^[A-Za-z]:`）、绝对路径、含 `..` 三种\"根本不是仓内对象\"的形态返回空串。回归用例 X2-5① 逐条钉住两分隔符同结果 + 三种拒绝形态，可直测（不留给 main 的闭包）。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "X2-14 用全仓 git ls-files 实时归因数钉 why 文案：无关 PR 增删任一匹配文件（如新增 .github/scripts/check-*.js、删除文档）即红，失败信息又不指向实际改动，跨 PR 强耦合。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "成立：等值判据把注释里的数字与**全仓实时归因数**绑死 ⇒ 任意无关 PR 增删一个匹配文件（新增一条 `.github/scripts/check-*.js`、删一份取证 txt）都会让本条红，而失败信息不指向那个改动；这是跨 PR 的强耦合假红源，本仓点名的\"余量是活数、会被并发 PR 吃掉\"同型。",
+        "defense": "辩护尝试：删掉这条就能防住\"注释数字过期\"。反驳：那条锁有真实产出——它当场抓到 `scripts/check-` 的 why 写着 100 而实测 106；删掉等于回到\"量过一次没人再量\"。",
+        "verdict": "upheld",
+        "rationale": "已修，但**不删锁、改判方向**：覆盖变窄是事故，覆盖变宽不是 ⇒ 等值改成**下界棘轮**（`owned >= why 里最后一个 命中 N 个`；fingerprint 那条写了 9→7 的演进链，取最后一个才是本条口径），并每次打印 `[HIGH-RISK-ATTRIBUTION]` 实测构成，让漂移在现场可见而不靠人记得改注释。牙仍在：摘掉判据的变异（把下界改成恒真）与\"把某条前缀削窄\"都必须红。"
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      }
+    ],
+    "note": "自扮演裁决：4 条指控成立或需外部复核",
+    "at": "2026-10-20T04:28:26.377Z"
   }
 }
