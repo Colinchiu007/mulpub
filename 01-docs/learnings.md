@@ -1,3 +1,45 @@
+## 「靠匹配英文原文还原语义」本身就是缺陷——用户可见失败的稳定错误码契约（error-message-user-friendly-audit，2026-10-20）
+
+### lesson: user-facing-failures-need-stable-error-codes-not-text-patterns
+
+**现场**：用户报障「视频创作-历史记录-执行失败标签，任务卡片上的失败原因显示 `Input media exceeds the total size limit`」。这是 compose 引擎返回的原始英文技术信息，未经任何用户友好化处理。
+
+**根因不是「漏改一处」，是契约缺失**。四层逃逸链：
+
+1. 主进程 `story2video-compose-engine.js` 预检分支 `return { code: -1, message: 'Input media exceeds the total size limit' }`——无稳定 `errorCode`，无可插值 `messageParams`。同文件另有 20+ 处同类英文 message。
+2. `stage-executor.js` COMPOSE 失败分支只 `return { success: false, error: result.message }`——即便引擎给了 `errorCode` 也传不出去。
+3. `pipeline-engine.js` `_finalizeRun` 与 `run-state-store.js` 快照只存 `error` 字符串。
+4. `pipeline-error-formatter.js` 的兜底分支 `raw.length <= 120 && !/技术标记/` → **原样透传原文**。该句长度 41、无任何技术标记，于是被判成"已经是自然语言"。
+
+**为什么之前没人处理（归因）**：2026-08-11 `prompt-user-friendly-i18n` 覆盖的是 IPC 拒绝路径，compose 引擎经 `service-bus → stage-executor → pipeline-engine` 落库、不在射程内；2026-08-19 `s2v-history-error-message-hardening` 只修 `{sceneText}` 占位符，规则表按「已知错误文本」逐条加，**没回填「新增英文 message 必须同步归一化」的契约**；CJK 门禁只扫 `apps/desktop/src` 与 `packages/python-backend/src`，**不扫 `apps/desktop/electron`**。
+
+**系统性漏洞**：三套渲染路径（`story2video-notifications.js` / `pipeline-error-formatter.js` / `user-facing-error.js`）都靠**匹配英文原文**还原语义。只要主进程新增一处英文 message 而不同步正则，就必然泄漏。这是机制缺陷，不是疏忽。
+
+**修复方向（可复用）**：
+- 主进程失败返回体一律带**稳定 `errorCode`**（封闭常量集合）+ 可插值 `messageParams`；`message` 仅作诊断保留。
+- 错误码必须**穿透 stage 与落库边界**：`stage-executor` → `pipeline-engine._finalizeRun` → `run-state-store` 快照一路带上。`run.error` / `stage.error` **保持字符串契约**（恢复门控 `RESUME_BLOCKING_ERROR_PATTERN` 与阶段摘要读字符串，改对象会一次性破坏）。
+- 渲染端双轨：`errorCode` 优先（显式映射表），原文模式兜底（存量数据只有英文 `run.error`，不能要求用户重跑）。
+- **错误码 → locale key 必须显式映射**，MUST NOT 用字符串推导。第一版写 `'story2video.' + code.replace(/^COMPOSE_/, 'compose_').toLowerCase()`，拼错会静默渲染成 i18n key 原文直接显示给用户。
+- **机械门禁校验三侧一致**（主进程常量 / 渲染端映射 / zh+en 文案 / messageParams 占位符），且必须接在**不被 docs-only 短路的 job**（`changes` job）——本锁的输入含 `locales/**` 与 `src/**`，只改文案的 PR 会被判 docs-only。
+
+### lesson: mutation-testing-with-powershell-replace-silently-no-ops
+
+**现场**：给新门禁做变异反证时，用 PowerShell `-replace "第 \{scene\} ...", "第 \{sceneIndex\} ..."`。PowerShell 正则把 `{scene}` 当 .NET 量化表达式，替换结果写成字面 `\{scene\}`——**文件确实被改了**（`Select-String` 能 grep 到 `sceneIndex`），但门禁 PASS。差点写成「M3 MISSED_BY_DESIGN」把假阴性当设计豁免。
+
+**正解**：① 变异一律用 Node/Python 脚本做字符串替换；② **变异必须断言「确实改变了文件内容」**（测试里 `assert.notStrictEqual(after, before)`）；③ 门禁的判据若是正则，变异字符串要先在判据上单跑一遍确认能命中。同族形态：把工具的失明读成结论。
+
+### lesson: gate-self-test-sandbox-must-mirror-repo-layout
+
+**现场**：`check-compose-error-codes.js` 用 `path.resolve(__dirname, '..')` 定位仓库根。自测第一版把脚本副本放进沙箱**根**，结果 ROOT 解析成沙箱的父目录（系统临时目录），四个依赖文件全部 ENOENT，7 个用例全红——而门禁本身在真实仓库是 PASS 的。
+
+**正解**：沙箱副本按仓库同构放置（`<sandbox>/scripts/xxx.js`），让相对定位逻辑与生产一致。凡是「按 `__dirname` 推路径」的脚本，自测沙箱都要复刻目录层级。
+
+### lesson: component-test-i18n-mock-semantics-differ-per-call-shape
+
+**现场**：`CreateViewHistory.test.js` 既有 mock 约定「无参返回 key」。`formatError` 重构后走「先取模板再自行插值」路径，需要无参时返回**字符串原文**。直接改全局 mock 一次性破坏 13 个既有用例。
+
+**正解**：保留原 mock，新增专用 mock（`templateAwareT`）只供新用例（`mountHistory(history, props, t)` 第三参注入）。同时纠正一个错误写法：`let msg = $t(key); if (msg !== key) return msg` 是错的——生产 vue-i18n 对字符串消息不会自动插值，无参拿到的是未插值模板；必须先取原文、再插值、最后比较。
+
 ## amend 已提交内容会漂移 diff 内容寻址哈希，让深度审查的判定记录「双双落空」（s2v-voice-clone-auto-select，2026-10-20）
 
 ### lesson: amend-after-commit-breaks-content-addressed-review-record
