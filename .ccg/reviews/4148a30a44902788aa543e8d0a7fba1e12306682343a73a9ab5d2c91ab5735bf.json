@@ -1,0 +1,61 @@
+{
+  "sha": "6084c620ac46fa4016a69f8aacc4a4982c07c375",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 256 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 256,
+    "fileCount": 9,
+    "codeFileCount": 3,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 10,
+    "docSensitiveContentHits": 17,
+    "docSensitiveContentSample": [
+      "- **动因是当场量的，不是推测**：对在飞 PR `#4079` 的同一份差量分别按两档取证面各判一次 —— 事后补跑档 `changedLines=191 / fileCount=9 / 敏感内容命中 3 / mode=dual`，提交时档 `132 / 8 / 0 / single`。把那 3 处命中**逐条归属到文件**（并用\"我的归属计数 == 判据自报的 `sensitiveContentHits`\"这条交叉核对自证探针通路有效，两数不等即不得下结论）：3/3 全在 `.ccg/reviews/*.json`，命中的词是该 PR 自己 proposal 里的「授权」二字 —— 即\"我为什么被允许改判据\"这句话被读成了\"这次改动涉及加密\"。面上读数：origin/main 最近 **120 笔**合并提交两档各判一次，**44 笔（37%）mode 因此改变**（`dual→single` 15、`dual→skip` 15、`single→skip` 14），其中\"≤200 行却因敏感命中被顶成 dual\"那一类 20 笔的命中行扩展名分布是 `{\".json\": 47}`，**一条不落在真实源码里**。",
+      "- **TDD 与反证**：先写行为锁并**当场见证红**（那一跑落在\"尚未拆出分辨率用例\"的版本上：`# tests 57 / # fail 4`，红因逐条核过是\"产物仍被计入取证面\"，例如 `实际 reason=变更 6 行但命中 auth/数据库/加密：敏感内容 2 处`）⇒ 实现落地并拆出分辨率用例后 `# tests 58 / # pass 58 / # fail 0`（既有 52 ⇒ 现值 58）。变异 **M1–M6 逐条指名变红且红集互不相同（6 把尺子测 6 个格）**，跑完判据文件按字节还原（`FINAL md5=f075dcafab restored=true`）；控制跑自带健康断言（`fail=0 && loadFail=false` 才产出 verdict）。两条如实记录的过程修正：① M5/M6 首跑红集**逐字相同** —— 根因是 `not ok` 的粒度是用例名，两种退化撞在同一条用例的不同断言上 ⇒ 把\"采集面是否收到产物行\"拆成独立用例后才分辨得开（**塞进同一条用例等于没有这把锁**）；② 新用例首跑报 `Cannot read properties of null` —— 区间档在第二次提交前 `HEAD~1` 不存在，那是**探针拿错坐标**不是判据红，夹具顺序按 T3 改正。",
+      "| A. `collectRange()` 的两个 git 参数加 `:(exclude).ccg`（与 `collectStaged()` 逐字同形） | 最小改动（2 行），mode 立刻对齐 | **否决**：被排除的文件**根本不进采集面**，于是\"产物里贴着一条真口令\"这一格从\"报告\"退化为\"看不见\"。本仓对同一问题的既有答案是 i3——**行还是要读，只是不改判定**（`docChangedLines` / `docSensitiveContentHits`）。A 与既有答案方向相反。 |"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "4148a30a44902788aa543e8d0a7fba1e12306682343a73a9ab5d2c91ab5735bf",
+  "decidedAt": "2026-10-20T11:41:15.570Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

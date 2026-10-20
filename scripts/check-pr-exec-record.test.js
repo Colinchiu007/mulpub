@@ -1026,18 +1026,34 @@ test('QM-6 i1：deep-review.sh 找不到记录时必须点名「commit -a 分叉
     '必须同时给出提交后口径的自检命令 —— 只给一条无法判断是否分叉')
 })
 
-test('QM-6 i2：decider 的行数统计与 hash 必须同一口径（都排除 .ccg）', () => {
-  // 曾实测分离：stats 用 --cached --numstat（不排除 .ccg），hash 用排除 .ccg
-  // ⇒ 纯 .ccg 提交 stats 非空而 hash 空 ⇒ 回落旧命名 ⇒ 回到要消灭的撞名。
+test('QM-6 i2（2026-10-20 随实现迁移改写）：判定面不得消费 .ccg，而命名配方必须继续排除它', () => {
+  // 原锁的意图有两条，写法只测到一条：
+  //   ①「同一份 diff 不得判出两种 mode」—— 当年靠两条 git 命令都带 :(exclude).ccg 实现；
+  //   ②「记录命名不得因 .ccg 而回落」—— 靠 stagedDiffHash 那次**独立** git 调用带 pathspec。
+  // 原实现把①写成了 grep collectStaged 的字面 ⇒ 它锁的是**机制**而不是意图：
+  // change: ccg-decider-exclude-self-artifacts 把排除从 git pathspec 移到 JS 单点谓词
+  // （实测：pathspec 让 .ccg 在 git 层就消失，report-only 计数在暂存档恒为 0 —— 观测点被自己关掉）。
+  // 所以①现在只能按行为测；②照旧按配方测（那一条没迁移，仍然必须在）。
+  const dec = require('./ccg-review-decider.js')
+  // 夹具必须与真实生产者同形：纯 .ccg 的暂存改动，collectFromDiff 现在产出的是
+  // changedLines 有行、codeChangedLines 空、ccgChangedLines 有行。把产物行同时塞进 codeChangedLines
+  // 去断言"judge 不看 codeChangedLines"是一条假不变式 —— judge 本来就该看它。
+  const mk = (lines) => ({
+    files: [{ file: '.ccg/reviews/a.json', rawFile: '.ccg/reviews/a.json', binary: false, added: lines.length, deleted: 0 }],
+    changedLines: lines, codeChangedLines: [], docChangedLines: [], ccgChangedLines: lines,
+    lineReadGaps: [], codeFiles: [],
+  })
+  const judged = dec.judge(mk(['const apiSecret = "x";', '// 加密说明']))
+  assert.strictEqual(judged.stats.changedLines, 0, '判定面的规模不得消费 .ccg 行（行为断言，不是 grep 字面）')
+  assert.strictEqual(judged.stats.sensitiveContentHits, 0, '判定面的敏感内容命中不得消费 .ccg 行')
+  assert.ok(judged.stats.ccgSensitiveContentHits >= 1, '被排除的命中必须仍被计数（排除的是消费，不是观测）')
+  assert.strictEqual(dec.isSelfArtifact('.ccg/reviews/a.json'), true, '谓词必须认得自身产物')
+  assert.strictEqual(dec.isSelfArtifact('scripts/a.js'), false, '谓词不得把源码读成自身产物（读成即整条敏感判定失明）')
   const src = fs.readFileSync(path.join(__dirname, 'ccg-review-decider.js'), 'utf8').replace(/\r\n/g, '\n')
-  const s = src.indexOf('function collectStaged')
-  const e = src.indexOf('\n}\n', s)
-  const body = src.slice(s, e)
-  const numstat = body.slice(body.indexOf('--numstat'), body.indexOf('--numstat') + 90)
-  assert.match(numstat, /:\(exclude\)\.ccg/,
-    'numstat 必须排除 .ccg —— 与 stagedDiffHash 同口径；否则同一份 diff 判出不同 mode 与不同名字')
-  assert.match(body, /diff", "--cached", "-U0", "--", "\.", ":\(exclude\)\.ccg/,
-    '-U0 也必须排除 .ccg（口径要对齐的是**两条**命令，不是只改第一条）')
+  const h = src.indexOf('diff", "--cached", "--no-textconv"')
+  assert.ok(h > 0, 'stagedDiffHash 的那次 git 调用必须还能定位到（搬家了就要同步本锁，不得让它静默失效）')
+  assert.match(src.slice(h, h + 200), /:\(exclude\)\.ccg/,
+    '命名配方必须继续排除 .ccg —— 这一条没随本刀迁移；摘掉它会让纯产物提交与真实提交算出同一个键，回到要消灭的撞名')
 })
 
 test('遗留收口：提示文案必须**由判据生成**，且源码里不得再出现手写的位宽说明', () => {

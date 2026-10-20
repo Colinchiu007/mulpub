@@ -1250,3 +1250,162 @@ test('现场形状契约锁：可用性汇总必须由 detectBackends 的真实�
   assert.strictEqual(legacy.count, 0, '旧形状里没有 names ⇒ 汇总必须得 0；这正说明当初写进记录的 count=0 是读错形状，不是后端真不可用')
   assert.strictEqual(legacy.total, 0, '分母同样为 0，不得凭空算成 2')
 })
+
+// ═══════════════════════════════════════════════════════════════════
+// change: ccg-decider-exclude-self-artifacts（2026-10-20，人工授权改判据本体）
+//
+// 立论来自实测：同一份在飞差量，暂存区档判 single/132 行/0 命中，已提交区间档判
+// dual/191 行/3 命中；那 3 处"敏感内容"逐条归属后全部来自 .ccg/reviews/*.json ——
+// 命中的词是那份 PR 自己方案正文里的「授权」。即判定器把自己写下的散文读成了
+// "这次改动涉及加密"。origin/main 最近 120 笔里 44 笔的 mode 因此改变。
+//
+// 五把锁的分工（缺任一把都留得下一个退化形态）：
+//   T1 排除本身生效（内容维）  T5 排除本身生效（规模维，M4 专抓只切一半）
+//   T2 绝对参考：排除没把该守的放掉（M2 只能被它抓，同判锁抓不到）
+//   T3 两档同判 + 同观测（critic#2：观测点不得只剩一档）
+//   T4 打印面真会出声（字段存在 ≠ 这行会被打印）
+// ═══════════════════════════════════════════════════════════════════
+
+const ccgWriteArtifact = (root, extraLines) => {
+  fs.mkdirSync(path.join(root, '.ccg', 'reviews'), { recursive: true })
+  const body = {
+    mode: 'dual',
+    reason: '变更 5 行（≤ 200）但命中 auth/数据库/加密：敏感内容 1 处',
+    task: '本 change 的授权来源与密钥轮换说明',
+    padding: extraLines || [],
+  }
+  fs.writeFileSync(path.join(root, '.ccg', 'reviews', 'probe.json'), JSON.stringify(body, null, 2) + '\n')
+}
+
+test('区间档：只含判定器产物的提交不得被自身散文顶成 dual，代码规模必须计 0', () => {
+  const { root, g } = makeRangeRepo()
+  try {
+    ccgWriteArtifact(root)
+    g('add', '.')
+    g('commit', '-q', '-m', 'artifact only')
+    const v = decider.judge(collectIn(root, '.collectRange("HEAD~1")'))
+    console.log('  [T1 产物排除] mode=' + v.mode + ' lines=' + v.stats.changedLines +
+      ' contentHits=' + v.stats.sensitiveContentHits + ' ccgHits=' + JSON.stringify(v.stats.ccgSensitiveContentHits))
+    assert.notStrictEqual(v.mode, 'dual',
+      `产物散文（「授权」「加密」出现在我自己写的 reason 里）不得把判定顶成 dual；实际 reason=${v.reason}`)
+    assert.strictEqual(v.stats.changedLines, 0,
+      `纯 .ccg 提交的代码规模必须为 0，实际=${v.stats.changedLines}（产物行被当成源码行 = 规模失真）`)
+    assert.ok(typeof v.stats.ccgSensitiveContentHits === 'number' && v.stats.ccgSensitiveContentHits >= 1,
+      `被排除的命中必须仍然被计数——排除的是"消费"，不是"观测"；实际=${JSON.stringify(v.stats.ccgSensitiveContentHits)}`)
+  } finally {
+    try { fs.rmSync(root, { recursive: true, force: true }) } catch { /* 夹具 */ }
+  }
+})
+
+test('规模口径：产物行数不得进 changedLines（否则"我自己多写了几百行"能单独顶出 dual）', () => {
+  const { root, g } = makeRangeRepo()
+  try {
+    // 260 行产物 + 1 行真实源码：按现状判规模=261>200 ⇒ 光靠规模就 dual，与敏感词无关。
+    ccgWriteArtifact(root, Array.from({ length: 260 }, (_, i) => `padded-${i}`))
+    fs.writeFileSync(path.join(root, 'scripts', 'tiny.js'), 'const a = 1;\n')
+    g('add', '.')
+    g('commit', '-q', '-m', 'big artifact + one code line')
+    const v = decider.judge(collectIn(root, '.collectRange("HEAD~1")'))
+    console.log('  [T5 规模口径] mode=' + v.mode + ' lines=' + v.stats.changedLines + ' files=' + v.stats.fileCount)
+    assert.strictEqual(v.stats.changedLines, 1,
+      `代码规模必须只算那一行源码，产物 260 行不得进分母；实际=${v.stats.changedLines}`)
+    assert.notStrictEqual(v.mode, 'dual',
+      `规模不再由产物撑出来后，本改动不该 dual；实际 reason=${v.reason}`)
+  } finally {
+    try { fs.rmSync(root, { recursive: true, force: true }) } catch { /* 夹具 */ }
+  }
+})
+
+test('绝对参考：真敏感源码行与产物散文同时在场，两条采集路径各自都必须判 dual', () => {
+  const { root, g } = makeRangeRepo()
+  try {
+    ccgWriteArtifact(root)
+    fs.writeFileSync(path.join(root, 'scripts', 'rotation.js'), 'const apiSecret = "leak-me";\n')
+    g('add', '.')
+    const stagedV = decider.judge(collectIn(root, '.collectStaged()'))
+    g('commit', '-q', '-m', 'code + artifact')
+    const rangeV = decider.judge(collectIn(root, '.collectRange("HEAD~1")'))
+    console.log('  [T2 绝对参考] staged=' + stagedV.mode + '/' + stagedV.stats.sensitiveContentHits +
+      ' range=' + rangeV.mode + '/' + rangeV.stats.sensitiveContentHits)
+    // 这两条是"绝对值"断言。同判锁只断相等，谓词退化成恒真时两档会一起落到同一个错值，
+    // 相等断言照样通过 —— critic 轴 Critical#1 抓的就是这一格，故本用例不得被同判锁替代。
+    assert.strictEqual(stagedV.mode, 'dual', `暂存档必须因源码里的 apiSecret 判 dual；实际 reason=${stagedV.reason}`)
+    assert.strictEqual(rangeV.mode, 'dual', `区间档必须因源码里的 apiSecret 判 dual；实际 reason=${rangeV.reason}`)
+    assert.ok(stagedV.stats.sensitiveContentHits > 0 && rangeV.stats.sensitiveContentHits > 0,
+      `两档的敏感内容命中都必须 >0（排除动作把整条敏感判定关掉时，这一条与 T1 的红集不同）；实际 staged=${stagedV.stats.sensitiveContentHits} range=${rangeV.stats.sensitiveContentHits}`)
+  } finally {
+    try { fs.rmSync(root, { recursive: true, force: true }) } catch { /* 夹具 */ }
+  }
+})
+
+test('两档同源：纯产物提交在暂存区档与区间档必须同判 skip，且自身产物命中计数相等', () => {
+  const { root, g } = makeRangeRepo()
+  try {
+    ccgWriteArtifact(root)
+    g('add', '.')
+    const staged = collectIn(root, '.collectStaged()')
+    const stagedV = decider.judge(staged)
+    g('commit', '-q', '-m', 'artifact only')
+    const range = collectIn(root, '.collectRange("HEAD~1")')
+    const rangeV = decider.judge(range)
+    console.log('  [T3 两档同源] staged=' + stagedV.mode + ' ccgHits=' + JSON.stringify(stagedV.stats.ccgSensitiveContentHits) +
+      ' files=' + staged.files.length + ' | range=' + rangeV.mode + ' ccgHits=' + JSON.stringify(rangeV.stats.ccgSensitiveContentHits) +
+      ' files=' + range.files.length)
+    assert.strictEqual(stagedV.mode, rangeV.mode,
+      `同一份改动两档不得分歧（现状是暂存档 skip、区间档 dual —— 因为区间档没排除 .ccg）；staged=${stagedV.reason} || range=${rangeV.reason}`)
+    assert.strictEqual(stagedV.mode, 'skip', `只改判定器自己的产物 = 没碰任何被测面，应归 skip；实际=${stagedV.mode}`)
+    // 观测点也必须同源：暂存档若在 git 层就用 pathspec 摘掉 .ccg，这一栏会恒为 0（critic#2）。
+    assert.strictEqual(stagedV.stats.ccgSensitiveContentHits, rangeV.stats.ccgSensitiveContentHits,
+      `两档的"自身产物敏感命中"计数必须相等，否则观测点只在补跑档存在；staged=${JSON.stringify(stagedV.stats.ccgSensitiveContentHits)} range=${JSON.stringify(rangeV.stats.ccgSensitiveContentHits)}`)
+  } finally {
+    try { fs.rmSync(root, { recursive: true, force: true }) } catch { /* 夹具 */ }
+  }
+})
+
+// 单独成一条用例（不是塞进上面那条）是**判据分辨率**要求：`not ok` 的粒度是用例名。
+// "把 pathspec 加回暂存档"(M5) 与"删掉 isDocsOnly 的纯产物分支"(M6) 都会撞在
+// 「两档同源」那条上，塞进同一条用例 ⇒ 两条变异的红集逐字相同 ⇒ 锁分辨不了这两种退化。
+test('采集面必须收到产物行：排除的是"消费"，不是"观测"', () => {
+  const { root, g } = makeRangeRepo()
+  try {
+    ccgWriteArtifact(root)
+    g('add', '.')
+    const staged = collectIn(root, '.collectStaged()')
+    // 区间档必须在**第二次提交之后**才存在：base 提交没有父提交，提前取 HEAD~1 会让
+    // git 失败、采集函数返回 null —— 那不是判据红，是探针拿错了坐标。
+    g('commit', '-q', '-m', 'artifact only')
+    const range = collectIn(root, '.collectRange("HEAD~1")')
+    for (const [label, st] of [['暂存档', staged], ['区间档', range]]) {
+      assert.ok(st && Array.isArray(st.files), `${label}采集必须返回可用对象（null = 探针自身失败，不得读成判据结论）`)
+      assert.ok(st.files.some((f) => String(f.file).replace(/\\/g, '/').startsWith('.ccg/')),
+        `${label}的采集面必须收到 .ccg 里那个文件；实际 files=${JSON.stringify(st.files.map((f) => f.file))}`)
+      assert.ok(Array.isArray(st.ccgChangedLines) && st.ccgChangedLines.length > 0,
+        `${label}必须把产物变更行单独归成一类供报告（归入 codeChangedLines 是"消费"，一类都不留是"失明"）；实际=${JSON.stringify(st.ccgChangedLines)}`)
+      assert.ok(!st.codeChangedLines.some((l) => String(l).includes('auth/数据库/加密')),
+        `${label}的源码视图不得混入产物正文（混入即"消费"）；实际 codeChangedLines=${JSON.stringify(st.codeChangedLines).slice(0, 240)}`)
+    }
+  } finally {
+    try { fs.rmSync(root, { recursive: true, force: true }) } catch { /* 夹具 */ }
+  }
+})
+
+test('CLI 打印面：自身产物命中计数必须真出现在 stdout，且与 judge 的读数相等', () => {
+  const { root, g } = makeRangeRepo()
+  try {
+    ccgWriteArtifact(root)
+    g('add', '.')
+    g('commit', '-q', '-m', 'artifact only')
+    const expected = decider.judge(collectIn(root, '.collectRange("HEAD~1")')).stats.ccgSensitiveContentHits
+    const r = spawnSync(process.execPath, [SRC, '--print', '--base', 'HEAD~1'], { cwd: root, encoding: 'utf8' })
+    const out = (r.stdout || '') + (r.stderr || '')
+    console.log('  [T4 打印面] rc=' + r.status + ' expected=' + JSON.stringify(expected) + ' 命中行=' +
+      JSON.stringify((String(r.stdout).match(/.{0,26}自身产物.{0,40}/) || ['<无>'])[0]))
+    assert.strictEqual(r.status, 0, `CLI 必须正常退出（--print 不落盘）；stderr=${String(r.stderr).slice(0, 200)}`)
+    const m = String(r.stdout).match(/自身产物命中敏感词 (\d+) 处/)
+    assert.ok(m, `判定器必须把"被排除但仍观测到的"命中打进 stdout，否则这一栏是只写不读的死字段；stdout 全文=${String(r.stdout).slice(0, 400)}`)
+    assert.strictEqual(Number(m[1]), expected,
+      `打印的数必须与 judge() 的读数同源；打印=${m[1]} judge=${JSON.stringify(expected)}`)
+  } finally {
+    try { fs.rmSync(root, { recursive: true, force: true }) } catch { /* 夹具 */ }
+  }
+})
