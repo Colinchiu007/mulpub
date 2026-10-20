@@ -261,6 +261,8 @@ export default {
       previewPlaceholderDescription: 'This task has no playable video yet. Edit the segments first, then recompose.',
       loadMoreSegments: 'Show more segments',
       loading: 'Loading...',
+      loadFailedTitle: 'Failed to load the project',
+      loadFailedRetry: 'Retry',
       // Segment editor heading + counters (moved to locale when ResultSegmentEditor was extracted, 2026-10-20)
       segmentEditTitle: 'Segment editor',
       segmentCountSuffix: 'segments',

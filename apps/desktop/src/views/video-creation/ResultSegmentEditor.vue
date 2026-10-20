@@ -91,6 +91,11 @@ export default {
     unavailableMaterialKinds: { type: Object, default: () => ({}) },
     // 哨兵批次加载中
     batchLoading: { type: Boolean, default: false },
+    // 渲染窗口下界（已渲染段数）。**受控 prop**：单一真源在宿主，
+    // 因为宿主的「分段定位」也要能把窗口一步扩到目标位次（QM-6 审查项 C7）。
+    // 若这里再存一份本地计数，两个计数会漂移——宿主点定位扩了窗口、编辑器却按自己的
+    // 计数渲染 ⇒ 视口纹丝不动，正是修复前的现象。
+    renderedCount: { type: Number, default: 0 },
   },
   emits: [
     'dirty',
@@ -106,16 +111,10 @@ export default {
     'download-artifact',
     'preview-material',
     'mark-material-unavailable',
-    'clear-material-unavailable',
     'update-subtitle-blocks',
     'load-next-batch',
     'segment-ref',
   ],
-  data() {
-    return {
-      segmentRenderCount: 0,
-    }
-  },
   computed: {
     totalCount() {
       return Array.isArray(this.segments) ? this.segments.length : 0
@@ -125,7 +124,8 @@ export default {
         segments: this.segments,
         project: null,
         ownVideoPath: '',
-        renderedCount: this.segmentRenderCount,
+        // 受控：窗口下界由宿主持有（宿主的「分段定位」也要能改它）
+        renderedCount: this.renderedCount,
         policySceneNumbers: this.policySceneNumbers,
       })
     },
@@ -133,26 +133,21 @@ export default {
       return this.previewLayout.visibleSegments
     },
     hasMoreSegmentsToRender() {
-      return this.segmentRenderCount + SEGMENT_RENDER_STEP < this.totalCount
+      // 以渲染窗口上界为准（renderWindow.to 同时是「已渲染上界」与「下次追加起点」）
+      return this.previewLayout.renderWindow.to < this.totalCount
     },
-    voiceOptionIds() {
-      return new Set((this.voiceCatalogOptions || []).map(voice => voice.id).filter(Boolean))
-    },
-    segmentVoiceOptions() {
-      return Array.isArray(this.voiceCatalogOptions) ? this.voiceCatalogOptions : []
-    },
+    // 音色下拉可用性：目录非空 + 项目语音上下文完整（provider 与 model 都有）。
+    // 与宿主 ResultView.segmentVoiceSelectable 同口径（QM-6 审查项 D10：
+    // 曾在这里留一个只被本组件消费、却从父级重复下传的 voiceContext 孤儿链）。
     segmentVoiceSelectable() {
       const provider = (this.voiceContext && this.voiceContext.providerId) || ''
       const model = (this.voiceContext && this.voiceContext.model) || ''
-      return Boolean(provider && model && this.segmentVoiceOptions.length > 0)
+      return Boolean(provider && model && Array.isArray(this.voiceCatalogOptions) && this.voiceCatalogOptions.length > 0)
     },
   },
   methods: {
     tOrKey(key, params) {
       return typeof this.$t === 'function' ? this.$t(key, params) : key
-    },
-    isSegmentBusy(segmentId) {
-      return Boolean(this.segmentBusy[segmentId])
     },
     segmentBusyKind(segmentId) {
       return this.segmentBusy[segmentId] || ''
@@ -166,11 +161,12 @@ export default {
     },
     loadNextSegmentBatch() {
       const total = this.totalCount
-      if (this.segmentRenderCount + SEGMENT_RENDER_STEP >= total) return
-      const from = this.segmentRenderCount
-      const nextCount = Math.min(total, from + SEGMENT_RENDER_STEP)
-      this.segmentRenderCount = nextCount
-      this.$emit('load-next-batch', this.segments.slice(from, nextCount))
+      // 追加起点 = 当前渲染窗口上界（不是 renderedCount 本身：首次追加若从 0 开始，
+      // 已解析过 URL 的首批会被再解析一遍）。窗口下界由宿主持有，这里只上报新批。
+      const renderedTo = this.previewLayout.renderWindow.to
+      if (renderedTo >= total) return
+      const nextCount = Math.min(total, renderedTo + SEGMENT_RENDER_STEP)
+      this.$emit('load-next-batch', this.segments.slice(renderedTo, nextCount), nextCount)
     },
     // 哨兵观察器：jsdom 无 IntersectionObserver 时静默跳过（保留手动按钮兜底）。
     watchSegmentListSentinel() {

@@ -72,6 +72,28 @@ describe('ResultSegmentCard：宿主刷新同步与全量下标（QM-6 审查项
     w.unmount()
   })
 
+  it('A1d：编辑后宿主刷新媒体 URL，未保存的编辑值不得被冲掉', async () => {
+    // 浅拷贝方案的第二个缺陷（QM-6 审查项 A1 指出）：宿主任意 URL 刷新都会用 {...next}
+    // 把用户未保存的编辑值冲掉。getter 直接返回 prop 的方案天然规避，此处锁住该契约。
+    const segment = reactive({ id: 's1', text: '原文', imageUrl: 'media://old', status: 'completed' })
+    const w = mountCard(segment)
+
+    await w.find('textarea').setValue('用户正在改的文案')
+    await nextTick()
+    expect(segment.text).toBe('用户正在改的文案')
+
+    // 宿主刷新媒体 URL（保存/重试/重新合成后的 refreshSegmentImageUrls 行为）
+    segment.imageUrl = 'media://new'
+    await nextTick()
+    await nextTick()
+
+    // 编辑值保留、URL 更新——两者互不覆盖
+    expect(segment.text).toBe('用户正在改的文案')
+    expect(w.find('textarea').element.value).toBe('用户正在改的文案')
+    expect(w.find('img').attributes('src')).toBe('media://new')
+    w.unmount()
+  })
+
   it('A3：absoluteIndex 驱动导出命名与上移禁用（分批后不指错段）', async () => {
     const segment = { id: 's149', imagePath: 'C:/x.png', audioPath: 'C:/x.mp3', videoPath: 'C:/x.mp4', status: 'completed' }
     const w = mountCard(segment, { absoluteIndex: 148, totalCount: 169 })

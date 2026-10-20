@@ -101,7 +101,8 @@ views/ResultView.vue                   ← 宿主，只留 props/emits 接线（
 
 `SEGMENT_URL_BATCH_SIZE = 20`。
 
-- 首屏只解析前 20 段的媒体 URL（≈100 次 IPC，相比 845 次降 **88%**）；
+- 首屏只解析前 20 段的媒体 URL（上限 20 × 5 = **100 次** IPC，相比 845 次降 **88%**）；
+- **写后刷新只刷已渲染段**（保存 / 重试 / 重新合成后不再对全量 169 段跑一遍）：未渲染段不在 DOM 里、用户改不到它，其 URL 等进入渲染窗口时再取；
 - 未进入渲染窗口的分段**不需要提前拿 URL**（它还没渲染，拿了也看不见）；
 - 顺序稳定（不得重排）：分段编辑区依赖 `segments` 的 index 与 DOM 顺序，重排会让「上移/下移」与滚动高亮指向错位。
 
@@ -114,6 +115,13 @@ views/ResultView.vue                   ← 宿主，只留 props/emits 接线（
 ```
 
 **必须是「追加式」而不是「滑窗式」**：窗口始终从 0 开始。滑窗会让已渲染段从 DOM 消失，导致滚动高亮、`segmentItemRefs`、政策徽标全部错位。本轮第一版写成滑窗（`from = renderedCount`），被自建哨兵用例当场抓出（`expected 20 to be greater than 20`）。
+
+**窗口上界的双重语义（2026-10-20 QM-6 审查项 A6 修正）**：`renderWindow.to = min(total, renderedCount > 0 ? renderedCount : step)`。
+
+- `renderedCount = 0` 表示「尚未展开」，先给一批（不是渲染 0 段）；
+- `to` 同时是「已渲染上界」与「**下一次追加的起点**」，宿主 `loadNextSegmentBatch` / `scrollToSegment` 与编辑器都以它为准，**不各自再加减步长**。
+
+旧口径 `to = renderedCount + step` 有个隐蔽后果：追加起点若用 `segmentRenderCount`（初始 0），首次追加 `slice(0, 20)` 会**把已解析过 URL 的首批再解析一遍**。三处各算一次步长是这条 bug 的结构成因，收敛到单一 `renderWindow.to` 后消失。
 
 推进入口有两个，行为一致：
 
@@ -198,6 +206,23 @@ views/ResultView.vue                   ← 宿主，只留 props/emits 接线（
   → 全部分段渲染完后哨兵与按钮消失
 ```
 
+### 5.2b 右侧「分段定位」跳到尚未渲染的分段
+
+```
+点击第 150 段（下标 149），而当前窗口只有前 20 段
+  → scrollToSegment(149)
+      ├─ activeSegmentIndex = 149（高亮即时反馈）
+      ├─ 目标 >= renderWindow.to ⇒ 一步把窗口扩到覆盖它：
+      │    segmentRenderCount = min(total, 149 + 1)
+      │    refreshSegmentImageUrls(新增的 [renderedTo, 150) 段)   ← 只解析新增段
+      ├─ await $nextTick()（等 DOM 落地）
+      └─ scrollIntoView({ behavior: 'smooth', block: 'start' })
+```
+
+**不得逐批循环**：169 段点最后一段若按 20 段一批推进要串行 8 次、最多 8×100 次 IPC。这里一步到位。
+
+**为什么这是缺陷而非「可接受的降级」**（2026-10-20 QM-6 审查项 A7）：修复前 `segmentItemRefs[149]` 为空 ⇒ 静默跳过；① 右侧 169 个数字全都可点、没有 disabled 也没有提示，承诺与行为不一致；② **高亮跳了但视口纹丝不动**，状态与视图矛盾比完全没反应更糟；③ `jumpSegmentBy` 会连环静默失效；④ 169 段失败任务恰是本 PR 的核心场景。
+
 ### 5.3 占位区块的「重新合成」
 
 ```
@@ -210,6 +235,19 @@ views/ResultView.vue                   ← 宿主，只留 props/emits 接线（
 ```
 
 按钮禁用条件与底部操作条一致：`recomposing || anySegmentBusy`。
+
+### 5.3b 进入页面失败（项目不存在 / 网络失败 / 未登录）
+
+```
+loadProject() 抛错
+  → catch: project=null, projectId=null, loadFailed=true
+  → 弹操作失败通知
+  → 关掉通知后：渲染独立「项目加载失败」空态（data-testid="result-load-failed"）
+      ├─ 标题：story2video.sceneMaterial.loadFailedTitle
+      └─ 按钮：story2video.sceneMaterial.loadFailedRetry → 重新 loadProject()
+```
+
+**为什么必须与空态区分**（2026-10-20 QM-6 审查项 C9）：旧实现「加载失败」与「任务本来没有成片」共用同一个空态「没有可预览的视频 + 去创作」，用户关掉失败弹窗后会误以为这个任务本来就没视频。同一个误导形态只修一半等于没修完。
 
 ### 5.4 分段卡片内所有编辑动作
 
@@ -360,10 +398,14 @@ views/ResultView.vue                   ← 宿主，只留 props/emits 接线（
 | A1 | 无 `videoPath` 时**不申请**任何成片/旁白媒体 URL | 单测：`story2videoCreateShareUrl` 未被以 `null`/`undefined` 调用 |
 | A2 | 无成片时渲染占位区块（标题/说明/行动位），且不渲染 `<video>` | 单测：`result-preview-placeholder` 存在、`.video-player` 不存在 |
 | A3 | 占位区块「重新合成」按钮走 `recomposeProject` | 单测：IPC 被调用 |
-| A4 | 169 段任务首屏 IPC ≤ 40 次（原 845 次） | 单测：mock 调用计数 |
-| A5 | 哨兵/按钮触发后只解析新增批（≤40 次增量） | 单测：前后调用计数差 |
-| A6 | 分段渲染窗口为追加式（不丢已渲染段） | 单测：推进后 item 数严格递增 |
+| A4 | 169 段任务首屏 IPC ≤ `SEGMENT_URL_BATCH_SIZE × 5`（=100，原上限 845） | 单测：mock 计数，上限从常量派生、不写死数字 |
+| A4b | 写后刷新（保存/重试/重新合成）只刷新**已渲染段**，不再全量 | 缺省作用域 = `renderedSegments`；未渲染段进窗口时才取 URL |
+| A5 | 哨兵/按钮触发后只解析新增批（≤ 一批 × 5） | 单测：前后调用计数差 |
+| A6 | 分段渲染窗口为追加式（不丢已渲染段）；`renderWindow.to` 同时是已渲染上界与下次追加起点 | 单测：推进后 item 数严格递增；首批不得被重复解析 |
 | A7 | `focusScenes` 点名段（含窗口外）强制可见并带徽标 | 既有用例 80 段 + `{49,73,74,999}` |
+| A7b | 跳转到尚未渲染的分段时先把窗口扩到覆盖它再滚动（不得静默无响应） | 单测：169 段跳下标 149 ⇒ DOM ≥150 项、只解析新增段 |
+| A7c | 滚动高亮按全量下标定位，不被稀疏 refs 数组的空洞带偏 | 单测：`refs[0]/refs[60]` 稀疏数组 ⇒ `activeSegmentIndex === 60` |
+| A7d | 项目加载失败显示独立空态（标题 + 重试），不与「本来没有视频」混用 | 单测：`result-load-failed` 存在、`result-load-retry-button` 可点 |
 | A8 | 有成片任务行为完全不变（仍渲染播放器 + 旁白） | 既有 122 条 ResultView 用例 |
 | A9 | 文案 zh/en 成对，无硬编码中文 | `check-locale-sync.js --cjk` / `--pair-base` |
 | A10 | 无新增超大文件；ResultView 低于点名目标 | `check-max-lines.js` |

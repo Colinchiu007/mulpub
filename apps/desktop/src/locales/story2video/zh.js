@@ -262,6 +262,8 @@ export default {
       previewPlaceholderDescription: '当前任务没有可播放的成片，可先编辑分段内容，再重新合成。',
       loadMoreSegments: '显示更多分段',
       loading: '加载中...',
+      loadFailedTitle: '项目加载失败',
+      loadFailedRetry: '重试',
       // 分段编辑区标题与计数（2026-10-20 抽 ResultSegmentEditor 时收口到 locale）
       segmentEditTitle: '分段编辑',
       segmentCountSuffix: '个分段',

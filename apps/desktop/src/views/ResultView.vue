@@ -29,6 +29,13 @@
       <UiSkeleton variant="paragraph" :rows="4" />
     </div>
 
+    <!-- 加载失败（QM-6 审查项 C9）：必须与「任务本来没有成片」区分开，
+         否则用户关掉失败弹窗后会以为这个任务本来就没视频。 -->
+    <div v-else-if="loadFailed" class="empty-state" data-testid="result-load-failed">
+      <p>{{ tOrKey('story2video.sceneMaterial.loadFailedTitle') }}</p>
+      <UiButton data-testid="result-load-retry-button" @click="loadProject">{{ tOrKey('story2video.sceneMaterial.loadFailedRetry') }}</UiButton>
+    </div>
+
     <div v-else-if="!videoPath && !hasEditableContent" class="empty-state">
       <p>没有可预览的视频</p>
       <UiButton @click="$router.push('/create')">去创作</UiButton>
@@ -212,6 +219,7 @@
       :voice-context="voiceContext"
       :unavailable-material-kinds="unavailableMaterialKinds"
       :batch-loading="segmentBatchLoading"
+      :rendered-count="segmentRenderCount"
       @dirty="segmentsDirty = true"
       @move-segment="moveSegment"
       @remove-segment="removeSegment"
@@ -373,12 +381,15 @@ export default {
       pipelineRunActionBusy: false,
       scriptModalVisible: false,
       copyingScript: false,
-      // 分段渲染窗口（2026-10-20，PRD-S2V-RESULT-VIEW-PERF §4.3）：已渲染到第几段，
+      // 分段渲染窗口（2026-10-20，PRD-S2V-RESULT-VIEW-PERF §4.3）：已展开到的窗口下界，
       // 由列表尾哨兵进入视口时递增；无 IntersectionObserver 环境（jsdom）保持全量首屏。
+      // 媒体 URL 的「已解析到哪」直接由 pendingSegmentBatch 从它派生，不另存指针
+      // （QM-6 审查项 D10：曾有一个三写零读的 segmentUrlBatchCursor）。
       segmentRenderCount: 0,
-      // 首屏已申请过媒体 URL 的分批指针：哨兵触发后只解析新增段，不重解析已渲染段。
-      segmentUrlBatchCursor: 0,
       segmentBatchLoading: false,
+      // 项目加载失败（QM-6 审查项 C9）：与「任务本来没有成片」区分开，
+      // 空态据此显示「加载失败 + 重试」而不是误导性的「没有可预览的视频」。
+      loadFailed: false,
     }
   },
   async mounted() {
@@ -535,6 +546,11 @@ export default {
     // 首屏批次：loadProject 只用它申请媒体 URL；哨兵触发后由 batchCursor 追加。
     segmentFirstBatch() {
       return this.previewLayout.firstBatch
+    },
+    // 已渲染段（首屏批次 + 窗口内追加段）：写后刷新的缺省作用域。
+    // 未渲染段不在 DOM 里、用户改不到它，其 URL 等进入窗口时再取（QM-6 审查项 A2）。
+    renderedSegments() {
+      return this.previewLayout.visibleSegments.map(item => item.segment)
     },
     pendingSegmentBatch() {
       return this.previewLayout.pendingBatch
@@ -710,8 +726,11 @@ export default {
       else if (kind === 'video2') segment.altVideoUrl = null
       this.markMaterialUnavailable(segment, kind)
     },
-    onSegmentBatchLoaded(batch) {
-      // 哨兵追加的批次：只解析这一批的媒体 URL，不重解析已渲染段
+    onSegmentBatchLoaded(batch, nextCount) {
+      // 编辑器上报的新增批：宿主推进窗口下界（单一真源），并只解析这一批的媒体 URL
+      if (Number.isInteger(nextCount) && nextCount > this.segmentRenderCount) {
+        this.segmentRenderCount = nextCount
+      }
       return this.refreshSegmentImageUrls(Array.isArray(batch) ? batch : [])
     },
     // 分段快捷定位（2026-08-17 UX 统一）：分段卡片 ref 收集 + 数字跳转 + 上一条/下一条
@@ -719,14 +738,22 @@ export default {
       if (el) this.segmentItemRefs[index] = el
     },
     // 滚动高亮：根据各分段卡片顶部相对视口的位置，更新右侧导航当前分段（2026-09-18）
+    //
+    // 2026-10-20 QM-6 审查项 A3 修复：refs 是**按全量下标寻址的稀疏数组**
+    // （点名段并入首屏后，169 段任务 + focusScenes=49 ⇒ refs.length=49 但只挂 21 个，
+    // refs[20..47] 全是 undefined）。旧实现 `for (i < min(refs.length, segments.length))`
+    // 把「稀疏数组长度」当连续下标上界，遇到空洞就 continue ⇒ activeSegmentIndex 被设成
+    // 「有 ref 的最大位次」而非用户实际看到的段，高亮与滚动位置脱节。
+    // 修法：改为 Object.keys 遍历实际挂上的 ref，下标即全量 absoluteIndex。
     onSegmentScroll() {
       const refs = Array.isArray(this.segmentItemRefs) ? this.segmentItemRefs : []
       if (!refs.length || !Array.isArray(this.segments) || !this.segments.length) return
       const threshold = Number(this.segmentScrollThreshold) >= 0 ? Number(this.segmentScrollThreshold) : 120
       let current = -1
       let bestTop = -Infinity
-      const bound = Math.min(refs.length, this.segments.length)
-      for (let i = 0; i < bound; i++) {
+      for (const key of Object.keys(refs)) {
+        const i = Number(key)
+        if (!Number.isInteger(i) || i < 0) continue
         const el = refs[i]
         if (!el || typeof el.getBoundingClientRect !== 'function') continue
         const rect = el.getBoundingClientRect()
@@ -740,18 +767,17 @@ export default {
     },
     // 分段渲染窗口推进（2026-10-20，PRD-S2V-RESULT-VIEW-PERF §4.3）：
     // 先扩窗口让新分段进 DOM，再只解析新增那一批的媒体 URL。
-    // segmentRenderCount 语义是「已展开到的窗口下界」：窗口 = [0, renderCount + step)，
-    // 所以推进时取 [renderCount, renderCount + step) 这一新区间。
+    // 追加起点 = 当前渲染窗口上界 `renderWindow.to`（不是 segmentRenderCount 本身，
+    // 否则首次追加会从 0 开始、把已解析过的首批再解析一遍——QM-6 审查发现的重复解析）。
     async loadNextSegmentBatch() {
       const total = Array.isArray(this.segments) ? this.segments.length : 0
-      if (this.segmentBatchLoading || this.segmentRenderCount + SEGMENT_RENDER_STEP >= total) return
+      const renderedTo = this.previewLayout.renderWindow.to
+      if (this.segmentBatchLoading || renderedTo >= total) return
       this.segmentBatchLoading = true
       try {
-        const from = this.segmentRenderCount
-        const nextCount = Math.min(total, from + SEGMENT_RENDER_STEP)
-        const batch = this.segments.slice(from, nextCount)
+        const nextCount = Math.min(total, renderedTo + SEGMENT_RENDER_STEP)
+        const batch = this.segments.slice(renderedTo, nextCount)
         this.segmentRenderCount = nextCount
-        this.segmentUrlBatchCursor = this.previewLayout.urlBatchCursor
         await this.refreshSegmentImageUrls(batch)
       } finally {
         this.segmentBatchLoading = false
@@ -770,14 +796,28 @@ export default {
       }, { rootMargin: '240px' })
       this._segmentSentinelObserver.observe(el)
     },
-    scrollToSegment(index) {      if (!Number.isInteger(index) || index < 0 || index >= this.segments.length) return
+    // 分段定位（2026-10-20 QM-6 审查项 C7 修复）：
+    // 分批渲染后，目标段可能还没进渲染窗口（169 段点「跳到第 150 段」）。
+    // 旧实现此时静默跳过：activeSegmentIndex 已跳（高亮走了）但视口纹丝不动，
+    // 「状态与视图矛盾」比完全没反应更糟，且右侧 169 个数字全都可点、无 disabled 无提示。
+    // 修法：先把渲染窗口一步扩展到覆盖目标位次（不要循环 7 批，那会串行 560 次 IPC），
+    // 只解析新增那一段的 URL，等 DOM 落地后再 scrollIntoView。
+    async scrollToSegment(index) {
+      if (!Number.isInteger(index) || index < 0 || index >= this.segments.length) return
       this.activeSegmentIndex = index
-      this.$nextTick(() => {
-        const el = Array.isArray(this.segmentItemRefs) ? this.segmentItemRefs[index] : null
-        if (el && typeof el.scrollIntoView === 'function') {
-          el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-        }
-      })
+      const renderedTo = this.previewLayout.renderWindow.to
+      if (index >= renderedTo) {
+        // 一步扩到覆盖目标位次（不逐批循环，那会串行十几次 IPC），只解析新增段
+        const to = Math.min(this.segments.length, index + 1)
+        const newlyRendered = this.segments.slice(renderedTo, to)
+        this.segmentRenderCount = to
+        if (newlyRendered.length) await this.refreshSegmentImageUrls(newlyRendered)
+      }
+      await this.$nextTick()
+      const el = Array.isArray(this.segmentItemRefs) ? this.segmentItemRefs[index] : null
+      if (el && typeof el.scrollIntoView === 'function') {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
     },
     jumpSegmentBy(offset) {
       const base = this.activeSegmentIndex >= 0 ? this.activeSegmentIndex : 0
@@ -874,9 +914,11 @@ export default {
       this.unavailableMaterialKinds = next
     },
     async refreshSegmentImageUrls(segments = null) {
-      // 入参缺省时保留旧契约（全量刷新），供保存/重试/重新合成等写后刷新调用；
-      // loadProject 的首屏路径只传第一批，避免 169 段一次性全量 IPC。
-      const list = Array.isArray(segments) ? segments : (this.segments || [])
+      // 入参缺省时刷新**已渲染段**，不再全量（QM-6 审查项 A2）：
+      // 保存/重试/重新合成等写后刷新原先对全量 169 段跑一遍（上限 ~845 次 IPC），
+      // 而未渲染段不在 DOM 里、用户根本改不到它——它的 URL 等进入渲染窗口时再取即可。
+      // 首屏路径仍显式传第一批（pendingSegmentBatch），哨兵/定位传新增批。
+      const list = Array.isArray(segments) ? segments : this.renderedSegments
       await Promise.all(list.map(async (segment) => {
         if (!segment) return
         if (!segment.imagePath) {
@@ -1217,9 +1259,8 @@ export default {
         this.segmentsDirty = false
         this.activeSegmentIndex = -1
         this.segmentItemRefs = []
-        // 渲染窗口与媒体 URL 游标复位到首批（换项目/重进页面时不得残留上一个项目的窗口）
+        // 渲染窗口复位到首批（换项目/重进页面时不得残留上一个项目的窗口）
         this.segmentRenderCount = 0
-        this.segmentUrlBatchCursor = this.segmentFirstBatch.length
         this.loadVoiceCatalog()
         // 首屏只解析第一批分段素材 URL（2026-10-20，PRD-S2V-RESULT-VIEW-PERF §4.2）：
         // 169 段 × 5 个媒体位 ≈ 845 次 IPC 全量串在 await 上，是「页面进入非常慢」
@@ -1259,6 +1300,9 @@ export default {
       } catch (_error) {
         this.project = null
         this.projectId = null
+        // QM-6 审查项 C9：加载失败与「本来就没有视频」必须可区分。
+        // 旧实现两者共用空态「没有可预览的视频」，用户关掉弹窗后会以为任务本来就没视频。
+        this.loadFailed = true
         this.showStory2VideoOperationFailure()
       } finally {
         this.loading = false

@@ -15,14 +15,13 @@
  *   ③ 页面进入非常慢（169 段），且加载完成后布局变化（无占位区块）。
  */
 
-/** 预览区三态：LOADING（有成片，正在解析 URL）/ EMPTY（无成片，直接给占位）/ READY（可播放）。 */
-export const PREVIEW_LOADING_STATES = Object.freeze({
-  LOADING: 'loading',
-  EMPTY: 'empty',
-  READY: 'ready',
-})
-
-/** 单批解析的分段数：169 段 × 5 媒体位 = 845 次 IPC，首批只取 20 段（≈100 次）。 */
+/**
+ * 单批解析的分段数。
+ *
+ * 分母口径（QM-6 审查项 B5 校正）：每段**最多 4 个**媒体位会发起 IPC
+ * （image1 / audio / video1 / image2 或 video2），无路径的位直接置 null 不发。
+ * 169 段全量 ≈ 676 次；首屏一批 20 段 ⇒ 最坏 80 次（降幅约 88%）。
+ */
 export const SEGMENT_URL_BATCH_SIZE = 20
 
 /** 滚动窗口的追加步长：与首批同量，保证一次追加的 DOM 增量可预期。 */
@@ -32,26 +31,13 @@ const isPlainObject = (value) => Boolean(value) && typeof value === 'object' && 
 
 const cleanText = (value) => (typeof value === 'string' && value.trim() ? value.trim() : '')
 
-/** 单个分段是否存在任一需要解析 share URL 的媒体路径。 */
-export function shouldRequestSegmentMedia (segment) {
-  if (!isPlainObject(segment)) return false
-  if (cleanText(segment.imagePath)) return true
-  if (cleanText(segment.audioPath)) return true
-  if (cleanText(segment.videoPath)) return true
-  if (cleanText(segment.videoMeta?.sceneVideoPath)) return true
-  if (cleanText(segment.videoMeta?.altSceneVideoPath)) return true
-  if (cleanText(segment.altVideoPath)) return true
-  if (Array.isArray(segment.alternateImages) && segment.alternateImages.some(item => cleanText(item?.path))) return true
-  return false
-}
-
 /**
  * 首屏 / 延后两批分段。
  *
  * 顺序稳定（不得重排）：分段编辑区依赖 segments 的 index 与 DOM 顺序，
  * 重排会让「上移/下移」与滚动高亮指向错位。
  */
-export function splitSegmentBatches (segments, batchSize = SEGMENT_URL_BATCH_SIZE) {
+function splitSegmentBatches (segments, batchSize = SEGMENT_URL_BATCH_SIZE) {
   const list = Array.isArray(segments) ? segments.filter(isPlainObject) : []
   const size = Number.isInteger(batchSize) && batchSize > 0 ? batchSize : SEGMENT_URL_BATCH_SIZE
   return {
@@ -74,7 +60,11 @@ export function resolveSegmentRenderWindow ({ total, batch = SEGMENT_RENDER_STEP
   const rendered = Number.isFinite(Number(renderedCount)) && Number(renderedCount) > 0
     ? Math.min(count, Math.floor(Number(renderedCount)))
     : 0
-  return { from: 0, to: Math.min(count, rendered + step) }
+  // renderedCount = 已渲染的段数；0 表示「尚未展开」，先渲染一批（不是渲染 0 段）。
+  // 这样 `to` 同时是「当前已渲染上界」和「下一次追加的起点」，宿主与编辑器都不必再自己加减步长
+  // （旧口径 to = rendered + step 会让首批在第一次追加时被重复解析一次）。
+  const to = Math.min(count, rendered > 0 ? rendered : step)
+  return { from: 0, to }
 }
 
 /**
@@ -249,12 +239,13 @@ export function resolveResultPreviewLayout ({
   const plan = resolveSegmentMediaPlan({ project, segments: all })
   const ownPath = typeof ownVideoPath === 'string' && ownVideoPath.trim() ? ownVideoPath.trim() : ''
 
-  // 待解析 URL 的新增段：首屏批次之后的 [firstBatch.length, cursor) 区间。
-  const cursor = Math.max(
-    firstBatch.length,
-    Number.isFinite(Number(renderedCount)) ? Math.floor(Number(renderedCount)) : 0,
-  )
-  const pendingBatch = cursor <= firstBatch.length ? firstBatch : all.slice(firstBatch.length, cursor)
+  // 待解析 URL 的段集合：首屏批次 + 追加展开的新增段（去重、保序）。
+  // renderedCount 语义是「已展开到的窗口下界」，所以新增区间是
+  // [firstBatch.length, renderedCount)；renderedCount <= firstBatch.length 时就是纯首屏。
+  const renderedUpTo = Number.isFinite(Number(renderedCount)) ? Math.max(0, Math.floor(Number(renderedCount))) : 0
+  const appended = renderedUpTo > firstBatch.length ? all.slice(firstBatch.length, renderedUpTo) : []
+  const seenIds = new Set(firstBatch.map(item => item.id))
+  const pendingBatch = [...firstBatch, ...appended.filter(item => !seenIds.has(item.id))]
 
   return {
     visibleSegments: [...firstBatch, ...extra].map(segment => ({
@@ -263,38 +254,31 @@ export function resolveResultPreviewLayout ({
     })),
     firstBatch,
     pendingBatch,
+    // 两条入口的并集：project.videoPath（持久化项目）+ ownVideoPath（纯文件预览 ?path=）
     hasFinalVideo: Boolean(ownPath) || plan.shouldLoadPreview,
     shouldLoadPreview: plan.shouldLoadPreview,
     shouldLoadNarration: plan.shouldLoadNarration,
-    previewState: plan.previewState,
-    urlBatchCursor: cursor,
+    // 渲染窗口：[0, to)。`to` 同时是「已渲染上界」与「下一次追加起点」，
+    // 宿主 loadNextSegmentBatch / scrollToSegment 与编辑器 hasMore 都以它为准，
+    // 不各自再加减步长（旧实现三处各算一次，首批因此被重复解析）。
     renderWindow,
   }
 }
 
 /**
- * 项目的媒体加载计划。
+ * 项目的媒体加载判据（QM-6 审查项 D10 精简：只保留有消费者的字段）。
  *
- * previewState 是「预览区该显示什么」的唯一判据：
- *   - videoPath 为空 ⇒ EMPTY，**不发起任何预览相关 IPC**（这是本次修复的核心：
- *     没有成片就不该让用户等一个永远不会出现的视频）；
- *   - videoPath 非空 ⇒ LOADING，首屏只申请成片 URL 一个。
+ * `shouldLoadPreview` / `shouldLoadNarration` 是「要不要发起该类 IPC」的唯一判据：
+ *   - videoPath 为空 ⇒ 不申请成片 URL（这是本次修复的核心：没有成片就不该让用户
+ *     等一个永远不会出现的视频）；
+ *   - audioPath 为空 ⇒ 不申请旁白 URL。
  */
-export function resolveSegmentMediaPlan ({ project, segments }) {
+export function resolveSegmentMediaPlan ({ project }) {
   const videoPath = cleanText(isPlainObject(project) ? project.videoPath : '')
   const audioPath = cleanText(isPlainObject(project) ? project.audioPath : '')
-  const { firstBatch, deferred } = splitSegmentBatches(segments)
-
-  const previewState = videoPath ? PREVIEW_LOADING_STATES.LOADING : PREVIEW_LOADING_STATES.EMPTY
-  const firstPaintMediaPaths = videoPath ? [videoPath] : []
-
   return {
-    previewState,
     shouldLoadPreview: Boolean(videoPath),
     shouldLoadNarration: Boolean(audioPath),
-    firstPaintMediaPaths,
-    firstBatch,
-    deferred,
   }
 }
 

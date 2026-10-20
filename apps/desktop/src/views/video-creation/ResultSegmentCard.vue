@@ -221,8 +221,8 @@ export default {
     busyKind: { type: String, default: '' },
     voiceOptions: { type: Array, default: () => [] },
     voiceCatalogError: { type: String, default: '' },
+    // 音色下拉可用性由父级算好传入（QM-6 审查项 D10：卡片不再自收 voiceContext）
     voiceSelectable: { type: Boolean, default: false },
-    voiceContext: { type: Object, default: () => ({}) },
     // 已标记不可用的素材位：'segmentId:kind' -> true
     unavailableMaterialKinds: { type: Object, default: () => ({}) },
   },

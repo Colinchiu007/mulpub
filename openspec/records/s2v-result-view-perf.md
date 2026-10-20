@@ -39,25 +39,27 @@ date: 2026-10-20
 由独立 subagent 执行的跨家族对抗审查（12 条审查项全覆盖），逐条结论如下（详细证据见审查产出）：
 
 | # | 审查项 | 结论 |
+| # | 审查项 | 结论 |
 | --- | --- | --- |
-| A1 | `segmentDraft` 浅拷贝 + deep watch 能否跟上原地 URL 刷新 | 🔴→✅ **已修**。第一版（浅拷贝 + `watch(segment, deep)`）**不能**：宿主的 `refreshSegmentImageUrls()` 原地改 `segment.imageUrl/...`，宿主改的是自己 data 数组里的对象，卡片侧 deep watch 不触发，浅拷贝展开拿旧值 ⇒ 保存/重试/重新合成后显示旧图或空白。改为 `draft` getter 直接返回 prop，并加回归锁 `ResultSegmentCard.test.js`（A1 用例，`reactive()` 包裹后才复现真实场景） |
-| A2 | 全量 `refreshSegmentImageUrls()` 刷新未显示段的 URL 有无副作用 | ✅ 非问题。只改响应式对象的 URL 字段，不触发渲染窗口变化；未显示段下次进入窗口时直接拿到已刷新 URL，反而避免二次 IPC |
-| A3 | 删除/上移后 `indexById` 与 DOM refs 是否一致 | ✅ 非问题。`indexById` 每轮 render 从 `this.segments` 重建，`setSegmentItemRef(el, absoluteIndex)` 按全量下标写入；`moveSegment`/`removeSegment` 已重置 `segmentItemRefs = []` 并 `$nextTick` 重算高亮 |
-| A4 | `hasFinalVideo` 双入口是否冲突 | ✅ 非问题。`loadVideoPath` 只写 `this.videoPath` 不改 `project`；两者任一非空即「有成片」，语义并集而非冲突 |
-| A5 | 首屏真的只发 ~100 次 IPC 吗 | ✅ 主张成立。每段 5 个媒体位，但**无路径的位不发起 IPC**（`shouldRequestSegmentMedia` + `refresh*Urls` 内层判空），最坏 20×5=100；`ResultView.test.js` 用 mock 计数断言 `≤ 40`（夹具中每段只有 image+audio 两个路径） |
-| A6 | 点名段会不会漏解析/重复解析 | ✅ 非问题。点名段并入 `firstBatch`，`loadProject` 传 `pendingSegmentBatch`（= firstBatch）给 `refreshSegmentImageUrls`；哨兵推进取 `slice(renderCount, renderCount+step)` 且 `seen` 去重，不重复解析 |
-| A7 | 跳到未渲染段的行为 | 🟢 MINOR（可接受，已记入遗留）。`scrollToSegment` 依赖 `segmentItemRefs[index]`，目标段未渲染时 ref 为空 ⇒ 静默不跳。用户体感：点数字没反应。缓解：右侧「上一条/下一条」与滚动本身会持续推进窗口；彻底修法需要「跳转前自动展开到目标 index」，记入 §遗留 |
-| A8 | 删除分段后场景号对应关系 | ✅ 非问题。`policyFlagSceneNumbers` 由路由 query 一次性解析（1-based 场景号），删除分段后不再重算——与旧实现完全一致（旧实现也是静态 query 解析），无行为变化 |
-| A9 | `loadProject` 失败时占位区块显示什么 | ✅ 非问题。失败走 `catch` 分支：`project=null`、`projectId=null`，占位区块的 `v-else-if="projectId && !loading"` 不成立 ⇒ 落到 `!videoPath && !hasEditableContent` 的既有空态（「没有可预览的视频」+ 去创作按钮），并弹操作失败通知 |
-| A10 | composable 死代码/未用参数 | ✅ 非问题。`resolveSegmentMediaPlan` 的 `firstPaintMediaPaths` 与 `SEGMENT_RENDER_STEP` 均有消费者（宿主 `previewLayout` 与编辑器）；`splitSegmentBatches` 由 `resolveFirstPaintSegments` 内部复用并单测 |
-| A11 | console.log / 硬编码等待 / 同步阻塞 | ✅ 非问题。三个新文件无 `console.*`、无 `waitForTimeout`、无 `pbkdf2Sync`/`scryptSync`/大输入 `createHash`；唯一同步原语是 `story2video-media-server.js` 既有的 `realpathSync`（不在本 PR 改动范围） |
-| A12 | 组件边界清晰度 | ✅ 非问题。卡片纯展示 + emit（不调 IPC）；编辑器管列表/窗口/哨兵；composable 管策略；宿主管 IPC 与状态。跨组件共用的槽位解析/字幕文本/失败原因均收敛到 composable 单一真源 |
+| A1 | `segmentDraft` 浅拷贝 + deep watch 能否跟上原地 URL 刷新 | 🔴→✅ **已修**。第一版（浅拷贝 + `watch(segment, deep)`）**不能**：宿主的 `refreshSegmentImageUrls()` 原地改 `segment.imageUrl/...`，宿主改的是自己 data 数组里的对象，卡片侧 deep watch 不触发，浅拷贝展开拿旧值 ⇒ 保存/重试/重新合成后显示旧图或空白。改为 `draft` getter 直接返回 prop，加回归锁 `ResultSegmentCard.test.js`（A1/A1c/A1d 三条；必须 `reactive()` 包裹才复现真实场景） |
+| A2 | 全量 `refreshSegmentImageUrls()` 刷新未显示段的 URL 有无副作用 | 🟠→✅ **已修**（原判「非问题」太宽）。未显示段刷新本身无副作用（`loading="lazy"` 挡住请求），但**写后刷新对全量 169 段跑一遍**（上限 ~845 次 IPC）是派生性能债。缺省作用域改为 `renderedSegments`；未渲染段不在 DOM、用户改不到，其 URL 等进窗口时再取 |
+| A3 | 删除/上移后 `indexById` 与 DOM refs 是否一致 | 🟠→✅ **已修**。`setSegmentItemRef` 按全量下标写、映射正确；错的是 `onSegmentScroll`：refs 是**稀疏数组**（点名段并入首屏后中间全是空洞），旧实现把 `refs.length` 当连续下标上界、遇空洞 continue ⇒ `activeSegmentIndex` 被设成「有 ref 的最大位次」而非用户实际看到的段。改 `Object.keys` 遍历实际挂上的 ref。回归锁：`refs[0]/refs[60]` 稀疏数组断言高亮落 60 |
+| A4 | `hasFinalVideo` 双入口是否冲突 | ✅ 非问题。`loadVideoPath` 只写 `this.videoPath` 不改 `project`；任一非空即成片，语义并集。改名建议未采纳（牵动既有调用面，注释已写明） |
+| A5 | 首屏真的只发 ~100 次 IPC 吗 | ✅ 主张成立，但**子代理「每段最多 4 位」有误**。逐位核对 `refreshSegmentImageUrls` + `refreshSceneMaterialUrls`：共 **5 个条件位**（image1/image2/video1/video2/audio），每位有路径才发（`resolveLocalUrl` 开头判空，audio 亦有 `if (segment.audioPath)`）。上限 169×5=845、首屏 20×5=100。断言改为从常量派生 |
+| A6 | 点名段会不会漏解析/重复解析 | 🟠→✅ **发现真 bug 并已修**。点名段并入首屏不漏，但 `loadNextSegmentBatch` 用 `from = segmentRenderCount`（初始 0）⇒ `slice(0,20)` **把首批重复解析一遍**。根因是窗口公式 `to = rendered + step` 与「已渲染数」不一致、三处各算一次。统一为 `to = min(total, rendered > 0 ? rendered : step)`，让 `renderWindow.to` 同时是「已渲染上界」与「下次追加起点」 |
+| A7 | 跳到未渲染段的行为 | 🟠→✅ **已修**。原判「可接受 MINOR」被否证：右侧 169 个数字全可点无 disabled；高亮跳了但视口不动，状态与视图矛盾比无响应更糟；`jumpSegmentBy` 会连环失效；恰是本 PR 核心场景。修法：`scrollToSegment` 一步扩窗到覆盖目标（不逐批循环），只解析新增段，`$nextTick` 后滚动。回归锁：169 段跳下标 149 后断言 DOM ≥150 项 |
+| A8 | 删除分段后场景号对应关系 | ✅ 非问题。`policyFlagSceneNumbers` 由路由 query 一次性解析；徽标跟下标是唯一自洽选择（跟 `id` 走会在删段后指到内容完全不同的段） |
+| A9 | `loadProject` 失败时占位区块显示什么 | 🟠→✅ **已修**。旧实现「加载失败」与「本来没有视频」共用空态「没有可预览的视频」，用户关掉弹窗后会以为任务本来就没视频——同一误导形态只修了一半。新增 `loadFailed` + 独立空态（`data-testid="result-load-failed"`，标题 + 重试），locale 键 zh/en 成对 |
+| A10 | composable 死代码/未用参数 | 🟠→✅ **已清理**。删 `shouldRequestSegmentMedia`、`PREVIEW_LOADING_STATES`、`previewState`/`firstPaintMediaPaths`、`resolveSegmentMediaPlan` 的 `segments` 死参数、`firstBatch`/`deferred` 返回字段；`splitSegmentBatches` 降为内部函数；`segmentUrlBatchCursor`（三写零读）删除；编辑器 `clear-material-unavailable` 孤儿 emit、`voiceOptionIds`/`isSegmentBusy`；卡片 `voiceContext` 孤儿 prop。**`renderWindow` 反向保留**——现在有真实消费者（追加起点） |
+| A11 | console.log / 硬编码等待 / 同步阻塞 | ✅ 非问题。新文件零 `console.*`、零 `waitForTimeout`、零同步阻塞原语 |
+| A12 | 组件边界清晰度 | 🟠→✅ **已修关键项**。编辑器自持 `segmentRenderCount` 本地计数，而宿主「分段定位」也要改窗口 ⇒ **两份计数漂移**（宿主扩了窗口、编辑器按自己计数渲染 ⇒ 视口不动，正是 A7 现象）。改为受控 prop `renderedCount`，单一真源在宿主；`load-next-batch` 第二参上报新上界 |
+| D12 | 「两组测试互斥」（子代理列为阻塞） | ✅ **不成立**。子代理自陈「读到的测试文件与实际执行的不一致」，它读的是修改过程中的中间版本。当前 `ResultSegmentCard.test.js:71` 断言 `segment.text` 被改写、`ResultView.test.js:2075` 断言 `segments[0].voiceId` 被改写——**两者一致**，都守护「编辑必须落到宿主对象」这一真实契约 |
 
 ### 遗留（不假装已闭合）
 
-- **IPC 次数本身未降**：本 PR 是「按需申请」（首屏 20 段 + 视口内懒加载），单段仍 5 次 IPC。彻底方案是服务端批量签 URL，需改 IPC 契约 + preload + 三层测试，超出本轮范围，已记入 PRD §9。
-- **窗口步长固定 20**：未按视口高度动态估算；169 段约需 8 次追加展开完。
-- **`segmentDraft` 是浅拷贝**：嵌套对象（`alternateImages`/`videoMeta`）共享引用。当前编辑只改顶层字段故安全；若未来改嵌套字段需换深拷贝或结构化 emit。
+- **IPC 次数本身未降**：本 PR 是「按需申请」（首屏 20 段 + 视口内懒加载 + 写后刷新只刷已渲染段），单段仍最多 5 次 IPC。彻底方案是服务端批量签 URL，需改 IPC 契约 + preload + 三层测试，超出本轮范围，已记入 PRD §9。
+- **窗口步长固定 20**：未按视口高度动态估算；169 段约需 8 次追加展开完（`scrollToSegment` 一步直达不受此限）。
+- **`draft` 直接返回 prop**：嵌套对象（`alternateImages`/`videoMeta`）与宿主共享引用。当前编辑只改顶层字段故安全；若未来改嵌套字段需改结构化 emit（**不要回到浅拷贝 + watch**，那已被 A1 实测否证）。
 - **未做实机 wall-time 复测**：量化结论来自 IPC 次数静态推算 + 单测计数。真实 169 段失败任务的进页耗时需实机复测（属外部验收）。
-- **QM-4 视觉回归未跑**：本机 QG Visual 基线此前已仓库级失效（36/41 违规，见 `openspec/records/result-view-back-btn-style.md` 的同一结论），本轮不重建基线。改动集中在「无成片时多一个占位区块」与「分段区分批渲染」，建议在基线修复任务后统一重建。
-- **A7（🟢 MINOR，QM-6 审查提出）**：右侧「分段定位」数字跳到**尚未渲染**的分段时静默无效（`segmentItemRefs[index]` 为空）。缓解：滚动与「上一条/下一条」会持续推进窗口。彻底修法需「跳转前自动展开到目标 index」，未在本轮实现（不影响正确性，只影响直达体验）。
+- **QM-4 视觉回归未跑**：本机 QG Visual 基线此前已仓库级失效（36/41 违规，见 `openspec/records/result-view-back-btn-style.md` 的同一结论），本轮不重建基线。改动集中在「无成片时多一个占位区块」「加载失败独立空态」与「分段区分批渲染」，建议在基线修复任务后统一重建。
+- **原 A7 已修**（不再是遗留）：`scrollToSegment` 现在会把窗口一步扩到覆盖目标位次再滚动，回归锁见 `ResultView.test.js` 的「跳转到尚未渲染的分段时先把窗口扩到覆盖它」。

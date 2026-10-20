@@ -43,6 +43,7 @@ const router = createRouter({ history: createWebHistory(), routes: [
 
 import UiButton from "@/components/UiButton.vue";
 import ResultView from "./ResultView.vue";
+import { SEGMENT_URL_BATCH_SIZE } from "./video-creation/composables/useResultPreviewMedia";
 
 describe("ResultView", () => {
   beforeEach(() => { vi.clearAllMocks(); });
@@ -290,9 +291,13 @@ describe("ResultView", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
 
       const calls = api.story2videoCreateShareUrl.mock.calls.length;
-      // 169 段 × 图+音频 = 338 次；首批上限 20 段 ⇒ 上限 40 次（成片/旁白缺失时不另申请）
+      // 上限从常量派生，不写死数字：每段最多 5 个媒体位会发 IPC
+      // （image1 / image2 / video1 / video2 / audio），**无路径的位不发**（已逐位核对
+      // refreshSegmentImageUrls + refreshSceneMaterialUrls 的判空分支）。
+      // 169 段全量上限 ≈ 845 次；首屏一批 20 段 ⇒ 上限 100 次。
+      const MAX_MEDIA_IPC_PER_SEGMENT = 5
       expect(calls).toBeGreaterThan(0);
-      expect(calls).toBeLessThanOrEqual(40);
+      expect(calls).toBeLessThanOrEqual(SEGMENT_URL_BATCH_SIZE * MAX_MEDIA_IPC_PER_SEGMENT);
       // 分段总数不因分批而丢失
       expect(w.vm.segments).toHaveLength(169);
       w.unmount();
@@ -316,9 +321,10 @@ describe("ResultView", () => {
 
       expect(w.findAll(".segment-item").length).toBeGreaterThan(firstPaintItems);
       const afterRequests = api.story2videoCreateShareUrl.mock.calls.length;
-      // 追加只请求新增那一段的媒体，不重解析已渲染段
+      // 追加只请求新增那一段的媒体，不重解析已渲染段（上限同首屏口径：一批 × 5 个媒体位）
+      const MAX_MEDIA_IPC_PER_SEGMENT = 5
       expect(afterRequests).toBeGreaterThan(firstPaintRequests);
-      expect(afterRequests - firstPaintRequests).toBeLessThanOrEqual(40);
+      expect(afterRequests - firstPaintRequests).toBeLessThanOrEqual(SEGMENT_URL_BATCH_SIZE * MAX_MEDIA_IPC_PER_SEGMENT);
       w.unmount();
     });
 
@@ -333,6 +339,60 @@ describe("ResultView", () => {
 
       expect(w.findAll(".segment-item")).toHaveLength(2);
       expect(w.find('[data-testid="segment-list-sentinel"]').exists()).toBe(false);
+      w.unmount();
+    });
+
+    it("跳转到尚未渲染的分段时先把窗口扩到覆盖它，再滚动（QM-6 审查项 C7）", async () => {
+      // 修复前：169 段点「跳到第 150 段」——activeSegmentIndex 跳了（右侧高亮走了）
+      // 但 segmentItemRefs[149] 为 undefined ⇒ 静默跳过，视口纹丝不动，
+      // 「状态与视图矛盾」比完全没反应更糟。
+      const api = await import("@/api/publisher");
+      api.story2videoGetProject.mockResolvedValue(failedProject(169));
+      api.story2videoCreateShareUrl.mockImplementation(async (filePath) => ({ code: 0, data: { url: "media://" + filePath } }));
+      await router.push({ path: "/create/result", query: { project: "project-failed-jump" } });
+
+      const w = mount(ResultView, { global: { plugins: [router], components: { UiButton }, mocks: { $t: (key) => key } } });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(w.findAll(".segment-item").length).toBeLessThan(169);
+
+      const beforeRequests = api.story2videoCreateShareUrl.mock.calls.length;
+      await w.vm.scrollToSegment(149);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      // 窗口必须扩到覆盖第 150 段（下标 149 ⇒ 至少 150 段在 DOM 里）
+      expect(w.vm.previewLayout.renderWindow.to).toBeGreaterThanOrEqual(150);
+      expect(w.findAll(".segment-item").length).toBeGreaterThanOrEqual(150);
+      expect(w.vm.activeSegmentIndex).toBe(149);
+      // 只解析新增段的 URL（不得把已渲染段全部重解析一遍）
+      const delta = api.story2videoCreateShareUrl.mock.calls.length - beforeRequests;
+      const MAX_MEDIA_IPC_PER_SEGMENT = 5;
+      expect(delta).toBeLessThanOrEqual((150 - 20) * MAX_MEDIA_IPC_PER_SEGMENT);
+      w.unmount();
+    });
+
+    it("滚动高亮按全量下标定位，不被稀疏 refs 数组的空洞带偏（QM-6 审查项 A3）", async () => {
+      // 修复前：refs 是按全量下标的稀疏数组（点名段并入首屏 ⇒ length 很大但中间全是
+      // undefined），旧实现把 refs.length 当连续下标上界、遇空洞 continue ⇒
+      // activeSegmentIndex 被设成「有 ref 的最大位次」而非用户实际看到的段。
+      const api = await import("@/api/publisher");
+      api.story2videoGetProject.mockResolvedValue(failedProject(169));
+      api.story2videoCreateShareUrl.mockImplementation(async (filePath) => ({ code: 0, data: { url: "media://" + filePath } }));
+      await router.push({ path: "/create/result", query: { project: "project-failed-scroll" } });
+
+      const w = mount(ResultView, { global: { plugins: [router], components: { UiButton }, mocks: { $t: (key) => key } } });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      // 造一个稀疏 refs 数组：只有下标 0 和 60 真正挂上，中间全是空洞
+      const makeEl = (top) => ({ getBoundingClientRect: () => ({ top }) });
+      const refs = [];
+      refs[0] = makeEl(10);
+      refs[60] = makeEl(50);
+      w.vm.segmentItemRefs = refs;
+
+      // 下标 60 的卡片顶部更靠下（50 > 10）⇒ 应为当前分段；
+      // 空洞不得让它被读成「位次 1」或丢失。
+      w.vm.onSegmentScroll();
+      expect(w.vm.activeSegmentIndex).toBe(60);
       w.unmount();
     });
 
