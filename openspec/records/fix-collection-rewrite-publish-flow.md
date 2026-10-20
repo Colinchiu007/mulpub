@@ -138,6 +138,6 @@ branch: fix-collection-rewrite-publish-flow
    「不订阅运营中心运行时块」处理，已如实记录。
 4. **Python 聚合层的 `target_word_count` 契约保留**：采集页不再使用，但该链路仍在（旧客户端兼容）。
    两套契约并存是历史包袱，本刀只保证采集页不再误用。
-5. **`genreDraftId` 仍是模块级 `let`**：本刀用 `watch(rewriteResult, sync)` 保证作废，
-   但它不是响应式的（视图不读它，只有 `goPublishAfterRewrite` / `onPublishArticle` 读）。
-   若将来出现第二个消费点，应改为 `ref`。
+5. ~~**`genreDraftId` 仍是模块级 `let`**~~ —— **已销账**（QM-6 深审 i5 采纳后落地）：改为
+   `const genreDraftId = ref(null)`，6 处读写同步改为 `.value`。理由：它是**跨异步边界**的状态
+   （存草稿是异步的、内容变化是同步的），裸 `let` 让「读到它」与「写它」之间没有可追踪的时序。

@@ -127,6 +127,35 @@ if (!genreDraftId) { await saveDraftAfterRewrite() }   // ← 旧 id 非空 ⇒ 
 在改写结果变化时置空 `savedDraftId`（注释写明「新改写结果产生：旧草稿（如有）内容已过期，
 置空 id 让发布/视频创作按当前文案重存」）。**采集页漏了同一条**。
 
+### 2.4 契约迁移说明（键名变更的影响面与向后兼容判定）
+
+本刀把采集页送出的字数区间键名从 `targetWordCount` 改为 `wordCountRange`。这一变更
+**只发生在「渲染层 → 桌面改写引擎」这一条 IPC 契约上**，但它涉及两个不同的「字数契约」，
+必须分清，否则会误判影响面：
+
+| 契约 | 拥有者 | 字段名 | 本次是否受影响 |
+|---|---|---|---|
+| 渲染层 → 桌面改写引擎（`ai:rewrite`） | `packages/rewrite-engine`（`rewrite-engine-core.js` 的 `_getWordCountInstruction` / `_postProcess`） | **`wordCountRange`** | **本次修正的目标**：引擎只认这个键 |
+| Python 聚合层改写（`/aggregation/rewrite`） | `packages/python-backend`（`models.py` 的 `RewriteRequest` / `service.py` 的 `RewriteConfig`） | `min_word_count` / `max_word_count` / `target_word_count`（**内部**字段） | **不受影响**：字段与桌面链路无关，且桌面端自 2026-10-18 起不再经该路径改写 |
+
+**为什么 `targetWordCount` 可以直接移除（不需要向后兼容）**：
+
+1. **它从来没有被消费过**：桌面改写引擎读取的是 `userSettings.wordCountRange`
+   （`rewrite-engine-core.js` 的 `_getWordCountInstruction` 与 `_postProcess`），
+   `targetWordCount` 是 **Python 聚合层的旧契约**，在桌面引擎侧是**死字段** ——
+   发过去也只是被忽略（正是缺陷 ① 的成因）。
+2. **全仓没有第二个发送方**：除采集页外，渲染层没有第二处构造 `targetWordCount`；
+   主进程 `rewrite-engine.js` 读的也是 `wordCountRange.max`。
+3. **保留它反而有害**：留着会让后来人以为「引擎认这个键」，从而把同一个缺陷再犯一次；
+   本刀专门加了回归锁断言 `userSettings.targetWordCount` **不出现**。
+4. **Python 侧是另一套字段名**（下划线 + `min/max` 三元组），本刀**一行没动**它，
+   旧客户端走 `/aggregation/rewrite` 的行为完全不变。
+
+> **外部独立复核（QM-6 高危面 datamigration）**：本节结论已由**外部厂商模型 claude**
+> 独立核实（自行读代码、不参考本仓既有评审记录），结论为「**不破坏**、不需要向后兼容措施」，
+> 依据为引擎真实键名、仓库内 `targetWordCount` 的收发方清单、以及 Python 侧契约与其解耦路径；
+> 原文见 PR #4114 的评审评论（公开可点）。
+
 ---
 
 ## 3. 功能需求
