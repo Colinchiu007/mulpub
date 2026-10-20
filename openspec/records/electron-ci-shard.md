@@ -87,7 +87,8 @@ date: 2026-10-20
 3. **换算规则写进事实源**：`docs/electron-ci-step-budget-baseline.md` 新增「整轮 794s 不能直接卡单片预算」，
    并就地更正该文档原先那句「档 3 已实现」——**那句话是错的，且它是本次偏差的直接来源**。
 4. **提案层留证**：`openspec/changes/electron-ci-shard-budget/proposal.md` 记录了
-   `electron-tests` 不在 required checks 的取证，避免后人误以为 matrix 会破坏分支保护。
+   lectron-tests **就是** required context，但 gate 挂在 ruleset main-ci-gate（id 23749994）而不是 legacy protection API 上；matrix 会让该 context 永不出现 ⇒ PR 恒 BLOCKED。修法是补 lectron-tests-summary 汇入作业（
+ame: electron-tests）。
 
 ## 遗留（不假装已闭合）
 
@@ -173,3 +174,38 @@ FAIL: 出现基线之外的运行时台账键：
 我本地跑的是**单个测试文件**，而台账判据挂在**整套桌面测试**跑完之后 —— 单文件通过不构成
 「这一层也通过」的证据。这与本 PR 主线要修的那个毛病同型：**局部绿不等于整体绿**，
 所以收尾必须回读 CI，而不是拿本地绿推结论。
+
+## 八、PR 卡在 `base branch policy prohibits` —— 我第一次取证取错了
+
+CI 22 项全绿、5 个 required check 全 SUCCESS，`gh pr merge` 仍被拒：
+`Pull request is not mergeable: the base branch policy prohibits the merge`。
+
+**根因**：`electron-tests` **就是** required context —— 但那个 gate 挂在 **ruleset** 上，
+不在 legacy protection API 上。我最初只查了
+
+```
+gh api repos/<owner>/<repo>/branches/main/protection
+  → required_status_checks.contexts = ["Gate Result","build","QG Unit Tests","QG Coverage"]
+```
+
+于是写下「`electron-tests` 不在 required checks 里，matrix 不会破坏分支保护」。**这个结论是错的。**
+真正的 gate 在：
+
+```
+gh api repos/<owner>/<repo>/rulesets            → 23749994 main-ci-gate  active
+gh api repos/<owner>/<repo>/rulesets/23749994   → required contexts:
+    QG Static / QG Unit Tests / electron-tests / 文档同步检查
+    债务熔断检查 / 单元测试 + Lint / GUI Gate Result
+```
+
+matrix 把作业报成 `electron-tests (1)`/`(2)`/`(3)` ⇒ `electron-tests` 这个 context **永不出现**
+⇒ 无论多少项全绿都判 blocked。
+
+**修法**：加汇入作业 `electron-tests-summary`（`name: electron-tests`、`needs: [electron-tests]`、
+`if: always()`），把 matrix 的聚合结果按 required 名报出去：任一片失败即失败，`skipped`（docs-only
+短路）按本仓既有约定放行。结构锁钉住三件事：汇入作业不得被删、`name` 不得改、matrix 作业自己
+不得叫同一个名字（否则两条同名检查、聚合语义失效）。
+
+**教训（比这一条本身更重要）**：GitHub 有**两套并存**的分支保护面 —— legacy protection 与 rulesets。
+只查一套就得出「不受约束」的结论，形态上等同于「查到第一个空结果就收工」。这与本轮主线要修的
+那个毛病（`toContain` 通过 ≠ 代码会执行）是同一类：**判据覆盖了局部，就以为覆盖了整体**。

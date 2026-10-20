@@ -68,6 +68,29 @@ jobs:
           BASE="${{ github.event.pull_request.base.sha }}"
           node scripts/classify-docs-only.js --base="$BASE" --repo="$PWD"
 
+  # ⛔ 这个汇入作业不是装饰，是 ruleset `main-ci-gate` 的硬要求（2026-10-20 实测）：
+  #    该 ruleset 要求的 context 名就是 `electron-tests`，而 matrix 会把实际作业报成
+  #    `electron-tests (1)` / `(2)` / `(3)` —— 那个 required context 于是**永远不会出现**，
+  #    PR 在「22 项全绿」的情况下仍是 `base branch policy prohibits the merge`。
+  #    （先前只查了 legacy protection API，那里只有 4 个 context，漏了 ruleset。）
+  #    `needs` 对 matrix 取**聚合**结果：任一片失败即为失败；docs-only 短路时是 skipped，
+  #    按本仓既有约定「skipped 满足 required check」放行。
+  electron-tests-summary:
+    name: electron-tests
+    runs-on: ubuntu-latest
+    needs: [electron-tests]
+    if: always()
+    steps:
+      - name: Aggregate shard results
+        shell: bash
+        run: |
+          RESULT="${{ needs.electron-tests.result }}"
+          echo "[electron-tests-summary] shards=$RESULT"
+          case "$RESULT" in
+            success|skipped) echo "OK: $RESULT（skipped 仅在 docs-only 短路时出现，按约定满足 required check）" ;;
+            *) echo "FAIL: 分片结果为 $RESULT"; exit 1 ;;
+          esac
+
   electron-tests:
     runs-on: windows-latest
     needs: [changes]

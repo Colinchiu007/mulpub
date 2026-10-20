@@ -873,6 +873,21 @@ describe('GUI/CI 工作流门禁契约', () => {
     // 能同时满足 `budget >= 单片健康×3` 与 `budget < 20*60`，反向判据实质失效。
     assert(fullSet && fullSet.length === 3, '非 PR 档必须恰好 3 片，否则「减片 + 抬预算」可组合回退');
 
+    // required context 名必须被补回来（2026-10-20 实测：matrix 把作业报成
+    // `electron-tests (1)`，而 ruleset `main-ci-gate` 要求的 context 恰好是 `electron-tests`，
+    // 于是 22 项全绿的 PR 仍是 `base branch policy prohibits the merge`）。
+    // 汇入作业被删 = 所有 PR 再次卡死，所以它也要有锁。
+    const summary = workflow.jobs['electron-tests-summary'];
+    assert(summary, '缺 electron-tests-summary ⇒ ruleset 要求的 context 永远不会出现，PR 恒 BLOCKED');
+    expect(summary.name, '汇入作业对外必须叫 electron-tests，否则补不回 required context').toBe('electron-tests');
+    expect([].concat(summary.needs)).toContain('electron-tests');
+    // 反向：matrix 作业自己不得也叫这个名字，否则两条检查同名、聚合语义失效。
+    expect(String(job.name || '')).not.toBe('electron-tests');
+    // 聚合判据必须同时放行 success 与 skipped（后者只在 docs-only 短路时出现）。
+    const aggRun = String(summary.steps.map((s) => s.run || '').join('\n'));
+    expect(aggRun).toContain('needs.electron-tests.result');
+    expect(aggRun).toMatch(/success\|skipped/);
+
     const unitStep = findUnitTestStep(job);
     const run = String(unitStep.run);
 

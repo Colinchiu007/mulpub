@@ -76,8 +76,31 @@
 **由此得出的换算规则**：整轮的 794 s 不能直接拿来卡单片预算。用整轮基线卡单片会得出
 「必须 ≥1588 s」这种把分片收益又吐回去的结论。**要卡单片，就先把基线按片摊薄。**
 
-### 为什么 matrix 不算「改谁来守门」
+### matrix 与 required context（含我第一次取证取错的更正）
 
+`electron-tests` **就是** required context —— 但 gate 挂在 **ruleset** 上，不在 legacy protection API 上。
+
+这是本轮我犯的一个实质错误，必须留证：我最初只查了
+`gh api repos/<owner>/<repo>/branches/main/protection`，它返回 `required_status_checks.contexts`
+只有 4 条（`Gate Result` / `build` / `QG Unit Tests` / `QG Coverage`），于是我写下「matrix 不会破坏
+分支保护」。**该结论是错的**：真正的 gate 在 `gh api repos/<owner>/<repo>/rulesets` 里 ——
+ruleset `main-ci-gate`（id 23749994，enforcement=active）要求的 context 是：
+
+```
+QG Static / QG Unit Tests / electron-tests / 文档同步检查
+债务熔断检查 / 单元测试 + Lint / GUI Gate Result
+```
+
+matrix 会把作业报成 `electron-tests (1)` / `(2)` / `(3)`，**`electron-tests` 这个 context 于是永远
+不会出现** ⇒ 22 项全绿的 PR 依然被判 `base branch policy prohibits the merge`（2026-10-20 实测）。
+
+修法：加一个汇入作业 `electron-tests-summary`，`name: electron-tests`、`needs: [electron-tests]`、
+`if: always()`，把 matrix 的聚合结果按 required 名报出去（任一片失败即失败；docs-only 短路时是
+`skipped`，按本仓既有约定放行）。结构锁同时钉住：汇入作业不得被删、名字不得改、
+matrix 作业自己不得叫同一个名字。
+
+**教训**：取证要看**所有**承载 gate 的机制。GitHub 有两套并存的分支保护面
+（legacy protection + rulesets），只查一套就得出「不受约束」的结论，是「查到第一个空结果就收工」。
 `electron-tests` **不在分支保护的 required checks 里**（取证：
 
 ```

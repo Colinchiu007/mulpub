@@ -31,16 +31,31 @@
 | C4 | 保留 `--maxWorkers=1 --no-file-parallelism`（确定性 + 第二次独立 flake 检出的原意不丢） | 结构测试：每片仍带这两个参数 |
 | C5 | 把既有结构锁的**断言域从「文本存在」改成「行为成立」**，并新增 shard 锁 | 新锁必须在改动前**红**、改动后绿 |
 
-### 为什么 matrix 是安全的（不是「改谁来守门」）
+### matrix 与 required context：我第一次取证取错了，修法是补一个汇入作业
 
-`electron-tests` **不在分支保护的 required checks 里**。取证：
+`electron-tests` **就是** required context —— 但 gate 挂在 **ruleset** 上，不在 legacy protection API 上。
+
+这是本轮我犯的一个实质错误，必须留证：我最初只查了
+`gh api repos/<owner>/<repo>/branches/main/protection`，它返回 `required_status_checks.contexts`
+只有 4 条（`Gate Result` / `build` / `QG Unit Tests` / `QG Coverage`），于是我写下「matrix 不会破坏
+分支保护」。**该结论是错的**：真正的 gate 在 `gh api repos/<owner>/<repo>/rulesets` 里 ——
+ruleset `main-ci-gate`（id 23749994，enforcement=active）要求的 context 是：
 
 ```
-gh api repos/Colinchiu007/mulpub/branches/main/protection → required_status_checks.contexts
-  = ["Gate Result", "build", "QG Unit Tests", "QG Coverage"]   （strict=false）
+QG Static / QG Unit Tests / electron-tests / 文档同步检查
+债务熔断检查 / 单元测试 + Lint / GUI Gate Result
 ```
 
-因此 matrix 产生的 `electron-tests (1)` / `(2)` / `(3)` 不会造成「Expected — waiting for status to be reported」。本变更**不改**分支保护规则、**不改** `CI_IGNORED_PATHS` 白名单，属正常工程改动而非「改谁来守门」。
+matrix 会把作业报成 `electron-tests (1)` / `(2)` / `(3)`，**`electron-tests` 这个 context 于是永远
+不会出现** ⇒ 22 项全绿的 PR 依然被判 `base branch policy prohibits the merge`（2026-10-20 实测）。
+
+修法：加一个汇入作业 `electron-tests-summary`，`name: electron-tests`、`needs: [electron-tests]`、
+`if: always()`，把 matrix 的聚合结果按 required 名报出去（任一片失败即失败；docs-only 短路时是
+`skipped`，按本仓既有约定放行）。结构锁同时钉住：汇入作业不得被删、名字不得改、
+matrix 作业自己不得叫同一个名字。
+
+**教训**：取证要看**所有**承载 gate 的机制。GitHub 有两套并存的分支保护面
+（legacy protection + rulesets），只查一套就得出「不受约束」的结论，是「查到第一个空结果就收工」。
 
 ## 非目标
 
