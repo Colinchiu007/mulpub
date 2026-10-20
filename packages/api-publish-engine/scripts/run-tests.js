@@ -43,6 +43,10 @@ const VITEST_FILES = new Set([
   'publish-service.test.js',
   'signer.test.js',
   'signer-local-xyw.test.js',
+  // ⚠ signer-local.test.js / signer-registry.test.js **不是 vitest**（node:test + assert 风格），
+  // 归 direct 分支直跑，登记进 VITEST_FILES 会报「No test suite found」。2026-10-21 误登记即红。
+  // 新增的 vitest 专项单独登记：
+  'signer-local-legacy.test.js',
   'xiaohongshu-draft-chain.test.js',
   'xiaohongshu-adapter-load.test.js',
   'xiaohongshu-note-align.test.js',

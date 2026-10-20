@@ -64,7 +64,10 @@ t("默认注册表已收编 Tier-A 本地 command", () => {
  *
  * 2026-10 把竞品 VM 算法完整还原为纯 JS，并在真实服务端验证通过
  * （无签 500002 被拒 / 带签 result:1），因此 registry 改为产出真 sig3（56 hex）。
- * 旧 `getKuaishouSign` 仍保留导出（避免破坏外部引用），但**不再被注册表使用**。
+ *
+ * 2026-10-21 收口（竞品逆向成果复用专项）：旧 `getKuaishouSign` **已从导出面拆除** ——
+ * 它产出 32 位假签名，留着会让任何调用方误以为已具备签名能力。上面那段注释里的
+ * "仍保留导出（避免破坏外部引用）"已过时，以本段为准。
  */
 t("Tier-A：kuaishou.ns-sig3 产出真 sig3（56 hex，旧 MD5 近似式已作废）", async () => {
   const payload = { url: "/rest/v2/creator/pc/authority/account/current", type: "json", params: {} };
@@ -74,13 +77,20 @@ t("Tier-A：kuaishou.ns-sig3 产出真 sig3（56 hex，旧 MD5 近似式已作�
   assertEqual(/^[0-9a-f]{56}$/.test(sig), true);
 });
 
-t("Tier-A：kuaishou.ns-sig3 不再等于旧的近似式", async () => {
+// 2026-10-21：旧近似式 `local.getKuaishouSign`（MD5(apiPh|body)，32 位）已从导出面
+// 拆除（真实服务端否证 + 已被真 sig3 取代，留着会让调用方拿到 32 位假签名）。
+// 断言改为**就地复算**历史近似值来证明二者不等，不再依赖那个已拆除的函数存在；
+// 并钉住导出面已无该函数。
+t("Tier-A：kuaishou.ns-sig3 不等于历史 32 位近似式（且旧函数已拆除）", async () => {
   const body = { caption: "hello", part: 1 };
-  const legacy = local.getKuaishouSign(body, "PH123");
+  const legacyValue = crypto.createHash("md5")
+    .update("PH123" + "|" + JSON.stringify(body)).digest("hex");
+  assertEqual(legacyValue.length, 32); // 历史近似式确实是 32 位
   const sig = await signerMod.registry.sign("kuaishou.ns-sig3", { url: "/p", body });
-  assertEqual(legacy.length, 32);           // 旧式仍是 32 位，证明它确实不是真签名
   assertEqual(sig.length, 56);
-  assertEqual(sig === legacy, false);
+  assertEqual(/^[0-9a-f]{56}$/.test(sig), true);
+  assertEqual(sig === legacyValue, false);
+  assertEqual(typeof local.getKuaishouSign, "undefined");
 });
 
 t("Tier-A 回归：shipinhao.content-md5 = base64(MD5(bytes))", async () => {
