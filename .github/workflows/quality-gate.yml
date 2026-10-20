@@ -160,6 +160,8 @@ jobs:
             exit 1
           fi
           node --test scripts/check-pr-exec-record.test.js
+          # 只读审计档（--audit）的回归锁。不接这一行则锁不跑 —— 等于给新能力开了条无人守门的入库通道。
+          node --test scripts/check-pr-exec-record.audit.test.js
           node scripts/check-pr-exec-record.js --base="${EXEC_BASE:-}" --head-branch="${EXEC_HEAD_REF:-}" --head="${EXEC_HEAD_SHA:-HEAD}" --mode=advisory
 
       # --- Gate 2c5：CCG 门禁「存量命中过滤」的判据回归锁 ---
