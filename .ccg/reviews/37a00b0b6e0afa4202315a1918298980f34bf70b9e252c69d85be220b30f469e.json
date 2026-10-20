@@ -48,13 +48,15 @@
   },
   "deepReview": {
     "required": true,
-    "status": "self_play_pending",
-    "performedBy": "self-play(pending)",
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
     "confidenceWeight": 0.6,
     "requiresExternalReview": [],
     "findings": null,
     "template": ".adversarial\\ccg-deep-7efc66d3\\adjudication.json",
     "note": "裁决对应的 critique 已变（指纹 6a3bd2c1d4e05f77 → 78edd9b8cdb0e55a），旧裁决作废",
-    "at": "2026-10-20T22:43:12.757Z"
+    "at": "2026-10-20T22:43:12.757Z",
+    "tier": "self-play",
+    "closureNote": "第 1 轮 DUAL 深度评审（critic=claude / proposer=opencode，变更基线 origin/main）给出 5 条，逐条裁决并**落地修复**：i1（upheld，已修）CSS 契约测试的扫描根不再依赖 process.cwd()（改为两种布局取存在者）；i2（dismissed）_postProcess 全仓仅 2 个调用点且均已传入第 4 参，JS 缺参不会 TypeError；i3（upheld，已修）freeformOutput 派生加 !error 判据，与守卫顺序解耦；i4（upheld，已修）同 i3 同一处改动；i5（upheld，已修）测试 gate 改为 createGate() 带 5s 自动放行兜底。逐条 prosecution / defense / verdict / rationale 见 .adversarial/ccg-deep-7efc66d3/adjudication.json；修复后的最终 diff 已复评（critic 4 条全 dismissed，未发现阻断）。"
   }
 }
