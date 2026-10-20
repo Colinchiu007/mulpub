@@ -314,16 +314,8 @@ class SubscriptionService {
     })
   }
 
-  /**
-   * 后台开通（ops-center，阶段 1 不走支付）：channel=admin_grant，金额 0。
-   *
-   * **幂等（PRD N9）**：运营入口最容易被双击/超时重试/消息重投打成重复开通——原实现每次生成
-   * 新的 `providerReference`，于是「点两次 = 叠加 60 天」且发两条通知。现在接受 `idempotencyKey`：
-   * 它被拼进 `providerReference`（该列 UNIQUE），第二次调用会撞 `ORDER_REFERENCE_CONFLICT`，
-   * 这里**不叠加时长、不重复发通知**，而是回读当前订阅并标记 `idempotent: true`。
-   * 未提供幂等键时行为完全不变（保持既有「逐次唯一」语义）。
-   */
-  async grant({ userId, plan, durationDays, providerReference = null, operator = null, idempotencyKey = null }) {
+  /** 后台开通（ops-center，阶段 1 不走支付）：channel=admin_grant，金额 0。 */
+  async grant({ userId, plan, durationDays, providerReference = null, operator = null }) {
     await this.requireUser(userId)
     if (!PLAN_IDS.includes(plan) || plan === 'free') {
       throw new CommerceError('仅支持开通付费档位', 'PLAN_INVALID', 400)
@@ -331,28 +323,7 @@ class SubscriptionService {
     if (!Number.isInteger(durationDays) || durationDays <= 0) {
       throw new CommerceError('时长必须为正整数天', 'DURATION_INVALID', 400)
     }
-    // 只接受非空字符串；空串/非字符串视为「未提供」，避免把 undefined 拼进 UNIQUE 列。
-    const idem = typeof idempotencyKey === 'string' && idempotencyKey.trim() ? idempotencyKey.trim() : null
-    if (idem !== null && providerReference) {
-      // 两个去重维度同时给会让「撞的是哪一个」不可解释，直接拒绝（fail closed）。
-      throw new CommerceError('幂等键与 providerReference 不能同时提供', 'IDEMPOTENCY_KEY_CONFLICT', 400)
-    }
-    const replayView = async () => {
-      const current = await this.repository.getActiveSubscription(userId)
-      return {
-        idempotent: true,
-        plan: current ? current.plan : plan,
-        requestedPlan: plan,
-        // 与 redeem 的重放视图同口径：读不到「首次是否被压制」时给 null（未知），不编造 false。
-        downgradeSuppressed: null,
-        subscription: toSubscriptionDto(current),
-        order: null,
-        version: null,
-        periodStart: toIsoOrNull(current && current.current_period_start),
-        periodEnd: toIsoOrNull(current && current.current_period_end),
-      }
-    }
-    const run = this.repository.commerceTransaction(async (tx) => {
+    return this.repository.commerceTransaction(async (tx) => {
       // provider_reference 在 identity_subscriptions 上是 UNIQUE（migrations/postgresql/002_logto_identity.sql:29），默认值必须逐次唯一，
       // 否则同一 operator 连续给两个用户开通时第二个必然撞唯一约束导致整个事务回滚。
       const grantOrderId = `ord-${crypto.randomUUID()}`
@@ -366,7 +337,7 @@ class SubscriptionService {
           amount: 0,
           currency: 'CNY',
           channel: 'admin_grant',
-          providerReference: providerReference || (idem ? `grant:${operator || 'system'}:idem:${idem}` : `grant:${operator || 'system'}:${grantOrderId}`),
+          providerReference: providerReference || `grant:${operator || 'system'}:${grantOrderId}`,
         },
         // v2.0 机制 C9.2：快照按生效档位现算（后台误发低档不覆盖更高档剩余权益）
         entitlementPayloadFor: (p) => this.entitlementPayload(p),
@@ -391,13 +362,6 @@ class SubscriptionService {
         periodStart: applied.periodStart ?? null,
         periodEnd: applied.periodEnd ?? null,
       }
-    })
-    // 没有幂等键 ⇒ 保持既有语义（每次都是新开通，冲突照旧上抛）
-    if (!idem) return run
-    // 幂等键撞 UNIQUE ⇒ 不是失败，是「同一次开通的重放」：不叠加时长、不重复通知。
-    return run.catch(async (error) => {
-      if (error && error.code === 'ORDER_REFERENCE_CONFLICT') return replayView()
-      throw error
     })
   }
 
