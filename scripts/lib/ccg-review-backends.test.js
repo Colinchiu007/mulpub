@@ -181,8 +181,8 @@ test("CLI 参数不得被静默忽略：未知旗标 / 缺值 / 模式数不为 
     [["--print-names", "--oops"], /未知旗标/],
     [["--critic"], /缺值/],
     [["--critic", "--print-names"], /缺值/],
-    [["--print-names", "--print-table"], /只能指定一个打印模式/],
-    [[], /只能指定一个打印模式/],
+    [["--print-names", "--print-table"], /只能指定一个模式/],
+    [[], /只能指定一个模式/],
     [["--target", "both"], /只认 dual \/ single/],
   ];
   for (const [args, expect] of cases) {
@@ -213,4 +213,220 @@ test("判据本体存在性锁：DEFAULTS 必须与驱动现值对齐（否则�
   assert.equal(m.ENV_PROPOSER, "MP_QM6_PROPOSER");
   assert.equal(m.ENV_CRITIC, "MP_QM6_CRITIC");
   assert.ok(fs.existsSync(LIB));
+});
+
+// ---------- 评审时请求值的回写（applyReviewRequestToRecord + CLI --record-request） ----------
+//
+// 这一段守的是 #3927 自己造出的假红：评审时换了后端，请求值却没落进判定记录，
+// 于是 check-pr-exec-record.js 的 backendMismatch 对账拿"提交时清单里的后端"去比
+// "驱动回填的署名"，每一次**合法**覆盖都被判成未闭合。
+// 判据一律取**回写后那份文件的实际字节**，不取返回值：返回 ok 而文件没变，
+// 下游照样是假红（同型于本仓「夹具自报成功不等于效果成立」）。
+const os = require("node:os");
+
+let recSeq = 0;
+function mkRecDir() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), `qm6-rec-${process.pid}-${recSeq++}-`));
+}
+function writeRec(dir, content) {
+  const p = path.join(dir, "rec.json");
+  fs.writeFileSync(p, typeof content === "string" ? content : JSON.stringify(content, null, 2), "utf8");
+  return p;
+}
+const REQ_CODEX = {
+  critic: "codex",
+  proposer: "opencode",
+  from: { critic: "cli", proposer: "list" },
+  notes: [],
+  overridden: true,
+};
+const AT_COMMIT = {
+  critic: "claude",
+  proposer: "opencode",
+  from: { critic: "list", proposer: "list" },
+  notes: [],
+  overridden: false,
+};
+
+test("回写：新值进顶层、提交时那份挪进 commitRequest、其它字段逐字不动", () => {
+  const d = mkRecDir();
+  const p = writeRec(d, {
+    mode: "dual",
+    highRiskDomains: ["auth"],
+    reviewBackends: AT_COMMIT,
+    deepReview: { status: "cleared", performedBy: "codex" },
+  });
+  const res = m.applyReviewRequestToRecord(p, REQ_CODEX);
+  assert.equal(res.ok, true, res.reason);
+  const rec = JSON.parse(fs.readFileSync(p, "utf8"));
+  assert.equal(rec.reviewBackends.critic, "codex");
+  assert.equal(rec.reviewBackends.overridden, true);
+  assert.equal(rec.reviewBackends.commitRequest.critic, "claude",
+    "覆盖不得销毁审计链 —— 提交时请求的是谁必须看得见");
+  assert.ok(typeof rec.reviewBackends.rewrittenAt === "string" && rec.reviewBackends.rewrittenAt.length > 0,
+    "改写时间必须留痕，否则无法区分「本来就这样」和「被回写过」");
+  assert.equal(rec.mode, "dual", "回写只动 reviewBackends");
+  assert.deepEqual(rec.highRiskDomains, ["auth"], "高危域标签是豁免判据的输入，不得被动");
+  assert.equal(rec.deepReview.performedBy, "codex", "驱动回填的那半边由驱动持有");
+});
+
+test("回写重跑不叠层：第二次拿到同一请求值时 commitRequest 与 rewrittenAt 原样保留", () => {
+  // 真实场景就是重跑：深审会跑多轮（超时重试、逐轮补记录）。若每次都再包一层，
+  // commitRequest 会变成"上一次回写的内容"而不是"提交时的内容"，审计链当场失真。
+  const d = mkRecDir();
+  const p = writeRec(d, { mode: "dual", reviewBackends: AT_COMMIT });
+  const first = m.applyReviewRequestToRecord(p, REQ_CODEX);
+  assert.equal(first.ok, true, first.reason);
+  const afterFirst = JSON.parse(fs.readFileSync(p, "utf8"));
+  const second = m.applyReviewRequestToRecord(p, REQ_CODEX);
+  assert.equal(second.ok, true, second.reason);
+  const afterSecond = JSON.parse(fs.readFileSync(p, "utf8"));
+  assert.equal(afterSecond.reviewBackends.commitRequest.critic, "claude",
+    "留档必须始终是提交时那份，不能被上一次回写覆盖");
+  assert.equal(afterSecond.reviewBackends.rewrittenAt, afterFirst.reviewBackends.rewrittenAt,
+    "重跑不得刷新改写时间 —— 那会把「什么时候改的」变成「最近一次什么时候跑的」");
+});
+
+test("第二次换**不同**后端时，留档必须仍是提交时那份（QM-6 i1 Critical 的回归锁）", () => {
+  // 现场形态：同一棵树上先 --critic codex、再 --critic gpt。第二次进函数时 before 已经是
+  // 上一次的回写结果，于是 `next.commitRequest = before` 会把「上一次评审请求的是谁」写成
+  // 「提交时请求的是谁」—— spec 那条「MUST NOT 被就地覆盖销毁」恰好在最需要它的多轮换后端场景里失效。
+  const d = mkRecDir();
+  const p = writeRec(d, { mode: "dual", reviewBackends: AT_COMMIT });
+  const REQ_GPT = { critic: "gpt", proposer: "opencode", from: { critic: "cli", proposer: "list" }, notes: [], overridden: true };
+  const first = m.applyReviewRequestToRecord(p, REQ_CODEX);
+  assert.equal(first.ok, true, first.reason);
+  const afterFirst = JSON.parse(fs.readFileSync(p, "utf8"));
+  const second = m.applyReviewRequestToRecord(p, REQ_GPT);
+  assert.equal(second.ok, true, second.reason);
+  const rec = JSON.parse(fs.readFileSync(p, "utf8"));
+  assert.equal(rec.reviewBackends.critic, "gpt", "顶层必须是最近一次请求的后端");
+  assert.equal(rec.reviewBackends.commitRequest.critic, "claude",
+    "留档必须是提交时那份；把它换成上一次的回写值等于把审计锚往前挪了一格");
+  assert.equal(rec.reviewBackends.commitRequest.overridden, false,
+    "提交时那份的 overridden 不得被连带改成 true —— 那是给自己造一条没发生过的覆盖");
+  assert.equal(rec.reviewBackends.rewrittenAt, afterFirst.reviewBackends.rewrittenAt,
+    "改写时间锚在第一次改写；多轮换后端不得把它变成「最近一次什么时候跑的」");
+});
+
+test("proposer 缺失一律拒写，且一个字节都不许动（QM-6 i4 的回归锁）", () => {
+  // 只校验 critic 会让 next.proposer=undefined 被 JSON.stringify 静默丢键 ⇒ 记录缺 proposer，
+  // 而对账侧读的正是这一对。半个真源比不写更糟：它看起来像写过了。
+  const d = mkRecDir();
+  const p = writeRec(d, { mode: "dual", reviewBackends: AT_COMMIT });
+  const before = fs.readFileSync(p, "utf8");
+  const res = m.applyReviewRequestToRecord(p, { critic: "codex", overridden: true });
+  assert.equal(res.ok, false, "proposer 缺失必须拒写");
+  assert.match(res.reason, /proposer/, "原因要点名缺的是哪一半，否则调用方只能猜");
+  assert.equal(fs.readFileSync(p, "utf8"), before, "拒写就必须逐字节不动 —— 落半份再报错，对账读到的是假源");
+});
+
+test("同值回写不留假档：请求值与记录一致时不得造 commitRequest", () => {
+  const d = mkRecDir();
+  const p = writeRec(d, { mode: "dual", reviewBackends: AT_COMMIT });
+  const res = m.applyReviewRequestToRecord(p, { ...AT_COMMIT, overridden: true });
+  assert.equal(res.ok, true, res.reason);
+  const rec = JSON.parse(fs.readFileSync(p, "utf8"));
+  assert.equal(rec.reviewBackends.commitRequest, undefined,
+    "没换过后端却留下「提交时请求」的副本 —— 那是给自己造一条没发生过的历史");
+  assert.equal(rec.reviewBackends.rewrittenAt, undefined);
+});
+
+test("记录读不到 / 不是对象：一律 ok:false 且**不新建**、原字节不动", () => {
+  const cases = [
+    ["missing", null],
+    ["坏 JSON", "{ this is not json"],
+    ["顶层是数组", "[]"],
+    ["顶层是标量", "42"],
+  ];
+  for (const [name, content] of cases) {
+    const d = mkRecDir();
+    const p = path.join(d, "rec.json");
+    if (content !== null) fs.writeFileSync(p, content, "utf8");
+    const res = m.applyReviewRequestToRecord(p, REQ_CODEX);
+    assert.equal(res.ok, false, `${name} 必须判失败`);
+    assert.ok(res.reason, `${name} 必须给出原因`);
+    assert.equal(fs.existsSync(p), content !== null,
+      `${name}：失败路径不得改变文件存在性 —— 新建一份判定产物等于伪造判定`);
+    if (content !== null) {
+      assert.equal(fs.readFileSync(p, "utf8"), content, `${name}：失败路径不得改写字节`);
+    }
+    fs.rmSync(d, { recursive: true, force: true });
+  }
+});
+
+test("入参缺一格就得停：路径为空 / 请求值没有 critic 一律 ok:false", () => {
+  const d = mkRecDir();
+  const p = writeRec(d, { mode: "dual", reviewBackends: AT_COMMIT });
+  const before = fs.readFileSync(p, "utf8");
+  assert.equal(m.applyReviewRequestToRecord("", REQ_CODEX).ok, false);
+  assert.equal(m.applyReviewRequestToRecord(p, { proposer: "opencode" }).ok, false,
+    "critic 缺失的请求值写进去会让对账判据读到半个真源");
+  assert.equal(m.applyReviewRequestToRecord(p, null).ok, false);
+  assert.equal(fs.readFileSync(p, "utf8"), before, "拒绝的调用一个字节都不能落盘");
+  fs.rmSync(d, { recursive: true, force: true });
+});
+
+test("记录里没有 reviewBackends（早于本刀的产物）：允许补上，但不留 commitRequest", () => {
+  // decider 是这一刀才开始写该字段的；存量产物没有它。回写必须能补，
+  // 否则「评审时换了后端」在旧记录上依然没地方落 —— 那正是本次要消灭的假红。
+  const d = mkRecDir();
+  const p = writeRec(d, { mode: "dual", deepReview: { status: "cleared", performedBy: "claude" } });
+  const res = m.applyReviewRequestToRecord(p, REQ_CODEX);
+  assert.equal(res.ok, true, res.reason);
+  const rec = JSON.parse(fs.readFileSync(p, "utf8"));
+  assert.equal(rec.reviewBackends.critic, "codex");
+  assert.equal(rec.reviewBackends.commitRequest, undefined);
+  fs.rmSync(d, { recursive: true, force: true });
+});
+
+// ---------- CLI：--record-request 的三档退出 ----------
+const CLEAN_ENV = { MP_QM6_CRITIC: "", MP_QM6_PROPOSER: "" };
+
+test("CLI --record-request：成功回写 rc=0 并出声；默认路径（没覆盖）rc=2 且一个字节都不改", () => {
+  const d = mkRecDir();
+  const p = writeRec(d, { mode: "dual", reviewBackends: AT_COMMIT });
+  const before = fs.readFileSync(p, "utf8");
+
+  const ok = runCli(["--critic", "codex", "--record-request", p], CLEAN_ENV);
+  assert.equal(ok.status, 0, `应 rc=0，实得 rc=${ok.status} out=${ok.stdout} err=${ok.stderr}`);
+  assert.match(ok.stdout, /已把评审时请求的后端写回/, "成功必须出声，否则入口无法区分「写了」和「没这行」");
+  assert.notEqual(fs.readFileSync(p, "utf8"), before, "返回值说了成功，文件却没变 —— 那是假绿");
+
+  // 反向那一格是本刀的承重墙：**没覆盖就不许碰记录**。
+  // 默认路径若也回写，每个 PR 的判定产物都会被无关写者改一遍 mtime 与键顺序，
+  // 而「谁改过判定产物」正是这条链要审计的东西。
+  const after = fs.readFileSync(p, "utf8");
+  const plain = runCli(["--record-request", p], CLEAN_ENV);
+  assert.equal(plain.status, 2, "与清单一致时不得回写，实得 rc=" + plain.status + " out=" + plain.stdout);
+  assert.match(plain.stderr, /不回写/, "拒绝必须点名理由，否则读起来像参数写错了");
+  assert.match(plain.stderr, /与清单一致/, "必须说明是「没覆盖」这一档，而不是含糊的失败");
+  assert.equal(fs.readFileSync(p, "utf8"), after, "被拒绝的调用不得留下任何改写痕迹");
+  fs.rmSync(d, { recursive: true, force: true });
+});
+
+test("CLI --record-request：记录缺失 rc=2 且不新建，缺值/与打印模式同现一律 rc=2", () => {
+  const d = mkRecDir();
+  const missing = path.join(d, "nope.json");
+  const r1 = runCli(["--critic", "codex", "--record-request", missing], CLEAN_ENV);
+  assert.equal(r1.status, 2, `记录缺失应 rc=2，实得 ${r1.status} out=${r1.stdout}`);
+  assert.match(r1.stderr, /读不到判定记录/, "必须点名是记录读不到：" + r1.stderr);
+  assert.equal(fs.existsSync(missing), false, "不得新建判定产物");
+
+  for (const [args, expect] of [
+    [["--critic", "codex", "--record-request"], /缺值/],
+    [["--critic", "codex", "--record-request", "--print-names"], /缺值/],
+    [["--print-names", "--record-request", path.join(d, "x.json")], /只能指定一个模式/],
+  ]) {
+    const r = runCli(args, CLEAN_ENV);
+    assert.equal(r.status, 2, `${JSON.stringify(args)} 应 rc=2，实得 ${r.status} err=${r.stderr}`);
+    assert.match(r.stderr, expect, `${JSON.stringify(args)} 的 stderr 应含 ${expect}：${r.stderr}`);
+    assert.equal(r.stdout, "", `${JSON.stringify(args)} 拒参数时不得同时吐输出`);
+  }
+  fs.rmSync(d, { recursive: true, force: true });
+});
+
+test("回写函数必须是导出面的一部分（入口按仓库相对路径调 CLI，二者缺一即断链）", () => {
+  assert.equal(typeof m.applyReviewRequestToRecord, "function",
+    "入口的回写跳依赖这个导出；改名或漏导出会让入口以 rc=2 失败，而症状看起来像「后端不可用」");
 });

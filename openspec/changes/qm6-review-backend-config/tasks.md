@@ -54,3 +54,62 @@
 - [ ] 7.2 D-R2 把 adversarial-review-loop 引擎 vendor 进 `scripts/`（vendor 后本仓对其行为负责，
   属改"谁来守门"，须人工过目并另立 change 定同步纪律）
 - [ ] 7.3 收紧 `self_play_resolved`（本刀刻意不碰）
+
+
+## 8. Follow-up：评审时请求值回写（2026-10-19，修本 change 自带的假红）
+
+- [x] 8.1 `applyReviewRequestToRecord(recordPath, resolved, fsImpl)` 纯函数 + 三条不变式
+  （①不销毁提交时请求 → `commitRequest`/`rewrittenAt`；②只在覆盖时写；③读不到不新建）
+- [x] 8.2 CLI 动作模式 `--record-request <path>`：与打印模式互斥、缺值 rc=2、未覆盖 rc=2
+- [x] 8.3 `deep-review.sh` 覆盖分支在 **exec 之前**调用；失败 `say + exit 2`，驱动不起来；
+  dry-run 不回写但出声；刻意不加 `[ -f "$REC" ]` 前置（不可达分支不写文案）
+- [x] 8.4 `plan-review.sh` 不回写 —— 决策层无 `reviewBackends × performedBy` 消费者（D13）
+- [x] 8.5 lib 行为锁 17 → **26**：幂等重跑不叠层 / 同值不留假档 / 四类坏输入不新建不改字节 /
+  存量产物允许补 / CLI 三档退出 + "被拒绝的调用不得留痕迹"
+- [x] 8.6 deps 行为锁 35 → **40**：真跑 bash + **桩驱动**（`<fixture>/scripts/ccg-deep-review.js`
+  是入口定位驱动的第一候选，故 CI 上同样执行、不静默跳过）。桩驱动启动时自己再读一次记录，
+  把「回写早于 exec」编进产物而不是源码位置；另三条：回写跳失败 fail-closed 且驱动未起来、
+  dry-run 字节不变、默认路径字节不变
+- [x] 8.7 消费方全复跑（改的是判据的输入，不是只改判据）：decider 52 / ccg-bash-entry 9 /
+  plan-review-deps 10 / check-pr-exec-record 81，全 0 fail
+- [x] 8.8 变异反证 M1-M7 逐条实测 CAUGHT（红集互不相同；驱动断言 tests>0 ∧ fail>0 ∧ 指名命中）
+- [x] 8.9 文案同步：`--target` 那条既有期望正则按新模式清单改窄（2 处），AGENTS QM-6 段
+  那句"请求值随判定记录落盘"补上**由谁在哪一跳落**
+- [x] 8.10 未新增 `*.test.js`（两段锁追加进已接线文件）⇒ 不动 `quality-gate.yml`、不动
+  `check-unwired-tests` 域
+- [ ] 8.11 遗留：驱动验证层仍不应用覆盖（D-R1/D-R2 未变）；旧记录的 `commitRequest` 不追溯补齐
+
+## 11. QM-6 第三轮（rebase 后对新判定记录 `348a2650…json` 真跑双模型，critic 出 8 条、进裁决 5 条）
+
+- [x] 11.0 现场：`[轮 1/3]` critic=claude 出 8 条，`收敛判定: status=self_play reason=selfPlay minScore=4`，
+  `待裁决 5 条；其中高危域必须外部复核 0 条` —— 后两格由 vendor 补丁产出（`requiresExternalReview: []` +
+  `expectedExternalBackend: "claude"`），与 `ccg-convergence-probe` 的 ladder 逐字同形 ⇒ 探针量的还是真路径
+- [x] 11.1 **i1（Critical）upheld 并当场修**：`applyReviewRequestToRecord` 在「第二次换不同后端」时把
+  `before`（= 上一次的回写结果）整份塞进 `commitRequest` ⇒ 审计锚从「提交时请求的是谁」漂成「上一次评审请求的是谁」，
+  且 `rewrittenAt` 被刷新。既有两条锁只盖了「同值重跑不叠层」，没有盖「不同值二连」。
+  修：`before.commitRequest || before` + `before.rewrittenAt || new Date()`；回归锁 2 条 + spec 补一条 Scenario
+- [x] 11.2 **i2（Warning）dismissed，但按修正表述补了一致性锁**：critic 假设「入口按 `RB_OVERRIDE_NOTE` 判、
+  lib 按 `r.overridden` 判 ⇒ 传清单默认值会被拒写并阻断审查」。取证两侧同判据（`ccg-backends.sh` 比的是
+  「与清单值是否不同」，`ccg-review-backends.js` 的 `overridden` 同口径），默认值不进覆盖分支 ⇒ 断言的失效形态不成立。
+  但「两口径无一致锁」这半句是真的，所以新增一条**真跑入口**的行为锁（`--critic claude` = 清单第一行 ⇒
+  rc=0、无覆盖行、记录逐字节不变、驱动命令行不带 `--critic`）
+- [x] 11.3 **i3（Warning）dismissed，有行号证据**：`deep-review.sh:55` 在文件开头就 `cd "$ROOT"`，而 `ROOT` 由
+  脚本自身位置算出（`:50`）；回写调用点在 `:873`，那时 cwd 已是仓库根 ⇒ 「从非根 cwd 起脚本必败」不成立。
+  在夹具注释里把这条写死，防它被第四次重提
+- [x] 11.4 **i4（Warning）upheld 并当场修**：只校验 `critic`、不校验 `proposer` ⇒ `next.proposer=undefined` 被
+  `JSON.stringify` 静默丢键，记录缺半边而返回值已报 ok。修：成对校验，拒写时**一个字节都不动**（回归锁断言原字节相等）
+- [x] 11.5 **i5（Warning）dismissed，两条各有出处**：① 判据选记录是按**变更集里的路径**扫的
+  （`check-pr-exec-record.js` 的 `REVIEWS_DIR_RE`，只匹配 `.ccg/reviews/*.json`），从不按 `rec.sha` 归属，
+  所以「欠账记到父提交名下 / 重复计账」这条链路在实现里不存在；② `stats.changedLines` 没有任何消费者
+  （`git grep changedLines origin/main -- check-pr-exec-record.js` = 0 命中），529 与整份 diff 的行数差是 decider
+  自己的计数域（源文件行），不是谁对错了账
+- [ ] 11.6 遗留照旧：驱动**验证层**仍不应用 `--critic/--proposer`（D-R1/D-R2 未变），本 PR 只让记录说实话
+
+### 11.7 反证（红必须指名）
+
+- 变异 = 把 lib 退回 HEAD 版（即修复前）跑 `ccg-review-backends.test.js`：`tests 28 / fail 2`，
+  失败用例逐字是「第二次换**不同**后端时…」与「proposer 缺失一律拒写…」⇒ 两条各守自己那一格
+- 变异 M-i2b = 把入口覆盖分支门禁 `if [ -n "$RB_OVERRIDE_NOTE" ]` 改成恒真：一致性锁**指名变红**（CAUGHT），
+  还原后 md5 与改前相同（`8ff009d9d05f`）
+- **如实记一条没抓到的**：另做了一版变异 M-i2（改 `ccg-backends.sh` 侧的覆盖判据为「有没有传旗标」），
+  这条新锁**没有**变红。所以它的强度只覆盖「入口那一格」，不覆盖 shell 判据那一格 —— 写清楚，不写成两条都 CAUGHT

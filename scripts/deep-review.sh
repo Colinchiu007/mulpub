@@ -19,9 +19,13 @@
 #   清单唯一真源：scripts/ccg-review-backends.list（第一行 critic、第二行 proposer）。
 #
 # ⚠ 覆盖参数会**转发给驱动**，但驱动**验证层**（评审 diff 那条路径）目前不应用它
-#   （覆盖块只挂在决策层 --proposal 分支）。所以这里不谎称"换成功了"：请求值随判定
-#   记录落盘（reviewBackends），欠账门禁拿它与驱动回填的 deepReview.performedBy 对账，
-#   不符即判不闭合（backendMismatch）。决策层 plan-review.sh 那条路径今天就能生效。
+#   （覆盖块只挂在决策层 --proposal 分支）。所以这里不谎称"换成功了"：真跑之前入口会把
+#   请求值**回写进那份判定记录**（顶层 reviewBackends，提交时那份挪进 commitRequest 留档），
+#   欠账门禁再拿它与驱动回填的 deepReview.performedBy 对账，不符即判不闭合（backendMismatch）。
+#   回写是这一条链闭合的前提：不写回，记录里永远写着"清单里的后端"，于是每一次**合法**的
+#   临时覆盖都会被读成"请求了 A、干活的是 B"——那是假红，不是审查发现。
+#   dry-run 不回写（预览不改产物）；记录不存在也不新建（新建判定产物等于伪造）。
+#   决策层 plan-review.sh 那条路径今天就能生效。
 #
 # 退出码：0 无阻断 / 1 有阻断 / 2 环境或配置问题
 
@@ -847,6 +851,7 @@ if [ "$DRY" -eq 1 ]; then
   fi
   if [ -n "$RB_OVERRIDE_NOTE" ]; then
     say "→ 已向后端请求覆盖：--proposer $RB_PROPOSER --critic $RB_CRITIC"
+    say "  （dry-run 不回写判定记录 —— 预览不该改产物；真跑时才会把请求值写进 $REC）"
     exec node "$DRIVER" --dry-run --sha "$SHA" --proposer "$RB_PROPOSER" --critic "$RB_CRITIC"
   fi
   exec node "$DRIVER" --dry-run --sha "$SHA"
@@ -856,6 +861,18 @@ if [ -n "$RB_OVERRIDE_NOTE" ]; then
   say "  ⚠ 驱动**验证层**（评审 diff）当前不应用这两个参数（覆盖块只挂在决策层分支），"
   say "    所以本次很可能是「请求了但驱动仍按自己的默认跑」—— 那会由判定记录的"
   say "    reviewBackends × deepReview.performedBy 对账判未闭合，不会被读成通过。"
+  # ★ 评审时换了后端，必须把**请求值**写回那份判定记录。不写回的后果不是"少个字段"，
+  #   而是假红：check-pr-exec-record.js 的 judgeBackendMismatch 拿记录里的 reviewBackends
+  #   （= 提交时清单那份）去比驱动回填的 deepReview.performedBy，于是每一次合法覆盖
+  #   都会被读成"请求了 codex、实际由 claude 评审"⇒ 该条深度审查未闭合。
+  #   回写失败一律 exit 2：宁可这次审查不跑，也不留一份"会被判红但没人知道为什么"的记录。
+  #   ⛔ 这里**不加** `[ -f "$REC" ]` 前置判断：能走到这一行意味着 MODE 已从某个 REC 读出，
+  #   记录必然存在（无记录的路径在上面「故障 / 这本就不该有记录」那一分档就退了）。
+  #   真出现读不到只可能是运行中途被删 —— 那同样 fail-closed，由 lib 报 ENOENT，
+  #   而不是由入口新建一份判定产物（新建等于伪造判定），也不是"出声后继续跑"。
+  node scripts/lib/ccg-review-backends.js --critic "$RB_CRITIC" --proposer "$RB_PROPOSER" \
+    --record-request "$REC" \
+    || { say "✗ 评审时请求的后端没能写回 $REC —— 停止，不启动审查"; exit 2; }
   exec node "$DRIVER" --sha "$SHA" --proposer "$RB_PROPOSER" --critic "$RB_CRITIC"
 fi
 exec node "$DRIVER" --sha "$SHA"
