@@ -48,10 +48,71 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "needs_revision",
+    "tier": "external",
+    "performedBy": "subagent-cross-family",
+    "evidence": "本记录 diff（542 行 / 9 个代码文件）即「修 QM-6 审查抓出的 7 项真缺陷」这次提交本身，其内容完全由独立 subagent 的跨家族对抗审查结论驱动（12 条审查项 + D12 全覆盖）。驱动后端不可用的事实：claude critic 对首轮 2051 行 diff 输出 20392 字符被单次输出上限砍断、JSON 解析失败（重试一次仍失败），故按 AGENTS.md 子代理降级规则改派独立 subagent 执行。本轮修掉的 7 项：A6 首批重复解析、A7 定位静默无响应、A3 稀疏 refs 高亮脱节、A12 两份窗口计数漂移、A9 失败态误导、A2 写后全量刷新、A10 死代码清理。经核实不成立的两条：D12「两组测试互斥」（子代理读的是中间版本）、B5「每段最多 4 个媒体位」（实为 5 个条件位，audit 原始 845/100 数字正确）。完整逐条结论表见 openspec/records/s2v-result-view-perf.md「QM-6 降级审查结论」。回归锁 6 条：A1d / C7 / A3 / renderWindow.to 双语义 / A6 不重复解析。",
+    "findings": [
+      {
+        "id": "A6",
+        "severity": "critical",
+        "status": "fixed",
+        "summary": "loadNextSegmentBatch 重复解析首批；统一 renderWindow.to 为已渲染上界兼追加起点"
+      },
+      {
+        "id": "A7",
+        "severity": "major",
+        "status": "fixed",
+        "summary": "分段定位跳未渲染段静默无响应；改为一步扩窗后滚动，加回归锁"
+      },
+      {
+        "id": "A3",
+        "severity": "major",
+        "status": "fixed",
+        "summary": "onSegmentScroll 把稀疏 refs 数组 length 当连续上界；改 Object.keys 遍历"
+      },
+      {
+        "id": "A12",
+        "severity": "major",
+        "status": "fixed",
+        "summary": "编辑器自持窗口计数与宿主漂移；接受控 prop renderedCount"
+      },
+      {
+        "id": "A9",
+        "severity": "major",
+        "status": "fixed",
+        "summary": "加载失败与无成片共用空态；新增 loadFailed + 独立空态"
+      },
+      {
+        "id": "A2",
+        "severity": "major",
+        "status": "fixed",
+        "summary": "写后刷新仍全量；缺省作用域改 renderedSegments"
+      },
+      {
+        "id": "A10",
+        "severity": "major",
+        "status": "fixed",
+        "summary": "清理 8 处死代码/孤儿 emit/孤儿 prop"
+      },
+      {
+        "id": "A1",
+        "severity": "critical",
+        "status": "fixed",
+        "summary": "draft 浅拷贝不同步宿主原地刷新（上一提交已修，本轮补 A1d 回归锁）"
+      },
+      {
+        "id": "D12",
+        "severity": "none",
+        "status": "rejected",
+        "summary": "两组测试互斥不成立：子代理读到的是中间版本，当前两处断言一致"
+      },
+      {
+        "id": "B5",
+        "severity": "none",
+        "status": "rejected",
+        "summary": "每段最多 4 位不成立：逐位核对共 5 个条件位（含 audio）"
+      }
+    ]
   }
 }
