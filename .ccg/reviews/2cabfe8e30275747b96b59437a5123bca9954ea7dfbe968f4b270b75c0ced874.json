@@ -190,7 +190,7 @@
     "note": "自扮演裁决：4 条指控成立或需外部复核",
     "at": "2026-10-20T04:28:26.377Z",
     "tier": "external",
-    "evidence": "124bc04383951ceb151ad7d1bf3dea5506d4c4ad",
+    "evidence": "https://github.com/Colinchiu007/mulpub/pull/4071#issuecomment-6285106803",
     "closureNote": "第 2 轮跨家族轴 4 条 + 第 3 轮 critic 轴 7 条逐条处置：6 条采纳并各配指名红用例，3 条以真跑用例否证（i1+i2 的 expandRenames 行为断言、i3 的孤立分支 merge-base 读数），余 5 条为引擎判无需裁决的 Info。tier/evidence 由会话手写（仓外引擎不写 tier，tasks 8.1b 未落地）；本轮只有单一家族外部交付（codex 零交付且执行破坏性命令被停、gemini 不在 PATH、opencode IP 级拒绝），不声称双模型完成。"
   }
 }

@@ -172,3 +172,6 @@ date: 2026-10-20
    二次改写会让同一条产物出现"closed→closed"的无意义转换，且把 `findings` 复制第二遍。
 3. **`.adversarial/` 被 `.gitignore` 收录**：裁决原文不在仓内可审，产物里的 `findings` 是它的投影。
    这一点与 §五 那条"外部代理执行破坏性动作"合起来，就是 tasks 8.1b「写入方指纹」真正要解决的东西。
+4. **本片自己踩到了「形状 ≠ 存在」**：产物 `evidence` 原本写的是承载处置结论那个提交的 40 位对象 id，而分支 rebase 之后那个 sha 已被重写、不再存在 —— `isResolvableEvidence` 对 40 hex 只判形状，于是它照样判 `external`、门禁照样绿，但人点开是一个不存在的对象。
+   处置不是把 40-hex 那一档也拿去 `cat-file`（对象 id 可以指向 commit / blob / tree，验"存在"不等于验"是评审"，只会再造一条装饰性判据），而是**把出处改指本 PR 的评论 URL** —— 本片刚新增的 `url` 形态认它，`closureCorroboration=external` 当场量得；写之前先用判据自己的 `evidenceForm` 与 `closureCorroboration` 验过，不验就写正是本片要防的动作。
+   这条同时给出 §六 第 4 条那句"只验对象存在，不验内容与相关性"的上界：**连存在性都没覆盖到的那一档，靠的是"公开可点开"与人工抽查，不是机器可验。** 真正能判"谁真跑了"的仍是 tasks 8.1b 的写入方指纹。

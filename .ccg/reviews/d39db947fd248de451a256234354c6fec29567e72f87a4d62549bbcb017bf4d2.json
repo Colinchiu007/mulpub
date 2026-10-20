@@ -49,7 +49,7 @@
     "status": "needs_revision",
     "tier": "external",
     "performedBy": "claude (repo chain r2+r3, 14 条)",
-    "evidence": "124bc04383951ceb151ad7d1bf3dea5506d4c4ad",
+    "evidence": "https://github.com/Colinchiu007/mulpub/pull/4071#issuecomment-6285106803",
     "findings": [
       {
         "id": "r2/i1",
