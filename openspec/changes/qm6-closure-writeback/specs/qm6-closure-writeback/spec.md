@@ -1,0 +1,91 @@
+## ADDED Requirements
+
+### Requirement: 闭环值的写入方必须是仓内驱动，且写入条件是可核的合取
+
+系统 SHALL 在 `scripts/deep-review.sh` 完成一次深度审查后，由**仓内**唯一实现
+`scripts/ccg-review-writeback.js` 决定是否把 `deepReview.tier` 写为 `external` 并写 `deepReview.evidence`。
+生产代码 MUST NOT 再出现第二处写 `tier` 的实现，判定记录里 `tier` 的写入方 MUST 唯一。
+
+写入 MUST 同时满足四条，任一不成立即**不写、不改 `status`、不猜默认值**，并输出一行点名缺哪一条：
+
+1. `deepReview.status` 在 `CLOSED_DEEP_REVIEW_STATUSES` 内；
+2. `deepReview.findings` 是**数组**且长度 > 0；
+3. `deepReview.performedBy` 与同一份记录的 `reviewBackends.critic` **逐字相等**（期望值由驱动写入，不由填写方自选）；
+4. 该记录是本次驱动调用刚产出的（按记录文件路径 + 本次 sha 归属，不得翻历史产物顶替）。
+
+`externalReview` 一类的形状判据若需要「后端名与本轮 critic 一致」这一条，MUST 复用本 Requirement 的第 3 条口径，
+MUST NOT 在别处再抄一份比较逻辑。
+
+#### Scenario: 四条件齐备时驱动写回 external
+- **WHEN** 引擎已把 `status:"cleared"`、`performedBy:"claude"`、`findings:[3 条]` 落进 `.ccg/reviews/<sha>.json`，且该记录 `reviewBackends.critic` 为 `claude`
+- **THEN** 写回器 MUST 把 `deepReview.tier` 置为 `external` 并写入 `delivery@<sha256>` 形态的 `evidence`
+- **AND** `scripts/check-pr-exec-record.js` 对同一条记录 MUST 读成 `external`（不再依赖任何手写）
+
+#### Scenario: 后端名不符即不写，且不冒充
+- **WHEN** 同上，但 `reviewBackends.critic` 为 `codex`（即被请求的后端与实际执行者不同）
+- **THEN** 写回器 MUST NOT 写 `tier`，MUST NOT 改 `status`
+- **AND** MUST 输出一行包含 `skip-writeback` 与缺失条件名（`backend-mismatch`）的读数
+
+#### Scenario: 空 findings 不算交付
+- **WHEN** 记录里 `status:"cleared"` 而 `findings` 为 `[]`、`null` 或不是数组
+- **THEN** 写回器 MUST 拒绝写回并以 `empty-findings` 出声
+- **AND** 判据侧对该条 MUST 仍读成 `unknown`/`unrecognized`（按字段是否存在），MUST NOT 因"驱动跑过"而放行
+
+#### Scenario: 写入方唯一
+- **WHEN** 生产代码里出现第二处给 `tier` 赋 `external` 的字面量（`deep-review.sh` 与本写回器之外）
+- **THEN** 结构锁 MUST 变红
+
+### Requirement: `delivery@` 出处必须可就地重算，判据不得只认形状
+
+`scripts/check-pr-exec-record.js` 的 `evidenceForm()` SHALL 增加一档 `delivery`，
+接受形如 `delivery@<64 位小写十六进制>` 的值，并 MUST **验证内容而不是验证形状**：
+判据 MUST 对该记录自己的 `deepReview.findings` 按声明的规范化口径重算摘要，
+与 `evidence` 里的值逐字符相等才判该形态成立；不等或 `findings` 不可读一律降为 `external-unverified`。
+
+该档与既有 `path` 档同属**可就地验证**的两档；其余四档（`pr`/`session`/`uuid`/`oid`）仍按形状判，
+本片 MUST NOT 把它们伪装成已验证。摘要的规范化实现 MUST 只有一份，写回器与判据 MUST require 同一文件。
+
+#### Scenario: 自洽摘要判 external
+- **WHEN** `evidence` 的摘要等于该记录 `findings` 规范化后的 sha256
+- **THEN** `closureCorroboration()` MUST 返回 `external`
+
+#### Scenario: 抄来的摘要不成立
+- **WHEN** `evidence` 是合法 64 位十六进制但与本记录 findings 重算值不等（含从别的记录整段复制）
+- **THEN** `closureCorroboration()` MUST 返回 `external-unverified`
+- **AND** 在**高危面**上该条 MUST 判欠账（高危面只认 `external`）
+
+#### Scenario: 判据与写回器不得各存一份规范化
+- **WHEN** 摘要规范化逻辑被复制到第二处实现
+- **THEN** 接线锁 MUST 变红，并点名第二处的文件与行
+
+### Requirement: 跨仓形状判据的两份实现必须逐字对账
+
+引擎（位于本仓之外，CI runner 上不存在）已持有 `EXTERNAL_EVIDENCE_RE` 与 `externalReviewSatisfied()`。
+本仓 SHALL 自持一份「外部复核成立」的形状判据（因为无法 require 一个不存在的文件），
+且两份实现 MUST 由一把**逐字对账**的行为锁钉住：同一批输入在两侧的布尔结论 MUST 逐项相同。
+
+该锁 MUST 在引擎不可读时**出声**（打印 `parity=skipped(engine-absent)` 并以非零或显式读数表态），
+MUST NOT 静默 `skip` —— 把"没比对"读成"比对通过"是本仓已定性的装饰性门禁形态。
+
+#### Scenario: 同一输入两侧同结论
+- **WHEN** 用一批固定样本（含合法 PR 评论 URL、self-play 冒充、缺 `reviewedAt`、后端名不符）分别喂两份实现
+- **THEN** 两侧的布尔数组 MUST `toEqual`
+- **AND** 锁 MUST 打印命中样本条数，条数为 0 时 MUST 判为探针失明而非通过
+
+### Requirement: 跑完真评审不得让记录在结构上退化
+
+写回器 MUST 保证「引擎完成一次交付」这一事件不会使判定记录失去判据所要求的字段。
+具体地：读到 `deepReview` 缺 `tier` 键时 MUST 按 `ccg-review-decider.js::buildDeepReviewInit()` 的同一口径补齐初值再判定，
+MUST NOT 让"跑过评审"的记录比"什么都没做"的记录更差（后者有 `tier:"unknown"`，前者曾被整体替换成无此键）。
+
+`deep-review.sh` 由 `exec` 改为调用后，其退出码 MUST 与被调用方的退出码逐字一致；
+`--dry-run` 出口与引擎缺失（`DRY_NO_DRIVER`）出口的行为 MUST 与改动前一致。
+
+#### Scenario: rc 语义不因加写回而漂移
+- **WHEN** 引擎以 rc=1 退出（如 `escalated`）
+- **THEN** `deep-review.sh` MUST 以 1 退出，MUST NOT 因写回器成功而返回 0
+
+#### Scenario: 缺键补齐而非静默丢字段
+- **WHEN** 记录 `deepReview` 有 `status`/`performedBy`/`findings` 而无 `tier` 键
+- **THEN** 写回器 MUST 先按统一口径补 `tier` 初值，再按四条件决定是否升 `external`
+- **AND** 判据对该条 MUST 能区分「补过初值未升级」与「字段整段消失」两种形态
