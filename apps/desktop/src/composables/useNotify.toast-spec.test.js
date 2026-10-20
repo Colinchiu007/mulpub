@@ -12,6 +12,9 @@
  * 而 element-plus 的 `ElMessage.success(params)` 允许对象形态，夹具必须能记下整个实参。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const mocks = vi.hoisted(() => ({
   elMessage: {
@@ -34,7 +37,7 @@ vi.mock('@/api/electron-bridge', () => ({
 
 import { ElMessage } from 'element-plus'
 import { invoke } from '@/api/electron-bridge'
-import { useNotify } from './useNotify'
+import { useNotify, __resetNotifyDiagnostics } from './useNotify'
 
 // 取真实存在的文案 key（不硬编码中文，避免 locale 文案调整时假红）
 const KEY_SUCCESS = 'story2video.export_completed'
@@ -58,6 +61,9 @@ describe('useNotify — toast 规范单点化（duration / grouping / level / �
 
   beforeEach(() => {
     vi.clearAllMocks()
+    // 去重集合是模块级状态：不复位，"撞过上限"的那条用例会把它的影响漏给后面每一条
+    // （实测：上限用例之后，notifyConfirm 的未命中留痕再也打不出来 —— 红的还是别的用例）。
+    __resetNotifyDiagnostics()
     invoke.mockResolvedValue({ code: 0, data: true })
     warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     n = useNotify()
@@ -131,19 +137,68 @@ describe('useNotify — toast 规范单点化（duration / grouping / level / �
     expect(warn).toHaveBeenCalledTimes(2)
   })
 
-  it('环境变量可覆盖上限，非法覆盖值回落默认并出声（对齐仓内频控/队列的 env 纪律）', async () => {
-    const prev = process.env.MP_NOTIFY_MAX_DURATION_MS
-    process.env.MP_NOTIFY_MAX_DURATION_MS = '12000'
-    ElMessage.info.mockClear()
-    n.notify(KEY_INFO, { level: 'info', duration: 20000 })
-    expect(lastCall(ElMessage.info).duration).toBe(12000)
-    process.env.MP_NOTIFY_MAX_DURATION_MS = 'abc'
+  it('上限是代码常量，渲染进程**没有** env 覆盖通道（QM-6 critic 轴 i1：可覆盖是假的）', async () => {
+    // 现场取证（不是推演）：`npx vite build` 后 `dist/assets/index-*.js` 里是 `var lK={}`
+    // 与 `const e=lK.MP_NOTIFY_MAX_DURATION_MS` —— Vite 把渲染进程的 `process.env.X` 注成**空对象桩**，
+    // 所以"用环境变量放宽上限"在生产里永远读到 undefined ⇒ 一条假的功能比没有功能更坏，
+    // 因为测试环境（node）里它可覆盖、可断言，全绿。锁的口径因此打在**源码**上。
+    const raw = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'useNotify.js'), 'utf8')
+    // 只量**代码**：解释性注释里必须原样引用 `process.env` 这个被禁写法，否则说不清为什么禁
+    // （按整份文件匹配会把自己解释洞的那段注释打成违规 —— 同族坑已在仓内出现三次）。
+    const code = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+    expect(code, 'useNotify 一旦被改回读 process.env，就是重新制造"vitest 里真、生产里假"的那一格')
+      .not.toMatch(/process\s*\.\s*env/)
+    // 常量语义仍在：超上限夹到 8000 并出声，且不因"没有 env"而退化成不夹
     ElMessage.info.mockClear()
     warn.mockClear()
     n.notify(KEY_INFO, { level: 'info', duration: 20000 })
-    expect(lastCall(ElMessage.info).duration, '非法上限不得变成 NaN 或 0').toBeLessThanOrEqual(8000)
-    expect(warn).toHaveBeenCalled()
-    if (prev === undefined) delete process.env.MP_NOTIFY_MAX_DURATION_MS
-    else process.env.MP_NOTIFY_MAX_DURATION_MS = prev
+    expect(lastCall(ElMessage.info).duration, '无 env 通道时上限必须仍是硬夹住，而不是放任不消失').toBe(8000)
+    expect(warn, '夹住必须出声').toHaveBeenCalled()
+  })
+
+  it('「没展示东西」的两种成因必须分别归因，且去重键不得互相污染（critic 轴 i2）', () => {
+    // ① key 未命中 ② 调用方直传的 message 仍是 i18n key 形态被守卫拦下。
+    // 过去两者都报「messageKey 未命中」⇒ 归因错，且按 key 记进去重集合后，
+    // 同一个 key 的**真未命中**会被这次误报永久静默。
+    const leakedKey = 'operation_failed'
+    warn.mockClear()
+    const t1 = n.notify(leakedKey, { level: 'info', message: 'some.nother.raw_key' })
+    expect(t1).toBe('')
+    const blockedMsg = warn.mock.calls.map((c) => String(c[0])).find((s) => s.includes('i18n key shape'))
+    expect(blockedMsg, '被守卫拦下必须写成"leak guard"，不得谎报成 locales 未命中').toBeTruthy()
+    expect(blockedMsg).not.toContain('not found in locales')
+    // ② 之后同一 key 走真未命中路径，必须还能出声（证明两种成因没共用一个去重桶）
+    warn.mockClear()
+    const badKey = missingToastKey()
+    n.notify(badKey, { level: 'info' })
+    const missMsg = warn.mock.calls.map((c) => String(c[0])).find((s) => s.includes('not found in locales'))
+    expect(missMsg, '真未命中必须单独成一条，且带上那个 key').toContain(badKey)
+  })
+
+  it('去重集合有上界：动态 key 刷屏时不得无界增长（critic 轴 i3）', () => {
+    warn.mockClear()
+    const before = warn.mock.calls.length
+    for (let i = 0; i < 260; i++) n.notify('dyn.missing.key.' + i, { level: 'info' })
+    const after = warn.mock.calls.length
+    const announced = warn.mock.calls.map((c) => String(c[0])).some((s) => s.includes('dedup set reached'))
+    expect(announced, '撞到上界必须出声一次，不得静默变成"再也不报"').toBe(true)
+    expect(after - before, `去重集合上界 200，实测新增了 ${after - before} 条出声`).toBeLessThanOrEqual(201)
+    // 上界之后再来一个**已记过**的 key 仍不得出声（这是去重在起作用，不是全局静音）
+    warn.mockClear()
+    n.notify('dyn.missing.key.0', { level: 'info' })
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('notifyConfirm 文案未命中时必须留痕——「用户没看到确认框」不等于「用户点了取消」', async () => {
+    warn.mockClear()
+    const badKey = missingToastKey()
+    const r = await n.notifyConfirm(badKey)
+    expect(r).toBe(false)
+    expect(warn, '过去这里直接 return false、日志零痕迹').toHaveBeenCalledWith(expect.stringContaining(badKey))
+    expect(ElMessageBoxConfirmCalls(), '未命中不得真的弹出确认框').toBe(0)
   })
 })
+
+function ElMessageBoxConfirmCalls () {
+  return mocks.elMessageBox.confirm.mock.calls.length
+}

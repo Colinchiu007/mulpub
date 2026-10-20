@@ -329,7 +329,7 @@ describe('useModelProviderCrud', function () {
       await expect(crud.loadProviders()).resolves.toBeUndefined()
 
       const { ElMessage } = await import('element-plus')
-      expect(ElMessage.error).toHaveBeenCalledWith('加载失败')
+      expect(ElMessage.error).toHaveBeenCalledWith(expect.objectContaining({ message: '加载失败' }))
       expect(crud.providers.value).toEqual([])
       expect(crud.loading.value).toBe(false)
     })
@@ -341,7 +341,7 @@ describe('useModelProviderCrud', function () {
 
       const { ElMessage } = await import('element-plus')
       // 自然语言原因文本经统一文案格式化后原样透传（保留具体原因）
-      expect(ElMessage.error).toHaveBeenCalledWith('IPC 不可用')
+      expect(ElMessage.error).toHaveBeenCalledWith(expect.objectContaining({ message: 'IPC 不可用' }))
       expect(crud.loading.value).toBe(false)
     })
 
@@ -357,7 +357,7 @@ describe('useModelProviderCrud', function () {
 
       const { ElMessage } = await import('element-plus')
       // 自然语言原因文本经统一文案格式化后原样透传（保留具体原因）
-      expect(ElMessage.error).toHaveBeenCalledWith('密钥无效')
+      expect(ElMessage.error).toHaveBeenCalledWith(expect.objectContaining({ message: '密钥无效' }))
       expect(crud.showFormDialog.value).toBe(true)
       expect(crud.submitting.value).toBe(false)
     })
@@ -372,7 +372,7 @@ describe('useModelProviderCrud', function () {
       await expect(crud.submitForm()).resolves.toBeUndefined()
 
       const { ElMessage } = await import('element-plus')
-      expect(ElMessage.error).toHaveBeenCalledWith('保存失败')
+      expect(ElMessage.error).toHaveBeenCalledWith(expect.objectContaining({ message: '保存失败' }))
       expect(crud.submitting.value).toBe(false)
     })
 
@@ -437,7 +437,7 @@ describe('useModelProviderCrud', function () {
       await crud.setDefault({ id: 'openai', category: 'llm', api_key: '', api_key_masked: '' })
 
       const { ElMessage } = await import('element-plus')
-      expect(ElMessage.warning).toHaveBeenCalledWith('请先配置 API Key 后再设为默认')
+      expect(ElMessage.warning).toHaveBeenCalledWith(expect.objectContaining({ message: '请先配置 API Key 后再设为默认' }))
       expect(modelProviderSetDefault).not.toHaveBeenCalled()
     })
 
@@ -879,7 +879,7 @@ describe('useModelProviderCrud', function () {
         user_default_model: 'gpt-4o-mini', config: {},
       }
       await crud.submitForm()
-      expect(ElMessage.warning).toHaveBeenCalledWith('默认模型必须属于该服务商的模型列表')
+      expect(ElMessage.warning).toHaveBeenCalledWith(expect.objectContaining({ message: '默认模型必须属于该服务商的模型列表' }))
       expect(modelProviderUpdate).not.toHaveBeenCalled()
     })
 

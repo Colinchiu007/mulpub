@@ -55,3 +55,12 @@ sync_backfill_owner: 无需回填（派生收口）；旧载体存量行仍由�
 | 远程同步 | 由门禁推导 | 状态列不手写：合并后由 scripts/lib/merge-ledger.js 按主干历史推导收口；合并证据回读写在 PR 评论里，不写回本文件（AGENTS 2026-10-18「禁止记录收口回填 PR」） |
 
 - 保留门禁：行尾对账 ✅（纯插入，删除数为 0）| 品牌残留 随 CI（本批未写竞品名）| 文档同步 随 CI doc-gate | 受管文档绝对路径 随 CI Gate 12c（本记录一律用 `<仓库父目录>` 占位）| 执行记录载体 ✅（`openspec/records/ux-audit-notify-spec.md`）| 远程同步 PR 待创建
+
+## 第二轮（2026-10-20，QM-6 critic 轴 5 条 + CI 红的真实成因）
+
+- **评审通道**：`CCG_ARL_DIR=<仓库父目录>/Mulpub/.adversarial/arl-patched/scripts` + `node .adversarial/arl-patched/scripts/ccg-deep-review.js --sha 9bd3e6db…`（cwd 必须是被审 worktree，引擎 `REPO = process.cwd()` ⇒ 产物落对地方）；提交判定 DUAL（315 行）。critic=claude 真实交付 9 条问题 / 4 维度 / 最低分 7；proposer=opencode 跨家族校验通过；**裁决**为引擎自扮演出口（`adjudicatedBy=self-play`、`confidenceWeight=0.6`、`requiresExternalReview` 本轮 0 条）。5 条逐条填写完毕（全 upheld；i1 的辩护与 i5 的行为半区被现场取证否证），原件 `.adversarial/ccg-deep-9bd3e6db/`，入库副本 `.ccg/reviews/plan-review-9bd3e6db-{critique-v1.md,adjudication.json,family-snapshot.json}`。
+- **代码变更**：`useNotify.js`（删除 env 覆盖通道 → 常量上限 `DEFAULT_DURATION_MS=3000` / `MAX_DURATION_MS=8000`；两类成因分别归因 + `成因|key` 去重 + `WARN_DEDUP_CAP=200` + `__resetNotifyDiagnostics()`；诊断串改 ASCII；`notifyConfirm` 未命中留痕；JSDoc 去掉 `confirm` 合法值）；`useNotify.toast-spec.test.js`（+4 条：源码反向锁 / 成因归因 / 去重上界 / confirm 留痕）；消费者断言批量改写 9 个测试文件 63 处（另 2 处退回字符串半区）。
+- **为什么第一轮没发现 CI 会红**：第一轮把验证域取成"含 `useNotify` 字样的测试文件"，这是**按引用文本取并集**，而真实消费者是"渲染了用 useNotify 的组件"的测试 —— 结构性漏掉。本轮一律跑桌面 `src` 全量。
+- **取证读数**：`node .github/scripts/check-locale-sync.js --cjk` → `CJK scan PASS（基线 1330 条，当前 1125 条，无新增硬编码）`；四个曾红的文件定点 152 passed；`npx vite build` rc=0（产物取证用）；桌面 `src` 全量（`npx vitest run src`，`Duration 778.89s`）→ `Test Files 2 failed | 385 passed (387)` / `Tests 2 failed | 6147 passed | 2 skipped (6151)`。**两条失败与本次改动无关**：`src/overlay-view-suspension.test.js` 与 `src/shell-mode-6b.test.js` 读 `electron/preload/index.bundle.js` 的 ENOENT，该文件在 `.gitignore:443` 里是**构建产物**（全新 worktree 天然没有）；`node scripts/build-preload.js` 生成后这两个文件 `29 passed / 29` ⇒ 本次改动零失败。
+- **待人工/产品裁决（不代拍）**：toast 时长要不要给用户设置项（本轮只删了假 env 通道）；审计 2.7 余量「85 处直连 `ElMessage`」的收编与只可缩小棘轮（新门禁需人工批准）。
+- **合并状态（由引擎自己落，不手改）**：重跑引擎走「复用存档 critique + 已填裁决」短路（**零模型调用**）回填 `.ccg/reviews/9bd3e6db….json` → `status=self_play_blocked`、`blocking=5`、`requiresExternalReview=[]`。引擎口径是「`verdict=upheld` 一律算阻断，自扮演无权豁免」，**与"这条是否已经修完"无关** —— 5 条修订都已落在本 PR。所以 `check-pr-exec-record.js --mode=enforce` 判未闭合 ⇒ **不自动合并**，合并决定交回人工；正解是补跑一轮真外部评审（2026-10-20 当天 claude 轴可出货），而不是把 status 改成闭环词。

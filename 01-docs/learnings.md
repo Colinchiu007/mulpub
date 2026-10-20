@@ -1,3 +1,20 @@
+## 「测试环境里能读到的全局」不等于「生产宿主提供的」——渲染进程读 process.env 是假功能
+
+### lesson: test-host-globals-are-not-production-host-parity
+
+**现场**：Mulpub UX 审计 2.7（分支 `ux-audit-notify-spec`，PR #4069）。给 `useNotify` 的 toast 时长写"上限可用 `MP_NOTIFY_MAX_DURATION_MS` 覆盖（按调用时读取）"，并配了一条行为用例 + 一条专打这一格的变异反证。全部通过。外部 critic 反问：这个文件在**渲染进程**。
+
+**产物取证（比"可能不行"更具体）**：`cd apps/desktop && npx vite build`，在 `dist/assets/index-*.js` 里读到 `var lK={}` 与 `const e=lK.MP_NOTIFY_MAX_DURATION_MS`。Vite 只把 `process.env.NODE_ENV` 那一格 define 成常量，**任意** `process.env.<X>` 被替换成空对象桩的属性访问：不抛 ReferenceError、恒 `undefined` ⇒ 生产里"可覆盖"静默不存在。
+
+**为什么四层测试一起漏**：vitest 的 environment 是 node，那里 `process.env` 是真对象、可读写。于是"设 env ⇒ 上限变"为真，"摘掉读取 ⇒ 用例必须红"也为真 —— **这两件事在测试宿主里都成立，在生产宿主里都不成立**。任何只在测试 realm 里做的锁，对"宿主没提供这个全局"这类缺陷结构性免疫。（同族但不同面：`[TEST-NETWORK-BLOCKED]` 那条讲的是"测试里禁止真实出站"，本条讲的是"测试里可用的全局不能反推生产可用"。）
+
+**判据（可迁移）**：给任一"能力"写锁之前先问 **"这能力在生产宿主里由谁提供？"**，并去**产物**里读一次；不要引用先例 —— 同一写法下可能有两格不同语义（`process.env.NODE_ENV` 能用 ≠ `process.env.MP_*` 能用）。
+
+**处置**：不是"补一个更聪明的通道"（IPC/preload 传配置属产品决策，单独上报），而是**删掉假功能**（上限改代码常量，夹住与出声语义一字未减），并留一条**反向锁**（剥注释后本模块不得再出现 `process.env`）防止下一个人"顺手加回可配置"。附带一条：**模块级状态必须有复位出口**（本轮加 `__resetNotifyDiagnostics()`），否则"撞过上限"会漏给后面的用例，实测红的是别人的用例。
+
+**同场第二笔（同一纪律的另一面）**：本 PR 把唯一展示出口从 `ElMessage[type](text)` 改成 `ElMessage[type]({message, duration, grouping})`，我把验证域取成"源码含 `useNotify` 字样的测试文件"，CI 全量当场 **63 failed / 9 文件** —— 经组件间接使用它的 `Publish.test.js` / `Accounts.test.js` 全不在并集里（AGENTS「改被多文件消费的模块，验证范围取消费者并集」第二次犯在同一类动作上）。批量改写还有第二个坑：仓内 85 处**直连** `ElMessage` 的调用点仍传字符串，**按 mock 形状统一改写会把没坏的断言改坏**（本轮 2 处由全量跑当场暴露并退回）。判据只能是"这段文案的生产者走不走 useNotify"。
+
+**同场第三笔（判据引擎的口径，值得所有 QM-6 单元知道）**：`ccg-deep-review.js` 的 `blockingFromAdjudication` 只按 `verdict === 'upheld'` 判阻断，**不看这条是否已经修完**。于是"外部 critic 提了 5 条、我 5 条都认并都改了"这一最好的结局，在机械面上恰恰得到 `self_play_blocked`（非闭环词），而"5 条都 dismissed"才得到 `self_play_resolved`。含义：**自扮演裁决无法靠"承认得更彻底"来闭合，只能靠外部那一轮**（或 `needs_revision` 由人确认）。本轮选择把合并交回人工并如实登记，不手改 status。
 ## 「参数传了但没人消费」和「日志说报了但屏幕没东西」是同一类洞
 
 ### lesson: silent-no-op-channel-params

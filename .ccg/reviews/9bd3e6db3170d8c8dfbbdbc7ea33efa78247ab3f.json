@@ -1,0 +1,134 @@
+{
+  "sha": "9bd3e6db3170d8c8dfbbdbc7ea33efa78247ab3f",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 315 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 315,
+    "fileCount": 10,
+    "codeFileCount": 5,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-20T07:25:18.281Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_blocked",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "finding": "本变更的招牌能力——env 覆盖上限 + 「按调用时读取」（变异 N6 专打这一格）——只在 vitest 的 node 环境里被证明存在。`useNotify.js` 位于 `apps/desktop/src/composables`（渲染进程），Electron 默认 contextIsolation 下渲染进程通常没有 `process` 全局，Vite 也不会在浏览器构建里自动定义 `process.env`。若运行时读 `process.env.MP_NOTIFY_MAX_DURATION_MS` 抛 ReferenceError 或恒为 undefined，那么生产上「覆盖上限」就是假的——这正是本变更要消灭的「可覆盖是假的」同族失败，而变异电池 N6 结构性抓不到它：测试环境里 process.env 永远存在且可变。PRD 引用的「仓内频控/队列 env 纪律」若落在主进程侧，也不构成渲染进程的先例。",
+        "highRiskDomains": [],
+        "prosecution": "渲染进程读 `process.env` 在生产里可能是假功能：Vite 不给浏览器端定义 `process`，`useNotify` 的\"上限可用环境变量覆盖\"若读不到，就是\"可覆盖是假的\"——本单元要消灭的同族失败。",
+        "defense": "仓内已有渲染端读 `process.env.NODE_ENV` 的先例（`electron-bridge.js:88`、`useS2VVoicePreview.js:41`），且 vitest 里该能力有通过的行为用例与变异反证（N6），没有理由认为渲染进程拿不到。",
+        "verdict": "upheld",
+        "rationale": "成立，且**用产物级取证否证了辩护**：`npx vite build` 后在 `dist/assets/index-26ywp-EI.js` 里读到 `var lK={}` 与 `const e=lK.MP_NOTIFY_MAX_DURATION_MS` —— Vite 把渲染端 `process.env.X` 注入成**空对象桩**，于是该读取在生产恒 `undefined`。既有先例不构成辩护：`process.env.NODE_ENV` 是 Vite 明确 define 的那一格，任意键不是。更关键的是\"vitest 全绿 + 变异红\"在这里**结构上测不到**：测试环境是 node，`process.env` 真在，所以任何只跑在 vitest 里的行为锁与反证都无法区分\"真能用\"与\"桩是空的\"。处置不是补一个更聪明的 env 通道，而是**删掉这个假功能**：上限改为代码常量（`DEFAULT_DURATION_MS=3000 / MAX_DURATION_MS=8000`），夹住与出声的语义一字未减；并加一条源码级锁断言本模块（剥掉注释后）不得再出现 `process.env`，防止下一个人\"顺手加回可配置\"。要给用户可调时长属产品决策（设置项），已记入待上报。"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "`notify()` 里 `text` 为空有两种来源，但都无差别走 `warnMissingKey(messageKey, level)`：① messageKey 真未命中；② `options.message` 传了但被 `looksLikeI18nKey` 防泄漏守卫拦截（rawText 是 i18n key 形态）或 message 为空。后两种不是「key 未命中」，告警文案「messageKey 未命中」归因错误；且模块级去重 Set 会因这次误报把该 key 记住，之后同一 key 的真实未命中被永久静默——一个诊断错误放大成另一个。",
+        "highRiskDomains": [],
+        "prosecution": "`notify()` 里 text 为空有两种来源（key 未命中 / 调用方直传的 message 被防泄漏守卫拦下），却都报\"messageKey 未命中\"；归因错，且去重 Set 会把这次误记的键永久占位，之后同一键的真未命中被静默。",
+        "defense": "这是诊断文案的措辞问题，不影响用户可见行为；两个成因在生产里几乎不会同时出现。",
+        "verdict": "upheld",
+        "rationale": "成立。诊断归因错误正是本单元存在的理由（\"日志说报了、屏幕上什么都没有\"就是同一形状）。处置：`warnNoShow(cause, key, level)` 按 `成因|键` 去重 —— `leak-blocked` 用固定桶（不占住该 key 的 key-miss 名额），`key-miss` 才带 key；措辞分别为 `options.message is still an i18n key shape (leak guard)` 与 `messageKey not found in locales`。同一条路径也补进 `notifyConfirm`：那里 `return false` 过去**零痕迹**，而\"用户没看到确认框\"与\"用户点了取消\"在排障上是两件事。锁：`toast-spec` 的「两种成因必须分别归因」用例断言两句话术互不覆盖，且第二次真未命中仍能出声。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "`warnedMissingKeys` 模块级「只增不清」，其「规模上界 = 仓内 messageKey 条数」的论证只对静态 key 词汇成立。useNotify 明面支持动态 key（`options.message` 动态拼接；miss 路径对任何未登记 key 开放），调用点若生成动态 key（如 `task-${id}` 未登记或拼错），每次新值都会向 Set 永久加一条，应用生命周期内无界增长——刷屏场景恰恰是本变更要防的，但去重集合在「刷屏用动态 key」时反而无界。",
+        "highRiskDomains": [],
+        "prosecution": "`warnedMissingKeys` 只增不清，其\"规模上界 = 仓内 messageKey 条数\"的论证只对静态 key 成立；本模块明面支持动态文案/动态 key，用未登记 key 刷屏时该 Set 在应用生命周期内无界增长。",
+        "defense": "动态 key 是误用，正常调用点不会生成新键；真要刷屏，问题在调用点不在这里。",
+        "verdict": "upheld",
+        "rationale": "成立。\"只在误用时爆\"不是辩护——本判据防的就是\"某条路径永远没人走\"，且去重集合本身就是为\"刷屏场景\"而存在的（它失效时反而在刷屏下无界）。处置：`WARN_DEDUP_CAP = 200`，撞到上界出声一次后停止登记（`dedupCapAnnounced` 保证这条告警自身不刷屏），并导出 `__resetNotifyDiagnostics()` 供测试复位模块级状态。复位不是可有可无：实测\"上限用例\"跑过后，后面的 `notifyConfirm` 留痕用例就再也打不出告警——**红的会是别人**。锁：`toast-spec` 的「去重集合有上界」用例灌 260 个不同 key，断言出声数 ≤201、上界告警出现、且已记过的 key 之后不再出声（证明是去重在起作用而非全局静音）。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "本 diff 提交的 `.ccg/reviews/9e2085….json` 记录的是 sha `f6a61d24c`（本分支的前一个提交）、`changedLines: 260`、`fileCount: 9`，而本提案实际是 642 行 / 10 个文件、head 为 9bd3e6db。decider 的 mode=DUAL 判定与敏感扫描是基于一份更早/更小的 diff 做出的，提交进分支后这份证据与最终变更不一致（且 head 自身 9bd3e6db 的 review json 反而是未跟踪状态）。",
+        "highRiskDomains": [],
+        "prosecution": "本 diff 里提交的 `.ccg/reviews/9e2085….json` 记的是前一个提交 `f6a61d24c`、260 行/9 文件，而提案是 642 行/10 文件、head 为 `9bd3e6db` ⇒ 判定证据与最终变更不一致；head 自己的记录反而是未跟踪状态。",
+        "defense": "记录是按内容寻址的：每个提交各有一份，历史提交的那份天然描述历史提交。",
+        "verdict": "upheld",
+        "rationale": "成立——辩护只解释了\"为什么旧提交有一份旧记录\"，没解释\"为什么**当前 head 没有记录**\"。`check-pr-exec-record.js` 的 `evaluateDeepReviewDebt` 看的正是\"本次变更集内的每条 mode=dual 产物\"，一条挂在旧 sha 上的 pending 记录既不能为 head 背书，也不该被当作\"跑过了\"。处置：用 `node scripts/ccg-review-decider.js --base origin/main` 为 head 生成 `.ccg/reviews/9bd3e6db3….json` 并随本轮提交；旧记录保留（它是历史事实，不改写）。这条同时暴露一个流程缺陷要记进 learnings：**CCG 未安装时 pre-commit 会静默跳过判定**（本轮日志原文「[CCG] 未找到 CCG（run_skill.js），已跳过 CCG 门禁」），于是\"没有记录\"与\"不需要记录\"在产物上不可区分。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "JSDoc 仍声明 `@param {'success'|'info'|'warning'|'warn'|'error'|'confirm'} [options.level]`，但 `LEVEL_BY_ALIAS` 不含 `confirm`，新代码把 `level:'confirm'` 当未知值处理：console.warn + 按 info 展示。老代码对 confirm 是静默 no-op，所以若有调用方真的传 `level:'confirm'`，行为会从「无提示」变为「可见 info toast + 告警」，与文档宣称的合法值相悖；即便没有调用方，文档与实现也已脱节。",
+        "highRiskDomains": [],
+        "prosecution": "JSDoc 仍把 `confirm` 列为 `options.level` 的合法值，而 `LEVEL_BY_ALIAS` 不含它 ⇒ 新代码会把 `level:\"confirm\"` 当未知值（warn + 按 info 展示）；老代码是静默 no-op，所以行为从\"无提示\"变成\"可见 info toast\"，与文档相悖。",
+        "defense": "`confirm` 只属于 `notifyConfirm()`，不会有人把它传给 `notify()`。",
+        "verdict": "upheld",
+        "rationale": "成立（按\"文档与实现脱节\"这一半），但行为变更的那一半**现场不成立**：全仓 `grep -rn \"level:\\s*[\\x27\\\"]confirm[\\x27\"]\"` 只有两处，都是 `reportNotify(…, {level:'confirm'})` 的日志字段（`useNotify.js:184` 与 `notifyCore.test.js:89`），无任何 `notify(..., {level:'confirm'})` 调用点 ⇒ 这是**文档修正**，不是行为变更。处置：从 `notify` 的 JSDoc 联合类型里删掉 `confirm` 并在注释里写明\"确认弹窗只走 `notifyConfirm()`\"、把\"真传了会怎样\"说清。辩护方\"不会有人传\"不能免掉这条：文档里一个不存在的合法值就是下一个调用点的错误来源。"
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      }
+    ],
+    "note": "自扮演裁决：5 条指控成立或需外部复核",
+    "at": "2026-10-20T08:08:07.439Z"
+  }
+}

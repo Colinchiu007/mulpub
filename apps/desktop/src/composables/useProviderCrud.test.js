@@ -132,7 +132,7 @@ describe('useProviderCrud — composable setup', () => {
     mockProviderList.mockResolvedValueOnce({ code: 1, message: '加载失败' })
     const r = useProviderCrud()
     await r.loadProviders()
-    expect(mockElMessage.error).toHaveBeenCalledWith('加载失败')
+    expect(mockElMessage.error).toHaveBeenCalledWith(expect.objectContaining({ message: '加载失败' }))
     expect(r.loading.value).toBe(false)
   })
 
@@ -140,7 +140,7 @@ describe('useProviderCrud — composable setup', () => {
     mockProviderList.mockRejectedValueOnce(new Error('网络错误'))
     const r = useProviderCrud()
     await r.loadProviders()
-    expect(mockElMessage.error).toHaveBeenCalledWith('网络错误')
+    expect(mockElMessage.error).toHaveBeenCalledWith(expect.objectContaining({ message: '网络错误' }))
     expect(r.loading.value).toBe(false)
   })
 
@@ -195,7 +195,7 @@ describe('useProviderCrud — composable setup', () => {
     await r.submitForm()
     expect(mockProviderCreate).toHaveBeenCalledTimes(1)
     expect(r.showFormDialog.value).toBe(false)
-    expect(mockElMessage.success).toHaveBeenCalledWith('创建成功')
+    expect(mockElMessage.success).toHaveBeenCalledWith(expect.objectContaining({ message: '创建成功' }))
   })
 
   it('submitForm 更新 provider（isEditing=true）', async () => {
@@ -212,7 +212,7 @@ describe('useProviderCrud — composable setup', () => {
     await r.submitForm()
     expect(mockProviderUpdate).toHaveBeenCalledWith('openai', expect.any(Object))
     expect(r.showFormDialog.value).toBe(false)
-    expect(mockElMessage.success).toHaveBeenCalledWith('更新成功')
+    expect(mockElMessage.success).toHaveBeenCalledWith(expect.objectContaining({ message: '更新成功' }))
   })
 
   it('submitForm 验证失败时不调用 API', async () => {
@@ -235,7 +235,7 @@ describe('useProviderCrud — composable setup', () => {
     }
     r.formRef.value = { validate: r_formRef_validate_mock }
     await r.submitForm()
-    expect(mockElMessage.error).toHaveBeenCalledWith('创建失败')
+    expect(mockElMessage.error).toHaveBeenCalledWith(expect.objectContaining({ message: '创建失败' }))
     expect(r.showFormDialog.value).toBe(true)
   })
 
@@ -250,7 +250,7 @@ describe('useProviderCrud — composable setup', () => {
     }
     r.formRef.value = { validate: r_formRef_validate_mock }
     await r.submitForm()
-    expect(mockElMessage.error).toHaveBeenCalledWith('网络错误')
+    expect(mockElMessage.error).toHaveBeenCalledWith(expect.objectContaining({ message: '网络错误' }))
   })
 
   it('submitForm 含 api_key 时传入', async () => {
@@ -329,7 +329,7 @@ describe('useProviderCrud — composable setup', () => {
     expect(mockProviderDelete).toHaveBeenCalledWith('openai')
     expect(r.showDeleteDialog.value).toBe(false)
     expect(r.deleteTarget.value).toBeNull()
-    expect(mockElMessage.success).toHaveBeenCalledWith('已删除')
+    expect(mockElMessage.success).toHaveBeenCalledWith(expect.objectContaining({ message: '已删除' }))
   })
 
   it('doDelete API code!=0 显示错误', async () => {
@@ -337,7 +337,7 @@ describe('useProviderCrud — composable setup', () => {
     const r = useProviderCrud()
     r.deleteTarget.value = { name: 'openai' }
     await r.doDelete()
-    expect(mockElMessage.error).toHaveBeenCalledWith('删除失败')
+    expect(mockElMessage.error).toHaveBeenCalledWith(expect.objectContaining({ message: '删除失败' }))
   })
 
   it('doDelete 无 deleteTarget 时直接返回', async () => {
@@ -392,7 +392,7 @@ describe('useProviderCrud — composable setup', () => {
     await r.saveUserKey()
     expect(window.electronAPI.providerSetUserKey).toHaveBeenCalledWith('openai', 'sk-123', '')
     expect(r.showUserKeyDialog.value).toBe(false)
-    expect(mockElMessage.success).toHaveBeenCalledWith('用户 Key 已保存')
+    expect(mockElMessage.success).toHaveBeenCalledWith(expect.objectContaining({ message: '用户 Key 已保存' }))
   })
 
   it('saveUserKey 抛错显示错误', async () => {
@@ -400,7 +400,7 @@ describe('useProviderCrud — composable setup', () => {
     const r = useProviderCrud()
     r.userKeyTarget.value = { name: 'openai' }
     await r.saveUserKey()
-    expect(mockElMessage.error).toHaveBeenCalledWith('fail')
+    expect(mockElMessage.error).toHaveBeenCalledWith(expect.objectContaining({ message: 'fail' }))
   })
 
   it('saveUserKey 无 target 时直接返回', async () => {

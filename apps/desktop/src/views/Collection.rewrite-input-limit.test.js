@@ -48,12 +48,15 @@ function mockStealthApi (content, aiRewriteResult) {
 }
 
 function warningTexts () {
-  return ElMessage.warning.mock.calls.map((call) => String(call[0])).join('\n')
+  return ElMessage.warning.mock.calls.map((call) => String(msgOf(call[0]))).join('\n')
 }
+
+/** 实参两种形态都要读得出文案：字符串（直连 ElMessage）与对象（useNotify 的唯一展示出口） */
+function msgOf (arg) { return typeof arg === 'string' ? arg : (arg && arg.message) }
 
 /** info 通道（分段改写提示走 info，不是 warning——它不是告警而是预期行为） */
 function infoTexts () {
-  return ElMessage.info.mock.calls.map((call) => String(call[0])).join('\n')
+  return ElMessage.info.mock.calls.map((call) => String(msgOf(call[0]))).join('\n')
 }
 
 describe('采集页一键改写 — 超长正文自动截取（fix-collect-rewrite-too-long）', () => {

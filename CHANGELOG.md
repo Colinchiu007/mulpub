@@ -7,6 +7,17 @@
 - **读数（当场实测）**：新增 `useNotify.toast-spec.test.js` **8 passed**；既有 `useNotify.test.js` + `notifyCore.test.js` 全绿；消费者并集 21 文件 **550 passed / 0 failed**；变异电池 **7 道逐条 CAUGHT**（N1 关 grouping / N2 摘夹取 / N3 非法值静默采纳 / N4 未知 level 退回 no-op / N5 摘留痕 / N6 env 读死在模块加载 / N7 摘去重），控制趟 `GREEN(20)`，收尾 `RESTORED_byte_exact=true`；eslint 零告警。
 - **刻意没做（边界如实划）**：审计 2.7 的另一半「`ElMessage` 直用 85 处按文件收编 + 基线棘轮」未做 —— 新清单按 AGENTS「新门禁上线三步序」需**人工批准**才能与接线同批落地；本批只把**通道本身**变成单一出口（`showMessage()` 是唯一装配点，禁止第二份）。toast 容器的 `aria-live` 礼貌级分档属审计 4.6，与本条正交。
 
+
+- **QM-6 critic 轴（claude 真实交付 9 条问题 / 4 维度 / 最低分 7）对 `useNotify` 交回 5 条，逐条处置**（裁决为引擎自扮演出口，`adjudicatedBy=self-play` 一字未改；评审原件在 `.adversarial/ccg-deep-9bd3e6db/`，逐条裁决与取证复制入库 `.ccg/reviews/plan-review-9bd3e6db-adjudication.json`）：
+  - **i1 成立，且是"假功能"级**：`MP_NOTIFY_MAX_DURATION_MS` 这个 env 覆盖在渲染进程里根本不存在。产物取证：`npx vite build` 后 `dist/assets/index-*.js` 里是 `var lK={}` + `const e=lK.MP_NOTIFY_MAX_DURATION_MS` ⇒ Vite 只 define `process.env.NODE_ENV` 那一格，任意键被注成空对象桩，生产恒 `undefined`。而 vitest 跑在 node 里 `process.env` 真在可写 ⇒ 那条行为用例与专打这一格的变异反证**结构上测不到这个洞**。处置是删掉假功能（上限改代码常量，夹住 + 出声语义不变）+ 一条源码级反向锁（剥注释后本模块不得再出现 `process.env`），防止下一个人"顺手加回可配置"。
+  - **i2 成立**：`text` 为空的两种成因（locales 未命中 / 直传文案被防泄漏守卫拦下）过去都报"messageKey 未命中"，归因错还会占掉该 key 的去重名额 ⇒ 之后的真未命中被静默。改为按 `成因|key` 去重、两句话术互不覆盖；`notifyConfirm` 的 `return false`（过去零痕迹）同样留痕。
+  - **i3 成立**：去重集合"只增不清、规模上界 = messageKey 条数"的论证被动态 key 否证。加 `WARN_DEDUP_CAP=200` + 撞界出声一次 + `__resetNotifyDiagnostics()` 复位出口。
+  - **i4 成立**：本 PR 里提交的 `.ccg/reviews/9e2085….json` 描述的是前一个提交（260 行 / 9 文件），而 head（`9bd3e6db`）自己的记录是未跟踪 ⇒ 判定证据与最终变更不一致。补 `node scripts/ccg-review-decider.js --base origin/main` 为 head 生成记录并随本轮提交。同场暴露一条通用缺口：**CCG 未安装时 pre-commit 静默跳过判定**（日志原文「[CCG] 未找到 CCG（run_skill.js），已跳过 CCG 门禁」）⇒ "没有记录"与"不需要记录"在产物上不可区分。
+  - **i5 文档半区成立、行为半区现场不成立**：JSDoc 把 `confirm` 列为 `notify` 的合法 `level` 而映射表里没有它；全仓 `grep "level:\s*['\"]confirm['\"]"` 只有两处且都是 `reportNotify` 的日志字段 ⇒ 无真实调用点，属文档修正。已改写为"确认弹窗只走 `notifyConfirm()`"并写明真传了会怎样。
+- **本 PR 的 CI 红不是"只差 QM-6"，而是我把消费者并集算窄了（同一类纪律第二次犯）**：Gate 7 `--cjk` 打红（我新增的 5 条诊断串是中文，已改 ASCII）+ 全量桌面测试 **63 failed / 9 文件** —— `useNotify` 的唯一展示出口固定发对象实参，而那些测试断言 `toHaveBeenCalledWith('文案')`；上一轮我的验证域取"源码含 `useNotify` 字样的测试文件"，**结构性漏掉**了经组件间接使用它的 `Publish.test.js` / `Accounts.test.js` 等。
+  批量改写按 **callee 必须带方法名**（`ElMessage.error` 等）匹配、只动 `toHaveBeenCalledWith` / `toHaveBeenLastCalledWith` 两个匹配器，改到 **63 处，与 CI 失败数逐字相等**；其中 2 处被脚本改错（`useAccountEvents.js:87` 是直连字符串），由全量跑当场暴露并退回 —— 这就是"按 mock 形状统一改写"的代价，判据只能是"这段文案的生产者走不走 useNotify"。
+- **改后读数**：四个受影响文件 152 passed；`node .github/scripts/check-locale-sync.js --cjk` → `CJK scan PASS（基线 1330 条，当前 1125 条，无新增硬编码）`；桌面 `src` 全量 `Test Files 2 failed | 385 passed (387)` / `Tests 2 failed | 6147 passed | 2 skipped (6151)`，两条失败均为 `.gitignore:443` 的构建产物 `electron/preload/index.bundle.js` 缺失（ENOENT），`node scripts/build-preload.js` 后这两个文件 `29 passed / 29` ⇒ 本次改动零失败。
+- **QM-6 未闭合（合并交回人工）**：引擎以「复用存档 critique + 已填裁决」短路（零模型调用）回填 `status=self_play_blocked`、`blocking=5`、`requiresExternalReview=[]`。引擎口径是 `verdict=upheld` 一律算阻断、自扮演无权豁免（与"这条是否已修完"无关，5 条修订都已落在本 PR）⇒ `check-pr-exec-record.js --mode=enforce` 判未闭合，不自动合并。正解是补跑一轮真外部评审，而不是手改 status。
 # [未发布] test(gates): 账本合法清空不再被钉成禁态，并给 hasBlocking⇒退出码补一道接线锁（qm6-critic-dispositions）
 
 - **动因是补跑成功的 QM-6 critic 轴**：`claude` 过额度日重置后两字探针活了（rc=0 / 17.6s / 265 B），于是把 #3949 那笔合并的差量（45,521 字节，直接附进提示词、不让评审者自己 `git diff`）真派了一次外部评审，交回 2 条 findings。派发前那一步救了一次命：**上一轮我判"该轴零交付"用的解析器只认「行首的 `[`」，而它的数组落在偏移 56,481 处** —— 63,796 字节真交付差一点被读成"没话说"。

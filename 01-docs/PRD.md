@@ -20400,16 +20400,17 @@ LLM 空输出/报告缺失时，审计 job 会往 job 汇总写 `AUTONOMOUS_VERD
 | 参数 | 过去 | 现在 |
 | --- | --- | --- |
 | `duration` | **整条链路无人消费**：调用方写 `{duration: 8000}` 与不写完全同形，用户看到的永远是 element-plus 默认 3s | 必须到达 `ElMessage`。默认 `3000`；非法值（NaN / ≤0 / 非数字串）回落默认并 `console.warn`；超过上限夹到上限并 `console.warn` |
-| 上限 | 不存在 | `8000ms`，可由 `MP_NOTIFY_MAX_DURATION_MS` 覆盖（**按调用时读取**，不是模块加载时读死）；覆盖值非法 ⇒ 回落默认上限 + 出声，禁止静默变成 NaN/0 |
+| 上限 | 不存在 | `8000ms`，是**代码常量，没有环境变量覆盖通道**。上一版写的「可由 `MP_NOTIFY_MAX_DURATION_MS` 覆盖」被 QM-6 critic 轴 i1 用产物取证否证：`npx vite build` 后 `dist/assets/index-*.js` 里是 `var lK={}` + `const e=lK.MP_NOTIFY_MAX_DURATION_MS` —— Vite 只 define `process.env.NODE_ENV` 那一格，任意键被注成**空对象桩** ⇒ 渲染进程里恒 `undefined`，「可覆盖」是假的。夹住与出声的语义一字未减；要给用户可调时长属产品决策（设置项），不属环境变量 |
 | `grouping` | 从不传 ⇒ 同一句连发会叠成一片 | 一律 `true`：同一句重复出现时合并并重置计时，不再靠"刷屏"证明事件发生了 |
 | `level` | `success/info/warning/warn/error` 之外的值走 `if (show) show()` **静默 no-op**，却照样 `reportNotify` 并返回文案 | 未知值 ⇒ 按 `info` 展示 + `console.warn` 点名该值。宁可类型不对也不让它隐形；"日志说报了、屏幕上什么都没有"是本条要消灭的原始形态 |
-| 未命中 key（非 error 级） | `return ''`，**运行日志零痕迹** ⇒ 调用点拼错 key 只能靠用户报"这里怎么没提示" | 仍不展示（避免空白 toast），但按 key 去重出声一次：`[useNotify] messageKey 未命中：<key>（level=…）` |
+| 没有展示任何东西 | `return ''` / `return false`，**运行日志零痕迹** ⇒ 调用点拼错 key 只能靠用户报"这里怎么没提示" | 仍不展示（避免空白 toast），但**按「成因 + key」去重**出声一次，两类成因话术不得混用（QM-6 critic 轴 i2）：`messageKey not found in locales`（locales 真未命中，带 key）与 `options.message is still an i18n key shape (leak guard)`（调用方直传的文案被防泄漏守卫拦下，不占该 key 的未命中名额）。`notifyConfirm` 同样留痕 —— 那里 `return false` 与"用户点了取消"在排障上是两件事 |
 
 ### 二、数据校验
 
 - `duration` 走 `Number()` 而非 `typeof === 'number'`：`'8000'` 这类字符串在 IPC/运营中心下发里真实存在，拒绝它会把"能用的值"判成非法。
 - 上限的合法性判据是 `Number.isFinite(parsed) && parsed >= DEFAULT_DURATION_MS`；把上限配成比默认还小的值属于配置错误（会让每条 toast 都被夹），一律回落而非采纳。
-- 未命中留痕的去重集合是**模块级 `Set`，按 key 去重、只增不清**。它的规模上界是"仓内 messageKey 条数量级"，不是"调用次数"，所以刷屏场景不会让它无界增长。
+- 未命中留痕的去重集合是**模块级 `Set`，按 `成因|key` 去重，且有显式上界 `WARN_DEDUP_CAP = 200`**（QM-6 critic 轴 i3）。上一版「规模上界 = 仓内 messageKey 条数」的论证被动态 key 否证：本模块明面支持动态文案/动态 key，用未登记 key 刷屏时每个新值都永久占一格 ⇒ 去重集合恰好在"刷屏"这个它自己存在的理由下无界增长。撞界时出声一次（`dedup set reached …`）后停止登记，且这条出声自身不得刷屏。模块级状态必须有复位出口（`__resetNotifyDiagnostics()`）：没有复位时"撞过上限"会漏给后面的用例，实测红的是**别人的用例**。
+- **调用形态有两个半区，改出口写法必须两半都跑**：`useNotify` 的唯一展示出口固定发对象实参 `ElMessage[type]({message, duration, grouping})`，而仓内还有 85 处**直连** `ElMessage` 的调用点仍传字符串（审计 2.7 存量账）。所以消费者断言一半该是 `expect.objectContaining({message: …})`、一半必须留在字符串半区，判据是**这段文案的生产者走不走 `useNotify`**（例：`useAccountEvents.js:87` 是 `ElMessage.success(toast)` 直连 ⇒ 它的断言不得被批量改写）。本 PR 第一次就把它算窄了：验证域取「源码含 `useNotify` 字样的测试文件」，CI 全量当场跑出 **63 failed / 9 文件**。
 
 ### 三、交互逻辑（禁止项）
 
