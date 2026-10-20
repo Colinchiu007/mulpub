@@ -200,6 +200,18 @@
             <span class="segment-status" :class="segment.status">{{ segmentStatusLabel(segment.status) }}</span>
             <span v-if="segment.status === 'failed' && segment.error" class="segment-status-reason" data-testid="segment-status-reason">{{ segmentStatusReason(segment) }}</span>
             <span v-if="isPolicyFlagScene(index)" class="segment-policy-flag" data-testid="segment-policy-flag">{{ $t('story2video.sceneMaterial.scenePolicyFlag') }}</span>
+            <!-- 编辑区折叠开关（2026-10-19）：分段卡片默认紧凑态，展开后才渲染编辑控件，
+                 避免 10+ 分段时首屏被 textarea/表单淹没。展开态互斥，一次只编辑一个分段。 -->
+            <button
+              type="button"
+              class="segment-editor-toggle"
+              data-testid="segment-editor-toggle"
+              :aria-expanded="isSegmentEditorExpanded(segment.id) ? 'true' : 'false'"
+              @click="toggleSegmentEditor(segment.id)"
+            >
+              <span class="segment-editor-toggle__icon" aria-hidden="true">{{ isSegmentEditorExpanded(segment.id) ? '▾' : '▸' }}</span>
+              {{ isSegmentEditorExpanded(segment.id) ? tOrKey('story2video.sceneMaterial.collapseEditor') : tOrKey('story2video.sceneMaterial.expandEditor') }}
+            </button>
             <div class="segment-order">
               <button type="button" :disabled="index === 0" :title="tOrKey('story2video.sceneMaterial.segmentMoveUp')" @click="moveSegment(index, -1)">{{ tOrKey('story2video.sceneMaterial.segmentMoveUp') }}</button>
               <button type="button" :disabled="index === segments.length - 1" :title="tOrKey('story2video.sceneMaterial.segmentMoveDown')" @click="moveSegment(index, 1)">{{ tOrKey('story2video.sceneMaterial.segmentMoveDown') }}</button>
@@ -281,6 +293,8 @@
             </div>
           </div>
 
+          <!-- 可编辑主体：默认折叠（紧凑态只保留素材区概览），展开后才渲染，降低首屏信息密度 -->
+          <div v-if="isSegmentEditorExpanded(segment.id)" class="segment-editor-body" data-testid="segment-prompt-editor">
           <label class="field-label">
             旁白文字
             <textarea v-model="segment.text" rows="3" @input="segmentsDirty = true"></textarea>
@@ -300,14 +314,24 @@
               {{ segmentBusyKind(segment.id) === 'subtitle' ? $t('story2video.sceneMaterial.regeneratingSubtitle') : $t('story2video.sceneMaterial.regenerateSubtitle') }}
             </UiButton>
           </div>
+          <!-- 图片提示词：textarea + 紧邻其下的只读中文翻译（2026-10-19 统一为「提示词/翻译成对」结构） -->
           <label class="field-label">
             画面提示词
-            <textarea v-model="segment.prompt" rows="3" :placeholder="$t('story2video.sceneMaterial.emptySlot')" @input="segmentsDirty = true"></textarea>
+            <textarea v-model="segment.prompt" rows="3" :placeholder="$t('story2video.sceneMaterial.emptySlot')" data-testid="segment-prompt-textarea" @input="segmentsDirty = true"></textarea>
           </label>
+          <div class="segment-prompt-translation" data-testid="segment-prompt-translation">
+            <span class="segment-prompt-translation-label">{{ promptTranslationLabel }}</span>
+            <p class="segment-prompt-translation-text">{{ showPromptTranslation(segment) ? segment.promptTranslation : $t('story2video.sceneMaterial.emptySlot') }}</p>
+          </div>
+          <!-- 视频提示词：textarea + 紧邻其下的只读中文翻译（与图片提示词结构对称） -->
           <label class="field-label">
             <span>{{ $t('story2video.sceneMaterial.videoPromptLabel') }}</span>
             <textarea v-model="segment.videoPrompt" rows="3" data-testid="segment-video-prompt-textarea" :placeholder="$t('story2video.sceneMaterial.emptySlot')" @input="segmentsDirty = true"></textarea>
           </label>
+          <div class="segment-prompt-translation" data-testid="segment-prompt-translation">
+            <span class="segment-prompt-translation-label">{{ videoPromptTranslationLabel }}</span>
+            <p class="segment-prompt-translation-text">{{ showVideoPromptTranslation(segment) ? segment.videoPromptTranslation : $t('story2video.sceneMaterial.emptySlot') }}</p>
+          </div>
           <div class="segment-inline-actions">
             <UiButton size="sm" variant="secondary" data-testid="regenerate-image-prompt-button" :disabled="isSegmentBusy(segment.id)" @click="regenerateScenePrompt(segment.id, 'image')">
               {{ segmentBusyKind(segment.id) === 'promptImage' ? $t('story2video.sceneMaterial.regeneratingPrompt') : $t('story2video.sceneMaterial.regenerateImagePrompt') }}
@@ -315,10 +339,6 @@
             <UiButton size="sm" variant="secondary" data-testid="regenerate-video-prompt-button" :disabled="isSegmentBusy(segment.id)" @click="regenerateScenePrompt(segment.id, 'video')">
               {{ segmentBusyKind(segment.id) === 'promptVideo' ? $t('story2video.sceneMaterial.regeneratingPrompt') : $t('story2video.sceneMaterial.regenerateVideoPrompt') }}
             </UiButton>
-          </div>
-          <div class="segment-prompt-translation" data-testid="segment-prompt-translation">
-            <span class="segment-prompt-translation-label">{{ promptTranslationLabel }}</span>
-            <p class="segment-prompt-translation-text">{{ showPromptTranslation(segment) ? segment.promptTranslation : $t('story2video.sceneMaterial.emptySlot') }}</p>
           </div>
 
           <div class="segment-voice-settings">
@@ -365,6 +385,7 @@
             <span v-else class="asset-placeholder">{{ tOrKey('story2video.sceneMaterial.emptySlot') }}</span>
           </div>
           </div>
+          </div><!-- /segment-editor-body -->
 
           <div class="segment-actions">
             <label class="segment-file-action" :class="{ disabled: isSegmentBusy(segment.id) }">
@@ -505,6 +526,9 @@ export default {
       // 分段快捷定位（2026-08-17 UX 统一）
       activeSegmentIndex: -1,
       segmentItemRefs: [],
+      // 分段编辑区展开态（2026-10-19）：'' = 全部折叠（紧凑态）；分段 id = 该分段展开。
+      // 默认折叠：10+ 分段时首屏不再被 textarea/表单淹没，点击卡片头部开关按需展开，且同时只展开一个。
+      expandedSegmentId: '',
       // 滚动高亮阈值：分段顶部进入视口上方该距离内视为「当前分段」（2026-09-18）
       segmentScrollThreshold: 120,
       // 音色目录（2026-08-17 UX 统一：音色下拉）
@@ -586,10 +610,15 @@ export default {
     segmentVoiceSelectable() {
       return Boolean(this.voiceContext.providerId && this.voiceContext.model && !this.voiceCatalogLoading && this.segmentVoiceOptions.length > 0)
     },
-    // 历史记录提示词翻译（2026-08-12）：非 en 界面且分段存在翻译时展示只读文案
+    // 历史记录提示词翻译（2026-08-12）：非 en 界面且分段存在翻译时展示只读文案。
+    // 2026-10-19 起与视频提示词翻译标签同源走 locales（zh/en 成对），en 界面同步切换。
     promptTranslationLabel() {
-      const locale = getAppLocale()
-      return locale === 'zh' ? '中文翻译' : (locale === 'en' ? 'Translation' : '翻译')
+      return this.tOrKey('story2video.sceneMaterial.promptTranslationLabel')
+    },
+    // 视频提示词中文翻译标签（2026-10-19）：与图片提示词翻译标签同族，
+    // 走 locales 以便 en 界面同步切换（提示词与翻译成对展示，标签需区分归属）。
+    videoPromptTranslationLabel() {
+      return this.tOrKey('story2video.sceneMaterial.videoPromptTranslationLabel')
     },
     bgmSkippedNotice() {
       const query = this.$route?.query || {}
@@ -886,6 +915,21 @@ export default {
       if (getAppLocale() === 'en') return false
       const translation = segment && segment.promptTranslation
       return typeof translation === 'string' && translation.trim() !== ''
+    },
+    // 视频提示词中文翻译（2026-10-19）：展示条件与图片提示词翻译一致（非 en + 非空译文）。
+    // 该字段由主进程 regenerateScenePrompt(kind=video) 生成并持久化，前端只读，不可编辑。
+    showVideoPromptTranslation(segment) {
+      if (getAppLocale() === 'en') return false
+      const translation = segment && segment.videoPromptTranslation
+      return typeof translation === 'string' && translation.trim() !== ''
+    },
+    // 分段编辑区展开态判定（2026-10-19）
+    isSegmentEditorExpanded(segmentId) {
+      return Boolean(this.expandedSegmentId) && this.expandedSegmentId === segmentId
+    },
+    // 展开/收起分段编辑区：互斥（同时只有一个分段展开），再次点击当前分段收起为紧凑态
+    toggleSegmentEditor(segmentId) {
+      this.expandedSegmentId = this.expandedSegmentId === segmentId ? '' : segmentId
     },
     async resolveLocalUrl(filePath, previousUrl) {
       if (!filePath) return null
@@ -1558,7 +1602,9 @@ export default {
     },
     removeSegment(index) {
       if (this.segments.length <= 1) return
-      this.segments.splice(index, 1)
+      const [removed] = this.segments.splice(index, 1)
+      // 展开态跟随被删分段：该分段不存在后收起编辑区，避免残留一个指向已删除 id 的展开态
+      if (removed && this.expandedSegmentId === removed.id) this.expandedSegmentId = ''
       this.segmentsDirty = true
       // 分段删除后 refs 下标失效，重置并重算滚动高亮（2026-09-18）
       this.segmentItemRefs = []
@@ -1827,6 +1873,14 @@ export default {
 .script-modal-body { min-width: 0; }
 .script-text { margin: 0; color: var(--text); font-family: inherit; font-size: var(--font-size-sm); line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
 .segment-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+/* 分段编辑区折叠开关（2026-10-19）：紧贴分段标题，次级按钮样式，不与上移/下移/删除竞争 */
+.segment-editor-toggle { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; padding: 5px 10px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--text-muted); font-size: var(--font-size-xs); font-weight: 600; cursor: pointer; }
+.segment-editor-toggle:hover { border-color: var(--primary); color: var(--primary); }
+.segment-editor-toggle__icon { font-size: 10px; line-height: 1; }
+/* 提示词/翻译成对结构（2026-10-19）：翻译块紧贴对应 textarea 下方，弱化视觉权重（只读、次于可编辑控件） */
+.segment-prompt-translation { margin: -2px 0 4px; padding: 8px 10px; border-left: 2px solid var(--border); border-radius: 0 4px 4px 0; background: var(--bg); }
+.segment-prompt-translation-label { display: block; color: var(--text-muted); font-size: var(--font-size-xs); font-weight: 600; }
+.segment-prompt-translation-text { margin: 2px 0 0; color: var(--text); font-size: var(--font-size-sm); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
 .segment-status { padding: 3px 6px; border-radius: 4px; background: var(--border-light); color: var(--text-muted); font-size: var(--font-size-xs); }
 .segment-status-reason { flex: 1 1 auto; min-width: 0; color: var(--status-failed-text, var(--danger, #d93025)); font-size: var(--font-size-xs); line-height: 1.45; word-break: break-word; }
 .segment-policy-flag { padding: 3px 6px; border-radius: 4px; background: var(--danger-bg, #fdecea); color: var(--danger, #d93025); font-size: var(--font-size-xs); font-weight: 600; }

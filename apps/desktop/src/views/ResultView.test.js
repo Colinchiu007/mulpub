@@ -224,10 +224,14 @@ describe("ResultView", () => {
       { id: "s2", text: "旁白二", prompt: "A blue sky", promptTranslation: null, imagePath: null, audioPath: null, status: "completed" },
     ];
     await nextTick();
+    // 编辑区默认折叠（2026-10-19）：翻译块随提示词区一起在展开后才渲染
+    w.vm.expandedSegmentId = "s1";
+    await nextTick();
     const blocks = w.findAll('[data-testid="segment-prompt-translation"]');
     expect(blocks).toHaveLength(2);
     expect(blocks[0].text()).toContain("一个红苹果");
     expect(blocks[1].text()).toContain("story2video.sceneMaterial.emptySlot");
+    w.unmount();
   });
 
   it("分段状态徽标使用本地化标签而非英文原值，failed 分段内联展示可读原因（2026-08-16）", async () => {
@@ -554,6 +558,9 @@ describe("ResultView", () => {
     const w = await createView();
 
     await w.vm.loadProject("project-1");
+    await nextTick();
+    // 编辑区默认折叠（2026-10-19）：展开后才能拿到 textarea
+    w.vm.expandedSegmentId = "segment-0";
     await nextTick();
 
     expect(w.findAll(".segment-item textarea")[0].element.value).toBe("第一段");
@@ -1440,6 +1447,9 @@ describe("ResultView", () => {
     w.vm.projectId = "project-1";
     w.vm.segments = [{ id: "segment-0", subtitleBlocks: ["第一句", "第二句"] }];
     await nextTick();
+    // 编辑区默认折叠（2026-10-19）：展开后才渲染字幕 textarea
+    w.vm.expandedSegmentId = "segment-0";
+    await nextTick();
     const ta = w.find('[data-testid="segment-subtitle-textarea"]');
     expect(ta.exists()).toBe(true);
     expect(ta.element.value).toContain("第一句");
@@ -1889,6 +1899,9 @@ describe("ResultView", () => {
       w.vm.segments = [{ id: "s1", voiceId: "voice-a", status: "completed" }];
       await w.vm.loadVoiceCatalog();
       await nextTick();
+      // 编辑区默认折叠（2026-10-19）：展开后才渲染语音设置控件
+      w.vm.expandedSegmentId = "s1";
+      await nextTick();
       const select = w.find('[data-testid="segment-voice-id-select"]');
       expect(select.exists()).toBe(true);
       expect(w.find('[data-testid="segment-voice-id-input"]').exists()).toBe(false);
@@ -1915,6 +1928,9 @@ describe("ResultView", () => {
       w.vm.project = { projectId: "p1", options: { voiceProvider: "minimax-tts", voiceModel: "speech-2.8-turbo" } };
       w.vm.segments = [{ id: "s1", voiceId: "voice-a", voiceSpeed: 1, status: "completed" }];
       await w.vm.loadVoiceCatalog();
+      await nextTick();
+      // 编辑区默认折叠（2026-10-19）：展开后才渲染语音设置控件
+      w.vm.expandedSegmentId = "s1";
       await nextTick();
       const range = w.find('[data-testid="segment-voice-speed-range"]');
       expect(range.exists()).toBe(true);
@@ -1993,6 +2009,9 @@ describe("ResultView", () => {
       w.vm.audioPath = null;
       w.vm.audioSrc = null;
       w.vm.segments = [{ id: "s1", status: "failed", prompt: "", videoPrompt: "", subtitleBlocks: [] }];
+      await nextTick();
+      // 编辑区默认折叠（2026-10-19）：先展开再断言编辑控件与翻译占位
+      w.vm.expandedSegmentId = "s1";
       await nextTick();
 
       expect(w.find('[data-testid="segment-image-preview"]').text()).toContain("emptySlot");
@@ -2151,6 +2170,228 @@ describe("ResultView", () => {
       window.dispatchEvent(new Event("scroll"));
       await nextTick();
       expect(w.vm.activeSegmentIndex).toBe(1);
+      w.unmount();
+    });
+  });
+
+  // ==================== 提示词区（2026-10-19）：图片/视频提示词 + 中文翻译成对展示 ====================
+  describe("提示词区（图片/视频提示词 + 中文翻译）", () => {
+    const promptSegments = () => ([
+      {
+        id: "s1",
+        text: "旁白一",
+        prompt: "A red apple",
+        promptTranslation: "一个红苹果",
+        videoPrompt: "Cinematic shot of a red apple",
+        videoPromptTranslation: "红苹果的电影镜头",
+        imagePath: null,
+        audioPath: null,
+        status: "completed",
+      },
+      {
+        id: "s2",
+        text: "旁白二",
+        prompt: "A blue sky",
+        promptTranslation: null,
+        videoPrompt: "",
+        videoPromptTranslation: null,
+        imagePath: null,
+        audioPath: null,
+        status: "completed",
+      },
+    ]);
+
+    // 展开指定分段编辑区（2026-10-19：编辑区默认折叠，断言提示词/翻译前必须先展开）
+    async function expandSegment(w, segmentId) {
+      w.vm.expandedSegmentId = segmentId;
+      await nextTick();
+    }
+
+    it("图片提示词与视频提示词各自带中文翻译块，翻译与对应提示词相邻", async () => {
+      const w = await createView();
+      w.vm.projectId = "p1";
+      w.vm.segments = promptSegments();
+      await nextTick();
+      await expandSegment(w, "s1");
+
+      const blocks = w.findAll('[data-testid="segment-prompt-translation"]');
+      expect(blocks).toHaveLength(2);
+      // 图片翻译块：内容 + 归属标签（图片提示词）
+      expect(blocks[0].text()).toContain("一个红苹果");
+      expect(blocks[0].text()).toContain("story2video.sceneMaterial.promptTranslationLabel");
+      // 视频翻译块：内容 + 归属标签（视频提示词）
+      expect(blocks[1].text()).toContain("红苹果的电影镜头");
+      expect(blocks[1].text()).toContain("story2video.sceneMaterial.videoPromptTranslationLabel");
+
+      // 图片翻译块必须紧跟图片提示词 textarea 之后
+      const promptTextarea = w.find('[data-testid="segment-prompt-textarea"]');
+      expect(promptTextarea.exists()).toBe(true);
+      expect(blocks[0].element.compareDocumentPosition(promptTextarea.element) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+      // 视频翻译块必须紧跟视频提示词 textarea 之后
+      const videoTextarea = w.find('[data-testid="segment-video-prompt-textarea"]');
+      expect(blocks[1].element.compareDocumentPosition(videoTextarea.element) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+      w.unmount();
+    });
+
+    it("视频提示词无翻译时展示占位文案而非空块", async () => {
+      const w = await createView();
+      w.vm.projectId = "p1";
+      w.vm.segments = promptSegments();
+      await nextTick();
+      await expandSegment(w, "s2");
+      const blocks = w.findAll('[data-testid="segment-prompt-translation"]');
+      // s2 无图片翻译、无视频翻译 → 两块都走占位文案
+      expect(blocks).toHaveLength(2);
+      expect(blocks[0].text()).toContain("story2video.sceneMaterial.emptySlot");
+      expect(blocks[1].text()).toContain("story2video.sceneMaterial.emptySlot");
+      w.unmount();
+    });
+
+    it("en 界面不展示任何翻译块（含视频提示词翻译）", async () => {
+      const w = await createView();
+      w.vm.projectId = "p1";
+      w.vm.segments = promptSegments();
+      await nextTick();
+      await expandSegment(w, "s1");
+      // getAppLocale 读 i18n.global.locale.value。此处断言判定函数本身（en → 两个 show*Translation 均 false）。
+      // 不断言 DOM 数量：单测挂载未装 i18n 插件，locale 变更不触发组件重渲染（预存在的测试环境限制，
+      // 非产品缺陷——生产环境由 App.vue 安装 i18n 插件，locale 切换即重渲染）。
+      const i18n = (await import("@/i18n")).default;
+      const previous = i18n.global.locale.value;
+      i18n.global.locale.value = "en";
+      try {
+        const segment = w.vm.segments[0];
+        expect(w.vm.showPromptTranslation(segment)).toBe(false);
+        expect(w.vm.showVideoPromptTranslation(segment)).toBe(false);
+      } finally {
+        i18n.global.locale.value = previous || "zh";
+      }
+      w.unmount();
+    });
+
+    it("重新生成图片提示词后旧图片翻译被清空（不再展示陈旧图片翻译）", async () => {
+      const api = await import("@/api/publisher");
+      api.story2videoRegenerateScenePrompt.mockResolvedValue({
+        code: 0,
+        data: {
+          segments: [{
+            id: "s1",
+            text: "旁白一",
+            prompt: "A new apple",
+            promptTranslation: null,
+            videoPrompt: "Cinematic shot of a red apple",
+            videoPromptTranslation: "红苹果的电影镜头",
+            status: "completed",
+          }],
+        },
+      });
+      const w = await createView();
+      w.vm.projectId = "p1";
+      w.vm.segments = [promptSegments()[0]];
+      await nextTick();
+      await expandSegment(w, "s1");
+      await w.vm.regenerateScenePrompt("s1", "image");
+      await nextTick();
+      const blocks = w.findAll('[data-testid="segment-prompt-translation"]');
+      expect(blocks).toHaveLength(2);
+      // 图片翻译被后端清空 → 占位文案；视频翻译保留
+      expect(blocks[0].text()).toContain("story2video.sceneMaterial.emptySlot");
+      expect(blocks[1].text()).toContain("红苹果的电影镜头");
+      w.unmount();
+    });
+
+    it("重新生成视频提示词后旧视频翻译被清空", async () => {
+      const api = await import("@/api/publisher");
+      api.story2videoRegenerateScenePrompt.mockResolvedValue({
+        code: 0,
+        data: {
+          segments: [{
+            id: "s1",
+            text: "旁白一",
+            prompt: "A red apple",
+            promptTranslation: "一个红苹果",
+            videoPrompt: "A new cinematic shot",
+            videoPromptTranslation: null,
+            status: "completed",
+          }],
+        },
+      });
+      const w = await createView();
+      w.vm.projectId = "p1";
+      w.vm.segments = [promptSegments()[0]];
+      await nextTick();
+      await expandSegment(w, "s1");
+      await w.vm.regenerateScenePrompt("s1", "video");
+      await nextTick();
+      const blocks = w.findAll('[data-testid="segment-prompt-translation"]');
+      expect(blocks).toHaveLength(2);
+      // 视频翻译被后端清空 → 占位文案；图片翻译不受影响
+      expect(blocks[0].text()).toContain("一个红苹果");
+      expect(blocks[1].text()).toContain("story2video.sceneMaterial.emptySlot");
+      w.unmount();
+    });
+
+    it("分段编辑区默认折叠为紧凑态，点击展开后渲染提示词区", async () => {
+      const w = await createView();
+      w.vm.projectId = "p1";
+      w.vm.segments = promptSegments();
+      await nextTick();
+      expect(w.find('[data-testid="segment-prompt-editor"]').exists()).toBe(false);
+      const toggle = w.findAll('[data-testid="segment-editor-toggle"]');
+      expect(toggle.length).toBe(2);
+      await toggle[0].trigger("click");
+      await nextTick();
+      expect(w.find('[data-testid="segment-prompt-editor"]').exists()).toBe(true);
+      w.unmount();
+    });
+
+    it("分段编辑区展开态在分段间互斥（同时只有一个分段展开）", async () => {
+      const w = await createView();
+      w.vm.projectId = "p1";
+      w.vm.segments = promptSegments();
+      await nextTick();
+      const toggle = w.findAll('[data-testid="segment-editor-toggle"]');
+      await toggle[0].trigger("click");
+      await nextTick();
+      expect(w.vm.expandedSegmentId).toBe("s1");
+      await toggle[1].trigger("click");
+      await nextTick();
+      expect(w.vm.expandedSegmentId).toBe("s2");
+      expect(w.findAll('[data-testid="segment-prompt-editor"]').length).toBe(1);
+      w.unmount();
+    });
+
+    it("重新生成提示词失败时保持原展开分段（不因状态回写收起编辑区）", async () => {
+      const api = await import("@/api/publisher");
+      api.story2videoRegenerateScenePrompt.mockRejectedValue(new Error("boom"));
+      const w = await createView();
+      w.vm.projectId = "p1";
+      w.vm.segments = [promptSegments()[0]];
+      await nextTick();
+      await w.findAll('[data-testid="segment-editor-toggle"]')[0].trigger("click");
+      await nextTick();
+      await w.vm.regenerateScenePrompt("s1", "video");
+      await nextTick();
+      expect(w.vm.expandedSegmentId).toBe("s1");
+      expect(w.find('[data-testid="segment-prompt-editor"]').exists()).toBe(true);
+      w.unmount();
+    });
+
+    it("删除已展开的分段后收起编辑区（不残留指向已删除 id 的展开态）", async () => {
+      const w = await createView();
+      w.vm.projectId = "p1";
+      w.vm.segments = [
+        { id: "s1", text: "A", status: "completed" },
+        { id: "s2", text: "B", status: "completed" },
+      ];
+      await nextTick();
+      w.vm.expandedSegmentId = "s1";
+      await nextTick();
+      expect(w.find('[data-testid="segment-prompt-editor"]').exists()).toBe(true);
+      w.vm.removeSegment(0);
+      await nextTick();
+      expect(w.vm.expandedSegmentId).toBe("");
+      expect(w.find('[data-testid="segment-prompt-editor"]').exists()).toBe(false);
       w.unmount();
     });
   });
