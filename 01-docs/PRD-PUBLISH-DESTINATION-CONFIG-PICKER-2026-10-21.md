@@ -140,7 +140,21 @@
 
 菜单第一项恒为「默认」（= 不套用任何配置，用流水线默认参数），其后是各条已保存配置（名称）。这样用户选完还能退回「不套用」。
 
-> 说明：为什么用**自建下拉**而不是 `el-select`：① 与左侧原生 `<select>` 保持同一套视觉与交互（同一个弹窗里两种控件会明显割裂）；② 本仓 Element Plus 是**显式按需装配**（`plugins/element-plus.js` 硬约束①：新增 EP 组件必须登记），为一个轻量浮窗引入 EP 下拉会扩大装配面与样式闭包；③ 仓内已有同款先例（`components/HotTopicsGenVideoPicker.vue` 明确写了「不用 el-dropdown/el-popover：Element Plus 按需注册有机械锁，本地自建菜单零新依赖、零样式导入」）。
+**键盘可达（QM-6 评审 i2 采纳）**：控件声明了 `role="combobox"` / `role="listbox"`，就必须配得上键盘操作，否则 ARIA 是**假声明**（比不声明更糟：屏幕阅读器会告诉用户「这是组合框」然后用户按方向键没反应）。
+
+| 按键 | 位置 | 行为 |
+|---|---|---|
+| `↓` | 触发器（未展开） | 展开下拉，焦点落到**当前选中项**（无选中则落「默认」） |
+| `↑` | 触发器（未展开） | 展开下拉，焦点落到**末项** |
+| `↓` / `↑` | 菜单内 | 焦点在选项间移动（循环） |
+| `Home` / `End` | 菜单内 | 焦点跳到首项 / 末项 |
+| `Enter` / `Space` | 菜单内 | 选中当前焦点项并关闭菜单，焦点回到触发器 |
+| `Esc` | 触发器 / 菜单内 | 关闭菜单，焦点回到触发器 |
+| `Tab` | 菜单内 | 关闭菜单但**不抢焦点**（Tab 走浏览器浏览顺序；抢回焦点会破坏 Tab 序） |
+
+原生 `<button>` 自带 Enter/Space 激活，故触发器只需处理方向键与 Esc。菜单项用 `tabindex="-1"` + 程序化聚焦（roving focus），避免 Tab 键在菜单里逐项走。
+
+> 为什么自建下拉而不用 `el-select`：① 与左侧原生 `<select>` 保持同一套视觉与交互（同一个弹窗里两种控件会明显割裂）；② 本仓 Element Plus 是**显式按需装配**（`plugins/element-plus.js` 硬约束①：新增 EP 组件必须登记），为一个轻量浮窗引入 EP 下拉会扩大装配面与样式闭包；③ 仓内已有同款先例（`components/HotTopicsGenVideoPicker.vue` 明确写了「不用 el-dropdown/el-popover：Element Plus 按需注册有机械锁，本地自建菜单零新依赖、零样式导入」）。
 
 #### 3.3.5 加载态与失败态
 
@@ -258,6 +272,13 @@ mounted
 | `profile.pipelineId === selectedPipeline.name` | toast「该配置属于其他流水线…」+ 放弃 |
 | `applyS2VConfigProfileSnapshot` 返回 true | toast「已应用配置」；否则 toast「配置应用失败…」 |
 
+**决策与副作用分离（QM-6 评审 i4 采纳）**：`features/publish-destination/apply-config-profile-handoff.js` 拆成两半——
+
+- `resolveConfigProfileTarget({ profileId, pipelineId, profiles })`：**纯函数**，只答「能不能套用、为什么不能」，五个分支（`skipped` / `no-pipeline` / `not-found` / `wrong-pipeline` / `apply`）可被单测穷举，不碰任何 IO。
+- `applyConfigProfileFromRoute(deps)`：只负责把决策翻译成副作用（读库、套用、提示）。入参是**普通数据 + 普通函数**（`getProfiles` / `loadProfiles` / `applySnapshot` / `setActiveProfile` / `showToast` / `awaitRestore`），模块**不认识 Vue**——不再出现 `host.$route` / `host.showS2VOptionsToast` 这类宿主专属调用。
+
+> `getProfiles` 必须是**取函数**而不是值：宿主载入配置库时是**整体替换**数组（不是原地 push），模块若在调用前抓一次快照，载入后拿到的仍是旧数组 ⇒ 配置会被误判成「已删除」。这条已写成回归锁（`apply-config-profile-handoff.test.js`「必须**载入后重新取**列表」）。
+
 ---
 
 ## 5. 显示项
@@ -353,11 +374,12 @@ emit('publish-video', pipelineId, { configProfileId, configProfileName })
 1. 配置档案一旦套用，创作页的「恢复上次选项」不会覆盖它（设计如此，见 §3.5.2）；反过来，如果不套用配置，「恢复上次选项」照常生效。
 2. 热门选题页的批量改写过程中若用户改了弹窗里的选择，改动只在下次打开弹窗时生效（弹窗关闭时选择不保留）。
 3. 本片不给配置档案加「跨流水线复制」能力。
+4. 配置下拉的**朗读**体验依赖宿主 `role="listbox"` 的原生语义：未实现「输入首字母跳到对应项」这类 listbox 的可选增强（方向键 / Home / End / Esc 已实现，见 §3.3.4）。
 
 ### 9.3 已知取舍
 
-1. 「未能确定流水线，无法套用所选配置」复用了 `create.story2video.configProfile.applyFailed` 键（靠 `translateWithLocaleFallback` 的兜底参数区分文案）。若后续 locale 治理要求键名与文案严格一一对应，应拆成独立键。
-2. 配置下拉的「默认」在**有配置**时是菜单第一项而不是不可见的占位——为了让用户能退回「不套用」。
+1. 「未能确定流水线，无法套用所选配置」用**独立 locale 键** `create.story2video.configProfile.pipelineUnresolved`（初版曾复用 `applyFailed` 键 + `translateWithLocaleFallback` 兜底参数区分文案，已改）。
+2. 配置下拉的「默认」在**有配置**时是菜单首项而不是不可见的占位——为了让用户能退回「不套用」。
 
 ---
 
@@ -396,7 +418,8 @@ emit('publish-video', pipelineId, { configProfileId, configProfileName })
 | 锁 | 位置 | 覆盖 |
 |---|---|---|
 | 纯函数 | `src/features/publish-destination/publish-destination-config.test.js` | 归一化 / 过滤 / 选中解析 / 提交载荷 / query 构造 |
-| 组件 | `src/components/PublishDestinationModal.test.js` | A1..A9 |
+| 纯函数 | `src/features/publish-destination/apply-config-profile-handoff.test.js` | 决策五分支 + 副作用四分支 + 「先等恢复再套用」的顺序 + 「载入后重新取列表」 |
+| 组件 | `src/components/PublishDestinationModal.test.js` | A1..A9 + 键盘可达（↓/↑/End/Esc 与焦点归属） |
 | 创作页 | `src/views/CreateView.config-profile-handoff.test.js` | A10..A13 |
 
 ---
@@ -405,21 +428,23 @@ emit('publish-video', pipelineId, { configProfileId, configProfileName })
 
 | 文件 | 改动 |
 |---|---|
-| `apps/desktop/src/components/PublishDestinationModal.vue` | 新增配置选择器；流水线下拉改用文案型全集；`publish-video` 增加第 2 个载荷参数 |
+| `apps/desktop/src/components/PublishDestinationModal.vue` | 新增配置选择器接线；流水线下拉改用文案型全集；`publish-video` 增加第 2 个载荷参数 |
+| `apps/desktop/src/components/PublishDestinationConfigPicker.vue` | **新增**：配置选择器控件（含键盘可达，§3.3.4）。从浮窗里拆出来的原因是 `PublishDestinationModal.vue` 触到 `check-max-lines` 的 500 行上限 |
 | `apps/desktop/src/features/publish-destination/publish-destination-config.js` | **新增**：归一化 / 过滤 / 选中解析 / 载荷与 query 构造（纯函数） |
+| `apps/desktop/src/features/publish-destination/apply-config-profile-handoff.js` | **新增**：创作页套用流程（纯决策函数 + 副作用编排，显式依赖注入） |
 | `apps/desktop/src/features/publish-destination/publish-destination-config.test.js` | **新增** |
+| `apps/desktop/src/features/publish-destination/apply-config-profile-handoff.test.js` | **新增** |
 | `apps/desktop/src/i18n/pipeline-labels.js` | **新增导出** `TEXT_BASED_PIPELINE_IDS`（只读） |
 | `apps/desktop/src/locales/publish-destination/{zh,en}.js` | 新增 5 个键（configLabel / configDefaultOption / configEmpty / configLoading / configLoadFailed） |
-| `apps/desktop/src/locales/create/{zh,en}.js` | 新增 1 个键（configProfile.notFound） |
+| `apps/desktop/src/locales/create/{zh,en}.js` | 新增 2 个键（configProfile.notFound / configProfile.pipelineUnresolved） |
 | `apps/desktop/src/views/CreateView.vue` | 新增 `_applyConfigProfileFromRoute()`；`selectPipeline` 留住恢复 promise；mounted 串接套用 |
 | `apps/desktop/src/views/RewriteView.vue` | `onPublishVideo` 带上配置档案 |
 | `apps/desktop/src/views/Collection.vue` | `onPublishVideo` 带上配置档案 |
 | `apps/desktop/src/views/HotTopics.vue` | `onPublishVideo` → 队列项 → 最终跳转带上流水线 + 配置档案 |
-| `apps/desktop/src/components/PublishDestinationModal.test.js` | 新增 7 例 |
+| `apps/desktop/src/components/PublishDestinationModal.test.js` | 新增 9 例（含 2 例键盘可达） |
 | `apps/desktop/src/views/CreateView.config-profile-handoff.test.js` | **新增**：4 例 |
-| `01-docs/PRD-S2V-PIPELINE-PAGE-UX.md` | 新增 §9.11「去发布弹窗的配置选择器」 |
-| `01-docs/CHANGELOG.md` | 变更记录 |
+| `01-docs/PRD-S2V-PIPELINE-PAGE-UX.md` | 新增 §14「去发布弹窗的配置选择器」 |
 | `openspec/changes/publish-config-picker/` | **新增**：proposal / tasks / design / spec |
-| `openspec/records/publish-config-picker.md` | **新增**：执行记录 |
+| `openspec/records/publish-config-picker.md` | **新增**：执行记录（含 QM-6 外部双家族评审的逐条裁决） |
 
 > **未改动**（明确列出，便于评审核对）：`apps/desktop/electron/services/story2video-config-profiles.js`、`apps/desktop/electron/ipc-handlers/story2video.js`（四个 `story2video:config-profile-*` 通道）、`apps/desktop/electron/preload/publish.js`、`apps/desktop/src/components/ConfigProfileManager.vue`、`apps/desktop/src/api/publisher.js`。

@@ -2273,10 +2273,13 @@ export default {
       // 生命周期内只恢复一次（由 restoreS2VLastOptions 内部设置 _s2vRestoredOnce），
       // 避免同会话切走再切回覆盖当前编辑。
       if (this.isOrchestratedPipeline(p?.name) && !this._s2vRestoredOnce) {
-        // publish-config-picker：把恢复 promise 留住 —— 「恢复上次选项」与「套用 URL 带来的配置档案」
-        // 写的是同一份表单，两者并发时后写者胜。配置档案是用户显式选择，必须后写，
-        // 否则恢复可能把用户刚挑好的配置覆盖掉（表现为「选了配置却没生效」）。
+        // publish-config-picker：留住恢复 promise —— 「恢复上次选项」与「套用 URL 带来的配置档案」
+        // 写同一份表单，并发时后写者胜。配置档案是用户显式选择，必须后写（否则「选了配置却没生效」）。
+        // 非编排型没有恢复在途，也留一个已解决的 promise —— 顺序保证不依赖「当前是不是编排型」
+        // （QM-6 评审 i3 采纳：原先只在编排型分支赋值，将来新增入口时保证会悄悄失效）。
         this._s2vRestorePromise = this.restoreS2VLastOptions()
+      } else {
+        this._s2vRestorePromise = Promise.resolve()
       }
     },
     // 改写页跳转预填充：读取草稿内容填入文案输入框，并按 query.pipeline 自动选择流水线
@@ -2327,13 +2330,19 @@ export default {
         ), 3200)
       }
     },
-    /**
-     * 套用「去发布」弹窗带过来的配置档案（publish-config-picker，2026-10-21）。
-     * 契约与四道校验闸见 features/publish-destination/apply-config-profile-handoff.js。
-     * 必须在选中流水线之后调用：配置档案按 pipelineId 分域，没有选中流水线就无从套用。
-     */
+    // 套用「去发布」弹窗带过来的配置档案（publish-config-picker）；契约与四道校验闸见
+    // features/publish-destination/apply-config-profile-handoff.js。必须在选中流水线之后调用。
     async _applyConfigProfileFromRoute () {
-      return applyConfigProfileFromRoute(this)
+      return applyConfigProfileFromRoute({
+        profileId: String(this.$route?.query?.configProfile || ''),
+        pipelineId: this.selectedPipeline?.name || '',
+        getProfiles: () => this.s2vConfigProfiles || [],
+        loadProfiles: () => this.loadS2VConfigProfiles({ quiet: true }),
+        applySnapshot: (profile) => this.applyS2VConfigProfileSnapshot(profile),
+        setActiveProfile: (name) => { this.s2vActiveConfigProfile = name },
+        showToast: (key, ms) => this.showS2VOptionsToast(this.$t(key), ms),
+        awaitRestore: () => this._s2vRestorePromise,
+      })
     },
     isOrchestratedPipeline(name) { return name === 'story2video-compose' },
     isAutoPipeline(name) { return ['story2video-compose', 'animated-explainer', 'framework-smoke', 'documentary-montage', 'animation', 'avatar-spokesperson', 'character-animation', 'hybrid'].includes(name) },

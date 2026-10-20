@@ -240,4 +240,45 @@ describe('PublishDestinationModal 披露与选择契约', () => {
     expect(q('[data-testid="publish-dest-config-hint"]').textContent).toContain('加载失败')
     expect(q('[data-testid="publish-dest-config-value"]').textContent.trim()).toBe('默认')
   })
+
+  // ── 键盘可达（QM-6 评审 i2 采纳：role=combobox/listbox 必须配得上键盘操作）──
+  it('触发器上按 ↓ 展开下拉并把焦点落到「默认」项', async () => {
+    configProfileListMock.mockResolvedValue({
+      code: 0,
+      data: [profile({ id: 'profile-000000000001', name: '口播竖屏' })],
+    })
+    await mountModal()
+    await vi.waitFor(() => expect(configProfileListMock).toHaveBeenCalled())
+    const trigger = q('[data-testid="publish-dest-config-trigger"]')
+    trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+    await nextTick()
+    expect(q('[data-testid="publish-dest-config-menu"]')).toBeTruthy()
+    expect(document.activeElement).toBe(q('[data-testid="publish-dest-config-option-default"]'))
+  })
+
+  it('菜单内 ↑/↓ 移动焦点、End 跳末项、Esc 关闭并把焦点还给触发器', async () => {
+    configProfileListMock.mockResolvedValue({
+      code: 0,
+      data: [
+        profile({ id: 'profile-000000000001', name: '口播竖屏' }),
+        profile({ id: 'profile-000000000002', name: '横屏 1080p' }),
+      ],
+    })
+    await mountModal()
+    await vi.waitFor(() => expect(configProfileListMock).toHaveBeenCalled())
+    const trigger = q('[data-testid="publish-dest-config-trigger"]')
+    trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+    await nextTick()
+    const menu = q('[data-testid="publish-dest-config-menu"]')
+    menu.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+    await nextTick()
+    expect(document.activeElement).toBe(q('[data-testid="publish-dest-config-option-profile-000000000001"]'))
+    menu.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }))
+    await nextTick()
+    expect(document.activeElement).toBe(q('[data-testid="publish-dest-config-option-profile-000000000002"]'))
+    menu.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await nextTick()
+    expect(q('[data-testid="publish-dest-config-menu"]'), 'Esc 应关闭下拉').toBeNull()
+    expect(document.activeElement, 'Esc 后焦点应回到触发器').toBe(trigger)
+  })
 })

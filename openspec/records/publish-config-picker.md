@@ -12,11 +12,11 @@ date: 2026-10-21
 | 第一性原因（QM-5 ①） | ✅ | 三条独立根因：①**入口缺失**——配置档案能力（保存/我的配置/应用/重命名/删除）只在创作页内部可达，「去发布」这一步无从选起；②**选项集合写死**——`PublishDestinationModal.vue` 的 `pipelineOptions` prop 默认写死 `[{ value: 'story2video-compose', label: '故事讲述' }]` 且三个调用方都没覆盖，弹窗里的流水线选择器只能选一条；③**断链**——热门选题页的「生成视频」去向最终只跳 `/create?draft=<id>`，**不带流水线**，弹窗里选的流水线被静默丢弃。③是②的连带伤，也是配置档案按 `pipelineId` 分域后「无从判断归属」的根源 |
 | 逃逸分析（QM-5 ②） | ✅ | ①**单元测试层**：`PublishDestinationModal.test.js` 既有 7 例全在「披露节点 / 空选项 disabled / 提交默认值」上，**没有一条断言流水线下拉的选项集合**——prop 默认值写死一个元素，测试自然全绿；②**组件层**：配置档案能力有 `ConfigProfileManager` 组件与 `openspec/specs/story2video-pipeline-config-profiles` 规格，但那份规格的 Requirement 只管「每条流水线有没有入口」，**没有一条管「别的页面能不能选它」**，入口缺失是规格盲区而非实现遗漏；③**集成层**：三个调用方各自拼 query（`{ draft }` / `{ draft, pipeline }`），键名没有单一真源，键名漂移的表现是「配置静默丢失」而非报错；④**E2E/视觉层**：「去发布」浮窗不在任何视觉基线里（`base-screenshots` 无该视图），弹窗内的变化没有像素闸；⑤**流程层**：用户提的「是不是只有故事讲述有配置管理」这一疑问，**在代码里一直是对的**（配置档案早覆盖全部流水线），错的是「能力只在创作页里可达」这件事没有任何文档说清——于是被当成「其它流水线没有配置管理」提了出来 |
 | 修复 + 回归保护（QM-5 ④） | ✅ | ①新增 `components/PublishDestinationConfigPicker.vue`（配置选择器，自建下拉）+ `features/publish-destination/publish-destination-config.js`（纯函数：归一化 / 过滤 / 选中解析 / 载荷与 query 构造）+ `features/publish-destination/apply-config-profile-handoff.js`（创作页套用流程）；②浮窗的流水线下拉改用文案型全集（真源 `@/i18n/pipeline-labels` 新增只读导出 `TEXT_BASED_PIPELINE_IDS`，枚举与判定共用一份）；③`publish-video` 事件第 2 个参数新增 `{ configProfileId, configProfileName }`（第 1 个参数仍是流水线 id ⇒ 既有调用方零改动兼容）；④三个入口统一走 `buildCreateHandoffQuery()`（空值/非法值**不带该键**，绝不传空串）；⑤创作页 `_applyConfigProfileFromRoute()` 复用既有 `applyS2VConfigProfileSnapshot()`（不新增第二套套用逻辑）；⑥**修掉一处竞态**：创作页「恢复上次选项」与本片「套用配置档案」写同一份表单，并发时后写者胜——把恢复的 promise 留住并在套用前 `await`，保证配置档案（用户显式选择）必胜。回归锁：纯函数 15 例 + 组件 7 例（新增）+ 创作页 4 例（新建文件），详见下方「现场读数」 |
-| 防止再次发生（QM-5 ⑤） | ✅ | ①**交接键名单一真源**：`buildCreateHandoffQuery()` 是三个入口拼 query 的唯一入口，键名漂移从「三处各拼」降为「一处定义」；②**流水线清单单一真源**：`TEXT_BASED_PIPELINE_IDS` 与 `isTextBasedPipeline` 同源，弹窗下拉与创作页灰显判据不再可能分叉；③**配置档案合法性判据与主进程同口径**（id `/^[A-Za-z0-9-]{8,64}$/`、pipelineId `/^[A-Za-z0-9][A-Za-z0-9._-]*$/`），渲染层不会把「点��就报错」的档案列进下拉；④**失败路径全部可见**（加载失败 / 已删除 / 跨流水线 / 套用失败 / 无法确定流水线），且都不阻断创作；⑤**纯函数与组件分离**：数据校验分支由纯函数测试穷举，组件测试只验交互；⑥文档落 `01-docs/PRD-PUBLISH-DESTINATION-CONFIG-PICKER-2026-10-21.md`（数据校验/流程/交互/显示项/提示文字/边界/验收）与 `01-docs/PRD-S2V-PIPELINE-PAGE-UX.md` §14 |
+| 防止再次发生（QM-5 ⑤） | ✅ | ①**交接键名单一真源**：`buildCreateHandoffQuery()` 是三个入口拼 query 的唯一入口，键名漂移从「三处各拼」降为「一处定义」；②**流水线清单单一真源**：`TEXT_BASED_PIPELINE_IDS` 与 `isTextBasedPipeline` 同源，弹窗下拉与创作页灰显判据不再可能分叉；③**配置档案合法性判据与主进程同口径**（id `/^[A-Za-z0-9-]{8,64}$/`、pipelineId `/^[A-Za-z0-9][A-Za-z0-9._-]*$/`），渲染层不会把「点一下就报错」的档案列进下拉；④**失败路径全部可见**（加载失败 / 已删除 / 跨流水线 / 套用失败 / 无法确定流水线），且都不阻断创作；⑤**纯函数与组件分离**：数据校验分支由纯函数测试穷举，组件测试只验交互；⑥文档落 `01-docs/PRD-PUBLISH-DESTINATION-CONFIG-PICKER-2026-10-21.md`（数据校验/流程/交互/显示项/提示文字/边界/验收）与 `01-docs/PRD-S2V-PIPELINE-PAGE-UX.md` §14 |
 | 行尾与 diff 对账 | ✅ | 两口径 `git diff --numstat` 与 `git diff --ignore-cr-at-eol --numstat` 逐文件一致（见下方读数）；新增文件与改动文件一律 UTF-8 无 BOM、CRLF（`* text=auto` 工作区形态），`loneLF=0` |
 | 接线棘轮 | ✅ | `node scripts/check-unwired-tests.js` → 检查域 113 个测试文件、`OK: 全部测试均已接线或按欠账登记`。本片新增的两个 `*.test.js` 都在 `apps/` 下（vitest 按 workspace 自动收集，`WORKSPACE_COVERED`），**不需**在 workflow 额外点名即已被执行 |
 | QM-1 打包 / QM-4 视觉 | ✅ / N/A | QM-1：**N/A**——本片未改 `apps/desktop/electron/` 与 `packages/rpa-engine/`（AGENTS.md 的 QM-1 触发条件是「每次修改 electron / rpa-engine 下代码后」）；另**主动**跑了一次渲染层打包验证 `pnpm run build:vue`（`build:preload` + `build:paginator` + `vite build`）→ **rc=0**，产物正常（`index-DFkXLbcI.js` 1.42MB / `CreateView-Ln2Za5cx.js` 354.91kB），唯一的 chunk>500kB 警告是既有形态、非本次引入。QM-4：**N/A**——「去发布」浮窗不在任何视觉基线里（`apps/desktop/tests/visual-testing/base-screenshots/` 无该视图；`check-visual-coverage` 读数：视图并集 56 张、判定 112 条、基线 43 → 69，登记一致），且本片改的是**浮窗内**的控件，不影响 `create-pipeline` / `create-editor` 等既有基线页面；浮窗内的空态/选项/提示三态由组件测试逐条锁住 |
-| QM-6 CCG 双模型外部评审 | IN-FLIGHT | 判定与现场读数见下方「QM-6」小节（**以产物为准，不以 rc 为准**） |
+| QM-6 CCG 双模型外部评审 | ✅ | 判定 `mode=dual`（变更 1234 代码行 > 200 行阈值）。**真跑了双家族**：`sh scripts/deep-review.sh` → proposer=opencode **跨家族校验通过**、critic=claude 出 **4 条问题 / 4 维度**（correctness/security/performance/maintainability，最低分 5）。引擎收敛判据落到**自扮演第三档出口**（`status=self_play_pending`，4 条待裁决）⇒ 逐条裁决已落 `.adversarial/ccg-deep-75773bdf/adjudication.json`（prosecution / defense / verdict / rationale 四段齐全）：**i1 dismissed**（判据的 changedLines 只计代码文件，与含文档的总 diff 量的是不同的东西；sha 落在父提交是 pre-commit 的既定行为，驱动输出逐字写明）、**i2 upheld 已修**（配置选择器补齐键盘可达：↓/↑ 展开并落焦、菜单内 ↑/↓/Home/End/Enter/Esc、Tab 关闭不抢焦点）、**i3 upheld 已加固**（`_s2vRestorePromise` 改为「无论是否编排型都赋值」，顺序保证不再依赖调用顺序）、**i4 upheld 已改**（交接模块改为**显式依赖注入 + 纯决策函数**，模块不再认识 Vue）。另有 3 条 Info：i5 dismissed（`.ccg/reviews/**` 是 pre-commit 自动 stage 的既定产物形态，最近 3 笔 main 提交各带 3 个此类文件；判据 `check-pr-exec-record.js` 正是从变更集里读它们）、i6 dismissed（`normalizeConfigProfiles` 已用 `Number.isFinite` 归一，`Infinity`/`NaN` → 0，不可能支配排序；且档案来自设备级本地文件，不跨信任边界）、i7 **已修**（`options` 与 `displayText` 改为从同一个 computed 派生，不再各算一遍过滤/排序）。**最终提交后重跑评审并取产物**（见下「现场读数」） |
 | 远程同步 | 由门禁推导 | 本行**不需要事后改写**：合并后门禁按主干历史推导归属（`scripts/lib/merge-ledger.js`，只认 squash 尾注 `(#NNNN)`）；现场读数看 CI 步骤首行 `MERGE-LEDGER prs=<n>`。合并前这篇文件还不在基线上，判 byDesign 不红；把本行状态列写成 `PASS` 会被判「预写不存在的证据」而红 |
 
 ### 现场读数（本次基线 `merge-base = be84f449a` 上取；这些是活数，引用前重取）
@@ -61,11 +61,10 @@ date: 2026-10-21
 
 ### 遗留（不假装已闭合）
 
-1. **QM-6 外部双家族评审在本记录写作时仍在途**（见上方 QM-6 行），闭合要在最后一笔提交上重跑评审后取产物。
-2. **热门选题页的「流水线被丢弃」只修了本片路径**：本片让「去发布」弹窗选到的流水线能带到创作页，但热门选题页**行内**的「生成视频」按钮组（`HotTopicsGenVideoPicker.vue`）走的是另一条链（直接 `startGenerateVideo(topic, pipelineName)`），其流水线选择的传递语义与本片无关，本片未动。
-3. **配置档案仍是设备级本地**（`userData/story2video-config-profiles/config-profiles.json`）：换设备/换用户目录就没有。本片沿用该语义，不声称同步。
-4. **「未能确定流水线，无法套用所选配置」复用了 `create.story2video.configProfile.applyFailed` 键**（靠 `translateWithLocaleFallback` 的兜底参数区分文案）——本片最终改为独立键 `pipelineUnresolved`，此前的复用取舍已被消除。
-5. **自建下拉的无障碍细节只做到 ARIA 语义 + 键盘可达性由浏览器原生行为承担**：未实现方向键在选项间移动（`role="listbox"` 声明了，但未实现 roving tabindex）。仓内 `HotTopicsGenVideoPicker` 有同款实现（其键盘处理在菜单级），本片未复制那套键鼠逻辑——如实登记为已知限制。
+1. **热门选题页的「流水线被丢弃」只修了本片路径**：本片让「去发布」弹窗选到的流水线能带到创作页，但热门选题页**行内**的「生成视频」按钮组（`HotTopicsGenVideoPicker.vue`）走的是另一条链（直接 `startGenerateVideo(topic, pipelineName)`），其流水线选择的传递语义与本片无关，本片未动。
+2. **配置档案仍是设备级本地**（`userData/story2video-config-profiles/config-profiles.json`）：换设备/换用户目录就没有。本片沿用该语义，不声称同步。
+3. **配置下拉的朗读增强未做**：方向键 / Home / End / Esc 已实现（QM-6 i2 采纳后补齐），但「输入首字母跳到对应项」这类 listbox 可选增强未做，如实登记。
+4. **本片触及的高危面为空**：改动只落在 `apps/desktop/src/**`（渲染层）与文档/规格，**未触** `apps/desktop/electron/`、`packages/rpa-engine/`、`scripts/check-*`、`.github/workflows/` ⇒ `check-pr-exec-record.js::HIGH_RISK_SURFACES` 矩阵不适用，「高危面不得自扮演豁免」这条在本片不触发。
 
 ## CHANGELOG 条目
 
@@ -95,8 +94,8 @@ date: 2026-10-21
 
 ### 验证
 
-- TDD：先写断言实跑红，再实现。纯函数 `publish-destination-config.test.js` **15/15**；组件 `PublishDestinationModal.test.js` **14/14**（既有 7 例 + 新增 7 例）；创作页 `CreateView.config-profile-handoff.test.js` **4/4**。
-- 回归：`CreateView.test.js` + `CreateView.pipeline-runtime.test.js` + `CreateView.batch-create.test.js` + i18n + icon-usage 共 **390/390**；`RewriteView` / `HotTopics` / `Collection` 三页 **268/268**。
+- TDD：先写断言实跑红，再实现。纯函数 `publish-destination-config.test.js` **15/15**；交接模块 `apply-config-profile-handoff.test.js` **12/12**（QM-6 i4 采纳后新增）；组件 `PublishDestinationModal.test.js` **16/16**（既有 7 例 + 新增 9 例，含 2 例键盘可达）；创作页 `CreateView.config-profile-handoff.test.js` **4/4**。
+- 回归：`CreateView.test.js` + `CreateView.pipeline-runtime.test.js` + `CreateView.batch-create.test.js` + i18n + icon-usage + `RewriteView` / `HotTopics` / `Collection` 共 **658/658**（12 文件）。
 - 门禁本机实跑：ESLint rc=0；locale 三档（`--pair-base` / `--cjk` / `--keys`）rc=0；行数两门禁（`check-max-lines` / `check-debt-budget`）rc=0；字号 / 颜色 / CSS 变量 / 前端一致性 / Vue 样式解析 rc=0；接线棘轮 / 品牌残留 / 编码完整性 / 文档绝对路径 / 冲突标记 / 视觉覆盖 / 执行记录债务 rc=0；`openspec validate --strict` rc=0；渲染层 `build:vue` rc=0。
 
 ### 文档

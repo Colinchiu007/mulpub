@@ -9,22 +9,28 @@
         role="combobox"
         aria-haspopup="listbox"
         :aria-expanded="menuOpen ? 'true' : 'false'"
+        :aria-controls="menuOpen ? menuId : null"
         :aria-labelledby="labelId"
         data-testid="publish-dest-config-trigger"
         @click="toggle"
+        @keydown="onTriggerKeydown"
       >
         <span class="publish-dest-config-value" data-testid="publish-dest-config-value">{{ displayText }}</span>
         <span class="publish-dest-config-caret" aria-hidden="true">▾</span>
       </button>
       <ul
         v-if="menuOpen"
+        :id="menuId"
+        ref="menuEl"
         class="publish-dest-config-menu"
         role="listbox"
         :aria-labelledby="labelId"
         data-testid="publish-dest-config-menu"
+        @keydown="onMenuKeydown"
       >
         <li
           role="option"
+          tabindex="-1"
           class="publish-dest-config-option"
           :class="{ 'is-selected': !modelValue }"
           :aria-selected="!modelValue"
@@ -35,6 +41,7 @@
           v-for="c in options"
           :key="c.id"
           role="option"
+          tabindex="-1"
           class="publish-dest-config-option"
           :class="{ 'is-selected': c.id === modelValue }"
           :aria-selected="c.id === modelValue"
@@ -65,11 +72,14 @@
  *  - 该流水线零配置 ⇒ 触发器显示「默认」、不可展开 ⇒ **下拉内容为空**（菜单节点不渲染）。
  *  - 有配置时菜单首项恒为「默认」（= 不套用任何配置），保证选完还能退回。
  *  - 加载中 / 加载失败 / 无配置三态互斥，各有可见说明，绝不静默。
+ *  - 键盘可达（QM-6 评审 i2 采纳）：触发器上 ↓/↑ 展开并落到首/末项，菜单内 ↑/↓ 移动、
+ *    Home/End 跳首末、Enter/Space 选中、Esc 关闭并把焦点还给触发器；Tab 关闭菜单。
+ *    （原生 `<button>` 自带 Enter/Space 激活，故触发器只需处理方向键与 Esc。）
  *
  * 为什么自建下拉而不用 el-select：见 `openspec/changes/publish-config-picker/design.md` D2
  * （与左侧原生 select 同套视觉 + 本仓 Element Plus 显式按需装配的硬约束）。
  */
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { resolveConfigSelection } from '@/features/publish-destination/publish-destination-config'
 
@@ -91,16 +101,22 @@ const { t } = useI18n()
 
 const menuOpen = ref(false)
 const pickerEl = ref(null)
+const menuEl = ref(null)
+/** 菜单内当前键盘焦点所在项的下标（0 = 「默认」项，其后是各条配置）。 */
+const activeIndex = ref(-1)
+const menuId = 'publish-dest-config-menu'
 
-const options = computed(() => resolveConfigSelection(
+/** 选项与当前选中项一次算完：两条 computed 各算一次会把过滤/排序做两遍（QM-6 评审 i7 采纳）。 */
+const selection = computed(() => resolveConfigSelection(
   props.profiles,
   props.pipelineId,
   props.modelValue,
-).options)
+))
+
+const options = computed(() => selection.value.options)
 
 const displayText = computed(() => (
-  resolveConfigSelection(props.profiles, props.pipelineId, props.modelValue).selectedName ||
-  t('publishDestination.configDefaultOption')
+  selection.value.selectedName || t('publishDestination.configDefaultOption')
 ))
 
 /** 提示行：加载中 / 加载失败 / 该流水线尚无配置——三态互斥，绝不静默。 */
@@ -111,25 +127,114 @@ const hint = computed(() => {
   return ''
 })
 
+/** 菜单项总数：「默认」1 项 + 各条配置。 */
+const itemCount = computed(() => options.value.length + 1)
+
 function toggle () {
   if (!options.value.length) return
-  menuOpen.value = !menuOpen.value
+  if (menuOpen.value) {
+    closeMenu()
+    return
+  }
+  menuOpen.value = true
+  // 展开时把键盘焦点落在当前选中项（没有选中就落在「默认」）
+  const current = options.value.findIndex(item => item.id === props.modelValue)
+  activeIndex.value = current >= 0 ? current + 1 : 0
+  void focusActive()
+}
+
+function closeMenu (refocus = false) {
+  menuOpen.value = false
+  activeIndex.value = -1
+  if (refocus) {
+    const trigger = pickerEl.value?.querySelector?.('.publish-dest-config-trigger')
+    if (trigger && typeof trigger.focus === 'function') trigger.focus()
+  }
 }
 
 function select (id) {
   emit('update:modelValue', id)
-  menuOpen.value = false
+  closeMenu(true)
+}
+
+async function focusActive () {
+  await nextTick()
+  const items = menuEl.value?.querySelectorAll?.('[role="option"]')
+  const target = items && items[activeIndex.value]
+  if (target && typeof target.focus === 'function') target.focus()
+}
+
+function moveActive (delta) {
+  if (!itemCount.value) return
+  const count = itemCount.value
+  activeIndex.value = (activeIndex.value + delta + count) % count
+  void focusActive()
+}
+
+function onTriggerKeydown (event) {
+  const key = event.key
+  if (key === 'ArrowDown' || key === 'ArrowUp') {
+    event.preventDefault()
+    if (menuOpen.value) {
+      moveActive(key === 'ArrowDown' ? 1 : -1)
+      return
+    }
+    // 展开并落到首项（↓）/ 末项（↑）
+    menuOpen.value = true
+    activeIndex.value = key === 'ArrowDown' ? 0 : itemCount.value - 1
+    void focusActive()
+    return
+  }
+  if (key === 'Escape' && menuOpen.value) {
+    event.preventDefault()
+    closeMenu(true)
+  }
+}
+
+function onMenuKeydown (event) {
+  const key = event.key
+  if (key === 'ArrowDown') {
+    event.preventDefault()
+    moveActive(1)
+    return
+  }
+  if (key === 'ArrowUp') {
+    event.preventDefault()
+    moveActive(-1)
+    return
+  }
+  if (key === 'Home') {
+    event.preventDefault()
+    activeIndex.value = 0
+    void focusActive()
+    return
+  }
+  if (key === 'End') {
+    event.preventDefault()
+    activeIndex.value = itemCount.value - 1
+    void focusActive()
+    return
+  }
+  if (key === 'Escape') {
+    event.preventDefault()
+    closeMenu(true)
+    return
+  }
+  if (key === 'Tab') {
+    // Tab 走浏览顺序：菜单收起但**不**抢焦点（否则焦点被按回触发器，Tab 顺序被破坏）
+    closeMenu(false)
+  }
 }
 
 function onDocumentPointerDown (event) {
   const root = pickerEl.value
   if (root && typeof root.contains === 'function' && event && root.contains(event.target)) return
-  menuOpen.value = false
+  closeMenu(false)
 }
 
 // 切换流水线 ⇒ 已选配置作废（配置属于某一条流水线，跨流水线套用是错误语义）
 watch(() => props.pipelineId, () => {
-  menuOpen.value = false
+  closeMenu(false)
 })
 
 // 选中的配置若已从库里消失（被删除/被改名），回落成「默认」，不留悬空选中态
@@ -153,7 +258,7 @@ onBeforeUnmount(() => {
   }
 })
 
-defineExpose({ options, displayText, hint, menuOpen })
+defineExpose({ options, displayText, hint, menuOpen, activeIndex })
 </script>
 
 <style scoped>
@@ -235,6 +340,7 @@ defineExpose({ options, displayText, hint, menuOpen })
   white-space: nowrap;
 }
 .publish-dest-config-option:hover { background: var(--soft-stone, #f5f5f5); }
+.publish-dest-config-option:focus { outline: 2px solid var(--coral, #f56c6c); outline-offset: -2px; }
 .publish-dest-config-option.is-selected { color: var(--coral, #f56c6c); font-weight: 600; }
 
 .publish-dest-config-hint {
