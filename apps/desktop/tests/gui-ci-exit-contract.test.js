@@ -873,28 +873,15 @@ describe('GUI/CI 工作流门禁契约', () => {
     // 能同时满足 `budget >= 单片健康×3` 与 `budget < 20*60`，反向判据实质失效。
     assert(fullSet && fullSet.length === 3, '非 PR 档必须恰好 3 片，否则「减片 + 抬预算」可组合回退');
 
-    // required context 名必须被补回来（2026-10-20 实测：matrix 把作业报成
-    // `electron-tests (1)`，而 ruleset `main-ci-gate` 要求的 context 恰好是 `electron-tests`，
-    // 于是 22 项全绿的 PR 仍是 `base branch policy prohibits the merge`）。
-    // 汇入作业被删 = 所有 PR 再次卡死，所以它也要有锁。
-    const summary = workflow.jobs['electron-tests-summary'];
-    assert(summary, '缺 electron-tests-summary ⇒ ruleset 要求的 context 永远不会出现，PR 恒 BLOCKED');
-    expect(summary.name, '汇入作业对外必须叫 electron-tests，否则补不回 required context').toBe('electron-tests');
-    expect([].concat(summary.needs)).toContain('electron-tests');
-    // `always()` 必须保留：去掉它，分片失败时本作业会被 needs 语义置为 skipped，
-    // 而 skipped 对 required check 视为**满足** ⇒ 「分片红也能合」，比不加汇入作业更糟。
-    // 不再串联 docs-only 条件：实测两条用 `&&` 连起来后 GitHub 判整个 workflow 不可解析
-    // （幻影 push run + 0 job，两次复现），而这里本就不需要 —— matrix 作业已被短路过。
-expect(String(summary.if || '')).toMatch(/^(?:\$\{\{\s*)?always\(\)/);
-
-    expect([].concat(summary.needs)).toContain('changes');
-    // 反向：matrix 作业自己不得也叫这个名字，否则两条检查同名、聚合语义失效。
-    expect(String(job.name || '')).not.toBe('electron-tests');
-    // 聚合判据必须同时放行 success 与 skipped（后者只在 docs-only 短路时出现）。
-    const aggRun = String(summary.steps.map((s) => s.run || '').join('\n'));
-    expect(aggRun).toContain('needs.electron-tests.result');
-    expect(aggRun).toMatch(/success\|skipped/);
-
+    // required context 名必须由本作业自己报出（2026-10-20 实测）：GitHub 的 ruleset
+    // `main-ci-gate` 要求的 context 就是 `electron-tests`，而 matrix 默认报 `electron-tests (1)`
+    // ⇒ 那个 context 永不出现、22 项全绿的 PR 也判 `base branch policy prohibits`。
+    // 正解是给 matrix 作业一个**静态** `name`，让每一片都报同一个 check 名（分片全绿才算绿）。
+    // 试过并**不可行**的两条，记在这里免得后人重走：① 另加一个 `name: electron-tests` 的汇入作业
+    // —— 会把整个 workflow 判成不可解析（幻影 push run + 0 job，两次复现，`always()` 与
+    // `always() && …` 两种写法都试过）；② 把两条条件用 `&&` 串在汇入作业的 `if` 上 —— 同上。
+    expect(job.name, 'matrix 作业必须带静态 name: electron-tests').toBe('electron-tests');
+    expect(workflow.jobs['electron-tests-summary'], '不该再有汇入作业（那条路会让 workflow 无法解析）').toBeUndefined();
     const unitStep = findUnitTestStep(job);
     const run = String(unitStep.run);
 

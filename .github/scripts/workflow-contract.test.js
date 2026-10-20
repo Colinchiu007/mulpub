@@ -585,27 +585,6 @@ test('docs-only 短路：electron-ci 与 build 的 job 级条件同样接线', (
       // needs 语义置成 `skipped` —— 而 skipped 对 required check 视为**满足**，
       // 于是「分片红也能合」，比不加汇入作业更糟。
       // 因此这一格只放宽「要不要 always()」，docs-only 条件本身仍必须有、仍要断言。
-      // 汇入作业在 electron-ci.yml 里用**裸 `always()`**（不与 docs-only 条件串联）：
-      // 实测把两条用 `&&` 连起来后 GitHub 判该文件不可解析（幻影 push run + 0 job，两次复现）。
-      // 语义上也不需要那条短路 —— matrix 作业已被 docs-only 短路过，本作业只剩一个
-      // 10 秒的 ubuntu 汇总；而 `always()` 必须保留，否则分片失败时本作业被置为 skipped、
-      // 对 required check 视为满足 ⇒ 「分片红也能合」。
-      const isFanInJob =
-        typeof job.if === 'string' &&
-        /^(?:\$\{\{\s*)?always\(\)(\s*&&.*)?$/.test(job.if) &&
-        Array.isArray(job.needs) &&
-        job.needs.includes('changes') &&
-        job.needs.length >= 2;
-      if (isFanInJob) {
-        // 但 docs-only 条件若出现就必须是对的（防止写成永远为真的串）
-        if (job.if.includes('docs-only')) {
-          assert.ok(
-            job.if.includes("needs.changes.outputs.docs-only != 'true'"),
-            `${name} 的 ${jn} 若带 docs-only 条件，写法必须正确`,
-          );
-        }
-        continue;
-      }
       assert.equal(
         job.if,
         "needs.changes.outputs.docs-only != 'true'",
