@@ -274,6 +274,38 @@ export default {
       loading: 'Loading...',
       loadFailedTitle: 'Failed to load the project',
       loadFailedRetry: 'Retry',
+      // ── 2026-10-20 PRD-S2V-RESULT-UX-POLISH ──
+      // Failure summary card: explains "why no final video"
+      failureSummaryTitle: 'Generation did not finish',
+      failureSummaryCounts: '{failed} of {total} segments failed, {completed} completed',
+      failureSummaryReasons: 'Main causes: {reasons}',
+      failureSummaryReasonItem: '{label} ({count} segments)',
+      failureSummaryPolicyNote: '{count} segments were flagged by content policy — check those first.',
+      failureSummaryJump: 'Go to the first failed segment',
+      failureSummaryNoReason: 'No specific cause was recorded. Check the full log or recompose directly.',
+      // Failure code -> readable label (unknown codes fall back, never invented)
+      failureReasonPolicy: 'Content policy blocked',
+      failureReasonQuota: 'Quota exhausted',
+      failureReasonMaterial: 'Material generation failed',
+      failureReasonTimeout: 'Generation timed out',
+      failureReasonModel: 'Model call failed',
+      failureReasonUnknown: 'Other cause',
+      // Segment counters / expand / filter
+      segmentCountAll: '{total} segments',
+      segmentCountPartial: 'Showing {shown} of {total} segments',
+      segmentCountNoMatch: 'No matching segments',
+      loadAllSegments: 'Show all',
+      expandAllConfirm: 'Showing all {total} segments renders every card at once and may stutter briefly. Continue?',
+      // Filter and search
+      segmentFilterAll: 'All',
+      segmentFilterFailed: 'Failed only',
+      segmentFilterPolicy: 'Policy-flagged only',
+      segmentSearchPlaceholder: 'Search text / prompt / subtitle',
+      segmentSearchClear: 'Clear search',
+      // Jump feedback / back to top
+      segmentJumpPending: 'Expanding to segment {n}…',
+      backToTop: 'Back to top',
+      backToTopAria: 'Return to the top of the page',
       // Segment editor heading + counters (moved to locale when ResultSegmentEditor was extracted, 2026-10-20)
       segmentEditTitle: 'Segment editor',
       segmentCountSuffix: 'segments',

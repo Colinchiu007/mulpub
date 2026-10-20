@@ -107,12 +107,39 @@ beforeEach(() => {
 describe('useTtsVoices 契约', () => {
   it('deps 未注入时 fail-closed（抛错而非静默）', () => {
     expect(() => ttsVoicesMethods.getS2VVoiceContext()).toThrow('deps not injected')
-    expect(() => ttsVoicesComputeds.s2vVoiceOptions.value).toThrow('deps not injected')
+    // 注：此处**故意不再**断言 computed 抛错 —— 见下一条用例。computed 的 fail-closed
+    // 会引入比它防住的更严重的缺陷（Vue 抛错路径保留旧值 + 丢依赖订阅）。
+    // fail-closed 的职责由**写路径方法**承担（getS2VVoiceContext / selectS2VVoice 等），
+    // 只读 computed 在 deps 缺失时返回安全空值是正确行为。
   })
 
-  it('导出面完整：22 状态 ref + 5 计算属性 + 27 方法', () => {
-    expect(Object.keys(ttsVoicesRefs)).toHaveLength(22)
-    // 22 = 20 + s2vVoiceCloneProviderId + s2vVoiceCloneModelId（上下文切换判定用，CCG i3）
+  it('只读 computed 在 deps 未注入时不抛错、且不污染缓存（Vue computed 抛错会保留旧值的回归锁）', () => {
+    // 动因（2026-10-20，seed=1792469548946 实测）：s2vVoiceOptions 里有一行
+    // `const d = requireDeps()` 且函数体**从未使用 d** —— 纯粹的「为 fail-closed 而调用」。
+    // Vue 3 的 computed 在求值抛错时把 _dirty 置回 false 却保留上一次的 _value，而抛错那次
+    // 又没成功注册依赖订阅，于是此后 state 变化再也 trigger 不到它 ⇒ 永久返回陈旧值。
+    // 现场：computed=['v1','v2','v3']（上一用例残留），而两个真实依赖已是正确值。
+    // 这条锁分四步，任一步坏掉都能指名变红。
+    // 1) 有 deps 时求出真实值
+    setupTtsVoicesDeps(makeDeps())
+    ttsVoicesRefs.s2vVoiceCatalog.value = [{ id: 'cache-a' }]
+    ttsVoicesRefs.s2vVoiceClones.value = [{ id: 'cache-b' }]
+    expect(ttsVoicesComputeds.s2vVoiceOptions.value.map(v => v.id)).toEqual(['cache-a', 'cache-b'])
+    // 2) 复位（deps 置空、state 清空）
+    resetTtsVoicesForTest()
+    // 3) deps 未注入时读它 —— 不得抛错（抛错就会冻结旧值）
+    expect(() => ttsVoicesComputeds.s2vVoiceOptions.value).not.toThrow()
+    expect(ttsVoicesComputeds.s2vVoiceOptions.value).toEqual([])
+    // 4) 重新注入并换数据 —— 必须反映新值，证明缓存没被卡住
+    setupTtsVoicesDeps(makeDeps())
+    ttsVoicesRefs.s2vVoiceCatalog.value = [{ id: 'cache-c' }]
+    expect(ttsVoicesComputeds.s2vVoiceOptions.value.map(v => v.id)).toEqual(['cache-c'])
+  })
+
+  it('导出面完整：21 状态 ref + 5 计算属性 + 27 方法', () => {
+    expect(Object.keys(ttsVoicesRefs)).toHaveLength(21)
+    // 21 = 20 + s2vVoiceCloneProviderId + s2vVoiceCloneModelId（上下文切换判定用，CCG i3）
+    //      - s2vPersistedVoiceId（2026-10-20 清理：s2vConfig.voiceId 的冗余镜像，生产零读取）
     // 5 = 6 - s2vVoiceModelOptions（voice-model-program-resolved 移除「语音模型」下拉）
     expect(Object.keys(ttsVoicesComputeds)).toHaveLength(5)
     // 27 = 28 - handleS2VVoiceModelChange（同上）
@@ -292,7 +319,6 @@ describe('useTtsVoices 契约', () => {
     ttsVoicesRefs.s2vVoiceCapability.value = { type: 'user_clone', clone: { enabled: true } }
     ttsVoicesRefs.s2vVoiceCatalogError.value = 'e'
     ttsVoicesRefs.s2vVoiceClonePending.value = { id: 'p', name: 'P', sampleCount: 1 }
-    ttsVoicesRefs.s2vPersistedVoiceId.value = 'c1'
     ttsVoicesMethods.resetS2VVoiceData()
     expect(ttsVoicesRefs.s2vVoiceCatalog.value).toEqual([])
     // 克隆列表是设备级本地资源，与「目录刷新」无关：一次失败的目录刷新不得把它抹掉
@@ -301,7 +327,6 @@ describe('useTtsVoices 契约', () => {
     expect(ttsVoicesRefs.s2vVoiceCapability.value).toBeNull()
     expect(ttsVoicesRefs.s2vVoiceCatalogError.value).toBe('')
     expect(ttsVoicesRefs.s2vVoiceClonePending.value).toBeNull()
-    expect(ttsVoicesRefs.s2vPersistedVoiceId.value).toBe('')
   })
 
   it('s2vVoiceCloneStatusText 无占位行时为空串（不渲染横幅）', () => {
@@ -331,16 +356,17 @@ describe('克隆成功后自动切换「语音 / 音色 ID」选中项', () => {
   function setupCloneReady(overrides = {}) {
     const deps = makeDeps(overrides)
     setupTtsVoicesDeps(deps)
-    // 显式建立起点（不依赖外部 beforeEach 的复位）：实测在 --sequence.shuffle 下，
-    // 本 describe 会读到上一个 describe 用例残留的目录数据（[v1,v2,v3]），这里主动清一遍。
-    // ⚠ **已知残留（如实记录，未闭合）**：即便清了起点，shuffle 下本 describe 仍有 6 例失败 ——
-    // 起点日志实测证实是 `[] []`，泄漏发生在被测函数 `chooseS2VVoiceCloneSamples()` 执行期间
-    // （它对 mock 的默认返回值有隐式契约，尚未定位到具体一行）。CI 不跑 shuffle，故不阻塞合并；
-    // 作为测试夹具债务留在执行记录的残留风险里，不在此处假装已解决。
+    // 显式建立起点（不依赖外部 beforeEach 的复位）：夹具自足，任何顺序下起点一致。
+    // ⚠ 历史注记（已闭合，2026-10-20）：此前 `--sequence.shuffle` 下本 describe 曾稳定 6 例失败，
+    // 一度误判为「夹具泄漏」并被登记为未闭合残留。真实根因在**生产代码**：`s2vVoiceOptions`
+    // 里有一行 `const d = requireDeps()` 且函数体从未使用 `d`，于是 deps 未注入时读该 computed
+    // 会抛错，而 Vue 的 computed 在抛错路径上保留旧 `_value` 并丢掉依赖订阅 ⇒ 此后永久返回
+    // 上一个用例的残留值。删掉那行死调用后，seed=1792469548946 / 42 / 999 / 7 与正常顺序
+    // 全部 32/32 通过；把死调用加回去即 7 例指名变红（含新增的专用回归锁）。
+    // 结论：这不是测试夹具债务，是**只读 computed 被强制 fail-closed 造成的缓存污染**。
     ttsVoicesRefs.s2vVoiceCatalog.value = []
     ttsVoicesRefs.s2vVoiceClones.value = []
     ttsVoicesRefs.s2vVoiceCatalogError.value = ''
-    ttsVoicesRefs.s2vPersistedVoiceId.value = ''
     ttsVoicesRefs.s2vVoiceProviders.value = [PROVIDER]
     ttsVoicesRefs.s2vVoiceCapability.value = { type: 'user_clone', clone: { enabled: true } }
     deps.s2vConfig.voiceProvider = PROVIDER.id
@@ -390,7 +416,9 @@ describe('克隆成功后自动切换「语音 / 音色 ID」选中项', () => {
       model: 'speech-2.8-turbo',
       voiceId: 'MiniMaxVoice_auto1',
     }))
-    expect(ttsVoicesRefs.s2vPersistedVoiceId.value).toBe('MiniMaxVoice_auto1')
+    // 4) 偏好已持久化 —— 以上 selectTtsVoice 的入参就是「真的落盘了」的行为证据；
+    // 原先这里还有一条 `expect(s2vPersistedVoiceId).toBe(...)`，但那个 ref 是
+    // s2vConfig.voiceId 的冗余镜像、生产零读取（2026-10-20 清理），已一并删除。
     // 5) 克隆进行中态被清掉，不残留占位行
     expect(ttsVoicesRefs.s2vVoiceClonePending.value).toBeNull()
     expect(ttsVoicesRefs.s2vVoiceCloneLoading.value).toBe(false)
@@ -538,9 +566,8 @@ describe('克隆成功后自动切换「语音 / 音色 ID」选中项', () => {
     // i2：克隆列表拉取失败时保留原值（不用空数组覆盖）⇒ 它仍在下拉候选集合内，
     // 「保留」不是悬空选择（用户在下拉里看得见这个音色）
     expect(ttsVoicesComputeds.s2vVoiceOptions.value.map(v => v.id)).toEqual(['MiniMaxVoice_auto1'])
-    // i1：voiceId 与 s2vPersistedVoiceId 必须同步，否则「默认」徽标与选中项脱节
+    // i1：刷新失败时选中项必须保持在被保留的音色上（不得被归一成空/悬空）
     expect(deps.s2vConfig.voiceId).toBe('MiniMaxVoice_auto1')
-    expect(ttsVoicesRefs.s2vPersistedVoiceId.value).toBe('MiniMaxVoice_auto1')
     expect(ttsVoicesRefs.s2vVoiceCatalogError.value).toBeTruthy()
   })
 
@@ -555,7 +582,6 @@ describe('克隆成功后自动切换「语音 / 音色 ID」选中项', () => {
 
     // 目录拿到了、音色确实不在其中 ⇒ 清空是正确行为（不是「静默丢失」）
     expect(deps.s2vConfig.voiceId).toBe('')
-    expect(ttsVoicesRefs.s2vPersistedVoiceId.value).toBe('')
   })
 
   it('克隆列表权威返回空 + 目录失败时清空选中项（i2：不允许保留无候选的悬空 id）', async () => {
@@ -570,7 +596,6 @@ describe('克隆成功后自动切换「语音 / 音色 ID」选中项', () => {
 
     // 「权威来源说没有」≠「这次没问到」：前者必须清空，否则保留一个无候选可渲染的悬空 id
     expect(deps.s2vConfig.voiceId).toBe('')
-    expect(ttsVoicesRefs.s2vPersistedVoiceId.value).toBe('')
   })
 
   it('上下文切换（换语音生成器）时清掉上一个 provider 的克隆候选（i3：不留可误选的旧音色）', async () => {

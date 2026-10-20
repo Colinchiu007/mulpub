@@ -15,15 +15,40 @@ const local = require('../signer-local')
 const { createRegistry } = require('./registry')
 const douyinTicketGuard = require('./douyin-ticket-guard')
 const { createBrowserPageProvider } = require('./browser-page-provider')
+const kuaishouSig3 = require('./kuaishou-sig3')
 
 const registry = createRegistry()
 
 // ---- Tier-A 本地算法收编（与 signer-local.js 行为一致）----
 
-// 快手 __NS_sig3：MD5(api_ph | JSON(body))；缺 api_ph 时返回空串（由上层校验拦截）
+/*
+ * 快手 __NS_sig3（2026-10 完整还原，替换旧的 MD5 近似式）
+ *
+ * 旧实现是 `MD5(api_ph + "|" + JSON(body))`（32 位裸 hex）。2026-09-25 的 W3 spike
+ * S0 判定它"结构上不等于真签名"并作废，此后主链路改走 Tier-B 页面签名器。
+ * 2026-10 把竞品 VM 算法完整还原为纯 JS（与 VM 逐字节对拍 10/10），
+ * 且在真实服务端验证通过（无签 500002 被拒 / 带签 result:1），故 Tier-A 重新可用。
+ *
+ * 入参契约与页面签名器（PJ）同构：{ url, type, params } → 56 hex。
+ * 兼容历史形态 { body, apiPh }：body 视作 params（apiPh 不再参与计算 ——
+ * 真 sig3 的输入里没有 api_ph）。
+ *
+ * ⚠ 状态隔离（CCG 深度评审 i3 的处置）：
+ * 用 `createSigner()` 持有**显式实例**，而不是直接调模块级 `sign()`。
+ * 状态因此成为注册表的一部分、可被导出与重置；并发场景的调用方也能注入自己的
+ * signer，而不是被迫共享一个隐式全局。
+ */
+const kuaishouSigner = kuaishouSig3.createSigner()
+
 registry.register('kuaishou.ns-sig3', (payload) => {
   const p = payload || {}
-  return local.getKuaishouSign(p.body, p.apiPh)
+  const params = p.params === undefined ? p.body : p.params
+  return kuaishouSigner.sign({
+    url: p.url,
+    params,
+    startupRandom: p.startupRandom,
+    count: p.count,
+  })
 })
 
 // 抖音浏览器参数（占位签名，真实有效性待活体验证）
@@ -78,4 +103,4 @@ registry.register('xiaohongshu.x-s-browser', async (payload) => {
   return browserPageProvider.sign('xiaohongshu.x-s-browser', payload)
 })
 
-module.exports = { registry, createRegistry, sign: registry.sign, register: registry.register, has: registry.has, list: registry.list, browserPageProvider }
+module.exports = { kuaishouSigner, registry, createRegistry, sign: registry.sign, register: registry.register, has: registry.has, list: registry.list, browserPageProvider }
