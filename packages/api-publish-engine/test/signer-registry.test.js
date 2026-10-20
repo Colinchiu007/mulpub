@@ -54,11 +54,33 @@ t("默认注册表已收编 Tier-A 本地 command", () => {
   });
 });
 
-t("Tier-A 回归：kuaishou.ns-sig3 与 signer-local 逐字一致", async () => {
+/*
+ * 2026-10 契约变更（有意为之，非"改测试凑绿"）：
+ *
+ * 原断言是「registry.sign('kuaishou.ns-sig3') 与 signer-local.getKuaishouSign 逐字一致，
+ * 且长度 32」。它锁的是 `MD5(api_ph + "|" + JSON(body))` 这个**近似式**。
+ * 该近似式已被 2026-09-25 的 W3 spike S0 判定为结构上不等于真签名
+ * （真 sig3 是 56 字符的 VM 产物），随后被 Tier-B 页面签名器取代。
+ *
+ * 2026-10 把竞品 VM 算法完整还原为纯 JS，并在真实服务端验证通过
+ * （无签 500002 被拒 / 带签 result:1），因此 registry 改为产出真 sig3（56 hex）。
+ * 旧 `getKuaishouSign` 仍保留导出（避免破坏外部引用），但**不再被注册表使用**。
+ */
+t("Tier-A：kuaishou.ns-sig3 产出真 sig3（56 hex，旧 MD5 近似式已作废）", async () => {
+  const payload = { url: "/rest/v2/creator/pc/authority/account/current", type: "json", params: {} };
+  const sig = await signerMod.registry.sign("kuaishou.ns-sig3", payload);
+  assertEqual(typeof sig, "string");
+  assertEqual(sig.length, 56);
+  assertEqual(/^[0-9a-f]{56}$/.test(sig), true);
+});
+
+t("Tier-A：kuaishou.ns-sig3 不再等于旧的近似式", async () => {
   const body = { caption: "hello", part: 1 };
-  const expected = local.getKuaishouSign(body, "PH123");
-  assertEqual(await signerMod.registry.sign("kuaishou.ns-sig3", { body, apiPh: "PH123" }), expected);
-  assertEqual(expected.length, 32);
+  const legacy = local.getKuaishouSign(body, "PH123");
+  const sig = await signerMod.registry.sign("kuaishou.ns-sig3", { url: "/p", body });
+  assertEqual(legacy.length, 32);           // 旧式仍是 32 位，证明它确实不是真签名
+  assertEqual(sig.length, 56);
+  assertEqual(sig === legacy, false);
 });
 
 t("Tier-A 回归：shipinhao.content-md5 = base64(MD5(bytes))", async () => {
