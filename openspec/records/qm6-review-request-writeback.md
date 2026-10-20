@@ -158,3 +158,13 @@ M1 的红集里**同时**出现「回写这一跳失败」不是冗余：那条�
 - 顺序：先 rebase（仅 `CHANGELOG.md` 一处冲突，按「main blob 为底 + 只插我这 13 行」重建，两口径 numstat 同为 `13/0`），
   再 `reset --soft` + `git rm -f` 摘掉 rebase 前那份陈旧判定记录（留着它，enforce 会拿一条永远补不了的记录判红），
   重新过钩子生成 `348a2650…json`，最后才跑评审
+
+## 7. 合并轮的现场（2026-10-20，人工授权 + CHANGELOG 拆出本 PR）
+
+- **合并经人工授权，不是 agent 自动合并**：AGENTS「PR 自动合并」判据第 4 条（`check-pr-exec-record.js --mode=enforce` 为 OK）**未满足**，用户原话授权「授权你来直接合并 #3988」。红因只有一条，且与实现无关：本 PR 命中高危面前缀 `scripts/deep-review`（由 `deep-review.sh` + `deep-review-deps.test.js` 拉进来），而判定记录里 `tier` 整段缺席 ⇒ 高危面只认 `tier=external` + 可核 evidence，自扮演在机械上永远闭不了这一类 PR。
+- **enforce 读数在三个基线上完全相同**（`d075a7a4b` / `dae37652a` / `aee0642fa`，最后一次为 `f8730eeb8` 前的同一判据）：`rc=1`、`A=2 M=10 D=0`、`TIER-COVERAGE dual-closed total=1 external=0 … unknown(字段缺席)=1`。⇒ 这一条不是"基线换了才红"，也不是 rebase 引入的。CI 跑的是 `--mode=advisory`，同判据 `rc=0` 且自己打印 `MODE=advisory（尚未接进判定）`，所以 **checks 全绿不构成 QM-6 已闭合的证据**。
+- **`tier=external` 为什么没能由工具写出**：给 vendor 引擎打了两个补丁（`parseRecheckReply` + `externalRecheckOfAdjudication`），两次都在 `codeagent-wrapper` 的 spawn 处 `MODULE_NOT_FOUND` 且 wrapper 侧零日志，已把 vendor 还原到上一版（sha256 `04c1946ae2d3…`、1265 行），坏变体挪到仓外留证。**我先前写的根因「argv/PATH 形态不对，改 shell:true 就能通」是错的**，被第二版补丁否证：真实约束是"无扩展名的 bash 脚本 + 非 ASCII home 路径"跨 Node→bash spawn 边界解析不到。下一条可行载体：调用发起点挪到 `deep-review.sh`（bash 侧本来就能起 wrapper），node 只读产物并写 `tier/evidence`（即 tasks 8.1b）。**我没有任何一次手写 `tier`**——红文案给的出口①明说那属"手写代用"，而手写状态字段正是本 PR 要消除的东西。
+- **两处不实，原文保留、就地标注**（§6 的「顺序」段）：① 那句「重新过钩子生成 `348a2650…json`」**不实**——该文件名在 HEAD 与 origin/main 上 `git cat-file -e` 两侧都不存在，实际进入变更集的唯一判定产物是 `6f1d6929…json`；② 那句「只插我这 13 行 / 两口径同为 13/0」在后续基线上是 **15/0**（第二轮处置给该块又加了 2 个 bullet）。
+- **`CHANGELOG.md` 那一行已从本 PR 拆出**（本 PR 净差量不再含该文件）。动因是节奏不是口径：本 PR 是混合 PR，每 rebase 一次要重跑约 50 分钟全量 CI，而 main 的 CHANGELOG 顶插约每 20 分钟多一笔 ⇒ 每次 checks 收敛时 PR 都已重新变 CONFLICTING，`gh pr merge` 现场被 GitHub 以 `Pull Request has merge conflicts` 拒绝（同一条命令的管道尾端 rc=0，再次证明**合并成败只认产物**）。已核法：Gate 2c3 的 `check-changelog-growth.js` 是「只可增长」棘轮，实测 `base 576 → head 576、字节 3021762 -> 3021762` 仍 PASS ⇒ 不要求每个 PR 自带条目；因此条目改由**紧随其后的 docs-only PR** 落，那种 PR 走精简门禁、窗口是分钟级。这是有意的交付形态偏差，理由与后续 PR 都写在这里，不留暗账。
+- **拆出后本 PR 的差量**：11 个文件（`A=2 M=9 D=0`），代码/产物/记录 6 个文件的 blob 与拆出前**逐字节相同**（`git rev-parse` 两两比对 SAME）⇒ 消费者并集 **253 passed / 0 fail** 的读数继续成立，不必重跑。
+- **required 取证读了两套机制**（只读一套会得假结论）：classic protection 4 条 + ruleset `main-ci-gate`(23749994) `required_status_checks` 7 条，并集 11 条 distinct 全 `pass`；两条 `skipping` 是 `gui-test` 与 `release`，均不在任一 required 清单内，且聚合作业 `GUI Gate Result` 本身绿。
