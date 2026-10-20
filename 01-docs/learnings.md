@@ -22203,3 +22203,53 @@ CI 把 `QG Static` 钉红在 Gate 2c，红的是 `check-unwired-tests.test.js` �
   ④ 与「谁来守门」相邻的改动（改 job id 牵动多条结构性锁）不塞进一个修超时的 PR。
   同轮附带一条工具口径：**PowerShell 里 `[System.IO.File]` 的相对路径用的是 .NET 进程 CWD，不是 `cd` 位置**，
   两者可能不同步 ⇒ 文件在却报 `Could not find file`；一律传 `Resolve-Path` 的绝对路径。
+
+## 调研报告给的「落点」是假设不是事实——回本仓实测才作数（film-pipeline-prompt-triple-and-guards，2026-10-21）
+
+### lesson: research-report-landing-is-a-hypothesis
+
+**现场**：`01-docs/RESEARCH-AI-FILM-OPENSOURCE-2026-10-19.md` §5.2 给出 30+ 个复用项，每个都带「落点」文件名。实测两处直接错：F11b（出站 SSRF 防护）报告说落点新建 `shared-utils/src/net/safe-fetch.js`、「本仓无等价防护」——实为 `apps/desktop/electron/services/film-engineering/shot-downloader.js` **已实现完整出站合同**（https-only `:60` + 私网段 `:65` + 每跳 DNS 校验 `:130-144` + 逐跳重校验 `:154-166` + 500MB 上限 + `.part`→ffprobe→rename `:210`）；F11d（外部工具体检）报告说落 `packages/python-backend/src/multi_publish/core/doctor.py`，而影视工程走的是 **Electron 主进程**的 `findFfmpeg()`（`film-render.js:278`），那个目录连文件都不存在。
+
+**判据**：外部调研产出的「落点 / 现状 / 缺口」三列，一律当**假设**处理：落地前逐条回目标仓取行号证据，**证不成立就改方案**。该报告自身已记录 7 次同类自我修正（它自己写的「先查目标仓」纪律），本次是第 8、9 次——**说明这条纪律对调研报告本身同样适用**，不是只对被调研对象适用。照抄落点会同时造出「第二份真相源」（safe-fetch.js）和「改了用不上的地方」（python-backend doctor）。
+
+## rename 原子不等于 CAS：并发写正确性要靠独占锁，原子替换只保证不出现半写（film-pipeline-prompt-triple-and-guards，2026-10-21）
+
+### lesson: rename-is-not-cas
+
+**现场**：给项目文件加乐观锁时，我的第一版方案写「`revision` 自增 + 内容替换在同一次 tmp→fsync→rename 内完成 ⇒ 并发安全」。跨家族评审直接打回：**rename 只保证单次写原子，不提供 compare-and-swap 语义**——两个进程可以各自读到 `revision=5`、都通过比对、再先后 rename 成 6，**后写仍覆盖先写**。更扎心的是同一份方案里我刚为出站下载设计了 IP pinning 来消除「校验用 A 解析、连接用 B 解析」的 TOCTOU 窗口，却在写侧没做对应处理——**自相矛盾**。
+
+**判据**：并发写要拆成两问，各有各的机制：**互斥**（谁先谁后）靠锁/原子操作原语，**原子性**（有没有写到一半）靠 rename/fsync。**「用原子替换实现乐观锁」是错的**；锁必须能跨进程（`fs.open(lock,'wx')`），单进程内的事件循环互斥不成立。判据自查法：问「两个进程都读到同一个值、也都通过了校验」之后会发生什么——答不上来就是没做完。
+
+## 「显著」「明显」这类形容词进验收标准前必须换成比例阈值（film-pipeline-prompt-triple-and-guards，2026-10-21）
+
+### lesson: vague-adjectives-need-thresholds
+
+**现场**：方案写「自动模式新分镜的 `videoPrompt` **显著**短于 `imagePrompt`」，验收却只断言 `videoPrompt.length < imagePrompt.length`。评审指出：后者可被**差 1 字符**满足，「显著」在判据里等于不存在。改成 `videoPrompt.length <= 0.6 * imagePrompt.length`，并要求断言失败时打印两镜实际长度。
+
+**判据**：验收标准里出现「显著 / 明显 / 大幅 / 足够」等词，一律换成**可测的比例或阈值**，并让断言失败信息带上**被比较的两个实际值**——否则「判据不可执行」和「判据可被无意义地满足」是同一种病。另注：既有测试的**用例条数**（如「23 例全绿」）同样不是判据，条数随需求增长而变，把它当门禁会制造假回归；判据应是「该文件全绿 + 关键断言清单齐备」，条数降级为参考信息。
+
+## 判决层与探测层要分层：纯函数不该读文件（film-pipeline-prompt-triple-and-guards，2026-10-21）
+
+### lesson: separate-judgment-from-probing
+
+**现场**：把逐镜就绪度判定做成「纯函数、零 IO、可单测」的模块，判据里却同时列了「参考图不可解析」（要读文件）与「档位不支持」（要读 provider 能力表）——**声明与实现直接矛盾**。评审当场点出。正解是拆两层：**IO 探测层**（调用侧）先产出事实入参 `facts`，判决模块**只对 facts 做纯函数判决**。
+
+**判据**：写「纯函数 / 零 IO / 可单测」这类**能力声明**时，要逐条对判据清单核一遍——**判据里每一条需要外部输入的，都必须由调用侧预先采好并显式传入**。声明与实现不一致时，单测会给出假绿：纯函数拿不到那个输入，只能返回默认值，而默认值恰好让用例通过。
+
+## 一次性显式授权不能落盘——落盘即持久免检标记（film-pipeline-prompt-triple-and-guards，2026-10-21）
+
+### lesson: one-off-authorization-must-not-persist
+
+**现场**：出站下载要允许用户「本次允许从外部素材域名下载」。我第一版按评审要求把授权**留痕到 `project.json`**（`egressAllowAnyHost: true`）。下一轮评审打回：**任何能写项目文件的路径、或外部导入的项目文件，都能静默置 true，且跨会话长期生效** ⇒ 一次性的显式授权变成了**持久免检标记**。最终改为**运行期一次性令牌**（只存内存、任务结束失效、不落盘），审计只记「发生过一次外部域名授权」这一事实、**不存放行位**。
+
+**判据**：授权类状态要分三档落法：**能放行的凭据**（令牌/凭据）⇒ 只进内存或短期存储，**绝不落进可被外部写入或导入的文件**；**审计事实**（谁在何时授权过）⇒ 可以落盘，但要**与放行位物理分离**；**配置**（用户长期设定的白名单）⇒ 落盘，但走独立配置面并显式展示。判据一句话：**「落盘的授权位」= 「任何写文件的人都能给自己发通行证」**。
+
+## 跨家族评审的 proposer 机械环节在长中文方案上会整轮作废——要换无长度上限的家族组合（film-pipeline-prompt-triple-and-guards，2026-10-21）
+
+### lesson: ccg-proposer-mechanical-failure-on-long-chinese-plans
+
+**现场**：`sh scripts/plan-review.sh <方案>` 跑 5 轮，critic 侧每轮都正常产出 8 条意见，**proposer 侧 5 轮全部 rc=1**：一次是 `opencode` 后端有 **7800 字符单次输入上限**（方案 18,088 字符 ⇒ 同步拒绝、~120ms、exit 1、**无任何错误信息**，像限流），后 4 次是 proposer 生成的 `edits.before` 在方案原文里**逐字定位失败**（长中文串复现失真）⇒ 引擎报 `Revision校验失败` 并退出，**不进入裁决**。
+
+**处置**（两处都不是放宽门禁）：① 后端组合换成 **critic=codex（openai 家族）× proposer=claude（anthropic 家族）**——两者都**无长度上限**（`BACKEND_INPUT_LIMIT` 只列了 opencode），跨家族仍成立；② 修订改为**方案作者人工外科式完成**（每条意见落到具体文件与行），proposer 的**内容判断仍然采纳**（从每轮 raw 输出核对），并把「评审跑过几轮、每轮几条、怎么处置、哪些没闭合」写进可入库的评审记录。
+
+**判据**：跨家族评审的**结论**（critic 提的问题）与**落地**（proposer 改文件）是两个独立环节，工具链失败只应影响后者，不该把前者一起废掉。遇到「引擎报输入超长/校验失败」：先查后端**长度上限**（`model-call.js` 的 `BACKEND_INPUT_LIMIT`），再查 `edits.before` 是否**唯一且逐字可定位**（引擎自己给的建议就是「before 尽量短（80 字以内）」）。**不要因为工具失败就降标准或跳过评审**——把轮次与处置如实记进记录，工具失败的那一轮也要留下产物。
