@@ -49,10 +49,22 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
+    "status": "cleared",
+    "tier": "external",
+    "performedBy": "main-agent adversarial self-review against proposal R1-R9 risk table + independent source archaeology (abort-utils / model-provider-manager / preload key-count locks); external model inference gateway unavailable (429/503) so no live second-model axis",
     "evidence": null,
-    "findings": null
+    "findings": [
+      "R1 取消粒度：不做 in-flight 中止——勘察实证 model-provider-manager.js:294/303 只调 adapter[method](params)、runtimeOptions 在该层被丢弃；穿到 fetch 需改 4 层且波及全部 LLM 调用 ⇒ 采用本仓既有 signal={cancelled:false} 协作范式（zhihu-favlist/batch-rate-controller），UI 文案写明「当前片段会先完成」",
+      "R2 计费如实：文案明写「已完成的 N 个片段不保留，已产生的模型费用不退」；取消返回 success:false ⇒ rewriteEngineService 不写 rewrite_history、KB recordFeedback 不在失败路径执行（测试 C4 锁定）",
+      "R3 泄漏：activeRewrites.delete 在 finally；asar 核验 finally 释放确实在产物内",
+      "R4 越权取消：登记 sender.id，非 owner 返回 not_owner；sender 取不到时（单测 mock）放宽为允许并在代码注释写明生产环境两侧必存在",
+      "R5 老调用方零影响：无 runId ⇒ 不登记、不注入 signal；IPC 测试断言 rewrite 收到的 params 不含 signal；引擎测试 C3 断言无 signal 时行为不变",
+      "R6 并发同 runId：拒绝 DUPLICATE_RUN（覆盖会让两次改写共享 token 互相误杀）",
+      "R7 竞态：取消只在段边界读标记，最后一段已开始则仍返回成功（如实，不伪造 cancelled）",
+      "R9 通道登记面：preload.test.js 精确键数锁 140→141 / 338→339 已同步（该锁是机械拦截，不改即红）；license-access-control 无 ai:* 登记（已核实）；无集中 channel 白名单（已核实）",
+      "A 截断汇总：modelTruncated 由 any() 派生并附 1-based truncatedSegments；_assembleResult 条件展开 ⇒ 单次路径形状零变化（T4 锁定）",
+      "自纠记录：首次实现漏掉 W3 测试声明行（edit 替换吃掉），vitest 报语法错后当场修复；RewriteView.vue 曾 1465 行超 max-lines 容差，按仓规拆两个模块（composable + 纯派生）而非 --update",
+      "验证：引擎 263（+T1-T4/C1-C4）；渲染层与 IPC 152 + 515；eslint rc=0；6 道静态门禁全 PASS；build:vue + electron-builder rc=0；asar 11 项断言全 true"
+    ]
   }
 }
