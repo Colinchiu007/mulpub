@@ -1,0 +1,59 @@
+{
+  "sha": "125fcd11431c238b6d017fb7b6086f182fee2baa",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 2 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 2,
+    "fileCount": 6,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 5,
+    "docSensitiveContentSample": [
+      "签名函数**不承担**凭据校验（分层：校验在调用方），但**必须存在**校验层。",
+      "### Requirement: fail-closed 凭据边界",
+      "系统 SHALL 存在凭据校验层。凭据缺失时 SHALL 抛错或拒绝，"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "ae4216723e4d6d6c450b03b143f59f6010a93a34686391618a7cc0546461d572",
+  "decidedAt": "2026-10-20T16:30:57.620Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}
