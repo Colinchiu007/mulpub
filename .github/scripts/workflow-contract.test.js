@@ -587,7 +587,7 @@ test('docs-only 短路：electron-ci 与 build 的 job 级条件同样接线', (
       // 因此这一格只放宽「要不要 always()」，docs-only 条件本身仍必须有、仍要断言。
       const isFanInJob =
         typeof job.if === 'string' &&
-        job.if.startsWith('always() &&') &&
+        /^(?:\$\{\{\s*)?always\(\) &&/.test(job.if) &&
         Array.isArray(job.needs) &&
         job.needs.includes('changes') &&
         job.needs.length >= 2;
