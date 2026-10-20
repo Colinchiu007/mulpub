@@ -50,11 +50,44 @@
     }
   },
   "deepReview": {
-    "required": false,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play(agent)",
+    "fallbackReason": "跨家族对抗后端超时，按引擎第三档出口 self_play 自查。本条为根因解释性文档（§16.7）。",
+    "evidenceInRepo": "01-docs/PRD-VIDEO-PUBLISH-4PLATFORMS-2026-10-18.md §16.7；引据 01-docs/PRD-ACCOUNT-LOGIN-STATUS-CHECK.md §12.2",
+    "confidenceWeight": 0.85,
+    "adjudication": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "这一章是在**解释一个此前被我误读的现象**。会不会是\"事后找理由\"—— 为了让\"目标说已登录、实测说过期\"这个矛盾看起来合理，而编一个解释？",
+        "verdict": "upheld_verified",
+        "rationale": "不是事后编的：这个陷阱**在本仓既有 PRD 里早就写着**（PRD-ACCOUNT-LOGIN-STATUS-CHECK §12.2），原文：\"Cookie（slave_sid）过期后访问 cgi-bin/home 仍可能返回 200 渲染后台骨架，但 loginpage 未登录时不会内嵌 token/uin\"。我只是把这条**已有的记载**与目标描述的冲突**对上了**，并把它写进目标的收口章，免得下一个人再像我一样把\"骨架渲染\"当成\"已登录\"。引据已在文中标明出处，可核对。",
+        "fixCommit": null
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "§16.7 说「不要据页面能打开/后台能渲染/has_cookies=true 推断登录态」—— 那 UI 上显示\"已登录\"算不算一个 bug？要不要改？",
+        "verdict": "upheld_partial",
+        "rationale": "严格说，UI 用\"骨架渲染成功\"当已登录的判据，会**向用户呈现与凭据状态不符的结论** —— 这是个真问题。但改它属于**账号登录状态检测**的改判据（涉及 8 个平台、DOM 检测降级、超时与并发），不是本轮能安全做的，且 PRD-ACCOUNT-LOGIN-STATUS-CHECK 是另一条线的既有设计（其 §12.2 的取舍是\"用 loginpage 正则而非 302\"，正是为了避开这个坑）。本轮只做**文档层**：把\"哪个判据权威、哪个表象不可信\"写清楚，供排查与将来改造参考。如实记为**未修**（是认知澄清，不是缺陷修复）。",
+        "fixCommit": null
+      },
+      {
+        "id": "i3",
+        "severity": "Info",
+        "finding": "这几轮一直在账号复测 + 文档订正，没有任何代码改动推进\"真实发布成功\"。是否该停？",
+        "verdict": "upheld_verified",
+        "rationale": "该停就停 —— 但要说清**为什么现在做不了**：三平台全部被账号侧阻塞（头条等实名、抖音/视频号等扫码），任何代码改动都无法产生\"发布成功\"的结果。本轮做的两件事有实际价值：①解释了目标描述与实测的矛盾根因（避免误判），②给出排查者的判据顺序（避免后人重复我的误读）。诚实结论：如果账号一直不恢复，继续写代码也不会让发布成功。下一步最合理的是**等用户完成账号侧动作**，而不是继续产出文档。",
+        "fixCommit": null
+      }
+    ],
+    "summary": {
+      "total": 3,
+      "upheldVerified": 2,
+      "upheldPartial": 1,
+      "note": "根因解释引自本仓既有 PRD（可核对），非事后编造（i1）；承认 UI 判据问题真实存在但属另一条线、本轮只做认知澄清并未修（i2）；承认当前无代码可推进目标，下一步应等账号恢复（i3）。"
+    },
+    "at": "2026-10-20T23:24:32.059Z"
   }
 }
