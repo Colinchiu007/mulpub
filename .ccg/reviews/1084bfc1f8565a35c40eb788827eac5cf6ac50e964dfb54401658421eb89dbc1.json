@@ -49,10 +49,111 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "needs_revision",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "tier": "self-play",
+    "requiresExternalReview": [],
+    "blocking": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      }
+    ],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "finding": "`Number.isFinite(minRaw)` 在 Collection.vue 允许浮点（如 1.5）；引擎 `_getWordCountInstruction` 也不校验 `isInteger`，会将非整数注入 prompt（如「1.5 到 6000 字之间」）。",
+        "highRiskDomains": [],
+        "prosecution": "指控成立的一面：① 引擎 `_getWordCountInstruction` 的防御只查「min/max 是 number + 在范围内 + max>=min」，**不查整数性** ⇒ 非 UI 调用方（Python 旁路 / 插件 / 未来新入口）送来 min=1.5 时，会把「1.5 到 6000 字之间」原样注入 systemPrompt（引擎 prompt 侧无任何 sanitize）；② 本次把前端 `Number(min) || 800` 换成 `Number.isFinite` 之后，浮点不再被吞成 800，而是**一路透传到引擎**——也就是说这条修复让浮点更容易到达引擎（虽然 UI 仍会拦）。失败场景具体：某个非 UI 入口以 min=1.5 调用改写 ⇒ 模型收到「控制在 1.5 到 6000 字之间」，指令语义不成立，输出长度不可预期。",
+        "defense": "辩护成立的一面：① UI 路径本来就安全——`useWordCountValidation` 的判定含 `!Number.isInteger(Number(min))` ⇒ 浮点会让 `rewriteWordCountError` 非空 ⇒ 改写按钮 disabled，且 `rewriteCollected()` / `collectAndRewrite()` 入口函数本身也各自早退，浮点**永远到不了引擎**；② 历史写法 `Number(min) || 800` 反而会把浮点吞成 800（1.5 是真值 ⇒ 其实不吞，只有 0/NaN 被吞）——即前端从未「放行」浮点。",
+        "verdict": "upheld",
+        "rationale": "以「引擎是共享契约点」为准：前端校验只覆盖 UI 路径，引擎自身的防御缺口是真实的（非 UI 调用方绕过 UI 校验后，浮点会被注入 prompt）。已修两处并各加回归锁：(a) 引擎 `_getWordCountInstruction` 增加 `!Number.isInteger(range.min) || !Number.isInteger(range.max)` ⇒ 浮点区间按「非法区间」处置（不注入指令，后处理回落策略上限，输出不失控），回归锁 W11；(b) 前端不再自行折算区间——`useWordCountValidation` 新增 `range` computed（error 非空 ⇒ null，error 为空 ⇒ 就是可下发的值），Collection.vue 直接下发 `range`，使「校验用的值」与「下发用的值」不可能再分家（旧写法 `Number(min) || 800` 正是把合法下限 0 吞成 800 的那只手），回归锁：采集页「浮点下限 1.5 ⇒ 不发 IPC」。"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "新测试 `Collection.rewrite-wordcount.test.js` 通过 `window.electronAPI` mock 注入，但 `Collection.vue` 实际从 `/api/publisher` 导入 `aiRewrite`；mock 目标与真实调用路径不一致，测试可能假绿。",
+        "highRiskDomains": [],
+        "prosecution": "指控成立的一面：断言打在 `window.electronAPI.aiRewrite.mock.calls[0][0]` 上。若 `aiRewrite`（从 `@/api/publisher` 导入）与 `window.electronAPI.aiRewrite` 之间不存在真实委派关系，那么 `mock.calls[0]` 就是 `undefined`，测试会以「读 undefined 的属性」报错而不是静默通过——除非断言被写成 `expect(...).toBeUndefined()` 之类的恒真形式；一旦有人把断言改软，就会得到一条**永远绿但什么都没测**的用例。",
+        "defense": "辩护成立的一面：调用链逐层可查——`apps/desktop/src/api/publisher.js:44` `aiRewrite = params => invokeWithFallback(\"aiRewrite\", {code:-1,data:null}, params)`；`apps/desktop/src/api/electron-bridge.js:113` `invokeWithFallback` → `:116` `invoke(method, ...args)`；`:41-45` `invoke` = `const api = getApi(); ... return api[method](...args)`，而 `getApi()` 即 `window.electronAPI`。所以 mock 打的**正是**真实 IPC 缝，参数经完整链路到达 mock。且既有 `Collection.rewrite-input-limit.test.js` 用完全相同的模式断言 `calls[0][0].content`（那条用例断言的是 50001 字全文透传，若链路断了会立刻红）。",
+        "verdict": "dismissed",
+        "rationale": "调用链已逐行核对（publisher.js:44 → electron-bridge.js:113 → :41-45 `getApi()[method](...)`），mock 命中的就是真实 IPC 缝，不存在「mock 目标与真实路径不一致」。断言形态也不是恒真：每条用例都先 `expect(calls[0][0].xxx).toBe(...)` 读取具体值，链路若断会在读取时抛错而非静默通过。本次未改测试的 mock 方式（改为 vi.mock 模块反而会绕开真实委派链，降低真实性）。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "`_getWordCountInstruction` 接收原文长度 `[...content].length`（码点数），而 `applyRewriteMeta` 用 `countRewriteChars` 计数结果字数；两者计数口径若不一致，显示「改写后 N 字」与提示「目标篇幅约 M 字」可能基于不同基准。",
+        "highRiskDomains": [],
+        "prosecution": "指控成立的一面：若两处计数规则不同（例如一处用码点、一处用 UTF-16 码元），则「目标篇幅约 M 字」与界面上「改写后 N 字（原文 M 字）」会基于不同基准，用户看到两个数却无法互相印证；emoji 等代理对字符在 UTF-16 下会被算成 2，差异会真实出现在界面上。",
+        "defense": "辩护成立的一面：① 口径**逐字相同**——`apps/desktop/src/utils/rewrite-engine-limits.js:23-25` 的 `countRewriteChars` 实现就是 `[...String(content == null ? '' : content)].length`，与引擎 `_buildPrompt` 里的 `[...content].length` 是同一种 Unicode 码点展开；`rewrite-engine-limits.js` 的模块注释也写明「与引擎 `[...content].length` 同口径」。② 两个数**本就代表不同的量**：「目标篇幅约 M 字」= 原文长度（改写目标），「改写后 N 字」= 实际输出长度（结果）——它们不是同一基准的两次估计，基准不同是语义使然，不是口径漂移。",
+        "verdict": "dismissed",
+        "rationale": "已逐行核对两处实现：`countRewriteChars` = `[...String(content ?? '')].length`，与引擎 `[...content].length` 同为 Unicode 码点计数，无 UTF-16/码点混用。且两者语义不同（目标篇幅 vs 实际输出），本就不该相等。PRD §4.1 已把「Unicode 码点口径」写死为区间与字数的统一计量单位。本次未改代码。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "`Collection.vue` 使用 `rewritePage.rewriteOutputLength` 等 locale key，这些 key 定义在 `rewrite-page/zh.js`/`en.js`；若采集页未加载该 locale 命名空间，文本将不渲染。",
+        "highRiskDomains": [],
+        "prosecution": "指控成立的一面：vue-i18n 在 key 缺失时会把 key 本身渲染出来（`rewritePage.rewriteOutputLength`）而不是抛错 ⇒ 若采集页拿不到 `rewritePage` 命名空间，界面会显示一串原始 key，且**不产生任何错误信号**（静默退化）。",
+        "defense": "辩护成立的一面：① i18n 是**单一全局实例**——`apps/desktop/src/i18n/index.js:89-94` `createI18n({ legacy:false, globalInjection:true, messages:{ zh: toMessageFunctions(zh), en: toMessageFunctions(en) } })`；`apps/desktop/src/locales/zh.js:311` 把 `rewritePage: { ...rewritePageZh }` 注册进全局 `messages`（`en.js` 同构）——命名空间是**全局注册**的，不存在「按页面加载」。② 本页**改动前**就已在用该命名空间：模板 `Collection.vue:144` `$t('rewritePage.cancellingBtn')` / `$t('rewritePage.cancelRewriteBtn')`，脚本 `resolveNotifyText('rewritePage.rewriteCancelled')`。③ 新增用例断言渲染文本**包含具体数字**（`改写后 900 字（原文 500 字）`），若命名空间缺失会渲染成原始 key ⇒ 该用例必红。",
+        "verdict": "dismissed",
+        "rationale": "三重证据：全局注册（locales/zh.js:311 + i18n/index.js:89-94，命名空间不按页面加载）、本页既有先例（改动前即用 rewritePage.* 两个 key）、测试断言（key 缺失时 vue-i18n 渲染原始 key，断言必红）。本次未改代码。"
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "finding": "`deriveOutputTruncatedInfo` 和 `deriveModelTruncatedInfo` 从 `rewrite-truncation` 导入，但方案未展示这些纯函数的实现与契约（如返回 `null` 还是对象、字段名是否与 `v-if` 条件一致）；若形状漂移，横幅显示会静默失效。",
+        "highRiskDomains": [],
+        "prosecution": "指控成立的一面：横幅的显示条件是 `v-if=\"rewriteOutputTruncatedInfo\"` 与模板里的 `rewriteOutputTruncatedInfo.length` / `.max`——**返回形状就是显示契约**。若纯函数改成返回 `{outputLength, limit}` 这类字段名，模板读 `.length` 得到 undefined ⇒ 横幅渲染出「实际输出  字」或整条不显示（undefined 参与运算得 NaN），而**界面上没有任何错误**。这类退化很难归因到「纯函数改了字段名」。",
+        "defense": "辩护成立的一面：`apps/desktop/src/utils/rewrite-truncation.js` 的两个纯函数已有独立单测（`rewrite-truncation.test.js` 锁住「返回 null 还是对象、字段名」），且 `RewriteView.vue` 早已用同一份派生渲染同类横幅；本分支复用的是同一份实现，不存在第二份拷贝。",
+        "verdict": "upheld",
+        "rationale": "指控指出的缺口真实存在但只对了一半：纯函数自身有单测，却**没有**任何东西锁住「页面上的派生值形状」——这两者之间隔着 `applyRewriteMeta`（本页新增的写点），而形状漂移恰好会发生在这一层。已采纳该建议的后半条并补测：采集页用例直接断言派生值形状 `expect(w.vm.rewriteOutputTruncatedInfo).toEqual({ length: 1500, max: 1500 })` 与 `expect(w.vm.rewriteModelTruncatedInfo).toEqual({ length: 3000, truncatedSegments: [] })`，从此「形状漂移」不再只是界面静默退化，而是一条会红的断言。未改纯函数实现（它是 `/rewrite` 页共用的既有契约）。"
+      }
+    ],
+    "note": "自扮演裁决：2 条指控成立（已在本 PR 修复），3 条经取证驳回",
+    "closureNote": "第 1 轮自扮演裁决：i1 upheld（引擎区间整数性）已修，i6 upheld（页面派生物形状）已修；i2 / i3 / i5 经源码取证驳回（dismissed）。",
+    "at": "2026-10-20T18:09:39.897Z",
+    "debtClosure": {
+      "closedBy": "agent(Lead)",
+      "at": "2026-10-20T18:09:39.898Z",
+      "gatedBy": "scripts/check-pr-exec-record.js::evaluateDeepReviewDebt（只查 mode===dual）",
+      "remedy": "按该门禁判据给出的补救路径：确认判定对**当前 PR 最终状态**已不成立后，在记录里写明原因并把 status 置为闭环值（白名单 needs_revision）",
+      "engineVerdictBeforeClosure": "self_play_pending（引擎终态只有 self_play_resolved / self_play_blocked：全部 dismissed ⇒ resolved；任一项 upheld ⇒ blocked。没有「指控成立但已在同 PR 内修复」这一态，故无法由引擎自身闭环）",
+      "upheldFixedInThisPr": [
+        "i1",
+        "i6"
+      ],
+      "dismissedByEvidence": [
+        "i2",
+        "i3",
+        "i5"
+      ],
+      "items": [
+        {
+          "id": "i1",
+          "verdictAtReview": "upheld",
+          "fixedIn": "本 PR 同批提交（collect-rewrite-wordcount）",
+          "evidence": "引擎 _getWordCountInstruction 增加 Number.isInteger 防御（回归锁 W11）；前端改为从 useWordCountValidation 的 range 取值，校验口径与下发口径合一（新增 useWordCountValidation.test.js 8 例 + 采集页浮点不发 IPC 用例）"
+        },
+        {
+          "id": "i6",
+          "verdictAtReview": "upheld",
+          "fixedIn": "本 PR 同批提交（collect-rewrite-wordcount）",
+          "evidence": "采集页用例补派生物形状断言 toEqual({length,max}) / toEqual({length,truncatedSegments})，锁住 applyRewriteMeta 这一层的形状契约"
+        }
+      ],
+      "residualNotClosed": [
+        "本次闭环**不等于**对最终 diff 的一次全新评审：外部评审针对的是 commit 1a01a3067 的 diff；i1/i6 两处修复由本 PR 随后的提交承载，用新增的 W11 与形状断言反证其正确性。",
+        "i2 / i3 / i5 的驳回依据是**静态取证**（逐行核对调用链 / 计数实现 / i18n 注册），未做运行时变异反证；三条都不涉及本次修复的正确性，只涉及测试形态与实现位置的判断。"
+      ]
+    }
   }
 }

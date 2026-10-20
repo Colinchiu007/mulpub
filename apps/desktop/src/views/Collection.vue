@@ -773,6 +773,25 @@ async function rewriteViaEngine (content) {
       },
     }
   }
+  // 字数区间（collect-rewrite-wordcount，2026-10-20）：
+  // ① 契约键必须是 wordCountRange——引擎（packages/rewrite-engine）只读这个键。
+  //    历史误传 `targetWordCount`（整个引擎包 0 处引用），导致引擎收不到区间：
+  //    prompt 没有【字数要求】、后处理上限回落策略默认（800/1500/2000/3000）、
+  //    主进程 max_tokens 推导也回落 3000 口径——用户的设置静默失效。
+  // ② 区间取自 useWordCountValidation 的 `range`（与红字校验同一套判定）：
+  //    合法下限 0 必须原样透传（旧写法 `Number(min) || 800` 会把 0 吞成 800）；
+  //    非法区间（浮点 / 非数字 / max<min）时 range 为 null ⇒ 早退，不发任何区间。
+  //    放在 try 之外：早退时还没 beginRun()，不能触发 finally 里的 endRun()。
+  const range = rewriteWordCountRange.value
+  if (!range) {
+    return {
+      __error: {
+        code: -400,
+        errorCode: 'REWRITE_WORD_COUNT_INVALID',
+        message: resolveNotifyText('collection.wordCountInvalid').text,
+      },
+    }
+  }
   // 长文处理（rewrite-segment-and-finish-reason 第二刀）：不再预截断，改为事前提示。
   // 历史：曾把 >上限正文截到 50000（fix-collect-rewrite-too-long）——分段改写落地后，
   // 预截断会让超长正文永远到不了引擎分段路径（评审 M1：死代码），故改为透传全文 +
@@ -786,17 +805,8 @@ async function rewriteViaEngine (content) {
   }
   let res
   try {
-    // 字数区间（collect-rewrite-wordcount，2026-10-20）：
-    // ① 契约键必须是 wordCountRange——引擎（packages/rewrite-engine）只读这个键。
-    //    历史误传 `targetWordCount`（整个引擎包 0 处引用），导致引擎收不到区间：
-    //    prompt 没有【字数要求】、后处理上限回落策略默认（800/1500/2000/3000）、
-    //    主进程 max_tokens 推导也回落 3000 口径——用户的设置静默失效。
-    // ② min=0 是合法下限（「不设下限」），不能用 `|| 800` 读：0 是假值，会被吞成 800。
-    //    这里改用显式有限数判断，0 原样透传。
-    const minRaw = Number(rewriteWordCountMin.value)
-    const maxRaw = Number(rewriteWordCountMax.value)
-    const minW = Number.isFinite(minRaw) ? minRaw : 800
-    const maxW = Number.isFinite(maxRaw) ? maxRaw : 2000
+    const minW = range.min
+    const maxW = range.max
     // targetLength 三档只影响 expand 模式的提示词（imitate 模式不消费），保留为兼容字段
     const wordCountTarget = maxW <= 800 ? 'short' : (minW >= 1500 || maxW >= 2500) ? 'long' : 'medium'
     const params = {
@@ -984,7 +994,10 @@ function getRewriteStyles() {
 }
 
 // ── 字数区间校验（共享 composable，与 RewriteView 一致）──
-const { error: rewriteWordCountError } = useWordCountValidation(
+// range 是「可下发的值」：与 error 同一套判定（同源 composable），error 非空 ⇒ range 为 null。
+// 调用方不再自己 `Number(x) || 800`——那套折法把用户设的下限 0 吞成 800（0 是假值），
+// 于是「校验的区间」与「下发的区间」分家，正是本缺陷最初那一类「参数静默走样」。
+const { error: rewriteWordCountError, range: rewriteWordCountRange } = useWordCountValidation(
   rewriteWordCountMin,
   rewriteWordCountMax,
   (key) => resolveNotifyText('collection.' + key).text

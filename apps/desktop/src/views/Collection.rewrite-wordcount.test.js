@@ -103,6 +103,18 @@ describe('采集页 AI 改写 — 字数区间真实生效（collect-rewrite-wor
     expect(window.electronAPI.aiRewrite).not.toHaveBeenCalled()
   })
 
+  it('浮点下限（1.5）⇒ 判非法、不发 IPC（评审 i1：非整数区间不得进引擎）', async () => {
+    window.electronAPI = mockApi({ code: 0, data: { success: true, result: REWRITTEN } })
+    const w = mountCollection()
+    await nextTick()
+    w.vm.rewriteWordCountMin = 1.5
+    w.vm.rewriteWordCountMax = 6000
+    await nextTick()
+    w.vm.collectedResult = { id: 'x', content: '原文内容。'.repeat(100) }
+    await w.vm.rewriteCollected()
+    expect(window.electronAPI.aiRewrite).not.toHaveBeenCalled()
+  })
+
   // ── ② 可见性：用户必须看得到「改写后到底多少字」和「稿子被砍过」 ──
 
   it('改写结果显示实际字数（改写后 N 字 / 原文 M 字）', async () => {
@@ -139,6 +151,9 @@ describe('采集页 AI 改写 — 字数区间真实生效（collect-rewrite-wor
     const banner = w.find('[data-testid="collection-rewrite-truncated"]')
     expect(banner.exists()).toBe(true)
     expect(banner.text()).toContain('1500')
+    // 评审 i6：断言派生对象的**完整形状**，不只断言渲染出的文案——
+    // 形状漂移（字段改名 / 少字段）会让横幅静默失效，光看文案断言不出来。
+    expect(w.vm.rewriteOutputTruncatedInfo).toEqual({ length: 1500, max: 1500 })
   })
 
   it('模型侧生成上限截断 ⇒ 显示「模型输出达到单次生成上限」横幅（与引擎砍尾分型）', async () => {
@@ -155,6 +170,8 @@ describe('采集页 AI 改写 — 字数区间真实生效（collect-rewrite-wor
     const banner = w.find('[data-testid="collection-rewrite-model-truncated"]')
     expect(banner.exists()).toBe(true)
     expect(banner.text()).toContain('3000')
+    // 评审 i6：模型侧派生物的完整形状（truncatedSegments 为空 ⇒ 走整篇被截文案）
+    expect(w.vm.rewriteModelTruncatedInfo).toEqual({ length: 3000, truncatedSegments: [] })
   })
 
   it('正常改写（未截断）⇒ 不出现任何截断横幅', async () => {

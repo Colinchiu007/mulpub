@@ -652,7 +652,12 @@ class RewriteEngine {
   _getWordCountInstruction(userSettings, originalLength) {
     const range = userSettings && userSettings.wordCountRange
     if (!range || typeof range.min !== 'number' || typeof range.max !== 'number') return ''
-    // 范围防御：与前端/PRD 契约一致（min 0-49999、max 1-50000、max >= min），无效区间不注入
+    // 范围防御：与前端/PRD 契约一致（min 0-49999、max 1-50000、max >= min），无效区间不注入。
+    // 整数性也在这里守（collect-rewrite-wordcount 评审 i1）：前端 useWordCountValidation 会拦浮点，
+    // 但引擎是共享契约点，非 UI 调用方（Python 链路 / 插件 / 未来新入口）可能送来 1.5 这样的值——
+    // 「1.5 到 6000 字之间」是坏指令，必须在注入前被拒（与「非法区间不注入」同一处置：不注入 ⇒
+    // 后处理回落策略上限，输出不会失控）。
+    if (!Number.isInteger(range.min) || !Number.isInteger(range.max)) return ''
     if (!(range.min >= 0 && range.min <= MAX_OUTPUT_CHARS - 1) || !(range.max >= 1 && range.max <= MAX_OUTPUT_CHARS) || range.max < range.min) return ''
     if (range.min > 0) {
       return `【字数要求】改写后的文本长度必须控制在 ${range.min} 到 ${range.max} 字之间。`

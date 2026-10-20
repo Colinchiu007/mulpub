@@ -374,7 +374,9 @@ describe('RewriteEngine', function () {
     var engine = new RewriteEngine({ llmClient: llm, knowledgeBase: new KnowledgeBase() })
     wireStrategy(engine)
     await engine.rewrite({ mode: 'imitate', content: '字'.repeat(1200), userSettings: { wordCountRange: { min: 0, max: 6000 } } })
-    expect(captured.sys).toContain('字数要求')
+    // 注意：硬约束文案里本身就含「字数要求」四字（"…模式指令或字数要求与本段有何冲突…"），
+    // 所以判定必须用带书名号的注入形态「【字数要求】」，否则这条断言恒真。
+    expect(captured.sys).toContain('【字数要求】')
     expect(captured.sys).toContain('6000')
     // 坏指令形态必须消失：「0 到 6000」把「无下限」说成「可以任意短」
     expect(captured.sys).not.toContain('0 到 6000')
@@ -409,6 +411,19 @@ describe('RewriteEngine', function () {
     wireStrategy(engine)
     await engine.rewrite({ mode: 'imitate', content: '字'.repeat(1200), userSettings: { wordCountRange: { min: 800, max: 2000 } } })
     expect(captured.sys).toContain('800 到 2000 字之间')
+  })
+
+  test('W11 浮点区间不注入字数指令（非整数按「非法区间」处置，不产生「1.5 到 6000 字之间」）', async function () {
+    // 评审 i1：前端 useWordCountValidation 会拦浮点，但引擎是共享契约点——
+    // 非 UI 调用方（Python 链路 / 插件 / 未来新入口）可能送来 1.5 这样的值。
+    var captured = null
+    var llm = { chat: async function (sys, user) { captured = { sys, user }; return '结果' } }
+    var engine = new RewriteEngine({ llmClient: llm, knowledgeBase: new KnowledgeBase() })
+    wireStrategy(engine)
+    await engine.rewrite({ mode: 'imitate', content: '字'.repeat(1200), userSettings: { wordCountRange: { min: 1.5, max: 6000 } } })
+    // 注入形态用带书名号的「【字数要求】」判定（硬约束文案里本身含「字数要求」四字）
+    expect(captured.sys).not.toContain('【字数要求】')
+    expect(captured.sys).not.toContain('1.5')
   })
 
   test('W5 无字数控制时 postProcess 默认上限 3000', async function () {
