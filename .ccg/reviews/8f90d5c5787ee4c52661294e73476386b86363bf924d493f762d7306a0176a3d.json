@@ -46,10 +46,14 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "needs_revision",
+    "performedBy": "self-play(claude-backend)",
+    "findings": null,
+    "error": "JSON解析失败:模型输出被截断，JSON 不完整：括号计数恰好配平（4/4，那是已闭合的内层对象），但结尾不是 }——真正被砍断的是最后一个字符串，共 1024 字符 —— 这通常意味着方案问题太多、模型输出超长被截断。重跑同样输入多半还是截断。可选：把方案拆小后分批评审，或先让 critic 只挑 Critical / Warning、暂不要求 Info。",
+    "validationErrors": null,
+    "at": "2026-10-20T04:40:21.514Z",
+    "closureNote": "第 1 轮（656f1e47）critic=claude 产出 6 条、最低分 6 ⇒ 逐条裁决：i1/i3/i4 upheld 并已修（补连续失败用例、mock 复位、清理 amend 残留记录），i2 dismissed（场景需两事件精确叠加，唯一入口已同步回退）。第 2 轮（4e7b1eed）4 条 ⇒ 全部 upheld 并已修：i1 指出 friendlyVoiceCatalogError 对未知码恒返回非空、兜底仍不可达（根因修法 = 新增 allowUnmapped 具名选项）；i2 分支注释与控制流矛盾 + 权威空时保留悬空 id（条件收紧为 !cloneListAuthoritative）；i3 切 provider 后旧克隆可被误选（新增 clearClones 与上下文 tracking）；i4 顶层 vi.mock 影响既有用例（复位上移到文件顶层）。第 3 轮（d04fa35a）3 条 ⇒ i1 upheld 已修（tracking 改为仅在目录成功后更新，避免失败切换污染记忆）、i3 upheld 已修（两处位置/布尔参数改为具名选项对象）、i2 dismissed（已审计调用点：生产代码仅 useTtsVoices.js 一处且显式传参，转发层不改语义）。本轮（ffb55c931）调用 critic=claude 两次，均因模型输出超长被截断（33261 字符 / 1024 字符中断），引擎写回 status=error —— 这是**工具故障**，不是「深度审查从未发生」。汇总历次裁决：无 Critical（最低分 5-6），7 条 Warning 已修、2 条有据 dismissed。据此置 needs_revision（无阻断、留加固建议），**不伪造** external tier 与 evidenceRef。遗留未闭合项已写入 openspec/records/s2v-voice-clone-auto-select.md「残留风险」6 条（含 datamigration 高危域外部复核欠账、--sequence.shuffle 夹具耦合、s2vPersistedVoiceId 死状态）。",
+    "closureBasis": "multi-round-adjudication-summary",
+    "note": "最后一轮评审因 critic 输出截断而 error；本状态依据前 3 轮已完成的真实裁决与修复汇总，非声称本轮已裁决。"
   }
 }
