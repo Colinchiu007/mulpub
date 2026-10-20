@@ -10,6 +10,50 @@
 - **32 例回归全绿；10 道变异 FC-M1…FC-M10 全部 CAUGHT，红集互不相同，`RESTORED_OK=true`（md5 自证还原）**。基线只新增一键 `opsElectronApi: 0`（`evaluateBaseline` 对缺键 fail-closed ⇒ 基线必须与代码同批落），他方键 `colorLiterals=129` / `cssVarUndefined=64` 原样保留。
 - **现场发现的更大问题（不在本批修，判据已登记在执行记录末尾）**：`grep -rla "ops-center/frontend" .github/workflows/*.yml` 命中 **0** —— 运营中心前端的 `vite build` 与 `vitest run` 在 CI 上完全没有覆盖。本批因此只能退而用仓库根的 `@vue/compiler-sfc` 手工解析该 SFC（`parse errors: 0`、`template errors: 0`、`compileScript ok`），**这不是 `vite build` 的等价物**。补它属"改谁来守门"，且包管理器口径与落点必须先定。
 - **没有**动 `.github/workflows/`（判据早已接在既有步骤里），没有动 `CI_IGNORED_PATHS`，没有动分支保护。桌面端运行时、locale、视觉基线均未触碰 ⇒ QM-1 / QM-4 N/A。
+# [未发布] feat(门禁): 闭环值不等于闭环成立 —— 高危面收口矩阵与收口转变检测落码（qm6-highrisk-matrix）
+
+- **要防的是「有人写了个词」被当成「评审发生过」**：`scripts/check-pr-exec-record.js` 原有的闭环判据只看 `deepReview.status` 落不落白名单 `{cleared, needs_revision, self_play_resolved}`。上一轮 QM-6 外部评审实测四种伪造 `cleared`（含 `evidence:"x"`）全部被接受，而 `self_play_resolved` 本来就在白名单里 —— 「外部模型一个都没跑」在机械上完全满足这条门禁。AGENTS 里那句「高危域不得自扮演豁免」从来没有执行体。本片把它落成判据：闭环成立 = 状态在白名单 **∧** 出处可核，可核的宽度按路径是否落在高危面分两档。
+- **高危面清单 9 条、逐条带实测出处**：`HIGH_RISK_SURFACES` 取「路径前缀 + 显式自指」，不取内容指纹（`stats.sensitivePathHits` 主干 877 份产物里非空仅 2 份 = 构造性零，而指纹路线已被外部评审否证：改动源码可以躲在任何注释密集的非高危路径里）。命中数当场量得 `credential-` 3 / `account-state-lock.js` 1 / `api-publish-engine/src/auth/` 18 / `login-state.js` 1 / `fingerprint` 9 / `.github/workflows/` 15 / `scripts/check-` 100 / `scripts/ccg-review-` 3 / `scripts/deep-review` 2，全部写进条目 `why`。用例逐条断言「前缀在主干命中 ≥1 个受管文件」，命中 0 的前缀当场红 —— 装饰性条目比没有条目更坏。
+- **一条变异暴露的「两处各抄一遍」**：首版反证把 `isHighRiskSurface` 摘成恒 `false`，期望三条红，实跑只红 1/3 —— 收口矩阵走的是 `highRiskHits` 里**另写的一份**前缀匹配。收敛成唯一实现 `highRiskPrefixOf` 后同一变异 3/3 指名红，并加一条结构锁用例（`2.1 单一匹配实现`：清单遍历与前缀比较只准出现在那一处）；反证里专门留一格「行为逐字不变、只把匹配再抄一遍」（P6），用来证明这条结构锁有牙。
+- **收口转变检测（凭空把 pending 改成闭环值要有出处）**：产物在本次变更集是 `M`、base 非闭环、head 闭环，而出处既不是 `tier=external` 也不是 `closureNote` ⇒ 点名「收口无出处」并给出 `base=<状态> → head=<状态>`。`base` 取不到时**不报红**（不得把工具失明变成假红），但必须计入新增读数行 `TRANSITION-CHECK … 已核对= / 无出处= / 未证实=` —— 「未证实」与「已核对」在日志里必须不同形。**已知失明如实登记**：本次新增（`A`）的产物没有 base 可比，凭空伪造在判据层结构性不可判，正解是「闭环值只能由工具写」，而引擎在仓外（`~/.claude/skills/adversarial-review-loop/scripts/ccg-deep-review.js`，当场核实 `tier` 出现 0 次、只写 `status`/`performedBy`）。
+- **同一条读数打印两遍这个形态也一并收掉**：`--no-remote` 与远端清单取不到时会对 `r` 和 `r2` 各调一次 `applyDeepDebt`，现场 `TRANSITION-CHECK` 逐字出现两遍而 `TIER-COVERAGE` 只有一遍（当时只给后者加了护栏）。判据求值与读数打印上移到调用点之前，各恰好一行，并补计数断言 —— 理由不是美观：「打两遍」与「量了两次得出两个数」在 CI 日志里无法分辨。
+- **两处刻意不拦，都带负控用例钉住不许被「顺手加严」**：① `tier` 缺失（`unknown`）不拦 —— 判定器对新产物初始化 `tier:"unknown"`，而它只有跑过真外部评审才翻成 `external`，按合同字面「unknown ⇒ 一律欠账」实现会当场造出无法闭合的循环（与缺陷G 同型），代价登记在记录遗留；② 非高危面上的 `self-play` 收口仍算闭环 —— 一刀收紧会让主干所有在飞 PR 判红，欠账交给「机械对抗产物作为降级货币」那片（tasks 4.x）。
+- **QM-6 现场记一条后端可达性的新形态**：`opencode` 轴 rc=0、stdout **0 字节**，stderr 原文是服务方按 IP 拒绝提供 free 模型 —— 属「跑完但零交付」，按产物判即不成立，不得记成通过；改用 `codex` 作跨家族第二轴。同时暴露 `backendAvailability` 只测「CLI 在不在 PATH」（当场记 `count=2/2, onPath=[claude, opencode]`），不测「后端能否应答」，正是 tasks 3.5 那三档（不可达 / 可达但交付无效 / 证据不足）要解决的形态。
+- **读数**：`scripts/check-pr-exec-record.test.js` 81 → 113 用例（首轮 +11 条，含三条边界负控；QM-6 两轴处置再 +21 条），`113 passed / 0 failed`；变异 21 条全部指名红、`escaped=0`、逐条还原 md5 一致。消费者并集同跑：`ccg-review-decider` 52 / `check-record-qm5-rows` 19 / `classify-docs-only` 27 / `lib/ccg-review-backends` 17 各 0 失败；`.github/scripts/workflow-contract.test.js` 43 passed（本 worktree 未装 `js-yaml`，用共享根同一份库经 `NODE_PATH` 跑通，不代替 CI）。静态门禁逐条 rc=0：`check-unwired-tests`（域内 108 个测试文件）/ `check-step-failfast`（39 个多命令步骤）/ `check-workflow-structure`（files=14 violations=0）/ `check-gate-record-debt` / `check-record-qm5-rows`（域内记录 246）/ `check-visual-coverage` / `check-no-brand-residue` / `check-doc-abs-paths` / `openspec-sync-check`。`classify-docs-only` → `docs-only=false files=3` ⇒ 混合 PR，按完整质量节拍走。
+- **两轮外部评审的处置口径**：第 1 轮两轴共 17 条（claude 6 + codex 11）逐条处置，接受 12、部分接受 2、否证 2 —— 其中"按记录自身路径判高危"这条**必须否证**：判定记录本来就是 PR 级的，`.ccg/reviews/<hash>.json` 永远不落在任何前缀上，照那个修法改等于把刚建立的矩阵整条关掉（实测归因恒空）。第 2 轮 8 条里又拦住一条真后门：高危面上「本次新增即写 cleared 而 `tier` 缺席」既不受转变检测管辖（没有 base 可比）也不被矩阵拦（unknown 放过）—— 那是"给自己贴一张已通过"的零成本路径，现在拦。跨家族轴第 2 轮**未交付**（`429` 两次、`503` 一次，清单里的 `opencode` 仍是 IP 级拒绝），所以处置引入的那部分改动只有单轴复审，这条如实记在记录 §六 第 13 条而不是写成"双模型完成"。
+- 现场记 `openspec/records/qm6-highrisk-matrix.md`；合同对账见 `openspec/changes/ccg-review-degradation-ladder/tasks.md` 第 2 节（2.1–2.5 已勾，2.3 的偏差逐字写明）与 8.1（**不勾**，只落判据侧那一半，另一半拆成 8.1b）。
+
+# [未发布] chore(debt): 债务熔断基线 re-sync 到主干现状——接受漂移不是清理，并登记拆分红利（debt-baseline-resync）
+- **现场**：`debt-guard.yml` 的「债务熔断检查」从今天起在**每一个** rebase/merge 到今天主干的
+  pull request 上判红：`MAX_FILE_LINES: 5359 > baseline 5239`、`FILES_OVER_1000: 29 > baseline 28`。
+  本会话的 #3898 / #3992 / #4010 同时被卡（#4010 是以另一种形状：
+  `scripts/lib/git-domain.test.js` ⑩「消费者套件必须整份真的跑了」把 `check-debt-budget` 的失败
+  原样抬成红 ⇒ 一条下游锁把上游债务变成了自己的失败，这正是该锁设计要防的"读起来像通过"的反面）。
+- **归因两条并列，都是当场量的**：① 在**刚由 `session-init.sh` 从主干创建、未做任何改动**的
+  worktree 里跑同一条判据，读数与 CI 逐字相同 ⇒ 不在任何本会话分支上；
+  ② `git show origin/main:apps/desktop/src/views/CreateView.vue | wc -l` = **5358**，
+  而 `git show origin/main:scripts/debt-baseline.json` 的 `maxFileLines` = **5239**
+  ⇒ **主干自己的树违反自己的基线**。增量大户是当日已合并的 #3969 / #3946 / #3936，
+  三条都落在 `CreateView.vue` 这条链上。
+- **本次只做一件事：把两个数改成实测现状。** `git diff` 全文只有 `maxFileLines`、
+  `filesOver1000`、`scannedAt` 三行；`maxFilePath` 仍指向 `CreateView.vue`
+  （**没有换文件来绕开上涨**），也没有动判据口径、没有动扫描域。这是 AGENTS.md 里
+  「debt-baseline 更新即如实记录现状，须在 PR 说明是接受漂移而非清理」那条的正面执行。
+- **不认领"顺手拆一个大文件"**：`CreateView.vue` 今天有三个并发会话在改，在热文件上做结构搬迁
+  会把三批归因搅在一起，且 `create-*` 像素基线需重取并人工审核。拆的**判据**已经写清：
+  必须让 `maxFileLines` 与 `filesOver1000` **同时下降**，否则等于白搬。
+- **顺手记下这个基线缺的那道锁**（留给门禁批次，不在本 PR 夹带）：现在 `--update` 是
+  "重算即接受"，缺"调大必须与一次真实清理同 PR"的约束。可抄的同型判据是
+  `check-doc-abs-paths.js` 的 `judgeLedgerDrift`（为容忍自己的新增而调大账本 ⇒ 当场判
+  「账本被放宽」红）。差别在于 debt 基线**确实存在"如实记录主干现状"的正当场景**，
+  所以正解不是禁掉调大，而是要求调大时**点名哪条真实清理没做**。
+- **验证**：`node --test scripts/check-debt-budget.test.js` ⇒ 15 pass / 0 fail（含"基线形状不许变"
+  与"域口径必须与 `git status` 一致"两条，本次形状与域都没动）；re-sync 后
+  `node scripts/check-debt-budget.js` ⇒ 「所有债务指标在基线内，通过」；
+  `classify-docs-only` ⇒ `docs-only=false files=1`（工具面数据文件，不借快速通道）；
+  行尾两口径 numstat 一致。QM-1 / QM-4 / TDD 均 N/A（无代码行为变更）。
+  QM-6 双模型外部评审**未执行**（本机无可用通道，pre-commit 如实打印跳过）。
+- 执行记录 `openspec/records/debt-baseline-resync.md`（含归因两条、影响面与两个跟进项判据）。
 
 # [未发布] fix(gates): 测试接线棘轮的判定域改成 git 的域，并消掉反向的「本机私产伪造接线」（unwired-tests-git-domain）
 
@@ -181,6 +225,24 @@
 - **验证**：`video-creation/` 142 例 / `CreateView.test.js` 300 例 / `story2video-stages.test.js` 154 例全绿；eslint 两文件 rc=0；debt-budget / brand-residue / locale-sync 全 PASS；QM-4 视觉回归 19/20，唯一失败 `collection` 1.44% 经 **stash A/B 对照**确认与本次无关（两次运行差异图 SHA-256 完全相同）。
 - **影响面**：复用 `StageProgress.vue` 的三处入口（CreateView / HotTopics 一键生成视频弹窗 / FilmAutoPanel）共用同一方法，一并获得对齐修复。纯渲染层变更，不触碰主进程阶段执行、IPC 契约与 `optimize_progress` 数据语义，无新增用户可见文案。
 
+# [未发布] docs(prd): 新增「键盘可达与可访问名合同」一节（UX 审计 3.6 / 4.3 / 4.4 / 4.5 的产品口径）
+
+- **焦点可见性**：写死显示项（2px 实线 + offset 2px、颜色只取 `--color-focus-ring`）与双档实测对比度（亮 6.05:1；暗 4.78:1 / 卡片底 4.30:1，并说明暗色沿用亮色值会掉到约 1.9:1）；写死"焦点规则必须显式把 `outline-*` 过渡归零"这一交互前提（`transition: all` 会让 Tab 后 0ms 读到过渡起点，实测 3px currentColor）。覆盖范围改为**逐变体类**，并记下理由：134 处按钮 class 只带变体类、基类规则零覆盖，"基类=公共形态"是心智模型不是事实。
+- **可点元素键盘可达**：四件套（role/tabindex/Enter/Space 且 keydown 表达式与 click 逐字一致）；硬禁令"补了 `role="button"` 的元素不得有可见可聚焦后代"（leaf 角色会把子树打成 presentational，实测 3 处把容器内真按钮从 a11y 树上抹掉）；并要求行为测试配 `@click`-only 负控。
+- **标签↔控件可访问名**：label 文本即控件名、禁止用 placeholder 承担名称；五条数据校验（DOM 事实判据、labelable 封闭清单、第三方转发面必须实测、id 生成优先级与禁 `Math.random()`、`aria-required` 必须落在控件上）。写清本批**不新增 locale 键**，关联属属性面改造、不引入新文案。
+- **存量与节奏**：孤岛 label 逐文件基线 139 → 127（23 个文件）只能缩小；`UiField` 26 处待逐点绑定；「CLI」标签改名等待产品决策、不由实现侧改词。
+- **验收锚点**：列出六处锁文件与用例数（12 / 13 / 7+3 / 20 / 3 / 6），并要求每条锁都做一次"写回被禁形态"的变异反证。纯文档，未改任何代码与门禁。
+
+
+# [未发布] docs(agents): 增补三条门禁纪律与一条表单关联契约（无障碍批次的系统性收尾）
+
+- **新增 QM-2 必检项「第三方组件的属性转发面必须实测，标签↔控件关联的判据只能取 DOM 事实」**：现场依据是本日两次实测——Element Plus 的 `ElInput` 会**整个丢弃 `id`**（根 div 与内层 input/textarea 三处全空），但会转发 `aria-labelledby`；本仓自研 `UiInput` 此前没有 `id` prop，导致 `Publish.vue:456` 的 `<label for="publish-tags">` 自写下之日起指向根 `div`，属规范级无效（labelable 只有 `button/input/meter/output/progress/select/textarea`，指到 div 不报错、不降级、也不回退到相邻文本）。规则要求关联类断言一律取 `control.labels` / `label.htmlFor`，宿主转发面 mount 一次实测并钉成契约锁，造 id 用 `useId()` 而**禁止 `Math.random()`**（同页撞车时 label 会指到别人的控件，比缺失更坏）。
+- **新增纪律「禁令与存在性判据必须按语义位置切，不得按字符串出现切」**：同族错法一天内三次打红——注释里的 `<UiButton>` 被 `Publish.test.js` 的模板扫描当成一次用法（连带 QG Desktop Shards、QG Coverage 两个 required check 红）、注释里的 `Math.random()` 被结构锁当成违规、注释里的 `for="fa-script"` 被契约锁当成退回死关联。同条收进反向漏法：变异实测「只摘 `<input>` 的 `:id`、留着 `<textarea>` 的」时文件级存在性判据全绿（另一分支替它顶罪）⇒ 判据作用域必须等于风险的语法位置（逐标签遍历 + 标签数下界），并配「写回被禁形态必红 / 只出现在注释里必绿」两条对照。
+- **新增纪律「计数型棘轮必须先认识同一合规目标的全部合法通道」**：把 EP 那条死 `for` 改成「label 带 `id` + 控件带 `aria-labelledby`」后，孤岛判据把它重新数成孤岛（存量 +1、棘轮红），即**判据会惩罚修得好的人**。正解是让扫描器认识替代通道，而不是改大基线；同时保留"上涨红、未登记新文件红、下降未销账红"三条。
+- **本 PR 只写规则，不带门禁代码**：实现层的两把锁与孤岛基线在 `ux-audit-label-for` 分支上，等并发 PR #4034 的机制层合入后按互补面 reconcile 再走一次 PR。"规则先于门禁存在"的窗口是刻意登记的，不抢跑。
+- 纯文档变更：`classify-docs-only` 判定与两口径 numstat 对账见 `openspec/records/agents-a11y-gate-rules.md`；未动 `.github/workflows/`、未动 `CI_IGNORED_PATHS`，不改任何"谁来守门"的机械判据。
+
+
 ## 问题
 - 2026-10-19 真实事故：MiniMax 订阅套餐账号克隆音色被服务端拒绝（`model_provider_logs` id=10030：`your current token plan not support model, voice_clone`，latency 1125ms——请求真实到达、鉴权通过、参数合规）。adapter 把它误判为额度类（`token\s*plan` 被 isQuota 吃掉），service 折叠成 `VOICE_CLONE_PROVIDER_UNAVAILABLE`，用户看到「音色克隆服务暂时不可用，请稍后重试」——重试永不成功，误导用户反复尝试。
 
@@ -329,38 +391,6 @@
   从 44 个 CR 改写为 22546 个 CR —— 正是 AGENTS.md「行尾不是噪声」那条点名的旧错法（本仓 2026-10-05 已实测
   这三份历史 CRLF 文档的 blob 现为纯 LF，磁盘 CRLF 只是 checkout 转换）。正解：`split('\n')` 后**逐行保留
   各自结尾**，插入行取锚点那一行的结尾，改完用 `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 对账。
-# [未发布] chore(debt): 债务熔断基线 re-sync 到主干现状——接受漂移不是清理，并登记拆分红利（debt-baseline-resync）
-- **现场**：`debt-guard.yml` 的「债务熔断检查」从今天起在**每一个** rebase/merge 到今天主干的
-  pull request 上判红：`MAX_FILE_LINES: 5359 > baseline 5239`、`FILES_OVER_1000: 29 > baseline 28`。
-  本会话的 #3898 / #3992 / #4010 同时被卡（#4010 是以另一种形状：
-  `scripts/lib/git-domain.test.js` ⑩「消费者套件必须整份真的跑了」把 `check-debt-budget` 的失败
-  原样抬成红 ⇒ 一条下游锁把上游债务变成了自己的失败，这正是该锁设计要防的"读起来像通过"的反面）。
-- **归因两条并列，都是当场量的**：① 在**刚由 `session-init.sh` 从主干创建、未做任何改动**的
-  worktree 里跑同一条判据，读数与 CI 逐字相同 ⇒ 不在任何本会话分支上；
-  ② `git show origin/main:apps/desktop/src/views/CreateView.vue | wc -l` = **5358**，
-  而 `git show origin/main:scripts/debt-baseline.json` 的 `maxFileLines` = **5239**
-  ⇒ **主干自己的树违反自己的基线**。增量大户是当日已合并的 #3969 / #3946 / #3936，
-  三条都落在 `CreateView.vue` 这条链上。
-- **本次只做一件事：把两个数改成实测现状。** `git diff` 全文只有 `maxFileLines`、
-  `filesOver1000`、`scannedAt` 三行；`maxFilePath` 仍指向 `CreateView.vue`
-  （**没有换文件来绕开上涨**），也没有动判据口径、没有动扫描域。这是 AGENTS.md 里
-  「debt-baseline 更新即如实记录现状，须在 PR 说明是接受漂移而非清理」那条的正面执行。
-- **不认领"顺手拆一个大文件"**：`CreateView.vue` 今天有三个并发会话在改，在热文件上做结构搬迁
-  会把三批归因搅在一起，且 `create-*` 像素基线需重取并人工审核。拆的**判据**已经写清：
-  必须让 `maxFileLines` 与 `filesOver1000` **同时下降**，否则等于白搬。
-- **顺手记下这个基线缺的那道锁**（留给门禁批次，不在本 PR 夹带）：现在 `--update` 是
-  "重算即接受"，缺"调大必须与一次真实清理同 PR"的约束。可抄的同型判据是
-  `check-doc-abs-paths.js` 的 `judgeLedgerDrift`（为容忍自己的新增而调大账本 ⇒ 当场判
-  「账本被放宽」红）。差别在于 debt 基线**确实存在"如实记录主干现状"的正当场景**，
-  所以正解不是禁掉调大，而是要求调大时**点名哪条真实清理没做**。
-- **验证**：`node --test scripts/check-debt-budget.test.js` ⇒ 15 pass / 0 fail（含"基线形状不许变"
-  与"域口径必须与 `git status` 一致"两条，本次形状与域都没动）；re-sync 后
-  `node scripts/check-debt-budget.js` ⇒ 「所有债务指标在基线内，通过」；
-  `classify-docs-only` ⇒ `docs-only=false files=1`（工具面数据文件，不借快速通道）；
-  行尾两口径 numstat 一致。QM-1 / QM-4 / TDD 均 N/A（无代码行为变更）。
-  QM-6 双模型外部评审**未执行**（本机无可用通道，pre-commit 如实打印跳过）。
-- 执行记录 `openspec/records/debt-baseline-resync.md`（含归因两条、影响面与两个跟进项判据）。
-
 # [未发布] feat(rewrite): 改写引擎输入/输出字数上限放开到 50000 + 输出截断可见化（rewrite-limits-50000）
 
 ## 问题
