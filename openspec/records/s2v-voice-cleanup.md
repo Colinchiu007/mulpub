@@ -7,7 +7,7 @@
 
 | 门禁 | 结果 | 证据 |
 |---|---|---|
-| 会话隔离 | ✅ | worktree `D:\mp-wt-voice\mp-s2v-voice-cleanup`，非 C 盘，分支裸名；共享根保持 `main` clean |
+| 会话隔离 | ✅ | worktree `<worktree-root>/mp-s2v-voice-cleanup`，非 C 盘，分支裸名；共享根保持 `main` clean |
 | 依赖就绪 | ✅ | `pnpm install --frozen-lockfile` exit 0；`ensure-electron` v43.7.7；`verify-worktree-deps` 11 项解析 OK |
 | 先文档再代码 | ✅ | 本记录 + `01-docs/PRD.md` 音色域合同新增 3 行（只读 computed 与 requireDeps / fail-closed 归属层 / 状态最小面） |
 | TDD | ✅ | B：先复现 6 例（seed=1792469548946）→ 插桩定位 → 修复 → 5 个顺序全绿；C：先删断言暴露 `22 → 21` 契约破裂 → 同步实现 |
