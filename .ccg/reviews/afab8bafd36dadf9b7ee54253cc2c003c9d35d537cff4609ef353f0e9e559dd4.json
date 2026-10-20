@@ -1,0 +1,61 @@
+{
+  "sha": "c55c973f49b98f02194a1e4b7ccf84a53785db34",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 4,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 6,
+    "docSensitiveContentSample": [
+      "| i3 | Warning / security | L1 缺省仍无域名白名单，「URL 来自已认证 provider 响应」把控制面押在第三方响应上；「仅提示可见」不构成阻断 | **采纳**（我方第 2 轮回应不够）：最终口径改为**缺省 fail-closed**——可信主机集合 = { provider API 主机（自动派生） } ∪ { `assetDownloadHosts`（可配） }；不在集合内且**未显式授权** ⇒ **拒绝**；放宽只能由用户在成本确认卡**显式勾选**并**留痕** `project.json`。同源 provider **零配置可用**，非同源 provider 运营配一次即可。落 proposal §4.2.1 + design D5 |",
+      "| i3 | Warning / security | L1 缺省仍无域名白名单，「URL 来自已认证 provider 响应」把控制面押在第三方响应上；「仅提示可见」不构成阻断 | **采纳**（我方第 2 轮回应不够）：最终口径改为**缺省 fail-closed**——可信主机集合 = { provider API 主机（自动派生） } ∪ { `assetDownloadHosts`（可配） }；不在集合内且**未显式授权** ⇒ **拒绝**；放宽只能由用户在成本确认卡**显式勾选**。同源 provider **零配置可用**，非同源 provider 运营配一次即可。落 proposal §4.2.1 + design D5。**⚠️ 本行的「留痕 `project.json`」口径已在第 5 轮被推翻为「运行期一次性令牌，不落盘」，见 §三之四 i3。** |",
+      "| 放宽通道 | 用户在成本确认卡**显式勾选**「本次允许从外部素材域名下载」；勾选产生**运行期一次性令牌**（**只存内存、任务结束失效、SHALL NOT 落盘**）；项目文件 SHALL NOT 存放任何可用于放行的授权位；审计只记「发生过一次外部域名授权」这一**事实**；**未勾选 ⇒ 拒绝** |"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "afab8bafd36dadf9b7ee54253cc2c003c9d35d537cff4609ef353f0e9e559dd4",
+  "decidedAt": "2026-10-20T23:40:37.112Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}
