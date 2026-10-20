@@ -153,6 +153,13 @@ jobs:
           BUDGET_SECONDS=2100
           LOG=electron-ci-unit-tests.log
           START=$(date +%s)
+          # ⛔ `set +e` 是必须的，不是风格（2026-10-20 follow-up，动因见 #2525 的反面）：
+          #    本 job 的 shell 是 `bash -e -o pipefail`，`timeout` 返回 124 时 `-e` 会**立刻
+          #    退出步骤**，于是后面的 PIPESTATUS 与整段自证诊断一次都不会执行。实测两次失败
+          #    attempt 的日志里都没有 `[electron-ci-timeout-budget] elapsed=… rc=…` 这行 ——
+          #    #2525 的标题是「让超时失败能自证」，但它专门为之设计的那个场景，恰恰是它唯一
+          #    不出现的场景。行内 `set -e` 只影响本步骤的子 shell，不波及其它步骤。
+          set +e
           timeout --signal=TERM --kill-after=30s ${BUDGET_SECONDS}s \
             pnpm --filter @multi-publish/desktop test -- \
             --maxWorkers=1 --no-file-parallelism --reporter=verbose \
@@ -160,6 +167,7 @@ jobs:
           # 必须读 PIPESTATUS：`cmd | tee` 的 $? 是 tee 的退出码（恒 0），
           # 直接判 $? 会把超时和断言失败一起吞成成功。
           RC=${PIPESTATUS[0]}
+          set -e
           END=$(date +%s)
           ELAPSED=$((END - START))
           echo "[electron-ci-timeout-budget] elapsed=${ELAPSED}s budget=${BUDGET_SECONDS}s rc=${RC}"

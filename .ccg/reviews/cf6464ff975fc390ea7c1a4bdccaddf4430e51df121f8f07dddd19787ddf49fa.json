@@ -1,0 +1,126 @@
+{
+  "sha": "6b41d715c254b7843e54fd02972e283c4d7b42d9",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 189 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 189,
+    "fileCount": 6,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "cf6464ff975fc390ea7c1a4bdccaddf4430e51df121f8f07dddd19787ddf49fa",
+  "decidedAt": "2026-10-20T02:48:36.098Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "tier": "self-play",
+    "performedBy": "claude(single-model, 决策层判 SINGLE)",
+    "evidence": {
+      "command": "sh scripts/deep-review.sh",
+      "decisionLayer": "node scripts/ccg-review-decider.js --input openspec/changes/electron-ci-shard-budget/proposal.md → SINGLE（方案 49 行 ≤200）",
+      "baseline": "origin/main",
+      "artifacts": ".adversarial/ccg-deep-12ed8803/{critique-v1.md,adjudication.json}（.adversarial/ 被 gitignore，裁决结论内联于 findings）",
+      "dimensionScores": {
+        "correctness": 7,
+        "security": 9,
+        "performance": 7,
+        "maintainability": 6
+      },
+      "adjudication": "5 条争议全部 upheld 并已修；i4 有一半（sha/changedLines）被证据证伪；2 条 Info 一并处置",
+      "mutationProbe": "摘掉 set +e → 行为锁立刻红（自证行缺席）；还原后 45 例全绿",
+      "note": "记录里的 sha=父提交 是引擎文档化行为（pre-commit 时新 commit 尚未生成），不是台账挂错对象"
+    },
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "dimension": "correctness",
+        "issue": "同 PR 内三处预算口径矛盾（1200 vs 900），且 1200 恰等于旧墙使反向判据必红",
+        "verdict": "upheld",
+        "resolution": "fixed: 三处统一 900s"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "dimension": "performance",
+        "issue": "PR 侧无 if 的 setup 步骤被 matrix 各跑三遍（零分片收益）",
+        "verdict": "upheld",
+        "resolution": "fixed: matrix 按事件分档 PR 1 片 / 非 PR 3 片"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "dimension": "maintainability",
+        "issue": "反向判据可被「2 片 + 1191s」组合绕过",
+        "verdict": "upheld",
+        "resolution": "fixed: 片数钉死 3 + 上界加 <=900"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "dimension": "correctness",
+        "issue": "review 记录 deepReview=pending 一并入库",
+        "verdict": "upheld(部分)",
+        "resolution": "fixed: 回填；「sha/changedLines 不符」被证伪（父 sha 是文档化行为，该记录无 changedLines 字段）"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "dimension": "maintainability",
+        "issue": "job 级倒挂注释仍写内层 timeout 35 分钟，实际 900s=15min",
+        "verdict": "upheld",
+        "resolution": "fixed: 注释同步 15 分钟并点名常量"
+      },
+      {
+        "id": "i6",
+        "severity": "Info",
+        "dimension": "performance",
+        "issue": "794/3 是均值假设，分片未必均匀",
+        "verdict": "upheld",
+        "resolution": "fixed(部分): 锁内 TODO(校准)，并留在遗留"
+      },
+      {
+        "id": "i7",
+        "severity": "Info",
+        "dimension": "correctness",
+        "issue": "担心行为锁只跑前缀段 / 空 log 上诊断命令改写退出码",
+        "verdict": "upheld(部分)",
+        "resolution": "fixed: 加断言「已完成测试行数」；前缀段与 || true 两点被证伪"
+      }
+    ]
+  }
+}
