@@ -28,3 +28,11 @@ type: runtime
 
 | 远程同步 | 由门禁推导 |
 | --- | --- |
+
+## 追加：第 6 项「降级自动裁剪」已完成（2026-10-20）
+
+- 纯函数 `trimSelection(entitlement, selected)`：保留原顺序前 N 个、上限 0 ⇒ 全清、缺失/-1/非法值 ⇒ 不裁；
+- composable 新增 `trimToLimit()`，并在 `togglePlatform` 入口**先裁后判**（不依赖 watch 的触发时机）；
+- 测试：`plan-limits.test.js` +5 例、`usePlatformSelection.test.js` +2 例（合计 42 全绿）；
+- 实现取舍记录：watch 版本在单测中不触发（依赖链断在测试 getter 上），`flush:'sync'` 亦无效，
+  故改为显式方法 + 入口兜底；`Publish.vue`（零增长挂账文件）无需改动。

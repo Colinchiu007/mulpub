@@ -10,6 +10,7 @@ import {
   UNLIMITED,
   readLimit,
   maxPlatformsOf,
+  trimSelection,
   dailyPublishOf,
   batchSizePerRunOf,
   concurrentTasksOf,
@@ -119,5 +120,37 @@ describe('plan-limits — 批量与日发', () => {
     expect(canPublishToday(PRO, 999, 1)).toBe(true)
     // pro 的日发是有限高值 1000（防除零），不是 -1 无限
     expect(canPublishToday(PRO, 1000, 1)).toBe(false)
+  })
+})
+describe('trimSelection — 降级裁剪（PRD N7 后半）', () => {
+  const FREE = { plan: 'free', limits: { max_platforms: 5 } }
+  const NONE = { plan: 'frontier', limits: { max_platforms: 0 } }
+  const PRO = { plan: 'pro', limits: { max_platforms: -1 } }
+  const picked = ['wechat_mp', 'zhihu', 'douyin', 'weibo', 'kuaishou', 'bilibili', 'toutiao']
+
+  it('超限时保留原顺序的前 N 个，并给出被移除的', () => {
+    expect(trimSelection(FREE, picked)).toEqual({
+      kept: ['wechat_mp', 'zhihu', 'douyin', 'weibo', 'kuaishou'],
+      removed: ['bilibili', 'toutiao'],
+    })
+  })
+
+  it('未超限原样返回（不重排、不复制语义变化）', () => {
+    expect(trimSelection(FREE, ['wechat_mp'])).toEqual({ kept: ['wechat_mp'], removed: [] })
+  })
+
+  it('上限 0 是「本档不提供」⇒ 全部移除', () => {
+    expect(trimSelection(NONE, picked)).toEqual({ kept: [], removed: picked })
+  })
+
+  it('缺失 / -1 / 非法值一律不裁剪（缺失即放行，绝不能清空用户配置）', () => {
+    for (const ent of [null, undefined, {}, PRO, { limits: { max_platforms: 'n/a' } }, { limits: { max_platforms: '' } }]) {
+      expect(trimSelection(ent, picked).kept).toEqual(picked)
+    }
+  })
+
+  it('脏输入：非数组当空、非字符串项剔除', () => {
+    expect(trimSelection(FREE, null)).toEqual({ kept: [], removed: [] })
+    expect(trimSelection(FREE, ['wechat_mp', null, 42, ''])).toEqual({ kept: ['wechat_mp'], removed: [] })
   })
 })

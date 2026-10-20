@@ -305,4 +305,30 @@ describe('usePlatformSelection — 档位平台数上限（v2.0 C1.3）', () => 
     expect(r.togglePlatform('douyin')).toBe(false)
     expect(seen).toEqual([2])
   })
+
+  it('降级自动裁剪：trimToLimit 保留前 N 个并回调一次（PRD N7 后半）', () => {
+    const trimmed = []
+    let ent = { plan: 'pro', limits: { max_platforms: -1 } }
+    const r = usePlatformSelection(makeAccountStore(), null, {
+      getEntitlement: () => ent,
+      onTrimmed: (kept, removed) => trimmed.push({ kept, removed }),
+    })
+    for (const p of ['zhihu', 'douyin', 'weibo', 'kuaishou', 'bilibili', 'toutiao']) r.togglePlatform(p)
+    expect(r.selectedPlatforms.value.length).toBe(7)
+
+    expect(r.trimToLimit()).toEqual([]) // 不限 ⇒ 不裁剪
+    ent = { plan: 'free', limits: { max_platforms: 3 } }
+    expect(r.trimToLimit()).toEqual(['weibo', 'kuaishou', 'bilibili', 'toutiao'])
+    expect(r.selectedPlatforms.value.length).toBe(3)
+    expect(trimmed).toEqual([{ kept: 3, removed: ['weibo', 'kuaishou', 'bilibili', 'toutiao'] }])
+  })
+
+  it('降级后下一次切换先裁剪、再判「还能不能再加」', () => {
+    let ent = { plan: 'pro', limits: { max_platforms: -1 } }
+    const r = usePlatformSelection(makeAccountStore(), null, { getEntitlement: () => ent })
+    for (const p of ['zhihu', 'douyin', 'weibo', 'kuaishou', 'bilibili', 'toutiao']) r.togglePlatform(p)
+    ent = { plan: 'free', limits: { max_platforms: 2 } }
+    expect(r.togglePlatform('zhihu')).toBe(true)
+    expect(r.selectedPlatforms.value).toEqual(['wechat_mp'])
+  })
 })

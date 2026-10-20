@@ -13,7 +13,7 @@
 import { ref, computed, watch } from 'vue'
 import { normalizeAccountIds } from '@/features/publish/publish-contract'
 import { isAccountActive } from '@/utils/account-active'
-import { canAddPlatform as canAddPlatformByLimits, platformLimitState } from '@/features/member/plan-limits'
+import { canAddPlatform as canAddPlatformByLimits, platformLimitState, trimSelection } from '@/features/member/plan-limits'
 
 const VIDEO_PLATFORMS = new Set(['douyin', 'tencent_video', 'kuaishou', 'bilibili', 'tiktok', 'youtube'])
 const VIDEO_CONTENT_CATEGORIES = new Set(['VIDEO', 'MIXED'])
@@ -62,6 +62,7 @@ export function usePlatformSelection(accountStore, platformCatalog = null, optio
   const selectedAccounts = ref({}) // { platformId: accountId[] }
   const getEntitlement = typeof options.getEntitlement === 'function' ? options.getEntitlement : () => null
   const onLimitReached = typeof options.onLimitReached === 'function' ? options.onLimitReached : () => {}
+  const onTrimmed = typeof options.onTrimmed === 'function' ? options.onTrimmed : () => {}
 
   const hasVideoPlatforms = computed(function () {
     return selectedPlatforms.value.some(function (p) {
@@ -74,6 +75,23 @@ export function usePlatformSelection(accountStore, platformCatalog = null, optio
     return platformLimitState(getEntitlement(), selectedPlatforms.value.length)
   })
 
+  /**
+   * 把已选平台裁到当前档位上限（PRD N7 后半：降级自动裁剪）。
+   *
+   * 刻意做成**显式方法**而不是 watch：裁剪的正确时点是「用户下一次动平台选择」或
+   * 「视图拿到新权益时」，而不是 entitlement 对象的任意一次变动；用 watch 会让单测
+   * 与真实渲染链的触发时机产生分叉（本批实测：watch 版本在单测里根本不触发）。
+   *
+   * @returns {string[]} 被移除的平台 id（无裁剪时为空数组）
+   */
+  function trimToLimit() {
+    const { kept, removed } = trimSelection(getEntitlement(), selectedPlatforms.value)
+    if (removed.length === 0) return removed
+    selectedPlatforms.value = kept
+    onTrimmed(kept.length, removed)
+    return removed
+  }
+
   /** 是否还能追加平台（已选中的不受限，取消选择永远允许）。 */
   function canAddPlatform(platformId) {
     if (selectedPlatforms.value.indexOf(platformId) !== -1) return true
@@ -85,6 +103,7 @@ export function usePlatformSelection(accountStore, platformCatalog = null, optio
    * @returns {boolean} true = 已处理（选中或取消）；false = 被档位上限拒绝（调用方负责提示）
    */
   function togglePlatform(platformId) {
+    trimToLimit() // 降级后先裁到上限，再判「还能不能再加」
     const idx = selectedPlatforms.value.indexOf(platformId)
     if (idx === -1) {
       if (!canAddPlatform(platformId)) {
@@ -218,6 +237,7 @@ export function usePlatformSelection(accountStore, platformCatalog = null, optio
     selectedAccounts,
     hasVideoPlatforms,
     platformLimit,
+    trimToLimit,
     canAddPlatform,
     isVideoPlatform: (platformId) => isVideoContentPlatform(platformId, platformCatalog),
     togglePlatform,

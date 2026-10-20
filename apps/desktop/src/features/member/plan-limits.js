@@ -126,3 +126,23 @@ export function platformLimitState(entitlement, selectedCount) {
   const unlimited = limit === null || limit < 0
   return { limit: unlimited ? null : limit, selected, atLimit: !unlimited && selected >= limit }
 }
+/**
+ * 降级裁剪（PRD N7 后半）：档位上限变小后，把已选平台裁到上限内。
+ *
+ * 纯函数、不读时钟：给定 entitlement 与已选列表，返回**应保留**的列表。
+ * 三条纪律与其余判据一致：
+ * - 无上限信息 / `-1` ⇒ 原样返回（缺失即放行，绝不因「读不到」而清空用户配置）；
+ * - 上限为 0 ⇒ 返回空数组（本档不提供，不是不限）；
+ * - 保留**原顺序的前 N 个**，不重排（用户昨天的选择顺序是有意义的）。
+ *
+ * @param {object|null|undefined} entitlement
+ * @param {string[]} selected
+ * @returns {{kept: string[], removed: string[]}}
+ */
+export function trimSelection(entitlement, selected) {
+  const list = Array.isArray(selected) ? selected.filter((id) => typeof id === 'string' && id) : []
+  const limit = maxPlatformsOf(entitlement)
+  if (limit === null || limit < 0) return { kept: list.slice(), removed: [] }
+  if (list.length <= limit) return { kept: list.slice(), removed: [] }
+  return { kept: list.slice(0, limit), removed: list.slice(limit) }
+}
