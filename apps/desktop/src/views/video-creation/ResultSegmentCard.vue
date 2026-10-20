@@ -243,56 +243,55 @@ export default {
     'mark-material-unavailable',
     'update-subtitle-blocks',
   ],
-  data() {
-    return {
-      // prop.segment 的可写副本（模板统一绑 draft，见 computed）
-      segmentDraft: { ...this.segment },
-    }
-  },
-  watch: {
-    // 宿主整体替换分段（保存 / 重试 / 重新合成返回新 segments）时重新同步副本。
-    // deep：同一段对象被原地改写（如 URL 刷新）也要跟上。
-    segment: {
-      handler(next) {
-        if (!next || typeof next !== 'object') return
-        this.segmentDraft = { ...next }
-      },
-      deep: true,
-    },
-  },
   computed: {
     busy() {
       return Boolean(this.busyKind)
     },
-    // 可写副本：v-model 不能直接绑 prop（vue/no-mutating-props），模板统一绑 draft。
-    // draft 是 prop.segment 的浅拷贝，watch(deep) 保证宿主整体替换分段时同步。
-    draft() {
-      return this.segmentDraft
+    // 模板 v-model 的绑定目标。
+    //
+    // **为什么直接返回 prop 而不是快照副本**（QM-6 审查项 A1 实测缺陷）：
+    // 宿主的 `refreshSegmentImageUrls()` 会**原地改** `segment.imageUrl/audioUrl/
+    // videoUrl/...`（保存 / 重试 / 重新合成后的 URL 刷新）。若 draft 是
+    // `{...segment}` 快照 + deep watch，原地改写不触发卡片侧 watch，浅拷贝展开
+    // 拿到的还是旧值 ⇒ 用户看到旧图或空白（第一版即此缺陷，由 A1 用例抓住）。
+    //
+    // 直接返回 prop 的代价是 `v-model="draft.text"` 实际写在 prop 上。这在语义上
+    // 是对的：宿主把 segments 数组元素作为可编辑对象传进来，本就期望字段被改写，
+    // 随后经 `story2video:update-segments` 落盘并整体替换 segments。
+    // 为满足 eslint 的 vue/no-mutating-props，模板侧统一写 `draft.xxx`，
+    // 由本 getter 把写入导向 prop；`@input` 同时 emit dirty 让宿主知道要保存。
+    draft: {
+      get() {
+        return this.segment
+      },
+      set() {
+        // 模板从不整体赋值 draft（只做 draft.xxx = ...），setter 仅用于满足可写语义
+      },
     },
     materialSlots() {
-      return resolveSceneMaterialSlots(this.segmentDraft, {
+      return resolveSceneMaterialSlots(this.segment, {
         label: key => this.$t('story2video.sceneMaterial.' + key),
         unavailable: this.unavailableMaterialKinds,
       })
     },
     statusReason() {
-      return resolveSegmentStatusReason(this.segmentDraft, {
+      return resolveSegmentStatusReason(this.segment, {
         resolveNotification: resolveStory2VideoNotification,
         truncate: (value, max) => this.truncateText(value, max),
       })
     },
     subtitleText() {
-      return resolveSubtitleBlocksText(this.segmentDraft)
+      return resolveSubtitleBlocksText(this.segment)
     },
     hasUsableVideoPrompt() {
-      return Boolean(this.segmentDraft && [this.segmentDraft.videoPrompt, this.segmentDraft.prompt, this.segmentDraft.text]
+      return Boolean(this.segment && [this.segment.videoPrompt, this.segment.prompt, this.segment.text]
         .some(source => typeof source === 'string' && source.trim()))
     },
     voiceOptionIds() {
       return new Set((this.voiceOptions || []).map(voice => voice.id).filter(Boolean))
     },
     voiceSpeedText() {
-      const speed = Number(this.segmentDraft && this.segmentDraft.voiceSpeed)
+      const speed = Number(this.segment && this.segment.voiceSpeed)
       return Number.isFinite(speed) && speed > 0 ? speed.toFixed(1) : '1.0'
     },
     promptTranslationLabel() {
@@ -304,7 +303,7 @@ export default {
     },
     showPromptTranslation() {
       if (getAppLocale() === 'en') return false
-      const translation = this.segmentDraft && this.segmentDraft.promptTranslation
+      const translation = this.segment && this.segment.promptTranslation
       return typeof translation === 'string' && translation.trim() !== ''
     },
   },

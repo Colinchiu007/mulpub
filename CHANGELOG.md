@@ -266,6 +266,7 @@
 - 消费方并集 **577 passed / 0 failed**：ResultView 122、ResultView.model-info 32、story2video-ue-contract 5、views-deep/views-deep2/views-coverage/views-coverage2/CreateViewHistory 合计 76、CreateView + i18n + locales 合计 362。
 - 本地门禁逐条 rc=0：max-lines（无新增超大文件，ResultView 低于点名目标）、unwired-tests（111 个测试文件）、locale-sync `--cjk`（无新增硬编码）与 `--pair-base`（zh/en 成对）、no-brand-residue、debt-budget、gate-record-debt；eslint 8 个改动文件 0 error 0 warning。
 - 文档：`01-docs/PRD-S2V-RESULT-VIEW-PERF-2026-10-20.md`（含数据校验 / 流程 / 功能逻辑 / 交互逻辑 / 显示项 / 提示文字全表 / 组件契约 / 验收标准 / 已知局限）、`openspec/records/s2v-result-view-perf.md`。
+- **QM-6 审查修订（跨家族对抗审查，12 条全覆盖）**：pre-commit 判定 `mode=dual`（变更 2051 行 > 200 行阈值），但评审后端 claude 对 2051 行 diff 输出 20392 字符被单次输出上限砍断、JSON 解析失败（重试一次仍失败）⇒ 按子代理降级规则改派独立 subagent 执行跨家族审查。**抓出并修掉 1 个真实缺陷（A1，Critical）**：`ResultSegmentCard` 第一版用 `segmentDraft` 浅拷贝 + `watch(segment, deep)` 同步，而宿主的 `refreshSegmentImageUrls()` 是**原地改** `segment.imageUrl/...`——宿主改的是它自己 data 数组里的对象，卡片侧 deep watch 不触发，浅拷贝展开拿旧值 ⇒ 保存/重试/重新合成后用户看到旧图或空白。已改为 `draft` getter 直接返回 prop（语义上正确：宿主把 segments 数组元素作为可编辑对象传入，本就期望字段被改写，随后经 `story2video:update-segments` 落盘），并加回归锁 `ResultSegmentCard.test.js`（6 条，A1 用例必须用 `reactive()` 包裹 segment 才复现真实场景）。另记 1 条 🟢 MINOR：右侧「分段定位」数字跳到尚未渲染的分段时静默无效（`segmentItemRefs[index]` 为空），已记入遗留。
 
 ### 已知局限
 IPC 次数本身未降（本轮是「按需申请」，单段仍 5 次 IPC；服务端批量签 URL 需改 IPC 契约，记入 backlog）；窗口步长固定 20，未按视口高度动态估算；未做实机 wall-time 复测；QM-4 视觉回归因基线仓库级失效未跑（同 `result-view-back-btn-style` 结论）。

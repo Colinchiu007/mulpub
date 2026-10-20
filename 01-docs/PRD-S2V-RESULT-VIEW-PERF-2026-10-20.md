@@ -310,7 +310,11 @@ views/ResultView.vue                   ← 宿主，只留 props/emits 接线（
 
 **内部状态**：`segmentDraft`（`segment` 的浅拷贝）+ `watch(segment, deep)` 同步。
 
-> 为什么需要 draft：模板用 `v-model` 绑分段字段，而 Vue 的 `vue/no-mutating-props` 禁止改 prop。draft 让编辑发生在本地副本，宿主整体替换分段（保存/重试返回新 segments）时经 deep watch 重新同步。
+> ⚠️ **上述为第一版设计，已被 QM-6 审查项 A1 实测否证，现行实现见下**。浅拷贝 + deep watch 看似能同步，实际不能：宿主的 `refreshSegmentImageUrls()` 会**原地改** `segment.imageUrl/audioUrl/videoUrl/...`，而宿主改的是它自己 data 数组里的对象，卡片侧的 deep watch 不触发；且浅拷贝展开拿到的还是旧值快照 ⇒ 保存/重试/重新合成后用户看到旧图或空白。
+
+**现行实现**：`draft` 是 getter 直接返回 prop `segment`（setter 为空操作，模板从不整体赋值）。代价是 `v-model="draft.text"` 实际写在 prop 上——这在语义上正确：宿主把 segments 数组元素作为**可编辑对象**传进来，本就期望字段被改写，随后经 `story2video:update-segments` 落盘并整体替换 segments。`@input` 同时 emit `dirty` 让宿主知道要保存。
+
+回归锁：`ResultSegmentCard.test.js` 的 A1 用例用 `reactive()` 包裹 segment（**必须**，普通对象上改属性不触发子组件重渲染，会造出假红），断言宿主原地刷新 URL 后卡片显示新值。
 
 **emits**：`dirty`、`card-ref(el, absoluteIndex)`、`move-segment`、`remove-segment`、`select-material`、`generate-image`、`generate-ai-video`、`regenerate-subtitle`、`regenerate-prompt`、`regenerate-audio`、`replace-audio`、`download-artifact`、`preview-material`、`mark-material-unavailable`、`update-subtitle-blocks`
 
@@ -365,6 +369,7 @@ views/ResultView.vue                   ← 宿主，只留 props/emits 接线（
 | A10 | 无新增超大文件；ResultView 低于点名目标 | `check-max-lines.js` |
 | A11 | 全部改动文件 eslint 0 error | `pnpm exec eslint` |
 | A12 | 消费方并集全绿 | ResultView / model-info / ue-contract / views-deep(2) / coverage(2) / CreateViewHistory / CreateView / i18n |
+| A13 | **宿主原地刷新 URL 后卡片显示新值**（QM-6 审查项 A1 的回归锁） | `ResultSegmentCard.test.js`：`reactive()` 包裹 segment，原地改 `imageUrl` 后断言 `img.src` 为新值 |
 
 ---
 
@@ -372,7 +377,7 @@ views/ResultView.vue                   ← 宿主，只留 props/emits 接线（
 
 1. **IPC 次数本身未降**：本 PR 做的是「按需申请」（首屏 20 段、视口内懒加载），单段仍要 5 次 IPC。彻底方案是**服务端批量签 URL**（一次 IPC 签 N 个路径），需改 IPC 契约 + preload + 三层测试，超出本 PR 范围，已记入 backlog。
 2. **窗口步长固定 20**：未做「按视口高度动态估算」。169 段场景下用户需点击约 8 次展开完全部分段；哨兵 `rootMargin: 240px` 已让滚动接近时自动追加。
-3. **`ResultSegmentCard` 的 draft 是浅拷贝**：嵌套对象（`alternateImages`、`videoMeta`）仍共享引用。当前所有编辑动作都只改顶层字段，故安全；若未来要改嵌套字段，需改成深拷贝或结构化 emit。
+3. **`ResultSegmentCard` 的 draft 直接返回 prop**：嵌套对象（`alternateImages`、`videoMeta`）与宿主共享引用。当前所有编辑动作都只改顶层字段，故安全；若未来要改嵌套字段，需改成结构化 emit（不要回到浅拷贝 + watch，那已被 A1 实测否证）。
 4. **未做真实 169 段项目的端到端计时**：量化结论来自 IPC 次数的静态推算 + 单测计数。真实 wall-time 需在实机用失败任务复测（属外部验收）。
 
 ---
