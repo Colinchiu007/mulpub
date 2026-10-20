@@ -106,6 +106,16 @@ const MUST_LIVE_IN_UNGATED_JOB = {
     resolveWhen:
       "它被点名进 changes job（无 job 级 if 的那类面，本次已接 Gate 12g），或本锁被删",
   },
+
+  "scripts/aggregate-changelog.test.js": {
+    reason:
+      "被测的聚合器读的三类输入 openspec/records/**、CHANGELOG.md、01-docs/learnings.md 全部命中 " +
+      "CI_IGNORED_PATHS（docs-only 白名单）⇒ 只改执行记录或台账的 PR 会被判 docs-only；" +
+      "若这条锁只住在带 job 级 if 的 job 里，" +
+      "「记录小节写错形状 ⇒ 发版时静默少搬一条」就正好落在它该防而永不跑的那一格（同 #3114 事故口径）",
+    resolveWhen:
+      "它被点名进 changes job（无 job 级 if 的那类面，本次已接 Gate 2b8），或白名单不再含上述路径，或本锁被删",
+  },
 }
 
 // 嵌套 workflow 承认清单：path -> 为什么允许它存在但永不执行。只能缩小，新增即红。
