@@ -1339,12 +1339,8 @@ onUnmounted(() => {
   outline: none;
 }
 .search-box input:focus { border-color: #5048e5; box-shadow: 0 0 0 2px rgba(80, 72, 229, 0.1); }
-/* ⛔ 这两个图标本批**不收编**（QM-6 引擎 critic 轴 i2）：它们是 `position: absolute` 且不画底，
-   实际坐在 `.group-search-box input` / `.platform-search input` 的裸 `background: #fafbfe` 上，
-   而那块底不随主题走。换成 var(--color-text-secondary) 的结果是浅色档从 2.95:1 升到 4.70:1、
-   暗色档却从 2.95:1 **掉到 2.00:1**（暗色槽值被提亮、底不变）——两档都没过 3:1，
-   等于把一处已知欠账换成"更看不见 + 判据读不出"。判据的口径也只允许动"确实读得出且不合格"的点。
-   正解是先给那块 input 底色接上主题，再一次性裁决图标色；那属设计决策，登记 needs-design 上报。 */
+/* ⛔ 这两个图标不收编（QM-6 critic 轴 i2）：position: absolute 且不画底，实际坐在 .group-search-box input
+   的裸 #fafbfe（暗色不随主题走）上，换 token 会把暗色档 2.95:1 压到 2.00:1。取证与正解见 PRD 3a 与执行记录。 */
 .search-icon { position: absolute; left: 11px; z-index: 1; width: 15px; height: 15px; color: #92939c; }
 .clear-search { position: absolute; right: 6px; width: 26px; height: 26px; display: grid; place-items: center; border: 0; background: transparent; color: #92939c; cursor: pointer; }
 .clear-search svg { width: 13px; height: 13px; }
@@ -1370,11 +1366,8 @@ onUnmounted(() => {
 .login-state-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
 .login-qr-preview { position: fixed; top: 108px; right: 24px; z-index: 9701; width: 188px; display: grid; justify-items: center; gap: 8px; padding: 12px; border: 1px solid #dcd9ff; border-radius: 8px; background: var(--color-bg-card); box-shadow: 0 8px 24px rgba(46, 43, 110, 0.16); color: var(--color-text-secondary); font-size: var(--font-size-xs); text-align: center; }
 .login-qr-preview img { width: 164px; height: 164px; object-fit: contain; border-radius: 4px; background: var(--color-bg-card); }
-/* ⛔ 这一族是**死样式**：全仓没有任何模板/脚本产出 `login-state*` 类名（模板在 `645b86684`
-   「认证页改为内嵌主窗口全屏标签」时被删，CSS 留下了），所以这里的比值不是用户可见缺陷，
-   收编它既不改善任何渲染、又会给判据造出一个"底色不随主题走的容器 + 随主题走的文字"的假合规形状
-   （暗色档 --color-primary 提亮为 #8b85ff，坐在固定 #f3f2ff 上 = 2.75:1，QM-6 引擎 critic 轴 Critical i1）。
-   删除本族样式属"死代码清理"单元，需配视觉与 DOM 消费者取证，不在本批顺手做。 */
+/* ⛔ 死样式：全仓无模板/脚本产出 login-state* 类名（模板在 645b86684 被删、CSS 留下）⇒ 此处比值不是用户可见
+   缺陷，收 token 只会造不可核对的"两档合格"读数（QM-6 i1）。删除属死代码清理单元，需配消费者取证。 */
 .login-state-actions button { border: 0; background: transparent; color: #5048e5; font-size: var(--font-size-xs); cursor: pointer; }
 .login-state-actions .complete-login { min-height: 28px; padding: 4px 9px; border: 1px solid #5048e5; border-radius: 5px; background: #5048e5; color: #fff; }
 .login-state-actions button:disabled { opacity: 0.58; cursor: not-allowed; }
