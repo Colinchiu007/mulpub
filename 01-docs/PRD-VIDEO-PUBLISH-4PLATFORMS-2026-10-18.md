@@ -1175,3 +1175,36 @@ vitest run tests/xiaohongshu-draft-chain.test.js \
 1. 看 `CHECK_LOGIN_*` 判据码（权威，走平台真实校验）；
 2. 需要独立佐证时，直接调平台接口看 `errCode`（视频号：300333/300334 = 失效）；
 3. **不要**据「页面能打开 / 后台能渲染 / has_cookies=true」推断登录态。
+### 16.8 小红书草稿链真机 E2E（2026-10-21，应用主进程内实跑）
+
+通道：`xiaohongshu:probe-draft-chain`（主进程内实跑，**默认 draft:true**，落创作者中心草稿箱，不公开发布）。
+本次 E2E 分四步推进，每步的失败都**精确指明下一项必填**，是真机契约的实测过程：
+
+| 步骤 | 传参 | 真机返回 | 说明 |
+| --- | --- | --- | --- |
+| ① | 仅 accountId | `XHS_NO_IMAGE`（至少需要 1 张图片：小红书不支持纯文字笔记） | 凭据已通过（未被风控/签名拒），卡在必填项 |
+| ② | + `imagePaths` | 同 `XHS_NO_IMAGE` | 参数名不对（实际是 `images`） |
+| ③ | + `images` | `XHS_NO_TITLE`（标题为空） | 图片已被接受 |
+| ④ | + 顶层 `title/content` | 同 `XHS_NO_TITLE` | 字段需**嵌套在 `article` 内** |
+| ⑤ | + `article.title/content` | `signer-assembly: extractor failed platform=xiaohongshu reason=no-webms-fn` | 走到**签名环节** |
+
+**凭证状态（实测有效）**：cookie 22 个，含 `a1` / `access-token-creator.xiaohongshu.com` /
+`customer-sso-sid` / `galaxy_creator_session_id` ⇒ `hasAuthorization=true`。
+
+**⑤ 的根因（重要，纠正模糊认知）**：
+- 真签名由创作者页全局函数 `window._webmsxyw(url, data)` 生成；
+- `apps/desktop/electron/signer/xhs-extractor.js` 注释明确：本地 `signer-local` 的
+  **XYW_ AES 定长块是"旧协议仿制"，对 note 端点已被 406 拒绝**；
+- `no-webms-fn` = 当前未加载创作者页（签名页 bridge 未装配）⇒ 取不到该函数。
+
+⇒ **小红书 API 草稿链能否跑通，取决于签名页基建是否装配好创作者页**；
+仅凭本地公式**不足以**让 note 端点接受（已 406 实证）。
+
+**调用契约（实测确认，供复用）**：
+```js
+probeXiaohongshuDraftChain(accountId, {
+  images: ['<本地图片绝对路径>'],
+  article: { title: '...', content: '...' },
+})
+```
+- `images` 在顶层，`title/content` **必须嵌套在 `article` 内**（传顶层无效且报"标题为空"）。
