@@ -1,3 +1,11 @@
+# [未发布] docs(openspec): 归档 shape-lock 规格 delta —— 那条 Requirement 不再自己打自己（archive-shape-lock-scenario）
+
+- **动因**：#4001 带进来的 `align-shape-lock-empty-ledger-scenario` 已合并但没归档，它的 MODIFIED delta 因此还没落进主规格——主干上那条 Requirement 至今**正文写「键数本身不设数字下限」、末个 Scenario 写「键数为 0 ⇒ MUST 红（规模下界）」**，两句互斥；而 `openspec validate quality-gate-execution-record --type spec --strict` 实测照判 `is valid`（它查结构必需段与场景覆盖，**不查条目内自洽**），所以这类矛盾能随归档一路进主干。
+- **归档保真（逐行量出来，不是声明）**：`git mv` 被识别为 **4 个 `R100`**（零内容漂移）；主规格目标块与归档块 **44 行逐行全等**、块内 Scenario 两侧都是 **6**、Requirement 计数 **4 → 4**、矛盾句 `规模下界` 在主规格里残留 **0** 处。delta 的形状按三个度量分开报，免得一个数被读成三种意思：被改写的行 **2**（就是那对 `WHEN/THEN`，不是丢内容）、净新增行 **8**、位置比对不同 **8**（含纯下移）；块内非空行数 **22 → 28**。5 条原 Scenario 标题**逐字保留**。
+- **`openspec validate --all --strict` 做名称级 A/B**：共享根（=`origin/main`，未归档）`passed=200 failed=28` vs 本刀 `passed=199 failed=28`，**新失败集为空、原失败集一条没少**；唯一的 passed 项差异恰是归档后不再作为活动 change 被计数的那一条。**只比计数会骗人**——"28 == 28"对失败的是哪些条目完全失明，与本仓记过的装饰性对账同型。
+- **镜像不联动是读源码读出来的**：`scripts/quality-rhythm-spec-mirror.test.js:13` 的 `LIVE_SPEC` 写死 `openspec/specs/openspec-integration/spec.md`，本刀 delta 落在 `quality-gate-execution-record` ⇒ **不同步** vendored 镜像（上一刀要同步是因为它的 delta 落进被镜像的那个 capability）。判据一律取锁源码，不取历史先例。仍跑一次留"没被碰坏"的证据：`# pass 8 / # fail 0`。
+- **行尾**：主规格工作副本实测 `cr=166 lf=166`、terminator tally 全 CRLF；但**没有**因此做"探测多数派后统一回写"——而是把文件解析成 `(文本, 结束符)` 对，写前先做 **scanner roundtrip 自证**（重新序列化必须逐字节等于原文，否则后面所有断言都无意义），只给被替换块的新行取**该块自己的**结束符（块内 tally 亦 37/37 CRLF），块外前缀 129 行与后缀逐元素比对 `text`/`term` 双相等。顺带钉一条口径：**`CR 数 == LF 数` 不足以证明行尾单一**（一个裸 CR 配一个裸 LF 就能配平），它只配当告警，不配当判据。
+- **隔离入口这次通了**：`scripts/start-mp-task.ps1 -TaskName archive-shape-lock-scenario` 正常建出 `mp-worktrees/mp-archive-shape-lock-scenario`（裸分支、起点 == `origin/main`、`verify-worktree-deps.js` OK）。前几刀挡路的两个条件（标准根之外注册着 2 个 worktree、共享根有他人未跟踪文件）已由持有方清掉——**这是当场重测的结果，不是我的成果**，所以那条「%TEMP% detached 工作树」的降级出口本刀没有用。
 # [未发布] fix(gates): 收敛出口探针改为现读 vendor 是否能表达外部复核，旧结论不再写死（ccg-probe-external-review）
 
 - **动因不是"想加读数"，而是一条常驻判据开始说谎**：本机给 vendor 驱动加了 `externalReviewSatisfied` + `expectedExternalBackend`（高危域项填齐三格即可解除无条件阻断，不再是永久不可达）。而 `scripts/ccg-convergence-probe.js` 每次 PR 都在 Gate 2b6 打印「self-play 对 crypto 项无条件计阻断 ⇒ 深度审查闭环不可达」——补丁一生效，这句结论就与现场不符。会说谎的常驻判据比没有判据更糟，因为它会让人以为"这事已经量过了"。
