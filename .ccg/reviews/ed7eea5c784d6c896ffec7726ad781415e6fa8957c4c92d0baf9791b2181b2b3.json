@@ -1,0 +1,58 @@
+{
+  "sha": "42bc114aa99ba309c4219e00b895fec68f7ebdfa",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 100 行（≤ 200）但命中 auth/数据库/加密：敏感路径 packages/api-publish-engine/src/auth/grant-idempotency.js, packages/api-publish-engine/src/auth/subscription-service.js",
+  "stats": {
+    "changedLines": 100,
+    "fileCount": 4,
+    "codeFileCount": 3,
+    "sensitivePathHits": [
+      "packages/api-publish-engine/src/auth/grant-idempotency.js",
+      "packages/api-publish-engine/src/auth/subscription-service.js"
+    ],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "ed7eea5c784d6c896ffec7726ad781415e6fa8957c4c92d0baf9791b2181b2b3",
+  "decidedAt": "2026-10-20T11:02:14.027Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

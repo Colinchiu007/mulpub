@@ -11,7 +11,7 @@ type: runtime
 
 | # | 项 | 落点 | 证据 |
 |---|---|---|---|
-| 1 | `grant` 幂等（PRD N9） | `subscription-service.grant()` 新增 `idempotencyKey`；拼进 `provider_reference`(UNIQUE)，撞约束转重放视图，不叠加时长/不重复通知；`IDEMPOTENCY_KEY_CONFLICT`(400) fail closed | `subscription-service.test.js` +4 例（33 通过） |
+| 1 | `grant` 幂等（PRD N9） | `subscription-service.grant()` 新增 `idempotencyKey`；拼进 `provider_reference`(UNIQUE)，撞约束转重放视图（不叠加时长/不重复通知）；`IDEMPOTENCY_KEY_CONFLICT`(400) fail closed。**首版曾推文件到 524 行撞 500 行硬限，已改为行内最小实现，499 行** | `subscription-service.test.js` +3 例（33 通过） |
 | 2 | `max_devices` 执行点（PRD N1） | `upsertSession` 接受 `maxDevices`：同设备重登放行、新设备超限抛 `DEVICE_LIMIT_EXCEEDED`(403) 且不写库；`/me` 经 `registerDeviceSession` 判定并把 `membership.deviceLimit` 提示给客户端（不阻断 /me） | `plan-capabilities-wiring.test.js` +1（6 通过） |
 
 ## 数据校验

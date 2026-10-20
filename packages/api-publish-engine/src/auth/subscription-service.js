@@ -78,7 +78,6 @@ function toIsoOrNull(value) {
   return null
 }
 
-
 /**
  * 仓储返回的 identity_subscriptions 原始行（snake_case）→ 规范化 DTO（camelCase）。
  * 白名单构造：只吐前端契约字段，内部列（provider_reference 等）一律不出现在响应体。缺字段用 null。
@@ -315,7 +314,7 @@ class SubscriptionService {
   }
 
   /** 后台开通（ops-center，阶段 1 不走支付）：channel=admin_grant，金额 0。 */
-  async grant({ userId, plan, durationDays, providerReference = null, operator = null }) {
+  async grant({ userId, plan, durationDays, providerReference = null, operator = null, idempotencyKey = null }) {
     await this.requireUser(userId)
     if (!PLAN_IDS.includes(plan) || plan === 'free') {
       throw new CommerceError('仅支持开通付费档位', 'PLAN_INVALID', 400)
@@ -323,7 +322,9 @@ class SubscriptionService {
     if (!Number.isInteger(durationDays) || durationDays <= 0) {
       throw new CommerceError('时长必须为正整数天', 'DURATION_INVALID', 400)
     }
-    return this.repository.commerceTransaction(async (tx) => {
+    const idem = typeof idempotencyKey === 'string' && idempotencyKey.trim() ? idempotencyKey.trim() : null
+    if (idem && providerReference) throw new CommerceError('幂等键与 providerReference 不能同时提供', 'IDEMPOTENCY_KEY_CONFLICT', 400)
+    const run = this.repository.commerceTransaction(async (tx) => {
       // provider_reference 在 identity_subscriptions 上是 UNIQUE（migrations/postgresql/002_logto_identity.sql:29），默认值必须逐次唯一，
       // 否则同一 operator 连续给两个用户开通时第二个必然撞唯一约束导致整个事务回滚。
       const grantOrderId = `ord-${crypto.randomUUID()}`
@@ -337,7 +338,7 @@ class SubscriptionService {
           amount: 0,
           currency: 'CNY',
           channel: 'admin_grant',
-          providerReference: providerReference || `grant:${operator || 'system'}:${grantOrderId}`,
+          providerReference: providerReference || (idem ? `grant:${operator || 'system'}:idem:${idem}` : `grant:${operator || 'system'}:${grantOrderId}`),
         },
         // v2.0 机制 C9.2：快照按生效档位现算（后台误发低档不覆盖更高档剩余权益）
         entitlementPayloadFor: (p) => this.entitlementPayload(p),
@@ -361,6 +362,16 @@ class SubscriptionService {
         version: applied.version ?? null,
         periodStart: applied.periodStart ?? null,
         periodEnd: applied.periodEnd ?? null,
+      }
+    })
+    if (!idem) return run
+    return run.catch(async (error) => {
+      if (!error || error.code !== 'ORDER_REFERENCE_CONFLICT') throw error
+      const cur = await this.repository.getActiveSubscription(userId)
+      return {
+        idempotent: true, plan: cur ? cur.plan : plan, requestedPlan: plan, downgradeSuppressed: null,
+        subscription: toSubscriptionDto(cur), order: null, version: null,
+        periodStart: toIsoOrNull(cur && cur.current_period_start), periodEnd: toIsoOrNull(cur && cur.current_period_end),
       }
     })
   }
