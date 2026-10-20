@@ -245,6 +245,25 @@ describe('采集页 — 「去发布 → 视频创作」（fix-collection-rewrit
     expect(api.pipelineStartOrchestrated).not.toHaveBeenCalled()
   })
 
+  it('引擎信封的正文不是字符串 ⇒ 判失败（不写正文、不挂归因链、不报成功）', async () => {
+    // CCG 深审 i3：IPC 是外部输入边界，`result` 正常恒为字符串但不保证。
+    // 非字符串真值若直接进 rewriteResult，会让 textarea 的 v-model 拿到非字符串，
+    // 且与 lastProgrammaticRewrite 的字符串口径分叉 ⇒ watcher 误判「程序赋值」⇒ 归因链错挂。
+    const api = makeApi({
+      aiRewrite: vi.fn().mockResolvedValue({
+        code: 0,
+        data: { success: true, result: { not: 'a string' } },
+      }),
+    })
+    window.electronAPI = api
+    const w = mountCollection()
+    await nextTick()
+    await collectAndRewriteOnce(w)
+
+    expect(w.vm.rewriteResult).toBe('')
+    expect(w.vm.rewriteError).toBeTruthy()
+  })
+
   it('二次改写后「去发布」重存的草稿是**最新**文案（图文发布路径不被旧草稿带偏）', async () => {
     // 这条锁的是「已存草稿作废」这条不变量：改写结果一变，旧草稿 id 必须作废，
     // 否则 goPublishAfterRewrite 会跳过重存，发布图文时带出去的还是第一次改写的稿。
