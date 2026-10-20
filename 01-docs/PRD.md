@@ -19990,15 +19990,31 @@ apps/desktop/src/views/
 | 克隆命名 | 规范化后非空、长度由输入框 `maxlength` 约束；重名由主进程返回 `VOICE_CLONE_DUPLICATE_ID` | 表单禁用提交 + 错误文案 |
 | 删除目标 | `voiceId` 非空且非加载中；必须存在二次确认 | 直接 return（不可逆操作门禁） |
 | 请求时序 | 4 个自增 `requestId`（目录/选择/克隆/服务商）+ 上下文比对 | 过期响应**不写任何状态**（静默丢弃） |
+| 自动切换回滚锚点 | `selectS2VVoice(voiceId, { rollbackVoiceId })`：调用方若已预写 `s2vConfig.voiceId`，必须在**写之前**捕获切换前值并以**具名选项**传入 | 回滚写回同一 id（空操作）⇒ 下拉停留从未持久化的音色；回归锁见 `useTtsVoices.test.js`「偏好持久化失败时回滚到切换前的选中项」 |
+| 回滚锚点的参数形态 | **必须是具名选项对象**，不得用位置参数/布尔参数 | 位置参数漏传时不报错、不退化，而是**静默退回**有缺陷的旧语义（回滚写回自身）；布尔参数在调用点不可读，且默认值会让新调用点自动继承缺陷向性（QM-6 轮 C i3） |
+| 偏好持久化失败文案 | `friendlyVoiceCatalogError(message, { allowUnmapped: false })` 映射已知错误码，未知码返回空串，让 `\|\|` 右侧的自有兜底真正生效 | 写成 `a \|\| b ? a : c` 三元、或调用时不传 `allowUnmapped: false`，兜底键都成死代码，用户看到「语音列表加载失败」而非真实原因（QM-6 轮 B i1） |
+| 目录拉取失败时的选中项 | `catalogData` 为空**且克隆列表也未拿到权威结果**时，不得清空 `s2vConfig.voiceId`，并须把 `s2vPersistedVoiceId` 同步成同一值 | 一是刷新一次失败即抹掉刚克隆的音色且无提示（违反「已保存的 voiceId 不得静默丢失」）；二是两态不一致会让「默认」徽标与选中项脱节（QM-6 轮 B i2） |
+| 「取不到」与「权威为空」 | 目录/克隆列表只有 `code === 0` 且拿到数组才算**权威结果**；失败一律保留原值，绝不用空数组覆盖 | 克隆列表拉取失败被无条件赋 `[]` ⇒ 克隆音色从候选消失，选中项归一又因候选为空走到清空分支（两层叠加，本次 R3 的真身） |
+| 上下文切换清克隆 | 仅在 `providerId` 或解析出的 `model` **变化**时清空克隆列表；`tracking` 字段只在**目录成功返回后**更新 | ① 同上下文刷新也清 ⇒ 一次失败抹掉候选；② tracking 在请求开始就写 ⇒ 一次失败的切换污染记忆，切回原 provider 判定不出切换，候选永久丢失（QM-6 轮 B i3 / 轮 C i1） |
 
 ### 流程（功能逻辑）
 
 1. **服务商列表加载**（留壳的 `loadS2VProviders` 驱动）：拉取 image/tts/video 三域 → 语音侧只保留 `enabled && is_configured` 的 provider → 默认选多模态 TTS（`category=multimodal && capability_models.tts`），否则回退首个普通 TTS；用户显式选过（含显式「自动 Edge TTS」）则优先 → 上下文变化时清空 `voiceId` → 触发 `loadS2VVoiceData()`。
-2. **音色目录加载** `loadS2VVoiceData({ refresh })`：卸载守卫 → 取上下文 → 自增 `s2vVoiceRequestId` 并同时作废选择/克隆请求 → 重置目录态 → 并发拉取 `catalog` 与 `capability` → 请求过期即 return → 落盘目录/能力/错误码 → 克隆可用时再并发拉取 `requirements` 与 `clones`（克隆请求 id 独立守卫）→ 目录返回的 `selectedVoiceId` 若在可用集合内则回写 `s2vConfig.voiceId`，否则回退已配置值或清空。
-3. **选择音色** `selectS2VVoice(voiceId)`：空 id 表示「恢复默认」→ 调 `clearTtsVoicePreference`；非空 id 必须存在于当前音色集合（否则报「不在当前目录」）→ **先乐观同步** `s2vConfig.voiceId`（让并发守卫命中本次请求、让「默认」徽标即时反馈）→ 调 `selectTtsVoice` → 失败则**回滚**到前一音色并报保存失败。
+2. **音色目录加载** `loadS2VVoiceData({ refresh })`：卸载守卫 → 取上下文 → 自增 `s2vVoiceRequestId` 并同时作废选择/克隆请求 → 判定上下文是否变化（`providerId` / 解析出的 `model` 与上一次**成功**记录的比对）→ 重置目录态（上下文变化才连克隆列表一起清）→ 并发拉取 `catalog` 与 `capability` → 请求过期即 return → **目录成功后**才更新「上次成功上下文」tracking → 落盘目录/能力/错误码 → 克隆可用时再并发拉取 `requirements` 与 `clones`（克隆请求 id 独立守卫；**拉取失败时保留原克隆列表**）→ 目录返回的 `selectedVoiceId` 若在可用集合内则回写 `s2vConfig.voiceId`，否则按「权威为空 / 取不到」两分支处理（见下）。
+3. **选择音色** `selectS2VVoice(voiceId, { rollbackVoiceId })`：空 id 表示「恢复默认」→ 调 `clearTtsVoicePreference`；非空 id 必须存在于当前音色集合（否则报「不在当前目录」）→ **先乐观同步** `s2vConfig.voiceId`（让并发守卫命中本次请求、让「默认」徽标即时反馈）→ 调 `selectTtsVoice` → 失败则**回滚**到前一音色并报保存失败。
+   - **回滚锚点契约**（`s2v-voice-clone-auto-select`，2026-10-20）：第二参是**具名选项对象** `{ rollbackVoiceId }`，不是位置参数、不是布尔。调用方若在进入本函数**之前**已把目标 id 写进 `s2vConfig.voiceId`（克隆成功后的自动切换正是如此），**必须先捕获切换前的值并显式传入**；否则内部默认以「进入时的 `s2vConfig.voiceId`」为锚点，而该值已被调用方改写成本次目标 ⇒ 回滚写回同一个 id，成为空操作，下拉会停留在一个从未持久化的音色上。**为什么必须是具名对象**：位置参数漏传时不报错、不退化，而是静默退回上述缺陷语义；具名对象让「漏传」退化为「缺省安全语义」，且调用点自解释（QM-6 轮 C i3）。
+   - **失败文案分支**：`clearTtsVoicePreference` / `selectTtsVoice` 返回非 0 时，先 `friendlyVoiceCatalogError(message, { allowUnmapped: false })` 映射已知错误码；**未知码返回空串**，从而落到 `defaultVoiceRestoreFailed`（恢复默认失败）与 `selectionSaveFailed`（保存默认失败）。禁止写成 `a || b ? a : c` 形式的三元（运算符优先级使其恒等于 `a`）；也禁止在不传 `allowUnmapped: false` 的情况下依赖 `||` 右侧兜底——该函数默认对未知码返回非空的 `catalogLoadFailed`，此时右侧**永远不可达**（QM-6 轮 B i1 从根因指出）。
+   - **返回值语义**：`true` 表示偏好已持久化；`false` 表示未落盘（含并发守卫判定过期）。调用方据此决定是否弹成功提示。
 4. **克隆音色**：
    - `chooseS2VVoiceCloneSamples()`：选本地音频 → 返回 `selectionId` 与样本数 → 记入 `s2vVoiceCloneSelection` → 释放「选择中」加载态 → **自动**调 `addS2VVoiceClone(默认名)`（需求：选完即自动入库，无需手填名称）。
-   - `addS2VVoiceClone(name)`：置「创建中」占位行（`s2vVoiceClonePending`，带 `pending-<requestId>` 临时 id 与样本数）→ 调 `addTtsVoiceClone`（`consent: true`）→ 成功则并入列表、选中该音色并 toast；失败清空选择令牌与占位行并报错。
+   - `addS2VVoiceClone(name)`：置「创建中」占位行（`s2vVoiceClonePending`，带 `pending-<requestId>` 临时 id 与样本数）→ 调 `addTtsVoiceClone`（`consent: true`）→ 成功则并入列表、**自动切换**「语音 / 音色 ID」下拉选中项为该新音色并 toast；失败清空选择令牌与占位行并报错。
+     - **自动切换的完整合同**（`s2v-voice-clone-auto-select`）：
+       1. 新克隆音色先并入 `state.s2vVoiceClones` ⇒ 由 `s2vVoiceOptions`（目录 + 克隆合并去重）立刻成为下拉候选，**不依赖**音色目录请求是否完成或成功；
+       2. 记下**切换前**的选中项 `previousVoiceId`，再写 `s2vConfig.voiceId = voice.id`（乐观同步，让下拉与克隆行「默认」徽标立即反映）；
+       3. 调 `selectS2VVoice(voice.id, previousVoiceId)` 持久化偏好（MiMo TTS 的 `mimo-clone-*` 音色自动落到 `mimo-v2.5-tts-voiceclone` 键域，与克隆 registry 同键）；
+       4. 返回 `true` ⇒ 弹 `cloneSuccessToast`（含新音色名）；
+       5. 返回 `false`（偏好未落盘）⇒ **不弹成功提示**，由 `selectS2VVoice` 写入的 `s2vVoiceCatalogError` 在音色下拉旁以 `inline-error` 呈现；克隆事实已成立（音色仍在下拉里），但不得谎报「已添加并已设为默认」；
+       6. 过期克隆结果（用户中途切换语音生成器 / 重载服务商列表导致 `s2vVoiceCloneRequestId` 前进）整体丢弃，不写任何状态。
    - `deleteS2VVoiceClone(id)`：二次确认（点名音色与不可恢复后果）→ 删除 → 从目录与克隆列表双删 → 若删除的是当前选中音色，回退到首个可用音色并重新持久化。
    - `startS2VVoiceCloneRename/cancelS2VVoiceCloneRename/renameS2VVoiceClone`：行内编辑态；重命名只更新展示名，**保留旧条目的 `invalid` 标记**（防失效克隆被误判可用）。
 5. **默认命名** `nextS2VVoiceCloneName()`：前缀取 locale（`cloneNamePrefix`）；扫描现有名字中「前缀+数字」的最大序号，与克隆数量取较大者 +1，3 位零填充；序号用 `BigInt` 解析比较（防超长数字名经 `Number` 转浮点后污染名称）。
@@ -20010,8 +20026,9 @@ apps/desktop/src/views/
 |---|---|
 | 切换语音生成器 | 重置模型为该 provider 默认值、清空已选音色，并记「显式选择自动 Edge」标记（区分「未选择」与「显式 Edge」，防被多模态默认覆盖） |
 | 切换语音模型 | 模型不在当前 provider 的模型列表内时回退默认值，清空已选音色 |
-| 音色下拉选择 | 立即反映到下拉与列表「默认」徽标；持久化失败自动回滚 |
-| 目录加载失败 | 仅瞬时/未知错误显示「刷新音色列表」入口（配置类/不支持/模型不匹配/身份问题重试无效） |
+| 音色下拉选择 | 立即反映到下拉与列表「默认」徽标；持久化失败自动回滚到切换前的选中项（锚点由调用方显式传入时以入参为准） |
+| **克隆成功后自动切换音色** | 新克隆音色入库即成为下拉候选，并**自动成为选中项**（`s2vConfig.voiceId = 新音色 id`，克隆行显示「默认」徽标）；偏好持久化失败则回滚到克隆前的选中项、**不弹**「已添加克隆音色」成功提示，仅在音色下拉旁显示保存失败原因；过期克隆结果（中途切换语音生成器）整体丢弃 |
+| 目录本次拉取失败 | 仅瞬时/未知错误显示「刷新音色列表」入口（配置类/不支持/模型不匹配/身份问题重试无效）；**且不得清空仍可用的已保存选中项**（克隆音色独立于 catalog 存在，刷新失败时保留，遵守「已保存的 voiceId 不得静默丢失」） |
 | 克隆进行中 | 列表顶部显示占位行 + 状态文本（「已选择 N 个样本，正在上传并克隆音色…」）；期间禁止再次选择/删除/重命名 |
 | 删除克隆音色 | 必须二次确认；确认后按钮进入加载态 |
 | 重命名 | 回车保存 / Esc 取消；空名称时确认按钮禁用 |
@@ -20041,6 +20058,9 @@ apps/desktop/src/views/
 | T6 | 重命名保留 `invalid` 标记 | `CreateView.test.js` |
 | T7 | 模块级单例状态可复位（防跨用例泄漏） | `resetTtsVoicesForTest` + 2 处 describe `beforeEach` |
 | T8 | composable 源文件零 CJK 字面量（防回流） | `useTtsVoices.test.js` + CI Gate 7 `--cjk` |
+| T9 | 克隆成功后「语音 / 音色 ID」自动切到新音色（含 MiMo `mimo-clone-` 分支） | `useTtsVoices.test.js`「克隆成功后自动切换」describe |
+| T10 | 偏好持久化失败时回滚到**克隆前**的选中项，且不弹成功提示 | `useTtsVoices.test.js`「偏好持久化失败时回滚到切换前的选中项」 |
+| T11 | 音色目录拉取失败不清空仍可用的已保存选中项 | `useTtsVoices.test.js`「音色目录本次拉取失败时，不清空仍可用的已保存选中项」 |
 
 ### 验收
 

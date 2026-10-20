@@ -114,7 +114,7 @@ node scripts/classify-docs-only.js --base=origin/main --head=HEAD
 1. `git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 取 merge SHA 与时间；
 2. `git ls-remote --heads origin <branch>` 返回 0 行，证远端分支已删；
 3. **不再需要回填动作**：本次合并一旦发生，记录文件的收口状态由主干历史自动推导（判据首行打印 `MERGE-LEDGER prs=<n>`，同一次跑里还能看见 `派生收口=<n> byDesign=<n>`）。**禁止**为改写这一行另开 PR——制造欠账再回填正是旧链路的结构性成本（实测最近 60 个 PR 里 32 个是纯回填）。仅当要关闭**旧载体**里已存在的历史行时，才按「旧载体冻结」那条通道就地改写并同次销账。**2026-10-18 起这条禁止有执行体**（change: `ban-record-closure-backfill-pr`）：`scripts/check-gate-record-debt.js` 按 PR 差量看每篇记录 `远程同步` 行的**状态词跃迁**——本次 diff 把未收口词改成闭合词即判红并点名文件，`Gate Result` 连带红，判据首行同时打印 `HAND-CLOSURE 人工改写=<n> 新增重复行=<n> 记录被删=<n>`。正解不是绕行，三条都写在红文案里：① 那一行**别动**，合并后 `MERGE-LEDGER` 会自己推导收口；② 要清理旧文案就把它改成派生标记「由门禁推导」（手写 `PASS` 判 `prematureClaim`，派生标记不判）；③ main push 回读的证据写在 **PR 评论**里而不是写回仓库文件——merge SHA 只在合并后存在，把它的读数要求落进文件会重新造出同一个循环依赖。**取不到差量时按未证实处理**（`ref-unresolvable` / `git-failed` / `not-injected` 三种形态都出声，CI 档 rc=2），不得把工具的失明读成"没有回填"。
-4. 删分支前先跑 `node scripts/check-branch-merged.js --ref <分支 tip 或 retire 标签> --merge <merge SHA>[,<同分支第二个 PR 的 merge SHA>]`（2026-10-16 起这条判据有了执行体；此前它只是「收尾链上的已知假失败」里那段散文，每轮由会话临时手写一次性探针执行，而「判据非空仍照删」当天真实发生过一次）。**判定域是 `--against`（默认 `origin/main`，末行打印实际落点），`--merge` 只做归因排除**（2026-10-17 v2：上一版把判定域钉在 merge 快照上，在「分支 re-sync 过 main」这一本仓最常见形态下 93% 的 LOST 是判据自造的——`toutiao-ms-token` 点名 3628 行里 3369 行就在当时的 `origin/main`）。**退出码 0 才允许继续清理**；1（存在 LOST / UNATTRIBUTED）与 2（判据自身故障）一律停手——把工具的失明读成「已合并」是本仓「装饰性门禁」的同型。再做 worktree 按 R1-R5 清理：`scripts/safe-worktree-remove.ps1 -WhatIf` 干跑通过后再实跑，R7 须校验主工作区与基线一致。
+4. 删分支前先跑 `node scripts/check-branch-merged.js --ref <分支 tip 或 retire 标签> --merge <merge SHA>[,<同分支第二个 PR 的 merge SHA>]`（2026-10-16 起这条判据有了执行体；此前它只是「收尾链上的已知假失败」里那段散文，每轮由会话临时手写一次性探针执行，而「判据非空仍照删」当天真实发生过一次）。**判定域是 `--against`（默认 `origin/main`，末行打印实际落点），`--merge` 只做归因排除**（2026-10-17 v2：上一版把判定域钉在 merge 快照上，在「分支 re-sync 过 main」这一本仓最常见形态下 93% 的 LOST 是判据自造的——`toutiao-ms-token` 点名 3628 行里 3369 行就在当时的 `origin/main`）。**退出码 0 才允许继续清理**；1（存在 LOST / UNATTRIBUTED）与 2（判据自身故障）一律停手——把工具的失明读成「已合并」是本仓「装饰性门禁」的同型。**唯一能把 1 变成 0 的是 `--allow-different-landing`（2026-10-20 起），它不是常规清理开关**：只放行「这笔合并落的是另一版」那一格（`没带上` / `carried` / `UNATTRIBUTED` 一律不放行），而「版本不同」**不承诺内容还在**——现场实测里同一个类别同时装着「评审把错的注释改正了」与「我这版独有 228 行其实只是热写面重复键的份数缺口（那句话在主干同一文件里原样存在）」两种相反事实。因此每次使用都必须：① 逐行读过 `落地版本=` 的双向规模，必要时比 blob；② 拿到**该分支的人工授权**；③ 命令行原样留痕。无人授权时不得传该旗标——用它把 LOST 读成 0，与本条要防的「照删」同型。再做 worktree 按 R1-R5 清理：`scripts/safe-worktree-remove.ps1 -WhatIf` 干跑通过后再实跑，R7 须校验主工作区与基线一致。
 5. 清理被 `busy holders` 挡住时：先按「命令行含该 worktree 绝对路径」定位持有者，再核**完整进程树**与 CPU 增量（同一 PID 间隔 6s 两次采样 `UserModeTime` 完全相同即挂死残留），确认是本会话自己中止的运行后**逐个按 PID** 终止；终止前后各测一次 `Get-Process electron` 计数，两者**必须相等**——本机通常还有别的 worktree 在跑用户的应用实例，按名字批量 kill 必然误杀。脏清单（多为 `.ccg/reviews/<sha>.json` 孤儿）先复制到共享根同名目录留证，再 `-Force -ConfirmDirtyDiscarded`；复制前须先 `git ls-tree -r --name-only origin/main -- <路径>` 确认该文件名未被上游托管，否则会把 `git merge --ff-only` 变成「untracked would be overwritten」并卡住后续所有文档 PR。
 
 6. **回读这次合并触发的 main push，再宣布收工**（2026-10-16 由账本第九轮补，动因实测：#3652 的 PR 侧 CI 全绿合入后，main push 的 `QG Changes` step 11 `Gate 12c` 当场红——squash 把我的**差量**落到**更新的 main tip** 上，产物树多出他人会话刚合入的 `openspec/records/dep-audit-alias.md`，而账本是在旧 merge-base 上重算的快照，于是"逐文件相等"自测在 PR 侧与 main 侧量的是两棵树）。 判据：`gh run list -R <repo> --workflow=quality-gate.yml --commit <merge SHA> --json databaseId,conclusion,event` 必须有该 merge SHA 的 push run， 且 `conclusion=success`；**红了就按本轮口径补一轮 follow-up PR，不得因为"我的 PR 绿了"而把 main 的红留给下一个会话**。 尤其针对"账本 / 基线 / 快照型数据文件"类 PR：PR 侧全绿**不构成** main 会绿的证据。 但**回读必须按「(merge SHA, workflow)」这一格判**：改了哪条判据，就要求承载它的那条 workflow 在该 SHA 上有 run 且 `conclusion=success`；若该 workflow 因 push `paths-ignore` 对纯记录类改动**按设计不跑**（2026-10-16 当场实测：回填 PR #3727 的 merge SHA `f65584052` 上只有 `债务熔断门禁` 在排队，`quality-gate` 没有 push run），就如实记 `NO_RUN(by design)` 并转去核该判据**最近一次在 main 上的读数**——既不得把"没有 run"读成"丢了证据"，也不得拿"按设计不跑"当免检。**回读的读数写在 PR 评论里（`gh pr comment`），不写回仓库文件**：merge SHA 只在合并后存在，把"回填它的读数"要求落进受门禁扫描的文件，等于给第 6 条造一个没有出口的硬要求，而那个要求的唯一出路是绕开锁；判据只拦"收口行的状态词跃迁"，往记录里加别的段落不拦——所以这条是机制闭合，不是免责。main 真红才按本轮口径开 follow-up PR。
@@ -148,6 +148,22 @@ node scripts/classify-docs-only.js --base=origin/main --head=HEAD
   ③ 删除前先 `git tag retire/<branch>-<日期> <branch-tip>` 留可恢复出口；删除后按 R1/R7 核对主工作区与基线一致。
      **判据取不到读数时（blob 读不到、diff 为空但文件集非空、多重集比较因编码/行尾失败）一律按"未证实"处理，不得当成"已合并"**——把工具的失明读成结论，是本仓「装饰性门禁」的同型。
 - 共享根 `main` 滞后于 `origin/main` 时**不得**就地编辑 `AGENTS.md` / `.quality-gates.md` / `CHANGELOG.md` 这类「上游也在改同一处」的文件：分层判据只看影响面，但**滞后的工作副本会让 docs PR 反向撤销已合并的那一行**。开写前先 `git merge --ff-only origin/main`（被 untracked 挡住就移开那个文件），并用 `git log HEAD..origin/main -- <目标文件>` 确认没有未吸收的上游改动。
+
+### 取证口径（2026-10-20，PR #4061 三轮回读后固化）
+
+- **判据域跟着被测性质走**：被测性质若是「这段代码会执行 / 会生效」，判据就不能只是「这行字符串存在于文件里」。
+  实测反例：`electron-tests` 的自证块自 #2525 起**一次都没执行过**（`timeout … | tee` 之后的诊断被 `bash -e -o pipefail` 提前杀掉），
+  而锁是绿的——因为它断言的是「那四行在 YAML 里存在」。正解是取 `run` 原文、按题意替换两个量、用同一 shell 选项**真跑**并断言输出；
+  且必须做变异反证（把修复摘掉要当场红，红文案要指回根因）。
+- **取证面要遍历所有承载 gate 的机制**：GitHub 的 `branches/main/protection` 与 `rulesets`（含 `rulesets/{id}`）**并存**，
+  只查前者会得出「某 check 不是 required」的假结论（实测该处 4 条、ruleset 里 7 条）。凡「不受约束」类结论，先问「还有没有第二套机制」。
+- **matrix 与 required status check 结构性冲突**：matrix 把作业报成 `job (1)/(2)/(3)`，required context 要的是不带后缀的名，
+  于是**全绿也判 `base branch policy prohibits the merge`**。已实测不可行的两种补名写法：① 另加 `name` 等于该 context 的汇入作业
+  ⇒ 整份 workflow 被判不可解析（幻影 `push` run + 0 job，`always()` 与 `${{ }}` 两种 `if` 都复现）；② 只给 matrix 作业加静态 `name`
+  ⇒ 解析正常但 check 名仍带 `(1)`。要动这类结构，先接受「须同步改多条按 job 名/needs 断言的结构性锁」，并当作独立任务。
+- **局部绿不等于整体绿**：判据若挂在「整套跑完之后」（运行时出站台账、覆盖率、产物对账），单文件/单作业通过**不构成证据**，必须回读 CI。
+- **工具口径**：PowerShell 里 `[System.IO.File]` 的相对路径按 .NET 进程 CWD 解析，不是 `cd` 位置（两者可能不同步 ⇒ 文件在却报 `Could not find file`）；
+  一律传 `Resolve-Path` 的绝对路径。
 
 **残留风险（不假装已闭合）**
 

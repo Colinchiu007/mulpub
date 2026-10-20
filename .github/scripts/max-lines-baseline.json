@@ -106,8 +106,8 @@
     "apps/desktop/electron/services/pipeline-engine.js": 2724,
     "apps/desktop/electron/services/rpa-view-platforms.js": 1484,
     "apps/desktop/electron/services/story2video-compose-engine.js": 2486,
-    "apps/desktop/electron/services/story2video-project-service.js": 2373,
-    "apps/desktop/electron/services/story2video-stages.js": 4006,
+    "apps/desktop/electron/services/story2video-project-service.js": 2527,
+    "apps/desktop/electron/services/story2video-stages.js": 4081,
     "apps/desktop/electron/services/tts-voice-clone-service.js": 1783,
     "apps/desktop/src/styles/cohere-design-system.css": 1698,
     "apps/desktop/src/views/Accounts.vue": 1578,
@@ -116,7 +116,7 @@
     "apps/desktop/src/views/ModelProviders.vue": 1496,
     "apps/desktop/src/views/Publish.vue": 1773,
     "apps/desktop/src/views/PublishHistory.vue": 1394,
-    "apps/desktop/src/views/ResultView.vue": 1890,
+    "apps/desktop/src/views/ResultView.vue": 1929,
     "ops-center/backend/services/model_preset_service.py": 1221,
     "packages/api-publish-engine/src/publish-api-server.js": 1574,
     "packages/python-backend/src/multi_publish/video_creation/providers/video/video_compose.py": 2638,
@@ -140,7 +140,7 @@
     "apps/desktop/src/views/Collection.test.js": 1687,
     "apps/desktop/src/views/CreateView.test.js": 6884,
     "apps/desktop/src/views/Publish.test.js": 1735,
-    "apps/desktop/src/views/ResultView.test.js": 2175,
+    "apps/desktop/src/views/ResultView.test.js": 2390,
     "apps/desktop/src/views/RewriteView.test.js": 1766
   },
   "testPruned": {

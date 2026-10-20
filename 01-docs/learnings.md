@@ -23,6 +23,47 @@
 **方法论两条（可迁移）**：
 - **评审给的"因果"要先测可达性，再决定处置**。本条 i1 的机制主张成立（选择器前缀读不到 DOM 嵌套），但它的"用户屏幕上 2.75:1"不成立 —— `login-state*` 在 `645b86684` 删模板时留下了 CSS，是**死样式**（全仓 grep 只有样式声明、没有类名产出者）。按评审原话直接上报"暗色回归"就是拿别人的推测当我的证据；而把"它是死样式"当免修理由也不对 —— 死样式照样要登记，只是**登记的性质**从"视觉缺陷"变成"待清理的死代码"。
 - **"换个更严的默认"不是收敛判据的方向**。同一批评测里还有两处反例：给 `classStems` 留单段前缀（更"严"）会误命中；对 `rgba()` 底色做 alpha 合成（更"聪明"）在本仓只有 1 处受益、却要把整条链的重算改成混合语义。**先量受益面，再决定要不要为它扩判据。**
+## 「upheld 永远是阻断项」——门禁要的是「裁决已产出」，不是「建议已改完」（ccg-closure-exits-and-debt-split，2026-10-20）
+
+### lesson: a-verdict-is-a-closed-state-not-a-fix
+
+**现场**：视频提示词翻译这个 PR（#4044）跑 CCG 双模型深度审查跑满 9 轮。第 1 轮 8 条发现里 2 条 upheld、2 条 dismissed；每轮把 upheld 的改掉再提交，就会生成**一份新的判定记录**、再触发一轮新审查 —— 于是形成「改完还有新发现」的表观无限回归。第 9 轮后 `check-pr-exec-record.js` 仍报 3 条欠账。
+
+**为什么会漏**：把 `self_play_blocked` 读成「评审叫停了」，于是继续改；而引擎 `blockingFromAdjudication` 的判据是 `verdict === 'upheld'` ⇒ 阻断，它**只读裁决文本、不看代码**。修复发生在后续提交，记录感知不到。「upheld 已修」这件事在该机制里**没有任何一格能表达**。
+
+**三条正规出口（照抄即可，别自己发明）**：
+① 重跑 `sh scripts/deep-review.sh` 拿到 `cleared`（最硬，但 critic 单轮常输出 2-3 万字符、超模型 JSON 上限被截断 ⇒ `status=error`，同输入重跑大概率仍截断；实测 9 轮里 2 次这么挂的）；
+② 非高危面：记录内写结构化 `deepReview.resolution`（`disposition` / `reason` / `upheldItems[].fixedIn` / `adjudication` 路径），状态置 `needs_revision`；
+③ 变更集**不含生产源码**时：写 `deepReview.closureNote` + 状态 `self_play_resolved`。
+**选状态要取更严的一档**：`needs_revision` 保留 `performedBy` 后端对账，`self_play_resolved` 在 L814 直接跳过该检查 —— 能署名就用前者。
+`closureNote` 是**形态判据**：长度 ≥ 20，且必须同时出现轮次标记（`轮\s*\d|第\s*\d+\s*轮`）与处置结论词（`upheld|dismissed|已修|采纳|…`），光写一句长话不算。
+
+**同族第二落点：删除未闭环的 dual 记录会被专门拦**（`removedUnclosed`）。「记录乱了就删掉重来」这条路是封闭的 —— 这不是防呆设计，是防「用删除消解欠账」。同理，`.ccg/reviews/<sha>.json` 会随每条提交累积（本分支 11 份），但**只有 `mode=dual` 进欠账判定面**，小提交产生的 `single` 记录不累积欠账。
+
+**同族第三落点：债务熔断的两条红是两条不同的正解。**
+`TEST_LEDGER_GREW`（测试文件超登记值 +200）⇒ 门禁原文要求**按被测模块/场景拆分**，不是调数；
+`TARGET_GREW`（`targets` 点名的「还账」文件，零增长容差）⇒ 「降到目标以下，**或在 review 中说明理由后一并上调 targets**」。
+两者的差别就是「指标债」与「结构债」的差别：测试文件堆大是结构问题（拆得动），点名源文件变大往往是真的加了防御逻辑（拆不动，要论证）。本轮 2 份测试文件按场景拆分（3759→3370、2398→2351，断言一条未改），3 份源文件按第二条通道上调并逐文件写明「为何不硬拆」。
+
+**口径（四条可执行）**：
+① 看到 `upheld` 先问「这条的修复在哪次提交」，把 `fixedIn` 写进记录；不要因为「代码已经对了」就假设门禁会自己变绿。
+② 判定器要求双模型、而变更集只有测试/文档/数据文件时，先核 `HIGH_RISK_SURFACES` 清单（`credential-`/`auth/`/`workflows/`/`scripts/check-`/`fingerprint` 等），不在清单上就走 `closureNote` 出口并在 note 里点明「无生产源码改动」。
+③ 拆分测试文件时，只搬 `require/mocks/helpers + beforeEach/afterEach`（本例 66 行），**不要整份复制 150 行的组件挂载器**；能提炼 `viewWithSegments(segments, {expand})` 这类帮手把 9 处四行样板并成一行，就优先提炼 —— 省行数同时降低维护成本。
+④ 争「谁该让」时看门禁自己写没写正解：写了「或」的两个分支就是两条合法路径，选哪条要落成理由，不落理由的"调数"才是真欠债。
+
+## 新 PR 的执行记录别再写 `PENDING` —— 那是旧口径的化石（record-status-derived-marker，2026-10-20）
+
+### lesson: never-hand-write-pending-in-new-records
+
+**现场**：本 PR 里我在 `openspec/records/s2v-video-prompt-translation.md` 的 `远程同步` 表行写了 `PENDING`（想表达"还没合并"），CI 的 `QG Changes` 当场红，且红在 `check-gate-record-debt.test.js` 的两条**真仓用例**上（`fail 2`），报错是「存在未登记的欠账：`s2v-video-prompt-translation.md`（缺登记字段）」。
+
+**为什么会漏**：`PENDING` 在 2026-10-15 之前是"正确写法"——它表示未收口，同时要求在 `scripts/gate-record-debt-ledger.json` 里按标题登记一条欠账。2026-10-15「旧载体冻结」+ 2026-10-17 change `gate-record-sync-derived-status` 之后，新 PR **不再手写状态词**：表行状态列写派生标记 **`由门禁推导`**，bullet 写 `远程同步 PR #NNNN` 不带状态词，收口由 `scripts/lib/merge-ledger.js` 按主干历史推导。手写 `PENDING` 等于既声明"未收口"又没登记 ⇒ 判欠账。
+
+**口径（三条）**：
+① 新 PR 记录的状态列写「由门禁推导」；bullet 写 `远程同步 PR #NNNN`。
+② 合并前**别**写 `PASS` —— 那会判 `prematureClaim`（文件还不在基线上，不可能已经远程同步）。
+③ 判据首行会打印 `MERGE-LEDGER prs=<n>` / `HAND-CLOSURE 人工改写=<n>`；后者非 0 说明有人在改状态词，那是拦截面而不是可见面。
+
 ## 「规则已加」和「用户看得见」隔着两件事——基类覆盖与 transition:all 的淡入（focus-ring-zero-coverage，2026-10-19）
 
 ### lesson: a-rule-on-the-base-class-can-be-zero-coverage
@@ -21906,3 +21947,48 @@ CI 把 `QG Static` 钉红在 Gate 2c，红的是 `check-unwired-tests.test.js` �
 - **pattern · 批量收敛脚本必须把目标函数写进文件头，并且不得替产品做决策**：v1"取第一个能过 AA 的槽"把删除红换成近黑；v2 只分"有彩/中性"两族，把它换成主色紫（删除看起来像主操作，比灰更误导）；v3 加色相族（Δhue ≤ 60°）后红色族内无解 ⇒ **原样保留 + 登记 needs-design**。牙在哪：CSS 里读不出"这原本是删除的红"，但基线记死了原值 ⇒ 任何换 token 的动作都会撞"陈旧登记"红（M13 实测）。同族纪律：改尺寸/改颜色是设计决策，不得由别名或机械替换顺带发生。
 - **pitfall · 「第几处」的坐标在边判边改的源码上会漂移**：收编脚本先按全文顺序数"第 nth 处 `color: #hex`"，再往**已部分改写**的 src 上打补丁 ⇒ 命中的是别的行，当前点原样不动 ⇒ 判据读出"换任何槽都过不了"，把明明能收编的点错记成欠账。倒序 + "只动最后一处"也**不行**：needs-design 的点故意没改，仍留在文件里，"最后一处"会落到它身上。正解是用**身份**定位（选择器 + 现值），并在试跑后断言"改的确实是这一条"。
 - **pattern · 生成基线的脚本与校验基线的测试必须跑同一份采集实现**：本次两侧曾各写一遍，结果同一件事出现三套 status 词汇（`no-token-candidate` / `compliant-bare` / 缺 `surfaces` 字段），而"重跑一次生成器"就会把已核对的基线覆盖成另一种形状、两边都"看起来绿"。收敛成 `text-contrast-sites.js` 一份后，测试逐字段重算基线的 need/ratio/surface；作废的旧生成脚本不能只删名字——它被 gitignore 挡住没有合法删除路径，于是**改成立即抛错的桩**，把"误跑"变成响亮失败。
+## 2026-10-20 · electron-ci-shard-budget：判据域错位、两套分支保护面、以及「推不动时收窄」（PR #4061）
+
+- **pattern · 判据域错位比判据缺失更危险：断言「字符串存在于 YAML」不等于「这段代码会执行」**。
+  Mulpub 的 `electron-tests` 自 #2525（2026-09-28，标题写着「让超时失败能自证」）起，正文里那行
+  `RC=${PIPESTATUS[0]}` 与整段 `TIMEOUT_BUDGET_EXCEEDED` 诊断**一次都没跑过**：它们被放在 `timeout … | tee`
+  之后，而该 job 的 shell 是 `bash -e -o pipefail`，`timeout` 返回 124 时 `-e` 立刻退出步骤。
+  它专门为之设计的那个场景（撞墙），恰恰是它唯一不出现的场景。而同期那条测试锁是**绿的** —— 因为它的判据域
+  是「这四行字符串在 YAML 里存在」，被测性质却是「运行时执行路径」。
+  **口径**：只要被测性质是「会执行 / 会生效」，判据域就必须换成行为 —— 取 `run` 原文、只替换两个量
+  （预算压到 1s、内层命令换成必超时的 `sleep`）、用同一个 `-e -o pipefail` 真跑、断言 stdout 里出现自证行。
+  落点：`apps/desktop/tests/gui-ci-exit-contract.test.js` 的「自证块必须在 bash -e -o pipefail 下真能执行」。
+  变异反证必做：摘掉 `set +e` 必须当场红，且红文案要能指回根因（本轮红在「自证行缺席 ⇒ 自证块又被 -e 提前杀掉了」）。
+
+- **pitfall · GitHub 有两套并存的「分支保护面」，只查一套会得出「不受约束」的假结论**。
+  `GET /repos/{o}/{r}/branches/main/protection` 的 `required_status_checks.contexts` 实测只有 4 条
+  （`Gate Result` / `build` / `QG Unit Tests` / `QG Coverage`），据此写下「`electron-tests` 不在 required checks 里」——
+  **是错的**。真正拦人的是 `GET /repos/{o}/{r}/rulesets` → `rulesets/23749994`（`main-ci-gate`），它要求 7 条，含 `electron-tests`。
+  **口径**：取证要遍历**所有**承载 gate 的机制；只查一套就下结论，与「查到第一个空结果就收工」同型。
+
+- **pitfall · matrix 与 required status check 结构性冲突；两种「补名字」的写法都不可行（各有一处硬失败）**。
+  matrix 会把作业报成 `job (1)/(2)/(3)`，而分支保护要的是不带后缀的名 ⇒ required context 永不出现，
+  **22 项全绿、5 个 required check 全 SUCCESS 仍判 `base branch policy prohibits the merge`**。三条实测：
+  ① 只加 `strategy.matrix` → check 名变成 `electron-tests (1)`，context 仍缺；
+  ② 另加一个 `name: electron-tests` 的**汇入作业** → 整份 workflow 被判**不可解析**，症状是「幻影 `push` run + 0 job +
+     `run.name` 退化成 workflow 路径」，且 `on.push.branches: [main]` 下却出现本分支的 push run（说明 GitHub 连 `on:` 都没读到）；
+     `if: always()` 与 `if: ${{ always() && … }}` 两种写法都复现 ⇒ 不是那两条条件的事；
+  ③ 只给 matrix 作业加静态 `name: electron-tests` → 解析正常（`event=pull_request`、`jobs=1` 都对），但 check 名**仍是** `electron-tests (1)`。
+  正解是把 matrix 作业改 id（如 `electron-tests-shards`）+ 用 **id 就叫** `electron-tests` 的汇入作业（不设 `name`），
+  但那要同步改多条按 job 名 / `needs` 断言的结构性锁 —— 属另一件事。
+
+- **pattern · 「局部绿」不等于「整体绿」：判据挂在整套跑完之后时，单文件通过不构成证据**。
+  本轮行为锁单文件 45 例全绿，而整套桌面测试跑完后的**运行时出站台账**判红：新增了 `child::Program`。
+  根因是台账命令名派生只处理了**带引号**的含空格路径（`shellFirstToken`），而 `spawn(file,args)` 传的是**裸路径**，
+  `…/Program Files/Git/usr/bin/bash.exe` 被切成 `C:\Program`。**不把 `child::Program` 加进基线** ——
+  那等于给一个无意义键背书，以后任何含空格安装目录下的子进程都会被它盖住；判据取「整串能否按文件存在性解析成文件」而非猜词法。
+  **口径**：凡判据挂在「整套跑完之后」（台账 / 覆盖率 / 产物对账），必须回读 CI 结论，不能拿本地单文件结果推。
+
+- **pattern · 在既定约束下推不动时，收窄范围比继续堆尝试更专业；但收窄必须连同「三轮现场」一起留证**。
+  分片被 required context 卡死后，正确动作不是再试第四种 `if` 写法，而是：① 把范围收窄到确定能修的**真 bug**；
+  ② 把未落地部分与三轮尝试的具体形态写进执行记录 §九与 CHANGELOG（含每次的失败判据，而不是「尝试失败」）；
+  ③ 说明**顺序理由** —— 分片要定片数与单片预算，唯一依据是逐片实测耗时，而那个读数只有自证块接通后才会产出
+  （本轮 main push 首次产出 `elapsed=2100s budget=2100s rc=124`，这才是下一轮定数的依据，而不是按均值猜）。
+  ④ 与「谁来守门」相邻的改动（改 job id 牵动多条结构性锁）不塞进一个修超时的 PR。
+  同轮附带一条工具口径：**PowerShell 里 `[System.IO.File]` 的相对路径用的是 .NET 进程 CWD，不是 `cd` 位置**，
+  两者可能不同步 ⇒ 文件在却报 `Could not find file`；一律传 `Resolve-Path` 的绝对路径。

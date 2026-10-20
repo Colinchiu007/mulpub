@@ -38,8 +38,19 @@ const path = require('node:path');
 
 const REPO_REMOTE = process.env.MP_AUDIT_REPO || 'Colinchiu007/mulpub';
 const WORKFLOW = 'quality-gate.yml';
-const JOB_RE = /QG Desktop Shards/;
-const SAMPLE_RE = /\[windows-file-lock\] ready=(\d+)ms locked=(\d+)ms/;
+// 采样域 = **本 WORKFLOW 坐标内**真跑该夹具的作业族，不是"我以为跑的那些"。
+// 2026-10-20 对 origin/main 最近 4 趟已完成 main push 的 12 份作业日志逐个取数实测（legacy 无标签档）：
+//   QG Coverage count=44 max=17466ms > QG Desktop Shards (2/2) count=16 max=14402ms
+//   > QG Desktop Shards (1/2) count=28 max=3773ms；另单次 run 实测 22 行里 8 行是 ready=0ms 的假握手。
+// 旧值只认 Shards ⇒ 需要最大预算的那个作业根本不在域里，provenance 的 max 是**下界**，
+// 于是"余量充足"这句话有一部分来自采样域本身。负控（这些作业不产握手行，必须不匹配）
+// 由 apps/desktop/electron/services/windows-file-lock.test.js 的 A/B 那条锁住。
+// ⚠ 域还有**第二层**没扩：本脚本只列 `WORKFLOW = quality-gate.yml`，而 `electron-ci.yml` 的
+//   `electron-tests` 作业（步骤「Unit tests (Vitest, non-Electron…)」，`if: event != pull_request` ⇒ 仅 main push）
+//   跑同一批桌面 vitest ⇒ 那里也产握手行，且它按 --shard 切三片。扩它要给 api() 换 workflow 坐标并新增一条
+//   workflow 轴的 A/B，本片未做（原因与取证见 openspec/records/lock-timing-audit-coverage-domain.md 遗留 #3）。
+//   ⇒ 结论的适用范围：这里的 max 至今仍是**下界**，不是全量分布。
+const JOB_RE = /QG Desktop Shards|QG Coverage/;
 
 function argOf (name, fallback) {
   const hit = process.argv.slice(2).find((a) => a.startsWith('--' + name + '='));
@@ -61,17 +72,79 @@ function gh (args, maxBuffer) {
 }
 function api (pathname) { return JSON.parse(gh(['api', pathname])); }
 
-/** 从**当前源码**读预算：常量漂移时这里跟着变，不会出现"脚本判的是旧预算"这种第二份真相 */
-function loadBudget () {
-  const helper = path.resolve(__dirname, '..', 'test-helpers', 'windows-file-lock.js');
-  const mod = require(helper);
+/**
+ * 夹具模块的单一入口。两处缺失都当场拦：
+ *  - 缺 provenance ⇒ 预算成了无出处的数字；
+ *  - 缺 parseTimingLine ⇒ 脚本只能自己抄一份行格式，而"打印格式"与"解析格式"分家
+ *    正是本次要消除的缺陷（打印一改，脚本静默零样本，零样本又读起来像"没跑过夹具"）。
+ */
+let cachedHelper = null;
+function helper () {
+  if (cachedHelper) return cachedHelper;
+  const mod = require(path.resolve(__dirname, '..', 'test-helpers', 'windows-file-lock.js'));
   if (!mod.LOCK_BUDGET_PROVENANCE) {
     throw new Error('PROVENANCE_MISSING: 夹具没导出 LOCK_BUDGET_PROVENANCE ⇒ 预算出处这条链已断，复测结果无处对照；这比"采不到样本"更严重，绝不能退回脚本里另写一份 source 文案');
   }
+  if (typeof mod.parseTimingLine !== 'function') {
+    throw new Error('PARSER_MISSING: 夹具没导出 parseTimingLine ⇒ 握手行格式会有两份事实（打印一份、本脚本一份），两份必然漂移');
+  }
+  cachedHelper = mod;
+  return mod;
+}
+
+/** 从**当前源码**读预算：常量漂移时这里跟着变，不会出现"脚本判的是旧预算"这种第二份真相 */
+function loadBudget () {
+  const mod = helper();
   return {
     readyTimeoutMs: mod.DEFAULT_READY_TIMEOUT_MS,
     provenance: mod.LOCK_BUDGET_PROVENANCE,
   };
+}
+
+/**
+ * 把一份作业日志拆成三档，**只有 mock=false 那一档算样本**。
+ * 三档必须分列：`ready=0ms` 的假握手与"改动之前没有标签的历史行"都不是分布，
+ * 但它们各自要说的话完全不同（前者=探针该收紧，后者=窗口还没攒够）。
+ * @param {string} text
+ * @returns {{samples:number[], mock:number, legacy:number, max:number, legacyMax:number}}
+ */
+function collectFromLog (text) {
+  const mod = helper();
+  const out = { samples: [], mock: 0, legacy: 0, max: 0, legacyMax: 0 };
+  for (const line of String(text).split('\n')) {
+    const parsed = mod.parseTimingLine(line);
+    if (!parsed) continue;
+    if (parsed.mock === true) { out.mock += 1; continue; }
+    if (parsed.mock === null) {
+      out.legacy += 1;
+      // 无标签行不能当分布（分不清真伪），但它的**最大值**仍是有用的尾部线索：
+      // 假握手的 ready 恒为 0，只会压低 max 不会抬高，所以 legacyMax 是可信的下界。
+      if (parsed.readyMs > out.legacyMax) out.legacyMax = parsed.readyMs;
+      continue;
+    }
+    out.samples.push(parsed.readyMs);
+  }
+  if (out.samples.length) out.max = Math.max(...out.samples);
+  return out;
+}
+
+/**
+ * 零样本里「取到了无标签行」那一档的判词（唯一实现）。
+ * 为什么要逐作业报：本次改动扩采样域的**动因**就是「旧域排掉了尾部最大的那个作业」，
+ * 只报总数等于让下一个人重新去猜尾部落在谁身上。
+ * @param {Record<string, {count:number, max:number}>} legacyByJob
+ * @returns {string} 空串 = 一条无标签行都没取到 ⇒ 交回 NO_SAMPLES 那一档
+ */
+function formatLegacyNotice (legacyByJob) {
+  const names = Object.keys(legacyByJob || {});
+  if (!names.length) return '';
+  const total = names.reduce((a, n) => a + legacyByJob[n].count, 0);
+  const detail = names
+    .sort((a, b) => legacyByJob[b].max - legacyByJob[a].max)
+    .map((n) => n + ' count=' + legacyByJob[n].count + ' max=' + legacyByJob[n].max + 'ms')
+    .join(' | ');
+  return 'LEGACY_ONLY：取到 ' + total + ' 条**无标签**握手行（日志早于 mock 标签上线）'
+    + '⇒ 不能当真实分布，等带标签的窗口攒够再复测；逐作业尾部（按 max 降序）：' + detail;
 }
 
 /**
@@ -115,6 +188,10 @@ function collect () {
 
   const ready = [];
   let jobs = 0;
+  let mockLines = 0;
+  let legacyLines = 0;
+  const byJob = new Map();
+  const legacyByJob = new Map();
   for (const run of runs) {
     let jobsResp;
     try { jobsResp = api('repos/' + REPO_REMOTE + '/actions/runs/' + run.id + '/jobs'); }
@@ -131,21 +208,38 @@ function collect () {
         errors.push('log ' + job.id + ' ' + String(e.message).replace(/\r?\n/g, ' ').slice(0, 40));
         continue;
       }
-      let n = 0;
-      for (const line of body.split('\n')) {
-        const m = SAMPLE_RE.exec(line);
-        if (m) { ready.push(Number(m[1])); n += 1; }
+      const got = collectFromLog(body);
+      const n = got.samples.length;
+      ready.push(...got.samples);
+      mockLines += got.mock;
+      legacyLines += got.legacy;
+      // 无标签行必须**在 n===0 的早退之前**按作业累加：标签上线前的那一整趟复测里，
+      // 每个作业都是 n===0，而那恰恰是本次改动动因（旧采样域排掉了尾部最大的作业）唯一的现场来源。
+      if (got.legacy > 0) {
+        const prev = legacyByJob.get(job.name) || { count: 0, max: 0 };
+        legacyByJob.set(job.name, { count: prev.count + got.legacy, max: Math.max(prev.max, got.legacyMax) });
       }
-      if (n === 0) { errors.push('no-sample job=' + job.id); continue; }
+      if (n === 0) {
+        // 分档出声：同样本为 0，"全是 mock 假握手"与"这个作业压根没跑夹具"是两件事，
+        // 后者意味着采样域漂了（前者的成因见测试里那条「标记不等于效果」）。
+        errors.push('no-sample job=' + job.id + ' mock=' + got.mock + ' legacy=' + got.legacy);
+        continue;
+      }
       jobs += 1;
+      byJob.set(job.name, (byJob.get(job.name) || 0) + n);
       // 逐 run 留痕：这个工具要跑几分钟，没有中间现场就分不清"还在采"与"被杀了"
       //（2026-10-01 实测：--runs=26 一次以 rc=1 退出且 stdout/stderr 全空，无法归因）
       console.error('[lock-timing-audit] run=' + run.id + ' job=' + job.id
-        + ' samples+=' + n + ' total=' + ready.length);
+        + ' samples+=' + n + ' mock+=' + got.mock + ' legacy+=' + got.legacy
+        + ' total=' + ready.length);
     }
   }
   ready.sort((a, b) => a - b);
-  return { ready, runCount: runs.length, jobs, pages: listed.pages, errors };
+  return {
+    ready, runCount: runs.length, jobs, pages: listed.pages, errors,
+    mockLines, legacyLines, byJob: Object.fromEntries(byJob),
+    legacyByJob: Object.fromEntries(legacyByJob),
+  };
 }
 
 function main () {
@@ -162,6 +256,10 @@ function main () {
   let jobs;
   let pages = 1;
   let errors = [];
+  let mockLines = 0;
+  let legacyLines = 0;
+  let byJob = {};
+  let legacyByJob = {};
 
   const manual = argOf('max-ready', null);
 
@@ -173,14 +271,22 @@ function main () {
     const got = collect();
     ready = got.ready; runCount = got.runCount; jobs = got.jobs; errors = got.errors;
     pages = got.pages;
+    mockLines = got.mockLines; legacyLines = got.legacyLines; byJob = got.byJob;
+    legacyByJob = got.legacyByJob;
   }
 
   if (!ready.length) {
-    // 零样本必须出声并点名坐标：一次"采不到"被读成"没问题"，等于把门禁换成一盏恒绿的灯
-    console.error('NO_SAMPLES：一条握手样本都没采到 ⇒ 探针坐标可能过期'
-      + '（workflow 名 / job 名 / status 字段 / 代理 / ANSI 拒答 / gh 登录态 / 服务端过滤截断）');
+    // 零样本必须出声并点名坐标：一次"采不到"被读成"没问题"，等于把门禁换成一盏恒绿的灯。
+    // 但"零样本"底下有两种完全不同的成因，修法也相反 —— 这里分档报，不得混成一句话：
+    //   legacy>0 ⇒ 日志早于本次改动（历史行没标签），要等窗口攒够，不是坐标坏了；
+    //   mock>0 且 legacy=0 ⇒ 域里有作业在跑夹具却只产出假握手，要去看采样域/打印点。
+    const legacyNotice = formatLegacyNotice(legacyByJob);
+    const cause = legacyNotice || 'NO_SAMPLES：一条握手样本都没采到 ⇒ 探针坐标可能过期'
+      + '（workflow 名 / job 名 / status 字段 / 代理 / ANSI 拒答 / gh 登录态 / 服务端过滤截断）';
+    console.error(cause);
     console.error('       MP_AUDIT_REPO=' + REPO_REMOTE + ' pages=' + pages
-      + ' runs=' + runCount + ' errors=' + errors.slice(0, 8).join(' , '));
+      + ' runs=' + runCount + ' mock_lines=' + mockLines + ' legacy_lines=' + legacyLines
+      + ' errors=' + errors.slice(0, 8).join(' , '));
     process.exitCode = 3;
     return;
   }
@@ -203,7 +309,9 @@ function main () {
   } else {
     const p50 = ready[Math.floor(ready.length / 2)];
     console.log('[lock-timing-audit] pages=' + pages + ' runs=' + runCount + ' jobs=' + jobs
-      + ' samples=' + ready.length + ' ready.p50=' + p50 + 'ms ready.max=' + maxObservedReadyMs
+      + ' samples=' + ready.length + ' mock_lines=' + mockLines + ' legacy_lines=' + legacyLines
+      + ' by_job=' + JSON.stringify(byJob)
+      + ' ready.p50=' + p50 + 'ms ready.max=' + maxObservedReadyMs
       + 'ms errors=' + errors.length);
     console.log('当前 DEFAULT_READY_TIMEOUT_MS=' + budget.readyTimeoutMs
       + '，要求 ≥ max×' + MULTIPLIER + '=' + maxObservedReadyMs * MULTIPLIER);
@@ -222,4 +330,4 @@ function main () {
 
 if (require.main === module) main();
 
-module.exports = { collect, loadBudget, SAMPLE_RE, JOB_RE };
+module.exports = { collect, collectFromLog, formatLegacyNotice, loadBudget, JOB_RE };

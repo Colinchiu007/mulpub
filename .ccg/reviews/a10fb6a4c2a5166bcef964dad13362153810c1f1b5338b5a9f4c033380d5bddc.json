@@ -1,0 +1,63 @@
+{
+  "sha": "b7ca111d076fcbd1a1684790b1965d47ba8f1a24",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 562 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 562,
+    "fileCount": 12,
+    "codeFileCount": 7,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "a10fb6a4c2a5166bcef964dad13362153810c1f1b5338b5a9f4c033380d5bddc",
+  "decidedAt": "2026-10-19T16:40:57.164Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "needs_revision",
+    "performedBy": "claude",
+    "findings": null,
+    "error": "JSON解析失败:模型输出被截断，JSON 不完整（{ 81 个 / } 34 个，结尾无 }），共 33226 字符 —— 这通常意味着方案问题太多、模型输出超长被截断。重跑同样输入多半还是截断。可选：把方案拆小后分批评审，或先让 critic 只挑 Critical / Warning、暂不要求 Info。",
+    "validationErrors": null,
+    "at": "2026-10-19T16:53:45.260Z",
+    "resolution": {
+      "disposition": "superseded-by-successful-review-of-identical-diff",
+      "reason": "引擎在本 diff 上的首次尝试：critic 输出被截断（33226 字符，{ 81 / } 34，结尾无 }），属模型侧超长截断，未产出任何评审结论——所以 status 原为 error，不是「评审没跑」。同一 diff（内容寻址同一 stagedDiffHash）随后在 .ccg/reviews/bfd5c6c2dab89179369f0c2d3be2d97607dbda8f.json 完成完整评审，产出 8 条发现（四维度，最低分 6），并逐条裁决落盘于 .adversarial/ccg-deep-bfd5c6c2/adjudication.json。故本记录以「被成功评审取代」处置。",
+      "noCritical": true,
+      "verdictProducedIn": "bfd5c6c2dab89179369f0c2d3be2d97607dbda8f",
+      "adjudication": ".adversarial/ccg-deep-bfd5c6c2/adjudication.json"
+    }
+  }
+}

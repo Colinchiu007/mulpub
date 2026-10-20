@@ -36,6 +36,11 @@ export const state = reactive({
   s2vVoiceCloneRenamingId: '',
   s2vVoiceCloneRenameDraft: '',
   s2vVoiceProviderExplicitEdge: false,
+  // 上一次 loadS2VVoiceData 用的语音上下文（providerId + 解析出的 model）。
+  // 用途：区分「上下文切换」（reset 时要连克隆列表一起清）与「同上下文刷新」（保留克隆列表），
+  // 见 useTtsVoices.js 的 resetS2VVoiceData({ clearClones }) 调用点与 CCG 深度审查 i3。
+  s2vVoiceCloneProviderId: '',
+  s2vVoiceCloneModelId: '',
 })
 
 /** 壳注入的跨域依赖（setupTtsVoicesDeps 一次性注入；window 兜底防测试/早调用时序） */
@@ -220,6 +225,8 @@ export function resetTtsVoicesForTest() {
     s2vVoiceCloneRenamingId: '',
     s2vVoiceCloneRenameDraft: '',
     s2vVoiceProviderExplicitEdge: false,
+    s2vVoiceCloneProviderId: '',
+    s2vVoiceCloneModelId: '',
   }
   Object.assign(state, initial)
   deps = null

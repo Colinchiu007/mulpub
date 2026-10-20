@@ -17,10 +17,12 @@ const mod = require('./check-branch-merged.js');
 
 // ---------------------------------------------------------------- 判据本体导出面
 test('导出面必须齐（缺一个就是判据搬家）', () => {
-  for (const fn of ['splitLines', 'reconcileCounts', 'netCounts', 'collect', 'main']) {
+  for (const fn of ['splitLines', 'reconcileCounts', 'netCounts', 'collect', 'main', 'releaseEligibleForLanding']) {
     assert.equal(typeof mod[fn], 'function', fn + ' 必须是函数');
   }
-  assert.deepEqual(mod.VERDICTS, ['IDENTICAL', 'DRIFT-ATTRIBUTED', 'LOST', 'UNATTRIBUTED', 'JUDGE_ERROR']);
+  // DIFFERENT-RELEASED 是"由 --allow-different-landing 显式放行"的独立档位（2026-10-20）。
+  // 它必须是**独立一档**而不是改回 IDENTICAL —— 那会把"没落地"这件事从读数里整条抹掉。
+  assert.deepEqual(mod.VERDICTS, ['IDENTICAL', 'DRIFT-ATTRIBUTED', 'LOST', 'UNATTRIBUTED', 'JUDGE_ERROR', 'DIFFERENT-RELEASED']);
   assert.equal(mod.EXIT_OK, 0);
   assert.equal(mod.EXIT_LOST, 1);
   assert.equal(mod.EXIT_JUDGE_ERROR, 2);
@@ -759,7 +761,7 @@ test('T25 --json 出口必须带 counts 与逐文件判定，且与 plain 的计
   const plainCounts = {};
   for (const v of mod.VERDICTS) plainCounts[v] = 0;
   for (const line of plain.split('\n')) {
-    const m = /^[^\s]+ (IDENTICAL|DRIFT-ATTRIBUTED|LOST|UNATTRIBUTED|JUDGE_ERROR)(?:\s|\(|$)/.exec(line);
+    const m = new RegExp('^[^\\s]+ (' + mod.VERDICTS.slice().sort((x, y) => y.length - x.length).join('|') + ')(?:\\s|\\(|$)').exec(line);
     if (m) plainCounts[m[1]]++;
   }
   for (const v of mod.VERDICTS) {
@@ -902,5 +904,168 @@ test('T33 读数不得宣称方向：多笔合并里合法落地的早期 merge 
   assert.ok(!/修订|旧版/.test(line), '不得把未实测的因果印成读数（"修订"宣称方向）：' + line);
   assert.equal(mod.main(['--ref=' + tip2, '--merge=' + merge1 + ',' + merge2, '--root=' + r.dir]), 0,
     '两笔合并都各自落地过 ⇒ 本例不该红；若红了说明读数改动了判定');
+  r.rm();
+});
+
+// ---------------------------------------------------------------- 显式放行旗标（T34-T39）
+// 动因（2026-10-20 现场读数否证了"放宽 default"）：三条 rc=1 分支的 LOST 行**全部**是 `different`，
+// 看上去"降这一格就能解锁"。但同一次读数里：
+//   · `rpa-selector-utils.js`（#2729）—— 主干那份是**外审更正版**，我这版注释本身是错的 ⇒ 降档位是对的；
+//   · `rpa-view-navigation-helpers.js`（#2729）—— 报「我这版独有 228 行」，而我那句话在主干
+//     `origin/main:apps/desktop/electron/services/rpa-view-navigation-helpers.js:194` **原样存在**，
+//     缺口来自热写面的重复键**份数**（base=20 tip=30 main=14），不是内容丢了；
+//   · `CHANGELOG.md`（#2842）—— 类别是 different，而同一分支另一行是「根本没带上」。
+// ⇒ `different` 只说明"这笔落地的不是我当前这版"，**不承诺内容还在**；把它写进默认 rc 判据，
+// 等于给"根本没带上"那格造一件可借的外衣（见 [[feedback-readout-must-not-launder-loss]]）。
+// 本片因此把放宽做成**显式 opt-in**：默认档一字不动，放行必须有人当面授权一次并留命令行痕迹。
+const FLAG = '--allow-different-landing';
+// --json 出口后面仍会跟一行 [BRANCH-MERGED] 汇总 ⇒ 必须按行取、在汇总行之前切，
+// 不能把所有参数拼成一整串再 JSON.parse（那样必然炸，而且炸在断言之前、看不出是判据的问题）。
+const capture = (argv) => {
+  const lines = []; const orig = console.log;
+  try { console.log = (...a) => lines.push(a.join(' ')); mod.main(argv); }
+  finally { console.log = orig; }
+  return lines;
+};
+const jsonOf = (lines) => {
+  const i = lines.findIndex((l) => l.startsWith('[BRANCH-MERGED]'));
+  return JSON.parse(lines.slice(0, i < 0 ? lines.length : i).join('\n'));
+};
+
+test('T34 默认档一字不动：不带旗标时 T28 夹具仍 LOST / rc=1，且三处出口都不得出现"放行"', () => {
+  const r = baseRepo({ 'code.txt': 'A\nB\n' });
+  r.w('code.txt', 'A\nB\nMY LINE\n');
+  const tip = r.addCommit('mine');
+  land(r, tip, [], 'feat: mine (#9001)', { 'code.txt': 'A\nB\nREVISED LINE\n' });
+  r.g(['checkout', '-q', 'main']);
+  r.w('code.txt', 'A\nB\n');
+  r.addCommit('docs: others drop the revised line');
+  const out = mod.collect({ ref: tip, merges: [r.merge], root: r.dir });
+  const f = out.files.find((x) => x.file === 'code.txt');
+  assert.equal(f.verdict, 'LOST', '默认档必须与上一版逐字一致：' + f.verdict);
+  assert.equal(mod.main(['--ref=' + tip, '--merge=' + r.merge, '--root=' + r.dir]), 1,
+    '没给旗标就放行 = 把"改谁来守门"变成默认行为');
+  const all = capture(['--ref=' + tip, '--merge=' + r.merge, '--root=' + r.dir]).join('\n');
+  assert.ok(!/放行/.test(all), '默认档文案不得出现"放行"字样（旗标不得渗进默认档）：' + all);
+  const jd = jsonOf(capture(['--ref=' + tip, '--merge=' + r.merge, '--root=' + r.dir, '--json']));
+  assert.ok(!('releasedDifferent' in jd), '默认档的 --json 不得带放行字段：' + JSON.stringify(jd));
+  assert.equal(jd.counts.LOST, 1, '默认档计数必须仍把这一行算进 LOST：' + JSON.stringify(jd));
+  r.rm();
+});
+
+test('T35 旗标 + 该行类别只有 different ⇒ 降级为 DIFFERENT-RELEASED、rc=0，并逐行点名', () => {
+  const r = baseRepo({ 'code.txt': 'A\nB\n' });
+  r.w('code.txt', 'A\nB\nMY LINE\n');
+  const tip = r.addCommit('mine');
+  land(r, tip, [], 'feat: mine (#9001)', { 'code.txt': 'A\nB\nREVISED LINE\n' });
+  r.g(['checkout', '-q', 'main']);
+  r.w('code.txt', 'A\nB\n');
+  r.addCommit('docs: others drop the revised line');
+  const out = mod.collect({ ref: tip, merges: [r.merge], root: r.dir, allowDifferentLanding: true });
+  const f = out.files.find((x) => x.file === 'code.txt');
+  assert.equal(f.verdict, 'DIFFERENT-RELEASED',
+    '显式授权后该行应离开 LOST 档（而不是被算成 IDENTICAL —— 它没落地）：' + f.verdict);
+  assert.equal(f.releasedByOptIn, true, '必须标记"是旗标放行的"，否则读数与默认档同形');
+  assert.equal(mod.main(['--ref=' + tip, '--merge=' + r.merge, '--root=' + r.dir, FLAG]), 0,
+    '旗标生效时这条分支应可删 —— 否则旗标只是装饰');
+  const lines = capture(['--ref=' + tip, '--merge=' + r.merge, '--root=' + r.dir, FLAG]);
+  const j = jsonOf(capture(['--ref=' + tip, '--merge=' + r.merge, '--root=' + r.dir, FLAG, '--json']));
+  assert.equal(j.releasedDifferent, 1, '--json 出口同样要有这笔：' + JSON.stringify(j));
+  assert.equal(j.optIn.allowDifferentLanding, true, '--json 必须声明本次是显式授权档：' + JSON.stringify(j));
+  assert.equal(j.counts['DIFFERENT-RELEASED'], 1,
+    '同一笔放行数在 counts 与 releasedDifferent 两处必须恒等（否则「人看的」与「机器看的」各算一份）：' + JSON.stringify(j));
+  const perLine = lines.filter((l) => l.startsWith('code.txt')).join('\n');
+  assert.match(perLine, /DIFFERENT-RELEASED/, 'plain 逐行必须显出降级后的档位：' + perLine);
+  assert.match(perLine, /版本不同@/, '放行行必须仍带落地版本读数（放行不等于抹掉证据）：' + perLine);
+  assert.match(perLine, /主干独有\d+行\/我这版独有\d+行/,
+    '放行行必须仍带双向规模 —— 现场那条"228 行假丢失"就是只报类别、不报规模才需要人再去比 blob：' + perLine);
+  assert.match(lines.join('\n'), /放行=1/, '末行汇总必须报放行笔数：' + lines.join('\n'));
+  assert.match(lines.join('\n'), /OPT-IN|--allow-different-landing/,
+    '必须点名"本次判据被显式旗标放宽过"，让下游读不出是默认档：' + lines.join('\n'));
+});
+
+test('T36 反洗白：旗标不得放行「根本没带上」那格（not-carried 一律仍 LOST / rc=1）', () => {
+  const r = baseRepo({ 'code.txt': 'A\nB\n', 'other.txt': 'o\n' });
+  r.w('code.txt', 'A\nB\nMY LINE\n');
+  r.w('other.txt', 'o\nNEW\n');
+  const tip = r.addCommit('mine');
+  land(r, tip, ['other.txt'], 'feat: mine (#9001)');   // 产物里 code.txt 仍是 base 那份
+  const out = mod.collect({ ref: tip, merges: [r.merge], root: r.dir, allowDifferentLanding: true });
+  const f = out.files.find((x) => x.file === 'code.txt');
+  assert.equal(f.verdict, 'LOST', '"我这版从没被带上"是最危险的一格，旗标不得替它作保：' + JSON.stringify(f));
+  assert.equal(mod.main(['--ref=' + tip, '--merge=' + r.merge, '--root=' + r.dir, FLAG]), 1,
+    '带旗标仍必须红 —— 这一条红了才证明旗标不是 blanket pass');
+  r.rm();
+});
+
+test('T37 放行判据表：只有「有 different 且其中至少一条主干另有独有内容、且 无 not-carried 且 无 carried」才合格', () => {
+  const ok = mod.releaseEligibleForLanding;
+  assert.equal(ok({ carried: 0, different: [{ at: 'x', onlyInMerge: 2, onlyInTip: 1 }], notCarried: [] }), true,
+    '正控：主干另有独有内容 ⇒ 落地的那版确实不是我这版');
+  assert.equal(ok({ carried: 0, different: [{ at: 'x', onlyInMerge: 0, onlyInTip: 5 }], notCarried: [] }), false,
+    '严格子集（主干没有一行是我这版没有的）⇒ 那是"部分根本没带上"，旗标不得放行（前端轴 Major）');
+  assert.equal(ok({ carried: 0, different: [{ at: 'x' }], notCarried: [] }), false,
+    '规模取不到（undefined）按未证实处理，不得当成合格');
+  assert.equal(ok({ carried: 0, different: [], notCarried: [{ at: 'x' }] }), false, '"根本没带上"永远不放行');
+  assert.equal(ok({ carried: 0, different: [{ at: 'x', onlyInMerge: 1, onlyInTip: 1 }], notCarried: [{ at: 'y' }] }), false,
+    '混合时危险那一格优先 —— 类别求和不得把 not-carried 稀释掉');
+  assert.equal(ok({ carried: 1, different: [{ at: 'x', onlyInMerge: 1, onlyInTip: 1 }], notCarried: [] }), false,
+    '逐字节带上我那版 ⇒ 是"落地后被删"，不是"被修订"，不得借旗标过关');
+  assert.equal(ok({ carried: 0, different: [], notCarried: [] }), false, '三格皆空 ⇒ 无从证明任何一笔落过别的版本');
+  assert.equal(ok(undefined), false, '取不到读数按未证实处理，不得当成合格');
+});
+
+test('T38 两笔合并：一笔 different + 一笔 not-carried ⇒ 旗标不放行（危险格优先）', () => {
+  const r = Repo();
+  r.w('code.txt', 'A\nB\n'); r.base = r.addCommit('base');
+  r.g(['checkout', '-q', '-b', 'feature']);
+  r.w('code.txt', 'A\nB\nMY LINE\n'); const tip = r.addCommit('mine');
+  r.g(['checkout', '-q', 'main']);
+  r.w('code.txt', 'A\nB\nREVISED LINE\n'); const merge1 = r.addCommit('PR1 (#9001)');
+  r.w('code.txt', 'A\nB\n'); const merge2 = r.addCommit('PR2 (#9002) 把它退回起点');
+  const out = mod.collect({ ref: tip, merges: [merge1, merge2], root: r.dir, allowDifferentLanding: true });
+  const f = out.files.find((x) => x.file === 'code.txt');
+  const rev = f.revisionsAtMerge || {};
+  assert.equal((rev.different || []).length, 1, '夹具必须真的两格都有，否则本例什么都没测：' + JSON.stringify(rev));
+  assert.equal((rev.notCarried || []).length, 1, '夹具必须真的出现 not-carried：' + JSON.stringify(rev));
+  assert.equal(f.verdict, 'LOST', '同一文件里只要有一笔"根本没带上"，旗标就必须失效：' + f.verdict);
+  assert.equal(mod.main(['--ref=' + tip, '--merge=' + merge1 + ',' + merge2, '--root=' + r.dir, FLAG]), 1);
+  r.rm();
+});
+
+test('T39 旗标只管 LOST：UNATTRIBUTED（说不清差异来自谁）不受影响', () => {
+  const r = baseRepo({ 'shared.txt': 'line1\nline2\n' });
+  r.w('shared.txt', 'MY NEW LINE\nline1\nline2\n');
+  r.tip = r.addCommit('mine');
+  land(r, r.tip, [], 'feat: mine (#9001)', { 'shared.txt': 'MY NEW LINE\nline1\nline2\nOTHER\n' });
+  const out = mod.collect({ ref: r.tip, merges: [r.merge], root: r.dir, allowDifferentLanding: true });
+  const rev = (out.files[0].revisionsAtMerge || {});
+  assert.equal((rev.different || []).length, 1,
+    '夹具的类别确实是 different（merge 产物 != tip != base）⇒ 若放行判据只看类别，这条会被错误放行：' + JSON.stringify(rev));
+  assert.equal(out.files[0].verdict, 'UNATTRIBUTED', '旗标不得改 UNATTRIBUTED 档：' + out.files[0].verdict);
+  assert.equal(cli(r), 1);
+  assert.equal(mod.main(['--ref=' + r.tip, '--merge=' + r.merge, '--root=' + r.dir, FLAG]), 1,
+    '带旗标仍红 —— 这是"放行范围收敛到 LOST"的唯一现场证据');
+  r.rm();
+});
+
+
+// 动因：QM-6 前端轴 Major（本地已复现）。`different` 只判"产物 ≠ tip 且 ≠ base"，
+// 于是"合并带了我 tip 的**严格子集**"（丢了我后加的几行、但没退回到 base）也落进这一格 ——
+// 内容上它就是**部分 not-carried**，而旗标的承诺是"not-carried 一律不放行"。
+// 此前没有任何夹具能把这一格与"整版不同"区分开：T35 的产物带 REVISED LINE（主干另有独有内容）。
+test('T40 合并带的是我 tip 的严格子集（部分没带上）⇒ 即便带旗标也必须 LOST / rc=1', () => {
+  const r = baseRepo({ 'code.txt': 'A\nB\n' });
+  r.w('code.txt', 'A\nB\nLINE-X\nLINE-Y\n');      // 我这版加两行
+  const tip = r.addCommit('mine');
+  land(r, tip, [], 'feat: mine (#9001)', { 'code.txt': 'A\nB\nLINE-X\n' });   // 只带一行 = 严格子集
+  const out = mod.collect({ ref: tip, merges: [r.merge], root: r.dir, allowDifferentLanding: true });
+  const f = out.files.find((x) => x.file === 'code.txt');
+  const rev = f.revisionsAtMerge || {};
+  assert.equal((rev.different || []).length, 1, '夹具必须确实落进 different：' + JSON.stringify(rev));
+  assert.equal(rev.different[0].onlyInMerge, 0, '夹具必须是严格子集，否则本例测的不是那一格：' + JSON.stringify(rev.different[0]));
+  assert.equal((rev.notCarried || []).length, 0, '夹具必须证明「危险形态不走 notCarried 数组」，否则这条锁没测到 Major 说的那格：' + JSON.stringify(rev));
+  assert.equal(f.verdict, 'LOST', '"部分根本没带上"被旗标放行就是洗白真丢失：' + JSON.stringify(f));
+  assert.equal(mod.main(['--ref=' + tip, '--merge=' + r.merge, '--root=' + r.dir, FLAG]), 1, '带旗标仍必须红');
   r.rm();
 });

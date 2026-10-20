@@ -269,6 +269,12 @@ export default {
       segmentCountSuffix: '个分段',
       promptTranslationLabelZh: '中文翻译',
       promptTranslationLabelOther: '翻译',
+      // 视频提示词翻译标签（2026-10-19）：与图片侧同族两档，用于区分「这段译文对应哪段提示词」
+      videoPromptTranslationLabelZh: '视频提示词中文翻译',
+      videoPromptTranslationLabelOther: '视频提示词翻译',
+      // 分段编辑主体折叠开关（2026-10-19）
+      expandEditor: '展开编辑',
+      collapseEditor: '收起编辑',
       narrationTextLabel: '旁白文字',
       imagePromptLabel: '画面提示词',
       replaceNarration: '替换旁白',

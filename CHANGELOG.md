@@ -21,6 +21,16 @@
 - **判据语义从「取最差」改为「沿链取最近的不透明表面」**：取最差会把**自带底色**的合规元素判成假缺陷（`.complete-login` 白字坐自己的 `#5048e5` 是 6.18:1，"最差"却把它脚下的 `#f3f2ff` 也算进来 ⇒ 1.11:1）；反过来"穿透解析不出的层去用更远那层"则把"读不出"洗成"读得出"（`.platform-filter-panel button.active` 暗色那格 6.75 就是这么来的，现改判 `needs-design`）。两种错法同源：把"可能是别的底"当成"就是那块底"。
 - **基线重跑从"临场手写脚本"变成仓内工具**：新增 `apps/desktop/scripts/gen-text-contrast-baseline.mjs`（默认重写、`--check` 只比对不写；现场新出现的裸 hex 条目一律 rc=1 并点名 —— `status` 属人的判断，脚本不得代拍）。这是可维护性轴那条「重跑生成器会把已核对的基线覆盖成另一种形状」的出口；`surfaces` 上人写的 `note` 按 `selector+prop` 回挂，不因重跑丢失；落盘沿用文件自己的行尾（本仓这份基线是 CRLF，统一回写会把 34 行 diff 撑成整文件重写）。
 - **本轮锁的增量与读数（当场实测）**：`Accounts.text-contrast.test.js` 11 → 14 条、`color-token-reader.test.js` 18 → 21 条、`text-contrast-sites.test.js` 8 → 9 条，四份合跑 `97 passed`；消费者并集（`src/views` + `src/styles` + 三份读 Accounts.vue 的结构锁）`2233 passed | 1 skipped`；变异电池从 14 道扩到 **15 道**（新增 M11 冒号归一退回、M12 属性名正则退回、M13/M14 分别摘掉两格"出声"、M15 不返回 `darkDeclared`），15/15 CAUGHT 且各自红在**指名**用例上，控制趟 GREEN(38)、还原逐字节相同。
+# [未发布] fix(gates): 锁预算复测脚本的采样域漏掉整个 QG Coverage 作业族 —— 最需要大预算的那个作业从不在样本里（lock-timing-audit-coverage-domain）
+
+- **动因**：`scripts/lock-timing-audit.js` 用 `JOB_RE = /QG Desktop Shards/` 枚举「哪些作业跑了这把锁」，而实测**跑它的作业有两族**。当场重取（origin/main 最近 4 次 main push × 3 个作业 = 12 份作业日志，逐作业统计 `[windows-file-lock] ready=` 行）：`QG Coverage count=44 max=17466ms` | `QG Desktop Shards (2/2) count=16 max=14402ms` | `QG Desktop Shards (1/2) count=28 max=3773ms` ⇒ **尾部最大的那个作业根本不在采样域内**，而 `LOCK_BUDGET_PROVENANCE.maxObservedReadyMs=12762` 与「45000 预算余量 3.53×」这句结论都是在这个被切掉一半的集合上量出来的。这不是「采不到」（那有 rc=3 出口兜着），是「采到了、数也自洽、但域是残缺的」⇒ 判据必须带**扩面方向**的 A/B 负控，光加零样本出口挡不住这一类。
+- **第二个坑：日志行数 ≠ 样本数**。夹具只在**真跑**时记进程内台账（`options.spawnImpl` 一律不记），但 `[windows-file-lock] ready=…` 那行是**无条件** `console.log` 的 ⇒ 单元用例注入的假握手（`ready=0ms`）同样落在 CI 日志里；旧探针把整批行当样本，「样本量下限 ≥50」这条可以被假数据凑满。
+- **修法三条，一条都不落进第二份事实**：① 握手行自带 `mock=true|false` 标签，且**打印与解析同一处实现**（`test-helpers/windows-file-lock.js` 的 `formatTimingLine` / `parseTimingLine`），复测脚本必须调它 —— 变异 N4（脚本自己抄一份正则）与 N3（打印摘掉标签）各自指名变红；② `JOB_RE` 扩为 `/QG Desktop Shards|QG Coverage/`，并刻意**不退化成「扫所有作业」**（那会让样本来源无法归因），A/B 两臂钉住：不跑该夹具的 `QG Static / QG Unit Tests / QG Changes / GUI Gate Result / build` 必须**不命中**；③ 三档分列 `samples / mock / legacy`，其中 **legacy 只报 max、不报 samples**（假握手 ready 恒 0，只会压低不会抬高 ⇒ 无标签行的最大值仍是可信**下界**），并把无标签累加排在 `n === 0` 早退**之前**（标签上线前那一整趟复测里每个作业都早退，放后面等于那份现场永远取不到；变异 N8 实测红）。
+- **零样本出口现在分两档，且两者正解相反**：`LEGACY_ONLY`（日志早于标签上线 ⇒ 等窗口攒够，**不是**坐标坏了）vs `NO_SAMPLES`（探针坐标可能过期 ⇒ 去查那七个坑）。两档共用 `process.exitCode = 3`。现场实证两条各跑一次：不可达 repo `MP_AUDIT_REPO=… --runs=2` ⇒ `RC=3` 并打印 `NO_SAMPLES…`；真仓库 `--runs=4` ⇒ 同一出口打印 `LEGACY_ONLY：取到 88 条**无标签**握手行 … 逐作业（按 max 降序）：QG Coverage count=44 max=17466ms | …`。那句判词只允许存在一份实现（`LEGACY_ONLY` 在脚本里出现 2 次即红，变异 N7 实测）。
+- **⛔ 现存的这组数是下界，不是分布**：`LOCK_BUDGET_PROVENANCE` 保留的是**旧探针**读数（域只含 Shards、且未辨真伪）⇒ `maxObservedReadyMs` 是**下界**、`samples` 是**上界**，这个方向已写进该常量的 `source` 字段与 `docs/windows-lock-budget-provenance.md` §2 的偏差表。带标签的日志攒够窗口后必须重测再回填；按既有不对称纪律，**重测量出更低值不构成收紧预算的理由**。
+- **TDD 与反证**：先写红（`2 failed | 22 passed`，红因分别是 `legacyMax` 为 undefined、`formatLegacyNotice` 不是函数）再实现 ⇒ `24 passed`；变异 N1–N8 逐条**指名**变红且跑后按字节还原（`restored=true` ×8），控制跑自带健康断言（`rc=0 && passed=24`，不健康则 PROBE_BLIND 且不产出任何 verdict）。消费者并集全部实跑：`windows-file-lock` + `account-state-restorer` + `credential-store` = **51 passed**；`packages/api-publish-engine/test/api-key-manager-atomic-write.test.js` = **1 passed**（它 require 同一份夹具）。清点用未截断的 `git grep`（上一轮把清点接了 `head` 恰好削掉一个真消费者，那笔教训见上一条 PR 的记录）。
+- **还有一层没扩，写清楚免得被读成「域已完整」**：脚本的 workflow 坐标只有 `quality-gate.yml`，而 `.github/workflows/electron-ci.yml` 的 `electron-tests` 作业（步骤「Unit tests (Vitest, non-Electron, single-worker deterministic)」，`if: github.event_name != 'pull_request'` ⇒ 仅 main push 跑，#4061 后按 `--shard` 切三片）**跑同一批桌面 vitest**，那里也产握手行。扩它要给采集端加第二个 workflow 轴并配同形的 A/B 负控，属另一片的工作量 ⇒ 登记为遗留（执行记录 §4 第 3 条），并把边界同时写进 `JOB_RE` 上方注释与 `docs/windows-lock-budget-provenance.md` §4 第 6 条。**结论的适用范围因此是：现存 max 至今仍是下界，不是全量分布。**
+- **边界**：预算取值本身一字未动（45000 / 12000 / 20000），改的是「量它的尺」；无 UI / locale / 主进程运行面改动，QM-1 与 QM-4 判 N/A。文档同步落在 `docs/windows-lock-budget-provenance.md`（§2 偏差表、§3 rc=3 两档与 rc=5、§4 新增第 6/7 两个坑），并按当场读数更正了该文件 §5 里「`CHANGELOG.md` 含 NUL 字节、被 git 判为 binary」这句已过期前提（上游 control-bytes-sweep 后实测 NUL=0，本轮置顶插入即为现场反证）。
 
 # [未发布] docs(openspec): 归档 shape-lock 规格 delta —— 那条 Requirement 不再自己打自己（archive-shape-lock-scenario）
 
@@ -408,7 +418,6 @@ rewrite-limits-50000 放开上限后暴露三条契约尾巴（change rewrite-se
 - 定向测试：18 文件 / 599 passed（adapter 3 例新用例：plan 归类 / 2038 归类 / balance 不误判为 plan；service 2 例：throw 透传 + 结构化透传且不落 registry；CreateView 映射 2 断言）。
 - 门禁：eslint rc=0；tsc --noEmit rc=0；locale --keys/--cjk PASS；check-max-lines ✅（点名文件 1748=target 零增长）；check-unwired-tests OK；QM-1 electron-builder exit 0（读数见执行记录）。
 - 执行记录：`openspec/records/fix-s2v-clone-plan-unsupported.md`。
-
 ## [2026-10-20] 视频任务编辑页：失败任务进入不再「无限加载后空白」
 
 ### 问题
@@ -444,7 +453,17 @@ rewrite-limits-50000 放开上限后暴露三条契约尾巴（change rewrite-se
 ### 已知局限
 IPC 次数本身未降（本轮是「按需申请」，单段仍 5 次 IPC；服务端批量签 URL 需改 IPC 契约，记入 backlog）；窗口步长固定 20，未按视口高度动态估算；未做实机 wall-time 复测；QM-4 视觉回归因基线仓库级失效未跑（同 `result-view-back-btn-style` 结论）。
 
+# [未发布] feat(story2video): 视频提示词中文翻译 + 提示词/翻译成对 + 分段编辑区默认折叠（s2v-video-prompt-translation）
 
+- **补齐视频提示词中文翻译（用户诉求，附截图）**：成品编辑页此前只有图片提示词带中文翻译，视频提示词没有。根因是图片翻译链路（`translatePromptsForLocale` + compose 并行任务 + `promptTranslation` 落库）自 2026-08-12 建立，而 `videoPrompt` 是 2026-08-15 才新增的字段，其生成链路从未接入翻译。本次在 `regenerateScenePrompt kind=video` 成功后调用 LLM 生成译文并持久化到新字段 `videoPromptTranslation`（≤2000 字符）。
+- **复用而非复制翻译实现**：新增 `translateVideoPromptForLocale`，内部复用 `translatePromptsForLocale` 的批量调用、严格 JSON 系统提示、markdown fence 剥离、平衡 JSON 提取、HTML/marker 包装防御与逐行兜底——不写第二份翻译实现（漂移风险）。fail-open：LLM 不可用/抛错/超时/非法内容 → `videoPromptTranslation=null`，**不影响 `videoPrompt` 本体与分段状态**；译文与原文相同视为未翻译（不展示冗余）；重写时**先清后写**，翻译失败不留上一轮陈旧译文。
+- **`updateSegments` 不接收 `videoPromptTranslation`**：白名单外字段丢弃，防前端伪造译文。compose/草稿/`ensureProjectFromRun` 三条分段构造路径按稳定 source index 回填该字段（与 `videoPrompt` 同源治理），重新合成后译文不丢失。
+- **提示词/翻译改为上下紧邻成对**：原实现把唯一翻译块放在「图片提示词 textarea + 视频提示词 textarea + 两枚重新生成按钮」之后，与它描述的提示词隔了一整个区块。现图片提示词下方紧邻图片翻译块、视频优化词下方紧邻视频翻译块，各带归属标签（「图片提示词中文翻译」/「视频提示词中文翻译」），弱化样式（左边框 + 次级底色 + 只读）与可编辑 textarea 形成层级差。
+- **分段可编辑主体默认折叠**（内容过多的正解）：分段卡片默认紧凑态，只保留序号/状态/素材区概览；编辑主体按需展开，且**展开态互斥**（一次只编辑一个分段）。方案选型：左右分栏已否决（中英文都是长文本，各砍 50% 宽度导致英文滚 6-8 行、中文大量留白）；tooltip 已否决（长文本需静读，浮层易消失）；采用 Progressive Disclosure + 上下紧邻，与本项目既有 `QuickCollectPanel`/`BatchCollectPanel`/`FilmAutoPanel` 折叠实现同族。删除展开分段时自动收起，避免残留指向已删除 id 的展开态。
+- **locales zh/en 成对新增 5 条**：`videoPromptTranslationLabelZh`/`videoPromptTranslationLabelOther`/`expandEditor`/`collapseEditor`（对齐 `#4064` 的 `promptTranslationLabelZh/Other` 两档口径）；`check-locale-sync --cjk` PASS（无新增硬编码中文）、`--keys` PASS。
+- **测试**：`ResultSegmentCard.test.js` 新增 5 例（成对 DOM 顺序/占位/en 判据/折叠态只留素材区/展开态 `aria-expanded` + 上抛）、新建 `ResultSegmentEditor.test.js` 5 例（默认全折叠/只展开一个/互斥/幂等收起/删除展开分段清空状态）、`ResultView.test.js` 6 个既有用例补「先展开」步骤；主进程侧 `story2video-video-prompt-translation.test.js` 12 例 + `story2video-project-service.test.js` 123 例 + `story2video-stages.test.js` 161 例。回归 6 个套件 **436 例全绿**，`eslint --quiet` rc=0。
+- **已知限制**：存量项目无 `videoPromptTranslation`，只在用户重新生成视频优化词后补齐第一份译文，未做批量回填；`uiLocale` 固化于任务创建时（与图片提示词翻译同源）；流水线自动路径未覆盖（若后续要在成片生成时同步产出，应扩展 `prompt_translations_pending` 机制而非复制逻辑）。详见 `01-docs/PRD-video-creation.md` §3.1.31。
+- **落地位随 `#4064` 组件化调整**：分段编辑区已被 `#4064` 抽为 `ResultSegmentCard.vue` / `ResultSegmentEditor.vue`，本特性随之迁移（提示词成对渲染在卡片、展开态唯一真源在编辑器、宿主只留接线）；折叠范围收窄为**文本编辑主体**，缩略图与四素材槽保持可见。行为契约不变，详见 PRD §3.1.31 第 10) 小节。
 # [未发布] feat(subtitle): 数字/单位完整性与双字搭配守卫 v1.4 —— 8 段复杂文案实测驱动的第二族坏切（subtitle-word-integrity）
 
 - **动因与取证**：v1.3 合并后用 8 段不同风格文案（政治评论续篇/历史叙事/科技解说/口语短视频/生活叙事/无标点压力段×2）对真实引擎做三端对跑，暴露一族 v1.3 未覆盖的坏切。**A/B 反证**（关掉 phrase_boundary 输出逐字节不变）证实非 v1.3 引入：是 `no_cut_bigrams` 词表缺口 + 标点累积分支直切不经守卫的既有缺陷。实测证据：`风速每秒 8│米`、`套现约 3.2│亿元`、`提升了│60%`、`制程是│3 纳米`、`当│成`、`遗│忘`、`那│段`、`千│万人`。

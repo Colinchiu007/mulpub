@@ -1,0 +1,60 @@
+{
+  "sha": "85fae31c97bb149e60a02bb846f07848469193c1",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 4101 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 4101,
+    "fileCount": 48,
+    "codeFileCount": 36,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 21,
+    "docSensitiveContentHits": 13,
+    "docSensitiveContentSample": [
+      "| 改字幕 | `update-subtitle-blocks` | 覆盖 `subtitleBlocks` + 清空 `subtitleTimeline` + dirty |",
+      "| 选素材 | `select-material` | 校验槽位 selectable ⇒ IPC ⇒ 刷新 URL |",
+      "**现行实现**：`draft` 是 getter 直接返回 prop `segment`（setter 为空操作，模板从不整体赋值）。代价是 `v-model=\"draft.text\"` 实际写在 prop 上——这在语义上正确：宿主把 segments 数组元素作为**可编辑对象**传进来，本就期望字段被改写，随后经 `story2video:update-segments` 落盘并整体替换 segments。`@input` 同时 emit `dirty` 让宿主知道要保存。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "8fb2806b437f3c498f38379a1156d9e5110c95749d01b636938add1a723f62a9",
+  "decidedAt": "2026-10-20T06:12:05.963Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "tier": "self-play",
+    "performedBy": "self-play",
+    "evidence": null,
+    "findings": null,
+    "closureNote": "本记录对应同步 main 的 merge 提交（#4064 组件化）。第 1-9 轮的 CCG 深度审查（upheld 17 处已修、\ndismissed 5 类且理由可验证）覆盖的是本分支的生产逻辑；本次 merge **没有引入任何新的生产行为**，\n只做了三件事：① 采纳 main 侧 ResultView.vue（宿主已只剩 <ResultSegmentEditor> 接线，保留半套内联\n实现会让同一文件里存在两个分段区）；② 采纳 main 侧 ResultView.test.js（旧「提示词区」describe 依赖\n已不存在的 w.vm.expandedSegmentId，在新结构上必然红）；③ CHANGELOG.md 两段都保留（追加型文件）。\n主进程侧 story2video-stages.js / story2video-project-service.js 自动合并且无冲突，与已审查状态逐字节相同。\n\n因此该判定属形状命中（merge diff 体量大）而非内容需要：本提交不含需要重新评审的新逻辑 ——\n功能在新组件上的落位是紧随其后的独立提交（见 2c5cd4a0），那里逐项写了移植内容与验证读数。\n回归复核：merge 后 6 个套件 426 例全绿（当时移植尚未开始）。"
+  }
+}

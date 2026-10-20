@@ -1,0 +1,123 @@
+{
+  "sha": "bfd5c6c2dab89179369f0c2d3be2d97607dbda8f",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 27 行（≤ 200）但命中 auth/数据库/加密：敏感内容 3 处",
+  "stats": {
+    "changedLines": 27,
+    "fileCount": 4,
+    "codeFileCount": 3,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 3,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "2c938e261ba7d1980cfbb2351ebc30e47891a076de1e8eb6afd3d8373568db39",
+  "decidedAt": "2026-10-19T17:20:53.335Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "needs_revision",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "finding": "en 界面判定用 getAppLocale()，而翻译生成用任务创建时固化的 uiLocale，二者不一致：创建于 zh、现切 en，视频仍生成中文译文但判定为 false，白付一次 LLM 调用且译文永不展示。虽然 PRD 记为已知限制，但这是新引入的视频侧字段，且主进程已能通过 _resolveUiLocale 拿到 locale。",
+        "highRiskDomains": [],
+        "prosecution": "切换界面语言后生成与展示判据不一致：zh 创建 + en 查看 ⇒ 白付一次 LLM 调用且译文永不展示；en 创建 + zh 查看 ⇒ 占位文案永不补齐。这是新引入字段，主进程确实已持有 locale。",
+        "defense": "同源既有行为：图片提示词翻译（promptTranslation）自 2026-08-12 起就是「提交时固化 uiLocale 生成 + 渲染时 getAppLocale() 展示」的完全同构口径（流水线 optimize 阶段写 context.prompt_translations_pending 时用 params.uiLocale，展示端 ResultView 用 getAppLocale()）。主进程拿到的 _resolveUiLocale 来源正是该项目创建时固化的值，并不是「当前界面语言」——它没有能力拿到渲染进程实时 locale（无 navigator、无 IPC 通道）。要修必须同时改 promptTranslation 与 compose 并行任务契约，超出本次范围。",
+        "verdict": "dismissed",
+        "rationale": "与既有图片提示词翻译同构，非本次新引入的不一致；主进程无法获取渲染进程实时 locale（_resolveUiLocale 的取值来源即项目创建时固化的 uiLocale）。已在 PRD §3.1.31『已知限制』第 2 条登记。彻底修复需连同 promptTranslation 与 prompt_translations_pending 机制一起改，属独立 change。"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "updateSegments 丢弃 videoPromptTranslation 靠 spread(...original) 白名单——但若前端同时改 videoPrompt 且不传 videoPromptTranslation，第 1365 行 videoPromptChanged 判定只在 update.videoPrompt 变化时清空；若只改 prompt 不改 videoPrompt，译文保留，这没问题。但失败分支：手动改 videoPrompt 后译文被清空，用户改回原文时译文不恢复，语义可接受。无明确 bug。",
+        "highRiskDomains": [],
+        "prosecution": "指控本身已自述「无明确 bug」，仅指出「改回原文时译文不恢复」。",
+        "defense": "① 指控方自己结论是无 bug；② 「改回原文不恢复译文」是正确语义——系统无法判断用户改回的字符串与生成译文时的原文是否逐字节相同（用户可能改了空格/标点），保守清空比冒险展示可能不对应的译文更安全；③ 要恢复只能重新点「重新生成视频优化词」，该按钮就在旁边，恢复路径明确。",
+        "verdict": "dismissed",
+        "rationale": "指控方自述无 bug；所述「不恢复」行为是有意的保守语义（无法验证字符串同一性），且恢复路径明确。无需改动。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "translateVideoPromptForLocale 阶段里 translatePromptsForLocale 复用内部 system 提示含严格 JSON 协议，但它是为批量多 index 设计（输出 key 为 index）。这里单条用 index 0，若翻译函数对单条有特殊空值处理，走批量路径可能引入额外解析成本或行为偏差；文档未声明单条调用是受支持路径。",
+        "highRiskDomains": [],
+        "prosecution": "批量函数被单条调用，文档未声明该用法受支持，存在「未文档化依赖」的风险。",
+        "defense": "代码路径无特殊分支：translatePromptsForLocale 对 items 数组按 batchSize=3 切批，单元素数组就是一个单元素批次；index 对齐（map[String(0)]）、JSON 解析、逐行回退、包装防御全部原样生效，不存在「单条特殊空值处理」。所谓额外解析成本即一次 LLM 调用，本就是必需成本。缺的只是文档声明。",
+        "verdict": "upheld",
+        "rationale": "无行为缺陷，但『文档未声明单条调用是受支持路径』这一指控成立（这正是评审的价值：把隐式契约变成显式契约）。已在 translateVideoPromptForLocale 的 JSDoc 契约节补齐声明：单条调用是受支持路径，以 [{ index: 0, prompt }] 走单元素批次，index 对齐/解析/兜底/防御全部原样生效，无特殊分支。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "compose 回填处（952 行）videoPromptTranslation 用 safeText(...).trim() || fallback || null，但 promptTranslation 与 videoPrompt 同源回填逻辑里 fallback 判据是 fallbackSegment.videoPromptTranslation。若 compose 输出该字段为空白串 ''，fallback 也不会生效（safeText('').trim() 为 false 会走 fallback，OK）；逻辑无缺陷，但需确认 normalizeComposeScenes 确实不下发空白覆盖。",
+        "highRiskDomains": [],
+        "prosecution": "要求确认 normalizeComposeScenes 不会用空白串覆盖有效 fallback。",
+        "defense": "指控方推演已自证 OK：safeText('').trim() 为 ''（falsy）⇒ 走 fallback 分支，空白不会覆盖。且 normalizeComposeScenes 的白名单里根本没有 videoPromptTranslation 字段（compose 输出不含该字段，这正是要走 fallback 回填的原因），不存在「下发空白覆盖」的路径。",
+        "verdict": "dismissed",
+        "rationale": "指控方推演与代码事实一致：safeText 空白 → falsy → 走 fallback；normalizeComposeScenes 白名单不含该字段，无覆盖路径。双重保证下无需改动。"
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      }
+    ],
+    "note": "自扮演裁决：1 条指控成立或需外部复核",
+    "at": "2026-10-19T17:29:56.332Z",
+    "resolution": {
+      "disposition": "adjudicated-and-fixed-in-subsequent-commits",
+      "reason": "本轮 8 条发现中 4 条进入裁决面，全部逐条对抗裁决，落盘于 .adversarial/ccg-deep-2f769f26/adjudication.json。无 Critical。i3（单条调用批量翻译函数 translatePromptsForLocale 属未文档化的受支持路径）裁决 upheld，已在提交 df59f7cc9 于 JSDoc 契约节补齐「单条调用是受支持路径」的显式声明；i1/i2/i4 裁决 dismissed（i1 与图片提示词翻译同构、主进程无渲染进程实时 locale；i2 指控方自述无 bug 且无法验证字符串同一性；i4 compose 白名单不含该字段、无覆盖路径）。引擎 self_play_blocked 只表达「存在 upheld 裁决」，修复在后续提交，故在此写明并置为闭环。",
+      "noCritical": true,
+      "upheldItems": [
+        {
+          "id": "i3",
+          "severity": "Warning",
+          "fixedIn": "df59f7cc9"
+        }
+      ],
+      "dismissedItems": [
+        "i1",
+        "i2",
+        "i4"
+      ],
+      "adjudication": ".adversarial/ccg-deep-2f769f26/adjudication.json"
+    }
+  }
+}

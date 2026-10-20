@@ -95,8 +95,18 @@ async function addS2VVoiceClone(name = nextS2VVoiceCloneName()) {
     ]
     state.s2vVoiceCloneSelection = null
     state.s2vVoiceClonePending = null
+    // 克隆成功后自动把「语音 / 音色 ID」下拉切到新音色（s2v-voice-clone-auto-select）。
+    // 必须先记下切换前的选中项：selectS2VVoice 内部会以「进入时的 voiceId」为回滚锚点，
+    // 若在此处先写 voice.id，回滚目标就变成新值本身 ⇒ 偏好持久化失败时「回滚」是空操作，
+    // 下拉会停留在一个从未保存成功的音色上（本行与 selectS2VVoice 的时序契约）。
+    const previousVoiceId = d.getS2vConfig().voiceId
     d.getS2vConfig().voiceId = voice.id
-    await selectS2VVoice(voice.id)
+    const selected = await selectS2VVoice(voice.id, { rollbackVoiceId: previousVoiceId })
+    if (!selected) {
+      // 偏好未落盘：克隆事实已成立（音色在下拉里），但不得谎报「已添加并已设为默认」。
+      // 错误文案由 selectS2VVoice 写入 s2vVoiceCatalogError，这里只保证不弹成功提示。
+      return
+    }
     d.showOptionsToast(d.translate(
       'create.story2video.voice.cloneSuccessToast',
       d.t('create.story2video.voice.cloneSuccessToast', { name: voice.name }),

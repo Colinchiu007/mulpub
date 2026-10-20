@@ -81,6 +81,24 @@ describe('EntitlementService', () => {
     expect(service.getState().limits.max_platforms).toBe(15)
   })
 
+  it('已过期的 graceUntil 在离线读快照时被剔除（N10：客户端自判活，不依赖服务端投影）', async () => {
+    // 夹具时钟 now=150s（1970-01-01T00:02:30Z）。快照里缓存的宽限截止早于它 ⇒ 收尾期已结束。
+    const expired = createFixture({}, { graceUntil: '1970-01-01T00:00:01.000Z', previousPlan: 'pro' })
+    const state = await expired.service.sync({ subject: 'sub-1', accessToken: 'access-1' })
+    expect(state.graceUntil).toBeUndefined()
+    expect(state.previousPlan).toBeUndefined()
+
+    // 不可解析的时间按「无宽限」处理（否则横幅会永久显示）
+    const broken = createFixture({}, { graceUntil: 'not-a-date', previousPlan: 'pro' })
+    const brokenState = await broken.service.sync({ subject: 'sub-1', accessToken: 'access-1' })
+    expect(brokenState.graceUntil).toBeUndefined()
+
+    // 仍在有效期内则原样保留（不得把未来的宽限也砍掉）
+    const live = createFixture({}, { graceUntil: '1970-01-01T00:05:00.000Z', previousPlan: 'pro' })
+    const liveState = await live.service.sync({ subject: 'sub-1', accessToken: 'access-1' })
+    expect(liveState.graceUntil).toBe('1970-01-01T00:05:00.000Z')
+  })
+
   it('limits 缺失或非法形状时不写入（缺失即放行，由客户端按不限处理）', async () => {
     const { service } = createFixture({}, { limits: 'oops' })
     const state = await service.sync({ subject: 'sub-1', accessToken: 'access-1' })
