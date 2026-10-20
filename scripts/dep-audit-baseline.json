@@ -377,6 +377,75 @@
       ],
       "decision": "not-exploitable",
       "note": "**本 ID 与上一轮挂账的 CVE-2026-85394 是同一条公告**（pip-audit 实测 aliases=GHSA-3qf3-8w2g-rqmx,CVE-2026-85394，本机 python-jose 3.5.0、fix_versions 为空），只是 PySEC 记录改用自己的 id 并把 CVE 收进 aliases；故按原证据续判，不重开结论。公告要点：python-jose 未正确校验 HMAC 初始化中的非对称密钥，接受缺 PEM armor / SSH 前缀的 DER 公钥，攻击者持有服务公钥时可伪造通过校验的 HS256 令牌——**成立前提是「算法未被显式限定」**（原文：when algorithms are not explicitly restricted）。本仓三条约束本轮逐条复核仍成立：① middleware/auth.py:37 `algorithms=[settings.jwt_algorithm]`；② services/logto_verifier.py:95 `algorithms=[\"RS256\", \"ES256\"]`；③ config.py:52 `jwt_algorithm: Literal[\"HS256\"] = \"HS256\"`（类型锁死，无法配成非对称算法），另有 tests/test_security_config.py:43 `test_rejects_unsupported_jwt_algorithm` 回归拦截。⇒ 在本仓当前调用形态下不可利用，判 not-exploitable（不写 no-fix-available：那等于谎称上游已放弃）。复核条件：任一 jwt 验签点去掉 algorithms 参数，或 jwt_algorithm 的 Literal 放宽为多算法。上游出修复版后应改判 upgrade-tracked。"
+    },
+    {
+      "source": "npm-opscenter",
+      "id": "GHSA-8R9P-F939-6H3C",
+      "module": "follow-redirects",
+      "severity": "high",
+      "patched": ">=1.16.1",
+      "targetVersion": "1.16.1",
+      "roots": [
+        "follow-redirects"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "2026-10-21 登记：check-dep-audit 报 NEW_ADVISORY（门禁阻断）。declare 有明确修复版本（>=1.16.1）⇒ decision 取 upgrade-tracked；具体升级动作交依赖维护流程，不在本次登记内擅自改 lockfile。"
+    },
+    {
+      "source": "npm-opscenter",
+      "id": "GHSA-Q3JH-WRC6-JGQ8",
+      "module": "follow-redirects",
+      "severity": "high",
+      "patched": ">=1.16.1",
+      "targetVersion": "1.16.1",
+      "roots": [
+        "follow-redirects"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "2026-10-21 登记：check-dep-audit 报 NEW_ADVISORY（门禁阻断）。declare 有明确修复版本（>=1.16.1）⇒ decision 取 upgrade-tracked；具体升级动作交依赖维护流程，不在本次登记内擅自改 lockfile。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-698v-4r3x-3vcv",
+      "module": "vite",
+      "severity": "moderate",
+      "patched": ">=6.4.4",
+      "targetVersion": "6.4.4",
+      "roots": [
+        "apps__desktop"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "2026-10-21 登记：check-dep-audit 报 NEW_ADVISORY（门禁阻断）。declare 有明确修复版本（>=6.4.4）⇒ decision 取 upgrade-tracked；具体升级动作交依赖维护流程，不在本次登记内擅自改 lockfile。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-8r9p-f939-6h3c",
+      "module": "follow-redirects",
+      "severity": "high",
+      "patched": ">=1.16.1",
+      "targetVersion": "1.16.1",
+      "roots": [
+        "apps__desktop",
+        "packages__ai-writer",
+        "packages__api-publish-engine"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "2026-10-21 登记：check-dep-audit 报 NEW_ADVISORY（门禁阻断）。declare 有明确修复版本（>=1.16.1）⇒ decision 取 upgrade-tracked；具体升级动作交依赖维护流程，不在本次登记内擅自改 lockfile。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-q3jh-wrc6-jgq8",
+      "module": "follow-redirects",
+      "severity": "high",
+      "patched": ">=1.16.1",
+      "targetVersion": "1.16.1",
+      "roots": [
+        "apps__desktop",
+        "packages__ai-writer",
+        "packages__api-publish-engine"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "2026-10-21 登记：check-dep-audit 报 NEW_ADVISORY（门禁阻断）。declare 有明确修复版本（>=1.16.1）⇒ decision 取 upgrade-tracked；具体升级动作交依赖维护流程，不在本次登记内擅自改 lockfile。"
     }
   ]
 }
