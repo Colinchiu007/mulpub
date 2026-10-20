@@ -1,0 +1,57 @@
+{
+  "sha": "5294c174182e8cf00046401c861d1120c435e013",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 960 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 960,
+    "fileCount": 22,
+    "codeFileCount": 18,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "- **pattern · 抽取编排逻辑到独立模块，是撞 max-lines 基线的正解而非 `--update`**：核心文件从 578 → 835 行触发 `LEDGER_GREW`（容差 200）。把分段编排搬到 `segment-rewriter.js` 并让核心只留一行委派（`rewriteSegmented(this, params, ctx)`），既回到 735 行合规，也让「单次 vs 分段」两条路径的边界更清楚。**注意抽出时必须传 engine 实例复用内部方法，不能复制**——复制 prompt 构建/后处理会形成第二份实现（本仓反复踩过的双实现漂移）。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "3d6520c26caf972354daaca4bbd5654809c60c706602c05e32eb7324c7d03461",
+  "decidedAt": "2026-10-20T04:32:48.588Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

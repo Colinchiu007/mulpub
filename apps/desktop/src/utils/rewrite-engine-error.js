@@ -24,17 +24,39 @@ const ENGINE_ERROR_CODE_MAP = Object.freeze({
 /**
  * 把 `{ code:0, data:{ success:false, error, errorCode } }` 归一化为
  * formatUserError 可消费的 `{ code, errorCode, message, params }`。
+ *
+ * 分段改写（rewrite-segment-and-finish-reason 第二刀）：任一段失败时引擎返回底层稳定码
+ * （LLM_ERROR 等）+ 结构化 `segmentIndex` / `segmentCount`（段号**不**编进 errorCode）。
+ * 这里把段号抬进 params 并映射为分段专用文案码——否则用户只看到通用的
+ * 「AI 改写失败」，不知道是第几段、也不知道重试要从头再计费（第四轴 M4 响应）。
+ *
  * @param {object} res - aiRewrite 的完整 IPC 信封
  * @returns {{ code: number, errorCode: string, message: string, params: object }}
  */
 export function normalizeRewriteEngineError (res) {
   const data = (res && res.data && typeof res.data === 'object') ? res.data : {}
   const rawCode = typeof data.errorCode === 'string' ? data.errorCode : ''
+  const hasSegment = typeof data.segmentIndex === 'number' && typeof data.segmentCount === 'number'
+
+  // 分段失败优先用专用文案码（比底层 LLM_ERROR 的通用文案更能解释「为什么前面几段白跑了」）
+  const errorCode = hasSegment
+    ? 'REWRITE_SEGMENT_FAILED'
+    : (ENGINE_ERROR_CODE_MAP[rawCode] || rawCode)
+
+  const params = {}
+  if (rawCode === 'TOO_LONG') {
+    // TOO_LONG 的 locale 文案含 {max} 占位符；缺参数时 formatUserError 会原样留下 {max}
+    params.max = REWRITE_ENGINE_MAX_INPUT_CHARS
+  }
+  if (hasSegment) {
+    params.index = data.segmentIndex + 1 // 1-based 展示
+    params.total = data.segmentCount
+  }
+
   return {
     code: res && res.code != null ? res.code : -99,
-    errorCode: ENGINE_ERROR_CODE_MAP[rawCode] || rawCode,
+    errorCode,
     message: typeof data.error === 'string' ? data.error : '',
-    // TOO_LONG 的 locale 文案含 {max} 占位符；缺参数时 formatUserError 会原样留下 {max}
-    params: rawCode === 'TOO_LONG' ? { max: REWRITE_ENGINE_MAX_INPUT_CHARS } : {},
+    params,
   }
 }

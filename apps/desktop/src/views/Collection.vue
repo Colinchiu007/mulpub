@@ -482,7 +482,7 @@ import { resolveNotifyText } from '@/utils/notifyCore'
 import { storeGetSetting, storeSetSetting, draftList, aiRewrite, aiListRewriteStrategies, aiGetRecommendedStrategies } from '@/api/publisher'
 import { extractRewriteHistoryId, attachRewriteLineage } from '@/utils/rewrite-lineage'
 import { formatUserError } from '@/utils/user-facing-error'
-import { REWRITE_ENGINE_MAX_INPUT_CHARS, prepareRewriteInput } from '@/utils/rewrite-engine-limits'
+import { REWRITE_ENGINE_MAX_INPUT_CHARS, prepareRewriteInput, shouldSegmentRewrite } from '@/utils/rewrite-engine-limits'
 import { normalizeRewriteEngineError } from '@/utils/rewrite-engine-error'
 import { classifyCollectError } from '@/utils/collect-error'
 // 采集内容守卫：识别「百度安全验证」等反爬验证页文字（判据与主进程同源，见模块注释）
@@ -692,14 +692,15 @@ async function rewriteViaEngine (content) {
       },
     }
   }
-  // 超长自动截取（fix-collect-rewrite-too-long，2026-10-19）：采集到的长文（知乎回答等）
-  // 会超过引擎入口的 6000 码点硬上限，旧行为是被引擎拒收（TOO_LONG）后只弹兜底
-  // 「AI 改写失败」；采集页没有「先精简再改写」的交互位（结果区原文 readonly），
-  // 因此这里截取前 N 码点继续改写，并明确告知用户截断事实。
+  // 长文处理（rewrite-segment-and-finish-reason 第二刀）：不再预截断，改为事前提示。
+  // 历史：曾把 >上限正文截到 50000（fix-collect-rewrite-too-long）——分段改写落地后，
+  // 预截断会让超长正文永远到不了引擎分段路径（评审 M1：死代码），故改为透传全文 +
+  // 事前告知「将分 N 段改写，耗时与费用相应增加」。N 由引擎侧切分决定，这里只报阈值。
   const prepared = prepareRewriteInput(content)
-  if (prepared.truncated) {
-    notifyWarning('collection.rewriteTruncated', {
-      params: { original: prepared.originalLength, max: REWRITE_ENGINE_MAX_INPUT_CHARS },
+  const willSegment = shouldSegmentRewrite(prepared.text)
+  if (willSegment) {
+    notifyInfo('collection.rewriteSegmented', {
+      params: { length: prepared.originalLength, max: REWRITE_ENGINE_MAX_INPUT_CHARS },
     })
   }
   let res
@@ -733,7 +734,19 @@ async function rewriteViaEngine (content) {
     // 归因链：这里是本页唯一能拿到信封的地方，所以「当前改写结果的 rewrite_history 行 id」
     // 只在此处写一次（由 saveDraftAfterRewrite 读一次）——三个调用点各写一遍必然漂移。
     collectRewriteLineageId = extractRewriteHistoryId(res)
-    return { result_content: res.data.result, knowledgeRefs: res.data.knowledgeRefs || [] }
+    // 截断/分段元数据透传（rewrite-segment-and-finish-reason 第二刀，评审 M5）：
+    // 成功分支历史上只挑 result_content/knowledgeRefs，引擎新增的 visible 字段会被静默丢弃。
+    // 这里统一收进 meta，供调用方决定是否提示（引擎截断 / 模型截断 / 分段改写）。
+    return {
+      result_content: res.data.result,
+      knowledgeRefs: res.data.knowledgeRefs || [],
+      meta: {
+        outputTruncated: res.data.outputTruncated === true,
+        outputLength: res.data.outputLength,
+        modelTruncated: res.data.modelTruncated === true,
+        segmented: res.data.segmented || null,
+      },
+    }
   }
   // 引擎业务错误（`{code:0, data:{success:false, error, errorCode}}`）必须归一化到顶层：
   // formatUserError 只读顶层 errorCode/message，直接透传整个信封会让具体原因丢失，

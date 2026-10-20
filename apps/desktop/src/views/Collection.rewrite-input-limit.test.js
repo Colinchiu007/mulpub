@@ -51,6 +51,11 @@ function warningTexts () {
   return ElMessage.warning.mock.calls.map((call) => String(call[0])).join('\n')
 }
 
+/** info 通道（分段改写提示走 info，不是 warning——它不是告警而是预期行为） */
+function infoTexts () {
+  return ElMessage.info.mock.calls.map((call) => String(call[0])).join('\n')
+}
+
 describe('采集页一键改写 — 超长正文自动截取（fix-collect-rewrite-too-long）', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -93,7 +98,9 @@ describe('采集页一键改写 — 超长正文自动截取（fix-collect-rewri
     expect(ElMessage.warning).not.toHaveBeenCalled()
   })
 
-  it('50001 字正文（超新上限）→ 截到 50000 码点并明确提示截断；原文不被改写', async () => {
+  it('50001 字正文（超阈值）→ 透传全文给引擎（不预截断）并事前提示将分段改写', async () => {
+    // rewrite-segment-and-finish-reason 第二刀：预截断会让超长正文永远到不了引擎的
+    // 分段路径（评审 M1），故改为透传全文 + info 提示「将分段改写」。
     const original = '字'.repeat(50001)
     window.electronAPI = mockStealthApi(original, {
       code: 0,
@@ -106,16 +113,18 @@ describe('采集页一键改写 — 超长正文自动截取（fix-collect-rewri
 
     const calls = window.electronAPI.aiRewrite.mock.calls
     expect(calls.length).toBe(1)
-    expect([...calls[0][0].content].length).toBe(REWRITE_ENGINE_MAX_INPUT_CHARS)
-    expect(calls[0][0].content).toBe('字'.repeat(50000))
+    // 全文透传：一个码点都不少（这是分段路径可达的前提）
+    expect([...calls[0][0].content].length).toBe(50001)
+    expect(calls[0][0].content).toBe(original)
     expect(w.vm.rewriteResult).toBe('改写后的内容。')
-    // 采集到的原文必须保持完整：截断只作用于改写入参，不得改写用户内容
     expect(w.vm.collectedResult.content).toBe(original)
-    // 用户必须被告知「截断」而不是静默丢尾部
-    const warned = warningTexts()
-    expect(warned).toContain('50001')
-    expect(warned).toContain('50000')
-    expect(warned).toContain('截取')
+    // 用户必须被事前告知「将分段改写」（含真实字数与阈值）
+    const info = infoTexts()
+    expect(info).toContain('50001')
+    expect(info).toContain(String(REWRITE_ENGINE_MAX_INPUT_CHARS))
+    expect(info).toContain('分段改写')
+    // 不得再出现旧的「已截取前 N 字」承诺（两者对同一输入互相矛盾）
+    expect(warningTexts()).not.toContain('截取')
   })
 
   it('引擎业务错误信封（TOO_LONG）→ 透出具体上限文案，不再回落「AI 改写失败」', async () => {
@@ -154,5 +163,64 @@ describe('采集页一键改写 — 超长正文自动截取（fix-collect-rewri
     await nextTick()
     const r = await w.vm.rewriteViaEngine('字'.repeat(100))
     expect(r.__error).toEqual({ code: -2, message: '改写服务不可用' })
+  })
+
+  // ── rewrite-segment-and-finish-reason 第二刀：meta 透传 + 分段失败文案 ──
+
+  it('成功分支透传 meta 四字段（outputTruncated/outputLength/modelTruncated/segmented）', async () => {
+    // 评审 M5：成功分支历史上只挑 result_content/knowledgeRefs，引擎新增的可见字段被静默丢弃
+    window.electronAPI = mockStealthApi('', {
+      code: 0,
+      data: {
+        success: true,
+        result: '改写后的内容。',
+        outputTruncated: true,
+        outputLength: 1234,
+        modelTruncated: true,
+        segmented: { enabled: true, segmentCount: 5, totalChars: 60000 },
+      },
+    })
+    const w = mountCollection()
+    await nextTick()
+    const r = await w.vm.rewriteViaEngine('字'.repeat(100))
+    expect(r.result_content).toBe('改写后的内容。')
+    expect(r.meta).toEqual({
+      outputTruncated: true,
+      outputLength: 1234,
+      modelTruncated: true,
+      segmented: { enabled: true, segmentCount: 5, totalChars: 60000 },
+    })
+  })
+
+  it('成功但无可见字段 ⇒ meta 全部缺省化（不臆造 true，不炸旧信封）', async () => {
+    window.electronAPI = mockStealthApi('', { code: 0, data: { success: true, result: '短结果。' } })
+    const w = mountCollection()
+    await nextTick()
+    const r = await w.vm.rewriteViaEngine('字'.repeat(100))
+    expect(r.meta).toEqual({
+      outputTruncated: false,
+      outputLength: undefined,
+      modelTruncated: false,
+      segmented: null,
+    })
+  })
+
+  it('分段失败 ⇒ 映射 REWRITE_SEGMENT_FAILED 并带 1-based 段号（不编进 errorCode）', async () => {
+    // 引擎返回底层稳定码 + 结构化段号；渲染层把段号抬进 params 并换成专用文案码
+    window.electronAPI = mockStealthApi('', {
+      code: 0,
+      data: {
+        success: false,
+        errorCode: 'LLM_ERROR',
+        error: '第 2/3 段改写失败，前面段的进度未保留',
+        segmentIndex: 1,
+        segmentCount: 3,
+      },
+    })
+    const w = mountCollection()
+    await nextTick()
+    const r = await w.vm.rewriteViaEngine('字'.repeat(100))
+    expect(r.__error.errorCode).toBe('REWRITE_SEGMENT_FAILED')
+    expect(r.__error.params).toEqual({ index: 2, total: 3 })
   })
 })

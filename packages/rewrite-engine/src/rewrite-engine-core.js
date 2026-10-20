@@ -13,6 +13,7 @@ const { KnowledgeContextBuilder } = require('./knowledge-context-builder')
 // 极简 logger（与 api-publish-engine/logger 同接口；logging-coverage-audit）
 const logger = require('./logger-fallback')
 const { normalizeChatResult, isTruncatedFinishReason } = require('./llm-result')
+const { rewriteSegmented } = require('./segment-rewriter')
 
 // 无显式字数控制时的默认输出上限（3000 字以下）。
 // 注意：这只是「用户没给任何字数意图」时的保守兜底；用户显式 wordCountRange.max
@@ -143,7 +144,9 @@ class RewriteEngine {
     // 将合并后的 knowledgeOptions 写回 userSettings 便于后续方法消费
     userSettings.knowledgeOptions = effectiveKnowledgeOptions
 
-    // 1. 输入校验
+    // 1. 输入校验（rewrite-segment-and-finish-reason 第二刀：长度分支后移到分流判定——
+    //    _validate 只保留空内容校验，超长输入由下面的分段阈值判定接管，
+    //    否则 >50000 会在分段路径触发前被 TOO_LONG 硬拒）
     const validation = this._validate(content)
     if (!validation.valid) {
       return { success: false, error: validation.error, errorCode: validation.errorCode }
@@ -164,6 +167,13 @@ class RewriteEngine {
     const strategy = this._resolveStrategy(strategyId, userSettings, content)
     if (!strategy) {
       return { success: false, error: '未找到合适的改写策略', errorCode: 'NO_STRATEGY' }
+    }
+
+    // 3.5 长文分流（rewrite-segment-and-finish-reason 第二刀）：输入码点超过
+    // MAX_INPUT_CHARS（分段阈值）⇒ 走分段改写路径；否则走单次路径。
+    // 分段编排在 segment-rewriter.js（独立模块，避免核心文件撞 max-lines 基线）
+    if ([...content].length > MAX_INPUT_CHARS) {
+      return await rewriteSegmented(this, params, { strategy, preCheck })
     }
 
     // 4. 单次改写主体（rewrite-segment-and-finish-reason 抽取：分段路径复用同一函数；
@@ -218,6 +228,14 @@ class RewriteEngine {
     // 4. 构建 Prompt（内部含三层知识库上下文，P0 后为 async——LLM 关键词兜底）
     const { systemPrompt, userPrompt } = await this._buildPrompt(strategy, content, mode, userSettings, null, titleHint, viralAngles, viralKeywords, engagement)
 
+    // 4.5 长文分片上下文（rewrite-segment-and-finish-reason 第二刀）：分段路径下每段
+    // prompt 必须明确「这是第 i/n 片、只改本片、不总结不续写」，否则模型会把分片当全文
+    // 重新起承转合（段间结构性漂移）。单次路径 segmentContext=null 时零注入。
+    const effectiveSystemPrompt = segmentContext
+      ? `${systemPrompt}\n\n【长文分片改写】本次输入是长文第 ${segmentContext.index + 1}/${segmentContext.count} 片。` +
+        '仅改写本片段内容；不要总结全文、不要续写其他片段、不要添加原文没有的过渡段；保留本片段的段落边界。'
+      : systemPrompt
+
     // 5. LLM 推理
     if (!this._llmClient) {
       return { success: false, error: 'LLM 客户端未配置', errorCode: 'NO_LLM_CLIENT' }
@@ -225,7 +243,7 @@ class RewriteEngine {
 
     let chatRaw
     try {
-      chatRaw = await this._llmClient.chat(systemPrompt, userPrompt)
+      chatRaw = await this._llmClient.chat(effectiveSystemPrompt, userPrompt)
     } catch (e) {
       this._logger.error('rewrite-engine', 'LLM call failed', { strategyId: strategy && strategy.id, mode, error: e.message })
       return { success: false, error: `LLM 调用失败: ${e.message}`, errorCode: 'LLM_ERROR' }
@@ -285,6 +303,7 @@ class RewriteEngine {
     }
   }
 
+
   /**
    * 爆款潜力评分（rewrite() 全篇级副作用；从原 rewrite() 内联块原样搬出）。
    * @param {string} content - 原文
@@ -341,6 +360,8 @@ class RewriteEngine {
       outputLength: once.outputLength,
       // 模型侧截断可见化（rewrite-segment-and-finish-reason）
       modelTruncated: once.modelTruncated,
+      // 分段改写元数据（rewrite-segment-and-finish-reason 第二刀；仅分段路径有）
+      ...(once.segmented ? { segmented: once.segmented } : {}),
       // 爆款潜力对比（viral-rewrite-integration）：仅 viralScorer 注入且评分有效时存在
       viral,
       // P2 反馈闭环：本次改写引用的知识条目（供前端采纳/拒绝时驱动 feedbackBoost）
@@ -395,10 +416,9 @@ class RewriteEngine {
     if (!content || !content.trim()) {
       return { valid: false, error: '内容不能为空', errorCode: 'EMPTY_CONTENT' }
     }
-    const len = [...content].length // Unicode code point 计数
-    if (len > MAX_INPUT_CHARS) {
-      return { valid: false, error: `内容过长，最多 ${MAX_INPUT_CHARS} 字`, errorCode: 'TOO_LONG' }
-    }
+    // 长度硬拒已移交 rewrite() 的长文分流（rewrite-segment-and-finish-reason 第二刀）：
+    // >MAX_INPUT_CHARS 走分段改写，不再返回 TOO_LONG。这里只保留空内容校验。
+    // （保留 MAX_INPUT_CHARS 导入是因为分流点在同文件使用它作阈值。）
     return { valid: true }
   }
 
