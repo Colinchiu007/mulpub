@@ -1282,3 +1282,54 @@ await window.electronAPI.probeXiaohongshuDraftChain(accountId, {
 
 > 判据纪律：合并/改热写面后必须 `git show origin/main:<文件>` **回读主干实际内容**，
 > 不能只看本分支判据绿（本仓已两次栽在这：CI 红 + 基线被并发覆盖）。
+### 16.10 小红书 E2E 再推进：签名已通过，止于服务端 406（2026-10-21 第二轮）
+
+> 本轮**推翻了 §16.8 时的两个推测**，是真机实测的修正，务必以本节为准。
+
+#### 16.10.1 修正一：`_webmsxyw` 与登录态无关
+
+§16.8 曾推测 `no-webms-fn` 是「页面未处于登录态」。实测否证：
+在 `https://creator.xiaohongshu.com/login`（**登录页**）上检测，
+`window._webmsxyw` 的 typeof 即为 `function` —— **登录页也提供该函数**。
+
+⇒ `no-webms-fn` 的真正含义是**签名页（隐藏页实例）当时未加载完成/已关闭**，
+而不是"没登录"。签名页用的是 `signer-page-manager` 自己开的隐藏页，
+与可见的那个小红书页面**不是同一个实例**。
+
+#### 16.10.2 修正二：凭据在 `rpa-` 分区，`account-` 分区是空的
+
+同一账号 `a1eac276` 的两个分区，实测结果**完全相反**：
+
+| 分区 | 访问 `creator.xiaohongshu.com/publish/publish` |
+| --- | --- |
+| `account-a1eac276` | ❌ 跳登录页（`?redirectReason=401`） |
+| **`rpa-xiaohongshu-a1eac276`** | ✅ **进入发布页**（账号「里奥的时尚胶囊」，草稿箱(0)）|
+
+⇒ 凭据只存在于 `rpa-` 分区。排查签名/请求问题时**要确认取的是哪个分区**。
+
+#### 16.10.3 本轮 E2E 结果：签名通过，服务端拒绝
+
+重跑 `probeXiaohongshuDraftChain`（`images` + `article.title/content`）：
+
+```json
+{"code":-1,"errorCode":"ERR_BAD_REQUEST","httpStatus":406,
+ "failedEndpoint":"https://edith.xiaohongshu.com/web_api/sns/v2/note",
+ "hasAuthorization":true}
+```
+
+**进展**：不再是 `no-webms-fn` —— 签名函数取到、请求**已带签名发出**，被服务端拒。
+
+对照实验（同分区、进发布页后**裸** fetch 该端点）：
+```
+HTTP 401 {"code":-100,"msg":"无登录信息"}
+```
+⇒ **406（带签名）与 401（不带签名）是两种不同的失败**：
+不带签名 = 直接无登录信息；带签名 = 过了身份校验但请求本身被拒（406 Not Acceptable）。
+
+#### 16.10.4 现状与下一步（不臆造）
+
+- 已确认可用：账号有效、`_webmsxyw` 存在、签名可产出、请求可达端点。
+- **未解决**：服务端对 `sns/v2/note` 返回 406。
+- 要继续需改请求构造（端点/字段/头），**须有依据**：
+  建议抓一次真实创作者页发布时的请求做对照，再决定改什么。
+  在没有对照证据前改参数是**猜测**，本轮不做。
