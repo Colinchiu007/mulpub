@@ -45,7 +45,7 @@ describe('useNotify — 通知展示', () => {
   it('notify 命中 key → ElMessage 展示 + 日志上报', async () => {
     const text = n.notify('story2video.quota_exceeded', { module: 'm', level: 'error' })
     expect(text.length).toBeGreaterThan(0)
-    expect(ElMessage.error).toHaveBeenCalledWith(text)
+    expect(ElMessage.error).toHaveBeenCalledWith(expect.objectContaining({ message: text, grouping: true }))
     await Promise.resolve()
     expect(invoke).toHaveBeenCalledWith('notifyLog', expect.objectContaining({ messageKey: 'story2video.quota_exceeded' }))
   })
@@ -62,7 +62,7 @@ describe('useNotify — 通知展示', () => {
   it('未命中 key + error 级 + fallback → ElMessage.error(fallback)', async () => {
     const text = n.notifyError('nonexistent.key', { fallback: '自定义错误' })
     expect(text).toBe('自定义错误')
-    expect(ElMessage.error).toHaveBeenCalledWith('自定义错误')
+    expect(ElMessage.error).toHaveBeenCalledWith(expect.objectContaining({ message: '自定义错误' }))
     await Promise.resolve()
     expect(invoke).toHaveBeenCalled()
   })
@@ -76,7 +76,7 @@ describe('useNotify — 通知展示', () => {
   it('options.message 直接传文案（绕过 messageKey 解析）', () => {
     const text = n.notifyWarning('nonexistent.key', { message: '动态拼接的警告文案' })
     expect(text).toBe('动态拼接的警告文案')
-    expect(ElMessage.warning).toHaveBeenCalledWith('动态拼接的警告文案')
+    expect(ElMessage.warning).toHaveBeenCalledWith(expect.objectContaining({ message: '动态拼接的警告文案' }))
   })
 
   it('options.message 为 i18n 原始 key 时拦截，不直出（防泄漏）', () => {

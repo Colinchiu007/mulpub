@@ -177,7 +177,7 @@ selectedPlatforms = { value: ['toutiao'] }
   it('handlePublish 缺标题时警告', async () => {
     const r = createFlow()
     await r.handlePublish()
-    expect(mockElMessage.warning).toHaveBeenCalledWith('请输入标题')
+    expect(mockElMessage.warning).toHaveBeenCalledWith(expect.objectContaining({ message: '请输入标题' }))
   })
 
   it('标题提示跟随当前界面语言', async () => {
@@ -186,14 +186,14 @@ selectedPlatforms = { value: ['toutiao'] }
 
     await r.handlePublish()
 
-    expect(mockElMessage.warning).toHaveBeenCalledWith('Enter a title')
+    expect(mockElMessage.warning).toHaveBeenCalledWith(expect.objectContaining({ message: 'Enter a title' }))
   })
 
   it('handlePublish 缺正文时警告', async () => {
     const r = createFlow()
     article.title = '有标题'
     await r.handlePublish()
-    expect(mockElMessage.warning).toHaveBeenCalledWith('请输入正文内容')
+    expect(mockElMessage.warning).toHaveBeenCalledWith(expect.objectContaining({ message: '请输入正文内容' }))
   })
 
   it('账号已从当前列表移除时在 IPC 前阻止发布', async () => {
@@ -211,7 +211,7 @@ selectedPlatforms = { value: ['toutiao'] }
 
     await r.handlePublish()
 
-    expect(mockElMessage.warning).toHaveBeenCalledWith('所选账号已失效，请重新选择发布账号')
+    expect(mockElMessage.warning).toHaveBeenCalledWith(expect.objectContaining({ message: '所选账号已失效，请重新选择发布账号' }))
     expect(mockSensitiveCheck).not.toHaveBeenCalled()
     expect(mockPublishBatch).not.toHaveBeenCalled()
   })
@@ -265,7 +265,7 @@ selectedPlatforms = { value: ['toutiao'] }
     await expect(r.handlePublish()).resolves.toBeUndefined()
 
     // 统一通知通道：失败 toast 经 useNotify.notifyError 展示（替代 showNotification 死通道）
-    expect(mockElMessage.error).toHaveBeenCalledWith('API 错误')
+    expect(mockElMessage.error).toHaveBeenCalledWith(expect.objectContaining({ message: 'API 错误' }))
     expect(r.result.value).toEqual({ success: false, message: 'API 错误' })
   })
 
@@ -290,7 +290,7 @@ selectedPlatforms = { value: ['toutiao'] }
     await r.handlePublish()
     await nextTick()
     expect(mockOfflineAddToCache).toHaveBeenCalled()
-    expect(mockElMessage.warning).toHaveBeenCalledWith('网络已断开，任务已缓存')
+    expect(mockElMessage.warning).toHaveBeenCalledWith(expect.objectContaining({ message: '网络已断开，任务已缓存' }))
     expect(r.publishing.value).toBe(false)
   })
 
@@ -445,7 +445,7 @@ selectedPlatforms = { value: ['toutiao'] }
     article.title = 'Test'
     article.content = 'Content'
     await r.handlePublish()
-    expect(mockElMessage.warning).toHaveBeenCalledWith('请为微信公众号选择至少一个账号')
+    expect(mockElMessage.warning).toHaveBeenCalledWith(expect.objectContaining({ message: '请为微信公众号选择至少一个账号' }))
     expect(mockPublishBatch).not.toHaveBeenCalled()
   })
 
@@ -607,7 +607,7 @@ selectedPlatforms = { value: ['toutiao'] }
 
     await expect(r.cancelPublish()).resolves.toEqual({ success: false, cancelled: 0, pending: 0 })
 
-    expect(mockElMessage.info).toHaveBeenCalledWith('当前没有可取消的任务')
+    expect(mockElMessage.info).toHaveBeenCalledWith(expect.objectContaining({ message: '当前没有可取消的任务' }))
     expect(mockCancelTask).not.toHaveBeenCalled()
     expect(mockSchedulerCancel).not.toHaveBeenCalled()
   })
@@ -676,7 +676,7 @@ selectedPlatforms = { value: ['toutiao'] }
 
     expect(mockPublishBatch).toHaveBeenCalledTimes(1)
     expect(mockElMessage.info).toHaveBeenCalledTimes(2)
-    expect(mockElMessage.info).toHaveBeenLastCalledWith('当前没有失败的发布任务')
+    expect(mockElMessage.info).toHaveBeenLastCalledWith(expect.objectContaining({ message: '当前没有失败的发布任务' }))
   })
 
   // ─── addProgress ──────────────────────────
@@ -768,7 +768,7 @@ selectedPlatforms = { value: ['toutiao'] }
 
     await r.handlePublish()
 
-    expect(mockElMessage.warning).toHaveBeenCalledWith('请输入标题')
+    expect(mockElMessage.warning).toHaveBeenCalledWith(expect.objectContaining({ message: '请输入标题' }))
     expect(mockSensitiveCheck).not.toHaveBeenCalled()
     expect(mockOfflineStatus).not.toHaveBeenCalled()
     expect(mockPublishBatch).not.toHaveBeenCalled()
@@ -781,7 +781,7 @@ selectedPlatforms = { value: ['toutiao'] }
 
     await r.handlePublish()
 
-    expect(mockElMessage.warning).toHaveBeenCalledWith('请输入正文内容')
+    expect(mockElMessage.warning).toHaveBeenCalledWith(expect.objectContaining({ message: '请输入正文内容' }))
     expect(mockSensitiveCheck).not.toHaveBeenCalled()
     expect(mockOfflineStatus).not.toHaveBeenCalled()
     expect(mockPublishBatch).not.toHaveBeenCalled()
@@ -795,7 +795,7 @@ selectedPlatforms = { value: ['toutiao'] }
 
     await r.handlePublish()
 
-    expect(mockElMessage.warning).toHaveBeenCalledWith('请选择至少一个发布平台')
+    expect(mockElMessage.warning).toHaveBeenCalledWith(expect.objectContaining({ message: '请选择至少一个发布平台' }))
     expect(mockSensitiveCheck).not.toHaveBeenCalled()
     expect(mockOfflineStatus).not.toHaveBeenCalled()
     expect(mockPublishBatch).not.toHaveBeenCalled()
@@ -1029,7 +1029,7 @@ selectedPlatforms = { value: ['toutiao'] }
 
     await r.handlePublish()
 
-    expect(mockElMessage.warning).toHaveBeenCalledWith('小红书标题最多 20 个字符，当前 21 个')
+    expect(mockElMessage.warning).toHaveBeenCalledWith(expect.objectContaining({ message: '小红书标题最多 20 个字符，当前 21 个' }))
     expect(mockSensitiveCheck).not.toHaveBeenCalled()
     expect(mockPublishBatch).not.toHaveBeenCalled()
   })

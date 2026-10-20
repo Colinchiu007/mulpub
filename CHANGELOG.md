@@ -1,3 +1,12 @@
+# [未发布] fix(前端): toast 通道的 duration/grouping/level 从"传了没人消费"变成有合同 —— 含"日志说报了、屏幕上什么都没有"那一格（ux-audit-notify-spec）
+
+- **调用方一直在传的 `duration` 是空气**：`useNotify.js` 过去把实参装配成 `ElMessage.success(text)`，`options.duration` 从未抵达 element-plus ⇒ 写 `{duration: 8000}` 与不写完全同形，用户看到的永远是默认 3s。现在 `duration` 必须到达：默认 3000、非法值（NaN / ≤0 / 非数字串）回落默认并 `console.warn`、超 `8000` 上限夹住并出声、`MP_NOTIFY_MAX_DURATION_MS` **按调用时读取**（读死在模块加载 = "可覆盖"是假的，变异 N6 专打这一格）。
+- **主形态是"未知 level 静默 no-op 却照样上报"**：旧的 `const show = {...}[level]; if (show) show()` 对不在表里的 level **什么都不做**，但紧接着仍 `reportNotify(...)` 并把文案原样 return ⇒ 主进程日志记着"已通知用户"，屏幕上一条 toast 都没有，调用点也以为成功了。现在未知 level 按 `info` 展示并 `console.warn` 点名该值：宁可类型不对也不让它隐形。要新增等级就显式加进 `LEVEL_BY_ALIAS` 并补映射断言，让"新增未登记"变红。
+- **`grouping: true` 恒开**：同一句文案连发不再叠成一片（过去每次调用一条，事故现场刷屏时用户读不到任何一条）。**非 error 级 key 未命中**从"静默返回空串"改为**按 key 去重**出声一次 —— 拼错 messageKey 的调用点过去在运行日志里零痕迹，只能靠用户报"这里怎么没提示"。去重集合按 key 规模增长、不按调用次数，所以刷屏不会让它无界。
+- **⚠ 改调用形态就是改契约（本批最贵的一课）**：把实参从裸字符串换成 `{message, duration, grouping}` 后，只跑自己改过的两个文件得到的是"34 绿"，而按**消费者并集**（对 useNotify 做 git grep -l 取 *.test.js）= 21 个文件）跑才暴露 `usePublishFlow.test.js` 有 **13 处**断言锁着旧形态。其中一条更阴：我的批量改写脚本正则只认 `toHaveBeenCalledWith`，漏了 `toHaveBeenLastCalledWith` ⇒ 那条红在 679 行，**但表现为 685 行"addProgress 追加进度条目"看到脏状态**（同一个测试文件里的模块级单例被前置用例污染）。归因两次都可能错，所以我用两步控制对照钉死：先只还原测试文件（13 红=形态断言）、再把实现也还原（**81 全绿**）⇒ 结论是实现改动经形态断言级联，不是既有失败。扩展匹配器清单后 21 文件 **550 passed**。
+- **读数（当场实测）**：新增 `useNotify.toast-spec.test.js` **8 passed**；既有 `useNotify.test.js` + `notifyCore.test.js` 全绿；消费者并集 21 文件 **550 passed / 0 failed**；变异电池 **7 道逐条 CAUGHT**（N1 关 grouping / N2 摘夹取 / N3 非法值静默采纳 / N4 未知 level 退回 no-op / N5 摘留痕 / N6 env 读死在模块加载 / N7 摘去重），控制趟 `GREEN(20)`，收尾 `RESTORED_byte_exact=true`；eslint 零告警。
+- **刻意没做（边界如实划）**：审计 2.7 的另一半「`ElMessage` 直用 85 处按文件收编 + 基线棘轮」未做 —— 新清单按 AGENTS「新门禁上线三步序」需**人工批准**才能与接线同批落地；本批只把**通道本身**变成单一出口（`showMessage()` 是唯一装配点，禁止第二份）。toast 容器的 `aria-live` 礼貌级分档属审计 4.6，与本条正交。
+
 # [未发布] test(gates): 账本合法清空不再被钉成禁态，并给 hasBlocking⇒退出码补一道接线锁（qm6-critic-dispositions）
 
 - **动因是补跑成功的 QM-6 critic 轴**：`claude` 过额度日重置后两字探针活了（rc=0 / 17.6s / 265 B），于是把 #3949 那笔合并的差量（45,521 字节，直接附进提示词、不让评审者自己 `git diff`）真派了一次外部评审，交回 2 条 findings。派发前那一步救了一次命：**上一轮我判"该轴零交付"用的解析器只认「行首的 `[`」，而它的数组落在偏移 56,481 处** —— 63,796 字节真交付差一点被读成"没话说"。

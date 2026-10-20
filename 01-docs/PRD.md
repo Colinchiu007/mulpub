@@ -20391,3 +20391,43 @@ LLM 空输出/报告缺失时，审计 job 会往 job 汇总写 `AUTONOMOUS_VERD
 - 令牌：`apps/desktop/src/styles/token-scales.test.js`（6 条）+ 真引擎逐槽变量链对账。
 - 共同要求：上述每条锁都要做**写回被禁形态**的变异反证（不是"摘掉判据"），且红必须红在指名的那条用例上。
 
+## Toast 通道参数合同（2026-10-20，UX 审计阶段 2.7 首批）
+
+`useNotify.js` 是全应用唯一的 toast 出口。本条合同管的是"调用方传了、但通道过去没消费"的那几格。
+
+### 一、显示项与参数语义
+
+| 参数 | 过去 | 现在 |
+| --- | --- | --- |
+| `duration` | **整条链路无人消费**：调用方写 `{duration: 8000}` 与不写完全同形，用户看到的永远是 element-plus 默认 3s | 必须到达 `ElMessage`。默认 `3000`；非法值（NaN / ≤0 / 非数字串）回落默认并 `console.warn`；超过上限夹到上限并 `console.warn` |
+| 上限 | 不存在 | `8000ms`，可由 `MP_NOTIFY_MAX_DURATION_MS` 覆盖（**按调用时读取**，不是模块加载时读死）；覆盖值非法 ⇒ 回落默认上限 + 出声，禁止静默变成 NaN/0 |
+| `grouping` | 从不传 ⇒ 同一句连发会叠成一片 | 一律 `true`：同一句重复出现时合并并重置计时，不再靠"刷屏"证明事件发生了 |
+| `level` | `success/info/warning/warn/error` 之外的值走 `if (show) show()` **静默 no-op**，却照样 `reportNotify` 并返回文案 | 未知值 ⇒ 按 `info` 展示 + `console.warn` 点名该值。宁可类型不对也不让它隐形；"日志说报了、屏幕上什么都没有"是本条要消灭的原始形态 |
+| 未命中 key（非 error 级） | `return ''`，**运行日志零痕迹** ⇒ 调用点拼错 key 只能靠用户报"这里怎么没提示" | 仍不展示（避免空白 toast），但按 key 去重出声一次：`[useNotify] messageKey 未命中：<key>（level=…）` |
+
+### 二、数据校验
+
+- `duration` 走 `Number()` 而非 `typeof === 'number'`：`'8000'` 这类字符串在 IPC/运营中心下发里真实存在，拒绝它会把"能用的值"判成非法。
+- 上限的合法性判据是 `Number.isFinite(parsed) && parsed >= DEFAULT_DURATION_MS`；把上限配成比默认还小的值属于配置错误（会让每条 toast 都被夹），一律回落而非采纳。
+- 未命中留痕的去重集合是**模块级 `Set`，按 key 去重、只增不清**。它的规模上界是"仓内 messageKey 条数量级"，不是"调用次数"，所以刷屏场景不会让它无界增长。
+
+### 三、交互逻辑（禁止项）
+
+- ⛔ 禁止在 `useNotify` 之外再写第二处 `ElMessage` 参数装配。审计登记的「`ElMessage` 直用 85 处」是**存量账**，收编它们要配只可缩小的棘轮，而新棘轮按 AGENTS「新门禁上线三步序」需人工批准 —— 本批不做，见下节边界。
+- ⛔ 禁止把未知 `level` 重新改回静默：要新增等级就把它显式加进 `LEVEL_BY_ALIAS` 并补一条映射断言，让"新增未登记"变红，而不是让调用方以为传成功了。
+- ⛔ 禁止用 `duration: 0` 表达"常驻不消失"。常驻属产品语义（当前通道不支持），传 0 会被判非法并回落 3s —— 这是有意的：静默接受一个语义未定义的值，等于把"常驻"变成一次不确定的竞态。
+
+### 四、提示文字
+
+本批不新增任何用户可见文案：新增的四条提示全部是 `console.warn` 的**开发者诊断**（按 Gate 7 口径不进 locale）。用户可见文案仍一律走 locales 的 zh/en 成对键。
+
+### 五、验收锚点
+
+- `apps/desktop/src/composables/useNotify.toast-spec.test.js`（8 条）：duration 抵达 / 夹上限出声 / 非法回落出声 / grouping 恒开 / 未知 level 出声且按 info 展示 / 未命中留痕 / 留痕按 key 去重 / env 覆盖与非法回落。
+- 变异反证 7 道（N1 关 grouping、N2 摘夹取、N3 非法值静默采纳、N4 未知 level 退回 no-op、N5 摘留痕、N6 env 读死在模块加载、N7 摘去重），逐条红在指名用例上。
+- ⚠ 改调用形态的**消费者并集**是必做项：本批把实参从裸字符串换成 `{message,duration,grouping}` 对象，`usePublishFlow.test.js` 有 13 处断言锁的是旧形态；只跑自己改过的文件会留下"我 34 绿、别人 284 红"的假通过（本仓已记过的同族事故）。
+
+### 六、本批边界
+
+`ElMessage` 直用 85 处的按文件收编与基线棘轮未做（需人工批准新清单）；toast 容器的 `aria-live` 礼貌级分档属审计 4.6，与本条正交。
+
