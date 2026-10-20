@@ -40,6 +40,21 @@ function findUnitTestStep(job) {
   );
 }
 
+// matrix.shard 按事件分档（PR 1 片 / 非 PR N 片）之后，片数不再是一个数组字面量，
+// 而是 `${{ fromJSON(...) }}` 表达式。两个锁都要用「非 PR 那一档」的片数 ——
+// 抽在这里，避免各解各的把它们解成两种口径。
+// 行为锁的用例级预算：它要起 bash + date×2 + grep/sed/tail×6，而 Git Bash 在 Windows 上
+// 每次起进程约 0.5s；1s 的 timeout 触发后还有一轮诊断。60s 对实测 ~13s 有 4.6 倍余量。
+// 用命名常量而不是裸数字：本仓「预算必须挂依据」的纪律同样适用于测试自身的超时。
+const SHELL_HARNESS_TIMEOUT_MS = 60000;
+
+function matrixShardSet(job) {
+  const expr = JSON.stringify(job && job.strategy && job.strategy.matrix && job.strategy.matrix.shard);
+  const arrays = [...String(expr).matchAll(/\[([0-9,\s]*)\]/g)]
+    .map((m) => m[1].split(',').map((x) => Number(x.trim())).filter((x) => Number.isFinite(x)));
+  return arrays.length > 0 ? arrays[arrays.length - 1] : [];
+}
+
 function workflowSteps(workflow) {
   return Object.values(workflow.jobs).flatMap((job) => job.steps || []);
 }
@@ -737,10 +752,11 @@ describe('GUI/CI 工作流门禁契约', () => {
     const unitStep = findUnitTestStep(job);
 
     // 1) 预算挂在**单片**步骤级实测上（基线按片摊薄，见上面的注释）
-    const shards = job.strategy.matrix.shard;
+    const shardSet = matrixShardSet(job);
+    assert(shardSet.length > 0, 'matrix.shard 解析不出片数 ⇒ 分片已失效');
     const budgetSeconds = Number(unitStep.run.match(/BUDGET_SECONDS=(\d+)/)[1]);
     const measuredStepElapsedSeconds = 794; // 整轮自证行实测，不是 job 总时长
-    const perShardHealthySeconds = measuredStepElapsedSeconds / shards.length;
+    const perShardHealthySeconds = measuredStepElapsedSeconds / shardSet.length;
     expect(budgetSeconds).toBeGreaterThanOrEqual(perShardHealthySeconds * 3);
     // 旧魔数不得复活（它的问题不是"比自然耗时只多 1 分钟"，而是既无实测依据、红时又不可归因）
     expect(unitStep.run).not.toMatch(/--kill-after=30s 20m/);
@@ -800,8 +816,8 @@ describe('GUI/CI 工作流门禁契约', () => {
     // 而靠 PATH 注入 stub 又会被本机含中文的用户名目录搅乱（实测 127）。
     const body = String(unitStep.run)
       .replace(/BUDGET_SECONDS=\d+/, 'BUDGET_SECONDS=1')
-      .replace(/pnpm --filter[\s\S]*?2>&1 \| tee "\$LOG"/, 'sleep 5 2>&1 | tee "$LOG"');
-    assert(body.includes('sleep 5 2>&1 | tee "$LOG"'), '内层命令替换失败 ⇒ 会真跑整套桌面测试');
+      .replace(/pnpm --filter[\s\S]*?2>&1 \| tee "\$LOG"/, 'sleep 2 2>&1 | tee "$LOG"');
+    assert(body.includes('sleep 2 2>&1 | tee "$LOG"'), '内层命令替换失败 ⇒ 会真跑整套桌面测试');
 
     const bash = resolveGitBash();
     assert(bash, 'Git Bash 必须可解析：bash 步骤的语义只能用它复现');
@@ -824,7 +840,14 @@ describe('GUI/CI 工作流门禁契约', () => {
     expect(out, '自证行缺席 ⇒ 自证块又被 -e 提前杀掉了').toContain('[electron-ci-timeout-budget] elapsed=');
     expect(out).toMatch(/rc=124/);
     expect(out).toContain('TIMEOUT_BUDGET_EXCEEDED');
-  });
+    // ③ 覆盖到诊断尾部（对抗审查 i7）：`grep -c` 在空 log 上返回 1，若少了 `|| true`，
+    //    恢复后的 `set -e` 会把步骤码改写成非 124，而 `status===124` 会红得指错根因。
+    //    这一行证明控制流真的穿过了那条 grep 并走到 sed 输出。
+    expect(out).toContain('已完成测试行数');
+    // 显式放宽用例超时：`spawnSync` 阻塞事件循环，vitest 的 10s 默认值**无法中断**它 ——
+    // 超时只会延后到子进程返回才报（实测报成 15s 的 "Test timed out in 10000ms"）。
+    // 而 Git Bash 在 Windows 上每次起进程约 0.5s，本用例要起 bash + date×2 + grep/sed/tail×6。
+  }, SHELL_HARNESS_TIMEOUT_MS);
 
   /**
    * 工作流自己的注释写着「根因修法是按 --shard 把这一轮切开（issue 档 2）」，
@@ -840,8 +863,15 @@ describe('GUI/CI 工作流门禁契约', () => {
     const matrix = job.strategy && job.strategy.matrix;
 
     assert(matrix, '必须先有 matrix，才谈得上「切开」而不是「抬墙」');
-    const shards = matrix.shard;
-    assert(Array.isArray(shards) && shards.length >= 2, 'shard 至少两片，否则等于没切');
+    // matrix.shard 按事件分档（对抗审查 i2）：PR 上只 1 片 —— 本 job 的测试步骤由
+    // `if: event_name != 'pull_request'` 跳过，而 checkout/install/electron runtime/冒烟
+    // 这些**无 if** 的步骤照样跑，三片会把它们各跑三遍、零分片收益。
+    const shardExpr = JSON.stringify(matrix.shard);
+    assert(shardExpr.includes('pull_request'), '矩阵必须按事件分档，否则 PR 侧 setup 会白跑 N 遍');
+    const fullSet = matrixShardSet(job); // 非 PR 那一档
+    // 片数写死而不是 `>= 2`（对抗审查 i3）：下限若允许降到 2，则「2 片 + 单片预算 1191s」
+    // 能同时满足 `budget >= 单片健康×3` 与 `budget < 20*60`，反向判据实质失效。
+    assert(fullSet && fullSet.length === 3, '非 PR 档必须恰好 3 片，否则「减片 + 抬预算」可组合回退');
 
     const unitStep = findUnitTestStep(job);
     const run = String(unitStep.run);
@@ -854,12 +884,17 @@ describe('GUI/CI 工作流门禁契约', () => {
 
     // 单片预算：健康耗时按片数摊薄后仍要留 3 倍余量
     const measuredStepElapsedSeconds = 794; // 整轮自证行实测（bef5fb72）
-    const perShardHealthySeconds = measuredStepElapsedSeconds / shards.length;
+    const perShardHealthySeconds = measuredStepElapsedSeconds / fullSet.length;
     const budgetSeconds = Number(run.match(/BUDGET_SECONDS=(\d+)/)[1]);
     expect(budgetSeconds).toBeGreaterThanOrEqual(perShardHealthySeconds * 3);
     // 关键的反向判据：切成 N 片之后，单片预算必须**低于**被替换掉的 20 分钟旧墙，
     // 否则说明只是把「抬预算」包装成「分片」，根因没动。
     expect(budgetSeconds).toBeLessThan(20 * 60);
+    // 上界同时钉住现值（对抗审查 i3）：只写 `< 1200` 时 1191s 也能过，而这条判据要防的是
+    // 「抬预算」而不是「比旧墙小一点」。要改这个数就必须同时改这里，改的人会看到这行注释。
+    // TODO(校准)：3 片与 900s 都建立在整轮 794s 的**均值**假设上；`vitest --shard` 按文件切，
+    // 各片时长未必均匀。接通自证之后取首轮逐片真实 elapsed，把 794 换成逐片实测最大值再复核。
+    expect(budgetSeconds).toBeLessThanOrEqual(900);
   });
 
   it('自主审计成功分支不会继续写入基础设施失败状态', () => {

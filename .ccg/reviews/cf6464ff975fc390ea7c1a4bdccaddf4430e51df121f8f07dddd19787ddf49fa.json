@@ -46,10 +46,81 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "self_play_resolved",
+    "tier": "self-play",
+    "performedBy": "claude(single-model, 决策层判 SINGLE)",
+    "evidence": {
+      "command": "sh scripts/deep-review.sh",
+      "decisionLayer": "node scripts/ccg-review-decider.js --input openspec/changes/electron-ci-shard-budget/proposal.md → SINGLE（方案 49 行 ≤200）",
+      "baseline": "origin/main",
+      "artifacts": ".adversarial/ccg-deep-12ed8803/{critique-v1.md,adjudication.json}（.adversarial/ 被 gitignore，裁决结论内联于 findings）",
+      "dimensionScores": {
+        "correctness": 7,
+        "security": 9,
+        "performance": 7,
+        "maintainability": 6
+      },
+      "adjudication": "5 条争议全部 upheld 并已修；i4 有一半（sha/changedLines）被证据证伪；2 条 Info 一并处置",
+      "mutationProbe": "摘掉 set +e → 行为锁立刻红（自证行缺席）；还原后 45 例全绿",
+      "note": "记录里的 sha=父提交 是引擎文档化行为（pre-commit 时新 commit 尚未生成），不是台账挂错对象"
+    },
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "dimension": "correctness",
+        "issue": "同 PR 内三处预算口径矛盾（1200 vs 900），且 1200 恰等于旧墙使反向判据必红",
+        "verdict": "upheld",
+        "resolution": "fixed: 三处统一 900s"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "dimension": "performance",
+        "issue": "PR 侧无 if 的 setup 步骤被 matrix 各跑三遍（零分片收益）",
+        "verdict": "upheld",
+        "resolution": "fixed: matrix 按事件分档 PR 1 片 / 非 PR 3 片"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "dimension": "maintainability",
+        "issue": "反向判据可被「2 片 + 1191s」组合绕过",
+        "verdict": "upheld",
+        "resolution": "fixed: 片数钉死 3 + 上界加 <=900"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "dimension": "correctness",
+        "issue": "review 记录 deepReview=pending 一并入库",
+        "verdict": "upheld(部分)",
+        "resolution": "fixed: 回填；「sha/changedLines 不符」被证伪（父 sha 是文档化行为，该记录无 changedLines 字段）"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "dimension": "maintainability",
+        "issue": "job 级倒挂注释仍写内层 timeout 35 分钟，实际 900s=15min",
+        "verdict": "upheld",
+        "resolution": "fixed: 注释同步 15 分钟并点名常量"
+      },
+      {
+        "id": "i6",
+        "severity": "Info",
+        "dimension": "performance",
+        "issue": "794/3 是均值假设，分片未必均匀",
+        "verdict": "upheld",
+        "resolution": "fixed(部分): 锁内 TODO(校准)，并留在遗留"
+      },
+      {
+        "id": "i7",
+        "severity": "Info",
+        "dimension": "correctness",
+        "issue": "担心行为锁只跑前缀段 / 空 log 上诊断命令改写退出码",
+        "verdict": "upheld(部分)",
+        "resolution": "fixed: 加断言「已完成测试行数」；前缀段与 || true 两点被证伪"
+      }
+    ]
   }
 }

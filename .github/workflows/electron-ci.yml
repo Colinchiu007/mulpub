@@ -80,13 +80,16 @@ jobs:
     # 且**与本 job 只跑 main push** 这一形状强相关）。切三片后单片健康耗时≈265s，
     # 同样的负载放大不再撞墙；`--maxWorkers=1 --no-file-parallelism` 的确定性语义
     # 与「main 侧第二次独立运行」的 flake 检出原意都不丢。
-    # 反故意：这不是「抬预算」的包装 —— 单片预算 1200s **低于**被替换的 20 分钟旧墙。
+    # 反故意：这不是「抬预算」的包装 —— 单片预算 900s **低于**被替换的 20 分钟（1200s）旧墙。
+    # PR 上只开 1 片：本 job 的测试步骤由 `if: github.event_name != 'pull_request'` 跳过，
+    # 而 checkout/install/electron runtime/冒烟这些**无 if** 的步骤照样跑 —— 三片会把它们
+    # 各跑三遍、零分片收益（2026-10-20 对抗审查 i2）。非 PR（main push / dispatch）才三片。
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        shard: ${{ fromJSON(github.event_name == 'pull_request' && '[1]' || '[1,2,3]') }}
     # 预算不得倒挂（#2458）：本 job 的显式上限之和 = Install dependencies 10 +
-    # Install Electron runtime 10 + 串行单测步骤内层 timeout 35 = 55 分钟，
+    # Install Electron runtime 10 + 串行单测步骤内层 timeout 15（BUDGET_SECONDS=900）= 35 分钟，
     # 再加 checkout/setup/媒体工具 restore/冒烟/构建等无上限步骤。
     # 旧值 45 已经贴着这个上界 —— 只把内层 20m 抬到 35m 而不抬 job 级，
     # 结果是「不可归因的 job 级超时」取代「不可归因的步骤级 exit 124」，
