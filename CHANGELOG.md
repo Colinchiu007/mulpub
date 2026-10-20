@@ -873,6 +873,13 @@
 - **两条评审修法被拒绝，理由带实测**：① 「高危面上的 `single` 也要求闭环」= 复现缺陷G 那条无法闭合的循环（`single` 不要求闭环是既有契约，`2.3 边界` 钉住）；② 「8.1b 落地前高危分支保持 report-only」= 把刚建的门禁整条关掉。CI 侧本判据仍是 `--mode=advisory` 这一事实登记为 tasks 8.6：「QG Changes 绿」不等于「QM-6 已闭合」，读数必须看它自己打印的 `MODE=`。
 - **读数**：`scripts/check-pr-exec-record.test.js` 118 → 125 用例（新增 7 条全部指名红），消费者并集 `scripts/ccg-review-decider.test.js` 52/52；变异反证 **41 条全 CAUGHT（escaped=0 anchorfail=0）**，每条还原后 md5 与快照一致。静态门禁本机点名跑：`check-unwired-tests` 111 个测试文件 OK、`.github/scripts/check-max-lines.js` ✅（超限 95 / 挂账 95）、`check-debt-budget` 四项指标全等基线、`check-doc-abs-paths` PASS、`check-gate-record-debt` OK 且 `MERGE-LEDGER prs=2140 归属可解析记录=580 派生收口=562 byDesign=1`。两口径 numstat 逐文件相等。
 - 现场记 `openspec/records/qm6-highrisk-r2-reinforce.md`；合同对账见 `openspec/changes/ccg-review-degradation-ladder/tasks.md` 第 8 节（8.1 判据侧补齐说明 + 新增 8.5/8.6 两条人工裁决项）。
+# [未发布] a11y: 采集页 6 张快捷卡片补键盘可达四件套，并清点出 3 处「leaf 角色吃掉子树」的存量违规（ux-audit-nonbutton-keys）
+
+- `Collection.vue` 的 `.col-stat-card-click`（新建草稿 / 剪贴板导入 / 草稿箱 / 微博·百度·头条来源入口）按 PRD §三 补 `role="button"` + `tabindex="0"` + `@keydown.enter.prevent` + `@keydown.space.prevent`，两个 keydown 表达式与 `@click` 逐字一致。此前这些卡片只有 `@click` ⇒ 键盘用户完全无法触达（视觉、鼠标、单测、构建全都不报错）。
+- 新增行为+结构+禁令三类锁 `Collection.keyboard-cards.test.js`（4 条）：结构锁逐个标签验四件套与表达式一致；行为锁对 Enter / Space **各**断一次路由跳转；负控锁证明「只有 @click 时按 Enter 不产生任何调用」（否则行为断言退化成测 mount 副作用）；后代锁用 `innerHTML`（**不是** `wrapper.html()` —— 后者含元素自己的 `tabindex="0"`，会把正确修法判成缺陷）断言卡片子树无真控件。
+- 反证按 §三 口径重造「未补全的原始标签」：指名红 2 条（结构锁 + 行为锁），还原后逐字节相同。
+- 本批顺带做了一次存量清点（`role="button"` 17 处 / 违规 3 处：账号卡批量复选框、文案库卡片的播客入口按钮、采集记录卡片的标签编辑按钮），三处均读到源码确认。修法涉及交互设计取舍（撤销 role = 键盘可达回退；改成卡内真按钮 = 改信息层级），**登记为待裁决项，不在本批代拍**。
+- 消费者并集：`Collection.test.js` / `Collection.viral-contract.test.js` / `Collection.rewrite-input-limit.test.js` 与新文件同跑 4 passed。
 
 # [未发布] fix(gates): 锁预算复测脚本的采样域漏掉整个 QG Coverage 作业族 —— 最需要大预算的那个作业从不在样本里（lock-timing-audit-coverage-domain）
 
