@@ -492,7 +492,8 @@ class RewriteEngine {
     // 模式特定的系统提示补充
     const modeInstructions = this._getModeInstructions(mode, userSettings)
     // 字数区间指令（wordCountRange 优先于 targetLength 三档）
-    const wordCountInstruction = this._getWordCountInstruction(userSettings)
+    // 传入原文长度：min=0 时用它推导「与原文相当」的目标篇幅（见 _getWordCountInstruction 注释）
+    const wordCountInstruction = this._getWordCountInstruction(userSettings, [...content].length)
 
     // 改写硬约束（最高优先级）：注入 systemPrompt 最前置段落，位于策略 systemPrompt 之前。
     // 显式声明冲突裁决规则——与后续任何策略/模式指令冲突时，以硬约束为准。
@@ -634,15 +635,32 @@ class RewriteEngine {
 
   /**
    * 构建字数区间指令：wordCountRange {min,max} 优先；未提供时不注入（由后处理默认上限兜底）
+   *
+   * min=0 的语义（collect-rewrite-wordcount，2026-10-20）：min=0 是合法值，含义是
+   * **「不设下限，只要不超过上限」**。它不能被渲染成「0 到 N 字之间」——那句话把
+   * 「无下限」说成了「可以任意短」，模型会照着下限写，把改写做成摘要
+   * （实测：3515 字原文 + 区间 0-6000 ⇒ 输出 1229 字摘要，且用户看不出异常）。
+   * 因此 min=0 走另一条指令形态：给硬上限 + 给一个「与原文篇幅相当」的目标篇幅。
+   *
+   * 目标篇幅 = min(原文长度, 上限)：上限低于原文时目标就等于上限（压缩是用户自己设的），
+   * 此时「不超过上限」与「目标约 N 字」两句话不会自相矛盾。
+   *
    * @param {object} userSettings
+   * @param {number} [originalLength] - 原文码点数（用于推导「与原文相当」的目标篇幅）
    * @returns {string}
    */
-  _getWordCountInstruction(userSettings) {
+  _getWordCountInstruction(userSettings, originalLength) {
     const range = userSettings && userSettings.wordCountRange
     if (!range || typeof range.min !== 'number' || typeof range.max !== 'number') return ''
     // 范围防御：与前端/PRD 契约一致（min 0-49999、max 1-50000、max >= min），无效区间不注入
     if (!(range.min >= 0 && range.min <= MAX_OUTPUT_CHARS - 1) || !(range.max >= 1 && range.max <= MAX_OUTPUT_CHARS) || range.max < range.min) return ''
-    return `【字数要求】改写后的文本长度必须控制在 ${range.min} 到 ${range.max} 字之间。`
+    if (range.min > 0) {
+      return `【字数要求】改写后的文本长度必须控制在 ${range.min} 到 ${range.max} 字之间。`
+    }
+    // min = 0 ⇒ 无下限：只给上限，并明确「不得压缩成摘要」
+    const original = Number.isFinite(originalLength) && originalLength > 0 ? originalLength : 0
+    const target = original > 0 ? Math.min(original, range.max) : range.max
+    return `【字数要求】改写后的文本长度不得超过 ${range.max} 字。目标篇幅约 ${target} 字（与原文篇幅相当）；不要把原文压缩成摘要，不得省略原文的信息点。`
   }
 
   /**

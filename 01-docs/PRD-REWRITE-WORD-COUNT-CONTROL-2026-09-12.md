@@ -5,6 +5,15 @@
 > 输入上限、输出截断可见化（`outputTruncated` / `modelTruncated`）、Python 链路上界对齐见
 > `01-docs/PRD-REWRITE-LIMITS-50000-2026-10-19.md` 与 `openspec/changes/rewrite-segment-and-finish-reason/proposal.md`。
 > 本文其余部分（三档语义、注入优先级、默认值）仍然有效。
+>
+> ⚠️ **采集页一节（§2.2 F3/F4、§3 采集页相关行、§4.2、§5.2）已过时（2026-10-20，change `collect-rewrite-wordcount`）**：
+> ① 采集页改写**早已 Node 化**（走 `aiRewrite` → `packages/rewrite-engine`），
+>    §2.2 F4 / §4.2 描述的 `aggregationRewrite` + Python `AggregationService.rewrite` 链路**不是当前主链路**；
+> ② 采集页曾把区间下发给一个引擎**不认识的键** `targetWordCount`（引擎只认 `wordCountRange`），
+>    导致「字数」设置**静默失效**；本次已修正，详见
+>    `01-docs/PRD-COLLECTION-REWRITE-WORD-COUNT-2026-10-20.md`；
+> ③ §3 / §5.2 里采集页的合法域「0-5999 / 1-6000」是过期值，现为 **0-49999 / 1-50000**
+>    （与 `/rewrite` 页一致，2026-10-20 校正）。
 
 
 ## 1. 背景与目标

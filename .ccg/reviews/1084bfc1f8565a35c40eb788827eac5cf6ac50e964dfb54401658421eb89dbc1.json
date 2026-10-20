@@ -1,0 +1,58 @@
+{
+  "sha": "2dbda69258bc69f41da8be58a309e331b6b53184",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 367 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 367,
+    "fileCount": 11,
+    "codeFileCount": 8,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "| `apps/desktop/electron/services/rewrite-engine.js` `llmClient.chat()` | `max_tokens = min(64000, max(1024, ceil(max×2)))`，max 取 `wordCountRange.max` | `_lastWordCountRangeMax = undefined` ⇒ 回落到 3000 口径 ⇒ `max_tokens = 6000` |",
+      "| 无区间时 | 生效上限 = 3000 ⇒ `max_tokens = 6000`（与引擎兜底一致） |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "1084bfc1f8565a35c40eb788827eac5cf6ac50e964dfb54401658421eb89dbc1",
+  "decidedAt": "2026-10-20T17:17:49.163Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}
