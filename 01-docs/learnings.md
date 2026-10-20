@@ -1,3 +1,77 @@
+## 资源「够了」是算出来的，不是感觉到的——128 个令牌对上 845 个 URL（s2v-result-ux-polish）
+
+### lesson: capacity-must-be-derived-from-worst-case-fanout
+
+**现场**：媒体服务器的令牌登记容量是 128、FIFO 淘汰，看起来"够用"（一屏哪来 128 张图）。但一个 169 段任务的每段最多 5 个媒体位 ⇒ **最多 845 个 URL**。展开到约 26 段就开始淘汰，被淘汰的段图变 404，渲染端 `@error` 兜底把它显示成「未生成」——**用户最初抱怨的破图形态又回来了**，只是触发条件从"没懒加载"变成了"令牌不够"。
+
+**为什么上一轮没发现**：上一轮只做到"首屏 20 段"（≤100 个 URL，正好在 128 以内），容量问题被分批策略**掩盖**了。分批降低了瞬时并发，但没有降低**累计**需求。
+
+**判据**：任何有容量上限的资源池（令牌/缓存/连接/文件句柄），容量必须按「**最坏情况扇出**」推导：`最大元素数 × 每元素最大并发占用`。本项目 = 169 × 5 = 845，取 1024 覆盖到 200 段。写进注释的必须是这条算式，不是"够用了"。
+
+**连带发现**：TTL 固定 15 分钟同样致命——在 169 段编辑页停留超 15 分钟，全部令牌被清空 ⇒ 图片整片变「未生成」。正解是**滑动过期**（命中即续期），且必须同时守住反向边界：**停止使用超过 TTL 仍要失效**，否则"滑动"会被实现成"永不过期"。三方回归锁缺一不可：全量可访问 / 活跃续期 / 静置失效。
+
+---
+
+## 节流选前沿还是延迟，不看性能看「谁会丢」（s2v-result-ux-polish）
+
+### lesson: leading-edge-throttle-when-programmatic-paths-share-the-entry
+
+**现场**：给 169 段的滚动高亮加 rAF 节流，第一版写成 trailing（把 `computeActiveSegmentIndex` 推迟到 rAF 回调里算）。后果不只是 4 条既有用例变红：**程序化重算也被同帧吞掉**——删除分段后 `$nextTick(() => onSegmentScroll())` 落在同一帧，帧标记还没清，重算被跳过 ⇒ 右侧高亮**滞留在被删掉的那一段**上。
+
+**判据**：同一个入口同时承载「用户高频事件」和「程序化一次性重算」时，**节流必须是前沿（首帧立即算）**，并且给程序化调用单独开一个不受节流影响的方法（本例 `recalcSegmentHighlight()`：先清帧标记再立即算）。trailing 只适合"最后一次为准"的场景（搜索联想、尺寸计算），不适合"每帧都要跟手 + 有非用户触发路径"的场景。
+
+---
+
+## 筛选改了显示集合，但**下标**不能跟着改（s2v-result-ux-polish）
+
+### lesson: filtered-view-must-preserve-original-absolute-index
+
+**现场**：给 169 段加分档筛选（全部 / 只看失败 / 只看政策标记）。最自然的实现是 `filter(...)` 后 `v-for="(seg, i)"` 直接用 `i`。但这一页的**上移 / 下移 / 删除 / 导出文件命名 / 政策徽标**全部按**全量下标**寻址——一旦筛选后退化成筛选序号，在「只看失败 12 段」模式下点删除，删掉的是**原始数组里第 0/1/2 段**，不是用户看着的那一段。
+
+**判据**：任何「筛选/排序后的派生列表」在回传动作时，必须携带**原始下标**（`{segment, absoluteIndex}`），而不是让下游用 `v-for` 的 `index`。回归锁要断言下标**不等于**筛选序号（本例断言 `[1,3]` 而非 `[0,1]`）。
+
+---
+
+## QM-1 的入口是 `build:win`，不是 `electron-builder`（s2v-result-ux-polish）
+
+### lesson: packaging-without-renderer-build-produces-a-headless-shell
+
+**现场**：改了 `apps/desktop/electron/`，按 QM-1 跑 `electron-builder --win --x64` ⇒ **rc=0**、产物齐全、进程启动后**存活**。三样都绿，但启动 stderr 里躺着：
+
+```
+electron: Failed to load URL: … resources/app.asar/dist/index.html with error: ERR_FILE_NOT_FOUND
+```
+
+根因：没先 `pnpm run build:vue`，`apps/desktop/dist` 不存在，打包出来是个**没有前端的壳**。
+
+**为什么差点假绿**：判据若只看「打包 rc=0」或只看「进程还在 8 秒」，都不成立——进程确实活着（主进程正常），只是窗口空白。这正是 AGENTS.md 三层判据里第 ② 层（stderr 非空但未命中黑名单 ⇒ **不得判通过**，交人工）存在的理由：黑名单只能枚举已知故障，这里 `ERR_FILE_NOT_FOUND` 不在任何黑名单里。
+
+**做法**：QM-1 的入口应是 `pnpm run build:win`（= `build:vue` + `electron-builder`）。另外「存活性」必须单独断言——提前退出时 stderr 必然为空，只看 stderr 会把「根本没起来」读成「启动干净」。
+
+---
+
+## 「打包成功 + 进程存活」是两个真但不够的判据；清理语句会吃掉结论（s2v-result-ux-polish）
+
+### lesson: verification-script-must-print-verdict-before-cleanup
+
+**现场**：QM-1 验证脚本在**打印判据之前**删除临时 userData 目录。进程刚被 kill 时 `userData/lockfile` 仍被占用 ⇒ `EBUSY` 抛出，把「存活 + NEEDS_REVIEW 的 stderr 全文」一起吞掉，脚本以未捕获异常退出，只能看到一个与判据无关的 `rimraf` 栈。
+
+**判据**：验证脚本的顺序必须是「**先出结论，再做副作用清理，且清理失败不影响判定**」。清理失败要出声（`[warn] 临时目录未能清理: <路径>`），不能静默也不能升级为失败——否则一次文件锁会让整轮取证作废。
+
+---
+
+## 门禁红不一定要上调基线，先看「这条逻辑配不配待在宿主里」（s2v-result-ux-polish）
+
+### lesson: named-debt-target-growth-means-extract-not-bump
+
+**现场**：`ResultView.vue` 是 max-lines 的 targets 点名还账对象（零增长容差），新增失败摘要卡后门禁当场红：`现 2060 行已超过点名目标 1890 行（超 170）`，测试账本也红：`较登记值 2175 膨胀 453 行（容差 200）`。
+
+门禁红文案本身给了两条路：**降到目标以下**，或**说明理由后上调 targets**。上调是最短路径，但它把「还债」变成「加债」，而且这一轮加的逻辑根本不粘页面——失败摘要卡的文案拼装是**纯展示**，跳转/展开/回顶是**纯流程**，两者都不需要 living in 宿主。
+
+**做法**：拆成 `ResultPreviewPlaceholder.vue`（模板 + 文案）、`ResultSegmentJumpBar.vue`（定位条 + 键盘）、`composables/useSegmentNavigation.js`（纯流程）与独立测试文件。宿主 **2060 → 1886**（净降 174），测试账本回到容差内，**targets 一个没动**。
+
+**判据**：被点名还账 + 零增长容差的文件，收到「要加逻辑」的需求时，**先问这段逻辑是否本来就该在这里**。能拆就拆——拆出来的部分通常还能独立单测（本例 `resolveJumpFocusTarget` 从"要靠挂载组件测"变成纯函数直测）。
+
 ## 「靠匹配英文原文还原语义」本身就是缺陷——用户可见失败的稳定错误码契约（error-message-user-friendly-audit，2026-10-20）
 
 ### lesson: user-facing-failures-need-stable-error-codes-not-text-patterns

@@ -46,6 +46,19 @@
   需另开 change 定义独立出口；首次受影响的 schedule 是 **2026-10-21**（周三 18:00 UTC），合并后按
   「(merge SHA, workflow)」回读，无 run 时如实记 `NO_RUN(by design)` 而不是把它读成「证据丢了」。
 
+# [未发布] perf+feat(desktop): 视频任务编辑页 UX 补齐 —— 令牌容量/滑动过期 + 滚动节流 + 失败摘要卡 + 分段搜索筛选 (#待填)
+
+- **动因**：上游 PR #4064（`f6a61d24c`）修掉了用户直接看到的现象，但复查**代码**发现两类遗留：① 媒体令牌登记容量只有 **128** 且 FIFO 淘汰，而 169 段 × 最多 5 个媒体位 = **最多 845** 个 URL ⇒ 展开到约 26 段就开始淘汰，被淘汰 == 该段图 404 == 渲染端 `@error` 兜底显示「未生成」，**用户最初抱怨的破图会回归**；② 令牌 TTL **固定 15 分钟**，在编辑页停留超过 15 分钟即全部失效 ⇒ 图片整片变「未生成」。另外滚动高亮**无节流**（169 段全展开时每个 scroll 事件 169 次 `getBoundingClientRect`，强制重排）。
+- **令牌容量 / 滑动过期**：`DEFAULT_MAX_ENTRIES` 128 → **1024**（覆盖到 200 段，并留写后刷新时新旧令牌并存余量）、`MAX_REGISTRY_ENTRIES` 256 → **2048**（不抬上限会被 `min()` 静默钳回 256）；命中即续期（`expiresAt = now + ttl`），使活跃使用期间一直有效，**但停止使用超过 TTL 仍失效**（滑动过期 ≠ 永不过期）。三方回归锁：845 个 URL 全部可访问、每 800ms 访问累计 4000ms 仍 200、续期后静置 >TTL 必须 404。
+- **滚动节流（前沿）**：`onSegmentScroll` 改为**本帧第一次立即算**、同帧后续只清帧标记 ⇒ 每帧最多 1 次重排，且高亮**不滞后**。选择前沿而非 trailing 的原因有实测：trailing 会让程序化重算（删除/移动后）被同帧吞掉，高亮滞留在**被删掉的那一段**上。程序化重算走 `recalcSegmentHighlight()`（清帧标记后立即算），不受节流影响。
+- **失败摘要卡**（新组件 `ResultPreviewPlaceholder.vue`）：占位区块从「一句通用说明」升级为能回答「为什么没成片」——失败/完成段数、聚合后的主要原因（同因合并且按次数降序）、内容政策定位提示、**定位到首个失败段**。原因码 → 文案走 `FAILURE_REASON_LABEL_KEYS` 单一真源，**未知码回落「其他原因」，不编造**。上游 PR 里 `completionSummary` 被关在 `v-if="videoPath"` 分支，失败任务连「完成了几段」都看不到，本轮一并解决。
+- **分段搜索与筛选**：三档筛选（全部 / 只看失败 / 只看政策标记，计数为 0 的模式自动禁用）+ 跨全量分段的关键词搜索（文案/提示词/视频提示词/字幕）。**硬约束：筛选后 `absoluteIndex` 仍是全量下标**——上移/删除/导出命名/政策徽标全按全量下标寻址，若退化成筛选序号，在「只看失败段」模式下点删除会删到别的段（回归锁断言 `[1,3]` 而不是 `[0,1]`）。
+- **长列表操作**：计数文案「已显示 20 / 共 169 段」（原来只有「显示更多分段」，169 段要点 8 次且不知道还剩多少）、**展开全部**（先确认，取消则不做任何事）、**回到顶部**（`scrollY > 600` 才出现）、**roving tabindex**（整组只占 1 个 Tab 位，方向键/Home/End 移动，`Tab` 不拦截）、**跳转中态**（大跳要渲染上百张卡，`pending` 数字给「点了在做事」的即时反馈）。
+- **结构性处理**：`ResultView.vue` 是 max-lines 的 **targets 点名还账对象**（零增长容差），第一版直接写进宿主当场红（`TARGET_GREW … 现 2060 行已超过点名目标 1890 行` + `TEST_LEDGER_GREW … 膨胀 453 行`）。按仓库既有做法拆出 `ResultPreviewPlaceholder.vue` / `ResultSegmentJumpBar.vue` / `composables/useSegmentNavigation.js` 与独立测试文件，宿主 **2060 → 1886 行**（净降 174），**没有上调 targets 消红**。
+- **验证**：新增 26 条回归（composable 20 + 独立 UX 文件 16 含改写 2 条），先红后绿；消费方并集 12 文件 **317 passed / 0 failed**；门禁逐条 rc=0（max-lines / unwired / cjk / pair / brand / debt / doc-abs-paths）；eslint 13 文件 **0 error**（唯一 warning 是基线已有的 `IMAGE_MIME_TO_EXT` 未用）。
+- **QM-1 打包（改 `electron/` 必做）**：`pnpm run build:vue` + `electron-builder --win --x64` ⇒ rc=0，asar 内含 `electron/services/story2video-media-server.js`，产物内 `defaultMaxEntries=1024`/`maxRegistry=2048`；启动窗口期 8s 存活、**stderr 0 字节** ⇒ PASS。**踩坑**：第一次只跑 `electron-builder` 没先 `build:vue`，产物没有前端 ⇒ 启动 `ERR_FILE_NOT_FOUND`，进程却仍存活、rc 仍 0 —— 只判「打包成功」或「进程还在」都会**假绿**，正是三层判据第 ② 层存在的理由。
+- **遗留（不假装闭合）**：未做虚拟滚动（1000 段级需变高 windowing + 锚点补偿，会同时影响成功任务滚动体验）；未做渲染端 `revoke`（容量 1024 覆盖到 200 段，>200 段仍会淘汰，彻底修法需改 preload 契约）；IPC 次数本身未降（服务端批量签 URL 独立议题）；原因码只聚合后端已给的 `failureCode`；`expandAll` 仍用原生 `window.confirm`；搜索无防抖（本地过滤 <1ms）。
+
 # [未发布] fix(s2v): 历史记录失败卡片直出英文技术原文 —— compose 预检失败稳定错误码契约 + 全量排查（error-message-user-friendly-audit）
 
 - **问题**：「视频创作 → 历史记录 → 执行失败」标签的任务卡片，失败原因显示 `Input media exceeds the total size limit`（API 返回的原始英文技术信息），违反项目「所有提示/报错用用户友好自然语言说明并给出建议、且支持多语言」的铁律。
