@@ -8,6 +8,14 @@
 - **TDD 与反证**：先写红（`2 failed | 22 passed`，红因分别是 `legacyMax` 为 undefined、`formatLegacyNotice` 不是函数）再实现 ⇒ `24 passed`；变异 N1–N8 逐条**指名**变红且跑后按字节还原（`restored=true` ×8），控制跑自带健康断言（`rc=0 && passed=24`，不健康则 PROBE_BLIND 且不产出任何 verdict）。消费者并集全部实跑：`windows-file-lock` + `account-state-restorer` + `credential-store` = **51 passed**；`packages/api-publish-engine/test/api-key-manager-atomic-write.test.js` = **1 passed**（它 require 同一份夹具）。清点用未截断的 `git grep`（上一轮把清点接了 `head` 恰好削掉一个真消费者，那笔教训见上一条 PR 的记录）。
 - **边界**：预算取值本身一字未动（45000 / 12000 / 20000），改的是「量它的尺」；无 UI / locale / 主进程运行面改动，QM-1 与 QM-4 判 N/A。文档同步落在 `docs/windows-lock-budget-provenance.md`（§2 偏差表、§3 rc=3 两档与 rc=5、§4 新增第 6/7 两个坑），并按当场读数更正了该文件 §5 里「`CHANGELOG.md` 含 NUL 字节、被 git 判为 binary」这句已过期前提（上游 control-bytes-sweep 后实测 NUL=0，本轮置顶插入即为现场反证）。
 
+# [未发布] docs(openspec): 归档 shape-lock 规格 delta —— 那条 Requirement 不再自己打自己（archive-shape-lock-scenario）
+
+- **动因**：#4001 带进来的 `align-shape-lock-empty-ledger-scenario` 已合并但没归档，它的 MODIFIED delta 因此还没落进主规格——主干上那条 Requirement 至今**正文写「键数本身不设数字下限」、末个 Scenario 写「键数为 0 ⇒ MUST 红（规模下界）」**，两句互斥；而 `openspec validate quality-gate-execution-record --type spec --strict` 实测照判 `is valid`（它查结构必需段与场景覆盖，**不查条目内自洽**），所以这类矛盾能随归档一路进主干。
+- **归档保真（逐行量出来，不是声明）**：`git mv` 被识别为 **4 个 `R100`**（零内容漂移）；主规格目标块与归档块 **44 行逐行全等**、块内 Scenario 两侧都是 **6**、Requirement 计数 **4 → 4**、矛盾句 `规模下界` 在主规格里残留 **0** 处。delta 的形状按三个度量分开报，免得一个数被读成三种意思：被改写的行 **2**（就是那对 `WHEN/THEN`，不是丢内容）、净新增行 **8**、位置比对不同 **8**（含纯下移）；块内非空行数 **22 → 28**。5 条原 Scenario 标题**逐字保留**。
+- **`openspec validate --all --strict` 做名称级 A/B**：共享根（=`origin/main`，未归档）`passed=200 failed=28` vs 本刀 `passed=199 failed=28`，**新失败集为空、原失败集一条没少**；唯一的 passed 项差异恰是归档后不再作为活动 change 被计数的那一条。**只比计数会骗人**——"28 == 28"对失败的是哪些条目完全失明，与本仓记过的装饰性对账同型。
+- **镜像不联动是读源码读出来的**：`scripts/quality-rhythm-spec-mirror.test.js:13` 的 `LIVE_SPEC` 写死 `openspec/specs/openspec-integration/spec.md`，本刀 delta 落在 `quality-gate-execution-record` ⇒ **不同步** vendored 镜像（上一刀要同步是因为它的 delta 落进被镜像的那个 capability）。判据一律取锁源码，不取历史先例。仍跑一次留"没被碰坏"的证据：`# pass 8 / # fail 0`。
+- **行尾**：主规格工作副本实测 `cr=166 lf=166`、terminator tally 全 CRLF；但**没有**因此做"探测多数派后统一回写"——而是把文件解析成 `(文本, 结束符)` 对，写前先做 **scanner roundtrip 自证**（重新序列化必须逐字节等于原文，否则后面所有断言都无意义），只给被替换块的新行取**该块自己的**结束符（块内 tally 亦 37/37 CRLF），块外前缀 129 行与后缀逐元素比对 `text`/`term` 双相等。顺带钉一条口径：**`CR 数 == LF 数` 不足以证明行尾单一**（一个裸 CR 配一个裸 LF 就能配平），它只配当告警，不配当判据。
+- **隔离入口这次通了**：`scripts/start-mp-task.ps1 -TaskName archive-shape-lock-scenario` 正常建出 `mp-worktrees/mp-archive-shape-lock-scenario`（裸分支、起点 == `origin/main`、`verify-worktree-deps.js` OK）。前几刀挡路的两个条件（标准根之外注册着 2 个 worktree、共享根有他人未跟踪文件）已由持有方清掉——**这是当场重测的结果，不是我的成果**，所以那条「%TEMP% detached 工作树」的降级出口本刀没有用。
 # [未发布] fix(gates): 收敛出口探针改为现读 vendor 是否能表达外部复核，旧结论不再写死（ccg-probe-external-review）
 
 - **动因不是"想加读数"，而是一条常驻判据开始说谎**：本机给 vendor 驱动加了 `externalReviewSatisfied` + `expectedExternalBackend`（高危域项填齐三格即可解除无条件阻断，不再是永久不可达）。而 `scripts/ccg-convergence-probe.js` 每次 PR 都在 Gate 2b6 打印「self-play 对 crypto 项无条件计阻断 ⇒ 深度审查闭环不可达」——补丁一生效，这句结论就与现场不符。会说谎的常驻判据比没有判据更糟，因为它会让人以为"这事已经量过了"。
@@ -58,6 +66,40 @@
 - **读数**：`scripts/check-pr-exec-record.test.js` 81 → 113 用例（首轮 +11 条，含三条边界负控；QM-6 两轴处置再 +21 条），`113 passed / 0 failed`；变异 21 条全部指名红、`escaped=0`、逐条还原 md5 一致。消费者并集同跑：`ccg-review-decider` 52 / `check-record-qm5-rows` 19 / `classify-docs-only` 27 / `lib/ccg-review-backends` 17 各 0 失败；`.github/scripts/workflow-contract.test.js` 43 passed（本 worktree 未装 `js-yaml`，用共享根同一份库经 `NODE_PATH` 跑通，不代替 CI）。静态门禁逐条 rc=0：`check-unwired-tests`（域内 108 个测试文件）/ `check-step-failfast`（39 个多命令步骤）/ `check-workflow-structure`（files=14 violations=0）/ `check-gate-record-debt` / `check-record-qm5-rows`（域内记录 246）/ `check-visual-coverage` / `check-no-brand-residue` / `check-doc-abs-paths` / `openspec-sync-check`。`classify-docs-only` → `docs-only=false files=3` ⇒ 混合 PR，按完整质量节拍走。
 - **两轮外部评审的处置口径**：第 1 轮两轴共 17 条（claude 6 + codex 11）逐条处置，接受 12、部分接受 2、否证 2 —— 其中"按记录自身路径判高危"这条**必须否证**：判定记录本来就是 PR 级的，`.ccg/reviews/<hash>.json` 永远不落在任何前缀上，照那个修法改等于把刚建立的矩阵整条关掉（实测归因恒空）。第 2 轮 8 条里又拦住一条真后门：高危面上「本次新增即写 cleared 而 `tier` 缺席」既不受转变检测管辖（没有 base 可比）也不被矩阵拦（unknown 放过）—— 那是"给自己贴一张已通过"的零成本路径，现在拦。跨家族轴第 2 轮**未交付**（`429` 两次、`503` 一次，清单里的 `opencode` 仍是 IP 级拒绝），所以处置引入的那部分改动只有单轴复审，这条如实记在记录 §六 第 13 条而不是写成"双模型完成"。
 - 现场记 `openspec/records/qm6-highrisk-matrix.md`；合同对账见 `openspec/changes/ccg-review-degradation-ladder/tasks.md` 第 2 节（2.1–2.5 已勾，2.3 的偏差逐字写明）与 8.1（**不勾**，只落判据侧那一半，另一半拆成 8.1b）。
+
+# [未发布] fix(ci): 接通 Electron CI 串行单测的自证块（#2525 承诺而从未执行的诊断）
+
+- **现象**：`electron-tests` 在 main push 上间歇性红，日志**零条** `×`、零条 `FAIL`、零条 vitest 摘要行，
+  只有 `exit code 124`。近 12 次 main push 里 5 次失败，且同一形态在**不是本仓 PR 内容**的
+  `715391c88` 上复现 ⇒ 与具体改动无关。
+- **第一性原因**：`bef5fb72c`（#2525，2026-09-28）的标题是「让超时失败能自证」，正文也写了
+  `RC=${PIPESTATUS[0]}` 与整段 `TIMEOUT_BUDGET_EXCEEDED` 诊断，但它们被放在
+  `timeout … | tee` **之后**；而该 job 的 shell 是 `bash -e -o pipefail`，`timeout` 返回 124 时
+  `-e` **立刻退出步骤**，其后每一行都不执行。**该自证块自合入起从未运行过一次** ——
+  它专门为之设计的那个场景，恰恰是它唯一不出现的场景。
+  旁证：同一 `run:` 目录下的 `Electron smoke test` 早就用着正确的 `set +e … set -e` 写法。
+- **修法**：`set +e` … `RC=${PIPESTATUS[0]}` … `set -e`。行内 `set -e` 只影响本步骤的子 shell。
+- **回归保护：判据域从「字符串存在」升级为「行为成立」**。旧锁只断言那四行**存在于 YAML**，
+  而被测性质是**运行时执行路径** —— 判据域错位，于是锁一直绿、自证一直死。
+  新锁取该步骤 `run` 原文，只替换两个量（预算→1s、`pnpm …`→`sleep 2`），在
+  `bash -e -o pipefail` 下**真跑**，断言 `status===124` 且 stdout 含 `[electron-ci-timeout-budget] elapsed=`、
+  `rc=124`、`TIMEOUT_BUDGET_EXCEEDED`、`已完成测试行数`（最后一条证明控制流走到了诊断尾部）。
+  **变异反证已做**：摘掉 `set +e` → 立刻红，报「自证行缺席 ⇒ 自证块又被 -e 提前杀掉了」。
+- **同轮修掉的另一处真 bug**（由 CI 首次跑这条锁时抓到）：`packages/shared-utils` 的
+  `ledgerCommandName` 对 `spawn(file,args)` 传的**裸路径**切首 token，含空格的路径
+  （如 Git Bash 的安装路径）会被折成 `Program` —— 真实命令被无意义键盖住，而运行时出站台账的
+  全部意义就是「谁在起子进程」。`shellFirstToken` 只处理了**带引号**的形态。修法是裸串且整串
+  据**文件存在性**解析成文件时取真实 basename；回归锁 +1 例（含负控「不得是 `my`」），
+  基线登记 `child::bash.exe` 并写全理由。
+- **未落地（明确记为遗留）**：按 `--shard` 把整轮切开这件事本轮**没有做**。三轮尝试证明它被
+  required context 卡住：ruleset `main-ci-gate` 要求的 context 是 `electron-tests`，而 matrix
+  作业无论加不加静态 `name` 都只报 `electron-tests (1)` 这种带后缀的名 ⇒ 22 项全绿的 PR 仍判
+  `base branch policy prohibits the merge`；另加一个 `name: electron-tests` 的汇入作业又会让整份
+  workflow 被判不可解析（幻影 push run + 0 job，两种 `if` 写法都复现）。正解需要把 matrix 作业改 id
+  并同步 `.github/scripts` 里多条结构性锁，属另一件事。接通自证之后，下一次超时会**首次**产出
+  `elapsed=` 读数，届时可以据此定片数与预算。
+- **教训**：GitHub 有**两套并存**的分支保护面（legacy protection 与 rulesets），只查一套就得出
+  「不受约束」的结论，等同于「查到第一个空结果就收工」——与本条主线要修的毛病同型。
 
 # [未发布] chore(debt): 债务熔断基线 re-sync 到主干现状——接受漂移不是清理，并登记拆分红利（debt-baseline-resync）
 - **现场**：`debt-guard.yml` 的「债务熔断检查」从今天起在**每一个** rebase/merge 到今天主干的

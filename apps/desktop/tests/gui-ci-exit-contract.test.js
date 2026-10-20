@@ -4,7 +4,9 @@
 // 吞掉，又要在 quality-gate.yml 里另点名一次，否则对 check-unwired-tests 棘轮不可见。
 // 要找"判据 CLI 的锁"，就在本文件里，不在 scripts/ 下。
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
+const { spawnSync } = require('child_process');
 const yaml = require('js-yaml');
 
 const {
@@ -18,6 +20,13 @@ const { isIgnorableConsoleError, resolveGuiExitCode } = require('./electron-gui-
 // 用例级预算与它的出处（同一份常量也被 scripts/case-timeout-audit.js require；
 // 放测试文件里复测入口读不到 —— 它没法 require 一份 vitest 用例）。
 const cliE2eBudget = require('./gui-cli-e2e-budget');
+
+// Git Bash 解析复用单一真源：bash 步骤的语义（-e -o pipefail）只能用它复现。
+const { resolveGitBash } = require(path.join(PROJECT_ROOT, 'scripts', 'lib', 'ccg-test-helpers'));
+
+// 行为锁的用例级预算：它要起 bash + date×2 + grep/sed/tail×6，而 Git Bash 在 Windows 上
+// 每次起进程约 0.5s；60s 对实测 ~13s 有 4.6 倍余量。用命名常量而不是裸数字。
+const SHELL_HARNESS_TIMEOUT_MS = 60000;
 
 const WORKFLOW_DIR = path.join(PROJECT_ROOT, '.github', 'workflows');
 
@@ -746,6 +755,51 @@ describe('GUI/CI 工作流门禁契约', () => {
     expect(job['timeout-minutes']).toBeGreaterThan(otherCapsMinutes + budgetSeconds / 60);
     expect(source).toContain('# 预算不得倒挂');
   });
+  /**
+   * #2525 的标题是「让超时失败能自证」，正文也写了 `RC=${PIPESTATUS[0]}` 与一整段
+   * `TIMEOUT_BUDGET_EXCEEDED` 诊断。但 GitHub 给的 shell 是 `bash -e -o pipefail`：
+   * `timeout` 返回 124 时 `-e` **立刻退出步骤**，其后每一行都不执行 —— 实测两次失败
+   * attempt 的日志里都没有 `[electron-ci-timeout-budget] elapsed=… rc=…`。
+   *
+   * 旧锁的判据域是「这四行字符串在 YAML 里存在」，被测性质却是「这四行会在运行时执行」。
+   * 两者不是一回事，于是锁一直是绿的、自证一直是死的。本用例把判据域换成**真执行**。
+   */
+  it('自证块必须在 bash -e -o pipefail 下真能执行，而不是只在 YAML 里存在', () => {
+    const { workflow } = readWorkflow('electron-ci.yml');
+    const unitStep = workflow.jobs['electron-tests'].steps
+      .find((step) => step.name === 'Unit tests (Vitest, non-Electron, single-worker deterministic)');
+
+    // 只做两处按题意的替换，其余结构（timeout / tee / PIPESTATUS / 自证块）一字不动。
+    // 用文本替换而不是伪造 `pnpm`：`timeout` 是外部命令，看不见 shell 函数表（函数桩 → 127），
+    // 靠 PATH 注入 stub 又会被本机含中文的用户名目录搅乱（实测 127）。
+    const body = String(unitStep.run)
+      .replace(/BUDGET_SECONDS=\d+/, 'BUDGET_SECONDS=1')
+      .replace(/pnpm --filter[\s\S]*?2>&1 \| tee "\$LOG"/, 'sleep 2 2>&1 | tee "$LOG"');
+    assert(body.includes('sleep 2 2>&1 | tee "$LOG"'), '内层命令替换失败 ⇒ 会真跑整套桌面测试');
+
+    const bash = resolveGitBash();
+    assert(bash, 'Git Bash 必须可解析：bash 步骤的语义只能用它复现');
+
+    const res = spawnSync(bash, ['-e', '-o', 'pipefail', '-c', body], {
+      cwd: fs.mkdtempSync(path.join(os.tmpdir(), 'electron-ci-budget-')),
+      encoding: 'utf8',
+      timeout: 60000,
+      // PATH 显式给成 POSIX 形态：Node 直接 spawn MSYS bash 时不做 Windows→POSIX 转换，
+      // 继承来的 `C:\…;C:\…` 被按 ":" 切坏，连 `date` 都 command not found（实测 127）。
+      env: { ...process.env, PATH: '/usr/bin:/bin' },
+    });
+    const out = String(res.stdout || '') + String(res.stderr || '');
+
+    // ① 被步骤级 timeout 掐断，不是断言失败
+    expect(res.status, 'exit 124 = 被 timeout(1) 掐断').toBe(124);
+    // ② 自证行必须真的出现 —— #2525 承诺而从未兑现的那一半
+    expect(out, '自证行缺席 ⇒ 自证块又被 -e 提前杀掉了').toContain('[electron-ci-timeout-budget] elapsed=');
+    expect(out).toMatch(/rc=124/);
+    expect(out).toContain('TIMEOUT_BUDGET_EXCEEDED');
+    // ③ 覆盖到诊断尾部：空 log 上 `grep -c` 返回 1，若少了 `|| true`，恢复后的 `set -e`
+    //    会把步骤码改写成非 124，而 `status===124` 会红得指错根因。
+    expect(out).toContain('已完成测试行数');
+  }, SHELL_HARNESS_TIMEOUT_MS);
 
   it('自主审计成功分支不会继续写入基础设施失败状态', () => {
     const { source } = readWorkflow('quality-gate.yml');
