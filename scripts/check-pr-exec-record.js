@@ -479,16 +479,6 @@ function main(argv) {
       process.stdout.write(`[TRANSITION-BASE] merge-base 取不到（${String((e && e.message) || e).split('\n')[0]}）⇒ 本次转变核对按未证实处理` + String.fromCharCode(10))
     }
   }
-  // 存在性探针（X2-5 的落点）：evidence 写成路径形态时，必须能在**这个 head** 里取到该对象。
-  // 不注入探针的所有调用方（单测、仓外脚本）保持原形状语义 —— 例外清单必须是注入参数。
-  const existsAtHead = (ev) => {
-    const p = repoObjectPath(ev)
-    if (!p) return false
-    try {
-      execFileSync('git', ['-C', repo, 'cat-file', '-e', head + ':' + p], { stdio: ['ignore', 'ignore', 'ignore'] })
-      return true
-    } catch { return false }
-  }
   let statuses
   if (typeof args.statuses === 'string') {
     try { statuses = JSON.parse(args.statuses) } catch (e) {
@@ -517,6 +507,8 @@ function main(argv) {
       process.exit(1)
     }
   }
+  // 探针的构造必须落在 statuses 之后 —— 它要把"证据是否属于本次变更集"当判据之一（i4）。
+  const existsAtHead = makeEvidenceProbe({ statuses, repo, head })
   let gitBranch = ''
   try { gitBranch = execFileSync('git', ['-C', repo, 'rev-parse', '--abbrev-ref', 'HEAD'], { encoding: 'utf8' }).trim() } catch { /* 取不到就按空串走判据 */ }
   const resolved = resolveHeadBranch({
@@ -548,6 +540,8 @@ function main(argv) {
   const readAtBase = (rel) => {
     // D 方向与转变检测都需要 base 的 blob；取不到就返回 null，
     // 由判据按「未证实」出声，而不是静默放行。变更集本身仍只有 changedFileStatuses 一个取源。
+    // 空 baseRef **直接返回 null**，绝不往下拼 `:rel` —— `git show :path` 读的是暂存区(index)，
+    // 那会把"读不到 base"洗成"读到过一份闭环内容"（第 3 轮 i3 的指控机理，已由真跑用例否证：见 i3 用例）。
     if (!blobBaseRef) return null
     try {
       return execFileSync('git', ['-C', repo, 'show', `${blobBaseRef}:${rel}`], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 })
@@ -774,9 +768,40 @@ function repoObjectPath (ev) {
   const raw = String(ev || '').trim().replace(/#.*$/, '')
   if (!raw) return ''
   if (/^[A-Za-z]:/.test(raw)) return ''
-  if (raw.charAt(0) === '/' || raw.indexOf('..') >= 0) return ''
+  if (raw.charAt(0) === '/') return ''
   const BS = String.fromCharCode(92)
-  return raw.split(BS).join('/')
+  const norm = raw.split(BS).join('/')
+  // 第 3 轮 i5：上一版用 indexOf('..') 一律拒 ⇒ `v1..md` / `a..b.json` 这类**段内**合法文件名
+  // 被判成"不是仓内对象"，真实证据被降 external-unverified ⇒ 误红。上跳只在整段时成立。
+  if (norm.split('/').some((seg) => seg === '..')) return ''
+  return norm
+}
+
+/**
+ * 证据探针（由 main 注入给收口矩阵）。三条同时成立才算"可核"：
+ * ① 归一后是仓内对象路径；② **属于本次变更集**（第 3 轮 i4 的窄版：不要求"与评审语义相关"——
+ *    机器判不了；但要求证据落在本 PR 的 diff 里，于是"顺手加个空 stub 当证据"从隐蔽变成
+ *    本 PR 里一个**可见的新文件**，编造收口的成本从 0 抬到"必须留下审得着的东西"）；
+ * ③ 该 head 里真有其物（`git cat-file -e`）。
+ * 不注入探针的调用方（单测、仓外脚本）保持原形状语义 —— 判据的例外必须是注入参数，不是全局开关。
+ */
+function makeEvidenceProbe (opts) {
+  const statuses = (opts && opts.statuses) || []
+  const repo = (opts && opts.repo) || process.cwd()
+  const head = (opts && opts.head) || 'HEAD'
+  const changed = new Set()
+  for (const e of expandRenames(statuses)) {
+    changed.add(e.file)
+    if (e.from) changed.add(e.from)
+  }
+  return (ev) => {
+    const p = repoObjectPath(ev)
+    if (!p || !changed.has(p)) return false
+    try {
+      execFileSync('git', ['-C', repo, 'cat-file', '-e', head + ':' + p], { stdio: ['ignore', 'ignore', 'ignore'] })
+      return true
+    } catch { return false }
+  }
 }
 function evidenceForm (ev) {
   const s = String(ev).trim()
@@ -790,6 +815,13 @@ function evidenceForm (ev) {
   if (/^[0-9a-f]{40}$/.test(s)) return 'oid'
   // 文件形态必须"整串就是一个路径/文件名"，不是"串里出现了 .md"：
   // 否则 `x.md` 与 `see file: aaaa.md or b.md` 这类散文都算可核出处。
+  // 自家判据与引擎裁决模板互不认账（本轮收口时实测到）：`.adversarial/*/adjudication.json` 的
+  // instructions 明确要求 externalReview.evidenceRef 写成
+  //   https://github.com/<owner>/<repo>/pull/<n>#issuecomment-<id>
+  // 而本判据此前**一种形态都不认**（`#` 后面不是数字、串里没有 .md/.json 扩展名）⇒
+  // 照引擎模板写证据的人会被自家门禁判 external-unverified，而引擎说那样写才是合规出口。
+  // 这里认"公开可点开的 PR 评论 URL"，且只认这一个形状：host + 恰好三段路径 + /pull/<数字>。
+  if (/^https:\/\/github\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/pull\/\d+(?:[#?][^\s]*)?$/.test(s)) return 'url'
   if (/^[^\s]*[\\/][^\s]*\.(?:log|json|md|txt)(?:[#/][^\s]*)?$/.test(s)) return 'path'
   if (/^[\w.-]{3,}\.(?:log|json|md|txt)(?:[#/].*)?$/.test(s)) return 'path'
   return null
@@ -910,12 +942,14 @@ function renamedCarriesClosure (repo, rel) {
  */
 function verdictLine (r) {
   const t = (r && r.transition) || null
-  // 跨家族轴 i1：原先直接 `t.unverifiable + t.uncorroborated`。任一字段缺失/改名 ⇒ NaN ⇒
-  // `NaN > 0` 恒 false ⇒ 末行退回光秃秃的 OK —— 正是 X2-11 要防的形态，却由**读数形状**自己复现。
-  // 所以缺字段按"不可知"处理并单独出声，不得当成 0。
-  const nv = t ? Number(t.unverifiable) : 0
-  const nu = t ? Number(t.uncorroborated) : 0
-  const shapeUnknown = Boolean(t) && (!Number.isFinite(nv) || !Number.isFinite(nu))
+  // 跨家族轴 i1：原先直接 `t.unverifiable + t.uncorroborated` —— 任一字段缺失或改名即 NaN，
+  // 而 `NaN > 0` 恒 false ⇒ 末行退回光秃秃的 OK（X2-11 要防的形态被读数形状自己复现）。
+  // 第 3 轮 i6 补一刀：`Number(null) === 0` ⇒ 字段被写成 null 时会被洗成"零条没核到"，
+  // 而 undefined 走"不可知" —— 同一种缺证据两种口径。null / undefined / 非数字一律归入不可知。
+  const numOf = (v) => (v === null || v === undefined ? null : Number(v))
+  const nv = t ? numOf(t.unverifiable) : 0
+  const nu = t ? numOf(t.uncorroborated) : 0
+  const shapeUnknown = Boolean(t) && (nv === null || nu === null || !Number.isFinite(nv) || !Number.isFinite(nu))
   if (!r || !r.ok) return '不通过：' + (((r && r.reasons) || []).length || 0) + ' 条理由'
   if (shapeUnknown) {
     return 'OK（但转变读数缺字段：unverifiable/uncorroborated 不是数字 ⇒ 没核到的条数**不可知**，'
@@ -934,6 +968,8 @@ function expandRenames (statuses) {
     if (!e.from) continue
     // **只有 R（改名）意味着"旧路径消失"**。C（复制）的源文件仍在树里，给旧路径合成一条 D
     // 会凭空造出一笔"删除/改名带走未闭环记录"的假欠账（跨家族轴 X2-6 实测）。
+    // 注意 viaRename 的读法：D 条目里它指向**新路径**（"被改到哪里去"），A 条目里它指向旧路径。
+    // 消费者只有 D 循环（改名带走的合规回看），所以 A 侧那个字段是留给人读的，不是判据输入。
     if (s0 === 'R' && REVIEWS_DIR_RE.test(e.from)) extra.push({ status: 'D', file: e.from, viaRename: e.file })
     if ((s0 === 'R' || s0 === 'C') && REVIEWS_DIR_RE.test(e.file)) extra.push({ status: 'A', file: e.file, viaRename: e.from })
   }
@@ -1263,6 +1299,6 @@ function report(r, mode) {
 //   stripCommentsForScan 把源码削成「只含代码行」的视图（引号感知剥注释 + 规范化 CRLF）
 // 生产路径只用 describeAuditWidths / auditAcceptedAltForm().description；
 // 其余导出不改变判据行为，仅为可测性存在。
-module.exports = { isResolvableEvidence, isStructuredClosureNote, classifyEvidenceTier, summarizeTierCoverage, HIGH_RISK_SURFACES, isHighRiskSurface, highRiskPrefixOf, highRiskHits, expandRenames, closureCorroboration, summarizeTransitionCheck, evaluate, verdictLine, isVendored, VENDORED_SUBTREES, evidenceForm, repoObjectPath, dualClosedDeepReviews, resolveHeadBranch, readExemptsOnDisk, remoteBranchSet, isPureBackfillChangeSet, evaluateDeepReviewDebt, judgeBackendMismatch, CLOSED_DEEP_REVIEW_STATUSES, RECORDS_RE, EXEMPT_RE, CARRIER_RE, DEFAULT_THRESHOLD, AUDIT_ARTIFACT_RE, auditAcceptedWidths, auditAcceptedAltForm, describeAuditWidths, stripCommentsForScan, AUDIT_NAME_WIDTH_MIN, AUDIT_NAME_WIDTH_MAX }
+module.exports = { isResolvableEvidence, isStructuredClosureNote, classifyEvidenceTier, summarizeTierCoverage, HIGH_RISK_SURFACES, isHighRiskSurface, highRiskPrefixOf, highRiskHits, expandRenames, closureCorroboration, summarizeTransitionCheck, evaluate, verdictLine, isVendored, VENDORED_SUBTREES, evidenceForm, repoObjectPath, makeEvidenceProbe, dualClosedDeepReviews, resolveHeadBranch, readExemptsOnDisk, remoteBranchSet, isPureBackfillChangeSet, evaluateDeepReviewDebt, judgeBackendMismatch, CLOSED_DEEP_REVIEW_STATUSES, RECORDS_RE, EXEMPT_RE, CARRIER_RE, DEFAULT_THRESHOLD, AUDIT_ARTIFACT_RE, auditAcceptedWidths, auditAcceptedAltForm, describeAuditWidths, stripCommentsForScan, AUDIT_NAME_WIDTH_MIN, AUDIT_NAME_WIDTH_MAX }
 
 if (require.main === module) main(process.argv.slice(2))

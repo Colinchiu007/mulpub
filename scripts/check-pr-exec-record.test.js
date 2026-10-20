@@ -2217,6 +2217,138 @@ test('X2-12（扩锁）：单一实现锁必须挡住"行为等价的第二份�
 })
 
 
+test('引擎模板与判据互不认账：PR 评论 URL 必须是可核形态（否则照引擎写证据的人被自家门禁判红）', () => {
+  // .adversarial/*/adjudication.json 的 instructions 原文要求 externalReview.evidenceRef 写成
+  // https://github.com/<owner>/<repo>/pull/<n>#issuecomment-<id>，而本判据此前一律不认。
+  const ok = 'https://github.com/Colinchiu007/mulpub/pull/3987#issuecomment-6283101492'
+  assert.strictEqual(mod.evidenceForm(ok), 'url')
+  assert.strictEqual(mod.classifyEvidenceTier({ tier: 'external', evidence: ok }, () => false), 'external',
+    'URL 形态不得被"存在性探针"伸手（它指向的是 GitHub 上的对象，不在本仓 cat-file 域内）')
+  // 负控：形似但不是 PR 评论的串一律不认，不得把"含 github.com"当成出处
+  for (const bad of [
+    'https://github.com/o/r/pull/abc',
+    'https://github.com/o/r/issues/123',
+    'https://evil.example.com/o/r/pull/123',
+    'x https://github.com/o/r/pull/123',
+    'https://github.com/o/r/pull/123/../..',
+  ]) assert.strictEqual(mod.evidenceForm(bad), null, bad + ' 不该算可核指针')
+})
+
+
+test('i5：段内双点不是上跳（真实文件名不得被探针拒掉）', () => {
+  // 上一版用 raw.indexOf('..') 一律拒 ⇒ `v1..md` 这种合法文件名被判"不是仓内对象"，
+  // 在高危面上把**真证据**降成 external-unverified ⇒ 误红。上跳只在整段时成立。
+  assert.strictEqual(mod.repoObjectPath('reports/v1..md'), 'reports/v1..md')
+  assert.strictEqual(mod.repoObjectPath('a/b..c.json'), 'a/b..c.json')
+  assert.strictEqual(mod.repoObjectPath('../outside.md'), '')
+  assert.strictEqual(mod.repoObjectPath('a/../b.md'), '')
+  assert.strictEqual(mod.repoObjectPath('..//b.md'), '')
+  assert.strictEqual(mod.repoObjectPath('reports\\judge.md'), 'reports/judge.md')
+})
+
+test('i6：显式 null 与缺字段同档，不得被 Number(null)=0 洗成"零条没核到"', () => {
+  assert.match(mod.verdictLine({ ok: true, transition: { unverifiable: null, uncorroborated: null } }),
+    /^OK（但转变读数缺字段/, 'null 走"不可知"：' + mod.verdictLine({ ok: true, transition: { unverifiable: null, uncorroborated: null } }))
+  assert.match(mod.verdictLine({ ok: true, transition: { unverifiable: 2, uncorroborated: null } }),
+    /^OK（但转变读数缺字段/, '一半可读一半不可读时整体按不可知，不得只报可读那半')
+  assert.match(mod.verdictLine({ ok: true, transition: { unverifiable: 2, uncorroborated: 1 } }),
+    /未证实=2 无出处=1/, '两个都是数字时照常报数（这条是上一格的负控：判据不得恒真')
+})
+
+test('i4：路径形态的证据必须属于本次变更集（真跑探针）', () => {
+  const cp = require('node:child_process'); const os = require('node:os')
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'evprobe-'))
+  const run = (a) => cp.execFileSync('git', a, { cwd: dir, encoding: 'utf8' })
+  const rel = '01-docs/evidence/judge-report.md'
+  try {
+    run(['init', '-q', '-b', 'main', dir])
+    fs.mkdirSync(path.join(dir, '01-docs', 'evidence'), { recursive: true })
+    fs.writeFileSync(path.join(dir, rel), '# 报告\n', 'utf8')
+    run(['add', '-A'])
+    run(['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'base'])
+    const probe = mod.makeEvidenceProbe({ statuses: [{ status: 'M', file: 'scripts/check-x.js' }], repo: dir, head: 'HEAD' })
+    // ① 存在但不在变更集 ⇒ 不可核（"指一份仓里本来就有的文档"不再算出处）
+    assert.strictEqual(probe(rel), false, '仓内既有文件不等于本 PR 的证据')
+    assert.strictEqual(probe('01-docs/evidence/judge-report.md#L1'), false, '带锚点也不得绕过归属判据')
+    // ② 属于变更集且真存在 ⇒ 可核
+    const probe2 = mod.makeEvidenceProbe({ statuses: [{ status: 'A', file: rel }], repo: dir, head: 'HEAD' })
+    assert.strictEqual(probe2(rel), true, '本 PR 新增且真在 head 里的路径必须验得到')
+    // ③ 属于变更集但 head 里没有 ⇒ 不可核（归属不等于存在）
+    const probe3 = mod.makeEvidenceProbe({ statuses: [{ status: 'A', file: 'reports/never-committed.md' }], repo: dir, head: 'HEAD' })
+    assert.strictEqual(probe3('reports/never-committed.md'), false, '写进变更集不等于对象存在')
+    // ④ 改名形态：两侧路径都算"归属"，但存在性只认 head 里真有的那一份。
+    // （上一条断言原先写的是 probe4(rel)——旧路径在这份夹具里**确实存在**于 head，
+    //   所以它返回 true 是正确行为，是我的用例把场景编错了；改成断言"新路径不存在"这一格。）
+    const probe4 = mod.makeEvidenceProbe({ statuses: [{ status: 'R', from: rel, file: '01-docs/evidence/moved.md' }], repo: dir, head: 'HEAD' })
+    assert.strictEqual(probe4('01-docs/evidence/moved.md'), false, '归属过了但 head 里没这个新路径 ⇒ 仍按不可核')
+    assert.strictEqual(probe4(rel), true, 'from 侧也算归属，且旧路径在 head 里真存在 ⇒ 可核（不得因为"它被改过名"就一律拒）')
+  } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('i1+i2（否证产物）：C 不合成 D，viaRename 只被 D 方向消费', () => {
+  // 评审说"C 的合成 A 仍带 viaRename ⇒ 债务判据报『改名带走』并点名未删除的旧路径"。
+  // 实测不成立：D 方向的合成只对 R 发生（本断言就是那条否证的产物），A 侧的 viaRename 无人消费。
+  const expanded = mod.expandRenames([{ status: 'C', from: ART_OLD, file: ART_NEW }])
+  assert.deepStrictEqual(expanded.filter((e) => e.status === 'D').map((e) => e.file), [],
+    'C 的源文件仍在树里，合成 D 等于凭空造一笔"删除未闭环记录"')
+  const rExpanded = mod.expandRenames([{ status: 'R', from: ART_OLD, file: ART_NEW }])
+  assert.strictEqual(rExpanded.filter((e) => e.status === 'D')[0].viaRename, ART_NEW,
+    'D 侧 viaRename 必须指向**新路径**——renamedCarriesClosure 读的就是它')
+  // 复制一条未闭环产物 ⇒ 报的是"A 新增即闭环/未闭环"这一档，文案里不得出现"改名"
+  const repo = repoWithFile(ART_NEW, { mode: 'dual', deepReview: { required: true, status: 'pending', tier: 'unknown' } })
+  try {
+    const r = mod.evaluateDeepReviewDebt([{ status: 'C', from: ART_OLD, file: ART_NEW }], repo, () => null)
+    const txt = r.reasons.join(' | ')
+    assert.ok(!/改名/.test(txt), 'C 场景不得出现改名措辞：' + txt)
+    assert.ok(txt.indexOf(ART_OLD) < 0, 'C 场景不得点名未被删除的旧路径：' + txt)
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('i3（否证产物）：merge-base 解不出时 readAtBase 走短路返回 null，不读暂存区', () => {
+  // 评审的机理是"blobBaseRef='' ⇒ git show ':rel' ⇒ 读 index ⇒ 若证据恰被 staged 就把 wasClosed 读成 true"。
+  // 这一条用真跑 CLI 判生死：把 base 指成一个**无共同祖先**的孤立分支，merge-base 必失败 ⇒
+  // 若真读了 index，读数会是"已核对=1"；短路返回 null 才是"未证实=1"。
+  const cp = require('node:child_process'); const os = require('node:os')
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mb-null-'))
+  const run = (a) => cp.execFileSync('git', a, { cwd: dir, encoding: 'utf8' })
+  try {
+    run(['init', '-q', '-b', 'main', dir])
+    fs.mkdirSync(path.join(dir, '.ccg', 'reviews'), { recursive: true })
+    fs.mkdirSync(path.join(dir, 'openspec', 'records'), { recursive: true })
+    fs.writeFileSync(path.join(dir, '.ccg', 'reviews', SHA64 + '.json'),
+      JSON.stringify({ mode: 'dual', deepReview: { required: true, status: 'cleared', tier: 'external', evidence: 'ses_probe0001' } }, null, 2), 'utf8')
+    fs.writeFileSync(path.join(dir, 'openspec', 'records', 'pr.md'), '---\nrecord: pr\n---\n\n## 记录\n', 'utf8')
+    run(['add', '-A'])
+    run(['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'head side'])
+    run(['checkout', '-q', '--orphan', 'unrelated'])
+    run(['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'orphan root'])
+    run(['checkout', '-q', 'main'])
+    const res = (() => {
+      try {
+        return { rc: 0, out: cp.execFileSync(process.execPath, [path.join(__dirname, 'check-pr-exec-record.js'),
+          '--repo=' + dir, '--base=unrelated', '--mode=enforce',
+          '--statuses=' + JSON.stringify([{ status: 'M', file: '.ccg/reviews/' + SHA64 + '.json' }])], { cwd: dir, encoding: 'utf8' }) }
+      } catch (e) { return { rc: (e && e.status) || 1, out: String((e && e.stdout) || '') } }
+    })()
+    assert.match(res.out, /\[TRANSITION-BASE\] merge-base 取不到/, '必须先出声：' + res.out.slice(0, 200))
+    assert.match(res.out, /TRANSITION-CHECK .*未证实=1/, '取不到 base 只能记未证实：' + res.out.slice(0, 300))
+    assert.match(res.out, /已核对=0/, '不得把"读不到"洗成"已核对"（那正是 i3 担心的 index 读法）')
+  } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('i7（扩锁）：第二份匹配的所有等价形态都要被点名，不只是 find/map 两个方法名', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'check-pr-exec-record.js'), 'utf8')
+  const start = src.indexOf('function highRiskPrefixOf')
+  const end = src.indexOf('\n}', start)
+  assert.ok(start >= 0 && end > start, '锚点定位失败 ⇒ 本锁测量域不可信')
+  const outside = src.slice(0, start) + src.slice(end)
+  assert.ok(!/HIGH_RISK_SURFACES\s*\.\s*(some|every|reduce|flatMap|forEach|map|filter|find|some)/.test(outside),
+    '清单的方法式遍历只准发生在 highRiskPrefixOf 里')
+  assert.ok(!/HIGH_RISK_SURFACES\s*\[/.test(outside), '下标遍历 HIGH_RISK_SURFACES[i] 也是第二份实现')
+  assert.ok(!outside.includes('of HIGH_RISK_SURFACES'), 'for...of / for...in 同罪')
+})
+
+
 test('2.1 单一匹配实现：高危面前缀匹配只准有一处（highRiskPrefixOf）', () => {
   const src = fs.readFileSync(path.join(__dirname, 'check-pr-exec-record.js'), 'utf8')
   const start = src.indexOf('function highRiskPrefixOf')
