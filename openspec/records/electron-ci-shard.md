@@ -1,0 +1,100 @@
+---
+record: electron-ci-shard
+task: 接通 Electron CI 串行单测的自证块（#2525 承诺但从未执行），并按 --shard 切成三片消除撞墙
+date: 2026-10-20
+---
+
+## 本次执行记录：Electron CI 自证块接通 + 分片（electron-ci-shard，2026-10-20）
+
+| 门禁 | 状态 | Fresh 证据 |
+|------|------|-----------|
+| 变更类型与隔离 | 运行时代码/CI 变更 | worktree `<WORKTREE_ROOT>\mp-electron-ci-shard`，裸分支 `electron-ci-shard`；`.github/` 属运行时路径，未在共享根落盘 |
+| 第一性原因（QM-5 ①） | 完成 | 见下 §一：两个独立引入点，各有 commit |
+| 逃逸分析（QM-5 ②） | 完成 | 见下 §二：四层逃逸链 |
+| 修复 + 回归保护（QM-5 ④） | 完成 | 见下 §四 + 45 例绿 + 变异反证 |
+| 防止再次发生（QM-5 ⑤） | 完成 | 见下 §五：判据域从「文本存在」改为「行为成立」 |
+| 行尾与 diff 对账 | 待提交后取证 | `--numstat` 与 `--ignore-cr-at-eol --numstat` 必须相等 |
+| 接线棘轮 | N/A | 未新增 `*.test.js`（锁写进已在 CI 里被点名的既有文件） |
+| QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/**` 与任何渲染面 |
+| QM-6 CCG 双模型外部评审 | 见提交后回填 | M 级（跨 2 文件 + CI 形状变更），按决策矩阵需双模型审查 |
+| 远程同步 | 由门禁推导 | 本行不需事后改写；合并后按主干历史推导（`scripts/lib/merge-ledger.js` 只认 squash 尾注 `(#NNNN)`） |
+
+## 一、第一性原因（QM-5 ①）
+
+两个独立的引入点，都追溯到具体 commit：
+
+| # | 缺陷 | 引入点 | 当时意图 |
+|---|------|--------|---------|
+| R1 | 自证块在 `bash -e -o pipefail` 下永不执行 | `bef5fb72c`（#2525，2026-09-28） | PR 标题是「**让超时失败能自证**」。作者把 `RC=${PIPESTATUS[0]}` 与整段诊断**放在** `timeout … \| tee` **之后**，但该 job 的 `shell: bash` 在 GitHub 上带 `-e -o pipefail` ⇒ `timeout` 返回 124 时 `-e` 立刻退出步骤，后面一行都不到。作者想到了「`cmd \| tee` 的 `$?` 是 tee 的」，却漏了 `-e` 会先杀进程 |
+| R2 | 整轮单 worker 串行，无分片 | 与 R1 同源（`timeout` 包装自 #1913/#1906 起的形状） | 用单 worker 串行换确定性 + 「main 侧第二次独立运行」的 flake 检出。这个目标本身是对的，但「一轮跑完全部」使步骤耗时对 runner 负载极度敏感 |
+
+**关键旁证**：#2525 只改了这一处 step，而同一 `run:` 目录下早就有 `set +e … set -e` 的正确写法
+（Electron 冒烟步骤 `set +e; timeout 30 pnpm exec electron …; status=$?; set -e`）。
+即：**同一个文件里已有正确范式，新增的这段没用它。**
+
+## 二、逃逸分析（QM-5 ②）—— 四层逃逸链
+
+| 层 | 是否拦住 | 为什么没拦住 |
+|----|---------|-------------|
+| 单元/结构锁 | **否** | `apps/desktop/tests/gui-ci-exit-contract.test.js` 的「预算挂实测、超时可自证、不与 job 级倒挂」只断言 `BUDGET_SECONDS=2100` / `TIMEOUT_BUDGET_EXCEEDED` / `elapsed=` / `RC=${PIPESTATUS[0]}` 四个**字符串存在于 YAML**。判据域是文本，被测性质是运行时执行路径 —— 两者不等价 |
+| 集成/E2E | **否** | 没有任何测试**真跑**一次「让 `timeout` 触发」的 shell 片段。唯一会触发它的是 CI 超时本身，而超时是低频事件；即便触发，也没人比对「日志里有没有自证行」 |
+| 代码审查 | **否** | diff 里那段 `echo "[electron-ci-timeout-budget] elapsed=…"` 视觉上完全满足「能自证」的叙述。审查者要发现它，必须在脑内模拟 `-e` 的控制流 |
+| CI 门禁 | **否** | 该结构锁通过 ⇒ 绿 ⇒ 无信号。红灯来自 `exit 124`，而 `exit 124` 恰恰就是「自证块没跑」的表现，两者互为因果，形成闭环 |
+
+**逃过原因分类**：① 断言不精确（判据域错位，属于本仓 `mutation-probe-blindness` 同族：
+「反证全绿可以是一条都没跑」）；② 测试不执行（行为从未被真实执行过）。
+
+## 三、系统性漏洞定位（QM-5 ③）
+
+- **文件**：`apps/desktop/tests/gui-ci-exit-contract.test.js`（用例「Electron CI 串行单测预算挂实测、超时可自证、且不与 job 级倒挂」）
+- **漏洞类别**：**测试质量不足 —— 断言域错位**。`toContain` 系列断言的是「这段文本在 YAML 里」，
+  而仓库真正需要的性质是「这段代码在 `-e -o pipefail` 下会被执行」。
+- **可机械判定的形态**：凡「YAML 里有一整段失败诊断」，都必须有一条测试**真执行**它，
+  否则该诊断与不存在等价。这一条可推广到所有 `timeout` 包装、所有 `|| echo` 依赖。
+- **同族历史**：本仓已在 `01-docs/learnings.md` 记过两次同型（变异驱动没自证探针活着；
+  `.quality-gates.md` 的「表格行 PASS、bullet PENDING」两口径矛盾）。**本次是第三次**。
+
+## 四、修复 + 回归保护（QM-5 ④）
+
+| 改动 | 内容 |
+|------|------|
+| C1 接通自证 | `set +e` … `RC=${PIPESTATUS[0]}` … `set -e`（与同文件冒烟步骤同形） |
+| C2 分片 | `strategy.matrix.shard: [1,2,3]` + `--shard=${{ matrix.shard }}/${{ strategy.job-total }}` |
+| C3 单片预算 | `BUDGET_SECONDS=900`（≈ 单片健康 265s ×3.4，且**严格低于**旧墙 1200s） |
+| C4 确定性不变 | `--maxWorkers=1 --no-file-parallelism --reporter=verbose` 全保留 |
+
+**回归保护（新增两条锁）**：
+
+1. **行为锁**「自证块必须在 bash -e -o pipefail 下真能执行」——
+   取 `run` 原文，只替换两个量（预算→1s、`pnpm …`→`sleep 5`），用 `bash -e -o pipefail` 真跑，
+   断言 `status===124` 且 stdout 含 `[electron-ci-timeout-budget] elapsed=` / `rc=124` / `TIMEOUT_BUDGET_EXCEEDED`。
+   **变异反证已做**：摘掉 `set +e` → 立即红并报「自证行缺席 ⇒ 自证块又被 -e 提前杀掉了」。
+2. **结构锁**「按 shard 切开，单片预算挂单片实测」——
+   断言 matrix 存在且 ≥2 片、`--shard=…/job-total`、确定性参数保留、`budget ≥ 单片健康 ×3`、
+   以及反向判据 `budget < 20*60`（防「把抬预算包装成分片」）。
+
+**既有锁的口径同步（属实现更正确后契约要改，不是掩盖失败）**：
+原锁用整轮 794s 卡预算（要求 ≥1588s）。分片后必须按片摊薄，否则会得出「必须 ≥1588s」
+这种把分片收益吐回去的结论。同一次还改了三处按步骤名精确等值的 `find/filter`——
+步骤名新增了 `, shard <i>/<n>` 后缀，精确等值会返回空集，而 `toHaveLength(1)` 会因此
+红得莫名其妙（前缀匹配才是这些断言的本意）。
+
+## 五、防止再次发生（QM-5 ⑤）
+
+1. **判据域升级**：诊断类代码的锁一律从「字符串存在」改为「**真执行且断言输出**」。
+   本次给出可复制的范式：文本替换两处 + `bash -e -o pipefail` + 断言 stdout。
+2. **变异反证留痕**：新锁必须能因「删掉 `set +e`」而红。这一条已写进本记录并在提交信息里点名。
+3. **换算规则写进事实源**：`docs/electron-ci-step-budget-baseline.md` 新增「整轮 794s 不能直接卡单片预算」，
+   并就地更正该文档原先那句「档 3 已实现」——**那句话是错的，且它是本次偏差的直接来源**。
+4. **提案层留证**：`openspec/changes/electron-ci-shard-budget/proposal.md` 记录了
+   `electron-tests` 不在 required checks 的取证，避免后人误以为 matrix 会破坏分支保护。
+
+## 遗留（不假装已闭合）
+
+- **档 4 仍未做**：`CI Failure Handler` 尚未把「`exit 124` 且无摘要行」归类为 `ci-timeout-budget`。
+  分片 + 自证接通后，这类事件的归因成本已大幅下降，但自动化归类仍缺。
+- **成本上升**：三片各跑一遍 install / electron runtime / preload 构建，runner 分钟数约 ×3。
+  这是用成本换「不再撞墙 + 失败可归因」，未做成本优化。
+- **分片数是否该更大**：本次取 3 片是按 794s 健康耗时估的，**尚未用真实分片运行数据校准**。
+  接通自证之后，下一轮 main push 会首次产出 `elapsed=` 读数，届时应据此复核片数与预算，
+  而不是沿用本记录里的估计值。

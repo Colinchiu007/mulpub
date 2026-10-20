@@ -11,6 +11,31 @@
 - **两轮外部评审的处置口径**：第 1 轮两轴共 17 条（claude 6 + codex 11）逐条处置，接受 12、部分接受 2、否证 2 —— 其中"按记录自身路径判高危"这条**必须否证**：判定记录本来就是 PR 级的，`.ccg/reviews/<hash>.json` 永远不落在任何前缀上，照那个修法改等于把刚建立的矩阵整条关掉（实测归因恒空）。第 2 轮 8 条里又拦住一条真后门：高危面上「本次新增即写 cleared 而 `tier` 缺席」既不受转变检测管辖（没有 base 可比）也不被矩阵拦（unknown 放过）—— 那是"给自己贴一张已通过"的零成本路径，现在拦。跨家族轴第 2 轮**未交付**（`429` 两次、`503` 一次，清单里的 `opencode` 仍是 IP 级拒绝），所以处置引入的那部分改动只有单轴复审，这条如实记在记录 §六 第 13 条而不是写成"双模型完成"。
 - 现场记 `openspec/records/qm6-highrisk-matrix.md`；合同对账见 `openspec/changes/ccg-review-degradation-ladder/tasks.md` 第 2 节（2.1–2.5 已勾，2.3 的偏差逐字写明）与 8.1（**不勾**，只落判据侧那一半，另一半拆成 8.1b）。
 
+# [未发布] fix(ci): 接通 Electron CI 串行单测的自证块，并按 --shard 切成三片（electron-ci-shard-budget）
+
+- **动因（main 长期红且不可归因）**：`electron-tests` 近 12 次 main push 里 5 次失败，日志零条 `×`、零条 `FAIL`、
+  零条 vitest 摘要行，只有 `exit code 124`。同一形态在**不是本仓 PR 内容**的提交上复现，故与具体改动无关。
+- **第一性原因 ①（自证从未执行）**：#2525 的标题是「让超时失败能自证」，但 `RC=${PIPESTATUS[0]}` 与整段
+  `TIMEOUT_BUDGET_EXCEEDED` 诊断被放在 `timeout … | tee` **之后**，而本 job 的 shell 是 `bash -e -o pipefail` ——
+  `timeout` 返回 124 时 `-e` 立刻退出步骤，其后一行都不执行。**该自证块自合入起从未运行过一次**。
+  同一 `run:` 目录下的 Electron 冒烟步骤早就用着正确的 `set +e … set -e` 写法，新增的这段没用它。
+- **第一性原因 ②（无分片）**：整轮单 worker 串行，健康耗时 794s 对 2100s 有 2.64 倍余量，但 runner 负载能把步骤
+  放大到 2.6 倍以上而撞墙。工作流自己的注释写着「根因修法是按 `--shard` 切开，而不是继续加大预算」。
+- **修法**：`set +e` 包住管道接通自证；`strategy.matrix.shard: [1,2,3]` + `--shard=<i>/<total>`；
+  单片预算 `900s`（≈ 单片健康 265s ×3.4，且**严格低于**被替换的 1200s 旧墙，故这不是「抬预算」的包装）；
+  `--maxWorkers=1 --no-file-parallelism` 全保留，确定性语义与「main 侧第二次独立运行」的 flake 检出原意都不丢。
+- **回归保护**：结构锁的判据域从「字符串存在于 YAML」升级为「**真执行并断言输出**」——
+  取 `run` 原文、只替换两个量、在 `bash -e -o pipefail` 下真跑，断言自证行真的打印。
+  **变异反证已做**：摘掉 `set +e` 后该锁立刻红。另加反向判据 `budget < 20*60`，防「把抬预算包装成分片」。
+- **两处测试契约同步**（属实现更正确后契约要改）：① 预算基线从整轮 794s 改为按片摊薄，否则会得出
+  「必须 ≥1588s」这种把分片收益吐回去的结论；② 三处按步骤名精确等值的 `find/filter` 改前缀匹配
+  （步骤名新增 `, shard <i>/<n>` 后缀，精确等值返回空集会红得莫名其妙）。
+- **事实源更正**：`docs/electron-ci-step-budget-baseline.md` 原先写着「档 3 已实现」——那句话是错的，
+  且它是本次偏差的直接来源，已就地更正并补上分片决策与取证（含 `electron-tests` 不在 required checks 的
+  `gh api` 读数，说明 matrix 不会破坏分支保护）。
+- 遗留：`CI Failure Handler` 仍未把「`exit 124` 且无摘要行」归类为 `ci-timeout-budget`（档 4）；
+  三片各跑一遍 setup，runner 分钟数约 ×3；分片数 3 是按 794s 估的，需用接通自证后的首轮真实 `elapsed=` 复核。
+
 # [未发布] chore(debt): 债务熔断基线 re-sync 到主干现状——接受漂移不是清理，并登记拆分红利（debt-baseline-resync）
 - **现场**：`debt-guard.yml` 的「债务熔断检查」从今天起在**每一个** rebase/merge 到今天主干的
   pull request 上判红：`MAX_FILE_LINES: 5359 > baseline 5239`、`FILES_OVER_1000: 29 > baseline 28`。

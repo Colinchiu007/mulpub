@@ -73,6 +73,18 @@ jobs:
     needs: [changes]
     # docs-only 短路：纯文档 PR 跳过（skipped 满足 required check；混合 PR 全量不变）
     if: needs.changes.outputs.docs-only != 'true'
+    # 按 --shard 把串行单测切开（issue 档 2）。
+    # 动因见 docs/electron-ci-step-budget-baseline.md 与本 job 内层预算注释：
+    # 单轮全量串行的健康耗时 794s 对 2100s 有 2.64 倍余量，但 runner 负载能把
+    # 步骤耗时放大到 2.6 倍以上而撞墙（近 12 次 main push 里 5 次 exit 124，
+    # 且**与本 job 只跑 main push** 这一形状强相关）。切三片后单片健康耗时≈265s，
+    # 同样的负载放大不再撞墙；`--maxWorkers=1 --no-file-parallelism` 的确定性语义
+    # 与「main 侧第二次独立运行」的 flake 检出原意都不丢。
+    # 反故意：这不是「抬预算」的包装 —— 单片预算 1200s **低于**被替换的 20 分钟旧墙。
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     # 预算不得倒挂（#2458）：本 job 的显式上限之和 = Install dependencies 10 +
     # Install Electron runtime 10 + 串行单测步骤内层 timeout 35 = 55 分钟，
     # 再加 checkout/setup/媒体工具 restore/冒烟/构建等无上限步骤。
@@ -137,29 +149,37 @@ jobs:
 
       # 2026-09-17：PR 上跳过本步（同一批桌面测试已由 QG desktop-shards 分片执行），
       # 仅在 main push / workflow_dispatch 运行，保留「单 worker 串行确定性模式」的 CI 覆盖与第二次独立运行的 flake 检出。
-      - name: Unit tests (Vitest, non-Electron, single-worker deterministic)
+      - name: Unit tests (Vitest, non-Electron, single-worker deterministic, shard ${{ matrix.shard }}/${{ strategy.job-total }})
         if: github.event_name != 'pull_request'
         run: |
           # 预算必须挂**步骤级**实测，不能挂魔数，也不能拿 job 级总时长当步骤基线（#2458）。
-          # 步骤健康耗时实测 794s（run 36380533567 / main push bef5fb72 的自证行
-          # `elapsed=794s budget=2100s rc=0`），被替换掉的旧墙是 1200s。真实红因是 runner
-          # 负载把步骤耗时放大到越过旧墙（main 近 14 次运行里 8 次 exit 124），而不是
-          # "自然耗时已贴着墙" —— 794s 对 1200s 本来还有约 33% 余量。
-          # 层级混淆的完整依据与两个数字的出处：docs/electron-ci-step-budget-baseline.md。
-          # 2100s ≈ 健康步骤耗时 ×2.6 ≈ 旧墙 ×1.75，属**单调放宽**（不会让任何原本通过的运行
-          # 变红），但仍不是「修好了根因」：根因修法是按 --shard 把这一轮切开（issue 档 2）。
-          # 同一 job 级 timeout-minutes 必须一起抬，否则只是把「不可归因的超时」从
-          # timeout(1) 换成 Actions 的 job killer —— 那正是本 issue 的失效模式。
-          BUDGET_SECONDS=2100
+          # 本轮把整轮切开成 ${{ strategy.job-total }} 片，每片只跑自己那一份：
+          # 单片健康耗时 ≈ 整轮实测 794s / 片数（整轮实测出处：run 36380533567 / main push
+          # bef5fb72 的自证行 `elapsed=794s budget=2100s rc=0`）。
+          # 单片预算 900s ≈ 单片健康 ×3.4，且严格**低于**被替换的 20 分钟（1200s）旧墙 ——
+          # 切成 N 片之后单片墙反而更矮，所以这不是「抬预算」的包装。
+          # 完整依据（层级混淆、两组数字、shard 决策与取证）见
+          # docs/electron-ci-step-budget-baseline.md 与 openspec/changes/electron-ci-shard-budget/。
+          #
+          # ⛔ `set +e` 是必须的，不是风格（2026-10-20 follow-up）：
+          #    本 job 的 shell 是 `bash -e -o pipefail`，`timeout` 返回 124 时 `-e` 会**立刻
+          #    退出步骤**，于是后面的 PIPESTATUS 与整段自证诊断一次都不会执行。实测两次失败
+          #    attempt 的日志里都没有 `[electron-ci-timeout-budget] elapsed=… rc=…` 这行 ——
+          #    #2525 的标题是「让超时失败能自证」，但它专门为之设计的那个场景，恰恰是它唯一
+          #    不出现的场景。行内 `set -e` 只影响本步骤的子 shell，不波及其它步骤。
+          BUDGET_SECONDS=900
           LOG=electron-ci-unit-tests.log
           START=$(date +%s)
+          set +e
           timeout --signal=TERM --kill-after=30s ${BUDGET_SECONDS}s \
             pnpm --filter @multi-publish/desktop test -- \
+            --shard=${{ matrix.shard }}/${{ strategy.job-total }} \
             --maxWorkers=1 --no-file-parallelism --reporter=verbose \
             --testTimeout=10000 --hookTimeout=10000 --teardownTimeout=10000 2>&1 | tee "$LOG"
           # 必须读 PIPESTATUS：`cmd | tee` 的 $? 是 tee 的退出码（恒 0），
           # 直接判 $? 会把超时和断言失败一起吞成成功。
           RC=${PIPESTATUS[0]}
+          set -e
           END=$(date +%s)
           ELAPSED=$((END - START))
           echo "[electron-ci-timeout-budget] elapsed=${ELAPSED}s budget=${BUDGET_SECONDS}s rc=${RC}"

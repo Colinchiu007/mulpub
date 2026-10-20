@@ -28,6 +28,63 @@
   「Electron CI 串行单测预算挂实测、超时可自证、且不与 job 级倒挂」。
 - 任何后续调预算都要**先补一次步骤级实测**（从 runner 日志读 `elapsed=` 行，而不是看 job 总时长），
   再改锁里的常量；只改 workflow 不改锁 = 锁失效。
-- 真失败判据仍要求 `exit 124` 时能自证（`elapsed/budget/rc` + 摘要行数），见 #2458 档 3（已实现）。
-- #2458 未做的两档继续挂在该 issue 上：档 2 用 `--shard` 切开这一轮（根因）、
-  档 4 让 `CI Failure Handler` 把「`exit 124` 且无摘要行」归类为 `ci-timeout-budget`。
+- 真失败判据仍要求 `exit 124` 时能自证（`elapsed/budget/rc` + 摘要行数），见 #2458 档 3。
+  ⚠️ **2026-10-20 更正：这一条此前写着「已实现」，是错的 —— 见下面「自证其实从未执行过」。**
+- #2458 未做的两档继续挂在该 issue 上：~~档 2 用 `--shard` 切开这一轮（根因，已于 2026-10-20 落地，见下）~~、
+  档 4 让 `CI Failure Handler` 把「`exit 124` 且无摘要行」归类为 `ci-timeout-budget`（仍未做）。
+
+---
+
+## 2026-10-20：档 2 落地（shard 三片），并更正档 3 的「已实现」
+
+### 自证其实从未执行过
+
+`electron-ci.yml` 里 `timeout … | tee "$LOG"` 之后跟着 `RC=${PIPESTATUS[0]}` 与整段
+`TIMEOUT_BUDGET_EXCEEDED` 诊断。但该 job 的 shell 是 `bash -e -o pipefail`：
+`timeout` 返回 124 时 `-e` **立刻退出步骤**，其后每一行都不执行。
+
+实测证据（2026-10-19，`4832662e9` 的两次 attempt，以及**不是本仓 PR 内容**的 `715391c88`）：
+
+| 现象 | 读数 |
+| --- | --- |
+| 步骤结局 | `##[error]Process completed with exit code 124` |
+| 自证行 `[electron-ci-timeout-budget] elapsed=… rc=…` | **不存在** |
+| `×` 失败用例 / `FAIL` 行 / vitest 摘要行 | **各 0 条**（整轮没跑完） |
+
+也就是说 #2525 的标题「让超时失败能自证」**从未兑现过一次**：它专门为之设计的场景，
+恰恰是它唯一不出现的场景。旧结构锁只断言那四行**字符串存在于 YAML**，
+而被测性质是**运行时执行路径**——判据域错位，于是锁一直是绿的。
+
+修法：`set +e` / `set -e` 包住管道（与本文件同一 `run:` 块里的 Electron 冒烟步骤同形）。
+锁改成**真执行**：取 `run` 原文，在 `bash -e -o pipefail` 下跑一遍（预算压到 1s、
+内层命令换成必超时的 `sleep`），断言自证行真的打印。摘掉 `set +e` 后该锁立刻变红
+（已做变异反证），故它测的是行为而不是文本。
+
+### 分片：单片基线而非整轮基线
+
+| 项 | 值 |
+| --- | --- |
+| 分片数 | 3（`strategy.matrix.shard: [1,2,3]`，`--shard=<i>/<total>`） |
+| 单片健康耗时 | ≈ 794 / 3 ≈ **265 s** |
+| 单片预算 | `BUDGET_SECONDS=900` ≈ 单片健康 ×3.4，且**严格低于**被替换的 1200 s 旧墙 |
+| 不变式 | `--maxWorkers=1 --no-file-parallelism` 保留 ⇒ 确定性语义与「main 侧第二次独立运行」的 flake 检出原意都不丢 |
+
+**为什么这不是「抬预算」的包装**：单片墙 900 s **比被替换的旧墙 1200 s 更矮**。
+抬预算的判据是数字变大，分片的判据是「每片工作量降到 1/N 且单片墙变小」——
+结构锁里的 `expect(budgetSeconds).toBeLessThan(20 * 60)` 就是这条反向判据。
+
+**由此得出的换算规则**：整轮的 794 s 不能直接拿来卡单片预算。用整轮基线卡单片会得出
+「必须 ≥1588 s」这种把分片收益又吐回去的结论。**要卡单片，就先把基线按片摊薄。**
+
+### 为什么 matrix 不算「改谁来守门」
+
+`electron-tests` **不在分支保护的 required checks 里**（取证：
+
+```
+gh api repos/<owner>/<repo>/branches/main/protection
+  → required_status_checks.contexts = ["Gate Result", "build", "QG Unit Tests", "QG Coverage"]
+```
+
+）。因此 matrix 产生的 `electron-tests (1)`/`(2)`/`(3)` 不会造成
+「Expected — waiting for status to be reported」。本变更不改分支保护规则、
+不改 `CI_IGNORED_PATHS` 白名单。
