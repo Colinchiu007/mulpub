@@ -1,0 +1,58 @@
+{
+  "sha": "570e20bd9556478f9a9808cbf42f41719273bea0",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 2,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "  - **清单唯一真源**：高危面 = `check-pr-exec-record.js::HIGH_RISK_SURFACES`，逐条自带实测命中数（凭证加解密 / 登录态串行锁 / 云端账号校验 / 登录态三态口径 / 指纹面（限源码扩展名）/ `.github/workflows/` / `scripts/check-`（判据自指）/ `scripts/ccg-review-` / `scripts/deep-review`）。本文这份清单只是导览，**取数一律读该常量**——写进文档的复述（含条数）会过期。前缀匹配实现同样只有一处（`highRiskPrefixOf`），由结构锁钉死「只准一处」。",
+      "  - **清单唯一真源**：高危面 = `check-pr-exec-record.js::HIGH_RISK_SURFACES`，逐条自带实测命中数（凭证加解密 / 登录态串行锁 / 云端账号校验 / 登录态三态口径 / 指纹面（限源码扩展名）/ `.github/workflows/` / `scripts/check-`（判据自指）/ `scripts/ccg-review-` / `scripts/deep-review`）。**这段括号是举例不是清单**：条目只由常量持有，新增/收窄前缀时改常量、不改本文（本仓在飞的候选是把 `scripts/lib/ccg-review-` 也列进去）。写进文档的复述（含条数）会过期，**取数一律读该常量**。前缀匹配实现同样只有一处（`highRiskPrefixOf`），由结构锁钉死「只准一处」。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "8457ac31d35f3df3a79ba1ac062b5d8f72cb339428234a113a3bb0c83182cdae",
+  "decidedAt": "2026-10-20T10:53:54.570Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}
