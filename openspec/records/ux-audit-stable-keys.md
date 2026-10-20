@@ -44,3 +44,7 @@ sync_backfill_owner: 无需回填（派生收口）；旧载体存量行仍由�
 2. 剩余 41 处位置键未逐个裁定。已判定的是"子树无 DOM 状态 ⇒ 位置键可接受"这一类**不是缺陷**，但仓内没有机械判据能区分它们与未来新增的真缺陷。
 3. 全仓 `index-key` 棘轮**需要人工批准**（AGENTS 新门禁三步序），本批未建。
 4. `ReferenceFinder.vue` 仍有 imperative 改样式（`@mouseover="e => e.target.style…"`）。我原本为它写了行为用例，**修复前就绿**——因为两次搜索之间 `searching` 会把结果块整体 `v-if` 掉再重建，节点必然全新挂载，"旧条目样式残留在新条目上"这一形态在该组件结构性不可达。该用例已删除，imperative 样式改造另批处理（它需要一个 `<style>` 规则与真浏览器 hover 取证，不是本单元的键问题）。
+
+| 远程同步 | 由门禁推导 | 状态列不手写：合并发生后由 scripts/lib/merge-ledger.js 按主干历史（哪个带 (#NNNN) 尾注的已合并提交最近一次把这篇记录带进 main）推导收口。合并证据回读写在 PR 评论里，不写回本文件（AGENTS 2026-10-18「禁止记录收口回填 PR」）。 |
+
+- 保留门禁：变更类型与隔离 ✅（运行时代码 ⇒ 隔离 worktree + 裸分支）| 行尾对账 ✅（CHANGELOG 9/0、learnings 13/0，两口径逐文件相等）| 品牌残留 随 CI（本批未写竞品名）| 文档同步 随 CI doc-gate | 受管文档绝对路径 随 CI Gate 12c（本记录一律用 <仓库父目录> 占位）| 执行记录载体 ✅（openspec/records/ux-audit-stable-keys.md）| QM-6 双模型 ⛔ 未闭合（proposer=opencode 被 IP 信誉封锁，详见上节）| 远程同步 PR 待创建
