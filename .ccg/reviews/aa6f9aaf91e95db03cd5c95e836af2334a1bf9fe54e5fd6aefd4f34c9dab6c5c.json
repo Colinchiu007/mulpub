@@ -1,12 +1,12 @@
 {
-  "sha": "1539565af9ec0b008c139c88ed2eefc5cb82670a",
+  "sha": "ae52958eef455d3b4645a280846b75983e6ce6fc",
   "layer": "diff",
-  "mode": "single",
-  "reason": "变更 47 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
   "stats": {
-    "changedLines": 47,
-    "fileCount": 4,
-    "codeFileCount": 2,
+    "changedLines": 0,
+    "fileCount": 3,
+    "codeFileCount": 0,
     "sensitivePathHits": [],
     "plannedPathHits": [],
     "sensitiveContentHits": 0,
@@ -14,8 +14,8 @@
     "docSensitiveContentSample": [],
     "lineReadGaps": []
   },
-  "stagedDiffHash": "2fee57ddadde95644d3ce0ff157a609fe5eb9028cdc137138d7122b5b63e8f06",
-  "decidedAt": "2026-10-20T05:09:43.765Z",
+  "stagedDiffHash": "aa6f9aaf91e95db03cd5c95e836af2334a1bf9fe54e5fd6aefd4f34c9dab6c5c",
+  "decidedAt": "2026-10-20T04:12:59.648Z",
   "decidedBy": "ccg-review-decider",
   "reviewBackends": {
     "proposer": "opencode",
@@ -45,7 +45,7 @@
     }
   },
   "deepReview": {
-    "required": true,
+    "required": false,
     "status": "pending",
     "tier": "unknown",
     "performedBy": null,

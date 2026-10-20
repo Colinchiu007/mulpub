@@ -87,6 +87,16 @@ export default {
     compose_timeout: '视频合成超时。请先检查磁盘空间和设备负载，然后从断点继续；若仍失败，可稍后重试。',
     compose_duration_exceeded: '视频内容超过 {limitMinutes} 分钟上限。请缩短文案或减少场景后重新启动生成。',
     compose_segment_duration_exceeded: '单段旁白超过时长上限。请拆分该段文案后重新启动生成。',
+    compose_audio_duration_exceeded: '旁白音频总时长超过 {limit} 上限。请缩短文案或减少场景后重新启动生成。',
+    compose_ffmpeg_not_found: '未找到视频合成组件，暂时无法生成视频。请重启应用；若仍未解决，请重新安装应用。',
+    compose_invalid_asset_manifest: '合成素材清单不完整，暂时无法生成视频。请从断点继续重新生成；若持续出现，请重新启动生成。',
+    compose_input_size_exceeded: '本次要合成的素材总体积已达 {actualMb}，超过 {limitMb} 上限。请减少场景数量、压缩图片或旁白音频后重新启动生成；若使用了背景音乐，可暂时关闭或更换体积更小的音频。',
+    // 无数字变体（CCG 外部评审 i2，2026-10-20）：存量历史记录的原文 `Input media exceeds the total size limit`
+    // 本身不含体积数字，套用带占位符的主文案会渲染成「已达 允许上限，超过 允许上限 上限」这类拗口句子。
+    // 体积未知时改用本句：只说「超过上限」，不假装知道具体数值。
+    compose_input_size_exceeded_no_numbers: '本次要合成的素材总体积超过上限。请减少场景数量、压缩图片或旁白音频后重新启动生成；若使用了背景音乐，可暂时关闭或更换体积更小的音频。',
+    compose_scene_media_unreadable: '第 {scene} 个场景的画面素材已失效或不可读取。请重新生成该场景的图片或视频素材后再从断点继续。',
+    compose_scene_audio_unreadable: '第 {scene} 个场景的旁白音频已失效或不可读取。请重新生成该场景的语音后再从断点继续。',
     operation_failed: '当前操作未能完成，请稍后再试。',
     invalid_params: '流水线参数校验失败，请检查配置项是否有效后重试。',
     unknown_error: '当前操作未能完成，请稍后再试。',
@@ -300,5 +310,7 @@ export default {
       sceneLabel: '\u573a\u666f {scene}',
       sceneRatio: '\u573a\u666f {scene}',
       currentProvider: '\u5f53\u524d',
+      currentScene: '\u8be5\u573a\u666f',
+      unknownSize: '\u5141\u8bb8\u4e0a\u9650',
     },
   }

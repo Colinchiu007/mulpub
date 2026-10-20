@@ -155,3 +155,77 @@ describe('formatPipelineError', () => {
     expect(r.key).not.toBe('story2video.voice_clone_unavailable')
   })
 })
+
+describe('formatPipelineError — compose 预检失败（error-message-user-friendly-audit，2026-10-20 事故）', () => {
+  // 事故原文：历史记录失败卡片显示 "Input media exceeds the total size limit"。
+  // 该文本短（<120）且不含技术标记，走的是 formatter 的「短自然语言直出」分支。
+  it('输入媒体总大小超限映射到 compose_input_size_exceeded，不再直出英文', () => {
+    const r = formatPipelineError('Input media exceeds the total size limit')
+    expect(r.key).toBe('story2video.compose_input_size_exceeded')
+    expect(r.message).toBe('')
+    expect(r.params.context).toBe('')
+  })
+
+  it('体积数字可提取为可插值参数（limitMb / actualMb）', () => {
+    const r = formatPipelineError('Input media exceeds the total size limit: 780MB > 512MB')
+    expect(r.key).toBe('story2video.compose_input_size_exceeded')
+    expect(r.params.actualMb).toBe('780MB')
+    expect(r.params.limitMb).toBe('512MB')
+  })
+
+  it('中文形态同样归一化（存量 run.error）', () => {
+    const r = formatPipelineError('输入媒体总大小超过上限')
+    expect(r.key).toBe('story2video.compose_input_size_exceeded')
+  })
+
+  it('英文界面 key 稳定，参数可插值', () => {
+    const r = formatPipelineError('Input media exceeds the total size limit: 780MB > 512MB', { locale: 'en-US' })
+    expect(r.key).toBe('story2video.compose_input_size_exceeded')
+    expect(r.params.actualMb).toBe('780MB')
+  })
+
+  // ⛔ 排序契约（CCG 外部评审 i6，2026-10-20）：具体规则必须早于泛化的 compose_failed。
+  // 动因：注释曾声称「必须早于 compose_failed」而实际插在它之后；两条规则目前文本互斥
+  // （纯英文原文不含 "compose"/"fail"），但 compose_failed 的 pattern 一旦放宽
+  // （例如加上 `compose.*` 前缀匹配），具体规则就会被静默吞掉、细节参数全部丢失，
+  // 而这**不会**让任何现有用例变红。故此条把顺序本身锁成断言。
+  it('compose_input_size_exceeded 必须排在 compose_failed 之前（具体先于泛化）', () => {
+    const idxSize = RULES.findIndex((r) => r.key === 'compose_input_size_exceeded')
+    const idxFailed = RULES.findIndex((r) => r.key === 'compose_failed')
+    expect(idxSize).toBeGreaterThanOrEqual(0)
+    expect(idxFailed).toBeGreaterThanOrEqual(0)
+    expect(idxSize).toBeLessThan(idxFailed)
+  })
+
+  it('同时命中两条规则的文本落到具体规则（顺序契约的行为面）', () => {
+    // 构造一条文案上同时含 "compose ... fail" 与体积超限原文的输入。
+    // 顺序若被改回「泛化在前」，本用例会退化成 compose_failed 且 params 丢失。
+    const r = formatPipelineError('compose failed: Input media exceeds the total size limit: 780MB > 512MB')
+    expect(r.key).toBe('story2video.compose_input_size_exceeded')
+    expect(r.params.actualMb).toBe('780MB')
+    expect(r.params.limitMb).toBe('512MB')
+  })
+
+  // ⛔ 上下限不得对调（CCG 外部评审 i8，2026-10-20）：上一版纯按出现顺序取
+  // 「首个=actual、第二个=limit」，遇到 limit 在前、actual 在后的语序就会把两者互换，
+  // 用户读到「实际 512MB 超过 780MB 上限」这类相反结论。
+  it('语序为「limit 在前、actual 在后」时不得对调上下限', () => {
+    const r = formatPipelineError('Input media exceeds the allowed limit 512MB (actual 780MB)')
+    expect(r.key).toBe('story2video.compose_input_size_exceeded')
+    expect(r.params.limitMb).toBe('512MB')
+    expect(r.params.actualMb).toBe('780MB')
+  })
+
+  it('中文语序「上限 512MB，当前 780MB」同样按锚点定上下限', () => {
+    const r = formatPipelineError('输入媒体总大小超过限制：上限 512MB，当前 780MB')
+    expect(r.key).toBe('story2video.compose_input_size_exceeded')
+    expect(r.params.limitMb).toBe('512MB')
+    expect(r.params.actualMb).toBe('780MB')
+  })
+
+  it('两个数字都不带上限锚点时退回出现顺序（actual 在前）', () => {
+    const r = formatPipelineError('Input media exceeds the total size limit: 780MB > 512MB')
+    expect(r.params.actualMb).toBe('780MB')
+    expect(r.params.limitMb).toBe('512MB')
+  })
+})

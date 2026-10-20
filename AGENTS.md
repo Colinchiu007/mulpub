@@ -577,6 +577,8 @@ Code review 时除逻辑正确性外，必须逐项检查：
 
 - **require 路径**：每个 `require('../x')` / `require('./y')` 的解析目标文件是否真实存在
 
+- **⛔ 用户可见失败的稳定错误码合同（2026-10-20，error-message-user-friendly-audit）**：`apps/desktop/electron` 下**任何会被前端渲染给用户**的失败返回体（IPC handler 结果、service 方法结果、stage 执行结果）SHALL 同时携带稳定 `errorCode`（该模块导出的封闭常量集合，如 `COMPOSE_ERROR_CODES`）与可插值 `messageParams`；`message` 仅作诊断保留，**MUST NOT** 作为用户可见文案的唯一来源。`messageParams` 只含用户可读值（带单位体积、1-based 序号、格式化时长），MUST NOT 含裸字节数、绝对路径、堆栈、HTTP 状态码或内部标识符。**审查判据**：看到 `return { code: -1, message: '<英文句子>' }` 或 `return { success: false, error: '<英文句子>' }` 即打回——英文技术句会被渲染端的「短自然语言直出」分支原样透给用户（2026-10-20 事故：历史记录失败卡片显示 `Input media exceeds the total size limit`）。新增错误码必须三处同改：主进程常量 + `src/views/history-utils.js` 的 `COMPOSE_ERROR_KEY_MAP` + `locales/story2video/{zh,en}.js` 文案，由 `scripts/check-compose-error-codes.js`（CI `Gate 12g`）机械校验。**错误码 → locale key MUST 用显式映射表，禁止字符串推导**（拼错会静默渲染成 i18n key 原文）。跨边界（stage → 落库 → 快照）时 `run.error` / `stage.error` **保持字符串契约**（恢复门控 `RESUME_BLOCKING_ERROR_PATTERN` 与阶段摘要依赖它），结构化字段另起 `errorCode` / `errorParams`。详细合同见 `01-docs/PRD-USER-FACING-ERROR-MESSAGES-2026-10-20.md`。
+
 - **preload sandbox 兼容**：修改 preload 后必须在 sandbox:true 和 sandbox:false 两种模式下验证 `window.electronAPI` 可用
 
 - **preload 重启验证**：修改 preload.js 后必须重启 Electron 应用（preload 只在窗口创建时加载，Vite HMR 不会热更新 preload）
