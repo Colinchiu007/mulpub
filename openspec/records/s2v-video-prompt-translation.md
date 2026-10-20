@@ -127,6 +127,46 @@ branch: s2v-video-prompt-translation
 | **默认折叠 + 点击展开**（本次采用） | ✅ 采用 | 这是「详情区块过长」的标准解（ Progressive Disclosure ）。首屏只留分段序号/状态/素材区概览，编辑区按需展开；配合**展开态互斥**（一次只编辑一个分段），进一步压低视觉噪音。本项目已有同族实现可对齐（`QuickCollectPanel` 查看提示词、`BatchCollectPanel` 分组面板、`FilmAutoPanel` el-collapse 高级区） |
 | 翻译与提示词**上下紧邻成对**（本次采用） | ✅ 采用 | 用户明确要求「翻译文字要和对应的图片/视频提示词放在一起」。上下紧邻保持每侧全宽（长文本不被砍），并用弱化样式（左边框 + 次级底色 + 只读，不可编辑）与可编辑 textarea 形成层级差 |
 
+## 落地冲突处置：#4064 组件化后重新落位（2026-10-20）
+
+本分支开发期间 main 合入 `#4064`（`f6a61d24c`，`PRD-S2V-RESULT-VIEW-PERF-2026-10-20.md`），把
+`ResultView.vue` 的分段编辑区整块抽成两个新组件，并在周边改了 696 行。本分支的分段区改动原本内联在
+被搬走的模板里 ⇒ **结构性冲突**（不是文本冲突），直接 rebase 无法表达「我的模板已不在这个文件里」。
+
+**处置**：用 merge 而非 rebase 记录冲突（`git merge origin/main`），冲突面只有 2 个文件：
+
+| 文件 | 处置 | 理由 |
+|------|------|------|
+| `apps/desktop/src/views/ResultView.vue` | 取 main 侧（`git show origin/main:...`） | 宿主已只剩 `<ResultSegmentEditor>` 接线；保留半边内联实现会让文件同时有两套分段区 |
+| `apps/desktop/src/views/ResultView.test.js` | 取 main 侧 | 旧「提示词区」describe 依赖已不存在的 `w.vm.expandedSegmentId`，在新结构上必然红；按新组件重写（见下） |
+| `CHANGELOG.md` | 两段都保留 | 追加型文件；main 侧新条目在上、本分支条目紧随其后 |
+
+**功能重新落位**（行为契约不变，承载文件换了）：
+
+| 关注点 | 新落位 |
+|--------|--------|
+| 图片/视频提示词各自紧邻自己的翻译块 | `ResultSegmentCard.vue`：图片翻译块移到图片 textarea 正下方（`#4064` 原来把它放在两枚重新生成按钮之后），新增视频翻译块紧随视频 textarea |
+| 折叠开关 + 折叠范围 | `ResultSegmentCard.vue` 卡头新增 `segment-editor-toggle`；折叠范围**收窄为文本编辑主体**（旁白/字幕/提示词+翻译/语音/操作），缩略图与四素材槽保持可见 |
+| 展开态唯一真源（互斥 / 删除收起） | `ResultSegmentEditor.vue`：`data.expandedSegmentId` + `toggleSegmentEditor()` + `onRemoveSegment()`；卡片侧 `expanded` 为受控 prop |
+| 语言标签 | locales 新增 `videoPromptTranslationLabelZh/Other`（对齐 `#4064` 的 `promptTranslationLabelZh/Other` 两档口径）；删掉本分支先前那对固定串键，避免同一语义两份文案 |
+| 主进程翻译能力 | 未受影响（`story2video-stages.js` / `story2video-project-service.js` 自动合并且无冲突） |
+
+**测试重组**（按组件拆，不留单文件堆砌）：
+
+| 文件 | 用例 | 覆盖 |
+|------|------|------|
+| `ResultSegmentCard.test.js` | 7 既有 + **5 新增 = 12** | 新增：成对 DOM 顺序（`compareDocumentPosition`）、两块占位、en 判据、折叠态只留素材区、展开态 `aria-expanded` + `toggle-editor` 上抛。既有 7 例的 helper 默认按 `expanded: true` 挂载——它们测的是主体内行为，不该被折叠开关牵连 |
+| `ResultSegmentEditor.test.js`（新建） | **5** | 默认全折叠、只展开一个、互斥、幂等收起、删除展开分段清空状态 |
+| `ResultView.test.js` | 123（沿用 main 的 123 例） | 6 个涉及主体内控件的既有用例补「先展开」一步；新增 `expandSegmentEditor` helper |
+| `story2video-video-prompt-translation.test.js` / `story2video-project-service.test.js` / `story2video-stages.test.js` | 12 / 123 / 161 | 主进程侧未变 |
+
+**回归读数**：6 个套件 **436 例全绿**；`eslint --quiet` rc=0。
+
+**债务熔断**：`ResultView.test.js` 因这 6 处展开步骤长到 2386 行，而 main 侧合入后本就已 2371 行
+（登记 2175 + 容差 200 = 2375，仅剩 4 行余量）⇒ 按门禁「测试文件登记值可经审阅调整」的通道把
+`testFiles` 登记值上调到 2390，理由即本节（新增的是既有用例适配折叠默认态的必需步骤，不是新堆用例；
+新增的特性用例全部落在两个独立组件测试文件里）。`check-max-lines.js` 复跑 ✅。
+
 ## 已知限制（不假装已闭合）
 
 1. **存量项目无 `videoPromptTranslation`**：2026-10-19 之前生成的项目该字段为 null，结果页视频提示词旁显示占位文案「未生成」。只在用户点「重新生成视频优化词」后补齐第一份译文——**未做存量批量回填**（那需要一次遍历 N 个项目的 LLM 批量翻译，成本与失败面都不适合塞进本次 UI 修复）。登记为后续可选项。

@@ -3008,6 +3008,23 @@ story2video-compose 的创作配置使用五个可折叠区：基础、外观、
 2. **locale 来源固化于任务创建时**：主进程无 `navigator`，`_resolveUiLocale` 取 `optimize.uiLocale` → `options.uiLocale` → 缺省 `zh`。用户在任务创建后切换界面语言，新生成的视频译文仍按任务创建时的语言。与图片提示词翻译同源（流水线 optimize 阶段也是提交时固化 `uiLocale`），非本次新引入的不一致。
 3. **流水线自动路径未覆盖**：本次只覆盖「重新生成视频优化词」交互入口。若后续要在成片生成时同步产出视频译文，应扩展 `prompt_translations_pending` 机制而非复制逻辑。
 
+#### 10) 实现落位（2026-10-20 随 #4064 组件化调整）
+
+本节行为契约不变，但承载文件在 `#4064`（`PRD-S2V-RESULT-VIEW-PERF`）之后整体迁移——原实现内联在
+`apps/desktop/src/views/ResultView.vue` 的分段区，`#4064` 把分段区抽成两个组件，故本特性随之落位：
+
+| 关注点 | 文件 | 说明 |
+|--------|------|------|
+| 提示词/翻译成对渲染 + 折叠开关 | `apps/desktop/src/views/video-creation/ResultSegmentCard.vue` | 图片翻译块紧邻图片提示词 textarea、视频翻译块紧邻视频优化词 textarea；`expanded` 为受控 prop，卡头渲染「展开编辑/收起编辑」开关（`data-testid="segment-editor-toggle"`，`aria-expanded` 同步） |
+| 展开态唯一真源（互斥 + 删除收起） | `apps/desktop/src/views/video-creation/ResultSegmentEditor.vue` | `data.expandedSegmentId` 单值状态；`toggleSegmentEditor()` 幂等互斥；`onRemoveSegment()` 在删除被展开分段时置空 |
+| 折叠范围 | 同上（模板结构） | 只折叠**文本编辑主体**（旁白/字幕/图片提示词+翻译/视频优化词+翻译/语音设置/操作按钮）；**缩略图与四素材槽保持可见**，因为那是「这一镜有什么」的扫读信息，不属于用户抱怨的超长表单 |
+| 宿主接线 | `apps/desktop/src/views/ResultView.vue` | 只保留 `<ResultSegmentEditor>` 的 props/emits 接线，不再持有分段级 UI 状态 |
+| 主进程翻译能力 | `electron/services/story2video-stages.js`、`story2video-project-service.js` | 未受组件化影响，契约同 §3.1.31 第 2)–4) 小节 |
+
+对应测试也按组件拆分：`ResultSegmentCard.test.js`（成对渲染/占位/en 判据/折叠态与 `expanded` 两态）、
+`ResultSegmentEditor.test.js`（默认全折叠/只展开一个/互斥/幂等/删除收起）、
+`ResultView.test.js`（宿主级接线：原有涉及主体内控件的用例补了「先展开」一步）。
+
 
 
 > **范围**：新增「影视工程（Hell Grind）」流水线，包含独立页面 `/film-engineering`、film-kit 资产库、IPC 服务与 i18n 注册。

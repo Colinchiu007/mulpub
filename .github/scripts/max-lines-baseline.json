@@ -140,7 +140,7 @@
     "apps/desktop/src/views/Collection.test.js": 1687,
     "apps/desktop/src/views/CreateView.test.js": 6884,
     "apps/desktop/src/views/Publish.test.js": 1735,
-    "apps/desktop/src/views/ResultView.test.js": 2175,
+    "apps/desktop/src/views/ResultView.test.js": 2390,
     "apps/desktop/src/views/RewriteView.test.js": 1766
   },
   "testPruned": {
