@@ -162,5 +162,6 @@ electron: Failed to load URL: … resources/app.asar/dist/index.html with error:
 | eslint（13 个改动文件） | PASS | 0 error；唯一 warning 是基线已有的 `IMAGE_MIME_TO_EXT` 未用 |
 | QM-6 双模型评审 | 完成，1 项外部复核未能取得 | 三轮共 21 条问题全部逐条裁决（详见 §7）；两条记录 `deepReview.status` 取 `needs_revision`，未伪造外部证据 |
 | QM-4 视觉回归 | N/A（未跑） | 本机基线仓库级失效（同 `result-view-back-btn-style` 结论），不重建基线；新增组件建议基线修复后统一重建 |
+| 记忆三路沉淀 | PASS | ① **外部记忆（仓库文档）**：`01-docs/learnings.md` 置顶 7 条教训（append-only，CRLF 保真）；② **EverOS**（`127.0.0.1:8000`，health 200）：`POST /api/v1/memory/add` 回 `{"message_count":1,"status":"accumulated"}` → `POST /api/v1/memory/flush` 回 `{"status":"extracted"}` → **读回取落盘产物**：`~/.everos/default_app/default_project/users/lead/episodes/episode-2026-10-20.md` 的 L16 grep 到哨兵词 `s2v-result-ux-polish`。契约踩坑：`messages[]` 必填 `role`/`sender_id`/`timestamp`（epoch 毫秒整数），且 **`session_id` 是必填字段**（缺它回 422 `Field required: session_id`）；③ **内置记忆**：本会话 DSH 会话档由 harness 自动落盘，无对外写 API，未手工伪造 |
 | 远程同步 | 由门禁推导 | 新 PR 不手写状态词，收口由 `scripts/lib/merge-ledger.js` 按主干历史推导 |
 
