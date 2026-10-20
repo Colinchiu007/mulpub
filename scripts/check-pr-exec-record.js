@@ -456,6 +456,40 @@ function main(argv) {
   const head = args.head || 'HEAD'
   const mode = args.mode === 'advisory' ? 'advisory' : 'enforce'
   const threshold = Number(args.threshold || DEFAULT_THRESHOLD)
+  // ── 取源前置（跨家族轴 X2-4）：merge-base 只算**这一次**，变更集与 base 侧 blob 共用它。
+  // 原先这里是「changedFileStatuses 内部算一次、这里为读 blob 再算一次」，两次调用之间 base ref
+  // 若前进（本仓 main 高频），wasClosed 会被读成别人的闭环 ⇒ 凭空收口静默放行。
+  // 传给 changedFileStatuses 的 base 已经是 merge-base 时，它内部再算一次得到同一个数（对祖先幂等）。
+  // 不变量（QM-6 第二轴 finding#3）：变更集与 base 侧 blob 必须落在同一个 merge-base 提交上。
+  // 直接 `git show <base ref>:<路径>` 读的是 base 分支的**最新**内容 —— PR 开着的时候 main
+  // 完全可以前进、甚至把同一篇产物合规闭环，那时 wasClosed 会被读成 true ⇒ 凭空收口静默放行
+  //（QM-6 第二轴 finding#3；原先这里只写了一句"同源"而实现并不同源，注释与代码互不认账）。
+  const baseRef = typeof args.base === 'string' ? args.base.trim() : ''
+  let blobBaseRef = baseRef
+  if (baseRef) {
+    try {
+      const mb = execFileSync('git', ['-C', repo, 'merge-base', baseRef, head], { encoding: 'utf8' }).trim()
+      if (/^[0-9a-f]{7,40}$/.test(mb)) blobBaseRef = mb
+      // 解不出来就**不能**退回 base ref 继续按"已核对"判 —— 那读到的正是 finding#3 要防的
+      // "base 分支最新内容"，等于把刚修好的洞重新打开（第 2 轮 R2-3）。
+      // 退回空串 ⇒ readAtBase 恒 null ⇒ 转变与 D 方向一律记「未证实」，同时出声。
+      else { blobBaseRef = ''; process.stdout.write(`[TRANSITION-BASE] merge-base 返回形状异常（[${mb}]）⇒ 本次转变核对按未证实处理` + String.fromCharCode(10)) }
+    } catch (e) {
+      blobBaseRef = ''
+      process.stdout.write(`[TRANSITION-BASE] merge-base 取不到（${String((e && e.message) || e).split('\n')[0]}）⇒ 本次转变核对按未证实处理` + String.fromCharCode(10))
+    }
+  }
+  // 存在性探针（X2-5 的落点）：evidence 写成路径形态时，必须能在**这个 head** 里取到该对象。
+  // 不注入探针的所有调用方（单测、仓外脚本）保持原形状语义 —— 例外清单必须是注入参数。
+  const existsAtHead = (ev) => {
+    const p = String(ev || '').trim().replace(/#.*$/, '')
+    // 盘符/绝对路径/上跳都不可能是仓内对象；反斜杠写法同理（git 存正斜杠），一律判"不可核"。
+    if (!p || p.indexOf(':') >= 0 || p.charAt(0) === '/' || p.indexOf('..') >= 0 || p.indexOf(String.fromCharCode(92)) >= 0) return false
+    try {
+      execFileSync('git', ['-C', repo, 'cat-file', '-e', head + ':' + p], { stdio: ['ignore', 'ignore', 'ignore'] })
+      return true
+    } catch { return false }
+  }
   let statuses
   if (typeof args.statuses === 'string') {
     try { statuses = JSON.parse(args.statuses) } catch (e) {
@@ -472,7 +506,7 @@ function main(argv) {
       process.exit(2)
     }
     try {
-      statuses = changedFileStatuses({ repo, base: args.base, head })
+      statuses = changedFileStatuses({ repo, base: blobBaseRef || baseRef, head })
     } catch (e) {
       // 取不到变更集时也必须尊重 mode：checkout 若是浅克隆，merge-base 会失败，
       // 而"在 advisory 阶段就把 job 判红"正是本仓点名的 runner-only red 事故形状。
@@ -508,26 +542,6 @@ function main(argv) {
   //
   //   ⚠️ 必须同时应用到下面的 `r2` 分支：`--no-remote` 时 remoteBranches 为 null，
   //   控制流会重新 evaluate 出 r2 并 return report(r2) —— 若只改 r，欠账会被静默丢弃。
-  // base 与变更集**必须真同源**：变更集由 `classify-docs-only.changedFileStatuses` 用
-  // `git merge-base base head` 算，所以取 blob 也必须落在那个 merge-base 提交上。
-  // 直接 `git show <base ref>:<路径>` 读的是 base 分支的**最新**内容 —— PR 开着的时候 main
-  // 完全可以前进、甚至把同一篇产物合规闭环，那时 wasClosed 会被读成 true ⇒ 凭空收口静默放行
-  //（QM-6 第二轴 finding#3；原先这里只写了一句"同源"而实现并不同源，注释与代码互不认账）。
-  const baseRef = typeof args.base === 'string' ? args.base.trim() : ''
-  let blobBaseRef = baseRef
-  if (baseRef) {
-    try {
-      const mb = execFileSync('git', ['-C', repo, 'merge-base', baseRef, head], { encoding: 'utf8' }).trim()
-      if (/^[0-9a-f]{7,40}$/.test(mb)) blobBaseRef = mb
-      // 解不出来就**不能**退回 base ref 继续按"已核对"判 —— 那读到的正是 finding#3 要防的
-      // "base 分支最新内容"，等于把刚修好的洞重新打开（第 2 轮 R2-3）。
-      // 退回空串 ⇒ readAtBase 恒 null ⇒ 转变与 D 方向一律记「未证实」，同时出声。
-      else { blobBaseRef = ''; process.stdout.write(`[TRANSITION-BASE] merge-base 返回形状异常（[${mb}]）⇒ 本次转变核对按未证实处理` + String.fromCharCode(10)) }
-    } catch (e) {
-      blobBaseRef = ''
-      process.stdout.write(`[TRANSITION-BASE] merge-base 取不到（${String((e && e.message) || e).split('\n')[0]}）⇒ 本次转变核对按未证实处理` + String.fromCharCode(10))
-    }
-  }
   // ★ 取源、判据、读数都只算/打印**一次**：`--no-remote` 与远端清单取不到时，
   //   applyDeepDebt 会被 r 和 r2 各调一次，而 deepDebt 只依赖 statuses/repo/baseRef（与 target 无关）。
   //   实跑现场：TRANSITION-CHECK 逐字打了两遍（TIER 那行当时有一条 tierLinePrinted 挡着，这行没挡）——
@@ -540,15 +554,16 @@ function main(argv) {
       return execFileSync('git', ['-C', repo, 'show', `${blobBaseRef}:${rel}`], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 })
     } catch { return null }
   }
-  const deepDebt = evaluateDeepReviewDebt(statuses, repo, readAtBase)
+  const deepDebt = evaluateDeepReviewDebt(statuses, repo, readAtBase, existsAtHead)
   // 丙：覆盖率读数。不参与判定 —— 一上线红两百条会逼人把门削宽（本仓点名的失败形态）。
-  process.stdout.write(summarizeTierCoverage(dualClosedDeepReviews(statuses, repo)).line + String.fromCharCode(10))
+  process.stdout.write(summarizeTierCoverage(dualClosedDeepReviews(statuses, repo), existsAtHead).line + String.fromCharCode(10))
   process.stdout.write(((deepDebt.transition || {}).line) + String.fromCharCode(10))
   const applyDeepDebt = (target) => {
     if (deepDebt.reasons.length > 0) {
       target.ok = false
       target.reasons.push(...deepDebt.reasons)
     }
+    target.transition = deepDebt.transition
     return target
   }
   applyDeepDebt(r)
@@ -595,10 +610,28 @@ const HIGH_RISK_SURFACES = [
   { prefix: 'packages/shared-utils/src/login-state.js', why: '登录态三态迁移的唯一口径，实测命中 1 个' },
   { prefix: 'fingerprint', exts: ['.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx', '.vue', '.py', '.sh'], why: '设备/内容指纹面（跨目录）。裸子串实测命中 9 个受管文件，其中 2 个是 `01-docs/evidence/**.txt` 取证快照 —— 讲到指纹的文档不是指纹面，所以本条限定源码扩展名，收窄后命中 7 个（第 2 轮 R2-5）' },
   { prefix: '.github/workflows/', why: 'CI 判据本体（谁来守门），实测命中 15 个' },
-  { prefix: 'scripts/check-', why: '仓内静态门禁脚本本体 = 判据自指，实测命中 100 个' },
-  { prefix: 'scripts/ccg-review-', why: '判定写入方 + 后端对真源（决定"要不要评审"与"谁来评"），实测命中 3 个受管文件' },
+  { prefix: 'scripts/check-', why: '仓内静态门禁脚本本体 = 判据自指，实测命中 106 个（含 .github/scripts/ 40 与 apps/desktop/scripts/ 2 —— 段起点匹配的全部理由）' },
+  { prefix: 'scripts/ccg-review-', why: '判定写入方（决定"要不要评审"），实测命中 3 个受管文件' },
+  { prefix: 'scripts/lib/ccg-review-', why: '评审后端对的真源（决定"谁来评"）—— 跨家族轴 X2-9 实测这条此前落在清单外，改它不触发任何收口要求；实测命中 2 个' },
   { prefix: 'scripts/deep-review', why: '评审驱动本体（闭环值与 performedBy 由它写），实测命中 2 个受管文件' },
 ]
+
+/**
+ * 上游 vendored 子树不算本仓守门面。**段起点匹配是有用的，不得收窄成「只认仓库根锚定」**：
+ * 实测 `scripts/check-` 的非根位命中有 42 个真判据（`.github/scripts/` 40 个 +
+ * `apps/desktop/scripts/` 2 个），把它们一起削掉等于给 CI 侧门禁脚本免检。
+ * 代价是同一条规则会把 `.quality-rhythm/.github/workflows/mechanism-check.yml` 也拉进来 ——
+ * 那是上游技能制品的副本，而 GitHub 只调度仓库**顶层**的 .github/workflows/，这份嵌套副本
+ * 永远不会被排队执行（AGENTS.md 的 NESTED_WORKFLOW_NOT_EXECUTED 就是记这件事的），
+ * 所以改它不等于改本仓的守门人。实测整仓受此排除影响的文件只有上面那 1 个。
+ * 清单按子树根锚定、只能缩小；新增排除项必须给实测出处。
+ */
+const VENDORED_SUBTREES = ['.quality-rhythm/']
+
+function isVendored (f) {
+  for (const v of VENDORED_SUBTREES) if (f.startsWith(v)) return true
+  return false
+}
 
 /**
  * 命中哪个高危面前缀（返回 null = 不在清单上）。
@@ -608,8 +641,26 @@ const HIGH_RISK_SURFACES = [
  */
 function highRiskPrefixOf (file) {
   const f = String(file || '').replace(/^\.\//, '')
-  const hit = HIGH_RISK_SURFACES.find((s) => f.indexOf(s.prefix) >= 0 && inScope(s, f))
+  if (isVendored(f)) return null
+  const hit = HIGH_RISK_SURFACES.find((s) => inSurface(s, f) && inScope(s, f))
   return hit ? hit.prefix : null
+}
+
+/**
+ * 带斜杠的前缀按**路径段起点**匹配（`scripts/check-` 要落在 `^` 或 `/` 之后）：
+ * 实测非根位的真命中有 42 个（`.github/scripts/` 40 + `apps/desktop/scripts/` 2），所以「只认根锚定」
+ * 是错的收窄；而裸词 `fingerprint` 匹配的是**文件名里的词**（`draft-fingerprint.js`），
+ * 改成段起点会把实测那 7 个真目标一起削掉，故裸词仍按任意位置匹配。
+ * 段起点唯一的实测误伤已由 VENDORED_SUBTREES 处理（见上方注释），不在这里放宽判据。
+ */
+function inSurface (surface, f) {
+  if (surface.prefix.indexOf('/') < 0) return f.indexOf(surface.prefix) >= 0
+  let i = f.indexOf(surface.prefix)
+  while (i >= 0) {
+    if (i === 0 || f[i - 1] === '/') return true
+    i = f.indexOf(surface.prefix, i + 1)
+  }
+  return false
 }
 
 /**
@@ -637,8 +688,8 @@ function isHighRiskSurface (file) {
  *   unknown  ⇒ 字段还没积累（新记录天生 tier=unknown）⇒ **本切片不拦**，
  *              否则重造「无法闭合的循环」（缺陷G：初版对 single 也要求闭环时的同一形态）。
  */
-function closureCorroboration (dr) {
-  const tier = classifyEvidenceTier(dr)
+function closureCorroboration (dr, existsAt) {
+  const tier = classifyEvidenceTier(dr, existsAt)
   if (tier === 'external') return 'external'
   if (tier === 'external-unverified') return 'external-unverified'
   if (tier === 'none') return 'none'
@@ -707,21 +758,32 @@ const EVIDENCE_TIERS = new Set(['external', 'self-play', 'none', 'unknown'])
  * PR 引用（# + 3 位以上数字）、评审会话 id（ses_ 前缀）、UUID 形态的 session/trace id。
  * 刻意不清洗、不猜、不接受自由文本：形状不对就降 external-unverified（可见不拦，转拦另片）。
  */
-function isResolvableEvidence (ev) {
+/**
+ * 命中哪一种可核形态（'pr' | 'session' | 'uuid' | 'oid' | 'path' | null）。
+ * 拆成形态而不是一律返回布尔，是因为 `path` 那一档可以**就地验证存在性**
+ * （跨家族轴 X2-5：形状判据对 `reports/根本不存在.md` 完全免疫，而高危面只认 external，
+ * 于是"编一个像样的路径"就能收口）。其余四档指向仓库外的对象（PR、会话、oid），
+ * 在本仓上下文里无法验证，只能继续按形状判。
+ */
+function evidenceForm (ev) {
   const s = String(ev).trim()
   // PR 引用：`#` 左侧必须是边界（否则 `issue#1234` 这种行号写法也算），右侧允许跟进说明文字
   // —— "PR #3900 后端轴" 这种"指针 + 一句话"是主干既有写法，把它要求成整串只有号会把合规出口削掉。
-  if (/(^|[^0-9A-Za-z_])#\d{3,}/.test(s)) return true
-  if (/(^|[^0-9A-Za-z_])ses_[0-9A-Za-z]{6,}/.test(s)) return true
-  if (/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(s)) return true
+  if (/(^|[^0-9A-Za-z_])#\d{3,}/.test(s)) return 'pr'
+  if (/(^|[^0-9A-Za-z_])ses_[0-9A-Za-z]{6,}/.test(s)) return 'session'
+  if (/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(s)) return 'uuid'
   // 40 hex 必须**整串就是**一个对象 id。无边界时 `prefix<40hex>suffix` 也算指针，
   // 那与自由文本没有区别（后端轴 Critical#1 的其中一格）。
-  if (/^[0-9a-f]{40}$/.test(s)) return true
+  if (/^[0-9a-f]{40}$/.test(s)) return 'oid'
   // 文件形态必须"整串就是一个路径/文件名"，不是"串里出现了 .md"：
   // 否则 `x.md` 与 `see file: aaaa.md or b.md` 这类散文都算可核出处。
-  if (/^[^\s]*[\\/][^\s]*\.(?:log|json|md|txt)(?:[#/][^\s]*)?$/.test(s)) return true
-  if (/^[\w.-]{3,}\.(?:log|json|md|txt)(?:[#/].*)?$/.test(s)) return true
-  return false
+  if (/^[^\s]*[\\/][^\s]*\.(?:log|json|md|txt)(?:[#/][^\s]*)?$/.test(s)) return 'path'
+  if (/^[\w.-]{3,}\.(?:log|json|md|txt)(?:[#/].*)?$/.test(s)) return 'path'
+  return null
+}
+
+function isResolvableEvidence (ev) {
+  return evidenceForm(ev) !== null
 }
 
 /**
@@ -746,7 +808,7 @@ function isStructuredClosureNote (note) {
  *   unknown                      字段**缺席** ⇒ 历史记录（实测主干 142 篇已闭环产物里 139 篇没这个字段）
  * 把后两档合并成"unknown 一律放过"就是那条绕行路径：删掉 tier 或写成 `external ` 即静默通过。
  */
-function classifyEvidenceTier (dr) {
+function classifyEvidenceTier (dr, existsAt) {
   if (!dr || typeof dr !== 'object') return 'unknown'
   const raw = dr.tier
   if (raw === undefined || raw === null) return 'unknown'
@@ -756,15 +818,20 @@ function classifyEvidenceTier (dr) {
   if (!EVIDENCE_TIERS.has(t)) return 'unrecognized'
   if (t === 'external') {
     const ev = dr.evidence
-    return (typeof ev === 'string' && ev.trim() !== '' && isResolvableEvidence(ev)) ? 'external' : 'external-unverified'
+    const shaped = typeof ev === 'string' && ev.trim() !== '' && isResolvableEvidence(ev)
+    if (!shaped) return 'external-unverified'
+    // 路径形态且调用方给了「存在性探针」时，必须验到该 revision 里真有这个对象（X2-5）。
+    // 探针是**注入参数**（本仓新判据落点纪律第 3 条）：不给就不验，测试与仓外调用方保持原语义。
+    if (evidenceForm(ev) === 'path' && typeof existsAt === 'function' && !existsAt(ev)) return 'external-unverified'
+    return 'external'
   }
   return t
 }
 
 /** 空集也必须出行：否则"这条锁没跑"与"没有记录"在日志里逐字同形。 */
-function summarizeTierCoverage (records) {
+function summarizeTierCoverage (records, existsAt) {
   const by = { external: 0, 'external-unverified': 0, 'self-play': 0, none: 0, unknown: 0, unrecognized: 0 }
-  for (const dr of records) by[classifyEvidenceTier(dr)]++
+  for (const dr of records) by[classifyEvidenceTier(dr, existsAt)]++
   const total = records.length
   const line = 'TIER-COVERAGE dual-closed total=' + total +
     ' external=' + by.external + ' external-unverified=' + by['external-unverified'] +
@@ -776,8 +843,10 @@ function summarizeTierCoverage (records) {
 
 /** 变更集里「dual 且已闭环」的记录 —— 覆盖率只统计这一批（新记录天生带 tier）。 */
 function dualClosedDeepReviews (statuses, repo) {
+  // X2-10：改名/复制展开后的 A 也要进读数 —— 债务扫描走的是 expandRenames(seen)，
+  // 覆盖率若还用原始 statuses，同一个 PR 的两行读数就各说各话（Info 档，但同源于口径）。
   const out = []
-  for (const e of statuses) {
+  for (const e of expandRenames(statuses)) {
     if ((e.status !== 'A' && e.status !== 'M') || !AUDIT_ARTIFACT_RE.test(e.file)) continue
     let rec = null
     try { rec = JSON.parse(fs.readFileSync(path.join(repo, e.file), 'utf8')) } catch { continue }
@@ -813,20 +882,44 @@ function dualClosedDeepReviews (statuses, repo) {
  * 只按 A/M 过滤会让一条未闭环的 dual 产物**借改名静默逃逸**三个方向
  * （取源本来就同时给 `from` 与新路径，所以这一格不需要新取源 —— QM-6 第二轴 finding#10）。
  */
+/** 改名后的新路径是不是已经带着闭环值落进来了（只判"有没有带过来"，不判"带得对不对"）。 */
+function renamedCarriesClosure (repo, rel) {
+  if (!rel) return false
+  try {
+    const rec = JSON.parse(fs.readFileSync(path.join(repo, rel), 'utf8'))
+    return !!(rec && rec.deepReview && CLOSED_DEEP_REVIEW_STATUSES.has(rec.deepReview.status))
+  } catch { return false }
+}
+
+/**
+ * 末行状态。`ok` 为真但转变核对里有一条没核到（`未证实`/`无出处`）时，不能打一句光秃秃的
+ * `OK:` —— 那让"全部核对通过"与"探针没看到东西"在最后一行同形（跨家族轴 X2-11）。
+ */
+function verdictLine (r) {
+  const t = (r && r.transition) || null
+  const loose = t ? (t.unverifiable + t.uncorroborated) : 0
+  if (!r || !r.ok) return '不通过：' + (((r && r.reasons) || []).length || 0) + ' 条理由'
+  return loose > 0
+    ? `OK（但转变核对有 ${loose} 条没核到：未证实=${t.unverifiable} 无出处=${t.uncorroborated} —— 不得读成"已全部核对通过"）`
+    : 'OK: 本 PR 携带执行记录或带原因的豁免'
+}
+
 function expandRenames (statuses) {
   const extra = []
   for (const e of statuses) {
     const s0 = String(e.status || '').charAt(0)
-    if ((s0 !== 'R' && s0 !== 'C') || !e.from) continue
-    if (REVIEWS_DIR_RE.test(e.from)) extra.push({ status: 'D', file: e.from, viaRename: e.file })
-    if (REVIEWS_DIR_RE.test(e.file)) extra.push({ status: 'A', file: e.file, viaRename: e.from })
+    if (!e.from) continue
+    // **只有 R（改名）意味着"旧路径消失"**。C（复制）的源文件仍在树里，给旧路径合成一条 D
+    // 会凭空造出一笔"删除/改名带走未闭环记录"的假欠账（跨家族轴 X2-6 实测）。
+    if (s0 === 'R' && REVIEWS_DIR_RE.test(e.from)) extra.push({ status: 'D', file: e.from, viaRename: e.file })
+    if ((s0 === 'R' || s0 === 'C') && REVIEWS_DIR_RE.test(e.file)) extra.push({ status: 'A', file: e.file, viaRename: e.from })
   }
   // 两条分支都返回**新数组**：一条给 `statuses.concat(extra)`、一条原样递引用，
   // 会让调用方在有无改名的两种输入下拿到不同性质的对象（第 2 轮 R2-7）。
   return extra.length > 0 ? statuses.concat(extra) : statuses.slice()
 }
 
-function evaluateDeepReviewDebt (statuses, repo, readAtBase) {
+function evaluateDeepReviewDebt (statuses, repo, readAtBase, existsAt) {
   const reasons = []
   const seen = expandRenames(statuses)
   const changedInDir = seen
@@ -885,6 +978,10 @@ function evaluateDeepReviewDebt (statuses, repo, readAtBase) {
     if (rec.mode !== 'dual') continue // single 不在本判据范围（缺陷G 口径，不得改成噪音）
     const st = rec.deepReview && typeof rec.deepReview.status === 'string' ? rec.deepReview.status : '(缺失)'
     if (CLOSED_DEEP_REVIEW_STATUSES.has(st)) continue
+    // 改名这一格要看完**整对**再判：红文案教人"把闭环状态与新路径一起带过去"，若新路径确实已经
+    // 带着闭环值落进同一变更集，就不该再报"改名带走欠账"（否则门禁与自己的出口打架 —— X2-7）。
+    // 新路径自己的收口**是否成立**由收口矩阵另行判，这里不越权替它放行。
+    if (e.viaRename && renamedCarriesClosure(repo, e.viaRename)) continue
     if (e.viaRename) renamedUnclosed.push(`${rel} → ${e.viaRename}（base 里 status=${st}）`)
     else removedUnclosed.push(`${rel}（mode=dual，status=${st}，decidedAt=${rec.decidedAt || '?'}）`)
   }
@@ -951,14 +1048,15 @@ function evaluateDeepReviewDebt (statuses, repo, readAtBase) {
     if (mismatch) backendMismatch.push(`${rel}（请求 ${mismatch}）`)
     // ── 收口矩阵（tasks 2.3）：状态在闭环白名单里 ≠ 闭环成立 ──────────────────
     if (CLOSED_DEEP_REVIEW_STATUSES.has(st)) {
-      const cor = closureCorroboration(rec.deepReview)
+      const cor = closureCorroboration(rec.deepReview, existsAt)
       if (cor === 'none') {
         noteBadClosure(rel, `tier=none：自称未评审，却把 status 写成 ${st}`)
       } else if (cor === 'unrecognized') {
         // 字段在、值不在闭集里 ⇒ 这不是"没声明过"，是"声明写错/编造"。不分面一律拦：
         // 主干实测 142 篇已闭环产物里 139 篇是**整字段缺席**（那才是不该打扰的历史形态），
         // 只有 1 篇 external + 2 篇 unknown ⇒ 这一档拦不到任何存量（测量见执行记录 §七）。
-        noteBadClosure(rel, `tier 取值不认识（[${String(rec.deepReview.tier).slice(0, 24)}]）却把 status 写成 ${st} —— 与"字段缺席"不是一回事，后者不拦`)
+        noteBadClosure(rel, `tier 取值不认识（[${String(rec.deepReview.tier).slice(0, 24)}]）却把 status 写成 ${st} —— 与"字段缺席"不是一回事，后者不拦。` 
+          + `闭集只有 ${[...EVIDENCE_TIERS].join(' | ')}；写别的等于没声明（实测主干 40 笔内已有 3 条自造值：docs-false-positive / superseded / dual）`)
       } else if (onHighRisk && cor === 'unknown' && aFiles.has(rel)) {
         // 第 2 轮 R2-2 命中的后门：`unknown` 一律放过是为了不造出无法闭合的循环（缺陷G），
         // 但 A 状态**没有 base 可比** ⇒ 转变检测对它结构性失明 ⇒ 「本次新增一条 cleared 而不写
@@ -989,7 +1087,7 @@ function evaluateDeepReviewDebt (statuses, repo, readAtBase) {
         const bst = brec.deepReview && typeof brec.deepReview.status === 'string' ? brec.deepReview.status : ''
         const wasClosed = CLOSED_DEEP_REVIEW_STATUSES.has(bst)
         const nowClosed = CLOSED_DEEP_REVIEW_STATUSES.has(st)
-        const cor = closureCorroboration(rec.deepReview)
+        const cor = closureCorroboration(rec.deepReview, existsAt)
         const corroborated = cor === 'external' || cor === 'note'
         transitionRows.push({ file: rel, baseReadable: true, wasClosed, nowClosed, corroborated })
         if (!wasClosed && nowClosed && !corroborated) {
@@ -1121,8 +1219,7 @@ function judgeBackendMismatch (rec) {
 function report(r, mode) {
   const lines = [r.summary()]
   for (const x of r.reasons) lines.push(`- ${x}`)
-  if (r.ok) lines.push('OK: 本 PR 携带执行记录或带原因的豁免')
-  else lines.push(`不通过：${r.reasons.length} 条理由`)
+  lines.push(verdictLine(r))
   if (mode === 'advisory') {
     lines.push('MODE=advisory（尚未接进判定；转阻断 = 删掉 CI 里的 --mode=advisory，'
       + '该标记行由 check-pr-exec-record.test.js 钉住，不会悄悄停在观察态）')
@@ -1143,6 +1240,6 @@ function report(r, mode) {
 //   stripCommentsForScan 把源码削成「只含代码行」的视图（引号感知剥注释 + 规范化 CRLF）
 // 生产路径只用 describeAuditWidths / auditAcceptedAltForm().description；
 // 其余导出不改变判据行为，仅为可测性存在。
-module.exports = { isResolvableEvidence, isStructuredClosureNote, classifyEvidenceTier, summarizeTierCoverage, HIGH_RISK_SURFACES, isHighRiskSurface, highRiskPrefixOf, highRiskHits, expandRenames, closureCorroboration, summarizeTransitionCheck, evaluate, resolveHeadBranch, readExemptsOnDisk, remoteBranchSet, isPureBackfillChangeSet, evaluateDeepReviewDebt, judgeBackendMismatch, CLOSED_DEEP_REVIEW_STATUSES, RECORDS_RE, EXEMPT_RE, CARRIER_RE, DEFAULT_THRESHOLD, AUDIT_ARTIFACT_RE, auditAcceptedWidths, auditAcceptedAltForm, describeAuditWidths, stripCommentsForScan, AUDIT_NAME_WIDTH_MIN, AUDIT_NAME_WIDTH_MAX }
+module.exports = { isResolvableEvidence, isStructuredClosureNote, classifyEvidenceTier, summarizeTierCoverage, HIGH_RISK_SURFACES, isHighRiskSurface, highRiskPrefixOf, highRiskHits, expandRenames, closureCorroboration, summarizeTransitionCheck, evaluate, verdictLine, isVendored, VENDORED_SUBTREES, evidenceForm, dualClosedDeepReviews, resolveHeadBranch, readExemptsOnDisk, remoteBranchSet, isPureBackfillChangeSet, evaluateDeepReviewDebt, judgeBackendMismatch, CLOSED_DEEP_REVIEW_STATUSES, RECORDS_RE, EXEMPT_RE, CARRIER_RE, DEFAULT_THRESHOLD, AUDIT_ARTIFACT_RE, auditAcceptedWidths, auditAcceptedAltForm, describeAuditWidths, stripCommentsForScan, AUDIT_NAME_WIDTH_MIN, AUDIT_NAME_WIDTH_MAX }
 
 if (require.main === module) main(process.argv.slice(2))
