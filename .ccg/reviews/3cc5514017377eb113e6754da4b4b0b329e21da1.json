@@ -1,0 +1,58 @@
+{
+  "sha": "3cc5514017377eb113e6754da4b4b0b329e21da1",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 1,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 1,
+    "ccgSensitiveContentSample": [
+      "        \"rationale\": \"严格说，UI 用\\\"骨架渲染成功\\\"当已登录的判据，会**向用户呈现与凭据状态不符的结论** —— 这是个真问题。但改它属于**账号登录状态检测**的改判据（涉及 8 个平台、DOM 检测降级、超时与并发），不是本轮能安全做的，且 PRD-ACCOUNT-LOGIN-STATUS-CHECK 是另一条线的既有设计（其 §12.2 的取舍是\\\"用 loginpage 正则而非 302\\\"，正是为了避开这个坑）。本轮只做**文档层**：把\\\"哪个判据权威、哪个表象不可信\\\"写清楚，供排查与将来改造参考。如实记为**未修**（是认知澄清，不是缺陷修复）。\","
+    ],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-20T23:24:36.005Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

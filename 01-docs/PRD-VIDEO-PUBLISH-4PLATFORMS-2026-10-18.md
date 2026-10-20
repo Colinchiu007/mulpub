@@ -1157,3 +1157,21 @@ vitest run tests/xiaohongshu-draft-chain.test.js \
 
 > 提醒（给后续维护者）：小红书相关测试位于 `packages/api-publish-engine/tests/`（**复数**），
 > 与多数测试的 `test/`（单数）不同；按单数目录去找会报 `No test files found`。
+### 16.7 「看起来登录了」与「实际已过期」为什么能同时成立（2026-10-21）
+
+目标描述写「视频号已经登录了」，而实测判 `expired`。两者**并不矛盾** —— 
+根因在 `01-docs/PRD-ACCOUNT-LOGIN-STATUS-CHECK.md`（§12.2）已记载的陷阱：
+
+> Cookie（`slave_sid`）过期后访问 `cgi-bin/home` **仍可能返回 200 并渲染后台骨架**，
+> 但 loginpage 页面未登录时不会内嵌 `token`/`uin`。
+> 判据用的是 token/uin 是否同时存在：
+> 两者俱在 → `CHECK_LOGIN_SUCCESS_HTTP_API`；任一缺失 → `CHECK_LOGIN_COOKIE_EXPIRED`。
+
+⇒ **界面看起来"已登录"（骨架渲染成功）与凭据实际失效（token/uin 缺失）可以同时为真**。
+这也解释了本仓此前的一次误读：曾据 `has_cookies=true` 推测"信封库里可能有活 cookie"，
+而 `has_cookies` 只说明"存过凭据"，与"凭据仍有效"无关。
+
+**给排查者的判据顺序（避免再误读）**：
+1. 看 `CHECK_LOGIN_*` 判据码（权威，走平台真实校验）；
+2. 需要独立佐证时，直接调平台接口看 `errCode`（视频号：300333/300334 = 失效）；
+3. **不要**据「页面能打开 / 后台能渲染 / has_cookies=true」推断登录态。
