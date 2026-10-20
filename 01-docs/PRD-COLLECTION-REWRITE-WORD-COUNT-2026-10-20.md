@@ -281,6 +281,29 @@ const maxW = Number(rewriteWordCountMax.value) || 2000
 - 采集页的 `mode` 恒为 `imitate` ⇒ **三档映射对采集页完全无效**，只是历史兼容字段；
 - 保留它的唯一理由是兼容其他调用方；**字数区间的唯一有效载体是 `wordCountRange`**。
 
+### 5.5 代码落点（含两处模块拆分）
+
+| 文件 | 职责 | 本次变化 |
+|------|------|---------|
+| `packages/rewrite-engine/src/word-count-instruction.js` | **新增**：字数区间指令的措辞 + 目标篇幅推导 | 新模块 |
+| `packages/rewrite-engine/src/structure-headings.js` | **新增**：结构标题行剥离 | 新模块（原 `_stripStructureHeadings` 逐字搬出） |
+| `packages/rewrite-engine/src/rewrite-engine-core.js` | 编排 + **区间校验** + 两个上限常量 | 瘦身后 750 行 |
+| `apps/desktop/src/composables/useWordCountValidation.js` | 字数区间的**唯一真源**：同时产出红字结论与可下发值 | 新增 `range` |
+| `apps/desktop/src/views/Collection.vue` | 参数下发 + 元信息展示 | 改契约键 / 取 `range` / 新增字数行与横幅 |
+
+**为什么必须拆这两个模块**：`rewrite-engine-core.js` 的行数挂账
+（`check-max-lines.js` 的 LEDGER_GREW，登记值 **578** + 容差 **200** = **778 行天花板**）
+在本次改动前**只剩 4 行余量**——主干已经把它推到 774 行。
+本次 CI 实测：直接改核心文件 ⇒ 797 行 ⇒ `LEDGER_GREW` 红（且这条红会把**别人**的 PR 一起卡住，
+因为门禁看的是文件当前行数，不是本 PR 的增量）。
+同族先例：`segment-rewriter.js` 本身就是从核心文件拆出来的独立能力，核心文件头注释里记着同一条理由。
+
+**拆分后的边界约束**（两条，踩了就会红）：
+① 区间**校验**必须留在 `rewrite-engine-core.js` —— 渲染层结构锁
+`apps/desktop/src/utils/rewrite-engine-limits.test.js` 直接读该文件源码，
+断言 `const MAX_OUTPUT_CHARS = (\d+)` 与字面串 `range.max <= MAX_OUTPUT_CHARS` **逐字存在**；
+② `MAX_INPUT_CHARS` / `MAX_OUTPUT_CHARS` 两个常量也必须定义在该文件（同上，结构锁直接读源码）。
+
 ---
 
 ## 6. 交互逻辑
@@ -389,7 +412,16 @@ const maxW = Number(rewriteWordCountMax.value) || 2000
 > 但页面上的派生值形状隔着 `applyRewriteMeta` 这一层，此前没有任何东西锁它——
 > 字段名漂移会让横幅静默不显示。
 
-### 8.3 门禁
+### 8.3 新增独立模块的单测（`packages/rewrite-engine/tests/word-count-instruction.test.js`，4 例）
+
+| 编号 | 断言 |
+|------|------|
+| ① | `min>0` ⇒ 指令是「控制在 {min} 到 {max} 字之间」，且**不含**「不得超过」 |
+| ② | `min=0` ⇒ 含「不得超过 {max} 字」+「目标篇幅约 {原文} 字」+「不要把原文压缩成摘要」，且**不含**「0 到 6000」 |
+| ③ | 目标篇幅 = min(原文, 上限)；原文长度未知（undefined / 0 / 负数）⇒ 取上限 |
+| ④ | 上限低于原文时，指令里**不得出现原文长度**（否则模型会写出超限稿） |
+
+### 8.4 门禁
 
 `check-debt-budget`（filesOver500 95 = 95）· `check-max-lines`（无新增超大文件）·
 `check-unwired-tests` · `check-no-brand-residue` · `check-locale-button-name-sync` ·

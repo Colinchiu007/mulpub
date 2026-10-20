@@ -14,6 +14,11 @@ const { KnowledgeContextBuilder } = require('./knowledge-context-builder')
 const logger = require('./logger-fallback')
 const { normalizeChatResult, isTruncatedFinishReason } = require('./llm-result')
 const { rewriteSegmented } = require('./segment-rewriter')
+// 字数区间指令的措辞（独立模块，collect-rewrite-wordcount）：核心文件的行数挂账只剩几行余量，
+// 而区间**校验**必须留在本文件（渲染层结构锁要求 `range.max <= MAX_OUTPUT_CHARS` 逐字在此）。
+const { buildWordCountInstruction } = require('./word-count-instruction')
+// 结构标题剥离（独立模块，collect-rewrite-wordcount 拆分）：核心文件的行数挂账只剩几行余量
+const { stripStructureHeadings } = require('./structure-headings')
 
 // 无显式字数控制时的默认输出上限（3000 字以下）。
 // 注意：这只是「用户没给任何字数意图」时的保守兜底；用户显式 wordCountRange.max
@@ -540,7 +545,7 @@ class RewriteEngine {
 
     // 纯文案输出约束已升级为运营中心可维护的硬约束（rewrite-hard-constraints，2026-09-18）：
     // 引擎不再硬编码该约束，由桌面端从运营中心同步默认版本并经 setHardConstraints 注入。
-    // 硬约束缺失时引擎行为不变（_stripStructureHeadings 后处理兜底仍保留）。
+    // 硬约束缺失时引擎行为不变（structure-headings 模块的后处理兜底仍保留）。
 
     return { systemPrompt, userPrompt }
   }
@@ -634,17 +639,10 @@ class RewriteEngine {
   }
 
   /**
-   * 构建字数区间指令：wordCountRange {min,max} 优先；未提供时不注入（由后处理默认上限兜底）
-   *
-   * min=0 的语义（collect-rewrite-wordcount，2026-10-20）：min=0 是合法值，含义是
-   * **「不设下限，只要不超过上限」**。它不能被渲染成「0 到 N 字之间」——那句话把
-   * 「无下限」说成了「可以任意短」，模型会照着下限写，把改写做成摘要
-   * （实测：3515 字原文 + 区间 0-6000 ⇒ 输出 1229 字摘要，且用户看不出异常）。
-   * 因此 min=0 走另一条指令形态：给硬上限 + 给一个「与原文篇幅相当」的目标篇幅。
-   *
-   * 目标篇幅 = min(原文长度, 上限)：上限低于原文时目标就等于上限（压缩是用户自己设的），
-   * 此时「不超过上限」与「目标约 N 字」两句话不会自相矛盾。
-   *
+   * 构建字数区间指令：wordCountRange {min,max} 优先；未提供时不注入（由后处理默认上限兜底）。
+   * 区间**校验留在本文件**（渲染层结构锁要求 `range.max <= MAX_OUTPUT_CHARS` 逐字在此），
+   * 措辞在 `word-count-instruction.js`。整数性守在这里：引擎是共享契约点，非 UI 调用方
+   * （Python 链路 / 插件 / 未来新入口）可能送来 1.5 这样的值——「1.5 到 6000 字之间」是坏指令。
    * @param {object} userSettings
    * @param {number} [originalLength] - 原文码点数（用于推导「与原文相当」的目标篇幅）
    * @returns {string}
@@ -652,20 +650,9 @@ class RewriteEngine {
   _getWordCountInstruction(userSettings, originalLength) {
     const range = userSettings && userSettings.wordCountRange
     if (!range || typeof range.min !== 'number' || typeof range.max !== 'number') return ''
-    // 范围防御：与前端/PRD 契约一致（min 0-49999、max 1-50000、max >= min），无效区间不注入。
-    // 整数性也在这里守（collect-rewrite-wordcount 评审 i1）：前端 useWordCountValidation 会拦浮点，
-    // 但引擎是共享契约点，非 UI 调用方（Python 链路 / 插件 / 未来新入口）可能送来 1.5 这样的值——
-    // 「1.5 到 6000 字之间」是坏指令，必须在注入前被拒（与「非法区间不注入」同一处置：不注入 ⇒
-    // 后处理回落策略上限，输出不会失控）。
     if (!Number.isInteger(range.min) || !Number.isInteger(range.max)) return ''
     if (!(range.min >= 0 && range.min <= MAX_OUTPUT_CHARS - 1) || !(range.max >= 1 && range.max <= MAX_OUTPUT_CHARS) || range.max < range.min) return ''
-    if (range.min > 0) {
-      return `【字数要求】改写后的文本长度必须控制在 ${range.min} 到 ${range.max} 字之间。`
-    }
-    // min = 0 ⇒ 无下限：只给上限，并明确「不得压缩成摘要」
-    const original = Number.isFinite(originalLength) && originalLength > 0 ? originalLength : 0
-    const target = original > 0 ? Math.min(original, range.max) : range.max
-    return `【字数要求】改写后的文本长度不得超过 ${range.max} 字。目标篇幅约 ${target} 字（与原文篇幅相当）；不要把原文压缩成摘要，不得省略原文的信息点。`
+    return buildWordCountInstruction(range, originalLength)
   }
 
   /**
@@ -727,43 +714,9 @@ class RewriteEngine {
     // 结构标题剥离兜底（2026-09-18）：即使提示词已约束输出格式，模型仍可能输出
     // 「开头（悬念钩子）」「**中间（情感转折）**」「## 结尾」等小节标题行。
     // 逐行识别结构标题行并移除（仅剥离标题行本身，不触碰正文内容）。
-    result = this._stripStructureHeadings(result)
+    result = stripStructureHeadings(result)
 
     return { text: result.trim(), truncatedAt }
-  }
-
-  /**
-   * 剥离改写结果中的结构标题行（纯文案输出契约兜底）。
-   *
-   * 识别规则（按行）：
-   * - 行首可选 Markdown 标记（#、##、**、-、数字序号等）
-   * - 行内含结构关键词：开头 / 中间 / 结尾 / 悬念 / 钩子 / 情感转折 / 共鸣 / 号召 / 正文 / 结尾段
-   * - 行长度 ≤ 30 字符（结构标题短，正文长句不误伤）
-   *
-   * 仅移除标题行本身；标题行后的正文内容原样保留。
-   * @param {string} text
-   * @returns {string}
-   */
-  _stripStructureHeadings(text) {
-    if (typeof text !== 'string' || !text) return text
-    const lines = text.split('\n')
-    // 结构标题关键词：仅在「标题位」（行首）命中才剥离，避免误删正文中出现的普通句子
-    // （如「故事的结尾不需要太多解释。」「引发共鸣，才有传播。」——关键词不在行首，不剥离）
-    // 匹配模式（去 Markdown 标记后）：
-    //   1. 行首即关键词，且关键词后紧跟结构标记（（ ： ( : 「或行尾）
-    //   2. 关键词带装饰（**开头**、## 开头、- 开头 等）由前面的标记剥离处理
-    const STRUCTURE_HEADING_RE = /^(开头|中间|结尾|悬念|钩子|情感转折|共鸣|号召|正文|结尾段)(?=[（(:「:]|$|\s)/u
-    const kept = lines.filter((line) => {
-      const trimmed = line.trim()
-      if (!trimmed) return true
-      // 剥离 Markdown 标记后判断（# ## ** - 1. 等）
-      const stripped = trimmed.replace(/^[#*\-\d.\s]+/, '').replace(/[*#]+$/, '').trim()
-      if (!stripped) return false
-      // 仅当剥离后的行以结构关键词开头（标题位）且行长短（≤30 字）才判定为结构标题行
-      if (stripped.length > 30) return true
-      return !STRUCTURE_HEADING_RE.test(stripped)
-    })
-    return kept.join('\n')
   }
 
   /**

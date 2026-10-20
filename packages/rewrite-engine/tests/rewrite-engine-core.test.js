@@ -8,6 +8,8 @@
  */
 var { RewriteEngine } = require('../src/rewrite-engine-core')
 var { KnowledgeBase } = require('../src/knowledge-base')
+// collect-rewrite-wordcount 拆分：结构标题剥离已独立成模块（核心文件的行数挂账只剩几行余量）
+var { stripStructureHeadings } = require('../src/structure-headings')
 var { SensitiveFilter } = require('../src/sensitive-filter')
 
 describe('RewriteEngine', function () {
@@ -875,18 +877,17 @@ describe('RewriteEngine viral signal injection', function () {
   })
 
   test('F2b 普通句子含关键词不被误删（标题位匹配回归保护）', async function () {
-    var engine = new RewriteEngine({ llmClient: mockLlmClient('x'), knowledgeBase: new KnowledgeBase() })
-    wireStrategy5(engine)
+    // collect-rewrite-wordcount 拆分：剥离逻辑独立成 structure-headings 模块，行为逐字不变
     // 关键词在句中/句尾 → 保留；关键词在行首且带结构标记 → 剥离
-    expect(engine._stripStructureHeadings('故事的结尾不需要太多解释。')).toBe('故事的结尾不需要太多解释。')
-    expect(engine._stripStructureHeadings('我们中间出了叛徒。')).toBe('我们中间出了叛徒。')
-    expect(engine._stripStructureHeadings('引发共鸣，才有传播。')).toBe('引发共鸣，才有传播。')
-    expect(engine._stripStructureHeadings('要号召大家一起行动。')).toBe('要号召大家一起行动。')
-    expect(engine._stripStructureHeadings('结尾要有反转。')).toBe('结尾要有反转。')
+    expect(stripStructureHeadings('故事的结尾不需要太多解释。')).toBe('故事的结尾不需要太多解释。')
+    expect(stripStructureHeadings('我们中间出了叛徒。')).toBe('我们中间出了叛徒。')
+    expect(stripStructureHeadings('引发共鸣，才有传播。')).toBe('引发共鸣，才有传播。')
+    expect(stripStructureHeadings('要号召大家一起行动。')).toBe('要号召大家一起行动。')
+    expect(stripStructureHeadings('结尾要有反转。')).toBe('结尾要有反转。')
     // 行首结构标题 → 剥离
-    expect(engine._stripStructureHeadings('开头（悬念钩子）\n正文内容')).toBe('正文内容')
-    expect(engine._stripStructureHeadings('**中间（情感转折）**\n正文内容')).toBe('正文内容')
-    expect(engine._stripStructureHeadings('## 结尾（共鸣与号召）\n正文内容')).toBe('正文内容')
+    expect(stripStructureHeadings('开头（悬念钩子）\n正文内容')).toBe('正文内容')
+    expect(stripStructureHeadings('**中间（情感转折）**\n正文内容')).toBe('正文内容')
+    expect(stripStructureHeadings('## 结尾（共鸣与号召）\n正文内容')).toBe('正文内容')
   })
 
   test('F3 改写结果返回 title 字段（≤20 字）', async function () {
