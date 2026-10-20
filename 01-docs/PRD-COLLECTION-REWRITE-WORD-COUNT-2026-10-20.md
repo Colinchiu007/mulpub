@@ -450,13 +450,13 @@ const maxW = Number(rewriteWordCountMax.value) || 2000
 
 | 项 | 值 |
 |----|----|
-| 评审入口 | `sh scripts/deep-review.sh`（pre-commit 的 `ccg-review-decider` 判定 mode=dual，变更 367 行 > 200 行阈值） |
+| 评审入口 | `sh scripts/deep-review.sh`（pre-commit 的 `ccg-review-decider` 按**每笔提交的 diff** 判 mode；深审脚本审的是 HEAD 那一个提交，判据记录按**内容寻址**命中对应产物） |
 | 跨家族校验 | proposer=**opencode** / critic=**claude**，两个后端均经 `codeagent-wrapper` 实际执行（`--check-deps` 体检通过） |
-| critic 结论 | 4 个维度（correctness 7 / security 9 / performance 9 / maintainability 6），最低分 6，产出 6 条争议项（i1-i6） |
-| 收敛判定 | status=self_play（引擎第三档出口），5/5 条待裁决（i4 为 Info，引擎自动闭合） |
-| 裁决 | 逐条回源码核对后裁定：**upheld 2 条（i1、i6）**、**dismissed 3 条（i2、i3、i5）** |
+| 轮次 | **三轮**（本 PR 有三笔提交各自触发一轮）：① 首笔提交 367 行（`mode=dual`）② 依赖升级 78 行（`mode=single`）③ 模块拆分 244 行（`mode=dual`） |
+| 结论 | 三轮共 **13 条**争议项，逐条回源码/回事实核对后裁定：**upheld 3 条**（i1 引擎整数性、i6 派生物形状、两轮各一条"评审产物未闭环"）**dismissed 10 条** |
+| 高危域 | **2 条**落在高危域（数值插值的注入面、派生物形状无运行时验证）⇒ **均走外部后端 claude 独立复核**，并把原始裁定贴成 PR 公开评论作为可点开的出处（[i3](https://github.com/Colinchiu007/mulpub/pull/4111#issuecomment-6301282403) / [i4](https://github.com/Colinchiu007/mulpub/pull/4111#issuecomment-6301488908)），**没有**自扮演豁免 |
 
-### 10.1 两条成立项的处理
+### 10.1 成立项的处理
 
 | 编号 | 指控 | 处置 |
 |------|------|------|

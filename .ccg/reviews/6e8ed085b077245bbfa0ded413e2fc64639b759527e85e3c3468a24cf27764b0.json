@@ -48,10 +48,85 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "needs_revision",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "tier": "self-play",
+    "requiresExternalReview": [],
+    "blocking": [
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      }
+    ],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "Dependency audit bumps (vite 6.4.3→6.4.4, follow-redirects 1.16.0→1.16.1) are embedded in the feature PR; this couples unrelated dependency fixes with code changes and prevents independent feature revert.",
+        "highRiskDomains": [],
+        "prosecution": "指控成立面：把一个全局性的依赖安全修复混进功能 PR，表面上让「功能回滚」与「安全回滚」互相牵连；审查者无法只看功能 diff 就确认「本次改动不涉及依赖」。若功能 PR 被整体 revert，修复是否还在取决于 revert 的粒度——这确实是一种耦合。",
+        "defense": "辩护成立面（三条，均可核验）：① **粒度上已经解耦**：依赖升级是**独立的一笔提交**（`f14436837`），与 6 笔功能/文档提交并列，revert 功能提交不会带走它——「prevents independent feature revert」这个具体后果不成立。② **耦合是门禁强制的，不是选择**：同一判据在 `origin/main` 上当场复跑同样红（`node scripts/check-dep-audit.js` → 同 4 条 NEW_ADVISORY，rc=1），该门禁卡的是**全部在飞 PR**；不做这个补丁升级，本 PR 永远过不了 required check，也就永远合不进去。③ **仓库已有同形先例**：`7cba107ba fix(deps): 提升 undici/fast-uri 到安全修复版下限，解阻塞全部 open PR 的依赖审计红 (#2613)`——同一形状（依赖补丁 + 解阻塞全队列）在本仓已被采纳过。④ 改动量实测极小：`pnpm-lock.yaml` 4 行 + `ops-center/frontend/package-lock.json` 3 行 + 两处 `vite` 声明下限各 1 行。",
+        "verdict": "dismissed",
+        "rationale": "指控的**具体后果**（「prevents independent feature revert」）经核对不成立：依赖升级是独立提交，可独立 revert。指控的**根因判断**（不该把依赖修复混进功能 PR）在本场景下不适用——门禁在主干上同样红、卡的是全队列，不升级则本 PR 无法合入，而这正是仓库先例 #2613 采用的处置。唯一真实的代价是「一个 PR 里有两类改动」，已由**独立提交 + 提交信息首段写清起因与证据**（含「非本 PR 引入」的版本反证）来控制可读性代价。"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": ".ccg/reviews/3237... JSON is committed with deepReview status 'pending', tier 'unknown', and null findings/evidence/performer; it is an empty review artifact that adds noise without verification value.",
+        "highRiskDomains": [],
+        "prosecution": "指控成立面：这是**事实描述**，不是推测——该记录的 `deepReview` 段确实是 `status: pending` / `tier: unknown` / `findings: null`，且 `scripts/check-pr-exec-record.js::evaluateDeepReviewDebt` 会把 mode=dual 且状态不在闭环白名单的记录判为欠账并阻断 PR。空产物留在仓库里既不承载结论、又让后续追溯误以为「审过了」。",
+        "defense": "辩护成立面：它是 **pre-commit 自动 stage 的判定记录**（不是人手工写的台账），按内容寻址命名，本身不是「噪声」——它是「这次改动被判需要外部双模型审查」这个事实的落盘。问题不在于它存在，而在于**它没有闭环**。",
+        "verdict": "upheld",
+        "rationale": "指控描述属实。处置：把 HEAD 切到产生它的那笔提交（模块拆分 `0db75f18c`）补跑 `sh scripts/deep-review.sh`（该脚本审的是 HEAD 那一个提交的 diff，而它按内容寻址命中本记录），对产出的争议项逐条裁定后回填闭环值（`status` 置白名单值 `needs_revision` + `tier` + `findings` + `closureNote`）。**没有**用「删掉这条产物」来消红——删除即免审计版（门禁注释里点名过这条形状）。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "New word-count-instruction.js builds LLM system prompts by interpolating user-derived numeric values (range.min, range.max, originalLength); the only guard is an integer check in the caller, with no additional sanitization or schema contract file shown.",
+        "highRiskDomains": [
+          "datamigration"
+        ],
+        "prosecution": "指控成立面：把用户派生的值插进 LLM 的 system prompt，天然是「提示词注入」的怀疑面；且「只有调用方一道整数校验、没有任何 schema 契约文件」这句话会让人以为这块没有契约、随便谁来改都能改坏。",
+        "defense": "辩护成立面：被插值的三个实参**全部是数字**（`range.min` / `range.max` / `originalLength = [...content].length`），模板里是数值字面量插值而非字符串拼接 ⇒ **没有文本注入面**；调用方校验（`rewrite-engine-core.js:652-654`）逐字覆盖 typeof / isInteger / 上下界 / max≥min，校验不过则**不注入任何指令**；契约并非没有落点（`useWordCountValidation.js` 注释、`word-count-instruction.js` 头部、PRD §4.1/§4.2）。但本条落在**高危域**，按合同**不允许自扮演豁免** ⇒ 必须外部复核。",
+        "verdict": "dismissed",
+        "rationale": "由**外部后端 claude** 复核并驳回（出处见 externalReview.evidenceRef：PR #4111 的公开评论，评论里是 claude 的原始 JSON 裁定）。claude 的理由：① 三处插值全是数字、非字符串拼接，恶意输入最多改变数字、无法夹带指令文本；② 整数 + 范围两道校验逐字存在于 `rewrite-engine-core.js:652-654`，不通过时返回空串、指令不注入；③ 「无 schema 契约」被三处可核落点反证。本仓另行补强了契约的显式落点（PRD §4.1/§4.2 + 渲染层结构锁直接读引擎源码断言 `range.max <= MAX_OUTPUT_CHARS` 逐字存在），不依赖驳回本身。",
+        "externalReview": {
+          "performedBy": "claude",
+          "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4111#issuecomment-6301282403",
+          "reviewedAt": "2026-10-20T21:10:00+08:00"
+        }
+      }
+    ],
+    "note": "自扮演裁决：1 条指控成立（已在本 PR 处置），2 条经取证驳回",
+    "closureNote": "第 1 轮自扮演裁决（依赖升级（follow-redirects / vite））：i2 upheld（已在本 PR 处置）；i1、i3 dismissed（附取证依据）。i3 落在高危域，由外部后端 claude 复核后驳回（出处：PR #4111 评论 https://github.com/Colinchiu007/mulpub/pull/4111#issuecomment-6301282403）。",
+    "at": "2026-10-20T21:07:43.572Z",
+    "debtClosure": {
+      "closedBy": "agent(Lead)",
+      "at": "2026-10-20T21:07:43.572Z",
+      "gatedBy": "scripts/check-pr-exec-record.js::evaluateDeepReviewDebt（只查 mode===dual）",
+      "remedy": "按该门禁判据给出的补救路径：确认判定对当前 PR 最终状态已不成立后，在记录里写明原因并把 status 置为闭环值（白名单 needs_revision）",
+      "engineVerdictBeforeClosure": "self_play_pending（引擎终态只有 self_play_resolved / self_play_blocked，没有「指控成立但已在同 PR 内修复」这一态）",
+      "upheldFixedInThisPr": [
+        "i2"
+      ],
+      "dismissedByEvidence": [
+        "i1",
+        "i3"
+      ],
+      "items": [
+        {
+          "id": "i2",
+          "verdictAtReview": "upheld",
+          "fixedIn": "本 PR 同批提交（collect-rewrite-wordcount）",
+          "evidence": "见 findings[].rationale 的逐条处置与对应回归锁"
+        }
+      ],
+      "residualNotClosed": [
+        "本次闭环**不等于**对最终 diff 的一次全新评审：外部评审针对的是本 PR 的**各笔提交各自的 diff**（深审脚本审的是 HEAD 那一个提交，判据记录按内容寻址命中对应产物）；后续提交（依赖升级、裁决回填）由本记录与另一笔记录分别承载。",
+        "i4 / i3 两条高危域争议的驳回依据来自**外部后端 claude 的独立复核**（出处为 PR #4111 的公开评论，可点开核对），不是本会话自审。"
+      ]
+    }
   }
 }
