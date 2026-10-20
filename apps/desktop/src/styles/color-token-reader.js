@@ -37,7 +37,7 @@ function plainValue (v) {
 export function loadThemes (css) {
   const light = new Map()
   const dark = new Map()
-  // 先剥注释：本仓根块前面普遍压着一段 /* ... */ 说明，不剥的话"选择器"文本会把注释一起吃进来，
+  // 先剥注释：本仓根块前面普遍压着一段 CSS 块注释说明，不剥的话注释文本会把选择器一起吃进来，
   // `^:root$` 这类锚定判定当场失败 ⇒ 整个 :root 块被漏读（表现为"槽全是 undefined"，而不是报错）。
   const cssNoComments = css.replace(/\/\*[\s\S]*?\*\//g, '')
   // 逐块扫描而不是按 `:root` / `html[data-theme='dark']` 两条写死的正则找：
@@ -259,7 +259,7 @@ export function surfaceCandidates (selector, decls, declBySelector, theme, pageB
     const raw = d && (d.background || d['background-color'])
     if (raw && !/^(transparent|none)$/i.test(raw)) push(raw, anc)
   }
-  if (!out.length) push(pageBgValue || null, ownIsNone ? `${selector} background:${own} ⇒ 页面底色` : '页面底色（调用方给的实际底色）')
+  if (!out.length) push(pageBgValue || null, ownIsNone ? `${selector} background:${own} => page-bg` : 'page-bg (caller supplied)')
   return out
 }
 

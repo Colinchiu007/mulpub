@@ -49,7 +49,7 @@ export function collectSites (vueSrc, tokensSrc, pageBgExpr = 'var(--color-bg-in
         ratio: ratio === null ? null : Number(ratio.toFixed(2)),
         surface: worstHex,
         // 候选底色里有解析不出的（rgba / 未定义槽）⇒ 如实标注，不得当成"这条过了"
-        unresolved: unresolved.map((u) => u.raw || '(无)'),
+        unresolved: unresolved.map((u) => u.raw || '(absent)'),
       }
     })
     sites.push({ selector: r.selector, value: r.decls.color.trim(), per })

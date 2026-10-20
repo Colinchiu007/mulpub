@@ -12,6 +12,7 @@
 import { describe, expect, it } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
+import { contrast } from './color-token-reader'
 
 const SRC = path.resolve(__dirname, '..')
 const TOKENS = path.join(SRC, 'styles/tokens.css')
@@ -181,14 +182,13 @@ describe('键盘焦点环合同（阶段 3.6 / audit-25 / WCAG 2.4.7）', () => 
       if (!m) throw new Error(`解析不到 ${name}（从 ${from} 起）——判据退化时宁可抛错也不放行`)
       return m[1]
     }
-    const lum = (hex) => {
-      const c = [1, 3, 5].map((k) => parseInt(hex.slice(k, k + 2), 16) / 255)
-        .map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4))
-      return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
-    }
+    // 公式不再内联：本仓的 WCAG 相对亮度比单一实现是 color-token-reader.js 的 contrast()
+    // （收敛前这里自带一份 lum/ratio，收紧一次判据要改两份；见 color-token-reader.test.js
+    //  的「对比度公式的收敛欠账」棘轮）。解析不出必须抛错，不得当成"通过"。
     const ratio = (a, b) => {
-      const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p)
-      return (x + 0.05) / (y + 0.05)
+      const v = contrast(a, b)
+      if (v === null) throw new Error(`contrast() 解析不出 ${a} / ${b} —— 判据退化时宁可抛错也不放行`)
+      return v
     }
     // 浅档：--color-focus-ring 取 var(--color-primary-hover) → 解析该槽的 hex 实际值
     const lightRing = hexOf('--color-primary-hover', ':root')

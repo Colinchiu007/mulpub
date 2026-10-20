@@ -30,7 +30,7 @@ sync_backfill_owner: 合并后由承接该分支的会话按 AGENTS「PR 自动�
 - `surfaces`（本批未修的底色/边框/描边裸 hex）= **31** 处：background 16 / border 10 / border-color 4 / outline 3（含 `var(--x, #hex)` 回退被排除后的读数）。
 - 浅色档像素：变化 **22** 处、不变 **3** 处（`at-lightdelta.mjs` 逐条比 HEAD 现值与令牌浅色解析值）。
 - 全仓存量重测：`apps/desktop/src` 203 个 `.vue/.css` 文件里 **68** 个含裸 hex `color:`，共 **417** 处。审计原表的 579 是**另一个域**（含非 `color` 属性），两个数不得混用。
-- `src/styles/` 内自带第二份对比度公式的测试 = **4** 份（`tokens.slots` / `tokens.aliases` / `sidebar.tokens` / `ep-theme.tokens`），加本批共 5 套并存 ⇒ 已钉成只能缩小的清单。
+- `src/styles/` 内自带第二份对比度公式的测试 = **4** 份（`tokens.slots` / `tokens.aliases` / `sidebar.tokens` / `ep-theme.tokens`），加本批共 5 套并存 ⇒ 已钉成只能缩小的清单。**2026-10-20 第二轮更新**：焦点环单元经 PR #4035 合并进本分支后带进第 6 个文件（`focus-ring.test.js`，自带 lum/ratio），棘轮当场从"5 份 vs 上界 4"判红；处置不是把上界抬到 5，而是把 `focus-ring.test.js` 收敛到共享 `contrast()`（收敛前后四档读数逐字相同），清单回到 4/4。
 
 ### QM-6 逐条处置（先核实可达性，再决定采纳/否证）
 
@@ -61,8 +61,25 @@ sync_backfill_owner: 合并后由承接该分支的会话按 AGENTS「PR 自动�
 2. **判据不覆盖 `rgb()/rgba()/hsl()` 与 CSS 变量色管理**：这类槽（如暗色档的 `--color-primary-light`）只登记不判定，需人工看。
 3. **祖先底色按选择器前缀猜，不解析真实 DOM**：`.a .b` 认 `.a`，但嵌套在别的带色容器里仍会漏；`surfaces` 清单是这一类的现场账。
 4. **其余 67 个文件的 417 处裸 hex `color:`** 未收编（审计 4.2 的后续批次）。
-5. **对比度公式仍 5 套并存**（本批只钉棘轮，未收敛）。
+5. **对比度公式：本批收敛掉 1 套，剩 4 套并存**（`focus-ring.test.js` 的内联 lum/ratio 已改为 import `color-token-reader.js` 的 `contrast()`，四档读数逐字未变：`light/canvas=6.05 light/card=6.05 dark/canvas=4.78 dark/card=4.30`；其余 4 套 `tokens.slots` / `tokens.aliases` / `sidebar.tokens` / `ep-theme.tokens` 仍内联，收敛它们属"改谁来守门"，未在本批动）。
 6. 4 处「白字坐在不过 AA 的彩色面上」（`.page-button.danger` 3.76、`.floating-close-button` 4.21、`.batch-delete` 暗色 3.26、`.selected-count`/`.login-state-actions button` 族内无解）与「底色未随主题走」的 31 处 ⇒ **属设计裁决，已上报不代拍**（PRD《交互逻辑（批量收编时的禁止项）》）。
-| 远程同步 | PENDING | 本 PR 尚未创建；合并后就地改写成 `PASS` + merge SHA（`git log origin/main --grep='(#NNNN)$' --format=%H|%cI` 取证），并按 AGENTS「收口由 `scripts/lib/merge-ledger.js` 推导」——**不另开回填 PR** |
 
-- 保留门禁：行尾对账 ✅ | 品牌残留 随 CI（本批未写竞品名）| 文档同步 随 CI doc-gate | 受管文档绝对路径 随 CI Gate 12c（本记录一律用 `<仓库父目录>` 占位）| 执行记录载体 ✅（`openspec/records/ux-audit-accounts-text-tokens.md`）| 远程同步 PENDING
+### 第三次红：Gate 7 把测试专用模块的诊断标签当成用户可见文案
+
+`QG Static` 红在 `check-locale-sync.js --cjk`，点名 4 处「渲染端新增硬编码中文字符串」（run 见 PR #4066 的 Static job）：
+
+| 现场 | 真实用途 | 处置 |
+| --- | --- | --- |
+| `color-token-reader.js` 注释里写的 `/* ... */` | 剥注释的说明文字 | **不是新增文案，是扫描器的自噬**：`--cjk` 先用非贪婪块注释正则剥 `/*…*/`，我这条**行注释里含字面 `/* … */`**，块正则先在行中间闭合，剩下的半行 `"选择器"` 于是被当字符串字面量命中。改写该行，不再出现块注释符号 |
+| `… ⇒ 页面底色` / `页面底色（调用方给的实际底色）` | `surfaceCandidates().from` —— 只在测试判词里出现，不进任何 UI | 改 ASCII：`=> page-bg` / `page-bg (caller supplied)` |
+| `text-contrast-sites.js` 的 `'(无)'` | `unresolved` 里 raw 缺席时的占位，落 `per.unresolved` 数组 | 改 `'(absent)'`（基线 JSON 现场核对**不含** `(无)`，换字面量不动任何已登记项） |
+
+**为什么不走 `--update-baseline`**：那条旗标是给"存量行号漂移"用的显式销账通道，本批这 4 处确实是新写进 `src/` 的字面量，把它计入基线等于给自己开一条"新硬编码先入库再说"的路。**正解是照判据的要求做**：非用户可见的诊断串不该用中文写，改成 ASCII 后本机 `[locale-sync] CJK scan PASS（基线 1330 条，当前 1134 条）`。
+
+**改标签顺手把一条弱断言变强**：`color-token-reader.test.js` 原来写 `/页面底色|transparent/.test(from)` —— 这个或式在标签里根本没有"页面底色"时也照样靠 `transparent`（它是插值进来的 `own` 原值）通过，等于对标签措辞**永不提问**。现改为两条 `toContain`（`=> page-bg` 与 `transparent` 各一），并补上另一半分支的现场：自己没写 `background` 时标签必须是 `page-bg (caller supplied)`，否则"哪种回落"这个信息在两档之间是不可区分的。
+
+**顺带修掉一处被 #4035 合并重新点燃的棘轮**：`color-token-reader.test.js` 的「内联公式清单只能缩小」上界取 `LEGACY_COPIES.length`（4），而焦点环单元合并进来的 `focus-ring.test.js` 自带第 5 份公式 ⇒ 本机与 CI 的 desktop 分片都会红。我没有把上界调宽（那是把棘轮倒着拧），而是**真收敛一份**：`focus-ring.test.js` 改 import 共享 `contrast()`，四档读数逐字不变（见遗留第 5 条），清单回到 4/4。
+
+| 远程同步 | 由门禁推导 | 收口状态不手写：`scripts/lib/merge-ledger.js` 按主干历史找出"哪个带 `(#NNNN)` 尾注的已合并提交最近一次把这篇记录带进 main"，命中即收口。合并证据回读写在 PR 评论里，不写回仓库文件（AGENTS 2026-10-18「禁止记录收口回填 PR」） |
+
+- 保留门禁：行尾对账 ✅（`git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径逐文件相等）| 品牌残留 随 CI（本批未写竞品名）| 文档同步 随 CI doc-gate | 受管文档绝对路径 随 CI Gate 12c（本记录一律用 `<仓库父目录>` 占位）| 执行记录载体 ✅（`openspec/records/ux-audit-accounts-text-tokens.md`）| 远程同步 PR #4066

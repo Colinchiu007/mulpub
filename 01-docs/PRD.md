@@ -20436,7 +20436,8 @@ LLM 空输出/报告缺失时，审计 job 会往 job 汇总写 `AUTONOMOUS_VERD
 - 机制单一实现：`apps/desktop/src/styles/color-token-reader.js`（token 链 / 长度链 / 相对亮度比 / 阈值分档 / style 块与 at-rule 递归扫描 / 主题覆盖层）+ `apps/desktop/src/styles/text-contrast-sites.js`（把 SFC 的文字点采集成结构化现场）。
 - 判据：`apps/desktop/src/views/Accounts.text-contrast.test.js`（11 条）；机制锁：`color-token-reader.test.js` + `text-contrast-sites.test.js`。
 - **生成基线与校验基线必须跑同一份采集实现**，测试逐字段重算基线里的 `need/ratio/surface`；改判据不更新基线当场变红。这条口径来自外部评审点名的"最高危单点：两套口径漂移"。
-- 基线：`apps/desktop/src/views/Accounts.text-contrast-baseline.json`（`exemptions` 16 条 + `surfaces` 31 条），两个方向都锁：现场新增即红、现场已修好却还挂着登记也红；测试另断言"现场条数 == 基线条数"，脱钩即红。
+- 基线：`apps/desktop/src/views/Accounts.text-contrast-baseline.json`（`exemptions` 15 条 = `compliant-bare` 12 + `needs-design` 3；`surfaces` 31 条），两个方向都锁：现场新增即红、现场已修好却还挂着登记也红；测试另断言"现场条数 == 基线条数"，脱钩即红。
 - 反证：14 道变异各自红在指名用例上（含"只扫第一个 style 块""不剥 `!important`""祖先底色不看主题覆盖""大文本档位读宽""把删除红换成能过 AA 的主色"等被禁形态本身）。
-- 未收敛的债（本批只登记不动）：`src/styles/` 下 4 份测试各自内联了亮度/对比度公式，加本批共 5 套并存，已用只能缩小的清单钉住（清单只能删不能加）。
+- 对比度公式的存量账：`src/styles/` 内自带第二份亮度/对比度公式的测试原有 5 份（`tokens.slots` / `tokens.aliases` / `sidebar.tokens` / `ep-theme.tokens`，以及焦点环单元经 PR #4035 合并带进来的 `focus-ring.test.js`）。本批**真收敛掉 `focus-ring.test.js` 那一份**（改为 import 共享 `contrast()`，四档读数逐字不变），清单上界维持 4 **未调宽**；其余 4 份的收敛属"改谁来守门"，另批做，本批只把它钉成只能缩小的清单（清单只能删不能加）。
+- 非用户可见的诊断串一律用 ASCII：`surfaceCandidates().from` 与 `per.unresolved` 的占位（`=> page-bg` / `page-bg (caller supplied)` / `(absent)`）不会渲染到界面，但写在 `src/` 里的中文字面量会被 Gate 7 的 `--cjk` 记为新增硬编码。**正解不是 `--update-baseline`**（那是给存量行号漂移用的显式销账通道，用它等于给自己开"新硬编码先入库再说"的路），而是照判据的要求改成 ASCII。另一处陷阱：`--cjk` 的剥注释先走**非贪婪块注释正则**，所以行注释里出现字面 `/* … */` 会把该行截断、后半行的引号内容被误当字符串字面量命中——写解释性注释时不要内联块注释符号。
 

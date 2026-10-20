@@ -139,7 +139,11 @@ describe('color-token-reader 的第二批判据（QM-6 逻辑轴命中的三种�
     const cand = surfaceCandidates('.clear-search', { background: 'transparent' }, new Map(), t.light, '#faf6f8')
     expect(cand.length, 'transparent 必须落到页面底色候选，而不是自己占一个解析不出的格子').toBe(1)
     expect(cand[0].hex).toBe('#faf6f8')
-    expect(/页面底色|transparent/.test(cand[0].from), `出声要写清是哪种回落：${cand[0].from}`).toBeTruthy()
+    expect(cand[0].from, `出声要写清是哪种回落：${cand[0].from}`).toContain('=> page-bg')
+    expect(cand[0].from, `回落必须点名是自己的哪个声明造成的：${cand[0].from}`).toContain('transparent')
+    // 另一半：自己没写 background（不是 transparent）时，标签必须写明"底色来自调用方"
+    const plain = surfaceCandidates('.login-state span', {}, new Map(), t.light, '#faf6f8')
+    expect(plain[0].from, `没写 background 的回落标签必须与 transparent 的区分开：${plain[0].from}`).toContain('page-bg (caller supplied)')
   })
 
   it('必须遍历每一个 style 块，且嵌套进 @media 的规则不得从判据里消失', () => {
