@@ -48,8 +48,8 @@
   },
   "deepReview": {
     "required": true,
-    "status": "self_play_pending",
-    "performedBy": "self-play(pending)",
+    "status": "needs_revision",
+    "performedBy": "opencode+claude(deep-review harness)",
     "confidenceWeight": 0.6,
     "requiresExternalReview": [
       {
@@ -60,9 +60,48 @@
         ]
       }
     ],
-    "findings": null,
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "critical",
+        "status": "fixed",
+        "summary": "$t mock 只回传 key ⇒ 18 条文案断言在测假数据；改为查真实 zh 词条再插值，断言改为真实文案"
+      },
+      {
+        "id": "i5",
+        "severity": "warning",
+        "status": "fixed",
+        "summary": "前沿节流只降频不降单帧 O(N)；加视口裁剪（top 越过视口底即 break），单帧重排降到视口内段数"
+      },
+      {
+        "id": "i2",
+        "severity": "warning",
+        "status": "rejected",
+        "summary": "tOrKey 是 ResultSegmentEditor.vue:233 既有方法，diff 看不到只因本轮没改它"
+      },
+      {
+        "id": "i3",
+        "severity": "warning",
+        "status": "rejected",
+        "summary": "cleanText(:32 const) 与 segmentSearchHaystack(:401 函数声明) 都在同文件；53 条纯函数用例全绿即行为级反证。被判为高危域但内容与加密无关"
+      },
+      {
+        "id": "i4",
+        "severity": "info",
+        "status": "partial",
+        "summary": "6 个 prop 有 Vue 运行时 type 校验；absoluteIndex 全量下标语义由注释+PRD+单测三重锁定"
+      },
+      {
+        "id": "i6",
+        "severity": "info",
+        "status": "acknowledged",
+        "summary": "测试已分别 stub 确认/取消；原生模态视觉一致性为已知取舍，记入 PRD §9"
+      }
+    ],
     "template": ".adversarial\\ccg-deep-0fb202d3\\adjudication.json",
     "note": "裁决尚未填写：4/4 条未定（i1, i2, i3, i5）",
-    "at": "2026-10-20T09:11:56.150Z"
+    "at": "2026-10-20T09:11:56.150Z",
+    "tier": "external",
+    "evidence": "评审方式：scripts/deep-review.sh 在本机因 POSIX 路径传给 Windows node 而失败（MODULE_NOT_FOUND D:\\c\\Users\\…），改用 Git Bash 直接调用底层 ccg-deep-review.js 跑通 opencode(提案) / claude(评审) 双后端，产出 .adversarial/ccg-deep-0fb202d3/critique-v1.md：6 条问题 / 4 维度 / 最低 6 分。逐条核实后：i1(Critical)、i5(Warning) 成立并已修且补回归锁；i2、i3 经核实不成立（附行号级反证：i2 tOrKey 在 ResultSegmentEditor.vue:233；i3 cleanText:32 / segmentSearchHaystack:401 且 53 条纯函数用例全绿）；i4 部分成立（prop 有 Vue type 校验，语义约束由注释+PRD+单测锁定）；i6 属已知取舍（记入 PRD §9）。⚠️ 未完成项（如实记录，不伪造）：i3 被判定器归入 highRiskDomains=[crypto]，机制要求「performedBy 逐字 claude + 公开 PR 评论 URL」的外部复核；实际调用 claude CLI 返回 HTTP 402 Insufficient credits（OpenRouter 无额度），外部复核**未能取得**，因此 adjudication.json 的 i3.externalReview 三格保持为 null，未填任何假 URL。该条本身已由行号反证与 53 条绿测反驳。状态取 needs_revision：不是「已全部收口」，而是「有 1 项机制要求的外部复核因后端不可用仍未完成」。"
   }
 }

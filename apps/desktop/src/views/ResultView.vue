@@ -328,8 +328,11 @@ import {
 } from './video-creation/composables/useResultPreviewMedia'
 import {
   backToTop,
+  computeActiveSegmentIndex,
   expandAllSegments,
   jumpToSegmentIndex,
+  recalcSegmentHighlight,
+  tickSegmentScroll,
 } from './video-creation/composables/useSegmentNavigation'
 import {
   story2videoExportZip,
@@ -817,73 +820,23 @@ export default {
     setSegmentItemRef(el, index) {
       if (el) this.segmentItemRefs[index] = el
     },
-    // 滚动高亮：根据各分段卡片顶部相对视口的位置，更新右侧导航当前分段（2026-09-18）
-    //
-    // 2026-10-20 QM-6 审查项 A3 修复：refs 是**按全量下标寻址的稀疏数组**
-    // （点名段并入首屏后，169 段任务 + focusScenes=49 ⇒ refs.length=49 但只挂 21 个，
-    // refs[20..47] 全是 undefined）。旧实现 `for (i < min(refs.length, segments.length))`
-    // 把「稀疏数组长度」当连续下标上界，遇到空洞就 continue ⇒ activeSegmentIndex 被设成
-    // 「有 ref 的最大位次」而非用户实际看到的段，高亮与滚动位置脱节。
-    // 修法：改为 Object.keys 遍历实际挂上的 ref，下标即全量 absoluteIndex。
-    //
-    // 2026-10-20 PRD-S2V-RESULT-UX-POLISH §3.5 补充：**rAF 合并 + 回顶显隐**。
-    // 旧实现直接挂在 window scroll 上，169 段全展开时每个 scroll 事件都做 169 次
-    // getBoundingClientRect（强制重排）⇒ 滚动发涩、右侧高亮拖尾。
-    // 现在同一帧的多条 scroll 事件只算一次（rAF 合并），并把「回顶按钮显隐」并入同一次计算。
+    // 滚动高亮与帧调度全部在 composables/useSegmentNavigation.js（纯逻辑、可单测）：
+    // 宿主只保留这层接线。历史缺陷别再"优化"回去——
+    // ① refs 是按全量下标寻址的稀疏数组，必须遍历实际存在的键；
+    // ② 卡片纵向堆叠 ⇒ top 单调递增 ⇒ 读到越过视口底即 break（单帧重排 169 → ~20）；
+    // ③ 前沿节流（不是 trailing），否则程序化重算会被同帧吞掉、高亮滞留。
     onSegmentScroll() {
       if (typeof window === 'undefined') return
-      // 回顶显隐与高亮无关，但同属滚动回调，合并到一帧里算，避免额外监听
+      // 回顶显隐与高亮无关，但同属滚动回调，合并到同一次调用里，避免额外监听
       const nextShowBackToTop = (Number(window.scrollY) || 0) > 600
       if (nextShowBackToTop !== this.showBackToTop) this.showBackToTop = nextShowBackToTop
-
-      // 前沿节流（leading-edge）：本帧第一次滚动**立即**算一次（保证高亮即时跟手，
-      // 也让同步断言成立），同帧后续事件只把「帧标记」清空、不再重算。
-      // 效果与「每帧最多 1 次」等价，但不会让高亮滞后一帧。
-      if (this._segmentScrollFrame) return
-      this.computeActiveSegmentIndex()
-      const raf = typeof window.requestAnimationFrame === 'function'
-        ? window.requestAnimationFrame.bind(window)
-        : (cb) => setTimeout(cb, 16)
-      this._segmentScrollFrame = raf(() => {
-        this._segmentScrollFrame = null
-      })
+      tickSegmentScroll(this)
     },
-    // 真正的重活：遍历已挂 ref 求当前分段（由 onSegmentScroll 经 rAF 合并后调用）
-    // 程序化重算（删除/移动/新增分段后、跳转后）：**不受滚动节流**，立即算一次。
-    // 滚动节流只该合并「用户滚动」这种高频事件；程序化重算若被同帧吞掉，
-    // 高亮会滞留在被删掉的那一段上（本仓曾出现该形态）。
     recalcSegmentHighlight() {
-      this._segmentScrollFrame = null
-      this.computeActiveSegmentIndex()
+      recalcSegmentHighlight(this)
     },
     computeActiveSegmentIndex() {
-      const refs = Array.isArray(this.segmentItemRefs) ? this.segmentItemRefs : []
-      if (!refs.length || !Array.isArray(this.segments) || !this.segments.length) return
-      const threshold = Number(this.segmentScrollThreshold) >= 0 ? Number(this.segmentScrollThreshold) : 120
-      let current = -1
-      let bestTop = -Infinity
-      // 视口下界（QM-6 深审 i5）：节流只降频不降单帧 O(N)，169 段时每帧仍读 169 次
-      // getBoundingClientRect（强制重排）。卡片按 DOM 顺序纵向堆叠 ⇒ `top` 单调递增 ⇒
-      // 一旦读到「顶部已过视口底」的卡片，后面全部更靠下，可以直接 break。
-      // 单帧重排从「已渲染段数」降到「视口内段数 + 1」。
-      const viewportBottom = typeof window !== 'undefined' && Number(window.innerHeight) > 0
-        ? Number(window.innerHeight) + threshold
-        : 0
-      for (const key of Object.keys(refs)) {
-        const i = Number(key)
-        if (!Number.isInteger(i) || i < 0) continue
-        const el = refs[i]
-        if (!el || typeof el.getBoundingClientRect !== 'function') continue
-        const rect = el.getBoundingClientRect()
-        // 已过视口底 ⇒ 后续卡片都在更下方，无需再读（提前退出）
-        if (viewportBottom > 0 && rect && typeof rect.top === 'number' && rect.top > viewportBottom) break
-        // 分段顶部进入视口上方阈值区域 → 候选当前分段；取顶部最接近视口顶部的那个（top 最大）
-        if (rect && typeof rect.top === 'number' && rect.top <= threshold && rect.top > bestTop) {
-          bestTop = rect.top
-          current = i
-        }
-      }
-      if (current >= 0) this.activeSegmentIndex = current
+      computeActiveSegmentIndex(this)
     },
     // 分段渲染窗口推进（2026-10-20，PRD-S2V-RESULT-VIEW-PERF §4.3）：
     // 先扩窗口让新分段进 DOM，再只解析新增那一批的媒体 URL。

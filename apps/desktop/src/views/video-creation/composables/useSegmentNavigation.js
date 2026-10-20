@@ -120,3 +120,80 @@ export function backToTop (vm) {
   if (root) root.scrollIntoView({ behavior: 'smooth', block: 'start' })
   else window.scrollTo({ top: 0, behavior: 'smooth' })
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 滚动高亮（2026-10-20 PRD-S2V-RESULT-UX-POLISH §3.5）
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 求「当前所在分段」：遍历已挂 DOM ref，取顶部最接近视口顶部阈值的那个。
+ *
+ * 两个关键点（都来自实测缺陷，不要"优化"掉）：
+ * 1. **必须遍历 Object.keys(refs)**：refs 是按全量下标寻址的**稀疏数组**
+ *    （点名段并入首屏后中间全是空洞），用 `refs.length` 当连续上界会把高亮设到
+ *    「有 ref 的最大位次」，与用户实际看到的段脱节。
+ * 2. **读到视口下方的卡片即 break**：卡片按 DOM 顺序纵向堆叠 ⇒ `top` 单调递增 ⇒
+ *    后面的都在更下方，无需再读。这一条把单帧 `getBoundingClientRect`（强制重排）
+ *    从「已渲染段数」降到「视口内段数 + 1」——169 段全展开时是 169 → ~20。
+ */
+export function computeActiveSegmentIndex (vm) {
+  const refs = Array.isArray(vm.segmentItemRefs) ? vm.segmentItemRefs : []
+  if (!refs.length || !Array.isArray(vm.segments) || !vm.segments.length) return
+  const raw = Number(vm.segmentScrollThreshold)
+  const threshold = raw >= 0 ? raw : 120
+  const viewportBottom = typeof window !== 'undefined' && Number(window.innerHeight) > 0
+    ? Number(window.innerHeight) + threshold
+    : 0
+  let current = -1
+  let bestTop = -Infinity
+  for (const key of Object.keys(refs)) {
+    const index = Number(key)
+    if (!Number.isInteger(index) || index < 0) continue
+    const el = refs[index]
+    if (!el || typeof el.getBoundingClientRect !== 'function') continue
+    const rect = el.getBoundingClientRect()
+    if (viewportBottom > 0 && rect && typeof rect.top === 'number' && rect.top > viewportBottom) break
+    if (rect && typeof rect.top === 'number' && rect.top <= threshold && rect.top > bestTop) {
+      bestTop = rect.top
+      current = index
+    }
+  }
+  if (current >= 0) vm.activeSegmentIndex = current
+}
+
+/** 取消待执行的滚动帧（rAF 与 setTimeout 两种回退都要能取消）。 */
+export function cancelScrollFrame (vm) {
+  const handle = vm._segmentScrollFrame
+  vm._segmentScrollFrame = null
+  if (!handle || typeof window === 'undefined') return
+  if (typeof window.cancelAnimationFrame === 'function' && typeof handle === 'number') {
+    window.cancelAnimationFrame(handle)
+  } else if (typeof handle === 'object' && typeof window.clearTimeout === 'function') {
+    window.clearTimeout(handle)
+  }
+}
+
+/**
+ * 滚动事件入口：**前沿节流**（leading-edge）。
+ *
+ * 本帧第一次滚动立即算一次（保证高亮跟手，也让同步断言成立），同帧后续事件只等
+ * 帧标记被清掉。选前沿而非 trailing 的依据：trailing 会让程序化重算（删除/移动后）
+ * 被同一帧吞掉，高亮滞留在**被删掉的那一段**上。
+ */
+export function tickSegmentScroll (vm) {
+  if (typeof window === 'undefined') return
+  if (vm._segmentScrollFrame) return
+  computeActiveSegmentIndex(vm)
+  const raf = typeof window.requestAnimationFrame === 'function'
+    ? window.requestAnimationFrame.bind(window)
+    : (cb) => setTimeout(cb, 16)
+  vm._segmentScrollFrame = raf(() => {
+    vm._segmentScrollFrame = null
+  })
+}
+
+/** 程序化重算（删除/移动/新增分段后、跳转后）：不受滚动节流影响。 */
+export function recalcSegmentHighlight (vm) {
+  cancelScrollFrame(vm)
+  computeActiveSegmentIndex(vm)
+}
