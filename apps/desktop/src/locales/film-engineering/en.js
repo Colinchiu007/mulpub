@@ -5,13 +5,13 @@
 export default {
     "hub": {
       "title": "Film Engineering",
-      "subtitle": "Three ways to work: Auto (give a script and reference images, the app does the rest), Canvas (node-based, shot by shot), Cases (the real shot library, script adaptation and prompt doctrine).",
+      "subtitle": "Three ways to work: Auto (give a script and reference images, the app does the rest), Canvas (node-based, shot by shot), Project Cases (industry-grade shot library, script adaptation and prompt doctrine).",
       "tabsLabel": "Film engineering mode",
-      "tabs": { "auto": "Auto", "canvas": "Canvas", "classic": "Cases" },
+      "tabs": { "auto": "Auto", "canvas": "Canvas", "classic": "Project Cases" },
       "hints": {
         "auto": "Provide a script, reference images, orientation and approximate duration; the app plans shots, binds references, generates and composes",
         "canvas": "Node-based editing: split script into shots, wire reference images, retry single shots, compose the final cut",
-        "classic": "The real \"Hell Grind\" shot library, script adaptation, prompt doctrine and full-corpus production"
+        "classic": "Industry-grade shot library, script adaptation, prompt doctrine and full-corpus production"
       }
     },
     "auto": {
@@ -109,12 +109,13 @@ export default {
       }
     },
 
-    "title": "Film Engineering · \"Hell Grind\" Production Pipeline",
-    "subtitle": "A reproduction of the open-source AI film \"Hell Grind\": real shot prompts, character/scene/prop asset index, and the prompt doctrine — with one-click copy and script adaptation.",
+    "title": "Film Engineering · Impact Project Case Production Pipeline",
+    "subtitle": "Industry-grade film engineering: shot prompts, character/scene/prop asset index, and the prompt doctrine — with one-click copy and script adaptation.",
     "retry": "Retry",
     "unavailable": "Film engineering kit unavailable",
     "unavailableDesc": "The bundled film-kit assets are missing or failed validation. Check the installation and retry.",
     "noDesktop": "Desktop capability is not available in this environment",
+    "libraryTitle": "Impact Project Case",
     "stats": {"scenes": "Scenes", "shots": "Shots", "references": "Asset refs", "duration": "Duration"},
     "source": "Original project",
     "characters": "Characters",

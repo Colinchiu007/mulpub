@@ -48,7 +48,6 @@
   --slate: var(--color-text-muted);
   --body-muted: var(--color-text-secondary);
   --action-blue: var(--color-primary);
-  --focus-blue: var(--color-primary-hover);
   --coral: var(--color-danger);
   --coral-soft: var(--color-danger-soft);
   --form-focus: var(--color-primary);
@@ -470,6 +469,8 @@ body {
 }
 
 /* --- 按钮 --- */
+/* 键盘焦点环（audit-25 / WCAG 2.4.7）：变体逐个点名——实测模板 131 处按钮 class 全部只带变体类、零处带基类，只写基类即零覆盖；outline 过渡必须关（transition:all 会把 outline-* 纳入淡入，Tab 后 0ms 读到的还是起点）。判据与真浏览器取证见 openspec/records/ux-audit-focus-ring.md。 */
+.cohere-btn:focus-visible,.cohere-btn-primary:focus-visible,.cohere-btn-secondary:focus-visible,.cohere-btn-ghost:focus-visible,.cohere-btn-outline:focus-visible,.cohere-btn-coral:focus-visible,.cohere-btn-text:focus-visible,.cohere-btn-text--danger:focus-visible { outline: 2px solid var(--color-focus-ring); outline-offset: 2px; transition: outline-color 0s, outline-width 0s, outline-offset 0s; }
 .cohere-btn {
   font-family: 'PingFang SC', 'Microsoft YaHei', 'Smiley Sans', ui-sans-serif, system-ui, sans-serif;
   font-size: var(--font-size-sm);
@@ -1561,7 +1562,6 @@ body {
   --slate: #6b6b7d;
   --body-muted: #9999a0;
   --action-blue: var(--color-primary-dark-tint);
-  --focus-blue: var(--color-primary-dark-tint);
   --coral: #c2410c;
   --coral-soft: #4a2018;
   --form-focus: #b878c8;
