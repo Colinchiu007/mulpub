@@ -178,6 +178,15 @@
 - **验收锚点**：列出六处锁文件与用例数（12 / 13 / 7+3 / 20 / 3 / 6），并要求每条锁都做一次"写回被禁形态"的变异反证。纯文档，未改任何代码与门禁。
 
 
+# [未发布] docs(agents): 增补三条门禁纪律与一条表单关联契约（无障碍批次的系统性收尾）
+
+- **新增 QM-2 必检项「第三方组件的属性转发面必须实测，标签↔控件关联的判据只能取 DOM 事实」**：现场依据是本日两次实测——Element Plus 的 `ElInput` 会**整个丢弃 `id`**（根 div 与内层 input/textarea 三处全空），但会转发 `aria-labelledby`；本仓自研 `UiInput` 此前没有 `id` prop，导致 `Publish.vue:456` 的 `<label for="publish-tags">` 自写下之日起指向根 `div`，属规范级无效（labelable 只有 `button/input/meter/output/progress/select/textarea`，指到 div 不报错、不降级、也不回退到相邻文本）。规则要求关联类断言一律取 `control.labels` / `label.htmlFor`，宿主转发面 mount 一次实测并钉成契约锁，造 id 用 `useId()` 而**禁止 `Math.random()`**（同页撞车时 label 会指到别人的控件，比缺失更坏）。
+- **新增纪律「禁令与存在性判据必须按语义位置切，不得按字符串出现切」**：同族错法一天内三次打红——注释里的 `<UiButton>` 被 `Publish.test.js` 的模板扫描当成一次用法（连带 QG Desktop Shards、QG Coverage 两个 required check 红）、注释里的 `Math.random()` 被结构锁当成违规、注释里的 `for="fa-script"` 被契约锁当成退回死关联。同条收进反向漏法：变异实测「只摘 `<input>` 的 `:id`、留着 `<textarea>` 的」时文件级存在性判据全绿（另一分支替它顶罪）⇒ 判据作用域必须等于风险的语法位置（逐标签遍历 + 标签数下界），并配「写回被禁形态必红 / 只出现在注释里必绿」两条对照。
+- **新增纪律「计数型棘轮必须先认识同一合规目标的全部合法通道」**：把 EP 那条死 `for` 改成「label 带 `id` + 控件带 `aria-labelledby`」后，孤岛判据把它重新数成孤岛（存量 +1、棘轮红），即**判据会惩罚修得好的人**。正解是让扫描器认识替代通道，而不是改大基线；同时保留"上涨红、未登记新文件红、下降未销账红"三条。
+- **本 PR 只写规则，不带门禁代码**：实现层的两把锁与孤岛基线在 `ux-audit-label-for` 分支上，等并发 PR #4034 的机制层合入后按互补面 reconcile 再走一次 PR。"规则先于门禁存在"的窗口是刻意登记的，不抢跑。
+- 纯文档变更：`classify-docs-only` 判定与两口径 numstat 对账见 `openspec/records/agents-a11y-gate-rules.md`；未动 `.github/workflows/`、未动 `CI_IGNORED_PATHS`，不改任何"谁来守门"的机械判据。
+
+
 ## 问题
 - 2026-10-19 真实事故：MiniMax 订阅套餐账号克隆音色被服务端拒绝（`model_provider_logs` id=10030：`your current token plan not support model, voice_clone`，latency 1125ms——请求真实到达、鉴权通过、参数合规）。adapter 把它误判为额度类（`token\s*plan` 被 isQuota 吃掉），service 折叠成 `VOICE_CLONE_PROVIDER_UNAVAILABLE`，用户看到「音色克隆服务暂时不可用，请稍后重试」——重试永不成功，误导用户反复尝试。
 
