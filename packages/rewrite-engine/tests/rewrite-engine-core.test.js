@@ -24,6 +24,10 @@ describe('RewriteEngine', function () {
     }
   }
   function mockLlmClient(t) { return { chat: async function () { return t } } }
+  // rewrite-segment-and-finish-reason：chat 返回 object 形态（含 finishReason）的 mock
+  function mockLlmClientObject(text, finishReason) {
+    return { chat: async function () { return finishReason === undefined ? { text } : { text, finishReason } } }
+  }
   function wireStrategy(engine) {
     engine._strategyManager._strategies = [sampleStrategy()]
     engine._strategyManager.listEnabled = function () { return [sampleStrategy()] }
@@ -188,6 +192,69 @@ describe('RewriteEngine', function () {
     engine._strategyManager.get = function () { return strategy }
     var result = await engine.rewrite({ mode: 'imitate', content: '任意内容', userSettings: { wordCountRange: { min: 100, max: 2000 } } })
     expect(result.result.length).toBeLessThanOrEqual(2000)
+  })
+
+  // ── rewrite-segment-and-finish-reason 第一刀：finish_reason 归一化 + modelTruncated ──
+
+  test('L4 chat 返回 object（无 finishReason）⇒ 正常改写且 modelTruncated=false', async function () {
+    var engine = new RewriteEngine({ llmClient: mockLlmClientObject('改写结果'), knowledgeBase: new KnowledgeBase() })
+    wireStrategy(engine)
+    var result = await engine.rewrite({ mode: 'imitate', content: '任意内容', userSettings: {} })
+    expect(result.success).toBe(true)
+    expect(result.result).toBe('改写结果')
+    expect(result.modelTruncated).toBe(false)
+  })
+
+  test('L5 chat 返回 {text, finishReason:"length"} ⇒ modelTruncated=true', async function () {
+    var engine = new RewriteEngine({ llmClient: mockLlmClientObject('被模型截断的结果', 'length'), knowledgeBase: new KnowledgeBase() })
+    wireStrategy(engine)
+    var result = await engine.rewrite({ mode: 'imitate', content: '任意内容', userSettings: {} })
+    expect(result.success).toBe(true)
+    expect(result.modelTruncated).toBe(true)
+    // 引擎侧未截断 ⇒ outputTruncated 保持 false（两个字段分型，不混）
+    expect(result.outputTruncated).toBe(false)
+  })
+
+  test('L6 Anthropic stop_reason=max_tokens 归一化 ⇒ modelTruncated=true', async function () {
+    var engine = new RewriteEngine({ llmClient: mockLlmClientObject('结果', 'max_tokens'), knowledgeBase: new KnowledgeBase() })
+    wireStrategy(engine)
+    var result = await engine.rewrite({ mode: 'imitate', content: '任意内容', userSettings: {} })
+    expect(result.modelTruncated).toBe(true)
+  })
+
+  test('L7 finishReason=stop ⇒ modelTruncated=false（非截断语义不误报）', async function () {
+    var engine = new RewriteEngine({ llmClient: mockLlmClientObject('结果', 'stop'), knowledgeBase: new KnowledgeBase() })
+    wireStrategy(engine)
+    var result = await engine.rewrite({ mode: 'imitate', content: '任意内容', userSettings: {} })
+    expect(result.modelTruncated).toBe(false)
+  })
+
+  test('L8 chat 返回 {text:""} ⇒ 仍走 EMPTY_RESULT（新 shape 不漏判空）', async function () {
+    var engine = new RewriteEngine({ llmClient: mockLlmClientObject(''), knowledgeBase: new KnowledgeBase() })
+    wireStrategy(engine)
+    var result = await engine.rewrite({ mode: 'imitate', content: '任意内容', userSettings: {} })
+    expect(result.success).toBe(false)
+    expect(result.errorCode).toBe('EMPTY_RESULT')
+  })
+
+  test('L9 chat 返回旧 shape string ⇒ 行为不变（保形抽取回归）', async function () {
+    var engine = new RewriteEngine({ llmClient: mockLlmClient('旧 shape 结果'), knowledgeBase: new KnowledgeBase() })
+    wireStrategy(engine)
+    var result = await engine.rewrite({ mode: 'imitate', content: '任意内容', userSettings: {} })
+    expect(result.success).toBe(true)
+    expect(result.result).toBe('旧 shape 结果')
+    expect(result.modelTruncated).toBe(false)
+  })
+
+  test('L10 chat 抛错 ⇒ LLM_ERROR（契约变更不吞既有错误路径）', async function () {
+    var engine = new RewriteEngine({
+      llmClient: { chat: async function () { throw new Error('provider down') } },
+      knowledgeBase: new KnowledgeBase()
+    })
+    wireStrategy(engine)
+    var result = await engine.rewrite({ mode: 'imitate', content: '任意内容', userSettings: {} })
+    expect(result.success).toBe(false)
+    expect(result.errorCode).toBe('LLM_ERROR')
   })
 
   test('W7 截断按 Unicode 码点计数（emoji 不被切断）', async function () {

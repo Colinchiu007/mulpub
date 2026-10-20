@@ -21,6 +21,12 @@
 ① 给"某一族"补样式前，先数**这一族的真实挂载点**：`class` 属性里出现的是基类还是变体？分布不均时基类规则就是装饰。
 ② 任何"看得见"类判据（焦点环、错误态、加载态）必须**在真实渲染引擎上读 computed 值**，且读**动作后 0ms 与稳态两个时刻**；源码正则只能证明"写了"，不能证明"出现了"。
 ③ 判据域由消费者推导（模板 / 调用点 / 读取方），不由维护者抄写；并配规模下界，让"解析器退化成空集合"读不成"零问题"。
+## 2026-10-20 · rewrite-segment-contract：三类「契约尾巴」与单点归一化（fix-collect-rewrite-too-long 续篇三）
+
+- **pitfall · 双形态契约（string / object 并存）必须单点归一化，且每个消费点都要挂号**：finish_reason 透传要求 `llmClient.chat` 能返回 `{text, finishReason}`，但既有实现（主进程内置 chatClient、第三方注入、60+ 处测试 mock）全返回 string。若只改主链路不改成第二消费点，`extractWithLLM`（keyword-extractor.js）会因 `typeof raw !== 'string'` **fail-open 静默返回 []**——关键词兜底死了且无任何报错。本次实测抓到同型缺陷：归一化加了但 `cleaned = raw.trim()` 漏改，直接 TypeError。判据：① 归一化函数放包内单点（llm-result.js）并导出；② **grep 全部 `await llmClient.chat` / `.chat(` 消费点**，逐个改；③ 为每个消费点补「object 形态不炸」用例——只测主链路等于没测。
+- **pitfall · 会话级状态追不上编排变化**：桥接层 `max_tokens` 推导读 `this._lastWordCountRangeMax`（rewrite() 入口写一次）。分段编排下每段区间不同，会话级状态会张冠李戴；且 Collection 路径传 `targetWordCount` 而非 `wordCountRange`，状态压根不写。判据：凡是「每次调用参数不同」的推导，状态必须随调用走（显式传参），不能挂会话级字段——这条已登记为第二刀必修项。
+- **pattern · 放开上限要同帧 grep 三类旁路**：主契约（JS 引擎）放开到 50000 后，至少三类旁路仍钉旧值：① 另一语言链路（Python models.py 5999/6000）；② 渲染层预截断漏斗（prepareRewriteInput）；③ 跨语言契约无锁（Python 测试只测自家越界值，不知道 JS 已放开）。判据：改上限时按「引擎 → 渲染层 → 旁路语言 → 文档口径」四层各 grep 一遍旧数字，每层补一个对齐用例。
+
 ## 「修完再验一轮」是本仓对抗审查最值钱的一步 —— 第二轮抓出的 4 条全在修复自身（adversarial-round2-on-the-fix，2026-10-20）
 
 ### lesson: re-review-the-fix-not-just-the-code
