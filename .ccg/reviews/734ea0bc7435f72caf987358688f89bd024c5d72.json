@@ -1,0 +1,59 @@
+{
+  "sha": "734ea0bc7435f72caf987358688f89bd024c5d72",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 200 行（≤ 200）但命中 auth/数据库/加密：敏感内容 3 处",
+  "stats": {
+    "changedLines": 200,
+    "fileCount": 8,
+    "codeFileCount": 4,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 3,
+    "docSensitiveContentHits": 5,
+    "docSensitiveContentSample": [
+      "| 存量库补列 | 由 `migrateCreatorLinkageSchema` 的 `ALTER TABLE ... ADD COLUMN` 负责，**逐列先查 `PRAGMA table_info`**，已存在即跳过（`CREATE TABLE IF NOT EXISTS` 不会给已存在的表补列，所以这条不能省） |",
+      "`[ERROR] sqlite-wrapper all() error: no such column: external_id | SQL: SELECT platform, external_id, COUNT(*) AS n FROM viral_library`。",
+      "它查的 `external_id` 由**它自己所在那次迁移**的 `ALTER TABLE ADD COLUMN` 才加上；而新库建表 DDL 没有这两列。"
+    ],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-20T09:58:26.883Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "error",
+    "performedBy": "claude",
+    "findings": null,
+    "error": "exit 1 [claude]: Backend: claude\n  Command: claude -p --dangerously-skip-permissions --setting-sources  --output-format stream-json --verbose -\n  PID: 8916\n  Log: D:\\tmp\\codeagent-wrapper-8916.log\n  Session-ID: 52ff959e-f6d3-4a1b-bbb3-f65a60910ae0\n\n=== Recent Errors ===\nUsing stdin mode for task due to: piped input, explicit \"-\", newline, backslash, double-quote, single-quote, backtick, dollar, length>800\nclaude exited with status 1\nLog file: D:\\tmp\\codeagent-wrapper-8916.log (deleted)",
+    "validationErrors": null,
+    "at": "2026-10-20T09:59:04.955Z"
+  }
+}
