@@ -1,0 +1,57 @@
+{
+  "sha": "cd13ef401780fc97c875675b7fae5567d9b19be5",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 43 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 43,
+    "fileCount": 5,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "| i2 | **不成立** | 说「createUrl 对任何调用方开放、无鉴权」。实现：`createUrl` 只在主进程内被调（渲染端唯一入口是 `story2video:create-share-url` IPC）；HTTP 只绑 `127.0.0.1`；每个 URL 是能力令牌（无令牌 404）；容量是**硬上限**（每次 create 前 prune + enforceCapacity，size 永不超过 maxEntries）；本产品单机单用户，不存在「用户隔离」维度。被误归 auth 域 |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "dfb5b96acd5b7260f2bc066f5e3f8d576a92f49201bae783200c88848f29aef1",
+  "decidedAt": "2026-10-20T09:32:19.458Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

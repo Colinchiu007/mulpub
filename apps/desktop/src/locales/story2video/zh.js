@@ -274,6 +274,38 @@ export default {
       loading: '加载中...',
       loadFailedTitle: '项目加载失败',
       loadFailedRetry: '重试',
+      // ── 2026-10-20 PRD-S2V-RESULT-UX-POLISH ──
+      // 失败摘要卡：解释「为什么没生成成品视频」
+      failureSummaryTitle: '生成未完成',
+      failureSummaryCounts: '{total} 段中 {failed} 段失败、{completed} 段已完成',
+      failureSummaryReasons: '主要原因：{reasons}',
+      failureSummaryReasonItem: '{label}（{count} 段）',
+      failureSummaryPolicyNote: '其中 {count} 段已被内容政策定位，建议优先检查。',
+      failureSummaryJump: '定位到首个失败段',
+      failureSummaryNoReason: '未记录具体失败原因，可查看完整日志或直接重新合成。',
+      // 失败原因码 → 可读文案（未知码回落通用文案，不编造）
+      failureReasonPolicy: '内容政策拦截',
+      failureReasonQuota: '额度不足',
+      failureReasonMaterial: '素材生成失败',
+      failureReasonTimeout: '生成超时',
+      failureReasonModel: '模型调用失败',
+      failureReasonUnknown: '其他原因',
+      // 分段计数 / 展开 / 筛选
+      segmentCountAll: '共 {total} 段',
+      segmentCountPartial: '已显示 {shown} / 共 {total} 段',
+      segmentCountNoMatch: '没有匹配的分段',
+      loadAllSegments: '展开全部',
+      expandAllConfirm: '展开全部 {total} 段会一次性渲染全部卡片，可能短暂卡顿，确定吗？',
+      // 筛选与搜索
+      segmentFilterAll: '全部',
+      segmentFilterFailed: '只看失败',
+      segmentFilterPolicy: '只看政策标记',
+      segmentSearchPlaceholder: '搜索文案 / 提示词 / 字幕',
+      segmentSearchClear: '清空搜索',
+      // 跳转反馈 / 回顶
+      segmentJumpPending: '正在展开到第 {n} 段…',
+      backToTop: '回到顶部',
+      backToTopAria: '返回页面顶部',
       // 分段编辑区标题与计数（2026-10-20 抽 ResultSegmentEditor 时收口到 locale）
       segmentEditTitle: '分段编辑',
       segmentCountSuffix: '个分段',

@@ -15,15 +15,56 @@
       <div>
         <h2>{{ $t('story2video.sceneMaterial.segmentEditTitle') }}</h2>
         <p>
-          {{ totalCount }} {{ $t('story2video.sceneMaterial.segmentCountSuffix') }} · {{ $t('story2video.sceneMaterial.editRecomposeHint') }}
+          <span data-testid="segment-count-label">{{ segmentCountLabelText }}</span>
+          · {{ $t('story2video.sceneMaterial.editRecomposeHint') }}
           <span v-if="segmentsDirty" class="segments-unsaved-chip" data-testid="segments-unsaved-chip">{{ tOrKey('story2video.sceneMaterial.unsavedChanges') }}</span>
         </p>
       </div>
     </div>
 
+    <!-- 分段筛选与搜索（2026-10-20 PRD-S2V-RESULT-UX-POLISH §3.6）：
+         169 段里想找「提到 X 的那段」原来只能滚 169 次；失败段混在里面也只能肉眼找。
+         这里的筛选只改「显示哪些」，absoluteIndex 仍是全量下标（上移/删除/导出命名不受影响）。 -->
+    <div class="segment-filter-bar" data-testid="segment-filter-bar">
+      <div class="segment-filter-modes" role="group" :aria-label="$t('story2video.sceneMaterial.segmentFilterAll')">
+        <button
+          v-for="mode in filterModes"
+          :key="mode.value"
+          type="button"
+          class="segment-filter-mode"
+          :class="{ active: filterMode === mode.value }"
+          :data-testid="'segment-filter-' + mode.value"
+          :aria-pressed="filterMode === mode.value ? 'true' : 'false'"
+          :disabled="mode.disabled"
+          @click="$emit('update-filter-mode', mode.value)"
+        >{{ mode.label }}</button>
+      </div>
+      <label class="segment-search">
+        <input
+          type="search"
+          data-testid="segment-search-input"
+          :value="searchQuery"
+          :placeholder="$t('story2video.sceneMaterial.segmentSearchPlaceholder')"
+          :aria-label="$t('story2video.sceneMaterial.segmentSearchPlaceholder')"
+          @input="$emit('update-search-query', $event.target.value)"
+        />
+      </label>
+      <UiButton
+        v-if="filtered"
+        size="sm"
+        variant="ghost"
+        data-testid="segment-filter-clear"
+        @click="clearFilters"
+      >{{ $t('story2video.sceneMaterial.segmentSearchClear') }}</UiButton>
+    </div>
+
+    <p v-if="filtered && displayedSegments.length === 0" class="segment-empty-filter" data-testid="segment-empty-filter">
+      {{ tOrKey('story2video.sceneMaterial.segmentCountNoMatch') }}
+    </p>
+
     <div class="segment-list">
       <ResultSegmentCard
-        v-for="({ segment, absoluteIndex }) in visibleSegments"
+        v-for="({ segment, absoluteIndex }) in renderItems"
         :key="segment.id"
         :segment="segment"
         :absolute-index="absoluteIndex"
@@ -37,7 +78,8 @@
         :expanded="isSegmentEditorExpanded(segment.id)"
         @dirty="$emit('dirty')"
         @toggle-editor="toggleSegmentEditor"
-        @card-ref="(el, index) => setSegmentItemRef(el, index)"        @move-segment="(index, offset) => $emit('move-segment', index, offset)"
+        @card-ref="(el, index) => setSegmentItemRef(el, index)"
+        @move-segment="(index, offset) => $emit('move-segment', index, offset)"
         @remove-segment="onRemoveSegment"
         @select-material="(id, kind) => $emit('select-material', id, kind)"
         @generate-image="(id) => $emit('generate-image', id)"
@@ -55,15 +97,20 @@
 
     <!-- 分段渲染窗口哨兵（2026-10-20，PRD-S2V-RESULT-VIEW-PERF §4.3）：进入视口即追加一批，
           同时只解析新增那一批的媒体 URL。无 IntersectionObserver（jsdom）时保持全量渲染，
-          并由「显示更多分段」兜底按钮手动展开。 -->
+          并由「显示更多分段」兜底按钮手动展开。
+          筛选生效时不显示（筛选结果已跨全量分段，再追加没有意义）。 -->
     <div
-      v-if="hasMoreSegmentsToRender"
+      v-if="hasMoreSegmentsToRender && !filtered"
       ref="segmentListSentinel"
       class="segment-list-sentinel"
       data-testid="segment-list-sentinel"
     >
       <UiButton size="sm" variant="ghost" data-testid="segment-load-more-button" :disabled="batchLoading" @click="loadNextSegmentBatch">
         {{ batchLoading ? tOrKey('story2video.sceneMaterial.loading') : tOrKey('story2video.sceneMaterial.loadMoreSegments') }}
+      </UiButton>
+      <!-- 展开全部（2026-10-20 §3.4）：169 段要点 8 次「显示更多」，给一次性出口 -->
+      <UiButton size="sm" variant="secondary" data-testid="segment-expand-all-button" :disabled="batchLoading" @click="$emit('expand-all')">
+        {{ tOrKey('story2video.sceneMaterial.loadAllSegments') }}
       </UiButton>
     </div>
   </section>
@@ -98,6 +145,21 @@ export default {
     // 若这里再存一份本地计数，两个计数会漂移——宿主点定位扩了窗口、编辑器却按自己的
     // 计数渲染 ⇒ 视口纹丝不动，正是修复前的现象。
     renderedCount: { type: Number, default: 0 },
+    // ── 2026-10-20 PRD-S2V-RESULT-UX-POLISH §3.4–§3.6 ──
+    // 最终要渲染的分段项（{segment, absoluteIndex}）。宿主负责「窗口 + 筛选 + 搜索」的全部
+    // 计算（单一真源），编辑器只摆 DOM。缺省回落到可见窗口，保证独立使用时仍可用。
+    displayedSegments: { type: Array, default: null },
+    // 分段计数文案（「已显示 20 / 共 169 段」）。缺省时回落到只报总数。
+    segmentCountLabel: { type: String, default: '' },
+    // 筛选/搜索是否生效（生效时隐藏「显示更多」与哨兵——筛选结果已跨全量分段）
+    filtered: { type: Boolean, default: false },
+    filterMode: { type: String, default: 'all' },
+    searchQuery: { type: String, default: '' },
+    // 失败段数 / 政策标记数：用于筛选按钮的计数徽标
+    failedCount: { type: Number, default: 0 },
+    policyCount: { type: Number, default: 0 },
+    // 大跨度跳转进行中的目标下标（-1 = 空闲）
+    jumpPendingIndex: { type: Number, default: -1 },
   },
   emits: [
     'dirty',
@@ -115,6 +177,9 @@ export default {
     'mark-material-unavailable',
     'update-subtitle-blocks',
     'load-next-batch',
+    'expand-all',
+    'update-filter-mode',
+    'update-search-query',
     'segment-ref',
   ],
   data() {
@@ -128,6 +193,20 @@ export default {
     totalCount() {
       return Array.isArray(this.segments) ? this.segments.length : 0
     },
+    // 实际渲染项：宿主给了 displayedSegments 就用它（含筛选），否则用可见窗口
+    renderItems() {
+      if (Array.isArray(this.displayedSegments)) return this.displayedSegments
+      return this.visibleSegments
+    },
+    // 筛选按钮（计数为 0 的模式禁用，避免点了必然空列表）
+    filterModes() {
+      const t = (key) => this.tOrKey(key)
+      return [
+        { value: 'all', label: t('story2video.sceneMaterial.segmentFilterAll'), disabled: false },
+        { value: 'failed', label: t('story2video.sceneMaterial.segmentFilterFailed'), disabled: this.failedCount <= 0 },
+        { value: 'policy', label: t('story2video.sceneMaterial.segmentFilterPolicy'), disabled: this.policyCount <= 0 },
+      ]
+    },
     previewLayout() {
       return resolveResultPreviewLayout({
         segments: this.segments,
@@ -140,6 +219,11 @@ export default {
     },
     visibleSegments() {
       return this.previewLayout.visibleSegments
+    },
+    // 计数文案缺省回落（独立使用时宿主没传）：只报总数，不假装知道「已显示多少」
+    segmentCountLabelText() {
+      if (typeof this.segmentCountLabel === 'string' && this.segmentCountLabel.trim()) return this.segmentCountLabel
+      return this.tOrKey('story2video.sceneMaterial.segmentCountAll', { total: this.totalCount })
     },
     hasMoreSegmentsToRender() {
       // 以渲染窗口上界为准（renderWindow.to 同时是「已渲染上界」与「下次追加起点」）
@@ -181,6 +265,11 @@ export default {
       const removed = (this.segments || [])[index]
       if (removed && removed.id === this.expandedSegmentId) this.expandedSegmentId = ''
       this.$emit('remove-segment', index)
+    },
+    // 清空筛选与搜索（回到「全部 + 空关键词」）
+    clearFilters() {
+      this.$emit('update-filter-mode', 'all')
+      this.$emit('update-search-query', '')
     },
     loadNextSegmentBatch() {
       const total = this.totalCount
@@ -225,6 +314,21 @@ export default {
 
 <style scoped>
 .segment-list { display: grid; gap: 12px; }
+
+/* ── 2026-10-20 PRD-S2V-RESULT-UX-POLISH §3.6 筛选与搜索 ──
+   169 段里找目标段原来只能滚 169 次。筛选栏固定在卡片列表上方（不 sticky，
+   避免与小屏右侧定位条抢层级），一行放下模式切换 + 搜索 + 清空。 */
+.segment-filter-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0 12px; }
+.segment-filter-modes { display: flex; flex-wrap: wrap; gap: 6px; }
+.segment-filter-mode { min-height: 28px; padding: 0 10px; border: 1px solid var(--border); border-radius: 14px; background: var(--bg); color: var(--text); font-size: var(--font-size-xs); cursor: pointer; }
+.segment-filter-mode:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); }
+.segment-filter-mode.active { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 600; }
+.segment-filter-mode:disabled { opacity: 0.45; cursor: not-allowed; }
+.segment-search { flex: 1 1 220px; min-width: 160px; }
+.segment-search input { width: 100%; min-height: 28px; padding: 0 10px; border: 1px solid var(--border); border-radius: 14px; background: var(--bg); color: var(--text); font-size: var(--font-size-xs); }
+.segment-search input:focus { outline: none; border-color: var(--primary); }
+/* 筛选无命中：明确告诉用户「是筛选条件的问题」，不是页面空了。 */
+.segment-empty-filter { margin: 0 0 12px; padding: 16px; border-radius: 8px; border: 1px dashed var(--border); color: var(--text-muted); font-size: var(--font-size-sm); text-align: center; }
 
 /* 查看文案弹窗：原文案含原始换行与超长行。pre 默认 white-space: pre 不折行，
    长行会横向溢出弹窗（内容被裁切）。pre-wrap 保留原始换行并自动折行；
