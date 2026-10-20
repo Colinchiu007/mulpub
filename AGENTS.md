@@ -149,6 +149,22 @@ node scripts/classify-docs-only.js --base=origin/main --head=HEAD
      **判据取不到读数时（blob 读不到、diff 为空但文件集非空、多重集比较因编码/行尾失败）一律按"未证实"处理，不得当成"已合并"**——把工具的失明读成结论，是本仓「装饰性门禁」的同型。
 - 共享根 `main` 滞后于 `origin/main` 时**不得**就地编辑 `AGENTS.md` / `.quality-gates.md` / `CHANGELOG.md` 这类「上游也在改同一处」的文件：分层判据只看影响面，但**滞后的工作副本会让 docs PR 反向撤销已合并的那一行**。开写前先 `git merge --ff-only origin/main`（被 untracked 挡住就移开那个文件），并用 `git log HEAD..origin/main -- <目标文件>` 确认没有未吸收的上游改动。
 
+### 取证口径（2026-10-20，PR #4061 三轮回读后固化）
+
+- **判据域跟着被测性质走**：被测性质若是「这段代码会执行 / 会生效」，判据就不能只是「这行字符串存在于文件里」。
+  实测反例：`electron-tests` 的自证块自 #2525 起**一次都没执行过**（`timeout … | tee` 之后的诊断被 `bash -e -o pipefail` 提前杀掉），
+  而锁是绿的——因为它断言的是「那四行在 YAML 里存在」。正解是取 `run` 原文、按题意替换两个量、用同一 shell 选项**真跑**并断言输出；
+  且必须做变异反证（把修复摘掉要当场红，红文案要指回根因）。
+- **取证面要遍历所有承载 gate 的机制**：GitHub 的 `branches/main/protection` 与 `rulesets`（含 `rulesets/{id}`）**并存**，
+  只查前者会得出「某 check 不是 required」的假结论（实测该处 4 条、ruleset 里 7 条）。凡「不受约束」类结论，先问「还有没有第二套机制」。
+- **matrix 与 required status check 结构性冲突**：matrix 把作业报成 `job (1)/(2)/(3)`，required context 要的是不带后缀的名，
+  于是**全绿也判 `base branch policy prohibits the merge`**。已实测不可行的两种补名写法：① 另加 `name` 等于该 context 的汇入作业
+  ⇒ 整份 workflow 被判不可解析（幻影 `push` run + 0 job，`always()` 与 `${{ }}` 两种 `if` 都复现）；② 只给 matrix 作业加静态 `name`
+  ⇒ 解析正常但 check 名仍带 `(1)`。要动这类结构，先接受「须同步改多条按 job 名/needs 断言的结构性锁」，并当作独立任务。
+- **局部绿不等于整体绿**：判据若挂在「整套跑完之后」（运行时出站台账、覆盖率、产物对账），单文件/单作业通过**不构成证据**，必须回读 CI。
+- **工具口径**：PowerShell 里 `[System.IO.File]` 的相对路径按 .NET 进程 CWD 解析，不是 `cd` 位置（两者可能不同步 ⇒ 文件在却报 `Could not find file`）；
+  一律传 `Resolve-Path` 的绝对路径。
+
 **残留风险（不假装已闭合）**
 
 松绑掉的是「第二双眼睛」。本节用**三道机械化闸门**替代人工判断：required status checks（CI）、质量节拍门禁（QM-1~6 + `.quality-gates.md`）、执行记录取证（`openspec/records/` + ledger 销账）。它们挡得住「门禁没过就合」和「合了不销账」，**挡不住「门禁本身写错了」**——例如判据被改宽、变异反证被跳过、任务勾选与真实证据不符。因此判据第 5 条（agent 自查争议）不可省略，且 `openspec-sync-check` / `classify-docs-only` / `check-pr-exec-record` 各自的**基线差分**仍须人工抽查。
