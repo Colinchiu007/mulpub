@@ -46,7 +46,7 @@ function parseJobTimeout(text, jobId) {
     if (m) { inside = (m[2] === jobId); continue; }
     if (!inside) continue;
     // 只认**作业级**（恰好 4 空格缩进）。实测 electron-ci.yml 里还有 2 格 8 空格的
-    // **步级** timeout-minutes —— 那是另一层预算（步内），拿它当作业级会把 70 读成 10。
+    // **步级** timeout-minutes —— 那是另一层预算（步内），拿它当作业级会把 95 读成 10。
     const t = /^ {4}timeout-minutes:\s*(\d+)\s*$/.exec(raw);
     if (t) return Number(t[1]);
   }
@@ -56,8 +56,8 @@ function parseJobTimeout(text, jobId) {
 /**
  * 扫出**全部作业级** timeout-minutes 格子（清单棘轮的输入）：`^  <jobId>:$` 起块，
  * 块内**恰好 4 空格**的 `^    timeout-minutes: <整数>$`。缩进必须钉死：实测 electron-ci.yml
- * 的 `electron-tests` 作业级是 70，而它内部两个 step 各带 8 空格的 `timeout-minutes: 10`；
- * 用 `^\s+` 收会把 70 读成 10，于是对一格**合规**作业报 UNDER_BUDGET（假违规与假绿同害）。
+ * 的 `electron-tests` 作业级是 95，而它内部两个 step 各带 8 空格的 `timeout-minutes: 10`；
+ * 用 `^\s+` 收会把 95 读成 10，于是对一格**合规**作业报 UNDER_BUDGET（假违规与假绿同害）。
  * 深缩进的（步级）单独收进 stepLevel 并打印：不在治理面内，但不得静默忽略。
  */
 function scanTimeoutCells(text) {

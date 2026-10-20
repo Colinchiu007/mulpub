@@ -360,13 +360,14 @@ test('18 棘轮②：注册表登记了但 workflow 里已读不到该格 ⇒ MI
 test('19 缩进纪律：步级 timeout-minutes（8 空格）不得被读成作业级（实测把 70 读成 10）', () => {
   const text = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'electron-ci.yml'), 'utf8');
   const scan = mod.scanTimeoutCells(text);
-  assert.equal(scan.cells.get('electron-tests'), 70,
-    'electron-tests 的作业级天花板是 70；读成 10 会让一格合规作业报 UNDER_BUDGET（假违规与假绿同害）');
+  assert.equal(scan.cells.get('electron-tests'), 95,
+    'electron-tests 的作业级天花板是 95（35m 步骤预算 → 70m 时一起抬的）；'
+    + '读成 10 会让一格合规作业报 UNDER_BUDGET（假违规与假绿同害）');
   assert.equal(scan.cells.get('changes'), 5, '同一文件里另一格（changes）也必须读对');
   assert.ok(scan.stepLevel.length >= 2,
     '两个 8 空格的步级 timeout-minutes 必须被单列出来（不得静默忽略，也不得混进作业级）：' +
     JSON.stringify(scan.stepLevel));
-  assert.equal(mod.parseJobTimeout(text, 'electron-tests'), 70, 'parseJobTimeout 必须与扫描器同口径');
+  assert.equal(mod.parseJobTimeout(text, 'electron-tests'), 95, 'parseJobTimeout 必须与扫描器同口径');
 });
 
 test('20 state=seeded 双向出声：攒够了不升级 / 宽限期到期仍不足，都必须红', () => {

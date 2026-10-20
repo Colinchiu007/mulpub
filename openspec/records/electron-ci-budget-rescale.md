@@ -84,3 +84,48 @@ type: mixed
 2. **套件还会继续长**：本轮把余量从 1.00× 拉回 2.01×，下一次套件再长 40% 就会重新贴脸。**必须定期重测**（本轮已把复测口径写进锁注释与基线文档）。
 3. **抬墙的代价**：单次 main push 的 Electron CI 最长会占 70 分钟 runner 时间（现在撞墙也是耗满 35 分钟后判失败，等于白烧；抬墙后中位数仍约 28 分钟）。
 4. **`docs-only` 判定**：本次改了 `.github/workflows/`，属混合 PR，未被 docs-only 通道短路。
+
+## 附：本轮撞到的第四、第五处机械锁（都是好事）
+
+抬一个 timeout 数字，被本仓 **5 处**机械判据拦到，逐处同步后才绿：
+
+| # | 位置 | 拦住的形式 |
+|---|---|---|
+| 1 | `apps/desktop/tests/gui-ci-exit-contract.test.js` | `budget ≥ 实测 ×2` |
+| 2 | 同上 | `job.timeout > 步级上限之和 + budget/60`（倒挂） |
+| 3 | 同上（两处记录值） | `toBe(70)` / `toContain('BUDGET_SECONDS=2100')` |
+| 4 | `scripts/check-coverage-budget.test.js` | 扫描器读对作业级天花板（70 → 95） |
+| 5 | **`scripts/gate-timeout-registry.json`** | **`PROVENANCE_VALUE_DRIFT`：注册表值 ≠ workflow 实际值** |
+
+第 5 处最值得记：本仓有个「全仓 CI 作业超时治理注册表」（24 格，数值与代码分离，配 PRD
+`01-docs/PRD-GATE-TIMEOUT-GOVERNANCE-2026-10-20.md`）。**改 workflow 而不改注册表会当场红** ——
+这正是「表与 runner 不同源时，判据变成自证」要防的形状。
+
+本轮对该格的更新：
+
+| 字段 | 旧 | 新 |
+|---|---|---|
+| `timeoutMinutes` | 70 | **95** |
+| `state` | `seeded` | **`measured`**（样本 30 ≥ 20，攒够了就该升级） |
+| `provenance.samples` | 15 | **30** |
+| `provenance.maxMinutes` | 30.1 | **37.4** |
+| `provenance.p90Minutes` | 3.4 | **36.6** |
+| `provenance.collectedAt` | 2026-10-18 | **2026-10-20** |
+
+（p90 从 3.4 跳到 36.6，是因为旧值明显只采到了「快」的那一批；新采的 30 个成功样本 job 级
+分布：最小 23.4 / 均值 30.1 / p90 36.6 / max 37.4 分钟。）
+
+### 一个必须单独记的治理面盲区（本轮不修，但要留证）
+
+**注册表治理的是「作业级天花板」，而真正杀人的墙是步骤级预算**（`BUDGET_SECONDS`）。
+本轮把步骤预算从 35m 抬到 70m，在注册表里只体现为「登记值 70 → 95」，盲区依旧。
+
+更糟的一层：采样器 `scripts/coverage-budget-sample.js` 目前 **fail-closed 在「有 9 趟已跑完
+却取不到时长」上**。查代码可见判定是 `started_at && completed_at`，而**被 `timeout` 杀掉的趟
+读不出时长** —— 于是那 45 次撞墙（右截尾证据）在采集侧根本统计不到，
+`censoredAtCeiling` 恒为 0。
+
+也就是说：**治理面不仅管不到步骤级预算，连「有多少趟是被杀的」都看不见。**
+这解释了为什么「45 次撞墙、占 61%」这件事在注册表上完全不可见。
+
+修它属于独立任务（要动采集器与它自己的锁），本轮不碰，只在此留证。
