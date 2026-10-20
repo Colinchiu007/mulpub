@@ -50,10 +50,13 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "self_play_resolved",
+    "tier": "external",
+    "performedBy": "self-play",
+    "evidence": "openspec/records/ci-infra-shard-and-review-audit.evidence/critique-round2.md",
+    "findings": null,
+    "engineVerdictBeforeClosure": "self_play",
+    "externalAdjudicationNote": "外部件：critic=claude（scripts/deep-review.sh 真实调用），两轮原文已入库：\n  openspec/records/ci-infra-shard-and-review-audit.evidence/critique-round1.md（第 1 轮，6 条，最低分 4）\n  openspec/records/ci-infra-shard-and-review-audit.evidence/critique-round2.md（第 2 轮，审已修版本，6 条，最低分 5）\n本记录对应「合并 origin/main」的同步提交：它**不引入任何新的生产行为**，只把主干\n领先的 5 个提交吸收进来（自动合并、零冲突）。合并后已在合并树上重跑三把锁：\n  audit 10/10、check-pr-exec-record 133/133（原 113 + 主干新增 20）、decider 52/52。\n裁决件：由引擎第三档出口（self-play）生成。本记录不声称外部模型批准了闭环；\ntier=external 的含义是「闭环依据含可核的外部评审产物」，不是「外部模型签署了闭环」。",
+    "closedAt": "2026-10-20T13:45:41.284Z"
   }
 }
