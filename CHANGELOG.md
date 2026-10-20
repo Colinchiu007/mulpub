@@ -5,6 +5,18 @@
 - **第二落点：`transition: all` 把 outline 一起淡入**。第一次真浏览器读数里，4 个带 `transition: all` 的变体在 Tab 后 0ms 仍是过渡起点（`3px solid currentColor / offset 0`），不带 `all` 的立刻正确。修法是在焦点环规则里显式 `transition: outline-color 0s, outline-width 0s, outline-offset 0s`，并让判据同时读 **t=0 与 t=450ms**。
 - **取证**：本机 Chromium 加载**真实** CSS 文件与 `UiButton.vue` 的 `<style scoped>` 原文，键盘 `Tab` 进焦点态读 computedStyle —— 8 个类 × 浅暗两档 = **16 项两时刻全 OK**（浅 `2px solid rgb(96,58,249) off=2px`，暗 `rgb(123,116,255)`）；非文本对比度 light 6.05 / dark-canvas 4.78 / dark-card 4.30，全部 ≥3:1。回归锁 `src/styles/focus-ring.test.js`（12 例），7 道变异逐条指名变红、`RESTORED_OK=true`。
 - **边界**：3.6 主体（571 处 `<button>` 迁移、双轨合一）不在本批；`<div @click>`（阶段 4.4）刻意排除在判据域外；裸 `<button>` 仍由 UA 焦点环服务（实测 src 内 37 处 `outline: none` 全落在输入框/文本域，未波及按钮）。无新增 locale 键。
+# [未发布] feat(gate): ops-center 前端纳入一致性门禁 —— 跨应用规则 + 反向边界 + 域健康三档失明守卫，并修掉该应用唯一那处原生 window.confirm（ux-audit-opscenter-gate）
+
+- **先证明缺陷真存在再动手**：`git show origin/main:ops-center/frontend/src/views/PromptEvalWorkbench.vue | grep -c window.confirm` ⇒ **1**（第 440 行 `if (!window.confirm('确认删除该评测及其生成物？')) return`）。而同应用的 `Announcements.vue:128` / `AppMenu.vue:286` / `ContentCategories.vue:194` 早已全是 `ElMessageBox.confirm` ⇒ 这是孤例，不是"该应用用原生框"。
+- **同一个函数体里还有第二个沉默缺陷**：原实现 `await deletePromptEvalCase(id)` 完全没有 try/catch —— 删除接口 500/404 时异常直冒、界面零提示（该文件其余入口一律写 `errorMsg.value = '…：' + apiErrorMessage(e)`）。一并补上，不新增文案键。
+- **`doDelete(row.id)` 改成 `doDelete(row)`**：文案必须点名被删对象（title + ID），只传 id 就取不到 title；模板调用点同步改。取消语义按 `try { await ElMessageBox.confirm(...) } catch { return }` —— 取消/ESC/遮罩全部 reject ⇒ 什么都不做（fail-closed），不得写成"catch 里继续删"。
+- **扩域按"跨应用是否成立"分配规则，不是一把尺子量两个应用**：`windowConfirm` 两应用都守；新增 `opsElectronApi` 反向边界（`window.electronAPI` 只在桌面端渲染进程存在，ops 引用即运行期恒 undefined 的静默 no-op）；`rendererIpcDirect`（依赖桌面端 `src/api` 白名单）与 `appleAlias`（依赖桌面端 `tokens.css` 资产）**明确不扩** —— 套过去只会造出既不可修也不可解释的"存量"。
+- **ops 侧必须走全域遍历**：`RENDERER_DIRS` 是按桌面端目录结构写的（views/components/composables/stores/features/layouts/story2video/i18n/router/utils），ops 的 `api/ config/ constants/` 一个都不在表里。回归锁直接在三个盲区目录各放一处违规并断言全部被看见（旧口径一条都扫不到）。
+- **本批最要紧的一条是"扩了域但只有名字扩了"的防护**：`domainStats()` 每根每桶出声（现场 `desktop(renderer=375,anySrc=540) ops(renderer=54,anySrc=83)`），`assertDomainHealthy()` 三档失明（根不存在 / 域为空 / 低于下界）一律走**退出码 2**，与"发现违规"的 1 分开 —— 扩域最危险的失败形态不是报错，而是路径写错 ⇒ 扫到 0 个文件 ⇒ 0 违规 ⇒ 被读成通过。下界的键集另有一条锁要求它**恰好等于**被消费的 (根,scope) 组合集：给没人用的组合留下界是死配置，有没人守的组合是漏守。
+- **两条被实测否证的自写用例（改夹具而不是放宽断言）**：① 变异 FC-M2（缓存键退回 scope 单键）第一次跑报 `MISSED(照绿)` —— 我的分键夹具让两根各走**不同** scope 字面量，而不同字符串本来就不相撞；正解是强制两根同 scope，另加一把"`domainStats` 读数必须等于非缓存遍历结果"的交叉量。② FC-M10 的期望清单写错（把声明面的用例列进消费面变异的红集），当场报成"红了但没红在指名用例"。
+- **32 例回归全绿；10 道变异 FC-M1…FC-M10 全部 CAUGHT，红集互不相同，`RESTORED_OK=true`（md5 自证还原）**。基线只新增一键 `opsElectronApi: 0`（`evaluateBaseline` 对缺键 fail-closed ⇒ 基线必须与代码同批落），他方键 `colorLiterals=129` / `cssVarUndefined=64` 原样保留。
+- **现场发现的更大问题（不在本批修，判据已登记在执行记录末尾）**：`grep -rla "ops-center/frontend" .github/workflows/*.yml` 命中 **0** —— 运营中心前端的 `vite build` 与 `vitest run` 在 CI 上完全没有覆盖。本批因此只能退而用仓库根的 `@vue/compiler-sfc` 手工解析该 SFC（`parse errors: 0`、`template errors: 0`、`compileScript ok`），**这不是 `vite build` 的等价物**。补它属"改谁来守门"，且包管理器口径与落点必须先定。
+- **没有**动 `.github/workflows/`（判据早已接在既有步骤里），没有动 `CI_IGNORED_PATHS`，没有动分支保护。桌面端运行时、locale、视觉基线均未触碰 ⇒ QM-1 / QM-4 N/A。
 # [未发布] feat(门禁): 闭环值不等于闭环成立 —— 高危面收口矩阵与收口转变检测落码（qm6-highrisk-matrix）
 
 - **要防的是「有人写了个词」被当成「评审发生过」**：`scripts/check-pr-exec-record.js` 原有的闭环判据只看 `deepReview.status` 落不落白名单 `{cleared, needs_revision, self_play_resolved}`。上一轮 QM-6 外部评审实测四种伪造 `cleared`（含 `evidence:"x"`）全部被接受，而 `self_play_resolved` 本来就在白名单里 —— 「外部模型一个都没跑」在机械上完全满足这条门禁。AGENTS 里那句「高危域不得自扮演豁免」从来没有执行体。本片把它落成判据：闭环成立 = 状态在白名单 **∧** 出处可核，可核的宽度按路径是否落在高危面分两档。
