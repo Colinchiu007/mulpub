@@ -20,6 +20,8 @@ export default {
         cinematicDarkDesc: '深色电影感渲染',
       },
       configurationTitle: '故事讲述配置',
+      // 视频创作首页副标题（2026-10-19：由 CreateView.vue 硬编码迁入 locale，去「基于 OpenMontage」品牌字样）
+      engineSubtitle: '全能性流水线引擎，AI 驱动从脚本到成片的全流程',
       imageStyleHint: '控制每张生成图片的视觉外观。',
       promptStyleHint: '仅控制分镜图片提示词的写法与组织方式，不替代图片风格。',
       maxPromptLength: '提示词最大长度',

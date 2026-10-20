@@ -190,6 +190,24 @@ describe('FilmEngineeringView configuration profiles', () => {
     expect(plain.exists()).toBe(true)
     expect(plain.text()).toBe('javascript:alert(1)')
   })
+
+  // video-copy-refine（2026-10-19）：分镜库总标题由「随包数据的原始片名」改为 i18n 文案。
+  // 回归面：即使 kit 的 filmMeta.title 仍是旧片名（数据层不动），界面也不得把它显示出来。
+  it('分镜库总标题渲染 i18n 文案「影响项目案例」，不渲染 kit 里的 filmMeta.title', async () => {
+    composable.status.value = {
+      available: true,
+      filmMeta: { title: 'Hell Grind', logline: 'L', durationSec: 60, characters: [], source: { projectUrl: 'https://example.com/proj' } },
+      sceneCount: 0, shotCount: 0, referenceCount: 0,
+    }
+    const w = mountView()
+    await nextTick()
+    const title = w.find('.fe-meta-title')
+    expect(title.exists()).toBe(true)
+    expect(title.text()).toBe('影响项目案例')
+    // 总标题不得泄漏 kit 的 filmMeta.title。
+    // 注意：剧本套用 tab 的角色映射提示（adapt.roleMapHint / roleKeyPlaceholder）仍会提到原始项目
+    // 与其角色名（ROKO 等）—— 那是 kit 数据的客观事实、不在本次改动范围内，故不断言整页文本。
+  })
 })
 
 /**

@@ -864,7 +864,6 @@
   "apps/desktop/src/views/CreateView.vue||图片",
   "apps/desktop/src/views/CreateView.vue||图片 ",
   "apps/desktop/src/views/CreateView.vue||图片内容需要处理；取消后修改文案并重新启动流水线。",
-  "apps/desktop/src/views/CreateView.vue||基于 OpenMontage 流水线引擎，AI 驱动从脚本到成片的全流程",
   "apps/desktop/src/views/CreateView.vue||填写文案后自动预估分镜数、旁白时长与成本",
   "apps/desktop/src/views/CreateView.vue||安装中...",
   "apps/desktop/src/views/CreateView.vue||安装依赖",
