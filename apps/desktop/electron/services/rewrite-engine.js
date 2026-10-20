@@ -118,7 +118,14 @@ class RewriteEngineService {
           ],
           max_tokens: maxTokens,
         })
-        return result && typeof result.content === "string" ? result.content : ""
+        // rewrite-segment-and-finish-reason：finish_reason 透传——chat 契约从
+        // Promise<string> 扩展为可返回 {text, finishReason}。adapter（openai.js /
+        // anthropic.js / minimax-llm.js 及其余 OpenAI 兼容子类）已返回 finish_reason，
+        // 经 generateWithDefault → result.data 原样到达此处。引擎侧
+        // normalizeChatResult 同时兼容 string 旧形态（第三方注入/测试 mock）。
+        const finishReason = result && typeof result.finish_reason === 'string' ? result.finish_reason : null
+        const text = result && typeof result.content === "string" ? result.content : ""
+        return { text, finishReason }
       },
     }
     // 构建知识库（优先 SQLite，降级内存）

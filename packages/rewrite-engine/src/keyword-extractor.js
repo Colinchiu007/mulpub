@@ -7,7 +7,10 @@
  *   「自媒体运/营的核心」，词边界完全错位（viral-engine.js 的已知缺陷，此处不复用）。
  *
  * extractWithLLM: 异步兜底，严格 JSON 输出，任何失败返回空数组（fail-open）。
+ *   chat 返回值经 normalizeChatResult 归一化（string / {text,finishReason} 双形态）。
  */
+
+const { normalizeChatResult } = require('./llm-result')
 
 // 中文停用词：虚词/代词/副词/连词/介词/助词/常见否定组合
 const STOP_WORDS = new Set([
@@ -153,7 +156,10 @@ function extractSync(text, topN = 8) {
  * 异步 LLM 关键词提取（兜底）
  * @param {string} text - 输入文本
  * @param {number} topN - 关键词上限
- * @param {object} llmClient - 提供 chat(systemPrompt, userPrompt): Promise<string>
+ * @param {object} llmClient - 提供 chat(systemPrompt, userPrompt): Promise<string|{text,finishReason}>
+ *   （rewrite-segment-and-finish-reason：chat 契约扩展为可返回 object；本函数经
+ *    normalizeChatResult 归一化，两形态都可用——不归一化会让「chat 返回 object」
+ *    静默杀死关键词兜底且无任何报错）
  * @returns {Promise<string[]>} 关键词数组；任何失败返回 []（fail-open）
  */
 async function extractWithLLM(text, topN = 8, llmClient) {
@@ -171,10 +177,13 @@ async function extractWithLLM(text, topN = 8, llmClient) {
   } catch {
     return [] // fail-open：LLM 不可用不阻塞主流程
   }
-  if (!raw || typeof raw !== 'string') return []
+  // 归一化（C2/第四轴 C2）：string 与 {text,finishReason} 两形态统一取 .text；
+  // 归一化后为空串同样走 fail-open，与旧「非 string 返回 []」行为等价。
+  const { text: rawText } = normalizeChatResult(raw)
+  if (!rawText) return []
 
   // 剥代码围栏（贪婪匹配到最后一个围栏，防多围栏输出时截断 JSON）
-  let cleaned = raw.trim()
+  let cleaned = rawText.trim()
   const fenceMatches = cleaned.matchAll(/```(?:json)?\s*([\s\S]*?)\s*```/g)
   let lastFence = null
   for (const m of fenceMatches) lastFence = m[1]

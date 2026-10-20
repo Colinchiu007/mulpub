@@ -1,0 +1,60 @@
+{
+  "sha": "6b41d715c254b7843e54fd02972e283c4d7b42d9",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 424 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 424,
+    "fileCount": 13,
+    "codeFileCount": 9,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "4cc3c7f9a2e2d9da0fb0faf86b48e1f9a1f921c443be95a97b04f278bc506a09",
+  "decidedAt": "2026-10-20T03:21:25.214Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "cleared",
+    "tier": "external",
+    "performedBy": "main-agent self-check (5-axis proposal review) + codex axis unavailable (429/503 inference gateway)",
+    "evidence": null,
+    "findings": [
+      "本刀 = finish_reason 归一化 + Python 上限对齐 + _rewriteOnce 保形抽取，三部分均有针对性测试：llm-result 10 例 / modelTruncated+EMPTY_RESULT+LLM_ERROR 七例 / keyword object 三例 / Python 50000 合法+50001 越界",
+      "保形抽取零行为变化由 229 例既有引擎测试全绿证明",
+      "审查过程发现并修复真实缺陷：归一化后 cleaned 变量漏改（raw.trim TypeError），由新增 keyword object 用例当场抓住",
+      "codex 轴推理网关 429/503 不可用，按 AGENTS 子代理降级口径不盲等"
+    ]
+  }
+}

@@ -1,3 +1,13 @@
+# [未发布] test(gates): 账本合法清空不再被钉成禁态，并给 hasBlocking⇒退出码补一道接线锁（qm6-critic-dispositions）
+
+- **动因是补跑成功的 QM-6 critic 轴**：`claude` 过额度日重置后两字探针活了（rc=0 / 17.6s / 265 B），于是把 #3949 那笔合并的差量（45,521 字节，直接附进提示词、不让评审者自己 `git diff`）真派了一次外部评审，交回 2 条 findings。派发前那一步救了一次命：**上一轮我判"该轴零交付"用的解析器只认「行首的 `[`」，而它的数组落在偏移 56,481 处** —— 63,796 字节真交付差一点被读成"没话说"。
+- **F1 成立并修**：两条读真实账本的用例用 `assert.ok(keys.length > 0)` 把"账本被逐条销账到空"钉成禁态，而每条登记项的原因里都写着"回填后删除本条"——合法终态。摘掉下限后，"防靠清空变绿"完全由夹具机制锁 `清空账本不得变绿` 承担（它测的是"载体有未收口行 + `ledger:{}` ⇒ 判红并进阻断出口"，与真实账本此刻有几条无关）。**双向反证**：把真实账本临时置为 `{}` 时修后两条用例 **GREEN-AS-DESIGNED**、装回旧断言的那一条当场 **假红**（正是被修的那个缺陷的现场复现）；M6（`loadLedger` 静默丢条目）仍被"键数与文件条数相等"这条抓住红 ⇒ 摘下限没把牙一起摘掉。
+- **F2 的两个读法都被代码否证，而我当时写的"内核成立"也是错的（本条已按本片变异证据改写）**：`main()` 第 33 行本就是 `if (hasBlocking(r, …)) process.exit(1)` ⇒ 阻断确实落到退出码，不是活 bug；但**这条映射当时确实在被一道行为锁看着**——我先前写的「没有任何东西在看」是错的：`端到端：真历史上一笔回填 PR 必须让 CLI 判红并点名那篇记录` 那条用例 spawn 真 CLI（`--base-ref`/`--head-ref`）并 `assert.strictEqual(r.status, 1)`，本次两次变异（摘掉映射、把映射包进块注释）里它都**指名变红**；缺的是「这道锁存在」被我读漏，不是缺锁。补一道结构接线锁（把匹配锚进 `main()` 函数体，并给"剥注释"这一步配负控+正控），**反证 MW2a/M-W2c：把映射包进块注释、或把它挪到 `main()` 外的诱饵函数，接线锁与 #74 那条行为锁一起指名变红。**
+- **全集回归**：`check-gate-record-debt.test.js` **116 例全绿**（既有用例不退化 + 新增 1 条接线锁）；M1–M11 + C1 全集重跑（本刀动了测试文件）逐条仍 CAUGHT / 合规形态仍绿，跑后判据/测试/账本三文件 md5 与跑前逐一相等。
+- **顺手记一条我自己的工具性错误**：写盘前那条"账本里不许再出现 `keys.length > 0`"的自检**命中了我自己写的解释性注释**（"这里**不写** `keys.length > 0`"）——存在性/禁词类判据不剥注释就会假报，这是本仓记过的同族第三次，改法是先剥整行注释再统计，而不是放宽判据。
+- **同批补一道规格 delta（`align-shape-lock-empty-ledger-scenario`）**：今天归档进主干的那条 Requirement **自己打自己**——正文写「键数本身不设数字下限」，末个 Scenario 却写「键数为 0 ⇒ 该用例 MUST 红（规模下界）」。`openspec validate quality-gate-execution-record --type spec --strict` 实测仍判 `is valid`（它查结构与必需段，**不查条目内自洽**），所以矛盾随归档进了主干；本刀把代码改成"不设下限"之后，规格就成了相反的那一半。两条原 Scenario 标题**逐字保留**、只重写末个的正文，并新增一条"防清空由与条数无关的行为判据承担"——这不是修辞调整：`openspec` 的 MODIFIED 是**整块替换**，改标题会被校验器按"omits scenario(s) the current spec still has"拒掉（实测被拒一次，那个拒绝本身是有用的防丢场景机制）。
+
+
 # [未发布] fix(a11y): 两族按钮建立即时键盘焦点环 —— 只写基类等于零覆盖这一形态被真浏览器抓到（ux-audit-focus-ring）
 
 - **缺陷本体**：`.ui-btn` 与 `.cohere-btn-*` 两族按钮在 `origin/main` 上**没有任何 `:focus-visible` 规则**（`git grep` 实测命中 0；只有 `s2v-btn-*` 一族有 4 条），设计系统里同时躺着 `--focus-blue` 的两档声明、**零消费者**。键盘用户 Tab 到主操作按钮时看不到焦点落点（WCAG 2.4.7）。
@@ -61,6 +71,66 @@
   行尾两口径 numstat 一致。QM-1 / QM-4 / TDD 均 N/A（无代码行为变更）。
   QM-6 双模型外部评审**未执行**（本机无可用通道，pre-commit 如实打印跳过）。
 - 执行记录 `openspec/records/debt-baseline-resync.md`（含归因两条、影响面与两个跟进项判据）。
+
+# [未发布] feat(rewrite): >50000 长文分段改写 + 渲染层不再预截断 + 截断两态分型（rewrite-segment-long-input）
+
+## 问题
+
+第一刀把 `_rewriteOnce` 抽出、`_validate` 只保空内容校验后，**>50000 输入无路可走**——旧限制拆掉了、新能力没装上。
+三条评审预警的同型缺陷也随之暴露：① 渲染层 `prepareRewriteInput` 预截断让分段路径在采集页**永不可达**（死代码）；
+② 段级区间若照搬 ratio，5 段合计上限 72000 > 全篇 50000，合并必砍 22000 字（「为免截断而分段、分段反而制造截断」）；
+③ 任一段失败若返回半成品，用户会把残缺稿当成品。
+
+## 改动
+
+- 新增 `packages/rewrite-engine/src/segment-splitter.js`：三级切分（段落贪心合并 → 句子边界 → **码点硬切兜底**），
+  保证 segment 永不超 `SEGMENT_SIZE=12000`（= `max_tokens 64000 ÷ 2` 安全线），emoji 代理对不劈；
+  **无损性契约**：每段都是原文连续子串且顺序覆盖（测试断言，防丢段/重复段/编造段）。
+- 新增 `packages/rewrite-engine/src/segment-rewriter.js`：分段编排（独立模块，避免核心文件撞 max-lines 基线）——
+  逐段复用 `_rewriteOnce`、prompt 注入「长文分片 i/n」、合并后**复用 `_postProcess`**（不新造第三条截断语义）；
+  失败整篇失败 + `segmentIndex`/`segmentCount`（不返回半成品、不写知识库）；段级区间按**份额**分配
+  （`deriveSegmentRange`，各段上限之和 ≤ 全篇上限）。
+- 引擎 `rewrite()`：`> MAX_INPUT_CHARS` 分流到分段路径；`_validate` 移除长度硬拒（只保空内容校验）。
+- 渲染层：`prepareRewriteInput` **不再预截断**（只做空内容归一）+ 新增 `shouldSegmentRewrite`；
+  采集页/改写页在超阈值时**事前** info 提示「将分段改写（耗时与费用增加、其他 AI 功能可能变慢、可能有一致性折损）」；
+  结果卡 meta 行新增「分段改写 ×N」；采集页成功分支新增 `meta` 四字段透传（修「引擎可见字段被静默丢弃」）；
+  新增模型截断横幅（`data-testid="rewrite-model-truncated"`），文案明确「这是模型侧限制，调大字数控制不一定有效」。
+- 错误与文案：`REWRITE_SEGMENT_FAILED`（1-based `{index}`/`{total}` 插值）；删除已无调用点的
+  `collection.rewriteTruncated`（预截断取消后它与分段提示互相矛盾）。
+
+## 验证
+
+- 引擎 **255 passed**（segment-splitter 11 + S1–S5 五例 + 既有 239；W3 改写为「50001 走分段成功」）。
+- 渲染层 **274 + 136 passed**（跨两组汇总覆盖全部受影响面：模型截断横幅分型、分段 meta、meta 透传、分段失败文案、
+  结构锁改写）。
+- `build:vue` rc=0；`electron-builder --dir` rc=0；asar 实测：`segment-splitter.js` / `segment-rewriter.js` /
+  `llm-result.js` 均在包内，核心文件已委派 `require('./segment-rewriter')`、含 `> MAX_INPUT_CHARS` 分流，
+  切分器含硬切兜底、分段器含段级区间推导。
+- 静态门禁：unwired-tests OK、locale keys PASS（2167）、locale CJK PASS、max-lines ✅、brand-residue PASS、doc-abs-paths PASS。
+
+# [未发布] feat(rewrite): finish_reason 全链路透传 + Python 字数上限对齐 50000 + rewrite() 抽取 _rewriteOnce（rewrite-segment-contract）
+
+## 问题
+
+rewrite-limits-50000 放开上限后暴露三条契约尾巴（change rewrite-segment-and-finish-reason 第一刀）：
+
+1. provider `finish_reason` 在 adapter 已返回（openai.js:158 / anthropic.js:174 / minimax-llm.js:137，其余 OpenAI 兼容子类继承），但 ai-generator→llmClient→引擎全链路只传 string ⇒ **模型侧输出截断完全不可见**，与引擎侧截断混淆无法归因；
+2. Python 聚合链路 `RewriteRequest` 字数上界仍钉 5999/6000，与 JS 引擎 50000 不一致；
+3. 引擎 `rewrite()` 是 160 行单体，无单次改写子方法 ⇒ >50000 分段改写无可复用单元。
+
+## 改动
+
+- 新增 `packages/rewrite-engine/src/llm-result.js`：`normalizeChatResult`（string/object 双形态单点归一化）+ `isTruncatedFinishReason`（`length`/`max_tokens` ⇒ 截断；`stop`/`content_filter`/null ⇒ 否）。
+- 两个消费点共用归一化：`RewriteEngine._rewriteOnce`（归一化后判空，`{text:''}` 仍走 EMPTY_RESULT）与 `extractWithLLM`（关键词兜底——不归一化会让「chat 返回 object」静默杀死关键词兜底且无报错）。
+- 主进程 `rewrite-engine.js` llmClient.chat 返回 `{text, finishReason}`；`rewrite()` 结果新增 `modelTruncated`（纯增量字段）。
+- Python `models.py`：`min_word_count` 5999→49999、`max_word_count` 6000→50000（真源注释指向 JS `MAX_OUTPUT_CHARS`）。
+- **保形抽取** `_rewriteOnce`（第二刀分段改写的前置件）：`rewrite()` 变薄编排（校验/敏感词前置/策略匹配全篇一次 → `_rewriteOnce` → 全篇级副作用一次 → `_assembleResult`）；KB recordFeedback 与 viralScorer 上移全篇级，分段路径由此天然获得「一篇一次」语义。
+
+## 验证
+
+- 引擎 **239 passed**（新增 llm-result 10 + modelTruncated/EMPTY_RESULT/LLM_ERROR 七例 + keyword object 三例）；渲染层 **192 passed**；Python **51 passed**（50000 合法 / 50001 越界新边界）。
+- 保形抽取零行为变化：229 例既有引擎测试全绿。
+- `build:vue` rc=0；`electron-builder --dir` rc=0；asar 实测含 `normalizeChatResult`。
 
 # [未发布] fix(gates): 测试接线棘轮的判定域改成 git 的域，并消掉反向的「本机私产伪造接线」（unwired-tests-git-domain）
 
@@ -263,6 +333,41 @@
 - 定向测试：18 文件 / 599 passed（adapter 3 例新用例：plan 归类 / 2038 归类 / balance 不误判为 plan；service 2 例：throw 透传 + 结构化透传且不落 registry；CreateView 映射 2 断言）。
 - 门禁：eslint rc=0；tsc --noEmit rc=0；locale --keys/--cjk PASS；check-max-lines ✅（点名文件 1748=target 零增长）；check-unwired-tests OK；QM-1 electron-builder exit 0（读数见执行记录）。
 - 执行记录：`openspec/records/fix-s2v-clone-plan-unsupported.md`。
+## [2026-10-20] 视频任务编辑页：失败任务进入不再「无限加载后空白」
+
+### 问题
+历史记录页进入失败任务（无成片）的编辑页时：① 视频预览区持续显示加载态很久，最后空白；② 未生成的图片区先呈现「错误链接样式」，数秒后才显示「未生成」；③ 页面进入非常慢（169 段任务）。
+
+### 根因
+三个缺陷是同一条链路的三个表现：`ResultView.loadProject()` 对**全量 169 段**申请媒体 URL（每段 5 个媒体位 ≈ 845 次 `story2video:create-share-url` IPC），`loading` 要等它跑完才置 false；而失败任务 `videoPath` 为 null，`<video>` 因 `v-if="videoPath"` 根本不渲染，于是用户看到骨架挂很久后空白。`<img>` 无 `loading="lazy"`，169 张图同时发起请求，未完成时浏览器渲染破图。
+
+### 改动
+- **预览区三态**：新增 `resolveSegmentMediaPlan`，无 `videoPath` 时直接进入 `empty` 态——**不发起任何成片/旁白媒体 URL 申请**，改为渲染与 `<video>` 同构的占位区块（固定高度 + 标题 + 说明 + 「重新合成」行动位），两种终态页面高度一致，无布局跳变。无成片时也不再弹「预览缺失」提示（那是加载失败，不是没有成片）。
+- **分段素材 URL 分批**：首屏只解析前 20 段（≈100 次 IPC，较 845 次降约 88%）；未进入渲染窗口的分段不提前取 URL。
+- **追加式渲染窗口 + 哨兵**：新增 `resolveSegmentRenderWindow`，窗口恒从 0 开始、按 `renderedCount + 20` 增长（滑窗会让已渲染段从 DOM 消失，导致滚动高亮/refs/政策徽标错位）；列表尾哨兵进入视口（`rootMargin: 240px`）自动追加下一批，并保留「显示更多分段」手动兜底按钮。
+- **图片懒加载**：分段图与素材槽图加 `loading="lazy" decoding="async"`，未入视口不请求；`@error` 兜底保留（清坏 URL + 标记素材位不可用，保留来源路径供恢复）。
+- **focusScenes 点名段强制入首屏**：内容政策失败任务的定位场景即使落在窗口外也并入首屏，政策徽标与定位能力不因分批失效。
+- **结构分层**（`ResultView.vue` 是 max-lines 点名还账对象、零增长容差）：新增 `composables/useResultPreviewMedia.js`（纯函数策略，21 条单测）、`video-creation/ResultSegmentCard.vue`（单个分段卡片）、`video-creation/ResultSegmentEditor.vue`（分段编辑区 + 窗口 + 哨兵）；宿主只留 props/emits 接线，**行数由 1860 降至 1741**。
+
+### 验证
+- 新增 28 条回归（`useResultPreviewMedia.test.js` 21 条 + `ResultView.test.js` 7 条行为用例），先红后绿：红的三种形态分别是「模块不存在」「哨兵点击后段数不增（滑窗缺陷）」「80 段任务的 focusScenes 49/73/74 全部不在前 20 段（政策徽标被分批破坏）」。
+- 消费方并集 **577 passed / 0 failed**：ResultView 122、ResultView.model-info 32、story2video-ue-contract 5、views-deep/views-deep2/views-coverage/views-coverage2/CreateViewHistory 合计 76、CreateView + i18n + locales 合计 362。
+- 本地门禁逐条 rc=0：max-lines（无新增超大文件，ResultView 低于点名目标）、unwired-tests（111 个测试文件）、locale-sync `--cjk`（无新增硬编码）与 `--pair-base`（zh/en 成对）、no-brand-residue、debt-budget、gate-record-debt；eslint 8 个改动文件 0 error 0 warning。
+- 文档：`01-docs/PRD-S2V-RESULT-VIEW-PERF-2026-10-20.md`（含数据校验 / 流程 / 功能逻辑 / 交互逻辑 / 显示项 / 提示文字全表 / 组件契约 / 验收标准 / 已知局限）、`openspec/records/s2v-result-view-perf.md`。
+- **QM-6 审查修订（跨家族对抗审查，12 条 + D12 全覆盖）**：pre-commit 判定 `mode=dual`（变更 2051 行 > 200 行阈值），但评审后端 claude 对 2051 行 diff 输出 20392 字符被单次输出上限砍断、JSON 解析失败（重试一次仍失败）⇒ 按子代理降级规则改派独立 subagent 执行跨家族审查。**抓出并修掉 7 项真缺陷**：
+  1. **A1（Critical）**：`ResultSegmentCard` 第一版用 `segmentDraft` 浅拷贝 + `watch(segment, deep)` 同步，而宿主 `refreshSegmentImageUrls()` 是**原地改** `segment.imageUrl/...`——宿主改自己 data 数组里的对象，卡片侧 deep watch 不触发、浅拷贝展开拿旧值 ⇒ 保存/重试/重新合成后显示旧图或空白；且 `v-model` 写在副本上、`saveSegments()` 读宿主对象 ⇒ **用户打的字存不进去**。改为 `draft` getter 直接返回 prop，加 3 条回归锁（`reactive()` 包裹才复现；普通对象不触发子组件重渲染会造假红）。
+  2. **A6**：`loadNextSegmentBatch` 用 `from = segmentRenderCount`（初始 0）⇒ `slice(0,20)` **把已解析过 URL 的首批再解析一遍**。根因是窗口公式 `to = rendered + step` 与「已渲染数」语义不一致、三处各算一次步长；统一为 `to = min(total, rendered > 0 ? rendered : step)`，让 `renderWindow.to` 同时是「已渲染上界」与「下次追加起点」。
+  3. **A7**：右侧「分段定位」跳到未渲染分段时**高亮跳了但视口纹丝不动**（`segmentItemRefs[index]` 为空 ⇒ 静默跳过）。169 段点第 150 段正是本 PR 核心场景。改为一步把窗口扩到覆盖目标（不逐批循环，避免串行十几次 IPC），只解析新增段，`$nextTick` 后滚动。
+  4. **A3**：`onSegmentScroll` 把**稀疏 refs 数组**（点名段并入首屏后中间全是空洞）的 `length` 当连续下标上界、遇空洞 continue ⇒ 高亮落在「有 ref 的最大位次」而非用户实际看到的段。改 `Object.keys` 遍历实际挂上的 ref。
+  5. **A12**：编辑器自持 `segmentRenderCount` 本地计数，而宿主「分段定位」也要改窗口 ⇒ **两份计数漂移**（宿主扩了窗口、编辑器按自己计数渲染 ⇒ 视口不动，正是 A7 的现象）。改为受控 prop `renderedCount`，单一真源在宿主。
+  6. **A9**：「加载失败」与「任务本来没有成片」共用空态「没有可预览的视频」，用户关掉弹窗后会误以为任务本来就没视频——同一误导形态只修了一半。新增 `loadFailed` + 独立空态（标题 + 重试），locale 键 zh/en 成对。
+  7. **A2**：写后刷新仍对全量 169 段跑一遍（上限 ~845 次 IPC）。缺省作用域改为 `renderedSegments`（已渲染段）；未渲染段不在 DOM、用户改不到，其 URL 等进窗口时再取。
+  另**清理 8 处死代码**（A10）：`shouldRequestSegmentMedia`、`PREVIEW_LOADING_STATES`、`previewState`/`firstPaintMediaPaths`、`resolveSegmentMediaPlan` 的死参数、`segmentUrlBatchCursor`（三写零读）、编辑器孤儿 emit `clear-material-unavailable` + `voiceOptionIds`/`isSegmentBusy`、卡片孤儿 prop `voiceContext`。**`renderWindow` 反向保留**——现在有真实消费者（追加起点）。
+  **两条被审查提出但经核实不成立**：D12「两组测试互斥」（子代理自陈读到的是中间版本；当前 `ResultSegmentCard.test.js:71` 与 `ResultView.test.js:2075` 断言一致）；B5「每段最多 4 个媒体位」（逐位核对 `refreshSegmentImageUrls` + `refreshSceneMaterialUrls` 共 **5 个条件位**，audio 有 `if (segment.audioPath)` 会发 IPC，845/100 的原始数字正确）。
+
+### 已知局限
+IPC 次数本身未降（本轮是「按需申请」，单段仍 5 次 IPC；服务端批量签 URL 需改 IPC 契约，记入 backlog）；窗口步长固定 20，未按视口高度动态估算；未做实机 wall-time 复测；QM-4 视觉回归因基线仓库级失效未跑（同 `result-view-back-btn-style` 结论）。
+
 # [未发布] feat(story2video): 视频提示词中文翻译 + 提示词/翻译成对 + 分段编辑区默认折叠（s2v-video-prompt-translation）
 
 - **补齐视频提示词中文翻译（用户诉求，附截图）**：成品编辑页此前只有图片提示词带中文翻译，视频提示词没有。根因是图片翻译链路（`translatePromptsForLocale` + compose 并行任务 + `promptTranslation` 落库）自 2026-08-12 建立，而 `videoPrompt` 是 2026-08-15 才新增的字段，其生成链路从未接入翻译。本次在 `regenerateScenePrompt kind=video` 成功后调用 LLM 生成译文并持久化到新字段 `videoPromptTranslation`（≤2000 字符）。

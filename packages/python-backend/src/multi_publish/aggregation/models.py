@@ -165,9 +165,12 @@ class RewriteRequest(BaseModel):
     content: str = Field(..., min_length=1, description="待改写内容（非空即可，无最小字数限制）")
     style: str = Field(default="轻松易懂", description="改写风格")
     length: str = Field(default="keep", description="长度控制: keep/compress/expand")
-    # 字数区间控制（2026-09-12）：默认 800-2000；显式传入时优先于 length 三档
-    min_word_count: int = Field(default=800, ge=0, le=5999, description="改写结果最小字数")
-    max_word_count: int = Field(default=2000, ge=1, le=6000, description="改写结果最大字数")
+    # 字数区间控制（2026-09-12）：默认 800-2000；显式传入时优先于 length 三档。
+    # rewrite-segment-and-finish-reason（2026-10-20）：上界与 JS 引擎 MAX_OUTPUT_CHARS
+    # 对齐（6000 → 50000，随 rewrite-limits-50000 放开）；真源在
+    # packages/rewrite-engine/src/rewrite-engine-core.js。
+    min_word_count: int = Field(default=800, ge=0, le=49999, description="改写结果最小字数")
+    max_word_count: int = Field(default=2000, ge=1, le=50000, description="改写结果最大字数")
     seo_optimize: bool = Field(default=False, description="SEO 优化")
     # v1.4：目标发布平台，透传给质量评估器做平台适配/CTA 等维度评分。
     # 取值与 ContentQualityEvaluator._PLATFORM_KEYWORDS 键一致：
