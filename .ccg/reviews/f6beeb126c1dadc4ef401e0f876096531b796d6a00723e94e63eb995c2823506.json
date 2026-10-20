@@ -1,0 +1,57 @@
+{
+  "sha": "dad21f42c15b3eeff50d5b28689104acc0f33840",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 1566 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 1566,
+    "fileCount": 17,
+    "codeFileCount": 13,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 14,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "emits：`jump(index)`、`step(offset)`、`update:focus-index(index)`。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "f6beeb126c1dadc4ef401e0f876096531b796d6a00723e94e63eb995c2823506",
+  "decidedAt": "2026-10-20T09:06:03.507Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

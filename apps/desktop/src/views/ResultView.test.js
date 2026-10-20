@@ -2382,5 +2382,7 @@ describe("ResultView", () => {
       expect(w.vm.activeSegmentIndex).toBe(1);
       w.unmount();
     });
+
   });
+
 });

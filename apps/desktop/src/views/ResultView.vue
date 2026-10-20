@@ -72,25 +72,20 @@
       </div>
     </div>
 
-    <!-- 无成片时的占位区块（替代原先「v-if=videoPath 整块消失」后的空白） -->
-    <div
+    <!-- 无成片时的占位区块 → 失败摘要卡（2026-10-20 PRD-S2V-RESULT-UX-POLISH §3.2）
+         旧版只有一句通用说明，回答不了用户真正的问题「为什么没生成成品视频」。
+         现在给出：失败/完成段数、聚合后的主要原因、政策定位提示、定位首个失败段。
+         模板与文案拼装已抽到 video-creation/ResultPreviewPlaceholder.vue（本文件是
+         max-lines 点名还账对象，零增长容差）。 -->
+    <ResultPreviewPlaceholder
       v-else-if="projectId && !loading"
-      class="video-section video-section--placeholder"
-      data-testid="result-preview-placeholder"
-    >
-      <div class="video-preview-placeholder">
-        <h2 class="video-preview-placeholder__title">{{ previewPlaceholder.title }}</h2>
-        <p class="video-preview-placeholder__description">{{ previewPlaceholder.description }}</p>
-        <UiButton
-          v-if="previewPlaceholder.actionEnabled"
-          size="sm"
-          variant="secondary"
-          data-testid="preview-placeholder-recompose"
-          :disabled="recomposing || anySegmentBusy"
-          @click="recomposeProject"
-        >{{ previewPlaceholder.actionLabel }}</UiButton>
-      </div>
-    </div>
+      :placeholder="previewPlaceholder"
+      :failure="failureSummary"
+      :recompose-disabled="recomposing || anySegmentBusy"
+      :jump-pending="jumpPendingIndex >= 0"
+      @recompose="recomposeProject"
+      @jump-first-failed="jumpToFirstFailedSegment"
+    />
 
     <section v-if="videoPath" class="project-section trim-section">
       <div class="section-heading">
@@ -184,33 +179,34 @@
       </div>
     </section>
 
-    <!-- 分段快捷定位固定竖条：右侧 sticky，不随页面滚动（2026-08-18 UX 修正） -->
-    <aside v-if="projectId && segments.length > 1" class="segment-jump-sidebar">
-      <div class="segment-jump-bar" data-testid="segment-jump-bar">
-        <span class="segment-jump-label">{{ tOrKey('story2video.sceneMaterial.segmentJumpLabel') }}</span>
-        <div class="segment-jump-numbers">
-          <button
-            v-for="(segment, index) in segments"
-            :key="segment.id"
-            type="button"
-            class="segment-jump-number"
-            :class="{ active: index === activeSegmentIndex }"
-            :aria-label="$t('story2video.sceneMaterial.segmentJumpAriaLabel', { n: index + 1 })"
-            @click="scrollToSegment(index)"
-          >{{ index + 1 }}</button>
-        </div>
-        <div class="segment-jump-nav">
-          <UiButton size="sm" variant="ghost" :disabled="activeSegmentIndex <= 0" data-testid="segment-jump-prev" @click="jumpSegmentBy(-1)">{{ tOrKey('story2video.sceneMaterial.segmentJumpPrev') }}</UiButton>
-          <UiButton size="sm" variant="ghost" :disabled="activeSegmentIndex >= segments.length - 1" data-testid="segment-jump-next" @click="jumpSegmentBy(1)">{{ tOrKey('story2video.sceneMaterial.segmentJumpNext') }}</UiButton>
-        </div>
-      </div>
-    </aside>
+    <!-- 分段快捷定位固定竖条（右侧 sticky，不随页面滚动）。
+         2026-10-20 PRD-S2V-RESULT-UX-POLISH §3.3/§3.6：roving tabindex + 跳转中态已抽到
+         video-creation/ResultSegmentJumpBar.vue；定位样式仍留在本文件（父组件 scoped
+         样式会作用到子组件根节点，媒体查询隐藏也在这里管）。 -->
+    <ResultSegmentJumpBar
+      v-if="projectId && segments.length > 1"
+      :segments="segments"
+      :active-index="activeSegmentIndex"
+      :pending-index="jumpPendingIndex"
+      :focus-index="jumpFocusIndex"
+      @jump="scrollToSegment"
+      @step="jumpSegmentBy"
+      @update:focus-index="jumpFocusIndex = $event"
+    />
 
     <!-- 分段编辑区（2026-10-20 抽为 ResultSegmentEditor，PRD-S2V-RESULT-VIEW-PERF §5）：
          本文件是 max-lines 点名还账对象（零增长容差），分段区整块搬出后宿主只留接线。 -->
     <ResultSegmentEditor
       v-if="projectId && segments.length"
       :segments="segments"
+      :displayed-segments="displayedSegments"
+      :segment-count-label="segmentCountLabel"
+      :filtered="segmentsFiltered"
+      :filter-mode="segmentFilterMode"
+      :search-query="segmentSearchQuery"
+      :failed-count="failureSummary.failedCount"
+      :policy-count="failureSummary.policyFlaggedCount"
+      :jump-pending-index="jumpPendingIndex"
       :segments-dirty="segmentsDirty"
       :segment-busy="segmentBusy"
       :policy-scene-numbers="policyFlagSceneNumbers"
@@ -235,8 +231,22 @@
       @mark-material-unavailable="markMaterialUnavailableFromEditor"
       @update-subtitle-blocks="updateSegmentSubtitleBlocks"
       @load-next-batch="onSegmentBatchLoaded"
+      @expand-all="expandAllSegments"
+      @update-filter-mode="segmentFilterMode = $event"
+      @update-search-query="segmentSearchQuery = $event"
       @segment-ref="setSegmentItemRef"
     />
+
+    <!-- 回到顶部（2026-10-20 PRD-S2V-RESULT-UX-POLISH §3.6）：169 段滚到底后回顶很痛苦 -->
+    <button
+      v-if="showBackToTop"
+      type="button"
+      class="back-to-top"
+      data-testid="back-to-top"
+      :aria-label="tOrKey('story2video.sceneMaterial.backToTopAria')"
+      :title="tOrKey('story2video.sceneMaterial.backToTop')"
+      @click="backToTop"
+    >↑</button>
 
     <!-- 底部固定操作条（2026-08-17 UX 统一）：保存分段/重新合成 不随页面滚动（2026-09-18 合并重复的再次合成视频按钮） -->
     <div v-if="projectId && segments.length" class="result-action-bar" data-testid="result-action-bar">
@@ -296,21 +306,31 @@ import UiButton from '../components/UiButton.vue'
 import UiModal from '../components/UiModal.vue'
 import PodcastEpisodeEntry from '../components/PodcastEpisodeEntry.vue'
 import ResultModelInfoRow from './video-creation/ResultModelInfoRow.vue'
+import ResultPreviewPlaceholder from './video-creation/ResultPreviewPlaceholder.vue'
 import ResultSegmentEditor from './video-creation/ResultSegmentEditor.vue'
+import ResultSegmentJumpBar from './video-creation/ResultSegmentJumpBar.vue'
 import { buildPublishFromProject, publishDataToQuery } from '@/features/publish/publish-from-project'
 import { getAppLocale } from '@/i18n'
 import { STORY2VIDEO_NOTIFICATION_KEYS, formatBgmSkippedNotification, formatStory2VideoNotification, getStory2VideoNotificationUiText, resolveStory2VideoNotification } from '@/story2video/story2video-notifications'
 import { getTtsVoiceCatalog } from '@/api/tts-voice-catalog'
 import {
   SEGMENT_RENDER_STEP,
+  buildFailureSummary,
   buildPreviewPlaceholder,
+  buildSegmentCountLabel,
   effectiveSelectedMaterial,
+  filterSegments,
   parseSubtitleBlocksInput,
   resolveResultPreviewLayout,
   resolveSceneMaterialSlots,
   resolveSegmentStatusReason,
   resolveSubtitleBlocksText,
 } from './video-creation/composables/useResultPreviewMedia'
+import {
+  backToTop,
+  expandAllSegments,
+  jumpToSegmentIndex,
+} from './video-creation/composables/useSegmentNavigation'
 import {
   story2videoExportZip,
   story2videoCreateShareUrl,
@@ -337,7 +357,7 @@ import {
 
 export default {
   name: 'ResultView',
-  components: { UiButton, UiModal, PodcastEpisodeEntry, ResultModelInfoRow, ResultSegmentEditor },
+  components: { UiButton, UiModal, PodcastEpisodeEntry, ResultModelInfoRow, ResultPreviewPlaceholder, ResultSegmentEditor, ResultSegmentJumpBar },
   data() {
     return {
       videoPath: null,
@@ -390,6 +410,17 @@ export default {
       // 项目加载失败（QM-6 审查项 C9）：与「任务本来没有成片」区分开，
       // 空态据此显示「加载失败 + 重试」而不是误导性的「没有可预览的视频」。
       loadFailed: false,
+      // ── 2026-10-20 PRD-S2V-RESULT-UX-POLISH §3.3–§3.6 ──
+      // 大跨度跳转进行中（目标段尚未进入 DOM）：渲染「正在展开到第 N 段…」，
+      // 避免用户在大跳的 1–2 秒里以为点了没反应。
+      jumpPendingIndex: -1,
+      // roving tabindex 的焦点重置点：整组只这一个是 tabindex=0
+      jumpFocusIndex: 0,
+      // 分段筛选 / 搜索：只改「显示哪些」，absoluteIndex 仍是全量下标。
+      segmentFilterMode: 'all',
+      segmentSearchQuery: '',
+      // 回到顶部按钮：滚动超过阈值才出现（避免长期悬浮污染阅读区）
+      showBackToTop: false,
     }
   },
   async mounted() {
@@ -532,6 +563,11 @@ export default {
         hasEditableContent: this.hasEditableContent,
       })
     },
+    // 失败摘要（2026-10-20 PRD-S2V-RESULT-UX-POLISH §3.2）：
+    // 让占位区块回答「为什么没生成成品视频」，而不是只说「可先编辑再重新合成」。
+    failureSummary() {
+      return buildFailureSummary({ segments: this.segments })
+    },
     // 首屏批次 + 渲染窗口 + 预览三态：全部由 composable 计算（单一真源），
     // 本文件只做薄接线（max-lines 点名还账对象，零增长容差）。
     previewLayout() {
@@ -557,6 +593,34 @@ export default {
     },
     visibleSegments() {
       return this.previewLayout.visibleSegments
+    },
+    // 筛选/搜索是否生效（任一非默认即生效）
+    segmentsFiltered() {
+      return this.segmentFilterMode !== 'all' || Boolean(String(this.segmentSearchQuery || '').trim())
+    },
+    // 最终要塞进编辑器的分段：先按全量下标取可见窗口，再套筛选/搜索。
+    // **absoluteIndex 始终是全量下标**（先把 previewLayout 的窗口项做筛选，不重新编号），
+    // 否则「只看失败段」模式下点上移/删除会作用到别的段。
+    displayedSegments() {
+      if (!this.segmentsFiltered) return this.visibleSegments
+      // 筛选时跨全量分段搜索（用户预期是在整个任务里找，而不是只在已展开的 20 段里找）
+      return filterSegments(this.segments, {
+        mode: this.segmentFilterMode,
+        query: this.segmentSearchQuery,
+        policySceneNumbers: this.policyFlagSceneNumbers,
+      })
+    },
+    // 分段计数文案：169 段要告诉用户「还有多少段没显示」
+    segmentCountLabel() {
+      const shown = this.segmentsFiltered
+        ? this.displayedSegments.length
+        : this.visibleSegments.length
+      return buildSegmentCountLabel({
+        shown,
+        total: Array.isArray(this.segments) ? this.segments.length : 0,
+        filtered: this.segmentsFiltered,
+        translate: (key, params) => this.tOrKey(key, params),
+      })
     },
     // 预览区三态的唯一判据（无成片 ⇒ EMPTY，不得发起预览相关 IPC）
     hasFinalVideo() {
@@ -708,6 +772,22 @@ export default {
       const points = Array.from(String(value || ''))
       return points.length > max ? points.slice(0, max - 1).join('') + '…' : points.join('')
     },
+    // 导航类动作全部委托 composables/useSegmentNavigation.js（纯逻辑、可单测）：
+    // 宿主只保留这层薄接线，避免把「扩窗 / 只解析新增段 / 跳转反馈」再实现一遍。
+    async jumpToSegmentIndex(index) {
+      return jumpToSegmentIndex(this, index)
+    },
+    async jumpToFirstFailedSegment() {
+      const index = this.failureSummary.firstFailedIndex
+      if (index < 0) return false
+      return this.jumpToSegmentIndex(index)
+    },
+    async expandAllSegments() {
+      return expandAllSegments(this)
+    },
+    backToTop() {
+      return backToTop(this)
+    },
     // ── ResultSegmentEditor 桥接（2026-10-20 抽组件后宿主只留接线） ──
     // 分段区整块搬到 video-creation/ResultSegmentEditor.vue（本文件是 max-lines
     // 点名还账对象，零增长容差）。以下是它 emit 回宿主的纯数据动作。
@@ -745,7 +825,38 @@ export default {
     // 把「稀疏数组长度」当连续下标上界，遇到空洞就 continue ⇒ activeSegmentIndex 被设成
     // 「有 ref 的最大位次」而非用户实际看到的段，高亮与滚动位置脱节。
     // 修法：改为 Object.keys 遍历实际挂上的 ref，下标即全量 absoluteIndex。
+    //
+    // 2026-10-20 PRD-S2V-RESULT-UX-POLISH §3.5 补充：**rAF 合并 + 回顶显隐**。
+    // 旧实现直接挂在 window scroll 上，169 段全展开时每个 scroll 事件都做 169 次
+    // getBoundingClientRect（强制重排）⇒ 滚动发涩、右侧高亮拖尾。
+    // 现在同一帧的多条 scroll 事件只算一次（rAF 合并），并把「回顶按钮显隐」并入同一次计算。
     onSegmentScroll() {
+      if (typeof window === 'undefined') return
+      // 回顶显隐与高亮无关，但同属滚动回调，合并到一帧里算，避免额外监听
+      const nextShowBackToTop = (Number(window.scrollY) || 0) > 600
+      if (nextShowBackToTop !== this.showBackToTop) this.showBackToTop = nextShowBackToTop
+
+      // 前沿节流（leading-edge）：本帧第一次滚动**立即**算一次（保证高亮即时跟手，
+      // 也让同步断言成立），同帧后续事件只把「帧标记」清空、不再重算。
+      // 效果与「每帧最多 1 次」等价，但不会让高亮滞后一帧。
+      if (this._segmentScrollFrame) return
+      this.computeActiveSegmentIndex()
+      const raf = typeof window.requestAnimationFrame === 'function'
+        ? window.requestAnimationFrame.bind(window)
+        : (cb) => setTimeout(cb, 16)
+      this._segmentScrollFrame = raf(() => {
+        this._segmentScrollFrame = null
+      })
+    },
+    // 真正的重活：遍历已挂 ref 求当前分段（由 onSegmentScroll 经 rAF 合并后调用）
+    // 程序化重算（删除/移动/新增分段后、跳转后）：**不受滚动节流**，立即算一次。
+    // 滚动节流只该合并「用户滚动」这种高频事件；程序化重算若被同帧吞掉，
+    // 高亮会滞留在被删掉的那一段上（本仓曾出现该形态）。
+    recalcSegmentHighlight() {
+      this._segmentScrollFrame = null
+      this.computeActiveSegmentIndex()
+    },
+    computeActiveSegmentIndex() {
       const refs = Array.isArray(this.segmentItemRefs) ? this.segmentItemRefs : []
       if (!refs.length || !Array.isArray(this.segments) || !this.segments.length) return
       const threshold = Number(this.segmentScrollThreshold) >= 0 ? Number(this.segmentScrollThreshold) : 120
@@ -802,22 +913,10 @@ export default {
     // 「状态与视图矛盾」比完全没反应更糟，且右侧 169 个数字全都可点、无 disabled 无提示。
     // 修法：先把渲染窗口一步扩展到覆盖目标位次（不要循环 7 批，那会串行 560 次 IPC），
     // 只解析新增那一段的 URL，等 DOM 落地后再 scrollIntoView。
+    // 供既有调用（模板数字导航 / 上一条下一条）沿用：一律委托 jumpToSegmentIndex
+    // （单一真源，含大跨度扩窗 + 跳转反馈 + 只解析新增段）
     async scrollToSegment(index) {
-      if (!Number.isInteger(index) || index < 0 || index >= this.segments.length) return
-      this.activeSegmentIndex = index
-      const renderedTo = this.previewLayout.renderWindow.to
-      if (index >= renderedTo) {
-        // 一步扩到覆盖目标位次（不逐批循环，那会串行十几次 IPC），只解析新增段
-        const to = Math.min(this.segments.length, index + 1)
-        const newlyRendered = this.segments.slice(renderedTo, to)
-        this.segmentRenderCount = to
-        if (newlyRendered.length) await this.refreshSegmentImageUrls(newlyRendered)
-      }
-      await this.$nextTick()
-      const el = Array.isArray(this.segmentItemRefs) ? this.segmentItemRefs[index] : null
-      if (el && typeof el.scrollIntoView === 'function') {
-        el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      }
+      await this.jumpToSegmentIndex(index)
     },
     jumpSegmentBy(offset) {
       const base = this.activeSegmentIndex >= 0 ? this.activeSegmentIndex : 0
@@ -1268,7 +1367,7 @@ export default {
         // 未进入渲染窗口的分段不需要提前拿 URL。
         await this.refreshSegmentImageUrls(this.pendingSegmentBatch)
         // 分段渲染完成后初始化滚动高亮（2026-09-18）
-        this.$nextTick(() => this.onSegmentScroll())
+        this.$nextTick(() => this.recalcSegmentHighlight())
         this.audioPath = project.audioPath || null
         // 完整旁白：仅在有 audioPath 时申请一个 URL；无旁白时保留占位（与旧行为一致）
         if (this.previewLayout.shouldLoadNarration) {
@@ -1526,7 +1625,7 @@ export default {
       this.segmentsDirty = true
       // 分段重排后 refs 下标失效，重置并重算滚动高亮（2026-09-18）
       this.segmentItemRefs = []
-      this.$nextTick(() => this.onSegmentScroll())
+      this.$nextTick(() => this.recalcSegmentHighlight())
     },
     removeSegment(index) {
       if (this.segments.length <= 1) return
@@ -1534,7 +1633,7 @@ export default {
       this.segmentsDirty = true
       // 分段删除后 refs 下标失效，重置并重算滚动高亮（2026-09-18）
       this.segmentItemRefs = []
-      this.$nextTick(() => this.onSegmentScroll())
+      this.$nextTick(() => this.recalcSegmentHighlight())
     },
     async saveSegments() {
       if (!this.projectId || !this.segments.length) return false
@@ -1724,9 +1823,9 @@ export default {
 /* 无成片占位区块（2026-10-20）：与 .video-player 同一容器与圆角，高度用同一上限档位，
    保证「加载出成片」与「本来就没有成片」两种终态的页面高度一致，不产生布局跳变。 */
 .video-section--placeholder { display: flex; }
-.video-preview-placeholder { display: flex; width: 100%; min-height: 240px; max-height: 68vh; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 32px 24px; border-radius: 8px; background: var(--bg); border: 1px dashed var(--border); text-align: center; }
-.video-preview-placeholder__title { margin: 0; font-size: var(--font-size-md); font-weight: 600; color: var(--text); }
-.video-preview-placeholder__description { margin: 0; max-width: 52em; font-size: var(--font-size-sm); line-height: 1.6; color: var(--text-muted); }
+/* 回到顶部：固定右下，避免遮挡底部操作条（result-action-bar 在底部，留出安全距离）。 */
+.back-to-top { position: fixed; right: 24px; bottom: 96px; width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: var(--font-size-md); line-height: 1; cursor: pointer; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12); z-index: 20; }
+.back-to-top:hover { border-color: var(--primary); color: var(--primary); }
 /* 分段渲染窗口哨兵：进入视口前 240px 即触发，视觉上保持轻量（不占内容流高度）。 */
 .segment-list-sentinel { display: flex; justify-content: center; padding: 12px 0 4px; }
 .video-info { margin: 12px 0; font-size: var(--font-size-sm); color: var(--text-muted); }
@@ -1745,14 +1844,6 @@ export default {
    overflow-wrap/word-break 兜底 URL 等无空格长串。滚动交给 .ui-modal-body，不叠第二层滚动条。 */
 .script-modal-body { min-width: 0; }
 .script-text { margin: 0; color: var(--text); font-family: inherit; font-size: var(--font-size-sm); line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
-/* 分段快捷定位条（2026-08-17 UX 统一） */
-.segment-jump-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; padding: 10px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
-.segment-jump-label { color: var(--text-muted); font-size: var(--font-size-xs); font-weight: 600; }
-.segment-jump-numbers { display: flex; flex-wrap: wrap; gap: 6px; }
-.segment-jump-number { min-width: 28px; height: 28px; padding: 0 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); font-size: var(--font-size-xs); cursor: pointer; }
-.segment-jump-number:hover { border-color: var(--primary); color: var(--primary); }
-.segment-jump-number.active { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 600; }
-.segment-jump-nav { display: flex; gap: 8px; margin-left: auto; }
 /* 视频任务编辑页底部操作条：固定在主工作区底部，不跟随页面内容滚动。 */
 .result-action-bar { position: fixed; left: var(--mp-sidebar-width, 200px); right: 0; bottom: 0; z-index: 110; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; min-height: var(--result-action-bar-space, 88px); margin: 0; padding: 12px max(20px, calc((100vw - var(--mp-sidebar-width, 200px) - 1040px) / 2 + 24px)); border-top: 1px solid var(--hairline, rgba(0,0,0,0.06)); background: var(--surface, #fff); box-shadow: 0 -2px 12px rgba(0,0,0,0.08); }
 .result-action-bar-status { display: flex; align-items: center; gap: 8px; min-height: 30px; }

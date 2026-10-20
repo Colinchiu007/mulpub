@@ -5,11 +5,16 @@ import en from '@/locales/en'
 
 import {
   PREVIEW_PLACEHOLDER_KEYS,
+  SEGMENT_FILTER_MODES,
   SEGMENT_URL_BATCH_SIZE,
+  buildFailureSummary,
   buildPreviewPlaceholder,
+  buildSegmentCountLabel,
+  filterSegments,
   resolveFirstPaintSegments,
   resolveResultPreviewLayout,
   resolveSceneMaterialSlots,
+  resolveSegmentJumpPlan,
   resolveSegmentMediaPlan,
   resolveSegmentRenderWindow,
 } from './useResultPreviewMedia'
@@ -378,5 +383,179 @@ describe('场景素材槽位解析（宿主与 ResultSegmentCard 共用同一真
   it('分段为非对象时返回空数组（脏数据不抛错）', () => {
     expect(resolveSceneMaterialSlots(null, { label })).toEqual([])
     expect(resolveSceneMaterialSlots('oops', { label })).toEqual([])
+  })
+})
+
+// ── 2026-10-20 PRD-S2V-RESULT-UX-POLISH §3.2–§3.6 ──
+// 这一批函数解决「169 段任务页面上关键信息缺席」：为什么失败、失败在哪、还有多少段没显示。
+
+describe('失败摘要（占位区块要能回答「为什么没成片」）', () => {
+  const withStatus = (statuses, extra = () => ({})) => statuses.map((status, i) =>
+    segment({ id: 'seg-' + i, index: i, status, ...extra(i) }))
+
+  it('统计总数 / 失败数 / 政策标记数，并给出首个失败段的全量下标', () => {
+    const segments = withStatus(
+      ['completed', 'completed', 'failed', 'pending', 'failed'],
+      (i) => (i === 4 ? { policyFlagged: true } : {}),
+    )
+
+    const summary = buildFailureSummary({ segments })
+
+    expect(summary.total).toBe(5)
+    expect(summary.failedCount).toBe(2)
+    expect(summary.completedCount).toBe(2)
+    expect(summary.pendingCount).toBe(1)
+    expect(summary.firstFailedIndex).toBe(2)
+    // 失败段的下标列表供「只看失败段」筛选复用
+    expect(summary.failedIndexes).toEqual([2, 4])
+  })
+
+  it('首个失败段取最小下标（与 DOM 顺序一致，不是随机命中）', () => {
+    const segments = withStatus(['failed', 'completed', 'failed'])
+    expect(buildFailureSummary({ segments }).firstFailedIndex).toBe(0)
+  })
+
+  it('无失败段时 firstFailedIndex 为 -1（调用方据此不渲染「定位到失败段」按钮）', () => {
+    const segments = withStatus(['completed', 'completed'])
+    const summary = buildFailureSummary({ segments })
+
+    expect(summary.failedCount).toBe(0)
+    expect(summary.firstFailedIndex).toBe(-1)
+    expect(summary.hasFailure).toBe(false)
+  })
+
+  it('把 failureCode / failureReason 聚合成可读原因并计数（同因合并，按次数降序）', () => {
+    const segments = withStatus(['failed', 'failed', 'failed', 'completed'], (i) => ({
+      failureCode: i === 2 ? 'quota' : 'policy',
+    }))
+
+    const summary = buildFailureSummary({ segments })
+
+    expect(summary.reasons.map(r => r.code)).toEqual(['policy', 'quota'])
+    expect(summary.reasons[0].count).toBe(2)
+    expect(summary.reasons[1].count).toBe(1)
+  })
+
+  it('无任何失败原因时 reasons 为空数组（不编造文案）', () => {
+    const segments = withStatus(['failed', 'failed'])
+    expect(buildFailureSummary({ segments }).reasons).toEqual([])
+  })
+
+  it('空输入 / 脏输入不抛错', () => {
+    expect(buildFailureSummary({})).toMatchObject({ total: 0, failedCount: 0, firstFailedIndex: -1, hasFailure: false })
+    expect(buildFailureSummary({ segments: null })).toMatchObject({ total: 0, failedCount: 0 })
+    expect(buildFailureSummary({ segments: [null, 'oops', segment({ id: 'ok', status: 'completed' })] }))
+      .toMatchObject({ total: 1, failedCount: 0 })
+  })
+})
+
+describe('分段筛选与搜索（169 段里找目标段）', () => {
+  const seg = (i, over = {}) => segment({ id: 'seg-' + i, index: i, text: '文案' + i, prompt: '提示词' + i, ...over })
+
+  it('all 模式原样返回并保留全量下标', () => {
+    const segments = [seg(0), seg(1), seg(2)]
+    const result = filterSegments(segments, { mode: SEGMENT_FILTER_MODES.ALL })
+
+    expect(result.map(r => r.absoluteIndex)).toEqual([0, 1, 2])
+    expect(result.map(r => r.segment.id)).toEqual(['seg-0', 'seg-1', 'seg-2'])
+  })
+
+  it('failed 模式只留失败段，且 absoluteIndex 仍是全量下标（不是筛选后的序号）', () => {
+    const segments = [seg(0), seg(1, { status: 'failed' }), seg(2), seg(3, { status: 'failed' })]
+    const result = filterSegments(segments, { mode: SEGMENT_FILTER_MODES.FAILED })
+
+    expect(result.map(r => r.segment.id)).toEqual(['seg-1', 'seg-3'])
+    // 关键：必须是 1 和 3，不能变成 0 和 1（否则上移/删除/导出命名全指错段）
+    expect(result.map(r => r.absoluteIndex)).toEqual([1, 3])
+  })
+
+  it('policy 模式只留被 focusScenes 点名的段', () => {
+    const segments = [seg(0), seg(1), seg(2)]
+    const result = filterSegments(segments, {
+      mode: SEGMENT_FILTER_MODES.POLICY,
+      policySceneNumbers: new Set([2, 3]),
+    })
+
+    // 场景号 1-based ⇒ 场景 2/3 对应下标 1/2
+    expect(result.map(r => r.absoluteIndex)).toEqual([1, 2])
+  })
+
+  it('关键词搜索大小写不敏感，命中 text / prompt / videoPrompt / 字幕任一即保留', () => {
+    const segments = [
+      seg(0, { text: 'iPhone 发布会' }),
+      seg(1, { prompt: 'nothing here' }),
+      seg(2, { videoPrompt: '关于 IPHONE 的镜头' }),
+      seg(3, { subtitleBlocks: ['用 iphone 拍'] }),
+    ]
+    const result = filterSegments(segments, { query: 'iphone' })
+
+    expect(result.map(r => r.absoluteIndex)).toEqual([0, 2, 3])
+  })
+
+  it('关键词首尾空白被忽略；空关键词等于不筛选', () => {
+    const segments = [seg(0, { text: 'alpha' }), seg(1, { text: 'beta' })]
+
+    expect(filterSegments(segments, { query: '   ' }).map(r => r.absoluteIndex)).toEqual([0, 1])
+    expect(filterSegments(segments, { query: '  alpha  ' }).map(r => r.absoluteIndex)).toEqual([0])
+  })
+
+  it('筛选与搜索可叠加（只看失败段 + 关键词）', () => {
+    const segments = [
+      seg(0, { status: 'failed', text: '含关键词' }),
+      seg(1, { status: 'failed', text: '不含' }),
+      seg(2, { status: 'completed', text: '含关键词' }),
+    ]
+    const result = filterSegments(segments, { mode: SEGMENT_FILTER_MODES.FAILED, query: '关键词' })
+
+    expect(result.map(r => r.absoluteIndex)).toEqual([0])
+  })
+
+  it('无命中时返回空数组（调用方据此渲染「没有匹配的分段」而不是空白列表）', () => {
+    const segments = [seg(0)]
+    expect(filterSegments(segments, { query: 'zzz-不存在' })).toEqual([])
+  })
+})
+
+describe('分段计数文案（169 段要告诉用户还有多少没显示）', () => {
+  it('已显示少于总数时给出「已显示 N / 共 M」', () => {
+    const label = buildSegmentCountLabel({ shown: 20, total: 169, translate: (k, p) => `${k}:${p.shown}/${p.total}` })
+    expect(label).toBe('story2video.sceneMaterial.segmentCountPartial:20/169')
+  })
+
+  it('全部显示时只给总数（不再重复「已显示」）', () => {
+    const label = buildSegmentCountLabel({ shown: 169, total: 169, translate: (k, p) => `${k}:${p.total}` })
+    expect(label).toBe('story2video.sceneMaterial.segmentCountAll:169')
+  })
+
+  it('筛选命中数为 0 时给「没有匹配的分段」', () => {
+    const label = buildSegmentCountLabel({ shown: 0, total: 169, filtered: true, translate: (k) => k })
+    expect(label).toBe('story2video.sceneMaterial.segmentCountNoMatch')
+  })
+})
+
+describe('分段跳转计划（大跨度跳转要给反馈，不能静默无响应）', () => {
+  it('目标已在窗口内：只需要滚动，不需要扩窗也不要再解析 URL', () => {
+    const plan = resolveSegmentJumpPlan({ index: 5, total: 169, renderedTo: 40 })
+    expect(plan).toMatchObject({ needsScroll: true, needsExpand: false, expandTo: 40, batch: { from: 40, to: 40 } })
+  })
+
+  it('目标在窗口外：扩窗到覆盖目标，且只解析新增区间', () => {
+    const plan = resolveSegmentJumpPlan({ index: 149, total: 169, renderedTo: 40 })
+    expect(plan.needsExpand).toBe(true)
+    expect(plan.expandTo).toBe(150)
+    // 只请求 [40,150)，不重解析已渲染的 0..39
+    expect(plan.batch).toEqual({ from: 40, to: 150 })
+  })
+
+  it('越界或非法下标：不做任何动作（不抛错、不产生负区间）', () => {
+    expect(resolveSegmentJumpPlan({ index: 169, total: 169, renderedTo: 40 }).needsScroll).toBe(false)
+    expect(resolveSegmentJumpPlan({ index: -1, total: 169, renderedTo: 40 }).needsScroll).toBe(false)
+    expect(resolveSegmentJumpPlan({ index: 1.5, total: 169, renderedTo: 40 }).needsScroll).toBe(false)
+  })
+
+  it('扩窗超过总段数时收敛到 total', () => {
+    const plan = resolveSegmentJumpPlan({ index: 168, total: 169, renderedTo: 20 })
+    expect(plan.expandTo).toBe(169)
+    expect(plan.batch).toEqual({ from: 20, to: 169 })
   })
 })
