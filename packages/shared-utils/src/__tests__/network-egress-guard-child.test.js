@@ -182,6 +182,21 @@ describe('子进程面：守卫必须传给 node 子进程', () => {
     expect(guard.ledgerCommandName('"/usr/local/libexec/evil tool" -x')).toBe('evil tool')
   })
 
+  it('台账命令名：spawn 的**裸路径**含空格时也不得被折成 Program（只治带引号形态是缺陷）', () => {
+    // 2026-10-20 由 electron-ci-shard 的行为锁命中：#2525 的自证块要真跑一段 bash 才能验证
+    // `-e -o pipefail` 语义，而 `resolveGitBash()` 给的是 `C:\Program Files\Git\…\bash.exe`。
+    // 这条 spawn 是本仓**正当**的非 node 子进程，但旧实现把裸路径切首 token ⇒ 台账键成了
+    // `child::Program`：真实命令被无意义键盖住，而台账的整个意义就是"谁在起子进程"。
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'egress-name-'))
+    const exe = path.join(dir, 'my tool.exe') // 文件名含空格，与 Git Bash 的形态同构
+    fs.writeFileSync(exe, 'stub')
+    expect(guard.ledgerCommandName(exe)).toBe('my tool.exe')
+    // 负控：切首 token 的老行为会得到 'my'；显式钉住不许回退。
+    expect(guard.ledgerCommandName(exe)).not.toBe('my')
+    // 不存在的含空格串仍按**命令行**处理（exec 形态），不退化成"猜它是路径"。
+    expect(guard.ledgerCommandName('git --version')).toBe('git')
+  })
+
   it('fork 走 options.execArgv，不进 argv 位置（由子进程自己写盘报告，不用 mock）', async () => {
     guard.installTestChildProcessGuard({ setupPath: SETUP_MODULE })
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'egress-child-fork-'))

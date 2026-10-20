@@ -131,3 +131,45 @@ date: 2026-10-20
 2. 改成 **PATH 注入 stub** → 仍 `exit 127`。因为 Node 直接 spawn MSYS 的 bash 时不做 Windows→POSIX 转换，继承来的 `C:\…;C:\…` 被按 `:` 切坏，连 `date` 都 command not found。
 
 最终用**文本替换内层命令** + 显式 `PATH=/usr/bin:/bin` 才让这条锁测的是被测性质。另：`spawnSync` 阻塞事件循环，vitest 的 10s 默认超时**无法中断**它（实测报成 15s 的 “Test timed out in 10000ms”），故该用例给了显式 `SHELL_HARNESS_TIMEOUT_MS`。
+
+## 七、CI 抓到的那一层：行为锁 spawn bash 撞上运行时出站台账
+
+首次 PR CI：`QG Desktop Shards (1/2)` 红，但日志显示 **525 个测试文件 / 9541 例全 pass**，红在测试**之后**：
+
+```
+FAIL: 出现基线之外的运行时台账键：
+  + child::Program
+```
+
+我的行为锁要真跑一段 bash 才能验证 `-e -o pipefail` 语义，而 `resolveGitBash()` 给的是
+`C:\Program Files\Git\usr\bin\bash.exe` —— 这是一条**正当**的非 node 子进程，被
+`packages/shared-utils/src/network-egress-guard.js` 的 `ledgerCommandName` 记账时折成了
+`Program`。
+
+### 这是台账名派生的缺陷，不是"我该去加个键"
+
+`shellFirstToken` 只处理了**带引号**的含空格路径（仓库自己在注释里记过
+`"C:/Program Files/evil.exe" → Program` 这个形态），但 `spawn(file, args)` 传的是**裸路径**，
+从来没人管。于是：
+
+- 若我图省事，把 `child::Program` 加进基线 —— 等于给一个**无意义键**背书：以后任何
+  `C:\Program Files\…` 下的子进程都会被它盖住，台账彻底读不出是谁在起子进程。而基线本仓
+  的规矩是「清单只能缩小，新增必须逐条写清为什么这里会起非 node 子进程」——`Program` 写不清。
+- 正解是修派生：裸串且**整串据存在性解析成文件**时取真实 basename。判据取文件存在性而不是猜词法，
+  因为 `exec`/`execSync` 传的是含空格分隔的整条命令行，整串不会解析成一个存在的文件。
+
+### 落地的三件事
+
+1. `ledgerCommandName`：裸路径且 `fs.existsSync(整串)` ⇒ `path.basename`；
+2. 回归锁（`network-egress-guard-child.test.js` +1 例，22 例绿）：临时目录里造一个**文件名含空格**的
+   stub，断言台账名是 `my tool.exe`，并用**负控**钉住「不得是 `my`」；再断言不存在的含空格串仍按命令行处理。
+3. 基线登记 `child::bash.exe`，理由写全（哪个测试、为什么必须起 bash、只跑 coreutils、不预期出站）。
+
+本地端到端复核：跑行为锁并落临时台账，`type=child` 两行分别是 `git` 与 **`bash.exe`**（不再是 `Program`）；
+再用真判据 `check-test-egress-ledger.js --ledger <临时台账>` ⇒ `PASS: 运行时出站台账与基线一致`。
+
+### 这一层的教训
+
+我本地跑的是**单个测试文件**，而台账判据挂在**整套桌面测试**跑完之后 —— 单文件通过不构成
+「这一层也通过」的证据。这与本 PR 主线要修的那个毛病同型：**局部绿不等于整体绿**，
+所以收尾必须回读 CI，而不是拿本地绿推结论。

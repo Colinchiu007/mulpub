@@ -2,6 +2,12 @@
   "$comment": "测试期运行时出站台账的基线（scripts/check-test-egress-ledger.js 比对对象，清单只能缩小）。键来自真实跑出来的现场，不来自源码猜测：桌面全量一次（736 文件 / 13492 例）+ packages 各 workspace 一次，均由 packages/shared-utils/src/network-egress-guard.js 的 sink 落盘。2026-10-05 起本基线**不含任何『欠账』条目**：原 blocked::channels.weixin.qq.com:443 / mp.toutiao.com:443 / ops.example.com:443 三条（#2878 —— 被测代码在测试 realm 里真的发起了出站、只因守卫拦住才没外泄）已补上传输层桩并删除，详见 docs/test-egress-runtime-ledger.md §6。剩余 blocked:: 四条全是守卫与 sink 的自测，属『预期内必须被拦』。",
   "$measuredAt": "2026-10-05",
   "entries": {
+    "blocked::198.51.100.7:443": "子进程面与 sink 的自测使用 TEST-NET-1 不可路由地址（network-egress-guard-child.test.js / network-egress-guard-ledger-sink.test.js）",
+    "blocked::93.184.216.34:8099": "守卫自测（同上）：net.connect 直连 IP 也必须被拦，防止绕过域名判断",
+    "blocked::example.com:8099": "守卫自测（network-egress-guard.test.js）：http.get 到非 loopback 必须秒失败并被记账",
+    "blocked::example.org:8099": "守卫自测（同上）：undici fetch 同一路径必须被拦",
+    "blocked::rebind.attacker.invalid:8099": "test/media-fetch.test.js 的 DNS rebinding 行为锁：校验那次解析答公网地址（通过 SSRF），连接那次解析答 127.0.0.1（rebinding 答案），内网受害者是本机 8099 假服务器。守卫在**连接前**按已校验地址钉住，故此处被 blocked。这条 blocked 记录正是本用例的判别信号——若钉住逻辑被撤掉，台账会转为child/出站记录且内网会真被读到内容。用固定端口 8099（与既有出站类测试一致）以保证键稳定，否则每次运行端口不同会让本判定不确定。",
+    "child::bash.exe": "apps/desktop/tests/gui-ci-exit-contract.test.js 的行为锁真跑一段 bash 以复现 GitHub shell 的 `-e -o pipefail` 语义（它验证的正是 #2525 那段自证块在超时路径上会不会被执行）。Git Bash 是纯本地 shell，测试里只跑 sleep/date/tee/grep/sed/tail，不预期出站",
     "child::chrome-headless-shell.exe": "Playwright 无头壳：electron/tests/voice-clone-layout-regression.test.js 真起浏览器做布局回归。浏览器内请求不经 node 守卫，属预期的覆盖缺口，靠像素/视觉层另管",
     "child::esbuild.exe": "electron/tests/build-preload.test.js 真跑 esbuild 打包 preload。纯本地编译工具，不预期出站",
     "child::ffmpeg": "媒体用例经打包的 ffmpeg 包装层，命令名为 POSIX 形态（apps/desktop/electron/services/video-clone/asset-generator.test.js 等）；本地转码工具",
@@ -11,11 +17,6 @@
     "child::git": "e2e-quality-infrastructure / publish-history 及 packages 侧若干用例真调 git 读版本与仓库状态。git 的联网行为不在本守卫范围（测试里只做本地子命令）",
     "child::powershell.exe": "windows-file-lock / credential-store / account-state-restorer 用 PowerShell 真实持有文件句柄、查进程；本机进程工具，不出网",
     "child::python": "electron/tests/test_scheduler_parity.test.js 真跑 python -m 与 JS 调度器做 parity 对照；python 的联网不在守卫范围，属已知覆盖缺口",
-    "child::taskkill": "base-python-bridge 收尾时用 taskkill /T /F 清理子进程树；只做进程管理",
-    "blocked::example.com:8099": "守卫自测（network-egress-guard.test.js）：http.get 到非 loopback 必须秒失败并被记账",
-    "blocked::example.org:8099": "守卫自测（同上）：undici fetch 同一路径必须被拦",
-    "blocked::93.184.216.34:8099": "守卫自测（同上）：net.connect 直连 IP 也必须被拦，防止绕过域名判断",
-    "blocked::198.51.100.7:443": "子进程面与 sink 的自测使用 TEST-NET-1 不可路由地址（network-egress-guard-child.test.js / network-egress-guard-ledger-sink.test.js）",
-    "blocked::rebind.attacker.invalid:8099": "test/media-fetch.test.js 的 DNS rebinding 行为锁：校验那次解析答公网地址（通过 SSRF），连接那次解析答 127.0.0.1（rebinding 答案），内网受害者是本机 8099 假服务器。守卫在**连接前**按已校验地址钉住，故此处被 blocked。这条 blocked 记录正是本用例的判别信号——若钉住逻辑被撤掉，台账会转为child/出站记录且内网会真被读到内容。用固定端口 8099（与既有出站类测试一致）以保证键稳定，否则每次运行端口不同会让本判定不确定。"
+    "child::taskkill": "base-python-bridge 收尾时用 taskkill /T /F 清理子进程树；只做进程管理"
   }
 }
