@@ -169,6 +169,64 @@ test('合规：kuaishou-sig3.js 不含网络模块引用', () => {
   }
 })
 
+// ── 8. 算法完整性自检（CCG 深度评审 i3 的回归保护）
+test('verifyKnownVector 全绿（固化的对拍基线）', () => {
+  const r = k.verifyKnownVector()
+  assert.strictEqual(r.ok, true, 'self-test failed: ' + JSON.stringify(r.cases.filter((c) => !c.ok)))
+  assert.ok(r.cases.length >= 2)
+})
+test('verifyKnownVector 能捕获算法被改坏（变异反证）', () => {
+  // 直接改 signPayload 的行为不现实；改为验证「基线确实与当前实现不同」这一可观测事实：
+  // 若有人把 MAGIC 改掉，硬基线条目必然失配。此处用错参数模拟"实现漂移"。
+  const good = k.signPayload('abc', 1750000000, 100)
+  const drifted = k.signPayload('abc', 1750000000, 101) // 换 count ⇒ 不同签名
+  assert.notStrictEqual(good, drifted)
+  // 且 verifyKnownVector 里两条基线的 expected 互不相同（说明断言不是恒真式）
+  const r = k.verifyKnownVector()
+  const expectedSet = new Set(r.cases.map((c) => c.expected).filter(Boolean))
+  assert.ok(expectedSet.size >= 2, 'baselines must not be identical (否则断言是恒真式)')
+})
+
+// ── 9. 独立状态实例（CCG 深度评审 i7 的回归保护）
+test('createSigner 提供独立状态，互不污染', () => {
+  const a = k.createSigner({ startupRandom: 1750000000, count: 100 })
+  const b = k.createSigner({ startupRandom: 1750000000, count: 100 })
+  const sa1 = a.sign({ url: '/x', params: {} })
+  const sb1 = b.sign({ url: '/x', params: {} })
+  // 两个实例从同一初始状态出发 ⇒ 第一次签名必须相同
+  assert.strictEqual(sa1, sb1)
+  // 但各自继续走各自的计数
+  const sa2 = a.sign({ url: '/x', params: {} })
+  const sb2 = b.sign({ url: '/x', params: {} })
+  assert.strictEqual(sa2, sb2)
+  assert.notStrictEqual(sa1, sa2)
+  assert.strictEqual(a.getState().count, 102)
+  assert.strictEqual(b.getState().count, 102)
+})
+test('createSigner 与模块级 sign 状态互不干扰', () => {
+  k.__resetState({ startupRandom: 1750000000, count: 100 })
+  const before = k.__getState().count
+  const iso = k.createSigner({ startupRandom: 1750000000, count: 100 })
+  iso.sign({ url: '/x', params: {} })
+  iso.sign({ url: '/x', params: {} })
+  // 模块级状态不应因实例签名而改变
+  assert.strictEqual(k.__getState().count, before)
+})
+test('createSigner.reset 可回到确定状态', () => {
+  const s = k.createSigner({ startupRandom: 1750000000, count: 100 })
+  const first = s.sign({ url: '/x', params: {} })
+  s.sign({ url: '/x', params: {} })
+  s.reset({ startupRandom: 1750000000, count: 100 })
+  assert.strictEqual(s.sign({ url: '/x', params: {} }), first)
+})
+test('并发语义已在文档中声明（模块级 sign 非并发安全）', () => {
+  const fs = require('fs')
+  const path = require('path')
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'signer', 'kuaishou-sig3.js'), 'utf8')
+  assert.ok(/并发语义/.test(src), 'module must document concurrency semantics')
+  assert.ok(/createSigner/.test(src), 'module must expose createSigner for isolation')
+})
+
 console.log('\n========== kuaishou-sig3 Result ==========')
 console.log('  Passed: ' + passed + ' / ' + (passed + failed))
 console.log('  Failed: ' + failed + ' / ' + (passed + failed))

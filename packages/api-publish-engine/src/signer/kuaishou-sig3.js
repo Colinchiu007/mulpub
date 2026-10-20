@@ -286,7 +286,70 @@ function __getState () {
 }
 
 /**
+ * 已知基线自检 —— 算法完整性验证（深度评审 i3 的处置）
+ *
+ * 本模块是**非标准 SHA-256**（私有 IV、长度字段 +512、有符号字打包）。
+ * 任何一个比特的偏差都会产出"格式合法但服务端拒绝"的 56 位串 —— 静默失效。
+ * 该函数用固化基线做一次端到端核对，供启动自检或诊断使用。
+ *
+ * 基线与竞品 VM **逐字节对拍**固化而来（10/10 样本），不是本次现算后填的。
+ *
+ * @returns {{ok:boolean, cases:Array<{name:string, ok:boolean, actual:string, expected:string}>}}
+ */
+function verifyKnownVector () {
+  const CASES = [
+    { name: 'sig3("abc",1750000000,100)', args: ['abc', 1750000000, 100], expected: 'bbabecdc6b0ba78083e6e5e4d5636a523eda729efafaf8f8f7f6f5ef' },
+    { name: 'sig3("abc",1750000000,101)', args: ['abc', 1750000000, 101], expected: 'baaaeddd6a0aa68183e7e4e5d4626b533fdb739ffbfbf9f9f6f7f4ee' },
+    { name: 'sig3("",1750000000,100)', args: ['', 1750000000, 100], expected: null },
+  ]
+  const cases = CASES.map((c) => {
+    const actual = signPayload(c.args[0], c.args[1], c.args[2])
+    const ok = c.expected === null ? /^[0-9a-f]{56}$/.test(actual) : actual === c.expected
+    return { name: c.name, ok, actual, expected: c.expected }
+  })
+  return { ok: cases.every((c) => c.ok), cases }
+}
+
+/**
+ * 创建**独立状态**的签名器实例（深度评审 i7 的处置）。
+ *
+ * 模块级 `startupRandomState` / `countState` 只适用于单线程顺序调用；
+ * 并发或多账号场景应各自 `createSigner()`，避免计数器互相污染。
+ *
+ * @param {{startupRandom?:number, count?:number}} [initial]
+ * @returns {{sign:(payload?:object)=>string, getState:()=>{startupRandom:number|null,count:number}, reset:(o?:object)=>void}}
+ */
+function createSigner (initial = {}) {
+  let sr = initial.startupRandom === undefined ? null : (initial.startupRandom >>> 0)
+  let cnt = initial.count === undefined ? COUNT_INIT : (initial.count >>> 0)
+
+  function ensureSr () {
+    if (sr === null) sr = Math.floor(Date.now() / 1000)
+    return sr
+  }
+
+  return {
+    sign (payload) {
+      const p = payload || {}
+      const input = buildSignatureInput({ url: p.url, params: p.params })
+      const useSr = p.startupRandom === undefined || p.startupRandom === null ? ensureSr() : (p.startupRandom >>> 0)
+      const useCnt = p.count === undefined || p.count === null ? cnt++ : (p.count >>> 0)
+      return signPayload(input, useSr, useCnt)
+    },
+    getState () { return { startupRandom: sr, count: cnt } },
+    reset (o = {}) {
+      sr = o.startupRandom === undefined ? null : (o.startupRandom >>> 0)
+      cnt = o.count === undefined ? COUNT_INIT : (o.count >>> 0)
+    },
+  }
+}
+
+/**
  * Tier-A 签名入口 —— 接受与页面签名器完全相同的 payload 形状。
+ *
+ * ⚠ **并发语义**：本函数使用模块级共享状态（`startupRandomState` / `countState`），
+ * 只保证**单线程顺序调用**下的行为正确。并发 / 多账号场景请用 `createSigner()`
+ * 各持一份独立状态，或显式传入 `{ startupRandom, count }` 自行管理计数器。
  *
  * @param {{url?:string, params?:object, startupRandom?:number, count?:number}} payload
  * @returns {string} 56 个 hex（__NS_sig3 的值，不含 `__NS_sig3=` 前缀）
@@ -307,6 +370,8 @@ function sign (payload) {
 
 module.exports = {
   sign,
+  createSigner,
+  verifyKnownVector,
   signPayload,
   buildSignatureInput,
   __resetState,

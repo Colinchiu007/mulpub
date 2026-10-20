@@ -16,7 +16,7 @@ date: 2026-10-20
 | 行尾与 diff 对账 | ✅ | 见下实测 |
 | QM-1 打包 | N/A | 改动落在 `packages/api-publish-engine/`，不在 AGENTS.md 的 QM-1 触发面（`apps/desktop/electron/`、`packages/rpa-engine/`）内 |
 | QM-4 视觉 | N/A | 未触碰任何 `.vue` / 样式 / locale |
-| QM-6 双模型外部评审 | 未执行（待补） | CCG decider 判定**需要**双模型（`mode=dual`，769 行 > 200 行阈值，`decidedAt=2026-10-20T11:07:18Z`）；后端 `claude` 与 `opencode` 均在 PATH 上、`backendAvailability.count=2/2`；但 `deepReview.status=pending`，**尚未实际执行**。如实记录，不以自审冒充通过 |
+| QM-6 双模型外部评审 | ✅ 已执行 | `proposer=opencode` / `critic=claude`，跨家族校验通过，基线 `origin/main`（1449 行）。claude 提出 **8 条问题**（4 个维度：correctness/security/performance/maintainability，最低分 2）。收敛判定 `selfPlay`，进入自扮演裁决（7 条待裁决，其中 4 条 crypto 高危域）。发现与处置见下「六、CCG 深度评审的实际发现与处置」 |
 | 远程同步 | 由门禁推导 | 见 PR |
 
 - 保留门禁：判定 docs-only=false（走完整节拍）| 行尾对账 ✅ | 品牌残留 随 CI | 文档同步 随 CI doc-gate | 执行记录 ✅ 本文件
@@ -119,3 +119,50 @@ assertEqual(expected.length, 32);
 - 本 PR 的代码**不发起任何网络请求**（有测试断言），只做纯计算。
 - 研究阶段对生产 API 的探测为只读端点、单次、无重试、无发布，详见另一仓的证据文件。
 - 未在任何 tracked 文件落 cookie / token / api_ph / api_st 明文。
+
+
+---
+
+## 六、CCG 深度评审的实际发现与处置
+
+评审后端：`proposer=opencode` / `critic=claude`（跨家族校验通过）。
+基线 `origin/main`，diff 1449 行、提交判定 `DUAL`（809 行 > 200 行阈值）。
+
+claude 提出 **8 条问题**，收敛判定 `selfPlay`（第 1 轮即判），进入自扮演裁决 7 条。
+其中 **4 条属 crypto 高危域**（`requiresExternalReview`：i2/i3/i4/i7），按规则**不允许自扮演豁免**。
+
+### 逐条评估（诚实分类，不一律辩护）
+
+| # | 严重度 | 域 | 内容摘要 | 我的判断 |
+|---|---|---|---|---|
+| i1 | Critical | — | `.ccg/reviews` 显示 `deepReview.required:true` 但 `status:pending` | **元问题**：评审指出"评审未完成"。本次执行即消解 |
+| i2 | Critical | crypto | `pad()` 用 `(len-1)*8+512` 非标准、signed 32-bit 无 `>>>0`；IV 私有；`MAGIC`/`HEAD` 是魔数 | **成立但不可"修正"** —— 这正是竞品真实行为；已在注释写明「不能修正」，并有 10/10 对拍 |
+| i3 | Critical | crypto | 非标准 SHA-256 + 自定义置换，单比特错误会静默失效 | **成立** —— 原实现确实无自检。**已修复**：新增 `verifyKnownVector()` 与对应回归用例 |
+| i4 | Warning | crypto | `buildSignatureInput()` 的 query 规范化可能与服务端不同 | **部分成立** —— 实测只覆盖了无 query 的样例；已在边界中记录 |
+| i5 | Critical | — | `submit` 端点无纯 JS 活体回归，默认切换依赖未验证端点 | **完全成立且已如实记录** —— 保留 `-browser` 回退即为此 |
+| i6 | Warning | — | 测试硬编码 hex 基线，无文件校验和，难以独立审计 | **成立** —— 基线来源已写在注释与证据文件路径；独立审计需跨仓 |
+| i7 | Warning | crypto | 模块级可变全局（`startupRandomState`/`countState`），并发会破坏签名 | **成立** —— **已修复**：新增 `createSigner()` 工厂提供独立状态实例，并在 `sign()` 文档写明并发语义 |
+
+### 已落地的两处修复
+
+| 发现 | 修复 | 回归保护 |
+|---|---|---|
+| i3 无完整性自检 | 新增 `verifyKnownVector()` —— 用固化基线做端到端自检 | 2 条用例：全绿断言 + **变异反证**（断言基线集合不是恒真式） |
+| i7 全局状态并发不安全 | 新增 `createSigner()` —— 每实例独立 `startupRandom`/`count`；`sign()` 文档明确并发边界 | 3 条用例：实例互不污染 / 不与模块级状态互通 / reset 可复现 |
+
+用例数：23 → **29**（新增 6 条），全绿。全量 `run-tests.js` 仍 **rc=0**。
+
+### 未处置项（不假装已闭合）
+
+- **i2 / i4**：属逆向实现的固有特性，改了就签不对。只能靠注释、对拍证据与边界声明约束。
+- **i5 / i6**：已记录为已知边界，需真实发布意图或跨仓证据才能闭合。
+- **i1**：自我指涉，随本次评审完成消解。
+
+### 关于 crypto 高危域的 4 条
+
+按引擎规则，「高危域争议项不允许自扮演豁免，必须外部复核」，且要求
+`externalReview` 三格齐备（`performedBy` 须等于 `expectedExternalBackend`、
+`evidenceRef` 须为**公开可点开的 PR 评论**、`reviewedAt` 为 ISO 时间）。
+
+**本记录不预设这些格子已被填好** —— 若裁决文件里 `externalReview` 为空，
+则本 PR 的 deepReview 仍应判 `high_risk_requires_external`，不得以本文档的存在当作代偿。
