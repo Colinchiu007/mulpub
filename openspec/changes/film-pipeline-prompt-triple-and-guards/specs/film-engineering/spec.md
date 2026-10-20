@@ -79,7 +79,7 @@ Shot SHALL 支持三个可选提示词字段：`imagePrompt`（首帧/图片）�
 
 影视工程的**原片下载**与**成片下载** SHALL 共用同一份出站合同（`egress-guard`）。合同 SHALL 包含：仅允许 `https`；**仅允许可信清单声明的端口**（缺省 `{443}`）；内网地址一律拒绝，且判定覆盖面 SHALL 覆盖：IPv4 私网段（`10./8`、`172.16/12`、`192.168/16`）、`127/8`、`0.0.0.0/8`、`100.64/10`（CGNAT）、链路本地 `169.254/16`；IPv6 `::1`、`fc00::/7`（ULA）、链路本地 `fe80::/10`；**IPv4-mapped IPv6**（`::ffff:10.0.0.1` 等，先还原成 IPv4 再判）；**纯十进制 / 八进制 / 十六进制 IP 字面量**（`http://2130706433/`、`http://0177.0.0.1/`）先**规范化**再判定；**每次请求发起前**解析主机名并校验解析结果为非内网地址，且**把该解析结果 pin 进 socket 的 `lookup` 覆写**（消除「校验用 A 解析、连接用 B 解析」的 TOCTOU 窗口）；3xx **手动逐跳**跟随且每跳重新过合同校验、跳数有上限；单文件字节数有上限；下载先写 `.part` 临时文件，经探测校验通过后才改名为正式文件，失败路径 SHALL 清理 `.part` 且 SHALL NOT 留下半成品。
 
-主机约束 SHALL **缺省 fail-closed**：可信主机集合 = { provider **API base URL 的主机名**（自动派生） } ∪ { `assetDownloadHosts`（模型服务商配置，运营可配） }；成片 URL 主机不在该集合内且调用方**未显式授权** ⇒ **拒绝下载**。显式授权 SHALL 只能由用户在成本确认卡勾选「本次允许从外部素材域名下载」产生，SHALL 留痕到项目文件（`egressAllowAnyHost`）；**未勾选即拒绝**。放宽通道 SHALL NOT 豁免私网段拦截、协议、端口、体积与逐跳重校验。
+主机约束 SHALL **缺省 fail-closed**：可信主机集合 = { provider **API base URL 的主机名**（自动派生） } ∪ { `assetDownloadHosts`（模型服务商配置，运营可配） }；成片 URL 主机不在该集合内且调用方**未显式授权** ⇒ **拒绝下载**。显式授权 SHALL 只能由用户在成本确认卡勾选「本次允许从外部素材域名下载」产生，SHALL 表现为**运行期一次性令牌**（**只存内存、任务结束失效、SHALL NOT 落盘**）；项目文件 SHALL NOT 存放任何可用于放行的授权位。**未勾选即拒绝**。放宽通道 SHALL NOT 豁免私网段拦截、协议、端口、体积与逐跳重校验。
 
 #### Scenario: 成片下载拒绝内网地址
 
@@ -152,7 +152,7 @@ Shot SHALL 支持 `locked` 布尔字段。自动模式**批量重跑** SHALL 跳
 
 ### Requirement: 项目文件乐观锁
 
-项目文件 SHALL 记录整数 `revision`，写入时递增。写入通道 SHALL 支持可选的 `expectedRevision`；携带时 SHALL 与当前 `revision` 比对，不一致 SHALL **fail-closed** 返回冲突错误且 SHALL NOT 覆盖既有文件。`expectedRevision` 缺省时 SHALL **不执行**比对（向后兼容，既有单写路径行为不变）。
+项目文件 SHALL 记录整数 `revision`，写入时递增。**旧项目文件缺 `revision` 时 SHALL 读作 0**（向后兼容，不因缺字段判损坏）；**首次并发写**（两进程都读到「缺失」）由**锁内自增**保证：锁的持有者把 `0` 自增为 `1`，另一方在锁内重新读到 `1` 后判定冲突。写入通道 SHALL 支持可选的 `expectedRevision`；携带时 SHALL 与当前 `revision` 比对，不一致 SHALL **fail-closed** 返回冲突错误且 SHALL NOT 覆盖既有文件。`expectedRevision` 缺省时 SHALL **不执行**比对（向后兼容，既有单写路径行为不变）。
 
 写入 SHALL 由**独占锁文件**串行化：写入方 SHALL 先以独占创建方式（`fs.open(lock, 'wx')`）获取项目目录下的锁文件，SHALL 在持锁期间完成「读 revision → 比对 → 自增 → 写」，SHALL 在写完后释放锁（异常路径 SHALL 保证锁被释放）。落盘 SHALL 为**单次原子替换**（临时文件 → fsync → rename），SHALL NOT 存在「比对通过但写到一半」的中间态。
 

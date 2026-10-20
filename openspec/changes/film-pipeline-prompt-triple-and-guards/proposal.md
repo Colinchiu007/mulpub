@@ -117,7 +117,7 @@ shot-library.json 共 153 条；shot[0].prompt 长 13,922 字符，
 | **F-C** 出站安全复用 | 报告 §4.2 第一梯队 #11「出站媒体 SSRF 防护」 | 来源 `waoowaoo` **Elastic 2.0**（桌面端自用不触发托管服务禁令）；但**本仓已有更强实现**（`shot-downloader.js`） | 见 §2.3 修正 1：不新建，只复用。既有实现比研究报告假设的更完整；**并补本仓缺的两项**：IP pinning（消 TOCTOU）+ 端口 443 + 主机分级策略（见 §4.2.1） | 🟢 **本仓自有实现，无需引入外部代码**。参照外部思路时仅取"私网段 + DNS 重绑定 + 逐跳重校验"三点（Elastic 2.0 允许参考） |
 | **F-D** 外部工具体检 | 报告 §4.2 第一梯队 #26、§5.2 批次三 F11d | 报告来源 `app.yumcut.com` **PolyForm NC 1.0**（科研非商用已解禁）；报告建议"只做存在性校验，不硬钉 7.1.1"（会误判大量环境） | G-4 是真实可感知缺陷；报告的"只做存在性"建议已被本方案采纳（避免制造新的假失败） | 🟡 **只能抄思路**。本仓实现自研（读取自身 `findFfmpeg()` 解析结果 + 版本输出解析） |
 | **F-E** 单镜锁定 | 报告 §4.2 第二梯队 #9 | 差距标「**中**」；`ai-art-engine` GPL-3.0 → 报告已标「仅思路」 | G-5 真实；消费方明确（自动模式重跑时跳过锁镜），不会变成死代码 | 🟡 **只能抄思路**（GPL 传染，**禁止复制代码**）。字段与跳过逻辑自研 |
-| **F-F** 身份锚点 + 参考图优先级 | 报告 §4.2 第二梯队 #19、§3.21 武器 2 | 报告 §3.21：mulpub 已握武器 1（实体强引用 ★★★★★），但**武器 2–5、7 全缺**；武器 2 成本最低（★★★★） | G-7 真实；报告 §3.22.1 已把 F15 **提级到批次一**（"最低成本换最强档"），批次一未做，本次补上 | 🟡 **只能抄思路 + 提示词可抄**——来源 `moyin-creator` AGPL-3.0。**报告明确：提示词不受版权保护**，角色身份锚点/参考图优先级/防串脸三类**提示词**可重写后使用 |
+| **F-F** 身份锚点 + 参考图优先级 | 报告 §4.2 第二梯队 #19、§3.21 武器 2 | 报告 §3.21：mulpub 已握武器 1（实体强引用 ★★★★★），但**武器 2–5、7 全缺**；武器 2 成本最低（★★★★） | G-7 真实；报告 §3.22.1 已把 F15 **提级到批次一**（"最低成本换最强档"），批次一未做，本次补上。**边界**：story2video 主管线**当前不传参考图**（实测），故「参考图优先级声明」**按「无图则不生成」条件渲染**（回应评审 i2）——无参考图时不产出该声明，只产出角色身份锚点 | 🟡 **只能抄思路 + 提示词可抄**——来源 `moyin-creator` AGPL-3.0。**报告明确：提示词不受版权保护**，角色身份锚点/参考图优先级/防串脸三类**提示词**可重写后使用 |
 | **F-G** 乐观锁（expectedRevision） | 报告 §4.2 第一梯队 #5 | 来源 `Toonflow-app` **MIT**；报告列入第一梯队"立即可落地" | G-6 真实；MIT 可抄 | 🟢 **可抄代码**（MIT，保留版权声明）。本仓按自身 project.json 结构实现 |
 | **F-H** 方法论 UI 分区 | 报告 §5.2 批次一 F1 收尾项 | 批次一已把 doctrine 扩到 11 块 + 台账 + 配方，但 PRD §九 明确"新增 4 个方法论块未接入 UI，方法论标签页目前仍按 7 块渲染" | 数据已就绪、UI 未接线，是**批次一留下的确定性缺口**，且不引入新运行时风险 | 🟢 纯本仓资产，无外部代码 |
 | **F-I** 任务级提示词接入规划流程 | 报告 §5.2 批次一 F30 收尾项 | PRD §十 明确"库与渲染器已就绪，规划流程未接"；`auto-plan.js:243` 仍走 `buildTemplatePrompt`，**不读 doctrine、不读 promptLibrary** | 同上，批次一遗留；接上后 `generate_shot_prompt` 任务模板才真正被用 | 🟢 纯本仓资产 |
@@ -151,7 +151,7 @@ shot-library.json 共 153 条；shot[0].prompt 长 13,922 字符，
 | F-A | `apps/desktop/electron/film-kit/shot-library.json` | **零改动**（153 条存量不迁，靠加载期归一化） | 0 |
 | F-A | `apps/desktop/src/views/film-auto/ShotTailFrameRow.vue`（**新建**） | 承载「尾帧只读行」——`endFramePrompt` 的展示落点（回应评审 i4：§2.4 声明的读取点必须有真实文件承载） | +70 / 0 |
 | F-B | `apps/desktop/electron/services/film-engineering/video-gen.js` | `costCheck` 内联 `readiness` 字段 + 逐镜 `ready`/`reason` | +50 / -5 |
-| F-B | `apps/desktop/electron/services/film-engineering/shot-readiness.js`（**新建**） | 纯函数：逐镜就绪度判定（无 IO、可测）。**`skipped`（锁镜）不计入成本汇总**——确认卡的「预计调用次数」与费用只统计 `ready` 的镜 | +130 / 0 |
+| F-B | `apps/desktop/electron/services/film-engineering/shot-readiness.js`（**新建**） | 逐镜就绪度**判决器**。**分层**（回应评审 i1）：**IO 探测层**（调用侧）先产出「事实入参」`facts`——参考图可解析性、provider 能力（画幅/秒数档位）**在调用侧读文件与能力表后填入**；本模块**只对 `facts` 做纯函数判决**（零 IO、可单测）。入参形状：`{ shotId, index, prompt, durationMs, aspect, seconds, locked, facts: { referenceResolvable, aspectSupported, secondsSupported } }`。**`skipped`（锁镜）不计入成本汇总**——确认卡的「预计调用次数」与费用只统计 `ready` 的镜 | +130 / 0 |
 | F-C | `apps/desktop/electron/services/film-engineering/egress-guard.js`（**新建**） | 从 `shot-downloader.js` 抽出可复用的出站合同（私网段/DNS/逐跳/上限/`.part`+ffprobe→rename） | +180 / 0 |
 | F-C | `apps/desktop/electron/services/film-engineering/shot-downloader.js` | 改为调用 `egress-guard`（**既有可观察行为不变**；实现层新增 IP pinning 属有意增强） | +10 / -40 |
 | F-C | `apps/desktop/electron/services/film-engineering/film-video-downloader.js`（**新建**，PR-5 纯重构） | 把 `video-gen.js` 的 `downloadToFile` 原样搬出（**行为不变**），PR-6 只在此模块换实现 | +60 / -30 |
@@ -205,7 +205,7 @@ shot-library.json 共 153 条；shot[0].prompt 长 13,922 字符，
 | **可信主机集合** | = { provider **API base URL 的主机名**（**自动派生**，无需配置） } ∪ { `assetDownloadHosts`（模型服务商配置，运营可配，逗号分隔） } |
 | **允许端口集** | 随可信域配置声明（`assetDownloadPorts`，缺省 `{443}`） |
 | **默认行为（fail-closed）** | 成片 URL 主机不在可信集合内 ⇒ **拒绝下载**，错误文案：「素材域名 {host} 不在可信清单内。请在『模型提供商 → {provider}』中配置『素材下载可信域』，或本次显式允许外部素材域名。」 |
-| **放宽通道（需显式授权）** | 用户可在成本确认卡**显式勾选**「本次允许从外部素材域名下载」；勾选结果**留痕**到 `project.json`（`egressAllowAnyHost: true`），仅对本次任务生效；**未勾选 ⇒ 拒绝下载** |
+| **放宽通道（需显式授权）** | 用户可在成本确认卡**显式勾选**「本次允许从外部素材域名下载」；勾选产生**运行期一次性令牌**（**只存内存，不落盘**；任务结束即失效）；**未勾选 ⇒ 拒绝下载**。审计只记「发生过一次外部域名授权」这一事实，**不保存任何可用于放行的授权位** |
 | **其余合同** | S-1 https / S-3 私网段 / S-4' DNS 校验 + IP pinning / S-5 逐跳重校验 / S-6 体积上限 / S-7 `.part`+ffprobe→rename / S-8 受控媒体根 —— **全部无条件生效**，不放宽通道也不豁免它们 |
 
 **为什么这样既堵住又不打死用户**：
@@ -220,6 +220,13 @@ shot-library.json 共 153 条；shot[0].prompt 长 13,922 字符，
 
 **配套新增**：模型服务商配置新增可选 `assetDownloadHosts` 与 `assetDownloadPorts`（缺省空 ⇒ 只认 API 同源主机 + 443）。
 
+**上线前必做（否则会打死存量用户）**（回应评审 i5）：
+1. **实测各视频 provider 的素材域名与 API 主机是否同源**（逐个 adapter 跑一次真实出片并记录素材 URL 主机），产出「同源比例」清单；
+2. 对**非同源**的 provider，**上线前**在模型服务商配置里预置好 `assetDownloadHosts` 与端口（随随包资产或运营配置下发）；
+3. 对仍无法确定的 provider，给出**一次性引导**：首次出片被拒时，在确认卡上直接给出「去配置可信域」的跳转，而不是只给一句错误文案。
+
+> **不做「默认放开」来图省事**——那正是评审第 2/3 轮连续两次打回的点。宁可上线前多跑一轮实测。
+
 ### 4.3 防膨胀硬约束（沿用报告 §5.5 + 本仓纪律）
 
 1. **提示词文本一律外置**为 `.md`/`.json`，禁止内联进 `.js`（F-F 的三类提示词进 `film-kit/prompts/tasks/`，经 `prompt-library.js` 渲染）。
@@ -229,6 +236,23 @@ shot-library.json 共 153 条；shot[0].prompt 长 13,922 字符，
 ---
 
 ## 五、排期与依赖（PR 拆分）
+
+### 5.0 每个 PR 的落地路径（回应评审 i8，与本仓 SOP 对齐）
+
+每个 PR 都是**独立的 worktree + 独立的分支**，从最新 `origin/main` 重新开：
+
+```bash
+# 1) 建隔离 worktree（共享根只做 main-only 协调，禁止在共享根改运行时代码）
+pwsh -File scripts/start-mp-task.ps1 -TaskName <pr-slug>
+# 2) 在 worktree 内改代码 + 跑定向测试 + 跑门禁
+cd <worktree>
+node scripts/classify-docs-only.js --base=origin/main --head=HEAD   # commit 之后
+# 3) 提交（禁止 --no-verify）→ 推分支 → 开 PR → CI 全绿 → 自动 squash 合并
+```
+
+**openspec 五件套的归属**：`proposal.md` / `design.md` / `tasks.md` / `specs/film-engineering/spec.md` / `.openspec.yaml` **在 PR-1（方案）一次落全**，后续 PR 只更新 `tasks.md` 的勾选与 `openspec/records/<分支名>.md` 的执行证据。**全部实现 PR 合并完毕后**，才做 `openspec archive`（`proposal → design → specs → tasks → archive`）+ 归档同步（`openspec/specs/film-engineering/spec.md` 落库）+ CHANGELOG。
+
+**执行记录**：`openspec/records/<分支名>.md` 每个 PR 一份（按分支名命名），含 `| 远程同步 | 由门禁推导 |` 表行与对应 bullet。
 
 > 拆 PR 原则：① 体积小 → 对抗性审查不被截断（批次一曾因单提交 4058 行 diff 导致 critic 输出截断，`PRD-FILM-PROMPT-ASSETS-2026-10-20.md` §11.6）；② 单 PR 可独立 CI 绿、独立合并；③ 依赖顺序显式。
 
@@ -318,15 +342,17 @@ PR-8 (F-F 身份锚点) — 独立，可与任意 PR 并行
 | V-23 | 未消费字段台账一致 | 机械核对：`imagePrompt`/`videoPrompt` 在 `video-gen.js` 有读取点；`endFramePrompt` **无** provider 提交读取点（断言其只出现在展示与派生路径）；`viewpointId` **全仓零命中** | — |
 | V-24 | IP pinning 生效（消除 TOCTOU） | `apps/desktop/electron/services/film-engineering/egress-guard.test.js`：注入解析器返回**两个不同 IP**（第一次校验用 A、socket 连接用 B）→ 断言实际连接目标为**已校验的 A**；断言 socket 收到的 `lookup` 覆写被使用 | — |
 | V-25 | 端口约束随可信域声明 | `egress-guard.test.js`：可信清单声明端口含 8443 ⇒ `:8443` 放行；未声明 ⇒ 拒绝；`:443` 或省略端口 ⇒ 放行到下一项校验 | — |
-| V-26 | 主机策略缺省 fail-closed | `egress-guard.test.js`：① 主机 = provider API 主机 ⇒ 放行（自动预填，零配置）；② 主机不在可信集合且**未**显式授权 ⇒ **拒绝**；③ 显式授权（`egressAllowAnyHost`）⇒ 放行到私网段检查；④ 私网地址即使显式授权也**仍拒绝** | — |
-| V-26b | 放宽授权留痕 | `auto-project.test.js`：勾选「本次允许从外部素材域名下载」⇒ `project.json` 落 `egressAllowAnyHost: true`；不勾选 ⇒ 该字段不存在/为 false | — |
+| V-26 | 主机策略缺省 fail-closed | `egress-guard.test.js`：① 主机 = provider API 主机 ⇒ 放行（自动预填，零配置）；② 主机不在可信集合且**未**显式授权 ⇒ **拒绝**；③ 持有运行期授权令牌 ⇒ 放行到私网段检查；④ 私网地址即使持有令牌也**仍拒绝** | — |
+| V-26b | 放宽授权是**运行期令牌**，不落盘 | 勾选「本次允许从外部素材域名下载」⇒ 运行期产生一次性令牌（内存）；**项目文件里不得出现任何可放行的授权位**（机械核对：`project.json` 中无 `egressAllow` 类字段）；任务结束后令牌失效 | — |
 | V-27 | 锁定不新增 IPC 通道 | `preload.test.js` 的通道计数**不变**（锁镜复用既有 `film-engineering:auto-*` patch 通道）；`auto-project.test.js` 断言 `patch.locked` 被接受 | — |
 | V-28 | 出站下载实现已独立成模块 | `film-video-downloader.test.js` 存在且覆盖等价行为；`video-gen.test.js` 既有 19+7 例全绿 | — |
-| V-29 | 自动模式新分镜的视频提示词显著更短 | `auto-plan.test.js`：派生后 `shots[].videoPrompt.length < shots[].imagePrompt.length`（**逐镜断言**，且新规划分镜 `videoPrompt` 非空） | — |
+| V-29 | 自动模式新分镜的视频提示词显著更短 | `auto-plan.test.js`：逐镜断言 `videoPrompt.length <= 0.6 * imagePrompt.length`（**比例阈值，不是「严格小于」**——后者可被差 1 字符满足）；断言失败时打印两镜的实际长度；新规划分镜 `videoPrompt` 须非空 | — |
 | V-30 | 存量分镜的 videoPrompt 为空（不假装已解决） | `kit-loader.test.js`：存量 153 条归一化后 `videoPrompt === ''`、`imagePrompt === prompt`；`video-gen` 侧回落 `imagePrompt`，**行为与变更前逐字一致** | — |
 | V-31 | 乐观锁写入原子 | `auto-project.test.js`：并发写用例断言「无半写文件」（临时文件已清理，目标文件要么是旧内容要么是完整新内容），且 `revision` 自增与内容替换在同一次 rename 内完成 | — |
 | V-32 | 就绪度三态 | `shot-readiness.test.js`：锁镜判为 `skipped`（**不阻断**出片）；阻止类判据（空提示词等）判为 `notReady`；两者在 `costCheck.readiness.shots[]` 中可区分 | — |
 
+> **判据口径（回应评审 i7）**：本节所有「既有 N 例全绿」里的 **N 只是参考信息**，**不是门禁判据**——用例条数随需求增长而变动，把条数当门禁会制造假回归。**真正的判据是「该测试文件全绿 + 下表列出的关键断言清单齐备」**。
+>
 > **测试文件路径（可执行）**：
 > - 主进程定向：`apps/desktop/electron/services/film-engineering/{kit-loader,auto-plan,auto-project,auto-runner,video-gen,shot-downloader,shot-duration,prompt-library,kit-asset-validators}.test.js`
 > - 本批新增：`apps/desktop/electron/services/film-engineering/{shot-readiness,egress-guard,tool-doctor,film-video-downloader}.test.js`

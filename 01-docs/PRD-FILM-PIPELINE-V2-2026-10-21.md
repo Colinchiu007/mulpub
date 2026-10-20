@@ -71,6 +71,8 @@
 
 > 为什么要合计上限：三段各 5 万 = 15 万字符送进 provider 必然被拒且难定位。合计上限与真实承载一致。`prompt` 字段保留是为了既有消费方（分镜库 UI、剧本套用）零改动。
 >
+> **就绪度判定的分层**（防"纯函数却要读文件"的自相矛盾）：**IO 探测层**（调用侧）先产出事实入参 `facts`——参考图可解析性、provider 画幅/秒数能力**在调用侧读文件与能力表后填入**；`shot-readiness.js` **只对 `facts` 做纯函数判决**（零 IO、可单测）。入参形状：`{ shotId, index, prompt, durationMs, aspect, seconds, locked, facts: { referenceResolvable, aspectSupported, secondsSupported } }`。
+>
 > **存量与新分镜的区别（重要，不要误读）**：
 > - **自动模式新规划的分镜**：`videoPrompt` 是**重算**出来的（显著短于 `imagePrompt`），这才是本字段的主战场。
 > - **存量 153 条分镜**：`prompt` 是**无块标记的自由文本**（实测 `shot[0].prompt` 13,922 字符，没有可机械切分的块标记），**无法机械重算**；`videoPrompt` 归一化为空串，视频请求回落到 `imagePrompt`，**行为与本次变更前逐字一致**。存量长 prompt 的治理（一次性 LLM 重算 + 人工审核）列为后续项，**不阻塞本批次**。
@@ -169,7 +171,7 @@ costCheck: {
 | 端口 | 仅**可信清单声明的端口**（`assetDownloadPorts`，缺省 `{443}`；省略端口按 443） | 「下载通道仅允许 {ports} 端口」 |
 | 主机名 | 非空 | 「URL 缺少主机名」 |
 | **可信主机**（缺省 fail-closed） | 可信集合 = { provider **API base URL 主机（自动派生）** } ∪ { `assetDownloadHosts`（运营可配） }；不在集合内且**未显式授权** ⇒ 拒绝 | 「素材域名 {host} 不在可信清单内。请在『模型提供商 → {provider}』中配置『素材下载可信域』，或本次显式允许外部素材域名。」 |
-| 显式授权 | 只能来自用户在成本确认卡勾选「本次允许从外部素材域名下载」；留痕 `project.json` 的 `egressAllowAnyHost` | 未勾选 ⇒ 拒绝（不弹权限框） |
+| 显式授权 | 只能来自用户在成本确认卡勾选「本次允许从外部素材域名下载」；产生**运行期一次性令牌**（**不落盘**，任务结束失效）；审计只记「发生过授权」的事实，**不存放行位** | 未勾选 ⇒ 拒绝（不弹权限框） |
 | 内网段 | `isPrivateAddress` 覆盖面：IPv4 私网段（`10./8`、`172.16/12`、`192.168/16`）、`127/8`、`0.0.0.0/8`、`100.64/10`（CGNAT）、链路本地 `169.254/16`；IPv6 `::1`、`fc00::/7`、`fe80::/10`；**IPv4-mapped IPv6**（`::ffff:10.x` 先还原再判）；**纯十进制/八进制 IP 字面量**（`http://2130706433/`）先**规范化**再判 | 「不允许访问内网地址（SSRF 防护）」——**即使已显式授权也拒绝** |
 | DNS 解析结果 | **全部**解析结果均非内网 | 「主机解析到内网地址，拒绝下载（SSRF/DNS 重绑定防护）」 |
 | IP pinning | socket 的 `lookup` 被覆写为**已校验的解析结果**（消除「校验用 A 解析、连接用 B 解析」的 TOCTOU 窗口） | （失败时表现为连接错误） |
@@ -254,6 +256,7 @@ auto-start / auto-regenerate-shot
   │    └─ E ≠ R → 冲突，**不写**，返回可操作错误：
   │          「项目文件已被其他会话修改（修订号 E ≠ R），本次操作未写入。请刷新后重试。」
   └─ 取**独占锁**（`fs.open(lock, 'wx')`，项目目录下的锁文件）
+  └─ **旧项目文件缺 `revision` ⇒ 读作 0**（不判损坏）；首次并发写由**锁内自增**保证
   └─ 持锁期间：把「revision = R + 1」与新内容写进**同一份临时文件** → fsync → **一次 rename 覆盖**
   └─ 释放锁（正常与异常路径都释放）
 
@@ -347,7 +350,7 @@ split → scene_context（已有）
 
 | 项 | 文案 | 行为 |
 |----|------|------|
-| 勾选项 | 「本次允许从外部素材域名下载（{host}）」 | 勾选 ⇒ 写 `project.json` 的 `egressAllowAnyHost: true`（**仅本次任务**），该域名的下载放行到私网段检查；**私网地址即使勾选也拒绝** |
+| 勾选项 | 「本次允许从外部素材域名下载（{host}）」 | 勾选 ⇒ 产生**运行期一次性令牌**（**只存内存、不落盘**；任务结束失效），该域名的下载放行到私网段检查；**私网地址即使勾选也拒绝**。审计只记「发生过一次外部域名授权」的事实 |
 | 辅助链接 | 「在模型设置中配置素材下载可信域」 | 跳转到「模型提供商 → {provider}」的配置项 |
 | 不勾选 | — | 出片时该域名**被拒绝**，错误文案指明去哪儿配置 |
 
@@ -477,8 +480,8 @@ split → scene_context（已有）
 | V-24 | 门禁记录完整（两形态） | `node scripts/check-gate-record-debt.js` rc=0 |
 | V-25 | 打包可用 | QM-1：`electron-builder --win --x64` exit 0 + asar 清单核对 |
 | V-27 | 素材域名缺省拒绝 | `egress-guard.test.js`：① 主机 = provider API 主机 ⇒ 放行（零配置）；② 不在可信集合且未显式授权 ⇒ **拒绝**；③ 已显式授权 ⇒ 放行到私网段检查；④ 私网地址**即使显式授权也拒绝** |
-| V-28 | 放宽授权留痕 | `auto-project.test.js`：勾选后 `project.json` 落 `egressAllowAnyHost: true`；未勾选 ⇒ 该字段不存在 |
-| V-29 | 新分镜视频提示词显著更短 | `auto-plan.test.js`：逐镜断言 `videoPrompt.length < imagePrompt.length` 且 `videoPrompt` 非空 |
+| V-28 | 放宽授权是**运行期令牌**，不落盘 | 勾选 ⇒ 内存中产生一次性令牌；**机械核对：`project.json` 中不存在任何 `egressAllow` 类可放行字段**；任务结束令牌失效 |
+| V-29 | 新分镜视频提示词显著更短 | `auto-plan.test.js`：逐镜断言 `videoPrompt.length <= 0.6 * imagePrompt.length`（**比例阈值**，非「严格小于」）；失败时打印两镜实际长度 |
 | V-30 | 存量 videoPrompt 为空（不假装已解决） | `kit-loader.test.js`：存量 153 条 `videoPrompt === ''`、`imagePrompt === prompt`；视频请求回落 `imagePrompt`，行为与变更前一致 |
 | V-31 | 乐观锁写入原子 | `auto-project.test.js`：并发写用例断言无半写文件；`revision` 自增与内容替换在同一次 rename 内 |
 | V-32 | 就绪度三态 | `shot-readiness.test.js`：锁镜 `skipped`（不阻断）；空提示词等 `notReady`（阻断） |

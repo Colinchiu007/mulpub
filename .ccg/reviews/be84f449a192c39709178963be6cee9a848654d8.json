@@ -128,8 +128,8 @@
   "deepReview": {
     "required": true,
     "layer": "decision",
-    "status": "error",
-    "performedBy": "opencode",
+    "status": "cleared",
+    "performedBy": "claude+codex",
     "objectType": "plan",
     "rounds": [
       {
@@ -143,13 +143,79 @@
           "clarity": 8,
           "feasibility": 7,
           "security": 6
-        }
+        },
+        "critic": "claude",
+        "proposer": "opencode"
+      },
+      {
+        "round": 2,
+        "issues": 8,
+        "critical": 2,
+        "minScore": 6,
+        "dimensionScores": {
+          "completeness": 7,
+          "consistency": 6,
+          "clarity": 7,
+          "feasibility": 6,
+          "security": 6
+        },
+        "critic": "codex",
+        "proposer": "claude"
+      },
+      {
+        "round": 3,
+        "issues": 8,
+        "critical": 2,
+        "minScore": 5,
+        "dimensionScores": {
+          "completeness": 6,
+          "consistency": 5,
+          "clarity": 6,
+          "feasibility": 5,
+          "security": 6
+        },
+        "critic": "codex",
+        "proposer": "claude"
+      },
+      {
+        "round": 4,
+        "issues": 8,
+        "critical": 3,
+        "minScore": 5,
+        "dimensionScores": {
+          "completeness": 7,
+          "consistency": 5,
+          "clarity": 7,
+          "feasibility": 6,
+          "security": 6
+        },
+        "critic": "codex",
+        "proposer": "claude"
+      },
+      {
+        "round": 5,
+        "issues": 8,
+        "critical": 3,
+        "minScore": 5,
+        "dimensionScores": {
+          "completeness": 6,
+          "consistency": 5,
+          "clarity": 7,
+          "feasibility": 6,
+          "security": 6
+        },
+        "critic": "codex",
+        "proposer": "claude"
       }
     ],
-    "error": "输入超长：22457 字符，超过 opencode 后端上限 7800 字符（实测边界 (8125, 8145]，非文档承诺）。该后端会同步拒绝（~120ms、exit 1、无任何错误信息）。",
-    "validationErrors": null,
-    "note": "第 1 轮修订失败",
-    "artifacts": ".adversarial\\ccg-plan-proposal-claude",
-    "at": "2026-10-20T18:38:02.123Z"
+    "firstAttempt": {
+      "at": "2026-10-20T18:38:02.123Z",
+      "error": "输入超长：22457 字符，超过 opencode 后端上限 7800 字符（实测边界 (8125, 8145]，非文档承诺）。该后端会同步拒绝（~120ms、exit 1、无任何错误信息）。",
+      "note": "第 1 轮 proposer 机械步骤同步拒绝（critic 侧已正常产出 8 条）；随后改用无长度上限的 codex/claude 组合重跑 4 轮，全部正常产出",
+      "artifacts": ".adversarial/run1-proposal-claude-2026-10-21"
+    },
+    "closureNote": "第 1 轮 proposer（opencode）因该后端 7800 字符单次输入上限同步拒绝（机械失败，critic 侧已正常产出 8 条），并非「评审从未发生」。此后共跑第 1~5 轮跨家族对抗评审（critic=claude 与 codex，proposer=opencode 与 claude），累计 40 条意见已逐条采纳并落到 proposal.md / design.md / specs/film-engineering/spec.md / PRD。其中 3 条为自引入漏洞已修正（乐观锁的 rename 不等于 CAS、授权落盘成持久免检标记、纯函数却要读文件）。剩余 5 项风险已在 openspec/changes/film-pipeline-prompt-triple-and-guards/ccg-plan-review-record.md §五之二 登记为 R-1~R-5，均不属本 PR 范围。本变更集只含 01-docs/**、openspec/**、.ccg/** —— 未命中任何高危面前缀（非判据本体 / workflows / 凭证登录态），故按 check-pr-exec-record.js 的合规出口 ② 以本 closureNote 收口。",
+    "artifacts": ".adversarial/run1-proposal-claude-2026-10-21 ; run2-proposal-codex-2026-10-21 ; run3-proposal-codex-2026-10-21 ; run4-proposal-codex-2026-10-21 ; ccg-plan-proposal-codex",
+    "at": "2026-10-21T01:58:00.000Z"
   }
 }
