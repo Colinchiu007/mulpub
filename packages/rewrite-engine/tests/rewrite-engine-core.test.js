@@ -8,6 +8,7 @@
  */
 var { RewriteEngine } = require('../src/rewrite-engine-core')
 var { KnowledgeBase } = require('../src/knowledge-base')
+var { SensitiveFilter } = require('../src/sensitive-filter')
 
 describe('RewriteEngine', function () {
   function sampleStrategy() {
@@ -1170,5 +1171,162 @@ describe('RewriteEngine AI 味定制注入', function () {
     expect(engine.getAiTasteCustomization()).toEqual({})
     var r = await engine.rewrite({ mode: 'imitate', content: '原始内容', userSettings: {} })
     expect(r.result).toContain('说到底')
+  })
+
+  // ── 敏感词前置拦截放宽（rewrite-sensitive-precheck-relax，2026-10-20）──
+  //
+  // 背景：真实长文（历史/时政类素材）常因一两个日常词汇（如「爆炸」「走私」）被
+  // 内置词库整篇拦截，用户无法改写。用户确认的取舍：**前置拦截（针对用户输入的
+  // 原文）关闭，后置检测（针对改写结果）保留**——前者挡用户自己的输入且无申诉
+  // 渠道，后者作为「引擎给你的提醒」仍然有价值。
+  //
+  // 回归保护：三个维度必须同时锁住——
+  //   ① 前置不再 blocked（不返回 SENSITIVE_CONTENT）；
+  //   ② 后置仍检测（hits 仍上报、warnings 仍生成）；
+  //   ③ 知识库回写的「双零命中」条件不被破坏（仍要求前置后置都零命中）。
+
+  test('X1 前置敏感词不再拦截改写（含日常词汇的长文可正常改写）', async function () {
+    var llmOut = '工厂发生了爆炸，随后起火。'
+    var engine = new RewriteEngine({
+      llmClient: { chat: async function () { return llmOut } },
+      sensitiveFilter: { detect: function () { return { hasSensitive: true, hits: [{ word: '爆炸', index: 4, length: 2, category: '暴力' }] } } },
+      knowledgeBase: new KnowledgeBase()
+    })
+    wireTaste(engine)
+    var r = await engine.rewrite({ mode: 'imitate', content: '工厂发生了爆炸，随后起火。', userSettings: {} })
+    expect(r.success).toBe(true)
+    expect(r.errorCode).toBeUndefined()
+    expect(r.result).toBe(llmOut)
+  })
+
+  test('X2 后置检测保留：改写结果命中敏感词仍进 warnings + sensitiveHits', async function () {
+    var engine = new RewriteEngine({
+      llmClient: { chat: async function () { return '结果里有爆炸二字' } },
+      sensitiveFilter: { detect: function () { return { hasSensitive: true, hits: [{ word: '爆炸', index: 4, length: 2, category: '暴力' }] } } },
+      knowledgeBase: new KnowledgeBase()
+    })
+    wireTaste(engine)
+    var r = await engine.rewrite({ mode: 'imitate', content: '原始内容', userSettings: {} })
+    expect(r.success).toBe(true)
+    expect(r.warnings.length).toBeGreaterThan(0)
+    expect(r.warnings[0]).toContain('敏感')
+    expect(r.sensitiveHits).toHaveLength(1)
+    expect(r.sensitiveHits[0].word).toBe('爆炸')
+  })
+
+  test('X3 检测异常仍 fail-open（不因放宽而引入新的失败面）', async function () {
+    var engine = new RewriteEngine({
+      llmClient: { chat: async function () { return '改写结果' } },
+      sensitiveFilter: { detect: function () { throw new Error('detect boom') } },
+      knowledgeBase: new KnowledgeBase()
+    })
+    wireTaste(engine)
+    var r = await engine.rewrite({ mode: 'imitate', content: '原始内容', userSettings: {} })
+    expect(r.success).toBe(true)
+    expect(r.result).toBe('改写结果')
+    expect(r.warnings).toEqual([])
+  })
+
+  test('X4 未注入敏感词过滤器时行为不变（不检测、不拦截）', async function () {
+    var engine = new RewriteEngine({
+      llmClient: { chat: async function () { return '改写结果' } },
+      sensitiveFilter: null,
+      knowledgeBase: new KnowledgeBase()
+    })
+    wireTaste(engine)
+    var r = await engine.rewrite({ mode: 'imitate', content: '工厂发生了爆炸', userSettings: {} })
+    expect(r.success).toBe(true)
+    expect(r.sensitiveHits).toEqual([])
+    expect(r.warnings).toEqual([])
+  })
+
+  test('X5 前置拦截放宽不破坏知识库「双零命中」条件：前置或后置任一命中即不写 KB', async function () {
+    // detect 按文本区分前置/后置：原文含「爆炸」⇒ 只前置命中；LLM 输出含「杀人」
+    // ⇒ 只后置命中。两者必须可区分，否则「任一命中即不写」与「只看后置」
+    // 在断言上完全等价（实测：不区分时削弱 KB 条件的变异能让本测试假绿）。
+    function makeEngine (llmOut) {
+      var engine = new RewriteEngine({
+        llmClient: { chat: async function () { return llmOut } },
+        sensitiveFilter: {
+          detect: function (text) {
+            var hits = []
+            if (text.indexOf('爆炸') !== -1) hits.push({ word: '爆炸', index: 0, length: 2, category: '暴力' })
+            if (text.indexOf('杀人') !== -1) hits.push({ word: '杀人', index: 0, length: 2, category: '暴力' })
+            return { hasSensitive: hits.length > 0, hits: hits }
+          }
+        },
+        knowledgeBase: new KnowledgeBase()
+      })
+      wireTaste(engine)
+      var recordSpy = []
+      engine._knowledgeBase.recordFeedback = function (rec) { recordSpy.push(rec) }
+      return { engine: engine, recordSpy: recordSpy }
+    }
+
+    // 仅前置命中：原文含「爆炸」，LLM 输出干净
+    var pre = makeEngine('干净的输出')
+    var rPre = await pre.engine.rewrite({ mode: 'imitate', content: '工厂发生了爆炸', userSettings: {} })
+    expect(rPre.success).toBe(true)
+    expect(rPre.sensitiveHits).toEqual([])
+    expect(pre.recordSpy.length).toBe(0)
+
+    // 仅后置命中：原文干净，LLM 输出含「杀人」
+    var post = makeEngine('结果里有杀人二字')
+    var rPost = await post.engine.rewrite({ mode: 'imitate', content: '原始内容', userSettings: {} })
+    expect(rPost.success).toBe(true)
+    expect(rPost.sensitiveHits).toHaveLength(1)
+    expect(rPost.sensitiveHits[0].word).toBe('杀人')
+    expect(post.recordSpy.length).toBe(0)
+
+    // 前后置均零命中 ⇒ 正常写 KB 一条
+    var clean = makeEngine('干净的输出')
+    var rClean = await clean.engine.rewrite({ mode: 'imitate', content: '原始内容', userSettings: {} })
+    expect(rClean.success).toBe(true)
+    expect(clean.recordSpy.length).toBe(1)
+  })
+
+  // X1-X5 全部用手写 detect 桩，因此「内置词库能否识别词 → 引擎是否放行」这条
+  // **用户报障的真实链路**是零覆盖的：若有人改坏 sensitive-filter.js 的 BUILTIN 词库
+  // （手滑删掉「暴力」分类等），X1-X5 会全绿而用户故障复发。本例用真过滤器钉住它。
+  test('X6 真内置词库 + 含「爆炸」的长文 ⇒ 放行（用户报障链路的回归锁）', async function () {
+    // 与生产接线一致：apps/desktop/electron/services/rewrite-engine.js 注入 new SensitiveFilter()
+    var realFilter = new SensitiveFilter()
+    // 前提自证：这个词确实在词库里且确实被识别（否则本测试会在错误的前提下通过）
+    expect(realFilter.detect('石油加工厂发生爆炸和火灾').hasSensitive).toBe(true)
+    expect(realFilter.detect('石油加工厂发生爆炸和火灾').hits[0].word).toBe('爆炸')
+
+    var engine = new RewriteEngine({
+      llmClient: { chat: async function () { return '工厂事故的经过与后续。' } },
+      sensitiveFilter: realFilter,
+      knowledgeBase: new KnowledgeBase()
+    })
+    wireTaste(engine)
+    // 用户原文的实质内容：历史类长文，命中词是日常词汇「爆炸」
+    var r = await engine.rewrite({
+      mode: 'imitate',
+      content: '2010年12月，俄罗斯后贝加尔斯克一家石油加工厂发生爆炸和火灾，五人死亡，设备与厂房被炸毁。',
+      userSettings: {}
+    })
+    expect(r.success).toBe(true)
+    expect(r.errorCode).toBeUndefined()
+    expect(r.result).toBe('工厂事故的经过与后续。')
+    // 前置命中不再拦截，但也不该把命中塞进用户可见的 warnings（那是后置的职责）
+    expect(r.sensitiveHits).toEqual([])
+    expect(r.warnings).toEqual([])
+  })
+
+  // 与 X6 配对：同一真过滤器下，改写**结果**含命中词时仍要出声（否则「保留后置」落空）。
+  test('X7 真内置词库：改写结果含命中词 ⇒ 仍进 warnings + sensitiveHits', async function () {
+    var realFilter = new SensitiveFilter()
+    var engine = new RewriteEngine({
+      llmClient: { chat: async function () { return '现场发生了爆炸，造成多人伤亡。' } },
+      sensitiveFilter: realFilter,
+      knowledgeBase: new KnowledgeBase()
+    })
+    wireTaste(engine)
+    var r = await engine.rewrite({ mode: 'imitate', content: '一篇干净的原文，没有任何敏感内容。', userSettings: {} })
+    expect(r.success).toBe(true)
+    expect(r.warnings.length).toBeGreaterThan(0)
+    expect(r.sensitiveHits.map(function (h) { return h.word })).toContain('爆炸')
   })
 })

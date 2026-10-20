@@ -152,7 +152,11 @@ class RewriteEngine {
       return { success: false, error: validation.error, errorCode: validation.errorCode }
     }
 
-    // 2. 敏感词前置检测（全篇一次；分段路径下也在全篇执行，逐段不重复前置）
+    // 2. 敏感词检测（全篇一次；分段路径下也在全篇执行，逐段不重复）
+    //    rewrite-sensitive-precheck-relax（2026-10-20）：前置**不再拦截**，
+    //    preCheck.hits 仍会算出（供知识库「双零命中」条件使用），因此下面的
+    //    blocked 分支当前是死路径——保留它是为了将来若恢复拦截只需改
+    //    _sensitiveCheck 一处，不必回来改调用点。用户可见的提醒走后置 warnings。
     const preCheck = this._sensitiveCheck(content, 'pre')
     if (preCheck.blocked) {
       return {
@@ -438,12 +442,30 @@ class RewriteEngine {
     return { valid: true }
   }
 
+  /**
+   * 敏感词检测（rewrite-sensitive-precheck-relax，2026-10-20）。
+   *
+   * 语义变更：前置（pre）不再拦截，只如实记录命中；后置（post）维持原样
+   * （上报 hits 给 _assembleResult 转 warnings 提醒人工审核）。
+   *
+   * 关前置的原因：词库是内置示例级（sensitive-filter.js 的 24 词）且无任何配置入口
+   * ——既不吃运营中心远程词库，也无 UI 开关。实测历史/时政类长文仅因「爆炸」
+   * 「走私」这类日常词汇被整篇拒绝；而前置拦的是用户自己的输入，用户无申诉渠道。
+   *
+   * 不可回退的连带约束：知识库「双零命中」条件不变（preCheck.hits 与
+   * postCheckHits 均零才 recordFeedback），命中敏感词的内容不进知识库。
+   *
+   * @param {string} text
+   * @param {'pre'|'post'} stage - 仅用于异常留痕；不参与 blocked 判断。恢复拦截时
+   *   在此重新引入 stage 判断即可，调用点（rewrite() / segment-rewriter.js）无需改。
+   * @returns {{blocked: boolean, hits: Array}}
+   */
   _sensitiveCheck(text, stage) {
     if (!this._sensitiveFilter) return { blocked: false, hits: [] }
     try {
       const result = this._sensitiveFilter.detect(text)
       return {
-        blocked: stage === 'pre' && result.hits && result.hits.length > 0,
+        blocked: false,
         hits: result.hits || []
       }
     } catch (e) {
