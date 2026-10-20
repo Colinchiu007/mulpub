@@ -13,7 +13,7 @@ import { REWRITE_ENGINE_MAX_INPUT_CHARS, REWRITE_ENGINE_MAX_OUTPUT_CHARS } from 
  * @param {import('vue').Ref<number|''>} minRef - 最小字数（v-model.number，清空时为 ''）
  * @param {import('vue').Ref<number|''>} maxRef - 最大字数
  * @param {(key: string) => string} resolveError - 错误文案解析器
- * @returns {{ error: import('vue').ComputedRef<string> }}
+ * @returns {{ error: import('vue').ComputedRef<string>, range: import('vue').ComputedRef<{min:number,max:number}|null> }}
  */
 export function useWordCountValidation(minRef, maxRef, resolveError) {
   const error = computed(() => {
@@ -31,5 +31,20 @@ export function useWordCountValidation(minRef, maxRef, resolveError) {
     }
     return ''
   })
-  return { error }
+  /**
+   * 合法区间（collect-rewrite-wordcount，2026-10-20）。
+   *
+   * 为什么要有它：调用方此前要自己 `Number(min) || 800` 之类地把输入折成数字，
+   * 于是「校验用的值」与「下发用的值」是两套口径——用户设的下限 0 会被 `|| 800` 吞掉
+   * （0 是假值），而引擎因此收不到用户真正要的区间。
+   * 这里把**可下发的值**与**校验结论**绑成同一份：error 非空 ⇒ range 为 null（调用方必须早退），
+   * error 为空 ⇒ range 就是该下发的值。两处口径不可能再漂移。
+   *
+   * 注意 `Number('')` 是 0（不是 NaN），所以空值必须先判空再取数。
+   */
+  const range = computed(() => {
+    if (error.value) return null
+    return { min: Number(minRef.value), max: Number(maxRef.value) }
+  })
+  return { error, range }
 }

@@ -72,6 +72,10 @@ export default {
     rewriteCancelled: '改写已取消：已完成的 {completed}/{total} 个片段不保留，已产生的模型费用不退。',
     // 分段路径下只有部分片段被模型截断：必须点名段号，否则用户会以为全文残缺
     outputTruncatedByModelSegments: '第 {segments} 段因模型单次生成上限被截断（合并后共 {length} 字）。这是模型侧的生成限制，建议缩短原文或拆成两次改写。',
+    // 改写结果实际字数（collect-rewrite-wordcount，2026-10-20）：两个数并排才可判断「短了多少」——
+    // 只给改写后字数是单边数字，读者无法与原文比；采集页此前完全没有字数显示，
+    // 用户既看不出稿子被压短、也看不出它被砍尾。
+    rewriteOutputLength: '改写后 {length} 字（原文 {original} 字）',
     // ── 改写质量评估报告（content-quality-eval 桌面端闭环）──
     qualitySection: '质量评估',
     qualitySufficiency: '改写充分度',
