@@ -1,3 +1,44 @@
+## 「upheld 永远是阻断项」——门禁要的是「裁决已产出」，不是「建议已改完」（ccg-closure-exits-and-debt-split，2026-10-20）
+
+### lesson: a-verdict-is-a-closed-state-not-a-fix
+
+**现场**：视频提示词翻译这个 PR（#4044）跑 CCG 双模型深度审查跑满 9 轮。第 1 轮 8 条发现里 2 条 upheld、2 条 dismissed；每轮把 upheld 的改掉再提交，就会生成**一份新的判定记录**、再触发一轮新审查 —— 于是形成「改完还有新发现」的表观无限回归。第 9 轮后 `check-pr-exec-record.js` 仍报 3 条欠账。
+
+**为什么会漏**：把 `self_play_blocked` 读成「评审叫停了」，于是继续改；而引擎 `blockingFromAdjudication` 的判据是 `verdict === 'upheld'` ⇒ 阻断，它**只读裁决文本、不看代码**。修复发生在后续提交，记录感知不到。「upheld 已修」这件事在该机制里**没有任何一格能表达**。
+
+**三条正规出口（照抄即可，别自己发明）**：
+① 重跑 `sh scripts/deep-review.sh` 拿到 `cleared`（最硬，但 critic 单轮常输出 2-3 万字符、超模型 JSON 上限被截断 ⇒ `status=error`，同输入重跑大概率仍截断；实测 9 轮里 2 次这么挂的）；
+② 非高危面：记录内写结构化 `deepReview.resolution`（`disposition` / `reason` / `upheldItems[].fixedIn` / `adjudication` 路径），状态置 `needs_revision`；
+③ 变更集**不含生产源码**时：写 `deepReview.closureNote` + 状态 `self_play_resolved`。
+**选状态要取更严的一档**：`needs_revision` 保留 `performedBy` 后端对账，`self_play_resolved` 在 L814 直接跳过该检查 —— 能署名就用前者。
+`closureNote` 是**形态判据**：长度 ≥ 20，且必须同时出现轮次标记（`轮\s*\d|第\s*\d+\s*轮`）与处置结论词（`upheld|dismissed|已修|采纳|…`），光写一句长话不算。
+
+**同族第二落点：删除未闭环的 dual 记录会被专门拦**（`removedUnclosed`）。「记录乱了就删掉重来」这条路是封闭的 —— 这不是防呆设计，是防「用删除消解欠账」。同理，`.ccg/reviews/<sha>.json` 会随每条提交累积（本分支 11 份），但**只有 `mode=dual` 进欠账判定面**，小提交产生的 `single` 记录不累积欠账。
+
+**同族第三落点：债务熔断的两条红是两条不同的正解。**
+`TEST_LEDGER_GREW`（测试文件超登记值 +200）⇒ 门禁原文要求**按被测模块/场景拆分**，不是调数；
+`TARGET_GREW`（`targets` 点名的「还账」文件，零增长容差）⇒ 「降到目标以下，**或在 review 中说明理由后一并上调 targets**」。
+两者的差别就是「指标债」与「结构债」的差别：测试文件堆大是结构问题（拆得动），点名源文件变大往往是真的加了防御逻辑（拆不动，要论证）。本轮 2 份测试文件按场景拆分（3759→3370、2398→2351，断言一条未改），3 份源文件按第二条通道上调并逐文件写明「为何不硬拆」。
+
+**口径（四条可执行）**：
+① 看到 `upheld` 先问「这条的修复在哪次提交」，把 `fixedIn` 写进记录；不要因为「代码已经对了」就假设门禁会自己变绿。
+② 判定器要求双模型、而变更集只有测试/文档/数据文件时，先核 `HIGH_RISK_SURFACES` 清单（`credential-`/`auth/`/`workflows/`/`scripts/check-`/`fingerprint` 等），不在清单上就走 `closureNote` 出口并在 note 里点明「无生产源码改动」。
+③ 拆分测试文件时，只搬 `require/mocks/helpers + beforeEach/afterEach`（本例 66 行），**不要整份复制 150 行的组件挂载器**；能提炼 `viewWithSegments(segments, {expand})` 这类帮手把 9 处四行样板并成一行，就优先提炼 —— 省行数同时降低维护成本。
+④ 争「谁该让」时看门禁自己写没写正解：写了「或」的两个分支就是两条合法路径，选哪条要落成理由，不落理由的"调数"才是真欠债。
+
+## 新 PR 的执行记录别再写 `PENDING` —— 那是旧口径的化石（record-status-derived-marker，2026-10-20）
+
+### lesson: never-hand-write-pending-in-new-records
+
+**现场**：本 PR 里我在 `openspec/records/s2v-video-prompt-translation.md` 的 `远程同步` 表行写了 `PENDING`（想表达"还没合并"），CI 的 `QG Changes` 当场红，且红在 `check-gate-record-debt.test.js` 的两条**真仓用例**上（`fail 2`），报错是「存在未登记的欠账：`s2v-video-prompt-translation.md`（缺登记字段）」。
+
+**为什么会漏**：`PENDING` 在 2026-10-15 之前是"正确写法"——它表示未收口，同时要求在 `scripts/gate-record-debt-ledger.json` 里按标题登记一条欠账。2026-10-15「旧载体冻结」+ 2026-10-17 change `gate-record-sync-derived-status` 之后，新 PR **不再手写状态词**：表行状态列写派生标记 **`由门禁推导`**，bullet 写 `远程同步 PR #NNNN` 不带状态词，收口由 `scripts/lib/merge-ledger.js` 按主干历史推导。手写 `PENDING` 等于既声明"未收口"又没登记 ⇒ 判欠账。
+
+**口径（三条）**：
+① 新 PR 记录的状态列写「由门禁推导」；bullet 写 `远程同步 PR #NNNN`。
+② 合并前**别**写 `PASS` —— 那会判 `prematureClaim`（文件还不在基线上，不可能已经远程同步）。
+③ 判据首行会打印 `MERGE-LEDGER prs=<n>` / `HAND-CLOSURE 人工改写=<n>`；后者非 0 说明有人在改状态词，那是拦截面而不是可见面。
+
 ## 「规则已加」和「用户看得见」隔着两件事——基类覆盖与 transition:all 的淡入（focus-ring-zero-coverage，2026-10-19）
 
 ### lesson: a-rule-on-the-base-class-can-be-zero-coverage

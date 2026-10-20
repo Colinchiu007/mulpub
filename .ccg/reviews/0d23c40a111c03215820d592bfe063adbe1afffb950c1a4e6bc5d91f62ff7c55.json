@@ -1,0 +1,57 @@
+{
+  "sha": "83a216bdeb3b8a0340c53f9eb1926b37f111f757",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 2,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "| **外部记忆**（仓内） | `01-docs/learnings.md` 置顶两篇：《「upheld 永远是阻断项」——门禁要的是「裁决已产出」，不是「建议已改完」（`ccg-closure-exits-and-debt-split`）》与《新 PR 的执行记录别再写 `PENDING` —— 那是旧口径的化石（`record-status-derived-marker`）》 | `Select-String -Path 01-docs/learnings.md -Pattern 'ccg-closure-exits-and-debt-split'` 命中 L1 |"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "0d23c40a111c03215820d592bfe063adbe1afffb950c1a4e6bc5d91f62ff7c55",
+  "decidedAt": "2026-10-20T04:57:03.094Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

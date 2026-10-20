@@ -68,6 +68,19 @@ branch: s2v-video-prompt-translation
 
 **回归规模**：`story2video-project-service.test.js` 123 例 + 新拆出的 `story2video-video-prompt-translation.test.js` 12 例（合计 135，与拆分前一致）、`story2video-stages.test.js` 161 例、`ResultView.test.js` 123 例，共 **419 例全绿**；`eslint --quiet` rc=0。修复各带针对性回归（假计时器推进 25s 验证有界超时、并发 `updateSegments`/`deleteProject` 验证快照语义、`unhandledRejection` 监听验证滞后拒绝被接管、`_resolveUiLocale` 归一化表、en 界面不发起翻译调用）。
 
+## 经验沉淀（用户要求：内置记忆 / 外部记忆 / EverOS 三处）
+
+| 载体 | 落点 | 复核方式 |
+| --- | --- | --- |
+| **外部记忆**（仓内） | `01-docs/learnings.md` 置顶两篇：《「upheld 永远是阻断项」——门禁要的是「裁决已产出」，不是「建议已改完」（`ccg-closure-exits-and-debt-split`）》与《新 PR 的执行记录别再写 `PENDING` —— 那是旧口径的化石（`record-status-derived-marker`）》 | `Select-String -Path 01-docs/learnings.md -Pattern 'ccg-closure-exits-and-debt-split'` 命中 L1 |
+| **内置记忆**（`~/.dsh/memory/Mulpub/`） | 新增 `ccg-deep-review-closure-exits.md`、`record-sync-derived-marker.md`；并在既有 `max-lines-named-target-zero-growth.md` 追加「边界补充：什么时候上调 targets 才是正解」一节（原篇结论是「抽组件而不是上调 target」，本节把边界划清：新 UI 模块该抽、跨方法防御性硬化该上调且须逐文件写理由） | 三个文件均存在且含本次实测读数 |
+| **EverOS**（`127.0.0.1:8000`，v1.4.1） | `POST /api/v1/memory/add` → `status: accumulated`，再 `POST /api/v1/memory/flush` → **`status: extracted`**（只认这一步才算落盘）。`session_id=s2v-video-prompt-translation-20261020`，`app_id=multi-publish`，`project_id=default` ⇒ 实际落盘目录为 `default_project` | 产物已核：`~/.everos/multi-publish/default_project/users/me/episodes/episode-2026-10-20.md`（含 Subject/Summary/Content）与 `…/.atomic_facts/atomic_fact-2026-10-20.md`（`entry_count: 12`） |
+
+> **EverOS 检索侧的如实说明**：`/api/v1/memory/search` 目前对该 `project_id` 返回空集合
+> （`episodes/profiles/agent_cases` 全 0，`keyword` 与 `hybrid` 两法同）,而 `/health` 显示
+> `cascade.failed_permanent=7 / unrecoverable_total=17`。即**存储成功、索引检索未命中**，
+> 属既有基础设施状态（非本次引入）。因此本条的"已保存"结论以**文件落盘取证**为准，
+> 不以检索回执为准 —— 这与仓规一致：不把工具的失明读成结论，也不把回执读成落盘。
 ## 债务熔断（逐文件行数门禁）处置与理由
 
 `node .github/scripts/check-max-lines.js` 首轮报 5 条：3 条 `TARGET_GREW`（点名还账文件零增长容差）+ 2 条 `TEST_LEDGER_GREW`（测试文件膨胀超 200 容差）。**两类按门禁自身给的正解分流处置**，不是统一"调数"：
