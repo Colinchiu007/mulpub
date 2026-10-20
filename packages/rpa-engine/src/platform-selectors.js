@@ -65,8 +65,29 @@ module.exports = {
       publish_btn: ['button:has-text("发布")', '.PublishPanel-publish'],
     },
     weibo: {
-      content_textarea: ['.publisher_text textarea', '.W_input', 'textarea[node-type="textEl"]'],
-      publish_btn: ['a[node-type="submit"]', '.W_btn_b', 'button:has-text("发布")'],
+      // 2026-10-20 真机取证（fix-publish-failures，DIAG dom-dump @ weibo.com 已登录首页）：
+      // 微博首页**已改版**为 WOO 设计系统，旧的 `.publisher_text` / `.W_input` /
+      // `textarea[node-type="textEl"]` 三条候选全部不存在（真机日志：三条全 timeout，
+      // 而 visibleActionCount=239 —— 页面渲染正常，是选择器整体失效）。
+      // 实测结构：
+      //   正文 → TEXTAREA[placeholder="有什么新鲜事想分享给大家？"] class=_input_<hash>
+      //   提交 → BUTTON.woo-button-main，文本是「发送」而**不是「发布」**
+      //   图片 → 隐藏 INPUT[type=file] class=_file_<hash>
+      // 判据优先用 placeholder / woo-* 组件类（语义稳定），哈希类名仅作记录不入选择器。
+      content_textarea: [
+        'textarea[placeholder*="有什么新鲜事"]',
+        '.publisher_text textarea',
+        '.W_input',
+        'textarea[node-type="textEl"]',
+      ],
+      file_input: ['input[type="file"][accept*="image"]', 'input[type="file"]'],
+      publish_btn: [
+        'button.woo-button-main:has-text("发送")',
+        'button:has-text("发送")',
+        'a[node-type="submit"]',
+        '.W_btn_b',
+        'button:has-text("发布")',
+      ],
     },
     douyin: {
       upload_btn: ['button:has-text("上传视频")', '.upload-btn', '[class*="upload"]'],
