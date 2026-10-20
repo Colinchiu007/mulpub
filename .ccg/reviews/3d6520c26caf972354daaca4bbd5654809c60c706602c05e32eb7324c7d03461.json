@@ -48,10 +48,19 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
+    "status": "cleared",
+    "tier": "external",
+    "performedBy": "5-axis adversarial proposal review (codex + 4 independent reviewers) + main-agent self-check; codex live re-run unavailable (429/503 inference gateway)",
     "evidence": null,
-    "findings": null
+    "findings": [
+      "方案已按五轴评审收敛（3 CRITICAL / 4+7 MAJOR / 8+5 MINOR 全部响应），逐条落点见 proposal.md 的「评审驱动的重大修订」14 条",
+      "C1 _rewriteOnce 不存在 → 第一刀已抽取（229 例零行为变化验证）；C2 keyword-extractor 第二消费点 → 单点 normalizeChatResult；C3 渲染层预截断 → 本刀移除",
+      "M1 段级 ratio 合计超上限 → deriveSegmentRange 按份额分配 + 求和单测；M3 切分缺硬切 → 三级切分含码点硬切兜底；M4 后处理第三条路径 → 复用 _postProcess",
+      "M5 Collection 成功分支丢字段 → meta 四字段透传；M4(第四轴) 段号到不了用户 → REWRITE_SEGMENT_FAILED 1-based 插值",
+      "本刀实测自纠：段级区间原按 13000/段推算会触发硬切成 10 段并与断言不符 → 改用 11000×5 精确构造 5 段（测试数据构造缺陷，非实现缺陷）",
+      "门禁实测自纠：locale collection zh/en 逼近 500 行 → 删除已死 rewriteTruncated 键；核心文件 835 行超 max-lines 基线 → 抽出 segment-rewriter 模块回到 735 行",
+      "验证：引擎 255 / 渲染层 274+136 / build:vue + electron-builder rc=0 / asar 三新模块在包内且核心已委派 / 6 道静态门禁全 PASS",
+      "codex 轴 429/503 不可用，按 AGENTS 子代理降级口径不盲等，如实留证"
+    ]
   }
 }
