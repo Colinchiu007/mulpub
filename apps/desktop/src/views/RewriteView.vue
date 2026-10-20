@@ -198,6 +198,18 @@
           >
             {{ rewriting ? t('rewritePage.rewritingBtn') : t('rewritePage.rewriteBtn') }}
           </button>
+          <!-- 取消（rewrite-cancel-and-truncation-summary）：分段改写是分钟级操作，
+               粘错文章不该只能等全程。协作式取消，在**当前片段完成后**生效 ——
+               按钮文案不得暗示立即中止。 -->
+          <button
+            v-if="rewriting"
+            class="cohere-btn-secondary rewrite-cancel-btn"
+            data-testid="rewrite-cancel-btn"
+            :disabled="cancelling"
+            @click="cancelRewrite"
+          >
+            {{ cancelling ? t('rewritePage.cancellingBtn') : t('rewritePage.cancelRewriteBtn') }}
+          </button>
         </div>
         <div v-if="rewriteError" class="rewrite-error" role="alert">{{ rewriteError }}</div>
       </div>
@@ -216,13 +228,20 @@
         </div>
         <!-- 模型侧截断可见化（rewrite-segment-and-finish-reason 第二刀）：provider 的
              finish_reason 表示输出被模型自身上限截断，与上面「引擎按字数区间砍尾」是两种
-             不同的限制，文案必须分型（上面那条建议「调大字数控制」，对模型上限无效） -->
+             不同的限制，文案必须分型（上面那条建议「调大字数控制」，对模型上限无效）。
+             分段路径下（rewrite-cancel-and-truncation-summary）再分一档：只有部分片段被截，
+             必须点名段号——笼统说「整篇被截断」会让用户以为全文都残缺。 -->
         <div
           v-if="modelTruncatedInfo"
           class="rewrite-output-truncated-banner rewrite-model-truncated-banner"
           data-testid="rewrite-model-truncated"
         >
-          ⚠️ {{ t('rewritePage.outputTruncatedByModel', { length: modelTruncatedInfo.length }) }}
+          ⚠️ {{ modelTruncatedInfo.truncatedSegments.length > 0
+            ? t('rewritePage.outputTruncatedByModelSegments', {
+                segments: modelTruncatedInfo.truncatedSegments.join('、'),
+                length: modelTruncatedInfo.length,
+              })
+            : t('rewritePage.outputTruncatedByModel', { length: modelTruncatedInfo.length }) }}
         </div>
         <div class="rewrite-result-meta" v-if="rewriteMeta">
           <span>{{ t('rewritePage.metaStrategy') }}：{{ rewriteMeta.strategyName }}</span>
@@ -349,7 +368,7 @@ import { Document, TrendCharts } from '@element-plus/icons-vue'
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { aiRewrite, aiListRewriteStrategies, aiGetRecommendedStrategies, draftSave, applyKnowledgeFeedback } from '@/api/publisher'
+import { aiRewrite, aiRewriteCancel, aiListRewriteStrategies, aiGetRecommendedStrategies, draftSave, applyKnowledgeFeedback } from '@/api/publisher'
 import { useNotify } from '@/composables/useNotify'
 import { formatUserError } from '@/utils/user-facing-error'
 import { useLoginGate } from '@/composables/useLoginGate'
@@ -367,6 +386,8 @@ import RewriteStrategyPicker from '@/components/RewriteStrategyPicker.vue'
 import WordCountRangeInput from '@/components/WordCountRangeInput.vue'
 import { deriveDefaultMode, deriveWordCountRange } from '@/utils/rewrite-defaults'
 import { REWRITE_ENGINE_MAX_OUTPUT_CHARS, REWRITE_ENGINE_MAX_INPUT_CHARS, countRewriteChars, shouldSegmentRewrite } from '@/utils/rewrite-engine-limits'
+import { useRewriteCancel } from '@/composables/useRewriteCancel'
+import { deriveOutputTruncatedInfo, deriveModelTruncatedInfo, deriveSegmentedCount } from '@/utils/rewrite-truncation'
 
 const router = useRouter()
 const route = useRoute()
@@ -377,6 +398,9 @@ const { ensureLogin } = useLoginGate()
 // ── 状态 ──
 const content = ref('')
 const rewriting = ref(false)
+// 取消通道（rewrite-cancel-and-truncation-summary）：逻辑在 composables/useRewriteCancel，
+// 协作式——当前片段完成后才真正停下。
+const { activeRunId, cancelling, beginRun, cancel: requestCancel, endRun } = useRewriteCancel()
 const rewriteError = ref('')
 const rewriteResult = ref('')
 // 改写结果卡片模板引用：自动改写入口完成后 scrollIntoView 定位用（见 focusRewriteResult）
@@ -781,8 +805,12 @@ async function startRewrite() {
   // 本次改写若没落库成功就是 null，宁缺毋滥）
   rewriteLineageId = null
 
+  // 每次改写一个新 runId（取消通道的寻址键；不复用旧 id，避免误取消上一次请求）
+  beginRun()
+
   try {
     const params = {
+      runId: activeRunId.value,
       mode: rewriteMode.value,
       content: trimmed,
       userSettings: {
@@ -852,22 +880,13 @@ async function startRewrite() {
         resultLength: data.metadata?.resultLength || 0,
         // 实际生效的改写模式（用于字数概览的用词分派；缺省 imitate）
         mode: data.metadata?.mode || 'imitate',
-        // 分段改写（rewrite-segment-and-finish-reason 第二刀）：>阈值输入由引擎分 N 段
-        // 改写；结果卡元信息行展示段数，让「耗时/费用为什么变高」可见。
-        segmentCount: (data.segmented && data.segmented.enabled === true && Number.isFinite(Number(data.segmented.segmentCount)))
-          ? Number(data.segmented.segmentCount)
-          : 0,
+        // 分段改写段数（>1 才展示「分段改写 ×N」，见 utils/rewrite-truncation）
+        segmentCount: deriveSegmentedCount(data),
       }
-      // 输出截断可见化（rewrite-limits-50000）：引擎 outputTruncated=true ⇒ 记录
-      // {length, max} 供结果卡横幅展示；未截断/缺省字段 ⇒ 复位 null。
-      outputTruncatedInfo.value = (data.outputTruncated === true && Number.isFinite(Number(data.outputLength)))
-        ? { length: Number(data.outputLength), max: wordCountMax.value || REWRITE_ENGINE_MAX_OUTPUT_CHARS }
-        : null
-      // 模型侧截断可见化（rewrite-segment-and-finish-reason）：两条横幅分型展示，
-      // 各自的文案不同（模型上限不能靠「调大字数控制」解决）。
-      modelTruncatedInfo.value = (data.modelTruncated === true && Number.isFinite(Number(data.outputLength)))
-        ? { length: Number(data.outputLength) }
-        : null
+      // 两条截断横幅的派生逻辑见 utils/rewrite-truncation（纯函数，可单测）：
+      // 引擎砍尾（outputTruncated）与模型侧截断（modelTruncated）是不同限制，分型展示。
+      outputTruncatedInfo.value = deriveOutputTruncatedInfo(data, wordCountMax.value || REWRITE_ENGINE_MAX_OUTPUT_CHARS)
+      modelTruncatedInfo.value = deriveModelTruncatedInfo(data)
       if (data.warnings && data.warnings.length > 0) {
         rewriteError.value = data.warnings.join('；')
       }
@@ -882,6 +901,16 @@ async function startRewrite() {
       } else {
         void syncResultToLibrary()
       }
+    } else if (res && res.code === 0 && res.data && res.data.cancelled === true) {
+      // 取消是**预期行为**，不是失败：不写 rewriteError、不弹错误提示。
+      // 如实告知代价（proposal §3.3 R2）：已完成片段不保留、已产生费用不退。
+      rewriteError.value = ''
+      notifyInfo('rewritePage.rewriteCancelled', {
+        params: {
+          completed: Number(res.data.completedSegments) || 0,
+          total: Number(res.data.segmentCount) || 0,
+        },
+      })
     } else if (res && res.code === 0 && res.data && res.data.error) {
       rewriteError.value = res.data.error
       notifyError('collection.rewriteFailed', { message: res.data.error })
@@ -894,10 +923,20 @@ async function startRewrite() {
     notifyError('collection.rewriteFailed', { message: rewriteError.value || t('collection.rewriteFailed') })
   } finally {
     rewriting.value = false
+    endRun()
     // 改写结束后刷新预览：改写期间平台可能已变化（rewriting 中不刷新），且引擎
     // 的用户历史（userHistory）在每次改写后更新，会影响下次自动匹配的推荐结果
     refreshStrategyPreview()
   }
+}
+
+/**
+ * 取消本次改写（逻辑见 composables/useRewriteCancel）。
+ * 这里只做「改写中才可取消」的入口守卫，职责分离在 composable 内。
+ */
+function cancelRewrite () {
+  if (!rewriting.value) return
+  void requestCancel()
 }
 
 /**

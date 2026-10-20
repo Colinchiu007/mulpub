@@ -198,6 +198,146 @@ describe('RewriteEngine', function () {
     expect(recordSpy.length).toBe(1)
   })
 
+  // ── rewrite-cancel-and-truncation-summary：段级截断汇总（A）──
+  // 历史缺陷：segment-rewriter 丢弃每段的 modelTruncated 并硬写 false，
+  // 导致「5 段里第 3 段被模型截断」在界面上完全不可见（静默截断换到分段路径重现）。
+
+  test('T1 任一段被模型截断 ⇒ 全篇 modelTruncated=true 且 truncatedSegments 记录 1-based 段号', async function () {
+    // 5 段 × 11000 = 55000 > 50000，每段 ≤ SEGMENT_SIZE ⇒ 精确 5 段
+    var longText = ['甲', '乙', '丙', '丁', '戊'].map(function (c) { return c.repeat(11000) }).join('\n\n')
+    var n = 0
+    var engine = new RewriteEngine({
+      // 第 3 段（index 2）报 length；其余正常
+      llmClient: {
+        chat: async function () {
+          n++
+          return n === 3 ? { text: '第三段结果', finishReason: 'length' } : { text: '正常段结果', finishReason: 'stop' }
+        }
+      },
+      knowledgeBase: new KnowledgeBase()
+    })
+    wireStrategy(engine)
+    var r = await engine.rewrite({ mode: 'imitate', content: longText, userSettings: {} })
+    expect(r.success).toBe(true)
+    expect(r.segmented.segmentCount).toBe(5)
+    expect(r.modelTruncated).toBe(true)
+    expect(r.truncatedSegments).toEqual([3])
+  })
+
+  test('T2 全部段正常结束 ⇒ modelTruncated=false 且 truncatedSegments 为空数组', async function () {
+    var longText = ['甲', '乙', '丙', '丁', '戊'].map(function (c) { return c.repeat(11000) }).join('\n\n')
+    var engine = new RewriteEngine({
+      llmClient: mockLlmClientObject('正常段结果', 'stop'),
+      knowledgeBase: new KnowledgeBase()
+    })
+    wireStrategy(engine)
+    var r = await engine.rewrite({ mode: 'imitate', content: longText, userSettings: {} })
+    expect(r.segmented.segmentCount).toBe(5)
+    expect(r.modelTruncated).toBe(false)
+    expect(r.truncatedSegments).toEqual([])
+  })
+
+  test('T3 Anthropic 系 max_tokens 与 OpenAI 系 length 同样计入截断', async function () {
+    var longText = '甲'.repeat(55000)
+    var engine = new RewriteEngine({
+      llmClient: { chat: async function () { return { text: '段结果', finishReason: 'max_tokens' } } },
+      knowledgeBase: new KnowledgeBase()
+    })
+    wireStrategy(engine)
+    var r = await engine.rewrite({ mode: 'imitate', content: longText, userSettings: {} })
+    expect(r.success).toBe(true)
+    expect(r.modelTruncated).toBe(true)
+    expect(r.truncatedSegments.length).toBeGreaterThan(0)
+  })
+
+  test('T4 单次路径（未分段）不出现 truncatedSegments 字段（纯增量，不改旧形状）', async function () {
+    var engine = new RewriteEngine({
+      llmClient: mockLlmClientObject('单次结果', 'length'),
+      knowledgeBase: new KnowledgeBase()
+    })
+    wireStrategy(engine)
+    var r = await engine.rewrite({ mode: 'imitate', content: '短文内容', userSettings: {} })
+    expect(r.success).toBe(true)
+    expect(r.modelTruncated).toBe(true)
+    expect('truncatedSegments' in r).toBe(false)
+  })
+
+  // ── rewrite-cancel-and-truncation-summary：协作式取消（B）──
+  // 取消在段边界生效（in-flight HTTP 不中断，见 proposal §2.1）。
+
+  test('C1 第 2 段开始前已取消 ⇒ CANCELLED + completedSegments，且不返回半成品', async function () {
+    var longText = ['甲', '乙', '丙', '丁', '戊'].map(function (c) { return c.repeat(11000) }).join('\n\n')
+    var signal = { cancelled: false }
+    var calls = 0
+    var engine = new RewriteEngine({
+      llmClient: {
+        chat: async function () {
+          calls++
+          // 第 1 段完成后由「用户」触发取消 ⇒ 第 2 段开始前应被拦截
+          if (calls === 1) signal.cancelled = true
+          return '段结果'
+        }
+      },
+      knowledgeBase: new KnowledgeBase()
+    })
+    wireStrategy(engine)
+    var r = await engine.rewrite({ mode: 'imitate', content: longText, userSettings: {}, signal: signal })
+    expect(r.success).toBe(false)
+    expect(r.errorCode).toBe('CANCELLED')
+    expect(r.cancelled).toBe(true)
+    expect(r.segmentCount).toBe(5)
+    expect(r.cancelledAtSegment).toBe(2) // 1-based：第 2 段被拦
+    expect(r.completedSegments).toBe(1)
+    expect(r.result).toBeUndefined()
+    expect(calls).toBe(1) // 只有第 1 段真正调用了 LLM
+  })
+
+  test('C2 入口即取消 ⇒ 一次 LLM 都不调用', async function () {
+    var longText = '甲'.repeat(55000)
+    var calls = 0
+    var engine = new RewriteEngine({
+      llmClient: { chat: async function () { calls++; return '段结果' } },
+      knowledgeBase: new KnowledgeBase()
+    })
+    wireStrategy(engine)
+    var r = await engine.rewrite({
+      mode: 'imitate', content: longText, userSettings: {}, signal: { cancelled: true },
+    })
+    expect(r.success).toBe(false)
+    expect(r.errorCode).toBe('CANCELLED')
+    expect(r.completedSegments).toBe(0)
+    expect(calls).toBe(0)
+  })
+
+  test('C3 无 signal ⇒ 行为与改动前完全一致（老调用方零影响）', async function () {
+    var longText = ['甲', '乙', '丙', '丁', '戊'].map(function (c) { return c.repeat(11000) }).join('\n\n')
+    var engine = new RewriteEngine({
+      llmClient: mockLlmClientObject('段结果', 'stop'),
+      knowledgeBase: new KnowledgeBase()
+    })
+    wireStrategy(engine)
+    var r = await engine.rewrite({ mode: 'imitate', content: longText, userSettings: {} })
+    expect(r.success).toBe(true)
+    expect(r.segmented.segmentCount).toBe(5)
+    expect(r.cancelled).toBeUndefined()
+  })
+
+  test('C4 取消不写知识库反馈（KB recordFeedback 调用 0 次）', async function () {
+    var longText = ['甲', '乙', '丙', '丁', '戊'].map(function (c) { return c.repeat(11000) }).join('\n\n')
+    var recordCalls = 0
+    var engine = new RewriteEngine({
+      llmClient: mockLlmClientObject('段结果', 'stop'),
+      knowledgeBase: new KnowledgeBase()
+    })
+    wireStrategy(engine)
+    engine._knowledgeBase.recordFeedback = function () { recordCalls++ }
+    var r = await engine.rewrite({
+      mode: 'imitate', content: longText, userSettings: {}, signal: { cancelled: true },
+    })
+    expect(r.errorCode).toBe('CANCELLED')
+    expect(recordCalls).toBe(0)
+  })
+
   test('W3 超长内容仍被拒绝（TOO_LONG, >MAX_INPUT_CHARS=50000）', async function () {
     var engine = new RewriteEngine({ llmClient: mockLlmClient('x'), knowledgeBase: new KnowledgeBase() })
     wireStrategy(engine)

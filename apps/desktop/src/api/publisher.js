@@ -42,6 +42,9 @@ export async function aiGenerate(type, provider, params) { return invokeWithFall
 
 // ─── 改写引擎 API（rewrite-engine）────────────────────
 export async function aiRewrite(params) { return invokeWithFallback("aiRewrite", { code: -1, data: null }, params) }
+// 改写取消（rewrite-cancel-and-truncation-summary）：协作式，在分段边界生效。
+// 未带 runId 的调用方不登记 → 取消返回 { cancelled:false, reason:'not_running' }。
+export async function aiRewriteCancel(runId) { return invokeWithFallback("aiRewriteCancel", { code: -1, data: { cancelled: false, reason: 'bridge_missing' } }, runId) }
 
 // ─── 热门选题视频发布标题（fix-hot-topics-genvideo-title，2026-10-17）────
 // 契约：{ code:0, data:{ success:true, title } } | { code:0, data:{ success:false, reason:'no-model'|'failed' } }
