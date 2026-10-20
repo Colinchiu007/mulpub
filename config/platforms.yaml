@@ -55,6 +55,15 @@ platforms:
     icon: 🔥
     category: 中文
     content_category: MIXED
+    # 2026-10-20（fix-publish-failures）：**此前本段缺 publish_url**，而微博没有像小红书/快手
+    # 那样的专用发布方法，只能走 `_publish_generic`——它读的就是本字段，于是每次发布在打开浏览器
+    # 后 0ms 就 `return { success:false, error:'weibo no publish_url' }`（真机日志
+    # app-run.log 2026-10-20T05:18/T05:25/T05:27 连续 6 次同一行），重试必然复现。
+    # 取值依据：PLATFORM_PUBLISH_SELECTORS.weibo 的三条 content_textarea 候选
+    # （`.publisher_text textarea` / `.W_input` / `textarea[node-type="textEl"]`）全部指向
+    # **首页发布框**，故图文/短内容发布入口取首页根地址；`weibo.com/upload/channel` 是**视频**上传
+    # 频道（platform-entries.js 的 videoPublishUrls.weibo 仍用它），两者不可混用。
+    publish_url: https://weibo.com/
     max_title: 140
     # 阈值来源：官方 FAQ 佐证（下述链接）；2026-10-02 用户终裁放宽至 10000。原注释：微博客服中心官方 FAQ（kefu.weibo.com/faqdetail?id=21510，2024-09-04 更新）
     # 原文「最多可以发布5000汉字」（high 置信）。本文件该值历史在 2000/5000 间摆动：
