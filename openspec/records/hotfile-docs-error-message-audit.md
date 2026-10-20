@@ -2,7 +2,7 @@
 record: hotfile-docs-error-message-audit
 task: 补登 #4062（用户可见失败提示友好化）的 CHANGELOG 条目与 4 条教训 —— 该 PR 为避免热文件竞速把这两处移到本 PR
 date: 2026-10-20
-delivered_by_pr: 4090
+delivered_by_pr: 4092
 ---
 
 ## 本次执行记录：补登 #4062 的 CHANGELOG 条目与教训（hotfile-docs-error-message-audit，2026-10-20）【docs-only】
@@ -21,7 +21,7 @@ delivered_by_pr: 4090
 | 远程同步 | 由门禁推导 | 不事后改写：合并后由 `scripts/lib/merge-ledger.js` 按 squash 尾注推导；现场读数以判据打印为准 |
 
 - 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD` 的 `docs-only=` 读数写在 PR 正文（同一判据在 commit 之后取证；预提交时 `HEAD==base` 会得 `files=0`，那是取证顺序不是判定失灵）
-- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PR #4062
+- 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PR #4092
 
 ### 本地判据实跑（合并前取，落点 `origin/main` == `8fdd617b2`）
 
