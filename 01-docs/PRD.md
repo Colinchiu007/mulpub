@@ -20513,3 +20513,34 @@ DOM 采集失败时补真实昵称/ID/粉丝、DOM 成功时不调 HTTP、兜底
 
 
 
+## 自动化页后台通知的注册时机合同（2026-10-20，ux-audit-automation-notify-first / 审计 2.4）
+
+### 一、合同
+
+| 项 | 口径 |
+|---|---|
+| 顺序 | `AutomationView.vue` 的 `onMounted` **必须先 `onAutomationNotification(...)` 注册，再 `await load()`**。反向（先 await 再注册）在「首屏列表请求在飞」这段窗口内没有任何监听者 |
+| 为什么不能靠"稍后再通知一次" | 后台任务的失败/恢复通知是**推送语义**：不排队、不补发。窗口期内到达的那一条**永久丢失**，用户侧症状是「任务失败了，但页面什么都没显示」，且运行日志里没有第二处痕迹可查 |
+| 分档 | `payload.level === 'error'` → `notifyError('automation.notifyFailed', { message })`；其余一律 → `notifySuccess('automation.notifyRecovered', { message })`。**两档不得合并成一条出口**（恢复通知走 error 档会把好消息播成故障） |
+| 空载荷 | `payload` 为 `null`/`undefined` 时**直接 return**，不产出任何 toast —— 「事件到了」不等于「有内容可展示」，空白 toast 比没有 toast 更伤 |
+| 显示项与提示文字 | 通知文案 key：`automation.notifyFailed` / `automation.notifyRecovered`，都带 `{ message }` 插值（zh/en 成对进 locales）；只出 toast，**不弹模态**、不打断当前操作（这是本页面既有的产品决定，本次不动） |
+| 收口 | `onUnmounted` 里必须调用注册返回的 `stopNotifier()` 并置空，且每次挂载**只注册一次**（重复注册会让一条通知触发多次 toast） |
+
+### 二、验收锚点
+
+- 行为锁 `apps/desktop/src/views/AutomationView.notify-registration.test.js`（4 条）：
+  ① 顺序锁断 `registerOrder.slice(0,2) === ['register','list']` 且 `register` 只出现一次；
+  ② 在首屏 `automationList` 仍 pending 的那段窗口内直接调用 notifier，断 `notifyError` 带原文被调用；
+  ③ 同一窗口内 `level:'recovered'` 走成功档、error 档不被调用；
+  ④ 负控：`notifier(null)` / `notifier(undefined)` 两次调用都不得产出任何 toast。
+- **⛔ 一条本批实测到的方法学教训（写给下一次写顺序锁的人）**：顺序断言的方向必须先问「哪个顺序才是要保护的形态」再落笔。本锁第一版把期望写成 `['list','register']`（即**被禁形态**），于是它在修复前**必然红**、修复后**也必然红**，看起来像"TDD 正常"，实际上这个期望若被"顺手改对"就会把缺陷永久钉成契约。当场暴露它的不是断言红了，而是**红之后去读实际读数** `['register','list']` 与预期比对。判据：任何"顺序/等值"型断言在首次变红时，必须先判断"是代码错还是期望错"，再决定改哪一侧。
+- 反证：把 `await load()` 挪回注册之前（被禁形态原样重造）⇒ 4 条锁全部指名变红（`SUMMARY=4 failed`），还原后 `byteEqual=true`。
+
+===CL-TOP===
+# [未发布] fix(自动化页): 后台失败/恢复通知的注册提前到首屏请求之前 —— 窗口期内那条通知不再永久丢失（ux-audit-automation-notify-first）
+
+- `AutomationView.vue` 的 `onMounted` 原为 `await load()` 之后才 `onAutomationNotification(...)`。通知是推送语义（不排队、不补发），于是「进入页面 → 首屏列表请求在飞 → 后台任务此刻失败/恢复」这段窗口没有监听者，那一条**永久丢失**，用户看到的是「任务失败了但页面什么都没显示」，日志里也没有第二处痕迹。审计 2.4。
+- 修法只有一处顺序调整：先注册、再 `await load()`；分档（error / 其余走 recovered）、空载荷直接 return、`onUnmounted` 收口与「每次挂载只注册一次」全部保持既有语义。
+- 新增 `AutomationView.notify-registration.test.js` 4 条：顺序锁 + 窗口期内失败/恢复各一条行为锁 + 空载荷负控。反证按被禁形态原样重造 ⇒ 4 条指名变红，还原后逐字节相同。
+- 方法学收获（写进 PRD 验收锚点）：顺序断言第一版把期望写成了**被禁形态** `['list','register']`，它在修复前后都红 —— 是"红之后去读实际读数"才发现错的是期望而不是代码。这类断言首次变红时必须先判"代码错还是期望错"，否则顺手把期望改对就会把缺陷钉成契约。
+- 文档：`01-docs/PRD.md` 新增《自动化页后台通知的注册时机合同》（顺序 / 为什么不补发 / 分档 / 空载荷 / 显示项与提示文字 / 验收锚点）；执行记录 `openspec/records/ux-audit-automation-notify-first.md`。既有 `AutomationView.test.js` 同跑通过。

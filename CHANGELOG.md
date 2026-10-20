@@ -415,6 +415,14 @@
 - `rc=1` 有两种成因（**判据阻断** 与 **未捕获异常**），退出码相同 ⇒ 每条 CLI 断言都必须同时看 stdout 的点名行与 stderr 的"无异常"，否则测试会因为崩了而通过。这条纪律是本轮现场逼出来的，不是设计时想到的。
 - **`openspec validate` 的可信度又降了一格**：对它做四格负控——「Requirement 无 Scenario」红、「缺 delta 段头」红，但「**Scenario 缺 `THEN`**」与「**Requirement 空标题**」两格它照样判 valid ⇒ "validate 通过"能证明的下限比上一刀记的更窄。规格保真因此继续靠"归档块逐行全等 + 名称级 A/B"。
 - 套件 **116 → 122 全绿**，新增 5 条用例按**名字**出现在通过清单里（"pass 数"不算覆盖证据）。
+# [未发布] fix(自动化页): 后台失败/恢复通知的注册提前到首屏请求之前 —— 窗口期内那条通知不再永久丢失（ux-audit-automation-notify-first）
+
+- `AutomationView.vue` 的 `onMounted` 原为 `await load()` 之后才 `onAutomationNotification(...)`。通知是推送语义（不排队、不补发），于是「进入页面 → 首屏列表请求在飞 → 后台任务此刻失败/恢复」这段窗口没有监听者，那一条**永久丢失**，用户看到的是「任务失败了但页面什么都没显示」，日志里也没有第二处痕迹。审计 2.4。
+- 修法只有一处顺序调整：先注册、再 `await load()`；分档（error / 其余走 recovered）、空载荷直接 return、`onUnmounted` 收口与「每次挂载只注册一次」全部保持既有语义。
+- 新增 `AutomationView.notify-registration.test.js` 4 条：顺序锁 + 窗口期内失败/恢复各一条行为锁 + 空载荷负控。反证按被禁形态原样重造 ⇒ 4 条指名变红，还原后逐字节相同。
+- 方法学收获（写进 PRD 验收锚点）：顺序断言第一版把期望写成了**被禁形态** `['list','register']`，它在修复前后都红 —— 是"红之后去读实际读数"才发现错的是期望而不是代码。这类断言首次变红时必须先判"代码错还是期望错"，否则顺手把期望改对就会把缺陷钉成契约。
+- 文档：`01-docs/PRD.md` 新增《自动化页后台通知的注册时机合同》（顺序 / 为什么不补发 / 分档 / 空载荷 / 显示项与提示文字 / 验收锚点）；执行记录 `openspec/records/ux-audit-automation-notify-first.md`。既有 `AutomationView.test.js` 同跑通过。
+
 # [未发布] fix(s2v): 克隆音色成功后「语音 / 音色 ID」自动切换 —— 修回滚空操作、失败文案死分支与刷新抹选（s2v-voice-clone-auto-select）
 
 - **需求与现状判定**：用户诉求「在音色复制/克隆区新添加本地音色样本后，有了新的自定义音色，默认语音 / 音色 ID 的下拉列表中所选 ID 自动切换为新添加的自定义音色」。主路径在基线里**早已实现**（`tts-voices-clone.js` 的 `addS2VVoiceClone`：入库 → 写 `voiceId` → `selectS2VVoice` → toast），happy-path 测试也是绿的；但有三个缺陷让它在普通使用中失效或给出错误反馈。本次是**修缺陷 + 补合同 + 补测试**，不是新写功能。
