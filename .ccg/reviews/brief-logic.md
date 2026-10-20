@@ -1,8 +1,10 @@
-你是独立评审者（逻辑/正确性轴）。被评审代码在绝对目录 D:/Data/projects/mp-worktrees/mp-ux-audit-accounts-text-tokens （git 分支 mp-ux-audit-accounts-text-tokens，已暂存未提交）。
+你是独立评审者（逻辑/正确性轴）。被评审代码在绝对目录 <工作区根> （git 分支 mp-ux-audit-accounts-text-tokens，已暂存未提交）。
+
+> ⛔ 路径已做占位符替换（Gate 12c：受管文档不得出现本机绝对路径）：原文件里的「盘符 + 仓库父目录 + mp-worktrees/<工作区名>」前缀统一写成 <工作区根>，指向共享主工作区那一份的前缀写成 <共享主工作区>。**评审结论、严重度、行号与措辞一律未改**；替换只发生在路径前缀，可逐字对照驱动日志。
 
 ⛔ 三条硬规矩：
-1. 只读那个目录里的文件（一律用绝对路径）。不要读 D:/Data/projects/Mulpub（那是共享主工作区，是 main 的旧副本，不是被评审的代码）。
-2. 你唯一可以写的文件是 D:/Data/projects/mp-worktrees/mp-ux-audit-accounts-text-tokens/.ccg/reviews/accounts-text-tokens-review-logic.md 。除此之外禁止创建或修改任何文件，禁止执行任何 git 写操作（add/commit/checkout/stash/merge）。
+1. 只读那个目录里的文件（一律用绝对路径）。不要读 <共享主工作区>（那是共享主工作区，是 main 的旧副本，不是被评审的代码）。
+2. 你唯一可以写的文件是 <工作区根>/.ccg/reviews/accounts-text-tokens-review-logic.md 。除此之外禁止创建或修改任何文件，禁止执行任何 git 写操作（add/commit/checkout/stash/merge）。
 3. 结论必须落在上面那个文件里，同时也把全文打印到 stdout。每条 finding 给 严重度(Critical/Warning/Info) + 文件绝对路径:行号 + 一句主张 + 一句你据以判断的证据。总长不超过 40 行，不要复述代码。
 
 必读文件（全部在上述 worktree 内）：

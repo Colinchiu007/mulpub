@@ -1,5 +1,7 @@
 # 外部评审（可维护性/集成风险轴）：Accounts 文字色令牌收编（ux-audit-accounts-text-tokens）
 
+> ⛔ 路径已做占位符替换（Gate 12c：受管文档不得出现本机绝对路径）：原文件里的「盘符 + 仓库父目录 + mp-worktrees/<工作区名>」前缀统一写成 <工作区根>，指向共享主工作区那一份的前缀写成 <共享主工作区>。**评审结论、严重度、行号与措辞一律未改**；替换只发生在路径前缀，可逐字对照驱动日志。
+
 - 通道：codeagent-wrapper --backend claude --lite（AGENTS QM-6 的前端 primary，取自 ~/.claude/.ccg/config.toml 的 [routing.frontend].primary=claude）。
 - ⛔ 前两次投递均未产出结论：第 1 次 stdout 906 字节、结尾把 tool-call 当正文吐出来；第 2 次报 claude completed without agent_message output（rc=1，wrapper 退出即删自己的日志 ⇒ 现场不可得）。第 3 次把任务书压成单行（避开 stdin 模式）后 rc=0 且结论完整。按 AGENTS「前端失败最多重试 2 次」用满三次。
 - **本文正文是逐字复制**：claude 没有按任务书写文件，结论只出现在驱动 stdout ⇒ 由 .agent_context/stage/at-copy-review.mjs 从 driver-maint3.log 的「=== 可维护性轴评审」到下一个代码围栏之间整段摘出（35 行），未改写措辞、未调整严重度标签。处置与逐条核实见 openspec/records/ux-audit-accounts-text-tokens.md。

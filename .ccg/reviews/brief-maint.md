@@ -1,8 +1,10 @@
-你是独立评审者（可维护性/集成风险轴）。被评审代码在绝对目录 D:/Data/projects/mp-worktrees/mp-ux-audit-accounts-text-tokens （git 分支同名，已暂存未提交）。
+你是独立评审者（可维护性/集成风险轴）。被评审代码在绝对目录 <工作区根> （git 分支同名，已暂存未提交）。
+
+> ⛔ 路径已做占位符替换（Gate 12c：受管文档不得出现本机绝对路径）：原文件里的「盘符 + 仓库父目录 + mp-worktrees/<工作区名>」前缀统一写成 <工作区根>，指向共享主工作区那一份的前缀写成 <共享主工作区>。**评审结论、严重度、行号与措辞一律未改**；替换只发生在路径前缀，可逐字对照驱动日志。
 
 ⛔ 三条硬规矩：
-1. 只读那个目录里的文件（一律绝对路径）。不要读 D:/Data/projects/Mulpub（共享主工作区，是 main 的旧副本）。
-2. 你唯一可以写的文件是 D:/Data/projects/mp-worktrees/mp-ux-audit-accounts-text-tokens/.ccg/reviews/accounts-text-tokens-review-maint.md 。禁止创建/修改其它任何文件，禁止任何 git 写操作。
+1. 只读那个目录里的文件（一律绝对路径）。不要读 <共享主工作区>（共享主工作区，是 main 的旧副本）。
+2. 你唯一可以写的文件是 <工作区根>/.ccg/reviews/accounts-text-tokens-review-maint.md 。禁止创建/修改其它任何文件，禁止任何 git 写操作。
 3. 结论写进上面那个文件，同时打印到 stdout。每条 finding：严重度 + 文件绝对路径:行号 + 一句主张 + 一句证据。不超过 40 行，不要复述代码。
 
 这批做了什么：把 apps/desktop/src/views/Accounts.vue 里 30 处裸 hex 文字色换成设计令牌 var(--color-*)，并新增一把"两档主题下 WCAG AA 对比度"的判据（apps/desktop/src/views/Accounts.text-contrast.test.js）、一个把判据机制收敛成一份的实现（apps/desktop/src/styles/color-token-reader.js）、一份只能缩小的欠账基线（同目录 .json）。
