@@ -69,6 +69,9 @@
     "shotId": "<uuid>",          // 唯一非空
     "sceneId": "<uuid>",         // 必须存在于 manifest.scenes
     "prompt": "EXACT 3 CHARACTERS…",  // 非空；上限 50000 字符（真实提示词最高约 39470）
+    "imagePrompt": "…",          // 可选；首帧图提示词；缺省由加载器归一化为 prompt
+    "videoPrompt": "…",          // 可选；视频运动提示词；缺省归一化为空串（**不回落 prompt**）
+    "endFramePrompt": "…",       // 可选；尾帧约束；缺省归一化为空串
     "model": "seedance_2_0",     // 非空
     "refTokens": ["<uuid>", …],  // 可选；数组，每项字符串 ≤64 字符
     "resultUrl": "https://…",    // 可选；https URL
@@ -82,6 +85,31 @@
 - 每个场景取最后一个 `completed` 的视频类 job（按 `created_at` 升序）作为代表分镜。
 - **v7 计划新增字段**（尚未写入本语料，由 `shot-duration.js` 在运行时派生）：
   `durationMs` / `durationSec` / `durationSource`。见「七、时长来源优先级链」。
+
+### 2.1 提示词三分（影视工程 v2 · F-A）
+
+| 字段 | 语义 | 缺省（加载期归一化） | 消费方 |
+|------|------|--------------------|--------|
+| `imagePrompt` | **首帧图**提示词：静态画面（主体 / 场景 / 光线 / 构图 / 风格） | `??= prompt`（**逐字等于旧 prompt**） | 图片生成（`film-engineering-service.generateSelected`） |
+| `videoPrompt` | **视频运动**提示词：只保留运镜 + 主体 + 时长内的变化，**不含**静态画面全量 | `??= ''`（**空**，**不回落 prompt**） | 视频生成（`video-gen.buildShotSubmitPayload`） |
+| `endFramePrompt` | **尾帧约束**：末帧应当是什么（衔接下一镜的起点） | `??= ''` | 本批次**只产出不消费**（消费前置见 OpenSpec spec） |
+
+**加载期归一化口径**（`kit-loader.normalizeShotPrompts`）：`imagePrompt ??= prompt`、`videoPrompt ??= ''`、`endFramePrompt ??= ''`。
+归一化后下游**不再有 `?? prompt` 分支**；消费侧回落链是 `videoPrompt → imagePrompt → prompt`（视频）与 `imagePrompt → prompt`（图片）。
+
+**为什么 `videoPrompt` 回落空串而不是 `prompt`**：回落 `prompt` 会让「存量分镜的视频提示词过长」这件事
+**被掩盖成已解决**（字段非空、长度不减）。留空 ⇒ 消费侧回落 `imagePrompt`，**边界在数据上可见**。
+存量长提示词的真正治理是后续项（一次性重算 + 人工审核），不在本批次。
+
+### 2.2 三分合计上限
+
+- **数值**：`FILM_PROMPT_BUNDLE_MAX_LEN = 50000`
+- **单位**：**字符**（`String.length`，**不是字节**）
+- **计量对象**：`imagePrompt + videoPrompt + endFramePrompt` **三者之和**（旧字段 `prompt` **不计入**——它是 `imagePrompt` 的历史别名，计进去等于重复计量）
+- **超限处置**：kit 加载 **fail-closed**（`FILM_KIT_UNAVAILABLE`），**不静默截断**；错误文案含文件名、镜 id、实测长度与上限
+
+单字段上限仍是 `FILM_PROMPT_MAX_LEN = 50000`（**未放宽**）。合计上限是**新增**的：三分各 5 万 ⇒ 合计 15 万字符送进
+provider 必然被拒且失败点在下游、定位成本高；合计上限让**资产损坏在加载期就暴露**。
 
 ## 三、reference-registry.json
 

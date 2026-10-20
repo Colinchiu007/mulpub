@@ -144,10 +144,13 @@ shot-library.json 共 153 条；shot[0].prompt 长 13,922 字符，
 
 | 编号 | 文件 | 改什么 | 预计行数变化 |
 |------|------|--------|------------|
+| F-A | `apps/desktop/electron/services/film-engineering/script-adapt.js` | 把拼装拆成**零件**（头 / 角色行 / 运动块 / 静态块），buildTemplatePrompt 改为消费零件（**输出逐字不变**，918 组合等价核验）；新增 buildMotionPrompt（运动子集） | +95 / -40 |
 | F-A | `apps/desktop/electron/services/film-engineering/kit-loader.js` | 加载时归一化 `imagePrompt/videoPrompt/endFramePrompt`（`videoPrompt ??= ''`，**不回落 prompt**，见 §2.5）；`KIT_FILES` 不变（同文件） | +45 / -5 |
-| F-A | `apps/desktop/electron/services/film-engineering/auto-plan.js` | 规划期**重算**三分：首帧=静态画面全量，视频=**仅运镜+主体+时长内变化**（显著更短），尾帧=frame_constraint 规则 | +70 / -15 |
+| F-A | `apps/desktop/electron/services/film-engineering/auto-plan.js` | 规划期派生：`imagePrompt` = 当前拼装结果（**逐字不变**）；`videoPrompt` = **运动子集**（场景头 + 剧情 + 角色行 + 运动类块，去掉空间/音频/约束等静态块）；`endFramePrompt` = **''**（尾帧约束文本来自任务级提示词库，**派生随 PR-3（F-I）落地**，本批次只落字段与消费口径） | +70 / -15 |
 | F-A | `apps/desktop/electron/services/film-engineering/video-gen.js` | 图片走 `imagePrompt`、视频走 `videoPrompt`（`videoPrompt` 为空回落 `imagePrompt`）；**`endFramePrompt` 本批次不送入 provider**（消费前置见 §2.4） | +25 / -8 |
-| F-A | `apps/desktop/electron/film-kit/SCHEMA.md` | 三字段规格 + 合计上限口径 | +30 / 0 |
+| F-A | `apps/desktop/electron/film-kit/SCHEMA.md` | 三字段规格 + 合计上限口径（数值 / 单位=字符 / 计量对象=三者之和 / 旧字段不计入 / fail-closed） | +55 / 0 |
+| F-A | `apps/desktop/electron/services/film-engineering/auto-project.js` | **三分必须落进项目文件**——只存 `prompt` 的话，续跑/重生成时派生的 `videoPrompt` 会丢失，「视频只拿运动信息」第二次运行就失效 | +12 / 0 |
+| F-A | `apps/desktop/electron/services/film-engineering/film-engineering-service.js` | 图片生成走 `imagePrompt`（缺省回落 `prompt`） | +8 / -3 |
 | F-A | `apps/desktop/electron/film-kit/shot-library.json` | **零改动**（153 条存量不迁，靠加载期归一化） | 0 |
 | F-A | `apps/desktop/src/views/film-auto/ShotTailFrameRow.vue`（**新建**） | 承载「尾帧只读行」——`endFramePrompt` 的展示落点（回应评审 i4：§2.4 声明的读取点必须有真实文件承载） | +70 / 0 |
 | F-B | `apps/desktop/electron/services/film-engineering/video-gen.js` | `costCheck` 内联 `readiness` 字段 + 逐镜 `ready`/`reason` | +50 / -5 |
@@ -258,15 +261,16 @@ node scripts/classify-docs-only.js --base=origin/main --head=HEAD   # commit 之
 
 | PR | 内容 | 依赖 | 门禁要点 |
 |----|------|------|---------|
-| **PR-1** | **方案 + F-A 提示词三分** | 无（本 change 根） | 主进程改动 → QM-1 打包；`kit-loader` fail-closed 回归；存量 153 条零迁移断言 |
-| **PR-2** | **F-I + F-H + F-J 资产接线与 UI** | PR-1（三分字段存在后，F-I 才能按任务模板派生三份） | UI 改动 → QM-4 视觉；i18n zh/en 成对；方法论分区只读渲染 |
-| **PR-3** | **F-E 锁镜 + F-G 乐观锁 + G-8 时长落项目文件** | PR-1（项目文件结构变更） | 并发冲突 fail-closed 用例；锁镜不覆盖断言 |
-| **PR-4** | **F-B 就绪度闸门**（只改 `video-gen.js` 的 `costCheck`） | **PR-3**（就绪度要识别 `SHOT_LOCKED`，需要 PR-3 引入的 `locked` 字段） | 成本闸**未新增第二道闸**断言（既有 `film-video-checkpoint-integration.test.js` 必须仍绿） |
-| **PR-5** | **纯重构**：把 `video-gen.js` 里的 `downloadToFile` 抽成独立模块 `film-video-downloader.js`（**行为逐字不变**，仍是现有裸实现） | PR-1 | 纯重构无行为变化：既有 `video-gen.test.js` 19+7 例全绿；新模块有等价性用例 |
-| **PR-6a** | **零行为抽取** `egress-guard`：`shot-downloader.js` 的出站合同原样抽成独立模块，`shot-downloader` 改调它（**行为零变化**） | PR-5 | `shot-downloader.test.js` 既有 23 例全绿；`egress-guard.test.js` 覆盖抽取前的同一套判据 |
-| **PR-6b** | **F-C 出站安全加固**：`egress-guard` 加 pinning + 端口集 + 可信主机策略；`film-video-downloader` 改走合同；`shot-downloader` 同步获得加固 | **PR-6a**（抽取先行）+ PR-4 | SSRF / pinning / 端口 / 主机策略用例；`shot-downloader` 既有 23 例仍全绿 |
-| **PR-7** | **F-D 工具体检** | **PR-1**（与出站下载**无逻辑依赖**；只依赖 `video-gen.js` 的既有形状） | ffmpeg 缺失在出片前给可操作提示；`film-render.test.js` 既有 20+2 例全绿 |
-| **PR-8** | **F-F 身份锚点 + 参考图优先级** | 无（独立面） | 提示词外置断言；锚点硬上限 4 条断言；optimize 阶段 context 注入用例 |
+| **PR-1** | **方案**（docs-only；openspec 五件套 + PRD + 评审记录） | 无（本 change 根） | `classify-docs-only` 判 `docs-only=true`；4 项门禁判据 rc=0 |
+| **PR-2** | **F-A 提示词三分**（kit 归一化 + 自动模式派生 + 消费侧分流 + 项目文件落盘） | PR-1 | 主进程改动 → QM-1 打包；`kit-loader` fail-closed 回归；存量 153 条零迁移断言；首帧图提示词**逐字不变**锁 |
+| **PR-3** | **F-I + F-H + F-J 资产接线与 UI** | PR-2（三分字段存在后，F-I 才能按任务模板派生三份） | UI 改动 → QM-4 视觉；i18n zh/en 成对；方法论分区只读渲染 |
+| **PR-4** | **F-E 锁镜 + F-G 乐观锁 + G-8 时长落项目文件** | PR-2（项目文件结构变更） | 并发冲突 fail-closed 用例；锁镜不覆盖断言 |
+| **PR-5** | **F-B 就绪度闸门**（只改 `video-gen.js` 的 `costCheck`） | **PR-4**（就绪度要识别 `SHOT_LOCKED`，需要 PR-4 引入的 `locked` 字段） | 成本闸**未新增第二道闸**断言（既有 `film-video-checkpoint-integration.test.js` 必须仍绿） |
+| **PR-6** | **纯重构**：把 `video-gen.js` 里的 `downloadToFile` 抽成独立模块 `film-video-downloader.js`（**行为逐字不变**，仍是现有裸实现） | PR-2 | 纯重构无行为变化：既有 `video-gen.test.js` 19+7 例全绿；新模块有等价性用例 |
+| **PR-7a** | **零行为抽取** `egress-guard`：`shot-downloader.js` 的出站合同原样抽成独立模块，`shot-downloader` 改调它（**行为零变化**） | PR-6 | `shot-downloader.test.js` 既有 23 例全绿；`egress-guard.test.js` 覆盖抽取前的同一套判据 |
+| **PR-7b** | **F-C 出站安全加固**：`egress-guard` 加 pinning + 端口集 + 可信主机策略；`film-video-downloader` 改走合同；`shot-downloader` 同步获得加固 | **PR-7a**（抽取先行）+ PR-5 | SSRF / pinning / 端口 / 主机策略用例；`shot-downloader` 既有 23 例仍全绿 |
+| **PR-8** | **F-D 工具体检** | **PR-2**（与出站下载**无逻辑依赖**；只依赖 `video-gen.js` 的既有形状） | ffmpeg 缺失在出片前给可操作提示；`film-render.test.js` 既有 20+2 例全绿 |
+| **PR-9** | **F-F 身份锚点 + 参考图优先级** | 无（独立面） | 提示词外置断言；锚点硬上限 4 条断言；optimize 阶段 context 注入用例 |
 
 > **PR-5 独立成 PR 的理由**（回应评审 i6）：`video-gen.js` 同时承载成本闸（PR-4）与下载实现（PR-6b）。若不先把下载实现抽离，PR-6 的"换合同"与 PR-4 的"改 costCheck"会落在同一文件同一函数的邻近位置，**回归面重叠、变红时无法定位**。PR-5 是零行为变化的纯重构，把"搬家"与"换实现"分成两次可独立验证的提交。
 >
@@ -275,14 +279,14 @@ node scripts/classify-docs-only.js --base=origin/main --head=HEAD   # commit 之
 **依赖图**
 
 ```
-PR-1 (F-A 三分)
+PR-1 (方案，docs-only)
  ├─► PR-2 (F-I 任务模板派生 + F-H UI + F-J 严格模式)
  ├─► PR-3 (F-E 锁镜 + F-G 乐观锁 + G-8 时长落盘) ─► PR-4 (F-B 就绪度) ─┐
-  └─► PR-5 (纯重构：抽出 film-video-downloader) ─► PR-6a (零行为抽取 egress-guard) ─► PR-6b (F-C 加固)
+  └─► PR-6 (纯重构：抽出 film-video-downloader) ─► PR-7a (零行为抽取 egress-guard) ─► PR-7b (F-C 加固)
 
-PR-7 (F-D 体检) ── 依赖 PR-1（与出站链路无逻辑依赖）
+PR-8 (F-D 体检) ── 依赖 PR-2（与出站链路无逻辑依赖）
 
-PR-8 (F-F 身份锚点) — 独立，可与任意 PR 并行
+PR-9 (F-F 身份锚点) — 独立，可与任意 PR 并行
 ```
 
 > **PR-6 拆 6a/6b 的理由**（回应评审 i8）：`egress-guard` 若"抽自 `shot-downloader` 又被 `shot-downloader` 反向调用"，抽取方向与依赖顺序就是未定的——评审无法判断"这是重构还是循环依赖"。6a 只做**零行为抽取**（模块从 `shot-downloader` 里搬出来、`shot-downloader` 改调它，测试全绿），6b 再在 `egress-guard` 上**加** pinning / 端口 / 主机策略，并让 `film-video-downloader` 改走它。两步各自可独立验证、依赖单向（`shot-downloader` → `egress-guard` → 无反向）。
@@ -346,7 +350,8 @@ PR-8 (F-F 身份锚点) — 独立，可与任意 PR 并行
 | V-26b | 放宽授权是**运行期令牌**，不落盘 | 勾选「本次允许从外部素材域名下载」⇒ 运行期产生一次性令牌（内存）；**项目文件里不得出现任何可放行的授权位**（机械核对：`project.json` 中无 `egressAllow` 类字段）；任务结束后令牌失效 | — |
 | V-27 | 锁定不新增 IPC 通道 | `preload.test.js` 的通道计数**不变**（锁镜复用既有 `film-engineering:auto-*` patch 通道）；`auto-project.test.js` 断言 `patch.locked` 被接受 | — |
 | V-28 | 出站下载实现已独立成模块 | `film-video-downloader.test.js` 存在且覆盖等价行为；`video-gen.test.js` 既有 19+7 例全绿 | — |
-| V-29 | 自动模式新分镜的视频提示词显著更短 | `auto-plan.test.js`：逐镜断言 `videoPrompt.length <= 0.6 * imagePrompt.length`（**比例阈值，不是「严格小于」**——后者可被差 1 字符满足）；断言失败时打印两镜的实际长度；新规划分镜 `videoPrompt` 须非空 | — |
+| V-29 | 自动模式新分镜的视频提示词**不含静态块** | `auto-plan.test.js`：**① 首帧图提示词与变更前逐字相同**（`imagePrompt === prompt`，零回归锁）；**②** 派生镜（模板含可剔除静态块）的 `videoPrompt.length < imagePrompt.length`；**③ 全体真实模板的聚合比 ≤ 0.6×**（实测 **0.177**，2026-10-21 / 153 个真实模板）；**④** `videoPrompt` 须非空且不含静态块标记 | — |
+| V-29a | 逐镜比例阈值**不成立**（实测修正） | 真实 kit 的模板是**散文自由文本**（非 7 块结构），153 个模板里 **123 个没有任何可剔除的静态块** ⇒ 运动子集与首帧图**逐字相同**（比值 1.0）。故逐镜固定比例阈值会**必然失败**；改判为「派生镜严格短于 + 全体聚合 ≤ 0.6×」 | — |
 | V-30 | 存量分镜的 videoPrompt 为空（不假装已解决） | `kit-loader.test.js`：存量 153 条归一化后 `videoPrompt === ''`、`imagePrompt === prompt`；`video-gen` 侧回落 `imagePrompt`，**行为与变更前逐字一致** | — |
 | V-31 | 乐观锁写入原子 | `auto-project.test.js`：并发写用例断言「无半写文件」（临时文件已清理，目标文件要么是旧内容要么是完整新内容），且 `revision` 自增与内容替换在同一次 rename 内完成 | — |
 | V-32 | 就绪度三态 | `shot-readiness.test.js`：锁镜判为 `skipped`（**不阻断**出片）；阻止类判据（空提示词等）判为 `notReady`；两者在 `costCheck.readiness.shots[]` 中可区分 | — |

@@ -60,7 +60,7 @@
 |------|------|------|------|------|---------|
 | `prompt` | string | 是（存量） | — | **保留不动**。存量分镜的原始提示词 | 50000（既有 `FILM_PROMPT_MAX_LEN`） |
 | `imagePrompt` | string | 否 | `??= prompt` | **首帧图**提示词：静态画面描述（主体/场景/光线/构图/风格） | 单字段 50000 |
-| `videoPrompt` | string | 否 | `??= ''`（**空**，不回落 prompt） | **视频运动**提示词：只保留「运镜 + 主体 + 时长内的变化」，**不含**静态画面全量 | 单字段 50000 |
+| `videoPrompt` | string | 否 | `??= ''`（**空**，不回落 prompt） | **视频运动**提示词：只保留「运镜 + 主体 + 时长内的变化」，**不含**静态画面全量。**实测**：自动模式下首帧图提示词平均 344 字符、运动子集平均 67 字符（153 个真实模板的聚合比 **0.177**）；但其中 **123 个模板没有任何可剔除的静态块**（散文自由文本），此时运动子集与首帧图**逐字相同**——属正常态，不是缺陷 | 单字段 50000 |
 | `endFramePrompt` | string | 否 | `??= ''` | **尾帧约束**：末帧应当是什么（衔接下一镜的起点） | 单字段 50000 |
 
 **合计上限**：`imagePrompt + videoPrompt + endFramePrompt` ≤ `FILM_PROMPT_BUNDLE_MAX_LEN = 50000`。
@@ -481,8 +481,9 @@ split → scene_context（已有）
 | V-25 | 打包可用 | QM-1：`electron-builder --win --x64` exit 0 + asar 清单核对 |
 | V-27 | 素材域名缺省拒绝 | `egress-guard.test.js`：① 主机 = provider API 主机 ⇒ 放行（零配置）；② 不在可信集合且未显式授权 ⇒ **拒绝**；③ 已显式授权 ⇒ 放行到私网段检查；④ 私网地址**即使显式授权也拒绝** |
 | V-28 | 放宽授权是**运行期令牌**，不落盘 | 勾选 ⇒ 内存中产生一次性令牌；**机械核对：`project.json` 中不存在任何 `egressAllow` 类可放行字段**；任务结束令牌失效 |
-| V-29 | 新分镜视频提示词显著更短 | `auto-plan.test.js`：逐镜断言 `videoPrompt.length <= 0.6 * imagePrompt.length`（**比例阈值**，非「严格小于」）；失败时打印两镜实际长度 |
+| V-29 | 新分镜视频提示词不含静态块 | `auto-plan.test.js`：① `imagePrompt === prompt`（**逐字不变**，零回归锁）；② 派生镜 `videoPrompt.length < imagePrompt.length`；③ **全体真实模板聚合比 ≤ 0.6×**（实测 **0.177**）；④ `videoPrompt` 非空且不含静态块标记 |
 | V-30 | 存量 videoPrompt 为空（不假装已解决） | `kit-loader.test.js`：存量 153 条 `videoPrompt === ''`、`imagePrompt === prompt`；视频请求回落 `imagePrompt`，行为与变更前一致 |
+| V-30b | 逐镜比例阈值不成立（实测修正） | 真实 kit 模板是**散文自由文本**，153 个模板里 **123 个无可剔除静态块** ⇒ 运动子集与首帧图逐字相同（比值 1.0）⇒ 逐镜固定比例会必然失败。改判为「派生镜严格短于 + 全体聚合 ≤ 0.6×」 |
 | V-31 | 乐观锁写入原子 | `auto-project.test.js`：并发写用例断言无半写文件；`revision` 自增与内容替换在同一次 rename 内 |
 | V-32 | 就绪度三态 | `shot-readiness.test.js`：锁镜 `skipped`（不阻断）；空提示词等 `notReady`（阻断） |
 | V-33 | 端口随可信域声明 | `egress-guard.test.js`：声明含 8443 ⇒ `:8443` 放行；未声明 ⇒ 拒绝；`:443`/省略 ⇒ 放行 |

@@ -1,12 +1,16 @@
 # tasks — film-pipeline-prompt-triple-and-guards
 
 > 纪律：**先写测试（红）→ 实现（绿）→ 重构**；每个任务完成后回填证据（命令 + 结果）。
-> 交付形态：按 PR 拆分，共 **9 个 PR**，逐个 CI 全绿后合并（见 proposal §五）。
+> 交付形态：按 PR 拆分，共 **10 个 PR**（PR-1 方案 docs-only + PR-2 ~ PR-9 实现），逐个 CI 全绿后合并（见 proposal §五）。
 > **PR-2/3/4/5/6a/6b/7 从最新 `origin/main` 重新开分支**；依赖边：PR-1 → PR-2 / PR-3 → PR-4；PR-5 → PR-6a → PR-6b；PR-4 → PR-6b → PR-7；PR-8 独立。
 
 ---
 
-## PR-1 · 方案 + F-A 分镜提示词三分
+## PR-1 · 方案（docs-only）
+
+- [ ] 1.0 方案件与 PRD 入库（openspec 五件套 + 评审记录 + PRD）
+
+## PR-2 · F-A 分镜提示词三分
 
 - [ ] 1.1 方案件入库：`proposal.md` / `design.md` / `tasks.md` / `specs/film-engineering/spec.md` / `.openspec.yaml` / `review-brief.md` / `ccg-plan-review-record.md`
 - [ ] 1.2 `openspec validate film-pipeline-prompt-triple-and-guards --strict` 通过
@@ -26,7 +30,7 @@
 
 ---
 
-## PR-2 · F-I / F-H / F-J 资产接线与 UI
+## PR-3 · F-I / F-H / F-J 资产接线与 UI
 
 - [ ] 2.1 **TDD-RED**：`auto-plan.test.js` 新增「规划期走 prompt-library `generate_shot_prompt` 任务模板」用例
 - [ ] 2.2 实现：`auto-plan.js` 接入 `prompt-library`（新增 doctrine blocks/rules 消费）
@@ -39,7 +43,7 @@
 
 ---
 
-## PR-3 · F-E 锁镜 / F-G 乐观锁 / G-8 时长落盘
+## PR-4 · F-E 锁镜 / F-G 乐观锁 / G-8 时长落盘
 
 - [ ] 3.1 **TDD-RED**：`auto-runner.test.js` 新增「重跑跳过 locked 镜」用例 + 「单镜重生成仍可作用于 locked 镜」用例
 - [ ] 3.2 实现：`auto-project.js` shot 加 `locked`；**patch 白名单加 `locked`（复用既有通道，不新增 IPC）**
@@ -55,7 +59,7 @@
 
 ---
 
-## PR-4 · F-B 就绪度闸门
+## PR-5 · F-B 就绪度闸门
 
 - [ ] 4.1 **TDD-RED**：`shot-readiness.test.js`（新建）逐条 reasonCode 用例
 - [ ] 4.2 实现：`shot-readiness.js`（新建，纯函数、零 IO）
@@ -66,7 +70,7 @@
 
 ---
 
-## PR-5 · 纯重构：出站下载实现独立成模块
+## PR-6 · 纯重构：出站下载实现独立成模块
 
 - [ ] 5.1 **前置**：`video-gen.test.js` 既有 19+7 例全绿（基线）
 - [ ] 5.2 抽出 `apps/desktop/electron/services/film-engineering/film-video-downloader.js`（**行为完全不变**，仍是现有裸实现）
@@ -77,7 +81,7 @@
 
 ---
 
-## PR-6a · 零行为抽取 egress-guard
+## PR-7a · 零行为抽取 egress-guard
 
 - [ ] 6a.1 **前置**：`shot-downloader.test.js` 既有 23 例全绿（基线）
 - [ ] 6a.2 **TDD-RED**：`egress-guard.test.js`（新建）覆盖抽取前的**同一套**判据（https-only / 私网段 / DNS 校验 / 逐跳重校验 / 体积上限 / `.part`→ffprobe→rename / 受控媒体根）
@@ -86,7 +90,7 @@
 - [ ] 6a.5 验证：`shot-downloader.test.js` 既有 23 例全绿；`egress-guard.test.js` 全绿
 - [ ] 6a.6 执行记录 + 门禁 + PR-6a
 
-## PR-6b · F-C 出站安全加固
+## PR-7b · F-C 出站安全加固
 
 - [ ] 6b.1 **TDD-RED**：IP pinning 用例（注入两组不同 IP，断言连接用已校验的第一组）
 - [ ] 6b.2 **TDD-RED**：端口集用例（声明含 8443 ⇒ 放行；未声明 ⇒ 拒绝；443/省略 ⇒ 放行）
@@ -101,7 +105,7 @@
 
 ---
 
-## PR-7 · F-D 外部工具体检
+## PR-8 · F-D 外部工具体检
 
 - [ ] 7.1 **TDD-RED**：`tool-doctor.test.js`（新建）存在性 / 缺失 / 版本解析用例（**版本不阻断**）
 - [ ] 7.2 实现：`tool-doctor.js`（新建）
@@ -111,7 +115,7 @@
 
 ---
 
-## PR-8 · F-F 身份锚点 + 参考图优先级
+## PR-9 · F-F 身份锚点 + 参考图优先级
 
 - [ ] 8.1 **TDD-RED**：锚点提取用例（骨相/五官/发色/唇色四类；硬上限 4 条；截断标记 `anchorTruncated` + 被截角色名）
 - [ ] 8.2 实现：`story-context-engine.js` 新增独立函数（**不改**既有 `detectDynasty` 等分支）
