@@ -534,6 +534,7 @@ import { isVerificationContent } from '@/utils/collected-content-guard'
 import { useWordCountValidation } from '@/composables/useWordCountValidation'
 import { addViralToLibrary } from '@/api/knowledge-library'
 import PublishDestinationModal from '@/components/PublishDestinationModal.vue'
+import { buildCreateHandoffQuery } from '@/features/publish-destination/publish-destination-config'
 import WordCountRangeInput from '@/components/WordCountRangeInput.vue'
 import RewriteStrategyPicker from '@/components/RewriteStrategyPicker.vue'
 import { useCopyLibrary, collectFromKey, ORIGIN_COLLECT, ORIGIN_REWRITE, compareByCreatedAtDesc } from '@/composables/useCopyLibrary'
@@ -1844,10 +1845,17 @@ function onPublishArticle () {
   }
 }
 
-function onPublishVideo (pipelineId) {
+function onPublishVideo (pipelineId, detail) {
   showPublishModal.value = false
   if (!genreDraftId) return
-  router.push({ path: '/create', query: { draft: genreDraftId, pipeline: pipelineId || 'story2video-compose' } })
+  router.push({
+    path: '/create',
+    query: buildCreateHandoffQuery({
+      draftId: genreDraftId,
+      pipelineId: pipelineId || 'story2video-compose',
+      configProfileId: detail?.configProfileId,
+    }),
+  })
 }
 
 async function createFromCollected () {

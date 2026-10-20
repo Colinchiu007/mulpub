@@ -173,6 +173,11 @@ export default {
         renameFailed: 'Could not rename the configuration. Please try again later.',
         deleteFailed: 'Could not delete the configuration. Please try again later.',
         snapshotInvalid: 'The configuration snapshot is invalid. Please try saving again.',
+        // publish-config-picker (2026-10-21): shown when a configuration carried in by
+        // the publish-destination modal is no longer valid.
+        notFound: 'The selected configuration no longer exists. Continuing with the pipeline defaults.',
+        // No pipeline is selected, so there is nothing the configuration could apply to.
+        pipelineUnresolved: 'Could not resolve the pipeline, so the selected configuration was not applied',
       },
       // Batch create (2026-08-15 story2video-batch-create)
       batch: {

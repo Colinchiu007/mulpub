@@ -172,6 +172,10 @@ export default {
         renameFailed: '配置重命名失败，请稍后重试',
         deleteFailed: '配置删除失败，请稍后重试',
         snapshotInvalid: '配置快照无效，请重新尝试保存',
+        // publish-config-picker（2026-10-21）：「去发布」弹窗带过来的配置已失效时的提示
+        notFound: '所选配置不存在或已被删除，已按流水线默认参数继续',
+        // 未能确定流水线（无选中流水线可套用）时的提示
+        pipelineUnresolved: '未能确定流水线，无法套用所选配置',
       },
       // 批量创作（2026-08-15 story2video-batch-create）
       batch: {

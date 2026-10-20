@@ -380,6 +380,7 @@ import { takeViralSignalHandoff, hasActionableEngagement } from '@/utils/viral-s
 import { writeClipboard } from '@/utils/clipboard'
 import { extractRewriteHistoryId, attachRewriteLineage } from '@/utils/rewrite-lineage'
 import PublishDestinationModal from '@/components/PublishDestinationModal.vue'
+import { buildCreateHandoffQuery } from '@/features/publish-destination/publish-destination-config'
 import PodcastScriptEntry from '@/components/PodcastScriptEntry.vue'
 import { usePodcastChannel } from '@/composables/usePodcastChannel'
 import RewriteStrategyPicker from '@/components/RewriteStrategyPicker.vue'
@@ -1083,12 +1084,11 @@ function onPublishArticle() {
   }
 }
 
-/** 弹窗回调：生成视频 */
-function onPublishVideo(pipelineId) {
+/** 弹窗回调：生成视频（带所选流水线 + 所选配置档案，publish-config-picker） */
+function onPublishVideo(pipelineId, detail) {
   showPublishModal.value = false
   if (!savedDraftId) return
-  const query = { draft: savedDraftId }
-  if (pipelineId) query.pipeline = pipelineId
+  const query = buildCreateHandoffQuery({ draftId: savedDraftId, pipelineId, configProfileId: detail?.configProfileId })
   router.push({ path: '/create', query })
 }
 </script>

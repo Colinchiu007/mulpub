@@ -220,6 +220,15 @@ export const PIPELINE_MODE_KEYS = Object.freeze(MODES)
 export const PIPELINE_STAGE_KEYS = Object.freeze(STAGES)
 export const PIPELINE_STATUS_KEYS = Object.freeze(STATUSES)
 
+/**
+ * Text-based pipeline ids (read-only view of the frozen list above).
+ *
+ * 用途：「去发布」弹窗的流水线下拉需要**枚举**文案型流水线，而不是逐个判真假。
+ * 之前只有 isTextBasedPipeline（判真假），调用方若要出列表就得在别处再抄一份
+ * 名单（双源真相）。这里导出只读数组，让「判定」与「枚举」共用同一份真源。
+ */
+export const TEXT_BASED_PIPELINE_IDS = TEXT_BASED_PIPELINES
+
 /** Whether a pipeline consumes pipelineText as the video's textual basis. */
 export const isTextBasedPipeline = (pipelineId) => TEXT_BASED_PIPELINES.includes(pipelineId)
 

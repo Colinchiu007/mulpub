@@ -1,0 +1,61 @@
+{
+  "sha": "be84f449a192c39709178963be6cee9a848654d8",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 1234 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 1234,
+    "fileCount": 24,
+    "codeFileCount": 17,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 14,
+    "docSensitiveContentHits": 10,
+    "docSensitiveContentSample": [
+      "| 改造流水线选择器本身的交互 | 仍是原生 `<select>`，只换选项集合。 |",
+      "> 说明：为什么用**自建下拉**而不是 `el-select`：① 与左侧原生 `<select>` 保持同一套视觉与交互（同一个弹窗里两种控件会明显割裂）；② 本仓 Element Plus 是**显式按需装配**（`plugins/element-plus.js` 硬约束①：新增 EP 组件必须登记），为一个轻量浮窗引入 EP 下拉会扩大装配面与样式闭包；③ 仓内已有同款先例（`components/HotTopicsGenVideoPicker.vue` 明确写了「不用 el-dropdown/el-popover：Element Plus 按需注册有机械锁，本地自建菜单零新依赖、零样式导入」）。",
+      "  │  ※ 流水线/配置的选择发生在「生成视频」按钮**之前**（同排的原生 select / 自建下拉）"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "d98c23720ac92ffb67c0686e0fbaec909eaed601b0d7379e1a4d738c8c0d976e",
+  "decidedAt": "2026-10-20T19:42:01.017Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}
