@@ -92,7 +92,7 @@ describe.skipIf(!hasTools)('production E2E（任务 9.1/9.2，模拟 provider + 
     const manifest = {
       schemaVersion: 1,
       filmMeta: {
-        title: 'E2E Hell Grind',
+        title: 'E2E Film Project Case',
         durationSec: 24,
         logline: 'Twelve-shot end-to-end fixture film.',
         characters: [{ name: 'ROKO', descriptor: 'street kid' }],

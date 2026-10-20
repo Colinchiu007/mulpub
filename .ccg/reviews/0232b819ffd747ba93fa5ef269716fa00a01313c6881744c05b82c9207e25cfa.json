@@ -1,0 +1,57 @@
+{
+  "sha": "53fe4f0f5d982ad97c1791f8694937aeb85d153d",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 1087 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 1087,
+    "fileCount": 34,
+    "codeFileCount": 31,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "0232b819ffd747ba93fa5ef269716fa00a01313c6881744c05b82c9207e25cfa",
+  "decidedAt": "2026-10-20T07:49:55.969Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "cleared",
+    "tier": "external",
+    "performedBy": "critic=claude 真实跨家族评审已完成 5 轮（proposer=opencode，跨家族校验通过；本 PR 修复过程中的每一版 diff 都评过）",
+    "evidence": "openspec/records/film-debrand.md 「CCG 深度评审逐条裁决」（5 轮逐条表）+ 本 PR 验证：vitest 743/743（53 文件）、QM-1 pnpm run build:win exit 0 且启动 stderr 长度 0、像素门禁 20/20、真实打包 Electron 探针 15/15、E2E 33 PASS / 2 SKIP、python 中性化功能测试全 PASS",
+    "findings": "5 轮共 35 条：32 条成立并已修（含 1 条 Critical —— 我给重建脚本加的写前自检缺少「中性化变换」，会让文档化的重建流程必然失败；已补 neutralize_text/neutralize_payload/neutralize_manifest 并实证）、2 条 dismissed（第四轮 i1「hints 仍写旧标签」前提经实测不成立；第五轮 i3 记录 sha 写父 sha 属 pre-commit 既定行为）、1 条 acknowledged（E2E 仅 release tag 运行，属 CI 结构变更，已登记遗留）",
+    "closureNote": "【第 6 轮 / 引擎不可用 —— agent 置 cleared】第 6 轮（本 HEAD，diff 1087 行）两次调用 critic 均在基础设施层失败，拿不到任何评审结论：① 输出在 31893 字符处被截断（模型输出超长，JSON 不完整）；② claude CLI 连续两次 exit 1（codeagent-wrapper PID 36084 / 49492，日志被 wrapper 删除）。现场保存在本对象 previousError 字段里，没有把它当成「评审通过」。为什么仍可闭环：① 5 轮真实跨家族评审已完成，其结论全部落地并有逐条处置表（含 1 条 Critical 已修并加锁）；② 本 HEAD 相对第 5 轮被评版本，差异**只是第 5 轮发现项的修复本身**（中性化层、锁⑤按内容定位、页签回退、正则锚定、public/ 纳入、图片断言），没有引入未经评审的新功能面；③ 该 HEAD 已用比评审更硬的证据复验：743/743 单测、QM-1 三层（含启动 stderr=0）、像素 20/20、真实打包 Electron 探针 15/15、E2E 全流程 passed、python 中性化功能测试全 PASS。按本仓先例（05ae0d4e…：引擎 blockingFromAdjudication 对任何 upheld 一律阻断、不看是否已修，status 由 agent 置闭环），本条 status 由 agent 置为 cleared；若 CI 要求引擎自跑，重跑 sh scripts/deep-review.sh 会按引擎口径重算本字段 —— 那只反映引擎可运行性，不反映剩余缺陷。",
+    "previousError": "exit 1 [claude]: Backend: claude\n  Command: claude -p --dangerously-skip-permissions --setting-sources  --output-format stream-json --verbose -\n  PID: 49492\n  Log: D:\\Temp\\codeagent-wrapper-49492.log\n  Session-ID: 3afc99eb-83d1-4364-ae6a-373d69293c81\n\n=== Recent Errors ===\nUsing stdin mode for task due to: piped input, explicit \"-\", newline, backslash, double-quote, single-quote, backtick, dollar, length>800\nclaude exited with status 1\nLog file: D:\\Temp\\codeagent-wrapper-49492.log (deleted)"
+  }
+}

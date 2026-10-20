@@ -23,6 +23,72 @@
 **方法论两条（可迁移）**：
 - **评审给的"因果"要先测可达性，再决定处置**。本条 i1 的机制主张成立（选择器前缀读不到 DOM 嵌套），但它的"用户屏幕上 2.75:1"不成立 —— `login-state*` 在 `645b86684` 删模板时留下了 CSS，是**死样式**（全仓 grep 只有样式声明、没有类名产出者）。按评审原话直接上报"暗色回归"就是拿别人的推测当我的证据；而把"它是死样式"当免修理由也不对 —— 死样式照样要登记，只是**登记的性质**从"视觉缺陷"变成"待清理的死代码"。
 - **"换个更严的默认"不是收敛判据的方向**。同一批评测里还有两处反例：给 `classStems` 留单段前缀（更"严"）会误命中；对 `rgba()` 底色做 alpha 合成（更"聪明"）在本仓只有 1 处受益、却要把整条链的重算改成混合语义。**先量受益面，再决定要不要为它扩判据。**
+## amend 已提交内容会漂移 diff 内容寻址哈希，让深度审查的判定记录「双双落空」（s2v-voice-clone-auto-select，2026-10-20）
+
+### lesson: amend-after-commit-breaks-content-addressed-review-record
+
+**现场**：提交后发现文档里有一条本机绝对路径撞了 Gate 12c（doc abs-path 基线），于是 `git commit --amend` 修正。修正后跑 `sh scripts/deep-review.sh`，脚本报「本提交有 921 行非 .ccg 改动却没有判定记录 ⇒ 深度审查无法进行（fail-closed）」，`check-pr-exec-record.js` 也报 CCG 深度审查欠账。
+
+**根因**：`.ccg/reviews/<name>.json` 的记录名是**内容寻址**的——`stagedDiffHash = git diff ... -- . ':(exclude).ccg' | sha256sum`。pre-commit 在 amend 前的 diff 上算出 `b23748b5`，amend 改变了 diff 内容（记录文件自身也在 diff 里，自我指涉），哈希变成 `39af17dc`，而 amend 时 pre-commit 又新生成一个 `68258ca4`。三个记录躺在 `.ccg/reviews/` 里，**没有一个与最终提交的 diff 匹配**，旧的还被我一起带进了提交（CCG 评审 i4 抓到这个：sha/changedLines 与 head 不符、两文件内容重复）。
+
+**修法**：`git reset --soft HEAD~1` 回到 base（保留 index）⇒ `git rm --cached` 掉两个残留记录 ⇒ 重新 `git commit`（pre-commit 用当前 diff 重新判定，生成匹配的 `39af17dc`）⇒ 再跑 deep-review.sh 即命中。**不要用 amend 去修一个「已被内容寻址登记过的提交」。**
+
+**可复用的三条**：
+1. 凡「记录名/缓存键由 diff 内容哈希生成」的机制，**amend 是禁区**——它让「已登记的旧记录」与「新 diff」同时失效，且旧记录不会自动清理。
+2. 修正已提交内容的正确姿势是 soft reset + 重新提交，让钩子用新 diff 重新登记；这也顺带避免「同一逻辑改动出现两条 commit」的历史噪声。
+3. 自我指涉要警惕：被寻址的 diff **排除自身目录**（`':(exclude).ccg'`）正是为了切断这个环，但寻址记录**放进同一次提交**时仍会二次漂移——所以寻址产物应由钩子自行管理，不应手工 `git add` 进业务提交。
+
+## 「有回滚代码」≠「回滚有效」——调用方先写状态时，回滚锚点会被污染成空操作（s2v-voice-clone-auto-select，2026-10-20）
+
+### lesson: rollback-anchor-captured-after-caller-write-is-a-no-op
+
+**现场**：用户诉求「克隆音色成功后，语音/音色 ID 下拉自动切到新音色」。主路径在基线里**早就实现了**（`tts-voices-clone.js` 的 `addS2VVoiceClone`：入库 → 写 `voiceId` → `selectS2VVoice` → toast），happy-path 测试也是绿的。但偏好持久化失败（`VOICE_PREFERENCE_STORE_UNAVAILABLE` 等）时，下拉会停留在一个**从未保存成功**的音色上。
+
+**根因**：`addS2VVoiceClone` 在调 `selectS2VVoice` **之前**写了 `d.getS2vConfig().voiceId = voice.id`；而 `selectS2VVoice` 内部的回滚锚点是 `const previousVoiceId = d.getS2vConfig().voiceId`（进入函数时取值）⇒ 锚点取到的是**新值** ⇒ 失败时 `voiceId = previousVoiceId` 写回同一个 id，**字面意义上的空操作**。回滚代码存在、sibling 测试也绿，但这条调用形态下它什么都没做。
+
+**为什么既有测试抓不到**：`CreateView.test.js` 里那条「设为默认保存失败时回滚下拉与徽标」**直接调 `selectS2VVoice(id)`** 且预置了不同的 `voiceId`——它测的是「进入时锚点取到旧值」这一形态，结构上不可能触发布音路径的锚点污染。**同一个函数、同一个分支，两种调用形态，一种被覆盖一种没有。**
+
+**修法**：给 `selectS2VVoice` 加可选第二参 `rollbackVoiceId`（显式回滚锚点），`addS2VVoiceClone` 在写 `voiceId` **之前**捕获旧值并传入；不传时行为与旧版逐字节一致（向后兼容）。同时让克隆路径在 `selectS2VVoice` 返回 `false` 时**不弹成功 toast**——克隆事实成立，但不得谎报「已添加并已设为默认」。
+
+**可复用的三条**：
+1. 看到「先写状态、再调一个带回滚语义的函数」的时序，第一问是：**被调函数的回滚锚点在这个形态下取到什么值？** 取到目标值就等于没有回滚。
+2. 「有 sibling 测试覆盖同一分支」≠「本调用形态被覆盖」——跨函数的时序契约（写点与回滚点分处两个模块）是单文件测试的结构性盲区，必须为**每种调用形态**各写一条。
+3. 失败路径除了断言状态回滚，还要断言**用户可见后果**（toast 弹不弹、徽标在不在）——状态对了但谎报成功，用户看到的是「保存成功了」，比不提示更糟。
+
+## 错误文案别用 `a || b ? a : c` —— `||` 优先级高于 `?:`，冒号后是死代码（s2v-voice-clone-auto-select，2026-10-20）
+
+### lesson: ternary-mixed-with-or-makes-fallback-branch-dead-code
+
+**现场**：音色偏好持久化失败时，用户看到的一律是「语音列表加载失败，请稍后重试」，而不是「默认音色保存失败」。
+
+**根因**：`tts-voices-shared.js` 两处写成
+`friendlyVoiceCatalogError(m) || formatUserError(...).message ? friendlyVoiceCatalogError(m) : d.t('...Failed')`。
+`||` 优先级高于 `?:` ⇒ 条件部分是 `(a || b)`，而 `b`（`formatUserError` 的 message）在映射不到时也返回非空串 ⇒ **条件恒为真** ⇒ 冒号后的 `selectionSaveFailed` / `defaultVoiceRestoreFailed` 两个兜底键**从不显示**。它们在 locale 里存在、在 PRD 里列着、在错误码文档里写着，但一行都到不了用户眼前。
+
+**为什么没测出来**：`friendlyVoiceCatalogError` 的映射表有 26 条，测试只断言了「命中已知码」的路径；「message 不在表内」这条兜底路径从未被断言，所以死代码可以无限期存活。**变异反证实测：把死三元改回原样，6 条新测试 0 失败——它确实没有机械锁。**
+
+**修法**：改成 `friendlyVoiceCatalogError(m) || d.t('<兜底键>')`，一行搞定；随之移除不再使用的 `formatUserError` import。
+
+**可复用的三条**：
+1. `x || y ? x : z` 是经典陷阱——想写「优先 x，否则 z」就该直接 `x || z`，别把兜底塞进三元冒号后。
+2. 兜底分支要**断言可达性**：至少一条「message 不在映射表内」的用例，否则兜底键是死是活无人知道。
+3. 兜底键没有机械锁时（如单测的 `t` 是 key 回声、无法断言文案值），就把「禁止写法」写进 PRD 数据校验表——流程面约束比没有约束好，但要如实标注它没有机械锁。
+
+## 刷新失败 ≠ 音色不存在：清空选中项前先问「目录这次返回了没有」（s2v-voice-clone-auto-select，2026-10-20）
+
+### lesson: distinguish-catalog-absent-from-catalog-failed-before-clearing-selection
+
+**现场**：用户刚克隆了一个音色（下拉已自动切到它），点了一下「刷新音色列表」；刷新失败（瞬时网络/服务不可用），下拉选中项被清空回「使用服务商默认音色」，且没有任何错误提示——用户以为自己刚克隆的音色没了。
+
+**根因**：`useTtsVoices.js` 的选中项归一写成「目录返回的 `selectedVoiceId` 不可用 ⇒ 已配置值不可用 ⇒ **否则清空**」。三分支没有区分两种完全不同的情况：**目录返回了、但这个音色不在其中**（该清空，可能是 provider 换了/音色被删）与**目录这次根本没返回**（`catalogData` 为空，不该清空——克隆音色独立于 catalog 存在）。PRD 早有明文：「当前已保存的 voiceId 即使不在最新目录，也必须作为保留选项，不能静默丢失」（`PRD-S2V-PIPELINE-PAGE-UX.md:228`），代码没实现这条。
+
+**修法**：加 `else if (configuredVoiceId && !catalogData)` 空分支（刻意只写注释不写代码——它的语义就是「不要做清空」），并把这条规则连同「为什么 provider 切换时的陈旧 voiceId 不走这条分支」写进注释与 PRD 数据校验表。
+
+**可复用的三条**：
+1. 「取不到数据」和「取到的数据里没有」是两件事，前者清空用户状态就是**用故障惩罚用户**。
+2. 空分支要写注释说明「为什么故意不做」——否则下一个人会以为是漏写，顺手补上 `voiceId = ''`。
+3. PRD 里已写明的保留条款，要去代码里找**实现它的那一行**；找不到就是文档与实现漂移，哪怕测试全绿。
+
 ## 「upheld 永远是阻断项」——门禁要的是「裁决已产出」，不是「建议已改完」（ccg-closure-exits-and-debt-split，2026-10-20）
 
 ### lesson: a-verdict-is-a-closed-state-not-a-fix
@@ -63,6 +129,11 @@
 ① 新 PR 记录的状态列写「由门禁推导」；bullet 写 `远程同步 PR #NNNN`。
 ② 合并前**别**写 `PASS` —— 那会判 `prematureClaim`（文件还不在基线上，不可能已经远程同步）。
 ③ 判据首行会打印 `MERGE-LEDGER prs=<n>` / `HAND-CLOSURE 人工改写=<n>`；后者非 0 说明有人在改状态词，那是拦截面而不是可见面。
+## 2026-10-20 · rewrite-cancel-and-truncation-summary：聚合丢弃子信号 + 长任务缺取消的两条形态
+
+- **pitfall · 「无法归属到整体」不是丢弃子信号的理由**：分段改写合并时，每段各自知道自己是否被模型截断（`finishReason=length`），但合并代码把它**丢弃并硬写 `false`**，注释理由是「单段无法归属到整篇」。这个理由混淆了「精确归属」与「存在性陈述」——用户不需要知道「整篇被截了几段」，只需要知道「**有片段被截了**」。代价是界面完全静默：正文中间缺一块但没有任何横幅，正是上一刀花力气消灭的静默截断换个路径重现。判据：聚合多个子结果时，逐项问「这个子信号删掉后，用户会少知道什么？」；只要答案是「少知道某件坏事发生了」，就必须上卷为 `any()`（并尽量保留定位信息，如段号数组）。
+- **pitfall · 长任务的接口形态会随耗时改变而失效，取消通道是它的隐性契约**：`ai:rewrite` 原本是秒级单次调用，没有取消通道完全合理。分段改写把它变成**分钟级串行**后，同一个接口就从「不需要取消」变成「必须能取消」——而接口本身没有任何地方会提醒你这个变化。本仓 `pipeline/render/video-clone/queue/podcast/zhihu-favlist` 六条长任务通道全有 cancel，唯独 `ai:*` 13 条都没有，正是这条的存量证据。判据：任何把「一次调用」改成「N 次串行」或「分钟级」的改动，必须同帧检查该通道有没有中止途径；没有就要补，或在 UI 明确承诺「不可取消」。
+- **pattern · 协作式取消要复用本仓既有标记范式，并如实定义粒度**：本仓已有 `signal = { cancelled: false }`（`zhihu-favlist.js` / `batch-rate-controller.js`）与 `services/abort-utils.js`。做 `ai:rewrite` 取消时**不要把信号一路穿到 `fetch`**——勘察实证 `model-provider-manager.callAdapter` 只调 `adapter[method](params)`，`runtimeOptions` 在那层就被丢掉，穿到 fetch 等于给**全部** LLM 调用加通路。正解是段边界协作式 + **文案如实**（「当前片段会先完成」而不是「立即停止」）+ 明说代价（已耗片段不保留、费用不退）。另两条配套机械项：① 登记表必须在 `finally` 删（否则按改写次数无限增长）；② 同一 runId 并发要**拒绝**（`DUPLICATE_RUN`）而不是覆盖——共用 token 会让两次改写互相误杀。
 
 ## 「规则已加」和「用户看得见」隔着两件事——基类覆盖与 transition:all 的淡入（focus-ring-zero-coverage，2026-10-19）
 

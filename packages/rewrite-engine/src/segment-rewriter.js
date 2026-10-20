@@ -61,7 +61,28 @@ async function rewriteSegmented (engine, params, ctx) {
     : { ...userSettings, wordCountRange: undefined }
 
   const segmentTexts = []
+  // 段级截断汇总（rewrite-cancel-and-truncation-summary）：每段各自知道「我是否被模型
+  // 截断」（finishReason=length/max_tokens），但历史上这个信号在合并时被丢弃并硬写
+  // modelTruncated=false —— 结果是「5 段里第 3 段被截断」在界面完全不可见，
+  // 静默截断换到分段路径重现。这里如实汇总：任何一段被截断 ⇒ 全篇可见。
+  const truncatedSegments = []
+  // 协作式取消（proposal §2.2）：纯标记对象，段边界检查。in-flight HTTP 不中断，
+  // 最坏延迟 = 一个片段时长（UI 文案已写明「当前片段完成后停止」）。
+  const signal = params.signal
+
   for (const seg of segments) {
+    // 段边界取消检查（第 1 段之前也查 ⇒ 入口即取消时零 LLM 调用）
+    if (signal && signal.cancelled === true) {
+      return {
+        success: false,
+        cancelled: true,
+        errorCode: 'CANCELLED',
+        error: `改写已取消（第 ${seg.index + 1}/${segmentCount} 段开始前停止），已完成片段不保留、已产生费用不退`,
+        segmentCount,
+        cancelledAtSegment: seg.index + 1,
+        completedSegments: segmentTexts.length,
+      }
+    }
     const segParams = {
       ...params,
       content: seg.text,
@@ -88,6 +109,8 @@ async function rewriteSegmented (engine, params, ctx) {
       }
     }
     segmentTexts.push(once.result)
+    // 段级截断汇总：1-based 段号（与用户可见的「第 i/n 段」同一编号口径）
+    if (once.modelTruncated === true) truncatedSegments.push(seg.index + 1)
   }
 
   // 合并 + 全篇后处理（复用 _postProcess：AI 味去除/截断/结构标题剥离/截断契约
@@ -115,9 +138,10 @@ async function rewriteSegmented (engine, params, ctx) {
     quality,
     outputTruncated: truncatedAt != null,
     outputLength: [...processed].length,
-    // 合并结果不携带单段的 finishReason（每段各自是否被模型截断已在段内体现，
-    // 合并后无法归属到「这一整篇被截断」，故不置位以免误导）
-    modelTruncated: false,
+    // 段级截断汇总（见上方 truncatedSegments 注释）：任何一段被模型截断 ⇒ 全篇可见。
+    // 「至少有一段被截断」是可以如实表达的，不需要把段号编进 modelTruncated 的语义。
+    modelTruncated: truncatedSegments.length > 0,
+    truncatedSegments,
     strategy: {
       id: strategy.id,
       name: strategy.name,

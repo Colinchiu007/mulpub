@@ -176,6 +176,20 @@ class RewriteEngine {
       return await rewriteSegmented(this, params, { strategy, preCheck })
     }
 
+    // 3.6 单次路径的取消前检查（rewrite-cancel-and-truncation-summary）：单次调用只需
+    // 数秒，取消价值低，但「入口即取消」不应白调一次 LLM（计费）。调用开始后不可中断
+    // （in-flight 中止需给全部 LLM 调用加信号通路，proposal §2.1 明确不做）。
+    const entrySignal = params.signal
+    if (entrySignal && entrySignal.cancelled === true) {
+      return {
+        success: false,
+        cancelled: true,
+        errorCode: 'CANCELLED',
+        error: '改写已取消（尚未调用模型），未产生费用',
+        completedSegments: 0,
+      }
+    }
+
     // 4. 单次改写主体（rewrite-segment-and-finish-reason 抽取：分段路径复用同一函数；
     //    内部保留 prompt 构建/LLM/后处理/质量评估，知识库写入与 viralScorer 已上移）
     const once = await this._rewriteOnce(params, { strategy, preCheck, segmentContext: null })
@@ -362,6 +376,8 @@ class RewriteEngine {
       modelTruncated: once.modelTruncated,
       // 分段改写元数据（rewrite-segment-and-finish-reason 第二刀；仅分段路径有）
       ...(once.segmented ? { segmented: once.segmented } : {}),
+      // 段级截断段号（rewrite-cancel-and-truncation-summary；仅分段路径且确有截断时出现）
+      ...(once.truncatedSegments ? { truncatedSegments: once.truncatedSegments } : {}),
       // 爆款潜力对比（viral-rewrite-integration）：仅 viralScorer 注入且评分有效时存在
       viral,
       // P2 反馈闭环：本次改写引用的知识条目（供前端采纳/拒绝时驱动 feedbackBoost）

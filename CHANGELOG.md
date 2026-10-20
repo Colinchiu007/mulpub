@@ -21,6 +21,16 @@
 - **判据语义从「取最差」改为「沿链取最近的不透明表面」**：取最差会把**自带底色**的合规元素判成假缺陷（`.complete-login` 白字坐自己的 `#5048e5` 是 6.18:1，"最差"却把它脚下的 `#f3f2ff` 也算进来 ⇒ 1.11:1）；反过来"穿透解析不出的层去用更远那层"则把"读不出"洗成"读得出"（`.platform-filter-panel button.active` 暗色那格 6.75 就是这么来的，现改判 `needs-design`）。两种错法同源：把"可能是别的底"当成"就是那块底"。
 - **基线重跑从"临场手写脚本"变成仓内工具**：新增 `apps/desktop/scripts/gen-text-contrast-baseline.mjs`（默认重写、`--check` 只比对不写；现场新出现的裸 hex 条目一律 rc=1 并点名 —— `status` 属人的判断，脚本不得代拍）。这是可维护性轴那条「重跑生成器会把已核对的基线覆盖成另一种形状」的出口；`surfaces` 上人写的 `note` 按 `selector+prop` 回挂，不因重跑丢失；落盘沿用文件自己的行尾（本仓这份基线是 CRLF，统一回写会把 34 行 diff 撑成整文件重写）。
 - **本轮锁的增量与读数（当场实测）**：`Accounts.text-contrast.test.js` 11 → 14 条、`color-token-reader.test.js` 18 → 21 条、`text-contrast-sites.test.js` 8 → 9 条，四份合跑 `97 passed`；消费者并集（`src/views` + `src/styles` + 三份读 Accounts.vue 的结构锁）`2233 passed | 1 skipped`；变异电池从 14 道扩到 **15 道**（新增 M11 冒号归一退回、M12 属性名正则退回、M13/M14 分别摘掉两格"出声"、M15 不返回 `darkDeclared`），15/15 CAUGHT 且各自红在**指名**用例上，控制趟 GREEN(38)、还原逐字节相同。
+# [未发布] fix(s2v): 克隆音色成功后「语音 / 音色 ID」自动切换 —— 修回滚空操作、失败文案死分支与刷新抹选（s2v-voice-clone-auto-select）
+
+- **需求与现状判定**：用户诉求「在音色复制/克隆区新添加本地音色样本后，有了新的自定义音色，默认语音 / 音色 ID 的下拉列表中所选 ID 自动切换为新添加的自定义音色」。主路径在基线里**早已实现**（`tts-voices-clone.js` 的 `addS2VVoiceClone`：入库 → 写 `voiceId` → `selectS2VVoice` → toast），happy-path 测试也是绿的；但有三个缺陷让它在普通使用中失效或给出错误反馈。本次是**修缺陷 + 补合同 + 补测试**，不是新写功能。
+- **R1 回滚空操作（Critical）**：`addS2VVoiceClone` 在调 `selectS2VVoice` **之前**写 `voiceId = voice.id`，而 `selectS2VVoice` 的回滚锚点取「进入函数时的 `s2vConfig.voiceId`」⇒ 锚点已是新值 ⇒ 失败时写回同一个 id，**字面意义上的空操作**。后果：偏好持久化失败（`VOICE_PREFERENCE_STORE_UNAVAILABLE` 等）时，下拉停留在一个**从未保存成功**的音色上；下次启动流水线主进程按偏好回退默认音色 ⇒ 界面与运行行为不一致。修法：`selectS2VVoice(voiceId, rollbackVoiceId?)` 新增可选第二参（显式回滚锚点，不传时行为与旧版逐字节一致），`addS2VVoiceClone` 在写 `voiceId` **之前**捕获旧值传入；同时让该路径在 `selectS2VVoice` 返回 `false` 时**不弹成功 toast**——克隆事实成立，但不得谎报「已添加并已设为默认」。
+- **R2 失败文案死分支（Major）**：`friendlyVoiceCatalogError(m) || formatUserError(...).message ? friendlyVoiceCatalogError(m) : d.t('...Failed')` —— `||` 优先级高于 `?:`，条件恒为真 ⇒ `selectionSaveFailed` / `defaultVoiceRestoreFailed` 两个兜底键**从不显示**，用户一律看到「语音列表加载失败」而非真实原因。改为 `friendlyVoiceCatalogError(m) || d.t('<兜底键>')`，并移除不再使用的 `formatUserError` import。
+- **R3 刷新失败抹掉选中项（Major）**：选中项归一的 `else` 分支无条件清空 `voiceId`，未区分「目录返回了但音色不在其中」与「目录这次根本没返回」。后果：用户刚克隆的音色（独立于 catalog 存在）被一次失败的「刷新音色列表」抹掉且无任何提示，违反 PRD「当前已保存的 voiceId 即使不在最新目录，也必须作为保留选项，不能静默丢失」。新增 `else if (configuredVoiceId && !catalogData)` 空分支（刻意只写注释不写代码）。
+- **回归保护（6 例，`useTtsVoices.test.js` 新 describe「克隆成功后自动切换『语音 / 音色 ID』选中项」）**：克隆成功切换 + MiMo `mimo-clone-` 分支（此前**零覆盖**）+ 偏好失败回滚 + 并发上下文变更丢弃过期结果 + 删除回退 + 目录失败不清空。变异反证：M1 删锚点入参 / M2 锚点改回 / M3 删不清空分支 / M5 让 toast 无条件弹 ⇒ 各 1 failed；**M4（恢复死三元）0 failed 存活**——兜底文案可达性无机械锁，已改用 PRD「禁止写法」做流程面约束并如实标注。
+- **文档**：`01-docs/PRD.md` 音色域合同 4 处补充（数据校验 3 行含「禁止写法」与后果 / 流程第 3、4 步补回滚锚点合同与自动切换 6 步合同 / 交互逻辑 2 行 / 不变式 T9-T11）；新增详细 PRD `01-docs/PRD-S2V-VOICE-CLONE-AUTO-SELECT-2026-10-20.md`；`01-docs/learnings.md` 顶部 3 条教训（回滚锚点被污染 / 三元混搭死代码 / 刷新失败≠音色不存在）；执行记录 `openspec/records/s2v-voice-clone-auto-select.md`。
+- **回归基线**：`useTtsVoices.test.js` 22/22、`src/views/video-creation` 145/145、`CreateView.test.js` + 删除守卫 + 选项自动保存 310/310、运行时/批量/UE 契约 21/21、主进程音色域 4 套件 115/115；Gate 7 `--cjk` PASS（1331→1146）/ `--keys` PASS（2152 key）；QM-1 Vite build + electron-builder 双 exit 0，启动 9s 存活且 stderr 0 行。模板/DOM/样式/locale 文件零改动（`S2vConfigPanels.vue` 未进 diff）。
+- **如实记不修**：QM-6 双模型外部评审未完成（本机 claude/opencode/codex CLI 均超时不可用，CI 侧该判据 advisory 不阻断）；`s2vPersistedVoiceId` 写了没人读（四处写、零运行时消费方），属独立清理未在本次动。
 # [未发布] fix(gates): 锁预算复测脚本的采样域漏掉整个 QG Coverage 作业族 —— 最需要大预算的那个作业从不在样本里（lock-timing-audit-coverage-domain）
 
 - **动因**：`scripts/lock-timing-audit.js` 用 `JOB_RE = /QG Desktop Shards/` 枚举「哪些作业跑了这把锁」，而实测**跑它的作业有两族**。当场重取（origin/main 最近 4 次 main push × 3 个作业 = 12 份作业日志，逐作业统计 `[windows-file-lock] ready=` 行）：`QG Coverage count=44 max=17466ms` | `QG Desktop Shards (2/2) count=16 max=14402ms` | `QG Desktop Shards (1/2) count=28 max=3773ms` ⇒ **尾部最大的那个作业根本不在采样域内**，而 `LOCK_BUDGET_PROVENANCE.maxObservedReadyMs=12762` 与「45000 预算余量 3.53×」这句结论都是在这个被切掉一半的集合上量出来的。这不是「采不到」（那有 rc=3 出口兜着），是「采到了、数也自洽、但域是残缺的」⇒ 判据必须带**扩面方向**的 A/B 负控，光加零样本出口挡不住这一类。
@@ -31,6 +41,44 @@
 - **TDD 与反证**：先写红（`2 failed | 22 passed`，红因分别是 `legacyMax` 为 undefined、`formatLegacyNotice` 不是函数）再实现 ⇒ `24 passed`；变异 N1–N8 逐条**指名**变红且跑后按字节还原（`restored=true` ×8），控制跑自带健康断言（`rc=0 && passed=24`，不健康则 PROBE_BLIND 且不产出任何 verdict）。消费者并集全部实跑：`windows-file-lock` + `account-state-restorer` + `credential-store` = **51 passed**；`packages/api-publish-engine/test/api-key-manager-atomic-write.test.js` = **1 passed**（它 require 同一份夹具）。清点用未截断的 `git grep`（上一轮把清点接了 `head` 恰好削掉一个真消费者，那笔教训见上一条 PR 的记录）。
 - **还有一层没扩，写清楚免得被读成「域已完整」**：脚本的 workflow 坐标只有 `quality-gate.yml`，而 `.github/workflows/electron-ci.yml` 的 `electron-tests` 作业（步骤「Unit tests (Vitest, non-Electron, single-worker deterministic)」，`if: github.event_name != 'pull_request'` ⇒ 仅 main push 跑，#4061 后按 `--shard` 切三片）**跑同一批桌面 vitest**，那里也产握手行。扩它要给采集端加第二个 workflow 轴并配同形的 A/B 负控，属另一片的工作量 ⇒ 登记为遗留（执行记录 §4 第 3 条），并把边界同时写进 `JOB_RE` 上方注释与 `docs/windows-lock-budget-provenance.md` §4 第 6 条。**结论的适用范围因此是：现存 max 至今仍是下界，不是全量分布。**
 - **边界**：预算取值本身一字未动（45000 / 12000 / 20000），改的是「量它的尺」；无 UI / locale / 主进程运行面改动，QM-1 与 QM-4 判 N/A。文档同步落在 `docs/windows-lock-budget-provenance.md`（§2 偏差表、§3 rc=3 两档与 rc=5、§4 新增第 6/7 两个坑），并按当场读数更正了该文件 §5 里「`CHANGELOG.md` 含 NUL 字节、被 git 判为 binary」这句已过期前提（上游 control-bytes-sweep 后实测 NUL=0，本轮置顶插入即为现场反证）。
+# [未发布] feat(rewrite): 分段截断汇总可见化 + ai:rewrite 取消通道（rewrite-cancel-and-truncation-summary）
+
+## 问题
+
+`rewrite-segment-and-finish-reason` 交付后留下两条真实欠账：
+
+1. **分段截断静默**：`segment-rewriter.js` 合并时**硬写 `modelTruncated: false`**，理由是「单段无法归属整篇」。
+   但「至少一段被截」本可如实表达 —— 结果是 5 段里第 3 段被模型截断时，正文中间缺一块而界面**无任何提示**
+   （正是上一刀想消灭的静默截断，换到分段路径重现）。
+2. **`ai:rewrite` 无取消通道**：`ai.js` 13 个 `ai:*` 通道一条取消都没有，而
+   `pipeline/render/video-clone/queue/podcast/zhihu-favlist` 全有。分段把改写从秒级变成分钟级后，
+   「粘错文章也只能等全程、后续片段继续计费」成为可感知伤害。
+
+## 改动
+
+- **引擎**：分段循环收集 `truncatedSegments`（1-based 段号），`modelTruncated = truncatedSegments.length > 0`；
+  该字段**条件展开**进结果 ⇒ 单次路径形状零变化。段边界检查 `signal.cancelled`，命中即返回
+  `{success:false, errorCode:'CANCELLED', cancelled:true, cancelledAtSegment, completedSegments}`，无半成品、不写 KB。
+- **IPC**：`activeRewrites` 登记表（`finally` 必删，无泄漏）；`ai:rewrite` 带 `runId` 才注入 signal
+  （无 runId ⇒ 与改动前逐字节等价）；新增 `ai:rewrite-cancel`（owner 校验 + `not_running`/`not_owner` 分支，
+  同 runId 并发 ⇒ `DUPLICATE_RUN`）。
+- **preload**：`aiRewriteCancel`，键数锁 140→141 / 338→339 同步更新。
+- **渲染层**：新增 `composables/useRewriteCancel`（runId 生命周期 / beginRun / cancel / endRun）与
+  `utils/rewrite-truncation`（三个纯派生 + 单测）；改写中显示「取消改写」按钮，`CANCELLED` 走 info 不弹错误；
+  模型截断横幅新增**点名段号**文案（避免「整篇残缺」误读）。`RewriteView.vue` 从 1465 行拆回 1339 行。
+
+## 明确不做
+
+- **in-flight 中止**：信号需穿过 4 层到 `fetch`，而 `model-provider-manager.js:294/303` 只为熔断使用
+  `runtimeOptions`、未下传 adapter —— 改它等于给全部 LLM 调用加通路，波及面远超本需求。取消在**段边界**生效。
+- **取消退款/断点续跑**：已消耗片段不保留、费用不退，重试从头开始（与「任一段失败即整篇丢弃」同语义）。
+
+## 验证
+
+- 引擎 **263 passed**（+8：T1-T4 截断汇总、C1-C4 取消）。
+- 渲染层/IPC **152 + 515 passed**（取消通道 7 例、纯派生 10 例、IPC 8 例、preload 375 例全绿）。
+- `build:vue` rc=0；`electron-builder --dir` rc=0；asar 核验通道与方法在包内。
+- 静态门禁：unwired OK / locale keys PASS(2181) / locale CJK PASS / max-lines ✅ / brand PASS / doc-abs PASS。
 
 # [未发布] docs(openspec): 归档 shape-lock 规格 delta —— 那条 Requirement 不再自己打自己（archive-shape-lock-scenario）
 

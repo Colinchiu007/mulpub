@@ -86,12 +86,61 @@ ipcMain.handle('ai:generate-summary', withSenderCheck(async (_event, content) =>
   // RewriteEngine 改写引擎 API（Phase 3 — rewrite-engine 包）
   const rewriteEngineService = deps.rewriteEngineService
   if (rewriteEngineService) {
-    ipcMain.handle('ai:rewrite', withSenderCheck(async (_event, params) => {
+    // 改写取消（rewrite-cancel-and-truncation-summary）：分段改写把一次改写拉长到分钟级，
+    // 而 ai:rewrite 此前没有任何中止途径（粘错文章也只能等全程、后续片段继续计费）。
+    //
+    // 形态借用本仓既有协作式范式（zhihu-favlist.js / batch-rate-controller.js 的
+    // `signal = { cancelled: false }` 标记对象），**不是** AbortSignal：
+    // in-flight HTTP 无法中止（信号需穿过 4 层到 fetch，会波及全部 LLM 调用，proposal §2.1），
+    // 因此取消在**段边界**生效，最坏延迟 = 一个片段时长。UI 文案已如实写明。
+    const activeRewrites = new Map() // runId → { token, senderId }
+
+    /** runId 归一：仅接受短字符串；非法/缺失 ⇒ null（老调用方走此路，行为零变化） */
+    const normalizeRunId = (v) => (typeof v === 'string' && v.length > 0 && v.length <= 128 ? v : null)
+    /** sender id 归一：单元测试的 mock 事件可能没有 sender，取不到时记 null */
+    const senderIdOf = (event) => {
+      const id = event && event.sender && event.sender.id
+      return typeof id === 'number' ? id : null
+    }
+
+    ipcMain.handle('ai:rewrite', withSenderCheck(async (event, params) => {
       try {
         if (!params || typeof params !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
-        const result = await rewriteEngineService.rewrite(params)
-        return { code: 0, data: result }
+        const runId = normalizeRunId(params.runId)
+        if (!runId) {
+          // 无 runId：完全维持旧行为（不登记、不注入 signal、引擎零检查）
+          const result = await rewriteEngineService.rewrite(params)
+          return { code: 0, data: result }
+        }
+        if (activeRewrites.has(runId)) {
+          // 同一 runId 并发：拒绝而非覆盖——共用一个 token 会让两次改写互相误杀
+          return { code: EC.VALIDATION_ERROR, message: 'DUPLICATE_RUN: 该 runId 已有改写在进行中' }
+        }
+        const token = { cancelled: false }
+        activeRewrites.set(runId, { token, senderId: senderIdOf(event) })
+        try {
+          const result = await rewriteEngineService.rewrite({ ...params, signal: token })
+          return { code: 0, data: result }
+        } finally {
+          // 无论成功/失败/取消都必须释放，否则 Map 随改写次数无限增长
+          activeRewrites.delete(runId)
+        }
       } catch (e) { log.warn('[ipc:ai]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message } }
+    }))
+
+    ipcMain.handle('ai:rewrite-cancel', withSenderCheck((event, runId) => {
+      const id = normalizeRunId(runId)
+      if (!id) return { code: EC.VALIDATION_ERROR, message: '缺少 runId' }
+      const entry = activeRewrites.get(id)
+      if (!entry) return { code: 0, data: { cancelled: false, reason: 'not_running' } }
+      // owner 校验：仅当两侧都拿得到 sender.id 时才判定（单元测试/未来非 WebContents 调用
+      // 取不到 id；生产环境两侧必有，故该检查在真实路径上始终生效）
+      const callerId = senderIdOf(event)
+      if (entry.senderId !== null && callerId !== null && entry.senderId !== callerId) {
+        return { code: 0, data: { cancelled: false, reason: 'not_owner' } }
+      }
+      entry.token.cancelled = true
+      return { code: 0, data: { cancelled: true } }
     }))
 
     ipcMain.handle('ai:list-rewrite-strategies', async () => {

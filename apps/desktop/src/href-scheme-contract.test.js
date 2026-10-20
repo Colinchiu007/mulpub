@@ -164,12 +164,15 @@ describe('渲染层 href 协议校验接线锁', () => {
     expect(offenders.map(o => `${o.rel} → href=${o.expr}`)).toEqual([])
   })
 
-  it('六个已知站点逐个在位（防止"整块删除用例"式绕过上一条）', () => {
+  it('已知站点逐个在位（防止"整块删除用例"式绕过上一条）', () => {
+    // 2026-10-20（film-debrand）：`src/views/FilmEngineeringView.vue` 已从本表移除。
+    // 理由不是「它失去了保护」，而是**它的外链渲染面被整体删除**了：用户要求彻底移除
+    // 「来源链接」（原项目页 URL），该视图不再渲染任何外部地址，因此没有 :href 绑定点可守。
+    // 若将来该视图重新引入外链，本表必须把它加回来 —— 加回来自动被上一条判据要求使用 safeHttpUrl。
     const known = [
       'src/views/Intelligence.vue',
       'src/views/Publish.vue',
       'src/views/PublishHistory.vue',
-      'src/views/FilmEngineeringView.vue',
       'src/components/TrendingPanel.vue',
       'src/components/ReferenceFinder.vue',
     ]

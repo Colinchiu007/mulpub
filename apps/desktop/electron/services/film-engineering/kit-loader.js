@@ -3,7 +3,7 @@
 /**
  * kit-loader - film-kit 数据资产加载与 schema 校验
  *
- * film-kit 是随包携带的《Hell Grind》影视工程数据资产：
+ * film-kit 是随包携带的影视项目案例数据资产：
  *   film-manifest.json       电影元数据 + 场景树（sceneId/名称/计数/层级/来源URL）
  *   shot-library.json        分镜库：每场景代表性真实提示词 + 模型 + 参考 token + 结果 URL
  *   reference-registry.json  token → 参考素材索引（角色/场景/道具 + 图 URL + 描述）
@@ -36,7 +36,9 @@ const KIT_FILES = [
 ]
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-// D4 四处同源：与 fetch-hell-grind-kit.py FILM_PROMPT_MAX_LEN 同值（导入/校验单一契约）
+// prompt 长度上限：导入器（scripts/film-engineering 下的脚本）与 IPC 校验（ipc-handlers/film-engineering.js）
+// 必须同值。这三处的相等性由 apps/desktop/src/i18n/film-debrand.test.js ⑤ 机械校验
+// —— 此前这里写「四处同源」却没有任何判据，注释与实现容易脱节。
 const FILM_PROMPT_MAX_LEN = 50000
 const MAX_PROMPT_LENGTH = FILM_PROMPT_MAX_LEN // 兼容别名，勿在新代码中使用
 const MAX_TOKEN_LENGTH = 64

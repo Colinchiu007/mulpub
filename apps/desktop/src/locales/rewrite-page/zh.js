@@ -65,6 +65,13 @@ export default {
     // 分段改写（>50000 字输入）：事前提示 + 结果卡元信息
     rewriteSegmented: '正文共 {length} 字，超过单次改写上限 {max} 字，将分段改写。耗时与费用会相应增加，且分段期间其他 AI 功能可能变慢；分段改写可能有一致性折损。',
     segmentedMeta: '分段改写 ×{count}',
+    // 取消通道（rewrite-cancel-and-truncation-summary）：协作式，当前片段完成后生效
+    cancelRewriteBtn: '取消改写',
+    cancellingBtn: '正在取消…',
+    cancellingHint: '正在取消：当前片段会先完成，之后不再继续后续片段。',
+    rewriteCancelled: '改写已取消：已完成的 {completed}/{total} 个片段不保留，已产生的模型费用不退。',
+    // 分段路径下只有部分片段被模型截断：必须点名段号，否则用户会以为全文残缺
+    outputTruncatedByModelSegments: '第 {segments} 段因模型单次生成上限被截断（合并后共 {length} 字）。这是模型侧的生成限制，建议缩短原文或拆成两次改写。',
     // ── 改写质量评估报告（content-quality-eval 桌面端闭环）──
     qualitySection: '质量评估',
     qualitySufficiency: '改写充分度',

@@ -213,7 +213,7 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r)).toContain('accountGetProxy')
   })
 
-  it('system 模块应导出 147 个方法（2026-10-17：146 + aiGenerateGenVideoTitle 热门选题视频发布标题生成；2026-10-15：149 − 3，删 opsCenterSyncGet/Save/Now 三条死通道）', () => {
+  it('system 模块应导出 141 个方法（2026-10-20：+aiRewriteCancel 改写取消；2026-10-17：146 + aiGenerateGenVideoTitle）', () => {
     const { createSystemApi } = require('./preload/system')
     const r = createSystemApi(ipcRenderer)
     // 136 + opsCenterSyncRuntime/PipelineOptions/AppMenu（运营中心运行时策略，活通道）
@@ -228,19 +228,22 @@ describe('preload 子模块方法数', () => {
     // - 10（分屏监控 webview:* API 随监控功能移除，网页查看统一走 pageManager）
     // - 3（2026-10-15：ops-center-sync:get/save/now 三条 IPC 在渲染端零调用，随别名一并移除）
     // - 7（2026-10-17：买断授权模型下线 #3851，删 6 个 payment:* 通道 + 1 个 admin 桥接）
+    // + 1（2026-10-20：aiRewriteCancel → ai:rewrite-cancel，长文分段改写的取消通道；
+    //      协作式，段边界生效，未带 runId 的旧调用方零影响）
     // + 1（2026-10-17：aiGenerateGenVideoTitle → ai:generate-gen-video-title，
     //      热门选题「生成视频 → 去发布」的爆款标题生成；无模型/失败时降级原始选题）
-    expect(Object.keys(r).length).toBe(140)
+    expect(Object.keys(r).length).toBe(141)
   })
 
-  it('合并后 api 总键数应为 338（2026-10-17：337 + aiGenerateGenVideoTitle 热门选题视频发布标题生成；337 = 344 − 7 买断授权模型下线（#3851 删 6 个 payment:* + 1 admin 桥接））', () => {
-    expect(Object.keys(api).length).toBe(338)
+  it('合并后 api 总键数应为 339（2026-10-20：+aiRewriteCancel 改写取消；338 = 2026-10-17 337 + aiGenerateGenVideoTitle）', () => {
+    expect(Object.keys(api).length).toBe(339)
     // 新键必须真实存在于聚合入口，防止「改了数字但方法没接上」
     expect(Object.keys(api)).toContain('identityRedeemCode')
     expect(Object.keys(api)).toContain('historyGetRepublishSnapshot')
     expect(Object.keys(api)).toContain('accountGetProxy')
     expect(Object.keys(api)).toContain('story2videoBgmLibraryStatus')
     expect(Object.keys(api)).toContain('aiGenerateGenVideoTitle')
+    expect(Object.keys(api)).toContain('aiRewriteCancel')
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {

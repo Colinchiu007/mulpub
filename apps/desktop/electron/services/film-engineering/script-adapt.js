@@ -1,12 +1,12 @@
 // @ts-check
 'use strict'
 /**
- * script-adapt - 剧本套用引擎（Hell Grind 工程方法复刻）
+ * script-adapt - 剧本套用引擎（影视项目案例工程方法）
  *
- * 输入：用户剧本（剧情）+ 角色映射（用户角色 → Hell Grind 角色槽位）
+ * 输入：用户剧本（剧情）+ 角色映射（用户角色 → 影视项目案例角色槽位）
  * 输出：adaptedShots（与 kit 分镜同构，可被勾选生成/导出消费）
  *   - 剧情内容 100% 来自用户剧本
- *   - 实现方法（提示词块结构 / 模型类型 / 参考图 token 约定）复刻自 Hell Grind 模板分镜
+ *   - 实现方法（提示词块结构 / 模型类型 / 参考图 token 约定）复刻自影视项目案例模板分镜
  *   - 可选 LLM 润色（复用 PromptBridge/aiGenerator）；LLM 不可用降级本地模板结果
  */
 
@@ -42,7 +42,7 @@ function splitScript (script) {
 }
 
 /**
- * 组装模板提示词：剧情替换 + Hell Grind 块结构复刻。
+ * 组装模板提示词：剧情替换 + 影视项目案例块结构复刻。
  * @param {object} opts
  * @param {object} opts.template - kit 模板分镜
  * @param {string} opts.beatText - 用户剧情段落

@@ -18,7 +18,7 @@ function makeKitData () {
     manifest: {
       schemaVersion: 1,
       filmMeta: {
-        title: 'Hell Grind',
+        title: 'Film Project Case',
         durationSec: 5706,
         logline: 'logline',
         characters: [

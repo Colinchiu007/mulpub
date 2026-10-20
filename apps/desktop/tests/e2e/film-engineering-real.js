@@ -172,13 +172,23 @@ async function run () {
     await page.screenshot({ path: path.join(OUTPUT_DIR, '01-create-film-engineering.png'), fullPage: true })
 
     await entry.click()
+    // #3234 三标签重组后 `/film-engineering` 是 Hub 页（默认「自动」页签，画布懒挂载）——
+    // 直接等 `.film-canvas-view` 必然 30s 超时（本脚本自 #3234 起一直红在这里，而它只在
+    // release tag 上跑，所以长期没被发现）。先等 Hub 标题（Hub 一定渲染的节点，口径同
+    // all-views.visual.test.js 的就绪探针），再切「画布」页签。
+    await page.locator('.film-hub-view .fh-title').waitFor({ state: 'visible', timeout: 30000 })
+    check('点击入口进入影视工程 Hub', true, await page.url())
+    await page.locator('[data-testid="fh-tab-canvas"]').click()
     await page.locator('.film-canvas-view').waitFor({ state: 'visible', timeout: 30000 })
-    check('点击入口进入电影工程短剧画布', true, await page.url())
+    check('切换画布页签进入短剧画布', true, await page.url())
 
     // ===== 7.4 画布主流程：剧本文本 → 拆分镜 → 分镜节点落布 → 生成入口 =====
     const engineAlert = page.locator('.fcv-alert')
     check('画布引擎可用（无 engineUnavailable 告警）', !(await engineAlert.isVisible().catch(() => false)))
-    const scriptBox = page.locator('[data-testid="fcv-script"] textarea').first()
+    // CCG 深度评审 i2（第二轮）：`fcv-script` 挂在 `<el-input type="textarea">` 上，Element Plus
+    // 把 $attrs（含 data-testid）透传到内部**真正**的 textarea 元素，所以选择器不能写成
+    // `[data-testid="fcv-script"] textarea`（那是「后代」语义，必然匹配 0 个）。
+    const scriptBox = page.locator('[data-testid="fcv-script"]').first()
     await scriptBox.waitFor({ state: 'visible', timeout: 15000 })
     await scriptBox.fill('第1场\n小林在雨夜走进车站。\n\n第2场\n小林在月台发现一枚旧钥匙。')
     await page.locator('[data-testid="fcv-adapt"]').click()
@@ -204,7 +214,9 @@ async function run () {
       throw new Error('film-kit 不可用，无法继续真实电影工程流程: ' + detail)
     }
     check('film-kit 随包资源可用', true, messageText(await available.textContent()))
-    check('Hell Grind 元信息加载', (await available.textContent() || '').includes('Hell Grind'))
+    // CCG 深度审查 i2：断言不绑死中文 —— 应用支持 zh/en，本脚本虽以 --lang=zh-CN 启动，
+    // 但一旦有人改默认语言或加语言回退，硬编码中文会变成假红。两种语言的正式术语都接受。
+    check('影视项目案例元信息加载', /影视项目案例|Film Project Case/.test(await available.textContent() || ''))
 
     const sceneNodes = page.locator('.fe-scene-node')
     await waitFor(async () => (await sceneNodes.count()) > 0, 30000, 250)
