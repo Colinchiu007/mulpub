@@ -1876,7 +1876,7 @@ export default {
 /* 分段编辑区折叠开关（2026-10-19）：紧贴分段标题，次级按钮样式，不与上移/下移/删除竞争 */
 .segment-editor-toggle { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; padding: 5px 10px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--text-muted); font-size: var(--font-size-xs); font-weight: 600; cursor: pointer; }
 .segment-editor-toggle:hover { border-color: var(--primary); color: var(--primary); }
-.segment-editor-toggle__icon { font-size: 10px; line-height: 1; }
+.segment-editor-toggle__icon { font-size: var(--font-size-xs); line-height: 1; }
 /* 提示词/翻译成对结构（2026-10-19）：翻译块紧贴对应 textarea 下方，弱化视觉权重（只读、次于可编辑控件） */
 .segment-prompt-translation { margin: -2px 0 4px; padding: 8px 10px; border-left: 2px solid var(--border); border-radius: 0 4px 4px 0; background: var(--bg); }
 .segment-prompt-translation-label { display: block; color: var(--text-muted); font-size: var(--font-size-xs); font-weight: 600; }
