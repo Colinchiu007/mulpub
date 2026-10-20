@@ -2080,6 +2080,13 @@ test('X2-8：段起点匹配要留住 .github/scripts/ 那 42 个真判据，同
   assert.strictEqual(mod.highRiskPrefixOf('.quality-rhythm/.github/workflows/mechanism-check.yml'), null,
     'vendored 副本不得算作本仓高危面')
   assert.ok(mod.VENDORED_SUBTREES.includes('.quality-rhythm/'), '排除机制必须显式登记在清单里，不许散落在判据内')
+  // 黏在别的词后面 ⇒ 不是那个面。上一版这里用的是 `vendor/`（本仓并不存在该目录），
+  // 而变异 P34（把段起点判据摘成任意子串）实测 NOT_CAUGHT —— 说明这两条断言当时都抓不到它。
+  // 下面两条是**能区分两种写法**的真判别串。
+  assert.strictEqual(mod.highRiskPrefixOf('xscripts/check-y.js'), null,
+    '前缀黏在别的词尾（xscripts/）不算 scripts/check- —— 段起点这一维必须有判别用例')
+  assert.strictEqual(mod.highRiskPrefixOf('backup.github/workflows/ci.yml'), null,
+    '同理：.github/workflows/ 黏在 backup 之后不算 workflows 面')
   assert.strictEqual(mod.isHighRiskSurface('01-docs/archive/github/workflows/notes.md'), false)
   assert.strictEqual(mod.highRiskPrefixOf(RISK_GATE), 'scripts/check-', '判据本体自指不得因收窄而失效')
 })
@@ -2346,6 +2353,26 @@ test('i7（扩锁）：第二份匹配的所有等价形态都要被点名，不
     '清单的方法式遍历只准发生在 highRiskPrefixOf 里')
   assert.ok(!/HIGH_RISK_SURFACES\s*\[/.test(outside), '下标遍历 HIGH_RISK_SURFACES[i] 也是第二份实现')
   assert.ok(!outside.includes('of HIGH_RISK_SURFACES'), 'for...of / for...in 同罪')
+})
+
+
+test('X2-5③（接线锁）：探针必须由 main 造好并注进两处消费点，且构造晚于 statuses', () => {
+  // 变异 P30（把 main 里的 existsAtHead 改成 undefined）实测 132 条**全绿** ——
+  // 因为债务用例自己注入探针，main 的装配根本不在任何用例的跑道上。这一格只能接线锁。
+  const src = fs.readFileSync(path.join(__dirname, 'check-pr-exec-record.js'), 'utf8')
+  const code = mod.stripCommentsForScan(src)
+  assert.match(code, /const existsAtHead = makeEvidenceProbe\(\{ statuses, repo, head \}\)/,
+    'main 必须用工厂造探针（含 statuses ⇒ 归属判据在真实调用链上）')
+  assert.match(code, /evaluateDeepReviewDebt\(statuses, repo, readAtBase, existsAtHead\)/,
+    '债务判据必须收到探针')
+  assert.match(code, /summarizeTierCoverage\(dualClosedDeepReviews\(statuses, repo\), existsAtHead\)/,
+    '覆盖率读数也必须收到，否则两行读数各说各话')
+  const iStatuses = code.indexOf('let statuses')
+  const iProbe = code.indexOf('const existsAtHead = makeEvidenceProbe')
+  const iDebt = code.indexOf('const deepDebt = evaluateDeepReviewDebt')
+  assert.ok(iStatuses >= 0 && iProbe > iStatuses,
+    '探针的构造必须晚于 statuses —— 放在前面会读到 TDZ 里的 statuses（实测 SyntaxError 形态）')
+  assert.ok(iDebt > iProbe, '探针必须在债务判据之前建好')
 })
 
 
