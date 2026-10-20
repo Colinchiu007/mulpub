@@ -32,11 +32,18 @@ const registry = createRegistry()
  * 入参契约与页面签名器（PJ）同构：{ url, type, params } → 56 hex。
  * 兼容历史形态 { body, apiPh }：body 视作 params（apiPh 不再参与计算 ——
  * 真 sig3 的输入里没有 api_ph）。
+ *
+ * ⚠ 状态隔离（CCG 深度评审 i3 的处置）：
+ * 用 `createSigner()` 持有**显式实例**，而不是直接调模块级 `sign()`。
+ * 状态因此成为注册表的一部分、可被导出与重置；并发场景的调用方也能注入自己的
+ * signer，而不是被迫共享一个隐式全局。
  */
+const kuaishouSigner = kuaishouSig3.createSigner()
+
 registry.register('kuaishou.ns-sig3', (payload) => {
   const p = payload || {}
   const params = p.params === undefined ? p.body : p.params
-  return kuaishouSig3.sign({
+  return kuaishouSigner.sign({
     url: p.url,
     params,
     startupRandom: p.startupRandom,
@@ -96,4 +103,4 @@ registry.register('xiaohongshu.x-s-browser', async (payload) => {
   return browserPageProvider.sign('xiaohongshu.x-s-browser', payload)
 })
 
-module.exports = { registry, createRegistry, sign: registry.sign, register: registry.register, has: registry.has, list: registry.list, browserPageProvider }
+module.exports = { kuaishouSigner, registry, createRegistry, sign: registry.sign, register: registry.register, has: registry.has, list: registry.list, browserPageProvider }

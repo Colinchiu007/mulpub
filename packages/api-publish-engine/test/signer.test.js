@@ -35,15 +35,27 @@ describe("Signer (registry facade)", function () {
     expect(sig.__NS_sig3).toBe(sig.signature);
   });
 
-  test("api_ph 不参与 sig3 计算（同输入同 state ⇒ 同签名）", async function () {
+  test("api_ph 不进入签名输入（同输入同 state ⇒ 同签名）", async function () {
     const args = { url: "/x", type: "json", params: { a: 1 }, startupRandom: 1750000000, count: 100 };
     const a = await signer.registry.sign("kuaishou.ns-sig3", args);
     const b = await signer.registry.sign("kuaishou.ns-sig3", args);
     expect(a).toBe(b);
     expect(a).toHaveLength(56);
-    // 缺 api_ph 也能算出有效签名；拦截点在发布链前置校验
-    const noPh = await signer.getKuaishouSignature("/x", { a: 1 }, "BUDSS=XYZ");
-    expect(noPh.signature).toMatch(/^[0-9a-f]{56}$/);
+  });
+
+  /*
+   * CCG 深度评审 i4 的回归保护：
+   * 虽然 api_ph 不进入签名输入，但它标志「这是不是一个已登录的快手账号」。
+   * 缺 cookie / 缺 api_ph 时必须 fail-closed 抛错，而不是无条件产出一个
+   * "格式合法"的 56 位串让上层误以为已具备签名能力。
+   */
+  test("getKuaishouSignature 缺 cookie fail-closed 抛错", async function () {
+    await expect(signer.getKuaishouSignature("/x", { a: 1 }, "")).rejects.toThrow(/missing cookie/);
+    await expect(signer.getKuaishouSignature("/x", { a: 1 }, undefined)).rejects.toThrow(/missing cookie/);
+  });
+
+  test("getKuaishouSignature 缺 api_ph fail-closed 抛错", async function () {
+    await expect(signer.getKuaishouSignature("/x", { a: 1 }, "BUDSS=XYZ")).rejects.toThrow(/api_ph/);
   });
 
   test("getDouyinSignature 纯本地，即使设置远程后门环境变量也不发外部请求", async function () {
