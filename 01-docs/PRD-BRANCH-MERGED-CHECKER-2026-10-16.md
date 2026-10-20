@@ -353,3 +353,52 @@ v3 的处理：认出二进制（blob 含 NUL 或链上出现 `Binary files … 
 - 三条 rc=1 分支经本片后可用 `--allow-different-landing` 取到 rc=0；**删它们仍要求逐行读过双向规模**，
   上一条遗留就是这条要求的理由。
 - §10 其余遗留未触及：`describeRevisions` 只打前 2 笔；9 个裸 `timeout-minutes`；`mergedCopiesOf` 跨 merge 取最大偏宽松。
+
+## 12. 旗标的第一版被 QM-6 前端轴打穿 —— 「严格子集」也落进 different（2026-10-20 同片增补）
+
+§11 落地的谓词是 `different.length > 0 ∧ notCarried.length === 0 ∧ !carried`。前端轴评审（`--backend claude`，产物 8856 B）给出一条 **Major**，
+本地复现成立（`probe-subset.cjs`）：
+
+```
+DEFAULT verdict=LOST rev={"carried":0,"different":[{"onlyInMerge":0,"onlyInTip":1}],"notCarried":[]}
+FLAG    verdict=DIFFERENT-RELEASED releasedDifferent=1
+```
+
+**根因**：`classifyRevision` 只比"产物 == tip"与"产物 == base"两个等式。当合并带的是我 tip 的**严格子集**
+（丢了我后加的几行，但又没退回 base —— squash 只带走部分差量的常见形状）时，产物既 ≠ tip 也 ≠ base ⇒ 归进 `different`，
+而 `notCarried` 数组是空的。于是旗标宣称的"not-carried 一律不放行"在这一格上**是假的**：它放行的实质是"部分根本没带上"。
+这正是 §11 要防的那件事，只是从一个谓词没覆盖的形状进来的。
+
+**修法**：谓词加一条正向要求 —— `different` 里必须存在 `onlyInMerge > 0` 的条目，即"主干另有独有内容"，
+才承认"落的是另一版"。规模取不到（`undefined`）按未证实，不放行。
+
+### 收紧后的真实仓 A/B（与 §11 那张表对照，root=共享根）
+
+| 分支 / PR | 默认档 | 旗标档（收紧后） | 与 §11 的差异 |
+| --- | --- | --- | --- |
+| `fix-rewrite-paragraph-preserve` #2842 | `lost=1` rc=1 | `lost=1 … 放行=0` **rc=1** | 由 rc=0 变回 rc=1：那行 CHANGELOG 正是纯子集丢弃 |
+| `fix-tab-title-url-placeholder` #2847 | `lost=1` rc=1 | `lost=0 … 放行=1` rc=0 | 不变（`主干独有1行`） |
+| `fix-toutiao-submit-chain` #2729 | `lost=4` rc=1 | `lost=0 … 放行=4` rc=0 | 不变（`主干独有99/288/7/21/18行`） |
+
+三条的默认档读数与 §11 逐字相同（放宽从未渗进默认档）；旗标档少解锁一条，**且少解锁的那条本来就不该解**。
+
+### 一条"先于本片存在"的锁自己挡住了泄漏
+
+变异 N4（把放行改成默认档也执行）的第 3 轮红集从 `T4,T12,T28,T31,T34` 变成 `T4,T28,T31,T34` —— **T12 不再红**。
+核对其夹具（base=`L1`，tip=`A1,ONLY_ON_BRANCH,L1`，merge=`A1,L1`）⇒ `onlyInMerge=0`，正是收紧后不合格的形态。
+所以这不是锁退化，而是收紧连更强的错误形态都洗不动它；期望清单按此订正，机制写在驱动注释里，**未改任何断言**。
+
+### 同轮采纳/不采纳（各附理由）
+
+- 采纳：`res.optIn` 原是无条件赋值，而文档写"只在旗标档出现" ⇒ 收进旗标分支，让文档为真且默认档 `--json` 与 #3984 逐字同形。
+- 采纳：档位名 `DIFFERENT-LANDING` 自带完成式误读（"以不同版本落了地"恰是我拒绝的方向性宣称）⇒ 改 `DIFFERENT-RELEASED`，只描述闸门自己的动作。
+- 采纳：T25 的 plain↔json 交叉锁把档位名硬列了一份 ⇒ 改为从 `mod.VERDICTS` 派生（按长度降序拼接，避免前缀吞后），并给 T35 补 `counts['DIFFERENT-RELEASED'] === releasedDifferent` 的恒等断言。
+- 不采纳：把 `releasedDifferent` 改成默认档恒存在=0。那会让默认档 `--json` 多出字段，与本 PR"默认档一字未动"的核心承诺冲突；
+  "未渗改"的证据用"该旗标自己的字段缺位"比"值为 0"更难被未来会话读错。评审的 schema 稳定性顾虑因此记为已知取舍。
+
+### 反证（第 3 轮，10 条）
+
+N1⇒T39｜N2⇒T37,T38,T40｜**N10（谓词退回只看类别）⇒T37,T40**｜N9⇒T36,T37,T38,T40｜N3⇒T37,T40｜
+N4⇒T4,T28,T31,T34｜N5⇒T35｜N6⇒T35｜N7⇒T35｜N8⇒T37。红集互不相同，收尾 `RESTORE BYTE-IDENTICAL`。
+另加一条真红证据：把**当前测试**放到修改前的实现字节上跑，`T35/T37/T40` 一起红 ⇒ T40 测的确实是那一格，不是"改完就绿"。
+

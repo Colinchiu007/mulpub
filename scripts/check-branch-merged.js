@@ -43,7 +43,7 @@
 
 const { execFileSync } = require('child_process');
 
-const VERDICTS = ['IDENTICAL', 'DRIFT-ATTRIBUTED', 'LOST', 'UNATTRIBUTED', 'JUDGE_ERROR', 'DIFFERENT-LANDING'];
+const VERDICTS = ['IDENTICAL', 'DRIFT-ATTRIBUTED', 'LOST', 'UNATTRIBUTED', 'JUDGE_ERROR', 'DIFFERENT-RELEASED'];
 const EXIT_OK = 0;
 const EXIT_LOST = 1;
 const EXIT_JUDGE_ERROR = 2;
@@ -386,7 +386,7 @@ function releaseEligibleForLanding(rev) {
   if (!rev) return false;
   const different = rev.different || [];
   const notCarried = rev.notCarried || [];
-  return different.length > 0 && notCarried.length === 0 && !rev.carried;
+  return different.some((d) => (d && d.onlyInMerge) > 0) && notCarried.length === 0 && !rev.carried;
 }
 
 // 两份文本的按键差异规模（按行多重集，不做任何归一化 —— 与判定本体同一口径）。
@@ -611,13 +611,13 @@ function collect(opts) {
     }
     // 显式放行档：**默认档这一段整条跳过**（T34 锁的就是这个"跳过"）。
     // 只把 LOST 且通过 releaseEligibleForLanding 的行改档；UNATTRIBUTED / JUDGE_ERROR / not-carried 一律不动。
-    res.optIn = { allowDifferentLanding: !!opts.allowDifferentLanding };
     if (opts.allowDifferentLanding) {
+      res.optIn = { allowDifferentLanding: true };
       res.releasedDifferent = 0;
       for (const f of res.files) {
         if (f.verdict !== 'LOST') continue;
         if (!releaseEligibleForLanding(f.revisionsAtMerge)) continue;
-        f.verdict = 'DIFFERENT-LANDING';
+        f.verdict = 'DIFFERENT-RELEASED';
         f.releasedByOptIn = true;
         res.releasedDifferent++;
       }
@@ -726,7 +726,7 @@ function main(argv) {
     ref: o.ref, merges: o.merges, base: o.base, against: o.against,
     root: o.root || process.cwd(), allowDifferentLanding: !!o.allowDifferentLanding,
   });
-  const counts = { IDENTICAL: 0, 'DRIFT-ATTRIBUTED': 0, LOST: 0, UNATTRIBUTED: 0, JUDGE_ERROR: 0, 'DIFFERENT-LANDING': 0 };
+  const counts = { IDENTICAL: 0, 'DRIFT-ATTRIBUTED': 0, LOST: 0, UNATTRIBUTED: 0, JUDGE_ERROR: 0, 'DIFFERENT-RELEASED': 0 };
   for (const f of r.files) counts[f.verdict] = (counts[f.verdict] || 0) + 1;
   const againstNote = r.against ? 'against=' + r.against + '@' + String(r.againstSha).slice(0, 9) : 'against=<未解析>';
 
