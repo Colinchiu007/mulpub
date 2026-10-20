@@ -1811,11 +1811,19 @@ test('空原因的旧判据不得被形状校验挤掉', () => {
   assert.throws(() => checker.loadLedger(dir), /必须是原因字符串/, '对象值必须先被形状判据拒，不得落到空白分支')
 })
 
-test('真仓形状锁：账本值全为字符串，且不得靠清空账本变绿', () => {
+test('真仓形状锁：真实账本可 parse 且值全为非空字符串（防清空不在这条里）', () => {
   const file = path.join(__dirname, 'gate-record-debt-ledger.json')
   const raw = JSON.parse(fs.readFileSync(file, 'utf8'))
   const keys = Object.keys(raw)
-  assert.ok(keys.length > 0, '空账本不等于零欠账：清空登记项正是本判据要拦的绕行', keys.length)
+  // 这里**不写 keys.length > 0**。账本被逐条销账到空是这条机制的**可达终态**（每条登记项的原因里
+  // 都写着"回填后删除本条"），把非空钉成禁态就是本仓记案的"常量红"：合法工作做完之后，
+  // 每个 PR 都被一条与它无关的锁拦死。防"靠清空账本变绿"的活由 `清空账本不得变绿` 那条
+  // 机制锁承担，它用夹具（载体有未收口行 + ledger:{} ⇒ r.open 非空且进阻断出口），
+  // 与真实账本此刻有几条无关；M7/M8 各让它指名变红。
+  // 评审 W1：同上，恒真的 Array.isArray(keys) 换成**读入对象本身**的可失败判据——
+  // 账本写成 JSON 数组时 loadLedger 会静默产出空面，而那条恒真断言照样绿。
+  assert.equal(Array.isArray(raw), false, '账本顶层必须是对象，数组形态当场红')
+  assert.equal(typeof raw, 'object', '账本读出来不是对象')
   const bad = keys.filter((k) => typeof raw[k] !== 'string')
   assert.deepEqual(bad, [], `仍有非字符串登记项 ${bad.length} 条：${bad.slice(0, 3).join(" | ")}`)
   const blank = keys.filter((k) => !String(raw[k]).trim())
@@ -1856,11 +1864,16 @@ test('账本文件名在判据里只允许出现一处（LEDGER_FILE 是唯一�
 
 test('真账本必须能被真 loadLedger 读通（形状锁不得只读文件绕过判据函数）', () => {
   // 评审 W3：形状锁自己 JSON.parse 文件，等于"文件形状对但判据读不通"这一格没人测。
-  // 这条把真实账本喂给真实函数：不抛错、条数>0、值全为非空字符串。
+  // 这条把真实账本喂给真实函数：不抛错、值全为非空字符串、**键数与文件条数相等**。
+  // 牙在"相等"上（函数静默丢条目即红），不在"条数>0"上——后者会把合法清空终态钉成禁态。
   const root = path.resolve(__dirname, '..')
   const got = checker.loadLedger(root)
   const keys = Object.keys(got)
-  assert.ok(keys.length > 0, '真账本一条都读不出 = 函数或文件坏了，不是"没有欠账"')
+  // 评审 W1：`Array.isArray(Object.keys(x))` 是恒真断言（Object.keys 永远回数组），
+  // 它测不到任何东西。改成对**返回面容器类型**的可失败断言：数组形态（比如哪天误返回
+  // Object.entries）当场红，字符串/undefined 同样红。
+  assert.equal(typeof got, 'object', 'loadLedger 必须返回对象，实得 ' + typeof got)
+  assert.equal(Array.isArray(got), false, 'loadLedger 不得返回数组（数组形态会让键面静默消失）')
   for (const k of keys) assert.ok(typeof got[k] === 'string' && got[k].trim(), `真账本里有非字符串/空原因：${k.slice(0, 40)}`)
   // 键数必须等于文件里的条数：读通不等于读全
   const raw = JSON.parse(fs.readFileSync(path.join(root, 'scripts', 'gate-record-debt-ledger.json'), 'utf8'))
@@ -1890,4 +1903,32 @@ test('W1：collect 缺 ledger 注入必须抛错——默认值等于静默读�
   const r = checker.collect({ root: dir, ledger: {}, mergeLedger: mkML({ ok: true, merged: [], added: [] }) })
   assert.ok(r.open.length >= 1, '空账本不等于零欠账：' + JSON.stringify(r.open))
   assert.equal(checker.hasBlocking(r), true, '未登记欠账必须进阻断出口')
+})
+
+test('接线锁：main() 必须把 hasBlocking 映射成非零退出（返回值为真不等于 CLI 会拦）', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'check-gate-record-debt.js'), 'utf8')
+  // 评审 W2（成立）：原来只剥「整行 // 注释」。块注释包起来、或把那行注释在行尾，
+  // 判据照样命中 => 这是一道可以被一次注释就关掉的装饰性锁。剥两种注释，并且
+  // **先把判据锚在 main() 函数体内**（源码里别处的同名形状不算接线）。
+  const open = src.indexOf('function main(')
+  assert.ok(open >= 0, '判据失效：读不到 main() 的起点（函数被改名/搬走 ≠ 接线还在）')
+  const close = src.slice(open).match(/\r?\n\}/)
+  assert.ok(close, '判据失效：定位不到 main() 的顶层闭合括号')
+  const mainBody = src.slice(open, open + close.index + close[0].length)
+  const stripComments = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+  // 剥注释的自检（负控）：两种注释形态下的同一行都必须**不再**命中。少这一句，
+  // 下一步的匹配就退化成「源码里出现过这行的任意副本」，包括被注释掉的那份。
+  const probe = ['const x = 1', '/* if (hasBlocking(r, { carrierVisible: false }) ) process.exit(1) */',
+    '// if (hasBlocking(r) ) process.exit(1)'].join('\n')
+  assert.doesNotMatch(stripComments(probe), /if\s*\(\s*hasBlocking\(\s*r[^)]*\)\s*\)\s*process\.exit\(1\)/,
+    '剥注释逻辑失灵：被注释掉的映射仍会被当成接线（装饰性锁的原形）')
+  // 正控：探针里原样放进那一行时必须命中，否则上面的负控只是恒假。
+  assert.match(stripComments(probe + '\nif (hasBlocking(r) ) process.exit(1)'),
+    /if\s*\(\s*hasBlocking\(\s*r[^)]*\)\s*\)\s*process\.exit\(1\)/, '正控失灵：探针根本匹配不到真写法')
+  assert.match(stripComments(mainBody), /if\s*\(\s*hasBlocking\(\s*r[^)]*\)\s*\)\s*process\.exit\(1\)/,
+    '未收口/未登记的欠账必须落到 CLI 退出码；否则「拦住不让合」只活在 collect 的返回值里',
+  )
+  // 为什么是结构锁而不是行为锁：main() 的 root 取 path.resolve(__dirname, '..')，没有 --root 注入点，
+  // 因此无法在夹具仓库里造出「确有阻断」的状态去断言 rc=1。把 root 做成可注入属改判据形态（改谁来守门），
+  // 须人工过目；在那之前，这条映射至少被一道「摘掉即红」的锁看着（反证见本 PR 记录）。
 })
