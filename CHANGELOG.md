@@ -10,6 +10,42 @@
 - **验证**：新增 26 条回归（composable 20 + 独立 UX 文件 16 含改写 2 条），先红后绿；消费方并集 12 文件 **317 passed / 0 failed**；门禁逐条 rc=0（max-lines / unwired / cjk / pair / brand / debt / doc-abs-paths）；eslint 13 文件 **0 error**（唯一 warning 是基线已有的 `IMAGE_MIME_TO_EXT` 未用）。
 - **QM-1 打包（改 `electron/` 必做）**：`pnpm run build:vue` + `electron-builder --win --x64` ⇒ rc=0，asar 内含 `electron/services/story2video-media-server.js`，产物内 `defaultMaxEntries=1024`/`maxRegistry=2048`；启动窗口期 8s 存活、**stderr 0 字节** ⇒ PASS。**踩坑**：第一次只跑 `electron-builder` 没先 `build:vue`，产物没有前端 ⇒ 启动 `ERR_FILE_NOT_FOUND`，进程却仍存活、rc 仍 0 —— 只判「打包成功」或「进程还在」都会**假绿**，正是三层判据第 ② 层存在的理由。
 - **遗留（不假装闭合）**：未做虚拟滚动（1000 段级需变高 windowing + 锚点补偿，会同时影响成功任务滚动体验）；未做渲染端 `revoke`（容量 1024 覆盖到 200 段，>200 段仍会淘汰，彻底修法需改 preload 契约）；IPC 次数本身未降（服务端批量签 URL 独立议题）；原因码只聚合后端已给的 `failureCode`；`expandAll` 仍用原生 `window.confirm`；搜索无防抖（本地过滤 <1ms）。
+# [未发布] feat(rewrite): 采集页四个改写入口接入取消通道（rewrite-cancel-collection）
+
+## 问题
+
+#4078 建好了 `ai:rewrite-cancel` 通道，但**只接到了改写页**（`RewriteView.vue`）。
+采集页（`Collection.vue`）是长文最常出现的入口 —— 知乎回答 / 公众号长文 / 视频转写，也是最初报错（#3979）的页面 ——
+却仍然无法取消：「一键改写」点下去，粘错链接或选错正文也只能等全程，后续片段继续计费。
+
+**机制存在 ≠ 能力可用**：#4078 的验收标准写的是「改写中显示取消按钮」，测试文件只挂载 `RewriteView`，
+于是其余 3 个 `aiRewrite` 消费点无人检查。
+
+## 改动
+
+- `Collection.vue`：在唯一漏斗 `rewriteViaEngine` 内 `beginRun()` 生成 runId 并注入 `params.runId`，
+  `finally { endRun() }` 释放；收到 `data.cancelled === true` ⇒ `notifyInfo('rewritePage.rewriteCancelled')`
+  并返回 `{ __cancelled: true }`。
+- 四个调用点（视频转写 / stealth 自动 / 普通采集 / 手动改写）把 `else` 收紧为
+  `else if (!(result && result.__cancelled))` —— **取消不再被当成「AI 改写失败」弹错**。
+- 模板新增「取消改写」按钮：`rewriting || oneClickRewriting` 时可见，复用 `col-btn col-btn--secondary`；
+  采集阶段（`collecting`）禁用并注明「采集不可取消」。
+- i18n **复用** `rewritePage.cancelRewriteBtn / cancellingBtn / rewriteCancelled / cancellingHint`，
+  不新增键（`locales/collection/zh.js` 已 498 行，紧贴 500 行硬限；两页措辞也保持一致）。
+
+## 验证
+
+- **147 passed**（新增 `Collection.cancel.test.js` 5 例 + 既有采集页/改写页套件无回归）
+- eslint rc=0；unwired OK / locale keys PASS(2180) / locale CJK PASS / max-lines ✅ / brand PASS
+- `build:vue` rc=0；`electron-builder --dir` rc=0
+- **产物级断言**：66 个 dist chunk 中命中 `collection-rewrite-cancel-btn`、`aiRewriteCancel` 桥、
+  `cancellingHint` 文案各为 true（源码含 ≠ 产物含）
+
+## 遗留
+
+- `AiWriterPanel.vue` 仍未接取消（同法可接，本轮聚焦采集页）
+- `HotTopics` / `useHotTopicsGenVideo` 不做：`mode:'create'` 输入是短主题种子，不会触发分段
+- 采集阶段不可取消（采集链路无取消通道）
 
 # [未发布] fix(s2v): 历史记录失败卡片直出英文技术原文 —— compose 预检失败稳定错误码契约 + 全量排查（error-message-user-friendly-audit）
 

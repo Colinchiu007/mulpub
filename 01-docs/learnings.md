@@ -71,6 +71,10 @@ electron: Failed to load URL: … resources/app.asar/dist/index.html with error:
 **做法**：拆成 `ResultPreviewPlaceholder.vue`（模板 + 文案）、`ResultSegmentJumpBar.vue`（定位条 + 键盘）、`composables/useSegmentNavigation.js`（纯流程）与独立测试文件。宿主 **2060 → 1886**（净降 174），测试账本回到容差内，**targets 一个没动**。
 
 **判据**：被点名还账 + 零增长容差的文件，收到「要加逻辑」的需求时，**先问这段逻辑是否本来就该在这里**。能拆就拆——拆出来的部分通常还能独立单测（本例 `resolveJumpFocusTarget` 从"要靠挂载组件测"变成纯函数直测）。
+## 2026-10-20 · rewrite-cancel-collection：「按页面验收」会漏掉其余消费点
+
+- **pitfall · 通道类能力的验收标准必须按「消费点清单」写，不能按「页面」写**：#4078 建好 `ai:rewrite-cancel` 后，验收标准写的是「改写中显示取消按钮」，测试只挂载 `RewriteView` —— 于是 `aiRewrite` 的其余 3 个消费点（`Collection.vue` 采集页、`AiWriterPanel.vue` 侧边面板、`HotTopics` 系列）全部没接，而**采集页恰是长文最常出现的入口**（知乎回答/公众号长文/视频转写）与最初报错的页面（#3979）。机制建好、通道测过、用户仍不能取消。判据：交付「通道/开关/能力」时，先 `grep` 该能力对应调用点的全量清单，再逐个标注「已接 / 本轮不接（原因）」，把清单写进执行记录；只写「某页面可用」等于默许其余入口永久缺失。
+- **pattern · 「取消」在结果消费方要显式排除，否则必然被当成失败**：取消让引擎返回 `success:false`，而采集页 4 个调用点原本是 `if (result.result_content) {成功} else {弹「AI 改写失败」}` —— 空结果天然落进 else。正解不是复制四份错误处理，而是把 `else` 收紧成 `else if (!(result && result.__cancelled))`（一行 ×4），并在漏斗里把 `cancelled` 归一成 `{ __cancelled: true }` + 一条 info。判据：任何新增的「非失败终态」（取消 / 跳过 / 中止 / 部分成功）都必须同时检查所有 `else` 分支，否则它会伪装成错误。
 
 ## 「靠匹配英文原文还原语义」本身就是缺陷——用户可见失败的稳定错误码契约（error-message-user-friendly-audit，2026-10-20）
 
