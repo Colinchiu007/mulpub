@@ -1409,3 +1409,45 @@ test('CLI 打印面：自身产物命中计数必须真出现在 stdout，且与
     try { fs.rmSync(root, { recursive: true, force: true }) } catch { /* 夹具 */ }
   }
 })
+
+// i2（deep-review 维持的指控）：排除整条依赖一个谓词。critic 给的两种失效形态里，
+// "Windows 反斜杠"与"带引号路径"经核不可达（git 的 `+++ b/<path>` 恒用正斜杠，且
+// collectFromDiff 显式剥两端引号）—— 但"不可达"是我推导的，推导不构成第二层防御。
+// 正解不是放宽谓词，是把它的匹配形态从推导升级为锁。两条退化各有一条指名红：
+//   M7 去掉段边界（`/\.ccg/`）⇒ my.ccg / scripts/.ccghost/x.js 被读成产物 ⇒ 源码的
+//      敏感判定整条失明；M8 只认仓库根起段（`/^\.ccg…/`）⇒ 嵌套 `.ccg` 段漏匹配。
+test('谓词形态表：段边界必须逐项可失败（推导不构成防御）', () => {
+  const TRUE_FORMS = [
+    '.ccg/reviews/a.json',
+    '.ccg',
+    'dir/.ccg/x.json',
+    'a/b/.ccg/c/d.json',
+    '.ccg' + String.fromCharCode(92) + 'reviews' + String.fromCharCode(92) + 'a.json',
+  ]
+  const FALSE_FORMS = [
+    'scripts/ccg-review-decider.js',
+    'my.ccg',
+    '.ccgignore',
+    'scripts/.ccghost/x.js',
+    'a/b/c.json',
+    '',
+  ]
+  for (const p of TRUE_FORMS) {
+    assert.strictEqual(decider.isSelfArtifact(p), true,
+      `形态必须判真（漏判 = 该形态下产物重新进取证面）：${JSON.stringify(p)}`)
+  }
+  for (const p of FALSE_FORMS) {
+    assert.strictEqual(decider.isSelfArtifact(p), false,
+      `形态必须判假（误判 = 把源码读成自身产物 = 敏感判定对它整条失明）：${JSON.stringify(p)}`)
+  }
+  // 规模下界：两侧都要有真实形态，否则这张表可以退化成"全判真"或"全判假"而自证通过。
+  assert.ok(TRUE_FORMS.length >= 5 && FALSE_FORMS.length >= 6,
+    `形态表规模退化（TRUE=${TRUE_FORMS.length} FALSE=${FALSE_FORMS.length}）`)
+  // 段边界那段子面必须只出现在谓词一处；用**精确文本计数**（不从源码重建正则，避免转义自咬），
+  // 且断言恰为 1 —— 写 <=1 时"needle 拼错导致 0 命中"会被读成通过（探针失明）。
+  const BS = String.fromCharCode(92)
+  const NEEDLE = ['(^|[', BS + BS, '/])', BS, '.ccg', '([', BS + BS, '/]|$)'].join('')
+  const src = fs.readFileSync(SRC, 'utf8').replace(/\r\n/g, '\n')
+  const hits = src.split(NEEDLE).length - 1
+  assert.strictEqual(hits, 1, `段边界子面必须恰有一处（谓词单一出处）；needle=${JSON.stringify(NEEDLE)} 命中=${hits}（0 = 探针失效，不是通过）`)
+})

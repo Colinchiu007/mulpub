@@ -52,10 +52,65 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "self_play_blocked",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "externallyReviewed": [],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "`judge()` 读取 `changedLines` 来自 `staged.stats.changedLines`；若传入原始 `collectStaged()`/`collectRange()` 结果（无 `stats`），值恒为 0，`mode` 会被误判为 `skip`。本方案把 `.ccg` 从 git 层排除移到 JS 层后，`judge()` 必须直接消费原始数组长度，而非依赖预置 `stats`。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "若 judge() 的规模真按 critic 说的那句读 `staged.stats.changedLines`，那么任何\"未预置 stats 的原始采集结果\"都会算成 0 行 ⇒ 直接落 skip ⇒ 需要双模型审查的改动被静默放行。这条一旦成立，本刀的\"排除\"就顺带把判定整条关掉，比原来的假阳性更坏。",
+        "defense": "实现里只有一条分支读 stats：`changedLines = isProposal ? (staged.stats ? staged.stats.changedLines : 0) : codeFiles.reduce(...)`。`collectStaged()`/`collectRange()` 的返回对象**没有 proposal 键** ⇒ isProposal=false ⇒ 走 reduce，规模由 `staged.files` 逐文件累加，与预置 stats 无关。实测反证两条：① 夹具「产物 260 行 + 源码 1 行」判出 `changedLines=1`（若走 stats 那条，原始采集对象无 stats ⇒ 该值应为 0，用例不可能绿）；② 变异 M1（谓词恒 false）⇒ `changedLines` 立刻从 1 变 261 ⇒ 说明这把尺是逐文件在算，且**确实随取证面变化**。方案文本里也没写过\"依赖预置 stats\"。",
+        "verdict": "dismissed",
+        "rationale": "指控的事实前提不成立：judge() 的非方案分支不读 `staged.stats`。可核验证据是用例「规模口径：产物行数不得进 changedLines」的 `changedLines===1` 断言与 M1 变异读数（执行记录「变异反证」行）。保留这条的价值：它指出**方案分支**才读 stats，而那条路径的 proposal 采集器自己带 stats —— 已在代码注释与本记录里点名，不属于本刀改动面。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "移除 `collectStaged()` 的 `:(exclude).ccg` 路径后，`.ccg` 排除完全依赖 `isSelfArtifact()` 正则；若该正则在 Windows 路径、软链、嵌套 `.ccg` 段等情况下漏匹配，判定面会重新消费自身产物，且无第二层防御。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "排除整条依赖一个正则。git 在 Windows 上是否可能给出反斜杠路径、带引号的 path、或 `a/.ccg/b` 这种嵌套段？任一漏匹配 ⇒ 产物行重新进取证面，且**没有第二层防御**（pathspec 已被本刀摘掉），失效形态与修好的假阳性完全同形。",
+        "defense": "部分成立。git diff 的 `+++ b/<path>` 恒用正斜杠（工作区是 Windows 也一样），`collectFromDiff()` 还显式剥了路径两端的双引号 —— 所以 critic 点的两种形态实测不可达；但\"不可达\"是我推导的，不是被锁住的。**推导不构成第二层防御**，可锁的形态才构成。",
+        "verdict": "upheld",
+        "rationale": "接受的是可落地的这一半：把谓词的匹配形态从\"推导\"升级为\"锁\"。落法 = 在 `ccg-review-decider.test.js` 加一条形态召回锁，逐形态断言 `isSelfArtifact()` 的真值表：`.ccg/reviews/a.json`（仓库根起段）真、`dir/.ccg/x.json`（嵌套段）真、`.ccg`（目录名本身，无尾分隔符）真、`scripts/a.js` 假、`my.ccg`（同名文件、前无分隔符）假、`scripts/ccg-review-decider.js`（前缀像但不是段）假。反证两形态：把正则退化成 `\\.ccg`（无段边界 ⇒ 会把 `my.ccg`/`ccg-review-decider.js` 读成产物 ⇒ 敏感判定对源码整条失明）与退化成只认 `^\\.ccg/`（嵌套段漏匹配 ⇒ 两档重新分歧）都必须指名红。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "`ccgSensitiveContentHits` / `ccgSensitiveContentSample` 无自动消费链（仅 CLI 打印），与既有 `docSensitiveContentHits` 同构且全仓无外部消费者。本方案承认这是“面向人的观测点”，但新增字段增加了维护与测试负担。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "新增两栏 `ccgSensitiveContentHits`/`ccgSensitiveContentSample` 没有自动消费链，只有 CLI 一行 console ⇒ 按\"没人读的就是死字段\"的既有纪律，它应当被门禁消费或删除，否则下一个维护者会以为它守住了什么。",
+        "defense": "实测既有同构字段的地位：`docSensitiveContentHits` 全仓只出现在判定器自己的 `stats` 赋值与一行 console（`grep` 结果 3 处，全在同文件），`check-pr-exec-record.js` 与任何 CI 判据都不读它。本仓 2026-10-15 i3 的既定设计就是**面向人的观测点**，不是自动处置链。本刀没有降低它，反而给它加了**打印面行为锁**（断言 stdout 的数 == `judge()` 的读数）——这是原字段都没有的。把两栏升成阻断判据则与本刀立论直接冲突：那些命中逐字来自方案与执行记录正文，同一份散文一处不消费、另一处拦下来不成立。",
+        "verdict": "dismissed",
+        "rationale": "\"必须有门禁消费才不算死字段\"在本仓不是既有纪律（有实测反例），且本刀给这一栏加了它原先没有的可失败锁。边界已如实写进执行记录遗留第 4 条：两栏都没有自动处置者；要升级须另立 change 并先解决上述矛盾。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "`judge()` 对 `fileCount` 计算为 `staged.files.length`（含 `.ccg` 文件），对 `codeFileCount` 则排除 `.ccg`。消费方若直接对比两栏，会看到 `fileCount > codeFileCount + docFileCount` 而无解释，易引发混淆。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "`fileCount = staged.files.length`（含 .ccg）而 `codeFileCount` 排除 .ccg ⇒ 两栏出现 `fileCount > codeFileCount + doc` 而无处解释，读 stats 的人（或后续门禁）会拿它们做差集判断，得出\"有文件没被归类\"的错误结论。",
+        "defense": "现状无消费方做这个对比：CLI 打印用的是 `changedLines` 与 `codeFileCount`，`fileCount` 只出现在方案分支那一行与判定记录里。且本刀**已经**把这条口径差异主动写进执行记录（遗留第 3 条），并解释成因是\"排除动作从 git 层移到 JS 层\"的必然结果 —— 采集面必须看见它（否则无从 report-only），判定面必须不消费它。",
+        "verdict": "dismissed",
+        "rationale": "无消费方对比这两栏（可核：CLI 打印与门禁都不做差集），风险是\"将来有人误读\"，处置方式是已落地的文档点名，不是把代码改回\"采集面也排除\"（那会重新造成暂存档计数恒 0，正是 critic#2 否证过的形态）。"
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "reason": "self_play_upheld"
+      }
+    ],
+    "note": "自扮演裁决：1 条指控成立或需外部复核",
+    "at": "2026-10-20T13:10:54.809Z"
   }
 }

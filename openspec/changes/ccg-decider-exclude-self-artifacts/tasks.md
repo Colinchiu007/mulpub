@@ -37,3 +37,7 @@
 - [x] 4.4 消费者面不退化核对：`scripts/ccg-gate.js` 补跑档、`scripts/deep-review.sh`、`scripts/deep-review-deps.test.js` 三条各跑一次，证明本刀没把"配方同源"那条锁改坏 **→ 落点**。消费者并集全跑（`git grep -l ccg-review-decider` 得 6 个消费面）：`ccg-review-decider 58/58`／`check-pr-exec-record 113/113`（首跑 1 红＝那条 grep 字面锁，已按意图改写并变异自证有牙）／`deep-review-deps 35/35`／`plan-review-deps 10/10`；两份 shell 由上述 deps 锁覆盖
 - [ ] 4.5 开 PR；满足自动合并判据则 squash + 删分支，产物判据四条取证；main push 按 `(merge SHA, workflow)` 回读（本刀承载判据在哪条 workflow 上，就读那条的 run，不得拿"docs-only 不跑"当免检），红了本轮补 follow-up
 - [ ] 4.6 收尾清理：`check-branch-merged.js` rc=0 才删分支；worktree 走 `safe-worktree-remove.ps1 -WhatIf` 干跑后再实跑
+
+- [x] 3.12 落地设计层之外**实现层** deep-review 唯一被维持的指控（i2：排除整条依赖一个谓词，摘掉 pathspec 后无第二层防御）：把谓词的匹配形态从"我推导它不可达"升级为锁 —— 形态表 5 真 × 6 假 + 两侧规模下界 + 段边界子面全仓**恰 1 处**的精确文本计数（`===1`，写 `<=1` 时"needle 拼错导致 0 命中"会被读成通过）。**→ 落点**。`# tests 59 / # pass 59 / # fail 0`；两条退化各红一格：M7 去段边界 ⇒ 红在"必须判假"（`"my.ccg" true !== false`），M8 只认根起段 ⇒ 红在"必须判真"（`"dir/.ccg/x.json" false !== true`）。**记一条纪律**：M7/M8 的**用例名红集逐字相同**（一把锁故意测两个方向），只有在**断言消息**粒度上才可分辨 —— "红集互不相同"这条纪律必须先写明是哪一层，否则它会把合法的双向锁判成缺陷、或诱逼人删掉被测物来交账
+
+- [ ] 4.7 **本片闭环还差这一格（未完成，不得当作已闭合）**：实现层 `sh scripts/deep-review.sh` 收敛为 `self_play_blocked`（阻断 1 条 = 被维持的 i2），而 `check-pr-exec-record.js --mode=enforce` 的出口②对**高危面**（判据本体）只认 `deepReview.tier=external` + 可核 evidence，`closureNote` 在那一侧不够格 ⇒ 正解是对本片差量与 4 条裁决再做一次**真外部复核**（critic=claude），把结论落到**公开 PR 评论**（可点开的 evidence），再回填产物 `externalReview` 三格（`performedBy` 逐字等于 `expectedExternalBackend`、`evidenceRef` 为该评论 URL、`reviewedAt` 为可解析 ISO）。三格里填任何"推断应该没问题"的内容都属伪造证据；做不到就如实留着，让 PR 带着这条红
