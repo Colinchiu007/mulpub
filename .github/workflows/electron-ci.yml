@@ -78,8 +78,21 @@ jobs:
     # 再加 checkout/setup/媒体工具 restore/冒烟/构建等无上限步骤。
     # 旧值 45 已经贴着这个上界 —— 只把内层 20m 抬到 35m 而不抬 job 级，
     # 结果是「不可归因的 job 级超时」取代「不可归因的步骤级 exit 124」，
-    # 失败模式没修，只是换了个掐掉它的层。70 = 55 + 约 15 分钟其它步骤余量。
-    timeout-minutes: 70
+    # 失败模式没修，只是换了个掐掉它的层。
+    #
+    # 2026-10-20（electron-ci-budget）：步骤预算 2100 → 3600s，job 级同步 70 → 90 分钟。
+    # 实测依据（**取步骤级自证行，不取 job 级总时长**）：
+    #   失败 run 39404267552 的自证行是 `elapsed=2100s budget=2100s rc=124` —— 本步骤精确
+    #   打满 2100s 预算被 timeout 掐断，即真实需求 **≥2100s（≥健康 2.6 倍）**、上界未知。
+    #   同一 run 的 `gh run view` 显示的 36m44s 是**整个 job** 的耗时（含 setup / install /
+    #   build preload / 冒烟 / 构建），**不得**拿它当步骤基线 —— 这两个数字混用正是
+    #   docs/electron-ci-step-budget-baseline.md 里记录过的层级混淆。
+    # main 侧佐证：从 528acaa0 起连续 8 个 run 同形态（其中 6 个发生在 #4048 合并之前）。
+    # 90 = 60（步骤预算）+ 约 30 分钟其它步骤余量，保持与上面同一条「job 级必须大于步骤级
+    # 之和」的约束。**这不是根治**：根治是「单 job 内并行分片」（见
+    # 01-docs/PRD-ELECTRON-CI-TIMEOUT-DIAGNOSIS-2026-10-20.md），本次只做「放宽 + 可观测」，
+    # 让 elapsed 与健康基线的偏离在日志里直接说出来，而不是等到再次越墙。
+    timeout-minutes: 90
     defaults:
       run:
         shell: bash
@@ -146,11 +159,21 @@ jobs:
           # 负载把步骤耗时放大到越过旧墙（main 近 14 次运行里 8 次 exit 124），而不是
           # "自然耗时已贴着墙" —— 794s 对 1200s 本来还有约 33% 余量。
           # 层级混淆的完整依据与两个数字的出处：docs/electron-ci-step-budget-baseline.md。
-          # 2100s ≈ 健康步骤耗时 ×2.6 ≈ 旧墙 ×1.75，属**单调放宽**（不会让任何原本通过的运行
-          # 变红），但仍不是「修好了根因」：根因修法是按 --shard 把这一轮切开（issue 档 2）。
+          #
+          # 2026-10-20（electron-ci-budget）：2100 → 3600s。上一版 2100 是「健康 ×2.6」，
+          # 但仍被击穿 —— 失败 run 的自证行明确是 `elapsed=2100s budget=2100s rc=124`：
+          # 预算被**精确打满**（说明真实需求 ≥2100s，上界未知）。
+          # 3600 ≈ 健康 ×4.5，仍属**单调放宽**（不会让任何原本通过的运行变红）。
+          # ⚠ 这依旧不是根治。根治方案的完整对比见
+          # 01-docs/PRD-ELECTRON-CI-TIMEOUT-DIAGNOSIS-2026-10-20.md：--shard + matrix 在本仓
+          # **不可用**（matrix 把作业报成 `job (1)/(2)`，required context 要的是不带后缀的名
+          # ⇒ 全绿也判 `base branch policy prohibits the merge`），可行的是「单 job 内并行
+          # 分片」。本次只做「放宽 + 可观测」：把 elapsed 相对健康基线的偏离直接打进日志。
           # 同一 job 级 timeout-minutes 必须一起抬，否则只是把「不可归因的超时」从
           # timeout(1) 换成 Actions 的 job killer —— 那正是本 issue 的失效模式。
-          BUDGET_SECONDS=2100
+          BUDGET_SECONDS=3600
+          # 健康基线（上来那段 `elapsed=794s` 的实测值），只用于下面的偏离告警，不参与判定。
+          HEALTHY_SECONDS=794
           LOG=electron-ci-unit-tests.log
           START=$(date +%s)
           # ⛔ `set +e` 是必须的，不是风格（2026-10-20 follow-up，动因见 #2525 的反面）：
@@ -170,14 +193,24 @@ jobs:
           set -e
           END=$(date +%s)
           ELAPSED=$((END - START))
-          echo "[electron-ci-timeout-budget] elapsed=${ELAPSED}s budget=${BUDGET_SECONDS}s rc=${RC}"
+          echo "[electron-ci-timeout-budget] elapsed=${ELAPSED}s budget=${BUDGET_SECONDS}s healthy=${HEALTHY_SECONDS}s rc=${RC}"
+          # 可观测性（2026-10-20 electron-ci-budget）：**不改变红绿**，只把「runner 把同一批
+          # 测试放大到几倍」这件事在日志与注解里直接说出来。
+          # 阈值取健康基线的 2 倍（1588s）：正常波动到 1200s 左右不告警，而本次真实恶化是
+          # 2204s（×2.8）—— 留出这一格，避免噪音的同时覆盖真实区间。
+          # ⛔ 用 `|| true` 兜住算术异常：本步骤已恢复 `set -e`，一个统计语句不该把整步打红。
+          if [ "${ELAPSED}" -gt $((HEALTHY_SECONDS * 2)) ]; then
+            RATIO_X10=$(( ELAPSED * 10 / HEALTHY_SECONDS )) || RATIO_X10=0
+            echo "::warning title=electron-ci 单 worker 单测耗时显著偏离健康基线::elapsed=${ELAPSED}s 是健康基线 ${HEALTHY_SECONDS}s 的 $((RATIO_X10 / 10)).$((RATIO_X10 % 10)) 倍（预算 ${BUDGET_SECONDS}s）。这通常意味着 runner 负载偏高，而不是测试本身变慢；若连续多轮如此，应实施「单 job 内并行分片」而不是继续抬预算。"
+          fi || true
           if [ "${RC}" -eq 124 ]; then
             echo "TIMEOUT_BUDGET_EXCEEDED：本轮被步骤级 timeout 掐断，不是断言失败。"
             echo "自证判据：日志里没有 vitest 摘要行（Test Files ... / Tests ...），说明整轮没跑完。"
             grep -cE '^[[:space:]]+[✓×↓-]' "$LOG" | sed 's/^/已完成测试行数: /' || true
             grep -cE '^ *(Test Files|Tests) ' "$LOG" | sed 's/^/摘要行数(应为 2): /' || true
             tail -n 8 "$LOG" | sed 's/^/末段输出: /' || true
-            echo "下一步应该是把这一轮按 --shard 切开，而不是继续加大预算。"
+            echo "下一步不是继续加大预算：--shard + matrix 在本仓不可用（required check 会判 base branch policy prohibits the merge），"
+            echo "可行方案是「单 job 内并行分片」，完整对比见 01-docs/PRD-ELECTRON-CI-TIMEOUT-DIAGNOSIS-2026-10-20.md。"
           fi
           exit "${RC}"
 
