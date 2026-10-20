@@ -49,6 +49,8 @@ sync_backfill_owner: 合并后由承接该分支的会话按 AGENTS「PR 自动�
 
 ### 一次我自己的错误（如实登记）
 
+**CI 第一次跑就红在流程面而不在代码面**：新载体的记录必须同时在 frontmatter 写 `sync_status` / `sync_reason` / `sync_backfill_owner`（未收口时两个登记字段非空即判 OK），我第一版只写了表格行里的 `PENDING` ⇒ `check-gate-record-debt.js` 报「ux-audit-accounts-text-tokens.md（缺登记字段）」，`QG Changes` 与 `Gate Result` 连带红（run `39368948696` / job `118452178046`）。这条不是判据太严：绕开它只剩"改判据"与"把状态词提前写成闭合"两条路，都不许走。补完登记字段后本机 `node --test scripts/check-gate-record-debt.test.js` = **115 pass / 0 fail**，判据首行同时把本列为「可见项，不拦截：本次变更集新增、合并后自动转派生收口」。
+
 生成器前两版的"第 nth 处替换 / 倒序只改最后一处"都因 **src 边判边改** 而坐标漂移，后果不是崩溃而是**把能收编的点静默记成 needs-design**（现场读数曾虚高到 8 条）。正解是按身份（选择器 + 现值）定位，并在试跑后断言"改的确实是这一条"（`s2.selector === site.selector && s2.value === 'var(slot)'`）。这条已写进 `01-docs/learnings.md`。
 
 ### 遗留（不假装已闭合）
