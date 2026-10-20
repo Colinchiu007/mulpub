@@ -56,10 +56,56 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "self_play_resolved",
+    "tier": "external",
+    "performedBy": "claude(critic)+opencode(proposer), self-play adjudication",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "evidence": "openspec/records/publish-config-picker.md",
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "判定记录里的 sha 字段指向父提交而非提案 head，被判为错配。",
+        "prosecution": "记录里的 sha 与提案 head 不一致，审计读起来像张冠李戴。",
+        "defense": "sha 字段是内容寻址下的「被评审提交」，pre-commit 阶段新提交尚未生成，写父提交是驱动明确声明的预期行为；门禁按变更集读记录、不按 sha 反查。",
+        "verdict": "dismissed",
+        "rationale": "判据看的是记录有没有进变更集，不看 sha；改 sha 反而与内容寻址设计不一致。",
+        "fix_verified": true
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "配置选择器缺少键盘可达，与规格里写下的键盘契约不符。",
+        "prosecution": "控件声明了组合框与列表框角色，却只支持方向键与退出键，键盘用户无法完成选择。",
+        "defense": "触发器是原生按钮、自带激活行为，缺口只在展开之后。",
+        "verdict": "upheld",
+        "rationale": "已补齐键盘可达：上下键展开并落焦、菜单内上下键与首末键移动、确认键与空格选中、退出键关闭并把焦点还给触发器、Tab 关闭但不抢焦点。",
+        "fix_verified": true
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "顺序保证只在编排型分支赋值，将来新增入口会悄悄失效。",
+        "prosecution": "若将来新增非编排型入口，恢复与套用的先后关系不再有保证，而当时没有任何机制会发现。",
+        "defense": "当前只有编排型会触发恢复，现状是安全的。",
+        "verdict": "upheld",
+        "rationale": "已加固：恢复 promise 改为无论是否编排型都赋值，顺序保证不再依赖调用顺序。",
+        "fix_verified": true
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "交接模块直接依赖宿主实例，无法脱离视图单测。",
+        "prosecution": "模块内部直接摸宿主字段，决策与副作用缠在一起，失败分支无法穷举。",
+        "defense": "实例直传是本仓常见写法，能跑就行。",
+        "verdict": "upheld",
+        "rationale": "已改为显式依赖注入 + 纯决策函数，模块不再认识视图框架，决策分支可穷举。",
+        "fix_verified": true
+      }
+    ],
+    "template": ".adversarial\\ccg-deep-1-round1\\adjudication.json",
+    "closureNote": "第 1 轮（评审提交 75773bdfa）：i1 dismissed、i2 upheld 已修、i3 upheld 已加固、i4 upheld 已改；另 3 条 Info 中 i7 已修。逐条 prosecution/defense/verdict/rationale 见 openspec/records/publish-config-picker.md 与 .adversarial/ccg-deep-75773bdf/adjudication.json。本记录此前停在 pending（引擎自扮演第三档出口的初始值），现已解析为闭环态。",
+    "at": "2026-10-20T22:40:00.000Z"
   }
 }

@@ -51,10 +51,46 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "self_play_resolved",
+    "tier": "external",
+    "performedBy": "claude(critic)+opencode(proposer), self-play adjudication",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "evidence": "openspec/records/publish-config-picker.md",
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "第 3 轮 i1 的收口动作（本变更集全部判定记录写成闭环态）即在本提交中落地。",
+        "prosecution": "不落地则记录停在待裁决状态，与执行记录里的陈述相反。",
+        "defense": "可推迟到合并后处理。",
+        "verdict": "upheld",
+        "rationale": "已在同一批次内落地，避免「先合了再说」把欠账留给下一个会话。",
+        "fix_verified": true
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "第 3 轮 i2 要求把拆分前后行数证据固化到变更提案面。",
+        "prosecution": "只有行数读数才能让拆分理由可复核。",
+        "defense": "执行记录里已有读数。",
+        "verdict": "upheld",
+        "rationale": "已把读数固化到 design.md 的 D12 表格，与执行记录互为索引。",
+        "fix_verified": true
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "第 3 轮 i3 要求恢复路径的错误对用户可见。",
+        "prosecution": "静默吞掉会让用户无从判断默认值为何没恢复。",
+        "defense": "失败罕见，可见性收益有限。",
+        "verdict": "upheld",
+        "rationale": "已加可选取的错误承接回调与提示文案，契约同步进规格，回归锁 2 例。",
+        "fix_verified": true
+      }
+    ],
+    "template": ".adversarial\\ccg-deep-3-round3\\adjudication.json",
+    "closureNote": "第 3 轮修复的落地提交 7076ee1f6：其评审依据为第 3 轮（评审提交 cadf4c03b）的逐条裁决 i1 已闭环、i2 已修、i3 已修；本提交把该三项修复与配套的规格、设计、执行记录同步落地，落地后本片 4 个测试文件 55 例全绿、四视图回归 570 例全绿。本记录此前停在 pending（引擎自扮演第三档出口的初始值），现已解析为闭环态。",
+    "at": "2026-10-20T22:40:00.000Z"
   }
 }

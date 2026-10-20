@@ -50,10 +50,46 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "self_play_resolved",
+    "tier": "external",
+    "performedBy": "claude(critic)+opencode(proposer), self-play adjudication",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "evidence": "openspec/records/publish-config-picker.md",
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "变更集里若干判定记录的深度审查状态停在 pending、结论与出处为空，与「已完成外部双家族评审」的陈述矛盾。",
+        "prosecution": "记录写着「要求审查」却从未有人给出裁决，事后审计读到的是与事实相反的结论。",
+        "defense": "记录名与 sha 字段走内容寻址，sha 指向被评审的那一笔提交，门禁按变更集读记录、不按 sha 反查。",
+        "verdict": "upheld",
+        "rationale": "状态、结论与出处为空的部分成立并已修：变更集里全部记录均写成闭环态并内联逐条裁决；sha 指向被评审提交属既定设计，不采纳改写建议。",
+        "fix_verified": true
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "以行数门禁解释组件拆分，但未给出拆分前后的行数证据。",
+        "prosecution": "论断只能靠读者相信，无法复核；而这正是同一话题上一轮被驳回时所用的主要理由。",
+        "defense": "读数其实存在，只是落在事后审计面而非做决策的变更提案面。",
+        "verdict": "upheld",
+        "rationale": "已把两处拆分的前后行数、触发门禁与复核读数固化成 design.md 的 D12 表格（浮窗 527 降 304、创作页 5379 降 5356），使「为什么不再合回去」不再依赖会过期的流水线日志。",
+        "fix_verified": true
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "等待恢复上次选项的错误被完全静默吞掉，无任何区分或记录。",
+        "prosecution": "恢复路径里读取失败被内部吞掉，但快照应用阶段的异常仍会冒到这一层；静默丢弃后用户只看到上次设过的默认值没生效，开发者也拿不到线索。",
+        "defense": "吞并不阻断主流程这一点是对的，但「既不阻断、又不留痕」并非必要。",
+        "verdict": "upheld",
+        "rationale": "已改为可选取的错误承接回调：宿主传入则提示「未能恢复上次的选项设置」并继续套用配置，不传则行为与原先一致且仍不抛泡；契约同步写入规格与产品需求文档，并补 2 例回归锁。",
+        "fix_verified": true
+      }
+    ],
+    "template": ".adversarial\\ccg-deep-3-round3\\adjudication.json",
+    "closureNote": "第 3 轮（评审提交 cadf4c03b）：i1 upheld 已闭环、i2 upheld 已修、i3 upheld 已修；另 2 条 Info 均已按实情补写。逐条 prosecution/defense/verdict/rationale 见 openspec/records/publish-config-picker.md 与 .adversarial/ccg-deep-cadf4c03/adjudication.json。本记录此前停在 pending（引擎自扮演第三档出口的初始值），现已解析为闭环态。",
+    "at": "2026-10-20T22:40:00.000Z"
   }
 }
