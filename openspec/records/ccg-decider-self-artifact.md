@@ -46,10 +46,20 @@ C#1 同判锁恒真 ⇒ 补绝对参考锁（design 决策点 3 + spec 第 3 个
 
 **i2 被维持 ⇒ 本片的闭环走哪条出口（如实记下，不自助绕行）**：`check-pr-exec-record.js --mode=enforce` 的出口②写明 —— 非高危面可以「写 `closureNote` + 置闭环 status」；**高危面（判据本体、workflows、凭证/登录态）只认 `deepReview.tier=external` + 可核 evidence，closureNote 在那一侧不够格**。本片改的正是 `scripts/ccg-review-decider.js`（`isHighRiskSurface()` 对它返回 true，该判据由 `check-pr-exec-record.test.js:2051` 钉住），所以**不能**用我自己的处置文案把 `self_play_blocked` 抹成绿。落法：对本片差量与这 4 条裁决再做一次**真外部复核**（critic=claude），把复核结论落到公开 PR 评论（可点开的 evidence），再回填产物的 `externalReview` 三格（`performedBy` 逐字等于 `expectedExternalBackend`、`evidenceRef` 用那条评论的 URL、`reviewedAt` 用可解析 ISO）。**这不是形式**：三格里任何一格是我"推断应该没问题"就填，它就是伪造证据 —— 公开可点开即被看见。
 
+### 高危面闭环：独立外部复核与 enforce 复跑（2026-10-20，本节写完时本 PR 的 QM-6 那一格才真正成立）
+
+上面 QM-6 行记的 `self_play_blocked` **没有被改写**，它仍是驱动那一轮的原文（`confidenceWeight=0.6`、`blocking=[{id:"i2",severity:"Critical",reason:"self_play_upheld"}]`、`note` 逐字保留）。本 PR 是在它**之上追加**一次真外部复核后收口的：
+
+- 派发：后端名读 `scripts/ccg-review-backends.list` 第一行（`CRITIC=claude`）；载荷 = `origin/main...HEAD` 排除两份散文载体与两份判定产物后的 **7 文件 / 63,571 字节**，加我的四条 prosecution/defense/verdict/rationale 原文 **6,414 字节**，总 `promptBytes=71,156`；派发前解析器正控 `POSITIVE_CONTROL=OK`。回显 `RC=0 / elapsed_s=40.5 / outBytes=799 / VERDICTS=4`。
+- 结论：`i1/i2/i3/i4` **全部 `agree=true`、`must_fix` 全空**（逐字贴在 PR 评论里，公开可点开）。特别复核的两点外部都认：i1 的否证依据是"非方案分支走 `codeFiles.reduce`"，i2 的形态锁**两个方向都可失败**（M7 去段边界 ⇒ 红在"必须判假"，M8 只认根起段 ⇒ 红在"必须判真"）。
+- 回填：`deepReview.tier="external"`、`performedBy="claude"`、`status="cleared"`、`externallyReviewed=[i1..i4]`、逐条 `externalReview{performedBy,evidenceRef,reviewedAt}`。**evidence 的形态有坑**：`isResolvableEvidence` 要的是 `#` + 3 位以上数字，而 `…/pull/4102#issuecomment-6293470234` 的 `#` 后面跟的是字母 ⇒ 裸 URL 会降成 `external-unverified`；正解是指针 + 一句话（`PR #4102 …`），这也是主干既有写法。
+- 复跑：`node scripts/check-pr-exec-record.js --base=origin/main --mode=enforce` → `rc=0`，`TIER-COVERAGE dual-closed total=1 external=1 external-unverified=0 self-play=0 none=0`。
+- ⛔ **不得反向处置**：删掉产物里的 `reviewBackends` 会让这条对账整体失效（判据原文已点名）；把 `blocking`/`note` 改成"看起来已解决"是改写驱动输出，本节刻意不动它们。**仍然诚实的单后端边界**：proposer=opencode 本轮只过了依赖体检（可执行文件可解析），**没有产出任何修订方案** ⇒ 本 PR 是"单后端 + 自扮演裁决 + 独立外部复核"，不是双模型通过。
+
 ### 遗留（不假装已闭合）
 
 - **决策层 `plannedPathHits` 仍从散文抽"路径样 token"跑敏感路径规则**：实测 1499 份产物里 1 条命中，命中的是方案正文里的一个正则字面量（`sso/i.test`）。发生率与代价都不支持为它动判定面 ⇒ 留数不修。若哪天它变成常态（比如有人开始在 plan 里点 `crypto/` 路径做讨论），这把尺的读数会先变。
 - **`.ccg/` 之外不会出现"自身产物"**：若将来评审链把产物写到别处（如 `openspec/reviews/`），该目录会重新进取证面，而**没有任何东西会因此变红**。谓词是单一出处，改一处即可；但不为"未来的目录布局"预建判据（那是猜需求）。
 - **本刀让 `fileCount` 与 `changedLines` 的口径不再同源于 git pathspec**：`fileCount` 现在包含 `.ccg` 文件（它只被打印、不被判定消费），`changedLines` 不含。这不是缺陷，但下一个读 stats 的人可能把两栏当成同一把尺 —— 已在 CLI 打印面把"被排除但仍观测到"的命中单独一行点名。
 - **`docSensitiveContentHits` / `ccgSensitiveContentHits` 都没有自动处置消费者**（实测：前者在全仓只出现于判定器自身的 `stats` 赋值与一行 console）。本刀按既有设计保留"面向人"的定位并给它加了打印行为锁；把它升级成阻断判据需要另立 change，且必须先回答"同一份散文一处不消费、另一处拦下来"这个矛盾怎么解。
-- **实现层 critic 轴尚未派发**（本表 QM-6 行是**设计层**交付）：PR 前必须对本片自身差量再跑一次 critic 轴并逐条处置；proposer 轴本日仍不可得 ⇒ 按 #3949 既有裁决走"单轴 + 登记活欠账"。
+- **实现层那一格已于 2026-10-20 闭合**（原先写的是"尚未派发"，这是它自己的历史，保留在上一句里说明）：deep-review 真跑 → `self_play_blocked`（1 条 upheld）→ 独立外部复核四条全 agree → `tier=external` + PR evidence + `status=cleared`，`enforce` rc=0。**仍未闭合的是 proposer 轴**：opencode 只过了依赖体检、没产出修订方案 ⇒ 单后端活欠账照旧登记，按 #3949 裁决处理。
