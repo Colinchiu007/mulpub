@@ -34,9 +34,11 @@
         :voice-catalog-error="voiceCatalogError"
         :voice-selectable="segmentVoiceSelectable"
         :unavailable-material-kinds="unavailableMaterialKinds"
+        :expanded="isSegmentEditorExpanded(segment.id)"
         @dirty="$emit('dirty')"
+        @toggle-editor="toggleSegmentEditor"
         @card-ref="(el, index) => setSegmentItemRef(el, index)"        @move-segment="(index, offset) => $emit('move-segment', index, offset)"
-        @remove-segment="(index) => $emit('remove-segment', index)"
+        @remove-segment="onRemoveSegment"
         @select-material="(id, kind) => $emit('select-material', id, kind)"
         @generate-image="(id) => $emit('generate-image', id)"
         @generate-ai-video="(id) => $emit('generate-ai-video', id)"
@@ -115,6 +117,13 @@ export default {
     'load-next-batch',
     'segment-ref',
   ],
+  data() {
+    return {
+      // 当前展开编辑主体的分段 id（'' = 全部折叠）。默认全折叠：分段多时表单会把页面淹没。
+      // 放在编辑器而非卡片里，是为了让「同时只展开一个」由同一处判定，而不是靠各卡片自觉。
+      expandedSegmentId: '',
+    }
+  },
   computed: {
     totalCount() {
       return Array.isArray(this.segments) ? this.segments.length : 0
@@ -158,6 +167,20 @@ export default {
     },
     setSegmentItemRef(el, index) {
       this.$emit('segment-ref', el, index)
+    },
+    // 展开态互斥：点开某段即收起其它段（同一时刻只有一份可编辑表单，视线不会散）
+    isSegmentEditorExpanded(segmentId) {
+      return Boolean(segmentId) && this.expandedSegmentId === segmentId
+    },
+    toggleSegmentEditor(segmentId) {
+      this.expandedSegmentId = this.expandedSegmentId === segmentId ? '' : segmentId
+    },
+    // 删除分段前先收起它的展开态，否则会残留一个指向已删除 id 的 expandedSegmentId，
+    // 让「同时只展开一个」的判据在后续点开新分段时表现得像失效。
+    onRemoveSegment(index) {
+      const removed = (this.segments || [])[index]
+      if (removed && removed.id === this.expandedSegmentId) this.expandedSegmentId = ''
+      this.$emit('remove-segment', index)
     },
     loadNextSegmentBatch() {
       const total = this.totalCount

@@ -72,6 +72,15 @@ describe("ResultView", () => {
     return w;
   }
 
+  // 分段编辑主体默认折叠（2026-10-19）：断言/操作主体内控件（旁白、字幕、提示词、翻译、
+  // 语音、下载等）前必须先点开该段的折叠开关。
+  async function expandSegmentEditor(w, index = 0) {
+    const toggles = w.findAll('[data-testid="segment-editor-toggle"]');
+    expect(toggles.length).toBeGreaterThan(index);
+    await toggles[index].trigger("click");
+    await nextTick();
+  }
+
   it("renders page title", async () => {
     const w = await createView();
     expect(w.text()).toContain("\u89c6\u9891\u9884\u89c8");
@@ -433,10 +442,15 @@ describe("ResultView", () => {
       { id: "s2", text: "旁白二", prompt: "A blue sky", promptTranslation: null, imagePath: null, audioPath: null, status: "completed" },
     ];
     await nextTick();
-    const blocks = w.findAll('[data-testid="segment-prompt-translation"]');
-    expect(blocks).toHaveLength(2);
-    expect(blocks[0].text()).toContain("一个红苹果");
-    expect(blocks[1].text()).toContain("story2video.sceneMaterial.emptySlot");
+    // 编辑主体默认折叠（2026-10-19），翻译块随主体一起只在展开后渲染；逐段展开再断言。
+    const toggles = w.findAll('[data-testid="segment-editor-toggle"]');
+    expect(toggles).toHaveLength(2);
+    await toggles[0].trigger("click");
+    await nextTick();
+    expect(w.find('[data-testid="segment-prompt-translation"]').text()).toContain("一个红苹果");
+    await w.findAll('[data-testid="segment-editor-toggle"]')[1].trigger("click");
+    await nextTick();
+    expect(w.find('[data-testid="segment-prompt-translation"]').text()).toContain("story2video.sceneMaterial.emptySlot");
   });
 
   it("分段状态徽标使用本地化标签而非英文原值，failed 分段内联展示可读原因（2026-08-16）", async () => {
@@ -764,6 +778,7 @@ describe("ResultView", () => {
 
     await w.vm.loadProject("project-1");
     await nextTick();
+    await expandSegmentEditor(w);
 
     expect(w.findAll(".segment-item textarea")[0].element.value).toBe("第一段");
     expect(w.text()).toContain("完整旁白");
@@ -1649,6 +1664,7 @@ describe("ResultView", () => {
     w.vm.projectId = "project-1";
     w.vm.segments = [{ id: "segment-0", subtitleBlocks: ["第一句", "第二句"] }];
     await nextTick();
+    await expandSegmentEditor(w);
     const ta = w.find('[data-testid="segment-subtitle-textarea"]');
     expect(ta.exists()).toBe(true);
     expect(ta.element.value).toContain("第一句");
@@ -2098,6 +2114,7 @@ describe("ResultView", () => {
       w.vm.segments = [{ id: "s1", voiceId: "voice-a", status: "completed" }];
       await w.vm.loadVoiceCatalog();
       await nextTick();
+      await expandSegmentEditor(w);
       const select = w.find('[data-testid="segment-voice-id-select"]');
       expect(select.exists()).toBe(true);
       expect(w.find('[data-testid="segment-voice-id-input"]').exists()).toBe(false);
@@ -2122,6 +2139,7 @@ describe("ResultView", () => {
       w.vm.voiceCatalogOptions = [{ id: "voice-a", name: "青年男声" }];
       w.vm.segments = [{ id: "s1", voiceId: "voice-a", voiceSpeed: 1, status: "completed" }];
       await nextTick();
+      await expandSegmentEditor(w);
       const range = w.find('[data-testid="segment-voice-speed-range"]');
       expect(range.exists()).toBe(true);
       expect(range.attributes("type")).toBe("range");
@@ -2142,6 +2160,7 @@ describe("ResultView", () => {
       w.vm.projectId = "p1";
       w.vm.segments = [{ id: "s1", imagePath: "C:/img.png", status: "completed" }];
       await nextTick();
+      await expandSegmentEditor(w);
       const text = w.text();
       expect(text).not.toContain("重试图片");
       expect(text).not.toContain("重试视频");
@@ -2203,6 +2222,7 @@ describe("ResultView", () => {
       w.vm.audioSrc = null;
       w.vm.segments = [{ id: "s1", status: "failed", prompt: "", videoPrompt: "", subtitleBlocks: [] }];
       await nextTick();
+      await expandSegmentEditor(w);
 
       expect(w.find('[data-testid="segment-image-preview"]').text()).toContain("emptySlot");
       expect(w.find('[data-testid="segment-prompt-translation"]').text()).toContain("emptySlot");

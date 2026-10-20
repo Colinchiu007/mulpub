@@ -384,7 +384,6 @@ rewrite-limits-50000 放开上限后暴露三条契约尾巴（change rewrite-se
 - 定向测试：18 文件 / 599 passed（adapter 3 例新用例：plan 归类 / 2038 归类 / balance 不误判为 plan；service 2 例：throw 透传 + 结构化透传且不落 registry；CreateView 映射 2 断言）。
 - 门禁：eslint rc=0；tsc --noEmit rc=0；locale --keys/--cjk PASS；check-max-lines ✅（点名文件 1748=target 零增长）；check-unwired-tests OK；QM-1 electron-builder exit 0（读数见执行记录）。
 - 执行记录：`openspec/records/fix-s2v-clone-plan-unsupported.md`。
-
 ## [2026-10-20] 视频任务编辑页：失败任务进入不再「无限加载后空白」
 
 ### 问题
@@ -420,7 +419,17 @@ rewrite-limits-50000 放开上限后暴露三条契约尾巴（change rewrite-se
 ### 已知局限
 IPC 次数本身未降（本轮是「按需申请」，单段仍 5 次 IPC；服务端批量签 URL 需改 IPC 契约，记入 backlog）；窗口步长固定 20，未按视口高度动态估算；未做实机 wall-time 复测；QM-4 视觉回归因基线仓库级失效未跑（同 `result-view-back-btn-style` 结论）。
 
+# [未发布] feat(story2video): 视频提示词中文翻译 + 提示词/翻译成对 + 分段编辑区默认折叠（s2v-video-prompt-translation）
 
+- **补齐视频提示词中文翻译（用户诉求，附截图）**：成品编辑页此前只有图片提示词带中文翻译，视频提示词没有。根因是图片翻译链路（`translatePromptsForLocale` + compose 并行任务 + `promptTranslation` 落库）自 2026-08-12 建立，而 `videoPrompt` 是 2026-08-15 才新增的字段，其生成链路从未接入翻译。本次在 `regenerateScenePrompt kind=video` 成功后调用 LLM 生成译文并持久化到新字段 `videoPromptTranslation`（≤2000 字符）。
+- **复用而非复制翻译实现**：新增 `translateVideoPromptForLocale`，内部复用 `translatePromptsForLocale` 的批量调用、严格 JSON 系统提示、markdown fence 剥离、平衡 JSON 提取、HTML/marker 包装防御与逐行兜底——不写第二份翻译实现（漂移风险）。fail-open：LLM 不可用/抛错/超时/非法内容 → `videoPromptTranslation=null`，**不影响 `videoPrompt` 本体与分段状态**；译文与原文相同视为未翻译（不展示冗余）；重写时**先清后写**，翻译失败不留上一轮陈旧译文。
+- **`updateSegments` 不接收 `videoPromptTranslation`**：白名单外字段丢弃，防前端伪造译文。compose/草稿/`ensureProjectFromRun` 三条分段构造路径按稳定 source index 回填该字段（与 `videoPrompt` 同源治理），重新合成后译文不丢失。
+- **提示词/翻译改为上下紧邻成对**：原实现把唯一翻译块放在「图片提示词 textarea + 视频提示词 textarea + 两枚重新生成按钮」之后，与它描述的提示词隔了一整个区块。现图片提示词下方紧邻图片翻译块、视频优化词下方紧邻视频翻译块，各带归属标签（「图片提示词中文翻译」/「视频提示词中文翻译」），弱化样式（左边框 + 次级底色 + 只读）与可编辑 textarea 形成层级差。
+- **分段可编辑主体默认折叠**（内容过多的正解）：分段卡片默认紧凑态，只保留序号/状态/素材区概览；编辑主体按需展开，且**展开态互斥**（一次只编辑一个分段）。方案选型：左右分栏已否决（中英文都是长文本，各砍 50% 宽度导致英文滚 6-8 行、中文大量留白）；tooltip 已否决（长文本需静读，浮层易消失）；采用 Progressive Disclosure + 上下紧邻，与本项目既有 `QuickCollectPanel`/`BatchCollectPanel`/`FilmAutoPanel` 折叠实现同族。删除展开分段时自动收起，避免残留指向已删除 id 的展开态。
+- **locales zh/en 成对新增 5 条**：`videoPromptTranslationLabelZh`/`videoPromptTranslationLabelOther`/`expandEditor`/`collapseEditor`（对齐 `#4064` 的 `promptTranslationLabelZh/Other` 两档口径）；`check-locale-sync --cjk` PASS（无新增硬编码中文）、`--keys` PASS。
+- **测试**：`ResultSegmentCard.test.js` 新增 5 例（成对 DOM 顺序/占位/en 判据/折叠态只留素材区/展开态 `aria-expanded` + 上抛）、新建 `ResultSegmentEditor.test.js` 5 例（默认全折叠/只展开一个/互斥/幂等收起/删除展开分段清空状态）、`ResultView.test.js` 6 个既有用例补「先展开」步骤；主进程侧 `story2video-video-prompt-translation.test.js` 12 例 + `story2video-project-service.test.js` 123 例 + `story2video-stages.test.js` 161 例。回归 6 个套件 **436 例全绿**，`eslint --quiet` rc=0。
+- **已知限制**：存量项目无 `videoPromptTranslation`，只在用户重新生成视频优化词后补齐第一份译文，未做批量回填；`uiLocale` 固化于任务创建时（与图片提示词翻译同源）；流水线自动路径未覆盖（若后续要在成片生成时同步产出，应扩展 `prompt_translations_pending` 机制而非复制逻辑）。详见 `01-docs/PRD-video-creation.md` §3.1.31。
+- **落地位随 `#4064` 组件化调整**：分段编辑区已被 `#4064` 抽为 `ResultSegmentCard.vue` / `ResultSegmentEditor.vue`，本特性随之迁移（提示词成对渲染在卡片、展开态唯一真源在编辑器、宿主只留接线）；折叠范围收窄为**文本编辑主体**，缩略图与四素材槽保持可见。行为契约不变，详见 PRD §3.1.31 第 10) 小节。
 # [未发布] feat(subtitle): 数字/单位完整性与双字搭配守卫 v1.4 —— 8 段复杂文案实测驱动的第二族坏切（subtitle-word-integrity）
 
 - **动因与取证**：v1.3 合并后用 8 段不同风格文案（政治评论续篇/历史叙事/科技解说/口语短视频/生活叙事/无标点压力段×2）对真实引擎做三端对跑，暴露一族 v1.3 未覆盖的坏切。**A/B 反证**（关掉 phrase_boundary 输出逐字节不变）证实非 v1.3 引入：是 `no_cut_bigrams` 词表缺口 + 标点累积分支直切不经守卫的既有缺陷。实测证据：`风速每秒 8│米`、`套现约 3.2│亿元`、`提升了│60%`、`制程是│3 纳米`、`当│成`、`遗│忘`、`那│段`、`千│万人`。

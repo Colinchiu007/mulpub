@@ -26,6 +26,7 @@ const {
   estimateSceneSeconds,
   withAssetTransientRetry,
   buildOptimizeContext,
+  translateVideoPromptForLocale,
 } = require('./story2video-stages')
 const {
   PROMPT_ENGINE_LIMITS,
@@ -632,6 +633,22 @@ class Story2VideoProjectService {
     return { ...project, segments: Array.isArray(project.segments) ? project.segments.map(item => ({ ...item })) : [] }
   }
 
+  /**
+   * 非抛错版项目读取（2026-10-19 QM-6 第九轮 i3）：项目不存在时返回 null 而非抛错。
+   *
+   * 用途：regenerateScenePrompt 视频分支在翻译 await（最长 25s）之后需要重读项目。
+   * 该窗口内用户可能已删除整个项目——删除是合法并发操作，用 getProject 会让 IPC
+   * 异常响应而不是 fail-open。返回深拷贝（与 getProject 同语义），调用方改它不影响索引。
+   *
+   * @param {string} projectId
+   * @returns {object|null} 项目对象；不存在返回 null
+   */
+  _findProject (projectId) {
+    const project = this._readProjects().find(item => item.projectId === projectId)
+    if (!project) return null
+    return { ...project, segments: Array.isArray(project.segments) ? project.segments.map(item => ({ ...item })) : [] }
+  }
+
   _resolveSource (candidate, kind) {
     const allowedRoots = getAllowedMediaRoots([this.projectsDir])
     if (kind === 'image' || kind === 'audio' || kind === 'bgm') {
@@ -937,8 +954,35 @@ class Story2VideoProjectService {
         (!hasExplicitIndex ? positionalFallbackSegment : {})
       const id = SAFE_ID.test(String(segment.id || '')) ? String(segment.id) : 'segment-' + index
       const prefix = 'segment_' + String(position).padStart(4, '0')
+      // 视频优化词落地值（QM-6 第六轮 i5）：抽成单一局部量，供 videoPrompt 字段与
+      // videoPromptTranslation 的条件判定共用，避免两处各写一遍 safeText 链后漂移
+      // （漂移的后果是译文与提示词错位回填）。
+      const landedVideoPrompt = safeText(segment.videoPrompt, 40000) ||
+        (fallbackSegment.videoPrompt ? safeText(fallbackSegment.videoPrompt, 40000) : '')
+      const fallbackVideoPrompt = fallbackSegment.videoPrompt ? safeText(fallbackSegment.videoPrompt, 40000) : ''
       const promptTranslation = safeText(segment.promptTranslation, 20000).trim() ||
         safeText(fallbackSegment.promptTranslation, 20000).trim() || null
+      // 视频提示词中文翻译（2026-10-19）：译文 MUST 对应当前 videoPrompt。
+      //
+      // 三个来源的语义（QM-6 第九轮 i1 复核后重写判定）：
+      //   ① compose 输出自带 videoPromptTranslation —— 生产不可达（normalizeComposeScenes
+      //      白名单不含该字段），保留只为防御；
+      //   ② compose 输出**不带** videoPrompt（落地值来自 fallback）—— 这是 recomposeProject
+      //      的路径：fallback 就是项目自身 segments，落地值必然等于 fallback 的 videoPrompt，
+      //      等值判定恒真 ⇒ 译文正确保留；
+      //   ③ compose 输出自带 videoPrompt 且与 fallback 不同 —— 这是**流水线 saveRun** 的路径：
+      //      generate_assets 的 pairedScenes 携带 optimizeVideoScenePrompts 刚优化的新词，
+      //      而 fallback（项目既有分段）持旧词与其旧译文。此时落地值 ≠ fallbackVideoPrompt，
+      //      等值判定为假 ⇒ 译文置空（正确：旧译文描述的是旧词）。
+      // 结论：等值判定同时覆盖 ②（保留）与 ③（置空），无需区分调用方。
+      const videoPromptTranslation = (() => {
+        const fromCompose = safeText(segment.videoPromptTranslation, 2000).trim()
+        if (fromCompose) return fromCompose
+        // 仅当落地值非空、且与 fallback 的 videoPrompt 逐字节相同时才回填译文；
+        // 否则置空（落地的是新词 ⇒ 旧译文失效，由用户再次「重新生成视频优化词」补齐）。
+        if (landedVideoPrompt === '' || landedVideoPrompt !== fallbackVideoPrompt) return null
+        return safeText(fallbackSegment.videoPromptTranslation, 2000).trim() || null
+      })()
       return {
         id,
         index: position,
@@ -949,8 +993,9 @@ class Story2VideoProjectService {
         promptOptimizationMeta: safePromptOptimizationMeta(segment.promptOptimizationMeta || fallbackSegment.promptOptimizationMeta),
         // compose 输出不含 videoPrompt（normalizeComposeScenes 白名单），按稳定 source index 从 fallback 回填
         // （2026-08-15 审查 C1：否则流水线主路径与 recompose 都会把视频优化词清成 null）
-        videoPrompt: safeText(segment.videoPrompt, 40000) ||
-          (fallbackSegment.videoPrompt ? safeText(fallbackSegment.videoPrompt, 40000) : null),
+        videoPrompt: landedVideoPrompt || null,
+        // 视频提示词中文翻译（2026-10-19）：见上方 landedVideoPrompt 处的三来源语义说明
+        videoPromptTranslation,
         imagePath: segment.imagePath
           ? this._copyRequired(segment.imagePath, path.join(projectDir, prefix + '_image' + sourceExtension(segment.imagePath, '.png')), 'image')
           : null,
@@ -1099,6 +1144,7 @@ class Story2VideoProjectService {
         prompt: safeText(source.prompt, 20000),
         promptTranslation: safeText(source.promptTranslation, 20000) || null,
         videoPrompt: safeText(source.videoPrompt, 40000) || null,
+        videoPromptTranslation: safeText(source.videoPromptTranslation, 2000) || null,
         imagePath: copyOptional(source.imagePath, path.join(projectDir, prefix + '_image' + sourceExtension(source.imagePath, '.png')), 'image'),
         audioPath: copyOptional(source.audioPath, path.join(projectDir, prefix + '_audio' + sourceExtension(source.audioPath, '.mp3')), 'audio'),
         videoPath: copyOptional(source.videoPath, path.join(projectDir, prefix + '_video' + sourceExtension(source.videoPath, '.mp4')), 'video'),
@@ -1184,6 +1230,7 @@ class Story2VideoProjectService {
       prompt: segment.prompt || '',
       promptTranslation: segment.promptTranslation || null,
       videoPrompt: segment.videoPrompt || null,
+      videoPromptTranslation: segment.videoPromptTranslation || null,
       imagePath: segment.imagePath || null,
       audioPath: segment.audioPath || null,
       videoPath: segment.videoPath || null,
@@ -1312,6 +1359,44 @@ class Story2VideoProjectService {
     return result
   }
 
+  /**
+   * 解析界面语言（用于视频提示词中文翻译，2026-10-19）。
+   *
+   * 口径与流水线 optimize 阶段一致：project.story2videoTextConfig.config.optimize.uiLocale
+   * （提交时由 CreateView 写入 getAppLocale()）→ 项目 options.uiLocale → 缺省 'zh'。
+   * 主进程无 navigator，不做系统语言探测；缺省 zh 与桌面端默认语言一致。
+   *
+   * 归一化（QM-6 第六轮 i2）：原实现只校验字符集，任意字母串（garbage/---）会直接作为
+   * 目标语言注入翻译 LLM 的 system prompt ⇒ 产出垃圾译文并落库展示；且 `en-US` 这类
+   * 带地区后缀的取值不会被精确 `=== 'en'` 短路，与展示侧 `getAppLocale()` 的归一化
+   * （只认 en/zh）不一致。现统一为主语言子标签：
+   *   - 取 `-` 前的主语言（en-US → en、zh-CN → zh）；
+   *   - 主语言为 en ⇒ 'en'（调用方据此跳过翻译）；
+   *   - 主语言为 zh ⇒ 'zh'；
+   *   - 其余（含空/超长/非字母）⇒ 缺省 'zh'（桌面端只支持 zh/en 两种界面语言，
+   *     其它界面语言本就不会出现，缺省 zh 与既有默认行为一致）。
+   *
+   * @param {object} project 项目对象
+   * @returns {string} 归一化后的 locale（'zh' 或 'en'）
+   */
+  _resolveUiLocale (project) {
+    const candidates = [
+      project && project.story2videoTextConfig && project.story2videoTextConfig.config
+        && project.story2videoTextConfig.config.optimize
+        && project.story2videoTextConfig.config.optimize.uiLocale,
+      project && project.options && project.options.uiLocale,
+    ]
+    for (const candidate of candidates) {
+      if (typeof candidate !== 'string') continue
+      const trimmed = candidate.trim()
+      if (!/^[A-Za-z-]{1,16}$/.test(trimmed)) continue
+      const primary = trimmed.split('-')[0].toLowerCase()
+      if (primary === 'en') return 'en'
+      if (primary === 'zh') return 'zh'
+    }
+    return 'zh'
+  }
+
   updateSegments (projectId, updates) {
     const project = this.getProject(projectId)
     const previousProject = { ...project, segments: project.segments.map(segment => ({ ...segment })) }
@@ -1331,6 +1416,8 @@ class Story2VideoProjectService {
       }
       const nextPrompt = update.prompt === undefined ? original.prompt : safeText(update.prompt, 20000)
       const promptChanged = update.prompt !== undefined && nextPrompt !== original.prompt
+      const nextVideoPrompt = update.videoPrompt === undefined ? original.videoPrompt : safeText(update.videoPrompt, 40000)
+      const videoPromptChanged = update.videoPrompt !== undefined && nextVideoPrompt !== original.videoPrompt
       return {
         ...original,
         index,
@@ -1342,7 +1429,11 @@ class Story2VideoProjectService {
               ? safePromptOptimizationMeta(original.promptOptimizationMeta)
               : safePromptOptimizationMeta(update.promptOptimizationMeta)),
         // 历史记录场景内容编辑（2026-08-15）：字幕/视频优化词/语音设置白名单透传
-        videoPrompt: update.videoPrompt === undefined ? original.videoPrompt : safeText(update.videoPrompt, 40000),
+        videoPrompt: nextVideoPrompt,
+        // 视频提示词中文翻译（2026-10-19 审查 i1）：videoPrompt 被改写后旧译文即失效，
+        // 与「重新生成视频优化词先清后写」同语义；否则手动编辑后会展示描述旧提示词的错误译文。
+        // 该字段不接受前端传入（白名单外），只在此按「是否改写」决定保留或清空。
+        videoPromptTranslation: videoPromptChanged ? null : (original.videoPromptTranslation || null),
         subtitleBlocks: update.subtitleBlocks === undefined ? original.subtitleBlocks : safeSubtitleBlocks(update.subtitleBlocks),
         subtitleTimeline: update.subtitleTimeline === undefined ? original.subtitleTimeline : safeSubtitleTimeline(update.subtitleTimeline),
         voiceId: update.voiceId === undefined ? original.voiceId : safeText(update.voiceId, 160),
@@ -1945,7 +2036,70 @@ class Story2VideoProjectService {
         // 提示词重写后旧翻译失效：清空，避免结果页展示陈旧翻译
         segment.promptTranslation = null
       } else {
-        segment.videoPrompt = safeText(optimizedText, 40000)
+        const nextVideoPrompt = safeText(optimizedText, 40000)
+        segment.videoPrompt = nextVideoPrompt
+        // 视频提示词中文翻译（2026-10-19）：与图片提示词翻译对称，结果页「视频优化词」旁只读展示。
+        // 先清后写：翻译失败/不可用时不留上一轮陈旧译文（fail-open，不影响 videoPrompt 本身）。
+        segment.videoPromptTranslation = null
+        segment.error = null
+        segment.status = 'completed'
+        project.segments[index] = segment
+        project.dirty = true
+        project.updatedAt = new Date().toISOString()
+        // 先落盘 videoPrompt 再等翻译（QM-6 第五轮 i3）：翻译最长 25s，若放在 _upsertProject 之前，
+        // 该窗口内进程崩溃会让本次重新生成整体丢失（videoPrompt 也没写上）。先落盘 ⇒ 最坏是译文缺失
+        // （下次重新生成补齐），不会丢掉已付费得到的优化词。
+        const persistedVideoPrompt = this._upsertProject(project)
+        const videoTranslation = await translateVideoPromptForLocale(
+          this.aiGenerator,
+          nextVideoPrompt,
+          this._resolveUiLocale(project),
+          this.log,
+        )
+        if (videoTranslation) {
+          // 译文后写：只在成功时再落一次盘（失败即止步，避免多余写入）。
+          // dirty 必须重新置位：与文件内其余写点同形态，避免 _upsertProject 以 dirty 为门禁时
+          // 译文只进内存不落盘（QM-6 第六轮 i1）。
+          // **必须重新读取项目再改**（QM-6 第七轮 i2）：翻译 await 最长 25s，该窗口内用户可能
+          // 已通过 updateSegments/moveSegment/removeSegment 改了同一项目。若继续用 await 前捕获的
+          // 陈旧 project/segment 引用做整段 _upsertProject，会把窗口期内的并发修改整体覆盖回滚。
+          // 重新读取后只 patch 本分段的译文字段，其余分段原样保留。
+          const latest = this._findProject(projectId)
+          // 项目在翻译窗口内被整体删除（QM-6 第九轮 i3）：getProject 对不存在的项目是**抛错**
+          // 而非返回 null，直接用会让 IPC 异常响应。删除是合法并发操作，此处必须 fail-open。
+          if (!latest || !Array.isArray(latest.segments)) {
+            this._cleanupUnreferencedProjectFiles(projectId, previousProject, persistedVideoPrompt)
+            return persistedVideoPrompt
+          }
+          const latestIndex = latest.segments.findIndex(item => item.id === segment.id)
+          // 译文身份校验（QM-6 第八轮 i1）：必须确认当前 videoPrompt 仍是本次生成的
+          // nextVideoPrompt 才写回译文。25s 窗口内用户可能已改词（updateSegments 会先清空
+          // 译文）或二次点击重新生成（另一轮译文正在路上），此时旧词译文若被 patch 写回，
+          // 就会展示「描述上一个提示词的译文」——正是本次变更自己要防的不变量违反。
+          const currentVideoPrompt = latestIndex >= 0 ? (latest.segments[latestIndex].videoPrompt || '') : ''
+          if (latestIndex < 0 || currentVideoPrompt !== nextVideoPrompt) {
+            // 分段已删除，或 videoPrompt 已被改动：放弃译文写入。
+            // 返回值必须是**重新读取的最新项目**（QM-6 第九轮 i2）：若返回 await 前的陈旧
+            // persistedVideoPrompt，渲染端会用它整体覆盖 segments，把窗口期内的用户编辑回滚，
+            // 且下次保存会把旧值写回磁盘。成功路径返回 latest，失败路径也必须对称。
+            this._cleanupUnreferencedProjectFiles(projectId, previousProject, latest)
+            return latest
+          }
+          latest.segments[latestIndex] = {
+            ...latest.segments[latestIndex],
+            videoPromptTranslation: videoTranslation,
+          }
+          latest.dirty = true
+          latest.updatedAt = new Date().toISOString()
+          const saved = this._upsertProject(latest)
+          this._cleanupUnreferencedProjectFiles(projectId, previousProject, saved)
+          return saved
+        }
+        // 翻译失败/超时：同样返回最新读取的项目（QM-6 第九轮 i2），避免陈旧快照回滚并发编辑
+        const latestAfterTranslation = this._findProject(projectId)
+        const result = latestAfterTranslation || persistedVideoPrompt
+        this._cleanupUnreferencedProjectFiles(projectId, previousProject, result)
+        return result
       }
       segment.error = null
       segment.status = 'completed'

@@ -268,6 +268,13 @@ export default {
       segmentCountSuffix: 'segments',
       promptTranslationLabelZh: 'Chinese translation',
       promptTranslationLabelOther: 'Translation',
+      // Video prompt translation label (2026-10-19): same two-tier family as the image side,
+      // so the reader can tell which prompt a given translation belongs to.
+      videoPromptTranslationLabelZh: 'Video prompt Chinese translation',
+      videoPromptTranslationLabelOther: 'Video prompt translation',
+      // Segment editor collapse toggle (2026-10-19)
+      expandEditor: 'Expand editor',
+      collapseEditor: 'Collapse editor',
       narrationTextLabel: 'Narration text',
       imagePromptLabel: 'Image prompt',
       replaceNarration: 'Replace narration',
