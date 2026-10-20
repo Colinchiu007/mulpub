@@ -160,7 +160,7 @@
           <el-table-column label="操作" width="160">
             <template #default="{ row }">
               <el-button size="small" @click="openCase(row.id)">详情</el-button>
-              <el-button size="small" type="danger" @click="doDelete(row.id)">删除</el-button>
+              <el-button size="small" type="danger" @click="doDelete(row)">删除</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -245,6 +245,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ElMessageBox } from 'element-plus'
 import {
   createPromptEvalCase, updatePromptEvalCase, translatePromptEvalCase, createPromptEvalRun,
   listPromptEvalCases, getPromptEvalCase, deletePromptEvalCase, getPromptEvalSummary,
@@ -436,10 +437,24 @@ async function pollRun() {
   if (idx >= 0) detail.value.runs[idx] = run
 }
 
-async function doDelete(id) {
-  if (!window.confirm('确认删除该评测及其生成物？')) return
-  await deletePromptEvalCase(id)
-  await loadCases()
+async function doDelete(row) {
+  // 原生 window.confirm 在本应用是孤例：其余删除入口一律走 ElMessageBox（可主题化、可取消、
+  // 文案能写清后果）。取消必须"什么都不做"（fail-closed），且文案点名被删对象与不可恢复性。
+  try {
+    await ElMessageBox.confirm(
+      `确定删除评测「${row.title || row.id}」（ID ${row.id}）吗？\n该评测记录及其生成的图片 / 视频产物会一并移除，不可恢复。`,
+      '确认删除',
+      { type: 'warning' },
+    )
+  } catch {
+    return
+  }
+  try {
+    await deletePromptEvalCase(row.id)
+    await loadCases()
+  } catch (e) {
+    errorMsg.value = '删除失败：' + apiErrorMessage(e)
+  }
 }
 
 async function loadSummary() {
