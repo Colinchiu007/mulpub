@@ -131,6 +131,18 @@
             <button v-if="rewriteError && RETRYABLE_CODES.has(rewriteError.code)" class="col-btn col-btn--secondary col-btn-retry" @click="retryRewrite" :disabled="rewriting">
               {{ $t('collection.retry') }}
             </button>
+            <!-- 取消改写（rewrite-cancel-collection）：分段改写是分钟级操作，采集页粘错链接/选错
+                 正文时不该只能等全程。协作式，在**当前片段完成后**生效——文案不暗示立即中止。
+                 一键改写流程（采集+自动改写）同样可见，但采集阶段不可取消（只取消改写阶段）。 -->
+            <button
+              v-if="rewriting || oneClickRewriting"
+              class="col-btn col-btn--secondary col-btn-cancel"
+              data-testid="collection-rewrite-cancel-btn"
+              :disabled="cancelling || collecting"
+              @click="cancelRewrite"
+            >
+              {{ cancelling ? $t('rewritePage.cancellingBtn') : $t('rewritePage.cancelRewriteBtn') }}
+            </button>
             <template v-if="rewriteResult">
               <button class="col-btn col-btn--secondary" @click="saveDraftAfterRewrite"><el-icon><FolderAdd /></el-icon> {{ $t('collection.saveDraft') }}</button>
               <button class="col-btn col-btn--primary" @click="goPublishAfterRewrite"><el-icon><Promotion /></el-icon> {{ $t('collection.goPublish') }}</button>
@@ -484,6 +496,9 @@ import { extractRewriteHistoryId, attachRewriteLineage } from '@/utils/rewrite-l
 import { formatUserError } from '@/utils/user-facing-error'
 import { REWRITE_ENGINE_MAX_INPUT_CHARS, prepareRewriteInput, shouldSegmentRewrite } from '@/utils/rewrite-engine-limits'
 import { normalizeRewriteEngineError } from '@/utils/rewrite-engine-error'
+// 改写取消（rewrite-cancel-collection）：采集页是长文最常出现的入口（知乎回答/公众号长文/
+// 视频转写），也是最初报错（#3979）的页面——#4078 建好通道却只接了改写页，这里补齐。
+import { useRewriteCancel } from '@/composables/useRewriteCancel'
 import { classifyCollectError } from '@/utils/collect-error'
 // 采集内容守卫：识别「百度安全验证」等反爬验证页文字（判据与主进程同源，见模块注释）
 import { isVerificationContent } from '@/utils/collected-content-guard'
@@ -527,6 +542,8 @@ const linkUrl = ref('')
 const collecting = ref(false)
 const rewriting = ref(false)
 const oneClickRewriting = ref(false)
+// 改写取消（runId 生命周期 / 取消中态；协作式，段边界生效）见 composables/useRewriteCancel
+const { cancelling, beginRun, cancel: requestCancel, endRun } = useRewriteCancel()
 const collectedResult = ref(null)
 /**
  * 选中一条采集结果并**滚动到详情框**。
@@ -710,6 +727,8 @@ async function rewriteViaEngine (content) {
     const maxW = Number(rewriteWordCountMax.value) || 2000
     const wordCountTarget = maxW <= 800 ? 'short' : (minW >= 1500 || maxW >= 2500) ? 'long' : 'medium'
     const params = {
+      // 取消通道寻址键（每次改写新生成）：主进程据此把 cancel 打到本次改写上
+      runId: beginRun(),
       mode: 'imitate',
       content: prepared.text,
       userSettings: {
@@ -728,6 +747,20 @@ async function rewriteViaEngine (content) {
   } catch (e) {
     // IPC 异常归一化为 __error 形态，调用方 formatUserError 消费统一形状（审查 W-7）
     return { __error: { code: -99, message: (e && e.message) || String(e) } }
+  } finally {
+    // 无论成功/失败/取消都释放 runId（否则下一次改写的取消会打到上一次的键上）
+    endRun()
+  }
+  // 取消是预期行为，不是失败（rewrite-cancel-collection）：不归一化为 __error，
+  // 否则四个调用点会把它当错误弹「AI 改写失败」。调用点按 __cancelled 跳过错误分支。
+  if (res && res.code === 0 && res.data && res.data.cancelled === true) {
+    notifyInfo('rewritePage.rewriteCancelled', {
+      params: {
+        completed: Number(res.data.completedSegments) || 0,
+        total: Number(res.data.segmentCount) || 0,
+      },
+    })
+    return { __cancelled: true }
   }
   // aiRewrite 返回 { code, data: { success, result } }；归一化为旧 aggregationRewrite 的 { result_content } 消费形态
   if (res && res.code === 0 && res.data && res.data.success && res.data.result) {
@@ -1490,7 +1523,8 @@ async function collectAndRewrite () {
               rewriteResult.value = rewrite.result_content
               recordRewriteToLibrary(rewrite.result_content, videoItem)
               notifySuccess('collection.rewriteSuccess')
-            } else {
+            } else if (!(rewrite && rewrite.__cancelled)) {
+              // 取消（__cancelled）已由漏斗提示代价，这里不得再当失败弹错
               // 后端业务错误（resolve 返回）同样必须过 formatUserError：稳定 errorCode → locale 友好文案，
               // 禁止把后端原始 message（可能含环境变量名等技术细节）直出 UI（user-facing-messages 规范）
               const errorSource = rewrite && rewrite.__error ? rewrite.__error : (rewrite || {})
@@ -1542,7 +1576,7 @@ async function collectAndRewrite () {
           rewriteResult.value = rewrite.result_content
           recordRewriteToLibrary(rewrite.result_content, stealthItem)
           notifySuccess('collection.rewriteSuccess')
-        } else {
+        } else if (!(rewrite && rewrite.__cancelled)) {
           const errorSource = rewrite && rewrite.__error ? rewrite.__error : (rewrite || {})
           const formatted = formatUserError(errorSource, { fallback: resolveNotifyText('collection.rewriteFailed').text })
           rewriteError.value = { code: rewrite && rewrite.code != null ? rewrite.code : -99, message: formatted.message }
@@ -1603,7 +1637,7 @@ async function collectAndRewrite () {
         rewriteResult.value = rewrite.result_content
         recordRewriteToLibrary(rewrite.result_content, item)
         notifySuccess('collection.rewriteSuccess')
-      } else {
+      } else if (!(rewrite && rewrite.__cancelled)) {
         // 同上：业务错误 resolve 分支也必须走 formatUserError（i18n + 友好度强制机制）
         const errorSource = rewrite && rewrite.__error ? rewrite.__error : (rewrite || {})
         const formatted = formatUserError(errorSource, { fallback: resolveNotifyText('collection.rewriteFailed').text })
@@ -1644,7 +1678,7 @@ async function rewriteCollected () {
       rewriteResult.value = result.result_content
       recordRewriteToLibrary(result.result_content, collectedResult.value)
       notifySuccess('collection.rewriteSuccess')
-    } else {
+    } else if (!(result && result.__cancelled)) {
       // 同上：业务错误 resolve 分支也必须走 formatUserError（i18n + 友好度强制机制）
       const errorSource = result && result.__error ? result.__error : (result || {})
       const formatted = formatUserError(errorSource, { fallback: resolveNotifyText('collection.rewriteFailed').text })
@@ -1661,6 +1695,15 @@ async function rewriteCollected () {
 
 function retryRewrite () {
   rewriteCollected()
+}
+
+/**
+ * 取消正在进行的改写（逻辑见 composables/useRewriteCancel）。
+ * 只在确有改写在跑时生效；采集阶段（collecting）按钮被禁用，避免误以为能取消采集。
+ */
+function cancelRewrite () {
+  if (!rewriting.value && !oneClickRewriting.value) return
+  void requestCancel()
 }
 
 function clearResult () {

@@ -1,0 +1,65 @@
+{
+  "sha": "f8730eeb88fc40e49ea44a7e4eaf903137d73d6a",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 206 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 206,
+    "fileCount": 5,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "f2c2fb55780e5e25f2e1eb6c6581aa22854f23614dca2d5b9e50ed67da4be215",
+  "decidedAt": "2026-10-20T13:21:53.664Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "cleared",
+    "tier": "external",
+    "performedBy": "main-agent adversarial self-review + consumption-point inventory (grep aiRewrite across src/) + product-level bundled-asset assertion; external model inference gateway unavailable (429/503) so no live second-model axis",
+    "evidence": null,
+    "findings": [
+      "根因：#4078 验收标准写「改写中显示取消按钮」、测试只挂载 RewriteView ⇒ aiRewrite 的其余 3 个消费点无人检查；而采集页是长文最常出现的入口与最初报错页面",
+      "消费点清单（grep aiRewrite 全量）：RewriteView 已接（#4078）；Collection 本次接；AiWriterPanel 未接（如实登记）；HotTopics + useHotTopicsGenVideo 为 mode:create 短种子，不做（如实登记）",
+      "「取消不是失败」的显式表达：4 个调用点 else → else if (!(result && result.__cancelled))，一行修改 ×4，不复制错误处理（复制必漂移）",
+      "runId 生命周期：beginRun 在唯一漏斗内，finally endRun 释放（失败/取消也不残留），防止下一次取消打到上一次的键",
+      "一键改写语义边界：oneClickRewriting 期间按钮可见，但 collecting 为真时禁用并在模板注明「采集阶段不可取消」",
+      "i18n 行数硬限自纠：首次在 collection/zh.js 新增 3 键 + 注释 → 该文件 500 行触发 NEW_OVER_LIMIT（gate 按 split 计数，末行无换行时 499 也算 500）⇒ 改为复用 rewritePage.* 键并删除注释，zh.js 回到零改动、gate ✅",
+      "测试自纠：`void requestCancel()` 的续延需多轮微任务，单次 nextTick 不够 ⇒ 改用 flushPromises（先在 RewriteView 用例里通过的写法在采集页失败，说明该断言依赖时序）",
+      "产物级证据：源码含 ≠ 产物含 —— 扫 66 个 dist chunk 断言 collection-rewrite-cancel-btn / aiRewriteCancel / cancellingHint 均命中",
+      "验证：147 passed（+5）；eslint rc=0；5 道静态门禁 PASS；build:vue + electron-builder rc=0"
+    ]
+  }
+}
