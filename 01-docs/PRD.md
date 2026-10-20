@@ -19996,6 +19996,9 @@ apps/desktop/src/views/
 | 目录拉取失败时的选中项 | `catalogData` 为空**且克隆列表也未拿到权威结果**时，不得清空 `s2vConfig.voiceId`，并须把 `s2vPersistedVoiceId` 同步成同一值 | 一是刷新一次失败即抹掉刚克隆的音色且无提示（违反「已保存的 voiceId 不得静默丢失」）；二是两态不一致会让「默认」徽标与选中项脱节（QM-6 轮 B i2） |
 | 「取不到」与「权威为空」 | 目录/克隆列表只有 `code === 0` 且拿到数组才算**权威结果**；失败一律保留原值，绝不用空数组覆盖 | 克隆列表拉取失败被无条件赋 `[]` ⇒ 克隆音色从候选消失，选中项归一又因候选为空走到清空分支（两层叠加，本次 R3 的真身） |
 | 上下文切换清克隆 | 仅在 `providerId` 或解析出的 `model` **变化**时清空克隆列表；`tracking` 字段只在**目录成功返回后**更新 | ① 同上下文刷新也清 ⇒ 一次失败抹掉候选；② tracking 在请求开始就写 ⇒ 一次失败的切换污染记忆，切回原 provider 判定不出切换，候选永久丢失（QM-6 轮 B i3 / 轮 C i1） |
+| 只读 computed 与 `requireDeps` | 计算属性**只在真正消费 deps**（如 `d.t`）时才调用 `requireDeps()`；只读 state 的 computed 一律不得调用 | Vue 3 的 computed 在求值抛错时把 `_dirty` 置回 false 却**保留上一次的 `_value`**，且抛错那次没成功注册依赖订阅 ⇒ 此后 state 变化再也 trigger 不到它，**永久返回陈旧值**。`s2vVoiceOptions` 原有一行 `const d = requireDeps()` 且函数体从未使用 `d`，即因此让 6 例在 `--sequence.shuffle` 下稳定失败（2026-10-20 定位并修复） |
+| fail-closed 的归属层 | fail-closed 由**写路径方法**承担（`getS2VVoiceContext` / `selectS2VVoice` / `addS2VVoiceClone` 等）；只读 computed 在 deps 缺失时返回安全空值，**不得**抛错 | 让 computed 抛错会引入比它防住的更严重的缺陷（见上一条）。壳的注入顺序是「先 `setupTtsVoicesDeps` 再渲染」，正常路径下 computed 首读时 deps 已就位；把安全网建在会污染缓存的地方得不偿失 |
+| 状态最小面 | 不得为「方便断言」新增与权威状态重复的镜像 ref。`s2vConfig.voiceId` 是音色选择的唯一权威，`s2vPersistedVoiceId`（2026-10-20 移除）是它的冗余镜像且生产零读取 | 镜像会漂移（两态不一致正是 i1/i2 争议的来源），且「写了没人读」的状态只能靠测试断言养活，属设计债。需要「主进程归一后的 id」时应**回写权威**而不是另存镜像 |
 
 ### 流程（功能逻辑）
 
