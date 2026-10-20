@@ -157,6 +157,22 @@ function select (id) {
   closeMenu(true)
 }
 
+/**
+ * 提交当前键盘焦点所在项（Enter / 空格）。
+ * 菜单项顺序：[0] = 「默认」，其后依次是各条配置（与 `options` 的顺序一致）。
+ * 没有焦点项（activeIndex < 0）时不做任何事 —— 不能凭空选中一个配置。
+ */
+function commitActive () {
+  const index = activeIndex.value
+  if (index < 0) return
+  if (index === 0) {
+    select('')
+    return
+  }
+  const target = options.value[index - 1]
+  if (target) select(target.id)
+}
+
 async function focusActive () {
   await nextTick()
   const items = menuEl.value?.querySelectorAll?.('[role="option"]')
@@ -218,6 +234,13 @@ function onMenuKeydown (event) {
   if (key === 'Escape') {
     event.preventDefault()
     closeMenu(true)
+    return
+  }
+  if (key === 'Enter' || key === ' ' || key === 'Spacebar') {
+    // Enter / 空格 = 选中当前焦点项并收起菜单（QM-6 round 2 i1 采纳：
+    // 此前只处理方向键，缺「选中」这一核心契约，与 role=combobox/listbox 的语义不符）
+    event.preventDefault()
+    commitActive()
     return
   }
   if (key === 'Tab') {

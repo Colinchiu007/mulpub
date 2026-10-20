@@ -58,7 +58,40 @@
 「哪些流水线能选」「某条档案算不算合法」「切流水线后旧选择还算不算数」「query 键怎么拼」都是纯数据决策，抽到 `features/publish-destination/publish-destination-config.js`：
 
 - 纯函数测试可以穷举数据校验分支（15 例），不挂组件；
-- 组件测试只验交互（7 例），不重复数据校验。
+- 组件测试只验交互（19 例），不重复数据校验。
+
+### D9：交接模块的**决策**与**副作用**分离，宿主用显式依赖注入（QM-6 第 1 轮 i4 采纳）
+
+初版把整个 CreateView 实例当宿主传进模块（`applyConfigProfileFromRoute(host)`），模块内部出现 `host.$route` / `host.showS2VOptionsToast` 这类「宿主专属」调用。后果有两个：该模块**只能**被 CreateView 用、也**测不了**（单测要造一个 Vue 实例）；决策与副作用缠在一起，失败分支没法穷举。
+
+改为两层：
+
+- `resolveConfigProfileTarget({ profileId, pipelineId, profiles })` —— **纯决策函数**，不碰任何 IO，返回 `skipped` / `no-pipeline` / `not-found` / `wrong-pipeline` / `apply` 之一，五个分支可被单测穷举；
+- `applyConfigProfileFromRoute(deps)` —— **副作用编排**，入参是普通数据 + 普通函数（`getProfiles` / `loadProfiles` / `applySnapshot` / `setActiveProfile` / `showToast` / `awaitRestore`），模块**不认识 Vue**。
+
+**为什么 `getProfiles` 是取函数而不是值**：载入配置库会**整体替换**宿主那份数组快照（不是原地 push），模块若在调用前抓一次快照，载入后拿到的仍是旧数组 ⇒ 配置被误判为「已删除」。取函数让它在载入**之后**重新取一次。
+
+这条拆分的收益在第 2 轮立刻兑现：i2（`loadProfiles` 缺 `try/catch`）能被精确断言，因为「同函数内 `awaitRestore` 有 catch、唯独 `loadProfiles` 没有」在纯依赖注入下是可断言的观察点。
+
+### D10：键盘「选中」收敛到单一入口 `commitActive()`（QM-6 第 2 轮 i1 采纳）
+
+PRD §3.3.4 写下了「`Enter` / `Space` = 选中当前焦点项并关闭菜单」，但实现只落了方向键 / Home / End / Esc——**文档承诺了、测试也绿、唯独代码没有**（详见执行记录 learnings）。第 2 轮 critic 以 Critical 指出。
+
+修法不是「在两个分支里各写一遍选中逻辑」，而是收敛到**一个入口** `commitActive()`：按下 `Enter` / 空格时按当前键盘焦点下标选中，菜单下标 0 = 「默认」、其后依次是各条配置（与 `options` 同序）；`activeIndex < 0`（无焦点项）时**不做任何事**——绝不凭空选中一条配置。
+
+**为什么值得单独记一条决策**：同一个「选中」语义有三条入口（鼠标点 `li`、Enter、空格），不收敛就会出现「鼠标能选、键盘不能选」这类分裂。收敛后鼠标点击也是走 `select(id)`，与键盘共用同一份「下标 → 配置 id」映射。
+
+### D11：「载入失败」与「配置不存在」必须是两个事实（QM-6 第 2 轮 i2 采纳）
+
+`await d.loadProfiles()` 起初没有 `try/catch`（同函数的 `awaitRestore` 有）——失败会沿 mounted 链冒泡成**未捕获拒绝**，用户看到的是「创作页出错了」，而语义上「配置是锦上添花，不能因为它让用户做不了正事」。
+
+修法不只是加 `try/catch`，还要**给它独立提示**：
+
+- 不复用 `create.story2video.configProfile.loadFailed`（那是配置管理界面的「可稍后重试」语义）；
+- 不复用 `create.story2video.configProfile.notFound`（那是「已被删除」语义）；
+- 新增 `create.story2video.configProfile.handoffLoadFailed`：「未能载入配置列表，无法套用所选配置，已按流水线默认参数继续」。
+
+理由：配置可能**好好地存在**、只是这次没载入成功。把「没载入成功」说成「不存在」是**误导**——用户会以为自己的配置丢了而重新建一遍。
 
 ## 2. 风险与缓解
 
@@ -66,10 +99,10 @@
 |---|---|
 | 流水线下拉选项集合扩大 ⇒ 用户可能选到不接文案的流水线 | 只放**文案型**（与创作页灰显判据同源）；素材型/录屏型/独立页/内部冒烟一律不出现 |
 | 热门选题页批量改写后跳创作页带上了流水线，可能影响既有默认行为 | 弹窗里不选流水线时 `pipelineId` 为空 ⇒ query 不带 `pipeline` 键 ⇒ 创作页行为与改动前一致 |
-| 选了配置但创作页套用失败 ⇒ 用户以为套上了 | 四种失败各有可见提示，且都不阻断创作 |
+| 选了配置但创作页套用失败 ⇒ 用户以为套上了 | 五种失败各有可见提示（已删除 / 跨流水线 / 载入失败 / 套用失败 / 无法确定流水线），且都不阻断创作 |
 | 配置下拉与左侧原生 select 视觉割裂 | 自建下拉复用 `.pipeline-select` 的边框/圆角/字号；同仓先例可对照 |
 | 浮窗每次打开都拉配置库 ⇒ 轻微 IO | 一次 IPC 拉全量（本地 JSON 读取），量级可忽略；换来「刚存的新配置立刻可选」 |
-| 「未能确定流水线」复用 `applyFailed` 键 ⇒ 键名与文案不完全对齐 | 已知取舍，写进 PRD §9.3；若后续 locale 治理要求严格一一对应则拆键 |
+| 「未能确定流水线」复用 `applyFailed` 键 ⇒ 键名与文案不完全对齐 | **已消除**：初版复用 `applyFailed` 键 + `translateWithLocaleFallback` 兜底参数区分文案，现改为独立键 `pipelineUnresolved`（D11 同一原则再加 `handoffLoadFailed`） |
 
 ## 3. 不做
 
@@ -86,3 +119,7 @@
 | 提交携带配置档案 | 同文件「选了配置后，提交时把配置档案一起带出去」 |
 | query 键名单一真源 | `features/publish-destination/publish-destination-config.test.js`「buildCreateHandoffQuery」组 |
 | 创作页自动套用 / 三种拒绝 | `views/CreateView.config-profile-handoff.test.js` 4 例 |
+| 交接决策五分支可穷举 | `features/publish-destination/apply-config-profile-handoff.test.js`「resolveConfigProfileTarget」组 |
+| 交接失败一律「返回 false + 可见提示」，不抛异常 | 同文件「载入配置库失败 ⇒ 不抛异常、提示 handoffLoadFailed、不套用」 |
+| 键盘可达（契约表每一行都有锁） | `components/PublishDestinationModal.test.js`：↓ 展开并落焦、↑/↓/End/Esc 移动与关闭、**Enter 选中**、**空格选中**、**Home+空格选中「默认」** |
+| 「载入失败」不伪装成「配置不存在」 | `locales/create/{zh,en}.js` 各有独立键 `handoffLoadFailed`；`check-locale-sync --keys` 保证成对 |

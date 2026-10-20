@@ -24,7 +24,7 @@
 - **修掉一处竞态**：创作页的「恢复上次选项」与本片的「套用配置档案」写同一份表单，并发时后写者胜；把恢复的 promise 留住并在套用前 `await` 它，保证**配置档案（用户显式选择）必胜**。
 - **失败路径全部可见**：配置已删除 / 跨流水线 / 套用失败 / 无法确定流水线，四种各有提示文案，且**都不阻断创作**。
 - **新增 locale**：`publishDestination.configLabel` / `configDefaultOption` / `configEmpty` / `configLoading` / `configLoadFailed`，`create.story2video.configProfile.notFound`（zh/en 成对）。
-- **文档**：`01-docs/PRD-PUBLISH-DESTINATION-CONFIG-PICKER-2026-10-21.md`（详细 PRD：数据校验 / 流程 / 功能逻辑 / 交互逻辑 / 显示项 / 提示文字 / 边界 / 验收 / 测试映射）、`01-docs/PRD-S2V-PIPELINE-PAGE-UX.md` §9.11、`01-docs/CHANGELOG.md`、本 change 的 `tasks.md` / `design.md` / `spec.md` 与 `openspec/records/publish-config-picker.md`。
+- **文档**：`01-docs/PRD-PUBLISH-DESTINATION-CONFIG-PICKER-2026-10-21.md`（详细 PRD：数据校验 / 流程 / 功能逻辑 / 交互逻辑 / 显示项 / 提示文字 / 边界 / 验收 / 测试映射）、`01-docs/PRD-S2V-PIPELINE-PAGE-UX.md` §14、本 change 的 `tasks.md` / `design.md` / `spec.md` 与 `openspec/records/publish-config-picker.md`（CHANGELOG 条目真源在执行记录里，由 `scripts/aggregate-changelog.js` 搬运到热写面）。
 
 ## Capabilities
 
@@ -35,20 +35,23 @@
 
 > 下面这份清单是**声明范围**（CCG 决策层据此判「范围漂移」），必须与本 change 实际落地的文件一致。
 > 实施中途新增/拆分出来的文件**也要在这里点名**——决策层只认声明，认不到声明就报漂移。
+> ⚠️ 路径必须写成**仓库相对完整路径**（含 `apps/desktop/src/` 前缀）：决策层按路径逐字比对，
+> 写省略前缀（如 `components/X.vue`）会被判成「不在声明范围内」（实测 2026-10-21 提交时 7 个文件全被误报漂移）。
 
 - 渲染层：
-  - `components/PublishDestinationModal.vue`（新增配置选择器接线、流水线下拉改用文案型全集、`publish-video` 增加第 2 个载荷参数）
-  - `components/PublishDestinationConfigPicker.vue`（**新增**：配置选择器控件本体。从浮窗里拆出来的原因是 `PublishDestinationModal.vue` 触到 `check-max-lines` 的 500 行上限）
-  - `views/RewriteView.vue` / `views/Collection.vue` / `views/HotTopics.vue`（交接 query 带配置档案；热门选题页顺带修好流水线断链）
-  - `views/CreateView.vue`（新增 `_applyConfigProfileFromRoute()`；`selectPipeline` 留住恢复 promise；mounted 串接套用）
-- 新增模块（`features/publish-destination/`）：
-  - `publish-destination-config.js`（纯函数：归一化 / 过滤 / 选中解析 / 载荷与 query 构造）
-  - `apply-config-profile-handoff.js`（**新增**：创作页的套用流程。从 `CreateView.vue` 里抽出来的原因是它触到 `check-debt-budget` 的「单文件最大行数只降不升」）
-  - `publish-destination-config.test.js`（**新增**：纯函数回归锁）
+  - `apps/desktop/src/components/PublishDestinationModal.vue`（新增配置选择器接线、流水线下拉改用文案型全集、`publish-video` 增加第 2 个载荷参数）
+  - `apps/desktop/src/components/PublishDestinationConfigPicker.vue`（**新增**：配置选择器控件本体。从浮窗里拆出来的原因是 `PublishDestinationModal.vue` 触到 `check-max-lines` 的 500 行上限）
+  - `apps/desktop/src/views/RewriteView.vue`、`apps/desktop/src/views/Collection.vue`、`apps/desktop/src/views/HotTopics.vue`（交接 query 带配置档案；热门选题页顺带修好流水线断链）
+  - `apps/desktop/src/views/CreateView.vue`（新增 `_applyConfigProfileFromRoute()`；`selectPipeline` 留住恢复 promise；mounted 串接套用）
+- 新增模块（`apps/desktop/src/features/publish-destination/`）：
+  - `apps/desktop/src/features/publish-destination/publish-destination-config.js`（纯函数：归一化 / 过滤 / 选中解析 / 载荷与 query 构造）
+  - `apps/desktop/src/features/publish-destination/apply-config-profile-handoff.js`（**新增**：创作页的套用流程。从 `CreateView.vue` 里抽出来的原因是它触到 `check-debt-budget` 的「单文件最大行数只降不升」）
+  - `apps/desktop/src/features/publish-destination/publish-destination-config.test.js`（**新增**：纯函数回归锁）
+  - `apps/desktop/src/features/publish-destination/apply-config-profile-handoff.test.js`（**新增**：决策分支 + 副作用分支回归锁）
 - 测试：
-  - `components/PublishDestinationModal.test.js`（既有 7 例 + 新增 7 例）
-  - `views/CreateView.config-profile-handoff.test.js`（**新增**：创作页交接 4 例）
-- i18n：`locales/publish-destination/{zh,en}.js`（5 键）、`locales/create/{zh,en}.js`（2 键：`notFound` / `pipelineUnresolved`）
-- 共享只读导出：`i18n/pipeline-labels.js`（`TEXT_BASED_PIPELINE_IDS`）
+  - `apps/desktop/src/components/PublishDestinationModal.test.js`（既有 7 例 + 新增 12 例，含 5 例键盘可达）
+  - `apps/desktop/src/views/CreateView.config-profile-handoff.test.js`（**新增**：创作页交接 4 例）
+- i18n：`apps/desktop/src/locales/publish-destination/zh.js`、`apps/desktop/src/locales/publish-destination/en.js`（各 5 键）；`apps/desktop/src/locales/create/zh.js`、`apps/desktop/src/locales/create/en.js`（各 3 键：`notFound` / `pipelineUnresolved` / `handoffLoadFailed`）
+- 共享只读导出：`apps/desktop/src/i18n/pipeline-labels.js`（`TEXT_BASED_PIPELINE_IDS`）
 - 文档：`01-docs/PRD-PUBLISH-DESTINATION-CONFIG-PICKER-2026-10-21.md`（**新增**）、`01-docs/PRD-S2V-PIPELINE-PAGE-UX.md`（§14）、`openspec/records/publish-config-picker.md`（**新增**）、本 change 的 `proposal.md` / `tasks.md` / `design.md` / `specs/publish-destination-config-picker/spec.md`
-- **不改动**：主进程 `services/story2video-config-profiles.js`、`ipc-handlers/story2video.js` 的四个 `story2video:config-profile-*` 通道、`preload/publish.js`、`components/ConfigProfileManager.vue`、`api/publisher.js`、根级 `CHANGELOG.md` 与 `01-docs/learnings.md`（热写面已由 `scripts/aggregate-changelog.js` 收敛，条目真源在本 change 的执行记录里）
+- **不改动**：主进程 `apps/desktop/electron/services/story2video-config-profiles.js`、`apps/desktop/electron/ipc-handlers/story2video.js` 的四个 `story2video:config-profile-*` 通道、`apps/desktop/electron/preload/publish.js`、`apps/desktop/src/components/ConfigProfileManager.vue`、`apps/desktop/src/api/publisher.js`、根级 `CHANGELOG.md`、`01-docs/learnings.md` 与 `01-docs/CHANGELOG.md`（均为**热写面**，已由 `scripts/aggregate-changelog.js` 收敛；本 change 的条目真源在 `openspec/records/publish-config-picker.md` 的 `## CHANGELOG 条目` 小节，由聚合器搬运）

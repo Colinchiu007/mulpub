@@ -1,0 +1,59 @@
+{
+  "sha": "11b4168fe802d47ca957802b85971116ddb9d74e",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 123 行（≤ 200）但命中 auth/数据库/加密：敏感内容 2 处",
+  "stats": {
+    "changedLines": 123,
+    "fileCount": 12,
+    "codeFileCount": 6,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 2,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "**为什么值得单独记一条决策**：同一个「选中」语义有三条入口（鼠标点 `li`、Enter、空格），不收敛就会出现「鼠标能选、键盘不能选」这类分裂。收敛后鼠标点击也是走 `select(id)`，与键盘共用同一份「下标 → 配置 id」映射。"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "e59ad4728a92cc77b7bf015d98badf440e78cd49dbbb167ab3c03aff815ea0dd",
+  "decidedAt": "2026-10-20T21:52:19.955Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

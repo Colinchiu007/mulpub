@@ -153,4 +153,17 @@ describe('applyConfigProfileFromRoute', () => {
     expect(await applyConfigProfileFromRoute(deps)).toBe(true)
     expect(deps.applySnapshot).toHaveBeenCalledTimes(1)
   })
+
+  // QM-6 round 2 i2：载入配置库抛错时必须被吞掉并给出**独立**提示，
+  // 不能变成 mounted 链里的未捕获拒绝，也不能伪装成「配置不存在」。
+  it('载入配置库失败 ⇒ 不抛异常、提示 handoffLoadFailed、不套用', async () => {
+    const deps = makeDeps({
+      profiles: [],
+      getProfiles: () => [],
+      loadProfiles: vi.fn(async () => { throw new Error('load boom') }),
+    })
+    await expect(applyConfigProfileFromRoute(deps)).resolves.toBe(false)
+    expect(deps.showToast).toHaveBeenCalledWith('create.story2video.configProfile.handoffLoadFailed', 2600)
+    expect(deps.applySnapshot).not.toHaveBeenCalled()
+  })
 })

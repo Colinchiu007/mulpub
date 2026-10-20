@@ -49,6 +49,7 @@ const STATUS_MESSAGE_KEYS = Object.freeze({
   'not-found': 'create.story2video.configProfile.notFound',
   'wrong-pipeline': 'create.story2video.configProfile.wrongPipeline',
   'apply-failed': 'create.story2video.configProfile.applyFailed',
+  'load-failed': 'create.story2video.configProfile.handoffLoadFailed',
 })
 
 /**
@@ -88,7 +89,15 @@ export async function applyConfigProfileFromRoute (deps) {
     return Array.isArray(d.profiles) ? d.profiles : []
   }
   if (!readProfiles().length && typeof d.loadProfiles === 'function') {
-    await d.loadProfiles()
+    // 载入失败必须被吞掉并给出**独立**提示（QM-6 round 2 i2 采纳）：
+    // 抛出去会变成 mounted 链里的未捕获拒绝；直接当成「没找到配置」则是误导
+    // —— 配置可能好好地存在，只是这次没载入成功。
+    try {
+      await d.loadProfiles()
+    } catch (_) {
+      if (typeof d.showToast === 'function') d.showToast(STATUS_MESSAGE_KEYS['load-failed'], 2600)
+      return false
+    }
   }
   const profiles = readProfiles()
 

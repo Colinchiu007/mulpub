@@ -281,4 +281,73 @@ describe('PublishDestinationModal 披露与选择契约', () => {
     expect(q('[data-testid="publish-dest-config-menu"]'), 'Esc 应关闭下拉').toBeNull()
     expect(document.activeElement, 'Esc 后焦点应回到触发器').toBe(trigger)
   })
+
+  // ── Enter / 空格选中（QM-6 round 2 i1 采纳：此前只有方向键，缺「选中」核心契约）──
+  it('菜单内按 Enter 选中当前焦点项并关闭下拉', async () => {
+    configProfileListMock.mockResolvedValue({
+      code: 0,
+      data: [
+        profile({ id: 'profile-000000000001', name: '口播竖屏' }),
+        profile({ id: 'profile-000000000002', name: '横屏 1080p' }),
+      ],
+    })
+    await mountModal()
+    await vi.waitFor(() => expect(configProfileListMock).toHaveBeenCalled())
+    const trigger = q('[data-testid="publish-dest-config-trigger"]')
+    trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+    await nextTick()
+    const menu = q('[data-testid="publish-dest-config-menu"]')
+    menu.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+    await nextTick()
+    menu.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    await nextTick()
+    expect(q('[data-testid="publish-dest-config-menu"]'), 'Enter 应关闭下拉').toBeNull()
+    expect(q('[data-testid="publish-dest-config-value"]').textContent.trim()).toBe('口播竖屏')
+  })
+
+  it('菜单内按空格选中当前焦点项（与 Enter 等价）', async () => {
+    configProfileListMock.mockResolvedValue({
+      code: 0,
+      data: [profile({ id: 'profile-000000000001', name: '口播竖屏' })],
+    })
+    await mountModal()
+    await vi.waitFor(() => expect(configProfileListMock).toHaveBeenCalled())
+    const trigger = q('[data-testid="publish-dest-config-trigger"]')
+    trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+    await nextTick()
+    const menu = q('[data-testid="publish-dest-config-menu"]')
+    menu.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+    await nextTick()
+    menu.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }))
+    await nextTick()
+    expect(q('[data-testid="publish-dest-config-menu"]'), '空格应关闭下拉').toBeNull()
+    expect(q('[data-testid="publish-dest-config-value"]').textContent.trim()).toBe('口播竖屏')
+  })
+
+  it('Home 回到「默认」后按空格即选中「默认」（默认项也必须键盘可达）', async () => {
+    configProfileListMock.mockResolvedValue({
+      code: 0,
+      data: [profile({ id: 'profile-000000000001', name: '口播竖屏' })],
+    })
+    await mountModal()
+    await vi.waitFor(() => expect(configProfileListMock).toHaveBeenCalled())
+    const trigger = q('[data-testid="publish-dest-config-trigger"]')
+    trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+    await nextTick()
+    const menu = q('[data-testid="publish-dest-config-menu"]')
+    menu.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+    await nextTick()
+    menu.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    await nextTick()
+    expect(q('[data-testid="publish-dest-config-value"]').textContent.trim()).toBe('口播竖屏')
+    trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+    await nextTick()
+    const reopened = q('[data-testid="publish-dest-config-menu"]')
+    reopened.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }))
+    await nextTick()
+    reopened.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }))
+    await nextTick()
+    expect(q('[data-testid="publish-dest-config-menu"]')).toBeNull()
+    expect(q('[data-testid="publish-dest-config-value"]').textContent.trim()).toBe('默认')
+  })
 })

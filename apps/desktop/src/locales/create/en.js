@@ -178,6 +178,10 @@ export default {
         notFound: 'The selected configuration no longer exists. Continuing with the pipeline defaults.',
         // No pipeline is selected, so there is nothing the configuration could apply to.
         pipelineUnresolved: 'Could not resolve the pipeline, so the selected configuration was not applied',
+        // The configuration list could not be loaded during the hand-off (QM-6 round 2 i2).
+        // Kept apart from loadFailed: that one means "you may retry", this one means
+        // "this attempt was abandoned and the pipeline defaults are being used".
+        handoffLoadFailed: 'Could not load the configuration list, so the selected configuration was not applied. Continuing with the pipeline defaults.',
       },
       // Batch create (2026-08-15 story2video-batch-create)
       batch: {

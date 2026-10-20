@@ -233,6 +233,7 @@ mounted
 | 没有选中流水线 | `selectedPipeline` 为空 | toast「未能确定流水线，无法套用所选配置」 | 是（按默认参数） |
 | 配置已被删除 | 库里找不到该 id | toast「所选配置不存在或已被删除，已按流水线默认参数继续」 | 是（按默认参数） |
 | 配置属于别的流水线 | `profile.pipelineId !== selectedPipeline.name` | toast「该配置属于其他流水线，无法在当前流水线应用」 | 是（按默认参数） |
+| 载入配置库失败 | `loadS2VConfigProfiles()` 抛错 | toast「未能载入配置列表，无法套用所选配置，已按流水线默认参数继续」（**独立**提示，不伪装成「配置不存在」） | 是（按默认参数） |
 | 套用执行失败 | `applyS2VConfigProfileSnapshot` 返回 false | toast「配置应用失败，请检查选项后重试」 | 是（按默认参数） |
 
 **所有失败都不阻断创作**——配置是锦上添花，不能因为它让用户做不了正事。
@@ -306,9 +307,12 @@ mounted
 | 创作页：配置已失效 | `create.story2video.configProfile.notFound`（**新增**） | 所选配置不存在或已被删除，已按流水线默认参数继续 | The selected configuration no longer exists. Continuing with the pipeline defaults. | 2600ms |
 | 创作页：跨流水线 | `create.story2video.configProfile.wrongPipeline`（既有） | 该配置属于其他流水线，无法在当前流水线应用 | This configuration belongs to another pipeline and cannot be applied here. | 2600ms |
 | 创作页：套用失败 | `create.story2video.configProfile.applyFailed`（既有） | 配置应用失败，请检查选项后重试 | Could not apply the configuration. Check the options and try again. | 2600ms |
-| 创作页：无法确定流水线 | `create.story2video.configProfile.applyFailed`（复用） | 未能确定流水线，无法套用所选配置 | Could not resolve the pipeline, so the selected configuration was not applied | 2600ms |
+| 创作页：无法确定流水线 | `create.story2video.configProfile.pipelineUnresolved`（**新增**） | 未能确定流水线，无法套用所选配置 | Could not resolve the pipeline, so the selected configuration was not applied | 2600ms |
+| 创作页：载入配置库失败 | `create.story2video.configProfile.handoffLoadFailed`（**新增**，QM-6 round 2 i2） | 未能载入配置列表，无法套用所选配置，已按流水线默认参数继续 | Could not load the configuration list, so the selected configuration was not applied. Continuing with the pipeline defaults. | 2600ms |
 
-> 说明：最后一格复用 `applyFailed` 键（`translateWithLocaleFallback` 的第三个参数提供兜底中英文），避免为一个提示新增一个键；该兜底文案与键名语义不完全对齐，是**已知取舍**（见 §9.3）。
+> 说明（QM-6 round 2 i2）：「载入失败」**不**复用既有的 `create.story2video.configProfile.loadFailed`（那是配置管理界面的「可稍后重试」语义），也不用 `notFound`（那是「配置已被删除」语义）。载入失败时配置可能好好地存在、只是这次没载入成功 ⇒ 说成「不存在」是**误导**。故单独立键，语义是「本次套用已放弃并回退默认参数」。
+>
+> 说明（初版取舍，已改）：初版为省一个键复用 `applyFailed` 键 + `translateWithLocaleFallback` 兜底参数区分文案，兜底文案与键名语义不完全对齐；现已改为独立键 `pipelineUnresolved`，见 §9.3。
 
 ---
 
@@ -374,7 +378,7 @@ emit('publish-video', pipelineId, { configProfileId, configProfileName })
 1. 配置档案一旦套用，创作页的「恢复上次选项」不会覆盖它（设计如此，见 §3.5.2）；反过来，如果不套用配置，「恢复上次选项」照常生效。
 2. 热门选题页的批量改写过程中若用户改了弹窗里的选择，改动只在下次打开弹窗时生效（弹窗关闭时选择不保留）。
 3. 本片不给配置档案加「跨流水线复制」能力。
-4. 配置下拉的**朗读**体验依赖宿主 `role="listbox"` 的原生语义：未实现「输入首字母跳到对应项」这类 listbox 的可选增强（方向键 / Home / End / Esc 已实现，见 §3.3.4）。
+4. 配置下拉的**朗读**体验依赖宿主 `role="listbox"` 的原生语义：未实现「输入首字母跳到对应项」这类 listbox 的可选增强（方向键 / Home / End / Enter / 空格 / Esc / Tab 已实现，见 §3.3.4）。
 
 ### 9.3 已知取舍
 
@@ -418,8 +422,8 @@ emit('publish-video', pipelineId, { configProfileId, configProfileName })
 | 锁 | 位置 | 覆盖 |
 |---|---|---|
 | 纯函数 | `src/features/publish-destination/publish-destination-config.test.js` | 归一化 / 过滤 / 选中解析 / 提交载荷 / query 构造 |
-| 纯函数 | `src/features/publish-destination/apply-config-profile-handoff.test.js` | 决策五分支 + 副作用四分支 + 「先等恢复再套用」的顺序 + 「载入后重新取列表」 |
-| 组件 | `src/components/PublishDestinationModal.test.js` | A1..A9 + 键盘可达（↓/↑/End/Esc 与焦点归属） |
+| 纯函数 | `src/features/publish-destination/apply-config-profile-handoff.test.js` | 决策五分支 + 副作用四分支 + 「先等恢复再套用」的顺序 + 「载入后重新取列表」 + 「载入失败不抛异常且给独立提示」（QM-6 round 2 i2） |
+| 组件 | `src/components/PublishDestinationModal.test.js` | A1..A9 + 键盘可达（↓/↑/End/Esc 与焦点归属）+ **Enter / 空格选中当前焦点项**、**Home 回「默认」后空格选中「默认」**（QM-6 round 2 i1） |
 | 创作页 | `src/views/CreateView.config-profile-handoff.test.js` | A10..A13 |
 
 ---
@@ -432,16 +436,16 @@ emit('publish-video', pipelineId, { configProfileId, configProfileName })
 | `apps/desktop/src/components/PublishDestinationConfigPicker.vue` | **新增**：配置选择器控件（含键盘可达，§3.3.4）。从浮窗里拆出来的原因是 `PublishDestinationModal.vue` 触到 `check-max-lines` 的 500 行上限 |
 | `apps/desktop/src/features/publish-destination/publish-destination-config.js` | **新增**：归一化 / 过滤 / 选中解析 / 载荷与 query 构造（纯函数） |
 | `apps/desktop/src/features/publish-destination/apply-config-profile-handoff.js` | **新增**：创作页套用流程（纯决策函数 + 副作用编排，显式依赖注入） |
-| `apps/desktop/src/features/publish-destination/publish-destination-config.test.js` | **新增** |
-| `apps/desktop/src/features/publish-destination/apply-config-profile-handoff.test.js` | **新增** |
+| `apps/desktop/src/features/publish-destination/publish-destination-config.test.js` | **新增**（15 例） |
+| `apps/desktop/src/features/publish-destination/apply-config-profile-handoff.test.js` | **新增**（13 例：决策五分支 + 副作用分支 + 顺序保证 + 载入失败） |
 | `apps/desktop/src/i18n/pipeline-labels.js` | **新增导出** `TEXT_BASED_PIPELINE_IDS`（只读） |
 | `apps/desktop/src/locales/publish-destination/{zh,en}.js` | 新增 5 个键（configLabel / configDefaultOption / configEmpty / configLoading / configLoadFailed） |
-| `apps/desktop/src/locales/create/{zh,en}.js` | 新增 2 个键（configProfile.notFound / configProfile.pipelineUnresolved） |
+| `apps/desktop/src/locales/create/{zh,en}.js` | 新增 3 个键（configProfile.notFound / configProfile.pipelineUnresolved / configProfile.handoffLoadFailed） |
 | `apps/desktop/src/views/CreateView.vue` | 新增 `_applyConfigProfileFromRoute()`；`selectPipeline` 留住恢复 promise；mounted 串接套用 |
 | `apps/desktop/src/views/RewriteView.vue` | `onPublishVideo` 带上配置档案 |
 | `apps/desktop/src/views/Collection.vue` | `onPublishVideo` 带上配置档案 |
 | `apps/desktop/src/views/HotTopics.vue` | `onPublishVideo` → 队列项 → 最终跳转带上流水线 + 配置档案 |
-| `apps/desktop/src/components/PublishDestinationModal.test.js` | 新增 9 例（含 2 例键盘可达） |
+| `apps/desktop/src/components/PublishDestinationModal.test.js` | 新增 12 例（含 5 例键盘可达：↓ 展开、↑/↓/End/Esc、Enter 选中、空格选中、Home+空格选中「默认」） |
 | `apps/desktop/src/views/CreateView.config-profile-handoff.test.js` | **新增**：4 例 |
 | `01-docs/PRD-S2V-PIPELINE-PAGE-UX.md` | 新增 §14「去发布弹窗的配置选择器」 |
 | `openspec/changes/publish-config-picker/` | **新增**：proposal / tasks / design / spec |
