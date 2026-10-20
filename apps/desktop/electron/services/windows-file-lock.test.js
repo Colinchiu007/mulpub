@@ -426,6 +426,134 @@ describe('预算取值来源：常量必须由 CI 实测分布支撑，且留一
       .toMatch(/PARTIAL/)
   })
 
+  // ── 2026-10-20：采样域与样本真伪（#68）────────────────────────────────────────
+  // 动因（当场实测，4 趟已完成的 main push）：跑本夹具的作业**不止** Shards ——
+  //   QG Coverage 每趟留 11 条读数、QG Desktop Shards (1/2) 7 条、(2/2) 4 条；
+  //   而 ready 最大值 Coverage=17466ms 远高于 Shards 的 9650/3329ms。
+  // 旧 JOB_RE 只认 Shards ⇒ 需要最大预算的那个作业**根本不在采样域里**，
+  // provenance 的 max 于是系统性偏小，预算看起来"余量充足"是采样域造成的假象。
+  // 第二个坑：这 44 条读数里绝大多数是**单元用例注入的假握手**（`ready=0ms locked=0ms`），
+  // 因为夹具只在 `!options.spawnImpl` 时记台账，但**打印**是无条件的 ⇒
+  // 只看日志的复测脚本分不清真伪，样本量下限（≥50）可以被假样本凑满。
+  // 所以这两条一起修：作业名扩面 + 行里带 `mock=` 标签，且解析只有一处实现。
+  it('握手行必须自带 mock 标签，且解析只有夹具里一份实现（复测脚本必须引用它）', async () => {
+    const fs = await import('node:fs')
+    const path = await import('node:path')
+    expect(typeof lockHelper.formatTimingLine, '缺 formatTimingLine：打印格式没有单一真源').toBe('function')
+    expect(typeof lockHelper.parseTimingLine, '缺 parseTimingLine：复测脚本只能自己抄正则 ⇒ 必然漂移').toBe('function')
+
+    const real = lockHelper.formatTimingLine({ readyMs: 2400, lockedMs: 180, verify: 'ok', holdMs: 900, mock: false })
+    const fake = lockHelper.formatTimingLine({ readyMs: 0, lockedMs: 0, verify: 'off', holdMs: 180, mock: true })
+    expect(real).toMatch(/mock=false/)
+    expect(fake).toMatch(/mock=true/)
+    expect(lockHelper.parseTimingLine(real), '真实握手必须被解出').toEqual({ readyMs: 2400, lockedMs: 180, mock: false })
+    expect(lockHelper.parseTimingLine(fake), 'mock 握手不得被解成样本（否则样本量下限可被假数据凑满）')
+      .toEqual({ readyMs: 0, lockedMs: 0, mock: true })
+    // 无标签 = 改动之前落盘的历史日志，**不能当真实分布**，但也不能读成"一条都没打"
+    const legacy = lockHelper.parseTimingLine('[windows-file-lock] ready=9999ms locked=123ms verify=ok holdMs=180')
+    expect(legacy, '旧格式行必须被识别为 legacy（区分"探针坐标坏了"与"日志早于本次改动"）')
+      .toEqual({ readyMs: 9999, lockedMs: 123, mock: null })
+    expect(lockHelper.parseTimingLine('nothing here')).toBe(null)
+
+    const cand = [
+      path.resolve(process.cwd(), '../../scripts/lock-timing-audit.js'),
+      path.resolve(process.cwd(), 'scripts/lock-timing-audit.js'),
+    ].find((c) => fs.existsSync(c))
+    expect(cand).toBeTruthy()
+    const src = fs.readFileSync(cand, 'utf8')
+    // 正向对偶必须**锚到可执行语句**：只断言"文件里出现过 parseTimingLine 这个单词"是恒真的 ——
+    // 把 collectFromLog 改回自带正则时，那个单词仍留在注释/其它行里，锁照绿（变异 N4 实测命中这一洞）。
+    expect(src, '复测脚本没有真的调用夹具的共享解析器（只是提到了名字）')
+      .toMatch(/const mod = helper\(\);[\s\S]{0,600}mod\.parseTimingLine\(/)
+    expect(src, '脚本里不得再留第二份 ready=/locked= 的解析正则（`/\\[` 与 `/[` 两种写法都要挡）')
+      .not.toMatch(/SAMPLE_RE\s*=\s*\/\\?\[/)
+    expect(src, '采样域必须留在脚本里且是显式作业名集合（不得退化成扫所有作业）')
+      .toMatch(/QG Desktop Shards\|QG Coverage/)
+  })
+
+  it('采样域必须覆盖所有真跑该夹具的作业，并对不跑它的作业保持不匹配（A/B 负控）', async () => {
+    const fs = await import('node:fs')
+    const path = await import('node:path')
+    const cand = [
+      path.resolve(process.cwd(), '../../scripts/lock-timing-audit.js'),
+      path.resolve(process.cwd(), 'scripts/lock-timing-audit.js'),
+    ].find((c) => fs.existsSync(c))
+    const { pathToFileURL } = await import('node:url')
+    const audit = await import(pathToFileURL(cand).href)
+    const { JOB_RE, collectFromLog } = audit
+    // A 臂：实测确实产出读数的两个作业族必须命中
+    for (const name of ['QG Desktop Shards (1/2)', 'QG Desktop Shards (2/2)', 'QG Coverage']) {
+      expect(JOB_RE.test(name), '采样域漏掉真跑了夹具的作业：' + name).toBe(true)
+    }
+    // B 臂（负控）：不跑该夹具的作业必须不命中 —— 否则"扩面"只是把过滤写宽，
+    // 采到的样本从哪来将无法归因。
+    for (const name of ['QG Static', 'QG Unit Tests', 'QG Changes', 'GUI Gate Result', 'build']) {
+      expect(JOB_RE.test(name), '采样域把没跑夹具的作业也算进来了：' + name).toBe(false)
+    }
+    // 行为面：真伪与 legacy 分档必须在同一个函数里可观测（不得靠"总数不为 0"下结论）
+    const log = [
+      '[windows-file-lock] ready=0ms locked=0ms verify=off holdMs=180 mock=true',
+      '[windows-file-lock] ready=2400ms locked=180ms verify=ok holdMs=900 mock=false',
+      '[windows-file-lock] ready=17466ms locked=140ms verify=ok holdMs=140 mock=false',
+      '[windows-file-lock] ready=9999ms locked=123ms verify=ok holdMs=180',
+    ].join('\n')
+    const got = collectFromLog(log)
+    expect(got.samples, '只有 mock=false 的两条算样本').toEqual([2400, 17466])
+    expect(got.mock).toBe(1)
+    expect(got.legacy, '旧格式行必须单独计数，不得混进 samples 也不得读成"零输出"').toBe(1)
+    expect(got.max).toBe(17466)
+    // legacy 的 max 仍要报：`ready=0ms` 的假握手只会把 max 压低不会抬高，所以"无标签行的最大值"
+    // 是**可用的尾部线索**（不能当分布，但能指出该去查哪个作业）。
+    expect(got.legacyMax, '无标签行必须单独报 max ⇒ 标签上线前那次复测也要给出尾部线索').toBe(9999)
+    // 全 mock 的日志 = 探针没测到东西：必须与"完全没行"可区分（两者正解不同）
+    const allMock = collectFromLog('[windows-file-lock] ready=0ms locked=0ms verify=off holdMs=180 mock=true')
+    expect(allMock.samples).toEqual([])
+    expect(allMock.mock).toBe(1)
+    expect(allMock.legacy).toBe(0)
+    expect(allMock.legacyMax).toBe(0)
+  })
+
+  it('LEGACY_ONLY 的出声必须逐作业点名 count 与 max，且这句话只有一份实现', async () => {
+    const fs = await import('node:fs')
+    const path = await import('node:path')
+    const cand = [
+      path.resolve(process.cwd(), '../../scripts/lock-timing-audit.js'),
+      path.resolve(process.cwd(), 'scripts/lock-timing-audit.js'),
+    ].find((c) => fs.existsSync(c))
+    const src = fs.readFileSync(cand, 'utf8')
+    const { pathToFileURL } = await import('node:url')
+    const audit = await import(pathToFileURL(cand).href)
+    expect(typeof audit.formatLegacyNotice, '缺 formatLegacyNotice：零样本那句判词长在 main() 里 ⇒ 本条无法在没有网络的情况下测').toBe('function')
+
+    const msg = audit.formatLegacyNotice({
+      'QG Desktop Shards (1/2)': { count: 7, max: 9650 },
+      'QG Coverage': { count: 11, max: 17466 },
+    })
+    expect(msg).toMatch(/LEGACY_ONLY/)
+    expect(msg, '必须点名是哪个作业（否则下一个人只知道"日志旧"，不知道尾部落在谁身上）')
+      .toMatch(/QG Coverage/)
+    expect(msg).toMatch(/QG Desktop Shards \(1\/2\)/)
+    expect(msg, '必须报出无标签行的尾部 max ⇒ 这正是"旧域排掉了最长尾"的现场来源').toMatch(/max=17466ms/)
+    expect(msg).toMatch(/count=11/)
+    expect(msg.replace(/[^\u4e00-\u9fff]/g, ''), '不得把"等窗口攒够"写成"没问题"')
+      .toMatch(/不能当真实分布/)
+    // 按 max 降序：尾部最大的那个作业必须排在前面（这是本条唯一可执行的动作指向）
+    expect(msg.indexOf('QG Coverage'), '尾部最大的作业必须排在前').toBeLessThan(msg.indexOf('QG Desktop Shards'))
+    // 空集合 = 真的什么都没取到，此时必须交回 NO_SAMPLES 那一档，不得造出一句假的 LEGACY_ONLY
+    expect(audit.formatLegacyNotice({})).toBe('')
+
+    // 反重复：这句话在脚本里只能出现一次（出现两次即两份事实，必然漂移）
+    const mentions = src.split('LEGACY_ONLY').length - 1
+    expect(mentions, 'LEGACY_ONLY 出现 ' + mentions + ' 次 ⇒ 判词被抄成多份').toBe(1)
+    // 正向锚：零样本分支必须真的调用该格式化器（"文件里有个同名函数"不构成接线）
+    expect(src, '零样本分支没有调用 formatLegacyNotice ⇒ 分档判词从未被打出来过')
+      .toMatch(/if \(!ready\.length\)[\s\S]{0,1200}formatLegacyNotice\(/)
+    // 位置锁：无标签累加必须排在 n===0 早退**之前**。标签上线前的那一整趟复测里每个作业都是 n===0，
+    // 把累加放到早退之后 = 那份现场（本次改动唯一的动因证据）结构性取不到，而单测照常绿。
+    expect(src, '无标签行被 n===0 的早退吃掉 ⇒ 预标签窗口的尾部线索永久丢失')
+      .toMatch(/if \(got\.legacy > 0\)[\s\S]{0,400}legacyByJob\.set\([\s\S]{0,700}\r?\n *if \(n === 0\)/)
+  })
+
   it('真跑（仅 Windows）：本次握手必须入台账，且观测值不得贴脸逼近启动预算', async () => {
     const fs = await import('node:fs')
     const os = await import('node:os')
