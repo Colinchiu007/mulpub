@@ -1044,7 +1044,7 @@ codeagent-wrapper --backend <BACKEND_PRIMARY> --lite "审查 <change> 实现：�
 codeagent-wrapper --backend <FRONTEND_PRIMARY> --lite "审查 <change> 实现：命名/模式/可维护性/集成" <workdir>
 ```
 
-> 两路实际用哪个模型：**直接调 `codeagent-wrapper` 的旁路**以 `~/.claude/.ccg/config.toml` 的 `[routing]` 为真源；**走本仓评审链**（`deep-review.sh` / `plan-review.sh`）时真源是 `scripts/ccg-review-backends.list`（critic/proposer 两行），两份配置互不相干，别改错地方——这是 2026-10-18 实测的坑：改 `config.toml` 对评审链无效，入口传 `--critic` 曾被丢弃，驱动 `--critic` 只在决策层生效。本文档不复制清单里的值，照抄会跑错模型；请求过的后端会写进判定记录 `reviewBackends`，由 `check-pr-exec-record.js` 与驱动回填的 `deepReview.performedBy` 对账，**不符即判该条深度审查未闭合**。前端模型失败最多重试 2 次（间隔 5 秒），3 次全败才跳过；后端模型结果必须等待（5-15 分钟属正常）。
+> 两路实际用哪个模型：**直接调 `codeagent-wrapper` 的旁路**以 `~/.claude/.ccg/config.toml` 的 `[routing]` 为真源；**走本仓评审链**（`deep-review.sh` / `plan-review.sh`）时真源是 `scripts/ccg-review-backends.list`（critic/proposer 两行），两份配置互不相干，别改错地方——这是 2026-10-18 实测的坑：改 `config.toml` 对评审链无效，入口传 `--critic` 曾被丢弃，驱动 `--critic` 只在决策层生效。本文档不复制清单里的值，照抄会跑错模型；请求过的后端会写进判定记录 `reviewBackends`——**提交时**由 `ccg-review-decider.js` 写，**评审时**若用了 `--critic`/`--proposer`/`MP_QM6_*`，由 `deep-review.sh` 在把控制权交给驱动之前回写同一字段（提交时那份挪进 `commitRequest` 留档；默认路径与 dry-run 都不改产物，回写失败一律 exit 2 且不启动审查），随后由 `check-pr-exec-record.js` 拿它与驱动回填的 `deepReview.performedBy` 对账，**不符即判该条深度审查未闭合**。前端模型失败最多重试 2 次（间隔 5 秒），3 次全败才跳过；后端模型结果必须等待（5-15 分钟属正常）。
 
 #### 评审输出与处理
 
