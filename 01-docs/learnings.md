@@ -21868,3 +21868,49 @@ CI 把 `QG Static` 钉红在 Gate 2c，红的是 `check-unwired-tests.test.js` �
 
 
 - **pitfall · 「清点调用点 / 扫到 0 命中」这类结论，管道里的 `head` 会把结论削掉**：把 `scripts/check-unwired-tests.js` 的 `listJobBlocks(root)` 改成 `(root, domain)` 前，我跑了一次`git grep -n -e check-unwired-tests ... | head -10` 来「确认没有别的调用方」，并据此改了签名。真实命中里恰好有一条在截断窗口之外（`scripts/quality-rhythm-spec-mirror.test.js` 那条「与生产判据逐 job 互证」的镜像锁），于是签名变更打断了它——是提交前的本地门禁电池把它抓出来的，不是我的清点。⇒ 口径：**任何以「清点结果 = 无」为依据的动作（改签名、删导出、搬函数、判「没人消费」），清点命令一律不接 `head`/`tail`，原样打印命中数，并按「真调用点 / 同名但属于别的模块的局部函数」两档逐个分类**（本轮实测两处同名陷阱：`check-test-microtask-spin.js` 自己的 `listTestFiles()`、`scripts/lib/mask-coverage-ab.js` 自己的 `PRUNE_DIRS`）。这与 AGENTS 既有那条「凡「扫到 0」当完成判据，一律 `grep -na`」是同一家族：`-a` 防的是「文件被判成二进制而静默跳过」，本条防的是「命中存在但被我的显示窗口切掉」——两者都会把探针失明读成结论。
+
+## 2026-10-20 · electron-ci-shard-budget：判据域错位、两套分支保护面、以及「推不动时收窄」（PR #4061）
+
+- **pattern · 判据域错位比判据缺失更危险：断言「字符串存在于 YAML」不等于「这段代码会执行」**。
+  Mulpub 的 `electron-tests` 自 #2525（2026-09-28，标题写着「让超时失败能自证」）起，正文里那行
+  `RC=${PIPESTATUS[0]}` 与整段 `TIMEOUT_BUDGET_EXCEEDED` 诊断**一次都没跑过**：它们被放在 `timeout … | tee`
+  之后，而该 job 的 shell 是 `bash -e -o pipefail`，`timeout` 返回 124 时 `-e` 立刻退出步骤。
+  它专门为之设计的那个场景（撞墙），恰恰是它唯一不出现的场景。而同期那条测试锁是**绿的** —— 因为它的判据域
+  是「这四行字符串在 YAML 里存在」，被测性质却是「运行时执行路径」。
+  **口径**：只要被测性质是「会执行 / 会生效」，判据域就必须换成行为 —— 取 `run` 原文、只替换两个量
+  （预算压到 1s、内层命令换成必超时的 `sleep`）、用同一个 `-e -o pipefail` 真跑、断言 stdout 里出现自证行。
+  落点：`apps/desktop/tests/gui-ci-exit-contract.test.js` 的「自证块必须在 bash -e -o pipefail 下真能执行」。
+  变异反证必做：摘掉 `set +e` 必须当场红，且红文案要能指回根因（本轮红在「自证行缺席 ⇒ 自证块又被 -e 提前杀掉了」）。
+
+- **pitfall · GitHub 有两套并存的「分支保护面」，只查一套会得出「不受约束」的假结论**。
+  `GET /repos/{o}/{r}/branches/main/protection` 的 `required_status_checks.contexts` 实测只有 4 条
+  （`Gate Result` / `build` / `QG Unit Tests` / `QG Coverage`），据此写下「`electron-tests` 不在 required checks 里」——
+  **是错的**。真正拦人的是 `GET /repos/{o}/{r}/rulesets` → `rulesets/23749994`（`main-ci-gate`），它要求 7 条，含 `electron-tests`。
+  **口径**：取证要遍历**所有**承载 gate 的机制；只查一套就下结论，与「查到第一个空结果就收工」同型。
+
+- **pitfall · matrix 与 required status check 结构性冲突；两种「补名字」的写法都不可行（各有一处硬失败）**。
+  matrix 会把作业报成 `job (1)/(2)/(3)`，而分支保护要的是不带后缀的名 ⇒ required context 永不出现，
+  **22 项全绿、5 个 required check 全 SUCCESS 仍判 `base branch policy prohibits the merge`**。三条实测：
+  ① 只加 `strategy.matrix` → check 名变成 `electron-tests (1)`，context 仍缺；
+  ② 另加一个 `name: electron-tests` 的**汇入作业** → 整份 workflow 被判**不可解析**，症状是「幻影 `push` run + 0 job +
+     `run.name` 退化成 workflow 路径」，且 `on.push.branches: [main]` 下却出现本分支的 push run（说明 GitHub 连 `on:` 都没读到）；
+     `if: always()` 与 `if: ${{ always() && … }}` 两种写法都复现 ⇒ 不是那两条条件的事；
+  ③ 只给 matrix 作业加静态 `name: electron-tests` → 解析正常（`event=pull_request`、`jobs=1` 都对），但 check 名**仍是** `electron-tests (1)`。
+  正解是把 matrix 作业改 id（如 `electron-tests-shards`）+ 用 **id 就叫** `electron-tests` 的汇入作业（不设 `name`），
+  但那要同步改多条按 job 名 / `needs` 断言的结构性锁 —— 属另一件事。
+
+- **pattern · 「局部绿」不等于「整体绿」：判据挂在整套跑完之后时，单文件通过不构成证据**。
+  本轮行为锁单文件 45 例全绿，而整套桌面测试跑完后的**运行时出站台账**判红：新增了 `child::Program`。
+  根因是台账命令名派生只处理了**带引号**的含空格路径（`shellFirstToken`），而 `spawn(file,args)` 传的是**裸路径**，
+  `…/Program Files/Git/usr/bin/bash.exe` 被切成 `C:\Program`。**不把 `child::Program` 加进基线** ——
+  那等于给一个无意义键背书，以后任何含空格安装目录下的子进程都会被它盖住；判据取「整串能否按文件存在性解析成文件」而非猜词法。
+  **口径**：凡判据挂在「整套跑完之后」（台账 / 覆盖率 / 产物对账），必须回读 CI 结论，不能拿本地单文件结果推。
+
+- **pattern · 在既定约束下推不动时，收窄范围比继续堆尝试更专业；但收窄必须连同「三轮现场」一起留证**。
+  分片被 required context 卡死后，正确动作不是再试第四种 `if` 写法，而是：① 把范围收窄到确定能修的**真 bug**；
+  ② 把未落地部分与三轮尝试的具体形态写进执行记录 §九与 CHANGELOG（含每次的失败判据，而不是「尝试失败」）；
+  ③ 说明**顺序理由** —— 分片要定片数与单片预算，唯一依据是逐片实测耗时，而那个读数只有自证块接通后才会产出
+  （本轮 main push 首次产出 `elapsed=2100s budget=2100s rc=124`，这才是下一轮定数的依据，而不是按均值猜）。
+  ④ 与「谁来守门」相邻的改动（改 job id 牵动多条结构性锁）不塞进一个修超时的 PR。
+  同轮附带一条工具口径：**PowerShell 里 `[System.IO.File]` 的相对路径用的是 .NET 进程 CWD，不是 `cd` 位置**，
+  两者可能不同步 ⇒ 文件在却报 `Could not find file`；一律传 `Resolve-Path` 的绝对路径。
