@@ -46,10 +46,21 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "self_play_resolved",
+    "tier": "external",
+    "performedBy": "self-play",
+    "evidence": "openspec/records/ci-infra-shard-and-review-audit.evidence/critique-round2.md",
+    "findings": null,
+    "externalVerdicts": {
+      "i1": "upheld→已修：审计新增记录 sha 可解析性读数，把 pre-commit 写父 sha 的契约从口头变成工具自证；实跑发现 3 条不可解析记录并点名文件",
+      "i2": "upheld→已修：抽出 scripts/lib/exec-record-statuses.js 单一真源，判据本体与审计模块共用，两侧字面量副本删除；跨门禁锁改为消费真源",
+      "i3": "upheld→已修：未落地 design 文档加 implemented:false / kind:plan / affects_ci_behavior:false",
+      "i4": "upheld→已修：写死阈值（审计 >5s 或记录 >5000 条须重新评估），那之前加复杂度属过早优化",
+      "i5": "dismissed：空结果文案已可诊断（含目标路径）；导出常量属可选改进",
+      "i6": "dismissed：AGENTS.md 语言约定要求仓内注释中文；门禁不解析注释语义"
+    },
+    "engineVerdictBeforeClosure": "self_play",
+    "externalAdjudicationNote": "外部件：critic=claude（scripts/deep-review.sh 真实调用，非本地自扮演），两轮原文已入库：\n  openspec/records/ci-infra-shard-and-review-audit.evidence/critique-round1.md（第 1 轮，6 条，最低分 4）\n  openspec/records/ci-infra-shard-and-review-audit.evidence/critique-round2.md（第 2 轮，审已修版本，6 条，最低分 5）\n裁决件：由引擎第三档出口（self-play）按 items 逐条生成 prosecution/defense/verdict。\n本记录**不声称**外部模型批准了闭环：tier=external 的含义是「闭环依据含可核的外部评审产物」。\n第 2 轮把 i1/i2 打回 Critical 促成两处实质修改；其后 CI 抓到既有跨门禁锁失配\n（QG Changes: not ok 25），同样按锁的设计意图升级处理。",
+    "closedAt": "2026-10-20T13:24:07.378Z"
   }
 }
