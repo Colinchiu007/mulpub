@@ -288,6 +288,27 @@ test('T18 写盘必须是原子替换，且重试白名单只有 EPERM/EACCES/EB
   assert.ok(!/RETRYABLE\.has\(e\.code\)\s*\|\|/.test(src.replace(/attempt >= \d+/, '')) || /attempt >= \d+/.test(src), '重试必须有界');
 });
 
+test('T19 裸标题闸不得误吃带括号的标题（QM-6 轮 2 i7）：台账侧带括号 ⇒ 照常落', () => {
+  const root = mkTmp();
+  // 台账里那条结尾本来就带括号（本仓标题常见形态：`……（#4051）` / `……（2026-10-20）`）。
+  write(root, 'CHANGELOG.md', '# CHANGELOG\n# fix(z): 天然带括号的标题（#1234）\n\n- 另一件事\n');
+  write(root, 'openspec/records/paren-title.md', record('paren-title', 'Z', '# fix(z): 天然带括号的标题\n\n- 我的新条目'));
+  const r = ac.aggregate({ root, dryRun: true });
+  assert.deepStrictEqual(r.duplicateRisk, [], '把带括号标题剥皮再比会误判成重复 ⇒ 真条目被静默吃掉');
+  assert.deepStrictEqual(r.landed, ['paren-title']);
+});
+
+test('T20 刻意接受的取舍：只拦"完全裸标题相等"，近重复交回副本棘轮去拦', () => {
+  const root = mkTmp();
+  write(root, 'CHANGELOG.md', '# CHANGELOG\n# fix(q): 同一条\n\n- 手写份\n');
+  write(root, 'openspec/records/near-dup.md', record('near-dup', 'Q', '# fix(q): 同一条（补充说明）\n\n- 机器份'));
+  const r = ac.aggregate({ root, dryRun: true });
+  // 这里 landed=1 是**已知代价**，不是遗漏：宁可多搬一份（`check-changelog-duplicate-entries`
+  // 会拦"本 PR 让副本变多"），也不可为了召回率去剥括号 —— 那会静默少吃真条目（T19）。
+  assert.deepStrictEqual(r.landed, ['near-dup']);
+  assert.deepStrictEqual(r.duplicateRisk, []);
+});
+
 test('T18b 真写入不留 .tmp 残骸，且内容与返回值一致', () => {
   const root = mkTmp();
   write(root, 'CHANGELOG.md', '# CHANGELOG\nold\r\n');

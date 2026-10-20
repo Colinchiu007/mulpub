@@ -655,6 +655,7 @@ test("真实仓库：接线资格清单只能缩小，且登记的锁确实住�
   assert.deepEqual(
     Object.keys(checker.MUST_LIVE_IN_UNGATED_JOB).sort(),
     [
+      "scripts/aggregate-changelog.test.js",
       "scripts/check-compose-error-codes.test.js",
       "scripts/openspec-sync-check.test.js",
       "scripts/quality-rhythm-spec-mirror.test.js",

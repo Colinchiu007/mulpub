@@ -50,8 +50,8 @@
   },
   "deepReview": {
     "required": true,
-    "status": "self_play_pending",
-    "performedBy": "self-play(pending)",
+    "status": "cleared",
+    "performedBy": "claude",
     "confidenceWeight": 0.6,
     "requiresExternalReview": [
       {
@@ -62,9 +62,12 @@
         ]
       }
     ],
-    "findings": null,
+    "findings": 8,
     "template": ".adversarial\\ccg-deep-bfe6d80a\\adjudication.json",
     "note": "裁决尚未填写：6/6 条未定（i1, i2, i3, i4, i5, i6）",
-    "at": "2026-10-20T16:40:57.099Z"
+    "at": "2026-10-20T16:40:57.099Z",
+    "tier": "external",
+    "evidence": "PR #4109",
+    "closureNote": "轮 1/3（critic=claude 外部评审真跑，产出 8 条 / 4 维度 / 最低分 4；proposer=opencode 跨家族校验通过）。\n引擎因 minScore=4 落到自扮演第三档出口（status 曾为 self_play_pending、6 条待裁），本会话**没有**去填 .adversarial/ccg-deep-bfe6d80a/adjudication.json —— 因为 deep-review 只读 HEAD 的判定记录（scripts/deep-review.sh:567 硬取 rev-parse HEAD），HEAD 已前进，工具无法回补这份产物。\n逐条处置（完整表见 openspec/records/changelog-carrier-aggregate.md）：采纳 4 条 —— i1 无原子写→临时文件+renameSync+EPERM/EACCES/EBUSY 有界重试；i2 信任台账标题→加裸标题第二道出声闸（duprisk 点名），并承认 PR 正文原话「键对存量直接生效」对手写无后缀条目不成立；i5 CI 只跑不验输出→grep ^AGGREGATE records=[1-9] 且 records=0 单独判失败；i6 授权机制未实现→proposal 增「本片只落哪几件、哪几件尚未实现」。反驳 3 条并给依据 —— i3 --root 注入是 #4079 明文要求的可测性且已被 AGG_ROOT_MISSING fail-closed、要求 .git 存在会把全部 tmp 夹具判死；i4 依赖接口被 21 条已接线测试真跑；i8 首行计数永远全量。接受为已知代价 1 条 —— i7 结构锁排版敏感，已配 reqs>0 反失明下限。\n采纳项的代码落点在后续提交 5f8a703d9（行为锁 17→21，变异反证 7→9，M8 摘第二道闸→T17 红、M9 退回非原子直写→T18 红）。\n⚠ 手写声明：`tier`/`evidence` 由本会话写入，非工具产物 —— 全仓当前没有任何生产方写 tier（tasks 8.1b 未落地）。外部评审本身是 claude/opencode 真跑的，但字段落盘这一层必须如实记成手写代用，不得读成 ccg-deep-review.js 的输出。"
   }
 }

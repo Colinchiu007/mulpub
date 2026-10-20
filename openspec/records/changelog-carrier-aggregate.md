@@ -10,8 +10,9 @@ date: 2026-10-20
 |------|------|-----------|
 | 变更类型与隔离 | ✅ | 混合档 PR（`.github/workflows/quality-gate.yml` + `scripts/` 判据 + `openspec/`）。走正规入口 `scripts/start-mp-task.ps1 -TaskName changelog-carrier-aggregate -NoDeps`；判据取产物不取 rc：`git worktree list` 命中 + `rev-parse --abbrev-ref HEAD` == 分支名。起点曾落后 `origin/main`（期间 main 前进了两笔），已 `merge --ff-only origin/main` 对齐后再动手 |
 | TDD 顺序 | ✅ | 先写 `scripts/aggregate-changelog.test.js` 并**见证红**：模块不存在时是整片 LOADFAIL（`# tests 1 / fail 1`），不是 15 条指名红——这两种红的语义不同，登记时不混写 |
-| 行为锁 | ✅ | 21 条全绿（`# tests 21 / pass 21 / fail 0`）。覆盖：小节逐字节取出、围栏/表格内的同名串不当边界、`##` 后多空格与行尾 CR、**同标题两条记录各落一次**、缺小节点名、重跑字节幂等且出声、混行尾原样保留、learnings 缺席合法/存在但形状非法、`_` 开头占位物不进候选、真仓规模下界、参数面严格、**裸标题第二道闸**、**原子写与 .tmp 不留残骸** |
-| 变异反证 | ✅ | 9 条变异各自让**指名**用例变红，红集互不相同：M1 幂等键退回标题文本→T4；M2 边界退回 substring→T2b+T13；M3 行尾统一回写→T7；M4 缺小节静默→T5+T13；M5 自带第二份条目标题正则→T8；M6 形状判据恒假→T9；M7 缺席也判非法→T9；M8 摘掉裸标题第二道闸→T17；M9 退回非原子直写→T18。驱动每次断言 `# tests >= 21`。还原后 md5 与原值相同。**M3 换过一次锚点**：i1 修完之后「直写台账」这句代码已不存在，旧锚点必然找不到 —— 那正是修复生效的形状，于是把 M3 改打到临时文件那一步，与 M9（原子性）各测各的格 |
+| 行为锁 | ✅ | 23 条全绿（`# tests 23 / pass 23 / fail 0`，套件 1.0s）。覆盖：小节逐字节取出、围栏/表格内的同名串不当边界、`##` 后多空格与行尾 CR、**同标题两条记录各落一次**、缺小节点名、重跑字节幂等且出声、混行尾原样保留、learnings 缺席合法/存在但形状非法、`_` 开头占位物不进候选、真仓规模下界、参数面严格、**裸标题第二道闸**、**该闸不得误吃带括号的标题**、**只拦完全裸标题这一取舍被显式钉住**、**原子写与 .tmp 不留残骸** |
+| 变异反证 | ✅ | 10 条变异各自让**指名**用例变红，红集互不相同：M1→T4；M2→T2b+T13；M3→T7；M4→T5+T13；M5→T8；M6→T9；M7→T9；M8 摘第二道闸→T17；M9 退回非原子直写→T18；**M10 裸标题闸退回"剥括号再比"→T19**。驱动每次断言 `# tests >= 23`。还原后 md5 与原值相同。**M3 与 M8 都换过锚点**：i1/i7 修完之后旧锚点对应的代码已不存在，锚点找不到 = 变异没实现那个缺陷，不是锁没牙 —— 那两次红字报的正是修复本身 |
+| required check 一次真红（本 PR 自己引入） | ✅ | PR 首笔提交上 `QG Static` 的 `Gate 2c - Unwired-test ratchet` 判红；对照 main 更早 4 次 push 全绿 ⇒ **认领为本 PR 引入**。根因：`check-unwired-tests.test.js:645` 用 `deepEqual` 把 `MUST_LIVE_IN_UNGATED_JOB` 的键清单钉死，我新增了登记却没在同 PR 改那份清单。逃逸原因也定位到具体一条：**本机只跑了判据本体 `check-unwired-tests.js`（绿），没跑它自己的自测**。修法见 5f8a703d9 之后的补提交；此后本机一律按 CI 步骤的完整 argv 复跑（本次 `Gate 2c` 全 22 条 `node --test` 本地复跑 0 失败） |
 | M3 第一次 NOT_CAUGHT（不是锁没牙） | ✅ | 第一版 M3 只改 `return rendered`，而真正落盘的 `fs.writeFileSync(file, rendered)` 一字未动 ⇒ "统一回写"这个缺陷**没有被实现出来**。正解是动落盘那一步，不是放宽 T7。变异必须取被禁形态本身，否则证不出它守哪一格 |
 | 接线（新测试必须被执行） | ✅ | `KNOWN_UNWIRED` 实测为空对象 ⇒ 任何新 `*.test.js` 不同 PR 接线就红。本 PR 三处同改：`.gitignore` 反选本体（`scripts/*.js` 第 106 行会静默吞掉本体）、`quality-gate.yml` 新增 `Gate 2b8 - Changelog aggregator (changes job)`、`scripts/check-unwired-tests.js::MUST_LIVE_IN_UNGATED_JOB` 登记 + `resolveWhen`。`node scripts/check-unwired-tests.js` 读数：检查域 113 个测试文件，OK |
 | 落点为什么必须是 changes 作业 | ✅ | 聚合器读的三类输入（`openspec/records/**`、`CHANGELOG.md`、`01-docs/learnings.md`）**全部**命中 `CI_IGNORED_PATHS`。接在被 `docs-only != 'true'` 门控的 job 里 = 只改记录/台账的 PR 可以让它一次都不跑，这是 AGENTS「进白名单的前提锁」记过的自关校验形态（实测事故 #3114） |
@@ -30,9 +31,10 @@ date: 2026-10-20
 
 | 判据 | 读数 |
 | --- | --- |
-| `node --test scripts/aggregate-changelog.test.js` | `# tests 21 / pass 21 / fail 0` |
-| 变异驱动（一次性，落 `%TEMP%`，不入库） | 9/9 CAUGHT，红集互不相同；驱动每趟断言 `# tests >= 21`；还原后 md5 == 原值 |
-| `node scripts/aggregate-changelog.js --dry-run` | `records=592 missing=591 malformed=0 learningsShape=0 landed=1 skipped=0 duprisk=0 learningsLanded=1 mode=dry`（`landed=1` 就是本篇 —— 真仓端到端，不是夹具） |
+| `node --test scripts/aggregate-changelog.test.js` | `# tests 23 / pass 23 / fail 0`（`duration_ms 999`） |
+| 变异驱动（一次性，落 `%TEMP%`，不入库） | 10/10 CAUGHT，红集互不相同；驱动每趟断言 `# tests >= 23`；还原后 md5 == 原值 |
+| `CI Gate 2c` 完整 argv 本机复跑 | 22 条 `node --test`，失败 0 条（第一次只跑了判据本体 ⇒ 漏掉钉死清单那条自测，见 learnings） |
+| `node scripts/aggregate-changelog.js --dry-run` | `records=592 missing=591 malformed=0 learningsShape=0 landed=1 skipped=0 duprisk=0 learningsLanded=1 mode=dry`（`landed=1` 就是本篇 —— 真仓端到端，不是夹具）；耗时三次实测 `599 / 1409 / 572 ms` |
 | `Gate 2b8` 的断言 replica（本机复跑 CI 那句 grep） | `grep -qE '^AGGREGATE records=[1-9]'` rc=0 —— 断言本身要在 CI 上绿才算数，这里只证明它写得下去 |
 | `node scripts/check-unwired-tests.js` | 检查域 113 个测试文件，`OK: 全部测试均已接线或按欠账登记` |
 | `node scripts/check-step-failfast.js` | 含 ≥2 条受管命令的 run 步骤 41 个，OK |
@@ -74,6 +76,20 @@ date: 2026-10-20
 
 `requiresExternalReview` 点名的 i6 属规格表述，不涉运行时授权判定；其 `domains:[auth]` 标签来自引擎的 `highRiskDomains` 轴，与本矩阵的路径前缀轴是两个轴（AGENTS 已把它登记为矩阵未覆盖的四格之一），故按内容处置、不按标签处置。
 
+### 外部评审轮 2 的逐条处置（SINGLE，载荷是 PR 全量 diff 1234 行）
+
+采纳 1 条（真缺陷）、用数据反驳 2 条、指针反驳 2 条、承认流程状态 3 条：
+
+| 条 | 级别 | 处置 | 依据 / 落点 |
+|---|---|---|---|
+| i7 `bareTitleOf` 把标题末尾括号剥掉 ⇒ 天然带括号的标题互相误判 | Info（实为**真缺陷**） | **采纳** | 本仓标题大量以 `（#4051）` / `（日期）` 收尾，剥皮比较会把不同条目判成重复 ⇒ **静默跳过一条真该搬的**。收窄为「只收完全裸标题」，并把取舍写进代码注释与 `T20`：误重复有 `check-changelog-duplicate-entries` 兜，误跳过**没有任何东西会响**。落 `T19`（带括号不得误吃）+ 变异 M10 |
+| i5 全量扫描无性能上限 | Warning | **用数据反驳** | 当场三次实测 592 篇记录：`599 / 1409 / 572 ms`，套件本身 1.0s。加"上限/超时"是在没有测量的前提下引入新的失败模式 |
+| i4 `Gate 2b8` 只断言输出格式、不验台账内容或写路径 | Warning | **反驳** | 该步骤**必须**只 dry-run：在 PR 门禁里写台账会把别人刚并入 main 的条目算进我的差量（AGENTS 实测过 merge-base 漂移那一类假红）。写路径与内容正确性由 23 条行为锁覆盖，含 `T18b` 真写入往返 |
+| i2 授权机制在 spec 里但未实现 | Critical | **指针反驳** | `proposal.md` 新增段逐条点名"尚未实现"三件及其归属片次；这不是遗漏而是分片 |
+| i3 advisory→blocking 的转档判据没有自动化 | Warning | **采纳为欠账** | 如实留在 tasks 4.3：转档前置条件写成"当场重取的在飞 CONFLICTING/UNKNOWN 数为 0"。自动化它需要先定义"窗口结束"的机器判据，属片4 |
+| i1 / i8 评审状态本身未闭合、requiresExternalReview 仍开 | Critical / Warning | **承认状态属实，但指出自我指涉** | 这两条报的是"评审还没做完"，而评审没做完正是因为它每轮都新出条目。出口不是无限重跑：`68da…` 产物已按事实回填 `tier=external`（claude 真跑了 8 条），手写这一层在 `closureNote` 里点名。AGENTS 已记过同型死循环（「改判据 ⇒ 必须先跑完外部评审才能提交 ⇒ 提交又生成新 unknown」） |
+| i6 `.gitignore` 依赖行位置、无结构保证 | Info | **接受为已知代价** | 漏 negation 的症状是 CI `Cannot find module`（响亮），不是静默放行；同族先例 #3011/#3308 已把这条写成惯例 |
+
 ## CHANGELOG 条目
 
 # feat(gates): CHANGELOG 与 learnings 的热写面收敛第一步——条目真源移向执行记录，台账改由聚合器写入（changelog-carrier-aggregate）
@@ -111,3 +127,14 @@ date: 2026-10-20
 1. 一条变异报 NOT_CAUGHT 时，第一动作是检查变异本身实现的是不是被禁形态，**不是**放宽被验证的断言。
 2. 判据要盯**副作用发生的那一步**：写盘 / 发请求 / 改全局态。改它上游的中间变量常常什么都改变不了。
 3. 驱动必须同时断言"跑了多少条测试"和"红了哪几条"。只断言"有红"会把整片 LOADFAIL 读成"已反证"（本仓已记过多次同型）。
+
+### lesson: 新增"登记表"型判据时，判据绿不等于 CI 绿——钉死清单的那份自测必须同 PR 改（changelog-carrier-aggregate）
+
+**现场**：本 PR 第一笔提交推上去后 `QG Static` 的 `Gate 2c - Unwired-test ratchet` 判红；对照 main 更早 4 次 push 全绿 ⇒ 确认是我引入。我在 `check-unwired-tests.js` 的 `MUST_LIVE_IN_UNGATED_JOB` 里新增了一条登记，而 `check-unwired-tests.test.js:645` 用 `deepEqual` 把这份键清单钉成字面数组（"清单只能缩小"的执行体）。本机我当时跑的是 `node scripts/check-unwired-tests.js`（判据本体，**rc=0**）。
+
+**根因**：判据本体和判据的自测是**两个东西**。登记类判据的自测专门负责"你有没有偷偷放宽登记表"，所以它比本体更早拒绝新增。本机预跑清单如果只按"我改的那个脚本"去跑，就必然漏掉这一类。
+
+**可复用的三条**：
+1. 动任何 `deepEqual` 钉死的清单（`MUST_LIVE_IN_UNGATED_JOB` / `KNOWN_UNWIRED` / `debt-baseline.json` / 各类棘轮登记表）时，第一动作是 `grep` 出**谁在钉这份清单**，同 PR 一起改；判据是问"有没有人在数这个名字"，不是问"我改的文件测过了没"。
+2. 本机预跑要按 **CI 那条步骤的完整 argv** 复跑，而不是按"我改了什么"挑着跑。这次的做法是 `awk` 把 `Gate 2c` 步骤正文里的 22 条 `node --test` 抽出来逐条跑 —— 一次就暴露了漏跑的那条。
+3. 归因顺序别反：先取 main 更早 run 的结论（我这次是 4 次全绿）再认领，既不把既有红认领成自己的，也不把"不是我改的文件"当成免检 —— 我这次确实是自己改的，只是改在**登记表**上，而登记表由**另一个文件**测量。

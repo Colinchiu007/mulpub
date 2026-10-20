@@ -137,23 +137,29 @@ function landedRecordNames (archiveText) {
 }
 
 /**
- * 台账里已存在的**裸标题**（剥掉末尾一层括号后的标题）。
- * 为什么需要它：迁移窗口内有人在手写条目，那些标题**没带 record 名后缀**，landedRecordNames 看不见，
- * 于是同一条内容会被再搬一遍 —— 而"往一份 3 MB 的人读台账里塞重复块"正是本仓已经付出过
- * 3348 个重复行键代价的形态。这里只把它当**第二道出声闸**（不是主键）：主键仍是 record 名，
- * 裸标题命中时不搬、并点名，宁可少搬一条让人看见，也不要静默多搬一条。
+ * 台账里已存在的**完全裸标题**（标题末尾**不带任何括号组**的那些）。
+ * 为什么需要它：迁移窗口内有人手写条目，那些标题没带 record 名后缀，landedRecordNames 看不见，
+ * 于是同一条内容会被再搬一遍 —— 而往一份 3 MB 的人读台账里塞重复块，正是本仓付过
+ * 3348 个重复行键代价的形态。
+ * 为什么只收"完全裸标题"（QM-6 轮 2 的 i7）：若把 `# fix(x): 标题（#4051）` 这类**天然带括号**
+ * 的标题也剥成裸标题来比，会把不同条目误判成重复 ⇒ **静默跳过一条真该搬的**。取舍是刻意的：
+ * 误重复有另一把锁兜（`check-changelog-duplicate-entries` 拦"本 PR 让副本变多"），
+ * 误跳过**没有任何东西会响**。宁可漏拦一次重复，不可静默吃掉一条真条目。
+ * 这道闸也永远不是主键 —— 主键是 record 名（见 T4/T17b）。
  */
 function bareTitles (archiveText) {
   const set = new Set();
   for (const h of entries.headingsOf(String(archiveText === undefined || archiveText === null ? '' : archiveText))) {
-    set.add(h.replace(/（[^（）]*）\s*$/, '').trim());
+    const t = h.trim();
+    if (!/[（(][^（()]*[)）]$/.test(t)) set.add(t);
   }
   return set;
 }
 
-function bareTitleOf (blockText) {
+/** 取块的首个非空行文本（注入后缀**之前**的标题），供裸标题闸做精确比对。 */
+function firstLineContent (blockText) {
   const first = scanLines(blockText).find((l) => l.content !== '');
-  return first ? first.content.replace(/（[^（）]*）\s*$/, '').trim() : '';
+  return first ? first.content.trim() : '';
 }
 
 function readDate (file) {
@@ -211,7 +217,14 @@ function aggregate ({
     const p = parseRecordSections(raw);
     if (p.changelog === null) r.missingSection.push(f.name);
     else if (!startsAsEntry(p.changelog)) r.malformed.push(f.name);
-    else pendingChangelog.push({ name: f.name, date: readDate(f.path), text: ensureSlugSuffix(p.changelog, f.name) });
+    else pendingChangelog.push({
+      name: f.name,
+      date: readDate(f.path),
+      // 裸标题闸比的是**注入后缀之前**的标题；存两个字段而不是现算，
+      // 是为了让"比什么"这件事在数据结构上写明白，不靠读正则反推。
+      title: firstLineContent(p.changelog),
+      text: ensureSlugSuffix(p.changelog, f.name),
+    });
 
     if (p.learnings !== null) {
       if (p.learningsShapeError) r.learningsShapeError.push(f.name);
@@ -248,7 +261,7 @@ function applyTo (r, pending, file, opt) {
   for (const b of pending) {
     if (seen.has(b.name)) { r[opt.skipBucket].push(b.name); continue; }
     // 第二道出声闸：裸标题已在台账里（手写条目没带后缀的那类），不搬、点名，不算已落。
-    if (bare && bare.has(bareTitleOf(b.text))) { r.duplicateRisk.push(b.name); continue; }
+    if (bare && bare.has(b.title)) { r.duplicateRisk.push(b.name); continue; }
     seen.add(b.name);
     r[opt.bucket].push(b.name);
     out.push(opt.marker ? `<!-- aggregate:record=${b.name} -->\n${b.text}` : b.text);
