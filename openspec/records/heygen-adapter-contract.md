@@ -2,6 +2,7 @@
 record: heygen-adapter-contract
 task: HeyGen 数字人 adapter 对齐官方 v2 契约（请求体/轮询端点/认证头）
 date: 2026-10-21
+delivered_by_pr: 4194
 ---
 
 ## 本次执行记录：HeyGen Adapter 对齐官方 v2 契约（heygen-adapter-contract，2026-10-21）
@@ -36,6 +37,21 @@ date: 2026-10-21
 - **真实 Key 首跑未执行**：当前没有可用 HeyGen Key，本轮只做契约级正确性。Key 到位后按 `tasks.md` T4 执行：① 真实 `GET /v2/avatars` 拉到形象；② `generateVideo` 返回 `video_id`；③ 轮询到 `completed` 且有 `video_url`；④ 下载成片有音轨。
 - **`testConnection` 走 `/v2/avatars`**：这是仓库已实现且有测试的端点，但同样未经过真实 Key 验证（与首跑同批验证）。
 - **Python 后端未改**：`packages/python-backend` 的 HeyGen 走 `/v1/workflows/executions`，与桌面 adapter 是两条链路；不在本次范围内。
+
+### QM-6 逐条处置摘要（第二轮 8 条）
+
+| # | 级别 | 处置 | 落点 |
+|---|---|---|---|
+| i1 | Critical | 采纳 | 成功码 100（官方）/0（网关归一）写进注释与提案，不静默扩大成功面 |
+| i2 | Critical | 采纳 | `_apiRoot()` 改 `new URL()` 解析；新增「无版本段 baseUrl」「8443 端口」两例测试 |
+| i3 | Warning | 采纳（文档） | 轮询上限/间隔/终止态在 `digital-human-stages.js`，adapter 只做单次查询 |
+| i4 | Warning | 采纳（文档） | adapter 不打印请求头；manager 只记录 `providerId.method` |
+| i5 | Warning | 采纳 | `avatarStyle` 白名单 normal/circle，未知值回落 normal；新增测试 |
+| i6 | Info | 拒绝 | 不新增 fixture 文件，避免第二真源漂移 |
+| i7 | Warning | 采纳（已覆盖） | `/avatars` 与提交共用 `_headers()`，用例断言 `X-Api-Key` |
+| i8 | Info | 拒绝（超范围） | 不定义结构化错误体 schema；`PROVIDER_ERROR` 带 message + context.url |
+
+> 第一轮另 2 条 Critical（`/v1/me`、`HEYGEN_AUTH_MODE`）来自 proposer 自行扩张，已逐条拒绝并在提案「明确不做」中排除。
 
 ## CHANGELOG 条目
 
