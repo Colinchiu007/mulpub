@@ -1,0 +1,60 @@
+{
+  "sha": "060755d5e70a61100deee751489761ecfb0f0d8f",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 1349 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 1349,
+    "fileCount": 10,
+    "codeFileCount": 4,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 3,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "task: 重算作业\"零测量却报 success\"的退出码与可归因修复（切片 D，承接 2026-10-20 授权的 A/B/C/D 序列）",
+      "| 授权与裁决来源 | ✅ | 用户 2026-10-20「第 2、3 条授权你改判据。第 5 条，选②」＝允许改守门判据本身，档位选「只做重算 + 点名」（不打开 `strict`、不写 required 上下文、不启用 Merge Queue）。本刀是同一授权序列的第四片，仍在\"重算 + 点名\"这一档内：**不加任何新的阻断能力**，只把\"没量到却报绿\"改成\"没量到就红，并且红得说得出原因\"。作业仍非 required，`MP_RECHECK_COMMENT` 仍 `\"0\"`（写评论需人工过目，本轮没碰） |"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "f4027a365e8bcdbbbeeb91542b913b4dec520ac183222bcb9a8d3c0967bd922c",
+  "decidedAt": "2026-10-21T18:19:35.239Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}
