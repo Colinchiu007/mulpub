@@ -19,7 +19,7 @@ date: 2026-10-21
 | base 口径 | ✅ | 取 `merge-base`（不是 `github.event.pull_request.base.sha` 原值、更不是 `origin/main`），与 `Gate 2c3` 同口径；算不出时回落 base ref（更严方向）。T4 就是把这条钉住的用例 |
 | 与既有基线的差异审计 | ✅ | 动代码前查到 `openspec/changes/hot-carrier-atomic-landing/`（规格已合入、实现未做）：其 D4 明确把 `AGENTS.md`/`CHANGELOG.md`/`01-docs/learnings.md` **移出**它的热点载体清单，且 tasks 1.2(d) 计划立锁"防止下个会话顺手补全"。逐条读 D4 原文后判定为**不同机制不同读数**（它量共享根未提交窗口，我量跨 worktree 的 PR 差量冲突），故不冲突但必须写边界 —— 已在 spec delta 新增一条 Requirement 明令两份清单 MUST NOT 合并，并写明本判据的读数**不满足**它设定的重进前提 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/`、`packages/rpa-engine/` 与任何 UI 文件 |
-| QM-6 CCG 双模型外部评审 | PENDING | 本片命中高危面前缀 `scripts/check-`（判据自指）与 `.github/workflows/` ⇒ 按收口矩阵只认 `tier=external` + 可核 evidence。提交后真跑 `sh scripts/deep-review.sh` 再回填；取不到外部产物时如实记欠账，不用 `closureNote` 冒充高危面闭合 |
+| QM-6 CCG 双模型外部评审 | 已闭合（含手写披露） | `deep-review` 真跑：critic=claude 8 条 / 最低分 3，proposer=opencode 跨家族通过；6 条裁决逐条处置见下节。命中高危面前缀 ⇒ 按收口矩阵补 `tier=external` + `evidence=PR #4145`，**这两个字段由本会话手写**（`tasks 8.1b` 未落地），`status=self_play_resolved` 为工具自写未改。`check-pr-exec-record --mode=enforce` rc=0，`dual-closed total=1 external=1 self-play=0` |
 | 远程同步 | 由门禁推导 | 不手写状态词、不为收口另开 PR |
 
 - 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD` 读数写在 PR 正文（本片含 workflow 与判据本体，预期 `docs-only=false`）
@@ -42,6 +42,29 @@ date: 2026-10-21
 1. **advisory 只留痕不拦 ⇒ 现在"热写面已守住"是假话**。窗口内既有旧写法也有新载体；`missing` 计数会持续变大。转 enforce 的前置条件写在 tasks 4.3（当场重取的在飞 CONFLICTING/UNKNOWN 清零），那一步属"改谁来守门"，须人工过目。
 2. **判据只认路径逐字相等，不认大小写/斜杠变体**。本仓台账路径只有一个写法，且 Windows 下 `git diff` 输出恒为 POSIX 正斜杠 —— 这是**观察**不是证明；若将来出现 `changelog.md` 变体，T11 的"清单不外溢"锁会把它挡在门外（不命中即不拦），需要补显式判据而不是靠运气。
 3. **未做**：`scripts/hot-carrier-paths.json`（另一 change 的东西）、records 小节的强制校验、AGENTS.md 规范改写、release-gate 接线 —— 都在片4。
+
+### QM-6 轮 1 逐条处置与高危面收口的披露
+
+`sh scripts/deep-review.sh` 真跑（**载荷 761 行 = 整条分支 vs `origin/main`；critic=claude 出 8 条 / 4 维度 / 最低分 3；proposer=opencode 跨家族校验通过**）。引擎因 `minScore=3` 落到自扮演第三档出口，本会话填完 6 条裁决（词表是闭集 `upheld|dismissed` —— 第一版用了自造词 `rejected`/`known_tradeoff`，引擎判"未填"，症状看着像"它不读我的裁决"，实为词表不匹配）：
+
+| 条 | 级别 | verdict | 依据 |
+|---|---|---|---|
+| i1 | Critical | dismissed | 479 行（该笔 staged diff，sha 记父提交）与 761 行（分支载荷）作用域不同、都正确；引擎自己打印过「判定记录写在父 sha 上——这是预期行为」 |
+| i4 | Warning | dismissed | 同 i1 的另一半：`sha`/`layer`/`mode` 三字段语义未变，判 dual 的原因是 479 > 200 阈值 |
+| i5 | Critical | dismissed | `Gate 2b9` 声明 `shell: bash`，GitHub 默认注入 `-e -o pipefail` ⇒ 任一非零即中止；`check-step-failfast.js` 本机判合规。该指控是"串里有没有 set -e"的字符串判据 |
+| i3 | Critical | dismissed（作为本片缺陷） | advisory 分档是设计本身：此刻转 enforce 会把在飞 PR 全判红；转档条件写在 tasks 4.3，且记录与 PR 正文都逐字声明"今天热写面已守住是假话" |
+| i2 | Warning | dismissed（代价已知） | `.gitignore` 注释除行号外同时引用模式名，可按模式一句话重取；该文件既有 30+ 条同族注释同一写法，单改我这条会制造风格分裂 |
+| i6 | Info | dismissed（代价已知） | 夹具一律 `os.tmpdir()` + 随机后缀 + `test.after` 清理，符合本仓「文件系统测试隔离」；强杀时 OS 不跑 hook 属已知代价，改 try/finally 只是换个位置承担 |
+| i7 | **upheld → 已修** | 修完改判 dismissed | 原 Requirement 以未落地的 `hot-carrier-atomic-landing` 作边界依据 = 悬空引用。`30ab220e8` 已把规则效力改由本 change 自持；此处记的是"曾成立、已按它修"，不是"评审误报" |
+| i8 | Info | dismissed（取证错位） | 评审载荷取的是分支中间那一笔（`495cd3513`），而 3.6 的实跑与勾账在后一笔；"先有证据再勾账"正是本仓要求的顺序 |
+
+**高危面收口的如实披露（按门禁出口①原文执行）**：本 PR 命中 `HIGH_RISK_SURFACES` 两类前缀（`.github/workflows/`、`scripts/check-`），收口矩阵只认 `tier=external` + 可核 `evidence`，`closureNote` 在这一侧不够格。
+
+- ⚠ **`tier=external` / `evidence=PR #4145` 由本会话手写，不是工具产物** —— 全仓没有任何生产方写 `tier`（`tasks 8.1b` 未落地）。外部 critic 确实审过这份载荷是事实，但**字段落盘这一层必须记成手写代用**，不得说成 `ccg-deep-review.js` 的输出。`status=self_play_resolved` 是工具自己收敛写的，我一个字没改（补字段脚本里有断言：状态不是工具收敛值就拒绝落笔）。
+- ⚠ **`--force` 追不到这枚 dual 产物，正解是 detached**：`deep-review.sh` 按 HEAD 的 `stagedDiffHash` 命中记录，而 dual 判定记在**父提交**上；末笔是 docs-only ⇒ 判 SKIP ⇒ 永远追不到。`--force` 只在入口那一关生效（`deep-review.sh:798` 是唯一消费点），仓外驱动 `ccg-deep-review.js` 不读它 —— 现场表现是打印「开始深度审查」后仍「判定: SKIP … 退出 0」。本片靠 `git checkout --detach 495cd3513` 让工具自己命中并收敛，这是本仓既有死区（[[review-artifact-parent-sha-vs-branch-scope]]）的一次复现与确认。
+- 旁路直调后端那次**零交付**：`claude -p "$(cat payload)"` 载荷 51KB ⇒ 两后端同报 `Argument list too long`（Windows `CreateProcess` 约 32KB 上限）、产物 0 字节。按产物判就是"没评审发生"，不得据此写 `tier=external`。
+
+`node scripts/check-pr-exec-record.js --base=origin/main --mode=enforce` → **rc=0**，`TIER-COVERAGE dual-closed total=1 external=1 self-play=0 unknown=0 unrecognized=0`。
 
 ## CHANGELOG 条目
 
