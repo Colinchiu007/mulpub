@@ -20,11 +20,8 @@ function script (blocks) {
   return Array.from({ length: blocks }, (_, i) => (i + 1) + '、' + unit).join('\n')
 }
 
-const CHANNEL_REF = { providerId: 'elevenlabs', model: 'eleven_multilingual_v2', voiceId: 'clone-a' }
-
 function baseDeps (over = {}) {
   return Object.assign({
-    channelRefOf: () => CHANNEL_REF,
     defaultProviderOf: () => ({ providerId: 'openai-tts', model: 'tts-1' }),
     readPreference: () => null,
     getCapability: (providerId, model) => ({ providerId, model, defaultVoiceId: 'alloy' }),
@@ -41,7 +38,7 @@ describe('previewEpisodePlan：成功载荷的形状（浮层只会读这几个�
     expect(Object.keys(r.plan).sort()).toEqual(['totalBlocks', 'totalCodepoints'])
     expect(Object.keys(r.voice).sort()).toEqual(['model', 'origin', 'providerId', 'resolvedBy', 'voiceId'])
     expect(r.ok).toBe(true)
-    expect(r.voice.origin).toBe('channel')
+    expect(r.voice.origin).toBe('providerDefault')
   })
 
   it('载荷必须能被结构化克隆逐字往返（IPC 传 ref/proxy 会静默丢字段）', async () => {
@@ -85,18 +82,9 @@ describe('previewEpisodePlan：拒绝态不是空态（§7.10.4.1 验收 3）', 
     expect(err.issues[0].message).toContain('80')
   })
 
-  it('音色三段半配置 ⇒ PODCAST_TTS_VOICE_UNRESOLVED 且 path=voiceRef（沿用解析层，不另造码）', async () => {
-    const { createEpisodePlanPreview } = await load()
-    const host = createEpisodePlanPreview(baseDeps({ channelRefOf: () => ({ providerId: 'elevenlabs', model: '', voiceId: 'x' }) }))
-    const err = await host.previewEpisodePlan({ channelId: 'ch_alpha', script: script(2) }).catch((e) => e)
-    expect(err.code).toBe('PODCAST_TTS_VOICE_UNRESOLVED')
-    expect(err.issues[0].path).toBe('voiceRef')
-  })
-
-  it('三层都拿不到音色 ⇒ 同一码拒绝，issues[].path=voice（预览不得替用户挑一个音色）', async () => {
+  it('两层都拿不到音色 ⇒ 同一码拒绝，issues[].path=voice（预览不得替用户挑一个音色）', async () => {
     const { createEpisodePlanPreview } = await load()
     const host = createEpisodePlanPreview(baseDeps({
-      channelRefOf: () => null,
       defaultProviderOf: () => ({ providerId: 'no-default', model: 'no-model' }),
       getCapability: () => ({ providerId: 'no-default', model: 'no-model', defaultVoiceId: null }),
     }))
@@ -113,10 +101,9 @@ describe('previewEpisodePlan：拒绝态不是空态（§7.10.4.1 验收 3）', 
 })
 
 describe('previewEpisodePlan：回退链与「命中来源」必须如实带出', () => {
-  it('频道没配音色时走 ② 偏好层，origin 如实为 preference（①层恒空不得演成整链拒绝）', async () => {
+  it('走 ① 偏好层，origin 如实为 preference（撤掉频道档后偏好就是第一档）', async () => {
     const { createEpisodePlanPreview } = await load()
     const host = createEpisodePlanPreview(baseDeps({
-      channelRefOf: () => null,
       readPreference: (providerId, model) => ({ voiceId: 'pref-' + providerId + '-' + model }),
     }))
     const r = await host.previewEpisodePlan({ channelId: 'ch_alpha', script: script(2) })
@@ -124,9 +111,9 @@ describe('previewEpisodePlan：回退链与「命中来源」必须如实带出'
     expect(r.voice.voiceId).toBe('pref-openai-tts-tts-1')
   })
 
-  it('偏好没配时落到 ③ capability 默认音色，origin 如实为 providerDefault', async () => {
+  it('偏好没配时落到 ② capability 默认音色，origin 如实为 providerDefault', async () => {
     const { createEpisodePlanPreview } = await load()
-    const host = createEpisodePlanPreview(baseDeps({ channelRefOf: () => null, readPreference: () => null }))
+    const host = createEpisodePlanPreview(baseDeps({ readPreference: () => null }))
     const r = await host.previewEpisodePlan({ channelId: 'ch_alpha', script: script(2) })
     expect(r.voice.origin).toBe('providerDefault')
     expect(r.voice.voiceId).toBe('alloy')
@@ -134,7 +121,7 @@ describe('previewEpisodePlan：回退链与「命中来源」必须如实带出'
 
   it('没有默认 provider 定位键 ⇒ 拒绝，且不得回退去「随便挑一个」（同 §7.4.1 口径）', async () => {
     const { createEpisodePlanPreview } = await load()
-    const host = createEpisodePlanPreview(baseDeps({ channelRefOf: () => null, defaultProviderOf: () => null }))
+    const host = createEpisodePlanPreview(baseDeps({ defaultProviderOf: () => null }))
     const err = await host.previewEpisodePlan({ channelId: 'ch_alpha', script: script(2) }).catch((e) => e)
     expect(err.code).toBe('PODCAST_TTS_VOICE_UNRESOLVED')
   })
@@ -143,7 +130,6 @@ describe('previewEpisodePlan：回退链与「命中来源」必须如实带出'
     const { createEpisodePlanPreview } = await load()
     const warns = []
     const host = createEpisodePlanPreview(baseDeps({
-      channelRefOf: () => null,
       // 闭集外的 origin 用真解析层不可达，只能经注入点造一次——这条注入的生产默认就是真实现，
       // 而「接线处不得传 resolveVoice 替身」由下面那条结构锁守住（否则注入点会变成第二份口径）。
       resolveVoice: () => ({ ok: true, providerId: 'p', model: 'm', voiceId: 'v', origin: 'ghost', resolvedBy: 'ghost:p/m' }),
@@ -166,7 +152,7 @@ describe('previewEpisodePlan：只读的两条机械保证', () => {
     const { createEpisodePlanPreview } = await load()
     const readPreference = vi.fn(() => null)
     const getCapability = vi.fn(() => ({ providerId: 'openai-tts', model: 'tts-1', defaultVoiceId: 'alloy' }))
-    const host = createEpisodePlanPreview(baseDeps({ channelRefOf: () => null, readPreference, getCapability }))
+    const host = createEpisodePlanPreview(baseDeps({ readPreference, getCapability }))
     const arg = { channelId: 'ch_alpha', script: script(2) }
     await host.previewEpisodePlan(arg)
     await host.previewEpisodePlan(arg)
@@ -193,7 +179,7 @@ describe('previewEpisodePlan：只读的两条机械保证', () => {
 
   it('缺任一注入实现即 fail closed（缺一个就不许猜默认，也不许静默少一层回退）', async () => {
     const { createEpisodePlanPreview } = await load()
-    for (const key of ['channelRefOf', 'defaultProviderOf', 'readPreference', 'getCapability']) {
+    for (const key of ['defaultProviderOf', 'readPreference', 'getCapability']) {
       const deps = baseDeps()
       delete deps[key]
       const host = createEpisodePlanPreview(deps)
@@ -214,5 +200,30 @@ describe('previewEpisodePlan：只读的两条机械保证', () => {
     expect(hits.length).toBeGreaterThan(1)
     expect(hits).toContain('podcast-episode-plan-preview.js')
     expect(hits).toContain('podcast-tts-voice.js')
+  })
+})
+
+describe('第①档（频道 voiceRef）已撤 —— 预览侧的三把落点', () => {
+  it('REQUIRED_DEPS 恰为三键，且不含 channelRefOf', async () => {
+    const { REQUIRED_DEPS } = await load()
+    expect([...REQUIRED_DEPS].sort()).toEqual(['defaultProviderOf', 'getCapability', 'readPreference'])
+    expect(REQUIRED_DEPS).not.toContain('channelRefOf')
+  })
+
+  it('接线处不得再注入 channelRefOf（ipc-handlers/podcast.js 全文 0 命中）', () => {
+    const src = fs.readFileSync(path.resolve(__dirname, '../ipc-handlers/podcast.js'), 'utf8')
+    // 与下面那条同口径：先剥注释。ipc-handlers/podcast.js 的注释里会出现「channelRefOf 是音色
+    // 解析的入参求值」这类解释性写法，不剥就会被自己的注释判红（AGENTS「禁令按语义位置切」）。
+    const code = src.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').filter((l) => !/^\s*(\*|\/\/)/.test(l)).join('\n')
+    expect(code).not.toMatch(/channelRefOf\s*:/)
+    // 正控：剥注释后判据仍看得见代码本体，否则「解析退化成空集合」会造出一条永不命中的装饰锁。
+    expect(code).toMatch(/ipcMain\.handle\('podcast:episode:planPreview'/)
+  })
+
+  it('预览模块本体不得再出现频道三段的读取形状（channelRef / channelRefOf）', () => {
+    const src = fs.readFileSync(MOD, 'utf8')
+    // 判据只量代码：头注释里要说明「为什么撤掉」，不剥注释就会因为解释禁词而判红（同族坑）
+    const code = src.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').filter((l) => !/^\s*\*/.test(l) && !/^\s*\/\//.test(l)).join('\n')
+    expect(code.indexOf('channelRef'), 'channelRef').toBe(-1)
   })
 })
