@@ -18,8 +18,8 @@ branch: fix-collection-rewrite-publish-flow
 | 静态门禁 | PASS | `node .github/scripts/check-max-lines.js` rc=0（**无新增超大文件**，挂账清单与现实一致）；`check-locale-sync.js --keys` rc=0（198 个使用中 key 均存在于 zh/en）；`check-locale-sync.js --cjk` rc=0（基线 1330、当前 1125、**无新增硬编码中文**）；`eslint` 改动文件 `--quiet` rc=0 |
 | QM-1 打包 | **N/A（不适用，非「跑了通过」）** | 改动集 **零** `apps/desktop/electron/**`、**零** `packages/rpa-engine/**`（只动渲染层 `src/**` + locale + 文档）⇒ 按 AGENTS.md 字面规则「每次修改 `apps/desktop/electron/` 或 `packages/rpa-engine/` 下代码后必须打包」**不触发**。本行记录此格是为与「已验证」区分。**额外**（不属 QM-1，但为否证 QM-6 i2「无构建验证」而跑）：渲染层生产构建 `npx vite build` ⇒ **rc=0、built in 24.11s** |
 | QM-4 视觉 | PASS | `TEST_URL=http://127.0.0.1:5199 PIXEL_ONLY=collection node tests/visual-testing/scripts/run-pixel-tests.js` ⇒ **1/1 通过、0 失败、100%**（报告 `tests/visual-testing/reports/report-1792523798281.json`）。用**本 worktree 自起的独立 Vite**（5199，`--strictPort`，HTTP 200 实证），**不借用他人端口**（5174 已被他人占用）；**未刷新基线**。新增横幅与浮层均为**条件渲染**（截断态 / 流水线运行态），采集页默认态不渲染 ⇒ 像素不变，0.000% 差异本身即证据 |
-| QM-6 CCG 双模型外部评审 | PASS | **共跑 7 轮，全部是跨家族外部模型实跑**（critic=`claude` 2.1.303 / proposer=`opencode` 1.18.34，两家**不同厂商**；脚本裸名自检两条均过，跨家族校验「通过」）。累计交付 **50+ 条**评审意见，**逐条填 prosecution/defense/verdict/rationale**；其中 **3 条被采纳并已实现**（i3 改写信封类型守卫、i5 作废逻辑抽 composable + 两条路径各自用例、i7 并发模型写进文档），其余 dismissal 均附**可复算实测证据**；7 轮全部收口 `self_play_resolved`、blocking 空。**高危面另有两次独立外部复核**（外部模型 claude 自行读代码/脚本、原文**公开于 PR 评论**）：第一次针对键名迁移（datamigration，#4114#issuecomment-6302916932）、第二次针对审计可信度与厂商独立性（auth + datamigration，#4114#issuecomment-6303677171）。**详细逐轮叙述见下方「QM-6 双家族外部评审（七轮实跑）」**。裁决原文在 `.adversarial/ccg-deep-*/{critique-v1.md,adjudication.json}`（`.gitignore:441` 忽略，不进版本库），引擎写回的裁决与 findings 在 `.ccg/reviews/*.json`（随本 PR 入库） |
-| 相关测试全集 | PASS | `vitest run src/views/Collection* src/features/collection src/composables/useCollection* src/locales` ⇒ **33 文件 / 509 用例全绿**
+| QM-6 CCG 双模型外部评审 | PASS | **共跑 13 轮，全部是跨家族外部模型实跑**（合并 main 后又跑轮 12 / 轮 13：并发模型注释订正、StageProgress 契约锁、PRD 消费者清单）（critic=`claude` 2.1.303 / proposer=`opencode` 1.18.34，两家**不同厂商**；脚本裸名自检两条均过，跨家族校验「通过」）。累计交付 **50+ 条**评审意见，**逐条填 prosecution/defense/verdict/rationale**；其中 **3 条被采纳并已实现**（i3 改写信封类型守卫、i5 作废逻辑抽 composable + 两条路径各自用例、i7 并发模型写进文档），其余 dismissal 均附**可复算实测证据**；各轮收口 `self_play_resolved`、blocking 空（轮 12 的记录因被取代而按先例 hand-set `cleared`，见下方「合并 main 之后的深审轮次」）。**高危面另有三次独立外部复核**（外部模型 claude 自行读代码/脚本、原文**公开于 PR 评论**）：第一次针对键名迁移（datamigration，#4114#issuecomment-6302916932）、第二次针对审计可信度与厂商独立性（auth + datamigration，#4114#issuecomment-6303677171）、第三次针对**合并 main 之后**的代码与并发/配置档案链路（auth + datamigration，#4114#issuecomment-6310698615）。**详细逐轮叙述见下方「QM-6 双家族外部评审（七轮实跑）」**。裁决原文在 `.adversarial/ccg-deep-*/{critique-v1.md,adjudication.json}`（`.gitignore:441` 忽略，不进版本库），引擎写回的裁决与 findings 在 `.ccg/reviews/*.json`（随本 PR 入库） |
+| 相关测试全集 | PASS | 合并 main 后复跑：`vitest run src/features/collection src/features/publish-destination src/composables src/views/Collection*.test.js src/components/PublishDestinationModal.test.js src/views/CreateView.config-profile-handoff.test.js` ⇒ **84 文件 / 1523 用例全绿**（本 PR 自有新增 **58 例**：作废 composable 6 + 编排 composable 19 + 组件 13 + 配置档案纯模块 10 + StageProgress 契约锁 4 + 依赖契约锁 6）
 | 文档同步 | PASS | 新增 `01-docs/PRD-COLLECTION-REWRITE-PUBLISH-FLOW-2026-10-20.md`（454 行：缺陷根因 / 数据校验 / 流程 / 功能逻辑 / 交互逻辑 / 显示项 / 提示文字 / 未闭合）；订正 `01-docs/PRD-REWRITE-WORD-COUNT-CONTROL-2026-09-12.md`（采集页口径已被取代的四处 + 校验表上限 + 变更记录）；`CHANGELOG.md` 顶部新增 36 行条目 |
 | 远程同步 | 由门禁推导 | 本行**不需要事后改写**：合并后门禁按主干历史推导归属（`scripts/lib/merge-ledger.js`，只认 squash 尾注 `(#NNNN)`）。把本行状态列写成 `PASS` 会被判「预写不存在的证据」而红（change: `ban-record-closure-backfill-pr`）。合并前本篇不在基线上 ⇒ 走 byDesign 档，不红；main push 回读证据写在 PR 评论里，不写回本文件 |
 
@@ -179,11 +179,11 @@ git diff "$(git merge-base origin/main HEAD)..HEAD" --numstat -- apps/desktop \
 
 | 门禁 | 命令 | 读数 | rc |
 |---|---|---|---|
-| locale 键存在 | `node .github/scripts/check-locale-sync.js --keys` | `key existence check PASS（198 个使用中 key 均存在于 zh/en）` | 0 |
-| 渲染端硬编码中文 | `node .github/scripts/check-locale-sync.js --cjk` | `CJK scan PASS（基线 1330 条，当前 1125 条，无新增硬编码）` | 0 |
+| locale 键存在 | `node .github/scripts/check-locale-sync.js --keys` | `key existence check PASS（2210 个使用中的 key 均存在于 zh/en）` | 0 |
+| 渲染端硬编码中文 | `node .github/scripts/check-locale-sync.js --cjk` | `CJK scan PASS（基线 1330 条，当前 1124 条，无新增硬编码）` | 0 |
 | 逐文件行数 | `node .github/scripts/check-max-lines.js` | `无新增超大文件，挂账清单与现实一致`（limit=500 / growthAllowance=200 / 超限文件=95 / 挂账=95 / 测试超限=13 / 测试挂账=12） | 0 |
-| 接线棘轮 | `node scripts/check-unwired-tests.js` | `检查域内测试文件 113 个 / OK: 全部测试均已接线或按欠账登记` | 0 |
-| 执行记录 | `node scripts/check-pr-exec-record.js --base=origin/main --mode=enforce` | `OK: PR 携带执行记录或带原因的豁免`；`TIER-COVERAGE dual-closed total=2 … self-play=1 … unknown(字段缺席)=1` | 0 |
+| 接线棘轮 | `node scripts/check-unwired-tests.js` | `检查域内测试文件 114 个 / OK: 全部测试均已接线或按欠账登记` | 0 |
+| 执行记录 | `node scripts/check-pr-exec-record.js --base=origin/main --mode=enforce` | `OK: PR 携带执行记录或带原因的豁免`；`TIER-COVERAGE dual-closed total=3 … self-play=1 … unknown(字段缺席)=2 … unrecognized=0` | 0 |
 | 记录债 | `node scripts/check-gate-record-debt.js --base-ref=origin/main --head-ref=HEAD` | `OK: 两源所有未收口的远程同步行均已登记，清单无陈旧项、记录标题无重复、记录文件登记字段无残留、旧载体与冻结基线一致` | 0 |
 | ESLint | `npx eslint <改动文件> --quiet` | 无输出 | 0 |
 | 渲染层构建 | `npx vite build` | `built in 24.11s`；产物中实测命中被拆走的「快捷采集」（1 个 chunk）与新增的「视频创作」（2 个 chunk） | 0 |
