@@ -45,6 +45,16 @@ const LOG_MODULE = 'ExternalProtocolGuard'
 const LOGGED_URL_MAX = 200
 
 /**
+ * 已装守卫的 webContents 登记表（WeakMap：随对象回收，不留强引用）。
+ * 为什么需要：CCG 外部评审 i1（Critical）——重复对同一个 webContents 调用本函数会
+ * **叠加** `will-navigate` 监听器（`setWindowOpenHandler` 是 setter，重复调用只会覆盖，
+ * 不会叠加），后果是拦截日志每次写两遍。当前五个接线点都"一次新建、一次安装"，
+ * 但那是调用纪律而不是机制保证；这里用登记表把"重复安装"变成**不可能**而不是"不该发生"。
+ * @type {WeakMap<object, { installed: boolean, navigationInstalled: boolean, blockedWindowOpen: number, blockedNavigation: number }>}
+ */
+const INSTALLED_GUARDS = new WeakMap()
+
+/**
  * 导航面判据：是否允许这个 URL 在应用内导航 / 开新窗。
  * @param {unknown} rawUrl
  * @returns {boolean} http(s) 且不带 userinfo 才为 true
@@ -77,6 +87,11 @@ function attachExternalProtocolGuard (webContents, options = {}) {
     blockedNavigation: 0,
   }
   if (!webContents || typeof webContents !== 'object') return state
+
+  // 幂等（CCG 外部评审 i1）：同一 webContents 已装过守卫 ⇒ 直接返回既有状态，
+  // 不再叠加 will-navigate 监听器（否则一次拦截会写两遍日志）。
+  const existing = INSTALLED_GUARDS.get(webContents)
+  if (existing) return existing
 
   const record = (source, url) => {
     if (source === 'window-open') state.blockedWindowOpen += 1
@@ -116,6 +131,7 @@ function attachExternalProtocolGuard (webContents, options = {}) {
     state.navigationInstalled = true
   }
 
+  INSTALLED_GUARDS.set(webContents, state)
   return state
 }
 

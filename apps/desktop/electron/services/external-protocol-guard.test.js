@@ -155,6 +155,28 @@ describe('attachExternalProtocolGuard — 守卫行为', () => {
     expect(attachExternalProtocolGuard(null, { tag: 'x' }).installed).toBe(false)
     expect(attachExternalProtocolGuard(undefined, { tag: 'x' }).installed).toBe(false)
   })
+
+  // CCG 外部评审 i1（Critical）：重复对同一个 webContents 装守卫会叠加 will-navigate
+  // 监听器 ⇒ 一次拦截写两遍日志。这里把"重复安装"变成机制上不可能，而不是靠调用纪律。
+  it('同一 webContents 重复安装不会叠加监听器（幂等）', () => {
+    const wc = createWebContents()
+    const first = attachExternalProtocolGuard(wc, { tag: 'auth-view' })
+    const second = attachExternalProtocolGuard(wc, { tag: 'auth-view' })
+
+    expect(wc.setWindowOpenHandler).toHaveBeenCalledTimes(1)
+    expect(wc.on).toHaveBeenCalledTimes(1)
+    expect(second).toBe(first)
+  })
+
+  it('幂等安装后拦截仍只记一次日志', () => {
+    const wc = createWebContents()
+    attachExternalProtocolGuard(wc, { tag: 'auth-view' })
+    attachExternalProtocolGuard(wc, { tag: 'auth-view' })
+
+    wc.handlers.windowOpen({ url: 'bitbrowser://cc/' })
+
+    expect(mockLogger.notify).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('登录视图接线 — 行为级（账号登录视图 = 本次事故现场那条路径）', () => {

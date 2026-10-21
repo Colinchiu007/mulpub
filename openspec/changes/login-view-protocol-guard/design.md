@@ -64,6 +64,22 @@ log.notify('ExternalProtocolGuard', 'external-protocol-blocked', {
 不抛错、不中断视图创建。理由：单测里的简化 mock 与真实 Electron 行为有差，
 守卫装不上不应让登录页打不开（登录是主流程，守卫是加固）。
 
+### 2.4 幂等（CCG 外部评审 i1）
+
+同一 `webContents` **重复安装**守卫时：
+- `setWindowOpenHandler` 是 setter，重复调用只会覆盖，不会叠加；
+- `will-navigate` 是 `on`，重复调用**会叠加** ⇒ 一次拦截写两遍 WARN。
+
+因此模块用 `WeakMap` 登记"已装守卫的 webContents"：第二次调用直接返回首次的状态对象，
+不再注册任何监听器。把"重复安装"从"不该发生"变成"不可能"——机制保证优于调用纪律。
+
+### 2.5 覆盖边界（明确排除，不假装全覆盖）
+
+- `will-navigate` **只对主框架导航**触发 ⇒ **iframe 内**（广告 / SDK 注入帧）的协议跳转不在拦截面内。
+- `setWindowOpenHandler` 覆盖页面主动开的新窗口请求。
+- 子框架路径的暴露面显著小于主框架：Chromium 对子框架发起的外部协议请求默认要求用户手势才外抛。
+- 上述边界写进规格（Scenario「子框架内的协议跳转属排除范围」）与执行记录的未闭合项，不以"已全覆盖"表述。
+
 ## 3. 接线点
 
 | 文件 | 位置 | tag |

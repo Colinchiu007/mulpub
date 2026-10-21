@@ -1,0 +1,60 @@
+{
+  "sha": "eea4b7944ed2ee995cec2cc2372f1d16e24ff615",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 337 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 337,
+    "fileCount": 9,
+    "codeFileCount": 4,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 3,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "| 修复 + 回归保护（QM-5 ④） | ✅ | 新增 `apps/desktop/electron/services/external-protocol-guard.js`（判据复用 `packages/shared-utils/src/safe-http-url.js` 的共享实现 + 额外拒绝 userinfo；提供 `attachExternalProtocolGuard(webContents,{tag})`：window-open 非 http(s) 一律 deny、will-navigate 非 http(s) 一律 preventDefault，拦截记 WARN 结构化日志 `ExternalProtocolGuard/external-protocol-blocked`），并接线到五处：账号登录视图（`auth-view-session.createAuthView`，tag=auth-view）、扫码登录（`qrcode-login.openLogin`）、OAuth 授权（`oauth-manager`）、RPA 窗口（`rpa-view-session._createWindow`）、静默登录（`auth-view-manager.loginSilent`）。新增用例 33 条（判据 21 + 守卫行为 9 + **行为级接线 1**：造出登录视图后直接调它的 window-open handler，断言自定义协议被拒、http(s) 放行），另加接线锁 6 条（五处必须调用统一守卫且带可区分 tag；已有守卫的三处不得被重复接管）。TDD 先测后码：模块未实现时 7 条红，实现后全绿 |",
+      "| 修复 + 回归保护（QM-5 ④） | ✅ | 新增 `apps/desktop/electron/services/external-protocol-guard.js`（判据复用 `packages/shared-utils/src/safe-http-url.js` 的共享实现 + 额外拒绝 userinfo；提供 `attachExternalProtocolGuard(webContents,{tag})`：window-open 非 http(s) 一律 deny、will-navigate 非 http(s) 一律 preventDefault，拦截记 WARN 结构化日志 `ExternalProtocolGuard/external-protocol-blocked`；**同一 webContents 重复安装幂等**，见 QM-6 i1），并接线到五处：账号登录视图（`auth-view-session.createAuthView`，tag=auth-view）、扫码登录（`qrcode-login.openLogin`）、OAuth 授权（`oauth-manager`）、RPA 窗口（`rpa-view-session._createWindow`）、静默登录（`auth-view-manager.loginSilent`）。新增用例 **44 条**：`external-protocol-guard.test.js` 29 条（判据 18 + 守卫行为 10 + 账号登录视图行为级接线 1）、`external-protocol-guard-wiring.contract.test.js` 7 条（源码接线锁：五处必须调用统一守卫且带可区分 tag + 已有守卫的三处不得被重复接管 + 模块本身必须复用共享判据）、`external-protocol-guard-wiring.behavior.test.js` 4 条（**行为级**接线：真实驱动 qrcode/oauth/rpa/silent-auth 四处，取真实视图/窗口直接调用其守卫 handler）、`external-protocol-guard-wiring.negative.test.js` 4 条（**变异反向**：把守卫模块替换成空实现后同样四处确实没有守卫 ⇒ 正向断言敏感、非恒真）。TDD 先测后码：模块未实现时 7 条红，实现后全绿 |"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "2b03335561c1042de505f85cab1a5c8087971da47fc5b30741d2f8807a03ad34",
+  "decidedAt": "2026-10-21T07:46:30.959Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}
