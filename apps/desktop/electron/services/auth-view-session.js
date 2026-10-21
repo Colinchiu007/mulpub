@@ -8,6 +8,8 @@
 const _path = require('path')
 // 分区命名与「本进程已持有 Session」登记的唯一实现处（回收端据此跳过仍在使用的目录）
 const authReclaim = require('./auth-partition-reclaim')
+// 外部协议守卫：登录视图加载的是平台真实页面，自定义协议跳转不得交给操作系统
+const { attachExternalProtocolGuard } = require('./external-protocol-guard')
 
 /**
  * 创建隔离的 Session 分区
@@ -194,7 +196,7 @@ async function restoreIndexedDB(view, indexedDBData) {
  */
 function createAuthView(accountId, preloadPath, sessionInstance) {
   const { WebContentsView } = require('electron')
-  return new WebContentsView({
+  const view = new WebContentsView({
     webPreferences: {
       session: sessionInstance,
       preload: preloadPath,
@@ -204,6 +206,11 @@ function createAuthView(accountId, preloadPath, sessionInstance) {
       backgroundThrottling: true, // 可见激活标签，真机实测出码期间 drawn=true（见 INVESTIGATE §12）
     }
   })
+  // 外部协议守卫（2026-10-21）：平台登录页里的第三方脚本一旦发起自定义协议跳转，
+  // Electron 默认会把它交给操作系统 → Windows 弹「获取打开此'xxx'链接的应用」。
+  // 这里在应用内拦下（http/https 放行，登录重定向链不受影响），并留 WARN 日志。
+  attachExternalProtocolGuard(view.webContents, { tag: 'auth-view' })
+  return view
 }
 
 module.exports = { createSession, setCookies, restoreLocalStorage, restoreIndexedDB, createAuthView }

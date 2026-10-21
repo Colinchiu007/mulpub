@@ -31,6 +31,7 @@ const { attachCdpDetection } = require('./auth-view-cdp')
 // 不挂它就等于对「二维码刷很久」完全无感知
 const { attachLoginNetworkDiagnostics, attachAuthResponseDiagnostics, attachLoginPageNoiseCancel } = require('./login-network-diagnostics')
 const { createSession, setCookies, restoreLocalStorage, restoreIndexedDB, createAuthView } = require('./auth-view-session')
+const { attachExternalProtocolGuard } = require('./external-protocol-guard')
 // #2701：登录分区每次新建、永不回收（本机实测 21 个目录 436MB，占分区存储 92%）
 const authReclaim = require('./auth-partition-reclaim')
 // 内嵌视图定位唯一来源：必须用「客户区」尺寸，禁用 getBounds() 外框尺寸（见 view-bounds.js）
@@ -681,6 +682,8 @@ class AuthViewManager {
         backgroundThrottling: false, // 该窗全程 show:false，隐藏页会被降频定时器并停掉 rAF
       },
     })
+    // 外部协议守卫（2026-10-21）：静默登录窗口加载的是平台登录页，自定义协议跳转不得交给操作系统
+    attachExternalProtocolGuard(win.webContents, { tag: 'silent-auth' })
 
     try {
       if (cookies && cookies.length > 0) {

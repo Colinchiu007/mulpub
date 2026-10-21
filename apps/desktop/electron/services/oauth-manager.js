@@ -17,6 +17,7 @@ const { WebContentsView, session } = require('electron')
 const path = require('path')
 const http = require('http')
 const log = require('./logger')
+const { attachExternalProtocolGuard } = require('./external-protocol-guard')
 const { config: appConfig } = require('../config/app-config')
 // eslint-disable-next-line no-unused-vars
 const Store = require('./store')
@@ -137,6 +138,8 @@ class OAuthManager {
           sandbox: true,
         }
       })
+      // 外部协议守卫（2026-10-21）：授权页里的自定义协议跳转不得交给操作系统
+      attachExternalProtocolGuard(view.webContents, { tag: 'oauth' })
       this.currentView = view
 
       // OAuth 授权页内嵌主窗口全屏标签（参照 AuthViewManager 内嵌迁移）

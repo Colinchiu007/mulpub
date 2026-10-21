@@ -66,6 +66,8 @@ const electronMock = {
         // 完全不可见——2026-10-16 排查 kuaishou 隐藏窗口崩溃时正是卡在这里。
         on: function (evt, handler) { this._handlers[evt] = handler; return this },
         once: function (evt, handler) { this._handlers[evt] = handler; return this },
+        // 真实 Electron 有此方法；记录 handler 让「视图是否装了外部协议守卫」可断言
+        setWindowOpenHandler: function (handler) { this._handlers.windowOpen = handler; return this },
         openDevTools: function () {},
         closeDevTools: function () {},
         isDestroyed: function () { return false },
@@ -168,6 +170,8 @@ const electronMock = {
       send: function () {},
       on: function () {},
       once: function () {},
+      // 真实 Electron 有此方法；记录 handler 让「视图是否装了外部协议守卫」可断言
+      setWindowOpenHandler: function (handler) { this._windowOpenHandler = handler },
       loadURL: function () { return Promise.resolve() },
       executeJavaScript: function () { return Promise.resolve() },
       isDestroyed: function () { return false },
