@@ -56,7 +56,8 @@ const uploadWaiterMixin = {
     const probe = 'function(){var t=(document.body&&document.body.innerText)||"";'
       + 'var pv=[...document.querySelectorAll("[class*=progress],[class*=uploading],[class*=percent],[class*=Percent]")].filter(function(e){return e.offsetParent&&e.clientHeight>0}).length;'
       + 'var m=t.match(/(\\d{1,3})\\s*%/);var pct=m?Number(m[1]):-1;'
-      + 'var uploading=/上传中[….]{1,3}|正在上传|剩余时间[:\uff1a]|转码中|上传失败/.test(t)||pv>0||(pct>=0&&pct<100);'
+      + 'var uploadingText=/上传中[….]{1,3}|正在上传|剩余时间[:\uff1a]|转码中|上传失败/.test(t);'
+      + 'var uploading=uploadingText||pv>0||(pct>=0&&pct<100);'
       + 'var vv=[...document.querySelectorAll("video")].some(function(v){var s=v.currentSrc||v.src||"";return s.indexOf("https:")===0&&v.getClientRects().length>0});'
       + 'var ed=!!document.querySelector(\'input[placeholder*="标题"],textarea[placeholder],[contenteditable="true"]\');'
       + 'var vu=[...document.querySelectorAll("video")].some(function(v){return v.getClientRects().length>0});'
@@ -67,7 +68,11 @@ const uploadWaiterMixin = {
       // ⇒ 旧 positive 的四个判据全落空 ⇒ P4(positive && !uploading) 永不成立 ⇒ 干等满预算。
       // 强完成文案是**平台无关的语义信号**，补进 positive 才能让该类页面正常收敛。
       + 'var doneCopy=/上传成功|上传完成|上传完毕/.test(t);'
-      + 'return {uploading:!!uploading,pagePercent:pct>=0?pct:null,positive:!!(vv||ed||doneCopy||location.href.indexOf("post/video")!==-1),structural:!!(vu||ed||doneText)}}'
+      // 2026-10-22：把「强完成文案」(doneStrong) 与「纯文本上传中」(uploadingText) 单列上报。
+      // 原因：uploading 里的 pv>0 是弱 DOM 形状判据（容器类名即可命中），它会让 P4 永不成立——
+      // 与 L48-50 记的抖音同型故障一模一样。西瓜页实测：页面已显示「上传成功」但仍有
+      // xigua-upload-video* 容器 ⇒ uploading 恒真。强语义证据不得被弱形状判据否决。
+      + 'return {uploading:!!uploading,uploadingText:!!uploadingText,pagePercent:pct>=0?pct:null,positive:!!(vv||ed||doneCopy||location.href.indexOf("post/video")!==-1),doneStrong:!!doneCopy,structural:!!(vu||ed||doneText)}}'
     const bytes = Number(opts && opts.fileBytes)
     const minMs = (require('./upload-wait-strategy').PLATFORM_MIN_BUDGET_MS || {})[platform]
 const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { minMs }) : (timeoutMs || 900000)
@@ -93,6 +98,8 @@ const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { 
         uploading: signal.uploading,
         positiveSignal: signal.positive,
         structuralSignal: signal.structural,
+        doneStrong: signal.doneStrong,
+        uploadingText: signal.uploadingText,
         stableSinceMs: now - stableSince,
       })
       // 进度只增不减（页面百分比抖动不至于让用户看到进度条倒退）

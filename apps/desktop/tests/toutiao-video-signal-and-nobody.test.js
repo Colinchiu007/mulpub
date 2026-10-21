@@ -155,3 +155,35 @@ describe('⑤ computeBudgetMs 平台下界 + upload-waiter 接线', () => {
     expect(/computeBudgetMs\(bytes, \{ minMs \}\)/.test(src)).toBe(true)
   })
 })
+
+// ── ⑥ 强完成文案不得被弱 DOM 形状判据否决（P3.5，2026-10-22 真机三次实测后补）──
+// 三次实测：探针口径已含 doneCopy，页面也确实显示「上传成功」，但 300s 用满仍报未检测到。
+// 根因：uploading 里含 pv>0（可见的 [class*=progress]/[class*=percent] 元素）这类弱形状判据，
+// 西瓜页的 xigua-upload-video* 容器即可命中 ⇒ uploading 恒真 ⇒ P4(positive && !uploading) 永不成立。
+// 这与代码注释里记的抖音同型故障（残留 progress 元素白等 15 分钟）完全一致。
+describe('⑥ decideUploadWait：强文案 + 无上传中文本 ⇒ 直接 done', () => {
+  const { decideUploadWait } = require('../electron/services/upload-wait-strategy.js')
+  const base = { elapsedMs: 40000, budgetMs: 300000, pagePercent: null, prevPagePercent: null, structuralSignal: false }
+
+  test('doneStrong + uploadingText=false ⇒ done（即使 uploading=true 这个弱信号仍在）', () => {
+    const r = decideUploadWait({ ...base, uploading: true, positiveSignal: true, doneStrong: true, uploadingText: false })
+    expect(r.action).toBe('done')
+  })
+
+  test('doneStrong 但仍有「上传中/转码中」文本 ⇒ 不判 done（不得提前放行）', () => {
+    const r = decideUploadWait({ ...base, uploading: true, positiveSignal: true, doneStrong: true, uploadingText: true })
+    expect(r.action).not.toBe('done')
+  })
+
+  test('无强文案时行为不变（走原 P4/P5）', () => {
+    const r = decideUploadWait({ ...base, uploading: true, positiveSignal: true, doneStrong: false, uploadingText: false })
+    expect(r.action).toBe('wait')
+  })
+
+  test('探针把 doneStrong / uploadingText 单列上报', () => {
+    const src = fs.readFileSync(svc('upload-waiter.js'), 'utf8')
+    expect(/doneStrong:!!doneCopy/.test(src)).toBe(true)
+    expect(/uploadingText:!!uploadingText/.test(src)).toBe(true)
+    expect(src.includes('var uploadingText=')).toBe(true)
+  })
+})
