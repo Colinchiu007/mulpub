@@ -20,6 +20,13 @@ import { ref } from 'vue'
 import { getApi } from '@/api/electron-bridge'
 
 /**
+ * 「已恢复连接」回执的驻留时长（OfflineIndicator 消费）。
+ * 单点导出常量而不是让组件写裸数字：测试要按同一口径推进假时钟，
+ * 两处各写一份就会漂（本仓「预算与消费者必须引用同一常量」的先例）。
+ */
+export const RECOVERY_NOTICE_MS = 6000
+
+/**
  * 离线状态 composable
  * @returns {{ isOffline: import('vue').Ref<boolean>, cachedTaskCount: import('vue').Ref<number>, init: Function, dispose: Function }}
  */

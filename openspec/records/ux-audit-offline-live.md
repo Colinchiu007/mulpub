@@ -97,8 +97,10 @@ ALL_CAUGHT（15 条）；两个被改文件 md5 还原一致
   复核结论覆盖事件值（待发布数量始终取主进程真源）。
 - 复核或初始读失败不再静默：保留事件给出的连通性并留一条 `[offline]` 告警，
   让「IPC 不可用」和「一切正常」在日志里可区分。
-- 横幅文案进 zh/en 语言资源（英文用户不再看到中文），图标转为纯装饰；横幅成为可播报状态区域
-  （role=status + aria-live=polite）；颜色从硬编码 hex 收进警告族令牌并显式声明暗档值
+- 横幅文案进 zh/en 语言资源（英文用户不再看到中文），图标转为纯装饰；**状态播报锚点改为常驻容器**
+  （`role=status` + `aria-live=polite` 挂在从不被插入/移除的 region 上，横幅只是它的内容），
+  恢复时给一条会自己消失的「已恢复连接」回执 —— 此前播报属性挂在 `v-if` 的横幅节点上，
+  「已恢复」这半边对读屏用户不存在；颜色从硬编码 hex 收进警告族令牌并显式声明暗档值
   （浅 6.37:1 / 暗 9.00:1），入场动画尊重系统减弱动效设置。
 - 待发布数为 0 时不再显示「0 个待发布」。
 
@@ -162,3 +164,24 @@ mock 的 `once` 队列是**全局计数**，它对"哪个实例拿到了第几�
    最后才怀疑锁没牙。本次两条都是第一条，改测试即可，**不需要**动判据或放宽断言。
 4. 同一份 composable 被多处挂载时，init 的读回是**每实例一次**的副作用 —— 用例里任何
    「先 init 再操作」的写法都会带上它，别把它当无害。
+
+## 三、QM-6 第二轮评审处置（critique=claude，fingerprint 49325d0d49dcec88，3 条 Warning）
+
+判据：**每条都先对当前 HEAD 重放一遍再定裁决**（评审读到的可能是开发途中的旧 tip，
+本仓已有先例：把"读取时的旧状态"当成"当前主张"）。
+
+| # | 主张 | 裁决 | 现场证据 |
+|---|------|------|----------|
+| i1 | 复核/初始读回没有序列标记，乱序落地会把已确认的离线改回在线 | **dismissed（已在上一轮修掉，本轮是对旧 tip 的重复）** | `useOfflineStatus.js` 现有 `readEpoch`，init 与 reconcile **共用**同一计数器，两条回调各自 `if (epoch !== readEpoch) return`；行为锁 `useOfflineStatus.live.test.js` 的「迟到的复核响应必须丢弃」+「两条写入路径不得各有各的守卫」；反证 M14（摘复核守卫）红 1 条、M15（摘 init 守卫）红 2 条 |
+| i2 | 恢复时整个 live region 被 `v-if` 移除，「已恢复」这半边不会被读屏播报 | **upheld，已修** | 成立：`role=status`/`aria-live` 原挂在 `v-if="isOffline"` 的横幅节点上，而 4.1.3 的播报语义依赖常驻 region。修法：锚点改为常驻 `.offline-live`，横幅/回执成为其内容；新增 `RECOVERY_NOTICE_MS=6000` 的一次性「已恢复连接」回执（首挂载不显示、再次断网立即让位、卸载清表）；locales zh/en 成对补 `offlineRecovered`。新增 6 条用例 + 3 条反证 M16/M17/M18 全部实测变红 |
+| i3 | `disposers` 从不 push，清理是空操作，window 监听跨用例泄漏 | **dismissed** | `useOfflineStatus.live.test.js:57` 有 `disposers.push(api.dispose)`，`afterEach` 用 `while (disposers.length > 0) disposers.pop()()` 逐个调用；该文件正是上一轮同族评审命中后才补的登记。本轮实测：新增的定时器/播报用例与既有 18 条同文件跑，无顺序依赖红 |
+
+**i2 的验收更正**（原来那句话是过度声明，必须改）：本 PR 早期在 PRD §5 写的是
+「横幅是状态消息：`role=status` + `aria-live=polite` ⇒ 断网与恢复都要被读屏播报」——
+断网半边成立（region 插入即播报），**恢复半边当时不成立**。现按常驻 region 重写，
+并把这条写成结构锁（属性必须在容器行、不得在横幅行、容器行不得有 `v-if`），
+使"退回挂在 v-if 节点"这个动作当场变红，而不是等下一个会话再读一遍代码。
+
+**第二轮反证总数**：`node scripts/offline-live-contract-mutate.js` 现 **18 条 ALL_CAUGHT**
+（M1–M15 既有 + M16 播报锚点退回 / M17 卸载不清定时器 / M18 跃迁判据写反），
+两个套件基线各 `red=0`，`[RESTORE-CHECK]` 两文件逐字节还原。

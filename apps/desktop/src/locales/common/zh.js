@@ -21,4 +21,5 @@ export default {
     // 离线横幅（UX 审计 1.7：原先硬编码在 OfflineIndicator.vue 模板里，英文用户看到中文）
     offlineBanner: '网络已断开 — 发布任务将被缓存，网络恢复后自动重试',
     offlinePendingCount: '{count} 个待发布',
+    offlineRecovered: '已恢复连接',
   }

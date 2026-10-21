@@ -18,6 +18,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 import OfflineIndicator from './OfflineIndicator.vue'
+import { RECOVERY_NOTICE_MS } from '@/composables/useOfflineStatus'
 import i18n from '@/i18n'
 
 const SRC = fs.readFileSync(path.resolve(process.cwd(), 'src/components/OfflineIndicator.vue'), 'utf8')
@@ -81,14 +82,21 @@ describe('离线横幅的出现与文案', () => {
 })
 
 describe('无障碍与样式口径', () => {
-  it('横幅是可播报的状态区域：role=status + aria-live=polite', async () => {
+  // 更正（QM-6 i2）：本条原先断言 role/aria-live 挂在横幅节点上，而那个节点是
+  // `v-if="isOffline"` —— live region 随断网/恢复被整块插入/移除。WCAG 4.1.3 的播报语义
+  // 定义在「常驻 region 内的文本变化」上，节点被移除时「已恢复」这半边多数读屏不会播报。
+  // 所以判据改成：播报锚点是**常驻**容器，横幅只是它的内容。
+  it('可播报锚点是常驻容器（不随离线/恢复插入移除），横幅是它的内容', async () => {
     const { wrapper, offlineStatus } = mountIndicator()
-    await goOffline(offlineStatus)
-    const banner = wrapper.get('[data-testid="offline-banner"]')
-    expect(banner.attributes('role')).toBe('status')
-    expect(banner.attributes('aria-live')).toBe('polite')
-  })
+    const live = wrapper.get('[data-testid="offline-live"]')
+    expect(live.attributes('role')).toBe('status')
+    expect(live.attributes('aria-live')).toBe('polite')
+    expect(live.text()).toBe('')
 
+    await goOffline(offlineStatus)
+    expect(wrapper.find('[data-testid="offline-banner"]').exists()).toBe(true)
+    expect(live.text()).toContain('网络已断开')
+  })
   it('装饰图标对读屏隐藏，可访问名由文字承载', async () => {
     const { wrapper, offlineStatus } = mountIndicator()
     await goOffline(offlineStatus)
@@ -138,5 +146,92 @@ describe('生命周期', () => {
     await goOffline(offlineStatus)
     // 重新挂载一个实例前的全局状态不受影响：旧实例的回调不应把新事件写进任何可见 DOM
     expect(document.body.innerHTML).not.toContain('网络已断开')
+  })
+})
+
+/**
+ * 恢复播报（QM-6 i2 采纳后的新增面）：断网有播报、恢复也必须有。
+ * 实现口径：常驻 live region + 一条会自己消失的「已恢复连接」提示；
+ * 提示不常驻是为了不给用户留一条永久占位的横幅（恢复后它只是"刚才发生了什么"的回执）。
+ */
+describe('恢复态的播报（i2）', () => {
+  async function goOnlineAgain (offlineStatus) {
+    offlineStatus.mockResolvedValue({ code: 0, data: { offline: false, cachedCount: 0 } })
+    window.dispatchEvent(new Event('online'))
+    await flushPromises()
+  }
+
+  it('断网→恢复：同一常驻 region 内出现「已恢复连接」，而不是节点被整体移除', async () => {
+    const { wrapper, offlineStatus } = mountIndicator()
+    const live = wrapper.get('[data-testid="offline-live"]')
+    await goOffline(offlineStatus)
+    await goOnlineAgain(offlineStatus)
+    expect(wrapper.find('[data-testid="offline-banner"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="offline-recovered"]').exists()).toBe(true)
+    expect(live.text()).toContain('已恢复连接')
+  })
+
+  it('恢复提示在 RECOVERY_NOTICE_MS 后自动消失，region 文本回到空', async () => {
+    vi.useFakeTimers()
+    const { wrapper, offlineStatus } = mountIndicator()
+    const live = wrapper.get('[data-testid="offline-live"]')
+    await goOffline(offlineStatus)
+    await goOnlineAgain(offlineStatus)
+    expect(live.text()).toContain('已恢复连接')
+    await vi.advanceTimersByTimeAsync(RECOVERY_NOTICE_MS + 1)
+    expect(wrapper.find('[data-testid="offline-recovered"]').exists()).toBe(false)
+    expect(live.text()).toBe('')
+    vi.useRealTimers()
+  })
+
+  it('恢复后又立刻断网：两条文案不得同时出现（离线横幅优先）', async () => {
+    const { wrapper, offlineStatus } = mountIndicator()
+    await goOffline(offlineStatus)
+    await goOnlineAgain(offlineStatus)
+    await goOffline(offlineStatus)
+    expect(wrapper.find('[data-testid="offline-recovered"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="offline-banner"]').exists()).toBe(true)
+  })
+
+  it('卸载必须清掉恢复提示的定时器（不留挂死的计时器）', async () => {
+    vi.useFakeTimers()
+    const { wrapper, offlineStatus } = mountIndicator()
+    await goOffline(offlineStatus)
+    await goOnlineAgain(offlineStatus)
+    expect(vi.getTimerCount()).toBeGreaterThanOrEqual(1)
+    wrapper.unmount()
+    wrappers.splice(wrappers.indexOf(wrapper), 1)
+    expect(vi.getTimerCount()).toBe(0)
+    vi.useRealTimers()
+  })
+
+  it('恢复文案走 locales：zh/en 成对，英文档无中文残留', async () => {
+    const zh = fs.readFileSync(path.resolve(process.cwd(), 'src/locales/common/zh.js'), 'utf8')
+    const en = fs.readFileSync(path.resolve(process.cwd(), 'src/locales/common/en.js'), 'utf8')
+    expect(zh).toContain('offlineRecovered')
+    expect(en).toContain('offlineRecovered')
+
+    i18n.global.locale.value = 'en'
+    const { wrapper, offlineStatus } = mountIndicator()
+    await goOffline(offlineStatus)
+    await goOnlineAgain(offlineStatus)
+    const recovered = wrapper.get('[data-testid="offline-recovered"]').text()
+    expect(recovered).toContain('Connection restored')
+    expect(recovered.match(/[一-鿿]/g) || []).toEqual([])
+  })
+
+  it('结构锁：role=status/aria-live 必须在常驻容器上，不得退回被 v-if 的内容节点', () => {
+    // 扫描域排除注释行（本文件的说明注释里会原样写出被禁形态，那是给读者的证据）
+    const codeOnly = SRC.split('\n')
+      .filter((l) => !/^\s*(\/\/|\*|<!--)/.test(l))
+      .join('\n')
+    const bannerLine = codeOnly.split('\n').find((l) => /data-testid="offline-banner"/.test(l))
+    expect(bannerLine).toBeDefined()
+    expect(bannerLine).not.toContain('aria-live')
+    expect(bannerLine).not.toContain('role="status"')
+    const liveLine = codeOnly.split('\n').find((l) => /data-testid="offline-live"/.test(l))
+    expect(liveLine).toContain('aria-live="polite"')
+    expect(liveLine).toContain('role="status"')
+    expect(liveLine).not.toContain('v-if')
   })
 })

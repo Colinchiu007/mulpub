@@ -25,10 +25,17 @@
 | 说明 | `common.offlineBanner` | 网络已断开 — 发布任务将被缓存，网络恢复后自动重试 | You are offline — publish tasks will be cached and retried once the connection returns |
 | 计数 | `common.offlinePendingCount` | `{count} 个待发布` | `{count} pending` |
 | 图标 | — | 📡（`aria-hidden`，纯装饰，不进可访问名） | 同左 |
+| 恢复回执 | `common.offlineRecovered` | 已恢复连接 | Connection restored |
+| 播报锚点 | — | `data-testid="offline-live"` 的**常驻**容器（`role=status` + `aria-live=polite`），空态时不占位、无视觉 | 同左 |
 
-规则：计数段仅在 `cachedTaskCount > 0` 时渲染。**「0 个待发布」不是信息**，
+规则一：计数段仅在 `cachedTaskCount > 0` 时渲染。**「0 个待发布」不是信息**，
 它只是把一个空值渲染成一句像结论的话（本仓「测试断言不得反向固化错误行为」的同型：
 界面上给一个恒出现的 0，用户会读成「系统数过了，是 0」）。
+
+规则二（QM-6 i2 采纳后新增）：**恢复回执是一次性回执，不是状态**。它在「离线→在线」跃迁时出现，
+`RECOVERY_NOTICE_MS = 6000` 后自动消失；首次挂载即为在线时不显示（那不是"恢复"）；
+显示期间再次断网则立即让位给横幅（两条文案互斥，不并列）。
+时长常量由 `useOfflineStatus.js` 单点导出，组件与测试引用同一处 —— 两处各写一份必然漂。
 
 ## 3. 交互逻辑与状态真源
 
@@ -63,9 +70,16 @@
 
 ## 5. 无障碍
 
-- 容器 `role="status"` + `aria-live="polite"`（WCAG 4.1.3 状态消息：变化要被播报，但不打断当前朗读）
-- 图标 `aria-hidden="true"`，可访问名由文字承载
-- 横幅无交互控件，不引入任何可聚焦元素，因此不触焦点环基线
+- **播报锚点是常驻容器**：`role="status"` + `aria-live="polite"` 挂在从不被插入/移除的
+  `.offline-live`（`data-testid="offline-live"`）上，横幅与恢复回执都是它的**内容**。
+  改前这两个属性挂在 `v-if="isOffline"` 的横幅节点上 —— 而 `role=status` 的播报语义定义在
+  「常驻 region 内的文本变化」，region 被整体移除时多数读屏**不会**播报「已恢复」，
+  于是「断网与恢复各有一条播报」中的恢复半边在实现上并不成立（QM-6 i2 命中，已修）。
+- 结构锁（不是注释）：`role="status"` / `aria-live` 必须出现在 `offline-live` 那一行、
+  **不得**出现在 `offline-banner` 那一行，且容器行不得带 `v-if`。扫描域排除注释行 ——
+  说明注释里会原样写出被禁形态，那是给读者的证据而不是违规。
+- 图标 `aria-hidden="true"`，可访问名由文字承载（📡 会被读成"卫星天线"）
+- 横幅无交互控件，不引入任何可聚焦元素，因此不触焦点环基线；恢复回执同样只是文本
 
 ## 6. 验收
 

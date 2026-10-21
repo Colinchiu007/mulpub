@@ -21,4 +21,5 @@ export default {
     // 离线横幅（UX 审计 1.7：与 zh 成对，原先硬编码在模板里）
     offlineBanner: 'You are offline — publish tasks will be cached and retried once the connection returns',
     offlinePendingCount: '{count} pending',
+    offlineRecovered: 'Connection restored',
   }
