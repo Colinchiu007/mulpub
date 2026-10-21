@@ -480,3 +480,4 @@ apps/desktop/electron/home-shell-preload.bundle.js
 apps/desktop/electron/monitor-preload.bundle.js
 apps/desktop/electron/services/generated/card-paginator.iife.js
 apps/desktop/electron/services/stealth/stealth-preload-enhanced.bundle.js
+!scripts/offline-live-contract-mutate.js

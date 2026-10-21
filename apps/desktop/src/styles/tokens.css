@@ -145,6 +145,10 @@
   --color-danger-soft: #fef0f0;
   --color-success-soft: #d1fae5;
   --color-warning-soft: #fef3c7;
+  /* 警告横幅文字档（原 OfflineIndicator.vue 硬编码 #92400e，UX 审计 1.7 收编）。
+   * #92400e 在 --color-warning-soft #fef3c7 上按 WCAG 公式现算 = 6.37:1（AA 需 4.5、AAA 需 7）。
+   * 暗档必须显式重声明：软底暗档是深褐 #33240c，沿用这个深棕字会读不出来。 */
+  --color-warning-ink: #92400e;
   --color-canvas-translucent: rgba(255, 255, 255, 0.95);
   --color-module-nav-text: #8b8e9a;
   /* 批次 6（2026-09-29）：原 17 个 `--color-apple-*` 收编槽位已随别名层退役一并删除。
@@ -341,6 +345,10 @@
   --color-danger-soft: #3a1d1d;
   --color-success-soft: #14301f;
   --color-warning-soft: #33240c;
+  /* 暗档重声明：浅底 #fef3c7 → 深褐 #33240c 后，深棕字读不出来，改用同色相提亮档
+   * （#fbbf24 在 #33240c 上按 WCAG 公式现算 = 9.00:1）。
+   * 与上面的浅档**成对存在**，不得只定义一次（本仓既有教训：「只定义一次」会静默回退浅值）。 */
+  --color-warning-ink: #fbbf24;
   --color-info-soft: #14232e;
 
   /* 品牌主色暗色覆盖（P4C 2026-10-09）：--color-primary 原先只在亮色区定义，
