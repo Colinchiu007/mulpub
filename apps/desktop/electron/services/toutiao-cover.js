@@ -77,8 +77,18 @@ async function ensureCoverFromVideoFrame (ctx, win, opts) {
     return { ok: false, step: 'no-next' }
   }
 
-  // 4) 等对话框关闭（关闭即视为封面已落位）
+  // 4a) 2026-10-22 真机：点「下一步」后弹窗**不关**（日志 `dialog still open`）⇒ 还有二次确认。
+  // 常见文案：确定 / 完成 / 保存 / 应用 / 确认。逐个试（只点可见且未禁用的），点中即停。
   await sleep(1500)
+  for (const label of ["确定", "完成", "保存", "应用", "确认"]) {
+    const hit = await win.webContents.executeJavaScript('(function(){'
+      + 'var all=[].slice.call(document.querySelectorAll("button,div,span,a"));'
+      + 'var c=all.filter(function(e){return (e.innerText||"").trim()===' + JSON.stringify(label) + '&&e.getClientRects().length>0});'
+      + 'if(!c.length)return false;var b=c[c.length-1];'
+      + 'var dis=(b.disabled===true)||(b.getAttribute("aria-disabled")==="true")||/(^| )disabled( |$)|is-disabled|btn-disabled/.test(String(b.className||""));'
+      + 'if(dis)return false;b.click();return true})()').catch(() => false)
+    if (hit) { await sleep(1200); break }
+  }
   let stillOpen = true
   for (let i = 0; i < 20; i++) {
     stillOpen = await win.webContents.executeJavaScript('(function(){'
@@ -87,8 +97,13 @@ async function ensureCoverFromVideoFrame (ctx, win, opts) {
     if (!stillOpen) break
     await sleep(500)
   }
-  if (log) log.info('RpaView', '[' + platform + '] cover set from video frame (dialog ' + (stillOpen ? 'still open' : 'closed') + ')')
-  return { ok: !stillOpen, step: 'done' }
+  // 5) 成功判据：弹窗关闭 **或** 封面区已出现预览图（后者更贴近「封面真的落位」）。
+  const hasPreview = await win.webContents.executeJavaScript('(function(){'
+    + 'var imgs=[].slice.call(document.querySelectorAll("img")).filter(function(e){return e.getClientRects().length>0&&e.naturalWidth>20});'
+    + 'return imgs.length>0})()').catch(() => false)
+  const ok = !stillOpen || !!hasPreview
+  if (log) log.info('RpaView', '[' + platform + '] cover set from video frame (dialog ' + (stillOpen ? 'still open' : 'closed') + ', preview=' + (hasPreview ? 'yes' : 'no') + ', ok=' + ok + ')')
+  return { ok: ok, step: 'done' }
 }
 
 module.exports = { ensureCoverFromVideoFrame }
