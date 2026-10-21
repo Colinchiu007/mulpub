@@ -8,7 +8,7 @@ date: 2026-10-21
 
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
-| 变更类型与隔离 | ✅ | 纯文档：`CHANGELOG.md`（+7 行：搬回那一行 1、本次条目 6）与 `01-docs/PRD-BRANCH-MERGED-CHECKER-2026-10-16.md` §13（+19 行）。`node scripts/classify-docs-only.js --base=origin/main --head=HEAD`（**本篇记录尚未提交时**的差量）= `docs-only=true files=2` ⇒ 走 docs-only 快速通道；本篇提交后再取一次作数，读数在自测块。worktree `<仓库父目录>/mp-worktrees/mp-restore-2842-changelog-entry` + 裸分支同名，由 `start-mp-task.ps1` 创建；判成败按产物（`rev-parse --abbrev-ref HEAD` = 分支名、起点 `rev-parse HEAD` = `b14935951`、`status --porcelain` 行数 0、`verify-worktree-deps.js OK`），不按入口 rc |
+| 变更类型与隔离 | ✅ | 纯文档：`CHANGELOG.md`（+7 行：搬回那一行 1、本次条目 6）与 `01-docs/PRD-BRANCH-MERGED-CHECKER-2026-10-16.md` §13（+19 行）。`node scripts/classify-docs-only.js --base=origin/main --head=HEAD` 前两笔后 = `docs-only=true files=2`，本篇记录提交后复跑 = **`docs-only=true files=3`**（终值，含本篇）⇒ 走 docs-only 快速通道。worktree `<仓库父目录>/mp-worktrees/mp-restore-2842-changelog-entry` + 裸分支同名，由 `start-mp-task.ps1` 创建；判成败按产物（`rev-parse --abbrev-ref HEAD` = 分支名、起点 `rev-parse HEAD` = `b14935951`、`status --porcelain` 行数 0、`verify-worktree-deps.js OK`），不按入口 rc |
 | 第一性原因（QM-5 ①） | ✅ | 引入点 = `1292b6555`（#2842 的 squash，`2026-10-03T14:43:15Z`）。**逐 blob 取证**（`git cat-file -p`，不用 `git show`，理由见「行尾」那行）：该 merge 的 `CHANGELOG.md` blob = `a12acd8a8`、`ops-center/backend/services/platform_def_service.py` blob = `fab06b022`，两个值都与分支**倒数第二笔** `49165a742`（`14:14:12Z`）**逐字节相同**；而这两处内容都由最后一笔 `214cbb2e2`（`14:55:12Z`）写下（CHANGELOG blob 变为 `53386cda5`）。⇒ 不是"评审改了产物再落地"，也不是"分支在这笔之后自己前进"，而是 **squash 发生在提交之前**——`214cbb2e2` 推上去时 PR 已 closed，GitHub 落的是它当时看到的 head |
 | 逃逸分析（QM-5 ②） | ✅ | 逃过了：① PR 侧 CI——它评的是当时 head 那棵树，合并后不再重算，`214cbb2e2` 从未被任何 required check 看过；② 次日的追平提交 `e5fb069b7`（#2852，主题直写「#2842 合并时序错位漏带」）只追平了**代码**（它的红因是 `test_platform_def_seed_limits`，pytest 不读 CHANGELOG）⇒ 记录面的丢失对那次修复结构性不可见；③ 事故当时**还不存在**落地判据（`scripts/check-branch-merged.js` 首版 2026-10-16，晚 13 天）。**为什么现在看得见仍没被代偿**：2026-10-19/20 两轮清理已把这格读成 rc=1 并登记在案，但「判据出声」与「有人去补那一行」之间没有机制——那是流程缺口，不是判据缺口 |
 | 系统性漏洞（QM-5 ③） | ✅ | 具体落点：`scripts/check-branch-merged.js::releaseEligibleForLanding` 只回答「能不能删分支」，不回答「这一行该由谁搬回来」；缺的是 **LOST 行 → 补记录 PR** 这条处置通道，不是阈值。**不把这一格写成"判据不够严"**：它已正确报出 `onlyInMerge=0` 并对旗标拒绝放行，读数是对的；本片不动它一个字 |
@@ -30,7 +30,7 @@ date: 2026-10-21
 - 搬回那一行的前后判定（脚本 `patch-changelog.cjs`，逐字节、不手抄）：
   `LOST_LINE_LEN=216 CR_IN_LINE=0` → `main_blob_hits=0 tip_blob_hits=1` → 写入后 `crlf=23514 loneLF=0 target_hits=1`、`EXACT_HITS=1 at_line=7251`（上一行 `7249` 是 #2842 的条目标题、`7250` 空行、下一行 `### 根因`）。
   注意 `grep '^[-] 顺带修复'` 在本文件有 **5** 处命中（别的条目里也有这三个字），所以判据用**整串相等**而不是前缀——前缀口径会把别人的记录读成"我那行已经在主干"。
-- 静态门禁：`check-no-brand-residue` PASS（11447 文件）| `check-doc-abs-paths --all` PASS（`counts=1161 domain=5035 files=561`）| `check-unwired-tests` OK（117）| `check-changelog-growth` PASS | `check-changelog-duplicate-entries` OK | `classify-docs-only` `docs-only=true files=2`（本篇提交后复跑，读数如下）
+- 静态门禁：`check-no-brand-residue` PASS（11447 文件）| `check-doc-abs-paths --all` PASS（`counts=1161 domain=5035 files=561`）| `check-unwired-tests` OK（117）| `check-changelog-growth` PASS | `check-changelog-duplicate-entries` OK | `check-gate-record-debt` RC=0（两源所有未收口行均已登记；现场可见项：213 篇历史记录整块缺 远程同步行、旧载体同形态矛盾 9 处，均属他人会话存量，不代改）| `classify-docs-only` 前两笔后 `files=2`、本篇提交后终值 **`docs-only=true files=3`**
 - 待合并后取的读数（不预写）：① `check-branch-merged.js`（main 上那份、默认档）对 `214cbb2e2dbd / 1292b65556` 必须 `lost=0 rc=0`；② 本 merge SHA 的 main push 回读按「(merge SHA, quality-gate.yml)」判，承载 `check-changelog-growth` / `duplicate-entries` 的是 `changes` 作业，读数写 PR 评论、不写回仓库文件。
 
 ## 逐条处置
