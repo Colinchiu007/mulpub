@@ -250,15 +250,52 @@ describe('接线锁：键盘与鼠标入口共用 useVisibleNavigation', () => {
   const appCode = code(appSrc)
   const sidebarCode = code(sidebarSrc)
 
+  /**
+   * 从调用名起始处取外层实参文本（括号配对 + 跳过字符串字面量）。
+   * 取不到（未配对）返回 null —— 判据必须显式拒绝 null，否则"解析退化成空串"
+   * 会让锁读起来像"回调体里没有 router.push"。
+   * @returns {string|null}
+   */
+  function balancedCall (text, from) {
+    const open = text.indexOf('(', from)
+    if (open < 0) return null
+    let depth = 0
+    let quote = null
+    for (let k = open; k < text.length; k += 1) {
+      const ch = text[k]
+      if (quote) {
+        if (ch === '\\') { k += 1; continue }
+        if (ch === quote) quote = null
+        continue
+      }
+      if (ch === '"' || ch === "'" || ch === '`') { quote = ch; continue }
+      if (ch === '(') depth += 1
+      else if (ch === ')') {
+        depth -= 1
+        if (depth === 0) return text.slice(open + 1, k)
+      }
+    }
+    return null
+  }
+
+  it('取体逻辑自证：嵌套括号与字符串里的假括号都不得截断它', () => {
+    const sample = 'api.onNavigate((route) => { if (x) { y() } foo("a)b") })\napi.other(() => router.push(1))'
+    const body = balancedCall(sample, sample.indexOf('onNavigate'))
+    expect(body, '字符串里的右括号不得提前收口').toContain('foo("a)b")')
+    expect(body, '不得越界吃到下一个调用').not.toContain('api.other')
+    expect(balancedCall('api.x((a => b', 6), '未配对必须返回 null，不得静默给半截').toBeNull()
+  })
+
   it('App.vue 的 onNavigate 回调必须走 navigateVisibly（不得再裸 push 主窗口路由）', () => {
     const anchor = appCode.indexOf('api.onNavigate(')
     expect(anchor, 'App.vue 里必须仍有 api.onNavigate 订阅（锚点失效）').toBeGreaterThanOrEqual(0)
-    const region = appCode.slice(anchor, anchor + 120)
-    expect(region, '键盘入口必须调用共享实现').toContain('navigateVisibly(')
-    // 负向判据按"回调体就是 router.push"这一形状匹配，而不是在固定字符窗口里找字样：
-    // 窗口里还会有别的合法 router.push（内嵌主页实例自己的订阅），固定窗口会把它们误读成违规。
-    expect(appCode, '裸 router.push(route) 会让跳转发生在看不见的背后')
-      .not.toMatch(/onNavigate\(\s*(?:\([^)]*\)|\w+)\s*=>\s*\{?\s*(?:await\s+)?router\.push\(/)
+    // 回调体用**括号配对**取，而不是固定字符窗口或单一字面形态：
+    // 窗口会把相邻的合法 router.push（内嵌主页实例自己的订阅）误读成违规，
+    // 而字面形态匹配能被"先用中间变量存 route / 再包一层 helper"绕过（评审 i6）。
+    const body = balancedCall(appCode, anchor + 'api.'.length)
+    expect(body, '回调体必须整体取到（括号未配对 = 取体逻辑失效）').not.toBeNull()
+    expect(body, '键盘入口必须调用共享实现').toContain('navigateVisibly(')
+    expect(body, '裸 router.push(route) 会让跳转发生在看不见的背后').not.toContain('router.push(')
   })
 
   it('MpSidebar.vue 不得再自带一份定向导航/切标签判断（单一实现）', () => {

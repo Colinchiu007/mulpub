@@ -15,10 +15,10 @@ sync_backfill_owner: none-derived-from-trunk
 | 变更类型与隔离 | ✅ | 运行时代码变更 ⇒ 独立 worktree `<仓库父目录>/mp-worktrees/mp-ux-audit-keyboard-nav`（D 盘），分支 `ux-audit-keyboard-nav`（回读 `git rev-parse --abbrev-ref HEAD` = 该值），由 `scripts/start-mp-task.ps1 -TaskName ux-audit-keyboard-nav` 创建 |
 | 质量节拍 pre-flight | ✅ | 编辑前确认当前分支非共享根 `main`；共享根未被写入（本轮所有落盘都在 worktree 内） |
 | TDD 顺序 | ✅ | 先写 `App.visible-navigation.test.js`，实现前实测 **6 failed \| 3 passed**（三条红点名「先切回首页标签，再跳目标路由」「定向让它自己跳，主窗口隐藏路由不动」「键盘入口必须调用共享实现」），再改实现转绿 |
-| 自测（新增面） | ✅ | `vitest run src/composables/useVisibleNavigation.test.js src/App.visible-navigation.test.js src/layouts/MpSidebar.sidebar-focus-nav.test.js` → **Tests 34 passed**（19 + 9 + 4）、无 `Errors` 行、rc=0 |
+| 自测（新增面） | ✅ | `vitest run src/composables/useVisibleNavigation.test.js src/App.visible-navigation.test.js src/layouts/MpSidebar.sidebar-focus-nav.test.js` → **Tests 39 passed**（组合式 25 + App 10 + 侧边栏既有 4）、无 `Errors` 行、rc=0 |
 | 自测（消费者并集） | ✅ | 改造前先 `git grep -l "navigateActiveHomeShell\|onNavClick"` 取并集 ⇒ `MpSidebar.sidebar-focus-nav.test.js` / `App.sidebar-collapse` / `App.dispatch-failed` / `shell-mode-6b` / `overlay-view-suspension` / `publish-tab-state-keepalive` 全部纳入验证域 |
 | 自测（全域） | ✅ | `vitest run src`（dot reporter）→ **Test Files 405：2 failed \| 403 passed；Tests 6421：2 failed \| 6417 passed \| 2 skipped**。两条红见「二、两条红的归因」 |
-| 反证（10 条） | ✅ | `node scripts/visible-navigation-contract-mutate.js` → `[BASELINE] rc=0 failed=0 errors=0 blind=false`、`[SUMMARY] 共 10 条：CAUGHT=10 其余=0`，rc=0。还原后逐文件 `git diff --numstat` 与变异前**逐字相等**（App.vue 7/3、MpSidebar.vue 6/24）——不采信驱动自报 |
+| 反证（14 条） | ✅ | `node scripts/visible-navigation-contract-mutate.js` → `[BASELINE] rc=0 failed=0 errors=0 blind=false`、`[DEAD-PROBE] 全部探针可命中（标题域 39 条）`、`[SUMMARY] 共 14 条：CAUGHT=14 其余=0`，rc=0。还原后逐文件 `git diff --numstat` 与变异前**逐字相等**（App.vue 7/3、MpSidebar.vue 6/24）——不采信驱动自报 |
 | 静态门禁 | ✅ | `check-locale-sync.js --cjk` → **PASS（基线 1330 条，当前 1124 条，无新增硬编码）**：本批无任何新用户可见文案 ⇒ 不改 locales（Gate 7 无触发面）；`check-no-brand-residue` → **PASS（扫描 11514 个 tracked 文件）**；`check-doc-abs-paths.js --base=origin/main` → **PASS（counts=1161 domain=562 files=561 canJudge=true）**；聚合 `eslint electron/ src/ --quiet` → **rc=0** |
 | 行尾对账 | ✅ | 五个改动文件 `git diff --numstat` 与 `git diff --ignore-cr-at-eol --numstat` **逐文件相等**（App.vue 7/3、MpSidebar.vue 6/24、sidebar-focus-nav 10/1、审计文档 61/1、.gitignore 4/0） |
 | QM-1 打包 | N/A | 只改 `apps/desktop/src/**`（渲染端）与 `scripts/`，未触碰 `apps/desktop/electron/**` 与 `packages/rpa-engine/**` ⇒ 打包判据不触发；`.gitignore` 反选与新增驱动均非运行时依赖 |
@@ -73,13 +73,40 @@ sync_backfill_owner: none-derived-from-trunk
 
 代价是"调用点漏传"不会编译失败 ⇒ 用装配锁补（M3 变异 + 逐调用点参数面断言 + 全仓调用点集合断言）。
 
-## 五、QM-6
+## 五、QM-6（第一轮已处置，闭合未达成）
 
-`scripts/ccg-review-decider.js --base origin/main` 的判定与 pre-commit 产物
-`.ccg/reviews/<sha>.json` 一并入库；评审发现与处置见下（本段由评审回来后就地补写，
-未跑成功时如实登记为未闭合，不伪造 `cleared`）。
+判定链实跑：`node scripts/ccg-review-decider.js --base origin/main --head HEAD`
+⇒ **mode=DUAL**（变更 960 行 > 200 行阈值；敏感命中 0 路径 + 2 内容），
+产物 `.ccg/reviews/a9dd314e5ed2705525882aa7a4202740fcc2e1ca.json` 随提交入库。
+引擎实跑（critic=claude，proposer=opencode，rounds=2）现场读数：
 
-- 状态：待补（本轮尚未取得外部模型的评审产物）。
+- `评审完成：8 条问题，维度分 4 个（correctness/security/performance/maintainability），最低分 6`
+- `收敛判定: status=self_play reason=selfPlay minScore=6`
+- `待裁决 6 条；其中高危域必须外部复核 0 条` ⇒ `requiresExternalReview: []`
+- 裁决模板 `.adversarial/ccg-deep-a9dd314e/adjudication.json` 已逐条填写（6/6，verdict 全部 **upheld**），
+  引擎回写状态停在 `self_play_pending` ⇒ 机械闸门 `check-pr-exec-record.js --mode=enforce`
+  仍报 1 条深度审查欠账（闭环白名单是 `{cleared, needs_revision, self_play_resolved}`）。
+
+**逐条处置**（指控 / 辩护 / 落点，完整版见 PRD §8 的表）：
+
+| # | 成立的部分 | 本批实际改了什么 | 由哪条反证钉住 |
+|---|---|---|---|
+| i1 | 静默丢弃本身（不是"应当支持对象描述符"） | 非法入参改为动作为零 **+ 出声**；刻意不新增对象透传通路 | M12 |
+| i2 | 表述自相矛盾 + 域声明缺失 | V9 结论改写为"已归因的既有红 + 判据"；PRD §6 顶部明写驱动只覆盖 3 个文件 | 文档判据 |
+| i3 | 死探针 + 「≥1 命中即 CAUGHT」 | 驱动加**死探针预筛**（标题域取 JSON reporter，取不到读数即 rc=2）与**严格命中**（新增 `PARTIAL_RED` 档） | 判据本体 + 预筛实测抓到 1 条死探针 |
+| i4 | 「找不到 home 标签」静默同形 + V1 把调用序当可见性 | 该分支加告警 + 对称双锁（缺则有告警 / 有则不得误报）；V1 措辞收窄 | M11 |
+| i5 | 前提经检索为假，但"一次 grep 不保未来"成立 | 三条**集合锁**：发送方 / 渲染层订阅方 / 定向 IPC 消费方，各带扫描域规模下界与构建产物排除 | 集合锁本身 + M13 |
+| i6 | 字面形态可绕过 + 复制者不触发调用点集合锁 | 取体改**括号配对 + 跳字符串**并配自证用例；探测面换成"是否引用定向 IPC" | M14 / M13 |
+
+严格判据上线后**当场暴露 3 处过度声明**（M2/M6/M7 声明了本不该由该变异打红的锁）：
+处置是把声明收窄到真覆盖的锁，并**另开 M13/M14** 去打红那些沉默的锁 ——
+不是删锁，也不是放宽判据。最终 `共 14 条：CAUGHT=14 其余=0`（rc=0）。
+
+**为什么这条 PR 现在不能自动合并**：`self_play_pending` 不在闭环白名单内，
+判据第 4 条（`check-pr-exec-record --mode=enforce` 为 OK）不满足。
+可达的闭合出口有两个，都需要人的判断或外部后端：① 让引擎在**真跨家族**（非自扮演）下收敛；
+② 由人确认这些处置足够并改写审计产物状态 —— 后者属"改谁来守门"，
+本会话**不**自己写那个字段。
 
 ## 六、遗留
 

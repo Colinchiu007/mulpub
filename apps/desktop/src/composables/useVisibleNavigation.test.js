@@ -49,12 +49,14 @@ describe('C 聚焦首页标签：维持主窗口路由跳转', () => {
     expect(tabStore.switchToTab).not.toHaveBeenCalled()
   })
 
-  it('非法输入一律不动作（空串 / 非字符串 / undefined）', async () => {
+  it('非法输入不动作，但必须出声（静默丢弃就是本单元要消灭的形态）', async () => {
     for (const bad of ['', null, undefined, 42, {}]) {
-      const { nav, router, tabStore } = setup()
+      const { nav, router, tabStore, warn } = setup()
       await nav.navigateVisibly(bad)
       expect(router.push, String(bad)).not.toHaveBeenCalled()
       expect(tabStore.switchToTab, String(bad)).not.toHaveBeenCalled()
+      expect(warn, `${String(bad)} 被丢弃时必须留一条日志，否则排障者无从知道快捷键被按过`).toHaveBeenCalledTimes(1)
+      expect(String(warn.mock.calls[0][0])).toContain('not a route string')
     }
   })
 
@@ -90,7 +92,7 @@ describe('B 聚焦普通网页标签：先切回首页再跳（否则跳转发�
     expect(router.push).toHaveBeenCalledWith('/collection')
   })
 
-  it('找不到 home 标签时不抛错，仍完成主窗口跳转', async () => {
+  it('找不到 home 标签时不抛错，仍完成主窗口跳转，并如实登记"这次跳转可能看不见"', async () => {
     const { nav, router, warn } = setup({
       isHomeTab: false,
       activeTabId: 'tab-web',
@@ -98,6 +100,15 @@ describe('B 聚焦普通网页标签：先切回首页再跳（否则跳转发�
     })
     await nav.navigateVisibly('/accounts')
     expect(router.push).toHaveBeenCalledWith('/accounts')
+    // 这条分支的可见结果与"覆盖层背后跳转"这一缺陷 1:1 同形；静默走完等于把缺陷
+    // 变成无日志的沉默（评审 i4）。正向上必须有一条告警，反向（有 home 标签）必须没有。
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(String(warn.mock.calls[0][0])).toContain('no home tab')
+  })
+
+  it('有 home 标签且需要切时，不得误报"找不到 home 标签"', async () => {
+    const { nav, warn } = setup({ isHomeTab: false, activeTabId: 'tab-web' })
+    await nav.navigateVisibly('/accounts')
     expect(warn).not.toHaveBeenCalled()
   })
 
@@ -243,5 +254,59 @@ describe('调用点装配锁：每个生产入口都必须传 apiGetter', () => 
       expect(router.push).toHaveBeenCalledWith('/accounts')
       expect(warn, '回落本身不是错误，不得制造噪声日志').not.toHaveBeenCalled()
     })
+  })
+})
+
+// 评审 i5 / i6 的处置：把「只有一个发送方」「只有一份判断」从散文断言升级为**集合断言**。
+// 集合断言的价值在于它防的是"下一个"，而不是复述"这一次没写错"——任何新增的
+// app:navigate 发送方都会被迫面对"它想要的语义是不是可见导航"这个问题。
+describe('通道集合锁：发送方 / 渲染层订阅方 / 定向 IPC 消费方都必须唯一', () => {
+  const code = (src) => src.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n')
+
+  function scan (root, predicate) {
+    const out = []
+    const seen = { files: 0 }
+    const walk = (dir) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name)
+        if (entry.isDirectory()) {
+          if (entry.name === 'node_modules' || entry.name === 'dist') continue
+          walk(full)
+          continue
+        }
+        if (!/\.(vue|js)$/.test(entry.name) || /\.test\.js$/.test(entry.name)) continue
+        // index.bundle.js 是打包产物（本仓不受 git 管理）：把它算进来会让集合随
+        // "本机有没有跑过打包"漂移，那正是集合锁最坏的失效方式。
+        if (entry.name === 'index.bundle.js') continue
+        seen.files += 1
+        if (predicate(code(fs.readFileSync(full, 'utf8')))) out.push(path.relative(process.cwd(), full).split(String.fromCharCode(92)).join('/'))
+      }
+    }
+    walk(root)
+    return { hits: out.sort(), scanned: seen.files }
+  }
+
+  const SRC = path.resolve(process.cwd(), 'src')
+  const ELECTRON = path.resolve(process.cwd(), 'electron')
+
+  it('主进程发送 app:navigate 的位置集合恒等于 {services/hotkeys.js}', () => {
+    const { hits, scanned } = scan(ELECTRON, (s) => /webContents\.send\(\s*['"]app:navigate['"]/.test(s))
+    expect(scanned, '扫描域为空 = 探针失明').toBeGreaterThan(20)
+    expect(hits, '新增发送方必须先回答"它要的语义是不是可见导航"（本单元统一按可见导航处理）')
+      .toEqual(['electron/services/hotkeys.js'])
+  })
+
+  it('渲染层订阅 app:navigate 的位置集合恒等于 {App.vue}', () => {
+    const { hits, scanned } = scan(SRC, (s) => /\bonNavigate\s*\(/.test(s))
+    expect(scanned, '扫描域为空 = 探针失明').toBeGreaterThan(50)
+    expect(hits, '第二个订阅方 = 第二份导航真相，正是本单元消灭的东西').toEqual(['src/App.vue'])
+  })
+
+  it('定向 IPC navigateActiveHomeShell 在渲染层的消费方恒等于共享实现', () => {
+    // 复制三段判断的入口必然要调这个 IPC —— 所以"消费方集合"就是"第二份判断"的探测器，
+    // 它比"是否调用 useVisibleNavigation(" 强：抄逻辑而不调组合式的文件也会在这里红。
+    const { hits, scanned } = scan(SRC, (s) => /navigateActiveHomeShell/.test(s))
+    expect(scanned, '扫描域为空 = 探针失明').toBeGreaterThan(50)
+    expect(hits).toEqual(['src/composables/useVisibleNavigation.js'])
   })
 })

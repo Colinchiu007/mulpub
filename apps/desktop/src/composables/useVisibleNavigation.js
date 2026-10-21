@@ -61,7 +61,14 @@ export function useVisibleNavigation ({
   async function ensureVisibleTab () {
     if (tabStore.isHomeTab) return
     const homeTab = (tabStore.tabs || []).find((tab) => tab && tab.isHome)
-    if (!homeTab || tabStore.activeTabId === homeTab.tabId) return
+    if (!homeTab) {
+      // 「找不到 home 标签」是异常数据形态。此时仍然 push（用户至少能在切回首页时看到目标页），
+      // 但必须出声：这条路径的可见结果与本次要修的缺陷（跳转发生在覆盖层背后）1:1 同形，
+      // 静默走完等于把缺陷重新变成无日志的沉默。
+      warn('[nav] no home tab; target route pushed behind the active tab overlay')
+      return
+    }
+    if (tabStore.activeTabId === homeTab.tabId) return
     try {
       await tabStore.switchToTab(homeTab.tabId)
     } catch (error) {
@@ -71,10 +78,16 @@ export function useVisibleNavigation ({
   }
 
   /**
-   * @param {string} to 目标路由（必须以 / 开头的路径；非法输入直接不动作）
+   * @param {string} to 目标路由（路径字符串；非法输入不动作）
    */
   async function navigateVisibly (to) {
-    if (typeof to !== 'string' || !to) return
+    if (typeof to !== 'string' || !to) {
+      // 静默丢弃 = 本单元要消灭的形态（按了没反应、日志零痕迹）。
+      // 两条生产入口都只发字符串（hotkeys.js 的 config.route、菜单项的 item.to），
+      // 所以这里不猜"对象型描述符该怎么走"，只把不认识的输入如实登记下来。
+      warn('[nav] ignored navigate request: target is not a route string', { type: typeof to })
+      return
+    }
     if (await tryNavigateHomeShell(to)) return
     await ensureVisibleTab()
     try {

@@ -59,7 +59,7 @@ const MUTATIONS = [
     file: APP_VUE,
     from: 'unsubscribeNavigate = api.onNavigate((route) => navigateVisibly(route))',
     to: 'unsubscribeNavigate = api.onNavigate((route) => {\n      router.push(route)\n    })',
-    expect: ['停在网页标签时按快捷键', 'onNavigate 回调必须走 navigateVisibly', '调用同一个组合式'],
+    expect: ['停在网页标签时按快捷键', 'onNavigate 回调必须走 navigateVisibly'],
   },
   {
     id: 'M2',
@@ -67,7 +67,9 @@ const MUTATIONS = [
     file: SIDEBAR,
     from: 'const { navigateVisibly: onNavClick } = useVisibleNavigation({ tabStore, router, apiGetter: () => getApi() })',
     to: 'const onNavClick = async (to) => { try { await router.push(to) } catch (e) { console.warn(e) } }',
-    expect: ['聚焦 home-shell 标签：点击菜单经 IPC 定向导航', '不得再自带一份定向导航/切标签判断'],
+    // M2 的注入只是「绕开共享实现」，没有复制定向判断 ⇒ 侧边栏结构锁必须保持绿；
+    // 把那条锁写成预期是过度声明（实测它沉默）。真正打那条锁的是 M13（复制一份判断）。
+    expect: ['聚焦 home-shell 标签：点击菜单经 IPC 定向导航', '先切回首页标签再导航，使变化可见'],
   },
   {
     id: 'M3',
@@ -83,7 +85,7 @@ const MUTATIONS = [
     file: COMPOSABLE,
     from: 'if (!tabStore.activeTabIsHomeShell) return false',
     to: 'if (true) return false',
-    expect: ['IPC 回执 handled:true ⇒ 主窗口不 push、也不切标签', '定向让它自己跳'],
+    expect: ['IPC 回执 handled:true ⇒ 主窗口不 push、也不切标签', '定向让它自己跳', '点击菜单经 IPC 定向导航'],
   },
   {
     id: 'M5',
@@ -100,48 +102,43 @@ const MUTATIONS = [
     id: 'M6',
     label: '去掉「已在 home 标签就不重复切」的 id 比较（每次多发一次无谓 IPC）',
     file: COMPOSABLE,
-    from: 'if (!homeTab || tabStore.activeTabId === homeTab.tabId) return',
-    to: 'if (!homeTab) return',
+    from: 'if (tabStore.activeTabId === homeTab.tabId) return',
+    to: 'if (false) return',
     // 只命中 composable 层那条：App 层"已在首页标签"走的是 isHomeTab 短路（M6 没碰它），
     // 所以那里必须保持绿——那正是"两个守卫各守一格"的现场证据。
     expect: ['不重复切'],
   },
   {
     id: 'M7',
-    label: '顺序反转：先 push 再切回首页标签（整函数体替换，保证可编译）',
+    label: '顺序反转：先 push 再切回首页标签',
     file: COMPOSABLE,
     from: [
-      '  async function navigateVisibly (to) {',
-      "    if (typeof to !== 'string' || !to) return",
       '    if (await tryNavigateHomeShell(to)) return',
       '    await ensureVisibleTab()',
-      '    try {',
-      '      await router.push(to)',
-      '    } catch (error) {',
-      "      warn('[sidebar] navigate failed', error)",
-      '    }',
-      '  }',
     ].join('\n'),
     to: [
-      '  async function navigateVisibly (to) {',
-      "    if (typeof to !== 'string' || !to) return",
       '    if (await tryNavigateHomeShell(to)) return',
-      '    try {',
-      '      await router.push(to)',
-      '    } catch (error) {',
-      "      warn('[sidebar] navigate failed', error)",
-      '    }',
+      "    await router.push(to).catch((error) => warn('[sidebar] navigate failed', error))",
       '    await ensureVisibleTab()',
-      '  }',
     ].join('\n'),
-    expect: ['顺序不可反', '先切回首页标签'],
+    // 只声明这一条：侧边栏「先切回首页标签再导航」那条断言的是"发生了切标签"而非顺序，
+    // 反转顺序时它照样绿 —— 把它写成预期就是过度声明（M2 同款教训）。
+    expect: ['顺序不可反'],
+  },
+  {
+    id: 'M14',
+    label: '快捷键回调改为「先用中间变量存 route，再裸 push」（绕过字面形态匹配）',
+    file: APP_VUE,
+    from: 'unsubscribeNavigate = api.onNavigate((route) => navigateVisibly(route))',
+    to: 'unsubscribeNavigate = api.onNavigate((route) => {\n      const target = route\n      router.push(target)\n    })',
+    expect: ['onNavigate 回调必须走 navigateVisibly', '停在网页标签时按快捷键'],
   },
   {
     id: 'M8',
-    label: '入参判据退化为真值判空（回首页 "/" 静默失效）',
+    label: '入参判据退化为真值判空 + 误杀根路径（回首页 "/" 静默失效）',
     file: COMPOSABLE,
-    from: "if (typeof to !== 'string' || !to) return",
-    to: 'if (!to) return; if (to === "/") return',
+    from: "if (typeof to !== 'string' || !to) {",
+    to: "if (!to || to === '/') {",
     expect: ['根路径 "/" 必须被当作合法目标'],
   },
   {
@@ -159,6 +156,30 @@ const MUTATIONS = [
     from: "      warn('[sidebar] navigate home-shell failed', error)\n      return false",
     to: "      warn('[sidebar] navigate home-shell failed', error)\n      return true",
     expect: ['IPC 抛错 ⇒ 出声告警并回落到主窗口路径'],
+  },
+  {
+    id: 'M11',
+    label: '「找不到 home 标签」的覆盖层背后跳转重新变成无日志的沉默（评审 i4）',
+    file: COMPOSABLE,
+    from: "      warn('[nav] no home tab; target route pushed behind the active tab overlay')\n      return",
+    to: '      return',
+    expect: ['并如实登记'],
+  },
+  {
+    id: 'M12',
+    label: '非法入参被静默丢弃（评审 i1：按了没反应且零痕迹）',
+    file: COMPOSABLE,
+    from: "      warn('[nav] ignored navigate request: target is not a route string', { type: typeof to })\n      return",
+    to: '      return',
+    expect: ['但必须出声'],
+  },
+  {
+    id: 'M13',
+    label: '侧边栏复制一份定向判断（不调组合式，绕过"调用点集合锁"）',
+    file: SIDEBAR,
+    from: 'const { navigateVisibly: onNavClick } = useVisibleNavigation({ tabStore, router, apiGetter: () => getApi() })',
+    to: 'const onNavClick = async (to) => { const api = getApi(); await api.pageManager.navigateActiveHomeShell(to) }',
+    expect: ['恒等于共享实现', '不得再自带一份定向导航/切标签判断（单一实现）'],
   },
 ]
 
@@ -199,6 +220,40 @@ function runTests () {
   return { rc: res.status === null ? -1 : res.status, out, ...parseVitest(out) }
 }
 
+/**
+ * 用例标题域（死探针预筛的坐标）。
+ * 取 JSON reporter 而不是解析 stdout：默认 reporter 只打**文件级** ✓ 行
+ * （实测 `✓ src/x.test.js (25 tests)`，零条用例名），从这种输出里"取用例标题"
+ * 得到的是空集 —— 空集做预筛会让每条探针都判成死探针（工具失明被读成锁坏了）。
+ * @returns {{titles:string[], error:string|null, file:string|null}}
+ */
+function collectTitles () {
+  const outFile = path.join(require('os').tmpdir(), `mp-nav-mutate-titles-${process.pid}.json`)
+  const res = spawnSync('pnpm.cmd', ['exec', 'vitest', 'run', ...TEST_FILES, '--reporter=json', `--outputFile=${outFile}`], {
+    cwd: DESKTOP,
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+    shell: true,
+  })
+  if (!fs.existsSync(outFile)) {
+    return { titles: [], error: `JSON 报告未落盘（rc=${res.status}）`, file: null }
+  }
+  let parsed
+  try {
+    parsed = JSON.parse(fs.readFileSync(outFile, 'utf8'))
+  } catch (e) {
+    return { titles: [], error: 'JSON 报告解析失败：' + e.message, file: outFile }
+  }
+  const titles = []
+  for (const f of parsed.testResults || []) {
+    for (const a of f.assertionResults || []) {
+      const name = String(a.fullName || a.title || '').trim()
+      if (name) titles.push(name)
+    }
+  }
+  return { titles, error: null, file: outFile }
+}
+
 function main () {
   const argv = process.argv.slice(2)
   const only = (argv.find((a) => a.startsWith('--only=')) || '').slice(7)
@@ -223,6 +278,33 @@ function main () {
   }
 
   const rows = []
+
+  // 死探针预筛（评审 i3 的处置）：每条 expect 探针都必须命中**真实存在的用例标题**。
+  // 标题域取自 JSON reporter（默认 reporter 只打文件级 ✓ 行，解析它得到空集 ——
+  // 那是工具失明，不是锁坏，必须与"探针写错"分开报）。
+  const domain = collectTitles()
+  if (domain.error) {
+    console.log('[DEAD-PROBE] 标题域取不到读数：' + domain.error + ' —— 不产出结论')
+    return 2
+  }
+  if (domain.titles.length < 20) {
+    console.log(`[DEAD-PROBE] 标题域只有 ${domain.titles.length} 条（下界 20）= 解析退化，不产出结论`)
+    if (domain.file) fs.unlinkSync(domain.file)
+    return 2
+  }
+  const dead = []
+  for (const mu of targets) {
+    for (const needle of mu.expect) {
+      if (!domain.titles.some((t) => t.includes(needle))) dead.push(`${mu.id}::${needle}`)
+    }
+  }
+  if (domain.file) fs.unlinkSync(domain.file)
+  if (dead.length) {
+    console.log(`[DEAD-PROBE] 标题域 ${domain.titles.length} 条；探针指向不存在的用例：${dead.join(' , ')}`)
+    return 2
+  }
+  console.log(`[DEAD-PROBE] 全部探针可命中（标题域 ${domain.titles.length} 条）`)
+
   for (const mu of targets) {
     const before = originals.get(mu.file)
     const src = before.toString('utf8')
@@ -257,13 +339,15 @@ function main () {
     const unexpected = run.failed.filter((n) => !mu.expect.some((needle) => n.includes(needle)))
     // 零条具名红 + Errors>0 = 套件被未处理错误打断，不能读成"锁没牙"（MISSED），
     // 也不能读成"锁有牙"（CAUGHT）：单列 RUN_UNCLEAN，按驱动不可归因处理。
+    // 严格判据（评审 i3）：CAUGHT 要求**每一条**预期探针都命中。
+    // "≥1 命中即过"会把"只打红一条、其余声明的锁在变异下沉默"读成锁有牙。
     const verdict = run.failed.length === 0
       ? (run.errorCount > 0 ? 'RUN_UNCLEAN' : 'MISSED')
-      : (matched.length === 0 ? 'WRONG_RED' : 'CAUGHT')
+      : (matched.length < mu.expect.length ? 'PARTIAL_RED' : 'CAUGHT')
     rows.push({ id: mu.id, verdict, red: run.failed.length, matched: matched.length, unexpected: unexpected.length })
     console.log(
-      `[${mu.id}] ${verdict} :: ${mu.label} — 红 ${run.failed.length} 条` +
-      (verdict === 'WRONG_RED' ? '（无一命中预期，锁保护面与说明不符）' : '') +
+      `[${mu.id}] ${verdict} :: ${mu.label} — 红 ${run.failed.length} 条（探针命中 ${matched.length}/${mu.expect.length}）` +
+      (verdict === 'PARTIAL_RED' ? `；沉默的声明：${mu.expect.filter((n) => !matched.includes(n)).join(' / ')}` : '') +
       (unexpected.length ? `；非预期红 ${unexpected.length} 条` : ''),
     )
     if (verdict !== 'CAUGHT' && !keepGoing) {
