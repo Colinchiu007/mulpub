@@ -599,6 +599,7 @@ class RpaVmPublisher {
           // draft 透传（此前被丢：小红书只落草稿箱，草稿被当成「未获取作品 ID」）
           ...(result.draft === true ? { draft: true } : {}),
           ...(diagnostics ? { diagnostics } : {}),
+          ...require('./publish-diag-fields').pickDiagFields(result), // 分轨诊断透传 2026-10-21
         }
       }
       // publish-frequency-policy-v2 P0-1：登录态失效族**可确证未送出**（RPA 在发布页导航后
@@ -610,6 +611,7 @@ class RpaVmPublisher {
       // P0-1：RPA 轨也会回传结构化风控信号（如微信/知乎轨的 code），一并搬运，
       // 否则上层只能靠文本关键词猜 —— 猜错的代价是冻结账号。
       attachRiskSignals(rpaErr, result)
+      require('./publish-diag-fields').attachDiagToError(rpaErr, result) // 诊断挂 error 2026-10-21
       throw rpaErr
     } finally {
       signal?.removeEventListener('abort', onAbort)
