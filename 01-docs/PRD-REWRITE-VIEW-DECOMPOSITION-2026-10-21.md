@@ -91,7 +91,7 @@ LEDGER_GREW: apps/desktop/src/views/RewriteView.vue 较登记值 1430 膨胀 201
 | G1 | `RewriteView.vue` 降到 **1000 行以下** | 实测 **977 行**；`filesOver1000` 29 → 28 |
 | G2 | 为后续改写页迭代腾出 **≥ 600 行**余量 | 1630 − 977 = **653 行** |
 | G3 | **用户可见行为零变化** | 既有 `RewriteView.test.js`（含 4+1 条视觉契约）与 3 个专项测试文件全绿；**模板一行未改** ⇒ 渲染结果按定义不变 |
-| G4 | 拆出的每一块都有**独立回归锁** | 3 个新测试文件，共 **27 例**（7 + 12 + 8） |
+| G4 | 拆出的每一块都有**独立回归锁** | 3 个新测试文件，共 **29 例**（7 + 14 + 8） |
 | G5 | 门禁账目真实改善 | `check-max-lines.js` 与 `check-debt-budget.js` 双 rc=0，且聚合 `filesOver1000` 下降 |
 
 ### 2.2 非目标（明确**不做**什么）
@@ -287,7 +287,7 @@ userSettings: {
 ## 六、模块二：`useRewriteStrategy`（策略选择）
 
 **文件**：`apps/desktop/src/composables/useRewriteStrategy.js`
-**单测**：`apps/desktop/src/composables/useRewriteStrategy.test.js`（12 例）
+**单测**：`apps/desktop/src/composables/useRewriteStrategy.test.js`（14 例 = 12 例行为契约 + 2 例 i1 回归锁）
 
 ### 6.1 数据模型
 
@@ -561,7 +561,7 @@ apps/desktop/src/views/RewriteView.vue            （977 行）
 | `views/CopyLibraryView.test.js` | **结构锁**：`RewriteView.vue` 必须能读到 `podcast.activeChannelId.value`、不得有 `\|\| await ensureChannel()` 死分支（N3 的由来） | 未改 |
 | `icon-usage.test.js` | 功能图标位禁 emoji（`RewriteView.vue` 在收敛名单内，模板未改 ⇒ 不受影响） | 未改 |
 
-### 10.2 新增测试（本次，27 例）
+### 10.2 新增测试（本次，29 例）
 
 | 文件 | 例数 | 锁住的契约 |
 |---|---|---|
@@ -611,7 +611,7 @@ apps/desktop/src/views/RewriteView.vue            （977 行）
 1. `RewriteView.vue` 实测行数 **≤ 1000**（实测 977）。
 2. 三个新 composable + 一个新 CSS 文件均 **< 500 行**（实测 67 / 120 / 94 / 320）。
 3. §10.1 的 7 个既有测试文件**全绿**，且 `rewrite-lineage.test.js` / `CopyLibraryView.test.js` 两条结构锁**未被削弱**。
-4. 3 个新测试文件全绿（27 例）。
+4. 3 个新测试文件全绿（29 例）。
 5. `check-max-lines.js` / `check-debt-budget.js` 双 rc=0。
 6. **DOM 逐条比对无差异**：模板未改一行（本次只动 `<script>` 与 `<style>` 的宿主方式）⇒ 渲染结果按定义不变。
 7. 提示文字零变化：本次不新增/不修改任何 i18n key。
