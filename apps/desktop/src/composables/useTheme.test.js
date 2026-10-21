@@ -5,8 +5,6 @@ import { flushPromises, mount } from '@vue/test-utils'
 
 import { useTheme, applyKnownThemeBeforeMount, normalizeThemePreference, THEME_KEY, MIRROR_KEY, THEME_PREFERENCES } from './useTheme'
 
-const THEME_KEY = 'ui:theme'
-
 function deferred() {
   let resolve
   const promise = new Promise((resolvePromise) => {
