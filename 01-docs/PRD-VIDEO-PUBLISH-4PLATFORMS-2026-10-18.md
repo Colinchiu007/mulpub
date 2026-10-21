@@ -1644,3 +1644,70 @@ GET https://creator.douyin.com/aweme/v1/creator/user/info/
 2. **视频号** —— 判定码明确 + 平台账号 ID 已取到；
 3. **今日头条** —— 需先完成实名（人工，无法由我推进）；
 4. **小红书** —— 需先解 406（授权抓真实发布请求做字段级对照）。
+### 16.19 抖音视频发布 E2E：真实失败（`publish timeout`）+ 双轨失败定位（2026-10-21）
+
+> 本节是**真机 E2E 的失败记录**（目标授权的真机测试）。不复述成功，只记可定位的事实。
+
+#### 16.19.1 执行过程
+
+经应用 `publish:batch` 通道发起抖音视频发布（草稿语义，54.4MB 视频，真实文案）。
+两次尝试：
+
+| 次 | 标题 | 结果 |
+| --- | --- | --- |
+| 1 | 「API 视频发布链路自检」 | 用户指出标题不得含"测试"类词 ⇒ **取消**，`submitAttempted:false` |
+| 2 | 「被误解的明朝：西方史料里的另一个大明」 | **`publish timeout`**（约 10 分钟），`submitAttempted:true` 但 `submittedAt:null` |
+
+⚠ 第 1 次取消**有效**：`submitAttempted:false` 证明取消发生在提交前，平台侧未产生发布动作。
+（这正是"取消必须在提交前生效"的实证。）
+
+#### 16.19.2 关键定位：`publish timeout` 来自 **RPA 轨**，不是 API 轨
+
+错误串出处：`apps/desktop/electron/services/rpa-view-platforms.js:1056-1057`
+```js
+log.warn('RpaView', '[douyin] publish timeout url=' + (fu||''))
+return { success:false, error:'publish timeout', platform:'douyin' }
+```
+
+而 `config/platforms.yaml` 的抖音配置是 `has_api: true` + `publishMode: api-then-dom`
+（API 优先，失败才降级 DOM）。
+
+⇒ **推断：API 轨失败 → 降级 DOM 轨 → DOM 轨 60s 拿不到成功信号 → `publish timeout`。**
+
+⚠ 这是**推断而非实测**：任务历史只记终态 `error`，未记录"API 轨是否被调用、其失败原因"。
+   要证实/证伪需在发布链加**分轨埋点**（见 16.19.4）。
+
+#### 16.19.3 这是**重复出现**的失败，不是偶发
+
+发布历史（`historyList`，共 102 条）中的同型失败：
+
+| 时间 | 平台 | 任务 | error |
+| --- | --- | --- | --- |
+| 2026-10-18 04:35 | douyin | task_3_1792295137926 | `publish timeout` |
+| 2026-10-21 03:10 | douyin | task_2_1792550186073 | `publish timeout`（本次） |
+
+另有一条**有价值的成功对照**：
+`2026-10-18 13:40 douyin task_4_1792330730076 → success`，
+其 `result.mode` 为 **`"dom"`** ⇒ 该次是 **DOM 轨成功**。
+
+⇒ 说明：**DOM 轨本身能成功**（10-18 有一次），但 `publish timeout` 反复出现 ⇒ 
+问题更可能是**偶发/状态相关**（如风控、页面未就绪、上传未完成即点发布），而非"DOM 轨必坏"。
+
+#### 16.19.4 下一步（有依据，不改参数盲试）
+
+要区分"API 轨失败"与"DOM 轨偶发超时"，需要**分轨埋点**：
+
+1. 在发布入口记录**实际使用的轨**（api / dom）与切换原因；
+2. API 轨失败时把**服务端返回**（status_code / message）落进历史记录；
+3. DOM 轨把"点击发布后的等待目标 URL"与"已等待时长"落进日志。
+
+三者落地后，一次失败即可定位到具体轨与具体原因，无需再靠终态 error 反推。
+
+#### 16.19.5 顺带确认（视频号）
+
+历史中 2026-10-18 有两条视频号失败样本，error 为：
+```
+视频号 正文未写入，已中止，未点击发布。本次未向平台提交任何内容，也未占用发布间隔。
+```
+⇒ 视频号链的 **fail-closed 语义生效**（未写入即中止、不提交、不占间隔）——
+这是**设计正确**的证据，虽为失败但边界守住了。
