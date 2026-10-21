@@ -64,6 +64,7 @@ const STRICT_PUBLISH_ID_PLATFORMS = new Set(['baijiahao', 'kuaishou', 'toutiao']
 // draftOnly 的**全部判定**在 ./draft-only-confirm（小红书硬证据链 + 其它平台既有行为）；
 // 判据本体/三条红线/不变量见该模块头部注释，本文件只留薄调用点（它自己也是零增长的点名还账文件）。
 const draftOnlyConfirm = require('./draft-only-confirm')
+const { extractDouyinPublishId } = require('./douyin-dom-publish-id')
 // 发布前置门禁（publish-precondition-gate，2026-10-18）：点发布按钮之前断言
 // 「内容真的进去了」。动因是 2026-10-17 批量发布里头条/抖音的真实根因被
 // 「publish btn not found」「publish timeout」这两条下游症状掩盖。
@@ -102,9 +103,8 @@ const platformsMixin = {
         await this._click(win, (context&&context.writeSelector)||'button:has-text("写文章")')
         await this._sleep(2000); break
       case 'switchImageTab': {
-        // 小红书发布页 tabs：上传视频(active) / 上传图文 / 写长文 / 发播客（2026-09-29 实测取证：
-        // publish/publish?from=menu 默认落视频 tab，file input accept 全是视频格式；
-        // .header-tabs 容器加载慢（实测 10s 后才渲染），必须先等它出现再点）。
+        // 小红书发布页 tabs：上传视频(active)/上传图文/写长文/发播客（2026-09-29 实测：
+        // from=menu 默认落视频 tab 且 accept 全是视频格式；.header-tabs 加载慢（实测 10s），须先等它再点）。
         // 点击按文字「图文」匹配（比 children[1] 位置索引抗改版）。
         const tabsReady = await this._waitForElement(win, '.header-tabs, .creator-tab', 20000)
         if (tabsReady) {
@@ -132,9 +132,8 @@ const platformsMixin = {
             const coverReady = await this._waitForElement(win, '.article-cover-add, .article-cover-images-wrap', 12000)
             if (!coverReady) log.warn('RpaView', '[uploadCover] 封面区未在 12s 内出现，仍尝试点击')
             const entry = await win.webContents.executeJavaScript(
-              // 2026-09-30 真机取证：封面「+」的真实元素是 **`.article-cover-add`**
-              // （位于 `.article-cover-images-wrap` 内，图标为 SVG 故无文本；
-              //  此前按 `innerText === "+"` 或点 `.article-cover` 均落空——后者只是 radio group 容器）。
+              // 2026-09-30 真机取证：封面「+」的真实元素是 `.article-cover-add`（位于 `.article-cover-images-wrap` 内，
+              // 图标为 SVG 故无文本；此前按 innerText==="+" 或点 `.article-cover` 均落空——后者只是 radio group 容器）。
               '(function(){var a=document.querySelector(\'.article-cover-add\');if(a){a.click();return \'CLICKED_ADD\'}'
               + 'var c=[...document.querySelectorAll(\'div,span,button\')].filter(function(e){var t=(e.innerText||\'\').trim();var r=e.getBoundingClientRect();return (t===\'+\'||/^上传封面$|^编辑封面$/.test(t))&&r.width>0&&r.height>0});if(c.length){c[0].click();return \'CLICKED_TEXT\'}'
               + 'var cover=document.querySelector(\'.article-cover-images-wrap\')||document.querySelector(\'.article-cover\');if(cover){cover.click();return \'CLICKED_COVER\'}return \'NO_ENTRY\'})()'
@@ -150,9 +149,8 @@ const platformsMixin = {
         }
         if (!handled) {
           try {
-            // 真机取证（2026-09-30）：封面三选一是 byte-design 的 `LABEL.byte-radio`
-            // （内部 input 为隐藏态，且 `input.closest('label')` 取到的是外层 label）。
-            // 故**直接按文本选 label** 点击，再回读 input.checked 确认 React 已接受。
+            // 真机取证（2026-09-30）：封面三选一是 byte-design 的 `LABEL.byte-radio`（内部 input 隐藏态，
+            // 且 input.closest("label") 取到外层 label）；故直接按文本选 label 点击，再回读 input.checked 确认 React 已接受。
             const r = await win.webContents.executeJavaScript(
               '(function(){var ls=[...document.querySelectorAll(\'label.byte-radio\')].filter(function(l){return /无封面/.test(l.innerText||\'\')});if(!ls.length)return \'NO_LABEL\';ls[0].click();var rs=[...document.querySelectorAll(\'input[type=radio]\')];var picked=rs.filter(function(x){return x.checked}).map(function(x){return (x.closest(\'label\')||x.parentElement||{}).innerText}).join(\'|\');return \'CLICKED picked=\'+picked})()'
             )
@@ -1075,18 +1073,21 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
 
     this._emitProgress('douyin','publishing...',90)
     try {
-      // 2026-10-06 补 create_v2：同仓 API 直连链的实证端点
-// （douyin-ticket-guard.js CREATE_V2_PATH = '/web/api/media/aweme/create_v2/'，
-// douyin-image.js:224 用它提交图文）。抖音网页端图文提交走的就是这个带 _v2 的路径，
-// 此前只等 ['aweme/create','aweme/post'] —— 后者属已被 legacy gate 判死的旧远程签名链，
-// 于是图文点完发布按钮后 60s 拿不到任何成功信号，报 publish timeout。
-// 注意：抖音走**专用链** `_publish_douyin`，不经过通用链那段 DOM 成功判定，
-// 所以通用链的成功文案词形修复（视频号）对此无效 —— 两处必须分别治理。
+      // 2026-10-06 补 create_v2：同仓 API 直连链的实证端点（douyin-ticket-guard.js CREATE_V2_PATH，
+      // douyin-image.js:224 用它提交图文）；此前只等 ['aweme/create','aweme/post']，后者已被 legacy gate 判死，
+      // 图文点完发布 60s 拿不到成功信号 ⇒ publish timeout。抖音走专用链 `_publish_douyin`，
+      // 不经过通用链的 DOM 成功判定，故视频号的文案词形修复对此无效，两处须分别治理。
 const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/post'],60000)
       if (article.draft) await this._click(win,'button:has-text("草稿"), [class*="draft"]')
       else await this._click(win,'button:has-text("发布"), [class*="publish"]')
       const resp = await rp
-      if (resp) { this._emitProgress('douyin','API success',100); return { success:true, url:win.webContents.getURL()||'', platform:'douyin' } }
+      if (resp) {
+        this._emitProgress('douyin','API success',100)
+        // dom-track-publish-id（2026-10-21）：此前整个丢掉 resp，"成功"无平台侧证据
+        var publishId = extractDouyinPublishId(resp && resp.body, (resp && resp.url) || '')
+        log[publishId ? 'info' : 'warn']('RpaView', '[douyin] publish id=' + (publishId || '(none)') + ' url=' + ((resp && resp.url) || ''))
+        return { success:true, url:win.webContents.getURL()||'', platform:'douyin', publishId: publishId, publishUrl: (resp && resp.url) || '' }
+      }
       // A2：提交兜底改 URL 轮询（实现下沉 navigation-helpers），最长仍 5s、成功提前返回。
       if (await this._waitForSuccessNavigation(win, 5000)) {
         return { success:true, url:win.webContents.getURL()||'', platform:'douyin' }

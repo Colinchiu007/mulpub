@@ -1,0 +1,61 @@
+{
+  "sha": "3cf429a345c8371b8c3778f6d4792a7893080e06",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 174 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 174,
+    "fileCount": 6,
+    "codeFileCount": 4,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 4,
+    "docSensitiveContentSample": [
+      "> 用户新添加了一个**已认证**的头条号（`45261bb5`）并授权测试。实测结论出人意料。",
+      "  不能用一轨的结论覆盖另一轨。（与 §16.18.2「分区凭据结论不能外推到发布链」同型：",
+      "用户新添加**已认证**头条号 `45261bb5` 并授权测试。实测："
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "dcb28786453397fee3d89e64c6bc4715565f8ced69f4ee24d97af57523963dc9",
+  "decidedAt": "2026-10-21T08:59:07.261Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}
