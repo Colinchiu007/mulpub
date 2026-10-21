@@ -35,3 +35,35 @@ date: <YYYY-MM-DD>
 
 ### 遗留（不假装已闭合）
 -
+
+<!--
+  下面两个小节是 CHANGELOG.md / 01-docs/learnings.md 的**唯一真源**（change: changelog-record-carrier）。
+  ⛔ 不要为了"让变更进台账"去编辑那两个文件 —— 它们是每个 PR 都往第 1 行插块的写面，
+     任意两个在飞 PR 结构上必撞（实测 4/4 个可判定的 CONFLICTING PR，冲突文件只有这两个）。
+     现在这条形状由 scripts/check-no-hot-carrier-edit.js（CI Gate 2b9）按 PR 差量点名。
+  搬运由脚本做：`node scripts/aggregate-changelog.js --write`，幂等键是**本文件名**（= 分支名），
+     不是标题文本（主干上同一标题有多份历史副本，按标题判"已搬"会静默少吃一条）。
+  发版顺序（scripts/release-gate.mjs 会按这个顺序拦你）：
+     ① 先 --write 把这条记录搬进台账 → ② 把顶部 "## [未发布]" 收口成 "## [vX.Y.Z]" → ③ bump → ④ 打 tag。
+  两个小节的形状要求（不合规会被聚合作业出声，但不会静默搬走）：
+     `## CHANGELOG 条目` 正文**首行必须是一条 H1**（一条变更一个标题块；用两个空行分隔多条）；
+     `## learnings` 选填，一旦存在就必须内含 `### lesson: <slug>`，不能用 `## 标题` + 正文那种层级。
+-->
+
+## CHANGELOG 条目
+
+# feat(scope): 一句话说明这次变更（<slug>）
+
+- 用户或维护者能感知到的变化，一条一个 bullet；写"为什么/拦什么"，不写文件清单。
+
+## learnings
+
+### lesson: <一句话教训标题（slug 化，便于台账里检索）>
+
+**现场**：当时发生了什么（含可重取的取证坐标：run id / job id / 命令原文）。
+
+**根因**：为什么会这样，而不是表面症状。
+
+**可复用的 N 条**：
+
+1. 换成别的模块也成立的那句话才是教训。
