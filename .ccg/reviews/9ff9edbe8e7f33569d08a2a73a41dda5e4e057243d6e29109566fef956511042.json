@@ -47,11 +47,44 @@
     }
   },
   "deepReview": {
-    "required": false,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play(agent)",
+    "fallbackReason": "跨家族对抗后端超时，按引擎第三档出口 self_play 自查。本条为头条全链回归复跑（第 3 次）。",
+    "evidenceInRepo": "01-docs/PRD-VIDEO-PUBLISH-4PLATFORMS-2026-10-18.md §16.13（四层读数 + 三次对照表 + 易错点）",
+    "confidenceWeight": 0.8,
+    "adjudication": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "复跑结果是\"仍然 21000、仍然没成功\"—— 这算不算又是一次\"没有进展的记录\"？",
+        "verdict": "upheld_verified",
+        "rationale": "不算。这次复跑的**被测性质是\"无回归\"，不是\"能发布\"** —— 判据应跟着被测性质走： 它要证明的是\"后续 10+ 个合并 PR 没有把这条链改坏\"。读数支持该结论： 三层（封面登记/VOD/提交解析）都正常产出，且三次跨 tip 结果一致。 若哪次封面或 VOD 失败，才是回归 —— 那才是真问题。 \"仍然 21000\"恰恰说明**阻塞点没有漂移**（一直是账号实名，没冒出新的技术阻塞）， 这本身是有价值的信息：实名后即可成功，不存在第二个未知障碍。",
+        "fixCommit": null
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "这次复跑用了会向平台发请求的脚本（PublishVideo）。账号未实名所以它不出 ItemId，但这个方法本身安全吗？",
+        "verdict": "upheld_partial",
+        "rationale": "安全性**依赖账号当前未实名这一状态**，不是流程保证 —— 这点我此前也承认过，本轮再确认一次： 一旦实名，同一脚本就会**真的发布一条视频**。 本轮的处置：执行前先复测了 `identityVerified=false`（确认仍在账号墙内）才跑， 这是**每次执行前的状态检查**，应固化为惯例（已写入 §16.13 的注意项附近）。 ⚠ 更强的保证需要显式的 dry-run 开关（改代码），本轮未做 —— 如实记为敞口。",
+        "fixCommit": null
+      },
+      {
+        "id": "i3",
+        "severity": "Info",
+        "finding": "连续多轮无代码改动。",
+        "verdict": "upheld_verified",
+        "rationale": "承认。当前三条阻塞是用户人工动作（实名、扫码×2），一条需授权（小红书抓包）； 在这些之外，我能做的\"不空转\"的事就是**保持已就绪链路的可验证状态** ——  本轮做的正是这个（确认头条链在最新主干仍可用）。 诚实结论：这个动作做一次是必要的，**重复做的边际价值递减**。 若下一轮账号状态仍无变化，应明确停止并等待，而不是继续产出文档。",
+        "fixCommit": null
+      }
+    ],
+    "summary": {
+      "total": 3,
+      "upheldVerified": 2,
+      "upheldPartial": 1,
+      "note": "被测性质是\"无回归\"而非\"能发布\"，判据与结论匹配（i1）；安全性依赖账号未实名状态而非流程保证，每次执行前做状态检查、dry-run 开关仍敞口（i2）；承认无代码改动且该动作边际价值递减，下轮若无变化应停止等待（i3）。"
+    },
+    "at": "2026-10-21T00:19:04.091Z"
   }
 }
