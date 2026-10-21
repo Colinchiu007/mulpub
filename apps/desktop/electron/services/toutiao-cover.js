@@ -67,7 +67,7 @@ async function ensureCoverFromVideoFrame (ctx, win, opts) {
       + 'var cands=all.filter(function(e){return (e.innerText||"").trim()==="下一步"&&e.getClientRects().length>0});'
       + 'if(!cands.length)return false;'
       + 'var b=cands[cands.length-1];'
-      + 'var dis=(b.disabled===true)||(b.getAttribute("aria-disabled")==="true")||/(^| )disabled( |$)|is-disabled|btn-disabled/.test(String(b.className||""));'
+      + 'var dis=(b.disabled===true)||(b.getAttribute("aria-disabled")==="true")||/(^| )disabled( |$)|is-disabled|btn-disabled|cannot-click/.test(String(b.className||""));'
       + 'if(dis)return false;b.click();return true})()').catch(() => false)
     if (nextClicked) break
     await sleep(500)
@@ -85,7 +85,7 @@ async function ensureCoverFromVideoFrame (ctx, win, opts) {
       + 'var all=[].slice.call(document.querySelectorAll("button,div,span,a"));'
       + 'var c=all.filter(function(e){return (e.innerText||"").trim()===' + JSON.stringify(label) + '&&e.getClientRects().length>0});'
       + 'if(!c.length)return false;var b=c[c.length-1];'
-      + 'var dis=(b.disabled===true)||(b.getAttribute("aria-disabled")==="true")||/(^| )disabled( |$)|is-disabled|btn-disabled/.test(String(b.className||""));'
+      + 'var dis=(b.disabled===true)||(b.getAttribute("aria-disabled")==="true")||/(^| )disabled( |$)|is-disabled|btn-disabled|cannot-click/.test(String(b.className||""));'
       + 'if(dis)return false;b.click();return true})()').catch(() => false)
     if (hit) { await sleep(1200); break }
   }
