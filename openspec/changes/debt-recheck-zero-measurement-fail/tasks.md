@@ -28,11 +28,24 @@
 - [x] 3.6 **拆分落地（本刀计划外、由 max-lines 逼出）**：本体 503 行撞 `limit=500`（该判据按 git 索引取域，`git add` 后才显形）⇒ 按依赖形态切 `lib/debt-recheck-core.js` / `lib/debt-recheck-live.js` / 入口门面，方向 core←live←cli 无循环；零行为改动两条证据：拆前拆后同一条命令全绿 + 四个抽取区间逐字节出现在新文件里（探针 `verbatim=true`）
 - [x] 3.7 **连带修正**：读源码的结构锁扫描域 1→3 份。拆完第一跑「不得出现指标名」那条绿得毫无道理（入口只剩 41 行）⇒ 新增 `toolSources()` 并集扫 + 逐份字节下界 + 总行数下界
 
-## 4. 回归锁（本轮新增 12 条：25 → 37）
+## 4. 回归锁（本轮新增 14 条：25 → 39）
 
-- [x] 4.1 锁 A §21「零测量轮不得报成功」；4.2 锁 B §22「全 conflict 退 0 + `MEASURED=0(all-conflict)`，另含 rows=0 / MEASURED=1 两形态」；4.3 锁 A′ §23「计数不变式接住全 CHECKER_FAILED 与词表外新档」；4.4 锁 C §24「三档名互不相同且都属故障档」；4.5 锁 E §25「派生 + 非法值点名 + 加载处真调用」；4.6 锁 D+F §26「现场进日志与评论 + 两路档位同源」；4.7 锁 G §27 两条「不注入任何 seam 真跑到 IN_BASELINE / 判据桩 exit 1 ⇒ VIOLATES」；4.8 锁 I §28 两条「行为侧含对照格 / 告警侧含不虚报」；4.9 锁 H §29「默认 commitTree 透传 stderr」；4.10 §23b「混合轮：量到一笔 + 一笔失明 ⇒ 非零且不写评论」
-- [x] 4.11 全量 `node --test scripts/check-debt-recheck.test.js`：**tests=37 pass=37 fail=0**（控制跑，驱动当场打印 `# tests/# pass/# fail` 三行）
-- [ ] 4.12 如实记一条 TDD 偏差：§23b、§28、§29 三条是**判据先落、锁后补**（分别由 M-D3 第一轮 MISSED、评审 i5、实现时看见的默认闭包丢 stderr 逼出来）。可证性由对应变异提供（M-D3/M-D9/M-D11/M-D12 指名红），不写成"先见证红"
+- [x] 4.1 锁 A §21「零测量轮不得报成功」：全 `merge-worktree-failed` ⇒ `exitCode≠0`、`shouldComment=false`、`measured=0`、`MEASURED=0(tool-fault:…)`
+- [x] 4.2 锁 B §22「全 conflict 的一轮退 0 但必须留痕」：另含 `MEASURED=0(rows=0)` 与 `MEASURED=1` 两形态，三种零测量互不同形
+- [x] 4.3 锁 A′ §23「计数不变式不依赖名单完备」：词表外新档 + 整轮 `CHECKER_FAILED` 两类都必须非零，并断 `reasonFault(未知)=true`
+- [x] 4.4 锁 C §24「三个失败单位三个档名」：`worktree-setup`(seam) / `merge-commit-failed` / `merge-worktree-failed` 互不相同且都在故障档与词表里
+- [x] 4.5 锁 E §25「归类只一处真源」：词表与故障档都由 `REASON_CLASS` 派生、`other-pr` 只有 `conflict`、非法值被 `assertReasonClass` 点名、真表在加载处过校验
+- [x] 4.6 锁 D §26 前半「现场进逐条日志与评论表格」：档名 + 失败命令首行 stderr 同时出现在两处
+- [x] 4.7 锁 F §26 后半「两条路档位同源」：`mergedTreeEvidence` 与 `evaluatePr` 对同一失败阶段报同一档名（只改一半即红）
+- [x] 4.8 锁 G §27 第一条「生产默认装配真跑」：不注入任何 seam 也必须量到那一笔，且断 live() 真打印 `MEASURED=1`
+- [x] 4.9 锁 G′ §27 第二条「默认装配判决侧」：判据桩 exit 1 ⇒ `VIOLATES`，不得演成 `UNJUDGEABLE`/`CHECKER_FAILED`
+- [x] 4.10 锁 I §28 两条「GIT_DIR 泄漏」：行为侧含对照格（不剔 env 时裸 `git -C A` 必须读到 B），告警侧含"没剔除不得虚报"
+- [x] 4.11 锁 H §29「默认闭包透传 stderr」：只换 git 传输层、seam 用生产默认实现，档名与 stderr 首行必须同时出现在日志里
+- [x] 4.12 锁 J §30 两条「身份不靠环境」：对照格（裸 commit-tree 必须失败，否则点名该锁只是形式）+ argv 结构侧（两处 commit-tree 都挂同一份 `SYNTHETIC_IDENTITY`）
+- [x] 4.13 「混合轮」§23b：一笔量到 + 一笔工具故障 ⇒ 非零且不写评论（由变异 M-D3 第一轮 MISSED 逼出）
+- [x] 4.14 「清理卫生」断言（§27 第一条内）：一轮跑完 `worktree list` 只剩克隆自己那一条注册项、`refs/recheck/*` 为空（外部评审第 2 轮那半截真顾虑）
+- [x] 4.15 全量 `node --test scripts/check-debt-recheck.test.js`：**tests=39 pass=39 fail=0**（rebase 到 origin/main 之后重取；活数，引用必须现跑）
+- [ ] 4.16 如实记一条 TDD 偏差：§23b、§28、§29 三条是**判据先落、锁后补**（分别由 M-D3 第一轮 MISSED、评审 i5、写实现时看见的默认闭包丢 stderr 逼出来）。可证性由对应变异提供（M-D3/M-D11/M-D12/M-D9 指名红），不写成"先见证红"
 
 ## 5. 变异反证
 
