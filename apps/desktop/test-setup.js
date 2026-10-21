@@ -104,6 +104,9 @@ const electronMock = {
       this.setPosition = function () {}
       this.center = function () {}
       this.setTitle = function () {}
+      // 窗口级菜单：主窗口用它把原生菜单栏（File/Edit/View/Window 那一行）置空
+      // （remove-native-menu-bar）。vi.fn 供断言「确实被置空」。
+      this.setMenu = vi.fn(function () {})
       // 记录实例（动态引用 fn._instances，使 __resetElectronMock 重置数组后仍生效）
       fn._instances.push(this)
     })
@@ -186,7 +189,8 @@ const electronMock = {
   },
   Menu: {
     buildFromTemplate: function (t) { return t },
-    setApplicationMenu: function () {},
+    // vi.fn：应用菜单模板的置空动作要能被断言（remove-native-menu-bar）
+    setApplicationMenu: vi.fn(function () {}),
   },
   Tray: function () {
     this.setToolTip = function () {}
@@ -261,6 +265,7 @@ function resetElectronMock() {
   electronMock.app.quit.mockClear()
   electronMock.BrowserWindow.mockClear()
   electronMock.BrowserWindow.getAllWindows.mockClear()
+  electronMock.Menu.setApplicationMenu.mockClear()
   // 不清空 mockRegistry（测试可能跨 beforeEach 复用注册）
 }
 
