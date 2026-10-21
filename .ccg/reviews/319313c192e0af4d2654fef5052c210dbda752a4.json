@@ -1,5 +1,5 @@
 {
-  "sha": "eee1390b1ea7310d5eabc219ba3629ce78b637a5",
+  "sha": "319313c192e0af4d2654fef5052c210dbda752a4",
   "layer": "diff",
   "mode": "skip",
   "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",

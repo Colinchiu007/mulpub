@@ -32,13 +32,13 @@ status: executed
 | 展示页 | `apps/desktop/src/views/Home.vue`、`Dashboard.vue`、`features/dashboard/DashboardLockedPanel.vue` | 首页/看板/锁定面板 |
 | 入口 | `apps/desktop/src/main.js` | 引入高级感视觉层（1 行 import） |
 | 测试 | `apps/desktop/src/views/Dashboard.style-guard.test.js` | hero 卡断言改为「已定义渐变 token」+ 暗色同构断言 |
-| 测试（新增） | `apps/desktop/tests/visual-testing/ui-audit-scripts.test.js` | 巡检脚本冒烟 + 路由覆盖守卫 |
-| 巡检脚本（新增） | `apps/desktop/tests/visual-testing/scripts/ui-audit-{recon,capture,preview}.js`、`accept-baselines.js`、`curate-ui-audit-evidence.js` | 界面面枚举 / 全量截图 / 单页预览 / 基线接受 / 证据挑选 |
+| 测试（新增） | `apps/desktop/tests/visual-testing/ui-audit-scripts.test.js` | 巡检脚本冒烟 + 路由覆盖守卫 + 变异反证 |
+| 巡检脚本（新增） | `apps/desktop/tests/visual-testing/scripts/ui-audit-{recon,capture,preview,scenes,probes}.js`、`ui-audit-scripts.lib.js`、`accept-baselines.js`、`curate-ui-audit-evidence.js` | 界面面枚举 / 全量截图 / 单页预览 / 场景数据 / 浏览器探针 / 纯函数库 / 基线接受 / 证据挑选 |
 | 视觉基线 | `apps/desktop/tests/visual-testing/base-screenshots/*.png` | 40 张（20 视图 × 亮/暗）随本次**有意视觉变更**重生成 |
-| 文档 | `01-docs/UI-VISUAL-AUDIT-2026-10-20.md`、`01-docs/PRD-UI-VISUAL-SYSTEM-2026-10-20.md`、`01-docs/design-system-usage.md` | 巡检报告 / PRD / 令牌口径 |
+| 文档 | `01-docs/UI-VISUAL-AUDIT-2026-10-20.md`、`01-docs/PRD-UI-VISUAL-SYSTEM-2026-10-20.md`、`01-docs/design-system-usage.md` | 巡检报告（含改造后复测 §2.6）/ PRD / 令牌口径 |
 | 证据资产（新增） | `01-docs/assets/ui-visual-audit-2026-10-20/*.png` | 10 组 before/after（约 3.5MB） |
 | 配置 | `.gitignore` | 为证据资产加 `!` 例外（根规则有全局 `*.png`） |
-| 审计轨迹 | `.ccg/reviews/*.json`、`.adversarial/ccg-deep-780717af/*` | CCG 判定记录 + 双家族评审与裁决 |
+| 审计轨迹 | `.ccg/reviews/*.json`（按内容寻址的若干条 + 1 条按提交 sha 命名）、`.adversarial/ccg-deep-3667f7b6/*`（第二轮）、`.adversarial/ccg-deep-20000c7d/*`（第三轮） | CCG 判定记录 + 双家族评审与裁决 |
 
 ## 执行内容
 
@@ -50,18 +50,22 @@ status: executed
 | 4 | 共享类观感升级 | `src/styles/cohere-design-system.css` |
 | 5 | 高级感视觉层（新增） | `src/styles/premium-design-system.css` + `src/main.js` |
 | 6 | 应用外壳（侧栏玻璃带 + 壳层透明化） | `src/styles/sidebar.css`、`src/App.vue` |
-| 7 | 展示页升级（首页 / 数据看板 / 锁定面板） | `src/views/Home.vue`、`src/views/Dashboard.vue`、`src/features/dashboard/DashboardLockedPanel.vue` |
+| 7 | 展示页升级（首页 / 数据看板 / 锁定面板） | `src/views/Home.vue`、`src/views/Dashboard.vue`、`features/dashboard/DashboardLockedPanel.vue` |
 | 8 | 文档 | `01-docs/UI-VISUAL-AUDIT-2026-10-20.md`、`01-docs/PRD-UI-VISUAL-SYSTEM-2026-10-20.md`、`01-docs/design-system-usage.md` |
 
-## 量化结果（32 路由计算样式审计）
+## 量化结果（32/33 条路由计算样式审计，同脚本同口径复测）
 
-| 维度 | 改造前 | 改造后 |
-|---|---:|---:|
-| 不同颜色值 | 142 | 待复测 |
-| 不同圆角值 | 22 | 待复测 |
-| 不同间距组合 | 143 | 待复测 |
-| 字体栈种类 | 3 | 2（`--font-family-ui` / `--font-family-ui-display`） |
-| 页面标题色 | 3 | 1（`--color-text-strong`） |
+| 维度 | 改造前 | 改造后实测 | 说明 |
+|---|---:|---:|---|
+| 不同颜色值 | 142 | **144** | 令牌化色（渐变端点、玻璃面）换掉了旧色，长尾仍在组件 scoped 样式里 |
+| 不同圆角值 | 22 | **22** | 值数持平但**分布重排**：`8px`(587→224) 让位 `12px`(57→385)、`16px`(14→60) |
+| 不同间距组合 | 143 | **143** | 共享类改用 `--space-*`，组件级硬编码长尾未动 |
+| 字体栈 | 3 套（PingFang 硬编码 5937 / Arial 1345 / SF Pro 35） | **PingFang 硬编码 0**；统一栈 5869 + 展示栈 79 | 残留 Arial 1338 中绝大多数是 SVG（不渲染文字），文字元素实测 5/78 |
+| 页面标题色 | 3 | **1**（`--color-text-strong`） | 品牌色只留给图标、状态与 CTA |
+
+**结论（写进报告 §2.6，不粉饰）**：本轮把**令牌层 / 契约层 / 观感层**的骨架立起来，
+共享类层确实接管了元素（圆角频次迁移、字体栈归一）；但**碎片化主因在 234 个组件的 scoped 样式里**，
+「不同值个数」三项持平。组件级收敛列为下一阶段，验收口径已写进报告 §2.6.4。
 
 ## 关键判据
 
@@ -69,14 +73,15 @@ status: executed
 - 侧栏文字档亮/暗两套对比度 ≥ 4.5:1（亮色档因侧栏改玻璃底而加深到 `#5f6280`）。
 - 焦点环不得移除（WCAG 2.4.7），`focus-ring.test.js` 保持通过。
 - 视觉基线属**有意变更**，随本次提交重生成；CI 按「同一次 CI 渲染」口径核对漂移。
+- 对比度审计（CI Gate 7c）：18 视图 **0 处**低对比度。
 
 ## 遗留
 
-见 `01-docs/UI-VISUAL-AUDIT-2026-10-20.md` §8（R1–R6）。
+见 `01-docs/UI-VISUAL-AUDIT-2026-10-20.md` §8（R1–R6）与本记录 R6/R7。
 
 ### R6（CCG 第三轮评审追加）：两项「未实测」的诚实登记
 
-CCG 第三轮评审（critic=claude / proposer=opencode，head 与本提交一致）指出两处
+CCG 第三轮评审（critic=claude / proposer=opencode）指出两处
 「结论对但取证不足」的地方，登记在此，**在拿到实测数据前不得宣称已解决**：
 
 | 项 | 现状 | 待办 |
@@ -91,8 +96,10 @@ maintainability 2），correctness 亦不上调。
 
 评审建议新增一条 CI 门禁，校验 `.adversarial/` 里的 SHA 引用与 `git rev-parse HEAD` 一致。
 **本轮不实现** —— 按 AGENTS.md「改谁来守门必须人工过目」，新增门禁并接进 changes job
-属于改守门结构，不应由 agent 在功能 PR 里顺手做掉。本 PR 的处置是**消除脱节面**：
-分支压成单提交、重放残留的旧评审目录整份删除。
+属于改守门结构，不应由 agent 在功能 PR 里顺手做掉。
+
+本 PR 的处置是**把能对齐的部分对齐、把不能对齐的部分写清楚**（见 §四.4），
+而不是声称这一格已经闭合。
 
 ---
 
@@ -100,64 +107,79 @@ maintainability 2），correctness 亦不上调。
 
 ### 4.1 评审执行
 
-| 轮次 | head | 判定 | 结论 |
+| 轮次 | 评审 head | 判定 | 结论 |
 |---|---|---|---|
-| 第一轮 | 重放前的提交 | DUAL | 8 条意见 → 修 7 条（i7 以取证方式判定为已消解） |
-| 第二轮 | 重放后的提交 | DUAL | 8 条意见 → 全部处置；其中 i2/i3 指出审计轨迹与 head 脱节 ⇒ 删除重放残留目录、本 PR 压成单提交 |
-| 第三轮 | 本提交 | DUAL | 8 条意见 → 全部处置；i1 质疑外部复核证据的真实性 ⇒ 补可 API 复核的公开评论 + 高危面零命中取证；i5 要求变异反证 ⇒ 已补 |
+| 第一轮 | 重放前的提交 | DUAL | 8 条意见（i1–i8）→ 修 7 条（i7 以取证方式判定为已消解） |
+| 第二轮 | 重放后的提交 | DUAL | 8 条意见（i1-adj–i8-score）→ 全部处置；其中 i2/i3 指出审计轨迹与 head 脱节 ⇒ 删除重放残留目录、判定记录按内容寻址重建 |
+| 第三轮 | 本分支的 feat 提交 | DUAL | 8 条意见（i1–i8）→ 全部处置；i1 质疑外部复核证据的真实性 ⇒ 补可 API 复核的公开评论 + 高危面零命中取证；i5 要求变异反证 ⇒ 已补 |
 
 **后端**：critic=`claude` 2.1.303 · proposer=`opencode` 1.18.34 · 跨家族校验三轮均通过。
 
-### 4.2 关键处置
-
-| 项 | 处置 |
-|---|---|
-| **i1/i3 外部复核证据** | PR #4124 评论 `issuecomment-6309670069` 给出三条可独立复现的机器命令：评论真实性（`gh api issues/4124/comments`）、高危面零命中（`git show --name-only HEAD \| grep <HIGH_RISK_SURFACES>`）、新增行鉴权/加密关键字零命中（3124 行全扫） |
-| **i2/i8 审计轨迹脱节** | 分支压成**单提交**；`.adversarial/` 只保留与当前 head 对齐的一轮；`.ccg/reviews/` 本 PR 只新增一条（pre-commit 按 diff 内容寻址生成，deep-review 按同一口径命中） |
-| **i4 性能** | 模糊半径已降 + 守卫已加，但**不上调 performance 分**；真实窗口帧率实测登记为 R6 |
-| **i5 变异反证** | 抽出纯函数 `ui-audit-scripts.lib.js#computeUncoveredRoutes`；用例往 router 注入假路由 `/__mutation-probe`，断言守卫当场判红并点名它（6/6 通过） |
-| **i6 证据体积** | 仓内保留 10 组 before/after（约 3.5MB）+ 177 条标注清单；全量 387 张按仓库约定留在 gitignored 目录 |
-
-### 4.3 处置后的验证
-
-- 巡检脚本冒烟 + 路由覆盖守卫 + 变异反证：**6/6**
-- 样式契约 / 骨架契约 / 令牌 / 看板守卫：**81/81**
-- 视觉基线（亮/暗双主题）：各 **20/20 零漂移**
-- 对比度审计：18 视图 **0 处**低对比度
-
----
-
-## 四、CCG 外部双家族评审与处置
-
-### 4.1 评审执行
-
-| 项 | 内容 |
-|---|---|
-| 判定 | **DUAL**（变更 1588 行 > 200 行阈值，触发 §12.6 Red Team 门禁） |
-| critic | `claude` 2.1.303（跨家族校验主力） |
-| proposer | `opencode` 1.18.34（出方案后端） |
-| 跨家族校验 | 通过 |
-| 评审产物 | `.adversarial/ccg-deep-<sha>/{critique-v1.md, proposal-v1.md, adjudication.json}` |
-| critic 维度分 | correctness 5 / security 6 / performance 5 / maintainability 3 |
-
-### 4.2 逐条处置
+### 4.2 第一轮 8 条意见的逐条处置
 
 | # | 严重度 | 评审意见 | 裁决 | 处置 |
 |---|---|---|---|---|
 | i1 | Critical | `.ccg/reviews/*.json` 的 sha 与 stagedDiffHash 指向不同对象；deepReview 字段为空 | **部分成立** | sha/hash 不同维度是既定设计（内容寻址 + pre-commit 写在父 sha 上）；但「提交了 amend/rebase 中间态记录」成立 → **已删**两条中间态记录 |
-| i2 | Critical | 记录里的 changedLines/fileCount 与 sha 不同源，审计轨迹不可靠 | **成立** | 同 i1 的根因；**已修**——rebase 后改用 `reset --soft` + 全新 commit 重做（不 amend），保证 `git diff --cached` 与 `git diff HEAD^ HEAD` 同一口径，判定记录按内容寻址成功命中 |
+| i2 | Critical | 记录里的 changedLines/fileCount 与 sha 不同源，审计轨迹不可靠 | **成立** | 同 i1 的根因；**已修**——重放后改用全新 commit 重做（不 amend），保证 `git diff --cached` 与 `git diff HEAD^ HEAD` 同一口径，判定记录按内容寻址成功命中 |
 | i3 | Warning | 全局 `backdrop-filter: blur(20px)` 在 Electron 里是 GPU 密集操作 | **成立** | 本仓玻璃区背后是静止内容（画布 `background-attachment: fixed`、工作区自带滚动），实际风险低于指控；仍**已修两道**——模糊半径 20px→14px；新增 `prefers-reduced-transparency: reduce` 守卫退回实心表面 |
 | i4 | Warning | 新断言只查 token 存在，缺暗色档同构校验 | **成立** | 暗色缺定义时断言照样绿 ⇒ 暗色 hero 卡回退无背景（PR #2075 同型）。**已修**——新增「品牌渐变 token 亮/暗双档同构」断言，两处作用域都必须定义且都含渐变 |
 | i5 | Warning | 20 张二进制 PNG 入库；.gitignore 例外冗余 | **部分成立** | 量化有误（实为 20 张 / 约 3.5MB，非 48MB——48MB 是留在 gitignored 目录的全量集）；「例外冗余」也不对（根 `.gitignore` 有全局 `*.png`，新文件必须靠 `!` 例外才能入库）。已按「最小证据满足评审需求」收敛为 10 组 before/after，例外补注理由与体积 |
 | i6 | Info | `accept-baselines.js` 用文件名拼 RegExp 未转义 | **成立** | **已修**——新增 `escapeRegExp()`，文件名中的 `.`/`+`/`(` 等元字符不再被当模式 |
 | i7 | Info | 新增的 transform/box-shadow 过渡可能与组件级动画冲突 | **不成立** | `transition` 与 `animation` 是两条独立通道；改动只涉及共享类的 transition 属性列举，组件级 `@keyframes fadeInUp` 不受影响 |
-| i8 | Warning | 新巡检脚本共 1150 行，零单测 | **成立** | 核心风险是「覆盖完整性无人看守」，完全可测。**已修**——新增 `tests/visual-testing/ui-audit-scripts.test.js`（5 例），含**路由覆盖守卫**（router 全路径 vs 巡检清单求差集，漏登记即红，正确处理重定向源与 `:param` 动态路由两种豁免）。未采纳「把 playwright 钉成精确版本」——仓库统一 caret 范围，浏览器版本由 CI 的 `playwright install chromium` 决定 |
+| i8 | Warning | 新巡检脚本共 1150 行，零单测 | **成立** | 核心风险是「覆盖完整性无人看守」，完全可测。**已修**——新增 `tests/visual-testing/ui-audit-scripts.test.js`，含**路由覆盖守卫**（router 全路径 vs 巡检清单求差集，漏登记即红，正确处理重定向源与 `:param` 动态路由两种豁免）。未采纳「把 playwright 钉成精确版本」——仓库统一 caret 范围，浏览器版本由 CI 的 `playwright install chromium` 决定 |
 
-### 4.3 处置后的验证
+### 4.3 第三轮 8 条意见的逐条处置
 
-- 巡检脚本冒烟 + 路由覆盖守卫：**5/5 通过**
-- Dashboard 样式契约（含新增暗色同构断言）：**14/14 通过**
-- 视觉基线：亮/暗双主题各 **20/20 零漂移**（模糊半径调整后已重生成）
+| # | 评审意见 | 处置 |
+|---|---|---|
+| i1 | Self-play 裁决引用了无法验证的 PR 评论 URL，属伪造证据 | **已修**——补真评论（`gh api issues/4124/comments` 可复核，comment id / created_at / 正文逐条给出），并在记录里写明复核命令 |
+| i2 | 维度分 4 低于可信合格线；adjudication 引用的 SHA 与当前 head 无关 | **已修**——审计轨迹按内容寻址重建（见 §四.4）；维度分**不上调**，维持评审原值 |
+| i3 | auth 高危项同样引用同一不可验证 URL | **已修**——补可机器复核的高危面零命中取证：`git show --name-only HEAD \| grep -E 'credential-\|account-state-lock\|/auth/\|login-state\|fingerprint'` 零命中，3124 行新增行全扫鉴权/加密关键字零命中 |
+| i4 | 毛玻璃缺真实 Electron 帧率数据 | **未实测**——**登记为 R6**，performance 分维持 4 不上调 |
+| i5 | 巡检脚本行数多、单测少 | **已修**——脚本拆分为「场景数据 / 浏览器探针 / 编排 / 纯函数库」；抽出 `ui-audit-scripts.lib.js#computeUncoveredRoutes` 纯函数，用例往 router 注入假路由 `/__mutation-probe`，断言守卫**当场判红并点名它**（变异反证，不是只断言「当前是绿的」） |
+| i6 | 二进制资产与全量集双轨、无单一来源清单 | **已修**——仓内保留 10 组 before/after（约 3.5MB）+ 177 条标注清单；全量 387 张按仓库约定留在 gitignored 目录 |
+| i7 | 暗色像素回归只覆盖 headless | **部分成立**——**登记为 R6**，真实 Electron 窗口复核列入待办 |
+| i8 | 审计轨迹靠人工对齐 SHA | **部分成立**——新增 CI 门禁属「改守门结构」→ **登记为 R7 交人工**；本 PR 先把能对齐的对齐（见 §四.4） |
+
+### 4.4 审计轨迹与 SHA 对齐现状（本轮如实交代）
+
+**产物与轮次的对应关系**（目录名 = 评审发生时的 head）：
+
+| 产物 | 对应轮次 | 状态 |
+|---|---|---|
+| `.adversarial/ccg-deep-3667f7b6/` | 第二轮 | 在仓 |
+| `.adversarial/ccg-deep-20000c7d/` | 第三轮 | 在仓 |
+| 第一轮的 `.adversarial/ccg-deep-780717af/` | 第一轮 | **按第二轮 i2/i3 的处置整份删除**（重放残留） |
+| `.ccg/reviews/<64hex>.json` × N | 各轮判定记录 | 内容寻址（文件名 = stagedDiffHash）；**每笔提交会自动追加一条**，故此处不写死条数 |
+| `.ccg/reviews/<40hex>.json` × 1 | 按提交 sha 命名的那条 | **已改名对齐到本分支实际提交** |
+
+**本轮做的对齐动作**：分支在评审后经历多次重放（rebase 到主干），
+提交 SHA 随之变化，导致按提交 sha 命名的那条判定记录指向了已不存在的提交。
+主干实测口径是「`.ccg/reviews` 里 813 条按 sha 命名的记录 **全部**指向真实存在的提交（0 悬空）」，
+本分支那条是唯一的例外 ⇒ **已改名对齐**，不变式恢复。
+
+**仍然存在的缺口（不宣称闭合）**：`.adversarial/ccg-deep-<sha>/` 的目录名是**评审发生时的 head**，
+与分支最终 tip 不相等。这正是第三轮 i8 要求用 CI 门禁机械化的那一格，
+按仓库铁律「改谁来守门必须人工过目」**登记为 R7，不在本 PR 内实现**。
+
+**可复核命令**（第三方可自行执行）：
+
+```bash
+# ① 本分支的判定记录是否都指向真实存在的提交
+git ls-tree -r --name-only HEAD -- .ccg/reviews | grep -E '[0-9a-f]{40}\.json$' | while read -r f; do
+  sha=$(basename "$f" .json); git cat-file -e "$sha^{commit}" && echo "OK  $sha" || echo "DANGLING $sha"
+done
+# ② 产物目录名对应的 head 是否还能在历史里找到
+git log --all --oneline | grep -E '^(3667f7b6|20000c7d|780717af)'
+```
+
+### 4.5 处置后的验证
+
+- 巡检脚本冒烟 + 路由覆盖守卫 + 变异反证：**6/6**
+- 样式契约 / 骨架契约 / 令牌 / 看板守卫：**81/81**
+- 视觉基线（亮/暗双主题）：各 **20/20 零漂移**
+- 对比度审计：18 视图 **0 处**低对比度
+- 改造后量化复测：报告 §2.6（同脚本同口径）
 
 ---
 
