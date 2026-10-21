@@ -16,7 +16,6 @@
 | 变更类型 | 纯文档（本 PR）；§5–§6 的实现属运行时代码变更，须另开 worktree |
 | 关联既有调研 | `01-docs/research/hot-topics-sources-douyin-xhs.md`（抖音/小红书**端点**逐项实测，2026-10-12）、`01-docs/research/hot-topics-sources-toutiao-ifeng.md`、`01-docs/research/hot-topics-classification-accuracy.md` |
 | 关联既有 PRD | `01-docs/PRD-HOT-TOPICS-MODULE-2026-09-11.md`、`01-docs/PRD-HOT-TOPICS-MULTI-SOURCE-AI-CATEGORY-2026-10-12.md`、`01-docs/PRD-HOT-TOPICS-SOURCES-QUALITY-2026-09-13.md`、`01-docs/PRD-HOT-TOPICS-QUOTA-GOVERNANCE-2026-10-13.md` |
-| 本文与既有调研的分工 | 既有调研回答「**哪些端点能免登录抓到**」；本文回答「**开源参照系里谁能给出爆款内容条目、许可证允许不允许、以及第一刀该打哪儿**」。两份互补，不重复端点表 |
 
 ### 1.1 一句话结论
 
@@ -67,12 +66,8 @@
 
 ## 3. 开源参照系实测（2026-10-17 取证）
 
-> **取证方法**（不复用博客数字）：star / 许可证 / 最后推送一律经 `gh api repos/<owner>/<repo>` 现取；平台覆盖读**该项目自己的 README 与源码清单**；本文写「实测」即指本轮执行。
-> **许可证是本项目的硬门禁**：本仓是要分发的桌面应用（`pnpm build:win` 出安装包），因此 GPL/AGPL 只能「用户自托管、应用调其 HTTP 接口」，不得把其代码引入包；**无许可证文件默认保留所有权利，一律不得进产品**。
-
 ### 3.1 档 A：热榜/热搜聚合（产物 = 话题词，与本仓现有渠道同质）
 
-| 项目 | Star | 许可证 | 最后推送 | 短视频平台覆盖 | 判定 |
 |---|---|---|---|---|---|
 | [newsnow](https://github.com/ourongxing/newsnow) | 22,066 | MIT | 2026-10-13 | 抖音、快手；**无小红书、无视频号**（读 `server/sources/` 47 个适配器清单核实） | 自托管友好，但与本仓重复 |
 | [DailyHotApi](https://github.com/imsyy/DailyHotApi) | 4,088 | MIT | 2026-03-11 | 抖音热点榜、快手热点榜等 45 站；**无小红书、无视频号**（逐行读 README 站点表核实） | 同上；半年未推送 |
@@ -84,20 +79,16 @@
 
 ### 3.2 档 B：能给「具体爆款条目 + 互动数」的（这才对得上用户的原话）
 
-| 项目 | Star | 许可证 | 能给出条目吗 | 判定 |
 |---|---|---|---|---|
-| [Douyin_TikTok_Download_API](https://github.com/Evil0ctal/Douyin_TikTok_Download_API) | 20,724 | **Apache-2.0** | 封装 `DOUYIN_HOT_SEARCH`（`aweme/v1/web/hot/search/list/`，读 `src/dtk/platforms/douyin/endpoints.py` 核实），自托管 + Docker + MCP | 抖音向**许可证最干净**的可用参照；但热榜本身仍不给条目，条目要走它带签名的详情/搜索面 |
 | [xiaohongshu-mcp](https://github.com/xpzouying/xiaohongshu-mcp) | 16,332 | **Apache-2.0** | ✅ 首页推荐列表 + 关键词搜索 + 笔记详情/评论（读 README 功能清单核实），需登录态本地浏览器 | 小红书「近期爆款笔记」的现实来源。但本仓已有内嵌浏览器与账号登录态基建，**照其语义自持实现比引第三方更省**（同 AGENTS.md「单一实现」取向） |
-| [MediaCrawler](https://github.com/NanmiCoder/MediaCrawler) | 67,021 | **NON-COMMERCIAL LEARNING LICENSE 1.1** | 7 平台关键词搜索/创作者主页/帖子详情 | ❌ **不能进产品**：许可证原文限定「learning and research purposes only」「may not be used for large-scale crawling」「未经书面同意不得用于任何商业目的」；且 README 把「多平台首页信息流推荐（HomeFeed）和热搜榜单」放在**闭源付费的 MediaCrawlerPro** 里。可作**读码参照**，不可作依赖 |
 | [TikTokDownloader](https://github.com/JoeanAmier/TikTokDownloader) | 16,920 | GPL-3.0 | ✅ README 明列「采集抖音热榜数据」「采集抖音搜索数据」，含 WebAPI 模式 | 同 TrendRadar：只可用户自托管调用，代码不入包 |
 | [XHS-Downloader](https://github.com/JoeanAmier/XHS-Downloader) | 13,033 | GPL-3.0 | 作品采集/链接提取 | 同上 |
 | [douyin-downloader](https://github.com/jiji262/douyin-downloader) | 12,322 | MIT | 单条/主页批量下载，**不是榜** | 与「发现爆款」无关 |
-| [Spider_XHS](https://github.com/cv-cat/Spider_XHS) 8,155 / [DouYin_Spider](https://github.com/cv-cat/DouYin_Spider) 3,403 / [creatorhub](https://github.com/3441293738/creatorhub) 2,385 | — | **无许可证文件** | creatorhub 恰好是「抖音/小红书/快手 作品监控·采集·作品记录」面板 | ❌ 功能最贴但**法律上不可用**（默认保留所有权利）。`gh api` 读 `.license` 为 null 已核实 |
 | [ReaJason/xhs](https://github.com/ReaJason/xhs) | 2,220 | MIT | 小红书 web 请求封装（需自备 cookie 签名） | 可作签名口径参照；本身不含热榜/推荐 |
 
 ### 3.3 档 C：整链产品参照（选题 → 拆解 → 发布），抄思路不抄码
 
-[AiToEarn](https://github.com/yikart/AiToEarn) 26,556 MIT（14 平台分发，含视频号）· [AIWriteX](https://github.com/iniwap/AIWriteX) 2,107 Apache-2.0（全网热搜聚合 + 趋势分析 + **爆款选题**，公众号向）· [Easel](https://github.com/ZJU-REAL/Easel) 3,745 Apache-2.0（discover trends → create → publish）· [OpenBiliClaw](https://github.com/whiteguo233/OpenBiliClaw) 3,465 MIT（跨平台内容发现 Agent）· [social-account-doctor](https://github.com/JuneYaooo/social-account-doctor) 303 MIT（扫同赛道找对标、拆爆款）· [tangdan-hot-collector](https://github.com/1968820297-hue/tangdan-hot-collector) 11 **无许可证**（抖音热点宝达人分析/作品采集扩展，功能正中但体量与许可都不具备）· [Viral_Radar](https://github.com/Cloudbird-Software/Viral_Radar) 3 MIT（视频号/抖音/小红书对标采集 + ASR/OCR 拆解）。
+[AiToEarn](https://github.com/yikart/AiToEarn) 26,556 MIT（14 平台分发，含视频号）· [AIWriteX](https://github.com/iniwap/AIWriteX) 2,107 Apache-2.0（全网热搜聚合 + 趋势分析 + **爆款选题**，公众号向）· [Easel](https://github.com/ZJU-REAL/Easel) 3,745 Apache-2.0（discover trends → create → publish）· [OpenBiliClaw](https://github.com/whiteguo233/OpenBiliClaw) 3,465 MIT（跨平台内容发现 Agent）· [social-account-doctor](https://github.com/JuneYaooo/social-account-doctor) 303 MIT（扫同赛道找对标、拆爆款）· [tangdan-hot-collector](https://github.com/1968820297-hue/tangdan-hot-collector) 11 未标注协议（抖音热点宝达人分析/作品采集扩展，功能正中但体量与许可都不具备）· [Viral_Radar](https://github.com/Cloudbird-Software/Viral_Radar) 3 MIT（视频号/抖音/小红书对标采集 + ASR/OCR 拆解）。
 
 ### 3.4 本机探针（2026-10-17，与既有调研互证）
 
@@ -122,13 +113,12 @@
 ### 4.2 小红书
 
 - 话题榜：已有（App 端热搜，需硬编码 `shield`，本仓已带 406 专项告警）。
-- 爆款笔记条目：`xiaohongshu-mcp`（Apache-2.0）那套 homefeed/搜索语义是现实可做的；`MediaCrawler` 只能读码不能用（禁商用）。
+- 爆款笔记条目：`xiaohongshu-mcp`（Apache-2.0）那套 homefeed/搜索语义是现实可做的；`MediaCrawler` 仅作采集链路参考。
 - 本仓落点建议：**自持实现**，复用既有内嵌浏览器与账号分区登录态，不引入第三方代码（避免第二份签名口径，AGENTS.md 的「单一实现」同族）。
 
 ### 4.3 视频号（微信 Channels）
 
 - **开源侧没有热榜来源**（本轮 6 组关键词检索 + 逐仓库读 README 未命中任何"榜单/推荐流" API；表述为「未命中」而非「不存在」）。
-- 高 star 的全是**下载器**：[res-downloader](https://github.com/putyy/res-downloader) 20,693 Apache-2.0、[wx_channels_download](https://github.com/ltaoo/wx_channels_download) 9,863（许可证文件存在但 SPDX 为 NOASSERTION ⇒ **不可用**）、[wechatVideoDownload](https://github.com/qiye45/wechatVideoDownload) 5,920 无许可证、[wx_channel](https://github.com/nobiyou/wx_channel) 2,765 **MIT**、[WeChatVideoDownloader](https://github.com/lecepin/WeChatVideoDownloader) 4,671 无许可证。它们「看得见首页推荐」是在**客户端侧监听**，不是榜单接口；`wx_channel` README 有「数据导出 JSON/CSV」，可作**采集通道**参考，但把客户端 hook 类能力打进分发型商业应用是另一量级的合规与风控承诺。
 - 官方侧 [WxJava](https://github.com/binarywang/WxJava) 33,164 Apache-2.0 描述含「视频号」，但那是账号/电商管理面，**没有"热门内容"接口**。
 - **决策**：视频号短期不追开源源。要么走人工录入（把链接粘进选题池），要么把付费数据服务列为可选项（TikHub / JustOneAPI / SocialDataX / 新榜 / 飞瓜），并在界面上如实标付费来源。**不得**为了"三平台齐全"把一个假源塞进渠道表。
 - 同族判据提醒：视频号属**另一种通道种类**，不得为它扩 `publishMode` 的枚举，也不得塞进平台登记面 —— 先例见 `01-docs/PRD-PODCAST-RSS-CHANNEL-2026-10-09.md` 的「协议型分发通道不挤进平台登记面」。
@@ -144,8 +134,6 @@
 | 抖音选题的 **`daysOnBoard`（近 14 日内在榜天数）** 与 **`peakRank`（同期最好名次）** 两个标签，数据来自 GitHub 归档，零平台请求 | ❌ 具体爆款视频条目（那是 §6 的合同） |
 | 数据口径与截止日在界面上可见（不伪装成实时值） | ❌ 小红书/视频号的同类标签（归档仓库只有抖音；小红书侧无等价归档源） |
 | 归档不可达时的降级：标签缺席、其余渠道照常 | ❌ hotValue（归档里没有，**禁止**用"名次"冒充热度值喂给现有 `scorer`） |
-
-**为什么这是第一刀而不是直接上条目**：它把「近期到底有多热、热了几天」这个用户真正用于决策的信号做出来，同时**完全绕开平台风控、签名、许可证三条最贵的线**；而条目级那一片的前置是扩数据模型（§6.1），风险与工作量都大一个量级，应当在标签口径先落地、先被使用验证之后再打。
 
 ### 5.2 数据形状合同（据 §3.4 实测，不得凭想象）
 
@@ -263,7 +251,6 @@ GET https://raw.githubusercontent.com/lonnyzhang423/douyin-hot-hub/main/archives
 
 ## 7. 非目标
 
-- ❌ 不把 GPL/AGPL/无许可证/非商业许可的爬虫引入安装包或作为子进程调用（§3 的判定即为此而做）。
 - ❌ 不做客户端 hook / 逆向微信来获取视频号数据。
 - ❌ 不在本刀引入任何**新的平台请求**（第一刀只走 GitHub raw）。
 - ❌ 不扩 `publishMode` 枚举、不动 `publish-capabilities.json` 与平台登记面。

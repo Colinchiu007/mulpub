@@ -195,7 +195,7 @@
 |---|---|---|
 | **Vue Flow** | MIT | ✅ 直接 npm 安装作底座 |
 | **yunji-canvas** | MIT | ⚠️ 参考实现，vendored 前先审码 + 核实 LICENSE |
-| huobao-canvas | CC BY-NC-SA 4.0（禁商用） | ❌ 仅抄交互设计（连线注入/Prompt Dock/@提及），不复制码 |
+| huobao-canvas | CC BY-NC-SA 4.0 | ❌ 仅取交互设计（连线注入/Prompt Dock/@提及） |
 | open-ai-canvas（影策） | AGPL-3.0（传染） | ❌ 仅设计参考，不复制码 |
 | ComfyUI | GPL/Apache（Python 扩散引擎） | ❌ 架构不符，仅借鉴 workflow JSON schema 思路 |
 

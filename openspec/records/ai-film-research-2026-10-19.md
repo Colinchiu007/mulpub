@@ -47,7 +47,7 @@ date: 2026-10-19
 
 ### v2 增补：3 个新项目（2026-10-19，follow-up）
 
-调研对象由 16 扩到 19：新增 FireRed-OpenStoryline（Apache-2.0）、smy-seedance-storyboard（**无 LICENSE**）、ToonCrafter（Apache-2.0）。
+调研对象由 16 扩到 19：新增 FireRed-OpenStoryline、smy-seedance-storyboard、ToonCrafter。
 
 两处实测修正：
 1. F32（TransNetV2 镜头边界检测）**删除** —— 实测 mulpub 已有 video_creation/analysis/scene_detect.py（282 行，PySceneDetect + ffmpeg 回退），引入 TransNetV2 需 torch（+1~2 GB），与桌面端不匹配。
