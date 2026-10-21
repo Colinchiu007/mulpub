@@ -38,6 +38,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { userFacingErrorMessage } from '@/utils/user-facing-error'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
@@ -166,7 +167,7 @@ async function handleExport() {
       const { docId, count } = res.data
       ElMessage.success(t('knowledgeBase.exportSuccess', { docId, count }))
     } else {
-      ElMessage.error((res && res.message) || t('knowledgeBase.exportFailed'))
+      ElMessage.error(userFacingErrorMessage(res, () => t('knowledgeBase.exportFailed')))
     }
   } catch (e) {
     ElMessage.error(t('knowledgeBase.exportFailed'))

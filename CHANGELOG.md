@@ -404,6 +404,15 @@
 - **过程教训（已落测试）**：第一轮用 PowerShell `-replace` 做变异，`{scene}` 被 .NET 正则当成量化表达式写成 `\{scene\}`，**变异已应用但门禁 PASS**（假阴性）；改用 Node 脚本并在 `mutate()` 内断言「变异确实改变文件内容」后立刻 CAUGHT。另两条：门禁自测的沙箱副本必须放 `<sandbox>/scripts/`（脚本按 `__dirname/..` 定位仓库根）；组件测试的 i18n mock 语义差异用独立的 `templateAwareT` 承接，不改全局约定。
 - **文档**：`01-docs/PRD-USER-FACING-ERROR-MESSAGES-2026-10-20.md`（数据校验 / 流程 / 功能逻辑 / 交互逻辑 / 显示项 / 提示文字全表）、`01-docs/BUGFIX-HISTORY-CARD-RAW-ENGLISH-ERROR-2026-10-20.md`（QM-5 五步：根因溯源 / 逃逸链 / 系统性漏洞 / 回归保护 / 预防措施）、`PRD-S2V-PIPELINE-PAGE-UX.md` §3.2.1、`01-docs/PRD.md` 稳定错误码合同条目、openspec change 五件套。
 - **已知限制（不假装已闭合）**：compose **执行阶段**（ffmpeg 子进程）20+ 处英文 message 未全面 errorCode 化（已由既有 `compose_failed` 文案覆盖为可操作建议，列为后续 change）；`looksTechnical` 不加英文技术词表（误报风险高）。
+# [未发布] fix(desktop): 知识库等 9 处错误提示不再直出后端原文 —— 新增调用点口径 `userFacingErrorMessage` 与全域禁形态棘轮（ux-audit-knowledge-error-classify）
+
+- **修的是「看不懂的文案 + 内部信息外泄」同一处**：`ElMessage.error((res && res.message) || t('…'))` 把 IPC/后端的英文原文（`Error: write ECONNREFUSED 127.0.0.1:8000`、`Command failed: …`、内部路径）当用户提示直出。收敛 9 处（知识库面板 4 + 发布频率设置 4 + 表现洞察 1），改后判据是枚举 `matched ∈ {errorCode, code, pattern}` 才采纳分类文案，`fallback`/`passthrough` 退回调用方的页面专属兜底。
+- **为什么不能直接写 `formatUserError(x).message`**：它在认不出时给通用「操作失败，请稍后重试」，把「草稿加载失败」这种页面专属信息换成信息量更低的通用串；而 `matched='passthrough'` 那档**原样透出**技术串，等于没修。这条边界由两条锁钉住，并配「先断言分类器确实产出 passthrough」的前提自证。
+- **判据用「非空」是陷阱**：`fallback`/`passthrough` 两档的 `message` 同样非空，非空判据会把技术串放行 —— 采纳条件必须写枚举。
+- **锁的三处反失明设计**：全域棘轮除「存量为 0」外，还断言扫描域文件数 > 100 且域内出现 `ElMessage.error(` 的文件数 > 10（否则「零命中」可能只是扫描器没读到任何文件）；M4 变异（掏空扫描域）实测只让那条反失明断言红。
+- **四道变异逐条指名红、红集互不相同**：M1 把调用点退回禁形态（点名锁 + 棘轮双红）；M2 把分类门改成「message 非空」（passthrough 锁 + 空输入锁双红）；M3 在**未点名**的 `Dashboard.vue` 回潮禁形态（只有棘轮红，同时断言点名清单里的锁不得因此红 —— 证明两条锁保护面不同而非同一条）；M4 掏空扫描域。每道跑完文件 md5 回原值。
+- **行尾不是噪声，本轮当场抓到一次自造全文改写**：插入 import 的锚点若写成 `/^import … from 'vue'\r?$/m`，`\r?` 会把行尾的 `\r` 吞进锚点、后续切片从 `\n` 起 ⇒ 拼出 `\r\r\n` + 裸 `\n` 两处畸形；`* text=auto` 对**混合行尾**的文件不做转换，于是整份文件以 CRLF 入 blob，`git diff --numstat` 报 496/495 而 `--ignore-cr-at-eol` 报 6/5。正解是把那一行自己的终止符原样带过去再补一行（`^(import …)(\r?\n)` → `$1$2 + 新行 + $2`），改后两口径逐字相等。
+- 验证：消费者并集 16 个测试文件 301 passed / 1 skipped；`check-locale-sync --cjk`（基线 1330 / 现场 1125，无新增硬编码）、`check-max-lines`、`check-no-brand-residue`、`check-doc-abs-paths` 全部 RC=0。分支 `ux-audit-knowledge-error-classify`。
 
 # [未发布] test(gates): 账本判据 CLI 加 `--root` 取证根注入 —— "阻断会落到退出码"从读代码相信变成真跑一次（debt-cli-root-injection）
 

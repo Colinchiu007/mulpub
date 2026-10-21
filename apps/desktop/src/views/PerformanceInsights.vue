@@ -136,6 +136,7 @@
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
+import { userFacingErrorMessage } from '@/utils/user-facing-error'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { DocumentCopy, InfoFilled, WarningFilled } from '@element-plus/icons-vue'
@@ -268,7 +269,7 @@ async function recompute() {
       ElMessage.success(t('perfInsights.recomputeDone'))
       await loadData()
     } else {
-      ElMessage.error((res && res.message) || t('perfInsights.recomputeFailed'))
+      ElMessage.error(userFacingErrorMessage(res, () => t('perfInsights.recomputeFailed')))
     }
   } catch {
     ElMessage.error(t('perfInsights.recomputeFailed'))
