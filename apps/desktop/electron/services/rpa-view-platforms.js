@@ -15,7 +15,7 @@ const log = require('./logger')
 const { getConfigPath } = require('./config-resolver')
 const PlatformConfig = require('@multi-publish/shared-utils/src/platform-config')
 // 发布能力注册表（publish-capability-registry）：无标题平台单一真源——视频号/快手/微博/X/Instagram/TikTok 无独立标题框，标题经 _composeEditorCaption 合并进描述首行。
-const { isNoTitlePlatform } = require('@multi-publish/shared-utils/src/publish-capabilities')
+const { isNoTitlePlatform, isNoBodyVideoPlatform } = require('@multi-publish/shared-utils/src/publish-capabilities')
 const { platformSelectors } = require('@multi-publish/rpa-engine')
 const { resolvePublishSelectors } = require('@multi-publish/rpa-engine/src/publish-selectors-by-content-type')
 const { getPublishUrl } = require('@multi-publish/api-publish-engine/src/platform-entries')
@@ -91,9 +91,8 @@ function parsePublishResponseEvidence (body, response) {
 }
 
 
-// draftOnly 的**全部判定**在 ./draft-only-confirm（小红书硬证据链 + 其它平台既有行为）。
-// 判据本体、三条红线与不变量见该模块头部注释。本文件只留薄调用点——它自己是逐文件行数
-// 门禁的**点名还账**文件（零增长容差），每多一行都在挤压一个已经压线的额度。
+// draftOnly 的**全部判定**在 ./draft-only-confirm（小红书硬证据链 + 其它平台既有行为）；
+// 判据本体/三条红线/不变量见该模块头部注释，本文件只留薄调用点（它自己也是零增长的点名还账文件）。
 const draftOnlyConfirm = require('./draft-only-confirm')
 // 发布前置门禁（publish-precondition-gate，2026-10-18）：点发布按钮之前断言
 // 「内容真的进去了」。动因是 2026-10-17 批量发布里头条/抖音的真实根因被
@@ -307,6 +306,7 @@ const platformsMixin = {
     // 10s 超时——此前靠选择器解析失败的隐式回退，行为正确但不可声明、白等超时），
     // 标题直接经下方编辑器合并路径写入描述首行（_composeEditorCaption）。
     const noTitlePlatform = isNoTitlePlatform(platform)
+    const noBodyPlatform = isNoBodyVideoPlatform(platform) && !!article.video_path
     const titleSel = (article.title && !noTitlePlatform) ? await this._resolveSelector(win, sel.title_input, 10000, 3000) : null
     if (noTitlePlatform && article.title) {
       log.info('RpaView', '[' + platform + '] no-title platform (registry), skip title_input resolution, title merges into editor caption')
@@ -342,7 +342,8 @@ const platformsMixin = {
 
     // content
     const cs = sel.editor || sel.content_textarea || sel.textarea
-    if (article.content && cs && cs.length > 0) {
+    if (noBodyPlatform) fillReport.content = { ok: true, skipped: 'no-body-field' }
+    if (article.content && !noBodyPlatform && cs && cs.length > 0) {
       if (captionSel && !titleSel) {
         // 标题已作为作品描述写进同一编辑器（快手），正文已在合并文案里，跳过避免覆写标题
         log.info('RpaView', '[' + platform + '] content already composed into editor caption, skip separate fill')
@@ -462,7 +463,7 @@ const platformsMixin = {
     // 必然未发生 ⇒ 显式标 definitelyNotSent，由队列回滚发布间隔窗口（视频号 60′ 不再被假失败吃掉）。
     // 取证（MP_DOM_DUMP=1）+ 判定 + 结果形状都在 publish-precondition.assertReady 里。
     {
-      const gate = await publishPrecondition.assertReady({ win, platform, article, selectors: sel, fillReport, noTitlePlatform: isNoTitlePlatform(platform), logger: log })
+      const gate = await publishPrecondition.assertReady({ win, platform, article, selectors: sel, fillReport, noTitlePlatform: isNoTitlePlatform(platform), noBodyPlatform, logger: log })
       if (!gate.ok) return gate.result
     }
 

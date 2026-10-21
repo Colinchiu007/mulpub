@@ -61,7 +61,13 @@ const uploadWaiterMixin = {
       + 'var ed=!!document.querySelector(\'input[placeholder*="标题"],textarea[placeholder],[contenteditable="true"]\');'
       + 'var vu=[...document.querySelectorAll("video")].some(function(v){return v.getClientRects().length>0});'
       + 'var doneText=/重新上传|重新选择|上传完成|上传成功/.test(t);'
-      + 'return {uploading:!!uploading,pagePercent:pct>=0?pct:null,positive:!!(vv||ed||location.href.indexOf("post/video")!==-1),structural:!!(vu||ed||doneText)}}'
+      // doneCopy：强完成文案（只认「成功/完成/完毕」，不认「重新上传」这类可能是静态提示的词）。
+      // 2026-10-21 真机取证（西瓜上传页）：上传成功后页面明写「上传成功」+「重新上传 删除」，
+      // 但 videoCount=0、无 textarea/contenteditable、placeholder 不含「标题」、URL 不含 post/video
+      // ⇒ 旧 positive 的四个判据全落空 ⇒ P4(positive && !uploading) 永不成立 ⇒ 干等满预算。
+      // 强完成文案是**平台无关的语义信号**，补进 positive 才能让该类页面正常收敛。
+      + 'var doneCopy=/上传成功|上传完成|上传完毕/.test(t);'
+      + 'return {uploading:!!uploading,pagePercent:pct>=0?pct:null,positive:!!(vv||ed||doneCopy||location.href.indexOf("post/video")!==-1),structural:!!(vu||ed||doneText)}}'
     const bytes = Number(opts && opts.fileBytes)
     const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes) : (timeoutMs || 900000)
     const startedAt = Date.now()

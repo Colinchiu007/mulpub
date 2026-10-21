@@ -2136,3 +2136,107 @@ auth_data = {"errCode":300330,"errMsg":"request failed"}
 
 ⇒ 三者都需要**复跑一次带诊断的版本**才能区分 —— 与 §16.30.3 结论一致：
   剩余唯一信息缺口是运行时诊断。
+### 16.32 头条视频双缺陷定位并修复：上传完成探针 + 无正文位门禁（2026-10-21）
+
+> §16.31 把头条卡点定位在「上传完成信号检测」。本节用**发布窗口实时采样**拿到页面真实形状，
+> 证明它其实是**两个代码缺陷**（不是平台问题），并给出修法与验证口径。
+
+#### 16.32.1 取证方法（可复用）
+
+发布期间应用会创建一个专用 RPA 窗口 ⇒ 它作为独立 page target 出现在 CDP `/json/list` 里。
+用外部脚本每 8s 采样一次该页面，即可在**不改产品代码、不加日志**的前提下拿到上传前后真实 DOM。
+
+#### 16.32.2 西瓜上传页上传成功后的真实形状（实测）
+
+```
+url        = /profile_v4/xigua/upload-video
+fullText   = 「…添加视频 上传成功 dy-small.mp4 大小: 143.9KB 视频时长: 12s
+              重新上传 删除 发布设置 标题 4/30 封面 上传封面 … 发布 手机预览效果…」
+inputs     = 仅 1 个可见：input.xigua-input，placeholder=「请输入 0～30 个字符」
+buttons    = 「添加视频」「发布」（发布 disabled=false）
+videoCount = 0    textareaCount = 0    contenteditable = 0
+```
+
+⇒ **上传其实成功了**（页面明写「上传成功」「重新上传 删除」+ 文件名/大小/时长）。
+
+#### 16.32.3 缺陷 A：上传完成探针 `positive` 对西瓜页恒为 false
+
+`upload-waiter.js` 的探针对 `positive` 的定义（旧）：
+```js
+positive = 存在 https <video> || 存在 input[placeholder*="标题"]/textarea[placeholder]/[contenteditable=true]
+           || location.href 含 "post/video"
+```
+
+对西瓜页逐条落空：
+
+| 判据 | 实测 | 结果 |
+| --- | --- | --- |
+| https `<video>` | `videoCount=0` | ❌ |
+| `input[placeholder*="标题"]` | 实际 placeholder「请输入 0～30 个字符」，**不含"标题"** | ❌ |
+| `textarea[placeholder]` / `[contenteditable=true]` | 页面上一个都没有 | ❌ |
+| URL 含 `post/video` | 实际 `/profile_v4/xigua/upload-video` | ❌ |
+
+而 `decideUploadWait` 的 P4 是 `positiveSignal && !uploading` ⇒ **永不成立** ⇒ 只能等满
+90s 预算后 best-effort（实测日志 `13:51:39 video upload-complete signal not detected`，
+正好是开始上传后 90s）。
+
+**关键**：页面上的「上传成功」此前只进了 `structural`（用于停滞判定的辅助），没进 `positive`。
+
+#### 16.32.4 缺陷 B：该页没有正文输入位，但门禁 P4 强制要求正文写入
+
+实测 `textareaCount=0`、`contenteditable=0`，页面只有「标题」+「封面」+「发布」。
+而 `toutiao_video.editor` 登记了 4 个候选（`textarea.byte-textarea.abstract` /
+`[contenteditable="true"]` / `[contenteditable]` / `.ProseMirror`）—— 一个都不存在：
+
+```
+13:48:42 waitForElement timeout sel=textarea.byte-textarea.abstract
+13:48:45 waitForElement timeout sel=[contenteditable="true"]
+13:48:48 waitForElement timeout sel=[contenteditable]
+13:48:51 waitForElement timeout sel=.ProseMirror
+13:48:51 content editor not found among 4 candidates
+```
+
+⇒ 门禁 P4「有正文 ⇒ 正文必须写入成功」**必然失败**。**即使上传确认修好，也发不出去。**
+
+#### 16.32.5 修法（两处，都有回归锁）
+
+**A. 探针补「强完成文案」正向判据**（平台无关的语义信号）：
+```js
+var doneCopy = /上传成功|上传完成|上传完毕/.test(t);   // 只认强文案，不认「重新上传」
+positive = !!(vv || ed || doneCopy || location.href.indexOf("post/video") !== -1)
+```
+不把「重新上传」放进 positive 的理由：它可能是**静态提示**（上传前的说明文案），
+而「上传成功/上传完成/上传完毕」只会在真的传完之后出现。
+
+**B. 新增平台能力声明 `isNoBodyVideoPlatform`**（不硬编码平台名到门禁里）：
+
+| 层 | 改动 |
+| --- | --- |
+| `publish-capabilities.json` | 新增顶层 `"noBodyVideoPlatforms": ["toutiao"]` |
+| `publish-capabilities.js` | 导出 `NO_BODY_VIDEO_PLATFORMS` + `isNoBodyVideoPlatform(id)`（未知平台 false） |
+| `publish-precondition.js` | 入参 `noBodyPlatform` ⇒ **P4 在该平台不适用**（与既有 `noTitlePlatform` 对称） |
+| `rpa-view-platforms.js` | 计算 `noBodyPlatform = isNoBodyVideoPlatform(platform) && !!article.video_path`；跳过正文填充并记 `fillReport.content = { ok: true, skipped: "no-body-field" }` |
+
+**三条设计纪律**：
+1. 只对**视频形态**生效（`&& !!article.video_path`）—— 头条图文有 ProseMirror 正文，不受影响；
+2. 未知/未声明平台一律 false ⇒ **fail-closed 到默认判据**，不放宽；
+3. 跳过填充仍**显式记账**（`skipped: "no-body-field"`），不是静默丢弃。
+
+#### 16.32.6 验证口径（TDD）
+
+新增 `apps/desktop/tests/toutiao-video-signal-and-nobody.test.js`（8 例，先红后绿）：
+
+| 组 | 锁什么 |
+| --- | --- |
+| ① | `positive` 引用 `doneCopy`，且 `doneCopy` 的文案含「上传成功/完成/完毕」；`structural` 不回归 |
+| ② | 声明 `noBodyPlatform` ⇒ 通过；**未声明 ⇒ 仍 `content-not-filled`** |
+| ③ | `isNoBodyVideoPlatform("toutiao")=true`、`"douyin"=false`、未知/undefined=false |
+
+相关回归：`publish-precondition(.wiring)` / `upload-wait-strategy` / `publish-upload-order` /
+`publish-capabilities` 共 **56 例全绿**。
+
+#### 16.32.7 行数门禁的一个实录
+
+`rpa-view-platforms.js` 是**零增长容差点名还账**文件（目标 1484 行，改动前 1482）。
+本次改动先 +3 行 ⇒ 1485 超线；把一处 3 行注释压成 2 行（信息不丢失）后回到 **1484** 转绿。
+⇒ 纪律：在该文件上加代码必须**同次**在文件内压缩等量注释，不得靠上调 targets 过关。

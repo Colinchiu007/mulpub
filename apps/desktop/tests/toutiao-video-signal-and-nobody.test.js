@@ -1,0 +1,90 @@
+'use strict'
+
+/**
+ * 头条视频：上传完成信号 + 无正文位门禁（toutiao-video-signal-and-nobody，2026-10-21）
+ *
+ * ── 真机证据（2026-10-21 22:0x，发布窗口实时采样）────────────────
+ * 西瓜上传页上传成功后的真实 DOM：
+ *   url      = /profile_v4/xigua/upload-video
+ *   fullText = 「…添加视频 上传成功 dy-small.mp4 大小: 143.9KB 视频时长: 12s
+ *               重新上传 删除 发布设置 标题 4/30 封面 上传封面 … 发布 手机预览效果…」
+ *   inputs   = 仅 1 个可见：input.xigua-input，placeholder=「请输入 0～30 个字符」
+ *   buttons  = 「添加视频」「发布」（发布 disabled=false）
+ *   videoCount = 0   textareaCount = 0   contenteditable = 0
+ *
+ * ⇒ 两个必须修的缺陷（都不是"平台抽风"）：
+ *   ① 上传完成探针 positive 恒 false：
+ *      - vv 要求 https <video> → 页面 videoCount=0 ❌
+ *      - ed 要求 placeholder*="标题" → 实际「请输入 0～30 个字符」❌
+ *      - URL 含 post/video → 实际 /profile_v4/xigua/upload-video ❌
+ *      而页面明写「上传成功」→ 该文案此前只进 structural，不进 positive，
+ *      于是 P4（positive && !uploading）永不成立，只能干等满 90s 预算。
+ *   ② 该页**没有正文/简介输入位**（只有标题 + 封面），但门禁 P4
+ *      「有正文 ⇒ 正文必须写入成功」必然失败 ⇒ 即使上传确认也发不出去。
+ */
+
+const fs = require('node:fs')
+const path = require('node:path')
+
+const svc = (name) => path.resolve(__dirname, '../electron/services', name)
+
+describe('① 上传完成探针：正向信号必须包含"上传成功"类强文案', () => {
+  const src = fs.readFileSync(svc('upload-waiter.js'), 'utf8')
+
+  test('positive 表达式包含上传完成强文案（不再只认 video/placeholder/URL）', () => {
+    const m = src.match(/positive:\s*!!\([^)]*\)/)
+    expect(m).toBeTruthy()
+    // positive 里引用 doneCopy 变量
+    expect(m[0].includes('doneCopy')).toBe(true)
+    // doneCopy 的定义必须是「成功/完成/完毕」这类强文案
+    const def = src.match(/var doneCopy=\/[^/]+\//)
+    expect(def).toBeTruthy()
+    expect(/上传成功|上传完成|上传完毕/.test(def[0])).toBe(true)
+  })
+
+  test('强文案单独命名（doneCopy），便于审计与后续平台扩展', () => {
+    expect(/var doneCopy=/.test(src)).toBe(true)
+  })
+
+  test('structural 仍保留 doneText（不回归既有结构性判据）', () => {
+    expect(/structural:!!\(vu\|\|ed\|\|doneText\)/.test(src)).toBe(true)
+  })
+})
+
+describe('② 无正文位平台：门禁 P4 按平台能力豁免（不静默放宽）', () => {
+  const { evaluatePublishPreconditions, REASONS } = require(svc('publish-precondition.js'))
+  const base = {
+    platform: 'toutiao',
+    article: { title: '被误解的明朝', content: '正文若干行', video_path: 'D:\\v\\a.mp4' },
+    selectors: { file_input: ['input[type="file"]'] },
+    fillReport: { upload: { ok: true }, title: { ok: true } }, // content 缺失
+  }
+
+  test('声明 noBodyPlatform=true ⇒ 通过（该页确实无正文位）', () => {
+    const r = evaluatePublishPreconditions({ ...base, noBodyPlatform: true })
+    expect(r.ok).toBe(true)
+  })
+
+  test('未声明 ⇒ 仍然 CONTENT_NOT_FILLED（不放宽默认判据）', () => {
+    const r = evaluatePublishPreconditions({ ...base })
+    expect(r.ok).toBe(false)
+    expect(r.reason).toBe(REASONS.CONTENT_NOT_FILLED)
+  })
+})
+
+describe('③ 能力注册表：isNoBodyVideoPlatform 只认声明的平台', () => {
+  const caps = require('../../../packages/shared-utils/src/publish-capabilities.js')
+
+  test('toutiao 声明为「视频无正文位」', () => {
+    expect(caps.isNoBodyVideoPlatform('toutiao')).toBe(true)
+  })
+
+  test('抖音不是（它有作品描述输入位）', () => {
+    expect(caps.isNoBodyVideoPlatform('douyin')).toBe(false)
+  })
+
+  test('未知平台返回 false（fail-closed 到默认判据）', () => {
+    expect(caps.isNoBodyVideoPlatform('not-a-platform')).toBe(false)
+    expect(caps.isNoBodyVideoPlatform(undefined)).toBe(false)
+  })
+})
