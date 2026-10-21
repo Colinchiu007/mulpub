@@ -606,12 +606,8 @@ class RpaVmPublisher {
       // 先判登录态并 early-return，早于任何表单填充/提交）⇒ 打标后由队列回滚间隔窗口。
       // 词表是封闭的（services/publish-not-submitted.js），未命中一律按已提交处理（保守侧）。
       const rpaErr = new Error(result.error || 'RPA 发布失败')
-      // publish-precondition-gate 的显式标优先，封闭词表兜底（见 markNotSentByResult）
-      markNotSentByResult(rpaErr, result)
-      // P0-1：RPA 轨也会回传结构化风控信号（如微信/知乎轨的 code），一并搬运，
-      // 否则上层只能靠文本关键词猜 —— 猜错的代价是冻结账号。
-      attachRiskSignals(rpaErr, result)
-      require('./publish-diag-fields').attachDiagToError(rpaErr, result) // 诊断挂 error 2026-10-21
+      // notSent 显式标 + 结构化风控信号 + 分轨诊断，三个装饰动作合并为一次调用（2026-10-21）
+      require('./publish-diag-fields').decorateRpaError(rpaErr, result, { markNotSentByResult, attachRiskSignals })
       throw rpaErr
     } finally {
       signal?.removeEventListener('abort', onAbort)

@@ -43,4 +43,29 @@ function attachDiagToError (err, r) {
   return err
 }
 
-module.exports = { pickDiagFields, attachDiagToError }
+/**
+ * RPA 轨失败 error 的一次性装饰（router-diag-passthrough，2026-10-21）。
+ * 合并三个既有装饰动作 + 诊断透传，让 publisher-router 失败分支从
+ * 「3 个调用 + 3 段注释」收敛为「1 个调用」—— 该文件在 check-max-lines
+ * 点名还账清单内（零增长容差），每一行都在挤压额度。
+ *
+ * 动作：① markNotSentByResult（publish-precondition-gate 显式标 + 封闭词表兜底）
+ *       ② attachRiskSignals（结构化风控信号 code/risk_blocked/login_expired）
+ *       ③ 分轨诊断（track/apiTrackAttempted/apiTrackFailed/publishId）
+ *
+ * 三者都只往 err 上挂字段，**不改变 err.message 与 throw 语义**。
+ * @param {Error} err
+ * @param {object} result rpa-view-manager 返回对象
+ * @returns {Error} 同一个 err
+ */
+function decorateRpaError (err, result, deps) {
+  if (!err) return err
+  try {
+    if (deps && typeof deps.markNotSentByResult === 'function') deps.markNotSentByResult(err, result)
+    if (deps && typeof deps.attachRiskSignals === 'function') deps.attachRiskSignals(err, result)
+    attachDiagToError(err, result)
+  } catch (_e) { /* 装饰失败不得影响错误抛出 */ }
+  return err
+}
+
+module.exports = { pickDiagFields, attachDiagToError, decorateRpaError }

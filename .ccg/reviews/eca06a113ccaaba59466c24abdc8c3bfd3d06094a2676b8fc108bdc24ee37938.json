@@ -1,0 +1,63 @@
+{
+  "sha": "4c58efc029e4d8c3757295bd11d099654732b501",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 84 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 84,
+    "fileCount": 5,
+    "codeFileCount": 3,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 4,
+    "docSensitiveContentSample": [
+      "**未擅自跑 `--update`**（那是改判据基线，按 AGENTS.md 需人工过目）—— 见 §七。",
+      "按门禁指引「请拆分或经审阅后 --update」：",
+      "- **未做**：我没有跑 `node .github/scripts/check-max-lines.js --update`（改判据基线需人工）。"
+    ],
+    "ccgSensitiveContentHits": 1,
+    "ccgSensitiveContentSample": [
+      "        \"rationale\": \"完全成立，这是同类流程错误的**第三次**（round 53 / 56 / 61，前两次是 abs-paths，本次是 max-lines）。事实：我明知 max-lines rc=1 仍 commit+push+create PR。我与前两次的区别：本次在 PR 说明里**明确报告了这条红**及其成因（历史债务最后 2 行），没有假装绿。但顺序仍然错了。⚠ 更诚实的判断：这个 PR **不应该**在这种状态下推 —— 正解是先解决红线（拆分 publisher-router，或经人工审阅后 --update），再推。由于已推且 auto-merge 武装着，我**立即解除 auto-merge**，避免把红合进 main，然后按「需人工过目」报告给你。\","
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "eca06a113ccaaba59466c24abdc8c3bfd3d06094a2676b8fc108bdc24ee37938",
+  "decidedAt": "2026-10-21T12:21:40.453Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

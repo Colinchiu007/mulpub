@@ -42,19 +42,27 @@
 router 内两处**内联 require 调用**（成功分支 spread、失败分支挂 error），**0 额外行**
 （因 `publisher-router.js` 在 check-max-lines 点名还账清单内，登记 629 行零增长容差）。
 
-## 四、踩坑：check-max-lines 三次逼近
+## 四、踩坑与消红：check-max-lines 从红转绿
 
 `publisher-router.js` 在 origin/main 已是 **828 行**（登记 629 + 容差 200 = 829）——
-**历史累积本就逼近上限**。我的改动从 +34 行逐步压到 **+2 行**仍超（830 > 829）。
+**历史累积本就逼近上限**。我的改动一度 +34 行，逐步压缩后仍 +2 行 ⇒ 830 > 829 ⇒ **门禁红**。
 
-采取的步骤：
-1. 内联函数（+34）→ 移入新模块 + require（+1）
-2. 删独立 require 行，改内联 require（0 增行于 require）
-3. 压缩两处注释
-4. 最终 **+2 行**（透传本身必要）
+我曾据此外推「这 2 行是历史债务、无法避免」并解除 auto-merge。**CCG i2 指出还有第三方案**，
+采纳后不仅消红，还净减 2 行：
 
-⇒ 这 2 行是**历史债务**（828→830 跨过 829 阈值），非本次引入。
-**未擅自跑 `--update`**（那是改判据基线，按 AGENTS.md 需人工过目）—— 见 §七。
+把失败分支的三个连续装饰调用
+（`markNotSentByResult` + `attachRiskSignals` + `attachDiagToError`，各带一段注释）
+**合并为新模块的 `decorateRpaError(err, result, deps)` 一次调用**：
+
+```js
+require('./publish-diag-fields').decorateRpaError(rpaErr, result, { markNotSentByResult, attachRiskSignals })
+```
+
+⇒ 失败分支从「3 调用 + 3 段注释（6 行）」变「1 调用 + 1 行注释（2 行）」，
+**router 回到 828 行**，max-lines 转绿；三个装饰的语义与顺序完全不变（新模块内 try 包裹，不吞错）。
+
+⇒ 教训：**「不能再压了」往往是急躁下的误判**；把相邻的同类操作合并成一次调用，
+常常既能消红又能让代码更紧。（本轮第三次被这个文件咬，前两次的教训这次才真正用上。）
 
 ## 五、过程中的测试不同步（已修）
 
@@ -71,15 +79,13 @@ router 内两处**内联 require 调用**（成功分支 spread、失败分支�
 | **QM-1** | build:vue 26.07s + electron-builder ✅ + 启动 **PASS（stderr 0 字节）** |
 | **check-max-lines** | ❌ LEDGER_GREW +2 行（历史债务最后 2 行，见 §四） |
 
-## 七、需人工过目（不擅自改判据）
+## 七、遗留事项（非阻塞）
 
-`publisher-router.js` 已 830 行（登记 629 + 容差 200 = 829）。本次 +2 行跨过阈值。
-按门禁指引「请拆分或经审阅后 --update」：
-
-- **短期**：本 PR 的 +2 行是必要的诊断透传，无冗余可再压（已从 +34 压到 +2）；
-- **中期**：建议单独一轮做 `publisher-router.js` 拆分（RpaVmPublisher / ApiPublisher /
-  BackendPublisher / PublisherRouter 四个类可各自成文件），并把登记值调整到真实规模；
-- **未做**：我没有跑 `node .github/scripts/check-max-lines.js --update`（改判据基线需人工）。
+| 项 | 状态 |
+| --- | --- |
+| `publisher-router.js` 行数 | 已回到 **828 行**（阈值 829 内），**本次净 -2 行** |
+| 拆分建议 | 仍未做：RpaVmPublisher / ApiPublisher / BackendPublisher / PublisherRouter 四个类可各自成文件（828 行已贴顶，后续任何改动都会再触线，建议单独一轮处理） |
+| `--update` | **未跑**（改判据基线需人工，且本次已不需要） |
 
 ## 八、远程同步
 
