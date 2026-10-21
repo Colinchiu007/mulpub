@@ -752,3 +752,239 @@ describe('PublishProgressPanel.vue — 完成自动收敛（publish-progress-pan
     expect(en).toContain('(local clock jump — wait shortened automatically, no action needed)')
   })
 })
+
+/**
+ * 阶段 1.8（ux-audit-progress-watchdog）—— 无更新看门狗。
+ *
+ * 修前的现场：任务卡住后 store 不再收到事件，`task.lastEventAt` 写了没人读，
+ * 面板永远显示「进行中」、× 永远 disabled（`:disabled="store.hasRunning"`），
+ * 用户被自己的进度面板锁死。下面每条用例都只改 lastEventAt 这一个变量，
+ * 使「这个字段真的有读者」成为可证伪的断言而不是注释。
+ */
+describe('PublishProgressPanel.vue — 无更新看门狗（阶段 1.8）', () => {
+  const STALE_MS = 4 * 60 * 1000 // 超过 3 分钟阈值
+  let wrapper
+  /** reactive 代理：挂载后的状态变更必须经代理写入（直改原始对象不触发重渲染，见本文件顶部同款注释） */
+  let store
+
+  function resetStore() {
+    storeStateRaw.sessions = []
+    storeStateRaw.panelVisible = false
+    storeStateRaw.panelMinimized = false
+    storeStateRaw.hasRunning = false
+    storeStateRaw.aggregate = { total: 0, done: 0, succeeded: 0, failed: 0, cancelled: 0 }
+    storeStateRaw.minimizePanel.mockReset()
+    storeStateRaw.clearFinished.mockReset()
+    storeStateRaw.expandPanel.mockReset()
+    storeStateRaw.init.mockReset()
+  }
+
+  beforeEach(() => {
+    vi.useRealTimers()
+    document.body.textContent = ''
+    resetStore()
+    store = usePublishProgressStore()
+  })
+
+  afterEach(() => {
+    wrapper?.unmount()
+    wrapper = null
+    vi.useRealTimers()
+    i18n.global.locale.value = 'zh'
+  })
+
+  /** 一个「运行中 + 单任务」的会话；lastEventAt 由用例决定新鲜还是停滞 */
+  function runningSession(taskOverrides = {}, sessionOverrides = {}) {
+    const s = makeSession({ tasks: { 't-1': makeTask(taskOverrides) }, taskOrder: ['t-1'], ...sessionOverrides })
+    storeStateRaw.panelVisible = true
+    storeStateRaw.hasRunning = true
+    storeStateRaw.sessions = [s]
+    storeStateRaw.aggregate = { total: 1, done: 0, succeeded: 0, failed: 0, cancelled: 0 }
+    return s
+  }
+
+  it('停滞 4 分钟：标题区出现「已 N 分钟无更新」徽标', async () => {
+    runningSession({ lastEventAt: Date.now() - STALE_MS })
+    wrapper = mountPanel()
+    await nextTick()
+    const badge = body().querySelector('[data-testid="publish-progress-stale"]')
+    expect(badge).not.toBeNull()
+    expect(badge.textContent).toContain('已 4 分钟无更新')
+  })
+
+  it('刚有事件：不出现徽标（不得把正常进行中的发布说成卡住）', async () => {
+    runningSession({ lastEventAt: Date.now() })
+    wrapper = mountPanel()
+    await nextTick()
+    expect(body().querySelector('[data-testid="publish-progress-stale"]')).toBeNull()
+  })
+
+  it('同一份会话数据只改 lastEventAt 就使徽标出现/消失（证明读的就是这个字段）', async () => {
+    runningSession({ lastEventAt: Date.now() })
+    wrapper = mountPanel()
+    await nextTick()
+    expect(body().querySelector('[data-testid="publish-progress-stale"]')).toBeNull()
+    store.sessions[0].tasks['t-1'].lastEventAt = Date.now() - STALE_MS
+    await nextTick()
+    expect(body().querySelector('[data-testid="publish-progress-stale"]')).not.toBeNull()
+  })
+
+  it('徽标是状态消息：role=status + aria-live=polite（WCAG 4.1.3，屏读同步得知跃迁）', async () => {
+    runningSession({ lastEventAt: Date.now() - STALE_MS })
+    wrapper = mountPanel()
+    await nextTick()
+    const badge = body().querySelector('[data-testid="publish-progress-stale"]')
+    expect(badge.getAttribute('role')).toBe('status')
+    expect(badge.getAttribute('aria-live')).toBe('polite')
+  })
+
+  it('陈旧时分钟数至少为 1，不得显示「0 分钟无更新」', async () => {
+    runningSession({ lastEventAt: Date.now() - 185_000 }) // 3 分 05 秒
+    wrapper = mountPanel()
+    await nextTick()
+    const badge = body().querySelector('[data-testid="publish-progress-stale"]')
+    expect(badge.textContent).toContain('已 3 分钟无更新')
+    expect(badge.textContent).not.toMatch(/已 0 分钟/)
+  })
+
+  it('陈旧态解禁关闭：× 可点，title 说明「收起」语义而非「关闭」', async () => {
+    runningSession({ lastEventAt: Date.now() - STALE_MS })
+    wrapper = mountPanel()
+    await nextTick()
+    const closeBtn = body().querySelector('[data-testid="publish-progress-close"]')
+    expect(closeBtn.hasAttribute('disabled')).toBe(false)
+    expect(closeBtn.getAttribute('title')).toContain('任务可能仍在后台进行')
+  })
+
+  it('陈旧态点 ×：先清已完成再收进胶囊，且不丢弃运行中的会话（证据不得消失）', async () => {
+    const session = runningSession({ lastEventAt: Date.now() - STALE_MS })
+    wrapper = mountPanel()
+    await nextTick()
+    body().querySelector('[data-testid="publish-progress-close"]').click()
+    await nextTick()
+    expect(storeStateRaw.clearFinished).toHaveBeenCalledTimes(1)
+    expect(storeStateRaw.minimizePanel).toHaveBeenCalledTimes(1)
+    expect(storeStateRaw.sessions).toHaveLength(1) // 会话仍在，可经胶囊重新展开
+    expect(session.tasks['t-1'].phase).toBe('progress')
+  })
+
+  it('运行中但不陈旧：× 仍然禁用且提示「可先最小化」（原语义不得被放宽）', async () => {
+    runningSession({ lastEventAt: Date.now() })
+    wrapper = mountPanel()
+    await nextTick()
+    const closeBtn = body().querySelector('[data-testid="publish-progress-close"]')
+    expect(closeBtn.hasAttribute('disabled')).toBe(true)
+    expect(closeBtn.getAttribute('title')).toBe('发布进行中，可先最小化到后台')
+  })
+
+  it('无运行任务：× 的 title 回到「关闭」（陈旧文案不得渗漏到空闲态）', async () => {
+    storeStateRaw.panelVisible = true
+    storeStateRaw.hasRunning = false
+    storeStateRaw.sessions = [makeSession({
+      status: 'done',
+      tasks: { 't-1': makeTask({ phase: 'success', lastEventAt: Date.now() - STALE_MS }) },
+      taskOrder: ['t-1'],
+    })]
+    wrapper = mountPanel()
+    await nextTick()
+    const closeBtn = body().querySelector('[data-testid="publish-progress-close"]')
+    expect(closeBtn.getAttribute('title')).toBe('关闭')
+    expect(body().querySelector('[data-testid="publish-progress-stale"]')).toBeNull()
+  })
+
+  it('时间路径：挂载时新鲜，推进到 3 分钟后（15s 轮询）徽标自己出现', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(1_700_000_000_000)
+    runningSession({ lastEventAt: Date.now() })
+    wrapper = mountPanel()
+    await nextTick()
+    expect(body().querySelector('[data-testid="publish-progress-stale"]')).toBeNull()
+
+    await vi.advanceTimersByTimeAsync(195_000) // 3 分 15 秒：跨过阈值并让轮询取到新读数
+    await nextTick()
+    const badge = body().querySelector('[data-testid="publish-progress-stale"]')
+    expect(badge).not.toBeNull()
+    expect(badge.textContent).toContain('已 3 分钟无更新')
+  })
+
+  it('轮询只在有运行任务时存在，卸载即清表（不给空闲应用留常驻定时器）', async () => {
+    vi.useFakeTimers()
+    runningSession({ lastEventAt: Date.now() })
+    wrapper = mountPanel()
+    await nextTick()
+    expect(vi.getTimerCount(), '现场应当只有看门狗这一张表').toBe(1)
+
+    wrapper.unmount()
+    wrapper = null
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('hasRunning 落 false 后停表（完成态不需要看门狗）', async () => {
+    vi.useFakeTimers()
+    runningSession({ lastEventAt: Date.now() })
+    // 夹具前提：让该会话对「完成自动收敛」不合格（failed>0 即不收敛），否则收敛用的
+    // setTimeout 会留在表里，count 的读数不可归因到看门狗（本轮实测踩过：count 恒为 1）。
+    storeStateRaw.aggregate = { total: 1, done: 0, succeeded: 0, failed: 1, cancelled: 0 }
+    wrapper = mountPanel()
+    await nextTick()
+    expect(vi.getTimerCount(), '现场应当只有看门狗这一张表').toBe(1)
+
+    store.hasRunning = false
+    await nextTick()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('胶囊态陈旧：提示显示「已 N 分钟无更新」而非「请勿关闭应用」', async () => {
+    runningSession({ lastEventAt: Date.now() - STALE_MS })
+    storeStateRaw.panelVisible = false
+    storeStateRaw.panelMinimized = true
+    wrapper = mountPanel()
+    await nextTick()
+    const pill = body().querySelector('[data-testid="publish-progress-pill"]')
+    expect(pill.textContent).toContain('已 4 分钟无更新')
+    expect(pill.textContent).not.toContain('请勿关闭应用')
+  })
+
+  it('英文 locale：徽标与 tooltip 走 en 文案且无中文残留', async () => {
+    i18n.global.locale.value = 'en'
+    runningSession({ lastEventAt: Date.now() - STALE_MS })
+    wrapper = mountPanel()
+    await nextTick()
+    const badge = body().querySelector('[data-testid="publish-progress-stale"]')
+    expect(badge.textContent).toContain('No update for 4 min')
+    expect(badge.textContent).not.toMatch(/[\u4e00-\u9fa5]/)
+    const closeBtn = body().querySelector('[data-testid="publish-progress-close"]')
+    expect(closeBtn.getAttribute('title')).toContain('may still be running')
+    expect(closeBtn.getAttribute('title')).not.toMatch(/[\u4e00-\u9fa5]/)
+  })
+
+  it('locales zh/en 成对存在 staleBadge/staleCloseHint（防露出 key）', () => {
+    const zh = fs.readFileSync(path.resolve(__dirname, '../locales/publish-page/zh.js'), 'utf8')
+    const en = fs.readFileSync(path.resolve(__dirname, '../locales/publish-page/en.js'), 'utf8')
+    for (const key of ['staleBadge', 'staleCloseHint']) {
+      expect(zh).toContain(key)
+      expect(en).toContain(key)
+    }
+  })
+
+  it('样式只用既有语义 token，且暗色档有同名覆盖（不得新增色槽/十六进制字面量）', () => {
+    const vueSrc = fs.readFileSync(path.resolve(__dirname, 'PublishProgressPanel.vue'), 'utf8')
+    // 注释里如实写着两档对比的十六进制取值（那是给读者的证据），所以判据只看声明行。
+    const style = vueSrc.slice(vueSrc.indexOf('<style')).replace(/\/\*[\s\S]*?\*\//g, '')
+    expect(style).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
+    const tokens = fs.readFileSync(path.resolve(__dirname, '../styles/tokens.css'), 'utf8')
+    for (const token of ['--color-warning-soft', '--color-text-strong']) {
+      expect(tokens).toContain(token + ':')
+      const occurrences = (tokens.match(new RegExp(token + ':', 'g')) || []).length
+      expect(occurrences, token + ' 必须浅暗两档各一次').toBe(2)
+    }
+  })
+
+  it('陈旧徽标不得引入新的可聚焦元素（本仓 tabindex 基线只能缩小）', async () => {
+    runningSession({ lastEventAt: Date.now() - STALE_MS })
+    wrapper = mountPanel()
+    await nextTick()
+    expect(body().querySelectorAll('[data-testid="publish-progress-stale"] [tabindex]')).toHaveLength(0)
+    expect(body().querySelector('[data-testid="publish-progress-stale"]').getAttribute('tabindex')).toBeNull()
+  })
+})
