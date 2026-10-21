@@ -131,3 +131,39 @@ M8「把 `ALLOWED_LOADING` 放宽成 `['lazy','eager','immediate','later']`」�
 | 远程同步 | 由门禁推导 | 本行**不事后改写**：合并后由 `scripts/lib/merge-ledger.js` 按主干历史推导归属（只认 squash 尾注 `(#NNNN)`，PR 号见本 PR 页面）；现场读数看 CI 步骤首行 `MERGE-LEDGER prs=<n>`。合并前这篇还不在基线上 ⇒ 判 `byDesign` 不红；把状态列预写成 `PASS` 会被 `prematureClaims` 判红。**本行的存在本身就是判据**：`check-gate-record-debt.js` 对「整块缺 远程同步 行」的新记录当场判红。main push 回读证据写在 PR 评论里，不写回本文件。 |
 
 - 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 PENDING（收口由门禁推导）
+
+## 五-E、QM-6 第二轮评审：12 条发现（6 条 escalate 进裁决）的逐条处置（head `1c43d93d5`，产物 `.adversarial/ccg-deep-1c43d93d/`）
+
+这一轮的**主线不是补判据，是把判据的解析层整个换掉**。第一轮留下的锁用
+`indexOf('<img')` + 手写 `readOpenTag` + 手写 `attrTokens` + 手写 `blankOutNonTemplate`
+在裸文本上重造了一遍 HTML 解析，于是每一轮评审都会发现一个新的解析漏洞（注释、插值、自闭合、
+属性值里带 `>`、属性名出现在别的属性值里……），而本批修这些漏洞的方式是"补一条 fixture 加一道变异"。
+i3 把这件事说破了：**四道变异存在的唯一原因就是这层手写解析脆弱 —— 复杂度在螺旋上升，而不是从根上消解**。
+而同一个 PR 里已经在用 `@vue/compiler-sfc` 做模板编译核验。所以第二轮的处置是删掉自造解析器，
+站点与属性一律取自模板 AST。
+
+| id | 级别 | 裁决 | 处置与现场取证 |
+|---|---|---|---|
+| i1 | Warning | **upheld** | 属性值里的 `<img>` 字面量（`:title="t('x',{example:'<img src=y>'})"` 这类 i18n/提示串）与 `v-pre` 文本在旧实现下会造**伪站点**（假红），引号区间还可能吞掉真实站点的 `>`（静默漏扫）。PRD 自己把"注释/插值里的示例"列为必须涂白的理由，属性值就是同一误报类的第 4 个漏网点。AST 化后伪站点这一类**结构上不可产生**（站点只能来自 AST 节点），另加一条 fixture 用例钉住边界 |
+| i2 | Warning（高危域标记 `auth`） | **upheld** | 一条锚点认领多张图：`CreateView.vue` 的 `:src="img.preview"` 同时命中两个 v-for 块（管线图 / 快图），而旧 `doubleCovered` 只防"两条目→一张图"。新增 **`covers` 计数**判据 —— 锚点实际覆盖的 eager 站点数必须**恰等于**登记值，多一张少一张都红；该条现登记 `covers: 2` 且理由点名两个块。⚠ `auth` 这个域标记是敏感分类器在属性名/文档散文上的误报（本批零鉴权代码），按既有口径如实记下、不改判据也不据此绕门禁 |
+| i3 | Warning | **upheld（本轮最大改动）** | 删除 `attrTokens` / `readOpenTag` / `blankOutNonTemplate`（`grep` 实测命中 **0** 次），改 `import { parse as parseSfc } from '@vue/compiler-sfc'`。变异集随之重排为 M1–M13：原"解析自身"那一格不再靠变异堆叠，而由两条 fixture 承接（AST 边界 / 声明形态口径）。**副作用即 i4 的答案**：锁从 303 行降到 **233 行**（`wc -l` 实测），自证 PRD「新锁 <300 行」这条锚点 |
+| i4 | Warning | **upheld（并纠正一处我自己的误读）** | 交付物 303 行 > PRD 自己锚点写的 <300。**但执行记录 §四 那句 `check-max-lines` 全 PASS 并不是假话** —— 当场跑 `.github/scripts/check-max-lines.js`：`limit=500 testLimit=1500`，该锁既没到 500 也没到 1500，PASS 是真的。所以这一格的真实缺陷不是"谎报 PASS"，而是**PRD 写了一条比机器门禁更严、却没有任何机器在看的自定数字**：自锚点不会被门禁 red-flag，于是它只在人愿意回头看时成立。AST 化删掉自造解析层后实测 **233 行**（`wc -l`），锚点与产物重新对上。教训改写为：**写进验收锚点的数字必须能一句话重取，且要么有门禁看它、要么标明"仅自述"** |
+| i5 | Warning | **upheld** | CHANGELOG 顶部仍写「新锁 5 条 / 八道变异」，同一文件末尾已写「扩到 12 道 / collected=6」，提交集实际是 6 个 `it` + 13 项 `MUTANTS` —— 旗舰文档的最终态数字与提交集不同源。现按当场重取改写：`[BASE] rc=0 collected=6 red=0`、`M1–M13 ALL_CAUGHT`，并加一句"条数是当日读数，验收以门禁现场通过数为准"；Vue 官方解析器核验重跑为**全量改动集** `files=26 BAD=0`（含本轮两处 `.vue`），不再沿用未经复验的旧句 |
+| i6 | Warning | **upheld** | 本 PR 提交的两份产物分别是 `sha=50e1cb5d`（267 行早期暂存快照）与 `sha=e4241a47c`（`self_play_pending`，note 写"4/4 条未定"），而最终 head 是 `1c43d93d5`，其同源产物当时仍是 **untracked** ⇒ **i6 自己声讨的形状在同一个 PR 里复发了一次**。本轮把与最终 head 同源的产物一并提交。**⚠ 一处做不到，点名而不是沉默**：引擎没有"只结算已填裁决"的入口（`process.argv` 仅 `--base`/`--allow-whole-commit`/`--dry-run`），要触发 `writeBack` 必须重跑一整轮外部评审；且 i2 带高危域标记 ⇒ `blockingFromAdjudication` 无论 verdict 都判阻断 ⇒ 自扮演出口只能得到 `self_play_blocked`，不在 `check-pr-exec-record.js` 的闭合态集合内。所以产物预期仍停在 pending/blocked，**闭合需外部复核或人工**（任务 #19 追踪），本会话不把手写 findings 冒充成已裁决 |
+| i7–i12 | Info | **i7/i8/i9/i10/i11 采纳，i12 采纳** | i7：`CoverThumbnail.vue` 的 `:src="dataUrl"` 与 `CoverPreviewDialog` 同源（渲染的就是用户刚选的本地封面预览），`lazy` 属口径分裂 ⇒ 改 `eager` 并按③登记理由，**不是**"顺手统一"（同数据的预览弹窗本来就是 eager）。i8：`:loading="'lazy'"` 这类**字符串字面量绑定算已声明**（编译期常量，值不推迟到运行时），`:loading="x"` 非常量绑定算未声明 —— 两条都写进用例名与 PRD 口径，避免下一批把它当遗漏。i9：`FilmEngineeringView.vue` 残留的 `alt=""␣␣decoding` 双空格正是 i5(第一轮) 声称已收敛的那一类，本轮补净。i10：反证驱动不再 `spawnSync('pnpm.cmd', …, {shell:true})`（POSIX 上 ENOENT，与"干净 checkout 一条命令可复跑"直接矛盾），改 `process.execPath` 直跑 `node_modules/vitest/vitest.mjs`，入口取不到走 **blind 档**而不是静默当通过。i11：`srcKind` 是**死字段**（无任何断言消费），却暗示"src 绑定形态已被校验" ⇒ 删除，把可表示性留给 i8 那条真判据。i12：PRD 图片加载合同一节出现**两个 `### 三、`** ⇒ QM-6 修订节改号为 `### 四、`；重号的代价不是排版，`check-docs-sync` 与人工都按锚点取节，两个同名锚点会让"我改的是哪一节"不可判定 |
+
+### 本轮验证现场
+
+- `npx vitest run src/img-loading-contract.test.js` → **6 passed**（驱动控制跑 `[BASE] rc=0 collected=6 red=0` 同数）。
+- `node scripts/img-loading-contract-mutate.js` → **M1–M13 全 CAUGHT**（`COUNTERPROOF=ALL_CAUGHT`），
+  红集互不相同，13/13 `还原字节一致=OK`；M13 是"合规形态必须绿"的正控（改回 lazy 并**同次**删锚点），
+  M12 守"字面量绑定被过度拒绝"那一侧。
+- Vue 官方解析器复验：`@vue/compiler-sfc` `parse` + `compileTemplate` 扫本 PR 全量 `.vue` 改动集 ⇒ `files=26 BAD=0`。
+- **消费者并集**（按 i7/i9 两处被改组件名 + `.vue` 导入形态反查得 6 个测试文件，与锁同跑）⇒
+  `useHistoryCoverThumbnails` / `BatchArticleFields` / `element-plus` / `FilmEngineeringHubView` /
+  `FilmEngineeringView` / `video-copy-refine` + 本锁，**7 files / 77 passed**。
+  这一格不能省：本轮改的两个 `.vue` 都不在 diff 里的测试文件中，只跑"我改过的那把锁"就等于没测消费者（AGENTS 既有口径）。
+- 真实 max-lines 门禁当场重跑（`.github/scripts/check-max-lines.js`，**不在** `scripts/` 下）⇒
+  `limit=500 testLimit=1500`、`超限文件=95 挂账=95`、无新增超大文件、PASS。
+- 裁决 6/6 已填写（`.adversarial/ccg-deep-1c43d93d/adjudication.json`，gitignored 工作产物），
+  **未**据此改写任何 `.ccg/reviews/*.json`，理由见上表 i6 的"做不到"。
