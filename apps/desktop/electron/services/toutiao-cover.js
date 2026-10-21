@@ -163,7 +163,6 @@ async function ensureCoverViaLocalUpload (ctx, win, coverPath, opts) {
   const imageSel = 'input[type="file"][accept*="image"]'
   let setErr
   try { await setFileViaCdp(win, coverPath, imageSel) } catch (e1) {
-    setErr = e1
     if (log) log.warn('RpaView', '[' + platform + '] cover cdp setFile failed: ' + String(e1 && e1.message).slice(0, 100))
     try { await ctx._setFileInput(win, coverPath, imageSel); setErr = null } catch (e2) {
       setErr = e2

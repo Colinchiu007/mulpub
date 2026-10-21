@@ -164,7 +164,7 @@ function decideUploadWait (input) {
   // 排在 P4 之前的原因：uploading 含 pv>0（可见的 [class*=progress]/[class*=percent] 元素）这类
   // 弱 DOM 形状判据，容器类名即可命中 ⇒ 上传完成后仍为 true，P4 永不成立（抖音实测过同型：
   // 残留 progress 元素导致白等满 15 分钟）。强完成文案是语义证据，弱形状不得否决它。
-  if (Boolean(opts.doneStrong) && !Boolean(opts.uploadingText)) return { action: 'done', reportPercent }
+  if (opts.doneStrong === true && opts.uploadingText !== true) return { action: 'done', reportPercent }
 
   // P4 负向信号消失 + 正向结构信号命中 → 真完成
   if (positiveSignal && !uploading) return { action: 'done', reportPercent }
