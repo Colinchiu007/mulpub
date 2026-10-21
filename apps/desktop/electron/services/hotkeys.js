@@ -4,13 +4,23 @@
  *
  * 注册 Electron globalShortcut，为应用提供键盘操作支持。
  *
- * 快捷键列表：
- *   Ctrl+Alt+P — 打开发布页
- *   Ctrl+Alt+M — 打开分屏监控
- *   Ctrl+Alt+D — 打开数据看板
- *   Ctrl+Alt+C — 打开内容采集
- *   Ctrl+Alt+H — 返回首页
- *   Ctrl+Alt+Q — 退出应用
+ * 快捷键列表（以本文件 SHORTCUTS 表为准，共 10 组；此注释只作导航不作真源）：
+ *   CmdOrCtrl+Alt+P — 打开发布页
+ *   CmdOrCtrl+Alt+N — 新建发布
+ *   CmdOrCtrl+Alt+D — 打开数据看板
+ *   CmdOrCtrl+Alt+C — 打开内容采集
+ *   CmdOrCtrl+Alt+A — 账号管理
+ *   CmdOrCtrl+Alt+K — 关键词监测
+ *   CmdOrCtrl+Alt+V — 爆款分析
+ *   CmdOrCtrl+Alt+H — 返回首页
+ *   CmdOrCtrl+Comma  — 设置
+ *   CmdOrCtrl+Alt+Q  — 退出应用
+ *
+ * 用户可见的呈现面在渲染层：设置弹窗「快捷键」Tab（src/components/HotkeysSettings.vue），
+ * 它经 hotkeys:list 读本表，动作名由 src/utils/hotkey-labels.js 映射到 locales；
+ * 本表的 `label` 只服务主进程日志，MUST NOT 被渲染端当显示文案。
+ * 新增 accelerator 时**必须**同步 hotkey-labels.js 的 HOTKEY_ACTION_KEYS 与 zh/en locales，
+ * 否则 apps/desktop/src/utils/hotkey-labels.test.js 的跨包对齐锁变红。
  *
  * 文件位置: apps/desktop/electron/hotkeys.js
  */
