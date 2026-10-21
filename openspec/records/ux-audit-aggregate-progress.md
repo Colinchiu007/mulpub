@@ -89,3 +89,21 @@ sync_backfill_owner: none-derived-from-trunk
 1. **audit-15（陈旧看门狗）不在本批**：`lastEventAt` 写 4 次读 0 次，需要定「N 分钟无更新」的中性态阈值并解禁关闭按钮 —— 属产品口径，另片处理。
 2. 会话内**单任务行**的百分比仍直显 `task.percent`，不参与加权（它本来就是单任务口径）。
 3. 权重表是序数校准而非耗时实测分布；将来若主进程带真实 stage 耗时，应改判据而不是只删表。
+
+## 5.2 再更正一层（同日第 5、6 次实测）：链路已跑通到真后端，新 blocker 是单次输出被截断
+
+上方 §5.1 的"两把键"归因**不完整**，而且它当时也不是最内层故障：
+
+- **回落命名本来就存在**：索引干净时 `node scripts/ccg-review-decider.js --base origin/main` 会打印「判定记录：暂存 diff（排除 .ccg）为空 ⇒ **回落父 sha 命名**」并写出 `.ccg/reviews/71b672ef61bc….json`（40 位 HEAD sha）。所以"桥不存在"是错的——**缺记录只是因为我在改动仍暂存时跑的判定器**。
+- **补上 sha 键记录后第 6 次真跑，后端真的起来了**：驱动打印「跨家族校验: proposer=opencode critic=claude 通过」「[轮 1/3] 调用 critic=claude 评审…」，随后失败信息原文是
+
+  ```
+  评审失败: JSON解析失败:模型输出被截断，JSON 不完整：
+  括号计数恰好配平（24/24，那是已闭合的内层对象），但结尾不是 }
+  ——真正被砍断的是最后一个字符串，共 30225 字符
+  ```
+
+  即 **claude 侧真产出了 30225 字符的评审文本**，只是没在长度上限内闭合 JSON。产物如实落为 `deepReview.status="error"`、`performedBy="claude"`、`tier` 缺席、`evidence`/`findings` 为空——**这份 error 产物按原样入库（`.ccg/reviews/71b672ef61bc….json` 随本提交进版本库），不手改成闭环值**。
+- 驱动自己把出口写在报错里：「把方案拆小后分批评审，或先让 critic 只挑 Critical / Warning、暂不要求 Info」。**下一步因此是"降低单次输出体量"而不是"修后端"**——与本日早先记的 `codeagent-wrapper` argv 缺陷、`opencode` IP 拦截是**不同层的故障**：它们被更内层的一行硬编码盖住了——`~/.qoder-cn/skills/adversarial-review-loop/scripts/model-call.js:11` 的 `DEFAULT_WRAPPER` 把**另一台机器、另一个用户**的 `codeagent-wrapper.exe` 绝对路径写死 ⇒ `spawnSync … ENOENT`，而 `ccg-deep-review.js` 三处调用点都直接用该常量、**没有 env 或旗标可覆盖**。本机已改为按 `os.homedir()` 解析并保留原字面量作兜底候选（备份在临时目录、`node --check` 通过、解析结果 `exists=true`）。该修正落在**技能脚本**而不是本仓，属于工具环境修复，须随本记录一并知会人工。
+- 对本 PR 的含义**不变**：`status=error` 不在闭环白名单 ⇒ `Gate Result` 照旧红、照旧**不合并**。变化在于：这不再是"通道不存在"，而是"通道能通、单次评审需要收窄输出范围"——那是**可继续推进**的状态，不是死路。
+- **归因纪律**：一天之内我把 QM-6 不可用先后归成 argv 缺陷、IP 拦截、CCG 未装、shell 用错、幻影变量、两把键——**六条各自只覆盖一层**，而每一层的报错文案都在把自己写成终局。可复用口径：链式故障一律**先读最内层系统级错误码**（ENOENT / EACCES 优先于任何业务文案），并把"哪一层已确认通了"写成清单而不是结论句。
