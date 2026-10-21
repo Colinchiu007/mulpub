@@ -64,6 +64,10 @@ jobs:
           node --test scripts/check-gate-record-debt.test.js
           # 引导文案按钮名同步锁的自测（与被测判据同进 changes job，2026-10-17 change: collected-results-fix）
           node --test scripts/check-locale-button-name-sync.test.js
+          # 债务基线重算链的回归锁（change: debt-baseline-recheck）。必须待在 changes job 而不是 static-gates：
+          # 它守的是"收紧基线后在飞 PR 的旧绿结论会被重算并点名"，而 static-gates 整块会被 docs-only 短路 ⇒
+          # 一份改基线的 docs-only PR 恰好能绕过它（本仓同类反例见上方 check-gate-record-debt 那条注释）。
+          node --test scripts/check-debt-recheck.test.js
           # 冻结判据按档拦：PR 档收口成"可见"。动因是 2026-10-16 实测 run 38781654774 ——
           # pull_request 检出的是 main⊕本分支的合并预览，主干每几分钟长一块，PR 档"等于基线"必红。
           # main push 那一档照旧拦，所以锁没被拆松，只是装回它真能成立的位置。
