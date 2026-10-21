@@ -1762,3 +1762,50 @@ return { success:false, error:'publish timeout', platform:'douyin' }
 1. 用**小视频**（如 5MB 以内）先跑通链路，排除"大文件上传慢"的干扰；
 2. 全程记录 `onProgress` 回调的阶段与百分比；
 3. 应用退出时先看是否有崩溃日志，再归因。
+### 16.21 分区 cookie 同样无法在应用外读取（2026-10-21，独立证据源）
+
+> §16.18.2 已确立「发布链主源是信封库」。本节补一条**独立证据源**的验证：
+> 分区 cookie 也无法在应用外读取 —— 与信封库同结论，但来自不同机制。
+
+#### 16.21.1 实测
+
+抖音分区 `rpa-douyin-01ab122e` 的 `Cookies` 文件 **53248 字节**（mtime 05:15，最近有写入），
+说明应用确实在往里写 cookie。但用 Playwright 以该分区为 profile 启动后：
+
+```
+ctx.cookies()                        → 0 条（全部域）
+ctx.cookies('https://creator.douyin.com') → 0 条
+关键键 sessionid/sessionid_ss/sid_tt/odin_tt/msToken/passport_csrf_token → 全部 false
+```
+
+⇒ **文件在增长，但外部读不出内容**。
+
+#### 16.21.2 成因（与信封库同源，机制不同）
+
+| 凭据形态 | 保护机制 | 外部可读？ |
+| --- | --- | --- |
+| 信封库 `*.json.enc` | PBKDF2-SHA512 + AES-256-GCM，masterKey 被 `safeStorage` 包住 | ❌（§16.21 之前三轮排查） |
+| 分区 `Cookies`（SQLite） | ⚠ **机制未确证**（可能与 Chromium cookie value 加密 / app-bound encryption、或 Playwright profile 格式不兼容有关） | ❌（本节） |
+
+⇒ 两条路都堵，但这是安全边界按设计生效，不是缺陷。
+
+> ⚠ **成因的确定性边界**：本节只确证了两个**事实**——① Cookies 文件 53248 字节且 mtime 很近；
+> ② Playwright 以该分区为 profile 读出来 0 条（全部域）。
+> "加密导致读不出"是连接二者的**解释之一**，未排除的其他解释包括：
+> Playwright 不认 Electron 分区结构、cookie 为 session-only 随进程退出即消失、
+> 或 domain 落在 Electron partition 命名空间。**不要把这条成因当定论。**
+
+#### 16.21.3 对验证方法的结论
+
+「用分区 cookie 在应用外探测平台接口」这条路**不可行** ——
+这同时修正了一个此前的隐患：§16.18.2 里我用分区 cookie 调 `auth_data` 得 300330，
+当时的解读是"分区凭据与信封库不同步"；现在看更可能是**分区 cookie 本身就读不出来**
+（那次之所以有反应，是因为 Playwright 起了自己的 profile，某些未加密字段仍在）。
+
+⇒ 教训：**外部探测拿不到有效凭据时，不要把"探测失败"归因成"凭据失效"**，
+   应先确认"凭据是否真的取到了"。
+
+#### 16.21.4 唯一可行的验证途径
+
+经 GUI 应用自身（`publish:batch` IPC，内部用信封库凭据）—— 即 `dy-publish-e2e.cjs` 的做法。
+**前置：应用必须已启动。**
