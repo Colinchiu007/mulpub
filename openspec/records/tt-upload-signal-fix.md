@@ -85,6 +85,26 @@ positive = !!(vv || ed || doneCopy || location.href.indexOf("post/video") !== -1
 | **QM-1** | build:vue 44.74s + electron-builder ✅ + 启动 **PASS（stderr 0 字节）** |
 | PRD | §16.32（取证方法 + 两缺陷 + 修法 + 验证口径 + 行数门禁实录） |
 
+## 六之二、CI 反馈修复：ESM 孪生漏导出（publish-channel-routing parity 红）
+
+首轮 CI 的 `QG Unit Tests` 红，日志（`actions/jobs/.../logs` 逐行读得）：
+```
+FAIL src/__tests__/publish-channel-routing.test.js > parity — CJS 与 browser 孪生同构
+AssertionError: expected [ 'NO_BODY_VIDEO_PLATFORMS', …(21) ] to deeply equal [ 'NO_TITLE_PLATFORMS', …(19) ]
+```
+
+**真因**：我只把 `NO_BODY_VIDEO_PLATFORMS` / `isNoBodyVideoPlatform` 加到了 CJS 版
+`publish-capabilities.js`，**没加到 ESM 孪生** `publish-capabilities.browser.js`
+（AGENTS.md 孪生纪律：渲染端与主进程两份必须同名同构，数据只从同一份 JSON 来）。
+
+**修法**：孪生版补同名导出（同样从 `registryData.noBodyVideoPlatforms` 派生，不复制数据），
+两份各 22 个导出。验证：`publish-channel-routing` + `publish-capabilities` **108 例通过**；
+shared-utils 全量 **1094 通过 / 10 skipped**。
+
+**过程中的一次弯路（如实记录）**：我一开始在 `xhs-406-field-forensics`（纯文档分支）上改孪生文件，
+该分支没有 CJS 侧的新增导出 ⇒ parity 反向失败（20 vs 22）。根因是**分支选错**，不是修法错；
+清理后回到 `tt-upload-signal-fix` 应用，一次通过。
+⇒ 教训：**改动要落在承载对应代码的那个分支上**；跨分支改同一份文件会得到反向的"差两个导出"。
 ## 七、行数门禁实录（零增长容差文件）
 
 `rpa-view-platforms.js` 目标 1484 行、改动前 1482。本次先 +3 行 ⇒ 1485 超线；

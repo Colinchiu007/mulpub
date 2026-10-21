@@ -39,6 +39,20 @@ export function getPlatformPublishMeta (platformId) {
   return { titleMode: meta.titleMode, limits: { ...meta.limits } }
 }
 
+/**
+ * 「视频发布无正文位」平台（toutiao video，2026-10-21 真机取证）。
+ * 与 CJS 版 publish-capabilities.js 同源同构（AGENTS.md 孪生纪律）。
+ */
+export const NO_BODY_VIDEO_PLATFORMS = Object.freeze([...(registryData.noBodyVideoPlatforms || [])])
+
+/**
+ * 该平台的**视频**发布是否没有正文输入位；未声明返回 false（fail-closed）。
+ * @param {unknown} platformId
+ * @returns {boolean}
+ */
+export function isNoBodyVideoPlatform (platformId) {
+  return NO_BODY_VIDEO_PLATFORMS.includes(String(platformId || ''))
+}
 export function isNoTitlePlatform (platformId) {
   return NO_TITLE_PLATFORMS.includes(String(platformId || ''))
 }
