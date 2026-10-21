@@ -325,12 +325,8 @@ def test_style_to_strategy_mapping():
 def test_length_ranges_mapping():
     """Regression: 3 种长度必须映射到正确的字数范围.
 
-    2026-10-21（feat-zhihu-fav-batch-wordcount）：三档的 **max 统一提到 50000**
-    （与引擎 MAX_OUTPUT_CHARS 对齐）。这三档是 2026-09-06 `d0a9b00ba`（全局输出上限
-    还是 6000 时）定的，`rewrite-limits-50000`（2026-10-19）放开到 50000 后没跟着放大
-    ⇒ keep 的 3000 成了整套体系里最紧的「暗上限」。
-    **target 保持原值**：它才是 prompt 里「目标 N 字」的锚（实际篇幅的落点），
-    max 只是硬上界——改 max 解除人为上限，改 target 才会改变实际篇幅。
+    数字来历（为何是这三个数、为何本次只改 max）见 `service.py` 里 `_LENGTH_RANGES`
+    上方的注释——那里是单一真源，此处只留断言，避免两处散文漂移。
     """
     from multi_publish.aggregation.service import _LENGTH_RANGES
 
@@ -699,17 +695,37 @@ def test_rewrite_length_fallback_for_legacy_clients():
 
 
 def test_length_ranges_max_aligned_with_engine_output_cap():
-    """三档的 max 统一 = 50000（引擎 MAX_OUTPUT_CHARS）。
+    """三档的 max 必须与**引擎输出上限**对齐，而不是钉死一个字面值。
 
-    动因：这三档是 2026-09（全局上限 6000 时）定的，`rewrite-limits-50000`（2026-10-19）
-    放开到 50000 后没跟着放大 ⇒ keep 的 3000 成了整套体系里最紧的「暗上限」。
-    target **保持原值**（它才是 prompt 里「目标 N 字」的锚，max 只是硬上界）。
+    动因与数字来历见 `service.py` 里 `_LENGTH_RANGES` 上方的注释（单一真源，
+    此处不重复，避免两处散文漂移）。
+
+    本用例钉的是**对齐关系**而非字面值：真源在 Node 侧
+    `packages/rewrite-engine/src/rewrite-engine-core.js` 的 `MAX_OUTPUT_CHARS`，
+    那里才是引擎的输出上限定义处。若引擎上限将来再变（例如提到 100000），
+    本用例会因「三档没跟上」而红——这正是要防的「放宽一处、另一处成暗上限」。
     """
+    import re
+    from pathlib import Path
+
     from multi_publish.aggregation.service import _LENGTH_RANGES
+
+    engine_source = (
+        Path(__file__).resolve().parents[3]
+        / "packages" / "rewrite-engine" / "src" / "rewrite-engine-core.js"
+    )
+    assert engine_source.exists(), f"找不到引擎上限真源：{engine_source}"
+    text = engine_source.read_text(encoding="utf-8")
+    m = re.search(r"const\s+MAX_OUTPUT_CHARS\s*=\s*(\d+)", text)
+    assert m, "引擎真源里找不到 MAX_OUTPUT_CHARS 的数值定义"
+    engine_cap = int(m.group(1))
 
     assert set(_LENGTH_RANGES.keys()) == {"keep", "compress", "expand"}
     for name, (min_wc, max_wc, target_wc) in _LENGTH_RANGES.items():
-        assert max_wc == 50000, f"{name} 档 max 应为 50000，实际 {max_wc}"
+        assert max_wc == engine_cap, (
+            f"{name} 档 max {max_wc} 与引擎上限 {engine_cap} 脱钩"
+            "（引擎放宽了，三档没跟上 ⇒ 又一道暗上限）"
+        )
         assert min_wc <= max_wc, f"{name} 档 min 不得大于 max"
         assert 0 <= min_wc < target_wc <= max_wc, f"{name} 档三值关系被破坏: {(min_wc, max_wc, target_wc)}"
 

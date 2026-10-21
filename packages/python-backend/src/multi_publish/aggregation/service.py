@@ -64,10 +64,15 @@ _STYLE_TO_STRATEGY = {
 #     （2026-10-19）把引擎上限放到 50000，这三档**没跟着放大** ⇒ keep 的 3000
 #     反而成了整套体系里最紧的一道「暗上限」。
 #
-# 2026-10-21（feat-zhihu-fav-batch-wordcount）：三档的 **max 统一提到 50000**，
-# 与引擎 `MAX_OUTPUT_CHARS` 对齐，解除上面那道历史暗上限。
+# 2026-10-21（feat-zhihu-fav-batch-wordcount 的 follow-up）：三档的 **max 统一提到
+# 50000**，与引擎输出上限对齐，解除上面那道历史暗上限。
 # ⚠️ **target 保持原值**：它才是模型实际落点的锚（prompt 写的是「目标 N 字」），
 # max 只是硬上界。改 max = 解除人为上限；改 target 才会改变实际篇幅（那是另一件事）。
+#
+# 运行时消费链（改 max 不是空操作）：max → `RewriteConfig.max_word_count` →
+# 外部引擎把它写进 prompt 的字数区间（「字数要求:{min}-{max}字,目标{target}字」），
+# 引擎**不按 max 截断**、只回真实产出字数 ⇒ 放宽 max 的效果是「模型不再被告知
+# 一个偏小的上限」，实际篇幅仍由 target 锚定。
 _LENGTH_RANGES = {
     "keep": (300, 50000, 1500),
     "compress": (100, 50000, 400),
