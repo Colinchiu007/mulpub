@@ -28,7 +28,7 @@ catch (e) {
 
 **实跑读数**（应用未启动）：
 ```
-视频: D:\Temp\dy-small.mp4 (250 KB)
+视频: <video> (250 KB)
 无法连接应用 CDP（127.0.0.1:9279）: browserType.connectOverCDP: connect ECONNREFUSED 127.0.0.1:9279
 最常见原因：**应用未启动**（electron 进程不存在）。请先启动应用再跑本脚本。
 若应用已启动，请用 DY_CDP_PORT=<端口> 指定实际 CDP 端口。
