@@ -1,3 +1,42 @@
+## 测试 flaky 时，先问「上一个用例的组件卸载了吗」——两种想当然的修法都无效（fix-rewrite-warning-severity，2026-10-21）
+
+### lesson: flaky-first-check-unmount
+
+**现场**：新增的 `RewriteView.sensitive-warning.test.js` 在「单独跑」与「3 文件同跑」时全绿，但在「13 文件同跑」时偶发失败（`role="alert"` 意外出现）。同一次运行的复现率约 1/8。
+
+**两种想当然的修法，都无效甚至更糟**：
+1. `mockResolvedValueOnce` → `mockResolvedValue`：理由猜「`clearAllMocks` 清掉了一次性队列」。单独跑仍绿，13 文件同跑**仍偶发失败**。
+2. 把默认信封下沉进 `vi.mock` 工厂：理由猜「工厂实现清不掉，更确定」。结果**4/5 稳定失败**——比 flaky 更糟，说明根因判断错误，立即撤销。
+
+**真正生效的是每个用例末尾 `w.unmount()`**。机制：前一个用例 mount 的组件没有卸载，它的 async 改写链路（`startRewrite` → `aiRewrite` → 赋值）会在下一个用例的 `beforeEach` 之后才 resolve，写进**旧组件实例**；而 vitest 的 DOM 查询在部分场景下会读到残留节点。加 unmount 后 8 轮 0 失败。
+
+**判据**：遇到「单独跑过、同跑偶发失败」的 flaky，检查顺序应是 ① 用例末尾是否 `unmount()` → ② mock 是否被 `clearAllMocks` 清掉实现 → ③ 是否有模块级共享状态。**不要一上来就改 mock 形态**——那会掩盖真实原因，且让问题从偶发变成稳定失败（本次第 2 种修法就是这样）。
+
+## 用脚本批量改代码，坏结构报的是「no tests」而不是语法错误（fix-rewrite-warning-severity，2026-10-21）
+
+### lesson: script-edit-breaks-structure-silently
+
+**现场**：用 Node 脚本批量替换测试文件里的 `vi.mock('@/api/publisher', ...)` 段。脚本自身 `process.exit(9)` 守卫只校验「目标字符串是否存在」，不校验替换后的文件是否还是合法 JS。结果 mock 工厂里残留了裸对象字面量（`aiRewrite: hoisted.aiRewrite,` 后面直接跟 `code: 0, data: {...}`），文件语法错误。
+
+**症状极具误导性**：vitest 报的是 `Tests  no tests` / `Test Files 1 failed (1)`，**不是语法错误**。第一反应容易误判成「测试没被发现」或「glob 路径不对」，从而去改运行命令——方向完全错。
+
+**判据**：凡用脚本改代码，改完必须做两件事——① `node --check <file>`（或让测试真跑一次并确认**用例数符合预期**）；② 若用例数变 0 或与预期不符，**先怀疑文件结构被改坏，不要怀疑运行命令**。本次最终改用编辑工具逐块替换才对。
+
+## 「贴住上限的文件」+「只增 12 行的修复」= LEDGER_GREW，但漂移不是你的（fix-rewrite-warning-severity，2026-10-21）
+
+### lesson: ledger-grew-attribution
+
+**现场**：`RewriteView.vue` 的 max-lines 登记值 1219 + 容差 200 = 1419 上限；origin/main 实测 **1418 行**（差 1 行就超）。本 PR 只净增 12 行，仍触发 `LEDGER_GREW`。
+
+**199 行漂移是谁的**：`git log --oneline origin/main -- <file>` 显示由 #4123、#4078、#4063、#4032 等多个他人 PR 累积（都是 legit 功能迭代，各自合入时都没超限）。是这个文件「累积到任何人碰一下都会红」的状态。
+
+**判据**：遇到 `LEDGER_GREW` 先做归因，不要默认是自己造成的：
+1. `git show origin/main:<file> | Measure-Object -Line` 拿主干行数（注意：PowerShell 的 `Measure-Object -Line` 在末行无换行时会少数，**用 `node -e "readFileSync().split('\n').length"` 与门禁同源**）；
+2. 主干已超限 ⇒ 漂移是历史的，你的增量只是压垮它的最后一根稻草；
+3. 处置优先级：**单键精准更新基线**（diff 仅 1 行、完全可归因）> 拆文件/抽组件 > `--update --rewrite`（脚本注释明确警告它「会掩盖别人的漂移，需人工审 diff」，是最后手段）；
+4. 若更新基线会影响「谁来守门」，按项目铁律**必须人工过目、不走 agent 自动合并**——本次即如实向用户报告并取得裁决后才动。
+
+
 <!-- aggregate:record=chore-dep-audit-prune-resolved -->
 ### lesson: 清账清单不靠人记——用门禁自己的读数驱动（chore-dep-audit-prune-resolved）
 
