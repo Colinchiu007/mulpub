@@ -4,7 +4,9 @@
 
 ### Requirement: 热写面清单与共享根热点载体清单 MUST NOT 合并成一份
 
-仓库里另有一份既存的"热点载体"清单（change `hot-carrier-atomic-landing` 的 `scripts/hot-carrier-paths.json`，规格已合入、实现未做）。它的 D4 明确把 `AGENTS.md`、`CHANGELOG.md`、`01-docs/learnings.md` **移出**其清单，理由是「没有量过它们在回填链里是否真的构成窗口」，且重进的前提是「由窗口读数先量到」。
+**本条规则的效力来自本 Requirement 自身**，不来自下面提到的那份 change —— 即便 `hot-carrier-atomic-landing` 被放弃、其 `scripts/hot-carrier-paths.json` 从未落地，"MUST NOT 合并"照样成立。引用它只解释边界从何而来，并防止后来者拿"那边也管这两个文件"当误删本判据的理由（规则自持，引用仅作历史指针）。
+
+仓库里另有一份既存的"热点载体"清单设计（change `hot-carrier-atomic-landing` 的 `scripts/hot-carrier-paths.json`，规格已合入、实现未做）。它的 D4 明确把 `AGENTS.md`、`CHANGELOG.md`、`01-docs/learnings.md` **移出**其清单，理由是「没有量过它们在回填链里是否真的构成窗口」，且重进的前提是「由窗口读数先量到」。
 
 本 Requirement 下的清单是**另一个机制的输入**，两者量的是不同的东西，MUST NOT 被"顺手统一"成一份：
 
