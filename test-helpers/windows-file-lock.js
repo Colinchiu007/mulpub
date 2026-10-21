@@ -73,7 +73,9 @@ const LOCK_BUDGET_PROVENANCE = {
   jobs: 41,
   safetyMultiplier: 2,
   collectedAt: '2026-10-02',
-  source: 'CI 作业 QG Desktop Shards (1/2|2/2) + QG Coverage 日志里的 [windows-file-lock] '
+  source: 'CI 三个生产者作业（按 (workflow, jobName) 二元组登记在 scripts/lock-timing-audit.js 的 PRODUCERS：'
+    + 'quality-gate.yml 的 QG Desktop Shards (1/2|2/2) 与 QG Coverage，以及 electron-ci.yml 的 electron-tests，'
+    + '后者 2026-10-21 扩进来）里 [windows-file-lock] '
     + 'ready=/locked= 行（自 2026-10-20 起只取 mock=false 的真握手），'
     + '由 scripts/lock-timing-audit.js 汇总：node scripts/lock-timing-audit.js --runs=26 --json'
     + '；采不到样本时该脚本以 rc=3 出声 —— 零样本不等于没问题'
@@ -81,6 +83,11 @@ const LOCK_BUDGET_PROVENANCE = {
     + '⚠ 下面这组数是**旧探针**量的：采样域只有 Shards、且未区分真假握手 ⇒ '
     + 'maxObservedReadyMs 是下界（Coverage 实测 max 更大，现场读数见 openspec/records/lock-timing-audit-coverage-domain.md），'
     + 'samples 是上界（含单元用例打出的 ready=0 行）。带标签的日志攒够窗口后要重测再回填。'
+    + '2026-10-21 扩完 workflow 轴后做过一次 8+8 run 的**定点**复测：domain=electron-ci.yml,quality-gate.yml'
+    + ' runs_total=16 jobs=32 samples=168 mock_lines=96 ready.max=10933ms'
+    + '（by_job 里 electron-ci.yml/electron-tests 独贡 56 条 —— 扩面前这一维一条都采不到）。'
+    + '该读数**未超过**既有 max ⇒ 按不对称纪律不收紧预算；定点窗口只有 16 run，'
+    + '所以它既不构成收紧依据，也不构成"扩面后 max 不会更高"的证据 —— 足量重测（--runs=26）仍是欠账。'
 }
 
 // 每次真握手都进这本账，供"本次 CI 的观测值有没有贴脸逼近预算"这条回归检查取数。

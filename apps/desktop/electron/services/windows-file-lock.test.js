@@ -467,8 +467,8 @@ describe('预算取值来源：常量必须由 CI 实测分布支撑，且留一
       .toMatch(/const mod = helper\(\);[\s\S]{0,600}mod\.parseTimingLine\(/)
     expect(src, '脚本里不得再留第二份 ready=/locked= 的解析正则（`/\\[` 与 `/[` 两种写法都要挡）')
       .not.toMatch(/SAMPLE_RE\s*=\s*\/\\?\[/)
-    expect(src, '采样域必须留在脚本里且是显式作业名集合（不得退化成扫所有作业）')
-      .toMatch(/QG Desktop Shards\|QG Coverage/)
+    expect(src, '采样域必须留在脚本里且是显式 (workflow, jobName) 登记表（不得退化成扫所有作业）')
+      .toMatch(/const PRODUCERS = \[[\s\S]{0,600}jobRe: \/QG Desktop Shards\/[\s\S]{0,200}jobRe: \/QG Coverage\//)
   })
 
   it('采样域必须覆盖所有真跑该夹具的作业，并对不跑它的作业保持不匹配（A/B 负控）', async () => {
@@ -480,15 +480,16 @@ describe('预算取值来源：常量必须由 CI 实测分布支撑，且留一
     ].find((c) => fs.existsSync(c))
     const { pathToFileURL } = await import('node:url')
     const audit = await import(pathToFileURL(cand).href)
-    const { JOB_RE, collectFromLog } = audit
-    // A 臂：实测确实产出读数的两个作业族必须命中
+    const { isProducer, collectFromLog } = audit
+    // A 臂：实测确实产出读数的两个作业族必须命中（本条只测**作业名轴**，
+    // workflow 轴的那一维由下面那条「二元组登记表」的锁负责 —— 两条各测各的轴，不合并计一条）
     for (const name of ['QG Desktop Shards (1/2)', 'QG Desktop Shards (2/2)', 'QG Coverage']) {
-      expect(JOB_RE.test(name), '采样域漏掉真跑了夹具的作业：' + name).toBe(true)
+      expect(isProducer('quality-gate.yml', name), '采样域漏掉真跑了夹具的作业：' + name).toBe(true)
     }
     // B 臂（负控）：不跑该夹具的作业必须不命中 —— 否则"扩面"只是把过滤写宽，
     // 采到的样本从哪来将无法归因。
     for (const name of ['QG Static', 'QG Unit Tests', 'QG Changes', 'GUI Gate Result', 'build']) {
-      expect(JOB_RE.test(name), '采样域把没跑夹具的作业也算进来了：' + name).toBe(false)
+      expect(isProducer('quality-gate.yml', name), '采样域把没跑夹具的作业也算进来了：' + name).toBe(false)
     }
     // 行为面：真伪与 legacy 分档必须在同一个函数里可观测（不得靠"总数不为 0"下结论）
     const log = [
@@ -511,6 +512,83 @@ describe('预算取值来源：常量必须由 CI 实测分布支撑，且留一
     expect(allMock.mock).toBe(1)
     expect(allMock.legacy).toBe(0)
     expect(allMock.legacyMax).toBe(0)
+  })
+
+  // ── 2026-10-21：域的第二层（workflow 轴，遗留 #3 转正）──────────────────────────
+  // 上一片把 JOB_RE 从「只认 Shards」扩成「Shards ∪ Coverage」，但**作业名轴扩了、workflow 轴没扩**：
+  // 脚本只列 `WORKFLOW = 'quality-gate.yml'` 一个坐标。当场复测（run 39569099718 / job 119118831343，
+  // 2026-10-21 取）：`.github/workflows/electron-ci.yml` 的 `electron-tests` 作业里
+  // `[windows-file-lock]` 共 11 行，其中 **mock=false 有 7 行**、real_max=4282ms、real_min=343ms。
+  // 也就是说它**真跑本夹具并产出真实握手**，却因为 workflow 坐标不对而一条都采不到。
+  // 这一维比作业名轴更阴：作业名漏了会表现为「样本少」，workflow 漏了同样打印得出总数、
+  // 且与「那个 workflow 恰好没跑」逐字同形 —— 所以判据必须按 (workflow, jobName) 二元组成立，
+  // 而不是两个独立集合的笛卡尔积。
+  it('采样域必须是 (workflow, jobName) 二元组登记表，并对错配的配对保持不匹配（A/B 双轴负控）', async () => {
+    const fs = await import('node:fs')
+    const path = await import('node:path')
+    const cand = [
+      path.resolve(process.cwd(), '../../scripts/lock-timing-audit.js'),
+      path.resolve(process.cwd(), 'scripts/lock-timing-audit.js'),
+    ].find((c) => fs.existsSync(c))
+    expect(cand).toBeTruthy()
+    const { pathToFileURL } = await import('node:url')
+    const audit = await import(pathToFileURL(cand).href)
+
+    expect(typeof audit.isProducer, '缺 isProducer：判据无法按二元组成立，只能退化成两个独立集合').toBe('function')
+    expect(Array.isArray(audit.PRODUCERS), 'PRODUCERS 必须是显式登记表（不得由"扫所有 workflow"推导）').toBe(true)
+    expect(typeof audit.producerWorkflows).toBe('function')
+    expect(audit.producerWorkflows(), 'workflow 轴必须恰好是这两个（多一个就是把未取证的坐标写进域）')
+      .toEqual(['electron-ci.yml', 'quality-gate.yml'])
+
+    // A 臂：三个**实测产出真实握手**的 (workflow, job) 配对
+    const PRODUCING = [
+      ['quality-gate.yml', 'QG Desktop Shards (1/2)'],
+      ['quality-gate.yml', 'QG Desktop Shards (2/2)'],
+      ['quality-gate.yml', 'QG Coverage'],
+      ['electron-ci.yml', 'electron-tests'],
+    ]
+    for (const [w, j] of PRODUCING) {
+      expect(audit.isProducer(w, j), '采样域漏掉实测产握手行的配对：' + w + ' / ' + j).toBe(true)
+    }
+    // B 臂 · 作业名轴：同一 workflow 里不跑夹具的作业必须不命中
+    for (const j of ['QG Static', 'QG Unit Tests', 'QG Changes', 'GUI Gate Result', 'build']) {
+      expect(audit.isProducer('quality-gate.yml', j), '把没跑夹具的作业算进来了：' + j).toBe(false)
+    }
+    // B 臂 · workflow 轴（本片新增的那一维）：**作业名对、workflow 不对**必须不命中。
+    // 旧实现只用一个全局 JOB_RE，这一格在结构上无法表达 —— 把 electron-tests 的名字加进
+    // quality-gate 的域里，它会同时命中两个 workflow 的同名作业。
+    for (const [w, j] of [
+      ['gui-test.yml', 'electron-tests'],
+      ['quality-gate.yml', 'electron-tests'],
+      ['electron-ci.yml', 'QG Coverage'],
+      ['build.yml', 'QG Desktop Shards (1/2)'],
+    ]) {
+      expect(audit.isProducer(w, j), 'workflow 轴错配却命中：' + w + ' / ' + j).toBe(false)
+    }
+    // null/undefined 不得被读成"匹配"（作业对象缺 name 字段时采集端会静默收下）
+    expect(audit.isProducer('quality-gate.yml', undefined)).toBe(false)
+    expect(audit.isProducer(undefined, 'QG Coverage')).toBe(false)
+
+    // 行为面：pickProducerJobs 必须同时按 status 与 (workflow, job) 筛
+    const jobs = [
+      { name: 'electron-tests', status: 'completed' },
+      { name: 'electron-tests', status: 'in_progress' },
+      { name: 'Changes', status: 'completed' },
+      { name: null, status: 'completed' },
+    ]
+    expect(audit.pickProducerJobs('electron-ci.yml', jobs).map((x) => x.name))
+      .toEqual(['electron-tests'], '未完成或非生产作业被收进采集队列')
+    expect(audit.pickProducerJobs('electron-ci.yml', [])).toEqual([])
+    expect(audit.pickProducerJobs('electron-ci.yml', null)).toEqual([])
+
+    // 结构面：采集端不得再持有单个写死的 workflow 字面量
+    const src = fs.readFileSync(cand, 'utf8')
+    expect(src, '列 run 必须按 producerWorkflows() 逐个取坐标（写死一个 = 另一维永远采不到）')
+      .toMatch(/for \(const \w+ of producerWorkflows\(\)\)[\s\S]{0,800}?listRuns\(\w+,/)
+    expect(src, '不得出现以字面量 workflow 名直接列 run 的写法（绕过登记表）')
+      .not.toMatch(/listRuns\(\s*['"]/)
+    expect(src, 'WORKFLOW 常量不得残留（残留说明还有一处在用单坐标）')
+      .not.toMatch(/const WORKFLOW = 'quality-gate\.yml'/)
   })
 
   it('LEGACY_ONLY 的出声必须逐作业点名 count 与 max，且这句话只有一份实现', async () => {
