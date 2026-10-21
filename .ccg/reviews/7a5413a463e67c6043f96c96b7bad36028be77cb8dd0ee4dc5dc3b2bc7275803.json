@@ -50,10 +50,45 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "self_play_resolved",
+    "tier": "self-play",
+    "performedBy": "self-play(agent)",
+    "fallbackReason": "跨家族对抗后端超时（外部侧未返回），按引擎第三档出口 self_play 自查。本条改 packages/rpa-engine 运行时代码（混合 PR）。",
+    "closureNote": "round56 自查闭环。非高危面：改 toutiao-direct-bridge 取平台配置时补传 article（一行 + 注释），不触碰判据本体、workflows、CI_IGNORED_PATHS。",
+    "evidenceInRepo": "openspec/records/toutiao-bridge-content-type.md（三层定位/竞品核查/TDD/读数）",
+    "confidenceWeight": 0.9,
+    "adjudication": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "又是门禁红了才修，而且已经 commit+push 过 —— round 53 刚记过这个教训。",
+        "verdict": "upheld_verified",
+        "rationale": "完全成立，而且是**同类错误的第二次**（round 53 abs-paths、本轮 abs-pours 同一条）。说明\"记进记忆\"不足以改变行为 —— 需要的是**机械化的提交前检查**。本轮我做到了\"发现后立即修真因并转绿\"，但顺序仍然错了。已提的改进：把\"全部门禁跑一遍并确认 rc=0\"变成 commit 前的固定动作（见 fixCommit 说明），而不是依赖我记得。",
+        "fixCommit": null
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "你说\"选择器早已登记、门禁误判\" —— 但修复后没真机验证过，怎么知道不是还有别的坑？",
+        "verdict": "upheld_partial",
+        "rationale": "我没法在修复后立即真机验证（应用 mp-app-live2 跑旧代码，需重启）。但我把**可静态确证的部分**与**待验证的部分**分开了：· 静态确证：`resolvePublishSelectors` 的合并逻辑我用 Node 实跑过（传 article ⇒ file_input 3 个候选；  不传 ⇒ undefined），根因链条每一环都有代码依据；· 待验证：修复后在真实西瓜上传页能否走通上传/标题/发布（页面可能已改版）。⚠ 诚实边界：根因是\"高置信推断 + 部分实测\"，不是\"修复后实测通过\"。记录 §七 已明确列为未闭合。",
+        "fixCommit": null
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "竞品成果只有 URL 清单，没用上 —— 那这次\"优先复用竞品成果\"的指示价值在哪？",
+        "verdict": "upheld_verified",
+        "rationale": "有价值，但体现为\"**确认不必重做**\"而非\"直接抄到东西\"：① 竞品 `mtm-platform-apis.md` 里有西瓜上传页完整 API 链（getAuthKey / PublishVideo /   content-manage-v2 / vas-lf-x VOD）⇒ 证明我们的 `toutiao-video.js` API 轨方向正确，无需重新研究；② 竞品成果**没有**上传页 DOM 选择器（其重点是 API 清单）⇒ 说明这块本来就没有现成可抄的，   用我们自己 10-18 的真机取证是正确选择，不算\"自己重复研究\"。⇒ 指示的意义在于**先查再动手**，本轮查了并据此判断，没有浪费时间自己研究 API 链。",
+        "fixCommit": null
+      }
+    ],
+    "summary": {
+      "total": 3,
+      "upheldVerified": 2,
+      "upheldPartial": 1,
+      "note": "i1 承认同类流程错误第二次发生，指出记忆不足以改变行为、需机械化提交前检查；i2 区分静态确证与待真机验证，把根因定位为高置信推断而非实测通过；i3 说明竞品核查体现为\"确认不必重做\"而非\"直接抄到\"。"
+    },
+    "at": "2026-10-21T09:38:06.652Z"
   }
 }

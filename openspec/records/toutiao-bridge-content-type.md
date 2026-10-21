@@ -42,7 +42,7 @@ const config = host._getPlatformConfig('toutiao', article)
 
 ## 四、竞品逆向成果核查（按用户指示优先复用）
 
-查 `D:\Data\reverse-two-competitors\01-analysis\`：
+查竞品逆向成果目录（`<逆向仓>/01-analysis/`）：
 - `mtm-platform-apis.md` 有西瓜上传页的**完整 API 链**（`xigua/api/upload/getAuthKey`、
   `xigua/api/upload/PublishVideo`、`profile_v4/xigua/content-manage-v2`、`vas-lf-x.ixigua.com` VOD）
   —— 与我们的 `toutiao-video.js` API 轨同源，**API 轨无需重做**；
