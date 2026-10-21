@@ -177,6 +177,9 @@ async function refreshProfileFromHttpApi (platform, accountId, cookies, deps) {
  * 3. **不改变 `name`**：`name` 是 document.title 落盘位，兜底只作用于 account_name /
  *    platform_account_id / followers / avatar。
  * 4. **纯函数**：所有路径（含提前返回）都返回**新对象**，⛔ 绝不就地修改入参（CCG i2，有测试锁定）。
+ *    实现用浅拷贝 `{ ...profile }`，**因此入参必须是扁平对象、四个字段必须是原始类型**
+ *    （string / number / null，由 `profileForCreate` 的契约保证）——⛔ 本函数不承诺处理嵌套结构。
+ *    若将来真要加嵌套字段，应在此处显式改成深拷贝并补测试，而不是指望浅拷贝能兜住（CCG i8）。
  *
  * **关于「网络请求在创建关键路径上」**（CCG i3，确认接受）：只在没采到真昵称时触发
  * （DOM 成功时零请求）；`fetchAccountInfoViaHttpApi` 自带 8s 超时（http-login-checker.js:269），
