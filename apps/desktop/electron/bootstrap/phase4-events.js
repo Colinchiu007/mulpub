@@ -39,6 +39,41 @@ const republishSnapshot = require('../services/publish-republish-snapshot')
  * @param {string|undefined} ownerSubject
  * @param {object|undefined} store 存储依赖（缺省即为未接线，快照侧按 no_store 跳过）
  */
+/**
+ * 安全序列化 task.result（2026-10-21，douyin-e2e-timeout-debug）。
+ *
+ * 失败记录需要保留 result 里的结构化诊断（如 rpa-view-manager 降级时写入的
+ * `stoppedBy`），但 result 可能含大对象/循环引用/不可序列化值。
+ * 策略：先 JSON 化；失败则**逐层剥**（只留前 3 层、每层最多 40 键）；
+ * 仍失败就返回 null —— 绝不阻断发布主流程（历史写入是辅助信息，不是关键路径）。
+ *
+ * @param {*} r task.result
+ * @returns {object|null}
+ */
+function safeResult (r) {
+  if (r === null || r === undefined) return null
+  if (typeof r !== 'object') return { value: String(r).slice(0, 200) }
+  try {
+    return JSON.parse(JSON.stringify(r))
+  } catch (_e) { /* 循环引用或不可序列化值，走剥层 */ }
+  const shallow = (v, depth) => {
+    if (depth > 3 || v === null || typeof v !== 'object') return v
+    const out = {}
+    let n = 0
+    for (const k of Object.keys(v)) {
+      if (n++ >= 40) break
+      try { out[k] = shallow(v[k], depth + 1) } catch (_e2) { out[k] = '[unserializable]' }
+    }
+    return out
+  }
+  try {
+    const out = shallow(r, 0)
+    return JSON.parse(JSON.stringify(out))
+  } catch (_e3) {
+    return null
+  }
+}
+
 function saveRepublishSnapshotFor (entry, task, ownerSubject, store) {
   if (!entry || typeof entry.id !== 'string' || !entry.id) return
   try {
@@ -249,10 +284,15 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
     })
     // publish-progress-ux（G8 修复）：失败必须落发布历史——此前 task:failed 只发事件不落库，
     // 失败结果在任何页面都查不到（历史页 failed 过滤器实际只匹配监控回调写入的记录）。
-    // addRecord 内建 try/catch，写入失败不阻塞发布主流程。
+    // 2026-10-21（douyin-e2e-timeout-debug）：失败记录**保留 task.result**——
+    // 抖音 E2E 实测「API 轨抛错 → 降级 DOM 轨 → DOM 超时」的完整路径里，
+    // rpa-view-manager 降级时会把 `stoppedBy` 等结构化诊断写进 result，
+    // 但此前此处硬编码 `result: null`，导致历史只剩终态 error，
+    // 「是否走过 API 轨、其失败原因」无从回答（只能靠日志反推）。
+    // 安全序列化兜底：result 可能含大对象/循环引用，化不掉就退回 null，不阻断主流程。
     const failedEntry = history.addRecord({
       platform: task.platform, title: task.article?.title || '', taskId: task.id,
-      status: 'failed', result: null, error: task.error,
+      status: 'failed', result: safeResult(task.result), error: task.error,
       // 失败记录与成功记录**同源**取封面：用户恰恰要在失败记录里确认「当时用的是哪张封面」，
       // 两个落库点各写一份优先级，漂移的方向必然是失败记录没有封面。
       ...resolveRecordCover(task.article),
