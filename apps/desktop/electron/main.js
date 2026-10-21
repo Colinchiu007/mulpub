@@ -9,8 +9,9 @@
  *   4. runWhenReady()               注册 app.whenReady 回调（内含 createWindow）
  *   5. second-instance / activate   聚焦或重建主窗口
  */
-const { app, BrowserWindow } = require('electron')
+const { app, BrowserWindow, Menu } = require('electron')
 const { configureGraphics, configureUserDataPath, configureUserAgentFallback } = require('./startup-compat')
+const { removeApplicationMenu } = require('./services/native-menu')
 
 let storageConfig
 try {
@@ -74,6 +75,12 @@ const hasSingleInstanceLock = app.requestSingleInstanceLock()
 if (!hasSingleInstanceLock) {
   app.quit()
 } else {
+  // 2026-10-21（remove-native-menu-bar）：移除 Electron 默认应用菜单
+  // （File / Edit / View / Window）。它不是本产品的功能入口，却白占一整行窗口高度。
+  // 这是根因级的一刀：之后创建的窗口都不再自带这行菜单；
+  // 主窗口另有窗口级兜底（window.js 的 removeWindowMenuBar）。
+  // macOS 保留原生菜单（见 services/native-menu.js 的平台策略）。
+  removeApplicationMenu({ Menu })
   // 同步初始化基础设施（DI 容器消费 + taskQueue 接线 + 基础设施构建）
   const context = createAppContext()
 

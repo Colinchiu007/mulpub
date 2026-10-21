@@ -166,6 +166,18 @@ describe('main.js — QM-3 启动测试', () => {
     expect(args[1]).toEqual({ createWindow: mockCreateWindow })
   })
 
+  // 2026-10-21（remove-native-menu-bar）：启动即移除 Electron 默认应用菜单
+  // （File/Edit/View/Window 那一行的源头）。
+  it('启动时移除默认应用菜单（setApplicationMenu(null)）', () => {
+    expect(__electronMock.Menu.setApplicationMenu).toHaveBeenCalledWith(null)
+  })
+
+  it('移除应用菜单发生在窗口创建之前', () => {
+    expect(
+      __electronMock.Menu.setApplicationMenu.mock.invocationCallOrder[0],
+    ).toBeLessThan(mockRunWhenReady.mock.invocationCallOrder[0])
+  })
+
 
   it('app.on 注册 activate 事件', () => {
     expect(__electronMock.app.on).toHaveBeenCalledWith('activate', expect.any(Function))
