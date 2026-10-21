@@ -2479,3 +2479,57 @@ publish verification timeout endpoint=.../xigua/upload-video
    否则上游埋点白做且零报错（PR #4185 的 `track/apiTrackFailed` 同型）。
 3. **回退路径会吃掉主路径的错误**：`_setFileInput` 的 JS 回退必抛 `Script failed to execute`，
    排查笼统报错先问「上一层被谁吞了」（PR #4211 修法：纯 CDP + 原始错误可见）。
+### 16.30 视频号 API 轨健康检查：代码与 CDN 均正常，剩余只能靠埋点复跑（2026-10-21）
+
+> §16.28 定位到「API 轨先失败但原因未留档」。本轮做**不浪费发布机会**的排除性检查。
+
+#### 16.30.1 检查一：API 轨测试全绿
+
+用项目自身 runner（`packages/api-publish-engine/scripts/run-tests.js`）跑全量：
+
+```
+[API 测试] 通过：Vitest（48 个文件）
+rc=0
+```
+
+⇒ `shipinhao-video-chain.test.js`（私密优先 / post_draft 五步序列 / 鉴权头逐级传递）**通过**。
+
+⚠ 过程中一次**命令用错**：直接 `vitest run <file>` 与 `node --test` 都报 `describe is not defined`，
+一度以为文件坏了。真因是该文件**依赖 vitest 全局**（describe/test），必须由 `run-tests.js`
+按 `VITEST_FILES` 在册登记走 vitest 分支跑 —— 这正是 2026-10-21 runner 机械判定
+（`runner-detect.js`）要解决的形态。
+
+⇒ 教训：**判测试结果必须用项目自己的 runner**，别用裸 vitest / node --test 直跑单文件
+（与 §16.29「判据域跟着被测性质走」同型：判据要用对入口）。
+
+#### 16.30.2 检查二：两个 CDN 主机均可达
+
+只读探测（GET，不发布、不传内容）：
+
+| 主机 + 路径 | 结果 |
+| --- | --- |
+| `finder.video.qq.com/` | 404（主机可达，路径不存在） |
+| `finder.video.qq.com` + helper_upload_params 路径 | 404 |
+| `finderassistancea.video.qq.com/` | 404 |
+| `finderassistancea.video.qq.com` + helper_upload_params 路径 | 404 |
+
+⇒ **两个主机都能建立 HTTP 连接**（返回 404 而非 DNS/连接错误）⇒ 主机选型不是阻塞点；
+  404 是「路径不存在」，实际路径由 applyuploaddfs 请求决定。
+
+#### 16.30.3 结论与剩余
+
+| 项 | 状态 |
+| --- | --- |
+| API 轨代码 | 测试全绿（48 文件 rc=0） |
+| CDN 主机可达性 | 两主机均可建立连接 |
+| **运行时失败原因** | **仍未知**（应用未加载埋点，复跑也拿不到诊断） |
+
+⇒ 剩余的**唯一**信息缺口是运行时诊断，而它需要：
+① 应用重启到含 #4150/#4155 埋点的版本；② 复跑一次视频号发布。
+
+**在拿到 apiTrackFailed 之前，不再改代码**（无依据的改动只会引入新变量）。
+
+#### 16.30.4 顺带确认：当前应用进程确实不含埋点
+
+electron 主进程启动时间 **15:55:23**，而 #4155（分轨埋点）合并于其后 ⇒
+当前进程跑的是**旧二进制**。这是「重启后才能复跑」的客观依据，不是拖延。
