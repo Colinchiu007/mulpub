@@ -117,6 +117,32 @@ function validateProductionConfig(env = {}, options = {}) {
   if (!webhookKey) errors.push(error('WEBHOOK_SIGNING_KEY_REQUIRED', 'LOGTO_WEBHOOK_SIGNING_KEY'))
   else if (webhookKey.length < 32) errors.push(error('WEBHOOK_SIGNING_KEY_TOO_SHORT', 'LOGTO_WEBHOOK_SIGNING_KEY'))
 
+  // 微信 Native 支付（006）：`none`（默认）时整块跳过——不引入新的必填红。
+  // 启用时六项缺任一即 PAYMENT_CONFIG_INVALID（fail-fast，避免半配置状态下线后才发现回调不通）。
+  const paymentProvider = String(env.PAYMENT_PROVIDER || 'none').trim().toLowerCase()
+  if (!['none', 'wechat_native'].includes(paymentProvider)) {
+    errors.push(error('PAYMENT_CONFIG_INVALID', 'PAYMENT_PROVIDER'))
+  }
+  if (paymentProvider === 'wechat_native') {
+    for (const variable of [
+      'WECHAT_PAY_APPID',
+      'WECHAT_PAY_MCH_ID',
+      'WECHAT_PAY_API_V3_KEY',
+      'WECHAT_PAY_CERT_SERIAL_NO',
+      'WECHAT_PAY_NOTIFY_URL',
+    ]) {
+      if (!String(env[variable] || '').trim()) errors.push(error('PAYMENT_CONFIG_INVALID', variable))
+    }
+    if (!String(env.WECHAT_PAY_CERT_PATH || '').trim() && !String(env.WECHAT_PAY_CERT_CONTENT || '').trim()) {
+      errors.push(error('PAYMENT_CONFIG_INVALID', 'WECHAT_PAY_CERT_PATH'))
+    }
+    const apiV3Key = String(env.WECHAT_PAY_API_V3_KEY || '')
+    if (apiV3Key && apiV3Key.length !== 32) errors.push(error('PAYMENT_API_V3_KEY_INVALID', 'WECHAT_PAY_API_V3_KEY'))
+    const notifyUrl = String(env.WECHAT_PAY_NOTIFY_URL || '').trim()
+    if (notifyUrl && !/^https:\/\/[^\s]+$/.test(notifyUrl)) {
+      errors.push(error('PAYMENT_NOTIFY_URL_HTTPS_REQUIRED', 'WECHAT_PAY_NOTIFY_URL'))
+    }
+  }
   if (!String(env.ENTITLEMENT_KEY_ID || '').trim()) {
     errors.push(error('ENTITLEMENT_KEY_ID_REQUIRED', 'ENTITLEMENT_KEY_ID'))
   }
@@ -136,6 +162,7 @@ function validateProductionConfig(env = {}, options = {}) {
       logtoDatabaseCompared: Boolean(logtoDatabase),
       webhookConfigured: webhookKey.length >= 32,
       entitlementSigningConfigured: Boolean(String(env.ENTITLEMENT_PRIVATE_KEY || '').trim()),
+      paymentProvider,
     },
   }
 }

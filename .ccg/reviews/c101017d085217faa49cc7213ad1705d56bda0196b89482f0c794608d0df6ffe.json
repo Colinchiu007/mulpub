@@ -1,0 +1,60 @@
+{
+  "sha": "f7a62baf1e33a66515da304bdac334ccbd91b8ce",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 438 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 438,
+    "fileCount": 5,
+    "codeFileCount": 4,
+    "sensitivePathHits": [
+      "packages/api-publish-engine/src/auth/production-config.js",
+      "packages/api-publish-engine/src/auth/publish-api-payment.js"
+    ],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 5,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "c101017d085217faa49cc7213ad1705d56bda0196b89482f0c794608d0df6ffe",
+  "decidedAt": "2026-10-21T14:19:00.820Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

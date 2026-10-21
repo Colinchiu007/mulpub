@@ -20,6 +20,7 @@ const { getPlanCatalog } = require("./auth/plan-matrix")
 const { safeErrorCode } = require("./auth/safe-error-code")
 const { applyCommerceHelpers } = require("./auth/publish-api-commerce")
 const { applyRedeemCodeAdminHelpers } = require("./auth/publish-api-redeem-code-admin")
+const { applyPaymentHelpers } = require("./auth/publish-api-payment")
 const { applyCloudAccountHelpers, applyCloudAccountNoStore, mergeFaceHeaders } = require("./auth/publish-api-cloud-accounts")
 const { applyCapabilitiesHelpers, isCapabilitiesUrl } = require("./auth/publish-api-capabilities")
 const mediaResolver = require("./publish/resolve-request-media")
@@ -142,6 +143,9 @@ class PublishApiServer {
     this._entitlementProvider = this._opts.entitlementProvider || null
     this._entitlementSigner = this._opts.entitlementSigner || null
     this._subscriptionService = this._opts.subscriptionService || null
+    // 支付通道与订阅服务同源：provider 挂在 subscriptionService 上（唯一注入点），
+    // 服务器不再单独持有第二个引用，避免"两处配置各改一半"的漂移。
+    this._paymentProvider = (this._subscriptionService && this._subscriptionService.paymentProvider) || null
     this._readinessProbe = this._opts.readinessProbe || null
     this._publishViaApi = typeof this._opts.publishViaApi === "function" ? this._opts.publishViaApi : publishViaApi
     this._log = this._opts.log || logger
@@ -757,6 +761,9 @@ class PublishApiServer {
       return;
     }
 
+    // 微信支付 webhook：免登录 · 强验签（平台证书 RSA-SHA256）。
+    // 必须排在 Bearer/API-key 鉴权之前 —— 微信不带我们的 Bearer，验签本身就是信任边界。
+    if (await this._handlePaymentWebhook(req, res, method, url)) return;
     // 路径前缀守卫：业务 API 仅接管 /api/v1/，其他路径（如 Logto 自身的 /api/users、/api/forgot-password）
     // 必须由 Nginx 反代到 Logto container 而非业务 API container。
     // 误路由时返回 404 + 明确错误码，避免误导为鉴权问题（QM-5 回归：forgot-password 报 "Valid API key required" bug）。
@@ -945,6 +952,11 @@ class PublishApiServer {
         return;
       }
 
+      // 微信 Native 支付：下单 + 订单详情（用户态）。
+      // 必须排在下面的 /api/v1/me/orders 集合分支之前 —— 订单详情是 /me/orders/{id}，
+      // 前缀匹配会先命中的话就永远走不到详情分支。
+      if (await this._handleMemberCheckout(req, res, method, url)) return;
+      if (await this._handleMemberOrderDetail(req, res, method, url)) return;
       if (url === "/api/v1/me/orders" || url === "/api/v1/me/notifications" || url === "/api/v1/me/notifications/read" ||
         url === "/api/v1/me/sessions" || url === "/api/v1/me/sessions/revoke-others" || url === "/api/v1/me/profile") {
         const commerceRepository = this._commerceRepository();
@@ -1417,7 +1429,9 @@ p{color:#6e6e73}
           { m: "GET", p: "/api/v1/me/sessions", d: "List active device sessions (scope profile:read)" },
           { m: "POST", p: "/api/v1/me/sessions/revoke-others", d: "Revoke other device sessions. Requires valid X-Device-ID header to keep current device (scope profile:write)" },
           { m: "PATCH", p: "/api/v1/me/profile", d: "Update own displayName/avatarUrl. Body: { displayName?, avatarUrl? } (scope profile:write)" },
-          { m: "POST", p: "/api/v1/admin/member/grant", d: "Admin grants a plan. Body: { userId, plan, durationDays } (scope admin:users)" },
+          { m: "POST", p: "/api/v1/me/checkout", d: "Create a WeChat Native payment order. Body: { plan, period }. Amount is computed server-side from plan-matrix; client-supplied amount is ignored (scope profile:write)" },
+          { m: "GET", p: "/api/v1/me/orders/{id}", d: "Get own order by id. Other users' orders return 404 (scope profile:read)" },
+          { m: "POST", p: "/api/v1/webhooks/payment", d: "WeChat Pay APIv3 webhook. No bearer auth; verified via platform certificate RSA-SHA256 (Wechatpay-Signature/Serial/Timestamp/Nonce). Internal errors still return 2xx to avoid WeChat retry storms" },          { m: "POST", p: "/api/v1/admin/member/grant", d: "Admin grants a plan. Body: { userId, plan, durationDays } (scope admin:users)" },
           { m: "POST", p: "/api/v1/admin/member/redeem-codes", d: "Admin batch-generates redeem codes. Body: { plan, durationDays, count, batch?, expiresAt? }. 409 REDEEM_BATCH_INCOMPLETE when collision top-up exhausts (response carries already-issued codes)" },
           { m: "GET", p: "/api/v1/admin/member/redeem-codes", d: "List redeem codes. Query: { plan?, status?, batch?, limit?, offset?, reveal }. Codes are masked unless reveal=true (audited)" },
           { m: "POST", p: "/api/v1/admin/member/redeem-codes/disable", d: "Disable a redeem code. Body: { code }. 200 idempotent:true when already disabled, 409 REDEEM_CODE_ALREADY_USED when used, 404 when absent (scope admin:users)" },
@@ -1550,6 +1564,7 @@ p{color:#6e6e73}
 
 applyCommerceHelpers(PublishApiServer);
 applyRedeemCodeAdminHelpers(PublishApiServer);
+applyPaymentHelpers(PublishApiServer);
 applyCloudAccountHelpers(PublishApiServer);
 applyCapabilitiesHelpers(PublishApiServer);
 
