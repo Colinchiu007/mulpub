@@ -59,10 +59,16 @@ async function ensureCoverFromVideoFrame (ctx, win, opts) {
   // 3) 等「下一步」可用（解析完成前是 disabled）
   let nextClicked = false
   for (let i = 0; i < 40; i++) {
+    // 2026-10-22 真机二次修正：上轮 dump 的 `btns` 里**没有「下一步」**（只有 添加视频/发布）
+    // ⇒ 它不是 <button>，而是 div/span 样式按钮 ⇒ 只查 button 永远查不到（表现为"解析超时"）。
+    // 现在查 button/div/span/a，取**最内层最后匹配**；禁用态按 class 含 disabled 或 aria-disabled 判。
     nextClicked = await win.webContents.executeJavaScript('(function(){'
-      + 'var bs=[].slice.call(document.querySelectorAll("button"));'
-      + 'var b=bs.filter(function(e){return (e.innerText||"").trim()==="下一步"&&e.getClientRects().length>0})[0];'
-      + 'if(!b||b.disabled)return false;b.click();return true})()').catch(() => false)
+      + 'var all=[].slice.call(document.querySelectorAll("button,div,span,a"));'
+      + 'var cands=all.filter(function(e){return (e.innerText||"").trim()==="下一步"&&e.getClientRects().length>0});'
+      + 'if(!cands.length)return false;'
+      + 'var b=cands[cands.length-1];'
+      + 'var dis=(b.disabled===true)||(b.getAttribute("aria-disabled")==="true")||/(^| )disabled( |$)|is-disabled|btn-disabled/.test(String(b.className||""));'
+      + 'if(dis)return false;b.click();return true})()').catch(() => false)
     if (nextClicked) break
     await sleep(500)
   }
