@@ -17,7 +17,7 @@ date: 2026-10-21
 | 行尾与 diff 对账 | PASS | 四个被改文件均为 `i/lf w/crlf attr=text=auto`；新增行逐条带 `\r`；`git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径一致（见下表） |
 | 接线棘轮 | PASS | 本片刻**未新增测试文件**（新锁加在既有 `windows-file-lock.test.js` 内），`check-unwired-tests.js` rc=0 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/` 运行时代码与 UI 文件；改动全在 CI 复测工具与锁 |
-| QM-6 CCG 双模型外部评审 | 自演，非外部模型 | 按用户指定「QM-6 你自己来模拟外部评审」执行，两轴逐条自审见 §3。**如实标注：这不是外部模型产出，不得当作双模型证据登记**；本机 CCG 未安装（pre-commit 打印「未找到 CCG（run_skill.js），已跳过」），机械闸门对本 PR 无从判红 |
+| QM-6 CCG 双模型外部评审 | 自演，非外部模型 | 按用户指定「QM-6 你自己来模拟外部评审」执行，两轴逐条自审见 §3。**如实标注：这不是外部模型产出，不得当作双模型证据登记**；本机 CCG 未安装（pre-commit 打印「未找到 CCG（run_skill.js），已跳过」），本 PR 变更集内 `.ccg/reviews/` 产物数 = 0（当场取数：`git diff --name-only $(git merge-base origin/main HEAD) HEAD | grep -c '.ccg/reviews/'` → 0） ⇒ `evaluateDeepReviewDebt` 的**扫描域为空、当场早退**。⚠ 这句**不得**推广成「CCG 未装就无从判红」——真正的条件是扫描域：PR 只要携带 `mode=dual` 产物，这条判据就会红（2026-10-21 另一会话实测否证过那个过度形式）；本机未装 CCG 只是「产物不产生」这一条上游原因。 |
 | 远程同步 | 由门禁推导 | 本行状态列不手写状态词，由 `scripts/lib/merge-ledger.js` 按主干历史推导 |
 
 - 保留门禁：变更类型与隔离 ✅ | 行尾对账 ✅ | 文档同步 ✅ | 品牌残留 ✅ | 债务基线 ✅ | 远程同步 PR #4175
