@@ -9,6 +9,7 @@
  */
 
 // describe/test/expect 由 runner 以 --globals 注入
+const { ensureCoverViaLocalUpload } = require('../electron/services/toutiao-cover.js')
 
 describe('toutiao-cover', () => {
   function makeWin (opts) {
@@ -59,4 +60,41 @@ describe('toutiao-cover', () => {
     const { ensureCoverFromVideoFrame } = require('../electron/services/toutiao-cover.js')
     return ensureCoverFromVideoFrame(ctx, makeWin(opts), {})
   }
+})
+
+describe('ensureCoverViaLocalUpload（本地上传路径）', () => {
+  function mk (opts) {
+    let dlgCalls = 0
+    return {
+      webContents: {
+        executeJavaScript: async (code) => {
+          const c = String(code)
+          if (c.indexOf('上传封面') >= 0) return opts.triggerOk !== false
+          if (c.indexOf('本地上传') >= 0) return opts.tabOk !== false
+          if (c.indexOf('下一步') >= 0) return opts.nextOk !== false
+          if (c.indexOf('确定') >= 0) return false
+          if (c.indexOf('poster-upgrade') >= 0) { dlgCalls++; return dlgCalls <= 1 ? opts.dialogOk !== false : !!opts.stillOpen }
+          if (c.indexOf('naturalWidth') >= 0) return !!opts.preview
+          return false
+        },
+      },
+    }
+  }
+  const ctx = (okSet) => ({ _sleep: async () => {}, _setFileInput: async () => { if (okSet === false) throw new Error('nope') } })
+
+  test('正常路径：设文件 → 下一步 → 弹窗关闭 ⇒ ok', async () => {
+    const r = await ensureCoverViaLocalUpload(ctx(), mk({ stillOpen: false }), 'D:/Temp/dy-cover.jpg', {})
+    expect(r.ok).toBe(true)
+    expect(r.step).toBe('done')
+  })
+
+  test('无 cover_path ⇒ no-cover-path', async () => {
+    const r = await ensureCoverViaLocalUpload(ctx(), mk({}), '', {})
+    expect(r.step).toBe('no-cover-path')
+  })
+
+  test('设文件失败 ⇒ set-file-failed', async () => {
+    const r = await ensureCoverViaLocalUpload(ctx(false), mk({}), 'D:/Temp/a.jpg', {})
+    expect(r.step).toBe('set-file-failed')
+  })
 })

@@ -106,4 +106,101 @@ async function ensureCoverFromVideoFrame (ctx, win, opts) {
   return { ok: ok, step: 'done' }
 }
 
-module.exports = { ensureCoverFromVideoFrame }
+
+/**
+ * 「本地上传」路径（2026-10-22 真机取证后新增，**首选**）。
+ *
+ * ## 为什么它是首选
+ * 「封面截取」那条路要平台侧解析视频帧，实测**始终不完成**（「下一步」12 秒内一直 `cannot-click`）。
+ * 而切到「本地上传」tab 后，弹窗里会**动态创建**第 4 个 file input：
+ *   accept = `image/jpg,image/jpeg,image/png`（前 3 个全是视频格式）
+ * 弹窗文案变成「点击上传或将文件拖入此区域 … 下一步」。
+ *
+ * ## 步骤
+ * 点触发器 → 等弹窗 → 点「本地上传」tab → 等 image input 出现 → 设文件
+ * → 等「下一步」可点 → 点它 → 二次确认 → 校验封面区预览图。
+ *
+ * @param {object} ctx 宿主（需 _setFileInput / _sleep）
+ * @param {object} win BrowserWindow
+ * @param {string} coverPath 本地封面图路径
+ * @param {{ log?: object, platform?: string }} [opts]
+ * @returns {Promise<{ ok: boolean, step: string }>}
+ */
+async function ensureCoverViaLocalUpload (ctx, win, coverPath, opts) {
+  const o = opts || {}
+  const log = o.log
+  const platform = o.platform || 'toutiao'
+  const sleep = (ms) => (ctx && typeof ctx._sleep === 'function' ? ctx._sleep(ms) : new Promise((r) => setTimeout(r, ms)))
+  if (!coverPath) return { ok: false, step: 'no-cover-path' }
+
+  // 1) 点开封面弹窗
+  const clicked = await win.webContents.executeJavaScript('(function(){'
+    + 'var all=[].slice.call(document.querySelectorAll("div,span,button,label"));'
+    + 'var t=all.filter(function(e){return (e.innerText||"").trim()==="上传封面"});'
+    + 'var el=t[t.length-1];if(!el)return false;el.click();return true})()').catch(() => false)
+  if (!clicked) return { ok: false, step: 'clicked-trigger' }
+  await sleep(1500)
+
+  // 2) 等弹窗，然后点「本地上传」tab（真实元素是 <li class="selected...">）
+  let hasDialog = false
+  for (let i = 0; i < 12; i++) {
+    hasDialog = await win.webContents.executeJavaScript('(function(){'
+      + 'var d=[].slice.call(document.querySelectorAll(".m-poster-upgrade,[class*=poster-upgrade]"));'
+      + 'return d.some(function(e){return e.getClientRects().length>0})})()').catch(() => false)
+    if (hasDialog) break
+    await sleep(500)
+  }
+  if (!hasDialog) return { ok: false, step: 'no-dialog' }
+
+  const tabClicked = await win.webContents.executeJavaScript('(function(){'
+    + 'var all=[].slice.call(document.querySelectorAll("div,span,button,a,li"));'
+    + 'var c=all.filter(function(e){return (e.innerText||"").trim()==="本地上传"&&e.getClientRects().length>0});'
+    + 'if(!c.length)return false;var el=c[c.length-1];el.click();return true})()').catch(() => false)
+  if (!tabClicked) return { ok: false, step: 'no-local-tab' }
+  await sleep(1200)
+
+  // 3) 设文件到**动态出现的 image input**
+  try {
+    await ctx._setFileInput(win, coverPath, 'input[type="file"][accept*="image"]')
+  } catch (e) {
+    if (log) log.warn('RpaView', '[' + platform + '] cover local upload: set file failed: ' + String(e && e.message).slice(0, 80))
+    return { ok: false, step: 'set-file-failed' }
+  }
+  await sleep(2500)
+
+  // 4) 等「下一步」可点（cannot-click 也要认出来）
+  let nextClicked = false
+  for (let i = 0; i < 30; i++) {
+    nextClicked = await win.webContents.executeJavaScript('(function(){'
+      + 'var all=[].slice.call(document.querySelectorAll("button,div,span,a"));'
+      + 'var c=all.filter(function(e){return (e.innerText||"").trim()==="下一步"&&e.getClientRects().length>0});'
+      + 'if(!c.length)return false;var b=c[c.length-1];'
+      + 'var dis=(b.disabled===true)||(b.getAttribute("aria-disabled")==="true")||/(^| )disabled( |$)|is-disabled|btn-disabled|cannot-click/.test(String(b.className||""));'
+      + 'if(dis)return false;b.click();return true})()').catch(() => false)
+    if (nextClicked) break
+    await sleep(500)
+  }
+  if (!nextClicked) return { ok: false, step: 'no-next' }
+  await sleep(1500)
+
+  // 5) 二次确认（确定/完成/保存）
+  for (const label of ['确定', '完成', '保存']) {
+    const hit = await win.webContents.executeJavaScript('(function(){'
+      + 'var all=[].slice.call(document.querySelectorAll("button,div,span,a"));'
+      + 'var c=all.filter(function(e){return (e.innerText||"").trim()===' + JSON.stringify(label) + '&&e.getClientRects().length>0});'
+      + 'if(!c.length)return false;var b=c[c.length-1];var dis=(b.disabled===true)||/(disabled|cannot-click)/.test(String(b.className||""));if(dis)return false;b.click();return true})()').catch(() => false)
+    if (hit) { await sleep(1200); break }
+  }
+
+  // 6) 判据：弹窗关闭 或 出现封面预览图
+  const stillOpen = await win.webContents.executeJavaScript('(function(){'
+    + 'var d=[].slice.call(document.querySelectorAll(".m-poster-upgrade,[class*=poster-upgrade]"));'
+    + 'return d.some(function(e){return e.getClientRects().length>0})})()').catch(() => false)
+  const hasPreview = await win.webContents.executeJavaScript('(function(){'
+    + 'var imgs=[].slice.call(document.querySelectorAll("img")).filter(function(e){return e.getClientRects().length>0&&e.naturalWidth>20});'
+    + 'return imgs.length>0})()').catch(() => false)
+  const ok = !stillOpen || !!hasPreview
+  if (log) log.info('RpaView', '[' + platform + '] cover local upload: dialog=' + (stillOpen ? 'open' : 'closed') + ' preview=' + (hasPreview ? 'yes' : 'no') + ' ok=' + ok)
+  return { ok: ok, step: ok ? 'done' : 'no-effect' }
+}
+module.exports = { ensureCoverFromVideoFrame, ensureCoverViaLocalUpload }
