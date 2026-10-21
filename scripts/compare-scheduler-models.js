@@ -225,13 +225,6 @@ const KNOWN_DIFF_CASES = [
 ]
 
 /**
- * 跑运营后台的 Python 模拟器，取一组参数的完整结果 `{ metrics, timeline }`。
- *
- * 外部依赖（导出给测试用，但请看清代价）：`python` 必须在 PATH 上，且
- * `ops-center/backend/services/scheduler_simulator.py` 必须可达 —— 它是子进程，不是纯函数。
- * @throws {Error} Python 缺失、30s 超时、或模拟器自身校验失败（参数越界等）
- */
-/**
  * 子进程失败的**唯一**上报口径（三档分开，绝不合成一句话）。
  *
  * 动因：同一句 `Error: python simulator failed: `（**空消息**）在旧载体里已记录两次
@@ -284,6 +277,13 @@ function resolveSpawnTimeout (raw, warns) {
   return Math.trunc(n)
 }
 
+/**
+ * 跑运营后台的 Python 模拟器，取一组参数的完整结果 `{ metrics, timeline }`。
+ *
+ * 外部依赖（导出给测试用，但请看清代价）：`python` 必须在 PATH 上，且
+ * `ops-center/backend/services/scheduler_simulator.py` 必须可达 —— 它是子进程，不是纯函数。
+ * @throws {Error} Python 缺失、30s 超时、或模拟器自身校验失败（参数越界等）
+ */
 function pythonSimulate (params, opts) {
   const spawn = (opts && opts.spawnImpl) || spawnSync
   const script = [

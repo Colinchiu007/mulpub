@@ -17,6 +17,7 @@
 const { WebContentsView, session } = require('electron')
 const path = require('path')
 const log = require('./logger')
+const { attachExternalProtocolGuard } = require('./external-protocol-guard')
 // #2701：本文件创建的 persist:auth-* 分区在回收白名单内，必须登记存活
 const authReclaim = require('./auth-partition-reclaim')
 // eslint-disable-next-line no-unused-vars
@@ -176,6 +177,9 @@ class QrCodeLogin {
           backgroundThrottling: true, // 与 openLogin 同档：addChildView 后立即 setVisible(true)
         }
       })
+      // 外部协议守卫（2026-10-21）：扫码页里的自定义协议跳转不得交给操作系统
+      // （否则 Windows 会弹「获取打开此'xxx'链接的应用」）。http/https 一律放行。
+      attachExternalProtocolGuard(view.webContents, { tag: 'qrcode-login' })
       loginSession.view = view
       this.currentView = view
 

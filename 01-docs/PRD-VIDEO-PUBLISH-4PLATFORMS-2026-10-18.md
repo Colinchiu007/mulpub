@@ -2073,3 +2073,146 @@ auth_data = {"errCode":300330,"errMsg":"request failed"}
 
 ⇒ 五条同型，可归纳为一句：**判据域必须跟着被测性质走；不同源/不同轨/不同管理面的
    读数不能互相外推。**
+### 16.31 头条视频「上传未完成」时间线自洽 + 一次字段误读自我纠错（2026-10-21）
+
+> §16.25/§16.28 之后，头条视频错误已推进到「视频上传未完成」。本节把时间线算清楚，
+> 并纠正我自己的一次字段误读。
+
+#### 16.31.1 ⚠️ 一次字段误读（自我纠错）
+
+我此前把任务的 `startedAt` 读成 **11:47:59.674Z**，并据此算出
+「`startedAt` 晚于 `completedAt`（负 273 秒），数据异常」。
+
+**真相**：11:47:59.674 是 `lastAttemptAt`（Unix 秒 1792582707896 转出来的），
+**不是** `startedAt`。真正的 `startedAt` 是 **11:39:27.913Z**。
+
+⇒ 教训（与 §16.22.3「确认片段属于哪一侧」同型）：**时间字段有多个（createdAt /
+   startedAt / completedAt / lastAttemptAt），读之前先确认取的是哪一个**；
+   我曾据错读字段宣称"数据异常"，差点写成一条假的缺陷记录。
+
+#### 16.31.2 修正后的时间线（自洽）
+
+| 区间 | 时长 | 含义 |
+| --- | --- | --- |
+| `createdAt` 11:29:29 → `startedAt` 11:39:27 | **9分58秒** | 队列等待 + 窗口创建 + cookie 恢复 |
+| `startedAt` 11:39:27 → `completedAt` 11:43:26 | **3分59秒** | 实际执行（导航 + 上传等待 + 填充 + 门禁） |
+| 合计 | 13分57秒 | |
+
+#### 16.31.3 与上传等待预算对照（关键推论）
+
+`upload-wait-strategy.js` 的确定性参数：
+
+| 参数 | 值 |
+| --- | --- |
+| `computeBudgetMs(0.24MB)` | `60000 + 0.24×10000` = 62.4s ⇒ 被下界抬到 **90s** |
+| `STABILIZE_MS`（稳定期） | 25s |
+| `STALL_MS`（停滞阈值） | **180s** |
+
+⇒ **90s 预算 + 180s 停滞 = 270s**，加页面操作（预期 60~90s）得 **330~360s**；
+实测执行段 **239s（3分59秒）** —— **区间吻合但不在正中**。
+
+> ⚠ **确定性边界**（CCG i1 指出后修正）：
+> ① 阶段定位的可靠性来自**错误文本本身**（「未检测到上传完成信号」是门禁给出的明确阶段），
+>    **不依赖**时间推算；时间只是佐证「没花在别处」。
+> ② 时间吻合**可能是巧合**：239s 里有相当一部分可能是字段填充重试开销
+>    （`FieldRetryState(3)` 每次最多 3 次），与上传等待的对应关系没那么紧。
+> ③ 因此本节结论是「**阶段定位明确 + 执行段时长与上传等待预算同量级**」，
+>    **不是**「时间吻合所以确定卡在那里」。
+
+⇒ 头条的**阶段定位**是「上传完成信号检测」；`submitAttempted:false` 证明仍未提交、
+未占间隔（fail-closed 持续生效）。
+
+#### 16.31.4 下一步的候选方向（有依据，待复跑验证）
+
+西瓜上传页的上传完成信号判据是「页面出现预览 / 编辑器 / 上传完成文案」
+（`upload-waiter.js` 的四元组探针：`positive` = https 视频预览 || 编辑器输入 ||
+`location.href` 含 post/video）。
+
+| # | 候选方向 | 依据 |
+| --- | --- | --- |
+| 1 | 探针对西瓜页的**特异性不足**（例如上传完成后 URL 不含 `post/video`、编辑器选择器不同） | 探针原为抖音页取证（§16.30.1 同源教训：判据域跟着页面走） |
+| 2 | 上传实际未完成（平台侧慢/失败）但**无负向信号** ⇒ 只能等停滞 | 90s+180s 的预算就是为这种情况设计 |
+| 3 | 上传入口点击后**未真正触发上传**（file input 注入成功但页面未接收） | 需 #4185 的诊断（`track`/`apiTrackFailed`）+ 页面快照才能区分 |
+
+⇒ 三者都需要**复跑一次带诊断的版本**才能区分 —— 与 §16.30.3 结论一致：
+  剩余唯一信息缺口是运行时诊断。
+### 16.33 小红书 406 的字段级取证：竞品端点 + 线上 bundle 的真实 payload 字段族（2026-10-21）
+
+> §16.11/§16.12/§16.15 已排除「缺请求头」「缺 /api 前缀」「sign-URI 形态」三条假设，
+> 结论是「406 = 服务端对 `note` 端点**请求体字段/格式**的拒绝」。本节为字段级对照取证。
+
+#### 16.33.1 竞品逆向成果里的小红书（按用户指示先查）
+
+| 来源 | 内容 |
+| --- | --- |
+| `05-<参考产品>-materials/RPA分析报告.md` §2.4 | 只有 **上传**（腾讯云 COS 分片：`getUploadIdResponse` / `uploadVideoPart` / `getUploadedVideoEtag`，头 `x-cos-security-token`）、数据分析、内容删除 —— **没有发布/草稿 API 路径** |
+| `04-rea-evidence/<参考产品>-主进程清点.json` URL 清点 | 有（按 count）：`edith.xiaohongshu.com/web_api/sns/v2/note` **4**、`creator.xiaohongshu.com/publish/publish` **4**、`creator.xiaohongshu.com/api/media/v1/upload/web/permit?biz_name=spectrum&scene=` **2**、`creator.xiaohongshu.com/api/galaxy/user/info` **1** |
+
+⇒ **发布链 = permit → 上传 → `web_api/sns/v2/note`**。
+
+#### 16.33.2 我们的实现已经与竞品同款（不是端点错）
+
+`packages/api-publish-engine/src/publish/platforms/xiaohongshu-draft.js`：
+```
+1. POST creator.xiaohongshu.com/api/media/v1/upload/web/permit → { file_id, token, cos_key }
+2. ros-upload（分片）
+3. POST edith.xiaohongshu.com/web_api/sns/v2/note  （draft=true 存草稿）
+```
+
+⇒ 与竞品清点**完全一致** ⇒ 406 **不是**端点选错，也不是链选错。
+
+#### 16.33.3 线上 bundle 取证（公开可下，无需登录）
+
+创作页 `creator.xiaohongshu.com/publish/publish` 的主 bundle 位于
+`fe-static.xhscdn.com/formula-static/ugc/public/resource/js/project-publish-vue.<hash>.js`（2.25MB）。
+在里面直接读到三件事：
+
+**① 端点常量**
+```js
+POST_NOTE: concat(l, "/web_api/sns/v2/note")
+USER_INFO: concat(s, "/api/galaxy/user/my-info")
+```
+
+**② 该端点被登记在「必须签名」清单里**
+```js
+"creator-platform": { signIncludesUrl: [
+  { pattern: "web_api/sns/v5/creator/topic/template/list", mode: "endsWith" },
+  { pattern: "web_api/sns/v2/note", mode: "endsWith" }
+] }
+```
+⇒ 与我们的 signer 一致（我们确实签了它，且 §16.15 已验证「签名有效、得 406 而非 401」）。
+
+**③ 笔记模型字段族（前端 store 的真实键名）**
+```
+title  type  desc  ats  hash_tag  cover  video_info  metadata
+post_loc  post_locs  scheduled_post_time  post_timing  order_cooperate
+privacy  images_list  biz_relations  label_map
+```
+
+字段名要点（对 406 直接相关）：用 `type` **不是** `note_type`；用 `desc` **不是** `content`；
+用 `images_list` / `video_info` **不是** `images` / `video`；`hash_tag` 是独立字段（话题不是内联在 desc 里）。
+
+#### 16.33.4 一处**已确认的路径偏差**（与本 406 无关但应修）
+
+| 位置 | 我们 | 线上 bundle |
+| --- | --- | --- |
+| 用户信息 | `/api/galaxy/user/info` | **`/api/galaxy/user/my-info`** |
+
+⇒ 竞品清点里的 `user/info` 可能是旧版或另一入口；线上代码用的是 `my-info`。
+这条**不影响 note 提交**（不同端点），但会影响「登录态/用户信息」探测的准确性，应单独核实。
+
+#### 16.33.5 结论与下一步（按证据强度分层）
+
+| 结论 | 强度 |
+| --- | --- |
+| 发布链与端点选型正确（permit → upload → sns/v2/note） | **实测**（与竞品清点一致 + 线上 bundle 常量） |
+| `note` 在「必须签名」清单内，我们已签 | **实测**（线上 bundle `signIncludesUrl`） |
+| payload 字段族应为 `type/desc/hash_tag/images_list/video_info/...` | **实测**（线上 bundle store 键名），但是否**全部必填**未知 |
+| 406 的具体缺项 | **未证实** —— 仍需抓一次真实请求做逐字段 diff |
+
+**下一步（下一轮）**：用 §16.32.1 的「发布窗口实时采样」同法，在应用内打开小红书创作页，
+驱动页面点「存草稿」，并用 CDP `Network` 域捕获该次真实 `POST /web_api/sns/v2/note` 的
+**请求体与请求头**，再与我们的构造逐字段 diff。这是唯一能把「未证实」变「实测」的路径。
+
+> 顺带说明：若页面侧「存草稿」能成功，则**草稿目标已达成**（DOM 轨），
+> 捕获到的 payload 还可反过来修 API 轨 —— 两条收益一次取证。

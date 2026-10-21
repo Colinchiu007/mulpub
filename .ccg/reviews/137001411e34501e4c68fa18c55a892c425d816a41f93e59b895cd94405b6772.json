@@ -1,0 +1,127 @@
+{
+  "sha": "b149359519aeeb96479e41e4290c25c23b993a9e",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 293 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 293,
+    "fileCount": 7,
+    "codeFileCount": 7,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 1,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "137001411e34501e4c68fa18c55a892c425d816a41f93e59b895cd94405b6772",
+  "decidedAt": "2026-10-21T10:36:55.971Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "domains": [
+          "crypto"
+        ]
+      }
+    ],
+    "externallyReviewed": [
+      {
+        "id": "i3",
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4181#issuecomment-6314198843"
+      }
+    ],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "`.ccg/reviews/137...json` 的 sha 字段记录为 `b149359...`（上一个 docs commit），而非当前 head `c18e0fdb...`；该文件声称覆盖本 diff 但指向错误提交，元数据与变更完全不一致。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "指控成立的一面：产物里 `sha` 字段写着 `b149359519aeeb96479e41e4290c25c23b993a9e`，而本 PR 的 HEAD 是 `c18e0fdb9820aee5e766f42b60b26d8ff138df22`。看字面，这个产物「声称覆盖的 diff」指向的是另一个提交，元数据与本次变更对不上——若有人据此产物核对「这次到底评了哪一笔」，会被引到错误的对象上。",
+        "defense": "辩护成立的一面：`sha` 字段记的是**判定发生时仓库里的 HEAD**，不是「被评的那笔提交的 sha」。判定器 `scripts/ccg-review-decider.js` 跑在 pre-commit 钩子里，那时新提交**还不存在**，于是 `currentSha()` 取到的是**父提交**。这是机制的必然结果，不是记错：同一机制在 `scripts/deep-review.sh` 的输出里被明确写出来——「pre-commit 时新 commit 尚未生成，判定记录写在父 sha 上——这是预期行为」。而且本次真正用来做内容寻址的键不是 `sha` 字段，是 `stagedDiffHash`（= 排除 `.ccg` 的暂存 diff 的 sha256），它在本次实测为 `137001411e…`，与 `scripts/deep-review.sh` 第 698 行按同一配方（`git diff --no-textconv --no-ext-diff --no-renames <HEAD^> <HEAD> -- . ':(exclude).ccg'`)算出的哈希逐字节相同——引擎正是靠它命中的（运行输出：「判定记录按内容寻址命中：3700141（stagedDiffHash）」）。",
+        "verdict": "dismissed",
+        "rationale": "实测取证：`git rev-parse HEAD^` = `b149359519aeeb96479e41e4290c25c23b993a9e`，与产物的 `sha` 字段**完全相等** ⇒ 它记的确实是「判定发生时的 HEAD（= 本次提交的父提交）」，与机制设计一致，不是错指。真正承担「这次评的是哪一笔」职责的是 `stagedDiffHash`，而它与引擎的内容寻址口径逐字节一致、实测命中。判为 dismiss：`sha` 字段的语义是「判定时刻的 HEAD」而非「被评提交的 sha」，读者若误读会得到错误结论——但这不是缺陷，是字段语义需要被读对（`scripts/deep-review.sh` 与 `scripts/ccg-review-decider.js` 两处注释都写明了）。⚠️ 仍留一条真实弱点：字段名 `sha` 本身不自带语义，仓内没有任何地方写明它记的是父提交，下一个读它的人仍可能误读——本条**不改为代码**（那是改判据本体、属「改谁来守门」，须人工过目），改在 `openspec/records/remove-native-menu-bar.md` §5 写明该字段语义。"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "`.ccg/reviews/137...json` 包含 `decidedBy: \"ccg-review-decider\"`、`mode: \"dual\"`、`reviewBackends` 等内部自动化元数据；将此类非源码、非配置的自动化产物提交入仓库，会污染源码树并暴露内部流程细节。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "指控成立的一面：`.ccg/reviews/137….json` 里装的是 `decidedBy: \"ccg-review-decider\"`、`mode: \"dual\"`、`reviewBackends`、`stagedDiffHash`、`decidedAt` 这类**自动化判定元数据**，不是源码也不是配置。把它 stage 进提交，等于把一次运行的内部产物固化进源码树，还顺带把评审后端名（`claude` / `opencode`）写进了公开仓库。",
+        "defense": "辩护成立的一面：这份文件**就是 QM-6 欠账门禁的数据源**。`scripts/check-pr-exec-record.js:1086` 用 `fs.readFileSync(path.join(repo, rel), \"utf8\")` 从**仓库工作树**读回每一条 `.ccg/reviews/*.json`，据此判「本 PR 内每条 mode=dual 产物是否已闭环」；CI 的 checkout 只含**已提交**的文件，产物不入库 ⇒ 门禁在 CI 上根本看不到它 ⇒ 「被判需要双模型审查却从未执行」这一欠账**永远抓不到**。更硬的证据：同一判据的 D 方向专门有一条「删除未闭环 dual 产物 ⇒ 报欠账」（`check-pr-exec-record.js:1055`），并明写「删除产物不等于完成评审」——这条反向规则本身就说明产物必须在库里。另外，`scripts/check-gate-record-debt.js` 与「旧载体冻结」基线（`scripts/gate-carrier-freeze.json`）也把 `.ccg/reviews/` 当成受管载体对待。",
+        "verdict": "dismissed",
+        "rationale": "实测取证：判据本体从仓库工作树读该文件（`check-pr-exec-record.js:1086`），且同一判据把「删除未闭环 dual 产物」列为欠账（`:1055`）⇒ 产物不入库或被删，门禁即失明。仓内既有先例同结论：`CHANGELOG.md:23`（第六/七轮 QM-6 外部评审逐条处置）已把同一条建议判为「否证」并写明理由——「`.ccg/reviews/*.json` 是 QM-6 机械闭环链的载体，gitignore 等于拆掉守门」。判为 dismiss：把 `.ccg/reviews/` 加进 `.gitignore` 会**拆掉守门**，属「改谁来守门」，本 PR 明确不做。代价（内部后端名进公开仓）属实但非机密，且是全仓既有惯例，不在本 PR 单方面改变。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "`native-menu.test.js` 通过 `createRequire` + `readFileSync` 在运行时读取已安装 `electron` 包内的 `.d.ts` 以做签名断言；这使测试与 `node_modules` 物理布局强耦合，CI 或包管理变更时易意外跳过或失败。",
+        "highRiskDomains": [
+          "crypto"
+        ],
+        "externalReview": {
+          "performedBy": "claude",
+          "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4181#issuecomment-6314198843",
+          "reviewedAt": "2026-10-21T10:57:41.519Z"
+        },
+        "prosecution": "指控成立的一面：`native-menu.test.js` 在**运行时**用 `createRequire(import.meta.url)` → `req.resolve('electron')` → `path.dirname(...)` 定位已安装包的 `electron.d.ts` 并 `readFileSync` 读进来做正则断言。这确实把一条测试与 `node_modules` 的物理布局绑在一起：包被重命名、`.d.ts` 被挪进子包、或 electron 改用别的分发方式时，`installedElectronDts` 会变成 `null`，整块 `describe.skipIf(...)` 直接跳过——即「这条签名锁悄悄不跑了」，而 skip 不计失败，CI 仍绿。原建议（换成静态 mock / 类型存根）方向上确实指向了「消除运行时文件系统依赖」。",
+        "defense": "辩护成立的一面：① **本仓已有完全同形的先例**：`apps/desktop/electron/startup-compat.test.js` 里那段 `installedElectronDts` 用的就是同一套 `createRequire` + `readFileSync` + `describe.skipIf`，且带同样的设计意图注释（「真实依赖锁：…直接来自已安装 Electron 的类型声明，而不是我对 API 的记忆。前提一旦被上游改变，这里必须先变红」）。本条不是引入新模式，而是沿用既有约定。② **CI 上这条锁是真跑、不是真跳过**：`quality-gate.yml` 的 `unit-tests` 与 `desktop-shards` 两个作业都有 `node scripts/ensure-electron.js` 步骤，`pnpm install --frozen-lockfile` 先把 electron 包壳装好 ⇒ `.d.ts` 在 CI 上必然存在 ⇒ `skipIf` 条件为假，断言真执行。③ **原建议的修法会把锁变成装饰**：把 `.d.ts` 内容复制成静态存根再断言，等于「检查复制内容与复制内容一致」→ 永远为真，正好丢掉这条锁唯一的价值（与**已安装的**包保持一致）；改成运行时 `require('electron')` 做行为断言，则在没有二进制的环境更脆弱。④ 读不到时的行为是**显式 skip**（测试报告会标 skipped），不是静默吞掉。",
+        "verdict": "dismissed",
+        "rationale": "本条被评审引擎标进 `crypto` 高危域（触发原因是正文出现「**签名**断言」四字被高危域标签器误命中，本改动与密码学无关），按规则高危域争议项不允许自扮演豁免 ⇒ 已由**外部后端 claude** 独立复核（只读会话，allowedTools 仅 Read/Grep/Glob，未改任何文件；实际读了 native-menu.test.js、startup-compat.test.js、native-menu.js、quality-gate.yml）。外部结论：**dismissed**，并给出与上述辩护一致的四条取证（同仓同形先例、CI 有 ensure-electron 保证执行、skip 是显式可见的、原建议会把锁改成装饰）。复核方同时确认了本条唯一的真实弱点：`.d.ts` 缺失时是**静默 skip 而非红**。据此采纳其处置：**不改代码，登记为已知技术债**（见执行记录 §5 与 §6），不引入「静态 mock 化」这种削弱约束的修法。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "变更规模标称 `455 行`，但 `.ccg/reviews/*.json` 内部 `stats.changedLines` 为 `293`，两者不一致；实际 diff 统计也未在提案中明确说明来源。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "指控成立的一面：同一次评审里出现了三个不同的「变更规模」数字——提案头写「变更规模: 455 行」、判定记录写 `stats.changedLines: 293`、而 `git diff --numstat` 实测是 348 增 + 2 删 = 350 行。数字对不上，读的人无从判断哪一口径才是「这次改了多少」，而这恰好是 mode=dual 的触发依据。",
+        "defense": "辩护成立的一面：三者**各自都对，但量的不是同一件事**。① `stats.changedLines = 293` = 判定器按 `--numstat` 口径统计的**代码变更行数，且刻意排除 `.ccg/` 自身**（`scripts/ccg-review-decider.js` 的 `isSelfArtifact` 与 `collectStaged` 注释写明「判定器自己的输出文件不该影响对它的判定」）；实测：`git diff --numstat origin/main...HEAD` 逐文件为 57（`.ccg` 产物）+ 8 + 12 + 92 + 151 + 8 + 14 + 6 = 348 增、2 删，合计 350 行，**减去产物自身的 57 行 = 293**，与 `changedLines` **逐位相等**。② 提案头「455 行」= 评审引擎统计的 **diff 文本行数**（含 `diff --git` / `---` / `+++` / `@@` 头与上下文行），实测提案文件 `proposal-v1.md` 共 468 行、其中 diff 块 455 行。③ 350 是 `--numstat` 的增删合计。三者分别是「代码变更行（排除产物）」「diff 文本行」「增删合计」，**不是互相矛盾的同一口径**。",
+        "verdict": "dismissed",
+        "rationale": "实测取证：`git diff --numstat origin/main...HEAD` 逐文件加总 = 348 增 + 2 删 = 350；扣掉 `.ccg/reviews/137….json` 自身的 57 行 = **293**，与 `stats.changedLines` 逐位相等；提案文件实测 468 行、diff 块 455 行 ⇒ 「455」是 diff 文本行数（含头与上下文），与 numstat 口径本就不同。判为 dismiss：三个数字各在其口径内正确，指控把不同口径读成了互相矛盾。⚠️ 真实弱点在于**口径未在提案里写明**——评审者正是因此误判。修法不落代码（改引擎输出口径属改判据本体、须人工过目），改在 §5 与本记录写清三口径定义。"
+      }
+    ],
+    "blocking": [],
+    "note": "自扮演裁决：全部指控不成立",
+    "at": "2026-10-21T10:59:26.212Z",
+    "closureNote": "第1轮 QM-6 外部双模型评审（critic=claude / proposer=opencode，判定记录 mode=dual、变更 293 行 > 200 行阈值）共 6 条发现，逐条处置如下：i1（Critical，产物 sha 字段指向父提交）否证——实测 git rev-parse HEAD^ 与该字段逐位相等，判定器跑在 pre-commit、新提交尚未生成，记父 sha 是机制设计；承担归属职责的是 stagedDiffHash，与引擎内容寻址配方逐字节一致且实测命中。i2（Warning，把 .ccg/reviews/ 产物 gitignore）否证——该文件是 QM-6 欠账门禁的数据源（check-pr-exec-record.js 从仓库工作树读回它；删除未闭环 dual 产物会被判欠账），gitignore 等于拆掉守门；仓内先例 CHANGELOG.md:23 已同结论否证。i3（Warning，运行时读 electron.d.ts 强耦合 node_modules 布局）否证——经外部后端 claude 独立只读复核（公开评论 https://github.com/Colinchiu007/mulpub/pull/4181#issuecomment-6314198843 ），结论为同仓既有约定（startup-compat.test.js 同形态）+ CI 有 ensure-electron 保证真跑；原建议的静态 mock 化会把锁变成恒真装饰，故不改代码、登记为已知技术债。i4（Warning，455 行 vs 293 行不一致）否证——三者各在其口径内正确：numstat 增删合计 350 减去产物自身 57 行 = 293 与 stats.changedLines 逐位相等；455 是 diff 文本行数（含头与上下文）。i5（Info，主进程未记录 removeApplicationMenu 返回值）采纳并已修——补 log.info 留痕，使「菜单未被移除」在生产环境可诊断。i6（Info，产物泄露内部评审后端名）与 i2 同源，一并否证。本片实现本身（菜单移除的两级策略与平台分支）未收到任何 Critical/Warning 指控。"
+  }
+}

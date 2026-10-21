@@ -145,6 +145,9 @@ const MAIN_CHAIN_URL_GATE_FILES = [
   'electron/services/content-intelligence-sources.js',
   'electron/services/hot-topics/channels.js',
   'electron/bootstrap/phase4-events.js',
+  // 2026-10-21（login-view-protocol-guard）：内嵌登录视图的外部协议守卫模块。
+  // 它决定「平台页要跳去哪儿能不能在应用内发生」，属成链门禁，必须复用共享实现。
+  'electron/services/external-protocol-guard.js',
 ]
 
 describe('渲染层 href 协议校验接线锁', () => {

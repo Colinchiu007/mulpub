@@ -13,6 +13,7 @@ const { config, getUrl } = require('./config/app-config')
 const { isTrustedSender } = require('./core/ipc-security')
 const { createAccessControlledIpcMain } = require('./ipc-handlers/license-access-control')
 const { shouldHideToTrayOnClose } = require('./services/window-close-policy')
+const { removeWindowMenuBar } = require('./services/native-menu')
 const {
   isThenable,
   runOnce,
@@ -257,7 +258,14 @@ function createWindow(context) {
       sandbox: true,
     },
     show: false,
+    // 2026-10-21（remove-native-menu-bar）：去掉窗口顶部那行系统菜单
+    // （File / Edit / View / Window）。它不是本产品的功能入口，却白占一整行窗口高度。
+    // autoHideMenuBar 兜底「按 Alt 临时唤出」；真正的移除由下面的 removeWindowMenuBar 完成。
+    autoHideMenuBar: true,
   })
+  // 把「主窗口没有菜单栏」钉在窗口自己身上：即便将来有人再调用
+  // Menu.setApplicationMenu(...) 装了个菜单，主窗口也不会重新长出这一行。
+  removeWindowMenuBar(mainWindow)
   let shown = false
   const showMainWindow = () => {
     if (shown || (typeof mainWindow.isDestroyed === 'function' && mainWindow.isDestroyed())) return

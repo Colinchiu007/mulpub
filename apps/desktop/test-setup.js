@@ -66,6 +66,8 @@ const electronMock = {
         // 完全不可见——2026-10-16 排查 kuaishou 隐藏窗口崩溃时正是卡在这里。
         on: function (evt, handler) { this._handlers[evt] = handler; return this },
         once: function (evt, handler) { this._handlers[evt] = handler; return this },
+        // 真实 Electron 有此方法；记录 handler 让「视图是否装了外部协议守卫」可断言
+        setWindowOpenHandler: function (handler) { this._handlers.windowOpen = handler; return this },
         openDevTools: function () {},
         closeDevTools: function () {},
         isDestroyed: function () { return false },
@@ -102,6 +104,9 @@ const electronMock = {
       this.setPosition = function () {}
       this.center = function () {}
       this.setTitle = function () {}
+      // 窗口级菜单：主窗口用它把原生菜单栏（File/Edit/View/Window 那一行）置空
+      // （remove-native-menu-bar）。vi.fn 供断言「确实被置空」。
+      this.setMenu = vi.fn(function () {})
       // 记录实例（动态引用 fn._instances，使 __resetElectronMock 重置数组后仍生效）
       fn._instances.push(this)
     })
@@ -168,6 +173,8 @@ const electronMock = {
       send: function () {},
       on: function () {},
       once: function () {},
+      // 真实 Electron 有此方法；记录 handler 让「视图是否装了外部协议守卫」可断言
+      setWindowOpenHandler: function (handler) { this._windowOpenHandler = handler },
       loadURL: function () { return Promise.resolve() },
       executeJavaScript: function () { return Promise.resolve() },
       isDestroyed: function () { return false },
@@ -182,7 +189,8 @@ const electronMock = {
   },
   Menu: {
     buildFromTemplate: function (t) { return t },
-    setApplicationMenu: function () {},
+    // vi.fn：应用菜单模板的置空动作要能被断言（remove-native-menu-bar）
+    setApplicationMenu: vi.fn(function () {}),
   },
   Tray: function () {
     this.setToolTip = function () {}
@@ -257,6 +265,7 @@ function resetElectronMock() {
   electronMock.app.quit.mockClear()
   electronMock.BrowserWindow.mockClear()
   electronMock.BrowserWindow.getAllWindows.mockClear()
+  electronMock.Menu.setApplicationMenu.mockClear()
   // 不清空 mockRegistry（测试可能跨 beforeEach 复用注册）
 }
 
