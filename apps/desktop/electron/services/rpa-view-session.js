@@ -15,6 +15,7 @@ const log = require('./logger')
 const { normalizeProxyConfig, toElectronProxyRules } = require('./proxy-config')
 const { PLATFORM_LOGIN_URLS, PLATFORM_COOKIE_DOMAINS } = require('@multi-publish/shared-utils/src/platform-definitions')
 const { restoreLocalStorage, restoreIndexedDB } = require('./auth-view-session')
+const { attachExternalProtocolGuard } = require('./external-protocol-guard')
 const { selectAuthPartition } = require('./auth-partition')
 
 // 平台默认域名：无 domain/url 的 cookie 按平台补 url（Electron cookies.set 要求 url）
@@ -170,6 +171,8 @@ const sessionMixin = {
   // ========== Window management ==========
   _createWindow(partition, platform) {
     const win = new BrowserWindow({ show:false, width:1280, height:800, webPreferences:{ session:session.fromPartition(partition,{cache:true}), contextIsolation:true, nodeIntegration:false, sandbox:true, backgroundThrottling:false,preload:this._resolvePreloadPath(platform) } })
+    // 外部协议守卫（2026-10-21）：RPA 窗口跑的是平台真实页面，自定义协议跳转不得交给操作系统
+    attachExternalProtocolGuard(win.webContents, { tag: 'rpa-view' })
     win.webContents.on('did-fail-load',function(e,code,desc){log.warn('RpaView','load fail: '+desc+' ('+code+')')})
     // 渲染进程 console 转发（logging-coverage-audit：此前空处理器吞掉页面 JS 报错）
     win.webContents.on('console-message', function (e, _level, message, line, sourceId) {

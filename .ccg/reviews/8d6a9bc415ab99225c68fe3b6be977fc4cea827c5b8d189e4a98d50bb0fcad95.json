@@ -1,0 +1,61 @@
+{
+  "sha": "05e83ddf14dc53ceb74064b5587910e7a2506d55",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 383 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 383,
+    "fileCount": 16,
+    "codeFileCount": 11,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 3,
+    "docSensitiveContentHits": 5,
+    "docSensitiveContentSample": [
+      "> 导航面交给的是\"让页面跳去哪儿\"，带 userinfo 的 URL 属于伪装凭据，必须挡。",
+      "| `oauth-manager.js` | 平台 OAuth 授权页 | ❌ 同上 |",
+      "桌面端所有加载平台真实页面的内嵌视图（账号登录视图、扫码登录视图、OAuth 授权视图、RPA 自动化窗口、静默登录窗口）"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "8d6a9bc415ab99225c68fe3b6be977fc4cea827c5b8d189e4a98d50bb0fcad95",
+  "decidedAt": "2026-10-21T07:23:38.367Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}
