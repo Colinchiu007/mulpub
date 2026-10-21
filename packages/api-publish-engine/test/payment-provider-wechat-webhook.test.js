@@ -234,3 +234,61 @@ test('parseWebhook 解密与归一化', async (t) => {
     assert.deepStrictEqual(Object.keys(event.raw).sort(), ['event_type', 'out_trade_no', 'summary', 'transaction_id'])
   })
 })
+
+/**
+ * 外部评审（QM-6 / claude 家族）在 2026-10-21 抓出的两条 Critical 的回归锁。
+ *
+ * 这两条的共同特征是「**只坏对账/只坏生产**，界面与单测都看不出来」：
+ *   - 金额字段读错：订阅照发（plan 不依赖金额），只有对账链路静默断掉
+ *   - 裸 Base64 一律当证书：单测用 PEM 证书时全绿，上线换成「微信支付公钥」就全拒
+ * 因此判据必须钉住**字段名**与**凭据形态分流**，不能只测「返回了个数」。
+ */
+test('外部评审 Critical 回归锁', async (t) => {
+  const provider = makeProvider()
+
+  await t.test('金额取订单总金额 total，不是实付 payer_total（有优惠时两者不等）', () => {
+    // 这条是核心：若实现读 payer_total，用户在有用券/立减的订单上会把「实付」当「应收」记进对账
+    assert.strictEqual(provider._amountCents({ total: 5900, payer_total: 4900, currency: 'CNY' }), 5900)
+  })
+
+  await t.test('只给 total 时不得静默变 null（老实现只读 payer_total 会返回 null）', () => {
+    assert.strictEqual(provider._amountCents({ total: 5900, currency: 'CNY' }), 5900)
+  })
+
+  await t.test('只给 payer_total 时保底读取（异常报文兜底）', () => {
+    assert.strictEqual(provider._amountCents({ payer_total: 4900 }), 4900)
+  })
+
+  await t.test('两者都没有 / 非数字 → null（绝不编造 0）', () => {
+    assert.strictEqual(provider._amountCents({}), null)
+    assert.strictEqual(provider._amountCents(null), null)
+    assert.strictEqual(provider._amountCents({ total: 'abc' }), null)
+  })
+
+  await t.test('裸 Base64 的 SPKI 公钥（微信支付公钥模式）必须能验签通过', async () => {
+    // 微信 2024 起从「平台证书」迁到「微信支付公钥」，配的是**无 PEM 头**的裸 Base64 公钥。
+    // 老实现一律补 CERTIFICATE 头 ⇒ X509Certificate 抛 ASN.1 wrong tag ⇒ 所有回调被拒。
+    const bareSpki = SPKI_PEM
+      .replace('-----BEGIN PUBLIC KEY-----', '')
+      .replace('-----END PUBLIC KEY-----', '')
+      .replace(/\s+/g, '')
+    const body = successBody({ outTradeNo: 'wpabc12345' })
+    const headers = signedHeaders(body)
+    // 返回**裸**公钥：不带任何 PEM 头（走既有 makeProvider，其余依赖照旧）
+    const bareProvider = makeProvider({ certificateProvider: { getBySerial: async () => bareSpki } })
+    const event = await bareProvider.parseWebhook({ rawBody: body, headers })
+    // 本用例的被测性质是「验签通过」：裸 Base64 SPKI 能被正确识别为公钥。
+    // orderId 取夹具默认值（不写死具体串，否则改夹具会连累这条判据）。
+    assert.strictEqual(event.type, 'checkout.completed')
+    assert.match(event.orderId, /^wp[a-z0-9]{8,64}$/)
+    void provider
+  })
+
+  await t.test('裸 Base64 的垃圾串必须报 CERT_INVALID（不能被当成合法公钥放行）', () => {
+    const { toVerifiableKey } = require('../src/auth/payment-providers/wechat-native')
+    assert.throws(
+      () => toVerifiableKey('AAAA'),
+      (err) => err.code === 'PAYMENT_WEBHOOK_CERT_INVALID',
+    )
+  })
+})

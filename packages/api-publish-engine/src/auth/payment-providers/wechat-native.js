@@ -49,9 +49,12 @@ function verifySignature({ platformCredential, verifyString, signature }) {
   if (!normalizedSignature) {
     throw new WebhookSignatureError('PAYMENT_WEBHOOK_SIGNATURE_MISSING', '缺少签名头')
   }
-  // 微信签名是 Base64；容错接受带 padding 变体与 URL-safe 变体，但不接受空串与明显非 Base64 串。
-  if (!/^[A-Za-z0-9+/=_-]+$/.test(normalizedSignature)) {
-    throw new WebhookSignatureError('PAYMENT_WEBHOOK_SIGNATURE_MALFORMED', '签名头不是 Base64')
+  // 微信签名是**标准** Base64（`+/` 与 `=` padding）。
+  // 此前把 URL-safe 的 `-`/`_` 也放进字符类，属放宽过度：Node 的 'base64' 解码器不认这两个
+  // 字符，含它们的串会解出错误字节 ⇒ 合法签名被误拒，且不同串可能解出同字节（歧义）。
+  // 严格到标准字母表后，非法串在字符类这一步就被挡掉，不会进到 crypto.verify。
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(normalizedSignature)) {
+    throw new WebhookSignatureError('PAYMENT_WEBHOOK_SIGNATURE_MALFORMED', '签名头不是标准 Base64')
   }
   const verifier = crypto.createVerify('RSA-SHA256')
   verifier.update(verifyString, 'utf8')
@@ -88,8 +91,25 @@ function toVerifiableKey(platformCredential) {
   }
   let pem = value
   if (!pem.includes('-----BEGIN')) {
-    // 裸 Base64：按 X.509 证书补头（微信平台证书的标准形态）
-    pem = `-----BEGIN CERTIFICATE-----\n${pem}\n-----END CERTIFICATE-----`
+    // 裸 Base64：**可能是证书，也可能是公钥**，不能一律当证书。
+    // 微信 APIv3 在 2024 年从「平台证书」迁到「微信支付公钥」，公钥模式下配的是
+    // 裸 Base64 的 SPKI 公钥。若一律补 CERTIFICATE 头，X509Certificate 会抛
+    // `error:...:asn1 encoding routines::wrong tag` ⇒ 所有合法回调被拒、支付永不落账。
+    // 先按证书试，失败再按 SPKI 公钥试；两者都失败才算配置错误。
+    try {
+      return new crypto.X509Certificate(`-----BEGIN CERTIFICATE-----\n${pem}\n-----END CERTIFICATE-----`)
+        .publicKey.export({ type: 'spki', format: 'pem' })
+    } catch {
+      // 公钥分支必须**验证能解析**再返回：不验就会把任意垃圾串当合法密钥交出去，
+      // 后续 crypto.verify 抛的是笼统错误、丢了「配置错了」这个语义。
+      const spkiPem = `-----BEGIN PUBLIC KEY-----\n${pem}\n-----END PUBLIC KEY-----`
+      try {
+        crypto.createPublicKey(spkiPem)
+        return spkiPem
+      } catch {
+        throw new WebhookSignatureError('PAYMENT_WEBHOOK_CERT_INVALID', '平台凭据既不是合法 X.509 证书，也不是合法 SPKI 公钥')
+      }
+    }
   }
   if (pem.includes('BEGIN CERTIFICATE')) {
     try {
@@ -357,8 +377,14 @@ class WeChatNativeProvider {
   }
 
   _amountCents(amount) {
-    const total = amount && Number(amount.payer_total)
-    return Number.isFinite(total) && total >= 0 ? total : null
+    // 对账口径取**订单总金额** `total`，不是 `payer_total`。
+    // 微信 APIv3 的 `resource.amount` 里：`total` 是订单总金额、`payer_total` 是用户实付
+    // （有优惠券/立减时两者不等）。我们对账的对象是「订单应收多少」，所以 `total` 是正确字段。
+    // 老实现只读 `payer_total`：一旦上游只给 `total`，amountCents 会静默变成 null，
+    // 对账链路随之断裂（订阅仍会发放，因为 plan 不依赖金额——这类"只坏对账"的缺陷更难发现）。
+    // 保底再读 `payer_total`，覆盖只给实付金额的异常报文。
+    const value = amount && (amount.total != null ? Number(amount.total) : Number(amount.payer_total))
+    return Number.isFinite(value) && value >= 0 ? value : null
   }
 }
 

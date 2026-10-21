@@ -96,7 +96,9 @@ function registerWeChatPayHandlers (ipcMain, deps = {}) {
         payload,
         path: '/api/v1/me/orders/' + orderId,
         method: 'GET',
-        requireSubject: false,
+        // 轮询也要登录态：服务端本来就会 401，但本地先短路能省一次往返，
+        // 且避免「未登录 renderer 也能拿订单号去探」的防御深度缺口。
+        requireSubject: true,
       })
       if (fetched.code !== 0) return fetched
       const order = (fetched.data && fetched.data.order) || {}

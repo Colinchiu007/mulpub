@@ -138,4 +138,23 @@ describe('WeChatPayDialog', () => {
     await wrapper.get('[data-testid="wechat-pay-close"]').trigger('click')
     expect(wrapper.emitted('close')).toBeFalsy()
   })
+
+  // 外部评审（QM-6 / claude 家族）抓出的 High：轮询遇到非 0 码时直接 return，
+// setInterval 永远留着 —— 关窗后仍每 3 秒打一次 IPC 直到应用退出。
+it('轮询返回非 0 码 → 停表并报错（不得把定时器留在外面）', async () => {
+  invokeMock
+    .mockResolvedValueOnce({ code: 0, data: { orderId: 'wpabc12345', qrDataUrl: QR } })
+    .mockResolvedValue({ code: -1, message: 'AUTH_ERROR' })
+  const wrapper = await mountDialog()
+  await flushPromises()
+  expect(wrapper.find('[data-testid="wechat-pay-qr"]').exists()).toBe(true)
+
+  await vi.advanceTimersByTimeAsync(3000)
+  await flushPromises()
+  expect(wrapper.find('[data-testid="wechat-pay-failed"]').exists()).toBe(true)
+
+  const after = invokeMock.mock.calls.length
+  await vi.advanceTimersByTimeAsync(12000)
+  expect(invokeMock.mock.calls.length, '非 0 码后必须停表').toBe(after)
+})
 })

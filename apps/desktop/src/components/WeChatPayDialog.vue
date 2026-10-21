@@ -118,7 +118,12 @@ async function pollOnce () {
     return
   }
   const response = await invoke('wechatPayOrderStatus', { orderId: orderId.value })
-  if (!response || response.code !== 0 || !response.data) return
+  // 非 0 码（503 / 鉴权失效 / IPC 异常）**不能直接 return**：那会让 setInterval 永远留着，
+  // 弹窗关掉后仍每 3 秒打一次 IPC 直到应用退出。必须停表并给出可读错误。
+  if (!response || response.code !== 0 || !response.data) {
+    fail(response && response.message)
+    return
+  }
   const status = response.data.status
   if (status === 'paid') {
     stopPolling()

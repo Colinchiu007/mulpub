@@ -1,0 +1,59 @@
+{
+  "sha": "c4941d287d7db1558d76879ae7b2b526e547a1b7",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 128 行（≤ 200）但命中 auth/数据库/加密：敏感路径 packages/api-publish-engine/src/auth/payment-providers/wechat-native.js；敏感内容 4 处",
+  "stats": {
+    "changedLines": 128,
+    "fileCount": 6,
+    "codeFileCount": 5,
+    "sensitivePathHits": [
+      "packages/api-publish-engine/src/auth/payment-providers/wechat-native.js"
+    ],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 4,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "7d8a01abf7c313fa5fd2fabdf860370aa8dbb394c05b5ec9d826058ea5a45e54",
+  "decidedAt": "2026-10-21T17:17:36.076Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}
