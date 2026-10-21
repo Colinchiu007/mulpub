@@ -2136,3 +2136,83 @@ auth_data = {"errCode":300330,"errMsg":"request failed"}
 
 ⇒ 三者都需要**复跑一次带诊断的版本**才能区分 —— 与 §16.30.3 结论一致：
   剩余唯一信息缺口是运行时诊断。
+### 16.33 小红书 406 的字段级取证：竞品端点 + 线上 bundle 的真实 payload 字段族（2026-10-21）
+
+> §16.11/§16.12/§16.15 已排除「缺请求头」「缺 /api 前缀」「sign-URI 形态」三条假设，
+> 结论是「406 = 服务端对 `note` 端点**请求体字段/格式**的拒绝」。本节为字段级对照取证。
+
+#### 16.33.1 竞品逆向成果里的小红书（按用户指示先查）
+
+| 来源 | 内容 |
+| --- | --- |
+| `05-<参考产品>-materials/RPA分析报告.md` §2.4 | 只有 **上传**（腾讯云 COS 分片：`getUploadIdResponse` / `uploadVideoPart` / `getUploadedVideoEtag`，头 `x-cos-security-token`）、数据分析、内容删除 —— **没有发布/草稿 API 路径** |
+| `04-rea-evidence/<参考产品>-主进程清点.json` URL 清点 | 有（按 count）：`edith.xiaohongshu.com/web_api/sns/v2/note` **4**、`creator.xiaohongshu.com/publish/publish` **4**、`creator.xiaohongshu.com/api/media/v1/upload/web/permit?biz_name=spectrum&scene=` **2**、`creator.xiaohongshu.com/api/galaxy/user/info` **1** |
+
+⇒ **发布链 = permit → 上传 → `web_api/sns/v2/note`**。
+
+#### 16.33.2 我们的实现已经与竞品同款（不是端点错）
+
+`packages/api-publish-engine/src/publish/platforms/xiaohongshu-draft.js`：
+```
+1. POST creator.xiaohongshu.com/api/media/v1/upload/web/permit → { file_id, token, cos_key }
+2. ros-upload（分片）
+3. POST edith.xiaohongshu.com/web_api/sns/v2/note  （draft=true 存草稿）
+```
+
+⇒ 与竞品清点**完全一致** ⇒ 406 **不是**端点选错，也不是链选错。
+
+#### 16.33.3 线上 bundle 取证（公开可下，无需登录）
+
+创作页 `creator.xiaohongshu.com/publish/publish` 的主 bundle 位于
+`fe-static.xhscdn.com/formula-static/ugc/public/resource/js/project-publish-vue.<hash>.js`（2.25MB）。
+在里面直接读到三件事：
+
+**① 端点常量**
+```js
+POST_NOTE: concat(l, "/web_api/sns/v2/note")
+USER_INFO: concat(s, "/api/galaxy/user/my-info")
+```
+
+**② 该端点被登记在「必须签名」清单里**
+```js
+"creator-platform": { signIncludesUrl: [
+  { pattern: "web_api/sns/v5/creator/topic/template/list", mode: "endsWith" },
+  { pattern: "web_api/sns/v2/note", mode: "endsWith" }
+] }
+```
+⇒ 与我们的 signer 一致（我们确实签了它，且 §16.15 已验证「签名有效、得 406 而非 401」）。
+
+**③ 笔记模型字段族（前端 store 的真实键名）**
+```
+title  type  desc  ats  hash_tag  cover  video_info  metadata
+post_loc  post_locs  scheduled_post_time  post_timing  order_cooperate
+privacy  images_list  biz_relations  label_map
+```
+
+字段名要点（对 406 直接相关）：用 `type` **不是** `note_type`；用 `desc` **不是** `content`；
+用 `images_list` / `video_info` **不是** `images` / `video`；`hash_tag` 是独立字段（话题不是内联在 desc 里）。
+
+#### 16.33.4 一处**已确认的路径偏差**（与本 406 无关但应修）
+
+| 位置 | 我们 | 线上 bundle |
+| --- | --- | --- |
+| 用户信息 | `/api/galaxy/user/info` | **`/api/galaxy/user/my-info`** |
+
+⇒ 竞品清点里的 `user/info` 可能是旧版或另一入口；线上代码用的是 `my-info`。
+这条**不影响 note 提交**（不同端点），但会影响「登录态/用户信息」探测的准确性，应单独核实。
+
+#### 16.33.5 结论与下一步（按证据强度分层）
+
+| 结论 | 强度 |
+| --- | --- |
+| 发布链与端点选型正确（permit → upload → sns/v2/note） | **实测**（与竞品清点一致 + 线上 bundle 常量） |
+| `note` 在「必须签名」清单内，我们已签 | **实测**（线上 bundle `signIncludesUrl`） |
+| payload 字段族应为 `type/desc/hash_tag/images_list/video_info/...` | **实测**（线上 bundle store 键名），但是否**全部必填**未知 |
+| 406 的具体缺项 | **未证实** —— 仍需抓一次真实请求做逐字段 diff |
+
+**下一步（下一轮）**：用 §16.32.1 的「发布窗口实时采样」同法，在应用内打开小红书创作页，
+驱动页面点「存草稿」，并用 CDP `Network` 域捕获该次真实 `POST /web_api/sns/v2/note` 的
+**请求体与请求头**，再与我们的构造逐字段 diff。这是唯一能把「未证实」变「实测」的路径。
+
+> 顺带说明：若页面侧「存草稿」能成功，则**草稿目标已达成**（DOM 轨），
+> 捕获到的 payload 还可反过来修 API 轨 —— 两条收益一次取证。
