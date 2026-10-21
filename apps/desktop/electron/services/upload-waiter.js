@@ -82,7 +82,25 @@ const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { 
     let lastReported = null
     for (;;) {
       const now = Date.now()
-      const signal = await this._probeUploadSignal(win, probe)
+      // 2026-10-22（真机挂死现场）：任务卡在 uploading file... 后**一小时无任何进展**、
+      // 连 300s 的 best-effort 日志都没出现 ⇒ `_probeUploadSignal` 的 Promise 永不 resolve
+      // （executeJavaScript 依赖渲染进程应答；窗口被隐藏/节流/渲染进程挂起时可能永不应答），
+      // 而循环里**没有单次探测的超时**，于是整条发布链永久挂起（连预算判定都执行不到）。
+      // 修法：每次探测都套一层**硬超时**，超时按「无效帧」处理（不刷新停滞计时、不判完成），
+      // 让预算与停滞判定继续生效 —— 循环终止性优先于单次采集成功。
+      const PROBE_TIMEOUT_MS = 15000
+      const signal = await Promise.race([
+        this._probeUploadSignal(win, probe),
+        new Promise((resolve) => setTimeout(() => resolve({
+          uploading: false, uploadingText: false, pagePercent: null,
+          positive: false, doneStrong: false, structural: false, probeTimedOut: true,
+        }), PROBE_TIMEOUT_MS)),
+      ])
+      // 超时可见化：否则「探测一直不返回」与「页面一直没完成」在日志上完全同形。
+      if (signal.probeTimedOut) {
+        this._probeTimeoutCount = (this._probeTimeoutCount || 0) + 1
+        if (this._probeTimeoutCount === 1 || this._probeTimeoutCount % 20 === 0) log.warn('RpaView', '[' + platform + '] upload probe timed out x' + this._probeTimeoutCount + '（渲染进程未应答，按无效帧继续）')
+      }
       // 评审整改 C4（2026-10）：只有**有效百分比帧**且与上一有效值不同才重置停滞计时；
       // 连续无效帧（pagePercent=null，页面 DOM 未就绪/executeJavaScript 容错路径）
       // 不得刷新 stableSince，否则停滞判定永远凑不满 180s（预算形同虚设的变体）。

@@ -187,3 +187,31 @@ describe('⑥ decideUploadWait：强文案 + 无上传中文本 ⇒ 直接 done'
     expect(src.includes('var uploadingText=')).toBe(true)
   })
 })
+
+// ── ⑦ 探测必须有硬超时（2026-10-22 真机挂死后补）────────────────────────
+// 现场：任务卡在 uploading file... 后一小时无进展，连 300s best-effort 日志都没有。
+// 根因：_probeUploadSignal 依赖 executeJavaScript，渲染进程不应答时 Promise 永不 resolve，
+// 而循环没有单次探测超时 ⇒ 预算/停滞判定永远执行不到。
+describe('⑦ 上传探测的硬超时护栏', () => {
+  const src = fs.readFileSync(svc('upload-waiter.js'), 'utf8')
+
+  test('探测调用被 Promise.race 包裹，且超时值有限', () => {
+    expect(/Promise\.race\(\[/.test(src)).toBe(true)
+    expect(/PROBE_TIMEOUT_MS = \d+/.test(src)).toBe(true)
+    const m = src.match(/PROBE_TIMEOUT_MS = (\d+)/)
+    expect(Number(m[1])).toBeGreaterThan(0)
+    expect(Number(m[1])).toBeLessThanOrEqual(60000)
+  })
+
+  test('超时帧按「无效帧」返回（不判完成、不刷新停滞）', () => {
+    expect(/probeTimedOut: true/.test(src)).toBe(true)
+    const seg = src.slice(src.indexOf('probeTimedOut: true') - 300, src.indexOf('probeTimedOut: true'))
+    expect(seg.includes('positive: false')).toBe(true)
+    expect(seg.includes('pagePercent: null')).toBe(true)
+  })
+
+  test('超时可见化：有计数与告警日志', () => {
+    expect(/_probeTimeoutCount/.test(src)).toBe(true)
+    expect(/upload probe timed out/.test(src)).toBe(true)
+  })
+})
