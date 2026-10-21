@@ -85,17 +85,48 @@ function attachExternalProtocolGuard (webContents, options = {}) {
     navigationInstalled: false,
     blockedWindowOpen: 0,
     blockedNavigation: 0,
+    /** 首次安装时的视图标识（日志里用它定位"是谁发起的"） */
+    tag,
+    /** 二次安装且身份不一致时，把后来的身份记在这里（不静默覆盖，见 i1 处置） */
+    tagConflicts: [],
   }
   if (!webContents || typeof webContents !== 'object') return state
 
   // 幂等（CCG 外部评审 i1）：同一 webContents 已装过守卫 ⇒ 直接返回既有状态，
   // 不再叠加 will-navigate 监听器（否则一次拦截会写两遍日志）。
   const existing = INSTALLED_GUARDS.get(webContents)
-  if (existing) return existing
+  if (existing) {
+    // 二次安装却带着**不同**身份 ⇒ 编程错误（同一个对象被当成两个视图）。
+    // 不静默覆盖：既有的 tag 保持不变（它才是该对象真实的来源），
+    // 后来的身份记进 tagConflicts 并**出声**——否则日志里的 tag 永远停在首次值，
+    // 审计轨迹失真而无人知道（CCG 第 2 轮 i1）。
+    if (existing.tag !== tag) {
+      existing.tagConflicts.push(tag)
+      try {
+        log.notify(LOG_MODULE, 'external-protocol-guard-duplicate-install', {
+          level: 'WARN',
+          params: { firstTag: existing.tag, secondTag: tag },
+        })
+      } catch (_) { /* 日志失败不影响拦截本身 */ }
+    }
+    return existing
+  }
 
   const record = (source, url) => {
     if (source === 'window-open') state.blockedWindowOpen += 1
-    else state.blockedNavigation += 1
+    else if (source === 'navigation') state.blockedNavigation += 1
+    else {
+      // 未知 source：**不静默归类**（CCG 第 2 轮 i4）。仍计入 navigation（保守），
+      // 但另发一条 WARN 出声——否则一个拼错的 source 会被无声地算进"导航拦截"，
+      // 排障时看到的计数与真实原因对不上。
+      state.blockedNavigation += 1
+      try {
+        log.notify(LOG_MODULE, 'external-protocol-guard-unknown-source', {
+          level: 'WARN',
+          params: { tag, source: String(source) },
+        })
+      } catch (_) { /* ignore */ }
+    }
     try {
       log.notify(LOG_MODULE, 'external-protocol-blocked', {
         level: 'WARN',

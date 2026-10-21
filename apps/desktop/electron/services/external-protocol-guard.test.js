@@ -177,6 +177,36 @@ describe('attachExternalProtocolGuard — 守卫行为', () => {
 
     expect(mockLogger.notify).toHaveBeenCalledTimes(1)
   })
+
+  // CCG 第 2 轮 i1（Critical，correctness）：幂等分支若直接返回既有状态，
+  // 就会**丢掉**第二次传入的 tag ⇒ 同一对象被当成两个视图时，日志里的身份永远停在首次值，
+  // 审计轨迹失真而无人知道。处置：保留首次 tag，把后来的身份记进 tagConflicts 并出声。
+  it('二次安装带不同身份时不静默覆盖：保留首次 tag、记录冲突并出声', () => {
+    const wc = createWebContents()
+    const first = attachExternalProtocolGuard(wc, { tag: 'auth-view' })
+    const second = attachExternalProtocolGuard(wc, { tag: 'qrcode-login' })
+
+    expect(second).toBe(first)
+    expect(first.tag).toBe('auth-view')
+    expect(first.tagConflicts).toEqual(['qrcode-login'])
+    expect(mockLogger.notify).toHaveBeenCalledWith(
+      'ExternalProtocolGuard',
+      'external-protocol-guard-duplicate-install',
+      expect.objectContaining({
+        level: 'WARN',
+        params: expect.objectContaining({ firstTag: 'auth-view', secondTag: 'qrcode-login' }),
+      }),
+    )
+  })
+
+  // CCG 第 2 轮 i4（Info）：未知 source 不得被静默归类成"导航拦截"。
+  // 该分支只能由模块内部的编程错误触发（外部不可达）⇒ 用源码锁钉住"必须显式出声"。
+  it('未知 source 必须显式出声（不得静默归类）', () => {
+    const fs = require('node:fs')
+    const path = require('node:path')
+    const src = fs.readFileSync(path.join(__dirname, 'external-protocol-guard.js'), 'utf8')
+    expect(src).toContain('external-protocol-guard-unknown-source')
+  })
 })
 
 describe('登录视图接线 — 行为级（账号登录视图 = 本次事故现场那条路径）', () => {

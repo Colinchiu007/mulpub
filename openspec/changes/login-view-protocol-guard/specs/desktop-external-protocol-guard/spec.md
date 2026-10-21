@@ -51,11 +51,12 @@ SHALL 安装统一的外部协议守卫。守卫 SHALL 仅允许 `http:` / `http
 - **THEN** `will-navigate` 监听器只注册一次，拦截日志每次只写一条
 - **AND** 第二次调用返回首次安装的状态对象（幂等）
 
-#### Scenario: 子框架内的协议跳转属排除范围
+#### Scenario: 拦截面按通道区分（导航 vs 新窗口）
 
-- **WHEN** 平台页的 **iframe**（广告 / SDK 注入帧）内部发起自定义协议跳转
-- **THEN** 本守卫**不拦截**该跳转（Electron 的 `will-navigate` 只对主框架导航触发）
-- **AND** 该限制 SHALL 在设计文档中显式声明，不得以"已全覆盖"表述
+- **WHEN** 平台页的 **iframe**（广告 / SDK 注入帧）内部发起自定义协议**导航**
+- **THEN** 本守卫**不拦截**该导航（Electron 的 `will-navigate` 只对主框架导航触发）——该限制 SHALL 显式声明，不得以"已全覆盖"表述
+- **AND** 但同一 iframe 若用 `window.open` 发起自定义协议**新窗口请求**，本守卫**照样拦截**（`setWindowOpenHandler` 对整个 webContents 生效，不区分发起帧）
+- **AND** 规格与设计文档 SHALL 用同一口径表述上述两条，不得把"导航排除"写成"子框架整体排除"
 
 ### Requirement: 守卫接线覆盖面
 
