@@ -33,7 +33,8 @@ date: 2026-10-21
 | 变异反证 | ✅ | 把 `fillProfileFromHttpApi` 调用换成 `const filled = { profile, used: false }`：2 个核心用例当场变红（`2 failed \| 6 passed \| 85 skipped`）；另 2 个仍绿是**正确的**（它们断言「不调用」与「不阻断」，摘掉调用反而满足）。修复已还原并复跑 `93/93` |
 | 测试陷阱记录 | ✅ | `stubHttpInfo` 不能用 `mockResolvedValue(Promise.reject(...))`——那个 promise 在**参数求值时**已 reject，`mockImplementation` 只延迟返回它，unhandled rejection 照样发生（vitest 报 false positive）。正解 `mockRejectedValue(new Error(...))`。首版实测踩到并修正 |
 | 判据自我否证 | ✅ | 首版判据写成 `account_name === name && !avatar`，被自己的第 3 个用例（「DOM 采到头像但没采到昵称」）当场否证——该形态下兜底不触发。已改为只判昵称，请求成本由「逐个判空补位」保证 |
-| 前端回归 | ✅ | `account-manager.test.js` **93/93**（含新增 4 例）；相关 4 文件 `account-profile-refresh` 20 + `account-manager-profile` 17 + `http-login-checker-info` 27 + `account-manager-relogin-status` = **78/78** |
+| 前端回归 | ✅ | `account-manager.test.js` + `account-manager-profile-fallback.test.js` 合计 **96/96**（含本修复新增 7 例）；相关 4 文件 `account-profile-refresh` 20 + `account-manager-profile` 17 + `http-login-checker-info` 27 + `account-manager-relogin-status` = **78/78** |
+| 逐文件行数门禁（CI 实测拦下） | ✅ | PR 首次 CI 报 `TEST_LEDGER_GREW`：`account-manager.test.js` 较登记值 1598 膨胀 353 行（容差 200）。按门禁指引「按被测模块/场景分文件」把本修复的 7 例拆到新文件 `account-manager-profile-fallback.test.js`（264 行）；原文件回落至 **1717 行**（+119，容差内），`node .github/scripts/check-max-lines.js` rc=0「无新增超大文件」。拆分后两文件合跑 96/96，**与拆分前逐项一致**（证明拆分无损） |
 | 全量 electron 套件 | ✅ | `12 failed / 11929 passed`（首轮）→ 逐条归因后**全部消解**，见下「取证顺序教训」与「flake 归因」两节 |
 | QM-1 打包 / QM-4 视觉 | 见提交前复测 / N/A | QM-1：改动在 `apps/desktop/electron/` ⇒ 已打包 + 三层启动判据（见提交前复测段）。QM-4：未触碰任何 `.vue` / 样式 / locale，无视觉面变更 |
 | 行尾与 diff 对账 | ✅ | 见提交前两口径 numstat 实测（下详） |
@@ -72,4 +73,23 @@ asar 内无 `dist/` ⇒ 启动 `ERR_FILE_NOT_FOUND`，按层②判 `NEEDS_REVIEW
   **父环境实测带 `ELECTRON_RUN_AS_NODE`**，已按 `buildChildEnv()` 口径剔除并出声告警
   （不静默剔除，否则「本机环境一直有问题」永远不被知道）。
 - **两口径 numstat**：见提交前实跑（git diff --numstat 与 --ignore-cr-at-eol --numstat 逐字一致）。
-- **静态门禁**：ESLint（3 个改动文件）rc=0；其余随 CI。
+- **静态门禁**：ESLint（3 个改动文件）rc=0；`check-max-lines` rc=0；`check-debt-budget` rc=0；
+  doc-abs-paths / brand-residue / gate-record-debt / unwired-tests / check-pr-exec-record 全 rc=0。
+
+### 测试文件拆分（CI 拦下后补做）
+
+首次 PR CI 的「债务熔断检查」判红：`TEST_LEDGER_GREW: apps/desktop/electron/publishers/account-manager.test.js
+较登记值 1598 膨胀 353 行（容差 200）`。这条是**真判据**，不是误报——本修复的 7 例
+（约 210 行）压在原本就接近上限的文件上。
+
+处置按门禁原文「按被测模块/场景分文件」：新建
+`account-manager-profile-fallback.test.js`，只承载「DOM 采集没拿到真昵称时用平台 API 兜底」
+这一组 7 例（含辅助 `TOUTIAO_COOKIE` / `stubHttpInfo`），自带 `beforeEach` 的 Electron mock。
+原文件回落至 1717 行。
+
+**拆分无损的判据**：拆分前后两文件合跑均 **96/96**，用例名逐条一致。
+
+**过程中的自我纠错**：首次切分脚本用 `startsWith('  ')` 找用例闭合，误匹配到 4 空格缩进的
+`    })`，把最后一个用例截成半截（两文件都成了语法错误）。根因是**判据宽度不足**（缩进级别
+未精确匹配）+ 未处理 CRLF（文件是 CRLF，闭合行实为 `  })\r`）。修正后按「精确缩进 + 单独
+定位闭合」重切，并逐文件跑通验证。
