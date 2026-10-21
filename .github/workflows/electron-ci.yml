@@ -150,36 +150,17 @@ jobs:
           # 变红），但仍不是「修好了根因」：根因修法是按 --shard 把这一轮切开（issue 档 2）。
           # 同一 job 级 timeout-minutes 必须一起抬，否则只是把「不可归因的超时」从
           # timeout(1) 换成 Actions 的 job killer —— 那正是本 issue 的失效模式。
-          BUDGET_SECONDS=2100
-          LOG=electron-ci-unit-tests.log
-          START=$(date +%s)
-          # ⛔ `set +e` 是必须的，不是风格（2026-10-20 follow-up，动因见 #2525 的反面）：
-          #    本 job 的 shell 是 `bash -e -o pipefail`，`timeout` 返回 124 时 `-e` 会**立刻
-          #    退出步骤**，于是后面的 PIPESTATUS 与整段自证诊断一次都不会执行。实测两次失败
-          #    attempt 的日志里都没有 `[electron-ci-timeout-budget] elapsed=… rc=…` 这行 ——
-          #    #2525 的标题是「让超时失败能自证」，但它专门为之设计的那个场景，恰恰是它唯一
-          #    不出现的场景。行内 `set -e` 只影响本步骤的子 shell，不波及其它步骤。
-          set +e
-          timeout --signal=TERM --kill-after=30s ${BUDGET_SECONDS}s \
-            pnpm --filter @multi-publish/desktop test -- \
-            --maxWorkers=1 --no-file-parallelism --reporter=verbose \
-            --testTimeout=10000 --hookTimeout=10000 --teardownTimeout=10000 2>&1 | tee "$LOG"
-          # 必须读 PIPESTATUS：`cmd | tee` 的 $? 是 tee 的退出码（恒 0），
-          # 直接判 $? 会把超时和断言失败一起吞成成功。
-          RC=${PIPESTATUS[0]}
-          set -e
-          END=$(date +%s)
-          ELAPSED=$((END - START))
-          echo "[electron-ci-timeout-budget] elapsed=${ELAPSED}s budget=${BUDGET_SECONDS}s rc=${RC}"
-          if [ "${RC}" -eq 124 ]; then
-            echo "TIMEOUT_BUDGET_EXCEEDED：本轮被步骤级 timeout 掐断，不是断言失败。"
-            echo "自证判据：日志里没有 vitest 摘要行（Test Files ... / Tests ...），说明整轮没跑完。"
-            grep -cE '^[[:space:]]+[✓×↓-]' "$LOG" | sed 's/^/已完成测试行数: /' || true
-            grep -cE '^ *(Test Files|Tests) ' "$LOG" | sed 's/^/摘要行数(应为 2): /' || true
-            tail -n 8 "$LOG" | sed 's/^/末段输出: /' || true
-            echo "下一步应该是把这一轮按 --shard 切开，而不是继续加大预算。"
-          fi
-          exit "${RC}"
+          # 判据与形状的唯一实现：scripts/electron-ci-desktop-step.js（两片并行 + 一份共享预算 +
+          # 剥 ANSI 的现场计数）。本步只调用不判定 —— 回归锁在
+          # scripts/electron-ci-desktop-step.test.js（含「步骤必须真的调本脚本」「不得再自带
+          # BUDGET_SECONDS=2100 / 第二份 grep 计数」三条），落点在 quality-gate.yml Gate 2b。
+          # 为什么不再在这里写 bash：① 2100s 与计数锚曾各存一份，workflow 与判据必然口径分裂；
+          # ② 旧的 `grep -cE '^[[:space:]]+[✓×↓-]'` 对 vitest 真实输出恒 0（行首是 033[32m✓，
+          #    实测 od -c），把"跑满预算"读成"一条都没跑"；③ 串行全量已经实测越过 2100s 墙
+          #    （main push 8 次里 5 次 rc=124，成功趟 25m11s/25m42s/31m55s，失败趟 36m38s）。
+          # 分片数 2 的取值判据：max(单片成功值)=23.2min × 1.5 = 2088s ≤ 2100s ⇒ **本片不抬预算**，
+          # 出处与样本量在脚本的 STEP_BUDGET_PROVENANCE 里，改数必须连同那份一起改。
+          node scripts/electron-ci-desktop-step.js
 
       - name: Vitest failure diagnostics
         if: failure()
