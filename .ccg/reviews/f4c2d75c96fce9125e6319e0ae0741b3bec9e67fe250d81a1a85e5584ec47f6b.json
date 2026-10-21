@@ -52,8 +52,8 @@
   },
   "deepReview": {
     "required": true,
-    "status": "self_play_pending",
-    "performedBy": "self-play(pending)",
+    "status": "self_play_resolved",
+    "performedBy": "claude+opencode",
     "confidenceWeight": 0.6,
     "requiresExternalReview": [
       {
@@ -61,12 +61,58 @@
         "severity": "Critical",
         "domains": [
           "datamigration"
-        ]
+        ],
+        "status": "external_verified",
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4196#issuecomment-6319834427",
+        "reviewedAt": "2026-10-21T15:58:00Z",
+        "conclusion": "dismissed —— .ccg/reviews/*.json 进仓是本仓 #3396 设计的审计产物白名单（check-pr-exec-record.js:43-63 的 AUDIT_ARTIFACT_RE + :342-347 提示文案 + scripts/hooks/pre-commit:148-167 的刻意 stage 与 scenario16 回归锁），不是「污染归属与回滚路径」；本次文件名与 64 位形态完全匹配，走的是白名单通道。"
       }
     ],
-    "findings": null,
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "verdict": "upheld",
+        "disposition": "已修（commit 8fdbf0bb）：watch 与定时器收进本 composable 自建 effectScope；组件内随组件 scope 树自动回收，组件外用新增的 dispose() 显式停掉。新增 2 例回归锁。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "verdict": "dismissed",
+        "disposition": "高危域走外部复核：后端 claude 独立判定不成立，可核证据见 PR 评论 https://github.com/Colinchiu007/mulpub/pull/4196#issuecomment-6319834427"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "verdict": "dismissed",
+        "disposition": "环境态：A/B —— 隔离本机全局 git 配置后该文件 36/36 全绿、不隔离 35/36；改动前后同命令读数相同；CI 侧承载该测试的 debt-guard 作业在 main push run 39602066073 success、本次 PR 同一作业 pass。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "verdict": "upheld",
+        "disposition": "已补产物级证据（commit 8fdbf0bb）：vite build rc=0（36.53s），RewriteView-DT8qrhLx.css 作为独立 chunk 产出（6510 字节），编译后 scope id data-v-42669c5d 落在正确选择器位置，:deep() 编译成 .rewrite-config-card[data-v-42669c5d] .cohere-form-label{…}，该 CSS 资产被入口 chunk index-DSr5b1Py.js 引用 ⇒ 生产运行时不会 404。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "verdict": "upheld",
+        "disposition": "已修（commit 8fdbf0bb）：判据从否定式匹配 not.toMatch(/<style scoped>\\s*\\n/) 改为「<style> 标签恰好 1 个且就是那一个」，与写法/空白无关，顺带挡住两份真相。"
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "verdict": "dismissed",
+        "disposition": "事实前提与指控相反：现网 CHANGELOG.md 里 # [未发布] refactor 形态条目共 16 条 ⇒ 纯重构进 CHANGELOG 是本仓既有约定；check-changelog-growth.js 只管「条目不许消失」；draft-changelog.sh 同形态。"
+      }
+    ],
     "template": ".adversarial\\ccg-deep-d743b8f3\\adjudication.json",
-    "note": "裁决尚未填写：6/6 条未定（i1, i2, i3, i4, i5, i6）",
-    "at": "2026-10-21T12:56:03.684Z"
+    "note": "6/6 条已裁决（i1/i4/i5 upheld 已修；i2 外部复核 dismissed；i3/i6 dismissed）。",
+    "at": "2026-10-21T16:08:00Z",
+    "tier": "external",
+    "evidence": "https://github.com/Colinchiu007/mulpub/pull/4196#issuecomment-6319834427",
+    "adjudication": ".adversarial/ccg-deep-d743b8f3/adjudication.json",
+    "closureNote": "第 1 轮（2026-10-21，critic=claude / proposer=opencode，8 条问题 / 4 个维度 / 最低分 5）：6 条争议逐条裁决完成 —— i1 upheld 已修（策略监听收进 effectScope + 新增 2 例回归锁）、i2 dismissed（高危域走外部复核，claude 独立判定不成立，证据见 PR 评论 URL）、i3 dismissed（环境态，A/B 两档 + CI 读数各一条）、i4 upheld 已修（补构建产物级证据：scope id / :deep() 编译形态 / CSS 资产被入口 chunk 引用）、i5 upheld 已修（视觉契约断言改「恰好 1 个且就是那一个」）、i6 dismissed（现网 16 条同类条目为证）。tier 由会话手写（仓外引擎全文 tier 出现 0 次，tasks 8.1b 未落地）：本记录的 tier/evidence 由本次评审交付手填，evidence 是公开可点的 PR 评论 URL，轮次标记与逐条处置结论见上，完整裁决原文在 .adversarial/ccg-deep-d743b8f3/adjudication.json。"
   }
 }
