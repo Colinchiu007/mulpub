@@ -405,7 +405,9 @@
       <div v-else class="cohere-card-grid" data-testid="copy-library-list">
         <template v-for="entry in filteredLibraryItems" :key="entry.key">
           <!-- 采集正文卡片：信息与操作以原「采集记录」为准，新增【改写】跳转改写页直接改写 -->
-          <div v-if="entry.origin === 'collect'" class="cohere-card collection-record-card" role="button" tabindex="0" :data-testid="'copy-library-item-' + entry.item.id" @click="openRecordForEdit(entry.item)" @keyup.enter="openRecordForEdit(entry.item)">
+          <!-- 容器刻意不带 role/tabindex：卡内有【编辑】按钮做同一件事（openRecordForEdit）。
+               给容器加叶子角色会把卡内所有真控件从无障碍树里抹掉（读屏看不见），见 src/leaf-role-contract.test.js -->
+          <div v-if="entry.origin === 'collect'" class="cohere-card collection-record-card" :data-testid="'copy-library-item-' + entry.item.id" @click="openRecordForEdit(entry.item)">
             <div class="card-top">
               <div class="card-icon"><el-icon><component :is="entry.item.mediaType === 'video' ? VideoCamera : Document" /></el-icon></div>
               <div class="card-info">
