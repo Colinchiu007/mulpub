@@ -1,0 +1,90 @@
+{
+  "sha": "0b4c49bbaba7740c5741eaf6a4c7a89209e78867",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 92 行（≤ 200）但命中 auth/数据库/加密：敏感内容 5 处",
+  "stats": {
+    "changedLines": 92,
+    "fileCount": 1,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 5,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "a845a7846d4669041eab59f8f5efdf48d1efc98c0a77d19d759b6c403bbc98b7",
+  "decidedAt": "2026-10-21T01:07:37.549Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play(agent)",
+    "fallbackReason": "跨家族对抗后端超时，按引擎第三档出口 self_play 自查。本条新增一个工具脚本（把文档里的技巧固化为可执行资产）。",
+    "evidenceInRepo": "scripts/dump-partition-cookies.cjs（含用法/不做之事/已验证记录）",
+    "confidenceWeight": 0.85,
+    "adjudication": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "本脚本依赖 PowerShell 的 [IO.File] 共享读 —— 只在 Windows 可用。CI（Linux runner）若跑它会失败；且本机 shell 环境多变。这算可靠资产吗？",
+        "verdict": "upheld_partial",
+        "rationale": "限定是必要的：该脚本**只面向 Windows 本机真机验证**（Electron 分区、共享数据根都在 Windows 路径下）， 在 Linux CI 上本来就没有被测对象 —— 不会\"失败\"而是\"不适用\"。 ⚠ 但我**未在文档中显式写出\"仅 Windows\"**，读者可能在别的环境尝试并困惑。 这是本条的欠缺（未做到\"适用边界显式化\"）。若后续要补，应在脚本头与 PRD §16.9.2 都注明。 另外：PowerShell 不可用时脚本已给出明确错误并 exit 1，不会静默产出假结果。",
+        "fixCommit": null
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "你先写了 cookie 串解析，实跑发现解析出 0 条，然后删掉 —— 为什么不一开始就只写可靠部分？",
+        "verdict": "upheld_verified",
+        "rationale": "因为\"值是否为明文\"需要**实测**才能判定（取决于 Chromium 版本与平台加密策略）， 不跑就不知道。我的处理顺序是：实现 → 实跑 → 发现不可靠 → **移除而非保留**。 关键在最后一步：把不可靠的部分**删掉**，而不是留在脚本里当\"尽力而为\"的功能。 这符合我在 §16.14/§16.16 反复强调的原则 —— 不留看似可用、实际无证据的产物。",
+        "fixCommit": null
+      },
+      {
+        "id": "i3",
+        "severity": "Info",
+        "finding": "这与\"实现真实发布成功\"这一目标的关联度？",
+        "verdict": "upheld_verified",
+        "rationale": "关联是**间接但真实**的：真机验证每一步都要先拿到活 cookie，而这个取 cookie 的 技巧此前只写在 PRD 正文里，会话结束即丢失 —— 固化为脚本后，后续（包括用户账号恢复后） 可直接复用，不必重新摸索。 诚实定位：它**不直接产生发布成功**，属于\"让验证能力可复用\"的基建。 四条阻塞仍全部依赖用户动作。",
+        "fixCommit": null
+      }
+    ],
+    "summary": {
+      "total": 3,
+      "upheldPartial": 1,
+      "upheldVerified": 2,
+      "note": "i1 承认未显式标注\"仅 Windows\"这一适用边界（欠缺）；i2 论证\"实现→实跑→移除不可靠部分\"的处理是对的；i3 诚实定位为验证基建，不直接产生发布成功。"
+    },
+    "at": "2026-10-21T01:08:26.904Z"
+  }
+}
