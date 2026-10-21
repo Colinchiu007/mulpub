@@ -203,6 +203,25 @@ if (!genreDraftId) { await saveDraftAfterRewrite() }   // ← 旧 id 非空 ⇒ 
 > 依据为引擎真实键名、仓库内 `targetWordCount` 的收发方清单、以及 Python 侧契约与其解耦路径；
 > 原文见 PR #4114 的评审评论（公开可点）。
 
+**消费者清单（可自证，逐条给出检索命令与命中位置）**
+
+> 起因：QM-6 深审指出「『死字段』的判定只基于桌面引擎读 `wordCountRange`，未给出
+> Python 服务 / 旧客户端 / 移动端调用方的清单 ⇒ 向后兼容未经验证」。
+> 下表把该判断做成**任何人可复算**的形式（命令与命中位置逐条给出）。
+
+| 可能的消费者 | 检索命令 | 实际命中 | 结论 |
+|---|---|---|---|
+| 桌面改写引擎（**唯一**真契约持有者） | `git grep -n "targetWordCount" -- packages/rewrite-engine/` | **0 处** | 引擎**从不读**该键；它只读 `wordCountRange`（`rewrite-engine-core.js` 的 `_getWordCountInstruction` / `_postProcess`、`output-cap.js` 的 `resolveOutputCap`） |
+| 渲染层发送方 | `git grep -n "targetWordCount" -- apps/` | 仅**测试断言**（`Collection.rewrite-publish-flow.test.js` / `Collection.rewrite-wordcount.test.js` / `Collection.step-flow.test.js` 三处都断言它**不出现**）与**注释** | 无生产发送方；回归锁钉死「不得下发」 |
+| Python 聚合层 | `git grep -n "target_word_count" -- packages/python-backend/` | `multi_publish/aggregation/service.py:296`（**它自己**的内部字段）+ 其自身测试 | **另一套契约**（下划线命名、`min/max` 三元组），桌面端自 2026-10-18 起不再经该路径改写；本 PR 一行没动它 |
+| 旧客户端 | 该链路仍在（`/aggregation/rewrite`），但**键名不同**（`min_word_count`/`max_word_count`/`target_word_count`） | 不受桌面端渲染层改动影响 | 旧客户端行为**完全不变** |
+| 移动端 | `ls apps/` ⇒ 只有 `desktop` | 本仓**无移动端** | 无此类消费者 |
+
+**保留一个发布周期的替代方案为何不做**：保留 `targetWordCount` 并做映射，代价是
+「引擎不消费 ⇒ 保留它只会让人以为引擎认它」——而那**正是缺陷 ① 的成因**
+（下一位开发者照着这个残留键写，又会犯同一个错）。本仓的判据是
+「**跨进程传参的键名契约只能有一个**」，故选择移除并用**回归锁**替代兼容期。
+
 ---
 
 ## 3. 功能需求
