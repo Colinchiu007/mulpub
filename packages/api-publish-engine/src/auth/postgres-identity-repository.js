@@ -2,6 +2,8 @@ const crypto = require('crypto')
 const path = require('path')
 const { discoverMigrations, validateMigrationLedger } = require('./postgres-migrations')
 const { PostgresCommerceTransaction, CommerceMethods } = require('./postgres-commerce-store')
+const { PAYMENT_SCHEMA } = require('./payment-schema')
+const { PostgresWebhookTransaction } = require('./postgres-webhook-store')
 
 const DEFAULT_MIGRATION_DIRECTORY = path.resolve(__dirname, '../../../..', 'migrations', 'postgresql')
 
@@ -18,7 +20,6 @@ const REQUIRED_SCHEMA_RELATIONS = [
   'identity_notifications',
   'cloud_accounts',
   'cloud_account_tombstones',
-  // 006 微信 Native 支付：新表必须在 readiness 关系表内（缺一张即 ready 检查发现不了生产缺表）
   'identity_payment_customers',
 ]
 
@@ -169,105 +170,10 @@ const SCHEMA = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_cloud_account_tombstones_user
     ON cloud_account_tombstones(user_id, platform, platform_uid)`,
-  // 006 微信 Native 支付（最小闭环）：与 migrations/postgresql/006_payment_orders.sql 的 DDL
-  // 逐字一致（防漂移锁见 test/member-commerce-migrations.test.js 的「006 支付迁移与开发态
-  // SCHEMA 一致」）。四条 ALTER 全部可空 + 默认值向后兼容，阶段 1 的兑换码/后台订单不受影响。
-  `ALTER TABLE identity_orders ADD COLUMN IF NOT EXISTS provider_order_id TEXT`,
-  `ALTER TABLE identity_orders ADD COLUMN IF NOT EXISTS provider_sub_id TEXT`,
-  // period 不设 CHECK 约束（与迁移一致）：避免既有行阻塞迁移，取值由服务层白名单校验（month | year）
-  `ALTER TABLE identity_orders ADD COLUMN IF NOT EXISTS period TEXT`,
-  // discount_cents 本期恒 0（无 coupon）；列存在是为对账 schema 稳定，服务层不读
-  `ALTER TABLE identity_orders ADD COLUMN IF NOT EXISTS discount_cents INTEGER NOT NULL DEFAULT 0`,
-  // 微信 webhook 回传 openid/transaction_id，没有我们的 user_id ⇒ 必须有映射表。
-  // 唯一键 (provider, user_id)：provider_customer_id 可空时 PG 唯一约束不锁 NULL，反向唯一写了也锁不住。
-  `CREATE TABLE IF NOT EXISTS identity_payment_customers (
-    user_id TEXT NOT NULL REFERENCES identity_users(id) ON DELETE CASCADE,
-    provider TEXT NOT NULL,
-    provider_customer_id TEXT,
-    email TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT identity_payment_customers_unique UNIQUE (provider, user_id)
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_identity_payment_customers_user
-    ON identity_payment_customers(user_id, provider)`,
+  // 006 微信 Native 支付：语句组独立成 payment-schema.js（内联会把本文件推过 500 行债务基线）。
+  // 与迁移的逐字比对口径不变（迁移 → SCHEMA，单向）。
+  ...PAYMENT_SCHEMA,
 ]
-
-class PostgresWebhookTransaction {
-  constructor(client) {
-    this.client = client
-  }
-
-  async claimWebhookEvent(record) {
-    const result = await this.client.query(
-      `INSERT INTO identity_webhook_events
-        (id, provider, event, hook_id, auth_subject, created_at, received_at, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'processing')
-       ON CONFLICT (provider, id) DO NOTHING
-       RETURNING id`,
-      [record.id, record.provider, record.event, record.hookId, record.subject, record.createdAt, record.receivedAt],
-    )
-    return result.rows.length > 0
-  }
-
-  async upsertUserState(provider, subject, patch = {}, options = {}) {
-    const existingResult = await this.client.query(
-      'SELECT * FROM identity_users WHERE auth_provider = $1 AND auth_subject = $2 FOR UPDATE',
-      [provider, subject],
-    )
-    const existing = existingResult.rows[0] || null
-    const eventAt = options.eventCreatedAt ? new Date(options.eventCreatedAt) : null
-    if (eventAt && Number.isNaN(eventAt.getTime())) throw new Error('WEBHOOK_EVENT_TIME_INVALID')
-    if (existing && eventAt && existing.last_event_created_at && new Date(existing.last_event_created_at) >= eventAt) {
-      return { ...existing, applied: false }
-    }
-
-    const status = existing && existing.status === 'deleted' && options.preserveDeleted
-      ? 'deleted'
-      : typeof patch.status === 'string' ? patch.status : existing ? existing.status : 'active'
-    const displayName = Object.prototype.hasOwnProperty.call(patch, 'display_name')
-      ? patch.display_name : existing ? existing.display_name : null
-    const avatarUrl = Object.prototype.hasOwnProperty.call(patch, 'avatar_url')
-      ? patch.avatar_url : existing ? existing.avatar_url : null
-    const id = existing ? existing.id : crypto.randomUUID()
-    const result = await this.client.query(
-      `INSERT INTO identity_users
-        (id, auth_provider, auth_subject, status, display_name, avatar_url, last_event_created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       ON CONFLICT (auth_provider, auth_subject) DO UPDATE SET
-         status = EXCLUDED.status,
-         display_name = EXCLUDED.display_name,
-         avatar_url = EXCLUDED.avatar_url,
-         last_event_created_at = EXCLUDED.last_event_created_at,
-         updated_at = NOW()
-       WHERE identity_users.last_event_created_at IS NULL
-          OR identity_users.last_event_created_at < EXCLUDED.last_event_created_at
-       RETURNING *`,
-      [id, provider, subject, status, displayName, avatarUrl, eventAt ? eventAt.toISOString() : null],
-    )
-    if (!result.rows[0]) return { ...(existing || {}), applied: false }
-    return { ...result.rows[0], applied: true }
-  }
-
-  async revokeUserSessions(provider, subject) {
-    await this.client.query(
-      `UPDATE identity_user_sessions SET revoked_at = NOW()
-       WHERE revoked_at IS NULL AND user_id = (
-         SELECT id FROM identity_users WHERE auth_provider = $1 AND auth_subject = $2
-       )`,
-      [provider, subject],
-    )
-  }
-
-  async completeWebhookEvent(eventId, result) {
-    await this.client.query(
-      `UPDATE identity_webhook_events
-       SET status = 'processed', result = $2::jsonb, processed_at = NOW()
-       WHERE id = $1`,
-      [eventId, JSON.stringify(result || {})],
-    )
-  }
-}
 
 class PostgresIdentityRepository {
   constructor(options = {}) {
