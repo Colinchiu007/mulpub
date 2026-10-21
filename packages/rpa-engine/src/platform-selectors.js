@@ -91,6 +91,10 @@ module.exports = {
       file_input: ['input[type="file"]'],
       title_input: ['input[placeholder*="标题"]', '[class*="title"] input', '.title-input'],
       desc_textarea: ['textarea', '[class*="desc"] input', '[class*="desc"] textarea'],
+      // 正文编辑器（2026-10-22 真机：该平台被登记为「无标题平台」，标题与正文都写进这里，ditor 缺失，ditor sel=none，pre-submit gate blocked: content-not-filled）。
+      editor: ['div.input-editor', '.weui-desktop-form__textarea [contenteditable="true"]', '[contenteditable="true"]', '.ql-editor', 'div[contenteditable]'],
+      // 封面（若页面存在 image input 则可用；无则由封面步骤 warn）
+      cover_input: ['input[type="file"][accept*="image"]'],
       publish_btn: ['button:has-text("发表")', 'button:has-text("发布")', '[class*="publish"] button', '.submit-btn', '[class*="submit"] button', 'button[class*="primary"]'],
     },
     kuaishou: {
