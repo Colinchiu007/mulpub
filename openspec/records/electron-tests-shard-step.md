@@ -174,6 +174,7 @@ not ok 8 - realSpawn 必须真能把 pnpm 起起来（win32 上 pnpm 是 .cmd sh
 | ③ | `runStep` 的 `while{…break}` 等待块可读性异味（实为单次等待） | 未做，理由见 F3 |
 | ④ | issue #2458 档 4：`CI Failure Handler` 把「`exit 124` 且无摘要行」归类为 `ci-timeout-budget` | 未做，挂在该 issue |
 | ⑤ | `docs/electron-ci-step-budget-baseline.md` 里 2026-10-20 那节的 matrix/汇入作业方案作为**历史事实**保留，只加了导航行；不改写历史 | 已按口径处理 |
+| ⑥ | **变异驱动本体没有入库**：T1–T10 的驱动在会话临时目录（`<会话临时目录>/p320-mut90b.js`），别人无法重跑这 10 刀 —— 与本仓「反证驱动脚本必须入库可复跑」的口径不符。本片没顺手做是因为再加一个 `scripts/*.test.js` 就要再走一轮 CI 周期（且它需要 `MP_PREFLIGHT` 这类旗标设计）；正解是下一片把驱动收进 `scripts/electron-ci-desktop-step.mutation.js` 并接进每周档（不进每 PR 关键路径） | 下一片（登记为独立任务） |
 
 ## 7. 复测与取证命令（都可离线/在线重跑）
 
