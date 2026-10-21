@@ -66,3 +66,12 @@ QM-1 打包态启动现场：`[ERROR] sqlite-wrapper all() error: no such column
 1. 「预检/探测类 SQL 必须先探 schema」目前靠代码约定 + 单测，没有静态门禁禁止"未探列就查新列"的写法；要机械化属新门禁，需人工批准。
 2. 启日志里的 `[ERROR]` 行没有任何门禁在看守（本条正是因此躺了 4 天才被打包验证顺手抓到）。可选方案：QM-1 的 stderr/日志红线清单加一条"sqlite-wrapper all() error 不得出现"，但那是把判据加宽，需先量存量有多少库文件处于未迁移态。
 3. `01-docs/PRD-UX-AUDIT-IMPLEMENT-2026-10-18.md §12.9` 被任务描述指为落点，实测该文件**不在 git 索引也不在共享根**（未跟踪/已不存在）⇒ 本条规格改落 `01-docs/PRD.md` 新节 + 本记录，不另造该文件名。
+
+
+## 9. CI 腿差异：本测试文件在 Desktop Shards 的 client 腿加载期失败（2026-10-21 补）
+
+- **现象**：PR #4083 的 `QG Desktop Shards (2/2)` 与 `QG Coverage` 红，红因不是断言失败而是**套件加载期**报错：`Error: Cannot bundle built-in module "node:sqlite" imported from "electronservicescreator-schema-upgrade.test.js". Consider disabling environments.client.noExternal`（`vite:import-analysis`，落在 `import { readFileSync, rmSync } from 'node:fs'` 那行的位置）。同一片日志里 `Failed Suites 1` —— 唯一红的那个套件就是本文件。
+- **判据（对照组而非推测）**：同目录三个静态 `import … from 'node:sqlite'` 的兄弟文件（`activate-viral-schema.upgrade.test.js` / `diagnostics-reporter.test.js` / `pattern-attribution-service.test.js`）**第一行都是** `// @vitest-environment node`，且它们在 CI 上是绿的；本文件是这四个里唯一没有那行的 ⇒ 差异只有一维。
+- **修法**：① 补第一行 `// @vitest-environment node`；② 把这条惯例变成判据 —— 本文件末尾新增 `describe(环境前提…)` 两条：「扫描域非空（且必须覆盖到本文件自己）」与「每个静态 import node:sqlite 的测试文件首行必须是该声明」。锁放在**本文件内**是刻意的：它随本文件一起被两条腿各跑一次，将来任何同族文件漏声明会在 CI 现场被点名，而不是等加载期报错。
+- **证据边界（不写成已证）**：本机用 `--environment=jsdom` 强制档 A/B 过 —— 摘掉声明那档 **10 条里只红新增的那条结构锁**，并没有复现 `Cannot bundle`。所以这次 A/B 证明的是「锁能抓到缺失」，**不是**「补上声明 CI 必绿」。后者的支撑只有两条：兄弟文件的现场对照，以及本次重跑的那条 CI 腿本身。差异维度既然在本机不可复现，就**不能**把它归成 AGENTS 说的「可本机配置的一维必须先本机复现」那类，只能按「既有惯例对齐 + CI 当终审」处理，并在此如实登记。
+- **顺带记一条读日志的坑**：抓 `FAIL  <file>` 时按 `FAIL  electron/…` 双空格原文匹配会 **0 命中** —— Actions 日志里 `FAIL` 两侧夹着 ANSI 转义序列。先剥 ANSI 再定位文件名，否则「日志里没有这条 FAIL」会被读成「这个套件没红」（本文件上方 §8 的第 2 条遗留正是「启动日志无人看守」这一族）。

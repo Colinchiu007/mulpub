@@ -1,5 +1,12 @@
+// @vitest-environment node
 /**
  * creator-schema-upgrade.test.js — viral_library 的「查询列 ↔ 建表列」同源锁（QM-5 回归保护）
+ *
+ * ⛔ 上面那行 `@vitest-environment node` 不是装饰：本文件顶层 `import { DatabaseSync } from 'node:sqlite'`，
+ *   而 Desktop Shards 的 **client 腿**会用浏览器环境做 import-analysis ⇒
+ *   `Error: Cannot bundle built-in module "node:sqlite"`，整个套件在加载期就 FAIL（本机 node 腿复现不出）。
+ *   同目录三个用 node:sqlite 的兄弟文件（activate-viral-schema.upgrade / diagnostics-reporter /
+ *   pattern-attribution-service）第一行都是这条声明 —— 新增同族文件必须照抄。
  *
  * 现场（2026-10-18 打包态启动两次复现）：
  *   [ERROR] sqlite-wrapper all() error: no such column: external_id | SQL: SELECT platform, external_id, COUNT(*) AS n FROM viral_library
@@ -16,7 +23,7 @@
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
-import { readFileSync, rmSync } from 'node:fs'
+import { readFileSync, rmSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -155,5 +162,30 @@ describe('creator-schema · 真实失败必须出声（不得退化为静默兜�
     expect(findViralLibraryConflicts(db)).toEqual([])
     const doomed = calls.filter((s) => /GROUP BY platform, external_id/i.test(s))
     expect(doomed, '缺列仍去查 external_id ⇒ sqlite-wrapper 会留下一条假 ERROR').toEqual([])
+  })
+})
+
+// 本仓 Desktop Shards 有 **client 腿**（浏览器环境做 import-analysis）。静态 `import … from 'node:sqlite'`
+// 在那条腿上会在**加载期**抛 `Cannot bundle built-in module "node:sqlite"` ⇒ 整个套件 FAIL，
+// 而本机的 node 腿完全复现不出（本案实测：CI 红、本地 8 条全绿）。
+// 同目录三个用 node:sqlite 的兄弟文件第一行都有 `// @vitest-environment node`，本锁把这条惯例变成判据。
+describe('环境前提：静态 import node:sqlite 的测试必须声明 node 环境', () => {
+  const SQLITE_RE = /from\s+['"]node:sqlite['"]/
+  const files = readdirSync(HERE).filter((n) => n.endsWith('.test.js'))
+  const users = files.filter((n) => SQLITE_RE.test(readFileSync(join(HERE, n), 'utf8')))
+
+  it('扫描域非空（本目录确有 import node:sqlite 的测试，否则本锁看不见任何东西）', () => {
+    expect(users.length, '域退化为 0 ⇒ "全部合规"是探针失明不是结论').toBeGreaterThan(0)
+    // 正向对偶：这些文件确实是**静态**导入（动态 import/require 不在本锁范围）
+    expect(users, '本锁应至少覆盖到它自己').toContain('creator-schema-upgrade.test.js')
+  })
+
+  it('每个静态 import node:sqlite 的测试文件，第一行必须是 @vitest-environment node', () => {
+    const bad = []
+    for (const n of users) {
+      const first = readFileSync(join(HERE, n), 'utf8').split(/\r?\n/)[0]
+      if (!/^\/\/\s*@vitest-environment\s+node$/.test(first)) bad.push(n + ' 首行=' + JSON.stringify(first.slice(0, 60)))
+    }
+    expect(bad, '缺声明的文件在 client 腿会在加载期整套件 FAIL：' + bad.join(' | ')).toEqual([])
   })
 })
