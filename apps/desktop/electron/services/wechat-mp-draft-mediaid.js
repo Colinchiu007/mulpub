@@ -72,7 +72,18 @@ function extractAppMsgIdFromBody (body) {
 }
 
 /** 保存草稿的按钮候选（与调用方共用，抽成常量便于单测断言）。 */
-const SAVE_BUTTON_SELECTOR = 'a#js_sync_save, a[data-action="save"], .weui-desktop-btn_primary:has-text("保存草稿"), .weui-desktop-btn_primary:has-text("保存"), button:has-text("保存草稿"), button:has-text("保存"), [class*="save_draft"], [class*="saveDraft"]'
+// 2026-10-21 真机取证（`/cgi-bin/appmsg?t=media/appmsg_edit_v2&action=edit` 编辑页底部工具条）：
+//   保存为草稿 `<span id="js_submit" class="btn btn_input btn_primary r">保存为草稿</span>` ← 可见 98×36
+//   发表       `<span id="js_send" class="btn ... r">发表</span>` / `<button class="mass_send">`
+//   预览       `<span id="js_preview" ...>预览</span>`
+// 旧判据实测**全部不存在**：`a#js_sync_save` 0 个、`a[data-action="save"]` 0 个、`#js_save` 0 个；
+// `.weui-desktop-btn_primary` 命中的三个（退出登录 / 前往实名 / 去设置）**全部不可见**。
+// 于是只剩 `:has-text("保存")` 兜底在工作，而它把「包含该文本的大容器」当成了按钮 ——
+// 点击落点探针返回 `DIV|mp-body`，页面一条 XHR 都没有（`xhr=none` / `appReq:0`）。
+// 这就是「点了保存但 30 秒未被确认」的最终根因，与「合成 click 不可信」是两层问题。
+// 因此：稳定 id `#js_submit` 必须排第一；`:has-text` 只能限定在 span 上（按钮本体是 span），
+// 且必须排在后面 —— 否则又会选回容器。
+const SAVE_BUTTON_SELECTOR = '#js_submit, span#js_submit, span:has-text("保存为草稿"), a#js_sync_save, a[data-action="save"], [class*="save_draft"], [class*="saveDraft"]'
 
 /** 保存成功轮询条件：URL 出现 appmsgid，或页面出现「保存成功 / 已保存」。 */
 const SAVE_SUCCESS_CONDITION = 'function(){' +

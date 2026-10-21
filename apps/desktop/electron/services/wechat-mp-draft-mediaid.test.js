@@ -31,6 +31,7 @@ const os = require('os')
 const path = require('path')
 const platformsMixin = require('./rpa-view-platforms')
 const {
+  SAVE_BUTTON_SELECTOR,
   buildVisibleToastScript,
   extractAppMsgIdFromBody,
   describeSaveFailure,
@@ -247,5 +248,40 @@ describe('公众号「保存未被确认」文案（wxmp-unconfirmed-save，2026
     expect(unconfirmed).not.toBe(missingId)
     expect(missingId).toContain('媒体 ID')
     expect(unconfirmed).not.toContain('媒体 ID')
+  })
+})
+
+/**
+ * 保存按钮选择器（2026-10-21 真机取证，wxmp-save-button-misclick）
+ *
+ * 取证方式：触发一次公众号存草稿，在编辑页从 CDP 读结构。实测：
+ *   保存为草稿 `<span id="js_submit" class="btn btn_input btn_primary r">保存为草稿</span>` 可见 98×36
+ *   旧判据 a#js_sync_save / a[data-action="save"] / #js_save **全部不存在**，
+ *   .weui-desktop-btn_primary 命中的三个（退出登录/前往实名/去设置）全部不可见。
+ * 于是只剩 `:has-text("保存")` 兜底工作，而它把「包含该文本的大容器」当成按钮，
+ * 点击落点返回 `DIV|mp-body` —— 这就是「点了保存但 xhr=none」的最终根因。
+ */
+describe('保存按钮选择器（真机取证：js_submit 才是按钮本体）', () => {
+  const parts = SAVE_BUTTON_SELECTOR.split(',').map(s => s.trim())
+
+  it('稳定 id #js_submit 必须排在候选链最前', () => {
+    expect(parts[0]).toBe('#js_submit')
+  })
+
+  it('不得再用 .weui-desktop-btn_primary:has-text（实测只命中不可见元素）', () => {
+    expect(SAVE_BUTTON_SELECTOR).not.toContain('.weui-desktop-btn_primary:has-text')
+  })
+
+  it(':has-text 兜底必须限定在 span 上（裸 has-text 会选中包含该文案的大容器）', () => {
+    const hasTextParts = parts.filter(s => s.includes(':has-text'))
+    expect(hasTextParts.length).toBeGreaterThan(0)
+    for (const p of hasTextParts) {
+      expect(p.startsWith('span:has-text')).toBe(true)
+    }
+  })
+
+  it('旧判据仍保留在后（兼容未改版页面）', () => {
+    expect(SAVE_BUTTON_SELECTOR).toContain('a#js_sync_save')
+    expect(SAVE_BUTTON_SELECTOR).toContain('a[data-action="save"]')
   })
 })
