@@ -103,14 +103,14 @@ function onGroupKeydown (e) {
 }
 .appearance-title {
   margin: 0 0 8px;
-  font-size: 15px;
+  font-size: var(--font-size-base);
   font-weight: 600;
 }
 .appearance-hint,
 .appearance-desc,
 .appearance-effective {
   margin: 0 0 8px;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   opacity: 0.8;
 }
 .appearance-radios {
@@ -125,7 +125,7 @@ function onGroupKeydown (e) {
 .appearance-notice {
   margin: 12px 0 0;
   padding: 8px 10px;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   line-height: 1.5;
   border-left: 3px solid var(--color-border, #d4d4d8);
 }
