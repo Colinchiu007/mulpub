@@ -17,7 +17,7 @@ date: 2026-10-20
 | 行尾与 diff 对账 | PASS | 两个被改文件工作副本实测**纯 CRLF**（脚本 CR=454/LF=454、测试 CR=417/LF=417 ⇒ 无孤立 CR、无裸 LF 行），`git ls-files --eol` 为 `i/lf w/crlf attr=text=auto`；`git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径逐字相等；CHANGELOG 置顶插入按"逐行保留原行尾 + 新增行补 `\r`"，落盘前断言旧行多重集零丢失、CR 增量 == LF 增量 == 新增行数 |
 | 接线棘轮 | PASS | 本片**不新增测试文件**（锁加在 `scripts/compare-scheduler-models.test.js`，该文件已点名进 `quality-gate.yml` Gate 2b 的 `node --test scripts/compare-scheduler-models.test.js` ⇒ 每个 PR 都跑，无新点名需求）；判据自证 `node scripts/check-unwired-tests.js --root=.` ⇒ OK、rc=0；`node scripts/check-step-failfast.js` rc=0 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/` 生产代码、`packages/rpa-engine/`、任何 `.vue`/样式/locale；改的是 CI 对拍脚本与其锁 ⇒ 产物与像素判定域无交集 |
-| QM-6 CCG 双模型外部评审 | 自演，非外部模型 | 按用户指定「QM-6 你自己来模拟外部评审」执行，两轴逐条自审见下节。**如实标注：这不是外部模型产出，不得当作双模型证据登记**；本机 CCG 未安装（pre-commit 打印「未找到 CCG（run_skill.js），已跳过」），机械闸门对本 PR 无从判红 |
+| QM-6 CCG 双模型外部评审 | 自演，非外部模型 | 按用户指定「QM-6 你自己来模拟外部评审」执行，两轴逐条自审见下节。**如实标注：这不是外部模型产出，不得当作双模型证据登记**；本机 CCG 未安装（pre-commit 打印「未找到 CCG（run_skill.js），已跳过」），本 PR 变更集内 `.ccg/reviews/` 产物数 = 0（当场取数：`git diff --name-only $(git merge-base origin/main HEAD) HEAD | grep -c '.ccg/reviews/'` → 0） ⇒ `evaluateDeepReviewDebt` 的**扫描域为空、当场早退**。⚠ 这句**不得**推广成「CCG 未装就无从判红」——真正的条件是扫描域：PR 只要携带 `mode=dual` 产物，这条判据就会红（2026-10-21 另一会话实测否证过那个过度形式）；本机未装 CCG 只是「产物不产生」这一条上游原因。 |
 | 远程同步 | 由门禁推导 | 本行**不需要事后改写**：合并后门禁按主干历史推导归属（`scripts/lib/merge-ledger.js`，只认 squash 尾注 `(#NNNN)`）；现场读数看 CI 步骤首行 `MERGE-LEDGER prs=<n>` |
 
 - 保留门禁：变更类型与隔离 ✅ | 行尾对账 ✅ | 品牌残留 ✅（无竞品名） | 文档同步 ✅（脚本头注释与预算模块口径随代码同 PR） | 远程同步 由门禁推导
@@ -59,5 +59,5 @@ date: 2026-10-20
 1. **超时预算本身仍无分布支撑**：`30000ms` 沿用旧值。要动它得先有"python 单次调用墙钟"的分布（档2 的文案已经能产出这个数据 —— 每次超时都会打印 `timeout=30000ms` 与 signal），攒够样本后再按"下限 + 安全系数"重定，不得凭手感调宽。
 2. **同形态的第二处未清点完**：本仓还有别的"同步子进程 + 只判 status"的脚本（例如 `scripts/check-compose-error-codes.js` 这类新落的 CI 工具）。判据是 `git grep -na "spawnSync" -- scripts .github/scripts` 逐条问"error/signal 有没有被读"，本片未做全仓收敛。
 3. **`publish-history.test.js` 那条被 10s 框架超时切断**的红（本次 PR #4086 的 `QG Coverage` 现场，job `118586713916`）**不是本片范围**，已单独登记为任务 #89：全仓 git grep 型结构锁没有自己的预算。
-4. QM-6 是自演（用户指定），**不构成**双模型外部评审证据；CCG 未安装 ⇒ 机械闸门对本 PR 无从判红（AGENTS「残留风险」一节已记录）。
+4. QM-6 是自演（用户指定），**不构成**双模型外部评审证据；CCG 未安装 ⇒ 更精确的条件不是「CCG 未装」而是「本 PR 变更集内 `.ccg/reviews/` 产物数 = 0 ⇒ `evaluateDeepReviewDebt` 扫描域为空、当场早退」；PR 只要携带 `mode=dual` 产物这条判据就会红（2026-10-21 另一会话实测否证过「未装就无从判红」那个过度形式）（AGENTS「残留风险」一节已记录）。
 5. 三条等人工的项未动：`~/.local/bin/env` 缺 `exec "$@"`、共享根那个游离空目录、把 `scripts/doc-abs-paths-baseline.json` 加进 `CI_IGNORED_PATHS`（属"改谁来守门"）。
