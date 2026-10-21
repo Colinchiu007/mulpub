@@ -838,3 +838,200 @@ test('入口必须先确认兄弟依赖存在再 source（$0 不可靠时给出�
     assert.match(between, /exit 2/, `${name} 守卫必须 fail-closed 早退，不得带着未定义的函数继续跑`)
   }
 })
+
+// ---------- 评审时换后端 → 回写判定记录（#3927 假红的行为锁） ----------
+//
+// 为什么必须行为锁而不是结构锁：上一刀把「请求值落进记录」的实现放在了 pre-commit 的
+// decider，于是**评审时**用 --critic 换后端根本不改记录。check-pr-exec-record.js 的
+// judgeBackendMismatch 拿记录里的 reviewBackends（提交时那份）比驱动回填的
+// deepReview.performedBy ⇒ 每一次合法覆盖都被读成「请求了 codex、干活的是 claude」，
+// 判该条深度审查未闭合。那是工具自己造的假红，不是审查发现。
+// 结构锁（"源码里有 --record-request 这个串"）在这里不够：把调用摘掉、只留注释，源码仍匹配。
+//
+// 夹具要点：
+//  · 桩驱动写在 <fixture>/scripts/ccg-deep-review.js —— 这是入口定位驱动的第一候选路径，
+//    所以本锁**不需要本机有真引擎**（CI 上同样执行，不会静默跳过）。
+//  · 桩驱动启动时**自己再读一次记录**并把读数写进产物：这一格同时证明「回写早于交给驱动」。
+//    只按源码位置断言顺序是证不出来的——回写若排在 exec 之后，argv 里读到的仍是旧值。
+//  · 所有夹具文件一律进 .git/info/exclude：否则未跟踪的 scripts/** 会被读成「非 .ccg 改动」，
+//    把「有改动却无记录 ⇒ 判故障」那批锁的被测前提改掉（本文件踩过一次）。
+
+const LIB_JS_B = pathB.join(ROOT, "scripts", "lib", "ccg-review-backends.js");
+const LIST_FILE_B = pathB.join(ROOT, "scripts", "ccg-review-backends.list");
+
+// 提交时 decider 写进记录的那份请求值（critic=claude 来自清单，overridden=false）
+const COMMIT_RECORD_B = JSON.stringify(
+  {
+    mode: "dual",
+    highRiskDomains: [],
+    reviewBackends: {
+      critic: "claude",
+      proposer: "opencode",
+      from: { critic: "list", proposer: "list" },
+      notes: [],
+      overridden: false,
+    },
+    deepReview: { status: "pending" },
+  },
+  null,
+  2
+);
+
+function makeReviewRecordRepoB(recordText) {
+  const dir = makeRepoWithoutRecordB();
+  // 入口在覆盖分支里按**仓库相对路径**调 `node scripts/lib/ccg-review-backends.js`，
+  // （入口在文件开头就 cd 到由脚本自身位置算出的 ROOT，所以这个相对路径锚的是仓库根、不是调用方 cwd ——
+  //   从非根 cwd 起脚本同样命中同一份 lib。QM-6 评审提过「换 cwd 必败」，取证后按不成立处置，本注记防它被重提。）
+  // 而该 lib 按自身位置向上找清单 —— 两个文件缺一个，回写那一跳就会以 rc=2 失败。
+  fsB.mkdirSync(pathB.join(dir, "scripts", "lib"), { recursive: true });
+  fsB.copyFileSync(LIB_JS_B, pathB.join(dir, "scripts", "lib", "ccg-review-backends.js"));
+  fsB.copyFileSync(LIST_FILE_B, pathB.join(dir, "scripts", "ccg-review-backends.list"));
+  const infoExclude = pathB.join(dir, ".git", "info", "exclude");
+  fsB.appendFileSync(
+    infoExclude,
+    "\nscripts/lib/ccg-review-backends.js\nscripts/ccg-review-backends.list\nscripts/ccg-deep-review.js\ndriver-argv.txt\n"
+  );
+  // 桩驱动：把 argv 与「本次启动时读到的记录后端」一起落盘 —— 顺序证据就藏在这一个产物里。
+  fsB.writeFileSync(
+    pathB.join(dir, "scripts", "ccg-deep-review.js"),
+    [
+      '"use strict"',
+      "const fs = require('node:fs')",
+      "const path = require('node:path')",
+      "const i = process.argv.indexOf('--sha')",
+      "const sha = i >= 0 ? process.argv[i + 1] : ''",
+      "const rec = path.join(process.cwd(), '.ccg', 'reviews', sha + '.json')",
+      "let saw = 'NOSHA'",
+      "try { const j = JSON.parse(fs.readFileSync(rec, 'utf8')); saw = (j.reviewBackends && j.reviewBackends.critic) || 'none' } catch (e) { saw = 'UNREADABLE:' + (e && e.code ? e.code : e.name) }",
+      "fs.writeFileSync(path.join(process.cwd(), 'driver-argv.txt'), 'argv=' + process.argv.slice(2).join(' ') + '\\nsawCritic=' + saw + '\\n')",
+      "process.exit(0)",
+      "",
+    ].join("\n")
+  );
+  const head = execB("git", ["rev-parse", "HEAD"], { cwd: dir, encoding: "utf8" }).trim();
+  fsB.mkdirSync(pathB.join(dir, ".ccg", "reviews"), { recursive: true });
+  if (recordText !== null) {
+    fsB.writeFileSync(pathB.join(dir, ".ccg", "reviews", head + ".json"), recordText);
+  }
+  return { dir: dir, head: head, recPath: pathB.join(dir, ".ccg", "reviews", head + ".json"), out: pathB.join(dir, "driver-argv.txt") };
+}
+
+// 真跑一次入口（非 dry-run）：假 HOME 提供 wrapper 与后端桩，PATH 贫瘠但含 node。
+// node 必须在 PATH —— 回写那一跳是 `node scripts/lib/...`，缺 node 会让本锁红在环境上而不是红在判据上。
+function runReviewRealB(dir, args) {
+  const home = makeFakeHome({ codex: "codex", opencode: "opencode", claude: "claude" });
+  const nodeDir = toPosixPath(pathB.dirname(process.execPath));
+  const r = spawnB(bashB, ["scripts/deep-review.sh"].concat(args), {
+    cwd: dir,
+    encoding: "utf8",
+    timeout: 180000,
+    maxBuffer: 1 << 24,
+    env: { PATH: BARE_PATH + ":" + nodeDir, HOME: home, USERPROFILE: home, CCG_BACKEND_BIN_DIRS: "" },
+  });
+  return { rc: r.status, out: String(r.stdout || "") + String(r.stderr || "") };
+}
+
+test("回写接线锁：覆盖分支必须在 exec 之前调 node 回写，dry-run 分支不得调（预览不改产物）", () => {
+  const sh = fsB.readFileSync(pathB.join(ROOT, "scripts", "deep-review.sh"), "utf8");
+  const wb = sh.indexOf("--record-request");
+  assert.ok(wb > 0, "入口里找不到回写调用 —— 锚点漂移，本锁会退化成恒真");
+  const execReal = sh.indexOf('exec node "$DRIVER" --sha "$SHA" --proposer');
+  assert.ok(execReal > 0, "找不到覆盖分支的真跑 exec");
+  assert.ok(wb < execReal, "回写必须早于把控制权交给驱动（exec 之后这条永远跑不到）");
+  assert.ok(sh.indexOf('exit 2', wb) < execReal, "回写失败必须在 exec 之前早退");
+  const dryStart = sh.indexOf('if [ "$DRY" -eq 1 ]; then');
+  const dryEnd = sh.indexOf('exec node "$DRIVER" --dry-run --sha "$SHA" --proposer');
+  assert.ok(dryStart > 0 && dryEnd > dryStart, "找不到 dry-run 的覆盖 exec");
+  assert.ok(!sh.slice(dryStart, dryEnd).includes("--record-request"),
+    "dry-run 不得回写 —— 预览的职责是打印将要做什么，不该改判定产物");
+  assert.match(sh.slice(dryStart, dryEnd), /不回写/,
+    "dry-run 必须**说出来**它没回写，否则读者会以为记录里的后端已被改过");
+});
+
+descB("评审时换后端：入口必须把请求值写进判定记录，且驱动看到的已是覆盖值", () => {
+  const fx = makeReviewRecordRepoB(COMMIT_RECORD_B);
+  try {
+    const r = runReviewRealB(fx.dir, ["--critic", "codex"]);
+    assert.equal(r.rc, 0, "桩驱动应正常退出，实得 rc=" + r.rc + "\n" + r.out);
+    const rec = JSON.parse(fsB.readFileSync(fx.recPath, "utf8"));
+    assert.equal(rec.reviewBackends.critic, "codex", "记录顶层必须是**评审时**请求的后端，实得：" + JSON.stringify(rec.reviewBackends));
+    assert.equal(rec.reviewBackends.overridden, true, "必须如实标 overridden，否则对账判据不启用");
+    assert.equal(rec.reviewBackends.commitRequest.critic, "claude",
+      "提交时那份必须挪进 commitRequest 留档 —— 覆盖不得销毁「谁在提交时请求了谁」这条审计链");
+    assert.equal(rec.mode, "dual", "回写只动 reviewBackends，不得改决策层判据读的字段");
+    assert.equal(rec.deepReview.status, "pending", "同上：deepReview 由驱动回填，入口不得代填");
+    const argv = fsB.readFileSync(fx.out, "utf8");
+    assert.match(argv, /sawCritic=codex/,
+      "驱动启动时读到的记录必须已是覆盖值（这是「回写早于 exec」的现场证据，实得：" + argv + "）");
+    assert.match(argv, /--critic codex/, "转发给驱动的命令行仍须带覆盖，实得：" + argv);
+  } finally {
+    fsB.rmSync(fx.dir, { recursive: true, force: true });
+  }
+});
+
+descB("传清单默认值时两侧都必须判「没覆盖」：不改记录、不出覆盖行、不转发旗标（QM-6 i2 的一致性锁）", () => {
+  // critic 说「入口按 RB_OVERRIDE_NOTE 判、lib 按 r.overridden 判，两口径不一致 ⇒ 传默认值会被拒写并阻断审查」。
+  // 这一格把它钉成行为而不是读码意见：清单第一行就是 claude，所以 --critic claude 必须整条链判「没覆盖」。
+  const fx = makeReviewRecordRepoB(COMMIT_RECORD_B);
+  try {
+    const before = fsB.readFileSync(fx.recPath, "utf8");
+    const r = runReviewRealB(fx.dir, ["--critic", "claude"]);
+    assert.equal(r.rc, 0, "传清单默认值不得阻断审查，实得 rc=" + r.rc + "\n" + r.out);
+    assert.doesNotMatch(r.out, /已向后端请求覆盖/,
+      "入口不得把「与清单同值」报成覆盖（报了就走回写分支）\n实得：" + r.out);
+    assert.equal(fsB.readFileSync(fx.recPath, "utf8"), before,
+      "默认路径必须一个字节都不碰判定产物 —— 谁改过产物正是这条链要审计的东西");
+    const argv = fsB.readFileSync(fx.out, "utf8");
+    assert.doesNotMatch(argv, /--critic/,
+      "未覆盖时不得把本仓默认值钉进命令行（那会造出第二真源），实得：" + argv);
+  } finally {
+    fsB.rmSync(fx.dir, { recursive: true, force: true });
+  }
+});
+
+descB("回写这一跳失败必须 fail-closed：rc=2、点名原因、驱动一次都不能起来", () => {
+  // 把夹具里的 lib 改坏（语法错误）⇒ 回写调用以非零退出。这一形态比「记录不存在」更真实：
+  // 走到这一步时记录必然存在（无记录的路径在前面就 exit 了），会坏的只有回写本身。
+  const fx = makeReviewRecordRepoB(COMMIT_RECORD_B);
+  try {
+    fsB.writeFileSync(pathB.join(fx.dir, "scripts", "lib", "ccg-review-backends.js"), "module.exports = {");
+    const r = runReviewRealB(fx.dir, ["--critic", "codex"]);
+    assert.equal(r.rc, 2, "回写失败必须 rc=2，实得 rc=" + r.rc + "\n" + r.out);
+    assert.match(r.out, /没能写回/, "必须点名是回写这一跳失败，否则排查者会去查后端");
+    assert.ok(!fsB.existsSync(fx.out), "驱动一次都不能被启动 —— 带着不一致的记录跑审查，产出的结论不可用");
+    const rec = JSON.parse(fsB.readFileSync(fx.recPath, "utf8"));
+    assert.equal(rec.reviewBackends.critic, "claude", "失败路径不得半途改写记录");
+  } finally {
+    fsB.rmSync(fx.dir, { recursive: true, force: true });
+  }
+});
+
+descB("dry-run 换后端：只出声不回写，记录字节必须逐字不变", () => {
+  const fx = makeReviewRecordRepoB(COMMIT_RECORD_B);
+  try {
+    const before = fsB.readFileSync(fx.recPath, "utf8");
+    const r = runReviewRealB(fx.dir, ["--dry-run", "--critic", "codex"]);
+    assert.equal(r.rc, 0, "dry-run 不该因回写缺失而失败，实得 rc=" + r.rc + "\n" + r.out);
+    assert.equal(fsB.readFileSync(fx.recPath, "utf8"), before,
+      "dry-run 改写了判定产物 —— 预览的职责是「将要做什么」，不是做");
+    assert.match(r.out, /不回写/, "必须说出来没回写，否则读者会拿这份记录去对账");
+  } finally {
+    fsB.rmSync(fx.dir, { recursive: true, force: true });
+  }
+});
+
+descB("默认路径（没覆盖）一个字节都不碰记录：回写只在覆盖分支发生", () => {
+  // 反向对照：上面三条都带 --critic。不带覆盖时入口必须完全不调回写，
+  // 否则每个 PR 的判定产物都会被无关写者改一遍 mtime/键顺序 —— 而「谁改过判定产物」
+  // 正是这条链要审计的东西。
+  const fx = makeReviewRecordRepoB(COMMIT_RECORD_B);
+  try {
+    const before = fsB.readFileSync(fx.recPath, "utf8");
+    const r = runReviewRealB(fx.dir, []);
+    assert.equal(r.rc, 0, "实得 rc=" + r.rc + "\n" + r.out);
+    assert.equal(fsB.readFileSync(fx.recPath, "utf8"), before, "无覆盖时记录必须逐字不变");
+    assert.ok(!/评审后端已覆盖|评审后端已被覆盖/.test(r.out), "无覆盖不得打印覆盖行");
+  } finally {
+    fsB.rmSync(fx.dir, { recursive: true, force: true });
+  }
+});

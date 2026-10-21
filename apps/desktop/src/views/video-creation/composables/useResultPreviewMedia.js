@@ -309,3 +309,175 @@ export function buildPreviewPlaceholder ({ translate, projectId = null, hasEdita
     actionEnabled: editable,
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2026-10-20 PRD-S2V-RESULT-UX-POLISH
+// 以下三组函数解决「169 段任务页面上关键信息缺席」：为什么失败、目标段在哪、还有多少没显示。
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 分段列表筛选模式。 */
+export const SEGMENT_FILTER_MODES = Object.freeze({
+  ALL: 'all',
+  FAILED: 'failed',
+  POLICY: 'policy',
+})
+
+/**
+ * 失败原因码 → locale 键后缀（单一真源）。
+ *
+ * 未知码一律回落 `unknown`（渲染成「其他原因」），**不编造**具体成因。
+ * 新增码只改这一张表；对应 locale 键必须 zh/en 成对登记。
+ */
+export const FAILURE_REASON_LABEL_KEYS = Object.freeze({
+  policy: 'failureReasonPolicy',
+  'content-policy': 'failureReasonPolicy',
+  quota: 'failureReasonQuota',
+  'quota-exceeded': 'failureReasonQuota',
+  material: 'failureReasonMaterial',
+  'material-missing': 'failureReasonMaterial',
+  timeout: 'failureReasonTimeout',
+  'generation-timeout': 'failureReasonTimeout',
+  model: 'failureReasonModel',
+  'model-error': 'failureReasonModel',
+  unknown: 'failureReasonUnknown',
+})
+
+const FAILED_STATUS = 'failed'
+
+/**
+ * 失败摘要：占位区块要能回答「为什么没生成成品视频」。
+ *
+ * 旧实现的占位区块只有一句通用说明（「可先编辑分段内容，再重新合成」），
+ * 而 169 段任务失败必有原因（内容政策 / 额度 / 素材缺失 / 某段生成超时）。
+ * 用户的心智过程是「是不是我做错了什么」，页面回答不了这个问题。
+ *
+ * @returns {{total:number, failedCount:number, completedCount:number, pendingCount:number,
+ *   processingCount:number, policyFlaggedCount:number, firstFailedIndex:number,
+ *   failedIndexes:number[], hasFailure:boolean, reasons:Array<{code:string,count:number}>}}
+ */
+export function buildFailureSummary ({ segments } = {}) {
+  const list = Array.isArray(segments) ? segments.filter(isPlainObject) : []
+  const stats = { total: list.length, failedCount: 0, completedCount: 0, pendingCount: 0, processingCount: 0 }
+  const failedIndexes = []
+  const policyFlaggedCount = { value: 0 }
+  const reasonCounts = new Map()
+
+  list.forEach((seg, index) => {
+    const status = typeof seg.status === 'string' ? seg.status : ''
+    if (status === FAILED_STATUS) {
+      stats.failedCount += 1
+      // 全量下标：与 DOM 顺序一致，供「定位到首个失败段」直接寻址
+      failedIndexes.push(index)
+      // 失败原因按 code 归并；没有 code 的段不计入（不编造文案）
+      const code = cleanText(seg.failureCode) || cleanText(seg.failedReasonCode)
+      if (code) reasonCounts.set(code, (reasonCounts.get(code) || 0) + 1)
+    } else if (status === 'completed') {
+      stats.completedCount += 1
+    } else if (status === 'pending') {
+      stats.pendingCount += 1
+    } else if (status === 'processing') {
+      stats.processingCount += 1
+    }
+    if (seg.policyFlagged === true) policyFlaggedCount.value += 1
+  })
+
+  const reasons = [...reasonCounts.entries()]
+    .map(([code, count]) => ({ code, count }))
+    // 次数降序；次数相同按 code 字典序，保证渲染稳定（不因对象键序抖动）
+    .sort((a, b) => (b.count - a.count) || a.code.localeCompare(b.code))
+
+  return {
+    ...stats,
+    policyFlaggedCount: policyFlaggedCount.value,
+    // -1 = 无失败段，调用方据此不渲染「定位到失败段」按钮
+    firstFailedIndex: failedIndexes.length > 0 ? failedIndexes[0] : -1,
+    failedIndexes,
+    hasFailure: failedIndexes.length > 0,
+    reasons,
+  }
+}
+
+/** 分段可被搜索命中的文本源（文案 / 提示词 / 视频提示词 / 字幕）。 */
+function segmentSearchHaystack (segment) {
+  const parts = [segment.text, segment.prompt, segment.videoPrompt]
+  if (Array.isArray(segment.subtitleBlocks)) parts.push(...segment.subtitleBlocks)
+  else if (typeof segment.subtitleBlocks === 'string') parts.push(segment.subtitleBlocks)
+  return parts
+    .filter(part => typeof part === 'string' && part.trim())
+    .join('\n')
+    .toLowerCase()
+}
+
+/**
+ * 分段筛选与搜索。
+ *
+ * **关键约束**：返回项的 `absoluteIndex` 必须是**全量下标**，不是筛选后的序号。
+ * 上移 / 下移 / 删除 / 导出命名 / 政策徽标全部按全量下标寻址，一旦退化成筛选序号，
+ * 在「只看失败段」模式下点删除会删掉别的段。
+ *
+ * @param {Array} segments 全量分段
+ * @param {{mode?:string, query?:string, policySceneNumbers?:Set<number>}} options
+ * @returns {Array<{segment:object, absoluteIndex:number}>}
+ */
+export function filterSegments (segments, { mode = SEGMENT_FILTER_MODES.ALL, query = '', policySceneNumbers = null } = {}) {
+  const list = Array.isArray(segments) ? segments : []
+  const normalizedMode = Object.values(SEGMENT_FILTER_MODES).includes(mode) ? mode : SEGMENT_FILTER_MODES.ALL
+  const needle = cleanText(query).toLowerCase()
+  const policySet = policySceneNumbers && typeof policySceneNumbers.has === 'function' ? policySceneNumbers : null
+
+  const out = []
+  list.forEach((segment, index) => {
+    if (!isPlainObject(segment)) return
+    if (normalizedMode === SEGMENT_FILTER_MODES.FAILED && segment.status !== FAILED_STATUS) return
+    if (normalizedMode === SEGMENT_FILTER_MODES.POLICY) {
+      if (!policySet || !policySet.has(index + 1)) return
+    }
+    if (needle && !segmentSearchHaystack(segment).includes(needle)) return
+    out.push({ segment, absoluteIndex: index })
+  })
+  return out
+}
+
+/**
+ * 分段计数文案：169 段要告诉用户「还有多少段没显示」。
+ *
+ * 旧实现只有「显示更多分段」按钮，用户不知道要按几次（169 段 = 8 次）。
+ */
+export function buildSegmentCountLabel ({ shown = 0, total = 0, filtered = false, translate } = {}) {
+  const t = typeof translate === 'function' ? translate : (key) => key
+  const shownCount = Number.isFinite(Number(shown)) ? Math.max(0, Math.floor(Number(shown))) : 0
+  const totalCount = Number.isFinite(Number(total)) ? Math.max(0, Math.floor(Number(total))) : 0
+  if (filtered && shownCount === 0) {
+    return t('story2video.sceneMaterial.segmentCountNoMatch')
+  }
+  if (totalCount > 0 && shownCount >= totalCount && !filtered) {
+    return t('story2video.sceneMaterial.segmentCountAll', { total: totalCount })
+  }
+  return t('story2video.sceneMaterial.segmentCountPartial', { shown: shownCount, total: totalCount })
+}
+
+/**
+ * 分段跳转计划。
+ *
+ * 修复前：跳到未渲染段时 `segmentItemRefs[index]` 为空 ⇒ 静默跳过，且右侧高亮已经跳走
+ * ⇒ 状态与视图矛盾。第一版修复是「一步扩窗到目标」，但 169 段点最后一段要一次渲染
+ * 140+ 张卡 + 最多 700 次 IPC，这 1–2 秒里没有任何反馈，用户会以为还是没反应。
+ * 本函数把「要不要扩窗 / 扩到哪 / 只解析哪一段区间」算清楚，供宿主配合 loading 提示。
+ *
+ * @returns {{needsScroll:boolean, needsExpand:boolean, expandTo:number, batch:{from:number,to:number}}}
+ */
+export function resolveSegmentJumpPlan ({ index, total = 0, renderedTo = 0 } = {}) {
+  const totalCount = Number.isFinite(Number(total)) ? Math.max(0, Math.floor(Number(total))) : 0
+  const renderedUpTo = Number.isFinite(Number(renderedTo)) ? Math.max(0, Math.floor(Number(renderedTo))) : 0
+  const idle = { needsScroll: false, needsExpand: false, expandTo: renderedUpTo, batch: { from: renderedUpTo, to: renderedUpTo } }
+
+  // 只接受非负整数下标（1.5 / -1 / 越界一律不动作，不抛错）
+  if (!Number.isInteger(index) || index < 0 || index >= totalCount) return idle
+
+  if (index < renderedUpTo) {
+    return { needsScroll: true, needsExpand: false, expandTo: renderedUpTo, batch: { from: renderedUpTo, to: renderedUpTo } }
+  }
+  // 扩窗到刚好覆盖目标（不逐批循环），只解析 [renderedUpTo, index+1)
+  const expandTo = Math.min(totalCount, index + 1)
+  return { needsScroll: true, needsExpand: true, expandTo, batch: { from: renderedUpTo, to: expandTo } }
+}

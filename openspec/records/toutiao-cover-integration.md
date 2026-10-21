@@ -14,6 +14,19 @@
 
 **终态：账号墙(21000)——技术链全通。** 账号一实名，同一套代码直接出 `ItemId`。
 
+### 1.1 回归复跑（2026-10-21，main tip `1c473767`）
+
+在之后又合入多个 PR（#4050/#4055/#4057/#4110/#4112/#4113）**之后**重跑同一预演，验证无回归：
+
+| 层 | 复跑读数 |
+| --- | --- |
+| ① 闸门 | `identityVerified=false` → ACCOUNT_NOT_VERIFIED 拦截（不变） |
+| ② 封面五步链 | 登记 `uri=tos-cn-i-e874c6/oIAAbnIQIBAVJpreToLavcG5ywMDeimbGE6zAf`（1280×720 jpeg，md5=2028…）✅ |
+| ③ 视频 VOD | 新 `Vid=v03d16g10004dbbt31fog65ob914fst0` ✅ |
+| ④ PublishVideo | `Code 21000` + `accountGate=true` ✅（与首次预演同构） |
+
+⇒ **技术链在多次合并后无回归**；唯一阻塞仍且仅是账号实名。
+
 ## 二、预演抓到并修复的两个真 bug（都在 #4038 引入的代码里）
 
 ### 2.1 wrapper 变量名/透传 bug（Critical）

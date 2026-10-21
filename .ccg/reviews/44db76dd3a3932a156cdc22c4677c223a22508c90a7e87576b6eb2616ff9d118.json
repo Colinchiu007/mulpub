@@ -1,0 +1,75 @@
+{
+  "sha": "37cf701b5c274c9ce017ad277de5cf82631bbb2d",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 1790 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 1790,
+    "fileCount": 7,
+    "codeFileCount": 5,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 12,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "44db76dd3a3932a156cdc22c4677c223a22508c90a7e87576b6eb2616ff9d118",
+  "decidedAt": "2026-10-18T12:26:30.305Z",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "judgeEntry uses regex on transformed YAML (viewFlat/viewCode) to detect vitest jobs, not actual execution. Parsing errors (quotes, line-continuation, --exclude) cause false negatives, allowing missing preload silently. Fixtures don't cover all command variants.",
+        "highRiskDomains": [],
+        "prosecution": "失效路径可复现：把某个 job 的 vitest 调用改写成判据未枚举的形态（参数加引号、块标量里用反斜杠续行、折叠标量），该 job 便不再被认定为消费桌面测试的域内条目。\n此时一个缺少前置重建步骤的 job 会从判定域里消失 —— 而这正是这道锁存在的理由（本仓 #3782 的缺陷类：桌面测试在缺少 preload 重建时静默通过）。\n指控还指出夹具只覆盖部分命令变体，其余变体既没被验证，也不会让任何东西变红。",
+        "defense": "判据的输入是「声明的调用形态」而非执行事实，这是有意取舍：这道锁装在 PR 阶段（pre-commit / CI），运行期验证看不到「一行被跳过或缺失」，只有静态装配能拦。形态枚举的缺口由三类机制补偿，本轮逐条实测：\n① --exclude 与 --config / -c 不靠形态枚举，而由 EXCLUDE_DESKTOP_RE / CONFIG_FLAG_RE 单独识别，探针矩阵实测 DETECTED；\n② 整类或整域消失时 FORM_COUNT_BELOW_MIN（下界 12）与 EMPTY_DOMAIN 直接 fatal（合成根实测 4 处 fatal、rc=2）；\n③ 已登记 required 的 job 掉出域由 judgeRegistry 判 STALE_REQUIRED。\n真实根 A/B（本 PR 实测）：把 quality-gate.yml 的 desktop-shards 改写成未枚举形态，读数由 rc=0 / entries=47 / in-domain=4 / desktop-filter=21 变为 rc=1 / entries=46 / in-domain=3 / desktop-filter=20，并点名 [DEBT:STALE_REQUIRED] quality-gate.yml#desktop-shards；desktop-filter 计数 21 降到 20 仍高于下界 12，说明单靠下界拦不住，是登记对账把它拦住的。还原后逐字节 md5 相同，同一路径得到集成确认。\n引号、块标量、折叠标量（含叠加）三类变体在探针里全部 DETECTED。",
+        "verdict": "dismissed",
+        "rationale": "驳回（作为阻断项），并如实披露残留边界（已写入 PR 正文与执行记录）：\n① 真静默只在「从未入域的新 job 被写成未枚举形态」这一格 —— 该形态计数不归零、没有 floor 跳动，也没有登记项可对账；\n② 次级残留是 STALE_REQUIRED 的处方文案建议「请删掉这条登记」，照做会把已拦住的用例转成①格（属文案质量，不是判据失效）；\n③ 已登记 required 的 job 被改写成未枚举形态会被拦住，该分支已有单测覆盖（codes 传空域 + required 单键 ⇒ STALE_REQUIRED），本 PR 的真实根 A/B 是同路径的集成确认。\n不为残留扩启发式：扩宽会把漏检换成误判，而误报的终局是清空登记表（本仓已多次否决同类扩宽）。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "Dual truth: YAML + manual registry + 995-line parser + 746-line test. Registry sync per change; nx-direct=0 is uncovered. Extreme maintenance burden.",
+        "highRiskDomains": [],
+        "prosecution": "指控说这里有四份需同步的真源：workflow YAML、手工登记表、约千行的解析器、约七百行的用例；每次改 workflow 都要人工判断是否登记，评审者还得先读懂那张清单；并称 nx-direct 形态没有覆盖。\n若属实，这是「同一件事写四遍」的维护负担，长期必然漂移，且漂移方向不可预期。",
+        "defense": "登记表不是第二份「命令形态」的真源：它的条目只有 workflow / job / why 三个字段（1418 字节、4 条 required、例外清单为空），回答的是「这个 job 为什么必须有前置重建」，与「命令怎么写」无关 —— 字段层面「多真源」不成立。\n漂移两侧都有拦断面，且都是双向的：登记了但掉出域 ⇒ STALE_REQUIRED（本 PR 真实根 A/B 实测点名）；在域但未登记 ⇒ UNREGISTERED_IN_DOMAIN。\nnx-direct 被两次证伪：判据层 MAX_FORM_COUNTS 把该形态钉在 0，合成根里直接以 nx 调用的 job 被采成 debt:FORM_COUNT_EXCEEDED；用例层有 zz-j.yml 的 nx-direct 夹具锁住该路径。\n「改用运行时验证」不成立：缺陷形态是那一行被跳过或缺失，运行期看不到；PR 阶段的静态装配是唯一可拦截点。",
+        "verdict": "dismissed",
+        "rationale": "驳回（作为阻断项）。被引用的体量是「判据 + 其用例」的总量，不是每次变更的维护面：单次改动的维护面是 27 行清单加一个 why 字段，形态闭集固定后解析逻辑与用例基本不再变动。\n用例体量大是因为每个枚举形态都配夹具与变异反证，属既定质量口径，不是结构缺陷。\n残留与 i1 同源（未入域的新形态），由整类 floor 兜底；本 PR 不宣称该残留已闭合。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": ".ccg/reviews JSON file lacks trailing newline (\\ No newline at end of file in diff).",
+        "highRiskDomains": [],
+        "prosecution": "事实成立：判定记录的写入器在 scripts/ccg-review-decider.js 两处（L618、L622）直接落 JSON.stringify(record, null, 2)，不带末尾换行，diff 里会出现「文件末尾无换行」提示。\n这与仓库多数文本文件以换行收尾的惯例不一致，部分工具与审阅流程会把它读成「文件被截断」。",
+        "defense": "事实已量化：仓库 .ccg/reviews 下共 1109 个 JSON，其中 969 个（87.4%）没有末尾换行 —— 这是该目录的主流形态，不是本 PR 特有的缺陷。\n写入侧对照：判定器不写换行，而深度审查引擎的 writeBack 写换行；但引擎自己写的 critique-v1.md（1932 字节）同样没有末尾换行，说明这是工具层的普遍形态，不是单一写入器的问题。\n全仓无任何门禁检查末尾换行；该文件由机器生成、由 JSON.parse 往返消费，末尾换行不对任何读取方产生语义差别。\n本 PR 涉及的那一份已就地补上末尾换行：取该文件相对本 PR 基线的路径 diff（git diff <基线> -- .ccg/reviews/44db76dd….json），以反斜杠开头的 git 标记行（\\ No newline at end of file）为 0 行 —— 该字样在该文件的路径 diff 里只出现 1 次，且来自本条 finding 的引文本身（裁定文本里引用了这个短语，不是 git 的标记）。",
+        "verdict": "dismissed",
+        "rationale": "驳回：无功能后果、消费方不敏感、全仓无对应门禁，且被点名实例已在本 PR 内规范化。\n生产者侧归一化（判定器与引擎两个写入点补末尾换行）改动的是门禁链上的写入器，需要配用例与单独评审，记为后续单元，不在本 PR 内顺手改，也不从记录中隐藏。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "CHANGELOG.md rewritten with massive specification entry instead of concise release note.",
+        "highRiskDomains": [],
+        "prosecution": "事实：CHANGELOG.md 顶部新增 47 行条目，而发布说明通常应当是简短记录。长条目会稀释这份文件作为发行索引的可用性；位置序相邻的条目只有 9–22 行，本条在其中明显偏大。",
+        "defense": "按发布条目粒度（以 ^# 开头的行）实测分布：525 条，行数中位数 19、平均 42.5、最大 4398；达到或超过 47 行的有 57 条，本条位于 89.5 百分位 —— 落在该文件自身惯例的长尾内，而不是超出惯例的异常。（另有按分节粒度 ^ 后两个/三个井号 的读数 3181 条、中位数 6，仅作旁证。）\n内容必要性：本条描述的是一个长期连续失败的工作流的根因与修法，且该变化跨 workflow（构建产物被移出后在 CI 上缺重建步骤）；仓库对条目长度没有门禁，最大条目 4398 行表明长条目在体例内被接受，release-gate 也只要求 CHANGELOG 收口。\n备选方案比较：拆成「短条目 + 记录文件链接」被否 —— 本仓 CHANGELOG 惯例不向 openspec/records 链接，拆开后读者无法从发行索引到达根因说明。",
+        "verdict": "dismissed",
+        "rationale": "驳回（作为阻断项），并如实披露：本条确实显著长于中位数（89.5 百分位），位置序邻居为 9–22 行，本 PR 正文与执行记录都写明了这一点。\n保留的理由：CHANGELOG 是发行说明的唯一出口，本条承载的是一个长期失败工作流的因果链；压缩它属于全仓体例变更（对 57 条同量级条目都成立），不在本 PR 内做，也不从记录中隐藏。"
+      }
+    ],
+    "blocking": [],
+    "note": "自扮演裁决：全部指控不成立",
+    "at": "2026-10-19T03:04:18.118Z",
+    "tier": "external",
+    "evidence": "openspec/records/electron-ci-preload-build.md",
+    "closureNote": "第 1 轮外部 critique（跨家族，族名见 reviewBackends 与本地归档 family-snapshot.json）交 5 条指控（i1 / i2 Critical、i3 / i4 Warning、i5 Info）；第 2 轮逐条裁决 i1–i4 全部 dismissed，每条都附可复跑的处置依据：i1 用 quality-gate.yml#desktop-shards 的真实 A/B 证明兜底判据在跑（entries 47→46、in-domain 4→3、点名 STALE_REQUIRED，内存镜像精确还原后逐字节相同）；i2 用登记表只有 workflow / job / why 三列、不含命令形态证明它不是第二真源；i3 已量化并就地规范化（全仓 1530 份判定记录里 1291 份无末尾换行，属该目录主流形态）；i4 已按 CHANGELOG 条目粒度量到 89.5 百分位（525 条发布条目、最大 4398 行），该长度判断属人工裁量并登记为遗留 8。i5 属 Info，不进裁决面，如实登记为遗留 9。裁决由引擎第三档 self-play 完成（status=self_play_resolved / performedBy=self-play），外部模型只交 critique、不参与裁决。本键 tier=external 与 evidence 由本次会话按「写入侧工具尚未落地（tasks 8.1b）」的临时口径手写，表达的是「critique 来自外部家族」这一事实，不是工具采集产物。"
+  }
+}

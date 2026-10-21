@@ -9,8 +9,13 @@ const path = require('path')
 
 const STORY2VIDEO_MEDIA_HOST = '127.0.0.1'
 const STORY2VIDEO_MEDIA_PATH = '/media/'
-const DEFAULT_MAX_ENTRIES = 128
-const MAX_REGISTRY_ENTRIES = 256
+// 容量口径（2026-10-20 PRD-S2V-RESULT-UX-POLISH §3.1）：
+// 一个整页大任务每段最多 5 个媒体位（image1/image2/video1/video2/audio），
+// 169 段 ⇒ 最多 845 个回环 URL。旧值 128 会在展开到约 26 段时开始 FIFO 淘汰，
+// 被淘汰 == 该分段的图变 404 == 渲染端 @error 兜底显示「未生成」（用户最初抱怨的破图）。
+// 取 1024 覆盖到 200 段，且留出写后刷新时新旧令牌并存的余量。
+const DEFAULT_MAX_ENTRIES = 1024
+const MAX_REGISTRY_ENTRIES = 2048
 const DEFAULT_TOKEN_TTL_MS = 15 * 60 * 1000
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{16,128}$/
 
@@ -182,6 +187,10 @@ class Story2VideoMediaServer {
       if (entry) this.entries.delete(token)
       return this._notFound(response)
     }
+    // 滑动过期（2026-10-20 PRD-S2V-RESULT-UX-POLISH §3.1）：
+    // 固定 TTL 会让「在 169 段编辑页停留超过 15 分钟」把全部令牌清空 ⇒ 图片整片变「未生成」。
+    // 命中即续期，使令牌在活跃使用期间一直有效；停止使用超过 TTL 仍然失效（不是永不过期）。
+    entry.expiresAt = this.now() + this.tokenTtlMs
 
     let stat
     try {

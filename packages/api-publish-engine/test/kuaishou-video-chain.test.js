@@ -231,7 +231,7 @@ describe("publish/platforms/kuaishou-video", () => {
     } finally { fs.unlinkSync(file); await srv.close(); }
   });
 
-  test("求签调用形态：command=kuaishou.ns-sig3-browser + {url,type:params} 结构 + accountId 透传", async () => {
+  test("求签调用形态：command=kuaishou.ns-sig3（Tier-A 纯 JS）+ {url,type:params} 结构 + accountId 透传", async () => {
     const srv = await startSrv();
     const file = writeTemp(1024);
     const calls = [];
@@ -240,7 +240,7 @@ describe("publish/platforms/kuaishou-video", () => {
         signer: async (command, payload) => { calls.push({ command, payload }); return GOOD_SIG; },
       }).run(task(file), { accountId: "acct9" });
       expect(calls.length).toBeGreaterThanOrEqual(3); // pre/finish/submit 三处带签
-      expect(calls.every((c) => c.command === "kuaishou.ns-sig3-browser")).toBe(true);
+      expect(calls.every((c) => c.command === "kuaishou.ns-sig3")).toBe(true);
       expect(calls.every((c) => c.payload.accountId === "acct9")).toBe(true);
       expect(calls[0].payload).toMatchObject({ url: "/rest/cp/works/v2/video/pc/upload/pre", type: "json" });
       expect(calls[0].payload.params).toEqual({ uploadType: 1, "kuaishou.web.cp.api_ph": API_PH });

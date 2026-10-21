@@ -1,0 +1,74 @@
+{
+  "sha": "13dde3595cd4efe2ff813cc2a2783b73acc75b33",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 301 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 301,
+    "fileCount": 5,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 3,
+    "docSensitiveContentSample": [
+      "credentialStore.saveCredential(...)   # 凭证只进主进程加密库，不进 accounts.json",
+      "- 用户可在账号页删除多余卡片（删除会同时清理加密凭证）。",
+      "  → credentialStore.saveCredential（凭证只存主进程加密库）"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "ff4cf5140f11d6fabda67def002b6e8327e1e7148bfca46665ced315557e0942",
+  "decidedAt": "2026-10-21T03:34:52.105Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "tier": "self-play",
+    "performedBy": "claude+opencode",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "domains": [
+          "auth"
+        ]
+      }
+    ],
+    "evidence": ".adversarial/ccg-deep-8e315f3b/adjudication.json",
+    "findings": "第 1 轮跨家族评审（proposer=opencode 出方案 / critic=claude 评审）给出 6 条问题、维度分 4 个、最低分 5；收敛判定 self_play 后进入自扮演裁决，5 条逐条处置完毕：i3（非字符串 platform_account_id）upheld 已加固——_account_identity_key 改显式类型分支，新增 4 例测试（纯函数 7 输入、写入侧 Pydantic 422、读侧脏值不打死创建与启动去重）；i4（请求体 ID 无服务端复核，auth 域）upheld 已在 create_account 源码注释写明威胁模型论证，并新增 test_create_account_cross_owner_id_does_not_block_second_owner 实证『构造已知 ID 最多挡住调用方自己、不影响其他账号入库』；i5（文档双源）upheld 已收窄——PRD.md 章节压缩为契约摘要并在章首声明单一真源；i1/i2（审查工件 sha 与 changedLines 不符、status=pending）dismissed——判定器在 pre-commit 阶段运行故记录写在父 sha、stats 只统计暂存 diff（不含 pre-commit 自产物），属既有设计（deep-review.sh:633-652 注释与运行时『判定记录按父提交 sha 命中』输出佐证），pending 是审查开跑前的初始态。",
+    "closureNote": "第 1 轮 self_play 裁决 5 条逐条处置完毕：i3 已采纳并加固（显式类型分支 + 4 例新测试），i4 已采纳（源码注释补威胁模型论证 + 1 例跨 owner 测试实证），i5 已采纳（PRD 章节压缩为契约摘要、章首声明单一真源），i1/i2 已否证（pre-commit 记录写父 sha 与 stats 只算暂存 diff 均为既有设计，见 deep-review.sh:633-652）。5 条 verdict 与 rationale 全部填入 .adversarial/ccg-deep-8e315f3b/adjudication.json。本次变更集未命中 HIGH_RISK_SURFACES 任一前缀，故按非高危面出口以 closureNote 收口。",
+    "template": ".adversarial\\ccg-deep-8e315f3b\\adjudication.json",
+    "at": "2026-10-21T03:37:45.077Z"
+  }
+}

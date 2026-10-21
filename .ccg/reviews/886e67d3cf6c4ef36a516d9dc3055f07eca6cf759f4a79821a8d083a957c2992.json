@@ -1,0 +1,98 @@
+{
+  "sha": "e297ccc73fc069f0aa30b45e075502f8df39ceff",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 67 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 67,
+    "fileCount": 5,
+    "codeFileCount": 4,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "886e67d3cf6c4ef36a516d9dc3055f07eca6cf759f4a79821a8d083a957c2992",
+  "decidedAt": "2026-10-21T06:36:20.122Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play(agent)",
+    "fallbackReason": "跨家族对抗后端超时，按引擎第三档出口 self_play 自查。本条为分轨诊断字段补齐。",
+    "evidenceInRepo": "openspec/records/track-diag-full.md（埋点清单/判据域修正/连带修复/读数）",
+    "confidenceWeight": 0.8,
+    "adjudication": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "你的结构锁测试用正则读源码断言字段存在 —— 这不会又被\"字符串存在≠生效\"骗过去吗？",
+        "verdict": "upheld_partial",
+        "rationale": "有风险，我做了缓解但未消除：· 正则锚定的是**两个具体返回点**（`const out = (result && typeof result === 'object')` 与 `const out = { success:false, error:e.message,`），  并要求该点附近 320 字符内出现 `out.track = apiEnabled ? ...` —— 不是全文件随便匹配；· 数量断言（`apiTrackAttempted` 恰好 2 次、`apiTrackFailed` 恰好 2 次）防止\"只改一处」或\"多写一处」。⚠ 但仍是静态锁：若有人把字段写进一个**不被调用**的第三个返回点，正则可能误判为通过。更硬的锁需要真实调用 publish() 走完整条链 —— 那需要 mock 整个 Electron 窗口栈，成本高且脆。我选择静态锁 + 在记录里注明这个边界，而不是假装它等价于行为测试。",
+        "fixCommit": null
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "你改了 4 个既有测试的期望值来适配新字段 —— 这是\"改测试凑绿\"吗？",
+        "verdict": "upheld_verified",
+        "rationale": "不是。判据：**A/B 归因**。我先 stash 掉自己的改动跑同样测试（B 态）⇒ 0 失败；带改动（A 态）⇒ 4 失败。证明这 4 个失败**全部由我的新字段引起**，不是既有问题被我掩盖。且我的修法是**把新契约写进期望**（`track: 'dom'`）而不是放宽成 `toMatchObject` —— 后者会让测试对将来的字段漂移失明。前严后松，方向正确。⚠ 但我要承认一个未验证点：这 4 个测试修改后，我没有再次 A/B（即\"改后期望值是否过严」）。缓解：它们都是字面量精确匹配，改动只是加了一个已知字段，过严风险低。",
+        "fixCommit": null
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "apiTrackAttempted 用 if (apiEnabled) 条件写 —— 若 apiEnabled 在某条路径未定义会怎样？",
+        "verdict": "upheld_verified",
+        "rationale": "`apiEnabled` 是 publish() 内的 const（L78），作用域覆盖两个返回点，不存在未定义。且默认值是 `false`（三元表达式兜底），即使 apiRouter 不可用也是 false ⇒ 走 dom 分支，不会误写 apiTrackAttempted。测试 ② 专门锁了\"未走 API 轨不得带该字段」。",
+        "fixCommit": null
+      },
+      {
+        "id": "i4",
+        "severity": "Info",
+        "finding": "这轮又是\"补埋点\"而非\"修 timeout」。",
+        "verdict": "upheld_verified",
+        "rationale": "是。但顺序是对的：timeout 的根因未知（API 轨？DOM 轨？上传？），在没有分轨信息时修它只能猜；埋点补齐后，一次复跑即可定位。且本轮之后诊断信息已完整（track + apiTrackAttempted + apiTrackFailed），**再补埋点的边际收益已趋零** —— 下一轮应是用新代码复跑，而不是继续加字段。（§16.19.4 ③ 的\"等待时长」我主动放弃：边际递减，已如实记录。）",
+        "fixCommit": null
+      }
+    ],
+    "summary": {
+      "total": 4,
+      "upheldPartial": 1,
+      "upheldVerified": 3,
+      "note": "i1 承认静态锁的边界（可能被第三个不被调用的返回点骗过），选择注明而非假装等价行为测试；i2 用 A/B 归因证明非凑绿，且修法是加严不是放宽；i3 确认 apiEnabled 作用域与默认值；i4 明确下一轮应复跑而非继续加字段。"
+    },
+    "at": "2026-10-21T06:37:56.622Z"
+  }
+}

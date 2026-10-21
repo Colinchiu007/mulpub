@@ -1,0 +1,72 @@
+{
+  "sha": "c5087351dc4746996844a43cb5ec02088550d21f",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 427 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 427,
+    "fileCount": 12,
+    "codeFileCount": 8,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "8131f04ded98b9c9cff9ecc99757ce74c88f972132e1a1fdf02d8396bcc317ad",
+  "decidedAt": "2026-10-21T02:04:19.917Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "tier": "unknown",
+    "performedBy": "self-play",
+    "evidence": null,
+    "findings": [
+      {
+        "id": "i-superseded",
+        "severity": "Info",
+        "finding": "本记录对应 #4145 同一 sha 的一次中间暂存差量，被该 change 最终差量的已合入评审取代。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "若直接入仓，mode=dual + required=true + status=pending 会被深度审查欠账判据判红，且会把一笔已完成评审的 change 重新挂成未闭合。",
+        "defense": "同一 change 的最终差量已由记录 b912f653e1acc48f… 深度审查（tier=external + evidence=PR #4145）且 PR #4145 已合并入 main；本记录只是中间一次暂存差量的产物，不承载任何未完成的评审。",
+        "verdict": "dismissed",
+        "rationale": "否证其仍构成未闭合欠账；闭环依据：记录 b912f653e1acc48f… + 已合并的 PR #4145（merge sha 7d1c0d1d2）。本条为手写收口，非引擎产物。"
+      }
+    ],
+    "confidenceWeight": 0.6,
+    "closureNote": "本记录是 #4145（hot-carrier-edit-gate）同一 sha c5087351d 的一次**中间**暂存差量（427 行，2026-10-21T02:04:19Z）留下的判定记录。\n该 change 的最终差量（479 行）已由记录 b912f653e1acc48f8ee31de9b0b65f1c8e919179c9d63b4d1932579fa06ea06 完成深度审查\n（tier=external、evidence=PR #4145、外部后端 claude），且 PR #4145 已于 2026-10-21T05:25:58Z 合并入 main（7d1c0d1d2）\n⇒ 本记录是被取代的中间产物，不再构成未闭合欠账。第 1 轮复核据此**否证**其仍有未闭合问题，并**登记**闭环依据\n（仓内可核：记录 b912f653e1acc48f… + 已合并的 PR #4145）。\n\n⚠ 本条 status / closureNote / findings 由 2026-10-21 的会话**手写** —— 引擎从未对本记录跑过评审\n（它是同一次评审的中间一次记录）；依据全部写在上面与 findings 的 rationale 里，不冒充工具产物。",
+    "closureNoteAt": "2026-10-21T07:12:29.946Z"
+  }
+}

@@ -3,6 +3,25 @@
 - 分支：`shipinhao-session-probe`（worktree：`<仓库父目录>/mp-worktrees/mp-video-publish-4`，非 C 盘）
 - 前序：#4038（封面接线 `b7ca111d`）
 
+> ### ⚠ 2026-10-21 订正（本记录的结论已被后续实测否证）
+>
+> 本记录当时的结论是「视频号 status=active，真活性待探针」（依据：`listAccounts` 的
+> `has_cookies=true` + `status_source=backend`，以及 `accountCheckLogin` 返回
+> `CHECK_LOGIN_INCONCLUSIVE`）。
+>
+> **2026-10-21 同法复测**（应用自身 `accountBatchCheckLogin`）得到明确结论：
+> `{"platform":"tencent_video","valid":false,"code":"CHECK_LOGIN_COOKIE_EXPIRED",
+>  "loginStatus":"expired","persisted":{"ok":true,"status":"expired"}}`
+> ⇒ **视频号会话确已过期**，判据从"不确定"变"确定"。
+>
+> 两处判断随之纠正：
+> 1. `has_cookies=true` **不等于** cookie 有效 —— 它只说明"存过凭据"，不代表会话仍活。
+> 2. 当时把 `authLoginSilent` 的 `valid:false` 解释为"能否静默重登的语义差异"，
+>    更可能就是**会话已失效**的信号；把它当语义差异是本记录的一次误读。
+>
+> **行动**：不必再跑本记录的探针（其前提是"HTTP 不确定"，现已确定）→ 改**重新扫码**。
+> 探针脚本保留备用。详见 `openspec/records/session-authority-check.md` §一 订正块。
+
 ## 一、探得的关键事实（应用运行态，无侵入）
 
 应用实例（用户 2026-10-19 10:13 自启，CDP `9279` 开放）经 CDP 只读探测：

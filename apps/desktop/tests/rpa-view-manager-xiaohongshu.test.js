@@ -64,6 +64,7 @@ describe('RpaViewManager 小红书发布', () => {
       success: false,
       error: '小红书发布至少需要标题、正文或视频',
       platform: 'xiaohongshu',
+      track: 'dom', // 2026-10-21 track-diag-full：分轨诊断字段（未走 API 轨 ⇒ dom）
     })
   })
 

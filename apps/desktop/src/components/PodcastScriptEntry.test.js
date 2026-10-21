@@ -201,13 +201,11 @@ describe('PodcastScriptEntry · 渲染层不得出现第二份分块/音色实�
 })
 
 /**
- * 音色来源三态标注（PRD §8.2.9 判据 1、2）。
+ * 音色来源两态标注（PRD §8.2.9 判据 1；2026-10-19 撤掉频道档后闭集只剩两态）。
  *
- * 判据 2 是这一族里最容易写反的一条：「① 命中不显示」不是「① 命中显示成别的」，
- * 也不是「整行不显示」——三段音色（服务商/模型/音色）在任何一档都要照常显示，
- * 被撤掉的只有那句**来源说明**。用户自己填进频道的东西不需要再被他自己的界面告诉一遍来源。
+ * 撤销频道档后这一族只剩一条：闭集外的 origin 一律「不显示那句来源」，但三段音色照常显示——
  */
-describe('PodcastScriptEntry · 音色来源三态标注', () => {
+describe('PodcastScriptEntry · 音色来源两态标注', () => {
   const voiceWith = (origin) => ({
     ok: true,
     plan: { totalBlocks: 7, totalCodepoints: 12345 },
@@ -230,14 +228,17 @@ describe('PodcastScriptEntry · 音色来源三态标注', () => {
     expect(tag.text()).toBe(zh.podcast.episode.originProviderDefault)
   })
 
-  it('origin=channel ⇒ 整行不显示标注，但三段音色照常显示（判据 2 只撤那一句，不撤那一段）', async () => {
+  it('origin=channel ⇒ 该档已于 2026-10-19 撤销，历史值/伪造值都不得再被标注', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     api.episodePlanPreview.mockResolvedValue(ok(voiceWith('channel')))
     const w = await open()
-    expect(w.find('[data-testid="podcast-script-voice-origin"]').exists(), '① 命中还告诉用户来源 ⇒ §8.2.9 判据 2').toBe(false)
+    expect(w.find('[data-testid="podcast-script-voice-origin"]').exists(), '频道档已撤仍标出来源 ⇒ 等于伪造来源').toBe(false)
     const line = w.find('[data-testid="podcast-script-voice"]')
     expect(line.exists(), '撤标注时把三段也一起撤掉了 ⇒ 用户看不到本期真正用的音色').toBe(true)
     expect(line.text()).toContain('prov_x')
     expect(line.text()).toContain('voice_z')
+    expect(warn).toHaveBeenCalledTimes(1)
+    warn.mockRestore()
   })
 
   it('origin 取闭集外的值 ⇒ 不标注也不得兜底成"取自频道"，并留一条 warn（判据 1）', async () => {
@@ -245,8 +246,49 @@ describe('PodcastScriptEntry · 音色来源三态标注', () => {
     api.episodePlanPreview.mockResolvedValue(ok(voiceWith('fromTheChannelProbably')))
     const w = await open()
     expect(w.find('[data-testid="podcast-script-voice-origin"]').exists()).toBe(false)
-    expect(w.find('[data-testid="podcast-script-voice"]').text()).not.toContain(zh.podcast.episode.originChannel)
+    // 锚点必须是整行等值，不是「不含某个词」：planVoice 的文案将来合法含「频道」时，not.toContain 会误红（QM6 i6）。
+    const voiceLine = w.find('[data-testid="podcast-script-voice"]').text().replace(/\s+/g, ' ').trim()
+    expect(voiceLine, '多出的任何后缀都是凭空标注的来源；toBe 抓得住，toContain 对「整行被加了尾巴」反着免疫').toBe(
+      zh.podcast.episode.planVoice.replace('{provider}', 'prov_x').replace('{model}', 'mdl_y').replace('{voice}', 'voice_z'))
     expect(warn).toHaveBeenCalledTimes(1)
     warn.mockRestore()
+  })
+})
+
+describe('频道音色档撤销后不得留死键与死映射', () => {
+  it('zh 与 en 两侧都不再定义 podcast.episode.originChannel', async () => {
+    const en = (await import('@/locales/en')).default
+    expect(zh.podcast.episode.originChannel).toBeUndefined()
+    expect(en.podcast.episode.originChannel).toBeUndefined()
+  })
+
+  it('组件源码不得再引用已撤档的映射或那张出声表', () => {
+    const vuePath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'PodcastScriptEntry.vue')
+    const src = fs.readFileSync(vuePath, 'utf8')
+    expect(src).not.toMatch(/ANNOTATED_ORIGINS/)
+    expect(src).not.toMatch(/originChannel/)
+  })
+})
+
+describe('主进程音色档位枚举 ↔ 渲染层标注键表必须集合相等（第五轮 P8）', () => {
+  // 两张表分别住在主进程（VOICE_ORIGIN 的值集）与渲染层（ORIGIN_KEYS 的键集），本片同时改过它们。
+  // 没有集合相等锁时，漂移方向是「新档在 UI 静默不标注」：主进程如实回 origin，渲染层走
+  // 「闭集外」支只 console.warn，界面上那句来源标注凭空消失，而全量测试仍全绿（4.5b④ 接上后
+  // 新增第三档就是这个形状）。两侧读数都带 >0 下界，防「解析退化让集合变空 ⇒ 相等成立」。
+  const readSet = (txt, re) => {
+    const out = []
+    for (const m of txt.matchAll(re)) out.push(m[1])
+    return out.sort()
+  }
+  const mainSrc = fs.readFileSync(path.resolve(__dirname, '../../electron/services/podcast-tts-voice.js'), 'utf8')
+  const vueSrc = fs.readFileSync(path.resolve(__dirname, 'PodcastScriptEntry.vue'), 'utf8')
+  const origins = readSet(mainSrc, /^\s+[A-Z_]+:\s*'([a-zA-Z]+)',\s*$/gm)
+  const keys = readSet(vueSrc, /^\s+([a-zA-Z]+):\s*'podcast\.episode\.origin[a-zA-Z]*',\s*$/gm)
+  it('两侧都取到非空读数（反失明下界）', () => {
+    expect(origins.length, '主进程 VOICE_ORIGIN 取值取到 ' + JSON.stringify(origins)).toBeGreaterThan(1)
+    expect(keys.length, '渲染层 ORIGIN_KEYS 键名取到 ' + JSON.stringify(keys)).toBeGreaterThan(1)
+  })
+  it('值集与键集逐字相等', () => {
+    expect(keys, '渲染层标注表必须与主进程档位枚举同集合').toEqual(origins)
   })
 })

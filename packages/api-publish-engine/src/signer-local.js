@@ -192,11 +192,16 @@ function buildDouyinParams(ua) {
     browser_online: "true", timezone_name: "Asia/Shanghai", aid: "1128", _signature: "_" };
 }
 
-// 快手 __NS_sig3
-function getKuaishouSign(postData, apiPh) {
-  if (!apiPh) return "";
-  return crypto.createHash("md5").update(apiPh + "|" + JSON.stringify(postData||{})).digest("hex");
-}
+// 快手 __NS_sig3 —— **已拆除**（2026-10-21，竞品逆向成果复用专项）
+//
+// 原实现：`MD5(apiPh + "|" + JSON.stringify(body))`（32 位裸 hex）。
+// 判废依据（真实服务端，非推测）：无签请求被拒 500002，带真 sig3 请求 result:1；
+// 真签为 **56 字符**，本函数产出 32 位 ⇒ 结构上就不等长。
+// A 级替代：`src/signer/kuaishou-sig3.js`（纯 JS 完整还原，与竞品 VM 对拍 10/10），
+// 注册为 command `kuaishou.ns-sig3`，经 `src/signer.js#getKuaishouSignature` 门面消费。
+//
+// ⛔ 不得恢复本函数：任何"格式合法但语义错"的签名都会让上层误以为已具备签名能力。
+// 由 test/signer-local-legacy.test.js ① 断言其不再出现在导出面。
 
 module.exports = {
   getCsdnSign,
@@ -211,5 +216,5 @@ module.exports = {
   XYW_AES_KEY,
   XYW_AES_IV,
   buildDouyinParams,
-  getKuaishouSign,
+  // getKuaishouSign 已拆除（32 位假签名，被真实服务端否证）→ 用 signer/kuaishou-sig3.js
 };

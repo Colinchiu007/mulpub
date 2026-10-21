@@ -1,0 +1,91 @@
+{
+  "sha": "5c055d36e0db562a4bc5ff60ebd25f56311e526b",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 1,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "（见 §16.11.5，需授权，会产生一条草稿记录）。在此之前不要改请求体。"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "87c1913c363d7320963a9f4b8f11eb02bc39beee485b1910a57b24ad273fd18b",
+  "decidedAt": "2026-10-21T00:36:32.473Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play(agent)",
+    "fallbackReason": "跨家族对抗后端超时，按引擎第三档出口 self_play 自查。本条为排除「签名 URI 形态」假设的 A/B 对照。",
+    "evidenceInRepo": "01-docs/PRD-VIDEO-PUBLISH-4PLATFORMS-2026-10-18.md §16.15（疑点 / A/B 对照 / 401 与 406 分界 / 已排除与剩余）",
+    "confidenceWeight": 0.8,
+    "adjudication": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "A/B 两组都是 401，你却据此得出\"签名 URI 形态不是 406 成因\"—— 两组都失败，怎么能排除变量？",
+        "verdict": "upheld_verified",
+        "rationale": "能排除，因为**被测变量在两组间确实变化了**（完整 URL vs 仅路径），而结果**逐字相同** —— 这说明该变量对结果**无影响**（在其他条件相同的情况下）。这正是对照实验排除变量的标准逻辑。 ⚠ 但要限定结论的**适用范围**：它证明的是\"在签名不完整的条件下，URI 形态不影响结果\"， 严格说应复述为\"未观察到 URI 形态的影响\"。我在 §16.15.2 用了\"不是成因\"的强表述， §16.15.4 才把它列入已排除 —— 这里表述偏强了一档，读者应注意它是\"未观察到影响\"而非\"证明无关\"。 （若要更强证据，需在签名完整的前提下再跑一次 A/B —— 那需要复用 probe 的签名路径，本轮未做。）",
+        "fixCommit": null
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "你从\"我手工构造的签名得 401、probe 得 406\"推出\"406=签名有效\"，这是在给 406 赋予含义 —— 可靠吗？",
+        "verdict": "upheld_verified",
+        "rationale": "可靠程度中等，依据是**两次签名头集合的差异可观测**： 我的构造只拿到 x-s/x-t（x-s-common 空串，来自 _webmsxyw 返回值缺失该键）； probe 用 buildXiaohongshuSignHeaders 产出 5 头（含有效 x-s-common）。 服务端对\"缺 x-s-common\"回 401、对\"5 头齐全\"回 406 ⇒ 用返回码反推签名完整性是**自洽的**。 ⚠ 但这是**反推**，不是直接观察服务端判定。文中已用表格形式呈现\"签名状态→返回码\"的对应关系， 没有把它写成服务端文档级别的结论。",
+        "fixCommit": null
+      },
+      {
+        "id": "i3",
+        "severity": "Info",
+        "finding": "本轮又是文档。且这已是小红书线上第 4 次\"排除假设\"。",
+        "verdict": "upheld_verified",
+        "rationale": "承认。三个假设（头缺失、端点前缀、签名 URI）已全部排除，**无副作用的排查手段已穷尽**。 继续下去只有两条路：①授权抓真实发布请求（会产生一条草稿）；②凭猜测改请求体（违反我不臆造的原则）。 所以我明确：**本轮是小红书线在无授权条件下的最后一步**。再往下必须由你决定。 这也呼应 §16.15.4 的结论 —— 剩余问题唯一解法就是抓对照。",
+        "fixCommit": null
+      }
+    ],
+    "summary": {
+      "total": 3,
+      "upheldVerified": 3,
+      "note": "A/B 排除成立但表述偏强一档（实为\"未观察到影响\"），已在该条内标注适用边界（i1）；401/406 分界是反推而非直接观察，文中以表格呈现未写成服务端结论（i2）；本轮是无授权条件下小红书线的最后一步，剩余唯一解法为抓对照（i3）。"
+    },
+    "at": "2026-10-21T00:37:23.561Z"
+  }
+}

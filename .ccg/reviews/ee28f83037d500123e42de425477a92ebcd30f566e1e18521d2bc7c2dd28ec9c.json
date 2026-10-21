@@ -1,0 +1,96 @@
+{
+  "sha": "c4502030da6ba6936da3a5bd33cd35ff8f3164c8",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 1,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "ee28f83037d500123e42de425477a92ebcd30f566e1e18521d2bc7c2dd28ec9c",
+  "decidedAt": "2026-10-20T17:13:33.181Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play(agent)",
+    "fallbackReason": "跨家族对抗后端超时，按引擎第三档出口 self_play 自查。本条为竞品逆向成果复用专项（拆假签名 + A 级模式复用）。",
+    "evidenceInRepo": "openspec/records/signer-reuse-integration.md（§一 合规边界 / §三 治理结果 / §四 读数）+ PRD-API-PUBLISH-ENGINE §13.1 收口块",
+    "confidenceWeight": 0.75,
+    "adjudication": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "拆掉一个「零调用方」的导出函数，算不算动了他人物件、或删掉未来可能有用的兼容槽？",
+        "verdict": "upheld_verified",
+        "rationale": "不算。三条证据：①该函数产出的 32 位串与真签（56 字符）**结构上不等长**，且已被真实服务端否证（无签 500002 被拒 / 带真签 result:1）——它不是\"可能有用\"，是\"确定错\"；②源码层零调用（grep 命中全是注释与文档），拆除不影响任何现有路径；③上游 PRD 原写「仅为向后兼容留槽」，而该\"槽\"正是本次要治理的对象（同批已把 PRD 那句话标注收口）。保留它的唯一收益是\"万一有人想复现历史行为\"，代价是任何人 require 到它就拿到假签名——代价远大于收益。",
+        "fixCommit": null
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "我改了两个既有测试来适配拆除（signer-local.test.js 删 3 例、signer-registry.test.js 改断言）—— 这是「改测试凑绿」吗？",
+        "verdict": "upheld_verified",
+        "rationale": "不是凑绿，是**断言对象消失了**。区分方法：若删除后断言强度下降即为凑绿，此处相反——①`signer-registry.test.js` 原来靠「旧函数存在」来证明二者不等，旧函数没了之后改为**就地复算**历史近似值（crypto 独立算 MD5）再比较，并**新增**「旧函数已拆除」断言 ⇒ 覆盖更强；②`signer-local.test.js` 那 3 例测的正是被否证的假签名，测它等于给错实现背书 ⇒ 整段移除合理。⚠ 如实记：这两处改动均由**本次拆除**直接引起，不是预先发现的独立缺陷。",
+        "fixCommit": null
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "本仓第三次踩「测试文件与 runner 不匹配」（前有 vite alias、VITEST_FILES 漏登记，本次是**反向**误登记 node:test 文件进 VITEST_FILES）。系统性根因是什么、怎么关？",
+        "verdict": "upheld_partial",
+        "rationale": "根因比\"记得登记\"更深一层：**登记表要求人工判断每个文件属于哪个 runner**，而两种风格（vitest 的 describe/test vs node:test 的 require(\"assert\") 裸脚本）在文件名上无法区分 ——人工判断必然周期性出错（三次形态各不相同，说明不是\"漏记\"而是\"判不准\"）。可行的机械关法：run-tests.js 在分组时**读文件头判定**（含 describe/it ⇒ vitest，否则 direct），而不是靠登记表。本轮未做（属\"改谁来守门\"，须人工过目），已在记录 §三 留作下一轮。",
+        "fixCommit": null
+      },
+      {
+        "id": "i4",
+        "severity": "Info",
+        "finding": "任务书要求「复用竞品逆向成果」，但本轮实际只复用了**本仓自己的** sig3 范本模式，没有取任何竞品代码 —— 是否偏离任务？",
+        "verdict": "upheld_verified",
+        "rationale": "不偏离，且是**合规要求的正确形态**。任务书分三级：A 级可复用（代码已在生产）、B 级只参考设计、C 级仅作情报；且法律边界禁止把厂商原件用于衍生。A 级里唯一\"真实落地\"的就是 sig3 纯 JS（已入 main），它的价值恰在于**模式**（verifyKnownVector / createSigner / fail-closed 组织），而本轮的治理对象（假签名）正是 sig3 落地后遗留的尾巴 —— 复用它的模式来收口，是同一条链上的正确动作。未做的工作（如实）：B 级里「账号态建模 / 平台 API 清单 / 发布链路时序」尚未按其参考架构改造本仓 —— 属更大范围改造，本轮未展开。",
+        "fixCommit": null
+      }
+    ],
+    "summary": {
+      "total": 4,
+      "upheldVerified": 3,
+      "upheldPartial": 1,
+      "note": "核心产出=拆除被真实服务端否证的 32 位假签名（i1 论证拆除正当性）+ 连带修复两处既有测试（i2 论证非凑绿）；i3 承认「登记表靠人工判 runner」是同型坑第三次的根因并留机械关法；i4 说明合规形态下\"复用\"的正确边界与未做项。"
+    },
+    "at": "2026-10-20T17:14:39.852Z"
+  }
+}

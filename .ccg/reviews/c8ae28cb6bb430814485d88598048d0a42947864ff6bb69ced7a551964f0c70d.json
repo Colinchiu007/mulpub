@@ -1,0 +1,109 @@
+{
+  "sha": "0fb202d3da123840c654e8c4d90ffbeae5fb9d51",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 82 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 82,
+    "fileCount": 2,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "c8ae28cb6bb430814485d88598048d0a42947864ff6bb69ced7a551964f0c70d",
+  "decidedAt": "2026-10-20T09:16:13.114Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "opencode+claude(deep-review harness)",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "critical",
+        "status": "fixed",
+        "summary": "未收口深审不能进 PR；本轮逐条裁决并写入 status/performedBy/evidence"
+      },
+      {
+        "id": "i2",
+        "severity": "critical",
+        "status": "rejected",
+        "summary": ".ccg/reviews 是强制评审载体；stagedDiffHash 是内容寻址摘要，按设计不等于 commit sha"
+      },
+      {
+        "id": "i3",
+        "severity": "critical",
+        "status": "rejected",
+        "summary": "容量是硬上限（每次 create 先 prune 再 enforceCapacity，size 不超 maxEntries）；无 revoke 是已声明取舍"
+      },
+      {
+        "id": "i4",
+        "severity": "warning",
+        "status": "acknowledged",
+        "summary": "QM-1 入口应为 build:win；本轮三层判据已当场拦住 ERR_FILE_NOT_FOUND 假绿"
+      },
+      {
+        "id": "i5",
+        "severity": "warning",
+        "status": "fixed",
+        "summary": "并发 rAF 不成立（有守卫），但 recalc 只清标记会让旧回调清掉新标记 ⇒ 补 cancelSegmentScrollFrame()"
+      },
+      {
+        "id": "i6",
+        "severity": "warning",
+        "status": "rejected",
+        "summary": "依赖单向，useResultPreviewMedia 对 useSegmentNavigation 引用数为 0，不可能成环"
+      },
+      {
+        "id": "i7",
+        "severity": "warning",
+        "status": "acknowledged",
+        "summary": "PR 体量属流程取舍；拆分会让三条互相依赖的改动各自不完整，记入 learnings"
+      },
+      {
+        "id": "i8",
+        "severity": "info",
+        "status": "acknowledged",
+        "summary": "JS/Vue 切分以 vitest 为语法判据（括号配平脚本对模板字符串会算错），已记入踩坑"
+      }
+    ],
+    "template": ".adversarial\\ccg-deep-923ca715\\adjudication.json",
+    "note": "裁决尚未填写：7/7 条未定（i1, i2, i3, i4, i5, i6, i7）",
+    "at": "2026-10-20T09:18:47.166Z",
+    "tier": "external",
+    "evidence": "第二轮评审针对「按深审修 i1/i5」这次提交（82 行，SINGLE 模式 ≤200 行），critique 产出 8 条问题 / 4 维度 / 最低 6 分（见 .adversarial/ccg-deep-923ca715/critique-v1.md）。逐条裁决：i1（未收口深审）成立→本轮关闭；i5（rAF 未取消）部分成立——「并发两个 rAF」不成立（有守卫），但顺带查出 recalcSegmentHighlight 只清标记会让旧回调清掉新标记，已补 cancelSegmentScrollFrame()；i4、i8 成立且已被本轮判据/踩坑覆盖；i2、i3、i6 经核实不成立（附实现与 grep 反证）；i7（PR 体量）属流程取舍，记入 learnings。本轮无「已知未修」的成立项，故取 self_play_resolved。"
+  }
+}

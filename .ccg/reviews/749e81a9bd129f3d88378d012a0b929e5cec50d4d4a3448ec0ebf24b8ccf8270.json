@@ -1,0 +1,60 @@
+{
+  "sha": "8e315f3bae6f318d5741fdca136bc439fd0f22d9",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 136 行（≤ 200）但命中 auth/数据库/加密：敏感内容 1 处",
+  "stats": {
+    "changedLines": 136,
+    "fileCount": 5,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 1,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "  → credentialStore.saveCredential（凭证只存主进程加密库）"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "749e81a9bd129f3d88378d012a0b929e5cec50d4d4a3448ec0ebf24b8ccf8270",
+  "decidedAt": "2026-10-21T03:56:33.147Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "tier": "self-play",
+    "performedBy": "claude+opencode",
+    "evidence": ".adversarial/ccg-deep-8e315f3b/adjudication.json",
+    "findings": "本条与已闭环记录 ff4cf5140f11d6fabda67def002b6e8327e1e7148bfca46665ced315557e0942（changedLines=301，同 fileCount=5 / codeFileCount=2）是**同一变更集的两个快照**：差异仅为 .ccg/reviews/*.json 的末尾换行归一化与 openspec/records/multi-account-same-platform.md 的文字补充，代码与被测行为零变化。第 1 轮跨家族评审（proposer=opencode / critic=claude）结论对该快照同样适用：6 条问题、维度分 4 个、最低分 5，自扮演裁决 5 条逐条处置——i3 采纳并加固（_account_identity_key 显式类型分支 + 4 例新测试）、i4 采纳（create_account 源码注释补威胁模型论证 + 跨 owner 测试实证）、i5 采纳（PRD 章节压缩为契约摘要、声明单一真源）、i1/i2 否证（pre-commit 记录写父 sha 与 stats 只算暂存 diff 均为既有设计，见 deep-review.sh:633-652）。",
+    "closureNote": "第 1 轮 self_play 裁决 5 条逐条处置完毕（与本变更集的前一个快照 ff4cf514 同一轮评审）：i3 已采纳并加固（显式类型分支 + 4 例新测试），i4 已采纳（源码注释补威胁模型论证 + 1 例跨 owner 测试实证），i5 已采纳（PRD 章节压缩为契约摘要、章首声明单一真源），i1/i2 已否证（pre-commit 记录写父 sha 与 stats 只算暂存 diff 均为既有设计）。5 条 verdict 与 rationale 全部填入 .adversarial/ccg-deep-8e315f3b/adjudication.json。本次变更集未命中 HIGH_RISK_SURFACES 任一前缀，故按非高危面出口以 closureNote 收口。"
+  }
+}

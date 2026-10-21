@@ -1,3 +1,348 @@
+## 测试 flaky 时，先问「上一个用例的组件卸载了吗」——两种想当然的修法都无效（fix-rewrite-warning-severity，2026-10-21）
+
+### lesson: flaky-first-check-unmount
+
+**现场**：新增的 `RewriteView.sensitive-warning.test.js` 在「单独跑」与「3 文件同跑」时全绿，但在「13 文件同跑」时偶发失败（`role="alert"` 意外出现）。同一次运行的复现率约 1/8。
+
+**两种想当然的修法，都无效甚至更糟**：
+1. `mockResolvedValueOnce` → `mockResolvedValue`：理由猜「`clearAllMocks` 清掉了一次性队列」。单独跑仍绿，13 文件同跑**仍偶发失败**。
+2. 把默认信封下沉进 `vi.mock` 工厂：理由猜「工厂实现清不掉，更确定」。结果**4/5 稳定失败**——比 flaky 更糟，说明根因判断错误，立即撤销。
+
+**真正生效的是每个用例末尾 `w.unmount()`**。机制：前一个用例 mount 的组件没有卸载，它的 async 改写链路（`startRewrite` → `aiRewrite` → 赋值）会在下一个用例的 `beforeEach` 之后才 resolve，写进**旧组件实例**；而 vitest 的 DOM 查询在部分场景下会读到残留节点。加 unmount 后 8 轮 0 失败。
+
+**判据**：遇到「单独跑过、同跑偶发失败」的 flaky，检查顺序应是 ① 用例末尾是否 `unmount()` → ② mock 是否被 `clearAllMocks` 清掉实现 → ③ 是否有模块级共享状态。**不要一上来就改 mock 形态**——那会掩盖真实原因，且让问题从偶发变成稳定失败（本次第 2 种修法就是这样）。
+
+## 用脚本批量改代码，坏结构报的是「no tests」而不是语法错误（fix-rewrite-warning-severity，2026-10-21）
+
+### lesson: script-edit-breaks-structure-silently
+
+**现场**：用 Node 脚本批量替换测试文件里的 `vi.mock('@/api/publisher', ...)` 段。脚本自身 `process.exit(9)` 守卫只校验「目标字符串是否存在」，不校验替换后的文件是否还是合法 JS。结果 mock 工厂里残留了裸对象字面量（`aiRewrite: hoisted.aiRewrite,` 后面直接跟 `code: 0, data: {...}`），文件语法错误。
+
+**症状极具误导性**：vitest 报的是 `Tests  no tests` / `Test Files 1 failed (1)`，**不是语法错误**。第一反应容易误判成「测试没被发现」或「glob 路径不对」，从而去改运行命令——方向完全错。
+
+**判据**：凡用脚本改代码，改完必须做两件事——① `node --check <file>`（或让测试真跑一次并确认**用例数符合预期**）；② 若用例数变 0 或与预期不符，**先怀疑文件结构被改坏，不要怀疑运行命令**。本次最终改用编辑工具逐块替换才对。
+
+## 「贴住上限的文件」+「只增 12 行的修复」= LEDGER_GREW，但漂移不是你的（fix-rewrite-warning-severity，2026-10-21）
+
+### lesson: ledger-grew-attribution
+
+**现场**：`RewriteView.vue` 的 max-lines 登记值 1219 + 容差 200 = 1419 上限；origin/main 实测 **1418 行**（差 1 行就超）。本 PR 只净增 12 行，仍触发 `LEDGER_GREW`。
+
+**199 行漂移是谁的**：`git log --oneline origin/main -- <file>` 显示由 #4123、#4078、#4063、#4032 等多个他人 PR 累积（都是 legit 功能迭代，各自合入时都没超限）。是这个文件「累积到任何人碰一下都会红」的状态。
+
+**判据**：遇到 `LEDGER_GREW` 先做归因，不要默认是自己造成的：
+1. `git show origin/main:<file> | Measure-Object -Line` 拿主干行数（注意：PowerShell 的 `Measure-Object -Line` 在末行无换行时会少数，**用 `node -e "readFileSync().split('\n').length"` 与门禁同源**）；
+2. 主干已超限 ⇒ 漂移是历史的，你的增量只是压垮它的最后一根稻草；
+3. 处置优先级：**单键精准更新基线**（diff 仅 1 行、完全可归因）> 拆文件/抽组件 > `--update --rewrite`（脚本注释明确警告它「会掩盖别人的漂移，需人工审 diff」，是最后手段）；
+4. 若更新基线会影响「谁来守门」，按项目铁律**必须人工过目、不走 agent 自动合并**——本次即如实向用户报告并取得裁决后才动。
+
+
+<!-- aggregate:record=chore-dep-audit-prune-resolved -->
+### lesson: 清账清单不靠人记——用门禁自己的读数驱动（chore-dep-audit-prune-resolved）
+
+**现场**：本刀先按「5 条」清了一轮，rebase 到含 #4120 的主干后又变成 7 条——因为 advisory 库在**持续增补**，而 #4120 补登的 2 条 `vite` 公告**恰好也被同一笔 vite 6.4.4 升级付清了**。若按人手记的清单做，第二轮就会漏掉 2 条，合并后 main 继续红。
+
+**根因**：清账清单与「现实是否还命中」之间存在时间差。凡是**靠人枚举条目**的账本，在公告库持续变动时都会漂。
+
+**可复用的三条**：
+1. 清账清单**从门禁的输出里取**，不自己数：跑一次判据 → 解析 `RESOLVED_STILL_BASELINED` 行 → 精确删那几条。清单因此**自动跟随**现实。
+2. 合并冲突落在**台账**上时，处置顺序是「取主干版本为底 → 用门禁读数点名要删的 → 精确删」，而不是「合并两侧再逐条判断」——前者保住主干所有仍有效的登记，后者要重新审一遍。
+3. 仍然**不要**用 `--update` 整份重写：它的改写粒度是「全部条目」，会把仍命中条目的 `patched` 一起改掉，与 `targetVersion` 打架 ⇒ 换一个红。
+<!-- aggregate:record=publish-config-picker -->
+### lesson: 「能力有没有覆盖」和「能力从哪进得去」是两个问题（publish-config-picker）
+
+**现场**：用户问「视频创作的所有流水线里，是不是只有故事讲述有配置管理功能？」。逐条核对代码后确认**不是**——配置档案（保存/我的配置/应用/重命名/删除）早已覆盖全部视频创作流水线：创作页共享分支的编排型与 legacy 型（按钮显示条件是 `v-if="selectedPipeline?.name"`，与流水线类型无关）、视频克隆页、影视工程页；既有规格里也早有「All video creation pipelines expose managed configuration profiles」这条 Requirement。
+
+**真正缺的**是**入口**：配置档案只能在创作页内部进入（保存入口在流水线操作条，「应用」在「我的配置」弹窗里），于是「去发布」这一步完全选不到它。
+
+**教训**：拿到「A 是不是只有 B 有 X」这种问句时，先分清它问的是**覆盖**还是**可达**。两者的整改完全不同：覆盖不足要补实现（重、且容易与已有实现形成双源真相）；可达不足只需**接线**（轻，且能复用全部既有语义）。本片若按字面「给其它流水线实现配置管理」去做，最可能的结局是**第三套**配置管理实现——与创作页那套、与独立页复用的 `ConfigProfileManager` 三份并存，正是本仓反复治理的双源真相病根。核对口径写在 PRD §10.2（可被复核），而不是只给一句「已经都有了」。
+
+**附带一条**：用户提的「在流水线选择下拉框旁边加一个配置选择框」这句话里，隐含前提是「流水线下拉里有好几条流水线」。实测该下拉当时只有「故事讲述」一项（prop 默认值写死、三个调用方都没覆盖）——**需求描述与现状之间存在落差时，落差本身就是待办项**，不能只按字面实现新控件而把落差留在原地。本片因此把流水线下拉一并扩为文案型全集（判据与创作页灰显同源），并把「为什么是文案型」写进 PRD。
+
+### lesson: 文档里写下的交互契约，等于一条「欠实现」的债（publish-config-picker）
+
+**现场**：QM-6 第 2 轮，claude critic 给出 Critical：**配置选择器的 `onMenuKeydown` 没有实现 `Enter` / `Space` 的「选中」动作**，与 PRD §3.3.4 键盘可达表、`design.md` D2 的承诺、以及控件自己声明的 `role="combobox"` / `role="listbox"` 直接矛盾。
+
+**根因**：第 1 轮评审曾以「补齐键盘可达」为名提过这条（当时记作 i2），修的时候只把方向键 / Home / End / Esc 落了地，**「选中」这一动作本身没写**——而 PRD 表格里 `Enter` / `Space` 那一行早就写好了。于是形成一种最难发现的债：**文档承诺了、测试也绿、唯独代码没有**。核对源码确认当时确实缺这个分支，不是评审误报。
+
+**教训**：交互契约一旦写进 PRD / 规格，它就不再是「说明」，而是**一条待实现的债**，每一条都要有对应的实现或对应的降级说明。本次由此补齐三条要素：① 实现的**位置**要跟着契约走（「选中当前焦点项」落成 `commitActive()` 这个单一入口，菜单项下标 0 = 「默认」、其后依次是各条配置）；② **回归锁**要覆盖契约的**每一行**，不是覆盖「大致能用」——本片为此把 `Enter` / 空格 / `Home`+空格三条各写成独立用例；③ 契约表里凡是「已实现」的字样，在实现落地前一律按**未实现**计。
+
+**附带一条（同一轮）**：`await d.loadProfiles()` 没有 `try/catch`，载入失败会变成 mounted 链里的**未捕获拒绝**。判据是「**同一函数内**的其它 await 做了吞并处理，唯独这个没有」——同一个函数里处理方式不一致，本身就是缺陷信号，不等外部报错来暴露。修法不只是加 `try/catch`，还要**给它独立提示**：复用既有的 `loadFailed`（「可稍后重试」语义）或 `notFound`（「已被删除」语义）都是误导——配置可能好好地存在、只是这次没载入成功。
+<!-- aggregate:record=changelog-carrier-aggregate -->
+### lesson: 热写面的撞车是形状问题，不是纪律问题（changelog-carrier-aggregate）
+
+**现场**：多会话并发往 `CHANGELOG.md` 与 `01-docs/learnings.md` 的**第 1 行**插块，导致 CI 全绿却 `mergeable=CONFLICTING`，必须 rebase 再跑一轮（一轮 25–30 分钟）。当场对 4 个可判定的非 MERGEABLE PR 做 `git merge-tree`，冲突文件只有这两个；另有 22 个 PR 报 UNKNOWN（GitHub 算不出合并基线，同因）。
+
+**根因**：不是谁写错了。两个文件都要求在同一位置插入 ⇒ git 三方合并无法判定顺序 ⇒ 结构上必撞。`scripts/changelog-dedup-regen.js` 的头注释早就写了这个机制（main 每约 37 分钟前进、CI 一轮 25–30 分钟，所以"按 base 算我的块再 prepend"不可能成功），而它自己就是为了收拾这个后果而存在的。
+
+**可复用的三条**：
+1. 判"为什么老撞车"时，先问**插入点是否唯一**，再问谁写得不对。全员共用的追加型写面（顶部插、底部插都算）在并发会话下必然撞，任何"写规范"都修不了它。
+2. 正解不是更仔细的合并技巧，而是**把写面换成路径唯一的那份**（本项目已经是 `openspec/records/<分支>.md`），共享文件降级成聚合产物。
+3. 已经有人在无制度授权下自发这么干了（`openspec/records/member-tier-contract.md:130` 写着「## CHANGELOG 条目（暂移到执行记录：热文件冲突说明）」）。**遇到这种"民间形态"要当需求读，不要当污染读**——它给出的合同比我凭空设计的更贴合真实用法。
+
+### lesson: 变异反证必须先自问"这个缺陷被实现出来了吗"（changelog-carrier-aggregate）
+
+**现场**：给"行尾统一回写"写变异 M3 时，改的是 `return rendered.replace(/\r\n/g,'\n')`，而真正落盘的是上一行的 `fs.writeFileSync(file, rendered)`。结果 M3 报 NOT_CAUGHT——不是 T7 失明，是**变异根本没把缺陷做出来**。
+
+**根因**：把"返回值"当成了"效果"。锁测的是文件字节，变异就得动文件字节。
+
+**可复用的三条**：
+1. 一条变异报 NOT_CAUGHT 时，第一动作是检查变异本身实现的是不是被禁形态，**不是**放宽被验证的断言。
+2. 判据要盯**副作用发生的那一步**：写盘 / 发请求 / 改全局态。改它上游的中间变量常常什么都改变不了。
+3. 驱动必须同时断言"跑了多少条测试"和"红了哪几条"。只断言"有红"会把整片 LOADFAIL 读成"已反证"（本仓已记过多次同型）。
+
+### lesson: 新增"登记表"型判据时，判据绿不等于 CI 绿——钉死清单的那份自测必须同 PR 改（changelog-carrier-aggregate）
+
+**现场**：本 PR 第一笔提交推上去后 `QG Static` 的 `Gate 2c - Unwired-test ratchet` 判红；对照 main 更早 4 次 push 全绿 ⇒ 确认是我引入。我在 `check-unwired-tests.js` 的 `MUST_LIVE_IN_UNGATED_JOB` 里新增了一条登记，而 `check-unwired-tests.test.js:645` 用 `deepEqual` 把这份键清单钉成字面数组（"清单只能缩小"的执行体）。本机我当时跑的是 `node scripts/check-unwired-tests.js`（判据本体，**rc=0**）。
+
+**根因**：判据本体和判据的自测是**两个东西**。登记类判据的自测专门负责"你有没有偷偷放宽登记表"，所以它比本体更早拒绝新增。本机预跑清单如果只按"我改的那个脚本"去跑，就必然漏掉这一类。
+
+**可复用的三条**：
+1. 动任何 `deepEqual` 钉死的清单（`MUST_LIVE_IN_UNGATED_JOB` / `KNOWN_UNWIRED` / `debt-baseline.json` / 各类棘轮登记表）时，第一动作是 `grep` 出**谁在钉这份清单**，同 PR 一起改；判据是问"有没有人在数这个名字"，不是问"我改的文件测过了没"。
+2. 本机预跑要按 **CI 那条步骤的完整 argv** 复跑，而不是按"我改了什么"挑着跑。这次的做法是 `awk` 把 `Gate 2c` 步骤正文里的 22 条 `node --test` 抽出来逐条跑 —— 一次就暴露了漏跑的那条。
+3. 归因顺序别反：先取 main 更早 run 的结论（我这次是 4 次全绿）再认领，既不把既有红认领成自己的，也不把"不是我改的文件"当成免检 —— 我这次确实是自己改的，只是改在**登记表**上，而登记表由**另一个文件**测量。
+<!-- aggregate:record=collect-rewrite-wordcount -->
+### lesson: 参数契约键对不上时，失败形态是「静默降级」而不是报错（collect-rewrite-wordcount）
+
+**现场**：用户在采集页把字数区间设成 **0-6000**，点「AI 改写」得到的稿子只有 **1229 字**（原文 **3515 字**），像一份摘要、「像是没有写完」，界面**零提示**。按码点计数确认不是被砍尾（1229 不落在任何策略上限上）⇒ 是模型自己写短了。
+
+**根因（三层，缺一不可）**：
+① **契约键错**：采集页下发 `userSettings.targetWordCount`，而引擎只读 `userSettings.wordCountRange`（前者 0 处引用）。一个错键让三处下游同时静默失效：`_getWordCountInstruction()` 返回空（prompt 无【字数要求】）、`_postProcess()` 截断上限回落策略默认（用户设的 6000 变 1500）、主进程 `max_tokens` 推导回落兜底口径。
+② **假值吞边界值**：`Number(min) || 800` 把**合法下限 0** 吞成 800（0 是假值）——用户设的「0」根本没发出去。
+③ **「无下限」被渲染成「可以任意短」**：引擎把 `min=0` 注入成「控制在 0 到 6000 字之间」，模型照着下限写 ⇒ 产出必然是摘要。**「0 到 N」是语法合法、语义有害的指令。**
+
+**可复用的五条**：
+1. 任何「用户设置 → 传给子系统」的参数，下发前**全仓检索该键名在消费方是否有引用**；0 处引用 ⇒ 键名就是错的。
+2. **消费方对未知键不许静默回落默认值**——要么抛错，要么给显式的「参数未生效」提示。
+3. 测试断言「下游收到的就是这个**键**」，不只断言「值对」——值对 + 键错是同一句话的不同写法。
+4. 合法边界值 **0** 要单独对待：读值用显式有限数判断 + 先判空再取数（`Number('')` 是 0 不是 NaN）；下限为 0 要翻译成「不设下限」，**不能**写成「0 到 N」——否定语义必须单独设计指令形态。
+5. 「**校验用的值**」与「**下发用的值**」必须同源：本次由 `useWordCountValidation` 同时产出 `error` 与 `range`，调用方不再自行折算，从结构上消灭「两套口径」这一类静默走样。
+
+### lesson: 结果元信息「传了但从不显示」和「参数没生效」是同一族缺陷（collect-rewrite-wordcount）
+
+**现场**：引擎早就会回传 `outputLength` / `outputTruncated` / `modelTruncated`，采集页的 `rewriteViaEngine()` 也**确实**把它们收进了 `meta`（评审 M5 的功劳），但**五个调用点没有一个读 `meta`** ⇒ 稿子被砍尾、稿子被模型截断，界面一律零提示。
+
+**根因**：这类缺陷的共同形状是「**能力已具备，但最后一米没接上**」。它不会让 CI 变红（测试只断言信封透传，不断言界面消费），也不会让用户看到报错（静默退化）⇒ 只能靠「从用户结果倒推链路」的复盘发现。
+
+**可复用的三条**：
+1. 凡是引擎/后端已经产出、而某个界面**可能**要展示的字段，接线时要连**消费端**一起锁测试（断言渲染结果，不只断言信封字段）。
+2. 分型要分到「用户能据此行动」的粒度：引擎砍尾 ⇒ 调大区间**有效**；模型侧截断 ⇒ 调大区间**不一定有效**——两种都叫「截断」，但给用户的建议相反。
+3. 派生值要断言**完整形状**（`toEqual`），不能只断言渲染出的文案：纯函数自身有单测 ≠ 页面上的派生值形状被锁住了（两者之间还隔着写点那一层，字段名一漂横幅就静默失效）。
+## 形状断言锁的是「已实现的字段」——新字段进来时它当场红，那是规则在起作用，不是测试失效（fix-rewrite-warnings-consume，2026-10-21）
+
+### lesson: shape-assertion-red-is-the-rule-working
+
+**现场**：给采集页加 `warnings` 透传后，`Collection.rewrite-input-limit.test.js` 的两处 `expect(r.meta).toEqual({ outputTruncated, outputLength, modelTruncated, segmented })` 当场红。第一反应是「我把别人的测试搞坏了」，但细看：那两处正是「评审 i6：断言派生对象的**完整形状**，不只断言渲染出的文案——形状漂移（字段改名/少字段）会让横幅静默失效」的落地。它抓住的恰是「meta 多了第五个字段」这个事实。
+
+**判据**：改**共享返回结构**（meta / 信封 / store 快照）时，先 grep 所有 `toEqual({...})` 形式的形状断言——它们会红，而且**应该**红。修法是把这个字段加进断言并写清「信封里没有该字段时归一化成什么」，而不是放宽成 `toMatchObject`。放宽成部分匹配的那一刻，这条防线就再也抓不到「将来又有人加字段但某个消费点忘了透传」。
+
+**推论（本轮真实发生）**：同一个文件里既有形状断言又有普通断言的测试套件，形状断言那几例是**最值钱的几例**——它们把「引擎新增可见字段被静默丢弃」这类事故（评审 M5 记录的原事故：成功分支只挑 result_content，引擎新增字段全丢）钉死在了契约层。
+
+## 「保留后置提醒」不是把 warnings 加进返回体就完了——每个消费点都要单独确认它真的会响（fix-rewrite-warnings-consume，2026-10-21）
+
+### lesson: defense-needs-per-consumer-verification
+
+**现场**：PR #4103 的方案是「B+：关前置拦截、**留后置检测**」。实现上 warnings 确实回到了渲染层，但外部审查发现：改写页 `RewriteView.vue:890` 与 AI 面板 `AiWriterPanel.vue:368` 把它写进了**红色错误区**（`rewriteError` / `panelError`），而采集页 `Collection.vue` 的 `rewriteViaEngine` **完全丢弃** warnings。也就是说这条防线在两个页面「响了但样式错」，在一个页面「没响」。
+
+**根因**：验收时只验证了「引擎会返回 warnings」这一层，没有逐个消费点问「用户在这里看不看得到、看到的是什么级别」。
+
+**判据**：凡是「保留 X 作为唯一防线」的取舍，验收清单必须是**消费点矩阵**而非单点验证：
+| 消费点 | 会不会响 | 响成什么级别 |
+|---|---|---|
+| 改写页 | ✅ 但红色错误（错） | error |
+| AI 面板 | ✅ 但红色错误（错） | error |
+| 采集页 4 入口 | ❌ 静默丢弃 | — |
+
+修复时把发声点放在**漏斗内唯一位置**（`rewriteViaEngine` 而非 4 个调用点），因为「四个调用点各写一遍必然漂移，漏一个即该入口静默丢弃」——这与本仓反复出现的「同一逻辑抄成第二份就是下一个 bug」同族。
+
+## 未入库的新文件用 `git checkout --` 恢复不了；而自证时 grep 单个字符串会命中同文件的另一处正常代码（fix-rewrite-warnings-consume，2026-10-21）
+
+### lesson: mutation-restore-and-self-verify-pitfalls
+
+**现场**：变异测试后恢复源码，先跑 `git checkout -- packages/rewrite-engine/src/sensitive-check.js` ⇒ 报 `did not match any file(s) known to git`（该文件是本次新增、尚未 commit）。接着用 `grep 'blocked: false,'` 自证「已恢复」⇒ 命中，遂认为成功。**实际变异还在**：命中的是第 39 行 `if (!filter) return { blocked: false, hits: [] }` 这个**另一处正常返回**，而被改坏的是第 43 行。是随后 `grep blocked:`（不带值）列出全部 4 处命中才暴露。
+
+**判据**（两条都可复用）：
+1. **变异还原**：对未入库文件，`git checkout --` 无效，必须用编辑工具改回，或用 `Copy-Item` 从备份恢复（本轮是先 `Copy-Item $env:TEMP\*.bak` 再编辑）。
+2. **自证必须列全部命中点**：`grep <具体值>` 只能证明「存在一处」，不能证明「已恢复/未残留」。要证「没有残留」，就 grep **不带值的键名**（如 `blocked:`）列出全部出现位置逐一核对。这条比上一条更普适——任何「我以为改回去了」的场合都适用。
+
+
+## 放宽一个「拦截类」判据前，先问它的词库/阈值有没有配置入口——否则你放宽的是一把用户拧不动的锁（rewrite-sensitive-precheck-relax，2026-10-20）
+
+### lesson: blocking-gate-needs-a-tuning-knob
+
+**现场**：改写引擎对用户粘贴的 8000 字长文（越南排华史料）整篇拒绝，报「内容包含敏感词，无法改写」。实测命中的是内置词库里的「爆炸」一词（出自「石油加工厂发生爆炸和火灾」）——8000+ 字仅此一词被拦。
+
+**根因**：`rewrite-engine-core.js` 的 `_sensitiveCheck()` 对 `stage==='pre'` 且 `hits>0` 返回 `blocked`。而这个判据的前提从未被检验：词库是**内置示例级 24 词**（硬编码于 `packages/rewrite-engine/src/sensitive-filter.js:63`），**既不吃运营中心 `content_policy.word_list` 远程词库**（那条只喂 IPC 手动检测链，与引擎注入链是两条独立路径），**也无 UI 开关或白名单注入**（`addWhitelistWord()` 等方法存在但服务层一次都没调）。
+
+**判据**：任何「命中即拦截」的闸门，上线前必须同时回答三个问题——① 词库/阈值从哪里来？② 用户能不能调？③ 调不了时有没有申诉通道？三问有一问答不上来，这个闸门就只是在替一个不可调节的默认值挡路。本例三个答案分别是「硬编码」「不能」「没有」，于是它拦住的不是风险，是用户自己的输入。
+
+**同类风险还在**：本仓编辑器里的「🔍 检测敏感词」走 `shared-utils` 词库 + 运营中心远程词库，与引擎的 rewrite-engine v2 词库**是两套、互不同步**。实测同一篇文案在两套词库下分别命中「走私」与「爆炸」。将来若要做「严格模式」，正解是把 `content_policy.word_list` 接进引擎注入链并加用户级开关，而不是再复制第三份词库。
+
+## 「过滤器能否识别词」和「拦截阈值是否合理」是两类测试——后者缺失时，前者全绿也挡不住用户被挡（rewrite-sensitive-precheck-relax，2026-10-20）
+
+### lesson: gate-threshold-tests-are-a-separate-species
+
+**现场**：`rewrite-engine-core.test.js` 有 79 例，`grep -i sensitive` 命中 **0**——敏感词相关的拦截语义**一例都没有**。而 `sensitive-filter.test.js`（另一套词库）倒是测了一堆「能否识别词」。两侧合起来给人「敏感词有覆盖」的错觉。
+
+**判据**：凡是「检测 → 判定 → 处置」三段式逻辑，测试必须分三类各至少一例：**识别**（认得出来）、**阈值**（什么程度算命中/该不该拦）、**处置**（命中后走哪条路、不命中走哪条路）。只测识别的测试套件，对「拦得太宽」完全失明——本例用户被一个日常词汇挡住，而所有测试都是绿的。
+
+## 变异推演抓到的第一件事往往是自己的弱锁：pre/post 返回同一批 hits 时，「任一命中即不写」与「只看后置」在断言上等价（rewrite-sensitive-precheck-relax，2026-10-20）
+
+### lesson: mutation-caught-my-own-weak-assertion
+
+**现场**：为「前置拦截放宽」写了 X5：断言知识库的「双零命中」条件未被破坏（前置或后置任一命中即不写 KB）。第一版 mock 的 `detect` 无论 pre 还是 post 都返回**同一批** hits。做变异推演——把 KB 条件从 `preCheck.hits.length === 0 && once.postCheckHits.length === 0` 削弱为只看后置——**测试照样 PASS**：三个用例的前置/后置都命中，`recordSpy.length === 0` 在两种条件下都成立。
+
+**修法**：让 pre 与 post 可区分（mock 按文本内容返回不同 hits：原文含「爆炸」⇒ 只前置命中；LLM 输出含「杀人」⇒ 只后置命中），并让 LLM 输出可配置（否则「干净」用例的后置也会命中）。修后变异当场红。
+
+**判据**：写「条件 A 与条件 B 必须同时成立」类断言时，先做一次变异推演——**破坏其中一个条件，看测试是否真的红**。若两个条件的 mock 输出不可区分，这条断言就是装饰。这与「反证要做在锁本身而不是业务改动上」同族，但更细：**锁的输入本身必须有区分度**。
+
+## 注释写太厚会把文件推过 max-lines 门禁——先看登记值和容差，再决定解释写多长（rewrite-sensitive-precheck-relax，2026-10-20）
+
+### lesson: comment-budget-is-a-real-gate
+
+**现场**：给 `_sensitiveCheck` 写了一整段 JSDoc（语义变更 + 为什么关前置 + 连带约束 + 参数说明，约 25 行）。CI `债务熔断检查` 判红：`LEDGER_GREW: rewrite-engine-core.js 较登记值 578 膨胀 204 行（容差 200）`。上限是 578+200=**778**，我写到 782，**超 4 行**。压缩注释到 773 行转绿，没有上调 baseline。
+
+**判据**：动 `max-lines-baseline.json` 里有登记的文件前，先算 `登记值 + growthAllowance - 当前行数 = 你还能写几行`。这个差额就是本次改动的**注释+代码总预算**。超了先压缩注释（把「为什么」的精简成结论，细节挪到执行记录/CHANGELOG），**不要上调 baseline 消红**——那是把「改谁来守门」当消红手段。`segment-rewriter.js` 的头部注释早已警告过这个门禁，属于「已知但仍在踩」。
+
+## 执行记录里写 worktree 绝对路径会被 Gate 12c 判「新增失效路径」——临时路径一律写占位符（rewrite-sensitive-precheck-relax，2026-10-20）
+
+### lesson: no-temp-abs-paths-in-records
+
+**现场**：执行记录里如实写了 worktree 的绝对路径（形态为 `<worktree-root>/mp-<task-name>`，此处不重复该字面量）。CI `QG Changes` 的 `Gate 12c - Doc abs-path validity` 判红：该路径「存在（但仍计入新增；计数口径不问存在性）」。改成占位符形态即 PASS。
+
+**判据**：`check-doc-abs-paths.js` 数的是「本机绝对路径字面量」，**不问路径当前是否还存在**——所以「我写的是事实」不构成豁免。临时 worktree、CI runner 路径、`%TEMP%` 一律写占位符形态（`<...>` / `$VAR` / 通配）。修法也不是跑 `--write-baseline` 把新增记进去——那正是该门禁要拦的形状。
+
+## rebase 冲突只标在 CHANGELOG 一个文件时，「两侧都保留」就是删掉三个标记行——但别用会卡住编辑器的交互式 rebase（rewrite-sensitive-precheck-relax，2026-10-20）
+
+### lesson: append-only-conflict-resolved-then-dont-hang
+
+**现场**：rebase 到新 main 时 CHANGELOG 冲突（main 新增了别人的条目，我新增了我的，都插在最顶部）。冲突块只有三个标记行，删掉即两侧都在。但 `git rebase --continue` **卡住不返回**（等编辑器），kill 掉后 rebase 停在「checkout origin/main 之后、pick 之前」的中间态：HEAD 在 main tip，我的改动全在 index，`.git/rebase-merge` 已消失。
+
+**处置**：`git write-tree` → `git commit-tree <tree> -p <new-base> -F <msg-file>` → `update-ref` → `reset --hard`，把 index 原样提交到新 base 上（保留原 message，不重开编辑器）。PowerShell 没有 heredoc，commit message 要先写文件再 `-F`。
+
+**判据**：① 追加型文件（CHANGELOG / learnings / .quality-gates.md）的置顶冲突，解完必须**双向验证**：`Select-String "^# \["` 看两侧条目都在 + `git diff --numstat` 与 `--ignore-cr-at-eol` 两口径一致；② 交互式 rebase 在本机要用 `GIT_EDITOR=true` 或干脆走 commit-tree，别让进程挂在编辑器上；③ kill 掉 rebase 进程后**先看 `.git/rebase-merge` 是否还在**判断是真完成还是中间态，不要凭 `git log` 就以为失败/成功。
+
+
+## 资源「够了」是算出来的，不是感觉到的——128 个令牌对上 845 个 URL（s2v-result-ux-polish）
+
+### lesson: capacity-must-be-derived-from-worst-case-fanout
+
+**现场**：媒体服务器的令牌登记容量是 128、FIFO 淘汰，看起来"够用"（一屏哪来 128 张图）。但一个 169 段任务的每段最多 5 个媒体位 ⇒ **最多 845 个 URL**。展开到约 26 段就开始淘汰，被淘汰的段图变 404，渲染端 `@error` 兜底把它显示成「未生成」——**用户最初抱怨的破图形态又回来了**，只是触发条件从"没懒加载"变成了"令牌不够"。
+
+**为什么上一轮没发现**：上一轮只做到"首屏 20 段"（≤100 个 URL，正好在 128 以内），容量问题被分批策略**掩盖**了。分批降低了瞬时并发，但没有降低**累计**需求。
+
+**判据**：任何有容量上限的资源池（令牌/缓存/连接/文件句柄），容量必须按「**最坏情况扇出**」推导：`最大元素数 × 每元素最大并发占用`。本项目 = 169 × 5 = 845，取 1024 覆盖到 200 段。写进注释的必须是这条算式，不是"够用了"。
+
+**连带发现**：TTL 固定 15 分钟同样致命——在 169 段编辑页停留超 15 分钟，全部令牌被清空 ⇒ 图片整片变「未生成」。正解是**滑动过期**（命中即续期），且必须同时守住反向边界：**停止使用超过 TTL 仍要失效**，否则"滑动"会被实现成"永不过期"。三方回归锁缺一不可：全量可访问 / 活跃续期 / 静置失效。
+
+---
+
+## 节流选前沿还是延迟，不看性能看「谁会丢」（s2v-result-ux-polish）
+
+### lesson: leading-edge-throttle-when-programmatic-paths-share-the-entry
+
+**现场**：给 169 段的滚动高亮加 rAF 节流，第一版写成 trailing（把 `computeActiveSegmentIndex` 推迟到 rAF 回调里算）。后果不只是 4 条既有用例变红：**程序化重算也被同帧吞掉**——删除分段后 `$nextTick(() => onSegmentScroll())` 落在同一帧，帧标记还没清，重算被跳过 ⇒ 右侧高亮**滞留在被删掉的那一段**上。
+
+**判据**：同一个入口同时承载「用户高频事件」和「程序化一次性重算」时，**节流必须是前沿（首帧立即算）**，并且给程序化调用单独开一个不受节流影响的方法（本例 `recalcSegmentHighlight()`：先清帧标记再立即算）。trailing 只适合"最后一次为准"的场景（搜索联想、尺寸计算），不适合"每帧都要跟手 + 有非用户触发路径"的场景。
+
+---
+
+## 筛选改了显示集合，但**下标**不能跟着改（s2v-result-ux-polish）
+
+### lesson: filtered-view-must-preserve-original-absolute-index
+
+**现场**：给 169 段加分档筛选（全部 / 只看失败 / 只看政策标记）。最自然的实现是 `filter(...)` 后 `v-for="(seg, i)"` 直接用 `i`。但这一页的**上移 / 下移 / 删除 / 导出文件命名 / 政策徽标**全部按**全量下标**寻址——一旦筛选后退化成筛选序号，在「只看失败 12 段」模式下点删除，删掉的是**原始数组里第 0/1/2 段**，不是用户看着的那一段。
+
+**判据**：任何「筛选/排序后的派生列表」在回传动作时，必须携带**原始下标**（`{segment, absoluteIndex}`），而不是让下游用 `v-for` 的 `index`。回归锁要断言下标**不等于**筛选序号（本例断言 `[1,3]` 而非 `[0,1]`）。
+
+---
+
+## QM-1 的入口是 `build:win`，不是 `electron-builder`（s2v-result-ux-polish）
+
+### lesson: packaging-without-renderer-build-produces-a-headless-shell
+
+**现场**：改了 `apps/desktop/electron/`，按 QM-1 跑 `electron-builder --win --x64` ⇒ **rc=0**、产物齐全、进程启动后**存活**。三样都绿，但启动 stderr 里躺着：
+
+```
+electron: Failed to load URL: … resources/app.asar/dist/index.html with error: ERR_FILE_NOT_FOUND
+```
+
+根因：没先 `pnpm run build:vue`，`apps/desktop/dist` 不存在，打包出来是个**没有前端的壳**。
+
+**为什么差点假绿**：判据若只看「打包 rc=0」或只看「进程还在 8 秒」，都不成立——进程确实活着（主进程正常），只是窗口空白。这正是 AGENTS.md 三层判据里第 ② 层（stderr 非空但未命中黑名单 ⇒ **不得判通过**，交人工）存在的理由：黑名单只能枚举已知故障，这里 `ERR_FILE_NOT_FOUND` 不在任何黑名单里。
+
+**做法**：QM-1 的入口应是 `pnpm run build:win`（= `build:vue` + `electron-builder`）。另外「存活性」必须单独断言——提前退出时 stderr 必然为空，只看 stderr 会把「根本没起来」读成「启动干净」。
+
+---
+
+## 「打包成功 + 进程存活」是两个真但不够的判据；清理语句会吃掉结论（s2v-result-ux-polish）
+
+### lesson: verification-script-must-print-verdict-before-cleanup
+
+**现场**：QM-1 验证脚本在**打印判据之前**删除临时 userData 目录。进程刚被 kill 时 `userData/lockfile` 仍被占用 ⇒ `EBUSY` 抛出，把「存活 + NEEDS_REVIEW 的 stderr 全文」一起吞掉，脚本以未捕获异常退出，只能看到一个与判据无关的 `rimraf` 栈。
+
+**判据**：验证脚本的顺序必须是「**先出结论，再做副作用清理，且清理失败不影响判定**」。清理失败要出声（`[warn] 临时目录未能清理: <路径>`），不能静默也不能升级为失败——否则一次文件锁会让整轮取证作废。
+
+---
+
+## 门禁红不一定要上调基线，先看「这条逻辑配不配待在宿主里」（s2v-result-ux-polish）
+
+### lesson: named-debt-target-growth-means-extract-not-bump
+
+**现场**：`ResultView.vue` 是 max-lines 的 targets 点名还账对象（零增长容差），新增失败摘要卡后门禁当场红：`现 2060 行已超过点名目标 1890 行（超 170）`，测试账本也红：`较登记值 2175 膨胀 453 行（容差 200）`。
+
+门禁红文案本身给了两条路：**降到目标以下**，或**说明理由后上调 targets**。上调是最短路径，但它把「还债」变成「加债」，而且这一轮加的逻辑根本不粘页面——失败摘要卡的文案拼装是**纯展示**，跳转/展开/回顶是**纯流程**，两者都不需要 living in 宿主。
+
+**做法**：拆成 `ResultPreviewPlaceholder.vue`（模板 + 文案）、`ResultSegmentJumpBar.vue`（定位条 + 键盘）、`composables/useSegmentNavigation.js`（纯流程）与独立测试文件。宿主 **2060 → 1886**（净降 174），测试账本回到容差内，**targets 一个没动**。
+
+**判据**：被点名还账 + 零增长容差的文件，收到「要加逻辑」的需求时，**先问这段逻辑是否本来就该在这里**。能拆就拆——拆出来的部分通常还能独立单测（本例 `resolveJumpFocusTarget` 从"要靠挂载组件测"变成纯函数直测）。
+## 2026-10-20 · rewrite-cancel-collection：「按页面验收」会漏掉其余消费点
+
+- **pitfall · 通道类能力的验收标准必须按「消费点清单」写，不能按「页面」写**：#4078 建好 `ai:rewrite-cancel` 后，验收标准写的是「改写中显示取消按钮」，测试只挂载 `RewriteView` —— 于是 `aiRewrite` 的其余 3 个消费点（`Collection.vue` 采集页、`AiWriterPanel.vue` 侧边面板、`HotTopics` 系列）全部没接，而**采集页恰是长文最常出现的入口**（知乎回答/公众号长文/视频转写）与最初报错的页面（#3979）。机制建好、通道测过、用户仍不能取消。判据：交付「通道/开关/能力」时，先 `grep` 该能力对应调用点的全量清单，再逐个标注「已接 / 本轮不接（原因）」，把清单写进执行记录；只写「某页面可用」等于默许其余入口永久缺失。
+- **pattern · 「取消」在结果消费方要显式排除，否则必然被当成失败**：取消让引擎返回 `success:false`，而采集页 4 个调用点原本是 `if (result.result_content) {成功} else {弹「AI 改写失败」}` —— 空结果天然落进 else。正解不是复制四份错误处理，而是把 `else` 收紧成 `else if (!(result && result.__cancelled))`（一行 ×4），并在漏斗里把 `cancelled` 归一成 `{ __cancelled: true }` + 一条 info。判据：任何新增的「非失败终态」（取消 / 跳过 / 中止 / 部分成功）都必须同时检查所有 `else` 分支，否则它会伪装成错误。
+
+## 「靠匹配英文原文还原语义」本身就是缺陷——用户可见失败的稳定错误码契约（error-message-user-friendly-audit，2026-10-20）
+
+### lesson: user-facing-failures-need-stable-error-codes-not-text-patterns
+
+**现场**：用户报障「视频创作-历史记录-执行失败标签，任务卡片上的失败原因显示 `Input media exceeds the total size limit`」。这是 compose 引擎返回的原始英文技术信息，未经任何用户友好化处理。
+
+**根因不是「漏改一处」，是契约缺失**。四层逃逸链：
+
+1. 主进程 `story2video-compose-engine.js` 预检分支 `return { code: -1, message: 'Input media exceeds the total size limit' }`——无稳定 `errorCode`，无可插值 `messageParams`。同文件另有 20+ 处同类英文 message。
+2. `stage-executor.js` COMPOSE 失败分支只 `return { success: false, error: result.message }`——即便引擎给了 `errorCode` 也传不出去。
+3. `pipeline-engine.js` `_finalizeRun` 与 `run-state-store.js` 快照只存 `error` 字符串。
+4. `pipeline-error-formatter.js` 的兜底分支 `raw.length <= 120 && !/技术标记/` → **原样透传原文**。该句长度 41、无任何技术标记，于是被判成"已经是自然语言"。
+
+**为什么之前没人处理（归因）**：2026-08-11 `prompt-user-friendly-i18n` 覆盖的是 IPC 拒绝路径，compose 引擎经 `service-bus → stage-executor → pipeline-engine` 落库、不在射程内；2026-08-19 `s2v-history-error-message-hardening` 只修 `{sceneText}` 占位符，规则表按「已知错误文本」逐条加，**没回填「新增英文 message 必须同步归一化」的契约**；CJK 门禁只扫 `apps/desktop/src` 与 `packages/python-backend/src`，**不扫 `apps/desktop/electron`**。
+
+**系统性漏洞**：三套渲染路径（`story2video-notifications.js` / `pipeline-error-formatter.js` / `user-facing-error.js`）都靠**匹配英文原文**还原语义。只要主进程新增一处英文 message 而不同步正则，就必然泄漏。这是机制缺陷，不是疏忽。
+
+**修复方向（可复用）**：
+- 主进程失败返回体一律带**稳定 `errorCode`**（封闭常量集合）+ 可插值 `messageParams`；`message` 仅作诊断保留。
+- 错误码必须**穿透 stage 与落库边界**：`stage-executor` → `pipeline-engine._finalizeRun` → `run-state-store` 快照一路带上。`run.error` / `stage.error` **保持字符串契约**（恢复门控 `RESUME_BLOCKING_ERROR_PATTERN` 与阶段摘要读字符串，改对象会一次性破坏）。
+- 渲染端双轨：`errorCode` 优先（显式映射表），原文模式兜底（存量数据只有英文 `run.error`，不能要求用户重跑）。
+- **错误码 → locale key 必须显式映射**，MUST NOT 用字符串推导。第一版写 `'story2video.' + code.replace(/^COMPOSE_/, 'compose_').toLowerCase()`，拼错会静默渲染成 i18n key 原文直接显示给用户。
+- **机械门禁校验三侧一致**（主进程常量 / 渲染端映射 / zh+en 文案 / messageParams 占位符），且必须接在**不被 docs-only 短路的 job**（`changes` job）——本锁的输入含 `locales/**` 与 `src/**`，只改文案的 PR 会被判 docs-only。
+
+### lesson: mutation-testing-with-powershell-replace-silently-no-ops
+
+**现场**：给新门禁做变异反证时，用 PowerShell `-replace "第 \{scene\} ...", "第 \{sceneIndex\} ..."`。PowerShell 正则把 `{scene}` 当 .NET 量化表达式，替换结果写成字面 `\{scene\}`——**文件确实被改了**（`Select-String` 能 grep 到 `sceneIndex`），但门禁 PASS。差点写成「M3 MISSED_BY_DESIGN」把假阴性当设计豁免。
+
+**正解**：① 变异一律用 Node/Python 脚本做字符串替换；② **变异必须断言「确实改变了文件内容」**（测试里 `assert.notStrictEqual(after, before)`）；③ 门禁的判据若是正则，变异字符串要先在判据上单跑一遍确认能命中。同族形态：把工具的失明读成结论。
+
+### lesson: gate-self-test-sandbox-must-mirror-repo-layout
+
+**现场**：`check-compose-error-codes.js` 用 `path.resolve(__dirname, '..')` 定位仓库根。自测第一版把脚本副本放进沙箱**根**，结果 ROOT 解析成沙箱的父目录（系统临时目录），四个依赖文件全部 ENOENT，7 个用例全红——而门禁本身在真实仓库是 PASS 的。
+
+**正解**：沙箱副本按仓库同构放置（`<sandbox>/scripts/xxx.js`），让相对定位逻辑与生产一致。凡是「按 `__dirname` 推路径」的脚本，自测沙箱都要复刻目录层级。
+
+### lesson: component-test-i18n-mock-semantics-differ-per-call-shape
+
+**现场**：`CreateViewHistory.test.js` 既有 mock 约定「无参返回 key」。`formatError` 重构后走「先取模板再自行插值」路径，需要无参时返回**字符串原文**。直接改全局 mock 一次性破坏 13 个既有用例。
+
+**正解**：保留原 mock，新增专用 mock（`templateAwareT`）只供新用例（`mountHistory(history, props, t)` 第三参注入）。同时纠正一个错误写法：`let msg = $t(key); if (msg !== key) return msg` 是错的——生产 vue-i18n 对字符串消息不会自动插值，无参拿到的是未插值模板；必须先取原文、再插值、最后比较。
+
 ## amend 已提交内容会漂移 diff 内容寻址哈希，让深度审查的判定记录「双双落空」（s2v-voice-clone-auto-select，2026-10-20）
 
 ### lesson: amend-after-commit-breaks-content-addressed-review-record
@@ -22026,3 +22371,53 @@ CI 把 `QG Static` 钉红在 Gate 2c，红的是 `check-unwired-tests.test.js` �
   ④ 与「谁来守门」相邻的改动（改 job id 牵动多条结构性锁）不塞进一个修超时的 PR。
   同轮附带一条工具口径：**PowerShell 里 `[System.IO.File]` 的相对路径用的是 .NET 进程 CWD，不是 `cd` 位置**，
   两者可能不同步 ⇒ 文件在却报 `Could not find file`；一律传 `Resolve-Path` 的绝对路径。
+
+## 调研报告给的「落点」是假设不是事实——回本仓实测才作数（film-pipeline-prompt-triple-and-guards，2026-10-21）
+
+### lesson: research-report-landing-is-a-hypothesis
+
+**现场**：`01-docs/RESEARCH-AI-FILM-OPENSOURCE-2026-10-19.md` §5.2 给出 30+ 个复用项，每个都带「落点」文件名。实测两处直接错：F11b（出站 SSRF 防护）报告说落点新建 `shared-utils/src/net/safe-fetch.js`、「本仓无等价防护」——实为 `apps/desktop/electron/services/film-engineering/shot-downloader.js` **已实现完整出站合同**（https-only `:60` + 私网段 `:65` + 每跳 DNS 校验 `:130-144` + 逐跳重校验 `:154-166` + 500MB 上限 + `.part`→ffprobe→rename `:210`）；F11d（外部工具体检）报告说落 `packages/python-backend/src/multi_publish/core/doctor.py`，而影视工程走的是 **Electron 主进程**的 `findFfmpeg()`（`film-render.js:278`），那个目录连文件都不存在。
+
+**判据**：外部调研产出的「落点 / 现状 / 缺口」三列，一律当**假设**处理：落地前逐条回目标仓取行号证据，**证不成立就改方案**。该报告自身已记录 7 次同类自我修正（它自己写的「先查目标仓」纪律），本次是第 8、9 次——**说明这条纪律对调研报告本身同样适用**，不是只对被调研对象适用。照抄落点会同时造出「第二份真相源」（safe-fetch.js）和「改了用不上的地方」（python-backend doctor）。
+
+## rename 原子不等于 CAS：并发写正确性要靠独占锁，原子替换只保证不出现半写（film-pipeline-prompt-triple-and-guards，2026-10-21）
+
+### lesson: rename-is-not-cas
+
+**现场**：给项目文件加乐观锁时，我的第一版方案写「`revision` 自增 + 内容替换在同一次 tmp→fsync→rename 内完成 ⇒ 并发安全」。跨家族评审直接打回：**rename 只保证单次写原子，不提供 compare-and-swap 语义**——两个进程可以各自读到 `revision=5`、都通过比对、再先后 rename 成 6，**后写仍覆盖先写**。更扎心的是同一份方案里我刚为出站下载设计了 IP pinning 来消除「校验用 A 解析、连接用 B 解析」的 TOCTOU 窗口，却在写侧没做对应处理——**自相矛盾**。
+
+**判据**：并发写要拆成两问，各有各的机制：**互斥**（谁先谁后）靠锁/原子操作原语，**原子性**（有没有写到一半）靠 rename/fsync。**「用原子替换实现乐观锁」是错的**；锁必须能跨进程（`fs.open(lock,'wx')`），单进程内的事件循环互斥不成立。判据自查法：问「两个进程都读到同一个值、也都通过了校验」之后会发生什么——答不上来就是没做完。
+
+## 「显著」「明显」这类形容词进验收标准前必须换成比例阈值（film-pipeline-prompt-triple-and-guards，2026-10-21）
+
+### lesson: vague-adjectives-need-thresholds
+
+**现场**：方案写「自动模式新分镜的 `videoPrompt` **显著**短于 `imagePrompt`」，验收却只断言 `videoPrompt.length < imagePrompt.length`。评审指出：后者可被**差 1 字符**满足，「显著」在判据里等于不存在。改成 `videoPrompt.length <= 0.6 * imagePrompt.length`，并要求断言失败时打印两镜实际长度。
+
+**判据**：验收标准里出现「显著 / 明显 / 大幅 / 足够」等词，一律换成**可测的比例或阈值**，并让断言失败信息带上**被比较的两个实际值**——否则「判据不可执行」和「判据可被无意义地满足」是同一种病。另注：既有测试的**用例条数**（如「23 例全绿」）同样不是判据，条数随需求增长而变，把它当门禁会制造假回归；判据应是「该文件全绿 + 关键断言清单齐备」，条数降级为参考信息。
+
+## 判决层与探测层要分层：纯函数不该读文件（film-pipeline-prompt-triple-and-guards，2026-10-21）
+
+### lesson: separate-judgment-from-probing
+
+**现场**：把逐镜就绪度判定做成「纯函数、零 IO、可单测」的模块，判据里却同时列了「参考图不可解析」（要读文件）与「档位不支持」（要读 provider 能力表）——**声明与实现直接矛盾**。评审当场点出。正解是拆两层：**IO 探测层**（调用侧）先产出事实入参 `facts`，判决模块**只对 facts 做纯函数判决**。
+
+**判据**：写「纯函数 / 零 IO / 可单测」这类**能力声明**时，要逐条对判据清单核一遍——**判据里每一条需要外部输入的，都必须由调用侧预先采好并显式传入**。声明与实现不一致时，单测会给出假绿：纯函数拿不到那个输入，只能返回默认值，而默认值恰好让用例通过。
+
+## 一次性显式授权不能落盘——落盘即持久免检标记（film-pipeline-prompt-triple-and-guards，2026-10-21）
+
+### lesson: one-off-authorization-must-not-persist
+
+**现场**：出站下载要允许用户「本次允许从外部素材域名下载」。我第一版按评审要求把授权**留痕到 `project.json`**（`egressAllowAnyHost: true`）。下一轮评审打回：**任何能写项目文件的路径、或外部导入的项目文件，都能静默置 true，且跨会话长期生效** ⇒ 一次性的显式授权变成了**持久免检标记**。最终改为**运行期一次性令牌**（只存内存、任务结束失效、不落盘），审计只记「发生过一次外部域名授权」这一事实、**不存放行位**。
+
+**判据**：授权类状态要分三档落法：**能放行的凭据**（令牌/凭据）⇒ 只进内存或短期存储，**绝不落进可被外部写入或导入的文件**；**审计事实**（谁在何时授权过）⇒ 可以落盘，但要**与放行位物理分离**；**配置**（用户长期设定的白名单）⇒ 落盘，但走独立配置面并显式展示。判据一句话：**「落盘的授权位」= 「任何写文件的人都能给自己发通行证」**。
+
+## 跨家族评审的 proposer 机械环节在长中文方案上会整轮作废——要换无长度上限的家族组合（film-pipeline-prompt-triple-and-guards，2026-10-21）
+
+### lesson: ccg-proposer-mechanical-failure-on-long-chinese-plans
+
+**现场**：`sh scripts/plan-review.sh <方案>` 跑 5 轮，critic 侧每轮都正常产出 8 条意见，**proposer 侧 5 轮全部 rc=1**：一次是 `opencode` 后端有 **7800 字符单次输入上限**（方案 18,088 字符 ⇒ 同步拒绝、~120ms、exit 1、**无任何错误信息**，像限流），后 4 次是 proposer 生成的 `edits.before` 在方案原文里**逐字定位失败**（长中文串复现失真）⇒ 引擎报 `Revision校验失败` 并退出，**不进入裁决**。
+
+**处置**（两处都不是放宽门禁）：① 后端组合换成 **critic=codex（openai 家族）× proposer=claude（anthropic 家族）**——两者都**无长度上限**（`BACKEND_INPUT_LIMIT` 只列了 opencode），跨家族仍成立；② 修订改为**方案作者人工外科式完成**（每条意见落到具体文件与行），proposer 的**内容判断仍然采纳**（从每轮 raw 输出核对），并把「评审跑过几轮、每轮几条、怎么处置、哪些没闭合」写进可入库的评审记录。
+
+**判据**：跨家族评审的**结论**（critic 提的问题）与**落地**（proposer 改文件）是两个独立环节，工具链失败只应影响后者，不该把前者一起废掉。遇到「引擎报输入超长/校验失败」：先查后端**长度上限**（`model-call.js` 的 `BACKEND_INPUT_LIMIT`），再查 `edits.before` 是否**唯一且逐字可定位**（引擎自己给的建议就是「before 尽量短（80 字以内）」）。**不要因为工具失败就降标准或跳过评审**——把轮次与处置如实记进记录，工具失败的那一轮也要留下产物。
