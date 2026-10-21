@@ -1546,3 +1546,52 @@ x-s, x-t, x-s-common, x-b3-traceid, x-xray-traceid
 
 **复核方式**：授权抓一次真实发布请求并留档 `draft_id`（见 §16.11.5）。
 留档后本节结论即可被推翻/升级 —— 这正是把它写成"可证伪"形式的原因。
+### 16.17 抖音凭据已恢复（2026-10-21，用户完成登录）
+
+> 本节记录抖音从「阻塞」转为「就绪」的实测依据。**发布动作本身尚未执行**。
+
+#### 16.17.1 观察到的登录过程
+
+2026-10-21 10:00 前后，应用出现新页面 `https://creator.douyin.com/`（创作者后台），
+应用页切换至 `#/accounts` 并出现「保存账号」按钮 ⇒ 用户在应用内完成抖音登录并保存。
+
+#### 16.17.2 凭据有效性的**硬证据**（不依赖 `has_cookies`）
+
+登录后直接调用抖音创作者接口：
+
+```
+GET https://creator.douyin.com/aweme/v1/creator/user/info/
+→ HTTP 200 {"dashboard_opend_date":"2024-12-13","douyin_user_verify_info":{...avatar_url...},
+          "cert_info":{...}}
+```
+
+⇒ 返回**真实创作者身份数据**（开号日期、头像、认证信息）—— 这是凭据有效的硬证据，
+  而非「页面能打开」或 `has_cookies=true` 这类表象（见 §16.7 的判据纪律）。
+
+应用侧同步读数：
+```json
+{"platform":"douyin","status":"active","has_cookies":true,"cookie_count":1}
+```
+应用批量检测码由 `CHECK_LOGIN_COOKIE_EXPIRED` → `CHECK_LOGIN_INCONCLUSIVE`（`loginStatus: active`）。
+
+> ⚠ `INCONCLUSIVE` 是抖音的**结构性特征**（HTTP 检测对该平台不给定论，见 §16.9.1），
+> 不代表凭据无效 —— 上面的 `user/info` 才是判据。
+
+#### 16.17.3 发布链取用路径已确认
+
+`publisher-router.js` 的 `backfillPartitionCookies`：主源是**信封库** `authData.cookies`，
+分区仅在信封库为空时回退。抖音凭据已落入信封库 ⇒ **发布链可直接取得凭据**。
+
+（另注：`account-01ab122e` 分区的 cookie 在 `creator.douyin.com` 域下实测为 0 条，
+但不影响发布 —— 分区只是回退源。）
+
+#### 16.17.4 当前状态与下一步
+
+| 项 | 状态 |
+| --- | --- |
+| 抖音凭据 | ✅ 有效（`user/info` 200 + 真实创作者数据） |
+| 抖音发布链代码 | ✅ 就绪（既有实现） |
+| **真实发布** | ⏳ **未执行**（需在应用内发起，或授权触发） |
+
+下一步：在应用内对抖音发起一次发布（草稿语义），用**真实返回的 `aweme_id`** 留档 ——
+那才是「抖音视频发布成功」的可核对证据（原则：不留无证据的"成功"）。
