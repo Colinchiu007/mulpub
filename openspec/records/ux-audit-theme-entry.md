@@ -80,6 +80,33 @@
 见本文件末尾由评审链回填的段落（产物落 `.adversarial/ccg-deep-<sha>/`，判定记录落 `.ccg/reviews/<sha>.json`）。
 按既有实测：`self_play_*` 出口在存在 upheld 条目或高危域时拿不到闭合态，闭合需外部复核或人工（任务 #19）。
 
+## CHANGELOG 条目
+
+# feat(desktop): 暗色主题入口接线——设置页「外观」三态开关，useTheme 改应用级单例（ux-audit-theme-entry）
+
+- **这一格修的是"可达性"而不是"实现"**：`useTheme` 早已完成，但全仓零生产消费方（`git grep useTheme -- apps/desktop/src` 只命中它自己与它的测试）⇒ 70+ 处 `[data-theme="dark"]` 分支运行期永不激活，上一轮「深色低对比 61→0」的整改没有验收对象。最隐蔽的一层：视觉 runner 自己注入 `data-theme` 拍暗档，于是"暗色被覆盖过"的证据全在测试侧，而生产代码里没有那个写入者 —— **「runner 能把它拍成暗色」≠「用户能把它切成暗色」**，这是「装饰性链路」的又一种落点。
+- **入口**：设置弹窗新增「外观设置」Tab + `AppearanceSettings.vue` 三态 radiogroup（跟随系统/浅色/暗色；roving tabindex、方向键移动即选中、越界回绕）。焦点沿用既有 `cohere-btn` 类，因此自动落在阶段 3.6 焦点环契约的判定域内 —— **刻意不新建可聚焦变体类**，新变体必须同步登记，否则它会掉在两把锁之间。
+- **`useTheme` 单例化**：状态提到模块级，宿主 `matchMedia` 监听改引用计数。取舍：不引入 Pinia store，也不留 `_resetForTest` 后门（AGENTS 禁测试专用开关），改由"注册/注销对称"承担可测性。
+- **偏好词表闭合 `light|dark|system`**：`system` 是**可写的值**（删除键与"从没设过"在存储面不可区分 ⇒ 界面表达不出这一态）；词表外值归一为 `system` 并 warn；缺失/`null`/空串继续等价 `system` ⇒ **零迁移**。
+- **首帧不闪 + 真源优先**：`main.js` 在 `mount()` 之前用同步镜像落色，异步读回后以真源无条件校准。一条只有实测才发现的盲区：`watch` 只在值变化时触发，而"镜像写着 dark、真源是 system"是一次**无变化**赋值 ⇒ 必须显式 commit，否则界面永久停在过期镜像色上（变异 M7 打的就是这一格）。
+- **CSP 否掉了"内联脚本读镜像"这条看似更彻底的方案**：本页 CSP 是 `script-src 'self'`，内联启动脚本会被直接拒绝；不为消一帧画布底色放开 CSP，改用 `<meta name="color-scheme">` 让画布在 JS 之前跟 OS，并新增一条锁钉住"`script-src` 不得含 `unsafe-inline`"，防止下一个会话为了观感去动安全边界。残余如实写明：OS 与显式偏好相反时可能有一帧按 OS 落的画布底色；**内容层不闪是精确的**。
+- **验证（当日读数，验收以门禁现场为准）**：三把锁 **49 passed**（驱动控制跑 `collected=49 red=0`）；反证驱动 `scripts/theme-entry-contract-mutate.js` **M1–M14 全 CAUGHT**、逐条按字节还原；消费者并集 6 文件 69 passed；locale 成对与 CJK 门禁 PASS（基线 1330 / 当前 1124，三条 `console.warn` 因 CJK 扫描连日志串一起算而改写为 ASCII，不去 `--update-baseline` 吸收自己新写的串）；两处 `.vue` 过 `@vue/compiler-sfc` 零错误；真实 Chromium 实测 OS=dark 时 `@domcontentloaded` 即 `data-theme=dark`、body 底色 `rgb(26,26,30)`；`contrast-audit.js` 暗态 18 视图低对比 **0**（该脚本采样前确实 `setAttribute('data-theme','dark')`，所以这个 0 是暗态读数）。
+- **未覆盖如实登记**：`settings-general` 浅/暗两张像素基线本批**不提交本机截图**（按视觉规则 7 只能取同一次 CI 渲染产物重建）；暗色下个别视图未适配不在本批逐个修；反证驱动目前无任何 workflow 引用（`check-unwired-tests.js` 后缀表也不含 `*-contract-mutate.js`）⇒ "入库"不等于"被守"，已单独立项。
+
+## learnings
+
+### lesson: 变异落在未被执行的分支上时，红数=0 不是锁没牙
+
+**现场**：`theme-entry-contract-mutate.js` 的 M6 第一版写成 `readFailed ? currentMirror() : raw`，目标用例走的是**成功读回**路径 ⇒ 红数=0。改把变异落在该路径真会读到的位置（`normalizeThemePreference(currentMirror())`）后立刻 CAUGHT。同一次里 M7 红了另外三条而没红目标那条，根因是目标用例依赖了跨用例存活的单例状态。
+
+**根因**：把"变异没造出行为差异"和"锁没有牙"读成同一件事；以及把"模块初值"当成测试可依赖的前提。
+
+可复用的三条：
+
+1. 红数=0 时先问"这一刀改的表达式，在被测路径上**是否被求值**"，再谈锁的质量。
+2. 改成应用级单例后，模块级 ref 跨用例存活是产品要求的行为；因此任何"依赖初值"的断言都必须自己构造前提并断言它成立，而不是加测试后门（AGENTS 禁 skip 开关）。
+3. 只断"某个调用存在"的锁，对"调用位置错了"完全免疫 —— 顺序类契约要单独一刀（本批 M1 测"没调用"、M2 测"调在 mount 之后"）。
+
 ## 远程同步
 
-| 远程同步 | PENDING |
+| 远程同步 | 由门禁推导 | 本行不需要事后改写：合并后由 `scripts/lib/merge-ledger.js` 按主干历史推导归属；合并前这篇不在基线上，判 byDesign 不红 |
