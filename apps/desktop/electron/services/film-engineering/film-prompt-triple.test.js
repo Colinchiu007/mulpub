@@ -17,11 +17,8 @@ const fs = require('fs')
 const os = require('os')
 const path = require('path')
 
-const {
-  loadFilmKit,
-  FILM_PROMPT_BUNDLE_MAX_LEN,
-  SHOT_PROMPT_FIELDS,
-} = require('./kit-loader')
+const { loadFilmKit } = require('./kit-loader')
+const { FILM_PROMPT_BUNDLE_MAX_LEN, SHOT_PROMPT_FIELDS } = require('./shot-prompts')
 const { buildTemplatePrompt, buildTemplatePromptParts, buildMotionPrompt } = require('./script-adapt')
 const { planAutoShots } = require('./auto-plan')
 const { buildShotSubmitPayload } = require('./video-gen')

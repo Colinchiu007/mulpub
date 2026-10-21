@@ -48,9 +48,8 @@ const MAX_TOKEN_LENGTH = 64
 // 本仓的既有同型拆分是 network-egress-ledger.js（从 network-egress-guard.js 拆出，别搬回来）。
 // 这里 re-export 是为了**既有 import 路径不变**（下游按 kit-loader 取这三个符号）。
 const {
-  FILM_PROMPT_BUNDLE_MAX_LEN,
-  SHOT_PROMPT_FIELDS,
   normalizeShotPrompts,
+  validateShotPromptFields,
   validateShotPromptBundles,
 } = require('./shot-prompts')
 
@@ -133,17 +132,9 @@ function validateShotLibrary (shots) {
     if (s.prompt.length > MAX_PROMPT_LENGTH) {
       return { ok: false, error: at + '.prompt 超过上限 ' + MAX_PROMPT_LENGTH + ' 字符' }
     }
-    // 影视工程 v2 · F-A：三分提示词字段（存在即校验；缺失由归一化补齐）
-    for (const field of SHOT_PROMPT_FIELDS) {
-      if (s[field] === undefined || s[field] === null) continue
-      if (typeof s[field] !== 'string') {
-        return { ok: false, error: at + '.' + field + ' 必须为字符串' }
-      }
-      if (s[field].length > MAX_PROMPT_LENGTH) {
-        return { ok: false, error: at + '.' + field + ' 超过上限 ' + MAX_PROMPT_LENGTH + ' 字符' }
-      }
-    }
     if (typeof s.model !== 'string' || !s.model.trim()) return { ok: false, error: at + '.model 必须为非空字符串' }
+    const three = validateShotPromptFields(s, at, MAX_PROMPT_LENGTH)
+    if (!three.ok) return three
     if (s.refTokens !== undefined) {
       if (!Array.isArray(s.refTokens)) return { ok: false, error: at + '.refTokens 必须为数组' }
       for (const t of s.refTokens) {
@@ -391,8 +382,7 @@ function loadFilmKit (opts) {
     ['prompt-doctrine.json', validateDoctrine(doctrine)],
     ['shot-library.json', validateShotSceneRefs(shots, manifest)],
   ]
-  // 影视工程 v2 · F-A：先归一化三分提示词，再校验合计长度。
-  // 顺序不可颠倒——归一化前存量分镜的 imagePrompt 还没落位，合计会被低估。
+  // F-A：先归一化再校验合计（顺序不可颠倒——归一化前合计会被低估）
   for (const s of shots) normalizeShotPrompts(s)
   checks.push(['shot-library.json', validateShotPromptBundles(shots)])
   if (grammarOpt.present) checks.push(['shot-grammar.json', validateShotGrammar(shotGrammar)])
@@ -490,10 +480,6 @@ module.exports = {
   KIT_FILES,
   MAX_PROMPT_LENGTH,
   FILM_PROMPT_MAX_LEN,
-  FILM_PROMPT_BUNDLE_MAX_LEN,
-  SHOT_PROMPT_FIELDS,
-  normalizeShotPrompts,
-  validateShotPromptBundles,
   loadFilmKit,
   loadFilmKitChain,
   validateManifest,

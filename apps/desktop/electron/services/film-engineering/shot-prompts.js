@@ -50,6 +50,32 @@ function normalizeShotPrompts (shot) {
 }
 
 /**
+ * 校验单条分镜的三分提示词**字段本身**（存在即校验类型与长度）。
+ * 归一化之后调用：此时三分字段一定存在（缺省已补齐），所以能给出确定结论。
+ * @param {object} shot - 分镜对象
+ * @param {string} at - 错误定位前缀（如 "shots[3]"）
+ * @param {number} maxLen - 单字段长度上限
+ * @returns {{ok: boolean, error?: string}}
+ */
+function validateShotPromptFields (shot, at, maxLen) {
+  if (!shot || typeof shot !== 'object') return { ok: true }
+  for (const field of SHOT_PROMPT_FIELDS) {
+    const v = shot[field]
+    // 缺失即跳过：本函数在**归一化之前**跑（存量分镜的三分字段还不存在），
+    // 归一化之后的「合计上限」由 validateShotPromptBundles 负责。
+    // ⚠️ 漏掉这个跳过会让所有存量 kit 加载失败（实测 55 例红）。
+    if (v === undefined || v === null) continue
+    if (typeof v !== 'string') {
+      return { ok: false, error: at + '.' + field + ' 必须为字符串' }
+    }
+    if (v.length > maxLen) {
+      return { ok: false, error: at + '.' + field + ' 超过上限 ' + maxLen + ' 字符' }
+    }
+  }
+  return { ok: true }
+}
+
+/**
  * 校验分镜的三分提示词合计长度。
  * 必须在**归一化之后**调用（否则存量分镜的 `imagePrompt` 还没落位，合计会被低估）。
  * @param {Array<object>} shots
@@ -80,5 +106,6 @@ module.exports = {
   FILM_PROMPT_BUNDLE_MAX_LEN,
   SHOT_PROMPT_FIELDS,
   normalizeShotPrompts,
+  validateShotPromptFields,
   validateShotPromptBundles,
 }
