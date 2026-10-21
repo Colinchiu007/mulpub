@@ -15,6 +15,15 @@
  *    （= 侧边栏派生结果 key 集合，防运营中心种子漂移）。
  * 4. view 必须等于 router/index.js 中 import 的视图文件名；redirect 路由 view 必须为 ''。
  * 5. entryFrom 必须指向表内已登记的 path（防登记死链）。
+ * 6. 兜底（catch-all）路由是一等类型（UX 审计 1.9）：
+ *    - 规则 2 的「必须回答入口」**只**对登记项带 `catchAll: true` 的那一条豁免；
+ *      字段缺失或写成 `false` 都不获得豁免（fail-closed），普通暗路由的约束逐字不变。
+ *    - `catchAll: true` 的 path 必须全等于 '/:pathMatch(.*)*'（不写形态匹配：
+ *      含 `(.*)` / 以 `*` 结尾的判据会把参数路由认成兜底，等于给普通路由开后门）；
+ *      且不得同时声明 navEntry / internal / redirect 视图。
+ *    - 登记面与 router 声明面各至多一条（多条时后者永不生效，是静默失配不是报错）。
+ *    - 「本仓必须有一条兜底路由」这条**完整性**判据不写在门禁里（否则任何最小夹具都要带它），
+ *      而由 .github/scripts/check-route-registry.test.js 的真实文件断言 `catchAllRoutes === 1` 锁住。
  *
  * 为什么用静态解析而不是 import：
  * 登记表是 ESM 且 import 了 @element-plus/icons-vue（Vue 组件），门禁脚本跑在
@@ -36,6 +45,16 @@ const REGISTRY_FILE = path.join(ROOT, 'apps', 'desktop', 'src', 'config', 'route
 
 /** navEntry.group 里可能出现的分组常量 → 实际分组值 */
 const GROUP_CONSTANTS = { SIDEBAR_GROUP_PRIMARY: 'primary', SIDEBAR_GROUP_MORE: 'more' }
+
+/**
+ * 兜底（catch-all）路由的**唯一**合法路径形状（UX 审计 1.9）。
+ *
+ * 取全等而不是形态匹配（如「含 `(.*)`」「以 `*` 结尾」）：
+ * - 形态匹配会把 `/board/:projectId(.*)` 这类**参数路由**也认成兜底，等于给
+ *   「给普通路由开入口豁免」留一条通道；
+ * - vue-router 4 已移除裸 `*`，`/:pathMatch(.*)*` 是唯一能匹配任意地址的声明形态。
+ */
+const CATCH_ALL_PATH = '/:pathMatch(.*)*'
 
 function parseArgs (args) {
   const opts = { json: false }
@@ -227,11 +246,15 @@ function parseRegistry (source) {
     const nav = parseNavEntry(block)
     if (nav.missing) parseErrors.push(`route-registry.js 登记项缺少可解析的 navEntry 字段：${block.slice(0, 60).replace(/\s+/g, ' ')}...`)
     const internalRaw = String(fieldRaw(block, 'internal') ?? '').trim()
+    const catchAllRaw = String(fieldRaw(block, 'catchAll') ?? '').trim()
     return {
       path: readStringOrNull(fieldRaw(block, 'path')),
       name: readStringOrNull(fieldRaw(block, 'name')),
       view: readStringOrNull(fieldRaw(block, 'view')) ?? '',
       internal: internalRaw === 'true',
+      // 字段缺失一律 false（fail-closed）：`catchAll: false` 的显式写法同样不获得豁免，
+      // 否则「写个 false」与「不写」出现差异，将来谁改了默认值都无人察觉。
+      catchAll: catchAllRaw === 'true',
       entryFrom: readStringOrNull(fieldRaw(block, 'entryFrom')),
       navEntry: nav.navEntry,
     }
@@ -318,6 +341,17 @@ function checkRouteRegistry (input) {
   for (const entry of entries) {
     if (!entry.path) continue
     const isRedirect = entry.view === ''
+    // 规则 6 的豁免面：**只有**被显式标记 catchAll 的登记项可以不回答入口。
+    // 兜底路由的事实是「从任何地址进来」，写 entryFrom 等于把假宿主写进受 CI 强制的登记表。
+    if (entry.catchAll) {
+      if (entry.path !== CATCH_ALL_PATH) {
+        errors.push(`catchAll 登记项的 path 必须是兜底形状 '${CATCH_ALL_PATH}'，当前 '${entry.path}'`)
+      }
+      if (entry.navEntry) errors.push(`catchAll 不得声明侧边栏入口：${entry.path}（兜底页不是菜单项）`)
+      if (entry.internal) errors.push(`catchAll 不得标 internal:true：${entry.path}（兜底路由没有单一宿主）`)
+      if (isRedirect) errors.push(`catchAll 必须指向真实视图：${entry.path}（view 为空 = redirect，未知地址会重新落到空白页）`)
+      continue
+    }
     if (isRedirect) {
       if (entry.internal) errors.push(`redirect 路由 ${entry.path} 不应标记为 internal:true`)
       continue
@@ -340,6 +374,18 @@ function checkRouteRegistry (input) {
     if (entry.internal && entry.entryFrom && !registryByPath.has(entry.entryFrom)) {
       errors.push(`entryFrom 死链：${entry.path} 的 entryFrom '${entry.entryFrom}' 不在登记表内`)
     }
+  }
+
+  // 规则 6（匹配面唯一性）：兜底路由只能有一条，登记面和 router 声明面各查一次。
+  // 登记面多条 → 后者永不生效（登记表成了第二份不存在的真相）；
+  // 声明面多条 → vue-router 仍按 score 取其一，其余是死代码，且下一会话无法知道哪条在跑。
+  const catchAllEntries = entries.filter((e) => e.catchAll)
+  if (catchAllEntries.length > 1) {
+    errors.push(`catchAll 登记项至多一条（当前 ${catchAllEntries.length} 条：${catchAllEntries.map((e) => e.path).join(', ')}）—— 第二条永远不会被匹配到`)
+  }
+  const catchAllRoutes = routes.filter((r) => r.path === CATCH_ALL_PATH)
+  if (catchAllRoutes.length > 1) {
+    errors.push(`router/index.js 出现多条兜底（catch-all）路由（path '${CATCH_ALL_PATH}' 共 ${catchAllRoutes.length} 条）—— 后者永不生效，属静默失配`)
   }
 
   // 规则 3：navEntry key 集合 == SIDEBAR_MENU_KEY_ORDER（= 侧边栏派生结果 key 集合）
@@ -372,6 +418,7 @@ function checkRouteRegistry (input) {
       registryEntries: entries.length,
       menuItems: navKeys.length,
       internalRoutes: internalCount,
+      catchAllRoutes: catchAllEntries.length,
     },
   }
 }
@@ -394,7 +441,7 @@ function main () {
     console.log(JSON.stringify(result, null, 2))
   } else {
     const s = result.stats
-    console.log(`[route-registry] router 路由 ${s.routerRoutes} 条（redirect ${s.redirectRoutes} 条）/ 登记 ${s.registryEntries} 条 / 菜单项 ${s.menuItems} 个 / 暗路由 ${s.internalRoutes} 条`)
+    console.log(`[route-registry] router 路由 ${s.routerRoutes} 条（redirect ${s.redirectRoutes} 条）/ 登记 ${s.registryEntries} 条 / 菜单项 ${s.menuItems} 个 / 暗路由 ${s.internalRoutes} 条 / 兜底 ${s.catchAllRoutes} 条`)
   }
 
   if (!result.ok) {
@@ -402,16 +449,17 @@ function main () {
     for (const err of result.errors) console.error(`  - ${err}`)
     if (!opts.json) {
       console.error('\n修复指引：')
-      console.error('  1. 在 src/config/route-registry.js 补登记（path / name / view / navEntry / internal / entryFrom）')
+      console.error('  1. 在 src/config/route-registry.js 补登记（path / name / view / navEntry / internal / entryFrom；兜底路由另加 catchAll:true）')
       console.error('  2. 有侧边栏入口 → 填 navEntry 并把 key 加进 SIDEBAR_MENU_KEY_ORDER（同步 ops-center app_menu_service.py CATALOG）')
       console.error('  3. 无侧边栏入口 → internal:true + entryFrom（宿主页面路径，必须在表内存在）')
-      console.error('  4. 登记项与 router/index.js 的 path、视图文件名必须逐字一致')
+      console.error(`  4. 未知地址兜底路由 → path 必须是 '${CATCH_ALL_PATH}'，写 catchAll:true，且不填 navEntry / internal / entryFrom`)
+      console.error('  5. 登记项与 router/index.js 的 path、视图文件名必须逐字一致')
     }
     process.exit(1)
   }
   if (!opts.json) console.log('[route-registry] PASS')
 }
 
-module.exports = { checkRouteRegistry, parseRouterRoutes, parseRegistry, scanTopLevelBlocks, parseArgs }
+module.exports = { checkRouteRegistry, parseRouterRoutes, parseRegistry, scanTopLevelBlocks, parseArgs, CATCH_ALL_PATH }
 
 if (require.main === module) main()

@@ -196,7 +196,7 @@ node --test .github/scripts/check-route-registry.test.js
 
 ### 9.2 登记字段
 
-每条路由登记一个对象，六个字段必须填全：
+每条路由登记一个对象，七个字段必须填全：
 
 | 字段 | 含义 | 填写规则 |
 |------|------|----------|
@@ -206,6 +206,7 @@ node --test .github/scripts/check-route-registry.test.js
 | `navEntry` | 侧边栏菜单项 | 不进侧边栏填 `null`；否则 `{ key, group, labelI18nKey, to, icon }` |
 | `internal` | 是否暗路由 | `true` = 无侧边栏菜单入口，只能从其它页面进入 |
 | `entryFrom` | 宿主入口路径 | `internal: true` 时**必填**，且必须指向表内已登记的 path |
+| `catchAll` | 是否兜底路由 | 仅兜底路由填 `true`；其余一律不填（缺失 = `false`） |
 
 ### 9.3 internal / entryFrom 判定
 
@@ -217,6 +218,40 @@ node --test .github/scripts/check-route-registry.test.js
 ### 9.4 与侧边栏的关系
 
 `src/config/sidebar-menu.js` 的 `SIDEBAR_MENU_DEFINITION` 由登记表派生（`deriveSidebarMenu(ROUTE_REGISTRY)`），菜单渲染顺序由 `SIDEBAR_MENU_KEY_ORDER` 决定（不是路由顺序）。因此**改登记表等于改运营中心菜单种子**：`sidebar-menu.test.js` 里的 `EXPECTED_DERIVED_MENU` 冻结了 19 项的 `key/group/labelI18nKey/to` 与顺序，有意变更菜单时必须同步改该基线并在 PR 说明中写明对运营侧配置的影响。
+
+### 9.5 catchAll：兜底路由不是暗路由（2026-10-21 新增，ux-audit-404-route）
+
+未知地址兜底页的入口事实是「**从任何地址进来**」，它没有单一宿主。所以它不走 `internal + entryFrom`，
+而走显式的 `catchAll: true`：
+
+```js
+{
+  path: '/:pathMatch(.*)*',
+  name: 'NotFound',
+  view: 'NotFound.vue',
+  navEntry: null,
+  internal: false,
+  entryFrom: null,
+  catchAll: true,
+}
+```
+
+门禁（`check-route-registry.js` 规则 6）的口径：
+
+- **豁免面窄到只认这个标记**：`catchAll` 缺失或写成 `false` 都不获得豁免，该登记项照旧被要求回答入口
+  （fail-closed，避免"写个 false 就当没这回事"）。
+- **全表至多一条**，且 `path` 必须**全等** `/:pathMatch(.*)*`。形状判据刻意不写成"含 `(.*)`"或"以 `*` 结尾"
+  的形态匹配 —— 那会把参数路由也认成兜底，等于给普通路由开入口豁免留通道。
+- 兜底项**不得**同时声明 `navEntry`、`internal: true` 或 redirect 视图（`view: ''`）。
+- `router/index.js` 侧同一路径**至多一条**：多条时后者永不生效，是静默失配而不是报错。
+- 「本仓必须有一条兜底路由」这条完整性判据不在门禁脚本里，而在
+  `check-route-registry.test.js` 的真实文件断言（`stats.catchAllRoutes === 1`）。原因：写进门禁会让
+  任何最小夹具都必须带一条 catchAll，把夹具逼成生产形态。
+
+配套两条：`useTabDocumentTitle.js` 的标题解析接受第二个参数 `routeName`，**只在** `routeName === 'NotFound'`
+时返回「页面不存在」；不得用「映射表没命中」反推 404 —— 表里存在刻意未补键的暗路由（`/first-run` 等），
+反推会把正常页面标成不存在。`catchAll` 那条登记项也**不进**标题映射表：它的 `path` 是匹配模式，
+永远不会等于任何真实 path，补进去就是一个运行时永不命中的死键。
 
 ---
 

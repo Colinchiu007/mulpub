@@ -18,13 +18,19 @@
  *                 key/group 是运营中心「应用菜单」配置的主键与分组，一旦发布不得改名。
  * - internal   true = 暗路由（无侧边栏菜单入口，只能从其它页面进入）
  * - entryFrom  internal:true 时必填：宿主入口路径（必须指向表内已登记的 path）
+ * - catchAll   true = 兜底路由（UX 审计 1.9）。事实是「从任何地址进来」，因此它
+ *              **不填** navEntry / internal / entryFrom，而是由门禁规则 6 承认其为一等类型。
+ *              全表至多一条，且 path 必须全等于 '/:pathMatch(.*)*'。
  *
  * CI 强制的约束（.github/scripts/check-route-registry.js）：
  * 1. router/index.js 每条非 redirect 路由都必须在本表登记（path 一一对应）
  * 2. 非 redirect 路由必须能回答入口：navEntry 非空，或 internal:true + entryFrom 非空
+ *    （唯一豁免：catchAll:true 的那一条；豁免面窄到「显式标记」，字段缺失或 false 都不豁免）
  * 3. navEntry 非空的 key 集合必须与 SIDEBAR_MENU_KEY_ORDER 完全一致
  * 4. view 必须等于 router/index.js 中 import 的视图文件名；redirect 路由 view 必须为 ''
  * 5. entryFrom 必须指向表内已登记的 path（防登记死链）
+ * 6. 兜底路由唯一性：登记面与 router 声明面各至多一条；catchAll 项的 path 必须是兜底形状，
+ *    且不得同时声明 navEntry / internal / redirect 视图
  *
  * 维护规则：新增页面时**先**在本表登记，再去 router/index.js 加路由；顺序反了 CI 会拦。
  * 详见 docs/frontend-interaction-spec.md 第 9 节。
@@ -376,6 +382,17 @@ export const ROUTE_REGISTRY = Object.freeze([
     navEntry: { key: 'podcast', group: SIDEBAR_GROUP_MORE, labelI18nKey: 'podcast.pageTitle', to: '/podcast', icon: Headset },
     internal: false,
     entryFrom: null,
+  },
+  // 兜底路由（UX 审计 1.9）：事实是「从任何地址进来」，所以它既不是菜单项，也没有单一宿主。
+  // 写成 internal:true + entryFrom 会把假宿主写进受 CI 强制的登记表（规则 5 还会顺着它做死链检查）。
+  {
+    path: '/:pathMatch(.*)*',
+    name: 'NotFound',
+    view: 'NotFound.vue',
+    navEntry: null,
+    internal: false,
+    entryFrom: null,
+    catchAll: true,
   },
 ])
 
