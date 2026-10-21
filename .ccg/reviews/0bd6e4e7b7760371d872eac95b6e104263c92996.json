@@ -1,0 +1,59 @@
+{
+  "sha": "0bd6e4e7b7760371d872eac95b6e104263c92996",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 1,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 2,
+    "ccgSensitiveContentSample": [
+      "      \"| **i1/i3 外部复核证据** | PR #4124 评论 `issuecomment-6309670069` 给出三条可独立复现的机器命令：评论真实性（`gh api issues/4124/comments`）、高危面零命中（`git show --name-only HEAD \\\\| grep <HIGH_RISK_SURFACES>`）、新增行鉴权/加密关键字零命中（3124 行全扫） |\",",
+      "      \"| i3 | auth 高危项同样引用同一不可验证 URL | **已修**——补可机器复核的高危面零命中取证：`git show --name-only HEAD \\\\| grep -E 'credential-\\\\|account-state-lock\\\\|/auth/\\\\|login-state\\\\|fingerprint'` 零命中，3124 行新增行全扫鉴权/加密关键字零命中 |\""
+    ],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-21T09:08:02.827Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}
